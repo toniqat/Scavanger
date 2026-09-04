@@ -1,0 +1,205 @@
+import type { ItemDef, ItemInstance } from '@/shared';
+import type { Grid } from '../Grid';
+import type { GridId } from '../InventorySystem';
+import { STEP, tileSize } from './labels';
+
+export type DefLookup = (defId: string) => ItemDef | undefined;
+export type HighlightState = 'ok' | 'bad' | 'swap' | 'merge';
+
+export interface TileHandlers {
+  onPointerDown(uid: string, gridId: GridId, e: PointerEvent): void;
+  onEnter(uid: string, gridId: GridId, e: PointerEvent): void;
+  onMove(uid: string, gridId: GridId, e: PointerEvent): void;
+  onLeave(uid: string, gridId: GridId): void;
+  onContext(uid: string, gridId: GridId, e: MouseEvent): void;
+  onDblClick(uid: string, gridId: GridId): void;
+}
+
+/** Builds the visual content of a tile (shared by grid tiles, slot tiles and the drag ghost). */
+export function buildTileContent(el: HTMLElement, item: ItemInstance, def: ItemDef, w: number, h: number): void {
+  el.className = `inv-tile rarity-${def.rarity}`;
+  el.style.setProperty('--rc', def.color);
+  const { width, height } = tileSize(w, h);
+  el.style.width = `${width}px`;
+  el.style.height = `${height}px`;
+  el.classList.toggle('is-wide', w >= 2);
+  el.classList.toggle('is-tall', h >= 2);
+  el.classList.toggle('is-rotated', item.rotated);
+  el.innerHTML = '';
+
+  const icon = document.createElement('div');
+  icon.className = 'inv-tile-icon';
+  icon.textContent = def.icon;
+  el.appendChild(icon);
+
+  if (w >= 2 || h >= 2) {
+    const name = document.createElement('div');
+    name.className = 'inv-tile-name';
+    name.textContent = def.name;
+    el.appendChild(name);
+  }
+
+  const qty = document.createElement('div');
+  qty.className = 'inv-tile-qty';
+  qty.textContent = def.stackMax > 1 ? `${item.qty}` : '';
+  qty.hidden = def.stackMax <= 1;
+  el.appendChild(qty);
+
+  const glow = document.createElement('div');
+  glow.className = 'inv-tile-glow';
+  el.appendChild(glow);
+}
+
+/**
+ * Renders one Grid as DOM: a static cell layer, absolutely positioned item
+ * tiles, and a highlight rectangle for drag feedback. Tiles are diffed by uid so
+ * only changed grids re-render.
+ */
+export class GridView {
+  readonly el: HTMLElement;
+  private cellsEl: HTMLElement;
+  private tilesEl: HTMLElement;
+  private hlEl: HTMLElement;
+  private tiles = new Map<string, HTMLElement>();
+  private grid: Grid | null = null;
+  private lastVersion = -1;
+  private dims = '';
+
+  constructor(readonly id: GridId, private readonly getDef: DefLookup, private readonly handlers: TileHandlers) {
+    this.el = document.createElement('div');
+    this.el.className = `inv-grid inv-grid-${id}`;
+    this.cellsEl = document.createElement('div');
+    this.cellsEl.className = 'inv-cells';
+    this.tilesEl = document.createElement('div');
+    this.tilesEl.className = 'inv-tiles';
+    this.hlEl = document.createElement('div');
+    this.hlEl.className = 'inv-hl';
+    this.hlEl.hidden = true;
+    this.el.append(this.cellsEl, this.tilesEl, this.hlEl);
+    this.el.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+
+  get current(): Grid | null { return this.grid; }
+
+  setGrid(grid: Grid | null): void {
+    this.grid = grid;
+    this.lastVersion = -1;
+    if (!grid) { this.clearTiles(); return; }
+    const dims = `${grid.cols}x${grid.rows}`;
+    if (dims !== this.dims) {
+      this.dims = dims;
+      this.el.style.setProperty('--cols', String(grid.cols));
+      this.el.style.setProperty('--rows', String(grid.rows));
+      this.el.style.width = `${grid.cols * STEP - 2}px`;
+      this.el.style.height = `${grid.rows * STEP - 2}px`;
+      this.cellsEl.innerHTML = '';
+      for (let i = 0; i < grid.cols * grid.rows; i++) {
+        const c = document.createElement('div');
+        c.className = 'inv-cell';
+        this.cellsEl.appendChild(c);
+      }
+    }
+    this.refresh(true);
+  }
+
+  refresh(force = false): void {
+    const grid = this.grid;
+    if (!grid) return;
+    if (!force && grid.version === this.lastVersion) return;
+    this.lastVersion = grid.version;
+
+    const seen = new Set<string>();
+    for (const p of grid.items()) {
+      const def = this.getDef(p.item.defId);
+      if (!def) continue;
+      seen.add(p.item.uid);
+      let el = this.tiles.get(p.item.uid);
+      const fp = grid.footprintOf(p.item);
+      if (!el) {
+        el = document.createElement('div');
+        el.dataset.uid = p.item.uid;
+        this.bindTile(el, p.item.uid);
+        this.tiles.set(p.item.uid, el);
+        this.tilesEl.appendChild(el);
+        el.classList.add('is-new');
+        requestAnimationFrame(() => el?.classList.remove('is-new'));
+      }
+      const wasDragging = el.classList.contains('is-dragging');
+      const wasHover = el.classList.contains('is-hover');
+      buildTileContent(el, p.item, def, fp.w, fp.h);
+      if (wasDragging) el.classList.add('is-dragging');
+      if (wasHover) el.classList.add('is-hover');
+      el.style.transform = `translate(${p.x * STEP}px, ${p.y * STEP}px)`;
+    }
+    for (const [uid, el] of this.tiles) {
+      if (!seen.has(uid)) { el.remove(); this.tiles.delete(uid); }
+    }
+  }
+
+  private bindTile(el: HTMLElement, uid: string): void {
+    el.addEventListener('pointerdown', (e) => this.handlers.onPointerDown(uid, this.id, e));
+    el.addEventListener('pointerenter', (e) => { el.classList.add('is-hover'); this.handlers.onEnter(uid, this.id, e); });
+    el.addEventListener('pointermove', (e) => this.handlers.onMove(uid, this.id, e));
+    el.addEventListener('pointerleave', () => { el.classList.remove('is-hover'); this.handlers.onLeave(uid, this.id); });
+    el.addEventListener('contextmenu', (e) => { e.preventDefault(); e.stopPropagation(); this.handlers.onContext(uid, this.id, e); });
+    el.addEventListener('dblclick', (e) => { e.preventDefault(); this.handlers.onDblClick(uid, this.id); });
+  }
+
+  private clearTiles(): void {
+    for (const el of this.tiles.values()) el.remove();
+    this.tiles.clear();
+  }
+
+  /* ── drag feedback ─────────────────────────────────────────────────────── */
+
+  rect(): DOMRect { return this.el.getBoundingClientRect(); }
+
+  /**
+   * Cell under a ghost whose top-left is at (left, top) in client space, clamped
+   * so a w×h footprint stays inside. Null when the pointer is outside the grid.
+   */
+  cellForGhost(left: number, top: number, w: number, h: number, pointerX: number, pointerY: number): { x: number; y: number } | null {
+    const grid = this.grid;
+    if (!grid) return null;
+    const r = this.rect();
+    const pad = STEP * 0.5;
+    if (pointerX < r.left - pad || pointerX > r.right + pad || pointerY < r.top - pad || pointerY > r.bottom + pad) return null;
+    let x = Math.round((left - r.left) / STEP);
+    let y = Math.round((top - r.top) / STEP);
+    x = Math.max(0, Math.min(grid.cols - w, x));
+    y = Math.max(0, Math.min(grid.rows - h, y));
+    if (w > grid.cols || h > grid.rows) return null;
+    return { x, y };
+  }
+
+  showHighlight(x: number, y: number, w: number, h: number, state: HighlightState): void {
+    const { width, height } = tileSize(w, h);
+    this.hlEl.hidden = false;
+    this.hlEl.className = `inv-hl is-${state}`;
+    this.hlEl.style.width = `${width}px`;
+    this.hlEl.style.height = `${height}px`;
+    this.hlEl.style.transform = `translate(${x * STEP}px, ${y * STEP}px)`;
+  }
+
+  hideHighlight(): void { this.hlEl.hidden = true; }
+
+  setDragging(uid: string | null): void {
+    for (const [id, el] of this.tiles) el.classList.toggle('is-dragging', id === uid);
+  }
+
+  shake(uid: string): void {
+    const el = this.tiles.get(uid);
+    if (!el) return;
+    el.classList.remove('is-shake');
+    void el.offsetWidth; // restart animation
+    el.classList.add('is-shake');
+    setTimeout(() => el.classList.remove('is-shake'), 360);
+  }
+
+  tileEl(uid: string): HTMLElement | undefined { return this.tiles.get(uid); }
+
+  dispose(): void {
+    this.clearTiles();
+    this.el.remove();
+  }
+}
