@@ -87,6 +87,22 @@ export class Synth {
     src.start(o.t0, src.loopStart); src.stop(o.t0 + o.dur + 0.05);
   }
 
+  /** Short metallic click: bandpassed noise burst + a brief square ping. Used for bolts, latches, servos. */
+  click(dest: AudioNode, t0: number, f: number, gain: number, dur = 0.03): void {
+    this.noise(dest, { t0, dur, gain, filter: { type: 'bandpass', f0: f, q: 2.5 } });
+    this.tone(dest, { type: 'square', f0: f * 0.9, f1: f * 0.6, t0, dur: dur * 1.4, gain: gain * 0.35, lp: f * 2.2 });
+  }
+
+  /** Reverberant tail: several staggered, darkening noise layers with a linear decay. */
+  tail(dest: AudioNode, t0: number, dur: number, gain: number, f0: number, f1: number): void {
+    const layers = 3;
+    for (let i = 0; i < layers; i++) {
+      const dt = i * 0.035;
+      const g = gain * (1 - i * 0.28);
+      this.noise(dest, { t0: t0 + dt, dur: dur - dt, gain: g, attack: 0.01 + i * 0.02, filter: { type: 'lowpass', f0: f0 / (1 + i * 0.4), f1, q: 0.5 }, decayCurve: 'lin' });
+    }
+  }
+
   private env(p: AudioParam, t0: number, dur: number, peak: number, attack: number, curve: 'exp' | 'lin'): void {
     p.setValueAtTime(0.0001, t0);
     p.linearRampToValueAtTime(peak, t0 + Math.min(attack, dur * 0.5));
@@ -357,6 +373,103 @@ export const SOUNDS: Record<string, SoundFn> = {
     notes.forEach((f, i) => s.tone(d, { type: 'sine', f0: f * p, t0: t + i * 0.13, dur: 0.5, gain: 0.14, attack: 0.02 }));
     s.tone(d, { type: 'triangle', f0: 261 * p, t0: t, dur: 1.0, gain: 0.08, attack: 0.1 });
     return 1.1;
+  },
+
+  /* ── weapons (SMG / sniper) ─────────────────────────────────────────────── */
+  /** Snappy, light report with a very short tail — tuned for ~14 rounds/s. */
+  shot_smg: (s, d, t, p) => {
+    const q = p * r(0.97, 1.03);
+    s.noise(d, { t0: t, dur: 0.055, gain: 0.55, filter: { type: 'bandpass', f0: 2600 * q, f1: 700 * q, q: 0.9 } });
+    s.noise(d, { t0: t, dur: 0.018, gain: 0.4, filter: { type: 'highpass', f0: 4500 } });
+    s.tone(d, { type: 'sine', f0: 210 * q, f1: 70 * q, t0: t, dur: 0.08, gain: 0.55 });
+    s.tone(d, { type: 'square', f0: 1200 * q, f1: 380 * q, t0: t, dur: 0.025, gain: 0.12, lp: 3500 });
+    return 0.09;
+  },
+  /** Heavy crack: sharp transient + low-frequency boom + ~0.8 s reverberant tail. Louder than the rifle. */
+  shot_sniper: (s, d, t, p) => {
+    // transient crack
+    s.noise(d, { t0: t, dur: 0.035, gain: 1.0, filter: { type: 'highpass', f0: 2800 * p } });
+    s.noise(d, { t0: t, dur: 0.14, gain: 0.9, filter: { type: 'bandpass', f0: 1500 * p, f1: 280 * p, q: 0.6 } });
+    s.tone(d, { type: 'triangle', f0: 1100 * p, f1: 180 * p, t0: t, dur: 0.06, gain: 0.35 });
+    // low boom
+    s.tone(d, { type: 'sine', f0: 120 * p, f1: 32 * p, t0: t, dur: 0.42, gain: 1.15 });
+    s.tone(d, { type: 'sawtooth', f0: 90 * p, f1: 40 * p, t0: t + 0.01, dur: 0.25, gain: 0.18, lp: 400 });
+    // reverberant tail (darkens as it decays)
+    s.tail(d, t + 0.04, 0.8, 0.28, 2200 * p, 180);
+    s.tone(d, { type: 'sine', f0: 60 * p, f1: 30, t0: t + 0.1, dur: 0.7, gain: 0.25, attack: 0.05, decayCurve: 'lin' });
+    return 0.9;
+  },
+  /** Mechanical two-click bolt action (~0.35 s): bolt back (rasp + click), bolt forward (click + lock). */
+  bolt_cycle: (s, d, t, p) => {
+    // bolt lift + pull back
+    s.click(d, t, 2400 * p, 0.32, 0.025);
+    s.noise(d, { t0: t + 0.02, dur: 0.1, gain: 0.12, attack: 0.02, filter: { type: 'bandpass', f0: 1400 * p, f1: 900 * p, q: 3 }, decayCurve: 'lin' });
+    s.tone(d, { type: 'triangle', f0: 320 * p, f1: 260 * p, t0: t + 0.02, dur: 0.08, gain: 0.08, lp: 1500 });
+    // bolt forward + lock
+    s.noise(d, { t0: t + 0.19, dur: 0.08, gain: 0.1, attack: 0.02, filter: { type: 'bandpass', f0: 900 * p, f1: 1500 * p, q: 3 }, decayCurve: 'lin' });
+    s.click(d, t + 0.27, 3100 * p, 0.38, 0.03);
+    s.tone(d, { type: 'sine', f0: 210 * p, f1: 150 * p, t0: t + 0.27, dur: 0.07, gain: 0.2 });
+    return 0.36;
+  },
+
+  /* ── player movement / stance ──────────────────────────────────────────── */
+  /** Cloth whoosh (~0.4 s) — the landing thud is the separate `player_land`. */
+  dive: (s, d, t, p) => {
+    s.noise(d, { t0: t, dur: 0.4, gain: 0.34, attack: 0.07, filter: { type: 'bandpass', f0: 500 * p, f1: 1500 * p, q: 1.2 }, decayCurve: 'lin' });
+    s.noise(d, { t0: t + 0.03, dur: 0.3, gain: 0.12, attack: 0.05, filter: { type: 'highpass', f0: 2500 * p }, decayCurve: 'lin' });
+    s.tone(d, { type: 'sine', f0: 160 * p, f1: 90 * p, t0: t, dur: 0.22, gain: 0.1, attack: 0.04 });
+    return 0.42;
+  },
+  /** Heavy exhale + low chest thump. */
+  stamina_depleted: (s, d, t, p) => {
+    s.tone(d, { type: 'sine', f0: 95 * p, f1: 42, t0: t, dur: 0.22, gain: 0.45 });
+    s.noise(d, { t0: t + 0.02, dur: 0.45, gain: 0.2, attack: 0.06, filter: { type: 'bandpass', f0: 900 * p, f1: 350 * p, q: 0.8 }, decayCurve: 'lin' });
+    s.noise(d, { t0: t + 0.02, dur: 0.3, gain: 0.08, attack: 0.04, filter: { type: 'lowpass', f0: 400 * p, f1: 150, q: 0.7 } });
+    return 0.5;
+  },
+  /** Brief cloth / gear rustle; the caller lowers the pitch for prone. */
+  stance_change: (s, d, t, p) => {
+    const q = p * r(0.95, 1.05);
+    s.noise(d, { t0: t, dur: 0.16, gain: 0.2, attack: 0.02, filter: { type: 'bandpass', f0: 1100 * q, f1: 600 * q, q: 1.1 }, decayCurve: 'lin' });
+    s.noise(d, { t0: t + 0.05, dur: 0.1, gain: 0.08, filter: { type: 'highpass', f0: 3000 * q } });
+    s.click(d, t + 0.09, 1900 * q, 0.06, 0.02);
+    s.tone(d, { type: 'sine', f0: 130 * q, f1: 80 * q, t0: t, dur: 0.1, gain: 0.08 });
+    return 0.2;
+  },
+
+  /* ── UI: ping / map / scope ────────────────────────────────────────────── */
+  /** Short two-tone chirp; pitch varies per ping kind (enemy higher / urgent). */
+  ping: (s, d, t, p) => {
+    s.tone(d, { type: 'sine', f0: 880 * p, t0: t, dur: 0.06, gain: 0.16, decayCurve: 'lin' });
+    s.tone(d, { type: 'sine', f0: 1320 * p, t0: t + 0.06, dur: 0.1, gain: 0.16 });
+    s.tone(d, { type: 'triangle', f0: 2640 * p, t0: t + 0.06, dur: 0.05, gain: 0.03 });
+    s.noise(d, { t0: t, dur: 0.015, gain: 0.08, filter: { type: 'highpass', f0: 4000 } });
+    return 0.18;
+  },
+  map_open: (s, d, t, p) => {
+    s.noise(d, { t0: t, dur: 0.16, gain: 0.1, attack: 0.03, filter: { type: 'bandpass', f0: 600 * p, f1: 2400 * p, q: 1.5 }, decayCurve: 'lin' });
+    s.tone(d, { type: 'sine', f0: 440 * p, f1: 880 * p, t0: t + 0.02, dur: 0.12, gain: 0.1 });
+    s.tone(d, { type: 'sine', f0: 1320 * p, t0: t + 0.13, dur: 0.05, gain: 0.07 });
+    return 0.2;
+  },
+  map_close: (s, d, t, p) => {
+    s.noise(d, { t0: t, dur: 0.14, gain: 0.1, attack: 0.02, filter: { type: 'bandpass', f0: 2400 * p, f1: 500 * p, q: 1.5 }, decayCurve: 'lin' });
+    s.tone(d, { type: 'sine', f0: 880 * p, f1: 440 * p, t0: t, dur: 0.12, gain: 0.1 });
+    s.tone(d, { type: 'sine', f0: 1600 * p, f1: 1100 * p, t0: t + 0.1, dur: 0.03, gain: 0.08 });
+    return 0.16;
+  },
+  /** Soft lens/servo tick when the scope comes up. */
+  scope_in: (s, d, t, p) => {
+    s.tone(d, { type: 'sawtooth', f0: 600 * p, f1: 1400 * p, t0: t, dur: 0.11, gain: 0.05, attack: 0.02, lp: 2200, decayCurve: 'lin' });
+    s.click(d, t + 0.1, 2800 * p, 0.12, 0.02);
+    s.tone(d, { type: 'sine', f0: 1900 * p, t0: t + 0.1, dur: 0.05, gain: 0.05 });
+    return 0.16;
+  },
+  /** Reverse servo + duller tick when the scope drops. */
+  scope_out: (s, d, t, p) => {
+    s.tone(d, { type: 'sawtooth', f0: 1400 * p, f1: 600 * p, t0: t, dur: 0.1, gain: 0.05, attack: 0.02, lp: 2200, decayCurve: 'lin' });
+    s.click(d, t + 0.08, 1800 * p, 0.1, 0.02);
+    return 0.14;
   },
 };
 

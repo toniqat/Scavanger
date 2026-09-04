@@ -172,6 +172,16 @@ export class InventorySystem implements GameSystem, InventoryRef {
     this.setOpen(false);
     this.ui?.hide();
     this.ctx.bus.emit('inventory:closed', {});
+    // Re-acquire the pointer when we return to gameplay. The Tab/Esc press (or click) that
+    // closed the window is the user activation Chrome requires for requestPointerLock().
+    // Deferred a microtask so callers that close us right before leaving gameplay
+    // (GameFlow complete/abort → setPhase) are seen by the check.
+    const ctx = this.ctx;
+    queueMicrotask(() => {
+      if (this._open || !ctx.isGameplayPhase() || ctx.uiBlockers.size > 0) return;
+      if (ctx.player?.isDead ?? false) return;
+      ctx.input.requestPointerLock();
+    });
   }
 
   reset(): void {

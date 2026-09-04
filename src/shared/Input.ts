@@ -23,7 +23,8 @@ export class Input {
     this.bound = true;
     this.lockTarget = target;
     window.addEventListener('keydown', (e) => {
-      if (e.code === 'Tab' || e.code === 'Escape') e.preventDefault();
+      // Tab/Esc are game keys; Alt would otherwise focus the browser menu bar (dive key).
+      if (e.code === 'Tab' || e.code === 'Escape' || e.code === 'AltLeft' || e.code === 'AltRight') e.preventDefault();
       if (!this.down.has(e.code)) this.pressed.add(e.code);
       this.down.add(e.code);
     });
@@ -33,6 +34,8 @@ export class Input {
     });
     window.addEventListener('blur', () => { this.down.clear(); this.mouseDown.clear(); });
     window.addEventListener('mousedown', (e) => {
+      // middle button = ping; stop browser auto-scroll while locked
+      if (e.button === 1 && this.isPointerLocked) e.preventDefault();
       if (!this.mouseDown.has(e.button)) this.mousePressed.add(e.button);
       this.mouseDown.add(e.button);
     });
@@ -57,8 +60,11 @@ export class Input {
   wasMouseReleased(button: number): boolean { return this.mouseReleased.has(button); }
 
   get isPointerLocked(): boolean { return !!this.lockTarget && document.pointerLockElement === this.lockTarget; }
+  /** performance.now() of the last pointer-lock request (Chrome throttles re-locks right after an Esc exit). */
+  lastLockRequest = 0;
   requestPointerLock(): void {
     if (!this.lockTarget || this.isPointerLocked) return;
+    this.lastLockRequest = performance.now();
     try { (this.lockTarget as any).requestPointerLock?.({ unadjustedMovement: true }) ?? this.lockTarget.requestPointerLock(); }
     catch { try { this.lockTarget.requestPointerLock(); } catch { /* ignore */ } }
   }

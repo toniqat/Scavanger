@@ -9,12 +9,15 @@ export interface ProjectileHit {
   part?: 'head' | 'body' | 'rear' | 'front';
   obstacle: boolean;
   dir: THREE.Vector3;
+  /** Distance travelled from the muzzle to the hit point (meters) — for damage falloff. */
+  distance: number;
 }
 
 interface Slug {
   active: boolean;
   pos: THREE.Vector3; vel: THREE.Vector3; prev: THREE.Vector3;
   life: number; damage: number; color: number; weaponId: string;
+  travelled: number;
   mesh: THREE.Mesh;
 }
 
@@ -30,7 +33,7 @@ export class ProjectilePool {
   private readonly pool: Slug[] = [];
   private readonly geo = new THREE.SphereGeometry(0.06, 8, 6);
   private readonly mat = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false });
-  private readonly hit: ProjectileHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), enemy: null, part: undefined, obstacle: false, dir: new THREE.Vector3() };
+  private readonly hit: ProjectileHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), enemy: null, part: undefined, obstacle: false, dir: new THREE.Vector3(), distance: 0 };
 
   constructor(private readonly ctx: GameContext, private readonly onHit: (h: ProjectileHit, damage: number, weaponId: string) => void) {
     this.group.name = 'Projectiles';
@@ -38,7 +41,7 @@ export class ProjectilePool {
       const mesh = new THREE.Mesh(this.geo, this.mat.clone());
       mesh.visible = false;
       this.group.add(mesh);
-      this.pool.push({ active: false, pos: new THREE.Vector3(), vel: new THREE.Vector3(), prev: new THREE.Vector3(), life: 0, damage: 0, color: 0xffffff, weaponId: '', mesh });
+      this.pool.push({ active: false, pos: new THREE.Vector3(), vel: new THREE.Vector3(), prev: new THREE.Vector3(), life: 0, damage: 0, color: 0xffffff, weaponId: '', travelled: 0, mesh });
     }
     ctx.scene.add(this.group);
   }
@@ -50,7 +53,7 @@ export class ProjectilePool {
     s.pos.copy(origin); s.prev.copy(origin);
     s.vel.copy(dir).multiplyScalar(speed);
     s.life = range / speed + 0.2;
-    s.damage = damage; s.color = color; s.weaponId = weaponId;
+    s.damage = damage; s.color = color; s.weaponId = weaponId; s.travelled = 0;
     (s.mesh.material as THREE.MeshBasicMaterial).color.setHex(color);
     s.mesh.visible = true;
     s.mesh.position.copy(origin);
@@ -84,11 +87,13 @@ export class ProjectilePool {
         }
         if (hitAny) {
           h.dir.copy(_dir);
+          h.distance = s.travelled + h.point.distanceTo(s.prev);
           this.onHit(h, s.damage, s.weaponId);
           this.kill(s);
           continue;
         }
         if (fx) fx.tracers.add(s.prev, s.pos, s.color, 0.06, 0.08, 0);
+        s.travelled += segLen;
       }
       s.mesh.position.copy(s.pos);
     }

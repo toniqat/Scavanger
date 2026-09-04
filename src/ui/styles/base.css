@@ -447,3 +447,165 @@ input { font: inherit; color: inherit; }
 
 /* Author display rules (e.g. display:flex) must not override the hidden attribute */
 [hidden] { display: none !important; }
+
+/* ── Stamina (under the HP bar) ────────────────────────────────────────── */
+.vitals .stamina {
+  display: flex; flex-direction: column; gap: 4px;
+  margin-top: -2px;
+  transition: opacity var(--t-med) var(--ease);
+}
+.vitals .stamina.full { opacity: 0.4; }
+.vitals .stam-bar { position: relative; width: 240px; height: 3px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
+.vitals .stam-bar .fill {
+  position: absolute; inset: 0; background: var(--c-text-dim);
+  transform-origin: left; will-change: transform;
+  transition: background var(--t-fast) var(--ease);
+}
+.vitals .stamina.low .stam-bar .fill { background: var(--c-accent); }
+.vitals .stamina.depleted .stam-bar .fill { background: var(--c-accent); animation: stamPulse 0.9s ease-out; }
+.vitals .stamina.depleted .ui-label { color: var(--c-accent); }
+@keyframes stamPulse {
+  0% { opacity: 1; box-shadow: 0 0 8px var(--c-accent); }
+  35% { opacity: 0.35; }
+  70% { opacity: 1; box-shadow: 0 0 6px var(--c-accent); }
+  100% { opacity: 1; box-shadow: none; }
+}
+
+/* ── Scope overlay ─────────────────────────────────────────────────────── */
+.scope {
+  position: absolute; inset: 0;
+  opacity: 0; visibility: hidden;
+  pointer-events: none;
+  transition: opacity 80ms ease-in, visibility 80ms ease-in;
+  --scope-r: min(44vh, 44vw);
+}
+.scope.show { opacity: 1; visibility: visible; transition: opacity 120ms ease-out, visibility 120ms ease-out; }
+.scope .mask {
+  position: absolute; inset: 0;
+  background: radial-gradient(circle at 50% 50%,
+    transparent calc(var(--scope-r) - 6px),
+    rgba(0, 0, 0, 0.55) calc(var(--scope-r) - 2px),
+    rgba(2, 3, 4, 0.985) calc(var(--scope-r) + 4px),
+    #020304 100%);
+}
+.scope .lens {
+  position: absolute; left: 50%; top: 50%;
+  width: calc(var(--scope-r) * 2); height: calc(var(--scope-r) * 2);
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  box-shadow: inset 0 0 80px rgba(0, 0, 0, 0.75), inset 0 0 12px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(255, 255, 255, 0.12);
+  background: radial-gradient(circle at 38% 34%, rgba(255, 255, 255, 0.045), transparent 45%);
+}
+.scope .cross { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
+.scope .arm { position: absolute; left: 0; top: 0; background: rgba(0, 0, 0, 0.85); box-shadow: 0 0 1px rgba(255, 255, 255, 0.25); }
+.scope .arm.up, .scope .arm.down { width: 1.5px; height: var(--scope-r); margin-left: -0.75px; }
+.scope .arm.left, .scope .arm.right { height: 1.5px; width: var(--scope-r); margin-top: -0.75px; }
+.scope .arm.up { bottom: 8px; top: auto; transform: translateY(-8px); }
+.scope .arm.down { top: 8px; }
+.scope .arm.left { right: 8px; left: auto; transform: translateX(-8px); }
+.scope .arm.right { left: 8px; }
+.scope .arm .mil { position: absolute; background: rgba(0, 0, 0, 0.85); }
+.scope .arm.up .mil, .scope .arm.down .mil { left: 50%; width: 7px; height: 1.5px; margin-left: -3.5px; }
+.scope .arm.up .mil.major, .scope .arm.down .mil.major { width: 12px; margin-left: -6px; }
+.scope .arm.left .mil, .scope .arm.right .mil { top: 50%; height: 7px; width: 1.5px; margin-top: -3.5px; }
+.scope .arm.left .mil.major, .scope .arm.right .mil.major { height: 12px; margin-top: -6px; }
+.scope .arm.up .mil { bottom: calc(var(--i) * 12%); }
+.scope .arm.down .mil { top: calc(var(--i) * 12%); }
+.scope .arm.left .mil { right: calc(var(--i) * 12%); }
+.scope .arm.right .mil { left: calc(var(--i) * 12%); }
+.scope .center { position: absolute; left: -1.5px; top: -1.5px; width: 3px; height: 3px; border-radius: 50%; background: var(--c-danger); box-shadow: 0 0 3px rgba(255, 77, 77, 0.8); }
+.scope .info {
+  /* right of the lens circle, vertically centred — clear of the weapon panel in the corner */
+  position: absolute; right: 5%; top: 50%; transform: translateY(-50%);
+  display: flex; flex-direction: column; align-items: flex-end; gap: 4px;
+}
+.scope .info .zoom { font-size: 26px; font-weight: 600; letter-spacing: 0.04em; color: var(--c-text); text-shadow: 0 0 8px rgba(0, 0, 0, 0.8); }
+
+/* ── Pings ─────────────────────────────────────────────────────────────── */
+.ping-markers { position: absolute; inset: 0; }
+.pmarker {
+  position: absolute; left: 0; top: 0;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  transform: translate(-50%, -100%);
+  will-change: transform, opacity;
+  opacity: 0;
+  --pc: var(--c-info);
+  color: var(--pc);
+}
+.pmarker.enemy { --pc: var(--c-danger); }
+.pmarker.crate { --pc: var(--c-success); }
+.pmarker.extraction { --pc: var(--c-accent); }
+.pmarker .ico {
+  position: relative; width: 12px; height: 12px;
+  border: 1.5px solid var(--pc); border-radius: 50%;
+  background: rgba(0, 0, 0, 0.35);
+  box-shadow: 0 0 6px rgba(0, 0, 0, 0.6);
+  animation: pingPulse 1.4s ease-out infinite;
+}
+.pmarker .ico::after { content: ""; position: absolute; inset: 3px; border-radius: 50%; background: var(--pc); }
+.pmarker.enemy .ico { border-radius: 0; transform: rotate(45deg); }
+.pmarker.enemy .ico::after { border-radius: 0; }
+.pmarker.crate .ico { border-radius: 2px; }
+.pmarker.crate .ico::after { border-radius: 0; }
+.pmarker.extraction .ico { border-radius: 0; transform: rotate(45deg); }
+.pmarker.extraction .ico::after { border-radius: 0; inset: 4px; }
+.pmarker .lbl { font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--pc); text-shadow: 0 0 4px #000; }
+.pmarker .dist { font-size: 11px; color: var(--c-text); text-shadow: 0 0 4px #000; }
+@keyframes pingPulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--pc) 55%, transparent); }
+  100% { box-shadow: 0 0 0 10px transparent; }
+}
+
+/* ── Tactical map (M) ──────────────────────────────────────────────────── */
+.map-screen {
+  position: absolute; inset: 0;
+  z-index: 40;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(3, 4, 6, 0.9);
+  cursor: default;
+  animation: mapIn 160ms var(--ease);
+}
+@keyframes mapIn { from { opacity: 0; } to { opacity: 1; } }
+.map-frame {
+  display: flex; align-items: stretch; gap: 22px;
+  padding: 22px;
+  background: var(--c-panel-strong);
+  border: 1px solid var(--c-border);
+  position: relative;
+}
+.map-frame::before, .map-frame::after {
+  content: ""; position: absolute; width: 14px; height: 14px; border: 1px solid var(--c-accent);
+}
+.map-frame::before { left: -1px; top: -1px; border-right: none; border-bottom: none; }
+.map-frame::after { right: -1px; bottom: -1px; border-left: none; border-top: none; }
+.map-side { display: flex; flex-direction: column; gap: 18px; width: 240px; }
+.map-head { display: flex; flex-direction: column; gap: 6px; }
+.map-title { font-size: 22px; font-weight: 700; letter-spacing: 0.2em; line-height: 1; }
+.map-seed { font-size: 11px; color: var(--c-text-dim); letter-spacing: 0.12em; }
+.map-legend { display: flex; flex-direction: column; gap: 7px; padding-top: 14px; border-top: 1px solid var(--c-border); }
+.map-legend .ui-label { margin-bottom: 2px; }
+.map-legend-row { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--c-text-dim); }
+.map-legend-row .sw { position: relative; width: 12px; height: 12px; flex: none; --sw: #fff; }
+.map-legend-row .sw.player { width: 0; height: 0; border-top: 6px solid transparent; border-bottom: 6px solid transparent; border-left: 12px solid var(--sw); }
+.map-legend-row .sw.pad { width: 9px; height: 9px; border: 1.5px solid var(--sw); transform: rotate(45deg); }
+.map-legend-row .sw.pad.active { box-shadow: 0 0 6px rgba(255, 179, 71, 0.6); }
+.map-legend-row .sw.ship { border-radius: 50%; background: var(--sw); }
+.map-legend-row .sw.nest { width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-bottom: 11px solid var(--sw); }
+.map-legend-row .sw.crate { width: 8px; height: 8px; background: var(--sw); }
+.map-legend-row .sw.ping { width: 8px; height: 8px; border-radius: 50%; background: var(--sw); box-shadow: 0 0 0 2px rgba(127, 183, 230, 0.35); }
+.map-foot { margin-top: auto; display: flex; flex-direction: column; gap: 12px; padding-top: 14px; border-top: 1px solid var(--c-border); }
+.map-zoom-row { display: flex; align-items: baseline; justify-content: space-between; font-size: 14px; }
+.map-foot .ui-btn.small { min-width: 0; height: 34px; font-size: 11px; }
+.map-hint { font-size: 11px; color: var(--c-text-faint); letter-spacing: 0.04em; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.map-hint .keycap { min-width: 20px; height: 20px; font-size: 10px; }
+.map-canvas-wrap { position: relative; flex: none; }
+.map-canvas { display: block; background: #06080a; border: 1px solid var(--c-border-strong); cursor: grab; }
+.map-canvas.grabbing { cursor: grabbing; }
+.map-north {
+  position: absolute; right: 10px; top: 8px;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  pointer-events: none;
+  text-shadow: 0 0 4px #000;
+}
+.map-north i { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 10px solid var(--c-accent); }
+.map-north span { font-size: 11px; font-weight: 700; letter-spacing: 0.1em; }

@@ -84,8 +84,10 @@ export class LootService implements LootRef {
   private pickDef(table: TierTable, rng: Random, filter: (d: ItemDef) => boolean, relaxRarity: boolean): ItemDef | null {
     const candidates = ITEM_DEFS.filter(filter);
     if (candidates.length === 0) return null;
-    const weighted = candidates.filter((d) => table.rarityWeights[d.rarity] > 0);
-    if (weighted.length > 0) return rng.weighted(weighted, (d) => table.rarityWeights[d.rarity]);
+    const mul = table.itemWeightMul;
+    const weightOf = (d: ItemDef): number => table.rarityWeights[d.rarity] * (mul?.[d.id] ?? 1);
+    const weighted = candidates.filter((d) => weightOf(d) > 0);
+    if (weighted.length > 0) return rng.weighted(weighted, weightOf);
     if (relaxRarity) return rng.weighted(candidates, (d) => 1 / (1 + rarityRank(d.rarity)));
     return null;
   }

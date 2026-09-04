@@ -4,5 +4,5 @@ export { GrenadeManager, GRENADE_FUSE, GRENADE_RADIUS, GRENADE_DAMAGE } from './
 export { ProjectilePool } from './Projectile';
 export type { ProjectileHit } from './Projectile';
 export { WeaponFx } from './fx/WeaponFx';
-export { DEFAULT_RIFLE, DEFAULT_PISTOL, defaultFor, kindOf, shotSoundId } from './WeaponDefaults';
+export { DEFAULT_RIFLE, DEFAULT_PISTOL, defaultFor, kindOf, shotSoundId, shotPitchFor, STANCE_ACCURACY } from './WeaponDefaults';
 export type { WeaponKind } from './WeaponDefaults';

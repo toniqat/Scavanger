@@ -10,6 +10,11 @@ export const PLAYER_INTERACT_RANGE = 3.0;
 export const INVENTORY_COLS = 10;
 export const INVENTORY_ROWS = 6;
 export const GRAVITY = 24;
+export const PLAYER_MAX_STAMINA = 100;
+export const PLAYER_CROUCH_SPEED = 2.4;
+export const PLAYER_PRONE_SPEED = 1.3;
+/** Seconds a ping marker stays on screen / map. */
+export const PING_LIFETIME = 25;
 
 /** Three.js object layers. Use camera.layers / raycaster.layers to filter. */
 export const Layers = {
@@ -25,8 +30,13 @@ export const Layers = {
 /** Keyboard bindings (KeyboardEvent.code). */
 export const Keys = {
   FORWARD: 'KeyW', BACK: 'KeyS', LEFT: 'KeyA', RIGHT: 'KeyD',
-  SPRINT: 'ShiftLeft', JUMP: 'Space', CROUCH: 'ControlLeft',
+  SPRINT: 'ShiftLeft', JUMP: 'Space',
+  /** C toggles crouch, Z toggles prone, Alt dives (ends prone). */
+  CROUCH: 'KeyC', PRONE: 'KeyZ', DIVE: 'AltLeft',
   RELOAD: 'KeyR', INTERACT: 'KeyE', STIM: 'KeyF', GRENADE: 'KeyG',
   PRIMARY: 'Digit1', SECONDARY: 'Digit2', SWAP: 'KeyQ',
-  INVENTORY: 'Tab', ROTATE_ITEM: 'KeyR', MENU: 'Escape',
+  INVENTORY: 'Tab', ROTATE_ITEM: 'KeyR', MENU: 'Escape', MAP: 'KeyM',
 } as const;
+
+/** Mouse buttons (MouseEvent.button). */
+export const MouseButtons = { FIRE: 0, PING: 1, AIM: 2 } as const;

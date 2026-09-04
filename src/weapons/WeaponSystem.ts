@@ -5,7 +5,7 @@ import {
 } from '@/shared';
 import { FxManager } from '@/core/fx';
 import { damp, randomInCone } from '@/core/util/MathUtil';
-import { defaultFor, kindOf, shotSoundId } from './WeaponDefaults';
+import { defaultFor, kindOf, shotSoundId, shotPitchFor, weaponClassOf, damageFalloff, STANCE_ACCURACY } from './WeaponDefaults';
 import { WeaponModel } from './WeaponModel';
 import { WeaponFx } from './fx/WeaponFx';
 import { GrenadeManager } from './Grenade';
@@ -24,6 +24,10 @@ const BLOOM_PER_SHOT = 0.14;
 const BLOOM_DECAY = 2.6;
 const FIRING_POSE_HOLD = 0.6;
 const LOADOUT_FALLBACK_DELAY = 1.0;
+const SPRINT_SPREAD_MUL = 1.5;
+const MOVING_SPREAD_MUL = 1.35;
+/** Delay from the shot to the bolt-cycle sound (sniper). */
+const BOLT_SOUND_DELAY = 0.22;
 
 const _o = new THREE.Vector3(), _d = new THREE.Vector3(), _pd = new THREE.Vector3(), _tA = new THREE.Vector3(), _tB = new THREE.Vector3();
 const _muzzle = new THREE.Vector3(), _target = new THREE.Vector3(), _md = new THREE.Vector3(), _right = new THREE.Vector3(), _tmp = new THREE.Vector3();
@@ -58,6 +62,11 @@ export class WeaponSystem implements GameSystem {
   private cooldown = 0;
   private bloom = 0;
   private firingTimer = 0;
+  /** Bolt-action cycle: remaining seconds / total (0 when idle). */
+  private boltTimer = 0;
+  private boltDuration = 0;
+  private boltSoundTimer = 0;
+  private zoomSent = { zoom: 1, scope: false };
   private fallbackGrenades = 4;
   private loadoutWait = -1;
 
@@ -105,12 +114,13 @@ export class WeaponSystem implements GameSystem {
     }
 
     const input = ctx.input;
-    const usable = ctx.isGameplayActive() && input.isPointerLocked && host.canUseWeapons();
+    const usable = ctx.isGameplayActive() && input.isPointerLocked && host.canUseWeapons() && host.isDiving !== true;
     const weapon = this.slots[this.active];
 
     if (this.cooldown > 0) this.cooldown -= dt;
     this.bloom = Math.max(0, this.bloom - BLOOM_DECAY * dt);
     if (this.firingTimer > 0) this.firingTimer -= dt;
+    this.updateBolt(dt, weapon);
 
     // ── swap
     if (usable) {
@@ -125,7 +135,7 @@ export class WeaponSystem implements GameSystem {
       const a = this.ammoFor(weapon);
       const trigger = def.automatic ? input.isMouseDown(0) : input.wasMousePressed(0);
       if (input.wasPressed(Keys.RELOAD) && a.ammoInMag < def.magSize) this.tryReload(weapon, a);
-      else if (trigger && this.cooldown <= 0) {
+      else if (trigger && this.cooldown <= 0 && this.boltTimer <= 0) {
         if (a.ammoInMag > 0) this.fire(host, weapon, a);
         else if (input.wasMousePressed(0) || (def.automatic && this.cooldown <= 0 && !this.dryFlagged)) {
           this.dryFlagged = true;
@@ -146,10 +156,34 @@ export class WeaponSystem implements GameSystem {
     ws.hasWeapon = !!weapon;
     ws.reloading = this.phase === 'reloading';
     ws.firing = this.firingTimer > 0;
-    ws.twoHanded = weapon ? kindOf(weapon.def) !== 'pistol' : false;
+    ws.twoHanded = weapon ? weaponClassOf(weapon.def) !== 'PISTOL' : false;
     host.setWeaponState(ws);
   }
   private dryFlagged = false;
+
+  /** Bolt-action cycle after each sniper shot: blocks firing, drives the model's bolt animation and the cycle sound. */
+  private updateBolt(dt: number, weapon: WeaponInstance | null): void {
+    if (this.boltTimer <= 0) return;
+    this.boltTimer -= dt;
+    if (this.boltSoundTimer > 0) {
+      this.boltSoundTimer -= dt;
+      if (this.boltSoundTimer <= 0) this.ctx.bus.emit('audio:play', { id: 'bolt_cycle', volume: 0.7 });
+    }
+    if (!weapon) { this.boltTimer = 0; return; }
+    if (this.boltTimer <= 0) { this.boltTimer = 0; weapon.model.setBolt(-1); return; }
+    weapon.model.setBolt(1 - this.boltTimer / this.boltDuration);
+  }
+
+  /** Tell the player rig (and HUD) the ADS zoom of the weapon in hand. */
+  private applyAimZoom(def: WeaponDef | null): void {
+    const zoom = def?.adsZoom ?? 1;
+    const scope = !!def?.scope;
+    if (this.zoomSent.zoom === zoom && this.zoomSent.scope === scope) return;
+    this.zoomSent.zoom = zoom; this.zoomSent.scope = scope;
+    const host = this.getHost();
+    if (host && typeof host.setAimZoom === 'function') host.setAimZoom(zoom, scope);
+    this.ctx.bus.emit('weapon:scopeChanged', { zoom, scope });
+  }
 
   dispose(): void {
     for (const s of ['primary', 'secondary'] as Slot[]) this.setSlot(s, null);
@@ -216,13 +250,16 @@ export class WeaponSystem implements GameSystem {
       this.attachedModel.root.removeFromParent();
       this.attachedModel = null;
     }
-    if (!weapon || !host) { if (announce && !weapon) this.emitEmpty(); return; }
+    if (!weapon || !host) { if (announce && !weapon) this.emitEmpty(); if (!weapon) this.applyAimZoom(null); return; }
     if (this.attachedModel !== weapon.model) {
       host.getWeaponSocket().add(weapon.model.root);
       this.attachedModel = weapon.model;
       weapon.model.setDraw(1);
       weapon.model.setReload(-1);
+      weapon.model.setBolt(-1);
+      this.boltTimer = 0;
     }
+    this.applyAimZoom(weapon.def);
     if (announce) {
       const a = this.ammoFor(weapon);
       this.ctx.bus.emit('weapon:equipped', { slot: this.active, weaponId: weapon.def.id, name: weapon.def.name, magSize: weapon.def.magSize, ammoInMag: a.ammoInMag, reserveRounds: a.reserveRounds });
@@ -232,6 +269,7 @@ export class WeaponSystem implements GameSystem {
 
   private emitEmpty(): void {
     this.ctx.bus.emit('weapon:equipped', { slot: this.active, weaponId: '', name: '', magSize: 0, ammoInMag: 0, reserveRounds: 0 });
+    this.applyAimZoom(null);
   }
 
   private ammoFor(w: WeaponInstance): AmmoState {
@@ -251,6 +289,8 @@ export class WeaponSystem implements GameSystem {
     if (slot === this.active && this.attachedModel) return;
     if (this.phase === 'reloading') this.cancelReload();
     this.phase = 'swapping';
+    this.boltTimer = 0; this.boltSoundTimer = 0;
+    this.slots[this.active]?.model.setBolt(-1);
     this.swapTimer = 0;
     this.swapTarget = slot;
     this.swapSwitched = false;
@@ -300,6 +340,8 @@ export class WeaponSystem implements GameSystem {
     this.phase = 'reloading';
     this.reloadTimer = 0;
     this.reloadDuration = w.def.reloadTime;
+    this.boltTimer = 0; this.boltSoundTimer = 0;
+    w.model.setBolt(-1);
     w.model.setReload(0);
     this.ctx.bus.emit('weapon:reloadStarted', { weaponId: w.def.id, duration: w.def.reloadTime });
     this.ctx.bus.emit('audio:play', { id: 'reload', volume: 0.8 });
@@ -337,10 +379,21 @@ export class WeaponSystem implements GameSystem {
     if (this.cooldown < 0) this.cooldown = 1 / def.fireRate;
     this.firingTimer = FIRING_POSE_HOLD;
 
+    const cls = weaponClassOf(def);
     const aim = host.isAiming ? 1 : 0;
-    const moving = host.velocity.lengthSq() > 0.5 ? 1 : 0;
-    const spread = THREE.MathUtils.lerp(def.spread, def.adsSpread, aim) * (1 + this.bloom * 1.6) * (1 + 0.35 * moving);
+    const moving = host.velocity.lengthSq() > 0.5;
+    const stance = STANCE_ACCURACY[host.stance ?? 'stand'] ?? STANCE_ACCURACY.stand;
+    const stanceMul = stance[aim];
+    const moveMul = host.isSprinting ? SPRINT_SPREAD_MUL : moving ? MOVING_SPREAD_MUL : 1;
+    const spread = THREE.MathUtils.lerp(def.spread, def.adsSpread, aim) * stanceMul * (1 + this.bloom * 1.6) * moveMul;
     this.bloom = Math.min(1, this.bloom + BLOOM_PER_SHOT);
+    // bolt-action: lock the trigger for the cycle and animate the bolt
+    if (cls === 'SR') {
+      this.boltDuration = Math.max(0.3, 1 / def.fireRate - 0.05);
+      this.boltTimer = this.boltDuration;
+      this.boltSoundTimer = BOLT_SOUND_DELAY;
+      w.model.setBolt(0);
+    }
 
     host.getAimRay(_o, _d);
     // muzzle world position (model matrices are one frame old → refresh the chain)
@@ -375,7 +428,8 @@ export class WeaponSystem implements GameSystem {
         fx.tracers.add(_muzzle, end, def.tracerColor, pellets > 1 ? 0.03 : 0.045, len / 420 + 0.045, 420);
       }
       if (hit) {
-        const r = this.applyHit(hit, def.damage, _md, pellets > 1);
+        const dmg = def.damage * damageFalloff(def, _muzzle.distanceTo(hit.point));
+        const r = this.applyHit(hit, dmg, _md, pellets > 1);
         anyHit = true;
         if (hit.enemy) { anyEnemy = true; if (hit.headshot) anyHead = true; }
         if (r) anyKill = true;
@@ -389,13 +443,14 @@ export class WeaponSystem implements GameSystem {
     w.model.ejectPort.getWorldQuaternion(_mq);
     _right.set(1, 0, 0).applyQuaternion(_mq);
     if (kindOf(def) !== 'energy') this.fx.casing(_tmp, _right, host.position.y);
-    w.model.kick(pellets > 1 ? 2.2 : 1);
-    const kick = def.recoil * (0.85 + Math.random() * 0.3) * (1 - 0.3 * aim);
-    host.addRecoil(kick, (Math.random() - 0.5) * def.recoil * 0.7);
+    w.model.kick(pellets > 1 ? 2.2 : cls === 'SR' ? 2.6 : 1);
+    const kick = def.recoil * (0.85 + Math.random() * 0.3) * stanceMul;
+    host.addRecoil(kick, (Math.random() - 0.5) * def.recoil * 0.7 * stanceMul);
+    if (cls === 'SR') ctx.bus.emit('camera:shake', { intensity: 0.35, duration: 0.18 });
 
     ctx.bus.emit('weapon:fired', { weaponId: def.id, origin: _muzzle.clone(), direction: _d.clone() });
     this.emitAmmo(w, a);
-    ctx.bus.emit('audio:play', { id: shotSoundId(kindOf(def)), position: _muzzle, volume: 1, pitch: 0.95 + Math.random() * 0.1 });
+    ctx.bus.emit('audio:play', { id: shotSoundId(kindOf(def)), position: _muzzle, volume: 1, pitch: shotPitchFor(cls) * (0.95 + Math.random() * 0.1) });
     if (anyEnemy) ctx.bus.emit('ui:hitmarker', { kill: anyKill, headshot: anyHead });
     else if (anyHit && pellets === 1) { /* surface hit: no marker */ }
   }
@@ -432,10 +487,13 @@ export class WeaponSystem implements GameSystem {
     return false;
   }
 
-  private onProjectileHit(h: ProjectileHit, damage: number, _weaponId: string): void {
-    this.gunHit.point.copy(h.point); this.gunHit.normal.copy(h.normal);
+  private onProjectileHit(h: ProjectileHit, damage: number, weaponId: string): void {
+    this.gunHit.point.copy(h.point); this.gunHit.normal.copy(h.normal); this.gunHit.distance = h.distance;
     this.gunHit.enemy = h.enemy; this.gunHit.obstacle = h.obstacle; this.gunHit.valid = true; this.gunHit.headshot = h.part === 'head';
-    const killed = this.applyHit(this.gunHit, damage, h.dir, false);
+    const def = this.slots.primary?.def.id === weaponId ? this.slots.primary.def
+      : this.slots.secondary?.def.id === weaponId ? this.slots.secondary.def : null;
+    const dmg = def ? damage * damageFalloff(def, h.distance) : damage;
+    const killed = this.applyHit(this.gunHit, dmg, h.dir, false);
     if (h.enemy) this.ctx.bus.emit('ui:hitmarker', { kill: killed, headshot: this.gunHit.headshot });
   }
 
@@ -481,6 +539,9 @@ export class WeaponSystem implements GameSystem {
     this.fx.clear();
     this.phase = 'ready';
     this.cooldown = 0; this.bloom = 0; this.firingTimer = 0;
+    this.boltTimer = 0; this.boltSoundTimer = 0;
     this.slots[this.active]?.model.setReload(-1);
+    this.slots[this.active]?.model.setBolt(-1);
+    this.applyAimZoom(null);
   }
 }

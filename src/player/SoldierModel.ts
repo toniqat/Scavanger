@@ -28,6 +28,10 @@ export interface SoldierPose {
   recoil: number;
   /** death progress 0..1 (0 = alive) */
   dead: number;
+  /** lying on the belly, weapon forward; crawl cycle driven by stridePhase while moving */
+  prone: number;
+  /** superman dive pose (body horizontal, arms forward, legs back) */
+  dive: number;
   /** stepping-out / scripted walk: reuse moveBlend */
 }
 
@@ -228,14 +232,26 @@ export class SoldierModel {
     const aim = p.aim * (p.hasWeapon ? 1 : 0);
     const ground = 1 - air;
     const breathe = Math.sin(time * 1.7);
+    // lying poses (prone / dive) blend on top of the upright pose
+    const pr = THREE.MathUtils.clamp(p.prone, 0, 1), dv = THREE.MathUtils.clamp(p.dive, 0, 1);
+    const lie = Math.min(1, pr + dv);
+    const dvW = lie > 0.001 ? dv / (pr + dv) : 0;      // fraction of the lying pose that is the dive
+    const crawl = Math.min(1, p.moveBlend * 3) * pr * ground; // crawl cycle strength (prone speed ≈ 0.3 walk)
+    const lerp = THREE.MathUtils.lerp;
 
     // ── hips / root bob
     const bob = (Math.abs(Math.sin(phi)) - 0.5) * (0.045 + 0.03 * sp) * mv * ground;
-    const targetHipY = this.hipsBaseY + bob - 0.36 * cr + air * (p.verticalVel > 0 ? 0.05 : -0.02);
-    this.hips.position.y = damp(this.hips.position.y, targetHipY, 20, dt);
+    const standHipY = this.hipsBaseY + bob - 0.36 * cr + air * (p.verticalVel > 0 ? 0.05 : -0.02);
+    // lying: pelvis just above the ground (prone) or mid-air around the feet point (dive)
+    const lieHipY = lerp(0.27, 0.55, dvW);
+    const targetHipY = lerp(standHipY, lieHipY, lie);
+    this.hips.position.y = damp(this.hips.position.y, targetHipY, lie > 0.01 ? 10 : 20, dt);
     const hipRoll = Math.sin(phi) * 0.05 * mv * ground;
     const hipYaw = -Math.sin(phi) * 0.08 * mv * ground * (1 - aim);
-    this.j(this.hips, 0, hipYaw, hipRoll, dt, 18);
+    // pitch the whole body forward: prone ≈ 85°, dive ≈ 78°
+    const hipPitch = -lerp(1.48, 1.36, dvW) * lie;
+    const crawlRoll = Math.sin(phi) * 0.07 * crawl;
+    this.j(this.hips, hipPitch, hipYaw * (1 - lie), hipRoll * (1 - lie) + crawlRoll, dt, lie > 0.01 ? 9 : 18);
 
     // ── legs: walk cycle
     const swing = (0.5 + 0.35 * sp) * mv * ground;
@@ -250,20 +266,30 @@ export class SoldierModel {
     const up = THREE.MathUtils.clamp(p.verticalVel / 8, -1, 1);
     thighR += air * (0.55 + 0.2 * up); thighL += air * (-0.15 + 0.1 * up);
     kneeR += air * (-0.9); kneeL += air * (-0.5);
-    this.j(this.legR.upper, thighR, 0, -0.03, dt, 22);
-    this.j(this.legL.upper, thighL, 0, 0.03, dt, 22);
-    this.j(this.legR.lower, kneeR, 0, 0, dt, 22);
-    this.j(this.legL.lower, kneeL, 0, 0, dt, 22);
+    // lying: legs extended back; prone crawl = alternating knee push; dive = straight
+    const lieThighR = lerp(0.08 + Math.sin(phi) * 0.3 * crawl, -0.05, dvW);
+    const lieThighL = lerp(0.08 + Math.sin(phi + Math.PI) * 0.3 * crawl, -0.05, dvW);
+    const lieKneeR = lerp(-0.12 - 0.55 * crawl * Math.max(0, Math.cos(phi)), -0.08, dvW);
+    const lieKneeL = lerp(-0.12 - 0.55 * crawl * Math.max(0, Math.cos(phi + Math.PI)), -0.08, dvW);
+    const legSpread = lerp(0.03, 0.14, lie);
+    this.j(this.legR.upper, lerp(thighR, lieThighR, lie), 0, -legSpread, dt, 22);
+    this.j(this.legL.upper, lerp(thighL, lieThighL, lie), 0, legSpread, dt, 22);
+    this.j(this.legR.lower, lerp(kneeR, lieKneeR, lie), 0, 0, dt, 22);
+    this.j(this.legL.lower, lerp(kneeL, lieKneeL, lie), 0, 0, dt, 22);
 
     // ── torso
-    const lean = -(0.06 * mv + 0.22 * sp * mv + 0.3 * cr) + p.aimPitch * 0.25 * aim + breathe * 0.012 + p.flinch * 0.25 - air * 0.08;
-    const twist = THREE.MathUtils.clamp(p.torsoTwist, -0.6, 0.6) * (1 - aim);
-    this.j(this.torso, lean, twist, -hipRoll * 0.5, dt, 14);
+    const standLean = -(0.06 * mv + 0.22 * sp * mv + 0.3 * cr) + p.aimPitch * 0.25 * aim + breathe * 0.012 + p.flinch * 0.25 - air * 0.08;
+    // prone: chest arched up off the ground (follows aim pitch); dive: flat
+    const lieLean = lerp(0.35 + THREE.MathUtils.clamp(p.aimPitch, -0.5, 0.8) * 0.35, 0.1, dvW) + breathe * 0.01;
+    const lean = lerp(standLean, lieLean, lie);
+    const twist = THREE.MathUtils.clamp(p.torsoTwist, -0.6, 0.6) * (1 - aim) * (1 - 0.6 * lie);
+    this.j(this.torso, lean, twist, -hipRoll * 0.5 * (1 - lie), dt, 14);
     this.chestMesh.scale.y = 1 + breathe * 0.012;
 
-    // ── head: look along aim, counter the lean
-    const headX = -lean * 0.6 + p.aimPitch * 0.45 * (0.4 + 0.6 * aim) + p.flinch * 0.3;
-    this.j(this.headPivot, headX, twist * 0.4, 0, dt, 12);
+    // ── head: look along aim, counter the lean; lifted while lying
+    const standHeadX = -standLean * 0.6 + p.aimPitch * 0.45 * (0.4 + 0.6 * aim) + p.flinch * 0.3;
+    const lieHeadX = lerp(0.95, 0.85, dvW) + THREE.MathUtils.clamp(p.aimPitch, -0.5, 0.8) * 0.3 + p.flinch * 0.2;
+    this.j(this.headPivot, lerp(standHeadX, lieHeadX, lie), twist * 0.4, 0, dt, 12);
 
     // ── arms
     let rUx: number, rUz: number, rL: number, lUx: number, lUz: number, lL: number;
@@ -285,12 +311,12 @@ export class SoldierModel {
       const aimLUx = p.twoHanded ? Math.PI / 2 + pitchArm - 0.35 : Math.PI / 2 + pitchArm - 0.6;
       const aimLUz = p.twoHanded ? 0.4 : 0.7;
       const aimLL = p.twoHanded ? 0.95 : 1.3;
-      rUx = THREE.MathUtils.lerp(lrRUx, aimRUx, aim);
-      rUz = THREE.MathUtils.lerp(-0.1, -0.12, aim);
-      rL = THREE.MathUtils.lerp(lrRL, aimRL, aim);
-      lUx = THREE.MathUtils.lerp(lrLUx, aimLUx, aim);
-      lUz = THREE.MathUtils.lerp(lrLUz, aimLUz, aim);
-      lL = THREE.MathUtils.lerp(lrLL, aimLL, aim);
+      rUx = lerp(lrRUx, aimRUx, aim);
+      rUz = lerp(-0.1, -0.12, aim);
+      rL = lerp(lrRL, aimRL, aim);
+      lUx = lerp(lrLUx, aimLUx, aim);
+      lUz = lerp(lrLUz, aimLUz, aim);
+      lL = lerp(lrLL, aimLL, aim);
       if (p.reloading) {
         // left hand works the magazine
         const t = time * 9;
@@ -305,19 +331,34 @@ export class SoldierModel {
       if (!p.reloading) { rUx -= 0.1 * sp * mv * (1 - aim); }
     }
     rUx += p.flinch * -0.3; lUx += p.flinch * -0.3;
+    if (lie > 0.001) {
+      // prone: upper arms angled down to the ground (elbows planted), forearms up so the weapon
+      // points forward along the body axis (upper + lower ≈ π); crawl = alternating reach.
+      // dive: both arms stretched straight forward (superman).
+      const reachR = Math.sin(phi + Math.PI) * 0.25 * crawl, reachL = Math.sin(phi) * 0.25 * crawl;
+      let pRUx = 2.55 + reachR, pRUz = -0.15, pRL = 0.6 - reachR * 0.8;
+      let pLUx = (p.twoHanded ? 2.4 : 2.5) + reachL, pLUz = p.twoHanded ? 0.35 : 0.25, pLL = p.twoHanded ? 0.75 : 0.65;
+      if (!p.hasWeapon) { pRL = 0.5; pLL = 0.5; }
+      if (p.reloading && p.hasWeapon) { const t = time * 9; pLUx = 2.15 + Math.sin(t) * 0.12; pLUz = 0.3; pLL = 1.0 + Math.cos(t) * 0.1; }
+      pRUx += p.recoil * 0.1; pRUz -= p.flinch * 0.1;
+      const dRUx = 3.0, dRUz = -0.25, dRL = 0.05, dLUx = 3.0, dLUz = 0.25, dLL = 0.05;
+      rUx = lerp(rUx, lerp(pRUx, dRUx, dvW), lie); rUz = lerp(rUz, lerp(pRUz, dRUz, dvW), lie); rL = lerp(rL, lerp(pRL, dRL, dvW), lie);
+      lUx = lerp(lUx, lerp(pLUx, dLUx, dvW), lie); lUz = lerp(lUz, lerp(pLUz, dLUz, dvW), lie); lL = lerp(lL, lerp(pLL, dLL, dvW), lie);
+    }
     const armLambda = 16;
     this.j(this.armR.upper, rUx, 0, rUz, dt, armLambda);
     this.j(this.armR.lower, rL, 0, 0, dt, armLambda);
     this.j(this.armL.upper, lUx, 0, lUz, dt, armLambda);
     this.j(this.armL.lower, lL, 0, 0, dt, armLambda);
 
-    // ── cape: trail behind with speed, flutter
+    // ── cape: trail behind with speed, flutter; drapes along the back when prone, streams when diving
     const trail = (0.25 * mv + 0.55 * sp * mv) * ground + air * 0.6 * (p.verticalVel < 0 ? 1.4 : 0.5);
     for (let i = 0; i < this.capeSegs.length; i++) {
       const seg = this.capeSegs[i];
       const flutter = Math.sin(time * (6 + i * 1.5) + i * 1.3) * (0.03 + 0.05 * mv + 0.04 * air);
-      const target = i === 0 ? trail * 0.5 + 0.1 : trail * 0.35 + flutter;
-      seg.rotation.x = damp(seg.rotation.x, target, 10 - i, dt);
+      const standTarget = i === 0 ? trail * 0.5 + 0.1 : trail * 0.35 + flutter;
+      const lieTarget = lerp(0.05 + flutter * 0.3, -0.5 - i * 0.05 + flutter, dvW);
+      seg.rotation.x = damp(seg.rotation.x, lerp(standTarget, lieTarget, lie), 10 - i, dt);
       seg.rotation.z = damp(seg.rotation.z, Math.sin(time * 3 + i) * 0.02 * (1 + mv), 8, dt);
     }
 
@@ -335,6 +376,8 @@ export class SoldierModel {
     this.bodyGroup.position.y = e * 0.12;
     this.hips.position.y = THREE.MathUtils.lerp(this.hips.position.y, 0.55, e * 0.6);
     const L = 8;
+    // undo any prone/dive body pitch so the fall reads the same from every stance
+    this.hips.rotation.x = damp(this.hips.rotation.x, 0, L, dt);
     this.j(this.torso, 0.25 * e, 0.15 * e, 0, dt, L);
     this.j(this.headPivot, 0.5 * e, 0.3 * e, 0.2 * e, dt, L);
     this.j(this.armR.upper, -0.2, 0, -1.1 * e, dt, L);

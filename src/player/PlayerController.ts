@@ -1,12 +1,18 @@
 import * as THREE from 'three';
-import { GRAVITY, PLAYER_RADIUS, PLAYER_SPRINT_SPEED, PLAYER_WALK_SPEED, type WorldRef } from '@/shared';
+import {
+  GRAVITY, PLAYER_RADIUS, PLAYER_SPRINT_SPEED, PLAYER_WALK_SPEED, PLAYER_CROUCH_SPEED, PLAYER_PRONE_SPEED,
+  type WorldRef, type Stance,
+} from '@/shared';
 
 export interface MoveInput {
   x: number;      // -1..1 strafe (right +)
   z: number;      // -1..1 forward (+)
   sprint: boolean;
   jump: boolean;  // pressed this frame
-  crouch: boolean;
+  /** body stance decided by PlayerSystem (toggles, stand-up rules, airborne checks) */
+  stance: Stance;
+  /** launch a dive this frame (PlayerSystem has already checked stamina / grounded / stance) */
+  dive: boolean;
   aiming: boolean;
 }
 
@@ -15,6 +21,10 @@ export interface MoveResult {
   /** > 0 when we touched down this frame (impact speed m/s) */
   landed: number;
   jumped: boolean;
+  /** dive launched this frame (`diveDir` holds the horizontal direction) */
+  dived: boolean;
+  /** dive finished this frame (touched ground or timed out) → caller sets stance = 'prone' */
+  diveEnded: boolean;
 }
 
 export type ShipBounds = { center: THREE.Vector3; halfExtents: THREE.Vector3 } | null;
@@ -25,38 +35,51 @@ const GROUND_DECEL = 26;
 const AIR_ACCEL = 7;
 const SNAP_DOWN = 0.55;
 const STEEP_COS = Math.cos(50 * Math.PI / 180);
+const DIVE_SPEED = 7.5;
+const DIVE_UP = 3.0;
+const DIVE_MAX_TIME = 0.9;
 
 const _wish = new THREE.Vector3(), _hv = new THREE.Vector3(), _n = new THREE.Vector3(), _slide = new THREE.Vector3();
 
 /**
- * Kinematic character controller: camera-relative acceleration, gravity, single jump, crouch,
- * heightfield ground with slope sliding, obstacle push-out via `world.resolveCollision`, and a
- * box-constrained mode for the ship interior.
+ * Kinematic character controller: camera-relative acceleration, gravity, single jump, stances
+ * (stand / crouch / prone speeds), dive launch (no control until touchdown), heightfield ground
+ * with slope sliding, obstacle push-out via `world.resolveCollision`, and a box-constrained mode
+ * for the ship interior.
  */
 export class PlayerController {
   readonly position = new THREE.Vector3();
   readonly velocity = new THREE.Vector3();
   /** normalised world move direction (last non-zero) */
   readonly moveDir = new THREE.Vector3(0, 0, -1);
+  /** horizontal unit direction of the current / last dive */
+  readonly diveDir = new THREE.Vector3(0, 0, -1);
   grounded = true;
-  crouching = false;
+  stance: Stance = 'stand';
   sprinting = false;
+  /** true from dive launch until touchdown (or DIVE_MAX_TIME) */
+  diving = false;
   /** horizontal speed m/s */
   speed = 0;
   /** radians; a step every π */
   stridePhase = 0;
   shipBounds: ShipBounds = null;
-  /** external move-speed multiplier (slows: spewer acid) */
+  /** external move-speed multiplier (slows: spewer acid, exhaustion, standing up from prone) */
   speedMultiplier = 1;
   private lastStep = 0;
   private wasGrounded = true;
   private coyote = 0;
+  private diveTimer = 0;
+
+  get crouching(): boolean { return this.stance === 'crouch'; }
+  get prone(): boolean { return this.stance === 'prone'; }
 
   reset(pos: THREE.Vector3): void {
     this.position.copy(pos);
     this.velocity.set(0, 0, 0);
     this.grounded = true; this.wasGrounded = true;
-    this.crouching = false; this.sprinting = false;
+    this.stance = 'stand'; this.sprinting = false;
+    this.diving = false; this.diveTimer = 0;
     this.speed = 0; this.stridePhase = 0; this.lastStep = 0;
   }
 
@@ -67,9 +90,10 @@ export class PlayerController {
   }
 
   update(dt: number, inp: MoveInput, yaw: number, world: WorldRef | null, out: MoveResult): void {
-    out.footstep = false; out.landed = 0; out.jumped = false;
+    out.footstep = false; out.landed = 0; out.jumped = false; out.dived = false; out.diveEnded = false;
     if (dt <= 0) return;
     const pos = this.position, vel = this.velocity;
+    this.stance = inp.stance;
 
     // ── wish direction (camera relative)
     const fx = -Math.sin(yaw), fz = -Math.cos(yaw);
@@ -79,24 +103,37 @@ export class PlayerController {
     if (wishLen > 1) { _wish.divideScalar(wishLen); wishLen = 1; }
     const moving = wishLen > 0.01;
 
-    this.crouching = inp.crouch && this.grounded;
-    const canSprint = inp.sprint && moving && inp.z > 0.2 && !inp.aiming && !this.crouching;
+    // ── dive launch: horizontal burst in the move direction (or camera forward), small hop
+    if (inp.dive && this.grounded && !this.diving) {
+      if (moving) this.diveDir.copy(_wish).divideScalar(wishLen); else this.diveDir.set(fx, 0, fz);
+      vel.x = this.diveDir.x * DIVE_SPEED; vel.z = this.diveDir.z * DIVE_SPEED; vel.y = DIVE_UP;
+      this.diving = true; this.diveTimer = 0;
+      this.grounded = false; this.coyote = 0;
+      this.sprinting = false;
+      out.dived = true;
+    }
+
+    const standing = this.stance === 'stand';
+    const canSprint = inp.sprint && moving && inp.z > 0.2 && !inp.aiming && standing && !this.diving;
     this.sprinting = canSprint;
     let targetSpeed = PLAYER_WALK_SPEED;
-    if (this.crouching) targetSpeed *= 0.55;
+    if (this.stance === 'crouch') targetSpeed = PLAYER_CROUCH_SPEED;
+    else if (this.stance === 'prone') targetSpeed = PLAYER_PRONE_SPEED;
     else if (canSprint) targetSpeed = PLAYER_SPRINT_SPEED;
-    if (inp.aiming) targetSpeed = Math.min(targetSpeed, PLAYER_WALK_SPEED * 0.8);
+    if (inp.aiming) targetSpeed = standing ? Math.min(targetSpeed, PLAYER_WALK_SPEED * 0.8) : targetSpeed * 0.85;
     targetSpeed *= wishLen * this.speedMultiplier;
 
-    // ── horizontal velocity: accelerate toward wish
+    // ── horizontal velocity: accelerate toward wish (no control while diving)
     _hv.set(vel.x, 0, vel.z);
-    const accel = this.grounded ? (moving ? GROUND_ACCEL : GROUND_DECEL) : AIR_ACCEL;
-    _wish.multiplyScalar(targetSpeed);
-    const dx = _wish.x - _hv.x, dz = _wish.z - _hv.z;
-    const dl = Math.hypot(dx, dz);
-    if (dl > 1e-5) {
-      const step = Math.min(dl, accel * dt);
-      _hv.x += dx / dl * step; _hv.z += dz / dl * step;
+    if (!this.diving) {
+      const accel = this.grounded ? (moving ? GROUND_ACCEL : GROUND_DECEL) : AIR_ACCEL;
+      _wish.multiplyScalar(targetSpeed);
+      const dx = _wish.x - _hv.x, dz = _wish.z - _hv.z;
+      const dl = Math.hypot(dx, dz);
+      if (dl > 1e-5) {
+        const step = Math.min(dl, accel * dt);
+        _hv.x += dx / dl * step; _hv.z += dz / dl * step;
+      }
     }
 
     // ── slope handling (heightfield only)
@@ -121,7 +158,7 @@ export class PlayerController {
 
     // ── jump / gravity
     if (this.grounded) this.coyote = 0.1; else this.coyote -= dt;
-    if (inp.jump && this.coyote > 0 && !this.crouching && !steep) {
+    if (inp.jump && this.coyote > 0 && standing && !steep && !this.diving) {
       vel.y = JUMP_SPEED;
       this.grounded = false; this.coyote = 0;
       out.jumped = true;
@@ -156,11 +193,23 @@ export class PlayerController {
     }
     this.wasGrounded = wasGrounded;
 
+    // ── dive end: touchdown or timeout → caller goes prone
+    if (this.diving) {
+      this.diveTimer += dt;
+      if ((this.grounded && !out.dived) || this.diveTimer >= DIVE_MAX_TIME) {
+        this.diving = false;
+        out.diveEnded = true;
+        // bleed the slide off quickly so the body stops where it hit
+        vel.x *= 0.35; vel.z *= 0.35;
+      }
+    }
+
     // ── stride / footsteps
     this.speed = Math.hypot(vel.x, vel.z);
     if (this.speed > 0.2) { this.moveDir.set(vel.x, 0, vel.z).normalize(); }
-    if (this.grounded && this.speed > 0.3) {
-      const strideLen = this.sprinting ? 1.9 : this.crouching ? 1.1 : 1.45; // meters per full cycle (2 steps)
+    if (this.grounded && this.speed > 0.3 && !this.diving) {
+      // meters per full cycle (2 steps); prone = crawl reach
+      const strideLen = this.sprinting ? 1.9 : this.stance === 'crouch' ? 1.1 : this.stance === 'prone' ? 0.8 : 1.45;
       this.stridePhase += (this.speed * dt / strideLen) * Math.PI * 2;
       const stepIdx = Math.floor(this.stridePhase / Math.PI);
       if (stepIdx !== this.lastStep) { this.lastStep = stepIdx; out.footstep = true; }

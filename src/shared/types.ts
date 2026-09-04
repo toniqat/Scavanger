@@ -41,6 +41,9 @@ export type Rarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
 
 export type AmmoType = 'rifle' | 'pistol' | 'shotgun' | 'energy';
 
+/** Weapon archetype. Drives damage falloff, recoil/spread profile, ADS zoom and HUD labels. */
+export type WeaponClass = 'AR' | 'SMG' | 'SR' | 'DMR' | 'SG' | 'PISTOL';
+
 export interface WeaponDef {
   id: string;
   name: string;
@@ -59,6 +62,19 @@ export interface WeaponDef {
   projectileSpeed?: number;// if undefined → hitscan
   recoil: number;          // camera kick, radians
   tracerColor: number;     // hex
+  /* ── appended: weapon classes (owner: items/weapons) ── */
+  /** Archetype; undefined → treated as 'AR' (secondary slot → 'PISTOL'). */
+  weaponClass?: WeaponClass;
+  /** Distance (m) where damage starts falling off. undefined → no falloff. */
+  falloffStart?: number;
+  /** Distance (m) where damage reaches `falloffMin`. */
+  falloffEnd?: number;
+  /** Damage multiplier at/after `falloffEnd` (0..1). */
+  falloffMin?: number;
+  /** ADS FOV divisor (1 = none, 4 = SR scope). undefined → default ADS zoom. */
+  adsZoom?: number;
+  /** true → HUD shows a scope overlay while aiming with this weapon. */
+  scope?: boolean;
 }
 
 export interface ItemDef {
@@ -179,6 +195,9 @@ export interface WorldRef {
 /* ────────────────────────────────────────────────────────────────────────────
  * Player
  * ──────────────────────────────────────────────────────────────────────────── */
+/** Body stance. Affects speed, eye height, recoil and spread. */
+export type Stance = 'stand' | 'crouch' | 'prone';
+
 export interface PlayerRef {
   readonly position: THREE.Vector3;   // feet position
   readonly velocity: THREE.Vector3;
@@ -189,6 +208,12 @@ export interface PlayerRef {
   readonly isSprinting: boolean;
   readonly isAiming: boolean;
   readonly object: THREE.Object3D;    // root of the player model
+  /* ── appended: stance / stamina / dive (owner: player) ── */
+  readonly stance: Stance;
+  /** true during the dive animation (Alt). Ends in 'prone'. */
+  readonly isDiving: boolean;
+  readonly stamina: number;
+  readonly maxStamina: number;
   getEyePosition(out?: THREE.Vector3): THREE.Vector3;
   getForward(out?: THREE.Vector3): THREE.Vector3;   // horizontal forward
   takeDamage(amount: number, from?: THREE.Vector3): void;
@@ -299,4 +324,7 @@ export interface PlayerWeaponHost {
   setWeaponState(state: { hasWeapon: boolean; reloading: boolean; firing: boolean; twoHanded: boolean }): void;
   /** False while controls are locked (drop-in, liftoff, death) — weapons must not fire. */
   canUseWeapons(): boolean;
+  /* ── appended: ADS zoom (weapons → player) ── */
+  /** Active weapon's ADS zoom: FOV divisor (1 = none) and whether it is a scoped weapon. Call on equip/swap/unequip. */
+  setAimZoom(zoom: number, scope: boolean): void;
 }

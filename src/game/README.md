@@ -21,7 +21,9 @@ Import via `@/game` → `GameFlowSystem`.
 | `extraction:liftoff` | `liftoff`; after 6.5 s → `stats.extracted = true`, `lootValue = inventory.getTotalValue()`, `complete`, `game:complete {stats}` |
 | `player:died` | after 2.5 s → `dead`, `game:over {stats}` |
 | `game:abort` | closes inventory, `menu` |
-| Escape (gameplay phase, inventory closed) | toggles `game:paused {paused}`; Engine zeroes `dt` while paused; `PauseMenu` may emit `game:paused false` |
+| Escape (gameplay phase, no `ctx.uiBlockers`) | toggles `game:paused {paused}`; Engine zeroes `dt` while paused; `PauseMenu` may emit `game:paused false`. Inventory / map consume Escape in a capture-phase listener, so it never reaches here while they are open |
+| `pointerlockchange` (lock lost) / `window` `blur` | if gameplay phase, no blocker, player alive, not paused and > 300 ms since `ctx.input.lastLockRequest` (a denied request) → emits `input:pointerLockLost` and pauses. Intended exits (inventory, map, menus, pause) add their blocker / set `paused` **before** `exitPointerLock()`, so they do not trigger this |
+| unpause (Esc or 계속) | after emitting `game:paused false`, re-requests pointer lock in a microtask when still in a gameplay phase with no blockers (a following synchronous abort → `menu` cancels it) |
 
 ## Notes
 - `missionTime` / `stats.timeSeconds` advance in `Engine.frame()`; `kills`, `cratesOpened`, `damageTaken` are

@@ -34,10 +34,14 @@ export const ITEM_DEFS: readonly ItemDef[] = [
   /* weapons — primary (do not occupy grid cells while equipped) */
   def({ id: 'wpn_ar23', name: 'AR-23 리버레이터', category: 'primary', rarity: 'common', width: 4, height: 2, value: 350, icon: '⌐╦', weaponId: 'ar23',
     description: '슈퍼 지구 표준 돌격소총. 균형 잡힌 연사와 안정적인 반동.' }),
+  def({ id: 'wpn_smg37', name: 'SMG-37 디펜더', category: 'primary', rarity: 'uncommon', width: 3, height: 2, value: 480, icon: '⌐╪', weaponId: 'smg37',
+    description: '경량 기관단총. 근거리 연사에 특화되었으나 거리가 멀어질수록 위력이 급감.' }),
   def({ id: 'wpn_sg8', name: 'SG-8 퍼니셔', category: 'primary', rarity: 'uncommon', width: 3, height: 2, value: 520, icon: '⌐═', weaponId: 'sg8',
     description: '펌프액션 산탄총. 근거리에서 압도적인 제압력.' }),
   def({ id: 'wpn_r63', name: 'R-63 딜리전스', category: 'primary', rarity: 'rare', width: 4, height: 1, value: 780, icon: '⌐──', weaponId: 'r63',
     description: '반자동 지정사수 소총. 원거리 정밀 사격에 최적화.' }),
+  def({ id: 'wpn_sr9', name: 'SR-9 이래디케이터', category: 'primary', rarity: 'rare', width: 5, height: 1, value: 950, icon: '⌐───', weaponId: 'sr9',
+    description: '볼트액션 저격소총. 4배율 조준경. 한 발로 대부분의 벌레를 무력화하지만 장전이 느리다.' }),
   def({ id: 'wpn_las16', name: 'LAS-16 사이드', category: 'primary', rarity: 'epic', width: 3, height: 2, value: 1250, icon: '⌐≡', weaponId: 'las16',
     description: '레이저 소총. 탄약 대신 열을 관리해야 하는 에너지 무기.' }),
   /* weapons — secondary */

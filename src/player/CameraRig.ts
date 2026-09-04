@@ -8,8 +8,10 @@ export interface RigInput {
   aim: number;          // 0..1 blend
   sprint: number;       // 0..1
   crouch: number;       // 0..1
+  prone: number;        // 0..1
+  dive: number;         // 0..1
   moveBlend: number;    // 0..1
-  stridePhase: number;
+  stridePhase: number;  // kept for API symmetry; the camera no longer reacts to it
   grounded: boolean;
   dead: boolean;
   world: WorldRef | null;
@@ -18,17 +20,31 @@ export interface RigInput {
 
 const DEG = Math.PI / 180;
 const PITCH_MIN = -60 * DEG;
+const PITCH_MIN_PRONE = -25 * DEG;
 const PITCH_MAX = 70 * DEG;
 
+const HIP_DIST = 3.2;
+const ADS_DIST = 1.8;
+const SCOPE_DIST = 0.7;
+const HIP_SHOULDER = 0.55;
+const ADS_SHOULDER = 0.42;
+const SCOPE_SHOULDER = 0.35;
+const SPRINT_FOV_KICK = 3;
+const ADS_FOV_DROP = 20;
+
 const _fwd = new THREE.Vector3(), _right = new THREE.Vector3(), _desired = new THREE.Vector3();
-const _pivotS = new THREE.Vector3(), _dir = new THREE.Vector3(), _euler = new THREE.Euler(0, 0, 0, 'YXZ');
+const _pivotS = new THREE.Vector3(), _rayO = new THREE.Vector3(), _dir = new THREE.Vector3(), _euler = new THREE.Euler(0, 0, 0, 'YXZ');
 const _q = new THREE.Quaternion(), _qShake = new THREE.Quaternion(), _overrideQ = new THREE.Quaternion();
 const _m = new THREE.Matrix4(), _up = new THREE.Vector3(0, 1, 0);
 
 /**
  * Over-the-right-shoulder third-person rig with spring-damped follow, terrain collision,
- * sprint/aim FOV, head-bob, recoil and trauma-based screen shake. Also supports a
+ * sprint/aim FOV (weapon-driven zoom), recoil and trauma-based screen shake. Also supports a
  * cutscene override pose (hellpod drop) that blends back to the rig.
+ *
+ * Motion-sickness rules: nothing here oscillates with the stride phase. The pivot's vertical
+ * follow is soft on the ground so stride/terrain micro-bumps never reach the camera, while the
+ * horizontal follow stays tight.
  */
 export class CameraRig {
   yaw = 0;
@@ -38,10 +54,15 @@ export class CameraRig {
 
   readonly baseFov = 70;
   private fov = 70;
-  private readonly distSpring: SpringState = { value: 3.2, velocity: 0 };
+  /** ADS FOV divisor from the active weapon (1 = default ADS, 4 = sniper scope). */
+  aimZoom = 1;
+  /** true → while aiming the camera tucks into the shoulder so the soldier leaves the frame. */
+  scoped = false;
+  private pitchMin = PITCH_MIN;
+  private readonly distSpring: SpringState = { value: HIP_DIST, velocity: 0 };
   private readonly pivot = new THREE.Vector3();
   private pivotInit = false;
-  private shoulder = 0.55;
+  private shoulder = HIP_SHOULDER;
   private collisionDist = 10;
 
   // shake
@@ -62,12 +83,15 @@ export class CameraRig {
 
   constructor(private readonly camera: THREE.PerspectiveCamera) {}
 
-  /** Mouse look (pixels). */
+  /** Current (damped) vertical FOV in degrees. */
+  get currentFov(): number { return this.fov; }
+
+  /** Mouse look (pixels). Sensitivity scales with the FOV ratio while aiming (4× scope → ¼ sensitivity). */
   applyLook(dx: number, dy: number, aim: number): void {
-    const s = this.sensitivity * (1 - 0.45 * aim);
+    const s = this.sensitivity * THREE.MathUtils.lerp(1, this.fov / this.baseFov, aim);
     this.yaw -= dx * s;
     this.pitch -= dy * s;
-    this.pitch = THREE.MathUtils.clamp(this.pitch, PITCH_MIN, PITCH_MAX);
+    this.pitch = THREE.MathUtils.clamp(this.pitch, this.pitchMin, PITCH_MAX);
     if (this.yaw > Math.PI) this.yaw -= Math.PI * 2; else if (this.yaw < -Math.PI) this.yaw += Math.PI * 2;
   }
 
@@ -80,8 +104,14 @@ export class CameraRig {
     this.recoilPitch += pitch;
     this.recoilYaw += yaw;
     // part of the kick is permanent so the player must compensate
-    this.pitch = THREE.MathUtils.clamp(this.pitch + pitch * 0.35, PITCH_MIN, PITCH_MAX);
+    this.pitch = THREE.MathUtils.clamp(this.pitch + pitch * 0.35, this.pitchMin, PITCH_MAX);
     this.yaw += yaw * 0.35;
+  }
+
+  /** Weapon-driven ADS zoom. zoom ≤ 1 → default ADS (base − 20°); zoom > 1 → base / zoom. */
+  setAimZoom(zoom: number, scope: boolean): void {
+    this.aimZoom = Math.max(1, zoom || 1);
+    this.scoped = scope;
   }
 
   /** Cutscene camera. `weight` target 1 = fully overridden; call with null to release. */
@@ -99,9 +129,10 @@ export class CameraRig {
   snapTo(pivot: THREE.Vector3, yaw: number): void {
     this.yaw = yaw; this.pitch = -0.12;
     this.pivot.copy(pivot); this.pivotInit = true;
-    this.distSpring.value = 3.2; this.distSpring.velocity = 0;
+    this.distSpring.value = HIP_DIST; this.distSpring.velocity = 0;
     this.recoilPitch = this.recoilYaw = 0;
     this.trauma = 0;
+    this.pitchMin = PITCH_MIN;
   }
 
   /** Horizontal forward from yaw. */
@@ -120,11 +151,16 @@ export class CameraRig {
     this.recoilPitch = damp(this.recoilPitch, 0, 9, dt);
     this.recoilYaw = damp(this.recoilYaw, 0, 9, dt);
 
-    // ── pivot smoothing (vertical lags a little for stairs/slopes; horizontal tight)
+    // ── prone: don't let the camera look down into the ground
+    this.pitchMin = THREE.MathUtils.lerp(PITCH_MIN, PITCH_MIN_PRONE, inp.prone);
+    if (this.pitch < this.pitchMin) this.pitch = damp(this.pitch, this.pitchMin, 12, dt);
+
+    // ── pivot smoothing: vertical is soft on the ground (stride / terrain bumps stay out of the
+    //    camera), horizontal stays tight so strafing never lags
     if (!this.pivotInit) { this.pivot.copy(inp.pivot); this.pivotInit = true; }
     this.pivot.x = damp(this.pivot.x, inp.pivot.x, 30, dt);
     this.pivot.z = damp(this.pivot.z, inp.pivot.z, 30, dt);
-    this.pivot.y = damp(this.pivot.y, inp.pivot.y, inp.grounded ? 14 : 30, dt);
+    this.pivot.y = damp(this.pivot.y, inp.pivot.y, inp.grounded ? 7 : 30, dt);
 
     // ── look basis
     const p = this.pitch + this.recoilPitch, y = this.yaw + this.recoilYaw;
@@ -132,18 +168,23 @@ export class CameraRig {
     _fwd.set(-Math.sin(y) * cp, Math.sin(p), -Math.cos(y) * cp);
     _right.set(Math.cos(y), 0, -Math.sin(y));
 
-    // ── distance: hip 3.2 / aim 1.8 / dead 4.5, pulled in by collisions
-    const wantDist = inp.dead ? 4.5 : THREE.MathUtils.lerp(3.2 + 0.35 * inp.sprint, 1.8, inp.aim) - 0.25 * inp.crouch;
-    const shoulder = THREE.MathUtils.lerp(0.55, 0.42, inp.aim);
+    // ── distance: hip 3.2 / ADS 1.8 / scoped 0.7 / dead 4.5, pulled in by collisions
+    const hipDist = HIP_DIST + 0.35 * inp.sprint - 0.25 * inp.crouch - 0.5 * inp.prone + 0.3 * inp.dive;
+    const adsDist = this.scoped ? SCOPE_DIST : ADS_DIST;
+    const wantDist = inp.dead ? 4.5 : THREE.MathUtils.lerp(hipDist, adsDist, inp.aim);
+    const shoulder = THREE.MathUtils.lerp(HIP_SHOULDER, this.scoped ? SCOPE_SHOULDER : ADS_SHOULDER, inp.aim);
     this.shoulder = damp(this.shoulder, shoulder, 10, dt);
     // pivot pushed to the shoulder side so the character sits left of the reticle
     _pivotS.copy(this.pivot).addScaledVector(_right, this.shoulder);
-    // collision from shoulder pivot backward
+    // collision from the shoulder pivot backward; while prone the pivot is 0.45 m off the ground,
+    // so start the ray a little higher and never collapse closer than ~1.2 m
     _dir.copy(_fwd).negate();
+    _rayO.copy(_pivotS); _rayO.y += 0.35 * inp.prone;
+    const minDist = Math.min(wantDist, THREE.MathUtils.lerp(0.6, 1.2, inp.prone));
     let maxDist = wantDist;
     if (inp.world && inp.world.ready) {
-      const hit = inp.world.raycast(_pivotS, _dir, wantDist + 0.3);
-      if (hit) maxDist = Math.max(0.6, hit.distance - 0.3);
+      const hit = inp.world.raycast(_rayO, _dir, wantDist + 0.3);
+      if (hit) maxDist = Math.max(minDist, hit.distance - 0.3);
     }
     // ship interior: keep camera inside the box
     if (inp.shipBounds) {
@@ -167,13 +208,6 @@ export class CameraRig {
 
     _desired.copy(_pivotS).addScaledVector(_fwd, -dist);
 
-    // ── head-bob when moving on ground (reduced when aiming)
-    const bobAmp = 0.028 * inp.moveBlend * (inp.grounded ? 1 : 0) * (1 - 0.7 * inp.aim) * (1 + 0.6 * inp.sprint);
-    const bobY = Math.sin(inp.stridePhase * 2) * bobAmp;
-    const bobX = Math.cos(inp.stridePhase) * bobAmp * 0.6;
-    _desired.y += bobY;
-    _desired.addScaledVector(_right, bobX);
-
     // ── spring-damped position for weight (tight so it never jitters against the pivot)
     if (dt > 0) dampVec3(this.position, _desired, 40, dt); else this.position.copy(_desired);
 
@@ -192,9 +226,11 @@ export class CameraRig {
     _qShake.setFromEuler(_euler);
     this.quaternion.copy(_q).multiply(_qShake);
 
-    // ── FOV
-    const targetFov = this.baseFov + 8 * inp.sprint * inp.moveBlend - 20 * inp.aim;
-    this.fov = damp(this.fov, targetFov, 8, dt);
+    // ── FOV: gentle sprint kick; ADS either the default −20° or the weapon's zoom divisor
+    const hipFov = this.baseFov + SPRINT_FOV_KICK * inp.sprint * inp.moveBlend;
+    const aimFov = this.aimZoom > 1 ? this.baseFov / this.aimZoom : this.baseFov - ADS_FOV_DROP;
+    const targetFov = THREE.MathUtils.lerp(hipFov, aimFov, inp.aim);
+    this.fov = damp(this.fov, targetFov, 6, dt);
 
     // ── cutscene override blend
     this.overrideWeight = damp(this.overrideWeight, this.overrideTarget, this.overrideTarget > 0.5 ? 12 : 4, dt);

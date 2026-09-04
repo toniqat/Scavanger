@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {
-  GameContext, Keys, PLAYER_MAX_HP, PLAYER_WALK_SPEED,
-  type GameSystem, type PlayerRef, type PlayerWeaponHost, type Interactable,
+  GameContext, Keys, MouseButtons, PLAYER_MAX_HP, PLAYER_MAX_STAMINA, PLAYER_WALK_SPEED,
+  type GameSystem, type PlayerRef, type PlayerWeaponHost, type Interactable, type Stance,
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
 import { damp, dampAngle, wrapAngle } from '@/core/util/MathUtil';
@@ -12,17 +12,33 @@ import { Hellpod, type HellpodEvents } from './Hellpod';
 
 const EYE_STAND = 1.55;
 const EYE_CROUCH = 1.15;
+const EYE_PRONE = 0.45;
+const EYE_DIVE = 1.0;
 const INVULN_TIME = 0.15;
 const STIM_DURATION = 1.5;
 const DEATH_ANIM = 0.9;
 
-const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0);
+// stamina tuning
+const STAMINA_SPRINT_DRAIN = 14;     // per second
+const STAMINA_JUMP_COST = 12;
+const STAMINA_DIVE_COST = 25;
+const STAMINA_DIVE_MIN = 15;         // may dive with at least this much (cost clamps to 0)
+const STAMINA_REGEN_DELAY = 0.8;
+const STAMINA_REGEN_MOVING = 16;     // per second
+const STAMINA_REGEN_IDLE = 22;
+const STAMINA_SPRINT_RECOVER = 20;   // sprint unavailable after depletion until this much
+const EXHAUSTED_SLOW_TIME = 1.0;
+const EXHAUSTED_SLOW = 0.9;
+const STAND_UP_TIME = 0.35;          // prone → stand/crouch transition (no jump/sprint/dive)
+
+const _v = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0);
 const _q = new THREE.Quaternion(), _camPos = new THREE.Vector3(), _camLook = new THREE.Vector3();
 
 interface WeaponState { hasWeapon: boolean; reloading: boolean; firing: boolean; twoHanded: boolean }
 
 /**
- * Third-person player: controller + camera rig + procedural soldier + health/stims + interaction + hellpod drop.
+ * Third-person player: controller + camera rig + procedural soldier + health/stims + stamina +
+ * stances (C crouch / Z prone / Alt dive) + interaction + hellpod drop.
  * Publishes itself as `ctx.player` (PlayerRef & PlayerWeaponHost).
  */
 export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
@@ -45,12 +61,26 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   private healRate = 0;
   private fallbackStims = 3;
 
+  // stamina
+  stamina = PLAYER_MAX_STAMINA;
+  readonly maxStamina = PLAYER_MAX_STAMINA;
+  private regenDelay = 0;
+  private exhausted = false;
+  private exhaustedSlow = 0;
+
+  // stance
+  private _stance: Stance = 'stand';
+  private standUpTimer = 0;
+
   // state
   private controlsEnabled = false;
   private spawned = false;
   isAiming = false;
   private aimBlend = 0;
+  private scopeHidden = false;
   private crouchBlend = 0;
+  private proneBlend = 0;
+  private diveBlend = 0;
   private sprintBlend = 0;
   private bodyYaw = 0;
   private poseRecoil = 0;
@@ -68,15 +98,17 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   private interactCooldown = 0;
 
   // scratch
-  private readonly moveInput: MoveInput = { x: 0, z: 0, sprint: false, jump: false, crouch: false, aiming: false };
-  private readonly moveResult: MoveResult = { footstep: false, landed: 0, jumped: false };
+  private readonly moveInput: MoveInput = { x: 0, z: 0, sprint: false, jump: false, stance: 'stand', dive: false, aiming: false };
+  private readonly moveResult: MoveResult = { footstep: false, landed: 0, jumped: false, dived: false, diveEnded: false };
   private readonly podEvents: HellpodEvents = { impact: false, opened: false, finished: false };
   private readonly pose: SoldierPose = {
     moveBlend: 0, sprint: 0, stridePhase: 0, crouch: 0, aim: 0, aimPitch: 0, torsoTwist: 0, airborne: 0,
     verticalVel: 0, flinch: 0, hasWeapon: false, twoHanded: false, reloading: false, recoil: 0, dead: 0,
+    prone: 0, dive: 0,
   };
   private readonly rigInput: RigInput = {
-    pivot: new THREE.Vector3(), aim: 0, sprint: 0, crouch: 0, moveBlend: 0, stridePhase: 0, grounded: true, dead: false, world: null, shipBounds: null,
+    pivot: new THREE.Vector3(), aim: 0, sprint: 0, crouch: 0, prone: 0, dive: 0, moveBlend: 0, stridePhase: 0,
+    grounded: true, dead: false, world: null, shipBounds: null,
   };
   private readonly eyePos = new THREE.Vector3();
   private readonly aimOrigin = new THREE.Vector3();
@@ -87,6 +119,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   get yaw(): number { return this.rig ? this.rig.yaw : 0; }
   get isSprinting(): boolean { return this.controller.sprinting; }
   get object(): THREE.Object3D { return this.model.root; }
+  get stance(): Stance { return this._stance; }
+  get isDiving(): boolean { return this.controller.diving; }
 
   getEyePosition(out = new THREE.Vector3()): THREE.Vector3 {
     return out.copy(this.controller.position).add(this.eyePos);
@@ -132,7 +166,9 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.slowTimer = 0; this.slowFactor = 1; this.controller.speedMultiplier = 1;
     this.isDead = false; this.deadTimer = 0; this.invuln = 0; this.flinch = 0;
     this.healPool = 0; this.fallbackStims = 3;
-    this.isAiming = false; this.aimBlend = 0; this.crouchBlend = 0; this.sprintBlend = 0;
+    this.stamina = this.maxStamina; this.regenDelay = 0; this.exhausted = false; this.exhaustedSlow = 0;
+    this.setStance('stand'); this.standUpTimer = 0;
+    this.isAiming = false; this.aimBlend = 0; this.crouchBlend = 0; this.proneBlend = 0; this.diveBlend = 0; this.sprintBlend = 0;
     this.bodyYaw = y;
     this.spawned = true;
     this.controlsEnabled = true;
@@ -177,7 +213,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.poseRecoil = Math.min(1, this.poseRecoil + 0.8);
   }
   canUseWeapons(): boolean {
-    return this.spawned && this.controlsEnabled && !this.isDead && !(this.hellpod.isActive && this.hellpod.state !== 'exiting');
+    return this.spawned && this.controlsEnabled && !this.isDead && !this.controller.diving
+      && !(this.hellpod.isActive && this.hellpod.state !== 'exiting');
   }
   setWeaponState(state: WeaponState): void {
     this.weaponState.hasWeapon = state.hasWeapon;
@@ -185,6 +222,9 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.weaponState.firing = state.firing;
     this.weaponState.twoHanded = state.twoHanded;
     if (!state.hasWeapon) this.setAiming(false);
+  }
+  setAimZoom(zoom: number, scope: boolean): void {
+    if (this.rig) this.rig.setAimZoom(zoom, scope);
   }
 
   /* ─────────────────────────── GameSystem ─────────────────────────── */
@@ -213,64 +253,98 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
 
   update(dt: number, ctx: GameContext): void {
     const input = ctx.input;
+    const c = this.controller;
     // ride along with a parent (extraction ship)
     if (this.attachedParent) {
       this.model.root.updateWorldMatrix(true, false);
-      this.controller.position.setFromMatrixPosition(this.model.root.matrixWorld);
+      c.position.setFromMatrixPosition(this.model.root.matrixWorld);
     }
 
     const gameplay = ctx.isGameplayActive();
     const active = gameplay && this.controlsEnabled && !this.isDead && this.spawned;
     const locked = input.isPointerLocked;
+    const moveFrozen = this.hellpod.isActive && this.hellpod.state !== 'exiting';
 
     if (gameplay && !locked && input.wasMousePressed(0)) input.requestPointerLock();
 
     // ── timers
     if (this.invuln > 0) this.invuln -= dt;
     if (this.interactCooldown > 0) this.interactCooldown -= dt;
+    if (this.standUpTimer > 0) this.standUpTimer -= dt;
+    if (this.exhaustedSlow > 0) this.exhaustedSlow -= dt;
     if (this.slowTimer > 0) { this.slowTimer -= dt; if (this.slowTimer <= 0) this.slowFactor = 1; }
-    this.controller.speedMultiplier = this.slowTimer > 0 ? THREE.MathUtils.clamp(this.slowFactor, 0.1, 1) : 1;
+    let speedMul = this.slowTimer > 0 ? THREE.MathUtils.clamp(this.slowFactor, 0.1, 1) : 1;
+    if (this.standUpTimer > 0) speedMul *= 0.5;
+    if (this.exhaustedSlow > 0) speedMul *= EXHAUSTED_SLOW;
+    c.speedMultiplier = speedMul;
     this.flinch = damp(this.flinch, 0, 9, dt);
     this.poseRecoil = damp(this.poseRecoil, 0, 14, dt);
 
-    // ── look & aim
+    // ── look & aim (aiming is cancelled during a dive)
     if (active && locked) this.rig.applyLook(input.mouseDX, input.mouseDY, this.aimBlend);
-    this.setAiming(active && locked && this.weaponState.hasWeapon && input.isMouseDown(2));
+    this.setAiming(active && locked && this.weaponState.hasWeapon && input.isMouseDown(MouseButtons.AIM) && !c.diving);
 
     // ── movement input
     const mi = this.moveInput;
-    if (active) {
+    if (active && !moveFrozen) {
       mi.x = (input.isDown(Keys.RIGHT) ? 1 : 0) - (input.isDown(Keys.LEFT) ? 1 : 0);
       mi.z = (input.isDown(Keys.FORWARD) ? 1 : 0) - (input.isDown(Keys.BACK) ? 1 : 0);
-      mi.sprint = input.isDown(Keys.SPRINT);
-      mi.jump = input.wasPressed(Keys.JUMP) && !this.shipBounds;
-      mi.crouch = input.isDown(Keys.CROUCH);
+      const wantsJump = input.wasPressed(Keys.JUMP) && !this.shipBounds;
+      const wantsSprint = input.isDown(Keys.SPRINT) && mi.z > 0.2;
+      this.updateStanceInput(wantsJump, wantsSprint);
+      const transitioning = this.standUpTimer > 0;
+      mi.sprint = input.isDown(Keys.SPRINT) && !this.exhausted && this.stamina > 0 && !transitioning;
+      mi.jump = wantsJump && this._stance === 'stand' && !transitioning && c.grounded && !c.diving && this.stamina >= STAMINA_JUMP_COST;
+      mi.dive = input.wasPressed(Keys.DIVE) && c.grounded && !c.diving && this._stance !== 'prone'
+        && !transitioning && !this.shipBounds && this.stamina >= STAMINA_DIVE_MIN;
+      if (mi.dive) { this.spendStamina(STAMINA_DIVE_COST); this.setAiming(false); }
       mi.aiming = this.isAiming;
       // step out of the pod automatically unless the player takes over
       if (this.hellpod.state === 'exiting' && mi.x === 0 && mi.z === 0) { mi.z = 0.7; mi.sprint = false; }
     } else {
-      mi.x = 0; mi.z = 0; mi.sprint = false; mi.jump = false; mi.crouch = false; mi.aiming = false;
+      mi.x = 0; mi.z = 0; mi.sprint = false; mi.jump = false; mi.dive = false; mi.aiming = false;
     }
-    const wasSprinting = this.controller.sprinting;
-    const moveFrozen = this.hellpod.isActive && this.hellpod.state !== 'exiting';
+    mi.stance = this._stance;
+    const wasSprinting = c.sprinting;
     if (!moveFrozen) {
-      this.controller.update(dt, mi, this.rig.yaw, ctx.world, this.moveResult);
+      c.update(dt, mi, this.rig.yaw, ctx.world, this.moveResult);
     } else {
       this.moveResult.footstep = false; this.moveResult.landed = 0; this.moveResult.jumped = false;
+      this.moveResult.dived = false; this.moveResult.diveEnded = false;
     }
-    if (this.controller.sprinting !== wasSprinting) ctx.bus.emit('player:sprintChanged', { sprinting: this.controller.sprinting });
-    if (this.moveResult.footstep) {
-      ctx.bus.emit('player:footstep', { position: this.controller.position, sprinting: this.controller.sprinting });
-      if (this.controller.sprinting) { const fx = FxManager.get(); if (fx) ParticleBurst.dust(fx.alpha, this.controller.position, _up, 1, 0.5); }
+    const r = this.moveResult;
+    if (c.sprinting !== wasSprinting) ctx.bus.emit('player:sprintChanged', { sprinting: c.sprinting });
+    if (r.footstep) {
+      ctx.bus.emit('player:footstep', { position: c.position, sprinting: c.sprinting });
+      if (c.sprinting) { const fx = FxManager.get(); if (fx) ParticleBurst.dust(fx.alpha, c.position, _up, 1, 0.5); }
     }
-    if (this.moveResult.landed > 0) {
-      const impact = this.moveResult.landed;
-      this.rig.addShake(Math.min(0.35, impact * 0.03), 0.15);
-      ctx.bus.emit('audio:play', { id: 'player_land', position: this.controller.position, volume: Math.min(1, impact / 10) });
+    if (r.jumped) {
+      this.spendStamina(STAMINA_JUMP_COST);
+      ctx.bus.emit('audio:play', { id: 'player_jump', position: c.position, volume: 0.6 });
+    }
+    if (r.dived) {
+      ctx.bus.emit('player:dived', { position: c.position.clone(), direction: c.diveDir.clone() });
+      ctx.bus.emit('audio:play', { id: 'player_jump', position: c.position, volume: 0.7, pitch: 0.85 });
+    }
+    if (r.diveEnded) {
+      // touchdown → prone, small thump, dust
+      this.setStance('prone');
+      this.rig.addShake(0.15, 0.15);
+      ctx.bus.emit('audio:play', { id: 'player_land', position: c.position, volume: 0.7 });
       const fx = FxManager.get();
-      if (fx) ParticleBurst.dust(fx.alpha, this.controller.position, _up, 5, 0.7);
+      if (fx) ParticleBurst.dust(fx.alpha, c.position, _up, 6, 0.8);
+    } else if (r.landed > 0) {
+      // ordinary landing: barely any shake for a normal jump, more for real falls
+      const impact = r.landed;
+      const shake = Math.min(0.2, Math.max(0, impact - 5) * 0.03);
+      if (shake > 0.01) this.rig.addShake(shake, 0.12);
+      ctx.bus.emit('audio:play', { id: 'player_land', position: c.position, volume: Math.min(1, impact / 10) });
+      const fx = FxManager.get();
+      if (fx) ParticleBurst.dust(fx.alpha, c.position, _up, 5, 0.7);
     }
-    if (this.moveResult.jumped) ctx.bus.emit('audio:play', { id: 'player_jump', position: this.controller.position, volume: 0.6 });
+
+    // ── stamina
+    this.updateStamina(dt);
 
     // ── hellpod choreography
     if (this.hellpod.isActive) this.updateDrop(dt);
@@ -290,16 +364,23 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     if (this.isDead) this.deadTimer += dt;
 
     // ── pose blends
-    const c = this.controller;
+    const diving = c.diving;
     this.aimBlend = damp(this.aimBlend, this.isAiming ? 1 : 0, 12, dt);
-    this.crouchBlend = damp(this.crouchBlend, c.crouching ? 1 : 0, 10, dt);
+    // scoped ADS: the camera sits at the shoulder, so hide the soldier (and the held weapon) once the blend is in
+    const scopeHide = this.rig.scoped && this.aimBlend > 0.85;
+    if (scopeHide !== this.scopeHidden) { this.scopeHidden = scopeHide; this.model.setVisible(!scopeHide); }
+    this.crouchBlend = damp(this.crouchBlend, this._stance === 'crouch' && !diving ? 1 : 0, 10, dt);
+    this.proneBlend = damp(this.proneBlend, this._stance === 'prone' && !diving ? 1 : 0, 8, dt);
+    this.diveBlend = damp(this.diveBlend, diving ? 1 : 0, 14, dt);
     this.sprintBlend = damp(this.sprintBlend, c.sprinting ? 1 : 0, 8, dt);
-    this.eyePos.y = THREE.MathUtils.lerp(EYE_STAND, EYE_CROUCH, this.crouchBlend);
+    const eyeTarget = diving ? EYE_DIVE : this._stance === 'prone' ? EYE_PRONE : this._stance === 'crouch' ? EYE_CROUCH : EYE_STAND;
+    this.eyePos.y = damp(this.eyePos.y, eyeTarget, 10, dt);
 
-    // body faces aim when aiming/firing, else movement direction
-    const faceCamera = this.isAiming || this.weaponState.firing || this.weaponState.reloading;
+    // body faces aim when aiming/firing/reloading or prone, the dive direction while diving, else movement
+    const faceCamera = this.isAiming || this.weaponState.firing || this.weaponState.reloading || this._stance === 'prone';
     if (!this.isDead) {
-      if (faceCamera) this.bodyYaw = dampAngle(this.bodyYaw, this.rig.yaw, 18, dt);
+      if (diving) this.bodyYaw = dampAngle(this.bodyYaw, Math.atan2(-c.diveDir.x, -c.diveDir.z), 20, dt);
+      else if (faceCamera) this.bodyYaw = dampAngle(this.bodyYaw, this.rig.yaw, this._stance === 'prone' ? 7 : 18, dt);
       else if (c.speed > 0.4) this.bodyYaw = dampAngle(this.bodyYaw, Math.atan2(-c.moveDir.x, -c.moveDir.z), 12, dt);
     }
     const p = this.pose;
@@ -307,10 +388,12 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     p.sprint = this.sprintBlend;
     p.stridePhase = c.stridePhase;
     p.crouch = this.crouchBlend;
+    p.prone = this.proneBlend;
+    p.dive = this.diveBlend;
     p.aim = this.aimBlend;
     p.aimPitch = this.rig.pitch;
     p.torsoTwist = wrapAngle(this.rig.yaw - this.bodyYaw);
-    p.airborne = damp(p.airborne, c.grounded ? 0 : 1, 12, dt);
+    p.airborne = damp(p.airborne, c.grounded || diving ? 0 : 1, 12, dt);
     p.verticalVel = c.velocity.y;
     p.flinch = this.flinch;
     p.hasWeapon = this.weaponState.hasWeapon;
@@ -340,6 +423,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     ri.aim = this.aimBlend;
     ri.sprint = this.sprintBlend;
     ri.crouch = this.crouchBlend;
+    ri.prone = this.proneBlend;
+    ri.dive = this.diveBlend;
     ri.moveBlend = Math.min(1, this.controller.speed / PLAYER_WALK_SPEED);
     ri.stridePhase = this.controller.stridePhase;
     ri.grounded = this.controller.grounded;
@@ -363,6 +448,60 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     if (aiming === this.isAiming) return;
     this.isAiming = aiming;
     this.ctx.bus.emit('player:aimChanged', { aiming });
+  }
+
+  private setStance(stance: Stance): void {
+    const prev = this._stance;
+    if (stance === prev) return;
+    this._stance = stance;
+    if (prev === 'prone') this.standUpTimer = STAND_UP_TIME;
+    if (this.ctx) this.ctx.bus.emit('player:stanceChanged', { stance, prev });
+  }
+
+  /**
+   * C toggles stand↔crouch (prone → crouch). Z toggles prone (prone → stand).
+   * Sprint (with forward input) or jump while crouched stands up; from prone they only stand up
+   * (0.35 s transition, the jump itself is denied by the caller). Nothing changes while airborne,
+   * diving or mid-transition.
+   */
+  private updateStanceInput(wantsJump: boolean, wantsSprint: boolean): void {
+    const c = this.controller, input = this.ctx.input;
+    if (!c.grounded || c.diving || this.standUpTimer > 0) return;
+    if (input.wasPressed(Keys.CROUCH)) {
+      this.setStance(this._stance === 'crouch' ? 'stand' : 'crouch');
+    } else if (input.wasPressed(Keys.PRONE)) {
+      this.setStance(this._stance === 'prone' ? 'stand' : 'prone');
+    } else if (this._stance !== 'stand' && (wantsJump || wantsSprint)) {
+      this.setStance('stand');
+    }
+  }
+
+  private spendStamina(cost: number): void {
+    this.stamina = Math.max(0, this.stamina - cost);
+    this.regenDelay = STAMINA_REGEN_DELAY;
+    if (this.stamina <= 0) this.onStaminaDepleted();
+  }
+
+  private onStaminaDepleted(): void {
+    if (this.exhausted) return;
+    this.exhausted = true;
+    this.exhaustedSlow = EXHAUSTED_SLOW_TIME;
+    this.ctx.bus.emit('player:staminaDepleted', {});
+  }
+
+  private updateStamina(dt: number): void {
+    const c = this.controller;
+    if (c.sprinting && !this.isDead) {
+      this.stamina -= STAMINA_SPRINT_DRAIN * dt;
+      this.regenDelay = STAMINA_REGEN_DELAY;
+      if (this.stamina <= 0) { this.stamina = 0; this.onStaminaDepleted(); }
+    } else if (this.regenDelay > 0) {
+      this.regenDelay -= dt;
+    } else if (this.stamina < this.maxStamina) {
+      const rate = c.speed < 0.3 && !c.diving ? STAMINA_REGEN_IDLE : STAMINA_REGEN_MOVING;
+      this.stamina = Math.min(this.maxStamina, this.stamina + rate * dt);
+    }
+    if (this.exhausted && this.stamina >= STAMINA_SPRINT_RECOVER) this.exhausted = false;
   }
 
   private die(): void {
@@ -489,6 +628,9 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.isDead = false; this.deadTimer = 0;
     this.healPool = 0;
     this.setAiming(false);
+    this.setStance('stand'); this.standUpTimer = 0;
+    this.stamina = this.maxStamina; this.regenDelay = 0; this.exhausted = false; this.exhaustedSlow = 0;
+    this.crouchBlend = 0; this.proneBlend = 0; this.diveBlend = 0;
     this.interactTarget = null; this.holdProgress = 0;
     if (this.lastPromptText !== null) { this.lastPromptText = null; this.lastHoldProgress = 0; this.ctx.bus.emit('interact:promptChanged', { text: null, holdProgress: 0 }); }
     this.rig.setOverride(null);

@@ -3,10 +3,11 @@ import { el } from '../dom';
 import { MenuBase } from './MenuBase';
 
 const CONTROLS: Array<[string[], string]> = [
-  [['W', 'A', 'S', 'D'], '이동'], [['Shift'], '달리기'], [['Space'], '점프'],
-  [['LMB'], '사격'], [['RMB'], '조준'], [['R'], '재장전'],
+  [['W', 'A', 'S', 'D'], '이동'], [['Shift'], '달리기 (스태미나)'], [['Space'], '점프'],
+  [['C'], '앉기'], [['Z'], '엎드리기'], [['Alt'], '다이빙'],
+  [['LMB'], '사격'], [['RMB'], '조준'], [['MMB'], '핑'], [['R'], '재장전'],
   [['1', '2', 'Q'], '무기 교체'], [['E'], '상호작용 (길게)'], [['F'], '회복제'],
-  [['G'], '수류탄'], [['Tab'], '인벤토리'], [['Esc'], '일시 정지'],
+  [['G'], '수류탄'], [['Tab'], '인벤토리'], [['M'], '지도'], [['Esc'], '일시 정지'],
 ];
 
 /** Title screen: wordmark, seed input, deploy button, controls. */

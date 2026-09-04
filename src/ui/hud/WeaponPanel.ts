@@ -1,11 +1,12 @@
 import type { GameContext } from '@/shared';
+import { WEAPON_CLASS_LABEL_KO, weaponClassOf } from '@/items';
 import { el, setText, toggleClass } from '../dom';
 
 const AMMO_LABEL: Record<string, string> = {
   rifle: '소총탄', pistol: '권총탄', shotgun: '산탄', energy: '에너지',
 };
 
-/** Bottom-right weapon readout: name, mag, reserve, ammo type tag, reload arc, low/empty states. */
+/** Bottom-right weapon readout: name, mag, reserve, class + ammo type tag, reload arc, low/empty states. */
 export class WeaponPanel {
   readonly root: HTMLElement;
   private slotEl: HTMLElement;
@@ -62,7 +63,7 @@ export class WeaponPanel {
         setText(this.slotEl, p.slot === 'primary' ? '1' : '2');
         setText(this.nameEl, p.name);
         const def = ctx.loot?.getWeaponDef(p.weaponId);
-        setText(this.typeEl, def ? (AMMO_LABEL[def.ammoType] ?? def.ammoType) : '—');
+        setText(this.typeEl, def ? `${WEAPON_CLASS_LABEL_KO[weaponClassOf(def)]} · ${AMMO_LABEL[def.ammoType] ?? def.ammoType}` : '—');
         this.setAmmo(p.ammoInMag, p.reserveRounds);
         this.endReload();
       }),

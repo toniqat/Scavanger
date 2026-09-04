@@ -1,5 +1,5 @@
 import type { ItemDef, ItemInstance, WeaponDef } from '@/shared';
-import { TEXT, ammoLabel, categoryLabel, fmtValue, rarityColor, rarityLabel } from './labels';
+import { TEXT, ammoLabel, categoryLabel, effectiveRange, fmtValue, rarityColor, rarityLabel, weaponClassLabel } from './labels';
 
 /** Hover card: name, category · rarity, description, value, size and (for weapons) stats. */
 export class Tooltip {
@@ -37,6 +37,7 @@ export class Tooltip {
     if (weapon) {
       const s = TEXT.weaponStats;
       const dmg = weapon.pellets ? `${weapon.damage} × ${weapon.pellets} ${TEXT.pellets}` : `${weapon.damage}`;
+      rows.push([s.weaponClass, weaponClassLabel(weapon)]);
       rows.push([s.damage, dmg]);
       rows.push([s.fireRate, `${weapon.fireRate} /s`]);
       rows.push([s.magSize, `${weapon.magSize}`]);
@@ -44,7 +45,9 @@ export class Tooltip {
       rows.push([s.reload, `${weapon.reloadTime.toFixed(1)} s`]);
       rows.push([s.mode, weapon.automatic ? TEXT.auto : TEXT.semi]);
       rows.push([s.ammo, ammoLabel(weapon)]);
+      rows.push([s.effectiveRange, `${effectiveRange(weapon)} m`]);
       rows.push([s.range, `${weapon.range} m`]);
+      if (weapon.adsZoom && weapon.adsZoom > 1) rows.push([s.zoom, `${weapon.adsZoom}×`]);
     }
     if (def.healAmount) rows.push(['회복', `+${def.healAmount} HP`]);
     if (def.stackMax > 1) rows.push([TEXT.qty, `${item.qty} / ${def.stackMax}`]);

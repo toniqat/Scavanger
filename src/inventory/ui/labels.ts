@@ -1,5 +1,5 @@
 import type { ItemDef, WeaponDef } from '@/shared';
-import { AMMO_LABEL_KO, CATEGORY_LABEL_KO, RARITY_COLORS, RARITY_LABEL_KO, getTierLabel } from '@/items';
+import { AMMO_LABEL_KO, CATEGORY_LABEL_KO, RARITY_COLORS, RARITY_LABEL_KO, WEAPON_CLASS_LABEL_KO, getTierLabel, weaponClassOf } from '@/items';
 
 export const CELL = 54;   // px
 export const GAP = 2;     // px
@@ -10,6 +10,9 @@ export const categoryLabel = (def: ItemDef): string => CATEGORY_LABEL_KO[def.cat
 export const rarityLabel = (def: ItemDef): string => RARITY_LABEL_KO[def.rarity];
 export const rarityColor = (def: ItemDef): string => RARITY_COLORS[def.rarity];
 export const ammoLabel = (w: WeaponDef): string => AMMO_LABEL_KO[w.ammoType];
+export const weaponClassLabel = (w: WeaponDef): string => WEAPON_CLASS_LABEL_KO[weaponClassOf(w)];
+/** Effective range: where damage starts to fall off, or the max range when the weapon has no falloff. */
+export const effectiveRange = (w: WeaponDef): number => w.falloffStart ?? w.range;
 export const tierTitle = (tier: number): string => getTierLabel(tier);
 
 export const TEXT = {
@@ -26,6 +29,7 @@ export const TEXT = {
   weaponStats: {
     damage: '피해', fireRate: '연사', magSize: '탄창', reserve: '예비 탄창',
     reload: '재장전', ammo: '탄종', range: '사거리', mode: '발사 모드',
+    weaponClass: '종류', effectiveRange: '유효 사거리', zoom: '배율',
   },
   auto: '자동', semi: '반자동', pellets: '펠릿',
 } as const;

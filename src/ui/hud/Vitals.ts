@@ -1,10 +1,11 @@
 import type { GameContext } from '@/shared';
-import { PLAYER_MAX_HP } from '@/shared';
+import { PLAYER_MAX_HP, PLAYER_MAX_STAMINA } from '@/shared';
 import { el, setText, toggleClass, damp } from '../dom';
 
 const SEGMENTS = 10;
+const STAMINA_PULSE = 0.9; // seconds the bar stays amber after depletion
 
-/** Segmented health bar with damage ghost trail, HP number, stim/grenade pills. */
+/** Segmented health bar with damage ghost trail, HP number, stamina bar, stim/grenade pills. */
 export class Vitals {
   readonly root: HTMLElement;
   private fills: HTMLElement[] = [];
@@ -15,6 +16,8 @@ export class Vitals {
   private stimVal: HTMLElement;
   private grenPill: HTMLElement;
   private grenVal: HTMLElement;
+  private stamRoot: HTMLElement;
+  private stamFill: HTMLElement;
 
   private hp = PLAYER_MAX_HP;
   private maxHp = PLAYER_MAX_HP;
@@ -22,6 +25,9 @@ export class Vitals {
   private ghost = PLAYER_MAX_HP;     // slowly follows down
   private ghostDelay = 0;
   private lastShownKey = '';
+  private staminaShown = 1;          // 0..1, damped
+  private lastStaminaKey = '';
+  private depletedTimer = 0;
   private unsubs: Array<() => void> = [];
 
   constructor(parent: HTMLElement) {
@@ -36,6 +42,12 @@ export class Vitals {
       this.fills.push(el('div', { cls: 'fill', parent: seg }));
     }
     el('div', { cls: 'ui-label', text: '생명력', parent: this.root });
+
+    // Stamina: thin bar aligned under the HP bar (same width), dims while full.
+    this.stamRoot = el('div', { cls: 'stamina full', parent: this.root });
+    const stamBar = el('div', { cls: 'stam-bar', parent: this.stamRoot });
+    this.stamFill = el('div', { cls: 'fill', parent: stamBar });
+    el('div', { cls: 'ui-label', text: '스태미나', parent: this.stamRoot });
 
     const pills = el('div', { cls: 'pills', parent: this.root });
     this.stimPill = el('div', { cls: 'pill', parent: pills });
@@ -60,11 +72,19 @@ export class Vitals {
       ctx.bus.on('player:spawned', () => { this.hp = this.shown = this.ghost = ctx.player?.hp ?? PLAYER_MAX_HP; }),
       ctx.bus.on('stim:countChanged', ({ count }) => this.setCount(this.stimPill, this.stimVal, count)),
       ctx.bus.on('grenade:countChanged', ({ count }) => this.setCount(this.grenPill, this.grenVal, count)),
+      ctx.bus.on('player:staminaDepleted', () => {
+        this.depletedTimer = STAMINA_PULSE;
+        // restart the pulse animation even if it is still running
+        this.stamRoot.classList.remove('depleted');
+        void this.stamRoot.offsetWidth;
+        this.stamRoot.classList.add('depleted');
+      }),
     );
   }
 
   update(dt: number, ctx: GameContext): void {
     if (ctx.player) { this.hp = ctx.player.hp; this.maxHp = ctx.player.maxHp; }
+    this.updateStamina(dt, ctx);
     this.shown = damp(this.shown, this.hp, 14, dt);
     if (this.ghostDelay > 0) this.ghostDelay -= dt;
     else this.ghost = this.ghost > this.shown ? damp(this.ghost, this.shown, 4, dt) : this.shown;
@@ -87,6 +107,27 @@ export class Vitals {
     const low = this.hp / this.maxHp < 0.4;
     toggleClass(this.hpNum, 'low', low);
     toggleClass(this.root, 'low', low);
+  }
+
+  private updateStamina(dt: number, ctx: GameContext): void {
+    const p = ctx.player;
+    // Fields are appended to PlayerRef; fall back gracefully if the player has not published them yet.
+    const max = (p?.maxStamina ?? PLAYER_MAX_STAMINA) || PLAYER_MAX_STAMINA;
+    const cur = p?.stamina ?? max;
+    const target = Math.min(1, Math.max(0, cur / max));
+    this.staminaShown = Math.abs(target - this.staminaShown) < 0.002 ? target : damp(this.staminaShown, target, 16, dt);
+    if (this.depletedTimer > 0) {
+      this.depletedTimer -= dt;
+      if (this.depletedTimer <= 0) this.stamRoot.classList.remove('depleted');
+    }
+    const full = this.staminaShown >= 0.995 && this.depletedTimer <= 0;
+    const low = this.staminaShown < 0.25;
+    const key = `${this.staminaShown.toFixed(3)}|${full ? 1 : 0}|${low ? 1 : 0}`;
+    if (key === this.lastStaminaKey) return;
+    this.lastStaminaKey = key;
+    this.stamFill.style.transform = `scaleX(${this.staminaShown.toFixed(3)})`;
+    toggleClass(this.stamRoot, 'full', full);
+    toggleClass(this.stamRoot, 'low', low);
   }
 
   private setCount(pill: HTMLElement, val: HTMLElement, n: number): void {

@@ -11,6 +11,9 @@ import { Notifications } from './hud/Notifications';
 import { DamageOverlay } from './hud/DamageOverlay';
 import { MissionInfo } from './hud/MissionInfo';
 import { DeployOverlay } from './hud/DeployOverlay';
+import { ScopeOverlay } from './hud/ScopeOverlay';
+import { Pings } from './hud/Pings';
+import { MapScreen } from './map/MapScreen';
 import { TitleMenu } from './menus/TitleMenu';
 import { PauseMenu } from './menus/PauseMenu';
 import { DeathScreen } from './menus/DeathScreen';
@@ -31,12 +34,15 @@ export class HudSystem implements GameSystem {
   private weapon!: WeaponPanel;
   private compass!: Compass;
   private markers!: WorldMarkers;
+  private pings!: Pings;
   private objective!: Objective;
   private prompt!: InteractionPrompt;
   private notifs!: Notifications;
   private damage!: DamageOverlay;
+  private scope!: ScopeOverlay;
   private missionInfo!: MissionInfo;
   private deploy!: DeployOverlay;
+  private map!: MapScreen;
 
   private title!: TitleMenu;
   private pause!: PauseMenu;
@@ -48,12 +54,14 @@ export class HudSystem implements GameSystem {
 
   init(ctx: GameContext): void {
     this.ctx = ctx;
-    // Layer order: full-screen overlays (vignette) → HUD → deploy overlay → menus.
+    // Layer order: full-screen overlays (vignette, scope) → HUD → deploy overlay → map → menus.
     this.overlayRoot = el('div', { cls: 'hud', parent: ctx.uiRoot });
     this.damage = new DamageOverlay(this.overlayRoot);
+    this.scope = new ScopeOverlay(this.overlayRoot);
 
     this.hudRoot = el('div', { cls: 'hud', parent: ctx.uiRoot });
     this.markers = new WorldMarkers(this.hudRoot);
+    this.pings = new Pings(this.hudRoot);
     this.reticle = new Reticle(this.hudRoot);
     this.vitals = new Vitals(this.hudRoot);
     this.weapon = new WeaponPanel(this.hudRoot);
@@ -64,13 +72,14 @@ export class HudSystem implements GameSystem {
     this.notifs = new Notifications(this.hudRoot);
 
     this.deploy = new DeployOverlay(ctx.uiRoot);
+    this.map = new MapScreen(ctx.uiRoot);
 
     this.title = new TitleMenu(ctx.uiRoot);
     this.pause = new PauseMenu(ctx.uiRoot);
     this.death = new DeathScreen(ctx.uiRoot);
     this.complete = new MissionComplete(ctx.uiRoot);
 
-    for (const c of [this.reticle, this.vitals, this.weapon, this.compass, this.markers, this.objective, this.prompt, this.notifs, this.damage]) c.bind(ctx);
+    for (const c of [this.reticle, this.vitals, this.weapon, this.compass, this.markers, this.pings, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.map]) c.bind(ctx);
     for (const m of [this.title, this.pause, this.death, this.complete]) m.bind(ctx);
 
     const b = ctx.bus;
@@ -102,20 +111,30 @@ export class HudSystem implements GameSystem {
 
   update(dt: number, ctx: GameContext): void {
     this.applyVisibility();
+    // Map polls M and draws itself while open (also handles its own blocker token).
+    this.map.update(ctx);
     if (this.hudVisible) {
       this.reticle.update(dt, ctx);
       this.vitals.update(dt, ctx);
       this.weapon.update(dt);
       this.compass.update(ctx);
       this.missionInfo.update(ctx);
+      this.pings.update(dt, ctx);
     }
+    this.scope.update(ctx);
     this.damage.update(dt, ctx);
     this.complete.update(dt);
   }
 
   lateUpdate(_dt: number, ctx: GameContext): void {
-    if (this.hudVisible) this.markers.lateUpdate(ctx);
+    if (this.hudVisible) {
+      this.markers.lateUpdate(ctx);
+      this.pings.lateUpdate(ctx);
+    }
   }
+
+  /** Whether the tactical map is currently open (debug / other HUD parts). */
+  get isMapOpen(): boolean { return this.map.isOpen; }
 
   private applyVisibility(): void {
     const ctx = this.ctx;
@@ -133,7 +152,7 @@ export class HudSystem implements GameSystem {
 
   dispose(): void {
     for (const u of this.unsubs) u();
-    for (const c of [this.reticle, this.vitals, this.weapon, this.compass, this.markers, this.objective, this.prompt, this.notifs, this.damage, this.missionInfo, this.deploy]) c.dispose();
+    for (const c of [this.reticle, this.vitals, this.weapon, this.compass, this.markers, this.pings, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.missionInfo, this.deploy, this.map]) c.dispose();
     for (const m of [this.title, this.pause, this.death, this.complete]) m.dispose();
     this.hudRoot.remove(); this.overlayRoot.remove();
   }

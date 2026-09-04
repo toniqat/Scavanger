@@ -37,6 +37,9 @@ export class AudioSystem implements GameSystem {
   private countdownTotal = 1;
   private shipPresent = false;
   private liftoffTimer = -1;
+  /** Last `weapon:scopeChanged.scope` — gates scope_in/out on `player:aimChanged`. */
+  private lastScope = false;
+  private aiming = false;
 
   private camPos = new THREE.Vector3();
   private camFwd = new THREE.Vector3();
@@ -66,8 +69,18 @@ export class AudioSystem implements GameSystem {
       b.on('player:footstep', ({ position, sprinting }) => auto('footstep', position, sprinting ? 0.5 : 0.32, sprinting ? 1.05 : 1)),
       b.on('player:stimUsed', () => auto('stim')),
       b.on('player:landed', () => { auto('hellpod_impact', undefined, 1); }),
+      b.on('player:dived', () => auto('dive', undefined, 0.8, 0.95 + Math.random() * 0.1)),
+      b.on('player:staminaDepleted', () => auto('stamina_depleted', undefined, 0.7)),
+      b.on('player:stanceChanged', ({ stance }) => auto('stance_change', undefined, 0.6, stance === 'prone' ? 0.72 : stance === 'crouch' ? 0.9 : 1.05)),
+      // Scope in/out: only when the current weapon has a scope (tracked from weapon:scopeChanged).
+      b.on('player:aimChanged', ({ aiming }) => {
+        if (aiming === this.aiming) return;
+        this.aiming = aiming;
+        if (this.lastScope) auto(aiming ? 'scope_in' : 'scope_out', undefined, 0.6);
+      }),
 
       // weapons
+      b.on('weapon:scopeChanged', ({ scope }) => { this.lastScope = scope; }),
       b.on('weapon:reloadStarted', () => auto('reload_start')),
       b.on('weapon:reloadFinished', () => auto('reload_end')),
       b.on('weapon:dryFire', () => auto('dry_fire')),
@@ -86,6 +99,15 @@ export class AudioSystem implements GameSystem {
       b.on('inventory:itemRotated', () => auto('ui_rotate')),
       b.on('crate:open', ({ position }) => auto('crate_open', position)),
 
+      // pings / map / input
+      b.on('ping:placed', ({ position, kind }) => {
+        // enemy: higher + urgent; extraction: lower + calmer; crate slightly low; ground neutral.
+        const pitch = kind === 'enemy' ? 1.35 : kind === 'extraction' ? 0.8 : kind === 'crate' ? 0.92 : 1;
+        auto('ping', position, kind === 'enemy' ? 0.85 : 0.7, pitch);
+      }),
+      b.on('ui:mapToggled', ({ open }) => auto(open ? 'map_open' : 'map_close', undefined, 0.7)),
+      b.on('input:pointerLockLost', () => auto('ui_close', undefined, 0.5)),
+
       // extraction
       b.on('extraction:activated', () => { this.tensionTarget = 1; this.countdownRemaining = this.countdownTotal = 1; }),
       b.on('extraction:tick', ({ remaining, total }) => { this.countdownRemaining = remaining; this.countdownTotal = total; }),
@@ -103,7 +125,7 @@ export class AudioSystem implements GameSystem {
         if (phase === 'menu' || phase === 'complete' || phase === 'dead') { this.tensionTarget = 0; }
         if (phase === 'menu') { this.shipPresent = false; this.engineTarget = 0; this.liftoffTimer = -1; }
       }),
-      b.on('game:newMission', () => { this.shipPresent = false; this.engineTarget = 0; this.tensionTarget = 0; this.liftoffTimer = -1; }),
+      b.on('game:newMission', () => { this.shipPresent = false; this.engineTarget = 0; this.tensionTarget = 0; this.liftoffTimer = -1; this.lastScope = false; this.aiming = false; }),
       b.on('game:paused', ({ paused }) => {
         if (!this.ac) return;
         if (paused) this.master.gain.setTargetAtTime(this.masterVolume * 0.25, this.ac.currentTime, 0.1);

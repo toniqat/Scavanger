@@ -25,6 +25,8 @@ export interface TierTable {
   /** Cap on stackable qty per roll (further limited by def.stackMax). */
   maxStackQty: number;
   guaranteed: readonly GuaranteedRoll[];
+  /** Optional per-item multiplier on the rarity weight (item def id → factor; 0 = never at this tier). */
+  itemWeightMul?: Readonly<Record<string, number>>;
 }
 
 export const LOOT_TABLES: readonly TierTable[] = [
@@ -40,6 +42,7 @@ export const LOOT_TABLES: readonly TierTable[] = [
     categoryWeights: { ammo: 20, stim: 14, grenade: 12, material: 16, valuable: 38 },
     weaponChance: 0.35, maxStackQty: 4,
     guaranteed: [{ categories: ['valuable'], minRarity: 'uncommon' }],
+    itemWeightMul: { wpn_smg37: 1.3, wpn_sr9: 0.35 },   // SMGs are field-common; snipers rarely in supply crates
   },
   {
     tier: 3, label: '귀중품 금고', count: [4, 5],
@@ -47,6 +50,7 @@ export const LOOT_TABLES: readonly TierTable[] = [
     categoryWeights: { ammo: 12, stim: 12, grenade: 8, material: 14, valuable: 54 },
     weaponChance: 0.55, maxStackQty: 5,
     guaranteed: [{ categories: ['valuable'], minRarity: 'rare' }],
+    itemWeightMul: { wpn_sr9: 1.2 },
   },
   {
     tier: 4, label: '희귀 캐시', count: [5, 6],
@@ -57,6 +61,7 @@ export const LOOT_TABLES: readonly TierTable[] = [
       { categories: ['valuable'], minRarity: 'epic' },
       { categories: ['primary', 'secondary'], minRarity: 'common' },
     ],
+    itemWeightMul: { wpn_sr9: 1.5, wpn_smg37: 0.7 },
   },
 ];
 

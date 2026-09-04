@@ -1,15 +1,29 @@
-import type { GameContext } from '@/shared';
+import type { GameContext, Stance } from '@/shared';
 import { el, damp } from '../dom';
 
-/** Minimal 4-tick crosshair that blooms on fire, tightens when aiming, flashes hitmarkers. */
+/** Base reticle gap (px) per stance, [hip, ADS]. */
+const STANCE_GAP: Record<Stance, [number, number]> = {
+  stand: [14, 7],
+  crouch: [10, 5],
+  prone: [8, 4],
+};
+const SPRINT_GAP = 18;
+const MOVE_BONUS = 2;
+const MOVE_SPEED_EPS = 0.5; // m/s of horizontal velocity that counts as "moving"
+
+/**
+ * Minimal 4-tick crosshair. Gap depends on stance / aim / sprint / movement, blooms on fire,
+ * flashes hitmarkers. Hidden entirely while the scope overlay is showing.
+ */
 export class Reticle {
   readonly root: HTMLElement;
   private ticks: HTMLElement[] = [];
   private hitmarker: HTMLElement;
-  private gap = 10;
-  private targetGap = 10;
+  private gap = 14;
+  private targetGap = 14;
   private bloom = 0;
   private aiming = false;
+  private scope = false;
   private hitTimer = 0;
   private lastGap = -1;
   private unsubs: Array<() => void> = [];
@@ -23,7 +37,7 @@ export class Reticle {
     }
     this.hitmarker = el('div', { cls: 'hitmarker', parent: this.root });
     for (let i = 0; i < 4; i++) el('span', { parent: this.hitmarker });
-    this.apply(10);
+    this.apply(14);
   }
 
   bind(ctx: GameContext): void {
@@ -31,6 +45,7 @@ export class Reticle {
     this.unsubs.push(
       b.on('weapon:fired', () => { this.bloom = Math.min(this.bloom + 6, 22); }),
       b.on('player:aimChanged', ({ aiming }) => { this.aiming = aiming; }),
+      b.on('weapon:scopeChanged', ({ scope }) => { this.scope = scope; }),
       b.on('ui:hitmarker', ({ kill }) => {
         this.hitmarker.classList.remove('show', 'kill');
         // force restart of transition
@@ -43,8 +58,19 @@ export class Reticle {
   }
 
   update(dt: number, ctx: GameContext): void {
-    const sprinting = ctx.player?.isSprinting ?? false;
-    const base = this.aiming ? 5 : sprinting ? 16 : 10;
+    const p = ctx.player;
+    const sprinting = p?.isSprinting ?? false;
+    const stance: Stance = p?.stance ?? 'stand';
+    const v = p?.velocity;
+    const moving = !!v && (v.x * v.x + v.z * v.z) > MOVE_SPEED_EPS * MOVE_SPEED_EPS;
+
+    let base: number;
+    if (sprinting && !this.aiming) base = SPRINT_GAP;
+    else {
+      const g = STANCE_GAP[stance] ?? STANCE_GAP.stand;
+      base = this.aiming ? g[1] : g[0];
+      if (moving) base += MOVE_BONUS;
+    }
     this.bloom = damp(this.bloom, 0, 9, dt);
     this.targetGap = base + this.bloom;
     this.gap = damp(this.gap, this.targetGap, 18, dt);
@@ -54,7 +80,8 @@ export class Reticle {
       this.hitTimer -= dt;
       if (this.hitTimer <= 0) this.hitmarker.classList.remove('show');
     }
-    const opacity = ctx.uiBlockers.size > 0 ? '0' : '1';
+    const scoped = this.scope && this.aiming;
+    const opacity = ctx.uiBlockers.size > 0 || scoped ? '0' : '1';
     if (this.root.style.opacity !== opacity) this.root.style.opacity = opacity;
   }
 

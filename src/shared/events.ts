@@ -1,5 +1,5 @@
 import type * as THREE from 'three';
-import type { GamePhase, ItemInstance, MissionStats, EnemyType } from './types';
+import type { GamePhase, ItemInstance, MissionStats, EnemyType, Stance } from './types';
 
 /**
  * Every cross-module message goes through the typed EventBus with these payloads.
@@ -35,6 +35,12 @@ export interface GameEvents {
   'player:footstep': { position: THREE.Vector3; sprinting: boolean };
   'interact:promptChanged': { text: string | null; holdProgress: number };
   'interact:performed': { id: string };
+  /* appended: stance / stamina / dive */
+  'player:stanceChanged': { stance: Stance; prev: Stance };
+  /** Dive started (Alt). `direction` is the horizontal unit vector of the dive. */
+  'player:dived': { position: THREE.Vector3; direction: THREE.Vector3 };
+  /** Stamina hit zero (sprint cut off). */
+  'player:staminaDepleted': Record<string, never>;
 
   /* ── weapons (owner: weapons/WeaponSystem) ──────────────────────────── */
   'weapon:equipped': { slot: 'primary' | 'secondary'; weaponId: string; name: string; magSize: number; ammoInMag: number; reserveRounds: number };
@@ -50,6 +56,8 @@ export interface GameEvents {
   'stim:countChanged': { count: number };
   /** Command from Inventory → Weapons: loadout changed (equip/unequip). */
   'loadout:changed': { primary: ItemInstance | null; secondary: ItemInstance | null };
+  /** Active weapon's ADS zoom changed (equip/swap). HUD shows the scope overlay while aiming when `scope` is true. */
+  'weapon:scopeChanged': { zoom: number; scope: boolean };
 
   /* ── enemies (owner: enemies/EnemySystem) ───────────────────────────── */
   'enemy:spawned': { id: number; type: EnemyType; position: THREE.Vector3 };
@@ -86,6 +94,13 @@ export interface GameEvents {
   'ui:damageIndicator': { from: THREE.Vector3 };
   'camera:shake': { intensity: number; duration: number };
   'audio:play': { id: string; position?: THREE.Vector3; volume?: number; pitch?: number };
+  /* appended: ping / map / pointer lock (owner: ui/HudSystem unless noted) */
+  /** A ping was placed (middle mouse). `kind` = what the ping ray hit. `expires` = ctx.time when it auto-clears. */
+  'ping:placed': { id: number; position: THREE.Vector3; kind: 'ground' | 'enemy' | 'crate' | 'extraction'; expires: number };
+  'ping:removed': { id: number };
+  'ui:mapToggled': { open: boolean };
+  /** Pointer lock was lost while gameplay was active (Esc / focus loss). Owner: game/GameFlowSystem. Pause menu follows. */
+  'input:pointerLockLost': Record<string, never>;
 }
 
 export type GameEventName = keyof GameEvents;
