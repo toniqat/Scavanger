@@ -1,4 +1,5 @@
 import type { GameContext, PlayerSnapshot } from '@/shared';
+import type { ImplantId } from '@/shared';
 import { PlayerFlags } from '@/shared';
 
 const round3 = (x: number): number => Math.round(x * 1000) / 1000;
@@ -13,11 +14,18 @@ export class Snapshotter {
   weaponId: string | null = null;
   /** Slot of the active weapon; 'primary' → TWO_HANDED. */
   weaponSlot: 'primary' | 'secondary' | null = null;
+  /* appended (tactical kit): set by implants / inventory so remotes can render gear. */
+  /** Wielded implant id, or null. Set from `implant:wieldChanged`. */
+  implantId: ImplantId | null = null;
+  /** Equipped armor / backpack def ids. Set from `equip:changed`. */
+  armorId: string | null = null;
+  backpackId: string | null = null;
 
   private seq = 0;
   private readonly msg: PlayerSnapshot = {
     t: 'ps', seq: 0, time: 0, p: [0, 0, 0], v: [0, 0, 0], yaw: 0, pitch: 0,
     stance: 'stand', f: 0, hp: 0, w: null, stride: 0, move: 0,
+    imp: null, ar: null, bp: null,
   };
 
   reset(): void { this.seq = 0; }
@@ -40,6 +48,9 @@ export class Snapshotter {
     m.w = inHub ? null : this.weaponId;
     m.stride = round3(p.stridePhase ?? 0);
     m.move = round3(p.moveBlend ?? 0);
+    m.imp = inHub ? null : this.implantId;
+    m.ar = this.armorId;
+    m.bp = this.backpackId;
 
     let f = 0;
     if (p.isSprinting) f |= PlayerFlags.SPRINT;
@@ -53,6 +64,14 @@ export class Snapshotter {
     if (p.isInShip) f |= PlayerFlags.IN_SHIP;
     if (inHub) f |= PlayerFlags.IN_HUB;
     if (p.isInPod) f |= PlayerFlags.IN_POD;
+    /* appended: tactical kit */
+    if (p.isRolling) f |= PlayerFlags.ROLL;
+    if (p.isMeleeing) f |= PlayerFlags.MELEE;
+    if (p.isCloaked) f |= PlayerFlags.CLOAKED;
+    if (p.isDowned) f |= PlayerFlags.DOWNED;
+    if (p.isHovering) f |= PlayerFlags.HOVER;
+    if (p.isOvercharged) f |= PlayerFlags.OVERCHARGED;
+    if (ctx.implants?.barrierActive) f |= PlayerFlags.BARRIER;
     if (m.w !== null) {
       f |= PlayerFlags.HAS_WEAPON;
       if (this.weaponSlot === 'primary') f |= PlayerFlags.TWO_HANDED;

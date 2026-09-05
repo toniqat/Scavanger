@@ -6,6 +6,9 @@ import type {
   Interactable, InteractableRegistry, MissionStats, HubRef, PickupsRef,
 } from './types';
 import type { NetRef } from './net';
+import type { ImplantsRef } from './implants';
+import type { GadgetsRef } from './gadgets';
+import type { ProgressionRef } from './progression';
 
 class InteractableRegistryImpl implements InteractableRegistry {
   private items = new Map<string, Interactable>();
@@ -61,6 +64,13 @@ export class GameContext {
   hub: HubRef | null = null;
   /** World pickups (appended). Published by pickups/PickupSystem. */
   pickups: PickupsRef | null = null;
+  /* ── appended: tactical kit ── */
+  /** Tactical implants (appended). Published by implants/ImplantSystem. */
+  implants: ImplantsRef | null = null;
+  /** Gadget deployables (appended). Published by gadgets/GadgetSystem. */
+  gadgets: GadgetsRef | null = null;
+  /** Character stats / skills / persistent profile (appended). Published by progression/ProgressionSystem. */
+  progression: ProgressionRef | null = null;
 
   /** True when this client simulates authoritative gameplay (enemies, extraction): single-player or lobby host. */
   get isAuthority(): boolean { return this.net?.isAuthority ?? true; }
@@ -109,6 +119,15 @@ export class GameContext {
   isControlActive(): boolean {
     return (this.isGameplayPhase() || this.phase === 'hub') && this.uiBlockers.size === 0;
   }
+  /* ── appended: tactical kit ── */
+  /**
+   * True while the player is on a mission (not in the ship / menus). Gear that may only change in the ship
+   * (implant loadout, stat points, repairs) checks `!isRaidActive()`.
+   */
+  isRaidActive(): boolean {
+    return this.isGameplayPhase() || this.phase === 'deploying';
+  }
+
   setPhase(phase: GamePhase): void {
     if (phase === this.phase) return;
     const prev = this.phase;

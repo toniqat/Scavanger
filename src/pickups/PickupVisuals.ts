@@ -6,6 +6,8 @@ export const BEAM_HEIGHT = 5.5;
 /** Rest height of the body centre above the ground, per category (used by the physics too). */
 const REST_Y: Record<ItemCategory, number> = {
   primary: 0.08, secondary: 0.06, grenade: 0.09, stim: 0.06, ammo: 0.09, valuable: 0.16, material: 0.14,
+  /* appended: tactical kit */
+  armor: 0.12, backpack: 0.14, gadget: 0.1, herb: 0.07,
 };
 
 /**

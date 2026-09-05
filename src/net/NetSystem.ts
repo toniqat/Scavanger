@@ -148,6 +148,15 @@ export class NetSystem implements GameSystem, NetRef {
     bus.on('loadout:changed', (e) => {
       if (!e.primary && !e.secondary) { this.snapshotter.weaponId = null; this.snapshotter.weaponSlot = null; }
     });
+    /* appended: tactical kit — gear the remote avatars render. */
+    bus.on('implant:wieldChanged', (e) => {
+      this.snapshotter.implantId = e.wielded ? e.id : null;
+    });
+    bus.on('equip:changed', (e) => {
+      const defId = e.item ? e.item.defId : null;
+      if (e.slot === 'armor') this.snapshotter.armorId = defId;
+      else if (e.slot === 'backpack') this.snapshotter.backpackId = defId;
+    });
     bus.on('player:died', (e) => {
       if (this._inSession) this.send({ t: 'died', p: [e.position.x, e.position.y, e.position.z] }, 'others');
     });

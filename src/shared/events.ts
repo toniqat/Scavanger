@@ -1,5 +1,9 @@
 import type * as THREE from 'three';
 import type { GamePhase, ItemInstance, MissionStats, EnemyType, Stance, HubShipKind, ChatKind, PingKind } from './types';
+import type { EquipSlot, WeightState } from './gear';
+import type { ImplantId, ScanTarget } from './implants';
+import type { DeployableKind, GadgetId } from './gadgets';
+import type { PlayerProfile, SkillId, StatId } from './progression';
 import type { LobbyErrorCode, LobbyState, PeerId } from './net';
 
 /**
@@ -187,6 +191,92 @@ export interface GameEvents {
   'net:resumed': { lobby: LobbyState; inProgress: boolean; seamless: boolean };
   /** Quick-match result. `created` = no open ship was found so a new public one was created. */
   'net:matched': { lobby: LobbyState; created: boolean };
+
+  /* ══ appended: tactical kit (2026-09-05) ═══════════════════════════════════ */
+
+  /* ── tactical implants (owner: implants/ImplantSystem) ─────────────────── */
+  /** Implant chosen on the ship (or cleared). Persisted by progression/. */
+  'implant:equipped': { id: ImplantId | null };
+  /** Q fired an instant implant, or a wielded one performed its action. */
+  'implant:activated': { id: ImplantId; position: THREE.Vector3 };
+  /** Cooldown / charge readout for the HUD. Fires whenever any of these change. */
+  'implant:cooldownChanged': { id: ImplantId; remaining: number; total: number; charges: number; maxCharges: number };
+  /** A wielded implant went in / out of the hands (weapons holster while `wielded`). */
+  'implant:wieldChanged': { id: ImplantId; wielded: boolean };
+  /** Grapple: whether the point under the crosshair is attachable right now (HUD reticle state). */
+  'implant:grappleTargetChanged': { valid: boolean; distance: number };
+  'implant:grappleFired': { origin: THREE.Vector3; direction: THREE.Vector3 };
+  'implant:grappleAttached': { point: THREE.Vector3 };
+  'implant:grappleReleased': Record<string, never>;
+  'implant:dashed': { position: THREE.Vector3; direction: THREE.Vector3 };
+  /** Barrier durability / deployment changed. */
+  'implant:barrierChanged': { hp: number; maxHp: number; active: boolean };
+  'implant:barrierHit': { point: THREE.Vector3; damage: number };
+  /** Scan pulse went out; `targets` are what it revealed for `duration` seconds. Owner: ui renders the outlines. */
+  'implant:scanned': { pulse: number; radius: number; duration: number; targets: ScanTarget[] };
+  /** Overcharge beam locked on / released. `target` is a peer id, or null for the local player. */
+  'implant:overcharge': { mode: 'heal' | 'boost'; target: string | null; active: boolean };
+  /** Anti-tank rocket detonated. */
+  'implant:rocketExploded': { position: THREE.Vector3; radius: number; damage: number };
+
+  /* ── gadgets (owner: gadgets/GadgetSystem) ─────────────────────────────── */
+  'gadget:used': { id: GadgetId; position: THREE.Vector3 };
+  'gadget:deployed': { id: string; kind: DeployableKind; position: THREE.Vector3; owner: string };
+  'gadget:damaged': { id: string; hp: number; maxHp: number };
+  'gadget:removed': { id: string; kind: DeployableKind; reason: 'destroyed' | 'recovered' | 'expired' };
+  /** A deployable was picked back up; the item is already in the recoverer's bag. */
+  'gadget:recovered': { id: string; item: ItemInstance };
+  /** Over / under-hand throw toggle (shared with grenades). */
+  'gadget:throwModeChanged': { underhand: boolean };
+
+  /* ── melee (owner: player swings, weapons resolves) ────────────────────── */
+  'melee:swing': { weaponId: string | null; damage: number };
+  'melee:hit': { point: THREE.Vector3; enemyId: number | null; damage: number; killed: boolean };
+
+  /* ── player state added by the tactical kit (owner: player) ────────────── */
+  'player:rolled': { position: THREE.Vector3; direction: THREE.Vector3 };
+  /** Downed (multiplayer): revivable with a defibrillator until `bleedout` seconds pass. */
+  'player:downed': { position: THREE.Vector3; bleedout: number };
+  'player:revived': { by: string | null; hp: number };
+  'player:cloakChanged': { cloaked: boolean; source: 'gadget' | 'armor' | null };
+  /** The 인내 skill saved the player from a lethal hit. */
+  'player:gritSaved': { hp: number };
+  'player:burning': { active: boolean; dps: number };
+  /** Jump pad / grapple launched the player. */
+  'player:launched': { position: THREE.Vector3; impulse: THREE.Vector3 };
+
+  /* ── gear / weight / durability (owner: inventory) ─────────────────────── */
+  'equip:changed': { slot: EquipSlot; item: ItemInstance | null };
+  'inventory:weightChanged': { weight: number; capacity: number; ratio: number; state: WeightState };
+  'inventory:overloaded': { state: WeightState };
+  'quickbar:changed': { slots: (ItemInstance | null)[] };
+  'quickbar:used': { index: number; item: ItemInstance };
+  'durability:changed': { uid: string; defId: string; durability: number; max: number };
+  'durability:broken': { uid: string; defId: string; name: string };
+  'repair:completed': { uid: string; name: string; durability: number };
+
+  /* ── detection / highlight (owner: ui) ─────────────────────────────────── */
+  /** Command: outline these objects through walls for `duration` seconds (scan results, quest markers). */
+  'detect:reveal': { targets: ScanTarget[]; duration: number };
+  'detect:clear': Record<string, never>;
+
+  /* ── gathering & crafting (owner: world spawns, inventory crafts) ──────── */
+  'gather:collected': { nodeId: string; defId: string; qty: number };
+  'craft:started': { recipeId: string; duration: number };
+  'craft:completed': { recipeId: string; item: ItemInstance };
+  'craft:failed': { recipeId: string; reason: 'missing' | 'space' | 'cancelled' };
+  /** Command (inventory ui): open / close the field-crafting panel. */
+  'ui:craftToggled': { open: boolean };
+
+  /* ── progression (owner: progression/ProgressionSystem) ────────────────── */
+  'progress:loaded': { profile: PlayerProfile };
+  'progress:xpGained': { amount: number; xp: number; xpToNext: number };
+  'progress:levelUp': { level: number; statPoints: number };
+  'progress:statChanged': { id: StatId; value: number; pointsLeft: number };
+  'progress:skillUp': { id: SkillId; level: number };
+  'progress:skillProgress': { id: SkillId; level: number; progress: number };
+  /** Command (hub ui): open / close the character sheet (stats + skills). */
+  'ui:statsToggled': { open: boolean };
 }
 
 export type GameEventName = keyof GameEvents;

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { PeerId, PlayerSnapshot, RemoteAvatarRef, RemotePlayerRef, Stance } from '@/shared';
+import type { ImplantId, PeerId, PlayerSnapshot, RemoteAvatarRef, RemotePlayerRef, Stance } from '@/shared';
 import { NET_INTERP_DELAY, NET_STALE_AFTER, PLAYER_MAX_HP, PlayerFlags } from '@/shared';
 
 const RING_SIZE = 16;
@@ -63,6 +63,13 @@ export class RemotePlayer implements RemotePlayerRef {
 
   get isDead(): boolean { return (this.flags & PlayerFlags.DEAD) !== 0; }
 
+  /* appended: tactical kit — gear the remote avatar renders, straight off the newest snapshot. */
+  implantId: ImplantId | null = null;
+  armorId: string | null = null;
+  backpackId: string | null = null;
+  get isCloaked(): boolean { return (this.flags & PlayerFlags.CLOAKED) !== 0; }
+  get isDowned(): boolean { return (this.flags & PlayerFlags.DOWNED) !== 0; }
+
   /**
    * The peer's snapshot stream restarted (page reload / rejoin with the same stable PeerId → `seq` starts at 1
    * again). Forget the sequence guard and the interpolation history; the next `push` snaps to the new stream.
@@ -104,6 +111,9 @@ export class RemotePlayer implements RemotePlayerRef {
     this.hp = s.hp;
     this.weaponId = s.w;
     this.moveBlend = s.move;
+    this.implantId = s.imp ?? null;
+    this.armorId = s.ar ?? null;
+    this.backpackId = s.bp ?? null;
     if (!this.hasAny) {
       this.hasAny = true;
       this.position.set(s.p[0], s.p[1], s.p[2]);
