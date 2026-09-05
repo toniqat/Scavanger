@@ -52,7 +52,69 @@
 .crew-row.empty .bar { opacity: 0.25; box-shadow: none; }
 .crew-row.empty .name { color: var(--c-text-faint); font-weight: 400; }
 
+/* ── terminal pages (tactical kit): 함선 / 임플란트 / 정비 ── */
+.hub-tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--c-border); }
+.hub-tab {
+  appearance: none; background: none; border: 1px solid transparent; border-bottom: none;
+  color: var(--c-text-dim); font-family: inherit; font-size: 12px; font-weight: 600;
+  letter-spacing: 0.14em; text-transform: uppercase; padding: 9px 16px; cursor: pointer;
+  transition: color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.hub-tab:hover { color: var(--c-text); background: rgba(255, 255, 255, 0.05); }
+.hub-tab.on { color: var(--c-accent); border-color: var(--c-border); background: rgba(255, 179, 71, 0.08); box-shadow: inset 0 -2px 0 var(--c-accent); }
+.hub-pages { display: flex; flex-direction: column; }
+.hub-page { display: flex; flex-direction: column; gap: 18px; }
+
+/* 임플란트 목록 */
+.imp-list { display: flex; flex-direction: column; gap: 6px; }
+.imp-card {
+  --ic: #9fb6c8;
+  display: flex; gap: 12px; align-items: flex-start; padding: 9px 12px;
+  border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03); cursor: pointer;
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.imp-card:hover { border-color: var(--c-border-strong); background: rgba(255, 255, 255, 0.06); }
+.imp-card.on { border-color: var(--ic); background: color-mix(in srgb, var(--ic) 12%, transparent); }
+.imp-card.locked { cursor: default; opacity: 0.6; }
+.imp-card.locked:hover { border-color: var(--c-border); background: rgba(255, 255, 255, 0.03); }
+.imp-card .ico {
+  flex: none; width: 34px; height: 34px; display: flex; align-items: center; justify-content: center;
+  font-size: 17px; line-height: 1; color: var(--ic); border: 1px solid color-mix(in srgb, var(--ic) 50%, transparent);
+  background: color-mix(in srgb, var(--ic) 10%, transparent);
+}
+.imp-card.on .ico { box-shadow: 0 0 12px color-mix(in srgb, var(--ic) 45%, transparent); }
+.imp-card .body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.imp-card .head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.imp-card .name { font-size: 14px; font-weight: 600; }
+.imp-card.on .name { color: var(--ic); }
+.imp-card .tag { font-size: 9px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--c-text-dim); border: 1px solid var(--c-border); padding: 1px 6px; }
+.imp-card .meta { font-family: var(--ui-mono); font-size: 10px; color: var(--c-text-faint); letter-spacing: 0.04em; }
+.imp-card .desc { font-size: 11.5px; line-height: 1.5; color: var(--c-text-dim); }
+.imp-card.on::after { content: "장착"; margin-left: auto; align-self: center; font-size: 10px; letter-spacing: 0.16em; color: var(--ic); }
+
+/* 정비 목록 */
+.rep-list { display: flex; flex-direction: column; gap: 6px; }
+.rep-row {
+  --rc: var(--r-common);
+  display: flex; align-items: center; gap: 12px; padding: 8px 10px;
+  border: 1px solid var(--c-border); border-left: 3px solid var(--rc); background: rgba(255, 255, 255, 0.03);
+}
+.rep-row.broken { border-color: rgba(255, 77, 77, 0.45); }
+.rep-row .info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.rep-row .head { display: flex; align-items: center; gap: 8px; }
+.rep-row .name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rep-row .where { font-size: 10px; letter-spacing: 0.12em; color: var(--c-text-faint); border: 1px solid var(--c-border); padding: 1px 5px; }
+.rep-row .broken-tag { font-size: 10px; letter-spacing: 0.14em; color: var(--c-danger); border: 1px solid rgba(255, 77, 77, 0.5); padding: 1px 5px; }
+.rep-row .bar { position: relative; height: 5px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
+.rep-row .bar i { position: absolute; inset: 0; background: var(--c-success); transform-origin: left; }
+.rep-row.broken .bar i { background: var(--c-danger); }
+.rep-row .num { font-size: 10px; color: var(--c-text-dim); }
+.rep-row .ui-btn { flex: none; min-width: 0; height: 34px; padding: 0 16px; }
+.rep-empty { font-size: 12px; color: var(--c-text-faint); padding: 14px 0; text-align: center; border: 1px dashed var(--c-border); }
+.hub-section .hint.warn { color: var(--c-accent); }
+
 .hub-foot { display: flex; justify-content: space-between; gap: 10px; padding-top: 6px; border-top: 1px solid var(--c-border); }
+.hub-foot .right { display: flex; gap: 10px; }
 .hub-foot .ui-btn { min-width: 0; padding: 0 18px; }
 .hub-menu .ui-btn:disabled { opacity: 0.45; cursor: default; pointer-events: none; }
 

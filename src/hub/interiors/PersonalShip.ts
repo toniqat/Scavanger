@@ -4,6 +4,7 @@ import { GeoBatch, HUB_MATS as M, disposeMeshes, yawFromForward } from './GeoBat
 import { BoxInteriorCollider } from './InteriorCollider';
 import { Parts, fixture } from './parts';
 import { Starfield, Planet } from './Starfield';
+import { hydroponics, implantBay, repairBench, type ShipStations } from './stations';
 import { TextPlane } from '../Labels';
 import type { PodSlotDef, ShipInterior, TerminalDef } from './types';
 
@@ -25,6 +26,7 @@ export class PersonalShip implements ShipInterior {
   readonly airlockYaw = 0;
   readonly pods: PodSlotDef[] = [];
   readonly terminal: TerminalDef;
+  readonly stations: ShipStations;
 
   private meshes: THREE.Mesh[] = [];
   private lights: THREE.PointLight[] = [];
@@ -106,7 +108,16 @@ export class PersonalShip implements ShipInterior {
     col.addBox(ROOM.minX + 0.55, 0, 1.75, 1.0, 0.7, 2.1);
     // lockers (+Z wall, left) + crates (+Z wall, right)
     P.lockers(-1.6, ROOM.maxZ - 0.27, 3, 0);
-    P.crates(2.2, ROOM.maxZ - 0.5, 3, 0);
+    P.crates(1.85, ROOM.maxZ - 0.5, 3, 0);
+    // ── 함선 시설 (tactical kit): all merged into the same GeoBatch, so no extra draw calls ──
+    // 수경 재배: +X wall, −Z half (facing −X); 임플란트 시술대: −X wall, −Z corner (facing +X);
+    // 정비대: +Z wall right of the crates (facing −Z).
+    this.stations = {
+      garden: hydroponics(b, col, ROOM.maxX - 0.62, -1.85, yawFromForward(-1, 0)),
+      implantBay: implantBay(b, col, ROOM.minX + 0.95, -2.25, yawFromForward(1, 0)),
+      bench: repairBench(b, col, 3.9, ROOM.maxZ - 0.6, 0),
+    };
+
     // airlock door (+Z wall centre) — decorative
     b.box(1.6, 2.6, 0.08, 0.6, 1.3, ROOM.maxZ - 0.05, M.hullDark);
     b.box(0.04, 2.4, 0.1, 0.6, 1.3, ROOM.maxZ - 0.08, M.trim);

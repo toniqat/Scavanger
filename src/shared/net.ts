@@ -318,11 +318,16 @@ export type ImplantMessage =
   | { t: 'imp'; ev: 'rocket'; o: Vec3Tuple; d: Vec3Tuple }
   | { t: 'imp'; ev: 'rocketHit'; p: Vec3Tuple };
 
-/** Any → one peer: a friendly effect (overcharge heal / speed boost, defibrillator). Owner: implants / gadgets. */
+/**
+ * Any → one peer: a friendly effect. 'heal' / 'boost' are the overcharge implant, 'revive' the defibrillator
+ * and 'cloak' the cloak veil sharing its cloak with a nearby squadmate.
+ * Owner: implants/ applies 'heal' and 'boost', gadgets/ applies 'revive' and 'cloak' — each kind has exactly
+ * one owner so a buff is never applied twice.
+ */
 export interface BuffMessage {
   t: 'buff';
-  kind: 'heal' | 'boost' | 'revive';
-  /** hp restored for 'heal' / 'revive'; speed multiplier for 'boost'. */
+  kind: 'heal' | 'boost' | 'revive' | 'cloak';
+  /** hp restored for 'heal' / 'revive'; speed multiplier for 'boost'; unused for 'cloak'. */
   amount: number;
   duration: number;
   /** Sender's display name for the kill / assist feed. */

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { EnemyRef, EnemyType, GameContext, Obstacle } from '@/shared';
+import type { DeployableRef, EnemyRef, EnemyType, GameContext, Obstacle } from '@/shared';
 import { ENEMY_STATS, type EnemyStats } from './EnemyTypes';
 import { createBugRig, createBugAnim, disposeBugRig, animateBug, type BugRig, type BugAnim } from './models/BugModel';
 import type { SpatialGrid } from './SpatialGrid';
@@ -27,6 +27,13 @@ export interface EnemyHost {
   /** Replica only: forward a local hit to the host (`HitRequest`) and play the optimistic gore/audio. */
   requestHit(e: Enemy, amount: number, part: HitPart, hitPoint: THREE.Vector3 | undefined, hitDir: THREE.Vector3 | undefined): void;
   playAudio(id: string, position: THREE.Vector3, volume?: number, pitch?: number): void;
+  /* ── appended: tactical kit ── */
+  /** Strongest lure covering `pos` (own distraction list ∪ `ctx.gadgets.findDistraction`). Writes it into `out`. */
+  lureFor(pos: THREE.Vector3, out: THREE.Vector3): number;
+  /** Spit at an explicit world point (smoke return fire, deployables) instead of at a player. */
+  fireAcidAt(from: THREE.Vector3, aimFeet: THREE.Vector3, shooter: Enemy): void;
+  /** Small ember puff for a burning bug (pooled, no lights). */
+  emberBurst(position: THREE.Vector3, count: number): void;
 }
 
 const _v = new THREE.Vector3();
@@ -100,6 +107,39 @@ export class Enemy implements EnemyRef {
   /** Replica: interpolation ring buffer (created lazily by the replica manager, reused across pool cycles). */
   netBuf: ReplicaBuffer | null = null;
 
+  /* ── appended: tactical kit ────────────────────────────────────────────── */
+  /** Lure (유인 수류탄 / 소음) currently pulling this bug: position + 0..1 strength, refreshed on the perception tick. */
+  readonly lurePos = new THREE.Vector3();
+  hasLure = false;
+  lureWeight = 0;
+  /**
+   * Last spot a shot was heard from while the shooter was hidden (smoke). Ranged bugs answer with very
+   * inaccurate fire at `suspicion` scattered by `suspicionSpread` meters.
+   */
+  readonly suspicion = new THREE.Vector3();
+  suspicionTimer = 0;
+  suspicionSpread = 0;
+  /** ctx.time of the last suspicion refresh (throttles the per-shot vision test). */
+  suspicionAt = -Infinity;
+  /** Spit at `spitPoint` instead of at a player (smoke return fire / deployable). */
+  spitAtPoint = false;
+  readonly spitPoint = new THREE.Vector3();
+  /** Burning DoT (화염지대 / 소이탄). */
+  burnDps = 0;
+  burnTimer = 0;
+  burnTick = 0;
+  emberTimer = 0;
+  /** Movement slow (0..1 multiplier, 1 = none). */
+  slowFactor = 1;
+  slowTimer = 0;
+  /** Deployable (바리케이드 / 돔 실드 / 포탑 / 유인) this bug is chewing on or shooting at. */
+  structTarget: DeployableRef | null = null;
+  structTimer = 0;
+  /** true while the current attack swing is aimed at `structTarget` instead of a player. */
+  structAttack = false;
+  /** true when `structTarget` is what stands between this bug and its player target. */
+  structBlocking = false;
+
   constructor(type: EnemyType) {
     this.rig = createBugRig(type);
     this.type = type;
@@ -138,6 +178,12 @@ export class Enemy implements EnemyRef {
     this.spawnTime = now;
     this.relentless = false;
     this.lastDamager = 'local'; this.lastLocalHit = -Infinity;
+    this.hasLure = false; this.lureWeight = 0;
+    this.suspicionTimer = 0; this.suspicionSpread = 0; this.suspicionAt = -Infinity;
+    this.spitAtPoint = false;
+    this.burnDps = 0; this.burnTimer = 0; this.burnTick = 0; this.emberTimer = 0;
+    this.slowFactor = 1; this.slowTimer = 0;
+    this.structTarget = null; this.structTimer = 0; this.structAttack = false; this.structBlocking = false;
     this.netBuf?.clear();
     const a = this.anim;
     a.gait = Math.random() * Math.PI * 2; a.speed = 0; a.headYaw = 0; a.headPitch = 0; a.mandible = 0;
@@ -241,6 +287,23 @@ export class Enemy implements EnemyRef {
     }
   }
 
+  /**
+   * Damage-over-time tick (burning). Quieter than `takeDamage`: no gore burst, no `enemy:damaged` broadcast
+   * and no stagger — the host's enemy snapshots carry the falling hp to the clients.
+   * Authority only; `attacker` gets the kill credit.
+   */
+  applyDot(amount: number, attacker: TargetId = 'local'): void {
+    if (!this.active || this.state === 'dead' || amount <= 0) return;
+    this.hp -= amount;
+    this.lastDamager = attacker;
+    this.anim.hitFlash = Math.max(this.anim.hitFlash, 0.45);
+    if (!this.aware) {
+      this.aware = true;
+      if (this.state === 'idle' || this.state === 'wander') { this.state = 'alert'; this.stateTime = 0; }
+    }
+    if (this.hp <= 0) { this.hp = 0; this.kill(true); }
+  }
+
   enterStagger(duration: number): void {
     this.state = 'stagger';
     this.stateTime = 0;
@@ -269,6 +332,10 @@ export class Enemy implements EnemyRef {
     this.anim.crouch = 0;
     this.anim.mandible = 0.2;
     this.velocity.set(0, 0, 0);
+    this.burnDps = 0; this.burnTimer = 0;
+    this.slowFactor = 1; this.slowTimer = 0;
+    this.structTarget = null; this.structAttack = false; this.structBlocking = false;
+    this.hasLure = false; this.spitAtPoint = false;
     this.host?.onEnemyKilled(this, countKill);
   }
 

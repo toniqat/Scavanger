@@ -1,13 +1,14 @@
 import * as THREE from 'three';
 import {
-  MAP_SIZE, NET_ENEMY_SNAPSHOT_HZ,
+  GADGET_LURE_RADIUS, MAP_SIZE, NET_ENEMY_SNAPSHOT_HZ,
   type DamageMessage, type EnemyEvent, type EnemyHit, type EnemyManagerRef, type EnemyRef, type EnemyType, type GameContext, type GameSystem,
 } from '@/shared';
 import { Enemy, type EnemyHost, type HitPart } from './Enemy';
 import { SPEWER_SPIT } from './EnemyTypes';
 import { SpatialGrid } from './SpatialGrid';
 import { CombatTarget, TargetList, type TargetId } from './Targets';
-import { updateEnemyAI } from './ai/EnemyAI';
+import { SUSPICION_TIME, updateEnemyAI } from './ai/EnemyAI';
+import { LureField } from './ai/Lures';
 import { becomeAlert } from './ai/Perception';
 import { BloodFX } from './fx/BloodFX';
 import { AcidProjectiles, type AcidHost, type AcidSlow } from './fx/AcidProjectile';
@@ -23,6 +24,18 @@ const CORPSE_SLACK = 10;      // corpses allowed above the alive cap before bein
 const RECYCLE_DISTANCE = 160;
 const MAX_REQUEST_DAMAGE = 500;
 const MAX_REQUEST_RADIUS = 20;
+/* ── appended: tactical kit ── */
+/** Burning damage is applied in discrete ticks (quiet: no gore burst / `ee damaged` per tick). */
+const BURN_TICK = 0.5;
+/** Ember puff interval for a burning bug. */
+const EMBER_INTERVAL = 0.35;
+/** Bugs within this range of a shot remember where it came from (smoke return fire). */
+const SUSPICION_RADIUS = 55;
+/** Per-bug throttle on the (cheap but not free) `visionFactor` test used to grade a shot. */
+const SUSPICION_REFRESH = 0.2;
+/** Gunfire also acts as a weak lure so swarms converge on a firefight. */
+const GUNFIRE_LURE_WEIGHT = 0.25;
+const GUNFIRE_LURE_DURATION = 4;
 
 const _v = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
@@ -32,7 +45,9 @@ const _hp = new THREE.Vector3();
 const _hd = new THREE.Vector3();
 const _c = new THREE.Vector3();
 const _zero = new THREE.Vector3();
+const _eye = new THREE.Vector3();
 const killedBuf: Enemy[] = [];
+const queryBuf: Enemy[] = [];
 
 /**
  * Owns every bug: pooling, AI ticks, hit detection, spawning (ambient + extraction waves), gore FX.
@@ -59,6 +74,10 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   private readonly spawner = new AmbientSpawner();
   private readonly waves = new WaveDirector();
   private readonly replicaMgr = new EnemyReplica(this);
+  /** Noise beacons the bugs walk toward (`addDistraction`, gunfire). Merged with `ctx.gadgets.findDistraction`. */
+  private readonly lures = new LureField();
+  /** ctx.time when the spatial grid was last rebuilt (so `queryNear` knows it can trust it). */
+  private gridTime = -1;
   private nextId = 1;
   private paused = false;
   /** Cached per mission: this client simulates the bugs (single-player or host). */
@@ -104,9 +123,9 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       bus.on('game:abort', () => { this.reset(); this.disposePools(); this.refreshMode(); }),
       // multiplayer pause menus keep simulating (freeze === false)
       bus.on('game:paused', ({ paused, freeze }) => { this.paused = paused && freeze !== false; }),
-      bus.on('weapon:fired', ({ origin }) => this.alertHearing(origin, 55)),
-      bus.on('net:remoteFired', ({ origin }) => this.alertHearing(origin, 55)),
-      bus.on('grenade:exploded', ({ position }) => this.alertHearing(position, 80)),
+      bus.on('weapon:fired', ({ origin }) => this.onGunshot(origin, 55)),
+      bus.on('net:remoteFired', ({ origin }) => this.onGunshot(origin, 55)),
+      bus.on('grenade:exploded', ({ position }) => this.onGunshot(position, 80)),
       bus.on('extraction:activated', ({ position }) => this.startExtractionWaves(position)),
       bus.on('extraction:liftoff', ({ position }) => {
         this.stopExtractionWaves();
@@ -154,6 +173,10 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       const e = this.active[i];
       if (e.state !== 'dead' && e.state !== 'flee') grid.insert(e);
     }
+    this.gridTime = ctx.time;
+    this.lures.prune(ctx.time);
+    // status effects tick on every client (embers are visual); only the authority applies the damage
+    if (ctx.isGameplayPhase()) this.updateStatuses(dt);
 
     if (this.authority) {
       if (ctx.isGameplayPhase()) {
@@ -305,8 +328,94 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     }
   }
 
+  /* ── EnemyManagerRef: appended tactical-kit queries ────────────────────── */
+
+  /**
+   * Alive enemies within `radius` of `pos` (turrets, scans, explosions, lures).
+   * Uses the per-frame spatial grid when it is fresh, else a linear scan — both allocation-free apart
+   * from the returned array.
+   */
+  queryNear(pos: THREE.Vector3, radius: number): EnemyRef[] {
+    const out: EnemyRef[] = [];
+    const r2 = radius * radius;
+    const usable = this.gridTime === this.ctx.time && this.active.length > 24;
+    if (usable) {
+      queryBuf.length = 0;
+      const n = this.grid.query(pos.x, pos.z, radius, queryBuf);
+      for (let i = 0; i < n; i++) {
+        const e = queryBuf[i];
+        if (!e.active || e.state === 'dead' || e.state === 'flee') continue;
+        const dx = e.position.x - pos.x, dy = e.position.y + e.stats.height * 0.5 - pos.y, dz = e.position.z - pos.z;
+        if (dx * dx + dy * dy + dz * dz <= r2) out.push(e);
+      }
+      queryBuf.length = 0;
+      return out;
+    }
+    for (let i = 0; i < this.active.length; i++) {
+      const e = this.active[i];
+      if (!e.active || e.state === 'dead' || e.state === 'flee') continue;
+      const dx = e.position.x - pos.x, dy = e.position.y + e.stats.height * 0.5 - pos.y, dz = e.position.z - pos.z;
+      if (dx * dx + dy * dy + dz * dz <= r2) out.push(e);
+    }
+    return out;
+  }
+
+  /**
+   * Pull aggro toward `pos` (lure grenade, gunfire noise). Registers a lure the AI walks toward and
+   * wakes unaware bugs inside the radius. Authority only — replicas follow the host's snapshots.
+   */
+  addDistraction(pos: THREE.Vector3, radius: number, duration: number, weight: number): void {
+    if (!this.authority) return;
+    this.lures.add(pos, radius, duration, weight, this.ctx.time);
+    if (weight < 0.3) return;
+    // a real lure also wakes the swarm around it
+    const r2 = radius * radius;
+    let loudBudget = 2;
+    for (let i = 0; i < this.active.length; i++) {
+      const e = this.active[i];
+      if (!e.active || e.state === 'dead' || e.state === 'flee') continue;
+      const dx = e.position.x - pos.x, dz = e.position.z - pos.z;
+      if (dx * dx + dz * dz > r2) continue;
+      e.lurePos.copy(pos);
+      e.lureWeight = Math.max(e.lureWeight, weight);
+      e.hasLure = true;
+      if (!e.aware) { becomeAlert(e, this, loudBudget > 0); loudBudget--; }
+    }
+  }
+
+  /**
+   * Apply a status effect. `burning` deals `dps` damage (in 0.5 s ticks) for `duration` seconds and
+   * spits embers; `slowed` reads `dps` as the fraction of speed removed (0.4 → 60 % speed), clamped to 0.2…1.
+   * `dps` 0 clears the effect. Visuals run everywhere; damage only on the authority.
+   */
+  applyStatus(id: number, status: 'burning' | 'slowed', dps: number, duration: number): void {
+    const e = this.byId.get(id);
+    if (!e || !e.active || e.state === 'dead') return;
+    if (status === 'burning') {
+      if (dps <= 0) { e.burnDps = 0; e.burnTimer = 0; return; }
+      e.burnDps = Math.max(e.burnDps, dps);
+      e.burnTimer = Math.max(e.burnTimer, duration);
+      if (e.burnTick <= 0) e.burnTick = BURN_TICK;
+      return;
+    }
+    if (dps <= 0) { e.slowFactor = 1; e.slowTimer = 0; return; }
+    const factor = THREE.MathUtils.clamp(dps <= 1 ? 1 - dps : 1 / dps, 0.2, 1);
+    e.slowFactor = Math.min(e.slowFactor, factor);
+    e.slowTimer = Math.max(e.slowTimer, duration);
+  }
+
+  /**
+   * Radial damage credited to `by` (turret, mine, rocket). Same falloff as `applyExplosion`.
+   * On a replica this plays the local FX and forwards an `ExplodeRequest` (the host credits the requester).
+   */
+  applyAreaDamage(center: THREE.Vector3, radius: number, damage: number, by?: string): number {
+    if (this.replica) return this.applyExplosion(center, radius, damage);
+    return this.explode(center, radius, damage, (by as TargetId | undefined) ?? 'local', null);
+  }
+
   reset(): void {
     this.resetting = true;
+    this.lures.clear();
     for (let i = this.active.length - 1; i >= 0; i--) this.despawn(this.active[i]);
     this.active.length = 0;
     this.byId.clear();
@@ -457,6 +566,84 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       if (e === source || !e.active || e.state === 'dead' || e.aware) continue;
       const dx = e.position.x - position.x, dz = e.position.z - position.z;
       if (dx * dx + dz * dz <= r2) becomeAlert(e, this, false);
+    }
+  }
+
+  /** Strongest lure covering `pos`: own distraction list merged with the authoritative gadget beacon. */
+  lureFor(pos: THREE.Vector3, out: THREE.Vector3): number {
+    let w = this.lures.best(pos, out, this.ctx.time);
+    const g = this.ctx.gadgets;
+    if (g) {
+      const dep = g.findDistraction(pos, GADGET_LURE_RADIUS);
+      if (dep) {
+        const dw = 0.85;
+        if (dw > w) { w = dw; out.copy(dep.position); }
+      }
+    }
+    return w;
+  }
+
+  /** Spit at an explicit point (smoke return fire / deployables) — the glob still hurts whoever it lands on. */
+  fireAcidAt(from: THREE.Vector3, aimFeet: THREE.Vector3, shooter: Enemy): void {
+    this.acid?.fireAt(from, aimFeet, shooter.id);
+  }
+
+  emberBurst(position: THREE.Vector3, count: number): void {
+    this.fx?.burst(position, count, 'ember', 1.6);
+  }
+
+  /* ── status effects (burning / slow) ───────────────────────────────────── */
+  private updateStatuses(dt: number): void {
+    const authority = this.authority;
+    for (let i = 0; i < this.active.length; i++) {
+      const e = this.active[i];
+      if (!e.active || e.state === 'dead' || e.burnTimer <= 0) continue;
+      e.burnTimer -= dt;
+      e.emberTimer -= dt;
+      if (e.emberTimer <= 0) {
+        e.emberTimer = EMBER_INTERVAL;
+        _v.set(e.position.x, e.position.y + e.stats.height * 0.55, e.position.z);
+        this.emberBurst(_v, 4);
+      }
+      if (authority) {
+        e.burnTick -= dt;
+        if (e.burnTick <= 0) {
+          e.burnTick += BURN_TICK;
+          e.applyDot(e.burnDps * BURN_TICK, e.lastDamager);
+        }
+      }
+      if (e.burnTimer <= 0) { e.burnDps = 0; e.burnTick = 0; }
+    }
+  }
+
+  /**
+   * A shot was heard. Wakes bugs (hearing) and, for those that cannot see through the smoke it came out of,
+   * records a suspicion point they answer with very inaccurate fire. Gunfire also acts as a weak lure.
+   */
+  private onGunshot(position: THREE.Vector3, radius: number): void {
+    this.alertHearing(position, radius);
+    if (!this.authority || !this.ctx.isGameplayPhase()) return;
+    this.lures.add(position, radius, GUNFIRE_LURE_DURATION, GUNFIRE_LURE_WEIGHT, this.ctx.time);
+    const gadgets = this.ctx.gadgets;
+    const now = this.ctx.time;
+    const r2 = SUSPICION_RADIUS * SUSPICION_RADIUS;
+    for (let i = 0; i < this.active.length; i++) {
+      const e = this.active[i];
+      if (!e.active || e.state === 'dead' || e.state === 'flee') continue;
+      const dx = e.position.x - position.x, dz = e.position.z - position.z;
+      if (dx * dx + dz * dz > r2) continue;
+      if (now - e.suspicionAt < SUSPICION_REFRESH) continue;
+      e.suspicionAt = now;
+      let clarity = 1;
+      if (gadgets) {
+        _eye.set(e.position.x, e.position.y + e.stats.height * 0.8, e.position.z);
+        const v = gadgets.visionFactor(_eye, position);
+        if (typeof v === 'number' && v >= 0 && v <= 1) clarity = v;
+      }
+      e.suspicion.copy(position);
+      e.suspicionTimer = SUSPICION_TIME;
+      // shooting out of a smoke cloud draws a wide, wild answer; a clear shot is answered accurately
+      e.suspicionSpread = clarity > 0.75 ? 1.5 : 3 + (1 - clarity) * 7;
     }
   }
 

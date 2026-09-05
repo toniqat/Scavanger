@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { CLOAK_REVEAL_DISTANCE } from '@/shared';
 import type { Enemy, EnemyHost } from '../Enemy';
 import type { CombatTarget } from '../Targets';
 
@@ -6,17 +7,49 @@ const _o = new THREE.Vector3();
 const _t = new THREE.Vector3();
 const _d = new THREE.Vector3();
 
+/** Below this vision factor the target counts as hidden (smoke) even with a clear geometric line. */
+const SMOKE_BLIND = 0.4;
+
+/** Bug eye position (used for LOS and smoke tests). */
+function eyeOf(e: Enemy, out: THREE.Vector3): THREE.Vector3 {
+  return out.set(e.position.x, e.position.y + e.stats.height * 0.8, e.position.z);
+}
+
 /** True when nothing (terrain / props) blocks the line from the bug's eyes to the target's chest. */
 export function hasLineOfSight(e: Enemy, host: EnemyHost, target: CombatTarget): boolean {
   const world = host.ctx.world;
   if (!world) return false;
-  _o.copy(e.position); _o.y += e.stats.height * 0.8;
+  eyeOf(e, _o);
   target.getChest(_t);
   _d.subVectors(_t, _o);
   const dist = _d.length();
   if (dist < 1e-3) return true;
   _d.multiplyScalar(1 / dist);
   return world.raycast(_o, _d, dist - 0.3) === null;
+}
+
+/**
+ * 0..1 clarity of the line from the bug's eyes to `target`'s chest, as reported by `ctx.gadgets.visionFactor`
+ * (smoke clouds). 1 when there is no gadget system yet or nothing obscures the line.
+ */
+export function visionClarity(e: Enemy, host: EnemyHost, target: CombatTarget): number {
+  const g = host.ctx.gadgets;
+  if (!g) return 1;
+  eyeOf(e, _o);
+  target.getChest(_t);
+  const v = g.visionFactor(_o, _t);
+  return typeof v === 'number' && v >= 0 && v <= 1 ? v : 1;
+}
+
+/**
+ * Effective detection range for `target`: base sight radius × the target's stealth factor (은폐)
+ * × the smoke clarity between the two (`ctx.gadgets.visionFactor`).
+ * An alerted bug closer than `CLOAK_REVEAL_DISTANCE` sees a cloaked target regardless.
+ */
+export function detectionRange(e: Enemy, host: EnemyHost, target: CombatTarget, clarity: number): number {
+  const stealth = target.stealth > 0 && target.stealth <= 1 ? target.stealth : 1;
+  const range = e.stats.sightRadius * stealth * clarity;
+  return e.aware ? Math.max(range, CLOAK_REVEAL_DISTANCE) : range;
 }
 
 /**
@@ -65,27 +98,48 @@ export function becomeAlert(e: Enemy, host: EnemyHost, loud: boolean): void {
 }
 
 /**
- * Staggered perception tick (≤ every 0.3 s per bug): sight acquisition with LOS,
- * and target loss when the target is far and unseen for a while.
+ * Staggered perception tick (≤ every 0.3 s per bug): sight acquisition with LOS, cloak / smoke aware detection
+ * range, lure refresh, standing-in-fire check, and target loss when the target is far and unseen for a while.
  */
 export function updatePerception(e: Enemy, dt: number, host: EnemyHost): void {
   e.perceptionTimer -= dt;
   if (e.perceptionTimer > 0) return;
   e.perceptionTimer = 0.3;
+
+  // lures (유인 수류탄 / 소음) — cheap, and also pulls bugs that have no target at all
+  e.lureWeight = host.lureFor(e.position, e.lurePos);
+  e.hasLure = e.lureWeight > 0;
+
+  // fire zones burn whoever stands in them, even if gadgets/ never calls applyStatus for this bug
+  const gadgets = host.ctx.gadgets;
+  if (gadgets) {
+    const dps = gadgets.fireDamageAt(e.position);
+    if (dps > 0) { e.burnDps = Math.max(e.burnDps, dps); e.burnTimer = Math.max(e.burnTimer, 1.2); }
+  }
+
   const t = e.target;
   if (!t || t.isDead) { e.hasLOS = false; return; }
   const dist = e.distToTarget;
+  const clarity = visionClarity(e, host, t);
+  const range = detectionRange(e, host, t, clarity);
+
   if (!e.aware) {
-    if (dist < e.stats.sightRadius) {
-      // very close bugs notice you regardless of LOS; otherwise need a clear line
-      const seen = dist < 5 || hasLineOfSight(e, host, t);
+    if (dist < range) {
+      // very close bugs notice you regardless of LOS (but not through a smoke wall)
+      const seen = (dist < Math.min(5, range) && clarity > SMOKE_BLIND) || hasLineOfSight(e, host, t);
       e.hasLOS = seen;
       if (seen) becomeAlert(e, host, true);
     } else e.hasLOS = false;
   } else {
-    e.hasLOS = dist < 90 && hasLineOfSight(e, host, t);
+    const blinded = clarity <= SMOKE_BLIND && dist > CLOAK_REVEAL_DISTANCE;
+    // once alerted a bug keeps tracking well past its acquisition range (90 m for a plain target,
+    // but only ~16 m for a cloaked one), and not at all through smoke
+    const trackRange = Math.min(90 * clarity, Math.max(range * 2.2, CLOAK_REVEAL_DISTANCE));
+    e.hasLOS = !blinded && dist < trackRange && hasLineOfSight(e, host, t);
     if (!e.relentless) {
-      if (!e.hasLOS && dist > 60) {
+      // cloaked / smoked targets are lost faster: any range beyond the (reduced) tracking range counts
+      const lost = !e.hasLOS && (dist > 60 || dist > trackRange);
+      if (lost) {
         e.lostTimer += 0.3;
         if (e.lostTimer > 10) {
           e.aware = false;

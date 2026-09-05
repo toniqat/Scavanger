@@ -1,22 +1,36 @@
 import * as THREE from 'three';
-import type { GameContext, GameSystem, InventoryRef, ItemDef, ItemInstance, Loadout } from '@/shared';
-import { INVENTORY_COLS, INVENTORY_ROWS, Keys } from '@/shared';
-import { AMMO_LABEL_KO, ITEM_DEF_MAP, LootService, STARTER_LOADOUT, getWeaponDef } from '@/items';
+import type {
+  CraftRecipe, CraftStation, DurabilityInfo, EquipSlot, GadgetId, GameContext, GameSystem,
+  InventoryRef, ItemDef, ItemInstance, Loadout, QuickSlot, WeightInfo,
+} from '@/shared';
+import { Keys, QUICK_SLOT_KEYS } from '@/shared';
+import {
+  AMMO_LABEL_KO, BASE_BAG_COLS, BASE_BAG_ROWS, ITEM_DEF_MAP, LootService, STARTER_LOADOUT,
+  getRecipe, getWeaponDef, itemWeight,
+} from '@/items';
 import { Grid, OOB } from './Grid';
 import { Container, ContainerStore } from './Container';
+import {
+  backpackOf, durabilityInfo, gearMultipliers, makeWeightInfo, quickSlotCount, sumWeight,
+} from './Gear';
 import { InventoryUI } from './ui/InventoryUI';
 
 /* ── UI ↔ system vocabulary ─────────────────────────────────────────────── */
 export type GridId = 'bag' | 'container';
-export type SlotId = 'primary' | 'secondary';
+/** Equipment slots. Widened by the tactical kit: armor + backpack joined the two weapon slots. */
+export type SlotId = EquipSlot;
 export type ItemLocation = { kind: 'grid'; grid: GridId } | { kind: 'slot'; slot: SlotId };
 export type DropTarget =
   | { kind: 'grid'; grid: GridId; x: number; y: number; rotated: boolean }
-  | { kind: 'slot'; slot: SlotId };
+  | { kind: 'slot'; slot: SlotId }
+  /** Quick-use bar cell (assignment only — the item stays in the bag). */
+  | { kind: 'quick'; index: number };
 /** `ok` mutated, `noop` nothing to do (drop in place), `fail` refused (UI shakes). */
 export type OpResult = 'ok' | 'noop' | 'fail';
 export type DropPreview = 'ok' | 'swap' | 'merge' | 'noop' | 'bad';
 export type UiSfx = 'ui_pickup' | 'ui_drop' | 'ui_rotate' | 'ui_error' | 'ui_equip';
+
+export const EQUIP_SLOTS: readonly SlotId[] = ['primary', 'secondary', 'armor', 'backpack'];
 
 const AUTO_CLOSE_DISTANCE = 6;
 const BLOCKER_TOKEN = 'inventory';
@@ -27,9 +41,21 @@ const DROP_FORWARD_SPEED = 3.5;
 const DROP_UP_SPEED = 2.0;
 const MOD_SHIFT = ['ShiftLeft', 'ShiftRight'] as const;
 const MOD_CTRL = ['ControlLeft', 'ControlRight'] as const;
+/** Minimum craft speed multiplier so a pathological derived value cannot make a craft instant. */
+const CRAFT_MIN_SPEED = 0.2;
+
+type FullLoadout = { primary: ItemInstance | null; secondary: ItemInstance | null; armor: ItemInstance | null; backpack: ItemInstance | null };
+
+interface CraftJob {
+  recipe: CraftRecipe;
+  remaining: number;
+  duration: number;
+  resolve(item: ItemInstance | null): void;
+}
 
 /**
- * Owns the player's bag grid, equipment slots and the open loot container.
+ * Owns the player's bag grid, the four equipment slots, the quick-use bar, the weight budget,
+ * gear durability, field crafting and the open loot container.
  * Publishes `ctx.inventory` (this) and `ctx.loot` (LootService).
  */
 export class InventorySystem implements GameSystem, InventoryRef {
@@ -38,7 +64,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
   private ctx!: GameContext;
   private loot = new LootService();
   private bag!: Grid;
-  private loadout: Loadout = { primary: null, secondary: null };
+  private loadout: FullLoadout = { primary: null, secondary: null, armor: null, backpack: null };
   private containers = new ContainerStore((id) => ITEM_DEF_MAP.get(id));
   private activeContainer: Container | null = null;
   private _open = false;
@@ -47,6 +73,15 @@ export class InventorySystem implements GameSystem, InventoryRef {
   private lastStims = -1;
   private ui: InventoryUI | null = null;
   private offs: Array<() => void> = [];
+
+  /* tactical kit state */
+  private quickUids: (string | null)[] = [];
+  private lastQuickSig = '';
+  private lastWeight: WeightInfo | null = null;
+  private craftJob: CraftJob | null = null;
+  private underhand = false;
+  private gridDirty = false;
+
   private escHandler = (e: KeyboardEvent): void => {
     if (e.code !== Keys.MENU || !this._open) return;
     e.preventDefault();
@@ -62,7 +97,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
     this.ctx = ctx;
     ctx.inventory = this;
     ctx.loot = this.loot;
-    this.bag = new Grid(INVENTORY_COLS, INVENTORY_ROWS, (id) => ITEM_DEF_MAP.get(id));
+    this.bag = new Grid(BASE_BAG_COLS, BASE_BAG_ROWS, (id) => ITEM_DEF_MAP.get(id));
     this.ui = new InventoryUI(this, ctx);
     this.ui.mount();
 
@@ -70,20 +105,31 @@ export class InventorySystem implements GameSystem, InventoryRef {
     this.offs.push(
       bus.on('world:ready', ({ seed }) => { this.missionSeed = seed; this.reset(); }),
       bus.on('crate:open', ({ crateId, tier, position }) => this.openContainer(crateId, tier, position)),
-      bus.on('player:died', () => this.closeAll()),
-      bus.on('game:abort', () => { this.closeAll(); this.containers.clear(); }),
-      bus.on('game:newMission', () => { this.closeAll(); this.containers.clear(); }),
-      bus.on('game:phaseChanged', () => { if (!ctx.isGameplayPhase()) this.closeAll(); }),
+      bus.on('player:died', () => { this.cancelCraft(); this.closeAll(); }),
+      bus.on('game:abort', () => { this.cancelCraft(); this.closeAll(); this.containers.clear(); }),
+      bus.on('game:newMission', () => { this.cancelCraft(); this.closeAll(); this.containers.clear(); }),
+      bus.on('game:phaseChanged', () => { if (!this.canBeOpen()) { this.cancelCraft(); this.closeAll(); } }),
+      // The throw mode is owned by gadgets/; mirror it so quick-use throws match the HUD.
+      bus.on('gadget:throwModeChanged', ({ underhand }) => { this.underhand = underhand; }),
+      // Gathered herbs / recovered deployables arrive through tryAddItem, but the world emits this first.
+      bus.on('gather:collected', () => { this.gridDirty = true; }),
     );
     // Capture-phase so Escape closes the inventory without also reaching the menu system.
     window.addEventListener('keydown', this.escHandler, true);
   }
 
-  update(_dt: number, ctx: GameContext): void {
-    if (ctx.input.wasPressed(Keys.INVENTORY) && ctx.isGameplayPhase() && (this._open || ctx.uiBlockers.size === 0)) {
+  update(dt: number, ctx: GameContext): void {
+    if (ctx.input.wasPressed(Keys.INVENTORY) && this.canBeOpen() && (this._open || ctx.uiBlockers.size === 0)) {
       this.toggleBag();
     }
-    if (!this._open) return;
+    this.updateQuickKeys(ctx);
+    this.updateCraft(dt);
+    this.updateSearch(dt);
+
+    if (!this._open) {
+      if (this.gridDirty) { this.gridDirty = false; this.afterChange(); }
+      return;
+    }
     if (ctx.input.wasPressed(Keys.ROTATE_ITEM)) this.ui?.onRotateKey();
     if (ctx.input.wasPressed(Keys.DROP_ITEM)) {
       const shift = MOD_SHIFT.some((c) => ctx.input.isDown(c));
@@ -101,17 +147,28 @@ export class InventorySystem implements GameSystem, InventoryRef {
     for (const off of this.offs) off();
     this.offs = [];
     window.removeEventListener('keydown', this.escHandler, true);
+    this.cancelCraft();
     this.closeAll();
     this.ui?.dispose();
     this.ui = null;
     if (this.ctx?.inventory === this) this.ctx.inventory = null;
   }
 
+  /** Phases where the bag may be opened: gameplay **and** the ship hub (gear, repairs, crafting). */
+  private canBeOpen(): boolean {
+    return this.ctx.isGameplayPhase() || this.ctx.isHubPhase();
+  }
+
   /* ── InventoryRef ──────────────────────────────────────────────────────── */
 
   get isOpen(): boolean { return this._open; }
 
-  getLoadout(): Loadout { return { primary: this.loadout.primary, secondary: this.loadout.secondary }; }
+  getLoadout(): Loadout {
+    return {
+      primary: this.loadout.primary, secondary: this.loadout.secondary,
+      armor: this.loadout.armor, backpack: this.loadout.backpack,
+    };
+  }
 
   getDef(defId: string): ItemDef | undefined { return ITEM_DEF_MAP.get(defId); }
 
@@ -151,6 +208,18 @@ export class InventorySystem implements GameSystem, InventoryRef {
     return consumed;
   }
 
+  /** Remove exactly `qty` units of `defId` from the bag; false (and no change) when there is not enough. */
+  consumeDef(defId: string, qty: number): boolean {
+    const want = Math.max(0, Math.floor(qty));
+    if (want === 0) return true;
+    if (this.countDef(defId) < want) return false;
+    return this.consumeWhere((d) => d.id === defId, want) === want;
+  }
+
+  private countDef(defId: string): number {
+    return this.countWhere((d) => d.id === defId);
+  }
+
   tryAddItem(item: ItemInstance): boolean {
     const def = ITEM_DEF_MAP.get(item.defId);
     if (!def) return false;
@@ -174,13 +243,21 @@ export class InventorySystem implements GameSystem, InventoryRef {
     const { item, from } = found;
     const def = ITEM_DEF_MAP.get(item.defId);
     if (!def) return false;
+    if (from.kind === 'grid' && from.grid === 'container' && this.isHidden(uid)) return false;
     const want = qty === undefined ? item.qty : Math.floor(qty);
     if (!Number.isFinite(want) || want < 1) return false;
     const n = Math.min(want, item.qty);
 
     let dropped: ItemInstance;
+    let rebuiltBag = false;
     if (n >= item.qty) {
-      this.detach(item, from);
+      if (from.kind === 'slot' && from.slot === 'backpack') {
+        this.loadout.backpack = null;
+        this.rebuildBag(null);
+        rebuiltBag = true;
+      } else {
+        this.detach(item, from);
+      }
       dropped = item;
     } else {
       dropped = this.loot.createItem(item.defId, n);
@@ -188,8 +265,19 @@ export class InventorySystem implements GameSystem, InventoryRef {
       if (from.kind === 'grid') { const g = this.getGrid(from.grid); if (g) g.version++; }
     }
     if (this.locKind(from) === 'player') this.ctx.bus.emit('inventory:itemRemoved', { item: dropped });
-    if (from.kind === 'slot') this.emitLoadout();
+    if (from.kind === 'slot') {
+      this.ctx.bus.emit('equip:changed', { slot: from.slot, item: null });
+      if (from.slot === 'primary' || from.slot === 'secondary') this.emitLoadout();
+    }
+    if (rebuiltBag) this.ui?.markGridChanged();
 
+    this.throwToWorld(dropped);
+    this.afterChange();
+    return true;
+  }
+
+  /** Emit the world-drop event for an instance that is already detached from every grid/slot. */
+  private throwToWorld(item: ItemInstance): void {
     const position = new THREE.Vector3();
     const velocity = new THREE.Vector3();
     const player = this.ctx.player;
@@ -201,9 +289,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
       velocity.copy(forward).multiplyScalar(DROP_FORWARD_SPEED);
       velocity.y += DROP_UP_SPEED;
     }
-    this.ctx.bus.emit('inventory:itemDropped', { item: dropped, position, velocity });
-    this.afterChange();
-    return true;
+    this.ctx.bus.emit('inventory:itemDropped', { item, position, velocity });
   }
 
   /**
@@ -238,7 +324,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
   }
 
   openContainer(containerId: string, tier: number, position: THREE.Vector3): void {
-    const c = this.containers.getOrCreate(containerId, tier, position, this.loot, this.missionSeed);
+    const mult = gearMultipliers(this.ctx.progression?.derived);
+    const c = this.containers.getOrCreate(containerId, tier, position, this.loot, this.missionSeed, mult.searchSpeedMul);
     this.activeContainer = c;
     this.setOpen(true);
     this.ui?.show(c);
@@ -260,30 +347,469 @@ export class InventorySystem implements GameSystem, InventoryRef {
     this.setOpen(false);
     this.ui?.hide();
     this.ctx.bus.emit('inventory:closed', {});
-    // Re-acquire the pointer when we return to gameplay. The Tab/Esc press (or click) that
+    // Re-acquire the pointer when we return to gameplay / the hub. The Tab/Esc press (or click) that
     // closed the window is the user activation Chrome requires for requestPointerLock().
-    // Deferred a microtask so callers that close us right before leaving gameplay
-    // (GameFlow complete/abort → setPhase) are seen by the check.
     const ctx = this.ctx;
     queueMicrotask(() => {
-      if (this._open || !ctx.isGameplayPhase() || ctx.uiBlockers.size > 0) return;
+      if (this._open || !this.canBeOpen() || ctx.uiBlockers.size > 0) return;
       if (ctx.player?.isDead ?? false) return;
       ctx.input.requestPointerLock();
     });
   }
 
   reset(): void {
+    this.cancelCraft();
     this.closeAll();
     this.containers.clear();
     this.bag.clear();
+    this.quickUids = [];
+    this.lastQuickSig = '';
+    this.lastWeight = null;
     this.loadout = {
       primary: this.loot.createItem(STARTER_LOADOUT.primary),
       secondary: this.loot.createItem(STARTER_LOADOUT.secondary),
+      armor: this.loot.createItem(STARTER_LOADOUT.armor),
+      backpack: this.loot.createItem(STARTER_LOADOUT.backpack),
     };
+    this.rebuildBag(null);
     for (const e of STARTER_LOADOUT.bag) this.bag.autoPlace(this.loot.createItem(e.id, e.qty));
     this.lastGrenades = -1; this.lastStims = -1; // force count events
+    for (const slot of EQUIP_SLOTS) this.ctx.bus.emit('equip:changed', { slot, item: this.loadout[slot] });
     this.emitLoadout();
     this.afterChange();
+  }
+
+  /* ── gear slots (tactical kit) ─────────────────────────────────────────── */
+
+  getEquipped(slot: EquipSlot): ItemInstance | null { return this.loadout[slot]; }
+
+  /**
+   * Equip / unequip a gear slot. `item` must be a def of the matching category; when it is already in the
+   * bag / open container it is detached from there and whatever was equipped takes its place (or is dropped
+   * when there is no room). Changing the backpack rebuilds the bag grid.
+   */
+  equip(slot: EquipSlot, item: ItemInstance | null): boolean {
+    if (item === null) return this.unequipSlot(slot);
+    const def = ITEM_DEF_MAP.get(item.defId);
+    if (!def || def.category !== slot) return false;
+    const found = this.locate(item.uid);
+    if (found && found.from.kind === 'slot') return found.from.slot === slot;
+    if (found && found.from.kind === 'grid') {
+      if (found.from.grid === 'container' && this.isHidden(item.uid)) return false;
+      return this.dropOnSlot(item, def, found.from, slot) === 'ok';
+    }
+    // Not held anywhere (starter kit / scripted grants).
+    this.setSlotDirect(slot, item);
+    return true;
+  }
+
+  private unequipSlot(slot: EquipSlot): boolean {
+    const cur = this.loadout[slot];
+    if (!cur) return true;
+    if (slot === 'backpack') {
+      this.loadout.backpack = null;
+      this.rebuildBag(cur);
+      this.ui?.markGridChanged();
+    } else {
+      this.loadout[slot] = null;
+      if (!this.bag.autoPlace(cur)) this.throwToWorld(cur);
+    }
+    this.ctx.bus.emit('equip:changed', { slot, item: null });
+    if (slot === 'primary' || slot === 'secondary') this.emitLoadout();
+    this.afterChange();
+    return true;
+  }
+
+  /** Put `item` into `slot` without touching any grid; the displaced item goes to the bag or the floor. */
+  private setSlotDirect(slot: EquipSlot, item: ItemInstance | null): void {
+    const old = this.loadout[slot];
+    if (slot === 'backpack') {
+      this.loadout.backpack = item;
+      this.rebuildBag(old);
+      this.ui?.markGridChanged();
+    } else {
+      this.loadout[slot] = item;
+      if (old && !this.bag.autoPlace(old)) this.throwToWorld(old);
+    }
+    this.ctx.bus.emit('equip:changed', { slot, item });
+    if (slot === 'primary' || slot === 'secondary') this.emitLoadout();
+    this.afterChange();
+  }
+
+  /**
+   * Rebuild the bag grid for the currently equipped backpack and re-place everything it held.
+   * `extra` (the backpack that was just taken off) gets the first placement attempt; anything that no
+   * longer fits is thrown on the floor, exactly like a manual drop.
+   */
+  private rebuildBag(extra: ItemInstance | null): void {
+    const bp = backpackOf(this.loadout.backpack, this.gearLookup());
+    const cols = bp?.cols ?? BASE_BAG_COLS;
+    const rows = bp?.rows ?? BASE_BAG_ROWS;
+    const carried = this.bag ? this.bag.items().map((p) => p.item) : [];
+    carried.sort((a, b) => this.area(b) - this.area(a));
+    this.bag = new Grid(cols, rows, (id) => ITEM_DEF_MAP.get(id));
+
+    const overflow: ItemInstance[] = [];
+    const place = (it: ItemInstance): void => { if (!this.bag.autoPlace(it)) overflow.push(it); };
+    if (extra) place(extra);
+    for (const it of carried) place(it);
+
+    for (const it of overflow) {
+      const def = ITEM_DEF_MAP.get(it.defId);
+      this.ctx.bus.emit('inventory:itemRemoved', { item: it });
+      this.throwToWorld(it);
+      if (def) this.ctx.bus.emit('ui:notify', { text: `가방이 작아 ${def.name}을(를) 떨어뜨렸습니다`, kind: 'warning' });
+    }
+    this.pruneQuick();
+  }
+
+  private gearLookup() {
+    return {
+      getDef: (id: string) => ITEM_DEF_MAP.get(id),
+      getArmorDef: (id: string) => this.loot.getArmorDef(id),
+      getBackpackDef: (id: string) => this.loot.getBackpackDef(id),
+    };
+  }
+
+  /* ── weight ────────────────────────────────────────────────────────────── */
+
+  getWeight(): WeightInfo {
+    const mult = gearMultipliers(this.ctx.progression?.derived);
+    let w = sumWeight(this.bag.items().map((p) => p.item), (id) => ITEM_DEF_MAP.get(id));
+    for (const slot of EQUIP_SLOTS) {
+      const it = this.loadout[slot];
+      if (!it) continue;
+      const d = ITEM_DEF_MAP.get(it.defId);
+      if (d) w += itemWeight(d, it.qty);
+    }
+    const bp = backpackOf(this.loadout.backpack, this.gearLookup());
+    const capacity = mult.carryCapacity + (bp?.capacityBonus ?? 0);
+    return makeWeightInfo(Math.round(w * 100) / 100, capacity, mult.carryRelief);
+  }
+
+  private emitWeight(): void {
+    const info = this.getWeight();
+    const prev = this.lastWeight;
+    const same = prev && prev.state === info.state
+      && Math.abs(prev.weight - info.weight) < 0.005 && Math.abs(prev.capacity - info.capacity) < 0.005;
+    if (same) return;
+    this.lastWeight = info;
+    this.ctx.bus.emit('inventory:weightChanged', {
+      weight: info.weight, capacity: info.capacity, ratio: info.ratio, state: info.state,
+    });
+    if ((!prev || prev.state !== info.state) && (info.state === 'heavy' || info.state === 'over')) {
+      this.ctx.bus.emit('inventory:overloaded', { state: info.state });
+    }
+  }
+
+  /* ── quick-use bar ─────────────────────────────────────────────────────── */
+
+  get quickSlotCount(): number {
+    return Math.min(QUICK_SLOT_KEYS.length, quickSlotCount(backpackOf(this.loadout.backpack, this.gearLookup())));
+  }
+
+  getQuickSlots(): readonly QuickSlot[] {
+    const n = this.quickSlotCount;
+    const out: QuickSlot[] = [];
+    for (let i = 0; i < n; i++) {
+      const uid = this.quickUids[i] ?? null;
+      out.push({ index: i, item: uid ? this.bag.get(uid)?.item ?? null : null });
+    }
+    return out;
+  }
+
+  setQuickSlot(index: number, item: ItemInstance | null): boolean {
+    if (!Number.isInteger(index) || index < 0 || index >= this.quickSlotCount) return false;
+    if (item === null) {
+      if (!this.quickUids[index]) return false;
+      this.quickUids[index] = null;
+      this.emitQuick(true);
+      return true;
+    }
+    const def = ITEM_DEF_MAP.get(item.defId);
+    if (!def || def.quickUsable !== true) return false;
+    if (!this.bag.has(item.uid)) return false;
+    for (let i = 0; i < this.quickUids.length; i++) if (this.quickUids[i] === item.uid) this.quickUids[i] = null;
+    this.quickUids[index] = item.uid;
+    this.emitQuick(true);
+    return true;
+  }
+
+  /**
+   * Fire quick slot `index`. Stims heal on the spot, gadgets go through `ctx.gadgets.use`, grenades and
+   * ammo only announce themselves with `quickbar:used` (weapons owns the actual throw / resupply).
+   */
+  useQuickSlot(index: number): boolean {
+    const slot = this.getQuickSlots()[index];
+    const item = slot?.item ?? null;
+    if (!item) return false;
+    const def = ITEM_DEF_MAP.get(item.defId);
+    if (!def || def.quickUsable !== true) return false;
+    const player = this.ctx.player;
+    if (player?.isDead) return false;
+
+    if (def.category === 'stim') {
+      const mult = gearMultipliers(this.ctx.progression?.derived);
+      const heal = (def.healAmount ?? 50) * mult.healPowerMul;
+      if (!this.consumeDef(def.id, 1)) return false;
+      player?.heal(heal);
+      this.ctx.bus.emit('player:stimUsed', { hp: player?.hp ?? 0 });
+      this.ctx.bus.emit('audio:play', { id: 'stim_use' });
+      this.ctx.bus.emit('quickbar:used', { index, item });
+      return true;
+    }
+    if (def.category === 'gadget') {
+      const gadgets = this.ctx.gadgets;
+      if (!gadgets || !def.gadgetId) {
+        this.ctx.bus.emit('ui:notify', { text: '지금은 사용할 수 없습니다', kind: 'warning' });
+        return false;
+      }
+      if (!gadgets.use(def.gadgetId as GadgetId, this.underhand)) return false;
+      this.ctx.bus.emit('quickbar:used', { index, item });
+      return true;
+    }
+    // grenades / ammo packs: weapons/ owns the throw and the resupply.
+    this.ctx.bus.emit('quickbar:used', { index, item });
+    return true;
+  }
+
+  private updateQuickKeys(ctx: GameContext): void {
+    if (this._open || !ctx.isGameplayActive()) return;
+    const n = this.quickSlotCount;
+    for (let i = 0; i < n; i++) {
+      if (ctx.input.wasPressed(QUICK_SLOT_KEYS[i])) this.useQuickSlot(i);
+    }
+  }
+
+  /**
+   * Drop stale uids and auto-fill empty slots with unassigned quick-usable bag items so the bar is
+   * useful without any manual setup. Emits `quickbar:changed` when the resolved contents changed.
+   */
+  private pruneQuick(): void {
+    const n = this.quickSlotCount;
+    this.quickUids.length = Math.max(this.quickUids.length, n);
+    for (let i = 0; i < this.quickUids.length; i++) {
+      const uid = this.quickUids[i];
+      if (uid && !this.bag.has(uid)) this.quickUids[i] = null;
+    }
+    const assigned = new Set(this.quickUids.filter((u): u is string => !!u));
+    for (let i = 0; i < n; i++) {
+      if (this.quickUids[i]) continue;
+      const p = this.bag.items().find((q) => {
+        if (assigned.has(q.item.uid)) return false;
+        const d = ITEM_DEF_MAP.get(q.item.defId);
+        return !!d && d.quickUsable === true;
+      });
+      if (!p) break;
+      this.quickUids[i] = p.item.uid;
+      assigned.add(p.item.uid);
+    }
+  }
+
+  private emitQuick(force = false): void {
+    const slots = this.getQuickSlots();
+    const sig = slots.map((s) => (s.item ? `${s.item.defId}:${s.item.qty}` : '-')).join('|');
+    if (!force && sig === this.lastQuickSig) return;
+    this.lastQuickSig = sig;
+    this.ctx.bus.emit('quickbar:changed', { slots: slots.map((s) => s.item) });
+    this.ui?.refreshQuick();
+  }
+
+  /* ── durability ────────────────────────────────────────────────────────── */
+
+  getDurability(uid: string): DurabilityInfo | null {
+    const found = this.locateAny(uid);
+    if (!found) return null;
+    const def = ITEM_DEF_MAP.get(found.item.defId);
+    return def ? durabilityInfo(found.item, def) : null;
+  }
+
+  damageDurability(uid: string, amount: number): void {
+    const wear = Math.max(0, amount);
+    if (wear === 0) return;
+    const found = this.locateAny(uid);
+    if (!found) return;
+    const def = ITEM_DEF_MAP.get(found.item.defId);
+    const max = def?.durabilityMax;
+    if (!def || max === undefined || max <= 0) return;
+    const before = Math.max(0, Math.min(max, found.item.durability ?? max));
+    if (before <= 0) return;
+    const after = Math.max(0, before - wear);
+    if (after === before) return;
+    found.item.durability = after;
+    this.ctx.bus.emit('durability:changed', { uid, defId: def.id, durability: after, max });
+    if (after <= 0) {
+      this.ctx.bus.emit('durability:broken', { uid, defId: def.id, name: def.name });
+      this.ctx.bus.emit('ui:notify', { text: `${def.name} 파손!`, kind: 'danger' });
+      this.ctx.bus.emit('audio:play', { id: 'gear_broken' });
+    }
+    this.gridDirty = true;
+    if (this._open) this.ui?.refresh();
+  }
+
+  /** Repair a worn item to full. Ship only (`ctx.isRaidActive()` refuses). */
+  repair(uid: string): boolean {
+    if (this.ctx.isRaidActive()) return false;
+    const found = this.locateAny(uid);
+    if (!found) return false;
+    const def = ITEM_DEF_MAP.get(found.item.defId);
+    const max = def?.durabilityMax;
+    if (!def || max === undefined || max <= 0) return false;
+    if ((found.item.durability ?? max) >= max) return false;
+    found.item.durability = max;
+    this.ctx.bus.emit('durability:changed', { uid, defId: def.id, durability: max, max });
+    this.ctx.bus.emit('repair:completed', { uid, name: def.name, durability: max });
+    this.ctx.bus.emit('audio:play', { id: 'gear_repair' });
+    this.afterChange();
+    return true;
+  }
+
+  /** Every item the player owns that tracks durability (bag + equipped). Used by the ship repair bench. */
+  getRepairables(): Array<{ item: ItemInstance; def: ItemDef; info: DurabilityInfo }> {
+    const out: Array<{ item: ItemInstance; def: ItemDef; info: DurabilityInfo }> = [];
+    const add = (item: ItemInstance | null): void => {
+      if (!item) return;
+      const def = ITEM_DEF_MAP.get(item.defId);
+      if (!def) return;
+      const info = durabilityInfo(item, def);
+      if (info && info.durability < info.max) out.push({ item, def, info });
+    };
+    for (const slot of EQUIP_SLOTS) add(this.loadout[slot]);
+    for (const p of this.bag.items()) add(p.item);
+    return out;
+  }
+
+  /* ── field crafting ────────────────────────────────────────────────────── */
+
+  /** 'ship' while walking the hub / menus, 'field' on a mission. */
+  currentStation(): CraftStation {
+    return this.ctx.isRaidActive() ? 'field' : 'ship';
+  }
+
+  getRecipes(station: CraftStation): readonly CraftRecipe[] {
+    const skillOf = (id: CraftRecipe['skill']): number => this.ctx.progression?.getSkill(id) ?? 0;
+    return this.loot.getAllRecipes().filter((r) => {
+      if (station === 'field' && r.station !== 'field') return false;
+      return skillOf(r.skill) >= r.skillRequired;
+    });
+  }
+
+  canCraft(recipeId: string): boolean {
+    const r = getRecipe(recipeId);
+    if (!r) return false;
+    return r.inputs.every((i) => this.countDef(i.defId) >= i.qty);
+  }
+
+  /** Seconds one craft takes right now (recipe duration scaled by 제작 skill and 재주). */
+  craftDuration(recipeId: string): number {
+    const r = getRecipe(recipeId);
+    if (!r) return 0;
+    const mult = gearMultipliers(this.ctx.progression?.derived);
+    const speed = Math.max(CRAFT_MIN_SPEED, mult.craftSpeedMul * mult.useSpeedMul);
+    return r.duration / speed;
+  }
+
+  craft(recipeId: string): Promise<ItemInstance | null> {
+    const r = getRecipe(recipeId);
+    if (!r) return Promise.resolve(null);
+    this.cancelCraft();
+    if (this.getRecipes(this.currentStation()).indexOf(r) < 0) {
+      this.ctx.bus.emit('craft:failed', { recipeId, reason: 'missing' });
+      return Promise.resolve(null);
+    }
+    if (!this.canCraft(recipeId)) {
+      this.ctx.bus.emit('craft:failed', { recipeId, reason: 'missing' });
+      return Promise.resolve(null);
+    }
+    const duration = this.craftDuration(recipeId);
+    this.ctx.bus.emit('craft:started', { recipeId, duration });
+    return new Promise<ItemInstance | null>((resolve) => {
+      this.craftJob = { recipe: r, remaining: duration, duration, resolve };
+    });
+  }
+
+  /** Abort the running craft (releasing the hold button, closing the panel, dying). */
+  cancelCraft(): boolean {
+    const job = this.craftJob;
+    if (!job) return false;
+    this.craftJob = null;
+    this.ctx.bus.emit('craft:failed', { recipeId: job.recipe.id, reason: 'cancelled' });
+    job.resolve(null);
+    this.ui?.refreshCraft();
+    return true;
+  }
+
+  /** 0..1 progress of the running craft (0 when idle). */
+  craftProgress(): { recipeId: string; progress: number } | null {
+    const job = this.craftJob;
+    if (!job) return null;
+    return { recipeId: job.recipe.id, progress: 1 - Math.max(0, job.remaining) / Math.max(0.001, job.duration) };
+  }
+
+  private updateCraft(dt: number): void {
+    const job = this.craftJob;
+    if (!job || dt <= 0) return;
+    job.remaining -= dt;
+    if (job.remaining > 0) { this.ui?.refreshCraft(); return; }
+    this.craftJob = null;
+    const r = job.recipe;
+    if (!this.canCraft(r.id)) {
+      this.ctx.bus.emit('craft:failed', { recipeId: r.id, reason: 'missing' });
+      job.resolve(null);
+      this.ui?.refreshCraft();
+      return;
+    }
+    const outDef = ITEM_DEF_MAP.get(r.outputDefId);
+    if (!outDef) { this.ctx.bus.emit('craft:failed', { recipeId: r.id, reason: 'missing' }); job.resolve(null); return; }
+    const product = this.loot.createItem(r.outputDefId, Math.min(outDef.stackMax, r.outputQty));
+    if (!this.bag.canAbsorb(product)) {
+      this.ctx.bus.emit('craft:failed', { recipeId: r.id, reason: 'space' });
+      this.ctx.bus.emit('ui:notify', { text: '가방에 공간이 없습니다', kind: 'warning' });
+      job.resolve(null);
+      this.ui?.refreshCraft();
+      return;
+    }
+    for (const i of r.inputs) this.consumeDef(i.defId, i.qty);
+    // Overflow beyond one stack is produced as extra stacks (or dropped when the bag is full).
+    let remaining = r.outputQty;
+    let first: ItemInstance | null = null;
+    while (remaining > 0) {
+      const qty = Math.min(outDef.stackMax, remaining);
+      const item = remaining === r.outputQty ? product : this.loot.createItem(r.outputDefId, qty);
+      item.qty = qty;
+      remaining -= qty;
+      if (!this.bag.autoPlace(item)) { this.throwToWorld(item); }
+      else this.ctx.bus.emit('inventory:itemAdded', { item, name: outDef.name, rarity: outDef.rarity });
+      if (!first) first = item;
+    }
+    this.ctx.bus.emit('craft:completed', { recipeId: r.id, item: first ?? product });
+    this.ctx.bus.emit('audio:play', { id: 'craft_done' });
+    this.afterChange();
+    this.ui?.refreshCraft();
+    job.resolve(first ?? product);
+  }
+
+  /* ── crate search (감정) ───────────────────────────────────────────────── */
+
+  private updateSearch(dt: number): void {
+    const c = this.activeContainer;
+    if (!c || !this._open || dt <= 0 || c.hiddenCount === 0) return;
+    const revealed = c.tickSearch(dt);
+    if (revealed.length > 0) {
+      this.ctx.bus.emit('audio:play', { id: 'ui_pickup', volume: 0.35 });
+      this.ui?.refresh();
+    } else {
+      this.ui?.refreshSearch();
+    }
+  }
+
+  /** true while `uid` is still being searched inside the open container. */
+  isHidden(uid: string): boolean {
+    return this.activeContainer?.isHidden(uid) ?? false;
+  }
+
+  searchRemaining(uid: string): number {
+    return this.activeContainer?.searchRemaining(uid) ?? 0;
   }
 
   /* ── UI-facing operations ──────────────────────────────────────────────── */
@@ -296,6 +822,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
 
   findItem(uid: string, from: ItemLocation): ItemInstance | null {
     if (from.kind === 'slot') return this.loadout[from.slot]?.uid === uid ? this.loadout[from.slot] : null;
+    if (from.grid === 'container' && this.isHidden(uid)) return null;
     return this.getGrid(from.grid)?.get(uid)?.item ?? null;
   }
 
@@ -305,11 +832,16 @@ export class InventorySystem implements GameSystem, InventoryRef {
   locate(uid: string): { item: ItemInstance; from: ItemLocation } | null {
     const inGrid = this.locateInGrids(uid);
     if (inGrid) return { item: inGrid.item, from: { kind: 'grid', grid: inGrid.gridId } };
-    for (const slot of ['primary', 'secondary'] as const) {
+    for (const slot of EQUIP_SLOTS) {
       const it = this.loadout[slot];
       if (it?.uid === uid) return { item: it, from: { kind: 'slot', slot } };
     }
     return null;
+  }
+
+  /** Like `locate` but also matches items that were rolled into an unopened container. */
+  private locateAny(uid: string): { item: ItemInstance; from: ItemLocation } | null {
+    return this.locate(uid);
   }
 
   private locateInGrids(uid: string): { item: ItemInstance; grid: Grid; gridId: GridId } | null {
@@ -330,6 +862,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
 
   /** Non-mutating classification of a partial-stack drag (`qty` units of `uid`) onto `target`. */
   previewPartial(uid: string, from: ItemLocation, qty: number, target: DropTarget): DropPreview {
+    if (target.kind === 'quick') return 'bad';
     const v = this.validatePartial(uid, from, qty, target);
     if (!v) return 'bad';
     const { item, def, grid, blockers } = v;
@@ -397,11 +930,20 @@ export class InventorySystem implements GameSystem, InventoryRef {
     const def = item && ITEM_DEF_MAP.get(item.defId);
     if (!item || !def) return 'bad';
 
+    if (target.kind === 'quick') {
+      if (def.quickUsable !== true) return 'bad';
+      if (from.kind !== 'grid' || from.grid !== 'bag') return 'bad';
+      if (target.index < 0 || target.index >= this.quickSlotCount) return 'bad';
+      return this.quickUids[target.index] === uid ? 'noop' : 'ok';
+    }
+
     if (target.kind === 'slot') {
       if (def.category !== target.slot) return 'bad';
       if (from.kind === 'slot') return from.slot === target.slot ? 'noop' : 'bad';
       const current = this.loadout[target.slot];
       if (!current) return 'ok';
+      // Swapping the backpack rebuilds the grid, so the old one always finds a home (or the floor).
+      if (target.slot === 'backpack') return 'swap';
       return this.canPlaceDisplaced(current, from, uid) ? 'swap' : 'bad';
     }
 
@@ -429,6 +971,11 @@ export class InventorySystem implements GameSystem, InventoryRef {
     const item = this.findItem(uid, from);
     const def = item && ITEM_DEF_MAP.get(item.defId);
     if (!item || !def) return 'fail';
+    if (target.kind === 'quick') {
+      if (from.kind !== 'grid' || from.grid !== 'bag') return 'fail';
+      if (this.quickUids[target.index] === uid) return 'noop';
+      return this.setQuickSlot(target.index, item) ? 'ok' : 'fail';
+    }
     if (target.kind === 'slot') return this.dropOnSlot(item, def, from, target.slot);
 
     const grid = this.getGrid(target.grid);
@@ -438,6 +985,14 @@ export class InventorySystem implements GameSystem, InventoryRef {
     if (from.kind === 'grid' && from.grid === target.grid) {
       const p = grid.get(uid);
       if (p && p.x === target.x && p.y === target.y && item.rotated === target.rotated) return 'noop';
+    }
+
+    // Unequipping the backpack into the grid rebuilds the bag: route it through the slot logic.
+    if (from.kind === 'slot' && from.slot === 'backpack') {
+      const before = this.bag;
+      this.unequipSlot('backpack');
+      if (this.bag !== before) this.ui?.markGridChanged();
+      return 'ok';
     }
 
     const blockers = grid.blockersAt(item, target.x, target.y, target.rotated, uid);
@@ -484,6 +1039,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
       grid.place(item, target.x, target.y, target.rotated);
       this.emitTransfer(other.item, od, to, from);
       this.emitTransfer(item, def, from, to);
+      this.ctx.bus.emit('equip:changed', { slot: from.slot, item: other.item });
       this.emitLoadout();
       this.afterChange();
       return 'ok';
@@ -505,9 +1061,12 @@ export class InventorySystem implements GameSystem, InventoryRef {
     const item = this.findItem(uid, from);
     const def = item && ITEM_DEF_MAP.get(item.defId);
     if (!item || !def) return 'fail';
+    if (from.kind === 'slot') {
+      if (from.slot === 'backpack') { this.unequipSlot('backpack'); this.ui?.markGridChanged(); return 'ok'; }
+      return this.unequipSlot(from.slot) ? 'ok' : 'fail';
+    }
     let dest: GridId;
-    if (from.kind === 'slot') dest = 'bag';
-    else if (from.grid === 'container') dest = 'bag';
+    if (from.grid === 'container') dest = 'bag';
     else if (this.activeContainer) dest = 'container';
     else return 'fail';
     const grid = this.getGrid(dest);
@@ -522,14 +1081,14 @@ export class InventorySystem implements GameSystem, InventoryRef {
     return 'ok';
   }
 
-  /** Double-click: weapons equip into their slot, anything else quick-moves. */
+  /** Double-click: gear equips into its slot, anything else quick-moves. */
   activate(uid: string, from: ItemLocation): OpResult {
     const item = this.findItem(uid, from);
     const def = item && ITEM_DEF_MAP.get(item.defId);
     if (!item || !def) return 'fail';
-    if (def.category === 'primary' || def.category === 'secondary') {
+    if (EQUIP_SLOTS.includes(def.category as SlotId)) {
       if (from.kind === 'slot') return 'noop';
-      return this.dropOnSlot(item, def, from, def.category);
+      return this.dropOnSlot(item, def, from, def.category as SlotId);
     }
     return this.quickMove(uid, from);
   }
@@ -538,6 +1097,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
     const grid = this.getGrid(gridId);
     const p = grid?.get(uid);
     if (!grid || !p) return 'fail';
+    if (gridId === 'container' && this.isHidden(uid)) return 'fail';
     const def = ITEM_DEF_MAP.get(p.item.defId);
     if (!def || def.width === def.height) return 'noop';
     if (!grid.rotate(uid)) return 'fail';
@@ -546,11 +1106,13 @@ export class InventorySystem implements GameSystem, InventoryRef {
     return 'ok';
   }
 
-  /** "모두 가져가기": move every container item into the bag that fits. Returns moved count. */
+  /** "모두 가져가기": move every revealed container item into the bag that fits. Returns moved count. */
   takeAll(): number {
     const c = this.activeContainer;
     if (!c) return 0;
-    const items = c.grid.items().map((p) => p.item).sort((a, b) => this.area(b) - this.area(a));
+    const items = c.grid.items().map((p) => p.item)
+      .filter((it) => !c.isHidden(it.uid))
+      .sort((a, b) => this.area(b) - this.area(a));
     let moved = 0;
     let fullReported = false;
     for (const item of items) {
@@ -610,10 +1172,16 @@ export class InventorySystem implements GameSystem, InventoryRef {
   private afterMove(item: ItemInstance, from: ItemLocation, to: ItemLocation, qtyOverride?: number): void {
     const def = ITEM_DEF_MAP.get(item.defId);
     if (def) this.emitTransfer(qtyOverride !== undefined ? { ...item, qty: qtyOverride } : item, def, from, to);
+    if (from.kind === 'slot') this.ctx.bus.emit('equip:changed', { slot: from.slot, item: null });
+    if (to.kind === 'slot') this.ctx.bus.emit('equip:changed', { slot: to.slot, item });
     if (from.kind === 'slot' || to.kind === 'slot') this.emitLoadout();
     this.afterChange();
   }
 
+  /**
+   * `loadout:changed` still carries only the two weapon slots (shared contract); armor and backpack
+   * changes are announced with `equip:changed`, which every gear consumer listens to.
+   */
   private emitLoadout(): void {
     this.ctx.bus.emit('loadout:changed', { primary: this.loadout.primary, secondary: this.loadout.secondary });
   }
@@ -623,6 +1191,9 @@ export class InventorySystem implements GameSystem, InventoryRef {
     const stims = this.countWhere((d) => d.category === 'stim');
     if (grenades !== this.lastGrenades) { this.lastGrenades = grenades; this.ctx.bus.emit('grenade:countChanged', { count: grenades }); }
     if (stims !== this.lastStims) { this.lastStims = stims; this.ctx.bus.emit('stim:countChanged', { count: stims }); }
+    this.pruneQuick();
+    this.emitQuick();
+    this.emitWeight();
     this.ctx.bus.emit('inventory:changed', { totalValue: this.bag.totalValue(), itemCount: this.bag.count });
     this.checkLooted();
     this.ui?.refresh();
@@ -652,6 +1223,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
   private dropOnSlot(item: ItemInstance, def: ItemDef, from: ItemLocation, slot: SlotId): OpResult {
     if (def.category !== slot) return 'fail';
     if (from.kind === 'slot') return from.slot === slot ? 'noop' : 'fail';
+    if (slot === 'backpack') return this.swapBackpack(item, def, from);
     const srcGrid = this.getGrid(from.grid);
     const src = srcGrid?.get(item.uid);
     if (!srcGrid || !src) return 'fail';
@@ -672,7 +1244,27 @@ export class InventorySystem implements GameSystem, InventoryRef {
     }
     this.loadout[slot] = item;
     this.emitTransfer(item, def, from, { kind: 'slot', slot });
-    this.emitLoadout();
+    this.ctx.bus.emit('equip:changed', { slot, item });
+    if (slot === 'primary' || slot === 'secondary') this.emitLoadout();
+    this.afterChange();
+    return 'ok';
+  }
+
+  /**
+   * Backpack swap: the grid itself changes size, so everything is lifted, the new backpack goes on, and
+   * the contents (plus the old backpack) are re-placed largest-first. Whatever no longer fits drops.
+   */
+  private swapBackpack(item: ItemInstance, def: ItemDef, from: ItemLocation): OpResult {
+    if (from.kind !== 'grid') return 'fail';
+    const srcGrid = this.getGrid(from.grid);
+    if (!srcGrid || !srcGrid.has(item.uid)) return 'fail';
+    const old = this.loadout.backpack;
+    srcGrid.remove(item.uid);
+    this.loadout.backpack = item;
+    this.rebuildBag(old);
+    if (from.grid === 'container') this.emitTransfer(item, def, from, { kind: 'slot', slot: 'backpack' });
+    this.ctx.bus.emit('equip:changed', { slot: 'backpack', item });
+    this.ui?.markGridChanged();
     this.afterChange();
     return 'ok';
   }

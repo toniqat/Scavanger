@@ -4,6 +4,7 @@ import { GeoBatch, HUB_MATS as M, disposeMeshes, yawFromForward } from './GeoBat
 import { BoxInteriorCollider } from './InteriorCollider';
 import { Parts, fixture } from './parts';
 import { Starfield, Planet } from './Starfield';
+import { hydroponics, implantBay, repairBench, type ShipStations } from './stations';
 import { TextPlane } from '../Labels';
 import type { PodSlotDef, ShipInterior, TerminalDef } from './types';
 
@@ -29,6 +30,7 @@ export class SharedShip implements ShipInterior {
   readonly airlockYaw = yawFromForward(-1, 0);             // walking in toward −X
   readonly pods: PodSlotDef[] = [];
   readonly terminal: TerminalDef;
+  readonly stations: ShipStations;
 
   private meshes: THREE.Mesh[] = [];
   private lights: THREE.PointLight[] = [];
@@ -136,6 +138,14 @@ export class SharedShip implements ShipInterior {
     P.crates(6.5, ROOM.maxZ - 0.55, 4, 0);
     P.crates(10.0, ROOM.maxZ - 0.55, 2, 0);
     P.crates(ROOM.maxX - 0.6, -4.5, 3, Math.PI / 2);
+
+    // ── 함선 시설 (tactical kit) — merged into the same GeoBatch, no extra draw calls ──
+    // 수경 재배: +Z wall far left; 정비대: the existing workbench (board only); 임플란트 시술대: +X wall, +Z half.
+    this.stations = {
+      garden: hydroponics(b, col, -11.8, ROOM.maxZ - 0.4, 0),
+      bench: repairBench(b, col, 2.5, ROOM.maxZ - 0.7, 0, false),
+      implantBay: implantBay(b, col, ROOM.maxX - 1.0, 3.6, yawFromForward(-1, 0)),
+    };
 
     // ── central holo table ──
     b.cyl(1.0, 1.15, 0.85, 16, 0, 0.425, 1.5, M.hullDark);

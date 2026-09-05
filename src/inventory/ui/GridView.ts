@@ -1,10 +1,12 @@
 import type { ItemDef, ItemInstance } from '@/shared';
 import type { Grid } from '../Grid';
 import type { GridId } from '../InventorySystem';
-import { STEP, tileSize } from './labels';
+import { STEP, TEXT, tileSize } from './labels';
 
 export type DefLookup = (defId: string) => ItemDef | undefined;
 export type HighlightState = 'ok' | 'bad' | 'swap' | 'merge';
+/** Per-item extras resolved at render time (crate search mask, durability bar). */
+export type TileStateLookup = (item: ItemInstance, def: ItemDef) => TileOptions;
 
 export interface TileHandlers {
   onPointerDown(uid: string, gridId: GridId, e: PointerEvent): void;
@@ -15,35 +17,64 @@ export interface TileHandlers {
   onDblClick(uid: string, gridId: GridId): void;
 }
 
+export interface TileOptions {
+  /** Crate search (감정): the item is still being identified — icon, name and qty are masked. */
+  hidden?: boolean;
+  /** 0..1 durability bar drawn along the bottom edge; null / undefined = no bar. */
+  durability?: number | null;
+}
+
 /** Builds the visual content of a tile (shared by grid tiles, slot tiles and the drag ghost). */
-export function buildTileContent(el: HTMLElement, item: ItemInstance, def: ItemDef, w: number, h: number): void {
-  el.className = `inv-tile rarity-${def.rarity}`;
-  el.style.setProperty('--rc', def.color);
+export function buildTileContent(
+  el: HTMLElement, item: ItemInstance, def: ItemDef, w: number, h: number, opts: TileOptions = {},
+): void {
+  const masked = opts.hidden === true;
+  el.className = `inv-tile rarity-${masked ? 'common' : def.rarity}`;
+  el.style.setProperty('--rc', masked ? '#6b727b' : def.color);
   const { width, height } = tileSize(w, h);
   el.style.width = `${width}px`;
   el.style.height = `${height}px`;
   el.classList.toggle('is-wide', w >= 2);
   el.classList.toggle('is-tall', h >= 2);
-  el.classList.toggle('is-rotated', item.rotated);
+  el.classList.toggle('is-rotated', !masked && item.rotated);
+  el.classList.toggle('is-hidden-item', masked);
   el.innerHTML = '';
 
   const icon = document.createElement('div');
   icon.className = 'inv-tile-icon';
-  icon.textContent = def.icon;
+  icon.textContent = masked ? '?' : def.icon;
   el.appendChild(icon);
 
   if (w >= 2 || h >= 2) {
     const name = document.createElement('div');
     name.className = 'inv-tile-name';
-    name.textContent = def.name;
+    name.textContent = masked ? TEXT.hidden : def.name;
     el.appendChild(name);
   }
 
   const qty = document.createElement('div');
   qty.className = 'inv-tile-qty';
-  qty.textContent = def.stackMax > 1 ? `${item.qty}` : '';
-  qty.hidden = def.stackMax <= 1;
+  qty.textContent = !masked && def.stackMax > 1 ? `${item.qty}` : '';
+  qty.hidden = masked || def.stackMax <= 1;
   el.appendChild(qty);
+
+  const dur = opts.durability;
+  if (!masked && dur !== null && dur !== undefined) {
+    const bar = document.createElement('div');
+    bar.className = 'inv-tile-dur';
+    if (dur <= 0) bar.classList.add('is-broken');
+    else if (dur < 0.25) bar.classList.add('is-low');
+    const fill = document.createElement('i');
+    fill.style.width = `${Math.max(0, Math.min(1, dur)) * 100}%`;
+    bar.appendChild(fill);
+    el.appendChild(bar);
+  }
+
+  if (masked) {
+    const scan = document.createElement('div');
+    scan.className = 'inv-tile-scan';
+    el.appendChild(scan);
+  }
 
   const glow = document.createElement('div');
   glow.className = 'inv-tile-glow';
@@ -65,6 +96,11 @@ export class GridView {
   private lastVersion = -1;
   private dims = '';
 
+  /** Extra per-item state the owner supplies (search mask, durability bar). */
+  private state: TileStateLookup = () => ({});
+  /** Signature of the last render's per-item state; a change forces a rebuild even at the same version. */
+  private lastStateSig = '';
+
   constructor(readonly id: GridId, private readonly getDef: DefLookup, private readonly handlers: TileHandlers) {
     this.el = document.createElement('div');
     this.el.className = `inv-grid inv-grid-${id}`;
@@ -84,6 +120,7 @@ export class GridView {
   setGrid(grid: Grid | null): void {
     this.grid = grid;
     this.lastVersion = -1;
+    this.lastStateSig = '';
     if (!grid) { this.clearTiles(); return; }
     const dims = `${grid.cols}x${grid.rows}`;
     if (dims !== this.dims) {
@@ -102,11 +139,27 @@ export class GridView {
     this.refresh(true);
   }
 
+  /** Supply the per-item extras (search mask, durability). Triggers a rebuild on the next refresh. */
+  setStateLookup(fn: TileStateLookup): void {
+    this.state = fn;
+    this.lastStateSig = '';
+  }
+
   refresh(force = false): void {
     const grid = this.grid;
     if (!grid) return;
-    if (!force && grid.version === this.lastVersion) return;
+    const states = new Map<string, TileOptions>();
+    let sig = '';
+    for (const p of grid.items()) {
+      const def = this.getDef(p.item.defId);
+      if (!def) continue;
+      const st = this.state(p.item, def);
+      states.set(p.item.uid, st);
+      sig += `${p.item.uid}:${st.hidden ? 1 : 0}:${st.durability === null || st.durability === undefined ? '-' : st.durability.toFixed(2)};`;
+    }
+    if (!force && grid.version === this.lastVersion && sig === this.lastStateSig) return;
     this.lastVersion = grid.version;
+    this.lastStateSig = sig;
 
     const seen = new Set<string>();
     for (const p of grid.items()) {
@@ -126,7 +179,7 @@ export class GridView {
       }
       const wasDragging = el.classList.contains('is-dragging');
       const wasHover = el.classList.contains('is-hover');
-      buildTileContent(el, p.item, def, fp.w, fp.h);
+      buildTileContent(el, p.item, def, fp.w, fp.h, states.get(p.item.uid) ?? {});
       if (wasDragging) el.classList.add('is-dragging');
       if (wasHover) el.classList.add('is-hover');
       el.style.transform = `translate(${p.x * STEP}px, ${p.y * STEP}px)`;

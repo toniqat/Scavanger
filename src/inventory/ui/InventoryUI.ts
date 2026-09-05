@@ -3,14 +3,34 @@ import type { GameContext, ItemDef, ItemInstance } from '@/shared';
 import { ITEM_DEF_MAP, getWeaponDef } from '@/items';
 import type { Container } from '../Container';
 import type { DropTarget, GridId, InventorySystem, ItemLocation, SlotId } from '../InventorySystem';
+import { EQUIP_SLOTS } from '../InventorySystem';
+import { durabilityRatio } from '../Gear';
 import { GridView, buildTileContent, type HighlightState } from './GridView';
+import { QuickBarView } from './QuickBarView';
+import { CraftPanel } from './CraftPanel';
 import { Tooltip } from './Tooltip';
 import { ContextMenu, type MenuEntry } from './ContextMenu';
 import { SplitDialog } from './SplitDialog';
-import { STEP, TEXT, fmtValue, tierTitle, tileSize } from './labels';
+import { STEP, TEXT, fmtKg, fmtValue, tierTitle, tileSize, weightLabel } from './labels';
 
 const DRAG_THRESHOLD = 4; // px before a press becomes a drag
 const MIDDLE_BUTTON = 1;
+
+/** Body footprint (grid cells) reserved by each equipment slot — the largest item of that category. */
+const SLOT_FOOTPRINT: Readonly<Record<SlotId, { w: number; h: number }>> = {
+  primary: { w: 5, h: 2 },
+  secondary: { w: 2, h: 1 },
+  armor: { w: 2, h: 3 },
+  backpack: { w: 3, h: 3 },
+};
+
+const SLOT_LABEL: Readonly<Record<SlotId, string>> = {
+  primary: TEXT.primary, secondary: TEXT.secondary, armor: TEXT.armor, backpack: TEXT.backpack,
+};
+
+const SLOT_KEY: Readonly<Record<SlotId, string>> = {
+  primary: '1', secondary: '2', armor: '', backpack: '',
+};
 
 interface DragState {
   uid: string;
@@ -41,8 +61,8 @@ interface SlotView {
 }
 
 /**
- * Arc Raiders-styled DOM for the Diablo grid: container panel (left), bag (center),
- * equipment column (right), hint bar. Owns drag & drop, rotation, tooltips.
+ * Arc Raiders-styled DOM for the Diablo grid: craft panel / container panel (left), bag + quick-use bar
+ * (center), the four equipment slots (right), weight bar, hint bar. Owns drag & drop, rotation, tooltips.
  */
 export class InventoryUI {
   private root: HTMLElement | null = null;
@@ -52,8 +72,13 @@ export class InventoryUI {
   private containerTier!: HTMLElement;
   private bagCapacity!: HTMLElement;
   private valueEl!: HTMLElement;
+  private weightValueEl!: HTMLElement;
+  private weightStateEl!: HTMLElement;
+  private weightFillEl!: HTMLElement;
   private containerView!: GridView;
   private bagView!: GridView;
+  private quickBar!: QuickBarView;
+  private craftPanel!: CraftPanel;
   private slots = new Map<SlotId, SlotView>();
   private tooltip!: Tooltip;
   private ghostLayer!: HTMLElement;
@@ -65,6 +90,8 @@ export class InventoryUI {
   private container: Container | null = null;
   private visible = false;
   private closeTimer: number | null = null;
+  /** Set when the bag Grid instance was replaced (backpack swap) so the view re-binds it. */
+  private gridChanged = false;
 
   private onWindowMove = (e: PointerEvent): void => this.handlePointerMove(e);
   private onWindowUp = (e: PointerEvent): void => this.handlePointerUp(e);
@@ -85,6 +112,9 @@ export class InventoryUI {
     const layout = document.createElement('div');
     layout.className = 'inv-layout';
     this.layout = layout;
+
+    /* craft panel (left, toggled) */
+    this.craftPanel = new CraftPanel(this.sys, getDef);
 
     /* container panel */
     const cPanel = document.createElement('section');
@@ -109,6 +139,10 @@ export class InventoryUI {
     });
     cHead.append(cTitleWrap, takeAll);
     this.containerView = new GridView('container', getDef, this.tileHandlers());
+    this.containerView.setStateLookup((item, def) => ({
+      hidden: this.sys.isHidden(item.uid),
+      durability: durabilityRatio(item, def),
+    }));
     cPanel.append(cHead, this.containerView.el);
     this.containerPanel = cPanel;
 
@@ -126,10 +160,26 @@ export class InventoryUI {
     bTitle.className = 'inv-title';
     bTitle.textContent = TEXT.bag;
     bTitleWrap.append(bEyebrow, bTitle);
+    const headActions = document.createElement('div');
+    headActions.className = 'inv-head-actions';
+    const craftBtn = document.createElement('button');
+    craftBtn.type = 'button';
+    craftBtn.className = 'inv-btn';
+    craftBtn.textContent = TEXT.craft;
+    craftBtn.addEventListener('click', () => this.toggleCraft());
     this.bagCapacity = document.createElement('div');
     this.bagCapacity.className = 'inv-capacity';
-    bHead.append(bTitleWrap, this.bagCapacity);
+    headActions.append(craftBtn, this.bagCapacity);
+    bHead.append(bTitleWrap, headActions);
+
     this.bagView = new GridView('bag', getDef, this.tileHandlers());
+    this.bagView.setStateLookup((item, def) => ({ durability: durabilityRatio(item, def) }));
+
+    this.quickBar = new QuickBarView({
+      onClear: (i) => { if (this.sys.setQuickSlot(i, null)) this.sys.sfx('ui_drop'); },
+      onUse: (i) => { this.sys.sfx(this.sys.useQuickSlot(i) ? 'ui_equip' : 'ui_error'); this.refresh(); },
+    });
+
     const bFoot = document.createElement('footer');
     bFoot.className = 'inv-foot';
     const vLabel = document.createElement('span');
@@ -138,7 +188,8 @@ export class InventoryUI {
     this.valueEl = document.createElement('span');
     this.valueEl.className = 'inv-value';
     bFoot.append(vLabel, this.valueEl);
-    bPanel.append(bHead, this.bagView.el, bFoot);
+
+    bPanel.append(bHead, this.bagView.el, this.quickBar.el, this.buildWeightBar(), bFoot);
 
     /* equipment column */
     const eq = document.createElement('aside');
@@ -147,10 +198,9 @@ export class InventoryUI {
     eqEyebrow.className = 'inv-eyebrow';
     eqEyebrow.textContent = TEXT.equipment;
     eq.appendChild(eqEyebrow);
-    eq.appendChild(this.buildSlot('primary', TEXT.primary, '1').el);
-    eq.appendChild(this.buildSlot('secondary', TEXT.secondary, '2').el);
+    for (const slot of EQUIP_SLOTS) eq.appendChild(this.buildSlot(slot).el);
 
-    layout.append(cPanel, bPanel, eq);
+    layout.append(this.craftPanel.el, cPanel, bPanel, eq);
 
     /* hints */
     const hints = document.createElement('div');
@@ -178,7 +228,7 @@ export class InventoryUI {
     dropZone.append(dzTitle, dzSub);
     this.dropZone = dropZone;
 
-    this.tooltip = new Tooltip(getWeaponDef);
+    this.tooltip = new Tooltip(getWeaponDef, (id) => this.sys.getLoot().getArmorDef(id), (id) => this.sys.getLoot().getBackpackDef(id));
     this.ghostLayer = document.createElement('div');
     this.ghostLayer.className = 'inv-ghost-layer';
 
@@ -188,10 +238,44 @@ export class InventoryUI {
     this.ctx.uiRoot.appendChild(root);
   }
 
+  private buildWeightBar(): HTMLElement {
+    const wrap = document.createElement('div');
+    wrap.className = 'inv-weight';
+    const label = document.createElement('span');
+    label.className = 'inv-eyebrow';
+    label.textContent = TEXT.weight;
+    this.weightValueEl = document.createElement('span');
+    this.weightValueEl.className = 'inv-weight-value';
+    this.weightStateEl = document.createElement('span');
+    this.weightStateEl.className = 'inv-weight-state';
+    const track = document.createElement('div');
+    track.className = 'inv-weight-track';
+    this.weightFillEl = document.createElement('i');
+    track.appendChild(this.weightFillEl);
+    const row = document.createElement('div');
+    row.className = 'inv-weight-row';
+    row.append(label, this.weightValueEl, this.weightStateEl);
+    wrap.append(row, track);
+    return wrap;
+  }
+
+  /** The system replaced the bag Grid (backpack swap) — rebind on the next refresh. */
+  markGridChanged(): void {
+    this.gridChanged = true;
+  }
+
+  private toggleCraft(): void {
+    const open = !this.craftPanel.isOpen;
+    this.craftPanel.setOpen(open);
+    this.ctx.bus.emit('ui:craftToggled', { open });
+    this.sys.sfx('ui_drop');
+  }
+
   /** Close the context menu / split dialog if open. Returns true when something was closed (Escape consumed). */
   closeOverlays(): boolean {
     const a = this.dialog?.close() ?? false;
     const b = this.menu?.close() ?? false;
+    if (!a && !b && this.craftPanel?.isOpen) { this.toggleCraft(); return true; }
     return a || b;
   }
 
@@ -208,6 +292,7 @@ export class InventoryUI {
       this.containerView.setGrid(null);
     }
     this.bagView.setGrid(this.sys.getGrid('bag'));
+    this.gridChanged = false;
     this.root.hidden = false;
     this.visible = true;
     this.refresh();
@@ -220,7 +305,9 @@ export class InventoryUI {
     if (!this.root || !this.visible) return;
     this.visible = false;
     this.cancelDrag();
-    this.closeOverlays();
+    this.dialog?.close();
+    this.menu?.close();
+    this.craftPanel.setOpen(false);
     this.tooltip.hide();
     this.hovered = null;
     this.root.classList.remove('is-visible');
@@ -232,6 +319,8 @@ export class InventoryUI {
     this.cancelDrag();
     this.menu?.dispose();
     this.dialog?.dispose();
+    this.craftPanel?.dispose();
+    this.quickBar?.dispose();
     this.containerView.dispose();
     this.bagView.dispose();
     this.tooltip.dispose();
@@ -243,6 +332,10 @@ export class InventoryUI {
 
   refresh(): void {
     if (!this.root || this.root.hidden) return;
+    if (this.gridChanged) {
+      this.gridChanged = false;
+      this.bagView.setGrid(this.sys.getGrid('bag'));
+    }
     const bag = this.sys.getGrid('bag');
     if (bag) {
       this.bagView.refresh();
@@ -258,13 +351,55 @@ export class InventoryUI {
       this.containerView.refresh();
       this.containerPanel.classList.toggle('is-empty', c.grid.isEmpty);
     }
+    this.refreshSearch();
     this.refreshSlots();
+    this.refreshQuick();
+    this.refreshWeight();
+    this.refreshCraft();
+  }
+
+  /** Repaint just the quick-use strip (`quickbar:changed`). */
+  refreshQuick(): void {
+    if (!this.root || this.root.hidden) return;
+    this.quickBar.render(this.sys.getQuickSlots(), (id) => ITEM_DEF_MAP.get(id));
+  }
+
+  /** Repaint just the craft panel (progress ticks while holding). */
+  refreshCraft(): void {
+    if (!this.root || this.root.hidden) return;
+    this.craftPanel.refresh();
+  }
+
+  /** Crate search readout — the tiles themselves flip through the GridView state lookup. */
+  refreshSearch(): void {
+    if (!this.root || this.root.hidden) return;
+    const c = this.sys.getActiveContainer();
+    if (!c) return;
+    if (c.hiddenCount > 0) {
+      this.containerTier.textContent = `${TEXT.searching} ${c.hiddenCount}`;
+      this.containerView.refresh();
+    } else {
+      this.containerTier.textContent = `SUPPLY CACHE · TIER ${c.tier}`;
+    }
+  }
+
+  private refreshWeight(): void {
+    const info = this.sys.getWeight();
+    this.weightValueEl.textContent = `${fmtKg(info.weight)} / ${fmtKg(info.capacity)}`;
+    this.weightStateEl.textContent = weightLabel(info.state);
+    this.weightFillEl.style.width = `${Math.min(100, info.ratio * 100).toFixed(1)}%`;
+    const wrap = this.weightFillEl.parentElement?.parentElement;
+    if (wrap) {
+      wrap.classList.toggle('is-light', info.state === 'light');
+      wrap.classList.toggle('is-heavy', info.state === 'heavy');
+      wrap.classList.toggle('is-over', info.state === 'over');
+    }
   }
 
   private refreshSlots(): void {
     const loadout = this.sys.getLoadout();
     for (const sv of this.slots.values()) {
-      const item = loadout[sv.slot];
+      const item = loadout[sv.slot] ?? null;
       const def = item ? ITEM_DEF_MAP.get(item.defId) : undefined;
       if (item && def) {
         if (!sv.tile) {
@@ -274,10 +409,10 @@ export class InventoryUI {
           sv.body.appendChild(sv.tile);
         }
         sv.uid = item.uid;
-        buildTileContent(sv.tile, item, def, def.width, def.height);
+        const fp = item.rotated ? { w: def.height, h: def.width } : { w: def.width, h: def.height };
+        buildTileContent(sv.tile, item, def, fp.w, fp.h, { durability: durabilityRatio(item, def) });
         sv.tile.dataset.uid = item.uid;
-        const w = def.weaponId ? getWeaponDef(def.weaponId) : undefined;
-        sv.meta.textContent = w ? `${w.name} · ${w.magSize}발 탄창` : def.name;
+        sv.meta.textContent = this.slotMeta(def, item);
         sv.el.classList.add('has-item');
         sv.el.style.setProperty('--rc', def.color);
       } else {
@@ -295,19 +430,39 @@ export class InventoryUI {
     }
   }
 
-  private buildSlot(slot: SlotId, label: string, key: string): SlotView {
+  private slotMeta(def: ItemDef, item: ItemInstance): string {
+    const w = def.weaponId ? getWeaponDef(def.weaponId) : undefined;
+    if (w) return `${w.name} · ${w.magSize}발 탄창`;
+    if (def.armorId) {
+      const a = this.sys.getLoot().getArmorDef(def.armorId);
+      if (a) return `${TEXT.gear.damageReduction} ${(a.damageReduction * 100).toFixed(0)} %`;
+    }
+    if (def.backpackId) {
+      const b = this.sys.getLoot().getBackpackDef(def.backpackId);
+      if (b) return `${b.cols} × ${b.rows} · ${TEXT.gear.quickSlots} ${b.quickSlots}`;
+    }
+    const ratio = durabilityRatio(item, def);
+    if (ratio !== null) return `${TEXT.durability} ${(ratio * 100).toFixed(0)} %`;
+    return def.name;
+  }
+
+  private buildSlot(slot: SlotId): SlotView {
     const el = document.createElement('div');
     el.className = `inv-slot inv-slot-${slot}`;
     el.dataset.slot = slot;
     const head = document.createElement('div');
     head.className = 'inv-slot-label';
-    head.textContent = label;
-    const k = document.createElement('kbd');
-    k.textContent = key;
-    head.appendChild(k);
+    head.textContent = SLOT_LABEL[slot];
+    const key = SLOT_KEY[slot];
+    if (key) {
+      const k = document.createElement('kbd');
+      k.textContent = key;
+      head.appendChild(k);
+    }
     const body = document.createElement('div');
     body.className = 'inv-slot-body';
-    const { width, height } = tileSize(4, 2);
+    const fp = SLOT_FOOTPRINT[slot];
+    const { width, height } = tileSize(fp.w, fp.h);
     body.style.width = `${width}px`;
     body.style.height = `${height}px`;
     const meta = document.createElement('div');
@@ -336,6 +491,7 @@ export class InventoryUI {
   private tileHandlers() {
     return {
       onPointerDown: (uid: string, gridId: GridId, e: PointerEvent) => {
+        if (gridId === 'container' && this.sys.isHidden(uid)) { this.sys.sfx('ui_error'); return; }
         const view = gridId === 'bag' ? this.bagView : this.containerView;
         const el = view.tileEl(uid);
         if (el) this.beginPress(uid, { kind: 'grid', grid: gridId }, e, el);
@@ -345,15 +501,17 @@ export class InventoryUI {
       onLeave: () => this.hoverLeave(),
       onContext: (uid: string, gridId: GridId, e: MouseEvent) => {
         if (this.drag) return;
+        if (gridId === 'container' && this.sys.isHidden(uid)) { this.sys.sfx('ui_error'); return; }
         this.onContextMenu(uid, { kind: 'grid', grid: gridId }, e);
       },
       onDblClick: (uid: string, gridId: GridId) => {
         if (this.drag?.started) return;
+        if (gridId === 'container' && this.sys.isHidden(uid)) return;
         const from: ItemLocation = { kind: 'grid', grid: gridId };
         const item = this.sys.findItem(uid, from);
         const def = item && ITEM_DEF_MAP.get(item.defId);
-        const isWeapon = !!def && (def.category === 'primary' || def.category === 'secondary');
-        this.result(this.sys.activate(uid, from), isWeapon ? 'ui_equip' : 'ui_drop', from, uid);
+        const isGear = !!def && EQUIP_SLOTS.includes(def.category as SlotId);
+        this.result(this.sys.activate(uid, from), isGear ? 'ui_equip' : 'ui_drop', from, uid);
       },
     };
   }
@@ -404,7 +562,8 @@ export class InventoryUI {
     const def = item && ITEM_DEF_MAP.get(item.defId);
     if (!item || !def) return;
     const isStack = def.stackMax > 1 && item.qty >= 2;
-    if (!isStack && !e.shiftKey) {
+    const hasExtras = def.quickUsable === true || (def.durabilityMax !== undefined && !this.ctx.isRaidActive());
+    if (!isStack && !hasExtras && !e.shiftKey) {
       this.result(this.sys.quickMove(uid, from), 'ui_drop', from, uid);
       return;
     }
@@ -414,6 +573,7 @@ export class InventoryUI {
 
   private menuEntries(uid: string, from: ItemLocation, item: ItemInstance, def: ItemDef): MenuEntry[] {
     const entries: MenuEntry[] = [];
+    const isGear = EQUIP_SLOTS.includes(def.category as SlotId);
     const isWeapon = def.category === 'primary' || def.category === 'secondary';
     const isStack = def.stackMax > 1 && item.qty >= 2;
     const hasContainer = !!this.sys.getActiveContainer();
@@ -422,12 +582,35 @@ export class InventoryUI {
     if (from.kind === 'slot') {
       entries.push({ label: TEXT.menu.toBag, run: () => this.result(this.sys.quickMove(uid, from), 'ui_drop', from, uid) });
     } else {
-      if (isWeapon) entries.push({ label: TEXT.menu.equip, run: () => this.result(this.sys.activate(uid, from), 'ui_equip', from, uid) });
+      if (isGear) entries.push({ label: TEXT.menu.equip, run: () => this.result(this.sys.activate(uid, from), 'ui_equip', from, uid) });
       if (from.grid === 'container') entries.push({ label: TEXT.menu.toBag, run: () => this.result(this.sys.quickMove(uid, from), 'ui_drop', from, uid) });
       else if (hasContainer) entries.push({ label: TEXT.menu.toContainer, run: () => this.result(this.sys.quickMove(uid, from), 'ui_drop', from, uid) });
     }
 
-    // 2. split
+    // 2. quick-use bar assignment (bag items only)
+    if (def.quickUsable === true && from.kind === 'grid' && from.grid === 'bag') {
+      const slots = this.sys.getQuickSlots();
+      const assigned = slots.findIndex((s) => s.item?.uid === uid);
+      if (assigned >= 0) {
+        entries.push({ label: TEXT.menu.quickClear, separator: entries.length > 0, run: () => { this.sys.setQuickSlot(assigned, null); this.sys.sfx('ui_drop'); } });
+      } else if (slots.length > 0) {
+        entries.push({
+          label: TEXT.menu.quickAssign, separator: entries.length > 0,
+          run: () => {
+            const free = slots.findIndex((s) => !s.item);
+            const idx = free >= 0 ? free : 0;
+            this.sys.sfx(this.sys.setQuickSlot(idx, item) ? 'ui_equip' : 'ui_error');
+          },
+        });
+      }
+    }
+
+    // 3. repair (ship only)
+    if (def.durabilityMax !== undefined && !this.ctx.isRaidActive()) {
+      entries.push({ label: TEXT.menu.repair, separator: entries.length > 0, run: () => { this.sys.sfx(this.sys.repair(uid) ? 'ui_equip' : 'ui_error'); } });
+    }
+
+    // 4. split
     if (isStack && from.kind === 'grid') {
       const half = Math.max(1, Math.floor(item.qty / 2));
       entries.push({ label: TEXT.menu.splitHalf, hint: 'Shift', separator: entries.length > 0, run: () => this.split(uid, from, half) });
@@ -435,7 +618,7 @@ export class InventoryUI {
       entries.push({ label: TEXT.menu.splitCustom, run: () => this.openSplitDialog(uid, from) });
     }
 
-    // 3. quick chat request
+    // 5. quick chat request
     entries.push({
       label: isWeapon ? TEXT.menu.requestAmmo : TEXT.menu.request,
       hint: '휠클릭',
@@ -443,7 +626,7 @@ export class InventoryUI {
       run: () => { this.sys.requestItem(uid, from); },
     });
 
-    // 4. drop
+    // 6. drop
     entries.push({ label: TEXT.menu.drop, hint: 'X', danger: true, separator: true, run: () => this.dropToWorld(uid, from, undefined) });
     if (isStack) entries.push({ label: TEXT.menu.dropOne, hint: 'Shift+X', danger: true, run: () => this.dropToWorld(uid, from, 1) });
     return entries;
@@ -577,7 +760,7 @@ export class InventoryUI {
       this.ghostLayer.appendChild(d.ghost);
     }
     const ghostItem: ItemInstance = { ...d.item, rotated: d.rotated, qty: d.qty ?? d.item.qty };
-    buildTileContent(d.ghost, ghostItem, d.def, w, h);
+    buildTileContent(d.ghost, ghostItem, d.def, w, h, { durability: durabilityRatio(d.item, d.def) });
     d.ghost.classList.add('inv-ghost');
     d.ghost.classList.toggle('is-partial', d.qty !== null);
     const { width, height } = tileSize(w, h);
@@ -609,6 +792,7 @@ export class InventoryUI {
     if (!d || !d.started) return;
     this.bagView.hideHighlight();
     this.containerView.hideHighlight();
+    this.quickBar.clearTargets();
     for (const sv of this.slots.values()) sv.el.classList.remove('is-target-ok', 'is-target-bad');
     d.target = null;
     this.dropZone.classList.remove('is-hot');
@@ -622,6 +806,16 @@ export class InventoryUI {
         sv.el.classList.add(pv === 'bad' ? 'is-target-bad' : 'is-target-ok');
         return;
       }
+    }
+
+    // quick-use bar
+    const qi = this.quickBar.indexAt(px, py);
+    if (qi !== null) {
+      d.target = { kind: 'quick', index: qi };
+      const pv = this.preview(d, d.target);
+      if (pv === 'bad') { this.quickBar.setTarget(qi, true); d.target = null; }
+      else this.quickBar.setTarget(qi, false);
+      return;
     }
 
     const { w, h } = this.footprint(d);
@@ -651,7 +845,7 @@ export class InventoryUI {
   /** True when the point lies on a panel / equipment column (a miss there snaps back instead of dropping). */
   private isOverPanel(x: number, y: number): boolean {
     const el = document.elementFromPoint(x, y);
-    return !!el && !!(el as Element).closest('.inv-panel, .inv-equip, .inv-menu, .inv-dialog');
+    return !!el && !!(el as Element).closest('.inv-panel, .inv-equip, .inv-menu, .inv-dialog, .inv-quickbar');
   }
 
   private handlePointerUp(e: PointerEvent): void {
@@ -678,7 +872,7 @@ export class InventoryUI {
       return;
     }
     const r = d.qty !== null ? this.sys.dropPartial(d.uid, d.from, d.qty, d.target) : this.sys.drop(d.uid, d.from, d.target);
-    if (r === 'ok') this.sys.sfx(d.target.kind === 'slot' ? 'ui_equip' : 'ui_drop');
+    if (r === 'ok') this.sys.sfx(d.target.kind === 'grid' ? 'ui_drop' : 'ui_equip');
     else if (r === 'fail') { this.sys.sfx('ui_error'); this.shake(d.from, d.uid); }
   }
 
@@ -689,6 +883,7 @@ export class InventoryUI {
     this.dropZone.classList.remove('is-hot');
     this.bagView.setDragging(null);
     this.containerView.setDragging(null);
+    this.quickBar.clearTargets();
     if (d.qty !== null && d.from.kind === 'grid') {
       (d.from.grid === 'bag' ? this.bagView : this.containerView).markSplitSource(d.uid, null);
     }

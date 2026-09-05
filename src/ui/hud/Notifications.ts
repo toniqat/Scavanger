@@ -1,8 +1,12 @@
 import type { GameContext } from '@/shared';
+import { WEIGHT_STATE_LABEL_KO } from '@/shared';
 import { el, escapeHtml, rarityColor } from '../dom';
 
 type Kind = 'info' | 'warning' | 'danger' | 'success';
 const MAX_VISIBLE = 6;
+/** Durability warning tiers (fraction of max). */
+const DUR_WARN = 0.25;
+const DUR_CRIT = 0.1;
 
 /**
  * Right-center notification stack with kind-colored left borders and slide/fade dismiss. Lives in the social HUD
@@ -13,6 +17,8 @@ export class Notifications {
   private unsubs: Array<() => void> = [];
   private live: HTMLElement[] = [];
   private lastCountdown = -1;
+  /** uid → warning tier already shown (1 = ≤25 %, 2 = ≤10 %). */
+  private durWarned = new Map<string, number>();
 
   constructor(parent: HTMLElement) {
     this.root = el('div', { cls: 'notifs', parent });
@@ -60,8 +66,65 @@ export class Notifications {
         this.push(`발사 <b>${s}</b>초 전`, 'warning', '발사', 1.1);
       }),
       b.on('hub:entered', () => { this.lastCountdown = -1; }),
+      /* ── tactical kit: gear, gathering, crafting, gadgets, progression ── */
+      b.on('durability:changed', ({ uid, defId, durability, max }) => {
+        if (max <= 0) return;
+        const ratio = durability / max;
+        const tier = ratio <= DUR_CRIT ? 2 : ratio <= DUR_WARN ? 1 : 0;
+        const prev = this.durWarned.get(uid) ?? 0;
+        if (tier <= prev) { if (tier === 0 && prev !== 0) this.durWarned.set(uid, 0); return; }
+        this.durWarned.set(uid, tier);
+        if (tier === 0) return;
+        const name = ctx.loot?.getItemDef(defId)?.name ?? defId;
+        this.push(
+          `내구도 ${tier === 2 ? '위험' : '주의'} — <b>${escapeHtml(name)}</b> <span style="color:var(--c-text-dim)">${Math.round(ratio * 100)}%</span>`,
+          tier === 2 ? 'danger' : 'warning', '장비', 3.2,
+        );
+      }),
+      b.on('durability:broken', ({ uid, name }) => {
+        this.durWarned.set(uid, 2);
+        this.push(`파손: <b>${escapeHtml(name)}</b> — 성능이 크게 떨어집니다`, 'danger', '장비', 4);
+      }),
+      b.on('repair:completed', ({ uid, name }) => {
+        this.durWarned.delete(uid);
+        this.push(`수리 완료: <b>${escapeHtml(name)}</b>`, 'success', '장비', 3);
+      }),
+      b.on('inventory:overloaded', ({ state }) => {
+        const label = WEIGHT_STATE_LABEL_KO[state] ?? state;
+        if (state === 'over') this.push(`<b>과적</b> — 이동할 수 없습니다`, 'danger', '무게', 4);
+        else if (state === 'heavy') this.push(`<b>${escapeHtml(label)}</b> — 구르기 불가, 이동 속도 감소`, 'warning', '무게', 3.5);
+        else if (state === 'light') this.push(`${escapeHtml(label)} — 스태미나 회복 감소`, 'info', '무게', 2.5);
+      }),
+      b.on('gather:collected', ({ defId, qty }) => {
+        const name = ctx.loot?.getItemDef(defId)?.name ?? defId;
+        this.push(`채집: <b>${escapeHtml(name)}</b>${qty > 1 ? ` <span style="color:var(--c-text-dim)">×${qty}</span>` : ''}`, 'info', '채집', 2.5);
+      }),
+      b.on('craft:completed', ({ item }) => {
+        const def = ctx.loot?.getItemDef(item.defId);
+        const qty = item.qty > 1 ? ` <span style="color:var(--c-text-dim)">×${item.qty}</span>` : '';
+        this.push(`제작 완료: <b style="color:${rarityColor(def?.rarity ?? 'common')}">${escapeHtml(def?.name ?? item.defId)}</b>${qty}`, 'success', '제작', 3);
+      }),
+      b.on('craft:failed', ({ reason }) => {
+        const msg = reason === 'missing' ? '재료가 부족합니다' : reason === 'space' ? '가방에 공간이 없습니다' : '제작을 취소했습니다';
+        this.push(msg, reason === 'cancelled' ? 'info' : 'warning', '제작', 2.5);
+      }),
+      b.on('gadget:recovered', ({ item }) => {
+        const name = ctx.loot?.getItemDef(item.defId)?.name ?? item.defId;
+        this.push(`회수: <b>${escapeHtml(name)}</b>`, 'info', '장비', 2.5);
+      }),
+      b.on('gadget:deployed', ({ kind }) => {
+        if (kind === 'mine') this.push('지뢰 설치됨 — 피아 구분 없음, 접근 주의', 'danger', '경고', 3.5);
+      }),
+      b.on('player:downed', () => this.push('전투 불능 — 분대원의 제세동기가 필요합니다', 'danger', '생명력', 4)),
+      b.on('player:revived', ({ by }) => this.push(by ? `<b>${escapeHtml(by)}</b>이(가) 부활시켰습니다` : '부활했습니다', 'success', '생명력', 3)),
+      b.on('player:gritSaved', () => this.push('인내 — 치명상을 버텨냈습니다', 'warning', '생명력', 3)),
+      b.on('implant:equipped', ({ id }) => {
+        if (!id) { this.push('전술 임플란트 해제', 'info', '임플란트', 2.5); return; }
+        const name = ctx.implants?.getDef(id)?.name ?? id;
+        this.push(`전술 임플란트 장착: <b>${escapeHtml(name)}</b>`, 'info', '임플란트', 3);
+      }),
       b.on('game:abort', () => this.clear()),
-      b.on('game:newMission', () => { this.clear(); this.lastCountdown = -1; }),
+      b.on('game:newMission', () => { this.clear(); this.lastCountdown = -1; this.durWarned.clear(); }),
     );
   }
 

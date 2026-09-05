@@ -1,12 +1,14 @@
 import * as THREE from 'three';
 import {
   MAP_SIZE, Random,
-  type CrateDef, type ExtractionPointDef, type GameContext, type GameSystem, type Obstacle, type TerrainHit, type WorldRef,
+  type CrateDef, type ExtractionPointDef, type GameContext, type GameSystem, type GatherNodeDef,
+  type Obstacle, type TerrainHit, type WorldRef,
 } from '@/shared';
 import { Ambience } from './Ambience';
 import { type Biome, pickBiome } from './biomes';
 import { type BuildCtx, PLAY_LIMIT } from './build';
 import { Crates } from './Crates';
+import { Gather } from './Gather';
 import { generateLayout, padClearance, type WorldLayout } from './layout';
 import { Nests } from './Nests';
 import { Noise } from './noise';
@@ -36,6 +38,7 @@ export class WorldSystem implements GameSystem, WorldRef {
   private readonly pads = new Pads();
   private readonly outposts = new Outposts();
   private readonly crates = new Crates();
+  private readonly gather = new Gather();
   private readonly ambience = new Ambience();
   private readonly hash = new SpatialHash(16);
   private layout: WorldLayout | null = null;
@@ -60,6 +63,7 @@ export class WorldSystem implements GameSystem, WorldRef {
     this.ctx = ctx;
     ctx.world = this;
     ctx.scene.add(this.root);
+    this.gather.attach(ctx);
     this.unsubs.push(
       ctx.bus.on('game:newMission', ({ seed }) => this.generate(seed)),
       ctx.bus.on('game:abort', () => {
@@ -77,11 +81,13 @@ export class WorldSystem implements GameSystem, WorldRef {
     this.pads.update(t);
     this.outposts.update(t);
     this.crates.update(dt, t);
+    this.gather.update(dt, t);
     this.ambience.update(dt, ctx.camera);
   }
 
   dispose(): void {
     this.clear();
+    this.gather.detach();
     for (const u of this.unsubs) u();
     this.unsubs.length = 0;
     this.root.removeFromParent();
@@ -114,6 +120,7 @@ export class WorldSystem implements GameSystem, WorldRef {
     this.outposts.build(bctx);
     this.props.build(bctx);
     this.crates.build(bctx, ctx);
+    this.gather.build(bctx, ctx);
     this.ambience.build(bctx);
 
     this.extractionPoints = this.layout.extraction.map((p, i) => ({
@@ -135,6 +142,7 @@ export class WorldSystem implements GameSystem, WorldRef {
     if (!this.generated) return;
     this.ready = false;
     this.ambience.dispose();
+    this.gather.dispose();
     this.crates.dispose();
     this.props.dispose();
     this.outposts.dispose();
@@ -308,6 +316,9 @@ export class WorldSystem implements GameSystem, WorldRef {
   getCrates(): readonly CrateDef[] { return this.crates.getDefs(); }
 
   getNestPositions(): readonly THREE.Vector3[] { return this.nests.getHolePositions(); }
+
+  /** Harvestable plants (consumed nodes stay in the list with `harvested: true`). */
+  getGatherNodes(): readonly GatherNodeDef[] { return this.gather.getNodes(); }
 
   getEnemySpawnPoints(around: THREE.Vector3, count: number, minDist: number, maxDist: number): THREE.Vector3[] {
     const result: THREE.Vector3[] = [];

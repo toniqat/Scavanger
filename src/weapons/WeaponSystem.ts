@@ -1,26 +1,38 @@
 import * as THREE from 'three';
 import {
-  GameContext, Keys,
-  type GameSystem, type WeaponDef, type ItemInstance, type PlayerRef, type PlayerWeaponHost, type EnemyRef, type Vec3Tuple,
+  GameContext, Keys, KEY_MELEE,
+  WEAPON_DURABILITY_PER_SHOT, BROKEN_WEAPON_FIRERATE_MUL, IMPLANT_OVERCHARGE_FIRERATE_MUL,
+  type GameSystem, type WeaponDef, type WeaponClass, type ItemInstance, type PlayerRef, type PlayerWeaponHost,
+  type EnemyRef, type Vec3Tuple, type AmmoType,
 } from '@/shared';
 import { FxManager } from '@/core/fx';
-import { damp, randomInCone } from '@/core/util/MathUtil';
+import { randomInCone } from '@/core/util/MathUtil';
 import { defaultFor, kindOf, shotSoundId, shotPitchFor, weaponClassOf, damageFalloff, STANCE_ACCURACY } from './WeaponDefaults';
 import { WeaponModel } from './WeaponModel';
 import { WeaponFx } from './fx/WeaponFx';
 import { GrenadeManager } from './Grenade';
 import { ProjectilePool, type ProjectileHit } from './Projectile';
 import { RemoteWeapons } from './RemoteWeapons';
+import { MeleeController } from './Melee';
+import { raycastBlockers } from './Blocking';
 
 type Slot = 'primary' | 'secondary';
 type Host = PlayerRef & PlayerWeaponHost;
 
-interface WeaponInstance { uid: string; slot: Slot; def: WeaponDef; model: WeaponModel }
+interface WeaponInstance {
+  uid: string; slot: Slot; def: WeaponDef; model: WeaponModel;
+  /** Durability hit 0 → fire rate × `BROKEN_WEAPON_FIRERATE_MUL`. Kept in sync with `durability:*`. */
+  broken: boolean;
+}
 interface AmmoState { ammoInMag: number; reserveRounds: number }
 
 interface HitInfo { point: THREE.Vector3; normal: THREE.Vector3; distance: number; enemy: EnemyRef | null; obstacle: boolean; valid: boolean; headshot: boolean }
 
 const SWAP_TIME = 0.4;
+/** 전술 가방 perk: weapon swap takes half as long. */
+const TACTICAL_SWAP_MUL = 0.5;
+/** Seconds between safety-net re-reads of the active weapon's durability (events do the real work). */
+const DURABILITY_POLL = 0.5;
 const BLOOM_PER_SHOT = 0.14;
 const BLOOM_DECAY = 2.6;
 const FIRING_POSE_HOLD = 0.6;
@@ -32,7 +44,7 @@ const BOLT_SOUND_DELAY = 0.22;
 
 const _o = new THREE.Vector3(), _d = new THREE.Vector3(), _pd = new THREE.Vector3(), _tA = new THREE.Vector3(), _tB = new THREE.Vector3();
 const _muzzle = new THREE.Vector3(), _target = new THREE.Vector3(), _md = new THREE.Vector3(), _right = new THREE.Vector3(), _tmp = new THREE.Vector3();
-const _netDir = new THREE.Vector3();
+const _netDir = new THREE.Vector3(), _block = new THREE.Vector3();
 const _mq = new THREE.Quaternion();
 
 function makeHit(): HitInfo { return { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, enemy: null, obstacle: false, valid: false, headshot: false }; }
@@ -55,6 +67,8 @@ export class WeaponSystem implements GameSystem {
   private projectiles!: ProjectilePool;
   /** Multiplayer: remote players' weapon models + replicated fire/reload/grenade FX (inert offline). */
   private remote!: RemoteWeapons;
+  /** F melee attack: player owns stamina/cooldown/pose, this owns the hit resolution. */
+  private melee!: MeleeController;
 
   private readonly slots: Record<Slot, WeaponInstance | null> = { primary: null, secondary: null };
   private readonly ammo = new Map<string, AmmoState>();
@@ -80,8 +94,14 @@ export class WeaponSystem implements GameSystem {
   private loadoutWait = -1;
   /** Frames until the shader warm-up runs (set when the hellpod drop starts). */
   private warmupFrames = 0;
-  /** Hub / docking / menu: weapon model hidden, soldier posed unarmed, ADS zoom neutral. */
+  /** Hub / docking / menu, or a wielded implant in the hands: model hidden, unarmed pose, ADS zoom neutral. */
   private holstered = false;
+  /** True while the holster is caused by `ctx.implants.blocksWeapons` (nothing in flight is cleared then). */
+  private implantHolstered = false;
+  /** Swap duration in seconds — halved by the 전술 가방 perk. */
+  private swapDuration = SWAP_TIME;
+  private durabilityPoll = 0;
+  private readonly netUnsub: (() => void)[] = [];
 
   private readonly camHit = makeHit();
   private readonly gunHit = makeHit();
@@ -96,6 +116,30 @@ export class WeaponSystem implements GameSystem {
       (h, dmg, weaponId) => this.onProjectileHit(h, dmg, weaponId),
       (h) => this.remote.onVisualProjectileHit(h));
     this.remote = new RemoteWeapons(ctx, this.fx, this.grenades, this.projectiles);
+    this.melee = new MeleeController(ctx, this.fx);
+
+    // melee: the player system may read F itself and emit `melee:swing` — resolve that too (guarded against
+    // double resolution by MeleeController.selfEmit / busy).
+    ctx.bus.on('melee:swing', () => {
+      if (!ctx.isGameplayPhase()) return;
+      this.melee.onBusSwing(this.getHost(), this.slots[this.active]?.def ?? null);
+    });
+
+    // Quick-use bar: inventory fires stims and gadgets itself but leaves grenades and ammo packs to us,
+    // and it does NOT consume those items — the throw / resupply paths below own the consumption.
+    ctx.bus.on('quickbar:used', (e) => {
+      const def = ctx.loot?.getItemDef(e.item.defId) ?? ctx.inventory?.getDef(e.item.defId);
+      if (!def) return;
+      if (def.category === 'grenade') { this.quickThrowGrenade(); return; }
+      if (def.category === 'ammo') this.quickResupply(def.ammoType ?? null);
+    });
+
+    // durability: keep the broken flag of every slotted weapon current
+    ctx.bus.on('durability:changed', (p) => this.onDurability(p.uid, p.durability));
+    ctx.bus.on('durability:broken', (p) => this.onDurability(p.uid, 0));
+    ctx.bus.on('repair:completed', (p) => this.onDurability(p.uid, p.durability));
+    // backpack perk (전술 가방 → 50 % faster swap)
+    ctx.bus.on('equip:changed', () => this.refreshGearMods());
 
     // multiplayer replication (handlers no-op unless ctx.isMultiplayer && ctx.net)
     ctx.bus.on('net:remoteFired', (p) => this.remote.onFired(p.id, p.weaponId, p.origin, p.direction));
@@ -121,6 +165,17 @@ export class WeaponSystem implements GameSystem {
     ctx.bus.on('hub:entered', () => { this.resetTransient(); this.loadoutWait = -1; });
     // Hellpod drop started → pre-compile every shader (hidden FX meshes included) before the first shot/throw.
     ctx.bus.on('game:phaseChanged', ({ phase }) => { if (phase === 'deploying') this.warmupFrames = 2; });
+    this.refreshGearMods();
+    this.ensureNet();
+  }
+
+  /** Subscribe to relayed messages once `ctx.net` exists (NetSystem registers first, but stay defensive). */
+  private ensureNet(): void {
+    const net = this.ctx.net;
+    if (!net || this.netUnsub.length > 0) return;
+    this.netUnsub.push(
+      net.onMessage('melee', (msg, from) => this.remote.onMelee(from, msg.p, msg.d, msg.hit)),
+    );
   }
 
   update(dt: number, ctx: GameContext): void {
@@ -131,16 +186,24 @@ export class WeaponSystem implements GameSystem {
     // one frame after the drop scene rendered: compile shaders for the pooled/hidden FX meshes (async when possible)
     if (this.warmupFrames > 0 && --this.warmupFrames === 0) this.fx.warmUp(ctx.renderer, ctx.scene, ctx.camera);
 
-    const host = this.getHost();
-    if (!host) return;
+    this.ensureNet();
 
-    // ── holster outside gameplay (hub / docking / menu): model hidden, unarmed pose, neutral zoom
-    const holster = ctx.phase === 'hub' || ctx.phase === 'docking' || ctx.phase === 'menu';
+    const host = this.getHost();
+    if (!host) { this.melee.cancel(); return; }
+
+    // ── holster outside gameplay (hub / docking / menu) or while a wielded implant is in the hands:
+    //    model hidden, unarmed pose, neutral zoom. The implant case must NOT wipe grenades/projectiles.
+    const phaseHolster = ctx.phase === 'hub' || ctx.phase === 'docking' || ctx.phase === 'menu';
+    const implantHolster = ctx.implants?.blocksWeapons === true;
+    const holster = phaseHolster || implantHolster;
     if (holster !== this.holstered) {
       this.holstered = holster;
-      if (holster) { this.resetTransient(); }
-      else this.attachActive(false);
+      if (holster) {
+        if (phaseHolster) this.resetTransient();
+        else { if (this.phase === 'reloading') this.cancelReload(); if (this.phase === 'swapping') this.phase = 'ready'; this.applyAimZoom(null); }
+      } else this.attachActive(false);
     }
+    this.implantHolstered = implantHolster;
 
     // fallback loadout if no inventory ever speaks
     if (this.loadoutWait > 0) {
@@ -152,8 +215,20 @@ export class WeaponSystem implements GameSystem {
     }
 
     const input = ctx.input;
-    const usable = ctx.isGameplayActive() && input.isPointerLocked && host.canUseWeapons() && host.isDiving !== true;
+    const armedAndFree = ctx.isGameplayActive() && input.isPointerLocked && host.canUseWeapons() && host.isDiving !== true;
+    // a wielded implant (Q) holsters the weapon: no firing, no reload, no swap, no ADS zoom
+    const usable = armedAndFree && !this.holstered;
     const weapon = this.slots[this.active];
+
+    // ── melee (F). The player owns stamina / cooldown / animation; we only resolve the hit.
+    if (armedAndFree && !this.implantHolstered && input.wasPressed(KEY_MELEE)) {
+      this.melee.tryStart(host, weapon?.def ?? null);
+    }
+    this.melee.update(dt, host);
+
+    // durability safety net (the authoritative updates arrive as `durability:*` events)
+    this.durabilityPoll -= dt;
+    if (this.durabilityPoll <= 0) { this.durabilityPoll = DURABILITY_POLL; if (weapon) this.refreshDurability(weapon); }
 
     if (this.cooldown > 0) this.cooldown -= dt;
     this.bloom = Math.max(0, this.bloom - BLOOM_DECAY * dt);
@@ -226,8 +301,125 @@ export class WeaponSystem implements GameSystem {
   }
 
   dispose(): void {
+    for (const u of this.netUnsub) u();
+    this.netUnsub.length = 0;
     for (const s of ['primary', 'secondary'] as Slot[]) this.setSlot(s, null);
     this.remote.dispose(); this.fx.dispose(); this.grenades.dispose(); this.projectiles.dispose();
+  }
+
+  /* ───────────────── progression / gear modifiers (all optional, default 1) ───────────────── */
+  /** 사격 스킬 recoil multiplier for a class (1 when progression is not registered yet). */
+  private recoilMulFor(cls: WeaponClass): number {
+    const m = this.ctx.progression?.derived?.recoilMul;
+    const v = m ? m[cls] : undefined;
+    return typeof v === 'number' && v > 0 ? v : 1;
+  }
+
+  /** 사격 스킬 reload speed multiplier for a class (>1 = faster). */
+  private reloadSpeedFor(cls: WeaponClass): number {
+    const m = this.ctx.progression?.derived?.reloadSpeedMul;
+    const v = m ? m[cls] : undefined;
+    return typeof v === 'number' && v > 0 ? v : 1;
+  }
+
+  /** Fire rate after the broken-weapon penalty and the overcharge implant bonus. */
+  private effectiveFireRate(w: WeaponInstance): number {
+    let rate = w.def.fireRate;
+    if (w.broken) rate *= BROKEN_WEAPON_FIRERATE_MUL;
+    if (this.ctx.player?.isOvercharged) rate *= IMPLANT_OVERCHARGE_FIRERATE_MUL;
+    return Math.max(0.05, rate);
+  }
+
+  /** One shot of wear on the weapon in hand (장비 관리 skill reduces it). */
+  private wearWeapon(w: WeaponInstance): void {
+    const inv = this.ctx.inventory;
+    if (!inv || typeof inv.damageDurability !== 'function') return;
+    const mul = this.ctx.progression?.derived?.durabilityLossMul;
+    const amount = WEAPON_DURABILITY_PER_SHOT * (typeof mul === 'number' && mul >= 0 ? mul : 1);
+    if (amount <= 0) return;
+    try { inv.damageDurability(w.uid, amount); } catch { /* inventory may not track this item */ }
+  }
+
+  /** `durability:*` events → keep the broken flag of whichever slot holds `uid`. */
+  private onDurability(uid: string, durability: number): void {
+    for (const s of ['primary', 'secondary'] as Slot[]) {
+      const w = this.slots[s];
+      if (w && w.uid === uid) w.broken = durability <= 0;
+    }
+  }
+
+  private refreshDurability(w: WeaponInstance): void {
+    const inv = this.ctx.inventory;
+    if (!inv || typeof inv.getDurability !== 'function') return;
+    try {
+      const info = inv.getDurability(w.uid);
+      if (info) w.broken = info.broken || info.durability <= 0;
+    } catch { /* not tracked */ }
+  }
+
+  /** Backpack perk: the 전술 가방 halves the weapon swap time. */
+  private refreshGearMods(): void {
+    const ctx = this.ctx;
+    const inv = ctx.inventory;
+    let tactical = false;
+    if (inv && typeof inv.getEquipped === 'function') {
+      try {
+        const bp = inv.getEquipped('backpack');
+        const itemDef = bp ? (ctx.loot?.getItemDef(bp.defId) ?? inv.getDef(bp.defId)) : undefined;
+        const bpId = itemDef?.backpackId;
+        if (bpId && typeof ctx.loot?.getBackpackDef === 'function') {
+          tactical = ctx.loot.getBackpackDef(bpId)?.perk === 'tactical';
+        }
+      } catch { /* gear contract not implemented yet */ }
+    }
+    this.swapDuration = SWAP_TIME * (tactical ? TACTICAL_SWAP_MUL : 1);
+  }
+
+  /* ──────────────────────── quick-use bar ──────────────────────── */
+  /** Quick slot held a grenade: same gating as the G key, then the normal throw (which consumes one). */
+  private quickThrowGrenade(): void {
+    const host = this.getHost();
+    if (!host) return;
+    const ctx = this.ctx;
+    if (!ctx.isGameplayActive() || !host.canUseWeapons() || this.holstered || host.isDiving === true) return;
+    this.throwGrenade(host);
+  }
+
+  /**
+   * Quick slot held an ammo pack: refill the active weapon's reserve if the pack matches its ammo type.
+   * Consumes exactly one pack; a mismatched pack is left in the bag.
+   */
+  private quickResupply(ammoType: AmmoType | null): void {
+    const ctx = this.ctx;
+    const weapon = this.slots[this.active];
+    if (!weapon) {
+      ctx.bus.emit('ui:notify', { text: '장착한 무기가 없습니다', kind: 'warning', duration: 1.2 });
+      return;
+    }
+    if (ammoType !== null && ammoType !== weapon.def.ammoType) {
+      ctx.bus.emit('ui:notify', { text: '탄약 종류가 맞지 않습니다', kind: 'warning', duration: 1.2 });
+      ctx.bus.emit('audio:play', { id: 'ui_deny', volume: 0.5 });
+      return;
+    }
+    const a = this.ammoFor(weapon);
+    const full = weapon.def.magSize * weapon.def.reserveMags;
+    if (a.reserveRounds >= full) {
+      ctx.bus.emit('ui:notify', { text: '예비 탄약이 가득합니다', kind: 'info', duration: 1.2 });
+      return;
+    }
+    const inv = ctx.inventory;
+    if (inv) {
+      const n = inv.consumeWhere((d) => d.category === 'ammo' && d.ammoType === weapon.def.ammoType, 1);
+      if (n <= 0) {
+        ctx.bus.emit('ui:notify', { text: '탄약 없음', kind: 'warning', duration: 1.2 });
+        ctx.bus.emit('audio:play', { id: 'ui_deny', volume: 0.5 });
+        return;
+      }
+    }
+    a.reserveRounds = full;
+    ctx.bus.emit('ui:notify', { text: '탄약 보충', kind: 'info', duration: 1.0 });
+    ctx.bus.emit('audio:play', { id: 'reload_end', volume: 0.6 });
+    this.emitAmmo(weapon, a);
   }
 
   /* ─────────────────────────── loadout ─────────────────────────── */
@@ -259,9 +451,12 @@ export class WeaponSystem implements GameSystem {
       if (!item) { if (cur) this.setSlot(slot, null); continue; }
       if (cur && cur.uid === item.uid) continue;
       const def = this.resolveDef(item, slot);
-      this.setSlot(slot, { uid: item.uid, slot, def, model: new WeaponModel(def) });
+      const inst: WeaponInstance = { uid: item.uid, slot, def, model: new WeaponModel(def), broken: false };
+      this.setSlot(slot, inst);
+      this.refreshDurability(inst);
       if (!this.ammo.has(item.uid)) this.ammo.set(item.uid, { ammoInMag: def.magSize, reserveRounds: def.magSize * def.reserveMags });
     }
+    this.refreshGearMods();
     // make sure something usable is in hand
     if (!this.slots[this.active]) {
       const other: Slot = this.active === 'primary' ? 'secondary' : 'primary';
@@ -339,7 +534,7 @@ export class WeaponSystem implements GameSystem {
 
   private updateSwap(dt: number): void {
     this.swapTimer += dt;
-    const t = Math.min(1, this.swapTimer / SWAP_TIME);
+    const t = Math.min(1, this.swapTimer / Math.max(0.05, this.swapDuration));
     const cur = this.slots[this.active];
     if (t < 0.5) {
       if (cur && this.attachedModel === cur.model) cur.model.setDraw(1 - t * 2);
@@ -379,11 +574,12 @@ export class WeaponSystem implements GameSystem {
     }
     this.phase = 'reloading';
     this.reloadTimer = 0;
-    this.reloadDuration = w.def.reloadTime;
+    // 사격 스킬: reload gets faster with the class skill (`derived.reloadSpeedMul`)
+    this.reloadDuration = Math.max(0.15, w.def.reloadTime / this.reloadSpeedFor(weaponClassOf(w.def)));
     this.boltTimer = 0; this.boltSoundTimer = 0;
     w.model.setBolt(-1);
     w.model.setReload(0);
-    this.ctx.bus.emit('weapon:reloadStarted', { weaponId: w.def.id, duration: w.def.reloadTime });
+    this.ctx.bus.emit('weapon:reloadStarted', { weaponId: w.def.id, duration: this.reloadDuration });
     this.ctx.bus.emit('audio:play', { id: 'reload', volume: 0.8 });
     if (this.ctx.isMultiplayer && this.ctx.net) this.ctx.net.send({ t: 'reload', w: w.def.id });
   }
@@ -416,9 +612,12 @@ export class WeaponSystem implements GameSystem {
   private fire(host: Host, w: WeaponInstance, a: AmmoState): void {
     const ctx = this.ctx, def = w.def;
     a.ammoInMag--;
-    this.cooldown += 1 / def.fireRate;
-    if (this.cooldown < 0) this.cooldown = 1 / def.fireRate;
+    // fire rate reacts to a broken weapon (×0.5) and to an overcharge beam (×1.3)
+    const rate = this.effectiveFireRate(w);
+    this.cooldown += 1 / rate;
+    if (this.cooldown < 0) this.cooldown = 1 / rate;
     this.firingTimer = FIRING_POSE_HOLD;
+    this.wearWeapon(w);
 
     const cls = weaponClassOf(def);
     const aim = host.isAiming ? 1 : 0;
@@ -430,7 +629,7 @@ export class WeaponSystem implements GameSystem {
     this.bloom = Math.min(1, this.bloom + BLOOM_PER_SHOT);
     // bolt-action: lock the trigger for the cycle and animate the bolt
     if (cls === 'SR') {
-      this.boltDuration = Math.max(0.3, 1 / def.fireRate - 0.05);
+      this.boltDuration = Math.max(0.3, 1 / rate - 0.05);
       this.boltTimer = this.boltDuration;
       this.boltSoundTimer = BOLT_SOUND_DELAY;
       w.model.setBolt(0);
@@ -488,8 +687,10 @@ export class WeaponSystem implements GameSystem {
     _right.set(1, 0, 0).applyQuaternion(_mq);
     if (kindOf(def) !== 'energy') this.fx.casing(_tmp, _right, host.position.y);
     w.model.kick(pellets > 1 ? 2.2 : cls === 'SR' ? 2.6 : 1);
-    const kick = def.recoil * (0.85 + Math.random() * 0.3) * stanceMul;
-    host.addRecoil(kick, (Math.random() - 0.5) * def.recoil * 0.7 * stanceMul);
+    // 사격 스킬: recoil shrinks as the class skill rises (`derived.recoilMul`)
+    const recoilMul = this.recoilMulFor(cls);
+    const kick = def.recoil * (0.85 + Math.random() * 0.3) * stanceMul * recoilMul;
+    host.addRecoil(kick, (Math.random() - 0.5) * def.recoil * 0.7 * stanceMul * recoilMul);
     if (cls === 'SR') ctx.bus.emit('camera:shake', { intensity: 0.35, duration: 0.18 });
 
     ctx.bus.emit('weapon:fired', { weaponId: def.id, origin: _muzzle.clone(), direction: _d.clone() });
@@ -501,7 +702,11 @@ export class WeaponSystem implements GameSystem {
     else if (anyHit && pellets === 1) { /* surface hit: no marker */ }
   }
 
-  /** Nearest of world & enemy raycasts into `out`. */
+  /**
+   * Nearest of world & enemy raycasts into `out`, clamped by any shield / solid deployable on the way
+   * (`ctx.implants.raycastBarrier` + `ctx.gadgets.blocksProjectile`). Allied barriers never stop allied
+   * bullets — only hostile projectiles — but a barricade / dome hull is a physical wall and does.
+   */
   private raycastAll(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number, out: HitInfo): void {
     const ctx = this.ctx;
     out.valid = false; out.enemy = null; out.obstacle = false; out.headshot = false;
@@ -511,6 +716,11 @@ export class WeaponSystem implements GameSystem {
       out.point.copy(eh.point); out.normal.copy(eh.normal); out.distance = eh.distance; out.enemy = eh.enemy; out.valid = true; out.headshot = eh.part === 'head';
     } else if (wh) {
       out.point.copy(wh.point); out.normal.copy(wh.normal); out.distance = wh.distance; out.obstacle = !!wh.obstacle; out.valid = true;
+    }
+    const bd = raycastBlockers(ctx, origin, dir, maxDist, _block, false);
+    if (bd >= 0 && (!out.valid || bd < out.distance)) {
+      out.point.copy(_block); out.normal.copy(dir).negate(); out.distance = bd;
+      out.enemy = null; out.headshot = false; out.obstacle = true; out.valid = true;
     }
   }
 
@@ -581,6 +791,7 @@ export class WeaponSystem implements GameSystem {
   }
 
   private resetTransient(): void {
+    this.melee.cancel();
     this.grenades.clear();
     this.projectiles.clear();
     this.fx.clear();

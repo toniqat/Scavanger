@@ -1,7 +1,10 @@
-import type { ItemDef, ItemInstance, LootRef, WeaponDef } from '@/shared';
+import type { ArmorDef, BackpackDef, CraftRecipe, ItemDef, ItemInstance, LootRef, WeaponDef } from '@/shared';
 import { Random } from '@/shared';
 import { ITEM_DEFS, ITEM_DEF_MAP, rarityRank } from './ItemDefs';
 import { WEAPON_DEF_MAP } from './WeaponDefs';
+import { ARMOR_DEF_MAP } from './ArmorDefs';
+import { BACKPACK_DEF_MAP } from './BackpackDefs';
+import { CRAFT_RECIPES } from './Recipes';
 import { getTierTable, type TierTable } from './LootTables';
 
 let uidCounter = 0;
@@ -17,11 +20,18 @@ export class LootService implements LootRef {
   getItemDef(defId: string): ItemDef | undefined { return ITEM_DEF_MAP.get(defId); }
   getWeaponDef(weaponId: string): WeaponDef | undefined { return WEAPON_DEF_MAP.get(weaponId); }
   getAllItemDefs(): ItemDef[] { return ITEM_DEFS.slice(); }
+  /* appended: tactical kit */
+  getArmorDef(armorId: string): ArmorDef | undefined { return ARMOR_DEF_MAP.get(armorId); }
+  getBackpackDef(backpackId: string): BackpackDef | undefined { return BACKPACK_DEF_MAP.get(backpackId); }
+  getAllRecipes(): readonly CraftRecipe[] { return CRAFT_RECIPES; }
 
+  /** Fresh instance. Gear with a `durabilityMax` starts at full durability. */
   createItem(defId: string, qty = 1): ItemInstance {
     const def = ITEM_DEF_MAP.get(defId);
     if (!def) throw new Error(`[Loot] unknown item def '${defId}'`);
-    return { uid: nextUid(), defId, qty: Math.max(1, Math.min(def.stackMax, Math.floor(qty))), rotated: false };
+    const item: ItemInstance = { uid: nextUid(), defId, qty: Math.max(1, Math.min(def.stackMax, Math.floor(qty))), rotated: false };
+    if (def.durabilityMax !== undefined) item.durability = def.durabilityMax;
+    return item;
   }
 
   /**
@@ -65,7 +75,14 @@ export class LootService implements LootRef {
         const moved = Math.min(room, qty);
         existing.qty += moved; qty -= moved;
       }
-      if (qty > 0) out.push(this.createItem(def.id, qty));
+      if (qty > 0) {
+        const item = this.createItem(def.id, qty);
+        // Found gear is second-hand: 55–100 % durability, so 함선 수리 is worth doing.
+        if (def.durabilityMax !== undefined) {
+          item.durability = Math.max(1, Math.round(def.durabilityMax * (0.55 + rng.next() * 0.45)));
+        }
+        out.push(item);
+      }
     }
     out.sort((a, b) => this.area(b) - this.area(a));
     return out;

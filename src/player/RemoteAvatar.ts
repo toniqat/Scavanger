@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {
-  NET_SLOT_COLORS, PlayerFlags, type GameContext, type RemoteAvatarRef, type RemotePlayerRef,
+  NET_SLOT_COLORS, PlayerFlags, ROLL_DURATION, type GameContext, type RemoteAvatarRef, type RemotePlayerRef,
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
 import { damp, dampAngle, wrapAngle } from '@/core/util/MathUtil';
@@ -12,6 +12,12 @@ const HEAD_PRONE = 0.5;
 const DEATH_ANIM = 0.9;
 /** Seconds between recoil pulses while the FIRING flag is set (≈ a 9 rps rifle). */
 const FIRE_PULSE_INTERVAL = 0.11;
+/** Melee swing length mirrored from PlayerSystem (MELEE_SWING_TIME); the wire only carries the flag. */
+const MELEE_SWING_TIME = 0.45;
+/** Opacity of a cloaked remote (matches the local player's own shimmer). */
+const CLOAK_FADE = 0.4;
+/** Height of the "downed" beacon above the feet. */
+const DOWN_MARKER_Y = 0.95;
 
 const _up = new THREE.Vector3(0, 1, 0);
 
@@ -48,11 +54,25 @@ export class RemoteAvatar implements RemoteAvatarRef {
   private wasDropping: boolean;
   private lastStepIdx = 0;
   private shown = false;
+  /* ── tactical kit ── */
+  private rollBlend = 0;
+  private rollPhase = 0;
+  private rollTimer = 0;
+  private wasRolling = false;
+  private meleeTimer = -1;
+  private wasMelee = false;
+  private hoverBlend = 0;
+  private downedBlend = 0;
+  private fadeTarget = 1;
+  /** Pulsing beacon shown over a downed team-mate (a 표식 the whole squad can see through the crowd). */
+  private downMarker: THREE.Mesh | null = null;
+  private downMarkerGeo: THREE.BufferGeometry | null = null;
+  private downMarkerMat: THREE.MeshBasicMaterial | null = null;
 
   private readonly pose: SoldierPose = {
     moveBlend: 0, sprint: 0, stridePhase: 0, crouch: 0, aim: 0, aimPitch: 0, torsoTwist: 0, airborne: 0,
     verticalVel: 0, flinch: 0, hasWeapon: false, twoHanded: false, reloading: false, recoil: 0, dead: 0,
-    prone: 0, dive: 0,
+    prone: 0, dive: 0, roll: 0, rollPhase: 0, melee: 0, hover: 0, downed: 0,
   };
 
   constructor(readonly ref: RemotePlayerRef, parent: THREE.Object3D) {
@@ -97,9 +117,17 @@ export class RemoteAvatar implements RemoteAvatarRef {
     if (visible !== this.shown) { this.shown = visible; this.model.setVisible(visible); }
     // keep the root where the ref is even while hidden (weapon sockets / pings may read it)
     this.root.position.copy(ref.position);
-    if (!visible) { this.model.setSilhouette(false); return; }
-    // slot-tinted occlusion silhouette (same GreaterDepth pass as the local soldier); off while dead
-    this.model.setSilhouette(!ref.isDead);
+    if (!visible) {
+      this.model.setSilhouette(false);
+      if (this.downMarker) this.downMarker.visible = false;
+      return;
+    }
+    // ── cloak: the peer shimmers translucent (setFade also suppresses the silhouette)
+    const cloaked = ref.isCloaked || (flags & PlayerFlags.CLOAKED) !== 0;
+    const wantFade = cloaked && !ref.isDead ? CLOAK_FADE : 1;
+    if (wantFade !== this.fadeTarget) { this.fadeTarget = wantFade; this.model.setFade(wantFade); }
+    // slot-tinted occlusion silhouette (same GreaterDepth pass as the local soldier); off while dead / cloaked
+    this.model.setSilhouette(!ref.isDead && wantFade >= 1);
 
     // ── death ramp (reset when the peer respawns)
     if (ref.isDead) {
@@ -120,13 +148,43 @@ export class RemoteAvatar implements RemoteAvatarRef {
     const reloading = (flags & PlayerFlags.RELOADING) !== 0;
     const hasWeapon = (flags & PlayerFlags.HAS_WEAPON) !== 0;
     const twoHanded = (flags & PlayerFlags.TWO_HANDED) !== 0;
-    const prone = ref.stance === 'prone';
+    /* ── tactical kit flags ── */
+    const rolling = (flags & PlayerFlags.ROLL) !== 0;
+    const downed = ref.isDowned || (flags & PlayerFlags.DOWNED) !== 0;
+    const hovering = (flags & PlayerFlags.HOVER) !== 0;
+    const meleeing = (flags & PlayerFlags.MELEE) !== 0;
+    // ROLL supersedes the legacy DIVE bit (the sender sets both for wire compatibility)
+    const divingOnly = diving && !rolling;
+    const prone = ref.stance === 'prone' || downed;
+
+    // roll: the wire only carries the flag, so the tumble phase is timed locally
+    if (rolling) {
+      if (!this.wasRolling) this.rollTimer = 0;
+      this.rollTimer += dt;
+      this.rollPhase = Math.min(1, this.rollTimer / ROLL_DURATION);
+    } else if (this.rollBlend < 0.01) {
+      this.rollPhase = 0; this.rollTimer = 0;
+    }
+    this.wasRolling = rolling;
+    this.rollBlend = damp(this.rollBlend, rolling ? 1 : 0, 18, dt);
+
+    // melee: one swing per rising edge of the flag, replayed at the local swing length
+    if (meleeing && !this.wasMelee) this.meleeTimer = 0;
+    this.wasMelee = meleeing;
+    if (this.meleeTimer >= 0) {
+      this.meleeTimer += dt;
+      if (this.meleeTimer >= MELEE_SWING_TIME) this.meleeTimer = -1;
+    }
+
     this.sprintBlend = damp(this.sprintBlend, sprinting ? 1 : 0, 8, dt);
-    this.aimBlend = damp(this.aimBlend, aiming && hasWeapon ? 1 : 0, 12, dt);
-    this.crouchBlend = damp(this.crouchBlend, ref.stance === 'crouch' && !diving ? 1 : 0, 10, dt);
-    this.proneBlend = damp(this.proneBlend, prone && !diving ? 1 : 0, 8, dt);
-    this.diveBlend = damp(this.diveBlend, diving ? 1 : 0, 14, dt);
-    this.airBlend = damp(this.airBlend, airborne ? 1 : 0, 12, dt);
+    this.aimBlend = damp(this.aimBlend, aiming && hasWeapon && !downed ? 1 : 0, 12, dt);
+    this.crouchBlend = damp(this.crouchBlend, ref.stance === 'crouch' && !diving && !downed ? 1 : 0, 10, dt);
+    this.proneBlend = damp(this.proneBlend, prone && !divingOnly && !rolling ? 1 : 0, 8, dt);
+    this.diveBlend = damp(this.diveBlend, divingOnly ? 1 : 0, 14, dt);
+    this.airBlend = damp(this.airBlend, airborne && !rolling ? 1 : 0, 12, dt);
+    this.hoverBlend = damp(this.hoverBlend, hovering ? 1 : 0, 10, dt);
+    this.downedBlend = damp(this.downedBlend, downed && !ref.isDead ? 1 : 0, 6, dt);
+    this.updateDownMarker(ctx, downed && !ref.isDead);
 
     // ── recoil pulses while firing
     if (firing && hasWeapon) {
@@ -142,8 +200,8 @@ export class RemoteAvatar implements RemoteAvatarRef {
     const v = ref.velocity;
     const hSpeed = Math.hypot(v.x, v.z);
     if (!ref.isDead) {
-      const faceCamera = aiming || firing || reloading || prone;
-      if (diving && hSpeed > 0.4) this.bodyYaw = dampAngle(this.bodyYaw, Math.atan2(-v.x, -v.z), 20, dt);
+      const faceCamera = (aiming || firing || reloading || prone || meleeing) && !rolling;
+      if ((diving || rolling) && hSpeed > 0.4) this.bodyYaw = dampAngle(this.bodyYaw, Math.atan2(-v.x, -v.z), 20, dt);
       else if (faceCamera) this.bodyYaw = dampAngle(this.bodyYaw, ref.yaw, prone ? 7 : 18, dt);
       else if (hSpeed > 0.4) this.bodyYaw = dampAngle(this.bodyYaw, Math.atan2(-v.x, -v.z), 12, dt);
     }
@@ -172,18 +230,55 @@ export class RemoteAvatar implements RemoteAvatarRef {
     p.airborne = this.airBlend;
     p.verticalVel = v.y;
     p.flinch = 0;
-    p.hasWeapon = hasWeapon;
+    p.hasWeapon = hasWeapon && !downed;
     p.twoHanded = twoHanded;
     p.reloading = reloading && hasWeapon;
     p.recoil = this.recoil;
+    p.roll = this.rollBlend;
+    p.rollPhase = this.rollPhase;
+    p.melee = this.meleeTimer >= 0 ? Math.min(1, this.meleeTimer / MELEE_SWING_TIME) : 0;
+    p.hover = this.hoverBlend;
+    p.downed = this.downedBlend;
     p.dead = ref.isDead ? Math.min(1, this.deadTimer / DEATH_ANIM) : 0;
     this.model.update(dt, ctx.time, p);
 
     this.root.quaternion.setFromAxisAngle(_up, this.bodyYaw);
   }
 
+  /**
+   * Pulsing beacon over a downed team-mate. Built lazily (nothing is allocated for peers that never go down),
+   * emissive-only so the scene's light count never changes, and disposed with the avatar.
+   */
+  private updateDownMarker(ctx: GameContext, on: boolean): void {
+    if (!on) {
+      if (this.downMarker) this.downMarker.visible = false;
+      return;
+    }
+    if (!this.downMarker) {
+      this.downMarkerGeo = new THREE.OctahedronGeometry(0.16, 0);
+      this.downMarkerMat = new THREE.MeshBasicMaterial({
+        color: this.model.accentColor, transparent: true, opacity: 0.9, depthWrite: false, fog: false, toneMapped: false,
+      });
+      this.downMarker = new THREE.Mesh(this.downMarkerGeo, this.downMarkerMat);
+      this.downMarker.renderOrder = 3;
+      this.downMarker.castShadow = false;
+      this.downMarker.receiveShadow = false;
+      // parented to the root, which stays at the peer's feet and only yaws
+      this.downMarker.position.set(0, DOWN_MARKER_Y, 0);
+      this.root.add(this.downMarker);
+    }
+    this.downMarker.visible = true;
+    const t = ctx.time;
+    this.downMarker.position.y = DOWN_MARKER_Y + Math.sin(t * 3) * 0.08;
+    this.downMarker.rotation.y = t * 1.6;
+    if (this.downMarkerMat) this.downMarkerMat.opacity = 0.55 + Math.sin(t * 6) * 0.35;
+  }
+
   dispose(): void {
     if (this.ref.avatar === this) this.ref.avatar = null;
+    this.downMarkerGeo?.dispose();
+    this.downMarkerMat?.dispose();
+    this.downMarker = null; this.downMarkerGeo = null; this.downMarkerMat = null;
     this.model.dispose(); // also detaches the root (and any weapon model parented into the socket)
   }
 }

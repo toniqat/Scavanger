@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import {
-  GameContext, Keys, MouseButtons, PLAYER_MAX_HP, PLAYER_MAX_STAMINA, PLAYER_RADIUS, PLAYER_WALK_SPEED,
+  ARMOR_DURABILITY_PER_DAMAGE, BACKPACK_DURABILITY_PER_DAMAGE, CLOAK_BREAK_TIME, CLOAK_DETECT_MUL,
+  CLOAK_REVEAL_DISTANCE, DOWNED_BLEEDOUT, GameContext, Keys, MELEE_COOLDOWN, MELEE_STAMINA_COST, MouseButtons,
+  PLAYER_MAX_HP, PLAYER_MAX_STAMINA, PLAYER_RADIUS, PLAYER_WALK_SPEED, ROLL_COOLDOWN, ROLL_DAMAGE_MUL,
+  ROLL_DURATION, ROLL_STAMINA_COST,
   type GameSystem, type PlayerRef, type PlayerWeaponHost, type Interactable, type Stance, type InteriorCollider,
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
@@ -9,20 +12,45 @@ import { SoldierModel, type SoldierPose } from './SoldierModel';
 import { CameraRig, type RigInput } from './CameraRig';
 import { PlayerController, type MoveInput, type MoveResult, type ShipBounds } from './PlayerController';
 import { Hellpod, type HellpodEvents } from './Hellpod';
+import { PlayerGear } from './PlayerGear';
 
 const EYE_STAND = 1.55;
 const EYE_CROUCH = 1.15;
 const EYE_PRONE = 0.45;
-const EYE_DIVE = 1.0;
+/** Eye height at the top of the tumble (the rig keeps following the pivot). */
+const EYE_ROLL = 0.95;
 const INVULN_TIME = 0.15;
 const STIM_DURATION = 1.5;
 const DEATH_ANIM = 0.9;
 
+/* ── tactical kit tuning (local; the shared numbers live in shared/constants) ── */
+/** Melee swing animation length; must stay below MELEE_COOLDOWN. */
+const MELEE_SWING_TIME = 0.45;
+/** Cloaked players are drawn semi-transparent for themselves too (remotes use the same value). */
+const CLOAK_FADE = 0.4;
+/** How often the cloak checks for enemies inside CLOAK_REVEAL_DISTANCE (seconds). */
+const CLOAK_PROBE_INTERVAL = 0.25;
+/** Burning DoT is applied in ticks so the HUD is not spammed 60×/s. */
+const BURN_TICK = 0.5;
+/** Stamina drained per second while the tactical backpack hovers. */
+const HOVER_STAMINA_DRAIN = 10;
+/** Fall speed (m/s, negative) that auto-triggers the tactical backpack's one free hover (낙사 방지). */
+const HOVER_AUTO_FALL = -18;
+/** Jump backpack: forward / upward burst of the mid-air re-jump. */
+const JUMPPACK_FORWARD = 12;
+const JUMPPACK_UP = 3.2;
+const JUMPPACK_COOLDOWN = 12;
+/** Fraction of max stamina the jump backpack burst costs. */
+const JUMPPACK_STAMINA_FRAC = 0.5;
+/** Seconds of bleedout burnt per point of damage taken while downed. */
+const DOWNED_DAMAGE_BLEED = 0.12;
+/** Speed-modifier keys the player owns itself (external callers must not reuse them). */
+const SPEEDMOD_WEIGHT = 'weight';
+const SPEEDMOD_ARMOR = 'armor';
+
 // stamina tuning
 const STAMINA_SPRINT_DRAIN = 14;     // per second
 const STAMINA_JUMP_COST = 12;
-const STAMINA_DIVE_COST = 25;
-const STAMINA_DIVE_MIN = 15;         // may dive with at least this much (cost clamps to 0)
 const STAMINA_REGEN_DELAY = 0.8;
 const STAMINA_REGEN_MOVING = 16;     // per second
 const STAMINA_REGEN_IDLE = 22;
@@ -37,8 +65,12 @@ const FADE_NEAR = 0.45;
 
 const _v = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0), _spawn = new THREE.Vector3();
 const _q = new THREE.Quaternion(), _camPos = new THREE.Vector3(), _camLook = new THREE.Vector3();
+const _dir = new THREE.Vector3(), _imp = new THREE.Vector3();
 
 interface WeaponState { hasWeapon: boolean; reloading: boolean; firing: boolean; twoHanded: boolean }
+
+/** One entry of the multiplicative speed-modifier stack (`setSpeedModifier`). */
+interface SpeedMod { mul: number; until: number }
 
 /**
  * Third-person player: controller + camera rig + procedural soldier + health/stims + stamina +
@@ -65,12 +97,41 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   private healRate = 0;
   private fallbackStims = 3;
 
-  // stamina
+  // stamina (max comes from 지구력 via progression; PLAYER_MAX_STAMINA is the fallback)
   stamina = PLAYER_MAX_STAMINA;
-  readonly maxStamina = PLAYER_MAX_STAMINA;
   private regenDelay = 0;
   private exhausted = false;
   private exhaustedSlow = 0;
+
+  /* ── tactical kit ── */
+  private readonly gear = new PlayerGear();
+  private rollBlend = 0;
+  private rollPhase = 0;
+  private rollCooldown = 0;
+  private meleeTimer = 0;
+  private meleeCooldown = 0;
+  private _isDowned = false;
+  private bleedout = 0;
+  private downedBlend = 0;
+  private cloakTimer = 0;
+  private cloakSource: 'gadget' | 'armor' | null = null;
+  private cloakBreak = 0;
+  private cloakProbe = 0;
+  private cloakNearEnemy = false;
+  private _cloaked = false;
+  private readonly speedMods = new Map<string, SpeedMod>();
+  private _overcharged = false;
+  private readonly grappleVec = new THREE.Vector3();
+  private _grappling = false;
+  private _hovering = false;
+  private hoverBlend = 0;
+  private autoHoverUsed = false;
+  private jumpPackCooldown = 0;
+  private burnDps = 0;
+  private burnTimer = 0;
+  private burnTick = 0;
+  private _burning = false;
+  private regenAccum = 0;
 
   // stance
   private _stance: Stance = 'stand';
@@ -84,7 +145,6 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   private scopeHidden = false;
   private crouchBlend = 0;
   private proneBlend = 0;
-  private diveBlend = 0;
   private sprintBlend = 0;
   private bodyYaw = 0;
   private poseRecoil = 0;
@@ -104,13 +164,13 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   private interactCooldown = 0;
 
   // scratch
-  private readonly moveInput: MoveInput = { x: 0, z: 0, sprint: false, jump: false, stance: 'stand', dive: false, aiming: false };
-  private readonly moveResult: MoveResult = { footstep: false, landed: 0, jumped: false, dived: false, diveEnded: false };
+  private readonly moveInput: MoveInput = { x: 0, z: 0, sprint: false, jump: false, stance: 'stand', aiming: false };
+  private readonly moveResult: MoveResult = { footstep: false, landed: 0, jumped: false, rollEnded: false };
   private readonly podEvents: HellpodEvents = { impact: false, opened: false, finished: false };
   private readonly pose: SoldierPose = {
     moveBlend: 0, sprint: 0, stridePhase: 0, crouch: 0, aim: 0, aimPitch: 0, torsoTwist: 0, airborne: 0,
     verticalVel: 0, flinch: 0, hasWeapon: false, twoHanded: false, reloading: false, recoil: 0, dead: 0,
-    prone: 0, dive: 0,
+    prone: 0, dive: 0, roll: 0, rollPhase: 0, melee: 0, hover: 0, downed: 0,
   };
   private readonly rigInput: RigInput = {
     pivot: new THREE.Vector3(), aim: 0, sprint: 0, crouch: 0, prone: 0, dive: 0, moveBlend: 0, stridePhase: 0,
@@ -126,7 +186,9 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   get isSprinting(): boolean { return this.controller.sprinting; }
   get object(): THREE.Object3D { return this.model.root; }
   get stance(): Stance { return this._stance; }
-  get isDiving(): boolean { return this.controller.diving; }
+  /** Wire compatibility: the roll replaced the dive, so `isDiving` mirrors `isRolling`. */
+  get isDiving(): boolean { return this.controller.rolling; }
+  get maxStamina(): number { return this.ctx?.progression?.derived.maxStamina ?? PLAYER_MAX_STAMINA; }
   /* ── multiplayer snapshot inputs (read by net/NetSystem) ── */
   get pitch(): number { return this.rig ? this.rig.pitch : 0; }
   get isGrounded(): boolean { return this.controller.grounded; }
@@ -140,6 +202,163 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   /* ── ship hub / interiors (appended contract) ── */
   get interior(): InteriorCollider | null { return this._interior; }
   get isInPod(): boolean { return this._inPod; }
+
+  /* ── tactical kit (appended contract) ── */
+  get isRolling(): boolean { return this.controller.rolling; }
+  get isMeleeing(): boolean { return this.meleeTimer > 0; }
+  get isDowned(): boolean { return this._isDowned; }
+  get bleedoutRemaining(): number { return this._isDowned ? Math.max(0, this.bleedout) : 0; }
+  get isCloaked(): boolean { return this._cloaked; }
+  get isHovering(): boolean { return this._hovering; }
+  get isOvercharged(): boolean { return this._overcharged; }
+  get damageReduction(): number { return this.gear.damageReduction; }
+  get isBurning(): boolean { return this._burning; }
+
+  /**
+   * Roll (Alt) in `direction` — defaults to the current movement input, else camera forward. Costs
+   * ROLL_STAMINA_COST, has a ROLL_COOLDOWN, is denied while airborne / rolling / downed / in a pod, inside the
+   * extraction ship box and from '무거움' (90 %) upward. Emits `player:rolled`.
+   */
+  roll(direction?: THREE.Vector3): boolean {
+    const c = this.controller;
+    if (!this.canAct() || !c.grounded || c.rolling) return false;
+    if (this.rollCooldown > 0) return false;
+    if (this.shipBounds && !this._interior) return false;
+    if (this.gear.rollBlocked) {
+      this.ctx.bus.emit('ui:notify', { text: '너무 무거워 구를 수 없다', kind: 'warning', duration: 1.2 });
+      this.ctx.bus.emit('audio:play', { id: 'ui_deny', volume: 0.5 });
+      return false;
+    }
+    if (this.stamina < ROLL_STAMINA_COST) {
+      this.ctx.bus.emit('audio:play', { id: 'ui_deny', volume: 0.4 });
+      return false;
+    }
+    if (direction && direction.lengthSq() > 1e-6) _dir.copy(direction).setY(0);
+    else this.wishDirection(_dir);
+    if (_dir.lengthSq() < 1e-6) this.rig.getForward(_dir);
+    _dir.y = 0;
+    if (_dir.lengthSq() < 1e-6) _dir.set(0, 0, -1);
+    _dir.normalize();
+
+    if (this._stance !== 'stand') this.setStance('stand');
+    this.setAiming(false);
+    this.setHovering(false);
+    this.spendStamina(ROLL_STAMINA_COST);
+    this.rollCooldown = ROLL_DURATION + ROLL_COOLDOWN;
+    this.rollPhase = 0;
+    c.startRoll(_dir);
+    this.rig.addShake(0.08, 0.18);
+    this.ctx.bus.emit('player:rolled', { position: c.position.clone(), direction: _dir.clone() });
+    this.ctx.bus.emit('audio:play', { id: 'roll', position: c.position, volume: 0.7 });
+    const fx = FxManager.get();
+    if (fx) ParticleBurst.dust(fx.alpha, c.position, _up, 4, 0.6);
+    return true;
+  }
+
+  /**
+   * Start a melee swing (F). Costs MELEE_STAMINA_COST and locks out for MELEE_COOLDOWN; the pose plays for
+   * MELEE_SWING_TIME. WeaponSystem owns the key binding, the hit resolution and `melee:swing` / `melee:hit`.
+   */
+  startMelee(): boolean {
+    if (!this.canAct() || this.controller.rolling) return false;
+    if (this.meleeTimer > 0 || this.meleeCooldown > 0) return false;
+    if (this.stamina < MELEE_STAMINA_COST) {
+      this.ctx.bus.emit('audio:play', { id: 'ui_deny', volume: 0.4 });
+      return false;
+    }
+    this.spendStamina(MELEE_STAMINA_COST);
+    this.meleeTimer = MELEE_SWING_TIME;
+    this.meleeCooldown = MELEE_COOLDOWN;
+    return true;
+  }
+
+  /** Revive from downed at full hp (defibrillator). No-op when not downed. */
+  revive(by?: string): void {
+    if (!this._isDowned) return;
+    this._isDowned = false;
+    this.bleedout = 0;
+    this.hp = this.maxHp;
+    this.stamina = Math.max(this.stamina, this.maxStamina * 0.5);
+    this.invuln = Math.max(this.invuln, 1.0);
+    this.setStance('stand');
+    this.controlsEnabled = true;
+    this.ctx.bus.emit('player:healthChanged', { hp: this.hp, maxHp: this.maxHp, delta: this.hp });
+    this.ctx.bus.emit('player:revived', { by: by ?? null, hp: this.hp });
+    this.ctx.bus.emit('audio:play', { id: 'stim', volume: 0.9 });
+  }
+
+  /** Apply / refresh a cloak. Optical-camo armor passes `Infinity`; the strongest remaining duration wins. */
+  setCloak(duration: number, source: 'gadget' | 'armor'): void {
+    if (!(duration > 0)) {
+      if (this.cloakSource === source) { this.cloakTimer = 0; this.cloakSource = null; }
+      return;
+    }
+    if (duration >= this.cloakTimer || this.cloakSource === null) this.cloakSource = source;
+    this.cloakTimer = Math.max(this.cloakTimer, duration);
+  }
+
+  /** 0..1 factor an enemy multiplies its detection range by (1 = fully visible). */
+  getStealthFactor(): number {
+    return this._cloaked ? CLOAK_DETECT_MUL : 1;
+  }
+
+  /**
+   * Multiplicative speed stack so overcharge / ultralight armor / weight / slows never overwrite each other.
+   * `mul === 1` with no duration removes the entry. Keys 'weight' and 'armor' are owned by the player.
+   */
+  setSpeedModifier(key: string, mul: number, duration?: number): void {
+    if (!key) return;
+    if (!(mul > 0)) mul = 0;
+    if (mul === 1 && duration === undefined) { this.speedMods.delete(key); return; }
+    const until = duration !== undefined && duration > 0 ? (this.ctx?.time ?? 0) + duration : Infinity;
+    this.speedMods.set(key, { mul, until });
+  }
+
+  /** Add to the velocity (jump pad, rocket blast, grapple release). Emits `player:launched`. */
+  applyImpulse(impulse: THREE.Vector3): void {
+    if (!this.spawned || this.isDead) return;
+    this.controller.applyImpulse(impulse);
+    if (impulse.y > 0.01) this.autoHoverUsed = false;
+    this.ctx.bus.emit('player:launched', { position: this.controller.position.clone(), impulse: impulse.clone() });
+  }
+
+  /** Grapple: reel the player toward `point` until the implant releases it (null). */
+  setGrappleTarget(point: THREE.Vector3 | null): void {
+    if (point) {
+      this.grappleVec.copy(point);
+      this.controller.grappleTarget = this.grappleVec;
+      this._grappling = true;
+      this.setHovering(false);
+      if (this.controller.rolling) this.controller.cancelRoll();
+    } else if (this._grappling) {
+      this.controller.grappleTarget = null;
+      this._grappling = false;
+    }
+  }
+
+  /** Tactical backpack hover: slows the fall while held (also auto-engaged once to prevent a fatal fall). */
+  setHovering(hovering: boolean): void {
+    const want = hovering && !this.isDead && !this._isDowned && !this.controller.grounded;
+    this.controller.hovering = want;
+    if (want === this._hovering) return;
+    this._hovering = want;
+  }
+
+  /** Fire zone / incendiary: DoT that also suppresses the 인내 save while it kills. */
+  setBurning(dps: number, duration: number): void {
+    if (!(dps > 0) || !(duration > 0)) {
+      if (this._burning) { this._burning = false; this.burnDps = 0; this.burnTimer = 0; this.ctx.bus.emit('player:burning', { active: false, dps: 0 }); }
+      return;
+    }
+    const wasBurning = this._burning;
+    this.burnDps = Math.max(this.burnDps, dps);
+    this.burnTimer = Math.max(this.burnTimer, duration);
+    this._burning = true;
+    if (!wasBurning) {
+      this.burnTick = BURN_TICK;
+      this.ctx.bus.emit('player:burning', { active: true, dps: this.burnDps });
+    }
+  }
 
   /**
    * Walk inside a ship interior: ground = `collider.getFloorAt`, push-out = `collider.resolveCollision`,
@@ -184,8 +403,9 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.isDead = false; this.deadTimer = 0; this.invuln = 0; this.flinch = 0;
     this.healPool = 0;
     this.stamina = this.maxStamina; this.regenDelay = 0; this.exhausted = false; this.exhaustedSlow = 0;
+    this.resetTactical();
     this.setStance('stand'); this.standUpTimer = 0;
-    this.setAiming(false); this.aimBlend = 0; this.crouchBlend = 0; this.proneBlend = 0; this.diveBlend = 0; this.sprintBlend = 0;
+    this.setAiming(false); this.aimBlend = 0; this.crouchBlend = 0; this.proneBlend = 0; this.sprintBlend = 0;
     this.bodyYaw = yaw;
     this.spawned = true;
     this.controlsEnabled = true;
@@ -219,26 +439,103 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   }
 
   takeDamage(amount: number, from?: THREE.Vector3): void {
-    if (this.isDead || amount <= 0 || !this.spawned) return;
-    if (this.invuln > 0) return;
+    this.applyDamage(amount, from, false);
+  }
+
+  /**
+   * Single damage path. `dot` (burning / poison) skips the invulnerability window, the shake/audio and — per the
+   * spec — the 인내 (grit) save. Armor reduces the amount and wears down, the backpack wears from what got through,
+   * and a roll counts as a partial i-frame (ROLL_DAMAGE_MUL).
+   */
+  private applyDamage(amount: number, from: THREE.Vector3 | undefined, dot: boolean): void {
+    if (this.isDead || !(amount > 0) || !this.spawned) return;
     if (this.hellpod.isActive && this.hellpod.state !== 'exiting') return; // safe inside the pod
-    this.invuln = INVULN_TIME;
-    const dealt = Math.min(this.hp, amount);
+    if (this._isDowned) {
+      // already bleeding out: further hits only shorten the timer
+      this.bleedout = Math.max(0, this.bleedout - amount * DOWNED_DAMAGE_BLEED);
+      return;
+    }
+    if (!dot) {
+      if (this.invuln > 0) return;
+      this.invuln = INVULN_TIME;
+    }
+    let raw = amount;
+    if (this.controller.rolling) raw *= ROLL_DAMAGE_MUL;
+    const dr = this.gear.damageReduction;
+    const after = raw * (1 - dr);
+    const absorbed = raw - after;
+    const dealt = Math.min(this.hp, after);
+    this.wearGear(absorbed, dealt);
     this.hp -= dealt;
     this.ctx.stats.damageTaken += dealt;
-    this.flinch = 1;
     const bus = this.ctx.bus;
     bus.emit('player:damaged', { amount: dealt, hp: this.hp, from });
     bus.emit('player:healthChanged', { hp: this.hp, maxHp: this.maxHp, delta: -dealt });
-    bus.emit('ui:damageIndicator', { from: from ?? this.controller.position.clone() });
-    const shake = Math.min(0.7, 0.15 + dealt / 60);
-    this.rig.addShake(shake, 0.25);
-    bus.emit('audio:play', { id: 'player_hurt', volume: Math.min(1, 0.4 + dealt / 50) });
-    if (this.hp <= 0) this.die();
+    if (!dot) {
+      this.flinch = 1;
+      bus.emit('ui:damageIndicator', { from: from ?? this.controller.position.clone() });
+      const shake = Math.min(0.7, 0.15 + dealt / 60);
+      this.rig.addShake(shake, 0.25);
+      bus.emit('audio:play', { id: 'player_hurt', volume: Math.min(1, 0.4 + dealt / 50) });
+    }
+    if (this.hp <= 0) this.onLethal(dot);
+  }
+
+  /** Armor eats `absorbed` damage, the backpack takes wear from whatever reached the body. */
+  private wearGear(absorbed: number, dealt: number): void {
+    const inv = this.ctx.inventory;
+    if (!inv || typeof inv.damageDurability !== 'function') return;
+    const gear = this.gear;
+    if (gear.armorUid && absorbed > 0) {
+      inv.damageDurability(gear.armorUid, absorbed * ARMOR_DURABILITY_PER_DAMAGE);
+      gear.markDirty();
+    }
+    if (gear.backpackUid && dealt > 0) {
+      inv.damageDurability(gear.backpackUid, dealt * BACKPACK_DURABILITY_PER_DAMAGE);
+      gear.markDirty();
+    }
+  }
+
+  /**
+   * hp hit 0: the 인내 skill may leave 1 hp (never on a DoT tick), otherwise multiplayer players go **downed**
+   * (revivable for DOWNED_BLEEDOUT seconds) while single-player dies outright, as before.
+   */
+  private onLethal(dot: boolean): void {
+    if (!dot) {
+      const chance = this.ctx.progression?.derived.gritChance ?? 0;
+      if (chance > 0 && Math.random() < chance) {
+        this.hp = 1;
+        this.ctx.bus.emit('player:gritSaved', { hp: this.hp });
+        this.ctx.bus.emit('player:healthChanged', { hp: this.hp, maxHp: this.maxHp, delta: 1 });
+        this.ctx.bus.emit('ui:notify', { text: '인내! 버텨냈다', kind: 'warning', duration: 1.6 });
+        return;
+      }
+    }
+    if (this.ctx.isMultiplayer && !this._isDowned) { this.enterDowned(); return; }
+    this.die();
+  }
+
+  private enterDowned(): void {
+    this._isDowned = true;
+    this.hp = 0;
+    this.bleedout = DOWNED_BLEEDOUT;
+    this.healPool = 0;
+    this.setAiming(false);
+    this.setHovering(false);
+    this.controller.cancelRoll();
+    this.controller.grappleTarget = null; this._grappling = false;
+    this.meleeTimer = 0;
+    this.controller.velocity.set(0, 0, 0);
+    this.controller.sprinting = false;
+    this.setStance('prone');
+    this.rig.addShake(0.5, 0.4);
+    this.ctx.bus.emit('player:downed', { position: this.controller.position.clone(), bleedout: DOWNED_BLEEDOUT });
+    this.ctx.bus.emit('audio:play', { id: 'player_hurt', volume: 1 });
   }
 
   heal(amount: number): void {
-    if (this.isDead || amount <= 0) return;
+    // a downed player is not healed back up — only `revive()` (defibrillator) brings them back
+    if (this.isDead || this._isDowned || amount <= 0) return;
     const before = this.hp;
     this.hp = Math.min(this.maxHp, this.hp + amount);
     const delta = this.hp - before;
@@ -258,8 +555,9 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.isDead = false; this.deadTimer = 0; this.invuln = 0; this.flinch = 0;
     this.healPool = 0; this.fallbackStims = 3;
     this.stamina = this.maxStamina; this.regenDelay = 0; this.exhausted = false; this.exhaustedSlow = 0;
+    this.resetTactical();
     this.setStance('stand'); this.standUpTimer = 0;
-    this.isAiming = false; this.aimBlend = 0; this.crouchBlend = 0; this.proneBlend = 0; this.diveBlend = 0; this.sprintBlend = 0;
+    this.isAiming = false; this.aimBlend = 0; this.crouchBlend = 0; this.proneBlend = 0; this.sprintBlend = 0;
     this.bodyYaw = y;
     this.spawned = true;
     this.controlsEnabled = true;
@@ -306,7 +604,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.poseRecoil = Math.min(1, this.poseRecoil + 0.8);
   }
   canUseWeapons(): boolean {
-    return this.spawned && this.controlsEnabled && !this.isDead && !this.controller.diving
+    return this.spawned && this.controlsEnabled && !this.isDead && !this.controller.rolling
+      && !this._isDowned && !this._inPod
       && !(this.hellpod.isActive && this.hellpod.state !== 'exiting');
   }
   setWeaponState(state: WeaponState): void {
@@ -344,6 +643,16 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
       this.slowFactor = this.slowTimer > 0 ? Math.min(this.slowFactor, factor) : factor;
       this.slowTimer = Math.max(this.slowTimer, duration);
     });
+    // ── gear (armor / backpack / weight): re-read the inventory whenever it changed
+    const dirty = () => this.gear.markDirty();
+    ctx.bus.on('equip:changed', dirty);
+    ctx.bus.on('loadout:changed', dirty);
+    ctx.bus.on('inventory:weightChanged', dirty);
+    ctx.bus.on('inventory:changed', dirty);
+    ctx.bus.on('durability:changed', dirty);
+    ctx.bus.on('durability:broken', dirty);
+    ctx.bus.on('repair:completed', dirty);
+    ctx.bus.on('hub:entered', dirty);
   }
 
   update(dt: number, ctx: GameContext): void {
@@ -361,31 +670,48 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     const active = control && this.controlsEnabled && !this.isDead && this.spawned;
     const locked = input.isPointerLocked;
     const dropping = this.hellpod.isActive && this.hellpod.state !== 'exiting';
+    // downed players keep ticking the controller (gravity / ground contact) but get no input
     const moveFrozen = dropping || this._inPod;
 
     // click-to-relock fallback (also in the hub)
     if (control && !locked && input.wasMousePressed(0)) input.requestPointerLock();
+
+    // ── gear cache (armor / backpack / weight) + derived stat hooks
+    this.gear.update(dt, ctx);
+    this.applyGearModifiers();
+    c.jumpSpeedMul = Math.sqrt(Math.max(0.1, ctx.progression?.derived.jumpHeightMul ?? 1));
 
     // ── timers
     if (this.invuln > 0) this.invuln -= dt;
     if (this.interactCooldown > 0) this.interactCooldown -= dt;
     if (this.standUpTimer > 0) this.standUpTimer -= dt;
     if (this.exhaustedSlow > 0) this.exhaustedSlow -= dt;
+    if (this.rollCooldown > 0) this.rollCooldown -= dt;
+    if (this.meleeCooldown > 0) this.meleeCooldown -= dt;
+    if (this.meleeTimer > 0) this.meleeTimer = Math.max(0, this.meleeTimer - dt);
+    if (this.jumpPackCooldown > 0) this.jumpPackCooldown -= dt;
     if (this.slowTimer > 0) { this.slowTimer -= dt; if (this.slowTimer <= 0) this.slowFactor = 1; }
     let speedMul = this.slowTimer > 0 ? THREE.MathUtils.clamp(this.slowFactor, 0.1, 1) : 1;
     if (this.standUpTimer > 0) speedMul *= 0.5;
     if (this.exhaustedSlow > 0) speedMul *= EXHAUSTED_SLOW;
-    c.speedMultiplier = speedMul;
+    speedMul *= this.speedModifierProduct();
+    c.speedMultiplier = Math.max(0, speedMul);
     this.flinch = damp(this.flinch, 0, 9, dt);
     this.poseRecoil = damp(this.poseRecoil, 0, 14, dt);
+    // ── downed bleedout
+    if (this._isDowned) {
+      this.bleedout -= dt;
+      if (this.bleedout <= 0) { this._isDowned = false; this.bleedout = 0; this.die(); }
+    }
 
-    // ── look & aim (aiming is cancelled during a dive)
+    // ── look & aim (aiming is cancelled during a roll / while downed)
     if (active && locked) this.rig.applyLook(input.mouseDX, input.mouseDY, this.aimBlend);
-    this.setAiming(active && locked && this.weaponState.hasWeapon && input.isMouseDown(MouseButtons.AIM) && !c.diving);
+    this.setAiming(active && locked && this.weaponState.hasWeapon && input.isMouseDown(MouseButtons.AIM)
+      && !c.rolling && !this._isDowned);
 
     // ── movement input
     const mi = this.moveInput;
-    if (active && !moveFrozen) {
+    if (active && !moveFrozen && !this._isDowned) {
       mi.x = (input.isDown(Keys.RIGHT) ? 1 : 0) - (input.isDown(Keys.LEFT) ? 1 : 0);
       mi.z = (input.isDown(Keys.FORWARD) ? 1 : 0) - (input.isDown(Keys.BACK) ? 1 : 0);
       // jump is allowed on terrain and inside hub interiors (ceiling-clamped), not in the extraction ship box
@@ -393,17 +719,20 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
       const wantsSprint = input.isDown(Keys.SPRINT) && mi.z > 0.2;
       this.updateStanceInput(wantsJump, wantsSprint, /* allowProne */ !hub);
       const transitioning = this.standUpTimer > 0;
-      mi.sprint = input.isDown(Keys.SPRINT) && !this.exhausted && this.stamina > 0 && !transitioning;
-      mi.jump = wantsJump && this._stance === 'stand' && !transitioning && c.grounded && !c.diving && this.stamina >= STAMINA_JUMP_COST;
-      // no dive in the hub / inside ship interiors
-      mi.dive = input.wasPressed(Keys.DIVE) && c.grounded && !c.diving && this._stance !== 'prone'
-        && !transitioning && !this.shipBounds && !this._interior && !hub && this.stamina >= STAMINA_DIVE_MIN;
-      if (mi.dive) { this.spendStamina(STAMINA_DIVE_COST); this.setAiming(false); }
+      mi.sprint = input.isDown(Keys.SPRINT) && !this.exhausted && this.stamina > 0 && !transitioning
+        && !this.gear.overloaded;
+      mi.jump = wantsJump && this._stance === 'stand' && !transitioning && c.grounded && !c.rolling
+        && this.stamina >= STAMINA_JUMP_COST && !this.gear.overloaded;
       mi.aiming = this.isAiming;
+      // Alt = roll (replaces the dive); the roll itself validates stamina / weight / cooldown
+      if (input.wasPressed(Keys.DIVE) && !transitioning && this._stance !== 'prone') this.roll();
+      // backpack perks: hold Space in the air to hover (tactical), tap it again to burst forward (jump pack)
+      this.updateBackpackFlight(dt, wantsJump);
       // step out of the pod automatically unless the player takes over
       if (this.hellpod.state === 'exiting' && mi.x === 0 && mi.z === 0) { mi.z = 0.7; mi.sprint = false; }
     } else {
-      mi.x = 0; mi.z = 0; mi.sprint = false; mi.jump = false; mi.dive = false; mi.aiming = false;
+      mi.x = 0; mi.z = 0; mi.sprint = false; mi.jump = false; mi.aiming = false;
+      if (this._hovering) this.setHovering(false);
     }
     mi.stance = this._stance;
     const wasSprinting = c.sprinting;
@@ -411,7 +740,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
       c.update(dt, mi, this.rig.yaw, ctx.world, this.moveResult);
     } else {
       this.moveResult.footstep = false; this.moveResult.landed = 0; this.moveResult.jumped = false;
-      this.moveResult.dived = false; this.moveResult.diveEnded = false;
+      this.moveResult.rollEnded = false;
     }
     const r = this.moveResult;
     if (c.sprinting !== wasSprinting) ctx.bus.emit('player:sprintChanged', { sprinting: c.sprinting });
@@ -423,18 +752,12 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
       this.spendStamina(STAMINA_JUMP_COST);
       ctx.bus.emit('audio:play', { id: 'player_jump', position: c.position, volume: 0.6 });
     }
-    if (r.dived) {
-      ctx.bus.emit('player:dived', { position: c.position.clone(), direction: c.diveDir.clone() });
-      ctx.bus.emit('audio:play', { id: 'player_jump', position: c.position, volume: 0.7, pitch: 0.85 });
-    }
-    if (r.diveEnded) {
-      // touchdown → prone, small thump, dust
-      this.setStance('prone');
-      this.rig.addShake(0.15, 0.15);
-      ctx.bus.emit('audio:play', { id: 'player_land', position: c.position, volume: 0.7 });
+    if (r.rollEnded) {
+      // back on the feet; small puff where the tumble finished
       const fx = FxManager.get();
-      if (fx) ParticleBurst.dust(fx.alpha, c.position, _up, 6, 0.8);
-    } else if (r.landed > 0) {
+      if (fx) ParticleBurst.dust(fx.alpha, c.position, _up, 4, 0.7);
+    }
+    if (r.landed > 0) {
       // ordinary landing: barely any shake for a normal jump, more for real falls
       const impact = r.landed;
       const shake = Math.min(0.2, Math.max(0, impact - 5) * 0.03);
@@ -443,9 +766,14 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
       const fx = FxManager.get();
       if (fx) ParticleBurst.dust(fx.alpha, c.position, _up, 5, 0.7);
     }
+    if (c.grounded) { this.autoHoverUsed = false; if (this._hovering) this.setHovering(false); }
 
     // ── stamina
     this.updateStamina(dt);
+    // ── tactical kit: cloak, burning, armor regen
+    this.updateCloak(dt, ctx);
+    this.updateBurning(dt);
+    this.updateArmorRegen(dt);
 
     // ── hellpod choreography
     if (this.hellpod.isActive) this.updateDrop(dt);
@@ -456,31 +784,38 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
       this.healPool -= h;
       this.heal(h);
     }
-    if (active && input.wasPressed(Keys.STIM)) this.useStim();
+    if (active && !this._isDowned && input.wasPressed(Keys.STIM)) this.useStim();
 
     // ── interaction
-    this.updateInteraction(dt, active);
+    this.updateInteraction(dt, active && !this._isDowned);
 
     // ── death anim
     if (this.isDead) this.deadTimer += dt;
 
     // ── pose blends
-    const diving = c.diving;
+    const rolling = c.rolling;
     this.aimBlend = damp(this.aimBlend, this.isAiming ? 1 : 0, 12, dt);
     // scoped ADS: the camera sits at the shoulder, so hide the soldier (and the held weapon) once the blend is in
     const scopeHide = this.rig.scoped && this.aimBlend > 0.85;
     if (scopeHide !== this.scopeHidden) { this.scopeHidden = scopeHide; this.model.setVisible(!scopeHide && !this._inPod); }
-    this.crouchBlend = damp(this.crouchBlend, this._stance === 'crouch' && !diving ? 1 : 0, 10, dt);
-    this.proneBlend = damp(this.proneBlend, this._stance === 'prone' && !diving ? 1 : 0, 8, dt);
-    this.diveBlend = damp(this.diveBlend, diving ? 1 : 0, 14, dt);
+    this.crouchBlend = damp(this.crouchBlend, this._stance === 'crouch' && !rolling ? 1 : 0, 10, dt);
+    this.proneBlend = damp(this.proneBlend, (this._stance === 'prone' || this._isDowned) && !rolling ? 1 : 0, 8, dt);
+    this.rollBlend = damp(this.rollBlend, rolling ? 1 : 0, 18, dt);
+    if (rolling) this.rollPhase = c.rollProgress;
+    else if (this.rollBlend < 0.01) { this.rollBlend = 0; this.rollPhase = 0; }
+    this.downedBlend = damp(this.downedBlend, this._isDowned ? 1 : 0, 6, dt);
+    this.hoverBlend = damp(this.hoverBlend, this._hovering ? 1 : 0, 10, dt);
     this.sprintBlend = damp(this.sprintBlend, c.sprinting ? 1 : 0, 8, dt);
-    const eyeTarget = diving ? EYE_DIVE : this._stance === 'prone' ? EYE_PRONE : this._stance === 'crouch' ? EYE_CROUCH : EYE_STAND;
+    const eyeTarget = rolling ? EYE_ROLL
+      : (this._stance === 'prone' || this._isDowned) ? EYE_PRONE
+      : this._stance === 'crouch' ? EYE_CROUCH : EYE_STAND;
     this.eyePos.y = damp(this.eyePos.y, eyeTarget, 10, dt);
 
-    // body faces aim when aiming/firing/reloading or prone, the dive direction while diving, else movement
-    const faceCamera = this.isAiming || this.weaponState.firing || this.weaponState.reloading || this._stance === 'prone';
+    // body faces aim when aiming/firing/reloading or prone, the roll direction while rolling, else movement
+    const faceCamera = this.isAiming || this.weaponState.firing || this.weaponState.reloading
+      || this._stance === 'prone' || this.meleeTimer > 0;
     if (!this.isDead) {
-      if (diving) this.bodyYaw = dampAngle(this.bodyYaw, Math.atan2(-c.diveDir.x, -c.diveDir.z), 20, dt);
+      if (rolling) this.bodyYaw = dampAngle(this.bodyYaw, Math.atan2(-c.rollDir.x, -c.rollDir.z), 20, dt);
       else if (faceCamera) this.bodyYaw = dampAngle(this.bodyYaw, this.rig.yaw, this._stance === 'prone' ? 7 : 18, dt);
       else if (c.speed > 0.4) this.bodyYaw = dampAngle(this.bodyYaw, Math.atan2(-c.moveDir.x, -c.moveDir.z), 12, dt);
     }
@@ -490,14 +825,19 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     p.stridePhase = c.stridePhase;
     p.crouch = this.crouchBlend;
     p.prone = this.proneBlend;
-    p.dive = this.diveBlend;
+    p.dive = 0;                      // the dive was replaced by the roll
+    p.roll = this.rollBlend;
+    p.rollPhase = this.rollPhase;
+    p.melee = this.meleeTimer > 0 ? 1 - this.meleeTimer / MELEE_SWING_TIME : 0;
+    p.hover = this.hoverBlend;
+    p.downed = this.downedBlend;
     p.aim = this.aimBlend;
     p.aimPitch = this.rig.pitch;
     p.torsoTwist = wrapAngle(this.rig.yaw - this.bodyYaw);
-    p.airborne = damp(p.airborne, c.grounded || diving ? 0 : 1, 12, dt);
+    p.airborne = damp(p.airborne, c.grounded || rolling ? 0 : 1, 12, dt);
     p.verticalVel = c.velocity.y;
     p.flinch = this.flinch;
-    p.hasWeapon = this.weaponState.hasWeapon;
+    p.hasWeapon = this.weaponState.hasWeapon && !this._isDowned;
     p.twoHanded = this.weaponState.twoHanded;
     p.reloading = this.weaponState.reloading;
     p.recoil = this.poseRecoil;
@@ -524,8 +864,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     ri.aim = this.aimBlend;
     ri.sprint = this.sprintBlend;
     ri.crouch = this.crouchBlend;
-    ri.prone = this.proneBlend;
-    ri.dive = this.diveBlend;
+    ri.prone = Math.max(this.proneBlend, this.downedBlend);
+    ri.dive = this.rollBlend;   // same camera treatment as the old dive (pull back a little)
     ri.moveBlend = Math.min(1, this.controller.speed / PLAYER_WALK_SPEED);
     ri.stridePhase = this.controller.stridePhase;
     ri.grounded = this.controller.grounded;
@@ -539,7 +879,9 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.aimOrigin.copy(this.rig.position);
 
     // ── near-clip fade: the camera pulled into the body (obstacle behind the back, scoped tuck) -> fade the soldier
-    const alpha = this.spawned && !this.scopeHidden ? smoothstep(FADE_NEAR, FADE_FAR, this.rig.pivotDistance) : 1;
+    let alpha = this.spawned && !this.scopeHidden ? smoothstep(FADE_NEAR, FADE_FAR, this.rig.pivotDistance) : 1;
+    // cloaked: the local player sees himself shimmer too (remotes get the same treatment in RemoteAvatar)
+    if (this._cloaked && !this.isDead) alpha = Math.min(alpha, CLOAK_FADE);
     this.model.setFade(alpha);
     // ── occlusion silhouette (black where the world hides the body); off while dead / dropping / in a pod / faded
     this.model.setSilhouette(this.spawned && !this.isDead && !this.hellpod.isActive && !this._inPod && !this.scopeHidden);
@@ -573,7 +915,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
    */
   private updateStanceInput(wantsJump: boolean, wantsSprint: boolean, allowProne: boolean): void {
     const c = this.controller, input = this.ctx.input;
-    if (!c.grounded || c.diving || this.standUpTimer > 0) return;
+    if (!c.grounded || c.rolling || this.standUpTimer > 0) return;
     if (input.wasPressed(Keys.CROUCH)) {
       this.setStance(this._stance === 'crouch' ? 'stand' : 'crouch');
     } else if (input.wasPressed(Keys.PRONE) && (allowProne || this._stance === 'prone')) {
@@ -596,17 +938,32 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.ctx.bus.emit('player:staminaDepleted', {});
   }
 
+  /**
+   * Regen is scaled by 지구력 (`derived.staminaRegenMul`), the carry weight (`WeightInfo.staminaRegenMul`,
+   * softened by the 운반 skill inside inventory) and the ultralight-armor perk. Hovering burns stamina.
+   */
   private updateStamina(dt: number): void {
     const c = this.controller;
+    const max = this.maxStamina;
+    if (this.stamina > max) this.stamina = max;
+    if (this._hovering && !c.grounded && !this.isDead) {
+      this.stamina = Math.max(0, this.stamina - HOVER_STAMINA_DRAIN * dt);
+      this.regenDelay = STAMINA_REGEN_DELAY;
+      if (this.stamina <= 0) { this.onStaminaDepleted(); this.setHovering(false); }
+      return;
+    }
     if (c.sprinting && !this.isDead) {
       this.stamina -= STAMINA_SPRINT_DRAIN * dt;
       this.regenDelay = STAMINA_REGEN_DELAY;
       if (this.stamina <= 0) { this.stamina = 0; this.onStaminaDepleted(); }
     } else if (this.regenDelay > 0) {
       this.regenDelay -= dt;
-    } else if (this.stamina < this.maxStamina) {
-      const rate = c.speed < 0.3 && !c.diving ? STAMINA_REGEN_IDLE : STAMINA_REGEN_MOVING;
-      this.stamina = Math.min(this.maxStamina, this.stamina + rate * dt);
+    } else if (this.stamina < max) {
+      let rate = c.speed < 0.3 && !c.rolling ? STAMINA_REGEN_IDLE : STAMINA_REGEN_MOVING;
+      rate *= this.ctx.progression?.derived.staminaRegenMul ?? 1;
+      rate *= this.gear.weight.staminaRegenMul;
+      rate *= 1 + this.gear.ultralightBonus;
+      this.stamina = Math.min(max, this.stamina + Math.max(0, rate) * dt);
     }
     if (this.exhausted && this.stamina >= STAMINA_SPRINT_RECOVER) this.exhausted = false;
   }
@@ -614,13 +971,199 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   private die(): void {
     if (this.isDead) return;
     this.isDead = true;
+    this._isDowned = false;
+    this.bleedout = 0;
     this.deadTimer = 0;
     this.healPool = 0;
+    this.hp = 0;
     this.setAiming(false);
+    this.setHovering(false);
+    this.controller.cancelRoll();
+    this.controller.grappleTarget = null; this._grappling = false;
+    this.meleeTimer = 0;
     this.controlsEnabled = false;
     this.rig.addShake(0.8, 0.5);
     this.ctx.bus.emit('audio:play', { id: 'player_death', volume: 1 });
     this.ctx.bus.emit('player:died', { position: this.controller.position.clone() });
+  }
+
+  /* ─────────────────────── tactical kit internals ─────────────────────── */
+  /**
+   * Clear every tactical-kit state (roll, melee, downed, cloak, burning, grapple, hover, buffs).
+   * Called from `respawnAt`, `spawnStanding` and the `game:abort` reset. The gear cache is only marked dirty —
+   * armor and backpack survive a respawn.
+   */
+  private resetTactical(): void {
+    this.controller.cancelRoll();
+    this.controller.grappleTarget = null; this._grappling = false;
+    this.controller.hovering = false;
+    this.rollBlend = 0; this.rollPhase = 0; this.rollCooldown = 0;
+    this.meleeTimer = 0; this.meleeCooldown = 0;
+    this._isDowned = false; this.bleedout = 0; this.downedBlend = 0;
+    this.cloakTimer = 0; this.cloakBreak = 0; this.cloakProbe = 0; this.cloakNearEnemy = false;
+    this.cloakSource = null;
+    if (this._cloaked) { this._cloaked = false; this.ctx?.bus.emit('player:cloakChanged', { cloaked: false, source: null }); }
+    this.speedMods.clear();
+    this._overcharged = false;
+    this._hovering = false; this.hoverBlend = 0; this.autoHoverUsed = false;
+    this.jumpPackCooldown = 0;
+    if (this._burning) { this._burning = false; this.ctx?.bus.emit('player:burning', { active: false, dps: 0 }); }
+    this.burnDps = 0; this.burnTimer = 0; this.burnTick = 0;
+    this.regenAccum = 0;
+    this.gear.markDirty();
+  }
+
+  /** Common precondition for roll / melee. */
+  private canAct(): boolean {
+    return this.spawned && this.controlsEnabled && !this.isDead && !this._isDowned && !this._inPod
+      && this.ctx.isControlActive()
+      && !(this.hellpod.isActive && this.hellpod.state !== 'exiting');
+  }
+
+  /** Camera-relative horizontal direction of the current movement input (zero vector when idle). */
+  private wishDirection(out: THREE.Vector3): THREE.Vector3 {
+    const yaw = this.rig ? this.rig.yaw : 0;
+    const mi = this.moveInput;
+    const fx = -Math.sin(yaw), fz = -Math.cos(yaw);
+    const rx = Math.cos(yaw), rz = -Math.sin(yaw);
+    out.set(fx * mi.z + rx * mi.x, 0, fz * mi.z + rz * mi.x);
+    if (out.lengthSq() > 1e-6) out.normalize();
+    return out;
+  }
+
+  /** Product of the live speed-modifier stack; also refreshes `isOvercharged`. */
+  private speedModifierProduct(): number {
+    const now = this.ctx.time;
+    let mul = 1;
+    let over = false;
+    for (const [key, mod] of this.speedMods) {
+      if (mod.until <= now) { this.speedMods.delete(key); continue; }
+      mul *= mod.mul;
+      if (key === 'overcharge' || key.startsWith('overcharge')) over = true;
+    }
+    this._overcharged = over;
+    return mul;
+  }
+
+  /** Weight state and the ultralight-armor perk feed the same stack as external buffs. */
+  private applyGearModifiers(): void {
+    const w = this.gear.weight;
+    if (w.moveMul >= 0.999) this.speedMods.delete(SPEEDMOD_WEIGHT);
+    else this.speedMods.set(SPEEDMOD_WEIGHT, { mul: Math.max(0, w.moveMul), until: Infinity });
+    const bonus = this.gear.ultralightBonus;
+    if (bonus <= 0) this.speedMods.delete(SPEEDMOD_ARMOR);
+    else this.speedMods.set(SPEEDMOD_ARMOR, { mul: 1 + bonus, until: Infinity });
+    // 광학미채 방탄복: permanent cloak while it is worn and intact
+    if (this.gear.opticalCamo) this.setCloak(Infinity, 'armor');
+    else if (this.cloakSource === 'armor' && this.cloakTimer === Infinity) { this.cloakTimer = 0; this.cloakSource = null; }
+  }
+
+  /**
+   * Cloak upkeep: firing, sprinting, rolling or an enemy inside CLOAK_REVEAL_DISTANCE reveal the player for
+   * CLOAK_BREAK_TIME; once the cause is gone (and the distance opened again) the cloak comes back.
+   */
+  private updateCloak(dt: number, ctx: GameContext): void {
+    if (this.cloakTimer > 0 && this.cloakTimer !== Infinity) this.cloakTimer = Math.max(0, this.cloakTimer - dt);
+    if (this.cloakTimer <= 0) {
+      this.cloakBreak = 0;
+      this.cloakNearEnemy = false;
+      if (this.cloakSource !== null) this.cloakSource = null;
+    } else {
+      this.cloakProbe -= dt;
+      if (this.cloakProbe <= 0) {
+        this.cloakProbe = CLOAK_PROBE_INTERVAL;
+        this.cloakNearEnemy = this.enemyWithin(ctx, CLOAK_REVEAL_DISTANCE);
+      }
+      const reveal = this.weaponState.firing || this.controller.sprinting || this.controller.rolling
+        || this.meleeTimer > 0 || this.cloakNearEnemy;
+      if (reveal) this.cloakBreak = CLOAK_BREAK_TIME;
+      else if (this.cloakBreak > 0) this.cloakBreak = Math.max(0, this.cloakBreak - dt);
+    }
+    const cloaked = this.cloakTimer > 0 && this.cloakBreak <= 0 && !this.isDead;
+    if (cloaked !== this._cloaked) {
+      this._cloaked = cloaked;
+      ctx.bus.emit('player:cloakChanged', { cloaked, source: cloaked ? this.cloakSource : null });
+    }
+  }
+
+  /** Any alive enemy within `radius` (uses `queryNear` when the enemy system provides it). */
+  private enemyWithin(ctx: GameContext, radius: number): boolean {
+    const em = ctx.enemies;
+    if (!em) return false;
+    if (typeof em.queryNear === 'function') return em.queryNear(this.controller.position, radius).length > 0;
+    const list = em.getEnemies();
+    const r2 = radius * radius;
+    for (let i = 0; i < list.length; i++) {
+      const e = list[i];
+      if (e.isDead) continue;
+      if (e.position.distanceToSquared(this.controller.position) <= r2) return true;
+    }
+    return false;
+  }
+
+  /** Burning DoT (incendiary / fire zone). Applied in BURN_TICK chunks; never triggers the 인내 save. */
+  private updateBurning(dt: number): void {
+    if (!this._burning) return;
+    this.burnTimer -= dt;
+    this.burnTick -= dt;
+    if (this.burnTick <= 0) {
+      this.burnTick = BURN_TICK;
+      this.applyDamage(this.burnDps * BURN_TICK, undefined, true);
+    }
+    if (this.burnTimer <= 0) {
+      this._burning = false; this.burnDps = 0; this.burnTimer = 0;
+      this.ctx.bus.emit('player:burning', { active: false, dps: 0 });
+    }
+  }
+
+  /** 재생 방탄복: 1 hp/s (perkValue) while stamina is full. Healed in whole points to avoid event spam. */
+  private updateArmorRegen(dt: number): void {
+    const rate = this.gear.regenPerSecond;
+    if (rate <= 0 || this.isDead || this._isDowned || this.hp >= this.maxHp) { this.regenAccum = 0; return; }
+    if (this.stamina < this.maxStamina - 0.5) { this.regenAccum = 0; return; }
+    this.regenAccum += rate * dt;
+    if (this.regenAccum >= 1) {
+      const whole = Math.floor(this.regenAccum);
+      this.regenAccum -= whole;
+      this.heal(whole);
+    }
+  }
+
+  /**
+   * Backpack flight perks. Tactical: hold Space in the air to hover (and one automatic hover before a fatal
+   * fall). Jump: pressing Space again mid-air bursts forward for half the stamina bar, 12 s cooldown.
+   */
+  private updateBackpackFlight(dt: number, wantsJump: boolean): void {
+    const c = this.controller;
+    const perk = this.gear.backpackPerk;
+    if (c.grounded) return;
+    if (perk === 'tactical') {
+      const input = this.ctx.input;
+      const hold = input.isDown(Keys.JUMP) && this.stamina > 0;
+      if (!this.autoHoverUsed && c.velocity.y < HOVER_AUTO_FALL && this.stamina > 0) {
+        this.autoHoverUsed = true;                // 낙사 방지: one free catch per airtime
+        this.setHovering(true);
+      } else if (hold !== this._hovering) {
+        this.setHovering(hold);
+      }
+    } else if (perk === 'jump') {
+      if (!wantsJump || this.jumpPackCooldown > 0) return;
+      const cost = this.maxStamina * JUMPPACK_STAMINA_FRAC;
+      if (this.stamina < cost) {
+        this.ctx.bus.emit('audio:play', { id: 'ui_deny', volume: 0.4 });
+        return;
+      }
+      this.wishDirection(_dir);
+      if (_dir.lengthSq() < 1e-6) this.rig.getForward(_dir);
+      _dir.y = 0;
+      if (_dir.lengthSq() < 1e-6) _dir.set(0, 0, -1);
+      _dir.normalize();
+      _imp.set(_dir.x * JUMPPACK_FORWARD - c.velocity.x, JUMPPACK_UP - Math.min(0, c.velocity.y), _dir.z * JUMPPACK_FORWARD - c.velocity.z);
+      this.spendStamina(cost);
+      this.jumpPackCooldown = JUMPPACK_COOLDOWN;
+      this.applyImpulse(_imp);
+      this.ctx.bus.emit('audio:play', { id: 'player_jump', position: c.position, volume: 0.8, pitch: 1.15 });
+    }
   }
 
   private useStim(): void {
@@ -763,7 +1306,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.setAiming(false);
     this.setStance('stand'); this.standUpTimer = 0;
     this.stamina = this.maxStamina; this.regenDelay = 0; this.exhausted = false; this.exhaustedSlow = 0;
-    this.crouchBlend = 0; this.proneBlend = 0; this.diveBlend = 0;
+    this.resetTactical();
+    this.crouchBlend = 0; this.proneBlend = 0; this.rollBlend = 0;
     this.interactTarget = null; this.holdProgress = 0;
     if (this.lastPromptText !== null) { this.lastPromptText = null; this.lastHoldProgress = 0; this.ctx.bus.emit('interact:promptChanged', { text: null, holdProgress: 0 }); }
     this.rig.setOverride(null);

@@ -1,12 +1,16 @@
 import * as THREE from 'three';
 import {
-  PLAYER_MAX_HP, type GameContext, type GameSystem, type PeerId, type RemotePlayerRef, type Stance,
+  PLAYER_MAX_HP, PlayerFlags, type GameContext, type GameSystem, type ImplantId, type PeerId,
+  type RemotePlayerRef, type Stance,
 } from '@/shared';
 import { RemoteAvatar } from './RemoteAvatar';
 
 const EMPTY: readonly RemotePlayerRef[] = [];
 
-/** Fully writable RemotePlayerRef for console smoke tests (`debugSpawn`). */
+/**
+ * Fully writable RemotePlayerRef for console smoke tests (`debugSpawn`). `isCloaked` / `isDowned` are getters
+ * derived from `flags` exactly like NetSystem's real refs, so flipping `flags` alone drives the avatar.
+ */
 export interface DebugRemoteRef {
   id: PeerId; name: string; slot: number;
   position: THREE.Vector3; velocity: THREE.Vector3;
@@ -14,6 +18,12 @@ export interface DebugRemoteRef {
   hp: number; maxHp: number; isDead: boolean; weaponId: string | null;
   stridePhase: number; moveBlend: number; lastUpdate: number;
   connected: boolean; stale: boolean; avatar: RemoteAvatar | null;
+  /* appended: tactical kit */
+  implantId: ImplantId | null;
+  armorId: string | null;
+  backpackId: string | null;
+  readonly isCloaked: boolean;
+  readonly isDowned: boolean;
 }
 
 /**
@@ -71,7 +81,7 @@ export class RemotePlayerSystem implements GameSystem {
    * returned object (`ref.flags |= PlayerFlags.SPRINT`, `ref.stance = 'prone'`, `ref.position.x += …`).
    * `window.__game.getSystem('remotePlayers').debugSpawn({ slot: 1 })`.
    */
-  debugSpawn(opts: Partial<Pick<DebugRemoteRef, 'id' | 'name' | 'slot' | 'stance' | 'flags' | 'weaponId'>> & { position?: THREE.Vector3 } = {}): DebugRemoteRef {
+  debugSpawn(opts: Partial<Pick<DebugRemoteRef, 'id' | 'name' | 'slot' | 'stance' | 'flags' | 'weaponId' | 'implantId' | 'armorId' | 'backpackId'>> & { position?: THREE.Vector3 } = {}): DebugRemoteRef {
     const slot = opts.slot ?? (this.debugRefs.length + 1) % 4;
     const pos = new THREE.Vector3();
     if (opts.position) pos.copy(opts.position);
@@ -93,6 +103,11 @@ export class RemotePlayerSystem implements GameSystem {
       lastUpdate: this.ctx.time,
       connected: true, stale: false,
       avatar: null,
+      implantId: opts.implantId ?? null,
+      armorId: opts.armorId ?? null,
+      backpackId: opts.backpackId ?? null,
+      get isCloaked(): boolean { return (this.flags & PlayerFlags.CLOAKED) !== 0; },
+      get isDowned(): boolean { return (this.flags & PlayerFlags.DOWNED) !== 0; },
     };
     this.debugRefs.push(ref);
     return ref;

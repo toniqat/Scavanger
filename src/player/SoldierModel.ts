@@ -33,6 +33,17 @@ export interface SoldierPose {
   prone: number;
   /** superman dive pose (body horizontal, arms forward, legs back) */
   dive: number;
+  /* ── appended: tactical kit ── */
+  /** tuck-and-tumble roll blend 0..1 (Alt). Drives the limb tuck; `rollPhase` drives the rotation. */
+  roll: number;
+  /** 0..1 progress through the tumble (one full forward revolution). Held at 1 while the blend fades out. */
+  rollPhase: number;
+  /** melee swing progress 0..1 (0 = idle); the right arm chops across the body. */
+  melee: number;
+  /** backpack hover blend 0..1 (legs tucked, arms out, cape streaming up) */
+  hover: number;
+  /** downed / bleeding out 0..1 — lies on the side, limbs limp (combined with `prone`) */
+  downed: number;
   /** stepping-out / scripted walk: reuse moveBlend */
 }
 
@@ -57,6 +68,8 @@ const VISOR = 0x7fe3ff;
  */
 const SIL_ORDER = 1;
 const BODY_ORDER = 2;
+/** Height of the tumble pivot used by the roll pose (roughly the curled body's centre). */
+const ROLL_PIVOT_Y = 0.55;
 const _silColor = new THREE.Color();
 
 /**
@@ -327,6 +340,14 @@ export class SoldierModel {
     const breathe = Math.sin(time * 1.7);
     // lying poses (prone / dive) blend on top of the upright pose
     const pr = THREE.MathUtils.clamp(p.prone, 0, 1), dv = THREE.MathUtils.clamp(p.dive, 0, 1);
+    // tactical kit blends
+    const rollB = THREE.MathUtils.clamp(p.roll, 0, 1);
+    const hov = THREE.MathUtils.clamp(p.hover, 0, 1);
+    const dwn = THREE.MathUtils.clamp(p.downed, 0, 1);
+    const mel = THREE.MathUtils.clamp(p.melee, 0, 1);
+    // melee: 0..0.3 windup (arm cocked back), 0.3..0.62 chop, then recovery. `melW` fades the whole thing in/out.
+    const melChop = mel > 0.3 ? Math.min(1, (mel - 0.3) / 0.32) : 0;
+    const melW = mel > 0.001 ? Math.sin(Math.PI * Math.min(1, mel)) : 0;
     const lie = Math.min(1, pr + dv);
     const dvW = lie > 0.001 ? dv / (pr + dv) : 0;      // fraction of the lying pose that is the dive
     const crawl = Math.min(1, p.moveBlend * 3) * pr * ground; // crawl cycle strength (prone speed ≈ 0.3 walk)
@@ -337,7 +358,9 @@ export class SoldierModel {
     const standHipY = this.hipsBaseY + bob - 0.36 * cr + air * (p.verticalVel > 0 ? 0.05 : -0.02);
     // lying: pelvis just above the ground (prone) or mid-air around the feet point (dive)
     const lieHipY = lerp(0.27, 0.55, dvW);
-    const targetHipY = lerp(standHipY, lieHipY, lie);
+    let targetHipY = lerp(standHipY, lieHipY, lie);
+    // roll: pull the pelvis into a ball around the tumble pivot
+    if (rollB > 0.001) targetHipY = lerp(targetHipY, 0.5, rollB);
     this.hips.position.y = damp(this.hips.position.y, targetHipY, lie > 0.01 ? 10 : 20, dt);
     const hipRoll = Math.sin(phi) * 0.05 * mv * ground;
     const hipYaw = -Math.sin(phi) * 0.08 * mv * ground * (1 - aim);
@@ -365,18 +388,34 @@ export class SoldierModel {
     const lieKneeR = lerp(-0.12 - 0.55 * crawl * Math.max(0, Math.cos(phi)), -0.08, dvW);
     const lieKneeL = lerp(-0.12 - 0.55 * crawl * Math.max(0, Math.cos(phi + Math.PI)), -0.08, dvW);
     const legSpread = lerp(0.03, 0.14, lie);
-    this.j(this.legR.upper, lerp(thighR, lieThighR, lie), 0, -legSpread, dt, 22);
-    this.j(this.legL.upper, lerp(thighL, lieThighL, lie), 0, legSpread, dt, 22);
-    this.j(this.legR.lower, lerp(kneeR, lieKneeR, lie), 0, 0, dt, 22);
-    this.j(this.legL.lower, lerp(kneeL, lieKneeL, lie), 0, 0, dt, 22);
+    let finThighR = lerp(thighR, lieThighR, lie), finThighL = lerp(thighL, lieThighL, lie);
+    let finKneeR = lerp(kneeR, lieKneeR, lie), finKneeL = lerp(kneeL, lieKneeL, lie);
+    // hover: knees drawn up under the pack; roll: full tuck
+    if (hov > 0.001) {
+      finThighR += 0.5 * hov; finThighL += 0.42 * hov;
+      finKneeR -= 0.85 * hov; finKneeL -= 0.75 * hov;
+    }
+    if (rollB > 0.001) {
+      finThighR = lerp(finThighR, 1.65, rollB); finThighL = lerp(finThighL, 1.5, rollB);
+      finKneeR = lerp(finKneeR, -2.0, rollB); finKneeL = lerp(finKneeL, -2.0, rollB);
+    }
+    const legLambda = rollB > 0.001 ? 26 : 22;
+    this.j(this.legR.upper, finThighR, 0, -legSpread, dt, legLambda);
+    this.j(this.legL.upper, finThighL, 0, legSpread, dt, legLambda);
+    this.j(this.legR.lower, finKneeR, 0, 0, dt, legLambda);
+    this.j(this.legL.lower, finKneeL, 0, 0, dt, legLambda);
 
     // ── torso
     const standLean = -(0.06 * mv + 0.22 * sp * mv + 0.3 * cr) + p.aimPitch * 0.25 * aim + breathe * 0.012 + p.flinch * 0.25 - air * 0.08;
     // prone: chest arched up off the ground (follows aim pitch); dive: flat
     const lieLean = lerp(0.35 + THREE.MathUtils.clamp(p.aimPitch, -0.5, 0.8) * 0.35, 0.1, dvW) + breathe * 0.01;
-    const lean = lerp(standLean, lieLean, lie);
+    let lean = lerp(standLean, lieLean, lie);
+    if (hov > 0.001) lean = lerp(lean, -0.12, hov);
+    if (rollB > 0.001) lean = lerp(lean, 0.9, rollB);      // curl into the tumble
     const twist = THREE.MathUtils.clamp(p.torsoTwist, -0.6, 0.6) * (1 - aim) * (1 - 0.6 * lie);
-    this.j(this.torso, lean, twist, -hipRoll * 0.5 * (1 - lie), dt, 14);
+    // the chop drags the shoulders around with it
+    const meleeTwist = melW * (0.35 - 0.85 * melChop);
+    this.j(this.torso, lean, twist + meleeTwist, -hipRoll * 0.5 * (1 - lie), dt, mel > 0.001 ? 22 : 14);
     this.chestMesh.scale.y = 1 + breathe * 0.012;
 
     // ── head: look along aim, counter the lean; lifted while lying
@@ -438,7 +477,27 @@ export class SoldierModel {
       rUx = lerp(rUx, lerp(pRUx, dRUx, dvW), lie); rUz = lerp(rUz, lerp(pRUz, dRUz, dvW), lie); rL = lerp(rL, lerp(pRL, dRL, dvW), lie);
       lUx = lerp(lUx, lerp(pLUx, dLUx, dvW), lie); lUz = lerp(lUz, lerp(pLUz, dLUz, dvW), lie); lL = lerp(lL, lerp(pLL, dLL, dvW), lie);
     }
-    const armLambda = 16;
+    // ── tactical kit arm overrides (hover → arms out, roll → tucked in, melee → chop, downed → limp)
+    if (hov > 0.001) {
+      rUx = lerp(rUx, 0.15, hov * 0.6); rUz = lerp(rUz, -0.75, hov);
+      lUx = lerp(lUx, 0.15, hov * 0.6); lUz = lerp(lUz, 0.75, hov);
+    }
+    if (rollB > 0.001) {
+      rUx = lerp(rUx, 2.35, rollB); rUz = lerp(rUz, -0.35, rollB); rL = lerp(rL, 2.1, rollB);
+      lUx = lerp(lUx, 2.35, rollB); lUz = lerp(lUz, 0.35, rollB); lL = lerp(lL, 2.1, rollB);
+    }
+    if (melW > 0.001) {
+      // right arm cocks back over the shoulder and chops down across the body
+      rUx = lerp(rUx, lerp(-0.75, 2.25, melChop), melW);
+      rUz = lerp(rUz, lerp(-0.7, 0.35, melChop), melW);
+      rL = lerp(rL, lerp(1.6, 0.25, melChop), melW);
+      lUx = lerp(lUx, lerp(0.5, 0.15, melChop), melW * 0.7);
+    }
+    if (dwn > 0.001) {
+      rUx = lerp(rUx, 1.35, dwn); rUz = lerp(rUz, -0.55, dwn); rL = lerp(rL, 0.2, dwn);
+      lUx = lerp(lUx, 1.1, dwn); lUz = lerp(lUz, 0.6, dwn); lL = lerp(lL, 0.15, dwn);
+    }
+    const armLambda = mel > 0.001 ? 26 : rollB > 0.001 ? 22 : 16;
     this.j(this.armR.upper, rUx, 0, rUz, dt, armLambda);
     this.j(this.armR.lower, rL, 0, 0, dt, armLambda);
     this.j(this.armL.upper, lUx, 0, lUz, dt, armLambda);
@@ -455,10 +514,26 @@ export class SoldierModel {
       seg.rotation.z = damp(seg.rotation.z, Math.sin(time * 3 + i) * 0.02 * (1 + mv), 8, dt);
     }
 
-    // visor pulse
-    this.visorMat.emissiveIntensity = 0.85 + Math.sin(time * 2.2) * 0.15;
-    this.bodyGroup.rotation.x = damp(this.bodyGroup.rotation.x, 0, 10, dt);
-    this.bodyGroup.position.y = damp(this.bodyGroup.position.y, 0, 10, dt);
+    // visor pulse (dimmed while downed)
+    this.visorMat.emissiveIntensity = (0.85 + Math.sin(time * 2.2) * 0.15) * (1 - 0.6 * dwn);
+
+    // ── whole-body transform: the roll tumbles one full revolution around a pivot ~0.55 m up
+    if (rollB > 0.001) {
+      const th = -Math.PI * 2 * THREE.MathUtils.clamp(p.rollPhase, 0, 1);   // -2π ≡ identity at the end
+      const h = ROLL_PIVOT_Y * rollB;
+      this.bodyGroup.rotation.x = th;
+      this.bodyGroup.position.y = h * (1 - Math.cos(th));
+      this.bodyGroup.position.z = -h * Math.sin(th);
+    } else {
+      // unwrap a finished tumble (-2π) so easing back to 0 does not spin the model backwards
+      let bx = this.bodyGroup.rotation.x;
+      if (bx < -Math.PI) bx += Math.PI * 2;
+      this.bodyGroup.rotation.x = damp(bx, 0, 12, dt);
+      this.bodyGroup.position.y = damp(this.bodyGroup.position.y, 0, 12, dt);
+      this.bodyGroup.position.z = damp(this.bodyGroup.position.z, 0, 12, dt);
+    }
+    // downed: roll onto the side
+    this.bodyGroup.rotation.z = damp(this.bodyGroup.rotation.z, 0.45 * dwn, 8, dt);
   }
 
   private poseDead(dt: number, p: SoldierPose): void {
@@ -467,6 +542,9 @@ export class SoldierModel {
     // fall backwards, slight twist
     this.bodyGroup.rotation.x = e * 1.42;
     this.bodyGroup.position.y = e * 0.12;
+    // clear any roll / downed offsets left over from the last live frame
+    this.bodyGroup.position.z = damp(this.bodyGroup.position.z, 0, 8, dt);
+    this.bodyGroup.rotation.z = damp(this.bodyGroup.rotation.z, 0, 8, dt);
     this.hips.position.y = THREE.MathUtils.lerp(this.hips.position.y, 0.55, e * 0.6);
     const L = 8;
     // undo any prone/dive body pitch so the fall reads the same from every stance

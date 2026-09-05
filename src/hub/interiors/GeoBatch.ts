@@ -19,6 +19,9 @@ export const HUB_MATS = {
   stripAmber: std(0xffc98a, 0.4, 0.1, 0xffa640, 2.4),
   stripRed: std(0xff8a7a, 0.4, 0.1, 0xff3a2a, 2.0),
   stripCyan: std(0x9be8ff, 0.4, 0.1, 0x3ac8ff, 2.0),
+  /** Hydroponics grow-light (magenta). Only used by the garden station. */
+  stripGrow: std(0xffc2f2, 0.4, 0.1, 0xff4fd8, 2.2),
+  soil: std(0x3a2c22, 0.98, 0.02),
   padding: std(0x5a4636, 0.95, 0.05),
   fabric: std(0x36453a, 0.95, 0.05),
   crate: std(0x4a5a3c, 0.8, 0.25),

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GRAVITY, type GameContext, type EnemyRef } from '@/shared';
 import { FxManager } from '@/core/fx';
+import { raycastBlockers } from './Blocking';
 
 export interface ProjectileHit {
   point: THREE.Vector3;
@@ -24,7 +25,7 @@ interface Slug {
 }
 
 const MAX = 48;
-const _dir = new THREE.Vector3();
+const _dir = new THREE.Vector3(), _block = new THREE.Vector3();
 
 /**
  * Pooled travelling projectiles for weapons with `projectileSpeed`. Each step is swept with
@@ -88,7 +89,11 @@ export class ProjectilePool {
         const wh = ctx.world && ctx.world.ready ? ctx.world.raycast(s.prev, _dir, segLen) : null;
         let hitAny = false;
         const h = this.hit;
-        if (eh && (!wh || eh.distance <= wh.distance)) {
+        // shields / solid deployables on the way (allied barriers ignore allied slugs — see Blocking.ts)
+        const bd = raycastBlockers(ctx, s.prev, _dir, segLen, _block, false);
+        if (bd >= 0 && bd <= (eh ? eh.distance : Infinity) && bd <= (wh ? wh.distance : Infinity)) {
+          h.point.copy(_block); h.normal.copy(_dir).negate(); h.enemy = null; h.part = undefined; h.obstacle = true; hitAny = true;
+        } else if (eh && (!wh || eh.distance <= wh.distance)) {
           h.point.copy(eh.point); h.normal.copy(eh.normal); h.enemy = eh.enemy; h.part = eh.part; h.obstacle = false; hitAny = true;
         } else if (wh) {
           h.point.copy(wh.point); h.normal.copy(wh.normal); h.enemy = null; h.part = undefined; h.obstacle = !!wh.obstacle; hitAny = true;

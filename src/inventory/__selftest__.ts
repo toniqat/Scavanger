@@ -1,6 +1,12 @@
-import { INVENTORY_COLS, INVENTORY_ROWS, Random } from '@/shared';
-import { ITEM_DEF_MAP, LootService, STARTER_LOADOUT } from '@/items';
+import * as THREE from 'three';
+import { ARMOR_DR_BY_TIER, INVENTORY_COLS, INVENTORY_ROWS, QUICK_SLOT_KEYS, Random, WEIGHT_HEAVY_RATIO, WEIGHT_LIGHT_RATIO } from '@/shared';
+import {
+  ARMOR_DEFS, BACKPACK_DEFS, BASE_BAG_COLS, BASE_BAG_ROWS, CRAFT_RECIPES, ITEM_DEFS, ITEM_DEF_MAP,
+  LootService, STARTER_LOADOUT, itemWeight,
+} from '@/items';
 import { Grid } from './Grid';
+import { ContainerStore } from './Container';
+import { durabilityInfo, makeWeightInfo, quickSlotCount, searchTimeFor, sumWeight, weightStateFor } from './Gear';
 
 /**
  * Dev-only self check for the pure grid + loot logic (no test runner installed).
@@ -124,7 +130,97 @@ export function runInventorySelfTest(): boolean {
 
   // starter ids exist
   check(!!getDef(STARTER_LOADOUT.primary) && !!getDef(STARTER_LOADOUT.secondary), 'starter weapon defs exist');
+  check(!!getDef(STARTER_LOADOUT.armor) && !!getDef(STARTER_LOADOUT.backpack), 'starter gear defs exist');
   for (const e of STARTER_LOADOUT.bag) check(!!getDef(e.id), `starter bag def '${e.id}' exists`);
+
+  /* ── tactical kit ──────────────────────────────────────────────────────── */
+
+  // every def has a sane weight, and gear declares durability
+  for (const d of ITEM_DEFS) {
+    check(itemWeight(d) > 0 && itemWeight(d) < 20, `weight sane for '${d.id}'`);
+    if (d.category === 'armor' || d.category === 'backpack' || d.category === 'primary' || d.category === 'secondary') {
+      check((d.durabilityMax ?? 0) > 0, `'${d.id}' has durability`);
+    }
+    if (d.category === 'gadget') check(!!d.gadgetId && d.quickUsable === true, `'${d.id}' is a quick-usable gadget`);
+    if (d.armorId) check(!!ARMOR_DEFS.find((a) => a.id === d.armorId), `armorId resolves for '${d.id}'`);
+    if (d.backpackId) check(!!BACKPACK_DEFS.find((b) => b.id === d.backpackId), `backpackId resolves for '${d.id}'`);
+  }
+  // deliberate size/weight mismatches exist (1x1 heavier than a 2x1)
+  const voidStone = getDef('gem_void')!, salvage = getDef('salvage_electronics')!, medal = getDef('super_earth_medal')!;
+  check(itemWeight(voidStone) > itemWeight(medal) * 5, 'a 1x1 gem outweighs a 1x1 medal by far');
+  check(itemWeight(salvage) > itemWeight(getDef('data_core')!), '2x1 salvage is heavier than a 2x1 data core');
+
+  // numbered armor follows the shared DR table; uniques sit below tier V
+  for (const a of ARMOR_DEFS) {
+    if (a.tier > 0) check(a.damageReduction === ARMOR_DR_BY_TIER[a.tier], `armor tier ${a.tier} DR matches the table`);
+    else check(a.damageReduction < ARMOR_DR_BY_TIER[5], `unique '${a.id}' is below tier V DR`);
+  }
+  check(ARMOR_DEFS.filter((a) => a.perk !== 'none').length === 3, 'three unique armors');
+  check(BACKPACK_DEFS.filter((b) => b.perk !== 'none').length === 3, 'three legendary backpacks');
+  check(!!BACKPACK_DEFS.find((b) => b.perk === 'tactical' && b.quickSlots === 8), 'tactical backpack has 8 quick slots');
+  check(BACKPACK_DEFS.every((b) => b.quickSlots <= QUICK_SLOT_KEYS.length), 'quick slots fit the key list');
+  check(quickSlotCount(null) < 4 && quickSlotCount(BACKPACK_DEFS[0]) === 4, 'no backpack means fewer quick slots');
+
+  // weight thresholds
+  check(weightStateFor(0.5) === 'normal' && weightStateFor(WEIGHT_LIGHT_RATIO) === 'light'
+    && weightStateFor(WEIGHT_HEAVY_RATIO) === 'heavy' && weightStateFor(1.2) === 'over', 'weight states');
+  const wi = makeWeightInfo(50, 40, 0);
+  check(wi.state === 'over' && wi.moveMul === 0 && wi.staminaRegenMul === 0, 'overloaded stops movement');
+  const light = makeWeightInfo(28, 40, 0), lightSkilled = makeWeightInfo(28, 40, 1);
+  check(light.state === 'light' && lightSkilled.staminaRegenMul > light.staminaRegenMul, 'carry skill softens the light penalty');
+  const bagItems = [loot.createItem('mat_scrap', 10), loot.createItem('gem_void')];
+  check(Math.abs(sumWeight(bagItems, getDef) - (itemWeight(getDef('mat_scrap')!, 10) + itemWeight(voidStone))) < 1e-6, 'sumWeight adds stacks');
+
+  // backpack grids
+  check(BASE_BAG_COLS * BASE_BAG_ROWS < BACKPACK_DEFS[0].cols * BACKPACK_DEFS[0].rows, 'a backpack beats bare pockets');
+  for (let i = 1; i < 5; i++) {
+    check(BACKPACK_DEFS[i].cols * BACKPACK_DEFS[i].rows >= BACKPACK_DEFS[i - 1].cols * BACKPACK_DEFS[i - 1].rows, `backpack ${i + 1} is not smaller`);
+  }
+
+  // durability
+  const rifleDur = loot.createItem('wpn_ar23');
+  const rifleDef = getDef('wpn_ar23')!;
+  check(rifleDur.durability === rifleDef.durabilityMax, 'fresh weapon starts at full durability');
+  const durInfo = durabilityInfo(rifleDur, rifleDef)!;
+  check(!!durInfo && !durInfo.broken && durInfo.max === rifleDef.durabilityMax, 'durabilityInfo reads the instance');
+  rifleDur.durability = 0;
+  check(durabilityInfo(rifleDur, rifleDef)!.broken, 'zero durability reads as broken');
+  check(durabilityInfo(loot.createItem('gem_quartz'), getDef('gem_quartz')!) === null, 'valuables have no durability');
+
+  // recipes resolve and are reachable
+  for (const r of CRAFT_RECIPES) {
+    check(!!getDef(r.outputDefId), `recipe '${r.id}' output exists`);
+    for (const i of r.inputs) check(!!getDef(i.defId) && i.qty > 0, `recipe '${r.id}' input '${i.defId}' exists`);
+    check(r.duration > 0 && r.skillRequired >= 0, `recipe '${r.id}' has sane numbers`);
+  }
+  check(CRAFT_RECIPES.some((r) => r.outputDefId === 'mat_gunpowder'), 'ammo teardown recipe exists');
+  check(CRAFT_RECIPES.some((r) => r.inputs.some((i) => i.defId === 'mat_gunpowder') && getDef(r.outputDefId)!.category === 'ammo'), 'gunpowder to ammo recipe exists');
+  check(CRAFT_RECIPES.some((r) => r.skill === 'medicine' && r.inputs.some((i) => getDef(i.defId)!.category === 'herb')), 'herb to medicine recipe exists');
+
+  // crate search: everything starts hidden and reveals over time
+  {
+    const store = new ContainerStore(getDef);
+    const c = store.getOrCreate('crate-test', 3, new THREE.Vector3(), loot, 4242, 1);
+    check(c.hiddenCount === c.grid.count && c.hiddenCount > 0, 'every crate item starts hidden');
+    const first = c.grid.items()[0].item;
+    check(c.isHidden(first.uid) && c.searchRemaining(first.uid) > 0, 'search timer is running');
+    let guard = 0;
+    while (c.hiddenCount > 0 && guard++ < 200) c.tickSearch(0.1);
+    check(c.hiddenCount === 0, 'search finishes');
+    check(searchTimeFor(getDef('alien_relic')!, 1) > searchTimeFor(getDef('mat_scrap')!, 1), 'rarer items take longer to identify');
+    check(searchTimeFor(getDef('alien_relic')!, 2) < searchTimeFor(getDef('alien_relic')!, 1), 'appraisal speeds the search up');
+    const again = store.getOrCreate('crate-test', 3, new THREE.Vector3(), loot, 4242, 1);
+    check(again === c && again.hiddenCount === 0, 'reopened crate stays revealed');
+  }
+
+  // crate gear is second-hand
+  {
+    const rolled = loot.rollCrate(4, new Random(2026));
+    for (const it of rolled) {
+      const d = getDef(it.defId)!;
+      if (d.durabilityMax !== undefined) check((it.durability ?? 0) > 0 && (it.durability ?? 0) <= d.durabilityMax, `looted '${it.defId}' has partial durability`);
+    }
+  }
 
   if (failures === 0) console.info('[InventorySelfTest] all checks passed');
   else console.error(`[InventorySelfTest] ${failures} check(s) failed`);

@@ -1,5 +1,5 @@
-import type { GameContext, Stance } from '@/shared';
-import { el, damp } from '../dom';
+import type { GameContext, ImplantId, Stance } from '@/shared';
+import { el, setText, toggleClass, damp } from '../dom';
 
 /** Base reticle gap (px) per stance, [hip, ADS]. */
 const STANCE_GAP: Record<Stance, [number, number]> = {
@@ -14,11 +14,22 @@ const MOVE_SPEED_EPS = 0.5; // m/s of horizontal velocity that counts as "moving
 /**
  * Minimal 4-tick crosshair. Gap depends on stance / aim / sprint / movement, blooms on fire,
  * flashes hitmarkers. Hidden entirely while the scope overlay is showing.
+ *
+ * Grapple (갈고리): while the grapple implant is wielded the reticle grows a bracket ring that turns
+ * accent-coloured with the anchor distance as soon as `implant:grappleTargetChanged {valid}` says the
+ * point under the crosshair can be hooked.
  */
 export class Reticle {
   readonly root: HTMLElement;
   private ticks: HTMLElement[] = [];
   private hitmarker: HTMLElement;
+  private hook: HTMLElement;
+  private hookDist: HTMLElement;
+  private implant: ImplantId | null = null;
+  private wielded = false;
+  private grappleValid = false;
+  private grappleDist = 0;
+  private lastHookKey = '';
   private gap = 14;
   private targetGap = 14;
   private bloom = 0;
@@ -37,6 +48,11 @@ export class Reticle {
     }
     this.hitmarker = el('div', { cls: 'hitmarker', parent: this.root });
     for (let i = 0; i < 4; i++) el('span', { parent: this.hitmarker });
+    // Grapple bracket ring (hidden unless the grapple implant is in hand).
+    this.hook = el('div', { cls: 'hook', parent: this.root });
+    this.hook.hidden = true;
+    for (let i = 0; i < 4; i++) el('i', { parent: this.hook });
+    this.hookDist = el('span', { cls: 'gdist ui-mono', text: '', parent: this.hook });
     this.apply(14);
   }
 
@@ -54,7 +70,29 @@ export class Reticle {
         if (kill) this.hitmarker.classList.add('kill');
         this.hitTimer = kill ? 0.22 : 0.12;
       }),
+      // ── grapple crosshair state ──
+      b.on('implant:equipped', ({ id }) => { this.implant = id; this.syncHook(); }),
+      b.on('implant:wieldChanged', ({ id, wielded }) => { this.implant = id; this.wielded = wielded; this.syncHook(); }),
+      b.on('implant:grappleTargetChanged', ({ valid, distance }) => {
+        this.grappleValid = valid; this.grappleDist = distance;
+        this.syncHook();
+      }),
+      b.on('implant:grappleAttached', () => { toggleClass(this.hook, 'attached', true); }),
+      b.on('implant:grappleReleased', () => { toggleClass(this.hook, 'attached', false); }),
+      b.on('game:newMission', () => { this.wielded = false; this.grappleValid = false; this.syncHook(); }),
+      b.on('game:abort', () => { this.wielded = false; this.grappleValid = false; this.syncHook(); }),
     );
+  }
+
+  private syncHook(): void {
+    const show = this.wielded && this.implant === 'grapple';
+    const key = `${show ? 1 : 0}|${this.grappleValid ? 1 : 0}|${show && this.grappleValid ? Math.round(this.grappleDist) : -1}`;
+    if (key === this.lastHookKey) return;
+    this.lastHookKey = key;
+    if (this.hook.hidden === show) this.hook.hidden = !show;
+    if (!show) return;
+    toggleClass(this.hook, 'valid', this.grappleValid);
+    setText(this.hookDist, this.grappleValid ? `${Math.round(this.grappleDist)}m` : '');
   }
 
   update(dt: number, ctx: GameContext): void {
@@ -80,6 +118,13 @@ export class Reticle {
       this.hitTimer -= dt;
       if (this.hitTimer <= 0) this.hitmarker.classList.remove('show');
     }
+    // Late-registered implant system / missed events: adopt the live state.
+    const imp = ctx.implants;
+    if (imp && (imp.equipped !== this.implant || imp.wielded !== this.wielded)) {
+      this.implant = imp.equipped; this.wielded = imp.wielded;
+      this.syncHook();
+    }
+
     const scoped = this.scope && this.aiming;
     const opacity = ctx.uiBlockers.size > 0 || scoped ? '0' : '1';
     if (this.root.style.opacity !== opacity) this.root.style.opacity = opacity;

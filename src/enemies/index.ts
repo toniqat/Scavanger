@@ -9,5 +9,8 @@ export { AmbientSpawner, findSpawnCenter, spawnGroup, ambientGroup, waveGroup, i
 export { WaveDirector, WAVE_ALIVE_CAP } from './WaveDirector';
 export { BloodFX } from './fx/BloodFX';
 export { AcidProjectiles, type AcidHost, type AcidSlow } from './fx/AcidProjectile';
+export { LureField, type LureEntry } from './ai/Lures';
+export { refreshStructureTarget, biteStructure, STRUCT_DAMAGE_MUL } from './ai/Structures';
+export { hasLineOfSight, visionClarity, detectionRange, becomeAlert, acquireTarget, updatePerception } from './ai/Perception';
 export { EnemyReplica, ReplicaBuffer, type ReplicaHost } from './net/Replica';
 export { encodeSnapshot, animHint } from './net/HostSync';
