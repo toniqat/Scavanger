@@ -25,6 +25,8 @@ const _up = new THREE.Vector3(0, 1, 0);
  * smooth between 20 Hz snapshots. No collision with the local player.
  * Hidden while `DROPPING` (hellpod) or `IN_POD` (hub launch pod); renders in the hub too (refs exist while
  * `ctx.net.inHubSession`). Shows the SoldierModel occlusion silhouette (slot-tinted) while alive & visible.
+ * Phase 2: `DOWNED` → prone + crawl cycle (sprint/aim/crouch/dive blends forced off), `HOLDING_ITEM` → one-handed
+ * item pose (`SoldierPose.holdItem`).
  */
 export class RemoteAvatar implements RemoteAvatarRef {
   readonly model: SoldierModel;
@@ -41,6 +43,7 @@ export class RemoteAvatar implements RemoteAvatarRef {
   private diveBlend = 0;
   private aimBlend = 0;
   private airBlend = 0;
+  private holdItemBlend = 0;
   private recoil = 0;
   private firePulse = 0;
   private deadTimer = 0;
@@ -52,7 +55,7 @@ export class RemoteAvatar implements RemoteAvatarRef {
   private readonly pose: SoldierPose = {
     moveBlend: 0, sprint: 0, stridePhase: 0, crouch: 0, aim: 0, aimPitch: 0, torsoTwist: 0, airborne: 0,
     verticalVel: 0, flinch: 0, hasWeapon: false, twoHanded: false, reloading: false, recoil: 0, dead: 0,
-    prone: 0, dive: 0,
+    prone: 0, dive: 0, throw: 0, holdItem: 0,
   };
 
   constructor(readonly ref: RemotePlayerRef, parent: THREE.Object3D) {
@@ -120,13 +123,17 @@ export class RemoteAvatar implements RemoteAvatarRef {
     const reloading = (flags & PlayerFlags.RELOADING) !== 0;
     const hasWeapon = (flags & PlayerFlags.HAS_WEAPON) !== 0;
     const twoHanded = (flags & PlayerFlags.TWO_HANDED) !== 0;
-    const prone = ref.stance === 'prone';
-    this.sprintBlend = damp(this.sprintBlend, sprinting ? 1 : 0, 8, dt);
-    this.aimBlend = damp(this.aimBlend, aiming && hasWeapon ? 1 : 0, 12, dt);
-    this.crouchBlend = damp(this.crouchBlend, ref.stance === 'crouch' && !diving ? 1 : 0, 10, dt);
+    // downed (전투불능): always lying prone, crawl cycle from stride/moveBlend; weapons hides the gun model itself
+    const downed = (flags & PlayerFlags.DOWNED) !== 0;
+    const holdingItem = (flags & PlayerFlags.HOLDING_ITEM) !== 0 && !downed;
+    const prone = ref.stance === 'prone' || downed;
+    this.sprintBlend = damp(this.sprintBlend, sprinting && !downed ? 1 : 0, 8, dt);
+    this.aimBlend = damp(this.aimBlend, aiming && hasWeapon && !downed ? 1 : 0, 12, dt);
+    this.crouchBlend = damp(this.crouchBlend, ref.stance === 'crouch' && !diving && !downed ? 1 : 0, 10, dt);
     this.proneBlend = damp(this.proneBlend, prone && !diving ? 1 : 0, 8, dt);
-    this.diveBlend = damp(this.diveBlend, diving ? 1 : 0, 14, dt);
-    this.airBlend = damp(this.airBlend, airborne ? 1 : 0, 12, dt);
+    this.diveBlend = damp(this.diveBlend, diving && !downed ? 1 : 0, 14, dt);
+    this.airBlend = damp(this.airBlend, airborne && !downed ? 1 : 0, 12, dt);
+    this.holdItemBlend = damp(this.holdItemBlend, holdingItem ? 1 : 0, 10, dt);
 
     // ── recoil pulses while firing
     if (firing && hasWeapon) {
@@ -176,6 +183,8 @@ export class RemoteAvatar implements RemoteAvatarRef {
     p.twoHanded = twoHanded;
     p.reloading = reloading && hasWeapon;
     p.recoil = this.recoil;
+    p.throw = 0;   // no wire flag for the wind-up (weapons replays the throw FX)
+    p.holdItem = this.holdItemBlend;
     p.dead = ref.isDead ? Math.min(1, this.deadTimer / DEATH_ANIM) : 0;
     this.model.update(dt, ctx.time, p);
 

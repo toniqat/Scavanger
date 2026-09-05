@@ -1,22 +1,39 @@
 import * as THREE from 'three';
-import type { GameContext, GameSystem, InventoryRef, ItemDef, ItemInstance, Loadout } from '@/shared';
-import { INVENTORY_COLS, INVENTORY_ROWS, Keys } from '@/shared';
-import { AMMO_LABEL_KO, ITEM_DEF_MAP, LootService, STARTER_LOADOUT, getWeaponDef } from '@/items';
-import { Grid, OOB } from './Grid';
+import type {
+  EffectiveWeaponStats, GameContext, GameSystem, InventoryRef, ItemDef, ItemInstance, Loadout, LoadoutSlot, SocketSlot, WeaponSlot,
+} from '@/shared';
+import { BAG_DEFAULT_COLS, BAG_DEFAULT_QUICK_SLOTS, BAG_DEFAULT_ROWS, Keys, QUICK_SLOTS, SOCKET_SLOTS, isQuickSlotActive } from '@/shared';
+import { AMMO_LABEL_KO, ITEM_DEF_MAP, LootService, STARTER_LOADOUT, ammoItemIdFor, isWeaponItemDef } from '@/items';
+import { Grid, OOB, type Placement, type PriorityPlacement } from './Grid';
 import { Container, ContainerStore } from './Container';
+import { attachedItems, clearSocket, findSocketed, setSocket } from './Sockets';
+import {
+  assignQuickSlot, autoAssignQuickSlots, createQuickSlots, firstFreeQuickSlot, isQuickIndex, isQuickUsable, pruneQuickSlots,
+  quickSlotOf, quickSlotsSignature, relinkQuickSlot, type QuickSlotUids,
+} from './QuickSlots';
 import { InventoryUI } from './ui/InventoryUI';
 
 /* ── UI ↔ system vocabulary ─────────────────────────────────────────────── */
 export type GridId = 'bag' | 'container';
-export type SlotId = 'primary' | 'secondary';
+/** Equipment slots = the shared `LoadoutSlot` (주무기 I / 주무기 II / 보조무기 / 가방). */
+export type SlotId = LoadoutSlot;
+export const LOADOUT_SLOTS: readonly LoadoutSlot[] = ['primary', 'primary2', 'secondary', 'bag'];
+export const WEAPON_SLOT_IDS: readonly WeaponSlot[] = ['primary', 'primary2', 'secondary'];
 export type ItemLocation = { kind: 'grid'; grid: GridId } | { kind: 'slot'; slot: SlotId };
 export type DropTarget =
   | { kind: 'grid'; grid: GridId; x: number; y: number; rotated: boolean }
-  | { kind: 'slot'; slot: SlotId };
+  | { kind: 'slot'; slot: SlotId }
+  /** An attachment released over a weapon tile (bag or equipment slot): socket it. */
+  | { kind: 'weapon'; uid: string; loc: ItemLocation }
+  /** A stim / grenade released over a quick-use wheel cell: assign it (`setQuickSlot`). */
+  | { kind: 'quick'; index: number };
 /** `ok` mutated, `noop` nothing to do (drop in place), `fail` refused (UI shakes). */
 export type OpResult = 'ok' | 'noop' | 'fail';
 export type DropPreview = 'ok' | 'swap' | 'merge' | 'noop' | 'bad';
 export type UiSfx = 'ui_pickup' | 'ui_drop' | 'ui_rotate' | 'ui_error' | 'ui_equip';
+export type BagSize = { cols: number; rows: number; quickSlots: number };
+/** How the last mission ended; decides what `game:abort` does to the bag (see README "Reset policy"). */
+type MissionOutcome = 'none' | 'complete' | 'over';
 
 const AUTO_CLOSE_DISTANCE = 6;
 const BLOCKER_TOKEN = 'inventory';
@@ -28,8 +45,19 @@ const DROP_UP_SPEED = 2.0;
 const MOD_SHIFT = ['ShiftLeft', 'ShiftRight'] as const;
 const MOD_CTRL = ['ControlLeft', 'ControlRight'] as const;
 
+/** Which item categories a loadout slot accepts. */
+export function slotAccepts(def: ItemDef, slot: LoadoutSlot): boolean {
+  if (slot === 'bag') return def.category === 'bag';
+  if (slot === 'secondary') return def.category === 'secondary';
+  return def.category === 'primary';
+}
+
+export const isWeaponDef = (def: ItemDef | undefined): boolean => isWeaponItemDef(def);
+export const isAttachmentDef = (def: ItemDef | undefined): boolean => !!def?.attachment;
+export const isBagDef = (def: ItemDef | undefined): boolean => !!def?.bag;
+
 /**
- * Owns the player's bag grid, equipment slots and the open loot container.
+ * Owns the player's bag grid, the four equipment slots and the open loot container.
  * Publishes `ctx.inventory` (this) and `ctx.loot` (LootService).
  */
 export class InventorySystem implements GameSystem, InventoryRef {
@@ -38,13 +66,17 @@ export class InventorySystem implements GameSystem, InventoryRef {
   private ctx!: GameContext;
   private loot = new LootService();
   private bag!: Grid;
-  private loadout: Loadout = { primary: null, secondary: null };
+  private loadout: Loadout = { primary: null, primary2: null, secondary: null, bag: null };
   private containers = new ContainerStore((id) => ITEM_DEF_MAP.get(id));
   private activeContainer: Container | null = null;
   private _open = false;
   private missionSeed = 0;
+  private outcome: MissionOutcome = 'none';
   private lastGrenades = -1;
   private lastStims = -1;
+  /** Quick-use wheel: bag item uids by wheel direction (see `QuickSlots.ts`); `lastQuickSig` gates the change event. */
+  private quickSlots: QuickSlotUids = createQuickSlots();
+  private lastQuickSig = '';
   private ui: InventoryUI | null = null;
   private offs: Array<() => void> = [];
   private escHandler = (e: KeyboardEvent): void => {
@@ -62,17 +94,21 @@ export class InventorySystem implements GameSystem, InventoryRef {
     this.ctx = ctx;
     ctx.inventory = this;
     ctx.loot = this.loot;
-    this.bag = new Grid(INVENTORY_COLS, INVENTORY_ROWS, (id) => ITEM_DEF_MAP.get(id));
+    this.bag = new Grid(BAG_DEFAULT_COLS, BAG_DEFAULT_ROWS, (id) => ITEM_DEF_MAP.get(id));
     this.ui = new InventoryUI(this, ctx);
     this.ui.mount();
 
     const bus = ctx.bus;
     this.offs.push(
-      bus.on('world:ready', ({ seed }) => { this.missionSeed = seed; this.reset(); }),
+      bus.on('world:ready', ({ seed }) => this.onWorldReady(seed)),
       bus.on('crate:open', ({ crateId, tier, position }) => this.openContainer(crateId, tier, position)),
       bus.on('player:died', () => this.closeAll()),
-      bus.on('game:abort', () => { this.closeAll(); this.containers.clear(); }),
-      bus.on('game:newMission', () => { this.closeAll(); this.containers.clear(); }),
+      bus.on('game:complete', () => { this.outcome = 'complete'; }),
+      bus.on('game:over', () => this.onGameOver()),
+      bus.on('player:respawn', () => this.onRespawn()),
+      bus.on('game:abort', () => this.onAbort()),
+      bus.on('game:newMission', () => { this.closeAll(); this.containers.clear(); this.outcome = 'none'; }),
+      bus.on('hub:entered', () => { if (this.isCompletelyEmpty()) this.applyStarter(); }),
       bus.on('game:phaseChanged', () => { if (!ctx.isGameplayPhase()) this.closeAll(); }),
     );
     // Capture-phase so Escape closes the inventory without also reaching the menu system.
@@ -104,20 +140,97 @@ export class InventorySystem implements GameSystem, InventoryRef {
     this.closeAll();
     this.ui?.dispose();
     this.ui = null;
-    if (this.ctx?.inventory === this) this.ctx.inventory = null;
+    if (this.ctx?.inventory === (this as InventoryRef)) this.ctx.inventory = null;
+  }
+
+  /* ── reset policy ──────────────────────────────────────────────────────── */
+
+  /**
+   * `world:ready`: first mission (no weapon anywhere) → starter kit; otherwise everything is kept and only the
+   * events every consumer needs (`loadout:changed`, counts, `inventory:changed`) are re-emitted.
+   */
+  private onWorldReady(seed: number): void {
+    this.missionSeed = seed;
+    this.outcome = 'none';
+    this.closeAll();
+    this.containers.clear();
+    if (!this.hasAnyWeapon()) { this.applyStarter(); return; }
+    this.lastGrenades = -1; this.lastStims = -1; this.lastQuickSig = '';
+    this.emitLoadout();
+    this.afterChange();
+  }
+
+  /** Legacy mission failure (Phase 2 death flow no longer emits it): everything is lost, back to the starter kit. */
+  private onGameOver(): void {
+    this.outcome = 'over';
+    this.closeAll();
+    this.containers.clear();
+    this.applyStarter();
+  }
+
+  /** Phase 2 death flow: the hellpod re-drop after `PLAYER_RESPAWN_DELAY` brings the starter kit (mission continues, crates keep their state). */
+  private onRespawn(): void {
+    this.closeAll();
+    this.applyStarter();
+  }
+
+  /**
+   * `game:abort` after a completed mission is just the hub's mechanical transition (result screen → ship): keep
+   * the worn weapons for the workbench. After death the kit was already reset. Any other abort (quit mid-mission,
+   * lobby lost, back to title) resets to the starter kit.
+   */
+  private onAbort(): void {
+    this.closeAll();
+    this.containers.clear();
+    const outcome = this.outcome;
+    this.outcome = 'none';
+    if (outcome === 'complete' || outcome === 'over') return;
+    this.applyStarter();
+  }
+
+  private hasAnyWeapon(): boolean {
+    for (const s of WEAPON_SLOT_IDS) if (this.loadout[s]) return true;
+    return this.bag.items().some((p) => isWeaponItemDef(ITEM_DEF_MAP.get(p.item.defId)));
+  }
+
+  private isCompletelyEmpty(): boolean {
+    return LOADOUT_SLOTS.every((s) => !this.loadout[s]) && this.bag.isEmpty;
+  }
+
+  /** Wipe the bag + slots and apply `STARTER_LOADOUT` (`items[].qty` are units / rounds). */
+  private applyStarter(): void {
+    this.bag.clear();
+    const mk = (id: string | null): ItemInstance | null => (id && ITEM_DEF_MAP.has(id) ? this.loot.createItem(id) : null);
+    const bagItem = mk(STARTER_LOADOUT.bag);
+    this.loadout = {
+      primary: mk(STARTER_LOADOUT.primary),
+      primary2: mk(STARTER_LOADOUT.primary2),
+      secondary: mk(STARTER_LOADOUT.secondary),
+      bag: bagItem,
+    };
+    const size = this.bagSizeOf(bagItem);
+    this.bag.resize(size.cols, size.rows);
+    for (const e of STARTER_LOADOUT.items) this.addUnits(e.id, e.qty);
+    autoAssignQuickSlots(this.quickSlots, this.getAllItems(), (id) => ITEM_DEF_MAP.get(id), this.getQuickSlotCount());
+    this.lastGrenades = -1; this.lastStims = -1; this.lastQuickSig = ''; // force count / quick-slot events
+    this.ctx.bus.emit('inventory:bagChanged', { ...size, dropped: [] });
+    this.emitLoadout();
+    this.afterChange();
   }
 
   /* ── InventoryRef ──────────────────────────────────────────────────────── */
 
   get isOpen(): boolean { return this._open; }
 
-  getLoadout(): Loadout { return { primary: this.loadout.primary, secondary: this.loadout.secondary }; }
+  getLoadout(): Loadout { return { ...this.loadout }; }
 
   getDef(defId: string): ItemDef | undefined { return ITEM_DEF_MAP.get(defId); }
 
   getAllItems(): ItemInstance[] { return this.bag.items().map((p) => p.item); }
 
   getTotalValue(): number { return this.bag.totalValue(); }
+
+  getBagSize(): BagSize { return this.bagSizeOf(this.loadout.bag); }
 
   countWhere(pred: (def: ItemDef, inst: ItemInstance) => boolean): number {
     let n = 0;
@@ -140,15 +253,90 @@ export class InventorySystem implements GameSystem, InventoryRef {
       if (left <= 0) break;
       const take = Math.min(left, p.item.qty);
       p.item.qty -= take; left -= take; consumed += take;
-      if (p.item.qty <= 0) {
-        this.bag.remove(p.item.uid);
-        this.ctx.bus.emit('inventory:itemRemoved', { item: p.item });
-      } else {
-        this.bag.version++;
-      }
+      if (p.item.qty <= 0) this.removeEmptyStack(p.item);
+      else this.bag.version++;
     }
     if (consumed > 0) this.afterChange();
     return consumed;
+  }
+
+  /* ── quick-use wheel (InventoryRef) ────────────────────────────────────── */
+
+  /** Wheel slots resolved to live bag items (null = empty or the stack left the bag). */
+  getQuickSlots(): readonly (ItemInstance | null)[] {
+    return this.quickSlots.map((uid) => (uid === null ? null : this.bag.get(uid)?.item ?? null));
+  }
+
+  /** Usable wheel slots for the equipped bag (clamped to QUICK_SLOTS; tactical legendary bags define 9). */
+  getQuickSlotCount(): number {
+    return Math.min(QUICK_SLOTS, this.getBagSize().quickSlots);
+  }
+
+  /**
+   * Assign bag item `uid` (stim / grenade) to wheel slot `index`, or clear it with null. A uid lives in one slot
+   * only, so assigning it elsewhere moves it. Locked slots (`!isQuickSlotActive(index, getQuickSlotCount())`,
+   * unlock order N S E W then diagonals) can be cleared but not filled.
+   */
+  setQuickSlot(index: number, uid: string | null): boolean {
+    if (!isQuickIndex(index)) return false;
+    if (uid !== null) {
+      const item = this.bag.get(uid)?.item;
+      if (!item || !isQuickUsable(ITEM_DEF_MAP.get(item.defId))) return false;
+      if (!isQuickSlotActive(index, this.getQuickSlotCount())) return false;
+    }
+    if (assignQuickSlot(this.quickSlots, index, uid)) {
+      this.bag.version++; // bag tiles carry the direction badge
+      this.syncQuickSlots();
+      this.ui?.refresh();
+    }
+    return true;
+  }
+
+  /** Slot index of bag item `uid`, or -1 (UI badges / menu state). */
+  quickIndexOf(uid: string): number { return quickSlotOf(this.quickSlots, uid); }
+
+  /** Context menu `빠른 슬롯에 등록`: first free usable slot. 'noop' when already assigned, 'fail' when none is free / not usable. */
+  registerQuick(uid: string): OpResult {
+    if (this.quickIndexOf(uid) >= 0) return 'noop';
+    const index = firstFreeQuickSlot(this.quickSlots, this.getQuickSlotCount());
+    if (index < 0) return 'fail';
+    return this.setQuickSlot(index, uid) ? 'ok' : 'fail';
+  }
+
+  /**
+   * Weapons: a stim was injected / a grenade thrown from this exact bag stack. Removes up to `qty` units and
+   * returns the count. At 0 the stack leaves the bag (`inventory:itemRemoved`); its wheel slot moves to another
+   * stack of the same item when one is free, else clears (`inventory:quickSlotsChanged`).
+   */
+  consumeItem(uid: string, qty = 1): number {
+    const p = this.bag.get(uid);
+    const n = Math.min(Math.max(0, Math.floor(qty)), p?.item.qty ?? 0);
+    if (!p || n <= 0) return 0;
+    p.item.qty -= n;
+    if (p.item.qty <= 0) this.removeEmptyStack(p.item);
+    else this.bag.version++;
+    this.afterChange();
+    return n;
+  }
+
+  /** A bag stack hit 0: drop it from the grid, hand its wheel slot to a sibling stack of the same def, emit removed. */
+  private removeEmptyStack(item: ItemInstance): void {
+    this.bag.remove(item.uid);
+    if (quickSlotOf(this.quickSlots, item.uid) >= 0) {
+      const sibling = this.bag.items().find((q) => q.item.defId === item.defId && !this.quickSlots.includes(q.item.uid));
+      if (sibling) relinkQuickSlot(this.quickSlots, item.uid, sibling.item.uid);
+    }
+    this.ctx.bus.emit('inventory:itemRemoved', { item });
+  }
+
+  /** Prune slots whose stack left the bag, then emit `inventory:quickSlotsChanged` when anything the HUD shows changed. */
+  private syncQuickSlots(): void {
+    pruneQuickSlots(this.quickSlots, (uid) => this.bag.has(uid));
+    const active = this.getQuickSlotCount();
+    const sig = quickSlotsSignature(this.quickSlots, (uid) => this.bag.get(uid)?.item ?? null, active);
+    if (sig === this.lastQuickSig) return;
+    this.lastQuickSig = sig;
+    this.ctx.bus.emit('inventory:quickSlotsChanged', { slots: [...this.getQuickSlots()], active });
   }
 
   tryAddItem(item: ItemInstance): boolean {
@@ -166,7 +354,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
   /**
    * Drop `qty` units (default: the whole stack) of `uid` into the world. Searches the bag, the open container
    * and the equipment slots. Emits `inventory:itemRemoved` (player-owned only), `loadout:changed` (slots) and
-   * `inventory:itemDropped` — `pickups/` spawns the world object from that.
+   * `inventory:itemDropped` — `pickups/` spawns the world object from that. Weapons travel whole (sockets,
+   * durability, rounds stay on the instance). Dropping the equipped bag shrinks the grid first (`changeBag`).
    */
   dropItem(uid: string, qty?: number): boolean {
     const found = this.locate(uid);
@@ -178,6 +367,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
     if (!Number.isFinite(want) || want < 1) return false;
     const n = Math.min(want, item.qty);
 
+    if (from.kind === 'slot' && from.slot === 'bag') return this.changeBag(null, null, 'world') === 'ok';
+
     let dropped: ItemInstance;
     if (n >= item.qty) {
       this.detach(item, from);
@@ -187,21 +378,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
       item.qty -= n;
       if (from.kind === 'grid') { const g = this.getGrid(from.grid); if (g) g.version++; }
     }
-    if (this.locKind(from) === 'player') this.ctx.bus.emit('inventory:itemRemoved', { item: dropped });
+    this.throwToWorld(dropped, this.locKind(from) === 'player');
     if (from.kind === 'slot') this.emitLoadout();
-
-    const position = new THREE.Vector3();
-    const velocity = new THREE.Vector3();
-    const player = this.ctx.player;
-    if (player) {
-      const forward = player.getForward(new THREE.Vector3());
-      player.getEyePosition(position);
-      position.y -= DROP_EYE_LOWER;
-      position.addScaledVector(forward, DROP_FORWARD_OFFSET);
-      velocity.copy(forward).multiplyScalar(DROP_FORWARD_SPEED);
-      velocity.y += DROP_UP_SPEED;
-    }
-    this.ctx.bus.emit('inventory:itemDropped', { item: dropped, position, velocity });
     this.afterChange();
     return true;
   }
@@ -226,13 +404,113 @@ export class InventorySystem implements GameSystem, InventoryRef {
     return true;
   }
 
+  /** Any player-owned item: bag → equipment slots → attachments socketed in an owned weapon. */
+  findItem(uid: string, from?: ItemLocation): ItemInstance | null {
+    if (from) {
+      if (from.kind === 'slot') return this.loadout[from.slot]?.uid === uid ? this.loadout[from.slot] : null;
+      return this.getGrid(from.grid)?.get(uid)?.item ?? null;
+    }
+    const p = this.bag.get(uid);
+    if (p) return p.item;
+    for (const s of LOADOUT_SLOTS) {
+      const it = this.loadout[s];
+      if (it?.uid === uid) return it;
+    }
+    return findSocketed(this.ownedWeapons(), uid)?.item ?? null;
+  }
+
+  /** Patch persistent instance fields (weapons write `ammoInMag` / `durability` here every shot). */
+  updateItem(uid: string, patch: Partial<Pick<ItemInstance, 'durability' | 'ammoInMag'>>): boolean {
+    const item = this.findItem(uid);
+    if (!item) return false;
+    if (patch.durability !== undefined) item.durability = Math.max(0, patch.durability);
+    if (patch.ammoInMag !== undefined) item.ammoInMag = Math.max(0, patch.ammoInMag);
+    if (this.bag.has(uid)) this.bag.version++;
+    this.ctx.bus.emit('inventory:itemUpdated', { item });
+    this.afterChange();
+    return true;
+  }
+
+  /** Socket a bag (or open-container) attachment into a player-owned weapon; see `attachFrom`. */
+  attachToWeapon(weaponUid: string, attachmentUid: string): boolean {
+    const w = this.locate(weaponUid);
+    const a = this.locate(attachmentUid);
+    if (!w || !a || a.from.kind !== 'grid') return false;
+    return this.attachFrom(attachmentUid, a.from, weaponUid, w.from) === 'ok';
+  }
+
+  /** Every attachment of weapon `uid` back into the bag (overflow drops to the ground). False when none / not found. */
+  detachAllSockets(uid: string): boolean {
+    const w = this.locate(uid);
+    if (!w || this.locKind(w.from) !== 'player' || !isWeaponItemDef(ITEM_DEF_MAP.get(w.item.defId))) return false;
+    const weapon = w.item;
+    let n = 0;
+    for (const socket of SOCKET_SLOTS) {
+      const att = clearSocket(weapon, socket);
+      if (!att) continue;
+      n++;
+      if (!this.bag.autoPlace(att)) this.throwToWorld(att, true);
+      this.ctx.bus.emit('inventory:socketChanged', { weapon, socket, attachment: null });
+    }
+    if (n === 0) return false;
+    this.afterSocketChange(weapon);
+    this.afterChange();
+    return true;
+  }
+
+  /** Magazine → bag as ammo of the weapon's calibre (merge into stacks, new stacks, overflow drops). */
+  unloadWeapon(uid: string): boolean {
+    const w = this.locate(uid);
+    if (!w || this.locKind(w.from) !== 'player') return false;
+    const weapon = w.item;
+    const stats = this.loot.getEffectiveStats(weapon);
+    const rounds = Math.floor(weapon.ammoInMag ?? 0);
+    if (!stats || rounds <= 0) return false;
+    weapon.ammoInMag = 0;
+    this.returnRounds(stats.ammoType, rounds);
+    if (this.bag.has(weapon.uid)) this.bag.version++;
+    this.ctx.bus.emit('inventory:itemUpdated', { item: weapon });
+    this.afterChange();
+    return true;
+  }
+
+  /** Workbench repair: all materials from `LootRef.getRepairCost` or nothing. */
+  repairWeapon(uid: string): boolean {
+    const w = this.locate(uid);
+    if (!w || this.locKind(w.from) !== 'player') return false;
+    const weapon = w.item;
+    const stats = this.loot.getEffectiveStats(weapon);
+    const cost = this.loot.getRepairCost(weapon);
+    if (!stats || cost.length === 0) return false;
+    for (const c of cost) if (this.countWhere((d) => d.id === c.defId) < c.qty) return false;
+    for (const c of cost) this.consumeWhere((d) => d.id === c.defId, c.qty);
+    weapon.durability = stats.maxDurability;
+    if (this.bag.has(weapon.uid)) this.bag.version++;
+    this.ctx.bus.emit('inventory:itemUpdated', { item: weapon });
+    this.afterChange();
+    return true;
+  }
+
+  /** Equip a bag / container item into `slot`, move a weapon between the primary slots, or unequip with null. */
+  equip(uid: string | null, slot: LoadoutSlot): boolean {
+    if (uid === null) {
+      const cur = this.loadout[slot];
+      if (!cur) return false;
+      return this.quickMove(cur.uid, { kind: 'slot', slot }) === 'ok';
+    }
+    const found = this.locate(uid);
+    const def = found && ITEM_DEF_MAP.get(found.item.defId);
+    if (!found || !def) return false;
+    return this.dropOnSlot(found.item, def, found.from, slot) === 'ok';
+  }
+
   /** Quick chat: ammo request for weapons, "<name> 필요" for anything else (`chat:post`, kind 'request'). */
   requestItem(uid: string, from: ItemLocation): boolean {
     const item = this.findItem(uid, from);
     const def = item && ITEM_DEF_MAP.get(item.defId);
     if (!item || !def) return false;
-    const weapon = def.weaponId ? getWeaponDef(def.weaponId) : undefined;
-    const text = weapon ? `탄약 요청: ${weapon.name} (${AMMO_LABEL_KO[weapon.ammoType]})` : `${def.name} 필요`;
+    const stats = this.loot.getEffectiveStats(item);
+    const text = stats ? `탄약 요청: ${def.name} (${AMMO_LABEL_KO[stats.ammoType]})` : `${def.name} 필요`;
     this.ctx.bus.emit('chat:post', { text, kind: 'request' });
     return true;
   }
@@ -272,18 +550,11 @@ export class InventorySystem implements GameSystem, InventoryRef {
     });
   }
 
+  /** Back to the starter kit (also closes windows and forgets rolled containers). */
   reset(): void {
     this.closeAll();
     this.containers.clear();
-    this.bag.clear();
-    this.loadout = {
-      primary: this.loot.createItem(STARTER_LOADOUT.primary),
-      secondary: this.loot.createItem(STARTER_LOADOUT.secondary),
-    };
-    for (const e of STARTER_LOADOUT.bag) this.bag.autoPlace(this.loot.createItem(e.id, e.qty));
-    this.lastGrenades = -1; this.lastStims = -1; // force count events
-    this.emitLoadout();
-    this.afterChange();
+    this.applyStarter();
   }
 
   /* ── UI-facing operations ──────────────────────────────────────────────── */
@@ -293,11 +564,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
   }
   getActiveContainer(): Container | null { return this.activeContainer; }
   getLoot(): LootService { return this.loot; }
-
-  findItem(uid: string, from: ItemLocation): ItemInstance | null {
-    if (from.kind === 'slot') return this.loadout[from.slot]?.uid === uid ? this.loadout[from.slot] : null;
-    return this.getGrid(from.grid)?.get(uid)?.item ?? null;
-  }
+  getStats(item: ItemInstance): EffectiveWeaponStats | null { return this.loot.getEffectiveStats(item); }
 
   sfx(id: UiSfx): void { this.ctx.bus.emit('audio:play', { id }); }
 
@@ -305,7 +572,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
   locate(uid: string): { item: ItemInstance; from: ItemLocation } | null {
     const inGrid = this.locateInGrids(uid);
     if (inGrid) return { item: inGrid.item, from: { kind: 'grid', grid: inGrid.gridId } };
-    for (const slot of ['primary', 'secondary'] as const) {
+    for (const slot of LOADOUT_SLOTS) {
       const it = this.loadout[slot];
       if (it?.uid === uid) return { item: it, from: { kind: 'slot', slot } };
     }
@@ -319,6 +586,16 @@ export class InventorySystem implements GameSystem, InventoryRef {
       if (grid && p) return { item: p.item, grid, gridId };
     }
     return null;
+  }
+
+  /** Slot a double-click / `장착` sends a weapon to: first empty primary slot, else 주무기 I (swap). */
+  equipTargetFor(def: ItemDef): WeaponSlot | 'bag' | null {
+    if (def.category === 'bag') return 'bag';
+    if (def.category === 'secondary') return 'secondary';
+    if (def.category !== 'primary') return null;
+    if (!this.loadout.primary) return 'primary';
+    if (!this.loadout.primary2) return 'primary2';
+    return 'primary';
   }
 
   /** Split size a Shift (half) / Ctrl (one) drag would carry, or null when the item cannot be split. */
@@ -397,11 +674,24 @@ export class InventorySystem implements GameSystem, InventoryRef {
     const def = item && ITEM_DEF_MAP.get(item.defId);
     if (!item || !def) return 'bad';
 
+    if (target.kind === 'weapon') return this.previewAttach(uid, from, target.uid, target.loc);
+
+    if (target.kind === 'quick') {
+      if (from.kind !== 'grid' || from.grid !== 'bag' || !isQuickUsable(def)) return 'bad';
+      if (!isQuickIndex(target.index) || !isQuickSlotActive(target.index, this.getQuickSlotCount())) return 'bad';
+      return this.quickSlots[target.index] === uid ? 'noop' : this.quickSlots[target.index] ? 'swap' : 'ok';
+    }
+
     if (target.kind === 'slot') {
-      if (def.category !== target.slot) return 'bad';
-      if (from.kind === 'slot') return from.slot === target.slot ? 'noop' : 'bad';
+      if (!slotAccepts(def, target.slot)) return 'bad';
       const current = this.loadout[target.slot];
+      if (from.kind === 'slot') {
+        if (from.slot === target.slot) return 'noop';
+        if (target.slot === 'bag' || from.slot === 'bag') return 'bad';
+        return current ? 'swap' : 'ok';
+      }
       if (!current) return 'ok';
+      if (target.slot === 'bag') return 'swap'; // the displaced bag is placed first in the resized grid
       return this.canPlaceDisplaced(current, from, uid) ? 'swap' : 'bad';
     }
 
@@ -412,6 +702,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
       if (p && p.x === target.x && p.y === target.y && item.rotated === target.rotated) return 'noop';
     }
     const blockers = grid.blockersAt(item, target.x, target.y, target.rotated, uid);
+    if (from.kind === 'slot' && from.slot === 'bag' && target.grid !== 'bag') return 'bad';
     if (blockers.length === 0) return 'ok';
     if (blockers.length !== 1 || blockers[0] === OOB) return 'bad';
     const other = grid.get(blockers[0]);
@@ -419,7 +710,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
     if (other.item.defId === item.defId && def.stackMax > 1 && other.item.qty < def.stackMax) return 'merge';
     if (from.kind === 'slot') {
       const od = ITEM_DEF_MAP.get(other.item.defId);
-      return od && od.category === def.category ? 'swap' : 'bad';
+      return od && slotAccepts(od, from.slot) ? 'swap' : 'bad';
     }
     return this.canSwap(item, from.grid, other.item, grid) ? 'swap' : 'bad';
   }
@@ -429,6 +720,13 @@ export class InventorySystem implements GameSystem, InventoryRef {
     const item = this.findItem(uid, from);
     const def = item && ITEM_DEF_MAP.get(item.defId);
     if (!item || !def) return 'fail';
+    if (target.kind === 'weapon') return this.attachFrom(uid, from, target.uid, target.loc);
+    if (target.kind === 'quick') {
+      const pv = this.previewDrop(uid, from, target);
+      if (pv === 'bad') return 'fail';
+      if (pv === 'noop') return 'noop';
+      return this.setQuickSlot(target.index, uid) ? 'ok' : 'fail';
+    }
     if (target.kind === 'slot') return this.dropOnSlot(item, def, from, target.slot);
 
     const grid = this.getGrid(target.grid);
@@ -442,6 +740,17 @@ export class InventorySystem implements GameSystem, InventoryRef {
 
     const blockers = grid.blockersAt(item, target.x, target.y, target.rotated, uid);
     if (blockers.includes(OOB)) return 'fail';
+
+    // the equipped bag dragged into the grid: unequip (grid shrinks, bag lands at the target cell if it still exists)
+    if (from.kind === 'slot' && from.slot === 'bag') {
+      if (target.grid !== 'bag') return 'fail';
+      if (blockers.length === 0) return this.changeBag(null, null, 'grid', { x: target.x, y: target.y });
+      if (blockers.length !== 1) return 'fail';
+      const other = grid.get(blockers[0]);
+      const od = other && ITEM_DEF_MAP.get(other.item.defId);
+      if (!other || !od || od.category !== 'bag') return 'fail';
+      return this.changeBag(other.item, to, 'grid', { x: other.x, y: other.y });
+    }
 
     if (blockers.length === 0) {
       if (from.kind === 'grid' && from.grid === target.grid) {
@@ -464,6 +773,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
       const moved = grid.mergeInto(item, other.item.uid);
       if (moved <= 0) return 'fail';
       if (item.qty <= 0) {
+        // the whole stack merged away: its wheel slot follows the surviving stack
+        if (target.grid === 'bag') relinkQuickSlot(this.quickSlots, item.uid, other.item.uid);
         this.detach(item, from);
         this.afterMove(item, from, to, moved);
       } else {
@@ -478,7 +789,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
     // swap with the single blocking item
     if (from.kind === 'slot') {
       const od = ITEM_DEF_MAP.get(other.item.defId);
-      if (!od || od.category !== def.category) return 'fail';
+      if (!od || !slotAccepts(od, from.slot)) return 'fail';
       grid.remove(other.item.uid);
       this.loadout[from.slot] = other.item;
       grid.place(item, target.x, target.y, target.rotated);
@@ -500,11 +811,12 @@ export class InventorySystem implements GameSystem, InventoryRef {
     return 'ok';
   }
 
-  /** Right-click: container ↔ bag auto-place; slot → bag. */
+  /** Right-click quick action: container ↔ bag auto-place; slot → bag (the bag slot shrinks the grid first). */
   quickMove(uid: string, from: ItemLocation): OpResult {
     const item = this.findItem(uid, from);
     const def = item && ITEM_DEF_MAP.get(item.defId);
     if (!item || !def) return 'fail';
+    if (from.kind === 'slot' && from.slot === 'bag') return this.changeBag(null, null, 'grid');
     let dest: GridId;
     if (from.kind === 'slot') dest = 'bag';
     else if (from.grid === 'container') dest = 'bag';
@@ -522,14 +834,15 @@ export class InventorySystem implements GameSystem, InventoryRef {
     return 'ok';
   }
 
-  /** Double-click: weapons equip into their slot, anything else quick-moves. */
+  /** Double-click: weapons / bags equip (`equipTargetFor`), anything else quick-moves. */
   activate(uid: string, from: ItemLocation): OpResult {
     const item = this.findItem(uid, from);
     const def = item && ITEM_DEF_MAP.get(item.defId);
     if (!item || !def) return 'fail';
-    if (def.category === 'primary' || def.category === 'secondary') {
+    const slot = this.equipTargetFor(def);
+    if (slot) {
       if (from.kind === 'slot') return 'noop';
-      return this.dropOnSlot(item, def, from, def.category);
+      return this.dropOnSlot(item, def, from, slot);
     }
     return this.quickMove(uid, from);
   }
@@ -569,6 +882,53 @@ export class InventorySystem implements GameSystem, InventoryRef {
     return moved;
   }
 
+  /* ── sockets (UI drag path) ────────────────────────────────────────────── */
+
+  /** Can attachment `uid` (at `from`) be socketed into weapon `weaponUid` (at `loc`)? */
+  previewAttach(uid: string, from: ItemLocation, weaponUid: string, loc: ItemLocation): DropPreview {
+    const att = this.findItem(uid, from);
+    const attDef = att && ITEM_DEF_MAP.get(att.defId);
+    const weapon = this.findItem(weaponUid, loc);
+    if (!att || !attDef?.attachment || !weapon || from.kind !== 'grid') return 'bad';
+    if (this.locKind(loc) !== 'player' || !isWeaponItemDef(ITEM_DEF_MAP.get(weapon.defId))) return 'bad';
+    if (!this.loot.canAttach(weapon, att)) return 'bad';
+    return weapon.sockets?.[attDef.attachment.socket] ? 'swap' : 'ok';
+  }
+
+  /**
+   * Socket attachment `uid` into weapon `weaponUid`. The previous attachment in that socket returns to the bag
+   * (or drops to the ground when nothing fits). Emits `inventory:socketChanged`, `inventory:itemUpdated`.
+   */
+  attachFrom(uid: string, from: ItemLocation, weaponUid: string, loc: ItemLocation): OpResult {
+    if (this.previewAttach(uid, from, weaponUid, loc) === 'bad' || from.kind !== 'grid') return 'fail';
+    const att = this.findItem(uid, from)!;
+    const attDef = ITEM_DEF_MAP.get(att.defId)!;
+    const weapon = this.findItem(weaponUid, loc)!;
+    const socket: SocketSlot = attDef.attachment!.socket;
+    const grid = this.getGrid(from.grid);
+    if (!grid) return 'fail';
+    grid.remove(att.uid);
+    const prev = setSocket(weapon, socket, att);
+    if (from.grid === 'container') this.ctx.bus.emit('inventory:itemAdded', { item: att, name: attDef.name, rarity: attDef.rarity });
+    if (prev && !this.bag.autoPlace(prev)) this.throwToWorld(prev, true);
+    if (this.bag.has(weapon.uid)) this.bag.version++;
+    this.ctx.bus.emit('inventory:socketChanged', { weapon, socket, attachment: att });
+    this.afterSocketChange(weapon);
+    this.afterChange();
+    return 'ok';
+  }
+
+  /** After a socket change: a smaller magazine spills its excess rounds into the bag; weapons re-read the instance. */
+  private afterSocketChange(weapon: ItemInstance): void {
+    const stats = this.loot.getEffectiveStats(weapon);
+    if (stats && weapon.ammoInMag !== undefined && weapon.ammoInMag > stats.magSize) {
+      const excess = weapon.ammoInMag - stats.magSize;
+      weapon.ammoInMag = stats.magSize;
+      this.returnRounds(stats.ammoType, excess);
+    }
+    this.ctx.bus.emit('inventory:itemUpdated', { item: weapon });
+  }
+
   /* ── internals ─────────────────────────────────────────────────────────── */
 
   private setOpen(open: boolean): void {
@@ -589,6 +949,107 @@ export class InventorySystem implements GameSystem, InventoryRef {
 
   private locKind(loc: ItemLocation): 'player' | 'container' {
     return loc.kind === 'grid' && loc.grid === 'container' ? 'container' : 'player';
+  }
+
+  private bagSizeOf(item: ItemInstance | null): BagSize {
+    const b = item ? ITEM_DEF_MAP.get(item.defId)?.bag : undefined;
+    return b
+      ? { cols: b.cols, rows: b.rows, quickSlots: b.quickSlots }
+      : { cols: BAG_DEFAULT_COLS, rows: BAG_DEFAULT_ROWS, quickSlots: BAG_DEFAULT_QUICK_SLOTS };
+  }
+
+  /** Weapons the player owns (slots + bag), for socket lookups. */
+  private *ownedWeapons(): Iterable<ItemInstance> {
+    for (const s of WEAPON_SLOT_IDS) { const it = this.loadout[s]; if (it) yield it; }
+    for (const p of this.bag.items()) if (isWeaponItemDef(ITEM_DEF_MAP.get(p.item.defId))) yield p.item;
+  }
+
+  /**
+   * Add `qty` units of `defId` to the bag: merge into existing stacks, then new stacks (chunked by `stackMax`).
+   * Returns the stacks that did not fit (never placed anywhere — caller drops or discards them).
+   */
+  private addUnits(defId: string, qty: number): ItemInstance[] {
+    const def = ITEM_DEF_MAP.get(defId);
+    const overflow: ItemInstance[] = [];
+    if (!def) return overflow;
+    let left = Math.max(0, Math.floor(qty));
+    while (left > 0) {
+      const chunk = Math.min(def.stackMax, left);
+      left -= chunk;
+      const item = this.loot.createItem(defId, chunk);
+      if (this.bag.mergeIntoStacks(item) <= 0) continue;
+      if (!this.bag.autoPlace(item)) overflow.push(item);
+    }
+    return overflow;
+  }
+
+  /** Rounds of `type` back into the bag (unload / mag downgrade); what does not fit lands on the ground. */
+  private returnRounds(type: EffectiveWeaponStats['ammoType'], rounds: number): void {
+    for (const stack of this.addUnits(ammoItemIdFor(type), rounds)) this.throwToWorld(stack, false);
+  }
+
+  /** Emit the world drop for `item` (already detached). `owned` → also `inventory:itemRemoved` (HUD counts). */
+  private throwToWorld(item: ItemInstance, owned: boolean): void {
+    if (owned) this.ctx.bus.emit('inventory:itemRemoved', { item });
+    const position = new THREE.Vector3();
+    const velocity = new THREE.Vector3();
+    const player = this.ctx.player;
+    if (player) {
+      const forward = player.getForward(new THREE.Vector3());
+      player.getEyePosition(position);
+      position.y -= DROP_EYE_LOWER;
+      position.addScaledVector(forward, DROP_FORWARD_OFFSET);
+      velocity.copy(forward).multiplyScalar(DROP_FORWARD_SPEED);
+      velocity.y += DROP_UP_SPEED;
+    }
+    this.ctx.bus.emit('inventory:itemDropped', { item, position, velocity });
+  }
+
+  /**
+   * Equip `next` (null = unequip) as the bag. The grid is resized to the new bag; the displaced bag is placed
+   * first (at `hint`, else the new bag's former cells, else the first free slot), everything else is relocated
+   * around it and whatever no longer fits is dropped into the world (`inventory:bagChanged.dropped`).
+   * Refused (nothing changes) only when the displaced bag itself cannot fit the new grid at all.
+   */
+  private changeBag(next: ItemInstance | null, from: ItemLocation | null, oldTo: 'grid' | 'world', hint?: { x: number; y: number }): OpResult {
+    const old = this.loadout.bag;
+    if (!next && !old) return 'noop';
+    if (next && old && next.uid === old.uid) return 'noop';
+    const nextDef = next ? ITEM_DEF_MAP.get(next.defId) : undefined;
+    if (next && !nextDef?.bag) return 'fail';
+
+    const snap = this.bag.snapshot();
+    const srcGrid = from?.kind === 'grid' ? this.getGrid(from.grid) : null;
+    let srcPos: Placement | undefined;
+    if (next) {
+      if (!from || from.kind !== 'grid' || !srcGrid) return 'fail';
+      srcPos = srcGrid.get(next.uid);
+      if (!srcPos) return 'fail';
+      srcGrid.remove(next.uid);
+    }
+    const size = this.bagSizeOf(next);
+    const priority: PriorityPlacement[] = [];
+    if (old && oldTo === 'grid') {
+      const h = hint ?? (from?.kind === 'grid' && from.grid === 'bag' && srcPos ? { x: srcPos.x, y: srcPos.y } : undefined);
+      priority.push({ item: old, x: h?.x, y: h?.y });
+    }
+    const overflow = this.bag.resize(size.cols, size.rows, priority);
+    if (old && oldTo === 'grid' && overflow.includes(old)) {
+      this.bag.restore(snap);
+      if (next && srcGrid && srcPos) srcGrid.place(next, srcPos.x, srcPos.y, next.rotated);
+      return 'fail';
+    }
+    this.loadout.bag = next;
+    if (next && nextDef && from) this.emitTransfer(next, nextDef, from, { kind: 'slot', slot: 'bag' });
+    for (const it of overflow) this.throwToWorld(it, true);
+    if (old && oldTo === 'world') this.throwToWorld(old, true);
+    if (overflow.length > 0) {
+      this.ctx.bus.emit('ui:notify', { text: `가방 공간 부족: 아이템 ${overflow.length}개를 바닥에 떨어뜨렸습니다`, kind: 'warning' });
+    }
+    this.ctx.bus.emit('inventory:bagChanged', { ...size, dropped: overflow });
+    this.emitLoadout();
+    this.afterChange();
+    return 'ok';
   }
 
   /** Remove an item from wherever it currently lives (no events). */
@@ -615,7 +1076,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
   }
 
   private emitLoadout(): void {
-    this.ctx.bus.emit('loadout:changed', { primary: this.loadout.primary, secondary: this.loadout.secondary });
+    const l = this.loadout;
+    this.ctx.bus.emit('loadout:changed', { primary: l.primary, secondary: l.secondary, primary2: l.primary2, bag: l.bag });
   }
 
   private afterChange(): void {
@@ -623,6 +1085,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
     const stims = this.countWhere((d) => d.category === 'stim');
     if (grenades !== this.lastGrenades) { this.lastGrenades = grenades; this.ctx.bus.emit('grenade:countChanged', { count: grenades }); }
     if (stims !== this.lastStims) { this.lastStims = stims; this.ctx.bus.emit('stim:countChanged', { count: stims }); }
+    this.syncQuickSlots();
     this.ctx.bus.emit('inventory:changed', { totalValue: this.bag.totalValue(), itemCount: this.bag.count });
     this.checkLooted();
     this.ui?.refresh();
@@ -636,7 +1099,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
     }
   }
 
-  /** Can `current` (being displaced from a slot) be placed where the dragged item came from, or anywhere sensible? */
+  /** Can `current` (being displaced from a weapon slot) be placed where the dragged item came from, or anywhere sensible? */
   private canPlaceDisplaced(current: ItemInstance, from: ItemLocation, draggedUid: string): boolean {
     if (from.kind !== 'grid') return false;
     const srcGrid = this.getGrid(from.grid);
@@ -650,8 +1113,20 @@ export class InventorySystem implements GameSystem, InventoryRef {
   }
 
   private dropOnSlot(item: ItemInstance, def: ItemDef, from: ItemLocation, slot: SlotId): OpResult {
-    if (def.category !== slot) return 'fail';
-    if (from.kind === 'slot') return from.slot === slot ? 'noop' : 'fail';
+    if (!slotAccepts(def, slot)) return 'fail';
+    if (from.kind === 'slot') {
+      if (from.slot === slot) return 'noop';
+      if (slot === 'bag' || from.slot === 'bag') return 'fail';
+      // 주무기 I ↔ 주무기 II (both slots accept the same category, so the swap is always valid)
+      const cur = this.loadout[slot];
+      if (cur && !slotAccepts(ITEM_DEF_MAP.get(cur.defId)!, from.slot)) return 'fail';
+      this.loadout[slot] = item;
+      this.loadout[from.slot] = cur ?? null;
+      this.emitLoadout();
+      this.afterChange();
+      return 'ok';
+    }
+    if (slot === 'bag') return this.changeBag(item, from, 'grid');
     const srcGrid = this.getGrid(from.grid);
     const src = srcGrid?.get(item.uid);
     if (!srcGrid || !src) return 'fail';
@@ -713,3 +1188,6 @@ export class InventorySystem implements GameSystem, InventoryRef {
     return true;
   }
 }
+
+/** Attachments socketed in `weapon` (socket order) — re-exported for the UI. */
+export { attachedItems };

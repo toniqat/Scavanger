@@ -17,7 +17,7 @@ export function seek(pos: THREE.Vector3, target: THREE.Vector3, speed: number, a
 }
 
 /**
- * Separation from other bugs (positional correction, mass-weighted) + soft push-out from every alive player.
+ * Separation from other bugs (positional correction, mass-weighted) + soft push-out from every present, not-dead player (downed bodies included — bugs walk around them).
  * Also accumulates a steering force into `steer` so crowds flow around each other instead of jittering.
  */
 export function separate(e: Enemy, grid: SpatialGrid<Enemy>, players: readonly CombatTarget[], steer: THREE.Vector3, allowPlayerOverlap: boolean): void {

@@ -5,7 +5,7 @@ import { randomInCone } from '@/core/util/MathUtil';
 import { DEFAULT_RIFLE, DEFAULT_PISTOL, kindOf, shotSoundId, shotPitchFor, weaponClassOf } from './WeaponDefaults';
 import { WeaponModel } from './WeaponModel';
 import type { WeaponFx } from './fx/WeaponFx';
-import type { GrenadeManager } from './Grenade';
+import { GRENADE_FUSE, type GrenadeManager } from './Grenade';
 import type { ProjectilePool, ProjectileHit } from './Projectile';
 
 /** Max replicated shots per second per remote player that produce FX/audio (token bucket, small burst). */
@@ -119,9 +119,11 @@ export class RemoteWeapons {
       if (e.boltT >= 1) { e.boltT = -1; model.setBolt(-1); } else model.setBolt(e.boltT);
     }
     model.update(dt, this.ctx.time);
-    // holstered / hidden remotes: unarmed in the hub, inside a launch pod or the hellpod, or no weapon equipped
+    // holstered / hidden remotes: unarmed in the hub, inside a launch pod or the hellpod, holding a consumable
+    // (stim / grenade in hand), downed, or no weapon equipped
     const f = ref.flags;
-    const hidden = (f & (PlayerFlags.IN_HUB | PlayerFlags.IN_POD | PlayerFlags.DROPPING)) !== 0 || (f & PlayerFlags.HAS_WEAPON) === 0;
+    const hidden = (f & (PlayerFlags.IN_HUB | PlayerFlags.IN_POD | PlayerFlags.DROPPING | PlayerFlags.HOLDING_ITEM | PlayerFlags.DOWNED)) !== 0
+      || (f & PlayerFlags.HAS_WEAPON) === 0;
     if (hidden) model.root.visible = false;
   }
 
@@ -129,8 +131,10 @@ export class RemoteWeapons {
     return _pos.copy(ref.position).setY(ref.position.y + 1.3);
   }
 
+  /** Graded ids (`ar23_g3`) resolve through the loot service; if unknown, fall back to the family id, then the built-ins. */
   private resolveDef(weaponId: string): WeaponDef {
-    const def = this.ctx.loot?.getWeaponDef(weaponId);
+    const loot = this.ctx.loot;
+    const def = loot?.getWeaponDef(weaponId) ?? loot?.getWeaponDef(weaponId.replace(/_g\d+$/, ''));
     if (def) return def;
     if (weaponId === DEFAULT_PISTOL.id) return DEFAULT_PISTOL;
     return DEFAULT_RIFLE;
@@ -215,11 +219,11 @@ export class RemoteWeapons {
     ctx.bus.emit('audio:play', { id: 'reload', position: ref ? this.chestOf(ref) : undefined, volume: 0.55 });
   }
 
-  /** `net:remoteGrenade`: visual-only grenade replica (arc, bounce, fuse, explosion FX/audio; no damage). */
-  onGrenade(position: THREE.Vector3, velocity: THREE.Vector3): void {
+  /** `net:remoteGrenade`: visual-only grenade replica (arc, bounce, fuse, explosion FX/audio; no damage). `fuse` = seconds left when released (cooked). */
+  onGrenade(position: THREE.Vector3, velocity: THREE.Vector3, fuse?: number): void {
     const ctx = this.ctx;
     if (!ctx.isMultiplayer || !ctx.net) return;
-    this.grenades.throw(position, velocity, true);
+    this.grenades.throw(position, velocity, true, fuse === undefined ? GRENADE_FUSE : Math.max(0, fuse));
   }
 
   /** Impact FX for a visual-only projectile replica (ProjectilePool `onVisualHit`). */

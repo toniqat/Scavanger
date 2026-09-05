@@ -17,6 +17,8 @@ import { Squad } from './hud/Squad';
 import { Nameplates } from './hud/Nameplates';
 import { SpectateOverlay } from './hud/SpectateOverlay';
 import { ChatLog } from './hud/ChatLog';
+import { QuickWheel } from './hud/QuickWheel';
+import { CookGauge } from './hud/CookGauge';
 import { MapScreen } from './map/MapScreen';
 import { TitleMenu } from './menus/TitleMenu';
 import { PauseMenu } from './menus/PauseMenu';
@@ -28,9 +30,12 @@ import { MissionComplete } from './menus/MissionComplete';
  *   - overlay (vignette, damage arcs, scope): gameplay + dead
  *   - gameplay HUD (reticle, vitals, weapon, compass, markers, objective, mission info, pings, spectate banner):
  *     gameplay phases + `deploying`, hidden while a `'menu'` blocker is up or the player is dead in single-player
+ *     (phase `dead` → `DeathScreen` with the respawn countdown)
  *   - social HUD (chat log, squad list, nameplates, notifications, interaction prompt): additionally visible in the
  *     ship hub (phases `hub` / `docking`). Both HUD layers carry `.hub` while in the hub.
- * Multiplayer: a dead local player keeps the HUD in a `.spectating` state (hides reticle, vitals, weapon, prompt).
+ * Multiplayer: a dead local player keeps the HUD in a `.spectating` state (hides reticle, vitals, weapon, prompt);
+ * `SpectateOverlay` carries the respawn countdown there.
+ * Phase 2 additions in the gameplay layer: `QuickWheel` (F held) and `CookGauge` (grenade in hand).
  */
 export class HudSystem implements GameSystem {
   readonly name = 'hud';
@@ -49,6 +54,8 @@ export class HudSystem implements GameSystem {
   private nameplates!: Nameplates;
   private spectate!: SpectateOverlay;
   private chat!: ChatLog;
+  private wheel!: QuickWheel;
+  private cook!: CookGauge;
   private objective!: Objective;
   private prompt!: InteractionPrompt;
   private notifs!: Notifications;
@@ -80,6 +87,8 @@ export class HudSystem implements GameSystem {
     this.markers = new WorldMarkers(this.hudRoot);
     this.pings = new Pings(this.hudRoot);
     this.reticle = new Reticle(this.hudRoot);
+    this.cook = new CookGauge(this.hudRoot);
+    this.wheel = new QuickWheel(this.hudRoot);
     this.vitals = new Vitals(this.hudRoot);
     this.weapon = new WeaponPanel(this.hudRoot);
     this.compass = new Compass(this.hudRoot);
@@ -103,7 +112,7 @@ export class HudSystem implements GameSystem {
     this.death = new DeathScreen(ctx.uiRoot);
     this.complete = new MissionComplete(ctx.uiRoot);
 
-    for (const c of [this.reticle, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.chat, this.map]) c.bind(ctx);
+    for (const c of [this.reticle, this.cook, this.wheel, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.chat, this.map]) c.bind(ctx);
     for (const m of [this.title, this.pause, this.death, this.complete]) m.bind(ctx);
 
     const b = ctx.bus;
@@ -167,6 +176,10 @@ export class HudSystem implements GameSystem {
   get isMapOpen(): boolean { return this.map.isOpen; }
   /** Whether the chat input is open (debug). */
   get isChatOpen(): boolean { return this.chat.isOpen; }
+  /** Whether the quick-use wheel is showing (debug). */
+  get isWheelOpen(): boolean { return this.wheel.isOpen; }
+  /** Whether the weapon panel is in consumable mode (debug). */
+  get isConsumableMode(): boolean { return this.weapon.isConsumable; }
 
   private applyVisibility(): void {
     const ctx = this.ctx;
@@ -204,7 +217,7 @@ export class HudSystem implements GameSystem {
 
   dispose(): void {
     for (const u of this.unsubs) u();
-    for (const c of [this.reticle, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.chat, this.missionInfo, this.deploy, this.map]) c.dispose();
+    for (const c of [this.reticle, this.cook, this.wheel, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.chat, this.missionInfo, this.deploy, this.map]) c.dispose();
     for (const m of [this.title, this.pause, this.death, this.complete]) m.dispose();
     this.hudRoot.remove(); this.socialRoot.remove(); this.overlayRoot.remove();
   }

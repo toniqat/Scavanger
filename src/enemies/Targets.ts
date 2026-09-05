@@ -16,6 +16,8 @@ export class CombatTarget {
   readonly position = new THREE.Vector3();
   readonly velocity = new THREE.Vector3();
   isDead = true;
+  /** Downed (crawling, revivable). Never an AI target / victim, but still a body for separation and spawn-distance checks. */
+  downed = false;
   present = false;
   yaw = 0;
   eyeHeight = EYE_STAND;
@@ -25,6 +27,9 @@ export class CombatTarget {
   constructor(readonly id: TargetId) {}
 
   get isLocal(): boolean { return this.id === 'local'; }
+
+  /** True when bugs must neither hunt nor hurt this player (dead, or downed and waiting for a revive). */
+  get isDeadOrDowned(): boolean { return this.isDead || this.downed; }
 
   getEyePosition(out: THREE.Vector3): THREE.Vector3 {
     if (this.player) return this.player.getEyePosition(out);
@@ -53,9 +58,9 @@ export class CombatTarget {
  * so every query below degenerates to the old `ctx.player` behaviour.
  */
 export class TargetList {
-  /** Every present target (alive or dead). */
+  /** Every present target (alive, downed or dead). */
   readonly all: CombatTarget[] = [];
-  /** Present and alive. */
+  /** Present, alive and not downed — the only players the AI may target or damage. */
   readonly alive: CombatTarget[] = [];
   private readonly byId = new Map<TargetId, CombatTarget>();
   private readonly gone: TargetId[] = [];
@@ -71,6 +76,7 @@ export class TargetList {
       t.velocity.copy(player.velocity);
       t.yaw = player.yaw;
       t.isDead = player.isDead;
+      t.downed = player.isDowned;
       t.eyeHeight = player.stance === 'prone' ? EYE_PRONE : player.stance === 'crouch' ? EYE_CROUCH : EYE_STAND;
     }
 
@@ -86,6 +92,7 @@ export class TargetList {
         t.velocity.copy(r.velocity);
         t.yaw = r.yaw;
         t.isDead = r.isDead || (r.flags & PlayerFlags.DEAD) !== 0;
+        t.downed = r.isDowned || (r.flags & PlayerFlags.DOWNED) !== 0;
         t.eyeHeight = r.stance === 'prone' ? EYE_PRONE : r.stance === 'crouch' ? EYE_CROUCH : EYE_STAND;
       }
     }
@@ -96,7 +103,7 @@ export class TargetList {
     for (const t of this.byId.values()) {
       if (!t.present) { this.gone.push(t.id); continue; }
       this.all.push(t);
-      if (!t.isDead) this.alive.push(t);
+      if (!t.isDead && !t.downed) this.alive.push(t);
     }
     for (let i = 0; i < this.gone.length; i++) this.byId.delete(this.gone[i]);
   }
@@ -152,5 +159,20 @@ export class TargetList {
   randomAlive(): CombatTarget | null {
     const n = this.alive.length;
     return n === 0 ? null : this.alive[Math.floor(Math.random() * n)];
+  }
+
+  /**
+   * Random present target, preferring one that is not dead (i.e. downed) — the ambient spawner's anchor when nobody
+   * is alive, so patrols keep coming while the whole squad is downed / waiting to respawn.
+   */
+  randomPresent(): CombatTarget | null {
+    let n = 0;
+    for (let i = 0; i < this.all.length; i++) if (!this.all[i].isDead) n++;
+    if (n > 0) {
+      let k = Math.floor(Math.random() * n);
+      for (let i = 0; i < this.all.length; i++) if (!this.all[i].isDead && k-- === 0) return this.all[i];
+    }
+    const m = this.all.length;
+    return m === 0 ? null : this.all[Math.floor(Math.random() * m)];
   }
 }

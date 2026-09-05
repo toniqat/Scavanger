@@ -1,8 +1,10 @@
 import type { GameContext, GameSystem, GamePhase, FlowMessage, PeerId } from '@/shared';
-import { GameContext as Ctx, Keys, PlayerFlags } from '@/shared';
+import { GameContext as Ctx, Keys, PlayerFlags, PLAYER_RESPAWN_DELAY } from '@/shared';
 
 const LIFTOFF_TO_COMPLETE = 6.5;   // seconds after extraction:liftoff
 const DEATH_TO_SCREEN = 2.5;       // seconds after player:died (single-player only)
+/** Phase 2: dead squads no longer fail the mission (everyone can respawn after PLAYER_RESPAWN_DELAY). Kept as a switch. */
+const MISSION_FAILS_WHEN_ALL_DEAD = false;
 const THREAT_MIN = 0.3;
 const THREAT_MAX = 0.7;
 const THREAT_RAMP_SECONDS = 8 * 60;
@@ -41,6 +43,9 @@ export class GameFlowSystem implements GameSystem {
   private awaitingWorld = false;
   private completeTimer = -1;
   private deathTimer = -1;
+  /** Phase 2: seconds until a respawn is allowed (−1 = not dead / not running). */
+  private respawnTimer = -1;
+  private respawnLastSec = -1;
   private paused = false;
   private lastThreat = -1;
 
@@ -83,6 +88,8 @@ export class GameFlowSystem implements GameSystem {
         this.completeTimer = LIFTOFF_TO_COMPLETE;
       }),
       b.on('player:died', () => this.onLocalDied()),
+      b.on('game:respawn', () => this.onRespawnRequest()),
+      b.on('player:spawned', () => { this.respawnTimer = -1; this.respawnLastSec = -1; }),
       // stats.kills / cratesOpened / damageTaken are incremented by Enemy / World / Player systems;
       // missionTime + stats.timeSeconds advance in Engine.frame(). GameFlow only finalizes them.
       b.on('game:abort', () => this.onAbort()),
@@ -157,6 +164,10 @@ export class GameFlowSystem implements GameSystem {
     const ctx = this.ctx;
     if (!ctx.isGameplayPhase() && ctx.phase !== 'deploying') return;
     this.boarded = false;
+    // Phase 2: death no longer fails the mission — a respawn (hellpod at the mission spawn) unlocks after PLAYER_RESPAWN_DELAY.
+    this.respawnTimer = PLAYER_RESPAWN_DELAY;
+    this.respawnLastSec = -1;
+    this.tickRespawn();
     if (!ctx.isMultiplayer) {
       if (this.deathTimer >= 0) return;
       this.deathTimer = DEATH_TO_SCREEN;
@@ -165,15 +176,52 @@ export class GameFlowSystem implements GameSystem {
     }
     // Multiplayer: the phase stays — the squad (and the host simulation) keeps going. The UI shows a spectate overlay.
     this.setPaused(false);
-    ctx.bus.emit('ui:notify', { text: '전사 — 팀원이 임무를 계속합니다', kind: 'danger', duration: 4 });
-    this.allDeadCheckTimer = ALL_DEAD_CHECK_INTERVAL;
-    this.checkAllDead();
+    ctx.bus.emit('ui:notify', { text: `전사 — ${PLAYER_RESPAWN_DELAY}초 후 부활 가능`, kind: 'danger', duration: 4 });
+    if (MISSION_FAILS_WHEN_ALL_DEAD) {
+      this.allDeadCheckTimer = ALL_DEAD_CHECK_INTERVAL;
+      this.checkAllDead();
+    }
   }
 
-  /** Host only: everyone dead → `flow over` to the squad and game over locally. */
+  /** Solo: the death screen phase (`dead`) — the mission keeps its world; `game:respawn` re-deploys. */
+  private enterDeadPhase(): void {
+    const ctx = this.ctx;
+    if (ctx.phase === 'complete' || ctx.phase === 'dead' || ctx.phase === 'menu') return;
+    ctx.stats.timeSeconds = ctx.missionTime;
+    ctx.uiBlockers.delete('inventory');
+    ctx.inventory?.closeAll();
+    this.deathTimer = -1;
+    this.setPhase('dead');
+  }
+
+  /** Emits `game:respawnAvailable` once per whole second while the respawn timer runs (and once at 0). */
+  private tickRespawn(): void {
+    const sec = Math.max(0, Math.ceil(this.respawnTimer));
+    if (sec === this.respawnLastSec) return;
+    this.respawnLastSec = sec;
+    this.ctx.bus.emit('game:respawnAvailable', { seconds: sec });
+  }
+
+  /** `game:respawn` (UI): honoured only while dead and after the delay. */
+  private onRespawnRequest(): void {
+    const ctx = this.ctx;
+    if (!(ctx.player?.isDead ?? false)) return;
+    if (this.respawnTimer > 0) return;
+    if (!(ctx.isGameplayPhase() || ctx.phase === 'deploying' || ctx.phase === 'dead')) return;
+    const spawn = ctx.world?.getPlayerSpawn();
+    if (!spawn) return;
+    this.respawnTimer = -1;
+    this.respawnLastSec = -1;
+    this.deathTimer = -1; this.respawnTimer = -1; this.respawnLastSec = -1;
+    if (ctx.phase === 'dead') this.setPhase('deploying');
+    ctx.bus.emit('player:respawn', { position: spawn.clone() });
+  }
+
+  /** Host only: everyone dead → `flow over` to the squad and game over locally. Disabled by MISSION_FAILS_WHEN_ALL_DEAD (Phase 2). */
   private checkAllDead(): void {
     const ctx = this.ctx;
     const net = ctx.net;
+    if (!MISSION_FAILS_WHEN_ALL_DEAD) return;
     if (!net || !ctx.isMultiplayer || !net.isHost) return;
     if (!ctx.isGameplayPhase() && ctx.phase !== 'deploying') return;
     if (!(ctx.player?.isDead ?? false)) return;
@@ -227,7 +275,7 @@ export class GameFlowSystem implements GameSystem {
   private onNewMission(seed: number): void {
     this.setPaused(false);
     this.completeTimer = -1;
-    this.deathTimer = -1;
+    this.deathTimer = -1; this.respawnTimer = -1; this.respawnLastSec = -1;
     this.lastThreat = -1;
     this.boarded = false;
     this.allDeadCheckTimer = -1;
@@ -263,7 +311,7 @@ export class GameFlowSystem implements GameSystem {
     }
     this.setPaused(false);
     this.completeTimer = -1;
-    this.deathTimer = -1;
+    this.deathTimer = -1; this.respawnTimer = -1; this.respawnLastSec = -1;
     this.boarded = false;
     this.allDeadCheckTimer = -1;
     this.disconnectAbortTimer = -1;
@@ -319,7 +367,11 @@ export class GameFlowSystem implements GameSystem {
     }
     if (this.deathTimer >= 0) {
       this.deathTimer -= dt;
-      if (this.deathTimer < 0) this.gameOver();
+      if (this.deathTimer < 0) this.enterDeadPhase();
+    }
+    if (this.respawnTimer >= 0) {
+      if (this.respawnTimer > 0) this.respawnTimer = Math.max(0, this.respawnTimer - dt);
+      this.tickRespawn();
     }
     if (this.allDeadCheckTimer >= 0) {
       this.allDeadCheckTimer -= dt;
@@ -364,7 +416,7 @@ export class GameFlowSystem implements GameSystem {
     ctx.stats.timeSeconds = ctx.missionTime;
     ctx.uiBlockers.delete('inventory');
     ctx.inventory?.closeAll();
-    this.deathTimer = -1;
+    this.deathTimer = -1; this.respawnTimer = -1; this.respawnLastSec = -1;
     this.allDeadCheckTimer = -1;
     this.setPhase('dead');
     ctx.bus.emit('game:over', { stats: { ...ctx.stats } });

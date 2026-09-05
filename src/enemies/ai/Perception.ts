@@ -21,14 +21,14 @@ export function hasLineOfSight(e: Enemy, host: EnemyHost, target: CombatTarget):
 
 /**
  * Pick / keep the bug's target: nearest alive player, re-evaluated every 0.5–0.9 s or as soon as the current one
- * dies or leaves. Hysteresis: a different player must be clearly closer (×0.6 with LOS on the current, ×0.75 without)
- * before the bug switches. A dead target is kept (so "target died → calm down" logic runs) until another is alive.
+ * dies, goes down or leaves. Hysteresis: a different player must be clearly closer (×0.6 with LOS on the current, ×0.75 without)
+ * before the bug switches. A dead or downed target is kept (so "target died → calm down" logic runs) until another is alive.
  * Also refreshes `distToTarget`.
  */
 export function acquireTarget(e: Enemy, dt: number, host: EnemyHost): void {
   e.targetTimer -= dt;
   const cur = e.target;
-  const curValid = !!cur && cur.present && !cur.isDead;
+  const curValid = !!cur && cur.present && !cur.isDeadOrDowned;
   if (!curValid || e.targetTimer <= 0) {
     e.targetTimer = 0.5 + Math.random() * 0.4;
     const best = host.targets.nearestAlive(e.position);
@@ -73,7 +73,7 @@ export function updatePerception(e: Enemy, dt: number, host: EnemyHost): void {
   if (e.perceptionTimer > 0) return;
   e.perceptionTimer = 0.3;
   const t = e.target;
-  if (!t || t.isDead) { e.hasLOS = false; return; }
+  if (!t || t.isDeadOrDowned) { e.hasLOS = false; return; }
   const dist = e.distToTarget;
   if (!e.aware) {
     if (dist < e.stats.sightRadius) {

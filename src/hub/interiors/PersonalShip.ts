@@ -5,7 +5,7 @@ import { BoxInteriorCollider } from './InteriorCollider';
 import { Parts, fixture } from './parts';
 import { Starfield, Planet } from './Starfield';
 import { TextPlane } from '../Labels';
-import type { PodSlotDef, ShipInterior, TerminalDef } from './types';
+import type { PodSlotDef, ShipInterior, TerminalDef, WorkbenchDef } from './types';
 
 const ROOM = { minX: -5, maxX: 5, minZ: -3, maxZ: 3 };
 const CEIL = 3.2;
@@ -25,6 +25,7 @@ export class PersonalShip implements ShipInterior {
   readonly airlockYaw = 0;
   readonly pods: PodSlotDef[] = [];
   readonly terminal: TerminalDef;
+  readonly workbench: WorkbenchDef;
 
   private meshes: THREE.Mesh[] = [];
   private lights: THREE.PointLight[] = [];
@@ -98,6 +99,16 @@ export class PersonalShip implements ShipInterior {
     col.setBlockerEnabled(doorBlocker, false);
     this.pods.push({ slot: 0, position: new THREE.Vector3(px, 0, pz), yaw: yawFromForward(-1, 0), door: new THREE.Vector3(-1, 0, 0), doorBlocker });
     P.signStrip(ROOM.maxX - WALL / 2 - 0.03, 2.6, pz, 1.6, M.stripAmber, Math.PI / 2);
+
+    // workbench (+X wall, −Z half), facing −X — between the cockpit dash and the pod's side lip
+    const wb = P.workbench(ROOM.maxX - 0.55, -1.85, yawFromForward(-1, 0));
+    this.workbench = { position: wb.position, yaw: wb.yaw };
+    const wbSign = new TextPlane(0.9, 0.3, 256);
+    wbSign.mesh.position.copy(wb.signPos);
+    wbSign.mesh.rotation.copy(wb.signRot);
+    wbSign.set(['정비'], '#9be8ff', 'rgba(6,8,10,0.85)');
+    r.add(wbSign.mesh);
+    this.dashScreens.push(wbSign);
 
     // bunk (−X wall, +Z half)
     b.boxB(1.0, 0.5, 2.1, ROOM.minX + 0.55, 0, 1.75, M.hullDark);

@@ -244,6 +244,31 @@ input { font: inherit; color: inherit; }
 .weapon .reloading { font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--c-accent); opacity: 0; transition: opacity var(--t-fast) var(--ease); }
 .weapon .reloading.show { opacity: 1; }
 @keyframes ammoFlash { 0% { color: #fff; } 30% { color: var(--c-danger); } 100% { color: var(--c-danger); } }
+/* weapon package: slot label, durability bar, swap sweep, broken state, slot strip */
+.weapon .slot-lbl { font-size: 9px; letter-spacing: 0.14em; color: var(--c-text-faint); margin-right: -4px; }
+.weapon .dura { width: 160px; height: 2px; background: rgba(255, 255, 255, 0.1); position: relative; overflow: hidden; }
+.weapon .dura .fill { position: absolute; left: 0; top: 0; width: 100%; height: 100%; background: var(--c-text-dim); transform-origin: left; transition: transform 180ms var(--ease), background-color var(--t-fast) var(--ease); }
+.weapon .dura.worn .fill { background: var(--c-accent); }
+.weapon .dura.broken .fill { background: var(--c-danger); transform: scaleX(1) !important; opacity: 0.55; }
+.weapon .dura.broken { box-shadow: 0 0 6px rgba(255, 77, 77, 0.6); }
+.weapon.broken .name { color: var(--c-danger); }
+.weapon.broken .mag { color: var(--c-danger); }
+.weapon.broken-flash { animation: weaponBroken 700ms ease-out; }
+@keyframes weaponBroken { 0% { filter: brightness(2.2); transform: translateX(-2px); } 20% { transform: translateX(2px); } 40% { transform: translateX(-1px); } 60% { transform: translateX(0); } 100% { filter: brightness(1); } }
+.weapon .swap { width: 160px; height: 2px; margin-top: -4px; background: rgba(255, 255, 255, 0.08); position: relative; overflow: hidden; opacity: 0; --swap-d: 0.4s; }
+.weapon .swap .fill { position: absolute; left: 0; top: 0; width: 100%; height: 100%; background: var(--c-accent); transform-origin: left; transform: scaleX(0); }
+.weapon .swap.show { animation: swapShow var(--swap-d) linear forwards; }
+.weapon .swap.show .fill { animation: swapSweep var(--swap-d) linear forwards; }
+@keyframes swapShow { 0% { opacity: 1; } 90% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes swapSweep { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+.wslots { display: flex; gap: 4px; margin-bottom: 2px; }
+.wslot { display: flex; align-items: center; gap: 6px; padding: 2px 7px 2px 5px; border: 1px solid var(--c-border); background: rgba(0, 0, 0, 0.25); max-width: 110px; opacity: 0.55; transition: opacity var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease); }
+.wslot .k { font-family: var(--ui-mono); font-size: 9px; color: var(--c-text-dim); flex: none; }
+.wslot .n { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.wslot.empty .n { color: var(--c-text-faint); }
+.wslot.active { opacity: 1; border-color: var(--c-accent); background: rgba(255, 179, 71, 0.12); }
+.wslot.active .k { color: var(--c-accent); }
+.wslot.broken .n { color: var(--c-danger); text-decoration: line-through; }
 
 /* Compass (top-center) */
 .compass {
@@ -448,22 +473,25 @@ input { font: inherit; color: inherit; }
 /* Author display rules (e.g. display:flex) must not override the hidden attribute */
 [hidden] { display: none !important; }
 
-/* ── Stamina (under the HP bar) ────────────────────────────────────────── */
-.vitals .stamina {
-  display: flex; flex-direction: column; gap: 4px;
-  margin-top: -2px;
+/* ── Stamina (bottom centre; fades out completely while full) ──────────── */
+.stamina {
+  position: absolute; left: 50%; bottom: 9%;
+  transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
   transition: opacity var(--t-med) var(--ease);
 }
-.vitals .stamina.full { opacity: 0.4; }
-.vitals .stam-bar { position: relative; width: 240px; height: 3px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
-.vitals .stam-bar .fill {
+.stamina.full { opacity: 0; }
+.stamina .ui-label { font-size: 9px; letter-spacing: 0.22em; opacity: 0.7; }
+.stam-bar { position: relative; width: 200px; height: 3px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
+.stam-bar .fill {
   position: absolute; inset: 0; background: var(--c-text-dim);
   transform-origin: left; will-change: transform;
   transition: background var(--t-fast) var(--ease);
 }
-.vitals .stamina.low .stam-bar .fill { background: var(--c-accent); }
-.vitals .stamina.depleted .stam-bar .fill { background: var(--c-accent); animation: stamPulse 0.9s ease-out; }
-.vitals .stamina.depleted .ui-label { color: var(--c-accent); }
+.stamina.low .stam-bar .fill { background: var(--c-accent); }
+.stamina.depleted .stam-bar .fill { background: var(--c-accent); animation: stamPulse 0.9s ease-out; }
+.stamina.depleted .ui-label { color: var(--c-accent); }
+.hud.spectating .stamina { opacity: 0 !important; visibility: hidden; }
 @keyframes stamPulse {
   0% { opacity: 1; box-shadow: 0 0 8px var(--c-accent); }
   35% { opacity: 0.35; }
@@ -827,3 +855,107 @@ input { font: inherit; color: inherit; }
 /* hub: the interaction prompt sits a little lower (no weapon / vitals), squad list moves up under the top edge */
 .hud.hub .prompt { bottom: 22%; }
 .hud.hub .squad { top: 28px; }
+
+/* ── Phase 2: quick-use wheel / grenade cook gauge / downed vitals / respawn ── */
+
+/* Quick-use wheel (F held): centred radial, never intercepts the pointer */
+.qwheel {
+  position: absolute; left: 50%; top: 50%;
+  width: 260px; height: 260px; margin: -130px 0 0 -130px;
+  pointer-events: none;
+  opacity: 0; transform: scale(0.92);
+  transition: opacity 100ms var(--ease), transform 100ms var(--ease);
+}
+.qwheel.show { opacity: 1; transform: scale(1); }
+.qwheel .ring { position: absolute; inset: 0; width: 100%; height: 100%; }
+.qwheel .qarc { fill: rgba(10, 12, 14, 0.62); stroke: var(--c-border); stroke-width: 1; transition: fill var(--t-fast) var(--ease), stroke var(--t-fast) var(--ease); }
+.qwheel .qarc.empty { fill: rgba(10, 12, 14, 0.42); }
+.qwheel .qarc.locked { fill: rgba(10, 12, 14, 0.3); stroke: rgba(255, 255, 255, 0.08); }
+.qwheel .qarc.hover { fill: rgba(255, 179, 71, 0.22); stroke: var(--c-accent); }
+.qwheel .items { position: absolute; inset: 0; }
+.qsector {
+  position: absolute; width: 46px; height: 46px; margin: -23px 0 0 -23px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+  transition: opacity var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
+}
+.qsector .ico { font-size: 18px; line-height: 1; filter: drop-shadow(0 0 4px rgba(0, 0, 0, 0.8)); }
+.qsector .cnt { font-family: var(--ui-mono); font-size: 10px; font-weight: 600; color: var(--c-text); }
+.qsector .lock { display: none; font-size: 13px; line-height: 1; opacity: 0.55; }
+.qsector .dir { display: none; font-size: 8px; letter-spacing: 0.14em; color: var(--c-text-faint); }
+.qsector.empty { opacity: 0.45; }
+.qsector.empty .dir { display: block; }
+.qsector.locked { opacity: 0.35; }
+.qsector.locked .ico, .qsector.locked .cnt, .qsector.locked .dir { display: none; }
+.qsector.locked .lock { display: block; }
+.qsector.hover { opacity: 1; transform: scale(1.12); }
+.qsector.hover .cnt { color: var(--c-accent); }
+.qwheel .centre {
+  position: absolute; left: 50%; top: 50%; width: 104px; margin-left: -52px; transform: translateY(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 3px; text-align: center;
+}
+.qwheel .centre .ui-label { font-size: 8px; letter-spacing: 0.22em; }
+.qwheel .qname { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; line-height: 1.25; color: var(--c-text); min-height: 14px; }
+.qwheel .qname.dim { color: var(--c-text-dim); font-weight: 500; }
+.qwheel .qsub { font-size: 8px; letter-spacing: 0.1em; color: var(--c-text-faint); }
+
+/* Grenade cook gauge: 120° arc right of the reticle */
+.cook {
+  position: absolute; left: 50%; top: 50%;
+  width: 120px; height: 120px; margin: -60px 0 0 -60px;
+  pointer-events: none;
+  opacity: 0; transition: opacity 80ms var(--ease);
+}
+.cook.show { opacity: 1; }
+.cook svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.cook path { fill: none; stroke-width: 3; stroke-linecap: butt; }
+.cook .track { stroke: rgba(255, 255, 255, 0.14); }
+.cook .fill { stroke: var(--c-text); transition: stroke var(--t-fast) var(--ease); }
+.cook.warm .fill { stroke: var(--c-accent); }
+.cook.hot .fill { stroke: var(--c-danger); animation: cookPulse 260ms ease-in-out infinite alternate; }
+.cook.hot .track { stroke: rgba(255, 77, 77, 0.35); }
+.cook .text {
+  position: absolute; left: 50%; top: 50%; margin: 34px 0 0 34px;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+}
+.cook .lbl { font-family: var(--ui-mono); font-size: 11px; letter-spacing: 0.1em; color: var(--c-text-dim); white-space: nowrap; }
+.cook.cooking .lbl { color: var(--c-text); font-weight: 600; }
+.cook.warm .lbl { color: var(--c-accent); }
+.cook.hot .lbl { color: var(--c-danger); }
+.cook .tag { display: none; white-space: nowrap; font-size: 8px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--c-info); border: 1px solid rgba(127, 183, 230, 0.5); padding: 1px 5px; }
+.cook .tag.show { display: inline-block; }
+@keyframes cookPulse { from { opacity: 1; stroke-width: 3; } to { opacity: 0.55; stroke-width: 4.5; } }
+
+/* Weapon panel: consumable mode (stim / grenade in hand) */
+.weapon .cons { display: none; flex-direction: column; align-items: flex-end; gap: 6px; }
+.weapon.consumable > .name-row, .weapon.consumable > .dura, .weapon.consumable > .swap, .weapon.consumable > .ammo-row { display: none; }
+.weapon.consumable .cons { display: flex; }
+.weapon .cons .slot { color: var(--c-accent); border-color: rgba(255, 179, 71, 0.6); }
+.weapon .cons .cnt-lbl { font-size: 12px; color: var(--c-text-dim); margin-bottom: 5px; }
+.weapon .cons .hint { font-size: 9px; letter-spacing: 0.14em; color: var(--c-text-faint); border: 1px solid var(--c-border); padding: 2px 6px; white-space: nowrap; }
+.wslot.quick { border-style: dashed; }
+.wslot.quick.active { border-style: solid; }
+
+/* Vitals: downed (전투불능) state */
+.vitals .down-sub, .vitals .revive { display: none; }
+.vitals.downed .seg .fill { background: var(--c-danger); }
+.vitals.downed .seg .ghost { background: rgba(255, 77, 77, 0.45); }
+.vitals.downed .hp-num { color: var(--c-danger); animation: downedPulse 1.2s ease-in-out infinite alternate; }
+.vitals.downed .ui-label { color: var(--c-danger); letter-spacing: 0.14em; }
+.vitals.downed .down-sub { display: block; font-size: 10px; letter-spacing: 0.12em; color: var(--c-text-dim); }
+.vitals.downed .pills { opacity: 0.35; }
+.vitals .revive.show { display: flex; flex-direction: column; gap: 4px; width: 300px; }
+.vitals .revive .txt { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; color: var(--c-success); }
+.vitals .revive .bar { height: 3px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
+.vitals .revive .bar .fill { width: 100%; height: 100%; background: var(--c-success); transform-origin: left; transform: scaleX(0); transition: transform 90ms linear; }
+@keyframes downedPulse { from { opacity: 1; } to { opacity: 0.55; } }
+
+/* Spectate banner: respawn countdown */
+.spectate .respawn { font-family: var(--ui-mono); font-size: 12px; letter-spacing: 0.14em; color: var(--c-text-dim); margin-top: 4px; }
+.spectate .respawn.ready { color: var(--c-success); font-weight: 700; animation: downedPulse 0.9s ease-in-out infinite alternate; }
+
+/* Death screen: respawn button while counting down */
+.menu.death .ui-btn.respawn.waiting { opacity: 0.55; font-family: var(--ui-mono); letter-spacing: 0.1em; }
+.menu .ui-btn.respawn:disabled { opacity: 0.55; }
+
+/* dead-but-spectating: no wheel / cook gauge either */
+.hud.spectating .qwheel, .hud.spectating .cook { opacity: 0 !important; visibility: hidden; }

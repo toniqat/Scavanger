@@ -1,8 +1,9 @@
 import * as THREE from 'three';
-import { GRAVITY, type GameContext } from '@/shared';
+import { GRAVITY, GRENADE_FUSE as SHARED_GRENADE_FUSE, type GameContext } from '@/shared';
 import type { WeaponFx } from './fx/WeaponFx';
 
-export const GRENADE_FUSE = 2.5;
+/** Alias of the shared contract value (3 s); kept for the barrel export. */
+export const GRENADE_FUSE = SHARED_GRENADE_FUSE;
 export const GRENADE_RADIUS = 6;
 export const GRENADE_DAMAGE = 250;
 const BODY_R = 0.08;
@@ -68,15 +69,16 @@ export class GrenadeManager {
    * @param visualOnly replica of a remote player's grenade (multiplayer): same arc, bounce, fuse and
    *   explosion FX/audio, but no `applyExplosion`, no local player damage, no `grenade:*` events.
    *   Prefers to evict another visual-only replica when the pool is full so a live local grenade never pops early.
+   * @param fuse seconds until the explosion (`GRENADE_FUSE` − cook time for a cooked grenade; 0 → explodes on the next update).
    */
-  throw(origin: THREE.Vector3, velocity: THREE.Vector3, visualOnly = false): boolean {
+  throw(origin: THREE.Vector3, velocity: THREE.Vector3, visualOnly = false, fuse = GRENADE_FUSE): boolean {
     let g = this.pool.find((x) => !x.active);
     if (!g) { g = this.pool.find((x) => x.visualOnly) ?? this.pool[0]; this.explode(g); }
     g.active = true;
     g.visualOnly = visualOnly;
     g.pos.copy(origin); g.vel.copy(velocity);
     g.spin.set(Math.random() * 6 - 3, Math.random() * 6 - 3, Math.random() * 6 - 3);
-    g.fuse = GRENADE_FUSE;
+    g.fuse = Math.max(0, fuse);
     g.mesh.visible = true;
     g.mesh.position.copy(origin);
     g.blinkOn = false; g.led.emissiveIntensity = 0;
@@ -114,7 +116,7 @@ export class GrenadeManager {
       g.mesh.position.copy(g.pos);
       g.mesh.rotation.x += g.spin.x * dt; g.mesh.rotation.y += g.spin.y * dt; g.mesh.rotation.z += g.spin.z * dt;
       // beeping LED, faster as the fuse burns down
-      const rate = 3 + (GRENADE_FUSE - g.fuse) * 5;
+      const rate = 3 + Math.max(0, GRENADE_FUSE - g.fuse) * 5;
       const blink = Math.max(0, Math.sin(g.fuse * rate * Math.PI)) > 0.6;
       g.led.emissiveIntensity = blink ? 4 : 0;
       if (blink && !g.blinkOn) {

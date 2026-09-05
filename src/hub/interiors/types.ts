@@ -13,6 +13,14 @@ export interface PodSlotDef {
   doorBlocker: number;
 }
 
+/** Ship workbench (weapon repair): interaction anchor in front of the bench. */
+export interface WorkbenchDef {
+  /** Interaction anchor (deck level, in front of the bench). */
+  position: THREE.Vector3;
+  /** Player yaw looking at the bench. */
+  yaw: number;
+}
+
 export interface TerminalDef {
   /** Interaction anchor (deck level, in front of the console). */
   position: THREE.Vector3;
@@ -34,6 +42,7 @@ export interface ShipInterior {
   readonly airlockYaw: number;
   readonly pods: PodSlotDef[];
   readonly terminal: TerminalDef;
+  readonly workbench: WorkbenchDef;
   update(dt: number, time: number): void;
   dispose(): void;
 }

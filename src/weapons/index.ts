@@ -1,9 +1,10 @@
 export { WeaponSystem } from './WeaponSystem';
 export { WeaponModel } from './WeaponModel';
+export type { WeaponAttachmentVisuals } from './WeaponModel';
 export { RemoteWeapons } from './RemoteWeapons';
 export { GrenadeManager, GRENADE_FUSE, GRENADE_RADIUS, GRENADE_DAMAGE } from './Grenade';
 export { ProjectilePool } from './Projectile';
 export type { ProjectileHit } from './Projectile';
 export { WeaponFx } from './fx/WeaponFx';
-export { DEFAULT_RIFLE, DEFAULT_PISTOL, defaultFor, kindOf, shotSoundId, shotPitchFor, STANCE_ACCURACY } from './WeaponDefaults';
+export { DEFAULT_RIFLE, DEFAULT_PISTOL, WEAPON_SLOTS, defaultFor, statsFromDef, kindOf, shotSoundId, shotPitchFor, STANCE_ACCURACY } from './WeaponDefaults';
 export type { WeaponKind } from './WeaponDefaults';

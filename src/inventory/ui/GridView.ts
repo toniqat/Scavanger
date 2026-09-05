@@ -1,9 +1,12 @@
-import type { ItemDef, ItemInstance } from '@/shared';
+import type { EffectiveWeaponStats, ItemDef, ItemInstance } from '@/shared';
+import { SOCKET_SLOTS } from '@/shared';
 import type { Grid } from '../Grid';
 import type { GridId } from '../InventorySystem';
-import { STEP, tileSize } from './labels';
+import { DURABILITY_LOW, STEP, tileSize } from './labels';
 
 export type DefLookup = (defId: string) => ItemDef | undefined;
+/** Effective stats for weapon instances (null for anything else); drives socket pips + durability bar. */
+export type StatsLookup = (item: ItemInstance) => EffectiveWeaponStats | null;
 export type HighlightState = 'ok' | 'bad' | 'swap' | 'merge';
 
 export interface TileHandlers {
@@ -15,9 +18,14 @@ export interface TileHandlers {
   onDblClick(uid: string, gridId: GridId): void;
 }
 
-/** Builds the visual content of a tile (shared by grid tiles, slot tiles and the drag ghost). */
-export function buildTileContent(el: HTMLElement, item: ItemInstance, def: ItemDef, w: number, h: number): void {
+/**
+ * Builds the visual content of a tile (shared by grid tiles, slot tiles and the drag ghost). Weapons (`stats`
+ * given) also get five socket pips (filled = attached) and a thin durability bar (amber < 30 %, red at 0).
+ */
+export function buildTileContent(el: HTMLElement, item: ItemInstance, def: ItemDef, w: number, h: number, stats?: EffectiveWeaponStats | null): void {
   el.className = `inv-tile rarity-${def.rarity}`;
+  if (def.attachment) el.classList.add('is-attachment');
+  if (def.bag) el.classList.add('is-bag');
   el.style.setProperty('--rc', def.color);
   const { width, height } = tileSize(w, h);
   el.style.width = `${width}px`;
@@ -45,9 +53,42 @@ export function buildTileContent(el: HTMLElement, item: ItemInstance, def: ItemD
   qty.hidden = def.stackMax <= 1;
   el.appendChild(qty);
 
+  if (stats) {
+    el.classList.add('is-weapon');
+    const pips = document.createElement('div');
+    pips.className = 'inv-tile-sockets';
+    for (const s of SOCKET_SLOTS) {
+      const pip = document.createElement('i');
+      pip.className = 'inv-pip';
+      pip.dataset.socket = s;
+      if (item.sockets?.[s]) pip.classList.add('is-filled');
+      pips.appendChild(pip);
+    }
+    el.appendChild(pips);
+
+    const max = Math.max(1, stats.maxDurability);
+    const cur = Math.max(0, Math.min(max, item.durability ?? max));
+    const ratio = cur / max;
+    const bar = document.createElement('div');
+    bar.className = 'inv-tile-dur';
+    bar.style.setProperty('--p', `${Math.round(ratio * 100)}%`);
+    if (cur <= 0) { bar.classList.add('is-broken'); el.classList.add('is-broken'); }
+    else if (ratio < DURABILITY_LOW) bar.classList.add('is-low');
+    el.appendChild(bar);
+  }
+
   const glow = document.createElement('div');
   glow.className = 'inv-tile-glow';
   el.appendChild(glow);
+}
+
+/** Small wheel-direction badge (top-left) on a bag tile that sits in a quick-use slot. */
+export function addQuickBadge(el: HTMLElement, glyph: string): void {
+  el.classList.add('is-quick');
+  const b = document.createElement('div');
+  b.className = 'inv-tile-quick';
+  b.textContent = glyph;
+  el.appendChild(b);
 }
 
 /**
@@ -64,8 +105,10 @@ export class GridView {
   private grid: Grid | null = null;
   private lastVersion = -1;
   private dims = '';
+  /** uid → direction glyph for items assigned to the quick-use wheel (bag grid only). */
+  private quickBadges = new Map<string, string>();
 
-  constructor(readonly id: GridId, private readonly getDef: DefLookup, private readonly handlers: TileHandlers) {
+  constructor(readonly id: GridId, private readonly getDef: DefLookup, private readonly getStats: StatsLookup, private readonly handlers: TileHandlers) {
     this.el = document.createElement('div');
     this.el.className = `inv-grid inv-grid-${id}`;
     this.cellsEl = document.createElement('div');
@@ -126,7 +169,9 @@ export class GridView {
       }
       const wasDragging = el.classList.contains('is-dragging');
       const wasHover = el.classList.contains('is-hover');
-      buildTileContent(el, p.item, def, fp.w, fp.h);
+      buildTileContent(el, p.item, def, fp.w, fp.h, this.getStats(p.item));
+      const badge = this.quickBadges.get(p.item.uid);
+      if (badge) addQuickBadge(el, badge);
       if (wasDragging) el.classList.add('is-dragging');
       if (wasHover) el.classList.add('is-hover');
       el.style.transform = `translate(${p.x * STEP}px, ${p.y * STEP}px)`;
@@ -143,6 +188,23 @@ export class GridView {
     el.addEventListener('pointerleave', () => { el.classList.remove('is-hover'); this.handlers.onLeave(uid, this.id); });
     el.addEventListener('contextmenu', (e) => { e.preventDefault(); e.stopPropagation(); this.handlers.onContext(uid, this.id, e); });
     el.addEventListener('dblclick', (e) => { e.preventDefault(); this.handlers.onDblClick(uid, this.id); });
+  }
+
+  /** Quick-slot badges (uid → glyph). Forces a re-render when the set changed. */
+  setQuickBadges(badges: ReadonlyMap<string, string>): void {
+    let same = badges.size === this.quickBadges.size;
+    if (same) for (const [uid, g] of badges) if (this.quickBadges.get(uid) !== g) { same = false; break; }
+    if (same) return;
+    this.quickBadges = new Map(badges);
+    this.refresh(true);
+  }
+
+  /** Socket-drop feedback on a weapon tile (attachment dragged over it). null clears every tile. */
+  setSocketTarget(uid: string | null, state: 'ok' | 'bad' | null): void {
+    for (const [id, el] of this.tiles) {
+      el.classList.toggle('is-socket-ok', id === uid && state === 'ok');
+      el.classList.toggle('is-socket-bad', id === uid && state === 'bad');
+    }
   }
 
   private clearTiles(): void {

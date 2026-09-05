@@ -27,6 +27,9 @@ export class Notifications {
         this.push(`획득: <b style="color:${rarityColor(rarity)}">${escapeHtml(name)}</b>${qty}`, 'info', '아이템', 3);
       }),
       b.on('inventory:full', ({ name }) => this.push(`가방이 가득 찼습니다 — <b>${escapeHtml(name)}</b>`, 'warning', '인벤토리', 3)),
+      b.on('inventory:bagChanged', ({ dropped }) => {
+        if (dropped.length > 0) this.push(`가방이 작아져 아이템 <b>${dropped.length}</b>개를 떨어뜨렸습니다`, 'warning', '인벤토리', 4);
+      }),
       b.on('enemy:waveStarted', ({ index, count }) => this.push(`적 증원 감지! <span style="color:var(--c-text-dim)">${index + 1}차 · ${count}마리</span>`, 'danger', '경고', 4)),
       b.on('extraction:activated', () => this.push('탈출 신호 전송 완료. 함선이 출발했습니다.', 'success', '탈출', 4)),
       b.on('extraction:shipIncoming', ({ eta }) => this.push(`함선 접근 중 — ${Math.round(eta)}초`, 'warning', '탈출', 4)),
@@ -35,6 +38,11 @@ export class Notifications {
       b.on('extraction:liftoff', () => this.push('이륙 시퀀스 개시.', 'success', '탈출', 4)),
       b.on('crate:looted', () => this.push('상자를 모두 비웠습니다.', 'info', '보급', 2.5)),
       b.on('player:stimUsed', () => this.push('회복제 사용', 'success', '생명력', 2)),
+      // down / revive / respawn (Phase 2)
+      b.on('player:revived', ({ hp }) => this.push(`부활 — 체력 <b>${Math.ceil(hp)}</b>`, 'success', '생명력', 3)),
+      b.on('game:respawnAvailable', ({ seconds }) => { if (seconds <= 0) this.push('부활 준비 완료', 'success', '부활', 3); }),
+      b.on('net:remoteDowned', ({ name }) => this.push(`<b>${escapeHtml(name)}</b> 전투불능 — 구조 필요`, 'danger', '분대', 4)),
+      b.on('net:remoteRevived', ({ name }) => this.push(`<b>${escapeHtml(name)}</b> 부활`, 'success', '분대', 3)),
       // multiplayer feed
       b.on('net:remoteDied', ({ name }) => this.push(`<b>${escapeHtml(name)}</b> 전사`, 'danger', '분대', 4)),
       b.on('net:peerJoined', ({ name }) => this.push(`<b>${escapeHtml(name)}</b> 합류`, 'info', '분대', 3)),

@@ -34,7 +34,7 @@ export function updateEnemyAI(e: Enemy, dt: number, host: EnemyHost): void {
   if (e.chargeCd > 0) e.chargeCd -= dt;
   acquireTarget(e, dt, host);
   const t = e.target;
-  const targetAlive = !!t && !t.isDead;
+  const targetAlive = !!t && !t.isDeadOrDowned;
 
   if (e.state === 'dead') { e.deathTimer += dt; return; }
 
@@ -304,7 +304,7 @@ function attack(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget | null): 
     a.crouch = a.abdomen * 0.2;
     r.mandible = a.abdomen;
     if (e.attackTimer >= SPEWER_SPIT.windup) {
-      if (t && !t.isDead) {
+      if (t && !t.isDeadOrDowned) {
         e.headCenter(_tmp);
         _tmp.y += 0.1;
         host.fireAcid(_tmp, e, t);
@@ -383,7 +383,7 @@ function attack(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget | null): 
       e.attackHitDone = true;
       a.crouch = 0;
       a.flinch = Math.max(a.flinch, 0.5); a.flinchZ = 0.8; a.flinchX = 0;   // lunge forward (nose dips)
-      if (t && !t.isDead && e.distToTarget < reach) host.hitTarget(e, s.attackDamage, e.type === 'warrior' || e.type === 'charger' ? 0.45 : 0.18, t);
+      if (t && !t.isDeadOrDowned && e.distToTarget < reach) host.hitTarget(e, s.attackDamage, e.type === 'warrior' || e.type === 'charger' ? 0.45 : 0.18, t);
       else host.playAudio('bug_attack', e.position, 0.5, 1.1);
     }
     r.mandible = 1;
@@ -439,7 +439,7 @@ function integrate(e: Enemy, dt: number, world: WorldRef, host: EnemyHost, speed
 
   // separation (positional + soft steering)
   _steer.set(0, 0, 0);
-  separate(e, host.grid, host.targets.alive, _steer, allowOverlap || charging);
+  separate(e, host.grid, host.targets.all, _steer, allowOverlap || charging);
   if (!charging) e.velocity.addScaledVector(_steer, dt * 4);
 
   _prev.copy(pos);

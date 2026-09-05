@@ -62,6 +62,8 @@ export class RemotePlayer implements RemotePlayerRef {
   }
 
   get isDead(): boolean { return (this.flags & PlayerFlags.DEAD) !== 0; }
+  /** 전투불능 (Phase 2): crawling, revivable. */
+  get isDowned(): boolean { return (this.flags & PlayerFlags.DOWNED) !== 0; }
 
   /**
    * The peer's snapshot stream restarted (page reload / rejoin with the same stable PeerId → `seq` starts at 1

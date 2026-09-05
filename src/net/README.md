@@ -105,3 +105,10 @@ seamless mid-mission resume keeping the host's remote ref, client abort → `mis
 mission peer, `rejoinMission` → `net:gameStarting` + `flow rejoined` at the host, `quickMatch` → `net:matched
 {created:true}`, duplicate tab → `net:error duplicate` + `net:lobbyLeft kicked` on the old tab and `net:resumed
 {inProgress:true}` on the new one, host `game:complete` → lobby reset, `disconnect()` never reconnects; host drop mid-mission → `isHost`/`isAuthority` stay true while reconnecting, client keeps `lobby.hostId`, host resumes `seamless:true` still as host. 39/39.
+
+## Phase 2 (2026-09-05): downed / revive / consumables
+- `Snapshotter`: `PlayerFlags.DOWNED` from `ctx.player.isDowned`; `HOLDING_ITEM` (from `quick:equipped`) replaces `HAS_WEAPON` and clears `w` while a stim / grenade is in hand;
+  `TWO_HANDED` for both primary slots.
+- `RemotePlayer.isDowned` (flag getter). On each snapshot the DOWNED transition emits `net:remoteDowned {id, name, position}` / `net:remoteRevived {id, name}`.
+- `revive` messages addressed to us: `progress` → `player:reviveProgress {t, by, byName}`, `cancel` → `t = −1`, `done` → `ctx.player.revive()` (+ `t = −1`). Sent by `player/RemotePlayerSystem`'s revive interactable.
+- `grenade` messages carry `fuse` → `net:remoteGrenade.fuse`.

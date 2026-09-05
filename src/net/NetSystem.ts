@@ -146,8 +146,9 @@ export class NetSystem implements GameSystem, NetRef {
       this.snapshotter.weaponSlot = has ? e.slot : null;
     });
     bus.on('loadout:changed', (e) => {
-      if (!e.primary && !e.secondary) { this.snapshotter.weaponId = null; this.snapshotter.weaponSlot = null; }
+      if (!e.primary && !e.secondary && !e.primary2) { this.snapshotter.weaponId = null; this.snapshotter.weaponSlot = null; }
     });
+    bus.on('quick:equipped', (e) => { this.snapshotter.holdingItem = e.item !== null; });
     bus.on('player:died', (e) => {
       if (this._inSession) this.send({ t: 'died', p: [e.position.x, e.position.y, e.position.z] }, 'others');
     });
@@ -567,7 +568,14 @@ export class NetSystem implements GameSystem, NetRef {
         const senderInHub = (d.f & PlayerFlags.IN_HUB) !== 0;
         if (senderInHub === this._inSession) break;
         const r = this.getOrCreateRemote(from);
+        const wasDowned = r.isDowned;
         r.push(d, this.ctx.time);
+        // Phase 2: squadmate went down / got back up → HUD feed (derived from the DOWNED flag transition)
+        if (r.isDowned !== wasDowned) {
+          const name = r.name ?? this.getLobbyPlayer(from)?.name ?? '대원';
+          if (r.isDowned) bus.emit('net:remoteDowned', { id: from, name, position: r.position.clone() });
+          else if (!r.isDead) bus.emit('net:remoteRevived', { id: from, name });
+        }
         break;
       }
       case 'fire':
@@ -579,8 +587,17 @@ export class NetSystem implements GameSystem, NetRef {
         if (typeof d.w === 'string') bus.emit('net:remoteReloaded', { id: from, weaponId: d.w });
         break;
       case 'grenade':
-        if (isVec3(d.p) && isVec3(d.v)) bus.emit('net:remoteGrenade', { id: from, position: vec(d.p), velocity: vec(d.v) });
+        if (isVec3(d.p) && isVec3(d.v)) bus.emit('net:remoteGrenade', { id: from, position: vec(d.p), velocity: vec(d.v), fuse: typeof d.fuse === 'number' ? d.fuse : undefined });
         break;
+      case 'revive': {
+        // reviver → us (Phase 2): progress feeds the HUD, done stands us back up
+        if (d.target !== this.localId) break;
+        const byName = this.getLobbyPlayer(from)?.name ?? this.remotes.get(from)?.name ?? '대원';
+        if (d.ev === 'done') { this.ctx.player?.revive(); bus.emit('player:reviveProgress', { t: -1, by: from, byName }); }
+        else if (d.ev === 'progress') bus.emit('player:reviveProgress', { t: typeof d.p === 'number' ? Math.max(0, Math.min(1, d.p)) : 0, by: from, byName });
+        else if (d.ev === 'cancel') bus.emit('player:reviveProgress', { t: -1, by: from, byName });
+        break;
+      }
       case 'died': {
         const r = this.remotes.get(from);
         if (r) r.markDead();

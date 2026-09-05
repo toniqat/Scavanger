@@ -50,3 +50,8 @@ Host-side validation is existence only (an unknown/already-taken id is silently 
 Headless Chrome (puppeteer-core, ANGLE D3D11), single-player mission, 18/18 checks: `inventory:itemDropped` with `ctx.loot.createItem('ammo_rifle', 2)` from chest height → pickup `sp-1` spawns, lands with `y − terrainHeight = 0.09`, interactable `pickup:sp-1` registered with prompt `소총 탄약 팩 ×2 줍기`, `findNear(player, 6)` → `sp-1` (null 50 m away), `interact()` adds the item to the bag (3 → 4 items), removes the pickup + interactable, emits `pickup:spawned → pickup:removed → pickup:taken {byLocal:true}`; `spawn()` ×5 categories (stim/grenade/gem/material/pistol) all land and rest; `game:abort` clears everything. Also verified: weapon model hidden + `hasWeapon:false` in phase `hub`, re-armed on return to `playing`. 0 console errors. The multiplayer `item`/`itemq` paths are implemented per the protocol above but were not exercised with two clients (the inventory drop UI was not landed yet at test time).
 
 Audio: emits `audio:play {id:'pickup'}` on a local take — the audio module needs a matching synth (currently logs an "unknown sound id" warning).
+
+## Weapon package (2026-09-05)
+- `PickupWire.ex` (`ItemInstanceExtras`: `durability` / `ammoInMag` / `sockets`) is filled by `wireOf()` for every drop / echo / sync and
+  restored on the receiving side through `ctx.loot.createItem(defId, qty, ex)`, so a dropped weapon keeps its wear, loaded rounds and attachments
+  across the network. Items without those fields send no `ex`.

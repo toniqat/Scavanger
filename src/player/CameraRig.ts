@@ -31,7 +31,9 @@ const HIP_DIST = 3.2;
 const ADS_DIST = 1.8;
 const SCOPE_DIST = 0.7;
 const HIP_SHOULDER = 0.55;
-const ADS_SHOULDER = 0.42;
+/** ADS pushes the camera further over the shoulder and lifts the pivot so the soldier sits bottom-left of the reticle. */
+const ADS_SHOULDER = 0.68;
+const ADS_PIVOT_LIFT = 0.22;
 const SCOPE_SHOULDER = 0.35;
 const SPRINT_FOV_KICK = 3;
 const ADS_FOV_DROP = 20;
@@ -200,7 +202,9 @@ export class CameraRig {
     const proneMin = THREE.MathUtils.lerp(PITCH_MIN_PRONE, PITCH_MIN_PRONE_SLOPE, slopeT);
     this.pitchMin = THREE.MathUtils.lerp(PITCH_MIN, proneMin, inp.prone);
     if (this.pitch < this.pitchMin) this.pitch = damp(this.pitch, this.pitchMin, 12, dt);
-    const pivotLift = this.rearRise * 0.6 * inp.prone;
+    // ADS (non-scoped): lift the pivot so the character drops toward the bottom-left of the frame, clear of the reticle
+    const adsLift = this.scoped ? 0 : ADS_PIVOT_LIFT * inp.aim;
+    const pivotLift = this.rearRise * 0.6 * inp.prone + adsLift;
 
     // ── pivot smoothing: vertical is soft on the ground (stride / terrain bumps stay out of the
     //    camera), horizontal stays tight so strafing never lags

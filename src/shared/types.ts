@@ -45,16 +45,102 @@ export type ItemCategory =
   | 'secondary'   // sidearm (equippable)
   | 'grenade'     // throwable, stackable
   | 'stim'        // healing consumable, stackable
-  | 'ammo'        // ammo pack, refills weapon reserve; stackable
+  | 'ammo'        // ammo; `qty` = rounds (v2), stackable
   | 'valuable'    // loot with sell value (mission score)
-  | 'material';   // resource, stackable, has value
+  | 'material'    // resource, stackable, has value
+  /* appended (weapon package) */
+  | 'attachment'  // weapon socket attachment (muzzle / grip / mag / stock / sight), see `ItemDef.attachment`
+  | 'bag';        // backpack (equippable in the `bag` loadout slot), see `ItemDef.bag`
 
 export type Rarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
 
-export type AmmoType = 'rifle' | 'pistol' | 'shotgun' | 'energy';
+/**
+ * Ammo calibres. v2 (weapon package): `light` 경량탄 (SMG, HG) · `medium` 준중량탄 (AR) · `heavy` 중량탄 (SR, DMR) ·
+ * `shell` 산탄 (SG). The legacy values stay in the union for compatibility but no def uses them any more.
+ * Ammo items carry rounds in `ItemInstance.qty` (stackMax = rounds per stack); a weapon's "reserve" is the
+ * total rounds of its calibre in the bag.
+ */
+export type AmmoType = 'rifle' | 'pistol' | 'shotgun' | 'energy' | 'light' | 'medium' | 'heavy' | 'shell';
 
 /** Weapon archetype. Drives damage falloff, recoil/spread profile, ADS zoom and HUD labels. */
 export type WeaponClass = 'AR' | 'SMG' | 'SR' | 'DMR' | 'SG' | 'PISTOL';
+
+/* ── appended (weapon package, 2026-09-05) ── */
+/** Weapon grade: I 일반 · II 고급 · III 희귀 · IV 서사 · V 전설 (maps 1:1 to `Rarity`). Higher = more damage + durability. */
+export type WeaponGrade = 1 | 2 | 3 | 4 | 5;
+/** Weapon socket slots. Every weapon has all five (for now). */
+export type SocketSlot = 'muzzle' | 'grip' | 'mag' | 'stock' | 'sight';
+/** Equipment slots. `primary` = 주무기 I (key 1), `primary2` = 주무기 II (key 2), `secondary` = 보조무기 (key 3), `bag` = 가방. */
+export type LoadoutSlot = 'primary' | 'primary2' | 'secondary' | 'bag';
+export type WeaponSlot = Exclude<LoadoutSlot, 'bag'>;
+
+/** Attachment stat effects. Multipliers default to 1 (0.8 = −20 %); overrides default to "unchanged". Owner: items. */
+export interface AttachmentEffects {
+  /** Vertical / horizontal recoil multipliers. */
+  recoilV?: number;
+  recoilH?: number;
+  /** Spread multiplier applied to both hip and ADS spread (compensator / choke / stock). */
+  spread?: number;
+  /** Hip-fire-only spread multiplier (laser sight). */
+  hipSpread?: number;
+  /** ADS (aim-in) time multiplier (stock). */
+  adsTime?: number;
+  /** Magazine size multiplier (extended mags). */
+  magSize?: number;
+  /** Sight: replaces the weapon's ADS FOV divisor / scope overlay flag. */
+  adsZoom?: number;
+  scope?: boolean;
+  /** Laser sight: HUD may show a laser dot; also implies `hipSpread`. */
+  laser?: boolean;
+}
+
+/** Attachment item data (`ItemDef.attachment`). `classes` / `ammoTypes` undefined = fits every weapon. */
+export interface AttachmentDef {
+  socket: SocketSlot;
+  classes?: readonly WeaponClass[];
+  /** Extended magazines fit only weapons of these calibres. */
+  ammoTypes?: readonly AmmoType[];
+  effects: AttachmentEffects;
+}
+
+/** Backpack data (`ItemDef.bag`). Legendary = INVENTORY_COLS × INVENTORY_ROWS; no bag = BAG_DEFAULT_COLS × BAG_DEFAULT_ROWS. */
+export interface BagDef {
+  cols: number;
+  rows: number;
+  /** Quick-use wheel slots this bag unlocks (Phase 2 consumable wheel). */
+  quickSlots: number;
+  /** Tactical variant: slightly smaller grid, more quick slots. */
+  tactical?: boolean;
+}
+
+/**
+ * Final per-instance weapon numbers after grade + sockets (owner: items `computeWeaponStats`, exposed through
+ * `LootRef.getEffectiveStats`). Weapons fires with these, never with the raw `WeaponDef`.
+ */
+export interface EffectiveWeaponStats {
+  weaponId: string;
+  weaponClass: WeaponClass;
+  ammoType: AmmoType;
+  grade: WeaponGrade;
+  damage: number;
+  magSize: number;
+  /** radians */
+  spread: number;
+  adsSpread: number;
+  /** Camera kick (radians): vertical base and horizontal base (before the per-shot random). */
+  recoilV: number;
+  recoilH: number;
+  /** Seconds to fully aim in. */
+  adsTime: number;
+  /** Seconds for the draw/holster swap into this weapon. */
+  swapTime: number;
+  adsZoom: number;
+  scope: boolean;
+  laser: boolean;
+  maxDurability: number;
+  reloadTime: number;
+  fireRate: number;
+}
 
 export interface WeaponDef {
   id: string;
@@ -87,6 +173,13 @@ export interface WeaponDef {
   adsZoom?: number;
   /** true → HUD shows a scope overlay while aiming with this weapon. */
   scope?: boolean;
+  /* ── appended: weapon package (owner: items) ── */
+  /** Grade I..V; undefined → 1. Damage / maxDurability in the def are already the graded values. */
+  grade?: WeaponGrade;
+  /** Shots before the weapon stops firing (repaired at the ship workbench). undefined → WEAPON_DEFAULT_DURABILITY. */
+  maxDurability?: number;
+  /** Base weapon this grade belongs to (`ar23` for `ar23_g3`); undefined → the def is its own family. */
+  family?: string;
 }
 
 export interface ItemDef {
@@ -108,6 +201,11 @@ export interface ItemDef {
   ammoType?: AmmoType;
   /** stim: hp restored */
   healAmount?: number;
+  /* ── appended: weapon package ── */
+  /** category 'attachment' */
+  attachment?: AttachmentDef;
+  /** category 'bag' */
+  bag?: BagDef;
 }
 
 export interface ItemInstance {
@@ -115,11 +213,26 @@ export interface ItemInstance {
   defId: string;
   qty: number;
   rotated: boolean;        // true → occupies height x width instead of width x height
+  /* ── appended: weapon package (persist with the item: drops, pickups, stash) ── */
+  /** Weapons: shots left before it breaks (0 = broken). Set to max by `LootRef.createItem`. */
+  durability?: number;
+  /** Weapons: rounds loaded in the magazine (owner: weapons writes, inventory reads for 탄약 탈착). */
+  ammoInMag?: number;
+  /** Weapons: attached socket items (owner: inventory). */
+  sockets?: Partial<Record<SocketSlot, ItemInstance>>;
 }
+
+/** Per-instance fields that travel with an item over the wire / into storage. */
+export type ItemInstanceExtras = Pick<ItemInstance, 'durability' | 'ammoInMag' | 'sockets'>;
 
 export interface Loadout {
   primary: ItemInstance | null;
   secondary: ItemInstance | null;
+  /* appended (weapon package) */
+  /** 주무기 II (key 2). */
+  primary2: ItemInstance | null;
+  /** Equipped backpack; null → BAG_DEFAULT grid. */
+  bag: ItemInstance | null;
 }
 
 export interface InventoryRef {
@@ -149,6 +262,39 @@ export interface InventoryRef {
   dropItem(uid: string, qty?: number): boolean;
   /** Split `qty` units off stack `uid` into a new stack placed in the same grid (auto-placed). False if it does not fit / invalid qty. */
   splitItem(uid: string, qty: number): boolean;
+  /* ── appended: weapon package (owner: inventory) ── */
+  /** Bag grid in effect (equipped bag def, else BAG_DEFAULT_*). */
+  getBagSize(): { cols: number; rows: number; quickSlots: number };
+  /** Any player-owned item by uid: bag, loadout slots, or an attachment inside a weapon's sockets. */
+  findItem(uid: string): ItemInstance | null;
+  /** Patch persistent instance fields; emits `inventory:itemUpdated` (+ `inventory:changed`). False when not found. */
+  updateItem(uid: string, patch: Partial<Pick<ItemInstance, 'durability' | 'ammoInMag'>>): boolean;
+  /**
+   * Put bag item `attachmentUid` into the matching socket of weapon `weaponUid` (bag or loadout). A previous attachment
+   * returns to the bag (or drops to the ground when it does not fit). False when incompatible (class / ammo / not an attachment).
+   */
+  attachToWeapon(weaponUid: string, attachmentUid: string): boolean;
+  /** Remove every attachment from weapon `uid` back into the bag (overflow drops). */
+  detachAllSockets(uid: string): boolean;
+  /** Move the loaded rounds (`ammoInMag`) of weapon `uid` back into the bag as ammo (overflow drops); sets `ammoInMag = 0`. */
+  unloadWeapon(uid: string): boolean;
+  /** Ship workbench: consume `LootRef.getRepairCost` materials and restore full durability. False when materials are missing. */
+  repairWeapon(uid: string): boolean;
+  /** Equip `uid` (bag item) into `slot` or unequip the slot with null → emits `loadout:changed`. Used by the hub / UI. */
+  equip(uid: string | null, slot: LoadoutSlot): boolean;
+  /* ── appended: quick-use slots (Phase 2, owner: inventory) ── */
+  /**
+   * The 8 wheel slots (index = wheel direction, see QUICK_SLOT_DIRS: 0 N, 1 NE, 2 E, 3 SE, 4 S, 5 SW, 6 W, 7 NW).
+   * Entries reference bag items (stacks stay in the grid); a slot clears when its stack is consumed / dropped.
+   * Only the first `getQuickSlotCount()` slots are usable (bag def `quickSlots`).
+   */
+  getQuickSlots(): readonly (ItemInstance | null)[];
+  /** Assign bag item `uid` (category in QUICK_USABLE_CATEGORIES) to wheel slot `index`, or clear it with null. Emits `inventory:quickSlotsChanged`. */
+  setQuickSlot(index: number, uid: string | null): boolean;
+  /** Usable wheel slots for the equipped bag (BAG_DEFAULT_QUICK_SLOTS without a bag). */
+  getQuickSlotCount(): number;
+  /** Consume `qty` units of the exact item `uid` (bag). Returns how many were removed. Clears the quick slot at 0. */
+  consumeItem(uid: string, qty?: number): number;
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -217,7 +363,15 @@ export interface LootRef {
   getItemDef(defId: string): ItemDef | undefined;
   getWeaponDef(weaponId: string): WeaponDef | undefined;
   getAllItemDefs(): ItemDef[];
-  createItem(defId: string, qty?: number): ItemInstance;
+  /** Weapons are created fully loaded (`ammoInMag = magSize`) at full `durability`. `extras` override those. */
+  createItem(defId: string, qty?: number, extras?: ItemInstanceExtras): ItemInstance;
+  /* ── appended: weapon package (owner: items) ── */
+  /** Graded + socketed stats for a weapon instance (null when `inst` is not a weapon). Pass a def id string for the bare def. */
+  getEffectiveStats(inst: ItemInstance | string): EffectiveWeaponStats | null;
+  /** Materials needed to fully repair `inst` at the workbench ([] when nothing to repair / not a weapon). */
+  getRepairCost(inst: ItemInstance): { defId: string; qty: number }[];
+  /** Can `attachment` go into `weapon`? (socket exists, class / ammo compatible). */
+  canAttach(weapon: ItemInstance, attachment: ItemInstance): boolean;
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -337,6 +491,20 @@ export interface PlayerRef {
   /** true while the local player is boarded in a launch pod (hub) — movement locked, avatar hidden for remotes. */
   readonly isInPod: boolean;
   setInPod(inPod: boolean): void;
+  /* ── appended: down / revive / respawn / quick-use (Phase 2, owner: player) ── */
+  /**
+   * 전투불능: hp reached 0 but the player is not dead yet — crawling prone, no weapons, a separate `downHp`
+   * (PLAYER_DOWN_HP) bleeding PLAYER_DOWN_BLEED_PER_SEC. Damage while downed hits `downHp`; at 0 → `player:died`.
+   * `isDead` stays false while downed.
+   */
+  readonly isDowned: boolean;
+  readonly downHp: number;
+  /** Teammate finished the revive hold (net) → back up with PLAYER_REVIVE_HP, prone. No-op unless downed. */
+  revive(): void;
+  /** Start the stim heal-over-time (`player:stimUsed`, `player:healthChanged`). False when dead / downed / already full. Consuming the item is the caller's job. */
+  applyStim(healAmount: number): boolean;
+  /** Respawn like at mission start: hellpod drop-in at `position`, full hp, alive, not downed. Emits `player:spawned` / `player:landed`. */
+  respawn(position: THREE.Vector3): void;
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -395,6 +563,9 @@ export interface Interactable {
   interact(): void;
   /** Optional hold time in seconds (switch press). 0/undefined = instant. */
   holdTime?: number;
+  /* appended (Phase 2, revive): the player calls these while the hold is running / when it is released early. */
+  onHoldProgress?(t: number): void;
+  onHoldCancel?(): void;
 }
 
 export interface InteractableRegistry {
@@ -438,4 +609,15 @@ export interface PlayerWeaponHost {
   /* ── appended: ADS zoom (weapons → player) ── */
   /** Active weapon's ADS zoom: FOV divisor (1 = none) and whether it is a scoped weapon. Call on equip/swap/unequip. */
   setAimZoom(zoom: number, scope: boolean): void;
+  /* ── appended: weapon package ── */
+  /** Seconds the active weapon needs to aim in fully (secondary ≈ half of a primary; stocks shorten it). Default 0.25. */
+  setAdsTime(seconds: number): void;
+  /* ── appended: quick-use wheel / grenade cooking (Phase 2) ── */
+  /** While true the mouse delta is consumed by the quick-use wheel instead of the camera (weapons opens the wheel on F hold). */
+  setLookLocked(locked: boolean): void;
+  /**
+   * Extended weapon pose (weapons → player). `throwing` = grenade wind-up pose (right arm back) while LMB is held,
+   * `holdingItem` = a consumable (stim / grenade) is in hand instead of a gun (no weapon model, one-handed).
+   */
+  setWeaponState(state: { hasWeapon: boolean; reloading: boolean; firing: boolean; twoHanded: boolean; throwing?: boolean; holdingItem?: boolean }): void;
 }

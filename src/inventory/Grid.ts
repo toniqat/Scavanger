@@ -13,6 +13,13 @@ export interface SlotHint { x: number; y: number; rotated: boolean }
 export type Ignore = string | readonly string[];
 /** Sentinel returned by `blockersAt` when the footprint leaves the grid. */
 export const OOB = '__oob__';
+/** `resize()` priority entry: place `item` first, preferably at (x, y). */
+export interface PriorityPlacement { item: ItemInstance; x?: number; y?: number }
+export interface GridSnapshot {
+  cols: number;
+  rows: number;
+  placements: { item: ItemInstance; x: number; y: number; rotated: boolean; qty: number }[];
+}
 
 /**
  * Diablo-2 style occupancy grid. Pure logic, no DOM.
@@ -20,18 +27,22 @@ export const OOB = '__oob__';
  * be rotated (footprint becomes h×w). `place()` writes `item.rotated`.
  */
 export class Grid {
-  readonly cols: number;
-  readonly rows: number;
+  private _cols: number;
+  private _rows: number;
   private cells: (string | null)[];
   private placements = new Map<string, Placement>();
   /** Bumped on every mutation; UI uses it to skip redundant re-renders. */
   version = 0;
 
   constructor(cols: number, rows: number, private readonly getDef: DefLookup) {
-    this.cols = cols;
-    this.rows = rows;
+    this._cols = cols;
+    this._rows = rows;
     this.cells = new Array(cols * rows).fill(null);
   }
+
+  /** Dimensions change only through `resize()` / `restore()`. */
+  get cols(): number { return this._cols; }
+  get rows(): number { return this._rows; }
 
   /* ── queries ───────────────────────────────────────────────────────────── */
 
@@ -245,6 +256,81 @@ export class Grid {
       if (this.moveTo(uid, p.x + dx, p.y + dy, rot)) return true;
     }
     return false;
+  }
+
+  /**
+   * Change the grid size (bag equipped / removed). Items whose footprint still lies inside the new bounds keep
+   * their cells; the rest are re-placed with `autoPlace` (largest first, so stacks may merge). Returns the items
+   * that could not be kept — they are no longer in the grid and the caller must drop them or refuse the resize
+   * (use `snapshot()` / `restore()` around the call for an all-or-nothing attempt).
+   * `priority` items (e.g. the bag being unequipped) are placed first, before anything else: at their hint cell
+   * when that is free and in bounds, else at the first free slot. A priority item that does not fit at all is
+   * returned in the overflow list as well.
+   */
+  resize(cols: number, rows: number, priority: readonly PriorityPlacement[] = []): ItemInstance[] {
+    const old = this.items();
+    this._cols = Math.max(1, Math.floor(cols));
+    this._rows = Math.max(1, Math.floor(rows));
+    this.cells = new Array(this._cols * this._rows).fill(null);
+    this.placements.clear();
+    const overflow: ItemInstance[] = [];
+    const prioritised = new Set<string>();
+    for (const pr of priority) {
+      prioritised.add(pr.item.uid);
+      let placed = false;
+      if (pr.x !== undefined && pr.y !== undefined) {
+        placed = this.place(pr.item, pr.x, pr.y, pr.item.rotated) || this.place(pr.item, pr.x, pr.y, !pr.item.rotated);
+      }
+      if (!placed) placed = this.autoPlace(pr.item);
+      if (!placed) overflow.push(pr.item);
+    }
+    const pending: ItemInstance[] = [];
+    for (const p of old) {
+      if (prioritised.has(p.item.uid)) continue;
+      const { w, h } = this.footprintOf(p.item);
+      if (this.inBounds(p.x, p.y, w, h) && this.canPlace(p.item, p.x, p.y, p.item.rotated, p.item.uid)) {
+        this.fill(p.item.uid, p.x, p.y, w, h);
+        this.placements.set(p.item.uid, { item: p.item, x: p.x, y: p.y });
+      } else {
+        pending.push(p.item);
+      }
+    }
+    pending.sort((a, b) => this.areaOf(b) - this.areaOf(a));
+    for (const item of pending) {
+      if (!this.autoPlace(item)) overflow.push(item);
+    }
+    this.version++;
+    return overflow;
+  }
+
+  /** Copy of the current layout (positions, rotation and stack sizes) for `restore()`. */
+  snapshot(): GridSnapshot {
+    return {
+      cols: this._cols,
+      rows: this._rows,
+      placements: this.items().map((p) => ({ item: p.item, x: p.x, y: p.y, rotated: p.item.rotated, qty: p.item.qty })),
+    };
+  }
+
+  /** Put the grid back exactly as `snapshot()` saw it (undo a failed resize / swap). */
+  restore(s: GridSnapshot): void {
+    this._cols = s.cols;
+    this._rows = s.rows;
+    this.cells = new Array(s.cols * s.rows).fill(null);
+    this.placements.clear();
+    for (const p of s.placements) {
+      p.item.rotated = p.rotated;
+      p.item.qty = p.qty;
+      const { w, h } = this.footprintOf(p.item);
+      this.fill(p.item.uid, p.x, p.y, w, h);
+      this.placements.set(p.item.uid, { item: p.item, x: p.x, y: p.y });
+    }
+    this.version++;
+  }
+
+  private areaOf(item: ItemInstance): number {
+    const { w, h } = this.footprintOf(item);
+    return w * h;
   }
 
   private fill(uid: string | null, x: number, y: number, w: number, h: number): void {

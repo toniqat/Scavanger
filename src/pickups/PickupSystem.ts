@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import {
   GRAVITY, PICKUP_LIFETIME, PICKUP_MAX,
   type GameContext, type GameSystem, type Interactable, type ItemDef, type ItemInstance, type PickupRef, type PickupsRef,
-  type ItemMessage, type ItemRequest, type FlowMessage, type PickupWire, type PeerId, type Vec3Tuple,
+  type ItemMessage, type ItemRequest, type FlowMessage, type PickupWire, type PeerId, type Vec3Tuple, type ItemInstanceExtras,
 } from '@/shared';
 import { PickupVisualPool, restHeightFor, type PickupVisual } from './PickupVisuals';
 
@@ -36,6 +36,16 @@ const _n = new THREE.Vector3(), _tmp = new THREE.Vector3(), _v = new THREE.Vecto
 
 function toTuple(v: THREE.Vector3): Vec3Tuple {
   return [Math.round(v.x * 1000) / 1000, Math.round(v.y * 1000) / 1000, Math.round(v.z * 1000) / 1000];
+}
+
+/** Per-instance weapon state (durability / loaded rounds / sockets) that must survive the trip over the wire. */
+function extrasOf(item: ItemInstance): ItemInstanceExtras | null {
+  if (item.durability === undefined && item.ammoInMag === undefined && !item.sockets) return null;
+  const ex: ItemInstanceExtras = {};
+  if (item.durability !== undefined) ex.durability = item.durability;
+  if (item.ammoInMag !== undefined) ex.ammoInMag = item.ammoInMag;
+  if (item.sockets && Object.keys(item.sockets).length > 0) ex.sockets = item.sockets;
+  return ex;
 }
 
 /**
@@ -282,13 +292,16 @@ export class PickupSystem implements GameSystem, PickupsRef {
   }
 
   private wireOf(p: Pickup): PickupWire {
-    return { id: p.id, defId: p.item.defId, qty: p.item.qty, p: toTuple(p.position) };
+    const w: PickupWire = { id: p.id, defId: p.item.defId, qty: p.item.qty, p: toTuple(p.position) };
+    const ex = extrasOf(p.item);
+    if (ex) w.ex = ex;
+    return w;
   }
 
   private itemFromWire(w: PickupWire): ItemInstance {
     const loot = this.ctx.loot;
-    if (loot && loot.getItemDef(w.defId)) return loot.createItem(w.defId, w.qty);
-    return { uid: `pk-${w.id}`, defId: w.defId, qty: w.qty, rotated: false };
+    if (loot && loot.getItemDef(w.defId)) return loot.createItem(w.defId, w.qty, w.ex);
+    return { uid: `pk-${w.id}`, defId: w.defId, qty: w.qty, rotated: false, ...(w.ex ?? {}) };
   }
 
   /** Host → clients. */
@@ -349,7 +362,7 @@ export class PickupSystem implements GameSystem, PickupsRef {
         const p = this.spawnInternal(m.item.id, this.itemFromWire(m.item), _tmp, _v, false);
         if (!p) return;
         // echo to everyone (the dropper dedupes by id)
-        this.broadcast({ t: 'item', ev: 'drop', item: { id: p.id, defId: p.item.defId, qty: p.item.qty, p: m.item.p }, v: m.v }, 'others');
+        this.broadcast({ t: 'item', ev: 'drop', item: { ...this.wireOf(p), p: m.item.p }, v: m.v }, 'others');
         break;
       }
       case 'take': {

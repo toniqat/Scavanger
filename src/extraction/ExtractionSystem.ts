@@ -259,12 +259,13 @@ export class ExtractionSystem implements GameSystem {
   private collectRequired(out: PeerId[]): PeerId[] {
     out.length = 0;
     const ctx = this.ctx;
-    if (!(ctx.player?.isDead ?? false)) out.push(this.localId());
+    // Downed (전투불능) players cannot board either: they neither block nor count toward the liftoff (Phase 2).
+    if (!(ctx.player?.isDead ?? false) && !(ctx.player?.isDowned ?? false)) out.push(this.localId());
     const net = ctx.net;
     if (net) {
       for (const r of net.getRemotePlayers()) {
         // Peers walking the shared ship (IN_HUB) are not in this mission and never block the liftoff.
-        if (r.connected && !r.stale && !r.isDead && (r.flags & PlayerFlags.IN_HUB) === 0) out.push(r.id);
+        if (r.connected && !r.stale && !r.isDead && (r.flags & (PlayerFlags.IN_HUB | PlayerFlags.DOWNED)) === 0) out.push(r.id);
       }
     }
     return out;

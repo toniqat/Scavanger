@@ -184,7 +184,7 @@ export class AmbientSpawner {
     if (this.timer > 0) return;
     this.timer = THREE.MathUtils.lerp(25, 12, this.threat) * (0.8 + Math.random() * 0.4);
     if (host.aliveCount() >= this.cap) return;
-    const around = host.targets.randomAlive() ?? host.targets.local();
+    const around = host.targets.randomAlive() ?? host.targets.randomPresent(); // everyone downed → still spawn around a body
     if (!around) return;
     const types = ambientGroup(this.threat);
     const allowed = host.ensureCapacity(types.length, this.cap);

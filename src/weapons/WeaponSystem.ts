@@ -1,26 +1,37 @@
 import * as THREE from 'three';
 import {
-  GameContext, Keys,
-  type GameSystem, type WeaponDef, type ItemInstance, type PlayerRef, type PlayerWeaponHost, type EnemyRef, type Vec3Tuple,
+  GameContext, Keys, MouseButtons, WEAPON_DURABILITY_PER_SHOT, WEAPON_SWAP_TIME_PRIMARY, WEAPON_SWAP_TIME_SECONDARY,
+  QUICK_SLOTS, QUICK_SLOT_UNLOCK_ORDER, QUICK_USABLE_CATEGORIES, isQuickSlotActive, QUICK_WHEEL_HOLD, QUICK_WHEEL_DRAG_PX, GRENADE_FUSE, GRENADE_COOK_MAX, GRENADE_UNDERHAND_SPEED_MUL,
+  type GameSystem, type WeaponDef, type ItemInstance, type ItemDef, type PlayerRef, type PlayerWeaponHost, type EnemyRef, type Vec3Tuple,
+  type WeaponSlot, type EffectiveWeaponStats, type SocketSlot,
 } from '@/shared';
 import { FxManager } from '@/core/fx';
-import { damp, randomInCone } from '@/core/util/MathUtil';
-import { defaultFor, kindOf, shotSoundId, shotPitchFor, weaponClassOf, damageFalloff, STANCE_ACCURACY } from './WeaponDefaults';
-import { WeaponModel } from './WeaponModel';
+import { randomInCone } from '@/core/util/MathUtil';
+import { WEAPON_SLOTS, defaultFor, kindOf, shotSoundId, shotPitchFor, weaponClassOf, damageFalloff, statsFromDef, STANCE_ACCURACY } from './WeaponDefaults';
+import { WeaponModel, type WeaponAttachmentVisuals } from './WeaponModel';
 import { WeaponFx } from './fx/WeaponFx';
 import { GrenadeManager } from './Grenade';
 import { ProjectilePool, type ProjectileHit } from './Projectile';
 import { RemoteWeapons } from './RemoteWeapons';
 
-type Slot = 'primary' | 'secondary';
 type Host = PlayerRef & PlayerWeaponHost;
 
-interface WeaponInstance { uid: string; slot: Slot; def: WeaponDef; model: WeaponModel }
-interface AmmoState { ammoInMag: number; reserveRounds: number }
+/**
+ * A weapon held in one of the three slots. `inst` is the inventory's own `ItemInstance` (shared reference) —
+ * `ammoInMag` / `durability` live on it so they travel with the item (drop, pickup, stash); `stats` are the
+ * graded + socketed numbers the weapon fires with (`ctx.loot.getEffectiveStats`).
+ */
+interface WeaponInstance {
+  uid: string;
+  slot: WeaponSlot;
+  def: WeaponDef;
+  inst: ItemInstance;
+  stats: EffectiveWeaponStats;
+  model: WeaponModel;
+}
 
 interface HitInfo { point: THREE.Vector3; normal: THREE.Vector3; distance: number; enemy: EnemyRef | null; obstacle: boolean; valid: boolean; headshot: boolean }
 
-const SWAP_TIME = 0.4;
 const BLOOM_PER_SHOT = 0.14;
 const BLOOM_DECAY = 2.6;
 const FIRING_POSE_HOLD = 0.6;
@@ -29,6 +40,30 @@ const SPRINT_SPREAD_MUL = 1.5;
 const MOVING_SPREAD_MUL = 1.35;
 /** Delay from the shot to the bolt-cycle sound (sniper). */
 const BOLT_SOUND_DELAY = 0.22;
+/** Min seconds between "내구도 소진" toasts. */
+const BROKEN_NOTIFY_INTERVAL = 2.0;
+/** Gun draw-down time when a consumable is taken into the hand (F). */
+const QUICK_HOLSTER_TIME = 0.15;
+/** Seconds between two stim injections / grenade wind-ups. */
+const QUICK_USE_COOLDOWN = 0.4;
+/** Shortest fuse a cooked grenade leaves the hand with. */
+const GRENADE_MIN_FUSE = 0.15;
+/** Overhand throw speed / lift (pre-Phase 2 numbers). */
+const GRENADE_THROW_SPEED = 17;
+const GRENADE_THROW_LIFT = 3.5;
+const GRENADE_UNDERHAND_LIFT = 1.2;
+
+type QuickKind = 'stim' | 'grenade';
+
+/** A consumable taken into the hand from a quick slot (`active = 'quick'`): the bag's own `ItemInstance` plus its def. */
+interface QuickHand {
+  index: number;
+  uid: string;
+  defId: string;
+  item: ItemInstance;
+  def: ItemDef;
+  kind: QuickKind;
+}
 
 const _o = new THREE.Vector3(), _d = new THREE.Vector3(), _pd = new THREE.Vector3(), _tA = new THREE.Vector3(), _tB = new THREE.Vector3();
 const _muzzle = new THREE.Vector3(), _target = new THREE.Vector3(), _md = new THREE.Vector3(), _right = new THREE.Vector3(), _tmp = new THREE.Vector3();
@@ -43,8 +78,9 @@ function toTuple(v: THREE.Vector3): Vec3Tuple {
 }
 
 /**
- * Primary/secondary weapons: hitscan & projectile firing from the reticle ray, spread/bloom, recoil,
- * reloads with ammo packs, swap animation, grenades and all weapon FX/events.
+ * Three weapon slots (주무기 I / 주무기 II / 보조무기): hitscan & projectile firing from the reticle ray with
+ * graded + socketed effective stats, spread/bloom, recoil, durability, ammo v2 (reserve = calibre rounds in the
+ * bag, magazine on the item), reloads, swap animation, grenades and all weapon FX/events.
  */
 export class WeaponSystem implements GameSystem {
   readonly name = 'weapons';
@@ -56,16 +92,20 @@ export class WeaponSystem implements GameSystem {
   /** Multiplayer: remote players' weapon models + replicated fire/reload/grenade FX (inert offline). */
   private remote!: RemoteWeapons;
 
-  private readonly slots: Record<Slot, WeaponInstance | null> = { primary: null, secondary: null };
-  private readonly ammo = new Map<string, AmmoState>();
-  private active: Slot = 'primary';
+  private readonly slots: Record<WeaponSlot, WeaponInstance | null> = { primary: null, primary2: null, secondary: null };
+  /** Dev fallback (no `ctx.inventory`): reserve rounds per weapon uid. */
+  private readonly fallbackReserve = new Map<string, number>();
+  private active: WeaponSlot = 'primary';
+  /** Slot that was in hand before the last swap (Q returns to it). */
+  private prevActive: WeaponSlot | null = null;
   private attachedModel: WeaponModel | null = null;
 
   private phase: 'ready' | 'reloading' | 'swapping' = 'ready';
   private reloadTimer = 0;
   private reloadDuration = 1;
   private swapTimer = 0;
-  private swapTarget: Slot = 'primary';
+  private swapDuration = WEAPON_SWAP_TIME_PRIMARY;
+  private swapTarget: WeaponSlot = 'primary';
   private swapSwitched = false;
 
   private cooldown = 0;
@@ -76,16 +116,44 @@ export class WeaponSystem implements GameSystem {
   private boltDuration = 0;
   private boltSoundTimer = 0;
   private zoomSent = { zoom: 1, scope: false };
+  private adsTimeSent = -1;
   private fallbackGrenades = 4;
   private loadoutWait = -1;
   /** Frames until the shader warm-up runs (set when the hellpod drop starts). */
   private warmupFrames = 0;
   /** Hub / docking / menu: weapon model hidden, soldier posed unarmed, ADS zoom neutral. */
   private holstered = false;
+  /** True while we are inside our own `ctx.inventory.updateItem` call (ignore the echoed inventory events). */
+  private selfWriting = false;
+  private brokenNotifyAt = -Infinity;
+  private dryFlagged = false;
+
+  /* ── quick-use (F): consumable in hand, wheel, grenade hold ── */
+  /** Consumable in hand instead of a gun (`active` keeps the gun slot to return to). */
+  private quick: QuickHand | null = null;
+  /** Wheel index of the last consumable taken into the hand (F tap re-equips it). */
+  private lastQuickIndex: number | null = null;
+  /** F is down since a press that we accepted; `quickHoldT` = seconds held so far. */
+  private quickKeyHeld = false;
+  private quickHoldT = 0;
+  private wheelOpen = false;
+  private wheelDX = 0;
+  private wheelDY = 0;
+  private wheelHover: number | null = null;
+  /** Remaining draw-down of the gun model after taking a consumable (0 = hidden). */
+  private quickHolsterT = 0;
+  private quickCooldown = 0;
+  /** True while we are inside our own `consumeItem` (defer the echoed `inventory:quickSlotsChanged`). */
+  private quickBusy = false;
+  /** Grenade in hand: LMB held (wind-up), pin pulled (cooking), cook seconds, lob mode (persists between holds). */
+  private holding = false;
+  private cooking = false;
+  private cooked = 0;
+  private underhand = false;
 
   private readonly camHit = makeHit();
   private readonly gunHit = makeHit();
-  private readonly weaponState = { hasWeapon: false, reloading: false, firing: false, twoHanded: false };
+  private readonly weaponState = { hasWeapon: false, reloading: false, firing: false, twoHanded: false, throwing: false, holdingItem: false };
 
   /* ─────────────────────────── GameSystem ─────────────────────────── */
   init(ctx: GameContext): void {
@@ -100,25 +168,39 @@ export class WeaponSystem implements GameSystem {
     // multiplayer replication (handlers no-op unless ctx.isMultiplayer && ctx.net)
     ctx.bus.on('net:remoteFired', (p) => this.remote.onFired(p.id, p.weaponId, p.origin, p.direction));
     ctx.bus.on('net:remoteReloaded', (p) => this.remote.onReloaded(p.id, p.weaponId));
-    ctx.bus.on('net:remoteGrenade', (p) => this.remote.onGrenade(p.position, p.velocity));
+    ctx.bus.on('net:remoteGrenade', (p) => this.remote.onGrenade(p.position, p.velocity, p.fuse));
     ctx.bus.on('net:remotePlayerRemoved', (p) => this.remote.remove(p.id));
     ctx.bus.on('game:newMission', () => this.remote.clear());
 
-    ctx.bus.on('loadout:changed', (p) => this.onLoadout(p.primary, p.secondary));
+    ctx.bus.on('loadout:changed', (p) => this.onLoadout({ primary: p.primary, primary2: p.primary2 ?? null, secondary: p.secondary }));
+    // inventory → weapons: persistent fields / sockets changed on a held weapon (repair, unload, attachments, …)
+    ctx.bus.on('inventory:itemUpdated', (p) => this.onItemUpdated(p.item));
+    ctx.bus.on('inventory:socketChanged', (p) => this.onSocketChanged(p.weapon));
+    ctx.bus.on('inventory:changed', () => this.onInventoryChanged());
+    // quick slots re-assigned / consumed / dropped → the consumable in hand may be gone
+    ctx.bus.on('inventory:quickSlotsChanged', (p) => this.onQuickSlotsChanged(p.slots));
+
     ctx.bus.on('world:ready', () => {
+      this.dropQuick();
       this.resetTransient();
-      this.ammo.clear();
-      for (const s of ['primary', 'secondary'] as Slot[]) this.setSlot(s, null);
+      this.fallbackReserve.clear();
+      for (const s of WEAPON_SLOTS) this.setSlot(s, null);
+      this.prevActive = null;
+      this.lastQuickIndex = null;
       this.fallbackGrenades = 4;
       this.loadoutWait = LOADOUT_FALLBACK_DELAY;
     });
     ctx.bus.on('game:abort', () => {
+      this.dropQuick();
+      this.flushAll();
       this.resetTransient();
-      for (const s of ['primary', 'secondary'] as Slot[]) this.setSlot(s, null);
+      for (const s of WEAPON_SLOTS) this.setSlot(s, null);
+      this.prevActive = null;
+      this.lastQuickIndex = null;
       this.loadoutWait = -1;
     });
     // Ship hub: nothing in flight, weapon holstered (visibility is handled per frame from ctx.phase).
-    ctx.bus.on('hub:entered', () => { this.resetTransient(); this.loadoutWait = -1; });
+    ctx.bus.on('hub:entered', () => { this.dropQuick(); this.resetTransient(); this.loadoutWait = -1; });
     // Hellpod drop started → pre-compile every shader (hidden FX meshes included) before the first shot/throw.
     ctx.bus.on('game:phaseChanged', ({ phase }) => { if (phase === 'deploying') this.warmupFrames = 2; });
   }
@@ -138,68 +220,81 @@ export class WeaponSystem implements GameSystem {
     const holster = ctx.phase === 'hub' || ctx.phase === 'docking' || ctx.phase === 'menu';
     if (holster !== this.holstered) {
       this.holstered = holster;
-      if (holster) { this.resetTransient(); }
+      if (holster) { this.dropQuick(); this.flushAll(); this.resetTransient(); }
       else this.attachActive(false);
     }
 
     // fallback loadout if no inventory ever speaks
     if (this.loadoutWait > 0) {
       this.loadoutWait -= dt;
-      if (this.loadoutWait <= 0 && !this.slots.primary && !this.slots.secondary) {
-        this.onLoadout({ uid: 'default-primary', defId: defaultFor('primary').id, qty: 1, rotated: false },
-          { uid: 'default-secondary', defId: defaultFor('secondary').id, qty: 1, rotated: false });
+      if (this.loadoutWait <= 0 && !this.slots.primary && !this.slots.primary2 && !this.slots.secondary) {
+        this.onLoadout({
+          primary: { uid: 'default-primary', defId: defaultFor('primary').id, qty: 1, rotated: false },
+          primary2: null,
+          secondary: { uid: 'default-secondary', defId: defaultFor('secondary').id, qty: 1, rotated: false },
+        });
       }
     }
 
     const input = ctx.input;
     const usable = ctx.isGameplayActive() && input.isPointerLocked && host.canUseWeapons() && host.isDiving !== true;
-    const weapon = this.slots[this.active];
+    // the gun in hand (null while a consumable is held)
+    const weapon = this.quick ? null : this.slots[this.active];
 
     if (this.cooldown > 0) this.cooldown -= dt;
+    if (this.quickCooldown > 0) this.quickCooldown -= dt;
     this.bloom = Math.max(0, this.bloom - BLOOM_DECAY * dt);
     if (this.firingTimer > 0) this.firingTimer -= dt;
     this.updateBolt(dt, weapon);
 
-    // ── swap
-    if (usable) {
+    // ── quick-use key (F): tap = last consumable into the hand, hold = wheel
+    this.updateQuickKey(dt, host, usable);
+    // the wheel eats mouse buttons as well as the look delta
+    const inputFree = usable && !this.wheelOpen;
+
+    // ── swap (1 / 2 / 3 / Q) — also the way back from a consumable to a gun
+    if (inputFree) {
       if (input.wasPressed(Keys.PRIMARY)) this.requestSwap('primary');
+      else if (input.wasPressed(Keys.PRIMARY2)) this.requestSwap('primary2');
       else if (input.wasPressed(Keys.SECONDARY)) this.requestSwap('secondary');
-      else if (input.wasPressed(Keys.SWAP)) this.requestSwap(this.active === 'primary' ? 'secondary' : 'primary');
+      else if (input.wasPressed(Keys.SWAP)) this.requestSwap(this.quickSwapTarget());
     }
     if (this.phase === 'swapping') this.updateSwap(dt);
     else if (this.phase === 'reloading') this.updateReload(dt);
-    else if (weapon && usable) {
-      const def = weapon.def;
-      const a = this.ammoFor(weapon);
-      const trigger = def.automatic ? input.isMouseDown(0) : input.wasMousePressed(0);
-      if (input.wasPressed(Keys.RELOAD) && a.ammoInMag < def.magSize) this.tryReload(weapon, a);
+    else if (this.quick) this.updateQuickHand(dt, host, usable, inputFree);
+    else if (weapon && inputFree) {
+      const st = weapon.stats;
+      const mag = this.magOf(weapon);
+      const trigger = weapon.def.automatic ? input.isMouseDown(MouseButtons.FIRE) : input.wasMousePressed(MouseButtons.FIRE);
+      if (input.wasPressed(Keys.RELOAD) && mag < st.magSize) this.tryReload(weapon);
       else if (trigger && this.cooldown <= 0 && this.boltTimer <= 0) {
-        if (a.ammoInMag > 0) this.fire(host, weapon, a);
-        else if (input.wasMousePressed(0) || (def.automatic && this.cooldown <= 0 && !this.dryFlagged)) {
+        if (this.durabilityOf(weapon) <= 0) {
+          if (!this.dryFlagged) { this.dryFlagged = true; this.onBrokenTrigger(weapon); }
+        } else if (mag > 0) this.fire(host, weapon);
+        else if (!this.dryFlagged) {
           this.dryFlagged = true;
-          ctx.bus.emit('weapon:dryFire', { weaponId: def.id });
+          ctx.bus.emit('weapon:dryFire', { weaponId: st.weaponId });
           ctx.bus.emit('audio:play', { id: 'dry_fire', volume: 0.6 });
-          this.tryReload(weapon, a);
+          this.tryReload(weapon);
         }
       }
-      if (!input.isMouseDown(0)) this.dryFlagged = false;
-      if (input.wasPressed(Keys.GRENADE)) this.throwGrenade(host);
-    } else if (usable && !weapon && input.wasPressed(Keys.GRENADE)) {
-      this.throwGrenade(host);
+      if (!input.isMouseDown(MouseButtons.FIRE)) this.dryFlagged = false;
     }
 
     // ── model animation & pose state
-    for (const s of ['primary', 'secondary'] as Slot[]) this.slots[s]?.model.update(dt, ctx.time);
+    this.updateQuickHolster(dt);
+    for (const s of WEAPON_SLOTS) this.slots[s]?.model.update(dt, ctx.time);
     if (this.holstered && this.attachedModel) this.attachedModel.root.visible = false;
     const ws = this.weaponState;
     const armed = !!weapon && !this.holstered;
     ws.hasWeapon = armed;
     ws.reloading = armed && this.phase === 'reloading';
     ws.firing = armed && this.firingTimer > 0;
-    ws.twoHanded = armed && weapon ? weaponClassOf(weapon.def) !== 'PISTOL' : false;
+    ws.twoHanded = armed && weapon ? weapon.stats.weaponClass !== 'PISTOL' : false;
+    ws.holdingItem = !!this.quick && !this.holstered;
+    ws.throwing = ws.holdingItem && this.holding;
     host.setWeaponState(ws);
   }
-  private dryFlagged = false;
 
   /** Bolt-action cycle after each sniper shot: blocks firing, drives the model's bolt animation and the cycle sound. */
   private updateBolt(dt: number, weapon: WeaponInstance | null): void {
@@ -214,19 +309,24 @@ export class WeaponSystem implements GameSystem {
     weapon.model.setBolt(1 - this.boltTimer / this.boltDuration);
   }
 
-  /** Tell the player rig (and HUD) the ADS zoom of the weapon in hand. */
-  private applyAimZoom(def: WeaponDef | null): void {
-    const zoom = def?.adsZoom ?? 1;
-    const scope = !!def?.scope;
+  /** Tell the player rig (and HUD) the ADS zoom + aim-in time of the weapon in hand. */
+  private applyAimZoom(stats: EffectiveWeaponStats | null): void {
+    const host = this.getHost();
+    const zoom = stats?.adsZoom ?? 1;
+    const scope = !!stats?.scope;
+    const adsTime = stats?.adsTime ?? -1;
+    if (adsTime !== this.adsTimeSent && adsTime > 0) {
+      this.adsTimeSent = adsTime;
+      if (host && typeof host.setAdsTime === 'function') host.setAdsTime(adsTime);
+    }
     if (this.zoomSent.zoom === zoom && this.zoomSent.scope === scope) return;
     this.zoomSent.zoom = zoom; this.zoomSent.scope = scope;
-    const host = this.getHost();
     if (host && typeof host.setAimZoom === 'function') host.setAimZoom(zoom, scope);
     this.ctx.bus.emit('weapon:scopeChanged', { zoom, scope });
   }
 
   dispose(): void {
-    for (const s of ['primary', 'secondary'] as Slot[]) this.setSlot(s, null);
+    for (const s of WEAPON_SLOTS) this.setSlot(s, null);
     this.remote.dispose(); this.fx.dispose(); this.grenades.dispose(); this.projectiles.dispose();
   }
 
@@ -237,7 +337,7 @@ export class WeaponSystem implements GameSystem {
     return p as Host;
   }
 
-  private resolveDef(item: ItemInstance, slot: Slot): WeaponDef {
+  private resolveDef(item: ItemInstance, slot: WeaponSlot): WeaponDef {
     const ctx = this.ctx;
     const itemDef = ctx.loot?.getItemDef(item.defId) ?? ctx.inventory?.getDef(item.defId);
     let def: WeaponDef | undefined;
@@ -245,41 +345,108 @@ export class WeaponSystem implements GameSystem {
     if (!def) def = ctx.loot?.getWeaponDef(item.defId);
     if (!def) {
       const d = defaultFor(slot);
-      def = (item.defId === d.id) ? d : (defaultFor(slot === 'primary' ? 'secondary' : 'primary').id === item.defId ? defaultFor(slot === 'primary' ? 'secondary' : 'primary') : d);
+      const other = defaultFor(slot === 'secondary' ? 'primary' : 'secondary');
+      def = item.defId === other.id ? other : d;
     }
     return def;
   }
 
-  private onLoadout(primary: ItemInstance | null, secondary: ItemInstance | null): void {
+  /** Graded + socketed stats for the instance (loot service), else derived from the bare def. */
+  private resolveStats(inst: ItemInstance, def: WeaponDef): EffectiveWeaponStats {
+    const loot = this.ctx.loot;
+    let stats: EffectiveWeaponStats | null = null;
+    if (loot && typeof loot.getEffectiveStats === 'function') {
+      try { stats = loot.getEffectiveStats(inst); } catch { stats = null; }
+      if (!stats) { try { stats = loot.getEffectiveStats(def.id); } catch { stats = null; } }
+    }
+    return stats ?? statsFromDef(def);
+  }
+
+  /** Attachment visuals from the instance's sockets (`att_brake`, `att_laser`, …) via the item defs. */
+  private attachmentsFor(inst: ItemInstance): WeaponAttachmentVisuals {
+    const out: WeaponAttachmentVisuals = {};
+    const sockets = inst.sockets;
+    if (!sockets) return out;
+    const loot = this.ctx.loot, inv = this.ctx.inventory;
+    for (const key of Object.keys(sockets) as SocketSlot[]) {
+      const att = sockets[key];
+      if (!att) continue;
+      const def: ItemDef | undefined = loot?.getItemDef(att.defId) ?? inv?.getDef(att.defId);
+      const socket: SocketSlot = def?.attachment?.socket ?? key;
+      const id = att.defId.toLowerCase();
+      switch (socket) {
+        case 'muzzle': out.muzzle = id.includes('comp') ? 'comp' : id.includes('choke') ? 'choke' : 'brake'; break;
+        case 'grip': out.grip = id.includes('angled') ? 'angled' : 'vertical'; break;
+        case 'sight': out.sight = (def?.attachment?.effects.laser || id.includes('laser')) ? 'laser' : 'scope'; break;
+        case 'mag': out.mag = true; break;
+        case 'stock': out.stock = true; break;
+      }
+    }
+    return out;
+  }
+
+  private onLoadout(items: Record<WeaponSlot, ItemInstance | null>): void {
     this.loadoutWait = -1;
-    const items: Record<Slot, ItemInstance | null> = { primary, secondary };
-    for (const slot of ['primary', 'secondary'] as Slot[]) {
+    for (const slot of WEAPON_SLOTS) {
       const item = items[slot];
       const cur = this.slots[slot];
-      if (!item) { if (cur) this.setSlot(slot, null); continue; }
-      if (cur && cur.uid === item.uid) continue;
+      if (!item) { if (cur) { this.flush(cur); this.setSlot(slot, null); } continue; }
+      if (cur && cur.uid === item.uid) {
+        // same weapon, possibly a fresh instance object → keep the inventory's reference and re-read its stats
+        if (cur.inst !== item) cur.inst = item;
+        cur.stats = this.resolveStats(item, cur.def);
+        cur.model.setAttachments(this.attachmentsFor(item));
+        continue;
+      }
+      if (cur) this.flush(cur);
       const def = this.resolveDef(item, slot);
-      this.setSlot(slot, { uid: item.uid, slot, def, model: new WeaponModel(def) });
-      if (!this.ammo.has(item.uid)) this.ammo.set(item.uid, { ammoInMag: def.magSize, reserveRounds: def.magSize * def.reserveMags });
+      const stats = this.resolveStats(item, def);
+      const model = new WeaponModel(def);
+      model.setAttachments(this.attachmentsFor(item));
+      this.setSlot(slot, { uid: item.uid, slot, def, inst: item, stats, model });
+      this.initInstanceFields(this.slots[slot]!);
     }
     // make sure something usable is in hand
     if (!this.slots[this.active]) {
-      const other: Slot = this.active === 'primary' ? 'secondary' : 'primary';
-      if (this.slots[other]) this.active = other;
+      const next = this.nextOccupied(this.active);
+      if (next) this.active = next;
     }
+    if (this.prevActive && !this.slots[this.prevActive]) this.prevActive = null;
     if (this.phase === 'reloading') this.cancelReload();
     if (this.phase === 'swapping') { this.phase = 'ready'; }
     this.attachActive(true);
     this.emitGrenadeCount();
   }
 
-  private setSlot(slot: Slot, inst: WeaponInstance | null): void {
+  /** `ammoInMag` / `durability` undefined on the instance → treat as full (loot normally initialises both). */
+  private initInstanceFields(w: WeaponInstance): void {
+    if (w.inst.ammoInMag === undefined) w.inst.ammoInMag = w.stats.magSize;
+    if (w.inst.durability === undefined) w.inst.durability = w.stats.maxDurability;
+  }
+
+  private setSlot(slot: WeaponSlot, inst: WeaponInstance | null): void {
     const cur = this.slots[slot];
     if (cur) {
       if (this.attachedModel === cur.model) { cur.model.root.removeFromParent(); this.attachedModel = null; }
       cur.model.dispose();
     }
     this.slots[slot] = inst;
+  }
+
+  /** Next occupied slot after `from` in 1 → 2 → 3 order (wrapping), or null. */
+  private nextOccupied(from: WeaponSlot): WeaponSlot | null {
+    const i = WEAPON_SLOTS.indexOf(from);
+    for (let k = 1; k < WEAPON_SLOTS.length; k++) {
+      const s = WEAPON_SLOTS[(i + k) % WEAPON_SLOTS.length];
+      if (this.slots[s]) return s;
+    }
+    return null;
+  }
+
+  /** Q: the previously active slot when it still holds a weapon, else the next occupied slot. */
+  private quickSwapTarget(): WeaponSlot | null {
+    if (this.prevActive && this.prevActive !== this.active && this.slots[this.prevActive]) return this.prevActive;
+    return this.nextOccupied(this.active);
   }
 
   /** Parent the active weapon model to the hand socket and announce it. */
@@ -299,11 +466,21 @@ export class WeaponSystem implements GameSystem {
       weapon.model.setBolt(-1);
       this.boltTimer = 0;
     }
-    this.applyAimZoom(this.holstered ? null : weapon.def);
+    if (this.quick) {
+      // a consumable is in hand: the gun stays parented but drawn down, no zoom, no `weapon:equipped`
+      if (this.quickHolsterT <= 0) weapon.model.setDraw(0);
+      this.applyAimZoom(null);
+      return;
+    }
+    this.applyAimZoom(this.holstered ? null : weapon.stats);
     if (announce) {
-      const a = this.ammoFor(weapon);
-      this.ctx.bus.emit('weapon:equipped', { slot: this.active, weaponId: weapon.def.id, name: weapon.def.name, magSize: weapon.def.magSize, ammoInMag: a.ammoInMag, reserveRounds: a.reserveRounds });
-      this.emitAmmo(weapon, a);
+      const st = weapon.stats;
+      this.ctx.bus.emit('weapon:equipped', {
+        slot: this.active, weaponId: st.weaponId, name: weapon.def.name, magSize: st.magSize,
+        ammoInMag: this.magOf(weapon), reserveRounds: this.reserveOf(weapon),
+      });
+      this.emitAmmo(weapon);
+      this.emitDurability(weapon);
     }
   }
 
@@ -312,40 +489,157 @@ export class WeaponSystem implements GameSystem {
     this.applyAimZoom(null);
   }
 
-  private ammoFor(w: WeaponInstance): AmmoState {
-    let a = this.ammo.get(w.uid);
-    if (!a) { a = { ammoInMag: w.def.magSize, reserveRounds: w.def.magSize * w.def.reserveMags }; this.ammo.set(w.uid, a); }
-    return a;
+  /* ─────────────────────────── ammo / durability state (lives on the ItemInstance) ─────────────────────────── */
+  private magOf(w: WeaponInstance): number {
+    const v = w.inst.ammoInMag;
+    return v === undefined ? w.stats.magSize : Math.max(0, v);
   }
 
-  private emitAmmo(w: WeaponInstance, a: AmmoState): void {
-    this.ctx.bus.emit('weapon:ammoChanged', { weaponId: w.def.id, ammoInMag: a.ammoInMag, magSize: w.def.magSize, reserveRounds: a.reserveRounds });
+  private durabilityOf(w: WeaponInstance): number {
+    const v = w.inst.durability;
+    return v === undefined ? w.stats.maxDurability : Math.max(0, v);
+  }
+
+  /** Rounds of the weapon's calibre in the bag (v2); dev fallback without an inventory = `magSize × reserveMags`. */
+  private reserveOf(w: WeaponInstance): number {
+    const inv = this.ctx.inventory;
+    if (inv) {
+      const type = w.stats.ammoType;
+      return inv.countWhere((d) => d.category === 'ammo' && d.ammoType === type);
+    }
+    let r = this.fallbackReserve.get(w.uid);
+    if (r === undefined) { r = w.def.magSize * w.def.reserveMags; this.fallbackReserve.set(w.uid, r); }
+    return r;
+  }
+
+  /**
+   * Persist `ammoInMag` / `durability` through the inventory so it emits `inventory:itemUpdated` for the HUD / bag UI.
+   * The fields are already written on the shared instance; `selfWriting` makes us ignore the echoed events.
+   */
+  private persist(w: WeaponInstance, patch: { durability?: number; ammoInMag?: number }): void {
+    const inv = this.ctx.inventory;
+    if (!inv || typeof inv.updateItem !== 'function') return;
+    this.selfWriting = true;
+    try { inv.updateItem(w.uid, patch); } finally { this.selfWriting = false; }
+  }
+
+  private flush(w: WeaponInstance): void {
+    this.persist(w, { ammoInMag: this.magOf(w), durability: this.durabilityOf(w) });
+  }
+
+  private flushAll(): void {
+    for (const s of WEAPON_SLOTS) { const w = this.slots[s]; if (w) this.flush(w); }
+  }
+
+  private emitAmmo(w: WeaponInstance): void {
+    this.ctx.bus.emit('weapon:ammoChanged', { weaponId: w.stats.weaponId, ammoInMag: this.magOf(w), magSize: w.stats.magSize, reserveRounds: this.reserveOf(w) });
+  }
+
+  private emitDurability(w: WeaponInstance): void {
+    this.ctx.bus.emit('weapon:durabilityChanged', { uid: w.uid, weaponId: w.stats.weaponId, durability: this.durabilityOf(w), max: w.stats.maxDurability });
+  }
+
+  private findByUid(uid: string): WeaponInstance | null {
+    for (const s of WEAPON_SLOTS) { const w = this.slots[s]; if (w && w.uid === uid) return w; }
+    return null;
+  }
+
+  /** `inventory:itemUpdated` (repair at the workbench, unload, external edits): adopt the instance and re-announce. */
+  private onItemUpdated(item: ItemInstance): void {
+    if (this.selfWriting) return;
+    const w = this.findByUid(item.uid);
+    if (!w) return;
+    if (w.inst !== item) {
+      // a different object for the same uid → mirror the persistent fields onto ours and adopt it
+      w.inst = item;
+    }
+    if (w.inst.ammoInMag !== undefined && w.inst.ammoInMag > w.stats.magSize) w.inst.ammoInMag = w.stats.magSize;
+    this.emitDurability(w);
+    if (w === this.slots[this.active]) this.emitAmmo(w);
+  }
+
+  /** `inventory:socketChanged`: stats (mag size, spread, zoom, …) and the attachment meshes change. */
+  private onSocketChanged(item: ItemInstance): void {
+    const w = this.findByUid(item.uid);
+    if (!w) return;
+    if (w.inst !== item) w.inst = item;
+    w.stats = this.resolveStats(w.inst, w.def);
+    w.model.setAttachments(this.attachmentsFor(w.inst));
+    // a smaller magazine (extended mag removed) → hand the excess rounds back to the bag when possible
+    const mag = this.magOf(w);
+    if (mag > w.stats.magSize) {
+      const excess = mag - w.stats.magSize;
+      w.inst.ammoInMag = w.stats.magSize;
+      this.returnRounds(w, excess);
+      this.persist(w, { ammoInMag: w.inst.ammoInMag });
+    }
+    if (w === this.slots[this.active]) {
+      if (!this.holstered) this.applyAimZoom(w.stats);
+      this.emitAmmo(w);
+    }
+    this.emitDurability(w);
+  }
+
+  /** Try to put `rounds` of the weapon's calibre back into the bag (best effort; leftovers are lost). */
+  private returnRounds(w: WeaponInstance, rounds: number): void {
+    const loot = this.ctx.loot, inv = this.ctx.inventory;
+    if (!loot || !inv || rounds <= 0) return;
+    const type = w.stats.ammoType;
+    const ammoDef = loot.getAllItemDefs().find((d) => d.category === 'ammo' && d.ammoType === type);
+    if (!ammoDef) return;
+    let left = rounds;
+    while (left > 0) {
+      const n = Math.min(left, Math.max(1, ammoDef.stackMax));
+      if (!inv.tryAddItem(loot.createItem(ammoDef.id, n))) break;
+      left -= n;
+    }
+  }
+
+  /** Bag contents changed (ammo picked up / dropped / consumed) → refresh the reserve on the HUD. */
+  private onInventoryChanged(): void {
+    if (this.selfWriting || this.quickBusy) return;
+    const w = this.slots[this.active];
+    if (w && !this.holstered && !this.quick) this.emitAmmo(w);
+    if (this.quick) this.emitGrenadeCount();
   }
 
   /* ─────────────────────────── swap ─────────────────────────── */
-  private requestSwap(slot: Slot): void {
+  private requestSwap(slot: WeaponSlot | null): void {
     if (this.phase === 'swapping') return;
-    if (!this.slots[slot]) return;
-    if (slot === this.active && this.attachedModel) return;
+    if (!slot || !this.slots[slot]) {
+      this.ctx.bus.emit('audio:play', { id: 'ui_deny', volume: 0.4 });
+      return;
+    }
+    const fromQuick = !!this.quick;
+    if (slot === this.active && this.attachedModel && !fromQuick) return;
+    if (fromQuick) this.leaveQuick();
     if (this.phase === 'reloading') this.cancelReload();
+    const cur = this.slots[this.active];
+    if (cur) this.flush(cur);
     this.phase = 'swapping';
     this.boltTimer = 0; this.boltSoundTimer = 0;
-    this.slots[this.active]?.model.setBolt(-1);
+    cur?.model.setBolt(-1);
     this.swapTimer = 0;
     this.swapTarget = slot;
     this.swapSwitched = false;
+    const target = this.slots[slot]!;
+    this.swapDuration = Math.max(0.05, target.stats.swapTime || (slot === 'secondary' ? WEAPON_SWAP_TIME_SECONDARY : WEAPON_SWAP_TIME_PRIMARY));
+    // coming from a consumable the gun is already drawn down: skip the holster half, play the draw half only
+    if (fromQuick) this.swapTimer = this.swapDuration * 0.5;
+    this.ctx.bus.emit('weapon:swapStarted', { slot, duration: fromQuick ? this.swapDuration * 0.5 : this.swapDuration });
     this.ctx.bus.emit('audio:play', { id: 'weapon_swap', volume: 0.6 });
   }
 
   private updateSwap(dt: number): void {
     this.swapTimer += dt;
-    const t = Math.min(1, this.swapTimer / SWAP_TIME);
+    const t = Math.min(1, this.swapTimer / this.swapDuration);
     const cur = this.slots[this.active];
     if (t < 0.5) {
       if (cur && this.attachedModel === cur.model) cur.model.setDraw(1 - t * 2);
     } else {
       if (!this.swapSwitched) {
         this.swapSwitched = true;
+        if (this.swapTarget !== this.active) this.prevActive = this.active;
         this.active = this.swapTarget;
         this.attachActive(true);
         this.slots[this.active]?.model.setDraw(0);
@@ -356,36 +650,23 @@ export class WeaponSystem implements GameSystem {
   }
 
   /* ─────────────────────────── reload ─────────────────────────── */
-  private tryReload(w: WeaponInstance, a: AmmoState): void {
+  private tryReload(w: WeaponInstance): void {
     if (this.phase !== 'ready') return;
-    if (a.ammoInMag >= w.def.magSize) return;
-    if (a.reserveRounds <= 0) {
-      const inv = this.ctx.inventory;
-      let refilled = false;
-      if (inv) {
-        const n = inv.consumeWhere((d) => d.category === 'ammo' && d.ammoType === w.def.ammoType, 1);
-        refilled = n > 0;
-      } else {
-        refilled = true; // dev fallback: infinite packs
-      }
-      if (!refilled) {
-        this.ctx.bus.emit('ui:notify', { text: '탄약 없음', kind: 'warning', duration: 1.2 });
-        this.ctx.bus.emit('audio:play', { id: 'ui_deny', volume: 0.5 });
-        return;
-      }
-      a.reserveRounds = w.def.magSize * w.def.reserveMags;
-      this.ctx.bus.emit('ui:notify', { text: '탄약 보충', kind: 'info', duration: 1.0 });
-      this.emitAmmo(w, a);
+    if (this.magOf(w) >= w.stats.magSize) return;
+    if (this.reserveOf(w) <= 0) {
+      this.ctx.bus.emit('ui:notify', { text: '탄약 없음', kind: 'warning', duration: 1.2 });
+      this.ctx.bus.emit('audio:play', { id: 'ui_deny', volume: 0.5 });
+      return;
     }
     this.phase = 'reloading';
     this.reloadTimer = 0;
-    this.reloadDuration = w.def.reloadTime;
+    this.reloadDuration = Math.max(0.2, w.stats.reloadTime);
     this.boltTimer = 0; this.boltSoundTimer = 0;
     w.model.setBolt(-1);
     w.model.setReload(0);
-    this.ctx.bus.emit('weapon:reloadStarted', { weaponId: w.def.id, duration: w.def.reloadTime });
+    this.ctx.bus.emit('weapon:reloadStarted', { weaponId: w.stats.weaponId, duration: this.reloadDuration });
     this.ctx.bus.emit('audio:play', { id: 'reload', volume: 0.8 });
-    if (this.ctx.isMultiplayer && this.ctx.net) this.ctx.net.send({ t: 'reload', w: w.def.id });
+    if (this.ctx.isMultiplayer && this.ctx.net) this.ctx.net.send({ t: 'reload', w: w.stats.weaponId });
   }
 
   private updateReload(dt: number): void {
@@ -395,15 +676,24 @@ export class WeaponSystem implements GameSystem {
     const t = Math.min(1, this.reloadTimer / this.reloadDuration);
     w.model.setReload(t);
     if (t >= 1) {
-      const a = this.ammoFor(w);
-      const need = w.def.magSize - a.ammoInMag;
-      const n = Math.min(need, a.reserveRounds);
-      a.ammoInMag += n; a.reserveRounds -= n;
+      const need = Math.max(0, w.stats.magSize - this.magOf(w));
+      let n = 0;
+      const inv = this.ctx.inventory;
+      if (inv) {
+        const type = w.stats.ammoType;
+        n = need > 0 ? inv.consumeWhere((d) => d.category === 'ammo' && d.ammoType === type, need) : 0;
+      } else {
+        const r = this.reserveOf(w);
+        n = Math.min(need, r);
+        this.fallbackReserve.set(w.uid, r - n);
+      }
+      w.inst.ammoInMag = this.magOf(w) + n;
       w.model.setReload(-1);
       this.phase = 'ready';
-      this.ctx.bus.emit('weapon:reloadFinished', { weaponId: w.def.id });
+      this.persist(w, { ammoInMag: w.inst.ammoInMag });
+      this.ctx.bus.emit('weapon:reloadFinished', { weaponId: w.stats.weaponId });
       this.ctx.bus.emit('audio:play', { id: 'reload_done', volume: 0.7 });
-      this.emitAmmo(w, a);
+      this.emitAmmo(w);
     }
   }
 
@@ -413,24 +703,38 @@ export class WeaponSystem implements GameSystem {
   }
 
   /* ─────────────────────────── firing ─────────────────────────── */
-  private fire(host: Host, w: WeaponInstance, a: AmmoState): void {
-    const ctx = this.ctx, def = w.def;
-    a.ammoInMag--;
-    this.cooldown += 1 / def.fireRate;
-    if (this.cooldown < 0) this.cooldown = 1 / def.fireRate;
+  /** Trigger pulled on a weapon with 0 durability: click, event, throttled toast. Nothing fires. */
+  private onBrokenTrigger(w: WeaponInstance): void {
+    const ctx = this.ctx;
+    ctx.bus.emit('weapon:broken', { uid: w.uid, weaponId: w.stats.weaponId });
+    ctx.bus.emit('audio:play', { id: 'dry_fire', volume: 0.6 });
+    if (ctx.time - this.brokenNotifyAt >= BROKEN_NOTIFY_INTERVAL) {
+      this.brokenNotifyAt = ctx.time;
+      ctx.bus.emit('ui:notify', { text: '내구도 소진 — 함선에서 수리 필요', kind: 'warning', duration: 1.6 });
+    }
+  }
+
+  private fire(host: Host, w: WeaponInstance): void {
+    const ctx = this.ctx, def = w.def, st = w.stats;
+    // ── ammo + durability (one write per trigger pull; shotgun pellets count once)
+    w.inst.ammoInMag = this.magOf(w) - 1;
+    w.inst.durability = Math.max(0, this.durabilityOf(w) - WEAPON_DURABILITY_PER_SHOT);
+    this.persist(w, { ammoInMag: w.inst.ammoInMag, durability: w.inst.durability });
+    this.cooldown += 1 / st.fireRate;
+    if (this.cooldown < 0) this.cooldown = 1 / st.fireRate;
     this.firingTimer = FIRING_POSE_HOLD;
 
-    const cls = weaponClassOf(def);
+    const cls = st.weaponClass;
     const aim = host.isAiming ? 1 : 0;
     const moving = host.velocity.lengthSq() > 0.5;
     const stance = STANCE_ACCURACY[host.stance ?? 'stand'] ?? STANCE_ACCURACY.stand;
     const stanceMul = stance[aim];
     const moveMul = host.isSprinting ? SPRINT_SPREAD_MUL : moving ? MOVING_SPREAD_MUL : 1;
-    const spread = THREE.MathUtils.lerp(def.spread, def.adsSpread, aim) * stanceMul * (1 + this.bloom * 1.6) * moveMul;
+    const spread = THREE.MathUtils.lerp(st.spread, st.adsSpread, aim) * stanceMul * (1 + this.bloom * 1.6) * moveMul;
     this.bloom = Math.min(1, this.bloom + BLOOM_PER_SHOT);
     // bolt-action: lock the trigger for the cycle and animate the bolt
     if (cls === 'SR') {
-      this.boltDuration = Math.max(0.3, 1 / def.fireRate - 0.05);
+      this.boltDuration = Math.max(0.3, 1 / st.fireRate - 0.05);
       this.boltTimer = this.boltDuration;
       this.boltSoundTimer = BOLT_SOUND_DELAY;
       w.model.setBolt(0);
@@ -460,7 +764,7 @@ export class WeaponSystem implements GameSystem {
       if (pellets === 1) _netDir.copy(_md);
 
       if (def.projectileSpeed) {
-        this.projectiles.fire(_muzzle, _md, def.projectileSpeed, def.damage, def.range, def.tracerColor, def.id);
+        this.projectiles.fire(_muzzle, _md, def.projectileSpeed, st.damage, def.range, def.tracerColor, st.weaponId);
         continue;
       }
       this.raycastAll(_muzzle, _md, mdist + 0.05, this.gunHit);
@@ -472,7 +776,7 @@ export class WeaponSystem implements GameSystem {
         fx.tracers.add(_muzzle, end, def.tracerColor, pellets > 1 ? 0.03 : 0.045, len / 420 + 0.045, 420);
       }
       if (hit) {
-        const dmg = def.damage * damageFalloff(def, _muzzle.distanceTo(hit.point));
+        const dmg = st.damage * damageFalloff(def, _muzzle.distanceTo(hit.point));
         const r = this.applyHit(hit, dmg, _md, pellets > 1);
         anyHit = true;
         if (hit.enemy) { anyEnemy = true; if (hit.headshot) anyHead = true; }
@@ -488,14 +792,16 @@ export class WeaponSystem implements GameSystem {
     _right.set(1, 0, 0).applyQuaternion(_mq);
     if (kindOf(def) !== 'energy') this.fx.casing(_tmp, _right, host.position.y);
     w.model.kick(pellets > 1 ? 2.2 : cls === 'SR' ? 2.6 : 1);
-    const kick = def.recoil * (0.85 + Math.random() * 0.3) * stanceMul;
-    host.addRecoil(kick, (Math.random() - 0.5) * def.recoil * 0.7 * stanceMul);
+    const kick = st.recoilV * (0.85 + Math.random() * 0.3) * stanceMul;
+    // horizontal: same ± random as before (items' recoilH = recoil × 0.7, the old constant)
+    host.addRecoil(kick, (Math.random() - 0.5) * st.recoilH * stanceMul);
     if (cls === 'SR') ctx.bus.emit('camera:shake', { intensity: 0.35, duration: 0.18 });
 
-    ctx.bus.emit('weapon:fired', { weaponId: def.id, origin: _muzzle.clone(), direction: _d.clone() });
+    ctx.bus.emit('weapon:fired', { weaponId: st.weaponId, origin: _muzzle.clone(), direction: _d.clone() });
     // one message per trigger pull (shotgun pellets are fanned out visually by the receiver)
-    if (ctx.isMultiplayer && ctx.net) ctx.net.send({ t: 'fire', w: def.id, o: toTuple(_muzzle), d: toTuple(_netDir) });
-    this.emitAmmo(w, a);
+    if (ctx.isMultiplayer && ctx.net) ctx.net.send({ t: 'fire', w: st.weaponId, o: toTuple(_muzzle), d: toTuple(_netDir) });
+    this.emitAmmo(w);
+    this.emitDurability(w);
     ctx.bus.emit('audio:play', { id: shotSoundId(kindOf(def)), position: _muzzle, volume: 1, pitch: shotPitchFor(cls) * (0.95 + Math.random() * 0.1) });
     if (anyEnemy) ctx.bus.emit('ui:hitmarker', { kill: anyKill, headshot: anyHead });
     else if (anyHit && pellets === 1) { /* surface hit: no marker */ }
@@ -536,42 +842,318 @@ export class WeaponSystem implements GameSystem {
   private onProjectileHit(h: ProjectileHit, damage: number, weaponId: string): void {
     this.gunHit.point.copy(h.point); this.gunHit.normal.copy(h.normal); this.gunHit.distance = h.distance;
     this.gunHit.enemy = h.enemy; this.gunHit.obstacle = h.obstacle; this.gunHit.valid = true; this.gunHit.headshot = h.part === 'head';
-    const def = this.slots.primary?.def.id === weaponId ? this.slots.primary.def
-      : this.slots.secondary?.def.id === weaponId ? this.slots.secondary.def : null;
+    let def: WeaponDef | null = null;
+    for (const s of WEAPON_SLOTS) { const w = this.slots[s]; if (w && w.stats.weaponId === weaponId) { def = w.def; break; } }
     const dmg = def ? damage * damageFalloff(def, h.distance) : damage;
     const killed = this.applyHit(this.gunHit, dmg, h.dir, false);
     if (h.enemy) this.ctx.bus.emit('ui:hitmarker', { kill: killed, headshot: this.gunHit.headshot });
   }
 
-  /* ─────────────────────────── grenades ─────────────────────────── */
-  private throwGrenade(host: Host): void {
-    const inv = this.ctx.inventory;
-    let count: number;
-    if (inv) {
-      const n = inv.consumeWhere((d) => d.category === 'grenade', 1);
-      if (n <= 0) {
-        this.ctx.bus.emit('ui:notify', { text: '수류탄 없음', kind: 'warning', duration: 1.2 });
-        this.ctx.bus.emit('audio:play', { id: 'ui_deny', volume: 0.5 });
-        return;
-      }
-      count = inv.countWhere((d) => d.category === 'grenade');
-    } else {
-      if (this.fallbackGrenades <= 0) {
-        this.ctx.bus.emit('ui:notify', { text: '수류탄 없음', kind: 'warning', duration: 1.2 });
-        return;
-      }
-      count = --this.fallbackGrenades;
+  /* ─────────────────────────── quick-use (F): wheel & consumable in hand ─────────────────────────── */
+  /**
+   * F pressed → hold timer. Released before `QUICK_WHEEL_HOLD` = tap (last used consumable, else the first usable slot).
+   * Held longer = wheel: look locked, mouse delta accumulated, hover = 8-way direction once the drag exceeds
+   * `QUICK_WHEEL_DRAG_PX`; release equips the hovered slot.
+   */
+  private updateQuickKey(dt: number, host: Host, usable: boolean): void {
+    const input = this.ctx.input;
+    if (!this.quickKeyHeld) {
+      if (usable && input.wasPressed(Keys.QUICK)) { this.quickKeyHeld = true; this.quickHoldT = 0; }
+      return;
     }
-    host.getAimRay(_o, _d);
-    host.getEyePosition(_tmp);
-    _right.set(Math.cos(host.yaw), 0, -Math.sin(host.yaw));
-    _tmp.addScaledVector(_d, 0.6).addScaledVector(_right, 0.25);
-    _md.copy(_d).multiplyScalar(17).addScaledVector(host.velocity, 0.5);
-    _md.y += 3.5;
-    this.grenades.throw(_tmp, _md);
-    if (this.ctx.isMultiplayer && this.ctx.net) this.ctx.net.send({ t: 'grenade', p: toTuple(_tmp), v: toTuple(_md) });
+    if (!usable) { this.closeWheel(host); this.quickKeyHeld = false; return; }
+    if (!input.isDown(Keys.QUICK)) {
+      // release
+      this.quickKeyHeld = false;
+      if (this.wheelOpen) {
+        const hover = this.wheelHover;
+        this.closeWheel(host);
+        if (hover !== null) this.equipQuick(hover);
+      } else this.quickTap();
+      return;
+    }
+    this.quickHoldT += dt;
+    if (!this.wheelOpen) {
+      if (this.quickHoldT < QUICK_WHEEL_HOLD) return;
+      this.wheelOpen = true;
+      this.wheelDX = 0; this.wheelDY = 0; this.wheelHover = null;
+      host.setLookLocked(true);
+      this.ctx.bus.emit('quick:wheelChanged', { open: true, hover: null });
+      this.ctx.bus.emit('audio:play', { id: 'ui_open', volume: 0.35 });
+      return;
+    }
+    this.wheelDX += input.mouseDX; this.wheelDY += input.mouseDY;
+    let hover: number | null = null;
+    if (this.wheelDX * this.wheelDX + this.wheelDY * this.wheelDY >= QUICK_WHEEL_DRAG_PX * QUICK_WHEEL_DRAG_PX) {
+      // 0 = N (up), clockwise; screen y grows downward
+      const ang = Math.atan2(this.wheelDX, -this.wheelDY);
+      const idx = ((Math.round(ang / (Math.PI / 4)) % QUICK_SLOTS) + QUICK_SLOTS) % QUICK_SLOTS;
+      hover = this.quickSlotItem(idx) ? idx : null;
+    }
+    if (hover !== this.wheelHover) {
+      this.wheelHover = hover;
+      this.ctx.bus.emit('quick:wheelChanged', { open: true, hover });
+      if (hover !== null) this.ctx.bus.emit('audio:play', { id: 'ui_click', volume: 0.3 });
+    }
+  }
+
+  private closeWheel(host: Host): void {
+    if (!this.wheelOpen) return;
+    this.wheelOpen = false; this.wheelHover = null;
+    host.setLookLocked(false);
+    this.ctx.bus.emit('quick:wheelChanged', { open: false, hover: null });
+  }
+
+  /** F tap: the last used consumable (else the first usable slot) into the hand; the same item again → back to the gun. */
+  private quickTap(): void {
+    let index: number | null = null;
+    if (this.lastQuickIndex !== null && this.quickSlotItem(this.lastQuickIndex)) index = this.lastQuickIndex;
+    else {
+      for (const i of QUICK_SLOT_UNLOCK_ORDER) if (this.quickSlotItem(i)) { index = i; break; }
+    }
+    if (index === null) { this.deny(); return; }
+    if (this.quick && this.quick.index === index) { this.returnToGun(); return; }
+    this.equipQuick(index);
+  }
+
+  private deny(): void { this.ctx.bus.emit('audio:play', { id: 'ui_deny', volume: 0.4 }); }
+
+  private quickSlotCount(): number {
+    const inv = this.ctx.inventory;
+    if (!inv || typeof inv.getQuickSlotCount !== 'function') return 0;
+    return Math.min(QUICK_SLOTS, inv.getQuickSlotCount());
+  }
+
+  /**
+   * Usable consumable (stim / grenade) in wheel slot `index`, or null (empty, slot locked for the bag's quick-slot
+   * count — see `isQuickSlotActive` / `QUICK_SLOT_UNLOCK_ORDER` —, wrong category).
+   */
+  private quickSlotItem(index: number): { item: ItemInstance; def: ItemDef } | null {
+    const inv = this.ctx.inventory;
+    if (!inv || typeof inv.getQuickSlots !== 'function' || !isQuickSlotActive(index, this.quickSlotCount())) return null;
+    const item = inv.getQuickSlots()[index];
+    if (!item || item.qty <= 0) return null;
+    const def = this.ctx.loot?.getItemDef(item.defId) ?? inv.getDef(item.defId);
+    if (!def || !QUICK_USABLE_CATEGORIES.includes(def.category)) return null;
+    return { item, def };
+  }
+
+  /** Take wheel slot `index` into the hand (`active = 'quick'`): gun drawn down, one-handed pose, `quick:equipped`. */
+  private equipQuick(index: number): void {
+    const host = this.getHost();
+    const slot = this.quickSlotItem(index);
+    if (!host || !slot) { this.deny(); return; }
+    if (this.quick && this.quick.uid === slot.item.uid) return;
+    // leaving a grenade hold for another item: a pulled pin is dropped at the feet, otherwise nothing happens
+    if (this.holding) this.cancelHold(host);
+    if (this.phase === 'reloading') this.cancelReload();
+    if (this.phase === 'swapping') { this.phase = 'ready'; this.active = this.swapTarget; this.attachActive(false); }
+    const cur = this.slots[this.active];
+    if (cur) { this.flush(cur); cur.model.setBolt(-1); cur.model.setReload(-1); }
+    this.boltTimer = 0; this.boltSoundTimer = 0; this.dryFlagged = false;
+    const first = !this.quick;
+    this.quick = { index, uid: slot.item.uid, defId: slot.item.defId, item: slot.item, def: slot.def, kind: slot.def.category as QuickKind };
+    this.lastQuickIndex = index;
+    this.quickHolsterT = first && this.attachedModel ? QUICK_HOLSTER_TIME : 0;
+    if (!first) this.attachedModel?.setDraw(0);
+    this.applyAimZoom(null);
+    this.ctx.bus.emit('quick:equipped', { index, item: slot.item });
+    this.ctx.bus.emit('audio:play', { id: 'weapon_swap', volume: 0.45 });
+  }
+
+  /** Gun draw-down after taking a consumable (0.15 s), then the model hides itself (`drawT` ≤ 0.02). */
+  private updateQuickHolster(dt: number): void {
+    if (!this.quick || this.quickHolsterT <= 0) return;
+    this.quickHolsterT -= dt;
+    this.attachedModel?.setDraw(Math.max(0, this.quickHolsterT / QUICK_HOLSTER_TIME));
+  }
+
+  /** Clear the hand state (no swap, no events beyond `quick:equipped null`); the caller draws a gun or announces empty. */
+  private leaveQuick(): void {
+    if (!this.quick) return;
+    if (this.holding) { const h = this.getHost(); if (h) this.cancelHold(h); }
+    this.quick = null;
+    this.quickHolsterT = 0;
+    this.ctx.bus.emit('quick:equipped', { index: null, item: null });
+  }
+
+  /** Back to the gun that was in hand before the consumable (else the next occupied slot, else empty hands). */
+  private returnToGun(): void {
+    if (!this.quick) return;
+    const target = this.slots[this.active] ? this.active : this.nextOccupied(this.active);
+    if (!target) { this.leaveQuick(); this.emitEmpty(); return; }
+    this.requestSwap(target);
+  }
+
+  /**
+   * Hard exit from the hand state on world reset / abort / holster: the hold ends without a throw (the grenade pool is
+   * cleared right after anyway), the gun model comes back instantly without a swap animation.
+   */
+  private dropQuick(): void {
+    this.quickKeyHeld = false;
+    const host = this.getHost();
+    if (host) this.closeWheel(host);
+    if (!this.quick) return;
+    this.endHold(true);
+    this.quick = null;
+    this.quickHolsterT = 0;
+    this.attachedModel?.setDraw(1);
+    this.ctx.bus.emit('quick:equipped', { index: null, item: null });
+  }
+
+  /**
+   * `inventory:quickSlotsChanged`: the consumable in hand vanished (dropped, moved, consumed elsewhere) → back to the
+   * gun. A sibling stack of the same def that the inventory relinked into the slot is adopted instead.
+   */
+  private onQuickSlotsChanged(slots: readonly (ItemInstance | null)[]): void {
+    if (!this.quick || this.quickBusy) return;
+    if (!this.adoptSlot(slots[this.quick.index])) this.returnToGun();
+  }
+
+  /** Keep the hand on `cur` when it is our stack (or a same-def sibling stack); false when the slot no longer fits. */
+  private adoptSlot(cur: ItemInstance | null | undefined): boolean {
+    const q = this.quick;
+    if (!q || !cur || cur.qty <= 0 || cur.defId !== q.defId || !isQuickSlotActive(q.index, this.quickSlotCount())) return false;
+    q.uid = cur.uid; q.item = cur;
+    return true;
+  }
+
+  /** LMB / R / RMB while a consumable is in hand. */
+  private updateQuickHand(dt: number, host: Host, usable: boolean, inputFree: boolean): void {
+    const q = this.quick!;
+    const input = this.ctx.input;
+    if (this.holding) {
+      if (!usable) { this.cancelHold(host); if (this.quick && !this.quickSlotItem(q.index)) this.returnToGun(); return; }
+      this.updateHold(dt, host, q);
+      return;
+    }
+    if (!inputFree || this.quickCooldown > 0 || this.quickHolsterT > 0) return;
+    if (!input.wasMousePressed(MouseButtons.FIRE)) return;
+    if (q.kind === 'stim') this.useStim(host, q);
+    else this.beginHold();
+  }
+
+  /* ── stim ── */
+  private useStim(host: Host, q: QuickHand): void {
+    if (host.hp >= host.maxHp) { this.deny(); return; }
+    const remaining = this.consumeQuick(q);
+    if (remaining < 0) { this.deny(); return; }
+    this.quickCooldown = QUICK_USE_COOLDOWN;
+    this.firingTimer = FIRING_POSE_HOLD * 0.5;
+    host.applyStim(q.def.healAmount ?? 50);
+    this.ctx.bus.emit('quick:used', { index: q.index, item: q.item, remaining });
+    if (remaining <= 0) this.returnToGun();
+  }
+
+  /**
+   * Take one unit of the consumable in hand out of the bag. Returns the stack left (0 = gone) or −1 when nothing
+   * could be consumed. The echoed `inventory:quickSlotsChanged` is ignored (`quickBusy`) so the `quick:used` event
+   * goes out before we return to the gun.
+   */
+  private consumeQuick(q: QuickHand): number {
+    const inv = this.ctx.inventory;
+    if (!inv || typeof inv.consumeItem !== 'function') return -1;
+    let n = 0;
+    this.quickBusy = true;
+    try { n = inv.consumeItem(q.uid, 1); } finally { this.quickBusy = false; }
+    if (n < 1) return -1;
+    // at 0 the inventory relinks the slot to a sibling stack of the same def when it has one → keep it in hand
+    const cur = typeof inv.getQuickSlots === 'function' ? inv.getQuickSlots()[q.index] : null;
+    const remaining = this.adoptSlot(cur) ? Math.max(0, cur!.qty) : 0;
+    if (q.kind === 'grenade') this.emitGrenadeCount();
+    return remaining;
+  }
+
+  /* ── grenade hold ── */
+  private fuseLeft(): number {
+    return this.cooking ? Math.max(GRENADE_MIN_FUSE, GRENADE_FUSE - this.cooked) : GRENADE_FUSE;
+  }
+
+  private emitHold(): void {
+    this.ctx.bus.emit('grenade:holdChanged', { holding: this.holding, cooking: this.cooking, cooked: this.cooked, fuse: this.fuseLeft(), underhand: this.underhand });
+  }
+
+  private beginHold(): void {
+    this.holding = true; this.cooking = false; this.cooked = 0;
+    this.emitHold();
+  }
+
+  private updateHold(dt: number, host: Host, q: QuickHand): void {
+    const input = this.ctx.input;
+    if (!input.isMouseDown(MouseButtons.FIRE)) { this.throwHeld(host, q, false); return; }
+    let changed = false;
+    if (!this.cooking && input.wasPressed(Keys.RELOAD)) {
+      this.cooking = true; this.cooked = 0; changed = true;
+      this.ctx.bus.emit('audio:play', { id: 'ui_click', volume: 0.7 });
+    }
+    if (input.wasMousePressed(MouseButtons.AIM)) { this.underhand = !this.underhand; changed = true; }
+    if (this.cooking) {
+      this.cooked += dt;
+      if (this.cooked >= GRENADE_COOK_MAX) { this.explodeInHand(host, q); return; }
+      changed = true;
+    }
+    if (changed) this.emitHold();
+  }
+
+  /** LMB released: lob the grenade with the remaining fuse; the stack shrinks by one. */
+  private throwHeld(host: Host, q: QuickHand, dropAtFeet: boolean): void {
+    const fuse = this.fuseLeft();
+    const remaining = this.consumeQuick(q);
+    if (remaining < 0) { this.endHold(true); if (!dropAtFeet) this.returnToGun(); return; }
+    this.handPosition(host, _tmp);
+    if (dropAtFeet) {
+      _md.set(0, 0.5, 0);
+    } else {
+      host.getAimRay(_o, _d);
+      if (this.underhand) {
+        _md.copy(_d).multiplyScalar(GRENADE_THROW_SPEED * GRENADE_UNDERHAND_SPEED_MUL).addScaledVector(host.velocity, 0.5);
+        _md.y = Math.max(_md.y * 0.5, 0) + GRENADE_UNDERHAND_LIFT;
+      } else {
+        _md.copy(_d).multiplyScalar(GRENADE_THROW_SPEED).addScaledVector(host.velocity, 0.5);
+        _md.y += GRENADE_THROW_LIFT;
+      }
+    }
+    this.grenades.throw(_tmp, _md, false, fuse);
+    if (this.ctx.isMultiplayer && this.ctx.net) this.ctx.net.send({ t: 'grenade', p: toTuple(_tmp), v: toTuple(_md), fuse: Math.round(fuse * 100) / 100 });
     this.firingTimer = FIRING_POSE_HOLD;
-    this.ctx.bus.emit('grenade:countChanged', { count });
+    this.quickCooldown = QUICK_USE_COOLDOWN;
+    this.ctx.bus.emit('quick:used', { index: q.index, item: q.item, remaining });
+    this.endHold(true);
+    if (remaining <= 0 && !dropAtFeet) this.returnToGun();
+  }
+
+  /** Cooked past `GRENADE_COOK_MAX`: the grenade goes off in the hand (self damage included). */
+  private explodeInHand(host: Host, q: QuickHand): void {
+    const remaining = this.consumeQuick(q);
+    this.handPosition(host, _tmp);
+    _md.set(0, 0, 0);
+    this.grenades.throw(_tmp, _md, false, 0);
+    if (this.ctx.isMultiplayer && this.ctx.net) this.ctx.net.send({ t: 'grenade', p: toTuple(_tmp), v: [0, 0, 0], fuse: 0 });
+    this.quickCooldown = QUICK_USE_COOLDOWN;
+    if (remaining >= 0) this.ctx.bus.emit('quick:used', { index: q.index, item: q.item, remaining });
+    this.endHold(true);
+    if (remaining <= 0) this.returnToGun();
+  }
+
+  /** Hold interrupted (swap / holster / death / abort / other item): no throw — unless the pin is pulled, then it drops at the feet. */
+  private cancelHold(host: Host): void {
+    if (!this.holding) return;
+    if (this.cooking && this.quick) this.throwHeld(host, this.quick, true);
+    else this.endHold(true);
+  }
+
+  private endHold(emit: boolean): void {
+    const was = this.holding;
+    this.holding = false; this.cooking = false; this.cooked = 0;
+    if (emit && was) this.emitHold();
+  }
+
+  /** Right hand in front of the shoulder (grenade release point). */
+  private handPosition(host: Host, out: THREE.Vector3): void {
+    host.getAimRay(_o, _d);
+    host.getEyePosition(out);
+    _right.set(Math.cos(host.yaw), 0, -Math.sin(host.yaw));
+    out.addScaledVector(_d, 0.6).addScaledVector(_right, 0.25);
   }
 
   private emitGrenadeCount(): void {
@@ -587,7 +1169,10 @@ export class WeaponSystem implements GameSystem {
     this.remote.clear();
     this.phase = 'ready';
     this.cooldown = 0; this.bloom = 0; this.firingTimer = 0;
+    this.quickCooldown = 0;
     this.boltTimer = 0; this.boltSoundTimer = 0;
+    this.dryFlagged = false;
+    this.endHold(false);
     this.slots[this.active]?.model.setReload(-1);
     this.slots[this.active]?.model.setBolt(-1);
     this.applyAimZoom(null);

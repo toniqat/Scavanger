@@ -5,7 +5,7 @@ import { BoxInteriorCollider } from './InteriorCollider';
 import { Parts, fixture } from './parts';
 import { Starfield, Planet } from './Starfield';
 import { TextPlane } from '../Labels';
-import type { PodSlotDef, ShipInterior, TerminalDef } from './types';
+import type { PodSlotDef, ShipInterior, TerminalDef, WorkbenchDef } from './types';
 
 const ROOM = { minX: -13, maxX: 13, minZ: -7, maxZ: 7 };
 const CEIL = 4.2;
@@ -29,6 +29,7 @@ export class SharedShip implements ShipInterior {
   readonly airlockYaw = yawFromForward(-1, 0);             // walking in toward −X
   readonly pods: PodSlotDef[] = [];
   readonly terminal: TerminalDef;
+  readonly workbench: WorkbenchDef;
 
   private meshes: THREE.Mesh[] = [];
   private lights: THREE.PointLight[] = [];
@@ -128,11 +129,15 @@ export class SharedShip implements ShipInterior {
       col.addBox(x, 0, ROOM.maxZ - 0.4, 2.4, 2.2, 0.6);
     }
     P.lockers(-2.5, ROOM.maxZ - 0.27, 5, 0);
-    // workbench
-    b.boxB(2.6, 0.9, 0.9, 2.5, 0, ROOM.maxZ - 0.7, M.hullDark);
-    b.box(2.7, 0.06, 0.95, 2.5, 0.93, ROOM.maxZ - 0.7, M.gunmetal);
-    b.box(0.5, 0.25, 0.3, 2.0, 1.08, ROOM.maxZ - 0.7, M.crateDark);
-    col.addBox(2.5, 0, ROOM.maxZ - 0.7, 2.6, 1.2, 0.9);
+    // workbench (weapon repair), facing −Z into the deck
+    const wb = P.workbench(2.5, ROOM.maxZ - 0.62, 0);
+    this.workbench = { position: wb.position, yaw: wb.yaw };
+    const wbSign = new TextPlane(0.9, 0.3, 256);
+    wbSign.mesh.position.copy(wb.signPos);
+    wbSign.mesh.rotation.copy(wb.signRot);
+    wbSign.set(['정비'], '#9be8ff', 'rgba(6,8,10,0.85)');
+    r.add(wbSign.mesh);
+    this.screens.push(wbSign);
     P.crates(6.5, ROOM.maxZ - 0.55, 4, 0);
     P.crates(10.0, ROOM.maxZ - 0.55, 2, 0);
     P.crates(ROOM.maxX - 0.6, -4.5, 3, Math.PI / 2);

@@ -50,3 +50,6 @@ The client applies the state by running the normal entry paths in order so GameF
 `liftoff` (the ship is already leaving; the rejoiner is not boarded, keeps its controls and reaches the result
 screen via GameFlow). If a flow is already active locally only the countdown / n-m numbers are refreshed.
 `collectRequired` also skips remote refs flagged `IN_HUB` (peers walking the shared ship never block the liftoff).
+
+## Phase 2 (2026-09-05)
+- Liftoff gate: downed (`PlayerFlags.DOWNED` / `ctx.player.isDowned`) players are treated like dead ones — not required, not counted.

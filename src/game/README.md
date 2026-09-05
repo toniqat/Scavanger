@@ -56,3 +56,11 @@ Import via `@/game` → `GameFlowSystem`.
 - `net:lobbyLeft` (`disconnected` = server gave up / `hostLeft` / `kicked`) during gameplay → toast, `game:abort` after 2 s, then
   `hub:enter {ship: lobby ? 'shared' : 'personal'}` (normally personal — the lobby is gone). Reason `left` (we chose to leave) is ignored.
 - Single-player is untouched: solo aborts still land on the title menu (the title's `함선 탑승` re-enters the personal ship).
+
+## Phase 2 (2026-09-05): death → respawn instead of mission failure
+- `player:died` → `respawnTimer = PLAYER_RESPAWN_DELAY` (30 s) and `game:respawnAvailable {seconds}` once per second (0 = allowed). Solo: after 2.5 s
+  `enterDeadPhase()` → phase `dead` (death screen shown by the UI on the phase change; **no `game:over`**). Squad: phase unchanged (spectate overlay).
+- `game:respawn` (UI, Space / 부활 button) → `onRespawnRequest()`: only while dead and the timer is 0 → phase `deploying` (solo) + `player:respawn {position: world.getPlayerSpawn()}`
+  (player re-drops in the hellpod, inventory reapplies the starter kit). `player:landed` → `playing` as usual.
+- `MISSION_FAILS_WHEN_ALL_DEAD = false`: the host all-dead check (`flow over`) is disabled; `gameOver()` stays only for a legacy `flow over` from an old host.
+  A mission now ends by extraction or abort (함선으로 귀환) only.

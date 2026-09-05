@@ -34,6 +34,10 @@ export interface SoldierPose {
   /** superman dive pose (body horizontal, arms forward, legs back) */
   dive: number;
   /** stepping-out / scripted walk: reuse moveBlend */
+  /** grenade wind-up 0..1: right arm cocked back over the shoulder, torso twisted, slight lean back (Phase 2) */
+  throw: number;
+  /** consumable in the right hand 0..1: one-handed, right forearm raised in front of the chest, left arm free (Phase 2) */
+  holdItem: number;
 }
 
 interface Limb {
@@ -331,6 +335,9 @@ export class SoldierModel {
     const dvW = lie > 0.001 ? dv / (pr + dv) : 0;      // fraction of the lying pose that is the dive
     const crawl = Math.min(1, p.moveBlend * 3) * pr * ground; // crawl cycle strength (prone speed ≈ 0.3 walk)
     const lerp = THREE.MathUtils.lerp;
+    // quick-use poses (item in hand / grenade wind-up) — arms only while upright, fade out while lying
+    const hi = THREE.MathUtils.clamp(p.holdItem ?? 0, 0, 1) * (1 - lie);
+    const th = THREE.MathUtils.clamp(p.throw ?? 0, 0, 1) * (1 - lie);
 
     // ── hips / root bob
     const bob = (Math.abs(Math.sin(phi)) - 0.5) * (0.045 + 0.03 * sp) * mv * ground;
@@ -374,8 +381,9 @@ export class SoldierModel {
     const standLean = -(0.06 * mv + 0.22 * sp * mv + 0.3 * cr) + p.aimPitch * 0.25 * aim + breathe * 0.012 + p.flinch * 0.25 - air * 0.08;
     // prone: chest arched up off the ground (follows aim pitch); dive: flat
     const lieLean = lerp(0.35 + THREE.MathUtils.clamp(p.aimPitch, -0.5, 0.8) * 0.35, 0.1, dvW) + breathe * 0.01;
-    const lean = lerp(standLean, lieLean, lie);
-    const twist = THREE.MathUtils.clamp(p.torsoTwist, -0.6, 0.6) * (1 - aim) * (1 - 0.6 * lie);
+    // throw wind-up: lean back a touch and twist the shoulders to the right (the arm goes back over the shoulder)
+    const lean = lerp(standLean, lieLean, lie) + 0.14 * th;
+    const twist = THREE.MathUtils.clamp(p.torsoTwist, -0.6, 0.6) * (1 - aim) * (1 - 0.6 * lie) - 0.38 * th;
     this.j(this.torso, lean, twist, -hipRoll * 0.5 * (1 - lie), dt, 14);
     this.chestMesh.scale.y = 1 + breathe * 0.012;
 
@@ -424,6 +432,22 @@ export class SoldierModel {
       if (!p.reloading) { rUx -= 0.1 * sp * mv * (1 - aim); }
     }
     rUx += p.flinch * -0.3; lUx += p.flinch * -0.3;
+    if (hi > 0.001) {
+      // item in the right hand: upper arm a little forward, forearm folded up so the hand sits in front of the
+      // chest (weaponSocket = the item); the left arm swings freely like an unarmed walk
+      const iRUx = 0.75 + Math.sin(phi + Math.PI) * armSwing * 0.15, iRUz = -0.2, iRL = 1.75;
+      const iLUx = Math.sin(phi) * armSwing + 0.05 - air * 0.3, iLUz = 0.08 + air * 0.5, iLL = 0.25 + 0.2 * sp;
+      rUx = lerp(rUx, iRUx, hi); rUz = lerp(rUz, iRUz, hi); rL = lerp(rL, iRL, hi);
+      lUx = lerp(lUx, iLUx, hi); lUz = lerp(lUz, iLUz, hi); lL = lerp(lL, iLL, hi);
+    }
+    if (th > 0.001) {
+      // wind-up: right upper arm swung up and back past vertical, elbow folded (hand behind the head);
+      // left arm out front for balance
+      const tRUx = 3.35, tRUz = -0.55, tRL = 1.55;
+      const tLUx = 1.0, tLUz = 0.35, tLL = 0.5;
+      rUx = lerp(rUx, tRUx, th); rUz = lerp(rUz, tRUz, th); rL = lerp(rL, tRL, th);
+      lUx = lerp(lUx, tLUx, th); lUz = lerp(lUz, tLUz, th); lL = lerp(lL, tLL, th);
+    }
     if (lie > 0.001) {
       // prone: upper arms angled down to the ground (elbows planted), forearms up so the weapon
       // points forward along the body axis (upper + lower ≈ π); crawl = alternating reach.

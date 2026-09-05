@@ -155,6 +155,51 @@ export class Parts {
     return { screenPos, screenRot };
   }
 
+  /**
+   * Weapon workbench against a wall: steel table with a drawer block, vise, tool board on the wall behind, lamp strip.
+   * `ry` = facing direction (front toward the room, same convention as the other parts). ~1.9 × 0.75 m footprint,
+   * one collider box. Returns the interaction anchor (0.95 m in front, deck level), the yaw a player looking at the
+   * bench should have, and the transform for a wall sign above the tool board (`TextPlane` added by the caller).
+   */
+  workbench(x: number, z: number, ry: number): { position: THREE.Vector3; yaw: number; signPos: THREE.Vector3; signRot: THREE.Euler } {
+    const fx = -Math.sin(ry), fz = -Math.cos(ry);   // front (toward the room)
+    const sx = Math.cos(ry), sz = -Math.sin(ry);    // sideways (local +X)
+    const b = this.b;
+    // table: legs + top + drawer block
+    for (const s of [-0.85, 0.85]) {
+      b.boxB(0.08, 0.86, 0.6, x + sx * s, 0, z + sz * s, M.gunmetal, ry);
+    }
+    b.boxB(0.7, 0.8, 0.62, x + sx * 0.5, 0.03, z + sz * 0.5, M.hullDark, ry);
+    for (let k = 0; k < 3; k++) b.box(0.55, 0.04, 0.03, x + sx * 0.5 + fx * 0.32, 0.22 + k * 0.25, z + sz * 0.5 + fz * 0.32, M.trim, ry);
+    b.box(1.9, 0.07, 0.75, x, 0.9, z, M.gunmetal, ry);
+    b.box(1.86, 0.02, 0.7, x, 0.945, z, M.hullLight, ry);
+    b.box(1.9, 0.04, 0.05, x + fx * 0.36, 0.905, z + fz * 0.36, M.stripAmber, ry);     // front edge strip
+    // vise (left) + parts tray (right)
+    b.boxB(0.28, 0.16, 0.2, x - sx * 0.55, 0.955, z - sz * 0.55, M.hullDark, ry);
+    b.box(0.34, 0.05, 0.05, x - sx * 0.55, 1.12, z - sz * 0.55, M.hullLight, ry);
+    b.cyl(0.02, 0.02, 0.32, 8, x - sx * 0.55 - fx * 0.12, 1.1, z - sz * 0.55 - fz * 0.12, M.trim, 0, ry, Math.PI / 2);
+    b.boxB(0.42, 0.06, 0.3, x + sx * 0.45, 0.955, z + sz * 0.45, M.crateDark, ry);
+    b.boxB(0.5, 0.12, 0.12, x + sx * 0.05, 0.955, z + sz * 0.05 - fz * 0.18, M.hullDark, ry);   // rifle rest block
+    // wall tool board (behind the bench, above the top)
+    const bx = x - fx * 0.34, bz = z - fz * 0.34;
+    b.box(1.7, 0.9, 0.05, bx, 1.65, bz, M.hullDark, ry);
+    b.box(1.72, 0.03, 0.06, bx, 2.11, bz, M.trim, ry);
+    for (let k = 0; k < 5; k++) {
+      const off = -0.6 + k * 0.3;
+      b.box(0.05, 0.4 + (k % 2) * 0.15, 0.05, bx + sx * off + fx * 0.03, 1.62, bz + sz * off + fz * 0.03, k % 2 ? M.hullLight : M.gunmetal, ry);
+    }
+    b.box(1.2, 0.06, 0.06, bx + fx * 0.1, 2.25, bz + fz * 0.1, M.stripCyan, ry);     // lamp strip
+    // one collider box (yaw-aligned to 90° multiples in practice)
+    const w = 1.95, d = 0.8;
+    this.col.addBox(x, 0, z, Math.abs(Math.cos(ry)) * w + Math.abs(Math.sin(ry)) * d, 1.3, Math.abs(Math.sin(ry)) * w + Math.abs(Math.cos(ry)) * d);
+    const position = new THREE.Vector3(x + fx * 0.95, 0, z + fz * 0.95);
+    // player forward = (−sin yaw, −cos yaw); looking at the bench = −f
+    const yaw = Math.atan2(fx, fz);
+    const signPos = new THREE.Vector3(bx + fx * 0.04, 2.5, bz + fz * 0.04);
+    const signRot = new THREE.Euler(0, ry + Math.PI, 0, 'YXZ');    // PlaneGeometry faces +Z → yaw by ry + π to face `f`
+    return { position, yaw, signPos, signRot };
+  }
+
   /** Small wall-mounted sign strip with a light. */
   signStrip(x: number, y: number, z: number, w: number, mat: THREE.Material, ry = 0): void {
     this.b.box(w, 0.08, 0.04, x, y, z, mat, ry);

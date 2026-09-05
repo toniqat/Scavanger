@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {
   GameContext, Keys, MouseButtons, PLAYER_MAX_HP, PLAYER_MAX_STAMINA, PLAYER_RADIUS, PLAYER_WALK_SPEED,
+  PLAYER_DOWN_HP, PLAYER_DOWN_BLEED_PER_SEC, PLAYER_DOWN_SPEED_MUL, PLAYER_REVIVE_HP, PLAYER_GIVE_UP_HOLD,
   type GameSystem, type PlayerRef, type PlayerWeaponHost, type Interactable, type Stance, type InteriorCollider,
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
@@ -38,11 +39,11 @@ const FADE_NEAR = 0.45;
 const _v = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0), _spawn = new THREE.Vector3();
 const _q = new THREE.Quaternion(), _camPos = new THREE.Vector3(), _camLook = new THREE.Vector3();
 
-interface WeaponState { hasWeapon: boolean; reloading: boolean; firing: boolean; twoHanded: boolean }
+interface WeaponState { hasWeapon: boolean; reloading: boolean; firing: boolean; twoHanded: boolean; throwing: boolean; holdingItem: boolean }
 
 /**
  * Third-person player: controller + camera rig + procedural soldier + health/stims + stamina +
- * stances (C crouch / Z prone / Alt dive) + interaction + hellpod drop.
+ * stances (C crouch / Z prone / Alt dive) + interaction + hellpod drop + downed / revive / respawn (Phase 2).
  * Publishes itself as `ctx.player` (PlayerRef & PlayerWeaponHost).
  */
 export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
@@ -63,7 +64,11 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   private flinch = 0;
   private healPool = 0;
   private healRate = 0;
-  private fallbackStims = 3;
+  // downed (전투불능): hp 0 but not dead — crawling prone while `downHp` bleeds
+  private _downed = false;
+  private _downHp = 0;
+  private bleedAcc = 0;
+  private giveUpHold = 0;
 
   // stamina
   stamina = PLAYER_MAX_STAMINA;
@@ -81,14 +86,20 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   private spawned = false;
   isAiming = false;
   private aimBlend = 0;
+  /** Damp rate for the ADS blend, derived from the active weapon's aim-in time (`setAdsTime`). */
+  private adsRate = 12;
   private scopeHidden = false;
   private crouchBlend = 0;
   private proneBlend = 0;
   private diveBlend = 0;
   private sprintBlend = 0;
+  private throwBlend = 0;
+  private holdItemBlend = 0;
   private bodyYaw = 0;
   private poseRecoil = 0;
-  private weaponState: WeaponState = { hasWeapon: false, reloading: false, firing: false, twoHanded: false };
+  /** weapons holds the mouse for its quick-use wheel: camera ignores mouse deltas while true */
+  private lookLocked = false;
+  private weaponState: WeaponState = { hasWeapon: false, reloading: false, firing: false, twoHanded: false, throwing: false, holdingItem: false };
   private slowTimer = 0;
   private slowFactor = 1;
   private attachedParent: THREE.Object3D | null = null;
@@ -102,6 +113,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   private lastPromptText: string | null = null;
   private lastHoldProgress = -1;
   private interactCooldown = 0;
+  /** A hold interaction needs a fresh E press after one completed (E kept held does not start the next one). */
+  private holdArmed = true;
 
   // scratch
   private readonly moveInput: MoveInput = { x: 0, z: 0, sprint: false, jump: false, stance: 'stand', dive: false, aiming: false };
@@ -110,7 +123,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   private readonly pose: SoldierPose = {
     moveBlend: 0, sprint: 0, stridePhase: 0, crouch: 0, aim: 0, aimPitch: 0, torsoTwist: 0, airborne: 0,
     verticalVel: 0, flinch: 0, hasWeapon: false, twoHanded: false, reloading: false, recoil: 0, dead: 0,
-    prone: 0, dive: 0,
+    prone: 0, dive: 0, throw: 0, holdItem: 0,
   };
   private readonly rigInput: RigInput = {
     pivot: new THREE.Vector3(), aim: 0, sprint: 0, crouch: 0, prone: 0, dive: 0, moveBlend: 0, stridePhase: 0,
@@ -140,6 +153,41 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   /* ── ship hub / interiors (appended contract) ── */
   get interior(): InteriorCollider | null { return this._interior; }
   get isInPod(): boolean { return this._inPod; }
+  /* ── down / revive / respawn (Phase 2) ── */
+  get isDowned(): boolean { return this._downed; }
+  get downHp(): number { return this._downHp; }
+
+  /** Teammate finished the revive hold (net → `ctx.player.revive()`): back up with PLAYER_REVIVE_HP, still prone. */
+  revive(): void {
+    if (!this._downed || this.isDead) return;
+    this._downed = false;
+    this._downHp = 0;
+    this.bleedAcc = 0; this.giveUpHold = 0;
+    this.hp = PLAYER_REVIVE_HP;
+    this.invuln = Math.max(this.invuln, 0.5);
+    this.controlsEnabled = true;
+    const bus = this.ctx.bus;
+    bus.emit('player:revived', { hp: this.hp });
+    bus.emit('player:healthChanged', { hp: this.hp, maxHp: this.maxHp, delta: this.hp });
+    bus.emit('audio:play', { id: 'stim', volume: 0.8 });
+  }
+
+  /** Stim heal-over-time (1.5 s). The caller (weapons quick-use) has already consumed the item. */
+  applyStim(healAmount: number): boolean {
+    if (!this.spawned || this.isDead || this._downed || this.hp >= this.maxHp || healAmount <= 0) return false;
+    if (this.healPool > 0) return false; // already healing
+    this.healPool = healAmount;
+    this.healRate = healAmount / STIM_DURATION;
+    this.ctx.bus.emit('player:stimUsed', { hp: this.hp });
+    this.ctx.bus.emit('audio:play', { id: 'stim', volume: 0.8 });
+    return true;
+  }
+
+  /** Re-drop at `position` like at mission start (hellpod, full hp, alive, not downed). `player:respawn` → here. */
+  respawn(position: THREE.Vector3): void {
+    this.respawnAt(this.resolveSpawn(position));
+    this.startDrop();
+  }
 
   /**
    * Walk inside a ship interior: ground = `collider.getFloorAt`, push-out = `collider.resolveCollision`,
@@ -183,6 +231,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.slowTimer = 0; this.slowFactor = 1; this.controller.speedMultiplier = 1;
     this.isDead = false; this.deadTimer = 0; this.invuln = 0; this.flinch = 0;
     this.healPool = 0;
+    this.clearDowned();
     this.stamina = this.maxStamina; this.regenDelay = 0; this.exhausted = false; this.exhaustedSlow = 0;
     this.setStance('stand'); this.standUpTimer = 0;
     this.setAiming(false); this.aimBlend = 0; this.crouchBlend = 0; this.proneBlend = 0; this.diveBlend = 0; this.sprintBlend = 0;
@@ -223,22 +272,36 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     if (this.invuln > 0) return;
     if (this.hellpod.isActive && this.hellpod.state !== 'exiting') return; // safe inside the pod
     this.invuln = INVULN_TIME;
+    const bus = this.ctx.bus;
+    if (this._downed) {
+      // already down: damage eats the bleed-out pool instead
+      const dealt = Math.min(this._downHp, amount);
+      this._downHp -= dealt;
+      this.ctx.stats.damageTaken += dealt;
+      this.flinch = 1;
+      bus.emit('player:damaged', { amount: dealt, hp: this.hp, from });
+      bus.emit('player:downHpChanged', { downHp: Math.max(0, this._downHp), max: PLAYER_DOWN_HP });
+      bus.emit('ui:damageIndicator', { from: from ?? this.controller.position.clone() });
+      this.rig.addShake(Math.min(0.5, 0.1 + dealt / 80), 0.2);
+      bus.emit('audio:play', { id: 'player_hurt', volume: Math.min(1, 0.4 + dealt / 50), pitch: 0.85 });
+      if (this._downHp <= 0) this.die();
+      return;
+    }
     const dealt = Math.min(this.hp, amount);
     this.hp -= dealt;
     this.ctx.stats.damageTaken += dealt;
     this.flinch = 1;
-    const bus = this.ctx.bus;
     bus.emit('player:damaged', { amount: dealt, hp: this.hp, from });
     bus.emit('player:healthChanged', { hp: this.hp, maxHp: this.maxHp, delta: -dealt });
     bus.emit('ui:damageIndicator', { from: from ?? this.controller.position.clone() });
     const shake = Math.min(0.7, 0.15 + dealt / 60);
     this.rig.addShake(shake, 0.25);
     bus.emit('audio:play', { id: 'player_hurt', volume: Math.min(1, 0.4 + dealt / 50) });
-    if (this.hp <= 0) this.die();
+    if (this.hp <= 0) this.enterDowned();
   }
 
   heal(amount: number): void {
-    if (this.isDead || amount <= 0) return;
+    if (this.isDead || this._downed || amount <= 0) return;
     const before = this.hp;
     this.hp = Math.min(this.maxHp, this.hp + amount);
     const delta = this.hp - before;
@@ -256,7 +319,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.hp = this.maxHp;
     this.slowTimer = 0; this.slowFactor = 1; this.controller.speedMultiplier = 1;
     this.isDead = false; this.deadTimer = 0; this.invuln = 0; this.flinch = 0;
-    this.healPool = 0; this.fallbackStims = 3;
+    this.healPool = 0;
+    this.clearDowned();
     this.stamina = this.maxStamina; this.regenDelay = 0; this.exhausted = false; this.exhaustedSlow = 0;
     this.setStance('stand'); this.standUpTimer = 0;
     this.isAiming = false; this.aimBlend = 0; this.crouchBlend = 0; this.proneBlend = 0; this.diveBlend = 0; this.sprintBlend = 0;
@@ -306,15 +370,23 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.poseRecoil = Math.min(1, this.poseRecoil + 0.8);
   }
   canUseWeapons(): boolean {
-    return this.spawned && this.controlsEnabled && !this.isDead && !this.controller.diving
+    return this.spawned && this.controlsEnabled && !this.isDead && !this._downed && !this.controller.diving
       && !(this.hellpod.isActive && this.hellpod.state !== 'exiting');
   }
-  setWeaponState(state: WeaponState): void {
+  setWeaponState(state: { hasWeapon: boolean; reloading: boolean; firing: boolean; twoHanded: boolean; throwing?: boolean; holdingItem?: boolean }): void {
     this.weaponState.hasWeapon = state.hasWeapon;
     this.weaponState.reloading = state.reloading;
     this.weaponState.firing = state.firing;
     this.weaponState.twoHanded = state.twoHanded;
+    this.weaponState.throwing = state.throwing ?? false;
+    this.weaponState.holdingItem = state.holdingItem ?? false;
     if (!state.hasWeapon) this.setAiming(false);
+  }
+  /** Quick-use wheel open: the camera ignores mouse deltas (movement keeps working). */
+  setLookLocked(locked: boolean): void { this.lookLocked = locked; }
+  setAdsTime(seconds: number): void {
+    // damp() reaches ~95 % after 3/rate seconds
+    this.adsRate = 3 / Math.max(0.05, seconds || 0.25);
   }
   setAimZoom(zoom: number, scope: boolean): void {
     if (this.rig) this.rig.setAimZoom(zoom, scope);
@@ -336,6 +408,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
       this.startDrop();
     });
     ctx.bus.on('game:abort', () => this.resetAll());
+    // game/GameFlowSystem: respawn countdown elapsed and the player asked for it
+    ctx.bus.on('player:respawn', ({ position }) => this.respawn(position));
     // the hub tore its ship down: nothing to walk on any more (world:ready -> respawnAt clears it too)
     ctx.bus.on('hub:left', () => this.setInterior(null));
     ctx.bus.on('camera:shake', ({ intensity, duration }) => this.rig.addShake(intensity, duration));
@@ -359,6 +433,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     const control = ctx.isControlActive();
     const hub = ctx.isHubPhase();
     const active = control && this.controlsEnabled && !this.isDead && this.spawned;
+    const downed = this._downed;
     const locked = input.isPointerLocked;
     const dropping = this.hellpod.isActive && this.hellpod.state !== 'exiting';
     const moveFrozen = dropping || this._inPod;
@@ -375,17 +450,25 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     let speedMul = this.slowTimer > 0 ? THREE.MathUtils.clamp(this.slowFactor, 0.1, 1) : 1;
     if (this.standUpTimer > 0) speedMul *= 0.5;
     if (this.exhaustedSlow > 0) speedMul *= EXHAUSTED_SLOW;
+    if (downed) speedMul *= PLAYER_DOWN_SPEED_MUL;   // crawl: prone speed × 0.6
     c.speedMultiplier = speedMul;
     this.flinch = damp(this.flinch, 0, 9, dt);
     this.poseRecoil = damp(this.poseRecoil, 0, 14, dt);
 
-    // ── look & aim (aiming is cancelled during a dive)
-    if (active && locked) this.rig.applyLook(input.mouseDX, input.mouseDY, this.aimBlend);
-    this.setAiming(active && locked && this.weaponState.hasWeapon && input.isMouseDown(MouseButtons.AIM) && !c.diving);
+    // ── look & aim (aiming is cancelled during a dive / while downed; the quick-use wheel locks the look)
+    if (active && locked && !this.lookLocked) this.rig.applyLook(input.mouseDX, input.mouseDY, this.aimBlend);
+    this.setAiming(active && locked && !downed && this.weaponState.hasWeapon && input.isMouseDown(MouseButtons.AIM) && !c.diving);
 
     // ── movement input
     const mi = this.moveInput;
-    if (active && !moveFrozen) {
+    if (active && !moveFrozen && downed) {
+      // downed: crawl only — no stance changes, no jump / sprint / dive; Space held = give up
+      mi.x = (input.isDown(Keys.RIGHT) ? 1 : 0) - (input.isDown(Keys.LEFT) ? 1 : 0);
+      mi.z = (input.isDown(Keys.FORWARD) ? 1 : 0) - (input.isDown(Keys.BACK) ? 1 : 0);
+      mi.sprint = false; mi.jump = false; mi.dive = false; mi.aiming = false;
+      if (this._stance !== 'prone') this.setStance('prone');
+      this.standUpTimer = 0;
+    } else if (active && !moveFrozen) {
       mi.x = (input.isDown(Keys.RIGHT) ? 1 : 0) - (input.isDown(Keys.LEFT) ? 1 : 0);
       mi.z = (input.isDown(Keys.FORWARD) ? 1 : 0) - (input.isDown(Keys.BACK) ? 1 : 0);
       // jump is allowed on terrain and inside hub interiors (ceiling-clamped), not in the extraction ship box
@@ -450,23 +533,25 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     // ── hellpod choreography
     if (this.hellpod.isActive) this.updateDrop(dt);
 
-    // ── stim heal-over-time
-    if (this.healPool > 0 && !this.isDead) {
+    // ── stim heal-over-time (started by `applyStim`; weapons owns the F key / quick-use wheel)
+    if (this.healPool > 0 && !this.isDead && !downed) {
       const h = Math.min(this.healPool, this.healRate * dt);
       this.healPool -= h;
       this.heal(h);
     }
-    if (active && input.wasPressed(Keys.STIM)) this.useStim();
 
-    // ── interaction
-    this.updateInteraction(dt, active);
+    // ── downed: bleed-out + give-up hold
+    if (downed && !this.isDead) this.updateDowned(dt, active);
+
+    // ── interaction (a downed player cannot interact)
+    this.updateInteraction(dt, active && !downed);
 
     // ── death anim
     if (this.isDead) this.deadTimer += dt;
 
     // ── pose blends
     const diving = c.diving;
-    this.aimBlend = damp(this.aimBlend, this.isAiming ? 1 : 0, 12, dt);
+    this.aimBlend = damp(this.aimBlend, this.isAiming ? 1 : 0, this.adsRate, dt);
     // scoped ADS: the camera sits at the shoulder, so hide the soldier (and the held weapon) once the blend is in
     const scopeHide = this.rig.scoped && this.aimBlend > 0.85;
     if (scopeHide !== this.scopeHidden) { this.scopeHidden = scopeHide; this.model.setVisible(!scopeHide && !this._inPod); }
@@ -474,11 +559,13 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.proneBlend = damp(this.proneBlend, this._stance === 'prone' && !diving ? 1 : 0, 8, dt);
     this.diveBlend = damp(this.diveBlend, diving ? 1 : 0, 14, dt);
     this.sprintBlend = damp(this.sprintBlend, c.sprinting ? 1 : 0, 8, dt);
+    this.throwBlend = damp(this.throwBlend, this.weaponState.throwing ? 1 : 0, 12, dt);
+    this.holdItemBlend = damp(this.holdItemBlend, this.weaponState.holdingItem ? 1 : 0, 10, dt);
     const eyeTarget = diving ? EYE_DIVE : this._stance === 'prone' ? EYE_PRONE : this._stance === 'crouch' ? EYE_CROUCH : EYE_STAND;
     this.eyePos.y = damp(this.eyePos.y, eyeTarget, 10, dt);
 
-    // body faces aim when aiming/firing/reloading or prone, the dive direction while diving, else movement
-    const faceCamera = this.isAiming || this.weaponState.firing || this.weaponState.reloading || this._stance === 'prone';
+    // body faces aim when aiming/firing/reloading/throwing or prone, the dive direction while diving, else movement
+    const faceCamera = this.isAiming || this.weaponState.firing || this.weaponState.reloading || this.weaponState.throwing || this._stance === 'prone';
     if (!this.isDead) {
       if (diving) this.bodyYaw = dampAngle(this.bodyYaw, Math.atan2(-c.diveDir.x, -c.diveDir.z), 20, dt);
       else if (faceCamera) this.bodyYaw = dampAngle(this.bodyYaw, this.rig.yaw, this._stance === 'prone' ? 7 : 18, dt);
@@ -501,6 +588,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     p.twoHanded = this.weaponState.twoHanded;
     p.reloading = this.weaponState.reloading;
     p.recoil = this.poseRecoil;
+    p.throw = this.throwBlend;
+    p.holdItem = this.holdItemBlend;
     p.dead = this.isDead ? Math.min(1, this.deadTimer / DEATH_ANIM) : 0;
     this.model.update(dt, ctx.time, p);
 
@@ -611,48 +700,71 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     if (this.exhausted && this.stamina >= STAMINA_SPRINT_RECOVER) this.exhausted = false;
   }
 
+  /** hp reached 0: 전투불능 instead of death — prone crawl, weapons off, `downHp` starts bleeding. */
+  private enterDowned(): void {
+    if (this._downed || this.isDead) return;
+    this._downed = true;
+    this._downHp = PLAYER_DOWN_HP;
+    this.bleedAcc = 0; this.giveUpHold = 0;
+    this.hp = 0;
+    this.healPool = 0;
+    this.setAiming(false);
+    this.controller.sprinting = false;
+    this.setStance('prone'); this.standUpTimer = 0;
+    this.rig.addShake(0.7, 0.5);
+    const bus = this.ctx.bus;
+    bus.emit('player:downed', { position: this.controller.position.clone() });
+    bus.emit('player:downHpChanged', { downHp: this._downHp, max: PLAYER_DOWN_HP });
+    bus.emit('player:healthChanged', { hp: 0, maxHp: this.maxHp, delta: 0 });
+    bus.emit('audio:play', { id: 'player_hurt', volume: 1, pitch: 0.6 });
+  }
+
+  /** Bleed PLAYER_DOWN_BLEED_PER_SEC (whole points → `player:downHpChanged`), Space held PLAYER_GIVE_UP_HOLD → die. */
+  private updateDowned(dt: number, active: boolean): void {
+    this.bleedAcc += PLAYER_DOWN_BLEED_PER_SEC * dt;
+    const whole = Math.floor(this.bleedAcc);
+    if (whole >= 1) {
+      this.bleedAcc -= whole;
+      this._downHp = Math.max(0, this._downHp - whole);
+      this.ctx.bus.emit('player:downHpChanged', { downHp: this._downHp, max: PLAYER_DOWN_HP });
+      if (this._downHp <= 0) { this.die(); return; }
+    }
+    if (active && this.ctx.input.isDown(Keys.GIVE_UP)) {
+      this.giveUpHold += dt;
+      if (this.giveUpHold >= PLAYER_GIVE_UP_HOLD) { this.giveUpHold = 0; this.die(); }
+    } else {
+      this.giveUpHold = 0;
+    }
+  }
+
+  private clearDowned(): void {
+    this._downed = false;
+    this._downHp = 0;
+    this.bleedAcc = 0;
+    this.giveUpHold = 0;
+  }
+
   private die(): void {
     if (this.isDead) return;
     this.isDead = true;
     this.deadTimer = 0;
     this.healPool = 0;
+    this.clearDowned();
     this.setAiming(false);
     this.controlsEnabled = false;
+    this.cancelHold();
     this.rig.addShake(0.8, 0.5);
     this.ctx.bus.emit('audio:play', { id: 'player_death', volume: 1 });
     this.ctx.bus.emit('player:died', { position: this.controller.position.clone() });
   }
 
-  private useStim(): void {
-    if (this.healPool > 0) return; // already healing
-    let healAmount = 50;
-    let count = 0;
-    const inv = this.ctx.inventory;
-    if (inv) {
-      const used = inv.consumeWhere((d) => {
-        if (d.category !== 'stim') return false;
-        healAmount = d.healAmount ?? 50;
-        return true;
-      }, 1);
-      if (used <= 0) {
-        this.ctx.bus.emit('ui:notify', { text: '스팀팩 없음', kind: 'warning', duration: 1.2 });
-        this.ctx.bus.emit('audio:play', { id: 'ui_deny', volume: 0.6 });
-        return;
-      }
-      count = inv.countWhere((d) => d.category === 'stim');
-    } else {
-      if (this.fallbackStims <= 0) {
-        this.ctx.bus.emit('ui:notify', { text: '스팀팩 없음', kind: 'warning', duration: 1.2 });
-        return;
-      }
-      this.fallbackStims--;
-      count = this.fallbackStims;
+  /** Tell a hold interactable that its running hold was released / retargeted before completion. */
+  private cancelHold(): void {
+    const t = this.interactTarget;
+    if (t && this.holdProgress > 0 && t.onHoldCancel) {
+      try { t.onHoldCancel(); } catch (e) { console.error('[Player] onHoldCancel threw', e); }
     }
-    this.healPool = healAmount;
-    this.healRate = healAmount / STIM_DURATION;
-    this.ctx.bus.emit('player:stimUsed', { hp: this.hp });
-    this.ctx.bus.emit('stim:countChanged', { count });
-    this.ctx.bus.emit('audio:play', { id: 'stim', volume: 0.8 });
+    this.holdProgress = 0;
   }
 
   private updateInteraction(dt: number, active: boolean): void {
@@ -662,17 +774,24 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
       this.rig.getForward(_v);
       target = ctx.interactables.findBest(this.controller.position, _v);
     }
-    if (target !== this.interactTarget) { this.interactTarget = target; this.holdProgress = 0; }
+    if (target !== this.interactTarget) { this.cancelHold(); this.interactTarget = target; }
+    if (!input.isDown(Keys.INTERACT)) this.holdArmed = true;
     let text: string | null = null;
     if (target) {
       text = target.getPrompt();
       const hold = target.holdTime ?? 0;
       if (hold > 0) {
-        if (input.isDown(Keys.INTERACT)) {
+        if (input.isDown(Keys.INTERACT) && this.holdArmed) {
           this.holdProgress += dt / hold;
-          if (this.holdProgress >= 1) { this.perform(target); this.holdProgress = 0; target = null; text = null; }
-        } else {
-          this.holdProgress = Math.max(0, this.holdProgress - dt * 2.5);
+          if (this.holdProgress >= 1) {
+            this.holdArmed = false;
+            this.perform(target); this.holdProgress = 0; target = null; text = null;
+          } else if (target.onHoldProgress) {
+            try { target.onHoldProgress(this.holdProgress); } catch (e) { console.error('[Player] onHoldProgress threw', e); }
+          }
+        } else if (this.holdProgress > 0) {
+          // released early: the hold decays; a relay-style interactable (revive) is told once
+          this.cancelHold();
         }
       } else if (input.wasPressed(Keys.INTERACT)) {
         this.perform(target); target = null; text = null;
@@ -760,11 +879,14 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.controlsEnabled = false;
     this.isDead = false; this.deadTimer = 0;
     this.healPool = 0;
+    this.clearDowned();
+    this.lookLocked = false;
+    this.weaponState.throwing = false; this.weaponState.holdingItem = false; this.throwBlend = 0; this.holdItemBlend = 0;
     this.setAiming(false);
     this.setStance('stand'); this.standUpTimer = 0;
     this.stamina = this.maxStamina; this.regenDelay = 0; this.exhausted = false; this.exhaustedSlow = 0;
     this.crouchBlend = 0; this.proneBlend = 0; this.diveBlend = 0;
-    this.interactTarget = null; this.holdProgress = 0;
+    this.cancelHold(); this.interactTarget = null;
     if (this.lastPromptText !== null) { this.lastPromptText = null; this.lastHoldProgress = 0; this.ctx.bus.emit('interact:promptChanged', { text: null, holdProgress: 0 }); }
     this.rig.setOverride(null);
   }

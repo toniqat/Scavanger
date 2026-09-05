@@ -486,14 +486,14 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   }
 
   hitTarget(e: Enemy, damage: number, shake = 0, target: CombatTarget | null = e.target): void {
-    if (!target || target.isDead) return;
+    if (!target || target.isDeadOrDowned) return;
     this.applyDamage(target, damage, e.position, e.id, e.type, null, shake, true);
     this.playAudio('bug_attack', e.position, 1, e.type === 'charger' ? 0.6 : e.type === 'warrior' ? 0.8 : 1.05);
   }
 
   /* ── AcidHost ──────────────────────────────────────────────────────────── */
   damageTargetAcid(target: CombatTarget, amount: number, from: THREE.Vector3, shooterId: number, slow: AcidSlow): void {
-    if (!this.authority || target.isDead) return;
+    if (!this.authority || target.isDeadOrDowned) return;
     this.applyDamage(target, amount, from, shooterId, 'spewer', slow, 0, false);
   }
 
@@ -503,10 +503,11 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
    * so they hear the bite (the victim mirrors `enemy:attacked` from it).
    */
   private applyDamage(target: CombatTarget, amount: number, from: THREE.Vector3, id: number, type: EnemyType, slow: AcidSlow | null, shake: number, announce: boolean): void {
+    if (target.isDeadOrDowned) return; // downed players are never AI victims (Phase 2)
     const ctx = this.ctx;
     if (target.isLocal) {
       const player = ctx.player;
-      if (!player || player.isDead) return;
+      if (!player || player.isDead || player.isDowned) return;
       player.takeDamage(amount, from);
       ctx.bus.emit('enemy:attacked', { id, type, damage: amount, position: from });
       if (slow) ctx.bus.emit('player:applySlow', slow);

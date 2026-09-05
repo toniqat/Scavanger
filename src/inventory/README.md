@@ -1,55 +1,133 @@
 # src/inventory — Diablo-2 grid inventory (`ctx.inventory`)
 
-`InventorySystem` owns the player's 10×6 bag, the primary/secondary equipment slots and the currently open loot container. It publishes `ctx.inventory` (itself) and `ctx.loot` (`LootService` from `@/items`).
+`InventorySystem` owns the player's bag grid (size = equipped bag), the four equipment slots (주무기 I / 주무기 II / 보조무기 / 가방), the eight **quick-use wheel slots** and the currently open loot container. It publishes `ctx.inventory` (itself) and `ctx.loot` (`LootService` from `@/items`). Weapon package (2026-09-05): 3 weapon slots, bag-sized grids, sockets, ammo v2, unload, repair, and a reset policy that lets worn weapons survive a completed mission. Phase 2 (2026-09-06): quick-use slots (`QuickSlots.ts`, rose panel, `consumeItem`) and the `player:respawn` starter reset.
 
 | File | Purpose |
 |---|---|
-| `Grid.ts` | Pure occupancy grid: `canPlace/blockersAt/place/remove/moveTo/rotate/findFreeSlot/autoPlace/mergeIntoStacks/mergeInto/canAbsorb/totalValue`. Rotation swaps the footprint; `rotate()` tries in place, then nearby offsets. `version` counter drives UI diffing |
-| `Container.ts` | `Container` (6×4 grid + world position + tier) and `ContainerStore` cache keyed by crate id; first open rolls `ctx.loot.rollCrate(tier, Random(seed ^ hash(id)))` and auto-places largest-first |
-| `InventorySystem.ts` | `GameSystem` + `InventoryRef`. Event wiring, Tab/Escape/R/X handling, auto-close (> 6 m from crate, death, phase change), and all mutations used by the UI: `drop`, `previewDrop`, `dropPartial`, `previewPartial`, `quickMove`, `activate` (double-click), `rotateItem`, `takeAll`, plus the contract methods `dropItem`, `splitItem` and the quick-chat `requestItem`. `locate(uid)` finds an item in bag → container → slots. Exports the UI vocabulary types (`GridId`, `SlotId`, `ItemLocation`, `DropTarget`, `OpResult`, `DropPreview`) |
-| `ui/InventoryUI.ts` | DOM layout under `ctx.uiRoot`: container panel (left), bag (center), equipment column (right), hint bar, world-drop zone. Drag & drop with live ghost + valid/invalid/swap/merge highlight, Shift/Ctrl partial drags, R to rotate, right-click quick action / context menu, middle-click request, X drop, double-click equip/move, "모두 가져가기", tooltip, shake on refusal, `audio:play` sfx |
+| `Grid.ts` | Pure occupancy grid: `canPlace/blockersAt/place/remove/moveTo/rotate/findFreeSlot/autoPlace/mergeIntoStacks/mergeInto/canAbsorb/totalValue`, plus **`resize(cols, rows, priority?)`** (in-bounds items keep their cells, the rest are `autoPlace`d largest-first, what does not fit is returned; `priority` entries are placed first, at their hint cell when possible), **`snapshot()` / `restore()`** for all-or-nothing attempts. `cols`/`rows` are getters (mutated only by resize/restore). Rotation swaps the footprint; `rotate()` tries in place, then nearby offsets. `version` counter drives UI diffing |
+| `Sockets.ts` | Pure socket bookkeeping on `ItemInstance.sockets`: `socketOf(def)`, `socketContent`, `attachedItems`, `filledSocketCount`, `setSocket` (returns the previous attachment), `clearSocket`, `clearAllSockets`, `findSocketed(weapons, uid)`. No events, no compatibility checks (those live in the system via `LootRef.canAttach`) |
+| `QuickSlots.ts` | Pure quick-use wheel bookkeeping on a `QuickSlotUids` array (length `QUICK_SLOTS`, index = wheel direction, values = bag item uids): `createQuickSlots`, `isQuickUsable(def)` (`QUICK_USABLE_CATEGORIES`), `isQuickIndex`, `quickSlotOf`, `firstFreeQuickSlot(slots, active)`, `assignQuickSlot` (one slot per uid — moves), `clearQuickSlotOf`, `relinkQuickSlot(from, to)` (slot follows a surviving stack), `pruneQuickSlots(has)` (item left the bag), `autoAssignQuickSlots` (starter policy), `quickSlotsSignature` (change detection). No events, no grid access |
+| `Container.ts` | `Container` (6×4 grid + world position + tier) and `ContainerStore` cache keyed by crate id; first open rolls `ctx.loot.rollCrate(tier, Random(seed ^ hash(id)))` and auto-places largest-first. The container grid never resizes |
+| `InventorySystem.ts` | `GameSystem` + `InventoryRef`. Event wiring, Tab/Escape/R/X handling, auto-close (> 6 m from crate, death, phase change), reset policy, and all mutations used by the UI: `drop`, `previewDrop`, `dropPartial`, `previewPartial`, `previewAttach`, `attachFrom`, `quickMove`, `activate` (double-click), `equipTargetFor`, `rotateItem`, `takeAll`, `registerQuick`, `quickIndexOf`, plus the contract methods (`dropItem`, `splitItem`, `getBagSize`, `findItem`, `updateItem`, `attachToWeapon`, `detachAllSockets`, `unloadWeapon`, `repairWeapon`, `equip`, `getQuickSlots`, `setQuickSlot`, `getQuickSlotCount`, `consumeItem`) and the quick-chat `requestItem`. `locate(uid)` finds an item in bag → container → slots. Exports the UI vocabulary (`GridId`, `SlotId` = `LoadoutSlot`, `LOADOUT_SLOTS`, `WEAPON_SLOT_IDS`, `slotAccepts`, `ItemLocation`, `DropTarget` incl. `{kind:'weapon'}` / `{kind:'quick', index}`, `OpResult`, `DropPreview`, `BagSize`) |
+| `ui/InventoryUI.ts` | DOM layout under `ctx.uiRoot`: container panel (left), bag (center, width follows the grid columns; **quick-slot rose** under the grid), equipment column (right: 4 slots), hint bar, world-drop zone. Drag & drop with live ghost + valid/invalid/swap/merge highlight, **attachment → weapon tile drag** (socket target lit green/red via `previewAttach`), **stim/grenade → wheel cell drag**, cell → cell / cell → out drags, Shift/Ctrl partial drags, R to rotate, right-click quick action / context menu, middle-click request, X drop, double-click equip/move/register, "모두 가져가기", tooltip, shake on refusal, `audio:play` sfx |
 | `ui/ContextMenu.ts` | Cursor-anchored right-click menu (`MenuEntry[]`), closes on selection / outside pointerdown / Escape / hide |
 | `ui/SplitDialog.ts` | "수량 지정" modal: number input + slider over 1..qty-1, 확인/취소, Enter/Escape |
-| `ui/GridView.ts` | Renders one `Grid`: cell layer, uid-diffed absolutely positioned tiles, highlight rect, `markSplitSource()` for partial drags; `buildTileContent()` shared with slots and the ghost |
-| `ui/Tooltip.ts` | Hover card (name, category · rarity, description, weapon stats from `WeaponDef`, qty, size, value) |
-| `ui/labels.ts` | Cell metrics (`CELL=54`, `GAP=2`, `STEP`), Korean UI strings (hints, menu, split dialog), formatters |
-| `inventory.css` | Styles (imported by `InventoryUI.ts`); scoped under `.inv-*`, no dependency on `src/ui/styles` |
-| `__selftest__.ts` | `runInventorySelfTest()` — console.assert checks for grid/rotation/stack/split-merge/loot determinism (dev use; exported via `@/inventory`, run from the browser console) |
+| `ui/GridView.ts` | Renders one `Grid`: cell layer, uid-diffed absolutely positioned tiles, highlight rect, `markSplitSource()` for partial drags, `setSocketTarget()`, `setQuickBadges(uid → glyph)` (forces a re-render when the set changes); `buildTileContent(el, item, def, w, h, stats?)` shared with slots, wheel cells and the ghost — weapons get five socket pips + a durability bar; `addQuickBadge(el, glyph)` adds the wheel-direction badge |
+| `ui/Tooltip.ts` | Hover card (name, category · rarity, description; weapons: 종류 / 등급 / 대미지 / 탄창 / 장전 / 연사 / 반동 / 정조준 시간 / 재장전 / 발사 모드 / 탄종 / 유효 사거리 / 배율 / 내구도 from `ctx.loot.getEffectiveStats` + the five sockets; attachments: socket, 호환, effects; bags: grid + 퀵슬롯; qty, size, value) |
+| `ui/labels.ts` | Cell metrics (`CELL=54`, `GAP=2`, `STEP`), `SLOT_LABEL` / `SLOT_KEY`, `QUICK_DIR_GLYPH` (▲ ◥ ► ◢ ▼ ◣ ◄ ◤), `QUICK_ROSE_ORDER` (3×3 DOM order), Korean UI strings (hints, menu, quick panel, split dialog, stat labels), formatters (`fmtDeg`, `fmtMul`, `gradeLabel`), `DURABILITY_LOW` (0.3) |
+| `inventory.css` | Styles (imported by `InventoryUI.ts`); scoped under `.inv-*` (`.inv-quick*` for the wheel panel, `.inv-tile-quick` badge), no dependency on `src/ui/styles` |
+| `__selftest__.ts` | `runInventorySelfTest()` — console.assert checks for grid/rotation/stack/split-merge, `resize` (grow/shrink/overflow/priority/snapshot-restore), sockets (`Sockets.ts` + `canAttach` + effective stats), quick slots (auto-assign under 2 / 6 usable slots, move, clear, prune, consume-to-0 relink, signature), loot determinism, starter ids (dev use; exported via `@/inventory`, run from the browser console or `scripts/smoke-quickslots.mjs`) |
 | `index.ts` | Barrel — import via `@/inventory` |
 
-## Behaviour contract
+## Equipment slots
 
-- `world:ready` → `reset()` to `STARTER_LOADOUT`, emits `loadout:changed`, `grenade:countChanged`, `stim:countChanged`, `inventory:changed`.
+| Slot | Key | Accepts | Notes |
+|---|---|---|---|
+| `primary` 주무기 I | 1 | category `primary` | |
+| `primary2` 주무기 II | 2 | category `primary` | drag a slot weapon onto the other primary slot to swap them |
+| `secondary` 보조무기 | 3 | category `secondary` | |
+| `bag` 가방 | — | category `bag` | sets the bag grid size (see below) |
+
+`slotAccepts(def, slot)` is the single rule. Double-click / `장착` on a primary uses `equipTargetFor`: first empty primary slot, else swap with 주무기 I (the displaced weapon lands in the source cells / auto-place / the bag when the source was a container; refused + shake when nothing fits). `InventoryRef.equip(uid | null, slot)` = the same `dropOnSlot` path (`null` unequips via `quickMove`). Equipped items live in `Loadout`, not in grid cells. Every change emits `loadout:changed {primary, secondary, primary2, bag}`.
+
+## Bag grid
+
+`getBagSize()` = equipped bag's `def.bag` (`cols × rows`, `quickSlots`), else `BAG_DEFAULT_COLS × BAG_DEFAULT_ROWS` (5×3, 1 quick slot). Starter `bag_common` → 5×6.
+
+Equipping / unequipping / dropping the bag runs `changeBag()`:
+1. the new bag leaves its grid, the bag grid is `resize`d to the new size;
+2. the **displaced bag is placed first** (at the new bag's former cells when in bounds, else at the first free slot); in-bounds items keep their cells, out-of-bounds items are auto-placed around it;
+3. whatever no longer fits is **dropped into the world** through the normal drop path (`inventory:itemRemoved` + `inventory:itemDropped` per item; `ui:notify` warning with the count);
+4. `inventory:bagChanged {cols, rows, quickSlots, dropped}` and `loadout:changed` fire, the bag `GridView` re-renders for the new size (panel width follows the columns).
+
+**Refusal rule**: the swap is refused (shake + `ui_error`, nothing changes — `Grid.snapshot/restore`) only when the *displaced bag item itself* cannot be placed in the new grid at all. Because it is placed with priority before anything else and the smallest grid is 5×3 while bags are 2×2, this never triggers with the shipped defs; it guards hypothetical oversized bags. Loose items are never a reason to refuse — they overflow to the ground instead. Dropping the equipped bag (`dropItem`, X, drag to the backdrop) shrinks the grid the same way and throws the bag itself.
+
+## Reset policy
+
+| Event | Effect |
+|---|---|
+| first `hub:entered` with a completely empty inventory | `STARTER_LOADOUT` (so the workbench has something to show) |
+| `world:ready` | no weapon in any weapon slot **and** none in the bag → `STARTER_LOADOUT`; otherwise keep everything. Always re-emits `loadout:changed` (weapons clear their slots on `world:ready`), `grenade:countChanged`, `stim:countChanged`, `inventory:changed` |
+| `game:complete` | keep everything (worn weapons return to the ship for the workbench); the `game:abort` the hub emits right after is ignored |
+| `player:respawn` (Phase 2 death flow: hellpod re-drop after `PLAYER_RESPAWN_DELAY`) | `STARTER_LOADOUT` immediately; the mission continues, so rolled containers and `outcome` are kept |
+| `game:over` (legacy mission failure; the Phase 2 flow no longer emits it) | `STARTER_LOADOUT` immediately |
+| `game:abort` | after `game:complete` → keep; after `game:over` → already reset; otherwise (quit mid-mission, lobby lost, back to title) → `STARTER_LOADOUT` |
+| `game:newMission` | close windows, forget rolled containers |
+
+`STARTER_LOADOUT` = `{primary, primary2, secondary, bag, items: [{id, qty}]}`; ammo `qty` are rounds, added through `addUnits` (merge into stacks, then new stacks chunked by `stackMax`). A reset always emits `inventory:bagChanged` (dropped `[]`), `loadout:changed`, both count events, `inventory:quickSlotsChanged` (after `autoAssignQuickSlots`, see below) and `inventory:changed`.
+
+## Quick-use wheel slots (Phase 2)
+
+`quickSlots: (string | null)[]` of length `QUICK_SLOTS` (8) holds **bag item uids** by wheel direction (`QUICK_SLOT_DIRS`: 0 N, 1 NE, 2 E, 3 SE, 4 S, 5 SW, 6 W, 7 NW). Stacks stay in the grid; a slot only references them.
+
+- `getQuickSlots()` resolves uids to the live `ItemInstance`s (null = empty). `getQuickSlotCount()` = equipped bag `def.bag.quickSlots`, else `BAG_DEFAULT_QUICK_SLOTS` (1), clamped to 8 (`bag_legendary_tac` defines 9). A bag with n quick slots unlocks the first n entries of **`QUICK_SLOT_UNLOCK_ORDER` = [0 N, 4 S, 2 E, 6 W, 1 NE, 3 SE, 5 SW, 7 NW]** (`isQuickSlotActive(index, count)` from `@/shared`) — not indices 0..n-1. Slots not unlocked are **locked**: they keep their assignment (visible, dimmed) but cannot be filled until a better bag is equipped. `inventory:quickSlotsChanged.active` stays the count.
+- `setQuickSlot(index, uid | null)`: index in range; `uid` must be a bag item whose def category is in `QUICK_USABLE_CATEGORIES` (`grenade`, `stim`) and `isQuickSlotActive(index, getQuickSlotCount())`. A uid occupies one slot only — assigning it elsewhere moves it (the previous occupant of the target slot is simply unassigned). Clearing a locked slot is allowed. Returns true for a valid call even when nothing changed; emits `inventory:quickSlotsChanged {slots, active}` only on a change.
+- `consumeItem(uid, qty = 1)` (weapons: stim injected / grenade thrown): removes up to `qty` from that exact bag stack, returns the count. At 0 → `inventory:itemRemoved`; then `stim:countChanged` / `grenade:countChanged` / `inventory:changed` as `consumeWhere` does. `consumeWhere` shares the 0-stack path.
+- **Consistency**: `afterChange()` runs `syncQuickSlots()` — prune uids that are no longer in the bag (drop, move to a container, bag-shrink overflow, consumed) and emit when the signature (uids + quantities + active count) changed. So the HUD also gets an event when a slot's stack count changes or the bag swap changes `active`. When a stack **merges away** entirely (drag onto a same-def stack in the bag) or is **consumed to 0**, its slot is handed to the surviving / a sibling stack of the same def that has no slot of its own (`relinkQuickSlot`); otherwise the slot clears. Splits keep the slot on the source stack.
+- **Starter policy** (`autoAssignQuickSlots`, on every starter reset incl. `player:respawn`): biggest grenade stack → slot 0 (N); biggest stim stack → slot 4 (S) — the first two unlocks, so both are usable with the common starter bag (2 slots). A locked / taken preferred slot falls back to `firstFreeQuickSlot` (first empty slot in unlock order; with no bag = 1 slot only the grenade is assigned). `world:ready` re-emits `inventory:quickSlotsChanged` even without a reset.
+- **UI**: the bag panel shows a 3×3 compass rose under the grid (DOM order NW N NE / W centre E / SW S SE; the centre shows `F` + `active/8`). Cells carry their glyph (`QUICK_DIR_GLYPH`) hugging the edge of their direction; locked cells are dimmed with a padlock and `title="가방 등급이 낮아 잠김"`. Assigned bag tiles get a top-left direction badge (`.inv-tile-quick`).
+  - Drag a stim / grenade from the bag onto a cell → `setQuickSlot` (usable cells glow amber during such a drag; hovering one lights green / blue = replaces / red = refused — locked cell, non-usable item, container item).
+  - Drag a cell tile onto another cell → move; release it anywhere else (bag grid, backdrop, panel) → the slot clears and the item stays in the bag (never a world drop; the 버리기 zone stays hidden for cell drags).
+  - Right-click a cell → `빠른 슬롯 해제` (+ `요청`); double-click a cell tile also clears. Right-click a stim / grenade in the bag now always opens the menu: `빠른 슬롯에 등록` (first free usable slot, `registerQuick`) or `빠른 슬롯 해제 (glyph)` when assigned. Double-click a bag stim / grenade with no crate open = 등록.
+  - The panel refreshes with every `InventoryUI.refresh()` (system `afterChange` / `setQuickSlot`), covering `inventory:quickSlotsChanged` and `inventory:bagChanged`.
+
+## Sockets
+
+- `attachToWeapon(weaponUid, attachmentUid)` / UI `attachFrom`: weapon must be player-owned (bag or weapon slot), attachment from the bag or the open container, `ctx.loot.canAttach` decides. The previous attachment in that socket goes back to the bag via `autoPlace` (it always fits the 1×1 cell the new one vacated) or drops to the ground. Emits `inventory:socketChanged {weapon, socket, attachment}`, then `inventory:itemUpdated {item: weapon}` and `inventory:changed`.
+- `detachAllSockets(uid)`: one `inventory:socketChanged {attachment: null}` per emptied socket, attachments back to the bag (overflow drops). False when nothing was attached.
+- After any socket change a magazine larger than the new `magSize` (extended mag removed) spills its excess rounds back into the bag as ammo.
+- `findItem(uid)` (contract form, no location) searches bag → loadout slots → sockets of owned weapons; `updateItem(uid, {durability?, ammoInMag?})` patches and emits `inventory:itemUpdated` + `inventory:changed` (weapons call it every shot; the bag `version` is bumped so tiles refresh).
+- UI: drag an attachment tile over any weapon tile (bag or equipment slot) — the tile lights green (`is-socket-ok`) / red (`is-socket-bad`); release to socket it. Weapon tiles show five pips (`.inv-pip.is-filled`) in `SOCKET_SLOTS` order and a durability bar (`.inv-tile-dur`, `is-low` < 30 %, `is-broken` at 0). Attachments have no `장착` menu entry (drag only).
+
+## Ammo v2 / unload / repair
+
+- Ammo items are stacks of rounds (`qty`); the tile badge shows the count. Reserve for weapons = `countWhere` on the calibre; reload uses `consumeWhere`.
+- `unloadWeapon(uid)`: `ammoInMag` → ammo item of `getEffectiveStats(inst).ammoType` (`ammoItemIdFor`), merged into existing stacks first, new stacks chunked by `stackMax`, overflow dropped to the ground; `ammoInMag = 0`; `inventory:itemUpdated`. False when the magazine is empty.
+- `repairWeapon(uid)`: cost from `ctx.loot.getRepairCost`; every entry checked with `countWhere` before anything is consumed (never partial); `durability = maxDurability`; `inventory:itemUpdated` + `inventory:changed`. False when nothing is missing or materials are short.
+
+## Behaviour contract (unchanged parts)
+
 - `crate:open {crateId, tier, position}` → `openContainer()`; `crate:looted` emitted once when a container's grid first becomes empty.
-- Equipped weapons live in `Loadout`, not in grid cells. `loadout:changed` fires on every equip/unequip/swap (and when an equipped weapon is dropped).
-- Opening adds `'inventory'` to `ctx.uiBlockers` (before exiting pointer lock, so GameFlow's lock-loss pause does not fire); closing removes it. `inventory:opened/closed` emitted. `closeAll()` then re-requests pointer lock (deferred one microtask) if still in a gameplay phase with no blockers and the player is alive — the Tab/Esc/click that closed the window supplies the user activation.
-- Tab (`Keys.INVENTORY`) toggles the bag during gameplay phases (ignored while another blocker is active). Escape closes via a capture-phase keydown listener so the menu system does not also see the key; when the context menu or split dialog is open, the first Escape only closes that overlay.
-- `inventory:itemAdded` when an item enters player possession (bag or slot) from a container or `tryAddItem`; `inventory:itemRemoved` when it leaves (to container / consumed to 0 / dropped into the world). `inventory:full` when a bag add is refused.
-- `countWhere/consumeWhere/getTotalValue/getAllItems` cover the bag only (not equipped weapons).
+- Opening adds `'inventory'` to `ctx.uiBlockers` (before exiting pointer lock, so GameFlow's lock-loss pause does not fire); closing removes it. `inventory:opened/closed` emitted. `closeAll()` then re-requests pointer lock (deferred one microtask) if still in a gameplay phase with no blockers and the player is alive.
+- Tab (`Keys.INVENTORY`) toggles the bag during gameplay phases (ignored while another blocker is active). Escape closes via a capture-phase keydown listener; when the context menu or split dialog is open, the first Escape only closes that overlay.
+- `inventory:itemAdded` when an item enters player possession (bag, slot or socket) from a container or `tryAddItem`; `inventory:itemRemoved` when it leaves (to container / consumed to 0 / dropped into the world). `inventory:full` when a bag add is refused.
+- `countWhere/consumeWhere/getTotalValue/getAllItems` cover the bag only (not equipped weapons, not socketed attachments).
 
-## Drop / split / request (2026-09-05)
+## Drop / split / request
 
-**Gesture scheme** (hint bar: `R 회전 · 우클릭 빠른 이동/메뉴 · Shift+드래그 절반 · Ctrl+드래그 하나 · X 버리기 · 휠클릭 요청`):
+**Gesture scheme** (hint bar: `R 회전 · 우클릭 빠른 이동/메뉴 · Shift+드래그 절반 · Ctrl+드래그 하나 · 드래그→무기 부착 · 드래그→퀵슬롯 등록 · X 버리기 · 휠클릭 요청`):
 
 | Gesture | Effect |
 |---|---|
-| Right-click on a stack with qty ≥ 2 | Context menu |
-| Right-click on anything else (single item, weapon, slot) | Quick action directly (container ↔ bag, slot → bag) — unchanged |
+| Right-click on a weapon, a bag, a stack with qty ≥ 2, or a bag stim / grenade | Context menu |
+| Right-click on anything else (attachment, single valuable, container consumable) | Quick action directly (container ↔ bag, slot → bag) |
+| Stim / grenade drag → wheel cell; cell → cell; cell → anywhere else | Assign / move / clear the quick slot (see above) |
 | **Shift + right-click** | Always the context menu |
 | Shift + drag a stack | Drags **half** (`floor(qty/2)`, min 1); ghost shows the carried qty, source badge shows the remainder |
 | Ctrl + drag a stack | Drags **one** unit |
-| Partial drag → free cell | New stack there (`inventory:itemSplit`) |
-| Partial drag → same-def stack | Merge, capped by `stackMax` (leftover stays on the source) |
-| Partial drag → source / invalid cell / slot | Cancel (no change) |
+| Partial drag → free cell / same-def stack / source | New stack (`inventory:itemSplit`) / merge capped by `stackMax` / cancel |
+| Attachment drag → weapon tile | Socket it (`attachFrom`) |
 | Drag released over the dark backdrop or the `버리기` zone | World drop of the dragged qty (`dropItem`) |
-| Drag released on a panel but not on a valid cell | Snap back + shake (unchanged) |
+| Drag released on a panel but not on a valid cell | Snap back + shake |
 | X (hovered or dragged item) | Drop whole item; **Shift+X** one unit; **Ctrl+X** half |
 | Middle-click on any item / slot | `chat:post` request (see below) |
 
-Context menu entries, in order: quick action (`장착` / `가방으로 이동` / `상자로 이동`), then for stacks `절반 나누기` · `하나 나누기` (qty > 2) · `수량 지정…` (dialog), then `탄약 요청` (weapons) / `요청` (others), then `버리기` (+ `하나 버리기` for stacks).
+**Context menu entries, in order**
+- Weapons: quick action (`장착` / `주무기 II로 장착` / `가방으로 이동` / `상자로 이동`; a bag primary that would go to 주무기 I also offers `주무기 II로 장착`), `장전된 탄약 모두 탈착` (only when `ammoInMag > 0`), `무기 소켓 모두 탈착` (only when a socket is filled), `탄약 요청`, `버리기`.
+- Bags: `장착` / `가방으로 이동` (slot), `요청`, `버리기`.
+- Attachments: quick move (no `장착` — drag only), `요청`, `버리기`.
+- Stacks: quick action, `절반 나누기` · `하나 나누기` (qty > 2) · `수량 지정…`, `요청`, `버리기` (+ `하나 버리기`).
+- Bag stims / grenades additionally: `빠른 슬롯에 등록` or `빠른 슬롯 해제 (glyph)` right after the quick action.
 
 **System API / events**
-- `dropItem(uid, qty?)` — searches bag, open container and equipment slots. Partial qty creates a new `ItemInstance` via `ctx.loot.createItem` and decrements the source. Emits `inventory:itemRemoved` (player-owned items only, so HUD grenade/stim counts update), `loadout:changed` (slot items) and `inventory:itemDropped { item, position, velocity }` with `position = eye − 0.3 m up + 0.4 m forward`, `velocity = forward × 3.5 + up 2.0`. The `pickups/` folder spawns and syncs the world object; inventory does no networking. UI plays `ui_drop`.
-- `splitItem(uid, qty)` — stackables only, `1 ≤ qty ≤ item.qty − 1`; the new stack is `place()`d at the first free slot of the same grid (never merged back). False + shake + `ui_error` when there is no room. Emits `inventory:itemSplit { source, created }`.
-- `dropPartial / previewPartial(uid, from, qty, target)` — the partial-drag path (UI only); cross-grid partial moves emit `inventory:itemAdded/itemRemoved` for the moved qty.
-- `requestItem(uid, from)` — `chat:post { kind: 'request' }` with `탄약 요청: <weapon.name> (<AMMO_LABEL_KO[ammoType]>)` for weapons (`getWeaponDef` from `@/items`; 소총탄 / 권총탄 / 산탄 / 에너지 셀) or `<def.name> 필요` otherwise. The `ui/` ChatLog displays/sends it.
+- `dropItem(uid, qty?)` — searches bag, open container and equipment slots. Weapons/bags/attachments always drop as the whole `ItemInstance` (sockets, durability and rounds travel with it; `pickups/` forwards them as `ex`). Partial qty creates a new `ItemInstance` via `ctx.loot.createItem` and decrements the source. Emits `inventory:itemRemoved` (player-owned items only), `loadout:changed` (slot items) and `inventory:itemDropped { item, position, velocity }` with `position = eye − 0.3 m up + 0.4 m forward`, `velocity = forward × 3.5 + up 2.0`. The `pickups/` folder spawns and syncs the world object; inventory does no networking. UI plays `ui_drop`.
+- `splitItem(uid, qty)` — stackables only, `1 ≤ qty ≤ item.qty − 1`; the new stack is `place()`d at the first free slot of the same grid. Emits `inventory:itemSplit { source, created }`.
+- `requestItem(uid, from)` — `chat:post { kind: 'request' }` with `탄약 요청: <name> (<AMMO_LABEL_KO[getEffectiveStats(inst).ammoType]>)` for weapons or `<def.name> 필요` otherwise.
+
+## Known limits
+- Pickups dropped while in the hub (bag swap at the ship) settle in place but `pickups/` only lets the player take them during gameplay — swap bags with room to spare, or on a mission.
+- Container weapons cannot receive attachments (player-owned only); socketing an attachment from a container into an owned weapon counts as taking it (`inventory:itemAdded`).
+- Quick slots: a Shift/Ctrl partial drag onto a wheel cell is refused (assign the whole stack); container stims must be taken into the bag first.
+
+## Verification (2026-09-06)
+`npm run typecheck` 0 errors. `node scripts/smoke-quickslots.mjs [url]` (headless Chrome, real mouse; against `npm run dev` it also runs `runInventorySelfTest()` through Vite's module server, against a `vite preview` build that step is skipped) 45/45 dev · 44/44 preview, 0 console errors: starter N grenade / S stim / `active` 2, `setQuickSlot` refusals (locked E / ammo / range), move = one event, `consumeItem` qty + event + `stim:countChanged` + removed-at-0 + slot clear, `dropItem` clears, sibling relink, `reset()` / `player:respawn` re-apply, `bag_epic_tac` → 8 + event, unequip → 1, 8 cells with E W + diagonals locked + tooltip, badges ▲ ▼, rose DOM order, mouse drags (bag → N, → locked E refused, → S, cell → cell, cell → backdrop keeps the item, ammo refused), menu 등록 / 해제. Note: the dev server HMR-reloads the page when another agent edits a file mid-run — rerun, or run against a `vite build` + `vite preview` snapshot.

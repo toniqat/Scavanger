@@ -1,5 +1,5 @@
 import type * as THREE from 'three';
-import type { GamePhase, ItemInstance, MissionStats, EnemyType, Stance, HubShipKind, ChatKind, PingKind } from './types';
+import type { GamePhase, ItemInstance, MissionStats, EnemyType, Stance, HubShipKind, ChatKind, PingKind, WeaponSlot, SocketSlot } from './types';
 import type { LobbyErrorCode, LobbyState, PeerId } from './net';
 
 /**
@@ -48,7 +48,8 @@ export interface GameEvents {
   'player:staminaDepleted': Record<string, never>;
 
   /* ── weapons (owner: weapons/WeaponSystem) ──────────────────────────── */
-  'weapon:equipped': { slot: 'primary' | 'secondary'; weaponId: string; name: string; magSize: number; ammoInMag: number; reserveRounds: number };
+  /** `slot` widened to `WeaponSlot` (weapon package). `reserveRounds` = rounds of the weapon's calibre in the bag. */
+  'weapon:equipped': { slot: WeaponSlot; weaponId: string; name: string; magSize: number; ammoInMag: number; reserveRounds: number };
   'weapon:ammoChanged': { weaponId: string; ammoInMag: number; magSize: number; reserveRounds: number };
   'weapon:fired': { weaponId: string; origin: THREE.Vector3; direction: THREE.Vector3 };
   'weapon:dryFire': { weaponId: string };
@@ -59,8 +60,8 @@ export interface GameEvents {
   'grenade:exploded': { position: THREE.Vector3; radius: number };
   'grenade:countChanged': { count: number };
   'stim:countChanged': { count: number };
-  /** Command from Inventory → Weapons: loadout changed (equip/unequip). */
-  'loadout:changed': { primary: ItemInstance | null; secondary: ItemInstance | null };
+  /** Command from Inventory → Weapons: loadout changed (equip/unequip). `primary2` / `bag` appended (weapon package). */
+  'loadout:changed': { primary: ItemInstance | null; secondary: ItemInstance | null; primary2: ItemInstance | null; bag: ItemInstance | null };
   /** Active weapon's ADS zoom changed (equip/swap). HUD shows the scope overlay while aiming when `scope` is true. */
   'weapon:scopeChanged': { zoom: number; scope: boolean };
 
@@ -124,7 +125,8 @@ export interface GameEvents {
   /** A remote player fired (from FireMessage). Weapons plays tracer/flash, audio plays the shot. */
   'net:remoteFired': { id: PeerId; weaponId: string; origin: THREE.Vector3; direction: THREE.Vector3 };
   'net:remoteReloaded': { id: PeerId; weaponId: string };
-  'net:remoteGrenade': { id: PeerId; position: THREE.Vector3; velocity: THREE.Vector3 };
+  /** `fuse` (appended, Phase 2) = seconds left on the replica grenade (undefined → GRENADE_FUSE). */
+  'net:remoteGrenade': { id: PeerId; position: THREE.Vector3; velocity: THREE.Vector3; fuse?: number };
   'net:remoteDied': { id: PeerId; name: string; position: THREE.Vector3 };
   /** A remote player placed a ping (from PingMessage). Owner: ui/hud/Pings renders it. */
   'net:remotePing': { id: PeerId; position: THREE.Vector3; kind: PingKind };
@@ -187,6 +189,57 @@ export interface GameEvents {
   'net:resumed': { lobby: LobbyState; inProgress: boolean; seamless: boolean };
   /** Quick-match result. `created` = no open ship was found so a new public one was created. */
   'net:matched': { lobby: LobbyState; created: boolean };
+
+  /* ── appended: weapon package (2026-09-05) ─────────────────────────────── */
+  /** Owner: weapons. Durability of the weapon instance `uid` changed (per shot / repair). `max` from effective stats. */
+  'weapon:durabilityChanged': { uid: string; weaponId: string; durability: number; max: number };
+  /** Owner: weapons. Trigger pulled on a weapon with 0 durability (HUD flashes, audio clicks). */
+  'weapon:broken': { uid: string; weaponId: string };
+  /** Owner: weapons. A swap to `slot` began; `duration` = holster + draw time (primary 0.4 s, secondary 0.1 s). */
+  'weapon:swapStarted': { slot: WeaponSlot; duration: number };
+  /** Owner: inventory. Persistent instance fields changed (`durability` / `ammoInMag` / repair / unload). */
+  'inventory:itemUpdated': { item: ItemInstance };
+  /** Owner: inventory. Socket contents of a weapon changed (`attachment` null = removed). Weapons recompute stats. */
+  'inventory:socketChanged': { weapon: ItemInstance; socket: SocketSlot; attachment: ItemInstance | null };
+  /** Owner: inventory. Bag grid resized (bag equipped / removed). `dropped` = items that no longer fit (already dropped to the world). */
+  'inventory:bagChanged': { cols: number; rows: number; quickSlots: number; dropped: ItemInstance[] };
+  /** Owner: hub. Workbench (repair) menu opened / closed (blocker token 'hub'). */
+  'hub:workbenchToggled': { open: boolean };
+
+  /* ── appended: Phase 2 — down / revive / respawn (owner: player unless noted) ─── */
+  /** hp hit 0: the player is 전투불능 (crawling, `downHp` bleeding). `player:died` follows only when `downHp` reaches 0. */
+  'player:downed': { position: THREE.Vector3 };
+  /** Every change of `downHp` while downed (bleed tick / damage). */
+  'player:downHpChanged': { downHp: number; max: number };
+  /** Back on our feet (teammate revive). */
+  'player:revived': { hp: number };
+  /** Someone is reviving us (`t` 0..1, from the reviver's hold; owner: net relays `revive progress`). `t` −1 = cancelled. */
+  'player:reviveProgress': { t: number; by: PeerId | null; byName: string | null };
+  /** Command (game → player, inventory): respawn at `position` like at mission start (hellpod). Inventory reapplies the starter kit. */
+  'player:respawn': { position: THREE.Vector3 };
+  /** Command (ui → game): the player wants to respawn (only honoured when `game:respawnAvailable` reached 0). Owner: game. */
+  'game:respawn': Record<string, never>;
+  /** Owner: game. While dead: seconds until respawn is allowed (ticks each second; 0 = available now). */
+  'game:respawnAvailable': { seconds: number };
+  /** Owner: net. A squadmate went down / got back up (from snapshot flags). */
+  'net:remoteDowned': { id: PeerId; name: string; position: THREE.Vector3 };
+  'net:remoteRevived': { id: PeerId; name: string };
+
+  /* ── appended: Phase 2 — quick-use wheel / consumables (owner: inventory / weapons) ── */
+  /** Owner: inventory. Wheel slot assignment changed (`slots` length QUICK_SLOTS; `active` = usable count). */
+  'inventory:quickSlotsChanged': { slots: (ItemInstance | null)[]; active: number };
+  /** Owner: weapons. Wheel opened / hover changed / closed (F held). `hover` = slot index under the cursor or null. */
+  'quick:wheelChanged': { open: boolean; hover: number | null };
+  /** Owner: weapons. A consumable is now in hand (`item` null = back to a gun). */
+  'quick:equipped': { index: number | null; item: ItemInstance | null };
+  /** Owner: weapons. A consumable was used (stim injected / grenade thrown). `remaining` = stack left. */
+  'quick:used': { index: number; item: ItemInstance; remaining: number };
+  /**
+   * Owner: weapons. Grenade in hand: `holding` while LMB is down (wind-up pose), `cooking` after R pulled the pin,
+   * `cooked` seconds so far (explodes in hand at GRENADE_COOK_MAX), `fuse` seconds the grenade will have on release,
+   * `underhand` toggle (RMB). Emitted on every change and each frame while cooking.
+   */
+  'grenade:holdChanged': { holding: boolean; cooking: boolean; cooked: number; fuse: number; underhand: boolean };
 }
 
 export type GameEventName = keyof GameEvents;

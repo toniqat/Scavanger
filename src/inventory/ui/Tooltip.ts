@@ -1,12 +1,27 @@
-import type { ItemDef, ItemInstance, WeaponDef } from '@/shared';
-import { TEXT, ammoLabel, categoryLabel, effectiveRange, fmtValue, rarityColor, rarityLabel, weaponClassLabel } from './labels';
+import type { EffectiveWeaponStats, ItemDef, ItemInstance, WeaponDef } from '@/shared';
+import { SOCKET_LABEL_KO, SOCKET_SLOTS } from '@/shared';
+import { WEAPON_CLASS_LABEL_KO } from '@/items';
+import {
+  DURABILITY_LOW, TEXT, ammoTypeLabel, categoryLabel, effectiveRange, fmtDeg, fmtMul, fmtValue, gradeLabel, rarityColor, rarityLabel,
+  weaponClassLabel,
+} from './labels';
 
-/** Hover card: name, category · rarity, description, value, size and (for weapons) stats. */
+export interface TooltipLookups {
+  getWeapon(weaponId: string): WeaponDef | undefined;
+  getDef(defId: string): ItemDef | undefined;
+  /** Graded + socketed numbers for a weapon instance (null for non-weapons). */
+  getStats(item: ItemInstance): EffectiveWeaponStats | null;
+}
+
+/**
+ * Hover card: name, category · rarity, description, value, size and — for weapons — the effective stats
+ * (grade / sockets folded in), durability and the five sockets; attachments list their effects, bags their grid.
+ */
 export class Tooltip {
   readonly el: HTMLElement;
   private visible = false;
 
-  constructor(private readonly getWeapon: (weaponId: string) => WeaponDef | undefined) {
+  constructor(private readonly lookups: TooltipLookups) {
     this.el = document.createElement('div');
     this.el.className = 'inv-tooltip';
     this.el.hidden = true;
@@ -32,22 +47,53 @@ export class Tooltip {
     desc.textContent = def.description;
     this.el.appendChild(desc);
 
-    const rows: Array<[string, string]> = [];
-    const weapon = def.weaponId ? this.getWeapon(def.weaponId) : undefined;
-    if (weapon) {
+    const rows: Array<[string, string, string?]> = [];
+    const weapon = def.weaponId ? this.lookups.getWeapon(def.weaponId) : undefined;
+    const stats = weapon ? this.lookups.getStats(item) : null;
+    if (weapon && stats) {
       const s = TEXT.weaponStats;
-      const dmg = weapon.pellets ? `${weapon.damage} × ${weapon.pellets} ${TEXT.pellets}` : `${weapon.damage}`;
+      const dmg = weapon.pellets ? `${stats.damage} × ${weapon.pellets} ${TEXT.pellets}` : `${stats.damage}`;
       rows.push([s.weaponClass, weaponClassLabel(weapon)]);
+      rows.push([s.grade, gradeLabel(stats)]);
       rows.push([s.damage, dmg]);
-      rows.push([s.fireRate, `${weapon.fireRate} /s`]);
-      rows.push([s.magSize, `${weapon.magSize}`]);
-      rows.push([s.reserve, `${weapon.reserveMags}`]);
-      rows.push([s.reload, `${weapon.reloadTime.toFixed(1)} s`]);
+      rows.push([s.magSize, `${stats.magSize}`]);
+      rows.push([s.loaded, `${Math.max(0, item.ammoInMag ?? 0)} / ${stats.magSize}`]);
+      rows.push([s.fireRate, `${stats.fireRate} /s`]);
+      rows.push([s.recoil, fmtDeg(stats.recoilV)]);
+      rows.push([s.adsTime, `${stats.adsTime.toFixed(2)} s`]);
+      rows.push([s.reload, `${stats.reloadTime.toFixed(1)} s`]);
       rows.push([s.mode, weapon.automatic ? TEXT.auto : TEXT.semi]);
-      rows.push([s.ammo, ammoLabel(weapon)]);
+      rows.push([s.ammo, ammoTypeLabel(stats.ammoType)]);
       rows.push([s.effectiveRange, `${effectiveRange(weapon)} m`]);
-      rows.push([s.range, `${weapon.range} m`]);
-      if (weapon.adsZoom && weapon.adsZoom > 1) rows.push([s.zoom, `${weapon.adsZoom}×`]);
+      if (stats.adsZoom > 1 || stats.scope) rows.push([s.zoom, `${stats.adsZoom}×${stats.scope ? ' · 스코프' : ''}`]);
+      const max = Math.max(1, stats.maxDurability);
+      const cur = Math.max(0, Math.min(max, item.durability ?? max));
+      const durClass = cur <= 0 ? 'is-broken' : cur / max < DURABILITY_LOW ? 'is-low' : undefined;
+      rows.push([s.durability, cur <= 0 ? `${TEXT.broken} · 0 / ${max}` : `${cur} / ${max}`, durClass]);
+    }
+    if (def.attachment) {
+      const a = def.attachment;
+      const t = TEXT.attachmentStats;
+      rows.push([t.socket, SOCKET_LABEL_KO[a.socket]]);
+      const fits: string[] = [];
+      if (a.classes) fits.push(a.classes.map((c) => WEAPON_CLASS_LABEL_KO[c]).join(', '));
+      if (a.ammoTypes) fits.push(a.ammoTypes.map(ammoTypeLabel).join(', '));
+      rows.push([t.fits, fits.length ? fits.join(' · ') : t.all]);
+      const fx = a.effects;
+      if (fx.recoilV !== undefined) rows.push([t.recoilV, fmtMul(fx.recoilV)]);
+      if (fx.recoilH !== undefined) rows.push([t.recoilH, fmtMul(fx.recoilH)]);
+      if (fx.spread !== undefined) rows.push([t.spread, fmtMul(fx.spread)]);
+      if (fx.hipSpread !== undefined) rows.push([t.hipSpread, fmtMul(fx.hipSpread)]);
+      if (fx.adsTime !== undefined) rows.push([t.adsTime, fmtMul(fx.adsTime)]);
+      if (fx.magSize !== undefined) rows.push([t.magSize, fmtMul(fx.magSize)]);
+      if (fx.adsZoom !== undefined) rows.push([t.zoom, `${fx.adsZoom}×`]);
+      if (fx.scope) rows.push([t.scope, '✓']);
+      if (fx.laser) rows.push([t.laser, '✓']);
+    }
+    if (def.bag) {
+      const b = TEXT.bagStats;
+      rows.push([b.grid, `${def.bag.cols} × ${def.bag.rows}${def.bag.tactical ? ` · ${b.tactical}` : ''}`]);
+      rows.push([b.quickSlots, `${def.bag.quickSlots}`]);
     }
     if (def.healAmount) rows.push(['회복', `+${def.healAmount} HP`]);
     if (def.stackMax > 1) rows.push([TEXT.qty, `${item.qty} / ${def.stackMax}`]);
@@ -56,12 +102,33 @@ export class Tooltip {
 
     const table = document.createElement('div');
     table.className = 'inv-tt-stats';
-    for (const [k, v] of rows) {
+    for (const [k, v, cls] of rows) {
       const kEl = document.createElement('span'); kEl.className = 'k'; kEl.textContent = k;
-      const vEl = document.createElement('span'); vEl.className = 'v'; vEl.textContent = v;
+      const vEl = document.createElement('span'); vEl.className = cls ? `v ${cls}` : 'v'; vEl.textContent = v;
       table.append(kEl, vEl);
     }
     this.el.appendChild(table);
+
+    if (weapon) {
+      const sockets = document.createElement('div');
+      sockets.className = 'inv-tt-sockets';
+      const title = document.createElement('div');
+      title.className = 'inv-tt-sockets-title';
+      title.textContent = TEXT.weaponStats.sockets;
+      sockets.appendChild(title);
+      for (const s of SOCKET_SLOTS) {
+        const att = item.sockets?.[s];
+        const attDef = att ? this.lookups.getDef(att.defId) : undefined;
+        const row = document.createElement('div');
+        row.className = attDef ? 'inv-tt-socket is-filled' : 'inv-tt-socket';
+        const k = document.createElement('span'); k.className = 'k'; k.textContent = SOCKET_LABEL_KO[s];
+        const v = document.createElement('span'); v.className = 'v'; v.textContent = attDef?.name ?? TEXT.socketEmpty;
+        if (attDef) v.style.color = rarityColor(attDef);
+        row.append(k, v);
+        sockets.appendChild(row);
+      }
+      this.el.appendChild(sockets);
+    }
 
     this.el.hidden = false;
     this.visible = true;

@@ -1,5 +1,5 @@
 import type * as THREE from 'three';
-import type { ChatKind, EnemyType, GamePhase, PingKind, Stance } from './types';
+import type { ChatKind, EnemyType, GamePhase, PingKind, Stance, ItemInstanceExtras } from './types';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Multiplayer contract (owner: net/NetSystem publishes `ctx.net`).
@@ -145,6 +145,11 @@ export const PlayerFlags = {
   IN_POD: 1 << 11,
   /** Sender is walking around the shared ship (phase 'hub'), not in a mission. */
   IN_HUB: 1 << 12,
+  /* appended (Phase 2) */
+  /** 전투불능: crawling, revivable (DEAD is not set). */
+  DOWNED: 1 << 13,
+  /** A consumable (stim / grenade) is in hand instead of a gun. */
+  HOLDING_ITEM: 1 << 14,
 } as const;
 
 /** Local player state → everyone, NET_PLAYER_SNAPSHOT_HZ. Owner: net (built from ctx.player / ctx.inventory). */
@@ -173,8 +178,10 @@ export interface PlayerSnapshot {
 /** Someone fired. Owner: weapons (sends) / net emits `net:remoteFired` on receive. */
 export interface FireMessage { t: 'fire'; w: string; o: Vec3Tuple; d: Vec3Tuple }
 export interface ReloadMessage { t: 'reload'; w: string }
-/** Grenade thrown (visual replication; explosion damage is resolved by the host via ExplodeRequest). */
-export interface GrenadeMessage { t: 'grenade'; p: Vec3Tuple; v: Vec3Tuple }
+/** Grenade thrown (visual replication; explosion damage is resolved by the host via ExplodeRequest). `fuse` (appended) = seconds left when released. */
+export interface GrenadeMessage { t: 'grenade'; p: Vec3Tuple; v: Vec3Tuple; fuse?: number }
+/* appended (Phase 2): reviver → downed player. `progress` at ≤ 4 Hz while holding, `cancel` on release, `done` when the hold completed. */
+export interface ReviveMessage { t: 'revive'; ev: 'progress' | 'cancel' | 'done'; target: PeerId; p?: number }
 /** Client → host: my local raycast hit enemy `id` for `dmg` (pre-multiplier) at point `p` travelling `d`. Owner: enemies (replica Enemy.takeDamage). */
 export interface HitRequest { t: 'hit'; id: number; dmg: number; p: Vec3Tuple; d: Vec3Tuple }
 /** Client → host: explosion at `p` radius `r` damage `dmg` (grenade). Owner: enemies (replica applyExplosion). */
@@ -262,8 +269,8 @@ export interface CrateMessage { t: 'crate'; id: string; ev: 'opened' | 'looted' 
 export interface ChatMessage { t: 'chat'; text: string; kind?: ChatKind }
 
 /* ── appended: world pickups (owner: pickups/PickupSystem; host-authoritative) ── */
-/** Wire form of a pickup. */
-export interface PickupWire { id: string; defId: string; qty: number; p: Vec3Tuple }
+/** Wire form of a pickup. `ex` (appended, weapon package) carries durability / loaded rounds / sockets of a dropped weapon. */
+export interface PickupWire { id: string; defId: string; qty: number; p: Vec3Tuple; ex?: ItemInstanceExtras }
 /**
  * Host → all. `drop` = new pickup (host assigns/keeps `id`), `take` = removed because `by` took it,
  * `sync` = full list for a (re)joining client (reply to `itemq sync`).
@@ -301,7 +308,8 @@ export type GameMessage =
   | CrateMessage
   | ChatMessage
   | ItemMessage
-  | ItemRequest;
+  | ItemRequest
+  | ReviveMessage;
   /* append new message types above this line (keep `t` unique; prefix by owning folder if in doubt) */
 
 export type GameMessageType = GameMessage['t'];
@@ -346,6 +354,8 @@ export interface RemotePlayerRef {
   /** true when no snapshot arrived for NET_STALE_AFTER seconds. */
   readonly stale: boolean;
   avatar: RemoteAvatarRef | null;
+  /* appended (Phase 2): `flags & DOWNED` — crawling, revivable (RemotePlayerSystem registers a `revive:<id>` interactable). */
+  readonly isDowned: boolean;
 }
 
 export type NetStatus = 'offline' | 'connecting' | 'connected' | 'error';

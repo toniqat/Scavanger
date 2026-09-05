@@ -6,8 +6,10 @@ import { SharedShip } from './interiors/SharedShip';
 import type { ShipInterior } from './interiors/types';
 import { LaunchPod } from './LaunchPod';
 import { Terminal } from './Terminal';
+import { Workbench } from './Workbench';
 import { DockingCutscene, type DockDirection } from './DockingCutscene';
 import { HubMenu } from './ui/HubMenu';
+import { WorkbenchMenu } from './ui/WorkbenchMenu';
 import { HubStatus } from './ui/HubStatus';
 import { randomSeed } from './ui/dom';
 import './hub.css';
@@ -43,13 +45,17 @@ export class HubSystem implements GameSystem, HubRef {
   missionSeed: number | null = null;
   get active(): boolean { return this.ctx?.phase === 'hub' || this.ctx?.phase === 'docking'; }
   getLaunchSlots(): readonly HubLaunchSlot[] { return this.slots; }
+  /** Debug: true while the workbench (repair) menu is open. */
+  get isWorkbenchOpen(): boolean { return !!this.wbMenu?.isOpen; }
 
   private interior: ShipInterior | null = null;
   private pods: LaunchPod[] = [];
   private terminal: Terminal | null = null;
+  private workbench: Workbench | null = null;
   private slots: HubLaunchSlot[] = [];
   private cutscene: DockingCutscene | null = null;
   private menu!: HubMenu;
+  private wbMenu!: WorkbenchMenu;
   private status!: HubStatus;
 
   private boardedSlot = -1;
@@ -76,6 +82,7 @@ export class HubSystem implements GameSystem, HubRef {
       toTitle: () => this.toTitle(),
       onClosed: () => this.relock(),
     });
+    this.wbMenu = new WorkbenchMenu(ctx, { onClosed: () => this.relock() });
     this.status = new HubStatus(ctx);
     const b = ctx.bus;
     this.unsubs.push(
@@ -98,6 +105,7 @@ export class HubSystem implements GameSystem, HubRef {
     this.unsubs.length = 0;
     document.removeEventListener('pointerlockchange', this.onPointerLockChange);
     this.menu.dispose();
+    this.wbMenu.dispose();
     this.status.dispose();
     if (this.ctx?.hub === this) this.ctx.hub = null;
   }
@@ -143,7 +151,9 @@ export class HubSystem implements GameSystem, HubRef {
       interact: () => this.boardPod(def.slot),
     }));
     this.slots = interior.pods.map((d) => ({ slot: d.slot, position: d.position.clone(), yaw: d.yaw, occupant: null }));
-    this.terminal = new Terminal(ctx, interior.terminal, () => this.menu.open(), () => ctx.phase === 'hub' && !this.menu.isOpen && this.boardedSlot < 0);
+    const canUseConsole = (): boolean => ctx.phase === 'hub' && !this.cutscene && !this.menu.isOpen && !this.wbMenu.isOpen && this.boardedSlot < 0;
+    this.terminal = new Terminal(ctx, interior.terminal, () => this.menu.open(), canUseConsole);
+    this.workbench = new Workbench(ctx, interior.workbench, () => this.wbMenu.open(), canUseConsole);
 
     const spawn = viaAirlock ? interior.airlock : interior.spawn;
     const yaw = viaAirlock ? interior.airlockYaw : interior.spawnYaw;
@@ -166,6 +176,7 @@ export class HubSystem implements GameSystem, HubRef {
     for (const pod of this.pods) pod.dispose();
     this.pods = [];
     this.terminal?.dispose(); this.terminal = null;
+    this.workbench?.dispose(); this.workbench = null;
     this.interior?.dispose(); this.interior = null;
     this.collider = null;
     this.ship = null;
@@ -181,6 +192,7 @@ export class HubSystem implements GameSystem, HubRef {
     const ctx = this.ctx;
     if (this.boardedSlot >= 0) this.leavePod(false, false);
     this.menu.close(false);
+    this.wbMenu.close(false);
     this.status.hide();
     this.cutscene?.dispose(); this.cutscene = null;
     this.disposeInterior();
@@ -226,6 +238,7 @@ export class HubSystem implements GameSystem, HubRef {
     }
     if (this.boardedSlot >= 0) this.leavePod(false, false);
     this.menu.close(false);
+    this.wbMenu.close(false);
     this.disposeInterior();          // the player keeps the old collider reference until the new ship is built
     ctx.setPhase('docking');
     ctx.bus.emit('hub:docking', { stage: 'start', direction });
@@ -251,6 +264,7 @@ export class HubSystem implements GameSystem, HubRef {
     this.cutscene?.dispose(); this.cutscene = null;
     if (this.boardedSlot >= 0) this.leavePod(false, false);
     this.menu.close(false);
+    this.wbMenu.close(false);
     this.disposeInterior();
     const spawn = this.build(target, target === 'shared');
     ctx.setPhase('hub');
@@ -294,7 +308,7 @@ export class HubSystem implements GameSystem, HubRef {
 
   private podCanInteract(slot: number): boolean {
     const ctx = this.ctx;
-    if (ctx.phase !== 'hub' || this.cutscene || this.boardedSlot >= 0 || this.menu.isOpen) return false;
+    if (ctx.phase !== 'hub' || this.cutscene || this.boardedSlot >= 0 || this.menu.isOpen || this.wbMenu.isOpen) return false;
     if (slot !== this.localSlot()) return false;
     const pod = this.pods[slot];
     return !!pod && pod.occupant === null;
@@ -471,6 +485,7 @@ export class HubSystem implements GameSystem, HubRef {
   /* ── frame ─────────────────────────────────────────────────────────────── */
   update(dt: number, ctx: GameContext): void {
     this.menu.update();
+    this.wbMenu.update();
     if (this.cutscene) {
       this.cutscene.update(dt);
       if (this.cutscene) this.status.set(this.cutscene.direction === 'dock' ? '도킹 절차 진행 중' : '도킹 해제 중', null);
@@ -483,7 +498,8 @@ export class HubSystem implements GameSystem, HubRef {
 
     // Esc: menu toggle / un-board (no pause in the hub). E while boarded: un-board.
     if (ctx.input.wasPressed(Keys.MENU)) {
-      if (this.menu.isOpen) this.menu.close();
+      if (this.wbMenu.isOpen) this.wbMenu.close();
+      else if (this.menu.isOpen) this.menu.close();
       else if (ctx.uiBlockers.size === 0) {
         if (this.boardedSlot >= 0) this.leavePod(true);
         else this.menu.open();

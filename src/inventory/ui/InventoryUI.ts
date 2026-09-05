@@ -1,22 +1,29 @@
 import './../inventory.css';
 import type { GameContext, ItemDef, ItemInstance } from '@/shared';
+import { QUICK_SLOTS, QUICK_SLOT_LABEL_KO, isQuickSlotActive } from '@/shared';
 import { ITEM_DEF_MAP, getWeaponDef } from '@/items';
 import type { Container } from '../Container';
-import type { DropTarget, GridId, InventorySystem, ItemLocation, SlotId } from '../InventorySystem';
+import { LOADOUT_SLOTS, isAttachmentDef, isBagDef, isWeaponDef, type DropTarget, type GridId, type InventorySystem, type ItemLocation, type SlotId } from '../InventorySystem';
+import { filledSocketCount } from '../Sockets';
+import { isQuickUsable } from '../QuickSlots';
 import { GridView, buildTileContent, type HighlightState } from './GridView';
 import { Tooltip } from './Tooltip';
 import { ContextMenu, type MenuEntry } from './ContextMenu';
 import { SplitDialog } from './SplitDialog';
-import { STEP, TEXT, fmtValue, tierTitle, tileSize } from './labels';
+import { QUICK_DIR_GLYPH, QUICK_ROSE_ORDER, SLOT_KEY, SLOT_LABEL, STEP, TEXT, fmtValue, tierTitle, tileSize } from './labels';
 
 const DRAG_THRESHOLD = 4; // px before a press becomes a drag
 const MIDDLE_BUTTON = 1;
+const BAG_LOC: ItemLocation = { kind: 'grid', grid: 'bag' };
+const LOCK_SVG = '<svg viewBox="0 0 12 14" aria-hidden="true"><rect x="1.5" y="6" width="9" height="7" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M3.5 6V4a2.5 2.5 0 0 1 5 0v2" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>';
 
 interface DragState {
   uid: string;
   item: ItemInstance;
   def: ItemDef;
   from: ItemLocation;
+  /** Wheel cell the drag started from (its tile is a bag item); releasing anywhere but another cell clears that slot. */
+  quickFrom: number | null;
   /** Units carried by a Shift (half) / Ctrl (one) drag; null = the whole item. */
   qty: number | null;
   rotated: boolean;
@@ -35,7 +42,17 @@ interface SlotView {
   slot: SlotId;
   el: HTMLElement;
   body: HTMLElement;
+  bodyW: number;
+  bodyH: number;
   meta: HTMLElement;
+  tile: HTMLElement | null;
+  uid: string | null;
+}
+
+/** One cell of the quick-use compass rose. */
+interface QuickCell {
+  index: number;
+  el: HTMLElement;
   tile: HTMLElement | null;
   uid: string | null;
 }
@@ -55,6 +72,8 @@ export class InventoryUI {
   private containerView!: GridView;
   private bagView!: GridView;
   private slots = new Map<SlotId, SlotView>();
+  private quickCells: QuickCell[] = [];
+  private quickCount!: HTMLElement;
   private tooltip!: Tooltip;
   private ghostLayer!: HTMLElement;
   private dropZone!: HTMLElement;
@@ -62,6 +81,8 @@ export class InventoryUI {
   private dialog!: SplitDialog;
   private drag: DragState | null = null;
   private hovered: { uid: string; loc: ItemLocation } | null = null;
+  /** Weapon tile currently lit as a socket target (attachment drag). */
+  private socketTarget: { uid: string; loc: ItemLocation } | null = null;
   private container: Container | null = null;
   private visible = false;
   private closeTimer: number | null = null;
@@ -76,6 +97,7 @@ export class InventoryUI {
   mount(): void {
     if (this.root) return;
     const getDef = (id: string) => ITEM_DEF_MAP.get(id);
+    const getStats = (item: ItemInstance) => this.sys.getStats(item);
     const root = document.createElement('div');
     root.className = 'inv-root';
     root.hidden = true;
@@ -108,7 +130,7 @@ export class InventoryUI {
       this.sys.sfx(moved > 0 ? 'ui_pickup' : 'ui_error');
     });
     cHead.append(cTitleWrap, takeAll);
-    this.containerView = new GridView('container', getDef, this.tileHandlers());
+    this.containerView = new GridView('container', getDef, getStats, this.tileHandlers());
     cPanel.append(cHead, this.containerView.el);
     this.containerPanel = cPanel;
 
@@ -129,7 +151,7 @@ export class InventoryUI {
     this.bagCapacity = document.createElement('div');
     this.bagCapacity.className = 'inv-capacity';
     bHead.append(bTitleWrap, this.bagCapacity);
-    this.bagView = new GridView('bag', getDef, this.tileHandlers());
+    this.bagView = new GridView('bag', getDef, getStats, this.tileHandlers());
     const bFoot = document.createElement('footer');
     bFoot.className = 'inv-foot';
     const vLabel = document.createElement('span');
@@ -138,7 +160,7 @@ export class InventoryUI {
     this.valueEl = document.createElement('span');
     this.valueEl.className = 'inv-value';
     bFoot.append(vLabel, this.valueEl);
-    bPanel.append(bHead, this.bagView.el, bFoot);
+    bPanel.append(bHead, this.bagView.el, this.buildQuickPanel(), bFoot);
 
     /* equipment column */
     const eq = document.createElement('aside');
@@ -147,8 +169,7 @@ export class InventoryUI {
     eqEyebrow.className = 'inv-eyebrow';
     eqEyebrow.textContent = TEXT.equipment;
     eq.appendChild(eqEyebrow);
-    eq.appendChild(this.buildSlot('primary', TEXT.primary, '1').el);
-    eq.appendChild(this.buildSlot('secondary', TEXT.secondary, '2').el);
+    for (const slot of LOADOUT_SLOTS) eq.appendChild(this.buildSlot(slot, SLOT_LABEL[slot], SLOT_KEY[slot]).el);
 
     layout.append(cPanel, bPanel, eq);
 
@@ -178,7 +199,7 @@ export class InventoryUI {
     dropZone.append(dzTitle, dzSub);
     this.dropZone = dropZone;
 
-    this.tooltip = new Tooltip(getWeaponDef);
+    this.tooltip = new Tooltip({ getWeapon: getWeaponDef, getDef, getStats });
     this.ghostLayer = document.createElement('div');
     this.ghostLayer.className = 'inv-ghost-layer';
 
@@ -245,8 +266,10 @@ export class InventoryUI {
     if (!this.root || this.root.hidden) return;
     const bag = this.sys.getGrid('bag');
     if (bag) {
-      this.bagView.refresh();
-      this.bagCapacity.textContent = `${bag.usedCells()} / ${bag.cols * bag.rows}`;
+      if (this.bagView.current !== bag) this.bagView.setGrid(bag);
+      else this.bagView.refresh();
+      const size = this.sys.getBagSize();
+      this.bagCapacity.textContent = `${bag.cols}×${bag.rows} · ${bag.usedCells()} / ${bag.cols * bag.rows} · ${TEXT.quickSlots} ${size.quickSlots}`;
       this.valueEl.textContent = fmtValue(bag.totalValue());
     }
     const c = this.sys.getActiveContainer();
@@ -259,6 +282,142 @@ export class InventoryUI {
       this.containerPanel.classList.toggle('is-empty', c.grid.isEmpty);
     }
     this.refreshSlots();
+    this.refreshQuick();
+  }
+
+  /* ── quick-use wheel panel ─────────────────────────────────────────────── */
+
+  /** 3×3 compass rose (N top, clockwise) + a legend column; cells the bag has not unlocked (`isQuickSlotActive`) are locked. */
+  private buildQuickPanel(): HTMLElement {
+    const section = document.createElement('div');
+    section.className = 'inv-quick';
+    const rose = document.createElement('div');
+    rose.className = 'inv-quick-rose';
+    for (const index of QUICK_ROSE_ORDER) {
+      if (index < 0) {
+        const centre = document.createElement('div');
+        centre.className = 'inv-quick-centre';
+        const k = document.createElement('kbd');
+        k.textContent = TEXT.quick.key;
+        this.quickCount = document.createElement('span');
+        this.quickCount.className = 'inv-quick-count';
+        centre.append(k, this.quickCount);
+        rose.appendChild(centre);
+        continue;
+      }
+      const el = document.createElement('div');
+      el.className = 'inv-quick-cell';
+      el.dataset.index = String(index);
+      el.style.setProperty('--dir-x', String([0, 1, 1, 1, 0, -1, -1, -1][index]));
+      el.style.setProperty('--dir-y', String([-1, -1, 0, 1, 1, 1, 0, -1][index]));
+      const dir = document.createElement('div');
+      dir.className = 'inv-quick-dir';
+      dir.textContent = QUICK_DIR_GLYPH[index];
+      const lock = document.createElement('div');
+      lock.className = 'inv-quick-lock';
+      lock.innerHTML = LOCK_SVG;
+      const body = document.createElement('div');
+      body.className = 'inv-quick-body';
+      el.append(dir, lock, body);
+      el.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.onQuickContextMenu(index, e);
+      });
+      rose.appendChild(el);
+      this.quickCells[index] = { index, el, tile: null, uid: null }; // indexed by wheel slot, not DOM order
+    }
+    const legend = document.createElement('div');
+    legend.className = 'inv-quick-legend';
+    const eyebrow = document.createElement('div');
+    eyebrow.className = 'inv-eyebrow';
+    eyebrow.textContent = TEXT.quick.eyebrow;
+    const title = document.createElement('div');
+    title.className = 'inv-quick-title';
+    title.textContent = TEXT.quick.title;
+    const hint = document.createElement('div');
+    hint.className = 'inv-quick-hint';
+    hint.textContent = TEXT.quick.hint;
+    const hold = document.createElement('div');
+    hold.className = 'inv-quick-hint';
+    hold.textContent = TEXT.quick.holdHint;
+    legend.append(eyebrow, title, hint, hold);
+    section.append(rose, legend);
+    return section;
+  }
+
+  private refreshQuick(): void {
+    const slots = this.sys.getQuickSlots();
+    const active = this.sys.getQuickSlotCount();
+    this.quickCount.textContent = `${active}/${QUICK_SLOTS}`;
+    const badges = new Map<string, string>();
+    for (const cell of this.quickCells) {
+      const item = slots[cell.index] ?? null;
+      const def = item ? ITEM_DEF_MAP.get(item.defId) : undefined;
+      const locked = !isQuickSlotActive(cell.index, active); // unlock order N, S, E, W, then diagonals
+      cell.el.classList.toggle('is-locked', locked);
+      cell.el.title = locked ? TEXT.quick.locked : `${QUICK_SLOT_LABEL_KO[cell.index]} · ${def?.name ?? TEXT.quick.empty}`;
+      const body = cell.el.querySelector<HTMLElement>('.inv-quick-body')!;
+      if (item && def) {
+        badges.set(item.uid, QUICK_DIR_GLYPH[cell.index]);
+        if (!cell.tile) {
+          cell.tile = document.createElement('div');
+          this.bindQuickTile(cell.tile, cell);
+          body.innerHTML = '';
+          body.appendChild(cell.tile);
+        }
+        const wasDragging = cell.tile.classList.contains('is-dragging');
+        buildTileContent(cell.tile, item, def, 1, 1);
+        if (wasDragging) cell.tile.classList.add('is-dragging');
+        cell.tile.dataset.uid = item.uid;
+        cell.uid = item.uid;
+        cell.el.classList.add('has-item');
+        cell.el.style.setProperty('--rc', def.color);
+      } else {
+        cell.tile = null;
+        cell.uid = null;
+        body.innerHTML = '';
+        cell.el.classList.remove('has-item');
+        cell.el.style.removeProperty('--rc');
+      }
+    }
+    this.bagView.setQuickBadges(badges);
+  }
+
+  private bindQuickTile(el: HTMLElement, cell: QuickCell): void {
+    el.addEventListener('pointerdown', (e) => { if (cell.uid) this.beginPress(cell.uid, BAG_LOC, e, el, cell.index); });
+    el.addEventListener('pointerenter', (e) => { if (cell.uid) this.hoverEnter(cell.uid, BAG_LOC, e); });
+    el.addEventListener('pointermove', (e) => this.tooltip.move(e.clientX, e.clientY));
+    el.addEventListener('pointerleave', () => this.hoverLeave());
+    el.addEventListener('dblclick', (e) => {
+      e.preventDefault();
+      if (this.drag?.started) return;
+      this.result(this.sys.setQuickSlot(cell.index, null) ? 'ok' : 'fail', 'ui_drop', BAG_LOC, cell.uid ?? '');
+    });
+  }
+
+  /** Right-click on a wheel cell: `빠른 슬롯 해제` (assigned cells only). */
+  private onQuickContextMenu(index: number, e: MouseEvent): void {
+    if (this.drag?.started || this.dialog.isOpen) return;
+    this.menu.close();
+    const cell = this.quickCells[index];
+    const uid = cell?.uid;
+    if (!uid) return;
+    this.tooltip.hide();
+    const entries: MenuEntry[] = [
+      { label: TEXT.menu.quickClear, run: () => this.result(this.sys.setQuickSlot(index, null) ? 'ok' : 'fail', 'ui_drop', BAG_LOC, uid) },
+      { label: TEXT.menu.request, hint: '휠클릭', separator: true, run: () => { this.sys.requestItem(uid, BAG_LOC); } },
+    ];
+    this.menu.open(e.clientX, e.clientY, entries);
+  }
+
+  /** Wheel cell under the pointer (null when not over the rose). */
+  private quickCellAt(x: number, y: number): QuickCell | null {
+    const el = document.elementFromPoint(x, y);
+    const cellEl = el && (el as Element).closest<HTMLElement>('.inv-quick-cell');
+    if (!cellEl) return null;
+    const index = Number(cellEl.dataset.index);
+    return this.quickCells[index] ?? null;
   }
 
   private refreshSlots(): void {
@@ -274,10 +433,22 @@ export class InventoryUI {
           sv.body.appendChild(sv.tile);
         }
         sv.uid = item.uid;
-        buildTileContent(sv.tile, item, def, def.width, def.height);
+        const stats = this.sys.getStats(item);
+        buildTileContent(sv.tile, item, def, def.width, def.height, stats);
         sv.tile.dataset.uid = item.uid;
-        const w = def.weaponId ? getWeaponDef(def.weaponId) : undefined;
-        sv.meta.textContent = w ? `${w.name} · ${w.magSize}발 탄창` : def.name;
+        // oversized tiles (SR 5×1) shrink to the slot body
+        const { width, height } = tileSize(def.width, def.height);
+        const scale = Math.min(1, sv.bodyW / width, sv.bodyH / height);
+        sv.tile.style.transform = scale < 1 ? `scale(${scale.toFixed(3)})` : '';
+        if (stats) {
+          const max = stats.maxDurability;
+          const cur = Math.max(0, Math.min(max, item.durability ?? max));
+          sv.meta.textContent = `${def.name} · ${item.ammoInMag ?? 0}/${stats.magSize}발 · ${TEXT.weaponStats.durability} ${cur}/${max}`;
+        } else if (def.bag) {
+          sv.meta.textContent = `${def.name} · ${def.bag.cols}×${def.bag.rows} · ${TEXT.quickSlots} ${def.bag.quickSlots}`;
+        } else {
+          sv.meta.textContent = def.name;
+        }
         sv.el.classList.add('has-item');
         sv.el.style.setProperty('--rc', def.color);
       } else {
@@ -302,12 +473,14 @@ export class InventoryUI {
     const head = document.createElement('div');
     head.className = 'inv-slot-label';
     head.textContent = label;
-    const k = document.createElement('kbd');
-    k.textContent = key;
-    head.appendChild(k);
+    if (key) {
+      const k = document.createElement('kbd');
+      k.textContent = key;
+      head.appendChild(k);
+    }
     const body = document.createElement('div');
     body.className = 'inv-slot-body';
-    const { width, height } = tileSize(4, 2);
+    const { width, height } = slot === 'bag' ? tileSize(2, 2) : tileSize(4, 2);
     body.style.width = `${width}px`;
     body.style.height = `${height}px`;
     const meta = document.createElement('div');
@@ -318,7 +491,7 @@ export class InventoryUI {
       const sv = this.slots.get(slot);
       if (sv?.uid) this.onContextMenu(sv.uid, { kind: 'slot', slot }, e);
     });
-    const sv: SlotView = { slot, el, body, meta, tile: null, uid: null };
+    const sv: SlotView = { slot, el, body, bodyW: width, bodyH: height, meta, tile: null, uid: null };
     this.slots.set(slot, sv);
     return sv;
   }
@@ -352,8 +525,13 @@ export class InventoryUI {
         const from: ItemLocation = { kind: 'grid', grid: gridId };
         const item = this.sys.findItem(uid, from);
         const def = item && ITEM_DEF_MAP.get(item.defId);
-        const isWeapon = !!def && (def.category === 'primary' || def.category === 'secondary');
-        this.result(this.sys.activate(uid, from), isWeapon ? 'ui_equip' : 'ui_drop', from, uid);
+        // a stim / grenade in the bag with no crate open: double-click registers it on the wheel
+        if (def && isQuickUsable(def) && gridId === 'bag' && !this.sys.getActiveContainer()) {
+          this.result(this.sys.registerQuick(uid), 'ui_equip', from, uid);
+          return;
+        }
+        const equips = !!def && (isWeaponDef(def) || isBagDef(def));
+        this.result(this.sys.activate(uid, from), equips ? 'ui_equip' : 'ui_drop', from, uid);
       },
     };
   }
@@ -394,8 +572,8 @@ export class InventoryUI {
   /* ── right-click: quick action or context menu ─────────────────────────── */
 
   /**
-   * Scheme: plain right-click on a stack with qty ≥ 2 opens the menu; on anything else it performs the quick
-   * action directly (container ↔ bag / slot → bag). Shift+right-click always opens the menu.
+   * Scheme: plain right-click on a weapon, a bag or a stack with qty ≥ 2 opens the menu; on anything else it
+   * performs the quick action directly (container ↔ bag / slot → bag). Shift+right-click always opens the menu.
    */
   private onContextMenu(uid: string, from: ItemLocation, e: MouseEvent): void {
     if (this.drag?.started || this.dialog.isOpen) return;
@@ -404,7 +582,9 @@ export class InventoryUI {
     const def = item && ITEM_DEF_MAP.get(item.defId);
     if (!item || !def) return;
     const isStack = def.stackMax > 1 && item.qty >= 2;
-    if (!isStack && !e.shiftKey) {
+    const quickable = isQuickUsable(def) && from.kind === 'grid' && from.grid === 'bag';
+    const hasMenu = isStack || isWeaponDef(def) || isBagDef(def) || quickable;
+    if (!hasMenu && !e.shiftKey) {
       this.result(this.sys.quickMove(uid, from), 'ui_drop', from, uid);
       return;
     }
@@ -412,19 +592,52 @@ export class InventoryUI {
     this.menu.open(e.clientX, e.clientY, this.menuEntries(uid, from, item, def));
   }
 
+  /**
+   * Weapons: quick action (장착 / 주무기 II로 장착 / 가방으로 이동 / 상자로 이동) · 장전된 탄약 모두 탈착 (ammo loaded) ·
+   * 무기 소켓 모두 탈착 (any socket filled) · 탄약 요청 · 버리기. Bags: 장착 / 가방으로 이동 · 요청 · 버리기.
+   * Attachments are socketed by drag only (no 장착 entry). Stacks add the split entries.
+   */
   private menuEntries(uid: string, from: ItemLocation, item: ItemInstance, def: ItemDef): MenuEntry[] {
     const entries: MenuEntry[] = [];
-    const isWeapon = def.category === 'primary' || def.category === 'secondary';
+    const isWeapon = isWeaponDef(def);
     const isStack = def.stackMax > 1 && item.qty >= 2;
     const hasContainer = !!this.sys.getActiveContainer();
+    const quick = () => this.result(this.sys.quickMove(uid, from), 'ui_drop', from, uid);
 
     // 1. quick action (what a plain right-click / double-click does)
     if (from.kind === 'slot') {
-      entries.push({ label: TEXT.menu.toBag, run: () => this.result(this.sys.quickMove(uid, from), 'ui_drop', from, uid) });
+      entries.push({ label: TEXT.menu.toBag, run: quick });
     } else {
-      if (isWeapon) entries.push({ label: TEXT.menu.equip, run: () => this.result(this.sys.activate(uid, from), 'ui_equip', from, uid) });
-      if (from.grid === 'container') entries.push({ label: TEXT.menu.toBag, run: () => this.result(this.sys.quickMove(uid, from), 'ui_drop', from, uid) });
-      else if (hasContainer) entries.push({ label: TEXT.menu.toContainer, run: () => this.result(this.sys.quickMove(uid, from), 'ui_drop', from, uid) });
+      const target = this.sys.equipTargetFor(def);
+      if (target) {
+        const label = target === 'primary2' ? TEXT.menu.equipPrimary2 : TEXT.menu.equip;
+        entries.push({ label, run: () => this.result(this.sys.activate(uid, from), 'ui_equip', from, uid) });
+        if (def.category === 'primary' && target !== 'primary2') {
+          entries.push({ label: TEXT.menu.equipPrimary2, run: () => this.result(this.sys.equip(uid, 'primary2') ? 'ok' : 'fail', 'ui_equip', from, uid) });
+        }
+      }
+      if (from.grid === 'container') entries.push({ label: TEXT.menu.toBag, run: quick });
+      else if (hasContainer && !isBagDef(def)) entries.push({ label: TEXT.menu.toContainer, run: quick });
+    }
+
+    // 1b. weapon maintenance (player-owned weapons only)
+    if (isWeapon && (from.kind === 'slot' || from.grid === 'bag')) {
+      if ((item.ammoInMag ?? 0) > 0) {
+        entries.push({ label: TEXT.menu.unload, separator: entries.length > 0, run: () => this.result(this.sys.unloadWeapon(uid) ? 'ok' : 'fail', 'ui_drop', from, uid) });
+      }
+      if (filledSocketCount(item) > 0) {
+        entries.push({ label: TEXT.menu.detachAll, run: () => this.result(this.sys.detachAllSockets(uid) ? 'ok' : 'fail', 'ui_drop', from, uid) });
+      }
+    }
+
+    // 1c. quick-use wheel (bag stims / grenades)
+    if (isQuickUsable(def) && from.kind === 'grid' && from.grid === 'bag') {
+      const idx = this.sys.quickIndexOf(uid);
+      if (idx >= 0) {
+        entries.push({ label: `${TEXT.menu.quickClear} (${QUICK_DIR_GLYPH[idx]})`, separator: entries.length > 0, run: () => this.result(this.sys.setQuickSlot(idx, null) ? 'ok' : 'fail', 'ui_drop', from, uid) });
+      } else {
+        entries.push({ label: TEXT.menu.quickAssign, hint: '더블클릭', separator: entries.length > 0, run: () => this.result(this.sys.registerQuick(uid), 'ui_equip', from, uid) });
+      }
     }
 
     // 2. split
@@ -515,7 +728,7 @@ export class InventoryUI {
 
   /* ── drag & drop ───────────────────────────────────────────────────────── */
 
-  private beginPress(uid: string, from: ItemLocation, e: PointerEvent, tileEl: HTMLElement): void {
+  private beginPress(uid: string, from: ItemLocation, e: PointerEvent, tileEl: HTMLElement, quickFrom: number | null = null): void {
     if (this.drag || this.dialog.isOpen) return;
     if (e.button === MIDDLE_BUTTON) {
       // quick chat request (also stops the browser's middle-click autoscroll)
@@ -532,13 +745,13 @@ export class InventoryUI {
     this.menu.close();
     // Shift → half the stack, Ctrl → one unit (grid stacks only; falls back to a whole-item drag)
     let qty: number | null = null;
-    if (from.kind === 'grid') {
+    if (from.kind === 'grid' && quickFrom === null) {
       if (e.shiftKey) qty = this.sys.partialQtyFor(item, 'half');
       else if (e.ctrlKey) qty = this.sys.partialQtyFor(item, 'one');
     }
     const r = tileEl.getBoundingClientRect();
     this.drag = {
-      uid, item, def, from, qty,
+      uid, item, def, from, quickFrom, qty,
       rotated: item.rotated,
       started: false,
       startX: e.clientX, startY: e.clientY,
@@ -555,7 +768,12 @@ export class InventoryUI {
     d.started = true;
     this.tooltip.hide();
     this.root?.classList.add('is-dragging');
-    if (d.from.kind === 'grid') {
+    // a stim / grenade from the bag (or a wheel cell): light the usable cells as targets
+    if (isQuickUsable(d.def) && d.from.kind === 'grid' && d.from.grid === 'bag' && d.qty === null) this.root?.classList.add('is-quick-drag');
+    if (d.quickFrom !== null) {
+      this.quickCells[d.quickFrom]?.tile?.classList.add('is-dragging');
+      this.root?.classList.add('is-quick-source');
+    } else if (d.from.kind === 'grid') {
       const view = d.from.grid === 'bag' ? this.bagView : this.containerView;
       if (d.qty !== null) view.markSplitSource(d.uid, d.item.qty - d.qty);
       else view.setDragging(d.uid);
@@ -612,6 +830,30 @@ export class InventoryUI {
     for (const sv of this.slots.values()) sv.el.classList.remove('is-target-ok', 'is-target-bad');
     d.target = null;
     this.dropZone.classList.remove('is-hot');
+    this.clearSocketTarget();
+    for (const c of this.quickCells) c.el.classList.remove('is-target-ok', 'is-target-bad', 'is-target-swap');
+
+    // quick-use wheel cells (any drag: non-usable items light red)
+    const cell = this.quickCellAt(px, py);
+    if (cell) {
+      d.target = { kind: 'quick', index: cell.index };
+      const pv = this.preview(d, d.target);
+      cell.el.classList.add(pv === 'bad' ? 'is-target-bad' : pv === 'swap' ? 'is-target-swap' : 'is-target-ok');
+      return;
+    }
+    // a wheel-cell drag released anywhere else clears the slot; no other target applies
+    if (d.quickFrom !== null) return;
+
+    // attachments: a weapon tile under the pointer (bag or equipment slot) is a socket target
+    if (isAttachmentDef(d.def)) {
+      const w = this.weaponTileAt(px, py, d.uid);
+      if (w) {
+        d.target = { kind: 'weapon', uid: w.uid, loc: w.loc };
+        const pv = this.preview(d, d.target);
+        this.setSocketTarget(w, pv === 'bad' ? 'bad' : 'ok');
+        return;
+      }
+    }
 
     // equipment slots first
     for (const sv of this.slots.values()) {
@@ -648,6 +890,38 @@ export class InventoryUI {
     return d.qty !== null ? this.sys.previewPartial(d.uid, d.from, d.qty, target) : this.sys.previewDrop(d.uid, d.from, target);
   }
 
+  /** Weapon tile under the pointer (the ghost layer ignores pointer events), excluding the dragged item itself. */
+  private weaponTileAt(x: number, y: number, exceptUid: string): { uid: string; loc: ItemLocation } | null {
+    const el = document.elementFromPoint(x, y);
+    const tile = el && (el as Element).closest<HTMLElement>('.inv-tile.is-weapon');
+    const uid = tile?.dataset.uid;
+    if (!tile || !uid || uid === exceptUid) return null;
+    const slotEl = tile.closest<HTMLElement>('.inv-slot');
+    if (slotEl?.dataset.slot) return { uid, loc: { kind: 'slot', slot: slotEl.dataset.slot as SlotId } };
+    if (tile.closest('.inv-grid-bag')) return { uid, loc: { kind: 'grid', grid: 'bag' } };
+    if (tile.closest('.inv-grid-container')) return { uid, loc: { kind: 'grid', grid: 'container' } };
+    return null;
+  }
+
+  private setSocketTarget(w: { uid: string; loc: ItemLocation }, state: 'ok' | 'bad'): void {
+    this.socketTarget = w;
+    if (w.loc.kind === 'grid') {
+      (w.loc.grid === 'bag' ? this.bagView : this.containerView).setSocketTarget(w.uid, state);
+    } else {
+      const tile = this.slots.get(w.loc.slot)?.tile;
+      tile?.classList.toggle('is-socket-ok', state === 'ok');
+      tile?.classList.toggle('is-socket-bad', state === 'bad');
+    }
+  }
+
+  private clearSocketTarget(): void {
+    if (!this.socketTarget) return;
+    this.socketTarget = null;
+    this.bagView.setSocketTarget(null, null);
+    this.containerView.setSocketTarget(null, null);
+    for (const sv of this.slots.values()) sv.tile?.classList.remove('is-socket-ok', 'is-socket-bad');
+  }
+
   /** True when the point lies on a panel / equipment column (a miss there snaps back instead of dropping). */
   private isOverPanel(x: number, y: number): boolean {
     const el = document.elementFromPoint(x, y);
@@ -666,6 +940,12 @@ export class InventoryUI {
     if (!d.started) return; // plain click
     this.endDragVisuals(d);
 
+    // dragged out of a wheel cell: another cell moves the assignment, anywhere else clears it (the item stays in the bag)
+    if (d.quickFrom !== null && d.target?.kind !== 'quick') {
+      this.result(this.sys.setQuickSlot(d.quickFrom, null) ? 'ok' : 'fail', 'ui_drop', d.from, d.uid);
+      return;
+    }
+
     if (!d.target) {
       if (this.isOverPanel(e.clientX, e.clientY)) {
         // missed a cell but still on a panel: snap back
@@ -678,15 +958,19 @@ export class InventoryUI {
       return;
     }
     const r = d.qty !== null ? this.sys.dropPartial(d.uid, d.from, d.qty, d.target) : this.sys.drop(d.uid, d.from, d.target);
-    if (r === 'ok') this.sys.sfx(d.target.kind === 'slot' ? 'ui_equip' : 'ui_drop');
+    if (r === 'ok') this.sys.sfx(d.target.kind === 'grid' ? 'ui_drop' : 'ui_equip');
     else if (r === 'fail') { this.sys.sfx('ui_error'); this.shake(d.from, d.uid); }
   }
 
   private endDragVisuals(d: DragState): void {
     d.ghost?.remove();
     d.ghost = null;
-    this.root?.classList.remove('is-dragging');
+    this.root?.classList.remove('is-dragging', 'is-quick-drag', 'is-quick-source');
     this.dropZone.classList.remove('is-hot');
+    for (const c of this.quickCells) {
+      c.el.classList.remove('is-target-ok', 'is-target-bad', 'is-target-swap');
+      c.tile?.classList.remove('is-dragging');
+    }
     this.bagView.setDragging(null);
     this.containerView.setDragging(null);
     if (d.qty !== null && d.from.kind === 'grid') {
@@ -694,6 +978,7 @@ export class InventoryUI {
     }
     this.bagView.hideHighlight();
     this.containerView.hideHighlight();
+    this.clearSocketTarget();
     for (const sv of this.slots.values()) {
       sv.el.classList.remove('is-target-ok', 'is-target-bad');
       sv.tile?.classList.remove('is-dragging');

@@ -245,6 +245,69 @@
   border-radius: 2px;
 }
 
+/* weapon tiles: socket pips (top-right) + durability bar (bottom edge) */
+.inv-tile-sockets {
+  position: absolute;
+  right: 5px; top: 5px;
+  z-index: 1;
+  display: flex;
+  gap: 3px;
+  pointer-events: none;
+}
+.inv-pip {
+  display: block;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: rgba(0, 0, 0, 0.45);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+.inv-pip.is-filled {
+  border-color: color-mix(in srgb, var(--inv-accent) 80%, white 20%);
+  background: var(--inv-accent);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--inv-accent) 70%, transparent);
+}
+.inv-tile.is-weapon .inv-tile-name { right: 52px; }
+.inv-tile-dur {
+  --p: 100%;
+  position: absolute;
+  left: 4px; right: 4px; bottom: 2px;
+  z-index: 1;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+  pointer-events: none;
+}
+.inv-tile-dur::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--p);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--inv-ok) 80%, white 10%), var(--inv-ok));
+  box-shadow: 0 0 6px color-mix(in srgb, var(--inv-ok) 60%, transparent);
+}
+.inv-tile-dur.is-low::after { background: linear-gradient(90deg, #e0a030, var(--inv-accent)); box-shadow: 0 0 6px color-mix(in srgb, var(--inv-accent) 60%, transparent); }
+.inv-tile-dur.is-broken { background: color-mix(in srgb, var(--inv-bad) 35%, rgba(0, 0, 0, 0.55)); border: 1px solid color-mix(in srgb, var(--inv-bad) 70%, transparent); height: 3px; }
+.inv-tile-dur.is-broken::after { width: 0; }
+.inv-tile.is-broken .inv-tile-icon { color: color-mix(in srgb, var(--inv-bad) 70%, white 20%); text-shadow: 0 0 10px color-mix(in srgb, var(--inv-bad) 55%, transparent); }
+.inv-tile.is-weapon .inv-tile-qty { display: none; }
+
+/* attachment dragged over a weapon: socket target feedback */
+.inv-tile.is-socket-ok {
+  border-color: var(--inv-ok);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 0 0 2px color-mix(in srgb, var(--inv-ok) 70%, transparent), 0 0 18px color-mix(in srgb, var(--inv-ok) 45%, transparent);
+  filter: brightness(1.15);
+  z-index: 2;
+}
+.inv-tile.is-socket-ok .inv-pip { border-color: var(--inv-ok); }
+.inv-tile.is-socket-bad {
+  border-color: var(--inv-bad);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 0 0 2px color-mix(in srgb, var(--inv-bad) 60%, transparent), 0 0 16px color-mix(in srgb, var(--inv-bad) 35%, transparent);
+  filter: brightness(0.95) saturate(0.7);
+  z-index: 2;
+}
+
 .inv-tile.rarity-legendary { animation: inv-legend 2.4s ease-in-out infinite; }
 @keyframes inv-legend {
   0%, 100% { box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 4px 12px rgba(0, 0, 0, 0.35), 0 0 10px color-mix(in srgb, var(--rc) 25%, transparent); }
@@ -320,7 +383,9 @@
 .inv-slot.has-item .inv-slot-body { border-style: solid; border-color: color-mix(in srgb, var(--rc) 45%, transparent); }
 .inv-slot.is-target-ok .inv-slot-body { border-color: var(--inv-ok); background: color-mix(in srgb, var(--inv-ok) 14%, transparent); box-shadow: 0 0 16px color-mix(in srgb, var(--inv-ok) 35%, transparent); }
 .inv-slot.is-target-bad .inv-slot-body { border-color: var(--inv-bad); background: color-mix(in srgb, var(--inv-bad) 14%, transparent); }
-.inv-slot-body .inv-tile { position: relative; }
+.inv-slot-body .inv-tile { position: relative; transform-origin: center; }
+.inv-slot-bag .inv-slot-body { align-self: flex-start; }
+.inv-slot-bag .inv-slot-empty svg { width: 40px; height: 28px; }
 .inv-slot-empty {
   display: flex;
   flex-direction: column;
@@ -401,6 +466,22 @@ kbd {
 }
 .inv-tt-stats .k { color: var(--inv-muted); letter-spacing: 0.06em; }
 .inv-tt-stats .v { text-align: right; font-variant-numeric: tabular-nums; color: var(--inv-text); }
+.inv-tt-stats .v.is-low { color: var(--inv-accent); }
+.inv-tt-stats .v.is-broken { color: var(--inv-bad); font-weight: 600; }
+.inv-tt-sockets {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--inv-line);
+  font-size: 11px;
+}
+.inv-tt-sockets-title { margin-bottom: 2px; font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--inv-muted); }
+.inv-tt-socket { display: flex; justify-content: space-between; gap: 12px; }
+.inv-tt-socket .k { color: var(--inv-muted); letter-spacing: 0.06em; }
+.inv-tt-socket .v { color: rgba(233, 236, 239, 0.4); }
+.inv-tt-socket.is-filled .v { color: var(--inv-text); }
 
 /* ── partial (split) drag ───────────────────────────────────────────────── */
 .inv-tile.is-split-source { opacity: 0.85; }
@@ -548,5 +629,116 @@ kbd {
   border-color: color-mix(in srgb, var(--inv-accent) 70%, transparent);
 }
 .inv-btn.is-primary:hover { background: var(--inv-accent); }
+
+/* ── quick-use wheel (Phase 2): 3×3 compass rose under the bag grid ──────── */
+.inv-quick {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--inv-line);
+}
+.inv-quick-rose {
+  display: grid;
+  grid-template-columns: repeat(3, var(--inv-cell));
+  grid-auto-rows: var(--inv-cell);
+  gap: 4px;
+  flex: none;
+}
+.inv-quick-centre {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.015) 70%);
+  border: 1px solid var(--inv-line);
+}
+.inv-quick-centre kbd {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 6px;
+  color: var(--inv-text);
+  border: 1px solid var(--inv-line-strong);
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.4);
+}
+.inv-quick-count { font-size: 10px; letter-spacing: 0.1em; color: var(--inv-muted); font-variant-numeric: tabular-nums; }
+.inv-quick-cell {
+  --rc: rgba(255, 255, 255, 0.4);
+  position: relative;
+  box-sizing: border-box;
+  width: var(--inv-cell);
+  height: var(--inv-cell);
+  border: 1px dashed var(--inv-line-strong);
+  border-radius: 4px;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015));
+  transition: border-color 140ms var(--inv-ease), background 140ms var(--inv-ease), box-shadow 140ms var(--inv-ease), opacity 140ms var(--inv-ease);
+}
+.inv-quick-cell.has-item { border-style: solid; border-color: color-mix(in srgb, var(--rc) 45%, transparent); }
+.inv-quick-body { position: absolute; inset: -1px; display: flex; align-items: center; justify-content: center; }
+.inv-quick-body .inv-tile { position: relative; }
+.inv-quick-dir {
+  position: absolute;
+  z-index: 2;
+  /* the glyph hugs the edge that points at its wheel direction */
+  left: calc(50% + var(--dir-x) * 19px - 6px);
+  top: calc(50% + var(--dir-y) * 19px - 7px);
+  width: 12px;
+  font-size: 9px;
+  line-height: 14px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.4);
+  text-shadow: 0 0 4px rgba(0, 0, 0, 0.9);
+  pointer-events: none;
+  transition: color 140ms var(--inv-ease);
+}
+.inv-quick-cell.has-item .inv-quick-dir { color: color-mix(in srgb, var(--inv-accent) 85%, white 15%); }
+.inv-quick-lock {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.35);
+  pointer-events: none;
+}
+.inv-quick-lock svg { width: 14px; height: 16px; }
+.inv-quick-cell.is-locked {
+  opacity: 0.45;
+  border-style: dotted;
+  background: repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.04) 0 5px, transparent 5px 10px);
+}
+.inv-quick-cell.is-locked .inv-quick-lock { display: flex; }
+.inv-quick-cell.is-locked .inv-quick-dir { color: rgba(255, 255, 255, 0.22); }
+.inv-quick-cell.is-locked.has-item .inv-quick-body { opacity: 0.55; filter: grayscale(0.6); }
+.inv-root.is-quick-drag .inv-quick-cell:not(.is-locked) { border-color: color-mix(in srgb, var(--inv-accent) 55%, transparent); box-shadow: 0 0 10px color-mix(in srgb, var(--inv-accent) 22%, transparent); }
+.inv-quick-cell.is-target-ok { border-color: var(--inv-ok) !important; background: color-mix(in srgb, var(--inv-ok) 16%, transparent); box-shadow: 0 0 16px color-mix(in srgb, var(--inv-ok) 40%, transparent) !important; opacity: 1; }
+.inv-quick-cell.is-target-swap { border-color: var(--inv-swap) !important; background: color-mix(in srgb, var(--inv-swap) 16%, transparent); box-shadow: 0 0 16px color-mix(in srgb, var(--inv-swap) 40%, transparent) !important; opacity: 1; }
+.inv-quick-cell.is-target-bad { border-color: var(--inv-bad) !important; background: color-mix(in srgb, var(--inv-bad) 16%, transparent); box-shadow: none !important; }
+/* dragging a cell out: the bag / backdrop mean "unassign", so the drop zone stays hidden */
+.inv-root.is-quick-source .inv-dropzone { display: none; }
+.inv-root.is-quick-source .inv-hints { display: flex; }
+.inv-quick-legend { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.inv-quick-title { font-size: 14px; font-weight: 600; letter-spacing: 0.02em; }
+.inv-quick-hint { font-size: 11px; letter-spacing: 0.04em; color: var(--inv-muted); }
+
+/* direction badge on bag tiles assigned to the wheel (top-left; the qty badge sits bottom-right) */
+.inv-tile-quick {
+  position: absolute;
+  left: 3px; top: 3px;
+  z-index: 1;
+  min-width: 14px;
+  padding: 0 3px;
+  font-size: 9px;
+  line-height: 14px;
+  text-align: center;
+  color: color-mix(in srgb, var(--inv-accent) 90%, white 10%);
+  background: rgba(0, 0, 0, 0.66);
+  border: 1px solid color-mix(in srgb, var(--inv-accent) 45%, transparent);
+  border-radius: 2px;
+}
+.inv-tile.is-quick { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--inv-accent) 35%, transparent); }
 
 .inv-root[hidden] { display: none !important; pointer-events: none !important; }

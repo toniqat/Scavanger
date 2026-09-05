@@ -8,6 +8,39 @@ const STEEL = 0x6a7280;
 const ACCENT = 0xf2b632;
 const DARK = 0x14171c;
 const WOOD = 0x5a3a24;
+const LASER = 0xff2a2a;
+
+/** Procedural attachment visuals derived from a weapon instance's sockets (see `WeaponSystem.attachmentsFor`). */
+export interface WeaponAttachmentVisuals {
+  muzzle?: 'brake' | 'comp' | 'choke';
+  grip?: 'angled' | 'vertical';
+  sight?: 'laser' | 'scope';
+  /** Extended magazine (longer mag body). */
+  mag?: boolean;
+  /** Stock upgrade (cheek riser + butt pad). */
+  stock?: boolean;
+}
+
+/** Local-space anchors per silhouette used to place attachment meshes. `null` = the socket has no visual on this kind. */
+interface KindAnchors {
+  /** Barrel axis height (y) — the muzzle attachment sits on it at the muzzle socket. */
+  barrelY: number;
+  /** Under the fore-end: [y (bottom of the handguard), z]. */
+  fore: readonly [number, number] | null;
+  /** Top rail: [y (top surface), z centre]. */
+  rail: readonly [number, number] | null;
+  /** Stock end: [y centre, z (butt)]. */
+  stock: readonly [number, number] | null;
+}
+
+const ANCHORS: Readonly<Record<WeaponKind, KindAnchors>> = {
+  rifle:   { barrelY: 0.075, fore: [0.025, -0.44], rail: [0.125, -0.2], stock: [0.05, 0.27] },
+  pistol:  { barrelY: 0.045, fore: [0.0, -0.12],   rail: [0.074, -0.08], stock: null },
+  shotgun: { barrelY: 0.09,  fore: [0.02, -0.32],  rail: [0.105, -0.1], stock: [0.045, 0.31] },
+  energy:  { barrelY: 0.07,  fore: [0.015, -0.4],  rail: [0.14, -0.15], stock: [0.05, 0.26] },
+  smg:     { barrelY: 0.065, fore: [0.045, -0.22], rail: [0.112, -0.1], stock: [0.06, 0.245] },
+  sniper:  { barrelY: 0.075, fore: [0.0125, -0.5], rail: null, stock: [0.045, 0.365] },
+};
 
 /**
  * Procedural weapon meshes. Origin = grip (sits in the hand socket), barrel points -Z.
@@ -24,6 +57,13 @@ export class WeaponModel {
   private readonly materials: THREE.Material[] = [];
   private readonly geometries: THREE.BufferGeometry[] = [];
   private glowMat: THREE.MeshStandardMaterial | null = null;
+  /* attachments: separate group + resource lists so they can be rebuilt without touching the base mesh */
+  private readonly attachGroup = new THREE.Group();
+  private readonly attachGeometries: THREE.BufferGeometry[] = [];
+  private readonly attachMaterials: THREE.Material[] = [];
+  private attachMagExt: THREE.Object3D | null = null;
+  private muzzleBase = new THREE.Vector3();
+  private readonly baseMats: { metal: THREE.Material; steel: THREE.Material; accent: THREE.Material; dark: THREE.Material };
   /** Bolt handle (sniper); animated by `setBolt`. */
   private bolt: THREE.Object3D | null = null;
   private boltBase = new THREE.Vector3();
@@ -41,6 +81,7 @@ export class WeaponModel {
     const mSteel = this.mat(STEEL, 0.9, 0.3);
     const mAccent = this.mat(ACCENT, 0.4, 0.5);
     const mDark = this.mat(DARK, 0.5, 0.7);
+    this.baseMats = { metal: mMetal, steel: mSteel, accent: mAccent, dark: mDark };
 
     switch (this.kind) {
       case 'pistol': this.mag = this.buildPistol(mMetal, mSteel, mAccent, mDark); break;
@@ -52,8 +93,134 @@ export class WeaponModel {
     }
     if (this.mag) this.magBase.copy(this.mag.position);
     if (this.bolt) this.boltBase.copy(this.bolt.position);
-    this.body.add(this.muzzle, this.ejectPort);
+    this.body.add(this.muzzle, this.ejectPort, this.attachGroup);
+    this.muzzleBase.copy(this.muzzle.position);
     this.root.traverse((o) => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = false; } });
+  }
+
+  /* ─────────── attachments ─────────── */
+  /**
+   * Rebuild the socket attachment meshes. Muzzle devices extend the `muzzle` socket forward; the extended mag is
+   * parented to the animated magazine so it drops out on reload. Pass `{}` to strip everything. No lights are added.
+   */
+  setAttachments(cfg: WeaponAttachmentVisuals): void {
+    this.clearAttachments();
+    const a = ANCHORS[this.kind];
+    const g = this.attachGroup;
+    const { metal, steel, dark, accent } = this.baseMats;
+
+    // muzzle device (brake: baffled cylinder / comp: ported can / choke: flared short tube)
+    if (cfg.muzzle) {
+      const mz = this.muzzleBase;
+      let len = 0.07;
+      if (cfg.muzzle === 'brake') {
+        this.atube(0.02, len, dark, mz.x, mz.y, mz.z - len / 2, g);
+        for (let i = 0; i < 3; i++) this.abox(0.046, 0.012, 0.007, steel, mz.x, mz.y, mz.z - 0.012 - i * 0.022, g);
+      } else if (cfg.muzzle === 'comp') {
+        len = 0.09;
+        this.atube(0.019, len, metal, mz.x, mz.y, mz.z - len / 2, g);
+        for (let i = 0; i < 4; i++) this.abox(0.008, 0.024, 0.008, dark, mz.x, mz.y + 0.016, mz.z - 0.012 - i * 0.018, g);
+        this.abox(0.03, 0.008, len, accent, mz.x, mz.y - 0.018, mz.z - len / 2, g);
+      } else {
+        len = 0.05;
+        const t = this.atube(0.024, len, dark, mz.x, mz.y, mz.z - len / 2, g);
+        t.scale.set(1.15, 1, 1.15);
+        this.atube(0.022, 0.006, steel, mz.x, mz.y, mz.z - len, g);
+      }
+      this.muzzle.position.set(mz.x, mz.y, mz.z - len);
+    } else {
+      this.muzzle.position.copy(this.muzzleBase);
+    }
+
+    // fore-grip under the handguard
+    if (cfg.grip && a.fore) {
+      const [fy, fz] = a.fore;
+      if (cfg.grip === 'vertical') {
+        const b = this.abox(0.028, 0.075, 0.03, dark, 0, fy - 0.037, fz, g);
+        b.rotation.x = -0.08;
+        this.abox(0.03, 0.008, 0.032, accent, 0, fy - 0.07, fz, g);
+      } else {
+        const b = this.abox(0.026, 0.045, 0.06, dark, 0, fy - 0.02, fz + 0.01, g);
+        b.rotation.x = 0.55;
+      }
+    }
+
+    // sight on the top rail: laser emitter (+ short emissive beam) or an optic tube
+    if (cfg.sight && a.rail) {
+      const [ry, rz] = a.rail;
+      if (cfg.sight === 'laser') {
+        const mz = this.muzzleBase;
+        this.abox(0.022, 0.02, 0.05, dark, 0.032, a.barrelY, mz.z + 0.12, g);            // emitter right of the barrel
+        const lm = this.amat(0x330000, 0, 0.6); lm.emissive.setHex(LASER); lm.emissiveIntensity = 3;
+        this.abox(0.006, 0.006, 0.008, lm, 0.032, a.barrelY, mz.z + 0.094, g);           // lens
+        const beamLen = 1.6;
+        this.abox(0.003, 0.003, beamLen, lm, 0.032, a.barrelY, mz.z + 0.09 - beamLen / 2, g); // thin beam
+        this.abox(0.03, 0.016, 0.03, steel, 0, ry + 0.008, rz, g);                       // rail riser
+      } else if (this.kind === 'pistol') {
+        this.abox(0.024, 0.02, 0.03, dark, 0, ry + 0.01, rz, g);                         // mini red-dot housing
+        const glow = this.amat(0x112233, 0.2, 0.5); glow.emissive.setHex(0xff4040); glow.emissiveIntensity = 1.8;
+        this.abox(0.016, 0.014, 0.004, glow, 0, ry + 0.012, rz + 0.016, g);
+      } else if (this.kind !== 'sniper') {
+        const y = ry + 0.035;
+        this.abox(0.014, 0.03, 0.03, steel, 0, ry + 0.012, rz - 0.06, g);                // mounts
+        this.abox(0.014, 0.03, 0.03, steel, 0, ry + 0.012, rz + 0.06, g);
+        this.atube(0.017, 0.18, dark, 0, y, rz, g);                                      // tube
+        this.atube(0.024, 0.05, dark, 0, y, rz - 0.1, g);                                // objective bell
+        this.atube(0.021, 0.04, dark, 0, y, rz + 0.095, g);                              // ocular bell
+        const lens = this.amat(0x0c1a26, 0.1, 0.2); lens.emissive.setHex(0x3fb8ff); lens.emissiveIntensity = 1.2;
+        this.atube(0.019, 0.006, lens, 0, y, rz - 0.127, g);
+        this.atube(0.016, 0.006, lens, 0, y, rz + 0.117, g);
+        this.abox(0.012, 0.014, 0.014, steel, 0, y + 0.02, rz, g);                       // elevation turret
+      }
+    }
+
+    // extended magazine: longer body parented to the animated mag anchor
+    if (cfg.mag && this.mag) {
+      const ext = new THREE.Object3D();
+      this.mag.add(ext);
+      this.attachMagExt = ext;
+      switch (this.kind) {
+        case 'pistol': this.abox(0.026, 0.05, 0.04, metal, 0, -0.06, 0, ext); this.abox(0.028, 0.01, 0.042, accent, 0, -0.085, 0, ext); break;
+        case 'smg': this.abox(0.026, 0.07, 0.045, metal, 0, -0.205, 0, ext); this.abox(0.028, 0.012, 0.047, accent, 0, -0.243, 0, ext); break;
+        case 'sniper': this.abox(0.028, 0.05, 0.07, metal, 0, -0.095, 0, ext); this.abox(0.03, 0.012, 0.072, accent, 0, -0.123, 0, ext); break;
+        case 'energy': this.abox(0.04, 0.05, 0.08, metal, 0, -0.145, 0, ext); break;
+        case 'shotgun': this.abox(0.05, 0.03, 0.14, dark, 0, 0.02, -0.15, ext); break;   // side-saddle shell holder
+        default: { const m = this.abox(0.03, 0.07, 0.065, metal, 0, -0.19, -0.012, ext); m.rotation.x = 0.12; this.abox(0.032, 0.012, 0.067, accent, 0, -0.225, -0.015, ext); }
+      }
+    }
+
+    // stock upgrade: cheek riser + rubber butt pad
+    if (cfg.stock && a.stock) {
+      const [sy, sz] = a.stock;
+      this.abox(0.036, 0.022, 0.1, dark, 0, sy + 0.05, sz - 0.11, g);                    // cheek riser
+      this.abox(0.052, 0.11, 0.018, this.amat(0x1a1a1a, 0.1, 0.95), 0, sy - 0.02, sz + 0.02, g); // butt pad
+    }
+
+    g.traverse((o) => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = false; } });
+  }
+
+  private clearAttachments(): void {
+    for (const c of [...this.attachGroup.children]) this.attachGroup.remove(c);
+    if (this.attachMagExt) { this.attachMagExt.removeFromParent(); this.attachMagExt = null; }
+    for (const g of this.attachGeometries) g.dispose();
+    for (const m of this.attachMaterials) m.dispose();
+    this.attachGeometries.length = 0;
+    this.attachMaterials.length = 0;
+    this.muzzle.position.copy(this.muzzleBase);
+  }
+
+  private amat(color: number, metalness: number, roughness: number): THREE.MeshStandardMaterial {
+    const m = new THREE.MeshStandardMaterial({ color, metalness, roughness });
+    this.attachMaterials.push(m);
+    return m;
+  }
+  private abox(w: number, h: number, d: number, m: THREE.Material, x: number, y: number, z: number, parent: THREE.Object3D): THREE.Mesh {
+    const g = new THREE.BoxGeometry(w, h, d); this.attachGeometries.push(g);
+    const mesh = new THREE.Mesh(g, m); mesh.position.set(x, y, z); parent.add(mesh); return mesh;
+  }
+  private atube(r: number, d: number, m: THREE.Material, x: number, y: number, z: number, parent: THREE.Object3D): THREE.Mesh {
+    const g = new THREE.CylinderGeometry(r, r, d, 12); this.attachGeometries.push(g);
+    const mesh = new THREE.Mesh(g, m); mesh.rotation.x = Math.PI / 2; mesh.position.set(x, y, z); parent.add(mesh); return mesh;
   }
 
   /* ─────────── builders ─────────── */
@@ -292,6 +459,7 @@ export class WeaponModel {
   }
 
   dispose(): void {
+    this.clearAttachments();
     for (const g of this.geometries) g.dispose();
     for (const m of this.materials) m.dispose();
     this.root.removeFromParent();

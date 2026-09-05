@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { GameContext, EnemyRef, PeerId, PingKind as SharedPingKind, PingMessage } from '@/shared';
+import type { GameContext, EnemyRef, PeerId, PingKind as SharedPingKind, PingMessage, WeaponSlot } from '@/shared';
 import {
   MouseButtons, PING_LIFETIME, PING_DRAG_THRESHOLD_PX, PING_HOLD_MAX,
   NET_SLOT_COLORS, NET_SLOT_COLORS_CSS,
@@ -97,7 +97,7 @@ export class Pings {
 
   // active weapon (for the ammo request)
   private activeWeaponName: string | null = null;
-  private activeWeaponSlot: 'primary' | 'secondary' | null = null;
+  private activeWeaponSlot: WeaponSlot | null = null;
 
   // scratch
   private origin = new THREE.Vector3();
@@ -123,7 +123,8 @@ export class Pings {
       ctx.bus.on('player:died', () => { this.clearLocal(); this.cancelHold(); }),
       ctx.bus.on('net:remotePlayerRemoved', ({ id }) => this.removeOwnedBy(id)),
       ctx.bus.on('weapon:equipped', ({ slot, name }) => { this.activeWeaponSlot = slot; this.activeWeaponName = name; }),
-      ctx.bus.on('loadout:changed', ({ primary, secondary }) => {
+      ctx.bus.on('loadout:changed', ({ primary, secondary, primary2 }) => {
+        if (this.activeWeaponSlot === 'primary2' && !primary2) { this.activeWeaponSlot = null; this.activeWeaponName = null; }
         if (this.activeWeaponSlot === 'primary' && !primary) { this.activeWeaponSlot = null; this.activeWeaponName = null; }
         if (this.activeWeaponSlot === 'secondary' && !secondary) { this.activeWeaponSlot = null; this.activeWeaponName = null; }
       }),

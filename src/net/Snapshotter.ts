@@ -1,4 +1,4 @@
-import type { GameContext, PlayerSnapshot } from '@/shared';
+import type { GameContext, PlayerSnapshot, WeaponSlot } from '@/shared';
 import { PlayerFlags } from '@/shared';
 
 const round3 = (x: number): number => Math.round(x * 1000) / 1000;
@@ -12,7 +12,9 @@ export class Snapshotter {
   /** Active weapon def id, cached from `weapon:equipped` (null = none). */
   weaponId: string | null = null;
   /** Slot of the active weapon; 'primary' → TWO_HANDED. */
-  weaponSlot: 'primary' | 'secondary' | null = null;
+  weaponSlot: WeaponSlot | null = null;
+  /** A stim / grenade is in hand instead of a gun (from `quick:equipped`). */
+  holdingItem = false;
 
   private seq = 0;
   private readonly msg: PlayerSnapshot = {
@@ -53,9 +55,14 @@ export class Snapshotter {
     if (p.isInShip) f |= PlayerFlags.IN_SHIP;
     if (inHub) f |= PlayerFlags.IN_HUB;
     if (p.isInPod) f |= PlayerFlags.IN_POD;
-    if (m.w !== null) {
+    if (p.isDowned) f |= PlayerFlags.DOWNED;
+    if (this.holdingItem && !inHub) {
+      // a consumable is in hand (Phase 2): no gun is advertised, remote avatars pose one-handed
+      f |= PlayerFlags.HOLDING_ITEM;
+      m.w = null;
+    } else if (m.w !== null) {
       f |= PlayerFlags.HAS_WEAPON;
-      if (this.weaponSlot === 'primary') f |= PlayerFlags.TWO_HANDED;
+      if (this.weaponSlot === 'primary' || this.weaponSlot === 'primary2') f |= PlayerFlags.TWO_HANDED;
     }
     m.f = f;
     return m;
