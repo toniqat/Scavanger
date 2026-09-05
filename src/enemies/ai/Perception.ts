@@ -31,7 +31,7 @@ export function acquireTarget(e: Enemy, dt: number, host: EnemyHost): void {
   const curValid = !!cur && cur.present && !cur.isDeadOrDowned;
   if (!curValid || e.targetTimer <= 0) {
     e.targetTimer = 0.5 + Math.random() * 0.4;
-    const best = host.targets.nearestAlive(e.position);
+    const best = host.pickTarget(e);
     if (!best) {
       if (cur && !cur.present) e.target = null;
     } else if (!curValid) {
@@ -58,8 +58,9 @@ export function becomeAlert(e: Enemy, host: EnemyHost, loud: boolean): void {
   }
   if (!wasAware && loud) {
     host.ctx.bus.emit('enemy:alerted', { id: e.id, type: e.type, position: e.position });
-    if (e.type === 'scavenger' || e.type === 'hunter') host.playAudio('bug_screech', e.position, 0.9, e.type === 'scavenger' ? 1.15 : 0.9);
-    else host.playAudio('bug_screech', e.position, 0.7, e.type === 'charger' ? 0.55 : 0.75);
+    if (e.isRogue) { /* humans do not screech; the reaction delay + rifle raise reads as the alert */ }
+    else if (e.type === 'scavenger' || e.type === 'hunter' || e.type === 'toxic') host.playAudio('bug_screech', e.position, 0.9, e.type === 'hunter' ? 0.9 : 1.15);
+    else host.playAudio('bug_screech', e.position, 0.7, e.type === 'behemoth' ? 0.35 : e.type === 'charger' ? 0.55 : 0.75);
     host.alertNear(e.position, 20, e);
   }
 }
@@ -84,7 +85,8 @@ export function updatePerception(e: Enemy, dt: number, host: EnemyHost): void {
     } else e.hasLOS = false;
   } else {
     e.hasLOS = dist < 90 && hasLineOfSight(e, host, t);
-    if (!e.relentless) {
+    // artillery fights from ARTILLERY_RANGE without LOS; rogues keep hunting inside their leash while the target is within range
+    if (!e.relentless && e.type !== 'artillery' && !(e.isRogue && dist < 80)) {
       if (!e.hasLOS && dist > 60) {
         e.lostTimer += 0.3;
         if (e.lostTimer > 10) {

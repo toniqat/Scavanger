@@ -198,3 +198,40 @@ export const STRUCTURE_IMPACT_DAMAGE = 800;
 export const STRUCTURE_FALL_TIME = 2.0;
 /** Off-screen indicators: squadmate pings show an edge arrow for this many seconds after placement. */
 export const OFFSCREEN_PING_SECONDS = 5;
+
+/* ── appended: Phase 4 — rogues / enemy gimmicks / corpses ── */
+/** Seconds a lootable corpse (and its interactable) stays in the world. */
+export const CORPSE_LIFETIME = 45;
+/** Corpse interaction radius (m). */
+export const CORPSE_INTERACT_RADIUS = 2.4;
+/** Rogue gunner: reaction delay before the first shot (s), aim error (radians) at hip / after settling, damage per hit, rounds per burst. */
+export const ROGUE_REACTION = 0.9;
+export const ROGUE_AIM_ERROR = 0.09;
+export const ROGUE_AIM_ERROR_SETTLED = 0.045;
+export const ROGUE_DAMAGE = 9;
+export const ROGUE_BURST = 4;
+/** Rogue engagement range (m) and the "rush the player" impulse chance per cover cycle. */
+export const ROGUE_RANGE = 55;
+export const ROGUE_RUSH_CHANCE = 0.2;
+/** Boss rogue multipliers and escort count. */
+export const ROGUE_BOSS_SCALE = 1.5;
+export const ROGUE_BOSS_HP_MUL = 5;
+export const ROGUE_BOSS_ESCORTS = 3;
+/** Artillery bug: preferred stand-off range (m), shell flight time (s), blast radius (m) / damage, shell hit radius for interception (m). */
+export const ARTILLERY_RANGE = 90;
+export const SHELL_FLIGHT_TIME = 4.5;
+export const SHELL_BLAST_RADIUS = 5;
+export const SHELL_DAMAGE = 55;
+export const SHELL_RADIUS = 0.6;
+/** Toxic bug: burst radius (m), damage (players and enemies alike), trigger distance (m). */
+export const TOXIC_RADIUS = 5;
+export const TOXIC_DAMAGE = 70;
+export const TOXIC_TRIGGER_DIST = 2.2;
+/** Behemoth: scale vs a warrior, charge speed (m/s), charge damage, knockback speed (m/s), wind-up (s). */
+export const BEHEMOTH_SCALE = 4;
+export const BEHEMOTH_CHARGE_SPEED = 16;
+export const BEHEMOTH_CHARGE_DAMAGE = 60;
+export const BEHEMOTH_KNOCKBACK = 12;
+export const BEHEMOTH_WINDUP = 1.4;
+/** Ammo calibres that bounce off armour plate (`EnemyHit.armored`). */
+export const ARMOR_IMMUNE_AMMO: readonly string[] = ['light', 'medium', 'shell', 'pistol', 'rifle', 'shotgun'];

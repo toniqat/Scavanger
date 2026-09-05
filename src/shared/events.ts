@@ -261,6 +261,25 @@ export interface GameEvents {
   /** A dropped cover structure took damage / was destroyed. */
   'structure:damaged': { id: string; hp: number; maxHp: number; position: THREE.Vector3 };
   'structure:destroyed': { id: string; position: THREE.Vector3 };
+
+  /* ── appended: Phase 4 — rogues / enemy gimmicks / corpses (owner: enemies) ── */
+  /** A rogue fired its gun (tracer from `from` to `to`; `hit` = a player was hit). Audio/FX are the enemies folder's own. */
+  'enemy:shot': { id: number; type: EnemyType; from: THREE.Vector3; to: THREE.Vector3; hit: boolean };
+  /** Artillery shell lifecycle (`sid` = shell id; shells are `InterceptableRef`s). */
+  'enemy:shellFired': { sid: number; from: THREE.Vector3; target: THREE.Vector3; flightTime: number };
+  'enemy:shellIntercepted': { sid: number; position: THREE.Vector3 };
+  'enemy:shellLanded': { sid: number; position: THREE.Vector3; radius: number };
+  /** Behemoth started a line charge toward `target` / hit something. */
+  'enemy:chargeStarted': { id: number; position: THREE.Vector3; target: THREE.Vector3 };
+  /** Toxic bug burst (friendly fire to bugs too). */
+  'enemy:toxicBurst': { id: number; position: THREE.Vector3; radius: number };
+  /** A boss (rogue_boss) appeared with its escorts. */
+  'enemy:bossSpawned': { id: number; type: EnemyType; position: THREE.Vector3 };
+  /** A lootable corpse is available (`Interactable` `corpse:<enemyId>`), removed after CORPSE_LIFETIME or when looted. */
+  'corpse:spawned': { enemyId: number; type: EnemyType; position: THREE.Vector3 };
+  'corpse:removed': { enemyId: number };
+  /** Two factions clashing nearby (first contact only, throttled) — HUD may toast `교전 감지`. */
+  'enemy:factionClash': { position: THREE.Vector3 };
 }
 
 export type GameEventName = keyof GameEvents;

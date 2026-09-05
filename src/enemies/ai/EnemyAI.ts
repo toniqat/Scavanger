@@ -1,10 +1,15 @@
 import * as THREE from 'three';
 import { GRAVITY, PLAYER_RADIUS, type WorldRef } from '@/shared';
 import type { Enemy, EnemyHost } from '../Enemy';
-import { CHARGER_CHARGE, HUNTER_LEAP, SPEWER_SPIT } from '../EnemyTypes';
+import { BEHEMOTH_AI, CHARGER_CHARGE, HUNTER_LEAP, SPEWER_SPIT } from '../EnemyTypes';
 import type { CombatTarget } from '../Targets';
 import { avoidObstacles, seek, separate, turnToward, yawTo } from './Steering';
 import { acquireTarget, updatePerception } from './Perception';
+import { attackResult, lookAtTarget, startMelee, stumble, type AttackResult } from './Common';
+import { updateRogue } from './RogueAI';
+import { attackBehemoth, attackToxic, chaseArtillery, chaseBehemoth, chaseToxic } from './GimmickAI';
+
+export { lookAtTarget } from './Common';
 
 const _desired = new THREE.Vector3();
 const _steer = new THREE.Vector3();
@@ -57,8 +62,11 @@ export function updateEnemyAI(e: Enemy, dt: number, host: EnemyHost): void {
 
   updatePerception(e, dt, host);
 
+  // Phase 4: humanoid gunners run their own state machine (cover cycle) on top of the shared movement integration.
+  if (e.isRogue) { updateRogue(e, dt, host, t, targetAlive); return; }
+
   // Nobody left to hunt: everything calms down.
-  if (!targetAlive && e.aware && !e.airborne && e.chargePhase !== 2 && (e.state === 'chase' || e.state === 'alert' || e.state === 'attack')) {
+  if (!targetAlive && e.aware && !e.airborne && e.chargePhase !== 2 && e.toxicPhase === 0 && (e.state === 'chase' || e.state === 'alert' || e.state === 'attack')) {
     e.aware = false; e.state = 'idle'; e.stateTime = 0; e.wanderTimer = 2; e.spawnPos.copy(e.position);
     e.spitPhase = 0; e.chargePhase = 0; a.shake = 0; a.abdomen = 0;
   }
@@ -109,7 +117,7 @@ export function updateEnemyAI(e: Enemy, dt: number, host: EnemyHost): void {
       break;
     }
     case 'attack': {
-      if (!targetAlive && !e.airborne && e.chargePhase !== 2) { e.state = 'idle'; e.stateTime = 0; e.spitPhase = 0; e.chargePhase = 0; break; }
+      if (!targetAlive && !e.airborne && e.chargePhase !== 2 && e.toxicPhase === 0) { e.state = 'idle'; e.stateTime = 0; e.spitPhase = 0; e.chargePhase = 0; break; }
       const r = attack(e, dt, host, t);
       speed = r.speed; allowOverlap = r.allowOverlap; mandibleTarget = r.mandible;
       break;
@@ -117,7 +125,7 @@ export function updateEnemyAI(e: Enemy, dt: number, host: EnemyHost): void {
     case 'stagger': {
       e.staggerTimer -= dt;
       speed = 0;
-      a.crouch = THREE.MathUtils.lerp(a.crouch, e.type === 'charger' ? 0.5 : 0.3, dt * 10);
+      a.crouch = THREE.MathUtils.lerp(a.crouch, e.type === 'charger' || e.type === 'behemoth' ? 0.5 : 0.3, dt * 10);
       a.headPitch = THREE.MathUtils.lerp(a.headPitch, 0.35, dt * 6);
       if (e.staggerTimer <= 0) {
         a.crouch = 0;
@@ -133,7 +141,7 @@ export function updateEnemyAI(e: Enemy, dt: number, host: EnemyHost): void {
   if (e.state !== 'attack') {
     a.shake = Math.max(0, a.shake - dt * 4);
     a.abdomen = Math.max(0, a.abdomen - dt * 2);
-    if (e.state !== 'alert' && e.state !== 'stagger') a.crouch = Math.max(0, a.crouch - dt * 5);
+    if (e.state !== 'alert' && e.state !== 'stagger' && e.type !== 'artillery') a.crouch = Math.max(0, a.crouch - dt * 5);
   }
 
   integrate(e, dt, world, host, speed, allowOverlap);
@@ -200,29 +208,18 @@ function chase(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget): number {
       else if (d < meleeRange && e.attackCd <= 0) startMelee(e);
       break;
     }
+    /* Phase 4 gimmicks */
+    case 'artillery': speed = chaseArtillery(e, dt, host, t); break;
+    case 'toxic': speed = chaseToxic(e, dt, host, t); break;
+    case 'behemoth': speed = chaseBehemoth(e, dt, host, t); break;
+    default: break;
   }
   return speed;
-}
-
-export function lookAtTarget(e: Enemy, t: CombatTarget, dt: number): void {
-  const a = e.anim;
-  const wanted = yawTo(e.position, t.position);
-  let rel = wanted - e.yaw;
-  rel = Math.atan2(Math.sin(rel), Math.cos(rel));
-  a.headYaw = THREE.MathUtils.lerp(a.headYaw, THREE.MathUtils.clamp(rel, -0.8, 0.8), Math.min(1, dt * 8));
-  const dy = (t.position.y + 1.2) - (e.position.y + e.rig.params.head.y);
-  const pitch = -Math.atan2(dy, Math.max(0.5, t.dist2D(e.position)));
-  a.headPitch = THREE.MathUtils.lerp(a.headPitch, THREE.MathUtils.clamp(pitch, -0.6, 0.6), Math.min(1, dt * 8));
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Attacks
  * ──────────────────────────────────────────────────────────────────────────── */
-function startMelee(e: Enemy): void {
-  e.state = 'attack'; e.stateTime = 0;
-  e.attackTimer = 0; e.attackHitDone = false; e.leaping = false;
-  e.spitPhase = 0; e.chargePhase = 0;
-}
 
 function startLeap(e: Enemy, host: EnemyHost): void {
   e.state = 'attack'; e.stateTime = 0;
@@ -246,9 +243,6 @@ function startCharge(e: Enemy, host: EnemyHost): void {
   host.playAudio('bug_screech', e.position, 1.0, 0.5);
 }
 
-interface AttackResult { speed: number; allowOverlap: boolean; mandible: number }
-const attackResult: AttackResult = { speed: 0, allowOverlap: false, mandible: 0 };
-
 /** `t` may be a dead target only while a charge rush / leap is already in flight (those finish regardless). */
 function attack(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget | null): AttackResult {
   const s = e.stats;
@@ -257,6 +251,10 @@ function attack(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget | null): 
   r.speed = 0; r.allowOverlap = false; r.mandible = 0.3;
   e.attackTimer += dt;
   const tp = t ? t.position : e.position;
+
+  // ── Phase 4 gimmicks ──────────────────────────────────────────────────
+  if (e.type === 'toxic' && e.toxicPhase > 0) return attackToxic(e, dt, host, t, r);
+  if (e.type === 'behemoth' && e.chargePhase > 0) return attackBehemoth(e, dt, host, t, r);
 
   // ── charger: wind-up → rush ───────────────────────────────────────────
   if (e.chargePhase === 1) {
@@ -287,12 +285,12 @@ function attack(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget | null): 
     const victim = host.targets.nearestAliveWithin(e.position, hitR);
     if (victim) {
       host.hitTarget(e, CHARGER_CHARGE.damage, 1.0, victim);
-      stumble(e);
+      stumble(e, CHARGER_CHARGE.cooldown, CHARGER_CHARGE.stumble);
       return r;
     }
     // overshot the target
     const passed = (tp.x - e.position.x) * e.chargeDir.x + (tp.z - e.position.z) * e.chargeDir.z;
-    if ((passed < -2.5 && e.chargeTimer > 0.4) || e.chargeTimer > CHARGER_CHARGE.maxDuration) { stumble(e); return r; }
+    if ((passed < -2.5 && e.chargeTimer > 0.4) || e.chargeTimer > CHARGER_CHARGE.maxDuration) { stumble(e, CHARGER_CHARGE.cooldown, CHARGER_CHARGE.stumble); return r; }
     return r;
   }
 
@@ -383,7 +381,7 @@ function attack(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget | null): 
       e.attackHitDone = true;
       a.crouch = 0;
       a.flinch = Math.max(a.flinch, 0.5); a.flinchZ = 0.8; a.flinchX = 0;   // lunge forward (nose dips)
-      if (t && !t.isDeadOrDowned && e.distToTarget < reach) host.hitTarget(e, s.attackDamage, e.type === 'warrior' || e.type === 'charger' ? 0.45 : 0.18, t);
+      if (t && !t.isDeadOrDowned && e.distToTarget < reach) host.hitTarget(e, s.attackDamage, e.type === 'warrior' || e.type === 'charger' || e.type === 'behemoth' ? 0.45 : 0.18, t);
       else host.playAudio('bug_attack', e.position, 0.5, 1.1);
     }
     r.mandible = 1;
@@ -395,18 +393,10 @@ function attack(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget | null): 
   return r;
 }
 
-function stumble(e: Enemy): void {
-  e.chargePhase = 0;
-  e.chargeCd = CHARGER_CHARGE.cooldown;
-  e.attackCd = 1.0;
-  e.enterStagger(CHARGER_CHARGE.stumble);
-  e.velocity.multiplyScalar(0.25);
-}
-
 /* ────────────────────────────────────────────────────────────────────────────
  * Movement integration (shared by every grounded state)
  * ──────────────────────────────────────────────────────────────────────────── */
-function integrate(e: Enemy, dt: number, world: WorldRef, host: EnemyHost, speed: number, allowOverlap: boolean): void {
+export function integrate(e: Enemy, dt: number, world: WorldRef, host: EnemyHost, speed: number, allowOverlap: boolean): void {
   const s = e.stats;
   const a = e.anim;
   const pos = e.position;
@@ -451,9 +441,10 @@ function integrate(e: Enemy, dt: number, world: WorldRef, host: EnemyHost, speed
     const intendedX = _prev.x + e.velocity.x * dt, intendedZ = _prev.z + e.velocity.z * dt;
     const dev = Math.hypot(pos.x - intendedX, pos.z - intendedZ);
     if (dev > 0.05 || !world.isInsideBounds(pos.x + e.chargeDir.x * 2, pos.z + e.chargeDir.z * 2)) {
-      stumble(e);
-      host.playAudio('bug_step', pos, 1.0, 0.5);
-      if (host.targets.distToLocal(pos) < 25) host.ctx.bus.emit('camera:shake', { intensity: 0.35, duration: 0.3 });
+      const big = e.type === 'behemoth';
+      stumble(e, big ? BEHEMOTH_AI.chargeCooldown : CHARGER_CHARGE.cooldown, big ? BEHEMOTH_AI.stumble : CHARGER_CHARGE.stumble);
+      host.playAudio('bug_step', pos, 1.0, big ? 0.35 : 0.5);
+      if (host.targets.distToLocal(pos) < (big ? 45 : 25)) host.ctx.bus.emit('camera:shake', { intensity: big ? 0.6 : 0.35, duration: 0.35 });
     }
   }
   pos.y = world.getHeightAt(pos.x, pos.z);
@@ -474,8 +465,10 @@ function integrate(e: Enemy, dt: number, world: WorldRef, host: EnemyHost, speed
       e.stepAccum += moved;
       if (e.stepAccum >= e.rig.params.strideLength * 0.5) {
         e.stepAccum = 0;
-        const vol = THREE.MathUtils.clamp(1 - dl / 30, 0.1, 1) * (e.type === 'charger' ? 1 : 0.6);
-        host.playAudio('bug_step', pos, vol, e.type === 'charger' ? 0.6 : 0.9);
+        const heavy = e.type === 'charger' || e.type === 'behemoth';
+        const vol = THREE.MathUtils.clamp(1 - dl / 30, 0.1, 1) * (heavy ? 1 : 0.6);
+        host.playAudio('bug_step', pos, vol, e.type === 'behemoth' ? 0.4 : e.type === 'charger' ? 0.6 : 0.9);
+        if (e.type === 'behemoth' && dl < 40) host.ctx.bus.emit('camera:shake', { intensity: 0.12 * (1 - dl / 40), duration: 0.2 });
       }
     }
   }

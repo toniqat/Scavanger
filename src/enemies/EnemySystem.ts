@@ -1,51 +1,63 @@
 import * as THREE from 'three';
 import {
-  MAP_SIZE, NET_ENEMY_SNAPSHOT_HZ,
+  BEHEMOTH_KNOCKBACK, CORPSE_LIFETIME, MAP_SIZE, NET_ENEMY_SNAPSHOT_HZ, PLAYER_HEIGHT, PLAYER_RADIUS, ROGUE_DAMAGE, ROGUE_RANGE,
+  SHELL_BLAST_RADIUS, SHELL_DAMAGE, SHELL_FLIGHT_TIME, TOXIC_DAMAGE, TOXIC_RADIUS,
   type DamageMessage, type EnemyEvent, type EnemyHit, type EnemyManagerRef, type EnemyRef, type EnemyType, type GameContext, type GameSystem,
+  type InterceptableRef,
 } from '@/shared';
+import { FxManager, ParticleBurst } from '@/core/fx';
 import { Enemy, type EnemyHost, type HitPart } from './Enemy';
-import { SPEWER_SPIT } from './EnemyTypes';
+import { ROGUE_AI, SPEWER_SPIT } from './EnemyTypes';
 import { SpatialGrid } from './SpatialGrid';
 import { CombatTarget, TargetList, type TargetId } from './Targets';
 import { updateEnemyAI } from './ai/EnemyAI';
 import { becomeAlert } from './ai/Perception';
 import { BloodFX } from './fx/BloodFX';
 import { AcidProjectiles, type AcidHost, type AcidSlow } from './fx/AcidProjectile';
+import { ShellProjectiles, type ShellHost } from './fx/ShellProjectile';
 import { AmbientSpawner, type SpawnHost } from './Spawner';
 import { WaveDirector } from './WaveDirector';
 import { disposeBugAssets } from './models/BugModel';
+import { disposeRogueAssets } from './models/RogueModel';
 import { EnemyReplica, type ReplicaHost } from './net/Replica';
 import { encodeSnapshot, round, tuple } from './net/HostSync';
+import { CorpseManager } from './Corpses';
+import { placeRogueGuards, type RogueSpawnHost } from './RogueGuards';
+import { raySphere, rayCapsule, rayStandingCapsule } from './RayTests';
 
-const DEATH_DURATION = 4;
 const FLEE_DURATION = 2;
-const CORPSE_SLACK = 10;      // corpses allowed above the alive cap before being recycled
+const CORPSE_SLACK = 30;      // corpses allowed above the alive cap before being recycled
 const RECYCLE_DISTANCE = 160;
 const MAX_REQUEST_DAMAGE = 500;
 const MAX_REQUEST_RADIUS = 20;
+const CLASH_THROTTLE = 15;
+const CLASH_RADIUS = 40;
 
 const _v = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 const _hc = new THREE.Vector3();
-const _n = new THREE.Vector3();
 const _hp = new THREE.Vector3();
 const _hd = new THREE.Vector3();
 const _c = new THREE.Vector3();
+const _m = new THREE.Vector3();
+const _aim = new THREE.Vector3();
+const _dir = new THREE.Vector3();
+const _to = new THREE.Vector3();
 const _zero = new THREE.Vector3();
 const killedBuf: Enemy[] = [];
 
 /**
- * Owns every bug: pooling, AI ticks, hit detection, spawning (ambient + extraction waves), gore FX.
- * Publishes itself as `ctx.enemies` (EnemyManagerRef).
+ * Owns every enemy: pooling, AI ticks, hit detection, spawning (ambient + extraction waves + rogue guards), gore FX,
+ * artillery shells and lootable corpses. Publishes itself as `ctx.enemies` (EnemyManagerRef).
  *
  * Multiplayer (host-authoritative): on the authority (single-player or lobby host) the AI hunts every player via
- * `TargetList`, and when a session is running it broadcasts `EnemySnapshot`s (10 Hz) + `EnemyEvent`s and serves
- * client `hit` / `explode` requests. On a joined client (`!ctx.isAuthority`) the same pools render replicas driven
- * by `net/Replica.ts`; `Enemy.takeDamage` becomes an optimistic FX + `HitRequest`.
- * Authority is read at `world:ready` / `game:newMission` and cached for the mission (host migration only takes
- * effect between missions).
+ * `TargetList` (and, Phase 4, enemies of the other faction through `Enemy.asTarget`), and when a session is running it
+ * broadcasts `EnemySnapshot`s (10 Hz) + `EnemyEvent`s and serves client `hit` / `explode` / `intq` requests. On a
+ * joined client (`!ctx.isAuthority`) the same pools render replicas driven by `net/Replica.ts`; `Enemy.takeDamage`
+ * becomes an optimistic FX + `HitRequest`. Authority is read at `world:ready` / `game:newMission` and cached for the
+ * mission (host migration only takes effect between missions).
  */
-export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, SpawnHost, AcidHost, ReplicaHost {
+export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, SpawnHost, RogueSpawnHost, AcidHost, ShellHost, ReplicaHost {
   readonly name = 'enemies';
   ctx!: GameContext;
   readonly grid = new SpatialGrid<Enemy>(MAP_SIZE + 40, 8);
@@ -56,10 +68,13 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   private readonly pools = new Map<EnemyType, Enemy[]>();
   private fx: BloodFX | null = null;
   private acid: AcidProjectiles | null = null;
+  private shells: ShellProjectiles | null = null;
+  readonly corpses = new CorpseManager();
   private readonly spawner = new AmbientSpawner();
   private readonly waves = new WaveDirector();
   private readonly replicaMgr = new EnemyReplica(this);
   private nextId = 1;
+  private nextShellId = 1;
   private paused = false;
   /** Cached per mission: this client simulates the bugs (single-player or host). */
   private authority = true;
@@ -67,6 +82,9 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   private multiplayer = false;
   private snapTimer = 0;
   private resetting = false;
+  private lastClash = -Infinity;
+  /** Current boss (authority) for debugging / HUD. */
+  bossId = 0;
   private readonly unsub: Array<() => void> = [];
   private readonly netUnsub: Array<() => void> = [];
   private readonly lastAudio = new Map<string, number>();
@@ -81,10 +99,13 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     ctx.enemies = this;
     this.fx = new BloodFX(ctx.scene);
     this.acid = new AcidProjectiles(ctx.scene, this.fx);
+    this.shells = new ShellProjectiles(ctx.scene);
+    this.shells.bind(this);
+    this.corpses.bind(ctx);
 
     const bus = ctx.bus;
     this.unsub.push(
-      bus.on('world:ready', ({ playerSpawn }) => {
+      bus.on('world:ready', ({ seed, playerSpawn }) => {
         this.refreshMode();
         this.reset();
         this.spawner.reset();
@@ -92,6 +113,11 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
         if (this.authority && ctx.world?.ready) {
           this.targets.refresh(ctx);
           this.spawner.initialPopulate(this, playerSpawn);
+          const guards = placeRogueGuards(this, seed);
+          if (guards.boss) {
+            this.bossId = guards.boss.id;
+            ctx.bus.emit('enemy:bossSpawned', { id: guards.boss.id, type: guards.boss.type, position: guards.boss.position });
+          }
         }
       }),
       // WorldSystem (registered earlier) generates synchronously inside ITS game:newMission handler and emits
@@ -115,6 +141,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       bus.on('enemy:waveStarted', ({ index, count }) => {
         if (this.hosting) this.ctx.net!.send({ t: 'ee', ev: 'wave', index, count }, 'others');
       }),
+      bus.on('crate:looted', ({ crateId }) => this.corpses.markLooted(crateId)),
     );
     this.refreshMode();
     this.ensureNet();
@@ -139,6 +166,12 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       }),
       net.onMessage('hit', (msg, from) => this.onHitRequest(msg.id, msg.dmg, msg.p, msg.d, from)),
       net.onMessage('explode', (msg, from) => this.onExplodeRequest(msg.p, msg.r, msg.dmg, from)),
+      net.onMessage('intq', (msg) => {
+        // a client's bullet hit shell `sid`: validate it still exists, pop it here and broadcast
+        if (!this.hosting || !this.shells) return;
+        _c.set(msg.p[0], msg.p[1], msg.p[2]);
+        this.shells.interceptById(msg.sid, _c, true);
+      }),
     );
   }
 
@@ -147,11 +180,12 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     if (!world || !world.ready || this.paused) return;
     this.targets.refresh(ctx);
 
-    // spatial grid for neighbour queries
+    // spatial grid for neighbour queries + faction target proxies
     const grid = this.grid;
     grid.clear();
     for (let i = 0; i < this.active.length; i++) {
       const e = this.active[i];
+      e.syncTarget();
       if (e.state !== 'dead' && e.state !== 'flee') grid.insert(e);
     }
 
@@ -159,6 +193,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       if (ctx.isGameplayPhase()) {
         for (let i = 0; i < this.active.length; i++) updateEnemyAI(this.active[i], dt, this);
         this.acid?.update(dt, this);
+        this.shells?.update(dt, this);
         this.spawner.update(dt, this);
         this.waves.update(dt, this);
       }
@@ -172,15 +207,17 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     } else {
       this.replicaMgr.update(dt);
       this.acid?.update(dt, this);      // visual only: damageTargetAcid is a no-op here
+      this.shells?.update(dt, this);    // visual only: onShellLanded applies no damage on a replica
     }
 
     // visuals always tick (frozen AI still renders idle motion), then despawn finished corpses / fled bugs
-    const corpseLife = this.authority ? DEATH_DURATION : DEATH_DURATION + 1;   // replicas: host despawn normally arrives first
+    const slack = this.authority ? 0 : 1;   // replicas: the host's despawn normally arrives first
     for (let i = this.active.length - 1; i >= 0; i--) {
       const e = this.active[i];
       e.animate(dt);
-      if ((e.state === 'dead' && e.deathTimer >= corpseLife) || (e.state === 'flee' && e.fleeTimer >= FLEE_DURATION)) this.despawn(e);
+      if ((e.state === 'dead' && e.deathTimer >= e.corpseLife + slack) || (e.state === 'flee' && e.fleeTimer >= FLEE_DURATION)) this.despawn(e);
     }
+    this.corpses.update(dt);
     this.fx?.update(dt, world);
   }
 
@@ -193,6 +230,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     this.disposePools();
     this.fx?.dispose(); this.fx = null;
     this.acid?.dispose(); this.acid = null;
+    this.shells?.dispose(); this.shells = null;
     if (this.ctx && this.ctx.enemies === this) this.ctx.enemies = null;
   }
 
@@ -202,18 +240,23 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   getAliveCount(): number { return this.aliveCount(); }
 
   raycast(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number): EnemyHit | null {
+    return this.raycastEx(origin, dir, maxDist, null);
+  }
+
+  /** Ray vs every enemy hitbox except `exclude` (rogue shots skip the shooter). */
+  private raycastEx(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number, exclude: Enemy | null): EnemyHit | null {
     let best: Enemy | null = null;
     let bestT = maxDist;
     let bestPart: HitPart = 'body';
-    let bestKind = 0; // 0 cylinder, 1 cap, 2 head
+    let bestKind = 0; // 0 cylinder, 1 cap, 2 head, 3 armour plate
     let bestCapY = 0;
     for (let i = 0; i < this.active.length; i++) {
       const e = this.active[i];
-      if (!e.active || e.state === 'dead' || e.state === 'flee') continue;
+      if (e === exclude || !e.active || e.state === 'dead' || e.state === 'flee') continue;
       const r = e.stats.radius, h = e.stats.height;
-      // broad phase: bounding sphere around the capsule + head
+      // broad phase: bounding sphere around the capsule + head (+ plate)
       const cx = e.position.x, cy = e.position.y + h * 0.5, cz = e.position.z;
-      const R = Math.max(r, h * 0.5) + e.stats.headRadius + e.rig.params.head.z * 0.5 + 0.2;
+      const R = Math.max(r, h * 0.5) + e.stats.headRadius + e.rig.params.head.z * 0.5 + 0.2 + (e.hasFrontPlate ? r : 0);
       const ox = cx - origin.x, oy = cy - origin.y, oz = cz - origin.z;
       const tc = ox * dir.x + oy * dir.y + oz * dir.z;
       if (tc < -R || tc - R > bestT) continue;
@@ -233,15 +276,30 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
         best = e; bestT = res.t; bestKind = res.kind; bestCapY = res.capY;
         bestPart = e.classifyHit(undefined, dir);
       }
+
+      // behemoth front plate (armoured): a thick vertical capsule hanging in front of the head
+      if (e.hasFrontPlate) {
+        e.plateAxis(_hc);
+        const pr = e.plateRadius;
+        const pres = rayCapsule(origin, dir, _hc.x, _hc.z, e.position.y + e.plateY0 + pr, e.position.y + e.plateY1 - pr, pr);
+        if (pres.t >= 0 && pres.t <= bestT) { best = e; bestT = pres.t; bestKind = 3; bestPart = 'front'; }
+      }
     }
     if (!best) return null;
     const point = new THREE.Vector3(origin.x + dir.x * bestT, origin.y + dir.y * bestT, origin.z + dir.z * bestT);
     const normal = new THREE.Vector3();
     if (bestKind === 2) { best.headCenter(_hc); normal.subVectors(point, _hc).normalize(); }
+    else if (bestKind === 3) { best.plateAxis(_hc); normal.set(point.x - _hc.x, 0, point.z - _hc.z).normalize(); }
     else if (bestKind === 1) { normal.set(point.x - best.position.x, point.y - bestCapY, point.z - best.position.z).normalize(); }
     else { normal.set(point.x - best.position.x, 0, point.z - best.position.z).normalize(); }
     if (normal.lengthSq() < 0.5) normal.copy(dir).negate();
-    return { enemy: best, point, normal, distance: bestT, part: bestPart };
+    const hit: EnemyHit = { enemy: best, point, normal, distance: bestT, part: bestPart };
+    if (bestKind === 3) hit.armored = true;
+    return hit;
+  }
+
+  raycastInterceptable(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number): { target: InterceptableRef; point: THREE.Vector3; distance: number } | null {
+    return this.shells ? this.shells.raycast(origin, dir, maxDist) : null;
   }
 
   /** Radial damage. On a replica this only plays local FX and forwards an `ExplodeRequest` to the host (returns 0). */
@@ -261,15 +319,15 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       this.ctx.net?.send({ t: 'explode', p: tuple(center, 2), r: round(radius, 2), dmg: round(damage, 1) }, 'host');
       return 0;
     }
-    return this.explode(center, radius, damage, 'local', null);
+    return this.explode(center, radius, damage, 'local', null, null);
   }
 
-  private explode(center: THREE.Vector3, radius: number, damage: number, attacker: TargetId, killedOut: Enemy[] | null): number {
+  private explode(center: THREE.Vector3, radius: number, damage: number, attacker: TargetId, killedOut: Enemy[] | null, exclude: Enemy | null): number {
     let kills = 0;
     const r2 = radius * radius;
     for (let i = 0; i < this.active.length; i++) {
       const e = this.active[i];
-      if (!e.active || e.state === 'dead') continue;
+      if (e === exclude || !e.active || e.state === 'dead') continue;
       _v.set(e.position.x, e.position.y + e.stats.height * 0.5, e.position.z);
       const d2 = _v.distanceToSquared(center);
       const reach = radius + e.stats.radius;
@@ -314,12 +372,33 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     this.spawner.reset();
     this.replicaMgr.clear();
     this.targets.clear();
+    this.corpses.clear();
     this.fx?.clear();
     this.acid?.clear();
+    this.shells?.clear();
     this.lastAudio.clear();
     this.snapTimer = 0;
+    this.bossId = 0;
+    this.lastClash = -Infinity;
     this.resetting = false;
   }
+
+  /* ── debug hooks (window.__game.getSystem('enemies')) ─────────────────── */
+  /** Spawn one enemy at `position` (authority only). `chase` makes it hunt immediately. Returns the entity or null. */
+  debugSpawn(type: EnemyType, position: THREE.Vector3 | { x: number; y?: number; z: number }, chase = false): Enemy | null {
+    if (!this.authority || !this.ctx.world?.ready) return null;
+    const world = this.ctx.world;
+    _v.set(position.x, 0, position.z);
+    _v.y = world.getHeightAt(_v.x, _v.z);
+    if (type === 'rogue' || type === 'rogue_boss') {
+      return this.spawnRogue(type, _v, 0, _v, type === 'rogue_boss' ? ROGUE_AI.bossWeapon : ROGUE_AI.weapons[0], null);
+    }
+    return this.spawn(type, _v, 0, chase, false);
+  }
+  /** Live artillery shells. */
+  get shellCount(): number { return this.shells?.count() ?? 0; }
+  /** Position of live shell `sid` (debug), or null. */
+  debugShell(sid: number): THREE.Vector3 | null { return this.shells?.find(sid)?.position ?? null; }
 
   /* ── client → host requests (authority only) ───────────────────────────── */
   private onHitRequest(id: number, dmg: number, p: readonly number[], d: readonly number[], from: string): void {
@@ -341,7 +420,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     if (!(dmg > 0) || dmg > MAX_REQUEST_DAMAGE || !(r > 0) || r > MAX_REQUEST_RADIUS) return;
     _c.set(p[0], p[1], p[2]);
     killedBuf.length = 0;
-    this.explode(_c, r, dmg, from, killedBuf);
+    this.explode(_c, r, dmg, from, killedBuf, null);
     const net = this.ctx.net!;
     for (let i = 0; i < killedBuf.length; i++) {
       const e = killedBuf[i];
@@ -353,17 +432,23 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   /* ── SpawnHost ─────────────────────────────────────────────────────────── */
   aliveCount(): number {
     let n = 0;
-    for (let i = 0; i < this.active.length; i++) { const e = this.active[i]; if (e.active && e.state !== 'dead' && e.state !== 'flee') n++; }
+    for (let i = 0; i < this.active.length; i++) { const e = this.active[i]; if (e.isCombatant) n++; }
+    return n;
+  }
+
+  countAlive(type: EnemyType): number {
+    let n = 0;
+    for (let i = 0; i < this.active.length; i++) { const e = this.active[i]; if (e.type === type && e.isCombatant) n++; }
     return n;
   }
 
   ensureCapacity(n: number, cap: number): number {
-    // 1) recycle far, unseen, unaware bugs when the alive cap is tight
+    // 1) recycle far, unseen, unaware bugs when the alive cap is tight (rogue guards stay)
     let alive = this.aliveCount();
     if (alive + n > cap && this.targets.all.length > 0) {
       for (let i = this.active.length - 1; i >= 0 && alive + n > cap; i--) {
         const e = this.active[i];
-        if (!e.active || e.state === 'dead' || e.aware || e.relentless) continue;
+        if (!e.active || e.state === 'dead' || e.aware || e.relentless || e.isRogue) continue;
         if (this.targets.minDist(e.position) > RECYCLE_DISTANCE) { this.despawn(e); alive--; }
       }
     }
@@ -391,6 +476,17 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     if (chase) { e.aware = true; e.state = 'chase'; e.perceptionTimer = 0.3 + Math.random() * 0.3; }
     ctx.bus.emit('enemy:spawned', { id: e.id, type, position: e.position });
     if (this.hosting) ctx.net!.send({ t: 'ee', ev: 'spawn', id: e.id, ty: type, p: tuple(e.position, 2), yaw: round(yaw, 3) }, 'others');
+    return e;
+  }
+
+  /* ── RogueSpawnHost ────────────────────────────────────────────────────── */
+  spawnRogue(type: EnemyType, position: THREE.Vector3, yaw: number, guardPos: THREE.Vector3, weaponId: string, escortOf: Enemy | null): Enemy | null {
+    const e = this.spawn(type, position, yaw, false, false);
+    if (!e) return null;
+    e.guardPos.copy(guardPos);
+    e.weaponId = weaponId;
+    e.escortOf = escortOf;
+    if (escortOf) e.leash = ROGUE_AI.escortLeash;
     return e;
   }
 
@@ -427,8 +523,49 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     this.acid?.fireAt(from, target.position, shooterId);
   }
 
+  rogueShotVisual(id: number, from: THREE.Vector3, to: THREE.Vector3, hit: boolean): void {
+    const e = this.byId.get(id);
+    this.shotFx(from, to, hit ? 1 : 0);
+    this.ctx.bus.emit('enemy:shot', { id, type: e?.type ?? 'rogue', from: from.clone(), to: to.clone(), hit });
+  }
+
+  shellVisual(sid: number, from: THREE.Vector3, target: THREE.Vector3, flight: number): void {
+    this.shells?.fire(sid, from, target, flight);
+    this.playAudio('bug_attack', from, 1, 0.45);
+    this.ctx.bus.emit('enemy:shellFired', { sid, from: from.clone(), target: target.clone(), flightTime: flight });
+  }
+
+  shellInterceptedRemote(sid: number, p: THREE.Vector3): void {
+    // pop it if it still flies here (local = false: nothing to send back)
+    if (!this.shells?.interceptById(sid, p, false)) this.onShellIntercepted(sid, p, false);
+  }
+
+  shellLandedRemote(sid: number, p: THREE.Vector3): void {
+    if (!this.shells) return;
+    if (this.shells.find(sid)) { this.shells.landById(sid, p); this.onShellLanded(sid, p); }
+    // else: it already landed locally (own simulation) — FX and event were played then
+  }
+
+  chargeVisual(id: number, target: THREE.Vector3): void {
+    const e = this.byId.get(id);
+    if (e) this.playAudio('bug_attack', e.position, 1.0, 0.4);
+    this.ctx.bus.emit('enemy:chargeStarted', { id, position: e ? e.position : target.clone(), target: target.clone() });
+  }
+
+  toxicVisual(id: number, p: THREE.Vector3): void {
+    this.toxicFx(p);
+    this.ctx.bus.emit('enemy:toxicBurst', { id, position: p.clone(), radius: TOXIC_RADIUS });
+  }
+
+  corpseSpawnedRemote(id: number, type: EnemyType, p: THREE.Vector3, weaponId: string | undefined): void {
+    this.corpses.add(id, type, p, weaponId, this.ctx.world?.seed ?? 0);
+  }
+
+  corpseGoneRemote(id: number): void { this.corpses.remove(id); }
+
   private despawn(e: Enemy): void {
     if (this.hosting && !this.resetting && e.active) this.ctx.net!.send({ t: 'ee', ev: 'despawn', id: e.id }, 'others');
+    if (!this.resetting && this.corpses.remove(e.id) && this.hosting) this.ctx.net!.send({ t: 'ee', ev: 'corpseGone', id: e.id }, 'others');
     const idx = this.active.indexOf(e);
     if (idx >= 0) {
       const last = this.active.length - 1;
@@ -446,6 +583,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     for (const pool of this.pools.values()) { for (const e of pool) e.dispose(); pool.length = 0; }
     this.pools.clear();
     disposeBugAssets();
+    disposeRogueAssets();
   }
 
   /* ── EnemyHost ─────────────────────────────────────────────────────────── */
@@ -455,6 +593,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     for (let i = 0; i < this.active.length; i++) {
       const e = this.active[i];
       if (e === source || !e.active || e.state === 'dead' || e.aware) continue;
+      if (source && e.faction !== source.faction) continue;   // a screeching bug does not wake the rogues (they spot it themselves)
       const dx = e.position.x - position.x, dz = e.position.z - position.z;
       if (dx * dx + dz * dz <= r2) becomeAlert(e, this, false);
     }
@@ -476,7 +615,36 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     }
   }
 
+  /**
+   * Phase 4 target selection. Bugs: nearest of (alive players, rogues within sight radius) — equal priority.
+   * Rogues: the nearest alive player within ROGUE_RANGE; otherwise a bug within ROGUE_AI.bugRange, else the nearest player.
+   */
+  pickTarget(e: Enemy): CombatTarget | null {
+    const player = this.targets.nearestAlive(e.position);
+    const pd = player ? player.dist2D(e.position) : Infinity;
+    const range = e.isRogue ? ROGUE_AI.bugRange : e.stats.sightRadius;
+    let foe: Enemy | null = null;
+    let fd = range;
+    for (let i = 0; i < this.active.length; i++) {
+      const o = this.active[i];
+      if (o === e || !o.isCombatant || o.faction === e.faction) continue;
+      const d = Math.hypot(o.position.x - e.position.x, o.position.z - e.position.z);
+      if (d < fd) { fd = d; foe = o; }
+    }
+    if (e.isRogue) {
+      if (player && pd < ROGUE_RANGE && (!foe || fd > pd * 0.5)) return player;
+      return foe ? foe.asTarget : player;
+    }
+    if (foe && fd < pd) return foe.asTarget;
+    return player;
+  }
+
   fireAcid(from: THREE.Vector3, shooter: Enemy, target: CombatTarget): void {
+    if (target.enemy) {
+      // bug vs rogue: spit straight at the enemy position (no player target on the wire)
+      this.acid?.fireAt(from, target.position, shooter.id);
+      return;
+    }
     this.acid?.fire(from, target, shooter.id);
     if (this.hosting) {
       const net = this.ctx.net!;
@@ -488,7 +656,132 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   hitTarget(e: Enemy, damage: number, shake = 0, target: CombatTarget | null = e.target): void {
     if (!target || target.isDeadOrDowned) return;
     this.applyDamage(target, damage, e.position, e.id, e.type, null, shake, true);
-    this.playAudio('bug_attack', e.position, 1, e.type === 'charger' ? 0.6 : e.type === 'warrior' ? 0.8 : 1.05);
+    this.playAudio('bug_attack', e.position, 1, e.type === 'behemoth' ? 0.4 : e.type === 'charger' ? 0.6 : e.type === 'warrior' ? 0.8 : 1.05);
+  }
+
+  /** Rogue hitscan shot (authority): occlusion, player capsules, enemy hitboxes, damage, FX, audio, events, wire. */
+  fireGun(e: Enemy, target: CombatTarget, aimError: number, damageMul: number): void {
+    const ctx = this.ctx;
+    const world = ctx.world;
+    if (!world) return;
+    e.muzzle(_m);
+    target.getChest(_aim);
+    _aim.addScaledVector(target.velocity, 0.06);
+    _dir.subVectors(_aim, _m);
+    if (_dir.lengthSq() < 1e-4) e.facing(_dir); else _dir.normalize();
+    // aim error: rotate around the right / up axes (triangular distribution)
+    const ey = (Math.random() + Math.random() - 1) * aimError;
+    const ep = (Math.random() + Math.random() - 1) * aimError * 0.7;
+    _v.set(-_dir.z, 0, _dir.x).normalize();
+    _dir.addScaledVector(_v, ey);
+    _dir.y += ep;
+    _dir.normalize();
+
+    let hitT = ROGUE_AI.range;
+    const wh = world.raycast(_m, _dir, hitT);
+    if (wh) hitT = wh.distance;
+    let victim: CombatTarget | null = null;
+    const players = this.targets.alive;
+    for (let i = 0; i < players.length; i++) {
+      const t = players[i];
+      const tt = rayStandingCapsule(_m, _dir, t.position, PLAYER_RADIUS, PLAYER_HEIGHT);
+      if (tt >= 0 && tt < hitT) { hitT = tt; victim = t; }
+    }
+    let foe: Enemy | null = null;
+    const eh = this.raycastEx(_m, _dir, hitT, e);
+    if (eh && eh.distance < hitT) { hitT = eh.distance; victim = null; foe = eh.enemy as Enemy; }
+    _to.copy(_m).addScaledVector(_dir, hitT);
+
+    const dmg = ROGUE_DAMAGE * damageMul;
+    if (victim) this.applyDamage(victim, dmg, e.position, e.id, e.type, null, 0.2, false);
+    else if (foe && foe.faction !== e.faction) {
+      foe.takeDamage(dmg, _to, _dir, 'ai');
+      this.noteClash(_to);
+    }
+    if (wh && !victim && !foe) {
+      const fx = FxManager.get();
+      if (fx) ParticleBurst.dust(fx.alpha, wh.point, wh.normal, 4, 0.5);
+    }
+    this.shotFx(_m, _to, victim ? 1 : 0);
+    ctx.bus.emit('enemy:shot', { id: e.id, type: e.type, from: _m.clone(), to: _to.clone(), hit: !!victim });
+    if (this.hosting) ctx.net!.send({ t: 'ee', ev: 'shoot', id: e.id, from: tuple(_m, 2), to: tuple(_to, 2), hit: !!victim }, 'others');
+  }
+
+  /** Tracer + muzzle flash sprite (no lights) + rifle report at the muzzle. */
+  private shotFx(from: THREE.Vector3, to: THREE.Vector3, hit: number): void {
+    const fx = FxManager.get();
+    if (fx) {
+      fx.tracers.add(from, to, 0xffc890, 0.03, 0.09, 0);
+      fx.flashes.flash(from, 0xffc070, 0, 0.55, 0.05);
+    }
+    this.playAudio('shot_rifle', from, 0.75, 0.9);
+    if (hit) this.playAudio('hit_flesh', to, 0.6, 0.9);
+  }
+
+  /** Artillery: shell `sid` toward the target's predicted position, landing after SHELL_FLIGHT_TIME. */
+  fireShell(e: Enemy, target: CombatTarget): void {
+    const ctx = this.ctx;
+    const world = ctx.world;
+    if (!world || !this.shells) return;
+    const sid = this.nextShellId++;
+    _aim.copy(target.position).addScaledVector(target.velocity, SHELL_FLIGHT_TIME * 0.5);
+    _aim.x += (Math.random() - 0.5) * 3; _aim.z += (Math.random() - 0.5) * 3;
+    _aim.y = world.getHeightAt(_aim.x, _aim.z);
+    _m.set(e.position.x, e.position.y + e.stats.height * 0.95, e.position.z);
+    if (!this.shells.fire(sid, _m, _aim, SHELL_FLIGHT_TIME)) return;
+    this.playAudio('bug_attack', e.position, 1, 0.45);
+    const fx = FxManager.get();
+    if (fx) { ParticleBurst.smoke(fx.alpha, _m, 10, 1.0, 0x3a3532); fx.flashes.flash(_m, 0xffa060, 0, 1.4, 0.08); }
+    ctx.bus.emit('enemy:shellFired', { sid, from: _m.clone(), target: _aim.clone(), flightTime: SHELL_FLIGHT_TIME });
+    if (this.hosting) ctx.net!.send({ t: 'ee', ev: 'shell', sid, from: tuple(_m, 2), target: tuple(_aim, 2), flight: SHELL_FLIGHT_TIME }, 'others');
+  }
+
+  /* ── ShellHost ─────────────────────────────────────────────────────────── */
+  onShellLanded(sid: number, p: THREE.Vector3): void {
+    const ctx = this.ctx;
+    if (this.authority) {
+      const players = this.targets.alive;
+      for (let i = 0; i < players.length; i++) {
+        const t = players[i];
+        const d = t.position.distanceTo(p);
+        if (d < SHELL_BLAST_RADIUS + PLAYER_RADIUS) {
+          const dmg = SHELL_DAMAGE * THREE.MathUtils.clamp(1 - Math.max(0, d - PLAYER_RADIUS) / SHELL_BLAST_RADIUS * 0.75, 0.25, 1);
+          this.applyDamage(t, dmg, p, 0, 'artillery', null, 0.9, false);
+        }
+      }
+      this.explode(p, SHELL_BLAST_RADIUS, SHELL_DAMAGE, 'ai', null, null);   // friendly fire on bugs and rogues alike
+    }
+    this.playAudio('explosion', p, 1, 0.85);
+    const dl = this.targets.distToLocal(p);
+    if (dl < 45) ctx.bus.emit('camera:shake', { intensity: 0.9 * (1 - dl / 45), duration: 0.4 });
+    ctx.bus.emit('enemy:shellLanded', { sid, position: p.clone(), radius: SHELL_BLAST_RADIUS });
+    if (this.hosting) ctx.net!.send({ t: 'ee', ev: 'shellHit', sid, p: tuple(p, 2) }, 'others');
+  }
+
+  onShellIntercepted(sid: number, p: THREE.Vector3, local: boolean): void {
+    const ctx = this.ctx;
+    this.playAudio('explosion', p, 0.6, 1.4);
+    ctx.bus.emit('enemy:shellIntercepted', { sid, position: p.clone() });
+    if (this.hosting) ctx.net!.send({ t: 'ee', ev: 'intercept', sid, p: tuple(p, 2) }, 'others');
+    else if (this.replica && local) ctx.net?.send({ t: 'intq', sid, p: tuple(p, 2) }, 'host');
+  }
+
+  /* ── behemoth ──────────────────────────────────────────────────────────── */
+  chargeHit(e: Enemy, target: CombatTarget, damage: number, knockDir: THREE.Vector3): void {
+    if (target.isDeadOrDowned) return;
+    this.applyDamage(target, damage, e.position, e.id, e.type, null, 1.0, true);
+    if (target.isLocal) {
+      const player = this.ctx.player;
+      if (player && !player.isDead && typeof player.applyKnockback === 'function') player.applyKnockback(knockDir, BEHEMOTH_KNOCKBACK);
+    }
+    // remote victims: `dmg` carries no knockback field — their client only takes the damage (see README)
+    this.playAudio('bug_attack', e.position, 1, 0.4);
+  }
+
+  onChargeStarted(e: Enemy, target: THREE.Vector3): void {
+    const ctx = this.ctx;
+    ctx.bus.emit('enemy:chargeStarted', { id: e.id, position: e.position, target: target.clone() });
+    if (this.hosting) ctx.net!.send({ t: 'ee', ev: 'charge', id: e.id, target: tuple(target, 2) }, 'others');
   }
 
   /* ── AcidHost ──────────────────────────────────────────────────────────── */
@@ -498,13 +791,23 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   }
 
   /**
-   * Route damage to a player. Local → `ctx.player.takeDamage` + `enemy:attacked` (+ slow / shake).
-   * Remote → `dmg` message to that peer (net applies it there) and, when `announce`, an `ee attack` to everyone else
-   * so they hear the bite (the victim mirrors `enemy:attacked` from it).
+   * Route damage to a target. Local player → `ctx.player.takeDamage` + `enemy:attacked` (+ slow / shake).
+   * Remote player → `dmg` message to that peer (net applies it there) and, when `announce`, an `ee attack` to everyone
+   * else so they hear the bite (the victim mirrors `enemy:attacked` from it).
+   * Phase 4: an enemy target (`target.enemy`) takes `takeDamage(…, 'ai')` — no kill credit, faction clash toast.
    */
   private applyDamage(target: CombatTarget, amount: number, from: THREE.Vector3, id: number, type: EnemyType, slow: AcidSlow | null, shake: number, announce: boolean): void {
     if (target.isDeadOrDowned) return; // downed players are never AI victims (Phase 2)
     const ctx = this.ctx;
+    if (target.enemy) {
+      const victim = target.enemy;
+      if (!victim.isCombatant) return;
+      _hd.subVectors(victim.position, from); _hd.y = 0;
+      const dir = _hd.lengthSq() > 1e-4 ? _hd.normalize() : undefined;
+      victim.takeDamage(amount, undefined, dir, 'ai');
+      this.noteClash(victim.position);
+      return;
+    }
     if (target.isLocal) {
       const player = ctx.player;
       if (!player || player.isDead || player.isDowned) return;
@@ -522,6 +825,15 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     if (announce) net.send({ t: 'ee', ev: 'attack', id, ty: type, target: target.id, damage: round(amount, 1), p: tuple(from, 2) }, 'others');
   }
 
+  /** First bug ↔ rogue engagement within CLASH_RADIUS of the local player (throttled) → `enemy:factionClash`. */
+  private noteClash(position: THREE.Vector3): void {
+    const ctx = this.ctx;
+    if (ctx.time - this.lastClash < CLASH_THROTTLE) return;
+    if (this.targets.distToLocal(position) > CLASH_RADIUS) return;
+    this.lastClash = ctx.time;
+    ctx.bus.emit('enemy:factionClash', { position: position.clone() });
+  }
+
   /** Replica: optimistic gore/audio for a local shot, then ask the host to apply it. */
   requestHit(e: Enemy, amount: number, part: HitPart, hitPoint: THREE.Vector3 | undefined, hitDir: THREE.Vector3 | undefined): void {
     const ctx = this.ctx;
@@ -532,7 +844,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       if (hitDir) { _v2.copy(hitDir); this.fx.burst(_v, count, 'blood', 4.5, _v2, 0.9); }
       else this.fx.burst(_v, count, 'blood', 4);
     }
-    this.playAudio('bug_hit', e.position, 0.6, 0.9 + Math.random() * 0.2);
+    this.playAudio(e.isRogue ? 'hit_flesh' : 'bug_hit', e.position, 0.6, 0.9 + Math.random() * 0.2);
     ctx.net?.send({ t: 'hit', id: e.id, dmg: round(amount, 2), p: tuple(_v, 2), d: tuple(hitDir ?? _zero, 3) }, 'host');
   }
 
@@ -545,7 +857,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       if (hitDir) { _v2.copy(hitDir); this.fx.burst(_v, count, 'blood', 4.5, _v2, 0.9); }
       else this.fx.burst(_v, count, 'blood', 4);
     }
-    this.playAudio('bug_hit', e.position, 0.6, 0.9 + Math.random() * 0.2);
+    this.playAudio(e.isRogue ? 'hit_flesh' : 'bug_hit', e.position, 0.6, 0.9 + Math.random() * 0.2);
     if (this.hosting) {
       const msg: Extract<EnemyEvent, { ev: 'damaged' }> = { t: 'ee', ev: 'damaged', id: e.id, amount: round(amount, 1), p: tuple(_v, 2) };
       if (hitDir) msg.d = tuple(hitDir, 2);
@@ -556,21 +868,32 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   onEnemyKilled(e: Enemy, countKill: boolean): void {
     const ctx = this.ctx;
     const localKill = e.lastDamager === 'local';
-    // in a session remote killers get credit on their own client (from the `kill` event)
-    if (countKill && (!this.multiplayer || localKill)) {
+    // in a session remote killers get credit on their own client (from the `kill` event); AI kills are never credited
+    if (countKill && e.lastDamager !== 'ai' && (!this.multiplayer || localKill)) {
       ctx.stats.kills++;
       ctx.bus.emit('enemy:killed', { id: e.id, type: e.type, position: e.position });
     }
-    this.playAudio('bug_death', e.position, 1, e.type === 'charger' ? 0.5 : e.type === 'scavenger' ? 1.2 : 0.85);
+    if (e.isRogue) this.playAudio('player_death', e.position, 0.8, e.type === 'rogue_boss' ? 0.7 : 1);
+    else this.playAudio('bug_death', e.position, 1, e.type === 'behemoth' ? 0.35 : e.type === 'charger' ? 0.5 : e.type === 'scavenger' || e.type === 'toxic' ? 1.2 : 0.85);
     if (this.fx) {
       _v.set(e.position.x, e.position.y + e.stats.height * 0.5, e.position.z);
-      this.fx.burst(_v, 18 + Math.round(e.stats.radius * 22), 'blood', 3 + e.stats.radius * 2);
-      this.fx.splat(e.position, e.stats.radius * 1.6, 'blood', ctx.world);
+      this.fx.burst(_v, 18 + Math.round(Math.min(2, e.stats.radius) * 22), 'blood', 3 + Math.min(2, e.stats.radius) * 2);
+      this.fx.splat(e.position, Math.min(3.5, e.stats.radius * 1.6), 'blood', ctx.world);
     }
     if (e.type === 'spewer') this.acidBurst(e);
+    if (e.type === 'toxic' && this.authority) this.toxicBurst(e);
+    // lootable corpse (authority registers; replicas mirror the `corpse` event)
+    if (this.authority && ctx.world) {
+      this.corpses.add(e.id, e.type, e.position, e.weaponId || undefined, ctx.world.seed);
+      if (this.hosting) {
+        const msg: Extract<EnemyEvent, { ev: 'corpse' }> = { t: 'ee', ev: 'corpse', id: e.id, ty: e.type, p: tuple(e.position, 2) };
+        if (e.weaponId) msg.w = e.weaponId;
+        ctx.net!.send(msg, 'others');
+      }
+    }
     if (this.hosting) {
       const net = ctx.net!;
-      const killer = localKill ? net.localId : e.lastDamager;
+      const killer = localKill ? net.localId : e.lastDamager === 'ai' ? null : e.lastDamager;
       net.send({ t: 'ee', ev: 'kill', id: e.id, ty: e.type, p: tuple(e.position, 2), killer }, 'others');
     }
   }
@@ -599,9 +922,40 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     }
   }
 
+  /** Toxic burst (authority): TOXIC_DAMAGE with falloff to players and enemies of both factions, green FX, event, wire. */
+  private toxicBurst(e: Enemy): void {
+    const ctx = this.ctx;
+    _c.copy(e.position);
+    this.toxicFx(_c);
+    const players = this.targets.alive;
+    for (let i = 0; i < players.length; i++) {
+      const t = players[i];
+      const d = t.position.distanceTo(_c);
+      if (d < TOXIC_RADIUS + PLAYER_RADIUS) {
+        const dmg = TOXIC_DAMAGE * THREE.MathUtils.clamp(1 - Math.max(0, d - PLAYER_RADIUS) / TOXIC_RADIUS * 0.8, 0.2, 1);
+        this.applyDamage(t, dmg, _c, e.id, e.type, { duration: 1.5, factor: 0.65 }, 0.5, false);
+      }
+    }
+    this.explode(_c, TOXIC_RADIUS, TOXIC_DAMAGE, 'ai', null, e);
+    ctx.bus.emit('enemy:toxicBurst', { id: e.id, position: _c.clone(), radius: TOXIC_RADIUS });
+    if (this.hosting) ctx.net!.send({ t: 'ee', ev: 'toxic', id: e.id, p: tuple(_c, 2) }, 'others');
+  }
+
+  private toxicFx(p: THREE.Vector3): void {
+    const ctx = this.ctx;
+    _v.set(p.x, p.y + 0.6, p.z);
+    this.fx?.burst(_v, 110, 'acid', 8);
+    this.fx?.splat(p, TOXIC_RADIUS * 0.55, 'acid', ctx.world);
+    const fx = FxManager.get();
+    if (fx) { ParticleBurst.ichor(fx.additive, _v, _zero, 30, 0x9fe64a); ParticleBurst.smoke(fx.alpha, _v, 26, 2.4, 0x3d6a1a); }
+    this.playAudio('acid_splash', p, 1, 0.55);
+    const dl = this.targets.distToLocal(p);
+    if (dl < 16) ctx.bus.emit('camera:shake', { intensity: 0.45 * (1 - dl / 16), duration: 0.3 });
+  }
+
   playAudio(id: string, position: THREE.Vector3, volume = 1, pitch = 1): void {
     const now = this.ctx.time;
-    const gap = id === 'bug_step' ? 0.05 : id === 'bug_hit' ? 0.04 : 0.12;
+    const gap = id === 'bug_step' ? 0.05 : id === 'bug_hit' || id === 'hit_flesh' ? 0.04 : id === 'shot_rifle' ? 0.03 : 0.12;
     const last = this.lastAudio.get(id);
     if (last !== undefined && now - last < gap) return;
     this.lastAudio.set(id, now);
@@ -618,60 +972,11 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       if (dx * dx + dz * dz > r2) continue;
       e.state = 'flee'; e.stateTime = 0; e.fleeTimer = 0;
       e.fleeFrom.copy(position);
-      e.aware = false; e.airborne = false; e.chargePhase = 0; e.spitPhase = 0;
+      e.aware = false; e.airborne = false; e.chargePhase = 0; e.spitPhase = 0; e.roguePhase = 0; e.toxicPhase = 0;
       e.anim.shake = 0; e.anim.abdomen = 0; e.anim.crouch = 0;
     }
   }
 }
 
-/* ────────────────────────────────────────────────────────────────────────────
- * Analytic ray tests (no allocations)
- * ──────────────────────────────────────────────────────────────────────────── */
-function raySphere(o: THREE.Vector3, d: THREE.Vector3, c: THREE.Vector3, r: number): number {
-  const ox = o.x - c.x, oy = o.y - c.y, oz = o.z - c.z;
-  const b = ox * d.x + oy * d.y + oz * d.z;
-  const cc = ox * ox + oy * oy + oz * oz - r * r;
-  const disc = b * b - cc;
-  if (disc < 0) return -1;
-  const s = Math.sqrt(disc);
-  let t = -b - s;
-  if (t < 0) t = -b + s;
-  return t < 0 ? -1 : t;
-}
-
-const capsuleResult = { t: -1, kind: 0, capY: 0 };
-
-/** Ray vs vertical capsule (axis x=cx,z=cz from y0..y1, radius r). kind: 0 side, 1 cap. */
-function rayCapsule(o: THREE.Vector3, d: THREE.Vector3, cx: number, cz: number, y0: number, y1: number, r: number): typeof capsuleResult {
-  const res = capsuleResult;
-  res.t = -1; res.kind = 0; res.capY = y0;
-  const ox = o.x - cx, oz = o.z - cz;
-  const a = d.x * d.x + d.z * d.z;
-  let tSide = -1;
-  if (a > 1e-8) {
-    const b = ox * d.x + oz * d.z;
-    const c = ox * ox + oz * oz - r * r;
-    const disc = b * b - a * c;
-    if (disc >= 0) {
-      const s = Math.sqrt(disc);
-      let t = (-b - s) / a;
-      if (t < 0) t = (-b + s) / a;
-      if (t >= 0) {
-        const y = o.y + d.y * t;
-        if (y >= y0 && y <= y1) tSide = t;
-      }
-    }
-  }
-  if (tSide >= 0) { res.t = tSide; res.kind = 0; return res; }
-  // caps
-  _n.set(cx, y0, cz);
-  let tc = raySphere(o, d, _n, r);
-  let capY = y0;
-  if (y1 > y0) {
-    _n.set(cx, y1, cz);
-    const t2 = raySphere(o, d, _n, r);
-    if (t2 >= 0 && (tc < 0 || t2 < tc)) { tc = t2; capY = y1; }
-  }
-  if (tc >= 0) { res.t = tc; res.kind = 1; res.capY = capY; }
-  return res;
-}
+// CORPSE_LIFETIME is applied per entity (`Enemy.corpseLife`); re-exported here for smoke scripts.
+export { CORPSE_LIFETIME };

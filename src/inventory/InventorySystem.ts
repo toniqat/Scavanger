@@ -517,10 +517,24 @@ export class InventorySystem implements GameSystem, InventoryRef {
 
   openContainer(containerId: string, tier: number, position: THREE.Vector3): void {
     const c = this.containers.getOrCreate(containerId, tier, position, this.loot, this.missionSeed);
+    this.showContainer(c);
+  }
+
+  /**
+   * Loot window for a container whose contents the caller supplies (corpses: `ctx.loot.rollCorpse`).
+   * `items` are placed only on the first open of `containerId` (largest-first on the fixed 6×4 grid,
+   * overflow dropped with a warning); a known id shows what is left. Title defaults to `컨테이너`.
+   */
+  openContainerItems(containerId: string, items: ItemInstance[], position: THREE.Vector3, title?: string): void {
+    const c = this.containers.getOrCreateWithItems(containerId, items, position, title);
+    this.showContainer(c);
+  }
+
+  private showContainer(c: Container): void {
     this.activeContainer = c;
     this.setOpen(true);
     this.ui?.show(c);
-    this.ctx.bus.emit('inventory:opened', { containerId });
+    this.ctx.bus.emit('inventory:opened', { containerId: c.id });
     this.checkLooted();
   }
 

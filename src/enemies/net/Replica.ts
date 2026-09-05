@@ -4,13 +4,16 @@ import {
 } from '@/shared';
 import type { Enemy } from '../Enemy';
 import type { CombatTarget, TargetList } from '../Targets';
-import { applySlope, lookAtTarget } from '../ai/EnemyAI';
+import { applySlope } from '../ai/EnemyAI';
+import { lookAtTarget } from '../ai/Common';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Client-side enemy replicas (joined multiplayer clients, `!ctx.isAuthority`).
  * The host streams EnemySnapshots (10 Hz) + EnemyEvents; this module buffers them per enemy, renders the
- * interpolated pose NET_INTERP_DELAY behind arrival, and drives the bug animation from the wire state so the
- * same BugRig / animateBug path is used as on the host. No AI, spawner, waves or damage run here.
+ * interpolated pose NET_INTERP_DELAY behind arrival, and drives the bug / rogue animation from the wire state so the
+ * same rig path is used as on the host. No AI, spawner, waves or damage run here.
+ * Phase 4: hints 5–11, `w` (rogue rifle), and the `shoot / shell / intercept / shellHit / charge / toxic / corpse /
+ * corpseGone` events are mirrored through `ReplicaHost`.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 const RING = 8;
@@ -111,10 +114,20 @@ export interface ReplicaHost {
   playAudio(id: string, position: THREE.Vector3, volume?: number, pitch?: number): void;
   /** Visual-only acid glob from `from` toward the target's current feet position. */
   acidVisual(from: THREE.Vector3, target: CombatTarget, shooterId: number): void;
+  /* ── Phase 4 (visual mirrors of host events) ── */
+  rogueShotVisual(id: number, from: THREE.Vector3, to: THREE.Vector3, hit: boolean): void;
+  shellVisual(sid: number, from: THREE.Vector3, target: THREE.Vector3, flight: number): void;
+  shellInterceptedRemote(sid: number, p: THREE.Vector3): void;
+  shellLandedRemote(sid: number, p: THREE.Vector3): void;
+  chargeVisual(id: number, target: THREE.Vector3): void;
+  toxicVisual(id: number, p: THREE.Vector3): void;
+  corpseSpawnedRemote(id: number, type: EnemyType, p: THREE.Vector3, weaponId: string | undefined): void;
+  corpseGoneRemote(id: number): void;
 }
 
 const _pose: Pose = { x: 0, y: 0, z: 0, yaw: 0 };
 const _p = new THREE.Vector3();
+const _p2 = new THREE.Vector3();
 const _d = new THREE.Vector3();
 
 export class EnemyReplica {
@@ -139,6 +152,7 @@ export class EnemyReplica {
         e = host.acquire(w.id, w.ty, _p, w.yaw) ?? undefined;
         if (!e) continue;
       }
+      if (w.w) e.weaponId = w.w;
       const buf = e.netBuf ?? (e.netBuf = new ReplicaBuffer());
       buf.push(now, w.p[0], w.p[1], w.p[2], w.yaw, w.hp, w.st, w.a ?? 0);
       buf.seenSeq = seq;
@@ -148,6 +162,8 @@ export class EnemyReplica {
       for (let i = active.length - 1; i >= 0; i--) {
         const e = active[i];
         if (!e.active) continue;
+        // corpses drop out of the host's snapshot after ~1.5 s but stay lootable: our own corpse timer removes them
+        if (e.state === 'dead') continue;
         if (!e.netBuf || e.netBuf.seenSeq !== seq) host.release(e);
       }
     }
@@ -210,7 +226,7 @@ export class EnemyReplica {
       }
       case 'attack': {
         _p.set(msg.p[0], msg.p[1], msg.p[2]);
-        host.playAudio('bug_attack', _p, 1, msg.ty === 'charger' ? 0.6 : msg.ty === 'warrior' ? 0.8 : 1.05);
+        host.playAudio('bug_attack', _p, 1, msg.ty === 'behemoth' ? 0.4 : msg.ty === 'charger' ? 0.6 : msg.ty === 'warrior' ? 0.8 : 1.05);
         if (msg.target === ctx.net?.localId) {
           // the damage itself arrives as a `dmg` message (applied by net); mirror the HUD/audio event here
           const e = host.find(msg.id);
@@ -228,6 +244,48 @@ export class EnemyReplica {
       }
       case 'wave':
         ctx.bus.emit('enemy:waveStarted', { index: msg.index, count: msg.count });
+        return;
+      /* ── Phase 4 ── */
+      case 'shoot': {
+        _p.set(msg.from[0], msg.from[1], msg.from[2]);
+        _p2.set(msg.to[0], msg.to[1], msg.to[2]);
+        const e = host.find(msg.id);
+        if (e) e.anim.recoil = 1;
+        host.rogueShotVisual(msg.id, _p, _p2, msg.hit);
+        return;
+      }
+      case 'shell': {
+        _p.set(msg.from[0], msg.from[1], msg.from[2]);
+        _p2.set(msg.target[0], msg.target[1], msg.target[2]);
+        host.shellVisual(msg.sid, _p, _p2, msg.flight);
+        return;
+      }
+      case 'intercept':
+        _p.set(msg.p[0], msg.p[1], msg.p[2]);
+        host.shellInterceptedRemote(msg.sid, _p);
+        return;
+      case 'shellHit':
+        _p.set(msg.p[0], msg.p[1], msg.p[2]);
+        host.shellLandedRemote(msg.sid, _p);
+        return;
+      case 'charge': {
+        _p.set(msg.target[0], msg.target[1], msg.target[2]);
+        host.chargeVisual(msg.id, _p);
+        return;
+      }
+      case 'toxic':
+        _p.set(msg.p[0], msg.p[1], msg.p[2]);
+        host.toxicVisual(msg.id, _p);
+        return;
+      case 'corpse': {
+        _p.set(msg.p[0], msg.p[1], msg.p[2]);
+        const e = host.find(msg.id);
+        if (e && msg.w) e.weaponId = msg.w;
+        host.corpseSpawnedRemote(msg.id, msg.ty, _p, msg.w);
+        return;
+      }
+      case 'corpseGone':
+        host.corpseGoneRemote(msg.id);
         return;
     }
   }
@@ -259,11 +317,15 @@ export class EnemyReplica {
     const s = e.stats;
     const px = e.position.x, pz = e.position.z;
     const hint = latest.a;
+    const rogue = e.isRogue;
 
     e.airborne = hint === 4;
     e.leaping = e.airborne;
-    e.chargePhase = hint === 1 ? 1 : hint === 2 ? 2 : 0;
+    e.chargePhase = hint === 1 || hint === 10 ? 1 : hint === 2 || hint === 11 ? 2 : 0;
     e.spitPhase = hint === 3 ? 1 : 0;
+    e.toxicPhase = hint === 9 ? 1 : 0;
+    e.dug = hint === 8 ? 1 : 0;
+    e.roguePhase = hint === 5 ? 3 : hint === 6 ? 2 : hint === 7 ? 4 : 0;
     e.position.set(_pose.x, _pose.y, _pose.z);
     if (!e.airborne) e.position.y = world.getHeightAt(_pose.x, _pose.z);   // hide small height mismatches
     e.yaw = _pose.yaw;
@@ -284,26 +346,38 @@ export class EnemyReplica {
 
     // animation targets from state + hint (mirrors what the host AI would be setting)
     let shakeT = 0, abdT = 0, crouchT = 0, mandT = e.aware ? 0.25 : 0, pitchT: number | null = null;
+    let aimT = rogue && e.aware ? 0.5 : 0;
     switch (latest.st) {
-      case 'alert': crouchT = 0.25; mandT = 0.7; break;
+      case 'alert': crouchT = rogue ? 0 : 0.25; mandT = 0.7; if (rogue) aimT = 0.8; break;
       case 'attack': mandT = 1; break;
-      case 'stagger': crouchT = e.type === 'charger' ? 0.5 : 0.3; pitchT = 0.35; break;
+      case 'stagger': crouchT = e.type === 'charger' || e.type === 'behemoth' || rogue ? 0.5 : 0.3; pitchT = 0.35; break;
       default: break;
     }
-    if (hint === 1) { shakeT = 1; crouchT = a.shake * 0.35; mandT = 1; }
-    else if (hint === 2) { mandT = 1; pitchT = -0.2; }
-    else if (hint === 3) { abdT = 1; crouchT = a.abdomen * 0.2; mandT = a.abdomen; }
-    else if (hint === 4) { crouchT = -0.3; mandT = 1; pitchT = 0.3; }
+    switch (hint) {
+      case 1: shakeT = 1; crouchT = a.shake * 0.35; mandT = 1; break;
+      case 2: mandT = 1; pitchT = -0.2; break;
+      case 3: abdT = 1; crouchT = a.abdomen * 0.2; mandT = a.abdomen; break;
+      case 4: crouchT = -0.3; mandT = 1; pitchT = 0.3; break;
+      case 5: aimT = 1; crouchT = 0; break;
+      case 6: aimT = 0.35; crouchT = 1; break;
+      case 7: aimT = 1; crouchT = 0; break;
+      case 8: crouchT = 0.8; mandT = 0.4; break;
+      case 9: abdT = 1; crouchT = 0.25; mandT = 1; break;
+      case 10: shakeT = 1; crouchT = a.shake * 0.3; mandT = 1; break;
+      case 11: mandT = 1; pitchT = -0.2; break;
+      default: break;
+    }
     a.shake += (shakeT - a.shake) * Math.min(1, dt * (shakeT > 0 ? 2.5 : 4));
     a.abdomen += (abdT - a.abdomen) * Math.min(1, dt * (abdT > 0 ? 3 : 2));
     a.crouch += (crouchT - a.crouch) * Math.min(1, dt * 8);
     a.mandible += (mandT - a.mandible) * Math.min(1, dt * 10);
+    a.aim += (aimT - a.aim) * Math.min(1, dt * (aimT > a.aim ? 7 : 3));
 
     // head: track the nearest player while aware, idle sway otherwise
-    const look = e.aware && hint !== 2 ? this.host.targets.nearestAlive(e.position) : null;
+    const look = e.aware && hint !== 2 && hint !== 11 ? this.host.targets.nearestAlive(e.position) : null;
     if (look) lookAtTarget(e, look, dt);
     else {
-      a.headYaw = THREE.MathUtils.lerp(a.headYaw, hint === 2 ? 0 : Math.sin(a.time * 0.7) * 0.35, dt * 3);
+      a.headYaw = THREE.MathUtils.lerp(a.headYaw, hint === 2 || hint === 11 ? 0 : Math.sin(a.time * 0.7) * 0.35, dt * 3);
       a.headPitch = THREE.MathUtils.lerp(a.headPitch, Math.sin(a.time * 1.1) * 0.1, dt * 3);
     }
     if (pitchT !== null) a.headPitch = THREE.MathUtils.lerp(a.headPitch, pitchT, dt * 6);

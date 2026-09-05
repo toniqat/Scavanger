@@ -222,8 +222,14 @@ export class InventoryUI {
     this.container = container;
     this.containerPanel.hidden = !container;
     if (container) {
-      this.containerTitle.textContent = tierTitle(container.tier);
-      this.containerTier.textContent = `SUPPLY CACHE · TIER ${container.tier}`;
+      if (container.title) {
+        // caller-supplied contents (corpses etc.): custom title, no tier eyebrow
+        this.containerTitle.textContent = container.title;
+        this.containerTier.textContent = container.id.startsWith('corpse:') ? 'REMAINS' : 'CONTAINER';
+      } else {
+        this.containerTitle.textContent = tierTitle(container.tier);
+        this.containerTier.textContent = `SUPPLY CACHE · TIER ${container.tier}`;
+      }
       this.containerView.setGrid(container.grid);
     } else {
       this.containerView.setGrid(null);

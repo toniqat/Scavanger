@@ -127,6 +127,20 @@ export function runInventorySelfTest(): boolean {
   const t1 = loot.rollCrate(1, new Random(7));
   check(t1.length >= 2 && t1.length <= 3, 'tier 1 rolls 2–3 items');
 
+  // corpse loot (Phase 4)
+  const c1 = loot.rollCorpse('warrior', new Random(5)).map((i) => `${i.defId}x${i.qty}`).join(',');
+  const c2 = loot.rollCorpse('warrior', new Random(5)).map((i) => `${i.defId}x${i.qty}`).join(',');
+  check(c1 === c2 && c1.includes('mat_bio_sample'), 'rollCorpse deterministic, bugs drop bio samples');
+  const rogue = loot.rollCorpse('rogue', new Random(11), 'smg37');
+  const rogueWeapon = rogue.find((i) => i.defId === 'wpn_smg37');
+  const rogueStats = rogueWeapon && loot.getEffectiveStats(rogueWeapon);
+  check(!!rogueWeapon && !!rogueStats && (rogueWeapon.durability ?? 0) <= rogueStats.maxDurability * 0.15 + 1, 'rogue corpse carries its weapon at ≤ 15 % durability');
+  check(rogue.some((i) => i.defId === 'ammo_light' && i.qty >= 36 && i.qty <= 72), 'rogue corpse drops 30–60 % of the light stack');
+  const boss = loot.rollCorpse('rogue_boss', new Random(3), 'r63');
+  check(boss.some((i) => i.defId === 'wpn_r63_g3' || i.defId === 'wpn_r63_g4'), 'boss corpse weapon is grade III/IV of the same family');
+  check(boss.some((i) => getDef(i.defId)!.category === 'attachment') && boss.some((i) => i.defId === 'stim'), 'boss corpse has an attachment and stims');
+  check(loot.rollCorpse('nope' as never, new Random(1)).length === 1, 'unknown corpse type → single bio sample');
+
   // starter ids exist (weapon package shape: primary / primary2 / secondary / bag / items[{id, qty}])
   check(!!getDef(STARTER_LOADOUT.primary) && !!getDef(STARTER_LOADOUT.secondary), 'starter weapon defs exist');
   check(!!getDef(STARTER_LOADOUT.bag) && !!getDef(STARTER_LOADOUT.bag)!.bag, 'starter bag def exists and is a bag');

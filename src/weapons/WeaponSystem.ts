@@ -5,7 +5,8 @@ import {
   type GameSystem, type WeaponDef, type ItemInstance, type ItemDef, type PlayerRef, type PlayerWeaponHost, type EnemyRef, type Vec3Tuple,
   type WeaponSlot, type EffectiveWeaponStats, type SocketSlot,
 } from '@/shared';
-import type { Obstacle as WorldObstacle } from '@/shared';
+import type { Obstacle as WorldObstacle, InterceptableRef } from '@/shared';
+import { ARMOR_IMMUNE_AMMO } from '@/shared';
 import { FxManager } from '@/core/fx';
 import { randomInCone } from '@/core/util/MathUtil';
 import { WEAPON_SLOTS, defaultFor, kindOf, shotSoundId, shotPitchFor, weaponClassOf, damageFalloff, statsFromDef, STANCE_ACCURACY } from './WeaponDefaults';
@@ -31,7 +32,7 @@ interface WeaponInstance {
   model: WeaponModel;
 }
 
-interface HitInfo { point: THREE.Vector3; normal: THREE.Vector3; distance: number; enemy: EnemyRef | null; obstacle: boolean; valid: boolean; headshot: boolean; obstacleRef: WorldObstacle | null }
+interface HitInfo { point: THREE.Vector3; normal: THREE.Vector3; distance: number; enemy: EnemyRef | null; obstacle: boolean; valid: boolean; headshot: boolean; obstacleRef: WorldObstacle | null; armored: boolean; intercept: InterceptableRef | null }
 
 const BLOOM_PER_SHOT = 0.14;
 const BLOOM_DECAY = 2.6;
@@ -71,7 +72,7 @@ const _muzzle = new THREE.Vector3(), _target = new THREE.Vector3(), _md = new TH
 const _netDir = new THREE.Vector3();
 const _mq = new THREE.Quaternion();
 
-function makeHit(): HitInfo { return { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, enemy: null, obstacle: false, valid: false, headshot: false, obstacleRef: null }; }
+function makeHit(): HitInfo { return { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, enemy: null, obstacle: false, valid: false, headshot: false, obstacleRef: null, armored: false, intercept: null }; }
 
 /** Vector3 → wire tuple rounded to 3 dp (fresh tuples: messages are serialized asynchronously by the relay). */
 function toTuple(v: THREE.Vector3): Vec3Tuple {
@@ -782,7 +783,7 @@ export class WeaponSystem implements GameSystem {
       }
       if (hit) {
         const dmg = st.damage * damageFalloff(def, _muzzle.distanceTo(hit.point));
-        const r = this.applyHit(hit, dmg, _md, pellets > 1);
+        const r = this.applyHit(hit, dmg, _md, pellets > 1, st.ammoType);
         anyHit = true;
         if (hit.enemy) { anyEnemy = true; if (hit.headshot) anyHead = true; }
         if (r) anyKill = true;
@@ -815,19 +816,40 @@ export class WeaponSystem implements GameSystem {
   /** Nearest of world & enemy raycasts into `out`. */
   private raycastAll(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number, out: HitInfo): void {
     const ctx = this.ctx;
-    out.valid = false; out.enemy = null; out.obstacle = false; out.headshot = false; out.obstacleRef = null;
+    out.valid = false; out.enemy = null; out.obstacle = false; out.headshot = false; out.obstacleRef = null; out.armored = false; out.intercept = null;
     const eh = ctx.enemies ? ctx.enemies.raycast(origin, dir, maxDist) : null;
     const wh = ctx.world && ctx.world.ready ? ctx.world.raycast(origin, dir, maxDist) : null;
     if (eh && (!wh || eh.distance <= wh.distance)) {
-      out.point.copy(eh.point); out.normal.copy(eh.normal); out.distance = eh.distance; out.enemy = eh.enemy; out.valid = true; out.headshot = eh.part === 'head';
+      out.point.copy(eh.point); out.normal.copy(eh.normal); out.distance = eh.distance; out.enemy = eh.enemy; out.valid = true; out.headshot = eh.part === 'head'; out.armored = !!eh.armored;
     } else if (wh) {
       out.point.copy(wh.point); out.normal.copy(wh.normal); out.distance = wh.distance; out.obstacle = !!wh.obstacle; out.obstacleRef = wh.obstacle ?? null; out.valid = true;
+    }
+    // Phase 4: artillery shells can be shot down — nearest wins
+    const ih = ctx.enemies && typeof ctx.enemies.raycastInterceptable === 'function' ? ctx.enemies.raycastInterceptable(origin, dir, out.valid ? out.distance : maxDist) : null;
+    if (ih && (!out.valid || ih.distance < out.distance)) {
+      out.point.copy(ih.point); out.normal.copy(dir).negate(); out.distance = ih.distance; out.enemy = null; out.obstacle = false; out.obstacleRef = null; out.headshot = false; out.armored = false;
+      out.intercept = ih.target; out.valid = true;
     }
   }
 
   /** Returns true if the hit killed an enemy. */
-  private applyHit(h: HitInfo, damage: number, dir: THREE.Vector3, light: boolean): boolean {
+  private applyHit(h: HitInfo, damage: number, dir: THREE.Vector3, light: boolean, ammoType?: string): boolean {
     const ctx = this.ctx;
+    if (h.intercept) {
+      // Phase 4: shot down an artillery shell
+      h.intercept.intercept(h.point);
+      this.fx.impactSurface(h.point, h.normal, true);
+      ctx.bus.emit('ui:hitmarker', { kill: false });
+      ctx.bus.emit('audio:play', { id: 'hit_metal', position: h.point, volume: 0.6 });
+      return false;
+    }
+    if (h.enemy && h.armored && ammoType && ARMOR_IMMUNE_AMMO.includes(ammoType)) {
+      // Phase 4: armour plate (behemoth front) — light / medium / shell rounds ricochet, no damage
+      this.fx.impactSurface(h.point, h.normal, true);
+      ctx.bus.emit('weapon:hit', { point: h.point.clone(), normal: h.normal.clone(), enemyId: h.enemy.id, damage: 0, killed: false });
+      ctx.bus.emit('audio:play', { id: 'hit_metal', position: h.point, volume: light ? 0.35 : 0.6, pitch: 1.3 });
+      return false;
+    }
     if (h.enemy) {
       const e = h.enemy;
       const wasDead = e.isDead;
@@ -849,10 +871,11 @@ export class WeaponSystem implements GameSystem {
   private onProjectileHit(h: ProjectileHit, damage: number, weaponId: string): void {
     this.gunHit.point.copy(h.point); this.gunHit.normal.copy(h.normal); this.gunHit.distance = h.distance;
     this.gunHit.enemy = h.enemy; this.gunHit.obstacle = h.obstacle; this.gunHit.obstacleRef = h.obstacleRef ?? null; this.gunHit.valid = true; this.gunHit.headshot = h.part === 'head';
+    this.gunHit.armored = !!h.armored; this.gunHit.intercept = null;
     let def: WeaponDef | null = null;
     for (const s of WEAPON_SLOTS) { const w = this.slots[s]; if (w && w.stats.weaponId === weaponId) { def = w.def; break; } }
     const dmg = def ? damage * damageFalloff(def, h.distance) : damage;
-    const killed = this.applyHit(this.gunHit, dmg, h.dir, false);
+    const killed = this.applyHit(this.gunHit, dmg, h.dir, false, def?.ammoType);
     if (h.enemy) this.ctx.bus.emit('ui:hitmarker', { kill: killed, headshot: this.gunHit.headshot });
   }
 

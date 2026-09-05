@@ -12,7 +12,13 @@ export interface SpawnHost {
   /** Make room for `n` more bugs (despawns corpses first, then far idle bugs). Returns how many may be spawned. */
   ensureCapacity(n: number, cap: number): number;
   spawn(type: EnemyType, position: THREE.Vector3, yaw: number, chase: boolean, relentless: boolean): Enemy | null;
+  /** Alive (not dead / fleeing) enemies of one type — per-type caps (artillery, behemoth). */
+  countAlive(type: EnemyType): number;
 }
+
+/** Per-type alive caps for the gimmick bugs. */
+export const MAX_ARTILLERY = 2;
+export const MAX_BEHEMOTH = 1;
 
 const _eye = new THREE.Vector3();
 const _fwd = new THREE.Vector3();
@@ -125,6 +131,9 @@ export function ambientGroup(threat: number): readonly EnemyType[] {
   if (threat > 0.25 && Math.random() < threat * 0.55) groupBuf.push('warrior');
   if (threat > 0.3 && Math.random() < threat * 0.4) groupBuf.push('spewer');
   if (threat > 0.5 && Math.random() < (threat - 0.5) * 0.4) groupBuf.push('charger');
+  // Phase 4: suicide runners from threat 0.4 (artillery is placed separately, 80–120 m out)
+  if (threat >= 0.4 && Math.random() < threat * 0.6) groupBuf.push('toxic');
+  if (threat >= 0.6 && Math.random() < (threat - 0.4) * 0.5) groupBuf.push('toxic');
   return groupBuf;
 }
 
@@ -132,6 +141,13 @@ export function ambientGroup(threat: number): readonly EnemyType[] {
 export function waveGroup(index: number, count: number): readonly EnemyType[] {
   groupBuf.length = 0;
   let remaining = count;
+  // Phase 4: a behemoth from wave 3 (WaveDirector enforces MAX_BEHEMOTH), toxics from wave 2
+  if (index >= 3 && remaining > 6) { groupBuf.push('behemoth'); remaining--; }
+  if (index >= 2) {
+    const toxics = Math.min(remaining - 4, index >= 4 ? 3 : 2);
+    for (let i = 0; i < toxics; i++) groupBuf.push('toxic');
+    remaining -= Math.max(0, toxics);
+  }
   if (index === 3 || index >= 6) { groupBuf.push('charger'); remaining--; }
   if (index >= 2) {
     const warriors = Math.min(remaining - 3, 1 + Math.floor(index / 2));
@@ -193,5 +209,16 @@ export class AmbientSpawner {
     // patrols that spawn because pressure is high come in already hunting
     const hunting = Math.random() < this.threat * 0.5;
     spawnGroup(host, types.slice(0, allowed), this.center, hunting, false, hunting ? around.position : undefined);
+    this.maybeArtillery(host, around.position);
+  }
+
+  /** Phase 4: from threat 0.5 an artillery bug may dig in 80–120 m out (≤ MAX_ARTILLERY alive), already aware. */
+  private maybeArtillery(host: SpawnHost, around: THREE.Vector3): void {
+    if (this.threat < 0.5 || Math.random() > 0.35 + (this.threat - 0.5) * 0.6) return;
+    if (host.countAlive('artillery') >= MAX_ARTILLERY) return;
+    if (host.ensureCapacity(1, this.cap + 2) <= 0) return;
+    if (!findSpawnCenter(host, around, 80, 120, false, 60, this.center)) return;
+    const yaw = Math.atan2(around.x - this.center.x, around.z - this.center.z);
+    host.spawn('artillery', this.center, yaw, true, false);
   }
 }

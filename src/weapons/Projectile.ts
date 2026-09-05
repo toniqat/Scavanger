@@ -10,6 +10,8 @@ export interface ProjectileHit {
   obstacle: boolean;
   /** The obstacle that was hit (Phase 3: destructible cover), if any. */
   obstacleRef?: Obstacle | null;
+  /** Phase 4: the enemy hitbox is armour plate (behemoth front) — non-heavy rounds ricochet. */
+  armored?: boolean;
   dir: THREE.Vector3;
   /** Distance travelled from the muzzle to the hit point (meters) — for damage falloff. */
   distance: number;
@@ -91,7 +93,7 @@ export class ProjectilePool {
         let hitAny = false;
         const h = this.hit;
         if (eh && (!wh || eh.distance <= wh.distance)) {
-          h.point.copy(eh.point); h.normal.copy(eh.normal); h.enemy = eh.enemy; h.part = eh.part; h.obstacle = false; h.obstacleRef = null; hitAny = true;
+          h.point.copy(eh.point); h.normal.copy(eh.normal); h.enemy = eh.enemy; h.part = eh.part; h.armored = !!eh.armored; h.obstacle = false; h.obstacleRef = null; hitAny = true;
         } else if (wh) {
           h.point.copy(wh.point); h.normal.copy(wh.normal); h.enemy = null; h.part = undefined; h.obstacle = !!wh.obstacle; h.obstacleRef = wh.obstacle ?? null; hitAny = true;
         } else if (ctx.world && ctx.world.ready && s.pos.y < ctx.world.getHeightAt(s.pos.x, s.pos.z)) {

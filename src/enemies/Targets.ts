@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import { PLAYER_HEIGHT, PlayerFlags, type GameContext, type PeerId, type PlayerRef } from '@/shared';
+import type { Enemy } from './Enemy';
 
-/** `'local'` is the player on this machine; anything else is a remote peer id. */
-export type TargetId = PeerId | 'local';
+/** `'local'` is the player on this machine; `'ai'` is another enemy (faction warfare, Phase 4); anything else is a remote peer id. */
+export type TargetId = PeerId | 'local' | 'ai';
 
 const EYE_STAND = 1.55, EYE_CROUCH = 1.15, EYE_PRONE = 0.45;
 
@@ -23,16 +24,23 @@ export class CombatTarget {
   eyeHeight = EYE_STAND;
   /** Set for the local target so eye/forward come straight from the player (camera yaw, pod state…). */
   player: PlayerRef | null = null;
+  /**
+   * Phase 4: set when this target is another enemy (`id === 'ai'`). Every `Enemy` owns one such proxy (`Enemy.asTarget`)
+   * refreshed by the system each frame so bug ↔ rogue combat reuses the player-hunting code paths unchanged.
+   */
+  enemy: Enemy | null = null;
 
   constructor(readonly id: TargetId) {}
 
   get isLocal(): boolean { return this.id === 'local'; }
+  get isEnemy(): boolean { return this.enemy !== null; }
 
   /** True when bugs must neither hunt nor hurt this player (dead, or downed and waiting for a revive). */
   get isDeadOrDowned(): boolean { return this.isDead || this.downed; }
 
   getEyePosition(out: THREE.Vector3): THREE.Vector3 {
     if (this.player) return this.player.getEyePosition(out);
+    if (this.enemy) return out.set(this.position.x, this.position.y + this.enemy.height * 0.8, this.position.z);
     return out.set(this.position.x, this.position.y + this.eyeHeight, this.position.z);
   }
 
@@ -44,8 +52,13 @@ export class CombatTarget {
 
   /** Point bugs aim at / trace LOS to (chest height). */
   getChest(out: THREE.Vector3): THREE.Vector3 {
-    return out.set(this.position.x, this.position.y + PLAYER_HEIGHT * 0.65, this.position.z);
+    const h = this.enemy ? this.enemy.height * 0.6 : PLAYER_HEIGHT * 0.65;
+    return out.set(this.position.x, this.position.y + h, this.position.z);
   }
+
+  /** Body radius for hit tests (players PLAYER_RADIUS-like via the caller; enemies their own). */
+  get bodyRadius(): number { return this.enemy ? this.enemy.radius : 0.45; }
+  get bodyHeight(): number { return this.enemy ? this.enemy.height : PLAYER_HEIGHT; }
 
   dist2D(p: THREE.Vector3): number {
     return Math.hypot(this.position.x - p.x, this.position.z - p.z);

@@ -1,4 +1,4 @@
-import type { ItemCategory, Rarity } from '@/shared';
+import type { EnemyType, ItemCategory, Rarity, WeaponGrade } from '@/shared';
 
 /**
  * Per-tier crate tables. Rolling picks a category by `categoryWeights`, then an
@@ -89,3 +89,70 @@ export function getTierTable(tier: number): TierTable {
 export function getTierLabel(tier: number): string {
   return getTierTable(tier).label;
 }
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Phase 4: corpse tables (`LootRef.rollCorpse`)
+ * ──────────────────────────────────────────────────────────────────────────── */
+/** One possible corpse drop: `chance` (1 = always) then `qty` drawn from [min, max] inclusive. */
+export interface CorpseDrop {
+  defId: string;
+  qty: readonly [number, number];
+  chance: number;
+}
+
+/** Rogue corpses carry the weapon the rogue fought with (item `wpn_<weaponId>`). */
+export interface CorpseWeapon {
+  /** Durability as a fraction of the def's max, drawn from [min, max]. `ammoInMag` is rng 0..magSize. */
+  durability: readonly [number, number];
+  /** When set, the weapon is re-graded to one of these grades of the same family (bosses). */
+  grades?: readonly WeaponGrade[];
+  /** When set, one random `att_*` attachment (rarity ≤ `maxRarity`, fitting the weapon when possible) is added. */
+  attachment?: { maxRarity: Rarity };
+}
+
+export interface CorpseTable {
+  type: EnemyType;
+  drops: readonly CorpseDrop[];
+  /** Rounds of the weapon's calibre as a fraction of `AMMO_STACK_ROUNDS`, one stack (rogues only). */
+  ammoFraction?: readonly [number, number];
+  weapon?: CorpseWeapon;
+}
+
+const BUG_BASE: readonly CorpseDrop[] = [
+  { defId: 'mat_bio_sample', qty: [1, 3], chance: 1 },
+  { defId: 'terminid_gland', qty: [1, 1], chance: 0.25 },
+];
+const ROGUE_AMMO: readonly [number, number] = [0.3, 0.6];
+
+export const CORPSE_TABLES: readonly CorpseTable[] = [
+  { type: 'scavenger', drops: BUG_BASE },
+  { type: 'hunter', drops: BUG_BASE },
+  { type: 'warrior', drops: BUG_BASE },
+  { type: 'spewer', drops: [{ defId: 'mat_bio_sample', qty: [1, 3], chance: 1 }, { defId: 'terminid_gland', qty: [1, 1], chance: 0.6 }] },
+  { type: 'charger', drops: [...BUG_BASE, { defId: 'mat_alloy', qty: [1, 2], chance: 0.4 }] },
+  { type: 'toxic', drops: [{ defId: 'mat_bio_sample', qty: [1, 2], chance: 1 }, { defId: 'terminid_gland', qty: [1, 1], chance: 0.35 }] },
+  { type: 'artillery', drops: [{ defId: 'mat_bio_sample', qty: [2, 3], chance: 1 }, { defId: 'mat_power_cell', qty: [1, 1], chance: 0.5 }] },
+  {
+    type: 'behemoth',
+    drops: [
+      { defId: 'mat_alloy', qty: [2, 4], chance: 1 },
+      { defId: 'terminid_gland', qty: [1, 2], chance: 1 },
+      { defId: 'alien_artifact', qty: [1, 1], chance: 0.3 },
+    ],
+  },
+  {
+    type: 'rogue', ammoFraction: ROGUE_AMMO,
+    drops: [{ defId: 'stim', qty: [1, 1], chance: 0.3 }, { defId: 'grenade_frag', qty: [1, 1], chance: 0.2 }],
+    weapon: { durability: [0.05, 0.15] },
+  },
+  {
+    type: 'rogue_boss', ammoFraction: ROGUE_AMMO,
+    drops: [{ defId: 'stim', qty: [1, 2], chance: 1 }],
+    weapon: { durability: [0.4, 0.7], grades: [3, 4], attachment: { maxRarity: 'epic' } },
+  },
+];
+
+export const CORPSE_TABLE_MAP: ReadonlyMap<EnemyType, CorpseTable> = new Map(CORPSE_TABLES.map((t) => [t.type, t]));
+
+/** Weapon a rogue carries when the caller passes no `rogueWeaponId`. */
+export const DEFAULT_ROGUE_WEAPON_ID = 'ar23';

@@ -7,8 +7,8 @@ Pure data + the `LootRef` implementation. No DOM, no Three.js scene objects. Wea
 | `WeaponDefs.ts` | 8 weapon **families** × 5 grades = 40 `WeaponDef`s built by `buildGrade` (`WEAPON_DEFS`, `WEAPON_DEF_MAP`, `getWeaponDef`, `WEAPON_FAMILIES`, `WEAPON_GRADES`, `weaponGradesOf(family)`, `weaponIdForGrade(family, grade)`); `WEAPON_CLASS_LABEL_KO`, `WEAPON_CLASS_SHORT` (`SMG/AR/SG/SR/DMR/HG`), `WEAPON_BASE_DURABILITY` (per class), `weaponClassOf(def)`, `weaponFamilyOf(def)`, `gradeOf(def)`, `damageFalloff(def, distance)` |
 | `ItemDefs.ts` | 88 `ItemDef`s (`ITEM_DEFS`, `ITEM_DEF_MAP`, `getItemDef`, `itemDefsByCategory`, `isWeaponItemDef`) — 40 weapon items generated from `WEAPON_DEFS` (`WEAPON_ITEM_DEFS`), `AMMO_ITEM_DEFS`, `ATTACHMENT_ITEM_DEFS`, `BAG_ITEM_DEFS`, consumables, valuables, materials; rarity palette `RARITY_COLORS`, `RARITY_ORDER`, `rarityRank`, `rarityForGrade` / `gradeForRarity`; Korean labels (`RARITY_LABEL_KO`, `CATEGORY_LABEL_KO`, `AMMO_LABEL_KO`); `AMMO_TYPES_V2`, `ammoItemIdFor(type)`, `itemIdForWeapon(weaponId)`, `WEAPON_GRADE_VALUE_STEP`; `STARTER_LOADOUT` + `StarterLoadout` type |
 | `WeaponStats.ts` | `computeWeaponStats(def, inst?)` → `EffectiveWeaponStats` (grade already in the def + slot timings + socketed attachments), `baseWeaponStats`, `applyAttachmentEffects`, `socketedAttachments`, `repairCost(def, inst)`, `canAttach(weaponDef, attachmentDef)`, `gradeRoman`, `clampGrade`, `RECOIL_H_RATIO` (0.7), `SECONDARY_ADS_TIME_MUL` (0.5) |
-| `LootTables.ts` | Per-tier `TierTable`s (`LOOT_TABLES`, `getTierTable`, `getTierLabel`): item count, rarity weights (= weapon grade weights), category weights incl. `attachment` / `bag`, weapon chance, `ammoFraction`, guaranteed picks, `itemWeightMul` (family-wide for weapons) |
-| `Loot.ts` | `LootService implements LootRef` — `rollCrate(tier, rng?)`, `createItem(defId, qty?, extras?)`, `getEffectiveStats`, `getRepairCost`, `canAttach`, def lookups; `nextUid()` |
+| `LootTables.ts` | Per-tier `TierTable`s (`LOOT_TABLES`, `getTierTable`, `getTierLabel`): item count, rarity weights (= weapon grade weights), category weights incl. `attachment` / `bag`, weapon chance, `ammoFraction`, guaranteed picks, `itemWeightMul` (family-wide for weapons). Phase 4: per-`EnemyType` `CorpseTable`s (`CORPSE_TABLES`, `CORPSE_TABLE_MAP`, `CorpseDrop`, `CorpseWeapon`, `DEFAULT_ROGUE_WEAPON_ID`) |
+| `Loot.ts` | `LootService implements LootRef` — `rollCrate(tier, rng?)`, `rollCorpse(type, rng?, rogueWeaponId?)`, `createItem(defId, qty?, extras?)`, `getEffectiveStats`, `getRepairCost`, `canAttach`, def lookups; `nextUid()` |
 | `index.ts` | Barrel — import via `@/items` |
 
 ## Weapon families & grades
@@ -116,3 +116,20 @@ Rarity weights double as weapon-grade weights (grade ↔ rarity). `itemWeightMul
 
 ## Phase 3 (2026-09-06)
 - Loot tier 5 `보급 투하 상자` (`SUPPLY_CRATE_TIER`): 4–6 consumables only (ammo 45 / stim 30 / grenade 25, guaranteed stim + ammo, no weapons or valuables). Used by the ship-call supply drop.
+
+## Phase 4 (2026-09-06) — corpse tables (`rollCorpse`)
+
+`LootRef.rollCorpse(type, rng = fallback, rogueWeaponId?)` rolls the contents of a dead enemy's corpse (enemies open it via `ctx.inventory.openContainerItems('corpse:<id>', items, pos, '시체')`). Deterministic for a given `Random`; every `CorpseDrop` is `chance` → `qty ∈ [min, max]`; the result is sorted largest-first like `rollCrate`. Unknown types return a single `mat_bio_sample`.
+
+| type | always | chance |
+|---|---|---|
+| `scavenger` `hunter` `warrior` | `mat_bio_sample` ×1–3 | 25 % `terminid_gland` |
+| `spewer` | `mat_bio_sample` ×1–3 | 60 % `terminid_gland` |
+| `charger` | `mat_bio_sample` ×1–3 | 25 % `terminid_gland`, 40 % `mat_alloy` ×1–2 |
+| `toxic` | `mat_bio_sample` ×1–2 | 35 % `terminid_gland` |
+| `artillery` | `mat_bio_sample` ×2–3 | 50 % `mat_power_cell` |
+| `behemoth` | `mat_alloy` ×2–4, `terminid_gland` ×1–2 | 30 % `alien_artifact` |
+| `rogue` | calibre rounds + **its weapon** (see below) | 30 % `stim`, 20 % `grenade_frag` |
+| `rogue_boss` | calibre rounds + **graded weapon** + one `att_*` (rarity ≤ epic, fitting the weapon when any does), `stim` ×1–2 | — |
+
+Rogue weapon (`CorpseWeapon`): `rogueWeaponId` is the `WeaponDef` id the rogue carried (`DEFAULT_ROGUE_WEAPON_ID` = `ar23` when undefined / unknown). The corpse holds one ammo stack of that calibre (`ammoItemIdFor(def.ammoType)`, 30–60 % of `AMMO_STACK_ROUNDS`) and the weapon item `wpn_<weaponId>` created with `durability = round(max × 0.05–0.15)` (min 1) and `ammoInMag = rng 0..magSize`. Bosses swap the def for the same family at grade III or IV (`weaponIdForGrade`) with durability 40–70 %.

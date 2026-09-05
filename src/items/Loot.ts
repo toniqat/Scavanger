@@ -1,9 +1,9 @@
-import type { EffectiveWeaponStats, ItemDef, ItemInstance, ItemInstanceExtras, LootRef, WeaponDef } from '@/shared';
+import type { EffectiveWeaponStats, EnemyType, ItemDef, ItemInstance, ItemInstanceExtras, LootRef, WeaponDef } from '@/shared';
 import { Random } from '@/shared';
-import { ITEM_DEFS, ITEM_DEF_MAP, isWeaponItemDef, itemIdForWeapon, rarityRank } from './ItemDefs';
-import { WEAPON_DEF_MAP, weaponFamilyOf } from './WeaponDefs';
+import { ATTACHMENT_ITEM_DEFS, ITEM_DEFS, ITEM_DEF_MAP, ammoItemIdFor, isWeaponItemDef, itemIdForWeapon, rarityRank } from './ItemDefs';
+import { WEAPON_DEF_MAP, weaponFamilyOf, weaponIdForGrade } from './WeaponDefs';
 import { canAttach as canAttachDef, computeWeaponStats, repairCost } from './WeaponStats';
-import { getTierTable, type TierTable } from './LootTables';
+import { CORPSE_TABLE_MAP, DEFAULT_ROGUE_WEAPON_ID, getTierTable, type TierTable } from './LootTables';
 
 let uidCounter = 0;
 /** Unique, sortable-ish item uid: counter + random suffix. */
@@ -113,6 +113,60 @@ export class LootService implements LootRef {
       }
       if (qty > 0) out.push(this.createItem(def.id, qty));
     }
+    out.sort((a, b) => this.area(b) - this.area(a));
+    return out;
+  }
+
+  /**
+   * Corpse loot (Phase 4). Bugs drop bio samples / glands / alloy per `CORPSE_TABLES`;
+   * rogues drop rounds of their weapon's calibre plus the weapon itself at very low
+   * durability (`rogueWeaponId`, default `ar23`); bosses re-grade the weapon to III/IV
+   * and add an attachment. Deterministic for a given `rng`; sorted largest-first like
+   * `rollCrate`. Unknown types yield a single bio sample.
+   */
+  rollCorpse(type: EnemyType, rng: Random = this.fallbackRng, rogueWeaponId?: string): ItemInstance[] {
+    const table = CORPSE_TABLE_MAP.get(type);
+    if (!table) return [this.createItem('mat_bio_sample', 1)];
+    const out: ItemInstance[] = [];
+
+    for (const drop of table.drops) {
+      if (drop.chance < 1 && !rng.chance(drop.chance)) continue;
+      if (!ITEM_DEF_MAP.has(drop.defId)) { console.warn(`[Loot] corpse table '${type}': unknown def '${drop.defId}'`); continue; }
+      const qty = drop.qty[0] >= drop.qty[1] ? drop.qty[0] : rng.int(drop.qty[0], drop.qty[1]);
+      out.push(this.createItem(drop.defId, qty));
+    }
+
+    if (table.weapon) {
+      const base = WEAPON_DEF_MAP.get(rogueWeaponId ?? DEFAULT_ROGUE_WEAPON_ID) ?? WEAPON_DEF_MAP.get(DEFAULT_ROGUE_WEAPON_ID);
+      if (base) {
+        let weapon = base;
+        if (table.weapon.grades && table.weapon.grades.length > 0) {
+          weapon = WEAPON_DEF_MAP.get(weaponIdForGrade(weaponFamilyOf(base), rng.pick(table.weapon.grades))) ?? base;
+        }
+        // rounds of the calibre, one stack
+        const ammoDef = ITEM_DEF_MAP.get(ammoItemIdFor(weapon.ammoType));
+        if (ammoDef && table.ammoFraction) {
+          const [lo, hi] = table.ammoFraction;
+          const rounds = Math.max(1, Math.min(ammoDef.stackMax, Math.round(ammoDef.stackMax * rng.range(lo, hi))));
+          out.push(this.createItem(ammoDef.id, rounds));
+        }
+        // the weapon itself
+        const stats = computeWeaponStats(weapon);
+        const [dLo, dHi] = table.weapon.durability;
+        const durability = Math.max(1, Math.round(stats.maxDurability * rng.range(dLo, dHi)));
+        const ammoInMag = rng.int(0, stats.magSize);
+        out.push(this.createItem(itemIdForWeapon(weapon.id), 1, { durability, ammoInMag }));
+        // boss: one attachment (fitting the weapon when any qualifies)
+        if (table.weapon.attachment) {
+          const maxRank = rarityRank(table.weapon.attachment.maxRarity);
+          const pool = ATTACHMENT_ITEM_DEFS.filter((d) => rarityRank(d.rarity) <= maxRank);
+          const fitting = pool.filter((d) => d.attachment && canAttachDef(weapon, d.attachment));
+          const pick = rng.pick(fitting.length > 0 ? fitting : pool);
+          if (pick) out.push(this.createItem(pick.id, 1));
+        }
+      }
+    }
+
     out.sort((a, b) => this.area(b) - this.area(a));
     return out;
   }

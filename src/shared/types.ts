@@ -295,6 +295,12 @@ export interface InventoryRef {
   getQuickSlotCount(): number;
   /** Consume `qty` units of the exact item `uid` (bag). Returns how many were removed. Clears the quick slot at 0. */
   consumeItem(uid: string, qty?: number): number;
+  /* ── appended: Phase 4 — corpse looting (owner: inventory) ── */
+  /**
+   * Open the loot window for a container whose contents are supplied by the caller (corpses: `ctx.loot.rollCorpse`).
+   * Contents are cached per `containerId` like crates (a second open shows what is left); `crate:looted {crateId}` fires when emptied.
+   */
+  openContainerItems(containerId: string, items: ItemInstance[], position: THREE.Vector3, title?: string): void;
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -372,6 +378,12 @@ export interface LootRef {
   getRepairCost(inst: ItemInstance): { defId: string; qty: number }[];
   /** Can `attachment` go into `weapon`? (socket exists, class / ammo compatible). */
   canAttach(weapon: ItemInstance, attachment: ItemInstance): boolean;
+  /* ── appended: Phase 4 (owner: items) ── */
+  /**
+   * Corpse loot for a dead enemy: bugs → bio samples / glands; rogues → rounds of their weapon's calibre + that weapon at very low
+   * durability (`rogueWeaponId` = the WeaponDef id the rogue carried); bosses → a graded weapon + an attachment. Deterministic per `rng`.
+   */
+  rollCorpse(type: EnemyType, rng?: Random, rogueWeaponId?: string): ItemInstance[];
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -565,12 +577,22 @@ export interface PlayerRef {
   applyStim(healAmount: number): boolean;
   /** Respawn like at mission start: hellpod drop-in at `position`, full hp, alive, not downed. Emits `player:spawned` / `player:landed`. */
   respawn(position: THREE.Vector3): void;
+  /* ── appended: Phase 4 (owner: player) ── */
+  /** Shove the player: adds `direction × speed` (m/s, direction normalised, y allowed) to the controller velocity — behemoth charge, blasts. */
+  applyKnockback(direction: THREE.Vector3, speed: number): void;
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Enemies
  * ──────────────────────────────────────────────────────────────────────────── */
-export type EnemyType = 'scavenger' | 'hunter' | 'warrior' | 'spewer' | 'charger';
+/**
+ * Enemy archetypes. Phase 4 appends: `rogue` (humanoid gunner, guards crates), `rogue_boss` (1.5× size, 5× hp, 3 escorts),
+ * `artillery` (bug that lobs slow interceptable shells from afar), `toxic` (green sac, runs in and bursts — friendly-fire),
+ * `behemoth` (4× bug, armoured front shell, line charge with knockback).
+ */
+export type EnemyType = 'scavenger' | 'hunter' | 'warrior' | 'spewer' | 'charger' | 'rogue' | 'rogue_boss' | 'artillery' | 'toxic' | 'behemoth';
+/** Factions fight each other on sight (Phase 4). */
+export type EnemyFaction = 'bug' | 'rogue';
 
 export interface EnemyRef {
   readonly id: number;
@@ -583,6 +605,8 @@ export interface EnemyRef {
   readonly isDead: boolean;
   readonly object: THREE.Object3D;
   takeDamage(amount: number, hitPoint?: THREE.Vector3, hitDir?: THREE.Vector3): void;
+  /* appended (Phase 4) */
+  readonly faction: EnemyFaction;
 }
 
 export interface EnemyHit {
@@ -592,6 +616,20 @@ export interface EnemyHit {
   distance: number;
   /** Which hitbox was struck (appended by enemies): head ×2 for most bugs, rear ×2.5 on chargers. */
   part?: 'head' | 'body' | 'rear' | 'front';
+  /**
+   * appended (Phase 4): the struck hitbox is armour plate (behemoth front shell). Weapons deal **no damage** with
+   * `light` / `medium` / `shell` ammo (ricochet FX instead); `heavy` rounds and explosions go through.
+   */
+  armored?: boolean;
+}
+
+/** Something a bullet can shoot down (Phase 4: artillery shells). Owner: enemies. */
+export interface InterceptableRef {
+  readonly id: number;
+  readonly position: THREE.Vector3;
+  readonly radius: number;
+  /** Destroy it mid-air (FX + `enemy:shellIntercepted`). */
+  intercept(point?: THREE.Vector3): void;
 }
 
 export interface EnemyManagerRef {
@@ -608,6 +646,9 @@ export interface EnemyManagerRef {
   stopExtractionWaves(): void;
   killAll(): void;
   reset(): void;
+  /* appended (Phase 4) */
+  /** Ray vs interceptable projectiles (artillery shells). Weapons call `target.intercept()` when this is the nearest hit. */
+  raycastInterceptable(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number): { target: InterceptableRef; point: THREE.Vector3; distance: number } | null;
 }
 
 /* ────────────────────────────────────────────────────────────────────────────

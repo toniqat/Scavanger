@@ -84,3 +84,7 @@ Every network branch is gated on `ctx.isMultiplayer && ctx.net`; offline behavio
 - `ctx.weapons = { getGrenades() }` (`GrenadeManager.getViews()`, pooled `GrenadeView`s: position / fuse / remote) for the HUD's off-screen indicators.
 - While `ctx.stratagems.armed` or `.targeting` is set, `usable` is false: no firing, swapping, quick-use or reload — the ship call owns the mouse.
 - Hits on a world obstacle call `obstacle.destructible?.onDamage(damage, point)` (hitscan via `HitInfo.obstacleRef`, projectiles via `ProjectileHit.obstacleRef`), so dropped cover structures lose hp to bullets.
+
+## Phase 4 (2026-09-06): armour & interceptable shells
+- `raycastAll` also asks `ctx.enemies.raycastInterceptable()`; when a shell is the nearest hit, `applyHit` calls `target.intercept(point)` (hitmarker, metal sparks) and deals no other damage.
+- `EnemyHit.armored` (behemoth front plate): with `ARMOR_IMMUNE_AMMO` calibres the shot ricochets (`weapon:hit` with damage 0, high-pitched `hit_metal`), no `takeDamage`; heavy rounds and explosions still damage. `applyHit` takes the firing weapon's `ammoType`.

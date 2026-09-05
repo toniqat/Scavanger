@@ -212,8 +212,13 @@ export interface EnemyWire {
   yaw: number;
   hp: number;
   st: EnemyWireState;
-  /** Optional animation hints: 0 none, 1 charger windup, 2 charger rush, 3 spewer windup, 4 hunter airborne. */
+  /**
+   * Optional animation hints: 0 none, 1 charger windup, 2 charger rush, 3 spewer windup, 4 hunter airborne;
+   * Phase 4: 5 rogue shooting, 6 rogue in cover, 7 rogue rushing, 8 artillery aiming, 9 toxic swelling, 10 behemoth windup, 11 behemoth rush.
+   */
   a?: number;
+  /** Phase 4: rogue's weapon def id (model + corpse loot). */
+  w?: string;
 }
 
 /** Host → all, NET_ENEMY_SNAPSHOT_HZ. `full` = complete list (ids missing from it were despawned). Owner: enemies. */
@@ -227,7 +232,18 @@ export type EnemyEvent =
   | { t: 'ee'; ev: 'damaged'; id: number; amount: number; p: Vec3Tuple; d?: Vec3Tuple }
   | { t: 'ee'; ev: 'attack'; id: number; ty: EnemyType; target: PeerId; damage: number; p: Vec3Tuple }
   | { t: 'ee'; ev: 'acid'; id: number; from: Vec3Tuple; target: PeerId }
-  | { t: 'ee'; ev: 'wave'; index: number; count: number };
+  | { t: 'ee'; ev: 'wave'; index: number; count: number }
+  /* appended (Phase 4) */
+  | { t: 'ee'; ev: 'shoot'; id: number; from: Vec3Tuple; to: Vec3Tuple; hit: boolean }
+  | { t: 'ee'; ev: 'shell'; sid: number; from: Vec3Tuple; target: Vec3Tuple; flight: number }
+  | { t: 'ee'; ev: 'intercept'; sid: number; p: Vec3Tuple }
+  | { t: 'ee'; ev: 'shellHit'; sid: number; p: Vec3Tuple }
+  | { t: 'ee'; ev: 'charge'; id: number; target: Vec3Tuple }
+  | { t: 'ee'; ev: 'toxic'; id: number; p: Vec3Tuple }
+  | { t: 'ee'; ev: 'corpse'; id: number; ty: EnemyType; p: Vec3Tuple; w?: string }
+  | { t: 'ee'; ev: 'corpseGone'; id: number };
+/** Client → host (Phase 4): my shot intercepted shell `sid`. Owner: enemies. */
+export interface InterceptRequest { t: 'intq'; sid: number; p: Vec3Tuple }
 
 /** Host → all: extraction flow. Owner: extraction. */
 export type ExtractionMessage =
@@ -319,7 +335,8 @@ export type GameMessage =
   | ItemMessage
   | ItemRequest
   | ReviveMessage
-  | StratagemMessage;
+  | StratagemMessage
+  | InterceptRequest;
   /* append new message types above this line (keep `t` unique; prefix by owning folder if in doubt) */
 
 export type GameMessageType = GameMessage['t'];

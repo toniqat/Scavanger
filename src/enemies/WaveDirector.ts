@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { findSpawnCenter, spawnGroup, waveGroup, type SpawnHost } from './Spawner';
+import type { EnemyType } from '@/shared';
+import { MAX_BEHEMOTH, findSpawnCenter, spawnGroup, waveGroup, type SpawnHost } from './Spawner';
 
 export const WAVE_ALIVE_CAP = 60;
 
@@ -41,7 +42,9 @@ export class WaveDirector {
     const size = this.waveSize();
     const allowed = host.ensureCapacity(size, WAVE_ALIVE_CAP);
     if (allowed <= 0) { this.timer = 3; return; }   // try again soon
-    const types = waveGroup(this.index, Math.min(size, allowed));
+    const rolled = waveGroup(this.index, Math.min(size, allowed));
+    // per-type cap: a second behemoth becomes a warrior
+    const types: EnemyType[] = rolled.map((t) => (t === 'behemoth' && host.countAlive('behemoth') >= MAX_BEHEMOTH ? 'warrior' : t));
     ctx.bus.emit('enemy:waveStarted', { index: this.index, count: types.length });
 
     // split big waves into 1–3 groups arriving from different directions

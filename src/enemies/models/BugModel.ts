@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { Layers, type EnemyType } from '@/shared';
+import { Layers } from '@/shared';
+import type { BugType } from '../EnemyTypes';
 import { BUG_PARAMS, type BugParams } from './BugParams';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -14,12 +15,14 @@ interface TypeAssets {
   femur: THREE.BufferGeometry;
   tibia: THREE.BufferGeometry;
   abdomen: THREE.BufferGeometry | null;
+  /** artillery mortar tube (Phase 4) */
+  mortar: THREE.BufferGeometry | null;
   chitin: THREE.MeshStandardMaterial;
   eye: THREE.MeshStandardMaterial;
   acid: THREE.MeshStandardMaterial | null;
 }
 
-const assets = new Map<EnemyType, TypeAssets>();
+const assets = new Map<BugType, TypeAssets>();
 const tmpColor = new THREE.Color();
 
 function colorize(geo: THREE.BufferGeometry, hex: number): THREE.BufferGeometry {
@@ -101,6 +104,20 @@ function buildBodyGeometry(p: BugParams): THREE.BufferGeometry {
     // frontal armor shield (charger / warrior collar)
     parts.push(ellipsoid(tx * 1.06, ty * 1.02, tz * 0.32, 0, p.thoraxY + ty * 0.05, tz * 0.72, p.armor, 14));
   }
+  if (p.frontPlate) {
+    // behemoth: thick dark plate hanging in front of the head (separate armoured hitbox, see Enemy.isFrontPlate)
+    const pz = p.head.z + p.head.r * 0.9;
+    parts.push(ellipsoid(tx * 0.95, ty * 1.45, tz * 0.11, 0, p.thoraxY, pz, p.frontPlate.color, 14));
+    parts.push(ellipsoid(tx * 0.98, ty * 0.1, tz * 0.12, 0, p.thoraxY + ty * 0.9, pz, p.accent, 8));
+    parts.push(ellipsoid(tx * 0.98, ty * 0.1, tz * 0.12, 0, p.thoraxY - ty * 0.9, pz, p.accent, 8));
+    for (const side of [-1, 1]) {
+      const s = cone(tx * 0.1, ty * 0.7, p.armor ?? p.accent, 6);
+      s.translate(side * tx * 0.55, p.thoraxY + ty * 0.3, pz);
+      parts.push(s);
+    }
+    // bridge from the collar to the plate
+    parts.push(ellipsoid(tx * 0.5, ty * 0.5, (pz - tz * 0.7) * 0.6, 0, p.thoraxY, (pz + tz * 0.7) * 0.5, p.frontPlate.color, 10));
+  }
   if (p.spikes) {
     for (let i = 0; i < 4; i++) {
       const s = cone(tx * 0.12, ty * 0.9, p.accent, 5);
@@ -154,7 +171,25 @@ function buildEyesGeometry(p: BugParams): THREE.BufferGeometry {
   return merge(parts);
 }
 
-function getAssets(type: EnemyType): TypeAssets {
+function buildMortarGeometry(p: BugParams): THREE.BufferGeometry | null {
+  const m = p.mortar;
+  if (!m) return null;
+  const parts: THREE.BufferGeometry[] = [];
+  // tube along +Z from the pivot (the rig group tilts it)
+  const tube = new THREE.CylinderGeometry(m.r, m.r * 0.85, m.len, 10, 1, true);
+  tube.rotateX(Math.PI / 2);
+  tube.translate(0, 0, m.len / 2);
+  parts.push(colorize(tube, p.armor ?? lighten(p.base, 1.4)));
+  const lip = new THREE.TorusGeometry(m.r * 1.05, m.r * 0.18, 6, 12);
+  lip.translate(0, 0, m.len);
+  parts.push(colorize(lip, p.accent));
+  const breech = new THREE.SphereGeometry(m.r * 1.5, 10, 8);
+  breech.scale(1, 0.8, 1);
+  parts.push(colorize(breech, lighten(p.base, 1.2)));
+  return merge(parts);
+}
+
+function getAssets(type: BugType): TypeAssets {
   let a = assets.get(type);
   if (a) return a;
   const p = BUG_PARAMS[type];
@@ -167,6 +202,7 @@ function getAssets(type: EnemyType): TypeAssets {
     femur: segment(legR * 0.72, legR, p.legs.l1, p.base),
     tibia: segment(legR * 0.15, legR * 0.72, p.legs.l2, lighten(p.base, 0.85)),
     abdomen: p.separateAbdomen ? (() => { const g = new THREE.SphereGeometry(1, 20, 14); g.scale(p.abdomen[0], p.abdomen[1], p.abdomen[2]); return g; })() : null,
+    mortar: buildMortarGeometry(p),
     chitin: new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.35, metalness: 0.1, emissive: 0x000000 }),
     eye: new THREE.MeshStandardMaterial({ color: 0x150500, emissive: p.eye, emissiveIntensity: 2.4, roughness: 0.3 }),
     acid: p.separateAbdomen ? new THREE.MeshStandardMaterial({ color: 0x86b545, emissive: 0x3c7a16, emissiveIntensity: 0.6, roughness: 0.45, metalness: 0.05 }) : null,
@@ -179,7 +215,7 @@ function getAssets(type: EnemyType): TypeAssets {
 export function disposeBugAssets(): void {
   for (const a of assets.values()) {
     a.body.dispose(); a.head.dispose(); a.eyes.dispose(); a.mandible.dispose(); a.femur.dispose(); a.tibia.dispose();
-    a.abdomen?.dispose(); a.chitin.dispose(); a.eye.dispose(); a.acid?.dispose();
+    a.abdomen?.dispose(); a.mortar?.dispose(); a.chitin.dispose(); a.eye.dispose(); a.acid?.dispose();
   }
   assets.clear();
 }
@@ -200,8 +236,11 @@ export interface LegRig {
 }
 
 export interface BugRig {
-  type: EnemyType;
+  kind: 'bug';
+  type: BugType;
   params: BugParams;
+  /** root scale multiplier (rogue boss uses it; bugs are 1) */
+  baseScale: number;
   root: THREE.Group;
   body: THREE.Group;
   bodyMesh: THREE.Mesh;
@@ -209,6 +248,8 @@ export interface BugRig {
   mandibleL: THREE.Group;
   mandibleR: THREE.Group;
   abdomen: THREE.Mesh | null;
+  /** artillery mortar pivot (tilted group holding the tube mesh) */
+  mortar: THREE.Group | null;
   legs: LegRig[];
   chitin: THREE.MeshStandardMaterial;
   eyeMat: THREE.MeshStandardMaterial;
@@ -244,18 +285,26 @@ export interface BugAnim {
   slopePitch: number;
   slopeRoll: number;
   time: number;
+  /* ── Phase 4 ── */
+  /** corpse fade-out 0..1 over the last seconds of CORPSE_LIFETIME (body sinks, eyes die) */
+  fade: number;
+  /** rogue: weapon raised 0..1; artillery: dug-in reuses `crouch`; toxic swell reuses `abdomen`; behemoth wind-up reuses `shake` */
+  aim: number;
+  /** rogue rifle / artillery mortar recoil impulse 0..1 (decays fast) */
+  recoil: number;
 }
 
 export function createBugAnim(): BugAnim {
   return {
     gait: 0, speed: 0, headYaw: 0, headPitch: 0, mandible: 0, flinch: 0, flinchX: 0, flinchZ: 0, hitFlash: 0,
     abdomen: 0, shake: 0, crouch: 0, death: -1, rollSign: 1, slopePitch: 0, slopeRoll: 0, time: 0,
+    fade: 0, aim: 0, recoil: 0,
   };
 }
 
 const LEG_SPREAD = [0.55, 0.0, -0.55];
 
-export function createBugRig(type: EnemyType): BugRig {
+export function createBugRig(type: BugType): BugRig {
   const p = BUG_PARAMS[type];
   const a = getAssets(type);
   const chitin = a.chitin.clone();
@@ -303,6 +352,17 @@ export function createBugRig(type: EnemyType): BugRig {
     body.add(abdomen);
   }
 
+  let mortar: THREE.Group | null = null;
+  if (a.mortar && p.mortar) {
+    mortar = new THREE.Group();
+    mortar.position.set(0, p.mortar.y, p.mortar.z);
+    mortar.rotation.x = -p.mortar.elev;           // tube points up-forward
+    const tube = new THREE.Mesh(a.mortar, chitin);
+    tube.layers.enable(Layers.ENEMY);
+    mortar.add(tube);
+    body.add(mortar);
+  }
+
   const legs: LegRig[] = [];
   const L = p.legs;
   const kneeHeight = L.hipY + L.l1 * Math.sin(L.femurUp);
@@ -334,7 +394,7 @@ export function createBugRig(type: EnemyType): BugRig {
     }
   }
 
-  return { type, params: p, root, body, bodyMesh, head, mandibleL, mandibleR, abdomen, legs, chitin, eyeMat, acidMat };
+  return { kind: 'bug', type, params: p, baseScale: 1, root, body, bodyMesh, head, mandibleL, mandibleR, abdomen, mortar, legs, chitin, eyeMat, acidMat };
 }
 
 export function disposeBugRig(rig: BugRig): void {
@@ -372,7 +432,8 @@ export function animateBug(rig: BugRig, a: BugAnim): void {
     pitch += fall * 0.25;
     yaw += fall * a.rollSign * 0.4;
     curl = smooth(Math.min(1, d / 0.35));
-    const sinkT = smooth(Math.max(0, (d - 0.4) / 0.6));
+    // the corpse stays on the ground (lootable) and only sinks away during the final fade
+    const sinkT = smooth(Math.min(1, Math.max(0, a.fade)));
     sink = sinkT * (p.thoraxY + p.thorax[1]) * 1.4;
     body.position.y -= sink - fall * p.thorax[1] * 0.2;
   }
@@ -386,9 +447,17 @@ export function animateBug(rig: BugRig, a: BugAnim): void {
 
   // ── spewer abdomen pulse ────────────────────────────────────────────────
   if (rig.abdomen) {
-    const pulse = 1 + Math.sin(t * 2.2) * 0.03 + a.abdomen * 0.18;
+    const swell = p.sacSwell ?? 0.18;
+    const pulse = 1 + Math.sin(t * (2.2 + a.abdomen * 12)) * (0.03 + a.abdomen * 0.04) + a.abdomen * swell;
     rig.abdomen.scale.set(pulse, pulse * 0.97, pulse * 1.03);
     if (rig.acidMat) rig.acidMat.emissiveIntensity = 0.6 + a.abdomen * 1.6;
+  }
+
+  // ── artillery mortar: recoil along the tube + dig-in settle ─────────────
+  if (rig.mortar && p.mortar) {
+    const k = a.recoil * a.recoil;
+    rig.mortar.position.set(0, p.mortar.y - k * 0.12, p.mortar.z - k * 0.22);
+    rig.mortar.rotation.x = -p.mortar.elev - k * 0.25 + a.crouch * 0.12;
   }
 
   // ── legs: tripod gait ───────────────────────────────────────────────────
@@ -428,6 +497,7 @@ export function animateBug(rig: BugRig, a: BugAnim): void {
   }
   if (dying) {
     rig.eyeMat.emissiveIntensity = 2.4 * (1 - smooth(Math.min(1, a.death / 0.5)));
+    if (a.fade > 0) rig.eyeMat.emissiveIntensity = 0;
   } else if (rig.eyeMat.emissiveIntensity !== 2.4) {
     rig.eyeMat.emissiveIntensity = 2.4;
   }

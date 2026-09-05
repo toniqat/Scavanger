@@ -173,6 +173,15 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   }
 
   /** Stim heal-over-time (1.5 s). The caller (weapons quick-use) has already consumed the item. */
+  /** Phase 4: shove (behemoth charge, blasts) — adds `direction × speed` to the controller velocity; y is allowed so the player lifts off. */
+  applyKnockback(direction: THREE.Vector3, speed: number): void {
+    if (this.isDead || !this.spawned) return;
+    const len = direction.length();
+    if (len < 1e-5 || !(speed > 0)) return;
+    this.controller.velocity.addScaledVector(direction, speed / len);
+    this.rig.addShake(Math.min(0.6, speed * 0.04), 0.4);
+  }
+
   applyStim(healAmount: number): boolean {
     if (!this.spawned || this.isDead || this._downed || this.hp >= this.maxHp || healAmount <= 0) return false;
     if (this.healPool > 0) return false; // already healing

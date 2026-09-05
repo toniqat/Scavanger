@@ -82,7 +82,8 @@
 - 구조물 투하(60 s): 범위 내 엄폐 구조물 5개 산개 낙하, 피격 적 대미지, 체력 2000, 파괴 가능.
 - 오프스크린 인디케이터: 화면 밖 수류탄, 5 초 이내의 아군 핑(이후 맵/나침반만), 도착 전까지의 함선 호출 목표.
 
-## Phase 4 — 인간형 적(로그) · 적 기믹 · 시체 루팅 ☐
+## Phase 4 — 인간형 적(로그) · 적 기믹 · 시체 루팅 ☑ (2026-09-06)
+구현 메모: 로그는 `ctx.world.getCrates()` 의 2등급 이상 상자 주변에 분대로 배치(보스 1 + 호위 3), 진영(`EnemyFaction`) 간 교전은 enemies 내부 `CombatTarget('ai')` 로 처리. 곡사체는 `InterceptableRef` 로 노출되어 weapons 가 격추. 거대껍질은 `EnemyHit.armored` + `ARMOR_IMMUNE_AMMO` 로 경량/준중량/산탄 면역. 시체는 `corpse:<id>` 인터랙터블 → `openContainerItems(rollCorpse(...))`, 내용물은 클라이언트별. 검증: `smoke-phase4.mjs`.
 소유 폴더: `enemies` (로그 AI/모델, 곡사포·맹독충·거대껍질·보스 로그, 진영 적대), `world` (상자 지킴 배치, 시체 인터랙터블), `items` (로그 드랍 테이블), `weapons` (곡사체 요격 히트박스), `net` (새 `EnemyType`, 진영).
 
 - 로그: 총기 사용 인간형. 낮은 반응속도, 불안정한 에임, 단순 엄폐 사격 AI, 가끔 뛰쳐나와 근접 사격. 주로 상자 루팅 장소를 지킴.
