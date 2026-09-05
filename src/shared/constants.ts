@@ -36,7 +36,25 @@ export const Keys = {
   RELOAD: 'KeyR', INTERACT: 'KeyE', STIM: 'KeyF', GRENADE: 'KeyG',
   PRIMARY: 'Digit1', SECONDARY: 'Digit2', SWAP: 'KeyQ',
   INVENTORY: 'Tab', ROTATE_ITEM: 'KeyR', MENU: 'Escape', MAP: 'KeyM',
+  /* appended: X drops the hovered/selected inventory item; Enter opens text chat. */
+  DROP_ITEM: 'KeyX', CHAT: 'Enter',
 } as const;
 
 /** Mouse buttons (MouseEvent.button). */
 export const MouseButtons = { FIRE: 0, PING: 1, AIM: 2 } as const;
+
+/* ── appended: pings v2 / chat / pickups / hub ── */
+/** Middle-mouse drag distance (px, pointer-locked movement) that turns a click into a directional ping. */
+export const PING_DRAG_THRESHOLD_PX = 45;
+/** Max seconds the middle button may be held before the gesture is treated as a plain ping. */
+export const PING_HOLD_MAX = 1.2;
+/** Chat log lines kept. */
+export const CHAT_MAX_LINES = 60;
+/** Seconds a dropped item pickup stays in the world (0 = forever). */
+export const PICKUP_LIFETIME = 0;
+/** Max simultaneous pickups per mission (oldest removed). */
+export const PICKUP_MAX = 96;
+/** Seconds between "everyone boarded" and mission launch in the hub. */
+export const HUB_LAUNCH_COUNTDOWN = 3;
+/** Docking cutscene length (s). */
+export const HUB_DOCKING_DURATION = 6;

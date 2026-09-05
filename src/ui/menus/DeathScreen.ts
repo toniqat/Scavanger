@@ -2,13 +2,14 @@ import type { GameContext, MissionStats } from '@/shared';
 import { el, fmtTime, fmtInt, setText } from '../dom';
 import { MenuBase } from './MenuBase';
 
-/** "전사" screen with mission stats, redeploy / menu buttons. */
+/**
+ * "전사" screen with mission stats. `함선으로 귀환` (primary) → `hub:enter {ship}` (shared while in a lobby);
+ * `다시 배치` (same seed) only in single-player.
+ */
 export class DeathScreen extends MenuBase {
   private vals: Record<string, HTMLElement> = {};
   private seed = 0;
   private redeployBtn: HTMLButtonElement;
-  private lobbyBtn: HTMLButtonElement;
-  private menuBtn: HTMLButtonElement;
 
   constructor(parent: HTMLElement) {
     super(parent, 'death');
@@ -28,9 +29,8 @@ export class DeathScreen extends MenuBase {
     this.vals.loot.style.color = 'var(--c-danger)';
 
     const actions = el('div', { cls: 'actions', parent: this.frame });
-    this.redeployBtn = this.button(actions, '다시 배치', () => this.ctx.bus.emit('game:newMission', { seed: this.seed }), 'primary');
-    this.lobbyBtn = this.button(actions, '로비로', () => this.ctx.bus.emit('game:abort', {}), 'primary');
-    this.menuBtn = this.button(actions, '메뉴로', () => this.ctx.bus.emit('game:abort', {}));
+    this.button(actions, '함선으로 귀환', () => this.ctx.bus.emit('hub:enter', { ship: this.ctx.net?.lobby ? 'shared' : 'personal' }), 'primary');
+    this.redeployBtn = this.button(actions, '다시 배치 (같은 시드)', () => this.ctx.bus.emit('game:newMission', { seed: this.seed }));
   }
 
   override bind(ctx: GameContext): void {
@@ -43,11 +43,8 @@ export class DeathScreen extends MenuBase {
 
   private fill(s: MissionStats): void {
     this.seed = s.seed;
-    // Multiplayer: the seed is the host's call → only '로비로' (abort → phase 'menu' → LobbyMenu shows).
-    const inLobby = !!this.ctx.net?.lobby;
-    this.redeployBtn.hidden = inLobby;
-    this.menuBtn.hidden = inLobby;
-    this.lobbyBtn.hidden = !inLobby;
+    // Multiplayer: the seed is the host's call at the ship terminal → return to the ship only.
+    this.redeployBtn.hidden = !!this.ctx.net?.lobby;
     setText(this.vals.kills, String(s.kills));
     setText(this.vals.time, fmtTime(s.timeSeconds));
     setText(this.vals.crates, String(s.cratesOpened));

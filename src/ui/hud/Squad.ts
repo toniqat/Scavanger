@@ -9,7 +9,9 @@ interface Row { root: HTMLElement; name: HTMLElement; fill: HTMLElement; state: 
 /**
  * Compact squad list (top-left, under the objective): slot colour bar, name, hp bar, state text.
  * Local player first (from `ctx.player`), then lobby members by slot (`ctx.net.getRemotePlayer`).
- * Visible only while `ctx.isMultiplayer`; refreshed at ≤ 10 Hz and only writes the DOM when a row changed.
+ * Visible while `ctx.isMultiplayer` (mission) or in the shared ship (hub phase with a lobby); refreshed at ≤ 10 Hz
+ * and only writes the DOM when a row changed. Hub states: `함선 내` / `탑승 준비` (`LobbyPlayer.ready`);
+ * `연결 끊김` for `LobbyPlayer.connected === false` (slot reserved while the peer reconnects).
  */
 export class Squad {
   readonly root: HTMLElement;
@@ -44,7 +46,8 @@ export class Squad {
 
   update(dt: number, ctx: GameContext): void {
     const net = ctx.net;
-    const mp = !!net && ctx.isMultiplayer;
+    const hub = ctx.phase === 'hub' || ctx.phase === 'docking';
+    const mp = !!net && (ctx.isMultiplayer || (hub && !!net.lobby));
     if (mp !== this.shown) { this.shown = mp; setVisible(this.root, mp); if (!mp) this.reset(); }
     if (!mp || !net) return;
     this.acc += dt;
@@ -54,8 +57,11 @@ export class Squad {
     let i = 0;
     // local player first
     const p = ctx.player;
-    const localState = p?.isDead ? '전사' : p?.isDropping ? '강하 중' : !net.connected ? '연결 끊김' : '';
-    this.fillRow(this.rows[i++], net.localSlot, net.playerName, p ? p.hp / Math.max(1, p.maxHp) : 1, localState, true);
+    const localLp = net.localId ? net.getLobbyPlayer(net.localId) : undefined;
+    const localState = !net.connected ? '연결 끊김'
+      : hub ? (localLp?.ready ? '탑승 준비' : '함선 내')
+      : p?.isDead ? '전사' : p?.isDropping ? '강하 중' : '';
+    this.fillRow(this.rows[i++], net.localSlot, net.playerName, hub ? 1 : p ? p.hp / Math.max(1, p.maxHp) : 1, localState, true);
 
     // squad members by slot (lobby list is the source of truth; the RemotePlayerRef may lag by a snapshot)
     const players = net.lobby?.players;
@@ -64,7 +70,8 @@ export class Squad {
         const lp = this.bySlot(players, slot);
         if (!lp || lp.id === net.localId) continue;
         const ref = net.getRemotePlayer(lp.id);
-        this.fillRow(this.rows[i++], slot, lp.name, ref ? ref.hp / Math.max(1, ref.maxHp) : 0, this.remoteState(ref, net.connected), false);
+        const state = lp.connected === false ? '연결 끊김' : hub ? (lp.ready ? '탑승 준비' : '함선 내') : this.remoteState(ref, net.connected);
+        this.fillRow(this.rows[i++], slot, lp.name, hub ? 1 : ref ? ref.hp / Math.max(1, ref.maxHp) : 0, state, false);
       }
     } else {
       // no lobby snapshot (should not happen in a session) — fall back to whatever refs exist
@@ -104,6 +111,7 @@ export class Squad {
     toggleClass(row.root, 'dead', state === '전사');
     toggleClass(row.root, 'off', state === '연결 끊김' || state === '연결 중');
     toggleClass(row.root, 'drop', state === '강하 중');
+    toggleClass(row.root, 'ready', state === '탑승 준비');
     toggleClass(row.root, 'low', hp < 0.4 && state !== '전사');
   }
 

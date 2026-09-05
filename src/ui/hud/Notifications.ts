@@ -4,11 +4,15 @@ import { el, escapeHtml, rarityColor } from '../dom';
 type Kind = 'info' | 'warning' | 'danger' | 'success';
 const MAX_VISIBLE = 6;
 
-/** Right-center notification stack with kind-colored left borders and slide/fade dismiss. */
+/**
+ * Right-center notification stack with kind-colored left borders and slide/fade dismiss. Lives in the social HUD
+ * layer, so it also shows in the ship hub (the hub menu uses blocker token 'hub', not 'menu').
+ */
 export class Notifications {
   readonly root: HTMLElement;
   private unsubs: Array<() => void> = [];
   private live: HTMLElement[] = [];
+  private lastCountdown = -1;
 
   constructor(parent: HTMLElement) {
     this.root = el('div', { cls: 'notifs', parent });
@@ -31,13 +35,33 @@ export class Notifications {
       b.on('extraction:liftoff', () => this.push('이륙 시퀀스 개시.', 'success', '탈출', 4)),
       b.on('crate:looted', () => this.push('상자를 모두 비웠습니다.', 'info', '보급', 2.5)),
       b.on('player:stimUsed', () => this.push('회복제 사용', 'success', '생명력', 2)),
-      // multiplayer feed (menus hide the HUD layer, so lobby-time events are also shown inline by LobbyMenu)
+      // multiplayer feed
       b.on('net:remoteDied', ({ name }) => this.push(`<b>${escapeHtml(name)}</b> 전사`, 'danger', '분대', 4)),
       b.on('net:peerJoined', ({ name }) => this.push(`<b>${escapeHtml(name)}</b> 합류`, 'info', '분대', 3)),
       b.on('net:peerLeft', ({ name }) => this.push(`<b>${escapeHtml(name)}</b> 이탈`, 'warning', '분대', 3.5)),
       b.on('net:lobbyLeft', ({ reason }) => { if (reason === 'hostLeft') this.push('호스트가 나갔습니다', 'warning', '분대', 4); }),
+      b.on('pickup:taken', ({ item, byLocal, byName }) => {
+        if (byLocal) return;
+        const def = ctx.loot?.getItemDef(item.defId);
+        const qty = item.qty > 1 ? ` <span style="color:var(--c-text-dim)">×${item.qty}</span>` : '';
+        this.push(`<b>${escapeHtml(byName ?? '분대원')}</b> 획득: <b style="color:${rarityColor(def?.rarity ?? 'common')}">${escapeHtml(def?.name ?? item.defId)}</b>${qty}`, 'info', '분대', 3);
+      }),
+      // reconnection / matchmaking / hub
+      b.on('net:reconnecting', ({ attempt }) => this.push(`서버 재연결 중… <span style="color:var(--c-text-dim)">(${attempt})</span>`, 'warning', '네트워크', 3)),
+      b.on('net:resumed', ({ seamless, inProgress }) => {
+        if (seamless) this.push('재연결됨', 'success', '네트워크', 3);
+        else this.push(inProgress ? '함선에 복귀했습니다 — 임무 진행 중, 발사 포드에서 재합류' : '함선에 복귀했습니다', 'success', '네트워크', 4);
+      }),
+      b.on('net:matched', ({ created }) => this.push(created ? '신호 송출 시작 — 대원 대기 중' : '공유 함선 신호 포착', created ? 'info' : 'success', '매치', 4)),
+      b.on('hub:launchCountdown', ({ seconds }) => {
+        const s = Math.ceil(seconds);
+        if (s === this.lastCountdown || s <= 0) return;
+        this.lastCountdown = s;
+        this.push(`발사 <b>${s}</b>초 전`, 'warning', '발사', 1.1);
+      }),
+      b.on('hub:entered', () => { this.lastCountdown = -1; }),
       b.on('game:abort', () => this.clear()),
-      b.on('game:newMission', () => this.clear()),
+      b.on('game:newMission', () => { this.clear(); this.lastCountdown = -1; }),
     );
   }
 

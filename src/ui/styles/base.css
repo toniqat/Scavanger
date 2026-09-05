@@ -555,6 +555,51 @@ input { font: inherit; color: inherit; }
   0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--pc) 55%, transparent); }
   100% { box-shadow: 0 0 0 10px transparent; }
 }
+/* pings v2: item / attack / caution kinds, lost enemy state */
+.pmarker.item { --pc: #c77dff; }
+.pmarker.attack { --pc: #ff6a3d; }
+.pmarker.caution { --pc: #ffc23a; }
+.pmarker.item .ico { border-radius: 0; transform: rotate(45deg); width: 10px; height: 10px; }
+.pmarker.item .ico::after { border-radius: 0; inset: 2.5px; }
+.pmarker.attack .ico {
+  width: 0; height: 0; border: none; border-radius: 0; background: none; box-shadow: none;
+  border-left: 7px solid transparent; border-right: 7px solid transparent; border-bottom: 12px solid var(--pc);
+  filter: drop-shadow(0 0 4px rgba(0, 0, 0, 0.7));
+  animation: attackBob 0.8s ease-in-out infinite;
+}
+.pmarker.attack .ico::after { content: ""; position: absolute; left: -2.5px; top: 12px; width: 5px; height: 5px; background: var(--pc); border-radius: 0; inset: auto; }
+.pmarker.caution .ico {
+  width: 0; height: 0; border: none; border-radius: 0; background: none; box-shadow: none;
+  border-left: 8px solid transparent; border-right: 8px solid transparent; border-bottom: 14px solid var(--pc);
+  filter: drop-shadow(0 0 4px rgba(0, 0, 0, 0.7));
+  animation: cautionBlink 1s steps(1) infinite;
+}
+.pmarker.caution .ico::after { content: "!"; position: absolute; left: -8px; top: 3px; width: 16px; inset: auto; background: none; border-radius: 0; text-align: center; font-size: 9px; font-weight: 800; line-height: 1; color: #1a1206; }
+.pmarker.lost { filter: saturate(0.6); }
+.pmarker.lost .ico { animation: none; border-style: dashed; opacity: 0.8; }
+.pmarker.lost .lbl { color: var(--c-text-dim); }
+@keyframes attackBob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+@keyframes cautionBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+
+/* hold + drag gesture hint (near the reticle, fades in after ~150 ms of holding) */
+.ping-hint {
+  position: absolute; left: 50%; top: 50%;
+  transform: translate(-50%, 38px);
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 12px;
+  background: var(--c-panel); border: 1px solid var(--c-border);
+  font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--c-text-dim);
+  white-space: nowrap;
+  opacity: 0; visibility: hidden;
+  transition: opacity 140ms var(--ease), visibility 140ms var(--ease), transform 140ms var(--ease);
+  pointer-events: none;
+}
+.ping-hint.show { opacity: 1; visibility: visible; transform: translate(-50%, 34px); }
+.ping-hint .sep { color: var(--c-text-faint); }
+.ping-hint .l, .ping-hint .r, .ping-hint .d { transition: color var(--t-fast) var(--ease), text-shadow var(--t-fast) var(--ease); }
+.ping-hint.caution .l { color: #ffc23a; text-shadow: 0 0 8px rgba(255, 194, 58, 0.6); }
+.ping-hint.attack .r { color: #ff6a3d; text-shadow: 0 0 8px rgba(255, 106, 61, 0.6); }
+.ping-hint.ammo .d { color: var(--c-accent); text-shadow: 0 0 8px rgba(255, 179, 71, 0.6); }
 
 /* ── Tactical map (M) ──────────────────────────────────────────────────── */
 .map-screen {
@@ -610,10 +655,13 @@ input { font: inherit; color: inherit; }
 .map-north i { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 10px solid var(--c-accent); }
 .map-north span { font-size: 11px; font-weight: 700; letter-spacing: 0.1em; }
 .map-legend-row .sw.squad { width: 0; height: 0; border-top: 6px solid transparent; border-bottom: 6px solid transparent; border-left: 12px solid var(--sw); }
+.map-legend-row .sw.ping.attack { border-radius: 0; background: none; box-shadow: none; width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-bottom: 11px solid var(--sw); }
+.map-legend-row .sw.ping.caution { border-radius: 0; background: none; box-shadow: none; width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-bottom: 11px solid var(--sw); }
+.map-legend-row .sw.pickup { width: 8px; height: 8px; border: 1.5px solid var(--sw); transform: rotate(45deg); }
 
 /* ══════════════════════════════════════════════════════════════════════════
- * ── multiplayer ──  lobby screen, squad list, nameplates, squad pings,
- *                    spectate banner, pause/death/complete tweaks
+ * ── multiplayer ──  squad list, nameplates, squad pings, spectate banner,
+ *                    pause/death/complete tweaks (the lobby screen was replaced by the ship hub)
  * ══════════════════════════════════════════════════════════════════════════ */
 
 /* slot colour utilities (mirror NET_SLOT_COLORS_CSS; components also set --sc inline) */
@@ -622,7 +670,7 @@ input { font: inherit; color: inherit; }
 .slot-2 { --sc: #ff8a4a; }
 .slot-3 { --sc: #7cf07a; }
 
-/* inline form message (title "멀티플레이 사용 불가", lobby errors / copy results) */
+/* inline form message (title: invite / connection feedback) */
 .menu .form-msg {
   font-size: 12px; letter-spacing: 0.04em;
   padding: 8px 12px;
@@ -637,87 +685,6 @@ input { font: inherit; color: inherit; }
 .menu .form-msg.danger { border-left-color: var(--c-danger); color: #ffb3b3; }
 .menu .ui-btn:disabled { opacity: 0.45; cursor: default; pointer-events: none; }
 
-/* ── Lobby menu ── */
-.menu.lobby .frame { min-width: 560px; max-width: 720px; width: min(720px, calc(100vw - 48px)); gap: 20px; }
-.menu.lobby .wordmark.small { font-size: 18px; letter-spacing: 0.3em; }
-.lobby-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
-.lobby-head .hl { display: flex; flex-direction: column; gap: 10px; }
-.lobby-head .title { font-size: 26px; letter-spacing: 0.18em; }
-.lobby-view { display: flex; flex-direction: column; gap: 18px; }
-.lobby-view.busy .ui-input { opacity: 0.6; }
-
-.status-pill {
-  display: inline-flex; align-items: center; gap: 8px;
-  height: 26px; padding: 0 12px 0 10px;
-  border: 1px solid var(--c-border); background: var(--c-panel);
-  font-size: 11px; letter-spacing: 0.1em; color: var(--c-text-dim);
-  font-family: var(--ui-mono); font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.status-pill i { width: 7px; height: 7px; border-radius: 50%; background: var(--c-text-faint); }
-.status-pill.connecting i { background: var(--c-accent); animation: pillBlink 0.9s ease-in-out infinite; }
-.status-pill.connected { color: var(--c-text); border-color: rgba(79, 209, 126, 0.4); }
-.status-pill.connected i { background: var(--c-success); box-shadow: 0 0 6px rgba(79, 209, 126, 0.6); }
-.status-pill.error { color: var(--c-danger); border-color: rgba(255, 77, 77, 0.4); }
-.status-pill.error i { background: var(--c-danger); }
-@keyframes pillBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
-
-.lobby-view .or { display: flex; align-items: center; gap: 12px; font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--c-text-faint); }
-.lobby-view .or i { flex: 1; height: 1px; background: var(--c-border); }
-.lobby-view .ui-input.code-input {
-  font-size: 22px; letter-spacing: 0.42em; text-transform: uppercase; font-weight: 600;
-  height: 48px; padding-left: 18px;
-}
-.lobby-view .ui-input.code-input::placeholder { letter-spacing: 0.42em; font-weight: 400; }
-.lobby-view .field .row .ui-btn { height: 48px; padding: 0 22px; }
-
-.code-block { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
-.code-block .code {
-  font-size: 48px; font-weight: 700; letter-spacing: 0.5em; line-height: 1;
-  color: var(--c-accent); text-shadow: 0 0 18px rgba(255, 179, 71, 0.35);
-  margin-right: -0.5em;
-  user-select: text; -webkit-user-select: text;
-}
-.code-block .row { display: flex; gap: 8px; margin-top: 4px; }
-.menu.lobby .ui-btn.small { min-width: 0; height: 32px; padding: 0 14px; font-size: 10px; }
-
-.slots { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.slot-card {
-  --sc: #fff;
-  position: relative; display: flex; gap: 12px;
-  min-height: 62px; padding: 10px 12px 10px 0;
-  border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03);
-  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
-}
-.slot-card .bar { width: 3px; align-self: stretch; background: var(--sc); box-shadow: 0 0 8px color-mix(in srgb, var(--sc) 55%, transparent); }
-.slot-card .body { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0; }
-.slot-card .top { display: flex; align-items: center; gap: 8px; }
-.slot-card .num { font-size: 10px; color: var(--c-text-faint); border: 1px solid var(--c-border); padding: 1px 5px; }
-.slot-card .name { font-size: 14px; font-weight: 600; letter-spacing: 0.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.slot-card .badge { font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--c-accent); border: 1px solid rgba(255, 179, 71, 0.5); padding: 1px 6px; margin-left: auto; }
-.slot-card .state { font-size: 11px; letter-spacing: 0.08em; color: var(--c-text-dim); }
-.slot-card.ready { border-color: rgba(79, 209, 126, 0.45); background: rgba(79, 209, 126, 0.06); }
-.slot-card.ready .state { color: var(--c-success); }
-.slot-card.me { background: rgba(255, 255, 255, 0.06); }
-.slot-card.me .name::after { content: " (나)"; color: var(--c-text-dim); font-weight: 400; }
-.slot-card.empty { border-style: dashed; background: none; }
-.slot-card.empty .bar { opacity: 0.25; box-shadow: none; }
-.slot-card.empty .name { color: var(--c-text-faint); font-weight: 400; }
-
-.lobby-actions { display: flex; flex-direction: column; gap: 10px; }
-.lobby-actions .ui-btn.on { border-color: var(--c-success); color: var(--c-success); background: rgba(79, 209, 126, 0.08); }
-.host-row { display: flex; flex-direction: column; gap: 10px; padding: 14px; border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.025); }
-.host-row .sub { font-size: 11px; color: var(--c-text-faint); letter-spacing: 0.06em; }
-.host-row .sub.ok { color: var(--c-success); }
-.lobby-actions .wait { font-size: 12px; color: var(--c-text-dim); letter-spacing: 0.04em; padding: 6px 0; }
-.lobby-actions .wait::after { content: ""; display: inline-block; width: 8px; margin-left: 6px; border-bottom: 2px dotted var(--c-accent); animation: pillBlink 1.2s ease-in-out infinite; }
-
-@media (max-width: 720px) {
-  .menu.lobby .frame { min-width: 0; padding: 26px 22px; }
-  .slots { grid-template-columns: 1fr; }
-  .code-block .code { font-size: 36px; }
-  .lobby-head { flex-direction: column; align-items: flex-start; }
-}
 
 /* ── Pause: multiplayer note ── */
 .menu .mp-note {
@@ -748,6 +715,7 @@ input { font: inherit; color: inherit; }
 .srow.off { opacity: 0.5; }
 .srow.off .name { color: var(--c-text-dim); }
 .srow.drop .state { color: var(--c-accent); }
+.srow.ready .state { color: var(--c-success); }
 
 /* ── Nameplates ── */
 .nameplates { position: absolute; inset: 0; pointer-events: none; }
@@ -796,3 +764,66 @@ input { font: inherit; color: inherit; }
 
 /* dead-but-spectating: keep squad/nameplates/pings/notifs, hide personal widgets */
 .hud.spectating .reticle, .hud.spectating .vitals, .hud.spectating .weapon, .hud.spectating .prompt { opacity: 0 !important; visibility: hidden; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * ── ship hub / chat ──  social HUD layer (chat log, squad, nameplates, notifications, prompt)
+ *                        is visible in gameplay AND in the hub; `.hud.hub` marks the hub phases
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+/* Chat log (bottom-left, above the vitals; sits at the bottom in the hub where there are no vitals) */
+.chat {
+  position: absolute; left: 32px; bottom: 150px;
+  width: 380px; max-width: calc(100vw - 64px);
+  display: flex; flex-direction: column; gap: 6px;
+  transition: bottom var(--t-med) var(--ease);
+}
+.hud.hub .chat { bottom: 32px; }
+.hud.spectating .chat { bottom: 32px; }
+.chat-lines {
+  display: flex; flex-direction: column; gap: 2px;
+  max-height: 168px; overflow-y: auto;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(180deg, transparent, #000 14px);
+  mask-image: linear-gradient(180deg, transparent, #000 14px);
+}
+.chat-lines::-webkit-scrollbar { display: none; }
+.chat.open .chat-lines { max-height: 300px; padding: 8px 10px; background: var(--c-panel); border: 1px solid var(--c-border); scrollbar-width: thin; }
+.chat.open .chat-lines::-webkit-scrollbar { display: block; width: 4px; }
+.chat.open .chat-lines::-webkit-scrollbar-thumb { background: var(--c-border-strong); }
+.chat-line {
+  display: flex; gap: 6px; align-items: baseline;
+  font-size: 12px; line-height: 1.35;
+  color: var(--c-text);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9), 0 0 6px rgba(0, 0, 0, 0.6);
+  transition: opacity 600ms var(--ease);
+  animation: objSwap 200ms var(--ease);
+  word-break: break-word;
+}
+.chat-line.faded { opacity: 0; }
+.chat.open .chat-line.faded { opacity: 1; }
+.chat-line .ts { font-size: 10px; color: var(--c-text-faint); flex: none; }
+.chat-line .who { font-weight: 700; color: var(--c-text-dim); flex: none; letter-spacing: 0.02em; }
+.chat-line.me .who { color: var(--c-accent); }
+.chat-line .txt { flex: 1; min-width: 0; }
+.chat-line.ping .txt, .chat-line.ping .who { color: #7fe3ff; font-style: italic; }
+.chat-line.request .txt, .chat-line.request .who { color: var(--c-accent); font-weight: 600; }
+.chat-line.system .txt { color: var(--c-text-dim); font-style: italic; }
+.chat-input-row {
+  display: flex; align-items: center; gap: 8px;
+  height: 36px; padding: 0 10px;
+  background: var(--c-panel-strong); border: 1px solid var(--c-border-strong);
+  animation: objSwap 160ms var(--ease);
+}
+.chat-prompt { color: var(--c-accent); font-weight: 700; font-size: 14px; }
+.chat-input {
+  flex: 1; height: 100%;
+  background: none; border: none; outline: none;
+  color: var(--c-text); font-family: var(--ui-font); font-size: 13px;
+  user-select: text; -webkit-user-select: text;
+}
+.chat-input::placeholder { color: var(--c-text-faint); }
+.chat-hint { font-size: 9px; letter-spacing: 0.12em; color: var(--c-text-faint); font-family: var(--ui-mono); }
+
+/* hub: the interaction prompt sits a little lower (no weapon / vitals), squad list moves up under the top edge */
+.hud.hub .prompt { bottom: 22%; }
+.hud.hub .squad { top: 28px; }

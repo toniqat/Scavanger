@@ -1,6 +1,8 @@
 import * as THREE from 'three';
-import type { GameContext, GameSystem, Interactable, ExtractionPointDef, PeerId, ExtractionMessage, ExtractionRequest } from '@/shared';
-import { EXTRACTION_COUNTDOWN } from '@/shared';
+import type {
+  GameContext, GameSystem, Interactable, ExtractionPointDef, PeerId, ExtractionMessage, ExtractionRequest, ExtractionSyncState,
+} from '@/shared';
+import { EXTRACTION_COUNTDOWN, PlayerFlags } from '@/shared';
 import { ExtractionConsole } from './Console';
 import { Dropship } from './Ship';
 import { FlareColumn, DustRing } from './Particles';
@@ -92,6 +94,11 @@ export class ExtractionSystem implements GameSystem {
         this.boardedPeers.delete(id);
         if (this.landed) this.broadcastBoarding();
       }),
+      // Client: once the hellpod has landed (deploying → playing) ask the host for the current extraction stage.
+      // Harmless on a normal start (host answers `idle`); on a rejoin it rebuilds countdown / ship / boarding state.
+      ctx.bus.on('game:phaseChanged', ({ phase, prev }) => {
+        if (phase === 'playing' && prev === 'deploying' && this.isClient()) this.sendReq({ t: 'exq', ev: 'sync' });
+      }),
     );
   }
 
@@ -142,7 +149,64 @@ export class ExtractionSystem implements GameSystem {
         if (this.ctx.phase === 'shipLanded' && !this.lifting && this.landed && this.allRequiredBoarded()) this.liftoff();
         break;
       }
+      case 'sync':
+        // (Re)joining client asks for the full state → reply to that peer only.
+        this.ctx.net!.send({ t: 'ex', ev: 'sync', state: this.buildSyncState() }, from);
+        break;
     }
+  }
+
+  /** Host: snapshot of the current flow for a late / rejoining client. */
+  private buildSyncState(): ExtractionSyncState {
+    const stage: ExtractionSyncState['stage'] = this.lifting ? 'liftoff'
+      : this.landed ? 'shipLanded'
+      : this.shipCalled ? 'shipIncoming'
+      : this.activePad ? 'countdown'
+      : 'idle';
+    return {
+      stage,
+      padId: this.activePad ? this.activePad.def.id : null,
+      remaining: this.countdown,
+      boarded: Array.from(this.boardedPeers),
+      required: this.collectRequired(this.requiredIds).slice(),
+    };
+  }
+
+  /**
+   * Client: apply the host's full state (reply to `exq sync`). Runs each stage's normal entry path in order so
+   * GameFlow sees the same `extraction:*` events (activated → shipLanded → liftoff) it would have seen live.
+   */
+  private applySyncState(state: ExtractionSyncState): void {
+    if (state.stage === 'idle') return;
+    if (this.activePad) {
+      // Already following the live stream → only refresh the countdown / boarding numbers.
+      if (this.counting) this.countdown = Math.max(0, state.remaining);
+      this.applyBoarding(state.boarded, state.required);
+      return;
+    }
+    const pad = this.pads.find((p) => p.def.id === state.padId);
+    if (!pad) return;
+    this.beginActivation(pad, EXTRACTION_COUNTDOWN);
+    this.countdown = Math.max(0, state.remaining);
+    if (state.stage === 'shipIncoming') {
+      this.callShip();
+    } else if (state.stage === 'shipLanded' || state.stage === 'liftoff') {
+      this.forceLandNow();
+      this.applyBoarding(state.boarded, state.required);
+      if (state.stage === 'liftoff') this.liftoff(); // ship already leaving: we watch it go (not boarded → controls kept)
+    }
+    this.ctx.bus.emit('ui:notify', { text: '탈출 진행 상황 동기화됨', kind: 'info', duration: 2.5 });
+  }
+
+  /** Client: update the n/m boarding mirror (from `boarding` or `sync`). Returns true when the numbers changed. */
+  private applyBoarding(boarded: PeerId[], required: PeerId[]): boolean {
+    let n = 0;
+    for (const id of required) if (boarded.includes(id)) n++;
+    const changed = n !== this.clientBoardedCount || required.length !== this.clientRequiredCount;
+    this.clientBoardedCount = n;
+    this.clientRequiredCount = required.length;
+    this.clientReady = required.length > 0 && n === required.length;
+    return changed;
   }
 
   /** Client: mirror the host's flow. */
@@ -169,16 +233,15 @@ export class ExtractionSystem implements GameSystem {
         if (this.activePad && !this.landed && this.landFallbackTimer < 0) this.landFallbackTimer = NET_LAND_FALLBACK;
         break;
       case 'boarding': {
-        const required = msg.required;
-        let n = 0;
-        for (const id of required) if (msg.boarded.includes(id)) n++;
-        const changed = n !== this.clientBoardedCount || required.length !== this.clientRequiredCount;
-        this.clientBoardedCount = n;
-        this.clientRequiredCount = required.length;
-        this.clientReady = required.length > 0 && n === required.length;
-        if (changed && this.landed) this.ctx.bus.emit('ui:notify', { text: `${n}/${required.length} 탑승`, kind: this.clientReady ? 'success' : 'info', duration: 2 });
+        const changed = this.applyBoarding(msg.boarded, msg.required);
+        if (changed && this.landed) this.ctx.bus.emit('ui:notify', { text: `${this.clientBoardedCount}/${this.clientRequiredCount} 탑승`, kind: this.clientReady ? 'success' : 'info', duration: 2 });
         break;
       }
+      case 'sync':
+        if (msg.state && typeof msg.state === 'object' && Array.isArray(msg.state.boarded) && Array.isArray(msg.state.required)) {
+          this.applySyncState(msg.state);
+        }
+        break;
       case 'liftoff':
         if (this.activePad && !this.lifting) {
           // The host may have landed the ship before we did (message loss / late join) — never miss the ride visuals.
@@ -198,7 +261,12 @@ export class ExtractionSystem implements GameSystem {
     const ctx = this.ctx;
     if (!(ctx.player?.isDead ?? false)) out.push(this.localId());
     const net = ctx.net;
-    if (net) for (const r of net.getRemotePlayers()) if (r.connected && !r.stale && !r.isDead) out.push(r.id);
+    if (net) {
+      for (const r of net.getRemotePlayers()) {
+        // Peers walking the shared ship (IN_HUB) are not in this mission and never block the liftoff.
+        if (r.connected && !r.stale && !r.isDead && (r.flags & PlayerFlags.IN_HUB) === 0) out.push(r.id);
+      }
+    }
     return out;
   }
 

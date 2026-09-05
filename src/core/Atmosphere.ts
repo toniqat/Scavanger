@@ -12,11 +12,16 @@ export class Atmosphere {
   readonly sky: Sky;
   readonly fog: THREE.FogExp2;
   palette: SkyPalette = SKY_PALETTES[0];
+  /** true while the hub's space / hangar look is active (see `setSpaceMode`). */
+  spaceMode = false;
   private readonly scene: THREE.Scene;
   private readonly sunOffset = new THREE.Vector3();
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
+    // Feature folders may not import core/; the hub reaches this instance through the scene so it can
+    // flip `setSpaceMode` without a bus round-trip (Engine restores the planet look on the next `world:ready`).
+    scene.userData.atmosphere = this;
     this.sun = new THREE.DirectionalLight(0xffffff, 3);
     this.sun.castShadow = true;
     const sc = this.sun.shadow;
@@ -49,8 +54,33 @@ export class Atmosphere {
     return p;
   }
 
+  /**
+   * Ship hub / docking look: dark starless-black background, no fog, dim cool key light and a faint blue
+   * hemisphere so procedural interiors are lit by their own emissives / point lights. The sky dome is hidden
+   * (the hub renders its own starfield). `applySeed` / `applyPalette` (next `world:ready`) restore the planet look.
+   */
+  setSpaceMode(on: boolean): void {
+    if (this.spaceMode === on) return;
+    this.spaceMode = on;
+    if (!on) { this.applyPalette(this.palette); return; }
+    this.sky.mesh.visible = false;
+    this.sun.color.setHex(0xa9c4ff);
+    this.sun.intensity = 1.1;
+    this.hemi.color.setHex(0x2a3a5a);
+    this.hemi.groundColor.setHex(0x0b0d12);
+    this.hemi.intensity = 0.7;
+    this.fog.color.setHex(0x020308);
+    this.fog.density = 0;
+    this.scene.background = new THREE.Color(0x020308);
+    // key light from high and to the side so interior props get a readable rim through viewports
+    this.sunOffset.set(0.35, 0.8, 0.5).normalize().multiplyScalar(140);
+  }
+
   applyPalette(p: SkyPalette): void {
     this.palette = p;
+    this.spaceMode = false;
+    this.sky.mesh.visible = true;
+    this.hemi.intensity = 1.35;
     this.sky.applyPalette(p);
     this.sun.color.setHex(p.sun);
     this.sun.intensity = p.sunIntensity;

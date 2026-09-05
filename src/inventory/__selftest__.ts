@@ -56,6 +56,42 @@ export function runInventorySelfTest(): boolean {
   check(grid.autoPlace(frag3) && !grid.has(frag3.uid) && frag3.qty === 0, 'fully merged stack is not placed');
   check(grid.mergeInto(loot.createItem('grenade_frag', 1), frag2.uid) === 0, 'mergeInto full stack moves 0');
 
+  // split / partial-merge math (what InventorySystem.splitItem / dropPartial do on top of Grid)
+  {
+    const g = new Grid(4, 2, getDef);
+    const src = loot.createItem('grenade_frag', 4);       // stackMax 4, 1×1
+    check(g.autoPlace(src), 'split: place source stack');
+    const half = Math.max(1, Math.floor(src.qty / 2));
+    check(half === 2, 'split: half of 4 is 2');
+    const piece = loot.createItem('grenade_frag', half);
+    const slot = g.findFreeSlot(piece, src.rotated);
+    check(!!slot && !(slot.x === g.get(src.uid)!.x && slot.y === g.get(src.uid)!.y), 'split: free slot differs from source');
+    check(g.place(piece, slot!.x, slot!.y, slot!.rotated), 'split: new stack placed');
+    src.qty -= half;
+    check(src.qty === 2 && piece.qty === 2 && g.count === 2, 'split: 4 → 2 + 2');
+    // partial drag onto a same-def stack merges capped by stackMax (3 into a stack of 2 with max 4 → moves 2)
+    const big = loot.createItem('grenade_frag', 3);
+    check(g.place(big, 3, 1), 'split: place third stack');
+    const room = 4 - piece.qty;
+    const moved = Math.min(room, big.qty);
+    piece.qty += moved; big.qty -= moved;
+    check(moved === 2 && piece.qty === 4 && big.qty === 1, 'partial merge capped by stackMax');
+    check(g.mergeInto(big, piece.uid) === 0, 'partial merge into full stack moves 0');
+    // probe with a foreign uid sees the source as a blocker (drop-on-source → noop path)
+    const probe = { uid: '__split__', defId: 'grenade_frag', qty: 1, rotated: false };
+    const sp = g.get(src.uid)!;
+    const bl = g.blockersAt(probe, sp.x, sp.y, false, probe.uid);
+    check(bl.length === 1 && bl[0] === src.uid, 'partial probe reports the source stack as blocker');
+    // no free cell → split refused
+    const tiny = new Grid(1, 1, getDef);
+    const lone = loot.createItem('grenade_frag', 4);
+    check(tiny.autoPlace(lone), 'split: 1×1 grid holds the stack');
+    check(tiny.findFreeSlot(loot.createItem('grenade_frag', 1)) === null, 'split: refused when the grid is full');
+    // invalid quantities
+    const bad = (q: number) => !Number.isFinite(q) || Math.floor(q) < 1 || Math.floor(q) >= lone.qty;
+    check(bad(0) && bad(4) && bad(NaN) && !bad(3) && !bad(1.7), 'split: qty must be within 1..qty-1');
+  }
+
   // full grid → tryAdd fails without side effects
   const full = new Grid(2, 2, getDef);
   const art = loot.createItem('alien_artifact');        // 2×2

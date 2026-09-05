@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { Layers } from '@/shared';
 import { damp } from '@/core/util/MathUtil';
 
 /**
@@ -47,6 +48,16 @@ const ACCENT = SOLDIER_DEFAULT_ACCENT;
 const DARK = 0x22262e;       // undersuit
 const CAPE = 0x2e3442;
 const VISOR = 0x7fe3ff;
+/**
+ * Render order of the occlusion silhouette / the body. The silhouette (GreaterDepth, no depth write) is drawn
+ * after every default-order opaque object (terrain, props, enemies, the hellpod) but BEFORE the body, so its
+ * depth test only sees the world — the body then overwrites it wherever the soldier is actually visible, and
+ * the flat black remains only where the world occludes him. Anything parented into `weaponSocket` is lifted
+ * to BODY_ORDER too so the held weapon never gets black patches from the body behind it.
+ */
+const SIL_ORDER = 1;
+const BODY_ORDER = 2;
+const _silColor = new THREE.Color();
 
 /**
  * Stylised armoured trooper (~1.8 m) built from primitives. Root origin is at the feet, model faces -Z.
@@ -69,6 +80,11 @@ export class SoldierModel {
   private readonly materials: THREE.Material[] = [];
   private readonly geometries: THREE.BufferGeometry[] = [];
   private readonly bodyGroup = new THREE.Group();
+  /** Occlusion silhouette: one child mesh per body mesh sharing its geometry (see SIL_ORDER). */
+  private readonly silMeshes: THREE.Mesh[] = [];
+  private readonly silMat: THREE.MeshBasicMaterial;
+  private silhouetteOn = false;
+  private fadeAlpha = 1;
 
   private readonly hipsBaseY = 0.98;
 
@@ -160,7 +176,72 @@ export class SoldierModel {
       y = -len;
     }
 
-    this.root.traverse((o) => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+    const bodyMeshes: THREE.Mesh[] = [];
+    this.root.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; o.renderOrder = BODY_ORDER; bodyMeshes.push(o as THREE.Mesh); }
+    });
+
+    // ── occlusion silhouette: flat, opaque, drawn only where something already in the depth buffer is in
+    //    front (GreaterDepth). Opaque on purpose — a transparent material would be sorted after the body and
+    //    paint the self-occluded parts (rear arm behind the chest) black over the visible model.
+    _silColor.setHex(accentColor !== ACCENT ? accentColor : 0x000000);
+    if (accentColor !== ACCENT) _silColor.multiplyScalar(0.16);
+    this.silMat = new THREE.MeshBasicMaterial({
+      color: _silColor.getHex(), depthTest: true, depthFunc: THREE.GreaterDepth, depthWrite: false,
+      transparent: false, fog: false, toneMapped: false, side: THREE.DoubleSide, // cape planes are double-sided
+    });
+    this.materials.push(this.silMat);
+    for (const m of bodyMeshes) {
+      const sil = new THREE.Mesh(m.geometry, this.silMat);   // child → inherits the part transform (incl. scale)
+      sil.name = 'sil';
+      sil.castShadow = false; sil.receiveShadow = false;
+      sil.renderOrder = SIL_ORDER;
+      sil.layers.enable(Layers.NO_RAYCAST);
+      sil.visible = false;
+      m.add(sil);
+      this.silMeshes.push(sil);
+    }
+  }
+
+  /**
+   * Show the flat silhouette where the world occludes the body (off by default). Owners turn it off while
+   * dead / dropping / in a pod / faded. Toggles `visible` on ~40 tiny meshes only when the state changes.
+   */
+  setSilhouette(on: boolean): void {
+    const want = on && this.fadeAlpha >= 0.999;
+    if (want === this.silhouetteOn) return;
+    this.silhouetteOn = want;
+    for (let i = 0; i < this.silMeshes.length; i++) this.silMeshes[i].visible = want;
+  }
+  get silhouetteVisible(): boolean { return this.silhouetteOn; }
+
+  /**
+   * Near-camera fade (camera closer than ~0.9 m to the pivot): 1 = opaque, 0 = hidden. Switches the body
+   * materials to transparent only while fading so the normal opaque path is untouched at alpha 1.
+   * The silhouette is suppressed while faded.
+   */
+  setFade(alpha: number): void {
+    alpha = THREE.MathUtils.clamp(alpha, 0, 1);
+    if (Math.abs(alpha - this.fadeAlpha) < 0.005 && (alpha === 1) === (this.fadeAlpha === 1)) return;
+    this.fadeAlpha = alpha;
+    const transparent = alpha < 0.999;
+    for (const m of this.materials) {
+      if (m === this.silMat) continue;
+      m.transparent = transparent;
+      m.opacity = transparent ? alpha : 1;
+      m.depthWrite = !transparent || alpha > 0.5;   // opacity/transparent are not shader-defining: no recompile
+    }
+    this.bodyGroup.visible = alpha > 0.02;
+    if (transparent && this.silhouetteOn) this.setSilhouette(false);
+  }
+  get fade(): number { return this.fadeAlpha; }
+
+  /** Lift anything newly parented into the weapon socket (WeaponModel) to the body's render order. */
+  private syncSocketRenderOrder(): void {
+    const kids = this.weaponSocket.children;
+    for (let i = 0; i < kids.length; i++) {
+      if (kids[i].renderOrder !== BODY_ORDER) kids[i].traverse((o) => { o.renderOrder = BODY_ORDER; });
+    }
   }
 
   /* ─────────────── builders ─────────────── */
@@ -231,6 +312,7 @@ export class SoldierModel {
   }
 
   update(dt: number, time: number, p: SoldierPose): void {
+    this.syncSocketRenderOrder();
     const dead = p.dead;
     if (dead > 0) { this.poseDead(dt, p); return; }
     if (dt <= 0) return;

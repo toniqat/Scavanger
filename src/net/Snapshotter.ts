@@ -6,6 +6,7 @@ const round3 = (x: number): number => Math.round(x * 1000) / 1000;
 /**
  * Builds the local PlayerSnapshot from ctx.player. One reusable message object (tuples included) — the caller
  * JSON-encodes it synchronously, so no per-snapshot allocation happens.
+ * Also used in the shared-ship hub (phase 'hub'): `IN_HUB` marks those snapshots, `IN_POD` a boarded launch pod.
  */
 export class Snapshotter {
   /** Active weapon def id, cached from `weapon:equipped` (null = none). */
@@ -34,7 +35,9 @@ export class Snapshotter {
     m.pitch = round3(p.pitch ?? 0);
     m.stance = p.stance ?? 'stand';
     m.hp = Math.round(p.hp);
-    m.w = this.weaponId;
+    const inHub = ctx.isHubPhase();
+    // No weapons in the hub: never advertise one so remote avatars are drawn unarmed there.
+    m.w = inHub ? null : this.weaponId;
     m.stride = round3(p.stridePhase ?? 0);
     m.move = round3(p.moveBlend ?? 0);
 
@@ -48,7 +51,9 @@ export class Snapshotter {
     if (p.isFiring) f |= PlayerFlags.FIRING;
     if (p.isDropping) f |= PlayerFlags.DROPPING;
     if (p.isInShip) f |= PlayerFlags.IN_SHIP;
-    if (this.weaponId !== null) {
+    if (inHub) f |= PlayerFlags.IN_HUB;
+    if (p.isInPod) f |= PlayerFlags.IN_POD;
+    if (m.w !== null) {
       f |= PlayerFlags.HAS_WEAPON;
       if (this.weaponSlot === 'primary') f |= PlayerFlags.TWO_HANDED;
     }

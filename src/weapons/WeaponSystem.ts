@@ -78,6 +78,10 @@ export class WeaponSystem implements GameSystem {
   private zoomSent = { zoom: 1, scope: false };
   private fallbackGrenades = 4;
   private loadoutWait = -1;
+  /** Frames until the shader warm-up runs (set when the hellpod drop starts). */
+  private warmupFrames = 0;
+  /** Hub / docking / menu: weapon model hidden, soldier posed unarmed, ADS zoom neutral. */
+  private holstered = false;
 
   private readonly camHit = makeHit();
   private readonly gunHit = makeHit();
@@ -113,6 +117,10 @@ export class WeaponSystem implements GameSystem {
       for (const s of ['primary', 'secondary'] as Slot[]) this.setSlot(s, null);
       this.loadoutWait = -1;
     });
+    // Ship hub: nothing in flight, weapon holstered (visibility is handled per frame from ctx.phase).
+    ctx.bus.on('hub:entered', () => { this.resetTransient(); this.loadoutWait = -1; });
+    // Hellpod drop started → pre-compile every shader (hidden FX meshes included) before the first shot/throw.
+    ctx.bus.on('game:phaseChanged', ({ phase }) => { if (phase === 'deploying') this.warmupFrames = 2; });
   }
 
   update(dt: number, ctx: GameContext): void {
@@ -120,9 +128,19 @@ export class WeaponSystem implements GameSystem {
     this.grenades.update(dt);
     this.projectiles.update(dt);
     this.remote.update(dt);
+    // one frame after the drop scene rendered: compile shaders for the pooled/hidden FX meshes (async when possible)
+    if (this.warmupFrames > 0 && --this.warmupFrames === 0) this.fx.warmUp(ctx.renderer, ctx.scene, ctx.camera);
 
     const host = this.getHost();
     if (!host) return;
+
+    // ── holster outside gameplay (hub / docking / menu): model hidden, unarmed pose, neutral zoom
+    const holster = ctx.phase === 'hub' || ctx.phase === 'docking' || ctx.phase === 'menu';
+    if (holster !== this.holstered) {
+      this.holstered = holster;
+      if (holster) { this.resetTransient(); }
+      else this.attachActive(false);
+    }
 
     // fallback loadout if no inventory ever speaks
     if (this.loadoutWait > 0) {
@@ -172,11 +190,13 @@ export class WeaponSystem implements GameSystem {
 
     // ── model animation & pose state
     for (const s of ['primary', 'secondary'] as Slot[]) this.slots[s]?.model.update(dt, ctx.time);
+    if (this.holstered && this.attachedModel) this.attachedModel.root.visible = false;
     const ws = this.weaponState;
-    ws.hasWeapon = !!weapon;
-    ws.reloading = this.phase === 'reloading';
-    ws.firing = this.firingTimer > 0;
-    ws.twoHanded = weapon ? weaponClassOf(weapon.def) !== 'PISTOL' : false;
+    const armed = !!weapon && !this.holstered;
+    ws.hasWeapon = armed;
+    ws.reloading = armed && this.phase === 'reloading';
+    ws.firing = armed && this.firingTimer > 0;
+    ws.twoHanded = armed && weapon ? weaponClassOf(weapon.def) !== 'PISTOL' : false;
     host.setWeaponState(ws);
   }
   private dryFlagged = false;
@@ -279,7 +299,7 @@ export class WeaponSystem implements GameSystem {
       weapon.model.setBolt(-1);
       this.boltTimer = 0;
     }
-    this.applyAimZoom(weapon.def);
+    this.applyAimZoom(this.holstered ? null : weapon.def);
     if (announce) {
       const a = this.ammoFor(weapon);
       this.ctx.bus.emit('weapon:equipped', { slot: this.active, weaponId: weapon.def.id, name: weapon.def.name, magSize: weapon.def.magSize, ammoInMag: a.ammoInMag, reserveRounds: a.reserveRounds });

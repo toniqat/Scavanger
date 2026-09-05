@@ -1,5 +1,5 @@
 import type * as THREE from 'three';
-import type { EnemyType, GamePhase, Stance } from './types';
+import type { ChatKind, EnemyType, GamePhase, PingKind, Stance } from './types';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Multiplayer contract (owner: net/NetSystem publishes `ctx.net`).
@@ -30,6 +30,20 @@ export const NET_DEFAULT_PORT = 8787;
 /** URL query parameter carrying an invite code: `?lobby=ABC123`. */
 export const NET_INVITE_PARAM = 'lobby';
 
+/* ── appended: session tokens / reconnection / quick match ── */
+/** WebSocket URL query params sent on connect: persistent session token (→ stable PeerId) and display name. */
+export const NET_TOKEN_PARAM = 't';
+export const NET_NAME_PARAM = 'n';
+/** Token = 24 url-safe chars, generated once per browser and kept in localStorage. */
+export const NET_TOKEN_LENGTH = 24;
+export const NET_TOKEN_STORAGE_KEY = 'scav.sessionToken';
+/** Server keeps a disconnected member's lobby slot for this long; reconnecting within it restores the same slot/party. */
+export const NET_RECONNECT_GRACE_MS = 5 * 60 * 1000;
+/** Client auto-reconnect backoff schedule (ms); the last value repeats. */
+export const NET_RECONNECT_BACKOFF_MS: readonly number[] = [800, 1500, 3000, 5000, 10000, 20000];
+/** Client: after the socket dropped mid-mission, give up waiting for a resume and abort to the hub after this long. */
+export const NET_MISSION_RESUME_TIMEOUT_MS = 60 * 1000;
+
 /** Per-slot accent colours (hex) shared by remote avatars, nameplates, map icons and the lobby list. */
 export const NET_SLOT_COLORS: readonly number[] = [0xffc23a, 0x5fd7ff, 0xff8a4a, 0x7cf07a];
 export const NET_SLOT_COLORS_CSS: readonly string[] = ['#ffc23a', '#5fd7ff', '#ff8a4a', '#7cf07a'];
@@ -45,6 +59,9 @@ export interface LobbyPlayer {
   slot: number;
   ready: boolean;
   isHost: boolean;
+  /* appended (reconnection) */
+  /** false while the member's socket is down but their slot is still reserved (NET_RECONNECT_GRACE_MS). */
+  connected: boolean;
 }
 
 export interface LobbyState {
@@ -54,11 +71,17 @@ export interface LobbyState {
   /** true once the host pressed start; the lobby is closed to newcomers. */
   started: boolean;
   seed: number | null;
+  /* appended (quick match) */
+  /** Public ships are joinable through `lobby:quickmatch`; code-created ships are private (code / invite only). */
+  isPublic: boolean;
 }
 
 export type LobbyErrorCode =
   | 'not_found' | 'full' | 'started' | 'not_host' | 'not_ready' | 'invalid'
-  | 'in_lobby' | 'not_in_lobby' | 'server';
+  | 'in_lobby' | 'not_in_lobby' | 'server'
+  /* appended */
+  | 'not_started'   // lobby:launch (rejoin) while no mission is running
+  | 'duplicate';    // same session token connected from another tab → the older socket is closed with this code
 
 /* ── Wire protocol: client ↔ server (JSON) ─────────────────────────────────── */
 export type RelayTarget = PeerId | 'host' | 'all' | 'others';
@@ -74,10 +97,24 @@ export type ClientToServer =
   | { t: 'lobby:reset' }
   /** Relay an opaque game message. 'all' includes the sender; 'others' excludes it. */
   | { t: 'relay'; to: RelayTarget; d: GameMessage }
-  | { t: 'ping'; ts: number };
+  | { t: 'ping'; ts: number }
+  /* appended (hub / quick match / reconnection) */
+  /** Join the first public, not-started lobby with a free slot; create a new public one when none exists. */
+  | { t: 'lobby:quickmatch'; name: string }
+  /** Host only: toggle public visibility of the lobby (quick-match eligibility). */
+  | { t: 'lobby:setPublic'; isPublic: boolean }
+  /** Host only, while not started: pick the seed everyone sees in the hub (`LobbyState.seed`). */
+  | { t: 'lobby:seed'; seed: number }
+  /** Rename (hub terminal); server sanitizes and broadcasts `lobby:state`. */
+  | { t: 'lobby:name'; name: string };
 
 export type ServerToClient =
-  | { t: 'welcome'; id: PeerId; serverTime: number }
+  /**
+   * First frame after connect. `lobby` (appended) is set when the session token is still a member of a lobby
+   * (reconnect within NET_RECONNECT_GRACE_MS or a fresh page load) — the client resumes into it; `started`
+   * on that lobby means a mission is in progress and the player may rejoin from a launch slot.
+   */
+  | { t: 'welcome'; id: PeerId; serverTime: number; lobby?: LobbyState | null; resumed?: boolean }
   | { t: 'lobby:state'; lobby: LobbyState }
   | { t: 'lobby:error'; code: LobbyErrorCode; message: string }
   | { t: 'lobby:left' }
@@ -103,6 +140,11 @@ export const PlayerFlags = {
   IN_SHIP: 1 << 9,
   /** Inside the hellpod / not yet landed (avatar hidden). */
   DROPPING: 1 << 10,
+  /* appended (hub) */
+  /** Boarded in a hub launch pod (avatar hidden / pod shown closed). */
+  IN_POD: 1 << 11,
+  /** Sender is walking around the shared ship (phase 'hub'), not in a mission. */
+  IN_HUB: 1 << 12,
 } as const;
 
 /** Local player state → everyone, NET_PLAYER_SNAPSHOT_HZ. Owner: net (built from ctx.player / ctx.inventory). */
@@ -179,29 +221,66 @@ export type ExtractionMessage =
   | { t: 'ex'; ev: 'shipLanded' }
   | { t: 'ex'; ev: 'boarding'; boarded: PeerId[]; required: PeerId[] }
   | { t: 'ex'; ev: 'liftoff' }
-  | { t: 'ex'; ev: 'reset' };
+  | { t: 'ex'; ev: 'reset' }
+  /* appended (rejoin): host → one rejoining client, full extraction state in reply to `exq sync`. */
+  | { t: 'ex'; ev: 'sync'; state: ExtractionSyncState };
+
+/** Snapshot of the host's extraction flow for a late / rejoining client. Owner: extraction. */
+export interface ExtractionSyncState {
+  stage: 'idle' | 'countdown' | 'shipIncoming' | 'shipLanded' | 'liftoff';
+  padId: string | null;
+  /** Countdown seconds left (stage 'countdown') or ship ETA (stage 'shipIncoming'). */
+  remaining: number;
+  boarded: PeerId[];
+  required: PeerId[];
+}
 
 /** Client → host: extraction requests. Owner: extraction. */
 export type ExtractionRequest =
   | { t: 'exq'; ev: 'activate'; padId: string }
   | { t: 'exq'; ev: 'liftoff' }
-  | { t: 'exq'; ev: 'board'; inside: boolean };
+  | { t: 'exq'; ev: 'board'; inside: boolean }
+  /* appended (rejoin): a client that (re)joined a running mission asks for `ex sync`. */
+  | { t: 'exq'; ev: 'sync' };
 
 /** Host → all: mission-level flow that GameFlow must mirror. Owner: game. */
 export type FlowMessage =
   | { t: 'flow'; ev: 'over' }                 // everyone is dead → game:over on all clients
   | { t: 'flow'; ev: 'complete' }             // liftoff finished → game:complete on all clients
   | { t: 'flow'; ev: 'abort' }                // host aborted → everyone back to lobby
-  | { t: 'flow'; ev: 'phase'; phase: GamePhase };
+  | { t: 'flow'; ev: 'phase'; phase: GamePhase }
+  /* appended (rejoin): a client re-entered the running mission (sent to 'all'); systems may re-sync it. */
+  | { t: 'flow'; ev: 'rejoined' };
 
-/** Any → all: a tactical ping. Owner: ui/hud/Pings. */
-export interface PingMessage { t: 'ping'; p: Vec3Tuple; kind: 'ground' | 'enemy' | 'crate' | 'extraction' }
+/** Any → all: a tactical ping. Owner: ui/hud/Pings. `label` (appended) = item name for 'item' pings. */
+export interface PingMessage { t: 'ping'; p: Vec3Tuple; kind: PingKind; label?: string; enemyId?: number }
 
 /** Any → all: crate opened (so other clients mark it looted). Owner: world/inventory. */
 export interface CrateMessage { t: 'crate'; id: string; ev: 'opened' | 'looted' }
 
-/** Any → all: short text chat / quick-chat line. Owner: ui. */
-export interface ChatMessage { t: 'chat'; text: string }
+/** Any → all: short text chat / quick-chat line. Owner: ui/hud/ChatLog. `kind` (appended) defaults to 'text'. */
+export interface ChatMessage { t: 'chat'; text: string; kind?: ChatKind }
+
+/* ── appended: world pickups (owner: pickups/PickupSystem; host-authoritative) ── */
+/** Wire form of a pickup. */
+export interface PickupWire { id: string; defId: string; qty: number; p: Vec3Tuple }
+/**
+ * Host → all. `drop` = new pickup (host assigns/keeps `id`), `take` = removed because `by` took it,
+ * `sync` = full list for a (re)joining client (reply to `itemq sync`).
+ */
+export type ItemMessage =
+  | { t: 'item'; ev: 'drop'; item: PickupWire; v?: Vec3Tuple }
+  | { t: 'item'; ev: 'take'; id: string; by: PeerId }
+  | { t: 'item'; ev: 'sync'; items: PickupWire[] };
+/**
+ * Client → host. `drop` = I dropped this from my bag (host spawns it and broadcasts `item drop`; the dropper's
+ * client shows it once the broadcast arrives), `take` = I want pickup `id` (host validates, broadcasts `item take`;
+ * the taker adds it to the bag on receipt), `sync` = send me every pickup.
+ */
+export type ItemRequest =
+  | { t: 'itemq'; ev: 'drop'; item: PickupWire; v: Vec3Tuple }
+  | { t: 'itemq'; ev: 'take'; id: string }
+  | { t: 'itemq'; ev: 'sync' };
 
 export type GameMessage =
   | PlayerSnapshot
@@ -220,7 +299,9 @@ export type GameMessage =
   | FlowMessage
   | PingMessage
   | CrateMessage
-  | ChatMessage;
+  | ChatMessage
+  | ItemMessage
+  | ItemRequest;
   /* append new message types above this line (keep `t` unique; prefix by owning folder if in doubt) */
 
 export type GameMessageType = GameMessage['t'];
@@ -310,6 +391,33 @@ export interface NetRef {
   getRemotePlayer(id: PeerId): RemotePlayerRef | undefined;
   /** Lobby player info for any peer (including local), or undefined. */
   getLobbyPlayer(id: PeerId): LobbyPlayer | undefined;
+
+  /* ── appended: hub / quick match / reconnection ── */
+  /** Persistent per-browser session token (localStorage). Sent on connect; the server derives a stable PeerId from it. */
+  readonly sessionToken: string;
+  /** true while auto-reconnect is running after an unexpected socket drop. */
+  readonly reconnecting: boolean;
+  /** true while we are a lobby member and that lobby's mission is running but we are NOT in it (hub after resume / late). */
+  readonly missionInProgress: boolean;
+  /**
+   * Connect if needed (idempotent; resolves when `welcome` arrived). Called by the hub at startup; failure → offline
+   * personal ship. Never throws for "already connected".
+   */
+  ensureConnected(): Promise<boolean>;
+  /** Quick match: join an open public ship or create one. Result via `net:matched` / `net:lobbyUpdated` or `net:error`. */
+  quickMatch(): void;
+  /** Host only: make the ship public/private (quick-match eligibility). */
+  setPublic(isPublic: boolean): void;
+  /** Host only (not started): share the mission seed with the ship (`LobbyState.seed`). */
+  setLobbySeed(seed: number): void;
+  /**
+   * Re-enter the running mission of our lobby (after a resume): sets `inSession`, emits `net:gameStarting` +
+   * `game:newMission {seed: lobby.seed}` locally and sends `flow rejoined`; systems then request their syncs.
+   * No-op unless `missionInProgress`.
+   */
+  rejoinMission(): void;
+  /** Snapshots are also exchanged while in a lobby in phase 'hub' (shared ship). true when that is happening. */
+  readonly inHubSession: boolean;
 }
 
 /* ── helpers usable by both server and client ──────────────────────────────── */

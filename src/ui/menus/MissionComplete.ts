@@ -1,9 +1,11 @@
 import type { GameContext, MissionStats } from '@/shared';
 import { el, fmtTime, fmtInt, setText } from '../dom';
 import { MenuBase } from './MenuBase';
-import { randomSeed } from './seed';
 
-/** Extraction summary: loot value counts up, kills / crates / time, redeploy (solo) or back to the lobby (squad). */
+/**
+ * Extraction summary: loot value counts up, kills / crates / time. `함선으로 귀환` (primary) → `hub:enter {ship}`
+ * (shared while in a lobby); `다시 배치` (same seed) only in single-player.
+ */
 export class MissionComplete extends MenuBase {
   private vals: Record<string, HTMLElement> = {};
   private seed = 0;
@@ -12,8 +14,7 @@ export class MissionComplete extends MenuBase {
   private countTimer = 0;
   private counting = false;
   private lastLootText = '';
-  private soloBtns: HTMLButtonElement[] = [];
-  private lobbyBtn: HTMLButtonElement;
+  private redeployBtn: HTMLButtonElement;
 
   constructor(parent: HTMLElement) {
     super(parent, 'complete');
@@ -33,12 +34,8 @@ export class MissionComplete extends MenuBase {
     }
 
     const actions = el('div', { cls: 'actions', parent: this.frame });
-    this.soloBtns.push(
-      this.button(actions, '다시 배치', () => this.ctx.bus.emit('game:newMission', { seed: this.seed }), 'primary'),
-      this.button(actions, '새 임무 (무작위 시드)', () => this.ctx.bus.emit('game:newMission', { seed: randomSeed() })),
-    );
-    this.lobbyBtn = this.button(actions, '로비로', () => this.ctx.bus.emit('game:abort', {}), 'primary');
-    this.soloBtns.push(this.button(actions, '메뉴로', () => this.ctx.bus.emit('game:abort', {})));
+    this.button(actions, '함선으로 귀환', () => this.ctx.bus.emit('hub:enter', { ship: this.ctx.net?.lobby ? 'shared' : 'personal' }), 'primary');
+    this.redeployBtn = this.button(actions, '다시 배치 (같은 시드)', () => this.ctx.bus.emit('game:newMission', { seed: this.seed }));
   }
 
   override bind(ctx: GameContext): void {
@@ -51,9 +48,7 @@ export class MissionComplete extends MenuBase {
 
   private fill(s: MissionStats): void {
     this.seed = s.seed;
-    const inLobby = !!this.ctx.net?.lobby;
-    for (const b of this.soloBtns) b.hidden = inLobby;
-    this.lobbyBtn.hidden = !inLobby;
+    this.redeployBtn.hidden = !!this.ctx.net?.lobby;
     setText(this.vals.kills, String(s.kills));
     setText(this.vals.time, fmtTime(s.timeSeconds));
     setText(this.vals.crates, String(s.cratesOpened));

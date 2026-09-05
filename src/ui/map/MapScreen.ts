@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import type { GameContext } from '@/shared';
+import type { GameContext, PingKind } from '@/shared';
 import { Keys, NET_SLOT_COLORS_CSS, PlayerFlags } from '@/shared';
 import { el, setText } from '../dom';
-import type { PingKind, PingView } from '../hud/Pings';
+import type { PingView } from '../hud/Pings';
 import { PING_LABEL } from '../hud/Pings';
 
 const BLOCKER = 'map';
@@ -29,10 +29,15 @@ const COL = {
   crate: '#c9c9c9',
   crateOpened: 'rgba(201,201,201,0.28)',
   pad: '#e8e6e1',
+  pickup: '#c77dff',
+  attack: '#ff6a3d',
+  caution: '#ffc23a',
 };
-const PING_CSS: Record<PingKind, string> = { ground: COL.info, enemy: COL.danger, crate: COL.success, extraction: COL.accent };
+const PING_CSS: Record<PingKind, string> = {
+  ground: COL.info, enemy: COL.danger, crate: COL.success, extraction: COL.accent, item: COL.pickup, attack: COL.attack, caution: COL.caution,
+};
 
-interface MapPing { id: number; kind: PingKind; position: THREE.Vector3; expires: number; owner?: { name: string; color: string } | null }
+interface MapPing { id: number; kind: PingKind; position: THREE.Vector3; expires: number; owner?: { name: string; color: string } | null; label?: string; lost?: boolean }
 
 /**
  * Tactical map (M). Static terrain layer (height shading + hillshade + contours) cached per
@@ -123,6 +128,9 @@ export class MapScreen {
       ['crate', COL.crate, '보급 상자'],
       ['crate opened', COL.crateOpened, '개봉된 상자'],
       ['ping', COL.info, '핑'],
+      ['ping attack', COL.attack, '돌격 핑'],
+      ['ping caution', COL.caution, '주의 핑'],
+      ['pickup', COL.pickup, '떨어진 아이템'],
       ['squad', NET_SLOT_COLORS_CSS[1], '분대원'],
     ];
     for (const [cls, color, label] of entries) {
@@ -430,6 +438,15 @@ export class MapScreen {
         }
       }
     }
+    // dropped pickups: small diamonds
+    const pickups = ctx.pickups?.getPickups();
+    if (pickups) {
+      for (const pk of pickups) {
+        const x = this.toX(pk.position.x), y = this.toY(pk.position.z);
+        if (!this.inView(x, y, 6)) continue;
+        this.diamond(c, x, y, 3, COL.pickup, 'rgba(199,125,255,0.35)');
+      }
+    }
     // pings (local: kind colour; squad: owner slot colour + name)
     const pingList: Iterable<MapPing> = this.pingSource ? this.pingSource() : this.pings.values();
     for (const p of pingList) {
@@ -438,19 +455,28 @@ export class MapScreen {
       if (!this.inView(x, y, 24)) continue;
       const col = p.owner?.color ?? PING_CSS[p.kind];
       const pulse = 0.5 + 0.5 * Math.sin(t * 4.2 + p.id);
-      c.strokeStyle = col; c.globalAlpha = 0.25 + 0.5 * (1 - pulse); c.lineWidth = 1.5;
+      const lostMul = p.lost ? 0.5 : 1;
+      c.strokeStyle = col; c.globalAlpha = (0.25 + 0.5 * (1 - pulse)) * lostMul; c.lineWidth = 1.5;
       c.beginPath(); c.arc(x, y, 6 + 10 * pulse, 0, Math.PI * 2); c.stroke();
-      c.globalAlpha = 1;
+      c.globalAlpha = lostMul;
       switch (p.kind) {
         case 'enemy': this.triangle(c, x, y, 5, col); break;
         case 'crate': c.fillStyle = col; c.fillRect(x - 3, y - 3, 6, 6); break;
         case 'extraction': this.diamond(c, x, y, 5, col); break;
+        case 'item': this.diamond(c, x, y, 4, col, 'rgba(199,125,255,0.4)'); break;
+        case 'attack': this.arrow(c, x, y, 6, col); break;
+        case 'caution':
+          this.triangle(c, x, y, 6, col, 'rgba(255,194,58,0.35)');
+          c.fillStyle = col; c.fillRect(x - 0.75, y - 2, 1.5, 3.5); c.fillRect(x - 0.75, y + 2.5, 1.5, 1.5);
+          break;
         default: c.fillStyle = col; c.beginPath(); c.arc(x, y, 3, 0, Math.PI * 2); c.fill(); break;
       }
       c.fillStyle = col;
       c.font = FONT_LABEL;
       c.textAlign = 'center'; c.textBaseline = 'bottom';
-      c.fillText(p.owner ? `${p.owner.name} · ${PING_LABEL[p.kind]}` : PING_LABEL[p.kind], x, y - 8);
+      const label = p.label ?? PING_LABEL[p.kind];
+      c.fillText(p.owner ? `${p.owner.name} · ${label}` : label, x, y - 8);
+      c.globalAlpha = 1;
     }
     // squad members (multiplayer): slot-coloured arrows + names; dead = hollow ring
     const net = ctx.net;
@@ -534,6 +560,15 @@ export class MapScreen {
 
   private diamond(c: CanvasRenderingContext2D, x: number, y: number, r: number, stroke: string, fill = 'rgba(0,0,0,0.5)'): void {
     c.beginPath(); c.moveTo(x, y - r); c.lineTo(x + r, y); c.lineTo(x, y + r); c.lineTo(x - r, y); c.closePath();
+    c.fillStyle = fill; c.fill();
+    c.strokeStyle = stroke; c.lineWidth = 1.5; c.stroke();
+  }
+
+  /** Upward chevron / arrow (attack ping). */
+  private arrow(c: CanvasRenderingContext2D, x: number, y: number, r: number, stroke: string, fill = 'rgba(255,106,61,0.35)'): void {
+    c.beginPath();
+    c.moveTo(x, y - r); c.lineTo(x + r * 0.85, y + r * 0.15); c.lineTo(x + r * 0.35, y + r * 0.15); c.lineTo(x + r * 0.35, y + r);
+    c.lineTo(x - r * 0.35, y + r); c.lineTo(x - r * 0.35, y + r * 0.15); c.lineTo(x - r * 0.85, y + r * 0.15); c.closePath();
     c.fillStyle = fill; c.fill();
     c.strokeStyle = stroke; c.lineWidth = 1.5; c.stroke();
   }

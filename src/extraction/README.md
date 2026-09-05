@@ -38,3 +38,15 @@ net subscriptions are made lazily (`ensureNetHooks()` on `world:ready` / `update
 liftoff is allowed when `required` is non-empty and every required id is in `boardedPeers` (plus the presser must be boarded,
 phase `shipLanded`, not already lifting). `net:peerLeft` removes the peer from `boardedPeers` and re-broadcasts.
 `player:died` stops the flare only in single-player; `game:paused` is not subscribed here, so a host pause menu never stops the countdown.
+
+## Rejoin sync (appended 2026-09-05)
+A client that (re)enters a running mission has no extraction state. When its phase goes `deploying → playing`
+(hellpod landed) and it is a non-host session member, it sends `exq sync` to the host; the host replies to that
+peer only with `ex sync {state: ExtractionSyncState}` (`stage` idle / countdown / shipIncoming / shipLanded / liftoff,
+`padId`, `remaining` = countdown or ETA, `boarded`, `required`). On a normal start the host answers `idle` (no-op).
+The client applies the state by running the normal entry paths in order so GameFlow sees the usual events:
+`beginActivation(pad)` + `countdown = remaining` (→ `extraction:activated`), then `callShip()` for `shipIncoming`,
+`forceLandNow()` + boarding numbers for `shipLanded` (→ `extraction:shipLanded`), and additionally `liftoff()` for
+`liftoff` (the ship is already leaving; the rejoiner is not boarded, keeps its controls and reaches the result
+screen via GameFlow). If a flow is already active locally only the countdown / n-m numbers are refreshed.
+`collectRequired` also skips remote refs flagged `IN_HUB` (peers walking the shared ship never block the liftoff).

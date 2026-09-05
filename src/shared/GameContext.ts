@@ -3,7 +3,7 @@ import { EventBus } from './EventBus';
 import { Input } from './Input';
 import type {
   GamePhase, WorldRef, PlayerRef, EnemyManagerRef, InventoryRef, LootRef,
-  Interactable, InteractableRegistry, MissionStats,
+  Interactable, InteractableRegistry, MissionStats, HubRef, PickupsRef,
 } from './types';
 import type { NetRef } from './net';
 
@@ -57,6 +57,10 @@ export class GameContext {
   loot: LootRef | null = null;
   /** Multiplayer (appended). null until NetSystem publishes it; single-player behaviour when null or `!inSession`. */
   net: NetRef | null = null;
+  /** Ship hub (appended). Published by hub/HubSystem. */
+  hub: HubRef | null = null;
+  /** World pickups (appended). Published by pickups/PickupSystem. */
+  pickups: PickupsRef | null = null;
 
   /** True when this client simulates authoritative gameplay (enemies, extraction): single-player or lobby host. */
   get isAuthority(): boolean { return this.net?.isAuthority ?? true; }
@@ -92,6 +96,18 @@ export class GameContext {
   }
   isGameplayPhase(): boolean {
     return this.phase === 'playing' || this.phase === 'extracting' || this.phase === 'shipLanded' || this.phase === 'liftoff';
+  }
+  /* ── appended: ship hub ── */
+  /** Walking around a ship (personal or shared). Not a gameplay phase: no weapons, enemies, pings or map. */
+  isHubPhase(): boolean {
+    return this.phase === 'hub';
+  }
+  /**
+   * True when the player may move / interact: gameplay phase OR hub phase, and no UI blocker active.
+   * Movement, stances, interaction and the camera use this; shooting, pings, map, grenades keep `isGameplayActive()`.
+   */
+  isControlActive(): boolean {
+    return (this.isGameplayPhase() || this.phase === 'hub') && this.uiBlockers.size === 0;
   }
   setPhase(phase: GamePhase): void {
     if (phase === this.phase) return;

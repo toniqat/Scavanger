@@ -1,5 +1,5 @@
 import type * as THREE from 'three';
-import type { GamePhase, ItemInstance, MissionStats, EnemyType, Stance } from './types';
+import type { GamePhase, ItemInstance, MissionStats, EnemyType, Stance, HubShipKind, ChatKind, PingKind } from './types';
 import type { LobbyErrorCode, LobbyState, PeerId } from './net';
 
 /**
@@ -101,7 +101,7 @@ export interface GameEvents {
   'audio:play': { id: string; position?: THREE.Vector3; volume?: number; pitch?: number };
   /* appended: ping / map / pointer lock (owner: ui/HudSystem unless noted) */
   /** A ping was placed (middle mouse). `kind` = what the ping ray hit. `expires` = ctx.time when it auto-clears. */
-  'ping:placed': { id: number; position: THREE.Vector3; kind: 'ground' | 'enemy' | 'crate' | 'extraction'; expires: number };
+  'ping:placed': { id: number; position: THREE.Vector3; kind: PingKind; expires: number };
   'ping:removed': { id: number };
   'ui:mapToggled': { open: boolean };
   /** Pointer lock was lost while gameplay was active (Esc / focus loss). Owner: game/GameFlowSystem. Pause menu follows. */
@@ -127,10 +127,66 @@ export interface GameEvents {
   'net:remoteGrenade': { id: PeerId; position: THREE.Vector3; velocity: THREE.Vector3 };
   'net:remoteDied': { id: PeerId; name: string; position: THREE.Vector3 };
   /** A remote player placed a ping (from PingMessage). Owner: ui/hud/Pings renders it. */
-  'net:remotePing': { id: PeerId; position: THREE.Vector3; kind: 'ground' | 'enemy' | 'crate' | 'extraction' };
-  'net:chat': { id: PeerId; name: string; text: string };
+  'net:remotePing': { id: PeerId; position: THREE.Vector3; kind: PingKind };
+  'net:chat': { id: PeerId; name: string; text: string; kind?: ChatKind };
   /** Command (ui → ui): open/close the multiplayer lobby screen. Owner: ui/menus/LobbyMenu. */
   'ui:lobbyToggled': { open: boolean };
+
+  /* ── appended: ship hub (owner: hub/HubSystem unless noted) ─────────────── */
+  /**
+   * Command (ui/menus, net → hub): build `ship` and put the player inside (phase 'hub'). If a mission or menu is
+   * active the hub aborts it first (`game:abort`). 'shared' requires `ctx.net.lobby`; otherwise falls back to 'personal'.
+   */
+  'hub:enter': { ship: HubShipKind };
+  /** Fact: interior built, player spawned standing at `spawn`. `ctx.hub.ship` / `ctx.hub.collider` are valid. */
+  'hub:entered': { ship: HubShipKind; spawn: THREE.Vector3 };
+  /** Fact: hub torn down (mission starting / back to title). `ctx.hub.ship` is null afterwards. */
+  'hub:left': Record<string, never>;
+  /** Docking cutscene (personal → shared) or undocking (shared → personal) started / finished. Phase is 'docking' in between. */
+  'hub:docking': { stage: 'start' | 'end'; direction: 'dock' | 'undock' };
+  /** A launch pod changed occupancy (local or remote). `peerId` null = emptied. */
+  'hub:slotChanged': { slot: number; peerId: PeerId | null; local: boolean };
+  /** Host / solo: everyone is boarded → launch countdown ticking (`seconds` left, 0 = launching now). */
+  'hub:launchCountdown': { seconds: number; ready: number; total: number };
+  /** Command (hub ui → hub): open/close the ship terminal / hub menu. */
+  'ui:hubMenuToggled': { open: boolean };
+
+  /* ── appended: drop / split / pickups (owner: inventory → pickups/PickupSystem) ── */
+  /** Inventory removed the item; PickupSystem spawns it as a world pickup thrown from `position` with `velocity`. */
+  'inventory:itemDropped': { item: ItemInstance; position: THREE.Vector3; velocity: THREE.Vector3 };
+  'inventory:itemSplit': { source: ItemInstance; created: ItemInstance };
+  /** Owner: pickups. Emitted for local and replicated pickups. */
+  'pickup:spawned': { id: string; item: ItemInstance; position: THREE.Vector3 };
+  /** `byLocal` true when the local player took it (item already added to the bag). */
+  'pickup:taken': { id: string; item: ItemInstance; byLocal: boolean; byName: string | null };
+  'pickup:removed': { id: string };
+
+  /* ── appended: chat (owner: ui/hud/ChatLog) ────────────────────────────── */
+  /**
+   * Command (any → ChatLog): post a line as the local player. ChatLog shows it, and — while in a lobby — sends it as
+   * `ChatMessage {kind}` to 'others'. Pings (item / ammo request) and the hub use this.
+   */
+  'chat:post': { text: string; kind: ChatKind };
+  /** Fact: a line was added to the log (own, remote or system). `id` null = local/system. */
+  'chat:message': { id: PeerId | null; name: string; text: string; kind: ChatKind; local: boolean };
+  /** Text-chat input opened/closed (Enter). ChatLog adds the `'chat'` blocker token while open. */
+  'ui:chatToggled': { open: boolean };
+
+  /* ── appended: pings v2 (owner: ui/hud/Pings) ──────────────────────────── */
+  /** Widened `ping:placed.kind`: see `PingKind`. Enemy pings only track the enemy while it is visible. */
+  'ping:placedV2': { id: number; position: THREE.Vector3; kind: PingKind; expires: number; owner: PeerId | null };
+
+  /* ── appended: reconnection (owner: net/NetSystem) ─────────────────────── */
+  /** The socket dropped while in a lobby; auto-reconnect is running (`attempt` 1..n). GameFlow keeps the mission alive. */
+  'net:reconnecting': { attempt: number; nextInMs: number };
+  /**
+   * Connected with a stored session token and the server still had us in a lobby (fresh page load or after a drop).
+   * `inProgress` = the lobby's mission is running; the player may rejoin via a launch slot (`ctx.net.rejoinMission()`).
+   * `seamless` = the drop happened mid-mission on this page and the same mission is still running → nothing to rebuild.
+   */
+  'net:resumed': { lobby: LobbyState; inProgress: boolean; seamless: boolean };
+  /** Quick-match result. `created` = no open ship was found so a new public one was created. */
+  'net:matched': { lobby: LobbyState; created: boolean };
 }
 
 export type GameEventName = keyof GameEvents;

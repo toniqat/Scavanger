@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {
-  GRAVITY, PLAYER_RADIUS, PLAYER_SPRINT_SPEED, PLAYER_WALK_SPEED, PLAYER_CROUCH_SPEED, PLAYER_PRONE_SPEED,
-  type WorldRef, type Stance,
+  GRAVITY, PLAYER_HEIGHT, PLAYER_RADIUS, PLAYER_SPRINT_SPEED, PLAYER_WALK_SPEED, PLAYER_CROUCH_SPEED, PLAYER_PRONE_SPEED,
+  type WorldRef, type Stance, type InteriorCollider,
 } from '@/shared';
 
 export interface MoveInput {
@@ -40,12 +40,16 @@ const DIVE_UP = 3.0;
 const DIVE_MAX_TIME = 0.9;
 
 const _wish = new THREE.Vector3(), _hv = new THREE.Vector3(), _n = new THREE.Vector3(), _slide = new THREE.Vector3();
+const _rayO = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0);
+/** Ceiling probe: from the hips straight up; stops the jump when the head would pass through a deck above. */
+const CEIL_PROBE_START = 0.6;
 
 /**
  * Kinematic character controller: camera-relative acceleration, gravity, single jump, stances
  * (stand / crouch / prone speeds), dive launch (no control until touchdown), heightfield ground
- * with slope sliding, obstacle push-out via `world.resolveCollision`, and a box-constrained mode
- * for the ship interior.
+ * with slope sliding, obstacle push-out via `world.resolveCollision`, a box-constrained mode
+ * for the extraction ship interior, and an `InteriorCollider` mode (hub ships: flat decks via `getFloorAt`,
+ * wall push-out via the collider, ceiling clamp via its raycast, no slope sliding, no map bounds).
  */
 export class PlayerController {
   readonly position = new THREE.Vector3();
@@ -64,6 +68,8 @@ export class PlayerController {
   /** radians; a step every π */
   stridePhase = 0;
   shipBounds: ShipBounds = null;
+  /** Ship-interior collider (hub). Takes precedence over `shipBounds` and the world while set. */
+  interior: InteriorCollider | null = null;
   /** external move-speed multiplier (slows: spewer acid, exhaustion, standing up from prone) */
   speedMultiplier = 1;
   private lastStep = 0;
@@ -84,6 +90,7 @@ export class PlayerController {
   }
 
   groundHeight(x: number, z: number, world: WorldRef | null): number {
+    if (this.interior) return this.interior.getFloorAt(x, z);
     if (this.shipBounds) return this.shipBounds.center.y - this.shipBounds.halfExtents.y;
     if (world && world.ready) return world.getHeightAt(x, z);
     return 0;
@@ -138,7 +145,7 @@ export class PlayerController {
 
     // ── slope handling (heightfield only)
     let steep = false;
-    if (!this.shipBounds && world && world.ready && this.grounded) {
+    if (!this.interior && !this.shipBounds && world && world.ready && this.grounded) {
       world.getNormalAt(pos.x, pos.z, _n);
       if (_n.y < STEEP_COS) {
         steep = true;
@@ -172,7 +179,18 @@ export class PlayerController {
     pos.y += vel.y * dt;
 
     // ── collision & bounds
-    if (this.shipBounds) {
+    if (this.interior) {
+      this.interior.resolveCollision(pos, PLAYER_RADIUS);
+      // ceiling: never let the head pass through a deck above (jumping inside a ship)
+      if (vel.y > 0) {
+        _rayO.set(pos.x, pos.y + CEIL_PROBE_START, pos.z);
+        const hit = this.interior.raycast(_rayO, _up, PLAYER_HEIGHT - CEIL_PROBE_START + 0.05);
+        if (hit) {
+          const maxFeet = _rayO.y + hit.distance - PLAYER_HEIGHT;
+          if (pos.y > maxFeet) { pos.y = maxFeet; vel.y = 0; }
+        }
+      }
+    } else if (this.shipBounds) {
       const c = this.shipBounds.center, h = this.shipBounds.halfExtents;
       pos.x = THREE.MathUtils.clamp(pos.x, c.x - h.x + PLAYER_RADIUS, c.x + h.x - PLAYER_RADIUS);
       pos.z = THREE.MathUtils.clamp(pos.z, c.z - h.z + PLAYER_RADIUS, c.z + h.z - PLAYER_RADIUS);

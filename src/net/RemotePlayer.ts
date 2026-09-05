@@ -4,6 +4,8 @@ import { NET_INTERP_DELAY, NET_STALE_AFTER, PLAYER_MAX_HP, PlayerFlags } from '@
 
 const RING_SIZE = 16;
 const MAX_EXTRAPOLATE = 0.25;
+/** A snapshot whose seq is this far below the last accepted one is a restarted stream, not a late packet. */
+const SEQ_RESET_GAP = 200;
 const TWO_PI = Math.PI * 2;
 
 interface Sample {
@@ -61,9 +63,28 @@ export class RemotePlayer implements RemotePlayerRef {
 
   get isDead(): boolean { return (this.flags & PlayerFlags.DEAD) !== 0; }
 
-  /** Accept a snapshot; out-of-order (seq ≤ last) samples are dropped. Returns false when dropped. */
+  /**
+   * The peer's snapshot stream restarted (page reload / rejoin with the same stable PeerId → `seq` starts at 1
+   * again). Forget the sequence guard and the interpolation history; the next `push` snaps to the new stream.
+   */
+  resetStream(): void {
+    this.lastSeq = -1;
+    this.count = 0;
+    this.head = 0;
+    this.hasAny = false;
+    for (const r of this.ring) r.s = null;
+  }
+
+  /**
+   * Accept a snapshot; out-of-order (seq ≤ last) samples are dropped. A `seq` far below the last one (or any
+   * lower `seq` while we are stale) is a restarted stream (reload / rejoin) and is accepted after `resetStream()`.
+   * Returns false when dropped.
+   */
   push(s: PlayerSnapshot, now: number): boolean {
-    if (s.seq <= this.lastSeq) return false;
+    if (s.seq <= this.lastSeq) {
+      if (!this.stale && s.seq > this.lastSeq - SEQ_RESET_GAP) return false;
+      this.resetStream();
+    }
     this.lastSeq = s.seq;
     const idx = (this.head + this.count) % RING_SIZE;
     if (this.count === RING_SIZE) {

@@ -187,6 +187,24 @@ export class GridView {
     for (const [id, el] of this.tiles) el.classList.toggle('is-dragging', id === uid);
   }
 
+  /**
+   * Partial (Shift/Ctrl) drag feedback: the source tile stays lit and its badge shows what would remain.
+   * `remaining` null clears the state; the next `refresh(true)` rebuilds the badge anyway.
+   */
+  markSplitSource(uid: string, remaining: number | null): void {
+    const el = this.tiles.get(uid);
+    if (!el) return;
+    el.classList.toggle('is-split-source', remaining !== null);
+    const badge = el.querySelector<HTMLElement>('.inv-tile-qty');
+    if (!badge) return;
+    if (remaining === null) {
+      const item = this.grid?.get(uid)?.item;
+      if (item) badge.textContent = String(item.qty);
+    } else {
+      badge.textContent = String(remaining);
+    }
+  }
+
   shake(uid: string): void {
     const el = this.tiles.get(uid);
     if (!el) return;

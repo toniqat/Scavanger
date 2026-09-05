@@ -1,11 +1,13 @@
 import { Engine } from '@/core/Engine';
 import { NetSystem } from '@/net/NetSystem';
 import { WorldSystem } from '@/world/WorldSystem';
+import { HubSystem } from '@/hub/HubSystem';
 import { PlayerSystem } from '@/player/PlayerSystem';
 import { RemotePlayerSystem } from '@/player/RemotePlayerSystem';
 import { WeaponSystem } from '@/weapons/WeaponSystem';
 import { EnemySystem } from '@/enemies/EnemySystem';
 import { InventorySystem } from '@/inventory/InventorySystem';
+import { PickupSystem } from '@/pickups/PickupSystem';
 import { ExtractionSystem } from '@/extraction/ExtractionSystem';
 import { HudSystem } from '@/ui/HudSystem';
 import { AudioSystem } from '@/audio/AudioSystem';
@@ -20,11 +22,13 @@ const engine = new Engine(canvas, uiRoot);
 // NetSystem goes first so incoming snapshots are applied before any system reads ctx.net this frame.
 engine.addSystem(new NetSystem());
 engine.addSystem(new WorldSystem());
+engine.addSystem(new HubSystem());        // ship interiors; builds before the player reads ctx.hub
 engine.addSystem(new PlayerSystem());
 engine.addSystem(new RemotePlayerSystem());
 engine.addSystem(new WeaponSystem());
 engine.addSystem(new EnemySystem());
 engine.addSystem(new InventorySystem());
+engine.addSystem(new PickupSystem());     // world pickups (dropped items), after inventory
 engine.addSystem(new ExtractionSystem());
 engine.addSystem(new HudSystem());
 engine.addSystem(new AudioSystem());

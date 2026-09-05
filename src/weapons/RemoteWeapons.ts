@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { GameContext, WeaponDef, PeerId, RemotePlayerRef, EnemyRef } from '@/shared';
+import { PlayerFlags, type GameContext, type WeaponDef, type PeerId, type RemotePlayerRef, type EnemyRef } from '@/shared';
 import { FxManager } from '@/core/fx';
 import { randomInCone } from '@/core/util/MathUtil';
 import { DEFAULT_RIFLE, DEFAULT_PISTOL, kindOf, shotSoundId, shotPitchFor, weaponClassOf } from './WeaponDefaults';
@@ -119,6 +119,10 @@ export class RemoteWeapons {
       if (e.boltT >= 1) { e.boltT = -1; model.setBolt(-1); } else model.setBolt(e.boltT);
     }
     model.update(dt, this.ctx.time);
+    // holstered / hidden remotes: unarmed in the hub, inside a launch pod or the hellpod, or no weapon equipped
+    const f = ref.flags;
+    const hidden = (f & (PlayerFlags.IN_HUB | PlayerFlags.IN_POD | PlayerFlags.DROPPING)) !== 0 || (f & PlayerFlags.HAS_WEAPON) === 0;
+    if (hidden) model.root.visible = false;
   }
 
   private chestOf(ref: RemotePlayerRef): THREE.Vector3 {

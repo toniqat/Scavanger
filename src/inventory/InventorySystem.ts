@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { GameContext, GameSystem, InventoryRef, ItemDef, ItemInstance, Loadout } from '@/shared';
 import { INVENTORY_COLS, INVENTORY_ROWS, Keys } from '@/shared';
-import { ITEM_DEF_MAP, LootService, STARTER_LOADOUT } from '@/items';
+import { AMMO_LABEL_KO, ITEM_DEF_MAP, LootService, STARTER_LOADOUT, getWeaponDef } from '@/items';
 import { Grid, OOB } from './Grid';
 import { Container, ContainerStore } from './Container';
 import { InventoryUI } from './ui/InventoryUI';
@@ -20,6 +20,13 @@ export type UiSfx = 'ui_pickup' | 'ui_drop' | 'ui_rotate' | 'ui_error' | 'ui_equ
 
 const AUTO_CLOSE_DISTANCE = 6;
 const BLOCKER_TOKEN = 'inventory';
+/** World-drop throw: eye position lowered / pushed forward, forward speed + upward pop. */
+const DROP_EYE_LOWER = 0.3;
+const DROP_FORWARD_OFFSET = 0.4;
+const DROP_FORWARD_SPEED = 3.5;
+const DROP_UP_SPEED = 2.0;
+const MOD_SHIFT = ['ShiftLeft', 'ShiftRight'] as const;
+const MOD_CTRL = ['ControlLeft', 'ControlRight'] as const;
 
 /**
  * Owns the player's bag grid, equipment slots and the open loot container.
@@ -44,6 +51,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
     if (e.code !== Keys.MENU || !this._open) return;
     e.preventDefault();
     e.stopPropagation();
+    // A context menu / split dialog swallows the first Escape; the window closes on the next one.
+    if (this.ui?.closeOverlays()) return;
     this.closeAll();
   };
 
@@ -76,6 +85,11 @@ export class InventorySystem implements GameSystem, InventoryRef {
     }
     if (!this._open) return;
     if (ctx.input.wasPressed(Keys.ROTATE_ITEM)) this.ui?.onRotateKey();
+    if (ctx.input.wasPressed(Keys.DROP_ITEM)) {
+      const shift = MOD_SHIFT.some((c) => ctx.input.isDown(c));
+      const ctrl = MOD_CTRL.some((c) => ctx.input.isDown(c));
+      this.ui?.onDropKey(shift, ctrl);
+    }
     const player = ctx.player;
     if (player?.isDead) { this.closeAll(); return; }
     if (this.activeContainer && player && player.position.distanceTo(this.activeContainer.position) > AUTO_CLOSE_DISTANCE) {
@@ -149,6 +163,80 @@ export class InventorySystem implements GameSystem, InventoryRef {
     return true;
   }
 
+  /**
+   * Drop `qty` units (default: the whole stack) of `uid` into the world. Searches the bag, the open container
+   * and the equipment slots. Emits `inventory:itemRemoved` (player-owned only), `loadout:changed` (slots) and
+   * `inventory:itemDropped` — `pickups/` spawns the world object from that.
+   */
+  dropItem(uid: string, qty?: number): boolean {
+    const found = this.locate(uid);
+    if (!found) return false;
+    const { item, from } = found;
+    const def = ITEM_DEF_MAP.get(item.defId);
+    if (!def) return false;
+    const want = qty === undefined ? item.qty : Math.floor(qty);
+    if (!Number.isFinite(want) || want < 1) return false;
+    const n = Math.min(want, item.qty);
+
+    let dropped: ItemInstance;
+    if (n >= item.qty) {
+      this.detach(item, from);
+      dropped = item;
+    } else {
+      dropped = this.loot.createItem(item.defId, n);
+      item.qty -= n;
+      if (from.kind === 'grid') { const g = this.getGrid(from.grid); if (g) g.version++; }
+    }
+    if (this.locKind(from) === 'player') this.ctx.bus.emit('inventory:itemRemoved', { item: dropped });
+    if (from.kind === 'slot') this.emitLoadout();
+
+    const position = new THREE.Vector3();
+    const velocity = new THREE.Vector3();
+    const player = this.ctx.player;
+    if (player) {
+      const forward = player.getForward(new THREE.Vector3());
+      player.getEyePosition(position);
+      position.y -= DROP_EYE_LOWER;
+      position.addScaledVector(forward, DROP_FORWARD_OFFSET);
+      velocity.copy(forward).multiplyScalar(DROP_FORWARD_SPEED);
+      velocity.y += DROP_UP_SPEED;
+    }
+    this.ctx.bus.emit('inventory:itemDropped', { item: dropped, position, velocity });
+    this.afterChange();
+    return true;
+  }
+
+  /**
+   * Split `qty` units off stack `uid` into a brand-new stack placed at the first free slot of the same grid.
+   * False when the item is not stackable, `qty` is not in 1..qty-1, or there is no free cell.
+   */
+  splitItem(uid: string, qty: number): boolean {
+    const found = this.locateInGrids(uid);
+    if (!found) return false;
+    const { item, grid } = found;
+    const def = ITEM_DEF_MAP.get(item.defId);
+    const n = Math.floor(qty);
+    if (!def || def.stackMax <= 1 || !Number.isFinite(n) || n < 1 || n >= item.qty) return false;
+    const created = this.loot.createItem(item.defId, n);
+    const slot = grid.findFreeSlot(created, item.rotated);
+    if (!slot || !grid.place(created, slot.x, slot.y, slot.rotated)) return false;
+    item.qty -= n;
+    this.ctx.bus.emit('inventory:itemSplit', { source: item, created });
+    this.afterChange();
+    return true;
+  }
+
+  /** Quick chat: ammo request for weapons, "<name> 필요" for anything else (`chat:post`, kind 'request'). */
+  requestItem(uid: string, from: ItemLocation): boolean {
+    const item = this.findItem(uid, from);
+    const def = item && ITEM_DEF_MAP.get(item.defId);
+    if (!item || !def) return false;
+    const weapon = def.weaponId ? getWeaponDef(def.weaponId) : undefined;
+    const text = weapon ? `탄약 요청: ${weapon.name} (${AMMO_LABEL_KO[weapon.ammoType]})` : `${def.name} 필요`;
+    this.ctx.bus.emit('chat:post', { text, kind: 'request' });
+    return true;
+  }
+
   openContainer(containerId: string, tier: number, position: THREE.Vector3): void {
     const c = this.containers.getOrCreate(containerId, tier, position, this.loot, this.missionSeed);
     this.activeContainer = c;
@@ -212,6 +300,96 @@ export class InventorySystem implements GameSystem, InventoryRef {
   }
 
   sfx(id: UiSfx): void { this.ctx.bus.emit('audio:play', { id }); }
+
+  /** Find an item anywhere (bag → container → slots). */
+  locate(uid: string): { item: ItemInstance; from: ItemLocation } | null {
+    const inGrid = this.locateInGrids(uid);
+    if (inGrid) return { item: inGrid.item, from: { kind: 'grid', grid: inGrid.gridId } };
+    for (const slot of ['primary', 'secondary'] as const) {
+      const it = this.loadout[slot];
+      if (it?.uid === uid) return { item: it, from: { kind: 'slot', slot } };
+    }
+    return null;
+  }
+
+  private locateInGrids(uid: string): { item: ItemInstance; grid: Grid; gridId: GridId } | null {
+    for (const gridId of ['bag', 'container'] as const) {
+      const grid = this.getGrid(gridId);
+      const p = grid?.get(uid);
+      if (grid && p) return { item: p.item, grid, gridId };
+    }
+    return null;
+  }
+
+  /** Split size a Shift (half) / Ctrl (one) drag would carry, or null when the item cannot be split. */
+  partialQtyFor(item: ItemInstance, mode: 'half' | 'one'): number | null {
+    const def = ITEM_DEF_MAP.get(item.defId);
+    if (!def || def.stackMax <= 1 || item.qty < 2) return null;
+    return mode === 'one' ? 1 : Math.max(1, Math.floor(item.qty / 2));
+  }
+
+  /** Non-mutating classification of a partial-stack drag (`qty` units of `uid`) onto `target`. */
+  previewPartial(uid: string, from: ItemLocation, qty: number, target: DropTarget): DropPreview {
+    const v = this.validatePartial(uid, from, qty, target);
+    if (!v) return 'bad';
+    const { item, def, grid, blockers } = v;
+    if (blockers.length === 0) return 'ok';
+    if (blockers.length !== 1 || blockers[0] === OOB) return 'bad';
+    if (blockers[0] === uid) return 'noop';
+    const other = grid.get(blockers[0]);
+    return other && other.item.defId === item.defId && other.item.qty < def.stackMax ? 'merge' : 'bad';
+  }
+
+  /**
+   * Execute a partial-stack drag: onto a free cell → new stack of `qty` there; onto a same-def stack → merge
+   * (capped by `stackMax`); onto the source or anything else → nothing.
+   */
+  dropPartial(uid: string, from: ItemLocation, qty: number, target: DropTarget): OpResult {
+    const v = this.validatePartial(uid, from, qty, target);
+    if (!v || target.kind !== 'grid' || from.kind !== 'grid') return 'fail';
+    const { item, def, grid, blockers } = v;
+    const to: ItemLocation = { kind: 'grid', grid: target.grid };
+    const srcGrid = this.getGrid(from.grid);
+    if (!srcGrid) return 'fail';
+
+    if (blockers.length === 0) {
+      const created = this.loot.createItem(item.defId, qty);
+      if (!grid.place(created, target.x, target.y, target.rotated)) return 'fail';
+      item.qty -= qty;
+      srcGrid.version++;
+      if (this.locKind(from) !== this.locKind(to)) this.emitTransfer(created, def, from, to);
+      this.ctx.bus.emit('inventory:itemSplit', { source: item, created });
+      this.afterChange();
+      return 'ok';
+    }
+    if (blockers.length !== 1 || blockers[0] === OOB) return 'fail';
+    if (blockers[0] === uid) return 'noop';
+    const other = grid.get(blockers[0]);
+    if (!other || other.item.defId !== item.defId) return 'fail';
+    const moved = Math.min(def.stackMax - other.item.qty, qty);
+    if (moved <= 0) return 'fail';
+    other.item.qty += moved;
+    item.qty -= moved;
+    grid.version++;
+    srcGrid.version++;
+    if (this.locKind(from) !== this.locKind(to)) this.emitTransfer({ ...item, qty: moved }, def, from, to);
+    this.afterChange();
+    return 'ok';
+  }
+
+  private validatePartial(uid: string, from: ItemLocation, qty: number, target: DropTarget):
+    { item: ItemInstance; def: ItemDef; grid: Grid; blockers: string[] } | null {
+    if (from.kind !== 'grid' || target.kind !== 'grid') return null;
+    const item = this.findItem(uid, from);
+    const def = item && ITEM_DEF_MAP.get(item.defId);
+    if (!item || !def || def.stackMax <= 1) return null;
+    const n = Math.floor(qty);
+    if (!Number.isFinite(n) || n < 1 || n >= item.qty) return null;
+    const grid = this.getGrid(target.grid);
+    if (!grid) return null;
+    const probe: ItemInstance = { uid: '__split__', defId: item.defId, qty: n, rotated: target.rotated };
+    return { item, def, grid, blockers: grid.blockersAt(probe, target.x, target.y, target.rotated, probe.uid) };
+  }
 
   /** Non-mutating classification used for the drag highlight. */
   previewDrop(uid: string, from: ItemLocation, target: DropTarget): DropPreview {

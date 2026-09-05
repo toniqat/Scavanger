@@ -20,7 +20,8 @@ export interface DebugRemoteRef {
  * Renders every peer in `ctx.net.getRemotePlayers()` as a `RemoteAvatar`. Avatars are created on demand
  * (first frame a ref is seen, or on `net:remotePlayerAdded`), driven every frame from the interpolated ref,
  * and disposed on `net:remotePlayerRemoved`, when `!ref.connected`, when the ref disappears from the list,
- * and wholesale on `game:abort` / `game:newMission` (refs that survive are re-avatared next frame).
+ * and wholesale on `game:abort` / `game:newMission` / `hub:entered` (refs that survive are re-avatared next frame).
+ * Runs in every phase — hub avatars render whenever `ctx.net` still lists remote refs (`inHubSession`).
  *
  * Runs right after PlayerSystem (see main.ts); NetSystem has already smoothed the refs this frame.
  */
@@ -42,6 +43,9 @@ export class RemotePlayerSystem implements GameSystem {
     ctx.bus.on('net:remotePlayerRemoved', ({ id }) => this.remove(id));
     ctx.bus.on('game:abort', () => this.clearAll());
     ctx.bus.on('game:newMission', () => this.clearAll());
+    // entering a ship: drop mission avatars so nobody lingers at a stale planet position; the peers still in
+    // the shared ship re-avatar from their next hub snapshot
+    ctx.bus.on('hub:entered', () => this.clearAll());
   }
 
   update(dt: number, ctx: GameContext): void {

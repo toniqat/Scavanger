@@ -471,6 +471,146 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.click(d, t + 0.08, 1800 * p, 0.1, 0.02);
     return 0.14;
   },
+
+  /* ── ship hub ─────────────────────────────────────────────────────────── */
+  /** Docking thruster swell (~2.6 s): filtered noise opening up + low saw/sine rumble, dies back down. */
+  hub_dock_thrusters: (s, d, t, p) => {
+    s.noise(d, { t0: t, dur: 2.6, gain: 0.32, attack: 0.9, filter: { type: 'lowpass', f0: 200 * p, f1: 1400 * p, q: 0.8 }, decayCurve: 'lin' });
+    s.tone(d, { type: 'sawtooth', f0: 40 * p, f1: 70 * p, t0: t, dur: 2.6, gain: 0.16, attack: 0.8, lp: 350, decayCurve: 'lin' });
+    s.tone(d, { type: 'sine', f0: 58 * p, f1: 90 * p, t0: t + 0.3, dur: 2.2, gain: 0.14, attack: 0.7, decayCurve: 'lin' });
+    s.noise(d, { t0: t + 0.4, dur: 1.8, gain: 0.06, attack: 0.5, filter: { type: 'highpass', f0: 2500 }, decayCurve: 'lin' });
+    return 2.7;
+  },
+  /** Metallic docking-clamp thunk: low impact + ringing plate + two small rattles. */
+  hub_dock_clamp: (s, d, t, p) => {
+    s.tone(d, { type: 'sine', f0: 80 * p, f1: 32, t0: t, dur: 0.5, gain: 0.8 });
+    s.noise(d, { t0: t, dur: 0.12, gain: 0.5, filter: { type: 'lowpass', f0: 1200, f1: 150 } });
+    s.click(d, t, 2100 * p, 0.35, 0.03);
+    s.tone(d, { type: 'triangle', f0: 620 * p, f1: 590 * p, t0: t + 0.01, dur: 0.55, gain: 0.07, lp: 2500, vibratoHz: 6, vibratoDepth: 12 });
+    s.tone(d, { type: 'sine', f0: 1480 * p, f1: 1420 * p, t0: t + 0.01, dur: 0.4, gain: 0.04 });
+    s.click(d, t + 0.14, 1500 * p, 0.12, 0.02);
+    s.click(d, t + 0.21, 1800 * p, 0.08, 0.02);
+    return 0.7;
+  },
+  /** Launch pod door: pneumatic hiss (~0.4 s) then a lock clunk. */
+  pod_door: (s, d, t, p) => {
+    s.noise(d, { t0: t, dur: 0.45, gain: 0.22, attack: 0.04, filter: { type: 'bandpass', f0: 2200 * p, f1: 900 * p, q: 0.9 }, decayCurve: 'lin' });
+    s.tone(d, { type: 'sawtooth', f0: 110 * p, f1: 70 * p, t0: t, dur: 0.45, gain: 0.06, attack: 0.05, lp: 500, decayCurve: 'lin' });
+    s.click(d, t + 0.42, 2400 * p, 0.3, 0.03);
+    s.tone(d, { type: 'sine', f0: 140 * p, f1: 70, t0: t + 0.42, dur: 0.18, gain: 0.35 });
+    return 0.65;
+  },
+  /** Launch rumble at countdown 0: sub thump + rising roar (~2.4 s). */
+  launch_rumble: (s, d, t, p) => {
+    s.tone(d, { type: 'sine', f0: 60 * p, f1: 24, t0: t, dur: 0.6, gain: 0.9 });
+    s.noise(d, { t0: t, dur: 2.4, gain: 0.45, attack: 0.3, filter: { type: 'lowpass', f0: 300 * p, f1: 2200 * p, q: 0.6 }, decayCurve: 'lin' });
+    s.tone(d, { type: 'sawtooth', f0: 36 * p, f1: 110 * p, t0: t, dur: 2.4, gain: 0.25, attack: 0.4, lp: 500, decayCurve: 'lin' });
+    s.tone(d, { type: 'sine', f0: 50 * p, f1: 130 * p, t0: t + 0.3, dur: 2.0, gain: 0.2, attack: 0.5, decayCurve: 'lin' });
+    return 2.5;
+  },
+
+  /* ── chat ─────────────────────────────────────────────────────────────── */
+  /** Soft two-note blip for an incoming text line. */
+  chat_blip: (s, d, t, p) => {
+    s.tone(d, { type: 'sine', f0: 1180 * p, f1: 1250 * p, t0: t, dur: 0.05, gain: 0.1, decayCurve: 'lin' });
+    s.tone(d, { type: 'sine', f0: 1570 * p, t0: t + 0.055, dur: 0.09, gain: 0.09 });
+    return 0.15;
+  },
+  /** Radio-style request: two short tones then a held higher note, faint static underneath. */
+  chat_request: (s, d, t, p) => {
+    s.tone(d, { type: 'triangle', f0: 740 * p, t0: t, dur: 0.07, gain: 0.09, lp: 3000, decayCurve: 'lin' });
+    s.tone(d, { type: 'triangle', f0: 740 * p, t0: t + 0.09, dur: 0.07, gain: 0.09, lp: 3000, decayCurve: 'lin' });
+    s.tone(d, { type: 'sine', f0: 988 * p, t0: t + 0.19, dur: 0.16, gain: 0.1 });
+    s.noise(d, { t0: t, dur: 0.3, gain: 0.02, filter: { type: 'bandpass', f0: 2500, q: 3 }, decayCurve: 'lin' });
+    return 0.36;
+  },
+  /** Subtle tick when the chat input opens (rising) / closes (falling). */
+  chat_open: (s, d, t, p) => {
+    s.tone(d, { type: 'sine', f0: 900 * p, f1: 1300 * p, t0: t, dur: 0.035, gain: 0.08 });
+    s.noise(d, { t0: t, dur: 0.012, gain: 0.05, filter: { type: 'highpass', f0: 4000 } });
+    return 0.05;
+  },
+  chat_close: (s, d, t, p) => {
+    s.tone(d, { type: 'sine', f0: 1300 * p, f1: 900 * p, t0: t, dur: 0.035, gain: 0.07 });
+    s.noise(d, { t0: t, dur: 0.01, gain: 0.04, filter: { type: 'highpass', f0: 4000 } });
+    return 0.05;
+  },
+
+  /* ── pings v2 ─────────────────────────────────────────────────────────── */
+  /** Attack ping: urgent two-tone rising figure, played twice. */
+  ping_attack: (s, d, t, p) => {
+    for (let i = 0; i < 2; i++) {
+      const o = i * 0.16;
+      s.tone(d, { type: 'square', f0: 660 * p, f1: 990 * p, t0: t + o, dur: 0.07, gain: 0.07, lp: 3500, decayCurve: 'lin' });
+      s.tone(d, { type: 'sine', f0: 1320 * p, t0: t + o + 0.07, dur: 0.08, gain: 0.14 });
+    }
+    s.noise(d, { t0: t, dur: 0.015, gain: 0.08, filter: { type: 'highpass', f0: 4000 } });
+    return 0.34;
+  },
+  /** Caution ping: descending warning tone with a low square undertone. */
+  ping_caution: (s, d, t, p) => {
+    s.tone(d, { type: 'triangle', f0: 880 * p, f1: 440 * p, t0: t, dur: 0.22, gain: 0.14, attack: 0.01, lp: 3000, decayCurve: 'lin' });
+    s.tone(d, { type: 'sine', f0: 440 * p, f1: 330 * p, t0: t + 0.2, dur: 0.18, gain: 0.12 });
+    s.tone(d, { type: 'square', f0: 220 * p, t0: t + 0.2, dur: 0.15, gain: 0.03, lp: 1500 });
+    return 0.4;
+  },
+  /** Item ping: light glassy bell (stacked high sines). */
+  ping_item: (s, d, t, p) => {
+    s.tone(d, { type: 'sine', f0: 1760 * p, t0: t, dur: 0.16, gain: 0.1 });
+    s.tone(d, { type: 'sine', f0: 2640 * p, t0: t + 0.03, dur: 0.22, gain: 0.06 });
+    s.tone(d, { type: 'triangle', f0: 3520 * p, t0: t, dur: 0.06, gain: 0.03 });
+    s.tone(d, { type: 'sine', f0: 2217 * p, t0: t + 0.09, dur: 0.2, gain: 0.07 });
+    return 0.32;
+  },
+
+  /* ── drop / pickups ───────────────────────────────────────────────────── */
+  /** Short toss whoosh when an item is dropped. */
+  item_toss: (s, d, t, p) => {
+    s.noise(d, { t0: t, dur: 0.26, gain: 0.22, attack: 0.03, filter: { type: 'bandpass', f0: 700 * p, f1: 1800 * p, q: 1.3 }, decayCurve: 'lin' });
+    s.noise(d, { t0: t, dur: 0.15, gain: 0.08, attack: 0.02, filter: { type: 'highpass', f0: 3000 } });
+    return 0.28;
+  },
+  /** Soft landing tick for a pickup appearing in the world. */
+  pickup_land: (s, d, t, p) => {
+    s.noise(d, { t0: t, dur: 0.05, gain: 0.2, filter: { type: 'lowpass', f0: 1200 * p, f1: 300, q: 0.8 } });
+    s.click(d, t, 1600 * p, 0.08, 0.02);
+    s.tone(d, { type: 'sine', f0: 200 * p, f1: 110, t0: t, dur: 0.06, gain: 0.12 });
+    return 0.08;
+  },
+  /** Three-note pickup chime (G5 D6 G6). */
+  pickup_chime: (s, d, t, p) => {
+    s.tone(d, { type: 'sine', f0: 784 * p, t0: t, dur: 0.08, gain: 0.14 });
+    s.tone(d, { type: 'sine', f0: 1175 * p, t0: t + 0.06, dur: 0.1, gain: 0.14 });
+    s.tone(d, { type: 'sine', f0: 1568 * p, t0: t + 0.12, dur: 0.18, gain: 0.12 });
+    s.noise(d, { t0: t, dur: 0.02, gain: 0.06, filter: { type: 'highpass', f0: 3500 } });
+    return 0.32;
+  },
+  /** Alias played by `pickups/` via `audio:play {id:'pickup'}` on a local take — same synth as `pickup_chime`. */
+  pickup: (s, d, t, p) => SOUNDS.pickup_chime(s, d, t, p),
+
+  /* ── net / reconnection ───────────────────────────────────────────────── */
+  /** Single low warning tone (connection dropped). */
+  net_warning: (s, d, t, p) => {
+    s.tone(d, { type: 'square', f0: 196 * p, f1: 185 * p, t0: t, dur: 0.35, gain: 0.08, attack: 0.02, lp: 1200, decayCurve: 'lin' });
+    s.tone(d, { type: 'sine', f0: 98 * p, t0: t, dur: 0.4, gain: 0.14, attack: 0.02 });
+    s.noise(d, { t0: t, dur: 0.4, gain: 0.03, filter: { type: 'bandpass', f0: 1800, q: 2 }, decayCurve: 'lin' });
+    return 0.45;
+  },
+  /** Confirmation chime (session resumed). */
+  net_resumed: (s, d, t, p) => {
+    s.tone(d, { type: 'sine', f0: 587 * p, t0: t, dur: 0.1, gain: 0.13 });
+    s.tone(d, { type: 'sine', f0: 880 * p, t0: t + 0.09, dur: 0.25, gain: 0.13 });
+    s.tone(d, { type: 'triangle', f0: 1760 * p, t0: t + 0.09, dur: 0.12, gain: 0.03 });
+    return 0.36;
+  },
+  /** Radio "signal acquired": static burst → three rising blips → held note. */
+  net_matched: (s, d, t, p) => {
+    s.noise(d, { t0: t, dur: 0.2, gain: 0.08, attack: 0.01, filter: { type: 'bandpass', f0: 1800 * p, f1: 3000 * p, q: 1.5 }, decayCurve: 'lin' });
+    const notes = [880, 1109, 1480];
+    notes.forEach((f, i) => s.tone(d, { type: 'square', f0: f * p, t0: t + 0.18 + i * 0.09, dur: 0.07, gain: 0.05, lp: 4000, decayCurve: 'lin' }));
+    s.tone(d, { type: 'sine', f0: 1480 * p, t0: t + 0.45, dur: 0.22, gain: 0.1 });
+    return 0.7;
+  },
 };
 
 export const SOUND_IDS = Object.keys(SOUNDS);

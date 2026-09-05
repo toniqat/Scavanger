@@ -5,15 +5,20 @@ import type { Container } from '../Container';
 import type { DropTarget, GridId, InventorySystem, ItemLocation, SlotId } from '../InventorySystem';
 import { GridView, buildTileContent, type HighlightState } from './GridView';
 import { Tooltip } from './Tooltip';
+import { ContextMenu, type MenuEntry } from './ContextMenu';
+import { SplitDialog } from './SplitDialog';
 import { STEP, TEXT, fmtValue, tierTitle, tileSize } from './labels';
 
 const DRAG_THRESHOLD = 4; // px before a press becomes a drag
+const MIDDLE_BUTTON = 1;
 
 interface DragState {
   uid: string;
   item: ItemInstance;
   def: ItemDef;
   from: ItemLocation;
+  /** Units carried by a Shift (half) / Ctrl (one) drag; null = the whole item. */
+  qty: number | null;
   rotated: boolean;
   started: boolean;
   startX: number;
@@ -52,6 +57,9 @@ export class InventoryUI {
   private slots = new Map<SlotId, SlotView>();
   private tooltip!: Tooltip;
   private ghostLayer!: HTMLElement;
+  private dropZone!: HTMLElement;
+  private menu!: ContextMenu;
+  private dialog!: SplitDialog;
   private drag: DragState | null = null;
   private hovered: { uid: string; loc: ItemLocation } | null = null;
   private container: Container | null = null;
@@ -156,12 +164,35 @@ export class InventoryUI {
       hints.appendChild(h);
     }
 
+    /* world-drop zone (visible only while dragging; replaces the hint bar) */
+    const dropZone = document.createElement('div');
+    dropZone.className = 'inv-dropzone';
+    const dzTitle = document.createElement('div');
+    dzTitle.className = 'inv-dropzone-title';
+    const dzKey = document.createElement('kbd');
+    dzKey.textContent = 'X';
+    dzTitle.append(document.createTextNode(TEXT.dropZone), dzKey);
+    const dzSub = document.createElement('div');
+    dzSub.className = 'inv-dropzone-sub';
+    dzSub.textContent = TEXT.dropZoneHint;
+    dropZone.append(dzTitle, dzSub);
+    this.dropZone = dropZone;
+
     this.tooltip = new Tooltip(getWeaponDef);
     this.ghostLayer = document.createElement('div');
     this.ghostLayer.className = 'inv-ghost-layer';
 
-    root.append(layout, hints, this.tooltip.el, this.ghostLayer);
+    root.append(layout, hints, dropZone, this.tooltip.el, this.ghostLayer);
+    this.menu = new ContextMenu(root);
+    this.dialog = new SplitDialog(root);
     this.ctx.uiRoot.appendChild(root);
+  }
+
+  /** Close the context menu / split dialog if open. Returns true when something was closed (Escape consumed). */
+  closeOverlays(): boolean {
+    const a = this.dialog?.close() ?? false;
+    const b = this.menu?.close() ?? false;
+    return a || b;
   }
 
   show(container: Container | null): void {
@@ -189,6 +220,7 @@ export class InventoryUI {
     if (!this.root || !this.visible) return;
     this.visible = false;
     this.cancelDrag();
+    this.closeOverlays();
     this.tooltip.hide();
     this.hovered = null;
     this.root.classList.remove('is-visible');
@@ -198,6 +230,8 @@ export class InventoryUI {
 
   dispose(): void {
     this.cancelDrag();
+    this.menu?.dispose();
+    this.dialog?.dispose();
     this.containerView.dispose();
     this.bagView.dispose();
     this.tooltip.dispose();
@@ -282,7 +316,7 @@ export class InventoryUI {
     el.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       const sv = this.slots.get(slot);
-      if (sv?.uid) this.result(this.sys.quickMove(sv.uid, { kind: 'slot', slot }), 'ui_drop', { kind: 'slot', slot }, sv.uid);
+      if (sv?.uid) this.onContextMenu(sv.uid, { kind: 'slot', slot }, e);
     });
     const sv: SlotView = { slot, el, body, meta, tile: null, uid: null };
     this.slots.set(slot, sv);
@@ -309,10 +343,9 @@ export class InventoryUI {
       onEnter: (uid: string, gridId: GridId, e: PointerEvent) => this.hoverEnter(uid, { kind: 'grid', grid: gridId }, e),
       onMove: (_uid: string, _gridId: GridId, e: PointerEvent) => this.tooltip.move(e.clientX, e.clientY),
       onLeave: () => this.hoverLeave(),
-      onContext: (uid: string, gridId: GridId) => {
+      onContext: (uid: string, gridId: GridId, e: MouseEvent) => {
         if (this.drag) return;
-        const from: ItemLocation = { kind: 'grid', grid: gridId };
-        this.result(this.sys.quickMove(uid, from), 'ui_drop', from, uid);
+        this.onContextMenu(uid, { kind: 'grid', grid: gridId }, e);
       },
       onDblClick: (uid: string, gridId: GridId) => {
         if (this.drag?.started) return;
@@ -358,9 +391,112 @@ export class InventoryUI {
     }
   }
 
+  /* ── right-click: quick action or context menu ─────────────────────────── */
+
+  /**
+   * Scheme: plain right-click on a stack with qty ≥ 2 opens the menu; on anything else it performs the quick
+   * action directly (container ↔ bag / slot → bag). Shift+right-click always opens the menu.
+   */
+  private onContextMenu(uid: string, from: ItemLocation, e: MouseEvent): void {
+    if (this.drag?.started || this.dialog.isOpen) return;
+    this.menu.close();
+    const item = this.sys.findItem(uid, from);
+    const def = item && ITEM_DEF_MAP.get(item.defId);
+    if (!item || !def) return;
+    const isStack = def.stackMax > 1 && item.qty >= 2;
+    if (!isStack && !e.shiftKey) {
+      this.result(this.sys.quickMove(uid, from), 'ui_drop', from, uid);
+      return;
+    }
+    this.tooltip.hide();
+    this.menu.open(e.clientX, e.clientY, this.menuEntries(uid, from, item, def));
+  }
+
+  private menuEntries(uid: string, from: ItemLocation, item: ItemInstance, def: ItemDef): MenuEntry[] {
+    const entries: MenuEntry[] = [];
+    const isWeapon = def.category === 'primary' || def.category === 'secondary';
+    const isStack = def.stackMax > 1 && item.qty >= 2;
+    const hasContainer = !!this.sys.getActiveContainer();
+
+    // 1. quick action (what a plain right-click / double-click does)
+    if (from.kind === 'slot') {
+      entries.push({ label: TEXT.menu.toBag, run: () => this.result(this.sys.quickMove(uid, from), 'ui_drop', from, uid) });
+    } else {
+      if (isWeapon) entries.push({ label: TEXT.menu.equip, run: () => this.result(this.sys.activate(uid, from), 'ui_equip', from, uid) });
+      if (from.grid === 'container') entries.push({ label: TEXT.menu.toBag, run: () => this.result(this.sys.quickMove(uid, from), 'ui_drop', from, uid) });
+      else if (hasContainer) entries.push({ label: TEXT.menu.toContainer, run: () => this.result(this.sys.quickMove(uid, from), 'ui_drop', from, uid) });
+    }
+
+    // 2. split
+    if (isStack && from.kind === 'grid') {
+      const half = Math.max(1, Math.floor(item.qty / 2));
+      entries.push({ label: TEXT.menu.splitHalf, hint: 'Shift', separator: entries.length > 0, run: () => this.split(uid, from, half) });
+      if (item.qty > 2) entries.push({ label: TEXT.menu.splitOne, hint: 'Ctrl', run: () => this.split(uid, from, 1) });
+      entries.push({ label: TEXT.menu.splitCustom, run: () => this.openSplitDialog(uid, from) });
+    }
+
+    // 3. quick chat request
+    entries.push({
+      label: isWeapon ? TEXT.menu.requestAmmo : TEXT.menu.request,
+      hint: '휠클릭',
+      separator: entries.length > 0,
+      run: () => { this.sys.requestItem(uid, from); },
+    });
+
+    // 4. drop
+    entries.push({ label: TEXT.menu.drop, hint: 'X', danger: true, separator: true, run: () => this.dropToWorld(uid, from, undefined) });
+    if (isStack) entries.push({ label: TEXT.menu.dropOne, hint: 'Shift+X', danger: true, run: () => this.dropToWorld(uid, from, 1) });
+    return entries;
+  }
+
+  private split(uid: string, from: ItemLocation, qty: number): void {
+    const ok = this.sys.splitItem(uid, qty);
+    this.result(ok ? 'ok' : 'fail', 'ui_pickup', from, uid);
+  }
+
+  private openSplitDialog(uid: string, from: ItemLocation): void {
+    const item = this.sys.findItem(uid, from);
+    const def = item && ITEM_DEF_MAP.get(item.defId);
+    if (!item || !def) return;
+    this.tooltip.hide();
+    this.dialog.open(item, def, (qty) => this.split(uid, from, qty));
+  }
+
+  private dropToWorld(uid: string, from: ItemLocation, qty: number | undefined): void {
+    const ok = this.sys.dropItem(uid, qty);
+    if (ok) this.sys.sfx('ui_drop');
+    else { this.sys.sfx('ui_error'); this.shake(from, uid); }
+    if (this.hovered?.uid === uid) { this.hovered = null; this.tooltip.hide(); }
+  }
+
+  /* ── drop key (X) ──────────────────────────────────────────────────────── */
+
+  /** X drops the dragged or hovered item; Shift+X one unit, Ctrl+X half the stack. */
+  onDropKey(shift: boolean, ctrl: boolean): void {
+    if (this.dialog.isOpen) return;
+    this.menu.close();
+    const d = this.drag;
+    let uid: string, from: ItemLocation;
+    if (d?.started) { uid = d.uid; from = d.from; }
+    else if (this.hovered) { uid = this.hovered.uid; from = this.hovered.loc; }
+    else return;
+    const item = this.sys.findItem(uid, from);
+    const def = item && ITEM_DEF_MAP.get(item.defId);
+    if (!item || !def) return;
+    let qty: number | undefined;
+    if (d?.started && d.qty !== null) qty = d.qty;
+    else if (def.stackMax > 1 && item.qty >= 2) {
+      if (shift) qty = 1;
+      else if (ctrl) qty = Math.max(1, Math.floor(item.qty / 2));
+    }
+    if (d) this.cancelDrag();
+    this.dropToWorld(uid, from, qty);
+  }
+
   /* ── rotation (R) ──────────────────────────────────────────────────────── */
 
   onRotateKey(): void {
+    if (this.dialog.isOpen) return;
     if (this.drag?.started) {
       const d = this.drag;
       const def = d.def;
@@ -380,14 +516,29 @@ export class InventoryUI {
   /* ── drag & drop ───────────────────────────────────────────────────────── */
 
   private beginPress(uid: string, from: ItemLocation, e: PointerEvent, tileEl: HTMLElement): void {
-    if (e.button !== 0 || this.drag) return;
+    if (this.drag || this.dialog.isOpen) return;
+    if (e.button === MIDDLE_BUTTON) {
+      // quick chat request (also stops the browser's middle-click autoscroll)
+      e.preventDefault();
+      this.menu.close();
+      this.sys.requestItem(uid, from);
+      return;
+    }
+    if (e.button !== 0) return;
     const item = this.sys.findItem(uid, from);
     const def = item && ITEM_DEF_MAP.get(item.defId);
     if (!item || !def) return;
     e.preventDefault();
+    this.menu.close();
+    // Shift → half the stack, Ctrl → one unit (grid stacks only; falls back to a whole-item drag)
+    let qty: number | null = null;
+    if (from.kind === 'grid') {
+      if (e.shiftKey) qty = this.sys.partialQtyFor(item, 'half');
+      else if (e.ctrlKey) qty = this.sys.partialQtyFor(item, 'one');
+    }
     const r = tileEl.getBoundingClientRect();
     this.drag = {
-      uid, item, def, from,
+      uid, item, def, from, qty,
       rotated: item.rotated,
       started: false,
       startX: e.clientX, startY: e.clientY,
@@ -404,8 +555,13 @@ export class InventoryUI {
     d.started = true;
     this.tooltip.hide();
     this.root?.classList.add('is-dragging');
-    if (d.from.kind === 'grid') (d.from.grid === 'bag' ? this.bagView : this.containerView).setDragging(d.uid);
-    else this.slots.get(d.from.slot)?.tile?.classList.add('is-dragging');
+    if (d.from.kind === 'grid') {
+      const view = d.from.grid === 'bag' ? this.bagView : this.containerView;
+      if (d.qty !== null) view.markSplitSource(d.uid, d.item.qty - d.qty);
+      else view.setDragging(d.uid);
+    } else {
+      this.slots.get(d.from.slot)?.tile?.classList.add('is-dragging');
+    }
     this.rebuildGhost(d);
     this.sys.sfx('ui_pickup');
   }
@@ -420,9 +576,10 @@ export class InventoryUI {
       d.ghost = document.createElement('div');
       this.ghostLayer.appendChild(d.ghost);
     }
-    const ghostItem: ItemInstance = { ...d.item, rotated: d.rotated };
+    const ghostItem: ItemInstance = { ...d.item, rotated: d.rotated, qty: d.qty ?? d.item.qty };
     buildTileContent(d.ghost, ghostItem, d.def, w, h);
     d.ghost.classList.add('inv-ghost');
+    d.ghost.classList.toggle('is-partial', d.qty !== null);
     const { width, height } = tileSize(w, h);
     // keep the ghost anchored under the cursor: clamp grab offset into the new footprint
     d.grabX = Math.min(Math.max(d.grabX, STEP * 0.5), width - STEP * 0.5);
@@ -454,13 +611,14 @@ export class InventoryUI {
     this.containerView.hideHighlight();
     for (const sv of this.slots.values()) sv.el.classList.remove('is-target-ok', 'is-target-bad');
     d.target = null;
+    this.dropZone.classList.remove('is-hot');
 
     // equipment slots first
     for (const sv of this.slots.values()) {
       const r = sv.body.getBoundingClientRect();
       if (px >= r.left && px <= r.right && py >= r.top && py <= r.bottom) {
         d.target = { kind: 'slot', slot: sv.slot };
-        const pv = this.sys.previewDrop(d.uid, d.from, d.target);
+        const pv = this.preview(d, d.target);
         sv.el.classList.add(pv === 'bad' ? 'is-target-bad' : 'is-target-ok');
         return;
       }
@@ -473,11 +631,27 @@ export class InventoryUI {
       const cell = view.cellForGhost(left, top, w, h, px, py);
       if (!cell) continue;
       d.target = { kind: 'grid', grid: view.id, x: cell.x, y: cell.y, rotated: d.rotated };
-      const pv = this.sys.previewDrop(d.uid, d.from, d.target);
+      const pv = this.preview(d, d.target);
       const state: HighlightState = pv === 'bad' ? 'bad' : pv === 'swap' ? 'swap' : pv === 'merge' ? 'merge' : 'ok';
       view.showHighlight(cell.x, cell.y, w, h, state);
       return;
     }
+
+    // outside every grid/slot: over the backdrop → world drop (the zone lights up when hovered directly)
+    if (!this.isOverPanel(px, py)) {
+      const r = this.dropZone.getBoundingClientRect();
+      if (px >= r.left && px <= r.right && py >= r.top && py <= r.bottom) this.dropZone.classList.add('is-hot');
+    }
+  }
+
+  private preview(d: DragState, target: DropTarget) {
+    return d.qty !== null ? this.sys.previewPartial(d.uid, d.from, d.qty, target) : this.sys.previewDrop(d.uid, d.from, target);
+  }
+
+  /** True when the point lies on a panel / equipment column (a miss there snaps back instead of dropping). */
+  private isOverPanel(x: number, y: number): boolean {
+    const el = document.elementFromPoint(x, y);
+    return !!el && !!(el as Element).closest('.inv-panel, .inv-equip, .inv-menu, .inv-dialog');
   }
 
   private handlePointerUp(e: PointerEvent): void {
@@ -493,12 +667,17 @@ export class InventoryUI {
     this.endDragVisuals(d);
 
     if (!d.target) {
-      // dropped outside any grid/slot: snap back silently
-      this.shake(d.from, d.uid);
-      this.sys.sfx('ui_error');
+      if (this.isOverPanel(e.clientX, e.clientY)) {
+        // missed a cell but still on a panel: snap back
+        this.shake(d.from, d.uid);
+        this.sys.sfx('ui_error');
+        return;
+      }
+      // released over the backdrop / drop zone: throw it into the world
+      this.dropToWorld(d.uid, d.from, d.qty ?? undefined);
       return;
     }
-    const r = this.sys.drop(d.uid, d.from, d.target);
+    const r = d.qty !== null ? this.sys.dropPartial(d.uid, d.from, d.qty, d.target) : this.sys.drop(d.uid, d.from, d.target);
     if (r === 'ok') this.sys.sfx(d.target.kind === 'slot' ? 'ui_equip' : 'ui_drop');
     else if (r === 'fail') { this.sys.sfx('ui_error'); this.shake(d.from, d.uid); }
   }
@@ -507,8 +686,12 @@ export class InventoryUI {
     d.ghost?.remove();
     d.ghost = null;
     this.root?.classList.remove('is-dragging');
+    this.dropZone.classList.remove('is-hot');
     this.bagView.setDragging(null);
     this.containerView.setDragging(null);
+    if (d.qty !== null && d.from.kind === 'grid') {
+      (d.from.grid === 'bag' ? this.bagView : this.containerView).markSplitSource(d.uid, null);
+    }
     this.bagView.hideHighlight();
     this.containerView.hideHighlight();
     for (const sv of this.slots.values()) {

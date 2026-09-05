@@ -12,7 +12,8 @@ interface Plate { root: HTMLElement; name: HTMLElement; fill: HTMLElement; lastK
 /**
  * Remote-player nameplates: name + tiny hp bar in the slot colour, projected from `avatar.getHeadPosition()`
  * each `lateUpdate`. One pooled element per peer; hidden when behind the camera, off-screen, stale, dropping,
- * disconnected or farther than MAX_DIST. Same projection pattern as `WorldMarkers`.
+ * boarded in a launch pod (`IN_POD`), disconnected or farther than MAX_DIST. Same projection pattern as `WorldMarkers`.
+ * Works in a mission and in the shared ship (hub / docking phases), where avatars also exist.
  */
 export class Nameplates {
   readonly root: HTMLElement;
@@ -36,7 +37,8 @@ export class Nameplates {
 
   lateUpdate(ctx: GameContext): void {
     const net = ctx.net;
-    if (!net || !ctx.isMultiplayer) { if (this.plates.size) this.clear(); return; }
+    const hub = ctx.phase === 'hub' || ctx.phase === 'docking';
+    if (!net || !(ctx.isMultiplayer || hub)) { if (this.plates.size) this.clear(); return; }
     const cam = ctx.camera;
     cam.getWorldPosition(this.camPos);
     const w = ctx.uiRoot.clientWidth, h = ctx.uiRoot.clientHeight;
@@ -44,7 +46,7 @@ export class Nameplates {
     for (const ref of net.getRemotePlayers()) {
       const plate = this.plates.get(ref.id) ?? this.create(ref.id, ref.slot);
       if (plate.lastName !== ref.name) { plate.lastName = ref.name; setText(plate.name, ref.name); }
-      if (!ref.avatar || !ref.connected || ref.stale || (ref.flags & PlayerFlags.DROPPING)) { this.hide(plate); continue; }
+      if (!ref.avatar || !ref.connected || ref.stale || (ref.flags & (PlayerFlags.DROPPING | PlayerFlags.IN_POD))) { this.hide(plate); continue; }
 
       ref.avatar.getHeadPosition(this.v);
       this.v.y += HEAD_OFFSET;

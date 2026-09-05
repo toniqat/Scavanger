@@ -7,7 +7,7 @@ Import via `@/game` → `GameFlowSystem`.
 
 | File | Purpose |
 |---|---|
-| `GameFlowSystem.ts` | `GameSystem` (`name: 'gameflow'`). Phases: `menu → deploying → playing → extracting → shipLanded → liftoff → complete` or `dead`. |
+| `GameFlowSystem.ts` | `GameSystem` (`name: 'gameflow'`). Phases: `menu → deploying → playing → extracting → shipLanded → liftoff → complete` or `dead`. The ship hub phases `hub` / `docking` are owned by `hub/HubSystem` (see below). |
 | `index.ts` | Barrel. |
 
 ## Transitions
@@ -21,7 +21,7 @@ Import via `@/game` → `GameFlowSystem`.
 | `extraction:boarded` | remembers that the local player boarded (for `stats.extracted` in multiplayer) |
 | `extraction:liftoff` | `liftoff`; after 6.5 s → `complete()`: `stats.extracted = true` (multiplayer: `boarded && !isDead`), `lootValue = inventory.getTotalValue()`, `complete`, `game:complete {stats}` |
 | `player:died` | single-player: after 2.5 s → `dead`, `game:over {stats}`. Multiplayer: phase unchanged, `ui:notify "전사 — 팀원이 임무를 계속합니다"`, host starts the all-dead check |
-| `game:abort` | multiplayer host: `flow abort` to others first; closes inventory, `menu` |
+| `game:abort` | multiplayer host **during a live mission** (gameplay / `deploying`): `flow abort` to others first (leaving a result screen is local — the mission is already over); closes inventory, `menu`. If the abort ended a *lobby* mission / result screen, emits `hub:enter {ship:'shared'}` one microtask later (no-op when HubSystem's own `hub:enter` already built the ship) |
 | Escape (gameplay phase, no `ctx.uiBlockers`) | toggles `game:paused {paused, freeze: !ctx.isMultiplayer}`; Engine zeroes `dt` while paused (single-player only — in multiplayer the menu shows but the world and GameFlow timers keep running); `PauseMenu` may emit `game:paused false`. Inventory / map consume Escape in a capture-phase listener, so it never reaches here while they are open |
 | `pointerlockchange` (lock lost) / `window` `blur` | if gameplay phase, no blocker, player alive, not paused and > 300 ms since `ctx.input.lastLockRequest` (a denied request) → emits `input:pointerLockLost` and pauses. Intended exits (inventory, map, menus, pause) add their blocker / set `paused` **before** `exitPointerLock()`, so they do not trigger this |
 | unpause (Esc or 계속) | after emitting `game:paused false`, re-requests pointer lock in a microtask when still in a gameplay phase with no blockers (a following synchronous abort → `menu` cancels it) |
@@ -39,6 +39,20 @@ Import via `@/game` → `GameFlowSystem`.
   When true → `flow over` to others + `gameOver()` locally.
 - `complete()` on the host also sends `flow complete` so a client that missed `ex liftoff` still reaches the result screen;
   `complete()` / `gameOver()` are idempotent (no-op in `complete` / `dead` / `menu`).
-- `net:lobbyLeft` with a reason other than `left` during gameplay → `ui:notify "연결이 끊어졌습니다"` then `game:abort` after 2 s.
+- The all-dead check ignores remote refs with `PlayerFlags.IN_HUB` (a squadmate who aborted back to the ship) — they are not alive *in the mission*.
 - Host abort: `wasMultiplayerHost` is cached every frame because NetSystem (registered earlier) may have ended the session
   before this handler runs; the `flow abort` send is still attempted (no-op if `ctx.net.send` already refuses).
+
+## Ship hub & reconnection (2026-09-05)
+- `hub` / `docking` are **not** gameplay phases: nothing to pause / freeze, Esc and pointer-lock loss are handled by `hub/HubSystem`
+  (`onFocusLost` / the Esc toggle / `setPaused` all gate on `isGameplayPhase()`).
+- Order for `hub:enter` during a mission or result screen: HubSystem emits `game:abort` (→ `onAbort` → `menu`, World cleared, Player reset),
+  then builds the ship and sets `hub`. A mission may start **from `hub`**: `game:newMission` from the solo launch pod, from `ctx.net.startGame`
+  (host countdown) or from `ctx.net.rejoinMission()` (late joiner; spawns via the normal hellpod). `onNewMission` does not care about the previous phase.
+- `inMission()` = gameplay ∪ `deploying` ∪ `complete` ∪ `dead` — everything the hub / a disconnect must abort first.
+- Mirrored host `flow abort` → `game:abort` only while `inMission()`; `onAbort` then regroups the client in the shared ship (`hub:enter shared`).
+- `net:reconnecting {attempt}` → `ui:notify "서버 재연결 중… (n)"`, **never aborts** (the socket is auto-reconnecting; the party is not gone).
+- `net:resumed {seamless:true}` → `"재연결됨"`. `{seamless:false}` (the party moved on / a different mission) → `game:abort` + `hub:enter shared`.
+- `net:lobbyLeft` (`disconnected` = server gave up / `hostLeft` / `kicked`) during gameplay → toast, `game:abort` after 2 s, then
+  `hub:enter {ship: lobby ? 'shared' : 'personal'}` (normally personal — the lobby is gone). Reason `left` (we chose to leave) is ignored.
+- Single-player is untouched: solo aborts still land on the title menu (the title's `함선 탑승` re-enters the personal ship).

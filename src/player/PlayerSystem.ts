@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 import {
   GameContext, Keys, MouseButtons, PLAYER_MAX_HP, PLAYER_MAX_STAMINA, PLAYER_RADIUS, PLAYER_WALK_SPEED,
-  type GameSystem, type PlayerRef, type PlayerWeaponHost, type Interactable, type Stance,
+  type GameSystem, type PlayerRef, type PlayerWeaponHost, type Interactable, type Stance, type InteriorCollider,
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
-import { damp, dampAngle, wrapAngle } from '@/core/util/MathUtil';
+import { damp, dampAngle, smoothstep, wrapAngle } from '@/core/util/MathUtil';
 import { SoldierModel, type SoldierPose } from './SoldierModel';
 import { CameraRig, type RigInput } from './CameraRig';
 import { PlayerController, type MoveInput, type MoveResult, type ShipBounds } from './PlayerController';
@@ -31,6 +31,9 @@ const EXHAUSTED_SLOW_TIME = 1.0;
 const EXHAUSTED_SLOW = 0.9;
 const STAND_UP_TIME = 0.35;          // prone → stand/crouch transition (no jump/sprint/dive)
 const SPAWN_RING_RADIUS = 4;         // multiplayer: per-slot drop offset around the shared spawn (m)
+// near-clip body fade: fully visible beyond FADE_FAR m camera->pivot, hidden inside FADE_NEAR
+const FADE_FAR = 0.9;
+const FADE_NEAR = 0.45;
 
 const _v = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0), _spawn = new THREE.Vector3();
 const _q = new THREE.Quaternion(), _camPos = new THREE.Vector3(), _camLook = new THREE.Vector3();
@@ -90,6 +93,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   private slowFactor = 1;
   private attachedParent: THREE.Object3D | null = null;
   private shipBounds: ShipBounds = null;
+  private _interior: InteriorCollider | null = null;
+  private _inPod = false;
 
   // interaction
   private interactTarget: Interactable | null = null;
@@ -109,7 +114,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   };
   private readonly rigInput: RigInput = {
     pivot: new THREE.Vector3(), aim: 0, sprint: 0, crouch: 0, prone: 0, dive: 0, moveBlend: 0, stridePhase: 0,
-    grounded: true, dead: false, world: null, shipBounds: null,
+    grounded: true, dead: false, world: null, shipBounds: null, interior: null,
   };
   private readonly eyePos = new THREE.Vector3();
   private readonly aimOrigin = new THREE.Vector3();
@@ -132,6 +137,79 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   get stridePhase(): number { return this.controller.stridePhase; }
   /** Same value the pose uses (0 idle … 1 walk … 1.2 sprint). */
   get moveBlend(): number { return Math.min(1.2, this.controller.speed / PLAYER_WALK_SPEED); }
+  /* ── ship hub / interiors (appended contract) ── */
+  get interior(): InteriorCollider | null { return this._interior; }
+  get isInPod(): boolean { return this._inPod; }
+
+  /**
+   * Walk inside a ship interior: ground = `collider.getFloorAt`, push-out = `collider.resolveCollision`,
+   * ceiling / camera = `collider.raycast`, camera clamp = `collider.bounds`. No slope sliding, no map bounds,
+   * `ctx.world` may be null. Takes precedence over `setShipInterior`. Cleared by `respawnAt` (and `hub:left`).
+   */
+  setInterior(collider: InteriorCollider | null): void {
+    this._interior = collider;
+    this.controller.interior = collider;
+    this.rigInput.interior = collider;
+    if (collider) {
+      // settle onto the deck right away so the first frame doesn't fall / pop
+      const c = this.controller;
+      const floor = collider.getFloorAt(c.position.x, c.position.z);
+      if (Math.abs(c.position.y - floor) < 1.5) { c.position.y = floor; c.velocity.y = 0; c.grounded = true; }
+    }
+  }
+
+  /** Cutscene camera (docking, launch). Blends to `pos` looking at `lookAt`; null releases back to the rig. */
+  setCameraOverride(pos: THREE.Vector3 | null, lookAt?: THREE.Vector3, snap = false): void {
+    if (this.rig) this.rig.setOverride(pos, lookAt, snap);
+  }
+
+  /**
+   * Place the player standing at `position` facing `yaw`: alive, full hp / stamina, stance stand, no hellpod,
+   * controls enabled, detached from any parent, camera snapped behind the player, not in a pod. Emits
+   * `player:spawned`. Does NOT touch `interior` (call `setInterior` before or after) and does not release an
+   * active camera override (the hub owns that via `setCameraOverride(null)`).
+   */
+  spawnStanding(position: THREE.Vector3, yaw: number): void {
+    this.hellpod.hide();
+    this.attachTo(null);
+    this.shipBounds = null; this.controller.shipBounds = null;
+    this._inPod = false;
+    this.controller.reset(position);
+    if (this._interior) {
+      const floor = this._interior.getFloorAt(position.x, position.z);
+      if (Math.abs(position.y - floor) < 1.5) this.controller.position.y = floor;
+    }
+    this.hp = this.maxHp;
+    this.slowTimer = 0; this.slowFactor = 1; this.controller.speedMultiplier = 1;
+    this.isDead = false; this.deadTimer = 0; this.invuln = 0; this.flinch = 0;
+    this.healPool = 0;
+    this.stamina = this.maxStamina; this.regenDelay = 0; this.exhausted = false; this.exhaustedSlow = 0;
+    this.setStance('stand'); this.standUpTimer = 0;
+    this.setAiming(false); this.aimBlend = 0; this.crouchBlend = 0; this.proneBlend = 0; this.diveBlend = 0; this.sprintBlend = 0;
+    this.bodyYaw = yaw;
+    this.spawned = true;
+    this.controlsEnabled = true;
+    this.model.resetPose();
+    this.model.setFade(1);
+    this.scopeHidden = false;
+    this.model.setVisible(true);
+    this.model.root.position.copy(this.controller.position);
+    this.model.root.quaternion.setFromAxisAngle(_up, yaw);
+    this.eyePos.set(0, EYE_STAND, 0);
+    _v.copy(this.controller.position); _v.y += EYE_STAND;
+    this.rig.snapTo(_v, yaw);
+    this.interactTarget = null; this.holdProgress = 0;
+    this.ctx.bus.emit('player:healthChanged', { hp: this.hp, maxHp: this.maxHp, delta: 0 });
+    this.ctx.bus.emit('player:spawned', { position: this.controller.position.clone() });
+  }
+
+  /** Boarded in a hub launch pod: movement locked, model hidden (remotes hide via `PlayerFlags.IN_POD`). */
+  setInPod(inPod: boolean): void {
+    if (inPod === this._inPod) return;
+    this._inPod = inPod;
+    if (inPod) { this.setAiming(false); this.controller.velocity.set(0, 0, 0); this.controller.sprinting = false; }
+    if (this.spawned && !this.scopeHidden) this.model.setVisible(!inPod);
+  }
 
   getEyePosition(out = new THREE.Vector3()): THREE.Vector3 {
     return out.copy(this.controller.position).add(this.eyePos);
@@ -170,6 +248,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   respawnAt(position: THREE.Vector3, yaw?: number): void {
     const y = yaw ?? Math.atan2(position.x, position.z); // face the map centre by default
     this.attachTo(null);
+    this.setInterior(null);
+    this._inPod = false;
     this.shipBounds = null;
     this.controller.shipBounds = null;
     this.controller.reset(position);
@@ -184,6 +264,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.spawned = true;
     this.controlsEnabled = true;
     this.model.resetPose();
+    this.model.setFade(1);
+    this.scopeHidden = false;
     this.model.setVisible(true);
     this.model.root.position.copy(position);
     this.model.root.quaternion.setFromAxisAngle(_up, y);
@@ -254,6 +336,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
       this.startDrop();
     });
     ctx.bus.on('game:abort', () => this.resetAll());
+    // the hub tore its ship down: nothing to walk on any more (world:ready -> respawnAt clears it too)
+    ctx.bus.on('hub:left', () => this.setInterior(null));
     ctx.bus.on('camera:shake', ({ intensity, duration }) => this.rig.addShake(intensity, duration));
     ctx.bus.on('player:applySlow', ({ duration, factor }) => {
       // strongest slow wins; refresh the timer
@@ -271,12 +355,16 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
       c.position.setFromMatrixPosition(this.model.root.matrixWorld);
     }
 
-    const gameplay = ctx.isGameplayActive();
-    const active = gameplay && this.controlsEnabled && !this.isDead && this.spawned;
+    // movement / stances / interaction / camera run in gameplay AND hub phases (no UI blocker)
+    const control = ctx.isControlActive();
+    const hub = ctx.isHubPhase();
+    const active = control && this.controlsEnabled && !this.isDead && this.spawned;
     const locked = input.isPointerLocked;
-    const moveFrozen = this.hellpod.isActive && this.hellpod.state !== 'exiting';
+    const dropping = this.hellpod.isActive && this.hellpod.state !== 'exiting';
+    const moveFrozen = dropping || this._inPod;
 
-    if (gameplay && !locked && input.wasMousePressed(0)) input.requestPointerLock();
+    // click-to-relock fallback (also in the hub)
+    if (control && !locked && input.wasMousePressed(0)) input.requestPointerLock();
 
     // ── timers
     if (this.invuln > 0) this.invuln -= dt;
@@ -300,14 +388,16 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     if (active && !moveFrozen) {
       mi.x = (input.isDown(Keys.RIGHT) ? 1 : 0) - (input.isDown(Keys.LEFT) ? 1 : 0);
       mi.z = (input.isDown(Keys.FORWARD) ? 1 : 0) - (input.isDown(Keys.BACK) ? 1 : 0);
-      const wantsJump = input.wasPressed(Keys.JUMP) && !this.shipBounds;
+      // jump is allowed on terrain and inside hub interiors (ceiling-clamped), not in the extraction ship box
+      const wantsJump = input.wasPressed(Keys.JUMP) && (!this.shipBounds || !!this._interior);
       const wantsSprint = input.isDown(Keys.SPRINT) && mi.z > 0.2;
-      this.updateStanceInput(wantsJump, wantsSprint);
+      this.updateStanceInput(wantsJump, wantsSprint, /* allowProne */ !hub);
       const transitioning = this.standUpTimer > 0;
       mi.sprint = input.isDown(Keys.SPRINT) && !this.exhausted && this.stamina > 0 && !transitioning;
       mi.jump = wantsJump && this._stance === 'stand' && !transitioning && c.grounded && !c.diving && this.stamina >= STAMINA_JUMP_COST;
+      // no dive in the hub / inside ship interiors
       mi.dive = input.wasPressed(Keys.DIVE) && c.grounded && !c.diving && this._stance !== 'prone'
-        && !transitioning && !this.shipBounds && this.stamina >= STAMINA_DIVE_MIN;
+        && !transitioning && !this.shipBounds && !this._interior && !hub && this.stamina >= STAMINA_DIVE_MIN;
       if (mi.dive) { this.spendStamina(STAMINA_DIVE_COST); this.setAiming(false); }
       mi.aiming = this.isAiming;
       // step out of the pod automatically unless the player takes over
@@ -379,7 +469,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.aimBlend = damp(this.aimBlend, this.isAiming ? 1 : 0, 12, dt);
     // scoped ADS: the camera sits at the shoulder, so hide the soldier (and the held weapon) once the blend is in
     const scopeHide = this.rig.scoped && this.aimBlend > 0.85;
-    if (scopeHide !== this.scopeHidden) { this.scopeHidden = scopeHide; this.model.setVisible(!scopeHide); }
+    if (scopeHide !== this.scopeHidden) { this.scopeHidden = scopeHide; this.model.setVisible(!scopeHide && !this._inPod); }
     this.crouchBlend = damp(this.crouchBlend, this._stance === 'crouch' && !diving ? 1 : 0, 10, dt);
     this.proneBlend = damp(this.proneBlend, this._stance === 'prone' && !diving ? 1 : 0, 8, dt);
     this.diveBlend = damp(this.diveBlend, diving ? 1 : 0, 14, dt);
@@ -447,6 +537,12 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     }
     this.rig.update(dt, ri);
     this.aimOrigin.copy(this.rig.position);
+
+    // ── near-clip fade: the camera pulled into the body (obstacle behind the back, scoped tuck) -> fade the soldier
+    const alpha = this.spawned && !this.scopeHidden ? smoothstep(FADE_NEAR, FADE_FAR, this.rig.pivotDistance) : 1;
+    this.model.setFade(alpha);
+    // ── occlusion silhouette (black where the world hides the body); off while dead / dropping / in a pod / faded
+    this.model.setSilhouette(this.spawned && !this.isDead && !this.hellpod.isActive && !this._inPod && !this.scopeHidden);
   }
 
   dispose(): void {
@@ -475,12 +571,12 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
    * (0.35 s transition, the jump itself is denied by the caller). Nothing changes while airborne,
    * diving or mid-transition.
    */
-  private updateStanceInput(wantsJump: boolean, wantsSprint: boolean): void {
+  private updateStanceInput(wantsJump: boolean, wantsSprint: boolean, allowProne: boolean): void {
     const c = this.controller, input = this.ctx.input;
     if (!c.grounded || c.diving || this.standUpTimer > 0) return;
     if (input.wasPressed(Keys.CROUCH)) {
       this.setStance(this._stance === 'crouch' ? 'stand' : 'crouch');
-    } else if (input.wasPressed(Keys.PRONE)) {
+    } else if (input.wasPressed(Keys.PRONE) && (allowProne || this._stance === 'prone')) {
       this.setStance(this._stance === 'prone' ? 'stand' : 'prone');
     } else if (this._stance !== 'stand' && (wantsJump || wantsSprint)) {
       this.setStance('stand');
@@ -632,7 +728,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     const ev = this.podEvents;
     this.hellpod.update(dt, ev);
     if (ev.impact) {
-      this.model.setVisible(true);
+      this.model.setVisible(!this._inPod);
       this.rig.addShake(1.0, 0.7);
       this.ctx.bus.emit('player:landed', { impactSpeed: this.hellpod.impactSpeed });
       this.ctx.bus.emit('camera:shake', { intensity: 0.4, duration: 0.5 });
@@ -653,6 +749,11 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.hellpod.hide();
     this.attachTo(null);
     this.shipBounds = null; this.controller.shipBounds = null;
+    // `interior` is deliberately kept: the hub may have set it before aborting the mission; respawnAt / hub:left clear it
+    this._inPod = false;
+    this.model.setSilhouette(false);
+    this.model.setFade(1);
+    this.scopeHidden = false;
     this.model.setVisible(false);
     this.model.resetPose();
     this.spawned = false;

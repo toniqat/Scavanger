@@ -10,7 +10,13 @@ interface Ambient {
   wind: { src: AudioBufferSourceNode; filter: BiquadFilterNode; gain: GainNode; lfo: OscillatorNode } | null;
   tension: { osc: OscillatorNode; osc2: OscillatorNode; trem: GainNode; lfo: OscillatorNode; gain: GainNode } | null;
   engine: { osc: OscillatorNode; osc2: OscillatorNode; filter: BiquadFilterNode; gain: GainNode } | null;
+  /** Ship-interior hum + ventilation loop (hub / docking phases only). */
+  hub: { filter: BiquadFilterNode; gain: GainNode; vent: GainNode } | null;
 }
+
+const RECONNECT_WARN_INTERVAL_MS = 5000;
+/** A `pickup:spawned` this soon after our own `inventory:itemDropped` is the thrown item → no landing tick. */
+const LOCAL_DROP_SPAWN_WINDOW = 0.15;
 
 /**
  * Procedural WebAudio SFX + ambience. Plays `audio:play {id, position, volume, pitch}` and auto-hooks
@@ -29,7 +35,12 @@ export class AudioSystem implements GameSystem {
 
   private recent = new Map<string, number[]>();
   private lastPlay = new Map<string, { t: number; auto: boolean }>();
-  private amb: Ambient = { wind: null, tension: null, engine: null };
+  private amb: Ambient = { wind: null, tension: null, engine: null, hub: null };
+  /** Set on `hub:entered`, cleared on `hub:left` / `game:newMission`. Silences planet wind + ship engine. */
+  private hubActive = false;
+  private lastLaunchSecond = -1;
+  private lastReconnectWarn = -Infinity;
+  private lastLocalDrop = -Infinity;
   private engineTarget = 0;
   private tensionTarget = 0;
   private tensionRate = 1;
@@ -88,8 +99,8 @@ export class AudioSystem implements GameSystem {
       b.on('grenade:thrown', ({ position }) => auto('grenade_throw', position)),
       b.on('grenade:exploded', ({ position }) => auto('explosion', position, 1.0)),
 
-      // enemies (EnemySystem emits its own bug_* audio:play; we only add the wave alarm)
-      b.on('enemy:waveStarted', () => auto('wave_alarm')),
+      // enemies (EnemySystem emits its own bug_* audio:play; we only add the wave alarm). Combat-only: never in the hub.
+      b.on('enemy:waveStarted', () => { if (ctx.isGameplayPhase()) auto('wave_alarm'); }),
 
       // inventory / crates
       b.on('inventory:opened', () => auto('ui_open')),
@@ -101,10 +112,68 @@ export class AudioSystem implements GameSystem {
 
       // pings / map / input
       b.on('ping:placed', ({ position, kind }) => {
+        // v2 kinds have their own sounds; the original kinds keep the `ping` chirp.
+        if (kind === 'attack') { auto('ping_attack', position, 0.85); return; }
+        if (kind === 'caution') { auto('ping_caution', position, 0.8); return; }
+        if (kind === 'item') { auto('ping_item', position, 0.65); return; }
         // enemy: higher + urgent; extraction: lower + calmer; crate slightly low; ground neutral.
         const pitch = kind === 'enemy' ? 1.35 : kind === 'extraction' ? 0.8 : kind === 'crate' ? 0.92 : 1;
         auto('ping', position, kind === 'enemy' ? 0.85 : 0.7, pitch);
       }),
+
+      // chat (own lines get a quiet click; system lines are silent; 'ping' lines are covered by the ping sound itself)
+      b.on('chat:message', ({ kind, local }) => {
+        if (kind === 'system' || kind === 'ping') return;
+        if (local) { auto('ui_click', undefined, 0.35); return; }
+        if (kind === 'request') auto('chat_request', undefined, 0.75);
+        else auto('chat_blip', undefined, 0.6);
+      }),
+      b.on('ui:chatToggled', ({ open }) => auto(open ? 'chat_open' : 'chat_close', undefined, 0.5)),
+
+      // drop / pickups
+      b.on('inventory:itemDropped', ({ position }) => {
+        this.lastLocalDrop = this.ac ? this.ac.currentTime : -Infinity;
+        auto('item_toss', position, 0.7, 0.95 + Math.random() * 0.1);
+      }),
+      b.on('pickup:spawned', ({ position }) => {
+        // Our own drop spawns its pickup in the same frame as the toss; skip the landing tick for it.
+        if (this.ac && this.ac.currentTime - this.lastLocalDrop < LOCAL_DROP_SPAWN_WINDOW) return;
+        auto('pickup_land', position, 0.3, 0.9 + Math.random() * 0.2);
+      }),
+      // `pickup:taken` is intentionally NOT hooked: PickupSystem sends `audio:play {id:'pickup'}` itself on a local take.
+
+      // ship hub
+      b.on('hub:entered', () => {
+        this.hubActive = true; this.lastLaunchSecond = -1;
+        this.shipPresent = false; this.engineTarget = 0; this.tensionTarget = 0; this.liftoffTimer = -1;
+      }),
+      b.on('hub:left', () => { this.hubActive = false; this.lastLaunchSecond = -1; }),
+      b.on('hub:docking', ({ stage }) => {
+        if (stage === 'start') auto('hub_dock_thrusters', undefined, 0.8);
+        else auto('hub_dock_clamp', undefined, 0.85);
+      }),
+      b.on('hub:slotChanged', ({ local, peerId }) => { if (local) auto('pod_door', undefined, 0.7, peerId === null ? 0.9 : 1); }),
+      b.on('hub:launchCountdown', ({ seconds }) => {
+        if (seconds > 0) {
+          if (seconds === this.lastLaunchSecond) return; // one beep per second even if it ticks more often
+          this.lastLaunchSecond = seconds;
+          auto('countdown_beep', undefined, 0.6, seconds <= 3 ? 1.25 : 1);
+        } else if (this.lastLaunchSecond !== 0) {
+          this.lastLaunchSecond = 0;
+          auto('launch_rumble', undefined, 0.9);
+        }
+      }),
+      b.on('ui:hubMenuToggled', () => auto('ui_click', undefined, 0.6)),
+
+      // net / reconnection
+      b.on('net:reconnecting', () => {
+        const now = performance.now();
+        if (now - this.lastReconnectWarn < RECONNECT_WARN_INTERVAL_MS) return;
+        this.lastReconnectWarn = now;
+        auto('net_warning', undefined, 0.7);
+      }),
+      b.on('net:resumed', () => auto('net_resumed', undefined, 0.7)),
+      b.on('net:matched', () => auto('net_matched', undefined, 0.7)),
       b.on('ui:mapToggled', ({ open }) => auto(open ? 'map_open' : 'map_close', undefined, 0.7)),
       b.on('input:pointerLockLost', () => auto('ui_close', undefined, 0.5)),
 
@@ -122,10 +191,13 @@ export class AudioSystem implements GameSystem {
         if (phase === 'deploying') auto('hellpod_fall');
         if (phase === 'complete') auto('mission_complete');
         if (phase === 'menu' && prev !== 'menu') auto('ui_close');
-        if (phase === 'menu' || phase === 'complete' || phase === 'dead') { this.tensionTarget = 0; }
-        if (phase === 'menu') { this.shipPresent = false; this.engineTarget = 0; this.liftoffTimer = -1; }
+        if (phase === 'menu' || phase === 'complete' || phase === 'dead' || phase === 'hub' || phase === 'docking') { this.tensionTarget = 0; }
+        if (phase === 'menu' || phase === 'hub') { this.shipPresent = false; this.engineTarget = 0; this.liftoffTimer = -1; }
       }),
-      b.on('game:newMission', () => { this.shipPresent = false; this.engineTarget = 0; this.tensionTarget = 0; this.liftoffTimer = -1; this.lastScope = false; this.aiming = false; }),
+      b.on('game:newMission', () => {
+        this.shipPresent = false; this.engineTarget = 0; this.tensionTarget = 0; this.liftoffTimer = -1; this.lastScope = false; this.aiming = false;
+        this.hubActive = false; this.lastLaunchSecond = -1;
+      }),
       b.on('game:paused', ({ paused }) => {
         if (!this.ac) return;
         if (paused) this.master.gain.setTargetAtTime(this.masterVolume * 0.25, this.ac.currentTime, 0.1);
@@ -196,6 +268,26 @@ export class AudioSystem implements GameSystem {
     e1.connect(ef); e2.connect(ef); ef.connect(eg).connect(this.ambBus);
     e1.start(); e2.start();
     this.amb.engine = { osc: e1, osc2: e2, filter: ef, gain: eg };
+
+    // Ship interior (hub): low hum (triangle 55 + sine 110.7 + sub saw 27.5) → lowpass, plus looped noise
+    // through a slowly swept bandpass for ventilation. Distinct from the planet wind: tonal, no LFO on the sub.
+    const h1 = ac.createOscillator(); h1.type = 'triangle'; h1.frequency.value = 55;
+    const h2 = ac.createOscillator(); h2.type = 'sine'; h2.frequency.value = 110.7;
+    const h3 = ac.createOscillator(); h3.type = 'sawtooth'; h3.frequency.value = 27.5;
+    const h3g = ac.createGain(); h3g.gain.value = 0.35;
+    const hf = ac.createBiquadFilter(); hf.type = 'lowpass'; hf.frequency.value = 260; hf.Q.value = 0.8;
+    const hg = ac.createGain(); hg.gain.value = 0;
+    h1.connect(hf); h2.connect(hf); h3.connect(h3g).connect(hf);
+    hf.connect(hg).connect(this.ambBus);
+    const vsrc = ac.createBufferSource(); vsrc.buffer = (s as any).noiseBuf as AudioBuffer; vsrc.loop = true;
+    const vf = ac.createBiquadFilter(); vf.type = 'bandpass'; vf.frequency.value = 900; vf.Q.value = 0.6;
+    const vlfo = ac.createOscillator(); vlfo.frequency.value = 0.09;
+    const vlfoG = ac.createGain(); vlfoG.gain.value = 350;
+    vlfo.connect(vlfoG).connect(vf.frequency);
+    const vg = ac.createGain(); vg.gain.value = 0.3;
+    vsrc.connect(vf).connect(vg).connect(hg);
+    h1.start(); h2.start(); h3.start(); vsrc.start(); vlfo.start();
+    this.amb.hub = { filter: hf, gain: hg, vent: vg };
   }
 
   /* ── playback ────────────────────────────────────────────────────────── */
@@ -261,10 +353,17 @@ export class AudioSystem implements GameSystem {
       (L as any).setOrientation?.(this.camFwd.x, this.camFwd.y, this.camFwd.z, this.camUp.x, this.camUp.y, this.camUp.z);
     }
 
-    // Ambience targets by phase.
-    const inWorld = ctx.isGameplayPhase() || ctx.phase === 'deploying';
-    const windTarget = inWorld ? (ctx.phase === 'deploying' ? 0.05 : 0.16) : (ctx.phase === 'menu' ? 0.06 : 0.08);
+    // Ambience targets by phase. The hub is not gameplay: planet wind + ship engine are silenced, interior hum runs.
+    const inHub = this.hubActive || ctx.phase === 'hub' || ctx.phase === 'docking';
+    const inWorld = !inHub && (ctx.isGameplayPhase() || ctx.phase === 'deploying');
+    const windTarget = inHub ? 0 : inWorld ? (ctx.phase === 'deploying' ? 0.05 : 0.16) : (ctx.phase === 'menu' ? 0.06 : 0.08);
     this.amb.wind?.gain.gain.setTargetAtTime(windTarget, now, 0.6);
+    if (this.amb.hub) {
+      const docking = ctx.phase === 'docking';
+      this.amb.hub.gain.gain.setTargetAtTime(inHub ? (docking ? 0.22 : 0.15) : 0, now, inHub ? 0.8 : 0.4);
+      this.amb.hub.filter.frequency.setTargetAtTime(docking ? 420 : 260, now, 0.8);
+      this.amb.hub.vent.gain.setTargetAtTime(docking ? 0.15 : 0.3, now, 0.8);
+    }
 
     // Tension: rises as countdown runs out.
     if (this.amb.tension) {
@@ -287,7 +386,7 @@ export class AudioSystem implements GameSystem {
         if (this.liftoffTimer < 0) { this.engineTarget = 0; this.shipPresent = false; this.liftoffTimer = -1; }
       }
       const e = this.amb.engine;
-      e.gain.gain.setTargetAtTime(this.shipPresent ? this.engineTarget * 0.28 : 0, now, 0.5);
+      e.gain.gain.setTargetAtTime(this.shipPresent && !inHub ? this.engineTarget * 0.28 : 0, now, 0.5);
       const f = this.engineTarget > 0.5 ? 620 : 320;
       e.filter.frequency.setTargetAtTime(f, now, 0.8);
       e.osc.frequency.setTargetAtTime(this.engineTarget > 0.5 ? 62 : 48, now, 1.0);

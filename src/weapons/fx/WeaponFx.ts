@@ -37,6 +37,25 @@ export class WeaponFx {
     ParticleBurst.dust(fx.alpha, _p, dir, 1, 0.25, 0x8c8c8c);
   }
 
+  /** Grenade LED pulse: a tiny short-lived pooled light + glint (the grenade itself carries no light). */
+  ledBlink(pos: THREE.Vector3): void {
+    const fx = FxManager.get(); if (!fx) return;
+    fx.flashes.flash(pos, 0xff3a24, 1.1, 0.14, 0.09, 2.5);
+  }
+
+  /**
+   * Pre-compile every shader the scene can need (hidden pooled meshes included: explosion rings, flash
+   * sprites, grenade bodies, projectiles, gore decals …) so the first throw / shot / kill does not stall on a
+   * shader compile. Uses `compileAsync` (KHR_parallel_shader_compile → no main-thread stall) when available.
+   */
+  warmUp(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera): void {
+    try {
+      const r = renderer as THREE.WebGLRenderer & { compileAsync?: (s: THREE.Object3D, c: THREE.Camera) => Promise<unknown> };
+      if (typeof r.compileAsync === 'function') r.compileAsync(scene, camera).catch(() => { /* context lost */ });
+      else renderer.compile(scene, camera);
+    } catch { /* never let a warm-up break the frame */ }
+  }
+
   casing(pos: THREE.Vector3, right: THREE.Vector3, groundY: number): void {
     const fx = FxManager.get(); if (!fx) return;
     ParticleBurst.casing(fx.additive, pos, right, groundY);

@@ -23,6 +23,8 @@ const _up = new THREE.Vector3(0, 1, 0);
  * Nothing here simulates: position/velocity/yaw/pitch/stance/flags come straight from the ref; the avatar
  * only owns the damped animation blends (stance, aim, sprint, airborne, recoil, death) so the pose stays
  * smooth between 20 Hz snapshots. No collision with the local player.
+ * Hidden while `DROPPING` (hellpod) or `IN_POD` (hub launch pod); renders in the hub too (refs exist while
+ * `ctx.net.inHubSession`). Shows the SoldierModel occlusion silhouette (slot-tinted) while alive & visible.
  */
 export class RemoteAvatar implements RemoteAvatarRef {
   readonly model: SoldierModel;
@@ -82,7 +84,8 @@ export class RemoteAvatar implements RemoteAvatarRef {
     const ref = this.ref;
     const flags = ref.flags;
     const dropping = (flags & PlayerFlags.DROPPING) !== 0;
-    const visible = !dropping && !ref.stale && ref.connected;
+    const inPod = (flags & PlayerFlags.IN_POD) !== 0;   // boarded in a hub launch pod: pod shown closed, body hidden
+    const visible = !dropping && !inPod && !ref.stale && ref.connected;
 
     // ── landing burst: first frame out of the hellpod
     if (this.wasDropping && !dropping && ref.connected) {
@@ -94,7 +97,9 @@ export class RemoteAvatar implements RemoteAvatarRef {
     if (visible !== this.shown) { this.shown = visible; this.model.setVisible(visible); }
     // keep the root where the ref is even while hidden (weapon sockets / pings may read it)
     this.root.position.copy(ref.position);
-    if (!visible) return;
+    if (!visible) { this.model.setSilhouette(false); return; }
+    // slot-tinted occlusion silhouette (same GreaterDepth pass as the local soldier); off while dead
+    this.model.setSilhouette(!ref.isDead);
 
     // ── death ramp (reset when the peer respawns)
     if (ref.isDead) {

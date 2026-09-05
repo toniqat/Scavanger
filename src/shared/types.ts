@@ -13,7 +13,19 @@ export type GamePhase =
   | 'shipLanded'  // ship arrived, player may board
   | 'liftoff'     // player pressed ship switch, doors closing / ascending
   | 'complete'    // mission summary screen
-  | 'dead';       // death screen
+  | 'dead'        // death screen
+  /* appended (ship hub) */
+  | 'hub'         // walking around the personal / shared ship (no world, no enemies, no weapons)
+  | 'docking';    // docking / undocking cutscene between the personal and the shared ship
+
+/** Which ship interior the hub is showing. */
+export type HubShipKind = 'personal' | 'shared';
+
+/** Ping categories (owner: ui/hud/Pings). `attack` / `caution` are the drag-gesture pings, `item` = dropped item / crate. */
+export type PingKind = 'ground' | 'enemy' | 'crate' | 'extraction' | 'item' | 'attack' | 'caution';
+
+/** Chat line categories (owner: ui/hud/ChatLog). */
+export type ChatKind = 'text' | 'ping' | 'request' | 'system';
 
 export interface MissionStats {
   seed: number;
@@ -129,6 +141,74 @@ export interface InventoryRef {
   toggleBag(): void;
   closeAll(): void;
   reset(): void;
+  /* ── appended: drop / split (owner: inventory) ── */
+  /**
+   * Remove `qty` units (default: whole stack) of item `uid` from the bag (or the open container) and emit
+   * `inventory:itemDropped` so pickups/PickupSystem spawns a world pickup in front of the player. False if not found.
+   */
+  dropItem(uid: string, qty?: number): boolean;
+  /** Split `qty` units off stack `uid` into a new stack placed in the same grid (auto-placed). False if it does not fit / invalid qty. */
+  splitItem(uid: string, qty: number): boolean;
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * World pickups (owner: pickups/PickupSystem publishes `ctx.pickups`)
+ * Dropped items lying on the ground; interactable (E) to take. Multiplayer: host-authoritative (`item` / `itemq`).
+ * ──────────────────────────────────────────────────────────────────────────── */
+export interface PickupRef {
+  readonly id: string;
+  readonly item: ItemInstance;
+  /** World position (resting on the ground). Stable Vector3 instance. */
+  readonly position: THREE.Vector3;
+  readonly object: THREE.Object3D;
+}
+
+export interface PickupsRef {
+  getPickups(): readonly PickupRef[];
+  /** Nearest pickup within `radius` of `pos` (pings snap to it), or null. */
+  findNear(pos: THREE.Vector3, radius: number): PickupRef | null;
+  /** Spawn a pickup (local authority or host). Returns the new id. Clients should drop items via `ctx.inventory.dropItem` instead. */
+  spawn(item: ItemInstance, position: THREE.Vector3, velocity?: THREE.Vector3): string;
+  clear(): void;
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Interiors (owner: hub/HubSystem builds them; player/PlayerSystem consumes via `PlayerRef.setInterior`)
+ * Replaces the terrain while the player walks inside a ship: flat decks, wall / prop colliders, camera rays.
+ * ──────────────────────────────────────────────────────────────────────────── */
+export interface InteriorCollider {
+  /** Deck height at (x, z). Return the base deck height when outside every room. */
+  getFloorAt(x: number, z: number): number;
+  /** Push a circle collider (feet position, radius) out of walls / props / room bounds. Mutates and returns `position`. */
+  resolveCollision(position: THREE.Vector3, radius: number): THREE.Vector3;
+  /** Ray vs walls / props / decks / ceilings (camera collision, interaction). */
+  raycast(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number): TerrainHit | null;
+  /** Loose world AABB of the whole interior (camera clamp fallback). */
+  readonly bounds: { center: THREE.Vector3; halfExtents: THREE.Vector3 };
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Ship hub (owner: hub/HubSystem publishes `ctx.hub`)
+ * ──────────────────────────────────────────────────────────────────────────── */
+export interface HubLaunchSlot {
+  /** Lobby slot index (0..NET_MAX_PLAYERS-1); the personal ship has a single slot 0. */
+  slot: number;
+  /** World position of the pod floor (where a boarded player stands). */
+  position: THREE.Vector3;
+  yaw: number;
+  /** Peer currently boarded (null = empty). Local player → `ctx.net.localId` or 'local' offline. */
+  occupant: string | null;
+}
+
+export interface HubRef {
+  /** Ship currently built, or null while no hub is active (mission / menu). */
+  readonly ship: HubShipKind | null;
+  /** true during phases 'hub' and 'docking'. */
+  readonly active: boolean;
+  readonly collider: InteriorCollider | null;
+  getLaunchSlots(): readonly HubLaunchSlot[];
+  /** Mission seed the host / solo player picked at the terminal (random when null). */
+  readonly missionSeed: number | null;
 }
 
 export interface LootRef {
@@ -239,6 +319,24 @@ export interface PlayerRef {
   /** Stride phase (radians) and move blend (0..1.2) driving the walk cycle. */
   readonly stridePhase: number;
   readonly moveBlend: number;
+  /* ── appended: ship hub / interiors / cutscene camera (owner: player) ── */
+  /**
+   * Walk inside a ship interior instead of on the terrain: ground = `collider.getFloorAt`, push-out =
+   * `collider.resolveCollision`, camera collides with `collider.raycast`. null → back to `ctx.world`.
+   * Takes precedence over `setShipInterior` while set. Cleared by `respawnAt`.
+   */
+  setInterior(collider: InteriorCollider | null): void;
+  readonly interior: InteriorCollider | null;
+  /** Cutscene camera (docking, launch): blends to `pos` looking at `lookAt`; null releases back to the rig. */
+  setCameraOverride(pos: THREE.Vector3 | null, lookAt?: THREE.Vector3, snap?: boolean): void;
+  /**
+   * Place the player standing (no hellpod) at `position` facing `yaw`, alive, full hp, controls enabled.
+   * Used by the hub when entering a ship. Emits `player:spawned`.
+   */
+  spawnStanding(position: THREE.Vector3, yaw: number): void;
+  /** true while the local player is boarded in a launch pod (hub) — movement locked, avatar hidden for remotes. */
+  readonly isInPod: boolean;
+  setInPod(inPod: boolean): void;
 }
 
 /* ────────────────────────────────────────────────────────────────────────────

@@ -1,5 +1,5 @@
 import type { GameContext, GameSystem, GamePhase, FlowMessage, PeerId } from '@/shared';
-import { GameContext as Ctx, Keys } from '@/shared';
+import { GameContext as Ctx, Keys, PlayerFlags } from '@/shared';
 
 const LIFTOFF_TO_COMPLETE = 6.5;   // seconds after extraction:liftoff
 const DEATH_TO_SCREEN = 2.5;       // seconds after player:died (single-player only)
@@ -22,6 +22,15 @@ const DISCONNECT_ABORT_DELAY = 2;
  *   - A dead player does not change phase; the host ends the mission (`flow over`) once *everyone* is dead.
  *   - `flow` messages from the host mirror over / complete / abort on the clients.
  *   - `stats.extracted` = boarded && alive at completion (left-behind / dead players get `false`).
+ *
+ * Ship hub (phases 'hub' / 'docking' are owned by hub/HubSystem and are NOT gameplay: nothing to pause or freeze):
+ *   - `hub:enter` while a mission / result phase is active → HubSystem emits `game:abort` first (we go to 'menu'),
+ *     then it builds the ship and sets 'hub'. A mission may start from 'hub' (`game:newMission` from the launch pod,
+ *     `ctx.net.startGame` or `ctx.net.rejoinMission`).
+ *   - After an abort that ends a *lobby* mission (host `flow abort`, 로비로, 임무 포기) we emit `hub:enter shared` one
+ *     microtask later so the squad regroups in the shared ship. Solo aborts keep the legacy title-menu behaviour.
+ *   - Reconnection: `net:reconnecting` never aborts (toast only); `net:resumed {seamless:false}` aborts → shared ship;
+ *     `net:lobbyLeft` (party gone) aborts after 2 s → personal ship.
  */
 export class GameFlowSystem implements GameSystem {
   readonly name = 'gameflow';
@@ -82,6 +91,20 @@ export class GameFlowSystem implements GameSystem {
       b.on('net:remoteDied', () => this.checkAllDead()),
       b.on('net:peerLeft', () => this.checkAllDead()),
       b.on('net:lobbyLeft', ({ reason }) => this.onLobbyLeft(reason)),
+      /* reconnection (hub era) */
+      b.on('net:reconnecting', ({ attempt }) => {
+        if (!this.inMission()) return;
+        ctx.bus.emit('ui:notify', { text: `서버 재연결 중… (${attempt})`, kind: 'warning', duration: 3 });
+      }),
+      b.on('net:resumed', ({ seamless, inProgress }) => {
+        if (!this.inMission()) return;
+        if (seamless) { ctx.bus.emit('ui:notify', { text: '재연결됨', kind: 'success' }); return; }
+        // the party moved on (different mission / back in the ship): drop our stale mission and regroup
+        ctx.bus.emit('ui:notify', { text: inProgress ? '분대가 다른 임무를 진행 중입니다 — 함선으로 복귀' : '분대가 함선으로 복귀했습니다', kind: 'warning', duration: 4 });
+        this.disconnectAbortTimer = -1;
+        ctx.bus.emit('game:abort', {});
+        ctx.bus.emit('hub:enter', { ship: 'shared' });
+      }),
     );
     // Intended lock exits (inventory, map, menus, pause) add their blocker token / set paused
     // *before* calling exitPointerLock, so this handler only reacts to unexpected losses.
@@ -90,6 +113,12 @@ export class GameFlowSystem implements GameSystem {
     // Make sure listeners know the initial phase even though ctx.phase already equals 'menu'.
     ctx.phase = 'menu';
     ctx.bus.emit('game:phaseChanged', { phase: 'menu', prev: 'menu' });
+  }
+
+  /** Mission running or its result screen showing (anything the hub / a disconnect has to abort first). */
+  private inMission(): boolean {
+    const p = this.ctx.phase;
+    return this.ctx.isGameplayPhase() || p === 'deploying' || p === 'complete' || p === 'dead';
   }
 
   /* ── Multiplayer helpers ─────────────────────────────────────────────── */
@@ -115,7 +144,8 @@ export class GameFlowSystem implements GameSystem {
         if (ctx.isGameplayPhase() || ctx.phase === 'deploying') this.complete();
         break;
       case 'abort':
-        if (ctx.phase !== 'menu') ctx.bus.emit('game:abort', {});
+        // host aborted the mission → the whole squad regroups in the shared ship (onAbort schedules hub:enter)
+        if (this.inMission()) ctx.bus.emit('game:abort', {});
         break;
       case 'phase':
         // Reserved: phases are derived locally from mirrored extraction events for now.
@@ -148,19 +178,25 @@ export class GameFlowSystem implements GameSystem {
     if (!ctx.isGameplayPhase() && ctx.phase !== 'deploying') return;
     if (!(ctx.player?.isDead ?? false)) return;
     for (const r of net.getRemotePlayers()) {
-      if (r.connected && !r.stale && !r.isDead) return;
+      // a squadmate who aborted back to the ship (IN_HUB) or a dropped peer waiting for reconnection (stale) is not "alive in the mission"
+      if (r.connected && !r.stale && !r.isDead && (r.flags & PlayerFlags.IN_HUB) === 0) return;
     }
     this.allDeadCheckTimer = -1;
     net.send({ t: 'flow', ev: 'over' }, 'others');
     this.gameOver();
   }
 
+  /**
+   * The party is gone (server gave up on us / host left / kicked) mid-mission → abort after a short toast and
+   * return to the personal ship. A plain socket drop is `net:reconnecting` (handled above) and never aborts.
+   */
   private onLobbyLeft(reason: 'left' | 'disconnected' | 'kicked' | 'hostLeft'): void {
     const ctx = this.ctx;
     if (reason === 'left') return;                       // we chose to leave (abort / menu) — nothing to do
     if (!ctx.isGameplayPhase() && ctx.phase !== 'deploying') return;
     if (this.disconnectAbortTimer >= 0) return;
-    ctx.bus.emit('ui:notify', { text: '연결이 끊어졌습니다', kind: 'danger', duration: DISCONNECT_ABORT_DELAY });
+    const text = reason === 'hostLeft' ? '호스트가 나갔습니다 — 함선으로 복귀' : reason === 'kicked' ? '분대에서 분리되었습니다' : '연결이 끊어졌습니다 — 함선으로 복귀';
+    ctx.bus.emit('ui:notify', { text, kind: 'danger', duration: DISCONNECT_ABORT_DELAY });
     this.disconnectAbortTimer = DISCONNECT_ABORT_DELAY;
   }
 
@@ -212,11 +248,19 @@ export class GameFlowSystem implements GameSystem {
 
   private onAbort(): void {
     const ctx = this.ctx;
-    // Host abort → the whole squad returns to the lobby together. A client aborting only leaves for itself.
-    if (ctx.net && (this.wasMultiplayerHost || (ctx.isMultiplayer && ctx.net.isHost)) && ctx.phase !== 'menu') {
+    const fromMission = this.inMission();
+    // Host abort *during* the mission → the whole squad returns to the ship together. A client aborting only leaves for
+    // itself; leaving a result screen (complete / dead) is always local — the mission is already over for everyone.
+    const live = ctx.isGameplayPhase() || ctx.phase === 'deploying';
+    if (ctx.net && live && (this.wasMultiplayerHost || (ctx.isMultiplayer && ctx.net.isHost))) {
       ctx.net.send({ t: 'flow', ev: 'abort' }, 'others');
     }
     this.wasMultiplayerHost = false;
+    // Lobby mission ended by an abort → regroup in the shared ship. Deferred one microtask: if the abort came from
+    // HubSystem's own `hub:enter` the ship is already being built (phase 'hub') and this is a no-op.
+    if (fromMission && ctx.net?.lobby) {
+      queueMicrotask(() => { if (ctx.phase === 'menu' && ctx.net?.lobby) ctx.bus.emit('hub:enter', { ship: 'shared' }); });
+    }
     this.setPaused(false);
     this.completeTimer = -1;
     this.deathTimer = -1;
@@ -289,6 +333,8 @@ export class GameFlowSystem implements GameSystem {
       if (this.disconnectAbortTimer < 0) {
         this.disconnectAbortTimer = -1;
         ctx.bus.emit('game:abort', {});
+        // the lobby is gone → personal ship (onAbort's shared-ship regroup only fires while a lobby exists)
+        if (ctx.phase === 'menu') ctx.bus.emit('hub:enter', { ship: ctx.net?.lobby ? 'shared' : 'personal' });
       }
     }
   }

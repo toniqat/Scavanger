@@ -3,14 +3,13 @@ import { el, setText } from '../dom';
 import { MenuBase } from './MenuBase';
 
 /**
- * Escape menu: resume / abort mission. Driven by `game:paused`.
- * Multiplayer: the simulation keeps running (`freeze:false`), so the subtitle says so and the abort button
- * reads '로비로' (abort returns everyone in this client to the lobby screen).
+ * Escape menu: resume / return to the ship. Driven by `game:paused`.
+ * `함선으로 귀환` emits `hub:enter {ship}` (shared ship while in a lobby, else personal); the hub aborts the mission.
+ * Multiplayer: the simulation keeps running (`freeze:false`), so the subtitle says so.
  */
 export class PauseMenu extends MenuBase {
   private subtitle: HTMLElement;
   private mpNote: HTMLElement;
-  private abortBtn: HTMLButtonElement;
 
   constructor(parent: HTMLElement) {
     super(parent, 'pause');
@@ -21,8 +20,8 @@ export class PauseMenu extends MenuBase {
     this.mpNote.hidden = true;
     const actions = el('div', { cls: 'actions', parent: this.frame });
     this.button(actions, '계속', () => this.ctx.bus.emit('game:paused', { paused: false }), 'primary');
-    this.abortBtn = this.button(actions, '임무 포기', () => this.ctx.bus.emit('game:abort', {}), 'danger');
-    el('div', { cls: 'hint', text: 'Esc — 계속', parent: this.frame });
+    this.button(actions, '함선으로 귀환', () => this.ctx.bus.emit('hub:enter', { ship: this.ctx.net?.lobby ? 'shared' : 'personal' }), 'danger');
+    el('div', { cls: 'hint', text: 'Esc — 계속 · 귀환 시 임무를 포기합니다', parent: this.frame });
   }
 
   override bind(ctx: GameContext): void {
@@ -33,7 +32,6 @@ export class PauseMenu extends MenuBase {
         const mp = ctx.isMultiplayer || freeze === false;
         this.mpNote.hidden = !mp;
         setText(this.subtitle, mp ? '분대 임무 — 시뮬레이션은 계속됩니다' : '임무 진행이 정지되었습니다');
-        setText(this.abortBtn, ctx.net?.lobby ? '로비로' : '임무 포기');
         this.show();
       }),
       ctx.bus.on('game:phaseChanged', () => this.hide()),

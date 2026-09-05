@@ -16,23 +16,27 @@ import { Pings } from './hud/Pings';
 import { Squad } from './hud/Squad';
 import { Nameplates } from './hud/Nameplates';
 import { SpectateOverlay } from './hud/SpectateOverlay';
+import { ChatLog } from './hud/ChatLog';
 import { MapScreen } from './map/MapScreen';
 import { TitleMenu } from './menus/TitleMenu';
-import { LobbyMenu } from './menus/LobbyMenu';
 import { PauseMenu } from './menus/PauseMenu';
 import { DeathScreen } from './menus/DeathScreen';
 import { MissionComplete } from './menus/MissionComplete';
 
 /**
- * Arc Raiders-style HUD + menus. All DOM under `ctx.uiRoot`.
- * Gameplay HUD is visible only during gameplay phases and hidden while a menu blocker is active.
- * Multiplayer: a dead local player keeps the HUD (squad list, nameplates, pings, notifications) in a
- * `.spectating` state that hides the personal widgets (reticle, vitals, weapon, prompt).
+ * Arc Raiders-style HUD + menus. All DOM under `ctx.uiRoot`, in three `.hud` layers:
+ *   - overlay (vignette, damage arcs, scope): gameplay + dead
+ *   - gameplay HUD (reticle, vitals, weapon, compass, markers, objective, mission info, pings, spectate banner):
+ *     gameplay phases + `deploying`, hidden while a `'menu'` blocker is up or the player is dead in single-player
+ *   - social HUD (chat log, squad list, nameplates, notifications, interaction prompt): additionally visible in the
+ *     ship hub (phases `hub` / `docking`). Both HUD layers carry `.hub` while in the hub.
+ * Multiplayer: a dead local player keeps the HUD in a `.spectating` state (hides reticle, vitals, weapon, prompt).
  */
 export class HudSystem implements GameSystem {
   readonly name = 'hud';
   private ctx!: GameContext;
   private hudRoot!: HTMLElement;
+  private socialRoot!: HTMLElement;
   private overlayRoot!: HTMLElement;
 
   private reticle!: Reticle;
@@ -44,6 +48,7 @@ export class HudSystem implements GameSystem {
   private squad!: Squad;
   private nameplates!: Nameplates;
   private spectate!: SpectateOverlay;
+  private chat!: ChatLog;
   private objective!: Objective;
   private prompt!: InteractionPrompt;
   private notifs!: Notifications;
@@ -54,50 +59,52 @@ export class HudSystem implements GameSystem {
   private map!: MapScreen;
 
   private title!: TitleMenu;
-  private lobby!: LobbyMenu;
   private pause!: PauseMenu;
   private death!: DeathScreen;
   private complete!: MissionComplete;
 
   private unsubs: Array<() => void> = [];
   private hudVisible = true;
+  private socialVisible = true;
   private spectating = false;
+  private inHub = false;
 
   init(ctx: GameContext): void {
     this.ctx = ctx;
-    // Layer order: full-screen overlays (vignette, scope) → HUD → deploy overlay → map → menus.
+    // Layer order: full-screen overlays (vignette, scope) → gameplay HUD → social HUD → deploy overlay → map → menus.
     this.overlayRoot = el('div', { cls: 'hud', parent: ctx.uiRoot });
     this.damage = new DamageOverlay(this.overlayRoot);
     this.scope = new ScopeOverlay(this.overlayRoot);
 
-    this.hudRoot = el('div', { cls: 'hud', parent: ctx.uiRoot });
+    this.hudRoot = el('div', { cls: 'hud gameplay', parent: ctx.uiRoot });
     this.markers = new WorldMarkers(this.hudRoot);
-    this.nameplates = new Nameplates(this.hudRoot);
     this.pings = new Pings(this.hudRoot);
     this.reticle = new Reticle(this.hudRoot);
     this.vitals = new Vitals(this.hudRoot);
     this.weapon = new WeaponPanel(this.hudRoot);
     this.compass = new Compass(this.hudRoot);
     this.objective = new Objective(this.hudRoot);
-    this.squad = new Squad(this.hudRoot);
     this.missionInfo = new MissionInfo(this.hudRoot);
-    this.prompt = new InteractionPrompt(this.hudRoot);
-    this.notifs = new Notifications(this.hudRoot);
     this.spectate = new SpectateOverlay(this.hudRoot);
+
+    this.socialRoot = el('div', { cls: 'hud social', parent: ctx.uiRoot });
+    this.nameplates = new Nameplates(this.socialRoot);
+    this.squad = new Squad(this.socialRoot);
+    this.prompt = new InteractionPrompt(this.socialRoot);
+    this.notifs = new Notifications(this.socialRoot);
+    this.chat = new ChatLog(this.socialRoot);
 
     this.deploy = new DeployOverlay(ctx.uiRoot);
     this.map = new MapScreen(ctx.uiRoot);
     this.map.setPingSource(() => this.pings.getPings());
 
     this.title = new TitleMenu(ctx.uiRoot);
-    this.lobby = new LobbyMenu(ctx.uiRoot);
     this.pause = new PauseMenu(ctx.uiRoot);
     this.death = new DeathScreen(ctx.uiRoot);
     this.complete = new MissionComplete(ctx.uiRoot);
 
-    for (const c of [this.reticle, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.map]) c.bind(ctx);
-    // Title before lobby: the lobby may emit `ui:lobbyToggled` (invite URL) which the title must already hear.
-    for (const m of [this.title, this.lobby, this.pause, this.death, this.complete]) m.bind(ctx);
+    for (const c of [this.reticle, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.chat, this.map]) c.bind(ctx);
+    for (const m of [this.title, this.pause, this.death, this.complete]) m.bind(ctx);
 
     const b = ctx.bus;
     this.unsubs.push(
@@ -137,41 +144,58 @@ export class HudSystem implements GameSystem {
       this.compass.update(ctx);
       this.missionInfo.update(ctx);
       this.pings.update(dt, ctx);
-      this.squad.update(dt, ctx);
       this.spectate.update(dt, ctx);
+    }
+    if (this.socialVisible) {
+      this.squad.update(dt, ctx);
+      this.chat.update(dt);
     }
     this.scope.update(ctx);
     this.damage.update(dt, ctx);
     this.complete.update(dt);
-    this.lobby.update(dt);
   }
 
   lateUpdate(_dt: number, ctx: GameContext): void {
     if (this.hudVisible) {
       this.markers.lateUpdate(ctx);
       this.pings.lateUpdate(ctx);
-      this.nameplates.lateUpdate(ctx);
     }
+    if (this.socialVisible) this.nameplates.lateUpdate(ctx);
   }
 
   /** Whether the tactical map is currently open (debug / other HUD parts). */
   get isMapOpen(): boolean { return this.map.isOpen; }
+  /** Whether the chat input is open (debug). */
+  get isChatOpen(): boolean { return this.chat.isOpen; }
 
   private applyVisibility(): void {
     const ctx = this.ctx;
     const inGame = ctx.isGameplayPhase() || ctx.phase === 'deploying';
+    const inHub = ctx.phase === 'hub' || ctx.phase === 'docking';
     const menuOpen = ctx.uiBlockers.has('menu');
     const dead = ctx.player?.isDead ?? false;
     // Multiplayer keeps the HUD up for a dead (spectating) player; solo hides it (death screen follows).
     const spectating = dead && ctx.isMultiplayer;
-    const visible = inGame && !menuOpen && (!dead || spectating);
+    const alive = !dead || spectating;
+    const visible = inGame && !menuOpen && alive;
+    const social = (inGame || inHub) && !menuOpen && (alive || inHub);
     if (visible !== this.hudVisible) {
       this.hudVisible = visible;
       toggleClass(this.hudRoot, 'hidden', !visible);
     }
+    if (social !== this.socialVisible) {
+      this.socialVisible = social;
+      toggleClass(this.socialRoot, 'hidden', !social);
+    }
     if (spectating !== this.spectating) {
       this.spectating = spectating;
       toggleClass(this.hudRoot, 'spectating', spectating);
+      toggleClass(this.socialRoot, 'spectating', spectating);
+    }
+    if (inHub !== this.inHub) {
+      this.inHub = inHub;
+      toggleClass(this.hudRoot, 'hub', inHub);
+      toggleClass(this.socialRoot, 'hub', inHub);
     }
     const overlayVisible = inGame || ctx.phase === 'dead';
     toggleClass(this.overlayRoot, 'hidden', !overlayVisible);
@@ -180,8 +204,8 @@ export class HudSystem implements GameSystem {
 
   dispose(): void {
     for (const u of this.unsubs) u();
-    for (const c of [this.reticle, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.missionInfo, this.deploy, this.map]) c.dispose();
-    for (const m of [this.title, this.lobby, this.pause, this.death, this.complete]) m.dispose();
-    this.hudRoot.remove(); this.overlayRoot.remove();
+    for (const c of [this.reticle, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.chat, this.missionInfo, this.deploy, this.map]) c.dispose();
+    for (const m of [this.title, this.pause, this.death, this.complete]) m.dispose();
+    this.hudRoot.remove(); this.socialRoot.remove(); this.overlayRoot.remove();
   }
 }

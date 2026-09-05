@@ -17,8 +17,10 @@ interface GrenadeBody {
   active: boolean;
   /** Replica of a remote player's grenade: arc/bounce/FX/audio only — no enemy or player damage, no gameplay events. */
   visualOnly: boolean;
-  light: THREE.PointLight;
   led: THREE.MeshStandardMaterial;
+  ledMesh: THREE.Mesh;
+  /** Last LED blink state (rising edge → one pooled light pulse). */
+  blinkOn: boolean;
 }
 
 const _n = new THREE.Vector3(), _tmp = new THREE.Vector3();
@@ -26,6 +28,11 @@ const _n = new THREE.Vector3(), _tmp = new THREE.Vector3();
 /**
  * Pooled frag grenades: arc with gravity, bounce on terrain, fuse, radial damage (enemies + player),
  * explosion FX and events.
+ *
+ * Perf note: grenades carry NO light of their own. Toggling a `PointLight`'s visibility changes the scene's
+ * light count, and three.js then recompiles every lit material (dozens of shader programs) — that was the
+ * multi-hundred-ms hitch on every throw and every explosion. The LED pulse and the explosion flash both go
+ * through the shared `FlashPool`, whose lights are permanently in the scene (constant light count).
  */
 export class GrenadeManager {
   readonly group = new THREE.Group();
@@ -33,6 +40,7 @@ export class GrenadeManager {
   private readonly bodyGeo = new THREE.SphereGeometry(BODY_R, 12, 10);
   private readonly bandGeo = new THREE.CylinderGeometry(BODY_R * 1.02, BODY_R * 1.02, 0.03, 12);
   private readonly capGeo = new THREE.CylinderGeometry(0.03, 0.035, 0.05, 8);
+  private readonly ledGeo = new THREE.SphereGeometry(0.012, 6, 6);
   private readonly bodyMat = new THREE.MeshStandardMaterial({ color: 0x2f3a2a, metalness: 0.5, roughness: 0.6 });
   private readonly bandMat = new THREE.MeshStandardMaterial({ color: 0xf2b632, metalness: 0.4, roughness: 0.5 });
   private readonly capMat = new THREE.MeshStandardMaterial({ color: 0x3a3f48, metalness: 0.8, roughness: 0.4 });
@@ -45,12 +53,11 @@ export class GrenadeManager {
       const band = new THREE.Mesh(this.bandGeo, this.bandMat);
       const cap = new THREE.Mesh(this.capGeo, this.capMat); cap.position.y = BODY_R + 0.02;
       const led = new THREE.MeshStandardMaterial({ color: 0x220000, emissive: 0xff2020, emissiveIntensity: 0 });
-      const ledMesh = new THREE.Mesh(new THREE.SphereGeometry(0.012, 6, 6), led); ledMesh.position.set(0, BODY_R + 0.05, 0);
-      const light = new THREE.PointLight(0xff3020, 0, 3, 2);
-      mesh.add(body, band, cap, ledMesh, light);
+      const ledMesh = new THREE.Mesh(this.ledGeo, led); ledMesh.position.set(0, BODY_R + 0.05, 0);
+      mesh.add(body, band, cap, ledMesh);
       mesh.visible = false;
       this.group.add(mesh);
-      this.pool.push({ mesh, pos: new THREE.Vector3(), vel: new THREE.Vector3(), spin: new THREE.Vector3(), fuse: 0, active: false, visualOnly: false, light, led });
+      this.pool.push({ mesh, pos: new THREE.Vector3(), vel: new THREE.Vector3(), spin: new THREE.Vector3(), fuse: 0, active: false, visualOnly: false, led, ledMesh, blinkOn: false });
     }
     ctx.scene.add(this.group);
   }
@@ -72,7 +79,7 @@ export class GrenadeManager {
     g.fuse = GRENADE_FUSE;
     g.mesh.visible = true;
     g.mesh.position.copy(origin);
-    g.light.intensity = 0;
+    g.blinkOn = false; g.led.emissiveIntensity = 0;
     if (!visualOnly) this.ctx.bus.emit('grenade:thrown', { position: origin.clone(), velocity: velocity.clone() });
     this.ctx.bus.emit('audio:play', { id: 'grenade_throw', position: origin, volume: 0.7 });
     return true;
@@ -108,14 +115,20 @@ export class GrenadeManager {
       g.mesh.rotation.x += g.spin.x * dt; g.mesh.rotation.y += g.spin.y * dt; g.mesh.rotation.z += g.spin.z * dt;
       // beeping LED, faster as the fuse burns down
       const rate = 3 + (GRENADE_FUSE - g.fuse) * 5;
-      const blink = Math.max(0, Math.sin(g.fuse * rate * Math.PI)) > 0.6 ? 1 : 0;
-      g.led.emissiveIntensity = blink * 4;
-      g.light.intensity = blink * 1.5;
+      const blink = Math.max(0, Math.sin(g.fuse * rate * Math.PI)) > 0.6;
+      g.led.emissiveIntensity = blink ? 4 : 0;
+      if (blink && !g.blinkOn) {
+        // rising edge → one short pooled light pulse (no per-grenade light: keeps the scene light count constant)
+        g.ledMesh.updateWorldMatrix(true, false);
+        _tmp.setFromMatrixPosition(g.ledMesh.matrixWorld);
+        this.fx.ledBlink(_tmp);
+      }
+      g.blinkOn = blink;
     }
   }
 
   private explode(g: GrenadeBody): void {
-    g.active = false; g.mesh.visible = false; g.light.intensity = 0;
+    g.active = false; g.mesh.visible = false; g.led.emissiveIntensity = 0; g.blinkOn = false;
     const ctx = this.ctx;
     const pos = g.pos;
     const visualOnly = g.visualOnly;
@@ -141,11 +154,11 @@ export class GrenadeManager {
   }
 
   clear(): void {
-    for (const g of this.pool) { g.active = false; g.visualOnly = false; g.mesh.visible = false; g.light.intensity = 0; }
+    for (const g of this.pool) { g.active = false; g.visualOnly = false; g.mesh.visible = false; g.led.emissiveIntensity = 0; g.blinkOn = false; }
   }
 
   dispose(): void {
-    this.bodyGeo.dispose(); this.bandGeo.dispose(); this.capGeo.dispose();
+    this.bodyGeo.dispose(); this.bandGeo.dispose(); this.capGeo.dispose(); this.ledGeo.dispose();
     this.bodyMat.dispose(); this.bandMat.dispose(); this.capMat.dispose();
     for (const g of this.pool) g.led.dispose();
     this.group.removeFromParent();
