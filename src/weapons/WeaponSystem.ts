@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {
   GameContext, Keys,
-  type GameSystem, type WeaponDef, type ItemInstance, type PlayerRef, type PlayerWeaponHost, type EnemyRef,
+  type GameSystem, type WeaponDef, type ItemInstance, type PlayerRef, type PlayerWeaponHost, type EnemyRef, type Vec3Tuple,
 } from '@/shared';
 import { FxManager } from '@/core/fx';
 import { damp, randomInCone } from '@/core/util/MathUtil';
@@ -10,6 +10,7 @@ import { WeaponModel } from './WeaponModel';
 import { WeaponFx } from './fx/WeaponFx';
 import { GrenadeManager } from './Grenade';
 import { ProjectilePool, type ProjectileHit } from './Projectile';
+import { RemoteWeapons } from './RemoteWeapons';
 
 type Slot = 'primary' | 'secondary';
 type Host = PlayerRef & PlayerWeaponHost;
@@ -31,9 +32,15 @@ const BOLT_SOUND_DELAY = 0.22;
 
 const _o = new THREE.Vector3(), _d = new THREE.Vector3(), _pd = new THREE.Vector3(), _tA = new THREE.Vector3(), _tB = new THREE.Vector3();
 const _muzzle = new THREE.Vector3(), _target = new THREE.Vector3(), _md = new THREE.Vector3(), _right = new THREE.Vector3(), _tmp = new THREE.Vector3();
+const _netDir = new THREE.Vector3();
 const _mq = new THREE.Quaternion();
 
 function makeHit(): HitInfo { return { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, enemy: null, obstacle: false, valid: false, headshot: false }; }
+
+/** Vector3 → wire tuple rounded to 3 dp (fresh tuples: messages are serialized asynchronously by the relay). */
+function toTuple(v: THREE.Vector3): Vec3Tuple {
+  return [Math.round(v.x * 1000) / 1000, Math.round(v.y * 1000) / 1000, Math.round(v.z * 1000) / 1000];
+}
 
 /**
  * Primary/secondary weapons: hitscan & projectile firing from the reticle ray, spread/bloom, recoil,
@@ -46,6 +53,8 @@ export class WeaponSystem implements GameSystem {
   private fx!: WeaponFx;
   private grenades!: GrenadeManager;
   private projectiles!: ProjectilePool;
+  /** Multiplayer: remote players' weapon models + replicated fire/reload/grenade FX (inert offline). */
+  private remote!: RemoteWeapons;
 
   private readonly slots: Record<Slot, WeaponInstance | null> = { primary: null, secondary: null };
   private readonly ammo = new Map<string, AmmoState>();
@@ -79,7 +88,17 @@ export class WeaponSystem implements GameSystem {
     this.ctx = ctx;
     this.fx = new WeaponFx(ctx.scene);
     this.grenades = new GrenadeManager(ctx, this.fx);
-    this.projectiles = new ProjectilePool(ctx, (h, dmg, weaponId) => this.onProjectileHit(h, dmg, weaponId));
+    this.projectiles = new ProjectilePool(ctx,
+      (h, dmg, weaponId) => this.onProjectileHit(h, dmg, weaponId),
+      (h) => this.remote.onVisualProjectileHit(h));
+    this.remote = new RemoteWeapons(ctx, this.fx, this.grenades, this.projectiles);
+
+    // multiplayer replication (handlers no-op unless ctx.isMultiplayer && ctx.net)
+    ctx.bus.on('net:remoteFired', (p) => this.remote.onFired(p.id, p.weaponId, p.origin, p.direction));
+    ctx.bus.on('net:remoteReloaded', (p) => this.remote.onReloaded(p.id, p.weaponId));
+    ctx.bus.on('net:remoteGrenade', (p) => this.remote.onGrenade(p.position, p.velocity));
+    ctx.bus.on('net:remotePlayerRemoved', (p) => this.remote.remove(p.id));
+    ctx.bus.on('game:newMission', () => this.remote.clear());
 
     ctx.bus.on('loadout:changed', (p) => this.onLoadout(p.primary, p.secondary));
     ctx.bus.on('world:ready', () => {
@@ -100,6 +119,7 @@ export class WeaponSystem implements GameSystem {
     this.fx.update(dt);
     this.grenades.update(dt);
     this.projectiles.update(dt);
+    this.remote.update(dt);
 
     const host = this.getHost();
     if (!host) return;
@@ -187,7 +207,7 @@ export class WeaponSystem implements GameSystem {
 
   dispose(): void {
     for (const s of ['primary', 'secondary'] as Slot[]) this.setSlot(s, null);
-    this.fx.dispose(); this.grenades.dispose(); this.projectiles.dispose();
+    this.remote.dispose(); this.fx.dispose(); this.grenades.dispose(); this.projectiles.dispose();
   }
 
   /* ─────────────────────────── loadout ─────────────────────────── */
@@ -345,6 +365,7 @@ export class WeaponSystem implements GameSystem {
     w.model.setReload(0);
     this.ctx.bus.emit('weapon:reloadStarted', { weaponId: w.def.id, duration: w.def.reloadTime });
     this.ctx.bus.emit('audio:play', { id: 'reload', volume: 0.8 });
+    if (this.ctx.isMultiplayer && this.ctx.net) this.ctx.net.send({ t: 'reload', w: w.def.id });
   }
 
   private updateReload(dt: number): void {
@@ -405,6 +426,8 @@ export class WeaponSystem implements GameSystem {
 
     const pellets = def.pellets && def.pellets > 1 ? def.pellets : 1;
     let anyHit = false, anyKill = false, anyEnemy = false, anyHead = false;
+    // direction replicated to other players: exact muzzle→target line for single shots, aim centre for pellets
+    _netDir.copy(_d);
     for (let i = 0; i < pellets; i++) {
       randomInCone(_d, spread, _pd, _tA, _tB);
       this.raycastAll(_o, _pd, def.range, this.camHit);
@@ -414,6 +437,7 @@ export class WeaponSystem implements GameSystem {
       const mdist = _md.length();
       if (mdist < 1e-3) continue;
       _md.divideScalar(mdist);
+      if (pellets === 1) _netDir.copy(_md);
 
       if (def.projectileSpeed) {
         this.projectiles.fire(_muzzle, _md, def.projectileSpeed, def.damage, def.range, def.tracerColor, def.id);
@@ -449,6 +473,8 @@ export class WeaponSystem implements GameSystem {
     if (cls === 'SR') ctx.bus.emit('camera:shake', { intensity: 0.35, duration: 0.18 });
 
     ctx.bus.emit('weapon:fired', { weaponId: def.id, origin: _muzzle.clone(), direction: _d.clone() });
+    // one message per trigger pull (shotgun pellets are fanned out visually by the receiver)
+    if (ctx.isMultiplayer && ctx.net) ctx.net.send({ t: 'fire', w: def.id, o: toTuple(_muzzle), d: toTuple(_netDir) });
     this.emitAmmo(w, a);
     ctx.bus.emit('audio:play', { id: shotSoundId(kindOf(def)), position: _muzzle, volume: 1, pitch: shotPitchFor(cls) * (0.95 + Math.random() * 0.1) });
     if (anyEnemy) ctx.bus.emit('ui:hitmarker', { kill: anyKill, headshot: anyHead });
@@ -523,6 +549,7 @@ export class WeaponSystem implements GameSystem {
     _md.copy(_d).multiplyScalar(17).addScaledVector(host.velocity, 0.5);
     _md.y += 3.5;
     this.grenades.throw(_tmp, _md);
+    if (this.ctx.isMultiplayer && this.ctx.net) this.ctx.net.send({ t: 'grenade', p: toTuple(_tmp), v: toTuple(_md) });
     this.firingTimer = FIRING_POSE_HOLD;
     this.ctx.bus.emit('grenade:countChanged', { count });
   }
@@ -537,6 +564,7 @@ export class WeaponSystem implements GameSystem {
     this.grenades.clear();
     this.projectiles.clear();
     this.fx.clear();
+    this.remote.clear();
     this.phase = 'ready';
     this.cooldown = 0; this.bloom = 0; this.firingTimer = 0;
     this.boltTimer = 0; this.boltSoundTimer = 0;

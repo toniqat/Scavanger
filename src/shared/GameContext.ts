@@ -5,6 +5,7 @@ import type {
   GamePhase, WorldRef, PlayerRef, EnemyManagerRef, InventoryRef, LootRef,
   Interactable, InteractableRegistry, MissionStats,
 } from './types';
+import type { NetRef } from './net';
 
 class InteractableRegistryImpl implements InteractableRegistry {
   private items = new Map<string, Interactable>();
@@ -54,6 +55,13 @@ export class GameContext {
   enemies: EnemyManagerRef | null = null;
   inventory: InventoryRef | null = null;
   loot: LootRef | null = null;
+  /** Multiplayer (appended). null until NetSystem publishes it; single-player behaviour when null or `!inSession`. */
+  net: NetRef | null = null;
+
+  /** True when this client simulates authoritative gameplay (enemies, extraction): single-player or lobby host. */
+  get isAuthority(): boolean { return this.net?.isAuthority ?? true; }
+  /** True while a multiplayer session (lobby started) is running. */
+  get isMultiplayer(): boolean { return this.net?.inSession ?? false; }
 
   phase: GamePhase = 'menu';
   /** Seconds since mission start (only advances in gameplay phases). */

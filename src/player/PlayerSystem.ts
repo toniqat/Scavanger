@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {
-  GameContext, Keys, MouseButtons, PLAYER_MAX_HP, PLAYER_MAX_STAMINA, PLAYER_WALK_SPEED,
+  GameContext, Keys, MouseButtons, PLAYER_MAX_HP, PLAYER_MAX_STAMINA, PLAYER_RADIUS, PLAYER_WALK_SPEED,
   type GameSystem, type PlayerRef, type PlayerWeaponHost, type Interactable, type Stance,
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
@@ -30,8 +30,9 @@ const STAMINA_SPRINT_RECOVER = 20;   // sprint unavailable after depletion until
 const EXHAUSTED_SLOW_TIME = 1.0;
 const EXHAUSTED_SLOW = 0.9;
 const STAND_UP_TIME = 0.35;          // prone → stand/crouch transition (no jump/sprint/dive)
+const SPAWN_RING_RADIUS = 4;         // multiplayer: per-slot drop offset around the shared spawn (m)
 
-const _v = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0);
+const _v = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0), _spawn = new THREE.Vector3();
 const _q = new THREE.Quaternion(), _camPos = new THREE.Vector3(), _camLook = new THREE.Vector3();
 
 interface WeaponState { hasWeapon: boolean; reloading: boolean; firing: boolean; twoHanded: boolean }
@@ -121,6 +122,16 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   get object(): THREE.Object3D { return this.model.root; }
   get stance(): Stance { return this._stance; }
   get isDiving(): boolean { return this.controller.diving; }
+  /* ── multiplayer snapshot inputs (read by net/NetSystem) ── */
+  get pitch(): number { return this.rig ? this.rig.pitch : 0; }
+  get isGrounded(): boolean { return this.controller.grounded; }
+  get isReloading(): boolean { return this.weaponState.reloading; }
+  get isFiring(): boolean { return this.weaponState.firing; }
+  get isDropping(): boolean { return this.hellpod.isActive && this.hellpod.state !== 'exiting'; }
+  get isInShip(): boolean { return this.shipBounds !== null; }
+  get stridePhase(): number { return this.controller.stridePhase; }
+  /** Same value the pose uses (0 idle … 1 walk … 1.2 sprint). */
+  get moveBlend(): number { return Math.min(1.2, this.controller.speed / PLAYER_WALK_SPEED); }
 
   getEyePosition(out = new THREE.Vector3()): THREE.Vector3 {
     return out.copy(this.controller.position).add(this.eyePos);
@@ -239,7 +250,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.aimOrigin.copy(ctx.camera.position);
 
     ctx.bus.on('world:ready', ({ playerSpawn }) => {
-      this.respawnAt(playerSpawn);
+      this.respawnAt(this.resolveSpawn(playerSpawn));
       this.startDrop();
     });
     ctx.bus.on('game:abort', () => this.resetAll());
@@ -585,6 +596,27 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     try { target.interact(); } catch (e) { console.error('[Player] interact threw', e); }
     this.ctx.bus.emit('interact:performed', { id: target.id });
     this.ctx.bus.emit('audio:play', { id: 'interact', position: target.position, volume: 0.7 });
+  }
+
+  /**
+   * Multiplayer: every client drops on its own pad around the shared spawn — a ring of radius
+   * SPAWN_RING_RADIUS, one slot per quadrant (slot × 90° + 45°), snapped to the terrain and pushed
+   * out of obstacles. Single-player uses the world spawn untouched.
+   */
+  private resolveSpawn(playerSpawn: THREE.Vector3): THREE.Vector3 {
+    const ctx = this.ctx;
+    if (!ctx.isMultiplayer || !ctx.net) return playerSpawn;
+    const slot = ctx.net.localSlot;
+    const angle = slot * (Math.PI / 2) + Math.PI / 4;
+    const out = _spawn;
+    out.set(playerSpawn.x + Math.cos(angle) * SPAWN_RING_RADIUS, playerSpawn.y, playerSpawn.z + Math.sin(angle) * SPAWN_RING_RADIUS);
+    const world = ctx.world;
+    if (world && world.ready) {
+      out.y = world.getHeightAt(out.x, out.z);
+      world.resolveCollision(out, PLAYER_RADIUS);
+      out.y = world.getHeightAt(out.x, out.z);
+    }
+    return out;
   }
 
   private startDrop(): void {

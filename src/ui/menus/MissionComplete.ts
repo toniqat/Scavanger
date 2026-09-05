@@ -1,8 +1,9 @@
 import type { GameContext, MissionStats } from '@/shared';
 import { el, fmtTime, fmtInt, setText } from '../dom';
 import { MenuBase } from './MenuBase';
+import { randomSeed } from './seed';
 
-/** Extraction summary: loot value counts up, kills / crates / time, redeploy. */
+/** Extraction summary: loot value counts up, kills / crates / time, redeploy (solo) or back to the lobby (squad). */
 export class MissionComplete extends MenuBase {
   private vals: Record<string, HTMLElement> = {};
   private seed = 0;
@@ -11,6 +12,8 @@ export class MissionComplete extends MenuBase {
   private countTimer = 0;
   private counting = false;
   private lastLootText = '';
+  private soloBtns: HTMLButtonElement[] = [];
+  private lobbyBtn: HTMLButtonElement;
 
   constructor(parent: HTMLElement) {
     super(parent, 'complete');
@@ -30,9 +33,12 @@ export class MissionComplete extends MenuBase {
     }
 
     const actions = el('div', { cls: 'actions', parent: this.frame });
-    this.button(actions, '다시 배치', () => this.ctx.bus.emit('game:newMission', { seed: this.seed }), 'primary');
-    this.button(actions, '새 임무 (무작위 시드)', () => this.ctx.bus.emit('game:newMission', { seed: Math.floor(Math.random() * 0xffffffff) >>> 0 }));
-    this.button(actions, '메뉴로', () => this.ctx.bus.emit('game:abort', {}));
+    this.soloBtns.push(
+      this.button(actions, '다시 배치', () => this.ctx.bus.emit('game:newMission', { seed: this.seed }), 'primary'),
+      this.button(actions, '새 임무 (무작위 시드)', () => this.ctx.bus.emit('game:newMission', { seed: randomSeed() })),
+    );
+    this.lobbyBtn = this.button(actions, '로비로', () => this.ctx.bus.emit('game:abort', {}), 'primary');
+    this.soloBtns.push(this.button(actions, '메뉴로', () => this.ctx.bus.emit('game:abort', {})));
   }
 
   override bind(ctx: GameContext): void {
@@ -45,6 +51,9 @@ export class MissionComplete extends MenuBase {
 
   private fill(s: MissionStats): void {
     this.seed = s.seed;
+    const inLobby = !!this.ctx.net?.lobby;
+    for (const b of this.soloBtns) b.hidden = inLobby;
+    this.lobbyBtn.hidden = !inLobby;
     setText(this.vals.kills, String(s.kills));
     setText(this.vals.time, fmtTime(s.timeSeconds));
     setText(this.vals.crates, String(s.cratesOpened));

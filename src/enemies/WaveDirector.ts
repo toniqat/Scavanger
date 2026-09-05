@@ -5,7 +5,8 @@ export const WAVE_ALIVE_CAP = 60;
 
 /**
  * Extraction pressure: escalating waves every 14 s → 9 s until stopped.
- * Bugs spawn 45–90 m from the extraction target, out of view, and hunt the player relentlessly.
+ * Bugs spawn 45–90 m from the extraction target, out of every player's view, and hunt relentlessly.
+ * Runs only on the authority (host / single-player); waves pause while no player is alive.
  */
 export class WaveDirector {
   active = false;
@@ -32,7 +33,7 @@ export class WaveDirector {
   update(dt: number, host: SpawnHost): void {
     if (!this.active) return;
     const ctx = host.ctx;
-    if (!ctx.isGameplayPhase() || !ctx.world?.ready || !ctx.player || ctx.player.isDead) return;
+    if (!ctx.isGameplayPhase() || !ctx.world?.ready || !host.targets.anyAlive()) return;
     this.timer -= dt;
     if (this.timer > 0) return;
     this.timer = this.interval();
@@ -50,10 +51,12 @@ export class WaveDirector {
     for (let g = 0; g < groups; g++) {
       const slice = types.slice(g * per, (g + 1) * per);
       if (slice.length === 0) break;
-      if (!findSpawnCenter(ctx, this.target, 45, 90, false, 30, this.center)) {
-        if (!findSpawnCenter(ctx, ctx.player.position, 45, 90, false, 30, this.center)) continue;
+      if (!findSpawnCenter(host, this.target, 45, 90, false, 30, this.center)) {
+        const near = host.targets.nearestAlive(this.target);
+        if (!near || !findSpawnCenter(host, near.position, 45, 90, false, 30, this.center)) continue;
       }
-      spawned += spawnGroup(host, slice, this.center, true, true, ctx.player.position);
+      const face = host.targets.nearestAlive(this.center);
+      spawned += spawnGroup(host, slice, this.center, true, true, face ? face.position : undefined);
     }
     if (spawned > 0) ctx.bus.emit('audio:play', { id: 'bug_screech', position: this.center, volume: 1, pitch: 0.8 });
     this.index++;

@@ -4,7 +4,10 @@ export { ENEMY_STATS, ALL_ENEMY_TYPES, HUNTER_LEAP, SPEWER_SPIT, CHARGER_CHARGE,
 export { BUG_PARAMS, type BugParams } from './models/BugParams';
 export { createBugRig, disposeBugRig, animateBug, createBugAnim, disposeBugAssets, type BugRig, type BugAnim } from './models/BugModel';
 export { SpatialGrid } from './SpatialGrid';
-export { AmbientSpawner, findSpawnCenter, spawnGroup, ambientGroup, waveGroup, isVisibleToPlayer, type SpawnHost } from './Spawner';
+export { CombatTarget, TargetList, type TargetId } from './Targets';
+export { AmbientSpawner, findSpawnCenter, spawnGroup, ambientGroup, waveGroup, isVisibleToAnyPlayer, type SpawnHost } from './Spawner';
 export { WaveDirector, WAVE_ALIVE_CAP } from './WaveDirector';
 export { BloodFX } from './fx/BloodFX';
-export { AcidProjectiles } from './fx/AcidProjectile';
+export { AcidProjectiles, type AcidHost, type AcidSlow } from './fx/AcidProjectile';
+export { EnemyReplica, ReplicaBuffer, type ReplicaHost } from './net/Replica';
+export { encodeSnapshot, animHint } from './net/HostSync';

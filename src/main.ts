@@ -1,6 +1,8 @@
 import { Engine } from '@/core/Engine';
+import { NetSystem } from '@/net/NetSystem';
 import { WorldSystem } from '@/world/WorldSystem';
 import { PlayerSystem } from '@/player/PlayerSystem';
+import { RemotePlayerSystem } from '@/player/RemotePlayerSystem';
 import { WeaponSystem } from '@/weapons/WeaponSystem';
 import { EnemySystem } from '@/enemies/EnemySystem';
 import { InventorySystem } from '@/inventory/InventorySystem';
@@ -15,8 +17,11 @@ const uiRoot = document.getElementById('ui-root') as HTMLElement;
 const engine = new Engine(canvas, uiRoot);
 
 // Registration order == update order (see CLAUDE.md "System lifecycle").
+// NetSystem goes first so incoming snapshots are applied before any system reads ctx.net this frame.
+engine.addSystem(new NetSystem());
 engine.addSystem(new WorldSystem());
 engine.addSystem(new PlayerSystem());
+engine.addSystem(new RemotePlayerSystem());
 engine.addSystem(new WeaponSystem());
 engine.addSystem(new EnemySystem());
 engine.addSystem(new InventorySystem());

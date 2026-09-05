@@ -1,10 +1,13 @@
 import * as THREE from 'three';
 import type { EnemyType, GameContext } from '@/shared';
 import type { Enemy } from './Enemy';
+import type { TargetList } from './Targets';
 
 /** Spawn services provided by EnemySystem to the spawner / wave director. */
 export interface SpawnHost {
   readonly ctx: GameContext;
+  /** Every player (local + remote) this frame; spawn placement keeps out of all of their views. */
+  readonly targets: TargetList;
   aliveCount(): number;
   /** Make room for `n` more bugs (despawns corpses first, then far idle bugs). Returns how many may be spawned. */
   ensureCapacity(n: number, cap: number): number;
@@ -16,35 +19,42 @@ const _fwd = new THREE.Vector3();
 const _d = new THREE.Vector3();
 const _p = new THREE.Vector3();
 
-/** True when the player could see a bug appearing at `point` (inside the forward cone and unobstructed). */
-export function isVisibleToPlayer(ctx: GameContext, point: THREE.Vector3): boolean {
-  const player = ctx.player, world = ctx.world;
-  if (!player || !world) return false;
-  player.getEyePosition(_eye);
-  player.getForward(_fwd);
-  _d.set(point.x - _eye.x, point.y + 0.8 - _eye.y, point.z - _eye.z);
-  const dist = _d.length();
-  if (dist < 1e-3) return true;
-  _d.multiplyScalar(1 / dist);
-  const facing = _d.x * _fwd.x + _d.z * _fwd.z;
-  if (facing < 0.2) return false;               // outside ~80° forward cone
-  return world.raycast(_eye, _d, dist - 1) === null;
+/** True when ANY alive player could see a bug appearing at `point` (inside their forward cone and unobstructed). */
+export function isVisibleToAnyPlayer(host: SpawnHost, point: THREE.Vector3): boolean {
+  const world = host.ctx.world;
+  if (!world) return false;
+  const players = host.targets.alive;
+  for (let i = 0; i < players.length; i++) {
+    const t = players[i];
+    t.getEyePosition(_eye);
+    t.getForward(_fwd);
+    _d.set(point.x - _eye.x, point.y + 0.8 - _eye.y, point.z - _eye.z);
+    const dist = _d.length();
+    if (dist < 1e-3) return true;
+    _d.multiplyScalar(1 / dist);
+    const facing = _d.x * _fwd.x + _d.z * _fwd.z;
+    if (facing < 0.2) continue;                  // outside this player's ~80° forward cone
+    if (world.raycast(_eye, _d, dist - 1) === null) return true;
+  }
+  return false;
 }
 
 /**
- * Find a spawn center within [minDist, maxDist] of `around`, preferring nests, never within `minPlayerDist` of the player
- * or inside the player's view. Falls back to a point behind the player. Writes into `out`; returns false if nothing works.
+ * Find a spawn center within [minDist, maxDist] of `around`, preferring nests, never within `minPlayerDist` of ANY
+ * player or inside any player's view. Falls back to a point behind the player nearest to `around`.
+ * Writes into `out`; returns false if nothing works.
  */
-export function findSpawnCenter(ctx: GameContext, around: THREE.Vector3, minDist: number, maxDist: number, preferNests: boolean, minPlayerDist: number, out: THREE.Vector3): boolean {
-  const world = ctx.world, player = ctx.player;
+export function findSpawnCenter(host: SpawnHost, around: THREE.Vector3, minDist: number, maxDist: number, preferNests: boolean, minPlayerDist: number, out: THREE.Vector3): boolean {
+  const world = host.ctx.world;
   if (!world) return false;
-  const ppos = player ? player.position : around;
+  const targets = host.targets;
+  const anchor = targets.nearestAlive(around) ?? targets.local() ?? null;
+  const ppos = anchor ? anchor.position : around;
 
   const ok = (p: THREE.Vector3): boolean => {
     if (!world.isInsideBounds(p.x, p.z)) return false;
-    const dp = Math.hypot(p.x - ppos.x, p.z - ppos.z);
-    if (dp < minPlayerDist) return false;
-    return !isVisibleToPlayer(ctx, p);
+    if (targets.minDist(p) < minPlayerDist) return false;
+    return !isVisibleToAnyPlayer(host, p);
   };
 
   if (preferNests) {
@@ -65,9 +75,9 @@ export function findSpawnCenter(ctx: GameContext, around: THREE.Vector3, minDist
   const candidates = world.getEnemySpawnPoints(around, 6, minDist, maxDist);
   for (const c of candidates) if (ok(c)) { out.copy(c); out.y = world.getHeightAt(out.x, out.z); return true; }
 
-  // fallback: behind the player
-  if (player) {
-    player.getForward(_fwd);
+  // fallback: behind the anchor player
+  if (anchor) {
+    anchor.getForward(_fwd);
     for (let i = 0; i < 6; i++) {
       const dist = Math.max(minPlayerDist + 5, minDist) + Math.random() * 20;
       const ang = (Math.random() - 0.5) * 1.2;
@@ -139,7 +149,8 @@ export function waveGroup(index: number, count: number): readonly EnemyType[] {
 }
 
 /**
- * Ambient pressure: patrol groups trickle in from nests 60–140 m away while the player roams.
+ * Ambient pressure: patrol groups trickle in from nests 60–140 m away while the players roam.
+ * Each patrol is placed around a random alive player (the local one in single-player).
  */
 export class AmbientSpawner {
   threat = 0.35;
@@ -150,15 +161,15 @@ export class AmbientSpawner {
 
   reset(): void { this.timer = 6; }
 
-  /** Seed the map with a few idle patrols far from the player right after world:ready. */
+  /** Seed the map with a few idle patrols far from the players right after world:ready. */
   initialPopulate(host: SpawnHost, around?: THREE.Vector3): void {
     const ctx = host.ctx;
     const world = ctx.world;
     if (!world) return;
-    around = around ?? (ctx.player ? ctx.player.position : world.getPlayerSpawn());
+    around = around ?? host.targets.local()?.position ?? world.getPlayerSpawn();
     const groups = 2 + Math.round(this.threat * 3);
     for (let g = 0; g < groups; g++) {
-      if (!findSpawnCenter(ctx, around, 70, 220, true, 60, this.center)) break;
+      if (!findSpawnCenter(host, around, 70, 220, true, 60, this.center)) break;
       const types = ambientGroup(this.threat);
       const allowed = host.ensureCapacity(types.length, this.cap);
       if (allowed <= 0) break;
@@ -173,12 +184,14 @@ export class AmbientSpawner {
     if (this.timer > 0) return;
     this.timer = THREE.MathUtils.lerp(25, 12, this.threat) * (0.8 + Math.random() * 0.4);
     if (host.aliveCount() >= this.cap) return;
+    const around = host.targets.randomAlive() ?? host.targets.local();
+    if (!around) return;
     const types = ambientGroup(this.threat);
     const allowed = host.ensureCapacity(types.length, this.cap);
     if (allowed <= 0) return;
-    if (!findSpawnCenter(ctx, ctx.player.position, 60, 140, true, 30, this.center)) return;
+    if (!findSpawnCenter(host, around.position, 60, 140, true, 30, this.center)) return;
     // patrols that spawn because pressure is high come in already hunting
     const hunting = Math.random() < this.threat * 0.5;
-    spawnGroup(host, types.slice(0, allowed), this.center, hunting, false, hunting ? ctx.player.position : undefined);
+    spawnGroup(host, types.slice(0, allowed), this.center, hunting, false, hunting ? around.position : undefined);
   }
 }

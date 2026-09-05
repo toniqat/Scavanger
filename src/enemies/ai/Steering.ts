@@ -1,7 +1,8 @@
 import * as THREE from 'three';
-import { PLAYER_RADIUS, type PlayerRef } from '@/shared';
+import { PLAYER_RADIUS } from '@/shared';
 import type { Enemy } from '../Enemy';
 import type { SpatialGrid } from '../SpatialGrid';
+import type { CombatTarget } from '../Targets';
 
 const _d = new THREE.Vector3();
 const neighborBuf: Enemy[] = new Array(64);
@@ -16,10 +17,10 @@ export function seek(pos: THREE.Vector3, target: THREE.Vector3, speed: number, a
 }
 
 /**
- * Separation from other bugs (positional correction, mass-weighted) + soft push-out from the player.
+ * Separation from other bugs (positional correction, mass-weighted) + soft push-out from every alive player.
  * Also accumulates a steering force into `steer` so crowds flow around each other instead of jittering.
  */
-export function separate(e: Enemy, grid: SpatialGrid<Enemy>, player: PlayerRef | null, steer: THREE.Vector3, allowPlayerOverlap: boolean): void {
+export function separate(e: Enemy, grid: SpatialGrid<Enemy>, players: readonly CombatTarget[], steer: THREE.Vector3, allowPlayerOverlap: boolean): void {
   const pos = e.position;
   const r = e.stats.radius;
   const n = grid.query(pos.x, pos.z, r + 2.2, neighborBuf);
@@ -47,10 +48,13 @@ export function separate(e: Enemy, grid: SpatialGrid<Enemy>, player: PlayerRef |
     pos.x += nx * overlap * w; pos.z += nz * overlap * w;
     steer.x += nx * 3; steer.z += nz * 3;
   }
-  if (player && !player.isDead && !allowPlayerOverlap) {
-    const dx = pos.x - player.position.x, dz = pos.z - player.position.z;
+  if (allowPlayerOverlap) return;
+  const minD = r + PLAYER_RADIUS + 0.1;
+  for (let i = 0; i < players.length; i++) {
+    const p = players[i];
+    if (p.isDead) continue;
+    const dx = pos.x - p.position.x, dz = pos.z - p.position.z;
     const d2 = dx * dx + dz * dz;
-    const minD = r + PLAYER_RADIUS + 0.1;
     if (d2 < minD * minD) {
       const d = Math.max(1e-4, Math.sqrt(d2));
       const overlap = minD - d;

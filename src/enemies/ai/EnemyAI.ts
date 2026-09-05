@@ -1,9 +1,10 @@
 import * as THREE from 'three';
-import { GRAVITY, PLAYER_RADIUS, type PlayerRef, type WorldRef } from '@/shared';
+import { GRAVITY, PLAYER_RADIUS, type WorldRef } from '@/shared';
 import type { Enemy, EnemyHost } from '../Enemy';
 import { CHARGER_CHARGE, HUNTER_LEAP, SPEWER_SPIT } from '../EnemyTypes';
+import type { CombatTarget } from '../Targets';
 import { avoidObstacles, seek, separate, turnToward, yawTo } from './Steering';
-import { updatePerception } from './Perception';
+import { acquireTarget, updatePerception } from './Perception';
 
 const _desired = new THREE.Vector3();
 const _steer = new THREE.Vector3();
@@ -15,23 +16,25 @@ const _tmp = new THREE.Vector3();
 const TWO_PI = Math.PI * 2;
 
 /**
- * One AI + movement tick for an active bug. Called only while the gameplay phase is running;
- * visuals are refreshed separately by Enemy.animate so frozen bugs still render.
+ * One AI + movement tick for an active bug (host / single-player only). Called only while the gameplay phase is
+ * running; visuals are refreshed separately by Enemy.animate so frozen bugs still render.
+ * Every player-relative decision goes through `e.target` (a CombatTarget: local or remote player) so the same code
+ * hunts one player in single-player and up to four in a session.
  */
 export function updateEnemyAI(e: Enemy, dt: number, host: EnemyHost): void {
   const ctx = host.ctx;
   const world = ctx.world;
   if (!world) return;
-  const player = ctx.player;
   const s = e.stats;
   const a = e.anim;
-  const playerAlive = !!player && !player.isDead;
 
   e.stateTime += dt;
   if (e.attackCd > 0) e.attackCd -= dt;
   if (e.leapCd > 0) e.leapCd -= dt;
   if (e.chargeCd > 0) e.chargeCd -= dt;
-  e.distToPlayer = playerAlive ? Math.hypot(player!.position.x - e.position.x, player!.position.z - e.position.z) : Infinity;
+  acquireTarget(e, dt, host);
+  const t = e.target;
+  const targetAlive = !!t && !t.isDead;
 
   if (e.state === 'dead') { e.deathTimer += dt; return; }
 
@@ -42,7 +45,7 @@ export function updateEnemyAI(e: Enemy, dt: number, host: EnemyHost): void {
     _dir.normalize();
     e.moveTarget.copy(e.position).addScaledVector(_dir, 10);
     e.hasMoveTarget = true; e.hasFacePoint = false;
-    integrate(e, dt, world, player, host, s.speed * 1.4, false);
+    integrate(e, dt, world, host, s.speed * 1.4, false);
     return;
   }
 
@@ -54,8 +57,8 @@ export function updateEnemyAI(e: Enemy, dt: number, host: EnemyHost): void {
 
   updatePerception(e, dt, host);
 
-  // Player died: everything calms down.
-  if (!playerAlive && e.aware && !e.airborne && e.chargePhase !== 2 && (e.state === 'chase' || e.state === 'alert' || e.state === 'attack')) {
+  // Nobody left to hunt: everything calms down.
+  if (!targetAlive && e.aware && !e.airborne && e.chargePhase !== 2 && (e.state === 'chase' || e.state === 'alert' || e.state === 'attack')) {
     e.aware = false; e.state = 'idle'; e.stateTime = 0; e.wanderTimer = 2; e.spawnPos.copy(e.position);
     e.spitPhase = 0; e.chargePhase = 0; a.shake = 0; a.abdomen = 0;
   }
@@ -93,7 +96,7 @@ export function updateEnemyAI(e: Enemy, dt: number, host: EnemyHost): void {
       break;
     }
     case 'alert': {
-      if (playerAlive) { e.facePoint.copy(player!.position); e.hasFacePoint = true; lookAtPlayer(e, player!, dt); }
+      if (targetAlive) { e.facePoint.copy(t!.position); e.hasFacePoint = true; lookAtTarget(e, t!, dt); }
       mandibleTarget = 0.7;
       a.crouch = THREE.MathUtils.lerp(a.crouch, 0.25, dt * 8);
       const dur = e.type === 'scavenger' ? 0.4 : e.type === 'hunter' ? 0.5 : 0.75;
@@ -101,13 +104,13 @@ export function updateEnemyAI(e: Enemy, dt: number, host: EnemyHost): void {
       break;
     }
     case 'chase': {
-      if (!playerAlive) { e.state = 'idle'; e.stateTime = 0; e.wanderTimer = 1; break; }
-      speed = chase(e, dt, host, player!);
+      if (!targetAlive) { e.state = 'idle'; e.stateTime = 0; e.wanderTimer = 1; break; }
+      speed = chase(e, dt, host, t!);
       break;
     }
     case 'attack': {
-      if (!playerAlive && !e.airborne && e.chargePhase !== 2) { e.state = 'idle'; e.stateTime = 0; e.spitPhase = 0; e.chargePhase = 0; break; }
-      const r = attack(e, dt, host, player!);
+      if (!targetAlive && !e.airborne && e.chargePhase !== 2) { e.state = 'idle'; e.stateTime = 0; e.spitPhase = 0; e.chargePhase = 0; break; }
+      const r = attack(e, dt, host, t);
       speed = r.speed; allowOverlap = r.allowOverlap; mandibleTarget = r.mandible;
       break;
     }
@@ -118,7 +121,7 @@ export function updateEnemyAI(e: Enemy, dt: number, host: EnemyHost): void {
       a.headPitch = THREE.MathUtils.lerp(a.headPitch, 0.35, dt * 6);
       if (e.staggerTimer <= 0) {
         a.crouch = 0;
-        e.state = e.aware && playerAlive ? 'chase' : 'idle';
+        e.state = e.aware && targetAlive ? 'chase' : 'idle';
         e.stateTime = 0; e.wanderTimer = 1;
       }
       break;
@@ -133,18 +136,19 @@ export function updateEnemyAI(e: Enemy, dt: number, host: EnemyHost): void {
     if (e.state !== 'alert' && e.state !== 'stagger') a.crouch = Math.max(0, a.crouch - dt * 5);
   }
 
-  integrate(e, dt, world, player, host, speed, allowOverlap);
+  integrate(e, dt, world, host, speed, allowOverlap);
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Chase (per type)
  * ──────────────────────────────────────────────────────────────────────────── */
-function chase(e: Enemy, dt: number, host: EnemyHost, player: PlayerRef): number {
+function chase(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget): number {
   const s = e.stats;
-  const d = e.distToPlayer;
+  const d = e.distToTarget;
+  const tp = t.position;
   const meleeRange = s.attackRange + PLAYER_RADIUS;
-  lookAtPlayer(e, player, dt);
-  e.moveTarget.copy(player.position);
+  lookAtTarget(e, t, dt);
+  e.moveTarget.copy(tp);
   e.hasMoveTarget = true;
   let speed = s.speed;
 
@@ -153,7 +157,7 @@ function chase(e: Enemy, dt: number, host: EnemyHost, player: PlayerRef): number
       // weave while approaching so the swarm reads as a churning mass
       if (d > 4) {
         const w = Math.sin(e.anim.time * 2.3 + e.id) * Math.min(2.5, d * 0.15);
-        const dx = player.position.x - e.position.x, dz = player.position.z - e.position.z;
+        const dx = tp.x - e.position.x, dz = tp.z - e.position.z;
         e.moveTarget.x += -dz / d * w; e.moveTarget.z += dx / d * w;
       }
       if (d < meleeRange && e.attackCd <= 0) startMelee(e);
@@ -163,7 +167,7 @@ function chase(e: Enemy, dt: number, host: EnemyHost, player: PlayerRef): number
       e.flankTimer -= dt;
       if (e.flankTimer <= 0) { e.flankTimer = 2 + Math.random() * 2.5; if (Math.random() < 0.35) e.flankSign = -e.flankSign; }
       if (d > 4.5) {
-        const dx = player.position.x - e.position.x, dz = player.position.z - e.position.z;
+        const dx = tp.x - e.position.x, dz = tp.z - e.position.z;
         const off = e.flankSign * Math.min(7, d * 0.5);
         e.moveTarget.x += -dz / d * off; e.moveTarget.z += dx / d * off;
       }
@@ -179,15 +183,15 @@ function chase(e: Enemy, dt: number, host: EnemyHost, player: PlayerRef): number
       if (d < 6.5) {
         if (d < meleeRange && e.attackCd <= 0) startMelee(e);
       } else if (d < 9) {
-        // keep distance: back away while facing the player
-        const dx = e.position.x - player.position.x, dz = e.position.z - player.position.z;
+        // keep distance: back away while facing the target
+        const dx = e.position.x - tp.x, dz = e.position.z - tp.z;
         e.moveTarget.set(e.position.x + dx / d * 4, 0, e.position.z + dz / d * 4);
-        e.facePoint.copy(player.position); e.hasFacePoint = true;
+        e.facePoint.copy(tp); e.hasFacePoint = true;
         speed = s.speed * 0.7;
         if (e.hasLOS && e.attackCd <= 0 && d >= SPEWER_SPIT.minDist) startSpit(e);
       } else if (d <= SPEWER_SPIT.maxDist && e.hasLOS) {
         if (e.attackCd <= 0) startSpit(e);
-        else { e.hasMoveTarget = false; e.facePoint.copy(player.position); e.hasFacePoint = true; }
+        else { e.hasMoveTarget = false; e.facePoint.copy(tp); e.hasFacePoint = true; }
       }
       break;
     }
@@ -200,14 +204,14 @@ function chase(e: Enemy, dt: number, host: EnemyHost, player: PlayerRef): number
   return speed;
 }
 
-function lookAtPlayer(e: Enemy, player: PlayerRef, dt: number): void {
+export function lookAtTarget(e: Enemy, t: CombatTarget, dt: number): void {
   const a = e.anim;
-  const wanted = yawTo(e.position, player.position);
+  const wanted = yawTo(e.position, t.position);
   let rel = wanted - e.yaw;
   rel = Math.atan2(Math.sin(rel), Math.cos(rel));
   a.headYaw = THREE.MathUtils.lerp(a.headYaw, THREE.MathUtils.clamp(rel, -0.8, 0.8), Math.min(1, dt * 8));
-  const dy = (player.position.y + 1.2) - (e.position.y + e.rig.params.head.y);
-  const pitch = -Math.atan2(dy, Math.max(0.5, e.distToPlayer));
+  const dy = (t.position.y + 1.2) - (e.position.y + e.rig.params.head.y);
+  const pitch = -Math.atan2(dy, Math.max(0.5, t.dist2D(e.position)));
   a.headPitch = THREE.MathUtils.lerp(a.headPitch, THREE.MathUtils.clamp(pitch, -0.6, 0.6), Math.min(1, dt * 8));
 }
 
@@ -245,23 +249,26 @@ function startCharge(e: Enemy, host: EnemyHost): void {
 interface AttackResult { speed: number; allowOverlap: boolean; mandible: number }
 const attackResult: AttackResult = { speed: 0, allowOverlap: false, mandible: 0 };
 
-function attack(e: Enemy, dt: number, host: EnemyHost, player: PlayerRef): AttackResult {
+/** `t` may be a dead target only while a charge rush / leap is already in flight (those finish regardless). */
+function attack(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget | null): AttackResult {
   const s = e.stats;
   const a = e.anim;
   const r = attackResult;
   r.speed = 0; r.allowOverlap = false; r.mandible = 0.3;
   e.attackTimer += dt;
+  const tp = t ? t.position : e.position;
 
   // ── charger: wind-up → rush ───────────────────────────────────────────
   if (e.chargePhase === 1) {
-    e.facePoint.copy(player.position); e.hasFacePoint = true;
-    lookAtPlayer(e, player, dt);
+    e.facePoint.copy(tp); e.hasFacePoint = true;
+    if (t) lookAtTarget(e, t, dt);
     a.shake = Math.min(1, e.attackTimer / CHARGER_CHARGE.windup);
     a.crouch = a.shake * 0.35;
     r.mandible = 1;
     if (e.attackTimer >= CHARGER_CHARGE.windup) {
       e.chargePhase = 2; e.chargeTimer = 0;
-      e.chargeDir.set(player.position.x - e.position.x, 0, player.position.z - e.position.z).normalize();
+      e.chargeDir.set(tp.x - e.position.x, 0, tp.z - e.position.z);
+      if (e.chargeDir.lengthSq() < 1e-4) e.facing(e.chargeDir); else e.chargeDir.normalize();
       e.yaw = Math.atan2(e.chargeDir.x, e.chargeDir.z);
       a.shake = 0; a.crouch = 0;
       host.playAudio('bug_attack', e.position, 1.0, 0.5);
@@ -275,31 +282,34 @@ function attack(e: Enemy, dt: number, host: EnemyHost, player: PlayerRef): Attac
     e.hasFacePoint = false; e.hasMoveTarget = false;
     a.headYaw = THREE.MathUtils.lerp(a.headYaw, 0, dt * 6);
     a.headPitch = THREE.MathUtils.lerp(a.headPitch, -0.2, dt * 6);
-    // contact with player
+    // contact with any player in the path (not only the one it aimed at)
     const hitR = s.radius + PLAYER_RADIUS + 0.35;
-    if (!player.isDead && e.distToPlayer < hitR) {
-      host.hitPlayer(e, CHARGER_CHARGE.damage, 1.0);
+    const victim = host.targets.nearestAliveWithin(e.position, hitR);
+    if (victim) {
+      host.hitTarget(e, CHARGER_CHARGE.damage, 1.0, victim);
       stumble(e);
       return r;
     }
-    // overshot the player
-    const passed = (player.position.x - e.position.x) * e.chargeDir.x + (player.position.z - e.position.z) * e.chargeDir.z;
+    // overshot the target
+    const passed = (tp.x - e.position.x) * e.chargeDir.x + (tp.z - e.position.z) * e.chargeDir.z;
     if ((passed < -2.5 && e.chargeTimer > 0.4) || e.chargeTimer > CHARGER_CHARGE.maxDuration) { stumble(e); return r; }
     return r;
   }
 
   // ── spewer: spit wind-up ──────────────────────────────────────────────
   if (e.spitPhase === 1) {
-    e.facePoint.copy(player.position); e.hasFacePoint = true;
-    lookAtPlayer(e, player, dt);
+    e.facePoint.copy(tp); e.hasFacePoint = true;
+    if (t) lookAtTarget(e, t, dt);
     a.abdomen = Math.min(1, e.attackTimer / SPEWER_SPIT.windup);
     a.crouch = a.abdomen * 0.2;
     r.mandible = a.abdomen;
     if (e.attackTimer >= SPEWER_SPIT.windup) {
-      e.headCenter(_tmp);
-      _tmp.y += 0.1;
-      host.fireAcid(_tmp, e);
-      host.playAudio('bug_attack', e.position, 0.9, 0.7);
+      if (t && !t.isDead) {
+        e.headCenter(_tmp);
+        _tmp.y += 0.1;
+        host.fireAcid(_tmp, e, t);
+        host.playAudio('bug_attack', e.position, 0.9, 0.7);
+      }
       e.spitPhase = 0;
       e.attackCd = SPEWER_SPIT.cooldown * (0.85 + Math.random() * 0.3);
       e.state = 'chase'; e.stateTime = 0;
@@ -312,12 +322,13 @@ function attack(e: Enemy, dt: number, host: EnemyHost, player: PlayerRef): Attac
   if (e.leaping) {
     const crouchTime = 0.2;
     if (!e.airborne) {
-      e.facePoint.copy(player.position); e.hasFacePoint = true;
+      e.facePoint.copy(tp); e.hasFacePoint = true;
       a.crouch = Math.min(1, e.attackTimer / crouchTime);
       r.mandible = 0.8;
       if (e.attackTimer >= crouchTime) {
         const T = HUNTER_LEAP.flightTime;
-        _tmp.copy(player.position).addScaledVector(player.velocity, T * 0.5);
+        _tmp.copy(tp);
+        if (t) _tmp.addScaledVector(t.velocity, T * 0.5);
         e.velocity.set((_tmp.x - e.position.x) / T, 0, (_tmp.z - e.position.z) / T);
         const vmax = 16;
         if (e.velocity.length() > vmax) e.velocity.setLength(vmax);
@@ -346,7 +357,8 @@ function attack(e: Enemy, dt: number, host: EnemyHost, player: PlayerRef): Attac
       e.leaping = false;
       e.vy = 0;
       e.velocity.multiplyScalar(0.2);
-      if (!player.isDead && e.distToPlayer < HUNTER_LEAP.hitRadius) host.hitPlayer(e, HUNTER_LEAP.damage, 0.5);
+      const victim = host.targets.nearestAliveWithin(e.position, HUNTER_LEAP.hitRadius);
+      if (victim) host.hitTarget(e, HUNTER_LEAP.damage, 0.5, victim);
       else host.playAudio('bug_step', e.position, 0.6, 1.1);
       e.leapCd = HUNTER_LEAP.cooldown * (0.8 + Math.random() * 0.5);
       e.attackCd = 0.5;
@@ -357,21 +369,21 @@ function attack(e: Enemy, dt: number, host: EnemyHost, player: PlayerRef): Attac
   }
 
   // ── generic melee ─────────────────────────────────────────────────────
-  e.facePoint.copy(player.position); e.hasFacePoint = true;
-  lookAtPlayer(e, player, dt);
+  e.facePoint.copy(tp); e.hasFacePoint = true;
+  if (t) lookAtTarget(e, t, dt);
   const windup = s.attackWindup;
   const reach = s.attackRange + PLAYER_RADIUS + 0.6;
   if (e.attackTimer < windup) {
     r.mandible = 0.05;
     a.crouch = (e.attackTimer / windup) * 0.3;
     // creep toward the target during wind-up so it does not stall at the edge of range
-    if (e.distToPlayer > s.attackRange * 0.7) { e.moveTarget.copy(player.position); e.hasMoveTarget = true; r.speed = s.speed * 0.6; }
+    if (e.distToTarget > s.attackRange * 0.7) { e.moveTarget.copy(tp); e.hasMoveTarget = true; r.speed = s.speed * 0.6; }
   } else {
     if (!e.attackHitDone) {
       e.attackHitDone = true;
       a.crouch = 0;
       a.flinch = Math.max(a.flinch, 0.5); a.flinchZ = 0.8; a.flinchX = 0;   // lunge forward (nose dips)
-      if (!player.isDead && e.distToPlayer < reach) host.hitPlayer(e, s.attackDamage, e.type === 'warrior' || e.type === 'charger' ? 0.45 : 0.18);
+      if (t && !t.isDead && e.distToTarget < reach) host.hitTarget(e, s.attackDamage, e.type === 'warrior' || e.type === 'charger' ? 0.45 : 0.18, t);
       else host.playAudio('bug_attack', e.position, 0.5, 1.1);
     }
     r.mandible = 1;
@@ -394,7 +406,7 @@ function stumble(e: Enemy): void {
 /* ────────────────────────────────────────────────────────────────────────────
  * Movement integration (shared by every grounded state)
  * ──────────────────────────────────────────────────────────────────────────── */
-function integrate(e: Enemy, dt: number, world: WorldRef, player: PlayerRef | null, host: EnemyHost, speed: number, allowOverlap: boolean): void {
+function integrate(e: Enemy, dt: number, world: WorldRef, host: EnemyHost, speed: number, allowOverlap: boolean): void {
   const s = e.stats;
   const a = e.anim;
   const pos = e.position;
@@ -427,7 +439,7 @@ function integrate(e: Enemy, dt: number, world: WorldRef, player: PlayerRef | nu
 
   // separation (positional + soft steering)
   _steer.set(0, 0, 0);
-  separate(e, host.grid, player, _steer, allowOverlap || charging);
+  separate(e, host.grid, host.targets.alive, _steer, allowOverlap || charging);
   if (!charging) e.velocity.addScaledVector(_steer, dt * 4);
 
   _prev.copy(pos);
@@ -441,7 +453,7 @@ function integrate(e: Enemy, dt: number, world: WorldRef, player: PlayerRef | nu
     if (dev > 0.05 || !world.isInsideBounds(pos.x + e.chargeDir.x * 2, pos.z + e.chargeDir.z * 2)) {
       stumble(e);
       host.playAudio('bug_step', pos, 1.0, 0.5);
-      if (e.distToPlayer < 25) host.ctx.bus.emit('camera:shake', { intensity: 0.35, duration: 0.3 });
+      if (host.targets.distToLocal(pos) < 25) host.ctx.bus.emit('camera:shake', { intensity: 0.35, duration: 0.3 });
     }
   }
   pos.y = world.getHeightAt(pos.x, pos.z);
@@ -455,13 +467,16 @@ function integrate(e: Enemy, dt: number, world: WorldRef, player: PlayerRef | nu
   const targetAnimSpeed = Math.min(1, spd / Math.max(1, s.speed * 0.8));
   a.speed += (targetAnimSpeed - a.speed) * Math.min(1, dt * 8);
 
-  // footsteps (heavies only, near the player)
-  if (s.stepSound && e.distToPlayer < 30) {
-    e.stepAccum += moved;
-    if (e.stepAccum >= e.rig.params.strideLength * 0.5) {
-      e.stepAccum = 0;
-      const vol = THREE.MathUtils.clamp(1 - e.distToPlayer / 30, 0.1, 1) * (e.type === 'charger' ? 1 : 0.6);
-      host.playAudio('bug_step', pos, vol, e.type === 'charger' ? 0.6 : 0.9);
+  // footsteps (heavies only, near the local listener)
+  if (s.stepSound) {
+    const dl = host.targets.distToLocal(pos);
+    if (dl < 30) {
+      e.stepAccum += moved;
+      if (e.stepAccum >= e.rig.params.strideLength * 0.5) {
+        e.stepAccum = 0;
+        const vol = THREE.MathUtils.clamp(1 - dl / 30, 0.1, 1) * (e.type === 'charger' ? 1 : 0.6);
+        host.playAudio('bug_step', pos, vol, e.type === 'charger' ? 0.6 : 0.9);
+      }
     }
   }
 
@@ -472,7 +487,13 @@ function integrate(e: Enemy, dt: number, world: WorldRef, player: PlayerRef | nu
   e.yaw = turnToward(e.yaw, targetYaw, s.turnRate * (charging ? 0.3 : 1), dt);
 
   // slope conforming
-  world.getNormalAt(pos.x, pos.z, _n);
+  applySlope(e, world, dt);
+}
+
+/** Tilt the body with the terrain normal (shared with the replica driver). */
+export function applySlope(e: Enemy, world: WorldRef, dt: number): void {
+  const a = e.anim;
+  world.getNormalAt(e.position.x, e.position.z, _n);
   const fx = Math.sin(e.yaw), fz = Math.cos(e.yaw);
   const pitch = (_n.x * fx + _n.z * fz) * 0.7;
   const roll = -(_n.x * fz - _n.z * fx) * 0.7;

@@ -6,6 +6,9 @@ import { MenuBase } from './MenuBase';
 export class DeathScreen extends MenuBase {
   private vals: Record<string, HTMLElement> = {};
   private seed = 0;
+  private redeployBtn: HTMLButtonElement;
+  private lobbyBtn: HTMLButtonElement;
+  private menuBtn: HTMLButtonElement;
 
   constructor(parent: HTMLElement) {
     super(parent, 'death');
@@ -25,8 +28,9 @@ export class DeathScreen extends MenuBase {
     this.vals.loot.style.color = 'var(--c-danger)';
 
     const actions = el('div', { cls: 'actions', parent: this.frame });
-    this.button(actions, '다시 배치', () => this.ctx.bus.emit('game:newMission', { seed: this.seed }), 'primary');
-    this.button(actions, '메뉴로', () => this.ctx.bus.emit('game:abort', {}));
+    this.redeployBtn = this.button(actions, '다시 배치', () => this.ctx.bus.emit('game:newMission', { seed: this.seed }), 'primary');
+    this.lobbyBtn = this.button(actions, '로비로', () => this.ctx.bus.emit('game:abort', {}), 'primary');
+    this.menuBtn = this.button(actions, '메뉴로', () => this.ctx.bus.emit('game:abort', {}));
   }
 
   override bind(ctx: GameContext): void {
@@ -39,6 +43,11 @@ export class DeathScreen extends MenuBase {
 
   private fill(s: MissionStats): void {
     this.seed = s.seed;
+    // Multiplayer: the seed is the host's call → only '로비로' (abort → phase 'menu' → LobbyMenu shows).
+    const inLobby = !!this.ctx.net?.lobby;
+    this.redeployBtn.hidden = inLobby;
+    this.menuBtn.hidden = inLobby;
+    this.lobbyBtn.hidden = !inLobby;
     setText(this.vals.kills, String(s.kills));
     setText(this.vals.time, fmtTime(s.timeSeconds));
     setText(this.vals.crates, String(s.cratesOpened));

@@ -7,13 +7,22 @@
     "dev": "vite --host --port 5173",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
-    "preview": "vite preview --port 5174"
+    "preview": "vite preview --port 5174",
+    "server": "node server/index.ts",
+    "dev:all": "node scripts/dev-all.mjs",
+    "net:selftest": "node server/selftest.ts",
+    "typecheck:server": "tsc --noEmit -p server/tsconfig.json",
+    "e2e:mp": "node scripts/e2e-multiplayer.mjs"
   },
   "dependencies": {
-    "three": "^0.185.1"
+    "three": "^0.185.1",
+    "ws": "^8.21.3"
   },
   "devDependencies": {
+    "@types/node": "^26.4.1",
     "@types/three": "^0.185.4",
+    "@types/ws": "^8.18.1",
+    "puppeteer-core": "^25.10.0",
     "typescript": "^7.0.2",
     "vite": "^8.2.2"
   }

@@ -226,6 +226,19 @@ export interface PlayerRef {
   setControlsEnabled(enabled: boolean): void;
   /** Re-parent the player root to `parent` (e.g. the ship) so it rides along; null → back to scene. World position is preserved. */
   attachTo(parent: THREE.Object3D | null): void;
+  /* ── appended: multiplayer snapshot inputs (owner: player) — read by net/NetSystem every snapshot ── */
+  /** Camera pitch (radians, + = up). */
+  readonly pitch: number;
+  readonly isGrounded: boolean;
+  readonly isReloading: boolean;
+  readonly isFiring: boolean;
+  /** true while inside the hellpod (drop-in not finished); avatar hidden for remotes. */
+  readonly isDropping: boolean;
+  /** true while inside the extraction ship interior. */
+  readonly isInShip: boolean;
+  /** Stride phase (radians) and move blend (0..1.2) driving the walk cycle. */
+  readonly stridePhase: number;
+  readonly moveBlend: number;
 }
 
 /* ────────────────────────────────────────────────────────────────────────────

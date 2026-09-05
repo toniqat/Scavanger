@@ -609,3 +609,190 @@ input { font: inherit; color: inherit; }
 }
 .map-north i { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 10px solid var(--c-accent); }
 .map-north span { font-size: 11px; font-weight: 700; letter-spacing: 0.1em; }
+.map-legend-row .sw.squad { width: 0; height: 0; border-top: 6px solid transparent; border-bottom: 6px solid transparent; border-left: 12px solid var(--sw); }
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * ── multiplayer ──  lobby screen, squad list, nameplates, squad pings,
+ *                    spectate banner, pause/death/complete tweaks
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+/* slot colour utilities (mirror NET_SLOT_COLORS_CSS; components also set --sc inline) */
+.slot-0 { --sc: #ffc23a; }
+.slot-1 { --sc: #5fd7ff; }
+.slot-2 { --sc: #ff8a4a; }
+.slot-3 { --sc: #7cf07a; }
+
+/* inline form message (title "멀티플레이 사용 불가", lobby errors / copy results) */
+.menu .form-msg {
+  font-size: 12px; letter-spacing: 0.04em;
+  padding: 8px 12px;
+  border-left: 2px solid var(--c-text-dim);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--c-text);
+  animation: objSwap 200ms var(--ease);
+}
+.menu .form-msg.info { border-left-color: var(--c-info); }
+.menu .form-msg.success { border-left-color: var(--c-success); }
+.menu .form-msg.warning { border-left-color: var(--c-accent); }
+.menu .form-msg.danger { border-left-color: var(--c-danger); color: #ffb3b3; }
+.menu .ui-btn:disabled { opacity: 0.45; cursor: default; pointer-events: none; }
+
+/* ── Lobby menu ── */
+.menu.lobby .frame { min-width: 560px; max-width: 720px; width: min(720px, calc(100vw - 48px)); gap: 20px; }
+.menu.lobby .wordmark.small { font-size: 18px; letter-spacing: 0.3em; }
+.lobby-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
+.lobby-head .hl { display: flex; flex-direction: column; gap: 10px; }
+.lobby-head .title { font-size: 26px; letter-spacing: 0.18em; }
+.lobby-view { display: flex; flex-direction: column; gap: 18px; }
+.lobby-view.busy .ui-input { opacity: 0.6; }
+
+.status-pill {
+  display: inline-flex; align-items: center; gap: 8px;
+  height: 26px; padding: 0 12px 0 10px;
+  border: 1px solid var(--c-border); background: var(--c-panel);
+  font-size: 11px; letter-spacing: 0.1em; color: var(--c-text-dim);
+  font-family: var(--ui-mono); font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.status-pill i { width: 7px; height: 7px; border-radius: 50%; background: var(--c-text-faint); }
+.status-pill.connecting i { background: var(--c-accent); animation: pillBlink 0.9s ease-in-out infinite; }
+.status-pill.connected { color: var(--c-text); border-color: rgba(79, 209, 126, 0.4); }
+.status-pill.connected i { background: var(--c-success); box-shadow: 0 0 6px rgba(79, 209, 126, 0.6); }
+.status-pill.error { color: var(--c-danger); border-color: rgba(255, 77, 77, 0.4); }
+.status-pill.error i { background: var(--c-danger); }
+@keyframes pillBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+
+.lobby-view .or { display: flex; align-items: center; gap: 12px; font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--c-text-faint); }
+.lobby-view .or i { flex: 1; height: 1px; background: var(--c-border); }
+.lobby-view .ui-input.code-input {
+  font-size: 22px; letter-spacing: 0.42em; text-transform: uppercase; font-weight: 600;
+  height: 48px; padding-left: 18px;
+}
+.lobby-view .ui-input.code-input::placeholder { letter-spacing: 0.42em; font-weight: 400; }
+.lobby-view .field .row .ui-btn { height: 48px; padding: 0 22px; }
+
+.code-block { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.code-block .code {
+  font-size: 48px; font-weight: 700; letter-spacing: 0.5em; line-height: 1;
+  color: var(--c-accent); text-shadow: 0 0 18px rgba(255, 179, 71, 0.35);
+  margin-right: -0.5em;
+  user-select: text; -webkit-user-select: text;
+}
+.code-block .row { display: flex; gap: 8px; margin-top: 4px; }
+.menu.lobby .ui-btn.small { min-width: 0; height: 32px; padding: 0 14px; font-size: 10px; }
+
+.slots { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.slot-card {
+  --sc: #fff;
+  position: relative; display: flex; gap: 12px;
+  min-height: 62px; padding: 10px 12px 10px 0;
+  border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03);
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.slot-card .bar { width: 3px; align-self: stretch; background: var(--sc); box-shadow: 0 0 8px color-mix(in srgb, var(--sc) 55%, transparent); }
+.slot-card .body { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0; }
+.slot-card .top { display: flex; align-items: center; gap: 8px; }
+.slot-card .num { font-size: 10px; color: var(--c-text-faint); border: 1px solid var(--c-border); padding: 1px 5px; }
+.slot-card .name { font-size: 14px; font-weight: 600; letter-spacing: 0.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.slot-card .badge { font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--c-accent); border: 1px solid rgba(255, 179, 71, 0.5); padding: 1px 6px; margin-left: auto; }
+.slot-card .state { font-size: 11px; letter-spacing: 0.08em; color: var(--c-text-dim); }
+.slot-card.ready { border-color: rgba(79, 209, 126, 0.45); background: rgba(79, 209, 126, 0.06); }
+.slot-card.ready .state { color: var(--c-success); }
+.slot-card.me { background: rgba(255, 255, 255, 0.06); }
+.slot-card.me .name::after { content: " (나)"; color: var(--c-text-dim); font-weight: 400; }
+.slot-card.empty { border-style: dashed; background: none; }
+.slot-card.empty .bar { opacity: 0.25; box-shadow: none; }
+.slot-card.empty .name { color: var(--c-text-faint); font-weight: 400; }
+
+.lobby-actions { display: flex; flex-direction: column; gap: 10px; }
+.lobby-actions .ui-btn.on { border-color: var(--c-success); color: var(--c-success); background: rgba(79, 209, 126, 0.08); }
+.host-row { display: flex; flex-direction: column; gap: 10px; padding: 14px; border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.025); }
+.host-row .sub { font-size: 11px; color: var(--c-text-faint); letter-spacing: 0.06em; }
+.host-row .sub.ok { color: var(--c-success); }
+.lobby-actions .wait { font-size: 12px; color: var(--c-text-dim); letter-spacing: 0.04em; padding: 6px 0; }
+.lobby-actions .wait::after { content: ""; display: inline-block; width: 8px; margin-left: 6px; border-bottom: 2px dotted var(--c-accent); animation: pillBlink 1.2s ease-in-out infinite; }
+
+@media (max-width: 720px) {
+  .menu.lobby .frame { min-width: 0; padding: 26px 22px; }
+  .slots { grid-template-columns: 1fr; }
+  .code-block .code { font-size: 36px; }
+  .lobby-head { flex-direction: column; align-items: flex-start; }
+}
+
+/* ── Pause: multiplayer note ── */
+.menu .mp-note {
+  font-size: 12px; color: var(--c-accent); letter-spacing: 0.04em;
+  padding: 8px 12px; border-left: 2px solid var(--c-accent); background: rgba(255, 179, 71, 0.07);
+}
+
+/* ── Squad list (top-left, under the objective) ── */
+.squad {
+  position: absolute; left: 32px; top: 118px;
+  display: flex; flex-direction: column; gap: 6px;
+  width: 210px;
+  transition: opacity var(--t-med) var(--ease), visibility var(--t-med) var(--ease);
+}
+.squad .ui-label { margin-bottom: 2px; }
+.srow { --sc: #fff; display: flex; gap: 8px; height: 30px; }
+.srow .bar { width: 3px; background: var(--sc); box-shadow: 0 0 6px color-mix(in srgb, var(--sc) 50%, transparent); }
+.srow .body { display: flex; flex-direction: column; justify-content: center; gap: 4px; flex: 1; min-width: 0; }
+.srow .top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.srow .name { font-size: 12px; font-weight: 600; letter-spacing: 0.02em; text-shadow: 0 1px 3px rgba(0,0,0,0.8); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.srow .state { font-size: 9px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--c-text-dim); white-space: nowrap; text-shadow: 0 1px 3px rgba(0,0,0,0.8); }
+.srow .hp { position: relative; height: 3px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
+.srow .hp .fill { position: absolute; inset: 0; background: var(--sc); transform-origin: left; will-change: transform; transition: transform 120ms linear, background var(--t-fast) var(--ease); }
+.srow.low .hp .fill { background: var(--c-danger); }
+.srow.dead { opacity: 0.55; }
+.srow.dead .state { color: var(--c-danger); }
+.srow.dead .hp .fill { background: var(--c-danger); }
+.srow.off { opacity: 0.5; }
+.srow.off .name { color: var(--c-text-dim); }
+.srow.drop .state { color: var(--c-accent); }
+
+/* ── Nameplates ── */
+.nameplates { position: absolute; inset: 0; pointer-events: none; }
+.nameplate {
+  --sc: #fff;
+  position: absolute; left: 0; top: 0;
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  transform: translate(-50%, -100%);
+  will-change: transform, opacity;
+  opacity: 0;
+  pointer-events: none;
+}
+.nameplate .name {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.06em; color: var(--sc);
+  text-shadow: 0 0 4px #000, 0 1px 2px rgba(0,0,0,0.9);
+  white-space: nowrap;
+}
+.nameplate .hp { width: 46px; height: 3px; background: rgba(0, 0, 0, 0.55); border: 1px solid rgba(0,0,0,0.6); overflow: hidden; }
+.nameplate .hp .fill { height: 100%; background: var(--sc); transform-origin: left; will-change: transform; }
+.nameplate.far .hp { display: none; }
+.nameplate.far .name { font-size: 10px; }
+.nameplate.dead .name { color: var(--c-text-dim); text-decoration: line-through; }
+.nameplate.dead .hp .fill { background: var(--c-danger); }
+
+/* ── Squad pings (Pings.ts sets --pc to the sender's slot colour) ── */
+.pmarker.remote .lbl { color: var(--pc); font-weight: 700; letter-spacing: 0.1em; text-transform: none; }
+.pmarker.remote .ico { box-shadow: 0 0 8px color-mix(in srgb, var(--pc) 45%, transparent); }
+
+/* ── Spectate banner (multiplayer death) ── */
+.spectate {
+  position: absolute; left: 0; right: 0; top: 17%;
+  display: flex; justify-content: center;
+  pointer-events: none;
+  transition: opacity var(--t-med) var(--ease), visibility var(--t-med) var(--ease);
+}
+.spectate .inner {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 14px 40px;
+  background: linear-gradient(90deg, transparent, rgba(6, 7, 9, 0.85) 18%, rgba(6, 7, 9, 0.85) 82%, transparent);
+  border-top: 1px solid rgba(255, 77, 77, 0.35); border-bottom: 1px solid rgba(255, 77, 77, 0.35);
+  min-width: 520px;
+  animation: menuIn 320ms var(--ease);
+}
+.spectate .main { font-size: 18px; font-weight: 700; letter-spacing: 0.16em; color: var(--c-danger); text-shadow: 0 0 10px rgba(255, 77, 77, 0.4); }
+.spectate .count { font-family: var(--ui-mono); font-size: 12px; letter-spacing: 0.12em; color: var(--c-text-dim); }
+
+/* dead-but-spectating: keep squad/nameplates/pings/notifs, hide personal widgets */
+.hud.spectating .reticle, .hud.spectating .vitals, .hud.spectating .weapon, .hud.spectating .prompt { opacity: 0 !important; visibility: hidden; }

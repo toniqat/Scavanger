@@ -1,0 +1,331 @@
+import type * as THREE from 'three';
+import type { EnemyType, GamePhase, Stance } from './types';
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Multiplayer contract (owner: net/NetSystem publishes `ctx.net`).
+ *
+ * Topology: Node WebSocket relay server (server/) + host-authoritative gameplay.
+ *   - Server owns lobbies (code, players, ready, start) and relays opaque GameMessages.
+ *   - The lobby host runs the authoritative simulation (enemies, extraction, waves).
+ *   - Every client simulates only its own player and sends PlayerSnapshots to everyone.
+ *   - Clients render remote players / enemies from interpolated snapshots.
+ *
+ * This file is shared by the browser client AND the Node server (type-only imports there),
+ * so keep it free of runtime dependencies other than plain constants.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+export const NET_MAX_PLAYERS = 4;
+export const NET_LOBBY_CODE_LENGTH = 6;
+/** Local player snapshot rate (Hz). */
+export const NET_PLAYER_SNAPSHOT_HZ = 20;
+/** Host → clients enemy snapshot rate (Hz). */
+export const NET_ENEMY_SNAPSHOT_HZ = 10;
+/** Seconds of buffered delay used when interpolating remote entities. */
+export const NET_INTERP_DELAY = 0.12;
+/** Remote entity considered stale (extrapolation stops, avatar fades) after this many seconds without a snapshot. */
+export const NET_STALE_AFTER = 1.5;
+/** Default relay server path (Vite dev proxies it to the Node server). */
+export const NET_WS_PATH = '/ws';
+export const NET_DEFAULT_PORT = 8787;
+/** URL query parameter carrying an invite code: `?lobby=ABC123`. */
+export const NET_INVITE_PARAM = 'lobby';
+
+/** Per-slot accent colours (hex) shared by remote avatars, nameplates, map icons and the lobby list. */
+export const NET_SLOT_COLORS: readonly number[] = [0xffc23a, 0x5fd7ff, 0xff8a4a, 0x7cf07a];
+export const NET_SLOT_COLORS_CSS: readonly string[] = ['#ffc23a', '#5fd7ff', '#ff8a4a', '#7cf07a'];
+
+export type PeerId = string;
+export type Vec3Tuple = [number, number, number];
+
+/* ── Lobby ─────────────────────────────────────────────────────────────────── */
+export interface LobbyPlayer {
+  id: PeerId;
+  name: string;
+  /** 0..NET_MAX_PLAYERS-1, stable for the lobby lifetime (drives spawn offset / colour). */
+  slot: number;
+  ready: boolean;
+  isHost: boolean;
+}
+
+export interface LobbyState {
+  code: string;
+  hostId: PeerId;
+  players: LobbyPlayer[];
+  /** true once the host pressed start; the lobby is closed to newcomers. */
+  started: boolean;
+  seed: number | null;
+}
+
+export type LobbyErrorCode =
+  | 'not_found' | 'full' | 'started' | 'not_host' | 'not_ready' | 'invalid'
+  | 'in_lobby' | 'not_in_lobby' | 'server';
+
+/* ── Wire protocol: client ↔ server (JSON) ─────────────────────────────────── */
+export type RelayTarget = PeerId | 'host' | 'all' | 'others';
+
+export type ClientToServer =
+  | { t: 'lobby:create'; name: string }
+  | { t: 'lobby:join'; code: string; name: string }
+  | { t: 'lobby:leave' }
+  | { t: 'lobby:ready'; ready: boolean }
+  /** Host only. Requires every player to be ready. */
+  | { t: 'lobby:start'; seed: number }
+  /** Host only, after a mission ended: started=false, every ready=false, lobby reopened for joins. */
+  | { t: 'lobby:reset' }
+  /** Relay an opaque game message. 'all' includes the sender; 'others' excludes it. */
+  | { t: 'relay'; to: RelayTarget; d: GameMessage }
+  | { t: 'ping'; ts: number };
+
+export type ServerToClient =
+  | { t: 'welcome'; id: PeerId; serverTime: number }
+  | { t: 'lobby:state'; lobby: LobbyState }
+  | { t: 'lobby:error'; code: LobbyErrorCode; message: string }
+  | { t: 'lobby:left' }
+  | { t: 'game:start'; seed: number; lobby: LobbyState }
+  | { t: 'relay'; from: PeerId; d: GameMessage }
+  /** A peer disconnected/left mid-lobby or mid-game. `lobby` is the updated state (host may have migrated). */
+  | { t: 'peer:left'; id: PeerId; lobby: LobbyState }
+  | { t: 'pong'; ts: number; serverTime: number };
+
+/* ── Game messages (relayed verbatim, never inspected by the server) ───────── */
+
+/** Bit flags packed into PlayerSnapshot.f / RemotePlayerRef.flags. */
+export const PlayerFlags = {
+  SPRINT: 1 << 0,
+  AIM: 1 << 1,
+  DIVE: 1 << 2,
+  AIRBORNE: 1 << 3,
+  DEAD: 1 << 4,
+  RELOADING: 1 << 5,
+  FIRING: 1 << 6,
+  TWO_HANDED: 1 << 7,
+  HAS_WEAPON: 1 << 8,
+  IN_SHIP: 1 << 9,
+  /** Inside the hellpod / not yet landed (avatar hidden). */
+  DROPPING: 1 << 10,
+} as const;
+
+/** Local player state → everyone, NET_PLAYER_SNAPSHOT_HZ. Owner: net (built from ctx.player / ctx.inventory). */
+export interface PlayerSnapshot {
+  t: 'ps';
+  /** Monotonic per sender; receivers drop out-of-order snapshots. */
+  seq: number;
+  /** Sender's ctx.time when sampled (for jitter smoothing only; never compared across peers). */
+  time: number;
+  /** Feet position (world). */
+  p: Vec3Tuple;
+  v: Vec3Tuple;
+  yaw: number;
+  pitch: number;
+  stance: Stance;
+  /** PlayerFlags bitfield. */
+  f: number;
+  hp: number;
+  /** Equipped active weapon def id (WeaponDef.id) or null. */
+  w: string | null;
+  /** Stride phase (radians) and move blend, for the remote walk cycle. */
+  stride: number;
+  move: number;
+}
+
+/** Someone fired. Owner: weapons (sends) / net emits `net:remoteFired` on receive. */
+export interface FireMessage { t: 'fire'; w: string; o: Vec3Tuple; d: Vec3Tuple }
+export interface ReloadMessage { t: 'reload'; w: string }
+/** Grenade thrown (visual replication; explosion damage is resolved by the host via ExplodeRequest). */
+export interface GrenadeMessage { t: 'grenade'; p: Vec3Tuple; v: Vec3Tuple }
+/** Client → host: my local raycast hit enemy `id` for `dmg` (pre-multiplier) at point `p` travelling `d`. Owner: enemies (replica Enemy.takeDamage). */
+export interface HitRequest { t: 'hit'; id: number; dmg: number; p: Vec3Tuple; d: Vec3Tuple }
+/** Client → host: explosion at `p` radius `r` damage `dmg` (grenade). Owner: enemies (replica applyExplosion). */
+export interface ExplodeRequest { t: 'explode'; p: Vec3Tuple; r: number; dmg: number }
+/** Host → shooter: confirmation of a HitRequest (hitmarker / kill credit). */
+export interface HitConfirm { t: 'hitc'; id: number; dmg: number; killed: boolean; part: 'head' | 'body' | 'rear' | 'front' }
+/** Host → one client: you took damage. Owner: enemies (host AI) → net applies `ctx.player.takeDamage`. */
+export interface DamageMessage { t: 'dmg'; amount: number; from?: Vec3Tuple; slow?: { duration: number; factor: number } }
+/** Any → all: I died. */
+export interface DiedMessage { t: 'died'; p: Vec3Tuple }
+
+/** Enemy AI state as seen on the wire (subset of enemies/Enemy.ts EnemyState). */
+export type EnemyWireState = 'idle' | 'wander' | 'alert' | 'chase' | 'attack' | 'stagger' | 'dead' | 'flee';
+
+export interface EnemyWire {
+  id: number;
+  ty: EnemyType;
+  p: Vec3Tuple;
+  yaw: number;
+  hp: number;
+  st: EnemyWireState;
+  /** Optional animation hints: 0 none, 1 charger windup, 2 charger rush, 3 spewer windup, 4 hunter airborne. */
+  a?: number;
+}
+
+/** Host → all, NET_ENEMY_SNAPSHOT_HZ. `full` = complete list (ids missing from it were despawned). Owner: enemies. */
+export interface EnemySnapshot { t: 'es'; time: number; full: boolean; e: EnemyWire[] }
+
+/** Host → all: discrete enemy events (spawn/kill/attack) for FX, audio and stats. Owner: enemies. */
+export type EnemyEvent =
+  | { t: 'ee'; ev: 'spawn'; id: number; ty: EnemyType; p: Vec3Tuple; yaw: number }
+  | { t: 'ee'; ev: 'kill'; id: number; ty: EnemyType; p: Vec3Tuple; killer: PeerId | null }
+  | { t: 'ee'; ev: 'despawn'; id: number }
+  | { t: 'ee'; ev: 'damaged'; id: number; amount: number; p: Vec3Tuple; d?: Vec3Tuple }
+  | { t: 'ee'; ev: 'attack'; id: number; ty: EnemyType; target: PeerId; damage: number; p: Vec3Tuple }
+  | { t: 'ee'; ev: 'acid'; id: number; from: Vec3Tuple; target: PeerId }
+  | { t: 'ee'; ev: 'wave'; index: number; count: number };
+
+/** Host → all: extraction flow. Owner: extraction. */
+export type ExtractionMessage =
+  | { t: 'ex'; ev: 'activated'; padId: string; duration: number }
+  | { t: 'ex'; ev: 'tick'; remaining: number }
+  | { t: 'ex'; ev: 'shipIncoming'; eta: number }
+  | { t: 'ex'; ev: 'shipLanded' }
+  | { t: 'ex'; ev: 'boarding'; boarded: PeerId[]; required: PeerId[] }
+  | { t: 'ex'; ev: 'liftoff' }
+  | { t: 'ex'; ev: 'reset' };
+
+/** Client → host: extraction requests. Owner: extraction. */
+export type ExtractionRequest =
+  | { t: 'exq'; ev: 'activate'; padId: string }
+  | { t: 'exq'; ev: 'liftoff' }
+  | { t: 'exq'; ev: 'board'; inside: boolean };
+
+/** Host → all: mission-level flow that GameFlow must mirror. Owner: game. */
+export type FlowMessage =
+  | { t: 'flow'; ev: 'over' }                 // everyone is dead → game:over on all clients
+  | { t: 'flow'; ev: 'complete' }             // liftoff finished → game:complete on all clients
+  | { t: 'flow'; ev: 'abort' }                // host aborted → everyone back to lobby
+  | { t: 'flow'; ev: 'phase'; phase: GamePhase };
+
+/** Any → all: a tactical ping. Owner: ui/hud/Pings. */
+export interface PingMessage { t: 'ping'; p: Vec3Tuple; kind: 'ground' | 'enemy' | 'crate' | 'extraction' }
+
+/** Any → all: crate opened (so other clients mark it looted). Owner: world/inventory. */
+export interface CrateMessage { t: 'crate'; id: string; ev: 'opened' | 'looted' }
+
+/** Any → all: short text chat / quick-chat line. Owner: ui. */
+export interface ChatMessage { t: 'chat'; text: string }
+
+export type GameMessage =
+  | PlayerSnapshot
+  | FireMessage
+  | ReloadMessage
+  | GrenadeMessage
+  | HitRequest
+  | ExplodeRequest
+  | HitConfirm
+  | DamageMessage
+  | DiedMessage
+  | EnemySnapshot
+  | EnemyEvent
+  | ExtractionMessage
+  | ExtractionRequest
+  | FlowMessage
+  | PingMessage
+  | CrateMessage
+  | ChatMessage;
+  /* append new message types above this line (keep `t` unique; prefix by owning folder if in doubt) */
+
+export type GameMessageType = GameMessage['t'];
+export type GameMessageOf<T extends GameMessageType> = Extract<GameMessage, { t: T }>;
+
+/* ── Runtime refs on ctx ───────────────────────────────────────────────────── */
+
+/** Avatar for a remote player, created by player/RemotePlayerSystem and attached to the RemotePlayerRef. */
+export interface RemoteAvatarRef {
+  readonly root: THREE.Object3D;
+  /** Right-hand socket; weapons/WeaponSystem parents a WeaponModel here (weapon -Z = barrel forward). */
+  readonly weaponSocket: THREE.Object3D;
+  getHeadPosition(out: THREE.Vector3): THREE.Vector3;
+}
+
+/**
+ * Interpolated view of a remote player. Owned/updated by net/NetSystem every frame (position, yaw, … are
+ * smoothed toward the snapshot stream). Read-only for everyone except `avatar`, which player/RemotePlayerSystem sets.
+ */
+export interface RemotePlayerRef {
+  readonly id: PeerId;
+  readonly name: string;
+  readonly slot: number;
+  /** Interpolated feet position (world). Scratch-safe: the same Vector3 instance for the ref's lifetime. */
+  readonly position: THREE.Vector3;
+  readonly velocity: THREE.Vector3;
+  readonly yaw: number;
+  readonly pitch: number;
+  readonly stance: Stance;
+  /** PlayerFlags bitfield from the latest snapshot. */
+  readonly flags: number;
+  readonly hp: number;
+  readonly maxHp: number;
+  readonly isDead: boolean;
+  readonly weaponId: string | null;
+  readonly stridePhase: number;
+  readonly moveBlend: number;
+  /** ctx.time when the last snapshot arrived. */
+  readonly lastUpdate: number;
+  /** false once the peer left (ref is removed shortly after). */
+  readonly connected: boolean;
+  /** true when no snapshot arrived for NET_STALE_AFTER seconds. */
+  readonly stale: boolean;
+  avatar: RemoteAvatarRef | null;
+}
+
+export type NetStatus = 'offline' | 'connecting' | 'connected' | 'error';
+
+export interface NetRef {
+  readonly status: NetStatus;
+  readonly connected: boolean;
+  readonly localId: PeerId | null;
+  readonly playerName: string;
+  readonly lobby: LobbyState | null;
+  /** true while a multiplayer mission is running (lobby started and not yet left). Single-player → false. */
+  readonly inSession: boolean;
+  /** true when this client is the lobby host. */
+  readonly isHost: boolean;
+  /** Authority to simulate enemies / extraction: single-player OR host. Systems gate on this. */
+  readonly isAuthority: boolean;
+  /** Local player's lobby slot (0 in single-player). */
+  readonly localSlot: number;
+  readonly rttMs: number;
+  /** Invite code parsed from the page URL (?lobby=CODE) at startup, or null. UI pre-fills the join field with it. */
+  readonly inviteCode: string | null;
+
+  /** Connect to the relay (defaults to same-origin NET_WS_PATH or VITE_WS_URL). Resolves when `welcome` arrives. */
+  connect(url?: string): Promise<void>;
+  disconnect(): void;
+  setPlayerName(name: string): void;
+
+  createLobby(): void;
+  joinLobby(code: string): void;
+  leaveLobby(): void;
+  setReady(ready: boolean): void;
+  /** Host only: starts the mission for everyone (server broadcasts game:start → net emits game:newMission). */
+  startGame(seed: number): void;
+  /** Shareable invite URL for the current lobby (`?lobby=CODE`), or null. */
+  getInviteUrl(): string | null;
+
+  /** Send a game message. Default target 'others'. No-op when not in a session. */
+  send(msg: GameMessage, to?: RelayTarget): void;
+  /** Subscribe to a game message type. Returns unsubscribe. */
+  onMessage<T extends GameMessageType>(type: T, handler: (msg: GameMessageOf<T>, from: PeerId) => void): () => void;
+
+  getRemotePlayers(): readonly RemotePlayerRef[];
+  getRemotePlayer(id: PeerId): RemotePlayerRef | undefined;
+  /** Lobby player info for any peer (including local), or undefined. */
+  getLobbyPlayer(id: PeerId): LobbyPlayer | undefined;
+}
+
+/* ── helpers usable by both server and client ──────────────────────────────── */
+/** Lobby code alphabet: no I/O/0/1 to avoid confusion when read aloud. */
+export const NET_LOBBY_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+export function isValidLobbyCode(code: string): boolean {
+  if (code.length !== NET_LOBBY_CODE_LENGTH) return false;
+  for (let i = 0; i < code.length; i++) if (!NET_LOBBY_ALPHABET.includes(code[i])) return false;
+  return true;
+}
+/** Upper-case and strip separators / whitespace; invalid characters are then rejected by isValidLobbyCode. */
+export function normalizeLobbyCode(raw: string): string {
+  return raw.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+/** Strip markup / control characters, clamp to 16 chars, fall back to a default Korean name. */
+export function sanitizePlayerName(raw: string): string {
+  const s = raw.replace(/[<>\u0000-\u001f]/g, '').trim().slice(0, 16);
+  return s.length > 0 ? s : '스캐빈저';
+}

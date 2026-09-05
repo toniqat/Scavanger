@@ -65,8 +65,11 @@ export class Input {
   requestPointerLock(): void {
     if (!this.lockTarget || this.isPointerLocked) return;
     this.lastLockRequest = performance.now();
-    try { (this.lockTarget as any).requestPointerLock?.({ unadjustedMovement: true }) ?? this.lockTarget.requestPointerLock(); }
-    catch { try { this.lockTarget.requestPointerLock(); } catch { /* ignore */ } }
+    // Modern Chrome returns a Promise that rejects when the lock is denied (e.g. headless, no user gesture) —
+    // swallow it so a denied re-lock never surfaces as an unhandled rejection.
+    const swallow = (r: unknown): void => { if (r && typeof (r as Promise<void>).catch === 'function') (r as Promise<void>).catch(() => { /* denied */ }); };
+    try { swallow((this.lockTarget as any).requestPointerLock?.({ unadjustedMovement: true }) ?? this.lockTarget.requestPointerLock()); }
+    catch { try { swallow(this.lockTarget.requestPointerLock()); } catch { /* ignore */ } }
   }
   exitPointerLock(): void { if (this.isPointerLocked) document.exitPointerLock(); }
 

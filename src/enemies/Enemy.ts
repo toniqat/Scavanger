@@ -3,6 +3,8 @@ import type { EnemyRef, EnemyType, GameContext, Obstacle } from '@/shared';
 import { ENEMY_STATS, type EnemyStats } from './EnemyTypes';
 import { createBugRig, createBugAnim, disposeBugRig, animateBug, type BugRig, type BugAnim } from './models/BugModel';
 import type { SpatialGrid } from './SpatialGrid';
+import type { CombatTarget, TargetId, TargetList } from './Targets';
+import type { ReplicaBuffer } from './net/Replica';
 
 export type EnemyState = 'idle' | 'wander' | 'alert' | 'chase' | 'attack' | 'stagger' | 'dead' | 'flee';
 export type HitPart = 'head' | 'body' | 'rear' | 'front';
@@ -11,13 +13,19 @@ export type HitPart = 'head' | 'body' | 'rear' | 'front';
 export interface EnemyHost {
   readonly ctx: GameContext;
   readonly grid: SpatialGrid<Enemy>;
+  /** Every player the bugs can hunt this frame (local + remote). */
+  readonly targets: TargetList;
+  /** true on a joined multiplayer client: enemies are replicas driven by host snapshots, damage is a request. */
+  readonly replica: boolean;
   /** Wake every unaware bug within radius (propagation). */
   alertNear(position: THREE.Vector3, radius: number, source: Enemy | null): void;
-  fireAcid(from: THREE.Vector3, shooter: Enemy): void;
-  /** Deal melee/leap/charge damage to the player and emit enemy:attacked. */
-  hitPlayer(e: Enemy, damage: number, shake?: number): void;
+  fireAcid(from: THREE.Vector3, shooter: Enemy, target: CombatTarget): void;
+  /** Deal melee/leap/charge damage to `target` (default `e.target`): local → ctx.player, remote → dmg message. */
+  hitTarget(e: Enemy, damage: number, shake?: number, target?: CombatTarget | null): void;
   onEnemyDamaged(e: Enemy, amount: number, part: HitPart, hitPoint: THREE.Vector3 | undefined, hitDir: THREE.Vector3 | undefined): void;
   onEnemyKilled(e: Enemy, countKill: boolean): void;
+  /** Replica only: forward a local hit to the host (`HitRequest`) and play the optimistic gore/audio. */
+  requestHit(e: Enemy, amount: number, part: HitPart, hitPoint: THREE.Vector3 | undefined, hitDir: THREE.Vector3 | undefined): void;
   playAudio(id: string, position: THREE.Vector3, volume?: number, pitch?: number): void;
 }
 
@@ -73,15 +81,24 @@ export class Enemy implements EnemyRef {
   /** cached nearby obstacles (refreshed every ~0.25 s) */
   nearObstacles: Obstacle[] = [];
   obstacleTimer = 0;
-  /** distance to player (2D), refreshed each frame by the system */
-  distToPlayer = Infinity;
-  /** last known LOS result */
+  /** Player this bug hunts (nearest alive, re-evaluated by the AI). Kept while dead so "target died" logic can run. */
+  target: CombatTarget | null = null;
+  targetTimer = 0;
+  /** distance to `target` (2D), refreshed each AI tick */
+  distToTarget = Infinity;
+  /** last known LOS result (to `target`) */
   hasLOS = false;
   distTravelled = 0;
   stepAccum = 0;
   spawnTime = 0;
   /** true for wave bugs: never return to idle, always hunt */
   relentless = false;
+  /** Who dealt the most recent damage (kill credit on the host). */
+  lastDamager: TargetId = 'local';
+  /** Replica: ctx.time of the last optimistic local hit (suppresses the echoed `damaged` flash). */
+  lastLocalHit = -Infinity;
+  /** Replica: interpolation ring buffer (created lazily by the replica manager, reused across pool cycles). */
+  netBuf: ReplicaBuffer | null = null;
 
   constructor(type: EnemyType) {
     this.rig = createBugRig(type);
@@ -116,10 +133,12 @@ export class Enemy implements EnemyRef {
     this.chargePhase = 0; this.chargeTimer = 0; this.chargeCd = 2;
     this.spitPhase = 0;
     this.nearObstacles.length = 0; this.obstacleTimer = Math.random() * 0.25;
-    this.distToPlayer = Infinity; this.hasLOS = false;
+    this.target = null; this.targetTimer = 0; this.distToTarget = Infinity; this.hasLOS = false;
     this.distTravelled = 0; this.stepAccum = 0;
     this.spawnTime = now;
     this.relentless = false;
+    this.lastDamager = 'local'; this.lastLocalHit = -Infinity;
+    this.netBuf?.clear();
     const a = this.anim;
     a.gait = Math.random() * Math.PI * 2; a.speed = 0; a.headYaw = 0; a.headPitch = 0; a.mandible = 0;
     a.flinch = 0; a.flinchX = 0; a.flinchZ = 0; a.hitFlash = 0; a.abdomen = 0; a.shake = 0; a.crouch = 0;
@@ -179,11 +198,14 @@ export class Enemy implements EnemyRef {
   private host: EnemyHost | null = null;
   bindHost(host: EnemyHost): void { this.host = host; }
 
-  takeDamage(amount: number, hitPoint?: THREE.Vector3, hitDir?: THREE.Vector3): void {
+  /**
+   * Apply damage. `attacker` is who dealt it (kill credit; host only — WeaponSystem calls with the default 'local').
+   * On a replica (joined client) hp never changes here: the hit is shown optimistically and forwarded to the host.
+   */
+  takeDamage(amount: number, hitPoint?: THREE.Vector3, hitDir?: THREE.Vector3, attacker: TargetId = 'local'): void {
     if (!this.active || this.state === 'dead' || amount <= 0) return;
     const part = this.classifyHit(hitPoint, hitDir);
     const dmg = amount * this.multiplierFor(part);
-    this.hp -= dmg;
     // visual feedback
     const a = this.anim;
     a.hitFlash = 1;
@@ -194,6 +216,12 @@ export class Enemy implements EnemyRef {
       a.flinchX = -(hitDir.x * c - hitDir.z * s);   // roll: +X side dips when pushed toward +X
       a.flinchZ = (hitDir.x * s + hitDir.z * c);    // pitch: nose dips when pushed forward
     } else { a.flinchX = (Math.random() - 0.5) * 2; a.flinchZ = 0.3; }
+    if (this.host?.replica) {
+      this.host.requestHit(this, amount, part, hitPoint, hitDir);
+      return;
+    }
+    this.hp -= dmg;
+    this.lastDamager = attacker;
     // wake up
     if (!this.aware) {
       this.aware = true;

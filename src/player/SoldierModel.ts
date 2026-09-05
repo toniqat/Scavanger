@@ -41,7 +41,9 @@ interface Limb {
 
 const ARMOR = 0x3a4150;      // dark steel / blue-grey plates
 const STEEL = 0x7c8796;
-const ACCENT = 0xffc23a;     // helldiver yellow
+/** Default accent (helldiver yellow). Remote avatars pass `NET_SLOT_COLORS[slot]` instead. */
+export const SOLDIER_DEFAULT_ACCENT = 0xffc23a;
+const ACCENT = SOLDIER_DEFAULT_ACCENT;
 const DARK = 0x22262e;       // undersuit
 const CAPE = 0x2e3442;
 const VISOR = 0x7fe3ff;
@@ -51,6 +53,8 @@ const VISOR = 0x7fe3ff;
  * Joint convention: rotation.x > 0 swings a limb forward (toward -Z).
  */
 export class SoldierModel {
+  /** Accent colour this model was built with (belt, stripes, crest, boot trim, cape hem; visor tint when non-default). */
+  readonly accentColor: number;
   readonly root = new THREE.Group();
   readonly weaponSocket = new THREE.Object3D();
   readonly headPivot = new THREE.Object3D();
@@ -68,16 +72,23 @@ export class SoldierModel {
 
   private readonly hipsBaseY = 0.98;
 
-  constructor() {
+  /**
+   * @param accentColor hex colour for the yellow trim. The local player keeps the default; remote avatars use
+   *   their lobby slot colour. A non-default accent also tints the visor glow halfway toward it so the
+   *   squad reads apart from any angle.
+   */
+  constructor(accentColor: number = SOLDIER_DEFAULT_ACCENT) {
+    this.accentColor = accentColor;
     this.root.name = 'Soldier';
     // low metalness on purpose: without an environment map, metallic surfaces go black under hemisphere light
     const mArmor = this.mat(ARMOR, 0.35, 0.55);
     const mSteel = this.mat(STEEL, 0.5, 0.45);
-    const mAccent = this.mat(ACCENT, 0.2, 0.5);
+    const mAccent = this.mat(accentColor, 0.2, 0.5);
     const mDark = this.mat(DARK, 0.15, 0.75);
     const mCape = this.mat(CAPE, 0.0, 0.9, THREE.DoubleSide);
     this.visorMat = this.mat(0x102030, 0.6, 0.3) as THREE.MeshStandardMaterial;
     this.visorMat.emissive.setHex(VISOR);
+    if (accentColor !== ACCENT) this.visorMat.emissive.lerp(new THREE.Color(accentColor), 0.5);
     this.visorMat.emissiveIntensity = 0.9;
 
     this.root.add(this.bodyGroup);

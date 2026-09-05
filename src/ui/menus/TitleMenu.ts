@@ -1,6 +1,7 @@
 import type { GameContext } from '@/shared';
-import { el } from '../dom';
+import { el, setText } from '../dom';
 import { MenuBase } from './MenuBase';
+import { parseSeed } from './seed';
 
 const CONTROLS: Array<[string[], string]> = [
   [['W', 'A', 'S', 'D'], '이동'], [['Shift'], '달리기 (스태미나)'], [['Space'], '점프'],
@@ -10,9 +11,15 @@ const CONTROLS: Array<[string[], string]> = [
   [['G'], '수류탄'], [['Tab'], '인벤토리'], [['M'], '지도'], [['Esc'], '일시 정지'],
 ];
 
-/** Title screen: wordmark, seed input, deploy button, controls. */
+/**
+ * Title screen: wordmark, seed input, deploy button, multiplayer entry, controls.
+ * Visible on phase 'menu' only while no lobby exists and the lobby screen is not open
+ * (`ui:lobbyToggled`, `net:lobbyUpdated`, `net:lobbyLeft` swap between title and lobby).
+ */
 export class TitleMenu extends MenuBase {
   private seedInput: HTMLInputElement;
+  private msg: HTMLElement;
+  private lobbyOpen = false;
 
   constructor(parent: HTMLElement) {
     super(parent, 'title');
@@ -30,6 +37,9 @@ export class TitleMenu extends MenuBase {
 
     const actions = el('div', { cls: 'actions', parent: this.frame });
     this.button(actions, '임무 배치', () => this.deploy(), 'primary');
+    this.button(actions, '멀티플레이', () => this.openLobby());
+    this.msg = el('div', { cls: 'form-msg', text: '', parent: actions });
+    this.msg.hidden = true;
 
     el('div', { cls: 'divider', parent: this.frame });
     el('span', { cls: 'ui-label', text: '조작', parent: this.frame });
@@ -45,18 +55,35 @@ export class TitleMenu extends MenuBase {
 
   override bind(ctx: GameContext): void {
     super.bind(ctx);
-    this.unsubs.push(ctx.bus.on('game:phaseChanged', ({ phase }) => {
-      if (phase === 'menu') this.show(); else this.hide();
-    }));
-    if (ctx.phase === 'menu') this.show();
+    const b = ctx.bus;
+    this.unsubs.push(
+      b.on('game:phaseChanged', () => this.refresh()),
+      b.on('ui:lobbyToggled', ({ open }) => { this.lobbyOpen = open; this.refresh(); }),
+      b.on('net:lobbyUpdated', () => this.refresh()),
+      b.on('net:lobbyLeft', () => this.refresh()),
+    );
+    this.refresh();
+  }
+
+  private refresh(): void {
+    const ctx = this.ctx;
+    const show = ctx.phase === 'menu' && !ctx.net?.lobby && !this.lobbyOpen;
+    if (show) this.show(); else this.hide();
+  }
+
+  protected override onHide(): void { this.msg.hidden = true; }
+
+  private openLobby(): void {
+    if (!this.ctx.net) {
+      setText(this.msg, '멀티플레이 사용 불가 — 네트워크 모듈이 없습니다');
+      this.msg.hidden = false;
+      this.ctx.bus.emit('ui:notify', { text: '멀티플레이 사용 불가', kind: 'warning' });
+      return;
+    }
+    this.ctx.bus.emit('ui:lobbyToggled', { open: true });
   }
 
   private deploy(): void {
-    const raw = this.seedInput.value.trim();
-    let seed: number;
-    if (!raw) seed = Math.floor(Math.random() * 0xffffffff) >>> 0;
-    else if (/^\d+$/.test(raw)) seed = Number(raw) >>> 0;
-    else { let h = 2166136261; for (let i = 0; i < raw.length; i++) { h ^= raw.charCodeAt(i); h = Math.imul(h, 16777619); } seed = h >>> 0; }
-    this.ctx.bus.emit('game:newMission', { seed });
+    this.ctx.bus.emit('game:newMission', { seed: parseSeed(this.seedInput.value) });
   }
 }

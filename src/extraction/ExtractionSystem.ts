@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { GameContext, GameSystem, Interactable, ExtractionPointDef } from '@/shared';
+import type { GameContext, GameSystem, Interactable, ExtractionPointDef, PeerId, ExtractionMessage, ExtractionRequest } from '@/shared';
 import { EXTRACTION_COUNTDOWN } from '@/shared';
 import { ExtractionConsole } from './Console';
 import { Dropship } from './Ship';
@@ -7,6 +7,12 @@ import { FlareColumn, DustRing } from './Particles';
 
 const SHIP_INCOMING_AT = 12;      // seconds remaining when the ship starts its approach
 const APPROACH_DURATION = 8;      // approach phase; descent (4.2 s) follows → touchdown ≈ 0 s
+/** Host → clients countdown resync interval (seconds). Clients decrement locally in between. */
+const NET_TICK_INTERVAL = 0.5;
+/** Client: after the host reports touchdown, force-place the ship if it has not landed locally within this time. */
+const NET_LAND_FALLBACK = 1.0;
+/** Id used for the local player in the boarded set when there is no network id. */
+const LOCAL_ID = 'local';
 
 interface PadEntry {
   def: ExtractionPointDef;
@@ -17,6 +23,14 @@ interface PadEntry {
 /**
  * Extraction flow: pad consoles → countdown + flare → ship flight-in / landing → boarding → interior switch → liftoff.
  * Emits the `extraction:*` events; GameFlowSystem owns the phase transitions.
+ *
+ * Multiplayer (all gated on `ctx.isMultiplayer`, so single-player is untouched):
+ *   - Authority (host): runs the flow exactly as single-player and mirrors every step to the others with
+ *     `ExtractionMessage`s ('ex'); accepts `ExtractionRequest`s ('exq') from clients (activate / board / liftoff).
+ *   - Client: builds the same pads (deterministic world), forwards console / switch interactions as requests,
+ *     and applies the host's 'ex' messages (countdown resync every 0.5 s, ship approach, landing, boarding, liftoff).
+ *   - Liftoff gate: every *required* player must be boarded — required = local player if alive + every remote
+ *     player that is `connected && !stale && !isDead`.
  */
 export class ExtractionSystem implements GameSystem {
   readonly name = 'extraction';
@@ -26,6 +40,7 @@ export class ExtractionSystem implements GameSystem {
   private flare: FlareColumn | null = null;
   private dust: DustRing | null = null;
   private unsubs: Array<() => void> = [];
+  private netUnsubs: Array<() => void> = [];
   /** Seed of the world the current pads were built for (guards against event-order races). */
   private padsSeed: number | null = null;
 
@@ -34,6 +49,7 @@ export class ExtractionSystem implements GameSystem {
   private counting = false;
   private shipCalled = false;
   private landed = false;
+  /** Local player is inside the bay. */
   private boarded = false;
   private lifting = false;
   private doorsClosedEmitted = false;
@@ -41,6 +57,19 @@ export class ExtractionSystem implements GameSystem {
   private shipLandPos = new THREE.Vector3();
   private shipYaw = 0;
   private dir = new THREE.Vector3();
+
+  /* ── multiplayer state ── */
+  /** Host: every peer (incl. local) currently inside the bay. */
+  private boardedPeers = new Set<PeerId>();
+  private netTickAccum = 0;
+  /** Client: latest `boarding` message from the host. */
+  private clientBoardedCount = 0;
+  private clientRequiredCount = 0;
+  private clientReady = false;
+  /** Client: > 0 while waiting for the local ship to touch down after the host's `shipLanded`. */
+  private landFallbackTimer = -1;
+  /** Scratch for required-player counting (host). */
+  private requiredIds: PeerId[] = [];
 
   init(ctx: GameContext): void {
     this.ctx = ctx;
@@ -50,13 +79,160 @@ export class ExtractionSystem implements GameSystem {
     ctx.scene.add(this.ship.root, this.flare.group, this.dust.pool.points);
 
     this.unsubs.push(
-      ctx.bus.on('world:ready', () => this.buildPads()),
-      ctx.bus.on('game:abort', () => this.resetMission(true)),
+      ctx.bus.on('world:ready', () => { this.buildPads(); this.ensureNetHooks(); }),
+      ctx.bus.on('game:abort', () => { this.resetMission(true); this.unhookNet(); }),
       // NOTE: WorldSystem generates synchronously inside its own game:newMission handler, so world:ready
       // (and buildPads) has already run by the time this handler fires → keep pads that match the new seed.
       ctx.bus.on('game:newMission', () => this.resetMission(false)),
-      ctx.bus.on('player:died', () => { this.flare?.stop(); }),
+      // Single-player: the mission is over → let the flare die out. Multiplayer: the squad continues.
+      ctx.bus.on('player:died', () => { if (!this.ctx.isMultiplayer) this.flare?.stop(); }),
+      // Host: a peer left → its boarding entry is irrelevant; re-broadcast so clients' n/m updates.
+      ctx.bus.on('net:peerLeft', ({ id }) => {
+        if (!this.isHost()) return;
+        this.boardedPeers.delete(id);
+        if (this.landed) this.broadcastBoarding();
+      }),
     );
+  }
+
+  /* ── Multiplayer helpers ─────────────────────────────────────────────── */
+  private isHost(): boolean { return this.ctx.isMultiplayer && this.ctx.isAuthority && !!this.ctx.net; }
+  private isClient(): boolean { return this.ctx.isMultiplayer && !this.ctx.isAuthority && !!this.ctx.net; }
+  private localId(): PeerId { return this.ctx.net?.localId ?? LOCAL_ID; }
+
+  private sendEx(msg: ExtractionMessage): void {
+    if (this.isHost()) this.ctx.net!.send(msg, 'others');
+  }
+  private sendReq(msg: ExtractionRequest): void {
+    if (this.isClient()) this.ctx.net!.send(msg, 'host');
+  }
+
+  /** Subscribe to net messages once `ctx.net` exists (NetSystem may publish it after our init). */
+  private ensureNetHooks(): void {
+    const net = this.ctx.net;
+    if (!net || this.netUnsubs.length > 0) return;
+    this.netUnsubs.push(
+      net.onMessage('exq', (msg, from) => this.onRequest(msg, from)),
+      net.onMessage('ex', (msg, from) => this.onHostMessage(msg, from)),
+    );
+  }
+  private unhookNet(): void {
+    for (const u of this.netUnsubs) u();
+    this.netUnsubs.length = 0;
+  }
+
+  /** Host: handle a client request. */
+  private onRequest(msg: ExtractionRequest, from: PeerId): void {
+    if (!this.isHost()) return;
+    switch (msg.ev) {
+      case 'activate': {
+        if (this.ctx.phase !== 'playing' || this.activePad) return;
+        const pad = this.pads.find((p) => p.def.id === msg.padId);
+        if (pad) this.activate(pad);
+        break;
+      }
+      case 'board': {
+        const had = this.boardedPeers.has(from);
+        if (msg.inside === had) return;
+        if (msg.inside) this.boardedPeers.add(from); else this.boardedPeers.delete(from);
+        this.broadcastBoarding();
+        break;
+      }
+      case 'liftoff': {
+        if (this.ctx.phase === 'shipLanded' && !this.lifting && this.landed && this.allRequiredBoarded()) this.liftoff();
+        break;
+      }
+    }
+  }
+
+  /** Client: mirror the host's flow. */
+  private onHostMessage(msg: ExtractionMessage, from: PeerId): void {
+    if (!this.isClient()) return;
+    const hostId = this.ctx.net!.lobby?.hostId;
+    if (hostId && from !== hostId) return;
+    const ship = this.ship;
+    if (!ship) return;
+    switch (msg.ev) {
+      case 'activated': {
+        if (this.activePad) return;
+        const pad = this.pads.find((p) => p.def.id === msg.padId);
+        if (pad) this.beginActivation(pad, msg.duration);
+        break;
+      }
+      case 'tick':
+        if (this.counting) this.countdown = Math.max(0, msg.remaining);
+        break;
+      case 'shipIncoming':
+        if (this.activePad && !this.shipCalled) this.callShip();
+        break;
+      case 'shipLanded':
+        if (this.activePad && !this.landed && this.landFallbackTimer < 0) this.landFallbackTimer = NET_LAND_FALLBACK;
+        break;
+      case 'boarding': {
+        const required = msg.required;
+        let n = 0;
+        for (const id of required) if (msg.boarded.includes(id)) n++;
+        const changed = n !== this.clientBoardedCount || required.length !== this.clientRequiredCount;
+        this.clientBoardedCount = n;
+        this.clientRequiredCount = required.length;
+        this.clientReady = required.length > 0 && n === required.length;
+        if (changed && this.landed) this.ctx.bus.emit('ui:notify', { text: `${n}/${required.length} 탑승`, kind: this.clientReady ? 'success' : 'info', duration: 2 });
+        break;
+      }
+      case 'liftoff':
+        if (this.activePad && !this.lifting) {
+          // The host may have landed the ship before we did (message loss / late join) — never miss the ride visuals.
+          if (!this.landed) this.forceLandNow();
+          this.liftoff();
+        }
+        break;
+      case 'reset':
+        this.resetMission(false);
+        break;
+    }
+  }
+
+  /** Host: required = local player if alive + every connected, fresh, alive remote player. */
+  private collectRequired(out: PeerId[]): PeerId[] {
+    out.length = 0;
+    const ctx = this.ctx;
+    if (!(ctx.player?.isDead ?? false)) out.push(this.localId());
+    const net = ctx.net;
+    if (net) for (const r of net.getRemotePlayers()) if (r.connected && !r.stale && !r.isDead) out.push(r.id);
+    return out;
+  }
+
+  private allRequiredBoarded(): boolean {
+    const req = this.collectRequired(this.requiredIds);
+    if (req.length === 0) return false;
+    for (const id of req) if (!this.boardedPeers.has(id)) return false;
+    return true;
+  }
+
+  private broadcastBoarding(notify = true): void {
+    const required = this.collectRequired(this.requiredIds).slice();
+    let n = 0;
+    for (const id of required) if (this.boardedPeers.has(id)) n++;
+    this.sendEx({ t: 'ex', ev: 'boarding', boarded: Array.from(this.boardedPeers), required });
+    if (notify && this.landed) {
+      this.ctx.bus.emit('ui:notify', { text: `${n}/${required.length} 탑승`, kind: n === required.length && n > 0 ? 'success' : 'info', duration: 2 });
+    }
+  }
+
+  /** Liftoff switch readiness (single-player: local boarded; multiplayer: everyone required is boarded). */
+  private liftoffReady(): boolean {
+    if (!this.boarded || this.ctx.phase !== 'shipLanded' || this.lifting) return false;
+    if (this.isClient()) return this.clientReady;
+    if (this.isHost()) return this.allRequiredBoarded();
+    return true;
+  }
+
+  private waitingPrompt(): string {
+    if (this.isClient()) return `탑승 대기 중 (${this.clientBoardedCount}/${this.clientRequiredCount})`;
+    const req = this.collectRequired(this.requiredIds);
+    let n = 0;
+    for (const id of req) if (this.boardedPeers.has(id)) n++;
+    return `탑승 대기 중 (${n}/${req.length})`;
   }
 
   /* ── Pads / consoles ─────────────────────────────────────────────────── */
@@ -79,7 +255,11 @@ export class ExtractionSystem implements GameSystem {
         holdTime: 1.2,
         getPrompt: () => (this.ctx.phase === 'playing' ? '탈출 신호 전송 (E 길게)' : null),
         canInteract: () => this.ctx.phase === 'playing' && !this.activePad,
-        interact: () => this.activate(entry),
+        interact: () => {
+          // Client: ask the host; the host's `activated` message drives our visuals.
+          if (this.isClient()) this.sendReq({ t: 'exq', ev: 'activate', padId: entry.def.id });
+          else this.activate(entry);
+        },
       };
       const entry: PadEntry = { def, console, interactableId: id };
       this.ctx.interactables.register(interactable);
@@ -97,14 +277,22 @@ export class ExtractionSystem implements GameSystem {
   }
 
   /* ── Activation / countdown ──────────────────────────────────────────── */
+  /** Authority path (single-player / host). */
   private activate(pad: PadEntry): void {
     if (this.activePad) return;
+    this.beginActivation(pad, EXTRACTION_COUNTDOWN);
+    this.sendEx({ t: 'ex', ev: 'activated', padId: pad.def.id, duration: EXTRACTION_COUNTDOWN });
+  }
+
+  /** Shared visuals/events for activation — host and client alike. */
+  private beginActivation(pad: PadEntry, duration: number): void {
     this.activePad = pad;
     this.counting = true;
-    this.countdown = EXTRACTION_COUNTDOWN;
+    this.countdown = duration;
     this.shipCalled = false;
     this.landed = false;
     this.lastBeepSecond = -1;
+    this.netTickAccum = 0;
     pad.console.setState('active');
     for (const other of this.pads) if (other !== pad) other.console.setState('off');
 
@@ -119,7 +307,7 @@ export class ExtractionSystem implements GameSystem {
     this.flare!.start(center.clone().addScaledVector(this.dir, 2.5));
 
     // EnemySystem subscribes to extraction:activated / extraction:liftoff itself (start/stop waves).
-    this.ctx.bus.emit('extraction:activated', { pointId: pad.def.id, position: center, duration: EXTRACTION_COUNTDOWN });
+    this.ctx.bus.emit('extraction:activated', { pointId: pad.def.id, position: center, duration });
     this.ctx.bus.emit('audio:play', { id: 'extract_activate', position: pad.console.interactPoint });
   }
 
@@ -128,16 +316,29 @@ export class ExtractionSystem implements GameSystem {
     this.ship!.startApproach(this.shipLandPos, this.shipYaw, APPROACH_DURATION);
     this.ctx.bus.emit('extraction:shipIncoming', { position: this.shipLandPos.clone(), eta: SHIP_INCOMING_AT });
     this.ctx.bus.emit('audio:play', { id: 'ship_approach', position: this.shipLandPos });
+    this.sendEx({ t: 'ex', ev: 'shipIncoming', eta: SHIP_INCOMING_AT });
+  }
+
+  /** Client fallback: place the ship on the pad and run the touchdown path. */
+  private forceLandNow(): void {
+    this.landFallbackTimer = -1;
+    if (this.landed || !this.ship) return;
+    this.shipCalled = true;
+    if (this.ship.forceLand(this.shipLandPos, this.shipYaw)) this.onShipLanded();
   }
 
   private onShipLanded(): void {
     this.landed = true;
     this.counting = false;
+    this.landFallbackTimer = -1;
     this.flare!.stop();
     const pos = this.shipLandPos.clone();
     this.ctx.bus.emit('camera:shake', { intensity: 0.9, duration: 0.7 });
     this.ctx.bus.emit('audio:play', { id: 'ship_land', position: pos });
     this.ctx.bus.emit('extraction:shipLanded', { position: pos });
+    this.sendEx({ t: 'ex', ev: 'shipLanded' });
+    // Seed the clients' n/m display right away (no toast for this one).
+    if (this.isHost()) this.broadcastBoarding(false);
 
     const ship = this.ship!;
     const sw: Interactable = {
@@ -145,9 +346,16 @@ export class ExtractionSystem implements GameSystem {
       position: ship.interiorSwitchWorld,
       radius: 2.4,
       holdTime: 1.0,
-      getPrompt: () => (this.boarded && this.ctx.phase === 'shipLanded' ? '이륙 스위치 작동 (E 길게)' : null),
-      canInteract: () => this.boarded && this.ctx.phase === 'shipLanded' && !this.lifting,
-      interact: () => this.liftoff(),
+      getPrompt: () => {
+        if (!this.boarded || this.ctx.phase !== 'shipLanded') return null;
+        if (this.liftoffReady()) return '이륙 스위치 작동 (E 길게)';
+        return this.ctx.isMultiplayer ? this.waitingPrompt() : null;
+      },
+      canInteract: () => this.liftoffReady(),
+      interact: () => {
+        if (this.isClient()) this.sendReq({ t: 'exq', ev: 'liftoff' });
+        else this.liftoff();
+      },
     };
     this.ctx.interactables.register(sw);
   }
@@ -160,16 +368,20 @@ export class ExtractionSystem implements GameSystem {
     const player = this.ctx.player;
     ship.beginLiftoff();
     this.ctx.interactables.unregister('ship_liftoff_switch');
-    if (player) {
+    // Multiplayer: only a boarded, living local player rides along — anyone left outside keeps their controls.
+    const rideAlong = !this.ctx.isMultiplayer || (this.boarded && !(player?.isDead ?? false));
+    if (player && rideAlong) {
       player.setControlsEnabled(false);
       player.attachTo(ship.root);
     }
     this.ctx.bus.emit('extraction:liftoff', { position: ship.position.clone() });
     this.ctx.bus.emit('audio:play', { id: 'ship_liftoff', position: ship.position });
+    this.sendEx({ t: 'ex', ev: 'liftoff' });
   }
 
   /* ── Frame update ────────────────────────────────────────────────────── */
   update(dt: number, ctx: GameContext): void {
+    this.ensureNetHooks();
     for (const p of this.pads) p.console.update(dt);
     this.flare?.update(dt);
     this.dust?.update(dt);
@@ -186,11 +398,25 @@ export class ExtractionSystem implements GameSystem {
           ctx.bus.emit('audio:play', { id: 'countdown_beep', volume: sec <= 3 ? 1 : 0.7, pitch: sec <= 3 ? 1.25 : 1 });
         }
       }
-      if (!this.shipCalled && this.countdown <= SHIP_INCOMING_AT) this.callShip();
+      // Only the authority calls the ship; clients wait for `shipIncoming`.
+      if (ctx.isAuthority && !this.shipCalled && this.countdown <= SHIP_INCOMING_AT) this.callShip();
+      if (this.isHost()) {
+        this.netTickAccum += dt;
+        if (this.netTickAccum >= NET_TICK_INTERVAL) {
+          this.netTickAccum = 0;
+          this.sendEx({ t: 'ex', ev: 'tick', remaining: this.countdown });
+        }
+      }
+    }
+
+    // Client: the host reported touchdown but our ship is still in the air → snap it down after a grace period.
+    if (this.landFallbackTimer >= 0) {
+      this.landFallbackTimer -= dt;
+      if (this.landFallbackTimer < 0) this.forceLandNow();
     }
 
     const ev = ship.update(dt);
-    if (ev.touchdown) this.onShipLanded();
+    if (ev.touchdown && !this.landed) this.onShipLanded();
     if (ev.rampClosed && this.lifting && !this.doorsClosedEmitted) {
       this.doorsClosedEmitted = true;
       ctx.bus.emit('extraction:doorsClosed', {});
@@ -209,7 +435,7 @@ export class ExtractionSystem implements GameSystem {
       if (t > 1.2) ctx.bus.emit('camera:shake', { intensity: 0.12, duration: 0.1 });
     }
 
-    // Boarding volume
+    // Boarding volume (local player)
     const player = ctx.player;
     if (player && this.landed && !this.lifting && ctx.phase === 'shipLanded') {
       const inside = ship.containsWorldPoint(player.position);
@@ -217,15 +443,28 @@ export class ExtractionSystem implements GameSystem {
         this.boarded = true;
         player.setShipInterior(ship.getInteriorBounds());
         ctx.bus.emit('extraction:boarded', {});
+        this.onLocalBoardingChanged(true);
       } else if (!inside && this.boarded) {
         this.boarded = false;
         player.setShipInterior(null);
+        this.onLocalBoardingChanged(false);
       }
+    }
+  }
+
+  private onLocalBoardingChanged(inside: boolean): void {
+    if (this.isHost()) {
+      if (inside) this.boardedPeers.add(this.localId()); else this.boardedPeers.delete(this.localId());
+      this.broadcastBoarding();
+    } else if (this.isClient()) {
+      this.sendReq({ t: 'exq', ev: 'board', inside });
     }
   }
 
   /* ── Reset ───────────────────────────────────────────────────────────── */
   private resetMission(clearPads: boolean): void {
+    // Tell clients first (no-op outside a hosted session).
+    if (this.activePad || this.landed || this.lifting) this.sendEx({ t: 'ex', ev: 'reset' });
     const world = this.ctx.world;
     const padsAreCurrent = !!world && world.ready && this.padsSeed === world.seed;
     if (clearPads || !padsAreCurrent) this.clearPads();
@@ -242,6 +481,12 @@ export class ExtractionSystem implements GameSystem {
     this.lifting = false;
     this.doorsClosedEmitted = false;
     this.lastBeepSecond = -1;
+    this.boardedPeers.clear();
+    this.netTickAccum = 0;
+    this.clientBoardedCount = 0;
+    this.clientRequiredCount = 0;
+    this.clientReady = false;
+    this.landFallbackTimer = -1;
     if (this.boarded) {
       this.ctx.player?.setShipInterior(null);
       this.boarded = false;
@@ -253,6 +498,7 @@ export class ExtractionSystem implements GameSystem {
 
   dispose(): void {
     for (const u of this.unsubs) u();
+    this.unhookNet();
     this.clearPads();
     this.ctx.interactables.unregister('ship_liftoff_switch');
     this.ship?.dispose(); this.ship = null;

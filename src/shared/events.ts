@@ -1,5 +1,6 @@
 import type * as THREE from 'three';
 import type { GamePhase, ItemInstance, MissionStats, EnemyType, Stance } from './types';
+import type { LobbyErrorCode, LobbyState, PeerId } from './net';
 
 /**
  * Every cross-module message goes through the typed EventBus with these payloads.
@@ -14,7 +15,11 @@ export interface GameEvents {
   'game:abort': Record<string, never>;
   'game:complete': { stats: MissionStats };
   'game:over': { stats: MissionStats };
-  'game:paused': { paused: boolean };
+  /**
+   * `freeze` (appended, default true): when false the pause menu is shown but the simulation keeps running
+   * (multiplayer — Engine keeps dt > 0 and systems must not stop ticking). Owner: game/GameFlowSystem.
+   */
+  'game:paused': { paused: boolean; freeze?: boolean };
 
   /* ── world (owner: world/WorldSystem) ───────────────────────────────── */
   'world:ready': { seed: number; playerSpawn: THREE.Vector3 };
@@ -101,6 +106,31 @@ export interface GameEvents {
   'ui:mapToggled': { open: boolean };
   /** Pointer lock was lost while gameplay was active (Esc / focus loss). Owner: game/GameFlowSystem. Pause menu follows. */
   'input:pointerLockLost': Record<string, never>;
+
+  /* ── appended: multiplayer (owner: net/NetSystem unless noted; see shared/net.ts) ── */
+  'net:statusChanged': { status: 'offline' | 'connecting' | 'connected' | 'error'; reason?: string };
+  'net:error': { code: LobbyErrorCode; message: string };
+  /** Lobby created/joined/changed (players, ready flags, host). Fires with the full state every time. */
+  'net:lobbyUpdated': { lobby: LobbyState };
+  /** We left (or were dropped from) the lobby; `ctx.net.lobby` is null afterwards. */
+  'net:lobbyLeft': { reason: 'left' | 'disconnected' | 'kicked' | 'hostLeft' };
+  'net:peerJoined': { id: PeerId; name: string; slot: number };
+  'net:peerLeft': { id: PeerId; name: string };
+  /** Server accepted the host's start. Net emits `game:newMission {seed}` right after this. */
+  'net:gameStarting': { seed: number; lobby: LobbyState };
+  /** A RemotePlayerRef was created (first snapshot arrived) / removed (peer left). */
+  'net:remotePlayerAdded': { id: PeerId };
+  'net:remotePlayerRemoved': { id: PeerId };
+  /** A remote player fired (from FireMessage). Weapons plays tracer/flash, audio plays the shot. */
+  'net:remoteFired': { id: PeerId; weaponId: string; origin: THREE.Vector3; direction: THREE.Vector3 };
+  'net:remoteReloaded': { id: PeerId; weaponId: string };
+  'net:remoteGrenade': { id: PeerId; position: THREE.Vector3; velocity: THREE.Vector3 };
+  'net:remoteDied': { id: PeerId; name: string; position: THREE.Vector3 };
+  /** A remote player placed a ping (from PingMessage). Owner: ui/hud/Pings renders it. */
+  'net:remotePing': { id: PeerId; position: THREE.Vector3; kind: 'ground' | 'enemy' | 'crate' | 'extraction' };
+  'net:chat': { id: PeerId; name: string; text: string };
+  /** Command (ui → ui): open/close the multiplayer lobby screen. Owner: ui/menus/LobbyMenu. */
+  'ui:lobbyToggled': { open: boolean };
 }
 
 export type GameEventName = keyof GameEvents;

@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import type { GameContext } from '@/shared';
-import { Keys } from '@/shared';
+import { Keys, NET_SLOT_COLORS_CSS, PlayerFlags } from '@/shared';
 import { el, setText } from '../dom';
-import type { PingKind } from '../hud/Pings';
+import type { PingKind, PingView } from '../hud/Pings';
 import { PING_LABEL } from '../hud/Pings';
 
 const BLOCKER = 'map';
@@ -32,7 +32,7 @@ const COL = {
 };
 const PING_CSS: Record<PingKind, string> = { ground: COL.info, enemy: COL.danger, crate: COL.success, extraction: COL.accent };
 
-interface MapPing { id: number; kind: PingKind; position: THREE.Vector3; expires: number }
+interface MapPing { id: number; kind: PingKind; position: THREE.Vector3; expires: number; owner?: { name: string; color: string } | null }
 
 /**
  * Tactical map (M). Static terrain layer (height shading + hillshade + contours) cached per
@@ -63,6 +63,8 @@ export class MapScreen {
   private activePadId: string | null = null;
   private shipPos: THREE.Vector3 | null = null;
   private pings = new Map<number, MapPing>();
+  /** When set (HudSystem → Pings.getPings) pings are drawn from here (carries owner name/colour); else from events. */
+  private pingSource: (() => readonly PingView[]) | null = null;
   private unsubs: Array<() => void> = [];
 
   private escHandler = (e: KeyboardEvent): void => {
@@ -121,6 +123,7 @@ export class MapScreen {
       ['crate', COL.crate, '보급 상자'],
       ['crate opened', COL.crateOpened, '개봉된 상자'],
       ['ping', COL.info, '핑'],
+      ['squad', NET_SLOT_COLORS_CSS[1], '분대원'],
     ];
     for (const [cls, color, label] of entries) {
       const row = el('div', { cls: 'map-legend-row', parent: legend });
@@ -152,6 +155,9 @@ export class MapScreen {
   }
 
   get isOpen(): boolean { return this._open; }
+
+  /** Draw pings from a live list (local + squad pings with owner colours) instead of the `ping:*` events. */
+  setPingSource(source: (() => readonly PingView[]) | null): void { this.pingSource = source; }
 
   bind(ctx: GameContext): void {
     this.ctx = ctx;
@@ -424,12 +430,13 @@ export class MapScreen {
         }
       }
     }
-    // pings
-    for (const p of this.pings.values()) {
+    // pings (local: kind colour; squad: owner slot colour + name)
+    const pingList: Iterable<MapPing> = this.pingSource ? this.pingSource() : this.pings.values();
+    for (const p of pingList) {
       if (t >= p.expires) continue;
       const x = this.toX(p.position.x), y = this.toY(p.position.z);
       if (!this.inView(x, y, 24)) continue;
-      const col = PING_CSS[p.kind];
+      const col = p.owner?.color ?? PING_CSS[p.kind];
       const pulse = 0.5 + 0.5 * Math.sin(t * 4.2 + p.id);
       c.strokeStyle = col; c.globalAlpha = 0.25 + 0.5 * (1 - pulse); c.lineWidth = 1.5;
       c.beginPath(); c.arc(x, y, 6 + 10 * pulse, 0, Math.PI * 2); c.stroke();
@@ -443,7 +450,36 @@ export class MapScreen {
       c.fillStyle = col;
       c.font = FONT_LABEL;
       c.textAlign = 'center'; c.textBaseline = 'bottom';
-      c.fillText(PING_LABEL[p.kind], x, y - 8);
+      c.fillText(p.owner ? `${p.owner.name} · ${PING_LABEL[p.kind]}` : PING_LABEL[p.kind], x, y - 8);
+    }
+    // squad members (multiplayer): slot-coloured arrows + names; dead = hollow ring
+    const net = ctx.net;
+    if (net && ctx.isMultiplayer) {
+      for (const r of net.getRemotePlayers()) {
+        if (!r.connected || (r.flags & PlayerFlags.DROPPING)) continue;
+        const x = this.toX(r.position.x), y = this.toY(r.position.z);
+        if (!this.inView(x, y, 30)) continue;
+        const col = NET_SLOT_COLORS_CSS[r.slot] ?? '#fff';
+        c.globalAlpha = r.stale ? 0.45 : 1;
+        if (r.isDead) {
+          c.strokeStyle = col; c.lineWidth = 1.5;
+          c.beginPath(); c.arc(x, y, 5, 0, Math.PI * 2); c.stroke();
+          c.beginPath(); c.moveTo(x - 3, y - 3); c.lineTo(x + 3, y + 3); c.moveTo(x + 3, y - 3); c.lineTo(x - 3, y + 3); c.stroke();
+        } else {
+          const fx = -Math.sin(r.yaw), fz = -Math.cos(r.yaw);
+          c.save();
+          c.translate(x, y); c.rotate(Math.atan2(fz, fx));
+          c.fillStyle = col; c.strokeStyle = 'rgba(0,0,0,0.7)'; c.lineWidth = 1.5;
+          c.beginPath(); c.moveTo(7, 0); c.lineTo(-5, 4.5); c.lineTo(-2.5, 0); c.lineTo(-5, -4.5); c.closePath();
+          c.fill(); c.stroke();
+          c.restore();
+        }
+        c.fillStyle = col;
+        c.font = FONT_LABEL;
+        c.textAlign = 'center'; c.textBaseline = 'top';
+        c.fillText(r.isDead ? `${r.name} · 전사` : r.name, x, y + 9);
+        c.globalAlpha = 1;
+      }
     }
     // player
     const player = ctx.player;

@@ -18,6 +18,8 @@ interface Slug {
   pos: THREE.Vector3; vel: THREE.Vector3; prev: THREE.Vector3;
   life: number; damage: number; color: number; weaponId: string;
   travelled: number;
+  /** Replica of a remote player's shot: impact FX only, never damage (routed to `onVisualHit`). */
+  visualOnly: boolean;
   mesh: THREE.Mesh;
 }
 
@@ -35,25 +37,33 @@ export class ProjectilePool {
   private readonly mat = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false });
   private readonly hit: ProjectileHit = { point: new THREE.Vector3(), normal: new THREE.Vector3(), enemy: null, part: undefined, obstacle: false, dir: new THREE.Vector3(), distance: 0 };
 
-  constructor(private readonly ctx: GameContext, private readonly onHit: (h: ProjectileHit, damage: number, weaponId: string) => void) {
+  /**
+   * @param onHit       damage-dealing hit (local shots)
+   * @param onVisualHit impact FX only, for `visualOnly` replicas of remote shots (optional)
+   */
+  constructor(
+    private readonly ctx: GameContext,
+    private readonly onHit: (h: ProjectileHit, damage: number, weaponId: string) => void,
+    private readonly onVisualHit?: (h: ProjectileHit, weaponId: string) => void,
+  ) {
     this.group.name = 'Projectiles';
     for (let i = 0; i < MAX; i++) {
       const mesh = new THREE.Mesh(this.geo, this.mat.clone());
       mesh.visible = false;
       this.group.add(mesh);
-      this.pool.push({ active: false, pos: new THREE.Vector3(), vel: new THREE.Vector3(), prev: new THREE.Vector3(), life: 0, damage: 0, color: 0xffffff, weaponId: '', travelled: 0, mesh });
+      this.pool.push({ active: false, pos: new THREE.Vector3(), vel: new THREE.Vector3(), prev: new THREE.Vector3(), life: 0, damage: 0, color: 0xffffff, weaponId: '', travelled: 0, visualOnly: false, mesh });
     }
     ctx.scene.add(this.group);
   }
 
-  fire(origin: THREE.Vector3, dir: THREE.Vector3, speed: number, damage: number, range: number, color: number, weaponId: string): void {
+  fire(origin: THREE.Vector3, dir: THREE.Vector3, speed: number, damage: number, range: number, color: number, weaponId: string, visualOnly = false): void {
     let s = this.pool.find((x) => !x.active);
     if (!s) s = this.pool[0];
     s.active = true;
     s.pos.copy(origin); s.prev.copy(origin);
     s.vel.copy(dir).multiplyScalar(speed);
     s.life = range / speed + 0.2;
-    s.damage = damage; s.color = color; s.weaponId = weaponId; s.travelled = 0;
+    s.damage = damage; s.color = color; s.weaponId = weaponId; s.travelled = 0; s.visualOnly = visualOnly;
     (s.mesh.material as THREE.MeshBasicMaterial).color.setHex(color);
     s.mesh.visible = true;
     s.mesh.position.copy(origin);
@@ -88,7 +98,8 @@ export class ProjectilePool {
         if (hitAny) {
           h.dir.copy(_dir);
           h.distance = s.travelled + h.point.distanceTo(s.prev);
-          this.onHit(h, s.damage, s.weaponId);
+          if (s.visualOnly) this.onVisualHit?.(h, s.weaponId);
+          else this.onHit(h, s.damage, s.weaponId);
           this.kill(s);
           continue;
         }

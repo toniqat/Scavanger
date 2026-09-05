@@ -10,5 +10,11 @@ export default defineConfig({
     sourcemap: false,
     chunkSizeWarningLimit: 2000,
   },
-  server: { open: false },
+  server: {
+    open: false,
+    // Dev relay: the browser talks to same-origin /ws and Vite forwards it to the Node relay (npm run server).
+    proxy: {
+      '/ws': { target: 'ws://localhost:8787', ws: true, changeOrigin: true },
+    },
+  },
 });

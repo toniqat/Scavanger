@@ -31,6 +31,11 @@ export class Notifications {
       b.on('extraction:liftoff', () => this.push('이륙 시퀀스 개시.', 'success', '탈출', 4)),
       b.on('crate:looted', () => this.push('상자를 모두 비웠습니다.', 'info', '보급', 2.5)),
       b.on('player:stimUsed', () => this.push('회복제 사용', 'success', '생명력', 2)),
+      // multiplayer feed (menus hide the HUD layer, so lobby-time events are also shown inline by LobbyMenu)
+      b.on('net:remoteDied', ({ name }) => this.push(`<b>${escapeHtml(name)}</b> 전사`, 'danger', '분대', 4)),
+      b.on('net:peerJoined', ({ name }) => this.push(`<b>${escapeHtml(name)}</b> 합류`, 'info', '분대', 3)),
+      b.on('net:peerLeft', ({ name }) => this.push(`<b>${escapeHtml(name)}</b> 이탈`, 'warning', '분대', 3.5)),
+      b.on('net:lobbyLeft', ({ reason }) => { if (reason === 'hostLeft') this.push('호스트가 나갔습니다', 'warning', '분대', 4); }),
       b.on('game:abort', () => this.clear()),
       b.on('game:newMission', () => this.clear()),
     );

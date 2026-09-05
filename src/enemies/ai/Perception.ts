@@ -1,18 +1,17 @@
 import * as THREE from 'three';
-import { PLAYER_HEIGHT } from '@/shared';
 import type { Enemy, EnemyHost } from '../Enemy';
+import type { CombatTarget } from '../Targets';
 
 const _o = new THREE.Vector3();
 const _t = new THREE.Vector3();
 const _d = new THREE.Vector3();
 
-/** True when nothing (terrain / props) blocks the line from the bug's eyes to the player's chest. */
-export function hasLineOfSight(e: Enemy, host: EnemyHost): boolean {
-  const ctx = host.ctx;
-  const world = ctx.world, player = ctx.player;
-  if (!world || !player) return false;
+/** True when nothing (terrain / props) blocks the line from the bug's eyes to the target's chest. */
+export function hasLineOfSight(e: Enemy, host: EnemyHost, target: CombatTarget): boolean {
+  const world = host.ctx.world;
+  if (!world) return false;
   _o.copy(e.position); _o.y += e.stats.height * 0.8;
-  _t.copy(player.position); _t.y += PLAYER_HEIGHT * 0.65;
+  target.getChest(_t);
   _d.subVectors(_t, _o);
   const dist = _d.length();
   if (dist < 1e-3) return true;
@@ -20,7 +19,33 @@ export function hasLineOfSight(e: Enemy, host: EnemyHost): boolean {
   return world.raycast(_o, _d, dist - 0.3) === null;
 }
 
-/** Wake this bug: it now knows about the player. `loud` → screech + propagate to neighbours. */
+/**
+ * Pick / keep the bug's target: nearest alive player, re-evaluated every 0.5–0.9 s or as soon as the current one
+ * dies or leaves. Hysteresis: a different player must be clearly closer (×0.6 with LOS on the current, ×0.75 without)
+ * before the bug switches. A dead target is kept (so "target died → calm down" logic runs) until another is alive.
+ * Also refreshes `distToTarget`.
+ */
+export function acquireTarget(e: Enemy, dt: number, host: EnemyHost): void {
+  e.targetTimer -= dt;
+  const cur = e.target;
+  const curValid = !!cur && cur.present && !cur.isDead;
+  if (!curValid || e.targetTimer <= 0) {
+    e.targetTimer = 0.5 + Math.random() * 0.4;
+    const best = host.targets.nearestAlive(e.position);
+    if (!best) {
+      if (cur && !cur.present) e.target = null;
+    } else if (!curValid) {
+      e.target = best;
+    } else if (best !== cur) {
+      const keep = e.hasLOS ? 0.6 : 0.75;
+      if (best.dist2D(e.position) < cur.dist2D(e.position) * keep) e.target = best;
+    }
+    if (e.target !== cur) { e.hasLOS = false; e.perceptionTimer = 0; }
+  }
+  e.distToTarget = e.target ? e.target.dist2D(e.position) : Infinity;
+}
+
+/** Wake this bug: it now knows about the players. `loud` → screech + propagate to neighbours. */
 export function becomeAlert(e: Enemy, host: EnemyHost, loud: boolean): void {
   if (e.state === 'dead' || e.state === 'flee' || !e.active) return;
   const wasAware = e.aware;
@@ -41,24 +66,24 @@ export function becomeAlert(e: Enemy, host: EnemyHost, loud: boolean): void {
 
 /**
  * Staggered perception tick (≤ every 0.3 s per bug): sight acquisition with LOS,
- * and target loss when the player is far and unseen for a while.
+ * and target loss when the target is far and unseen for a while.
  */
 export function updatePerception(e: Enemy, dt: number, host: EnemyHost): void {
-  const player = host.ctx.player;
   e.perceptionTimer -= dt;
   if (e.perceptionTimer > 0) return;
   e.perceptionTimer = 0.3;
-  if (!player || player.isDead) { e.hasLOS = false; return; }
-  const dist = e.distToPlayer;
+  const t = e.target;
+  if (!t || t.isDead) { e.hasLOS = false; return; }
+  const dist = e.distToTarget;
   if (!e.aware) {
     if (dist < e.stats.sightRadius) {
       // very close bugs notice you regardless of LOS; otherwise need a clear line
-      const seen = dist < 5 || hasLineOfSight(e, host);
+      const seen = dist < 5 || hasLineOfSight(e, host, t);
       e.hasLOS = seen;
       if (seen) becomeAlert(e, host, true);
     } else e.hasLOS = false;
   } else {
-    e.hasLOS = dist < 90 && hasLineOfSight(e, host);
+    e.hasLOS = dist < 90 && hasLineOfSight(e, host, t);
     if (!e.relentless) {
       if (!e.hasLOS && dist > 60) {
         e.lostTimer += 0.3;

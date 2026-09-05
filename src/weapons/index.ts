@@ -1,5 +1,6 @@
 export { WeaponSystem } from './WeaponSystem';
 export { WeaponModel } from './WeaponModel';
+export { RemoteWeapons } from './RemoteWeapons';
 export { GrenadeManager, GRENADE_FUSE, GRENADE_RADIUS, GRENADE_DAMAGE } from './Grenade';
 export { ProjectilePool } from './Projectile';
 export type { ProjectileHit } from './Projectile';

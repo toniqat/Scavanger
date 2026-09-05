@@ -1,11 +1,22 @@
 import * as THREE from 'three';
 import { GRAVITY, Layers, PLAYER_HEIGHT, PLAYER_RADIUS, type GameContext } from '@/shared';
 import { SPEWER_SPIT } from '../EnemyTypes';
+import type { CombatTarget, TargetList } from '../Targets';
 import type { BloodFX } from './BloodFX';
 
 const POOL = 14;
 const GLOB_RADIUS = 0.22;
 const MAX_LIFE = 4;
+
+export interface AcidSlow { duration: number; factor: number }
+
+/** What the acid needs from EnemySystem: the player list and a damage sink (no-op on replicas). */
+export interface AcidHost {
+  readonly ctx: GameContext;
+  readonly targets: TargetList;
+  /** Apply acid damage + slow to a player (local → ctx.player, remote → dmg message). Replicas ignore it. */
+  damageTargetAcid(target: CombatTarget, amount: number, from: THREE.Vector3, shooterId: number, slow: AcidSlow): void;
+}
 
 interface Glob {
   mesh: THREE.Mesh;
@@ -20,7 +31,11 @@ const _d = new THREE.Vector3();
 const _p = new THREE.Vector3();
 const _aim = new THREE.Vector3();
 
-/** Pooled arcing acid globs fired by spewers. Tests against terrain/obstacles (world raycast) and the player capsule. */
+/**
+ * Pooled arcing acid globs fired by spewers. Tests against terrain/obstacles (world raycast) and every alive
+ * player's capsule; damage goes through `AcidHost.damageTargetAcid` so the same code renders host-side (with damage)
+ * and replica-side (visual only, from `ee acid` events).
+ */
 export class AcidProjectiles {
   private readonly globs: Glob[] = [];
   private readonly geo = new THREE.SphereGeometry(GLOB_RADIUS, 10, 8);
@@ -36,16 +51,20 @@ export class AcidProjectiles {
     }
   }
 
-  /** Launch a glob from `from` toward the player's predicted position with a ballistic arc. */
-  fire(from: THREE.Vector3, ctx: GameContext, shooterId: number): boolean {
-    const player = ctx.player;
-    if (!player) return false;
+  /** Launch a glob from `from` toward the target's predicted position with a ballistic arc. */
+  fire(from: THREE.Vector3, target: CombatTarget, shooterId: number): boolean {
+    _aim.copy(target.position).addScaledVector(target.velocity, THREE.MathUtils.clamp(from.distanceTo(target.position) / 15, 0.7, 1.5) * 0.6);
+    return this.fireAt(from, _aim, shooterId);
+  }
+
+  /** Launch toward an explicit point (replica visual; the host already resolved the aim). */
+  fireAt(from: THREE.Vector3, aimFeet: THREE.Vector3, shooterId: number): boolean {
     let g: Glob | null = null;
     for (const c of this.globs) if (!c.active) { g = c; break; }
     if (!g) return false;
-    const dist = from.distanceTo(player.position);
+    const dist = from.distanceTo(aimFeet);
     const T = THREE.MathUtils.clamp(dist / 15, 0.7, 1.5);
-    _aim.copy(player.position).addScaledVector(player.velocity, T * 0.6);
+    _aim.copy(aimFeet);
     _aim.y += PLAYER_HEIGHT * 0.5;
     // a little inaccuracy so the player can dodge
     _aim.x += (Math.random() - 0.5) * 1.4;
@@ -61,9 +80,9 @@ export class AcidProjectiles {
     return true;
   }
 
-  update(dt: number, ctx: GameContext): void {
-    const world = ctx.world;
-    const player = ctx.player;
+  update(dt: number, host: AcidHost): void {
+    const world = host.ctx.world;
+    const players = host.targets.alive;
     for (const g of this.globs) {
       if (!g.active) continue;
       g.life += dt;
@@ -74,15 +93,13 @@ export class AcidProjectiles {
       g.mesh.scale.set(s, 1 / s, s);
 
       let splashed = false;
-      // player capsule: segment feet→head
-      if (player && !player.isDead) {
-        _p.copy(player.position);
-        const py = THREE.MathUtils.clamp(g.mesh.position.y, _p.y + PLAYER_RADIUS, _p.y + PLAYER_HEIGHT - PLAYER_RADIUS);
-        _p.y = py;
+      // player capsules: segment feet→head
+      for (let i = 0; i < players.length && !splashed; i++) {
+        const t = players[i];
+        _p.copy(t.position);
+        _p.y = THREE.MathUtils.clamp(g.mesh.position.y, _p.y + PLAYER_RADIUS, _p.y + PLAYER_HEIGHT - PLAYER_RADIUS);
         if (_p.distanceToSquared(g.mesh.position) <= (PLAYER_RADIUS + GLOB_RADIUS) ** 2) {
-          player.takeDamage(SPEWER_SPIT.damage, g.prev);
-          ctx.bus.emit('player:applySlow', { duration: SPEWER_SPIT.slowDuration, factor: 0.55 });
-          ctx.bus.emit('enemy:attacked', { id: g.shooterId, type: 'spewer', damage: SPEWER_SPIT.damage, position: g.mesh.position });
+          host.damageTargetAcid(t, SPEWER_SPIT.damage, g.prev, g.shooterId, { duration: SPEWER_SPIT.slowDuration, factor: 0.55 });
           splashed = true;
         }
       }
@@ -100,26 +117,23 @@ export class AcidProjectiles {
       if (!splashed && g.life > MAX_LIFE) splashed = true;
 
       if (splashed) {
-        this.splash(g, ctx);
+        this.splash(g, host);
         g.active = false;
         g.mesh.visible = false;
       }
     }
   }
 
-  private splash(g: Glob, ctx: GameContext): void {
+  private splash(g: Glob, host: AcidHost): void {
     const p = g.mesh.position;
     this.fx.burst(p, 26, 'acid', 4.5);
-    this.fx.splat(p, 1.1, 'acid', ctx.world);
-    ctx.bus.emit('audio:play', { id: 'acid_splash', position: p, volume: 0.8 });
-    const player = ctx.player;
-    if (player && !player.isDead) {
-      const d = player.position.distanceTo(p);
-      if (d < 2.4 && d > 0.6) {
-        player.takeDamage(SPEWER_SPIT.splashDamage, p);
-        ctx.bus.emit('player:applySlow', { duration: SPEWER_SPIT.slowDuration * 0.6, factor: 0.7 });
-        ctx.bus.emit('enemy:attacked', { id: g.shooterId, type: 'spewer', damage: SPEWER_SPIT.splashDamage, position: p });
-      }
+    this.fx.splat(p, 1.1, 'acid', host.ctx.world);
+    host.ctx.bus.emit('audio:play', { id: 'acid_splash', position: p, volume: 0.8 });
+    const players = host.targets.alive;
+    for (let i = 0; i < players.length; i++) {
+      const t = players[i];
+      const d = t.position.distanceTo(p);
+      if (d < 2.4 && d > 0.6) host.damageTargetAcid(t, SPEWER_SPIT.splashDamage, p, g.shooterId, { duration: SPEWER_SPIT.slowDuration * 0.6, factor: 0.7 });
     }
   }
 

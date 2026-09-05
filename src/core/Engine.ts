@@ -65,7 +65,8 @@ export class Engine {
       this.fx.clear();
     });
     this.ctx.bus.on('game:abort', () => this.fx.clear());
-    this.ctx.bus.on('game:paused', ({ paused }) => { this.paused = paused; });
+    // freeze === false (multiplayer pause menu) keeps the simulation running; only the menu is shown.
+    this.ctx.bus.on('game:paused', ({ paused, freeze }) => { this.paused = paused && freeze !== false; });
   }
 
   addSystem(system: GameSystem): void {

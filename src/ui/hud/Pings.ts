@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import type { GameContext, EnemyRef } from '@/shared';
-import { MouseButtons, PING_LIFETIME } from '@/shared';
+import type { GameContext, EnemyRef, PeerId } from '@/shared';
+import { MouseButtons, PING_LIFETIME, NET_SLOT_COLORS, NET_SLOT_COLORS_CSS } from '@/shared';
 import { el, setText } from '../dom';
 
 export type PingKind = 'ground' | 'enemy' | 'crate' | 'extraction';
@@ -8,19 +8,22 @@ export type PingKind = 'ground' | 'enemy' | 'crate' | 'extraction';
 export const PING_LABEL: Record<PingKind, string> = { ground: '핑', enemy: '적', crate: '보급', extraction: '탈출' };
 export const PING_COLOR: Record<PingKind, number> = { ground: 0x7fb7e6, enemy: 0xff4d4d, crate: 0x4fd17e, extraction: 0xffb347 };
 
-const MAX_PINGS = 3;
+const MAX_PINGS = 3;          // local pings; remote peers get one live ping each
 const COOLDOWN = 0.3;
 const RAY_MAX = 300;
 const FALLBACK_DIST = 120;
 const CRATE_SNAP = 2.5;
 const PAD_SNAP = 8;
 const BEACON_HEIGHT = 6;
+const REMOTE_ENEMY_SNAP = 2.5; // remote 'enemy' pings latch onto the nearest enemy within this radius
 
-interface Ping {
-  id: number;
-  kind: PingKind;
-  position: THREE.Vector3;    // live (follows the enemy for 'enemy' pings)
-  expires: number;
+/** Owner info for pings placed by squad members (null/undefined for local pings). */
+export interface PingOwner { id: PeerId; name: string; slot: number; color: string }
+
+/** Read-only view of a live ping (map / other HUD parts). */
+export interface PingView { id: number; kind: PingKind; position: THREE.Vector3; expires: number; owner: PingOwner | null }
+
+interface Ping extends PingView {
   enemy: EnemyRef | null;
   // DOM
   el: HTMLElement;
@@ -35,8 +38,10 @@ interface Ping {
 
 /**
  * Middle-mouse pings: projected DOM marker (icon + label + live distance) and a small
- * procedural beacon in the scene (emissive line + pulsing ground ring). Max 3, expire after
- * PING_LIFETIME. Emits `ping:placed` / `ping:removed`.
+ * procedural beacon in the scene (emissive line + pulsing ground ring). Max 3 local pings, expire after
+ * PING_LIFETIME. Emits `ping:placed` / `ping:removed` (for local **and** remote pings — map and audio react).
+ * Multiplayer: local pings are sent as `PingMessage` to 'others'; `net:remotePing` renders the sender's ping
+ * in their slot colour with their name (one live ping per sender).
  */
 export class Pings {
   readonly root: HTMLElement;
@@ -62,12 +67,14 @@ export class Pings {
     this.unsubs.push(
       ctx.bus.on('game:abort', () => this.clear(true)),
       ctx.bus.on('game:newMission', () => this.clear(true)),
-      ctx.bus.on('player:died', () => this.clear(false)),
+      ctx.bus.on('player:died', () => this.clearLocal()),
+      ctx.bus.on('net:remotePing', ({ id, position, kind }) => this.placeRemote(id, position, kind)),
+      ctx.bus.on('net:remotePlayerRemoved', ({ id }) => this.removeOwnedBy(id)),
     );
   }
 
   /** Live pings (read-only view) for other HUD parts (map). */
-  getPings(): readonly { id: number; kind: PingKind; position: THREE.Vector3; expires: number }[] { return this.pings; }
+  getPings(): readonly PingView[] { return this.pings; }
 
   update(dt: number, ctx: GameContext): void {
     void dt;
@@ -166,19 +173,58 @@ export class Pings {
       }
     }
 
-    while (this.pings.length >= MAX_PINGS) this.remove(0, true);
+    while (this.localCount() >= MAX_PINGS) {
+      const idx = this.pings.findIndex((p) => !p.owner);
+      if (idx < 0) break;
+      this.remove(idx, true);
+    }
 
     const id = this.nextId++;
     const expires = ctx.time + PING_LIFETIME;
-    const ping = this.build(id, kind, pos, expires, enemy);
+    const ping = this.build(id, kind, pos, expires, enemy, null);
+    this.pings.push(ping);
+    ctx.bus.emit('ping:placed', { id, position: ping.position, kind, expires });
+
+    // squad: share it
+    if (ctx.isMultiplayer && ctx.net) ctx.net.send({ t: 'ping', p: [pos.x, pos.y, pos.z], kind }, 'others');
+  }
+
+  /** A squad member pinged (from `net:remotePing`). One live ping per sender; drawn in their slot colour. */
+  private placeRemote(peerId: PeerId, position: THREE.Vector3, kind: PingKind): void {
+    const ctx = this.ctx;
+    const net = ctx.net;
+    if (!net) return;
+    const lp = net.getLobbyPlayer(peerId);
+    const ref = net.getRemotePlayer(peerId);
+    const slot = lp?.slot ?? ref?.slot ?? 0;
+    const owner: PingOwner = { id: peerId, name: lp?.name ?? ref?.name ?? '분대원', slot, color: NET_SLOT_COLORS_CSS[slot] ?? '#ffffff' };
+
+    this.removeOwnedBy(peerId);
+
+    const pos = position.clone();
+    let enemy: EnemyRef | null = null;
+    if (kind === 'enemy' && ctx.enemies) {
+      let best = REMOTE_ENEMY_SNAP;
+      for (const e of ctx.enemies.getEnemies()) {
+        if (e.isDead) continue;
+        const d = e.position.distanceTo(pos);
+        if (d < best) { best = d; enemy = e; }
+      }
+      if (enemy) pos.copy(enemy.position);
+    }
+
+    const id = this.nextId++;
+    const expires = ctx.time + PING_LIFETIME;
+    const ping = this.build(id, kind, pos, expires, enemy, owner);
     this.pings.push(ping);
     ctx.bus.emit('ping:placed', { id, position: ping.position, kind, expires });
   }
 
-  private build(id: number, kind: PingKind, pos: THREE.Vector3, expires: number, enemy: EnemyRef | null): Ping {
-    const m = el('div', { cls: `pmarker ${kind}`, parent: this.root });
+  private build(id: number, kind: PingKind, pos: THREE.Vector3, expires: number, enemy: EnemyRef | null, owner: PingOwner | null): Ping {
+    const m = el('div', { cls: `pmarker ${kind}${owner ? ' remote' : ''}`, parent: this.root });
+    if (owner) m.style.setProperty('--pc', owner.color);
     el('i', { cls: 'ico', parent: m });
-    el('span', { cls: 'lbl', text: PING_LABEL[kind], parent: m });
+    el('span', { cls: 'lbl', text: owner ? `${owner.name} · ${PING_LABEL[kind]}` : PING_LABEL[kind], parent: m });
     const dist = el('span', { cls: 'dist ui-mono', text: '', parent: m });
 
     if (!this.lineGeo) {
@@ -191,7 +237,7 @@ export class Pings {
       g.rotateX(-Math.PI / 2);
       this.ringGeo = g;
     }
-    const color = PING_COLOR[kind];
+    const color = owner ? (NET_SLOT_COLORS[owner.slot] ?? 0xffffff) : PING_COLOR[kind];
     const lineMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.8, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false, side: THREE.DoubleSide });
     const ringMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.7, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false, side: THREE.DoubleSide });
     const group = new THREE.Group();
@@ -204,7 +250,13 @@ export class Pings {
     group.position.copy(pos);
     this.ctx.scene.add(group);
 
-    return { id, kind, position: pos, expires, enemy, el: m, dist, lastKey: '', group, ring, lineMat, ringMat };
+    return { id, kind, position: pos, expires, owner, enemy, el: m, dist, lastKey: '', group, ring, lineMat, ringMat };
+  }
+
+  private localCount(): number {
+    let n = 0;
+    for (const p of this.pings) if (!p.owner) n++;
+    return n;
   }
 
   private remove(index: number, emit: boolean): void {
@@ -215,6 +267,15 @@ export class Pings {
     this.ctx.scene.remove(p.group);
     p.lineMat.dispose(); p.ringMat.dispose();
     if (emit) this.ctx.bus.emit('ping:removed', { id: p.id });
+  }
+
+  private removeOwnedBy(peerId: PeerId): void {
+    for (let i = this.pings.length - 1; i >= 0; i--) if (this.pings[i].owner?.id === peerId) this.remove(i, true);
+  }
+
+  /** Local player died: drop own pings, keep the squad's. */
+  private clearLocal(): void {
+    for (let i = this.pings.length - 1; i >= 0; i--) if (!this.pings[i].owner) this.remove(i, true);
   }
 
   private clear(disposeShared: boolean): void {

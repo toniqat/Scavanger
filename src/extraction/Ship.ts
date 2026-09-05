@@ -327,6 +327,32 @@ export class Dropship {
     return ev;
   }
 
+  /**
+   * Snap straight to the landed state (multiplayer client fallback when the host reports touchdown but the
+   * local flight-in never happened / has not finished). Returns false if the ship is already landed or lifting.
+   * The ramp still opens over its normal 1.5 s.
+   */
+  forceLand(landPos: THREE.Vector3, yaw: number): boolean {
+    if (this.state === 'landed' || this.state === 'liftoff') return false;
+    this.landPos.copy(landPos);
+    this.landYaw = yaw;
+    this.hover.copy(landPos).add(_v2.set(0, 24, 0));
+    this.root.position.copy(landPos);
+    this.root.rotation.set(0, yaw, 0);
+    this.root.visible = true;
+    this.state = 'landed';
+    this.t = 0;
+    this.bank = 0;
+    this.rampTarget = 0;
+    this.landingLightMat.emissiveIntensity = 3;
+    this.gear.scale.y = 1;
+    this.gear.visible = true;
+    this.thrust = 0.65;
+    this.root.updateMatrixWorld(true);
+    this.interiorSwitchWorld.set(0, 1.0, -4.6).applyMatrix4(this.root.matrixWorld);
+    return true;
+  }
+
   beginLiftoff(): void {
     if (this.state !== 'landed') return;
     this.state = 'liftoff';

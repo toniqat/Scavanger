@@ -15,6 +15,8 @@ interface GrenadeBody {
   spin: THREE.Vector3;
   fuse: number;
   active: boolean;
+  /** Replica of a remote player's grenade: arc/bounce/FX/audio only — no enemy or player damage, no gameplay events. */
+  visualOnly: boolean;
   light: THREE.PointLight;
   led: THREE.MeshStandardMaterial;
 }
@@ -48,24 +50,30 @@ export class GrenadeManager {
       mesh.add(body, band, cap, ledMesh, light);
       mesh.visible = false;
       this.group.add(mesh);
-      this.pool.push({ mesh, pos: new THREE.Vector3(), vel: new THREE.Vector3(), spin: new THREE.Vector3(), fuse: 0, active: false, light, led });
+      this.pool.push({ mesh, pos: new THREE.Vector3(), vel: new THREE.Vector3(), spin: new THREE.Vector3(), fuse: 0, active: false, visualOnly: false, light, led });
     }
     ctx.scene.add(this.group);
   }
 
   get activeCount(): number { let n = 0; for (const g of this.pool) if (g.active) n++; return n; }
 
-  throw(origin: THREE.Vector3, velocity: THREE.Vector3): boolean {
+  /**
+   * @param visualOnly replica of a remote player's grenade (multiplayer): same arc, bounce, fuse and
+   *   explosion FX/audio, but no `applyExplosion`, no local player damage, no `grenade:*` events.
+   *   Prefers to evict another visual-only replica when the pool is full so a live local grenade never pops early.
+   */
+  throw(origin: THREE.Vector3, velocity: THREE.Vector3, visualOnly = false): boolean {
     let g = this.pool.find((x) => !x.active);
-    if (!g) { g = this.pool[0]; this.explode(g); }
+    if (!g) { g = this.pool.find((x) => x.visualOnly) ?? this.pool[0]; this.explode(g); }
     g.active = true;
+    g.visualOnly = visualOnly;
     g.pos.copy(origin); g.vel.copy(velocity);
     g.spin.set(Math.random() * 6 - 3, Math.random() * 6 - 3, Math.random() * 6 - 3);
     g.fuse = GRENADE_FUSE;
     g.mesh.visible = true;
     g.mesh.position.copy(origin);
     g.light.intensity = 0;
-    this.ctx.bus.emit('grenade:thrown', { position: origin.clone(), velocity: velocity.clone() });
+    if (!visualOnly) this.ctx.bus.emit('grenade:thrown', { position: origin.clone(), velocity: velocity.clone() });
     this.ctx.bus.emit('audio:play', { id: 'grenade_throw', position: origin, volume: 0.7 });
     return true;
   }
@@ -110,12 +118,16 @@ export class GrenadeManager {
     g.active = false; g.mesh.visible = false; g.light.intensity = 0;
     const ctx = this.ctx;
     const pos = g.pos;
-    const kills = ctx.enemies ? ctx.enemies.applyExplosion(pos, GRENADE_RADIUS, GRENADE_DAMAGE) : 0;
-    // self damage with linear falloff
+    const visualOnly = g.visualOnly;
+    g.visualOnly = false;
+    // Visual-only replicas (remote players' grenades) never deal damage: the thrower's client resolves
+    // enemy damage through the host, and remote grenades don't hurt the local player yet.
+    const kills = !visualOnly && ctx.enemies ? ctx.enemies.applyExplosion(pos, GRENADE_RADIUS, GRENADE_DAMAGE) : 0;
     if (ctx.player && !ctx.player.isDead) {
       _tmp.copy(ctx.player.position); _tmp.y += 0.9;
       const d = _tmp.distanceTo(pos);
-      if (d < GRENADE_RADIUS) {
+      // self damage with linear falloff
+      if (!visualOnly && d < GRENADE_RADIUS) {
         const dmg = GRENADE_DAMAGE * (1 - d / GRENADE_RADIUS) * 0.6;
         if (dmg > 1) ctx.player.takeDamage(dmg, pos.clone());
       }
@@ -123,13 +135,13 @@ export class GrenadeManager {
       if (shake > 0) ctx.bus.emit('camera:shake', { intensity: 0.25 + shake * 0.75, duration: 0.45 });
     }
     this.fx.explosion(pos, GRENADE_RADIUS);
-    ctx.bus.emit('grenade:exploded', { position: pos.clone(), radius: GRENADE_RADIUS });
+    if (!visualOnly) ctx.bus.emit('grenade:exploded', { position: pos.clone(), radius: GRENADE_RADIUS });
     ctx.bus.emit('audio:play', { id: 'explosion', position: pos, volume: 1 });
     if (kills > 0) ctx.bus.emit('ui:hitmarker', { kill: true });
   }
 
   clear(): void {
-    for (const g of this.pool) { g.active = false; g.mesh.visible = false; g.light.intensity = 0; }
+    for (const g of this.pool) { g.active = false; g.visualOnly = false; g.mesh.visible = false; g.light.intensity = 0; }
   }
 
   dispose(): void {

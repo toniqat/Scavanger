@@ -1,6 +1,7 @@
 export * from './constants';
 export * from './types';
 export * from './events';
+export * from './net';
 export { EventBus } from './EventBus';
 export { Input } from './Input';
 export { GameContext } from './GameContext';
