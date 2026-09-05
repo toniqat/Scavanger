@@ -7,7 +7,7 @@ The game starts in a walkable **personal ship** (hub); matchmaking docks you int
 ## Commands
 ```
 npm run dev        # http://localhost:5273 (single-player works without the server)
-npm run server     # WebSocket relay server (Node 24 runs server/*.ts directly), ws://localhost:8787/ws, GET /health
+npm run server     # WebSocket relay server (Node type stripping, `--experimental-strip-types` for Node 22), ws://localhost:8787/ws, GET /health
 npm run dev:all    # server + vite together (Vite proxies /ws → 8787)
 npm run typecheck  # tsc --noEmit (must pass before you finish); typecheck:server for server/
 npm run build

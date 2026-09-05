@@ -8,9 +8,9 @@
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview --port 5274",
-    "server": "node server/index.ts",
+    "server": "node --experimental-strip-types --disable-warning=ExperimentalWarning server/index.ts",
     "dev:all": "node scripts/dev-all.mjs",
-    "net:selftest": "node server/selftest.ts",
+    "net:selftest": "node --experimental-strip-types --disable-warning=ExperimentalWarning server/selftest.ts",
     "typecheck:server": "tsc --noEmit -p server/tsconfig.json",
     "e2e:mp": "node scripts/e2e-multiplayer.mjs"
   },
