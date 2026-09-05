@@ -1,11 +1,11 @@
 // Two-client multiplayer smoke test: headless Chrome ×2 → relay server → personal ship → quick match →
 // docking → shared ship → launch pods → mission → pickups sync → reconnect → abort back to the ship.
-// Usage: node scripts/e2e-multiplayer.mjs [http://localhost:5173]
+// Usage: node scripts/e2e-multiplayer.mjs [http://localhost:5273]
 // Requires `npm run server` and `npm run dev` to be running (or `npm run dev:all`).
 import puppeteer from 'puppeteer-core';
 import { existsSync } from 'node:fs';
 
-const BASE = process.argv[2] ?? 'http://localhost:5173/';
+const BASE = process.argv[2] ?? 'http://localhost:5273/';
 const CHROME = [
   'C:/Program Files/Google/Chrome/Application/chrome.exe',
   'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',

@@ -4,10 +4,10 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host --port 5173",
+    "dev": "vite --host --port 5273",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
-    "preview": "vite preview --port 5174",
+    "preview": "vite preview --port 5274",
     "server": "node server/index.ts",
     "dev:all": "node scripts/dev-all.mjs",
     "net:selftest": "node server/selftest.ts",
