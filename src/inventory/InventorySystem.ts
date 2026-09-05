@@ -1,9 +1,11 @@
 import * as THREE from 'three';
 import type {
-  EffectiveWeaponStats, GameContext, GameSystem, InventoryRef, ItemDef, ItemInstance, Loadout, LoadoutSlot, SocketSlot, WeaponSlot,
+  CraftRecipe, CraftStation, DurabilityInfo, EffectiveWeaponStats, GameContext, GameSystem, InventoryRef, ItemDef, ItemInstance, Loadout, LoadoutSlot,
+  SocketSlot, WeaponSlot, WeightInfo,
 } from '@/shared';
 import { BAG_DEFAULT_COLS, BAG_DEFAULT_QUICK_SLOTS, BAG_DEFAULT_ROWS, Keys, QUICK_SLOTS, SOCKET_SLOTS, isQuickSlotActive } from '@/shared';
-import { AMMO_LABEL_KO, ITEM_DEF_MAP, LootService, STARTER_LOADOUT, ammoItemIdFor, isWeaponItemDef } from '@/items';
+import { AMMO_LABEL_KO, ITEM_DEF_MAP, LootService, STARTER_LOADOUT, ammoItemIdFor, getRecipe, isWeaponItemDef, itemWeight } from '@/items';
+import { durabilityInfo, gearMultipliers, makeWeightInfo, sumWeight } from './Gear';
 import { Grid, OOB, type Placement, type PriorityPlacement } from './Grid';
 import { Container, ContainerStore } from './Container';
 import { attachedItems, clearSocket, findSocketed, setSocket } from './Sockets';
@@ -15,9 +17,9 @@ import { InventoryUI } from './ui/InventoryUI';
 
 /* ── UI ↔ system vocabulary ─────────────────────────────────────────────── */
 export type GridId = 'bag' | 'container';
-/** Equipment slots = the shared `LoadoutSlot` (주무기 I / 주무기 II / 보조무기 / 가방). */
+/** Equipment slots = the shared `LoadoutSlot` (주무기 I / 주무기 II / 보조무기 / 가방 / 방탄복). */
 export type SlotId = LoadoutSlot;
-export const LOADOUT_SLOTS: readonly LoadoutSlot[] = ['primary', 'primary2', 'secondary', 'bag'];
+export const LOADOUT_SLOTS: readonly LoadoutSlot[] = ['primary', 'primary2', 'secondary', 'bag', 'armor'];
 export const WEAPON_SLOT_IDS: readonly WeaponSlot[] = ['primary', 'primary2', 'secondary'];
 export type ItemLocation = { kind: 'grid'; grid: GridId } | { kind: 'slot'; slot: SlotId };
 export type DropTarget =
@@ -48,6 +50,7 @@ const MOD_CTRL = ['ControlLeft', 'ControlRight'] as const;
 /** Which item categories a loadout slot accepts. */
 export function slotAccepts(def: ItemDef, slot: LoadoutSlot): boolean {
   if (slot === 'bag') return def.category === 'bag';
+  if (slot === 'armor') return def.category === 'armor';
   if (slot === 'secondary') return def.category === 'secondary';
   return def.category === 'primary';
 }
@@ -55,6 +58,17 @@ export function slotAccepts(def: ItemDef, slot: LoadoutSlot): boolean {
 export const isWeaponDef = (def: ItemDef | undefined): boolean => isWeaponItemDef(def);
 export const isAttachmentDef = (def: ItemDef | undefined): boolean => !!def?.attachment;
 export const isBagDef = (def: ItemDef | undefined): boolean => !!def?.bag;
+export const isArmorDef = (def: ItemDef | undefined): boolean => def?.category === 'armor' && !!def.armorId;
+
+/** Minimum craft speed multiplier so a pathological derived value cannot make a craft instant. */
+const CRAFT_MIN_SPEED = 0.2;
+
+interface CraftJob {
+  recipe: CraftRecipe;
+  remaining: number;
+  duration: number;
+  resolve(item: ItemInstance | null): void;
+}
 
 /**
  * Owns the player's bag grid, the four equipment slots and the open loot container.
@@ -66,7 +80,11 @@ export class InventorySystem implements GameSystem, InventoryRef {
   private ctx!: GameContext;
   private loot = new LootService();
   private bag!: Grid;
-  private loadout: Loadout = { primary: null, primary2: null, secondary: null, bag: null };
+  private loadout: Loadout = { primary: null, primary2: null, secondary: null, bag: null, armor: null };
+  /** Tactical kit: last emitted weight / loadout (gates `inventory:weightChanged` / `equip:changed`), running craft. */
+  private lastWeight: WeightInfo | null = null;
+  private lastEquipUids: Partial<Record<LoadoutSlot, string | null>> = {};
+  private craftJob: CraftJob | null = null;
   private containers = new ContainerStore((id) => ITEM_DEF_MAP.get(id));
   private activeContainer: Container | null = null;
   private _open = false;
@@ -115,10 +133,11 @@ export class InventorySystem implements GameSystem, InventoryRef {
     window.addEventListener('keydown', this.escHandler, true);
   }
 
-  update(_dt: number, ctx: GameContext): void {
+  update(dt: number, ctx: GameContext): void {
     if (ctx.input.wasPressed(Keys.INVENTORY) && ctx.isGameplayPhase() && (this._open || ctx.uiBlockers.size === 0)) {
       this.toggleBag();
     }
+    this.updateCraft(dt);
     if (!this._open) return;
     if (ctx.input.wasPressed(Keys.ROTATE_ITEM)) this.ui?.onRotateKey();
     if (ctx.input.wasPressed(Keys.DROP_ITEM)) {
@@ -207,6 +226,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
       primary2: mk(STARTER_LOADOUT.primary2),
       secondary: mk(STARTER_LOADOUT.secondary),
       bag: bagItem,
+      armor: mk(STARTER_LOADOUT.armor),
     };
     const size = this.bagSizeOf(bagItem);
     this.bag.resize(size.cols, size.rows);
@@ -231,6 +251,202 @@ export class InventorySystem implements GameSystem, InventoryRef {
   getTotalValue(): number { return this.bag.totalValue(); }
 
   getBagSize(): BagSize { return this.bagSizeOf(this.loadout.bag); }
+
+  /* ── appended: tactical kit — gear slots / weight / durability / crafting ── */
+
+  getEquipped(slot: LoadoutSlot): ItemInstance | null { return this.loadout[slot] ?? null; }
+
+  consumeDef(defId: string, qty: number): boolean {
+    const want = Math.max(0, Math.floor(qty));
+    if (want === 0) return true;
+    if (this.countDef(defId) < want) return false;
+    return this.consumeWhere((d) => d.id === defId, want) === want;
+  }
+
+  private countDef(defId: string): number {
+    return this.countWhere((d) => d.id === defId);
+  }
+
+  /** Bag + equipped gear weight against the character's carry capacity (근력 via `ctx.progression`). */
+  getWeight(): WeightInfo {
+    const mult = gearMultipliers(this.ctx.progression?.derived);
+    let w = sumWeight(this.bag.items().map((p) => p.item), (id) => ITEM_DEF_MAP.get(id));
+    for (const slot of LOADOUT_SLOTS) {
+      const it = this.loadout[slot];
+      if (!it) continue;
+      const d = ITEM_DEF_MAP.get(it.defId);
+      if (d) w += itemWeight(d, it.qty);
+    }
+    // bigger bags carry more: +0.5 kg of capacity per grid cell above the default bag
+    const size = this.bagSizeOf(this.loadout.bag);
+    const capacity = mult.carryCapacity + Math.max(0, size.cols * size.rows - BAG_DEFAULT_COLS * BAG_DEFAULT_ROWS) * 0.5;
+    return makeWeightInfo(Math.round(w * 100) / 100, capacity, mult.carryRelief);
+  }
+
+  private emitWeight(): void {
+    const info = this.getWeight();
+    const prev = this.lastWeight;
+    const same = prev && prev.state === info.state
+      && Math.abs(prev.weight - info.weight) < 0.005 && Math.abs(prev.capacity - info.capacity) < 0.005;
+    if (same) return;
+    this.lastWeight = info;
+    this.ctx.bus.emit('inventory:weightChanged', { weight: info.weight, capacity: info.capacity, ratio: info.ratio, state: info.state });
+    if ((!prev || prev.state !== info.state) && (info.state === 'heavy' || info.state === 'over')) {
+      this.ctx.bus.emit('inventory:overloaded', { state: info.state });
+    }
+  }
+
+  /** Durability of a weapon (effective max) or armor (`ItemDef.durabilityMax`), or null. */
+  getDurability(uid: string): DurabilityInfo | null {
+    const item = this.findItem(uid);
+    const def = item && ITEM_DEF_MAP.get(item.defId);
+    if (!item || !def) return null;
+    const stats = this.loot.getEffectiveStats(item);
+    if (stats) {
+      const cur = Math.max(0, Math.min(stats.maxDurability, item.durability ?? stats.maxDurability));
+      return { uid, durability: cur, max: stats.maxDurability, broken: cur <= 0 };
+    }
+    return durabilityInfo(item, def);
+  }
+
+  /** Wear on non-weapon gear (armor per absorbed hit). Weapons keep `updateItem` (weapons/ owns that path). */
+  damageDurability(uid: string, amount: number): void {
+    const wear = Math.max(0, amount);
+    if (wear === 0) return;
+    const item = this.findItem(uid);
+    const def = item && ITEM_DEF_MAP.get(item.defId);
+    const max = def?.durabilityMax;
+    if (!item || !def || max === undefined || max <= 0) return;
+    const before = Math.max(0, Math.min(max, item.durability ?? max));
+    if (before <= 0) return;
+    const after = Math.max(0, before - wear);
+    if (after === before) return;
+    item.durability = after;
+    this.ctx.bus.emit('durability:changed', { uid, defId: def.id, durability: after, max });
+    this.ctx.bus.emit('inventory:itemUpdated', { item });
+    if (after <= 0) {
+      this.ctx.bus.emit('durability:broken', { uid, defId: def.id, name: def.name });
+      this.ctx.bus.emit('ui:notify', { text: `${def.name} 파손!`, kind: 'danger' });
+      this.ctx.bus.emit('audio:play', { id: 'gear_broken' });
+    }
+    if (this._open) this.ui?.refresh();
+  }
+
+  /** Ship workbench: weapons go through `repairWeapon` (materials), armor is restored to full for free. */
+  repair(uid: string): boolean {
+    if (this.ctx.isRaidActive()) return false;
+    const item = this.findItem(uid);
+    const def = item && ITEM_DEF_MAP.get(item.defId);
+    if (!item || !def) return false;
+    if (this.loot.getEffectiveStats(item)) {
+      const ok = this.repairWeapon(uid);
+      if (ok) this.ctx.bus.emit('repair:completed', { uid, name: def.name, durability: item.durability ?? 0 });
+      return ok;
+    }
+    const max = def.durabilityMax;
+    if (max === undefined || max <= 0) return false;
+    if ((item.durability ?? max) >= max) return false;
+    item.durability = max;
+    this.ctx.bus.emit('durability:changed', { uid, defId: def.id, durability: max, max });
+    this.ctx.bus.emit('repair:completed', { uid, name: def.name, durability: max });
+    this.ctx.bus.emit('audio:play', { id: 'gear_repair' });
+    this.afterChange();
+    return true;
+  }
+
+  /** 'ship' while walking the hub / menus, 'field' on a mission. */
+  currentStation(): CraftStation {
+    return this.ctx.isRaidActive() ? 'field' : 'ship';
+  }
+
+  getRecipes(station: CraftStation): readonly CraftRecipe[] {
+    const skillOf = (id: CraftRecipe['skill']): number => this.ctx.progression?.getSkill(id) ?? 0;
+    return this.loot.getAllRecipes().filter((r) => {
+      if (station === 'field' && r.station !== 'field') return false;
+      return skillOf(r.skill) >= r.skillRequired;
+    });
+  }
+
+  canCraft(recipeId: string): boolean {
+    const r = getRecipe(recipeId);
+    if (!r) return false;
+    return r.inputs.every((i) => this.countDef(i.defId) >= i.qty);
+  }
+
+  /** Seconds one craft takes right now (recipe duration scaled by 제작 skill and 재주). */
+  craftDuration(recipeId: string): number {
+    const r = getRecipe(recipeId);
+    if (!r) return 0;
+    const mult = gearMultipliers(this.ctx.progression?.derived);
+    const speed = Math.max(CRAFT_MIN_SPEED, mult.craftSpeedMul * mult.useSpeedMul);
+    return r.duration / speed;
+  }
+
+  craft(recipeId: string): Promise<ItemInstance | null> {
+    const r = getRecipe(recipeId);
+    if (!r) return Promise.resolve(null);
+    this.cancelCraft();
+    if (this.getRecipes(this.currentStation()).indexOf(r) < 0 || !this.canCraft(recipeId)) {
+      this.ctx.bus.emit('craft:failed', { recipeId, reason: 'missing' });
+      return Promise.resolve(null);
+    }
+    const duration = this.craftDuration(recipeId);
+    this.ctx.bus.emit('craft:started', { recipeId, duration });
+    return new Promise<ItemInstance | null>((resolve) => {
+      this.craftJob = { recipe: r, remaining: duration, duration, resolve };
+    });
+  }
+
+  /** Abort the running craft (releasing the hold button, closing the panel, dying). */
+  cancelCraft(): boolean {
+    const job = this.craftJob;
+    if (!job) return false;
+    this.craftJob = null;
+    this.ctx.bus.emit('craft:failed', { recipeId: job.recipe.id, reason: 'cancelled' });
+    job.resolve(null);
+    this.ui?.refreshCraft();
+    return true;
+  }
+
+  /** 0..1 progress of the running craft (null when idle). */
+  craftProgress(): { recipeId: string; progress: number } | null {
+    const job = this.craftJob;
+    if (!job) return null;
+    return { recipeId: job.recipe.id, progress: 1 - Math.max(0, job.remaining) / Math.max(0.001, job.duration) };
+  }
+
+  private updateCraft(dt: number): void {
+    const job = this.craftJob;
+    if (!job || dt <= 0) return;
+    job.remaining -= dt;
+    if (job.remaining > 0) { this.ui?.refreshCraft(); return; }
+    this.craftJob = null;
+    const r = job.recipe;
+    const outDef = ITEM_DEF_MAP.get(r.outputDefId);
+    if (!this.canCraft(r.id) || !outDef) {
+      this.ctx.bus.emit('craft:failed', { recipeId: r.id, reason: 'missing' });
+      job.resolve(null);
+      this.ui?.refreshCraft();
+      return;
+    }
+    const product = this.loot.createItem(r.outputDefId, Math.min(outDef.stackMax, r.outputQty));
+    if (!this.bag.canAbsorb(product)) {
+      this.ctx.bus.emit('craft:failed', { recipeId: r.id, reason: 'space' });
+      this.ctx.bus.emit('ui:notify', { text: '가방에 공간이 없습니다', kind: 'warning' });
+      job.resolve(null);
+      this.ui?.refreshCraft();
+      return;
+    }
+    for (const i of r.inputs) this.consumeDef(i.defId, i.qty);
+    const made = this.addUnits(r.outputDefId, r.outputQty);
+    const first = made[0] ?? product;
+    this.ctx.bus.emit('inventory:itemAdded', { item: first, name: outDef.name, rarity: outDef.rarity });
+    this.ctx.bus.emit('craft:completed', { recipeId: r.id, item: first });
+    this.ctx.bus.emit('audio:play', { id: 'craft_done' });
+    this.afterChange();
+    this.ui?.refreshCraft();
+    job.resolve(first);
+  }
 
   countWhere(pred: (def: ItemDef, inst: ItemInstance) => boolean): number {
     let n = 0;
@@ -407,7 +623,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
   /** Any player-owned item: bag → equipment slots → attachments socketed in an owned weapon. */
   findItem(uid: string, from?: ItemLocation): ItemInstance | null {
     if (from) {
-      if (from.kind === 'slot') return this.loadout[from.slot]?.uid === uid ? this.loadout[from.slot] : null;
+      if (from.kind === 'slot') return this.loadout[from.slot]?.uid === uid ? (this.loadout[from.slot] ?? null) : null;
       return this.getGrid(from.grid)?.get(uid)?.item ?? null;
     }
     const p = this.bag.get(uid);
@@ -602,9 +818,10 @@ export class InventorySystem implements GameSystem, InventoryRef {
     return null;
   }
 
-  /** Slot a double-click / `장착` sends a weapon to: first empty primary slot, else 주무기 I (swap). */
-  equipTargetFor(def: ItemDef): WeaponSlot | 'bag' | null {
+  /** Slot a double-click / `장착` sends a weapon to: first empty primary slot, else 주무기 I (swap). Armor / bags → their slot. */
+  equipTargetFor(def: ItemDef): LoadoutSlot | null {
     if (def.category === 'bag') return 'bag';
+    if (def.category === 'armor') return 'armor';
     if (def.category === 'secondary') return 'secondary';
     if (def.category !== 'primary') return null;
     if (!this.loadout.primary) return 'primary';
@@ -1091,7 +1308,13 @@ export class InventorySystem implements GameSystem, InventoryRef {
 
   private emitLoadout(): void {
     const l = this.loadout;
-    this.ctx.bus.emit('loadout:changed', { primary: l.primary, secondary: l.secondary, primary2: l.primary2, bag: l.bag });
+    this.ctx.bus.emit('loadout:changed', { primary: l.primary, secondary: l.secondary, primary2: l.primary2, bag: l.bag, armor: l.armor ?? null });
+    for (const slot of LOADOUT_SLOTS) {
+      const uid = l[slot]?.uid ?? null;
+      if (this.lastEquipUids[slot] === uid) continue;
+      this.lastEquipUids[slot] = uid;
+      this.ctx.bus.emit('equip:changed', { slot, item: l[slot] ?? null });
+    }
   }
 
   private afterChange(): void {
@@ -1100,6 +1323,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
     if (grenades !== this.lastGrenades) { this.lastGrenades = grenades; this.ctx.bus.emit('grenade:countChanged', { count: grenades }); }
     if (stims !== this.lastStims) { this.lastStims = stims; this.ctx.bus.emit('stim:countChanged', { count: stims }); }
     this.syncQuickSlots();
+    this.emitWeight();
     this.ctx.bus.emit('inventory:changed', { totalValue: this.bag.totalValue(), itemCount: this.bag.count });
     this.checkLooted();
     this.ui?.refresh();
@@ -1130,7 +1354,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
     if (!slotAccepts(def, slot)) return 'fail';
     if (from.kind === 'slot') {
       if (from.slot === slot) return 'noop';
-      if (slot === 'bag' || from.slot === 'bag') return 'fail';
+      if (slot === 'bag' || from.slot === 'bag' || slot === 'armor' || from.slot === 'armor') return 'fail';
       // 주무기 I ↔ 주무기 II (both slots accept the same category, so the swap is always valid)
       const cur = this.loadout[slot];
       if (cur && !slotAccepts(ITEM_DEF_MAP.get(cur.defId)!, from.slot)) return 'fail';

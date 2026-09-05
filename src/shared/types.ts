@@ -1,6 +1,7 @@
 import type * as THREE from 'three';
 import type { Random } from './Random';
 import type { GameContext } from './GameContext';
+import type { ArmorDef, CraftRecipe, CraftStation, DurabilityInfo, WeightInfo } from './gear';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Game phase / flow
@@ -50,7 +51,11 @@ export type ItemCategory =
   | 'material'    // resource, stackable, has value
   /* appended (weapon package) */
   | 'attachment'  // weapon socket attachment (muzzle / grip / mag / stock / sight), see `ItemDef.attachment`
-  | 'bag';        // backpack (equippable in the `bag` loadout slot), see `ItemDef.bag`
+  | 'bag'         // backpack (equippable in the `bag` loadout slot), see `ItemDef.bag`
+  /* appended: tactical kit */
+  | 'armor'       // body armor (equippable in the `armor` loadout slot, see `ItemDef.armorId` → ArmorDef)
+  | 'gadget'      // special gadget consumable (see GadgetDef), usable from the quick wheel
+  | 'herb';       // gathered plant, crafting input for medicine
 
 export type Rarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
 
@@ -71,8 +76,8 @@ export type WeaponGrade = 1 | 2 | 3 | 4 | 5;
 /** Weapon socket slots. Every weapon has all five (for now). */
 export type SocketSlot = 'muzzle' | 'grip' | 'mag' | 'stock' | 'sight';
 /** Equipment slots. `primary` = 주무기 I (key 1), `primary2` = 주무기 II (key 2), `secondary` = 보조무기 (key 3), `bag` = 가방. */
-export type LoadoutSlot = 'primary' | 'primary2' | 'secondary' | 'bag';
-export type WeaponSlot = Exclude<LoadoutSlot, 'bag'>;
+export type LoadoutSlot = 'primary' | 'primary2' | 'secondary' | 'bag' | 'armor';
+export type WeaponSlot = Exclude<LoadoutSlot, 'bag' | 'armor'>;
 
 /** Attachment stat effects. Multipliers default to 1 (0.8 = −20 %); overrides default to "unchanged". Owner: items. */
 export interface AttachmentEffects {
@@ -180,6 +185,9 @@ export interface WeaponDef {
   maxDurability?: number;
   /** Base weapon this grade belongs to (`ar23` for `ar23_g3`); undefined → the def is its own family. */
   family?: string;
+  /* appended: tactical kit */
+  /** Melee damage multiplier granted by this weapon's stock (undefined = MELEE_STOCK_MUL_DEFAULT). */
+  meleeMul?: number;
 }
 
 export interface ItemDef {
@@ -206,6 +214,17 @@ export interface ItemDef {
   attachment?: AttachmentDef;
   /** category 'bag' */
   bag?: BagDef;
+  /* ── appended: tactical kit (owner: items) ── */
+  /** kg per unit. undefined = 0.1 kg. Counts toward the weight budget. */
+  weight?: number;
+  /** category 'armor': links to an ArmorDef. */
+  armorId?: string;
+  /** category 'gadget': links to a GadgetDef (owned by gadgets/). */
+  gadgetId?: string;
+  /** Fresh durability for non-weapon gear that wears out (armor). Weapons use `WeaponDef.maxDurability`. */
+  durabilityMax?: number;
+  /** Informational: the item may sit in a quick slot even outside QUICK_USABLE_CATEGORIES. */
+  quickUsable?: boolean;
 }
 
 export interface ItemInstance {
@@ -233,6 +252,8 @@ export interface Loadout {
   primary2: ItemInstance | null;
   /** Equipped backpack; null → BAG_DEFAULT grid. */
   bag: ItemInstance | null;
+  /* appended (tactical kit): optional so existing emitters keep compiling. */
+  armor?: ItemInstance | null;
 }
 
 export interface InventoryRef {
@@ -301,6 +322,26 @@ export interface InventoryRef {
    * Contents are cached per `containerId` like crates (a second open shows what is left); `crate:looted {crateId}` fires when emptied.
    */
   openContainerItems(containerId: string, items: ItemInstance[], position: THREE.Vector3, title?: string): void;
+
+  /* ── appended: tactical kit (owner: inventory) ── */
+  /** Item equipped in a loadout slot, or null. */
+  getEquipped(slot: LoadoutSlot): ItemInstance | null;
+  /** Live weight budget (bag + equipped gear). Recomputed on every change; emits `inventory:weightChanged`. */
+  getWeight(): WeightInfo;
+  /** Remove exactly `qty` of `defId` from the bag; false when there is not enough. */
+  consumeDef(defId: string, qty: number): boolean;
+  /** Field crafting: recipes available at `station` given the current skills. */
+  getRecipes(station: CraftStation): readonly CraftRecipe[];
+  /** true when every input of `recipeId` is in the bag. */
+  canCraft(recipeId: string): boolean;
+  /** Start a craft (hold time applies); resolves to the produced item or null. */
+  craft(recipeId: string): Promise<ItemInstance | null>;
+  /** Apply wear to a gear item (armor per hit). Emits `durability:changed` / `durability:broken`. Weapons keep `updateItem`. */
+  damageDurability(uid: string, amount: number): void;
+  /** Durability of a gear item (weapon / armor), or null when it is not tracked. */
+  getDurability(uid: string): DurabilityInfo | null;
+  /** Ship workbench: repair any gear item (weapon → `repairWeapon`, armor → full durability). */
+  repair(uid: string): boolean;
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -384,6 +425,10 @@ export interface LootRef {
    * durability (`rogueWeaponId` = the WeaponDef id the rogue carried); bosses → a graded weapon + an attachment. Deterministic per `rng`.
    */
   rollCorpse(type: EnemyType, rng?: Random, rogueWeaponId?: string): ItemInstance[];
+  /* ── appended: tactical kit (owner: items) ── */
+  getArmorDef(armorId: string): ArmorDef | undefined;
+  /** Every craft recipe in the game; inventory filters by station and skill. */
+  getAllRecipes(): readonly CraftRecipe[];
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -449,6 +494,20 @@ export interface WorldRef {
   /* ── appended (Phase 3): dynamic obstacles (owner: world) ── */
   /** Register a runtime obstacle (collision, raycast, enemy avoidance). Returns the remover. Cleared with the world. */
   addObstacle(obstacle: Obstacle): () => void;
+  /* ── appended: tactical kit (owner: world) ── */
+  /** Harvestable plants scattered over the map. Consumed nodes stay in the list with `harvested: true`. */
+  getGatherNodes(): readonly GatherNodeDef[];
+}
+
+/** A harvestable plant. Owner: world/WorldSystem (spawn + Interactable); items/ owns the herb it yields. */
+export interface GatherNodeDef {
+  id: string;
+  position: THREE.Vector3;
+  /** Item def id produced (an 'herb' category item). */
+  defId: string;
+  /** Units produced before the gardening multiplier. */
+  qty: number;
+  harvested: boolean;
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -580,6 +639,34 @@ export interface PlayerRef {
   /* ── appended: Phase 4 (owner: player) ── */
   /** Shove the player: adds `direction × speed` (m/s, direction normalised, y allowed) to the controller velocity — behemoth charge, blasts. */
   applyKnockback(direction: THREE.Vector3, speed: number): void;
+
+  /* ── appended: tactical kit (owner: player) ── */
+  /** true while the melee swing animation is playing (weapons resolves the hit). */
+  readonly isMeleeing: boolean;
+  /** Start a melee swing (F). false when on cooldown / out of stamina / controls locked. */
+  startMelee(): boolean;
+  /** Cloaked: enemy detection range is scaled by `CLOAK_DETECT_MUL`. */
+  readonly isCloaked: boolean;
+  /** Apply / refresh a cloak for `duration` seconds. Optical-camo armor passes Infinity. */
+  setCloak(duration: number, source: 'gadget' | 'armor'): void;
+  /** 0..1 stealth factor an enemy multiplies its detection range by (1 = fully visible). */
+  getStealthFactor(): number;
+  /** Movement speed multiplier stacked on top of stance / stamina (overcharge, ultralight armor, weight). */
+  setSpeedModifier(key: string, mul: number, duration?: number): void;
+  /** Launch the player (jump pad, grapple release): adds to the velocity. */
+  applyImpulse(impulse: THREE.Vector3): void;
+  /** Grapple: pull the player toward `point` until released. null stops the pull. */
+  setGrappleTarget(point: THREE.Vector3 | null): void;
+  /** Backpack hover (tactical bag): slow the fall while held. */
+  setHovering(hovering: boolean): void;
+  readonly isHovering: boolean;
+  /** true while an overcharge beam is buffing this player (speed / fire rate). */
+  readonly isOvercharged: boolean;
+  /** Damage reduction currently granted by armor (0..0.9). Read by the HUD. */
+  readonly damageReduction: number;
+  /** Burning (incendiary / fire zone): applies DoT and suppresses the grit save. */
+  setBurning(dps: number, duration: number): void;
+  readonly isBurning: boolean;
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -649,6 +736,16 @@ export interface EnemyManagerRef {
   /* appended (Phase 4) */
   /** Ray vs interceptable projectiles (artillery shells). Weapons call `target.intercept()` when this is the nearest hit. */
   raycastInterceptable(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number): { target: InterceptableRef; point: THREE.Vector3; distance: number } | null;
+
+  /* ── appended: tactical kit (owner: enemies) ── */
+  /** Enemies within `radius` of `pos` (alive only). Used by turrets, scans, explosions and lures. */
+  queryNear(pos: THREE.Vector3, radius: number): EnemyRef[];
+  /** Pull aggro toward `pos` for `duration` seconds (lure grenade, gunfire noise). `weight` 0..1 ranks competing lures. */
+  addDistraction(pos: THREE.Vector3, radius: number, duration: number, weight: number): void;
+  /** Apply a status effect (burning ground, acid). `dps` 0 clears it. */
+  applyStatus(id: number, status: 'burning' | 'slowed', dps: number, duration: number): void;
+  /** Damage every enemy in a radius and credit `by` (turret / mine / rocket). Returns kills. */
+  applyAreaDamage(center: THREE.Vector3, radius: number, damage: number, by?: string): number;
 }
 
 /* ────────────────────────────────────────────────────────────────────────────

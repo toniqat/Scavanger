@@ -1,8 +1,10 @@
-import type { EffectiveWeaponStats, EnemyType, ItemDef, ItemInstance, ItemInstanceExtras, LootRef, WeaponDef } from '@/shared';
+import type { ArmorDef, CraftRecipe, EffectiveWeaponStats, EnemyType, ItemDef, ItemInstance, ItemInstanceExtras, LootRef, WeaponDef } from '@/shared';
 import { Random } from '@/shared';
 import { ATTACHMENT_ITEM_DEFS, ITEM_DEFS, ITEM_DEF_MAP, ammoItemIdFor, isWeaponItemDef, itemIdForWeapon, rarityRank } from './ItemDefs';
 import { WEAPON_DEF_MAP, weaponFamilyOf, weaponIdForGrade } from './WeaponDefs';
 import { canAttach as canAttachDef, computeWeaponStats, repairCost } from './WeaponStats';
+import { ARMOR_DEF_MAP } from './ArmorDefs';
+import { CRAFT_RECIPES } from './Recipes';
 import { CORPSE_TABLE_MAP, DEFAULT_ROGUE_WEAPON_ID, getTierTable, type TierTable } from './LootTables';
 
 let uidCounter = 0;
@@ -18,6 +20,9 @@ export class LootService implements LootRef {
   getItemDef(defId: string): ItemDef | undefined { return ITEM_DEF_MAP.get(defId); }
   getWeaponDef(weaponId: string): WeaponDef | undefined { return WEAPON_DEF_MAP.get(weaponId); }
   getAllItemDefs(): ItemDef[] { return ITEM_DEFS.slice(); }
+  /* appended: tactical kit */
+  getArmorDef(armorId: string): ArmorDef | undefined { return ARMOR_DEF_MAP.get(armorId); }
+  getAllRecipes(): readonly CraftRecipe[] { return CRAFT_RECIPES; }
 
   /**
    * Create an item instance. Weapons spawn at full durability with a full magazine
@@ -34,6 +39,8 @@ export class LootService implements LootRef {
       const stats = computeWeaponStats(weapon, inst);
       inst.durability = extras?.durability ?? stats.maxDurability;
       inst.ammoInMag = extras?.ammoInMag ?? stats.magSize;
+    } else if (def.durabilityMax !== undefined) {
+      inst.durability = extras?.durability ?? def.durabilityMax;
     } else if (extras) {
       if (extras.durability !== undefined) inst.durability = extras.durability;
       if (extras.ammoInMag !== undefined) inst.ammoInMag = extras.ammoInMag;
@@ -111,7 +118,14 @@ export class LootService implements LootRef {
         const moved = Math.min(room, qty);
         existing.qty += moved; qty -= moved;
       }
-      if (qty > 0) out.push(this.createItem(def.id, qty));
+      if (qty > 0) {
+        const item = this.createItem(def.id, qty);
+        // Found gear is second-hand: 55–100 % durability, so 함선 수리 is worth doing.
+        if (def.durabilityMax !== undefined) {
+          item.durability = Math.max(1, Math.round(def.durabilityMax * (0.55 + rng.next() * 0.45)));
+        }
+        out.push(item);
+      }
     }
     out.sort((a, b) => this.area(b) - this.area(a));
     return out;

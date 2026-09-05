@@ -1,4 +1,4 @@
-import type { GameContext, PlayerSnapshot, WeaponSlot } from '@/shared';
+import type { GameContext, ImplantId, PlayerSnapshot, WeaponSlot } from '@/shared';
 import { PlayerFlags } from '@/shared';
 
 const round3 = (x: number): number => Math.round(x * 1000) / 1000;
@@ -15,11 +15,17 @@ export class Snapshotter {
   weaponSlot: WeaponSlot | null = null;
   /** A stim / grenade is in hand instead of a gun (from `quick:equipped`). */
   holdingItem = false;
+  /* appended (tactical kit): set by implants / inventory so remotes can render gear. */
+  /** Wielded implant id, or null. Set from `implant:wieldChanged`. */
+  implantId: ImplantId | null = null;
+  /** Equipped armor def id. Set from `equip:changed`. */
+  armorId: string | null = null;
 
   private seq = 0;
   private readonly msg: PlayerSnapshot = {
     t: 'ps', seq: 0, time: 0, p: [0, 0, 0], v: [0, 0, 0], yaw: 0, pitch: 0,
     stance: 'stand', f: 0, hp: 0, w: null, stride: 0, move: 0,
+    imp: null, ar: null,
   };
 
   reset(): void { this.seq = 0; }
@@ -42,6 +48,8 @@ export class Snapshotter {
     m.w = inHub ? null : this.weaponId;
     m.stride = round3(p.stridePhase ?? 0);
     m.move = round3(p.moveBlend ?? 0);
+    m.imp = inHub ? null : this.implantId;
+    m.ar = this.armorId;
 
     let f = 0;
     if (p.isSprinting) f |= PlayerFlags.SPRINT;
@@ -56,6 +64,12 @@ export class Snapshotter {
     if (inHub) f |= PlayerFlags.IN_HUB;
     if (p.isInPod) f |= PlayerFlags.IN_POD;
     if (p.isDowned) f |= PlayerFlags.DOWNED;
+    /* appended: tactical kit (the roll rides on the DIVE bit via `isDiving`) */
+    if (p.isMeleeing) f |= PlayerFlags.MELEE;
+    if (p.isCloaked) f |= PlayerFlags.CLOAKED;
+    if (p.isHovering) f |= PlayerFlags.HOVER;
+    if (p.isOvercharged) f |= PlayerFlags.OVERCHARGED;
+    if (ctx.implants?.barrierActive) f |= PlayerFlags.BARRIER;
     if (this.holdingItem && !inHub) {
       // a consumable is in hand (Phase 2): no gun is advertised, remote avatars pose one-handed
       f |= PlayerFlags.HOLDING_ITEM;

@@ -6,4 +6,5 @@ export { SoldierModel, SOLDIER_DEFAULT_ACCENT } from './SoldierModel';
 export type { SoldierPose } from './SoldierModel';
 export { CameraRig } from './CameraRig';
 export { PlayerController } from './PlayerController';
+export { PlayerGear } from './PlayerGear';
 export { Hellpod } from './Hellpod';

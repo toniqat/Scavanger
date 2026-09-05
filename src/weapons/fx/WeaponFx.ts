@@ -2,8 +2,12 @@ import * as THREE from 'three';
 import { FxManager, ParticleBurst } from '@/core/fx';
 
 const _n = new THREE.Vector3(), _p = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0);
+const _qy = new THREE.Quaternion();
+/** Lays the arc ring (XY plane) flat so its sweep runs horizontally in front of the swinger. */
+const _qFlat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
 
 interface Ring { mesh: THREE.Mesh; life: number; maxLife: number; radius: number }
+interface Arc { mesh: THREE.Mesh; life: number; maxLife: number; scale: number }
 
 /**
  * Weapon-specific effect recipes layered on the shared FX pools: muzzle flash, casings, impacts,
@@ -14,6 +18,10 @@ export class WeaponFx {
   private readonly rings: Ring[] = [];
   private readonly ringGeo = new THREE.RingGeometry(0.7, 1.0, 40);
   private readonly ringMat = new THREE.MeshBasicMaterial({ color: 0xffd8a0, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false });
+  /** Melee swing arcs (pooled, no lights — see "Grenade hitch"). */
+  private readonly arcs: Arc[] = [];
+  private readonly arcGeo = new THREE.RingGeometry(0.48, 1.0, 26, 1, Math.PI / 2 - 0.95, 1.9);
+  private readonly arcMat = new THREE.MeshBasicMaterial({ color: 0xdbe7ff, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false });
 
   constructor(scene: THREE.Scene) {
     this.group.name = 'WeaponFX';
@@ -25,7 +33,43 @@ export class WeaponFx {
       this.group.add(mesh);
       this.rings.push({ mesh, life: 0, maxLife: 0.45, radius: 6 });
     }
+    for (let i = 0; i < 3; i++) {
+      const mesh = new THREE.Mesh(this.arcGeo, this.arcMat.clone());
+      mesh.visible = false;
+      mesh.renderOrder = 23;
+      this.group.add(mesh);
+      this.arcs.push({ mesh, life: 0, maxLife: 0.2, scale: 1 });
+    }
     scene.add(this.group);
+  }
+
+  /**
+   * Melee swing swoosh: a flat arc sweeping in front of the swinger. `pos` is the swing pivot (chest height),
+   * `yaw` the body yaw. Pooled — never allocates, never adds a light.
+   */
+  meleeArc(pos: THREE.Vector3, yaw: number, scale = 1): void {
+    const a = this.arcs.find((x) => x.life <= 0) ?? this.arcs[0];
+    a.life = a.maxLife;
+    a.scale = scale;
+    a.mesh.position.copy(pos);
+    _qy.setFromAxisAngle(_up, yaw);
+    a.mesh.quaternion.copy(_qy).multiply(_qFlat);
+    a.mesh.scale.setScalar(scale * 0.7);
+    (a.mesh.material as THREE.MeshBasicMaterial).opacity = 0.75;
+    a.mesh.visible = true;
+  }
+
+  /** Melee contact: ichor on a bug, sparks + dust on a deployable / surface. */
+  meleeImpact(point: THREE.Vector3, dir: THREE.Vector3, enemy: boolean): void {
+    const fx = FxManager.get(); if (!fx) return;
+    _n.copy(dir).negate();
+    if (_n.lengthSq() < 0.01) _n.copy(_up);
+    if (enemy) {
+      ParticleBurst.ichor(fx.additive, point, _n, 16);
+    } else {
+      ParticleBurst.sparks(fx.additive, point, _n, 7, 6, 0xffd0a0);
+      ParticleBurst.dust(fx.alpha, point, _n, 3, 0.4, 0x8a8a8a);
+    }
   }
 
   muzzleFlash(pos: THREE.Vector3, dir: THREE.Vector3, color: number, scale = 1): void {
@@ -105,13 +149,27 @@ export class WeaponFx {
       (r.mesh.material as THREE.MeshBasicMaterial).opacity = (1 - t) * 0.8;
       if (r.life <= 0) r.mesh.visible = false;
     }
+    for (const a of this.arcs) {
+      if (a.life <= 0) continue;
+      a.life -= dt;
+      const t = 1 - Math.max(0, a.life) / a.maxLife;
+      const s = a.scale * (0.7 + t * 0.5);
+      a.mesh.scale.set(s, s, 1);
+      (a.mesh.material as THREE.MeshBasicMaterial).opacity = (1 - t) * 0.75;
+      if (a.life <= 0) a.mesh.visible = false;
+    }
   }
 
-  clear(): void { for (const r of this.rings) { r.life = 0; r.mesh.visible = false; } }
+  clear(): void {
+    for (const r of this.rings) { r.life = 0; r.mesh.visible = false; }
+    for (const a of this.arcs) { a.life = 0; a.mesh.visible = false; }
+  }
 
   dispose(): void {
     this.ringGeo.dispose(); this.ringMat.dispose();
+    this.arcGeo.dispose(); this.arcMat.dispose();
     for (const r of this.rings) (r.mesh.material as THREE.Material).dispose();
+    for (const a of this.arcs) (a.mesh.material as THREE.Material).dispose();
     this.group.removeFromParent();
   }
 }

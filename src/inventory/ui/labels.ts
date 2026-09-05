@@ -1,5 +1,5 @@
-import type { AmmoType, EffectiveWeaponStats, ItemDef, LoadoutSlot, WeaponDef } from '@/shared';
-import { WEAPON_GRADE_ROMAN } from '@/shared';
+import type { AmmoType, EffectiveWeaponStats, ItemDef, LoadoutSlot, WeaponDef, WeightState } from '@/shared';
+import { WEAPON_GRADE_ROMAN, WEIGHT_STATE_LABEL_KO } from '@/shared';
 import { AMMO_LABEL_KO, CATEGORY_LABEL_KO, RARITY_COLORS, RARITY_LABEL_KO, WEAPON_CLASS_LABEL_KO, getTierLabel, weaponClassOf } from '@/items';
 
 export const CELL = 54;   // px
@@ -25,9 +25,13 @@ export const fmtMul = (m: number): string => `${m < 1 ? '−' : '+'}${Math.round
 export const DURABILITY_LOW = 0.3;
 
 export const SLOT_LABEL: Readonly<Record<LoadoutSlot, string>> = {
-  primary: '주무기 I', primary2: '주무기 II', secondary: '보조무기', bag: '가방',
+  primary: '주무기 I', primary2: '주무기 II', secondary: '보조무기', bag: '가방', armor: '방탄복',
 };
-export const SLOT_KEY: Readonly<Record<LoadoutSlot, string>> = { primary: '1', primary2: '2', secondary: '3', bag: '' };
+export const SLOT_KEY: Readonly<Record<LoadoutSlot, string>> = { primary: '1', primary2: '2', secondary: '3', bag: '', armor: '' };
+/* appended: tactical kit */
+export const fmtKg = (n: number): string => `${n.toFixed(1)} kg`;
+export const weightLabel = (state: WeightState): string => WEIGHT_STATE_LABEL_KO[state] ?? state;
+export const fmtSeconds = (n: number): string => `${n.toFixed(1)} s`;
 /** Wheel direction glyphs by quick-slot index (N, NE, E, SE, S, SW, W, NW). */
 export const QUICK_DIR_GLYPH: readonly string[] = ['▲', '◥', '►', '◢', '▼', '◣', '◄', '◤'];
 /** DOM order of the 3×3 compass rose (row-major, -1 = centre). */
@@ -92,6 +96,16 @@ export const TEXT = {
     hipSpread: '지향 사격 퍼짐', adsTime: '정조준 시간', magSize: '장탄수', zoom: '배율', scope: '스코프', laser: '레이저',
   },
   bagStats: { grid: '칸', quickSlots: '퀵슬롯', tactical: '전술형' },
+  /* appended: tactical kit */
+  weight: '무게',
+  armorStats: { dr: '피해 감소', durability: '내구도', perk: '특성' },
+  craft: '제작',
+  craftPanel: '필드 제작',
+  craftNone: '지금 만들 수 있는 레시피가 없습니다',
+  craftHold: '길게 눌러 제작',
+  craftMaking: '제작 중…',
+  craftStationShip: '함선 작업대',
+  craftStationField: '야전 제작',
   socketEmpty: '비어 있음',
   broken: '고장',
   auto: '자동', semi: '반자동', pellets: '펠릿',

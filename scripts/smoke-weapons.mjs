@@ -137,7 +137,7 @@ try {
   await waitSim(0.8);
   const eq2 = await lastEv('weapon:equipped');
   ok(eq2 && eq2.slot === 'primary2' && eq2.weaponId === 'smg37_g2', '2 → 주무기 II (SMG II)', JSON.stringify(eq2));
-  await key('KeyQ');
+  await key('KeyV');
   await waitSim(0.8);
   ok((await lastEv('weapon:equipped')).slot === 'secondary', 'Q returns to the previous weapon');
   await key('Digit1');

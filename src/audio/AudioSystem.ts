@@ -51,6 +51,9 @@ export class AudioSystem implements GameSystem {
   /** Last `weapon:scopeChanged.scope` — gates scope_in/out on `player:aimChanged`. */
   private lastScope = false;
   private aiming = false;
+  /* tactical kit: barrier state, so `implant:barrierChanged` can tell deploy / stow / break apart. */
+  private barrierActive = false;
+  private barrierHp = 0;
 
   private camPos = new THREE.Vector3();
   private camFwd = new THREE.Vector3();
@@ -186,6 +189,73 @@ export class AudioSystem implements GameSystem {
       b.on('extraction:liftoff', () => { this.engineTarget = 0.9; this.tensionTarget = 0; this.liftoffTimer = 8; }),
       b.on('extraction:doorsClosed', () => auto('door_close')),
 
+      /* ══ tactical kit ══════════════════════════════════════════════════ */
+      // melee / movement (weapons resolves the swing but may also send its own audio:play — dedupe covers it)
+      b.on('melee:swing', () => auto('melee_swing', undefined, 0.8, 0.95 + Math.random() * 0.12)),
+      b.on('melee:hit', ({ point, killed }) => auto('melee_hit', point, killed ? 1 : 0.85, killed ? 0.85 : 1)),
+      b.on('player:dived', ({ position }) => auto('roll', position, 0.8, 0.96 + Math.random() * 0.08)),
+      b.on('player:launched', ({ position }) => auto('jumppad', position, 0.8)),
+      // survival states
+      b.on('player:downed', () => auto('downed', undefined, 0.95)),
+      b.on('player:revived', () => auto('revive', undefined, 0.9)),
+      b.on('player:gritSaved', () => auto('grit_save', undefined, 0.9)),
+      b.on('player:burning', ({ active }) => { if (active) auto('fire_ignite', undefined, 0.55); }),
+      b.on('player:cloakChanged', ({ cloaked }) => auto(cloaked ? 'cloak_on' : 'cloak_off', undefined, 0.6)),
+      // implants
+      b.on('implant:activated', ({ id, position }) => { if (id === 'atlauncher') auto('rocket_fire', position, 0.95); }),
+      b.on('implant:dashed', ({ position }) => auto('dash', position, 0.85)),
+      b.on('implant:grappleFired', ({ origin }) => auto('grapple_fire', origin, 0.85)),
+      b.on('implant:grappleAttached', ({ point }) => auto('grapple_attach', point, 0.9)),
+      b.on('implant:grappleReleased', () => auto('grapple_release', undefined, 0.6)),
+      b.on('implant:barrierChanged', ({ hp, active }) => {
+        if (active !== this.barrierActive) {
+          this.barrierActive = active;
+          if (active) auto('barrier_deploy', undefined, 0.85);
+          else if (hp > 0) auto('grapple_release', undefined, 0.5); // servo whir as it folds away
+        }
+        if (hp <= 0 && this.barrierHp > 0) auto('barrier_break', undefined, 0.95);
+        this.barrierHp = hp;
+      }),
+      b.on('implant:barrierHit', ({ point }) => auto('barrier_hit', point, 0.7)),
+      b.on('implant:scanned', ({ pulse }) => auto('scan_pulse', undefined, 0.75, 1 + Math.min(4, pulse) * 0.06)),
+      b.on('implant:overcharge', ({ active }) => { if (active) auto('overcharge_beam', undefined, 0.6); }),
+      b.on('implant:rocketExploded', ({ position }) => auto('rocket_explode', position, 1)),
+      b.on('implant:wieldChanged', ({ wielded }) => auto(wielded ? 'ui_equip' : 'ui_close', undefined, 0.45)),
+      b.on('implant:equipped', () => auto('ui_equip', undefined, 0.7)),
+      // gadgets
+      b.on('gadget:used', ({ id, position }) => {
+        if (id === 'defib') auto('defib', position, 0.9);
+        else if (id === 'cloakVeil') auto('cloak_on', position, 0.8);
+        else auto('grenade_throw', position, 0.65);
+      }),
+      b.on('gadget:deployed', ({ kind, position }) => {
+        switch (kind) {
+          case 'mine': auto('mine_arm', position, 0.7); break;
+          case 'domeShield': auto('dome_deploy', position, 0.85); break;
+          case 'smoke': auto('smoke_hiss', position, 0.7); break;
+          case 'fire': auto('fire_ignite', position, 0.85); break;
+          case 'lure': auto('lure_beep', position, 0.7); break;
+          default: auto('gadget_place', position, 0.85); break;
+        }
+      }),
+      b.on('gadget:removed', ({ kind, reason }) => {
+        if (reason === 'destroyed') auto(kind === 'mine' ? 'mine_explode' : 'gadget_break', undefined, 0.85);
+        else if (reason === 'recovered') auto('ui_equip', undefined, 0.6);
+      }),
+      b.on('gadget:throwModeChanged', () => auto('ui_click', undefined, 0.5)),
+      // gear upkeep, gathering, crafting, weight
+      b.on('gather:collected', () => auto('gather', undefined, 0.8)),
+      b.on('craft:started', () => auto('craft_start', undefined, 0.7)),
+      b.on('craft:completed', () => auto('craft_done', undefined, 0.8)),
+      b.on('craft:failed', ({ reason }) => { if (reason !== 'cancelled') auto('ui_error', undefined, 0.7); }),
+      b.on('repair:completed', () => auto('repair_done', undefined, 0.8)),
+      b.on('durability:broken', () => auto('durability_break', undefined, 0.9)),
+      b.on('inventory:overloaded', ({ state }) => { if (state === 'heavy' || state === 'over') auto('ui_deny', undefined, 0.7); }),
+      b.on('equip:changed', () => auto('ui_equip', undefined, 0.6)),
+      // progression
+      b.on('progress:levelUp', () => auto('level_up', undefined, 0.9)),
+      b.on('progress:skillUp', () => auto('skill_up', undefined, 0.5)),
+
       // flow
       b.on('game:phaseChanged', ({ phase, prev }) => {
         if (phase === 'deploying') auto('hellpod_fall');
@@ -197,6 +267,7 @@ export class AudioSystem implements GameSystem {
       b.on('game:newMission', () => {
         this.shipPresent = false; this.engineTarget = 0; this.tensionTarget = 0; this.liftoffTimer = -1; this.lastScope = false; this.aiming = false;
         this.hubActive = false; this.lastLaunchSecond = -1;
+        this.barrierActive = false; this.barrierHp = 0;
       }),
       b.on('game:paused', ({ paused }) => {
         if (!this.ac) return;

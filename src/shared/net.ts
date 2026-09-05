@@ -1,5 +1,7 @@
 import type * as THREE from 'three';
 import type { ChatKind, EnemyType, GamePhase, PingKind, Stance, ItemInstanceExtras, StratagemId } from './types';
+import type { DeployableKind, GadgetId } from './gadgets';
+import type { ImplantId } from './implants';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Multiplayer contract (owner: net/NetSystem publishes `ctx.net`).
@@ -150,6 +152,17 @@ export const PlayerFlags = {
   DOWNED: 1 << 13,
   /** A consumable (stim / grenade) is in hand instead of a gun. */
   HOLDING_ITEM: 1 << 14,
+  /* appended (tactical kit) */
+  /** Cloaked (은폐 장막 / 광학미채) — remote avatars render translucent. */
+  CLOAKED: 1 << 15,
+  /** Barrier implant deployed. */
+  BARRIER: 1 << 16,
+  /** Melee swing in progress. */
+  MELEE: 1 << 17,
+  /** Hovering under the tactical backpack. */
+  HOVER: 1 << 18,
+  /** Buffed by an overcharge beam. */
+  OVERCHARGED: 1 << 19,
 } as const;
 
 /** Local player state → everyone, NET_PLAYER_SNAPSHOT_HZ. Owner: net (built from ctx.player / ctx.inventory). */
@@ -173,6 +186,11 @@ export interface PlayerSnapshot {
   /** Stride phase (radians) and move blend, for the remote walk cycle. */
   stride: number;
   move: number;
+  /* appended (tactical kit) — optional so older senders stay compatible. */
+  /** Wielded implant id (grapple / overcharge / scan / atlauncher) so remotes render the device in hand. */
+  imp?: ImplantId | null;
+  /** Equipped armor def id, for the remote avatar look. */
+  ar?: string | null;
 }
 
 /** Someone fired. Owner: weapons (sends) / net emits `net:remoteFired` on receive. */
@@ -336,7 +354,14 @@ export type GameMessage =
   | ItemRequest
   | ReviveMessage
   | StratagemMessage
-  | InterceptRequest;
+  | InterceptRequest
+  | ImplantMessage
+  | BuffMessage
+  | MeleeMessage
+  | GadgetMessage
+  | GadgetRequest
+  | HarvestMessage
+  | HarvestRequest;
   /* append new message types above this line (keep `t` unique; prefix by owning folder if in doubt) */
 
 export type GameMessageType = GameMessage['t'];
@@ -383,6 +408,13 @@ export interface RemotePlayerRef {
   avatar: RemoteAvatarRef | null;
   /* appended (Phase 2): `flags & DOWNED` — crawling, revivable (RemotePlayerSystem registers a `revive:<id>` interactable). */
   readonly isDowned: boolean;
+  /* appended (tactical kit) */
+  /** Wielded implant id from the latest snapshot, or null. */
+  readonly implantId: ImplantId | null;
+  /** Equipped armor def id from the latest snapshot. */
+  readonly armorId: string | null;
+  /** `flags & CLOAKED`. */
+  readonly isCloaked: boolean;
 }
 
 export type NetStatus = 'offline' | 'connecting' | 'connected' | 'error';
@@ -474,3 +506,74 @@ export function sanitizePlayerName(raw: string): string {
   const s = raw.replace(/[<>\u0000-\u001f]/g, '').trim().slice(0, 16);
   return s.length > 0 ? s : '스캐빈저';
 }
+
+/* ── appended: tactical kit ───────────────────────────────────────────────── */
+
+/** Any → all: implant FX that remotes must see (grapple wire, barrier, scan pulse, rocket). Owner: implants. */
+export type ImplantMessage =
+  | { t: 'imp'; ev: 'wield'; id: ImplantId; wielded: boolean }
+  | { t: 'imp'; ev: 'grapple'; o: Vec3Tuple; p: Vec3Tuple | null }
+  | { t: 'imp'; ev: 'dash'; o: Vec3Tuple; d: Vec3Tuple }
+  | { t: 'imp'; ev: 'barrier'; active: boolean; p: Vec3Tuple; yaw: number; hp: number }
+  | { t: 'imp'; ev: 'scan'; p: Vec3Tuple; radius: number }
+  | { t: 'imp'; ev: 'rocket'; o: Vec3Tuple; d: Vec3Tuple }
+  | { t: 'imp'; ev: 'rocketHit'; p: Vec3Tuple };
+
+/**
+ * Any → one peer: a friendly effect. 'heal' / 'boost' are the overcharge implant, 'revive' the defibrillator
+ * and 'cloak' the cloak veil sharing its cloak with a nearby squadmate.
+ * Owner: implants/ applies 'heal' and 'boost', gadgets/ applies 'revive' and 'cloak' — each kind has exactly
+ * one owner so a buff is never applied twice.
+ */
+export interface BuffMessage {
+  t: 'buff';
+  kind: 'heal' | 'boost' | 'revive' | 'cloak';
+  /** hp restored for 'heal' / 'revive'; speed multiplier for 'boost'; unused for 'cloak'. */
+  amount: number;
+  duration: number;
+  /** Sender's display name for the kill / assist feed. */
+  by: string;
+}
+
+/** Any → all: a melee swing landed (FX + audio on remotes). Owner: weapons. */
+export interface MeleeMessage { t: 'melee'; p: Vec3Tuple; d: Vec3Tuple; hit: boolean }
+
+/** Wire form of a deployable. */
+export interface DeployableWire {
+  id: string;
+  kind: DeployableKind;
+  owner: PeerId;
+  p: Vec3Tuple;
+  yaw: number;
+  hp: number;
+  maxHp: number;
+  armed: boolean;
+  /** Seconds of life left (0 = no expiry). */
+  ttl: number;
+}
+
+/** Host → all: authoritative deployable state. Owner: gadgets. */
+export type GadgetMessage =
+  | { t: 'gad'; ev: 'spawn'; d: DeployableWire }
+  | { t: 'gad'; ev: 'update'; id: string; hp: number; armed: boolean }
+  | { t: 'gad'; ev: 'remove'; id: string; reason: 'destroyed' | 'recovered' | 'expired' }
+  | { t: 'gad'; ev: 'fire'; id: string; target: Vec3Tuple }
+  | { t: 'gad'; ev: 'sync'; items: DeployableWire[] };
+
+/** Client → host: deployable requests. Owner: gadgets. */
+export type GadgetRequest =
+  | { t: 'gadq'; ev: 'place'; gadget: GadgetId; p: Vec3Tuple; yaw: number; v?: Vec3Tuple }
+  | { t: 'gadq'; ev: 'damage'; id: string; dmg: number }
+  | { t: 'gadq'; ev: 'recover'; id: string }
+  | { t: 'gadq'; ev: 'sync' };
+
+/** Wire form of a gather node. */
+export interface GatherWire { id: string; defId: string; p: Vec3Tuple; harvested: boolean }
+
+/** Host ↔ client: harvestable plants (host-authoritative, same shape as pickups). Owner: world. */
+export type HarvestMessage =
+  | { t: 'harv'; ev: 'taken'; id: string; by: PeerId }
+  | { t: 'harv'; ev: 'sync'; nodes: GatherWire[] };
+export type HarvestRequest =
+  | { t: 'harvq'; ev: 'take'; id: string }
+  | { t: 'harvq'; ev: 'sync' };

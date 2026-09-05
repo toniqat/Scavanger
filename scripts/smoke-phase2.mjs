@@ -88,12 +88,12 @@ try {
   console.log('stim in hand (F tap)');
   await P(() => window.__game.ctx.player.takeDamage(40));
   await waitSim(0.3);
-  await key('KeyF', 0.08);
+  await key('KeyT', 0.08);
   await waitSim(0.4);
   let qe = await lastEv('quick:equipped');
   ok(qe && qe.item && (qe.item.defId === 'grenade_frag' || qe.item.defId === 'stim'), 'F tap puts a quick item in hand', JSON.stringify(qe));
   // make sure the stim is in hand: open the wheel and pick S (drag down)
-  await keyDown('KeyF');
+  await keyDown('KeyT');
   await waitSim(0.5);
   let wheel = await lastEv('quick:wheelChanged');
   ok(wheel && wheel.open === true, 'F hold opens the wheel', JSON.stringify(wheel));
@@ -101,7 +101,7 @@ try {
   await waitSim(0.2);
   wheel = await lastEv('quick:wheelChanged');
   ok(wheel && wheel.hover === 4, 'dragging down hovers the S slot', JSON.stringify(wheel));
-  await keyUp('KeyF');
+  await keyUp('KeyT');
   await waitSim(0.3);
   qe = await lastEv('quick:equipped');
   ok(qe && qe.item && qe.item.defId === 'stim' && qe.index === 4, 'release equips the stim', JSON.stringify(qe));
@@ -116,9 +116,9 @@ try {
   ok((await ev('quick:used')).length >= 1, 'quick:used emitted');
 
   console.log('grenade cooking');
-  await keyDown('KeyF'); await waitSim(0.5);
+  await keyDown('KeyT'); await waitSim(0.5);
   await P(() => { window.__game.ctx.input.mouseDY -= 80; });
-  await waitSim(0.2); await keyUp('KeyF'); await waitSim(0.3);
+  await waitSim(0.2); await keyUp('KeyT'); await waitSim(0.3);
   qe = await lastEv('quick:equipped');
   ok(qe && qe.item && qe.item.defId === 'grenade_frag' && qe.index === 0, 'wheel N → grenade in hand', JSON.stringify(qe));
   const gBefore = await P(() => window.__game.ctx.inventory.countWhere((d) => d.category === 'grenade'));
@@ -209,11 +209,11 @@ try {
   const hud = await P(() => ({
     wheel: !!document.querySelector('.qwheel'),
     cook: !!document.querySelector('.cook'),
-    fKey: /F/.test(document.querySelector('.vitals .pill .key')?.textContent ?? ''),
+    fKey: /T|H/.test(document.querySelector('.vitals .pill .key')?.textContent ?? ''),
   }));
   ok(hud.wheel, 'quick wheel element exists');
   ok(hud.cook, 'cook gauge element exists');
-  ok(hud.fKey, 'stim pill shows the F key');
+  ok(hud.fKey, 'stim pill shows the T / H key');
 
   ok(errors.length === 0, 'no console errors', errors.slice(0, 5).join(' | '));
 } catch (e) {

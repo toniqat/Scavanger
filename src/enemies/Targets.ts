@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { PLAYER_HEIGHT, PlayerFlags, type GameContext, type PeerId, type PlayerRef } from '@/shared';
+import { CLOAK_DETECT_MUL, PLAYER_HEIGHT, PlayerFlags, type GameContext, type PeerId, type PlayerRef } from '@/shared';
 import type { Enemy } from './Enemy';
 
 /** `'local'` is the player on this machine; `'ai'` is another enemy (faction warfare, Phase 4); anything else is a remote peer id. */
@@ -22,6 +22,12 @@ export class CombatTarget {
   present = false;
   yaw = 0;
   eyeHeight = EYE_STAND;
+  /**
+   * Appended (tactical kit): 0..1 factor an enemy multiplies its detection range by.
+   * Local → `PlayerRef.getStealthFactor()`; remote → `CLOAK_DETECT_MUL` while the `CLOAKED` flag is set.
+   * Defaults to 1 whenever the player system does not implement it yet.
+   */
+  stealth = 1;
   /** Set for the local target so eye/forward come straight from the player (camera yaw, pod state…). */
   player: PlayerRef | null = null;
   /**
@@ -66,6 +72,17 @@ export class CombatTarget {
 }
 
 /**
+ * Read `PlayerRef.getStealthFactor()` defensively: the player system may not implement it yet
+ * (folders are built in parallel), and a bad value must never make the bugs blind or omniscient.
+ */
+function readStealth(player: PlayerRef): number {
+  const fn = (player as Partial<PlayerRef>).getStealthFactor;
+  if (typeof fn !== 'function') return 1;
+  const v = fn.call(player);
+  return typeof v === 'number' && v > 0 && v <= 1 ? v : 1;
+}
+
+/**
  * Per-frame list of every player the enemies know about: the local player (when spawned) plus every connected,
  * non-stale remote player that is not still inside its hellpod. In single-player only the local target exists,
  * so every query below degenerates to the old `ctx.player` behaviour.
@@ -91,6 +108,7 @@ export class TargetList {
       t.isDead = player.isDead;
       t.downed = player.isDowned;
       t.eyeHeight = player.stance === 'prone' ? EYE_PRONE : player.stance === 'crouch' ? EYE_CROUCH : EYE_STAND;
+      t.stealth = readStealth(player);
     }
 
     const net = ctx.net;
@@ -107,6 +125,7 @@ export class TargetList {
         t.isDead = r.isDead || (r.flags & PlayerFlags.DEAD) !== 0;
         t.downed = r.isDowned || (r.flags & PlayerFlags.DOWNED) !== 0;
         t.eyeHeight = r.stance === 'prone' ? EYE_PRONE : r.stance === 'crouch' ? EYE_CROUCH : EYE_STAND;
+        t.stealth = (r.isCloaked ?? (r.flags & PlayerFlags.CLOAKED) !== 0) ? CLOAK_DETECT_MUL : 1;
       }
     }
 

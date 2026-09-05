@@ -1,4 +1,4 @@
-import type { EffectiveWeaponStats, ItemDef, ItemInstance, WeaponDef } from '@/shared';
+import type { ArmorDef, EffectiveWeaponStats, ItemDef, ItemInstance, WeaponDef } from '@/shared';
 import { SOCKET_LABEL_KO, SOCKET_SLOTS } from '@/shared';
 import { WEAPON_CLASS_LABEL_KO } from '@/items';
 import {
@@ -11,6 +11,8 @@ export interface TooltipLookups {
   getDef(defId: string): ItemDef | undefined;
   /** Graded + socketed numbers for a weapon instance (null for non-weapons). */
   getStats(item: ItemInstance): EffectiveWeaponStats | null;
+  /** appended: tactical kit — armor plate data for 'armor' items. */
+  getArmorDef(armorId: string): ArmorDef | undefined;
 }
 
 /**
@@ -95,6 +97,17 @@ export class Tooltip {
       rows.push([b.grid, `${def.bag.cols} × ${def.bag.rows}${def.bag.tactical ? ` · ${b.tactical}` : ''}`]);
       rows.push([b.quickSlots, `${def.bag.quickSlots}`]);
     }
+    if (def.armorId) {
+      const a = this.lookups.getArmorDef(def.armorId);
+      const t = TEXT.armorStats;
+      if (a) {
+        rows.push([t.dr, `${Math.round(a.damageReduction * 100)} %`]);
+        const max = def.durabilityMax ?? a.durabilityMax;
+        rows.push([t.durability, `${Math.round(Math.max(0, Math.min(max, item.durability ?? max)))} / ${max}`]);
+        if (a.perk !== 'none') rows.push([t.perk, a.description]);
+      }
+    }
+    if (def.weight !== undefined) rows.push([TEXT.weight, `${(def.weight * Math.max(1, item.qty)).toFixed(1)} kg`]);
     if (def.healAmount) rows.push(['회복', `+${def.healAmount} HP`]);
     if (def.stackMax > 1) rows.push([TEXT.qty, `${item.qty} / ${def.stackMax}`]);
     rows.push([TEXT.size, `${def.width} × ${def.height}`]);

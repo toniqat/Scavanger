@@ -5,3 +5,4 @@ export { SpatialHash, type ObstacleEntry } from './SpatialHash';
 export { Terrain, HALF, EXTENT, CELL, HEIGHT_MIN, HEIGHT_MAX } from './Terrain';
 export { generateLayout, padClearance, nearestPad, type WorldLayout, type Pad, type PadKind, type Crater, type Basin } from './layout';
 export { PLATFORM_HEIGHT, PLATFORM_RADIUS } from './Pads';
+export { Gather } from './Gather';

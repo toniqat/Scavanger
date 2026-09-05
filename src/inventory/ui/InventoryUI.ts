@@ -3,14 +3,15 @@ import type { GameContext, ItemDef, ItemInstance } from '@/shared';
 import { QUICK_SLOTS, QUICK_SLOT_LABEL_KO, isQuickSlotActive } from '@/shared';
 import { ITEM_DEF_MAP, getWeaponDef } from '@/items';
 import type { Container } from '../Container';
-import { LOADOUT_SLOTS, isAttachmentDef, isBagDef, isWeaponDef, type DropTarget, type GridId, type InventorySystem, type ItemLocation, type SlotId } from '../InventorySystem';
+import { LOADOUT_SLOTS, isArmorDef, isAttachmentDef, isBagDef, isWeaponDef, type DropTarget, type GridId, type InventorySystem, type ItemLocation, type SlotId } from '../InventorySystem';
+import { CraftPanel } from './CraftPanel';
 import { filledSocketCount } from '../Sockets';
 import { isQuickUsable } from '../QuickSlots';
 import { GridView, buildTileContent, type HighlightState } from './GridView';
 import { Tooltip } from './Tooltip';
 import { ContextMenu, type MenuEntry } from './ContextMenu';
 import { SplitDialog } from './SplitDialog';
-import { QUICK_DIR_GLYPH, QUICK_ROSE_ORDER, SLOT_KEY, SLOT_LABEL, STEP, TEXT, fmtValue, tierTitle, tileSize } from './labels';
+import { QUICK_DIR_GLYPH, QUICK_ROSE_ORDER, SLOT_KEY, SLOT_LABEL, STEP, TEXT, fmtValue, tierTitle, tileSize, fmtKg, weightLabel } from './labels';
 
 const DRAG_THRESHOLD = 4; // px before a press becomes a drag
 const MIDDLE_BUTTON = 1;
@@ -72,6 +73,12 @@ export class InventoryUI {
   private containerView!: GridView;
   private bagView!: GridView;
   private slots = new Map<SlotId, SlotView>();
+  /* appended: tactical kit */
+  private craftPanel!: CraftPanel;
+  private weightEl!: HTMLElement;
+  private weightValue!: HTMLElement;
+  private weightState!: HTMLElement;
+  private weightFill!: HTMLElement;
   private quickCells: QuickCell[] = [];
   private quickCount!: HTMLElement;
   private tooltip!: Tooltip;
@@ -150,7 +157,15 @@ export class InventoryUI {
     bTitleWrap.append(bEyebrow, bTitle);
     this.bagCapacity = document.createElement('div');
     this.bagCapacity.className = 'inv-capacity';
-    bHead.append(bTitleWrap, this.bagCapacity);
+    const bActions = document.createElement('div');
+    bActions.className = 'inv-head-actions';
+    const craftBtn = document.createElement('button');
+    craftBtn.type = 'button';
+    craftBtn.className = 'inv-btn';
+    craftBtn.textContent = TEXT.craft;
+    craftBtn.addEventListener('click', () => this.toggleCraft());
+    bActions.append(this.bagCapacity, craftBtn);
+    bHead.append(bTitleWrap, bActions);
     this.bagView = new GridView('bag', getDef, getStats, this.tileHandlers());
     const bFoot = document.createElement('footer');
     bFoot.className = 'inv-foot';
@@ -160,7 +175,26 @@ export class InventoryUI {
     this.valueEl = document.createElement('span');
     this.valueEl.className = 'inv-value';
     bFoot.append(vLabel, this.valueEl);
-    bPanel.append(bHead, this.bagView.el, this.buildQuickPanel(), bFoot);
+    /* weight readout (tactical kit) */
+    this.weightEl = document.createElement('div');
+    this.weightEl.className = 'inv-weight';
+    const wRow = document.createElement('div');
+    wRow.className = 'inv-weight-row';
+    const wLabel = document.createElement('span');
+    wLabel.className = 'inv-eyebrow';
+    wLabel.textContent = TEXT.weight;
+    this.weightValue = document.createElement('span');
+    this.weightValue.className = 'inv-weight-value';
+    this.weightState = document.createElement('span');
+    this.weightState.className = 'inv-weight-state';
+    wRow.append(wLabel, this.weightValue, this.weightState);
+    const wTrack = document.createElement('div');
+    wTrack.className = 'inv-weight-track';
+    this.weightFill = document.createElement('i');
+    wTrack.appendChild(this.weightFill);
+    this.weightEl.append(wRow, wTrack);
+    bPanel.append(bHead, this.bagView.el, this.buildQuickPanel(), this.weightEl, bFoot);
+    this.craftPanel = new CraftPanel(this.sys, getDef);
 
     /* equipment column */
     const eq = document.createElement('aside');
@@ -171,7 +205,7 @@ export class InventoryUI {
     eq.appendChild(eqEyebrow);
     for (const slot of LOADOUT_SLOTS) eq.appendChild(this.buildSlot(slot, SLOT_LABEL[slot], SLOT_KEY[slot]).el);
 
-    layout.append(cPanel, bPanel, eq);
+    layout.append(cPanel, bPanel, this.craftPanel.el, eq);
 
     /* hints */
     const hints = document.createElement('div');
@@ -199,7 +233,7 @@ export class InventoryUI {
     dropZone.append(dzTitle, dzSub);
     this.dropZone = dropZone;
 
-    this.tooltip = new Tooltip({ getWeapon: getWeaponDef, getDef, getStats });
+    this.tooltip = new Tooltip({ getWeapon: getWeaponDef, getDef, getStats, getArmorDef: (id) => this.sys.getLoot().getArmorDef(id) });
     this.ghostLayer = document.createElement('div');
     this.ghostLayer.className = 'inv-ghost-layer';
 
@@ -289,6 +323,32 @@ export class InventoryUI {
     }
     this.refreshSlots();
     this.refreshQuick();
+    this.refreshWeight();
+    this.craftPanel.refresh();
+  }
+
+  /* ── appended: tactical kit — weight / crafting ────────────────────────── */
+
+  private refreshWeight(): void {
+    const w = this.sys.getWeight();
+    this.weightValue.textContent = `${fmtKg(w.weight)} / ${fmtKg(w.capacity)}`;
+    this.weightState.textContent = weightLabel(w.state);
+    this.weightFill.style.width = `${Math.round(Math.min(1, w.ratio) * 100)}%`;
+    this.weightEl.classList.toggle('is-light', w.state === 'light');
+    this.weightEl.classList.toggle('is-heavy', w.state === 'heavy');
+    this.weightEl.classList.toggle('is-over', w.state === 'over');
+  }
+
+  toggleCraft(): void {
+    const open = !this.craftPanel.isOpen;
+    this.craftPanel.setOpen(open);
+    this.sys.sfx('ui_pickup');
+  }
+
+  /** Repaint the craft rows (progress / counts) without rebuilding the rest of the window. */
+  refreshCraft(): void {
+    if (!this.root || this.root.hidden) return;
+    this.craftPanel.refresh();
   }
 
   /* ── quick-use wheel panel ─────────────────────────────────────────────── */
@@ -452,6 +512,13 @@ export class InventoryUI {
           sv.meta.textContent = `${def.name} · ${item.ammoInMag ?? 0}/${stats.magSize}발 · ${TEXT.weaponStats.durability} ${cur}/${max}`;
         } else if (def.bag) {
           sv.meta.textContent = `${def.name} · ${def.bag.cols}×${def.bag.rows} · ${TEXT.quickSlots} ${def.bag.quickSlots}`;
+        } else if (def.armorId) {
+          const a = this.sys.getLoot().getArmorDef(def.armorId);
+          const max = def.durabilityMax ?? 0;
+          const cur = Math.max(0, Math.min(max, item.durability ?? max));
+          sv.meta.textContent = a
+            ? `${def.name} · ${TEXT.armorStats.dr} ${Math.round(a.damageReduction * 100)}% · ${TEXT.armorStats.durability} ${Math.round(cur)}/${max}`
+            : def.name;
         } else {
           sv.meta.textContent = def.name;
         }
@@ -486,7 +553,7 @@ export class InventoryUI {
     }
     const body = document.createElement('div');
     body.className = 'inv-slot-body';
-    const { width, height } = slot === 'bag' ? tileSize(2, 2) : tileSize(4, 2);
+    const { width, height } = slot === 'bag' ? tileSize(2, 2) : slot === 'armor' ? tileSize(2, 3) : tileSize(4, 2);
     body.style.width = `${width}px`;
     body.style.height = `${height}px`;
     const meta = document.createElement('div');
@@ -536,7 +603,7 @@ export class InventoryUI {
           this.result(this.sys.registerQuick(uid), 'ui_equip', from, uid);
           return;
         }
-        const equips = !!def && (isWeaponDef(def) || isBagDef(def));
+        const equips = !!def && (isWeaponDef(def) || isBagDef(def) || isArmorDef(def));
         this.result(this.sys.activate(uid, from), equips ? 'ui_equip' : 'ui_drop', from, uid);
       },
     };
@@ -589,7 +656,7 @@ export class InventoryUI {
     if (!item || !def) return;
     const isStack = def.stackMax > 1 && item.qty >= 2;
     const quickable = isQuickUsable(def) && from.kind === 'grid' && from.grid === 'bag';
-    const hasMenu = isStack || isWeaponDef(def) || isBagDef(def) || quickable;
+    const hasMenu = isStack || isWeaponDef(def) || isBagDef(def) || isArmorDef(def) || quickable;
     if (!hasMenu && !e.shiftKey) {
       this.result(this.sys.quickMove(uid, from), 'ui_drop', from, uid);
       return;

@@ -1,5 +1,5 @@
 import type { WeaponClass, WeaponDef, WeaponGrade } from '@/shared';
-import { AMMO_FOR_CLASS, WEAPON_GRADE_DAMAGE_STEP, WEAPON_GRADE_DURABILITY_STEP, WEAPON_GRADE_ROMAN } from '@/shared';
+import { AMMO_FOR_CLASS, MELEE_STOCK_MUL_DEFAULT, WEAPON_GRADE_DAMAGE_STEP, WEAPON_GRADE_DURABILITY_STEP, WEAPON_GRADE_ROMAN } from '@/shared';
 
 const deg = (d: number): number => (d * Math.PI) / 180;
 
@@ -43,6 +43,14 @@ export function weaponIdForGrade(family: string, grade: WeaponGrade): string {
 type FamilyDef = Omit<WeaponDef, 'ammoType' | 'grade' | 'maxDurability' | 'family' | 'weaponClass'> & { weaponClass: WeaponClass };
 
 /**
+ * Stock melee multiplier (개머리판). Every weapon deals the same base `MELEE_DAMAGE`; only primaries
+ * with a real stock swing harder. Pistols have none → `MELEE_STOCK_MUL_DEFAULT`.
+ */
+export function meleeMulOf(def: WeaponDef): number {
+  return def.meleeMul ?? MELEE_STOCK_MUL_DEFAULT;
+}
+
+/**
  * Weapon families. Each family is expanded into grades I..V by `buildGrades`
  * (ids `<family>` and `<family>_g2..5`). `projectileSpeed` undefined → hitscan.
  *
@@ -56,35 +64,35 @@ const FAMILY_DEFS: readonly FamilyDef[] = [
     damage: 60, fireRate: 10, magSize: 45, reserveMags: 6, reloadTime: 2.4,
     spread: deg(1.4), adsSpread: deg(0.3), range: 220, automatic: true,
     recoil: deg(0.35), tracerColor: 0xffd27a,
-    falloffStart: 60, falloffEnd: 220, falloffMin: 0.6,
+    falloffStart: 60, falloffEnd: 220, falloffMin: 0.6, meleeMul: 1.35,
   },
   {
     id: 'smg37', name: 'SMG-37 디펜더', slot: 'primary', weaponClass: 'SMG',
     damage: 32, fireRate: 14, magSize: 40, reserveMags: 5, reloadTime: 1.9,
     spread: deg(1.9), adsSpread: deg(0.55), range: 120, automatic: true,
     recoil: deg(0.24), tracerColor: 0xffe3a0,
-    falloffStart: 15, falloffEnd: 45, falloffMin: 0.4,
+    falloffStart: 15, falloffEnd: 45, falloffMin: 0.4, meleeMul: 1.15,
   },
   {
     id: 'sg8', name: 'SG-8 퍼니셔', slot: 'primary', weaponClass: 'SG',
     damage: 22, pellets: 8, fireRate: 1.3, magSize: 8, reserveMags: 4, reloadTime: 3.0,
     spread: deg(5.0), adsSpread: deg(3.5), range: 42, automatic: false,
     recoil: deg(1.4), tracerColor: 0xffb070,
-    falloffStart: 8, falloffEnd: 30, falloffMin: 0.25,
+    falloffStart: 8, falloffEnd: 30, falloffMin: 0.25, meleeMul: 1.5,
   },
   {
     id: 'r63', name: 'R-63 딜리전스', slot: 'primary', weaponClass: 'DMR',
     damage: 120, fireRate: 3, magSize: 15, reserveMags: 5, reloadTime: 2.6,
     spread: deg(1.2), adsSpread: deg(0.08), range: 420, automatic: false,
     recoil: deg(0.9), tracerColor: 0xa8e6ff,
-    falloffStart: 120, falloffEnd: 400, falloffMin: 0.75, adsZoom: 1.6,
+    falloffStart: 120, falloffEnd: 400, falloffMin: 0.75, adsZoom: 1.6, meleeMul: 1.4,
   },
   {
     id: 'sr9', name: 'SR-9 이래디케이터', slot: 'primary', weaponClass: 'SR',
     damage: 330, fireRate: 0.9, magSize: 5, reserveMags: 4, reloadTime: 3.4,
     spread: deg(4.0), adsSpread: deg(0.03), range: 700, automatic: false,
     recoil: deg(2.2), tracerColor: 0xd8f4ff,
-    falloffStart: 300, falloffEnd: 700, falloffMin: 0.85, adsZoom: 4, scope: true,
+    falloffStart: 300, falloffEnd: 700, falloffMin: 0.85, adsZoom: 4, scope: true, meleeMul: 1.6,
   },
   {
     // energy-styled AR: projectile "bolts", medium calibre in the v2 ammo model
@@ -92,7 +100,7 @@ const FAMILY_DEFS: readonly FamilyDef[] = [
     damage: 28, fireRate: 16, magSize: 60, reserveMags: 4, reloadTime: 3.2,
     spread: deg(1.6), adsSpread: deg(0.4), range: 160, automatic: true,
     projectileSpeed: 180, recoil: deg(0.12), tracerColor: 0x4af0ff,
-    falloffStart: 60, falloffEnd: 160, falloffMin: 0.6,
+    falloffStart: 60, falloffEnd: 160, falloffMin: 0.6, meleeMul: 1.2,
   },
   {
     id: 'p2', name: 'P-2 피스메이커', slot: 'secondary', weaponClass: 'PISTOL',

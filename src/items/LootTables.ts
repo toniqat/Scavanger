@@ -39,21 +39,27 @@ export const LOOT_TABLES: readonly TierTable[] = [
   {
     tier: 1, label: '보급 상자', count: [2, 3],
     rarityWeights: { common: 80, uncommon: 18, rare: 2, epic: 0, legendary: 0 },
-    categoryWeights: { ammo: 30, stim: 18, grenade: 16, material: 20, valuable: 16, attachment: 6 },
+    categoryWeights: { ammo: 30, stim: 18, grenade: 16, material: 20, valuable: 16, attachment: 6, gadget: 6, herb: 8, armor: 1 },
     weaponChance: 0, maxStackQty: 3, ammoFraction: [0.25, 0.5], guaranteed: [],
+    itemWeightMul: { gad_turret: 0, gad_dome_shield: 0 },   // heavy deployables never in a supply crate
   },
   {
     tier: 2, label: '군수 상자', count: [3, 4],
     rarityWeights: { common: 45, uncommon: 38, rare: 15, epic: 2, legendary: 0 },
-    categoryWeights: { ammo: 20, stim: 14, grenade: 12, material: 16, valuable: 38, attachment: 10, bag: 3 },
+    categoryWeights: { ammo: 20, stim: 14, grenade: 12, material: 16, valuable: 38, attachment: 10, bag: 3, gadget: 9, herb: 5, armor: 4 },
     weaponChance: 0.35, maxStackQty: 4, ammoFraction: [0.35, 0.7],
     guaranteed: [{ categories: ['valuable'], minRarity: 'uncommon' }],
-    itemWeightMul: { wpn_smg37: 1.3, wpn_sr9: 0.35 },   // SMGs are field-common; snipers rarely in supply crates
+    // SMGs are field-common; snipers rarely in supply crates; legendary gear is tier 3+ only
+    itemWeightMul: {
+      wpn_smg37: 1.3, wpn_sr9: 0.35,
+      armor_regen: 0, armor_ultralight: 0, armor_optical: 0,
+
+    },
   },
   {
     tier: 3, label: '귀중품 금고', count: [4, 5],
     rarityWeights: { common: 15, uncommon: 30, rare: 40, epic: 14, legendary: 1 },
-    categoryWeights: { ammo: 12, stim: 12, grenade: 8, material: 14, valuable: 54, attachment: 12, bag: 6 },
+    categoryWeights: { ammo: 12, stim: 12, grenade: 8, material: 14, valuable: 54, attachment: 12, bag: 6, gadget: 11, herb: 3, armor: 4 },
     weaponChance: 0.55, maxStackQty: 5, ammoFraction: [0.5, 0.85],
     guaranteed: [{ categories: ['valuable'], minRarity: 'rare' }],
     itemWeightMul: { wpn_sr9: 1.2 },
@@ -61,11 +67,12 @@ export const LOOT_TABLES: readonly TierTable[] = [
   {
     tier: 4, label: '희귀 캐시', count: [5, 6],
     rarityWeights: { common: 5, uncommon: 15, rare: 40, epic: 30, legendary: 10 },
-    categoryWeights: { ammo: 10, stim: 12, grenade: 8, material: 10, valuable: 60, attachment: 12, bag: 8 },
+    categoryWeights: { ammo: 10, stim: 12, grenade: 8, material: 10, valuable: 60, attachment: 12, bag: 8, gadget: 12, herb: 2, armor: 7 },
     weaponChance: 1, maxStackQty: 6, ammoFraction: [0.6, 1],
     guaranteed: [
       { categories: ['valuable'], minRarity: 'epic' },
       { categories: ['primary', 'secondary'], minRarity: 'common' },
+      { categories: ['armor', 'bag', 'gadget'], minRarity: 'rare' },
     ],
     itemWeightMul: { wpn_sr9: 1.5, wpn_smg37: 0.7 },
   },

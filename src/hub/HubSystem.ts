@@ -1,14 +1,16 @@
 import * as THREE from 'three';
-import type { GameContext, GameSystem, HubLaunchSlot, HubRef, HubShipKind, InteriorCollider, LobbyState, PeerId } from '@/shared';
+import type { GameContext, GameSystem, HubLaunchSlot, HubRef, HubShipKind, Interactable, InteriorCollider, LobbyState, PeerId } from '@/shared';
 import { HUB_DOCKING_DURATION, HUB_LAUNCH_COUNTDOWN, Keys, NET_SLOT_COLORS } from '@/shared';
 import { PersonalShip } from './interiors/PersonalShip';
 import { SharedShip } from './interiors/SharedShip';
+import type { StationDef } from './interiors/stations';
 import type { ShipInterior } from './interiors/types';
+import { GardenStation } from './GardenStation';
 import { LaunchPod } from './LaunchPod';
 import { Terminal } from './Terminal';
 import { Workbench } from './Workbench';
 import { DockingCutscene, type DockDirection } from './DockingCutscene';
-import { HubMenu } from './ui/HubMenu';
+import { HubMenu, type HubTab } from './ui/HubMenu';
 import { WorkbenchMenu } from './ui/WorkbenchMenu';
 import { HubStatus } from './ui/HubStatus';
 import { randomSeed } from './ui/dom';
@@ -52,6 +54,9 @@ export class HubSystem implements GameSystem, HubRef {
   private pods: LaunchPod[] = [];
   private terminal: Terminal | null = null;
   private workbench: Workbench | null = null;
+  /** 함선 시설 (tactical kit): hydroponics + the two terminal-shortcut consoles. */
+  private garden: GardenStation | null = null;
+  private stationIds: string[] = [];
   private slots: HubLaunchSlot[] = [];
   private cutscene: DockingCutscene | null = null;
   private menu!: HubMenu;
@@ -151,9 +156,10 @@ export class HubSystem implements GameSystem, HubRef {
       interact: () => this.boardPod(def.slot),
     }));
     this.slots = interior.pods.map((d) => ({ slot: d.slot, position: d.position.clone(), yaw: d.yaw, occupant: null }));
-    const canUseConsole = (): boolean => ctx.phase === 'hub' && !this.cutscene && !this.menu.isOpen && !this.wbMenu.isOpen && this.boardedSlot < 0;
+    const canUseConsole = (): boolean => this.stationUsable();
     this.terminal = new Terminal(ctx, interior.terminal, () => this.menu.open(), canUseConsole);
     this.workbench = new Workbench(ctx, interior.workbench, () => this.wbMenu.open(), canUseConsole);
+    this.buildStations(interior);
 
     const spawn = viaAirlock ? interior.airlock : interior.spawn;
     const yaw = viaAirlock ? interior.airlockYaw : interior.spawnYaw;
@@ -172,9 +178,41 @@ export class HubSystem implements GameSystem, HubRef {
     return spawn;
   }
 
+  /**
+   * 함선 시설: the hydroponics garden (real plant / harvest loop) plus two consoles that open the terminal
+   * menu straight on its 임플란트 / 정비 page. Their geometry is already merged into the interior.
+   */
+  private buildStations(interior: ShipInterior): void {
+    const s = interior.stations;
+    if (!s) return;
+    this.garden = new GardenStation(this.ctx, s.garden);
+    this.addStation('hub_implant_bay', s.implantBay, '전술 임플란트 장착', 'implant');
+  }
+
+  private addStation(id: string, def: StationDef, prompt: string, tab: HubTab): void {
+    const it: Interactable = {
+      id,
+      position: def.position.clone(),
+      radius: 2.3,
+      getPrompt: () => (this.stationUsable() ? prompt : null),
+      canInteract: () => this.stationUsable(),
+      interact: () => this.menu.open(tab),
+    };
+    this.ctx.interactables.register(it);
+    this.stationIds.push(id);
+  }
+
+  /** Terminal / station consoles are usable while walking the ship (not boarded, no menu, not docking). */
+  private stationUsable(): boolean {
+    return this.ctx.phase === 'hub' && !this.menu.isOpen && !this.wbMenu.isOpen && this.boardedSlot < 0 && !this.cutscene;
+  }
+
   private disposeInterior(): void {
     for (const pod of this.pods) pod.dispose();
     this.pods = [];
+    this.garden?.dispose(); this.garden = null;
+    for (const id of this.stationIds) this.ctx.interactables.unregister(id);
+    this.stationIds.length = 0;
     this.terminal?.dispose(); this.terminal = null;
     this.workbench?.dispose(); this.workbench = null;
     this.interior?.dispose(); this.interior = null;
@@ -495,6 +533,7 @@ export class HubSystem implements GameSystem, HubRef {
 
     this.interior.update(dt, ctx.time);
     for (const pod of this.pods) pod.update(dt, ctx.time);
+    this.garden?.update(dt, ctx.time);
 
     // Esc: menu toggle / un-board (no pause in the hub). E while boarded: un-board.
     if (ctx.input.wasPressed(Keys.MENU)) {

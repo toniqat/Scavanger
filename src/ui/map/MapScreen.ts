@@ -32,6 +32,9 @@ const COL = {
   pickup: '#c77dff',
   attack: '#ff6a3d',
   caution: '#ffc23a',
+  /* appended: tactical kit */
+  gather: '#7fe6a1',
+  deploy: '#8fe8ff',
 };
 const PING_CSS: Record<PingKind, string> = {
   ground: COL.info, enemy: COL.danger, crate: COL.success, extraction: COL.accent, item: COL.pickup, attack: COL.attack, caution: COL.caution,
@@ -132,6 +135,9 @@ export class MapScreen {
       ['ping caution', COL.caution, '주의 핑'],
       ['pickup', COL.pickup, '떨어진 아이템'],
       ['squad', NET_SLOT_COLORS_CSS[1], '분대원'],
+      ['gather', COL.gather, '채집물'],
+      ['deploy', COL.deploy, '설치물'],
+      ['mine', COL.danger, '지뢰 (피아 구분 없음)'],
     ];
     for (const [cls, color, label] of entries) {
       const row = el('div', { cls: 'map-legend-row', parent: legend });
@@ -406,6 +412,20 @@ export class MapScreen {
           c.strokeRect(x - sz / 2 - 2, y - sz / 2 - 2, sz + 4, sz + 4);
         }
       }
+      // gather nodes (채집물): small crosses, dimmed once harvested
+      const nodes = world.getGatherNodes?.();
+      if (nodes) {
+        for (const g of nodes) {
+          const x = this.toX(g.position.x), y = this.toY(g.position.z);
+          if (!this.inView(x, y, 5)) continue;
+          c.strokeStyle = g.harvested ? 'rgba(127,230,161,0.25)' : COL.gather;
+          c.lineWidth = 1.2;
+          c.beginPath();
+          c.moveTo(x - 3, y); c.lineTo(x + 3, y);
+          c.moveTo(x, y - 3); c.lineTo(x, y + 3);
+          c.stroke();
+        }
+      }
       // extraction pads
       for (const e of world.getExtractionPoints()) {
         const x = this.toX(e.position.x), y = this.toY(e.position.z);
@@ -445,6 +465,27 @@ export class MapScreen {
         const x = this.toX(pk.position.x), y = this.toY(pk.position.z);
         if (!this.inView(x, y, 6)) continue;
         this.diamond(c, x, y, 3, COL.pickup, 'rgba(199,125,255,0.35)');
+      }
+    }
+    // deployed gadgets: mines in red with their blast radius, everything else as a small cyan square
+    const deployables = ctx.gadgets?.getDeployables?.();
+    if (deployables) {
+      for (const d of deployables) {
+        const x = this.toX(d.position.x), y = this.toY(d.position.z);
+        if (!this.inView(x, y, 24)) continue;
+        if (d.kind === 'mine') {
+          const rr = Math.max(3, (d.radius > 0 ? d.radius : 6.5) * s);
+          c.strokeStyle = 'rgba(255,77,77,0.45)'; c.lineWidth = 1;
+          c.beginPath(); c.arc(x, y, rr, 0, Math.PI * 2); c.stroke();
+          c.strokeStyle = d.armed ? COL.danger : COL.accent; c.lineWidth = 1.4;
+          c.beginPath();
+          c.moveTo(x - 3.5, y - 3.5); c.lineTo(x + 3.5, y + 3.5);
+          c.moveTo(x + 3.5, y - 3.5); c.lineTo(x - 3.5, y + 3.5);
+          c.stroke();
+        } else {
+          c.strokeStyle = COL.deploy; c.lineWidth = 1.2;
+          c.strokeRect(x - 3, y - 3, 6, 6);
+        }
       }
     }
     // pings (local: kind colour; squad: owner slot colour + name)

@@ -15,6 +15,21 @@ const ALL_DEAD_CHECK_INTERVAL = 0.5;
 /** Multiplayer: seconds between the connection-lost toast and the automatic abort to the menu. */
 const DISCONNECT_ABORT_DELAY = 2;
 
+/* ── mission-end character XP (progression) ─────────────────────────────────
+ * Kept here (not in progression/) because GameFlow owns the mission result. Progression only
+ * banks the number through `ctx.progression.addXp`.
+ */
+const XP_PER_KILL = 12;
+/** Loot is only banked when the player actually got out with it. */
+const XP_PER_LOOT_VALUE = 0.08;
+/** Flat bonus for a successful extraction. */
+const XP_EXTRACT_BONUS = 300;
+/** Per minute survived, capped at XP_TIME_CAP. */
+const XP_PER_MINUTE = 20;
+const XP_TIME_CAP = 300;
+/** A wiped squad still learns something: kills count at this fraction. */
+const XP_DEATH_MUL = 0.4;
+
 /**
  * Mission phase state machine + stats + pause + difficulty ramp.
  * menu → deploying → playing → extracting → shipLanded → liftoff → complete | dead
@@ -58,6 +73,8 @@ export class GameFlowSystem implements GameSystem {
   private disconnectAbortTimer = -1;
   /** Cached each frame so `game:abort` can still reach the squad after NetSystem tore the session down. */
   private wasMultiplayerHost = false;
+  /** Mission-end XP is banked exactly once per mission (complete() and gameOver() are both idempotent). */
+  private rewarded = false;
 
   /** Pointer lock lost (Esc, alt-tab, cursor to another monitor) while playing → pause. */
   private onPointerLockChange = (): void => {
@@ -90,6 +107,9 @@ export class GameFlowSystem implements GameSystem {
       b.on('player:died', () => this.onLocalDied()),
       b.on('game:respawn', () => this.onRespawnRequest()),
       b.on('player:spawned', () => { this.respawnTimer = -1; this.respawnLastSec = -1; }),
+      /* Downed is NOT death: the mission keeps running and a defibrillator can still bring the player back. */
+      b.on('player:downed', () => this.onLocalDowned()),
+      b.on('player:revived', () => this.onLocalRevived()),
       // stats.kills / cratesOpened / damageTaken are incremented by Enemy / World / Player systems;
       // missionTime + stats.timeSeconds advance in Engine.frame(). GameFlow only finalizes them.
       b.on('game:abort', () => this.onAbort()),
@@ -217,6 +237,27 @@ export class GameFlowSystem implements GameSystem {
     ctx.bus.emit('player:respawn', { position: spawn.clone() });
   }
 
+  /** Downed (tactical kit hook): the mission keeps running — a squadmate or a defibrillator can still bring the player back. */
+  private onLocalDowned(): void {
+    const ctx = this.ctx;
+    if (!ctx.isGameplayPhase() && ctx.phase !== 'deploying') return;
+    this.setPaused(false);
+    // The all-dead check treats a downed player as alive, but a squadmate may be dead already: re-run it
+    // so a wipe that happens while we bleed out is still noticed.
+    this.allDeadCheckTimer = ALL_DEAD_CHECK_INTERVAL;
+  }
+
+  private onLocalRevived(): void {
+    if (!(this.ctx.player?.isDead ?? false)) this.allDeadCheckTimer = -1;
+  }
+
+  /** True when a player is out of the fight for good — downed players are still revivable. */
+  private isLocalOut(): boolean {
+    const p = this.ctx.player;
+    if (!p) return false;
+    return p.isDead && !(p.isDowned ?? false);
+  }
+
   /** Host only: everyone dead → `flow over` to the squad and game over locally. Disabled by MISSION_FAILS_WHEN_ALL_DEAD (Phase 2). */
   private checkAllDead(): void {
     const ctx = this.ctx;
@@ -224,10 +265,12 @@ export class GameFlowSystem implements GameSystem {
     if (!MISSION_FAILS_WHEN_ALL_DEAD) return;
     if (!net || !ctx.isMultiplayer || !net.isHost) return;
     if (!ctx.isGameplayPhase() && ctx.phase !== 'deploying') return;
-    if (!(ctx.player?.isDead ?? false)) return;
+    if (!this.isLocalOut()) return;
     for (const r of net.getRemotePlayers()) {
-      // a squadmate who aborted back to the ship (IN_HUB) or a dropped peer waiting for reconnection (stale) is not "alive in the mission"
-      if (r.connected && !r.stale && !r.isDead && (r.flags & PlayerFlags.IN_HUB) === 0) return;
+      // a squadmate who aborted back to the ship (IN_HUB) or a dropped peer waiting for reconnection (stale) is not "alive in the mission";
+      // a downed peer IS still in the fight (a defibrillator can bring them back), so it blocks the wipe.
+      const downed = (r.isDowned ?? false) || (r.flags & PlayerFlags.DOWNED) !== 0;
+      if (r.connected && !r.stale && (!r.isDead || downed) && (r.flags & PlayerFlags.IN_HUB) === 0) return;
     }
     this.allDeadCheckTimer = -1;
     net.send({ t: 'flow', ev: 'over' }, 'others');
@@ -280,6 +323,7 @@ export class GameFlowSystem implements GameSystem {
     this.boarded = false;
     this.allDeadCheckTimer = -1;
     this.disconnectAbortTimer = -1;
+    this.rewarded = false;
     this.ctx.stats = Ctx.freshStats(seed);
     this.ctx.missionTime = 0;
     this.ctx.uiBlockers.delete('menu');
@@ -315,6 +359,7 @@ export class GameFlowSystem implements GameSystem {
     this.boarded = false;
     this.allDeadCheckTimer = -1;
     this.disconnectAbortTimer = -1;
+    this.rewarded = false;
     this.awaitingWorld = false;
     ctx.uiBlockers.delete('inventory');
     ctx.inventory?.closeAll();
@@ -376,7 +421,8 @@ export class GameFlowSystem implements GameSystem {
     if (this.allDeadCheckTimer >= 0) {
       this.allDeadCheckTimer -= dt;
       if (this.allDeadCheckTimer < 0) {
-        this.allDeadCheckTimer = (ctx.player?.isDead ?? false) ? ALL_DEAD_CHECK_INTERVAL : -1;
+        const stillOut = this.isLocalOut() || (ctx.player?.isDowned ?? false);
+        this.allDeadCheckTimer = stillOut ? ALL_DEAD_CHECK_INTERVAL : -1;
         this.checkAllDead();
       }
     }
@@ -394,14 +440,16 @@ export class GameFlowSystem implements GameSystem {
   private complete(): void {
     const ctx = this.ctx;
     if (ctx.phase === 'complete' || ctx.phase === 'dead' || ctx.phase === 'menu') return;
-    // Multiplayer: a dead or left-behind player still sees the result screen, but did not extract.
-    ctx.stats.extracted = ctx.isMultiplayer ? (this.boarded && !(ctx.player?.isDead ?? false)) : true;
+    // Multiplayer: a dead, downed or left-behind player still sees the result screen, but did not extract.
+    const outOfAction = (ctx.player?.isDead ?? false) || (ctx.player?.isDowned ?? false);
+    ctx.stats.extracted = ctx.isMultiplayer ? (this.boarded && !outOfAction) : true;
     ctx.stats.lootValue = ctx.inventory?.getTotalValue() ?? 0;
     ctx.stats.timeSeconds = ctx.missionTime;
     ctx.uiBlockers.delete('inventory');
     ctx.inventory?.closeAll();
     this.completeTimer = -1;
     this.allDeadCheckTimer = -1;
+    this.awardMissionXp();
     // Host: make sure every client (even one that missed the liftoff message) reaches the result screen.
     if (ctx.isMultiplayer && ctx.net?.isHost) ctx.net.send({ t: 'flow', ev: 'complete' }, 'others');
     this.setPhase('complete');
@@ -418,8 +466,38 @@ export class GameFlowSystem implements GameSystem {
     ctx.inventory?.closeAll();
     this.deathTimer = -1; this.respawnTimer = -1; this.respawnLastSec = -1;
     this.allDeadCheckTimer = -1;
+    this.awardMissionXp();
     this.setPhase('dead');
     ctx.bus.emit('game:over', { stats: { ...ctx.stats } });
+  }
+
+  /**
+   * Bank the mission result into the persistent profile (progression/). Runs once per mission, before the
+   * result screen appears, so `game:complete` / `game:over` listeners already see the new level.
+   * Loot XP is only paid on a successful extraction — dying leaves the bag on the ground.
+   */
+  private awardMissionXp(): void {
+    if (this.rewarded) return;
+    this.rewarded = true;
+    const ctx = this.ctx;
+    const prog = ctx.progression;
+    if (!prog) return;
+    try {
+      const s = ctx.stats;
+      const extracted = s.extracted;
+      let xp = Math.max(0, s.kills) * XP_PER_KILL * (extracted ? 1 : XP_DEATH_MUL);
+      xp += Math.min(XP_TIME_CAP, (Math.max(0, s.timeSeconds) / 60) * XP_PER_MINUTE);
+      if (extracted) xp += XP_EXTRACT_BONUS + Math.max(0, s.lootValue) * XP_PER_LOOT_VALUE;
+      xp = Math.round(xp);
+
+      // `raids` / `extractions` are plain profile counters; ProgressionRef has no setter, so bump + save.
+      prog.profile.raids += 1;
+      if (extracted) prog.profile.extractions += 1;
+      if (xp > 0) prog.addXp(xp);
+      prog.save();
+    } catch (e) {
+      console.error('[gameflow] mission XP award failed', e);
+    }
   }
 
   dispose(): void {

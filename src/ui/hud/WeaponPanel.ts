@@ -91,7 +91,7 @@ export class WeaponPanel {
     // Consumable mode block (stim / grenade in hand) — shown instead of the gun rows via `.weapon.consumable`.
     const cons = el('div', { cls: 'cons', parent: this.root });
     const consRow = el('div', { cls: 'name-row', parent: cons });
-    el('span', { cls: 'slot', text: 'F', parent: consRow });
+    el('span', { cls: 'slot', text: 'T', parent: consRow });
     el('span', { cls: 'slot-lbl', text: '빠른 사용', parent: consRow });
     this.consName = el('span', { cls: 'name', text: '—', parent: consRow });
     const consCntRow = el('div', { cls: 'ammo-row', parent: cons });

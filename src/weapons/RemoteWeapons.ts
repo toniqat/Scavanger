@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { PlayerFlags, type GameContext, type WeaponDef, type PeerId, type RemotePlayerRef, type EnemyRef } from '@/shared';
+import { MELEE_RANGE, PlayerFlags, type GameContext, type WeaponDef, type PeerId, type RemotePlayerRef, type EnemyRef, type Vec3Tuple } from '@/shared';
 import { FxManager } from '@/core/fx';
 import { randomInCone } from '@/core/util/MathUtil';
 import { DEFAULT_RIFLE, DEFAULT_PISTOL, kindOf, shotSoundId, shotPitchFor, weaponClassOf } from './WeaponDefaults';
@@ -217,6 +217,32 @@ export class RemoteWeapons {
     }
     const ref = ctx.net.getRemotePlayer(id);
     ctx.bus.emit('audio:play', { id: 'reload', position: ref ? this.chestOf(ref) : undefined, volume: 0.55 });
+  }
+
+  /**
+   * `melee` message: another player swung. Purely presentational — the swing arc + swoosh, plus a contact
+   * sound when the sender says it connected. Damage was already resolved on the swinger's client (and, for
+   * enemies, by the host through the normal `hit` request).
+   */
+  onMelee(id: PeerId, p: Vec3Tuple, d: Vec3Tuple, hit: boolean): void {
+    const ctx = this.ctx;
+    if (!ctx.isMultiplayer || !ctx.net) return;
+    const e = this.entryFor(id);
+    if (e.fxBudget < 1) return;
+    e.fxBudget -= 1;
+    _pos.set(p[0], p[1], p[2]);
+    _dir.set(d[0], d[1], d[2]);
+    if (_dir.lengthSq() < 1e-6) _dir.set(0, 0, -1); else _dir.normalize();
+    // body yaw from the swing direction (forward = (-sin yaw, *, -cos yaw))
+    const yaw = Math.atan2(-_dir.x, -_dir.z);
+    _end.copy(_pos).addScaledVector(_dir, 0.45); _end.y -= 0.2;
+    this.fx.meleeArc(_end, yaw, MELEE_RANGE * 0.55);
+    ctx.bus.emit('audio:play', { id: 'melee_swing', position: _pos, volume: 0.5 });
+    if (hit) {
+      _end.copy(_pos).addScaledVector(_dir, MELEE_RANGE * 0.6);
+      this.fx.meleeImpact(_end, _dir, true);
+      ctx.bus.emit('audio:play', { id: 'melee_hit', position: _end, volume: 0.55 });
+    }
   }
 
   /** `net:remoteGrenade`: visual-only grenade replica (arc, bounce, fuse, explosion FX/audio; no damage). `fuse` = seconds left when released (cooked). */

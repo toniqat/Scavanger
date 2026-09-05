@@ -10,6 +10,7 @@ import { updateRogue } from './RogueAI';
 import { attackBehemoth, attackToxic, chaseArtillery, chaseBehemoth, chaseToxic } from './GimmickAI';
 
 export { lookAtTarget } from './Common';
+import { biteStructure, refreshStructureTarget } from './Structures';
 
 const _desired = new THREE.Vector3();
 const _steer = new THREE.Vector3();
@@ -19,6 +20,13 @@ const _n = new THREE.Vector3();
 const _tmp = new THREE.Vector3();
 
 const TWO_PI = Math.PI * 2;
+
+/** A lure at least this strong overrides a live player target (유인 수류탄). */
+const LURE_OVERRIDE_WEIGHT = 0.6;
+/** Distance at which a bug considers itself "at" the lure and mills around it. */
+const LURE_ARRIVE = 2.5;
+/** Seconds a suspicion (shot heard from inside smoke) stays actionable. */
+export const SUSPICION_TIME = 4;
 
 /**
  * One AI + movement tick for an active bug (host / single-player only). Called only while the gameplay phase is
@@ -37,6 +45,8 @@ export function updateEnemyAI(e: Enemy, dt: number, host: EnemyHost): void {
   if (e.attackCd > 0) e.attackCd -= dt;
   if (e.leapCd > 0) e.leapCd -= dt;
   if (e.chargeCd > 0) e.chargeCd -= dt;
+  if (e.suspicionTimer > 0) e.suspicionTimer -= dt;
+  if (e.slowTimer > 0) { e.slowTimer -= dt; if (e.slowTimer <= 0) e.slowFactor = 1; }
   acquireTarget(e, dt, host);
   const t = e.target;
   const targetAlive = !!t && !t.isDeadOrDowned;
@@ -61,6 +71,14 @@ export function updateEnemyAI(e: Enemy, dt: number, host: EnemyHost): void {
   }
 
   updatePerception(e, dt, host);
+  refreshStructureTarget(e, dt, host, t);
+
+  // A lure (유인 수류탄 / 소음) drags a patrolling or idle bug toward the noise.
+  if (e.hasLure && e.lureWeight >= 0.35 && (e.state === 'idle' || e.state === 'wander')
+    && (!targetAlive || !e.aware || e.lureWeight >= LURE_OVERRIDE_WEIGHT)) {
+    if (e.state === 'idle') { e.state = 'wander'; e.stateTime = 0; }
+    e.moveTarget.copy(e.lurePos);
+  }
 
   // Phase 4: humanoid gunners run their own state machine (cover cycle) on top of the shared movement integration.
   if (e.isRogue) { updateRogue(e, dt, host, t, targetAlive); return; }
@@ -117,7 +135,10 @@ export function updateEnemyAI(e: Enemy, dt: number, host: EnemyHost): void {
       break;
     }
     case 'attack': {
-      if (!targetAlive && !e.airborne && e.chargePhase !== 2 && e.toxicPhase === 0) { e.state = 'idle'; e.stateTime = 0; e.spitPhase = 0; e.chargePhase = 0; break; }
+      // a spit or bite aimed at a deployable finishes even when no player is alive
+      if (!targetAlive && !e.airborne && e.chargePhase !== 2 && e.toxicPhase === 0 && !e.spitAtPoint && !e.structAttack) {
+        e.state = 'idle'; e.stateTime = 0; e.spitPhase = 0; e.chargePhase = 0; break;
+      }
       const r = attack(e, dt, host, t);
       speed = r.speed; allowOverlap = r.allowOverlap; mandibleTarget = r.mandible;
       break;
@@ -136,6 +157,9 @@ export function updateEnemyAI(e: Enemy, dt: number, host: EnemyHost): void {
     }
     default: break;
   }
+
+  // status effects: burning does not slow, 'slowed' (acid / cryo gadgets) scales every movement state
+  if (e.slowFactor < 1) speed *= e.slowFactor;
 
   a.mandible += (mandibleTarget - a.mandible) * Math.min(1, dt * 10);
   if (e.state !== 'attack') {
@@ -159,6 +183,35 @@ function chase(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget): number {
   e.moveTarget.copy(tp);
   e.hasMoveTarget = true;
   let speed = s.speed;
+
+  // ── a wall / dome / turret in the way gets chewed on first (근접형) ──
+  const st = e.structTarget;
+  if (st && st.hp > 0 && e.type !== 'spewer' && e.chargePhase === 0 && !e.leaping) {
+    const sd = Math.hypot(st.position.x - e.position.x, st.position.z - e.position.z);
+    const bite = s.attackRange + s.radius + st.radius + 0.5;
+    if (sd <= bite) {
+      e.hasFacePoint = true; e.facePoint.copy(st.position);
+      e.hasMoveTarget = false;
+      if (e.attackCd <= 0) { startMelee(e); e.structAttack = true; }
+      return 0;
+    }
+    if (e.structBlocking) {
+      // path toward the obstruction instead of walking into it forever
+      e.moveTarget.copy(st.position);
+      return speed;
+    }
+  }
+
+  // ── a strong lure outranks the player (유인 수류탄) ──
+  if (e.hasLure && e.lureWeight >= LURE_OVERRIDE_WEIGHT && d > meleeRange + 1) {
+    const ld = Math.hypot(e.lurePos.x - e.position.x, e.lurePos.z - e.position.z);
+    if (ld > LURE_ARRIVE) { e.moveTarget.copy(e.lurePos); return speed; }
+    e.hasMoveTarget = false;
+    e.hasFacePoint = true; e.facePoint.copy(e.lurePos);
+    // spewers keep shooting the beacon they are milling around
+    if (e.type === 'spewer' && st && st.hp > 0 && e.attackCd <= 0) startSpit(e, st.position);
+    return 0;
+  }
 
   switch (e.type) {
     case 'scavenger': {
@@ -188,6 +241,23 @@ function chase(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget): number {
       break;
     }
     case 'spewer': {
+      // 원거리형: destroy lure beacons / barricades / turrets it can reach
+      const dep = e.structTarget;
+      if (dep && dep.hp > 0 && e.attackCd <= 0) {
+        const dd = Math.hypot(dep.position.x - e.position.x, dep.position.z - e.position.z);
+        if (dd <= SPEWER_SPIT.maxDist) { startSpit(e, dep.position); break; }
+      }
+      // very inaccurate return fire toward a shot that came out of a smoke cloud
+      if (!e.hasLOS && e.suspicionTimer > 0 && e.attackCd <= 0) {
+        const sd = Math.hypot(e.suspicion.x - e.position.x, e.suspicion.z - e.position.z);
+        if (sd <= SPEWER_SPIT.maxDist) {
+          _tmp.copy(e.suspicion);
+          _tmp.x += (Math.random() * 2 - 1) * e.suspicionSpread;
+          _tmp.z += (Math.random() * 2 - 1) * e.suspicionSpread;
+          startSpit(e, _tmp);
+          break;
+        }
+      }
       if (d < 6.5) {
         if (d < meleeRange && e.attackCd <= 0) startMelee(e);
       } else if (d < 9) {
@@ -230,10 +300,13 @@ function startLeap(e: Enemy, host: EnemyHost): void {
   host.playAudio('bug_screech', e.position, 0.6, 1.3);
 }
 
-function startSpit(e: Enemy): void {
+/** `point` (optional) → spit at that spot instead of at the current player target. */
+function startSpit(e: Enemy, point?: THREE.Vector3): void {
   e.state = 'attack'; e.stateTime = 0;
   e.attackTimer = 0; e.attackHitDone = false;
   e.spitPhase = 1;
+  if (point) { e.spitAtPoint = true; e.spitPoint.copy(point); }
+  else e.spitAtPoint = false;
 }
 
 function startCharge(e: Enemy, host: EnemyHost): void {
@@ -296,13 +369,25 @@ function attack(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget | null): 
 
   // ── spewer: spit wind-up ──────────────────────────────────────────────
   if (e.spitPhase === 1) {
-    e.facePoint.copy(tp); e.hasFacePoint = true;
-    if (t) lookAtTarget(e, t, dt);
+    const aimAt = e.spitAtPoint ? e.spitPoint : tp;
+    e.facePoint.copy(aimAt); e.hasFacePoint = true;
+    if (t && !e.spitAtPoint) lookAtTarget(e, t, dt);
     a.abdomen = Math.min(1, e.attackTimer / SPEWER_SPIT.windup);
     a.crouch = a.abdomen * 0.2;
     r.mandible = a.abdomen;
     if (e.attackTimer >= SPEWER_SPIT.windup) {
-      if (t && !t.isDeadOrDowned) {
+      if (e.spitAtPoint) {
+        e.headCenter(_tmp);
+        _tmp.y += 0.1;
+        host.fireAcidAt(_tmp, e.spitPoint, e);
+        // globs only test players and terrain, so a targeted structure takes the damage directly
+        const dep = e.structTarget;
+        if (dep && dep.hp > 0 && Math.hypot(dep.position.x - e.spitPoint.x, dep.position.z - e.spitPoint.z) < 1.5) {
+          dep.takeDamage(SPEWER_SPIT.damage, e.position);
+        }
+        host.playAudio('bug_attack', e.position, 0.9, 0.7);
+        e.spitAtPoint = false;
+      } else if (t && !t.isDeadOrDowned) {
         e.headCenter(_tmp);
         _tmp.y += 0.1;
         host.fireAcid(_tmp, e, t);
@@ -366,27 +451,34 @@ function attack(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget | null): 
     return r;
   }
 
-  // ── generic melee ─────────────────────────────────────────────────────
-  e.facePoint.copy(tp); e.hasFacePoint = true;
-  if (t) lookAtTarget(e, t, dt);
+  // ── generic melee (a player, or a deployable that blocks the way) ──────
+  const struct = e.structAttack ? e.structTarget : null;
+  const aim = struct ? struct.position : tp;
+  e.facePoint.copy(aim); e.hasFacePoint = true;
+  if (t && !struct) lookAtTarget(e, t, dt);
   const windup = s.attackWindup;
   const reach = s.attackRange + PLAYER_RADIUS + 0.6;
+  const structReach = struct ? s.attackRange + s.radius + struct.radius + 0.8 : 0;
   if (e.attackTimer < windup) {
     r.mandible = 0.05;
     a.crouch = (e.attackTimer / windup) * 0.3;
     // creep toward the target during wind-up so it does not stall at the edge of range
-    if (e.distToTarget > s.attackRange * 0.7) { e.moveTarget.copy(tp); e.hasMoveTarget = true; r.speed = s.speed * 0.6; }
+    if (!struct && e.distToTarget > s.attackRange * 0.7) { e.moveTarget.copy(tp); e.hasMoveTarget = true; r.speed = s.speed * 0.6; }
   } else {
     if (!e.attackHitDone) {
       e.attackHitDone = true;
       a.crouch = 0;
       a.flinch = Math.max(a.flinch, 0.5); a.flinchZ = 0.8; a.flinchX = 0;   // lunge forward (nose dips)
-      if (t && !t.isDeadOrDowned && e.distToTarget < reach) host.hitTarget(e, s.attackDamage, e.type === 'warrior' || e.type === 'charger' || e.type === 'behemoth' ? 0.45 : 0.18, t);
-      else host.playAudio('bug_attack', e.position, 0.5, 1.1);
+      if (struct && struct.hp > 0 && Math.hypot(struct.position.x - e.position.x, struct.position.z - e.position.z) < structReach) {
+        biteStructure(e, host, struct);
+      } else if (!struct && t && !t.isDeadOrDowned && e.distToTarget < reach) {
+        host.hitTarget(e, s.attackDamage, e.type === 'warrior' || e.type === 'charger' || e.type === 'behemoth' ? 0.45 : 0.18, t);
+      } else host.playAudio('bug_attack', e.position, 0.5, 1.1);
     }
     r.mandible = 1;
     if (e.attackTimer >= windup + 0.3) {
       e.attackCd = s.attackCooldown * (0.85 + Math.random() * 0.3);
+      e.structAttack = false;
       e.state = 'chase'; e.stateTime = 0;
     }
   }

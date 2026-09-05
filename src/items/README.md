@@ -133,3 +133,90 @@ Rarity weights double as weapon-grade weights (grade ↔ rarity). `itemWeightMul
 | `rogue_boss` | calibre rounds + **graded weapon** + one `att_*` (rarity ≤ epic, fitting the weapon when any does), `stim` ×1–2 | — |
 
 Rogue weapon (`CorpseWeapon`): `rogueWeaponId` is the `WeaponDef` id the rogue carried (`DEFAULT_ROGUE_WEAPON_ID` = `ar23` when undefined / unknown). The corpse holds one ammo stack of that calibre (`ammoItemIdFor(def.ammoType)`, 30–60 % of `AMMO_STACK_ROUNDS`) and the weapon item `wpn_<weaponId>` created with `durability = round(max × 0.05–0.15)` (min 1) and `ammoInMag = rng 0..magSize`. Bosses swap the def for the same family at grade III or IV (`weaponIdForGrade`) with durability 40–70 %.
+
+## Tactical kit (merged 2026-09-06)
+
+| File | Role |
+|---|---|
+| `ArmorDefs.ts` | 8 `ArmorDef`s (`ARMOR_DEFS`, `ARMOR_DEF_MAP`, `getArmorDef`), `armorItemSize(def)` grid footprint, `ARMOR_ICON` |
+| `Recipes.ts` | 15 `CraftRecipe`s (`CRAFT_RECIPES`, `CRAFT_RECIPE_MAP`, `getRecipe`) — ammo teardown → 화약, 화약 → ammo, herbs → medicine, ship-only gadget / gardening recipes |
+
+New categories: `armor` (`ItemDef.armorId` → `ArmorDef`, `durabilityMax`), `gadget` (`gadgetId`, behaviour in `src/gadgets`), `herb` (gathered from `WorldRef.getGatherNodes()`); `mat_gunpowder` for the ammo recipes; every def carries a `weight` (kg, `itemWeight(def, qty)`, default `DEFAULT_ITEM_WEIGHT`). The branch's `BackpackDef` catalogue was **not** merged — bags stay the weapon-package `bag_*` items (`BagDef`, `bag.tactical` = hover / faster swap perk). Starter kit adds `armor_2` + one `gad_smoke`. `LootRef` gained `getArmorDef` and `getAllRecipes`; loot tables roll `gadget` / `herb` / `armor` (heavy deployables never in tier 1).
+
+## Body armor (`ArmorDef`)
+
+Numbered plates take their damage reduction straight from `ARMOR_DR_BY_TIER`, so the shared contract stays the single source of truth.
+
+| id | 이름 | rarity | DR | kg | 내구도 | 칸 | perk |
+|---|---|---|---|---|---|---|---|
+| `armor_1` | 방탄복 I | common | 6 % | 3.0 | 200 | 2×2 | — |
+| `armor_2` | 방탄복 II | common | 12 % | 4.6 | 280 | 2×2 | — |
+| `armor_3` | 방탄복 III | uncommon | 18 % | 6.6 | 380 | 2×3 | — |
+| `armor_4` | 방탄복 IV | rare | 24 % | 9.2 | 480 | 2×3 | — |
+| `armor_5` | 방탄복 V | epic | 30 % | 12.4 | 600 | 2×3 | — |
+| `armor_regen` | 재생 방탄복 | legendary | 27 % | 10.6 | 520 | 2×3 | `regen`, `perkValue` 1 hp/s while stamina is full |
+| `armor_ultralight` | 초경량 방탄복 | legendary | 10 % | 1.9 | 300 | 2×2 | `ultralight`, `perkValue` 0.18 (스태미나 회복 + 이동속도) |
+| `armor_optical` | 광학미채 방탄복 | legendary | 8 % | 3.4 | 260 | 2×2 | `optical` — 상시 은폐 |
+
+Perks are **declared here and implemented in `src/player`** (regen tick, ultralight speed/stamina, optical `setCloak(Infinity, 'armor')`).
+
+## Gadget consumables
+
+`category: 'gadget'`, `quickUsable: true`, `gadgetId` pointing at a `GadgetId`. Behaviour lives in `src/gadgets`; items only carry the id.
+
+| id | gadgetId | 칸 | stack | kg |
+|---|---|---|---|---|
+| `gad_cloak_veil` 은폐 장막 | `cloakVeil` | 1×2 | 2 | 1.1 |
+| `gad_dome_shield` 돔 실드 | `domeShield` | 2×2 | 1 | 5.8 |
+| `gad_barricade` 바리케이드 | `barricade` | 2×2 | 1 | 7.2 |
+| `gad_lure` 유인 수류탄 | `lureGrenade` | 1×1 | 3 | 0.5 |
+| `gad_smoke` 연막탄 | `smokeGrenade` | 1×1 | 3 | 0.55 |
+| `gad_mine` 지뢰 | `mine` | 1×1 | 4 | 1.1 |
+| `gad_turret` 포탑 설치 | `turret` | 2×2 | 1 | 9.5 |
+| `gad_incendiary` 화염수류탄 | `incendiary` | 1×1 | 3 | 0.6 |
+| `gad_defib` 제세동기 | `defib` | 2×1 | 1 | 2.4 |
+| `gad_jumppad` 점프대 | `jumpPad` | 2×2 | 1 | 6.4 |
+
+## Weight (kg per unit)
+
+`ItemDef.weight`; `itemWeight(def, qty)` falls back to `DEFAULT_ITEM_WEIGHT` (0.1). **Cells and kilograms are deliberately uncorrelated** so the bag is a real packing decision:
+
+- `gem_void` 공허석 — 1×1 but **1.9 kg** (a brick you can pocket)
+- `super_earth_medal` 슈퍼 지구 훈장 — 1×1, **0.15 kg**, ₩4 800 (best value per kg in the game)
+- `salvage_electronics` — 2×1 but 3.2 kg, heavier than the 2×1 `data_core` (1.2 kg) worth five times more
+- `gad_turret` — 2×2 and **9.5 kg**, the heaviest carryable
+- `ammo_rifle` — only 2×1 yet 2.2 kg; a full ammo loadout eats the budget
+- `cred_chip` — 0.02 kg, stacks to 5
+
+## Herbs & crafting materials
+
+`herb_bloodroot` 혈근초 (common, stack 8) · `herb_ashleaf` 잿빛잎 (uncommon, stack 8) · `herb_glowcap` 발광버섯 (rare, stack 6) — all 1×1, gathered from `WorldRef.getGatherNodes()`.
+`mat_gunpowder` 화약 (material, 1×1, stack 20, 0.05 kg) is the ammo-conversion currency.
+
+## Recipes (`getAllRecipes`)
+
+| id | station | skill (req) | in → out |
+|---|---|---|---|
+| `break_ammo_medium (30발)` / `_pistol` / `_shotgun` | field | crafting 0 | 탄약 팩 1 → 화약 6 / 4 / 5 |
+| `make_ammo_medium (30발)` / `_pistol` / `_shotgun` | field | crafting 0 | 화약 + 폐금속 → 해당 탄약 팩 |
+| `make_ammo_heavy (10발)` | field | crafting 20 | 파워 셀 1 + 합금 판 1 → 에너지 셀 |
+| `make_smoke` | field | crafting 10 | 화약 4 + 생체 조직 2 → 연막탄 |
+| `make_incendiary` | field | crafting 15 | 화약 8 + 잿빛잎 2 → 소이 수류탄 |
+| `make_mine` | ship | crafting 35 | 화약 10 + 합금 판 2 → 지뢰 |
+| `make_stim` | field | medicine 0 | 혈근초 3 + 잿빛잎 1 → 스팀 |
+| `make_stim_advanced` | field | medicine 25 | 혈근초 4 + 발광버섯 2 + 잿빛잎 2 → 고급 스팀 |
+| `make_defib_charge` | ship | medicine 40 | 파워 셀 2 + 발광버섯 1 → 제세동기 |
+| `grow_bloodroot` | ship | gardening 0 | 잿빛잎 4 → 혈근초 6 |
+| `grow_glowcap` | ship | gardening 20 | 혈근초 6 + 생체 조직 3 → 발광버섯 2 |
+
+`station: 'field'` recipes also work on the ship (`inventory.getRecipes('ship')` returns everything).
+
+**Consumables**: `grenade_frag`, `grenade_incendiary` (1×1, stack 4) · `stim` (+50), `stim_advanced` (+100) (1×1, stack 3) · `ammo_medium (30발)`, `ammo_light (30발)`, `ammo_shell (8발)`, `ammo_heavy (10발)` (2×1, stack 2). All are `quickUsable`.
+
+**Valuables**: `gem_quartz`, `gem_amber`, `gem_sapphire`, `gem_void`, `cred_chip` (stack 5), `super_earth_medal` (1×1) · `salvage_electronics`, `data_core`, `data_core_encrypted` (2×1) · `sample_canister`, `sample_canister_pure` (3×1) · `terminid_gland` (1×1) · `alien_artifact`, `alien_relic` (2×2).
+
+**Materials** (1×1): `mat_scrap`, `mat_bio_sample`, `mat_alloy`, `mat_power_cell` (stack 10), `mat_gunpowder` (stack 20).
+
+`STARTER_LOADOUT = { primary: 'wpn_ar23', secondary: 'wpn_p2', armor: 'armor_2', backpack: 'bp_2', bag: [grenade_frag×4, stim×2, ammo_medium (30발)×1, gad_smoke×1] }`.
+
+Ammo recipes were rewritten for ammo v2 (`qty` = rounds): 경량탄 30 ↔ 화약 4, 준중량탄 30 ↔ 화약 6, 중량탄 10 ↔ 화약 5 (+ 합금 판, 제작 20), 산탄 8 ↔ 화약 5.

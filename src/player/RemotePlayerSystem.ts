@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {
-  PLAYER_MAX_HP, PLAYER_REVIVE_HOLD, PLAYER_REVIVE_RANGE,
-  type GameContext, type GameSystem, type Interactable, type PeerId, type RemotePlayerRef, type Stance,
+  PLAYER_MAX_HP, PLAYER_REVIVE_HOLD, PLAYER_REVIVE_RANGE, PlayerFlags,
+  type GameContext, type GameSystem, type ImplantId, type Interactable, type PeerId, type RemotePlayerRef, type Stance,
 } from '@/shared';
 import { RemoteAvatar } from './RemoteAvatar';
 
@@ -11,7 +11,10 @@ const REVIVE_PROGRESS_INTERVAL = 0.25;
 /** After a completed revive the interactable stays away this long (until the peer's DOWNED flag clears). */
 const REVIVE_DONE_SUPPRESS = 1.5;
 
-/** Fully writable RemotePlayerRef for console smoke tests (`debugSpawn`). */
+/**
+ * Fully writable RemotePlayerRef for console smoke tests (`debugSpawn`). `isCloaked` / `isDowned` are getters
+ * derived from `flags` exactly like NetSystem's real refs, so flipping `flags` alone drives the avatar.
+ */
 export interface DebugRemoteRef {
   id: PeerId; name: string; slot: number;
   position: THREE.Vector3; velocity: THREE.Vector3;
@@ -20,6 +23,10 @@ export interface DebugRemoteRef {
   stridePhase: number; moveBlend: number; lastUpdate: number;
   connected: boolean; stale: boolean; avatar: RemoteAvatar | null;
   isDowned: boolean;
+  /* appended: tactical kit */
+  implantId: ImplantId | null;
+  armorId: string | null;
+  readonly isCloaked: boolean;
 }
 
 interface ReviveEntry { interactable: Interactable; lastSent: number }
@@ -88,7 +95,7 @@ export class RemotePlayerSystem implements GameSystem {
    * returned object (`ref.flags |= PlayerFlags.SPRINT`, `ref.stance = 'prone'`, `ref.isDowned = true`, `ref.position.x += …`).
    * `window.__game.getSystem('remotePlayers').debugSpawn({ slot: 1 })`.
    */
-  debugSpawn(opts: Partial<Pick<DebugRemoteRef, 'id' | 'name' | 'slot' | 'stance' | 'flags' | 'weaponId' | 'isDowned'>> & { position?: THREE.Vector3 } = {}): DebugRemoteRef {
+  debugSpawn(opts: Partial<Pick<DebugRemoteRef, 'id' | 'name' | 'slot' | 'stance' | 'flags' | 'weaponId' | 'isDowned' | 'implantId' | 'armorId'>> & { position?: THREE.Vector3 } = {}): DebugRemoteRef {
     const slot = opts.slot ?? (this.debugRefs.length + 1) % 4;
     const pos = new THREE.Vector3();
     if (opts.position) pos.copy(opts.position);
@@ -111,6 +118,9 @@ export class RemotePlayerSystem implements GameSystem {
       connected: true, stale: false,
       avatar: null,
       isDowned: opts.isDowned ?? false,
+      implantId: opts.implantId ?? null,
+      armorId: opts.armorId ?? null,
+      get isCloaked(): boolean { return (this.flags & PlayerFlags.CLOAKED) !== 0; },
     };
     this.debugRefs.push(ref);
     return ref;

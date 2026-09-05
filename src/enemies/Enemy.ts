@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CORPSE_LIFETIME, type EnemyFaction, type EnemyRef, type EnemyType, type GameContext, type Obstacle } from '@/shared';
+import { CORPSE_LIFETIME, type DeployableRef, type EnemyFaction, type EnemyRef, type EnemyType, type GameContext, type Obstacle } from '@/shared';
 import { ENEMY_STATS, ROGUE_AI, isRogueType, type BugType, type EnemyStats } from './EnemyTypes';
 import { createBugRig, createBugAnim, disposeBugRig, animateBug, type BugRig, type BugAnim } from './models/BugModel';
 import { animateRogue, createRogueRig, disposeRogueRig, type RogueRig, type RogueType } from './models/RogueModel';
@@ -43,6 +43,13 @@ export interface EnemyHost {
   chargeHit(e: Enemy, target: CombatTarget, damage: number, knockDir: THREE.Vector3): void;
   /** Behemoth charge started (event + wire). */
   onChargeStarted(e: Enemy, target: THREE.Vector3): void;
+  /* ── appended: tactical kit ── */
+  /** Strongest lure covering `pos` (own distraction list ∪ `ctx.gadgets.findDistraction`). Writes it into `out`. */
+  lureFor(pos: THREE.Vector3, out: THREE.Vector3): number;
+  /** Spit at an explicit world point (smoke return fire, deployables) instead of at a player. */
+  fireAcidAt(from: THREE.Vector3, aimFeet: THREE.Vector3, shooter: Enemy): void;
+  /** Small ember puff for a burning bug (pooled, no lights). */
+  emberBurst(position: THREE.Vector3, count: number): void;
 }
 
 const _v = new THREE.Vector3();
@@ -151,6 +158,38 @@ export class Enemy implements EnemyRef {
   readonly chargeVictims: TargetId[] = [];
   /** seconds the corpse stays (system sets it from CORPSE_LIFETIME; fades over the last 3 s) */
   corpseLife = CORPSE_LIFETIME;
+  /* ── appended: tactical kit ────────────────────────────────────────────── */
+  /** Lure (유인 수류탄 / 소음) currently pulling this bug: position + 0..1 strength, refreshed on the perception tick. */
+  readonly lurePos = new THREE.Vector3();
+  hasLure = false;
+  lureWeight = 0;
+  /**
+   * Last spot a shot was heard from while the shooter was hidden (smoke). Ranged bugs answer with very
+   * inaccurate fire at `suspicion` scattered by `suspicionSpread` meters.
+   */
+  readonly suspicion = new THREE.Vector3();
+  suspicionTimer = 0;
+  suspicionSpread = 0;
+  /** ctx.time of the last suspicion refresh (throttles the per-shot vision test). */
+  suspicionAt = -Infinity;
+  /** Spit at `spitPoint` instead of at a player (smoke return fire / deployable). */
+  spitAtPoint = false;
+  readonly spitPoint = new THREE.Vector3();
+  /** Burning DoT (화염지대 / 소이탄). */
+  burnDps = 0;
+  burnTimer = 0;
+  burnTick = 0;
+  emberTimer = 0;
+  /** Movement slow (0..1 multiplier, 1 = none). */
+  slowFactor = 1;
+  slowTimer = 0;
+  /** Deployable (바리케이드 / 돔 실드 / 포탑 / 유인) this bug is chewing on or shooting at. */
+  structTarget: DeployableRef | null = null;
+  structTimer = 0;
+  /** true while the current attack swing is aimed at `structTarget` instead of a player. */
+  structAttack = false;
+  /** true when `structTarget` is what stands between this bug and its player target. */
+  structBlocking = false;
 
   constructor(type: EnemyType) {
     this.rig = isRogueType(type) ? createRogueRig(type as RogueType) : createBugRig(type as BugType);
@@ -195,6 +234,12 @@ export class Enemy implements EnemyRef {
     this.spawnTime = now;
     this.relentless = false;
     this.lastDamager = 'local'; this.lastLocalHit = -Infinity;
+    this.hasLure = false; this.lureWeight = 0;
+    this.suspicionTimer = 0; this.suspicionSpread = 0; this.suspicionAt = -Infinity;
+    this.spitAtPoint = false;
+    this.burnDps = 0; this.burnTimer = 0; this.burnTick = 0; this.emberTimer = 0;
+    this.slowFactor = 1; this.slowTimer = 0;
+    this.structTarget = null; this.structTimer = 0; this.structAttack = false; this.structBlocking = false;
     this.netBuf?.clear();
     // Phase 4
     this.roguePhase = 0; this.guardPos.copy(position); this.leash = ROGUE_AI.leash; this.escortOf = null;
@@ -359,6 +404,23 @@ export class Enemy implements EnemyRef {
     }
   }
 
+  /**
+   * Damage-over-time tick (burning). Quieter than `takeDamage`: no gore burst, no `enemy:damaged` broadcast
+   * and no stagger — the host's enemy snapshots carry the falling hp to the clients.
+   * Authority only; `attacker` gets the kill credit.
+   */
+  applyDot(amount: number, attacker: TargetId = 'local'): void {
+    if (!this.active || this.state === 'dead' || amount <= 0) return;
+    this.hp -= amount;
+    this.lastDamager = attacker;
+    this.anim.hitFlash = Math.max(this.anim.hitFlash, 0.45);
+    if (!this.aware) {
+      this.aware = true;
+      if (this.state === 'idle' || this.state === 'wander') { this.state = 'alert'; this.stateTime = 0; }
+    }
+    if (this.hp <= 0) { this.hp = 0; this.kill(true); }
+  }
+
   enterStagger(duration: number): void {
     this.state = 'stagger';
     this.stateTime = 0;
@@ -392,6 +454,10 @@ export class Enemy implements EnemyRef {
     this.anim.mandible = 0.2;
     this.velocity.set(0, 0, 0);
     this.syncTarget();
+    this.burnDps = 0; this.burnTimer = 0;
+    this.slowFactor = 1; this.slowTimer = 0;
+    this.structTarget = null; this.structAttack = false; this.structBlocking = false;
+    this.hasLure = false; this.spitAtPoint = false;
     this.host?.onEnemyKilled(this, countKill);
   }
 

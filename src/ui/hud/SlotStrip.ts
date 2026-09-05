@@ -42,7 +42,7 @@ export class SlotStrip {
       return { root, name };
     };
     this.cells = { primary: make('primary', WEAPON_SLOT_KEY.primary), primary2: make('primary2', WEAPON_SLOT_KEY.primary2), secondary: make('secondary', WEAPON_SLOT_KEY.secondary) };
-    this.quickCell = make('quick', 'F');
+    this.quickCell = make('quick', 'T');
     this.setActive('primary');
   }
 

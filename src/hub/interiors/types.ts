@@ -1,6 +1,7 @@
 import type * as THREE from 'three';
 import type { HubShipKind } from '@/shared';
 import type { BoxInteriorCollider } from './InteriorCollider';
+import type { ShipStations } from './stations';
 import type { TextPlane } from '../Labels';
 
 /** Where a launch pod stands. `door` = unit XZ direction from the pod centre out through its door. */
@@ -43,6 +44,8 @@ export interface ShipInterior {
   readonly pods: PodSlotDef[];
   readonly terminal: TerminalDef;
   readonly workbench: WorkbenchDef;
+  /** 함선 시설 (tactical kit): 수경 재배 / 정비대 / 임플란트 시술대 anchors. */
+  readonly stations: ShipStations;
   update(dt: number, time: number): void;
   dispose(): void;
 }

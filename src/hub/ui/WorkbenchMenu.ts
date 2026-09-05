@@ -8,7 +8,7 @@ export interface WorkbenchMenuHost {
   onClosed(): void;
 }
 
-const SLOT_LABEL: Record<Exclude<LoadoutSlot, 'bag'>, string> = { primary: '주무기 I', primary2: '주무기 II', secondary: '보조무기' };
+const SLOT_LABEL: Record<Exclude<LoadoutSlot, 'bag' | 'armor'>, string> = { primary: '주무기 I', primary2: '주무기 II', secondary: '보조무기' };
 const SCRAP_ID = 'mat_scrap';
 const ALLOY_ID = 'mat_alloy';
 const MAT_NAME_FALLBACK: Record<string, string> = { [SCRAP_ID]: '폐금속', [ALLOY_ID]: '합금 판' };
@@ -115,7 +115,7 @@ export class WorkbenchMenu {
     const rows: WeaponRow[] = [];
     const seen = new Set<string>();
     const lo = inv.getLoadout();
-    const slots: Array<Exclude<LoadoutSlot, 'bag'>> = ['primary', 'primary2', 'secondary'];
+    const slots: Array<Exclude<LoadoutSlot, 'bag' | 'armor'>> = ['primary', 'primary2', 'secondary'];
     for (const s of slots) {
       const inst = lo[s];
       if (this.isWeapon(inst) && !seen.has(inst.uid)) { seen.add(inst.uid); rows.push({ uid: inst.uid, inst, slotLabel: SLOT_LABEL[s] }); }

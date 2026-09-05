@@ -611,6 +611,289 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.tone(d, { type: 'sine', f0: 1480 * p, t0: t + 0.45, dur: 0.22, gain: 0.1 });
     return 0.7;
   },
+
+  /* ══ tactical kit ═════════════════════════════════════════════════════════ */
+
+  /* ── melee / movement ─────────────────────────────────────────────────── */
+  /** Weapon swing: air whoosh rising then cut. */
+  melee_swing: (s, d, t, p) => {
+    const q = p * r(0.95, 1.06);
+    s.noise(d, { t0: t, dur: 0.22, gain: 0.3, attack: 0.05, filter: { type: 'bandpass', f0: 420 * q, f1: 2200 * q, q: 1.4 }, decayCurve: 'lin' });
+    s.tone(d, { type: 'sine', f0: 150 * q, f1: 320 * q, t0: t, dur: 0.16, gain: 0.08, attack: 0.04 });
+    return 0.24;
+  },
+  /** Stock/blade impact: dull thud + bone crack + short metallic ring. */
+  melee_hit: (s, d, t, p) => {
+    const q = p * r(0.92, 1.08);
+    s.tone(d, { type: 'sine', f0: 150 * q, f1: 48, t0: t, dur: 0.2, gain: 0.85 });
+    s.noise(d, { t0: t, dur: 0.11, gain: 0.6, filter: { type: 'lowpass', f0: 900 * q, f1: 180, q: 0.8 } });
+    s.click(d, t + 0.01, 1900 * q, 0.18, 0.03);
+    s.tone(d, { type: 'triangle', f0: 420 * q, f1: 250 * q, t0: t + 0.02, dur: 0.12, gain: 0.1, lp: 2200 });
+    return 0.24;
+  },
+  /** Combat roll: cloth tumble with two ground contacts. */
+  roll: (s, d, t, p) => {
+    s.noise(d, { t0: t, dur: 0.45, gain: 0.3, attack: 0.05, filter: { type: 'bandpass', f0: 620 * p, f1: 900 * p, q: 1.1 }, decayCurve: 'lin' });
+    s.tone(d, { type: 'sine', f0: 120 * p, f1: 55, t0: t + 0.05, dur: 0.1, gain: 0.35 });
+    s.tone(d, { type: 'sine', f0: 105 * p, f1: 48, t0: t + 0.26, dur: 0.12, gain: 0.28 });
+    s.noise(d, { t0: t + 0.26, dur: 0.1, gain: 0.16, filter: { type: 'lowpass', f0: 700 * p, f1: 200, q: 0.7 } });
+    return 0.5;
+  },
+  /** Jump pad: springy launch (fast rising sine + air pop). */
+  jumppad: (s, d, t, p) => {
+    s.tone(d, { type: 'sine', f0: 180 * p, f1: 1200 * p, t0: t, dur: 0.22, gain: 0.3 });
+    s.tone(d, { type: 'triangle', f0: 90 * p, f1: 620 * p, t0: t, dur: 0.28, gain: 0.16, lp: 2600 });
+    s.noise(d, { t0: t, dur: 0.18, gain: 0.25, attack: 0.02, filter: { type: 'bandpass', f0: 900 * p, f1: 2600 * p, q: 1.2 }, decayCurve: 'lin' });
+    return 0.32;
+  },
+
+  /* ── implants: grapple / dash / barrier / overcharge / scan / AT ───────── */
+  /** Grapple launch: pneumatic thump + wire zip. */
+  grapple_fire: (s, d, t, p) => {
+    s.noise(d, { t0: t, dur: 0.06, gain: 0.5, filter: { type: 'bandpass', f0: 1600 * p, f1: 600 * p, q: 0.9 } });
+    s.tone(d, { type: 'square', f0: 320 * p, f1: 140 * p, t0: t, dur: 0.07, gain: 0.12, lp: 2200 });
+    s.noise(d, { t0: t + 0.03, dur: 0.35, gain: 0.16, attack: 0.03, filter: { type: 'bandpass', f0: 2600 * p, f1: 900 * p, q: 4 }, decayCurve: 'lin' });
+    return 0.4;
+  },
+  /** Grapple anchor: metallic clank + latch + short ring. */
+  grapple_attach: (s, d, t, p) => {
+    s.click(d, t, 2600 * p, 0.4, 0.035);
+    s.tone(d, { type: 'sine', f0: 190 * p, f1: 80, t0: t, dur: 0.16, gain: 0.4 });
+    s.tone(d, { type: 'triangle', f0: 1450 * p, f1: 1380 * p, t0: t + 0.01, dur: 0.3, gain: 0.06 });
+    s.click(d, t + 0.09, 1700 * p, 0.14, 0.02);
+    return 0.34;
+  },
+  /** Wire retract: servo whir that falls away. */
+  grapple_release: (s, d, t, p) => {
+    s.noise(d, { t0: t, dur: 0.26, gain: 0.14, attack: 0.02, filter: { type: 'bandpass', f0: 2200 * p, f1: 700 * p, q: 3 }, decayCurve: 'lin' });
+    s.click(d, t + 0.24, 1500 * p, 0.14, 0.02);
+    return 0.3;
+  },
+  /** Blink dash: electric zap + air displacement. */
+  dash: (s, d, t, p) => {
+    s.tone(d, { type: 'sawtooth', f0: 260 * p, f1: 1500 * p, t0: t, dur: 0.14, gain: 0.16, lp: 4000 });
+    s.noise(d, { t0: t, dur: 0.2, gain: 0.32, attack: 0.01, filter: { type: 'highpass', f0: 1400 * p }, decayCurve: 'lin' });
+    s.tone(d, { type: 'sine', f0: 900 * p, f1: 200 * p, t0: t + 0.04, dur: 0.16, gain: 0.14 });
+    return 0.24;
+  },
+  /** Barrier unfolds: mechanical clack then an energy field settling in. */
+  barrier_deploy: (s, d, t, p) => {
+    s.click(d, t, 1500 * p, 0.3, 0.04);
+    s.tone(d, { type: 'sawtooth', f0: 120 * p, f1: 300 * p, t0: t + 0.03, dur: 0.5, gain: 0.12, attack: 0.06, lp: 1400, decayCurve: 'lin' });
+    s.tone(d, { type: 'sine', f0: 420 * p, f1: 660 * p, t0: t + 0.05, dur: 0.45, gain: 0.12, attack: 0.08 });
+    s.noise(d, { t0: t + 0.05, dur: 0.5, gain: 0.06, attack: 0.1, filter: { type: 'bandpass', f0: 2200, q: 3 }, decayCurve: 'lin' });
+    return 0.6;
+  },
+  /** Round stopped by the shield: bright energy ping + splash. */
+  barrier_hit: (s, d, t, p) => {
+    s.tone(d, { type: 'sine', f0: 1500 * p, f1: 900 * p, t0: t, dur: 0.12, gain: 0.16 });
+    s.tone(d, { type: 'triangle', f0: 2400 * p, t0: t, dur: 0.07, gain: 0.06 });
+    s.noise(d, { t0: t, dur: 0.09, gain: 0.2, filter: { type: 'bandpass', f0: 3200 * p, f1: 1200, q: 1.4 } });
+    return 0.14;
+  },
+  /** Shield collapses: descending shatter. */
+  barrier_break: (s, d, t, p) => {
+    s.noise(d, { t0: t, dur: 0.5, gain: 0.4, filter: { type: 'bandpass', f0: 3400 * p, f1: 500, q: 0.8 } });
+    s.tone(d, { type: 'sawtooth', f0: 700 * p, f1: 90 * p, t0: t, dur: 0.42, gain: 0.16, lp: 2600 });
+    s.tone(d, { type: 'sine', f0: 200 * p, f1: 55, t0: t, dur: 0.5, gain: 0.4 });
+    for (let i = 0; i < 3; i++) s.click(d, t + 0.08 + i * 0.07, (2600 - i * 500) * p, 0.1, 0.02);
+    return 0.6;
+  },
+  /** Overcharge beam: shimmering sustained tone with tremolo. */
+  overcharge_beam: (s, d, t, p) => {
+    s.tone(d, { type: 'sawtooth', f0: 330 * p, f1: 392 * p, t0: t, dur: 0.9, gain: 0.08, attack: 0.12, lp: 2400, decayCurve: 'lin', vibratoHz: 11, vibratoDepth: 25 });
+    s.tone(d, { type: 'sine', f0: 660 * p, t0: t + 0.05, dur: 0.85, gain: 0.08, attack: 0.15, decayCurve: 'lin', vibratoHz: 7, vibratoDepth: 18 });
+    s.tone(d, { type: 'sine', f0: 1320 * p, t0: t + 0.1, dur: 0.7, gain: 0.03, attack: 0.2, decayCurve: 'lin' });
+    return 1.0;
+  },
+  /** Recon sonar: sharp ping with a long ringing decay + expanding noise wash. */
+  scan_pulse: (s, d, t, p) => {
+    s.tone(d, { type: 'sine', f0: 1400 * p, f1: 900 * p, t0: t, dur: 0.7, gain: 0.16 });
+    s.tone(d, { type: 'sine', f0: 2100 * p, t0: t, dur: 0.25, gain: 0.05 });
+    s.noise(d, { t0: t + 0.02, dur: 0.6, gain: 0.06, attack: 0.05, filter: { type: 'bandpass', f0: 900 * p, f1: 3600 * p, q: 2.5 }, decayCurve: 'lin' });
+    return 0.75;
+  },
+  /** Anti-tank launch: heavy back-blast whoosh. */
+  rocket_fire: (s, d, t, p) => {
+    s.noise(d, { t0: t, dur: 0.6, gain: 0.7, filter: { type: 'lowpass', f0: 2600 * p, f1: 400, q: 0.7 } });
+    s.tone(d, { type: 'sawtooth', f0: 150 * p, f1: 42 * p, t0: t, dur: 0.5, gain: 0.35, lp: 900 });
+    s.noise(d, { t0: t + 0.05, dur: 0.9, gain: 0.16, attack: 0.1, filter: { type: 'bandpass', f0: 1800, f1: 500, q: 0.9 }, decayCurve: 'lin' });
+    return 0.95;
+  },
+  /** Anti-tank detonation: bigger and longer than the grenade blast. */
+  rocket_explode: (s, d, t, p) => {
+    s.noise(d, { t0: t, dur: 1.4, gain: 1.3, filter: { type: 'lowpass', f0: 1800 * p, f1: 45, q: 0.6 } });
+    s.noise(d, { t0: t, dur: 0.16, gain: 0.9, filter: { type: 'highpass', f0: 1400 } });
+    s.tone(d, { type: 'sine', f0: 58 * p, f1: 15, t0: t, dur: 1.1, gain: 1.3 });
+    s.tone(d, { type: 'triangle', f0: 160 * p, f1: 32, t0: t, dur: 0.35, gain: 0.5 });
+    s.tail(d, t + 0.1, 1.2, 0.3, 1600 * p, 120);
+    return 1.6;
+  },
+
+  /* ── gadgets ──────────────────────────────────────────────────────────── */
+  /** Something bolted to the ground (turret, barricade, jump pad). */
+  gadget_place: (s, d, t, p) => {
+    s.tone(d, { type: 'sine', f0: 130 * p, f1: 55, t0: t, dur: 0.24, gain: 0.5 });
+    s.noise(d, { t0: t, dur: 0.12, gain: 0.3, filter: { type: 'lowpass', f0: 1400 * p, f1: 260, q: 0.8 } });
+    s.click(d, t + 0.1, 1700 * p, 0.2, 0.03);
+    s.tone(d, { type: 'sawtooth', f0: 220 * p, f1: 150 * p, t0: t + 0.12, dur: 0.22, gain: 0.06, lp: 1200 });
+    return 0.4;
+  },
+  /** Dome shield unfolding: airy swell into a steady field. */
+  dome_deploy: (s, d, t, p) => {
+    s.noise(d, { t0: t, dur: 0.7, gain: 0.22, attack: 0.12, filter: { type: 'bandpass', f0: 500 * p, f1: 2600 * p, q: 1 }, decayCurve: 'lin' });
+    s.tone(d, { type: 'sine', f0: 220 * p, f1: 440 * p, t0: t, dur: 0.75, gain: 0.16, attack: 0.16 });
+    s.tone(d, { type: 'triangle', f0: 660 * p, t0: t + 0.25, dur: 0.5, gain: 0.05, attack: 0.15 });
+    return 0.85;
+  },
+  /** Smoke canister: long pressurised hiss. */
+  smoke_hiss: (s, d, t, p) => {
+    s.noise(d, { t0: t, dur: 1.6, gain: 0.3, attack: 0.06, filter: { type: 'bandpass', f0: 3000 * p, f1: 1400 * p, q: 0.7 }, decayCurve: 'lin' });
+    s.noise(d, { t0: t, dur: 0.12, gain: 0.3, filter: { type: 'highpass', f0: 2200 } });
+    return 1.7;
+  },
+  /** Lure beacon: three insistent beeps. */
+  lure_beep: (s, d, t, p) => {
+    for (let i = 0; i < 3; i++) {
+      s.tone(d, { type: 'square', f0: 720 * p, t0: t + i * 0.2, dur: 0.09, gain: 0.09, lp: 2600, decayCurve: 'lin' });
+      s.tone(d, { type: 'sine', f0: 1440 * p, t0: t + i * 0.2, dur: 0.06, gain: 0.04 });
+    }
+    return 0.6;
+  },
+  /** Mine arming: two rising beeps then a lock click. */
+  mine_arm: (s, d, t, p) => {
+    s.tone(d, { type: 'square', f0: 880 * p, t0: t, dur: 0.06, gain: 0.07, lp: 3000, decayCurve: 'lin' });
+    s.tone(d, { type: 'square', f0: 1174 * p, t0: t + 0.18, dur: 0.06, gain: 0.07, lp: 3000, decayCurve: 'lin' });
+    s.click(d, t + 0.36, 2400 * p, 0.2, 0.03);
+    return 0.45;
+  },
+  /** Mine blast: sharper and tighter than a grenade. */
+  mine_explode: (s, d, t, p) => {
+    s.noise(d, { t0: t, dur: 0.08, gain: 1.0, filter: { type: 'highpass', f0: 1800 } });
+    s.noise(d, { t0: t, dur: 0.7, gain: 1.1, filter: { type: 'lowpass', f0: 2400 * p, f1: 70, q: 0.6 } });
+    s.tone(d, { type: 'sine', f0: 90 * p, f1: 22, t0: t, dur: 0.55, gain: 1.1 });
+    s.tone(d, { type: 'triangle', f0: 260 * p, f1: 60, t0: t, dur: 0.18, gain: 0.4 });
+    return 0.8;
+  },
+  /** Incendiary ignition: fuel whoomph + crackle. */
+  fire_ignite: (s, d, t, p) => {
+    s.noise(d, { t0: t, dur: 0.5, gain: 0.5, attack: 0.03, filter: { type: 'lowpass', f0: 1800 * p, f1: 400, q: 0.7 }, decayCurve: 'lin' });
+    s.tone(d, { type: 'sine', f0: 120 * p, f1: 60, t0: t, dur: 0.35, gain: 0.4 });
+    for (let i = 0; i < 6; i++) {
+      s.noise(d, { t0: t + 0.15 + i * 0.11 + r(0, 0.05), dur: 0.05, gain: 0.1, filter: { type: 'bandpass', f0: r(1400, 3600), q: 3 } });
+    }
+    return 0.9;
+  },
+  /** Turret burst: compact servo-driven shot. */
+  turret_shot: (s, d, t, p) => {
+    const q = p * r(0.97, 1.04);
+    s.noise(d, { t0: t, dur: 0.05, gain: 0.45, filter: { type: 'bandpass', f0: 2200 * q, f1: 800 * q, q: 1 } });
+    s.tone(d, { type: 'square', f0: 900 * q, f1: 300 * q, t0: t, dur: 0.03, gain: 0.1, lp: 3000 });
+    s.tone(d, { type: 'sine', f0: 180 * q, f1: 70, t0: t, dur: 0.07, gain: 0.4 });
+    return 0.08;
+  },
+  /** Deployable destroyed: metal crunch with debris. */
+  gadget_break: (s, d, t, p) => {
+    s.noise(d, { t0: t, dur: 0.35, gain: 0.45, filter: { type: 'bandpass', f0: 1400 * p, f1: 300, q: 0.7 } });
+    s.tone(d, { type: 'sine', f0: 140 * p, f1: 42, t0: t, dur: 0.35, gain: 0.5 });
+    for (let i = 0; i < 4; i++) s.click(d, t + 0.1 + i * 0.06 + r(0, 0.03), r(900, 2400) * p, 0.1, 0.02);
+    return 0.45;
+  },
+  /** Defibrillator: capacitor whine then the discharge thump. */
+  defib: (s, d, t, p) => {
+    s.tone(d, { type: 'sawtooth', f0: 500 * p, f1: 1800 * p, t0: t, dur: 0.55, gain: 0.05, attack: 0.2, lp: 3000, decayCurve: 'lin' });
+    s.tone(d, { type: 'sine', f0: 90 * p, f1: 40, t0: t + 0.58, dur: 0.3, gain: 0.9 });
+    s.noise(d, { t0: t + 0.58, dur: 0.12, gain: 0.5, filter: { type: 'bandpass', f0: 1800, f1: 500, q: 0.9 } });
+    s.tone(d, { type: 'square', f0: 1600 * p, t0: t + 0.58, dur: 0.04, gain: 0.06, lp: 4000 });
+    return 0.95;
+  },
+
+  /* ── survival: downed / revive / grit / cloak ─────────────────────────── */
+  /** Going down: falling groan under a slow heartbeat. */
+  downed: (s, d, t, p) => {
+    s.tone(d, { type: 'sine', f0: 180 * p, f1: 42, t0: t, dur: 1.0, gain: 0.5, attack: 0.03 });
+    s.noise(d, { t0: t, dur: 0.8, gain: 0.25, filter: { type: 'lowpass', f0: 700, f1: 90 } });
+    s.tone(d, { type: 'sine', f0: 58, t0: t + 0.5, dur: 0.16, gain: 0.6 });
+    s.tone(d, { type: 'sine', f0: 52, t0: t + 0.78, dur: 0.2, gain: 0.45 });
+    return 1.1;
+  },
+  /** Back on your feet: warm rising chord. */
+  revive: (s, d, t, p) => {
+    const notes = [392, 523, 659, 784];
+    notes.forEach((f, i) => s.tone(d, { type: 'sine', f0: f * p, t0: t + i * 0.07, dur: 0.5, gain: 0.12, attack: 0.03 }));
+    s.noise(d, { t0: t, dur: 0.3, gain: 0.1, attack: 0.05, filter: { type: 'highpass', f0: 2400 }, decayCurve: 'lin' });
+    return 0.8;
+  },
+  /** 인내 save: heartbeat thump + defiant rising tone. */
+  grit_save: (s, d, t, p) => {
+    s.tone(d, { type: 'sine', f0: 62, t0: t, dur: 0.2, gain: 0.8 });
+    s.tone(d, { type: 'sine', f0: 56, t0: t + 0.24, dur: 0.22, gain: 0.6 });
+    s.tone(d, { type: 'triangle', f0: 300 * p, f1: 520 * p, t0: t + 0.05, dur: 0.5, gain: 0.12, attack: 0.06, lp: 2600 });
+    return 0.6;
+  },
+  /** Cloak engages: phasing shimmer down. */
+  cloak_on: (s, d, t, p) => {
+    s.tone(d, { type: 'sine', f0: 1600 * p, f1: 420 * p, t0: t, dur: 0.5, gain: 0.1, vibratoHz: 14, vibratoDepth: 60 });
+    s.noise(d, { t0: t, dur: 0.45, gain: 0.1, attack: 0.04, filter: { type: 'bandpass', f0: 3200 * p, f1: 900 * p, q: 2.5 }, decayCurve: 'lin' });
+    return 0.55;
+  },
+  /** Cloak drops: reverse shimmer with a click. */
+  cloak_off: (s, d, t, p) => {
+    s.tone(d, { type: 'sine', f0: 420 * p, f1: 1500 * p, t0: t, dur: 0.32, gain: 0.09, vibratoHz: 14, vibratoDepth: 60 });
+    s.click(d, t + 0.3, 2600 * p, 0.12, 0.02);
+    return 0.38;
+  },
+
+  /* ── gathering / crafting / gear upkeep / progression ──────────────────── */
+  /** Herb harvest: leafy rustle + soft snap. */
+  gather: (s, d, t, p) => {
+    s.noise(d, { t0: t, dur: 0.3, gain: 0.22, attack: 0.03, filter: { type: 'bandpass', f0: 2600 * p, f1: 1400 * p, q: 1.4 }, decayCurve: 'lin' });
+    s.click(d, t + 0.18, 1200 * p, 0.12, 0.025);
+    s.tone(d, { type: 'sine', f0: 660 * p, t0: t + 0.24, dur: 0.1, gain: 0.08 });
+    return 0.38;
+  },
+  /** Field crafting loop tick (played once per craft start). */
+  craft_start: (s, d, t, p) => {
+    for (let i = 0; i < 3; i++) s.click(d, t + i * 0.14, 1500 * p, 0.12, 0.025);
+    s.tone(d, { type: 'sawtooth', f0: 180 * p, f1: 210 * p, t0: t, dur: 0.42, gain: 0.05, attack: 0.05, lp: 1200, decayCurve: 'lin' });
+    return 0.45;
+  },
+  /** Craft finished: two-note confirm with a workbench clink. */
+  craft_done: (s, d, t, p) => {
+    s.click(d, t, 2200 * p, 0.16, 0.03);
+    s.tone(d, { type: 'sine', f0: 784 * p, t0: t + 0.02, dur: 0.1, gain: 0.14 });
+    s.tone(d, { type: 'sine', f0: 1046 * p, t0: t + 0.11, dur: 0.22, gain: 0.14 });
+    return 0.36;
+  },
+  /** Repair complete: wrench clink + rising confirm. */
+  repair_done: (s, d, t, p) => {
+    s.click(d, t, 1800 * p, 0.2, 0.03);
+    s.click(d, t + 0.09, 2400 * p, 0.16, 0.025);
+    s.tone(d, { type: 'sine', f0: 587 * p, f1: 880 * p, t0: t + 0.14, dur: 0.24, gain: 0.13 });
+    return 0.4;
+  },
+  /** Gear broke: metal snap then rattling debris. */
+  durability_break: (s, d, t, p) => {
+    s.noise(d, { t0: t, dur: 0.06, gain: 0.5, filter: { type: 'highpass', f0: 2600 } });
+    s.tone(d, { type: 'square', f0: 620 * p, f1: 150 * p, t0: t, dur: 0.12, gain: 0.12, lp: 2400 });
+    s.tone(d, { type: 'sine', f0: 160 * p, f1: 55, t0: t, dur: 0.3, gain: 0.4 });
+    for (let i = 0; i < 3; i++) s.click(d, t + 0.12 + i * 0.08 + r(0, 0.04), r(800, 2000) * p, 0.09, 0.02);
+    return 0.45;
+  },
+  /** Level up: rising fanfare with a shimmering tail. */
+  level_up: (s, d, t, p) => {
+    const notes = [523, 659, 784, 1046, 1318];
+    notes.forEach((f, i) => s.tone(d, { type: 'sine', f0: f * p, t0: t + i * 0.1, dur: 0.55, gain: 0.13, attack: 0.02 }));
+    s.tone(d, { type: 'triangle', f0: 261 * p, t0: t, dur: 1.1, gain: 0.07, attack: 0.08 });
+    s.noise(d, { t0: t + 0.4, dur: 0.7, gain: 0.05, attack: 0.15, filter: { type: 'highpass', f0: 4000 }, decayCurve: 'lin' });
+    return 1.3;
+  },
+  /** Skill tick up: quiet two-note chime. */
+  skill_up: (s, d, t, p) => {
+    s.tone(d, { type: 'sine', f0: 1046 * p, t0: t, dur: 0.07, gain: 0.09 });
+    s.tone(d, { type: 'sine', f0: 1568 * p, t0: t + 0.07, dur: 0.16, gain: 0.08 });
+    return 0.25;
+  },
 };
 
 export const SOUND_IDS = Object.keys(SOUNDS);

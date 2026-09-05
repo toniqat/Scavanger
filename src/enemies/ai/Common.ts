@@ -20,6 +20,9 @@ export function startMelee(e: Enemy): void {
   e.state = 'attack'; e.stateTime = 0;
   e.attackTimer = 0; e.attackHitDone = false; e.leaping = false;
   e.spitPhase = 0; e.chargePhase = 0;
+  // tactical kit: a fresh swing is aimed at the player unless the AI re-targets a deployable
+  e.structAttack = false;
+  e.spitAtPoint = false;
 }
 
 /** End a charge (charger / behemoth) with a stagger and the type's cooldown. */

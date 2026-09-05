@@ -23,6 +23,11 @@ Chat: `chat_blip` `chat_request` `chat_open` `chat_close`
 Pings v2: `ping_attack` `ping_caution` `ping_item`
 Pickups: `item_toss` `pickup_land` `pickup_chime` `pickup` (alias of `pickup_chime`, the id `pickups/` sends)
 Net: `net_warning` `net_resumed` `net_matched`
+Tactical kit — melee/movement: `melee_swing` `melee_hit` `roll` `jumppad`
+Tactical kit — implants: `grapple_fire` `grapple_attach` `grapple_release` `dash` `barrier_deploy` `barrier_hit` `barrier_break` `overcharge_beam` `scan_pulse` `rocket_fire` `rocket_explode`
+Tactical kit — gadgets: `gadget_place` `dome_deploy` `smoke_hiss` `lure_beep` `mine_arm` `mine_explode` `fire_ignite` `turret_shot` `gadget_break` `defib`
+Tactical kit — survival: `downed` `revive` `grit_save` `cloak_on` `cloak_off`
+Tactical kit — upkeep/progression: `gather` `craft_start` `craft_done` `repair_done` `durability_break` `level_up` `skill_up`
 
 Notes on the newer ids:
 - `shot_smg` — snappy, lighter than `shot_rifle`, ~0.09 s tail (built for ~14 rounds/s).
@@ -37,6 +42,17 @@ Notes on the newer ids:
 - `chat_blip` — soft two-note blip; `chat_request` — two radio tones + held note with faint static; `chat_open`/`chat_close` — 35 ms ticks (rising / falling).
 - `item_toss` — 0.28 s whoosh; `pickup_land` — soft tick (positional, low volume); `pickup_chime` — G5-D6-G6.
 - `net_warning` — low square+sine tone (~0.45 s); `net_resumed` — two-note confirmation; `net_matched` — static burst → three rising blips → held note.
+
+Tactical-kit ids in detail:
+- `melee_swing` — 0.24 s air whoosh (bandpass sweep up), slight random pitch. `melee_hit` — thud (150 → 48 Hz sine) + lowpassed noise + metallic click; callers pass the hit point so it is positional, volume 1 / pitch 0.85 on a kill. **`weapons/` sends these ids itself** when it resolves the swing; the auto-hooks on `melee:swing` / `melee:hit` are deduped against it.
+- `roll` — cloth tumble with two ground contacts (0.5 s). `jumppad` — 180 → 1200 Hz spring + air pop.
+- `grapple_fire` — pneumatic thump + 0.35 s wire zip; `grapple_attach` — clank + latch + ring; `grapple_release` — servo whir (also reused as the barrier fold-away).
+- `dash` — saw sweep 260 → 1500 Hz + highpass air. `barrier_deploy` — clack then an energy field settling; `barrier_hit` — bright 1.5 kHz ping + splash (positional); `barrier_break` — descending shatter with debris clicks.
+- `overcharge_beam` — 1 s shimmering tremolo tone (played once when the beam locks on). `scan_pulse` — sonar ping with a long ring; pitch rises 6 % per pulse index.
+- `rocket_fire` — heavy back-blast; `rocket_explode` — bigger/longer than `explosion` with a `Synth.tail` reverb.
+- `gadget_place` — bolt-down clunk + servo (turret / barricade / jump pad); `dome_deploy` — airy swell; `smoke_hiss` — 1.7 s pressurised hiss; `lure_beep` — three beeps; `mine_arm` — two rising beeps + lock click; `mine_explode` — tight sharp blast; `fire_ignite` — fuel whoomph + six random crackles; `turret_shot` — compact mechanical shot (the turret sends this itself); `gadget_break` — metal crunch + debris; `defib` — capacitor whine then discharge thump.
+- `downed` — falling groan + two heartbeats; `revive` — warm four-note rising chord; `grit_save` — heartbeat + defiant rise; `cloak_on` / `cloak_off` — phasing shimmer down / up.
+- `gather` — leafy rustle + snap; `craft_start` — three workbench clicks; `craft_done` — clink + two-note confirm; `repair_done` — two clinks + rising confirm; `durability_break` — metal snap + rattle; `level_up` — five-note fanfare (1.3 s); `skill_up` — quiet two-note chime.
 
 ## Ship hub (phases `hub` / `docking`)
 The hub is **not gameplay**: while `hubActive` (set on `hub:entered`, cleared on `hub:left` / `game:newMission`) or the phase is
@@ -64,3 +80,17 @@ Appended (ship hub / chat / pickups / reconnection):
 - `chat:message`: remote `text`→chat_blip, remote `request`→chat_request, own (`local:true`) text/request→ui_click at 0.35, `system` and `ping` lines silent (the ping already sounded) · `ui:chatToggled`→chat_open|chat_close.
 - `inventory:itemDropped`→item_toss (positional) · `pickup:spawned`→pickup_land (positional, volume 0.3) **except** within 0.15 s of our own drop (that spawn is the thrown item, not a landing) · `pickup:taken` is **not** auto-hooked: PickupSystem sends `audio:play {id:'pickup'}` itself on a local take (`pickup` = `pickup_chime` synth); remote takes are silent.
 - `net:reconnecting`→net_warning, rate-limited to once per 5 s across attempts · `net:resumed`→net_resumed · `net:matched`→net_matched.
+
+Appended (tactical kit):
+- Melee / movement: `melee:swing`→melee_swing · `melee:hit`→melee_hit (positional, kill = louder/lower) · `player:rolled`→roll (positional) · `player:launched`→jumppad (positional).
+- Survival: `player:downed`→downed · `player:revived`→revive · `player:gritSaved`→grit_save · `player:burning {active:true}`→fire_ignite · `player:cloakChanged`→cloak_on|cloak_off.
+- Implants: `implant:activated {id:'atlauncher'}`→rocket_fire · `implant:dashed`→dash · `implant:grappleFired/Attached/Released`→grapple_fire/attach/release ·
+  `implant:barrierChanged`→barrier_deploy when `active` flips true, the servo whir when it folds away, barrier_break the first time `hp` reaches 0 (the system tracks `barrierActive` / `barrierHp`; both reset on `game:newMission`) ·
+  `implant:barrierHit`→barrier_hit (positional) · `implant:scanned`→scan_pulse (pitch + 6 % per pulse) · `implant:overcharge {active:true}`→overcharge_beam ·
+  `implant:rocketExploded`→rocket_explode (positional) · `implant:wieldChanged`→ui_equip|ui_close · `implant:equipped`→ui_equip.
+- Gadgets: `gadget:used`→defib (defib) | cloak_on (cloakVeil) | grenade_throw (everything else) · `gadget:deployed`→mine_arm | dome_deploy | smoke_hiss | fire_ignite | lure_beep | gadget_place by `kind` (positional) ·
+  `gadget:removed {reason:'destroyed'}`→mine_explode (mines) | gadget_break, `'recovered'`→ui_equip · `gadget:throwModeChanged`→ui_click.
+- Gear / crafting / weight: `gather:collected`→gather · `craft:started`→craft_start · `craft:completed`→craft_done · `craft:failed` (not cancelled)→ui_error ·
+  `repair:completed`→repair_done · `durability:broken`→durability_break · `inventory:overloaded` (heavy/over)→ui_deny · `quickbar:used`→ui_click · `equip:changed`→ui_equip.
+- Progression: `progress:levelUp`→level_up · `progress:skillUp`→skill_up.
+`turret_shot` is provided for `gadgets/` to send via `audio:play` (turret fire is not auto-hooked — there is no per-shot event).

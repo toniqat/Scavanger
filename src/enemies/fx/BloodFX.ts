@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { GRAVITY, Layers, type WorldRef } from '@/shared';
 
-export type SplatKind = 'blood' | 'acid';
+/** `ember` is particle-only (burning bugs); `splat` falls back to the acid decal for it. */
+export type SplatKind = 'blood' | 'acid' | 'ember';
 
 const MAX_PARTICLES = 1600;
 const MAX_DECALS = 40;
@@ -99,7 +100,9 @@ export class BloodFX {
 
   /** Emit a burst of droplets. `dir` (optional, unit) biases the spray; `spread` 0..1. */
   burst(center: THREE.Vector3, count: number, kind: SplatKind, speed = 4, dir?: THREE.Vector3, spread = 1): void {
-    if (kind === 'blood') _c.setRGB(0.28, 0.62, 0.16); else _c.setRGB(0.55, 0.95, 0.2);
+    if (kind === 'blood') _c.setRGB(0.28, 0.62, 0.16);
+    else if (kind === 'ember') _c.setRGB(1.0, 0.45, 0.08);
+    else _c.setRGB(0.55, 0.95, 0.2);
     for (let n = 0; n < count; n++) {
       const i = this.cursor;
       this.cursor = (this.cursor + 1) % MAX_PARTICLES;

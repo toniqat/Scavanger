@@ -24,6 +24,13 @@ import { StratagemPanel } from './hud/StratagemPanel';
 import { ChargeGauge } from './hud/ChargeGauge';
 import { TargetingHud } from './hud/TargetingHud';
 import { OffscreenIndicators } from './hud/OffscreenIndicators';
+import { ImplantWidget } from './hud/ImplantWidget';
+import { WeightBar } from './hud/WeightBar';
+import { Detection } from './hud/Detection';
+import { ScanReveal } from './hud/ScanReveal';
+import { Deployables } from './hud/Deployables';
+import { ProgressToasts } from './hud/ProgressToasts';
+import { ActionFeedback } from './hud/ActionFeedback';
 import { MapScreen } from './map/MapScreen';
 import { TitleMenu } from './menus/TitleMenu';
 import { PauseMenu } from './menus/PauseMenu';
@@ -77,6 +84,14 @@ export class HudSystem implements GameSystem {
   private missionInfo!: MissionInfo;
   private deploy!: DeployOverlay;
   private map!: MapScreen;
+  /* tactical kit */
+  private implantWidget!: ImplantWidget;
+  private weight!: WeightBar;
+  private detection!: Detection;
+  private scanReveal!: ScanReveal;
+  private deployables!: Deployables;
+  private progressToasts!: ProgressToasts;
+  private actionFx!: ActionFeedback;
 
   private title!: TitleMenu;
   private pause!: PauseMenu;
@@ -95,6 +110,7 @@ export class HudSystem implements GameSystem {
     this.overlayRoot = el('div', { cls: 'hud', parent: ctx.uiRoot });
     this.damage = new DamageOverlay(this.overlayRoot);
     this.scope = new ScopeOverlay(this.overlayRoot);
+    this.actionFx = new ActionFeedback(this.overlayRoot);
 
     this.hudRoot = el('div', { cls: 'hud gameplay', parent: ctx.uiRoot });
     this.markers = new WorldMarkers(this.hudRoot);
@@ -113,6 +129,11 @@ export class HudSystem implements GameSystem {
     this.objective = new Objective(this.hudRoot);
     this.missionInfo = new MissionInfo(this.hudRoot);
     this.spectate = new SpectateOverlay(this.hudRoot);
+    this.detection = new Detection(this.hudRoot);
+    this.deployables = new Deployables(this.hudRoot);
+    this.implantWidget = new ImplantWidget(this.hudRoot);
+    this.weight = new WeightBar(this.hudRoot);
+    this.scanReveal = new ScanReveal();
 
     this.socialRoot = el('div', { cls: 'hud social', parent: ctx.uiRoot });
     this.nameplates = new Nameplates(this.socialRoot);
@@ -120,6 +141,7 @@ export class HudSystem implements GameSystem {
     this.prompt = new InteractionPrompt(this.socialRoot);
     this.notifs = new Notifications(this.socialRoot);
     this.chat = new ChatLog(this.socialRoot);
+    this.progressToasts = new ProgressToasts(this.socialRoot);
 
     this.deploy = new DeployOverlay(ctx.uiRoot);
     this.map = new MapScreen(ctx.uiRoot);
@@ -131,6 +153,7 @@ export class HudSystem implements GameSystem {
     this.complete = new MissionComplete(ctx.uiRoot);
 
     for (const c of [this.reticle, this.cook, this.wheel, this.swheel, this.strat, this.charge, this.targeting, this.offscreen, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.chat, this.map]) c.bind(ctx);
+    for (const c of [this.implantWidget, this.weight, this.detection, this.scanReveal, this.deployables, this.progressToasts, this.actionFx]) c.bind(ctx);
     for (const m of [this.title, this.pause, this.death, this.complete]) m.bind(ctx);
 
     const b = ctx.bus;
@@ -174,23 +197,32 @@ export class HudSystem implements GameSystem {
       this.missionInfo.update(ctx);
       this.pings.update(dt, ctx);
       this.spectate.update(dt, ctx);
+      this.implantWidget.update(dt, ctx);
+      this.weight.update(dt, ctx);
     }
     if (this.socialVisible) {
       this.squad.update(dt, ctx);
       this.chat.update(dt);
+      this.progressToasts.update(dt);
     }
+    // Self-gating components (they hide their own world meshes / markers outside gameplay).
+    this.deployables.update(dt, ctx);
+    this.actionFx.update(dt, ctx);
     this.scope.update(ctx);
     this.damage.update(dt, ctx);
     this.complete.update(dt);
   }
 
-  lateUpdate(_dt: number, ctx: GameContext): void {
+  lateUpdate(dt: number, ctx: GameContext): void {
     if (this.hudVisible) {
       this.markers.lateUpdate(ctx);
       this.pings.lateUpdate(ctx);
       this.offscreen.lateUpdate(ctx);
     }
     if (this.socialVisible) this.nameplates.lateUpdate(ctx);
+    this.detection.lateUpdate(dt, ctx);
+    this.scanReveal.lateUpdate(dt, ctx);
+    this.deployables.lateUpdate(ctx);
   }
 
   /** Whether the tactical map is currently open (debug / other HUD parts). */
@@ -245,6 +277,7 @@ export class HudSystem implements GameSystem {
   dispose(): void {
     for (const u of this.unsubs) u();
     for (const c of [this.reticle, this.cook, this.wheel, this.swheel, this.strat, this.charge, this.targeting, this.offscreen, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.chat, this.missionInfo, this.deploy, this.map]) c.dispose();
+    for (const c of [this.implantWidget, this.weight, this.detection, this.scanReveal, this.deployables, this.progressToasts, this.actionFx]) c.dispose();
     for (const m of [this.title, this.pause, this.death, this.complete]) m.dispose();
     this.hudRoot.remove(); this.socialRoot.remove(); this.overlayRoot.remove();
   }

@@ -1,8 +1,10 @@
 import * as THREE from 'three';
 import {
-  GRAVITY, PLAYER_HEIGHT, PLAYER_RADIUS, PLAYER_SPRINT_SPEED, PLAYER_WALK_SPEED, PLAYER_CROUCH_SPEED, PLAYER_PRONE_SPEED,
+  GRAVITY, IMPLANT_GRAPPLE_SPEED, PLAYER_HEIGHT, PLAYER_RADIUS, PLAYER_SPRINT_SPEED, PLAYER_WALK_SPEED,
+  PLAYER_CROUCH_SPEED, PLAYER_PRONE_SPEED, ROLL_DISTANCE, ROLL_DURATION,
   type WorldRef, type Stance, type InteriorCollider,
 } from '@/shared';
+import { damp } from '@/core/util/MathUtil';
 
 export interface MoveInput {
   x: number;      // -1..1 strafe (right +)
@@ -11,8 +13,6 @@ export interface MoveInput {
   jump: boolean;  // pressed this frame
   /** body stance decided by PlayerSystem (toggles, stand-up rules, airborne checks) */
   stance: Stance;
-  /** launch a dive this frame (PlayerSystem has already checked stamina / grounded / stance) */
-  dive: boolean;
   aiming: boolean;
 }
 
@@ -21,10 +21,8 @@ export interface MoveResult {
   /** > 0 when we touched down this frame (impact speed m/s) */
   landed: number;
   jumped: boolean;
-  /** dive launched this frame (`diveDir` holds the horizontal direction) */
-  dived: boolean;
-  /** dive finished this frame (touched ground or timed out) → caller sets stance = 'prone' */
-  diveEnded: boolean;
+  /** roll finished this frame (duration elapsed) → caller drops the roll blend */
+  rollEnded: boolean;
 }
 
 export type ShipBounds = { center: THREE.Vector3; halfExtents: THREE.Vector3 } | null;
@@ -35,34 +33,40 @@ const GROUND_DECEL = 26;
 const AIR_ACCEL = 7;
 const SNAP_DOWN = 0.55;
 const STEEP_COS = Math.cos(50 * Math.PI / 180);
-const DIVE_SPEED = 7.5;
-const DIVE_UP = 3.0;
-const DIVE_MAX_TIME = 0.9;
+/** Roll travel speed (m/s) so a ROLL_DURATION roll covers ROLL_DISTANCE. */
+const ROLL_SPEED = ROLL_DISTANCE / ROLL_DURATION;
+/** Terminal fall speed while the tactical backpack hovers. */
+const HOVER_FALL_SPEED = -1.2;
+/** Grapple: stop pulling this close to the anchor (the implant still owns the release). */
+const GRAPPLE_ARRIVE = 1.4;
 
 const _wish = new THREE.Vector3(), _hv = new THREE.Vector3(), _n = new THREE.Vector3(), _slide = new THREE.Vector3();
-const _rayO = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0);
+const _rayO = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0), _pull = new THREE.Vector3();
 /** Ceiling probe: from the hips straight up; stops the jump when the head would pass through a deck above. */
 const CEIL_PROBE_START = 0.6;
 
 /**
  * Kinematic character controller: camera-relative acceleration, gravity, single jump, stances
- * (stand / crouch / prone speeds), dive launch (no control until touchdown), heightfield ground
- * with slope sliding, obstacle push-out via `world.resolveCollision`, a box-constrained mode
- * for the extraction ship interior, and an `InteriorCollider` mode (hub ships: flat decks via `getFloorAt`,
- * wall push-out via the collider, ceiling clamp via its raycast, no slope sliding, no map bounds).
+ * (stand / crouch / prone speeds), the tactical-kit **roll** (fixed-speed ground burst, no steering),
+ * grapple pull, backpack hover, external impulses, heightfield ground with slope sliding, obstacle
+ * push-out via `world.resolveCollision`, a box-constrained mode for the extraction ship interior, and an
+ * `InteriorCollider` mode (hub ships: flat decks via `getFloorAt`, wall push-out via the collider,
+ * ceiling clamp via its raycast, no slope sliding, no map bounds).
  */
 export class PlayerController {
   readonly position = new THREE.Vector3();
   readonly velocity = new THREE.Vector3();
   /** normalised world move direction (last non-zero) */
   readonly moveDir = new THREE.Vector3(0, 0, -1);
-  /** horizontal unit direction of the current / last dive */
-  readonly diveDir = new THREE.Vector3(0, 0, -1);
+  /** horizontal unit direction of the current / last roll */
+  readonly rollDir = new THREE.Vector3(0, 0, -1);
   grounded = true;
   stance: Stance = 'stand';
   sprinting = false;
-  /** true from dive launch until touchdown (or DIVE_MAX_TIME) */
-  diving = false;
+  /** true from the roll launch until ROLL_DURATION elapsed */
+  rolling = false;
+  /** 0..1 progress through the current roll (stays at 1 after it ended) */
+  rollProgress = 0;
   /** horizontal speed m/s */
   speed = 0;
   /** radians; a step every π */
@@ -70,23 +74,63 @@ export class PlayerController {
   shipBounds: ShipBounds = null;
   /** Ship-interior collider (hub). Takes precedence over `shipBounds` and the world while set. */
   interior: InteriorCollider | null = null;
-  /** external move-speed multiplier (slows: spewer acid, exhaustion, standing up from prone) */
+  /** external move-speed multiplier (slows: spewer acid, exhaustion, standing up from prone, weight, buffs) */
   speedMultiplier = 1;
+  /** jump impulse multiplier (√ of `DerivedStats.jumpHeightMul`, set by PlayerSystem) */
+  jumpSpeedMul = 1;
+  /** Grapple anchor (implants). While set the player is reeled toward it and gravity is suspended. */
+  grappleTarget: THREE.Vector3 | null = null;
+  /** Tactical backpack hover: caps the fall speed while airborne. */
+  hovering = false;
   private lastStep = 0;
   private wasGrounded = true;
   private coyote = 0;
-  private diveTimer = 0;
+  private rollTimer = 0;
 
   get crouching(): boolean { return this.stance === 'crouch'; }
   get prone(): boolean { return this.stance === 'prone'; }
+  /** Wire-compatible alias: the roll replaced the dive. */
+  get diving(): boolean { return this.rolling; }
 
   reset(pos: THREE.Vector3): void {
     this.position.copy(pos);
     this.velocity.set(0, 0, 0);
     this.grounded = true; this.wasGrounded = true;
     this.stance = 'stand'; this.sprinting = false;
-    this.diving = false; this.diveTimer = 0;
+    this.rolling = false; this.rollTimer = 0; this.rollProgress = 0;
+    this.grappleTarget = null; this.hovering = false;
     this.speed = 0; this.stridePhase = 0; this.lastStep = 0;
+  }
+
+  /**
+   * Launch a roll in `dir` (horizontal unit vector). PlayerSystem has already checked stamina, cooldown,
+   * stance, weight and ground contact. No steering until it ends.
+   */
+  startRoll(dir: THREE.Vector3): void {
+    this.rollDir.set(dir.x, 0, dir.z);
+    if (this.rollDir.lengthSq() < 1e-6) this.rollDir.set(0, 0, -1); else this.rollDir.normalize();
+    this.velocity.x = this.rollDir.x * ROLL_SPEED;
+    this.velocity.z = this.rollDir.z * ROLL_SPEED;
+    this.rolling = true;
+    this.rollTimer = 0;
+    this.rollProgress = 0;
+    this.sprinting = false;
+    this.hovering = false;
+  }
+
+  /** Cancel an in-flight roll (death, downed, pod). */
+  cancelRoll(): void {
+    if (!this.rolling) return;
+    this.rolling = false;
+    this.rollTimer = 0;
+    this.rollProgress = 1;
+    this.velocity.x *= 0.3; this.velocity.z *= 0.3;
+  }
+
+  /** Add to the velocity (jump pad, rocket blast, jump backpack). Positive Y also unsticks from the ground. */
+  applyImpulse(impulse: THREE.Vector3): void {
+    this.velocity.add(impulse);
+    if (impulse.y > 0.01) { this.grounded = false; this.coyote = 0; this.position.y += 0.02; }
   }
 
   groundHeight(x: number, z: number, world: WorldRef | null): number {
@@ -97,7 +141,7 @@ export class PlayerController {
   }
 
   update(dt: number, inp: MoveInput, yaw: number, world: WorldRef | null, out: MoveResult): void {
-    out.footstep = false; out.landed = 0; out.jumped = false; out.dived = false; out.diveEnded = false;
+    out.footstep = false; out.landed = 0; out.jumped = false; out.rollEnded = false;
     if (dt <= 0) return;
     const pos = this.position, vel = this.velocity;
     this.stance = inp.stance;
@@ -110,18 +154,21 @@ export class PlayerController {
     if (wishLen > 1) { _wish.divideScalar(wishLen); wishLen = 1; }
     const moving = wishLen > 0.01;
 
-    // ── dive launch: horizontal burst in the move direction (or camera forward), small hop
-    if (inp.dive && this.grounded && !this.diving) {
-      if (moving) this.diveDir.copy(_wish).divideScalar(wishLen); else this.diveDir.set(fx, 0, fz);
-      vel.x = this.diveDir.x * DIVE_SPEED; vel.z = this.diveDir.z * DIVE_SPEED; vel.y = DIVE_UP;
-      this.diving = true; this.diveTimer = 0;
-      this.grounded = false; this.coyote = 0;
-      this.sprinting = false;
-      out.dived = true;
+    // ── roll: fixed-speed ground burst in the launch direction, no steering
+    if (this.rolling) {
+      this.rollTimer += dt;
+      this.rollProgress = Math.min(1, this.rollTimer / ROLL_DURATION);
+      vel.x = this.rollDir.x * ROLL_SPEED;
+      vel.z = this.rollDir.z * ROLL_SPEED;
+      if (this.rollTimer >= ROLL_DURATION) {
+        this.rolling = false;
+        out.rollEnded = true;
+        vel.x *= 0.35; vel.z *= 0.35;      // bleed the slide so the body stops where it landed
+      }
     }
 
     const standing = this.stance === 'stand';
-    const canSprint = inp.sprint && moving && inp.z > 0.2 && !inp.aiming && standing && !this.diving;
+    const canSprint = inp.sprint && moving && inp.z > 0.2 && !inp.aiming && standing && !this.rolling;
     this.sprinting = canSprint;
     let targetSpeed = PLAYER_WALK_SPEED;
     if (this.stance === 'crouch') targetSpeed = PLAYER_CROUCH_SPEED;
@@ -130,9 +177,9 @@ export class PlayerController {
     if (inp.aiming) targetSpeed = standing ? Math.min(targetSpeed, PLAYER_WALK_SPEED * 0.8) : targetSpeed * 0.85;
     targetSpeed *= wishLen * this.speedMultiplier;
 
-    // ── horizontal velocity: accelerate toward wish (no control while diving)
+    // ── horizontal velocity: accelerate toward wish (no control while rolling)
     _hv.set(vel.x, 0, vel.z);
-    if (!this.diving) {
+    if (!this.rolling) {
       const accel = this.grounded ? (moving ? GROUND_ACCEL : GROUND_DECEL) : AIR_ACCEL;
       _wish.multiplyScalar(targetSpeed);
       const dx = _wish.x - _hv.x, dz = _wish.z - _hv.z;
@@ -145,7 +192,7 @@ export class PlayerController {
 
     // ── slope handling (heightfield only)
     let steep = false;
-    if (!this.interior && !this.shipBounds && world && world.ready && this.grounded) {
+    if (!this.interior && !this.shipBounds && world && world.ready && this.grounded && !this.rolling) {
       world.getNormalAt(pos.x, pos.z, _n);
       if (_n.y < STEEP_COS) {
         steep = true;
@@ -165,13 +212,30 @@ export class PlayerController {
 
     // ── jump / gravity
     if (this.grounded) this.coyote = 0.1; else this.coyote -= dt;
-    if (inp.jump && this.coyote > 0 && standing && !steep && !this.diving) {
-      vel.y = JUMP_SPEED;
+    if (inp.jump && this.coyote > 0 && standing && !steep && !this.rolling) {
+      vel.y = JUMP_SPEED * this.jumpSpeedMul;
       this.grounded = false; this.coyote = 0;
       out.jumped = true;
     }
-    if (!this.grounded) vel.y -= GRAVITY * dt;
-    else vel.y = Math.max(vel.y, 0);
+    if (this.grappleTarget) {
+      // reeled in: full control of the velocity vector, no gravity
+      _pull.copy(this.grappleTarget).sub(pos);
+      _pull.y -= PLAYER_HEIGHT * 0.5;           // aim at the chest, not the feet
+      const dist = _pull.length();
+      if (dist > GRAPPLE_ARRIVE) {
+        _pull.divideScalar(dist).multiplyScalar(IMPLANT_GRAPPLE_SPEED);
+        vel.copy(_pull);
+        this.grounded = false; this.coyote = 0;
+      } else {
+        vel.multiplyScalar(0.6);
+      }
+    } else if (!this.grounded) {
+      vel.y -= GRAVITY * dt;
+      // tactical backpack hover: bleed the fall down to a gentle drift (no fall damage on landing)
+      if (this.hovering && vel.y < HOVER_FALL_SPEED) vel.y = damp(vel.y, HOVER_FALL_SPEED, 9, dt);
+    } else {
+      vel.y = Math.max(vel.y, 0);
+    }
 
     // ── integrate
     pos.x += vel.x * dt;
@@ -210,22 +274,12 @@ export class PlayerController {
       this.grounded = false;
     }
     this.wasGrounded = wasGrounded;
-
-    // ── dive end: touchdown or timeout → caller goes prone
-    if (this.diving) {
-      this.diveTimer += dt;
-      if ((this.grounded && !out.dived) || this.diveTimer >= DIVE_MAX_TIME) {
-        this.diving = false;
-        out.diveEnded = true;
-        // bleed the slide off quickly so the body stops where it hit
-        vel.x *= 0.35; vel.z *= 0.35;
-      }
-    }
+    if (this.grounded) this.hovering = false;
 
     // ── stride / footsteps
     this.speed = Math.hypot(vel.x, vel.z);
     if (this.speed > 0.2) { this.moveDir.set(vel.x, 0, vel.z).normalize(); }
-    if (this.grounded && this.speed > 0.3 && !this.diving) {
+    if (this.grounded && this.speed > 0.3 && !this.rolling) {
       // meters per full cycle (2 steps); prone = crawl reach
       const strideLen = this.sprinting ? 1.9 : this.stance === 'crouch' ? 1.1 : this.stance === 'prone' ? 0.8 : 1.45;
       this.stridePhase += (this.speed * dt / strideLen) * Math.PI * 2;

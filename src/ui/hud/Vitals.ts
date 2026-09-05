@@ -72,7 +72,7 @@ export class Vitals {
     this.stimPill = el('div', { cls: 'pill', parent: pills });
     el('i', { cls: 'ico stim', parent: this.stimPill });
     this.stimVal = el('span', { cls: 'val', text: '0', parent: this.stimPill });
-    el('span', { cls: 'key', text: 'F 빠른 사용', parent: this.stimPill });
+    el('span', { cls: 'key', text: 'H 스팀 · T 빠른 사용', parent: this.stimPill });
     this.grenPill = el('div', { cls: 'pill', parent: pills });
     el('i', { cls: 'ico gren', parent: this.grenPill });
     this.grenVal = el('span', { cls: 'val', text: '0', parent: this.grenPill });

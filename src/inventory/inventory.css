@@ -742,3 +742,108 @@ kbd {
 .inv-tile.is-quick { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--inv-accent) 35%, transparent); }
 
 .inv-root[hidden] { display: none !important; pointer-events: none !important; }
+
+/* ═══ tactical kit: gear slots, weight, quick bar, crafting, durability ═════ */
+
+/* keep the wider layouts (가방 V = 12칸) on screen */
+.inv-layout { max-width: calc(100vw - 24px); overflow-x: auto; overflow-y: hidden; padding: 2px; }
+.inv-head-actions { display: flex; align-items: center; gap: 10px; }
+
+/* ── durability bar on a tile ───────────────────────────────────────────── */
+.inv-tile-dur {
+  position: absolute;
+  left: 4px; right: 4px; bottom: 3px;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+  pointer-events: none;
+}
+.inv-tile-dur i { display: block; height: 100%; background: var(--inv-ok); transition: width 140ms var(--inv-ease); }
+.inv-tile-dur.is-low i { background: var(--inv-accent); }
+.inv-tile-dur.is-broken i { background: var(--inv-bad); }
+.inv-tile-dur.is-broken { box-shadow: 0 0 8px color-mix(in srgb, var(--inv-bad) 55%, transparent); }
+
+/* ── crate search (감정) mask ───────────────────────────────────────────── */
+.inv-tile.is-hidden-item { cursor: progress; filter: saturate(0.2); }
+.inv-tile.is-hidden-item .inv-tile-icon { opacity: 0.5; font-weight: 700; }
+.inv-tile.is-hidden-item .inv-tile-name { opacity: 0.4; letter-spacing: 0.3em; }
+.inv-tile-scan {
+  position: absolute; inset: 0; pointer-events: none; overflow: hidden;
+  background: repeating-linear-gradient(115deg, rgba(255,255,255,0.05) 0 6px, rgba(255,255,255,0) 6px 12px);
+}
+.inv-tile-scan::after {
+  content: ''; position: absolute; left: -40%; top: 0; bottom: 0; width: 40%;
+  background: linear-gradient(90deg, transparent, rgba(143, 232, 255, 0.22), transparent);
+  animation: inv-scan 1.15s linear infinite;
+}
+@keyframes inv-scan { from { transform: translateX(0); } to { transform: translateX(350%); } }
+
+/* ── weight bar ─────────────────────────────────────────────────────────── */
+.inv-weight { display: flex; flex-direction: column; gap: 5px; }
+.inv-weight-row { display: flex; align-items: baseline; gap: 8px; }
+.inv-weight-value { font-variant-numeric: tabular-nums; font-size: 12px; color: var(--inv-text); }
+.inv-weight-state { margin-left: auto; font-size: 11px; letter-spacing: 0.08em; color: var(--inv-muted); }
+.inv-weight-track {
+  height: 5px; border-radius: 3px; overflow: hidden;
+  background: rgba(255, 255, 255, 0.09);
+  border: 1px solid var(--inv-line);
+}
+.inv-weight-track i { display: block; height: 100%; width: 0; background: var(--inv-ok); transition: width 160ms var(--inv-ease), background 160ms linear; }
+.inv-weight.is-light .inv-weight-track i { background: #d9d36a; }
+.inv-weight.is-light .inv-weight-state { color: #d9d36a; }
+.inv-weight.is-heavy .inv-weight-track i { background: var(--inv-accent); }
+.inv-weight.is-heavy .inv-weight-state { color: var(--inv-accent); }
+.inv-weight.is-over .inv-weight-track i { background: var(--inv-bad); }
+.inv-weight.is-over .inv-weight-state { color: var(--inv-bad); animation: inv-weight-pulse 1.1s ease-in-out infinite; }
+@keyframes inv-weight-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+
+/* ── equipment slots (armor / backpack join the two weapons) ────────────── */
+.inv-equip { max-height: calc(100vh - 140px); overflow-y: auto; padding-right: 4px; }
+.inv-slot-armor .inv-slot-body, .inv-slot-backpack .inv-slot-body { align-items: center; justify-content: center; }
+
+/* ── craft panel ────────────────────────────────────────────────────────── */
+.inv-panel-craft { min-width: 340px; max-width: 380px; }
+.inv-craft-list { display: flex; flex-direction: column; gap: 8px; max-height: 520px; overflow-y: auto; padding-right: 4px; }
+.inv-craft-empty { color: var(--inv-muted); font-size: 12px; padding: 12px 2px; }
+.inv-craft-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--inv-line);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.inv-craft-row.is-locked { opacity: 0.5; }
+.inv-craft-row.is-crafting { border-color: var(--inv-accent); }
+.inv-craft-info { display: flex; flex-direction: column; gap: 5px; min-width: 0; flex: 1; }
+.inv-craft-name { font-size: 13px; font-weight: 600; }
+.inv-craft-desc { font-size: 11px; color: var(--inv-muted); line-height: 1.4; }
+.inv-craft-inputs { display: flex; flex-wrap: wrap; gap: 5px; }
+.inv-craft-chip {
+  font-size: 10px; letter-spacing: 0.02em;
+  padding: 2px 6px; border-radius: 3px;
+  border: 1px solid var(--inv-line);
+  color: var(--inv-text);
+  background: rgba(255, 255, 255, 0.05);
+  font-variant-numeric: tabular-nums;
+}
+.inv-craft-chip.is-missing { color: color-mix(in srgb, var(--inv-bad) 80%, white 20%); border-color: color-mix(in srgb, var(--inv-bad) 45%, transparent); }
+.inv-craft-chip.is-time { color: var(--inv-muted); }
+.inv-craft-btn { position: relative; overflow: hidden; min-width: 96px; flex: none; }
+.inv-craft-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.inv-craft-btn span { position: relative; z-index: 1; }
+.inv-craft-fill {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 0;
+  background: color-mix(in srgb, var(--inv-accent) 45%, transparent);
+  transition: width 80ms linear;
+}
+
+/* ── tooltip: durability + footer ───────────────────────────────────────── */
+.inv-tt-dur { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+.inv-tt-dur-label { font-size: 10px; letter-spacing: 0.08em; color: var(--inv-muted); }
+.inv-tt-dur-track { height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
+.inv-tt-dur-track i { display: block; height: 100%; background: var(--inv-ok); }
+.inv-tt-dur.is-low .inv-tt-dur-track i { background: var(--inv-accent); }
+.inv-tt-dur.is-broken .inv-tt-dur-track i { background: var(--inv-bad); }
+.inv-tt-dur.is-broken .inv-tt-dur-label { color: color-mix(in srgb, var(--inv-bad) 80%, white 20%); }
+.inv-tt-foot { margin-top: 8px; font-size: 10px; letter-spacing: 0.08em; color: var(--inv-muted); }

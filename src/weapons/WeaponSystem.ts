@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 import {
-  GameContext, Keys, MouseButtons, WEAPON_DURABILITY_PER_SHOT, WEAPON_SWAP_TIME_PRIMARY, WEAPON_SWAP_TIME_SECONDARY,
+  GameContext, Keys, KEY_MELEE, MouseButtons, WEAPON_DURABILITY_PER_SHOT, WEAPON_SWAP_TIME_PRIMARY, WEAPON_SWAP_TIME_SECONDARY,
+  IMPLANT_OVERCHARGE_FIRERATE_MUL,
   QUICK_SLOTS, QUICK_SLOT_UNLOCK_ORDER, QUICK_USABLE_CATEGORIES, isQuickSlotActive, QUICK_WHEEL_HOLD, QUICK_WHEEL_DRAG_PX, GRENADE_FUSE, GRENADE_COOK_MAX, GRENADE_UNDERHAND_SPEED_MUL,
   type GameSystem, type WeaponDef, type ItemInstance, type ItemDef, type PlayerRef, type PlayerWeaponHost, type EnemyRef, type Vec3Tuple,
-  type WeaponSlot, type EffectiveWeaponStats, type SocketSlot,
+  type WeaponSlot, type EffectiveWeaponStats, type SocketSlot, type WeaponClass, type GadgetId,
 } from '@/shared';
 import type { Obstacle as WorldObstacle, InterceptableRef } from '@/shared';
 import { ARMOR_IMMUNE_AMMO } from '@/shared';
@@ -15,6 +16,8 @@ import { WeaponFx } from './fx/WeaponFx';
 import { GrenadeManager } from './Grenade';
 import { ProjectilePool, type ProjectileHit } from './Projectile';
 import { RemoteWeapons } from './RemoteWeapons';
+import { MeleeController } from './Melee';
+import { raycastBlockers } from './Blocking';
 
 type Host = PlayerRef & PlayerWeaponHost;
 
@@ -55,7 +58,7 @@ const GRENADE_THROW_SPEED = 17;
 const GRENADE_THROW_LIFT = 3.5;
 const GRENADE_UNDERHAND_LIFT = 1.2;
 
-type QuickKind = 'stim' | 'grenade';
+type QuickKind = 'stim' | 'grenade' | 'gadget';
 
 /** A consumable taken into the hand from a quick slot (`active = 'quick'`): the bag's own `ItemInstance` plus its def. */
 interface QuickHand {
@@ -71,6 +74,7 @@ const _o = new THREE.Vector3(), _d = new THREE.Vector3(), _pd = new THREE.Vector
 const _muzzle = new THREE.Vector3(), _target = new THREE.Vector3(), _md = new THREE.Vector3(), _right = new THREE.Vector3(), _tmp = new THREE.Vector3();
 const _netDir = new THREE.Vector3();
 const _mq = new THREE.Quaternion();
+const _block = new THREE.Vector3();
 
 function makeHit(): HitInfo { return { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, enemy: null, obstacle: false, valid: false, headshot: false, obstacleRef: null, armored: false, intercept: null }; }
 
@@ -93,6 +97,13 @@ export class WeaponSystem implements GameSystem {
   private projectiles!: ProjectilePool;
   /** Multiplayer: remote players' weapon models + replicated fire/reload/grenade FX (inert offline). */
   private remote!: RemoteWeapons;
+  /** Tactical kit: F melee attack — the player owns stamina / cooldown / pose, this owns the hit resolution. */
+  private melee!: MeleeController;
+  /** True while the holster is caused by a wielded implant (`ctx.implants.blocksWeapons`): nothing in flight is cleared then. */
+  private implantHolstered = false;
+  /** Gadget throw mode toggled with RMB while a gadget is in hand. */
+  private gadgetUnderhand = false;
+  private readonly netUnsub: (() => void)[] = [];
 
   private readonly slots: Record<WeaponSlot, WeaponInstance | null> = { primary: null, primary2: null, secondary: null };
   /** Dev fallback (no `ctx.inventory`): reserve rounds per weapon uid. */
@@ -168,6 +179,12 @@ export class WeaponSystem implements GameSystem {
       (h, dmg, weaponId) => this.onProjectileHit(h, dmg, weaponId),
       (h) => this.remote.onVisualProjectileHit(h));
     this.remote = new RemoteWeapons(ctx, this.fx, this.grenades, this.projectiles);
+    this.melee = new MeleeController(ctx, this.fx);
+    // melee: anyone else emitting `melee:swing` gets resolved too (MeleeController guards against double resolution)
+    ctx.bus.on('melee:swing', () => {
+      if (!ctx.isGameplayPhase()) return;
+      this.melee.onBusSwing(this.getHost(), this.slots[this.active]?.def ?? null);
+    });
 
     // multiplayer replication (handlers no-op unless ctx.isMultiplayer && ctx.net)
     ctx.bus.on('net:remoteFired', (p) => this.remote.onFired(p.id, p.weaponId, p.origin, p.direction));
@@ -207,6 +224,14 @@ export class WeaponSystem implements GameSystem {
     ctx.bus.on('hub:entered', () => { this.dropQuick(); this.resetTransient(); this.loadoutWait = -1; });
     // Hellpod drop started → pre-compile every shader (hidden FX meshes included) before the first shot/throw.
     ctx.bus.on('game:phaseChanged', ({ phase }) => { if (phase === 'deploying') this.warmupFrames = 2; });
+    this.ensureNet();
+  }
+
+  /** Subscribe to relayed messages once `ctx.net` exists (NetSystem registers first, but stay defensive). */
+  private ensureNet(): void {
+    const net = this.ctx.net;
+    if (!net || this.netUnsub.length > 0) return;
+    this.netUnsub.push(net.onMessage('melee', (msg, from) => this.remote.onMelee(from, msg.p, msg.d, msg.hit)));
   }
 
   update(dt: number, ctx: GameContext): void {
@@ -217,16 +242,24 @@ export class WeaponSystem implements GameSystem {
     // one frame after the drop scene rendered: compile shaders for the pooled/hidden FX meshes (async when possible)
     if (this.warmupFrames > 0 && --this.warmupFrames === 0) this.fx.warmUp(ctx.renderer, ctx.scene, ctx.camera);
 
+    this.ensureNet();
     const host = this.getHost();
-    if (!host) return;
+    if (!host) { this.melee.cancel(); return; }
 
-    // ── holster outside gameplay (hub / docking / menu): model hidden, unarmed pose, neutral zoom
-    const holster = ctx.phase === 'hub' || ctx.phase === 'docking' || ctx.phase === 'menu';
+    // ── holster outside gameplay (hub / docking / menu) or while a wielded implant is in the hands (tactical kit):
+    //    model hidden, unarmed pose, neutral zoom. The implant case must NOT wipe grenades / projectiles.
+    const phaseHolster = ctx.phase === 'hub' || ctx.phase === 'docking' || ctx.phase === 'menu';
+    const implantHolster = !phaseHolster && ctx.implants?.blocksWeapons === true;
+    const holster = phaseHolster || implantHolster;
     if (holster !== this.holstered) {
       this.holstered = holster;
-      if (holster) { this.dropQuick(); this.flushAll(); this.resetTransient(); }
-      else this.attachActive(false);
+      if (holster) {
+        this.dropQuick();
+        if (phaseHolster) { this.flushAll(); this.resetTransient(); }
+        else { if (this.phase === 'reloading') this.cancelReload(); if (this.phase === 'swapping') { this.phase = 'ready'; this.active = this.swapTarget; } this.applyAimZoom(null); }
+      } else this.attachActive(false);
     }
+    this.implantHolstered = implantHolster;
 
     // fallback loadout if no inventory ever speaks
     if (this.loadoutWait > 0) {
@@ -243,9 +276,22 @@ export class WeaponSystem implements GameSystem {
     const input = ctx.input;
     // Phase 3: an armed / targeting ship call owns the mouse — guns neither fire nor swap until it is put away
     const callActive = !!ctx.stratagems && (ctx.stratagems.armed !== null || ctx.stratagems.targeting);
-    const usable = ctx.isGameplayActive() && input.isPointerLocked && host.canUseWeapons() && host.isDiving !== true && !callActive;
+    const armedAndFree = ctx.isGameplayActive() && input.isPointerLocked && host.canUseWeapons() && host.isDiving !== true && !callActive;
+    // a wielded implant (Q) holsters the weapon: no firing, no reload, no swap, no quick use
+    const usable = armedAndFree && !this.holstered;
     // the gun in hand (null while a consumable is held)
     const weapon = this.quick ? null : this.slots[this.active];
+
+    // ── melee (F, tactical kit). The player owns stamina / cooldown / animation; we only resolve the hit.
+    if (armedAndFree && !this.implantHolstered && !this.wheelOpen && !this.holding && input.wasPressed(KEY_MELEE)) {
+      if (this.melee.tryStart(host, weapon?.def ?? null)) {
+        if (this.phase === 'reloading') this.cancelReload();
+        this.firingTimer = FIRING_POSE_HOLD * 0.5;
+      }
+    }
+    this.melee.update(dt, host);
+    // ── H: stim straight into the hand (tactical kit key layout)
+    if (usable && !this.wheelOpen && input.wasPressed(Keys.STIM)) this.quickStim(host);
 
     if (this.cooldown > 0) this.cooldown -= dt;
     if (this.quickCooldown > 0) this.quickCooldown -= dt;
@@ -332,6 +378,8 @@ export class WeaponSystem implements GameSystem {
   }
 
   dispose(): void {
+    for (const u of this.netUnsub) u();
+    this.netUnsub.length = 0;
     for (const s of WEAPON_SLOTS) this.setSlot(s, null);
     this.remote.dispose(); this.fx.dispose(); this.grenades.dispose(); this.projectiles.dispose();
   }
@@ -666,7 +714,8 @@ export class WeaponSystem implements GameSystem {
     }
     this.phase = 'reloading';
     this.reloadTimer = 0;
-    this.reloadDuration = Math.max(0.2, w.stats.reloadTime);
+    // 사격 스킬 (tactical kit): reload gets faster with the class skill (`derived.reloadSpeedMul`)
+    this.reloadDuration = Math.max(0.2, w.stats.reloadTime / this.reloadSpeedFor(w.stats.weaponClass));
     this.boltTimer = 0; this.boltSoundTimer = 0;
     w.model.setBolt(-1);
     w.model.setReload(0);
@@ -726,8 +775,10 @@ export class WeaponSystem implements GameSystem {
     w.inst.ammoInMag = this.magOf(w) - 1;
     w.inst.durability = Math.max(0, this.durabilityOf(w) - WEAPON_DURABILITY_PER_SHOT);
     this.persist(w, { ammoInMag: w.inst.ammoInMag, durability: w.inst.durability });
-    this.cooldown += 1 / st.fireRate;
-    if (this.cooldown < 0) this.cooldown = 1 / st.fireRate;
+    // fire rate reacts to an overcharge beam (tactical kit, ×1.3)
+    const rate = this.effectiveFireRate(st);
+    this.cooldown += 1 / rate;
+    if (this.cooldown < 0) this.cooldown = 1 / rate;
     this.firingTimer = FIRING_POSE_HOLD;
 
     const cls = st.weaponClass;
@@ -740,7 +791,7 @@ export class WeaponSystem implements GameSystem {
     this.bloom = Math.min(1, this.bloom + BLOOM_PER_SHOT);
     // bolt-action: lock the trigger for the cycle and animate the bolt
     if (cls === 'SR') {
-      this.boltDuration = Math.max(0.3, 1 / st.fireRate - 0.05);
+      this.boltDuration = Math.max(0.3, 1 / rate - 0.05);
       this.boltTimer = this.boltDuration;
       this.boltSoundTimer = BOLT_SOUND_DELAY;
       w.model.setBolt(0);
@@ -798,9 +849,11 @@ export class WeaponSystem implements GameSystem {
     _right.set(1, 0, 0).applyQuaternion(_mq);
     if (kindOf(def) !== 'energy') this.fx.casing(_tmp, _right, host.position.y);
     w.model.kick(pellets > 1 ? 2.2 : cls === 'SR' ? 2.6 : 1);
-    const kick = st.recoilV * (0.85 + Math.random() * 0.3) * stanceMul;
+    // 사격 스킬 (tactical kit): recoil shrinks as the class skill rises (`derived.recoilMul`)
+    const recoilMul = this.recoilMulFor(cls);
+    const kick = st.recoilV * (0.85 + Math.random() * 0.3) * stanceMul * recoilMul;
     // horizontal: same ± random as before (items' recoilH = recoil × 0.7, the old constant)
-    host.addRecoil(kick, (Math.random() - 0.5) * st.recoilH * stanceMul);
+    host.addRecoil(kick, (Math.random() - 0.5) * st.recoilH * stanceMul * recoilMul);
     if (cls === 'SR') ctx.bus.emit('camera:shake', { intensity: 0.35, duration: 0.18 });
 
     ctx.bus.emit('weapon:fired', { weaponId: st.weaponId, origin: _muzzle.clone(), direction: _d.clone() });
@@ -830,6 +883,61 @@ export class WeaponSystem implements GameSystem {
       out.point.copy(ih.point); out.normal.copy(dir).negate(); out.distance = ih.distance; out.enemy = null; out.obstacle = false; out.obstacleRef = null; out.headshot = false; out.armored = false;
       out.intercept = ih.target; out.valid = true;
     }
+    // tactical kit: shields / solid deployables on the way (allied barriers ignore allied bullets — see Blocking.ts)
+    const bd = raycastBlockers(ctx, origin, dir, maxDist, _block, false);
+    if (bd >= 0 && (!out.valid || bd < out.distance)) {
+      out.point.copy(_block); out.normal.copy(dir).negate(); out.distance = bd;
+      out.enemy = null; out.headshot = false; out.armored = false; out.intercept = null; out.obstacleRef = null; out.obstacle = true; out.valid = true;
+    }
+  }
+
+  /* ───────────────── tactical kit: progression / implant modifiers (all optional, default 1) ───────────────── */
+  /** 사격 스킬 recoil multiplier for a class (1 when progression is not registered yet). */
+  private recoilMulFor(cls: WeaponClass): number {
+    const v = this.ctx.progression?.derived.recoilMul[cls];
+    return typeof v === 'number' && v > 0 ? v : 1;
+  }
+
+  /** 사격 스킬 reload speed multiplier for a class (>1 = faster). */
+  private reloadSpeedFor(cls: WeaponClass): number {
+    const v = this.ctx.progression?.derived.reloadSpeedMul[cls];
+    return typeof v === 'number' && v > 0 ? v : 1;
+  }
+
+  /** Fire rate after the overcharge implant bonus. */
+  private effectiveFireRate(st: EffectiveWeaponStats): number {
+    let rate = st.fireRate;
+    if (this.ctx.player?.isOvercharged) rate *= IMPLANT_OVERCHARGE_FIRERATE_MUL;
+    return Math.max(0.05, rate);
+  }
+
+  /** H: the first stim in a quick slot goes into the hand; pressed again with the stim in hand → inject. */
+  private quickStim(host: Host): void {
+    if (this.quick?.kind === 'stim') { if (this.quickCooldown <= 0 && this.quickHolsterT <= 0) this.useStim(host, this.quick); return; }
+    for (const i of QUICK_SLOT_UNLOCK_ORDER) {
+      const s = this.quickSlotItem(i);
+      if (s && s.def.category === 'stim') { this.equipQuick(i); return; }
+    }
+    this.deny();
+  }
+
+  /** LMB with a gadget in hand: `ctx.gadgets.use` consumes the item itself; RMB toggles over / under-hand. */
+  private useGadget(host: Host, q: QuickHand): void {
+    const gadgets = this.ctx.gadgets;
+    const id = q.def.gadgetId as GadgetId | undefined;
+    if (!gadgets || !id) { this.deny(); return; }
+    const inv = this.ctx.inventory;
+    this.quickBusy = true;
+    let ok = false;
+    try { ok = gadgets.use(id, this.gadgetUnderhand); } finally { this.quickBusy = false; }
+    if (!ok) { this.deny(); return; }
+    this.quickCooldown = QUICK_USE_COOLDOWN;
+    this.firingTimer = FIRING_POSE_HOLD * 0.5;
+    host.addRecoil(0.01, 0);
+    const cur = inv && typeof inv.getQuickSlots === 'function' ? inv.getQuickSlots()[q.index] : null;
+    const remaining = this.adoptSlot(cur) ? Math.max(0, cur!.qty) : 0;
+    this.ctx.bus.emit('quick:used', { index: q.index, item: q.item, remaining });
+    if (remaining <= 0) this.returnToGun();
   }
 
   /** Returns true if the hit killed an enemy. */
@@ -1058,8 +1166,15 @@ export class WeaponSystem implements GameSystem {
       return;
     }
     if (!inputFree || this.quickCooldown > 0 || this.quickHolsterT > 0) return;
+    if (q.kind === 'gadget' && input.wasMousePressed(MouseButtons.AIM)) {
+      this.gadgetUnderhand = !this.gadgetUnderhand;
+      this.ctx.bus.emit('gadget:throwModeChanged', { underhand: this.gadgetUnderhand });
+      this.ctx.bus.emit('audio:play', { id: 'ui_click', volume: 0.3 });
+      return;
+    }
     if (!input.wasMousePressed(MouseButtons.FIRE)) return;
     if (q.kind === 'stim') this.useStim(host, q);
+    else if (q.kind === 'gadget') this.useGadget(host, q);
     else this.beginHold();
   }
 
@@ -1193,6 +1308,7 @@ export class WeaponSystem implements GameSystem {
   }
 
   private resetTransient(): void {
+    this.melee.cancel();
     this.grenades.clear();
     this.projectiles.clear();
     this.fx.clear();
