@@ -14,6 +14,12 @@ npm run build
 npm run net:selftest   # server protocol self-test (44 checks, no browser)
 npm run e2e:mp         # two headless-Chrome clients through a running server+vite (pass the vite URL if not 5273)
 ```
+Windows 원클릭 실행 (프로젝트 루트, 더블클릭):
+```
+start-server.bat   # node 확인 → 필요시 npm install → npm run dev:all (릴레이 8787 + vite 5273). Ctrl+C 로 종료
+start-game.bat     # 5273 이 응답할 때까지 최대 30초 대기 후 기본 브라우저 새 탭으로 게임을 연다. 인자로 다른 URL 지정 가능
+```
+두 .bat 는 한국어 메시지를 위해 CP949(시스템 ANSI)로 저장한다 — UTF-8 + `chcp 65001` 조합은 cmd 가 goto/label 을 재탐색할 때 파싱이 깨진다.
 
 ## Stack & conventions
 - Three.js 0.185, TypeScript strict, ES modules, path alias `@/` → `src/`.
