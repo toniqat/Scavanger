@@ -1,7 +1,7 @@
 import type * as THREE from 'three';
 import type { Random } from './Random';
 import type { GameContext } from './GameContext';
-import type { CraftRecipe, CraftStation, DurabilityInfo, EquipSlot, QuickSlot, WeightInfo } from './gear';
+import type { ArmorDef, BackpackDef, CraftRecipe, CraftStation, DurabilityInfo, EquipSlot, QuickSlot, WeightInfo } from './gear';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Game phase / flow
@@ -93,6 +93,9 @@ export interface WeaponDef {
   adsZoom?: number;
   /** true → HUD shows a scope overlay while aiming with this weapon. */
   scope?: boolean;
+  /* appended: tactical kit */
+  /** Melee damage multiplier granted by this weapon's stock (undefined = MELEE_STOCK_MUL_DEFAULT). */
+  meleeMul?: number;
 }
 
 export interface ItemDef {
@@ -273,6 +276,11 @@ export interface LootRef {
   getWeaponDef(weaponId: string): WeaponDef | undefined;
   getAllItemDefs(): ItemDef[];
   createItem(defId: string, qty?: number): ItemInstance;
+  /* appended: tactical kit (owner: items) */
+  getArmorDef(armorId: string): ArmorDef | undefined;
+  getBackpackDef(backpackId: string): BackpackDef | undefined;
+  /** Every craft recipe in the game; inventory filters by station and skill. */
+  getAllRecipes(): readonly CraftRecipe[];
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
