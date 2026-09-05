@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { GRAVITY, GRENADE_FUSE as SHARED_GRENADE_FUSE, type GameContext } from '@/shared';
+import { GRAVITY, GRENADE_FUSE as SHARED_GRENADE_FUSE, type GameContext, type GrenadeView } from '@/shared';
 import type { WeaponFx } from './fx/WeaponFx';
 
 /** Alias of the shared contract value (3 s); kept for the barrel export. */
@@ -154,6 +154,22 @@ export class GrenadeManager {
     ctx.bus.emit('audio:play', { id: 'explosion', position: pos, volume: 1 });
     if (kills > 0) ctx.bus.emit('ui:hitmarker', { kill: true });
   }
+
+  /** Live grenades for the HUD's off-screen indicators (`ctx.weapons.getGrenades()`). Reuses one view object per pool body. */
+  getViews(): readonly GrenadeView[] {
+    this.viewList.length = 0;
+    for (let i = 0; i < this.pool.length; i++) {
+      const g = this.pool[i];
+      if (!g.active) continue;
+      let v = this.views[i];
+      if (!v) { v = { position: g.pos, fuse: 0, remote: false }; this.views[i] = v; }
+      v.fuse = g.fuse; v.remote = g.visualOnly;
+      this.viewList.push(v);
+    }
+    return this.viewList;
+  }
+  private readonly views: Array<{ position: THREE.Vector3; fuse: number; remote: boolean }> = [];
+  private readonly viewList: GrenadeView[] = [];
 
   clear(): void {
     for (const g of this.pool) { g.active = false; g.visualOnly = false; g.mesh.visible = false; g.led.emissiveIntensity = 0; g.blinkOn = false; }

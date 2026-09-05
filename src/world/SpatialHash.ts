@@ -39,6 +39,21 @@ export class SpatialHash {
     }
   }
 
+  /** Remove a previously inserted entry from every cell and from `all` (Phase 3 dynamic obstacles). */
+  remove(o: ObstacleEntry): void {
+    const i = this.all.indexOf(o);
+    if (i >= 0) this.all.splice(i, 1);
+    const s = this.cellSize;
+    const x0 = Math.floor((o.position.x - o.radius) / s), x1 = Math.floor((o.position.x + o.radius) / s);
+    const z0 = Math.floor((o.position.z - o.radius) / s), z1 = Math.floor((o.position.z + o.radius) / s);
+    for (let cx = x0; cx <= x1; cx++) for (let cz = z0; cz <= z1; cz++) {
+      const arr = this.cells.get(this.key(cx, cz));
+      if (!arr) continue;
+      const j = arr.indexOf(o);
+      if (j >= 0) arr.splice(j, 1);
+    }
+  }
+
   add(position: THREE.Vector3, radius: number, height: number, kind: string): ObstacleEntry {
     const e: ObstacleEntry = { position, radius, height, stamp: 0, kind };
     this.insert(e);

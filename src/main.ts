@@ -8,6 +8,7 @@ import { WeaponSystem } from '@/weapons/WeaponSystem';
 import { EnemySystem } from '@/enemies/EnemySystem';
 import { InventorySystem } from '@/inventory/InventorySystem';
 import { PickupSystem } from '@/pickups/PickupSystem';
+import { StratagemSystem } from '@/stratagems/StratagemSystem';
 import { ExtractionSystem } from '@/extraction/ExtractionSystem';
 import { HudSystem } from '@/ui/HudSystem';
 import { AudioSystem } from '@/audio/AudioSystem';
@@ -29,6 +30,7 @@ engine.addSystem(new WeaponSystem());
 engine.addSystem(new EnemySystem());
 engine.addSystem(new InventorySystem());
 engine.addSystem(new PickupSystem());     // world pickups (dropped items), after inventory
+engine.addSystem(new StratagemSystem());  // ship calls (Phase 3): after weapons/enemies/inventory, before extraction
 engine.addSystem(new ExtractionSystem());
 engine.addSystem(new HudSystem());
 engine.addSystem(new AudioSystem());

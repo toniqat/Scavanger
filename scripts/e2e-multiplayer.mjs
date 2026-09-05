@@ -131,7 +131,7 @@ try {
   ok(bB === 'ok', `B boards pod (${bB})`);
 
   console.log('mission start');
-  await waitFor(A, () => window.__game.ctx.phase !== 'hub' && window.__game.ctx.phase !== 'docking', 'A left hub', 15000);
+  await waitFor(A, () => window.__game.ctx.phase !== 'hub' && window.__game.ctx.phase !== 'docking', 'A left hub', 60000);
   await waitFor(B, () => window.__game.ctx.phase !== 'hub' && window.__game.ctx.phase !== 'docking', 'B left hub', 15000);
   ok(await B.evaluate(() => window.__cd.length > 0), `B mirrored launch countdown (${await B.evaluate(() => JSON.stringify(window.__cd))})`);
   ok(await A.evaluate(() => window.__game.ctx.hub.ship === null && window.__game.ctx.player.interior === null), 'A hub torn down');

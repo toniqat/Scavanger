@@ -297,6 +297,14 @@ export class WorldSystem implements GameSystem, WorldRef {
 
   getObstacles(): readonly Obstacle[] { return this.hash.getAll(); }
 
+  /** Phase 3: runtime obstacle (dropped cover / supply crate). Lives in the same hash as the props; `clear()` drops it with the world. */
+  addObstacle(obstacle: Obstacle): () => void {
+    const entry = { position: obstacle.position, radius: obstacle.radius, height: obstacle.height, stamp: 0, kind: 'dynamic', destructible: obstacle.destructible } as Obstacle & { stamp: number; kind: string };
+    this.hash.insert(entry);
+    let removed = false;
+    return () => { if (removed) return; removed = true; this.hash.remove(entry); };
+  }
+
   getObstaclesNear(x: number, z: number, radius: number): Obstacle[] {
     return this.hash.query(x, z, radius, []);
   }

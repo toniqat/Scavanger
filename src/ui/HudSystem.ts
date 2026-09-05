@@ -19,6 +19,11 @@ import { SpectateOverlay } from './hud/SpectateOverlay';
 import { ChatLog } from './hud/ChatLog';
 import { QuickWheel } from './hud/QuickWheel';
 import { CookGauge } from './hud/CookGauge';
+import { StratagemWheel } from './hud/StratagemWheel';
+import { StratagemPanel } from './hud/StratagemPanel';
+import { ChargeGauge } from './hud/ChargeGauge';
+import { TargetingHud } from './hud/TargetingHud';
+import { OffscreenIndicators } from './hud/OffscreenIndicators';
 import { MapScreen } from './map/MapScreen';
 import { TitleMenu } from './menus/TitleMenu';
 import { PauseMenu } from './menus/PauseMenu';
@@ -36,6 +41,9 @@ import { MissionComplete } from './menus/MissionComplete';
  * Multiplayer: a dead local player keeps the HUD in a `.spectating` state (hides reticle, vitals, weapon, prompt);
  * `SpectateOverlay` carries the respawn countdown there.
  * Phase 2 additions in the gameplay layer: `QuickWheel` (F held) and `CookGauge` (grenade in hand).
+ * Phase 3 (ship calls): `StratagemWheel` (G held), `StratagemPanel` (armed call / shared cooldown), `ChargeGauge` (LMB charge
+ * ring), `TargetingHud` (toggles `.hud.targeting` on the gameplay root, which hides the reticle) and `OffscreenIndicators`
+ * (edge arrows for grenades / squad pings / incoming calls).
  */
 export class HudSystem implements GameSystem {
   readonly name = 'hud';
@@ -56,6 +64,11 @@ export class HudSystem implements GameSystem {
   private chat!: ChatLog;
   private wheel!: QuickWheel;
   private cook!: CookGauge;
+  private swheel!: StratagemWheel;
+  private strat!: StratagemPanel;
+  private charge!: ChargeGauge;
+  private targeting!: TargetingHud;
+  private offscreen!: OffscreenIndicators;
   private objective!: Objective;
   private prompt!: InteractionPrompt;
   private notifs!: Notifications;
@@ -86,11 +99,16 @@ export class HudSystem implements GameSystem {
     this.hudRoot = el('div', { cls: 'hud gameplay', parent: ctx.uiRoot });
     this.markers = new WorldMarkers(this.hudRoot);
     this.pings = new Pings(this.hudRoot);
+    this.offscreen = new OffscreenIndicators(this.hudRoot);
     this.reticle = new Reticle(this.hudRoot);
     this.cook = new CookGauge(this.hudRoot);
+    this.charge = new ChargeGauge(this.hudRoot);
+    this.targeting = new TargetingHud(this.hudRoot, (active) => toggleClass(this.hudRoot, 'targeting', active));
     this.wheel = new QuickWheel(this.hudRoot);
+    this.swheel = new StratagemWheel(this.hudRoot);
     this.vitals = new Vitals(this.hudRoot);
     this.weapon = new WeaponPanel(this.hudRoot);
+    this.strat = new StratagemPanel(this.hudRoot);
     this.compass = new Compass(this.hudRoot);
     this.objective = new Objective(this.hudRoot);
     this.missionInfo = new MissionInfo(this.hudRoot);
@@ -112,7 +130,7 @@ export class HudSystem implements GameSystem {
     this.death = new DeathScreen(ctx.uiRoot);
     this.complete = new MissionComplete(ctx.uiRoot);
 
-    for (const c of [this.reticle, this.cook, this.wheel, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.chat, this.map]) c.bind(ctx);
+    for (const c of [this.reticle, this.cook, this.wheel, this.swheel, this.strat, this.charge, this.targeting, this.offscreen, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.chat, this.map]) c.bind(ctx);
     for (const m of [this.title, this.pause, this.death, this.complete]) m.bind(ctx);
 
     const b = ctx.bus;
@@ -150,6 +168,8 @@ export class HudSystem implements GameSystem {
       this.reticle.update(dt, ctx);
       this.vitals.update(dt, ctx);
       this.weapon.update(dt);
+      this.strat.update(ctx);
+      this.targeting.update(ctx);
       this.compass.update(ctx);
       this.missionInfo.update(ctx);
       this.pings.update(dt, ctx);
@@ -168,6 +188,7 @@ export class HudSystem implements GameSystem {
     if (this.hudVisible) {
       this.markers.lateUpdate(ctx);
       this.pings.lateUpdate(ctx);
+      this.offscreen.lateUpdate(ctx);
     }
     if (this.socialVisible) this.nameplates.lateUpdate(ctx);
   }
@@ -180,6 +201,12 @@ export class HudSystem implements GameSystem {
   get isWheelOpen(): boolean { return this.wheel.isOpen; }
   /** Whether the weapon panel is in consumable mode (debug). */
   get isConsumableMode(): boolean { return this.weapon.isConsumable; }
+  /** Whether the ship-call wheel is showing (debug). */
+  get isStratagemWheelOpen(): boolean { return this.swheel.isOpen; }
+  /** Whether the targeting frame is up (debug). */
+  get isTargeting(): boolean { return this.targeting.isActive; }
+  /** Edge arrows currently visible (debug). */
+  get offscreenCount(): number { return this.offscreen.visibleCount; }
 
   private applyVisibility(): void {
     const ctx = this.ctx;
@@ -217,7 +244,7 @@ export class HudSystem implements GameSystem {
 
   dispose(): void {
     for (const u of this.unsubs) u();
-    for (const c of [this.reticle, this.cook, this.wheel, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.chat, this.missionInfo, this.deploy, this.map]) c.dispose();
+    for (const c of [this.reticle, this.cook, this.wheel, this.swheel, this.strat, this.charge, this.targeting, this.offscreen, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.chat, this.missionInfo, this.deploy, this.map]) c.dispose();
     for (const m of [this.title, this.pause, this.death, this.complete]) m.dispose();
     this.hudRoot.remove(); this.socialRoot.remove(); this.overlayRoot.remove();
   }

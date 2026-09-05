@@ -70,7 +70,7 @@ type Gesture = 'plain' | 'attack' | 'caution' | 'ammo';
  *   occlusion — else parks at the last seen position, dimmed, `적 (마지막 위치)`), pickup ≤ 2 m → `item`,
  *   crate ≤ 2.5 m → `crate`, pad ≤ 8 m → `extraction`, else `ground`.
  * Each ping = projected DOM marker + scene beacon. Max 3 local pings, expire after PING_LIFETIME.
- * Emits `ping:placed` / `ping:removed` (local **and** remote). Item/crate/attack/caution pings also post a chat line.
+ * Emits `ping:placed` + `ping:placedV2 {owner}` / `ping:removed` (local **and** remote). Item/crate/attack/caution pings also post a chat line.
  * Multiplayer: local pings go out as `PingMessage {p, kind, label, enemyId}`; incoming pings are read through
  * `ctx.net.onMessage('ping')` (falls back to `net:remotePing` when no net module exists).
  */
@@ -373,6 +373,7 @@ export class Pings {
     const ping = this.build(id, kind, pos, expires, enemy, null, label);
     this.pings.push(ping);
     ctx.bus.emit('ping:placed', { id, position: ping.position, kind, expires });
+    ctx.bus.emit('ping:placedV2', { id, position: ping.position, kind, expires, owner: null });
 
     // chat line for callouts
     const player = ctx.player;
@@ -435,6 +436,7 @@ export class Pings {
     const ping = this.build(id, kind, pos, expires, enemy, owner, label && label.length ? label : PING_LABEL[kind]);
     this.pings.push(ping);
     ctx.bus.emit('ping:placed', { id, position: ping.position, kind, expires });
+    ctx.bus.emit('ping:placedV2', { id, position: ping.position, kind, expires, owner: owner.id });
   }
 
   private build(id: number, kind: PingKind, pos: THREE.Vector3, expires: number, enemy: EnemyRef | null, owner: PingOwner | null, label: string): Ping {

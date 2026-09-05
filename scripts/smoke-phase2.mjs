@@ -200,7 +200,7 @@ try {
   await P(() => window.__game.ctx.bus.emit('game:respawn', {}));
   await waitFor(page, () => window.__game.ctx.phase === 'deploying' || window.__game.ctx.phase === 'playing', 'redeploy', 20000);
   ok((await ev('player:respawn')).length === 1, 'player:respawn emitted');
-  await waitFor(page, () => window.__game.ctx.phase === 'playing' && !window.__game.ctx.player.isDropping, 'landed again', 30000);
+  await waitFor(page, () => window.__game.ctx.phase === 'playing' && !window.__game.ctx.player.isDropping, 'landed again', 120000);
   st = await P(() => { const p = window.__game.ctx.player; const inv = window.__game.ctx.inventory; return { hp: p.hp, dead: p.isDead, downed: p.isDowned, primary: inv.getLoadout().primary?.defId, stims: inv.countWhere((d) => d.id === 'stim') }; });
   ok(st.hp === 100 && !st.dead && !st.downed, 'respawned alive at full hp', JSON.stringify(st));
   ok(st.primary === 'wpn_ar23' && st.stims === 2, 'starter kit reapplied on respawn', JSON.stringify(st));

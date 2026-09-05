@@ -959,3 +959,155 @@ input { font: inherit; color: inherit; }
 
 /* dead-but-spectating: no wheel / cook gauge either */
 .hud.spectating .qwheel, .hud.spectating .cook { opacity: 0 !important; visibility: hidden; }
+
+/* ── Phase 3: ship calls (stratagem wheel / panel / charge ring / targeting frame) · off-screen indicators ── */
+
+/* Ship-call wheel (G held): 4 sectors N/E/S/W, never intercepts the pointer */
+.swheel {
+  position: absolute; left: 50%; top: 50%;
+  width: 280px; height: 280px; margin: -140px 0 0 -140px;
+  pointer-events: none;
+  opacity: 0; transform: scale(0.92);
+  transition: opacity 100ms var(--ease), transform 100ms var(--ease);
+}
+.swheel.show { opacity: 1; transform: scale(1); }
+.swheel .ring { position: absolute; inset: 0; width: 100%; height: 100%; }
+.swheel .sarc { fill: rgba(10, 12, 14, 0.62); stroke: var(--c-border); stroke-width: 1; transition: fill var(--t-fast) var(--ease), stroke var(--t-fast) var(--ease); }
+.swheel .sarc.hover { fill: rgba(255, 179, 71, 0.22); stroke: var(--c-accent); }
+.swheel.cooling .sarc { fill: rgba(10, 12, 14, 0.4); stroke: rgba(255, 255, 255, 0.08); }
+.swheel.cooling .sarc.hover { fill: rgba(255, 255, 255, 0.06); stroke: var(--c-border-strong); }
+.swheel .items { position: absolute; inset: 0; }
+.ssector {
+  position: absolute; width: 74px; height: 56px; margin: -28px 0 0 -37px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+  transition: opacity var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
+}
+.ssector .ico { font-size: 20px; line-height: 1; color: var(--sc); filter: drop-shadow(0 0 4px rgba(0, 0, 0, 0.8)); }
+.ssector .nm { font-size: 10px; letter-spacing: 0.06em; font-weight: 600; white-space: nowrap; color: var(--c-text); }
+.ssector .cd { font-size: 9px; color: var(--c-text-faint); }
+.ssector.hover { transform: scale(1.1); }
+.ssector.hover .nm { color: var(--c-accent); }
+.swheel.cooling .ssector { opacity: 0.4; }
+.swheel.cooling .ssector .cd { color: var(--c-accent); }
+.swheel .centre {
+  position: absolute; left: 50%; top: 50%; width: 116px; margin-left: -58px; transform: translateY(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 3px; text-align: center;
+}
+.swheel .centre .ui-label { font-size: 8px; letter-spacing: 0.22em; }
+.swheel .sname { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; line-height: 1.25; color: var(--c-text); min-height: 14px; }
+.swheel .sname.dim { color: var(--c-text-dim); font-weight: 500; }
+.swheel .scd { display: none; font-size: 12px; font-weight: 700; color: var(--c-accent); letter-spacing: 0.06em; }
+.swheel.cooling .scd { display: block; }
+.swheel .ssub { font-size: 8px; letter-spacing: 0.08em; color: var(--c-text-faint); line-height: 1.3; }
+
+/* Ship-call panel: above the weapon panel, bottom-right */
+.strat-panel {
+  position: absolute; right: 32px; bottom: 176px;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 3px;
+  min-width: 150px; max-width: 260px;
+  opacity: 0.8; transition: opacity var(--t-fast) var(--ease);
+}
+.strat-panel.off { display: none; }
+.strat-panel.armed { opacity: 1; }
+.strat-panel .row { display: flex; align-items: center; gap: 7px; }
+.strat-panel .keycap.g { font-size: 9px; min-width: 16px; height: 16px; padding: 0 4px; color: var(--c-text-dim); }
+.strat-panel .keycap.g.lit { color: var(--c-accent); border-color: var(--c-accent); }
+.strat-panel .ico { display: none; font-size: 15px; line-height: 1; }
+.strat-panel.armed .ico { display: inline-block; }
+.strat-panel .nm { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 600; color: var(--c-text-dim); }
+.strat-panel.armed .nm { color: var(--c-text); }
+.strat-panel.cooling .nm { color: var(--c-accent); font-family: var(--ui-mono); text-transform: none; letter-spacing: 0.04em; }
+.strat-panel .hint { display: none; font-size: 9px; color: var(--c-text-dim); letter-spacing: 0.04em; white-space: nowrap; }
+.strat-panel.armed .hint { display: block; }
+.strat-panel .ctrl { font-size: 9px; letter-spacing: 0.12em; color: var(--c-text-faint); white-space: nowrap; }
+.strat-panel.armed .ctrl { color: var(--c-accent); border: 1px solid rgba(255, 179, 71, 0.5); padding: 2px 6px; }
+.strat-panel.targeting .ctrl { color: var(--c-text); border-color: var(--c-border-strong); }
+.strat-panel .ctrl:empty { display: none; }
+.strat-panel .cd-bar { width: 100%; height: 2px; background: rgba(255, 255, 255, 0.12); overflow: hidden; margin-top: 2px; }
+.strat-panel .cd-bar .fill { width: 100%; height: 100%; background: var(--c-text-dim); transform-origin: left; transform: scaleX(1); will-change: transform; }
+.strat-panel.cooling .cd-bar .fill { background: var(--c-accent); }
+.strat-panel.armed .cd-bar { opacity: 0.4; }
+
+/* Charge ring around the reticle (LMB held on an orbital call) */
+.charge {
+  position: absolute; left: 50%; top: 50%;
+  width: 120px; height: 120px; margin: -60px 0 0 -60px;
+  pointer-events: none;
+  opacity: 0; transition: opacity 80ms var(--ease);
+}
+.charge.show { opacity: 1; }
+.charge svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+.charge circle { fill: none; stroke-width: 3; stroke-linecap: butt; }
+.charge .track { stroke: rgba(255, 255, 255, 0.14); }
+.charge .fill { stroke: var(--c-accent); transition: stroke var(--t-fast) var(--ease); }
+.charge.ready .fill { stroke: var(--c-danger); animation: cookPulse 260ms ease-in-out infinite alternate; }
+.charge .lbl {
+  position: absolute; left: 50%; top: 100%; transform: translate(-50%, 4px);
+  font-size: 11px; letter-spacing: 0.08em; color: var(--c-accent); white-space: nowrap;
+}
+.charge.ready .lbl { color: var(--c-danger); font-weight: 600; }
+
+/* Targeting frame (top view / ground ring): hides the reticle */
+.hud.targeting .reticle { opacity: 0 !important; }
+.targeting-hud {
+  position: absolute; inset: 0; pointer-events: none;
+  opacity: 0; transition: opacity 120ms var(--ease);
+  --sc: var(--c-accent);
+}
+.targeting-hud.show { opacity: 1; }
+.targeting-hud .frame { position: absolute; left: 50%; top: 50%; width: 72px; height: 72px; margin: -36px 0 0 -36px; }
+.targeting-hud.topview .frame { width: 120px; height: 120px; margin: -60px 0 0 -60px; }
+.targeting-hud .corner { position: absolute; width: 14px; height: 14px; border: 1.5px solid var(--sc); filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.8)); }
+.targeting-hud .corner.tl { left: 0; top: 0; border-right: none; border-bottom: none; }
+.targeting-hud .corner.tr { right: 0; top: 0; border-left: none; border-bottom: none; }
+.targeting-hud .corner.bl { left: 0; bottom: 0; border-right: none; border-top: none; }
+.targeting-hud .corner.br { right: 0; bottom: 0; border-left: none; border-top: none; }
+.targeting-hud .head {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -84px);
+  display: flex; align-items: center; gap: 8px; white-space: nowrap;
+  font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 600; color: var(--c-text);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+.targeting-hud.topview .head { transform: translate(-50%, -108px); }
+.targeting-hud .head .ico { font-size: 16px; line-height: 1; color: var(--sc); }
+.targeting-hud .dist {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, 52px);
+  font-size: 13px; letter-spacing: 0.1em; color: var(--sc); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+.targeting-hud.topview .dist { transform: translate(-50%, 76px); }
+.targeting-hud .dist:empty { display: none; }
+.targeting-hud .hint {
+  position: absolute; left: 50%; bottom: 120px; transform: translateX(-50%);
+  font-size: 10px; letter-spacing: 0.16em; color: var(--c-text-dim);
+  border: 1px solid var(--c-border); background: var(--c-panel); padding: 4px 10px; white-space: nowrap;
+}
+.hud.spectating .swheel, .hud.spectating .strat-panel, .hud.spectating .charge, .hud.spectating .targeting-hud { opacity: 0 !important; visibility: hidden; }
+
+/* Off-screen indicators: pooled edge arrows */
+.offscr { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.oarrow {
+  position: absolute; left: 0; top: 0;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  --oc: var(--c-accent); --rot: 0deg;
+  opacity: 0; will-change: transform, opacity;
+  transition: opacity 120ms var(--ease);
+}
+.oarrow .tip {
+  display: block; width: 0; height: 0;
+  border-left: 6px solid transparent; border-right: 6px solid transparent; border-bottom: 11px solid var(--oc);
+  transform: rotate(calc(var(--rot) + 90deg)) translateY(-16px);
+  filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.8));
+}
+.oarrow .body {
+  display: flex; align-items: center; gap: 4px; padding: 1px 6px;
+  background: var(--c-panel); border: 1px solid var(--c-border);
+  border-left: 2px solid var(--oc);
+}
+.oarrow .ico { font-size: 11px; line-height: 1; color: var(--oc); }
+.oarrow .lbl { font-size: 9px; letter-spacing: 0.08em; color: var(--c-text); white-space: nowrap; }
+.oarrow .lbl:empty { display: none; }
+.oarrow.grenade .ico { font-size: 9px; }
+.oarrow.grenade.hot .tip, .oarrow.grenade.hot .ico { animation: cookPulse 200ms ease-in-out infinite alternate; }
+.oarrow.ping .lbl { color: var(--c-text-dim); }
+.oarrow.call .body { border-color: var(--c-border-strong); }
+.oarrow.call.orbital_laser .tip, .oarrow.call.airstrike .tip { animation: cookPulse 320ms ease-in-out infinite alternate; }

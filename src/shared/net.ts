@@ -1,5 +1,5 @@
 import type * as THREE from 'three';
-import type { ChatKind, EnemyType, GamePhase, PingKind, Stance, ItemInstanceExtras } from './types';
+import type { ChatKind, EnemyType, GamePhase, PingKind, Stance, ItemInstanceExtras, StratagemId } from './types';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Multiplayer contract (owner: net/NetSystem publishes `ctx.net`).
@@ -182,6 +182,15 @@ export interface ReloadMessage { t: 'reload'; w: string }
 export interface GrenadeMessage { t: 'grenade'; p: Vec3Tuple; v: Vec3Tuple; fuse?: number }
 /* appended (Phase 2): reviver → downed player. `progress` at ≤ 4 Hz while holding, `cancel` on release, `done` when the hold completed. */
 export interface ReviveMessage { t: 'revive'; ev: 'progress' | 'cancel' | 'done'; target: PeerId; p?: number }
+/*
+ * appended (Phase 3): ship calls. `call` (caller → others): a confirmed call; `eta` = seconds until the effect from the
+ * receiver's point of view. Every client simulates the effect locally (visuals, own-player damage, structures with the
+ * same `seed`); enemy damage goes through the caller's `applyExplosion` (replicas forward `explode` to the host).
+ * `structHp` (any → others): a structure of `callId` at `index` changed hp (0 = destroyed) so cover stays in sync.
+ */
+export type StratagemMessage =
+  | { t: 'strat'; ev: 'call'; callId: string; kind: StratagemId; p: Vec3Tuple; eta: number; seed: number }
+  | { t: 'strat'; ev: 'structHp'; callId: string; index: number; hp: number };
 /** Client → host: my local raycast hit enemy `id` for `dmg` (pre-multiplier) at point `p` travelling `d`. Owner: enemies (replica Enemy.takeDamage). */
 export interface HitRequest { t: 'hit'; id: number; dmg: number; p: Vec3Tuple; d: Vec3Tuple }
 /** Client → host: explosion at `p` radius `r` damage `dmg` (grenade). Owner: enemies (replica applyExplosion). */
@@ -309,7 +318,8 @@ export type GameMessage =
   | ChatMessage
   | ItemMessage
   | ItemRequest
-  | ReviveMessage;
+  | ReviveMessage
+  | StratagemMessage;
   /* append new message types above this line (keep `t` unique; prefix by owning folder if in doubt) */
 
 export type GameMessageType = GameMessage['t'];

@@ -42,6 +42,8 @@ export const Keys = {
   /* appended (Phase 2): F = quick use (tap: last item in hand, hold: wheel). STIM is kept as an alias of the same key.
      G is reserved for the Phase 3 ship-call wheel (grenades are thrown from the hand now). Space respawns when allowed / gives up while downed (hold). */
   QUICK: 'KeyF', RESPAWN: 'Space', GIVE_UP: 'Space',
+  /* appended (Phase 3): G = ship-call wheel (same key as the legacy GRENADE binding). */
+  SHIP_CALL: 'KeyG',
 } as const;
 
 /** Mouse buttons (MouseEvent.button). */
@@ -140,3 +142,59 @@ export const GRENADE_FUSE = 3;
 export const GRENADE_COOK_MAX = 3;
 /** Underhand toss speed multiplier. */
 export const GRENADE_UNDERHAND_SPEED_MUL = 0.45;
+
+/* ── appended: Phase 3 — ship calls / stratagems ── */
+import type { StratagemId } from './types';
+export interface StratagemDef {
+  id: StratagemId;
+  name: string;
+  /** Shared cooldown this call starts (s). */
+  cooldown: number;
+  /** Seconds between confirmation and the effect. */
+  delay: number;
+  /** `topview`: LMB charge → top-down camera cursor. `ground`: aim-ray ring from the current view. */
+  targeting: 'topview' | 'ground';
+  /** Effect radius shown by the targeting ring (m). */
+  radius: number;
+  /** Short HUD description. */
+  hint: string;
+}
+export const STRATAGEM_DEFS: readonly StratagemDef[] = [
+  { id: 'orbital_laser', name: '궤도 폭격', cooldown: 90, delay: 5, targeting: 'topview', radius: 4, hint: '10초간 레이저 — 피아 무구분' },
+  { id: 'airstrike', name: '항공 폭탄', cooldown: 90, delay: 5, targeting: 'topview', radius: 14, hint: '대형 폭발 — 피아 무구분' },
+  { id: 'supply_drop', name: '보급품 투하', cooldown: 60, delay: 3, targeting: 'ground', radius: 2.5, hint: '소모품 상자 — 낙하 충돌 피해' },
+  { id: 'structure_drop', name: '구조물 투하', cooldown: 60, delay: 3, targeting: 'ground', radius: 7, hint: '엄폐물 5개 — 낙하 충돌 피해' },
+];
+export const STRATAGEM_ORDER: readonly StratagemId[] = ['orbital_laser', 'airstrike', 'supply_drop', 'structure_drop'];
+/** G held longer than this opens the wheel; a tap re-arms the last call. */
+export const STRATAGEM_WHEEL_HOLD = 0.22;
+/** LMB hold (s) before an orbital call switches to the top view. */
+export const STRATAGEM_CHARGE_TIME = 3;
+/** Top view: camera height above the player (m) and max cursor distance from the player (m). */
+export const TOPVIEW_HEIGHT = 90;
+export const TOPVIEW_RANGE = 120;
+/** Pointer-locked mouse pixels → metres of cursor travel in the top view. */
+export const TOPVIEW_CURSOR_SPEED = 0.12;
+/** Ground targeting (drops): max distance of the aim-ray hit from the player (m). */
+export const GROUND_TARGET_RANGE = 60;
+/** Orbital laser: beam duration (s), damage radius (m), damage per second. */
+export const LASER_DURATION = 10;
+export const LASER_RADIUS = 4;
+export const LASER_DPS = 240;
+/** Airstrike: explosion radius (m) and damage at the centre (linear falloff). */
+export const AIRSTRIKE_RADIUS = 14;
+export const AIRSTRIKE_DAMAGE = 480;
+/** Supply crate: fall time (s), impact damage radius (m) / damage, loot tier (see items LOOT_TABLES), lifetime after landing (s). */
+export const SUPPLY_FALL_TIME = 2.2;
+export const SUPPLY_IMPACT_RADIUS = 2.5;
+export const SUPPLY_IMPACT_DAMAGE = 400;
+export const SUPPLY_CRATE_TIER = 5;
+/** Structures: count, hp, scatter radius around the target (m), impact damage radius / damage, fall time (s). */
+export const STRUCTURE_COUNT = 5;
+export const STRUCTURE_HP = 2000;
+export const STRUCTURE_SCATTER = 7;
+export const STRUCTURE_IMPACT_RADIUS = 2.2;
+export const STRUCTURE_IMPACT_DAMAGE = 800;
+export const STRUCTURE_FALL_TIME = 2.0;
+/** Off-screen indicators: squadmate pings show an edge arrow for this many seconds after placement. */
+export const OFFSCREEN_PING_SECONDS = 5;

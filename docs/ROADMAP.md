@@ -71,7 +71,8 @@
 - 우클릭 = 오버/언더쓰로 토글(언더쓰로: 낮은 속도, 짧은 거리).
 - 멀티: `grenade` 메시지에 `fuse` 잔여 시간 필드 추가.
 
-## Phase 3 — 함선 호출(스트라타젬) · 화면 밖 인디케이터 ☐
+## Phase 3 — 함선 호출(스트라타젬) · 화면 밖 인디케이터 ☑ (2026-09-06)
+구현 메모: 신규 `src/stratagems/`(시스템 + 절차적 비주얼), `WorldRef.addObstacle` + `Obstacle.destructible`(구조물 체력 2000, 총알/수류탄 피해), 보급 상자 = 아이템 루팅 티어 5, 멀티는 `strat call`(seed 로 동일 배치) + `structHp` 동기화, 적 피해는 호출자 클라이언트의 `applyExplosion` 경유. 검증: `smoke-phase3.mjs`, `smoke-stratagems.mjs` 51/51.
 소유 폴더: 신규 `src/stratagems/` (호출 상태기계, 궤도 레이저/항공 폭탄/보급/구조물 오브젝트, 톱뷰 타겟팅), `ui` (휠, 쿨다운, 오프스크린 인디케이터), `enemies` (구조물 충돌 피해, 레이저 피해), `world` (구조물 콜라이더 등록), `net` (`strat` 메시지, 호스트 판정).
 
 - G 홀드 → 함선 호출 휠. 모든 호출은 **공유 쿨타임**.

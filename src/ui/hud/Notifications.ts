@@ -1,5 +1,6 @@
 import type { GameContext } from '@/shared';
 import { el, escapeHtml, rarityColor } from '../dom';
+import { stratagemDef } from './stratagemGlyphs';
 
 type Kind = 'info' | 'warning' | 'danger' | 'success';
 const MAX_VISIBLE = 6;
@@ -13,6 +14,8 @@ export class Notifications {
   private unsubs: Array<() => void> = [];
   private live: HTMLElement[] = [];
   private lastCountdown = -1;
+  private lastStructureToast = -Infinity;
+  private cooldownWasRunning = false;
 
   constructor(parent: HTMLElement) {
     this.root = el('div', { cls: 'notifs', parent });
@@ -68,8 +71,29 @@ export class Notifications {
         this.push(`발사 <b>${s}</b>초 전`, 'warning', '발사', 1.1);
       }),
       b.on('hub:entered', () => { this.lastCountdown = -1; }),
-      b.on('game:abort', () => this.clear()),
-      b.on('game:newMission', () => { this.clear(); this.lastCountdown = -1; }),
+      // ship calls (Phase 3)
+      b.on('stratagem:called', ({ kind, caller }) => {
+        if (caller === null) return; // own calls: the panel / targeting HUD already say it
+        const name = ctx.net?.getLobbyPlayer(caller)?.name ?? ctx.net?.getRemotePlayer(caller)?.name ?? '분대원';
+        this.push(`<b>${escapeHtml(name)}</b> 함선 호출: <b>${escapeHtml(stratagemDef(kind)?.name ?? kind)}</b>`, 'warning', '호출', 4);
+      }),
+      b.on('stratagem:landed', ({ kind }) => {
+        if (kind === 'orbital_laser' || kind === 'airstrike') this.push(`착탄 — <b>${escapeHtml(stratagemDef(kind)?.name ?? kind)}</b>`, 'danger', '호출', 3);
+      }),
+      b.on('structure:destroyed', () => {
+        const now = performance.now();
+        if (now - this.lastStructureToast < 1000) return;
+        this.lastStructureToast = now;
+        this.push('엄폐물 파괴', 'warning', '구조물', 2.5);
+      }),
+      b.on('stratagem:cooldown', ({ remaining }) => {
+        if (remaining > 0) { this.cooldownWasRunning = true; return; }
+        if (!this.cooldownWasRunning) return;
+        this.cooldownWasRunning = false;
+        this.push('함선 호출 준비 완료', 'success', '호출', 3);
+      }),
+      b.on('game:abort', () => { this.clear(); this.cooldownWasRunning = false; }),
+      b.on('game:newMission', () => { this.clear(); this.lastCountdown = -1; this.cooldownWasRunning = false; }),
     );
   }
 

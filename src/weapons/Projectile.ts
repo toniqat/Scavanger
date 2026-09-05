@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { GRAVITY, type GameContext, type EnemyRef } from '@/shared';
+import { GRAVITY, type GameContext, type EnemyRef, type Obstacle } from '@/shared';
 import { FxManager } from '@/core/fx';
 
 export interface ProjectileHit {
@@ -8,6 +8,8 @@ export interface ProjectileHit {
   enemy: EnemyRef | null;
   part?: 'head' | 'body' | 'rear' | 'front';
   obstacle: boolean;
+  /** The obstacle that was hit (Phase 3: destructible cover), if any. */
+  obstacleRef?: Obstacle | null;
   dir: THREE.Vector3;
   /** Distance travelled from the muzzle to the hit point (meters) — for damage falloff. */
   distance: number;
@@ -89,11 +91,11 @@ export class ProjectilePool {
         let hitAny = false;
         const h = this.hit;
         if (eh && (!wh || eh.distance <= wh.distance)) {
-          h.point.copy(eh.point); h.normal.copy(eh.normal); h.enemy = eh.enemy; h.part = eh.part; h.obstacle = false; hitAny = true;
+          h.point.copy(eh.point); h.normal.copy(eh.normal); h.enemy = eh.enemy; h.part = eh.part; h.obstacle = false; h.obstacleRef = null; hitAny = true;
         } else if (wh) {
-          h.point.copy(wh.point); h.normal.copy(wh.normal); h.enemy = null; h.part = undefined; h.obstacle = !!wh.obstacle; hitAny = true;
+          h.point.copy(wh.point); h.normal.copy(wh.normal); h.enemy = null; h.part = undefined; h.obstacle = !!wh.obstacle; h.obstacleRef = wh.obstacle ?? null; hitAny = true;
         } else if (ctx.world && ctx.world.ready && s.pos.y < ctx.world.getHeightAt(s.pos.x, s.pos.z)) {
-          h.point.copy(s.pos); ctx.world.getNormalAt(s.pos.x, s.pos.z, h.normal); h.enemy = null; h.part = undefined; h.obstacle = false; hitAny = true;
+          h.point.copy(s.pos); ctx.world.getNormalAt(s.pos.x, s.pos.z, h.normal); h.enemy = null; h.part = undefined; h.obstacle = false; h.obstacleRef = null; hitAny = true;
         }
         if (hitAny) {
           h.dir.copy(_dir);

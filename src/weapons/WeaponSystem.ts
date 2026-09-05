@@ -5,6 +5,7 @@ import {
   type GameSystem, type WeaponDef, type ItemInstance, type ItemDef, type PlayerRef, type PlayerWeaponHost, type EnemyRef, type Vec3Tuple,
   type WeaponSlot, type EffectiveWeaponStats, type SocketSlot,
 } from '@/shared';
+import type { Obstacle as WorldObstacle } from '@/shared';
 import { FxManager } from '@/core/fx';
 import { randomInCone } from '@/core/util/MathUtil';
 import { WEAPON_SLOTS, defaultFor, kindOf, shotSoundId, shotPitchFor, weaponClassOf, damageFalloff, statsFromDef, STANCE_ACCURACY } from './WeaponDefaults';
@@ -30,7 +31,7 @@ interface WeaponInstance {
   model: WeaponModel;
 }
 
-interface HitInfo { point: THREE.Vector3; normal: THREE.Vector3; distance: number; enemy: EnemyRef | null; obstacle: boolean; valid: boolean; headshot: boolean }
+interface HitInfo { point: THREE.Vector3; normal: THREE.Vector3; distance: number; enemy: EnemyRef | null; obstacle: boolean; valid: boolean; headshot: boolean; obstacleRef: WorldObstacle | null }
 
 const BLOOM_PER_SHOT = 0.14;
 const BLOOM_DECAY = 2.6;
@@ -70,7 +71,7 @@ const _muzzle = new THREE.Vector3(), _target = new THREE.Vector3(), _md = new TH
 const _netDir = new THREE.Vector3();
 const _mq = new THREE.Quaternion();
 
-function makeHit(): HitInfo { return { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, enemy: null, obstacle: false, valid: false, headshot: false }; }
+function makeHit(): HitInfo { return { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, enemy: null, obstacle: false, valid: false, headshot: false, obstacleRef: null }; }
 
 /** Vector3 → wire tuple rounded to 3 dp (fresh tuples: messages are serialized asynchronously by the relay). */
 function toTuple(v: THREE.Vector3): Vec3Tuple {
@@ -160,6 +161,8 @@ export class WeaponSystem implements GameSystem {
     this.ctx = ctx;
     this.fx = new WeaponFx(ctx.scene);
     this.grenades = new GrenadeManager(ctx, this.fx);
+    // Phase 3: live grenade positions for the HUD's off-screen indicators
+    ctx.weapons = { getGrenades: () => this.grenades.getViews() };
     this.projectiles = new ProjectilePool(ctx,
       (h, dmg, weaponId) => this.onProjectileHit(h, dmg, weaponId),
       (h) => this.remote.onVisualProjectileHit(h));
@@ -237,7 +240,9 @@ export class WeaponSystem implements GameSystem {
     }
 
     const input = ctx.input;
-    const usable = ctx.isGameplayActive() && input.isPointerLocked && host.canUseWeapons() && host.isDiving !== true;
+    // Phase 3: an armed / targeting ship call owns the mouse — guns neither fire nor swap until it is put away
+    const callActive = !!ctx.stratagems && (ctx.stratagems.armed !== null || ctx.stratagems.targeting);
+    const usable = ctx.isGameplayActive() && input.isPointerLocked && host.canUseWeapons() && host.isDiving !== true && !callActive;
     // the gun in hand (null while a consumable is held)
     const weapon = this.quick ? null : this.slots[this.active];
 
@@ -810,13 +815,13 @@ export class WeaponSystem implements GameSystem {
   /** Nearest of world & enemy raycasts into `out`. */
   private raycastAll(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number, out: HitInfo): void {
     const ctx = this.ctx;
-    out.valid = false; out.enemy = null; out.obstacle = false; out.headshot = false;
+    out.valid = false; out.enemy = null; out.obstacle = false; out.headshot = false; out.obstacleRef = null;
     const eh = ctx.enemies ? ctx.enemies.raycast(origin, dir, maxDist) : null;
     const wh = ctx.world && ctx.world.ready ? ctx.world.raycast(origin, dir, maxDist) : null;
     if (eh && (!wh || eh.distance <= wh.distance)) {
       out.point.copy(eh.point); out.normal.copy(eh.normal); out.distance = eh.distance; out.enemy = eh.enemy; out.valid = true; out.headshot = eh.part === 'head';
     } else if (wh) {
-      out.point.copy(wh.point); out.normal.copy(wh.normal); out.distance = wh.distance; out.obstacle = !!wh.obstacle; out.valid = true;
+      out.point.copy(wh.point); out.normal.copy(wh.normal); out.distance = wh.distance; out.obstacle = !!wh.obstacle; out.obstacleRef = wh.obstacle ?? null; out.valid = true;
     }
   }
 
@@ -833,6 +838,8 @@ export class WeaponSystem implements GameSystem {
       ctx.bus.emit('audio:play', { id: 'hit_flesh', position: h.point, volume: light ? 0.4 : 0.7 });
       return killed;
     }
+    // Phase 3: destructible cover (dropped structures) takes the shot's damage
+    h.obstacleRef?.destructible?.onDamage(damage, h.point);
     this.fx.impactSurface(h.point, h.normal, h.obstacle);
     ctx.bus.emit('weapon:hit', { point: h.point.clone(), normal: h.normal.clone(), enemyId: null, damage, killed: false });
     ctx.bus.emit('audio:play', { id: h.obstacle ? 'hit_metal' : 'hit_dirt', position: h.point, volume: light ? 0.25 : 0.45 });
@@ -841,7 +848,7 @@ export class WeaponSystem implements GameSystem {
 
   private onProjectileHit(h: ProjectileHit, damage: number, weaponId: string): void {
     this.gunHit.point.copy(h.point); this.gunHit.normal.copy(h.normal); this.gunHit.distance = h.distance;
-    this.gunHit.enemy = h.enemy; this.gunHit.obstacle = h.obstacle; this.gunHit.valid = true; this.gunHit.headshot = h.part === 'head';
+    this.gunHit.enemy = h.enemy; this.gunHit.obstacle = h.obstacle; this.gunHit.obstacleRef = h.obstacleRef ?? null; this.gunHit.valid = true; this.gunHit.headshot = h.part === 'head';
     let def: WeaponDef | null = null;
     for (const s of WEAPON_SLOTS) { const w = this.slots[s]; if (w && w.stats.weaponId === weaponId) { def = w.def; break; } }
     const dmg = def ? damage * damageFalloff(def, h.distance) : damage;

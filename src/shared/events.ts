@@ -1,5 +1,5 @@
 import type * as THREE from 'three';
-import type { GamePhase, ItemInstance, MissionStats, EnemyType, Stance, HubShipKind, ChatKind, PingKind, WeaponSlot, SocketSlot } from './types';
+import type { GamePhase, ItemInstance, MissionStats, EnemyType, Stance, HubShipKind, ChatKind, PingKind, WeaponSlot, SocketSlot, StratagemId } from './types';
 import type { LobbyErrorCode, LobbyState, PeerId } from './net';
 
 /**
@@ -240,6 +240,27 @@ export interface GameEvents {
    * `underhand` toggle (RMB). Emitted on every change and each frame while cooking.
    */
   'grenade:holdChanged': { holding: boolean; cooking: boolean; cooked: number; fuse: number; underhand: boolean };
+
+  /* ── appended: Phase 3 — ship calls / stratagems (owner: stratagems/StratagemSystem) ── */
+  /** G held → wheel open / hover changed / closed. */
+  'stratagem:wheelChanged': { open: boolean; hover: StratagemId | null };
+  /** A call is in hand (null = put away; guns are usable again). */
+  'stratagem:armed': { id: StratagemId | null };
+  /** Orbital calls: LMB charge 0..1 before the top view opens (−1 = released early / cancelled). */
+  'stratagem:chargeChanged': { t: number };
+  /** Targeting mode on/off (top view for orbital calls, ground ring for drops). `position` = current cursor point while active. */
+  'stratagem:targeting': { active: boolean; kind: StratagemId | null; position: THREE.Vector3 | null };
+  /** A call was confirmed (local or remote). `landsAt` = ctx.time when the effect starts. */
+  'stratagem:called': { callId: string; kind: StratagemId; position: THREE.Vector3; landsAt: number; caller: PeerId | null };
+  /** Effect started at the target (beam ignites / bomb detonates / crate or structures touched down). */
+  'stratagem:landed': { callId: string; kind: StratagemId; position: THREE.Vector3 };
+  /** Effect finished (beam off / crate looted or expired / structures all destroyed is NOT this — see structure:destroyed). */
+  'stratagem:ended': { callId: string; kind: StratagemId };
+  /** Shared cooldown (seconds left, total). Emitted on start, every ~0.5 s and at 0. */
+  'stratagem:cooldown': { remaining: number; total: number };
+  /** A dropped cover structure took damage / was destroyed. */
+  'structure:damaged': { id: string; hp: number; maxHp: number; position: THREE.Vector3 };
+  'structure:destroyed': { id: string; position: THREE.Vector3 };
 }
 
 export type GameEventName = keyof GameEvents;

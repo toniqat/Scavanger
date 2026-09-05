@@ -13,7 +13,8 @@ const MOVE_SPEED_EPS = 0.5; // m/s of horizontal velocity that counts as "moving
 
 /**
  * Minimal 4-tick crosshair. Gap depends on stance / aim / sprint / movement, blooms on fire,
- * flashes hitmarkers. Hidden entirely while the scope overlay is showing; dimmed to 25 % while the quick wheel is open.
+ * flashes hitmarkers. Hidden entirely while the scope overlay is showing (and via CSS while `.hud.targeting`); dimmed to
+ * 25 % while the quick-use or ship-call wheel is open.
  */
 export class Reticle {
   readonly root: HTMLElement;
@@ -25,6 +26,7 @@ export class Reticle {
   private aiming = false;
   private scope = false;
   private wheelOpen = false;
+  private stratOpen = false;
   private hitTimer = 0;
   private lastGap = -1;
   private unsubs: Array<() => void> = [];
@@ -48,6 +50,7 @@ export class Reticle {
       b.on('player:aimChanged', ({ aiming }) => { this.aiming = aiming; }),
       b.on('weapon:scopeChanged', ({ scope }) => { this.scope = scope; }),
       b.on('quick:wheelChanged', ({ open }) => { this.wheelOpen = open; }),
+      b.on('stratagem:wheelChanged', ({ open }) => { this.stratOpen = open; }),
       b.on('ui:hitmarker', ({ kill }) => {
         this.hitmarker.classList.remove('show', 'kill');
         // force restart of transition
@@ -84,7 +87,7 @@ export class Reticle {
     }
     const scoped = this.scope && this.aiming;
     // Hidden behind blockers / the scope; dimmed while the quick-use wheel is open.
-    const opacity = ctx.uiBlockers.size > 0 || scoped ? '0' : this.wheelOpen ? '0.25' : '1';
+    const opacity = ctx.uiBlockers.size > 0 || scoped ? '0' : (this.wheelOpen || this.stratOpen) ? '0.25' : '1';
     if (this.root.style.opacity !== opacity) this.root.style.opacity = opacity;
   }
 

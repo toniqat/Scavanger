@@ -69,6 +69,14 @@ export const LOOT_TABLES: readonly TierTable[] = [
     ],
     itemWeightMul: { wpn_sr9: 1.5, wpn_smg37: 0.7 },
   },
+  /* Phase 3: ship-call supply drop (`SUPPLY_CRATE_TIER`) — consumables only, no weapons / valuables. */
+  {
+    tier: 5, label: '보급 투하 상자', count: [4, 6],
+    rarityWeights: { common: 60, uncommon: 35, rare: 5, epic: 0, legendary: 0 },
+    categoryWeights: { ammo: 45, stim: 30, grenade: 25 },
+    weaponChance: 0, maxStackQty: 6, ammoFraction: [0.6, 1],
+    guaranteed: [{ categories: ['stim'], minRarity: 'common' }, { categories: ['ammo'], minRarity: 'common' }],
+  },
 ];
 
 export const LOOT_TABLE_MAP: ReadonlyMap<number, TierTable> = new Map(LOOT_TABLES.map((t) => [t.tier, t]));

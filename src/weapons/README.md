@@ -79,3 +79,8 @@ Every network branch is gated on `ctx.isMultiplayer && ctx.net`; offline behavio
 - Remote players' grenades are visual-only on every other client: they never damage the local player (no friendly-fire), and their enemy damage comes only from the thrower's own client via the host.
 - Remote gunfire does not emit `weapon:fired`, so on the host enemies do not "hear" other players' shots (`EnemySystem.alertHearing`); wire that through `net:remoteFired` in enemies if wanted.
 - Remote reload animation runs on the receiver's clock from the `reload` message (not from `PlayerFlags.RELOADING`), so a cancelled reload (swap) on the sender still plays out visually.
+
+## Phase 3 (2026-09-06): ship calls & destructible cover
+- `ctx.weapons = { getGrenades() }` (`GrenadeManager.getViews()`, pooled `GrenadeView`s: position / fuse / remote) for the HUD's off-screen indicators.
+- While `ctx.stratagems.armed` or `.targeting` is set, `usable` is false: no firing, swapping, quick-use or reload — the ship call owns the mouse.
+- Hits on a world obstacle call `obstacle.destructible?.onDamage(damage, point)` (hitscan via `HitInfo.obstacleRef`, projectiles via `ProjectileHit.obstacleRef`), so dropped cover structures lose hp to bullets.

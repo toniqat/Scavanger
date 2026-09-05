@@ -381,6 +381,16 @@ export interface Obstacle {
   position: THREE.Vector3;   // center (y = base height)
   radius: number;            // cylinder collider radius
   height: number;            // for projectiles / visuals
+  /* appended (Phase 3): dynamic obstacles (dropped cover structures) can take damage. Weapons call `onDamage` on a hit. */
+  destructible?: DestructibleRef;
+}
+
+/** Damageable world object (Phase 3 cover structures). Owner: whoever added the obstacle (stratagems). */
+export interface DestructibleRef {
+  readonly id: string;
+  readonly hp: number;
+  readonly maxHp: number;
+  onDamage(amount: number, point?: THREE.Vector3): void;
 }
 
 export interface ExtractionPointDef {
@@ -424,6 +434,56 @@ export interface WorldRef {
   getEnemySpawnPoints(around: THREE.Vector3, count: number, minDist: number, maxDist: number): THREE.Vector3[];
   /** Bug nests / hives placed by the world; enemies may spawn from them. */
   getNestPositions(): readonly THREE.Vector3[];
+  /* ── appended (Phase 3): dynamic obstacles (owner: world) ── */
+  /** Register a runtime obstacle (collision, raycast, enemy avoidance). Returns the remover. Cleared with the world. */
+  addObstacle(obstacle: Obstacle): () => void;
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Weapons ref (Phase 3, owner: weapons/WeaponSystem publishes `ctx.weapons`)
+ * ──────────────────────────────────────────────────────────────────────────── */
+export interface GrenadeView {
+  /** Stable Vector3 instance while the grenade is live. */
+  readonly position: THREE.Vector3;
+  /** Seconds until it explodes. */
+  readonly fuse: number;
+  /** true for a remote player's replica. */
+  readonly remote: boolean;
+}
+export interface WeaponsRef {
+  /** Live grenades (local + replicas) for off-screen indicators. */
+  getGrenades(): readonly GrenadeView[];
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Ship calls / stratagems (Phase 3, owner: stratagems/StratagemSystem publishes `ctx.stratagems`)
+ * G hold → wheel → arm a call → target (top view for orbital calls, ground marker for drops) → effect after a delay.
+ * All calls share one cooldown.
+ * ──────────────────────────────────────────────────────────────────────────── */
+export type StratagemId = 'orbital_laser' | 'airstrike' | 'supply_drop' | 'structure_drop';
+export type StratagemStage = 'incoming' | 'active' | 'done';
+export interface StratagemCall {
+  /** `${peerId|'sp'}-${n}` */
+  readonly id: string;
+  readonly kind: StratagemId;
+  /** Target point on the ground (stable Vector3). */
+  readonly position: THREE.Vector3;
+  /** ctx.time when the effect starts (beam ignites / bomb hits / crate or structures land). */
+  readonly landsAt: number;
+  readonly stage: StratagemStage;
+  readonly caller: string | null;
+}
+export interface StratagemsRef {
+  /** Call currently in hand (G wheel selection), or null → guns behave normally. */
+  readonly armed: StratagemId | null;
+  /** true while the top-view / ground targeting is running (camera overridden, weapons must not fire). */
+  readonly targeting: boolean;
+  /** Shared cooldown seconds left (0 = ready) and the total of the call that started it. */
+  readonly cooldown: number;
+  readonly cooldownTotal: number;
+  getCalls(): readonly StratagemCall[];
+  /** Number of cover structures currently standing (debug / HUD). */
+  readonly structureCount: number;
 }
 
 /* ────────────────────────────────────────────────────────────────────────────

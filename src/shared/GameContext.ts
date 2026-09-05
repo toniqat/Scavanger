@@ -3,7 +3,7 @@ import { EventBus } from './EventBus';
 import { Input } from './Input';
 import type {
   GamePhase, WorldRef, PlayerRef, EnemyManagerRef, InventoryRef, LootRef,
-  Interactable, InteractableRegistry, MissionStats, HubRef, PickupsRef,
+  Interactable, InteractableRegistry, MissionStats, HubRef, PickupsRef, WeaponsRef, StratagemsRef,
 } from './types';
 import type { NetRef } from './net';
 
@@ -61,6 +61,10 @@ export class GameContext {
   hub: HubRef | null = null;
   /** World pickups (appended). Published by pickups/PickupSystem. */
   pickups: PickupsRef | null = null;
+  /** Live grenades etc. (Phase 3). Published by weapons/WeaponSystem. */
+  weapons: WeaponsRef | null = null;
+  /** Ship calls (Phase 3). Published by stratagems/StratagemSystem. */
+  stratagems: StratagemsRef | null = null;
 
   /** True when this client simulates authoritative gameplay (enemies, extraction): single-player or lobby host. */
   get isAuthority(): boolean { return this.net?.isAuthority ?? true; }

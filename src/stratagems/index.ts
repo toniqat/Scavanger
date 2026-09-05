@@ -1,0 +1,1 @@
+export { StratagemSystem } from './StratagemSystem';
