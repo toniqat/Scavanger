@@ -12,6 +12,7 @@ import { HousingMode } from './HousingMode';
 import { LaunchPod } from './LaunchPod';
 import { Terminal } from './Terminal';
 import { Workbench } from './Workbench';
+import { Computer } from './Computer';
 import { DockingCutscene, type DockDirection } from './DockingCutscene';
 import { HubMenu } from './ui/HubMenu';
 import { WorkbenchMenu } from './ui/WorkbenchMenu';
@@ -76,6 +77,10 @@ export class HubSystem implements GameSystem, HubRef {
   private pods: LaunchPod[] = [];
   private terminal: Terminal | null = null;
   private workbench: Workbench | null = null;
+  /** 함선 컴퓨터 (Phase 5): `hub_computer` → `ctx.meta.openCorpMenu()`. */
+  private computer: Computer | null = null;
+  /** `ctx.meta.isMenuOpen` as seen by the previous frame — an Esc that the corp screen's own listener already consumed must not open the terminal. */
+  private corpWasOpen = false;
   /** 함선 시설 (tactical kit): hydroponics + the two terminal-shortcut consoles. */
   private garden: GardenStation | null = null;
   private stationIds: string[] = [];
@@ -97,7 +102,8 @@ export class HubSystem implements GameSystem, HubRef {
 
   private onPointerLockChange = (): void => {
     const ctx = this.ctx;
-    if (ctx.input.isPointerLocked || ctx.phase !== 'hub' || ctx.uiBlockers.size > 0) return;
+    // any blocker (inventory / housing panels / the corp screen's 'corp' token) owns the lock loss — never open the terminal over it
+    if (ctx.input.isPointerLocked || ctx.phase !== 'hub' || ctx.uiBlockers.size > 0 || this.corpMenuOpen()) return;
     if (performance.now() - ctx.input.lastLockRequest < LOCK_REQUEST_GRACE_MS) return;
     if (this.housingMode.active) { this.housingMode.exit(); this.relock(); return; }   // browser Esc while decorating = leave housing mode
     this.menu.open();     // hub has no pause: a lost lock just opens the terminal menu
@@ -128,6 +134,8 @@ export class HubSystem implements GameSystem, HubRef {
       b.on('net:peerJoined', ({ name }) => { if (this.active) b.emit('ui:notify', { text: `${name} 함선 합류`, kind: 'info' }); }),
       b.on('net:peerLeft', ({ name }) => { if (this.active) b.emit('ui:notify', { text: `${name} 함선 이탈`, kind: 'warning' }); }),
       b.on('net:statusChanged', () => this.updateTerminalScreen()),
+      b.on('meta:creditsChanged', () => this.updateTerminalScreen()),
+      b.on('meta:loaded', () => this.updateTerminalScreen()),
     );
     document.addEventListener('pointerlockchange', this.onPointerLockChange);
   }
@@ -188,6 +196,7 @@ export class HubSystem implements GameSystem, HubRef {
     const canUseConsole = (): boolean => this.stationUsable();
     this.terminal = new Terminal(ctx, interior.terminal, () => this.menu.open(), canUseConsole);
     this.workbench = new Workbench(ctx, interior.workbench, () => this.wbMenu.open(), canUseConsole);
+    this.computer = new Computer(ctx, interior.computer, () => this.openCorpMenu(), canUseConsole);
     this.buildStations(interior);
     this.buildHousing(interior);
 
@@ -301,10 +310,28 @@ export class HubSystem implements GameSystem, HubRef {
     this.ctx.bus.emit('hub:roomEntered', { room, purpose: room === null ? null : this.roomPurpose(room) });
   }
 
+  /**
+   * 함선 컴퓨터: open the corporation screen (meta owns the DOM + the `'corp'` blocker). While `ctx.meta` is missing,
+   * a stub, or refuses (menu not open afterwards) the player gets a warning toast instead of silence.
+   */
+  private openCorpMenu(): void {
+    const meta = this.ctx.meta;
+    if (meta && typeof meta.openCorpMenu === 'function') {
+      try { meta.openCorpMenu(); } catch (e) { console.warn('[hub] openCorpMenu failed', e); }
+      if (this.corpMenuOpen()) return;
+    }
+    this.ctx.bus.emit('ui:notify', { text: '기업 네트워크에 접속할 수 없습니다', kind: 'warning' });
+  }
+
+  /** True while the corporation screen (`ctx.meta`) is open. */
+  private corpMenuOpen(): boolean {
+    try { return this.ctx.meta?.isMenuOpen === true; } catch { return false; }
+  }
+
   /** Terminal / station consoles are usable while walking the ship (not boarded, no menu, not docking, not decorating). */
   private stationUsable(): boolean {
     return this.ctx.phase === 'hub' && !this.menu.isOpen && !this.wbMenu.isOpen && !(this.ctx.inventory?.isOpen ?? false)
-      && !(this.ctx.housing?.isMenuOpen ?? false) && this.boardedSlot < 0 && !this.cutscene && !this.housingMode.active;
+      && !(this.ctx.housing?.isMenuOpen ?? false) && !this.corpMenuOpen() && this.boardedSlot < 0 && !this.cutscene && !this.housingMode.active;
   }
 
   private disposeInterior(): void {
@@ -317,6 +344,7 @@ export class HubSystem implements GameSystem, HubRef {
     this.stationIds.length = 0;
     this.terminal?.dispose(); this.terminal = null;
     this.workbench?.dispose(); this.workbench = null;
+    this.computer?.dispose(); this.computer = null;
     this.interior?.dispose(); this.interior = null;
     this.collider = null;
     this.ship = null;
@@ -449,7 +477,7 @@ export class HubSystem implements GameSystem, HubRef {
 
   private podCanInteract(slot: number): boolean {
     const ctx = this.ctx;
-    if (ctx.phase !== 'hub' || this.cutscene || this.boardedSlot >= 0 || this.menu.isOpen || this.wbMenu.isOpen || this.housingMode.active) return false;
+    if (ctx.phase !== 'hub' || this.cutscene || this.boardedSlot >= 0 || this.menu.isOpen || this.wbMenu.isOpen || this.housingMode.active || this.corpMenuOpen()) return false;
     if (slot !== this.localSlot()) return false;
     const pod = this.pods[slot];
     return !!pod && pod.occupant === null;
@@ -549,8 +577,18 @@ export class HubSystem implements GameSystem, HubRef {
     const seed = lobby ? lobby.seed : this.missionSeed;
     const seedText = seed === null ? '시드 무작위' : `시드 ${seed}`;
     const status = net?.status === 'connected' ? '네트워크 연결됨' : net?.status === 'connecting' ? '연결 중…' : '오프라인';
-    if (lobby) this.terminal.setScreen([`함선 ${lobby.code}`, `승무원 ${lobby.players.length}/4 · ${lobby.isPublic ? '공개' : '비공개'}`, seedText], '#5fd7ff');
-    else this.terminal.setScreen(['개인 함선', status, seedText], '#5fd7ff');
+    const lines = lobby
+      ? [`함선 ${lobby.code}`, `승무원 ${lobby.players.length}/4 · ${lobby.isPublic ? '공개' : '비공개'}`, seedText]
+      : ['개인 함선', status, seedText];
+    const credits = this.credits();
+    if (credits !== null) lines.push(`크레딧 ${credits.toLocaleString('ko-KR')}`);
+    this.terminal.setScreen(lines, '#5fd7ff');
+  }
+
+  /** `ctx.meta.credits` (Phase 5), null while meta is missing. */
+  private credits(): number | null {
+    const c = this.ctx.meta?.credits;
+    return typeof c === 'number' && Number.isFinite(c) ? Math.max(0, Math.round(c)) : null;
   }
 
   /* ── launch countdown ──────────────────────────────────────────────────── */
@@ -640,17 +678,21 @@ export class HubSystem implements GameSystem, HubRef {
     this.trackRoom();
 
     // housing mode owns the input (cursor / place / rotate / recover / Esc) while active
-    if (this.housingMode.active) { this.housingMode.update(); this.tickCountdown(dt); return; }
+    if (this.housingMode.active) { this.housingMode.update(); this.tickCountdown(dt); this.corpWasOpen = this.corpMenuOpen(); return; }
 
-    // Esc: menu toggle / un-board (no pause in the hub). E while boarded: un-board.
+    // Esc: corp screen first, then the menus / un-board (no pause in the hub). E while boarded: un-board.
+    const corpOpen = this.corpMenuOpen();
     if (ctx.input.wasPressed(Keys.MENU)) {
-      if (this.wbMenu.isOpen) this.wbMenu.close();
+      if (corpOpen) this.ctx.meta?.closeCorpMenu();
+      else if (this.corpWasOpen) { /* the corp screen's own Esc listener just closed it — consumed */ }
+      else if (this.wbMenu.isOpen) this.wbMenu.close();
       else if (this.menu.isOpen) this.menu.close();
       else if (ctx.uiBlockers.size === 0) {
         if (this.boardedSlot >= 0) this.leavePod(true);
         else this.menu.open();
       }
     }
+    this.corpWasOpen = corpOpen;
     if (this.boardedSlot >= 0 && ctx.uiBlockers.size === 0 && ctx.input.wasPressed(Keys.INTERACT) && ctx.time - this.boardedAt > UNBOARD_GRACE) {
       this.leavePod(true);
     }

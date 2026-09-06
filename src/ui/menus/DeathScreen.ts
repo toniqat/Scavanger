@@ -2,17 +2,20 @@ import type { GameContext, MissionStats } from '@/shared';
 import { Keys, PLAYER_RESPAWN_DELAY } from '@/shared';
 import { el, fmtTime, fmtInt, setText, toggleClass } from '../dom';
 import { MenuBase } from './MenuBase';
+import { RewardsBlock } from './RewardsBlock';
 
 /**
  * "전사" screen with mission stats, shown on `game:phaseChanged {phase:'dead'}` (solo; also on the legacy `game:over`).
  * Primary button `부활 (n초)` is disabled until `game:respawnAvailable.seconds === 0`, then `부활` → emits the
  * `game:respawn` command and hides (Space works too while enabled). `함선으로 귀환` → `hub:enter {ship}`.
- * Hidden whenever the phase leaves `dead`.
+ * Hidden whenever the phase leaves `dead`. Phase 5: a `RewardsBlock` under the stats (death wording for an unfinished
+ * contract: `진척 유지 안 됨`), shown only when `stats.rewards` is present; `update(dt)` drives its count-up.
  */
 export class DeathScreen extends MenuBase {
   private vals: Record<string, HTMLElement> = {};
   private respawnBtn: HTMLButtonElement;
   private seconds = PLAYER_RESPAWN_DELAY;
+  private rewards: RewardsBlock;
   private onKey = (e: KeyboardEvent): void => {
     if (!this.visible || e.code !== Keys.RESPAWN || e.repeat) return;
     e.preventDefault();
@@ -36,6 +39,7 @@ export class DeathScreen extends MenuBase {
     el('span', { cls: 'ui-label', text: '소실된 전리품 가치', parent: lost });
     this.vals.loot = el('span', { cls: 'v', text: '0', parent: lost });
     this.vals.loot.style.color = 'var(--c-danger)';
+    this.rewards = new RewardsBlock(this.frame);
 
     const actions = el('div', { cls: 'actions', parent: this.frame });
     this.respawnBtn = this.button(actions, '부활', () => this.respawn(), 'primary respawn');
@@ -45,6 +49,7 @@ export class DeathScreen extends MenuBase {
 
   override bind(ctx: GameContext): void {
     super.bind(ctx);
+    this.rewards.bind(ctx);
     this.unsubs.push(
       ctx.bus.on('player:died', () => { this.seconds = PLAYER_RESPAWN_DELAY; this.applyRespawn(); }),
       ctx.bus.on('game:respawnAvailable', ({ seconds }) => { this.seconds = seconds; this.applyRespawn(); }),
@@ -57,6 +62,12 @@ export class DeathScreen extends MenuBase {
   }
 
   protected override onShow(): void { this.applyRespawn(); }
+  protected override onHide(): void { this.rewards.stop(); }
+
+  update(dt: number): void { if (this.visible) this.rewards.update(dt); }
+
+  /** The XP settlement block (debug). */
+  get rewardsBlock(): RewardsBlock { return this.rewards; }
 
   private respawn(): void {
     if (this.seconds > 0 || !this.visible) return;
@@ -77,6 +88,7 @@ export class DeathScreen extends MenuBase {
     setText(this.vals.crates, String(s.cratesOpened));
     setText(this.vals.damage, fmtInt(s.damageTaken));
     setText(this.vals.loot, fmtInt(this.ctx.inventory?.getTotalValue() ?? s.lootValue));
+    this.rewards.fill(s.rewards, 'dead');
   }
 
   override dispose(): void {

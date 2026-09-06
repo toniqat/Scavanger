@@ -21,12 +21,12 @@ const CATALOG_DBL_MS = 400;
 const BAG_LOC: ItemLocation = { kind: 'grid', grid: 'bag' };
 const LOCK_SVG = '<svg viewBox="0 0 12 14" aria-hidden="true"><rect x="1.5" y="6" width="9" height="7" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M3.5 6V4a2.5 2.5 0 0 1 5 0v2" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>';
 
-/** Screen tabs above the window (Arc Raiders style). 기업 is disabled until corporations / contracts exist. */
+/** Screen tabs above the window (Arc Raiders style). 기업 (Phase 5) hands over to the corp screen (`ctx.meta`). */
 type ScreenTab = 'inventory' | 'character' | 'corp';
-const SCREEN_TABS: readonly { id: ScreenTab; label: string; disabled?: boolean }[] = [
+const SCREEN_TABS: readonly { id: ScreenTab; label: string; title?: string }[] = [
   { id: 'inventory', label: TEXT.tabs.inventory },
   { id: 'character', label: TEXT.tabs.character },
-  { id: 'corp', label: TEXT.tabs.corp, disabled: true },
+  { id: 'corp', label: TEXT.tabs.corp, title: TEXT.tabs.corpHint },
 ];
 
 interface DragState {
@@ -85,6 +85,8 @@ export class InventoryUI {
   private root: HTMLElement | null = null;
   private layout!: HTMLElement;
   private tabsEl!: HTMLElement;
+  private creditsEl!: HTMLElement;
+  private creditsValue!: HTMLElement;
   private containerPanel!: HTMLElement;
   private containerTitle!: HTMLElement;
   private containerTier!: HTMLElement;
@@ -153,13 +155,22 @@ export class InventoryUI {
     for (const t of SCREEN_TABS) {
       const b = document.createElement('button');
       b.type = 'button';
-      b.className = `scr-tab${t.id === 'inventory' ? ' is-on' : ''}${t.disabled ? ' is-disabled' : ''}`;
+      b.className = `scr-tab${t.id === 'inventory' ? ' is-on' : ''}`;
       b.textContent = t.label;
-      b.disabled = !!t.disabled;
-      if (t.disabled) b.title = TEXT.tabs.corpSoon;
+      if (t.title) b.title = t.title;
       b.addEventListener('click', () => this.onTab(t.id));
       this.tabsEl.appendChild(b);
     }
+    /* credits readout (Phase 5, ship screen only) */
+    this.creditsEl = document.createElement('div');
+    this.creditsEl.className = 'inv-credits';
+    this.creditsEl.hidden = true;
+    const crEyebrow = document.createElement('span');
+    crEyebrow.className = 'inv-eyebrow';
+    crEyebrow.textContent = TEXT.credits.eyebrow;
+    this.creditsValue = document.createElement('span');
+    this.creditsValue.className = 'inv-credits-value';
+    this.creditsEl.append(crEyebrow, this.creditsValue);
 
     const layout = document.createElement('div');
     layout.className = 'inv-layout';
@@ -327,7 +338,7 @@ export class InventoryUI {
     this.ghostLayer = document.createElement('div');
     this.ghostLayer.className = 'inv-ghost-layer';
 
-    root.append(this.tabsEl, layout, this.hintsEl, dropZone, this.tooltip.el, this.ghostLayer);
+    root.append(this.tabsEl, this.creditsEl, layout, this.hintsEl, dropZone, this.tooltip.el, this.ghostLayer);
     this.menu = new ContextMenu(root);
     this.dialog = new SplitDialog(root);
     this.ctx.uiRoot.appendChild(root);
@@ -377,6 +388,7 @@ export class InventoryUI {
     this.root.classList.toggle('is-hub', hub);
     this.containerPanel.hidden = !container;
     this.stashPanel.hidden = !hub;
+    this.creditsEl.hidden = !hub;
     this.hintsEl.hidden = hub;
     if (container) {
       if (container.title) {
@@ -433,7 +445,18 @@ export class InventoryUI {
   private onTab(tab: ScreenTab): void {
     if (tab === 'inventory') return;
     if (tab === 'character') { this.sys.sfx('ui_pickup'); this.sys.openCharacter(); return; }
-    this.sys.sfx('ui_error');
+    // 기업 (Phase 5): the system closes the window and opens the corp screen; a refusal shakes / errors here
+    if (this.sys.openCorp()) this.sys.sfx('ui_pickup');
+    else this.sys.sfx('ui_error');
+  }
+
+  /** `크레딧 n` readout on the ship screen (`ctx.meta.credits`; refreshed on `meta:creditsChanged`). */
+  refreshCredits(): void {
+    if (!this.root) return;
+    const meta = this.ctx.meta;
+    const credits = meta && typeof meta.credits === 'number' ? meta.credits : null;
+    this.creditsValue.textContent = credits === null ? TEXT.credits.none : TEXT.credits.value(credits);
+    this.creditsEl.classList.toggle('is-unavailable', credits === null);
   }
 
   /* ── refresh ───────────────────────────────────────────────────────────── */
@@ -462,6 +485,7 @@ export class InventoryUI {
       if (this.stashView.current !== stash) this.stashView.setGrid(stash);
       else this.stashView.refresh();
       this.stashCount.textContent = `${stash.count} · ${stash.usedCells()} / ${stash.cols * stash.rows}`;
+      this.refreshCredits();
     }
     this.refreshSlots();
     this.refreshImplant();

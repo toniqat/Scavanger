@@ -183,7 +183,7 @@ try {
   });
   ok(hubScreen.hub && hubScreen.stash, 'hub Tab shows the ship screen with the stash');
   ok(hubScreen.stashCells === 240, `stash grid is 10×24 (${hubScreen.stashCells} cells)`);
-  ok(hubScreen.tabs === '인벤토리* 캐릭터 기업(off)', `screen tabs: ${hubScreen.tabs}`);
+  ok(hubScreen.tabs === '인벤토리* 캐릭터 기업', `screen tabs: ${hubScreen.tabs}` + ' (기업 active since Phase 5)');
   ok(hubScreen.implantSlot, 'implant slot under the gear');
   ok(hubScreen.equipMid, 'layout: stash | equipment | bag');
   ok(hubScreen.quickRight, 'quick-use rose sits right of the bag grid (≥ 1600 px)');

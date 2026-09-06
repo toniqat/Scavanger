@@ -36,12 +36,15 @@ import { StatusMarkers } from './hud/StatusMarkers';
 import { CheatTag } from './hud/CheatTag';
 import { HousingHint } from './hud/HousingHint';
 import { RoomLabel } from './hud/RoomLabel';
+import { ContractPanel } from './hud/ContractPanel';
+import { MetaToasts } from './hud/MetaToasts';
 import { MapScreen } from './map/MapScreen';
 import { TitleMenu } from './menus/TitleMenu';
 import { PauseMenu } from './menus/PauseMenu';
 import { KeybindMenu } from './menus/KeybindMenu';
 import { DeathScreen } from './menus/DeathScreen';
 import { MissionComplete } from './menus/MissionComplete';
+import type { RewardsBlock } from './menus/RewardsBlock';
 
 /**
  * Arc Raiders-style HUD + menus. All DOM under `ctx.uiRoot`, in three `.hud` layers:
@@ -60,6 +63,9 @@ import { MissionComplete } from './menus/MissionComplete';
  * Phase 6: `WeaponChargeGauge` (unique-weapon charge / spin-up / slash arc) and `StatusMarkers` (🔥 전소 / ⚡ world markers)
  * in the gameplay layer; `CheatTag` (`MOVE CHEAT`) and `RoomLabel` (`방 n · 용도`) in the social layer; `HousingHint` in its
  * own `.hud.housing` layer (placement hints while the ship housing mode is active).
+ * Phase 5: `ContractPanel` (active corp contract under the objective) in the gameplay layer; `MetaToasts` (credits chip /
+ * reputation level / contract settlement) share the `ProgressToasts` column in the social layer; quest / purchase / sale
+ * lines go through `Notifications`; the result screens carry a `RewardsBlock`; the title menu a `Lv. n` chip.
  */
 export class HudSystem implements GameSystem {
   readonly name = 'hud';
@@ -108,6 +114,9 @@ export class HudSystem implements GameSystem {
   private cheatTag!: CheatTag;
   private housingHint!: HousingHint;
   private roomLabel!: RoomLabel;
+  /* Phase 5 (corporations) */
+  private contractPanel!: ContractPanel;
+  private metaToasts!: MetaToasts;
 
   private title!: TitleMenu;
   private pause!: PauseMenu;
@@ -146,6 +155,7 @@ export class HudSystem implements GameSystem {
     this.strat = new StratagemPanel(this.hudRoot);
     this.compass = new Compass(this.hudRoot);
     this.objective = new Objective(this.hudRoot);
+    this.contractPanel = new ContractPanel(this.hudRoot);
     this.missionInfo = new MissionInfo(this.hudRoot);
     this.spectate = new SpectateOverlay(this.hudRoot);
     this.detection = new Detection(this.hudRoot);
@@ -161,6 +171,7 @@ export class HudSystem implements GameSystem {
     this.notifs = new Notifications(this.socialRoot);
     this.chat = new ChatLog(this.socialRoot);
     this.progressToasts = new ProgressToasts(this.socialRoot);
+    this.metaToasts = new MetaToasts(this.progressToasts.root);
     this.cheatTag = new CheatTag(this.socialRoot);
     this.roomLabel = new RoomLabel(this.socialRoot);
 
@@ -184,6 +195,7 @@ export class HudSystem implements GameSystem {
     for (const c of [this.reticle, this.cook, this.wheel, this.swheel, this.strat, this.charge, this.targeting, this.offscreen, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.chat, this.map]) c.bind(ctx);
     for (const c of [this.implantWidget, this.weight, this.detection, this.scanReveal, this.deployables, this.progressToasts, this.actionFx]) c.bind(ctx);
     for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.housingHint, this.roomLabel]) c.bind(ctx);
+    for (const c of [this.contractPanel, this.metaToasts]) c.bind(ctx);
     for (const m of [this.title, this.pause, this.death, this.complete]) m.bind(ctx);
 
     const b = ctx.bus;
@@ -235,14 +247,18 @@ export class HudSystem implements GameSystem {
       this.chat.update(dt);
       this.progressToasts.update(dt);
     }
-    // Room label times itself out on `ctx.time` regardless of layer visibility (one compare per frame).
+    // Room label / contract pulse time themselves out on `ctx.time` regardless of layer visibility (one compare per frame);
+    // meta toasts keep expiring behind a result screen so a stale chip never greets the hub.
     this.roomLabel.update(ctx);
+    this.contractPanel.update(ctx);
+    this.metaToasts.update(dt);
     // Self-gating components (they hide their own world meshes / markers outside gameplay).
     this.deployables.update(dt, ctx);
     this.actionFx.update(dt, ctx);
     this.scope.update(ctx);
     this.damage.update(dt, ctx);
     this.complete.update(dt);
+    this.death.update(dt);
   }
 
   lateUpdate(dt: number, ctx: GameContext): void {
@@ -286,6 +302,14 @@ export class HudSystem implements GameSystem {
   get isHousingHintOn(): boolean { return this.housingHint.isActive; }
   /** Whether the room label is up (debug). */
   get isRoomLabelOn(): boolean { return this.roomLabel.isShowing; }
+  /** Whether the contract panel is up / pulsing (debug). */
+  get isContractPanelOn(): boolean { return this.contractPanel.isShowing; }
+  get isContractPulsing(): boolean { return this.contractPanel.isPulsing; }
+  /** Live meta toasts (debug). */
+  get metaToastCount(): number { return this.metaToasts.liveCount; }
+  /** Result-screen XP blocks (debug). */
+  get completeRewards(): RewardsBlock { return this.complete.rewardsBlock; }
+  get deathRewards(): RewardsBlock { return this.death.rewardsBlock; }
 
   private applyVisibility(): void {
     const ctx = this.ctx;
@@ -326,6 +350,7 @@ export class HudSystem implements GameSystem {
     for (const c of [this.reticle, this.cook, this.wheel, this.swheel, this.strat, this.charge, this.targeting, this.offscreen, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.chat, this.missionInfo, this.deploy, this.map]) c.dispose();
     for (const c of [this.implantWidget, this.weight, this.detection, this.scanReveal, this.deployables, this.progressToasts, this.actionFx]) c.dispose();
     for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.housingHint, this.roomLabel]) c.dispose();
+    for (const c of [this.contractPanel, this.metaToasts]) c.dispose();
     for (const m of [this.title, this.pause, this.death, this.complete]) m.dispose();
     this.keybinds.dispose();
     this.hudRoot.remove(); this.socialRoot.remove(); this.overlayRoot.remove(); this.housingRoot.remove();

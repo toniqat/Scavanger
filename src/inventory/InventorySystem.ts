@@ -15,6 +15,8 @@ import {
 } from './QuickSlots';
 import { InventoryUI } from './ui/InventoryUI';
 import { Stash } from './Stash';
+import { LOADOUT_SAVE_VERSION, LoadoutStore, isEmptyLoadoutSave, loadLoadoutSave, type LoadoutSave } from './Loadout';
+import { reviveItem, savedCell, serializeExtras, serializePlacement } from './Serialize';
 
 /* ── UI ↔ system vocabulary ─────────────────────────────────────────────── */
 /** 'stash' = the ship stash (hub Tab screen only; persisted, see Stash.ts). */
@@ -100,6 +102,9 @@ export class InventorySystem implements GameSystem, InventoryRef {
   private containers = new ContainerStore((id) => ITEM_DEF_MAP.get(id));
   /** 함선 창고 (persisted). Shown only while the window is open in the hub (`hubMode`). */
   private stash!: Stash;
+  /** Phase 5: loadout save (`scav.loadout`); `announcePending` = a save was restored at init and nobody has been told yet. */
+  private loadoutStore!: LoadoutStore;
+  private announcePending = false;
   private hubMode = false;
   private activeContainer: Container | null = null;
   private _open = false;
@@ -143,11 +148,15 @@ export class InventorySystem implements GameSystem, InventoryRef {
         if ((cols !== this.stash.cols || rows !== this.stash.rows) && this.stash.resize(cols, rows)) this.stash.markDirty();
       }
     }
+    // Phase 5: the persisted loadout fills the bag + slots once, here; from now on the session state is the truth.
+    this.loadoutStore = new LoadoutStore(() => this.captureLoadoutSave(), (reason) => ctx.bus.emit('inventory:loadoutSaved', { reason }));
+    this.restoreLoadoutSave();
     this.ui = new InventoryUI(this, ctx);
     this.ui.mount();
 
     const bus = ctx.bus;
     this.offs.push(
+      bus.on('meta:creditsChanged', () => { if (this._open) this.ui?.refreshCredits(); }),
       bus.on('housing:stashSizeChanged', ({ cols, rows }) => {
         if (!this.setStashSize(cols, rows)) {
           ctx.bus.emit('ui:notify', { text: '창고 크기를 바꿀 수 없습니다: 범위 밖에 아이템이 있습니다', kind: 'warning', duration: 2.5 });
@@ -156,12 +165,15 @@ export class InventorySystem implements GameSystem, InventoryRef {
       bus.on('world:ready', ({ seed }) => this.onWorldReady(seed)),
       bus.on('crate:open', ({ crateId, tier, position }) => this.openContainer(crateId, tier, position)),
       bus.on('player:died', () => this.closeAll()),
-      bus.on('game:complete', () => { this.outcome = 'complete'; }),
+      bus.on('game:complete', () => { this.outcome = 'complete'; this.loadoutStore.saveNow('complete'); }),
       bus.on('game:over', () => this.onGameOver()),
       bus.on('player:respawn', () => this.onRespawn()),
       bus.on('game:abort', () => this.onAbort()),
       bus.on('game:newMission', () => { this.closeAll(); this.containers.clear(); this.outcome = 'none'; }),
-      bus.on('hub:entered', () => { if (this.isCompletelyEmpty()) this.applyStarter(); }),
+      bus.on('hub:entered', () => {
+        if (this.isCompletelyEmpty()) this.applyStarter();
+        else if (this.announcePending) this.announceLoaded();
+      }),
       bus.on('game:phaseChanged', () => { if (!ctx.isGameplayPhase() && !ctx.isHubPhase()) this.closeAll(); }),
       bus.on('implant:equipped', () => { if (this._open) this.ui?.refresh(); }),
     );
@@ -194,6 +206,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
     this.offs = [];
     window.removeEventListener('keydown', this.escHandler, true);
     this.closeAll();
+    this.loadoutStore?.dispose();
     this.stash?.dispose();
     this.ui?.dispose();
     this.ui = null;
@@ -213,6 +226,77 @@ export class InventorySystem implements GameSystem, InventoryRef {
     this.containers.clear();
     if (!this.hasAnyWeapon()) { this.applyStarter(); return; }
     this.lastGrenades = -1; this.lastStims = -1; this.lastQuickSig = '';
+    if (this.announcePending) { this.announcePending = false; this.lastEquipUids = {}; this.lastWeight = null; }
+    this.emitLoadout();
+    this.afterChange();
+  }
+
+  /* ── Phase 5: loadout persistence (`Loadout.ts`, localStorage `scav.loadout`) ── */
+
+  /** Snapshot for the save file: slots + bag placements + quick slots as bag indices. */
+  private captureLoadoutSave(): LoadoutSave {
+    const slots: LoadoutSave['slots'] = {};
+    for (const s of LOADOUT_SLOTS) { const it = this.loadout[s]; if (it) slots[s] = serializeExtras(it); }
+    const placements = this.bag.items();
+    const quick = this.quickSlots.map((uid) => {
+      if (uid === null) return null;
+      const i = placements.findIndex((p) => p.item.uid === uid);
+      return i >= 0 ? i : null;
+    });
+    return { v: LOADOUT_SAVE_VERSION, slots, bag: placements.map(serializePlacement), quick };
+  }
+
+  /**
+   * Fill the slots / bag / quick slots from the save (init only, no events). A missing / empty save leaves
+   * everything empty so `hub:entered` hands out the starter kit as before. Unknown defs and items that no longer
+   * fit are dropped with a warning; a wrong-category slot entry is ignored.
+   */
+  private restoreLoadoutSave(): boolean {
+    const save = loadLoadoutSave();
+    if (!save || isEmptyLoadoutSave(save)) return false;
+    const getDef = (id: string): ItemDef | undefined => ITEM_DEF_MAP.get(id);
+    const loadout: Loadout = { primary: null, primary2: null, secondary: null, bag: null, armor: null };
+    for (const slot of LOADOUT_SLOTS) {
+      const item = reviveItem(save.slots[slot], getDef, this.loot, 'Loadout');
+      if (!item) continue;
+      const def = ITEM_DEF_MAP.get(item.defId);
+      if (!def || !slotAccepts(def, slot)) { console.warn(`[Loadout] '${item.defId}' cannot sit in slot ${slot} — dropped`); continue; }
+      loadout[slot] = item;
+    }
+    this.loadout = loadout;
+    const size = this.bagSizeOf(loadout.bag);
+    this.bag.clear();
+    this.bag.resize(size.cols, size.rows);
+    const revived: (ItemInstance | null)[] = [];
+    const pending: ItemInstance[] = [];
+    for (const sv of save.bag) {
+      const item = reviveItem(sv, getDef, this.loot, 'Loadout');
+      revived.push(item);
+      if (!item) continue;
+      const cell = savedCell(sv);
+      if (cell && this.bag.place(item, cell.x, cell.y, !!sv.rotated)) continue;
+      pending.push(item);
+    }
+    for (const item of pending) {
+      if (!this.bag.autoPlace(item)) { console.warn(`[Loadout] no room for '${item.defId}' on load — discarded`); revived[revived.indexOf(item)] = null; }
+    }
+    // quick slots: bag index → uid (locked slots keep their assignment, as they do in a session)
+    this.quickSlots = createQuickSlots();
+    save.quick.forEach((idx, i) => {
+      const item = idx === null ? null : revived[idx];
+      if (!item || !this.bag.has(item.uid) || !isQuickUsable(getDef(item.defId))) return;
+      assignQuickSlot(this.quickSlots, i, item.uid);
+    });
+    this.announcePending = true;
+    return true;
+  }
+
+  /** First `hub:entered` after a restored save: tell every consumer (they subscribed after our init). */
+  private announceLoaded(): void {
+    this.announcePending = false;
+    this.lastEquipUids = {}; this.lastWeight = null;
+    this.lastGrenades = -1; this.lastStims = -1; this.lastQuickSig = '';
+    this.ctx.bus.emit('inventory:bagChanged', { ...this.getBagSize(), dropped: [] });
     this.emitLoadout();
     this.afterChange();
   }
@@ -274,6 +358,9 @@ export class InventorySystem implements GameSystem, InventoryRef {
     this.ctx.bus.emit('inventory:bagChanged', { ...size, dropped: [] });
     this.emitLoadout();
     this.afterChange();
+    // Phase 5: persist the starter right away so a reload cannot bring back a bag lost to death / abort
+    this.announcePending = false;
+    this.loadoutStore.saveNow('starter');
   }
 
   /* ── InventoryRef ──────────────────────────────────────────────────────── */
@@ -1199,8 +1286,10 @@ export class InventorySystem implements GameSystem, InventoryRef {
   }
 
   openContainer(containerId: string, tier: number, position: THREE.Vector3): void {
+    const first = !this.containers.get(containerId);
     const c = this.containers.getOrCreate(containerId, tier, position, this.loot, this.missionSeed);
     this.showContainer(c);
+    this.ctx.bus.emit('inventory:containerOpened', { containerId, first });
   }
 
   /**
@@ -1209,8 +1298,10 @@ export class InventorySystem implements GameSystem, InventoryRef {
    * overflow dropped with a warning); a known id shows what is left. Title defaults to `컨테이너`.
    */
   openContainerItems(containerId: string, items: ItemInstance[], position: THREE.Vector3, title?: string): void {
+    const first = !this.containers.get(containerId);
     const c = this.containers.getOrCreateWithItems(containerId, items, position, title);
     this.showContainer(c);
+    this.ctx.bus.emit('inventory:containerOpened', { containerId, first });
   }
 
   private showContainer(c: Container): void {
@@ -1238,17 +1329,90 @@ export class InventorySystem implements GameSystem, InventoryRef {
   getStash(): Grid { return this.stash.grid; }
   getStashItems(): ItemInstance[] { return this.stash.items(); }
 
-  /* ── Phase 5 skeleton (2026-09-06): stubs until the inventory agent implements corp-shop access ── */
-  findItemAnywhere(uid: string): ItemInstance | null { return this.findItem(uid) ?? this.stash.grid.get(uid)?.item ?? null; }
-  tryAddToStash(_item: ItemInstance): boolean { return false; }
-  tryAddItemAnywhere(item: ItemInstance): 'bag' | 'stash' | null { return this.tryAddItem(item) ? 'bag' : null; }
-  takeItem(_uid: string, _qty?: number): number { return 0; }
+  /* ── Phase 5: corp shop / stash access (InventoryRef) ─────────────────── */
+
+  /** Bag → slots → sockets of owned weapons → stash (incl. sockets of stashed weapons). */
+  findItemAnywhere(uid: string): ItemInstance | null {
+    const owned = this.findItem(uid);
+    if (owned) return owned;
+    const stashed = this.stash.grid.get(uid)?.item;
+    if (stashed) return stashed;
+    const stashWeapons = this.stash.items().filter((it) => isWeaponItemDef(ITEM_DEF_MAP.get(it.defId)));
+    return findSocketed(stashWeapons, uid)?.item ?? null;
+  }
+
+  /** Auto-place a fresh instance in the stash (merging into stacks first). Persists + `inventory:stashChanged`. */
+  tryAddToStash(item: ItemInstance): boolean {
+    if (!ITEM_DEF_MAP.has(item.defId)) return false;
+    if (!this.stash.grid.autoPlace(item)) return false;
+    this.afterChange();
+    return true;
+  }
+
+  /** Bag first (`inventory:itemAdded`), then the stash. No `inventory:full` — the caller (corp shop) reports. */
+  tryAddItemAnywhere(item: ItemInstance): 'bag' | 'stash' | null {
+    const def = ITEM_DEF_MAP.get(item.defId);
+    if (!def) return null;
+    if (this.bag.autoPlace(item)) {
+      this.ctx.bus.emit('inventory:itemAdded', { item, name: def.name, rarity: def.rarity });
+      this.afterChange();
+      return 'bag';
+    }
+    if (this.stash.grid.autoPlace(item)) { this.afterChange(); return 'stash'; }
+    return null;
+  }
+
+  /**
+   * Remove `qty` units (default: all) of bag / stash stack `uid` without a world drop (corp sale). Equipped gear,
+   * socketed attachments and crate contents are refused (0). A bag stack that hits 0 leaves through the usual
+   * path (`inventory:itemRemoved`, its wheel slot relinked / cleared); the stash persists through `afterChange`.
+   */
+  takeItem(uid: string, qty?: number): number {
+    const found = this.locateInGrids(uid);
+    if (!found || found.gridId === 'container') return 0;
+    const { item, grid, gridId } = found;
+    const want = qty === undefined ? item.qty : Math.floor(qty);
+    if (!Number.isFinite(want) || want < 1) return 0;
+    const n = Math.min(want, item.qty);
+    item.qty -= n;
+    if (item.qty <= 0) {
+      if (gridId === 'bag') this.removeEmptyStack(item);
+      else grid.remove(item.uid);
+    } else {
+      grid.version++;
+    }
+    this.afterChange();
+    return n;
+  }
 
   /** 캐릭터 tab: hand over to progression's character sheet (it owns its own blocker token). */
   openCharacter(): void {
     if (!this.ctx.progression) { this.ctx.bus.emit('ui:notify', { text: '캐릭터 정보를 사용할 수 없습니다', kind: 'warning' }); return; }
     this.closeAll(false);
     this.ctx.bus.emit('ui:statsToggled', { open: true });
+  }
+
+  /**
+   * 기업 tab (Phase 5): close the window, then hand over to the corp screen (`ctx.meta.openCorpMenu`, blocker
+   * `'corp'`). Ship only. Without a meta system — or when it does not open anything — a warning toast and the
+   * pointer lock come back instead.
+   */
+  openCorp(): boolean {
+    const meta = this.ctx.meta;
+    if (!meta || typeof meta.openCorpMenu !== 'function') {
+      this.ctx.bus.emit('ui:notify', { text: '기업 네트워크를 사용할 수 없습니다', kind: 'warning', duration: 2 });
+      return false;
+    }
+    if (!this.ctx.isHubPhase()) {
+      this.ctx.bus.emit('ui:notify', { text: '기업 네트워크는 함선에서만 접속할 수 있습니다', kind: 'warning', duration: 2 });
+      return false;
+    }
+    this.closeAll(false);
+    meta.openCorpMenu();
+    if (meta.isMenuOpen) return true;
+    this.ctx.bus.emit('ui:notify', { text: '기업 네트워크에 접속할 수 없습니다', kind: 'warning', duration: 2 });
+    this.relockLater();
+    return false;
   }
 
   closeAll(relock = true): void {
@@ -1260,12 +1424,16 @@ export class InventorySystem implements GameSystem, InventoryRef {
     this.setOpen(false);
     this.ui?.hide();
     this.ctx.bus.emit('inventory:closed', {});
-    // Re-acquire the pointer when we return to gameplay. The Tab/Esc press (or click) that
-    // closed the window is the user activation Chrome requires for requestPointerLock().
-    // Deferred a microtask so callers that close us right before leaving gameplay
-    // (GameFlow complete/abort → setPhase) are seen by the check.
+    if (relock) this.relockLater();
+  }
+
+  /**
+   * Re-acquire the pointer when we return to gameplay / the ship. The Tab/Esc press (or click) that closed the
+   * window is the user activation Chrome requires for requestPointerLock(). Deferred a microtask so callers that
+   * close us right before leaving gameplay (GameFlow complete/abort → setPhase) are seen by the check.
+   */
+  private relockLater(): void {
     const ctx = this.ctx;
-    if (!relock) return;
     queueMicrotask(() => {
       if (this._open || !(ctx.isGameplayPhase() || ctx.isHubPhase()) || ctx.uiBlockers.size > 0) return;
       if (ctx.player?.isDead ?? false) return;
@@ -1834,6 +2002,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
       this.stash.markDirty();
       this.ctx.bus.emit('inventory:stashChanged', { count: this.stash.count });
     }
+    // Phase 5: every change made in the ship is persisted (debounced); mission changes wait for game:complete
+    if (this.ctx.isHubPhase()) this.loadoutStore.markDirty('hub');
     this.checkLooted();
     this.ui?.refresh();
   }

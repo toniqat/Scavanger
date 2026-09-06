@@ -12,11 +12,14 @@ import { ControlsPanel, KEYBIND_BUTTON_LABEL } from './ControlsPanel';
  * Invite link (`?lobby=CODE` → `ctx.net.inviteCode`): the button reads `초대 수락 · 함선 탑승`; on click we
  * `ensureConnected()` first, then enter the personal ship and `joinLobby(code)` (the hub docks us into the shared ship).
  * A failed connection shows an inline message and falls back to the offline personal ship on the next click.
+ * Phase 5: a `Lv. n` chip (`.lv-chip`) right of the callsign field reads `ctx.progression?.level`, refreshed on show and on
+ * `progress:loaded` / `progress:levelUp`; hidden without a progression system.
  */
 export class TitleMenu extends MenuBase {
   private nameInput: HTMLInputElement;
   private boardBtn: HTMLButtonElement;
   private msg: HTMLElement;
+  private lvChip: HTMLElement;
   private controls: ControlsPanel;
   private busy = false;
   private inviteFailed = false;
@@ -34,6 +37,8 @@ export class TitleMenu extends MenuBase {
     this.nameInput.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') this.board(); });
     this.nameInput.addEventListener('keyup', (e) => e.stopPropagation());
     this.nameInput.addEventListener('change', () => this.applyName());
+    this.lvChip = el('span', { cls: 'lv-chip', text: 'Lv. 1', attrs: { title: '캐릭터 레벨' }, parent: row });
+    this.lvChip.hidden = true;
 
     const actions = el('div', { cls: 'actions', parent: this.frame });
     this.boardBtn = this.button(actions, '함선 탑승', () => this.board(), 'primary');
@@ -51,7 +56,12 @@ export class TitleMenu extends MenuBase {
 
   override bind(ctx: GameContext): void {
     super.bind(ctx);
-    this.unsubs.push(ctx.bus.on('game:phaseChanged', () => this.refresh()));
+    this.unsubs.push(
+      ctx.bus.on('game:phaseChanged', () => this.refresh()),
+      ctx.bus.on('progress:loaded', () => this.refreshLevel()),
+      ctx.bus.on('progress:levelUp', ({ level }) => this.refreshLevel(level)),
+    );
+    this.refreshLevel();
     this.refresh();
   }
 
@@ -59,7 +69,15 @@ export class TitleMenu extends MenuBase {
     if (this.ctx.phase === 'menu') this.show(); else this.hide();
   }
 
+  /** `Lv. n` chip from `ctx.progression.level` (or the level-up payload when the event arrives first). */
+  private refreshLevel(level?: number): void {
+    const lv = level ?? this.ctx.progression?.level;
+    this.lvChip.hidden = lv === undefined;
+    if (lv !== undefined) setText(this.lvChip, `Lv. ${lv}`);
+  }
+
   protected override onShow(): void {
+    this.refreshLevel();
     const net = this.ctx.net;
     if (net && !this.nameInput.value) this.nameInput.value = net.playerName;
     const invite = !!net?.inviteCode && !this.inviteFailed;

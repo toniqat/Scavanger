@@ -5,7 +5,7 @@ import { GeoBatch, HUB_MATS as M, disposeMeshes, yawFromForward } from './GeoBat
 import { BoxInteriorCollider } from './InteriorCollider';
 import { Parts, fixture } from './parts';
 import { Starfield, Planet } from './Starfield';
-import { hydroponics, implantBay, type ShipStations, type StationDef } from './stations';
+import { hydroponics, implantBay, shipComputer, type ShipStations, type StationDef } from './stations';
 import { TextPlane } from '../Labels';
 import { AIRLOCK, CEIL, COCKPIT, CORRIDOR, DOOR_HEIGHT, DOOR_WIDTH, ROOM_BOXES, ROOMS_PER_SIDE, SEGMENT, WALL, type RoomBox } from './RoomLayout';
 import type { PodSlotDef, RoomDef, ShipInterior, TerminalDef, WorkbenchDef } from './types';
@@ -28,6 +28,7 @@ export class PersonalShip implements ShipInterior {
   readonly pods: PodSlotDef[] = [];
   readonly terminal: TerminalDef;
   readonly workbench: WorkbenchDef;
+  readonly computer: StationDef;
   readonly stations: ShipStations;
   readonly rooms: RoomDef[] = [];
   readonly facility: StationDef;
@@ -110,7 +111,7 @@ export class PersonalShip implements ShipInterior {
     b.box(0.5, 0.1, 0.4, C.minX + 0.55, 0.7, -2.05, M.padding);
     col.addBox(C.minX + 0.55, 0, -1.2, 1.0, 0.7, 2.1);
 
-    // +X wall (front → back): weapon workbench, crates, launch pod
+    // +X wall (front → back): weapon workbench, ship computer, launch pod
     const faceNegX = yawFromForward(-1, 0);
     const wb = P.workbench(C.maxX - 0.55, -4.9, faceNegX);
     this.workbench = { position: wb.position, yaw: wb.yaw };
@@ -120,7 +121,15 @@ export class PersonalShip implements ShipInterior {
     wbSign.set(['정비'], '#9be8ff', 'rgba(6,8,10,0.85)');
     r.add(wbSign.mesh);
     this.screens.push(wbSign);
-    P.crates(C.maxX - 0.4, -3.0, 3, Math.PI / 2);
+    // 함선 컴퓨터 (기업 네트워크): desk between the workbench and the pod socket, monitors facing −X
+    const cp = shipComputer(b, col, C.maxX - 0.35, -3.1, faceNegX);
+    const cScreen = new TextPlane(0.56, 0.34, 256, false);
+    cScreen.mesh.position.copy(cp.screenPos);
+    cScreen.mesh.rotation.copy(cp.screenRot);
+    cScreen.set(['기업 네트워크', '접속 대기'], '#7cf07a', 'rgba(4,14,10,1)', '#9fd8b0');
+    r.add(cScreen.mesh);
+    this.screens.push(cScreen);
+    this.computer = { position: cp.position, yaw: cp.yaw };
     // pod socket: floor plate, rear frame, side lips + toggleable door blocker (cell stays walkable, see README)
     const px = C.maxX - 1.0, pz = -1.2;
     b.box(2.0, 0.06, 2.0, px, 0.03, pz, M.hullDark);
@@ -177,6 +186,7 @@ export class PersonalShip implements ShipInterior {
     b.box(1.8, 0.04, 0.18, 0, CEIL - 0.03, (A.minZ + A.maxZ) / 2, M.stripRed);
     P.walls(A, WALL, { n: { lo: A.minX, hi: A.maxX, y0: 0, y1: CEIL } });
     P.lockers(A.minX + 0.27, 26.4, 3, yawFromForward(1, 0));
+    P.crates(A.maxX - 0.36, 26.4, 3, Math.PI / 2);      // supply crates (moved out of the cockpit for the computer desk)
     b.box(1.6, 2.6, 0.08, 0, 1.3, A.maxZ - 0.05, M.hullDark);
     b.box(0.04, 2.4, 0.1, 0, 1.3, A.maxZ - 0.08, M.trim);
     b.box(1.7, 0.1, 0.12, 0, 2.65, A.maxZ - 0.06, M.stripRed);

@@ -57,7 +57,9 @@ export const TEXT = {
   /* hub screen (2026-09-06) */
   stash: '함선 창고',
   stashHint: '가방 ↔ 창고: 드래그 또는 우클릭. 창고는 함선에 보관되어 임무·사망 후에도 유지됩니다.',
-  tabs: { inventory: '인벤토리', character: '캐릭터', corp: '기업', corpSoon: '기업 · 계약 · 퀘스트는 준비 중입니다' },
+  tabs: { inventory: '인벤토리', character: '캐릭터', corp: '기업', corpHint: '기업 네트워크: 상점 · 계약 · 퀘스트' },
+  /* Phase 5: credits readout on the ship screen */
+  credits: { eyebrow: 'CREDITS', value: (n: number): string => `크레딧 ${Math.max(0, Math.floor(n)).toLocaleString('ko-KR')}`, none: '크레딧 —' },
   implant: {
     slot: '전술 임플란트',
     empty: '비어 있음 · 클릭해 장착',

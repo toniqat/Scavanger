@@ -1,5 +1,5 @@
 import type { GameContext } from '@/shared';
-import { WEIGHT_STATE_LABEL_KO } from '@/shared';
+import { CONTRACT_DEFS, QUEST_DEFS, WEIGHT_STATE_LABEL_KO } from '@/shared';
 import { el, escapeHtml, rarityColor } from '../dom';
 import { stratagemDef } from './stratagemGlyphs';
 
@@ -154,6 +154,30 @@ export class Notifications {
         if (!id) { this.push('전술 임플란트 해제', 'info', '임플란트', 2.5); return; }
         const name = ctx.implants?.getDef(id)?.name ?? id;
         this.push(`전술 임플란트 장착: <b>${escapeHtml(name)}</b>`, 'info', '임플란트', 3);
+      }),
+      /* ── Phase 5: corporations (short lines; the credits chip / rep / contract toasts live in MetaToasts) ── */
+      b.on('meta:questChanged', ({ id, state }) => {
+        if (state !== 'complete') return;
+        const name = QUEST_DEFS.find((q) => q.id === id)?.name ?? id;
+        this.push(`퀘스트 완료 · <b>${escapeHtml(name)}</b>`, 'success', '퀘스트', 4);
+      }),
+      b.on('meta:contractAccepted', ({ id }) => {
+        const name = CONTRACT_DEFS.find((c) => c.id === id)?.name ?? id;
+        this.push(`계약 수락 · <b>${escapeHtml(name)}</b>`, 'info', '계약', 3);
+      }),
+      b.on('meta:contractAbandoned', ({ id }) => {
+        const name = CONTRACT_DEFS.find((c) => c.id === id)?.name ?? id;
+        this.push(`계약 포기 · <b>${escapeHtml(name)}</b>`, 'warning', '계약', 3);
+      }),
+      b.on('meta:purchase', ({ defId, price, placed }) => {
+        const def = ctx.loot?.getItemDef(defId);
+        const where = placed === 'stash' ? ' <span style="color:var(--c-text-dim)">(창고)</span>' : '';
+        this.push(`구매: <b style="color:${rarityColor(def?.rarity ?? 'common')}">${escapeHtml(def?.name ?? defId)}</b> · −${price.toLocaleString('ko-KR')} 크레딧${where}`, 'info', '상점', 3);
+      }),
+      b.on('meta:sale', ({ defId, qty, credits }) => {
+        const def = ctx.loot?.getItemDef(defId);
+        const q = qty > 1 ? ` <span style="color:var(--c-text-dim)">×${qty}</span>` : '';
+        this.push(`판매: <b style="color:${rarityColor(def?.rarity ?? 'common')}">${escapeHtml(def?.name ?? defId)}</b>${q} · +${credits.toLocaleString('ko-KR')} 크레딧`, 'success', '상점', 3);
       }),
       b.on('game:abort', () => this.clear()),
     );

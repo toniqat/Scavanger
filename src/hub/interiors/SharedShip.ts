@@ -4,7 +4,7 @@ import { GeoBatch, HUB_MATS as M, disposeMeshes, yawFromForward } from './GeoBat
 import { BoxInteriorCollider } from './InteriorCollider';
 import { Parts, fixture } from './parts';
 import { Starfield, Planet } from './Starfield';
-import { hydroponics, implantBay, repairBench, type ShipStations } from './stations';
+import { hydroponics, implantBay, repairBench, shipComputer, type ShipStations, type StationDef } from './stations';
 import { TextPlane } from '../Labels';
 import type { PodSlotDef, ShipInterior, TerminalDef, WorkbenchDef } from './types';
 
@@ -31,6 +31,7 @@ export class SharedShip implements ShipInterior {
   readonly pods: PodSlotDef[] = [];
   readonly terminal: TerminalDef;
   readonly workbench: WorkbenchDef;
+  readonly computer: StationDef;
   readonly stations: ShipStations;
 
   private meshes: THREE.Mesh[] = [];
@@ -92,6 +93,15 @@ export class SharedShip implements ShipInterior {
     screen.mesh.rotation.copy(c.screenRot);
     r.add(screen.mesh);
     this.terminal = { position: new THREE.Vector3(tx + 0.9, 0, tz), yaw: termYaw, screen };
+    // 함선 컴퓨터 (기업 네트워크): forward-port corner of the bridge, against the −Z wall, monitors facing +Z
+    const cp = shipComputer(b, col, -11.0, ROOM.minZ + 0.35, Math.PI);
+    const cScreen = new TextPlane(0.56, 0.34, 256, false);
+    cScreen.mesh.position.copy(cp.screenPos);
+    cScreen.mesh.rotation.copy(cp.screenRot);
+    cScreen.set(['기업 네트워크', '접속 대기'], '#7cf07a', 'rgba(4,14,10,1)', '#9fd8b0');
+    r.add(cScreen.mesh);
+    this.screens.push(cScreen);
+    this.computer = { position: cp.position, yaw: cp.yaw };
 
     // ── launch bay (−Z wall): 4 pod sockets ──
     b.box(ROOM.maxX - ROOM.minX - 2, 0.06, 3.2, 0, 0.03, ROOM.minZ + 1.6, M.hullDark);   // bay plate

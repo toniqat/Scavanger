@@ -1,7 +1,9 @@
 // Smoke test for the personal-ship rooms + 3D housing mode (함선 꾸미기, hub folder, 2026-09-06):
 // cockpit → corridor → 10 rooms, room tracking (`currentRoom` / `hub:roomEntered`), door consoles, the facility
 // console, the terminal without a seed section, housing mode (camera override, cursor from mouse deltas, ghost,
-// LMB place, X recover, Esc exit) and placed furniture (mesh under the room group, collider push-out, interactable).
+// LMB place, X recover, Esc exit), placed furniture (mesh under the room group, collider push-out, interactable) and the
+// ship computer (Phase 5: `hub_computer` → corp screen `ui:corpToggled` or the fallback warning toast, Esc, desk collider,
+// `크레딧` line on the terminal screen).
 // Usage: node scripts/smoke-ship-rooms.mjs [http://localhost:5273/]   (needs `npm run dev`)
 // Works against the real `ctx.housing` when it is implemented and falls back to faking the housing events otherwise.
 import puppeteer from 'puppeteer-core';
@@ -44,6 +46,19 @@ try {
   await page.evaluateOnNewDocument(() => {
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
+    // Park vite's HMR socket (a save in another editor would full-reload the page mid-run); the relay socket is untouched.
+    const RealWS = window.WebSocket;
+    class QuietSocket extends EventTarget {
+      constructor(url) { super(); this.url = String(url); this.readyState = 0; this.protocol = ''; this.binaryType = 'blob'; }
+      send() {} close() {}
+    }
+    window.WebSocket = new Proxy(RealWS, {
+      construct(target, args) {
+        const protos = Array.isArray(args[1]) ? args[1] : [args[1]];
+        if (protos.includes('vite-hmr')) return new QuietSocket(args[0]);
+        return new target(...args);
+      },
+    });
   });
   page.on('pageerror', (e) => errors.push(String(e)));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
@@ -62,7 +77,7 @@ try {
     window.__ev = {};
     const bus = window.__game.ctx.bus;
     for (const n of ['hub:entered', 'hub:roomEntered', 'housing:modeChanged', 'housing:cursorChanged', 'housing:furniturePlaced',
-      'housing:furnitureRecovered', 'housing:selectionChanged', 'ui:housingToggled', 'hub:left']) {
+      'housing:furnitureRecovered', 'housing:selectionChanged', 'ui:housingToggled', 'hub:left', 'ui:corpToggled', 'ui:notify', 'ui:hubMenuToggled']) {
       window.__ev[n] = [];
       bus.on(n, (p) => { window.__ev[n].push(JSON.parse(JSON.stringify(p, (k, v) => (v && v.isVector3) ? [v.x, v.y, v.z] : v))); });
     }
@@ -103,7 +118,7 @@ try {
     return { ship: ctx.hub.ship, ids, lights, roomGroups, pos: [ctx.player.position.x, ctx.player.position.z], room: ctx.hub.currentRoom };
   });
   ok(ship.ship === 'personal' && Math.abs(ship.pos[0]) < 0.01 && Math.abs(ship.pos[1] + 1.8) < 0.05, `spawned in the cockpit at (${ship.pos.map((n) => n.toFixed(2))})`);
-  for (const id of ['hub_terminal', 'hub_workbench', 'hub_implant_bay', 'hub_garden', 'hub_pod_0']) ok(ship.ids.includes(id), `cockpit interactable ${id} registered`);
+  for (const id of ['hub_terminal', 'hub_workbench', 'hub_implant_bay', 'hub_garden', 'hub_pod_0', 'hub_computer']) ok(ship.ids.includes(id), `cockpit interactable ${id} registered`);
   ok(ship.ids.includes('hub_facility'), 'facility console hub_facility registered');
   const roomIds = ship.ids.filter((i) => /^hub_room_\d$/.test(i));
   ok(roomIds.length === 10, `10 room consoles hub_room_0..9 registered (${roomIds.length})`);
@@ -127,6 +142,68 @@ try {
   await tap('Escape');
   await waitFor(page, () => document.querySelector('.menu.hub-menu').hidden, 'terminal closed');
   await waitSim(0.2);
+
+  /* ── 2b. ship computer (기업 네트워크) ───────────────────────────────── */
+  console.log('ship computer');
+  const comp = await page.evaluate(() => {
+    const it = window.__game.ctx.interactables.all().find((i) => i.id === 'hub_computer');
+    return it ? { pos: [it.position.x, it.position.z], radius: it.radius, prompt: it.getPrompt(), can: it.canInteract(), hold: it.holdTime ?? 0 } : null;
+  });
+  ok(!!comp && comp.prompt === '기업 네트워크' && comp.radius === 2.2 && comp.hold === 0, `hub_computer: prompt ${comp?.prompt}, radius ${comp?.radius}, instant`);
+  ok(!!comp && comp.pos[0] > 2.5 && comp.pos[0] < 4.5 && comp.pos[1] > -4 && comp.pos[1] < -2.2, `anchor on the +X wall between the workbench and the pod (${comp?.pos.map((n) => n.toFixed(2))})`);
+  // desk collider (desk + chair box x 3.83 … 4.98): a 0.45 m circle just inside the front edge is pushed back into the room
+  const deskPush = await page.evaluate(() => {
+    const col = window.__game.ctx.player.interior;
+    const v = window.__game.ctx.player.position.clone(); v.set(4.0, 0, -3.1);
+    col.resolveCollision(v, 0.45);
+    return [v.x, v.z];
+  });
+  ok(deskPush[0] < 3.9 && deskPush[0] > 3.0, `desk collider pushes a circle out toward the room (${deskPush.map((n) => n.toFixed(2))})`);
+  // terminal screen carries a 크레딧 line (meta) — read the TextPlane's last drawn key
+  const screenText = () => page.evaluate(() => window.__game.getSystem('hub').terminal?.def.screen.last ?? '');
+  const hasMeta = await page.evaluate(() => !!window.__game.ctx.meta && typeof window.__game.ctx.meta.credits === 'number');
+  if (hasMeta) {
+    const c0 = await page.evaluate(() => window.__game.ctx.meta.credits);
+    ok((await screenText()).includes(`크레딧 ${c0.toLocaleString('ko-KR')}`), `terminal screen shows 크레딧 ${c0}`);
+    const c1 = await page.evaluate(() => { const m = window.__game.ctx.meta; m.addCredits(100, 'smoke'); return m.credits; });
+    if (c1 !== c0) {
+      await page.evaluate((c) => window.__game.ctx.bus.emit('meta:creditsChanged', { credits: c, delta: 100, reason: 'smoke' }), c1);
+      await waitSim(0.1);
+      ok((await screenText()).includes(`크레딧 ${c1.toLocaleString('ko-KR')}`), `meta:creditsChanged refreshes the screen (크레딧 ${c1})`);
+      await page.evaluate(() => window.__game.ctx.meta.addCredits(-100, 'smoke'));
+    } else console.log('  (meta.addCredits is a stub — refresh check skipped)');
+  } else console.log('  (ctx.meta missing — 크레딧 line skipped)');
+  // stand at the anchor facing the desk (+X) and press E
+  await teleport(comp.pos[0], comp.pos[1], -Math.PI / 2);
+  await waitSim(0.3);
+  const best = await page.evaluate(() => { const p = window.__game.ctx.player; return window.__game.ctx.interactables.findBest(p.position)?.id ?? null; });
+  ok(best === 'hub_computer', `findBest at the anchor is hub_computer (${best})`);
+  await tap('KeyE');
+  await waitSim(0.3);
+  const used = await page.evaluate(() => ({
+    corp: window.__ev['ui:corpToggled'].slice(), toasts: window.__ev['ui:notify'].filter((n) => /기업 네트워크/.test(n.text)),
+    metaOpen: !!window.__game.ctx.meta?.isMenuOpen, blockers: [...window.__game.ctx.uiBlockers],
+  }));
+  const corpOpened = used.corp.some((e) => e.open) || used.metaOpen;
+  if (corpOpened) {
+    ok(used.metaOpen, `E opened the corp screen (ui:corpToggled ${JSON.stringify(used.corp[used.corp.length - 1])}, blockers ${used.blockers.join(',')})`);
+    ok((await page.evaluate(() => window.__game.ctx.interactables.all().find((i) => i.id === 'hub_terminal').canInteract())) === false, 'terminal not interactable while the corp screen is open');
+    await tap('Escape');
+    await waitSim(0.3);
+    const closed = await page.evaluate(() => ({ metaOpen: !!window.__game.ctx.meta?.isMenuOpen, corp: window.__ev['ui:corpToggled'].slice(-1)[0], hubMenu: !document.querySelector('.menu.hub-menu').hidden, blockers: [...window.__game.ctx.uiBlockers] }));
+    ok(!closed.metaOpen && closed.corp?.open === false, `Esc closed the corp screen (${JSON.stringify(closed.corp)})`);
+    ok(!closed.hubMenu && closed.blockers.length === 0, `terminal menu stayed closed after Esc (blockers ${closed.blockers.join(',') || 'none'})`);
+  } else {
+    console.log('  (ctx.meta.openCorpMenu is a stub — checking the fallback toast)');
+    ok(used.toasts.length >= 1 && used.toasts[0].kind === 'warning', `E emitted the fallback warning toast (${used.toasts[0]?.text})`);
+    ok(used.blockers.length === 0, 'no blocker left behind by the fallback');
+  }
+  ok((await page.evaluate(() => window.__game.ctx.interactables.all().find((i) => i.id === 'hub_computer').canInteract())) === true, 'computer usable again afterwards');
+  // a player standing in the front edge of the desk is pushed back into the room
+  await teleport(4.0, -3.1, 0);
+  await waitSim(0.5);
+  const inDesk = await playerPos();
+  ok(inDesk[0] < 3.9 && inDesk[0] > 3.0, `player spawned in the desk edge is pushed out into the room (${inDesk[0].toFixed(2)}, ${inDesk[2].toFixed(2)})`);
 
   /* ── 3. corridor → room 0: walking through the door, room tracking ──── */
   console.log('rooms');
@@ -305,6 +382,7 @@ try {
   await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub phase (again)');
   await waitSim(0.3);
   ok((await page.evaluate(() => window.__game.ctx.interactables.all().filter((i) => /^hub_room_\d$/.test(i.id)).length)) === 10, 're-entering rebuilds the ten room consoles');
+  ok((await page.evaluate(() => window.__game.ctx.interactables.all().some((i) => i.id === 'hub_computer'))) === true, 're-entering re-registers hub_computer');
 
   ok(errors.length === 0, 'no console errors', errors.slice(0, 6).join(' | '));
 } catch (e) {

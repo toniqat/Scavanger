@@ -58,6 +58,8 @@ export interface ShipInterior {
   readonly pods: PodSlotDef[];
   readonly terminal: TerminalDef;
   readonly workbench: WorkbenchDef;
+  /** 함선 컴퓨터 (Phase 5): interaction anchor in front of the desk (`hub_computer` → 기업 네트워크). */
+  readonly computer: StationDef;
   /** 함선 시설 (tactical kit): 수경 재배 / 정비대 / 임플란트 시술대 anchors. */
   readonly stations: ShipStations;
   /** 함선 꾸미기 (personal ship only): the ten rooms and the cockpit facility console (`hub_facility`). */

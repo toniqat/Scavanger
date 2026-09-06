@@ -1,10 +1,13 @@
 import type { GameContext, MissionStats } from '@/shared';
 import { el, fmtTime, fmtInt, setText } from '../dom';
 import { MenuBase } from './MenuBase';
+import { RewardsBlock } from './RewardsBlock';
 
 /**
  * Extraction summary: loot value counts up, kills / crates / time. `함선으로 귀환` (primary) → `hub:enter {ship}`
  * (shared while in a lobby); `다시 배치` (same seed) only in single-player.
+ * Phase 5: a `RewardsBlock` (XP count-up, level, XP bar, contract line) between the stats and the actions, shown only
+ * when `stats.rewards` is present.
  */
 export class MissionComplete extends MenuBase {
   private vals: Record<string, HTMLElement> = {};
@@ -15,6 +18,7 @@ export class MissionComplete extends MenuBase {
   private counting = false;
   private lastLootText = '';
   private redeployBtn: HTMLButtonElement;
+  private rewards: RewardsBlock;
 
   constructor(parent: HTMLElement) {
     super(parent, 'complete');
@@ -33,6 +37,8 @@ export class MissionComplete extends MenuBase {
       this.vals[k] = el('span', { cls: 'v', text: '0', parent: s });
     }
 
+    this.rewards = new RewardsBlock(this.frame);
+
     const actions = el('div', { cls: 'actions', parent: this.frame });
     this.button(actions, '함선으로 귀환', () => this.ctx.bus.emit('hub:enter', { ship: this.ctx.net?.lobby ? 'shared' : 'personal' }), 'primary');
     this.redeployBtn = this.button(actions, '다시 배치 (같은 시드)', () => this.ctx.bus.emit('game:newMission', { seed: this.seed }));
@@ -40,6 +46,7 @@ export class MissionComplete extends MenuBase {
 
   override bind(ctx: GameContext): void {
     super.bind(ctx);
+    this.rewards.bind(ctx);
     this.unsubs.push(
       ctx.bus.on('game:complete', ({ stats }) => { this.fill(stats); this.show(); }),
       ctx.bus.on('game:phaseChanged', ({ phase }) => { if (phase !== 'complete') this.hide(); }),
@@ -58,10 +65,18 @@ export class MissionComplete extends MenuBase {
     this.countTimer = 0;
     this.counting = true;
     setText(this.vals.loot, '0');
+    this.rewards.fill(s.rewards, 'complete');
   }
 
+  protected override onHide(): void { this.rewards.stop(); }
+
+  /** The XP settlement block (debug). */
+  get rewardsBlock(): RewardsBlock { return this.rewards; }
+
   update(dt: number): void {
-    if (!this.visible || !this.counting) return;
+    if (!this.visible) return;
+    this.rewards.update(dt);
+    if (!this.counting) return;
     this.countTimer += dt;
     const dur = 1.6;
     const t = Math.min(1, (this.countTimer - 0.4) / dur);

@@ -1593,3 +1593,81 @@ input { font: inherit; color: inherit; }
 .weapon .mode { display: flex; align-items: center; gap: 6px; font-size: 10px; letter-spacing: 0.08em; }
 .weapon .mode .mk { font-family: var(--ui-mono); font-size: 9px; color: var(--c-text-faint); border: 1px solid var(--c-border); padding: 0 4px; }
 .weapon .mode .mv { color: var(--c-text-dim); }
+
+/* ═══ Phase 5 (2026-09-06): corporations — result-screen XP settlement, contract panel, meta toasts, title level chip ═══ */
+/* Result screens: XP settlement block (menus/RewardsBlock) between the stats and the actions */
+.menu .rewards {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 12px 14px; border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03);
+}
+.menu .rewards .xp-row { display: flex; align-items: baseline; gap: 12px; }
+.menu .rewards .xp-gain { font-family: var(--ui-mono); font-variant-numeric: tabular-nums; font-size: 22px; font-weight: 600; color: var(--c-accent); }
+.menu .rewards .lv { margin-left: auto; font-size: 13px; font-weight: 600; letter-spacing: 0.08em; color: var(--c-text-dim); transition: color var(--t-med) var(--ease); }
+.menu .rewards.up .lv { color: var(--c-accent); text-shadow: 0 0 10px rgba(255, 179, 71, 0.55); }
+.menu .rewards .up-badge {
+  font-size: 9px; letter-spacing: 0.2em; padding: 2px 6px;
+  border: 1px solid var(--c-accent); color: var(--c-accent); background: rgba(255, 179, 71, 0.12);
+  animation: rewardsUp 500ms var(--ease);
+}
+@keyframes rewardsUp { 0% { opacity: 0; transform: scale(1.4); } 100% { opacity: 1; transform: none; } }
+.menu .rewards .xp-bar { position: relative; height: 4px; background: var(--c-fill); overflow: hidden; }
+.menu .rewards .xp-bar .fill { position: absolute; inset: 0; background: var(--c-accent); transform-origin: left; transform: scaleX(0); will-change: transform; }
+.menu .rewards.up .xp-bar .fill { box-shadow: 0 0 8px rgba(255, 179, 71, 0.7); }
+.menu .rewards .xp-num { font-family: var(--ui-mono); font-variant-numeric: tabular-nums; font-size: 11px; color: var(--c-text-dim); }
+.menu .rewards .contract-line { font-size: 12px; letter-spacing: 0.02em; padding-top: 6px; border-top: 1px solid var(--c-border); color: var(--c-text-dim); }
+.menu .rewards .contract-line.success { color: var(--c-success); }
+.menu .rewards .contract-line.keep { color: var(--c-text); }
+.menu .rewards .contract-line.lost { color: var(--c-danger); }
+.menu.death .rewards .xp-gain { color: var(--c-text); }
+
+/* Contract panel under the objective (gameplay layer, hud/ContractPanel) */
+.contract-panel {
+  position: absolute; left: 32px; top: 104px;
+  display: flex; flex-direction: column; gap: 4px;
+  width: 240px; padding: 6px 10px 8px;
+  border-left: 2px solid var(--c-border-strong); background: rgba(8, 9, 11, 0.45);
+  opacity: 0; transform: translateX(-8px); pointer-events: none;
+  transition: opacity var(--t-med) var(--ease), transform var(--t-med) var(--ease), border-color var(--t-med) var(--ease);
+  text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+}
+.contract-panel.show { opacity: 1; transform: none; }
+.contract-panel .head { display: flex; align-items: center; gap: 8px; }
+.contract-panel .badge {
+  font-size: 9px; letter-spacing: 0.2em; padding: 1px 5px; margin-left: auto;
+  border: 1px solid var(--c-success); color: var(--c-success);
+  opacity: 0; transform: scale(1.3); transition: opacity var(--t-med) var(--ease), transform var(--t-med) var(--ease);
+}
+.contract-panel.done { border-left-color: var(--c-success); }
+.contract-panel.done .badge { opacity: 1; transform: none; }
+.contract-panel .name { font-size: 13px; font-weight: 600; letter-spacing: 0.02em; }
+.contract-panel .row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 11px; color: var(--c-text-dim); }
+.contract-panel .num { font-family: var(--ui-mono); font-variant-numeric: tabular-nums; color: var(--c-text); }
+.contract-panel.done .num { color: var(--c-success); }
+.contract-panel .bar { position: relative; height: 3px; background: var(--c-fill); overflow: hidden; }
+.contract-panel .bar .fill { position: absolute; inset: 0; background: var(--c-accent); transform-origin: left; transform: scaleX(0); transition: transform var(--t-med) var(--ease); will-change: transform; }
+.contract-panel.done .bar .fill { background: var(--c-success); }
+.contract-panel.pulse { border-left-color: var(--c-accent); animation: contractPulse 900ms var(--ease); }
+@keyframes contractPulse { 0% { background: rgba(255, 179, 71, 0.28); } 100% { background: rgba(8, 9, 11, 0.45); } }
+.hud.spectating .contract-panel { opacity: 0 !important; }
+
+/* Meta toasts share the ProgressToasts column (hud/MetaToasts) */
+.ptoast.credits { font-family: var(--ui-mono); font-variant-numeric: tabular-nums; font-size: 12px; color: var(--c-accent); padding: 3px 12px; }
+.ptoast.credits.minus { color: var(--c-danger); }
+.ptoast.rep { border-color: var(--c-info); background: rgba(127, 183, 230, 0.1); }
+.ptoast.rep .v { color: var(--c-info); }
+.ptoast.contract { flex-direction: column; align-items: center; gap: 2px; padding: 8px 22px; }
+.ptoast.contract .v { font-size: 16px; }
+.ptoast.contract .s { color: var(--c-text-dim); }
+.ptoast.contract.success { border-color: var(--c-success); background: rgba(79, 209, 126, 0.12); }
+.ptoast.contract.success .v, .ptoast.contract.success .k { color: var(--c-success); }
+.ptoast.contract.keep { border-color: var(--c-accent); }
+.ptoast.contract.keep .v { color: var(--c-accent); }
+.ptoast.contract.fail { border-color: var(--c-danger); background: rgba(255, 77, 77, 0.1); }
+.ptoast.contract.fail .v, .ptoast.contract.fail .k { color: var(--c-danger); }
+
+/* Title menu: character level chip beside the callsign field (menus/TitleMenu) */
+.menu.title .lv-chip {
+  display: inline-flex; align-items: center; align-self: stretch;
+  padding: 0 12px; border: 1px solid var(--c-accent); color: var(--c-accent); background: rgba(255, 179, 71, 0.08);
+  font-family: var(--ui-mono); font-variant-numeric: tabular-nums; font-size: 12px; font-weight: 600; letter-spacing: 0.1em; white-space: nowrap;
+}

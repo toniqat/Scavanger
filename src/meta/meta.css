@@ -1,0 +1,102 @@
+/* ── 기업 네트워크 (corp screen, meta/ui/CorpMenu.ts) ───────────────────────────
+ * Reuses `.menu .frame .ui-btn .form-msg` from ui/styles/base.css and `.hub-head .hub-foot` from hub/hub.css.
+ * `--cc` = the selected corp's accent colour (CorpDef.color), set on the frame and on every corp tab. */
+.menu.corp-menu .frame {
+  min-width: 720px; max-width: 900px; width: min(900px, calc(100vw - 48px));
+  max-height: calc(100vh - 48px);
+  padding: 30px 34px 24px;
+  gap: 14px;
+  overflow: hidden;
+}
+.menu.corp-menu .frame::before { left: 0; top: 0; border-color: var(--cc, var(--c-accent)); }
+.menu.corp-menu .frame::after { right: 0; bottom: 0; border-color: var(--cc, var(--c-accent)); }
+
+.corp-credits { display: flex; align-items: baseline; gap: 10px; white-space: nowrap; }
+.corp-credits .k { font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--c-text-dim); }
+.corp-credits .v { font-family: var(--ui-mono); font-size: 26px; font-weight: 600; color: var(--c-accent); }
+.corp-credits .v::after { content: " cr"; font-size: 12px; color: var(--c-text-dim); font-weight: 400; }
+
+/* corp tabs */
+.corp-tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.corp-tab {
+  appearance: none; cursor: pointer; font: inherit;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 9px 12px;
+  border: 1px solid var(--c-border); border-left: 3px solid var(--cc);
+  background: rgba(255, 255, 255, 0.03); color: var(--c-text-dim);
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.corp-tab .name { font-size: 12px; font-weight: 600; letter-spacing: 0.08em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.corp-tab .lv { font-family: var(--ui-mono); font-size: 11px; color: var(--c-text-faint); }
+.corp-tab:hover { color: var(--c-text); background: rgba(255, 255, 255, 0.07); }
+.corp-tab.is-on { color: var(--c-text); border-color: var(--cc); background: color-mix(in srgb, var(--cc) 14%, transparent); box-shadow: 0 0 12px color-mix(in srgb, var(--cc) 30%, transparent); }
+.corp-tab.is-on .lv { color: var(--cc); }
+
+/* banner */
+.corp-banner {
+  display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 18px; align-items: center;
+  padding: 12px 14px;
+  border: 1px solid var(--c-border); border-left: 3px solid var(--cc);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--cc) 10%, transparent), transparent 60%);
+}
+.corp-banner .bl { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.corp-banner .name { font-size: 18px; font-weight: 700; letter-spacing: 0.12em; color: var(--cc); }
+.corp-banner .tag { font-size: 11px; letter-spacing: 0.16em; color: var(--c-text-dim); }
+.corp-banner .desc { font-size: 12px; color: var(--c-text); opacity: 0.85; margin-top: 4px; }
+.corp-banner .br { display: flex; flex-direction: column; gap: 6px; }
+.corp-banner .rep-head { display: flex; justify-content: space-between; align-items: baseline; }
+.corp-banner .rep-head .k { font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--c-text-dim); }
+.corp-banner .rep-head .lv { font-family: var(--ui-mono); font-size: 14px; font-weight: 600; color: var(--cc); }
+.corp-banner .rep-bar { height: 4px; background: rgba(255, 255, 255, 0.1); position: relative; overflow: hidden; }
+.corp-banner .rep-bar i { position: absolute; left: 0; top: 0; height: 100%; width: 100%; transform-origin: left; background: var(--cc); transition: transform var(--t-med) var(--ease); }
+.corp-banner .rep-text { font-family: var(--ui-mono); font-size: 11px; color: var(--c-text-dim); text-align: right; }
+
+/* sub tabs (reuse .scr-tab, but inline instead of the absolute .scr-tabs pill) */
+.corp-subtabs { display: flex; gap: 4px; padding: 4px; border: 1px solid var(--c-border); border-radius: 999px; background: rgba(8, 9, 11, 0.5); align-self: flex-start; }
+
+/* rows */
+.corp-page { min-height: 220px; max-height: min(46vh, 480px); overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; padding-right: 4px; display: flex; flex-direction: column; gap: 6px; }
+.corp-empty { font-size: 12px; color: var(--c-text-faint); letter-spacing: 0.06em; padding: 28px 0; text-align: center; border: 1px dashed var(--c-border); }
+.corp-row {
+  display: grid; grid-template-columns: 38px minmax(0, 1fr) auto auto; gap: 12px; align-items: center;
+  padding: 8px 12px;
+  border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03);
+}
+.corp-row.contract, .corp-row.quest { grid-template-columns: minmax(0, 1fr) auto auto; }
+.corp-row.quest { grid-template-columns: 44px minmax(0, 1fr) auto auto; }
+.corp-row .icon { width: 38px; height: 38px; display: grid; place-items: center; font-size: 20px; border: 1px solid var(--c-border); background: rgba(0, 0, 0, 0.35); }
+.corp-row .mid { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.corp-row .name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.corp-row .name-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.corp-row .sub { font-size: 11px; color: var(--c-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.corp-row .price { font-family: var(--ui-mono); font-size: 13px; color: var(--c-accent); white-space: nowrap; }
+.corp-row .reward { font-size: 11px; color: var(--c-text-dim); white-space: nowrap; text-align: right; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+.corp-row .ui-btn { min-width: 0; height: 34px; padding: 0 16px; font-size: 11px; white-space: nowrap; }
+.corp-row .tag { font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--cc); border: 1px solid color-mix(in srgb, var(--cc) 55%, transparent); padding: 1px 6px; white-space: nowrap; }
+.corp-row .tag.dim { color: var(--c-text-faint); border-color: var(--c-border); }
+.corp-row.blocked { opacity: 0.6; }
+.corp-row.active { border-color: color-mix(in srgb, var(--cc) 55%, transparent); background: color-mix(in srgb, var(--cc) 8%, transparent); }
+.corp-row .goal-bar { height: 4px; background: rgba(255, 255, 255, 0.1); position: relative; overflow: hidden; margin-top: 3px; }
+.corp-row .goal-bar i { position: absolute; left: 0; top: 0; height: 100%; width: 100%; transform-origin: left; background: var(--cc); transition: transform var(--t-med) var(--ease); }
+.corp-row .goal-bar.done i { background: var(--c-success); }
+.corp-row .goal-text { font-family: var(--ui-mono); font-size: 11px; color: var(--c-text-dim); }
+.corp-row .badge { font-size: 9px; letter-spacing: 0.16em; text-transform: uppercase; text-align: center; padding: 3px 0; border: 1px solid var(--c-border); color: var(--c-text-dim); }
+.corp-row.st-available .badge { color: var(--c-accent); border-color: rgba(255, 179, 71, 0.5); }
+.corp-row.st-accepted .badge { color: var(--cc); border-color: color-mix(in srgb, var(--cc) 55%, transparent); }
+.corp-row.st-complete .badge { color: var(--c-success); border-color: rgba(79, 209, 126, 0.45); }
+.corp-row.st-locked { opacity: 0.55; }
+.corp-row .deliver { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.corp-row .dl { font-family: var(--ui-mono); font-size: 11px; color: var(--c-success); border: 1px solid rgba(79, 209, 126, 0.35); padding: 1px 6px; }
+.corp-row .dl.short { color: var(--c-danger); border-color: rgba(255, 90, 70, 0.4); }
+.corp-menu .hub-foot .ui-btn[hidden] { display: none; }
+
+@media (max-width: 900px) {
+  .menu.corp-menu .frame { min-width: 0; padding: 22px 18px; }
+  .corp-tabs { grid-template-columns: 1fr 1fr; }
+  .corp-banner { grid-template-columns: 1fr; }
+  .corp-row, .corp-row.contract, .corp-row.quest { grid-template-columns: minmax(0, 1fr) auto; }
+  .corp-row .icon, .corp-row .badge { display: none; }
+  .corp-row .reward { grid-column: 1 / 2; text-align: left; max-width: none; }
+  .corp-row .price { grid-column: 1 / 2; }
+  .corp-row .ui-btn { grid-column: 2 / 3; grid-row: 1 / span 2; }
+}

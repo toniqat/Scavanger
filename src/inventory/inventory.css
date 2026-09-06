@@ -1075,3 +1075,19 @@ kbd {
 .inv-repair-msg { font-size: 11px; letter-spacing: 0.04em; }
 .inv-repair-msg.is-ok { color: var(--inv-ok); }
 .inv-repair-msg.is-bad { color: color-mix(in srgb, var(--inv-bad) 80%, white 20%); }
+
+/* ═══ Phase 5: 크레딧 readout on the ship screen (top-right, beside the screen tabs) ═══ */
+.inv-credits {
+  position: absolute; right: 28px; top: 22px;
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 16px;
+  border: 1px solid var(--inv-line); border-radius: 999px;
+  background: rgba(8, 9, 11, 0.7);
+  z-index: 3;
+}
+.inv-credits-value {
+  font-variant-numeric: tabular-nums;
+  font-size: 13px; font-weight: 600; letter-spacing: 0.06em;
+  color: var(--inv-accent);
+}
+.inv-credits.is-unavailable .inv-credits-value { color: var(--inv-muted); }
