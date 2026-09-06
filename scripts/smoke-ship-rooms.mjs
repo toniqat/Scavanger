@@ -1,6 +1,6 @@
 // Smoke test for the personal-ship rooms + 3D housing mode (함선 꾸미기, hub folder, 2026-09-06):
-// cockpit → corridor → 10 rooms, room tracking (`currentRoom` / `hub:roomEntered`), door consoles, the facility
-// console, the terminal without a seed section, housing mode (camera override, cursor from mouse deltas, ghost,
+// cockpit → corridor → 10 rooms, room tracking (`currentRoom` / `hub:roomEntered`), the terminal without a seed
+// section, the removed door / facility consoles (Phase 8 UI pass), housing mode (camera override, cursor from mouse deltas, ghost,
 // LMB place, X recover, Esc exit), placed furniture (mesh under the room group, collider push-out, interactable) and the
 // ship computer (Phase 5: `hub_computer` → corp screen `ui:corpToggled` or the fallback warning toast, Esc, desk collider,
 // `크레딧` line on the terminal screen).
@@ -121,13 +121,25 @@ try {
   // Phase 8: the cockpit lost its built-in 정비 벤치 (now 작업실 furniture) and its 수경 재배 rack (now 온실 재배층).
   for (const id of ['hub_terminal', 'hub_implant_bay', 'hub_pod_0', 'hub_computer']) ok(ship.ids.includes(id), `cockpit interactable ${id} registered`);
   for (const id of ['hub_workbench', 'hub_garden']) ok(!ship.ids.includes(id), `cockpit no longer registers ${id}`);
-  ok(ship.ids.includes('hub_facility'), 'facility console hub_facility registered');
+  // Phase 8 UI pass: the door consoles and the cockpit facility console are gone (rooms / facilities live in the
+  // Tab 함선 tab and in 시설 관리), so neither interactable exists any more.
+  ok(!ship.ids.includes('hub_facility'), 'facility console hub_facility removed');
   const roomIds = ship.ids.filter((i) => /^hub_room_\d$/.test(i));
-  ok(roomIds.length === 10, `10 room consoles hub_room_0..9 registered (${roomIds.length})`);
+  ok(roomIds.length === 0, `no room door consoles registered (${roomIds.length})`);
   // Phase 8: + ROOM_LIGHT_POOL (3) lights that re-anchor to the nearest non-empty rooms; the count stays constant.
   ok(ship.lights === 13, `constant point-light count 13 (${ship.lights})`);
   ok(ship.roomGroups === 10, `one furniture group per room (${ship.roomGroups})`);
   ok(ship.room === null, 'currentRoom is null in the cockpit');
+  // Phase 8 UI pass: room 1 is the ship's built-in 작업실 and its two benches start placed in it
+  const room0 = await page.evaluate(() => {
+    const h = window.__game.ctx.housing;
+    return { purpose: h.getRoom(0).purpose, placed: h.getPlaced(0).map((f) => f.defId).sort(), block: h.purposeBlock(0, 'empty'), other: h.purposeBlock(3, 'workshop') };
+  });
+  ok(room0.purpose === 'workshop' && room0.placed.join(',') === 'furn_bench_gun,furn_repair_bench', `room 1 is the built-in 작업실 with both benches placed (${room0.placed.join(',')})`);
+  ok(!!room0.block && !!room0.other, `room 1 cannot be re-purposed and no other room can be a 작업실 (${room0.block} / ${room0.other})`);
+  // the rest of this test walks through an *empty* room 1: send both benches back to furniture storage
+  await page.evaluate(() => { const h = window.__game.ctx.housing; if (h) for (const f of [...h.getPlaced(0)]) h.recover(f.uid); });
+  await waitSim(0.1);
 
   /* ── 2. terminal: no seed section ───────────────────────────────────── */
   // Phase 8: Escape in the ship opens the PAUSE menu now, so the terminal is opened through its interactable.
@@ -236,9 +248,6 @@ try {
   await teleport(3.8, 12.5, 0);
   await waitSim(0.2);
   ok((await page.evaluate(() => window.__game.ctx.hub.currentRoom)) === 7, 'starboard room in segment 2 is room 7 (5..9 = +X front→back)');
-  // room console prompt
-  const prompt0 = await page.evaluate(() => window.__game.ctx.interactables.all().find((i) => i.id === 'hub_room_0').getPrompt());
-  ok(/^방 1 · /.test(prompt0 ?? ''), `hub_room_0 prompt: ${prompt0}`);
 
   /* ── 4. housing mode in room 0 ──────────────────────────────────────── */
   console.log('housing mode');
@@ -274,7 +283,7 @@ try {
   await keyDown('KeyW'); await waitSim(0.6); await keyUp('KeyW');
   const after = await playerPos();
   ok(Math.abs(after[0] - before[0]) < 0.05 && Math.abs(after[2] - before[2]) < 0.05, 'controls disabled in housing mode');
-  ok((await page.evaluate(() => window.__game.ctx.interactables.all().find((i) => i.id === 'hub_room_0').canInteract())) === false, 'room console not interactable while decorating');
+  ok((await page.evaluate(() => window.__game.ctx.interactables.all().find((i) => i.id === 'hub_terminal').canInteract())) === false, 'stations not interactable while decorating');
   // cursor follows pointer-locked mouse deltas
   const cursorN = await page.evaluate(() => window.__ev['housing:cursorChanged'].length);
   await mouseMove(-160, 0);        // −X room: screen right = −Z, so −160 px moves the cursor toward +Z
@@ -355,8 +364,8 @@ try {
   const bench = await page.evaluate((uid) => { const i = window.__game.ctx.interactables.all().find((i) => i.id === `hub_furn_${uid}`); return { prompt: i.getPrompt(), can: i.canInteract() }; }, placedItem.uid);
   ok(bench.can && /총기 작업대 Lv\.1/.test(bench.prompt ?? ''), `bench prompt after exit: ${bench.prompt}`);
   if (real.impl) {
-    const prompt = await page.evaluate(() => window.__game.ctx.interactables.all().find((i) => i.id === 'hub_room_0').getPrompt());
-    ok(prompt === '방 1 · 작업실', `door console follows the purpose: ${prompt}`);
+    const purpose = await page.evaluate(() => window.__game.ctx.housing.getRoom(0).purpose);
+    ok(purpose === 'workshop', `room 1 keeps its 작업실 purpose through housing mode: ${purpose}`);
   }
 
   /* ── 7. recover with X (real rules only) ────────────────────────────── */
@@ -372,12 +381,50 @@ try {
     await waitSim(0.15);
     const over = await page.evaluate(() => ({ ...window.__game.getSystem('hub').housing.cell }));
     ok(over.valid, `cursor over the bench is a valid pick-up target (${over.x},${over.y}; was ${cellNow.x},${cellNow.y})`);
+    // the two built-in benches were already recovered in section 1, so count the events relative to that
+    const recBefore = await page.evaluate(() => window.__ev['housing:furnitureRecovered'].length);
     await tap('KeyX');
     await waitSim(0.2);
     const rec = await page.evaluate(() => ({ ev: window.__ev['housing:furnitureRecovered'].length, count: window.__game.getSystem('hub').furnitureLayer.count, furn: window.__game.ctx.interactables.all().filter((i) => i.id.startsWith('hub_furn_')).length, stored: window.__game.ctx.housing.getStored().length }));
-    ok(rec.ev === 1 && rec.count === 0 && rec.furn === 0, `X recovered the bench (meshes ${rec.count}, interactables ${rec.furn}, storage entries ${rec.stored})`);
+    ok(rec.ev === recBefore + 1 && rec.count === 0 && rec.furn === 0, `X recovered the bench (meshes ${rec.count}, interactables ${rec.furn}, storage entries ${rec.stored})`);
     await tap('Escape');
     await waitSim(0.2);
+  }
+
+  /* ── 7b. 시설 관리 (M): Esc / C leave cleanly (Phase 8 UI pass) ─────── */
+  if (real.impl) {
+    console.log('시설 관리 (M)');
+    await teleport(0, -1.8, 0);
+    await waitSim(0.3);
+    await tap('KeyM');
+    await waitSim(0.4);
+    const mng = await page.evaluate(() => ({
+      manage: window.__game.ctx.housing.shipManageMode, ctrl: window.__game.getSystem('hub').housing.manage,
+      blocker: window.__game.ctx.uiBlockers.has('shipmanage'),
+      screen: !!document.querySelector('.ship-manage')?.classList.contains('show'),
+      hint: !!document.querySelector('.ship-hint')?.classList.contains('show'),
+      hintText: document.querySelector('.ship-hint .t')?.textContent ?? '',
+    }));
+    ok(mng.manage && mng.ctrl && mng.blocker && mng.screen, 'M opens 시설 관리 (screen up, shipmanage blocker taken)');
+    ok(!mng.hint && mng.hintText === '시설 관리', `the corner hint reads 시설 관리 and hides while the screen is up (${mng.hintText})`);
+    await tap('Escape');
+    await waitSim(0.5);
+    const left = await page.evaluate(() => ({
+      manage: window.__game.ctx.housing.shipManageMode, blockers: [...window.__game.ctx.uiBlockers],
+      controls: window.__game.ctx.player.controlsEnabled,
+      screen: !!document.querySelector('.ship-manage')?.classList.contains('show'),
+      hint: !!document.querySelector('.ship-hint')?.classList.contains('show'),
+      pause: !document.querySelector('.menu.pause')?.classList.contains('hidden'),
+    }));
+    // the Phase 8 bug: Esc gave the camera back but kept the shipmanage blocker → no controls, no corner hint
+    ok(!left.manage && left.blockers.length === 0 && left.controls === true, `Esc leaves 시설 관리: blockers [${left.blockers.join(',')}], controls ${left.controls}`);
+    ok(!left.screen && left.hint && !left.pause, 'screen hidden, 시설 관리(M) hint back, Esc consumed (no pause menu)');
+    await tap('KeyM');
+    await waitSim(0.4);
+    await tap('KeyC');
+    await waitSim(0.5);
+    const byC = await page.evaluate(() => ({ manage: window.__game.ctx.housing.shipManageMode, blockers: window.__game.ctx.uiBlockers.size, controls: window.__game.ctx.player.controlsEnabled }));
+    ok(!byC.manage && byC.blockers === 0 && byC.controls === true, 'C with an empty cursor leaves 시설 관리 as well');
   }
 
   /* ── 8. teardown + re-enter ─────────────────────────────────────────── */
@@ -388,7 +435,7 @@ try {
   await page.evaluate(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
   await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub phase (again)');
   await waitSim(0.3);
-  ok((await page.evaluate(() => window.__game.ctx.interactables.all().filter((i) => /^hub_room_\d$/.test(i.id)).length)) === 10, 're-entering rebuilds the ten room consoles');
+  ok((await page.evaluate(() => window.__game.ctx.interactables.all().filter((i) => /^hub_room_\d$/.test(i.id)).length)) === 0, 're-entering registers no room consoles');
   ok((await page.evaluate(() => window.__game.ctx.interactables.all().some((i) => i.id === 'hub_computer'))) === true, 're-entering re-registers hub_computer');
 
   ok(errors.length === 0, 'no console errors', errors.slice(0, 6).join(' | '));

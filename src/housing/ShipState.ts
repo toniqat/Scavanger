@@ -1,6 +1,12 @@
 import type { GrowPlot, LoadoutPreset, PlacedFurniture, ProfileRef, RoomState, ShipState, StoredFurniture } from '@/shared';
-import { FURNITURE_DEF_MAP, GROW_PLOTS_PER_RACK, IMPLANT_IDS, SHIP_ROOM_COUNT, SHIP_STATE_VERSION, SHIP_STORAGE_KEY } from '@/shared';
-import { canPlaceAt, facilityMaxLevel, furnitureMaxLevel, isRoomPurpose, nextFreeLayer, stackLimitOf, stackMembers } from './Rules';
+import {
+  FURNITURE_DEF_MAP, GROW_PLOTS_PER_RACK, IMPLANT_IDS, SHIP_ROOM_COUNT, SHIP_STATE_VERSION, SHIP_STORAGE_KEY,
+  WORKSHOP_ROOM_INDEX,
+} from '@/shared';
+import {
+  canPlaceAt, facilityMaxLevel, furnitureAllowedIn, furnitureMaxLevel, isRoomPurpose, nextFreeLayer, stackLimitOf,
+  stackMembers,
+} from './Rules';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * ShipState persistence: fresh state, load + sanitise + migrate, debounced save with a pagehide flush. Same shape as
@@ -19,10 +25,14 @@ const SAVE_DELAY_MS = 350;
 export const SHIP_STATE_VERSION_CURRENT = Math.max(2, SHIP_STATE_VERSION);
 /** The 정비 벤치 moved out of the cockpit in Phase 8 — every profile is handed one, once. */
 export const REPAIR_BENCH_DEF_ID = 'furn_repair_bench';
-/** Convenience for a first run: one 총기 작업대 + the granted 정비 벤치 waiting in furniture storage. */
-const STARTER_FURNITURE: StoredFurniture[] = [
-  { defId: 'furn_bench_gun', level: 1, qty: 1 },
-  { defId: REPAIR_BENCH_DEF_ID, level: 1, qty: 1 },
+export const GUN_BENCH_DEF_ID = 'furn_bench_gun';
+/**
+ * Phase 8 UI pass: a first run no longer starts with the benches boxed up — room 1 is the built-in 작업실 and the two
+ * benches are already **placed** in it. They behave like any other furniture (recover to storage, move, re-place).
+ */
+const STARTER_PLACED: ReadonlyArray<{ defId: string; x: number; y: number }> = [
+  { defId: GUN_BENCH_DEF_ID, x: 0, y: 0 },
+  { defId: REPAIR_BENCH_DEF_ID, x: 0, y: 3 },
 ];
 
 export function storage(): Storage | null {
@@ -36,14 +46,23 @@ export function storage(): Storage | null {
 
 export function freshRoom(): RoomState { return { purpose: 'empty', level: 0 }; }
 
+/** The ten rooms of a new ship: room 1 is the built-in 작업실 (`WORKSHOP_ROOM_INDEX`), the rest are empty. */
+function freshRooms(): RoomState[] {
+  const rooms = Array.from({ length: SHIP_ROOM_COUNT }, freshRoom);
+  rooms[WORKSHOP_ROOM_INDEX] = { purpose: 'workshop', level: 1 };
+  return rooms;
+}
+
 export function freshState(): ShipState {
   return {
     version: SHIP_STATE_VERSION_CURRENT,
-    rooms: Array.from({ length: SHIP_ROOM_COUNT }, freshRoom),
+    rooms: freshRooms(),
     generatorLevel: 0,
     storageLevel: 0,
-    furniture: [],
-    furnitureStorage: STARTER_FURNITURE.map((s) => ({ ...s })),
+    furniture: STARTER_PLACED
+      .filter((s) => FURNITURE_DEF_MAP.has(s.defId))
+      .map((s, i) => ({ uid: `f-${i + 1}`, defId: s.defId, room: WORKSHOP_ROOM_INDEX, x: s.x, y: s.y, yaw: 0 as const, level: 1 })),
+    furnitureStorage: [],
     presets: [],
     plots: [],
     nameLocked: false,
@@ -81,7 +100,9 @@ export function maxUidIndex(furniture: readonly PlacedFurniture[]): number {
  * Turn whatever was in localStorage into a valid ShipState: unknown furniture defs / purposes / out-of-range numbers
  * are dropped or clamped, duplicated uids re-minted, stack layers re-assigned, plots without a rack dropped.
  * Migrations: **v1 → v2** grants the 정비 벤치 that moved out of the cockpit (once — a save that already owns one is
- * left alone, and a v2 save never runs the grant again).
+ * left alone, and a v2 save never runs the grant again). The **room-1 작업실 invariant** (Phase 8 UI pass) is applied
+ * on every load, not once: room `WORKSHOP_ROOM_INDEX` is always the 작업실, every other 작업실 falls back to 빈 방,
+ * and furniture whose room no longer accepts it moves into furniture storage instead of being dropped.
  */
 export function sanitize(raw: unknown): ShipState {
   const fresh = freshState();
@@ -99,6 +120,14 @@ export function sanitize(raw: unknown): ShipState {
     const level = purpose === 'empty' ? 0 : int(s?.level, 1, 1, maxLv);
     rooms.push({ purpose, level });
   }
+  // Phase 8 UI pass: the 작업실 is permanently room `WORKSHOP_ROOM_INDEX`. A save that put it somewhere else (or
+  // nowhere) is migrated onto room 1 with its level; the old room falls back to 빈 방. Furniture that no longer fits
+  // its room is moved into furniture storage below — nothing is destroyed by the migration.
+  const oldWorkshop = rooms.findIndex((x, i) => i !== WORKSHOP_ROOM_INDEX && x.purpose === 'workshop');
+  if (rooms[WORKSHOP_ROOM_INDEX].purpose !== 'workshop') {
+    rooms[WORKSHOP_ROOM_INDEX] = { purpose: 'workshop', level: Math.max(1, oldWorkshop >= 0 ? rooms[oldWorkshop].level : 1) };
+  }
+  for (let i = 0; i < rooms.length; i++) if (i !== WORKSHOP_ROOM_INDEX && rooms[i].purpose === 'workshop') rooms[i] = freshRoom();
   // a lab without a greenhouse (edited save) falls back to empty
   if (!rooms.some((x) => x.purpose === 'greenhouse')) for (const x of rooms) if (x.purpose === 'lab') { x.purpose = 'empty'; x.level = 0; }
 
@@ -111,6 +140,8 @@ export function sanitize(raw: unknown): ShipState {
   const partial: ShipState = { ...fresh, rooms, furniture };
   const seen = new Set<string>();
   const pending: PlacedFurniture[] = [];
+  /** Pieces whose room lost the purpose they need (room-1 migration, edited save): recovered, never destroyed. */
+  const displaced: StoredFurniture[] = [];
   for (const f of Array.isArray(r.furniture) ? (r.furniture as Partial<PlacedFurniture>[]) : []) {
     if (!f || typeof f.defId !== 'string') continue;
     const def = FURNITURE_DEF_MAP.get(f.defId);
@@ -122,6 +153,10 @@ export function sanitize(raw: unknown): ShipState {
       x: int(f.x, -1, -1), y: int(f.y, -1, -1),
       yaw: yaw(f.yaw), level: int(f.level, 1, 1, furnitureMaxLevel(def)),
     };
+    if (room >= 0 && room < SHIP_ROOM_COUNT && !furnitureAllowedIn(def, rooms[room].purpose)) {
+      displaced.push({ defId: def.id, level: item.level, qty: 1 });
+      continue;
+    }
     if (room < 0 || room >= SHIP_ROOM_COUNT || !canPlaceAt(partial, room, def, item.x, item.y, item.yaw)) {
       console.warn(`[housing] '${def.id}' at room ${room} (${item.x}, ${item.y}) does not fit — dropped`);
       continue;
@@ -142,7 +177,7 @@ export function sanitize(raw: unknown): ShipState {
   for (const item of pending) item.uid = `f-${++next}`;
 
   const furnitureStorage: StoredFurniture[] = [];
-  for (const s of Array.isArray(r.furnitureStorage) ? (r.furnitureStorage as Partial<StoredFurniture>[]) : []) {
+  for (const s of [...(Array.isArray(r.furnitureStorage) ? (r.furnitureStorage as Partial<StoredFurniture>[]) : []), ...displaced]) {
     if (!s || typeof s.defId !== 'string') continue;
     const def = FURNITURE_DEF_MAP.get(s.defId);
     if (!def) continue;

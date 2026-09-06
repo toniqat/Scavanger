@@ -3,11 +3,12 @@ import { Keys, keyLabel } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 
 /**
- * 함선 관리 key hint (`.ship-hint`, bottom-right of the **social** layer — the layer that stays visible in the ship).
- * Persistent while the player stands in the ship (`ctx.isHubPhase()`) with no UI blocker up, reading `함선 관리` plus the
- * live `Keys.MAP` label in a `.keycap` (M by default; refreshed on `input:bindingsChanged`, never cached).
+ * 시설 관리 key hint (`.ship-hint`, bottom-right of the **social** layer — the layer that stays visible in the ship).
+ * Persistent while the player stands in the ship (`ctx.isHubPhase()`) with no UI blocker up, reading `시설 관리` plus
+ * the live `Keys.MAP` label in a `.keycap` (M by default; refreshed on `input:bindingsChanged`, never cached).
+ * (Phase 8 UI pass renamed it from 함선 관리 — the Tab 함선 tab is the 함선 관리 screen, this key opens 시설 관리.)
  *
- * It hides itself while 함선 관리 is already open (`ctx.housing.shipManageMode`) — the room list / furniture bar of
+ * It hides itself while 시설 관리 is already open (`ctx.housing.shipManageMode`) — the room list / furniture bar of
  * `hud/ShipManage` occupies that corner then and the hint would only repeat what is on screen.
  * Takes no blocker token and never intercepts pointer events.
  */
@@ -19,7 +20,7 @@ export class ShipManageHint {
 
   constructor(parent: HTMLElement) {
     this.root = el('div', { cls: 'ship-hint', parent });
-    el('span', { cls: 't', text: '함선 관리', parent: this.root });
+    el('span', { cls: 't', text: '시설 관리', parent: this.root });
     this.keyEl = el('span', { cls: 'keycap', text: keyLabel(Keys.MAP), parent: this.root });
   }
 

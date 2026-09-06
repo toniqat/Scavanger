@@ -302,25 +302,15 @@ export class HubSystem implements GameSystem, HubRef {
   }
 
   /**
-   * 함선 꾸미기 (personal ship): room door consoles `hub_room_<i>` → `ctx.housing.openRoomMenu(i)`, the cockpit
-   * facility console `hub_facility` → `openFacilityMenu()`, the furniture layer and the housing-mode controller.
+   * 함선 꾸미기 (personal ship): the furniture layer and the housing-mode controller.
+   *
+   * Phase 8 UI pass: the room door consoles (`hub_room_<i>`) and the cockpit facility console (`hub_facility`) are
+   * **gone**, along with their geometry — rooms, purposes and facilities are managed from the Tab 함선 tab and from
+   * 시설 관리 (M). Only the furniture pieces themselves still answer to E.
    */
   private buildHousing(interior: ShipInterior): void {
     const ctx = this.ctx;
     if (!(interior instanceof PersonalShip)) { this.housingMode.setShip(null, null); return; }
-    for (const room of interior.rooms) {
-      const i = room.index;
-      this.addStation(`hub_room_${i}`, room.console, () => `방 ${i + 1} · ${this.roomPurposeLabel(i)}`, () => {
-        const h = ctx.housing;
-        if (h && typeof h.openRoomMenu === 'function') h.openRoomMenu(i);
-        else ctx.bus.emit('ui:notify', { text: '함선 꾸미기를 사용할 수 없습니다', kind: 'warning' });
-      }, 1.6);
-    }
-    this.addStation('hub_facility', interior.facility, '함선 시설', () => {
-      const h = ctx.housing;
-      if (h && typeof h.openFacilityMenu === 'function') h.openFacilityMenu();
-      else ctx.bus.emit('ui:notify', { text: '함선 시설을 사용할 수 없습니다', kind: 'warning' });
-    });
     this.furniture = new FurnitureLayer(ctx, interior.rooms, interior.collider, {
       canUse: () => this.stationUsable(),
       onBench: (kind, level) => {

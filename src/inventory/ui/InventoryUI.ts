@@ -877,10 +877,10 @@ export class InventoryUI {
     this.pickerOpen = true;
     this.implantSlot.classList.add('is-picking');
     this.renderPicker();
-    // modeless: anchored to the slot, dismissed by Escape / an outside click, no blocker of its own
-    this.implantModeless.open(this.implantSlot);
+    // modeless: **centred** with a fixed frame that scrolls internally (Phase 8 UI pass — it used to be anchored to
+    // the slot and read as a context menu). Still dismissed by Escape / an outside click, still no blocker.
+    this.implantModeless.open(this.implantSlot, true);
     this.sys.sfx('ui_pickup');
-    requestAnimationFrame(() => this.implantModeless.place());
   }
 
   private closePicker(): boolean {

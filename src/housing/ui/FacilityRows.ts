@@ -21,18 +21,24 @@ interface Row {
 }
 
 /**
- * 시설 rows + the derived summary, shared by the standalone 시설 메뉴 (`FacilityMenu`) and the embedded 함선 tab
- * (`ShipView`) so both render exactly the same thing. It only touches the host element it is given: **no blocker, no
- * pointer lock, no window listener** — the caller (panel or inventory window) owns those.
+ * 시설 rows + the derived summary for the embedded 함선 tab (`ShipView`). It only touches the host element it is
+ * given: **no blocker, no pointer lock, no window listener** — the caller (the inventory window) owns those.
+ *
+ * Phase 8 UI pass: the caller picks **which** facilities to list. The 함선 tab passes the two ship-wide ones
+ * (발전기 · 창고); 작업실 / 사격장 are room facilities now and are upgraded from their row in the 방 목록.
  */
 export class FacilityRows {
   private rows = new Map<FacilityId, Row>();
   private summary: HTMLElement;
 
-  constructor(host: HTMLElement, private readonly ctx: GameContext, private readonly housing: HousingSystem, private readonly onMsg: Msg) {
-    const sec = section(host, '시설');
+  constructor(
+    host: HTMLElement, private readonly ctx: GameContext, private readonly housing: HousingSystem,
+    private readonly onMsg: Msg, private readonly ids: readonly FacilityId[] = ['generator', 'storage', 'workshop', 'range'],
+    label = '시설',
+  ) {
+    const sec = section(host, label);
     const list = el('div', { cls: 'hs-list', parent: sec });
-    for (const info of housing.getFacilities()) {
+    for (const info of ids.map((id) => housing.getFacility(id))) {
       const row = el('div', { cls: 'hs-row facility', parent: list, attrs: { 'data-facility': info.id } });
       const mid = el('div', { cls: 'mid', parent: row });
       const nl = el('div', { cls: 'name-line', parent: mid });
@@ -65,7 +71,7 @@ export class FacilityRows {
 
   refresh(): void {
     const h = this.housing;
-    for (const info of h.getFacilities()) {
+    for (const info of this.ids.map((id) => h.getFacility(id))) {
       const r = this.rows.get(info.id);
       if (!r) continue;
       setText(r.level, levelText(info.level, info.maxLevel));

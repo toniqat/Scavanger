@@ -21,6 +21,8 @@ export class Modeless {
   private _open = false;
   /** Element that opens this popup — a pointerdown on it must not count as "outside". */
   private anchor: HTMLElement | null = null;
+  /** Phase 8 UI pass: centre the frame even though an anchor is given (the anchor then only gates outside clicks). */
+  private centred = false;
   private onOutside = (e: PointerEvent): void => {
     if (!this._open) return;
     const t = e.target as Node | null;
@@ -83,12 +85,14 @@ export class Modeless {
 
   /**
    * Show the popup, anchored next to `anchor` when one is given (clamped into the viewport) and centred on the
-   * window otherwise. `host` is the inventory root — the outside-click listener is installed on `document` so a
-   * press anywhere (including the backdrop) dismisses it.
+   * window otherwise. Pass `centred` to keep the anchor purely as the "this press is not outside" element while the
+   * frame still sits in the middle of the screen (전술 임플란트). The outside-click listener is installed on
+   * `document` so a press anywhere (including the backdrop) dismisses it.
    */
-  open(anchor: HTMLElement | null = null): void {
+  open(anchor: HTMLElement | null = null, centred = false): void {
     if (this._open) return;
     this.anchor = anchor;
+    this.centred = centred;
     this.el.hidden = false;
     this._open = true;
     this.el.classList.add('is-open');
@@ -102,7 +106,7 @@ export class Modeless {
   /** Re-anchor after the content changed size. */
   place(): void {
     if (!this._open) return;
-    const a = this.anchor;
+    const a = this.centred ? null : this.anchor;
     if (!a) { this.el.style.removeProperty('left'); this.el.style.removeProperty('top'); this.el.classList.add('is-centred'); return; }
     this.el.classList.remove('is-centred');
     const ar = a.getBoundingClientRect();
@@ -122,6 +126,7 @@ export class Modeless {
     if (!this._open) return false;
     this._open = false;
     this.anchor = null;
+    this.centred = false;
     this.el.hidden = true;
     this.el.classList.remove('is-open');
     document.removeEventListener('pointerdown', this.onOutside, true);

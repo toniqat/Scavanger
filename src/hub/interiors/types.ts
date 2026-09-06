@@ -36,8 +36,6 @@ export interface RoomDef {
   /** −1 = port (−X) side, +1 = starboard (+X). */
   side: -1 | 1;
   minX: number; maxX: number; minZ: number; maxZ: number;
-  /** Corridor-side door console: interaction anchor (`hub_room_<i>`). */
-  console: StationDef;
   /** `방 n` + purpose sign beside the door (corridor side); the hub rewrites its second line. */
   sign: TextPlane;
   /** Parent for the room's furniture meshes (one group per room, added / cleared by the furniture layer). */
@@ -66,9 +64,8 @@ export interface ShipInterior {
   readonly computer: StationDef;
   /** 함선 시설 (tactical kit): 정비대 (shared ship) / 임플란트 시술대 anchors. */
   readonly stations: ShipStations;
-  /** 함선 꾸미기 (personal ship only): the ten rooms and the cockpit facility console (`hub_facility`). */
+  /** 함선 꾸미기 (personal ship only): the ten rooms. The door / facility consoles were removed in the Phase 8 UI pass. */
   readonly rooms?: readonly RoomDef[];
-  readonly facility?: StationDef;
   update(dt: number, time: number): void;
   dispose(): void;
 }

@@ -35,6 +35,7 @@ import { WeaponChargeGauge } from './hud/WeaponChargeGauge';
 import { StatusMarkers } from './hud/StatusMarkers';
 import { CheatTag } from './hud/CheatTag';
 import { HousingHint } from './hud/HousingHint';
+import { ItemTip } from './hud/ItemTip';
 import { ShipManage } from './hud/ShipManage';
 import { ShipManageHint } from './hud/ShipManageHint';
 import { RoomLabel } from './hud/RoomLabel';
@@ -123,6 +124,7 @@ export class HudSystem implements GameSystem {
   /* Phase 8 (ship UX) */
   private shipManage!: ShipManage;
   private shipHint!: ShipManageHint;
+  private itemTip!: ItemTip;
   /* Phase 5 (corporations) */
   private contractPanel!: ContractPanel;
   private metaToasts!: MetaToasts;
@@ -193,6 +195,10 @@ export class HudSystem implements GameSystem {
     // Phase 8: the 함선 관리 screen (방 목록 + 가구 카드 바) shares that layer so it survives the same gating.
     this.shipManage = new ShipManage(this.housingRoot);
 
+    // 재료 요구 칩 hover card: a direct child of `#ui-root` so it floats over the inventory window, the 함선 관리
+    // screen and every menu — it delegates on `.item-chip[data-def-id]` wherever a chip is rendered.
+    this.itemTip = new ItemTip(ctx.uiRoot);
+
     this.deploy = new DeployOverlay(ctx.uiRoot);
     this.map = new MapScreen(ctx.uiRoot);
     this.map.setPingSource(() => this.pings.getPings());
@@ -210,7 +216,7 @@ export class HudSystem implements GameSystem {
 
     for (const c of [this.reticle, this.cook, this.wheel, this.swheel, this.strat, this.charge, this.targeting, this.offscreen, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.chat, this.map]) c.bind(ctx);
     for (const c of [this.implantWidget, this.weight, this.detection, this.scanReveal, this.deployables, this.progressToasts, this.actionFx]) c.bind(ctx);
-    for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.housingHint, this.roomLabel, this.shipManage, this.shipHint]) c.bind(ctx);
+    for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.housingHint, this.roomLabel, this.shipManage, this.shipHint, this.itemTip]) c.bind(ctx);
     for (const c of [this.contractPanel, this.metaToasts]) c.bind(ctx);
     for (const m of [this.title, this.pause, this.death, this.complete]) m.bind(ctx);
 
@@ -327,6 +333,8 @@ export class HudSystem implements GameSystem {
   get isShipManageOn(): boolean { return this.shipManage.isShowing; }
   get shipManageRoom(): number | null { return this.shipManage.activeRoom; }
   get shipManageCardCount(): number { return this.shipManage.cardCount; }
+  /** Def id the 재료 요구 칩 hover card is describing, null when it is hidden (debug). */
+  get itemTipDefId(): string | null { return this.itemTip.shownDefId; }
   /** Whether the 함선 관리(M) hint is showing (debug). */
   get isShipHintOn(): boolean { return this.shipHint.isShowing; }
   /** Whether the pause menu is in its ship variant (debug). */
@@ -389,7 +397,7 @@ export class HudSystem implements GameSystem {
     for (const u of this.unsubs) u();
     for (const c of [this.reticle, this.cook, this.wheel, this.swheel, this.strat, this.charge, this.targeting, this.offscreen, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.chat, this.missionInfo, this.deploy, this.map]) c.dispose();
     for (const c of [this.implantWidget, this.weight, this.detection, this.scanReveal, this.deployables, this.progressToasts, this.actionFx]) c.dispose();
-    for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.housingHint, this.roomLabel, this.shipManage, this.shipHint]) c.dispose();
+    for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.housingHint, this.roomLabel, this.shipManage, this.shipHint, this.itemTip]) c.dispose();
     for (const c of [this.contractPanel, this.metaToasts]) c.dispose();
     for (const m of [this.title, this.pause, this.death, this.complete]) m.dispose();
     this.settings.dispose();

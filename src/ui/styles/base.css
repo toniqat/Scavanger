@@ -1776,6 +1776,35 @@ button.item-chip:focus-visible { outline: 1px solid var(--c-accent); outline-off
 .item-chip.is-short .item-chip-have { color: var(--c-danger); }
 .item-chip.is-free { opacity: 0.6; }
 .item-chip-free { font-size: 11px; letter-spacing: 0.14em; color: var(--c-text-dim); }
+/* a chip with a def carries the hover card (hud/ItemTip) — advertise it with the cursor */
+.item-chip[data-def-id] { cursor: help; }
+button.item-chip[data-def-id] { cursor: pointer; }
+
+/* ── 칩 호버 카드 (hud/ItemTip): the inventory tooltip for a cost chip, over every window and menu ── */
+.item-tip {
+  --rc: var(--r-common);
+  --ic: var(--c-text);
+  position: fixed; left: 0; top: 0;
+  z-index: 200;
+  width: 268px;
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px 14px;
+  background: linear-gradient(180deg, rgba(18, 21, 27, 0.97), rgba(10, 12, 17, 0.97));
+  border: 1px solid var(--rc);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  pointer-events: none;
+}
+.item-tip .it-head { display: flex; flex-direction: column; gap: 2px; }
+.item-tip .it-name { font-size: 14px; font-weight: 700; letter-spacing: 0.04em; color: var(--rc); }
+.item-tip .it-sub { font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--c-text-faint); }
+.item-tip .it-desc { margin: 0; font-size: 11px; line-height: 1.5; color: var(--c-text-dim); }
+.item-tip .it-stats {
+  display: grid; grid-template-columns: auto 1fr; gap: 3px 12px;
+  padding-top: 8px; border-top: 1px solid var(--c-border);
+  font-size: 11px;
+}
+.item-tip .it-stats .k { color: var(--c-text-faint); letter-spacing: 0.06em; }
+.item-tip .it-stats .v { text-align: right; color: var(--c-text); font-variant-numeric: tabular-nums; }
 
 /* ── 설정 overlay (menus/SettingsMenu): keys + audio, above the pause menu, below the key-settings overlay ── */
 .menu.settings-menu { z-index: 56; background: rgba(3, 4, 6, 0.72); }
@@ -1864,36 +1893,70 @@ button.item-chip:focus-visible { outline: 1px solid var(--c-accent); outline-off
 .sm-room.is-on { border-color: var(--c-accent); background: rgba(255, 179, 71, 0.14); }
 .sm-room.is-on .p { color: var(--c-accent); }
 
-.sm-bar {
-  position: absolute; left: 260px; right: 24px; bottom: 24px;
+/* Phase 8 UI pass: the furniture list is a **vertical side panel on the right**, not a bar along the bottom, and
+ * it swaps to a 용도 지정 picker while an empty room is selected. */
+.sm-side {
+  position: absolute; right: 24px; top: 96px; bottom: 96px;
+  width: 300px;
   display: flex; flex-direction: column; gap: 8px;
   padding: 10px 12px;
   background: rgba(8, 9, 11, 0.78); border: 1px solid var(--c-border);
 }
-.sm-bar-head { font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase; font-weight: 700; color: var(--c-text-dim); }
+.sm-side-head { display: flex; align-items: center; gap: 8px; }
+.sm-bar-head { flex: 1; min-width: 0; font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; font-weight: 700; color: var(--c-text-dim); }
+.sm-clear {
+  flex: none; padding: 3px 8px;
+  border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.04);
+  font: inherit; font-size: 10px; letter-spacing: 0.1em; color: var(--c-text-dim); cursor: pointer;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.sm-clear:hover { color: var(--c-danger); border-color: rgba(255, 77, 77, 0.6); }
+.sm-clear[hidden] { display: none; }
 .sm-empty { font-size: 11px; letter-spacing: 0.06em; color: var(--c-text-faint); padding: 10px 2px; }
-.sm-cards {
-  display: flex; flex-direction: row; flex-wrap: nowrap; gap: 8px;
-  overflow-x: auto; overflow-y: hidden;
-  padding-bottom: 4px;
+.sm-cards, .sm-purposes {
+  display: flex; flex-direction: column; gap: 6px;
+  flex: 1; min-height: 0;
+  overflow-y: auto; overflow-x: hidden;
+  padding-right: 4px;
   scrollbar-width: thin;
 }
-.sm-cards::-webkit-scrollbar { height: 6px; }
-.sm-cards::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.22); }
-.fcard {
-  --fc: var(--c-text);
-  flex: none; width: 132px;
-  display: flex; flex-direction: column; align-items: center; gap: 5px;
-  padding: 8px 6px;
+.sm-cards[hidden], .sm-purposes[hidden] { display: none; }
+.sm-cards::-webkit-scrollbar, .sm-purposes::-webkit-scrollbar { width: 6px; }
+.sm-cards::-webkit-scrollbar-thumb, .sm-purposes::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.22); }
+
+/* 용도 지정 (empty room) */
+.sm-purpose {
+  display: flex; flex-direction: column; gap: 3px; flex: none;
+  padding: 8px 10px; text-align: left;
   border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03);
   font: inherit; color: var(--c-text); cursor: pointer;
-  transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
+  transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
 }
-.fcard:hover { background: rgba(255, 255, 255, 0.08); border-color: var(--c-border-strong); transform: translateY(-1px); }
+.sm-purpose:hover { background: rgba(255, 255, 255, 0.09); border-color: var(--c-border-strong); }
+.sm-purpose .ln { display: flex; align-items: center; gap: 8px; }
+.sm-purpose .nm { font-size: 13px; font-weight: 600; letter-spacing: 0.06em; }
+.sm-purpose .badge { font-size: 8px; letter-spacing: 0.12em; color: var(--c-text-faint); border: 1px solid var(--c-border); padding: 1px 5px; }
+.sm-purpose .ds { font-size: 10px; line-height: 1.4; color: var(--c-text-faint); }
+.sm-purpose.is-blocked { cursor: not-allowed; border-style: dashed; }
+.sm-purpose.is-blocked .nm { color: var(--c-text-dim); }
+.sm-purpose.is-blocked .ds { color: var(--c-danger); }
+
+/* 가구 카드: horizontal row inside the vertical list */
+.fcard {
+  --fc: var(--c-text);
+  flex: none;
+  display: flex; flex-direction: row; align-items: center; gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03);
+  font: inherit; color: var(--c-text); text-align: left; cursor: pointer;
+  transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.fcard:hover { background: rgba(255, 255, 255, 0.08); border-color: var(--c-border-strong); }
 .fcard.is-sel { border-color: var(--c-accent); background: rgba(255, 179, 71, 0.14); }
-.fcard.is-empty { opacity: 0.55; }
+.fcard.is-empty .fcard-name { color: var(--c-text-dim); }
+.fcard-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
 .fcard-thumb {
-  position: relative;
+  position: relative; flex: none;
   width: 54px; height: 44px;
   display: flex; align-items: center; justify-content: center;
   border: 1px solid var(--fc);
@@ -1902,7 +1965,7 @@ button.item-chip:focus-visible { outline: 1px solid var(--c-accent); outline-off
 }
 .fcard-glyph { font-size: 22px; line-height: 1; color: var(--fc); text-shadow: 0 0 6px rgba(0, 0, 0, 0.9); }
 .fcard-size { position: absolute; right: 2px; bottom: 1px; font-family: var(--ui-mono); font-size: 9px; color: var(--c-text-faint); }
-.fcard-name { font-size: 11px; line-height: 1.2; letter-spacing: 0.04em; text-align: center; color: var(--c-text); }
-.fcard-cost { justify-content: center; gap: 6px; min-height: 26px; }
+.fcard-name { font-size: 12px; line-height: 1.2; letter-spacing: 0.04em; color: var(--c-text); }
+.fcard-cost { gap: 6px; min-height: 26px; }
 .fcard-own { font-family: var(--ui-mono); font-size: 10px; letter-spacing: 0.06em; color: var(--c-success); }
 .fcard-own.none { color: var(--c-text-faint); }

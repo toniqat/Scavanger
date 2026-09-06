@@ -42,7 +42,8 @@ const _ray = new THREE.Raycaster();
  *   R   (`Keys.ROTATE_ITEM`)  rotate the selection / the carried piece
  *   X   (`Keys.DROP_ITEM`)    recover the piece under the cursor (→ furniture storage)
  *   wheel / [ ]               cycle the selection through the furniture storage (null = cursor only)
- *   C   (`CANCEL_KEY`)        cancel the current selection / put a carried piece back (Phase 8)
+ *   C   (`CANCEL_KEY`)        cancel the current selection / put a carried piece back — and, with an empty
+ *                             cursor, leave the mode just like Esc (Phase 8 UI pass)
  *   Esc (`Keys.MENU`)         leave 함선 관리 (`closeShipManage`) or plain housing mode
  * Emits `housing:cursorChanged {room, x, y, valid}` whenever the footprint cell or its validity changes.
  *
@@ -78,12 +79,15 @@ export class HousingMode {
     this.unsubs.push(
       ctx.bus.on('housing:modeChanged', ({ active, room }) => {
         if (active && room !== null) this.activate(room);
-        else { this.manage = false; this.deactivate(); }
+        // never clear `manage` here: `deactivate()` reads it to release the 함선 관리 blocker and re-lock the
+        // pointer. Clearing it first was the Phase 8 bug where Esc gave the camera back but left the blocker up
+        // (no player control, no 시설 관리 hint) — housing emits `modeChanged` before `shipManageChanged`.
+        else this.deactivate();
       }),
       // 함선 관리 (M): same camera, **unlocked** cursor, entered from anywhere; `setManageRoom` re-emits the room.
       ctx.bus.on('housing:shipManageChanged', ({ active, room }) => {
         if (active && room !== null) { this.enterManage(); this.activate(room); }
-        else { this.manage = false; this.deactivate(); }
+        else this.deactivate();
       }),
     );
   }
@@ -137,21 +141,30 @@ export class HousingMode {
     this.refresh(true);
   }
 
+  /**
+   * Leave the mode: camera back, controls back, 함선 관리 blocker released. The blocker release is **not** gated on
+   * `this.active` — `enterManage()` can have taken the token before `activate()` bailed out — so the token can never
+   * outlive the mode and strand the player without controls.
+   */
   private deactivate(): void {
-    if (!this.active) return;
     const wasManage = this.manage;
-    this.active = false;
-    this.manage = false;      // exit() reads it before calling us
-    this.room = -1;
-    this.carry = null;
-    this.disposeGhost();
-    this.frame.visible = false;
-    const p = this.ctx.player;
-    if (p && this.ctx.phase === 'hub') {
-      p.setCameraOverride(null);
-      p.setControlsEnabled(true);
+    this.manage = false;
+    if (this.active) {
+      this.active = false;
+      this.room = -1;
+      this.carry = null;
+      this.disposeGhost();
+      this.frame.visible = false;
+      const p = this.ctx.player;
+      if (p && this.ctx.phase === 'hub') {
+        p.setCameraOverride(null);
+        p.setControlsEnabled(true);
+      }
     }
-    if (wasManage) { this.ctx.uiBlockers.delete(MANAGE_BLOCKER); this.relock(); }
+    if (wasManage || this.ctx.uiBlockers.has(MANAGE_BLOCKER)) {
+      this.ctx.uiBlockers.delete(MANAGE_BLOCKER);
+      this.relock();
+    }
   }
 
   /** Back to the walking hub: re-lock the pointer the way the hub does — only in `hub` with no blocker left. */
@@ -205,7 +218,8 @@ export class HousingMode {
     // Swallow the Escape: game/ polls it later in the frame and would open the 일시정지 메뉴 the moment we
     // release the manage-mode blocker on the way out (Phase 8).
     if (input.wasPressed(Keys.MENU)) { input.consume(Keys.MENU); this.exit(); return; }
-    if (input.wasPressed(CANCEL_KEY)) this.cancelSelection();
+    // C: cancel what the cursor holds; with an empty cursor it leaves the mode, exactly like Esc
+    if (input.wasPressed(CANCEL_KEY) && !this.cancelSelection()) { this.exit(); return; }
     if (input.wasPressed(Keys.ROTATE_ITEM)) {
       if (this.carry) { this.carry.yaw = ((this.carry.yaw + 1) % 4) as Yaw; this.announceSelection(); }
       else housing?.rotateSelection();
@@ -369,21 +383,23 @@ export class HousingMode {
 
   /**
    * C: cancel what the cursor holds — a carried piece goes back to where it was picked up (it was never removed
-   * from the housing state), otherwise the furniture selection is cleared. Esc still leaves the mode entirely.
+   * from the housing state), otherwise the furniture selection is cleared. Returns **false** when the cursor held
+   * nothing, and the caller then leaves the mode (Phase 8 UI pass: C with an empty cursor = Esc).
    */
-  private cancelSelection(): void {
+  private cancelSelection(): boolean {
     if (this.carry) {
       this.carry = null;
       this.announceSelection();
       this.ctx.bus.emit('audio:play', { id: 'ui_click' });
       this.refresh(true);
-      return;
+      return true;
     }
     const housing = this.ctx.housing;
-    if (!housing || typeof housing.selectFurniture !== 'function' || housing.selectedFurniture === null) return;
+    if (!housing || typeof housing.selectFurniture !== 'function' || housing.selectedFurniture === null) return false;
     housing.selectFurniture(null);
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
     this.refresh(true);
+    return true;
   }
 
   private recoverUnderCursor(): void {

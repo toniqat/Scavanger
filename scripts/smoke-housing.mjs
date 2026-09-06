@@ -78,7 +78,7 @@ try {
       const bus = window.__game.ctx.bus;
       for (const n of ['housing:loaded', 'housing:changed', 'housing:modeChanged', 'housing:selectionChanged', 'housing:roomPurposeChanged',
         'housing:furniturePlaced', 'housing:furnitureMoved', 'housing:furnitureRecovered', 'housing:furnitureUpgraded', 'housing:facilityUpgraded',
-        'housing:stashSizeChanged', 'housing:presetApplied', 'ui:housingToggled']) {
+        'housing:stashSizeChanged', 'housing:presetApplied', 'ui:housingToggled', 'housing:shipManageChanged']) {
         window.__ev[n] = [];
         bus.on(n, (p) => { window.__ev[n].push(JSON.parse(JSON.stringify(p, (k, v) => (v && v.isVector3) ? [v.x, v.y, v.z] : v))); });
       }
@@ -118,11 +118,12 @@ try {
 
   console.log('fresh state');
   const st0 = await H(() => JSON.parse(JSON.stringify(window.__game.ctx.housing.state)));
-  ok(st0.rooms.length === 10 && st0.rooms.every((r) => r.purpose === 'empty' && r.level === 0), 'fresh state: 10 empty rooms');
-  ok(st0.generatorLevel === 0 && st0.storageLevel === 0 && st0.furniture.length === 0 && st0.presets.length === 0, 'fresh state: gen 0 / storage 0 / no furniture / no presets');
-  // Phase 8: the 정비 벤치 moved out of the cockpit, so every profile also starts with one in storage
-  const startIds = st0.furnitureStorage.map((e) => e.defId).sort().join(',');
-  ok(st0.furnitureStorage.length === 2 && startIds === 'furn_bench_gun,furn_repair_bench' && st0.furnitureStorage.every((e) => e.qty === 1), `first run: 총기 작업대 + 정비 벤치 in furniture storage (${startIds})`);
+  // Phase 8 UI pass: room 1 is the ship's permanent 작업실 and ships with its two benches already placed
+  ok(st0.rooms.length === 10 && st0.rooms[0].purpose === 'workshop' && st0.rooms[0].level === 1
+    && st0.rooms.slice(1).every((r) => r.purpose === 'empty' && r.level === 0), 'fresh state: room 1 = 작업실, the other nine empty');
+  ok(st0.generatorLevel === 0 && st0.storageLevel === 0 && st0.presets.length === 0 && st0.furnitureStorage.length === 0, 'fresh state: gen 0 / storage 0 / no presets / empty furniture storage');
+  const startIds = st0.furniture.map((e) => e.defId).sort().join(',');
+  ok(st0.furniture.length === 2 && startIds === 'furn_bench_gun,furn_repair_bench' && st0.furniture.every((e) => e.room === 0), `first run: 총기 작업대 + 정비 벤치 placed in 방 1 (${startIds})`);
   const stash0 = await H(() => window.__game.ctx.housing.getStashSize());
   ok(stash0.cols === 10 && stash0.rows === 24, `getStashSize() 10×24 at storage 0 (${stash0.cols}×${stash0.rows})`);
   // Phase 8 added furn_repair_bench (작업실) and furn_grow_rack (온실)
@@ -141,17 +142,24 @@ try {
   await waitSim(0.5);
 
   console.log('room purposes');
-  ok(await H(() => window.__game.ctx.housing.setRoomPurpose(0, 'lab') === false), 'lab refused without a greenhouse');
-  ok(await H(() => window.__game.ctx.housing.setRoomPurpose(0, 'workshop') === true), 'room 0 → workshop');
+  ok(await H(() => window.__game.ctx.housing.setRoomPurpose(3, 'lab') === false), 'lab refused without a greenhouse');
+  // Phase 8 UI pass: room 1 is locked to 작업실 and no other room may become one
+  ok(await H(() => window.__game.ctx.housing.setRoomPurpose(3, 'workshop') === false && /방 1에만/.test(window.__game.ctx.housing.purposeBlock(3, 'workshop') ?? '')), '작업실 refused outside room 1');
+  ok(await H(() => /기본 작업실/.test(window.__game.ctx.housing.purposeBlock(0, 'empty') ?? '') && window.__game.ctx.housing.setRoomPurpose(0, 'empty') === false), 'room 1 cannot be re-purposed');
   const r0 = await H(() => window.__game.ctx.housing.getRoom(0));
   ok(r0.purpose === 'workshop' && r0.level === 1, 'workshop room is level 1');
+  ok(await H(() => window.__game.ctx.housing.setRoomPurpose(3, 'gym') === true), 'room 4 → 헬스장');
   const pc = await lastEv('housing:roomPurposeChanged');
-  ok(pc && pc.room === 0 && pc.purpose === 'workshop', 'housing:roomPurposeChanged emitted');
+  ok(pc && pc.room === 3 && pc.purpose === 'gym', 'housing:roomPurposeChanged emitted');
   ok((await lastEv('housing:changed'))?.reason === 'purpose', 'housing:changed {reason: purpose}');
   ok(await H(() => window.__game.ctx.housing.findRoom('workshop') === 0 && window.__game.ctx.housing.findRoom('range') === -1), 'findRoom');
   ok(await H(() => window.__game.ctx.housing.getFacility('workshop').level === 1 && window.__game.ctx.housing.getCraftCostMul() === 1), 'workshop facility level 1, cost ×1');
+  await H(() => window.__game.ctx.housing.setRoomPurpose(3, 'empty'));
 
   console.log('placement');
+  // start the placement checks from an empty 작업실: the two built-in benches go back to furniture storage
+  await H(() => { const h = window.__game.ctx.housing; for (const f of [...h.getPlaced(0)]) h.recover(f.uid); });
+  ok(await H(() => window.__game.ctx.housing.getPlaced(0).length === 0 && window.__game.ctx.housing.getStored().length === 2), 'built-in benches recovered into furniture storage');
   ok(await H(() => window.__game.ctx.housing.canPlace(0, 'furn_bench_gun', 0, 0, 0) === true), 'canPlace 4×2 bench at (0,0) yaw 0');
   ok(await H(() => window.__game.ctx.housing.canPlace(0, 'furn_bench_gun', 5, 0, 0) === false), 'canPlace refuses x=5 (4 wide in an 8-col grid)');
   ok(await H(() => window.__game.ctx.housing.canPlace(0, 'furn_bench_gun', 5, 0, 1) === true), 'canPlace yaw 1 (2×4) at x=5 fits');
@@ -161,26 +169,26 @@ try {
   ok(await H(() => window.__game.ctx.housing.canPlace(0, 'furn_range_console', 0, 0, 0) === false), 'canPlace refuses range furniture in the workshop');
   ok(await H(() => window.__game.ctx.housing.place(0, 'furn_locker', 0, 0, 0) === null), 'place refuses a def not in furniture storage');
   const placed = await H(() => window.__game.ctx.housing.place(0, 'furn_bench_gun', 1, 1, 0));
-  ok(placed && placed.uid === 'f-1' && placed.level === 1 && placed.room === 0, `place → f-1 (${JSON.stringify(placed)})`);
-  ok((await lastEv('housing:furniturePlaced'))?.item?.uid === 'f-1', 'housing:furniturePlaced');
+  ok(placed && placed.uid === 'f-3' && placed.level === 1 && placed.room === 0, `place → f-3 (${JSON.stringify(placed)})`);
+  ok((await lastEv('housing:furniturePlaced'))?.item?.uid === 'f-3', 'housing:furniturePlaced');
   ok(await H(() => !window.__game.ctx.housing.getStored().some((e) => e.defId === 'furn_bench_gun' && e.qty > 0)), 'storage entry consumed (the 정비 벤치 stays)');
   ok(await H(() => window.__game.ctx.housing.canPlace(0, 'furn_bench_gun', 3, 2, 0) === false), 'canPlace overlap refused (3,2 vs 1..4,1..2)');
   ok(await H(() => window.__game.ctx.housing.canPlace(0, 'furn_bench_gun', 0, 3, 0) === true), 'canPlace free row below');
-  ok(await H(() => window.__game.ctx.housing.move('f-1', 2, 3, 1) === true), 'move f-1 → (2,3) yaw 1');
+  ok(await H(() => window.__game.ctx.housing.move('f-3', 2, 3, 1) === true), 'move f-3 → (2,3) yaw 1');
   const moved = await lastEv('housing:furnitureMoved');
   ok(moved && moved.item.x === 2 && moved.item.y === 3 && moved.item.yaw === 1, 'housing:furnitureMoved carries the new cell + yaw');
-  ok(await H(() => window.__game.ctx.housing.move('f-1', 7, 3, 1) === false), 'move refuses out of grid');
-  ok(await H(() => window.__game.ctx.housing.move('f-1', 2, 3, 1) === true), 'move onto its own cells (ignoreUid) ok');
+  ok(await H(() => window.__game.ctx.housing.move('f-3', 7, 3, 1) === false), 'move refuses out of grid');
+  ok(await H(() => window.__game.ctx.housing.move('f-3', 2, 3, 1) === true), 'move onto its own cells (ignoreUid) ok');
   ok(await H(() => window.__game.ctx.housing.getBenchLevel('gun') === 1 && window.__game.ctx.housing.getBenchLevel('gear') === 0), 'getBenchLevel gun 1 / gear 0');
-  ok(await H(() => window.__game.ctx.housing.recover('f-1') === true), 'recover f-1');
+  ok(await H(() => window.__game.ctx.housing.recover('f-3') === true), 'recover f-3');
   const rec = await lastEv('housing:furnitureRecovered');
-  ok(rec && rec.uid === 'f-1' && rec.defId === 'furn_bench_gun' && rec.room === 0, 'housing:furnitureRecovered');
+  ok(rec && rec.uid === 'f-3' && rec.defId === 'furn_bench_gun' && rec.room === 0, 'housing:furnitureRecovered');
   ok(await H(() => { const e = window.__game.ctx.housing.getStored().find((x) => x.defId === 'furn_bench_gun'); return !!e && e.qty === 1 && e.level === 1; }), 'recovered piece back in storage');
   ok(await H(() => window.__game.ctx.housing.getBenchLevel('gun') === 0), 'bench level 0 after recover');
   const re = await H(() => window.__game.ctx.housing.place(0, 'furn_bench_gun', 0, 0, 0));
-  ok(re && re.uid === 'f-2', 're-place → new uid f-2');
+  ok(re && re.uid === 'f-4', 're-place → new uid f-4');
   ok(await H(() => window.__game.ctx.housing.setRoomPurpose(0, 'range') === false), 'purpose change refused while a workshop bench is placed');
-  ok(await H(() => window.__game.ctx.housing.purposeBlock(0, 'range')?.includes('회수')), 'refusal reason names 회수');
+  ok(await H(() => /기본 작업실/.test(window.__game.ctx.housing.purposeBlock(0, 'range') ?? '')), 'room 1 keeps its 작업실 whatever is placed in it');
 
   console.log('materials / facilities');
   const hasCountAll = (await count('mat_scrap')) >= 0;
@@ -237,22 +245,22 @@ try {
   ok(bunkMissing.ok === false && bunkMissing.missing.some((m) => m.defId === 'mat_alloy'), 'canCraftFurniture(furn_bunk) reports missing 합금 판');
   ok(await H(() => window.__game.ctx.housing.craftFurniture('furn_bunk') === false), 'craftFurniture refused when short');
   ok(await H(() => window.__game.ctx.housing.place(1, 'furn_locker', 0, 0, 0) !== null), 'locker placed in an empty room (any)');
-  const upReason = await H(() => window.__game.ctx.housing.furnitureUpgradeBlock('f-2'));
+  const upReason = await H(() => window.__game.ctx.housing.furnitureUpgradeBlock('f-4'));
   const circuit = await give('mat_circuit', 5);
   const alloy = await give('mat_alloy', 20);
   if (circuit < 0) {
     console.log('  TODO(lead): items/ has no mat_circuit yet — bench upgrade only checked for refusal');
     ok(typeof upReason === 'string', `bench upgrade blocked with a reason (${upReason})`);
-    ok(await H(() => window.__game.ctx.housing.upgradeFurniture('f-2') === false), 'upgradeFurniture refused');
+    ok(await H(() => window.__game.ctx.housing.upgradeFurniture('f-4') === false), 'upgradeFurniture refused');
   } else {
     ok(alloy === 20 && circuit === 5, 'alloy + circuit in the bag');
     const gen = await H(() => window.__game.ctx.housing.state.generatorLevel);
     if (gen >= 2) {
-      ok(await H(() => window.__game.ctx.housing.upgradeFurniture('f-2') === true), 'bench f-2 → Lv2');
+      ok(await H(() => window.__game.ctx.housing.upgradeFurniture('f-4') === true), 'bench f-4 → Lv2');
       ok((await lastEv('housing:furnitureUpgraded'))?.item?.level === 2, 'housing:furnitureUpgraded level 2');
       ok(await H(() => window.__game.ctx.housing.getBenchLevel('gun') === 2), 'getBenchLevel(gun) 2');
-      ok(await H(() => window.__game.ctx.housing.furnitureUpgradeBlock('f-2')?.includes('발전기')), 'Lv3 gated by generator 2');
-      ok(await H(() => window.__game.ctx.housing.upgradeFurniture('f-2') === false), 'upgradeFurniture refused at the gate');
+      ok(await H(() => window.__game.ctx.housing.furnitureUpgradeBlock('f-4')?.includes('발전기')), 'Lv3 gated by generator 2');
+      ok(await H(() => window.__game.ctx.housing.upgradeFurniture('f-4') === false), 'upgradeFurniture refused at the gate');
     } else {
       ok(typeof upReason === 'string' && upReason.includes('발전기'), `bench upgrade gated by the generator (${upReason})`);
     }
@@ -285,6 +293,7 @@ try {
   if (lane.ok) {
     ok(await H(() => window.__game.ctx.housing.craftFurniture('furn_target_lane') && window.__game.ctx.housing.place(5, 'furn_target_lane', 0, 0, 0) !== null), 'target lane crafted + placed in the range');
     ok(await H(() => window.__game.ctx.housing.place(5, 'furn_target_lane', 0, 0, 0) === null), 'second lane refused (none in storage)');
+    ok(await H(() => window.__game.ctx.housing.setRoomPurpose(5, 'gym') === false && /회수/.test(window.__game.ctx.housing.purposeBlock(5, 'gym') ?? '')), 'purpose change refused while range furniture is placed (reason names 회수)');
   } else console.log(`  TODO(lead): target lane needs 합금 판 (${JSON.stringify(lane.missing)})`);
   // 시뮬레이션 허브 (Phase 7): 폐금속 8 + 케이블 2 + 회로 2, 2×2, range only — crafted and placed like every other piece
   const simDef = await H(() => { const d = window.__game.ctx.housing.getFurnitureDef('furn_sim_hub'); return d ? { room: d.room, craft: d.craft } : null; });
@@ -305,7 +314,7 @@ try {
   ok(await H(() => window.__game.ctx.housing.setRoomPurpose(2, 'gym') === true && window.__game.ctx.housing.getRoom(2).level === 1), 'inactive purpose (gym) can still be assigned');
   ok(await H(() => window.__game.ctx.housing.setRoomPurpose(3, 'greenhouse') && window.__game.ctx.housing.setRoomPurpose(4, 'lab')), 'lab allowed once a greenhouse exists');
 
-  ok(await H(() => window.__game.ctx.housing.setRoomPurpose(7, 'workshop') === false && /하나만/.test(window.__game.ctx.housing.purposeBlock(7, 'workshop') ?? '')), 'second 작업실 refused (facility rooms are unique per ship)');
+  ok(await H(() => window.__game.ctx.housing.setRoomPurpose(7, 'workshop') === false && /방 1에만/.test(window.__game.ctx.housing.purposeBlock(7, 'workshop') ?? '')), 'second 작업실 refused (room 1 owns it)');
   ok(await H(() => window.__game.ctx.housing.setRoomPurpose(7, 'range') === false), 'second 사격장 refused');
 
   console.log('housing mode');
@@ -329,50 +338,39 @@ try {
   ok(await H(() => window.__game.ctx.housing.selectedYaw === 0), 'yaw reset on exit');
 
   console.log('DOM panels');
+  // Phase 8 UI pass: the standalone 방 메뉴 / 시설 메뉴 are gone — both entries redirect to 시설 관리.
   await H(() => window.__game.ctx.housing.openRoomMenu(0));
-  await sleep(100);
-  let tg = await lastEv('ui:housingToggled');
-  ok(tg && tg.open === true && tg.page === 'room', 'openRoomMenu → ui:housingToggled {room}');
-  ok(await H(() => window.__game.ctx.uiBlockers.has('housing') && window.__game.ctx.housing.isMenuOpen), "blocker 'housing' + isMenuOpen");
-  const roomDom = await H(() => {
-    const root = document.querySelector('.menu.housing-menu.room-menu');
-    return {
-      hidden: root.hidden, title: root.querySelector('.hs-head .title').textContent,
-      purposes: root.querySelectorAll('.hs-purpose').length, badges: root.querySelectorAll('.hs-purpose .badge').length,
-      current: root.querySelector('.hs-purpose.current')?.dataset.purpose,
-      placed: root.querySelectorAll('.hs-row[data-uid]').length, craft: root.querySelectorAll('.hs-row[data-craft]').length,
-      short: root.querySelectorAll('.hs-row[data-craft] .item-chip.is-short').length,
-      housingBtn: !!root.querySelector('.hs-foot .ui-btn.primary'),
-    };
+  await sleep(120);
+  const mng = await lastEv('housing:shipManageChanged');
+  ok(mng && mng.active === true && mng.room === 0, 'openRoomMenu(0) redirects to 시설 관리 on room 1');
+  ok(await H(() => window.__game.ctx.housing.shipManageMode === true && !window.__game.ctx.housing.isMenuOpen && !window.__game.ctx.uiBlockers.has('housing')), 'shipManageMode on, no housing panel / blocker');
+  ok(await H(() => !!document.querySelector('.ship-manage')?.classList.contains('show')), '시설 관리 screen shown');
+  const smDom = await H(() => {
+    const root = document.querySelector('.ship-manage');
+    return { rooms: root.querySelectorAll('.sm-room').length, on: root.querySelector('.sm-room.is-on')?.textContent ?? '',
+      cards: root.querySelectorAll('.sm-cards .fcard').length, purposes: root.querySelectorAll('.sm-purposes .sm-purpose').length,
+      head: root.querySelector('.sm-bar-head').textContent };
   });
-  ok(!roomDom.hidden && roomDom.title.startsWith('방 1'), `room menu visible, title '${roomDom.title}'`);
-  // Phase 8: 온실 became active, so only 6 purposes still carry the 다음 업데이트 badge
-  ok(roomDom.purposes === 10 && roomDom.badges === 6 && roomDom.current === 'workshop', `10 purposes, 6 '다음 업데이트' badges, current workshop (${roomDom.badges})`);
-  // Phase 8: the 작업실 craft list also offers the 정비 벤치 (13 rows)
-  ok(roomDom.placed === 1 && roomDom.craft === 13 && roomDom.short > 0 && roomDom.housingBtn, `placed 1 · craft 13 · red missing materials ${roomDom.short} · 하우징 모드 button`);
-  // clicking a blocked purpose (range while the bench is placed) shows the reason instead of switching
-  await H(() => document.querySelector('.hs-purpose[data-purpose="range"]').click());
-  ok(await H(() => window.__game.ctx.housing.getRoom(0).purpose === 'workshop' && !document.querySelector('.room-menu .hs-msg').hidden), 'blocked purpose click → message, purpose unchanged');
-  await tap('Escape');
-  await sleep(100);
-  tg = await lastEv('ui:housingToggled');
-  ok(tg && tg.open === false && await H(() => !window.__game.ctx.uiBlockers.has('housing') && document.querySelector('.room-menu').hidden), 'Esc closes the room menu + drops the blocker');
-
+  ok(smDom.rooms === 10 && /방 1/.test(smDom.on), `방 목록: 10 rows, room 1 active (${smDom.on})`);
+  ok(smDom.cards === 13 && smDom.purposes === 0 && /작업실/.test(smDom.head), `가구 목록 for the 작업실 (${smDom.cards} cards, '${smDom.head}')`);
+  await H(() => window.__game.ctx.housing.setManageRoom(9));
+  await sleep(120);
+  const smEmpty = await H(() => {
+    const root = document.querySelector('.ship-manage');
+    return { purposes: root.querySelectorAll('.sm-purposes .sm-purpose').length,
+      blocked: root.querySelectorAll('.sm-purposes .sm-purpose.is-blocked').length,
+      cardsHidden: root.querySelector('.sm-cards').hidden, head: root.querySelector('.sm-bar-head').textContent };
+  });
+  ok(smEmpty.purposes === 9 && smEmpty.cardsHidden && /용도 지정/.test(smEmpty.head), `an empty room shows the 용도 지정 picker instead of the furniture list (${smEmpty.purposes})`);
+  ok(smEmpty.blocked >= 2, `작업실 / 사격장 are disabled there with a reason (${smEmpty.blocked})`);
   await H(() => window.__game.ctx.housing.openFacilityMenu());
-  await sleep(100);
-  const facDom = await H(() => {
-    const root = document.querySelector('.menu.housing-menu.facility-menu');
-    const rows = [...root.querySelectorAll('.hs-row[data-facility]')].map((r) => ({ id: r.dataset.facility, lv: r.querySelector('.tag').textContent, disabled: r.querySelector('.ui-btn').disabled, blocked: r.querySelector('.blocked').textContent }));
-    return { hidden: root.hidden, rows, summary: root.querySelector('.hs-summary').textContent };
-  });
-  ok(!facDom.hidden && facDom.rows.length === 4, 'facility menu: 4 rows');
-  ok((await lastEv('ui:housingToggled'))?.page === 'facility', 'ui:housingToggled {facility}');
-  ok(facDom.rows.find((r) => r.id === 'generator').lv.startsWith('Lv.') && facDom.rows.find((r) => r.id === 'range').lv === 'Lv.1 / 5', `range row Lv.1 / 5 (${facDom.rows.map((r) => r.lv).join(', ')})`);
-  ok(facDom.rows.some((r) => r.disabled && r.blocked.length > 0), 'blocked upgrade buttons are disabled with a reason');
-  ok(facDom.summary.includes('10 × 30'), `summary shows the stash size (${facDom.summary.slice(0, 40)})`);
-  await H(() => document.querySelector('.facility-menu .hs-foot .right .ui-btn').click());
-  await sleep(50);
-  ok(await H(() => document.querySelector('.facility-menu').hidden && !window.__game.ctx.uiBlockers.has('housing')), '닫기 closes the facility menu');
+  await sleep(120);
+  ok(await H(() => window.__game.ctx.housing.shipManageMode === true), 'openFacilityMenu() also redirects to 시설 관리');
+  await H(() => window.__game.ctx.housing.closeShipManage());
+  await sleep(120);
+  ok(await H(() => !window.__game.ctx.housing.shipManageMode && !window.__game.ctx.uiBlockers.has('shipmanage')
+    && !document.querySelector('.ship-manage').classList.contains('show')), 'closeShipManage → screen hidden, shipmanage blocker released');
+  ok(await H(() => window.__game.ctx.player.controlsEnabled !== false), 'player controls restored after 시설 관리');
 
   await H(() => window.__game.ctx.housing.openPresetMenu());
   await sleep(100);
@@ -387,16 +385,15 @@ try {
   await sleep(50);
   ok(await H(() => window.__game.ctx.housing.getPresets()[1] === null), '삭제 button clears the preset');
   await H(() => window.__game.ctx.housing.openRoomMenu(5));
-  await sleep(50);
-  ok(await H(() => document.querySelector('.preset-menu').hidden && !document.querySelector('.room-menu').hidden && window.__game.ctx.uiBlockers.has('housing')), 'opening another panel closes the previous one (single blocker)');
+  await sleep(120);
+  ok(await H(() => document.querySelector('.preset-menu').hidden && window.__game.ctx.housing.shipManageMode && !window.__game.ctx.uiBlockers.has('housing')), '시설 관리 closes the preset panel (single owner of the screen)');
   const rangeDom = await H(() => {
-    const root = document.querySelector('.menu.housing-menu.room-menu');
-    const craft = root.querySelector('.hs-row[data-craft="furn_sim_hub"]');
-    const placed = [...root.querySelectorAll('.hs-row[data-uid]')].map((r) => r.querySelector('.name').textContent);
-    return { title: root.querySelector('.hs-head .title').textContent, craft: !!craft, name: craft?.querySelector('.name')?.textContent, size: craft?.querySelector('.tag')?.textContent, placed };
+    const root = document.querySelector('.ship-manage');
+    return { head: root.querySelector('.sm-bar-head').textContent, names: [...root.querySelectorAll('.sm-cards .fcard-name')].map((n) => n.textContent) };
   });
-  ok(rangeDom.title.includes('사격장') && rangeDom.craft && rangeDom.name === '시뮬레이션 허브' && rangeDom.size === '2×2', `range room menu lists 시뮬레이션 허브 in 가구 제작 (${rangeDom.name} ${rangeDom.size})`);
-  ok(rangeDom.placed.includes('시뮬레이션 허브'), 'placed 시뮬레이션 허브 shows under 설치된 가구', JSON.stringify(rangeDom.placed));
+  ok(/사격장/.test(rangeDom.head) && rangeDom.names.includes('시뮬레이션 허브') && rangeDom.names.includes('관물대'), `사격장 furniture list has 시뮬레이션 허브 + 관물대 (${rangeDom.names.join(', ')})`);
+  await H(() => window.__game.ctx.housing.closeShipManage());
+  await sleep(80);
   await H(() => window.__game.ctx.housing.closeMenus());
   ok(await H(() => !window.__game.ctx.housing.isMenuOpen && !window.__game.ctx.uiBlockers.has('housing')), 'closeMenus');
 
@@ -446,20 +443,22 @@ try {
   const after = await H(() => JSON.parse(JSON.stringify(window.__game.ctx.housing.state)));
   ok(after.rooms[0].purpose === 'workshop' && after.rooms[5].purpose === 'range' && after.rooms[2].purpose === 'gym', 'room purposes persisted');
   ok(after.generatorLevel === before.generatorLevel && after.storageLevel === 1 && after.rooms[0].level === before.rooms[0].level, `facility levels persisted (gen ${after.generatorLevel}, storage ${after.storageLevel})`);
-  ok(after.furniture.length === before.furniture.length && after.furniture.some((f) => f.uid === 'f-2' && f.defId === 'furn_bench_gun') && after.furniture.some((f) => f.defId === 'furn_sim_hub' && f.room === 5), `furniture persisted incl. the sim hub (${after.furniture.length})`);
+  ok(after.furniture.length === before.furniture.length && after.furniture.some((f) => f.uid === 'f-4' && f.defId === 'furn_bench_gun') && after.furniture.some((f) => f.defId === 'furn_sim_hub' && f.room === 5), `furniture persisted incl. the sim hub (${after.furniture.length})`);
   ok(JSON.stringify(after.furnitureStorage) === JSON.stringify(before.furnitureStorage), 'furniture storage persisted');
   ok(after.presets[0]?.name === '리로드' && after.presets[0].implant === 'scan', 'preset persisted');
   ok(await H(() => window.__game.ctx.housing.getStashSize().rows === 30), 'stash size 30 rows after reload');
   await give('mat_scrap', 10);                   // the bag is not persisted — only the stash is
   const next = await H(() => { window.__game.ctx.housing.setRoomPurpose(6, 'lounge'); const h = window.__game.ctx.housing; h.craftFurniture('furn_crate'); return h.place(6, 'furn_crate', 7, 7, 0); });
-  ok(next && next.uid === 'f-6', `uid counter continues after the highest persisted uid f-5 — the sim hub (${next?.uid})`);
+  ok(next && next.uid === 'f-8', `uid counter continues after the highest persisted uid (${next?.uid})`);
   // corrupt save → sanitised, not a crash (flush first so the unload flush does not overwrite the corrupt file)
   await H(() => window.__game.ctx.housing.save());
   await H(() => localStorage.setItem('scav.ship', JSON.stringify({ version: 1, rooms: [{ purpose: 'lab', level: 9 }], generatorLevel: 99, furniture: [{ uid: 'x', defId: 'nope', room: 0 }, { uid: 'f-3', defId: 'furn_crate', room: 30, x: 99, y: -1, yaw: 7, level: 5 }, { uid: 'f-3', defId: 'furn_bench_gun', room: 1, x: 0, y: 0, yaw: 0, level: 1 }, { uid: 'f-3', defId: 'furn_crate', room: 1, x: 7, y: 7, yaw: 0, level: 1 }, { uid: 'bad', defId: 'furn_crate', room: 1, x: 7, y: 7, yaw: 0, level: 1 }], furnitureStorage: [{ defId: 'furn_locker', qty: 'a' }], presets: [{ name: 1, implant: 'bogus' }] })));
   await page.reload({ waitUntil: 'load' });
   await setup();
   const san = await H(() => JSON.parse(JSON.stringify(window.__game.ctx.housing.state)));
-  ok(san.rooms.length === 10 && san.rooms[0].purpose === 'empty' && san.generatorLevel === 5 && san.furniture.length === 1 && san.furniture[0].uid === 'f-3' && san.furniture[0].defId === 'furn_crate' && san.furnitureStorage.length === 1 && san.furnitureStorage[0].defId === 'furn_repair_bench' && san.presets[0].name === '프리셋' && san.presets[0].implant === null, `corrupt save sanitised: lab→empty, gen clamped, bad rooms / purpose / overlap dropped (${JSON.stringify({ r0: san.rooms[0], g: san.generatorLevel, f: san.furniture, s: san.furnitureStorage.length, p: san.presets[0] })})`);
+  const sanStore = san.furnitureStorage.map((e) => e.defId).sort().join(',');
+  ok(san.rooms.length === 10 && san.rooms[0].purpose === 'workshop' && san.generatorLevel === 5 && san.furniture.length === 1 && san.furniture[0].uid === 'f-3' && san.furniture[0].defId === 'furn_crate' && san.presets[0].name === '프리셋' && san.presets[0].implant === null, `corrupt save sanitised: lab→작업실 (room 1 invariant), gen clamped, bad rooms / purpose / overlap dropped (${JSON.stringify({ r0: san.rooms[0], g: san.generatorLevel, f: san.furniture, p: san.presets[0] })})`);
+  ok(sanStore === 'furn_bench_gun,furn_repair_bench', `furniture that no longer fits its room went to storage, not the bin (${sanStore})`);
 
   ok(errors.length === 0, 'no console errors', errors.slice(0, 5).join(' | '));
 } catch (e) {

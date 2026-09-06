@@ -1,5 +1,5 @@
 // Smoke test for the 시뮬레이션 훈련장 (Phase 7 §9, world + hub folders, 2026-09-06):
-// personal ship → 사격장 room with a real `furn_sim_hub` (placed through `ctx.housing`, holo pedestal + spinning rings)
+// personal ship → 사격장 room (room 6; room 1 is the built-in 작업실) with a real `furn_sim_hub` (placed through `ctx.housing`, holo pedestal + spinning rings)
 // → E on the hub → `game:newMission {mode:'training'}` → arena world (flat floor, walls, 12 pop-up targets, exit console,
 // no crates / nests / gather / extraction, space-mode "indoor" look, `ui:objective` counter) → arena queries (height /
 // bounds / collision clamp / raycast floor + wall + target cylinder) → the real gun knocks target 0 down through the
@@ -102,31 +102,31 @@ try {
       for (let k = 0; k < 3; k++) { try { if (!ctx.inventory.tryAddItem(ctx.loot.createItem(id, n))) break; } catch { break; } }
     }
     let gen = 0; try { while (gen < 3 && h.upgrade('generator')) gen++; } catch {}
-    const purpose = h.setRoomPurpose(0, 'range');
+    const purpose = h.setRoomPurpose(5, 'range');
     const can = h.canCraftFurniture('furn_sim_hub');
     const crafted = h.craftFurniture('furn_sim_hub');
-    const placed = crafted ? h.place(0, 'furn_sim_hub', 3, 3, 0) : null;
+    const placed = crafted ? h.place(5, 'furn_sim_hub', 3, 3, 0) : null;
     return { available: true, gen, purpose, can, crafted, uid: placed?.uid ?? null };
   });
   const hasHub = housing.available && !!housing.uid;
   ok(housing.available, 'ctx.housing available (real HousingSystem)');
-  ok(housing.purpose === true, `room 0 → 사격장 (generator ${housing.gen})`);
+  ok(housing.purpose === true, `room 6 → 사격장 (generator ${housing.gen})`);
   ok(housing.crafted === true, `craftFurniture(furn_sim_hub) ${JSON.stringify(housing.can)}`);
-  ok(hasHub, `furn_sim_hub placed in room 0 (${housing.uid})`);
+  ok(hasHub, `furn_sim_hub placed in room 6 (${housing.uid})`);
   let simInteractId = null;
   if (hasHub) {
     await waitSim(0.5);
-    const model = await P(() => {
+    const model = await P((uid) => {
       const ctx = window.__game.ctx;
-      const room = ctx.scene.getObjectByName('room-0');
+      const room = ctx.scene.getObjectByName('room-5');
       const g = room?.getObjectByName('furn-furn_sim_hub') ?? null;
       const spin = g?.getObjectByName('sim-spin') ?? null;
       const inner = g?.getObjectByName('sim-spin-inner') ?? null;
       let meshes = 0, lights = 0; g?.traverse((o) => { if (o.isMesh) meshes++; if (o.isLight) lights++; });
-      const it = ctx.interactables.all().find((i) => /^hub_furn_/.test(i.id)) ?? null;
+      const it = ctx.interactables.all().find((i) => i.id === `hub_furn_${uid}`) ?? null;
       return { has: !!g, meshes, lights, spinY: spin?.rotation.y ?? 0, innerZ: inner?.rotation.z ?? 0, id: it?.id ?? null, prompt: it?.getPrompt() ?? null, can: it?.canInteract() ?? false };
-    });
-    ok(model.has && model.meshes >= 4, `holo pedestal model under room-0 (${model.meshes} meshes)`);
+    }, housing.uid);
+    ok(model.has && model.meshes >= 4, `holo pedestal model under room-5 (${model.meshes} meshes)`);
     ok(model.lights === 0, 'sim hub adds no light');
     ok(model.spinY > 0.05 && model.innerZ > 0.05, `rings rotate (spin.y ${model.spinY.toFixed(2)}, inner.z ${model.innerZ.toFixed(2)})`);
     ok(model.id !== null && /시뮬레이션 허브/.test(model.prompt ?? '') && /훈련장/.test(model.prompt ?? ''), `interactable ${model.id} prompt "${model.prompt}"`);

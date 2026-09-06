@@ -3,7 +3,7 @@ import {
   BENCH_MAX_LEVEL, FACILITY_LABEL_KO, FURNITURE_DEF_MAP, GENERATOR_MAX_LEVEL, GENERATOR_UPGRADE_COST, PRESETS_BY_RANGE_LEVEL,
   RANGE_MAX_LEVEL, RANGE_SKILL_GAIN_PER_LEVEL, RANGE_UPGRADE_COST, ROOM_GRID_COLS, ROOM_GRID_ROWS, ROOM_PURPOSE_LABEL_KO,
   ROOM_PURPOSES, STASH_COLS, STASH_ROWS_BY_STORAGE_LEVEL, STORAGE_MAX_LEVEL, STORAGE_UPGRADE_COST, WORKSHOP_COST_DISCOUNT_PER_LEVEL,
-  WORKSHOP_MAX_LEVEL, WORKSHOP_UPGRADE_COST, furnitureFootprint,
+  WORKSHOP_MAX_LEVEL, WORKSHOP_UPGRADE_COST, WORKSHOP_ROOM_INDEX, furnitureFootprint,
 } from '@/shared';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -148,6 +148,9 @@ export function furnitureAllowedIn(def: FurnitureDef, purpose: RoomPurpose): boo
  */
 export function purposeChangeReason(state: ShipState, index: number, purpose: RoomPurpose): string | null {
   if (!isRoomIndex(state, index)) return '없는 방입니다';
+  // Phase 8 UI pass: room 1 is the ship's built-in 작업실 and nothing else, and no other room may become one.
+  if (index === WORKSHOP_ROOM_INDEX && purpose !== 'workshop') return `방 ${WORKSHOP_ROOM_INDEX + 1}은(는) 기본 작업실입니다`;
+  if (index !== WORKSHOP_ROOM_INDEX && purpose === 'workshop') return `작업실은 방 ${WORKSHOP_ROOM_INDEX + 1}에만 둘 수 있습니다`;
   if (purpose === 'empty') return null;
   if (purpose === 'lab' && !state.rooms.some((r, i) => i !== index && r.purpose === 'greenhouse')) return '연구실은 온실이 먼저 필요합니다';
   // facility rooms (작업실 / 사격장) carry the facility level, so the ship holds at most one of each

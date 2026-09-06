@@ -835,7 +835,17 @@ kbd {
   border-radius: 5px;
   background: rgba(255, 255, 255, 0.03);
 }
-.inv-craft-row.is-locked { opacity: 0.5; }
+/* Phase 8 UI pass: a dimmed row is dimmed by *colour*, never by `opacity` — an alpha row let the blurred world show
+ * through it and the recipe became unreadable. Same rule for `.is-bench-locked` below. */
+.inv-craft-row.is-locked {
+  background: rgba(10, 12, 16, 0.92);
+  border-color: rgba(255, 255, 255, 0.07);
+  color: var(--inv-muted);
+}
+.inv-craft-row.is-locked .inv-craft-name { color: var(--inv-muted); }
+.inv-craft-row.is-locked .inv-craft-desc { color: rgba(233, 236, 239, 0.38); }
+.inv-craft-row.is-locked .item-chip { opacity: 1; }
+.inv-craft-row.is-locked .item-chip-thumb { filter: saturate(0.5) brightness(0.8); }
 .inv-craft-row.is-crafting { border-color: var(--inv-accent); }
 .inv-craft-info { display: flex; flex-direction: column; gap: 5px; min-width: 0; flex: 1; }
 .inv-craft-name { font-size: 13px; font-weight: 600; }
@@ -954,15 +964,25 @@ kbd {
 .inv-implant-card .desc { font-size: 11px; line-height: 1.45; color: var(--inv-muted); }
 .inv-implant-body .inv-implant-card { border: none; background: none; padding: 0 4px; pointer-events: none; }
 .inv-implant-body .inv-implant-card::after { content: "▾"; margin-left: auto; color: var(--inv-muted); font-size: 12px; }
-/* Phase 8: the picker is the body of a modeless popup (`.inv-modeless-implant`), not an inline expander */
+/* Phase 8 UI pass: the picker is the body of a **centred, fixed-size** modeless panel (`.inv-modeless-implant`) that
+ * scrolls internally — it used to be anchored to the slot and read as a context menu. */
 .inv-implant-picker {
   display: flex; flex-direction: column; gap: 6px;
-  max-height: min(560px, calc(100vh - 180px));
+  flex: 1; min-height: 0;
   overflow-y: auto; overflow-x: hidden;
+  padding-right: 4px;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
 }
-.inv-implant-picker .inv-implant-card.is-equipped::after { content: "장착 중 · 클릭해 해제"; margin-left: auto; font-size: 9px; letter-spacing: 0.08em; color: var(--ic); white-space: nowrap; }
+.inv-implant-picker::-webkit-scrollbar { width: 6px; }
+.inv-implant-picker::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.22); border-radius: 3px; }
+.inv-implant-picker .inv-implant-card { align-items: flex-start; padding: 9px 11px; }
+/* 장착 중 label under the description, not squeezed against the right edge of the row */
+.inv-implant-picker .inv-implant-card.is-equipped .body::after {
+  content: "장착 중 · 클릭해 해제";
+  margin-top: 2px;
+  font-size: 9px; letter-spacing: 0.12em; color: var(--ic); white-space: nowrap;
+}
 
 /* nothing can be thrown away in the ship */
 .inv-root.is-hub .inv-dropzone { display: none !important; }
@@ -1054,7 +1074,14 @@ kbd {
 
 /* ── bench mode of the craft panel ─────────────────────────────────────── */
 .inv-craft-discount { color: var(--inv-ok); font-size: 11px; }
-.inv-craft-row.is-bench-locked { opacity: 0.55; border-style: dashed; }
+.inv-craft-row.is-bench-locked {
+  background: rgba(10, 12, 16, 0.92);
+  border-color: rgba(255, 255, 255, 0.07); border-style: dashed;
+  color: var(--inv-muted);
+}
+.inv-craft-row.is-bench-locked .inv-craft-name { color: var(--inv-muted); }
+.inv-craft-row.is-bench-locked .inv-craft-desc { color: rgba(233, 236, 239, 0.38); }
+.inv-craft-row.is-bench-locked .item-chip-thumb { filter: saturate(0.5) brightness(0.8); }
 .inv-craft-row.is-bench-locked .inv-craft-btn { visibility: hidden; }
 .inv-craft-locktag {
   margin-left: 8px;
@@ -1122,13 +1149,20 @@ kbd {
 /* ═══ Phase 8 (2026-09-06): Tab 화면 호스트 · 모달리스 팝업 · 분해 다이얼로그 · 요구 아이템 칩 ═══ */
 
 /* ── embedded screens (캐릭터 / 기업 / 함선 inside the Tab window) ─────────── */
-/* The blurred `.inv-root` backdrop is the requested 배경 블러; the host simply replaces `.inv-layout`. */
+/* The blurred `.inv-root` backdrop is the 배경 블러; the host itself carries the same panel chrome as `.inv-panel`
+ * (Phase 8 UI pass — the embedded screens used to float straight on the blur and read badly). */
 .inv-screen {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: stretch;
   width: min(1180px, calc(100vw - 56px));
   max-height: calc(100vh - 130px);
+  padding: 20px 24px 18px;
+  background: linear-gradient(180deg, rgba(16, 19, 25, 0.97), rgba(9, 11, 15, 0.97));
+  border: 1px solid var(--inv-line);
+  border-radius: 6px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.05);
   overflow: hidden auto;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
@@ -1163,7 +1197,9 @@ kbd {
 .inv-modeless-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
 .inv-modeless-body { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .inv-modeless-close { padding: 6px 12px; }
-.inv-modeless-implant { width: 268px; }
+/* 전술 임플란트: fixed frame in the middle of the screen, list scrolls inside it */
+.inv-modeless-implant { width: 380px; height: min(620px, calc(100vh - 140px)); }
+.inv-modeless-implant .inv-modeless-body { flex: 1; min-height: 0; }
 /* the craft panel brings its own `.inv-panel` chrome — the frame only positions it */
 .inv-modeless-craft { padding: 0; background: none; border: 0; box-shadow: none; }
 .inv-modeless-craft .inv-modeless-body { gap: 0; }

@@ -39,7 +39,6 @@ export class PersonalShip implements ShipInterior {
   readonly computer: StationDef;
   readonly stations: ShipStations;
   readonly rooms: RoomDef[] = [];
-  readonly facility: StationDef;
   /** 자동문: room doorways + the cockpit arch (own meshes, never merged, no collider). */
   readonly doors = new ShipDoors(this.root);
 
@@ -155,18 +154,10 @@ export class PersonalShip implements ShipInterior {
     this.pods.push({ slot: 0, position: new THREE.Vector3(px, 0, pz), yaw: faceNegX, door: new THREE.Vector3(-1, 0, 0), doorBlocker });
     P.signStrip(C.maxX - WALL / 2 - 0.03, 2.6, pz, 1.6, M.stripAmber, Math.PI / 2);
 
-    // +Z wall: lockers + stash cabinet left of the arch, facility console right of it (재배 moved to the 온실)
+    // +Z wall: lockers + stash cabinet left of the arch (재배 moved to the 온실; the 함선 시설 console was removed
+    // in the Phase 8 UI pass — facilities live in the Tab 함선 tab and in 시설 관리)
     P.lockers(-3.9, C.maxZ - 0.3, 2, 0);
     this.stashCabinet(b, col, -2.0, C.maxZ - 0.3);
-    const fc = P.consolePedestal(2.3, C.maxZ - 0.35, 0);
-    const fScreen = new TextPlane(0.92, 0.6, 512, false);
-    fScreen.mesh.position.copy(fc.screenPos);
-    fScreen.mesh.rotation.copy(fc.screenRot);
-    fScreen.set(['함선 시설', '발전기 · 창고'], '#ffd27a', 'rgba(18,12,4,1)', '#e8c890');
-    r.add(fScreen.mesh);
-    this.screens.push(fScreen);
-    this.facility = { position: new THREE.Vector3(2.3, 0, C.maxZ - 1.25), yaw: yawFromForward(0, 1) };
-    P.signStrip(2.3, 2.3, C.maxZ - WALL / 2 - 0.03, 1.2, M.stripAmber, 0);
     this.stations = { implantBay: implantDef };
     // 자동문 on the cockpit arch (x −1.5 … 1.5, the wall slab at z 0 … 0.3)
     this.doors.add(0, C.maxZ + WALL / 2, CORRIDOR.maxX - CORRIDOR.minX, 2.55, 0.12, 'x');
@@ -255,7 +246,7 @@ export class PersonalShip implements ShipInterior {
     col.addBox(x, 0, z, 0.9, 2.2, 0.55);
   }
 
-  /** One housing room: floor + grid, walls with a corridor door, emissive strips, door sign + console. */
+  /** One housing room: floor + grid, walls with a corridor door, emissive strips and the door sign. */
   private buildRoom(b: GeoBatch, P: Parts, rb: RoomBox): RoomDef {
     const side = rb.side;
     const face = side < 0 ? CORRIDOR.minX : CORRIDOR.maxX;          // corridor wall face on this side
@@ -297,18 +288,12 @@ export class PersonalShip implements ShipInterior {
     sign.set([`방 ${rb.index + 1}`, '빈 방'], '#e8e6e1', 'rgba(6,8,10,0.85)', '#9fb4c8');
     this.root.add(sign.mesh);
     this.screens.push(sign);
-    // door console (corridor wall, +Z of the door)
-    const czc = rb.doorZ + 1.15;
-    const cxc = face + (side < 0 ? -0.06 : 0.06);
-    b.box(0.12, 0.46, 0.5, cxc, 1.3, czc, M.hullDark);
-    b.box(0.03, 0.3, 0.4, cxc + (side < 0 ? 0.07 : -0.07), 1.34, czc, M.screen);
-    b.box(0.04, 0.04, 0.44, cxc + (side < 0 ? 0.07 : -0.07), 1.1, czc, M.stripCyan);
-    const console: StationDef = { position: new THREE.Vector3(face + (side < 0 ? 0.6 : -0.6), 0, czc), yaw: yawFromForward(side, 0) };
+    // (the corridor door console was removed in the Phase 8 UI pass — E on a door did nothing but open the 방 메뉴)
 
     const furnitureGroup = new THREE.Group();
     furnitureGroup.name = `room-${rb.index}`;
     this.root.add(furnitureGroup);
-    return { index: rb.index, side, minX: rb.minX, maxX: rb.maxX, minZ: rb.minZ, maxZ: rb.maxZ, console, sign, furnitureGroup };
+    return { index: rb.index, side, minX: rb.minX, maxX: rb.maxX, minZ: rb.minZ, maxZ: rb.maxZ, sign, furnitureGroup };
   }
 
   /** Rewrite a room's door sign (`방 n` + purpose label). */

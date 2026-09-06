@@ -208,10 +208,32 @@ try {
   // implant picker: open, pick overcharge, toggle it off, pick dash
   await click('.inv-implant-body');
   ok(await page.evaluate(() => !document.querySelector('.inv-modeless-implant').hidden && document.querySelectorAll('.inv-implant-picker .inv-implant-card').length === 6), 'implant picker lists the six implants (modeless frame)');
+  // Phase 8 UI pass: a fixed-size panel centred on the screen, scrolling internally (it used to be anchored
+  // to the slot and read as a context menu)
+  await sleep(260);                                  // let the pop animation settle before measuring the frame
+  const picker = await page.evaluate(() => {
+    const frame = document.querySelector('.inv-modeless-implant');
+    const list = document.querySelector('.inv-implant-picker');
+    const fr = frame.getBoundingClientRect();
+    return { centred: frame.classList.contains('is-centred'),
+      dx: Math.abs((fr.left + fr.width / 2) - window.innerWidth / 2), dy: Math.abs((fr.top + fr.height / 2) - window.innerHeight / 2),
+      overflow: getComputedStyle(list).overflowY, w: Math.round(fr.width) };
+  });
+  ok(picker.centred && picker.dx < 2 && picker.dy < 2, `implant panel centred on screen (off by ${picker.dx.toFixed(1)}, ${picker.dy.toFixed(1)})`);
+  ok(picker.overflow === 'auto' && picker.w === 380, `fixed 380 px frame, list scrolls vertically (${picker.w} px, overflow-y ${picker.overflow})`);
   await shot('04-implant-picker');
   await page.evaluate(() => document.querySelector('.inv-implant-picker .inv-implant-card[data-id="overcharge"]').click());
   ok(await page.evaluate(() => window.__game.ctx.implants.equipped === 'overcharge'), 'clicking a card equips it');
   await click('.inv-implant-body');
+  // the 장착 중 label hangs under the description column, not off the right edge of the row
+  const tag = await page.evaluate(() => {
+    const card = document.querySelector('.inv-implant-picker .inv-implant-card.is-equipped');
+    if (!card) return null;
+    const body = getComputedStyle(card.querySelector('.body'), '::after');
+    const row = getComputedStyle(card, '::after');
+    return { body: body.content, row: row.content, desc: !!card.querySelector('.desc') };
+  });
+  ok(!!tag && /장착 중/.test(tag.body) && !/장착 중/.test(tag.row) && tag.desc, `장착 중 label renders under the description (${tag?.body})`);
   await page.evaluate(() => document.querySelector('.inv-implant-picker .inv-implant-card[data-id="overcharge"]').click());
   ok(await page.evaluate(() => window.__game.ctx.implants.equipped === null), 'clicking the equipped card unequips it');
   await page.evaluate(() => document.querySelector('.inv-implant-picker .inv-implant-card[data-id="atlauncher"]').click());
@@ -245,8 +267,39 @@ try {
   ok(await page.evaluate(() => document.querySelector('.menu.char-sheet')?.hidden !== false), 'the standalone character overlay stays closed');
   await shot('06-character-tabs');
   await page.evaluate(() => [...document.querySelectorAll('.inv-root .scr-tab')].find((b) => b.textContent === '함선').click());
-  await waitFor(page, () => !!document.querySelector('.inv-root .inv-screen'), '함선 view embedded in the Tab screen');
+  await waitFor(page, () => !!document.querySelector('.inv-root .inv-screen .hs-ship'), '함선 view embedded in the Tab screen');
   ok(true, '함선 tab renders the ship facilities inside the Tab screen');
+  // Phase 8 UI pass: the embedded screens sit on their own opaque panel, and the 함선 tab is two columns
+  const ship = await page.evaluate(() => {
+    const host = document.querySelector('.inv-root .inv-screen');
+    const cs = getComputedStyle(host);
+    const btn = host.querySelector('.hs-manage-btn');
+    return { bg: cs.backgroundImage, border: cs.borderTopWidth, cols: !!host.querySelector('.hs-ship-cols'),
+      facilities: [...host.querySelectorAll('.hs-row.facility')].map((r) => r.dataset.facility),
+      rooms: host.querySelectorAll('.hs-row.room').length,
+      lockedRoom: !!host.querySelector('.hs-row.room[data-room="0"] .purpose')?.disabled,
+      btn: btn?.textContent ?? null, sticky: btn ? getComputedStyle(btn.parentElement).position : null };
+  });
+  ok(ship.bg !== 'none' && ship.border !== '0px', `the Tab screen has its own panel background (${ship.border} border)`);
+  ok(ship.cols && ship.facilities.join(',') === 'generator,storage' && ship.rooms === 10, `기본 시설 발전기 · 창고 left, 방 목록 (${ship.rooms}) right (${ship.facilities.join(',')})`);
+  ok(ship.lockedRoom, '방 1 purpose picker is locked to the built-in 작업실');
+  ok(/시설 관리/.test(ship.btn ?? '') && ship.sticky === 'sticky', `sticky 시설 관리 (M) button bottom-right (${ship.btn})`);
+  // 재료 요구 칩 hover card (ui/hud/ItemTip): any cost chip anywhere shows the item's info
+  const tip = await page.evaluate(() => {
+    const chip = document.querySelector('.inv-root .inv-screen .item-chip[data-def-id]');
+    if (!chip) return null;
+    const r = chip.getBoundingClientRect();
+    chip.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, clientX: r.left + 4, clientY: r.top + 4 }));
+    const tipEl = document.querySelector('#ui-root > .item-tip');
+    return { defId: chip.dataset.defId, hidden: tipEl?.hidden ?? true, name: tipEl?.querySelector('.it-name')?.textContent ?? '',
+      rows: tipEl?.querySelectorAll('.it-stats .k').length ?? 0, shown: window.__game.getSystem('hud').itemTipDefId };
+  });
+  ok(tip && !tip.hidden && tip.shown === tip.defId && tip.rows >= 3, `hovering a 재료 칩 shows the item card (${tip?.name} · ${tip?.rows} rows)`);
+  await page.evaluate(() => {
+    const chip = document.querySelector('.inv-root .inv-screen .item-chip[data-def-id]');
+    chip.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, relatedTarget: document.body }));
+  });
+  ok(await page.evaluate(() => document.querySelector('#ui-root > .item-tip').hidden && window.__game.getSystem('hud').itemTipDefId === null), 'leaving the chip hides the card');
   await page.evaluate(() => [...document.querySelectorAll('.inv-root .scr-tab')].find((b) => b.textContent === '인벤토리').click());
   await waitFor(page, () => document.querySelector('.inv-root .inv-screen').hidden && !document.querySelector('.inv-root .inv-layout').hidden && window.__game.ctx.inventory.isOpen, 'back to the bag view');
   ok(true, '인벤토리 tab returns to the bag / stash view');
