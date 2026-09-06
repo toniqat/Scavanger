@@ -85,6 +85,12 @@ export interface ImplantsRef {
    * `fromEnemy` = the projectile came from an enemy (player shields only block those).
    */
   raycastBarrier(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number, fromEnemy: boolean): { point: THREE.Vector3; owner: PeerId | 'local' } | null;
+  /**
+   * appended (Phase 9): `raycastBarrier` is a **pure** query now (safe for per-tick line-of-sight tests). A caller whose
+   * projectile / shot really stopped at the barrier calls this once: the local barrier takes `amount` (default the
+   * block damage) + `implant:barrierHit`, a peer's barrier only sparks (its owner is authoritative over its hp).
+   */
+  damageBarrier(owner: PeerId | 'local', point: THREE.Vector3, amount?: number): void;
 
   reset(): void;
 }

@@ -1,5 +1,5 @@
 import type {
-  CraftIngredient, EmbeddedView, FacilityId, FacilityInfo, FurnitureDef, GameContext, GameSystem, GrowPlot, GrowPlotInfo,
+  BookSlotInfo, CraftIngredient, EmbeddedView, FacilityId, FacilityInfo, FurnitureDef, GameContext, GameSystem, GrowPlot, GrowPlotInfo,
   HousingRef, ItemDef, LoadoutPreset, PlacedFurniture, ProfileRef, RoomPurpose, RoomState, ShipState, SkillId,
   StoredFurniture, WorkbenchKind,
 } from '@/shared';
@@ -13,8 +13,6 @@ import {
   stashSizeFor,
 } from './Rules';
 import { ShipStore, freshRoom, isGrowRackDefId, loadState, maxUidIndex, sanitize, writeState } from './ShipState';
-import { RoomMenu } from './ui/RoomMenu';
-import { FacilityMenu } from './ui/FacilityMenu';
 import { PresetMenu } from './ui/PresetMenu';
 import { GrowMenu } from './ui/GrowMenu';
 import { createShipView } from './ui/ShipView';
@@ -50,8 +48,6 @@ export class HousingSystem implements GameSystem, HousingRef {
   private nextUid = 0;
   private fresh = false;
   private unsubs: Array<() => void> = [];
-  private roomMenu: RoomMenu | null = null;
-  private facilityMenu: FacilityMenu | null = null;
   private presetMenu: PresetMenu | null = null;
   private growMenu: GrowMenu | null = null;
   private lastStash = { cols: 0, rows: 0 };
@@ -69,8 +65,6 @@ export class HousingSystem implements GameSystem, HousingRef {
     ctx.housing = this;
     this.store = new ShipStore(() => this.state, () => this.profileRef());
     if (this.fresh) this.store.markDirty();
-    this.roomMenu = new RoomMenu(ctx, this);
-    this.facilityMenu = new FacilityMenu(ctx, this);
     this.presetMenu = new PresetMenu(ctx, this);
     this.growMenu = new GrowMenu(ctx, this);
     const b = ctx.bus;
@@ -94,8 +88,8 @@ export class HousingSystem implements GameSystem, HousingRef {
     this.closeMenus();
     for (const u of this.unsubs) u();
     this.unsubs = [];
-    this.roomMenu?.dispose(); this.facilityMenu?.dispose(); this.presetMenu?.dispose(); this.growMenu?.dispose();
-    this.roomMenu = null; this.facilityMenu = null; this.presetMenu = null; this.growMenu = null;
+    this.presetMenu?.dispose(); this.growMenu?.dispose();
+    this.presetMenu = null; this.growMenu = null;
     this.store?.dispose(); this.store = null;
   }
 
@@ -636,6 +630,15 @@ export class HousingSystem implements GameSystem, HousingRef {
   /* ── embedded 함선 view (the 함선 tab of the Tab screen) ───────────────── */
   createShipView(host: HTMLElement): EmbeddedView { return createShipView(this.ctx, this, host); }
 
+  /* ── Phase 9 skeleton: 서재 책장 (replace with the implementation, see docs/PHASE9-PLAN.md §7) ── */
+  getBooks(_uid: string): BookSlotInfo[] { return []; }
+  placeBook(_uid: string, _slot: number, _defId: string): string | null { return '책장은 아직 준비되지 않았습니다'; }
+  takeBook(_uid: string, _slot: number): string | null { return '책장은 아직 준비되지 않았습니다'; }
+  getOwnedBooks(): { defId: string; qty: number }[] { return []; }
+  getBookBonus(_skill: SkillId): number { return 1; }
+  getBookDex(): readonly string[] { return []; }
+  openBookshelfMenu(_uid: string): void { this.notify('책장은 아직 준비되지 않았습니다', 'warning'); }
+
   /* ── loadout presets (사격장) ──────────────────────────────────────────── */
   getPresetCount(): number { return presetCountFor(facilityLevel(this.state, 'range')); }
 
@@ -686,8 +689,6 @@ export class HousingSystem implements GameSystem, HousingRef {
   /* ── UI ────────────────────────────────────────────────────────────────── */
   private panels(): HousingPanel[] {
     const out: HousingPanel[] = [];
-    if (this.roomMenu) out.push(this.roomMenu);
-    if (this.facilityMenu) out.push(this.facilityMenu);
     if (this.presetMenu) out.push(this.presetMenu);
     if (this.growMenu) out.push(this.growMenu);
     return out;
@@ -695,18 +696,17 @@ export class HousingSystem implements GameSystem, HousingRef {
 
   get isMenuOpen(): boolean { return this.panels().some((p) => p.isOpen); }
 
+  /**
+   * Phase 8 UI pass: the standalone 방 메뉴 and 함선 시설 메뉴 are gone — rooms and facilities are managed from the
+   * Tab 함선 tab (`createShipView`) and from 시설 관리. Both entries stay in the contract and redirect there, so an
+   * old caller opens the manage screen on that room instead of nothing at all.
+   */
   openRoomMenu(room: number): void {
-    if (!isRoomIndex(this.state, room) || !this.roomMenu) return;
-    this.exitHousingMode();
-    this.closeMenus(false);
-    this.roomMenu.openRoom(room);
+    this.openShipManage(isRoomIndex(this.state, room) ? room : undefined);
   }
 
   openFacilityMenu(): void {
-    if (!this.facilityMenu) return;
-    this.exitHousingMode();
-    this.closeMenus(false);
-    this.facilityMenu.open();
+    this.openShipManage();
   }
 
   openPresetMenu(): void {

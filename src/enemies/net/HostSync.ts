@@ -87,5 +87,5 @@ export function encodeSnapshot(active: readonly Enemy[], time: number): EnemySna
     if (sb !== 0) w.sb = sb;
     e.push(w);
   }
-  return { t: 'es', time, full: true, e };
+  return { t: 'es', time, seq: 0 /* Phase 9 skeleton: deltas + seq not implemented yet */, full: true, e };
 }

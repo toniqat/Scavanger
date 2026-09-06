@@ -23,7 +23,17 @@ export interface ProfileRecord {
   docs: Partial<Record<ProfileDocKey, unknown>>;
   /** Server time (ms) of the last write, for the terminal / debugging. */
   updatedAt: number;
+  /* ── appended (Phase 9) ── */
+  /**
+   * Per-document stamp (epoch ms, the writer's `ctx.net.serverNow()` at save time) of the copy the server holds.
+   * `profile:set` carries `at`; the server keeps a document only when `at >= docsAt[key]` (newest wins, ties accept)
+   * and stores `at` (clamped to its own clock + `PROFILE_CLOCK_SKEW_MS`). A set without `at` (`fresh`) is accepted only
+   * while the key is absent. Absent for documents written before Phase 9 (treated as 0 → any stamped write wins).
+   */
+  docsAt?: Partial<Record<ProfileDocKey, number>>;
 }
+/** A client stamp may run ahead of the server clock by at most this much before it is clamped. */
+export const PROFILE_CLOCK_SKEW_MS = 5 * 60_000;
 
 /** Debounce for `profile:set` uploads (ms). `flush()` sends immediately (pagehide / mission end). */
 export const PROFILE_SYNC_DEBOUNCE_MS = 1500;
@@ -73,8 +83,14 @@ export interface ProfileRef {
   /** Server-owned credits mirror (null until loaded / offline). */
   readonly credits: number | null;
   get(key: ProfileDocKey): unknown | undefined;
-  /** Queue an upload (debounced `PROFILE_SYNC_DEBOUNCE_MS`). Ignored while unavailable. */
-  set(key: ProfileDocKey, doc: unknown): void;
+  /**
+   * Queue an upload (debounced `PROFILE_SYNC_DEBOUNCE_MS`). Phase 9: **never dropped** — while offline the newest doc
+   * per key waits in the pending map (stamped `at = serverNow()` at call time) and is sent on the next connection;
+   * at `welcome` a pending doc older than the server's `docsAt[key]` is discarded in favour of the server copy.
+   * `opts.fresh` = a default / starter save that must not beat a real profile: sent without a stamp, the server
+   * keeps it only when it has no document for that key (inventory's first-run starter kit, startup stash resize).
+   */
+  set(key: ProfileDocKey, doc: unknown, opts?: { fresh?: boolean }): void;
   /** Send every queued document now. */
   flush(): void;
   /**

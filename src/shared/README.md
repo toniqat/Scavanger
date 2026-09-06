@@ -201,3 +201,48 @@ Brief for the implementing agents: `docs/PHASE7-PLAN.md`.
   `player/` restore · host ghosts · remote poses / held item / armor · knockback fix ·· `weapons/` + `implants/` remote state · attachments · remote grenade damage · beam ··
   `enemies/` rogue v2 · behemoth kb · ghost targets · live authority ·· `inventory/` search · container authority · canFit · raid state · profile docs ··
   `meta/` + `progression/` + `housing/` labels · server credits · outcome · profile docs ·· `world/` + `hub/` training arena · sim hub · terminal entry ·· `ui/` result / failure / suspended / badges ·· `audio/` (lead).
+
+## Appended contract (2026-09-06, Phase 8 UI/UX pass: item-chip tooltips · 시설 관리 · 방 1 = 작업실)
+- `itemChip.ts`: `buildItemChip` now stamps **`data-def-id`** on every chip whose def resolved, and only sets a native
+  `title` when the caller passes one (an unresolved def keeps the placeholder name as its title). `ui/hud/ItemTip` is
+  the single reader of that hook — one delegated hover on `#ui-root` gives every cost chip everywhere the same
+  inventory-style item card. Nothing else about the markup changed.
+- `housing.ts`:
+  - **`WORKSHOP_ROOM_INDEX`** (0) — the ship's permanent 작업실. `housing/Rules.purposeChangeReason` refuses any other
+    purpose for that room and refuses `workshop` for every other room; `housing/ShipState` enforces it on every load
+    (older saves migrate, displaced furniture goes to furniture storage) and `freshState()` places the 총기 작업대 +
+    정비 벤치 in it.
+  - `HousingRef.purposeBlock(index, purpose)` appended — the 한국어 reason `setRoomPurpose` would refuse, so ui/ can
+    render the 시설 관리 purpose picker and the 방 목록 `<select>` disabled states from the same rule.
+  - `HousingRef.openRoomMenu / openFacilityMenu` are kept but now **redirect to `openShipManage`** (the standalone
+    방 메뉴 / 시설 메뉴 are gone).
+  - `FURNITURE_DEFS`: `furn_range_console` renamed 사격장 콘솔 → **관물대** (2×1, model `locker`) — the only entry point
+    to the loadout presets now that the 시설 메뉴 and its 프리셋 button are gone. Its id and `interaction` are unchanged,
+    so existing saves keep their piece.
+
+## Appended contract (2026-09-06, Phase 9: known follow-ups II — profile timestamps · ghost fields · late-join sync · delta enemy snapshots · 서재 · training modes)
+Brief for the implementing agents: `docs/PHASE9-PLAN.md`.
+- `profile.ts`: `ProfileRecord.docsAt?` (per-document stamp the server holds), `PROFILE_CLOCK_SKEW_MS`, `ProfileRef.set(key, doc, {fresh?})` — a `set` is **never dropped** any more
+  (offline → pending map, stamped `at = serverNow()`, flushed on the next connection; a pending doc older than the server's `docsAt` loses). `fresh` = a default / starter save that is
+  accepted only while the server has no document for that key.
+- `net.ts`: `profile:set {at?, fresh?}`; `PlayerSnapshot.dhp?` (down pool while DOWNED → host ghosts inherit it); `EnemyWire` pose fields are **optional** (`es` is a delta stream) +
+  `EnemySnapshot.seq / gone?`, `NET_ENEMY_KEYFRAME_S` (keyframe cadence, also right after `flow rejoined / takeover`); `NET_GHOST_PARK_S` (a member who left the mission without
+  rejoining keeps a parked, non-simulated ghost the host restores on a rejoin inside the window); `META_HIT_MAX`; `strat sync {calls: StratagemCallWire[]}` + `stratq sync`
+  (host answers on `world:ready` / `flow rejoined` — the host is the sync authority, calls stay client-simulated); `meta sync {corp, hits}` + `metaq sync` (peer-to-peer, once per requester
+  per mission); `RemotePlayerRef.ghostState? / ghostDownHp? / downHp?` (net fills them from `ghost` messages / snapshots; game/ dropped its own map).
+- `types.ts`: `ItemCategory 'book'`, `ItemDef.book` / `BookDef {skill}`, `InventoryRef.openCatalog(opts?: {category?})` (widened in place), `EnemyManagerRef.applyStatus(..., attacker?)`
+  (burn kills credit the fire's owner), `TrainingMode / TRAINING_MODES / TRAINING_MODE_LABEL_KO`, `TrainingRef` (`ctx.world.training`: mode / score / hits / remaining / bestTime /
+  `setMode` / `startCourse` / `resetScore`), `WorldRef.training`.
+- `events.ts`: `enemy:killed.by?` (widened in place), `player:giveUpProgress`, `training:modeChanged / scored / courseFinished`, `housing:booksChanged`, `ui:bookshelfToggled`.
+- `constants.ts`: `JUMP_PAD_RETRIGGER_S`, `BOOKS_PER_SHELF / BOOK_XP_PER_BOOK / BOOK_RARITY_MUL / BOOK_GAIN_MAX`, `TRAINING_MOVING_* / TRAINING_COURSE_* / TRAINING_BEST_STORAGE_KEY`,
+  `SHIP_STATE_VERSION` 3 (`books` / `bookDex`, absent → empty).
+- `housing.ts`: `ROOM_PURPOSES_ACTIVE += 'library'`, `FurnitureModelKind / FurnitureInteraction += 'bookshelf'`, `FURNITURE_DEFS += furn_bookshelf` (서재, 2×1, `BOOKS_PER_SHELF` slots),
+  `PlacedBook`, `BookSlotInfo`, `ShipState.books? / bookDex?`, `HousingRef.getBooks / placeBook / takeBook / getOwnedBooks / getBookBonus / getBookDex / openBookshelfMenu`
+  (the bonus is folded into `getSkillGainMul`, so progression/ is unchanged).
+- `implants.ts`: `ImplantsRef.damageBarrier(owner, point, amount?)`; `raycastBarrier` is a **pure** query now (real projectile hits call `damageBarrier` once).
+- `labels.ts`: `book` in the three category records. `meta.ts`: 세레스 stock `{category:'book', minRepLevel:2}`.
+- Ownership: `server/` + `net/` newest-wins profiles · parked-host migration rule · reload = mission leave · ghost fields · `dhp` · e2e ·· `player/` + `game/` ghost `downHp` inheritance ·
+  parked ghosts · give-up progress · wipe check off the ref ·· `stratagems/` + `implants/` + `gadgets/` strat sync · barrier purity / resend · jump-pad retrigger · gadget burn credit ··
+  `weapons/` + `pickups/` `damageBarrier` at real hits · flame / shock attacker · pickup re-sync ·· `enemies/` delta snapshots · burn attacker · `enemy:killed.by` · enemy fire vs barriers ··
+  `housing/` + `items/` + `progression/` 서재 (books, shelf, codex) ·· `world/` + `hub/` training modes · rack / mode consoles · bookshelf model ·· `inventory/` + `meta/` profile `fresh` ·
+  catalog tab · meta sync + validation ·· `ui/` give-up bar · TrainingPanel · ghost bleed bar.

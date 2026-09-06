@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { MissionMode } from '@/shared';
+import type { MissionMode, TrainingRef } from '@/shared';
 import {
   MAP_SIZE, Random, TRAINING_ARENA_SIZE,
   type CrateDef, type ExtractionPointDef, type GameContext, type GameSystem, type GatherNodeDef,
@@ -183,6 +183,8 @@ export class WorldSystem implements GameSystem, WorldRef {
 
   /** Debug / smoke: the arena (targets, counters) while a training world is up. */
   get trainingArena(): TrainingArena | null { return this.mode === 'training' && this.ready ? this.arena : null; }
+  /** Phase 9 skeleton: `TrainingArena` implements `TrainingRef` in the real thing (see docs/PHASE9-PLAN.md §8). */
+  get training(): TrainingRef | null { return null; }
 
   private setSpaceMode(on: boolean): void {
     const atmo = this.ctx?.scene.userData.atmosphere as { setSpaceMode?: (on: boolean) => void } | undefined;

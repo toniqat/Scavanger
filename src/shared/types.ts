@@ -3,6 +3,7 @@ import type { Random } from './Random';
 import type { GameContext } from './GameContext';
 import type { ArmorDef, CraftRecipe, CraftStation, DurabilityInfo, WeightInfo } from './gear';
 import type { LoadoutPreset, WorkbenchKind } from './housing';
+import type { SkillId } from './progression';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Game phase / flow
@@ -60,7 +61,9 @@ export type ItemCategory =
   /* appended: ship housing (2026-09-06) */
   | 'furniture'   // ship furniture as an inventory item (see `ItemDef.furnitureId` → FurnitureDef); placed via housing/
   /* appended: Phase 8 (2026-09-06) */
-  | 'seed';       // 씨앗 planted in a 온실 재배층 (see `ItemDef.seed`); loot + corp shop, never craftable
+  | 'seed'        // 씨앗 planted in a 온실 재배층 (see `ItemDef.seed`); loot + corp shop, never craftable
+  /* appended: Phase 9 (2026-09-06) */
+  | 'book';       // 서적 shelved on a 서재 책장 (see `ItemDef.book`): raises one skill's XP gain; loot + corp shop, never craftable
 
 export type Rarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
 
@@ -256,6 +259,14 @@ export interface ItemDef {
   /* ── appended: Phase 8 (2026-09-06, owner: items) ── */
   /** category 'seed': what it grows into in a 온실 재배층 and how long that takes in **real** hours. */
   seed?: SeedDef;
+  /* ── appended: Phase 9 (2026-09-06, owner: items) ── */
+  /** category 'book': which skill the book teaches when shelved in a 서재 책장 (`BOOK_RARITY_MUL[rarity]` weight). */
+  book?: BookDef;
+}
+
+/** 서적 data (Phase 9). One book per skill; rarity decides its weight in `HousingRef.getBookBonus`. */
+export interface BookDef {
+  skill: SkillId;
 }
 
 /** 씨앗 growth data. `growHours` is wall-clock time and keeps running while the game is closed. */
@@ -390,7 +401,7 @@ export interface InventoryRef {
    * into the bag / stash / a slot creates a fresh instance (`ctx.loot.createItem`) and the tile stays. Blocker `'inventory'`,
    * emits `ui:catalogToggled`. Works in the hub and on a mission.
    */
-  openCatalog(): void;
+  openCatalog(opts?: { category?: ItemCategory }): void;   // `category` (appended, Phase 9): preselect the tab holding it (훈련장 무기 거치대)
   closeCatalog(): void;
   readonly isCatalogOpen: boolean;
   /** Ship stash grid in effect (STASH_COLS × rows from the storage facility). */
@@ -860,8 +871,10 @@ export interface EnemyManagerRef {
    * Appended (2026-09-06): `'incinerated'` = 전소 for `duration` s (`dps` ignored; enemy writhes, `isIncapacitated`,
    * emits `enemy:incinerated`); `'shocked'` = slow by factor `dps` (0..1, like `slowed`) for `duration` s + `enemy:shocked`.
    * On a replica the call is forwarded to the host as a `HitRequest.st` status hint.
+   * `attacker` (appended, Phase 9): PeerId | 'local' credited for the DoT kill (burn kills no longer go to the last
+   * direct damager); the host fills it from the relay `from` for a replica's request. Undefined = keep `lastDamager`.
    */
-  applyStatus(id: number, status: EnemyStatusKind, dps: number, duration: number): void;
+  applyStatus(id: number, status: EnemyStatusKind, dps: number, duration: number, attacker?: string): void;
   /** Damage every enemy in a radius and credit `by` (turret / mine / rocket). Returns kills. */
   applyAreaDamage(center: THREE.Vector3, radius: number, damage: number, by?: string): number;
 }
@@ -1110,4 +1123,39 @@ export interface AudioRef {
   setVolume(channel: AudioChannel, value: number): void;
   /** Play a short reference blip so the player hears the level they just set. */
   preview(channel: AudioChannel): void;
+}
+
+/* ══ appended: Phase 9 — known follow-ups II (2026-09-06) ══════════════════════════════════════════════════ */
+
+/** 시뮬레이션 훈련장 target mode (owner: world/TrainingArena, per client — never on the wire). */
+export type TrainingMode = 'static' | 'moving' | 'timed';
+export const TRAINING_MODES: readonly TrainingMode[] = ['static', 'moving', 'timed'];
+export const TRAINING_MODE_LABEL_KO: Readonly<Record<TrainingMode, string>> = { static: '고정 표적', moving: '이동 표적', timed: '타임 코스' };
+
+/**
+ * Training-range controller, `ctx.world.training` while a training world is up (null otherwise). The arena owns the
+ * targets, the mode console (`training_mode`, cycles modes) and the weapon rack (`training_rack` →
+ * `inventory.openCatalog({category:'primary'})`; everything taken there is undone by game/'s exit restore).
+ */
+export interface TrainingRef {
+  readonly mode: TrainingMode;
+  /** false outside a training world or while a timed course is running. Emits `training:modeChanged`. */
+  setMode(mode: TrainingMode): boolean;
+  /** Knock-downs in the current run (timed: this course; other modes: since entry / `resetScore`). */
+  readonly score: number;
+  /** Hits in the current run. */
+  readonly hits: number;
+  /** Seconds left in a running timed course, −1 when idle. */
+  readonly remaining: number;
+  /** Best timed-course time in seconds (localStorage `TRAINING_BEST_STORAGE_KEY`), null when never finished. */
+  readonly bestTime: number | null;
+  /** Start a timed course (`TRAINING_COURSE_TARGETS` knock-downs within `TRAINING_COURSE_TIME_S`). false unless mode is `'timed'` and idle. */
+  startCourse(): boolean;
+  resetScore(): void;
+}
+
+export interface WorldRef {
+  /* ── appended: Phase 9 (owner: world) ── */
+  /** 시뮬레이션 훈련장 controller; null outside a training world. */
+  readonly training: TrainingRef | null;
 }

@@ -25,6 +25,8 @@ export const NET_LOBBY_CODE_LENGTH = 6;
 export const NET_PLAYER_SNAPSHOT_HZ = 20;
 /** Host → clients enemy snapshot rate (Hz). */
 export const NET_ENEMY_SNAPSHOT_HZ = 10;
+/** Phase 9: enemy snapshots are deltas; a full keyframe (`EnemySnapshot.full`) goes out every this many seconds (and right after `flow rejoined / takeover`). */
+export const NET_ENEMY_KEYFRAME_S = 2;
 /** Seconds of buffered delay used when interpolating remote entities. */
 export const NET_INTERP_DELAY = 0.12;
 /** Remote entity considered stale (extrapolation stops, avatar fades) after this many seconds without a snapshot. */
@@ -58,6 +60,14 @@ export const NET_HOST_MIGRATE_DELAY_MS = 4000;
 export const NET_GHOST_STATE_HZ = 2;
 /** Client (rejoining): fall back to a normal respawn when no `ghost restore` arrived within this many seconds. */
 export const NET_GHOST_RESTORE_TIMEOUT_S = 3;
+/**
+ * Phase 9: a member that left the mission without rejoining (page reload → `lobby:mission {inMission:false}`) has its
+ * ghost **parked** on the host for this many seconds: not simulated, not targetable, not counted, but a rejoin inside
+ * the window still gets `ghost restore` with the body as it was.
+ */
+export const NET_GHOST_PARK_S = 120;
+/** Phase 9: relayed `meta contractHit.amount` above this is dropped (a real hit is always 1; `meta sync` entries are capped by the contract target). */
+export const META_HIT_MAX = 10;
 /** Nameplate / squad tag for a member whose socket is down but whose slot (and body) is kept. */
 export const SUSPENDED_LABEL_KO = '연결 끊김';
 
@@ -150,7 +160,8 @@ export type ClientToServer =
   /** Ask for the profile record (also delivered in `welcome.profile`). */
   | { t: 'profile:get' }
   /** Store one opaque document (≤ PROFILE_DOC_MAX_BYTES). No reply; `too_large` error when refused. */
-  | { t: 'profile:set'; key: ProfileDocKey; doc: unknown }
+  /** `at` / `fresh` appended (Phase 9): see `ProfileRecord.docsAt` — newest-wins merge on the server. */
+  | { t: 'profile:set'; key: ProfileDocKey; doc: unknown; at?: number; fresh?: boolean }
   /** Credits transaction; server answers `credits:result {txId}`. */
   | { t: 'credits:tx'; txId: number; delta: number; reason: string }
   /** Save my mid-raid state for a reconnect (only accepted while my lobby is started with `blob.seed`). */
@@ -266,6 +277,9 @@ export interface PlayerSnapshot {
   h?: string | null;
   /** Attachment def ids socketed on the active weapon (remotes call `WeaponModel.setAttachments`). Omitted when none. */
   att?: string[];
+  /* appended (Phase 9) — optional, older senders stay compatible. */
+  /** Down-state hp (`PlayerRef.downHp`) while DOWNED, so a host ghost inherits the real bleed pool. Omitted when not downed. */
+  dhp?: number;
 }
 
 /** Someone fired. Owner: weapons (sends) / net emits `net:remoteFired` on receive. */
@@ -288,7 +302,17 @@ export interface ReviveMessage { t: 'revive'; ev: 'progress' | 'cancel' | 'done'
  */
 export type StratagemMessage =
   | { t: 'strat'; ev: 'call'; callId: string; kind: StratagemId; p: Vec3Tuple; eta: number; seed: number }
-  | { t: 'strat'; ev: 'structHp'; callId: string; index: number; hp: number };
+  | { t: 'strat'; ev: 'structHp'; callId: string; index: number; hp: number }
+  /* appended (Phase 9): late-join sync — the host answers `stratq sync` / `flow rejoined` with every live call it knows. */
+  | { t: 'strat'; ev: 'sync'; calls: StratagemCallWire[] };
+/**
+ * One live ship call for a late joiner. `eta` = seconds until it lands (≤ 0 = already landed: the receiver back-dates
+ * `landsAt` and lets its own update fast-forward the landing, registering structures / the supply crate at once);
+ * `st` = `[index, hp]` for every structure whose hp is below `STRUCTURE_HP` (0 = destroyed), the rest are rebuilt from `seed`.
+ */
+export interface StratagemCallWire { callId: string; kind: StratagemId; p: Vec3Tuple; seed: number; eta: number; caller: PeerId | null; looted?: boolean; st?: [number, number][] }
+/** Client → host (Phase 9): send me every live ship call (`world:ready` on a non-host). */
+export type StratagemRequest = { t: 'stratq'; ev: 'sync' };
 /** Client → host: my local raycast hit enemy `id` for `dmg` (pre-multiplier) at point `p` travelling `d`. Owner: enemies (replica Enemy.takeDamage). */
 /**
  * Appended (2026-09-06): `st` = status the host should apply with the hit — bits of `ENEMY_STATUS_BITS`
@@ -311,13 +335,20 @@ export interface DiedMessage { t: 'died'; p: Vec3Tuple }
 /** Enemy AI state as seen on the wire (subset of enemies/Enemy.ts EnemyState). */
 export type EnemyWireState = 'idle' | 'wander' | 'alert' | 'chase' | 'attack' | 'stagger' | 'dead' | 'flee';
 
+/**
+ * Phase 9: `es` is a **delta** stream. In a keyframe (`EnemySnapshot.full`) every field is present for every enemy; in
+ * a delta only enemies with a change appear and only the changed fields are set (`ty` / `w` only on an enemy's first
+ * appearance since the last keyframe). A replica applies a wire on top of its latest sample; an unknown `id` in a delta
+ * is ignored (`ee spawn` / the next keyframe brings it). `a` / `sb` keep their "omitted = 0" meaning **only in a
+ * keyframe**; in a delta an omitted field is unchanged.
+ */
 export interface EnemyWire {
   id: number;
-  ty: EnemyType;
-  p: Vec3Tuple;
-  yaw: number;
-  hp: number;
-  st: EnemyWireState;
+  ty?: EnemyType;
+  p?: Vec3Tuple;
+  yaw?: number;
+  hp?: number;
+  st?: EnemyWireState;
   /**
    * Optional animation hints: 0 none, 1 charger windup, 2 charger rush, 3 spewer windup, 4 hunter airborne;
    * Phase 4: 5 rogue shooting, 6 rogue in cover, 7 rogue rushing, 8 artillery aiming, 9 toxic swelling, 10 behemoth windup, 11 behemoth rush.
@@ -330,8 +361,12 @@ export interface EnemyWire {
   sb?: number;
 }
 
-/** Host → all, NET_ENEMY_SNAPSHOT_HZ. `full` = complete list (ids missing from it were despawned). Owner: enemies. */
-export interface EnemySnapshot { t: 'es'; time: number; full: boolean; e: EnemyWire[] }
+/**
+ * Host → all, NET_ENEMY_SNAPSHOT_HZ. `full` = keyframe: complete list, every field (ids missing from it were despawned);
+ * otherwise a delta (Phase 9). `seq` is monotonic per host (replicas stamp `seenSeq` from it); `gone` lists ids that
+ * left the host's list since the previous snapshot (released at once, no need to wait for the keyframe). Owner: enemies.
+ */
+export interface EnemySnapshot { t: 'es'; time: number; seq: number; full: boolean; e: EnemyWire[]; gone?: number[] }
 
 /** Host → all: discrete enemy events (spawn/kill/attack) for FX, audio and stats. Owner: enemies. */
 export type EnemyEvent =
@@ -439,7 +474,12 @@ export type ItemRequest =
  * `others`; a receiver running a contract of the same corp progresses by `amount × CONTRACT_SQUAD_SHARE`. The relay
  * is opaque; NetSystem hands it to `onMessage('meta')` subscribers.
  */
-export interface MetaMessage { t: 'meta'; ev: 'contractHit'; corp: import('./meta').CorpId; goal: import('./meta').ContractGoalKind; amount: number }
+export type MetaMessage =
+  | { t: 'meta'; ev: 'contractHit'; corp: import('./meta').CorpId; goal: import('./meta').ContractGoalKind; amount: number }
+  /* appended (Phase 9): late-join catch-up — every peer answers `metaq sync` ONCE per requester per mission with the hits it broadcast so far this mission. */
+  | { t: 'meta'; ev: 'sync'; corp: import('./meta').CorpId; hits: [import('./meta').ContractGoalKind, number][] };
+/** Client → others (Phase 9): peer-to-peer (the host holds no tallies) — sent on `world:ready` of a rejoin. */
+export type MetaRequest = { t: 'metaq'; ev: 'sync' };
 
 export type GameMessage =
   | PlayerSnapshot
@@ -476,7 +516,10 @@ export type GameMessage =
   | GhostMessage
   | GhostRequest
   | ContainerMessage
-  | ContainerRequest;
+  | ContainerRequest
+  /* appended (Phase 9) */
+  | StratagemRequest
+  | MetaRequest;
   /* append new message types above this line (keep `t` unique; prefix by owning folder if in doubt) */
 
 export type GameMessageType = GameMessage['t'];
@@ -540,6 +583,13 @@ export interface RemotePlayerRef {
   readonly suspended: boolean;
   /** `LobbyPlayer.inMission` mirror (false = in the hub / not part of the running mission). */
   readonly inMission: boolean;
+  /* appended (Phase 9): ghost state on the ref (net applies `ghost state / sync`; game/ no longer keeps its own map) */
+  /** Host ghost state while `suspended` (0 alive / 1 downed / 2 dead); undefined when the ref is snapshot-driven. */
+  readonly ghostState?: GhostState;
+  /** Ghost bleed pool while `ghostState === 1`. */
+  readonly ghostDownHp?: number;
+  /** `PlayerSnapshot.dhp` of the latest snapshot (the member's own down pool while DOWNED); undefined when unknown. */
+  readonly downHp?: number;
 }
 
 export type NetStatus = 'offline' | 'connecting' | 'connected' | 'error';

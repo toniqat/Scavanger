@@ -40,7 +40,7 @@ export const ROOM_PURPOSE_DESC_KO: Readonly<Record<RoomPurpose, string>> = {
   workshop: '총기 · 장비 · 가젯 · 의학 작업대를 설치해 제작과 수리를 합니다.',
   range: '로드아웃 프리셋을 관리하고 레이드 사격 숙련 상승량을 높입니다.',
   gym: '운동 기구로 근력 · 지구력을 단련합니다. (다음 업데이트)',
-  library: '책장에 책을 꽂아 상시 효과를 받습니다. (다음 업데이트)',
+  library: '책장에 레이드에서 주운 책을 꽂으면 그 책이 가르치는 숙련의 상승량이 늘어납니다. 꽂아 본 책은 도감에 남습니다.',
   greenhouse: '재배층을 설치하고 씨앗을 심어 현실 시간에 맞춰 약초를 재배합니다.',
   lab: '배양기와 생체 프린터로 토양 · 씨앗 · 배양고기를 연구합니다. 온실이 먼저 필요합니다. (다음 업데이트)',
   kitchen: '요리로 다음 레이드 버프를 만듭니다. (다음 업데이트)',
@@ -49,7 +49,15 @@ export const ROOM_PURPOSE_DESC_KO: Readonly<Record<RoomPurpose, string>> = {
 };
 
 /** Purposes with mechanics in this build; the rest are decoration-only. (Phase 8 appended `greenhouse`.) */
-export const ROOM_PURPOSES_ACTIVE: readonly RoomPurpose[] = ['empty', 'workshop', 'range', 'greenhouse'];
+export const ROOM_PURPOSES_ACTIVE: readonly RoomPurpose[] = ['empty', 'workshop', 'range', 'greenhouse', 'library'];   // Phase 9 appended `library`
+
+/**
+ * appended (Phase 8 UI pass): the ship always ships with a 작업실, and it is **always room 1** (index 0). The room
+ * cannot be re-purposed and no other room may become a 작업실 — housing/Rules enforces both, housing/ShipState
+ * migrates older saves onto it (furniture that no longer fits its room goes back to furniture storage), and the
+ * 방 목록 pickers render the room as locked.
+ */
+export const WORKSHOP_ROOM_INDEX = 0;
 
 /** Upgradeable facilities that are not furniture. `workshop` / `range` levels belong to the room of that purpose. */
 export type FacilityId = 'generator' | 'storage' | 'workshop' | 'range';
@@ -72,6 +80,7 @@ export type FurnitureModelKind =
   | 'sim_hub'   // appended (Phase 7): 시뮬레이션 허브 — holo pedestal in the 사격장
   /* appended (Phase 8): 온실 재배층 (stackable grow rack) and the 정비 벤치 moved out of the cockpit */
   | 'grow_rack' | 'repair_bench'
+  | 'bookshelf'   // appended (Phase 9): 서재 책장 — the builder reads the shelved count and fills the shelves
   | 'locker' | 'table' | 'shelf' | 'crate' | 'lamp' | 'plant' | 'chair' | 'bunk';
 
 /** What E does on a placed piece. */
@@ -82,7 +91,9 @@ export type FurnitureInteraction =
   | 'sim_hub'                                                                     // appended (Phase 7) → hub starts / joins the 시뮬레이션 훈련장
   /* appended (Phase 8) */
   | 'grow_rack'                                                                   // → ctx.housing.openGrowMenu(uid): 씨앗 심기 / 수확
-  | 'repair_bench';                                                               // → the 정비 벤치 repair menu (hub/WorkbenchMenu), no longer built into the cockpit
+  | 'repair_bench'                                                                // → the 정비 벤치 repair menu (hub/WorkbenchMenu), no longer built into the cockpit
+  /* appended (Phase 9) */
+  | 'bookshelf';                                                                  // → ctx.housing.openBookshelfMenu(uid): 책 꽂기 / 빼기 / 도감
 
 export interface FurnitureDef {
   id: string;
@@ -202,6 +213,31 @@ export interface ShipState {
   plots?: GrowPlot[];
   /** true once the crew name has been chosen; the terminal never offers to change it again. */
   nameLocked?: boolean;
+  /* ── appended (Phase 9, version 3) ── */
+  /** Books on 책장 shelves. Absent before v3; entries whose `uid` is not a placed 책장 are dropped on load. */
+  books?: PlacedBook[];
+  /** 도감: every book def id ever shelved (never removed). */
+  bookDex?: string[];
+}
+
+/** One shelved book (Phase 9). Empty slots are simply absent. Rarity / skill come from `ctx.loot.getItemDef(defId)`. */
+export interface PlacedBook {
+  /** PlacedFurniture.uid of the 책장. */
+  uid: string;
+  /** 0 … BOOKS_PER_SHELF − 1. */
+  slot: number;
+  /** ItemDef.book must be set. */
+  defId: string;
+}
+
+/** UI-facing view of one shelf slot. */
+export interface BookSlotInfo {
+  slot: number;
+  defId: string | null;
+  skill: SkillId | null;
+  rarity: import('./types').Rarity | null;
+  /** This book's weight (`BOOK_RARITY_MUL[rarity]`), 0 when empty. */
+  weight: number;
 }
 
 export interface FacilityInfo {
@@ -283,6 +319,10 @@ export interface HousingRef {
   applyPreset(index: number): { equipped: number; missing: string[] } | null;
 
   /* ── UI (DOM panels owned by housing/) ── */
+  /**
+   * Phase 8 UI pass: the standalone 방 메뉴 / 함선 시설 메뉴 are gone (rooms and facilities live in the Tab 함선 tab
+   * and in 시설 관리). Both entry points are kept for the contract and now **redirect to 시설 관리** at that room.
+   */
   openRoomMenu(room: number): void;
   openFacilityMenu(): void;
   openPresetMenu(): void;
@@ -335,6 +375,31 @@ export interface HousingRef {
    * The returned handle is the only way to refresh / tear it down; the folder keeps no other reference.
    */
   createShipView(host: HTMLElement): EmbeddedView;
+
+  /* ══ appended: Phase 8 UI pass (2026-09-06) ══════════════════════════════ */
+
+  /**
+   * 한국어 reason `setRoomPurpose(index, purpose)` would refuse right now; null = allowed. ui/ renders the 시설 관리
+   * purpose picker off this (a blocked purpose is shown disabled with the reason as its title), so the panel and the
+   * system can never disagree about what is assignable.
+   */
+  purposeBlock(index: number, purpose: RoomPurpose): string | null;
+
+  /* ══ appended: Phase 9 — 서재 책장 (2026-09-06) ══════════════════════════ */
+  /** Slots of one 책장, always BOOKS_PER_SHELF long; empty array when `uid` is not a placed 책장. */
+  getBooks(uid: string): BookSlotInfo[];
+  /** Shelve one book from the bag (then the stash) into `slot` (consumes 1). 한국어 reason on failure, null on success. Ship only. */
+  placeBook(uid: string, slot: number, defId: string): string | null;
+  /** Take the book in `slot` back into the bag (stash fallback). 한국어 reason on failure (e.g. 공간 없음), null on success. */
+  takeBook(uid: string, slot: number): string | null;
+  /** Book defs the player owns right now (bag + stash), for the 책장 panel picker. */
+  getOwnedBooks(): { defId: string; qty: number }[];
+  /** Skill-XP multiplier from every shelved book of `skill` on the ship (1 when none). Folded into `getSkillGainMul`. */
+  getBookBonus(skill: SkillId): number;
+  /** 도감: book def ids ever shelved. */
+  getBookDex(): readonly string[];
+  /** Open the 책장 panel (blocker `housing`, `ui:bookshelfToggled`). */
+  openBookshelfMenu(uid: string): void;
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -359,8 +424,10 @@ export const FURNITURE_DEFS: readonly FurnitureDef[] = [
     model: 'bench_medical', interaction: 'workbench_medical', craft: [c('mat_scrap', 6), c('mat_alloy', 2), c('mat_bio_sample', 3)], maxLevel: 3,
     upgradeCost: [[c('mat_alloy', 4), c('mat_bio_sample', 6), c('mat_circuit', 1)], [c('mat_alloy', 8), c('mat_bio_sample', 10), c('mat_circuit', 3)]], color: '#6ee7a8' },
   /* 사격장 */
-  { id: 'furn_range_console', name: '사격장 콘솔', description: '로드아웃 프리셋을 저장하고 즉시 무장합니다.', room: 'range', cols: 2, rows: 2, height: 1.3,
-    model: 'range_console', interaction: 'range_console', craft: [c('mat_scrap', 6), c('mat_cable', 2), c('mat_circuit', 1)], maxLevel: 1, upgradeCost: [], color: '#7fd2ff' },
+  /* Phase 8 UI pass: renamed 사격장 콘솔 → 관물대 — the only way to reach the loadout presets now that the
+     시설 메뉴 (and its 프리셋 button) is gone. Build the 사격장, place a 관물대, set your loadouts on it. */
+  { id: 'furn_range_console', name: '관물대', description: '로드아웃 프리셋을 저장하고 즉시 무장합니다. 사격장에 설치하세요.', room: 'range', cols: 2, rows: 1, height: 2.0,
+    model: 'locker', interaction: 'range_console', craft: [c('mat_scrap', 6), c('mat_cable', 2), c('mat_circuit', 1)], maxLevel: 1, upgradeCost: [], color: '#7fd2ff' },
   { id: 'furn_target_lane', name: '표적 레인', description: '시뮬레이터 표적 레인 (장식).', room: 'range', cols: 2, rows: 6, height: 1.8,
     model: 'target_lane', interaction: 'none', craft: [c('mat_scrap', 6), c('mat_alloy', 1)], maxLevel: 1, upgradeCost: [], color: '#c8ccd2' },
   /* appended (Phase 7): 시뮬레이션 훈련장 entry */
@@ -373,6 +440,9 @@ export const FURNITURE_DEFS: readonly FurnitureDef[] = [
   { id: 'furn_grow_rack', name: '재배층', description: '씨앗을 심어 현실 시간에 맞춰 약초를 키웁니다. 같은 자리에 4층까지 쌓을 수 있습니다.', room: 'greenhouse', cols: 4, rows: 2, height: 0.8,
     model: 'grow_rack', interaction: 'grow_rack', craft: [c('mat_scrap', 5), c('mat_cable', 1), c('mat_bio_sample', 2)], maxLevel: 1, upgradeCost: [], color: '#7ee08a',
     stackLimit: 4 },
+  /* appended (Phase 9): 서재 — books from raids go on the shelves, each raising its skill's XP gain */
+  { id: 'furn_bookshelf', name: '책장', description: '레이드에서 주운 책을 꽂습니다. 꽂힌 책은 그 숙련의 상승량을 올리고 도감에 기록됩니다 (6권).', room: 'library', cols: 2, rows: 1, height: 2.0,
+    model: 'bookshelf', interaction: 'bookshelf', craft: [c('mat_scrap', 6), c('mat_alloy', 1)], maxLevel: 1, upgradeCost: [], color: '#c9a77a' },
   /* 공용 장식 */
   { id: 'furn_locker', name: '사물함', description: '강철 사물함.', room: 'any', cols: 1, rows: 2, height: 2.0,
     model: 'locker', interaction: 'none', craft: [c('mat_scrap', 4)], maxLevel: 1, upgradeCost: [], color: '#b0b8c4' },

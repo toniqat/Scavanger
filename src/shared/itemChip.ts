@@ -13,6 +13,7 @@ import { CATEGORY_ICON, RARITY_COLORS } from './labels';
  * Markup (styled by `.item-chip*` in `src/ui/styles/base.css`):
  *
  *   button|div.item-chip[.is-short][.is-free]      ← `--rc` = rarity colour, `--ic` = category colour
+ *                                                  ← `data-def-id` = the item def (ui/hud/ItemTip hovers off it)
  *     div.item-chip-thumb  > span.item-chip-icon   ← ItemDef.icon glyph, tinted with ItemDef.color
  *     div.item-chip-count  > span.have + '/' + span.need
  *     div.item-chip-name                            (only when `withName`)
@@ -53,7 +54,12 @@ export function buildItemChip(def: ItemDef | undefined, opts: ItemChipOptions = 
   el.style.setProperty('--chip-size', `${size}px`);
   el.style.setProperty('--rc', RARITY_COLORS[d.rarity] ?? RARITY_COLORS.common);
   el.style.setProperty('--ic', d.color);
-  el.title = opts.title ?? (def ? `${def.name}\n${def.description}` : d.name);
+  // `data-def-id` is the hook the shared hover card (`ui/hud/ItemTip`) delegates on, so every chip everywhere gets
+  // the same inventory-style item tooltip. A native `title` would race that card, so it is only written when a
+  // caller explicitly asks for one (a chip whose def is unknown keeps the placeholder name as its title).
+  if (def) el.dataset.defId = def.id;
+  if (opts.title !== undefined) el.title = opts.title;
+  else if (!def) el.title = d.name;
 
   const thumb = document.createElement('div');
   thumb.className = 'item-chip-thumb';

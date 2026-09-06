@@ -215,6 +215,11 @@ const BUILDERS: Record<FurnitureModelKind, Builder> = {
     b.box(w - 0.2, 0.04, 0.04, 0, h - 0.12, 0, M.hullDark);
     b.boxB(0.3, 0.08, 0.2, -w * 0.25, h, 0.1, M.crateDark);
   },
+  /* Phase 9 skeleton: the 책장 reuses the 선반 builder until hub/ draws the shelved books. */
+  bookshelf: (b, w, d, h) => {
+    for (const sx of [-1, 1]) b.boxB(0.05, h, d, sx * (w / 2 - 0.03), 0, 0, M.hullLight);
+    b.box(w, h, 0.03, 0, h / 2, d / 2 - 0.02, M.hullDark);
+  },
   shelf: (b, w, d, h) => {
     for (const sx of [-1, 1]) b.boxB(0.05, h, d, sx * (w / 2 - 0.03), 0, 0, M.hullLight);
     b.box(w, h, 0.03, 0, h / 2, d / 2 - 0.02, M.hullDark);

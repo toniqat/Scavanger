@@ -553,7 +553,7 @@ export const STAT_MIN = 1;
 /* ── ship housing (owner: housing/ rules, hub/ geometry) ── */
 export const SHIP_STORAGE_KEY = 'scav.ship';
 /** Bumped to 2 in Phase 8: `ShipState.plots` / `nameLocked` and the one-off `furn_repair_bench` grant. */
-export const SHIP_STATE_VERSION = 2;
+export const SHIP_STATE_VERSION = 3;   // Phase 9: 3 = `books` / `bookDex` (absent → empty; no data migration)
 export const SHIP_ROOM_COUNT = 10;
 /** Room floor grid (cells) and cell size (m): 8 × 8 × 0.5 = a 4 × 4 m room. */
 export const ROOM_GRID_COLS = 8;
@@ -688,3 +688,32 @@ export const ROOM_LIGHT_DISTANCE = 7;
 /** `emissiveIntensity` of a room's wall strips when the room is empty vs. assigned a purpose. */
 export const ROOM_STRIP_DIM = 0.15;
 export const ROOM_STRIP_LIT = 2.2;
+
+/* ══ appended: Phase 9 — known follow-ups II (2026-09-06) ═══════════════════════════════════════════════════ */
+
+/* ── jump pad (owner: gadgets) ── */
+/** A player who was just launched by a pad cannot be launched by the same pad again for this long (was a 0.7 s per-pad literal). */
+export const JUMP_PAD_RETRIGGER_S = 2.5;
+
+/* ── 서재 책장 (owner: housing rules, hub geometry, items book data) ── */
+/** Book slots per 책장. */
+export const BOOKS_PER_SHELF = 6;
+/** Skill-XP multiplier bonus per shelved book, weighted by `BOOK_RARITY_MUL[rarity]`: mul = 1 + BOOK_XP_PER_BOOK × Σ weight. */
+export const BOOK_XP_PER_BOOK = 0.05;
+export const BOOK_RARITY_MUL: Readonly<Record<'common' | 'uncommon' | 'rare' | 'epic' | 'legendary', number>> = {
+  common: 1, uncommon: 1.5, rare: 2.5, epic: 4, legendary: 6,
+};
+/** Cap of the 서재 multiplier for one skill. */
+export const BOOK_GAIN_MAX = 2.0;
+
+/* ── 시뮬레이션 훈련장 target modes (owner: world) ── */
+/** 이동 표적: sweep half-width (m, keeps the target inside its lane), speed (m/s) and the pause at each end. */
+export const TRAINING_MOVING_SPAN = 3.2;
+export const TRAINING_MOVING_SPEED = 2.2;
+export const TRAINING_MOVING_PAUSE_S = 0.5;
+/** 타임 코스: knock-downs needed, seconds allowed, cooldown before the next course can start. */
+export const TRAINING_COURSE_TARGETS = 10;
+export const TRAINING_COURSE_TIME_S = 60;
+export const TRAINING_COURSE_COOLDOWN_S = 3;
+/** localStorage key of the best timed-course time. */
+export const TRAINING_BEST_STORAGE_KEY = 'scav.training';

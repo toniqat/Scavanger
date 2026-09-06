@@ -71,6 +71,7 @@ export const CORP_DEFS: Readonly<Record<CorpId, CorpDef>> = {
       { category: 'grenade' },
       { category: 'gadget' },
       { category: 'attachment', minRepLevel: 2 },
+      { category: 'book', minRepLevel: 2 },   // appended (Phase 9): 서적 — 서재 책장용
     ],
   },
 };

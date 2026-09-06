@@ -12,6 +12,8 @@ const REST_Y: Record<ItemCategory, number> = {
   furniture: 0.16,
   /* appended: Phase 8 — 씨앗 (small pouch, sits low like a herb) */
   seed: 0.07,
+  /* appended: Phase 9 — 서적 (flat, lies like a plate) */
+  book: 0.06,
 };
 
 /**

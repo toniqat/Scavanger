@@ -229,6 +229,13 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
     return { point: _bp.clone(), owner: best.owner };
   }
 
+  /* Phase 9 skeleton: `raycastBarrier` still applies the block damage itself; move it here (see docs/PHASE9-PLAN.md §4). */
+  damageBarrier(owner: PeerId | 'local', point: THREE.Vector3, amount = BARRIER_BLOCK_DAMAGE): void {
+    if (!this.ctx) return;
+    if (owner === 'local') { if (this.barrier.active) this.onBarrierBlocked(point, amount); }
+    else this.fx.spark(point, implantHex('barrier'), 0.3);
+  }
+
   /** Back to a fresh raid state (mission start / abort / hub). */
   reset(): void {
     this.stow();

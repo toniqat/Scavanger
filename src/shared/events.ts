@@ -75,7 +75,8 @@ export interface GameEvents {
   /* ── enemies (owner: enemies/EnemySystem) ───────────────────────────── */
   'enemy:spawned': { id: number; type: EnemyType; position: THREE.Vector3 };
   'enemy:damaged': { id: number; type: EnemyType; amount: number; position: THREE.Vector3; hp: number };
-  'enemy:killed': { id: number; type: EnemyType; position: THREE.Vector3 };
+  /** `by` (appended, Phase 9): PeerId | 'local' credited (burn kills go to the fire's owner), null for an AI / unknown kill. */
+  'enemy:killed': { id: number; type: EnemyType; position: THREE.Vector3; by?: string | null };
   'enemy:attacked': { id: number; type: EnemyType; damage: number; position: THREE.Vector3 };
   'enemy:alerted': { id: number; type: EnemyType; position: THREE.Vector3 };
   'enemy:waveStarted': { index: number; count: number };
@@ -531,4 +532,25 @@ export interface GameEvents {
   /* ── 아이템 분해 (owner: inventory) ── */
   /** The modeless 분해 dialog opened / closed over the inventory window. */
   'ui:disassembleToggled': { open: boolean; uid: string | null };
+}
+
+/* ══ appended: Phase 9 — known follow-ups II (2026-09-06) ══════════════════════════════════════════════════ */
+import type { TrainingMode } from './types';
+export interface GameEvents {
+  /* ── downed give-up hold (owner: player, rendered by ui/hud/Vitals) ── */
+  /** Progress of the Space give-up hold while downed (0..1, ≤ 20 Hz); `t: -1` = released / cancelled. */
+  'player:giveUpProgress': { t: number };
+
+  /* ── 시뮬레이션 훈련장 target modes (owner: world/TrainingArena) ── */
+  'training:modeChanged': { mode: TrainingMode };
+  /** One target knocked down; `score` / `hits` = running totals of the current run. */
+  'training:scored': { score: number; hits: number; index: number };
+  /** A timed course ended. `completed` false = the clock ran out; `best` = best time after this run (seconds). */
+  'training:courseFinished': { time: number; score: number; completed: boolean; best: number | null };
+
+  /* ── 서재 책장 (owner: housing) ── */
+  /** Books on shelf `uid` changed (`count` shelved); also fired when a shelf is recovered (count 0). */
+  'housing:booksChanged': { uid: string; count: number };
+  /** The 책장 panel opened / closed (blocker `housing`). */
+  'ui:bookshelfToggled': { open: boolean; uid: string | null };
 }

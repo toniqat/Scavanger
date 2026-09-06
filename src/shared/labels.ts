@@ -31,6 +31,7 @@ export const CATEGORY_LABEL_KO: Readonly<Record<ItemCategory, string>> = {
   armor: '방탄복', gadget: '가젯', herb: '약초',
   furniture: '가구',
   seed: '씨앗',
+  book: '서적',
 };
 
 /** Accent colour per category (panel chips, quick bar, map icons). */
@@ -40,6 +41,7 @@ export const CATEGORY_COLOR: Readonly<Record<ItemCategory, string>> = {
   armor: '#9fb4ff', gadget: '#8fe8ff', herb: '#7ee08a',
   furniture: '#e0c9a6',
   seed: '#c8e08a',
+  book: '#c9a77a',
 };
 
 /** Short glyph per category (used where an item has none, e.g. empty quick slots). */
@@ -49,4 +51,5 @@ export const CATEGORY_ICON: Readonly<Record<ItemCategory, string>> = {
   armor: '⛊', gadget: '◈', herb: '❦',
   furniture: '⌂',
   seed: '⁘',
+  book: '▤',
 };

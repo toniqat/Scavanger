@@ -157,6 +157,8 @@ export class EnemyReplica {
     const list = msg.e;
     for (let i = 0; i < list.length; i++) {
       const w = list[i];
+      /* Phase 9 skeleton: only full wires are applied until the delta path lands (see docs/PHASE9-PLAN.md §6). */
+      if (!w.p || w.ty === undefined || w.yaw === undefined || w.hp === undefined || w.st === undefined) continue;
       let e = host.find(w.id);
       if (e && e.type !== w.ty) { host.release(e); e = undefined; }
       if (!e) {
