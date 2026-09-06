@@ -13,7 +13,8 @@
     "net:selftest": "node --experimental-strip-types --disable-warning=ExperimentalWarning server/selftest.ts",
     "typecheck:server": "tsc --noEmit -p server/tsconfig.json",
     "e2e:mp": "node scripts/e2e-multiplayer.mjs",
-    "smoke:tactical": "node scripts/smoke-tactical.mjs"
+    "smoke:tactical": "node scripts/smoke-tactical.mjs",
+    "smoke:controls": "node scripts/smoke-controls-hub.mjs"
   },
   "dependencies": {
     "three": "^0.185.1",

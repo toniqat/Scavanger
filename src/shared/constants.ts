@@ -27,11 +27,31 @@ export const Layers = {
   NO_RAYCAST: 6,
 } as const;
 
-/** Keyboard bindings (KeyboardEvent.code). */
-export const Keys = {
+/**
+ * Every rebindable action. Values are `KeyboardEvent.code`s or the synthetic mouse codes `Mouse0`..`Mouse4`
+ * (`Input` registers those in the same key sets, so `input.isDown(Keys.X)` works for both).
+ */
+export interface KeyBindings {
+  FORWARD: string; BACK: string; LEFT: string; RIGHT: string;
+  SPRINT: string; JUMP: string;
+  CROUCH: string; PRONE: string; DIVE: string;
+  RELOAD: string; INTERACT: string;
+  STIM: string; GRENADE: string;
+  PRIMARY: string; PRIMARY2: string; SECONDARY: string; SWAP: string;
+  INVENTORY: string; ROTATE_ITEM: string; MENU: string; MAP: string;
+  DROP_ITEM: string; CHAT: string;
+  QUICK: string; RESPAWN: string; GIVE_UP: string;
+  SHIP_CALL: string;
+  /* appended (key rebinding, 2026-09-06): the tactical-kit keys and the three mouse actions joined the table. */
+  IMPLANT: string; MELEE: string; THROW_MODE: string;
+  FIRE: string; AIM: string; PING: string;
+}
+
+/** Factory defaults; `Keys` is the live (rebindable) copy. Both are keyed by `KeyAction`. */
+export const DEFAULT_KEYS: Readonly<KeyBindings> = {
   FORWARD: 'KeyW', BACK: 'KeyS', LEFT: 'KeyA', RIGHT: 'KeyD',
   SPRINT: 'ShiftLeft', JUMP: 'Space',
-  /** C toggles crouch, Z toggles prone, Alt dives (ends prone). */
+  /** C toggles crouch, Z toggles prone, Alt rolls (ends prone). */
   CROUCH: 'KeyC', PRONE: 'KeyZ', DIVE: 'AltLeft',
   RELOAD: 'KeyR', INTERACT: 'KeyE',
   /** Tactical kit: H puts a stim in hand directly (F is the melee attack). GRENADE is legacy (G = ship calls). */
@@ -39,17 +59,42 @@ export const Keys = {
   /** Weapon package: 1 = 주무기 I, 2 = 주무기 II, 3 = 보조무기. Tactical kit: V = previous weapon (Q is the implant). */
   PRIMARY: 'Digit1', PRIMARY2: 'Digit2', SECONDARY: 'Digit3', SWAP: 'KeyV',
   INVENTORY: 'Tab', ROTATE_ITEM: 'KeyR', MENU: 'Escape', MAP: 'KeyM',
-  /* appended: X drops the hovered/selected inventory item; Enter opens text chat. */
+  /* X drops the hovered/selected inventory item; Enter opens text chat. */
   DROP_ITEM: 'KeyX', CHAT: 'Enter',
-  /* appended (Phase 2): quick use (tap: last item in hand, hold: wheel) — moved from F to T by the tactical kit.
-     G is reserved for the Phase 3 ship-call wheel (grenades are thrown from the hand now). Space respawns when allowed / gives up while downed (hold). */
+  /* Phase 2: quick use (tap: last item in hand, hold: wheel) — moved from F to T by the tactical kit.
+     Space respawns when allowed / gives up while downed (hold); both follow JUMP when rebound. */
   QUICK: 'KeyT', RESPAWN: 'Space', GIVE_UP: 'Space',
-  /* appended (Phase 3): G = ship-call wheel (same key as the legacy GRENADE binding). */
+  /* Phase 3: G = ship-call wheel (same key as the legacy GRENADE binding, which follows it). */
   SHIP_CALL: 'KeyG',
-} as const;
+  /* tactical kit */
+  IMPLANT: 'KeyQ', MELEE: 'KeyF', THROW_MODE: 'KeyB',
+  /* mouse actions (rebindable to other mouse buttons only) */
+  FIRE: 'Mouse0', AIM: 'Mouse2', PING: 'Mouse1',
+};
 
-/** Mouse buttons (MouseEvent.button). */
-export const MouseButtons = { FIRE: 0, PING: 1, AIM: 2 } as const;
+/**
+ * Live key bindings (KeyboardEvent.code / `MouseN`). **Mutable**: `shared/Keybinds.ts` overwrites entries from
+ * localStorage at startup and when the player rebinds. Always read `Keys.X` at use time, never cache it in a
+ * module-level constant (labels included — use `keyLabel(Keys.X)`).
+ */
+export const Keys: KeyBindings = { ...DEFAULT_KEYS };
+
+/** `'Mouse2'` → 2; anything that is not a mouse code → `fallback`. */
+export function mouseButtonOf(code: string, fallback = -1): number {
+  if (typeof code !== 'string' || !code.startsWith('Mouse')) return fallback;
+  const n = Number(code.slice(5));
+  return Number.isInteger(n) && n >= 0 && n <= 4 ? n : fallback;
+}
+
+/**
+ * Mouse buttons (MouseEvent.button) of the three mouse actions, derived live from `Keys.FIRE / PING / AIM`
+ * (those may only ever be rebound to other mouse buttons). −1 (never pressed) if a binding is not a mouse code.
+ */
+export const MouseButtons = {
+  get FIRE(): number { return mouseButtonOf(Keys.FIRE); },
+  get PING(): number { return mouseButtonOf(Keys.PING); },
+  get AIM(): number { return mouseButtonOf(Keys.AIM); },
+};
 
 /* ── appended: pings v2 / chat / pickups / hub ── */
 /** Middle-mouse drag distance (px, pointer-locked movement) that turns a click into a directional ping. */
@@ -239,12 +284,12 @@ export const BEHEMOTH_WINDUP = 1.4;
 export const ARMOR_IMMUNE_AMMO: readonly string[] = ['light', 'medium', 'shell', 'pistol', 'rifle', 'shotgun'];
 
 /* ── appended: tactical kit (implants, gadgets, melee, gear, progression; merged 2026-09-06) ── */
-/** Q activates / wields the equipped tactical implant. */
-export const KEY_IMPLANT = 'KeyQ';
-/** F swings the equipped weapon as a melee attack. */
-export const KEY_MELEE = 'KeyF';
-/** B toggles over / under-hand throws for gadgets (grenades keep RMB). */
-export const KEY_THROW_MODE = 'KeyB';
+/** @deprecated default of `Keys.IMPLANT` — read `Keys.IMPLANT` (rebindable) instead. */
+export const KEY_IMPLANT = DEFAULT_KEYS.IMPLANT;
+/** @deprecated default of `Keys.MELEE` — read `Keys.MELEE` instead. */
+export const KEY_MELEE = DEFAULT_KEYS.MELEE;
+/** @deprecated default of `Keys.THROW_MODE` — read `Keys.THROW_MODE` instead. */
+export const KEY_THROW_MODE = DEFAULT_KEYS.THROW_MODE;
 
 /* ── melee ── */
 export const MELEE_DAMAGE = 45;
@@ -296,8 +341,19 @@ export const IMPLANT_BARRIER_WIDTH = 7;
 export const IMPLANT_BARRIER_HEIGHT = 3.2;
 /** Shield hp regenerated per second while it is stowed. */
 export const IMPLANT_BARRIER_REGEN = 120;
+/** After the shield collapses it is locked for this long; its hp regenerates from 0 to full over exactly this window (HUD gauge). */
+export const IMPLANT_BARRIER_BREAK_LOCKOUT = 10;
 export const IMPLANT_OVERCHARGE_RANGE = 22;
+/** @deprecated legacy beam rate; the hold-to-channel overcharge uses SELF / ALLY rates below. */
 export const IMPLANT_OVERCHARGE_HEAL_PER_SEC = 45;
+/** Overcharge (hold Q): slow self heal, faster heal on the ally under the crosshair. */
+export const IMPLANT_OVERCHARGE_SELF_HEAL_PER_SEC = 10;
+export const IMPLANT_OVERCHARGE_ALLY_HEAL_PER_SEC = 25;
+/** Energy = seconds of continuous channelling; refills from empty in IMPLANT_OVERCHARGE_REGEN_TIME while released. */
+export const IMPLANT_OVERCHARGE_ENERGY = 6;
+export const IMPLANT_OVERCHARGE_REGEN_TIME = 12;
+/** Speed / fire-rate buff applies while channelling only when the target's hp is at least this ratio. */
+export const IMPLANT_OVERCHARGE_BUFF_HP_RATIO = 0.9;
 export const IMPLANT_OVERCHARGE_SPEED_MUL = 1.28;
 export const IMPLANT_OVERCHARGE_FIRERATE_MUL = 1.3;
 export const IMPLANT_OVERCHARGE_DURATION = 4;  // buff lingers this long after the beam breaks
@@ -368,3 +424,11 @@ export const PROFILE_VERSION = 1;
 /** XP needed to reach level n+1: XP_BASE * n^XP_EXPONENT. */
 export const XP_BASE = 240;
 export const XP_EXPONENT = 1.35;
+
+/* ── appended: key rebinding + ship stash (2026-09-06) ── */
+/** localStorage key of the player's key bindings (`shared/Keybinds.ts`). */
+export const KEYBINDS_STORAGE_KEY = 'scav.keybinds';
+/** localStorage key of the ship stash (`inventory/Stash.ts`) and its fixed grid. */
+export const STASH_STORAGE_KEY = 'scav.stash';
+export const STASH_COLS = 10;
+export const STASH_ROWS = 24;

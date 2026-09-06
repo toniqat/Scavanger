@@ -10,7 +10,7 @@ import { LaunchPod } from './LaunchPod';
 import { Terminal } from './Terminal';
 import { Workbench } from './Workbench';
 import { DockingCutscene, type DockDirection } from './DockingCutscene';
-import { HubMenu, type HubTab } from './ui/HubMenu';
+import { HubMenu } from './ui/HubMenu';
 import { WorkbenchMenu } from './ui/WorkbenchMenu';
 import { HubStatus } from './ui/HubStatus';
 import { randomSeed } from './ui/dom';
@@ -179,24 +179,27 @@ export class HubSystem implements GameSystem, HubRef {
   }
 
   /**
-   * 함선 시설: the hydroponics garden (real plant / harvest loop) plus two consoles that open the terminal
-   * menu straight on its 임플란트 / 정비 page. Their geometry is already merged into the interior.
+   * 함선 시설: the hydroponics garden (real plant / harvest loop) plus the implant bay, which opens the Tab ship
+   * screen (inventory window: 창고 / 장비 + 임플란트 슬롯 / 가방). Their geometry is already merged into the interior.
    */
   private buildStations(interior: ShipInterior): void {
     const s = interior.stations;
     if (!s) return;
     this.garden = new GardenStation(this.ctx, s.garden);
-    this.addStation('hub_implant_bay', s.implantBay, '전술 임플란트 장착', 'implant');
+    this.addStation('hub_implant_bay', s.implantBay, '전술 임플란트 장착', () => {
+      const inv = this.ctx.inventory;
+      if (inv && !inv.isOpen) inv.toggleBag();
+    });
   }
 
-  private addStation(id: string, def: StationDef, prompt: string, tab: HubTab): void {
+  private addStation(id: string, def: StationDef, prompt: string, onUse: () => void): void {
     const it: Interactable = {
       id,
       position: def.position.clone(),
       radius: 2.3,
       getPrompt: () => (this.stationUsable() ? prompt : null),
       canInteract: () => this.stationUsable(),
-      interact: () => this.menu.open(tab),
+      interact: onUse,
     };
     this.ctx.interactables.register(it);
     this.stationIds.push(id);
@@ -204,7 +207,7 @@ export class HubSystem implements GameSystem, HubRef {
 
   /** Terminal / station consoles are usable while walking the ship (not boarded, no menu, not docking). */
   private stationUsable(): boolean {
-    return this.ctx.phase === 'hub' && !this.menu.isOpen && !this.wbMenu.isOpen && this.boardedSlot < 0 && !this.cutscene;
+    return this.ctx.phase === 'hub' && !this.menu.isOpen && !this.wbMenu.isOpen && !(this.ctx.inventory?.isOpen ?? false) && this.boardedSlot < 0 && !this.cutscene;
   }
 
   private disposeInterior(): void {

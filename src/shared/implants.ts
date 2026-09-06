@@ -12,10 +12,11 @@ export type ImplantId = 'grapple' | 'dash' | 'barrier' | 'overcharge' | 'scan' |
 export const IMPLANT_IDS: readonly ImplantId[] = ['grapple', 'dash', 'barrier', 'overcharge', 'scan', 'atlauncher'];
 
 /**
- * 'instant'  → Q fires the effect immediately (dash, barrier toggle).
- * 'wielded'  → Q takes the device into the hands (weapon holstered); LMB / RMB drive it, Q puts it away.
+ * 'instant'  → Q fires the effect immediately (grapple, dash, barrier toggle).
+ * 'hold'     → the effect runs while Q is held (scan pulses, overcharge channel); the gun stays in hand.
+ * 'wielded'  → Q takes the device into the hands (weapon holstered); LMB / RMB drive it, Q or a weapon key puts it away.
  */
-export type ImplantMode = 'instant' | 'wielded';
+export type ImplantMode = 'instant' | 'wielded' | 'hold';
 
 export interface ImplantDef {
   id: ImplantId;
@@ -60,6 +61,14 @@ export interface ImplantsRef {
   readonly barrierMaxHp: number;
   /** true while the barrier is deployed. */
   readonly barrierActive: boolean;
+  /* ── appended (implant rework 2026-09-06) ── */
+  /** true while a 'hold' implant is channelling (Q held). */
+  readonly holding: boolean;
+  /** Resource of a channelled implant (overcharge energy, seconds); 0 / 0 for the others. */
+  readonly energy: number;
+  readonly energyMax: number;
+  /** Barrier only: seconds left of the post-collapse lockout (0 otherwise). */
+  readonly barrierLockout: number;
 
   getDef(id: ImplantId): ImplantDef | undefined;
   getAllDefs(): readonly ImplantDef[];

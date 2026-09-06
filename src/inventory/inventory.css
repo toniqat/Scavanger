@@ -847,3 +847,117 @@ kbd {
 .inv-tt-dur.is-broken .inv-tt-dur-track i { background: var(--inv-bad); }
 .inv-tt-dur.is-broken .inv-tt-dur-label { color: color-mix(in srgb, var(--inv-bad) 80%, white 20%); }
 .inv-tt-foot { margin-top: 8px; font-size: 10px; letter-spacing: 0.08em; color: var(--inv-muted); }
+
+/* ═══ ship screen (hub Tab, 2026-09-06): 창고 · 장착 장비 (+ 임플란트) · 가방 + 퀵슬롯 ═══ */
+
+/* panel order: mission = crate · bag · craft · equipment; ship = stash · equipment · bag · craft */
+.inv-panel-stash { order: 0; }
+.inv-panel-container { order: 0; }
+.inv-panel-bag { order: 1; }
+.inv-panel-craft { order: 2; }
+.inv-equip { order: 3; }
+.inv-root.is-hub .inv-equip { order: 1; }
+.inv-root.is-hub .inv-panel-bag { order: 2; }
+.inv-root.is-hub .inv-panel-craft { order: 3; }
+
+/* stash: fixed 10-wide grid, rows scroll */
+.inv-panel-stash { animation: inv-slide-in 200ms var(--inv-ease) both; }
+.inv-stash-scroll {
+  max-height: min(560px, calc(100vh - 330px));
+  overflow-y: auto; overflow-x: hidden;
+  padding: 2px 8px 2px 2px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+}
+.inv-stash-scroll::-webkit-scrollbar { width: 6px; }
+.inv-stash-scroll::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.22); border-radius: 3px; }
+.inv-stash-hint { font-size: 11px; letter-spacing: 0.04em; color: var(--inv-muted); }
+
+/* bag body: rose under the grid on a mission; in the ship it moves to the right of the grid once the window is
+   wide enough for 창고 + 장비 + 가방 side by side (≥ 1600 px) */
+.inv-bag-body { display: flex; flex-direction: column; gap: 14px; }
+@media (min-width: 1600px) {
+  .inv-root.is-hub .inv-bag-body { flex-direction: row; align-items: flex-start; gap: 18px; }
+  .inv-root.is-hub .inv-quick {
+    flex-direction: column; align-items: stretch; gap: 12px;
+    padding-top: 0; padding-left: 18px; border-top: none; border-left: 1px solid var(--inv-line);
+  }
+  .inv-root.is-hub .inv-quick-legend { max-width: calc(3 * var(--inv-cell) + 8px); }
+}
+
+/* equipment column: labelled grid in the ship (weapons left, armor / bag right), single column on a mission */
+.inv-equip-grid { display: flex; flex-direction: column; gap: 14px; }
+.inv-root.is-hub .inv-equip-grid {
+  display: grid; gap: 12px 18px; align-items: start;
+  grid-template-columns: auto auto;
+  grid-template-areas: "primary armor" "primary2 armor" "secondary bag";
+}
+.inv-root.is-hub .inv-slot-primary { grid-area: primary; }
+.inv-root.is-hub .inv-slot-primary2 { grid-area: primary2; }
+.inv-root.is-hub .inv-slot-secondary { grid-area: secondary; }
+.inv-root.is-hub .inv-slot-armor { grid-area: armor; }
+.inv-root.is-hub .inv-slot-bag { grid-area: bag; }
+.inv-slot.is-worn .inv-slot-meta { color: var(--inv-accent); }
+
+/* tactical-implant slot (below the gear) */
+.inv-slot-implant { padding-top: 12px; border-top: 1px solid var(--inv-line); }
+.inv-slot-implant .inv-slot-body { width: 222px; height: 52px; cursor: pointer; }
+.inv-slot-implant.is-locked .inv-slot-body { cursor: not-allowed; opacity: 0.7; }
+.inv-slot-implant .inv-slot-body:hover { border-color: var(--inv-line-strong); background: rgba(255, 255, 255, 0.07); }
+.inv-slot-implant.is-picking .inv-slot-body { border-color: var(--inv-accent); box-shadow: 0 0 14px color-mix(in srgb, var(--inv-accent) 35%, transparent); }
+.inv-implant-empty-ico { font-size: 18px; line-height: 1; }
+.inv-implant-card {
+  --ic: #9fb6c8;
+  appearance: none; text-align: left; font: inherit; color: var(--inv-text);
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 6px 10px; border-radius: 4px;
+  border: 1px solid var(--inv-line); background: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+  transition: border-color 140ms var(--inv-ease), background 140ms var(--inv-ease);
+}
+.inv-implant-card:hover { border-color: var(--inv-line-strong); background: rgba(255, 255, 255, 0.07); }
+.inv-implant-card.is-equipped { border-color: var(--ic); background: color-mix(in srgb, var(--ic) 14%, transparent); }
+.inv-implant-card .ico {
+  flex: none; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
+  font-size: 16px; line-height: 1; color: var(--ic);
+  border: 1px solid color-mix(in srgb, var(--ic) 50%, transparent); border-radius: 3px;
+  background: color-mix(in srgb, var(--ic) 10%, transparent);
+}
+.inv-implant-card.is-equipped .ico { box-shadow: 0 0 12px color-mix(in srgb, var(--ic) 45%, transparent); }
+.inv-implant-card .nm { font-size: 13px; font-weight: 600; }
+.inv-implant-card.is-equipped .nm { color: var(--ic); }
+.inv-implant-card .body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.inv-implant-card .line { display: flex; align-items: center; gap: 8px; }
+.inv-implant-card .tag { font-size: 9px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--inv-muted); border: 1px solid var(--inv-line); padding: 1px 5px; }
+.inv-implant-card .desc { font-size: 11px; line-height: 1.45; color: var(--inv-muted); }
+.inv-implant-body .inv-implant-card { border: none; background: none; padding: 0 4px; pointer-events: none; }
+.inv-implant-body .inv-implant-card::after { content: "▾"; margin-left: auto; color: var(--inv-muted); font-size: 12px; }
+.inv-implant-picker {
+  display: flex; flex-direction: column; gap: 6px; width: 234px;
+  margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--inv-line);
+  animation: inv-pop 160ms var(--inv-ease) both;
+}
+.inv-implant-picker .inv-implant-card.is-equipped::after { content: "장착 중 · 클릭해 해제"; margin-left: auto; font-size: 9px; letter-spacing: 0.08em; color: var(--ic); white-space: nowrap; }
+
+/* nothing can be thrown away in the ship */
+.inv-root.is-hub .inv-dropzone { display: none !important; }
+.inv-root.is-hub .inv-layout { align-items: flex-start; }
+
+/* panels keep their natural width; a too-narrow window scrolls the layout instead of squeezing a grid */
+.inv-panel, .inv-equip { flex: none; }
+/* equipment: two columns only when the window is wide enough for 창고 + 장비 + 가방 side by side */
+.inv-root.is-hub .inv-equip-grid { display: flex; flex-direction: column; }
+.inv-root.is-hub .inv-slot-primary, .inv-root.is-hub .inv-slot-primary2, .inv-root.is-hub .inv-slot-secondary,
+.inv-root.is-hub .inv-slot-armor, .inv-root.is-hub .inv-slot-bag { grid-area: auto; }
+@media (min-width: 1600px) {
+  .inv-root.is-hub .inv-equip-grid {
+    display: grid; gap: 12px 18px; align-items: start;
+    grid-template-columns: auto auto;
+    grid-template-areas: "primary armor" "primary2 armor" "secondary bag";
+  }
+  .inv-root.is-hub .inv-slot-primary { grid-area: primary; }
+  .inv-root.is-hub .inv-slot-primary2 { grid-area: primary2; }
+  .inv-root.is-hub .inv-slot-secondary { grid-area: secondary; }
+  .inv-root.is-hub .inv-slot-armor { grid-area: armor; }
+  .inv-root.is-hub .inv-slot-bag { grid-area: bag; }
+}

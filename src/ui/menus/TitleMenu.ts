@@ -2,22 +2,12 @@ import type { GameContext } from '@/shared';
 import { sanitizePlayerName } from '@/shared';
 import { el, setText } from '../dom';
 import { MenuBase } from './MenuBase';
-
-const CONTROLS: Array<[string[], string]> = [
-  [['W', 'A', 'S', 'D'], '이동'], [['Shift'], '달리기 (스태미나)'], [['Space'], '점프'],
-  [['C'], '앉기'], [['Z'], '엎드리기'], [['Alt'], '구르기'],
-  [['LMB'], '사격'], [['RMB'], '조준'], [['MMB'], '핑 · 홀드+드래그 방향 핑 (◄ 주의 · 돌격 ► · ▼ 탄약)'], [['R'], '재장전'],
-  [['1'], '주무기 I'], [['2'], '주무기 II'], [['3'], '보조무기'], [['V'], '이전 무기'], [['E'], '상호작용 (길게) · 전투불능 아군 구조'],
-  [['Q'], '전술 임플란트 (함선에서 장착)'], [['F'], '근접 공격'], [['H'], '스팀'],
-  [['T'], '빠른 사용 (길게: 휠)'], [['LMB', 'R', 'RMB'], '수류탄: 좌클 홀드 → R 코킹 → 놓기 · 우클 언더핸드'],
-  [['G'], '함선 호출 (길게: 휠) · 궤도/항공: 좌클 홀드 → 톱뷰 지정 · 보급/구조물: 좌클 투하'],
-  [['Space'], '(전투불능) 포기 / (사망) 부활'],
-  [['Tab'], '인벤토리'], [['X'], '아이템 버리기'], [['M'], '지도'],
-  [['Enter'], '채팅'], [['Esc'], '일시 정지'],
-];
+import { ControlsPanel, KEYBIND_BUTTON_LABEL } from './ControlsPanel';
 
 /**
- * Title screen: wordmark, callsign field, `함선 탑승` → `hub:enter {ship:'personal'}`, controls.
+ * Title screen: wordmark, callsign field, `함선 탑승` → `hub:enter {ship:'personal'}`, then the controls diagram
+ * (procedural keyboard + mouse with the bound keys lit, per-function list) and a `키 설정 변경` button that opens
+ * the key-settings overlay (`onKeybinds`, owned by HudSystem).
  * Visible on phase 'menu' only. Seed / matchmaking live in the ship terminal (hub).
  * Invite link (`?lobby=CODE` → `ctx.net.inviteCode`): the button reads `초대 수락 · 함선 탑승`; on click we
  * `ensureConnected()` first, then enter the personal ship and `joinLobby(code)` (the hub docks us into the shared ship).
@@ -27,10 +17,11 @@ export class TitleMenu extends MenuBase {
   private nameInput: HTMLInputElement;
   private boardBtn: HTMLButtonElement;
   private msg: HTMLElement;
+  private controls: ControlsPanel;
   private busy = false;
   private inviteFailed = false;
 
-  constructor(parent: HTMLElement) {
+  constructor(parent: HTMLElement, private readonly onKeybinds: () => void) {
     super(parent, 'title');
     const head = el('div', { parent: this.frame });
     el('div', { cls: 'wordmark', html: 'SCAV<span>A</span>NGER', parent: head });
@@ -51,13 +42,10 @@ export class TitleMenu extends MenuBase {
 
     el('div', { cls: 'divider', parent: this.frame });
     el('span', { cls: 'ui-label', text: '조작', parent: this.frame });
-    const grid = el('div', { cls: 'controls', parent: this.frame });
-    for (const [keys, label] of CONTROLS) {
-      const k = el('div', { cls: 'keys', parent: grid });
-      for (const key of keys) el('span', { cls: 'keycap', text: key, parent: k });
-      el('span', { text: label, parent: grid });
-    }
-    el('div', { cls: 'hint', text: '함선의 단말기에서 임무 시드를 고르고 분대를 모으세요. 발사 포드에 탑승하면 강하합니다.', parent: this.frame });
+    this.controls = new ControlsPanel(this.frame);
+    const foot = el('div', { cls: 'title-foot', parent: this.frame });
+    el('div', { cls: 'hint', text: '함선의 단말기에서 임무 시드를 고르고 분대를 모으세요. 발사 포드에 탑승하면 강하합니다.', parent: foot });
+    this.button(foot, KEYBIND_BUTTON_LABEL, () => this.onKeybinds(), 'keybinds');
     el('div', { cls: 'version', text: 'SCAVANGER · PROTOTYPE', parent: this.root });
   }
 
@@ -78,6 +66,7 @@ export class TitleMenu extends MenuBase {
     setText(this.boardBtn, invite ? '초대 수락 · 함선 탑승' : '함선 탑승');
     this.boardBtn.disabled = false;
     this.busy = false;
+    this.controls.refresh();
   }
 
   protected override onHide(): void { this.msg.hidden = true; }
@@ -124,4 +113,6 @@ export class TitleMenu extends MenuBase {
     }
     ctx.bus.emit('hub:enter', { ship: 'personal' });
   }
+
+  override dispose(): void { this.controls.dispose(); super.dispose(); }
 }

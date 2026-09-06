@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {
   GADGET_DEFUSE_TIME, GADGET_INCENDIARY_DPS, GADGET_JUMPPAD_FORWARD, GADGET_JUMPPAD_IMPULSE,
-  GADGET_CLOAK_SHARE_RADIUS, GADGET_LURE_RADIUS, GADGET_MINE_ARM_TIME, GADGET_MINE_DAMAGE, GADGET_TURRET_DPS, KEY_THROW_MODE, PLAYER_RADIUS,
+  GADGET_CLOAK_SHARE_RADIUS, GADGET_LURE_RADIUS, GADGET_MINE_ARM_TIME, GADGET_MINE_DAMAGE, GADGET_TURRET_DPS, Keys, PLAYER_RADIUS,
   type BuffMessage, type DeployableKind, type DeployableRef, type EnemyRef, type FlowMessage, type GadgetDef,
   type GadgetId, type GadgetMessage, type GadgetRequest, type GameContext, type GameSystem, type GadgetsRef,
   type Interactable, type ItemInstance, type DeployableWire, type PeerId, type PlayerWeaponHost, type Vec3Tuple,
@@ -281,7 +281,7 @@ export class GadgetSystem implements GameSystem, GadgetsRef {
   /* ═══════════════════════════ input ═══════════════════════════ */
   private handleInput(ctx: GameContext): void {
     if (!ctx.isGameplayActive()) return;
-    if (ctx.input.wasPressed(KEY_THROW_MODE)) {
+    if (ctx.input.wasPressed(Keys.THROW_MODE)) {
       this.underhand = !this.underhand;
       ctx.bus.emit('gadget:throwModeChanged', { underhand: this.underhand });
       ctx.bus.emit('ui:notify', { text: this.underhand ? '언더 스로' : '오버 스로', kind: 'info', duration: 1 });

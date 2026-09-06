@@ -34,6 +34,7 @@ import { ActionFeedback } from './hud/ActionFeedback';
 import { MapScreen } from './map/MapScreen';
 import { TitleMenu } from './menus/TitleMenu';
 import { PauseMenu } from './menus/PauseMenu';
+import { KeybindMenu } from './menus/KeybindMenu';
 import { DeathScreen } from './menus/DeathScreen';
 import { MissionComplete } from './menus/MissionComplete';
 
@@ -97,6 +98,7 @@ export class HudSystem implements GameSystem {
   private pause!: PauseMenu;
   private death!: DeathScreen;
   private complete!: MissionComplete;
+  private keybinds!: KeybindMenu;
 
   private unsubs: Array<() => void> = [];
   private hudVisible = true;
@@ -147,8 +149,11 @@ export class HudSystem implements GameSystem {
     this.map = new MapScreen(ctx.uiRoot);
     this.map.setPingSource(() => this.pings.getPings());
 
-    this.title = new TitleMenu(ctx.uiRoot);
-    this.pause = new PauseMenu(ctx.uiRoot);
+    // Key-settings overlay sits above the title / pause menus, which both open it.
+    this.keybinds = new KeybindMenu(ctx.uiRoot);
+    this.keybinds.bind(ctx);
+    this.title = new TitleMenu(ctx.uiRoot, () => this.keybinds.open());
+    this.pause = new PauseMenu(ctx.uiRoot, () => this.keybinds.open());
     this.death = new DeathScreen(ctx.uiRoot);
     this.complete = new MissionComplete(ctx.uiRoot);
 
@@ -237,6 +242,8 @@ export class HudSystem implements GameSystem {
   get isStratagemWheelOpen(): boolean { return this.swheel.isOpen; }
   /** Whether the targeting frame is up (debug). */
   get isTargeting(): boolean { return this.targeting.isActive; }
+  /** Whether the key-settings overlay is open (debug). */
+  get isKeybindsOpen(): boolean { return this.keybinds.isOpen; }
   /** Edge arrows currently visible (debug). */
   get offscreenCount(): number { return this.offscreen.visibleCount; }
 
@@ -279,6 +286,7 @@ export class HudSystem implements GameSystem {
     for (const c of [this.reticle, this.cook, this.wheel, this.swheel, this.strat, this.charge, this.targeting, this.offscreen, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.chat, this.missionInfo, this.deploy, this.map]) c.dispose();
     for (const c of [this.implantWidget, this.weight, this.detection, this.scanReveal, this.deployables, this.progressToasts, this.actionFx]) c.dispose();
     for (const m of [this.title, this.pause, this.death, this.complete]) m.dispose();
+    this.keybinds.dispose();
     this.hudRoot.remove(); this.socialRoot.remove(); this.overlayRoot.remove();
   }
 }

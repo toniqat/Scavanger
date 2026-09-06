@@ -1117,49 +1117,63 @@ input { font: inherit; color: inherit; }
  *                     melee / roll / burn / cloak feedback
  * ══════════════════════════════════════════════════════════════════════════ */
 
-/* Tactical implant (bottom-center, above the quick bar) */
-.implant {
-  position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%);
-  display: flex; align-items: center; gap: 10px;
-  padding: 6px 12px 6px 6px;
-  background: var(--c-panel); border: 1px solid var(--c-border);
+/* Tactical implant gauge — left of the crosshair (implant rework 2026-09-06) */
+.implant-gauge {
   --ic: var(--c-info);
+  --ready: #ffd23a;
+  position: absolute; left: 50%; top: 50%;
+  transform: translate(calc(-100% - 46px), -50%);
+  display: flex; align-items: center; gap: 8px;
+  pointer-events: none;
+  opacity: 0.92;
+  transition: opacity var(--t-fast) var(--ease);
 }
-.implant .dial { position: relative; width: 48px; height: 48px; flex: none; }
-.implant .dial svg { width: 100%; height: 100%; transform: rotate(-90deg); }
-.implant .dial circle { fill: none; stroke-width: 3; }
-.implant .dial .track { stroke: rgba(255, 255, 255, 0.12); }
-.implant .dial .prog { stroke: var(--ic); stroke-linecap: butt; }
-.implant .ico {
-  position: absolute; left: 0; top: 0; width: 100%; height: 100%;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 18px; color: var(--ic); text-shadow: 0 0 8px rgba(0, 0, 0, 0.8);
+.implant-gauge .read {
+  min-width: 34px; text-align: right;
+  font-size: 12px; font-weight: 600; letter-spacing: 0.02em;
+  color: var(--c-text); text-shadow: 0 0 6px rgba(0, 0, 0, 0.95), 0 1px 2px #000;
 }
-.implant .cd {
-  position: absolute; left: 0; bottom: -2px; width: 100%;
-  text-align: center; font-size: 10px; color: var(--c-accent);
-  text-shadow: 0 0 4px #000;
+.implant-gauge .read.cd { color: var(--c-text-dim); }
+.implant-gauge .col { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+.implant-gauge .gauge {
+  display: flex; flex-direction: column; gap: 3px;
+  width: 9px; height: 76px;
+  padding: 2px; border-radius: 7px;
+  background: rgba(8, 10, 14, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
-.implant .info { display: flex; flex-direction: column; gap: 3px; min-width: 96px; }
-.implant .head { display: flex; align-items: center; gap: 6px; }
-.implant .head .keycap { min-width: 18px; height: 18px; font-size: 10px; }
-.implant .name { font-size: 11px; letter-spacing: 0.1em; font-weight: 600; }
-.implant .charges { display: flex; gap: 4px; }
-.implant .charges i { width: 12px; height: 3px; background: rgba(255, 255, 255, 0.15); }
-.implant .charges i.on { background: var(--ic); box-shadow: 0 0 5px var(--ic); }
-.implant .barrier { display: flex; align-items: center; gap: 6px; }
-.implant .barrier .bar { position: relative; width: 84px; height: 3px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
-.implant .barrier .bar i { display: block; height: 100%; width: 100%; background: #7fd7ff; transform-origin: left; transform: scaleX(1); will-change: transform; }
-.implant .barrier.low .bar i { background: var(--c-danger); }
-.implant .barrier .val { font-size: 9px; color: var(--c-text-dim); }
-.implant .barrier.active .bar { box-shadow: 0 0 6px rgba(127, 215, 255, 0.55); }
-.implant .barrier.hit { animation: barrierHit 220ms ease-out; }
+.implant-gauge .seg {
+  position: relative; flex: 1; min-height: 0;
+  border-radius: 5px; overflow: hidden;
+  background: rgba(255, 255, 255, 0.07);
+}
+.implant-gauge .seg[hidden] { display: none !important; }
+.implant-gauge .seg i {
+  position: absolute; inset: 0;
+  transform-origin: bottom; transform: scaleY(0);
+  background: rgba(255, 255, 255, 0.82);
+  will-change: transform;
+}
+.implant-gauge .seg.filling i { background: rgba(255, 255, 255, 0.72); }
+.implant-gauge .seg.ready i { background: var(--ic); box-shadow: 0 0 6px var(--ic); }
+.implant-gauge[data-implant="dash"] .seg.ready i { background: var(--ready); box-shadow: 0 0 6px var(--ready); }
+.implant-gauge .seg.low i { background: var(--c-danger); }
+.implant-gauge .seg.locked i { background: rgba(255, 120, 90, 0.75); }
+.implant-gauge .gauge.hit { animation: barrierHit 220ms ease-out; }
+.implant-gauge.deployed .gauge { border-color: var(--ic); box-shadow: 0 0 8px color-mix(in srgb, var(--ic) 55%, transparent); }
+.implant-gauge.holding .gauge { border-color: var(--ic); }
+.implant-gauge.holding .seg i { box-shadow: 0 0 8px var(--ic); }
+.implant-gauge .foot { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.implant-gauge .ico { font-size: 13px; line-height: 1; color: var(--ic); text-shadow: 0 0 6px rgba(0, 0, 0, 0.9); }
+.implant-gauge:not(.ready) .ico { opacity: 0.45; }
+.implant-gauge .foot .keycap { min-width: 16px; height: 15px; padding: 0 4px; font-size: 9px; background: rgba(8, 10, 14, 0.7); }
+.implant-gauge.wielded .foot .keycap { color: var(--ic); border-color: var(--ic); }
+.implant-gauge.pulse .gauge { animation: implantPulse 320ms var(--ease); }
 @keyframes barrierHit { 0% { filter: brightness(2.4); } 100% { filter: none; } }
-.implant.cooling .ico { opacity: 0.45; }
-.implant.ready .ico { opacity: 1; }
-.implant.wielded { border-color: var(--ic); }
-.implant.pulse { animation: implantPulse 320ms var(--ease); }
-@keyframes implantPulse { 0% { transform: translateX(-50%) scale(1.06); filter: brightness(1.6); } 100% { transform: translateX(-50%) scale(1); filter: none; } }
+@keyframes implantPulse { 0% { transform: scale(1.12); filter: brightness(1.6); } 100% { transform: scale(1); filter: none; } }
+/* hidden with the reticle: blockers / scope / targeting */
+.hud.targeting .implant-gauge { opacity: 0; }
 
 /* Quick-use bar (bottom-center, 4 or 8 slots) */
 .quickbar {
@@ -1365,3 +1379,122 @@ input { font: inherit; color: inherit; }
 
 /* dead-but-spectating: hide the personal tactical widgets too */
 .hud.spectating .implant, .hud.spectating .quickbar, .hud.spectating .weightbar { opacity: 0 !important; visibility: hidden; }
+
+/* ═══ Controls diagram (title screen) + key-settings overlay (2026-09-06) ═══ */
+.menu.title .frame {
+  min-width: 560px; max-width: 900px; width: min(900px, calc(100vw - 40px));
+  max-height: calc(100vh - 32px); overflow-y: auto; overflow-x: hidden;
+  gap: 18px; padding: 30px 36px 26px;
+}
+.menu.title .frame::after { bottom: 0; right: 0; }
+.menu.title .frame::before { left: 0; top: 0; }
+.title-foot { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.title-foot .hint { flex: 1; min-width: 0; }
+.title-foot .ui-btn.keybinds { min-width: 0; padding: 0 16px; height: 36px; font-size: 11px; }
+
+.controls-panel { display: flex; flex-direction: column; gap: 14px; }
+.ctl-diagram { display: flex; align-items: flex-start; gap: 22px; }
+/* keyboard */
+.ctl-keyboard { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; --ku: 34px; }
+.ctl-row { display: flex; gap: 4px; }
+.ctl-key {
+  position: relative; height: 34px; min-width: 0; box-sizing: border-box;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.14); border-bottom-width: 2px; border-radius: 4px;
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--c-text-faint);
+  transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.ctl-key .lbl { font-family: var(--ui-mono); font-size: 10px; font-weight: 700; line-height: 1; letter-spacing: 0.02em; }
+.ctl-key .cap {
+  position: absolute; left: 2px; right: 2px; bottom: 2px;
+  font-size: 8px; line-height: 1; letter-spacing: -0.02em; text-align: center;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  color: var(--c-accent); opacity: 0;
+}
+.ctl-key.bound {
+  color: var(--c-text);
+  border-color: rgba(255, 179, 71, 0.75); background: rgba(255, 179, 71, 0.12);
+  box-shadow: 0 0 10px rgba(255, 179, 71, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+.ctl-key.bound .lbl { transform: translateY(-4px); color: #ffd18a; }
+.ctl-key.bound .cap { opacity: 1; }
+/* mouse */
+.ctl-mouse { flex: none; width: 150px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.ctl-mouse-svg { width: 92px; height: 138px; }
+.ctl-mouse-svg .body { fill: rgba(255, 255, 255, 0.04); stroke: rgba(255, 255, 255, 0.22); stroke-width: 1.5; }
+.ctl-mouse-svg .btn { fill: rgba(255, 255, 255, 0.05); stroke: rgba(255, 255, 255, 0.2); stroke-width: 1.2; transition: fill var(--t-fast) var(--ease), stroke var(--t-fast) var(--ease); }
+.ctl-mouse-svg .btn.bound { fill: rgba(255, 179, 71, 0.28); stroke: var(--c-accent); }
+.ctl-mouse-svg .seam { stroke: rgba(255, 255, 255, 0.18); stroke-width: 1.2; }
+.ctl-mouse-caps { display: flex; flex-direction: column; gap: 3px; width: 100%; }
+.ctl-mouse-caps .mcap { display: flex; align-items: baseline; gap: 8px; font-size: 10px; color: var(--c-text-faint); }
+.ctl-mouse-caps .mcap .k { font-family: var(--ui-mono); font-weight: 700; min-width: 30px; }
+.ctl-mouse-caps .mcap .v { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ctl-mouse-caps .mcap.bound { color: var(--c-text-dim); }
+.ctl-mouse-caps .mcap.bound .k { color: #ffd18a; }
+/* function list */
+.ctl-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 18px; padding-top: 12px; border-top: 1px solid var(--c-border); }
+.ctl-group { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.ctl-group-title { font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--c-text-faint); }
+.ctl-rows { display: flex; flex-direction: column; gap: 4px; }
+.ctl-fn { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--c-text-dim); min-width: 0; }
+.ctl-fn .keys { display: flex; gap: 3px; flex: none; }
+.ctl-fn .keycap { min-width: 20px; height: 20px; font-size: 10px; padding: 0 5px; }
+.ctl-fn .fn { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* key-settings overlay: above title (DOM order) and the pause menu, below nothing */
+.menu.keybind-menu { z-index: 58; background: rgba(3, 4, 6, 0.72); }
+.menu.keybind-menu .frame {
+  min-width: 560px; max-width: 760px; width: min(760px, calc(100vw - 40px));
+  max-height: calc(100vh - 32px); overflow: hidden; gap: 14px; padding: 28px 32px 22px;
+}
+.kb-head { display: flex; flex-direction: column; gap: 6px; }
+.kb-head .title { font-size: 26px; letter-spacing: 0.18em; }
+.kb-head .subtitle { margin-top: 0; transition: color var(--t-fast) var(--ease); }
+.kb-head .subtitle.hot { color: var(--c-accent); }
+.kb-body { overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 14px; padding-right: 6px; }
+.kb-group { display: flex; flex-direction: column; }
+.kb-group-title {
+  display: flex; align-items: center; gap: 10px; padding-bottom: 6px;
+  font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--c-text-faint);
+}
+.kb-group-title::after { content: ""; flex: 1; height: 1px; background: var(--c-border); }
+.kb-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  min-height: 40px; padding: 4px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.kb-row:last-child { border-bottom: none; }
+.kb-left { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.kb-label { font-size: 13px; color: var(--c-text); }
+.kb-warn { font-size: 10px; letter-spacing: 0.04em; color: var(--c-danger); }
+.kb-row.conflict { background: rgba(255, 77, 77, 0.07); border-left: 2px solid var(--c-danger); }
+.kb-right { display: flex; align-items: center; gap: 8px; flex: none; }
+.kb-tag { font-size: 9px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--c-text-faint); border: 1px solid var(--c-border); padding: 1px 6px; }
+.kb-key { min-width: 108px; height: 32px; padding: 0 12px; font-family: var(--ui-mono); font-size: 12px; letter-spacing: 0.06em; }
+.kb-key.capturing { border-color: var(--c-accent); color: var(--c-accent); animation: kbBlink 0.9s ease-in-out infinite; }
+.kb-row.conflict .kb-key { border-color: rgba(255, 77, 77, 0.6); }
+@keyframes kbBlink { 0%, 100% { background: rgba(255, 179, 71, 0.08); } 50% { background: rgba(255, 179, 71, 0.24); } }
+.kb-foot { display: flex; justify-content: space-between; gap: 10px; padding-top: 10px; border-top: 1px solid var(--c-border); }
+.kb-foot .ui-btn { min-width: 0; padding: 0 18px; }
+.hud.spectating .implant-gauge { opacity: 0 !important; }
+.implant-gauge.blocked { opacity: 0; }
+
+/* ═══ Screen tabs shared by the inventory / character screens (인벤토리 · 캐릭터 · 기업) ═══ */
+.scr-tabs {
+  position: absolute; left: 50%; top: 22px; transform: translateX(-50%);
+  display: flex; gap: 4px; padding: 4px;
+  border: 1px solid var(--c-border); border-radius: 999px;
+  background: rgba(8, 9, 11, 0.7);
+  z-index: 3;
+}
+.scr-tab {
+  appearance: none; border: 1px solid transparent; border-radius: 999px;
+  padding: 7px 18px; font: inherit; font-size: 12px; font-weight: 600; letter-spacing: 0.14em;
+  color: var(--c-text-dim); background: none; cursor: pointer;
+  transition: color var(--t-fast) var(--ease), background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.scr-tab:hover { color: var(--c-text); background: rgba(255, 255, 255, 0.06); }
+.scr-tab.is-on { color: #1a1408; background: var(--c-text); border-color: var(--c-text); }
+.scr-tab.is-disabled { opacity: 0.4; cursor: default; }
+.scr-tab.is-disabled:hover { color: var(--c-text-dim); background: none; }

@@ -84,7 +84,8 @@ inventory / items 의 신규 API 가 아직 없으면 `typeof` 체크 + `try/cat
 - localStorage 자체가 없거나(프라이빗 모드) 쿼터가 차도 게임은 그대로 진행된다 — 모든 접근이 `try/catch`.
 
 ## 캐릭터 시트 (`ui/CharacterSheet.ts`)
-- `ui:statsToggled {open}` 로 열고 닫는다 (함선 터미널의 **캐릭터** 항목이 emit). 편의상 **P** 키로도 토글되며,
+- `ui:statsToggled {open}` 로 열고 닫는다 (인벤토리 창의 **캐릭터** 탭과 함선 터미널의 **캐릭터** 버튼이 emit). 편의상 **P** 키로도 토글되며,
+- 상단에 공용 화면 탭 `.scr-tabs` (인벤토리 · 캐릭터 · 기업 비활성; `ui/styles/base.css`) — **인벤토리** 탭은 시트를 닫고(`close(false)`) `ctx.inventory.toggleBag()` 을 부른다.
   게임플레이 / 함선 phase 에서 다른 blocker 가 없을 때만 열린다.
 - `ctx.uiBlockers` 에 `'stats'` 토큰을 **먼저** 넣고 `ctx.input.exitPointerLock()` 을 호출한다
   (GameFlow 가 의도된 lock 해제로 인식하도록). 닫을 때는 토큰을 지우고, blocker 가 없으면 마이크로태스크에서 재잠금.

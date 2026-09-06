@@ -1,5 +1,5 @@
-import type { AmmoType, EffectiveWeaponStats, ItemDef, LoadoutSlot, WeaponDef, WeightState } from '@/shared';
-import { WEAPON_GRADE_ROMAN, WEIGHT_STATE_LABEL_KO } from '@/shared';
+import type { AmmoType, EffectiveWeaponStats, ImplantMode, ItemDef, LoadoutSlot, WeaponDef, WeightState } from '@/shared';
+import { Keys, WEAPON_GRADE_ROMAN, WEIGHT_STATE_LABEL_KO, keyLabel } from '@/shared';
 import { AMMO_LABEL_KO, CATEGORY_LABEL_KO, RARITY_COLORS, RARITY_LABEL_KO, WEAPON_CLASS_LABEL_KO, getTierLabel, weaponClassOf } from '@/items';
 
 export const CELL = 54;   // px
@@ -27,7 +27,15 @@ export const DURABILITY_LOW = 0.3;
 export const SLOT_LABEL: Readonly<Record<LoadoutSlot, string>> = {
   primary: '주무기 I', primary2: '주무기 II', secondary: '보조무기', bag: '가방', armor: '방탄복',
 };
+/** @deprecated static defaults — use `slotKeyLabel(slot)` (follows the live bindings). */
 export const SLOT_KEY: Readonly<Record<LoadoutSlot, string>> = { primary: '1', primary2: '2', secondary: '3', bag: '', armor: '' };
+/** Live key label of a weapon slot ('' for bag / armor). */
+export function slotKeyLabel(slot: LoadoutSlot): string {
+  if (slot === 'primary') return keyLabel(Keys.PRIMARY);
+  if (slot === 'primary2') return keyLabel(Keys.PRIMARY2);
+  if (slot === 'secondary') return keyLabel(Keys.SECONDARY);
+  return '';
+}
 /* appended: tactical kit */
 export const fmtKg = (n: number): string => `${n.toFixed(1)} kg`;
 export const weightLabel = (state: WeightState): string => WEIGHT_STATE_LABEL_KO[state] ?? state;
@@ -44,16 +52,29 @@ export const TEXT = {
   takeAll: '모두 가져가기',
   value: '가치',
   quickSlots: '퀵슬롯',
-  hints: [
-    ['R', '회전'], ['우클릭', '빠른 이동/메뉴'], ['Shift+드래그', '절반'], ['Ctrl+드래그', '하나'],
-    ['드래그→무기', '부착'], ['드래그→퀵슬롯', '등록'], ['X', '버리기'], ['휠클릭', '요청'],
-  ] as const,
+  hintRotate: '회전',
+  hintDrop: '버리기',
+  /* hub screen (2026-09-06) */
+  stash: '함선 창고',
+  stashHint: '가방 ↔ 창고: 드래그 또는 우클릭. 창고는 함선에 보관되어 임무·사망 후에도 유지됩니다.',
+  tabs: { inventory: '인벤토리', character: '캐릭터', corp: '기업', corpSoon: '기업 · 계약 · 퀘스트는 준비 중입니다' },
+  implant: {
+    slot: '전술 임플란트',
+    empty: '비어 있음 · 클릭해 장착',
+    unavailable: '사용 불가',
+    clickHint: '클릭: 임플란트 교체',
+    raidLocked: '임무 중에는 임플란트를 교체할 수 없습니다',
+    equipped: '장착',
+    unequipped: '임플란트를 해제했습니다',
+    cooldown: '쿨타임',
+    charges: '충전',
+    mode: { instant: '즉시', hold: '홀드', wielded: '장비형' } as Readonly<Record<ImplantMode, string>>,
+  },
   quick: {
     title: '퀵슬롯',
     eyebrow: 'QUICK USE',
-    key: 'F',
-    hint: '스팀·수류탄을 끌어다 놓기',
-    holdHint: 'F 길게 눌러 휠 열기',
+    hint: '스팀·수류탄·가젯을 끌어다 놓기',
+    holdHint: (key: string): string => `${key} 길게 눌러 휠 열기`,
     locked: '가방 등급이 낮아 잠김',
     empty: '비어 있음',
   },
@@ -64,6 +85,11 @@ export const TEXT = {
     equipPrimary2: '주무기 II로 장착',
     toBag: '가방으로 이동',
     toContainer: '상자로 이동',
+    toStash: '창고로 이동',
+    repair: '수리',
+    repairShort: '재료 부족',
+    repairShortMsg: '수리 재료가 부족합니다',
+    repairFail: '수리할 수 없습니다',
     unload: '장전된 탄약 모두 탈착',
     detachAll: '무기 소켓 모두 탈착',
     splitHalf: '절반 나누기',

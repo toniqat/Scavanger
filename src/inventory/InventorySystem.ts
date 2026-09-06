@@ -14,9 +14,11 @@ import {
   quickSlotOf, quickSlotsSignature, relinkQuickSlot, type QuickSlotUids,
 } from './QuickSlots';
 import { InventoryUI } from './ui/InventoryUI';
+import { Stash } from './Stash';
 
 /* ── UI ↔ system vocabulary ─────────────────────────────────────────────── */
-export type GridId = 'bag' | 'container';
+/** 'stash' = the ship stash (hub Tab screen only; persisted, see Stash.ts). */
+export type GridId = 'bag' | 'container' | 'stash';
 /** Equipment slots = the shared `LoadoutSlot` (주무기 I / 주무기 II / 보조무기 / 가방 / 방탄복). */
 export type SlotId = LoadoutSlot;
 export const LOADOUT_SLOTS: readonly LoadoutSlot[] = ['primary', 'primary2', 'secondary', 'bag', 'armor'];
@@ -86,6 +88,9 @@ export class InventorySystem implements GameSystem, InventoryRef {
   private lastEquipUids: Partial<Record<LoadoutSlot, string | null>> = {};
   private craftJob: CraftJob | null = null;
   private containers = new ContainerStore((id) => ITEM_DEF_MAP.get(id));
+  /** 함선 창고 (persisted). Shown only while the window is open in the hub (`hubMode`). */
+  private stash!: Stash;
+  private hubMode = false;
   private activeContainer: Container | null = null;
   private _open = false;
   private missionSeed = 0;
@@ -95,6 +100,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
   /** Quick-use wheel: bag item uids by wheel direction (see `QuickSlots.ts`); `lastQuickSig` gates the change event. */
   private quickSlots: QuickSlotUids = createQuickSlots();
   private lastQuickSig = '';
+  private lastStashVersion = 0;
   private ui: InventoryUI | null = null;
   private offs: Array<() => void> = [];
   private escHandler = (e: KeyboardEvent): void => {
@@ -113,6 +119,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
     ctx.inventory = this;
     ctx.loot = this.loot;
     this.bag = new Grid(BAG_DEFAULT_COLS, BAG_DEFAULT_ROWS, (id) => ITEM_DEF_MAP.get(id));
+    this.stash = new Stash((id) => ITEM_DEF_MAP.get(id), this.loot);
     this.ui = new InventoryUI(this, ctx);
     this.ui.mount();
 
@@ -127,14 +134,16 @@ export class InventorySystem implements GameSystem, InventoryRef {
       bus.on('game:abort', () => this.onAbort()),
       bus.on('game:newMission', () => { this.closeAll(); this.containers.clear(); this.outcome = 'none'; }),
       bus.on('hub:entered', () => { if (this.isCompletelyEmpty()) this.applyStarter(); }),
-      bus.on('game:phaseChanged', () => { if (!ctx.isGameplayPhase()) this.closeAll(); }),
+      bus.on('game:phaseChanged', () => { if (!ctx.isGameplayPhase() && !ctx.isHubPhase()) this.closeAll(); }),
+      bus.on('implant:equipped', () => { if (this._open) this.ui?.refresh(); }),
     );
     // Capture-phase so Escape closes the inventory without also reaching the menu system.
     window.addEventListener('keydown', this.escHandler, true);
   }
 
   update(dt: number, ctx: GameContext): void {
-    if (ctx.input.wasPressed(Keys.INVENTORY) && ctx.isGameplayPhase() && (this._open || ctx.uiBlockers.size === 0)) {
+    // Tab: bag window on a mission, the 3-column ship screen (창고 / 장비 / 가방) in the hub
+    if (ctx.input.wasPressed(Keys.INVENTORY) && (ctx.isGameplayPhase() || ctx.isHubPhase()) && (this._open || ctx.uiBlockers.size === 0)) {
       this.toggleBag();
     }
     this.updateCraft(dt);
@@ -157,6 +166,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
     this.offs = [];
     window.removeEventListener('keydown', this.escHandler, true);
     this.closeAll();
+    this.stash?.dispose();
     this.ui?.dispose();
     this.ui = null;
     if (this.ctx?.inventory === (this as InventoryRef)) this.ctx.inventory = null;
@@ -352,6 +362,22 @@ export class InventorySystem implements GameSystem, InventoryRef {
     this.ctx.bus.emit('audio:play', { id: 'gear_repair' });
     this.afterChange();
     return true;
+  }
+
+  /**
+   * Context-menu repair readout (hub only): materials still needed for a weapon (`[]` = free / armor), `short`
+   * = which of them the bag lacks. null when the item is not worn / not repairable.
+   */
+  repairInfo(uid: string): { cost: { defId: string; qty: number; name: string; have: number }[]; short: boolean } | null {
+    const item = this.findItem(uid);
+    const def = item && ITEM_DEF_MAP.get(item.defId);
+    if (!item || !def) return null;
+    const dur = this.getDurability(uid);
+    if (!dur || dur.max <= 0 || dur.durability >= dur.max) return null;
+    const cost = (this.loot.getEffectiveStats(item) ? this.loot.getRepairCost(item) : []).map((c) => ({
+      ...c, name: ITEM_DEF_MAP.get(c.defId)?.name ?? c.defId, have: this.countDef(c.defId),
+    }));
+    return { cost, short: cost.some((c) => c.have < c.qty) };
   }
 
   /** 'ship' while walking the hub / menus, 'field' on a mission. */
@@ -574,6 +600,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
    * durability, rounds stay on the instance). Dropping the equipped bag shrinks the grid first (`changeBag`).
    */
   dropItem(uid: string, qty?: number): boolean {
+    // in the ship `throwToWorld` lands the item in the stash first (no ground to drop onto)
     const found = this.locate(uid);
     if (!found) return false;
     const { item, from } = found;
@@ -720,6 +747,29 @@ export class InventorySystem implements GameSystem, InventoryRef {
     return this.dropOnSlot(found.item, def, found.from, slot) === 'ok';
   }
 
+  /** Context menu `창고로 이동` on an equipped item (hub only): unequip straight into the stash. The bag slot shrinks the grid first. */
+  moveToStash(uid: string, from: ItemLocation): OpResult {
+    if (!this.hubMode) return 'fail';
+    const item = this.findItem(uid, from);
+    const def = item && ITEM_DEF_MAP.get(item.defId);
+    if (!item || !def) return 'fail';
+    if (from.kind === 'grid' && from.grid === 'stash') return 'noop';
+    if (from.kind === 'slot' && from.slot === 'bag') {
+      // bag → grid first (its contents must survive the shrink), then the bag itself → stash
+      const r = this.changeBag(null, null, 'grid');
+      if (r !== 'ok') return r;
+      const found = this.locate(uid);
+      if (!found || found.from.kind !== 'grid') return 'ok';
+      from = found.from;
+    }
+    const stash = this.stash.grid;
+    if (!stash.canAbsorb(item)) { this.ctx.bus.emit('ui:notify', { text: '창고에 공간이 없습니다', kind: 'warning' }); return 'fail'; }
+    this.detach(item, from);
+    stash.autoPlace(item);
+    this.afterMove(item, from, { kind: 'grid', grid: 'stash' });
+    return 'ok';
+  }
+
   /** Quick chat: ammo request for weapons, "<name> 필요" for anything else (`chat:post`, kind 'request'). */
   requestItem(uid: string, from: ItemLocation): boolean {
     const item = this.findItem(uid, from);
@@ -748,8 +798,9 @@ export class InventorySystem implements GameSystem, InventoryRef {
 
   private showContainer(c: Container): void {
     this.activeContainer = c;
+    this.hubMode = false;
     this.setOpen(true);
-    this.ui?.show(c);
+    this.ui?.show(c, false);
     this.ctx.bus.emit('inventory:opened', { containerId: c.id });
     this.checkLooted();
   }
@@ -757,14 +808,30 @@ export class InventorySystem implements GameSystem, InventoryRef {
   toggleBag(): void {
     if (this._open) { this.closeAll(); return; }
     this.activeContainer = null;
+    this.hubMode = this.ctx.isHubPhase();
     this.setOpen(true);
-    this.ui?.show(null);
+    this.ui?.show(null, this.hubMode);
     this.ctx.bus.emit('inventory:opened', { containerId: null });
   }
 
-  closeAll(): void {
+  /** true while the hub screen (with the stash) is what the window shows. */
+  get isHubScreen(): boolean { return this._open && this.hubMode; }
+
+  /** Ship stash grid (persisted). */
+  getStash(): Grid { return this.stash.grid; }
+  getStashItems(): ItemInstance[] { return this.stash.items(); }
+
+  /** 캐릭터 tab: hand over to progression's character sheet (it owns its own blocker token). */
+  openCharacter(): void {
+    if (!this.ctx.progression) { this.ctx.bus.emit('ui:notify', { text: '캐릭터 정보를 사용할 수 없습니다', kind: 'warning' }); return; }
+    this.closeAll(false);
+    this.ctx.bus.emit('ui:statsToggled', { open: true });
+  }
+
+  closeAll(relock = true): void {
     if (!this._open) return;
     this.activeContainer = null;
+    this.hubMode = false;
     this.setOpen(false);
     this.ui?.hide();
     this.ctx.bus.emit('inventory:closed', {});
@@ -773,8 +840,9 @@ export class InventorySystem implements GameSystem, InventoryRef {
     // Deferred a microtask so callers that close us right before leaving gameplay
     // (GameFlow complete/abort → setPhase) are seen by the check.
     const ctx = this.ctx;
+    if (!relock) return;
     queueMicrotask(() => {
-      if (this._open || !ctx.isGameplayPhase() || ctx.uiBlockers.size > 0) return;
+      if (this._open || !(ctx.isGameplayPhase() || ctx.isHubPhase()) || ctx.uiBlockers.size > 0) return;
       if (ctx.player?.isDead ?? false) return;
       ctx.input.requestPointerLock();
     });
@@ -790,7 +858,9 @@ export class InventorySystem implements GameSystem, InventoryRef {
   /* ── UI-facing operations ──────────────────────────────────────────────── */
 
   getGrid(id: GridId): Grid | null {
-    return id === 'bag' ? this.bag : (this.activeContainer?.grid ?? null);
+    if (id === 'bag') return this.bag;
+    if (id === 'stash') return this.stash.grid;
+    return this.activeContainer?.grid ?? null;
   }
   getActiveContainer(): Container | null { return this.activeContainer; }
   getLoot(): LootService { return this.loot; }
@@ -810,7 +880,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
   }
 
   private locateInGrids(uid: string): { item: ItemInstance; grid: Grid; gridId: GridId } | null {
-    for (const gridId of ['bag', 'container'] as const) {
+    for (const gridId of ['bag', 'container', 'stash'] as const) {
       const grid = this.getGrid(gridId);
       const p = grid?.get(uid);
       if (grid && p) return { item: p.item, grid, gridId };
@@ -1050,8 +1120,9 @@ export class InventorySystem implements GameSystem, InventoryRef {
     if (from.kind === 'slot' && from.slot === 'bag') return this.changeBag(null, null, 'grid');
     let dest: GridId;
     if (from.kind === 'slot') dest = 'bag';
-    else if (from.grid === 'container') dest = 'bag';
+    else if (from.grid === 'container' || from.grid === 'stash') dest = 'bag';
     else if (this.activeContainer) dest = 'container';
+    else if (this.hubMode) dest = 'stash';
     else return 'fail';
     const grid = this.getGrid(dest);
     if (!grid) return 'fail';
@@ -1178,8 +1249,9 @@ export class InventorySystem implements GameSystem, InventoryRef {
     return d ? d.width * d.height : 0;
   }
 
+  /** 'player' = bag / loadout (HUD counts, sockets); the crate and the stash are 'container'. */
   private locKind(loc: ItemLocation): 'player' | 'container' {
-    return loc.kind === 'grid' && loc.grid === 'container' ? 'container' : 'player';
+    return loc.kind === 'grid' && loc.grid !== 'bag' ? 'container' : 'player';
   }
 
   private bagSizeOf(item: ItemInstance | null): BagSize {
@@ -1221,6 +1293,12 @@ export class InventorySystem implements GameSystem, InventoryRef {
 
   /** Emit the world drop for `item` (already detached). `owned` → also `inventory:itemRemoved` (HUD counts). */
   private throwToWorld(item: ItemInstance, owned: boolean): void {
+    // in the ship an overflowing item (bag swap, socket swap) lands in the stash instead of vanishing
+    if (this.ctx.isHubPhase() && this.stash.grid.autoPlace(item)) {
+      if (owned) this.ctx.bus.emit('inventory:itemRemoved', { item });
+      this.ctx.bus.emit('ui:notify', { text: `${ITEM_DEF_MAP.get(item.defId)?.name ?? item.defId} → 함선 창고`, kind: 'info', duration: 2 });
+      return;
+    }
     if (owned) this.ctx.bus.emit('inventory:itemRemoved', { item });
     const position = new THREE.Vector3();
     const velocity = new THREE.Vector3();
@@ -1325,6 +1403,11 @@ export class InventorySystem implements GameSystem, InventoryRef {
     this.syncQuickSlots();
     this.emitWeight();
     this.ctx.bus.emit('inventory:changed', { totalValue: this.bag.totalValue(), itemCount: this.bag.count });
+    if (this.stash.grid.version !== this.lastStashVersion) {
+      this.lastStashVersion = this.stash.grid.version;
+      this.stash.markDirty();
+      this.ctx.bus.emit('inventory:stashChanged', { count: this.stash.count });
+    }
     this.checkLooted();
     this.ui?.refresh();
   }

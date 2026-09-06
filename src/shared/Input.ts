@@ -38,10 +38,17 @@ export class Input {
       if (e.button === 1 && this.isPointerLocked) e.preventDefault();
       if (!this.mouseDown.has(e.button)) this.mousePressed.add(e.button);
       this.mouseDown.add(e.button);
+      // Rebindable actions may sit on a mouse button: mirror it as the synthetic key code `MouseN`.
+      const code = `Mouse${e.button}`;
+      if (!this.down.has(code)) this.pressed.add(code);
+      this.down.add(code);
     });
     window.addEventListener('mouseup', (e) => {
       this.mouseDown.delete(e.button);
       this.mouseReleased.add(e.button);
+      const code = `Mouse${e.button}`;
+      this.down.delete(code);
+      this.released.add(code);
     });
     window.addEventListener('mousemove', (e) => {
       this.mouseX = e.clientX; this.mouseY = e.clientY;

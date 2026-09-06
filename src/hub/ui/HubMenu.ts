@@ -1,11 +1,6 @@
 import type { GameContext, LobbyState, NetRef } from '@/shared';
 import { NET_SLOT_COLORS_CSS, NET_MAX_PLAYERS, isValidLobbyCode, normalizeLobbyCode, sanitizePlayerName } from '@/shared';
 import { el, isolateInput, parseSeed, randomSeed, setText, toggleClass } from './dom';
-import { ImplantPanel } from './ImplantPanel';
-import { RepairPanel } from './RepairPanel';
-
-/** Terminal pages. `ship` is the original menu (crew / seed / signal / shared ship). */
-export type HubTab = 'ship' | 'implant' | 'repair';
 
 /** What the menu needs from HubSystem. */
 export interface HubMenuHost {
@@ -23,6 +18,8 @@ const MSG_TTL = 4500;
  * Ship terminal menu (`.menu.hub-menu`): pilot name, mission seed, signal search (quick match) / dock by code /
  * broadcast (private ship) in the personal ship; code + invite + public toggle + crew + undock in the shared ship.
  * Adds the `'hub'` blocker token before exiting pointer lock; emits `ui:hubMenuToggled`.
+ * Implants and repairs left the terminal on 2026-09-06: both live on the Tab ship screen (inventory folder —
+ * implant slot under the gear, 수리 in the right-click menu). The footer's 캐릭터 button stays as a shortcut.
  */
 export class HubMenu {
   readonly root: HTMLElement;
@@ -56,12 +53,6 @@ export class HubMenu {
   private crew: HTMLElement;
   private crewRows: Array<{ root: HTMLElement; name: HTMLElement; badge: HTMLElement; state: HTMLElement }> = [];
   private btnLeave: HTMLButtonElement;
-  // pages / tabs (tactical kit)
-  private pageShip: HTMLElement;
-  private implants: ImplantPanel;
-  private repairs: RepairPanel;
-  private tabs = new Map<HubTab, HTMLButtonElement>();
-  private tab: HubTab = 'ship';
   private btnStats: HTMLButtonElement;
   // footer / message
   private msg: HTMLElement;
@@ -81,19 +72,8 @@ export class HubMenu {
     el('i', { parent: this.pill });
     this.pillText = el('span', { text: '오프라인', parent: this.pill });
 
-    // ── tabs + page host (tactical kit) ──
-    const tabBar = el('div', { cls: 'hub-tabs', parent: f });
-    const pages = el('div', { cls: 'hub-pages', parent: f });
-    const page = this.pageShip = el('div', { cls: 'hub-page', parent: pages });
-    this.implants = new ImplantPanel(ctx, this);
-    this.repairs = new RepairPanel(ctx, this);
-    pages.appendChild(this.implants.root);
-    pages.appendChild(this.repairs.root);
-    for (const [id, label] of [['ship', '함선'], ['implant', '임플란트'], ['repair', '정비']] as Array<[HubTab, string]>) {
-      const t = el('button', { cls: 'hub-tab', text: label, parent: tabBar });
-      t.addEventListener('click', (e) => { e.stopPropagation(); ctx.bus.emit('audio:play', { id: 'ui_click' }); this.setTab(id); });
-      this.tabs.set(id, t);
-    }
+    // ── page (the terminal is ship-only since the Tab screen took implants / repairs) ──
+    const page = el('div', { cls: 'hub-page', parent: f });
 
     // ── pilot ──
     const secPilot = this.section(page, '승무원');
@@ -184,18 +164,6 @@ export class HubMenu {
 
   get isOpen(): boolean { return this._open; }
 
-  /* ── tabs (tactical kit) ──────────────────────────────────────────────── */
-  setTab(tab: HubTab): void {
-    this.tab = tab;
-    for (const [id, btn] of this.tabs) toggleClass(btn, 'on', id === tab);
-    this.pageShip.hidden = tab !== 'ship';
-    this.implants.root.hidden = tab !== 'implant';
-    this.repairs.root.hidden = tab !== 'repair';
-    this.repairs.setVisible(tab === 'repair');
-    if (tab === 'implant') this.implants.refresh();
-    this.refresh();
-  }
-
   /** 캐릭터: hand over to progression's character sheet (it owns the panel and its own blocker token). */
   private openStats(): void {
     if (!this.ctx.progression) { this.showMsg('캐릭터 정보를 사용할 수 없습니다', 'warning'); return; }
@@ -204,8 +172,8 @@ export class HubMenu {
   }
 
   /* ── open / close ─────────────────────────────────────────────────────── */
-  open(tab: HubTab = 'ship'): void {
-    if (this._open) { this.setTab(tab); return; }
+  open(): void {
+    if (this._open) return;
     this._open = true;
     this.ctx.uiBlockers.add('hub');            // before the lock exits (GameFlow / hub pointer-lock etiquette)
     this.ctx.input.exitPointerLock();
@@ -216,7 +184,7 @@ export class HubMenu {
     this.nameInput.value = this.ctx.net?.playerName ?? '스캐빈저';
     const seed = this.currentSeed();
     this.seedInput.value = seed === null ? '' : String(seed);
-    this.setTab(tab);                          // also refreshes
+    this.refresh();
     this.ctx.bus.emit('ui:hubMenuToggled', { open: true });
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
   }
@@ -224,7 +192,6 @@ export class HubMenu {
   close(relock = true): void {
     if (!this._open) return;
     this._open = false;
-    this.repairs.setVisible(false);
     this.root.hidden = true;
     (document.activeElement as HTMLElement | null)?.blur?.();
     this.ctx.uiBlockers.delete('hub');
@@ -253,10 +220,8 @@ export class HubMenu {
     setText(this.seedHint, !lobby ? '숫자 또는 임의의 문구. 비워두면 발사 시 무작위 시드가 선택됩니다.'
       : isHost ? '분대 전원이 같은 시드로 투입됩니다.' : lobby.seed === null ? '호스트가 시드를 선택합니다 (무작위).' : '호스트가 선택한 시드입니다.');
 
-    // tactical-kit pages: 캐릭터 needs progression, the panels degrade on their own
+    // 캐릭터 needs progression
     this.btnStats.disabled = !ctx.progression;
-    if (this.tab === 'implant') this.implants.refresh();
-    else if (this.tab === 'repair') this.repairs.refresh();
 
     // sections
     this.secSignal.hidden = !!lobby;
@@ -391,8 +356,6 @@ export class HubMenu {
   dispose(): void {
     for (const u of this.unsubs) u();
     this.unsubs.length = 0;
-    this.implants.dispose();
-    this.repairs.dispose();
     this.ctx.uiBlockers.delete('hub');
     this.root.remove();
   }

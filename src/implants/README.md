@@ -3,8 +3,11 @@
 `ImplantSystem` 이 `ctx.implants` (`ImplantsRef`) 를 발행한다. 6종 중 **하나만** 장착해서 레이드에 들고 가며,
 장착 변경은 함선에서만 가능하다 (`ctx.isRaidActive()` 면 `setEquipped` 가 `false` 를 돌려준다).
 
-**Q** (`KEY_IMPLANT`) 가 즉발형을 시전하거나 wielded 형을 손에 들고/집어넣는다. wielded 인 동안
-`blocksWeapons === true` 라서 `weapons/` 가 무기를 홀스터하고 발사를 막는다.
+**Q** (`Keys.IMPLANT`, 재할당 가능) 의 동작은 `ImplantDef.mode` 로 갈린다 (2026-09-06 개편):
+- `instant` — 갈고리 / 대시 / 배리어: 누르면 바로 시전. 갈고리는 조준점 앵커가 유효할 때 즉시 발사, 다시 누르면 와이어를 끊는다. 총은 손에 그대로.
+- `hold` — 정찰 / 오버차지: **누르고 있는 동안** 효과가 돈다 (정찰 파동 1초 간격, 오버차지 채널). 총은 손에 그대로, `holding === true`.
+- `wielded` — 대전차포 (유일): Q 로 손에 들고(`blocksWeapons === true`, weapons 가 홀스터) 좌클릭 발사. Q 또는 **무기 키(1/2/3/V)** 로 집어넣는다
+  (weapons 가 `stow()` 를 호출한 뒤 그 무기를 뽑는다 — 예전엔 장착형을 든 채로 무기 키가 먹지 않던 버그).
 
 멀티플레이 방침: **로컬 계산 + 시각 브로드캐스트**. 모든 판정은 시전자 클라이언트에서 하고, 남들에게는
 `imp` 메시지로 보여주기만 한다. 남의 캐릭터에 거는 우호 효과(회복/버프)만 `buff` 메시지로 보낸다.
@@ -29,11 +32,11 @@
 
 | id | 이름 | 방식 | 동작 | 쿨타임 |
 |---|---|---|---|---|
-| `grapple` | 갈고리 | wielded | 매 프레임 조준점 판정 → `implant:grappleTargetChanged`. 좌클릭 발사 → 부착 시 `player.setGrappleTarget(point)` 로 견인. 좌/우클릭·도착(2.6 m)·5초·집어넣기로 해제 | `IMPLANT_GRAPPLE_COOLDOWN` |
+| `grapple` | 갈고리 | instant | 장착 중 매 프레임 조준점 판정 → `implant:grappleTargetChanged` (Reticle 괄호). **Q** = 유효하면 즉시 발사 → 부착 시 `player.setGrappleTarget(point)` 로 견인; 도착(2.6 m)·5초·Q 재입력으로 해제. 와이어 원점은 무기 소켓(손) | `IMPLANT_GRAPPLE_COOLDOWN` |
 | `dash` | 대시 | instant | 전방 레이캐스트로 거리 산출 → 바닥 스냅 → `resolveCollision` → `ctx.player.position` 을 직접 갱신(순간이동). 충전 3 | `IMPLANT_DASH_COOLDOWN` (충전당) |
-| `barrier` | 배리어 | instant(토글) | 정면 2.2 m 지점에 실드 전개. **적 발사체만** 차단, 1발당 30 hp 소모. 접었을 때 `IMPLANT_BARRIER_REGEN`/s 회복, 파괴 시 8초 잠금 | 0 (내구도가 자원) |
-| `overcharge` | 오버차지 | wielded | 좌클릭 = 아군(없으면 자신) 회복 `IMPLANT_OVERCHARGE_HEAL_PER_SEC`/s. 우클릭 = 시전자+대상에 이동속도·연사속도 버프 | 0 |
-| `scan` | 정찰 | wielded | 좌클릭 홀드 → 1초마다 파동, 반경 `pulse × IMPLANT_SCAN_RADIUS_STEP`, 최대 5회. 결과는 `implant:scanned` + `detect:reveal` (10초) | `IMPLANT_SCAN_COOLDOWN` (파동 종료 시 시작) |
+| `barrier` | 배리어 | instant(토글) | 정면 2.2 m 지점에 실드 전개. **적 발사체만** 차단, 1발당 30 hp 소모. 접었을 때 `IMPLANT_BARRIER_REGEN`/s 회복. 파괴 시 `IMPLANT_BARRIER_BREAK_LOCKOUT` 10초 잠금 — 그 동안 내구도가 0 → 만충으로 정확히 차오르므로 HUD 내구도 게이지가 쿨타임 표시를 대신한다 (`barrierLockout`) | 0 (내구도가 자원) |
+| `overcharge` | 오버차지 | hold | Q 를 누르고 있는 동안: 자신 `IMPLANT_OVERCHARGE_SELF_HEAL_PER_SEC`(10)/s 회복 + 조준 원뿔 안의 아군에게 `buff heal` `IMPLANT_OVERCHARGE_ALLY_HEAL_PER_SEC`(25)/s (빔은 아군에게만). 체력 ≥ 90 %(`IMPLANT_OVERCHARGE_BUFF_HP_RATIO`) 인 대상(자신 / 아군)에게만 이동·연사 버프(`setSpeedModifier('overcharge')`, 짝 스태미나 버프는 없음). **에너지** `IMPLANT_OVERCHARGE_ENERGY` 6 s 를 소모하고 놓으면 `IMPLANT_OVERCHARGE_REGEN_TIME` 12 s 에 만충; 0.75 s 미만이면 시작 거부. `implant:energyChanged` | 0 (에너지가 자원) |
+| `scan` | 정찰 | hold | Q 홀드 → 1초마다 파동, 반경 `pulse × IMPLANT_SCAN_RADIUS_STEP`, 최대 5회. 결과는 `implant:scanned` + `detect:reveal` (10초) | `IMPLANT_SCAN_COOLDOWN` (놓거나 5회 후 시작) |
 | `atlauncher` | 대전차포 | wielded | 좌클릭 로켓 발사(조준점을 향해 보정). 착탄 시 `IMPLANT_AT_RADIUS` 광역 `IMPLANT_AT_DAMAGE` | `IMPLANT_AT_COOLDOWN` |
 
 쿨타임에는 항상 `ctx.progression?.derived.implantCooldownMul` 를 곱한다 (특수 가방 50 % 퍼크가 이미 그 안에 있다).
@@ -69,8 +72,8 @@
 **`buff` 메시지 수신자는 이 폴더 하나뿐이다.** `heal`/`boost`/`revive` 를 전부 여기서 로컬 플레이어에 적용한다
 (gadgets 의 제세동기 `revive` 포함). gadgets 는 보내기만 할 것.
 
-**오버차지 버프 규약**: 대상 플레이어에 `setSpeedModifier('overcharge', mul, duration)` 을 건다. player 는 이 키가
-살아있는 동안 `isOvercharged === true` 로 만들고 스태미나 소모를 없애야 한다 (weapons 가 `isOvercharged` 로 연사속도 처리).
+**오버차지 버프 규약**: 대상 플레이어에 `setSpeedModifier('overcharge', mul, duration)` 을 건다 (채널 중 매 프레임 0.6 s 로 갱신). player 는 이 키가
+살아있는 동안 `isOvercharged === true` 로 만든다 (weapons 가 `isOvercharged` 로 연사속도 처리). 스태미나 소모 감소는 2026-09-06 개편에서 제거됐다.
 
 ## 규칙 / 주의
 
@@ -86,3 +89,8 @@
 `grapple_fire`, `grapple_attach`, `grapple_release`, `dash`, `barrier_deploy`, `barrier_stow`, `barrier_hit`,
 `barrier_break`, `overcharge_beam`, `scan_pulse`, `rocket_fire`, `rocket_explode`, `implant_wield`, `implant_ready`.
 (없는 id 는 AudioSystem 이 콘솔 경고만 내고 무시한다.)
+
+## 장착 UI (2026-09-06)
+임플란트 장착은 함선 **Tab 화면**(inventory 폴더, 장비 열 아래의 임플란트 슬롯 → 클릭 → 6종 카드; 장착 중인 카드를 다시 누르면 해제)에서 한다.
+터미널의 임플란트 탭과 `hub/ui/ImplantPanel` 은 삭제됐고, 함선의 임플란트 시술대(`hub_implant_bay`)는 그 Tab 화면을 연다.
+HUD 는 `ui/hud/ImplantWidget` 의 크로스헤어 좌측 세로 게이지 (대시 3분할 · 배리어 내구도/잠금 · 오버차지 에너지 · 그 외 쿨타임).

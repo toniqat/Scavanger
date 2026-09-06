@@ -1,10 +1,12 @@
 import type { GameContext } from '@/shared';
+import { Keys, keyLabel } from '@/shared';
 import { el, setText, setVisible, toggleClass } from '../dom';
 
 /** Center-bottom "E — do thing" prompt with hold progress bar. */
 export class InteractionPrompt {
   readonly root: HTMLElement;
   private txt: HTMLElement;
+  private keyEl: HTMLElement;
   private bar: HTMLElement;
   private fill: HTMLElement;
   private lastProgress = -1;
@@ -13,7 +15,7 @@ export class InteractionPrompt {
   constructor(parent: HTMLElement) {
     this.root = el('div', { cls: 'prompt hidden', parent });
     const row = el('div', { cls: 'row ui-panel', parent: this.root });
-    el('span', { cls: 'keycap', text: 'E', parent: row });
+    this.keyEl = el('span', { cls: 'keycap', text: keyLabel(Keys.INTERACT), parent: row });
     this.txt = el('span', { cls: 'txt', text: '', parent: row });
     this.bar = el('div', { cls: 'bar', parent: this.root });
     this.fill = el('i', { parent: this.bar });
@@ -27,6 +29,7 @@ export class InteractionPrompt {
         setVisible(this.root, true);
         this.setProgress(holdProgress);
       }),
+      ctx.bus.on('input:bindingsChanged', () => setText(this.keyEl, keyLabel(Keys.INTERACT))),
       ctx.bus.on('game:abort', () => setVisible(this.root, false)),
       ctx.bus.on('game:newMission', () => setVisible(this.root, false)),
     );

@@ -363,6 +363,16 @@ export interface GameEvents {
   'progress:skillProgress': { id: SkillId; level: number; progress: number };
   /** Command (hub ui): open / close the character sheet (stats + skills). */
   'ui:statsToggled': { open: boolean };
+
+  /* ── appended: key rebinding / implant rework / ship stash (2026-09-06) ── */
+  /** Owner: whoever rebinds (ui/menus/KeybindMenu). `Keys` already holds the new values; refresh cached labels. */
+  'input:bindingsChanged': Record<string, never>;
+  /** Key-settings overlay opened / closed (ui). */
+  'ui:keybindsToggled': { open: boolean };
+  /** Owner: implants. Channel resource of a 'hold' implant (overcharge energy) changed. */
+  'implant:energyChanged': { energy: number; max: number };
+  /** Owner: inventory. Ship stash contents changed (`count` = stacks). */
+  'inventory:stashChanged': { count: number };
 }
 
 export type GameEventName = keyof GameEvents;

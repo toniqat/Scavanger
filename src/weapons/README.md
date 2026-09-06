@@ -88,3 +88,9 @@ Every network branch is gated on `ctx.isMultiplayer && ctx.net`; offline behavio
 ## Phase 4 (2026-09-06): armour & interceptable shells
 - `raycastAll` also asks `ctx.enemies.raycastInterceptable()`; when a shell is the nearest hit, `applyHit` calls `target.intercept(point)` (hitmarker, metal sparks) and deals no other damage.
 - `EnemyHit.armored` (behemoth front plate): with `ARMOR_IMMUNE_AMMO` calibres the shot ricochets (`weapon:hit` with damage 0, high-pitched `hit_metal`), no `takeDamage`; heavy rounds and explosions still damage. `applyHit` takes the firing weapon's `ammoType`.
+
+## 2026-09-06 — rebindable keys · wielded implant + weapon keys
+- Every key is read live from `Keys` (`Keys.MELEE` replaced `KEY_MELEE`; V = `Keys.SWAP`); nothing caches a key code.
+- While a **wielded implant** (대전차포) holsters the gun, pressing 1 / 2 / 3 / V now calls `ctx.implants.stow()` and draws that weapon (`requestSwap` unless it is
+  already the active slot; an empty slot plays `ui_deny`). Previously the swap keys were ignored until the implant was put away with Q.
+- 갈고리 / 정찰 / 오버차지 no longer holster the gun at all (instant / hold implants).

@@ -1,9 +1,11 @@
 import type { GameContext } from '@/shared';
 import { el, setText } from '../dom';
 import { MenuBase } from './MenuBase';
+import { KEYBIND_BUTTON_LABEL } from './ControlsPanel';
 
 /**
- * Escape menu: resume / return to the ship. Driven by `game:paused`.
+ * Escape menu: resume / key settings / return to the ship. Driven by `game:paused`.
+ * `키 설정 변경` opens the key-settings overlay on top of this menu (`onKeybinds`, owned by HudSystem).
  * `함선으로 귀환` emits `hub:enter {ship}` (shared ship while in a lobby, else personal); the hub aborts the mission.
  * Multiplayer: the simulation keeps running (`freeze:false`), so the subtitle says so.
  */
@@ -11,7 +13,7 @@ export class PauseMenu extends MenuBase {
   private subtitle: HTMLElement;
   private mpNote: HTMLElement;
 
-  constructor(parent: HTMLElement) {
+  constructor(parent: HTMLElement, private readonly onKeybinds: () => void) {
     super(parent, 'pause');
     const head = el('div', { parent: this.frame });
     el('div', { cls: 'title', text: '일시 정지', parent: head });
@@ -20,6 +22,7 @@ export class PauseMenu extends MenuBase {
     this.mpNote.hidden = true;
     const actions = el('div', { cls: 'actions', parent: this.frame });
     this.button(actions, '계속', () => this.ctx.bus.emit('game:paused', { paused: false }), 'primary');
+    this.button(actions, KEYBIND_BUTTON_LABEL, () => this.onKeybinds());
     this.button(actions, '함선으로 귀환', () => this.ctx.bus.emit('hub:enter', { ship: this.ctx.net?.lobby ? 'shared' : 'personal' }), 'danger');
     el('div', { cls: 'hint', text: 'Esc — 계속 · 귀환 시 임무를 포기합니다', parent: this.frame });
   }

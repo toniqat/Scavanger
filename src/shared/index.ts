@@ -10,3 +10,5 @@ export { EventBus } from './EventBus';
 export { Input } from './Input';
 export { GameContext } from './GameContext';
 export { Random } from './Random';
+/* appended: key rebinding (2026-09-06) */
+export * from './Keybinds';

@@ -1,4 +1,5 @@
 import type { GameContext, StratagemId } from '@/shared';
+import { Keys, keyLabel } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 import { STRATAGEM_COLOR, STRATAGEM_GLYPH, stratagemArmHint, stratagemDef } from './stratagemGlyphs';
 
@@ -31,7 +32,7 @@ export class StratagemPanel {
   constructor(parent: HTMLElement) {
     this.root = el('div', { cls: 'strat-panel off', parent });
     const row = el('div', { cls: 'row', parent: this.root });
-    this.keyEl = el('span', { cls: 'keycap g', text: 'G', parent: row });
+    this.keyEl = el('span', { cls: 'keycap g', text: keyLabel(Keys.SHIP_CALL), parent: row });
     this.ico = el('span', { cls: 'ico', text: '', parent: row });
     this.nameEl = el('span', { cls: 'nm', text: '함선 호출 준비', parent: row });
     this.hintEl = el('div', { cls: 'hint', text: '', parent: this.root });
@@ -43,6 +44,7 @@ export class StratagemPanel {
   bind(ctx: GameContext): void {
     const b = ctx.bus;
     this.unsubs.push(
+      b.on('input:bindingsChanged', () => setText(this.keyEl, keyLabel(Keys.SHIP_CALL))),
       b.on('stratagem:armed', ({ id }) => { this.armed = id; this.seen = true; this.render(); }),
       b.on('stratagem:targeting', ({ active }) => { this.targeting = active; this.render(); }),
       b.on('stratagem:cooldown', ({ remaining, total }) => {

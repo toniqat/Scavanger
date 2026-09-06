@@ -16,9 +16,9 @@ const MOVE_SPEED_EPS = 0.5; // m/s of horizontal velocity that counts as "moving
  * flashes hitmarkers. Hidden entirely while the scope overlay is showing (and via CSS while `.hud.targeting`); dimmed to
  * 25 % while the quick-use or ship-call wheel is open.
  *
- * Grapple (갈고리, tactical kit): while the grapple implant is wielded the reticle grows a bracket ring that turns
- * accent-coloured with the anchor distance as soon as `implant:grappleTargetChanged {valid}` says the point under
- * the crosshair can be hooked.
+ * Grapple (갈고리, tactical kit): with the grapple implant equipped (it is an instant Q cast, the gun stays in hand)
+ * the reticle grows a bracket ring with the anchor distance whenever `implant:grappleTargetChanged {valid}` says the
+ * point under the crosshair can be hooked, and keeps it (green) while the wire is attached.
  */
 export class Reticle {
   readonly root: HTMLElement;
@@ -82,15 +82,17 @@ export class Reticle {
         this.grappleValid = valid; this.grappleDist = distance;
         this.syncHook();
       }),
-      b.on('implant:grappleAttached', () => { toggleClass(this.hook, 'attached', true); }),
-      b.on('implant:grappleReleased', () => { toggleClass(this.hook, 'attached', false); }),
+      b.on('implant:grappleAttached', () => { toggleClass(this.hook, 'attached', true); this.lastHookKey = ''; this.syncHook(); }),
+      b.on('implant:grappleReleased', () => { toggleClass(this.hook, 'attached', false); this.lastHookKey = ''; this.syncHook(); }),
       b.on('game:newMission', () => { this.wielded = false; this.grappleValid = false; this.syncHook(); }),
       b.on('game:abort', () => { this.wielded = false; this.grappleValid = false; this.syncHook(); }),
     );
   }
 
   private syncHook(): void {
-    const show = this.wielded && this.implant === 'grapple';
+    // The grapple is an instant implant (gun in hand): the bracket appears only while the anchor is hookable
+    // or the wire is attached, so the crosshair stays clean otherwise.
+    const show = this.implant === 'grapple' && (this.grappleValid || this.hook.classList.contains('attached'));
     const key = `${show ? 1 : 0}|${this.grappleValid ? 1 : 0}|${show && this.grappleValid ? Math.round(this.grappleDist) : -1}`;
     if (key === this.lastHookKey) return;
     this.lastHookKey = key;

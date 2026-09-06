@@ -16,9 +16,13 @@ import { ExtractionSystem } from '@/extraction/ExtractionSystem';
 import { HudSystem } from '@/ui/HudSystem';
 import { AudioSystem } from '@/audio/AudioSystem';
 import { GameFlowSystem } from '@/game/GameFlowSystem';
+import { loadKeybinds } from '@/shared';
 
 const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
 const uiRoot = document.getElementById('ui-root') as HTMLElement;
+
+// Player key bindings (localStorage) must be in `Keys` before any system caches a label.
+loadKeybinds();
 
 const engine = new Engine(canvas, uiRoot);
 

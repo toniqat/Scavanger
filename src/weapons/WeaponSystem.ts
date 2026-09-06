@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {
-  GameContext, Keys, KEY_MELEE, MouseButtons, WEAPON_DURABILITY_PER_SHOT, WEAPON_SWAP_TIME_PRIMARY, WEAPON_SWAP_TIME_SECONDARY,
+  GameContext, Keys, MouseButtons, WEAPON_DURABILITY_PER_SHOT, WEAPON_SWAP_TIME_PRIMARY, WEAPON_SWAP_TIME_SECONDARY,
   IMPLANT_OVERCHARGE_FIRERATE_MUL,
   QUICK_SLOTS, QUICK_SLOT_UNLOCK_ORDER, QUICK_USABLE_CATEGORIES, isQuickSlotActive, QUICK_WHEEL_HOLD, QUICK_WHEEL_DRAG_PX, GRENADE_FUSE, GRENADE_COOK_MAX, GRENADE_UNDERHAND_SPEED_MUL,
   type GameSystem, type WeaponDef, type ItemInstance, type ItemDef, type PlayerRef, type PlayerWeaponHost, type EnemyRef, type Vec3Tuple,
@@ -283,7 +283,7 @@ export class WeaponSystem implements GameSystem {
     const weapon = this.quick ? null : this.slots[this.active];
 
     // ── melee (F, tactical kit). The player owns stamina / cooldown / animation; we only resolve the hit.
-    if (armedAndFree && !this.implantHolstered && !this.wheelOpen && !this.holding && input.wasPressed(KEY_MELEE)) {
+    if (armedAndFree && !this.implantHolstered && !this.wheelOpen && !this.holding && input.wasPressed(Keys.MELEE)) {
       if (this.melee.tryStart(host, weapon?.def ?? null)) {
         if (this.phase === 'reloading') this.cancelReload();
         this.firingTimer = FIRING_POSE_HOLD * 0.5;
@@ -304,12 +304,24 @@ export class WeaponSystem implements GameSystem {
     // the wheel eats mouse buttons as well as the look delta
     const inputFree = usable && !this.wheelOpen;
 
-    // ── swap (1 / 2 / 3 / Q) — also the way back from a consumable to a gun
+    // ── swap (1 / 2 / 3 / V) — also the way back from a consumable to a gun
     if (inputFree) {
       if (input.wasPressed(Keys.PRIMARY)) this.requestSwap('primary');
       else if (input.wasPressed(Keys.PRIMARY2)) this.requestSwap('primary2');
       else if (input.wasPressed(Keys.SECONDARY)) this.requestSwap('secondary');
       else if (input.wasPressed(Keys.SWAP)) this.requestSwap(this.quickSwapTarget());
+    } else if (this.implantHolstered && armedAndFree && !this.wheelOpen) {
+      // a wielded implant (대전차포) is in the hands: a weapon key stows it and draws that weapon
+      const want: WeaponSlot | null | undefined =
+        input.wasPressed(Keys.PRIMARY) ? 'primary'
+          : input.wasPressed(Keys.PRIMARY2) ? 'primary2'
+            : input.wasPressed(Keys.SECONDARY) ? 'secondary'
+              : input.wasPressed(Keys.SWAP) ? this.quickSwapTarget() : undefined;
+      if (want !== undefined) {
+        ctx.implants?.stow();
+        if (want && this.slots[want] && want !== this.active) this.requestSwap(want);
+        else if (!want || !this.slots[want]) ctx.bus.emit('audio:play', { id: 'ui_deny', volume: 0.4 });
+      }
     }
     if (this.phase === 'swapping') this.updateSwap(dt);
     else if (this.phase === 'reloading') this.updateReload(dt);

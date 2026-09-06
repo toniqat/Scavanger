@@ -1,8 +1,8 @@
 import type { GameContext, ItemInstance, WeaponSlot } from '@/shared';
-import { WEAPON_DEFAULT_DURABILITY } from '@/shared';
+import { Keys, WEAPON_DEFAULT_DURABILITY, keyLabel } from '@/shared';
 import { WEAPON_CLASS_LABEL_KO, weaponClassOf, AMMO_LABEL_KO } from '@/items';
 import { el, setText, toggleClass } from '../dom';
-import { SlotStrip, WEAPON_SLOT_KEY, WEAPON_SLOT_LABEL_KO } from './SlotStrip';
+import { SlotStrip, WEAPON_SLOT_LABEL_KO, weaponSlotKey } from './SlotStrip';
 
 /** Durability ratio at/below which the bar turns amber (`.worn`). */
 const DURABILITY_WORN = 0.3;
@@ -39,6 +39,7 @@ export class WeaponPanel {
   private readonly circ = 2 * Math.PI * 14;
 
   private consName: HTMLElement;
+  private consKey: HTMLElement;
   private consCnt: HTMLElement;
   private consHint: HTMLElement;
   private consUid = '';
@@ -91,7 +92,7 @@ export class WeaponPanel {
     // Consumable mode block (stim / grenade in hand) — shown instead of the gun rows via `.weapon.consumable`.
     const cons = el('div', { cls: 'cons', parent: this.root });
     const consRow = el('div', { cls: 'name-row', parent: cons });
-    el('span', { cls: 'slot', text: 'T', parent: consRow });
+    this.consKey = el('span', { cls: 'slot', text: keyLabel(Keys.QUICK), parent: consRow });
     el('span', { cls: 'slot-lbl', text: '빠른 사용', parent: consRow });
     this.consName = el('span', { cls: 'name', text: '—', parent: consRow });
     const consCntRow = el('div', { cls: 'ammo-row', parent: cons });
@@ -104,6 +105,7 @@ export class WeaponPanel {
     this.slots.bind(ctx);
     const b = ctx.bus;
     this.unsubs.push(
+      b.on('input:bindingsChanged', () => setText(this.consKey, keyLabel(Keys.QUICK))),
       b.on('quick:equipped', ({ item }) => {
         if (item) this.enterConsumable(item, ctx); else this.exitConsumable();
       }),
@@ -216,7 +218,7 @@ export class WeaponPanel {
   }
 
   private setSlot(slot: WeaponSlot): void {
-    setText(this.slotEl, WEAPON_SLOT_KEY[slot] ?? '1');
+    setText(this.slotEl, weaponSlotKey(slot));
     setText(this.slotLblEl, WEAPON_SLOT_LABEL_KO[slot] ?? '');
   }
 

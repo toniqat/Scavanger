@@ -47,7 +47,8 @@ interface SkillRow { root: HTMLElement; level: HTMLElement; fill: HTMLElement }
  * 캐릭터 시트 (`.menu.char-sheet`): level + XP bar, the five stats with a `＋` button that only works in the ship,
  * the fourteen skills with their training progress, and a readout of every derived number.
  *
- * Opened / closed by `ui:statsToggled` (the ship terminal emits it) — see ProgressionSystem. Adds the
+ * Opened / closed by `ui:statsToggled` (the inventory window's 캐릭터 tab and the ship terminal emit it) — see ProgressionSystem.
+ * Carries the shared screen tabs (인벤토리 → closes the sheet and opens the inventory window · 캐릭터 · 기업 disabled). Adds the
  * `'stats'` UI blocker token **before** exiting pointer lock, and re-locks on close when nothing else blocks.
  */
 export class CharacterSheet {
@@ -78,6 +79,18 @@ export class CharacterSheet {
     const root = this.root = el('div', { cls: 'menu char-sheet interactive', parent: ctx.uiRoot });
     root.hidden = true;
     el('div', { cls: 'scan', parent: root });
+    // Screen tabs shared with the inventory window (same look, `.scr-tabs` in ui/styles/base.css).
+    const tabs = el('nav', { cls: 'scr-tabs', parent: root });
+    const tabInv = el('button', { cls: 'scr-tab', text: '인벤토리', parent: tabs });
+    tabInv.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.ctx.bus.emit('audio:play', { id: 'ui_click' });
+      this.close(false);
+      this.ctx.inventory?.toggleBag();
+    });
+    el('button', { cls: 'scr-tab is-on', text: '캐릭터', parent: tabs });
+    const tabCorp = el('button', { cls: 'scr-tab is-disabled', text: '기업', parent: tabs, attrs: { disabled: '', title: '기업 · 계약 · 퀘스트는 준비 중입니다' } });
+    tabCorp.disabled = true;
     const f = this.frame = el('div', { cls: 'frame', parent: root });
 
     /* ── header ── */

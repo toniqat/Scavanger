@@ -1,9 +1,13 @@
 import type { GameContext, ItemInstance, WeaponSlot } from '@/shared';
+import { Keys, keyLabel } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 
 /** Slot order = key order: 1 주무기 I, 2 주무기 II, 3 보조무기. */
 export const WEAPON_SLOTS: readonly WeaponSlot[] = ['primary', 'primary2', 'secondary'];
-export const WEAPON_SLOT_KEY: Readonly<Record<WeaponSlot, string>> = { primary: '1', primary2: '2', secondary: '3' };
+/** Live key labels of the weapon slots (rebindable — read at use time). */
+export function weaponSlotKey(slot: WeaponSlot): string {
+  return keyLabel(slot === 'primary' ? Keys.PRIMARY : slot === 'primary2' ? Keys.PRIMARY2 : Keys.SECONDARY);
+}
 export const WEAPON_SLOT_LABEL_KO: Readonly<Record<WeaponSlot, string>> = { primary: '주무기 I', primary2: '주무기 II', secondary: '보조' };
 
 /**
@@ -25,8 +29,8 @@ export function weaponShortName(name: string): string {
  */
 export class SlotStrip {
   readonly root: HTMLElement;
-  private cells: Record<WeaponSlot, { root: HTMLElement; name: HTMLElement }>;
-  private quickCell: { root: HTMLElement; name: HTMLElement };
+  private cells: Record<WeaponSlot, { root: HTMLElement; name: HTMLElement; k: HTMLElement }>;
+  private quickCell: { root: HTMLElement; name: HTMLElement; k: HTMLElement };
   private quickUid = '';
   private quickActive = false;
   private active: WeaponSlot = 'primary';
@@ -37,12 +41,12 @@ export class SlotStrip {
     this.root = el('div', { cls: 'wslots', parent });
     const make = (slot: WeaponSlot | 'quick', key: string) => {
       const root = el('div', { cls: `wslot empty ${slot}`, parent: this.root });
-      el('span', { cls: 'k', text: key, parent: root });
+      const k = el('span', { cls: 'k', text: key, parent: root });
       const name = el('span', { cls: 'n', text: '—', parent: root });
-      return { root, name };
+      return { root, name, k };
     };
-    this.cells = { primary: make('primary', WEAPON_SLOT_KEY.primary), primary2: make('primary2', WEAPON_SLOT_KEY.primary2), secondary: make('secondary', WEAPON_SLOT_KEY.secondary) };
-    this.quickCell = make('quick', 'T');
+    this.cells = { primary: make('primary', weaponSlotKey('primary')), primary2: make('primary2', weaponSlotKey('primary2')), secondary: make('secondary', weaponSlotKey('secondary')) };
+    this.quickCell = make('quick', keyLabel(Keys.QUICK));
     this.setActive('primary');
   }
 
@@ -50,6 +54,10 @@ export class SlotStrip {
     this.ctx = ctx;
     const b = ctx.bus;
     this.unsubs.push(
+      b.on('input:bindingsChanged', () => {
+        for (const slot of WEAPON_SLOTS) setText(this.cells[slot].k, weaponSlotKey(slot));
+        setText(this.quickCell.k, keyLabel(Keys.QUICK));
+      }),
       b.on('loadout:changed', (lo) => {
         for (const slot of WEAPON_SLOTS) this.setCell(slot, lo[slot]);
       }),

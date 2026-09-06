@@ -1,6 +1,6 @@
 import './../inventory.css';
-import type { GameContext, ItemDef, ItemInstance } from '@/shared';
-import { QUICK_SLOTS, QUICK_SLOT_LABEL_KO, isQuickSlotActive } from '@/shared';
+import type { GameContext, ImplantDef, ImplantId, ItemDef, ItemInstance } from '@/shared';
+import { Keys, QUICK_SLOTS, QUICK_SLOT_LABEL_KO, isQuickSlotActive, keyLabel } from '@/shared';
 import { ITEM_DEF_MAP, getWeaponDef } from '@/items';
 import type { Container } from '../Container';
 import { LOADOUT_SLOTS, isArmorDef, isAttachmentDef, isBagDef, isWeaponDef, type DropTarget, type GridId, type InventorySystem, type ItemLocation, type SlotId } from '../InventorySystem';
@@ -11,12 +11,20 @@ import { GridView, buildTileContent, type HighlightState } from './GridView';
 import { Tooltip } from './Tooltip';
 import { ContextMenu, type MenuEntry } from './ContextMenu';
 import { SplitDialog } from './SplitDialog';
-import { QUICK_DIR_GLYPH, QUICK_ROSE_ORDER, SLOT_KEY, SLOT_LABEL, STEP, TEXT, fmtValue, tierTitle, tileSize, fmtKg, weightLabel } from './labels';
+import { QUICK_DIR_GLYPH, QUICK_ROSE_ORDER, SLOT_LABEL, STEP, TEXT, fmtValue, slotKeyLabel, tierTitle, tileSize, fmtKg, weightLabel } from './labels';
 
 const DRAG_THRESHOLD = 4; // px before a press becomes a drag
 const MIDDLE_BUTTON = 1;
 const BAG_LOC: ItemLocation = { kind: 'grid', grid: 'bag' };
 const LOCK_SVG = '<svg viewBox="0 0 12 14" aria-hidden="true"><rect x="1.5" y="6" width="9" height="7" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M3.5 6V4a2.5 2.5 0 0 1 5 0v2" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>';
+
+/** Screen tabs above the window (Arc Raiders style). 기업 is disabled until corporations / contracts exist. */
+type ScreenTab = 'inventory' | 'character' | 'corp';
+const SCREEN_TABS: readonly { id: ScreenTab; label: string; disabled?: boolean }[] = [
+  { id: 'inventory', label: TEXT.tabs.inventory },
+  { id: 'character', label: TEXT.tabs.character },
+  { id: 'corp', label: TEXT.tabs.corp, disabled: true },
+];
 
 interface DragState {
   uid: string;
@@ -46,6 +54,7 @@ interface SlotView {
   bodyW: number;
   bodyH: number;
   meta: HTMLElement;
+  key: HTMLElement | null;
   tile: HTMLElement | null;
   uid: string | null;
 }
@@ -59,18 +68,27 @@ interface QuickCell {
 }
 
 /**
- * Arc Raiders-styled DOM for the Diablo grid: container panel (left), bag (center),
- * equipment column (right), hint bar. Owns drag & drop, rotation, tooltips.
+ * Arc Raiders-styled DOM for the Diablo grid.
+ *   - Mission (Tab / crate): container panel (left), bag (center, quick-use rose underneath), equipment column (right).
+ *   - Ship (`hub` = true, 2026-09-06): screen tabs (인벤토리 / 캐릭터 / 기업) on top, then **함선 창고** (scrollable stash
+ *     grid, left) · **장착 장비** (5 slots + the tactical-implant slot with its picker, center) · **가방** with the
+ *     quick-use rose to its right (≥ 1600 px wide; under the grid on narrower windows). Right-click on worn gear
+ *     offers 수리 there; a "drop" (X / backdrop release) lands in the stash because the ship has no ground.
+ * Owns drag & drop, rotation, tooltips, context menus.
  */
 export class InventoryUI {
   private root: HTMLElement | null = null;
   private layout!: HTMLElement;
+  private tabsEl!: HTMLElement;
   private containerPanel!: HTMLElement;
   private containerTitle!: HTMLElement;
   private containerTier!: HTMLElement;
+  private stashPanel!: HTMLElement;
+  private stashCount!: HTMLElement;
   private bagCapacity!: HTMLElement;
   private valueEl!: HTMLElement;
   private containerView!: GridView;
+  private stashView!: GridView;
   private bagView!: GridView;
   private slots = new Map<SlotId, SlotView>();
   /* appended: tactical kit */
@@ -81,6 +99,16 @@ export class InventoryUI {
   private weightFill!: HTMLElement;
   private quickCells: QuickCell[] = [];
   private quickCount!: HTMLElement;
+  private quickKey!: HTMLElement;
+  private quickHold!: HTMLElement;
+  private hintsEl!: HTMLElement;
+  /* implant slot (hub) */
+  private implantSlot!: HTMLElement;
+  private implantBody!: HTMLElement;
+  private implantMeta!: HTMLElement;
+  private implantPicker!: HTMLElement;
+  private implantCards = new Map<ImplantId, HTMLElement>();
+  private pickerOpen = false;
   private tooltip!: Tooltip;
   private ghostLayer!: HTMLElement;
   private dropZone!: HTMLElement;
@@ -91,6 +119,7 @@ export class InventoryUI {
   /** Weapon tile currently lit as a socket target (attachment drag). */
   private socketTarget: { uid: string; loc: ItemLocation } | null = null;
   private container: Container | null = null;
+  private hub = false;
   private visible = false;
   private closeTimer: number | null = null;
 
@@ -110,6 +139,20 @@ export class InventoryUI {
     root.hidden = true;
     root.addEventListener('contextmenu', (e) => e.preventDefault());
     this.root = root;
+
+    /* screen tabs */
+    this.tabsEl = document.createElement('nav');
+    this.tabsEl.className = 'scr-tabs';
+    for (const t of SCREEN_TABS) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = `scr-tab${t.id === 'inventory' ? ' is-on' : ''}${t.disabled ? ' is-disabled' : ''}`;
+      b.textContent = t.label;
+      b.disabled = !!t.disabled;
+      if (t.disabled) b.title = TEXT.tabs.corpSoon;
+      b.addEventListener('click', () => this.onTab(t.id));
+      this.tabsEl.appendChild(b);
+    }
 
     const layout = document.createElement('div');
     layout.className = 'inv-layout';
@@ -141,6 +184,34 @@ export class InventoryUI {
     cPanel.append(cHead, this.containerView.el);
     this.containerPanel = cPanel;
 
+    /* stash panel (hub) */
+    const sPanel = document.createElement('section');
+    sPanel.className = 'inv-panel inv-panel-stash';
+    sPanel.hidden = true;
+    const sHead = document.createElement('header');
+    sHead.className = 'inv-head';
+    const sTitleWrap = document.createElement('div');
+    sTitleWrap.className = 'inv-head-titles';
+    const sEyebrow = document.createElement('div');
+    sEyebrow.className = 'inv-eyebrow';
+    sEyebrow.textContent = 'STASH';
+    const sTitle = document.createElement('h2');
+    sTitle.className = 'inv-title';
+    sTitle.textContent = TEXT.stash;
+    sTitleWrap.append(sEyebrow, sTitle);
+    this.stashCount = document.createElement('div');
+    this.stashCount.className = 'inv-capacity';
+    sHead.append(sTitleWrap, this.stashCount);
+    this.stashView = new GridView('stash', getDef, getStats, this.tileHandlers());
+    const sScroll = document.createElement('div');
+    sScroll.className = 'inv-stash-scroll';
+    sScroll.appendChild(this.stashView.el);
+    const sHint = document.createElement('div');
+    sHint.className = 'inv-stash-hint';
+    sHint.textContent = TEXT.stashHint;
+    sPanel.append(sHead, sScroll, sHint);
+    this.stashPanel = sPanel;
+
     /* bag panel */
     const bPanel = document.createElement('section');
     bPanel.className = 'inv-panel inv-panel-bag';
@@ -167,6 +238,9 @@ export class InventoryUI {
     bActions.append(this.bagCapacity, craftBtn);
     bHead.append(bTitleWrap, bActions);
     this.bagView = new GridView('bag', getDef, getStats, this.tileHandlers());
+    const bBody = document.createElement('div');
+    bBody.className = 'inv-bag-body';
+    bBody.append(this.bagView.el, this.buildQuickPanel());
     const bFoot = document.createElement('footer');
     bFoot.className = 'inv-foot';
     const vLabel = document.createElement('span');
@@ -193,7 +267,7 @@ export class InventoryUI {
     this.weightFill = document.createElement('i');
     wTrack.appendChild(this.weightFill);
     this.weightEl.append(wRow, wTrack);
-    bPanel.append(bHead, this.bagView.el, this.buildQuickPanel(), this.weightEl, bFoot);
+    bPanel.append(bHead, bBody, this.weightEl, bFoot);
     this.craftPanel = new CraftPanel(this.sys, getDef);
 
     /* equipment column */
@@ -203,21 +277,18 @@ export class InventoryUI {
     eqEyebrow.className = 'inv-eyebrow';
     eqEyebrow.textContent = TEXT.equipment;
     eq.appendChild(eqEyebrow);
-    for (const slot of LOADOUT_SLOTS) eq.appendChild(this.buildSlot(slot, SLOT_LABEL[slot], SLOT_KEY[slot]).el);
+    const eqGrid = document.createElement('div');
+    eqGrid.className = 'inv-equip-grid';
+    for (const slot of LOADOUT_SLOTS) eqGrid.appendChild(this.buildSlot(slot, SLOT_LABEL[slot]).el);
+    eq.appendChild(eqGrid);
+    eq.appendChild(this.buildImplantSlot());
 
-    layout.append(cPanel, bPanel, this.craftPanel.el, eq);
+    layout.append(sPanel, cPanel, eq, bPanel, this.craftPanel.el);
 
-    /* hints */
-    const hints = document.createElement('div');
-    hints.className = 'inv-hints';
-    for (const [key, label] of TEXT.hints) {
-      const h = document.createElement('span');
-      h.className = 'inv-hint';
-      const k = document.createElement('kbd');
-      k.textContent = key;
-      h.append(k, document.createTextNode(label));
-      hints.appendChild(h);
-    }
+    /* hints (mission only; the ship screen has nothing to throw away and its keys are on the slots) */
+    this.hintsEl = document.createElement('div');
+    this.hintsEl.className = 'inv-hints';
+    this.buildHints();
 
     /* world-drop zone (visible only while dragging; replaces the hint bar) */
     const dropZone = document.createElement('div');
@@ -225,7 +296,8 @@ export class InventoryUI {
     const dzTitle = document.createElement('div');
     dzTitle.className = 'inv-dropzone-title';
     const dzKey = document.createElement('kbd');
-    dzKey.textContent = 'X';
+    dzKey.className = 'inv-key-drop';
+    dzKey.textContent = keyLabel(Keys.DROP_ITEM);
     dzTitle.append(document.createTextNode(TEXT.dropZone), dzKey);
     const dzSub = document.createElement('div');
     dzSub.className = 'inv-dropzone-sub';
@@ -237,24 +309,57 @@ export class InventoryUI {
     this.ghostLayer = document.createElement('div');
     this.ghostLayer.className = 'inv-ghost-layer';
 
-    root.append(layout, hints, dropZone, this.tooltip.el, this.ghostLayer);
+    root.append(this.tabsEl, layout, this.hintsEl, dropZone, this.tooltip.el, this.ghostLayer);
     this.menu = new ContextMenu(root);
     this.dialog = new SplitDialog(root);
     this.ctx.uiRoot.appendChild(root);
+    // key labels follow the live bindings
+    this.ctx.bus.on('input:bindingsChanged', () => this.refreshKeyLabels());
+  }
+
+  /** Bottom hint bar (mission): rotation / drop keys read the live bindings. */
+  private buildHints(): void {
+    this.hintsEl.textContent = '';
+    const hints: Array<[string, string]> = [
+      [keyLabel(Keys.ROTATE_ITEM), TEXT.hintRotate], ['우클릭', '빠른 이동/메뉴'], ['Shift+드래그', '절반'], ['Ctrl+드래그', '하나'],
+      ['드래그→무기', '부착'], ['드래그→퀵슬롯', '등록'], [keyLabel(Keys.DROP_ITEM), TEXT.hintDrop], ['휠클릭', '요청'],
+    ];
+    for (const [key, label] of hints) {
+      const h = document.createElement('span');
+      h.className = 'inv-hint';
+      const k = document.createElement('kbd');
+      k.textContent = key;
+      h.append(k, document.createTextNode(label));
+      this.hintsEl.appendChild(h);
+    }
+  }
+
+  private refreshKeyLabels(): void {
+    this.buildHints();
+    for (const sv of this.slots.values()) if (sv.key) sv.key.textContent = slotKeyLabel(sv.slot);
+    this.quickKey.textContent = keyLabel(Keys.QUICK);
+    this.quickHold.textContent = TEXT.quick.holdHint(keyLabel(Keys.QUICK));
+    const dz = this.dropZone.querySelector<HTMLElement>('.inv-key-drop');
+    if (dz) dz.textContent = keyLabel(Keys.DROP_ITEM);
   }
 
   /** Close the context menu / split dialog if open. Returns true when something was closed (Escape consumed). */
   closeOverlays(): boolean {
     const a = this.dialog?.close() ?? false;
     const b = this.menu?.close() ?? false;
-    return a || b;
+    const c = this.closePicker();
+    return a || b || c;
   }
 
-  show(container: Container | null): void {
+  show(container: Container | null, hub = false): void {
     if (!this.root) return;
     if (this.closeTimer !== null) { clearTimeout(this.closeTimer); this.closeTimer = null; }
     this.container = container;
+    this.hub = hub;
+    this.root.classList.toggle('is-hub', hub);
     this.containerPanel.hidden = !container;
+    this.stashPanel.hidden = !hub;
+    this.hintsEl.hidden = hub;
     if (container) {
       if (container.title) {
         // caller-supplied contents (corpses etc.): custom title, no tier eyebrow
@@ -268,6 +373,7 @@ export class InventoryUI {
     } else {
       this.containerView.setGrid(null);
     }
+    this.stashView.setGrid(hub ? this.sys.getStash() : null);
     this.bagView.setGrid(this.sys.getGrid('bag'));
     this.root.hidden = false;
     this.visible = true;
@@ -294,10 +400,19 @@ export class InventoryUI {
     this.menu?.dispose();
     this.dialog?.dispose();
     this.containerView.dispose();
+    this.stashView.dispose();
     this.bagView.dispose();
     this.tooltip.dispose();
     this.root?.remove();
     this.root = null;
+  }
+
+  /* ── screen tabs ───────────────────────────────────────────────────────── */
+
+  private onTab(tab: ScreenTab): void {
+    if (tab === 'inventory') return;
+    if (tab === 'character') { this.sys.sfx('ui_pickup'); this.sys.openCharacter(); return; }
+    this.sys.sfx('ui_error');
   }
 
   /* ── refresh ───────────────────────────────────────────────────────────── */
@@ -321,7 +436,14 @@ export class InventoryUI {
       this.containerView.refresh();
       this.containerPanel.classList.toggle('is-empty', c.grid.isEmpty);
     }
+    if (this.hub) {
+      const stash = this.sys.getStash();
+      if (this.stashView.current !== stash) this.stashView.setGrid(stash);
+      else this.stashView.refresh();
+      this.stashCount.textContent = `${stash.count} · ${stash.usedCells()} / ${stash.cols * stash.rows}`;
+    }
     this.refreshSlots();
+    this.refreshImplant();
     this.refreshQuick();
     this.refreshWeight();
     this.craftPanel.refresh();
@@ -351,6 +473,145 @@ export class InventoryUI {
     this.craftPanel.refresh();
   }
 
+  /* ── implant slot (hub screen) ─────────────────────────────────────────── */
+
+  /** Below the gear slots: the equipped 전술 임플란트. Click → picker (ship only); clicking the equipped card unequips. */
+  private buildImplantSlot(): HTMLElement {
+    const el = document.createElement('div');
+    el.className = 'inv-slot inv-slot-implant';
+    const head = document.createElement('div');
+    head.className = 'inv-slot-label';
+    head.textContent = TEXT.implant.slot;
+    const k = document.createElement('kbd');
+    k.className = 'inv-key-implant';
+    k.textContent = keyLabel(Keys.IMPLANT);
+    head.appendChild(k);
+    this.implantBody = document.createElement('div');
+    this.implantBody.className = 'inv-slot-body inv-implant-body';
+    this.implantBody.addEventListener('click', (e) => { e.stopPropagation(); this.togglePicker(); });
+    this.implantMeta = document.createElement('div');
+    this.implantMeta.className = 'inv-slot-meta';
+    this.implantPicker = document.createElement('div');
+    this.implantPicker.className = 'inv-implant-picker';
+    this.implantPicker.hidden = true;
+    el.append(head, this.implantBody, this.implantMeta, this.implantPicker);
+    this.implantSlot = el;
+    return el;
+  }
+
+  private implantDefs(): readonly ImplantDef[] { return this.ctx.implants?.getAllDefs() ?? []; }
+
+  private refreshImplant(): void {
+    const imp = this.ctx.implants;
+    const id = imp?.equipped ?? null;
+    const def = id ? imp?.getDef(id) ?? null : null;
+    this.implantBody.innerHTML = '';
+    if (def) {
+      const card = document.createElement('div');
+      card.className = 'inv-implant-card is-equipped';
+      card.style.setProperty('--ic', def.color);
+      const ico = document.createElement('span');
+      ico.className = 'ico';
+      ico.textContent = def.icon;
+      const name = document.createElement('span');
+      name.className = 'nm';
+      name.textContent = def.name;
+      card.append(ico, name);
+      this.implantBody.appendChild(card);
+      this.implantSlot.classList.add('has-item');
+      this.implantSlot.style.setProperty('--rc', def.color);
+      this.implantMeta.textContent = `${TEXT.implant.mode[def.mode]}${def.cooldown > 0 ? ` · ${TEXT.implant.cooldown} ${def.cooldown}s` : ''}${def.charges > 1 ? ` · ${TEXT.implant.charges} ${def.charges}` : ''}`;
+    } else {
+      const empty = document.createElement('div');
+      empty.className = 'inv-slot-empty';
+      empty.innerHTML = `<span class="inv-implant-empty-ico">◈</span><span>${imp ? TEXT.implant.empty : TEXT.implant.unavailable}</span>`;
+      this.implantBody.appendChild(empty);
+      this.implantSlot.classList.remove('has-item');
+      this.implantSlot.style.removeProperty('--rc');
+      this.implantMeta.textContent = '';
+    }
+    this.implantSlot.classList.toggle('is-locked', this.ctx.isRaidActive());
+    this.implantBody.title = this.ctx.isRaidActive() ? TEXT.implant.raidLocked : TEXT.implant.clickHint;
+    if (this.pickerOpen) this.renderPicker();
+  }
+
+  private togglePicker(): void {
+    if (this.pickerOpen) { this.closePicker(); return; }
+    if (!this.ctx.implants) { this.sys.sfx('ui_error'); return; }
+    if (this.ctx.isRaidActive()) {
+      this.sys.sfx('ui_error');
+      this.ctx.bus.emit('ui:notify', { text: TEXT.implant.raidLocked, kind: 'warning', duration: 1.6 });
+      return;
+    }
+    this.menu.close();
+    this.tooltip.hide();
+    this.pickerOpen = true;
+    this.implantPicker.hidden = false;
+    this.implantSlot.classList.add('is-picking');
+    this.renderPicker();
+    this.sys.sfx('ui_pickup');
+    // the equipment column scrolls on short windows: bring the cards into view
+    requestAnimationFrame(() => this.implantPicker.scrollIntoView({ block: 'nearest' }));
+  }
+
+  private closePicker(): boolean {
+    if (!this.pickerOpen) return false;
+    this.pickerOpen = false;
+    this.implantPicker.hidden = true;
+    this.implantSlot.classList.remove('is-picking');
+    return true;
+  }
+
+  /** Picker cards: one per implant; the equipped one is lit and a click on it unequips. */
+  private renderPicker(): void {
+    const imp = this.ctx.implants;
+    const equipped = imp?.equipped ?? null;
+    if (this.implantCards.size === 0) {
+      for (const def of this.implantDefs()) {
+        const card = document.createElement('button');
+        card.type = 'button';
+        card.className = 'inv-implant-card';
+        card.style.setProperty('--ic', def.color);
+        card.dataset.id = def.id;
+        const ico = document.createElement('span');
+        ico.className = 'ico';
+        ico.textContent = def.icon;
+        const body = document.createElement('span');
+        body.className = 'body';
+        const nm = document.createElement('span');
+        nm.className = 'nm';
+        nm.textContent = def.name;
+        const tag = document.createElement('span');
+        tag.className = 'tag';
+        tag.textContent = TEXT.implant.mode[def.mode];
+        const desc = document.createElement('span');
+        desc.className = 'desc';
+        desc.textContent = def.description;
+        const line = document.createElement('span');
+        line.className = 'line';
+        line.append(nm, tag);
+        body.append(line, desc);
+        card.append(ico, body);
+        card.addEventListener('click', (e) => { e.stopPropagation(); this.pickImplant(def.id); });
+        this.implantPicker.appendChild(card);
+        this.implantCards.set(def.id, card);
+      }
+    }
+    for (const [id, card] of this.implantCards) card.classList.toggle('is-equipped', id === equipped);
+  }
+
+  private pickImplant(id: ImplantId): void {
+    const imp = this.ctx.implants;
+    if (!imp) return;
+    const next = imp.equipped === id ? null : id;
+    if (!imp.setEquipped(next)) { this.sys.sfx('ui_error'); return; }
+    this.sys.sfx('ui_equip');
+    const def = imp.getDef(id);
+    this.ctx.bus.emit('ui:notify', { text: next ? `${def?.name ?? id} ${TEXT.implant.equipped}` : TEXT.implant.unequipped, kind: 'success', duration: 1.6 });
+    this.refreshImplant();
+    if (next) this.closePicker();
+  }
+
   /* ── quick-use wheel panel ─────────────────────────────────────────────── */
 
   /** 3×3 compass rose (N top, clockwise) + a legend column; cells the bag has not unlocked (`isQuickSlotActive`) are locked. */
@@ -363,11 +624,11 @@ export class InventoryUI {
       if (index < 0) {
         const centre = document.createElement('div');
         centre.className = 'inv-quick-centre';
-        const k = document.createElement('kbd');
-        k.textContent = TEXT.quick.key;
+        this.quickKey = document.createElement('kbd');
+        this.quickKey.textContent = keyLabel(Keys.QUICK);
         this.quickCount = document.createElement('span');
         this.quickCount.className = 'inv-quick-count';
-        centre.append(k, this.quickCount);
+        centre.append(this.quickKey, this.quickCount);
         rose.appendChild(centre);
         continue;
       }
@@ -404,10 +665,10 @@ export class InventoryUI {
     const hint = document.createElement('div');
     hint.className = 'inv-quick-hint';
     hint.textContent = TEXT.quick.hint;
-    const hold = document.createElement('div');
-    hold.className = 'inv-quick-hint';
-    hold.textContent = TEXT.quick.holdHint;
-    legend.append(eyebrow, title, hint, hold);
+    this.quickHold = document.createElement('div');
+    this.quickHold.className = 'inv-quick-hint';
+    this.quickHold.textContent = TEXT.quick.holdHint(keyLabel(Keys.QUICK));
+    legend.append(eyebrow, title, hint, this.quickHold);
     section.append(rose, legend);
     return section;
   }
@@ -510,8 +771,10 @@ export class InventoryUI {
           const max = stats.maxDurability;
           const cur = Math.max(0, Math.min(max, item.durability ?? max));
           sv.meta.textContent = `${def.name} · ${item.ammoInMag ?? 0}/${stats.magSize}발 · ${TEXT.weaponStats.durability} ${cur}/${max}`;
+          sv.el.classList.toggle('is-worn', cur < max);
         } else if (def.bag) {
           sv.meta.textContent = `${def.name} · ${def.bag.cols}×${def.bag.rows} · ${TEXT.quickSlots} ${def.bag.quickSlots}`;
+          sv.el.classList.remove('is-worn');
         } else if (def.armorId) {
           const a = this.sys.getLoot().getArmorDef(def.armorId);
           const max = def.durabilityMax ?? 0;
@@ -519,8 +782,10 @@ export class InventoryUI {
           sv.meta.textContent = a
             ? `${def.name} · ${TEXT.armorStats.dr} ${Math.round(a.damageReduction * 100)}% · ${TEXT.armorStats.durability} ${Math.round(cur)}/${max}`
             : def.name;
+          sv.el.classList.toggle('is-worn', max > 0 && cur < max);
         } else {
           sv.meta.textContent = def.name;
+          sv.el.classList.remove('is-worn');
         }
         sv.el.classList.add('has-item');
         sv.el.style.setProperty('--rc', def.color);
@@ -533,23 +798,24 @@ export class InventoryUI {
         empty.innerHTML = `<svg viewBox="0 0 64 24" aria-hidden="true"><path d="M2 12h40l6-4h8l4 4v4H46l-4 4H30l-2 3h-6l1-3H2z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg><span>${TEXT.emptySlot}</span>`;
         sv.body.appendChild(empty);
         sv.meta.textContent = '';
-        sv.el.classList.remove('has-item');
+        sv.el.classList.remove('has-item', 'is-worn');
         sv.el.style.removeProperty('--rc');
       }
     }
   }
 
-  private buildSlot(slot: SlotId, label: string, key: string): SlotView {
+  private buildSlot(slot: SlotId, label: string): SlotView {
     const el = document.createElement('div');
     el.className = `inv-slot inv-slot-${slot}`;
     el.dataset.slot = slot;
     const head = document.createElement('div');
     head.className = 'inv-slot-label';
     head.textContent = label;
-    if (key) {
-      const k = document.createElement('kbd');
-      k.textContent = key;
-      head.appendChild(k);
+    let key: HTMLElement | null = null;
+    if (slotKeyLabel(slot)) {
+      key = document.createElement('kbd');
+      key.textContent = slotKeyLabel(slot);
+      head.appendChild(key);
     }
     const body = document.createElement('div');
     body.className = 'inv-slot-body';
@@ -564,7 +830,7 @@ export class InventoryUI {
       const sv = this.slots.get(slot);
       if (sv?.uid) this.onContextMenu(sv.uid, { kind: 'slot', slot }, e);
     });
-    const sv: SlotView = { slot, el, body, bodyW: width, bodyH: height, meta, tile: null, uid: null };
+    const sv: SlotView = { slot, el, body, bodyW: width, bodyH: height, meta, key, tile: null, uid: null };
     this.slots.set(slot, sv);
     return sv;
   }
@@ -577,13 +843,27 @@ export class InventoryUI {
     el.addEventListener('pointerleave', () => this.hoverLeave());
   }
 
+  /* ── grid routing ──────────────────────────────────────────────────────── */
+
+  private viewOf(grid: GridId): GridView {
+    return grid === 'bag' ? this.bagView : grid === 'stash' ? this.stashView : this.containerView;
+  }
+
+  /** Grids that accept drops right now (crate + bag on a mission, stash + bag in the ship). */
+  private activeViews(): GridView[] {
+    const out: GridView[] = [];
+    if (this.container) out.push(this.containerView);
+    if (this.hub) out.push(this.stashView);
+    out.push(this.bagView);
+    return out;
+  }
+
   /* ── tile handlers ─────────────────────────────────────────────────────── */
 
   private tileHandlers() {
     return {
       onPointerDown: (uid: string, gridId: GridId, e: PointerEvent) => {
-        const view = gridId === 'bag' ? this.bagView : this.containerView;
-        const el = view.tileEl(uid);
+        const el = this.viewOf(gridId).tileEl(uid);
         if (el) this.beginPress(uid, { kind: 'grid', grid: gridId }, e, el);
       },
       onEnter: (uid: string, gridId: GridId, e: PointerEvent) => this.hoverEnter(uid, { kind: 'grid', grid: gridId }, e),
@@ -630,7 +910,7 @@ export class InventoryUI {
 
   private shake(loc: ItemLocation, uid: string): void {
     if (loc.kind === 'grid') {
-      (loc.grid === 'bag' ? this.bagView : this.containerView).shake(uid);
+      this.viewOf(loc.grid).shake(uid);
     } else {
       const sv = this.slots.get(loc.slot);
       if (sv?.tile) {
@@ -645,18 +925,21 @@ export class InventoryUI {
   /* ── right-click: quick action or context menu ─────────────────────────── */
 
   /**
-   * Scheme: plain right-click on a weapon, a bag or a stack with qty ≥ 2 opens the menu; on anything else it
-   * performs the quick action directly (container ↔ bag / slot → bag). Shift+right-click always opens the menu.
+   * Scheme: plain right-click on a weapon, a bag, armor, worn gear (ship) or a stack with qty ≥ 2 opens the menu; on
+   * anything else it performs the quick action directly (container / stash ↔ bag / slot → bag). Shift+right-click
+   * always opens the menu.
    */
   private onContextMenu(uid: string, from: ItemLocation, e: MouseEvent): void {
     if (this.drag?.started || this.dialog.isOpen) return;
     this.menu.close();
+    this.closePicker();
     const item = this.sys.findItem(uid, from);
     const def = item && ITEM_DEF_MAP.get(item.defId);
     if (!item || !def) return;
     const isStack = def.stackMax > 1 && item.qty >= 2;
     const quickable = isQuickUsable(def) && from.kind === 'grid' && from.grid === 'bag';
-    const hasMenu = isStack || isWeaponDef(def) || isBagDef(def) || isArmorDef(def) || quickable;
+    const repairable = this.hub && !!this.sys.repairInfo(uid);
+    const hasMenu = isStack || isWeaponDef(def) || isBagDef(def) || isArmorDef(def) || quickable || repairable;
     if (!hasMenu && !e.shiftKey) {
       this.result(this.sys.quickMove(uid, from), 'ui_drop', from, uid);
       return;
@@ -666,9 +949,9 @@ export class InventoryUI {
   }
 
   /**
-   * Weapons: quick action (장착 / 주무기 II로 장착 / 가방으로 이동 / 상자로 이동) · 장전된 탄약 모두 탈착 (ammo loaded) ·
-   * 무기 소켓 모두 탈착 (any socket filled) · 탄약 요청 · 버리기. Bags: 장착 / 가방으로 이동 · 요청 · 버리기.
-   * Attachments are socketed by drag only (no 장착 entry). Stacks add the split entries.
+   * Weapons: quick action (장착 / 주무기 II로 장착 / 가방으로 이동 / 상자로 이동 / 창고로 이동) · 수리 (ship, worn gear) ·
+   * 장전된 탄약 모두 탈착 (ammo loaded) · 무기 소켓 모두 탈착 (any socket filled) · 탄약 요청 · 버리기 (mission only).
+   * Bags / armor: 장착 / 가방으로 이동 · 요청 · 버리기. Attachments are socketed by drag only (no 장착 entry). Stacks add the split entries.
    */
   private menuEntries(uid: string, from: ItemLocation, item: ItemInstance, def: ItemDef): MenuEntry[] {
     const entries: MenuEntry[] = [];
@@ -676,10 +959,12 @@ export class InventoryUI {
     const isStack = def.stackMax > 1 && item.qty >= 2;
     const hasContainer = !!this.sys.getActiveContainer();
     const quick = () => this.result(this.sys.quickMove(uid, from), 'ui_drop', from, uid);
+    const owned = from.kind === 'slot' || from.grid === 'bag';
 
     // 1. quick action (what a plain right-click / double-click does)
     if (from.kind === 'slot') {
       entries.push({ label: TEXT.menu.toBag, run: quick });
+      if (this.hub) entries.push({ label: TEXT.menu.toStash, run: () => this.result(this.sys.moveToStash(uid, from), 'ui_drop', from, uid) });
     } else {
       const target = this.sys.equipTargetFor(def);
       if (target) {
@@ -690,11 +975,31 @@ export class InventoryUI {
         }
       }
       if (from.grid === 'container') entries.push({ label: TEXT.menu.toBag, run: quick });
+      else if (from.grid === 'stash') entries.push({ label: TEXT.menu.toBag, run: quick });
       else if (hasContainer && !isBagDef(def)) entries.push({ label: TEXT.menu.toContainer, run: quick });
+      else if (this.hub && !isBagDef(def)) entries.push({ label: TEXT.menu.toStash, run: quick });
+    }
+
+    // 1a. repair (ship only, worn weapon / armor the player owns)
+    if (this.hub && owned) {
+      const info = this.sys.repairInfo(uid);
+      if (info) {
+        const cost = info.cost.length ? ` (${info.cost.map((c) => `${c.name} ${c.qty}`).join(' · ')})` : '';
+        entries.push({
+          label: `${TEXT.menu.repair}${cost}`,
+          hint: info.short ? TEXT.menu.repairShort : undefined,
+          separator: entries.length > 0,
+          run: () => {
+            const ok = this.sys.repair(uid);
+            this.result(ok ? 'ok' : 'fail', 'ui_equip', from, uid);
+            if (!ok) this.ctx.bus.emit('ui:notify', { text: info.short ? TEXT.menu.repairShortMsg : TEXT.menu.repairFail, kind: 'warning', duration: 2 });
+          },
+        });
+      }
     }
 
     // 1b. weapon maintenance (player-owned weapons only)
-    if (isWeapon && (from.kind === 'slot' || from.grid === 'bag')) {
+    if (isWeapon && owned) {
       if ((item.ammoInMag ?? 0) > 0) {
         entries.push({ label: TEXT.menu.unload, separator: entries.length > 0, run: () => this.result(this.sys.unloadWeapon(uid) ? 'ok' : 'fail', 'ui_drop', from, uid) });
       }
@@ -729,9 +1034,12 @@ export class InventoryUI {
       run: () => { this.sys.requestItem(uid, from); },
     });
 
-    // 4. drop
-    entries.push({ label: TEXT.menu.drop, hint: 'X', danger: true, separator: true, run: () => this.dropToWorld(uid, from, undefined) });
-    if (isStack) entries.push({ label: TEXT.menu.dropOne, hint: 'Shift+X', danger: true, run: () => this.dropToWorld(uid, from, 1) });
+    // 4. drop (not in the ship — there is no ground to drop onto)
+    if (!this.hub) {
+      const dropKey = keyLabel(Keys.DROP_ITEM);
+      entries.push({ label: TEXT.menu.drop, hint: dropKey, danger: true, separator: true, run: () => this.dropToWorld(uid, from, undefined) });
+      if (isStack) entries.push({ label: TEXT.menu.dropOne, hint: `Shift+${dropKey}`, danger: true, run: () => this.dropToWorld(uid, from, 1) });
+    }
     return entries;
   }
 
@@ -757,7 +1065,7 @@ export class InventoryUI {
 
   /* ── drop key (X) ──────────────────────────────────────────────────────── */
 
-  /** X drops the dragged or hovered item; Shift+X one unit, Ctrl+X half the stack. */
+  /** X drops the dragged or hovered item; Shift+X one unit, Ctrl+X half the stack. In the ship the item lands in the stash. */
   onDropKey(shift: boolean, ctrl: boolean): void {
     if (this.dialog.isOpen) return;
     this.menu.close();
@@ -816,6 +1124,7 @@ export class InventoryUI {
     if (!item || !def) return;
     e.preventDefault();
     this.menu.close();
+    this.closePicker();
     // Shift → half the stack, Ctrl → one unit (grid stacks only; falls back to a whole-item drag)
     let qty: number | null = null;
     if (from.kind === 'grid' && quickFrom === null) {
@@ -847,7 +1156,7 @@ export class InventoryUI {
       this.quickCells[d.quickFrom]?.tile?.classList.add('is-dragging');
       this.root?.classList.add('is-quick-source');
     } else if (d.from.kind === 'grid') {
-      const view = d.from.grid === 'bag' ? this.bagView : this.containerView;
+      const view = this.viewOf(d.from.grid);
       if (d.qty !== null) view.markSplitSource(d.uid, d.item.qty - d.qty);
       else view.setDragging(d.uid);
     } else {
@@ -900,6 +1209,7 @@ export class InventoryUI {
     if (!d || !d.started) return;
     this.bagView.hideHighlight();
     this.containerView.hideHighlight();
+    this.stashView.hideHighlight();
     for (const sv of this.slots.values()) sv.el.classList.remove('is-target-ok', 'is-target-bad');
     d.target = null;
     this.dropZone.classList.remove('is-hot');
@@ -941,8 +1251,7 @@ export class InventoryUI {
 
     const { w, h } = this.footprint(d);
     const left = px - d.grabX, top = py - d.grabY;
-    const views: GridView[] = this.container ? [this.containerView, this.bagView] : [this.bagView];
-    for (const view of views) {
+    for (const view of this.activeViews()) {
       const cell = view.cellForGhost(left, top, w, h, px, py);
       if (!cell) continue;
       d.target = { kind: 'grid', grid: view.id, x: cell.x, y: cell.y, rotated: d.rotated };
@@ -952,8 +1261,8 @@ export class InventoryUI {
       return;
     }
 
-    // outside every grid/slot: over the backdrop → world drop (the zone lights up when hovered directly)
-    if (!this.isOverPanel(px, py)) {
+    // outside every grid/slot: over the backdrop → world drop (the zone lights up when hovered directly; hidden in the ship)
+    if (!this.hub && !this.isOverPanel(px, py)) {
       const r = this.dropZone.getBoundingClientRect();
       if (px >= r.left && px <= r.right && py >= r.top && py <= r.bottom) this.dropZone.classList.add('is-hot');
     }
@@ -973,13 +1282,14 @@ export class InventoryUI {
     if (slotEl?.dataset.slot) return { uid, loc: { kind: 'slot', slot: slotEl.dataset.slot as SlotId } };
     if (tile.closest('.inv-grid-bag')) return { uid, loc: { kind: 'grid', grid: 'bag' } };
     if (tile.closest('.inv-grid-container')) return { uid, loc: { kind: 'grid', grid: 'container' } };
+    if (tile.closest('.inv-grid-stash')) return { uid, loc: { kind: 'grid', grid: 'stash' } };
     return null;
   }
 
   private setSocketTarget(w: { uid: string; loc: ItemLocation }, state: 'ok' | 'bad'): void {
     this.socketTarget = w;
     if (w.loc.kind === 'grid') {
-      (w.loc.grid === 'bag' ? this.bagView : this.containerView).setSocketTarget(w.uid, state);
+      this.viewOf(w.loc.grid).setSocketTarget(w.uid, state);
     } else {
       const tile = this.slots.get(w.loc.slot)?.tile;
       tile?.classList.toggle('is-socket-ok', state === 'ok');
@@ -992,13 +1302,14 @@ export class InventoryUI {
     this.socketTarget = null;
     this.bagView.setSocketTarget(null, null);
     this.containerView.setSocketTarget(null, null);
+    this.stashView.setSocketTarget(null, null);
     for (const sv of this.slots.values()) sv.tile?.classList.remove('is-socket-ok', 'is-socket-bad');
   }
 
   /** True when the point lies on a panel / equipment column (a miss there snaps back instead of dropping). */
   private isOverPanel(x: number, y: number): boolean {
     const el = document.elementFromPoint(x, y);
-    return !!el && !!(el as Element).closest('.inv-panel, .inv-equip, .inv-menu, .inv-dialog');
+    return !!el && !!(el as Element).closest('.inv-panel, .inv-equip, .inv-menu, .inv-dialog, .scr-tabs');
   }
 
   private handlePointerUp(e: PointerEvent): void {
@@ -1026,7 +1337,7 @@ export class InventoryUI {
         this.sys.sfx('ui_error');
         return;
       }
-      // released over the backdrop / drop zone: throw it into the world
+      // released over the backdrop / drop zone: throw it into the world (ship: into the stash)
       this.dropToWorld(d.uid, d.from, d.qty ?? undefined);
       return;
     }
@@ -1046,11 +1357,11 @@ export class InventoryUI {
     }
     this.bagView.setDragging(null);
     this.containerView.setDragging(null);
-    if (d.qty !== null && d.from.kind === 'grid') {
-      (d.from.grid === 'bag' ? this.bagView : this.containerView).markSplitSource(d.uid, null);
-    }
+    this.stashView.setDragging(null);
+    if (d.qty !== null && d.from.kind === 'grid') this.viewOf(d.from.grid).markSplitSource(d.uid, null);
     this.bagView.hideHighlight();
     this.containerView.hideHighlight();
+    this.stashView.hideHighlight();
     this.clearSocketTarget();
     for (const sv of this.slots.values()) {
       sv.el.classList.remove('is-target-ok', 'is-target-bad');
