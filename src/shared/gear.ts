@@ -1,4 +1,5 @@
 import type { LoadoutSlot, Rarity, WeaponClass } from './types';
+import type { WorkbenchKind } from './housing';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Gear contract: body armor, backpacks, weight, durability, quick-use slots.
@@ -79,6 +80,13 @@ export interface CraftRecipe {
   skill: 'crafting' | 'medicine' | 'gardening';
   skillRequired: number;
   description: string;
+  /* appended (ship housing, 2026-09-06) */
+  /**
+   * 'ship' recipes that need a specific 작업실 bench (총기 / 장비 / 가젯 / 의학) at `benchLevel` or higher
+   * (`ctx.housing.getBenchLevel(bench)`). undefined = any ship workbench (legacy `hub_workbench`) — field recipes ignore it.
+   */
+  bench?: WorkbenchKind;
+  benchLevel?: number;
 }
 
 /* ── Durability ────────────────────────────────────────────────────────────── */

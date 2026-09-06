@@ -5,6 +5,8 @@ import type { EquipSlot, WeightState } from './gear';
 import type { ImplantId, ScanTarget } from './implants';
 import type { DeployableKind, GadgetId } from './gadgets';
 import type { PlayerProfile, SkillId, StatId } from './progression';
+/* appended (2026-09-06): ship housing payloads */
+import type { FacilityId, PlacedFurniture, RoomPurpose, ShipState } from './housing';
 
 /**
  * Every cross-module message goes through the typed EventBus with these payloads.
@@ -373,6 +375,64 @@ export interface GameEvents {
   'implant:energyChanged': { energy: number; max: number };
   /** Owner: inventory. Ship stash contents changed (`count` = stacks). */
   'inventory:stashChanged': { count: number };
+
+  /* ══ appended: dev console · unique weapons · stat XP · ship housing (2026-09-06) ═══════════════════ */
+
+  /* ── dev console (owner: console/) ── */
+  'console:toggled': { open: boolean };
+  /** A line was executed. `ok` false = unknown command / the command returned an error. */
+  'console:executed': { line: string; ok: boolean; output: string };
+  /** `/movecheat` toggled (HUD may show a tag). */
+  'cheat:moveCheat': { enabled: boolean };
+  /** `/seed` set the mission seed (also applied through `ctx.hub.setMissionSeed`). */
+  'cheat:seed': { seed: number | null };
+
+  /* ── unique weapons (owner: weapons unless noted) ── */
+  /** Charge / spin-up / slash wind-up readout 0..1 (−1 = cancelled). ui draws a gauge next to the reticle. */
+  'weapon:chargeChanged': { weaponId: string; kind: 'charge' | 'spinup' | 'slash'; t: number };
+  /** Continuous fire (flame / shock arc) switched on or off; `mode` = LMB primary or RMB alt. Audio loops on this. */
+  'weapon:beamChanged': { weaponId: string; active: boolean; mode: 'primary' | 'alt' };
+  /** A unique weapon used its RMB alternative fire (triple shuriken, charged bolt, air-burst rocket, flame jet). */
+  'weapon:altFired': { weaponId: string; origin: THREE.Vector3; direction: THREE.Vector3 };
+  /** The 용검 big slash was performed (local; remotes see the melee message). */
+  'player:slashed': { position: THREE.Vector3; direction: THREE.Vector3; hits: number };
+  /** Owner: enemies. An enemy was set 전소 (writhing, incapacitated) / shocked. */
+  'enemy:incinerated': { id: number; position: THREE.Vector3; duration: number };
+  'enemy:shocked': { id: number; position: THREE.Vector3 };
+  /** Owner: player. Rocket jump / blast self-knockback happened (HUD shake, audio). */
+  'player:blastJump': { position: THREE.Vector3; impulse: THREE.Vector3 };
+
+  /* ── stat XP (owner: progression) ── */
+  /** Stat XP moved; `progress` = 0..1 toward the next point. A point gained / lost also emits `progress:statChanged`. */
+  'progress:statXp': { id: StatId; value: number; progress: number; delta: number };
+
+  /* ── ship housing (owner: housing/ unless noted) ── */
+  'housing:loaded': { state: ShipState };
+  /** Anything in the ship state changed (cheap catch-all for UI refresh). */
+  'housing:changed': { reason: string };
+  /** Housing mode entered / left for `room`. hub reacts (camera, cursor, colliders). */
+  'housing:modeChanged': { active: boolean; room: number | null };
+  /** Selection for placement changed (def id + yaw). */
+  'housing:selectionChanged': { defId: string | null; yaw: 0 | 1 | 2 | 3 };
+  'housing:roomPurposeChanged': { room: number; purpose: RoomPurpose };
+  'housing:furniturePlaced': { item: PlacedFurniture };
+  'housing:furnitureMoved': { item: PlacedFurniture };
+  'housing:furnitureRecovered': { uid: string; defId: string; room: number };
+  'housing:furnitureUpgraded': { item: PlacedFurniture };
+  'housing:facilityUpgraded': { id: FacilityId; level: number };
+  /** Storage level changed the stash grid; inventory resizes `Stash` (never shrinks below its contents). */
+  'housing:stashSizeChanged': { cols: number; rows: number };
+  'housing:presetApplied': { index: number; equipped: number; missing: string[] };
+  /** Housing DOM panels (room / facility / presets) opened or closed. Blocker token `'housing'`. */
+  'ui:housingToggled': { open: boolean; page: 'room' | 'facility' | 'presets' | null };
+  /** Owner: hub. The player walked into a room (index) or back into the corridor / cockpit (null). */
+  'hub:roomEntered': { room: number | null; purpose: RoomPurpose | null };
+  /** Owner: hub. Housing-mode cursor moved to a cell (HUD hint: cell + validity). */
+  'housing:cursorChanged': { room: number; x: number; y: number; valid: boolean };
+
+  /* ── cheat item catalog (owner: inventory) ── */
+  /** The 무한 상자 window (every item def, infinite stock) opened / closed. */
+  'ui:catalogToggled': { open: boolean };
 }
 
 export type GameEventName = keyof GameEvents;

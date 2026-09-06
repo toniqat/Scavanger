@@ -29,6 +29,8 @@ export const CATEGORY_LABEL_KO: Readonly<Record<ItemCategory, string>> = {
   attachment: '부착물', bag: '가방',
   /* appended: tactical kit */
   armor: '방탄복', gadget: '가젯', herb: '약초',
+  /* appended: ship housing */
+  furniture: '가구',
 };
 
 /** Accent colour per category (panel chips, quick bar, map icons). */
@@ -36,6 +38,7 @@ export const CATEGORY_COLOR: Readonly<Record<ItemCategory, string>> = {
   primary: '#ffd27a', secondary: '#ffe3a0', grenade: '#ff8f5c', stim: '#6ee7a8',
   ammo: '#c8ccd2', valuable: '#7fd2ff', material: '#b0a58c', attachment: '#d0c4ff', bag: '#d9b98a',
   armor: '#9fb4ff', gadget: '#8fe8ff', herb: '#7ee08a',
+  furniture: '#e0c9a6',
 };
 
 /** Short glyph per category (used where an item has none, e.g. empty quick slots). */
@@ -43,12 +46,15 @@ export const CATEGORY_ICON: Readonly<Record<ItemCategory, string>> = {
   primary: '⌐╦', secondary: '⌐', grenade: '●', stim: '✚',
   ammo: '▮▮', valuable: '◆', material: '▫', attachment: '⊙', bag: '▣',
   armor: '⛊', gadget: '◈', herb: '❦',
+  furniture: '⌂',
 };
 
 export const AMMO_LABEL_KO: Readonly<Record<AmmoType, string>> = {
   light: '경량탄', medium: '준중량탄', heavy: '중량탄', shell: '산탄',
   /* legacy calibres (no def uses them) */
   rifle: '소총탄', pistol: '권총탄', shotgun: '산탄', energy: '에너지 셀',
+  /* unique-weapon calibres (2026-09-06) */
+  fuel: '연료통', cell: '전지', shuriken: '표창', arrow: '화살', rocket: '로켓', belt: '탄띠',
 };
 
 /** v2 calibres in display order. */

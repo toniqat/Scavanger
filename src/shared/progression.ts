@@ -65,6 +65,13 @@ export interface PlayerProfile {
   /** Total raids / extractions, for the ship terminal readout. */
   raids: number;
   extractions: number;
+  /* appended (stat XP, 2026-09-06) */
+  /**
+   * Fractional progress (0..1) toward the next point of each stat (gym equipment, `/stat` cheat). At 1 the stat gains
+   * a point (max STAT_MAX), below 0 it loses one (min STAT_MIN). Level-up stat points work as before.
+   * Optional so saves from before 2026-09-06 migrate to zeros.
+   */
+  statProgress?: Record<StatId, number>;
 }
 
 /**
@@ -146,4 +153,27 @@ export interface ProgressionRef {
   save(): void;
   /** Wipe the profile back to a level-1 character. */
   resetProfile(): void;
+
+  /* ── appended: stat XP + raw skill XP (2026-09-06, owner: progression) ── */
+  /** 0..1 toward the next point of `id`. */
+  getStatProgress(id: StatId): number;
+  /** Raw XP for the next point of `id` at its current value (STAT_XP_BASE × value^STAT_XP_EXPONENT). */
+  statXpToNext(id: StatId): number;
+  /**
+   * Add raw stat XP (negative allowed). Crossing 1 → +1 stat (also `progress:statChanged`), dropping below 0 → −1
+   * stat (never below STAT_MIN). Emits `progress:statXp`, recomputes `derived` when the value changes, saves.
+   */
+  addStatXp(id: StatId, amount: number): void;
+  /** 0..1 toward the next level of `id`. */
+  getSkillProgress(id: SkillId): number;
+  /**
+   * Signed raw skill XP: no 지능 / stat / level scaling, negative allowed (level −1 when progress drops below 0,
+   * never below 0). Cheat / debuff entry point — normal training keeps using `addSkillXp`.
+   */
+  addSkillXpRaw(id: SkillId, amount: number): void;
+  /**
+   * External skill-gain multiplier (ship facilities: 사격장 → gun_* skills). Progression reads
+   * `ctx.housing?.getSkillGainMul(id)` itself inside `addSkillXp`; this getter exposes the combined value for UI.
+   */
+  getSkillGainMul(id: SkillId): number;
 }

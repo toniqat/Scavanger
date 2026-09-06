@@ -546,6 +546,22 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     if (delta > 0) this.ctx.bus.emit('player:healthChanged', { hp: this.hp, maxHp: this.maxHp, delta });
   }
 
+  /* TODO(agent player): contract stubs (2026-09-06) — replace with real implementations. */
+  /** Instant move (console `/move`, Home move cheat): feet to `position`, velocity cleared, everything else kept. */
+  teleport(position: THREE.Vector3, yaw?: number, _snap?: boolean): void {
+    this.controller.reset(position);
+    if (yaw !== undefined) this.rig.yaw = yaw;
+  }
+  /** Wide-angle camera for the 용검 slash. Stub: no-op. */
+  setViewWiden(_active: boolean): void { /* TODO(agent player) */ }
+  /** Spend stamina; false when short. */
+  consumeStamina(amount: number): boolean {
+    if (amount <= 0) return true;
+    if (this.stamina < amount) return false;
+    this.stamina -= amount;
+    return true;
+  }
+
   respawnAt(position: THREE.Vector3, yaw?: number): void {
     const y = yaw ?? Math.atan2(position.x, position.z); // face the map centre by default
     this.attachTo(null);

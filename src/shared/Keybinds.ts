@@ -65,6 +65,10 @@ export const KEY_ACTION_DEFS: readonly KeyActionDef[] = [
   { id: 'MAP', label: '지도', group: '인터페이스', scope: 'game' },
   { id: 'MENU', label: '일시 정지 · 닫기', group: '인터페이스', scope: 'global' },
 
+  /* dev console (only active on a dev client; listed so the key can be moved off a layout that lacks `) */
+  { id: 'CONSOLE', label: '개발자 콘솔 (서버 PC 전용)', group: '인터페이스', scope: 'global', menuOnly: true },
+  { id: 'MOVE_CHEAT', label: '이동 치트 (콘솔 /movecheat 1)', group: '인터페이스', scope: 'game', menuOnly: true },
+
   { id: 'ROTATE_ITEM', label: '아이템 회전', group: '인벤토리', scope: 'inventory', menuOnly: true },
   { id: 'DROP_ITEM', label: '아이템 버리기', group: '인벤토리', scope: 'inventory', menuOnly: true },
 ];

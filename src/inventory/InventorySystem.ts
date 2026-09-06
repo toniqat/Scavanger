@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import type {
   CraftRecipe, CraftStation, DurabilityInfo, EffectiveWeaponStats, GameContext, GameSystem, InventoryRef, ItemDef, ItemInstance, Loadout, LoadoutSlot,
-  SocketSlot, WeaponSlot, WeightInfo,
+  SocketSlot, WeaponSlot, WeightInfo, LoadoutPreset, WorkbenchKind,
 } from '@/shared';
-import { BAG_DEFAULT_COLS, BAG_DEFAULT_QUICK_SLOTS, BAG_DEFAULT_ROWS, Keys, QUICK_SLOTS, SOCKET_SLOTS, isQuickSlotActive } from '@/shared';
+import { BAG_DEFAULT_COLS, BAG_DEFAULT_QUICK_SLOTS, BAG_DEFAULT_ROWS, Keys, QUICK_SLOTS, SOCKET_SLOTS, STASH_COLS, STASH_ROWS, isQuickSlotActive } from '@/shared';
 import { AMMO_LABEL_KO, ITEM_DEF_MAP, LootService, STARTER_LOADOUT, ammoItemIdFor, getRecipe, isWeaponItemDef, itemWeight } from '@/items';
 import { durabilityInfo, gearMultipliers, makeWeightInfo, sumWeight } from './Gear';
 import { Grid, OOB, type Placement, type PriorityPlacement } from './Grid';
@@ -385,10 +385,29 @@ export class InventorySystem implements GameSystem, InventoryRef {
     return this.ctx.isRaidActive() ? 'field' : 'ship';
   }
 
-  getRecipes(station: CraftStation): readonly CraftRecipe[] {
+  /* TODO(agent inventory): contract stubs (2026-09-06) — 무한 상자 catalog, stash resize, bag+stash materials, loadout presets, bench crafting. */
+  openCatalog(): void { /* TODO(agent inventory) */ }
+  closeCatalog(): void { /* TODO(agent inventory) */ }
+  get isCatalogOpen(): boolean { return false; }
+  getStashSize(): { cols: number; rows: number } { return { cols: STASH_COLS, rows: STASH_ROWS }; }
+  setStashSize(_cols: number, _rows: number): boolean { return false; }
+  countDefAll(defId: string): number { return this.countWhere((d) => d.id === defId); }
+  consumeDefAll(defId: string, qty: number): boolean { return this.consumeDef(defId, qty); }
+  captureLoadout(): LoadoutPreset {
+    const l = this.getLoadout();
+    return {
+      name: '프리셋', primary: l.primary?.defId ?? null, primary2: l.primary2?.defId ?? null, secondary: l.secondary?.defId ?? null,
+      bag: l.bag?.defId ?? null, armor: l.armor?.defId ?? null, implant: this.ctx.progression?.profile.implant ?? null,
+    };
+  }
+  applyLoadout(_preset: LoadoutPreset): { equipped: number; missing: string[] } { return { equipped: 0, missing: [] }; }
+  openBenchCraft(_bench: WorkbenchKind, _level: number): void { /* TODO(agent inventory) */ }
+
+  getRecipes(station: CraftStation, bench?: WorkbenchKind, level = 0): readonly CraftRecipe[] {
     const skillOf = (id: CraftRecipe['skill']): number => this.ctx.progression?.getSkill(id) ?? 0;
     return this.loot.getAllRecipes().filter((r) => {
       if (station === 'field' && r.station !== 'field') return false;
+      if (station === 'ship' && bench !== undefined && r.bench !== undefined && (r.bench !== bench || (r.benchLevel ?? 1) > level)) return false;
       return skillOf(r.skill) >= r.skillRequired;
     });
   }

@@ -205,6 +205,8 @@ export class Enemy implements EnemyRef {
   get object(): THREE.Object3D { return this.rig.root; }
   get faction(): EnemyFaction { return this.stats.faction; }
   get isRogue(): boolean { return this.stats.faction === 'rogue'; }
+  /** TODO(agent enemies): 전소 (incinerated) — writhing, no AI, still damageable. Stub until the enemies agent implements it. */
+  get isIncapacitated(): boolean { return false; }
   /** Alive and fighting (not dead / fleeing / inactive). */
   get isCombatant(): boolean { return this.active && this.state !== 'dead' && this.state !== 'flee'; }
 

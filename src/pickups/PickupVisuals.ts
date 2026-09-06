@@ -8,6 +8,8 @@ const REST_Y: Record<ItemCategory, number> = {
   primary: 0.08, secondary: 0.06, grenade: 0.09, stim: 0.06, ammo: 0.09, valuable: 0.16, material: 0.14, attachment: 0.07, bag: 0.18,
   /* appended: tactical kit */
   armor: 0.12, gadget: 0.1, herb: 0.07,
+  /* appended: ship housing */
+  furniture: 0.16,
 };
 
 /**

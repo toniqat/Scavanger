@@ -46,6 +46,17 @@ export class HubSystem implements GameSystem, HubRef {
   collider: InteriorCollider | null = null;
   missionSeed: number | null = null;
   get active(): boolean { return this.ctx?.phase === 'hub' || this.ctx?.phase === 'docking'; }
+  /** TODO(agent hub): console `/seed` entry point (host also pushes `setLobbySeed`; non-host refused). Stub. */
+  setMissionSeed(seed: number | null): boolean {
+    const net = this.ctx?.net;
+    if (net?.lobby && !net.isHost) return false;
+    this.missionSeed = seed;
+    if (net?.lobby && seed !== null) net.setLobbySeed(seed);
+    this.updateTerminalScreen();
+    return true;
+  }
+  /** TODO(agent hub): room index the player stands in (personal ship rooms). Stub. */
+  get currentRoom(): number | null { return null; }
   getLaunchSlots(): readonly HubLaunchSlot[] { return this.slots; }
   /** Debug: true while the workbench (repair) menu is open. */
   get isWorkbenchOpen(): boolean { return !!this.wbMenu?.isOpen; }

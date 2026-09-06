@@ -2,6 +2,7 @@ import type * as THREE from 'three';
 import type { Random } from './Random';
 import type { GameContext } from './GameContext';
 import type { ArmorDef, CraftRecipe, CraftStation, DurabilityInfo, WeightInfo } from './gear';
+import type { LoadoutPreset, WorkbenchKind } from './housing';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Game phase / flow
@@ -55,7 +56,9 @@ export type ItemCategory =
   /* appended: tactical kit */
   | 'armor'       // body armor (equippable in the `armor` loadout slot, see `ItemDef.armorId` → ArmorDef)
   | 'gadget'      // special gadget consumable (see GadgetDef), usable from the quick wheel
-  | 'herb';       // gathered plant, crafting input for medicine
+  | 'herb'        // gathered plant, crafting input for medicine
+  /* appended: ship housing (2026-09-06) */
+  | 'furniture';  // ship furniture as an inventory item (see `ItemDef.furnitureId` → FurnitureDef); placed via housing/
 
 export type Rarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
 
@@ -65,7 +68,16 @@ export type Rarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
  * Ammo items carry rounds in `ItemInstance.qty` (stackMax = rounds per stack); a weapon's "reserve" is the
  * total rounds of its calibre in the bag.
  */
-export type AmmoType = 'rifle' | 'pistol' | 'shotgun' | 'energy' | 'light' | 'medium' | 'heavy' | 'shell';
+export type AmmoType = 'rifle' | 'pistol' | 'shotgun' | 'energy' | 'light' | 'medium' | 'heavy' | 'shell'
+  /* appended (unique weapons, 2026-09-06): dedicated calibres — 연료통 / 전지 / 표창 / 화살 / 로켓 / 탄띠 */
+  | 'fuel' | 'cell' | 'shuriken' | 'arrow' | 'rocket' | 'belt';
+
+/* ── appended (unique weapons, 2026-09-06) ── */
+/**
+ * Legendary-only unique weapons (`WeaponDef.unique`). No grades, no sockets (`LootRef.canAttach` → false), high
+ * base numbers, RMB = alternative fire instead of ADS (`WeaponDef.altFire`). Behaviour lives in weapons/, data in items/.
+ */
+export type UniqueWeaponKind = 'flamethrower' | 'shockgun' | 'shuriken' | 'bow' | 'bazooka' | 'minigun';
 
 /** Weapon archetype. Drives damage falloff, recoil/spread profile, ADS zoom and HUD labels. */
 export type WeaponClass = 'AR' | 'SMG' | 'SR' | 'DMR' | 'SG' | 'PISTOL';
@@ -188,6 +200,17 @@ export interface WeaponDef {
   /* appended: tactical kit */
   /** Melee damage multiplier granted by this weapon's stock (undefined = MELEE_STOCK_MUL_DEFAULT). */
   meleeMul?: number;
+  /* ── appended: unique weapons (2026-09-06, owner: items data / weapons behaviour) ── */
+  /** Set on the six legendary uniques. Weapons switches its fire logic on this; items never grades / sockets them. */
+  unique?: UniqueWeaponKind;
+  /** true → RMB is the alternative fire (no ADS, `adsZoom` ignored); the HUD shows both modes. */
+  altFire?: boolean;
+  /** Alt-fire damage per hit / per second where the primary `damage` does not apply (flame jet, charged bolt, air-burst rocket). */
+  altDamage?: number;
+  /** Seconds to charge (shockgun RMB) or spin up (minigun LMB). */
+  chargeTime?: number;
+  /** Continuous weapons (flame / shock arc): ammo units consumed per second instead of per shot. */
+  ammoPerSec?: number;
 }
 
 export interface ItemDef {
@@ -225,6 +248,9 @@ export interface ItemDef {
   durabilityMax?: number;
   /** Informational: the item may sit in a quick slot even outside QUICK_USABLE_CATEGORIES. */
   quickUsable?: boolean;
+  /* ── appended: ship housing (2026-09-06, owner: items) ── */
+  /** category 'furniture': links to a FurnitureDef (owned by housing/). Placing it moves it into the furniture storage. */
+  furnitureId?: string;
 }
 
 export interface ItemInstance {
@@ -342,6 +368,46 @@ export interface InventoryRef {
   getDurability(uid: string): DurabilityInfo | null;
   /** Ship workbench: repair any gear item (weapon → `repairWeapon`, armor → full durability). */
   repair(uid: string): boolean;
+
+  /* ── appended: dev console · ship housing (2026-09-06, owner: inventory) ── */
+  /**
+   * 무한 상자 (`/items` cheat): a loot-style window listing **every** item def with infinite stock — dragging a tile
+   * into the bag / stash / a slot creates a fresh instance (`ctx.loot.createItem`) and the tile stays. Blocker `'inventory'`,
+   * emits `ui:catalogToggled`. Works in the hub and on a mission.
+   */
+  openCatalog(): void;
+  closeCatalog(): void;
+  readonly isCatalogOpen: boolean;
+  /** Ship stash grid in effect (STASH_COLS × rows from the storage facility). */
+  getStashSize(): { cols: number; rows: number };
+  /**
+   * Resize the stash (housing storage level). Growing keeps every item in place; shrinking is refused (false) when an
+   * item would fall outside. Persists with the stash. Called on `housing:stashSizeChanged` and at startup.
+   */
+  setStashSize(cols: number, rows: number): boolean;
+  /** Units of `defId` in the bag **and** the stash (materials for facility upgrades / furniture). */
+  countDefAll(defId: string): number;
+  /** Consume `qty` of `defId` from the bag first, then the stash. All-or-nothing; false when short. */
+  consumeDefAll(defId: string, qty: number): boolean;
+  /** Current equipment as a preset (def ids; implant from `ctx.progression`). */
+  captureLoadout(): LoadoutPreset;
+  /**
+   * Equip a preset from what the bag + stash hold (first instance whose def id matches; stash items are moved into the
+   * slot, displaced gear goes to the bag, else the stash). Missing defs leave the slot **empty** (unequipped) and are
+   * returned in `missing`. Ship only (false / empty result during a raid).
+   */
+  applyLoadout(preset: LoadoutPreset): { equipped: number; missing: string[] };
+  /**
+   * Ship crafting at a 작업실 bench: opens the craft panel filtered to `getRecipes('ship', bench, level)` plus a repair
+   * list (`repair(uid)`) for the gear that bench services (gun: weapons + attachments; gear: armor + bags; gadget /
+   * medical: no repairs). Blocker `'inventory'`. Called by the hub when the player uses a placed bench.
+   */
+  openBenchCraft(bench: WorkbenchKind, level: number): void;
+  /**
+   * Recipes for a station; with `bench` given, only recipes whose `CraftRecipe.bench` is undefined or equals `bench`
+   * with `benchLevel ≤ level`. Field station ignores the bench arguments.
+   */
+  getRecipes(station: CraftStation, bench?: WorkbenchKind, level?: number): readonly CraftRecipe[];
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -402,6 +468,16 @@ export interface HubRef {
   getLaunchSlots(): readonly HubLaunchSlot[];
   /** Mission seed the host / solo player picked at the terminal (random when null). */
   readonly missionSeed: number | null;
+  /* ── appended: dev console (2026-09-06) ── */
+  /**
+   * Set the next mission seed (null = random). Only the console `/seed` command calls this — the terminal no longer has
+   * a seed field. In a lobby the host also pushes it with `ctx.net.setLobbySeed`; a non-host is refused (false).
+   */
+  setMissionSeed(seed: number | null): boolean;
+  /**
+   * Personal-ship room the player is standing in (0..SHIP_ROOM_COUNT−1), or null in the corridor / cockpit / shared ship.
+   */
+  readonly currentRoom: number | null;
 }
 
 export interface LootRef {
@@ -667,6 +743,22 @@ export interface PlayerRef {
   /** Burning (incendiary / fire zone): applies DoT and suppresses the grit save. */
   setBurning(dps: number, duration: number): void;
   readonly isBurning: boolean;
+
+  /* ── appended: dev console / unique weapons (2026-09-06, owner: player) ── */
+  /**
+   * Instant move without a hellpod: feet to `position` (y snapped to the terrain / deck when `snap` is not false),
+   * velocity cleared, stance / hp / items untouched. Optional `yaw`. Used by `/move` and the Home move cheat.
+   */
+  teleport(position: THREE.Vector3, yaw?: number, snap?: boolean): void;
+  /** Wide-angle camera (FOV × SLASH_FOV_MUL, damped) while true — the 용검 slash wind-up / swing. */
+  setViewWiden(active: boolean): void;
+  /** Spend stamina (e.g. the big slash costs `maxStamina × SLASH_STAMINA_RATIO`). False (nothing spent) when short. */
+  consumeStamina(amount: number): boolean;
+  /**
+   * Start a melee swing. `kind` (appended) `'heavy'` = the 용검 big slash pose (SLASH_DURATION, wider arc, weapons
+   * resolves hits with SLASH_RANGE / SLASH_ARC_DEG / SLASH_DAMAGE). Default `'light'` = the normal F swing.
+   */
+  startMelee(kind?: 'light' | 'heavy'): boolean;
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -694,7 +786,13 @@ export interface EnemyRef {
   takeDamage(amount: number, hitPoint?: THREE.Vector3, hitDir?: THREE.Vector3): void;
   /* appended (Phase 4) */
   readonly faction: EnemyFaction;
+  /* appended (unique weapons, 2026-09-06) */
+  /** 전소 (incinerated): writhing on the spot, no movement / attacks, still damageable. Set via `applyStatus('incinerated')`. */
+  readonly isIncapacitated: boolean;
 }
+
+/** Status effects an enemy can carry (appended 2026-09-06; `burning` / `slowed` are the tactical-kit originals). */
+export type EnemyStatusKind = 'burning' | 'slowed' | 'incinerated' | 'shocked';
 
 export interface EnemyHit {
   enemy: EnemyRef;
@@ -742,8 +840,13 @@ export interface EnemyManagerRef {
   queryNear(pos: THREE.Vector3, radius: number): EnemyRef[];
   /** Pull aggro toward `pos` for `duration` seconds (lure grenade, gunfire noise). `weight` 0..1 ranks competing lures. */
   addDistraction(pos: THREE.Vector3, radius: number, duration: number, weight: number): void;
-  /** Apply a status effect (burning ground, acid). `dps` 0 clears it. */
-  applyStatus(id: number, status: 'burning' | 'slowed', dps: number, duration: number): void;
+  /**
+   * Apply a status effect (burning ground, acid). `dps` 0 clears it.
+   * Appended (2026-09-06): `'incinerated'` = 전소 for `duration` s (`dps` ignored; enemy writhes, `isIncapacitated`,
+   * emits `enemy:incinerated`); `'shocked'` = slow by factor `dps` (0..1, like `slowed`) for `duration` s + `enemy:shocked`.
+   * On a replica the call is forwarded to the host as a `HitRequest.st` status hint.
+   */
+  applyStatus(id: number, status: EnemyStatusKind, dps: number, duration: number): void;
   /** Damage every enemy in a radius and credit `by` (turret / mine / rocket). Returns kills. */
   applyAreaDamage(center: THREE.Vector3, radius: number, damage: number, by?: string): number;
 }
@@ -818,4 +921,10 @@ export interface PlayerWeaponHost {
    * `holdingItem` = a consumable (stim / grenade) is in hand instead of a gun (no weapon model, one-handed).
    */
   setWeaponState(state: { hasWeapon: boolean; reloading: boolean; firing: boolean; twoHanded: boolean; throwing?: boolean; holdingItem?: boolean }): void;
+  /* ── appended: unique weapons (2026-09-06) ── */
+  /**
+   * Extra pose hints: `charging` (shockgun RMB / minigun spin-up — braced stance), `spraying` (flame / arc continuous
+   * fire), `heavy` (bazooka / minigun carried at the hip, no ADS). All optional; the player ignores unknown flags.
+   */
+  setWeaponState(state: { hasWeapon: boolean; reloading: boolean; firing: boolean; twoHanded: boolean; throwing?: boolean; holdingItem?: boolean; charging?: boolean; spraying?: boolean; heavy?: boolean }): void;
 }

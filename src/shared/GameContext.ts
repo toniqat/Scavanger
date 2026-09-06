@@ -9,6 +9,8 @@ import type { NetRef } from './net';
 import type { ImplantsRef } from './implants';
 import type { GadgetsRef } from './gadgets';
 import type { ProgressionRef } from './progression';
+import type { ConsoleRef } from './console';
+import type { HousingRef } from './housing';
 
 class InteractableRegistryImpl implements InteractableRegistry {
   private items = new Map<string, Interactable>();
@@ -75,6 +77,11 @@ export class GameContext {
   gadgets: GadgetsRef | null = null;
   /** Character stats / skills / persistent profile. Published by progression/ProgressionSystem. */
   progression: ProgressionRef | null = null;
+  /* ── appended (2026-09-06) ── */
+  /** Developer console (dev clients only; `enabled` false elsewhere). Published by console/ConsoleSystem. */
+  console: ConsoleRef | null = null;
+  /** Ship housing (rooms, facilities, furniture, presets). Published by housing/HousingSystem. */
+  housing: HousingRef | null = null;
 
   /** True when this client simulates authoritative gameplay (enemies, extraction): single-player or lobby host. */
   get isAuthority(): boolean { return this.net?.isAuthority ?? true; }

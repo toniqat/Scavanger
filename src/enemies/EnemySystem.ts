@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import {
   BEHEMOTH_KNOCKBACK, CORPSE_LIFETIME, GADGET_LURE_RADIUS, MAP_SIZE, NET_ENEMY_SNAPSHOT_HZ, PLAYER_HEIGHT, PLAYER_RADIUS, ROGUE_DAMAGE, ROGUE_RANGE,
   SHELL_BLAST_RADIUS, SHELL_DAMAGE, SHELL_FLIGHT_TIME, TOXIC_DAMAGE, TOXIC_RADIUS,
-  type DamageMessage, type EnemyEvent, type EnemyHit, type EnemyManagerRef, type EnemyRef, type EnemyType, type GameContext, type GameSystem,
+  type DamageMessage, type EnemyEvent, type EnemyHit, type EnemyManagerRef, type EnemyRef, type EnemyStatusKind, type EnemyType, type GameContext, type GameSystem,
   type InterceptableRef,
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
@@ -446,9 +446,12 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
    * spits embers; `slowed` reads `dps` as the fraction of speed removed (0.4 → 60 % speed), clamped to 0.2…1.
    * `dps` 0 clears the effect. Visuals run everywhere; damage only on the authority.
    */
-  applyStatus(id: number, status: 'burning' | 'slowed', dps: number, duration: number): void {
+  applyStatus(id: number, status: EnemyStatusKind, dps: number, duration: number): void {
     const e = this.byId.get(id);
     if (!e || !e.active || e.state === 'dead') return;
+    // TODO(agent enemies): 'incinerated' (전소 writhing + enemy:incinerated) and 'shocked' (slow + enemy:shocked); replica → HitRequest.st.
+    if (status === 'incinerated') return;
+    if (status === 'shocked') status = 'slowed';
     if (status === 'burning') {
       if (dps <= 0) { e.burnDps = 0; e.burnTimer = 0; return; }
       e.burnDps = Math.max(e.burnDps, dps);

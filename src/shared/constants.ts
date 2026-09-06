@@ -45,6 +45,8 @@ export interface KeyBindings {
   /* appended (key rebinding, 2026-09-06): the tactical-kit keys and the three mouse actions joined the table. */
   IMPLANT: string; MELEE: string; THROW_MODE: string;
   FIRE: string; AIM: string; PING: string;
+  /* appended (dev console, 2026-09-06): ` opens the console on a dev client, Home = /movecheat fast move. */
+  CONSOLE: string; MOVE_CHEAT: string;
 }
 
 /** Factory defaults; `Keys` is the live (rebindable) copy. Both are keyed by `KeyAction`. */
@@ -70,6 +72,8 @@ export const DEFAULT_KEYS: Readonly<KeyBindings> = {
   IMPLANT: 'KeyQ', MELEE: 'KeyF', THROW_MODE: 'KeyB',
   /* mouse actions (rebindable to other mouse buttons only) */
   FIRE: 'Mouse0', AIM: 'Mouse2', PING: 'Mouse1',
+  /* dev console */
+  CONSOLE: 'Backquote', MOVE_CHEAT: 'Home',
 };
 
 /**
@@ -139,6 +143,8 @@ export const AMMO_FOR_CLASS: Readonly<Record<WeaponClass, AmmoType>> = {
 export const AMMO_STACK_ROUNDS: Readonly<Record<AmmoType, number>> = {
   light: 120, medium: 90, heavy: 30, shell: 24,
   rifle: 90, pistol: 120, shotgun: 24, energy: 90,
+  /* unique-weapon calibres (2026-09-06): 연료통 / 전지 / 표창 / 화살 / 로켓 / 탄띠 */
+  fuel: 200, cell: 60, shuriken: 40, arrow: 30, rocket: 6, belt: 300,
 };
 /** Bag grid with no backpack equipped (half of a common bag). `INVENTORY_COLS × INVENTORY_ROWS` is the legendary bag. */
 export const BAG_DEFAULT_COLS = 5;
@@ -432,3 +438,161 @@ export const KEYBINDS_STORAGE_KEY = 'scav.keybinds';
 export const STASH_STORAGE_KEY = 'scav.stash';
 export const STASH_COLS = 10;
 export const STASH_ROWS = 24;
+
+/* ══ appended: dev console · unique weapons · stat XP · ship housing (2026-09-06) ═══════════════════════ */
+
+/* ── dev console (owner: console/) ── */
+export const CONSOLE_HISTORY_KEY = 'scav.console.history';
+export const CONSOLE_HISTORY_MAX = 50;
+/** Output lines kept in the console log. */
+export const CONSOLE_MAX_LINES = 200;
+/** Suggestions shown above the input while typing. */
+export const CONSOLE_SUGGESTIONS_MAX = 8;
+/** `/movecheat 1` + Home: metres per second along the camera forward. */
+export const MOVE_CHEAT_SPEED = 45;
+
+/* ── unique weapons (owner: items data, weapons behaviour) ── */
+/** Legendary-only uniques (`WeaponDef.unique`). Item ids are `wpn_<id>` like every weapon. */
+export const UNIQUE_WEAPON_IDS = ['u_flame', 'u_shock', 'u_shuriken', 'u_bow', 'u_bazooka', 'u_minigun'] as const;
+export const UNIQUE_WEAPON_LABEL_KO = {
+  flamethrower: '화염방사기', shockgun: '전격총', shuriken: '표창', bow: '컴포짓 보우', bazooka: '바주카', minigun: '미니건',
+} as const;
+
+/* 화염방사기: LMB wide cone, hold to damage; RMB long narrow jet. Heat stacks → 전소 (writhing, no actions). */
+export const FLAME_RANGE = 12;
+export const FLAME_CONE_DEG = 32;
+export const FLAME_DPS = 95;
+export const FLAME_ALT_RANGE = 26;
+export const FLAME_ALT_CONE_DEG = 7;
+export const FLAME_ALT_DPS = 75;
+/** Fuel units (ammo `qty`) burnt per second while spraying. */
+export const FLAME_FUEL_PER_SEC = 12;
+/** Heat an enemy accumulates from flame damage before it is set 전소 (`applyStatus 'incinerated'`). */
+export const BURNOUT_THRESHOLD = 240;
+/** Heat lost per second when not being burnt. */
+export const BURNOUT_DECAY_PER_SEC = 60;
+export const BURNOUT_DURATION = 4;
+/** Residual burning applied on every flame tick (dps, seconds). */
+export const FLAME_AFTERBURN_DPS = 12;
+export const FLAME_AFTERBURN_DURATION = 3;
+
+/* 전격총: LMB chains to several nearby enemies; RMB hold to charge, release = DMR-class bolt. */
+export const SHOCK_RANGE = 14;
+export const SHOCK_CONE_DEG = 50;
+export const SHOCK_MAX_TARGETS = 4;
+export const SHOCK_DPS = 72;
+/** Cell units per second while the arc is on. */
+export const SHOCK_CELL_PER_SEC = 8;
+export const SHOCK_CHARGE_TIME = 1.1;
+/** Damage of a fully charged bolt; a partial charge scales linearly from SHOCK_CHARGE_MIN_RATIO. */
+export const SHOCK_CHARGE_DAMAGE = 150;
+export const SHOCK_CHARGE_MIN_RATIO = 0.35;
+export const SHOCK_CHARGE_RANGE = 200;
+/** Cells per charged bolt. */
+export const SHOCK_CHARGE_CELLS = 6;
+/** 'shocked' status: slow factor and duration applied by the arc. */
+export const SHOCK_SLOW_FACTOR = 0.55;
+export const SHOCK_SLOW_DURATION = 1.2;
+
+/* 표창: LMB one, RMB fan of three. Melee: F tap = normal swing, F hold >= SLASH_HOLD_TIME then release = 용검 big slash. */
+export const SHURIKEN_DAMAGE = 58;
+export const SHURIKEN_SPEED = 65;
+export const SHURIKEN_FIRE_RATE = 3.2;
+export const SHURIKEN_TRIPLE_SPREAD_DEG = 7;
+export const SHURIKEN_TRIPLE_COOLDOWN = 0.9;
+export const SLASH_HOLD_TIME = 0.45;
+/** Fraction of max stamina the big slash costs (refused below it). */
+export const SLASH_STAMINA_RATIO = 0.5;
+export const SLASH_DAMAGE = 280;
+export const SLASH_RANGE = 3.8;
+export const SLASH_ARC_DEG = 160;
+/** Camera FOV multiplier while `PlayerRef.setViewWiden(true)` (the slash wind-up / swing). */
+export const SLASH_FOV_MUL = 1.28;
+export const SLASH_DURATION = 0.6;
+
+/* 컴포짓 보우: DMR-rate arrows, shorter reach than a legendary SR. */
+export const BOW_DAMAGE = 150;
+export const BOW_RANGE = 150;
+export const BOW_FIRE_RATE = 2.4;
+export const BOW_PROJECTILE_SPEED = 115;
+
+/* 바주카: LMB impact rocket; RMB air-burst rocket (self damage + knockback when fired at the floor → super jump). */
+export const BAZOOKA_DAMAGE = 420;
+export const BAZOOKA_RADIUS = 5.5;
+export const BAZOOKA_SPEED = 48;
+/** Seconds after launch when the RMB rocket detonates on its own. */
+export const BAZOOKA_ALT_FUSE = 0.4;
+export const BAZOOKA_ALT_DAMAGE = 260;
+export const BAZOOKA_ALT_RADIUS = 4.5;
+/** Self damage taken inside the blast (flat, ignores armor DR) and the knockback speed away from the blast. */
+export const BAZOOKA_SELF_DAMAGE = 22;
+export const BAZOOKA_KNOCKBACK = 15;
+/** Extra vertical impulse when the blast is below the player's feet while airborne (rocket jump). */
+export const BAZOOKA_SUPER_JUMP = 17;
+export const BAZOOKA_FIRE_RATE = 0.8;
+
+/* 미니건: LMB hold spins up, fires once spun; movement slowed while spinning. */
+export const MINIGUN_SPINUP_TIME = 1.2;
+export const MINIGUN_SPINDOWN_TIME = 0.8;
+export const MINIGUN_DAMAGE = 24;
+export const MINIGUN_FIRE_RATE = 24;
+export const MINIGUN_SPREAD_DEG = 2.6;
+/** Move speed multiplier while spinning (`setSpeedModifier('minigun', …)`). */
+export const MINIGUN_MOVE_MUL = 0.55;
+
+/** Rounds per stack of the unique calibres (extends AMMO_STACK_ROUNDS for the new AmmoType values). */
+export const UNIQUE_AMMO_STACK_ROUNDS = { fuel: 200, cell: 60, shuriken: 40, arrow: 30, rocket: 6, belt: 300 } as const;
+
+/* ── stat XP (owner: progression) ── */
+/** Raw XP for the next stat point at stat value v: STAT_XP_BASE × v^STAT_XP_EXPONENT (5 → 1118, 10 → 3162). */
+export const STAT_XP_BASE = 100;
+export const STAT_XP_EXPONENT = 1.5;
+/** Stats never drop below this (cheat / debuff floor). */
+export const STAT_MIN = 1;
+
+/* ── ship housing (owner: housing/ rules, hub/ geometry) ── */
+export const SHIP_STORAGE_KEY = 'scav.ship';
+export const SHIP_STATE_VERSION = 1;
+export const SHIP_ROOM_COUNT = 10;
+/** Room floor grid (cells) and cell size (m): 8 × 8 × 0.5 = a 4 × 4 m room. */
+export const ROOM_GRID_COLS = 8;
+export const ROOM_GRID_ROWS = 8;
+export const HOUSING_CELL_SIZE = 0.5;
+export const GENERATOR_MAX_LEVEL = 5;
+export const STORAGE_MAX_LEVEL = 5;
+export const WORKSHOP_MAX_LEVEL = 3;
+export const RANGE_MAX_LEVEL = 5;
+export const BENCH_MAX_LEVEL = 3;
+/** Stash rows by storage level (index = level, level 0 = STASH_ROWS). Columns stay STASH_COLS. */
+export const STASH_ROWS_BY_STORAGE_LEVEL: readonly number[] = [24, 30, 36, 42, 48, 60];
+/** Loadout presets by range level (index = level; 0 = no range room). */
+export const PRESETS_BY_RANGE_LEVEL: readonly number[] = [0, 3, 4, 5, 6, 8];
+/** Gun-skill XP multiplier bonus per range level (level 3 → ×1.3). */
+export const RANGE_SKILL_GAIN_PER_LEVEL = 0.1;
+/** Craft material discount per workshop level above 1 (level 3 → ×0.8). */
+export const WORKSHOP_COST_DISCOUNT_PER_LEVEL = 0.1;
+/** Facility upgrade costs (`[level-1]` = cost to reach `level`; level 1 of a room comes free with its purpose). */
+export const GENERATOR_UPGRADE_COST: readonly { defId: string; qty: number }[][] = [
+  [{ defId: 'mat_scrap', qty: 4 }],
+  [{ defId: 'mat_scrap', qty: 8 }, { defId: 'mat_cable', qty: 2 }],
+  [{ defId: 'mat_alloy', qty: 6 }, { defId: 'mat_cable', qty: 4 }, { defId: 'mat_power_cell', qty: 1 }],
+  [{ defId: 'mat_alloy', qty: 10 }, { defId: 'mat_circuit', qty: 3 }, { defId: 'mat_power_cell', qty: 2 }],
+  [{ defId: 'mat_alloy', qty: 14 }, { defId: 'mat_circuit', qty: 6 }, { defId: 'mat_power_cell', qty: 4 }],
+];
+export const STORAGE_UPGRADE_COST: readonly { defId: string; qty: number }[][] = [
+  [{ defId: 'mat_scrap', qty: 6 }],
+  [{ defId: 'mat_scrap', qty: 10 }, { defId: 'mat_alloy', qty: 2 }],
+  [{ defId: 'mat_alloy', qty: 6 }, { defId: 'mat_cable', qty: 2 }],
+  [{ defId: 'mat_alloy', qty: 10 }, { defId: 'mat_circuit', qty: 2 }],
+  [{ defId: 'mat_alloy', qty: 16 }, { defId: 'mat_circuit', qty: 4 }, { defId: 'mat_power_cell', qty: 2 }],
+];
+export const WORKSHOP_UPGRADE_COST: readonly { defId: string; qty: number }[][] = [
+  [{ defId: 'mat_scrap', qty: 10 }, { defId: 'mat_cable', qty: 2 }],
+  [{ defId: 'mat_alloy', qty: 8 }, { defId: 'mat_circuit', qty: 3 }],
+];
+export const RANGE_UPGRADE_COST: readonly { defId: string; qty: number }[][] = [
+  [{ defId: 'mat_scrap', qty: 8 }],
+  [{ defId: 'mat_scrap', qty: 12 }, { defId: 'mat_cable', qty: 2 }],
+  [{ defId: 'mat_alloy', qty: 6 }, { defId: 'mat_circuit', qty: 2 }],
+  [{ defId: 'mat_alloy', qty: 12 }, { defId: 'mat_circuit', qty: 4 }, { defId: 'mat_power_cell', qty: 2 }],
+];

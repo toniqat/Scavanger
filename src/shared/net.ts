@@ -194,7 +194,12 @@ export interface PlayerSnapshot {
 }
 
 /** Someone fired. Owner: weapons (sends) / net emits `net:remoteFired` on receive. */
-export interface FireMessage { t: 'fire'; w: string; o: Vec3Tuple; d: Vec3Tuple }
+/**
+ * Appended (unique weapons, 2026-09-06): `m` 1 = RMB alternative fire (0 / undefined = primary), `c` = charge 0..1
+ * (shockgun bolt) or spin state; continuous weapons (flame / arc) send `fire` at ≤ 10 Hz while the trigger is held and
+ * a final `{ m, c: -1 }` when it stops so remotes can end the loop FX.
+ */
+export interface FireMessage { t: 'fire'; w: string; o: Vec3Tuple; d: Vec3Tuple; m?: number; c?: number }
 export interface ReloadMessage { t: 'reload'; w: string }
 /** Grenade thrown (visual replication; explosion damage is resolved by the host via ExplodeRequest). `fuse` (appended) = seconds left when released. */
 export interface GrenadeMessage { t: 'grenade'; p: Vec3Tuple; v: Vec3Tuple; fuse?: number }
@@ -210,7 +215,14 @@ export type StratagemMessage =
   | { t: 'strat'; ev: 'call'; callId: string; kind: StratagemId; p: Vec3Tuple; eta: number; seed: number }
   | { t: 'strat'; ev: 'structHp'; callId: string; index: number; hp: number };
 /** Client → host: my local raycast hit enemy `id` for `dmg` (pre-multiplier) at point `p` travelling `d`. Owner: enemies (replica Enemy.takeDamage). */
-export interface HitRequest { t: 'hit'; id: number; dmg: number; p: Vec3Tuple; d: Vec3Tuple }
+/**
+ * Appended (2026-09-06): `st` = status the host should apply with the hit — bits of `ENEMY_STATUS_BITS`
+ * (incinerated / shocked / burning), `dur` = seconds. `dmg` may be 0 for a status-only request.
+ */
+export interface HitRequest { t: 'hit'; id: number; dmg: number; p: Vec3Tuple; d: Vec3Tuple; st?: number; dur?: number }
+
+/** Enemy status bits on the wire (`EnemyWire.sb`, `HitRequest.st`). */
+export const ENEMY_STATUS_BITS = { BURNING: 1 << 0, SLOWED: 1 << 1, INCINERATED: 1 << 2, SHOCKED: 1 << 3 } as const;
 /** Client → host: explosion at `p` radius `r` damage `dmg` (grenade). Owner: enemies (replica applyExplosion). */
 export interface ExplodeRequest { t: 'explode'; p: Vec3Tuple; r: number; dmg: number }
 /** Host → shooter: confirmation of a HitRequest (hitmarker / kill credit). */
@@ -237,6 +249,8 @@ export interface EnemyWire {
   a?: number;
   /** Phase 4: rogue's weapon def id (model + corpse loot). */
   w?: string;
+  /** Appended (2026-09-06): status bits (`ENEMY_STATUS_BITS`) so replicas show burning / 전소 / shocked visuals. */
+  sb?: number;
 }
 
 /** Host → all, NET_ENEMY_SNAPSHOT_HZ. `full` = complete list (ids missing from it were despawned). Owner: enemies. */

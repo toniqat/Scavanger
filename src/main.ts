@@ -16,6 +16,8 @@ import { ExtractionSystem } from '@/extraction/ExtractionSystem';
 import { HudSystem } from '@/ui/HudSystem';
 import { AudioSystem } from '@/audio/AudioSystem';
 import { GameFlowSystem } from '@/game/GameFlowSystem';
+import { HousingSystem } from '@/housing/HousingSystem';
+import { ConsoleSystem } from '@/console/ConsoleSystem';
 import { loadKeybinds } from '@/shared';
 
 const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
@@ -31,6 +33,9 @@ const engine = new Engine(canvas, uiRoot);
 engine.addSystem(new NetSystem());
 // Progression publishes ctx.progression.derived, which almost every other system reads.
 engine.addSystem(new ProgressionSystem());
+// Ship housing state (rooms / facilities / furniture / presets) — before the hub builds the personal ship from it,
+// and before inventory reads the stash size.
+engine.addSystem(new HousingSystem());
 engine.addSystem(new WorldSystem());
 engine.addSystem(new HubSystem());        // ship interiors; builds before the player reads ctx.hub
 engine.addSystem(new PlayerSystem());
@@ -47,6 +52,8 @@ engine.addSystem(new ExtractionSystem());
 engine.addSystem(new HudSystem());
 engine.addSystem(new AudioSystem());
 engine.addSystem(new GameFlowSystem());
+// Developer console last: it reads every other ref and must see the frame's final state (dev clients only).
+engine.addSystem(new ConsoleSystem());
 
 engine.start();
 

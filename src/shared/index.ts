@@ -12,3 +12,6 @@ export { GameContext } from './GameContext';
 export { Random } from './Random';
 /* appended: key rebinding (2026-09-06) */
 export * from './Keybinds';
+/* appended (2026-09-06): dev console + ship housing contracts */
+export * from './console';
+export * from './housing';

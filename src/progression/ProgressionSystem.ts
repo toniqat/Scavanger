@@ -271,6 +271,13 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
    */
   save(): void { this.dirty = true; this.flush(); }
 
+  /* TODO(agent progression): stat XP + raw skill XP contract stubs (2026-09-06) — replace with real implementations. */
+  getStatProgress(id: StatId): number { return this._profile.statProgress?.[id] ?? 0; }
+  statXpToNext(_id: StatId): number { return 0; }
+  addStatXp(_id: StatId, _amount: number): void { /* TODO(agent progression) */ }
+  addSkillXpRaw(_id: SkillId, _amount: number): void { /* TODO(agent progression) */ }
+  getSkillGainMul(_id: SkillId): number { return 1; }
+
   resetProfile(): void {
     const name = this._profile.name;
     clearStoredProfile();
