@@ -6,6 +6,7 @@ import type {
   Interactable, InteractableRegistry, MissionStats, HubRef, PickupsRef, WeaponsRef, StratagemsRef,
 } from './types';
 import type { NetRef } from './net';
+import type { MissionMode } from './types';
 import type { ImplantsRef } from './implants';
 import type { GadgetsRef } from './gadgets';
 import type { ProgressionRef } from './progression';
@@ -86,6 +87,14 @@ export class GameContext {
   /* ── appended: Phase 5 (2026-09-06) ── */
   /** Corporations / credits / contracts / quests. Published by meta/MetaSystem. */
   meta: MetaRef | null = null;
+  /* ── appended: Phase 7 (2026-09-06) ── */
+  /** Mode of the running / last mission (`game/` sets it from `game:newMission.mode` before the world generates). */
+  missionMode: MissionMode = 'raid';
+  /**
+   * true between a rejoin's `game:newMission` and the `ghost restore` (or its timeout): the player must not hellpod-drop on
+   * `world:ready`; game/ clears it after `restoreState` / the fallback respawn.
+   */
+  rejoinPending = false;
 
   /** True when this client simulates authoritative gameplay (enemies, extraction): single-player or lobby host. */
   get isAuthority(): boolean { return this.net?.isAuthority ?? true; }
@@ -141,6 +150,11 @@ export class GameContext {
    */
   isRaidActive(): boolean {
     return this.isGameplayPhase() || this.phase === 'deploying';
+  }
+  /* ── appended: Phase 7 ── */
+  /** true while a 시뮬레이션 훈련장 (not a raid) is the active mission. */
+  isTraining(): boolean {
+    return this.missionMode === 'training' && (this.isGameplayPhase() || this.phase === 'deploying');
   }
   setPhase(phase: GamePhase): void {
     if (phase === this.phase) return;

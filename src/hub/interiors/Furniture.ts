@@ -189,6 +189,8 @@ const BUILDERS: Record<FurnitureModelKind, Builder> = {
     b.box(w - 0.12, h - seatY, 0.04, 0, seatY + (h - seatY) / 2, d / 2 - 0.07, M.padding, 0, -0.1);
     b.box(w - 0.16, 0.03, 0.03, 0, h - 0.02, d / 2 - 0.09, M.trim);
   },
+  /* Phase 7 skeleton (hub/ agent builds the real holo pedestal): plain pedestal so the catalogue stays complete. */
+  sim_hub: (b, w, d, h) => { b.box(w * 0.8, h * 0.5, d * 0.8, 0, h * 0.25, 0, M.hullDark); b.box(w * 0.5, h * 0.5, d * 0.5, 0, h * 0.75, 0, M.stripWhite); },
   bunk: (b, w, d, h) => {
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.boxB(0.07, h, 0.07, sx * (w / 2 - 0.05), 0, sz * (d / 2 - 0.05), M.hullLight);
     for (const y of [0.45, h - 0.4]) {

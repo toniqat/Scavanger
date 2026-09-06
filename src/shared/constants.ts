@@ -281,7 +281,7 @@ export const TOXIC_RADIUS = 5;
 export const TOXIC_DAMAGE = 70;
 export const TOXIC_TRIGGER_DIST = 2.2;
 /** Behemoth: scale vs a warrior, charge speed (m/s), charge damage, knockback speed (m/s), wind-up (s). */
-export const BEHEMOTH_SCALE = 4;
+export const BEHEMOTH_SCALE = 3;   // Phase 7: 4 → 3 (the 6.4 m body stumbled on most obstacles while charging)
 export const BEHEMOTH_CHARGE_SPEED = 16;
 export const BEHEMOTH_CHARGE_DAMAGE = 60;
 export const BEHEMOTH_KNOCKBACK = 12;
@@ -602,3 +602,46 @@ export const RANGE_UPGRADE_COST: readonly { defId: string; qty: number }[][] = [
 export const META_STORAGE_KEY = 'scav.meta';
 /** localStorage key of the persisted bag + loadout + quick slots (`inventory/Loadout.ts`). */
 export const LOADOUT_STORAGE_KEY = 'scav.loadout';
+
+/* ══ appended: Phase 7 — known follow-ups (2026-09-06) ═══════════════════════════════════════════════════ */
+/* squad wipe */
+/** Result screen after a raid failure returns everyone to the ship by itself after this many seconds. */
+export const RAID_FAILED_AUTO_RETURN_S = 12;
+
+/* container search (감정) — owner: inventory */
+/** Seconds to reveal one item by rarity, before bulk (`1 + (w·h − 1) × 0.05`) and `derived.searchSpeedMul` (÷). */
+export const SEARCH_TIME_BY_RARITY: Readonly<Record<'common' | 'uncommon' | 'rare' | 'epic' | 'legendary', number>> = {
+  common: 0.35, uncommon: 0.7, rare: 1.3, epic: 2.0, legendary: 3.0,
+};
+/** Searching only runs while the container window is open and the player is within this many metres of it. */
+export const SEARCH_MAX_DISTANCE = 4;
+
+/* training range (시뮬레이션 훈련장) — owner: world */
+/** Arena side (m), flat, walled; the player spawns at the south end facing the lanes. */
+export const TRAINING_ARENA_SIZE = 64;
+/** Pop-up targets: count, hp, seconds to pop back up after a knock-down. */
+export const TRAINING_TARGET_COUNT = 12;
+export const TRAINING_TARGET_HP = 60;
+export const TRAINING_TARGET_RESPAWN_S = 3;
+/** Skill XP in a training: only `gun_*` skills rise, scaled by this on top of the 사격장 bonus. */
+export const TRAINING_SKILL_GAIN_MUL = 1;
+
+/* rogue AI v2 — owner: enemies */
+/** Rounds per magazine (3 bursts of ROGUE_BURST) and the reload pause (no shots, anim hint 12). */
+export const ROGUE_MAG_ROUNDS = 12;
+export const ROGUE_RELOAD_TIME = 2.0;
+/** Cover must actually block the line of sight; candidates are scored by `distance + ROGUE_COVER_FLANK_WEIGHT × (1 − |sin(angle to the target's facing)|)`. */
+export const ROGUE_COVER_FLANK_WEIGHT = 10;
+/** Grenade toss when the target has been behind cover (no LOS) for this long; cooldown per rogue; fuse / damage / radius. */
+export const ROGUE_GRENADE_HOLD_S = 3;
+export const ROGUE_GRENADE_COOLDOWN = 12;
+export const ROGUE_GRENADE_FUSE = 2.5;
+export const ROGUE_GRENADE_DAMAGE = 45;
+export const ROGUE_GRENADE_RADIUS = 4.5;
+export const ROGUE_GRENADE_RANGE = 28;
+/** Seconds the throw pose plays before release (anim hint 13). */
+export const ROGUE_GRENADE_WINDUP = 0.6;
+
+/* ghosts — owner: player (host) */
+/** Bleed rate of a downed ghost (same as a live player: PLAYER_DOWN_BLEED_PER_SEC), kept here for the host loop. */
+export const GHOST_BLEED_PER_SEC = 1;

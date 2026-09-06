@@ -43,6 +43,9 @@ export class RemotePlayer implements RemotePlayerRef {
   lastUpdate = 0;
   connected = true;
   stale = false;
+  /* Phase 7 skeleton (net/ agent implements) */
+  suspended = false;
+  inMission = true;
   avatar: RemoteAvatarRef | null = null;
   /** ctx.time at which NetSystem removes this ref (set when the peer leaves). */
   removeAt = Infinity;

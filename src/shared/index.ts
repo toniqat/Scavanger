@@ -17,3 +17,6 @@ export * from './console';
 export * from './housing';
 /* appended (2026-09-06): Phase 5 meta progression contract */
 export * from './meta';
+/* appended (2026-09-06): Phase 7 — server profile / raid session, item labels */
+export * from './profile';
+export * from './labels';

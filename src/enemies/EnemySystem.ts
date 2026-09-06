@@ -553,6 +553,9 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
    * Radial damage credited to `by` (turret, mine, rocket). Same falloff as `applyExplosion`.
    * On a replica this plays the local FX and forwards an `ExplodeRequest` (the host credits the requester).
    */
+  /* Phase 7 skeleton (enemies/ agent implements live promotion / demotion; docs/PHASE7-PLAN.md §6) */
+  setAuthority(_authority: boolean): void {}
+
   applyAreaDamage(center: THREE.Vector3, radius: number, damage: number, by?: string): number {
     if (this.replica) return this.applyExplosion(center, radius, damage);
     return this.explode(center, radius, damage, (by as TargetId | undefined) ?? 'local', null, null);

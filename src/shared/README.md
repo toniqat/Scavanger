@@ -174,3 +174,30 @@ Brief for the implementing agents: `docs/PHASE5-PLAN.md` §8.
   (gather nodes, the garden and gadget recovery no longer scale it themselves). 지능 stays `skillGainMul` only (skill books deferred).
 - Ownership: `meta/` rules + storage + corp screen DOM · `inventory/` loadout persistence + stash access + 기업 tab · `hub/` ship computer (`hub_computer`) ·
   `ui/` result-screen XP / contract lines, HUD contract panel, title level chip, meta toasts · `game/` (lead) settlement hook.
+
+## Appended contract (2026-09-06, Phase 7: known follow-ups — server profile · raid session · ghosts · host migration · training · container authority · search)
+Brief for the implementing agents: `docs/PHASE7-PLAN.md`.
+- `profile.ts` (new): `ProfileDocKey` / `PROFILE_DOC_KEYS`, `ProfileRecord {credits|null, docs, updatedAt}`, `RaidSessionBlob {seed, missionTime, stats, inventory, savedAt}`,
+  `CreditsTxResult`, **`ProfileRef`** (`ctx.net.profile`: `available`, `credits`, `get / set / flush`, `addCredits(delta, reason)` → server transaction), `PROFILE_SYNC_DEBOUNCE_MS`,
+  `PROFILE_DOC_MAX_BYTES`, `RAID_SAVE_INTERVAL_S`, `RAID_BLOB_MAX_BYTES`. The relay server stores these per session token (`server/Store.ts`).
+- `labels.ts` (new): `RARITY_ORDER / rarityRank / rarityForGrade / gradeForRarity / RARITY_COLORS / RARITY_LABEL_KO / CATEGORY_LABEL_KO / CATEGORY_COLOR / CATEGORY_ICON`
+  moved out of `items/ItemDefs.ts` (which re-exports them) so meta/ and ui/ label items without importing items/.
+- `net.ts`: `LobbyPlayer.inMission?`, `LobbyState.mode?`, `LobbyErrorCode` += `too_large | in_mission`; client → server `lobby:start {seed, mode?}` (training: any member),
+  `lobby:mission {inMission}`, `profile:get`, `profile:set {key, doc}`, `credits:tx {txId, delta, reason}`, `raid:save {blob}`; server → client `welcome.profile? / raid?`, `game:start.mode?`,
+  `profile:docs`, `credits:result`; `NET_HOST_MIGRATE_DELAY_MS` (host migrates mid-mission), `NET_GHOST_STATE_HZ`, `NET_GHOST_RESTORE_TIMEOUT_S`, `SUSPENDED_LABEL_KO`;
+  `PlayerFlags` += `THROWING / COOKING / CHARGING / SPRAYING / HEAVY / MELEE_HEAVY`; `PlayerSnapshot.h? / att?`; `DamageMessage.kb?`; `EnemyWire.a` 12 / 13; `ee grenade / grenadeHit`;
+  `flow takeover`; `GhostMessage` (`state / sync / restore / gone`) + `GhostRequest` (`sync / revive`); `ContainerMessage` (`taken / denied / sync`) + `ContainerRequest` (`take / sync`);
+  `imp beam`; `RemotePlayerRef.suspended / inMission`; `NetRef.profile / raidBlob / saveRaid / missionMode / startGame(seed, mode?) / leaveMission / tookOver`.
+- `types.ts`: `MissionMode`, `MissionStats.mode?`, `PlayerRestoreState`, `PlayerRef.restoreState / isMeleeHeavy`, `WeaponRemoteState` + `WeaponsRef.remoteState`,
+  `InventoryRef.canFit / captureRaidState / applyRaidState`, `WorldRef.mode`, `EnemyManagerRef.setAuthority`, `ItemInstance.searched?`.
+- `events.ts`: `game:newMission.mode?` (widened in place), `net:gameStarting.rejoin? / mode?` (widened in place), `training:exitRequested`, `game:raidFailed`,
+  `net:profileLoaded / raidLoaded / hostChanged / peerSuspended / ghostState / ghostRestore / missionMembership`, `container:searchProgress / itemRevealed / searchDone`,
+  `ghost:damage`, `net:remoteHeldItem`.
+- `meta.ts`: `ContractSettlement.outcome?`. `housing.ts`: `FurnitureModelKind / FurnitureInteraction` += `sim_hub`, `FURNITURE_DEFS` += `furn_sim_hub` (사격장).
+- `constants.ts`: `BEHEMOTH_SCALE` 4 → 3, `RAID_FAILED_AUTO_RETURN_S`, `SEARCH_TIME_BY_RARITY`, `SEARCH_MAX_DISTANCE`, `TRAINING_*`, `ROGUE_MAG_ROUNDS / ROGUE_RELOAD_TIME /
+  ROGUE_COVER_FLANK_WEIGHT / ROGUE_GRENADE_*`, `GHOST_BLEED_PER_SEC`.
+- `GameContext.ts`: `ctx.missionMode` (set by whoever emits `game:newMission`, before emitting), `ctx.rejoinPending`, `isTraining()`.
+- Ownership: `server/` + `net/` store · sessions · migration · membership · snapshot fields · ghost / container relay ·· `game/` + `extraction/` wipe · raid save / rejoin · training flow ··
+  `player/` restore · host ghosts · remote poses / held item / armor · knockback fix ·· `weapons/` + `implants/` remote state · attachments · remote grenade damage · beam ··
+  `enemies/` rogue v2 · behemoth kb · ghost targets · live authority ·· `inventory/` search · container authority · canFit · raid state · profile docs ··
+  `meta/` + `progression/` + `housing/` labels · server credits · outcome · profile docs ·· `world/` + `hub/` training arena · sim hub · terminal entry ·· `ui/` result / failure / suspended / badges ·· `audio/` (lead).

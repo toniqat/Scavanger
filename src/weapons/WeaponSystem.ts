@@ -185,7 +185,11 @@ export class WeaponSystem implements GameSystem {
     this.fx = new WeaponFx(ctx.scene);
     this.grenades = new GrenadeManager(ctx, this.fx);
     // Phase 3: live grenade positions for the HUD's off-screen indicators
-    ctx.weapons = { getGrenades: () => this.grenades.getViews() };
+    ctx.weapons = {
+      getGrenades: () => this.grenades.getViews(),
+      /* Phase 7 skeleton (weapons/ agent implements; docs/PHASE7-PLAN.md §5) */
+      remoteState: { heldItemId: null, throwing: false, cooking: false, charging: false, spraying: false, heavy: false, attachments: [] },
+    };
     this.projectiles = new ProjectilePool(ctx,
       (h, dmg, weaponId) => this.onProjectileHit(h, dmg, weaponId),
       (h, weaponId) => this.remote.onVisualProjectileHit(h, weaponId));

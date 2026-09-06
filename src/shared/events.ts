@@ -16,7 +16,8 @@ export interface GameEvents {
   /* ── game flow (owner: game/GameFlowSystem) ─────────────────────────── */
   'game:phaseChanged': { phase: GamePhase; prev: GamePhase };
   /** Command: start a fresh mission. World must generate synchronously and then emit world:ready. */
-  'game:newMission': { seed: number };
+  /** `mode` (appended, Phase 7): `'training'` = 시뮬레이션 훈련장 instead of the planet (default `'raid'`). */
+  'game:newMission': { seed: number; mode?: import('./types').MissionMode };
   /** Command: return to menu; all systems reset visuals/state. */
   'game:abort': Record<string, never>;
   'game:complete': { stats: MissionStats };
@@ -124,7 +125,8 @@ export interface GameEvents {
   'net:peerJoined': { id: PeerId; name: string; slot: number };
   'net:peerLeft': { id: PeerId; name: string };
   /** Server accepted the host's start. Net emits `game:newMission {seed}` right after this. */
-  'net:gameStarting': { seed: number; lobby: LobbyState };
+  /** `rejoin` / `mode` (appended, Phase 7): `rejoin` true when re-entering a running mission (player waits for `restoreState`). */
+  'net:gameStarting': { seed: number; lobby: LobbyState; rejoin?: boolean; mode?: import('./types').MissionMode };
   /** A RemotePlayerRef was created (first snapshot arrived) / removed (peer left). */
   'net:remotePlayerAdded': { id: PeerId };
   'net:remotePlayerRemoved': { id: PeerId };
@@ -460,4 +462,51 @@ export interface GameEvents {
   'inventory:containerOpened': { containerId: string; first: boolean };
   /** The bag + loadout + quick slots were written to localStorage (`LOADOUT_STORAGE_KEY`). */
   'inventory:loadoutSaved': { reason: string };
+}
+
+/* ══ appended: Phase 7 — known follow-ups (2026-09-06) ═══════════════════════════════════════════════════ */
+import type { GhostState, PeerId as NetPeerId } from './net';
+import type { PlayerRestoreState, Rarity } from './types';
+import type { ProfileRecord, RaidSessionBlob } from './profile';
+export interface GameEvents {
+  /* ── game flow (owner: game) ── */
+  /** Command from the training arena's exit console (owner: world emits, game handles → abort + back to the ship). */
+  'training:exitRequested': Record<string, never>;
+  /** A squad wipe / solo death ended the raid (host decided; every client mirrors). Emitted right before `game:over`. */
+  'game:raidFailed': { stats: MissionStats };
+
+  /* ── net (owner: net/NetSystem) ── */
+  /** The server profile record arrived (welcome / `profile:docs`). `migrated` = credits were null and the local balance was uploaded. */
+  'net:profileLoaded': { profile: ProfileRecord; migrated: boolean };
+  /** A raid blob arrived with `welcome` (resume into a running raid). game/ applies it after the rejoin's `world:ready`. */
+  'net:raidLoaded': { blob: RaidSessionBlob };
+  /** `lobby.hostId` changed while a session is running. `isLocalHost` = we are the new host (authority systems promote). */
+  'net:hostChanged': { hostId: NetPeerId; prev: NetPeerId | null; isLocalHost: boolean };
+  /** A member's socket dropped (`suspended: true`) or came back during a session. */
+  'net:peerSuspended': { id: NetPeerId; name: string; suspended: boolean };
+  /** Host-simulated body of a suspended member changed (hp / downed / dead). */
+  'net:ghostState': { id: NetPeerId; hp: number; downHp: number; state: GhostState };
+  /** The host handed our body back (rejoin). game/ → `ctx.player.restoreState`. */
+  'net:ghostRestore': { state: PlayerRestoreState };
+  /** A member entered / left the running mission (`LobbyPlayer.inMission`). Squad panel badges. */
+  'net:missionMembership': { id: NetPeerId; inMission: boolean };
+
+  /* ── container search (owner: inventory) ── */
+  /** Search progress of the item being revealed in an open container (0..1, ≤ 20 Hz). */
+  'container:searchProgress': { containerId: string; uid: string; progress: number };
+  /** An item finished searching (progression pays 감정 XP by rarity here instead of on `inventory:itemAdded`). */
+  'container:itemRevealed': { containerId: string; uid: string; defId: string; rarity: Rarity };
+  /** Every item in the container is searched. */
+  'container:searchDone': { containerId: string };
+
+  /* ── ghosts (host only) ── */
+  /**
+   * An enemy hit a SUSPENDED member's body (owner: enemies emits instead of sending `dmg` to a socket that is down;
+   * player/RemotePlayerSystem on the host applies it to the ghost and broadcasts `ghost state`).
+   */
+  'ghost:damage': { id: NetPeerId; amount: number; from?: THREE.Vector3; kb?: { direction: THREE.Vector3; speed: number } };
+
+  /* ── remote pose (owner: player) ── */
+  /** A remote player's held consumable changed (for FX / audio). */
+  'net:remoteHeldItem': { id: NetPeerId; defId: string | null };
 }

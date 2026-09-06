@@ -966,3 +966,98 @@ export interface InventoryRef {
    */
   takeItem(uid: string, qty?: number): number;
 }
+
+/* ══ appended: Phase 7 — known follow-ups (2026-09-06) ═══════════════════════════════════════════════════════ */
+/**
+ * Kind of mission a world is generated for. `'raid'` = the normal planet drop; `'training'` = the 시뮬레이션 훈련장:
+ * a small enclosed arena with pop-up targets, no enemies / crates / extraction, entered from the 사격장 sim hub
+ * (personal ship) or the shared-ship terminal, left through the arena's exit console (`training:exitRequested`).
+ * Ammo / durability spent in a training are restored on exit (game/ captures + re-applies `captureRaidState`).
+ */
+export type MissionMode = 'raid' | 'training';
+export interface MissionStats {
+  /* appended (Phase 7): mode of the mission the stats belong to (`'raid'` when absent). */
+  mode?: MissionMode;
+}
+
+/** Body state handed back to a returning member (`ghost restore`) — owner: player. */
+export interface PlayerRestoreState {
+  position: THREE.Vector3;
+  yaw: number;
+  hp: number;
+  downHp: number;
+  /** 0 alive · 1 downed · 2 dead (`GhostState`). */
+  state: 0 | 1 | 2;
+}
+
+export interface PlayerRef {
+  /* ── appended: Phase 7 (owner: player) ── */
+  /**
+   * Resume the body exactly as the host's ghost left it: standing at `position` (no hellpod), `hp`, downed with
+   * `downHp` when `state` 1, dead (spectate / respawn flow) when `state` 2. Emits `player:spawned` for 0 / 1.
+   * Called by game/ on a rejoin after `world:ready`; the player must NOT auto-drop on `world:ready` while
+   * `ctx.rejoinPending` is true (game/ sets it before the rejoin's `game:newMission`).
+   */
+  restoreState(state: PlayerRestoreState): void;
+  /** true while the 용검 heavy slash pose is playing (`startMelee('heavy')`); MELEE_HEAVY on the wire. */
+  readonly isMeleeHeavy: boolean;
+}
+
+/**
+ * Per-frame pose / item state weapons/ exposes for the snapshot builder (net/ reads it every snapshot, never mutates).
+ * One stable object, updated in place — no per-frame allocation.
+ */
+export interface WeaponRemoteState {
+  /** Def id of the consumable / gadget in hand (HOLDING_ITEM), or null. */
+  heldItemId: string | null;
+  throwing: boolean;
+  cooking: boolean;
+  charging: boolean;
+  spraying: boolean;
+  heavy: boolean;
+  /** Attachment def ids socketed on the active weapon (empty when none). Same array instance while unchanged. */
+  attachments: readonly string[];
+}
+export interface WeaponsRef {
+  /* ── appended: Phase 7 (owner: weapons) ── */
+  readonly remoteState: WeaponRemoteState;
+}
+
+export interface InventoryRef {
+  /* ── appended: Phase 7 (owner: inventory) ── */
+  /**
+   * Would `qty` units of `defId` fit right now without changing anything? Bag first, then (hub phase only) the stash —
+   * returns where it would land. The corp shop greys a line out with `공간 없음` from this before the click.
+   */
+  canFit(defId: string, qty?: number): 'bag' | 'stash' | null;
+  /**
+   * Full serialization of the mission-side inventory (bag + 5 slots + quick slots, every instance field incl.
+   * durability / rounds / sockets / `searched`) for the raid session blob and the training freeze. Opaque to callers.
+   */
+  captureRaidState(): unknown;
+  /** Replace the bag + slots + quick slots with a `captureRaidState()` result. False (nothing changed) when invalid. */
+  applyRaidState(state: unknown): boolean;
+}
+
+export interface WorldRef {
+  /* ── appended: Phase 7 (owner: world) ── */
+  /** Mode the current world was generated for (`'raid'` for the planet). */
+  readonly mode: MissionMode;
+}
+
+export interface EnemyManagerRef {
+  /* ── appended: Phase 7 (owner: enemies) ── */
+  /**
+   * Live authority switch (mid-mission host migration). `true` = promote: every replica becomes a simulated enemy
+   * seeded from its wire state (type / position / hp / state), the spawner + wave director resume from
+   * `ctx.missionTime` and the extraction stage, corpses are adopted. `false` = demote: simulated enemies become replicas
+   * (the next full `es` from the new host overwrites them). Called by enemies/ itself on `net:hostChanged`; exposed for
+   * the console / tests.
+   */
+  setAuthority(authority: boolean): void;
+}
+
+export interface ItemInstance {
+  /* appended (Phase 7, owner: inventory): Tarkov-style container search — true once revealed (default for anything not from a container). */
+  searched?: boolean;
+}

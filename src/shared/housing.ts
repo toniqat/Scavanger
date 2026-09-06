@@ -68,13 +68,15 @@ export const WORKBENCH_LABEL_KO: Readonly<Record<WorkbenchKind, string>> = {
 export type FurnitureModelKind =
   | 'bench_gun' | 'bench_gear' | 'bench_gadget' | 'bench_medical'
   | 'range_console' | 'target_lane'
+  | 'sim_hub'   // appended (Phase 7): 시뮬레이션 허브 — holo pedestal in the 사격장
   | 'locker' | 'table' | 'shelf' | 'crate' | 'lamp' | 'plant' | 'chair' | 'bunk';
 
 /** What E does on a placed piece. */
 export type FurnitureInteraction =
   | 'none'
   | 'workbench_gun' | 'workbench_gear' | 'workbench_gadget' | 'workbench_medical'  // → ctx.inventory.openBenchCraft(kind)
-  | 'range_console';                                                              // → ctx.housing.openPresetMenu()
+  | 'range_console'                                                               // → ctx.housing.openPresetMenu()
+  | 'sim_hub';                                                                    // appended (Phase 7) → hub starts / joins the 시뮬레이션 훈련장
 
 export interface FurnitureDef {
   id: string;
@@ -262,6 +264,9 @@ export const FURNITURE_DEFS: readonly FurnitureDef[] = [
     model: 'range_console', interaction: 'range_console', craft: [c('mat_scrap', 6), c('mat_cable', 2), c('mat_circuit', 1)], maxLevel: 1, upgradeCost: [], color: '#7fd2ff' },
   { id: 'furn_target_lane', name: '표적 레인', description: '시뮬레이터 표적 레인 (장식).', room: 'range', cols: 2, rows: 6, height: 1.8,
     model: 'target_lane', interaction: 'none', craft: [c('mat_scrap', 6), c('mat_alloy', 1)], maxLevel: 1, upgradeCost: [], color: '#c8ccd2' },
+  /* appended (Phase 7): 시뮬레이션 훈련장 entry */
+  { id: 'furn_sim_hub', name: '시뮬레이션 허브', description: '시뮬레이션 훈련장에 입장합니다. 탄약과 내구도는 소모되지 않습니다.', room: 'range', cols: 2, rows: 2, height: 1.5,
+    model: 'sim_hub', interaction: 'sim_hub', craft: [c('mat_scrap', 8), c('mat_cable', 2), c('mat_circuit', 2)], maxLevel: 1, upgradeCost: [], color: '#9fe8ff' },
   /* 공용 장식 */
   { id: 'furn_locker', name: '사물함', description: '강철 사물함.', room: 'any', cols: 1, rows: 2, height: 2.0,
     model: 'locker', interaction: 'none', craft: [c('mat_scrap', 4)], maxLevel: 1, upgradeCost: [], color: '#b0b8c4' },

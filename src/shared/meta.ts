@@ -257,6 +257,14 @@ export interface ContractSettlement {
   rep: number;
   xp: number;
   credits: number;
+  /* appended (Phase 7) */
+  /**
+   * `'success'` = extracted with the goal met (rewards paid) · `'incomplete'` = extracted short of the goal (progress
+   * kept) · `'failed'` = the raid failed (death / squad wipe: no rep even when the goal was met, progress rolled back
+   * to the mission start). Optional so older producers keep compiling; ui derives 미완 / 실패 from it, never from
+   * `ctx.stats.extracted`.
+   */
+  outcome?: 'success' | 'incomplete' | 'failed';
 }
 
 /** localStorage `META_STORAGE_KEY`. Bump `v` when the shape changes. */

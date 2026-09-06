@@ -10,6 +10,9 @@ import { NET_LOBBY_ALPHABET, NET_LOBBY_CODE_LENGTH, NET_MAX_PLAYERS } from '../s
 
 export const LOBBY_ERROR_MESSAGE_KO: Record<LobbyErrorCode, string> = {
   not_found: '해당 코드의 로비를 찾을 수 없습니다.',
+  /* Phase 7 */
+  in_mission: '진행 중인 임무가 없거나 다른 종류의 임무가 진행 중입니다.',
+  too_large: '저장 데이터가 너무 큽니다.',
   full: '로비가 가득 찼습니다.',
   started: '이미 임무가 시작된 로비입니다.',
   not_host: '호스트만 할 수 있는 작업입니다.',

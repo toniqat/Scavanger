@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { PlayerRestoreState } from '@/shared';
 import {
   GameContext, Keys, MouseButtons, PLAYER_MAX_HP, PLAYER_MAX_STAMINA, PLAYER_RADIUS, PLAYER_WALK_SPEED,
   PLAYER_DOWN_HP, PLAYER_DOWN_BLEED_PER_SEC, PLAYER_DOWN_SPEED_MUL, PLAYER_REVIVE_HP, PLAYER_GIVE_UP_HOLD,
@@ -226,6 +227,9 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   /** Alt rolls (replaces the dive); the wire keeps the DIVE flag via `isDiving`. */
   get isRolling(): boolean { return this.controller.rolling; }
   get isMeleeing(): boolean { return this.meleeTimer > 0; }
+  /* ── Phase 7 skeleton (player/ agent implements; docs/PHASE7-PLAN.md §4) ── */
+  get isMeleeHeavy(): boolean { return false; }
+  restoreState(state: PlayerRestoreState): void { this.teleport(state.position, state.yaw); }
   get isCloaked(): boolean { return this._cloaked; }
   get isHovering(): boolean { return this._hovering; }
   get isOvercharged(): boolean { return this._overcharged; }

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { MissionMode } from '@/shared';
 import {
   MAP_SIZE, Random,
   type CrateDef, type ExtractionPointDef, type GameContext, type GameSystem, type GatherNodeDef,
@@ -27,6 +28,8 @@ const SOFT_WALL = HALF - 4;
 export class WorldSystem implements GameSystem, WorldRef {
   readonly name = 'world';
   readonly size = MAP_SIZE;
+  /* Phase 7 skeleton (world/ agent implements the training arena; docs/PHASE7-PLAN.md §9) */
+  mode: MissionMode = 'raid';
   seed = 0;
   ready = false;
 

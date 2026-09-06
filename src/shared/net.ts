@@ -2,6 +2,9 @@ import type * as THREE from 'three';
 import type { ChatKind, EnemyType, GamePhase, PingKind, Stance, ItemInstanceExtras, StratagemId } from './types';
 import type { DeployableKind, GadgetId } from './gadgets';
 import type { ImplantId } from './implants';
+/* appended (Phase 7, 2026-09-06): server profile / raid session */
+import type { ProfileDocKey, ProfileRecord, ProfileRef, RaidSessionBlob } from './profile';
+import type { MissionMode } from './types';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Multiplayer contract (owner: net/NetSystem publishes `ctx.net`).
@@ -45,6 +48,18 @@ export const NET_RECONNECT_GRACE_MS = 5 * 60 * 1000;
 export const NET_RECONNECT_BACKOFF_MS: readonly number[] = [800, 1500, 3000, 5000, 10000, 20000];
 /** Client: after the socket dropped mid-mission, give up waiting for a resume and abort to the hub after this long. */
 export const NET_MISSION_RESUME_TIMEOUT_MS = 60 * 1000;
+/* appended (Phase 7): mid-mission host migration + ghosts */
+/**
+ * Server: when the HOST's socket drops during a started mission the host role moves to the lowest-slot connected
+ * member after this delay (a brief blip keeps the host). Before Phase 7 the host id was kept for the whole grace.
+ */
+export const NET_HOST_MIGRATE_DELAY_MS = 4000;
+/** Host → all `ghost state` refresh rate while a suspended player's body is being simulated. */
+export const NET_GHOST_STATE_HZ = 2;
+/** Client (rejoining): fall back to a normal respawn when no `ghost restore` arrived within this many seconds. */
+export const NET_GHOST_RESTORE_TIMEOUT_S = 3;
+/** Nameplate / squad tag for a member whose socket is down but whose slot (and body) is kept. */
+export const SUSPENDED_LABEL_KO = '연결 끊김';
 
 /** Per-slot accent colours (hex) shared by remote avatars, nameplates, map icons and the lobby list. */
 export const NET_SLOT_COLORS: readonly number[] = [0xffc23a, 0x5fd7ff, 0xff8a4a, 0x7cf07a];
@@ -64,6 +79,13 @@ export interface LobbyPlayer {
   /* appended (reconnection) */
   /** false while the member's socket is down but their slot is still reserved (NET_RECONNECT_GRACE_MS). */
   connected: boolean;
+  /* appended (Phase 7) */
+  /**
+   * true while the member is inside the running mission (raid: set for every connected member at start and on rejoin;
+   * training: only members who entered). Cleared by `lobby:reset` / `lobby:mission {inMission:false}`. Optional so
+   * older servers keep parsing; treat undefined as `started && connected`.
+   */
+  inMission?: boolean;
 }
 
 export interface LobbyState {
@@ -76,6 +98,9 @@ export interface LobbyState {
   /* appended (quick match) */
   /** Public ships are joinable through `lobby:quickmatch`; code-created ships are private (code / invite only). */
   isPublic: boolean;
+  /* appended (Phase 7) */
+  /** Kind of the running mission while `started` (`'raid'` when absent). A training keeps the lobby open to joins. */
+  mode?: MissionMode;
 }
 
 export type LobbyErrorCode =
@@ -83,7 +108,10 @@ export type LobbyErrorCode =
   | 'in_lobby' | 'not_in_lobby' | 'server'
   /* appended */
   | 'not_started'   // lobby:launch (rejoin) while no mission is running
-  | 'duplicate';    // same session token connected from another tab → the older socket is closed with this code
+  | 'duplicate'     // same session token connected from another tab → the older socket is closed with this code
+  /* appended (Phase 7) */
+  | 'too_large'     // profile:set / raid:save document over the byte cap
+  | 'in_mission';   // lobby:mission {inMission:true} while another mission kind is running
 
 /* ── Wire protocol: client ↔ server (JSON) ─────────────────────────────────── */
 export type RelayTarget = PeerId | 'host' | 'all' | 'others';
@@ -93,8 +121,11 @@ export type ClientToServer =
   | { t: 'lobby:join'; code: string; name: string }
   | { t: 'lobby:leave' }
   | { t: 'lobby:ready'; ready: boolean }
-  /** Host only. Requires every player to be ready. */
-  | { t: 'lobby:start'; seed: number }
+  /**
+   * Host only. Requires every player to be ready. `mode` (appended, Phase 7): `'training'` may be sent by ANY member
+   * while nothing is running — no ready gating, only the sender gets `inMission`, others stay in the hub and join later.
+   */
+  | { t: 'lobby:start'; seed: number; mode?: MissionMode }
   /** Host only, after a mission ended: started=false, every ready=false, lobby reopened for joins. */
   | { t: 'lobby:reset' }
   /** Relay an opaque game message. 'all' includes the sender; 'others' excludes it. */
@@ -108,7 +139,22 @@ export type ClientToServer =
   /** Host only, while not started: pick the seed everyone sees in the hub (`LobbyState.seed`). */
   | { t: 'lobby:seed'; seed: number }
   /** Rename (hub terminal); server sanitizes and broadcasts `lobby:state`. */
-  | { t: 'lobby:name'; name: string };
+  | { t: 'lobby:name'; name: string }
+  /* appended (Phase 7): mission membership, profile store, credits, raid session */
+  /**
+   * I entered / left the running mission (training join from the terminal, raid rejoin from a pod, training exit).
+   * Server updates `LobbyPlayer.inMission` and broadcasts `lobby:state`; a training whose last member leaves is reset
+   * (`started=false`) by the server. `in_mission` error when no mission is running.
+   */
+  | { t: 'lobby:mission'; inMission: boolean }
+  /** Ask for the profile record (also delivered in `welcome.profile`). */
+  | { t: 'profile:get' }
+  /** Store one opaque document (≤ PROFILE_DOC_MAX_BYTES). No reply; `too_large` error when refused. */
+  | { t: 'profile:set'; key: ProfileDocKey; doc: unknown }
+  /** Credits transaction; server answers `credits:result {txId}`. */
+  | { t: 'credits:tx'; txId: number; delta: number; reason: string }
+  /** Save my mid-raid state for a reconnect (only accepted while my lobby is started with `blob.seed`). */
+  | { t: 'raid:save'; blob: RaidSessionBlob };
 
 export type ServerToClient =
   /**
@@ -116,11 +162,22 @@ export type ServerToClient =
    * (reconnect within NET_RECONNECT_GRACE_MS or a fresh page load) — the client resumes into it; `started`
    * on that lobby means a mission is in progress and the player may rejoin from a launch slot.
    */
-  | { t: 'welcome'; id: PeerId; serverTime: number; lobby?: LobbyState | null; resumed?: boolean }
+  | {
+      t: 'welcome'; id: PeerId; serverTime: number; lobby?: LobbyState | null; resumed?: boolean;
+      /* appended (Phase 7) */
+      /** Profile record of this token (absent on servers without a store). */
+      profile?: ProfileRecord;
+      /** My saved mid-raid state when resuming into a started lobby that still runs `blob.seed`. */
+      raid?: RaidSessionBlob | null;
+    }
   | { t: 'lobby:state'; lobby: LobbyState }
   | { t: 'lobby:error'; code: LobbyErrorCode; message: string }
   | { t: 'lobby:left' }
-  | { t: 'game:start'; seed: number; lobby: LobbyState }
+  /** `mode` (appended, Phase 7): a training start reaches everyone but only members with `inMission` enter it. */
+  | { t: 'game:start'; seed: number; lobby: LobbyState; mode?: MissionMode }
+  /* appended (Phase 7) */
+  | { t: 'profile:docs'; profile: ProfileRecord }
+  | { t: 'credits:result'; txId: number; ok: boolean; credits: number; reason?: string }
   | { t: 'relay'; from: PeerId; d: GameMessage }
   /** A peer disconnected/left mid-lobby or mid-game. `lobby` is the updated state (host may have migrated). */
   | { t: 'peer:left'; id: PeerId; lobby: LobbyState }
@@ -163,6 +220,19 @@ export const PlayerFlags = {
   HOVER: 1 << 18,
   /** Buffed by an overcharge beam. */
   OVERCHARGED: 1 << 19,
+  /* appended (Phase 7): remote pose sync */
+  /** Grenade / gadget wind-up (LMB held with a throwable in hand). */
+  THROWING: 1 << 20,
+  /** Pin pulled, cooking (R). */
+  COOKING: 1 << 21,
+  /** Shockgun RMB charge / minigun spin-up (braced stance). */
+  CHARGING: 1 << 22,
+  /** Flame / arc continuous fire. */
+  SPRAYING: 1 << 23,
+  /** Heavy carry (bazooka / minigun at the hip). */
+  HEAVY: 1 << 24,
+  /** The 용검 big slash (MELEE is set too; remotes play the heavy sweep for SLASH_DURATION). */
+  MELEE_HEAVY: 1 << 25,
 } as const;
 
 /** Local player state → everyone, NET_PLAYER_SNAPSHOT_HZ. Owner: net (built from ctx.player / ctx.inventory). */
@@ -191,6 +261,11 @@ export interface PlayerSnapshot {
   imp?: ImplantId | null;
   /** Equipped armor def id, for the remote avatar look. */
   ar?: string | null;
+  /* appended (Phase 7) — optional, older senders stay compatible. */
+  /** Def id of the consumable / gadget in hand while HOLDING_ITEM (remotes build a procedural held-item mesh). */
+  h?: string | null;
+  /** Attachment def ids socketed on the active weapon (remotes call `WeaponModel.setAttachments`). Omitted when none. */
+  att?: string[];
 }
 
 /** Someone fired. Owner: weapons (sends) / net emits `net:remoteFired` on receive. */
@@ -228,7 +303,8 @@ export interface ExplodeRequest { t: 'explode'; p: Vec3Tuple; r: number; dmg: nu
 /** Host → shooter: confirmation of a HitRequest (hitmarker / kill credit). */
 export interface HitConfirm { t: 'hitc'; id: number; dmg: number; killed: boolean; part: 'head' | 'body' | 'rear' | 'front' }
 /** Host → one client: you took damage. Owner: enemies (host AI) → net applies `ctx.player.takeDamage`. */
-export interface DamageMessage { t: 'dmg'; amount: number; from?: Vec3Tuple; slow?: { duration: number; factor: number } }
+/** `kb` (appended, Phase 7): knockback the victim applies with `PlayerRef.applyKnockback(d, s)` (behemoth charge, blasts). */
+export interface DamageMessage { t: 'dmg'; amount: number; from?: Vec3Tuple; slow?: { duration: number; factor: number }; kb?: { d: Vec3Tuple; s: number } }
 /** Any → all: I died. */
 export interface DiedMessage { t: 'died'; p: Vec3Tuple }
 
@@ -245,6 +321,7 @@ export interface EnemyWire {
   /**
    * Optional animation hints: 0 none, 1 charger windup, 2 charger rush, 3 spewer windup, 4 hunter airborne;
    * Phase 4: 5 rogue shooting, 6 rogue in cover, 7 rogue rushing, 8 artillery aiming, 9 toxic swelling, 10 behemoth windup, 11 behemoth rush.
+   * Phase 7: 12 rogue reloading, 13 rogue throwing a grenade.
    */
   a?: number;
   /** Phase 4: rogue's weapon def id (model + corpse loot). */
@@ -273,7 +350,12 @@ export type EnemyEvent =
   | { t: 'ee'; ev: 'charge'; id: number; target: Vec3Tuple }
   | { t: 'ee'; ev: 'toxic'; id: number; p: Vec3Tuple }
   | { t: 'ee'; ev: 'corpse'; id: number; ty: EnemyType; p: Vec3Tuple; w?: string }
-  | { t: 'ee'; ev: 'corpseGone'; id: number };
+  | { t: 'ee'; ev: 'corpseGone'; id: number }
+  /* appended (Phase 7): rogue AI v2 */
+  /** A rogue threw a grenade (replicas fly a visual one; the host resolves damage: own player directly, remotes via `dmg`). */
+  | { t: 'ee'; ev: 'grenade'; id: number; p: Vec3Tuple; v: Vec3Tuple; fuse: number }
+  /** The rogue grenade exploded (FX on replicas). */
+  | { t: 'ee'; ev: 'grenadeHit'; p: Vec3Tuple };
 /** Client → host (Phase 4): my shot intercepted shell `sid`. Owner: enemies. */
 export interface InterceptRequest { t: 'intq'; sid: number; p: Vec3Tuple }
 
@@ -314,7 +396,13 @@ export type FlowMessage =
   | { t: 'flow'; ev: 'abort' }                // host aborted → everyone back to lobby
   | { t: 'flow'; ev: 'phase'; phase: GamePhase }
   /* appended (rejoin): a client re-entered the running mission (sent to 'all'); systems may re-sync it. */
-  | { t: 'flow'; ev: 'rejoined' };
+  | { t: 'flow'; ev: 'rejoined' }
+  /* appended (Phase 7) */
+  /**
+   * The NEW host announces it took authority over the running mission (sent to 'others' right after
+   * `net:hostChanged {isLocalHost:true}`). Clients re-request every sync (`exq/itemq/gadq/contq/ghostq sync`).
+   */
+  | { t: 'flow'; ev: 'takeover' };
 
 /** Any → all: a tactical ping. Owner: ui/hud/Pings. `label` (appended) = item name for 'item' pings. */
 export interface PingMessage { t: 'ping'; p: Vec3Tuple; kind: PingKind; label?: string; enemyId?: number }
@@ -383,7 +471,12 @@ export type GameMessage =
   | GadgetRequest
   | HarvestMessage
   | HarvestRequest
-  | MetaMessage;
+  | MetaMessage
+  /* appended (Phase 7) */
+  | GhostMessage
+  | GhostRequest
+  | ContainerMessage
+  | ContainerRequest;
   /* append new message types above this line (keep `t` unique; prefix by owning folder if in doubt) */
 
 export type GameMessageType = GameMessage['t'];
@@ -437,6 +530,16 @@ export interface RemotePlayerRef {
   readonly armorId: string | null;
   /** `flags & CLOAKED`. */
   readonly isCloaked: boolean;
+  /* appended (Phase 7): suspended members / ghosts / mission membership */
+  /**
+   * true while the member's socket is down but the slot is kept (`LobbyPlayer.connected === false` during a session).
+   * The ref stays alive (never removed for it); `position / hp / isDowned / isDead` then come from the host's
+   * `ghost state` instead of snapshots, so consumers keep treating the ref as present (enemies target it, the avatar
+   * stays visible in grey with `SUSPENDED_LABEL_KO`). `stale` is still true (no snapshots) — check `suspended` first.
+   */
+  readonly suspended: boolean;
+  /** `LobbyPlayer.inMission` mirror (false = in the hub / not part of the running mission). */
+  readonly inMission: boolean;
 }
 
 export type NetStatus = 'offline' | 'connecting' | 'connected' | 'error';
@@ -509,7 +612,66 @@ export interface NetRef {
   rejoinMission(): void;
   /** Snapshots are also exchanged while in a lobby in phase 'hub' (shared ship). true when that is happening. */
   readonly inHubSession: boolean;
+
+  /* ── appended: Phase 7 (2026-09-06) — profile store, raid session, host migration, training ── */
+  /** Server profile store (documents + credits). Always present; `available` is false offline. */
+  readonly profile: ProfileRef;
+  /** Raid blob the server returned in `welcome.raid` (resume into a running raid), consumed by game/ on rejoin. */
+  readonly raidBlob: RaidSessionBlob | null;
+  /** Upload my mid-raid state (game/ calls it every RAID_SAVE_INTERVAL_S and on loot). No-op outside a raid session. */
+  saveRaid(blob: RaidSessionBlob): void;
+  /** Kind of the lobby's running mission (`lobby.mode ?? 'raid'`), null when nothing runs. */
+  readonly missionMode: MissionMode | null;
+  /**
+   * Start a mission for the lobby. `'raid'` (default) = host only, every member ready (as before). `'training'` = any
+   * member, no ready gating; only the caller enters (server marks it `inMission`), the rest stay in the hub.
+   */
+  startGame(seed: number, mode?: MissionMode): void;
+  /**
+   * Leave the running mission but stay in the lobby (training exit / raid abort by a client): ends the session
+   * locally (`inSession=false`, remotes cleared) and sends `lobby:mission {inMission:false}`.
+   */
+  leaveMission(): void;
+  /** true once the local client was promoted to host DURING a session (authority taken over mid-mission). */
+  readonly tookOver: boolean;
 }
+
+/* ── appended: Phase 7 — ghosts (host-simulated bodies of suspended members; owner: player/RemotePlayerSystem on the host) ── */
+/** 0 alive (standing where they were), 1 downed (bleeding `dhp`), 2 dead. */
+export type GhostState = 0 | 1 | 2;
+export interface GhostWire { id: PeerId; p: Vec3Tuple; yaw: number; hp: number; dhp: number; st: GhostState }
+/**
+ * Host → all `state` (on change + NET_GHOST_STATE_HZ) while a member is suspended; `sync` = every ghost (reply to
+ * `ghostq sync` / `flow rejoined`); `restore` → the returning member only: your body as the host left it — apply with
+ * `PlayerRef.restoreState` (the host then drops the ghost); `gone` = ghost removed (member returned or left).
+ */
+export type GhostMessage =
+  | { t: 'ghost'; ev: 'state'; g: GhostWire }
+  | { t: 'ghost'; ev: 'sync'; ghosts: GhostWire[] }
+  | { t: 'ghost'; ev: 'restore'; g: GhostWire }
+  | { t: 'ghost'; ev: 'gone'; id: PeerId };
+/** Client → host. `revive` = I finished the revive hold on suspended member `id` (their socket is down, so the host applies it). */
+export type GhostRequest =
+  | { t: 'ghostq'; ev: 'sync' }
+  | { t: 'ghostq'; ev: 'revive'; id: PeerId };
+
+/* ── appended: Phase 7 — host-authoritative container contents (owner: inventory) ── */
+/**
+ * Crate / corpse / supply contents are still rolled deterministically per client (seed ^ id), so only the TAKEN state is
+ * shared: `idx` = index of the item in the roll order (`Container.fill`), `qty` = units taken from that stack.
+ * Host → all `taken` (confirmation of a `contq take`; the taker adds the item to its bag on receipt, everyone else
+ * removes it from their copy — or records it for a container they have not opened yet); `sync` = every taken entry
+ * (reply to `contq sync` / `flow rejoined`). `t` entries are `[idx, qtyTaken]`.
+ */
+export interface ContainerTakenWire { id: string; t: [number, number][] }
+export type ContainerMessage =
+  | { t: 'cont'; ev: 'taken'; id: string; idx: number; qty: number; by: PeerId }
+  | { t: 'cont'; ev: 'denied'; id: string; idx: number }
+  | { t: 'cont'; ev: 'sync'; items: ContainerTakenWire[] };
+/** Client → host. `take` = I want `qty` units of item `idx` from container `id` (host validates against its taken map). */
+export type ContainerRequest =
+  | { t: 'contq'; ev: 'take'; id: string; idx: number; qty: number }
+  | { t: 'contq'; ev: 'sync' };
 
 /* ── helpers usable by both server and client ──────────────────────────────── */
 /** Lobby code alphabet: no I/O/0/1 to avoid confusion when read aloud. */
@@ -539,7 +701,9 @@ export type ImplantMessage =
   | { t: 'imp'; ev: 'barrier'; active: boolean; p: Vec3Tuple; yaw: number; hp: number }
   | { t: 'imp'; ev: 'scan'; p: Vec3Tuple; radius: number }
   | { t: 'imp'; ev: 'rocket'; o: Vec3Tuple; d: Vec3Tuple }
-  | { t: 'imp'; ev: 'rocketHit'; p: Vec3Tuple };
+  | { t: 'imp'; ev: 'rocketHit'; p: Vec3Tuple }
+  /* appended (Phase 7): overcharge beam replication. `target` null = beam off; `self` = healing myself (no target). */
+  | { t: 'imp'; ev: 'beam'; target: PeerId | null; self: boolean };
 
 /**
  * Any → one peer: a friendly effect. 'heal' / 'boost' are the overcharge implant, 'revive' the defibrillator

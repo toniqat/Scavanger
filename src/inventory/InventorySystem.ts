@@ -1367,6 +1367,11 @@ export class InventorySystem implements GameSystem, InventoryRef {
    * socketed attachments and crate contents are refused (0). A bag stack that hits 0 leaves through the usual
    * path (`inventory:itemRemoved`, its wheel slot relinked / cleared); the stash persists through `afterChange`.
    */
+  /* ── Phase 7 skeleton (inventory/ agent implements; docs/PHASE7-PLAN.md §7) ── */
+  canFit(_defId: string, _qty?: number): 'bag' | 'stash' | null { return 'bag'; }
+  captureRaidState(): unknown { return null; }
+  applyRaidState(_state: unknown): boolean { return false; }
+
   takeItem(uid: string, qty?: number): number {
     const found = this.locateInGrids(uid);
     if (!found || found.gridId === 'container') return 0;

@@ -27,6 +27,9 @@ export interface DebugRemoteRef {
   implantId: ImplantId | null;
   armorId: string | null;
   readonly isCloaked: boolean;
+  /* Phase 7 */
+  suspended: boolean;
+  inMission: boolean;
 }
 
 interface ReviveEntry { interactable: Interactable; lastSent: number }
@@ -104,6 +107,7 @@ export class RemotePlayerSystem implements GameSystem {
       id: opts.id ?? `debug-${slot}-${Date.now().toString(36)}`,
       name: opts.name ?? `테스트 ${slot}`,
       slot,
+      suspended: false, inMission: true,
       position: pos,
       velocity: new THREE.Vector3(),
       yaw: this.ctx.player?.yaw ?? 0,

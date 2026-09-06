@@ -3,6 +3,7 @@ import type {
   ChatKind, GameContext, GameSystem, GameMessage, GameMessageOf, GameMessageType, LobbyPlayer, LobbyState, NetRef,
   NetStatus, PeerId, PingKind, RelayTarget, RemotePlayerRef, ServerToClient, Vec3Tuple,
 } from '@/shared';
+import type { MissionMode, ProfileRef, RaidSessionBlob } from '@/shared';
 import {
   NET_INVITE_PARAM, NET_MISSION_RESUME_TIMEOUT_MS, NET_NAME_PARAM, NET_PLAYER_SNAPSHOT_HZ, NET_RECONNECT_BACKOFF_MS,
   NET_TOKEN_LENGTH, NET_TOKEN_PARAM, NET_TOKEN_STORAGE_KEY, NET_WS_PATH, PlayerFlags,
@@ -110,6 +111,17 @@ export class NetSystem implements GameSystem, NetRef {
   get reconnecting(): boolean { return this._reconnecting; }
   get missionInProgress(): boolean { return this._lobby !== null && this._lobby.started && !this._inSession; }
   get inHubSession(): boolean { return this._lobby !== null && !this._inSession && this.ctx.phase === 'hub'; }
+  /* ── Phase 7 skeleton (net/ agent implements; see docs/PHASE7-PLAN.md §2) ── */
+  readonly profile: ProfileRef = {
+    available: false, credits: null,
+    get: () => undefined, set: () => {}, flush: () => {},
+    addCredits: async () => ({ ok: false, credits: 0, reason: '오프라인' }),
+  };
+  get raidBlob(): RaidSessionBlob | null { return null; }
+  saveRaid(_blob: RaidSessionBlob): void {}
+  get missionMode(): MissionMode | null { return this._lobby?.started ? (this._lobby.mode ?? 'raid') : null; }
+  leaveMission(): void {}
+  get tookOver(): boolean { return false; }
 
   /* ── GameSystem ─────────────────────────────────────────────────────── */
   init(ctx: GameContext): void {
@@ -362,7 +374,7 @@ export class NetSystem implements GameSystem, NetRef {
     if (this._lobby || this._inSession) this.dropLobby('left');
   }
   setReady(ready: boolean): void { this.client.send({ t: 'lobby:ready', ready }); }
-  startGame(seed: number): void { this.client.send({ t: 'lobby:start', seed: Math.floor(seed) >>> 0 }); }
+  startGame(seed: number, mode?: MissionMode): void { this.client.send(mode ? { t: 'lobby:start', seed: Math.floor(seed) >>> 0, mode } : { t: 'lobby:start', seed: Math.floor(seed) >>> 0 }); }
 
   quickMatch(): void {
     if (!this.client.connected) {
