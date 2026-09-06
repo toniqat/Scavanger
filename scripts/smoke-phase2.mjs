@@ -1,4 +1,5 @@
 // Single-player smoke test for Phase 2: downed / bleed / give-up / respawn, quick-use wheel, stim in hand, grenade cooking.
+// Phase 9: `player:giveUpProgress` (rises during the Space hold, a single -1 on release / death).
 // Usage: node scripts/smoke-phase2.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { existsSync } from 'node:fs';
@@ -68,7 +69,7 @@ try {
     const bus = window.__game.ctx.bus;
     for (const n of ['player:downed', 'player:downHpChanged', 'player:revived', 'player:died', 'player:respawn', 'player:spawned', 'player:landed',
       'game:respawnAvailable', 'game:phaseChanged', 'game:over', 'inventory:quickSlotsChanged', 'quick:wheelChanged', 'quick:equipped', 'quick:used',
-      'grenade:holdChanged', 'grenade:thrown', 'grenade:exploded', 'player:stimUsed', 'weapon:equipped']) {
+      'grenade:holdChanged', 'grenade:thrown', 'grenade:exploded', 'player:stimUsed', 'weapon:equipped', 'player:giveUpProgress']) {
       window.__ev[n] = [];
       bus.on(n, (p) => { window.__ev[n].push(JSON.parse(JSON.stringify(p, (k, v) => (v && v.isVector3) ? [v.x, v.y, v.z] : v))); });
     }
@@ -207,10 +208,20 @@ try {
   await waitSim(0.3);
   const downedAgain = await P(() => window.__game.ctx.player.isDowned);
   ok(downedAgain, 'downed again after the revive');
+  // Phase 9: a short hold released early → progress rises, then a single -1, still downed
+  await P(() => { window.__ev['player:giveUpProgress'] = []; });
+  await keyDown('Space'); await waitSim(0.6); await keyUp('Space');
+  await waitSim(0.3);
+  const gupRel = await P(() => { const a = window.__ev['player:giveUpProgress'].map((e) => e.t); return { n: a.length, max: Math.max(...a), last: a[a.length - 1], minusOnes: a.filter((t) => t === -1).length, downed: window.__game.ctx.player.isDowned, dead: window.__game.ctx.player.isDead }; });
+  ok(gupRel.n >= 2 && gupRel.max >= 0.25 && gupRel.max < 1, 'player:giveUpProgress rises during a short Space hold', JSON.stringify(gupRel));
+  ok(gupRel.last === -1 && gupRel.minusOnes === 1 && gupRel.downed && !gupRel.dead, 'releasing Space early → one t -1, still downed', JSON.stringify(gupRel));
+  await P(() => { window.__ev['player:giveUpProgress'] = []; });
   await keyDown('Space'); await waitSim(2.2); await keyUp('Space');
   await waitSim(0.3);
   st = await P(() => ({ dead: window.__game.ctx.player.isDead, phase: window.__game.ctx.phase }));
   ok(st.dead, 'holding Space while downed gives up → dead', JSON.stringify(st));
+  const gupFull = await P(() => { const a = window.__ev['player:giveUpProgress'].map((e) => e.t); return { n: a.length, max: Math.max(...a), last: a[a.length - 1], died: window.__ev['player:died'].length }; });
+  ok(gupFull.max >= 0.5 && gupFull.last === -1 && gupFull.died >= 1, 'full hold: progress ≥ 0.5 then t -1 with player:died', JSON.stringify(gupFull));
   ok((await ev('game:over')).length === 0, 'game:over waits for the death delay');
   await waitSim(3.0);
   st = await P(() => ({ phase: window.__game.ctx.phase, over: window.__ev['game:over'].length, ra: window.__ev['game:respawnAvailable'].length }));

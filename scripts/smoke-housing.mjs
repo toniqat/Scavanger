@@ -3,6 +3,8 @@
 // and the three DOM panels (blocker + Esc). Drives `ctx.housing` from page.evaluate.
 // Phase 7 (2026-09-06): `furn_sim_hub` (15th def, 사격장 only) crafted / placed / listed in the room menu; server profile
 // document `ship` (save → `profile.set`, `net:profileLoaded` replace + `housing:loaded` re-emit, stash size follows).
+// Phase 9: v3 fresh state (`books` / `bookDex`), `furn_bookshelf` in the 서재 catalogue, offline `profile.set`. The 서재
+// mechanics themselves are covered by scripts/smoke-library.mjs.
 // Usage: node scripts/smoke-housing.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { existsSync } from 'node:fs';
@@ -126,8 +128,10 @@ try {
   ok(st0.furniture.length === 2 && startIds === 'furn_bench_gun,furn_repair_bench' && st0.furniture.every((e) => e.room === 0), `first run: 총기 작업대 + 정비 벤치 placed in 방 1 (${startIds})`);
   const stash0 = await H(() => window.__game.ctx.housing.getStashSize());
   ok(stash0.cols === 10 && stash0.rows === 24, `getStashSize() 10×24 at storage 0 (${stash0.cols}×${stash0.rows})`);
-  // Phase 8 added furn_repair_bench (작업실) and furn_grow_rack (온실)
-  ok(await H(() => window.__game.ctx.housing.getAllFurnitureDefs().length === 17), 'FURNITURE_DEFS exposed (17, incl. furn_sim_hub / repair_bench / grow_rack)');
+  // Phase 8 added furn_repair_bench (작업실) and furn_grow_rack (온실); Phase 9 furn_bookshelf (서재)
+  ok(await H(() => window.__game.ctx.housing.getAllFurnitureDefs().length === 18), 'FURNITURE_DEFS exposed (18, incl. furn_sim_hub / repair_bench / grow_rack / bookshelf)');
+  ok(st0.version === 3 && Array.isArray(st0.books) && st0.books.length === 0 && Array.isArray(st0.bookDex) && st0.bookDex.length === 0, `fresh state is v3 with empty books / bookDex (v${st0.version})`);
+  ok(await H(() => window.__game.ctx.housing.getFurnitureFor('library').some((d) => d.id === 'furn_bookshelf' && d.interaction === 'bookshelf') && !window.__game.ctx.housing.getFurnitureFor('workshop').some((d) => d.id === 'furn_bookshelf')), 'furn_bookshelf in the 서재 catalogue only');
   ok(await H(() => window.__game.ctx.housing.getFurnitureFor('range').some((d) => d.id === 'furn_sim_hub' && d.interaction === 'sim_hub' && d.model === 'sim_hub') && !window.__game.ctx.housing.getFurnitureFor('workshop').some((d) => d.id === 'furn_sim_hub')), 'furn_sim_hub in the 사격장 catalogue only (interaction / model sim_hub)');
   // Phase 8: workshop also accepts the 정비 벤치, and 온실 accepts the 재배층
   ok(await H(() => window.__game.ctx.housing.getFurnitureFor('workshop').length === 13 && window.__game.ctx.housing.getFurnitureFor('empty').length === 8 && window.__game.ctx.housing.getFurnitureFor('greenhouse').length === 9), 'getFurnitureFor: workshop 13 (4 benches + 정비 벤치 + 8 any), empty 8, greenhouse 9');
@@ -400,11 +404,15 @@ try {
   console.log('server profile document (Phase 7)');
   await H(() => {
     const net = window.__game.ctx.net;
-    const fake = { available: true, credits: 0, docs: {}, sets: [], get(k) { return this.docs[k]; }, set(k, doc) { this.sets.push(k); this.docs[k] = JSON.parse(JSON.stringify(doc)); }, flush() {}, addCredits: async () => ({ ok: true, credits: 0 }) };
+    // starts **offline** (available false): Phase 9 — the save must still call `profile.set` (ProfileSync queues it)
+    const fake = { available: false, credits: 0, docs: {}, sets: [], get(k) { return this.docs[k]; }, set(k, doc) { this.sets.push(k); this.docs[k] = JSON.parse(JSON.stringify(doc)); }, flush() {}, addCredits: async () => ({ ok: true, credits: 0 }) };
     window.__fakeProfile = fake;
     window.__realProfileDesc = Object.getOwnPropertyDescriptor(net, 'profile') ?? null;
     Object.defineProperty(net, 'profile', { value: fake, configurable: true, writable: true });
   });
+  await H(() => { window.__game.ctx.housing.setRoomPurpose(8, 'kitchen'); window.__game.ctx.housing.save(); });
+  ok(await H(() => window.__fakeProfile.sets.includes('ship') && window.__fakeProfile.docs.ship.rooms[8].purpose === 'kitchen'), "offline profile (available false): save still calls profile.set('ship') — ProfileSync queues it (Phase 9)");
+  await H(() => { window.__fakeProfile.available = true; window.__fakeProfile.docs = {}; window.__fakeProfile.sets.length = 0; });
   await H(() => { window.__game.ctx.housing.setRoomPurpose(8, 'lounge'); window.__game.ctx.housing.save(); });
   ok(await H(() => window.__fakeProfile.sets.includes('ship') && window.__fakeProfile.docs.ship.rooms[8].purpose === 'lounge'), "save → profile.set('ship', state)");
   const shipSnap = await H(() => JSON.parse(JSON.stringify(window.__game.ctx.housing.state)));

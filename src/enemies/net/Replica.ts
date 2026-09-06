@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {
-  BURNOUT_DURATION, ENEMY_STATUS_BITS, NET_INTERP_DELAY, type EnemyEvent, type EnemySnapshot, type EnemyType, type EnemyWireState, type GameContext,
+  BURNOUT_DURATION, ENEMY_STATUS_BITS, NET_INTERP_DELAY, type EnemyEvent, type EnemySnapshot, type EnemyType, type EnemyWire, type EnemyWireState, type GameContext,
 } from '@/shared';
 import type { Enemy } from '../Enemy';
 import type { CombatTarget, TargetList } from '../Targets';
@@ -43,7 +43,10 @@ export class ReplicaBuffer {
   private readonly s: Sample[] = [];
   private head = 0;          // next write index
   count = 0;
-  /** Snapshot sequence in which this enemy was last seen (missing from a full snapshot → despawn). */
+  /**
+   * `EnemySnapshot.seq` of the last snapshot that touched this enemy (listed in it, or held through a delta that
+   * omitted it). A keyframe releases every live replica whose `seenSeq` is not its own seq.
+   */
   seenSeq = 0;
 
   constructor() {
@@ -55,6 +58,44 @@ export class ReplicaBuffer {
   push(t: number, x: number, y: number, z: number, yaw: number, hp: number, st: EnemyWireState, a: number, sb = 0): void {
     const smp = this.s[this.head];
     smp.t = t; smp.x = x; smp.y = y; smp.z = z; smp.yaw = yaw; smp.hp = hp; smp.st = st; smp.a = a; smp.sb = sb;
+    this.head = (this.head + 1) % RING;
+    if (this.count < RING) this.count++;
+  }
+
+  /**
+   * Phase 9: apply a (possibly partial) wire on top of the newest sample as a new sample stamped `now`. Fields absent
+   * from `w` keep their last value; in a `keyframe` an absent `a` / `sb` means 0 (the host omits zeros there).
+   * `push` stays the seeding path (`ee spawn`, `adopt`).
+   */
+  applyWire(now: number, w: EnemyWire, keyframe: boolean): void {
+    const prev = this.latest();
+    const smp = this.s[this.head];
+    if (prev) { smp.x = prev.x; smp.y = prev.y; smp.z = prev.z; smp.yaw = prev.yaw; smp.hp = prev.hp; smp.st = prev.st; smp.a = prev.a; smp.sb = prev.sb; }
+    else { smp.x = 0; smp.y = 0; smp.z = 0; smp.yaw = 0; smp.hp = 0; smp.st = 'idle'; smp.a = 0; smp.sb = 0; }
+    if (w.p) { smp.x = w.p[0]; smp.y = w.p[1]; smp.z = w.p[2]; }
+    if (w.yaw !== undefined) smp.yaw = w.yaw;
+    if (w.hp !== undefined) smp.hp = w.hp;
+    if (w.st !== undefined) smp.st = w.st;
+    if (keyframe) { smp.a = w.a ?? 0; smp.sb = w.sb ?? 0; }
+    else {
+      if (w.a !== undefined) smp.a = w.a;
+      if (w.sb !== undefined) smp.sb = w.sb;
+    }
+    smp.t = now;
+    this.head = (this.head + 1) % RING;
+    if (this.count < RING) this.count++;
+  }
+
+  /**
+   * Phase 9: the enemy was absent from a delta (nothing changed on the host) — repeat the newest sample at `now` so
+   * the interpolator sees a stationary target instead of extrapolating the last movement past the stop.
+   */
+  hold(now: number): void {
+    const prev = this.latest();
+    if (!prev) return;
+    const smp = this.s[this.head];
+    smp.x = prev.x; smp.y = prev.y; smp.z = prev.z; smp.yaw = prev.yaw; smp.hp = prev.hp; smp.st = prev.st; smp.a = prev.a; smp.sb = prev.sb;
+    smp.t = now;
     this.head = (this.head + 1) % RING;
     if (this.count < RING) this.count++;
   }
@@ -143,42 +184,77 @@ const _p2 = new THREE.Vector3();
 const _d = new THREE.Vector3();
 
 export class EnemyReplica {
+  /** `EnemySnapshot.seq` of the last snapshot applied (the host's counter, Phase 9). */
   private seq = 0;
+  /** Diagnostics (smoke): deltas whose ids were unknown and carried no `ty` (ignored). */
+  ignoredUnknown = 0;
+  /** Diagnostics (smoke): kind of the last snapshot applied. */
+  lastFull = false;
 
   constructor(private readonly host: ReplicaHost) {}
 
-  clear(): void { this.seq = 0; }
+  clear(): void { this.seq = 0; this.ignoredUnknown = 0; this.lastFull = false; }
+
+  /** Last `EnemySnapshot.seq` seen (a promoted host continues its own counter past it). */
+  get lastSeq(): number { return this.seq; }
 
   /* ── inbound ──────────────────────────────────────────────────────────── */
+  /**
+   * Phase 9: `es` is a delta stream. A keyframe (`msg.full`) lists every enemy with every field and sweeps the rest;
+   * a delta lists only changed enemies / fields (`ReplicaBuffer.applyWire`), an unknown id without `ty` is ignored
+   * (`ee spawn` or the next keyframe brings it), enemies absent from a delta get a `hold` sample so they stand still,
+   * and `gone` releases at once — except dead bodies, which the corpse timer owns.
+   */
   onSnapshot(msg: EnemySnapshot): void {
     const host = this.host;
     const now = host.ctx.time;
-    const seq = ++this.seq;
+    const seq = msg.seq;
+    const full = msg.full;
+    this.seq = seq;
+    this.lastFull = full;
     const list = msg.e;
     for (let i = 0; i < list.length; i++) {
       const w = list[i];
-      /* Phase 9 skeleton: only full wires are applied until the delta path lands (see docs/PHASE9-PLAN.md §6). */
-      if (!w.p || w.ty === undefined || w.yaw === undefined || w.hp === undefined || w.st === undefined) continue;
       let e = host.find(w.id);
-      if (e && e.type !== w.ty) { host.release(e); e = undefined; }
+      if (e && w.ty !== undefined && e.type !== w.ty) { host.release(e); e = undefined; }
       if (!e) {
+        if (w.ty === undefined || !w.p) { this.ignoredUnknown++; continue; }
         _p.set(w.p[0], w.p[1], w.p[2]);
-        e = host.acquire(w.id, w.ty, _p, w.yaw) ?? undefined;
+        e = host.acquire(w.id, w.ty, _p, w.yaw ?? 0) ?? undefined;
         if (!e) continue;
       }
       if (w.w) e.weaponId = w.w;
       const buf = e.netBuf ?? (e.netBuf = new ReplicaBuffer());
-      buf.push(now, w.p[0], w.p[1], w.p[2], w.yaw, w.hp, w.st, w.a ?? 0, w.sb ?? 0);
+      buf.applyWire(now, w, full);
       buf.seenSeq = seq;
     }
-    if (msg.full) {
-      const active = host.active;
+    const active = host.active;
+    if (full) {
       for (let i = active.length - 1; i >= 0; i--) {
         const e = active[i];
         if (!e.active) continue;
         // corpses drop out of the host's snapshot after ~1.5 s but stay lootable: our own corpse timer removes them
         if (e.state === 'dead') continue;
         if (!e.netBuf || e.netBuf.seenSeq !== seq) host.release(e);
+      }
+    } else {
+      for (let i = 0; i < active.length; i++) {
+        const e = active[i];
+        if (!e.active || e.state === 'dead') continue;
+        const buf = e.netBuf;
+        if (!buf || buf.count === 0 || buf.seenSeq === seq) continue;
+        buf.hold(now);
+        buf.seenSeq = seq;
+      }
+    }
+    const gone = msg.gone;
+    if (gone) {
+      for (let i = 0; i < gone.length; i++) {
+        const e = host.find(gone[i]);
+        if (!e || !e.active || e.state === 'dead') continue;
+        const last = e.netBuf?.latest();
+        if (last && last.st === 'dead') continue;   // the body is about to die locally; the corpse timer removes it
+        host.release(e);
       }
     }
   }
@@ -208,7 +284,8 @@ export class EnemyReplica {
         if (msg.killer !== null && msg.killer === localId) {
           ctx.stats.kills++;
           _p.set(msg.p[0], msg.p[1], msg.p[2]);
-          ctx.bus.emit('enemy:killed', { id: msg.id, type: msg.ty, position: e ? e.position : _p.clone() });
+          // Phase 9: the wire carries our real peer id; the bus payload names our own credit `'local'` (same as the host path)
+          ctx.bus.emit('enemy:killed', { id: msg.id, type: msg.ty, position: e ? e.position : _p.clone(), by: 'local' });
         }
         return;
       }

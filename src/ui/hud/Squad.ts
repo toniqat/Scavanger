@@ -1,5 +1,6 @@
 import type { GameContext, LobbyPlayer, LobbyState, RemotePlayerRef } from '@/shared';
-import { NET_MAX_PLAYERS, NET_SLOT_COLORS_CSS, PlayerFlags, SUSPENDED_LABEL_KO } from '@/shared';
+import { NET_MAX_PLAYERS, NET_SLOT_COLORS_CSS, PLAYER_DOWN_HP, PlayerFlags, SUSPENDED_LABEL_KO } from '@/shared';
+import { GHOST_DEAD_LABEL_KO } from './Nameplates';
 import { el, setText, setVisible, toggleClass } from '../dom';
 
 const REFRESH = 0.1; // seconds between DOM refreshes (≤ 10 Hz)
@@ -7,7 +8,11 @@ const REFRESH = 0.1; // seconds between DOM refreshes (≤ 10 Hz)
 /** Per-member mission badge (Phase 7): where the member is relative to the running mission. */
 export type SquadBadge = '' | '훈련장' | '임무 중' | '함선';
 
-interface Row { root: HTMLElement; name: HTMLElement; badge: HTMLElement; fill: HTMLElement; state: HTMLElement; lastKey: string }
+interface Row { root: HTMLElement; name: HTMLElement; badge: HTMLElement; fill: HTMLElement; bleed: HTMLElement; state: HTMLElement; lastKey: string }
+
+/** Host-ghost overlay for a suspended member (Phase 9): `bleed` = down pool 0..1 while the ghost is downed (−1 = none). */
+interface Ghost { bleed: number; dead: boolean }
+const NO_GHOST: Ghost = { bleed: -1, dead: false };
 
 /**
  * Compact squad list (top-left, under the objective): slot colour bar, name, mission badge, hp bar, state text.
@@ -21,6 +26,9 @@ interface Row { root: HTMLElement; name: HTMLElement; badge: HTMLElement; fill: 
  * `inMission`), `임무 중` (raid member) or `함선` (not in the running mission — `.badge.ship`). `LobbyPlayer.inMission`
  * undefined (older server) reads as `started && connected`. `net:lobbyUpdated` / `net:missionMembership` force the
  * next frame to refresh. `setDebug(lobby, refs)` feeds a synthetic lobby + refs for smoke tests.
+ *
+ * Phase 9: a suspended member's host ghost shows on the row — `ref.ghostState === 1` overlays a red bleed bar
+ * (`.bleeding`, `ghostDownHp / PLAYER_DOWN_HP`) on the grey hp bar, `ghostState === 2` reads `사망` (`.suspended.dead`).
  */
 export class Squad {
   readonly root: HTMLElement;
@@ -46,7 +54,8 @@ export class Squad {
       const state = el('span', { cls: 'state', text: '', parent: top });
       const hp = el('div', { cls: 'hp', parent: body });
       const fill = el('div', { cls: 'fill', parent: hp });
-      this.rows.push({ root, name, badge, fill, state, lastKey: '' });
+      const bleed = el('div', { cls: 'bleed', parent: hp });
+      this.rows.push({ root, name, badge, fill, bleed, state, lastKey: '' });
     }
   }
 
@@ -100,17 +109,19 @@ export class Squad {
         const isDebug = this.debugRefs.has(lp.id);
         const ref = isDebug ? this.debugRefs.get(lp.id) : net.getRemotePlayer(lp.id);
         const suspended = lp.connected === false || ref?.suspended === true;
+        const ghost = suspended && !hub ? this.ghostOf(ref) : NO_GHOST;
         // a debug ref has no socket behind it — judge it on its own fields, not on our (offline) connection
-        const state = suspended ? SUSPENDED_LABEL_KO : hub ? (lp.ready ? '탑승 준비' : '함선 내') : this.remoteState(ref, net.connected || isDebug);
+        const state = suspended ? (ghost.dead ? GHOST_DEAD_LABEL_KO : SUSPENDED_LABEL_KO) : hub ? (lp.ready ? '탑승 준비' : '함선 내') : this.remoteState(ref, net.connected || isDebug);
         const hp = hub ? 1 : ref ? ref.hp / Math.max(1, ref.maxHp) : 0;
-        this.fillRow(this.rows[i++], slot, lp.name, hp, state, lobby ? this.badgeOf(lobby, lp, ref?.inMission) : '', false);
+        this.fillRow(this.rows[i++], slot, lp.name, hp, state, lobby ? this.badgeOf(lobby, lp, ref?.inMission) : '', false, ghost);
       }
     } else {
       // no lobby snapshot (should not happen in a session) — fall back to whatever refs exist
       for (const ref of net.getRemotePlayers()) {
         if (i >= this.rows.length) break;
-        const state = ref.suspended ? SUSPENDED_LABEL_KO : this.remoteState(ref, net.connected);
-        this.fillRow(this.rows[i++], ref.slot, ref.name, ref.hp / Math.max(1, ref.maxHp), state, '', false);
+        const ghost = ref.suspended ? this.ghostOf(ref) : NO_GHOST;
+        const state = ref.suspended ? (ghost.dead ? GHOST_DEAD_LABEL_KO : SUSPENDED_LABEL_KO) : this.remoteState(ref, net.connected);
+        this.fillRow(this.rows[i++], ref.slot, ref.name, ref.hp / Math.max(1, ref.maxHp), state, '', false, ghost);
       }
     }
     for (; i < this.rows.length; i++) this.hideRow(this.rows[i]);
@@ -135,6 +146,14 @@ export class Squad {
     return lobby.mode === 'training' ? '훈련장' : '임무 중';
   }
 
+  /** Host-ghost overlay of a suspended ref (Phase 9): downed → bleed pool, dead → `사망`. */
+  private ghostOf(ref: RemotePlayerRef | undefined): Ghost {
+    if (!ref || ref.ghostState === undefined) return NO_GHOST;
+    if (ref.ghostState === 2) return { bleed: -1, dead: true };
+    if (ref.ghostState === 1) return { bleed: Math.min(1, Math.max(0, (ref.ghostDownHp ?? PLAYER_DOWN_HP) / PLAYER_DOWN_HP)), dead: false };
+    return NO_GHOST;
+  }
+
   private remoteState(ref: RemotePlayerRef | undefined, netUp: boolean): string {
     if (!netUp) return SUSPENDED_LABEL_KO;
     if (!ref) return '연결 중';
@@ -144,9 +163,10 @@ export class Squad {
     return '';
   }
 
-  private fillRow(row: Row, slot: number, name: string, hp01: number, state: string, badge: SquadBadge, me: boolean): void {
+  private fillRow(row: Row, slot: number, name: string, hp01: number, state: string, badge: SquadBadge, me: boolean, ghost: Ghost = NO_GHOST): void {
     const hp = Math.min(1, Math.max(0, hp01));
-    const key = `${slot}|${name}|${hp.toFixed(2)}|${state}|${badge}|${me ? 1 : 0}`;
+    const bleeding = ghost.bleed >= 0;
+    const key = `${slot}|${name}|${hp.toFixed(2)}|${state}|${badge}|${me ? 1 : 0}|${bleeding ? ghost.bleed.toFixed(2) : '-'}`;
     if (key === row.lastKey) return;
     row.lastKey = key;
     row.root.hidden = false;
@@ -159,12 +179,14 @@ export class Squad {
     toggleClass(row.badge, 'training', badge === '훈련장');
     row.fill.style.transform = `scaleX(${hp.toFixed(3)})`;
     toggleClass(row.root, 'me', me);
-    toggleClass(row.root, 'dead', state === '전사');
-    toggleClass(row.root, 'off', state === SUSPENDED_LABEL_KO || state === '연결 중');
-    toggleClass(row.root, 'suspended', state === SUSPENDED_LABEL_KO);
+    toggleClass(row.root, 'dead', state === '전사' || ghost.dead);
+    toggleClass(row.root, 'off', state === SUSPENDED_LABEL_KO || state === '연결 중' || ghost.dead);
+    toggleClass(row.root, 'suspended', state === SUSPENDED_LABEL_KO || ghost.dead);
+    toggleClass(row.root, 'bleeding', bleeding);
+    row.bleed.style.transform = `scaleX(${(bleeding ? ghost.bleed : 0).toFixed(3)})`;
     toggleClass(row.root, 'drop', state === '강하 중');
     toggleClass(row.root, 'ready', state === '탑승 준비');
-    toggleClass(row.root, 'low', hp < 0.4 && state !== '전사');
+    toggleClass(row.root, 'low', hp < 0.4 && state !== '전사' && !ghost.dead);
   }
 
   private hideRow(row: Row): void {

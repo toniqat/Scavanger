@@ -17,7 +17,7 @@
 
 | 파일 | 역할 |
 |---|---|
-| `ImplantSystem.ts` | `GameSystem` + `ImplantsRef`. 입력(Q/좌/우클릭), 충전·쿨타임, 6종 동작, 이벤트 emit, `imp`/`buff` 송수신, `raycastBarrier` |
+| `ImplantSystem.ts` | `GameSystem` + `ImplantsRef`. 입력(Q/좌/우클릭), 충전·쿨타임, 6종 동작, 이벤트 emit, `imp`/`buff` 송수신, `raycastBarrier`(순수 질의) + `damageBarrier`(실제 피격), `flow rejoined` 에 배리어 재전송, e2e 훅 `debugBeam` |
 | `ImplantDefs.ts` | `IMPLANT_DEFS` (한국어 이름/설명/아이콘/색), `getImplantDef`, `isImplantId`, `implantHex` |
 | `RemoteImplants.ts` | 원격 시전자 시각화: 손의 장치, 갈고리 와이어, 배리어(복제본도 적탄을 막는다), 스캔 파동, 로켓, **오버차지 빔 / 자기 발광** (Phase 7, `imp beam`) |
 | `devices/ImplantDevice.ts` | 손에 드는 절차적 장치 모델(갈고리 런처 / 오버차지 이미터 / 스캐너 / 대전차포). 무기 소켓에 붙으며 **-Z 가 총구 방향**, `muzzle` 이 끝점 |
@@ -66,11 +66,16 @@
 **`raycastBarrier(origin, dir, maxDist, fromEnemy)`**
 - `fromEnemy === false` → **항상 `null`** (아군 실드는 아군 탄을 막지 않는다). weapons 가 자기 탄을 이 규약으로 판정한다.
 - `fromEnemy === true` → 로컬 배리어 + 복제된 원격 배리어 중 가장 가까운 교차점 `{ point, owner }`.
-- **부작용 주의**: 로컬 배리어가 막으면 그 자리에서 내구도 30 을 깎고 `implant:barrierHit` 을 emit 한다.
-  즉 "탄이 실제로 막혔다" 는 뜻으로만 호출해야 한다 (투기적 질의 금지).
+- **순수 질의다 (Phase 9).** 더 이상 내구도를 깎거나 스파크를 튀기지 않는다 — 시선 판정 / 사선 검사처럼 매 틱 불러도 안전하다.
+  (Phase 8 까지는 여기서 바로 30 을 깎았고, 그래서 "투기적 질의 금지" 경고가 붙어 있었다. 그 경고는 폐기.)
 
-**`buff` 메시지 수신자는 이 폴더 하나뿐이다.** `heal`/`boost`/`revive` 를 전부 여기서 로컬 플레이어에 적용한다
-(gadgets 의 제세동기 `revive` 포함). gadgets 는 보내기만 할 것.
+**`damageBarrier(owner, point, amount = BARRIER_BLOCK_DAMAGE)`** (Phase 9)
+- 탄이 **실제로** 배리어에서 멈춘 지점에서 **한 번만** 부른다 (weapons 의 히트스캔 해석 · 투사체 세그먼트, enemies 의 로그 사격 / 곡사 / 산탄 착탄).
+- `owner === 'local'` → `onBarrierBlocked` (내구도 −`amount`, `implant:barrierHit`, 붕괴 시 `barrier_break` + 잠금, `imp barrier` 동기화).
+- 원격 소유자 → 스파크만. 그 배리어의 hp 는 소유자 클라이언트가 권위이고 `imp barrier` 로 방송한다.
+
+**`buff` 수신은 종류마다 담당이 하나씩이다.** 오버차지의 `heal` / `boost` 는 여기서 로컬 플레이어에 적용하고,
+제세동기 `revive` 와 `cloak` 은 gadgets 가 처리한다 (Phase 9 에서 여기 있던 중복 `revive` 분기를 제거했다).
 
 **오버차지 버프 규약**: 대상 플레이어에 `setSpeedModifier('overcharge', mul, duration)` 을 건다 (채널 중 매 프레임 0.6 s 로 갱신). player 는 이 키가
 살아있는 동안 `isOvercharged === true` 로 만든다 (weapons 가 `isOvercharged` 로 연사속도 처리). 스태미나 소모 감소는 2026-09-06 개편에서 제거됐다.
@@ -108,3 +113,19 @@ HUD 는 `ui/hud/ImplantWidget` 의 크로스헤어 좌측 세로 게이지 (대�
 - `BEAM_TIMEOUT` 1 s 안에 갱신이 없으면 꺼진 것으로 본다(off 유실 대비). off / `net:remotePlayerRemoved` (`remove`) / 미션 리셋 (`clear`) 에서 빔·발광을 숨기거나 dispose 한다.
 
 검증: `npm run typecheck` (implants 폴더 0 오류). 빔은 멀티 전용이라 단일 클라이언트 smoke 로는 못 보고, `e2e:mp` 확장은 net 담당에게 위임 (실제 두 클라이언트 확인은 리드 `verify:all` 이후 권장).
+
+## Phase 9 (2026-09-06): 순수 배리어 질의 · 늦은 합류 · 빔 디버그 훅
+
+계약: `ImplantsRef.damageBarrier(owner, point, amount?)` (`src/shared/implants.ts`), `raycastBarrier` 는 순수 질의.
+
+- **배리어 판정 분리.** `raycastBarrier` 에서 `onBarrierBlocked` / 스파크를 들어내고 `damageBarrier` 로 옮겼다. 이제
+  weapons 의 `lineOfSight` / `Blocking.raycastBlockers`, enemies 의 사선 검사처럼 **투기적 질의**를 마음껏 해도 실드가
+  닳지 않는다. 탄이 실제로 멈춘 호출부(weapons 히트스캔 · 투사체, enemies 로그 사격 · 포탄 폭발 · 산성탄)만
+  `damageBarrier(owner, point)` 를 정확히 한 번 부른다.
+- **늦은 합류.** 스냅샷은 `PlayerFlags.BARRIER` 만 나르므로 나중에 합류한 클라이언트는 이미 세워진 배리어의 위치 / hp 를
+  모른다. `flow rejoined` 를 받으면 배리어가 활성인 소유자가 그 피어에게만 `imp barrier {active:true, p, yaw, hp}` 를
+  유니캐스트한다 (`sendBarrier(active, to)`).
+- **`buff revive` 중복 제거.** `ImplantSystem.onBuff` 의 `'revive'` 분기를 삭제 — 제세동기는 gadgets 소유다 (예전에는
+  두 폴더가 같은 `buff` 를 각자 적용해 부활이 두 번 걸렸다).
+- **`debugBeam(peerId)`** → `{on, target, self, until} | null` (`RemoteImplants.debugBeam` 위임). `e2e:mp` 가 수신 측에서
+  오버차지 빔이 실제로 그려지는지 확인하는 훅.

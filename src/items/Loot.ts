@@ -1,7 +1,7 @@
 import type { ArmorDef, CraftRecipe, EffectiveWeaponStats, EnemyType, ItemDef, ItemInstance, ItemInstanceExtras, LootRef, WeaponDef } from '@/shared';
 import { Random } from '@/shared';
 import { UNIQUE_WEAPON_IDS } from '@/shared';
-import { ATTACHMENT_ITEM_DEFS, ITEM_DEFS, ITEM_DEF_MAP, ammoItemIdFor, isWeaponItemDef, itemIdForWeapon, rarityRank } from './ItemDefs';
+import { ATTACHMENT_ITEM_DEFS, BOOK_ITEM_DEFS, ITEM_DEFS, ITEM_DEF_MAP, ammoItemIdFor, isWeaponItemDef, itemIdForWeapon, rarityRank } from './ItemDefs';
 import { WEAPON_DEF_MAP, isUniqueWeapon, weaponFamilyOf, weaponIdForGrade } from './WeaponDefs';
 import { canAttach as canAttachDef, computeWeaponStats, repairCost } from './WeaponStats';
 import { ARMOR_DEF_MAP } from './ArmorDefs';
@@ -206,6 +206,11 @@ export class LootService implements LootRef {
           out.push(this.createItem(ammoDef.id, Math.max(1, Math.min(ammoDef.stackMax, Math.round(ammoDef.stackMax * rng.range(lo, hi))))));
         }
       }
+    }
+
+    // Phase 9: a reading raider — one 서적, uniform over the 14 books (rolled after the unique so earlier draws are unchanged)
+    if (table.book && BOOK_ITEM_DEFS.length > 0 && rng.chance(table.book.chance)) {
+      out.push(this.createItem(rng.pick(BOOK_ITEM_DEFS).id, 1));
     }
 
     out.sort((a, b) => this.area(b) - this.area(a));

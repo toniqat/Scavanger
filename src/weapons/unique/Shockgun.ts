@@ -99,6 +99,7 @@ export class Shockgun implements UniqueHandler {
       this.tickT = 0;
       const mgr = s.ctx.enemies;
       const dps = w.stats.damage || SHOCK_DPS;
+      const attacker = s.ctx.net?.localId ?? 'local'; // Phase 9: status kills credit the shooter
       let anyKill = false;
       for (let i = 0; i < n; i++) {
         const e = this.targets[i];
@@ -106,7 +107,7 @@ export class Shockgun implements UniqueHandler {
         enemyCentre(e, _c);
         e.takeDamage(dps * dtTick, _c, _d);
         if (!wasDead && e.isDead) { anyKill = true; continue; }
-        if (mgr && typeof mgr.applyStatus === 'function') mgr.applyStatus(e.id, 'shocked', SHOCK_SLOW_FACTOR, SHOCK_SLOW_DURATION);
+        if (mgr && typeof mgr.applyStatus === 'function') mgr.applyStatus(e.id, 'shocked', SHOCK_SLOW_FACTOR, SHOCK_SLOW_DURATION, attacker);
       }
       if (n > 0) s.ctx.bus.emit('ui:hitmarker', { kill: anyKill });
     }

@@ -151,6 +151,13 @@ export class RemoteImplants {
     }
   }
 
+  /** e2e hook (Phase 9): the beam state replicated for `peerId`, or null when that peer has no visuals here. */
+  debugBeam(peerId: PeerId): { on: boolean; target: PeerId | null; self: boolean; until: number } | null {
+    const v = this.peers.get(peerId);
+    if (!v) return null;
+    return { on: v.beamOn, target: v.beamTarget, self: v.beamSelf, until: v.beamUntil };
+  }
+
   update(dt: number): void {
     const net = this.ctx.net;
     // devices follow the snapshot field so they survive a missed `imp wield`

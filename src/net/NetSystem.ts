@@ -113,6 +113,9 @@ export class NetSystem implements GameSystem, NetRef {
   /** Last `inMission` we reported per member (`net:missionMembership` diffs). */
   private readonly membership = new Map<PeerId, boolean>();
   private raidTooLargeWarned = false;
+  /* ── Phase 9 ── */
+  /** `serverTime - performance.now()` from the last welcome / pong of ANY connection this session (null = never welcomed). */
+  private serverOffset: number | null = null;
 
   /* ── NetRef getters ─────────────────────────────────────────────────── */
   get status(): NetStatus { return this.client.status; }
@@ -141,13 +144,15 @@ export class NetSystem implements GameSystem, NetRef {
   /* ── Phase 8 ── */
   /**
    * Relay wall clock in epoch ms: the offset captured at the last `welcome` / `pong` plus the elapsed local time.
-   * `performance.now()` is monotonic, so moving the system clock cannot advance a crop timer. Falls back to
-   * `Date.now()` while offline (single-player keeps working, just on the local clock).
+   * `performance.now()` is monotonic, so moving the system clock cannot advance a crop timer. Phase 9: the last
+   * offset is **kept through a disconnect** (profile stamps written offline stay on the server's clock); only a
+   * session that never saw a welcome falls back to `Date.now()` (single-player keeps working on the local clock).
    */
   serverNow(): number {
     const c = this.client;
-    if (!c.connected || !c.hasServerTime) return Date.now();
-    const t = performance.now() + c.serverTimeOffset;
+    if (c.connected && c.hasServerTime) this.serverOffset = c.serverTimeOffset;
+    if (this.serverOffset === null) return Date.now();
+    const t = performance.now() + this.serverOffset;
     return Number.isFinite(t) ? t : Date.now();
   }
 
@@ -157,6 +162,7 @@ export class NetSystem implements GameSystem, NetRef {
     ctx.net = this;
     this.profileSync.bus = ctx.bus;
     this.profileSync.send = (m) => this.client.send(m);
+    this.profileSync.serverNow = () => this.serverNow();
 
     try {
       const stored = localStorage.getItem(NAME_STORAGE_KEY);
@@ -364,6 +370,7 @@ export class NetSystem implements GameSystem, NetRef {
     const resumedAfterDrop = this._reconnecting;
     this.stopReconnect();
     this.lastLocalId = msg.id;
+    if (this.client.hasServerTime) this.serverOffset = this.client.serverTimeOffset;
     const lobby = msg.lobby ?? null;
 
     // Seamless: we were inside the mission this lobby is still running → keep inSession + remotes, nothing rebuilt.
@@ -388,6 +395,16 @@ export class NetSystem implements GameSystem, NetRef {
       this.lobbySuspended = false;
       this.applyLobby(lobby);
       this.lastSnapshotAt = -Infinity;
+      // Phase 9: coming back into a running mission WITHOUT our session state (page reload, or a drop we gave up on)
+      // means we left it — tell the server so the host parks our ghost and the authority never waits on us. A pod /
+      // the terminal re-enters with `rejoinMission()` (which flips `inMission` back).
+      if (lobby.started && !seamless && !this._inSession) {
+        const me = this.getLobbyPlayer(msg.id);
+        if (me && me.inMission) {
+          me.inMission = false; // optimistic mirror; the broadcast confirms it
+          this.client.send({ t: 'lobby:mission', inMission: false });
+        }
+      }
       bus.emit('net:resumed', { lobby, inProgress: lobby.started && !this._inSession, seamless });
       if (!seamless && this._raidBlob) bus.emit('net:raidLoaded', { blob: this._raidBlob });
       // Back inside the running mission: the host may hold our body as a ghost — ask for it back (`ghost restore`)
@@ -525,6 +542,7 @@ export class NetSystem implements GameSystem, NetRef {
         this.onWelcome(msg);
         return;
       case 'pong':
+        if (this.client.hasServerTime) this.serverOffset = this.client.serverTimeOffset;
         return;
 
       case 'lobby:state': {
@@ -539,6 +557,7 @@ export class NetSystem implements GameSystem, NetRef {
 
       case 'lobby:error':
         if (msg.code === 'duplicate') this.duplicateKicked = true;
+        this.profileSync.onError(msg.code);
         this.pendingQuickMatch = false;
         bus.emit('net:error', { code: msg.code, message: msg.message });
         return;
@@ -634,15 +653,19 @@ export class NetSystem implements GameSystem, NetRef {
     bus.emit('net:lobbyUpdated', { lobby: next });
   }
 
-  /** `lobby.hostId` changed. Mid-session this is a migration: promote / demote systems, announce a takeover. */
+  /**
+   * `lobby.hostId` changed while the lobby runs a mission. Inside the session this is a migration: promote / demote
+   * systems, announce a takeover. Phase 9: the event goes out even when we are NOT in the session (hub member of a
+   * running lobby — every system is a no-op outside a live mission), but `tookOver` / `flow takeover` stay session-only.
+   */
   private onHostChanged(prev: PeerId, next: PeerId): void {
     this.prevHostId = prev;
-    if (!this._inSession) return;
+    if (!this._lobby || !this._lobby.started) return;
     const isLocalHost = next === this.localId;
-    if (isLocalHost) this._tookOver = true;
+    if (isLocalHost && this._inSession) this._tookOver = true;
     this.ctx.bus.emit('net:hostChanged', { hostId: next, prev, isLocalHost });
     // After every local system promoted itself: tell the others so they re-request their syncs from us.
-    if (isLocalHost) this.send({ t: 'flow', ev: 'takeover' }, 'others');
+    if (isLocalHost && this._inSession) this.send({ t: 'flow', ev: 'takeover' }, 'others');
   }
 
   /**

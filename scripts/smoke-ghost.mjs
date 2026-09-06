@@ -4,7 +4,11 @@
 // `remotePlayers.debugSpawn` (THROWING / COOKING / CHARGING / SPRAYING / HEAVY / MELEE_HEAVY / OVERCHARGED, held-item
 // mesh from `heldItemId`, armor plates from `armorId`), and host-side ghosts of suspended members via `debugSuspend`
 // (creation, `ghost:damage` → downed → bleed → dead, knockback nudge, revive through the interactable, host
-// demotion / promotion rebuild, rejoin restore wire).
+// demotion / promotion rebuild, rejoin restore wire). Phase 9: a ghost built from a downed ref inherits `ref.downHp`
+// (clamped 1..PLAYER_DOWN_HP), `ref.ghostState / ghostDownHp` mirror the ghost, and **parked ghosts** — a member that
+// left the mission (`net:missionMembership {inMission:false}`) or whose socket came back without `flow rejoined`
+// keeps a non-simulated body for NET_GHOST_PARK_S (`getParkedGhosts`), restored by a rejoin inside the window, expired
+// after it (`debugExpireParked`), cleared by demotion / `game:abort`.
 // Usage: node scripts/smoke-ghost.mjs [http://localhost:5273]   (needs `npm run dev` or a private `npx vite --port 5303`)
 import puppeteer from 'puppeteer-core';
 import { existsSync } from 'node:fs';
@@ -267,6 +271,8 @@ try {
   ok(g3.st === 1 && g3.hp === 0 && g3.downHp === 100, 'ghost:damage 120 → downed with downHp 100', JSON.stringify(g3));
   ok(g3.dx > 0.5 && g3.dx <= 2.01, 'knockback nudges the ghost', String(g3.dx));
   ok(g3.refDowned && g3.refHp === 0, 'host ref mirrors the ghost (downed, hp 0)', JSON.stringify(g3));
+  const g3s = await P(() => ({ st: window.__refB.ghostState, dhp: window.__refB.ghostDownHp }));
+  ok(g3s.st === 1 && g3s.dhp === 100, 'Phase 9: ref.ghostState 1 / ghostDownHp 100 (the wipe check reads the ref)', JSON.stringify(g3s));
   await waitSim(0.5);
   const g3b = await P(() => { const av = window.__rp.getAvatar('dbg-b'); return { prone: av.poseView.prone, shown: av.isShown, revives: window.__rp.getReviveTargets() }; });
   ok(g3b.shown && g3b.prone > 0.5, 'downed ghost → prone pose on the grey avatar', JSON.stringify(g3b));
@@ -300,11 +306,25 @@ try {
 
   console.log('ghost from a downed ref + host demotion / promotion');
   const h0 = await P(() => {
-    const rp = window.__rp; const ref = rp.debugSpawn({ id: 'dbg-c', slot: 3, isDowned: true }); ref.hp = 0; window.__refC = ref;
+    const rp = window.__rp; const ref = rp.debugSpawn({ id: 'dbg-c', slot: 3, isDowned: true, downHp: 37 }); ref.hp = 0; window.__refC = ref;
     const g = rp.debugSuspend('dbg-c', true);
-    return { st: g && g.state, downHp: g && g.downHp };
+    return { st: g && g.state, downHp: g && g.downHp, refSt: ref.ghostState, refDhp: ref.ghostDownHp };
   });
-  ok(h0.st === 1 && h0.downHp === 100, 'suspending a downed ref → ghost st 1 with a full down pool', JSON.stringify(h0));
+  ok(h0.st === 1 && h0.downHp === 37, 'Phase 9: suspending a downed ref → ghost st 1 inherits its down pool (downHp 37)', JSON.stringify(h0));
+  ok(h0.refSt === 1 && h0.refDhp === 37, 'ref.ghostState 1 / ghostDownHp 37 written by applyToRef', JSON.stringify(h0));
+  const h0b = await P(() => {
+    const rp = window.__rp; rp.debugClear('dbg-c');
+    const ref = rp.debugSpawn({ id: 'dbg-c', slot: 3, isDowned: true, downHp: 999 }); ref.hp = 0; window.__refC = ref;
+    const a = rp.debugSuspend('dbg-c', true); const clampedHi = a && a.downHp;
+    rp.debugClear('dbg-c');
+    const ref2 = rp.debugSpawn({ id: 'dbg-c', slot: 3, isDowned: true, downHp: 0 }); ref2.hp = 0; window.__refC = ref2;
+    const b = rp.debugSuspend('dbg-c', true); const clampedLo = b && b.downHp;
+    rp.debugClear('dbg-c');
+    const ref3 = rp.debugSpawn({ id: 'dbg-c', slot: 3, isDowned: true }); ref3.hp = 0; window.__refC = ref3;
+    const c = rp.debugSuspend('dbg-c', true); const unknown = c && c.downHp;
+    return { clampedHi, clampedLo, unknown };
+  });
+  ok(h0b.clampedHi === 100 && h0b.clampedLo === 1 && h0b.unknown === 100, 'downHp clamped 1..PLAYER_DOWN_HP, unknown → full pool', JSON.stringify(h0b));
   const h1 = await P(() => {
     const rp = window.__rp; const bus = window.__game.ctx.bus;
     bus.emit('ghost:damage', { id: 'dbg-c', amount: 30 });
@@ -321,6 +341,74 @@ try {
   await waitSim(0.2);
   const cleared = await P(() => ({ ghosts: window.__rp.getGhosts().size, avatars: window.__rp.getAvatars().size, revives: window.__rp.getReviveTargets().length }));
   ok(cleared.ghosts === 0 && cleared.avatars === 0 && cleared.revives === 0, 'debugClear removes ghosts, avatars and revive prompts', JSON.stringify(cleared));
+
+  console.log('Phase 9: parked ghosts (member left the mission without rejoining)');
+  const k0 = await P(() => {
+    const rp = window.__rp; const bus = window.__game.ctx.bus; const ctx = window.__game.ctx;
+    const ref = rp.debugSpawn({ id: 'dbg-d', slot: 2 }); ref.hp = 80; window.__refD = ref;
+    rp.debugSuspend('dbg-d', true);
+    bus.emit('ghost:damage', { id: 'dbg-d', amount: 30 });
+    const active = { st: rp.getGhost('dbg-d').state, hp: rp.getGhost('dbg-d').hp, refSt: ref.ghostState };
+    const evBefore = window.__ev['net:ghostState'].length;
+    bus.emit('net:missionMembership', { id: 'dbg-d', inMission: false });
+    const p = rp.getParkedGhosts().get('dbg-d');
+    window.__parkEv = window.__ev['net:ghostState'].length;
+    return { active, ghosts: rp.getGhosts().size, parked: rp.getParkedGhosts().size, wireHp: p && p.wire.hp, wireSt: p && p.wire.st, window: p && (p.until - ctx.time),
+      last: rp.getLastGhostStates().has('dbg-d'), refSt: ref.ghostState, refDhp: ref.ghostDownHp, refHp: ref.hp, evDelta: window.__ev['net:ghostState'].length - evBefore };
+  });
+  ok(k0.active.st === 0 && k0.active.hp === 50 && k0.active.refSt === 0, 'active ghost hp 50 before parking (ref.ghostState 0)', JSON.stringify(k0.active));
+  ok(k0.ghosts === 0 && k0.parked === 1 && k0.wireHp === 50 && k0.wireSt === 0, 'net:missionMembership {inMission:false} → ghost parked with its last wire (hp 50)', JSON.stringify(k0));
+  ok(k0.window > 119 && k0.window <= 120.01, 'parked until ctx.time + NET_GHOST_PARK_S (120 s)', String(k0.window));
+  ok(!k0.last && k0.refSt === undefined && k0.refDhp === undefined && k0.evDelta === 0, 'lastGhost dropped, ref.ghostState cleared, no net:ghostState on parking', JSON.stringify(k0));
+  await waitSim(1.5);
+  const k1 = await P(() => {
+    const rp = window.__rp; const bus = window.__game.ctx.bus;
+    const ev = window.__ev['net:ghostState'].length - window.__parkEv;
+    bus.emit('ghost:damage', { id: 'dbg-d', amount: 500 });
+    const p = rp.getParkedGhosts().get('dbg-d');
+    return { ev, parked: rp.getParkedGhosts().size, wireHp: p && p.wire.hp, wireSt: p && p.wire.st, ghosts: rp.getGhosts().size };
+  });
+  ok(k1.ev === 0 && k1.parked === 1 && k1.wireHp === 50 && k1.wireSt === 0 && k1.ghosts === 0, 'parked ghost is not simulated: no broadcasts, ghost:damage ignored', JSON.stringify(k1));
+  const k2 = await P(() => { const rp = window.__rp; const wire = rp.debugRejoin('dbg-d'); return { wire, parked: rp.getParkedGhosts().size, ghosts: rp.getGhosts().size, again: rp.debugRejoin('dbg-d') }; });
+  ok(k2.wire && k2.wire.id === 'dbg-d' && k2.wire.hp === 50 && k2.wire.st === 0 && k2.parked === 0 && k2.ghosts === 0, 'flow rejoined inside the window → ghost restore from the parked wire, entry forgotten', JSON.stringify(k2));
+  ok(k2.again === null, 'a second rejoin has nothing to restore', JSON.stringify(k2.again));
+  const k3 = await P(() => {
+    const rp = window.__rp; const bus = window.__game.ctx.bus;
+    window.__refD.hp = 64;
+    rp.debugSuspend('dbg-d', true);
+    bus.emit('ghost:damage', { id: 'dbg-d', amount: 70 });
+    const active = { st: rp.getGhost('dbg-d').state, dhp: rp.getGhost('dbg-d').downHp };
+    rp.debugSuspend('dbg-d', false);   // socket back without `flow rejoined` → parked
+    const p = rp.getParkedGhosts().get('dbg-d');
+    return { active, ghosts: rp.getGhosts().size, parked: rp.getParkedGhosts().size, wireSt: p && p.wire.st, wireDhp: p && p.wire.dhp, expired: rp.debugExpireParked('dbg-d') };
+  });
+  ok(k3.active.st === 1 && k3.active.dhp === 100, 'a fresh suspension makes a new ghost (downed by damage)', JSON.stringify(k3.active));
+  ok(k3.ghosts === 0 && k3.parked === 1 && k3.wireSt === 1 && k3.wireDhp === 100, 'net:peerSuspended {suspended:false} with a ghost → parked (st 1, dhp 100)', JSON.stringify(k3));
+  await waitSim(0.3);
+  const k4 = await P(() => { const rp = window.__rp; return { parked: rp.getParkedGhosts().size, rejoin: rp.debugRejoin('dbg-d'), ghosts: rp.getGhosts().size }; });
+  ok(k3.expired && k4.parked === 0 && k4.rejoin === null && k4.ghosts === 0, 'expiry (until reached) forgets the parked body: a late rejoin restores nothing', JSON.stringify(k4));
+  const k5 = await P(() => {
+    const rp = window.__rp; const bus = window.__game.ctx.bus;
+    rp.debugSuspend('dbg-d', true);
+    bus.emit('net:missionMembership', { id: 'dbg-d', inMission: false });
+    window.__refD.suspended = false;   // net: inMission false ⇒ not suspended (no rebuild on promotion)
+    const parkedBefore = rp.getParkedGhosts().size;
+    bus.emit('net:hostChanged', { hostId: 'other', prev: 'me', isLocalHost: false });
+    const afterDemotion = rp.getParkedGhosts().size;
+    bus.emit('net:hostChanged', { hostId: 'me', prev: 'other', isLocalHost: true });
+    return { parkedBefore, afterDemotion, ghosts: rp.getGhosts().size, parked: rp.getParkedGhosts().size };
+  });
+  ok(k5.parkedBefore === 1 && k5.afterDemotion === 0 && k5.parked === 0 && k5.ghosts === 0, 'demotion clears parked bodies; promotion does not resurrect them', JSON.stringify(k5));
+  const k6 = await P(() => {
+    const rp = window.__rp; const bus = window.__game.ctx.bus;
+    rp.debugSuspend('dbg-d', true);
+    bus.emit('net:missionMembership', { id: 'dbg-d', inMission: false });
+    const parkedBefore = rp.getParkedGhosts().size;
+    bus.emit('game:abort', {});
+    return { parkedBefore, parked: rp.getParkedGhosts().size, ghosts: rp.getGhosts().size };
+  });
+  ok(k6.parkedBefore === 1 && k6.parked === 0 && k6.ghosts === 0, 'game:abort clears parked bodies', JSON.stringify(k6));
+  await P(() => { window.__rp.debugClear(); });
 
   const gameErrors = errors.filter((e) => !/WebSocket/.test(e));
   ok(gameErrors.length === 0, `no console errors (${gameErrors.length}; ${errors.length - gameErrors.length} relay socket errors ignored)`, gameErrors.slice(0, 5).join(' | '));

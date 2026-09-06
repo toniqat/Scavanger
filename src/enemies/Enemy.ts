@@ -186,6 +186,8 @@ export class Enemy implements EnemyRef {
   burnTimer = 0;
   burnTick = 0;
   emberTimer = 0;
+  /** Phase 9: who lit the fire (`applyStatus(..., attacker)`); the burn DoT credits it over `lastDamager`. null = unknown. */
+  burnAttacker: TargetId | null = null;
   /** Movement slow (0..1 multiplier, 1 = none). */
   slowFactor = 1;
   slowTimer = 0;
@@ -278,7 +280,7 @@ export class Enemy implements EnemyRef {
     this.hasLure = false; this.lureWeight = 0;
     this.suspicionTimer = 0; this.suspicionSpread = 0; this.suspicionAt = -Infinity;
     this.spitAtPoint = false;
-    this.burnDps = 0; this.burnTimer = 0; this.burnTick = 0; this.emberTimer = 0;
+    this.burnDps = 0; this.burnTimer = 0; this.burnTick = 0; this.emberTimer = 0; this.burnAttacker = null;
     this.slowFactor = 1; this.slowTimer = 0;
     this.structTarget = null; this.structTimer = 0; this.structAttack = false; this.structBlocking = false;
     this.incapTimer = 0; this.shockTimer = 0; this.sparkTimer = 0; this.statusReqBits = 0; this.statusReqAt = -Infinity;
@@ -520,7 +522,7 @@ export class Enemy implements EnemyRef {
     this.throwTimer = 0; this.reloadTimer = 0;
     this.velocity.set(0, 0, 0);
     this.syncTarget();
-    this.burnDps = 0; this.burnTimer = 0;
+    this.burnDps = 0; this.burnTimer = 0; this.burnAttacker = null;
     this.slowFactor = 1; this.slowTimer = 0;
     this.incapTimer = 0; this.shockTimer = 0;
     this.structTarget = null; this.structAttack = false; this.structBlocking = false;

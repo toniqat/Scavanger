@@ -3,6 +3,7 @@ import { Keys, ROOM_PURPOSES, ROOM_PURPOSES_ACTIVE, ROOM_PURPOSE_DESC_KO, ROOM_P
 import type { HousingSystem } from '../HousingSystem';
 import { facilityPurposeOf } from '../Rules';
 import { FacilityRows } from './FacilityRows';
+import { createBookDex } from './BookDex';
 import { CHIP_SIZE_SMALL, clear, el, levelText, renderCost, section, setText, toggleClass } from './dom';
 
 /**
@@ -13,6 +14,8 @@ import { CHIP_SIZE_SMALL, clear, el, levelText, renderCost, section, setText, to
  *   - **right column** — 방 목록: one row per room with its purpose picker (`purposeBlock` disables what the rules
  *     refuse — room 1 is the locked 작업실), its furniture count and, for a 작업실 / 사격장 room, that facility's
  *     level, cost chips, block reason and 업그레이드 button.
+ *   - **right column, below the rooms** — the 서재 **도감** (Phase 9, `ui/BookDex.ts`: one row per skill with its book,
+ *     보유 / 미보유 and the current 서재 multiplier — the same renderer the 책장 panel uses).
  *   - **bottom right** — a sticky **시설 관리 (M)** button that closes the Tab window and enters `openShipManage()`,
  *     exactly like pressing M in the ship. It sticks to the bottom of the scrolling screen, so it is reachable
  *     wherever the list is scrolled.
@@ -108,6 +111,11 @@ export function createShipView(ctx: GameContext, housing: HousingSystem, host: H
     rows.push({ root: row, name, tag, select, desc, fac, facCost, facBlocked, facBtn });
   }
 
+  /* 도감 (Phase 9): under the 방 목록, same renderer as the 책장 panel */
+  const secDex = section(colRight, '도감');
+  el('div', { cls: 'hint', text: '서재의 책장에 꽂아 본 서적이 남습니다. 배율은 지금 꽂혀 있는 책으로 계산됩니다.', parent: secDex });
+  const dex = createBookDex(ctx, housing, secDex);
+
   /* 시설 관리 (M): sticky in the bottom-right corner of the scrolling screen */
   const foot = el('div', { cls: 'hs-ship-foot', parent: root });
   const manageBtn = el('button', { cls: 'ui-btn primary hs-manage-btn', parent: foot }) as HTMLButtonElement;
@@ -130,6 +138,7 @@ export function createShipView(ctx: GameContext, housing: HousingSystem, host: H
     setText(manageKey, keyLabel(Keys.MAP));
     manageBtn.disabled = !!housing.shipManageBlock();
     facilities.refresh();
+    dex.refresh();
     rows.forEach((row, i) => {
       const state = housing.getRoom(i);
       const fid = facilityPurposeOf(state.purpose);

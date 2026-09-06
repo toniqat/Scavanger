@@ -6,6 +6,10 @@
 // destructible-obstacle path → it pops back after TRAINING_TARGET_RESPAWN_S → the exit console emits
 // `training:exitRequested` (+ the return to the ship, driven by game/ when implemented, else by the script) → a faked
 // lobby checks the shared-ship terminal entry (시작 / 합류 (n명 훈련 중) / 임무 진행 중) and the pod lock while a training runs.
+// Phase 9 `target modes`: `ctx.world.training` (TrainingRef), the mode console `training_mode` cycling 고정 → 이동 → 타임 코스
+// (`training:modeChanged`), 이동 표적 x sweep + a raycast at the moved x (hash re-bucketed), the timed course (start / `training:scored` /
+// `training:courseFinished` completed + timed-out, best in localStorage `scav.training`, `setMode` refused mid-course), the weapon rack
+// `training_rack` → `ui:catalogToggled {open:true}` and the catalog-granted weapon gone after the exit restore.
 // Usage: node scripts/smoke-training.mjs [http://localhost:5273/]   (needs a vite dev server; no relay needed)
 import puppeteer from 'puppeteer-core';
 import { existsSync } from 'node:fs';
@@ -61,7 +65,7 @@ try {
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   await page.goto(BASE, { waitUntil: 'load' });
   await waitFor(page, () => !!window.__game && !!window.__game.ctx.hub, 'boot');
-  await page.evaluate(() => { try { localStorage.removeItem('scav.ship'); localStorage.removeItem('scav.loadout'); } catch {} });
+  await page.evaluate(() => { try { localStorage.removeItem('scav.ship'); localStorage.removeItem('scav.loadout'); localStorage.removeItem('scav.training'); } catch {} });
   await page.goto(BASE, { waitUntil: 'load' });
   await waitFor(page, () => !!window.__game && !!window.__game.ctx.hub, 'boot (fresh ship state)');
   await page.evaluate(() => {
@@ -73,7 +77,8 @@ try {
     window.__ev = {};
     const bus = window.__game.ctx.bus;
     for (const n of ['hub:entered', 'hub:left', 'game:newMission', 'world:ready', 'world:cleared', 'ui:objective', 'training:exitRequested',
-      'weapon:hit', 'weapon:fired', 'ui:notify', 'housing:furniturePlaced', 'net:lobbyUpdated']) {
+      'weapon:hit', 'weapon:fired', 'ui:notify', 'housing:furniturePlaced', 'net:lobbyUpdated',
+      'training:modeChanged', 'training:scored', 'training:courseFinished', 'ui:catalogToggled']) {
       window.__ev[n] = [];
       bus.on(n, (p) => { window.__ev[n].push(JSON.parse(JSON.stringify(p, (k, v) => (v && v.isVector3) ? [v.x, v.y, v.z] : v))); });
     }
@@ -151,6 +156,8 @@ try {
     const arena = ws.trainingArena;
     const ids = ctx.interactables.all().map((i) => i.id);
     const exit = ctx.interactables.all().find((i) => i.id === 'training_exit');
+    const modeIt = ctx.interactables.all().find((i) => i.id === 'training_mode');
+    const rackIt = ctx.interactables.all().find((i) => i.id === 'training_rack');
     const atmo = ctx.scene.userData.atmosphere;
     let groupMeshes = 0; ctx.scene.getObjectByName('TrainingArena')?.traverse((o) => { if (o.isMesh) groupMeshes++; });
     const sp = w.getPlayerSpawn();
@@ -160,6 +167,8 @@ try {
       spawns: w.getEnemySpawnPoints(sp, 5, 5, 20).length,
       targets: arena?.targetCount ?? -1, obstacles: w.getObstacles().length,
       hubShip: ctx.hub.ship, hasExit: !!exit, exitPrompt: exit?.getPrompt() ?? null, crateIds: ids.filter((i) => /^crate/.test(i)).length,
+      modePrompt: modeIt?.getPrompt() ?? null, modeX: modeIt?.position.x ?? null, rackPrompt: rackIt?.getPrompt() ?? null, rackX: rackIt?.position.x ?? null,
+      training: w.training ? { mode: w.training.mode, score: w.training.score, hits: w.training.hits, remaining: w.training.remaining, best: w.training.bestTime } : null,
       space: atmo?.spaceMode ?? null, groupMeshes, spawn: [sp.x, sp.y, sp.z],
       h: w.getHeightAt(5, 5), inside: w.isInsideBounds(20, -20), outside: w.isInsideBounds(40, 0),
     };
@@ -169,7 +178,10 @@ try {
   ok(w0.extraction === 0 && w0.crates === 0 && w0.nests === 0 && w0.gather === 0, `no extraction / crates / nests / gather (${w0.extraction}/${w0.crates}/${w0.nests}/${w0.gather})`);
   ok(w0.spawns === 0, `no enemy spawn points (${w0.spawns})`);
   ok(w0.targets === 12, `12 pop-up targets (${w0.targets})`);
-  ok(w0.obstacles === 13, `13 obstacles = targets + exit console (${w0.obstacles})`);
+  ok(w0.obstacles === 15, `15 obstacles = targets + exit / mode / rack consoles (${w0.obstacles})`);
+  ok(w0.modePrompt === '표적 모드: 고정 표적' && w0.modeX === 8, `training_mode console at x +8, prompt "${w0.modePrompt}"`);
+  ok(w0.rackPrompt === '무기 거치대' && w0.rackX === 14, `training_rack console at x +14, prompt "${w0.rackPrompt}"`);
+  ok(!!w0.training && w0.training.mode === 'static' && w0.training.score === 0 && w0.training.remaining === -1 && w0.training.best === null, `ctx.world.training: ${JSON.stringify(w0.training)}`);
   ok(w0.hubShip === null, 'hub torn down (ctx.hub.ship null)');
   ok(w0.hasExit && w0.exitPrompt === '훈련 종료', `training_exit registered, prompt "${w0.exitPrompt}"`);
   ok(w0.crateIds === 0, 'no crate interactables');
@@ -178,7 +190,7 @@ try {
   ok(Math.abs(w0.spawn[0]) < 0.01 && Math.abs(w0.spawn[2] - 26) < 0.01 && w0.spawn[1] === 0, `spawn at the south end (${w0.spawn.map((n) => n.toFixed(1))})`);
   ok(w0.h === 0 && w0.inside && !w0.outside, 'flat height 0, bounds = arena');
   const obj = await lastEv('ui:objective');
-  ok(obj && /시뮬레이션 훈련장/.test(obj.text) && /명중 0/.test(obj.subText ?? ''), `ui:objective "${obj?.text}" / "${obj?.subText}"`);
+  ok(obj && /시뮬레이션 훈련장/.test(obj.text) && /명중 0/.test(obj.subText ?? '') && /고정 표적/.test(obj.subText ?? ''), `ui:objective "${obj?.text}" / "${obj?.subText}"`);
   const wr = await lastEv('world:ready');
   ok(wr && wr.seed === w0.seed, 'world:ready emitted with the seed');
 
@@ -271,7 +283,9 @@ try {
   ok(knocked.knock >= 1, `knockdown counted (${knocked.knock})`);
   ok(knocked.boardX < -1.2, `board hinged to the floor (rotation.x ${knocked.boardX.toFixed(2)})`);
   ok(knocked.through !== 'training_target_0', `a fallen target no longer blocks the ray (${knocked.through})`);
-  ok(knocked.obstacles === 12, `obstacle removed from the hash while down (${knocked.obstacles})`);
+  ok(knocked.obstacles === 14, `obstacle removed from the hash while down (${knocked.obstacles})`);
+  const scored0 = await lastEv('training:scored');
+  ok(scored0 && scored0.index === 0 && scored0.score === 1, `training:scored {index 0, score 1} (${JSON.stringify(scored0)})`);
   const objDown = await lastEv('ui:objective');
   ok(objDown && /격추 1/.test(objDown.subText ?? ''), `objective counter updated "${objDown?.subText}"`);
   await waitSim(3.6);   // TRAINING_TARGET_RESPAWN_S 3 + raise animation
@@ -288,7 +302,143 @@ try {
   });
   ok(!raised.down && raised.hp === 60, `target 0 popped back up after TRAINING_TARGET_RESPAWN_S (hp ${raised.hp})`);
   ok(Math.abs(raised.boardX) < 0.05, `board upright again (rotation.x ${raised.boardX.toFixed(2)})`);
-  ok(raised.through === 'training_target_0' && raised.obstacles === 13, 'target back in the hash');
+  ok(raised.through === 'training_target_0' && raised.obstacles === 15, 'target back in the hash');
+
+  /* ── 3b. target modes (Phase 9) ─────────────────────────────────────────── */
+  console.log('target modes');
+  const modeIt = () => P(() => { const it = window.__game.ctx.interactables.all().find((i) => i.id === 'training_mode'); it.interact(); return it.getPrompt(); });
+  const tr = (fn, arg) => P(fn, arg);
+  const p1 = await modeIt();
+  await waitSim(0.1);
+  const m1 = await tr(() => ({ mode: window.__game.ctx.world.training.mode, ev: window.__ev['training:modeChanged'].map((e) => e.mode), score: window.__game.ctx.world.training.score }));
+  ok(m1.mode === 'moving' && m1.ev.join(',') === 'moving' && p1 === '표적 모드: 이동 표적', `E cycles to 이동 표적 (training:modeChanged ${m1.ev.join(',')}, prompt "${p1}")`);
+  ok(m1.score === 0, 'score reset on a mode change');
+  const mx0 = await tr(() => window.__game.getSystem('world').trainingArena.getTargetState(0).position.x);
+  await waitSim(0.6);
+  const mx1 = await tr(() => window.__game.getSystem('world').trainingArena.getTargetState(0).position.x);
+  await waitSim(0.6);
+  const moved = await tr(() => {
+    const ctx = window.__game.ctx, w = ctx.world;
+    const t0 = window.__game.getSystem('world').trainingArena.getTargetState(0);
+    const root = ctx.scene.getObjectByName('target-0');
+    const from = t0.position.clone(); from.set(t0.position.x, 1.4, t0.position.z + 8);
+    const dir = from.clone(); dir.set(0, 0, -1);
+    const h = w.raycast(from, dir, 60);
+    // a ray 3 m to the other side of the lane centre must miss (the target moved in the hash, not only visually)
+    const from2 = from.clone(); from2.x = -10 + (t0.position.x < -10 ? 3 : -3);
+    const h2 = w.raycast(from2, dir, 60);
+    const x3 = window.__game.getSystem('world').trainingArena.getTargetState(3).position.x;
+    return { x: t0.position.x, rootX: root.position.x, hit: h ? (h.obstacle?.destructible?.id ?? 'env') : 'none', away: h2 ? (h2.obstacle?.destructible?.id ?? 'env') : 'none', obstacles: w.getObstacles().length, x3 };
+  });
+  ok(mx1 !== mx0 && moved.x !== mx1, `이동 표적: target 0 x sweeps (${mx0.toFixed(2)} → ${mx1.toFixed(2)} → ${moved.x.toFixed(2)})`);
+  ok(Math.abs(moved.rootX - moved.x) < 1e-6, 'mesh root follows the obstacle entry');
+  // TRAINING_MOVING_SPAN (3.2) is the HALF width of the sweep; targets 0 and 3 both sit in lane 0 (centre x = −10),
+  // and 3.2 + TARGET_RADIUS 0.42 stays inside LANE_HALF_W 4.
+  ok(Math.abs(moved.x + 10) <= 3.2 + 1e-6 && Math.abs(moved.x3 + 10) <= 3.2 + 1e-6, `sweep stays within TRAINING_MOVING_SPAN of the lane centre (${moved.x.toFixed(2)}, ${moved.x3.toFixed(2)})`);
+  ok(moved.hit === 'training_target_0', `raycast at the moved x hits target 0 (${moved.hit})`);
+  ok(moved.away !== 'training_target_0', `ray on the other side of the lane misses it (${moved.away})`);
+  ok(moved.obstacles === 15, `no duplicate hash entries after re-bucketing (${moved.obstacles})`);
+  const p2 = await modeIt();
+  await waitSim(0.1);
+  const m2 = await tr(() => ({ mode: window.__game.ctx.world.training.mode, x: window.__game.getSystem('world').trainingArena.getTargetState(0).position.x, ev: window.__ev['training:modeChanged'].map((e) => e.mode) }));
+  ok(m2.mode === 'timed' && p2 === '타임 코스 시작', `E cycles to 타임 코스 (prompt "${p2}")`);
+  ok(m2.x !== moved.x && Math.abs(m2.x + 10) <= 1.6 + 1e-6, `targets return to their resting x when leaving 이동 표적 (${m2.x.toFixed(2)})`);
+  const started = await tr(() => window.__game.ctx.world.training.startCourse());
+  ok(started === true, 'startCourse() in 타임 코스 while idle → true');
+  await waitSim(0.25);   // let the clock tick: `remaining` is (deadline − arena time) and both are stamped by `update`
+  const c0 = await tr(() => {
+    const t = window.__game.ctx.world.training;
+    const it = window.__game.ctx.interactables.all().find((i) => i.id === 'training_mode');
+    const again = t.startCourse();
+    const setMoving = t.setMode('moving');
+    it.interact();                      // E during a course does nothing
+    return { remaining: t.remaining, again, setMoving, mode: t.mode, prompt: it.getPrompt(), score: t.score, hits: t.hits };
+  });
+  ok(c0.remaining > 59 && c0.remaining < 60, `course running: remaining ${c0.remaining.toFixed(2)} s (counts down from ${60})`);
+  ok(c0.again === false && c0.setMoving === false && c0.mode === 'timed', 'startCourse / setMode refused mid-course');
+  ok(/타임 코스 진행 중/.test(c0.prompt ?? '') && c0.score === 0 && c0.hits === 0, `console prompt "${c0.prompt}", counters reset`);
+  const objRun = await lastEv('ui:objective');
+  ok(objRun && /0\/10/.test(objRun.subText ?? '') && /남은/.test(objRun.subText ?? ''), `objective shows the course (${objRun?.subText})`);
+  // knock target 1 through the public destructible path
+  const scoredN = (await ev('training:scored')).length;
+  const k1 = await tr(() => {
+    const ctx = window.__game.ctx, w = ctx.world;
+    const t1 = window.__game.getSystem('world').trainingArena.getTargetState(1);
+    const from = t1.position.clone(); from.set(t1.position.x, 1.4, t1.position.z + 8);
+    const dir = from.clone(); dir.set(0, 0, -1);
+    const h = w.raycast(from, dir, 60);
+    h.obstacle.destructible.onDamage(60, h.point);
+    return { score: w.training.score, hits: w.training.hits };
+  });
+  const sc1 = await lastEv('training:scored');
+  ok(k1.score === 1 && k1.hits === 1 && (await ev('training:scored')).length === scoredN + 1 && sc1.index === 1 && sc1.score === 1, `training:scored on a knock-down (${JSON.stringify(sc1)})`);
+  // knock 9 more distinct standing targets → the course completes
+  const done = await tr(() => {
+    const ctx = window.__game.ctx, w = ctx.world, a = window.__game.getSystem('world').trainingArena;
+    let knocked = 0;
+    for (let i = 0; i < a.targetCount && w.training.remaining >= 0; i++) {
+      const t = a.getTargetState(i);
+      if (t.down) continue;
+      const from = t.position.clone(); from.set(t.position.x, 1.4, t.position.z + 8);
+      const dir = from.clone(); dir.set(0, 0, -1);
+      const h = w.raycast(from, dir, 60);
+      if (!h?.obstacle?.destructible) continue;
+      h.obstacle.destructible.onDamage(60, h.point); knocked++;
+    }
+    let best = null; try { best = JSON.parse(localStorage.getItem('scav.training')).best; } catch {}
+    return { knocked, remaining: w.training.remaining, score: w.training.score, best: w.training.bestTime, stored: best };
+  });
+  const fin = await lastEv('training:courseFinished');
+  ok(done.knocked === 9 && done.remaining === -1 && done.score === 10, `10 knock-downs end the course (knocked ${done.knocked}, remaining ${done.remaining})`);
+  ok(fin && fin.completed === true && fin.score === 10 && fin.time > 0 && fin.time < 60 && fin.best === fin.time, `training:courseFinished ${JSON.stringify(fin)}`);
+  ok(done.best === fin.time && done.stored === fin.time, `best time stored in localStorage scav.training (${done.stored})`);
+  await waitSim(0.2);
+  const p3 = await tr(() => window.__game.ctx.interactables.all().find((i) => i.id === 'training_mode').getPrompt());
+  ok(p3 === '표적 모드: 타임 코스', `after a course the console cycles on (prompt "${p3}")`);
+  // second course: cycle around (static → moving → timed), wait out the cooldown, force a timeout
+  const p4 = await modeIt(); await waitSim(0.05);
+  const p5 = await modeIt(); await waitSim(0.05);
+  const p6 = await modeIt(); await waitSim(0.05);
+  ok(p4 === '표적 모드: 고정 표적' && p5 === '표적 모드: 이동 표적' && /타임 코스/.test(p6 ?? ''), `cycle 고정 → 이동 → 타임 코스 (${p4} / ${p5} / ${p6})`);
+  await waitSim(3.2);   // TRAINING_COURSE_COOLDOWN_S
+  const p7 = await modeIt();   // E = start
+  await waitSim(0.1);
+  const c2 = await tr(() => {
+    const a = window.__game.getSystem('world').trainingArena, t = window.__game.ctx.world.training;
+    const running = t.remaining > 0;
+    a.courseEndAt = window.__game.ctx.time + 0.3;    // smoke shortcut: fast-forward the deadline instead of waiting 60 s
+    return { running };
+  });
+  ok(c2.running && /진행 중/.test(p7 ?? ''), `E started a second course after the cooldown ("${p7}")`);
+  await waitSim(0.6);
+  const fin2 = await lastEv('training:courseFinished');
+  const after2 = await tr(() => ({ remaining: window.__game.ctx.world.training.remaining, best: window.__game.ctx.world.training.bestTime, n: window.__ev['training:courseFinished'].length }));
+  ok(after2.n === 2 && fin2.completed === false && fin2.time === 60 && fin2.score === 0 && after2.remaining === -1, `timeout ends the course (${JSON.stringify(fin2)})`);
+  ok(after2.best === fin.time, `best time kept after a failed course (${after2.best})`);
+  await tr(() => window.__game.ctx.world.training.setMode('static'));
+  await waitSim(0.1);
+  ok((await tr(() => window.__game.ctx.world.training.mode)) === 'static', 'setMode(static) accepted after the course');
+  // weapon rack → 무한 상자 on the 주무기 tab
+  const rack = await tr(() => {
+    const ctx = window.__game.ctx;
+    const n0 = window.__ev['ui:catalogToggled'].length;
+    ctx.interactables.all().find((i) => i.id === 'training_rack').interact();
+    const evs = window.__ev['ui:catalogToggled'].slice(n0);
+    const tab = document.querySelector('.catalog .scr-tabs .active, .catalog-tabs .active, .catalog .tab.active')?.textContent ?? null;
+    return { evs, open: !!ctx.inventory.isCatalogOpen, blockers: [...ctx.uiBlockers], tab };
+  });
+  ok(rack.evs.some((e) => e.open) && rack.open, `training_rack opens the 무한 상자 (ui:catalogToggled ${JSON.stringify(rack.evs)}, blockers ${rack.blockers.join(',')})`);
+  if (rack.tab !== null) console.log(`  note catalog tab "${rack.tab}"`);
+  // a weapon taken from the rack must not survive the exit restore (game/ snapshot)
+  const granted = await tr(() => {
+    const ctx = window.__game.ctx;
+    const inst = ctx.loot.createItem('wpn_ar23_g3', 1);
+    const added = ctx.inventory.tryAddItem(inst);
+    if (typeof ctx.inventory.closeCatalog === 'function') ctx.inventory.closeCatalog();
+    if (ctx.inventory.isOpen) ctx.inventory.toggleBag();
+    return { added, uid: inst.uid, count: ctx.inventory.countDefAll('wpn_ar23_g3'), blockers: [...ctx.uiBlockers] };
+  });
+  ok(granted.added && granted.count >= 1 && granted.blockers.length === 0, `rack weapon in the bag for the rest of the training (${granted.count}), catalog closed`);
 
   /* ── 4. exit console ─────────────────────────────────────────────────────── */
   console.log('exit');
@@ -320,6 +470,9 @@ try {
   ok(!after.worldReady && !after.arena && !after.exit && after.obstacles === 0, 'arena disposed: world not ready, group removed, exit console unregistered, hash empty');
   ok(after.cleared >= 1 && after.entered >= 2, `world:cleared (${after.cleared}) + hub:entered (${after.entered})`);
   ok(after.space === true, 'space mode back on for the ship');
+  const restored = await P((uid) => ({ count: window.__game.ctx.inventory.countDefAll('wpn_ar23_g3'), item: !!window.__game.ctx.inventory.findItemAnywhere(uid), training: window.__game.ctx.world?.training ?? null }), granted.uid);
+  ok(restored.count === 0 && !restored.item, `rack weapon gone after the exit restore (${restored.count})`);
+  ok(restored.training === null, 'ctx.world.training null outside the arena');
 
   /* ── 5. shared ship terminal entry + pod lock (faked lobby, no relay) ───── */
   console.log('shared ship (faked lobby)');

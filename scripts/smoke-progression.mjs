@@ -264,14 +264,42 @@ try {
   });
   ok(mig2.str < 1 && mig2.str >= 0.999 && mig2.dex === 0 && near(mig2.per, 0.4) && mig2.int === 0, 'migrate clamps statProgress to 0..0.999999', JSON.stringify(mig2));
 
+  console.log('housing multiplier (Phase 9: 사격장 × 서재 through one getSkillGainMul)');
+  // a fake `ctx.housing.getSkillGainMul` stands in for 사격장 + 서재: the product must scale the skill XP, nothing else
+  const mulProbe = await page.evaluate(() => {
+    const ctx = window.__game.ctx;
+    const p = ctx.progression;
+    const real = ctx.housing;
+    const realMul = real.getSkillGainMul.bind(real);
+    real.getSkillGainMul = (id) => (id === 'crafting' ? 1.5 : 1);
+    try {
+      const mul = p.getSkillGainMul('crafting');
+      p.addSkillXpRaw('crafting', -1e6);
+      p.addSkillXp('crafting', 0.05);
+      const boosted = p.getSkillProgress('crafting');
+      real.getSkillGainMul = () => 1;
+      p.addSkillXpRaw('crafting', -1e6);
+      p.addSkillXp('crafting', 0.05);
+      const plain = p.getSkillProgress('crafting');
+      return { mul, boosted, plain, other: p.getSkillGainMul('gun_AR') };
+    } finally { real.getSkillGainMul = realMul; }
+  });
+  ok(mulProbe.mul === 1.5 && mulProbe.other === 1, 'getSkillGainMul reads ctx.housing.getSkillGainMul per skill', JSON.stringify(mulProbe));
+  ok(mulProbe.plain > 0 && near(mulProbe.boosted / mulProbe.plain, 1.5, 1e-6), 'a fake housing ×1.5 multiplies the skill XP of addSkillXp by 1.5', JSON.stringify(mulProbe));
+
   console.log('server profile document (Phase 7)');
+  // Phase 9: `upload()` calls `profile.set` even while the profile is **offline** (ProfileSync queues it)
   await page.evaluate(() => {
     const net = window.__game.ctx.net;
-    const fake = { available: true, credits: 0, docs: {}, sets: [], get(k) { return this.docs[k]; }, set(k, doc) { this.sets.push(k); this.docs[k] = JSON.parse(JSON.stringify(doc)); }, flush() {}, addCredits: async () => ({ ok: true, credits: 0 }) };
+    const fake = { available: false, credits: 0, docs: {}, sets: [], get(k) { return this.docs[k]; }, set(k, doc) { this.sets.push(k); this.docs[k] = JSON.parse(JSON.stringify(doc)); }, flush() {}, addCredits: async () => ({ ok: true, credits: 0 }) };
     window.__fakeProfile = fake;
     window.__realProfileDesc = Object.getOwnPropertyDescriptor(net, 'profile') ?? null;
     Object.defineProperty(net, 'profile', { value: fake, configurable: true, writable: true });
+    window.__game.ctx.progression.addSkillXpRaw('gun_SG', 0.01);
+    window.__game.ctx.progression.save();
   });
+  ok(await page.evaluate(() => window.__fakeProfile.sets.includes('progression') && !!window.__fakeProfile.docs.progression), "offline profile (available false): save still calls profile.set('progression') — ProfileSync queues it (Phase 9)");
+  await page.evaluate(() => { window.__fakeProfile.available = true; window.__fakeProfile.docs = {}; window.__fakeProfile.sets.length = 0; });
   // save → profile.set('progression'); no document yet → net:profileLoaded uploads the local profile
   const localSnap = await page.evaluate(() => JSON.parse(JSON.stringify(window.__game.ctx.progression.profile)));
   await page.evaluate(() => { window.__game.ctx.progression.addStatXp('dexterity', 1); window.__game.ctx.progression.save(); });

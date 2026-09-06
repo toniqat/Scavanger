@@ -1,18 +1,19 @@
 import type { GameContext } from '@/shared';
 import { el, section } from './dom';
 
-export type HousingPage = 'room' | 'facility' | 'presets' | 'grow';
+export type HousingPage = 'room' | 'facility' | 'presets' | 'grow' | 'bookshelf';
 const BLOCKER = 'housing';
 
 /**
- * `ui:housingToggled` only knows the three Phase 6 pages; the Phase 8 재배 panel reports itself as `null` there and
- * carries its own `ui:growToggled` event instead (the contract is frozen — page ids may not be appended).
+ * `ui:housingToggled` only knows the three Phase 6 pages; the Phase 8 재배 panel and the Phase 9 책장 panel report
+ * themselves as `null` there and carry their own `ui:growToggled` / `ui:bookshelfToggled` events instead (the
+ * contract's page union is frozen — page ids may not be appended).
  */
 type WirePage = 'room' | 'facility' | 'presets' | null;
-const wirePage = (p: HousingPage): WirePage => (p === 'grow' ? null : p);
+const wirePage = (p: HousingPage): WirePage => (p === 'grow' || p === 'bookshelf' ? null : p);
 
 /**
- * Shared shell of the three housing panels (`.menu.housing-menu`): adds the `'housing'` blocker **before** exiting
+ * Shared shell of the housing panels (`.menu.housing-menu`): adds the `'housing'` blocker **before** exiting
  * pointer lock, closes on Esc through a capture-phase window listener (so Input never sees the key), emits
  * `ui:housingToggled`, and re-requests the lock one microtask after closing when no blocker is left and the phase is
  * still `hub` (hub pointer-lock etiquette).

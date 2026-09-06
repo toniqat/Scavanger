@@ -213,27 +213,56 @@ try {
     'net:profileLoaded: the loadout document replaces slots / bag / quick slots', JSON.stringify({ p: loaded.primary, bag: loaded.bag, quick: loaded.quick }));
   ok(loaded.loadoutEv >= 1 && loaded.savedProfile.includes('profile') && !loaded.echoed.includes('loadout') && loaded.fileSlots.join() === 'bag,primary',
     'loadout replaced → loadout:changed, local file rewritten (reason profile) without echoing the doc back', JSON.stringify({ ev: loaded.loadoutEv, saved: loaded.savedProfile, echoed: loaded.echoed, fileSlots: loaded.fileSlots }));
-  // offline edits are newer than the server copy: kept + uploaded instead of being replaced; a key the server lacks gets the local state
+  // Phase 9: the inventory keeps no offline queue of its own — a save made while the server is unreachable is still
+  // handed to `profile.set` (ProfileSync stamps + queues it) and comes back inside the merged record, where it changes
+  // nothing; a key the server lacks still gets the local state.
   const offline = await page.evaluate(async () => {
     const ctx = window.__game.ctx;
     const sys = window.__game.getSystem('inventory');
     const spy = ctx.net.profile;
     spy.available = false;
     const nb = window.__ev['inventory:loadoutSaved'].length;
+    const callsBefore = window.__profileCalls.length;
     sys.tryAddItem(ctx.loot.createItem('gem_amber', 1));
     await new Promise((r) => { const t0 = performance.now(); (function poll() { if (window.__ev['inventory:loadoutSaved'].length > nb || performance.now() - t0 > 5000) r(); else setTimeout(poll, 50); })(); });
     const savedOffline = window.__ev['inventory:loadoutSaved'].length > nb;
-    const callsBefore = window.__profileCalls.length;
+    const queued = window.__profileCalls.slice(callsBefore).find((c) => c[0] === 'loadout');
     spy.available = true;
-    const stale = { v: 1, slots: { primary: { defId: 'wpn_ar23', qty: 1 } }, bag: [], quick: [null, null, null, null, null, null, null, null] };
-    ctx.bus.emit('net:profileLoaded', { profile: { credits: 1, docs: { loadout: stale }, updatedAt: Date.now() }, migrated: false });
-    const calls = window.__profileCalls.slice(callsBefore);
-    const up = calls.find((c) => c[0] === 'loadout');
+    // the record ProfileSync emits after the reconnect carries that very document (it is newer than the server copy)
+    const before = { saved: window.__ev['inventory:loadoutSaved'].length, loadout: window.__ev['loadout:changed'].length, calls: window.__profileCalls.length };
+    ctx.bus.emit('net:profileLoaded', { profile: { credits: 1, docs: { loadout: queued && queued[1] }, updatedAt: Date.now(), docsAt: { loadout: 1 } }, migrated: false });
+    const calls = window.__profileCalls.slice(before.calls);
     const gemKept = sys.getAllItems().some((i) => i.defId === 'gem_amber');
-    const stashUp = calls.find((c) => c[0] === 'stash');
-    return { savedOffline, gemKept, uploadedLocal: !!up && up[1].bag.some((e) => e.defId === 'gem_amber'), stashUploaded: !!stashUp, keys: calls.map((c) => c[0]) };
+    return {
+      savedOffline, gemKept, queuedOffline: !!queued && queued[1].bag.some((e) => e.defId === 'gem_amber'),
+      reSaved: window.__ev['inventory:loadoutSaved'].length - before.saved, reAnnounced: window.__ev['loadout:changed'].length - before.loadout,
+      stashUploaded: calls.some((c) => c[0] === 'stash'), keys: calls.map((c) => c[0]),
+    };
   });
-  ok(offline.savedOffline && offline.gemKept && offline.uploadedLocal && offline.stashUploaded, 'a save made while the server was unreachable wins over the stale server doc on the next profileLoaded (uploaded, not replaced); a missing server key gets the local state', JSON.stringify(offline));
+  ok(offline.savedOffline && offline.queuedOffline && offline.gemKept && offline.reSaved === 0 && offline.reAnnounced === 0 && offline.stashUploaded,
+    'a save made while the server was unreachable still goes to profile.set (queued, never dropped); getting it back in the merged record changes nothing; a key the server lacks gets the local state', JSON.stringify(offline));
+  // the newest-wins merge itself lives in net/ProfileSync — drive it directly (no socket, stubbed clock)
+  const merge = await page.evaluate(async () => {
+    const m = await import('/src/net/ProfileSync.ts');
+    const make = () => { const ps = new m.ProfileSync(); ps.serverNow = () => 1000; ps.sent = []; ps.send = (msg) => { ps.sent.push(msg); return true; }; return ps; };
+    const rec = (docs, docsAt) => ({ credits: 0, docs, updatedAt: 0, docsAt });
+    const older = make(); older.set('loadout', { v: 1, tag: 'local' });
+    older.onWelcome(rec({ loadout: { v: 1, tag: 'server' } }, { loadout: 500 }));
+    const newer = make(); newer.set('stash', { v: 2, tag: 'local' });
+    newer.onWelcome(rec({ stash: { v: 2, tag: 'server' } }, { stash: 5000 }));
+    const beaten = make(); beaten.set('meta', { tag: 'starter' }, { fresh: true });
+    beaten.onWelcome(rec({ meta: { tag: 'server' } }, {}));
+    const kept = make(); kept.set('meta', { tag: 'starter' }, { fresh: true });
+    kept.onWelcome(rec({}, {}));
+    return {
+      localWins: older.get('loadout').tag, localAt: older.sent.filter((s) => s.key === 'loadout').map((s) => s.at).join(),
+      serverWins: newer.get('stash').tag, serverSent: newer.sent.length, freshLoses: beaten.get('meta').tag, freshSent: beaten.sent.length,
+      freshKept: kept.get('meta').tag, freshFlag: kept.sent[0] && kept.sent[0].fresh === true, pending: kept.pendingKeys.length,
+    };
+  });
+  ok(merge.localWins === 'local' && merge.localAt === '1000' && merge.serverWins === 'server' && merge.serverSent === 0
+    && merge.freshLoses === 'server' && merge.freshSent === 0 && merge.freshKept === 'starter' && merge.freshFlag && merge.pending === 0,
+    'ProfileSync newest-wins: a queued edit stamped after the server copy is kept + uploaded with its `at`, an older one loses, a `fresh` default only fills a key the server has no document for', JSON.stringify(merge));
   await page.evaluate(() => { delete window.__game.ctx.net.profile; window.__game.getSystem('inventory').reset(); }); // starter kit again for the mission tests
 
   /* ── 3. container search on a mission ───────────────────────────────── */
@@ -489,6 +518,11 @@ try {
     Object.defineProperty(net, 'lobby', { get: () => ({ hostId: window.__mp.host, code: 'SMOKE', players: [] }), configurable: true });
     net.send = (msg, to) => window.__sent.push({ msg: JSON.parse(JSON.stringify(msg)), to });
     window.__recv = (msg, from) => { for (const h of net.handlers.get(msg.t) ?? []) h(msg, from); };
+    // the earlier sections filled the bag; a confirmed take is replayed into it, so make room for a tier-4 roll
+    // (one 1×1 stack stays: the checks below drag `getAllItems()[0]` at a container cell)
+    const sys = window.__game.getSystem('inventory');
+    for (const it of sys.getGrid('bag').items().map((p) => p.item)) sys.takeItem(it.uid, it.qty);
+    sys.tryAddItem(window.__game.ctx.loot.createItem('mat_scrap', 1));
   });
   const c4 = await openCrate('crate:smoke-4', 4);
   await waitFor(page, (id) => window.__ev['container:searchDone'].some((e) => e.containerId === id), 'crate 4 fully searched', 60000, 'crate:smoke-4');

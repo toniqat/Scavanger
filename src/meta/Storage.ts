@@ -12,8 +12,8 @@ import { CONTRACT_DEFS, CORP_IDS, CREDITS_INITIAL, CREDITS_MAX, META_STORAGE_KEY
 
 export const META_SAVE_VERSION = 1;
 const SAVE_DELAY_MS = 350;
-/** Guard against an absurd progress figure inflating the HUD. */
-const MAX_PROGRESS = 1_000_000_000;
+/** Guard against an absurd progress figure inflating the HUD (loads and live hits are clamped to it). */
+export const MAX_PROGRESS = 1_000_000_000;
 
 function storage(): Storage | null {
   try {
@@ -133,10 +133,10 @@ export class MetaStorage {
     try { s.setItem(META_STORAGE_KEY, JSON.stringify({ ...this.data, v: META_SAVE_VERSION })); } catch { /* quota / private mode */ }
   }
 
-  /** Queue the save into the server profile (`profile:set meta`); no-op offline. */
+  /** Queue the save into the server profile (`profile:set meta`). Phase 9: offline too — `ProfileSync` stamps + queues it. */
   upload(): void {
     const p = this.profile();
-    if (!p || !p.available || typeof p.set !== 'function') return;
+    if (!p || typeof p.set !== 'function') return;
     try { p.set('meta', this.snapshot()); } catch { /* net not ready */ }
   }
 

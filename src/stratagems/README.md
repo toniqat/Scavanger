@@ -53,6 +53,16 @@ Listens: `game:abort`, `game:newMission`, `hub:entered`, `world:cleared` (full c
 ## Net (`StratagemMessage`, `src/shared/net.ts`)
 - `{t:'strat', ev:'call', callId, kind, p, eta, seed}` → others on confirm; receivers create the call with `landsAt = time + eta`, `local = false`.
 - `{t:'strat', ev:'structHp', callId, index, hp}` → others whenever a structure takes damage locally; receivers apply lower hp only.
+- **Late-join sync (Phase 9)**: `{t:'stratq', ev:'sync'}` → host on `world:ready` from every non-host client; the **host** answers
+  `{t:'strat', ev:'sync', calls: StratagemCallWire[]}` to that peer alone, and does the same for a `flow rejoined`. The host is only the
+  *sync authority* — calls stay client-simulated. `syncWire()` lists every live call as
+  `{callId, kind, p, seed, eta: landsAt − ctx.time, caller, looted?, st?}` where `st` holds `[index, hp]` for damaged / destroyed structures
+  only (a finished laser / airstrike and a fully destroyed structure drop are skipped). `applySync` ignores ids it already knows, creates
+  the rest with `createCall(..., local:false)` and, when `eta ≤ 0`, **fast-forwards** the back-dated call through one silent update step
+  (`silent` suppresses impact damage, bursts, shake and audio) so its obstacles / supply interactable exist immediately. For such an
+  already-landed call the **whole** wire entry — fast-forward, `st` application (a block that is already rubble is destroyed without its
+  demolition shake / dust / bang) and the `looted` close — runs inside that same silent window; state events (`stratagem:landed`,
+  `structure:damaged / destroyed`, `stratagem:ended`) are still emitted, only the felt FX are dropped. Cooldowns are personal and never synced.
 Call ids are `${net.localId ?? 'sp'}-${n}`; structure ids `${callId}:${index}`; supply interactables `supply:${callId}`.
 
 ## Tuning
@@ -66,7 +76,9 @@ drop heights 120 / 60 m, structure stagger 0.15 s / min gap 2.4 m, grenade-vs-st
 registers the system at runtime if `main.ts` has not).
 
 ## Limitations
-- Structure hp is per-client except for the `structHp` sync (no host authority; simultaneous hits can disagree briefly).
+- Structure hp is per-client except for the `structHp` sync (no host authority; simultaneous hits can disagree briefly). The Phase 9
+  `strat sync` closes the *late-join* gap (a joiner now sees live calls, their obstacles and the damaged structure hp) but a synced call
+  that already landed shows no impact FX and dealt no damage here by design.
 - Supply crate contents are rolled per client by the inventory (`crate:open` is local); no lifetime / expiry for a landed crate.
 - Remote calls take the terrain height on the receiving client; the caller's y is ignored.
 - Launch / landing audio reuses existing ids; no dedicated stratagem SFX. Wheel / charge / top-view HUD is drawn by `src/ui` from the events.

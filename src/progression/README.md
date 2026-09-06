@@ -12,7 +12,7 @@ frame already has real numbers; `NetSystem` still goes first).
 
 | File | Purpose |
 |---|---|
-| `ProgressionSystem.ts` | `GameSystem` + `ProgressionRef` (`name: 'progression'`). Profile ownership, bus subscriptions that train skills, `derived` recomputation, autosave, the character-sheet toggle; Phase 7: server profile document (`upload()` on every flush, `onProfileLoaded()` replace + `progress:*` re-emit), training gate in `addSkillXp`; Phase 8: `createSheetView(host)` + the `views` set (overlay **and** every embedded tab are repainted through `refreshSheets` / `refreshSheetSkill` / `refreshSheetStat`). |
+| `ProgressionSystem.ts` | `GameSystem` + `ProgressionRef` (`name: 'progression'`). Profile ownership, bus subscriptions that train skills, `derived` recomputation, autosave, the character-sheet toggle; Phase 7: server profile document (`upload()` on every flush — **Phase 9: offline too**, `ProfileSync` queues it; `onProfileLoaded()` replace + `progress:*` re-emit), training gate in `addSkillXp`; Phase 8: `createSheetView(host)` + the `views` set (overlay **and** every embedded tab are repainted through `refreshSheets` / `refreshSheetSkill` / `refreshSheetStat`). |
 | `defs.ts` | The 5 `StatDef` / 14 `SkillDef` (한국어 이름·설명), `WEAPON_CLASS_SKILL`, and the raw skill-XP each trained action is worth. |
 | `derive.ts` | `computeDerived(profile, specialBackpack)` → `DerivedStats`, `xpForLevel(level)`, `DEFAULT_DERIVED`. All tuning constants live here. |
 | `Profile.ts` | `localStorage` load / save / migrate / clear. Every access in `try/catch`. |
@@ -59,7 +59,7 @@ statXpToNext(id) = round(STAT_XP_BASE × value^STAT_XP_EXPONENT)   // 5 → 1118
 - `addSkillXpRaw(id, ±amount)`: 지능·스탯·레벨·시설 스케일 **없이** 0..1 진행도에 부호 그대로 더한다 (`1` = 어느 레벨에서든 한 레벨).
   1 이상이면 레벨 +1 (상한 `SKILL_LEVEL_MAX`, 도달 시 진행도 0), 0 미만이면 레벨 −1 (하한 0, 도달 시 진행도 0).
   레벨이 바뀌면 (내려가도) `progress:skillUp {id, level}`, 항상 `progress:skillProgress`. 치트 / 디버프 전용 — 정상 훈련은 `addSkillXp`.
-- `getSkillGainMul(id)`: `ctx.housing?.getSkillGainMul(id) ?? 1` (사격장 → `gun_*`). `addSkillXp` 가 **내부에서** 곱하므로 다른 폴더는
+- `getSkillGainMul(id)`: `ctx.housing?.getSkillGainMul(id) ?? 1` (**사격장 × 서재** — `gun_*` × `1 + 0.1 × 사격장 level`, times the 서재 책장 bonus of every book of that skill, Phase 9; housing/ folds both into the one number). `addSkillXp` 가 **내부에서** 곱하므로 다른 폴더는
   이걸 다시 곱하지 않는다. housing 이 스켈레톤이거나 없으면 1. 시트의 스킬 행에 `시설 ×1.10` 배지로 표시 (1 이면 숨김).
 - 스모크: `node scripts/smoke-progression.mjs` (`verify.mjs` `SMOKES` 의 `smoke-progression`, `folders: ['progression']`) — **65 / 65** on 2026-09-06
   (Phase 7: 감정 XP `container:itemRevealed`, 훈련장 `gun_*` 전용, 가짜 `ctx.net.profile` 로 `profile.set('progression')` / `net:profileLoaded` 대체 + 이벤트 재발행;
@@ -72,7 +72,7 @@ statXpToNext(id) = round(STAT_XP_BASE × value^STAT_XP_EXPONENT)   // 5 → 1118
 gain = rawAmount × derived.skillGainMul × getSkillGainMul(skill) × statFactor(skill.stats) / (1 + level × 0.06)
 ```
 `statFactor = max(0.4, 1 + 0.04 × (관련 스탯 평균 − STAT_BASE))`. 레벨이 오를수록 필요량이 늘어난다.
-`getSkillGainMul` 은 함선 시설(사격장) 배율 — 위 "스탯 경험치" 절 참고.
+`getSkillGainMul` 은 함선 시설 배율 — 사격장 × 서재 책장 (Phase 9), 위 "스탯 경험치" 절 참고.
 
 | 스킬 | 상승 트리거 (버스 이벤트) | 파생 |
 |---|---|---|

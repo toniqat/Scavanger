@@ -183,8 +183,8 @@ export class WorldSystem implements GameSystem, WorldRef {
 
   /** Debug / smoke: the arena (targets, counters) while a training world is up. */
   get trainingArena(): TrainingArena | null { return this.mode === 'training' && this.ready ? this.arena : null; }
-  /** Phase 9 skeleton: `TrainingArena` implements `TrainingRef` in the real thing (see docs/PHASE9-PLAN.md §8). */
-  get training(): TrainingRef | null { return null; }
+  /** `ctx.world.training` (Phase 9): the arena implements `TrainingRef` (modes / score / timed course); null outside a training world. */
+  get training(): TrainingRef | null { return this.trainingArena; }
 
   private setSpaceMode(on: boolean): void {
     const atmo = this.ctx?.scene.userData.atmosphere as { setSpaceMode?: (on: boolean) => void } | undefined;

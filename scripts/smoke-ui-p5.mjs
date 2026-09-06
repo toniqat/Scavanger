@@ -6,7 +6,8 @@
 // level_up`, no `progress:levelUp` toast), contract wording keyed on `settlement.outcome` (never `ctx.stats.extracted`),
 // the 레이드 실패 death screen (`game:raidFailed`: no 부활, auto-return countdown, Space ignored), suspended nameplate /
 // squad rows + 훈련장 / 임무 중 / 함선 badges (`remotePlayers.debugSpawn` + `hud.debugRemotes`), host-change / suspended /
-// training chat + notification lines, the training objective. 89 checks. Needs the relay on 8787 too (the hub's
+// training chat + notification lines, the training objective. Phase 9: ghost bleed bar / 사망 tag on a suspended member's
+// nameplate + squad row from `ref.ghostState / ghostDownHp`. 97 checks. Needs the relay on 8787 too (the hub's
 // `ensureConnected` logs a console error otherwise), e.g. `npm run dev:all` or `npm run server` + a private vite.
 // Usage: node scripts/smoke-ui-p5.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
@@ -301,7 +302,7 @@ try {
     window.__game.getSystem('hud').debugRemotes([window.__peer], window.__lobby);
   });
   await waitSim(0.3);
-  const rowOf = (name) => P((n) => { const r = [...document.querySelectorAll('.squad .srow')].find((e) => !e.hidden && e.querySelector('.name').textContent === n); return r ? { cls: r.className, state: r.querySelector('.state').textContent, badge: r.querySelector('.badge').textContent, badgeHidden: r.querySelector('.badge').hidden, badgeCls: r.querySelector('.badge').className } : null; }, name);
+  const rowOf = (name) => P((n) => { const r = [...document.querySelectorAll('.squad .srow')].find((e) => !e.hidden && e.querySelector('.name').textContent === n); return r ? { cls: r.className, state: r.querySelector('.state').textContent, badge: r.querySelector('.badge').textContent, badgeHidden: r.querySelector('.badge').hidden, badgeCls: r.querySelector('.badge').className, bleedTf: r.querySelector('.hp .bleed').style.transform, bleedDisp: getComputedStyle(r.querySelector('.hp .bleed')).display } : null; }, name);
   let row = await rowOf('브라보');
   ok(!!row && !/\bsuspended\b/.test(row.cls) && row.state === '', 'debug peer row in the squad panel, connected (no state text)', JSON.stringify(row));
   ok(!!row && row.badge === '임무 중' && !row.badgeHidden, 'raid member badge 임무 중', JSON.stringify(row));
@@ -321,6 +322,29 @@ try {
   plate = await P(() => { const p = [...document.querySelectorAll('.nameplate')].find((e) => e.querySelector('.name').textContent === '브라보'); return p ? { cls: p.className, op: p.style.opacity, tagHidden: p.querySelector('.tag').hidden, tag: p.querySelector('.tag').textContent, sc: getComputedStyle(p).getPropertyValue('--sc').trim() } : null; });
   ok(!!plate && Number(plate.op) > 0 && /\bsuspended\b/.test(plate.cls), 'suspended nameplate stays visible (stale ignored) with .suspended', JSON.stringify(plate));
   ok(!!plate && !plate.tagHidden && plate.tag === '연결 끊김' && plate.sc === '#9aa0aa', '연결 끊김 tag shown, slot colour swapped to grey', JSON.stringify(plate));
+  // Phase 9: net fills ghostState / ghostDownHp on the suspended ref (host ghost downed → bleeding, dead → 사망)
+  const plateOf = () => P(() => { const p = [...document.querySelectorAll('.nameplate')].find((e) => e.querySelector('.name').textContent === '브라보'); return p ? { cls: p.className, op: p.style.opacity, tag: p.querySelector('.tag').textContent, tagCls: p.querySelector('.tag').className, tagHidden: p.querySelector('.tag').hidden, bleedTf: p.querySelector('.hp .bleed').style.transform, bleedDisp: getComputedStyle(p.querySelector('.hp .bleed')).display } : null; });
+  await P(() => { window.__peer.ghostState = 1; window.__peer.ghostDownHp = 40; });
+  await waitSim(0.3);
+  plate = await plateOf();
+  ok(!!plate && /\bbleeding\b/.test(plate.cls) && plate.bleedTf === 'scaleX(0.4)' && plate.bleedDisp === 'block' && Number(plate.op) > 0, 'ghostState 1 / ghostDownHp 40 → nameplate .bleeding, bleed bar scaleX 0.4', JSON.stringify(plate));
+  ok(!!plate && plate.tag === '연결 끊김' && !plate.tagHidden && !/\bdead\b/.test(plate.cls), 'downed ghost keeps the 연결 끊김 tag (not dead)', JSON.stringify(plate));
+  row = await rowOf('브라보');
+  ok(!!row && /\bbleeding\b/.test(row.cls) && row.bleedTf === 'scaleX(0.4)' && row.bleedDisp === 'block' && row.state === '연결 끊김' && /\bsuspended\b/.test(row.cls), 'squad row .bleeding with a 40 % red bar over the grey hp, state 연결 끊김', JSON.stringify(row));
+  await P(() => { window.__peer.ghostDownHp = 15; });
+  await waitSim(0.3);
+  plate = await plateOf(); row = await rowOf('브라보');
+  ok(!!plate && plate.bleedTf === 'scaleX(0.15)' && !!row && row.bleedTf === 'scaleX(0.15)', 'ghostDownHp 15 → both bars scaleX 0.15', JSON.stringify({ p: plate && plate.bleedTf, r: row && row.bleedTf }));
+  await P(() => { window.__peer.ghostState = 2; window.__peer.ghostDownHp = 0; });
+  await waitSim(0.3);
+  plate = await plateOf(); row = await rowOf('브라보');
+  ok(!!plate && plate.tag === '사망' && /\bdead\b/.test(plate.tagCls) && /\bdead\b/.test(plate.cls) && !/\bbleeding\b/.test(plate.cls) && plate.bleedDisp === 'none', 'ghostState 2 → nameplate tag 사망 (.tag.dead, .dead), bleed bar gone', JSON.stringify(plate));
+  ok(!!row && row.state === '사망' && /\bsuspended\b/.test(row.cls) && /\bdead\b/.test(row.cls) && !/\bbleeding\b/.test(row.cls), 'squad row state 사망 (.suspended.dead), no bleed bar', JSON.stringify(row));
+  await P(() => { window.__peer.ghostState = 0; window.__peer.ghostDownHp = undefined; });
+  await waitSim(0.3);
+  plate = await plateOf(); row = await rowOf('브라보');
+  ok(!!plate && plate.tag === '연결 끊김' && !/\bdead\b|\bbleeding\b/.test(plate.cls) && !!row && row.state === '연결 끊김' && !/\bdead\b|\bbleeding\b/.test(row.cls), 'ghostState 0 (revived ghost) → plain 연결 끊김 again on both', JSON.stringify({ plate, row }));
+  await P(() => { window.__peer.ghostState = undefined; });
   let sysLines = await texts('.chat-line.system .txt');
   ok(sysLines.some((t) => t === '브라보 연결 끊김'), 'net:peerSuspended → chat system line 브라보 연결 끊김', JSON.stringify(sysLines.slice(-3)));
   notifs = await texts('.notif');

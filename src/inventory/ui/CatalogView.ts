@@ -13,7 +13,7 @@ export interface CatalogHandlers {
   onClose(): void;
 }
 
-export type CatalogTabId = 'all' | 'weapon' | 'ammo' | 'attachment' | 'bag' | 'armor' | 'gadget' | 'consumable' | 'material' | 'herb' | 'seed' | 'furniture';
+export type CatalogTabId = 'all' | 'weapon' | 'ammo' | 'attachment' | 'bag' | 'armor' | 'gadget' | 'consumable' | 'material' | 'herb' | 'seed' | 'book' | 'furniture';
 
 interface CatalogTab {
   id: CatalogTabId;
@@ -35,6 +35,7 @@ export const CATALOG_TABS: readonly CatalogTab[] = [
   { id: 'material', label: TEXT.catalog.tabs.material, categories: ['material', 'valuable'] },
   { id: 'herb', label: TEXT.catalog.tabs.herb, categories: ['herb'] },
   { id: 'seed', label: TEXT.catalog.tabs.seed, categories: ['seed'] },
+  { id: 'book', label: TEXT.catalog.tabs.book, categories: ['book'] },   // Phase 9: 서적 (shown once items/ ships book defs)
   { id: 'furniture', label: TEXT.catalog.tabs.furniture, categories: ['furniture'] },
 ];
 
@@ -167,6 +168,14 @@ export class CatalogView {
     this.tab = id;
     for (const [tid, b] of this.tabButtons) b.classList.toggle('is-on', tid === id);
     this.apply();
+  }
+
+  /** Phase 9: select the tab whose categories include `cat` (`openCatalog({category})`); false when no such tab is built. */
+  setTabForCategory(cat: ItemCategory): boolean {
+    const tab = CATALOG_TABS.find((t) => t.categories?.includes(cat));
+    if (!tab || !this.tabButtons.has(tab.id)) return false;
+    this.setTab(tab.id);
+    return true;
   }
 
   setQuery(q: string): void {

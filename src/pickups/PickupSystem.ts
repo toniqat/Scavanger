@@ -111,6 +111,12 @@ export class PickupSystem implements GameSystem, PickupsRef {
         const net = ctx.net;
         if (ctx.isMultiplayer && net && !net.isHost) net.send({ t: 'itemq', ev: 'sync' }, 'host');
       }),
+      // Phase 9: a promoted host answers from its own mirror — every other member re-requests the pickup list
+      b.on('net:hostChanged', ({ isLocalHost }) => {
+        const net = ctx.net;
+        if (isLocalHost || !ctx.isMultiplayer || !net || !ctx.world || !ctx.world.ready) return;
+        net.send({ t: 'itemq', ev: 'sync' }, 'host');
+      }),
     );
     this.ensureNetHooks();
   }

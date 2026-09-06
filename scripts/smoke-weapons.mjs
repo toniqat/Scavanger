@@ -1,5 +1,6 @@
 // Single-player smoke test for the weapon package (grades / durability / ammo v2 / 3 slots / sockets / bags / repair)
-// + Phase 7 `ctx.weapons.remoteState` (held item / throwing / cooking / attachments) and remote-grenade damage.
+// + Phase 7 `ctx.weapons.remoteState` (held item / throwing / cooking / attachments) and remote-grenade damage
+// + Phase 9 barrier purity (`raycastBarrier` emits nothing, `damageBarrier` once per resolved hit) and status `attacker` from the uniques.
 // Usage: node scripts/smoke-weapons.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { existsSync } from 'node:fs';
@@ -41,6 +42,19 @@ try {
   await page.evaluateOnNewDocument(() => {
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
+    // park the vite HMR socket: another editor's save would full-reload the page mid-run (the relay socket is untouched)
+    const RealWS = window.WebSocket;
+    class QuietSocket extends EventTarget {
+      constructor(url) { super(); this.url = String(url); this.readyState = 0; this.protocol = ''; this.binaryType = 'blob'; }
+      send() {} close() {}
+    }
+    window.WebSocket = new Proxy(RealWS, {
+      construct(target, args) {
+        const protos = Array.isArray(args[1]) ? args[1] : [args[1]];
+        if (protos.includes('vite-hmr')) return new QuietSocket(args[0]);
+        return new target(...args);
+      },
+    });
   });
   page.on('pageerror', (e) => errors.push(String(e)));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
@@ -56,7 +70,7 @@ try {
     window.__ev = {};
     const bus = window.__game.ctx.bus;
     for (const n of ['weapon:equipped', 'weapon:durabilityChanged', 'weapon:broken', 'weapon:swapStarted', 'weapon:ammoChanged',
-      'inventory:bagChanged', 'inventory:socketChanged', 'inventory:itemUpdated', 'loadout:changed', 'hub:workbenchToggled']) {
+      'inventory:bagChanged', 'inventory:socketChanged', 'inventory:itemUpdated', 'loadout:changed', 'hub:workbenchToggled', 'implant:barrierHit']) {
       window.__ev[n] = [];
       bus.on(n, (p) => { window.__ev[n].push(JSON.parse(JSON.stringify(p, (k, v) => (v && v.isVector3) ? [v.x, v.y, v.z] : v))); });
     }
@@ -103,6 +117,9 @@ try {
   await key('Escape');
   await sleep(200);
   ok((await lastEv('hub:workbenchToggled')).open === false, 'Esc closes the workbench');
+  // Phase 9: the 배리어 implant is chosen on the ship (setEquipped is hub-only) and deployed in the mission below
+  const eqBar = await page.evaluate(() => { const imp = window.__game.ctx.implants; return imp ? { ok: imp.setEquipped('barrier'), eq: imp.equipped } : null; });
+  ok(eqBar && eqBar.ok && eqBar.eq === 'barrier', 'hub: 배리어 implant equipped (setEquipped)', JSON.stringify(eqBar));
 
   console.log('mission / loadout');
   await page.evaluate(() => window.__game.ctx.bus.emit('game:newMission', { seed: 7 }));
@@ -276,6 +293,111 @@ try {
   const magB = await page.evaluate(() => window.__game.ctx.inventory.getLoadout().primary.ammoInMag);
   ok(broken && broken.weaponId === 'ar23' && magB === 45, 'broken weapon does not fire (weapon:broken)', `mag=${magB}`);
   await page.evaluate(() => { const inv = window.__game.ctx.inventory; const l = inv.getLoadout(); inv.updateItem(l.primary.uid, { durability: 500 }); });
+
+  console.log('barrier / blockers (Phase 9)');
+  await page.evaluate(() => { const ctx = window.__game.ctx; ctx.enemies.killAll(); ctx.enemies.setThreatLevel(0); const p = ctx.player; if (p.isDowned) p.revive(); p.heal(1000); });
+  const bar0 = await page.evaluate(() => { const imp = window.__game.ctx.implants; if (!imp) return null; if (!imp.barrierActive) imp.activate(); return { eq: imp.equipped, active: imp.barrierActive, hp: imp.barrierHp, max: imp.barrierMaxHp }; });
+  ok(bar0 && bar0.eq === 'barrier' && bar0.active && bar0.hp > 0 && bar0.hp === bar0.max, 'activate() deploys the 배리어 in front of the player at full hp', JSON.stringify(bar0));
+  await waitSim(0.2);
+  // line-of-sight style queries (rogue LOS, unique-weapon cone tests) must be pure: no implant:barrierHit, no hp change
+  const q = await page.evaluate(() => {
+    const ctx = window.__game.ctx; const imp = ctx.implants; const p = ctx.player; const V = p.position.constructor;
+    const o = p.position.clone(); o.y += 1.2;
+    const d = p.getForward(new V()); d.y = 0; d.normalize();
+    const before = window.__ev['implant:barrierHit'].length; const hp0 = imp.barrierHp;
+    const r1 = imp.raycastBarrier(o, d, 10, true);
+    const r2 = imp.raycastBarrier(o, d, 10, true);
+    const r0 = imp.raycastBarrier(o, d, 10, false);
+    return { hit: !!r1 && r1.owner === 'local', hit2: !!r2, friendly: r0 === null, events: window.__ev['implant:barrierHit'].length - before, hpSame: imp.barrierHp === hp0, point: r1 ? [r1.point.x, r1.point.y, r1.point.z] : null };
+  });
+  ok(q.hit && q.hit2 && q.point, 'raycastBarrier(fromEnemy=true) reports the local barrier on the forward ray', JSON.stringify(q));
+  ok(q.friendly, 'raycastBarrier(fromEnemy=false): an allied shot passes through (unchanged semantics)');
+  ok(q.events === 0 && q.hpSame, 'pure query: two LOS-style hits emit no implant:barrierHit and leave barrierHp unchanged', JSON.stringify(q));
+  const dmgB = await page.evaluate((pt) => {
+    const ctx = window.__game.ctx; const imp = ctx.implants; const V = ctx.player.position.constructor;
+    const before = window.__ev['implant:barrierHit'].length; const hp0 = imp.barrierHp;
+    imp.damageBarrier('local', new V(pt[0], pt[1], pt[2]));
+    const evs = window.__ev['implant:barrierHit'].slice(before);
+    return { hp0, hp1: imp.barrierHp, events: evs.length, damage: evs[0]?.damage ?? null, active: imp.barrierActive };
+  }, q.point);
+  ok(dmgB.hp1 < dmgB.hp0 && dmgB.events === 1 && dmgB.damage > 0 && dmgB.hp0 - dmgB.hp1 === dmgB.damage, 'damageBarrier(local, point) lowers barrierHp by the block damage and emits implant:barrierHit once', JSON.stringify(dmgB));
+  // real shots: pretend our own barrier is hostile to us (raycastBarrier patched to fromEnemy=true) and spy damageBarrier —
+  // every resolved hitscan hit bills the barrier exactly once (the cam probe + muzzle ray + aim probes are pure)
+  const shot0 = await page.evaluate(() => {
+    const ctx = window.__game.ctx; const imp = ctx.implants; const inv = ctx.inventory;
+    const origRay = imp.raycastBarrier.bind(imp); const origDmg = imp.damageBarrier.bind(imp);
+    imp.raycastBarrier = (o, d, m, _fe) => origRay(o, d, m, true);
+    window.__dmgCalls = [];
+    imp.damageBarrier = (owner, point, amount) => { window.__dmgCalls.push([owner, +point.x.toFixed(2), +point.y.toFixed(2), +point.z.toFixed(2), amount ?? null]); };
+    window.__restoreBarrier = () => { imp.raycastBarrier = origRay; imp.damageBarrier = origDmg; };
+    window.__barrierEv = window.__ev['implant:barrierHit'].length;
+    return { mag: inv.getLoadout().primary.ammoInMag, active: imp.barrierActive };
+  });
+  ok(shot0.active && shot0.mag === 45, 'AR loaded (45) with the barrier still up before the burst', JSON.stringify(shot0));
+  await mouseSim(0, 0.25);
+  await waitSim(0.3);
+  const shotR = await page.evaluate(() => {
+    const ctx = window.__game.ctx; const inv = ctx.inventory;
+    const r = { mag: inv.getLoadout().primary.ammoInMag, calls: window.__dmgCalls.slice(), losEvents: window.__ev['implant:barrierHit'].length - window.__barrierEv };
+    window.__restoreBarrier();
+    return r;
+  });
+  const shots = shot0.mag - shotR.mag;
+  ok(shots >= 1, `burst fired ${shots} rounds into the barrier`);
+  ok(shotR.calls.length === shots && shotR.calls.every((c) => c[0] === 'local'), `each resolved hit calls damageBarrier('local', point) exactly once (${shots} shots → ${shotR.calls.length} calls)`, JSON.stringify(shotR.calls.slice(0, 3)));
+  ok(shotR.losEvents === 0, 'the raycasts themselves emitted no implant:barrierHit (damage is routed explicitly)');
+  const fold = await page.evaluate(() => { const imp = window.__game.ctx.implants; if (imp.barrierActive) imp.activate(); return imp.barrierActive; });
+  ok(fold === false, 'activate() again folds the barrier away');
+
+  console.log('status attacker (Phase 9)');
+  const uniq = async (defId, type) => page.evaluate(([id, t]) => {
+    const ctx = window.__game.ctx; const inv = ctx.inventory, loot = ctx.loot;
+    ctx.enemies.killAll();
+    if (!window.__arUid) window.__arUid = inv.getLoadout().primary?.uid ?? null;
+    const item = loot.createItem(id, 1);
+    if (!inv.tryAddItem(item)) return { ok: false, why: 'bag full' };
+    if (!inv.equip(item.uid, 'primary')) return { ok: false, why: 'equip refused' };
+    (window.__uniqUids ??= []).push(item.uid);
+    if (!window.__origApply) {
+      const mgr = ctx.enemies; const orig = mgr.applyStatus.bind(mgr); window.__origApply = orig;
+      mgr.applyStatus = (eid, st, dps, dur, by) => { window.__st.push([eid, st, by === undefined ? null : by]); return orig(eid, st, dps, dur, by); };
+    }
+    window.__st = [];
+    const p = ctx.player; const V = p.position.constructor;
+    const f = p.getForward(new V()); f.y = 0; f.normalize();
+    const e = window.__game.getSystem('enemies').debugSpawn(t, { x: p.position.x + f.x * 5, z: p.position.z + f.z * 5 }, false);
+    return { ok: true, enemy: e ? e.id : null, mag: item.ammoInMag, me: ctx.net?.localId ?? 'local' };
+  }, [defId, type]);
+  const fl = await uniq('wpn_u_flame', 'warrior');
+  ok(fl.ok && fl.enemy != null && fl.mag > 0, 'u_flame equipped (loaded) + warrior 5 m ahead', JSON.stringify(fl));
+  // the attacker is `ctx.net?.localId ?? 'local'` — the session token's peer id even offline; enemies/ folds it back to 'local'
+  const me = fl.me;
+  await waitSim(0.8);
+  await mouseSim(0, 0.6);
+  await waitSim(0.3);
+  const stF = await page.evaluate(() => window.__st.slice());
+  const burning = stF.filter((x) => x[1] === 'burning');
+  ok(typeof me === 'string' && me.length > 0, `attacker id = ctx.net.localId ?? 'local' (${me})`);
+  ok(burning.length >= 1 && burning.every((x) => x[2] === me), `flame: applyStatus('burning', …, attacker = me) on every tick (${burning.length})`, JSON.stringify(stF.slice(0, 3)));
+  ok(stF.length > 0 && stF.every((x) => x[2] === me), 'no status from the flamethrower is missing its attacker');
+  const sh = await uniq('wpn_u_shock', 'warrior');
+  ok(sh.ok && sh.enemy != null, 'u_shock equipped + warrior 5 m ahead', JSON.stringify(sh));
+  await waitSim(0.8);
+  await mouseSim(0, 0.5);
+  await waitSim(0.3);
+  const stS = await page.evaluate(() => window.__st.slice());
+  const shocked = stS.filter((x) => x[1] === 'shocked');
+  ok(shocked.length >= 1 && shocked.every((x) => x[2] === me), `shock: applyStatus('shocked', …, attacker = me) (${shocked.length})`, JSON.stringify(stS.slice(0, 3)));
+  const restored = await page.evaluate(() => {
+    const ctx = window.__game.ctx; const inv = ctx.inventory;
+    ctx.enemies.applyStatus = window.__origApply; window.__origApply = null;
+    ctx.enemies.killAll();
+    const back = window.__arUid ? inv.equip(window.__arUid, 'primary') : false;
+    for (const uid of window.__uniqUids ?? []) inv.dropItem(uid);
+    return { back, primary: inv.getLoadout().primary?.defId ?? null };
+  });
+  ok(restored.back && restored.primary === 'wpn_ar23', 'AR I back in 주무기 I, uniques dropped', JSON.stringify(restored));
+  await waitSim(0.5);
 
   console.log('bags');
   const bag = await page.evaluate(() => {

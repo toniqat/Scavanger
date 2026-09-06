@@ -40,8 +40,10 @@ export class Deployable implements DeployableRef {
   headYaw = 0;
   /** Lure / fire: seconds until the next AI / status tick. */
   tickTimer = 0;
-  /** Jump pad: local re-trigger cooldown (per client). */
+  /** Jump pad: same-frame duplicate guard only (one launch per tick); the real re-trigger gate is `padNext`. */
   padCooldown = 0;
+  /** Jump pad (Phase 9): `ctx.time` before which each player (`'local'` on this client) cannot be launched again — `JUMP_PAD_RETRIGGER_S` after a launch. */
+  readonly padNext = new Map<PeerId | 'local', number>();
   /** Host: throttles `gad update` broadcasts while it is being chewed on. */
   netCooldown = 0;
   /** true once removal was already dispatched (guards double removal). */

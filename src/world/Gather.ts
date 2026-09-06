@@ -307,6 +307,8 @@ export class Gather {
       net.onMessage('flow', (m, from) => {
         if (m.ev === 'rejoined' && this.game?.net?.isHost) this.sendSync(from);
       }),
+      // Phase 9: a promoted host never saw our harvests as authority — re-request the taken set from the new host
+      ctx.bus.on('net:hostChanged', ({ isLocalHost }) => { if (!isLocalHost && this.built) this.requestSync(); }),
     );
   }
 

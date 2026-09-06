@@ -1,4 +1,4 @@
-import type { ArmorDef, EffectiveWeaponStats, ItemDef, ItemInstance, WeaponDef } from '@/shared';
+import type { ArmorDef, EffectiveWeaponStats, ItemDef, ItemInstance, SkillId, WeaponDef } from '@/shared';
 import { SOCKET_LABEL_KO, SOCKET_SLOTS } from '@/shared';
 import { WEAPON_CLASS_LABEL_KO } from '@/items';
 import {
@@ -13,6 +13,8 @@ export interface TooltipLookups {
   getStats(item: ItemInstance): EffectiveWeaponStats | null;
   /** appended: tactical kit — armor plate data for 'armor' items. */
   getArmorDef(armorId: string): ArmorDef | undefined;
+  /** appended (Phase 9): Korean skill name for a 서적 (`ItemDef.book.skill`); the id when progression is not around. */
+  getSkillName?(id: SkillId): string;
 }
 
 /**
@@ -106,6 +108,11 @@ export class Tooltip {
         rows.push([t.durability, `${Math.round(Math.max(0, Math.min(max, item.durability ?? max)))} / ${max}`]);
         if (a.perk !== 'none') rows.push([t.perk, a.description]);
       }
+    }
+    if (def.book) {
+      const t = TEXT.bookStats;
+      rows.push([t.skill, this.lookups.getSkillName?.(def.book.skill) ?? def.book.skill]);
+      rows.push([t.use, t.shelf]);
     }
     if (def.weight !== undefined) rows.push([TEXT.weight, `${(def.weight * Math.max(1, item.qty)).toFixed(1)} kg`]);
     if (def.healAmount) rows.push(['회복', `+${def.healAmount} HP`]);

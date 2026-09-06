@@ -208,8 +208,8 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
   /**
    * Hostile-projectile blocking for the local barrier and every replicated peer barrier.
    * Player shields ignore friendly fire, so `fromEnemy === false` never blocks.
-   * A blocked shot also chews through the *local* shield's durability (peer shields are authoritative
-   * on their owner's client, which broadcasts the new hp).
+   * **Pure query** (Phase 9): safe for per-tick line-of-sight tests. A caller whose shot really stopped here calls
+   * `damageBarrier(owner, point)` once — that is where the local shield loses durability and sparks fly.
    */
   raycastBarrier(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number, fromEnemy: boolean): { point: THREE.Vector3; owner: PeerId | 'local' } | null {
     if (!fromEnemy || !this.ctx) return null;
@@ -224,12 +224,14 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
       if (d < bestDist) { bestDist = d; best = b; _bp.copy(_hitPt); }
     }
     if (!best) return null;
-    if (best === this.barrier) this.onBarrierBlocked(_bp, BARRIER_BLOCK_DAMAGE);
-    else this.fx.spark(_bp, implantHex('barrier'), 0.3);
     return { point: _bp.clone(), owner: best.owner };
   }
 
-  /* Phase 9 skeleton: `raycastBarrier` still applies the block damage itself; move it here (see docs/PHASE9-PLAN.md §4). */
+  /**
+   * A projectile really stopped at a barrier: the local shield takes `amount` (`BARRIER_BLOCK_DAMAGE` by default) +
+   * `implant:barrierHit` (+ collapse / lockout / `imp barrier` sync), a peer's shield only sparks — its owner is
+   * authoritative over its hp and broadcasts it.
+   */
   damageBarrier(owner: PeerId | 'local', point: THREE.Vector3, amount = BARRIER_BLOCK_DAMAGE): void {
     if (!this.ctx) return;
     if (owner === 'local') { if (this.barrier.active) this.onBarrierBlocked(point, amount); }
@@ -672,11 +674,11 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
     if (this.barrierSendAcc >= BARRIER_SEND_EVERY_HITS) { this.barrierSendAcc = 0; this.sendBarrier(true); }
   }
 
-  private sendBarrier(active: boolean): void {
+  private sendBarrier(active: boolean, to: RelayTarget = 'others'): void {
     this.send({
       t: 'imp', ev: 'barrier', active,
       p: tuple(this.barrier.position), yaw: this.barrier.yaw, hp: Math.round(this.barrier.hp),
-    });
+    }, to);
   }
 
   /* ═══════════════════════════ 갈고리 (instant) ═══════════════════════════ */
@@ -986,7 +988,16 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
     this.unsubs.push(
       net.onMessage('imp', (m, from) => this.onImplantMessage(m, from)),
       net.onMessage('buff', (m, from) => this.onBuff(m, from)),
+      // Phase 9: a late joiner learns about our deployed barrier (the snapshot only carries the BARRIER flag)
+      net.onMessage('flow', (m, from) => {
+        if (m.ev === 'rejoined' && this.barrier?.active && from !== net.localId) this.sendBarrier(true, from);
+      }),
     );
+  }
+
+  /** e2e hook: the replicated overcharge beam state of `peerId` as this client sees it (null = unknown peer). */
+  debugBeam(peerId: PeerId): { on: boolean; target: PeerId | null; self: boolean; until: number } | null {
+    return this.remote?.debugBeam(peerId) ?? null;
   }
 
   private send(msg: ImplantMessage, to: RelayTarget = 'others'): void {
@@ -1007,8 +1018,9 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
   }
 
   /**
-   * Friendly effects aimed at *us* by someone else (overcharge beam, defibrillator). This is the single
-   * receiver for `buff` — gadgets/ sends them, implants/ applies them.
+   * Friendly effects aimed at *us* by someone else. Each `buff` kind has exactly one receiver: implants/ applies
+   * the overcharge `heal` / `boost`; `revive` (defibrillator) and `cloak` belong to gadgets/ (Phase 9: the duplicate
+   * `revive` branch here is gone).
    */
   private onBuff(m: BuffMessage, _from: PeerId): void {
     const p = this.ctx.player;
@@ -1021,8 +1033,7 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
       case 'boost':
         this.applyBoost(p, m.amount > 0 ? m.amount : IMPLANT_OVERCHARGE_SPEED_MUL, m.duration || BOOST_SEND_INTERVAL + BOOST_LINGER);
         break;
-      case 'revive':
-        if (typeof p.revive === 'function') { p.revive(); p.applyStim(p.maxHp); }
+      default:
         break;
     }
   }

@@ -144,9 +144,16 @@ function parseClientMessage(raw: RawData, isBinary: boolean): ClientToServer | n
       return typeof m.inMission === 'boolean' ? { t: 'lobby:mission', inMission: m.inMission } : null;
     case 'profile:get':
       return { t: 'profile:get' };
-    case 'profile:set':
+    case 'profile:set': {
       // Key validity is answered with `invalid` by the handler (so a wrong key is reported, not silently dropped).
-      return typeof m.key === 'string' && 'doc' in m ? { t: 'profile:set', key: m.key as never, doc: m.doc } : null;
+      if (typeof m.key !== 'string' || !('doc' in m)) return null;
+      if (m.at !== undefined && (typeof m.at !== 'number' || !Number.isFinite(m.at))) return null;
+      if (m.fresh !== undefined && typeof m.fresh !== 'boolean') return null;
+      const out: ClientToServer = { t: 'profile:set', key: m.key as never, doc: m.doc };
+      if (typeof m.at === 'number') out.at = m.at;
+      if (m.fresh === true) out.fresh = true;
+      return out;
+    }
     case 'credits:tx':
       return typeof m.txId === 'number' && Number.isFinite(m.txId) && typeof m.delta === 'number' && Number.isFinite(m.delta)
         && typeof m.reason === 'string' && m.reason.length <= MAX_REASON_INPUT
@@ -247,26 +254,47 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
     migrateTimers.delete(code);
   };
 
-  /** A training whose last member left (`inMission` all false) is closed by the server; returns true when it reset. */
-  const autoResetTraining = (lobby: Lobby): boolean => {
-    if (!lobby.started || lobby.mode !== 'training' || lobby.inMissionCount() > 0) return false;
+  /**
+   * A started lobby whose last member left the mission (`inMission` all false) is closed by the server: a training
+   * as in Phase 7, and (Phase 9) a raid as well — nobody is inside it any more, a parked host would never return to
+   * it. Returns true when it reset (a not-started lobby → false).
+   */
+  const autoResetMission = (lobby: Lobby): boolean => {
+    if (!lobby.started || lobby.inMissionCount() > 0) return false;
+    const kind = lobby.mode ?? 'raid';
     lobby.reset();
     clearMigrate(lobby.code);
-    log(`lobby ${lobby.code}: training ended (last member left) → reset`);
+    log(`lobby ${lobby.code}: ${kind} ended (last member left) → reset`);
+    // The reset reopened the hub rules: a dropped host hands over at once again.
+    if (lobby.migrateHost()) log(`lobby ${lobby.code}: host now ${lobby.hostId} (hub rule after reset)`);
+    return true;
+  };
+
+  /**
+   * Phase 9: a connected host that is no longer inside the running mission (page reload → `lobby:mission false`)
+   * must not keep the authority — hand it to a connected in-mission member when there is one.
+   */
+  const migrateHostAway = (lobby: Lobby, id: PeerId): boolean => {
+    if (!lobby.started || lobby.hostId !== id) return false;
+    if (!lobby.migrateHost(true)) return false;
+    clearMigrate(lobby.code);
+    log(`lobby ${lobby.code}: host ${id} left the mission → host now ${lobby.hostId}`);
     return true;
   };
 
   /** Final removal (explicit leave or grace expiry): `peer:left` to the rest, empty lobby deleted. */
   const removeFromLobby = (id: PeerId, name: string, reason: 'leave' | 'timeout'): void => {
     clearGrace(id);
+    const wasStarted = lobbies.lobbyOf(id)?.started ?? false;
     const res = lobbies.leave(id);
     if (!res) return;
     const { lobby, hostMigrated, deleted } = res;
-    log(`lobby ${lobby.code}: ${name}(${id}) ${reason}${hostMigrated ? ` → host now ${lobby.hostId}` : ''}${deleted ? ' → lobby deleted' : ''}`);
+    const ended = wasStarted && !lobby.started;
+    log(`lobby ${lobby.code}: ${name}(${id}) ${reason}${ended ? ' → mission over (nobody inside) → reset' : ''}${hostMigrated ? ` → host now ${lobby.hostId}` : ''}${deleted ? ' → lobby deleted' : ''}`);
     if (deleted) { clearMigrate(lobby.code); return; }
-    if (hostMigrated) clearMigrate(lobby.code);
+    if (hostMigrated || ended) clearMigrate(lobby.code);
     broadcast(lobby, { t: 'peer:left', id, lobby: lobby.toState() });
-    if (autoResetTraining(lobby)) broadcastState(lobby);
+    if (autoResetMission(lobby) || ended) broadcastState(lobby);
   };
 
   /**
@@ -290,6 +318,9 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         if (lobby.migrateHost()) {
           log(`lobby ${lobby.code}: host ${c.id} still down after ${migrateMs} ms → host now ${lobby.hostId}`);
           broadcastState(lobby);
+        } else {
+          // Phase 9: nobody connected inside the mission → the role is parked until an in-mission member reconnects.
+          log(`lobby ${lobby.code}: host ${c.id} still down after ${migrateMs} ms, no connected in-mission member → host parked`);
         }
       }, migrateMs);
       timer.unref();
@@ -398,8 +429,13 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         if (m.inMission && !lobby.started) { sendError(c, 'in_mission'); return; }
         lobby.setInMission(c.id, m.inMission);
         log(`lobby ${lobby.code}: ${c.name}(${c.id}) inMission=${m.inMission} (${lobby.inMissionCount()} in mission)`);
-        if (!m.inMission) lobby.raid.delete(c.id);
-        autoResetTraining(lobby);
+        if (!m.inMission) { lobby.raid.delete(c.id); migrateHostAway(lobby, c.id); }
+        else if (!migrateTimers.has(lobby.code)) {
+          // Phase 9: entering a mission whose host is parked (down past its delay) or outside it → this member takes the role.
+          const host = lobby.get(lobby.hostId);
+          if ((!host || !host.connected || !host.inMission) && lobby.migrateHost(true)) log(`lobby ${lobby.code}: host handed over → host now ${lobby.hostId}`);
+        }
+        autoResetMission(lobby);
         broadcastState(lobby);
         return;
       }
@@ -412,9 +448,10 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
       case 'profile:set': {
         if (!c.hasProfile) { sendError(c, 'invalid', '프로필이 없는 연결입니다 (세션 토큰 필요).'); return; }
         if (!isProfileDocKey(m.key)) { sendError(c, 'invalid', '알 수 없는 프로필 문서 키입니다.'); return; }
-        const res = store.setDoc(c.id, m.key, m.doc);
+        const res = store.setDoc(c.id, m.key, m.doc, m.at, m.fresh);
         if (res === 'too_large') { sendError(c, 'too_large'); return; }
         if (res === 'invalid') { sendError(c, 'invalid'); return; }
+        // 'stale' (older stamp / fresh over an existing doc) is ignored silently: the client keeps the server copy.
         return;
       }
 
@@ -512,8 +549,29 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
       // A returning host inside the migrate delay keeps the role; after it, `welcome.lobby.hostId` tells it otherwise.
       if (lobby.hostId === id) clearMigrate(lobby.code);
       if (c.name) lobby.setName(id, c.name); else c.name = lobby.get(id)?.name ?? '';
+      let note = '';
+      if (old) {
+        // Phase 9: a replaced socket is a new page — that page is not inside the mission any more (the client also
+        // reports `lobby:mission false` itself on a plain reload; here the old socket never got to). A host that was
+        // inside hands the authority to a connected in-mission member.
+        const me = lobby.get(id);
+        if (lobby.started && me?.inMission) {
+          lobby.setInMission(id, false);
+          lobby.raid.delete(id);
+          note += ' (duplicate socket → left the mission)';
+          if (migrateHostAway(lobby, id)) note += ` → host now ${lobby.hostId}`;
+          if (autoResetMission(lobby)) note += ' → mission over → reset';
+        }
+      } else if (lobby.started && lobby.hostId !== id && lobby.get(id)?.inMission && !migrateTimers.has(lobby.code)) {
+        // Phase 9: the host is parked (down past its delay with nobody eligible) or out of the mission (reloaded) →
+        // this returning in-mission member takes the role now (a still-pending delay keeps its own schedule).
+        const host = lobby.get(lobby.hostId);
+        if (!host || !host.connected || !host.inMission) {
+          if (lobby.migrateHost(true)) note += ` → host handed over: host now ${lobby.hostId}`;
+        }
+      }
       const raid = lobby.getRaid(id);
-      log(`lobby ${lobby.code}: ${c.name}(${id}) resumed${wasDown ? ' (was disconnected)' : ''}${raid ? ' + raid blob' : ''}`);
+      log(`lobby ${lobby.code}: ${c.name}(${id}) resumed${wasDown ? ' (was disconnected)' : ''}${raid ? ' + raid blob' : ''}${note}`);
       const welcome: ServerToClient = { t: 'welcome', id, serverTime: Date.now(), lobby: lobby.toState(), resumed: true };
       if (profile) welcome.profile = profile;
       if (raid) welcome.raid = raid;

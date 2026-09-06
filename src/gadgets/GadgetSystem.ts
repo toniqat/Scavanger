@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {
   GADGET_DEFUSE_TIME, GADGET_INCENDIARY_DPS, GADGET_JUMPPAD_FORWARD, GADGET_JUMPPAD_IMPULSE,
-  GADGET_CLOAK_SHARE_RADIUS, GADGET_LURE_RADIUS, GADGET_MINE_ARM_TIME, GADGET_MINE_DAMAGE, GADGET_TURRET_DPS, Keys, PLAYER_RADIUS,
+  GADGET_CLOAK_SHARE_RADIUS, GADGET_LURE_RADIUS, GADGET_MINE_ARM_TIME, GADGET_MINE_DAMAGE, GADGET_TURRET_DPS, JUMP_PAD_RETRIGGER_S, Keys, PLAYER_RADIUS,
   type BuffMessage, type DeployableKind, type DeployableRef, type EnemyRef, type FlowMessage, type GadgetDef,
   type GadgetId, type GadgetMessage, type GadgetRequest, type GameContext, type GameSystem, type GadgetsRef,
   type Interactable, type ItemInstance, type DeployableWire, type PeerId, type PlayerWeaponHost, type Vec3Tuple,
@@ -103,6 +103,11 @@ export class GadgetSystem implements GameSystem, GadgetsRef {
         this.clear();
         const net = ctx.net;
         if (ctx.isMultiplayer && net && !net.isHost) net.send({ t: 'gadq', ev: 'sync' }, 'host');
+      }),
+      // Phase 9: a promoted host may hold deployables we never saw (or different hp) — re-request the full set
+      b.on('net:hostChanged', ({ isLocalHost }) => {
+        const net = ctx.net;
+        if (!isLocalHost && ctx.isMultiplayer && net && ctx.world?.ready) net.send({ t: 'gadq', ev: 'sync' }, 'host');
       }),
     );
     this.ensureNetHooks();
@@ -565,7 +570,8 @@ export class GadgetSystem implements GameSystem, GadgetsRef {
     const enemies = ctx.enemies;
     for (const e of this.enemiesNear(d.position, d.radius)) {
       if (e.isDead) continue;
-      if (enemies && typeof enemies.applyStatus === 'function') enemies.applyStatus(e.id, 'burning', GADGET_INCENDIARY_DPS, ZONE_TICK * 2.4);
+      // Phase 9: the fire's owner gets the burn kill credit (`enemy:killed.by`)
+      if (enemies && typeof enemies.applyStatus === 'function') enemies.applyStatus(e.id, 'burning', GADGET_INCENDIARY_DPS, ZONE_TICK * 2.4, d.owner);
       else e.takeDamage(GADGET_INCENDIARY_DPS * ZONE_TICK);
     }
     // remote players burn too (no friend-or-foe check); the local player is handled by updateLocalEffects on every client
@@ -598,8 +604,10 @@ export class GadgetSystem implements GameSystem, GadgetsRef {
     if (dps > 0 && typeof p.setBurning === 'function') p.setBurning(dps, 1.2);
 
     const pad = this.jumpPadAt(p.position) as Deployable | null;
-    if (pad && pad.padCooldown <= 0 && typeof p.applyImpulse === 'function') {
-      pad.padCooldown = 0.7;
+    // per-player re-trigger gate (Phase 9): the same pad launches this player again only after JUMP_PAD_RETRIGGER_S
+    if (pad && pad.padCooldown <= 0 && (pad.padNext.get('local') ?? 0) <= ctx.time && typeof p.applyImpulse === 'function') {
+      pad.padNext.set('local', ctx.time + JUMP_PAD_RETRIGGER_S);
+      pad.padCooldown = Math.max(dt, 1e-3);   // same-frame guard only
       _d.set(0, GADGET_JUMPPAD_IMPULSE, 0);
       const speed = Math.hypot(p.velocity.x, p.velocity.z);
       if (p.isSprinting || speed > 3.5) {

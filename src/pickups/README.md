@@ -5,7 +5,7 @@ Owner: `PickupSystem` (`name: 'pickups'`), registered right after `InventorySyst
 | File | Purpose |
 |---|---|
 | `PickupSystem.ts` | `PickupsRef` impl (`getPickups`, `findNear(pos, r)`, `spawn(item, pos, vel?)`, `clear`). Listens `inventory:itemDropped` → toss arc (`GRAVITY`, `world.resolveCollision`, lands on `world.getHeightAt` + per-category rest height, small bounce, then rests). Registers one `Interactable` per pickup (`pickup:<id>`, radius 2.2 m, instant, prompt `"<이름> ×n 줍기"` / `"<이름> 줍기"`, only while resting and `isGameplayActive()`). Take → `ctx.inventory.tryAddItem(item)`; false keeps the pickup (inventory already emitted `inventory:full`). Pool cap `PICKUP_MAX` (oldest evicted), `PICKUP_LIFETIME` (> 0 → expires on every client). Cleared on `game:newMission`, `game:abort`, `hub:entered`, `world:ready`. Emits `pickup:spawned / pickup:taken / pickup:removed`. |
-| `PickupVisuals.ts` | `PickupVisualPool`: pooled per-category procedural bodies (primary = rifle silhouette, secondary = pistol, ammo = box + stripe, stim = capsule, grenade = sphere + band, valuable = octahedron on a base, material = crate), tinted from `ItemDef.color` (rarity colour) with an emissive pulse, plus an additive vertical beam (5.5 m) and ground ring. Layer `NO_RAYCAST`. **No lights** (constant scene light count → no shader recompiles). `warm()` pre-creates one visual per category at init. |
+| `PickupVisuals.ts` | `PickupVisualPool`: pooled per-category procedural bodies (primary = rifle silhouette, secondary = pistol, ammo = box + stripe, stim = capsule, grenade = sphere + band, valuable = octahedron on a base, material = crate, **book = flat cover slab + lighter page block + raised spine, turned 0.35 rad** — Phase 9 서적), tinted from `ItemDef.color` (rarity colour) with an emissive pulse, plus an additive vertical beam (5.5 m) and ground ring. Layer `NO_RAYCAST`. **No lights** (constant scene light count → no shader recompiles). `warm()` pre-creates one visual per category at init. |
 | `index.ts` | Barrel. |
 
 ## Events other modules can rely on
@@ -42,6 +42,8 @@ Sync
 ────
 client world:ready (multiplayer, !host) → itemq sync ──► host → item sync {items} ──► that peer (rebuild all, resting)
 host also answers `flow rejoined` from a peer with `item sync`.
+host migration (Phase 9): net:hostChanged {isLocalHost:false} + ctx.world.ready → itemq sync ──► the *new* host
+  (it answers from its own mirror, which may hold drops we never saw / lack ones it never received)
 ```
 
 Host-side validation is existence only (an unknown/already-taken id is silently dropped; the requester's 1 s cooldown expires and the prompt returns). Item instances received over the wire are re-created with `ctx.loot.createItem(defId, qty)` (fresh uid).

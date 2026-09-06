@@ -8,6 +8,7 @@ import {
   STRUCTURE_COUNT, STRUCTURE_HP, STRUCTURE_SCATTER, STRUCTURE_IMPACT_RADIUS, STRUCTURE_IMPACT_DAMAGE, STRUCTURE_FALL_TIME,
   type GameContext, type GameSystem, type StratagemsRef, type StratagemId, type StratagemCall, type StratagemStage, type StratagemDef,
   type PlayerRef, type PlayerWeaponHost, type Interactable, type Obstacle, type DestructibleRef, type WorldRef, type Vec3Tuple, type PeerId,
+  type StratagemCallWire,
 } from '@/shared';
 import {
   SharedGeo, TargetRing, CallMarker, Burst, dustBurst, sparkBurst, LaserBeam, Fireball, SupplyCrateMesh, BarricadeMesh, makeRubble, KIND_COLOR,
@@ -119,6 +120,8 @@ export class StratagemSystem implements GameSystem, StratagemsRef {
   private netHooked = false;
   private readonly unsubs: Array<() => void> = [];
   private warnedNoObstacle = false;
+  /** True while a synced call is fast-forwarded to its landed state: no impact damage / bursts / shake / audio (Phase 9). */
+  private silent = false;
 
   /* ── StratagemsRef state ── */
   private _armed: StratagemId | null = null;
@@ -175,6 +178,11 @@ export class StratagemSystem implements GameSystem, StratagemsRef {
       }),
       b.on('crate:looted', ({ crateId }) => this.onCrateLooted(crateId)),
       b.on('grenade:exploded', ({ position, radius }) => this.splashStructures(position, radius, GRENADE_STRUCTURE_DAMAGE)),
+      // Phase 9: a late joiner asks the host for every live call (the answer arrives as `strat sync`)
+      b.on('world:ready', () => {
+        const net = ctx.net;
+        if (ctx.isMultiplayer && net && !net.isHost) net.send({ t: 'stratq', ev: 'sync' }, 'host');
+      }),
     );
     this.ensureNetHooks();
   }
@@ -231,15 +239,20 @@ export class StratagemSystem implements GameSystem, StratagemsRef {
     return !!p && ctx.isGameplayActive() && ctx.input.isPointerLocked && !p.isDead && !p.isDowned;
   }
   private audio(id: string, position?: THREE.Vector3, volume = 1): void {
+    if (this.silent) return;
     this.ctx.bus.emit('audio:play', { id, position, volume });
   }
   private shakeFrom(center: THREE.Vector3, base: number): void {
+    if (this.silent) return;
     const p = this.ctx.player; if (!p) return;
     const d = p.position.distanceTo(center);
     const k = THREE.MathUtils.clamp(1 - d / SHAKE_RANGE, 0, 1);
     if (k > 0) this.ctx.bus.emit('camera:shake', { intensity: base * (0.25 + k * 0.75), duration: 0.5 });
   }
-  private burst(b: Burst): void { this.bursts.push(b); this.group.add(b.points); }
+  private burst(b: Burst): void {
+    if (this.silent) { b.dispose(); return; }
+    this.bursts.push(b); this.group.add(b.points);
+  }
 
   /* ─────────────────────────── cooldown ─────────────────────────── */
   private tickCooldown(dt: number): void {
@@ -546,6 +559,7 @@ export class StratagemSystem implements GameSystem, StratagemsRef {
   /** Radial damage of an impact: enemies only on the caller's client, the local player everywhere (linear falloff). */
   private impactDamage(call: Call, center: THREE.Vector3, radius: number, damage: number): void {
     const ctx = this.ctx;
+    if (this.silent) return;   // fast-forwarded sync landing: the impact happened before we joined
     if (call.local && ctx.enemies) ctx.enemies.applyExplosion(center, radius, damage);
     const p = ctx.player;
     if (p && !p.isDead) {
@@ -830,9 +844,100 @@ export class StratagemSystem implements GameSystem, StratagemsRef {
         } else if (msg.ev === 'structHp') {
           const s = this.byId.get(msg.callId)?.structures[msg.index];
           if (s && !s.destroyed && msg.hp < s.hp) this.setStructureHp(s, msg.hp);
+        } else if (msg.ev === 'sync') {
+          this.applySync(msg.calls);
         }
       }),
+      // Phase 9: the host is the late-join sync authority (calls stay client-simulated)
+      net.onMessage('stratq', (msg, from) => {
+        if (msg.ev === 'sync' && net.isHost) this.sendSync(from);
+      }),
+      net.onMessage('flow', (msg, from) => {
+        if (msg.ev === 'rejoined' && net.isHost) this.sendSync(from);
+      }),
     );
+  }
+
+  /** Every live call as `StratagemCallWire` (`eta` relative to now, `st` = damaged structures only). */
+  private syncWire(): StratagemCallWire[] {
+    const now = this.ctx.time;
+    const out: StratagemCallWire[] = [];
+    for (const c of this.calls) {
+      if (c.kind === 'orbital_laser' || c.kind === 'airstrike') { if (c.stage === 'done') continue; }
+      else if (c.kind === 'structure_drop' && c.structures.length > 0 && c.structures.every((s) => s.destroyed)) continue;
+      const w: StratagemCallWire = { callId: c.id, kind: c.kind, p: toTuple(c.position), seed: c.seed, eta: Math.round((c.landsAt - now) * 100) / 100, caller: c.caller };
+      if (c.looted) w.looted = true;
+      if (c.structures.length) {
+        const st: [number, number][] = [];
+        for (const s of c.structures) if (s.destroyed || s.hp < STRUCTURE_HP) st.push([s.index, s.destroyed ? 0 : Math.max(0, Math.round(s.hp))]);
+        if (st.length) w.st = st;
+      }
+      out.push(w);
+    }
+    return out;
+  }
+
+  private sendSync(to: PeerId): void {
+    const net = this.ctx.net;
+    if (!net || !this.ctx.isMultiplayer) return;
+    net.send({ t: 'strat', ev: 'sync', calls: this.syncWire() }, to);
+  }
+
+  /**
+   * Late-join reception: unknown calls are created as remote (`local = false`); a call that already landed (`eta ≤ 0`)
+   * is back-dated and fast-forwarded in this frame — silently (no impact damage / FX) — so its obstacles and supply
+   * interactable exist at once; the synced structure hp is applied **inside the same silent window**, so a block that
+   * was already rubble when we joined leaves rubble without its demolition shake / dust / bang. The state events
+   * (`stratagem:landed`, `structure:damaged / destroyed`) are still emitted — only the felt FX are suppressed.
+   * The cooldown is personal and not synced.
+   */
+  private applySync(calls: StratagemCallWire[]): void {
+    const w = this.world();
+    for (const wire of calls) {
+      if (!wire || typeof wire.callId !== 'string' || this.byId.has(wire.callId)) continue;
+      if (!STRATAGEM_DEFS.some((d) => d.id === wire.kind)) continue;
+      const p = new THREE.Vector3(wire.p[0], wire.p[1], wire.p[2]);
+      if (w) p.y = w.getHeightAt(p.x, p.z);
+      const eta = Number.isFinite(wire.eta) ? wire.eta : 0;
+      const past = eta <= 0;
+      const wasSilent = this.silent;
+      if (past) this.silent = true;
+      try {
+        const call = this.createCall(wire.kind, p, eta, wire.seed >>> 0, false, wire.callId, wire.caller ?? null);
+        if (past) this.fastForward(call);
+        if (wire.st) {
+          for (const [index, hp] of wire.st) {
+            const s = call.structures[index];
+            if (s && !s.destroyed && hp < s.hp) this.setStructureHp(s, hp);
+          }
+        }
+        if (wire.looted && call.kind === 'supply_drop' && !call.looted) {
+          call.looted = true;
+          call.crate?.setLooted();
+          this.ended(call);
+        }
+      } finally {
+        this.silent = wasSilent;
+      }
+    }
+  }
+
+  /** Run one silent update step at `ctx.time` so a back-dated call reaches its landed state immediately. */
+  private fastForward(c: Call): void {
+    const t = this.ctx.time;
+    c.audioStarted = true;
+    const wasSilent = this.silent;
+    this.silent = true;
+    try {
+      switch (c.kind) {
+        case 'orbital_laser': this.updateLaser(c, t, 0); break;
+        case 'airstrike': this.updateAirstrike(c, t); break;
+        case 'supply_drop': this.updateSupply(c, t); break;
+        case 'structure_drop': this.updateStructures(c, t); break;
+      }
+    } finally {
+      this.silent = wasSilent;
+    }
   }
 
   /* ─────────────────────────── cleanup ─────────────────────────── */

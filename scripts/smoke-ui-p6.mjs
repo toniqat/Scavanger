@@ -1,6 +1,9 @@
 // Phase 6 HUD smoke (src/ui): unique-weapon charge gauge, weapon-panel fire-mode lines, 전소 / 감전 world markers,
 // MOVE CHEAT tag, housing hint bar, room label. Enters a solo mission, then feeds synthetic bus events from `page.evaluate`
-// and asserts the DOM. Usage: node scripts/smoke-ui-p6.mjs [http://localhost:5273]   (needs `npm run dev`)
+// and asserts the DOM. Phase 9 additions: the downed 포기 hold bar (`player:giveUpProgress` after a real `takeDamage`
+// down) and the 훈련장 panel (`ctx.missionMode = 'training'` + a `TrainingRef` stub on the world instance, then
+// `training:modeChanged / scored / courseFinished` + the polled course clock + the completion toast). 72 checks.
+// Usage: node scripts/smoke-ui-p6.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { existsSync } from 'node:fs';
 
@@ -199,13 +202,100 @@ try {
   rl = await P(() => ({ cls: document.querySelector('.room-label').className, on: window.__game.getSystem('hud').isRoomLabelOn }));
   ok(!/\bshow\b/.test(rl.cls) && !rl.on, 'room null → hidden at once', JSON.stringify(rl));
 
+  console.log('give-up bar (Phase 9)');
+  // A real down (lethal damage → downed, not dead) so the vitals are in downed mode; the hold itself is player/'s, so it is synthesised.
+  await P(() => window.__game.ctx.player.takeDamage(500));
+  await waitSim(0.2);
+  const giveUp = () => P(() => { const v = document.querySelector('.vitals'); const g = v.querySelector('.giveup'); return { downed: v.classList.contains('downed'), pDowned: window.__game.ctx.player.isDowned, cls: g.className, txt: g.querySelector('.txt').textContent, tf: g.querySelector('.fill').style.transform, disp: getComputedStyle(g).display, color: getComputedStyle(g.querySelector('.fill')).backgroundColor, on: window.__game.getSystem('hud').isGiveUpBarOn }; });
+  let gu = await giveUp();
+  ok(gu.downed && gu.pDowned, 'lethal damage → vitals in downed mode (player downed, not dead)', JSON.stringify(gu));
+  ok(!/\bshow\b/.test(gu.cls) && gu.disp === 'none' && !gu.on, 'give-up bar hidden until the hold starts', JSON.stringify(gu));
+  await emit('player:giveUpProgress', { t: 0.5 });
+  gu = await giveUp();
+  ok(/\bshow\b/.test(gu.cls) && gu.disp === 'flex' && gu.on, 'player:giveUpProgress 0.5 → .giveup.show', JSON.stringify(gu));
+  ok(gu.txt === '포기' && gu.tf === 'scaleX(0.5)' && gu.color === 'rgb(255, 77, 77)', 'label 포기, fill scaleX 0.5 in --c-danger', JSON.stringify(gu));
+  await emit('player:giveUpProgress', { t: 0.9 });
+  gu = await giveUp();
+  ok(gu.tf === 'scaleX(0.9)' && gu.on, 't 0.9 → fill scaleX 0.9', gu.tf);
+  await emit('player:giveUpProgress', { t: -1 });
+  gu = await giveUp();
+  ok(!/\bshow\b/.test(gu.cls) && !gu.on && gu.tf === 'scaleX(0)', 't −1 (released) → hidden, fill reset', JSON.stringify(gu));
+  await emit('player:giveUpProgress', { t: 0.3 });
+  gu = await giveUp();
+  ok(gu.on && gu.tf === 'scaleX(0.3)', 'a new hold shows the bar again', JSON.stringify(gu));
+  await P(() => window.__game.ctx.player.revive());
+  await waitSim(0.2);
+  gu = await giveUp();
+  ok(!gu.downed && !gu.pDowned && !gu.on && !/\bshow\b/.test(gu.cls), 'revive → downed mode off, give-up bar hidden with it', JSON.stringify(gu));
+  await emit('player:giveUpProgress', { t: 0.6 });
+  gu = await giveUp();
+  ok(!gu.on, 'giveUpProgress while not downed is ignored', JSON.stringify(gu));
+
+  console.log('training panel (Phase 9)');
+  const tpanel = () => P(() => { const e = document.querySelector('.training-panel'); const h = window.__game.getSystem('hud'); const timeRow = e.querySelector('.row.time'); const bestRow = e.querySelector('.row.best'); return { cls: e.className, on: h.isTrainingPanelOn, pulsing: h.isTrainingPulsing, mode: h.trainingPanelMode, modeTxt: e.querySelector('.mode').textContent, num: e.querySelector('.row.score .num').textContent, fill: e.querySelector('.bar .fill').style.transform, barDisp: getComputedStyle(e.querySelector('.bar')).display, timeHidden: timeRow.hidden, time: timeRow.querySelector('.num').textContent, urgent: timeRow.classList.contains('urgent'), bestHidden: bestRow.hidden, best: bestRow.querySelector('.num').textContent, inLayer: !!document.querySelector('.hud.gameplay .training-panel') }; });
+  let tp = await tpanel();
+  ok(tp.inLayer && !tp.on && !/\bshow\b/.test(tp.cls), 'training panel mounted in the gameplay layer, hidden in a raid', JSON.stringify(tp));
+  await emit('training:scored', { score: 1, hits: 1, index: 0 });
+  tp = await tpanel();
+  ok(!tp.on, 'training:scored in a raid does not bring the panel up', JSON.stringify(tp));
+  // Fake a training: ctx.missionMode + a TrainingRef stub as an own property of the world instance (shadows the prototype getter).
+  const stubbed = await P(() => {
+    const ctx = window.__game.ctx;
+    ctx.missionMode = 'training';
+    const stub = { mode: 'static', score: 0, hits: 0, remaining: -1, bestTime: null, setMode(m) { this.mode = m; return true; }, startCourse() { return false; }, resetScore() { this.score = 0; this.hits = 0; } };
+    try { Object.defineProperty(ctx.world, 'training', { value: stub, configurable: true, writable: true }); } catch (e) { return String(e); }
+    window.__tr = stub;
+    return ctx.world.training === stub ? true : 'getter not shadowed';
+  });
+  ok(stubbed === true, 'ctx.world.training stub installed as an own property over the prototype getter', String(stubbed));
+  await emit('game:phaseChanged', { phase: 'playing', prev: 'deploying' });
+  tp = await tpanel();
+  ok(tp.on && /\bshow\b/.test(tp.cls), 'phaseChanged playing while missionMode = training → .training-panel.show', JSON.stringify(tp));
+  ok(tp.modeTxt === '고정 표적' && tp.mode === 'static' && tp.num === '0' && tp.barDisp === 'none' && tp.timeHidden && tp.bestHidden, 'initial rows: 고정 표적 chip, 격추 0, no bar / timer / best', JSON.stringify(tp));
+  await emit('training:modeChanged', { mode: 'moving' });
+  tp = await tpanel();
+  ok(tp.modeTxt === '이동 표적' && tp.mode === 'moving' && !/\btimed\b/.test(tp.cls), 'training:modeChanged moving → 이동 표적 chip', JSON.stringify(tp));
+  await emit('training:scored', { score: 3, hits: 4, index: 2 });
+  tp = await tpanel();
+  ok(tp.num === '3' && tp.pulsing && /\bpulse\b/.test(tp.cls), 'training:scored 3 → 격추 3 + pulse', JSON.stringify(tp));
+  await waitSim(1.0);
+  tp = await tpanel();
+  ok(!tp.pulsing && !/\bpulse\b/.test(tp.cls), 'pulse drops after 0.9 s of sim time', JSON.stringify(tp));
+  await P(() => { window.__tr.mode = 'timed'; window.__tr.score = 3; });
+  await emit('training:modeChanged', { mode: 'timed' });
+  tp = await tpanel();
+  ok(/\btimed\b/.test(tp.cls) && tp.modeTxt === '타임 코스' && tp.num === '3 / 10' && tp.barDisp === 'block' && tp.fill === 'scaleX(0.3)', 'timed mode → 타임 코스 chip, 3 / 10 with a 30 % bar', JSON.stringify(tp));
+  // a running course: the clock is polled from the TrainingRef every frame
+  await P(() => { window.__tr.remaining = 42.3; });
+  await waitSim(0.15);
+  tp = await tpanel();
+  ok(!tp.timeHidden && tp.time === '42.3초' && !tp.urgent, 'remaining 42.3 → 남은 시간 42.3초 row', JSON.stringify(tp));
+  await P(() => { window.__tr.remaining = 7.9; window.__tr.score = 6; });
+  await waitSim(0.15);
+  tp = await tpanel();
+  ok(tp.time === '7.9초' && tp.urgent && tp.num === '6 / 10', 'remaining 7.9 → .urgent red, polled score 6 / 10', JSON.stringify(tp));
+  await P(() => { window.__tr.remaining = -1; window.__tr.score = 10; window.__tr.bestTime = 12.3; });
+  await emit('training:courseFinished', { time: 12.3, score: 10, completed: true, best: 12.3 });
+  tp = await tpanel();
+  ok(tp.num === '10 / 10' && /\bdone\b/.test(tp.cls) && tp.timeHidden && !tp.bestHidden && tp.best === '12.3초' && tp.pulsing, 'courseFinished completed → 10 / 10 .done, timer row gone, 최고 기록 12.3초, pulse', JSON.stringify(tp));
+  let tnotifs = await P(() => [...document.querySelectorAll('.notif')].map((e) => e.textContent));
+  ok(tnotifs.some((t) => t.includes('타임 코스 완료') && t.includes('12.3초') && t.includes('신기록')), 'toast 타임 코스 완료 12.3초 · 신기록', JSON.stringify(tnotifs.slice(-3)));
+  await P(() => { window.__tr.score = 6; });
+  await emit('training:courseFinished', { time: 60, score: 6, completed: false, best: 12.3 });
+  tp = await tpanel();
+  tnotifs = await P(() => [...document.querySelectorAll('.notif')].map((e) => e.textContent));
+  ok(tp.num === '6 / 10' && !/\bdone\b/.test(tp.cls) && tp.best === '12.3초', 'timed-out course → 6 / 10, best kept', JSON.stringify(tp));
+  ok(tnotifs.some((t) => t.startsWith('시간 초과')), 'toast 시간 초과', JSON.stringify(tnotifs.slice(-3)));
+  // back to a raid for the reset section (the panel stays up so the abort below has something to hide)
+  await P(() => { const ctx = window.__game.ctx; ctx.missionMode = 'raid'; delete ctx.world.training; delete window.__tr; });
+
   console.log('mission reset');
   s = await spot();
   await P((v) => { const V = window.__game.ctx.player.position.constructor; window.__game.ctx.bus.emit('enemy:incinerated', { id: 99, position: new V(v[0], v[1], v[2]), duration: 6 }); window.__game.ctx.bus.emit('weapon:chargeChanged', { weaponId: 'u_shock', kind: 'charge', t: 0.3 }); window.__game.ctx.bus.emit('housing:modeChanged', { active: true, room: 1 }); window.__game.ctx.bus.emit('hub:roomEntered', { room: 2, purpose: 'range' }); }, s);
   await emit('game:abort', {});
   await waitSim(0.1);
-  const reset = await P(() => { const h = window.__game.getSystem('hud'); return { markers: h.statusMarkerCount, charge: h.weaponChargeKind, housing: h.isHousingHintOn, room: h.isRoomLabelOn }; });
-  ok(reset.markers === 0 && reset.charge === null && !reset.housing && !reset.room, 'game:abort clears markers, gauge, housing bar and room label', JSON.stringify(reset));
+  const reset = await P(() => { const h = window.__game.getSystem('hud'); return { markers: h.statusMarkerCount, charge: h.weaponChargeKind, housing: h.isHousingHintOn, room: h.isRoomLabelOn, training: h.isTrainingPanelOn }; });
+  ok(reset.markers === 0 && reset.charge === null && !reset.housing && !reset.room && !reset.training, 'game:abort clears markers, gauge, housing bar, room label and the training panel', JSON.stringify(reset));
 
   ok(errors.length === 0, 'no console errors', errors.slice(0, 5).join(' | '));
 } catch (e) {

@@ -3,7 +3,7 @@ import {
   BEHEMOTH_KNOCKBACK, BURNOUT_DURATION, CORPSE_LIFETIME, ENEMY_STATUS_BITS, FLAME_AFTERBURN_DPS, FLAME_AFTERBURN_DURATION, GADGET_LURE_RADIUS, MAP_SIZE,
   NET_ENEMY_SNAPSHOT_HZ, PLAYER_HEIGHT, PLAYER_RADIUS, ROGUE_DAMAGE, ROGUE_GRENADE_DAMAGE, ROGUE_GRENADE_FUSE, ROGUE_GRENADE_RADIUS, ROGUE_MAG_ROUNDS, ROGUE_RANGE,
   SHELL_BLAST_RADIUS, SHELL_DAMAGE, SHELL_FLIGHT_TIME, SHOCK_SLOW_DURATION, SHOCK_SLOW_FACTOR, TOXIC_DAMAGE, TOXIC_RADIUS,
-  type DamageMessage, type EnemyEvent, type EnemyFaction, type EnemyHit, type EnemyManagerRef, type EnemyRef, type EnemyStatusKind, type EnemyType, type GameContext, type GameSystem,
+  type DamageMessage, type EnemyEvent, type EnemyFaction, type EnemyHit, type EnemyManagerRef, type EnemyRef, type EnemySnapshot, type EnemyStatusKind, type EnemyType, type GameContext, type GameSystem,
   type HitRequest, type InterceptableRef, type PeerId, type WorldRef,
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
@@ -23,7 +23,7 @@ import { WaveDirector } from './WaveDirector';
 import { disposeBugAssets } from './models/BugModel';
 import { disposeRogueAssets } from './models/RogueModel';
 import { EnemyReplica, type ReplicaHost } from './net/Replica';
-import { animHint, encodeSnapshot, round, tuple } from './net/HostSync';
+import { animHint, encodeSnapshot, round, SnapshotCache, tuple } from './net/HostSync';
 import { CorpseManager } from './Corpses';
 import { placeRogueGuards, type RogueSpawnHost } from './RogueGuards';
 import { raySphere, rayCapsule, rayStandingCapsule } from './RayTests';
@@ -67,6 +67,8 @@ const GRENADE_KNOCKBACK = 7;
 const GRENADE_NOISE = 60;
 /** Id headroom on promotion: ids the old host assigned that never reached us must not collide with ours. */
 const PROMOTE_ID_GAP = 100;
+/** Phase 9: a promoted host continues the snapshot `seq` this far past the last one it saw as a replica (never collides with the old host's counter). */
+const PROMOTE_SEQ_GAP = 1000;
 
 const _v = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
@@ -126,6 +128,8 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   /** Cached per mission: a lobby session is running (replication on). */
   private multiplayer = false;
   private snapTimer = 0;
+  /** Phase 9: delta-snapshot state (last sent fields per enemy, monotonic seq, forced keyframe). */
+  private readonly snapCache = new SnapshotCache();
   private resetting = false;
   private lastClash = -Infinity;
   /** Current boss (authority) for debugging / HUD. */
@@ -229,6 +233,10 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       }),
       net.onMessage('hit', (msg, from) => this.onHitRequest(msg, from)),
       net.onMessage('explode', (msg, from) => this.onExplodeRequest(msg.p, msg.r, msg.dmg, from)),
+      // Phase 9: a member that (re)joined the mission or a takeover needs a full picture — the next `es` is a keyframe
+      net.onMessage('flow', (msg) => {
+        if ((msg.ev === 'rejoined' || msg.ev === 'takeover') && this.hosting) this.snapCache.forceFull = true;
+      }),
       net.onMessage('intq', (msg) => {
         // a client's bullet hit shell `sid`: validate it still exists, pop it here and broadcast
         if (!this.hosting || !this.shells) return;
@@ -271,7 +279,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
         this.snapTimer -= dt;
         if (this.snapTimer <= 0) {
           this.snapTimer = Math.max(0, this.snapTimer + 1 / NET_ENEMY_SNAPSHOT_HZ);
-          ctx.net!.send(encodeSnapshot(this.active, ctx.time), 'others');
+          ctx.net!.send(encodeSnapshot(this.active, ctx.time, this.snapCache), 'others');
         }
       }
     } else {
@@ -503,9 +511,13 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
    * a replica keeps the optimistic visual and forwards the request to the host as `hit {dmg: 0, st, dur}`
    * (`ENEMY_STATUS_BITS`), throttled per enemy for the continuous callers.
    */
-  applyStatus(id: number, status: EnemyStatusKind, dps: number, duration: number): void {
+  applyStatus(id: number, status: EnemyStatusKind, dps: number, duration: number, attacker?: string): void {
     const e = this.byId.get(id);
     if (!e || !e.active || e.state === 'dead') return;
+    // Phase 9: the fire's owner gets the burn-kill credit (host side only; a replica's request carries it as the relay `from`)
+    if (attacker !== undefined && !this.replica && (status === 'burning' || status === 'incinerated') && (status === 'incinerated' ? duration > 0 : dps > 0)) {
+      e.burnAttacker = this.normalizeAttacker(attacker);
+    }
     switch (status) {
       case 'incinerated': {
         if (!(duration > 0)) { e.incapTimer = 0; return; }
@@ -580,12 +592,12 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   }
 
   /** Host: apply the status bits a client attached to its hit (`HitRequest.st` / `dur`); the wire carries no dps, so the defaults are the constants. */
-  private applyStatusBits(e: Enemy, bits: number, dur: number | undefined): void {
+  private applyStatusBits(e: Enemy, bits: number, dur: number | undefined, from?: string): void {
     const d = dur !== undefined && dur > 0 ? Math.min(MAX_STATUS_DURATION, dur) : 0;
-    if (bits & ENEMY_STATUS_BITS.INCINERATED) this.applyStatus(e.id, 'incinerated', 0, d || BURNOUT_DURATION);
-    if (bits & ENEMY_STATUS_BITS.SHOCKED) this.applyStatus(e.id, 'shocked', SHOCK_SLOW_FACTOR, d || SHOCK_SLOW_DURATION);
-    if (bits & ENEMY_STATUS_BITS.BURNING) this.applyStatus(e.id, 'burning', FLAME_AFTERBURN_DPS, d || FLAME_AFTERBURN_DURATION);
-    if (bits & ENEMY_STATUS_BITS.SLOWED) this.applyStatus(e.id, 'slowed', 0.4, d || 2);
+    if (bits & ENEMY_STATUS_BITS.INCINERATED) this.applyStatus(e.id, 'incinerated', 0, d || BURNOUT_DURATION, from);
+    if (bits & ENEMY_STATUS_BITS.SHOCKED) this.applyStatus(e.id, 'shocked', SHOCK_SLOW_FACTOR, d || SHOCK_SLOW_DURATION, from);
+    if (bits & ENEMY_STATUS_BITS.BURNING) this.applyStatus(e.id, 'burning', FLAME_AFTERBURN_DPS, d || FLAME_AFTERBURN_DURATION, from);
+    if (bits & ENEMY_STATUS_BITS.SLOWED) this.applyStatus(e.id, 'slowed', 0.4, d || 2, from);
   }
 
   /**
@@ -642,6 +654,8 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     }
     this.nextId = Math.max(this.nextId, maxId + PROMOTE_ID_GAP);
     this.nextShellId += 1000;
+    // Phase 9: fresh delta cache → our first `es` is a keyframe, with a seq the clients cannot confuse with the old host's
+    this.snapCache.reset(this.replicaMgr.lastSeq + PROMOTE_SEQ_GAP);
     this.replicaMgr.clear();
     this.lures.clear();
     this.grenades?.setAuthorityAll(true);
@@ -671,7 +685,17 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
 
   applyAreaDamage(center: THREE.Vector3, radius: number, damage: number, by?: string): number {
     if (this.replica) return this.applyExplosion(center, radius, damage);
-    return this.explode(center, radius, damage, (by as TargetId | undefined) ?? 'local', null, null);
+    return this.explode(center, radius, damage, by === undefined ? 'local' : this.normalizeAttacker(by), null, null);
+  }
+
+  /**
+   * Phase 9: other folders name the local player by its peer id (`ctx.net.localId ?? 'local'`); the kill-credit rules
+   * key on `'local'`, so fold our own id back before it lands in `lastDamager` / `burnAttacker`.
+   */
+  private normalizeAttacker(by: string): TargetId {
+    if (by === 'local' || by === 'ai') return by;
+    const me = this.ctx.net?.localId;
+    return me !== undefined && me !== null && by === me ? 'local' : (by as PeerId);
   }
 
   reset(): void {
@@ -691,6 +715,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     this.grenades?.clear();
     this.lastAudio.clear();
     this.snapTimer = 0;
+    this.snapCache.reset();
     this.bossId = 0;
     this.lastClash = -Infinity;
     this.training = false;
@@ -722,6 +747,17 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   get isAuthority(): boolean { return this.authority; }
   /** true in a 시뮬레이션 훈련장 world (no spawning). */
   get isTrainingWorld(): boolean { return this.training; }
+  /**
+   * Phase 9 (debug / smoke): encode the next snapshot through the live delta cache exactly as the host send would
+   * (advances `seq`, updates the cache). `force` = keyframe.
+   */
+  debugSnapshot(force = false): EnemySnapshot { return encodeSnapshot(this.active, this.ctx.time, this.snapCache, force); }
+  /** Phase 9 (debug / smoke): feed a snapshot into the replica path (only meaningful after `setAuthority(false)`). */
+  debugApplySnapshot(msg: EnemySnapshot): void { if (this.replica) this.replicaMgr.onSnapshot(msg); }
+  /** Phase 9 (debug / smoke): delta-cache diagnostics + the replica's last seq / ignored-unknown count. */
+  get debugSnapshotState(): { seq: number; cached: number; forceFull: boolean; lastFull: boolean; replicaSeq: number; ignoredUnknown: number; replicaLastFull: boolean } {
+    return { seq: this.snapCache.seq, cached: this.snapCache.size, forceFull: this.snapCache.forceFull, lastFull: this.snapCache.lastFull, replicaSeq: this.replicaMgr.lastSeq, ignoredUnknown: this.replicaMgr.ignoredUnknown, replicaLastFull: this.replicaMgr.lastFull };
+  }
   /** Wire animation hint (`EnemyWire.a`) enemy `id` would be sent with right now (debug / smoke), −1 when unknown. */
   debugHint(id: number): number { const e = this.byId.get(id); return e ? animHint(e) : -1; }
   /** Position of live shell `sid` (debug), or null. */
@@ -746,7 +782,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       e.takeDamage(dmg, _hp, dir, from);
       this.ctx.net!.send({ t: 'hitc', id: e.id, dmg: round(before - e.hp, 1), killed: e.isDead, part }, from);
     }
-    if (st !== 0 && !e.isDead) this.applyStatusBits(e, st, msg.dur);
+    if (st !== 0 && !e.isDead) this.applyStatusBits(e, st, msg.dur, from);
   }
 
   private onExplodeRequest(p: readonly number[], r: number, dmg: number, from: string): void {
@@ -1050,10 +1086,15 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
           e.burnTick -= dt;
           if (e.burnTick <= 0) {
             e.burnTick += BURN_TICK;
-            e.applyDot(e.burnDps * BURN_TICK, e.lastDamager);
+            // Phase 9: the fire's owner (applyStatus attacker) takes the credit; a remote owner also gets the kill hitmarker
+            const by = e.burnAttacker ?? e.lastDamager;
+            e.applyDot(e.burnDps * BURN_TICK, by);
+            if (e.isDead && this.hosting && by !== 'local' && by !== 'ai') {
+              this.ctx.net!.send({ t: 'hitc', id: e.id, dmg: round(e.burnDps * BURN_TICK, 1), killed: true, part: 'body' }, by);
+            }
           }
         }
-        if (e.burnTimer <= 0) { e.burnDps = 0; e.burnTick = 0; }
+        if (e.burnTimer <= 0) { e.burnDps = 0; e.burnTick = 0; e.burnAttacker = null; }
       }
       if (e.shockTimer > 0) {
         e.shockTimer -= dt;
@@ -1189,6 +1230,16 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     let foe: Enemy | null = null;
     const eh = this.raycastEx(_m, _dir, hitT, e);
     if (eh && eh.distance < hitT) { hitT = eh.distance; victim = null; foe = eh.enemy as Enemy; }
+    // Phase 9: a 배리어 in the line stops the round (one pure raycast per shot; the barrier takes the block damage)
+    let barrier = false;
+    const imp = ctx.implants;
+    if (imp) {
+      const bh = imp.raycastBarrier(_m, _dir, hitT, true);
+      if (bh) {
+        const bd = bh.point.distanceTo(_m);
+        if (bd < hitT) { hitT = bd; victim = null; foe = null; barrier = true; imp.damageBarrier(bh.owner, bh.point); }
+      }
+    }
     _to.copy(_m).addScaledVector(_dir, hitT);
 
     const dmg = ROGUE_DAMAGE * damageMul;
@@ -1197,7 +1248,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       foe.takeDamage(dmg, _to, _dir, 'ai');
       this.noteClash(_to);
     }
-    if (wh && !victim && !foe) {
+    if (wh && !victim && !foe && !barrier) {
       const fx = FxManager.get();
       if (fx) ParticleBurst.dust(fx.alpha, wh.point, wh.normal, 4, 0.5);
     }
@@ -1244,6 +1295,8 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
         const t = players[i];
         const d = t.position.distanceTo(p);
         if (d < SHELL_BLAST_RADIUS + PLAYER_RADIUS) {
+          _v.set(p.x, p.y + 0.6, p.z);
+          if (this.barrierBlocks(_v, t)) continue;   // Phase 9: the blast stops at a 배리어 between the crater and the player
           const dmg = SHELL_DAMAGE * THREE.MathUtils.clamp(1 - Math.max(0, d - PLAYER_RADIUS) / SHELL_BLAST_RADIUS * 0.75, 0.25, 1);
           this.applyDamage(t, dmg, p, 0, 'artillery', null, 0.9, false);
         }
@@ -1282,7 +1335,31 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   /* ── AcidHost ──────────────────────────────────────────────────────────── */
   damageTargetAcid(target: CombatTarget, amount: number, from: THREE.Vector3, shooterId: number, slow: AcidSlow): void {
     if (!this.authority || target.isDeadOrDowned) return;
+    // Phase 9: acid that crossed a 배리어 on its way in is stopped by it (checked once at the hit, from the spewer's mouth
+    // for a direct glob and from the splash point for the splash — the glob itself keeps flying visually)
+    const shooter = this.byId.get(shooterId);
+    if (shooter && slow.factor <= 0.6) _v.set(shooter.position.x, shooter.position.y + shooter.stats.height * 0.7, shooter.position.z);
+    else _v.copy(from);
+    if (this.barrierBlocks(_v, target)) return;
     this.applyDamage(target, amount, from, shooterId, 'spewer', slow, 0, false);
+  }
+
+  /**
+   * Phase 9: does a 배리어 stand between `from` and the target's chest? If so the barrier takes the block damage
+   * (`ImplantsRef.damageBarrier`) and the caller deals none. One pure raycast per call — call it per hit, never per tick.
+   */
+  private barrierBlocks(from: THREE.Vector3, target: CombatTarget): boolean {
+    const imp = this.ctx.implants;
+    if (!imp) return false;
+    target.getChest(_aim);
+    _dir.subVectors(_aim, from);
+    const d = _dir.length();
+    if (d < 1e-3) return false;
+    _dir.multiplyScalar(1 / d);
+    const bh = imp.raycastBarrier(from, _dir, d, true);
+    if (!bh) return false;
+    imp.damageBarrier(bh.owner, bh.point);
+    return true;
   }
 
   /**
@@ -1377,11 +1454,13 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   onEnemyKilled(e: Enemy, countKill: boolean): void {
     const ctx = this.ctx;
     const localKill = e.lastDamager === 'local';
-    // in a session remote killers get credit on their own client (from the `kill` event); AI kills are never credited
-    if (countKill && e.lastDamager !== 'ai' && (!this.multiplayer || localKill)) {
-      ctx.stats.kills++;
-      ctx.bus.emit('enemy:killed', { id: e.id, type: e.type, position: e.position });
-    }
+    // Phase 9: `by` names the credit - 'local' for us (our own peer id is folded back by `normalizeAttacker`, so the
+    // payload reads the same online and offline), the peer id for a remote killer, null for an AI (faction) kill.
+    const by: string | null = localKill ? 'local' : e.lastDamager === 'ai' ? null : e.lastDamager;
+    // only our own kills bump the local counters: a remote killer counts it on its own client (from the `kill` event /
+    // a `hitc`), an AI kill is credited to nobody and never reaches the bus.
+    if (countKill && localKill) ctx.stats.kills++;
+    if (countKill && by !== null) ctx.bus.emit('enemy:killed', { id: e.id, type: e.type, position: e.position, by });
     if (e.isRogue) this.playAudio('player_death', e.position, 0.8, e.type === 'rogue_boss' ? 0.7 : 1);
     else this.playAudio('bug_death', e.position, 1, e.type === 'behemoth' ? 0.35 : e.type === 'charger' ? 0.5 : e.type === 'scavenger' || e.type === 'toxic' ? 1.2 : 0.85);
     if (this.fx) {

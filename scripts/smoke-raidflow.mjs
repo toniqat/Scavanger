@@ -68,7 +68,8 @@ try {
     window.__ev = {};
     const bus = window.__game.ctx.bus;
     for (const n of ['player:died', 'player:downed', 'player:respawn', 'player:spawned', 'player:landed', 'game:respawnAvailable', 'game:phaseChanged',
-      'game:over', 'game:raidFailed', 'game:complete', 'game:abort', 'hub:entered', 'hub:left', 'game:newMission', 'world:ready', 'ui:notify']) {
+      'game:over', 'game:raidFailed', 'game:complete', 'game:abort', 'hub:entered', 'hub:left', 'game:newMission', 'world:ready', 'ui:notify',
+      'player:giveUpProgress']) {
       window.__ev[n] = [];
       bus.on(n, (p) => { window.__ev[n].push(JSON.parse(JSON.stringify(p ?? {}, (k, v) => (v && v.isVector3) ? [v.x, v.y, v.z] : v))); });
     }
@@ -119,7 +120,17 @@ try {
   ok(st.pads > 0, 'raid world: extraction consoles registered', `${st.pads}`);
   ok(st.threat > 0, 'threat ramp runs in a raid', `${st.threat}`);
   const xpBefore = await P(() => window.__game.ctx.progression?.xp ?? -1);
+  await P(() => { window.__ev['player:giveUpProgress'] = []; });
   await giveUp();
+  const gup = await P(() => {
+    const a = window.__ev['player:giveUpProgress'].map((e) => e.t);
+    const died = window.__ev['player:died'].length;
+    let rising = a.length > 1; for (let i = 1; i < a.length - 1; i++) if (a[i] < a[i - 1]) rising = false;
+    return { n: a.length, max: Math.max(...a), first: a[0], last: a[a.length - 1], rising, died };
+  });
+  ok(gup.n >= 3 && gup.max >= 0.5 && gup.max <= 1 && gup.first >= 0 && gup.rising, 'Phase 9: player:giveUpProgress rises while Space is held (≥ 0.5)', JSON.stringify(gup));
+  ok(gup.last === -1 && gup.died === 1, 'give-up hold ends with t -1 and player:died', JSON.stringify(gup));
+  ok(gup.n <= 48, 'progress events capped near 20 Hz', String(gup.n));
   st = await P(() => ({ dead: window.__game.ctx.player.isDead, phase: window.__game.ctx.phase, over: window.__ev['game:over'].length, failed: window.__ev['game:raidFailed'].length }));
   ok(st.dead && st.over === 0 && st.failed === 0, 'dead: result deferred by the 2.5 s death delay', JSON.stringify(st));
   await waitSim(3.0);

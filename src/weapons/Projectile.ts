@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import { GRAVITY, type GameContext, type EnemyRef, type Obstacle, type WeaponDef } from '@/shared';
+import { GRAVITY, type GameContext, type EnemyRef, type Obstacle, type WeaponDef, type PeerId } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
-import { raycastBlockers } from './Blocking';
+import { raycastBlockers, makeBlockInfo } from './Blocking';
 
 export interface ProjectileHit {
   point: THREE.Vector3;
@@ -20,6 +20,8 @@ export interface ProjectileHit {
   tag: number;
   /** true when the projectile went off on its own fuse (no surface / enemy under it). */
   fused: boolean;
+  /** Phase 9: the projectile stopped at an implant barrier of this owner (`WeaponSystem` bills the barrier once; the raycast is pure). */
+  barrierOwner?: PeerId | 'local' | null;
 }
 
 /** Visual style of a projectile: the default glowing slug, or one of the unique-weapon bodies. */
@@ -69,6 +71,7 @@ interface Slug {
 const MAX = 48;
 const DEFAULT_GRAVITY_MUL = 0.15;
 const _dir = new THREE.Vector3(), _block = new THREE.Vector3(), _look = new THREE.Vector3();
+const _blockInfo = makeBlockInfo();
 
 /**
  * Pooled travelling projectiles for weapons with `projectileSpeed`. Each step is swept with
@@ -214,11 +217,12 @@ export class ProjectilePool {
         const wh = ctx.world && ctx.world.ready ? ctx.world.raycast(s.prev, _dir, segLen) : null;
         let hitAny = false;
         const h = this.hit;
-        h.fused = false;
-        // shields / solid deployables on the way (allied barriers ignore allied slugs — see Blocking.ts)
-        const bd = raycastBlockers(ctx, s.prev, _dir, segLen, _block, false);
+        h.fused = false; h.barrierOwner = null;
+        // shields / solid deployables on the way (allied barriers ignore allied slugs — see Blocking.ts; pure query since Phase 9)
+        const bd = raycastBlockers(ctx, s.prev, _dir, segLen, _block, false, _blockInfo);
         if (bd >= 0 && bd <= (eh ? eh.distance : Infinity) && bd <= (wh ? wh.distance : Infinity)) {
           h.point.copy(_block); h.normal.copy(_dir).negate(); h.enemy = null; h.part = undefined; h.armored = false; h.obstacle = true; h.obstacleRef = null; hitAny = true;
+          h.barrierOwner = _blockInfo.kind === 'barrier' ? _blockInfo.owner : null;
         } else if (eh && (!wh || eh.distance <= wh.distance)) {
           h.point.copy(eh.point); h.normal.copy(eh.normal); h.enemy = eh.enemy; h.part = eh.part; h.armored = !!eh.armored; h.obstacle = false; h.obstacleRef = null; hitAny = true;
         } else if (wh) {

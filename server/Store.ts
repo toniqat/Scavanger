@@ -10,7 +10,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { CreditsTxResult, ProfileDocKey, ProfileRecord } from '../src/shared/profile.ts';
-import { PROFILE_DOC_KEYS, PROFILE_DOC_MAX_BYTES } from '../src/shared/profile.ts';
+import { PROFILE_CLOCK_SKEW_MS, PROFILE_DOC_KEYS, PROFILE_DOC_MAX_BYTES } from '../src/shared/profile.ts';
 import type { PeerId } from '../src/shared/net.ts';
 
 export const PROFILE_FILE = 'profiles.json';
@@ -53,8 +53,25 @@ function sanitizeRecord(raw: unknown): ProfileRecord | null {
     for (const k of PROFILE_DOC_KEYS) if (raw.docs[k] !== undefined) docs[k] = raw.docs[k];
   }
   const updatedAt = typeof raw.updatedAt === 'number' && Number.isFinite(raw.updatedAt) ? raw.updatedAt : 0;
-  return { credits, docs, updatedAt };
+  const rec: ProfileRecord = { credits, docs, updatedAt };
+  /* Phase 9: per-document stamps — kept only for present documents, clamped to a sane epoch-ms range. */
+  if (isRecord(raw.docsAt)) {
+    const docsAt: Partial<Record<ProfileDocKey, number>> = {};
+    const maxAt = Date.now() + PROFILE_CLOCK_SKEW_MS;
+    let any = false;
+    for (const k of PROFILE_DOC_KEYS) {
+      const v = raw.docsAt[k];
+      if (docs[k] === undefined || typeof v !== 'number' || !Number.isFinite(v)) continue;
+      docsAt[k] = Math.min(Math.max(0, Math.floor(v)), maxAt);
+      any = true;
+    }
+    if (any) rec.docsAt = docsAt;
+  }
+  return rec;
 }
+
+/** Outcome of `ProfileStore.setDoc`. `'stale'` = an older stamp (or a `fresh` write over an existing document): ignored, not an error. */
+export type SetDocResult = ProfileRecord | 'invalid' | 'too_large' | 'stale';
 
 export class ProfileStore {
   private readonly profiles = new Map<PeerId, ProfileRecord>();
@@ -114,16 +131,35 @@ export class ProfileStore {
   /** Wire copy (documents are shared by reference — never mutated by the server). */
   snapshot(id: PeerId): ProfileRecord {
     const rec = this.get(id);
-    return { credits: rec.credits, docs: { ...rec.docs }, updatedAt: rec.updatedAt };
+    const out: ProfileRecord = { credits: rec.credits, docs: { ...rec.docs }, updatedAt: rec.updatedAt };
+    if (rec.docsAt) out.docsAt = { ...rec.docsAt };
+    return out;
   }
 
-  /** Store one document. `'invalid'` for a bad key, `'too_large'` over `PROFILE_DOC_MAX_BYTES`. */
-  setDoc(id: PeerId, key: unknown, doc: unknown): ProfileRecord | 'invalid' | 'too_large' {
+  /**
+   * Store one document. `'invalid'` for a bad key, `'too_large'` over `PROFILE_DOC_MAX_BYTES`.
+   * Phase 9 (newest wins): a stamped write (`at`, the writer's server-clock estimate at save time) is clamped to
+   * `now + PROFILE_CLOCK_SKEW_MS` and kept only when `at >= docsAt[key]` (absent = 0; ties accept) — otherwise
+   * `'stale'` (silently ignored by the relay). A `fresh` write (or one without `at`) is a default / starter save:
+   * kept only while the key is absent, never stamped (so any later stamped write beats it).
+   */
+  setDoc(id: PeerId, key: unknown, doc: unknown, at?: number, fresh?: boolean): SetDocResult {
     if (!isProfileDocKey(key)) return 'invalid';
     if (doc === undefined) return 'invalid';
     if (docBytes(doc) > PROFILE_DOC_MAX_BYTES) return 'too_large';
     const rec = this.get(id);
-    rec.docs[key] = doc;
+    const stamped = !fresh && typeof at === 'number' && Number.isFinite(at);
+    if (!stamped) {
+      if (rec.docs[key] !== undefined) return 'stale';
+      rec.docs[key] = doc;
+    } else {
+      const t = Math.min(Math.floor(at), Date.now() + PROFILE_CLOCK_SKEW_MS);
+      const cur = rec.docsAt?.[key] ?? 0;
+      if (t < cur) return 'stale';
+      rec.docs[key] = doc;
+      if (!rec.docsAt) rec.docsAt = {};
+      rec.docsAt[key] = t;
+    }
     rec.updatedAt = Date.now();
     this.markDirty();
     return rec;

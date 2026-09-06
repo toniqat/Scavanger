@@ -2,7 +2,10 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import {
   Layers, Random, TRAINING_ARENA_SIZE, TRAINING_TARGET_COUNT, TRAINING_TARGET_HP, TRAINING_TARGET_RESPAWN_S,
-  type DestructibleRef, type GameContext, type Interactable,
+  TRAINING_MOVING_SPAN, TRAINING_MOVING_SPEED, TRAINING_MOVING_PAUSE_S,
+  TRAINING_COURSE_TARGETS, TRAINING_COURSE_TIME_S, TRAINING_COURSE_COOLDOWN_S, TRAINING_BEST_STORAGE_KEY,
+  TRAINING_MODES, TRAINING_MODE_LABEL_KO,
+  type DestructibleRef, type GameContext, type Interactable, type TrainingMode, type TrainingRef,
 } from '@/shared';
 import type { ObstacleEntry, SpatialHash } from './SpatialHash';
 
@@ -27,8 +30,9 @@ const LANE_HALF_W = 4;
 /** The firing line (amber strip) and the spawn just behind it, both toward +Z ("south"); the player faces −Z. */
 const FIRING_LINE_Z = ARENA_HALF - 12;
 const SPAWN_Z = ARENA_HALF - 6;
-/** Exit console against the south wall, west of the spawn. */
+/** Exit console against the south wall, west of the spawn; the mode console and the weapon rack east of it (Phase 9). */
 const EXIT_X = -8, EXIT_Z = ARENA_HALF - 2.4;
+const MODE_X = 8, RACK_X = 14;
 const TARGET_RADIUS = 0.42;
 const TARGET_HEIGHT = 2.1;
 const HINGE_Y = 0.95;
@@ -60,6 +64,28 @@ interface Target {
   respawnAt: number;
   flash: number;
   inHash: boolean;
+  /** Resting x (static / timed modes). 이동 표적 sweeps about the lane centre instead so it never leaves the lane. */
+  baseX: number;
+  /** 이동 표적 state: offset from the lane centre, direction and the end-of-sweep pause. */
+  mvOffset: number;
+  mvDir: number;
+  mvPauseUntil: number;
+}
+
+/** Persisted best timed-course time (`TRAINING_BEST_STORAGE_KEY`). */
+interface BestRecord { best: number }
+
+function loadBest(): number | null {
+  try {
+    const raw = localStorage.getItem(TRAINING_BEST_STORAGE_KEY);
+    if (!raw) return null;
+    const rec = JSON.parse(raw) as Partial<BestRecord>;
+    return typeof rec.best === 'number' && Number.isFinite(rec.best) && rec.best > 0 ? rec.best : null;
+  } catch { return null; }
+}
+
+function saveBest(best: number): void {
+  try { localStorage.setItem(TRAINING_BEST_STORAGE_KEY, JSON.stringify({ best } satisfies BestRecord)); } catch { /* storage unavailable */ }
 }
 
 interface Fx { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; life: number; ttl: number; grow: number }
@@ -137,28 +163,40 @@ function boardTexture(): THREE.CanvasTexture {
   return t;
 }
 
-function screenTexture(lines: string[], accent: string): THREE.CanvasTexture {
-  const W = 256, H = 160;
-  const c = document.createElement('canvas'); c.width = W; c.height = H;
+/** (Re)draw a console screen; `screenTexture` wraps a fresh canvas, `redrawScreen` repaints an existing texture in place. */
+function drawScreen(c: HTMLCanvasElement, lines: string[], accent: string): void {
+  const W = c.width, H = c.height;
   const g = c.getContext('2d')!;
+  g.textAlign = 'left';
   g.fillStyle = '#06141a'; g.fillRect(0, 0, W, H);
   g.fillStyle = accent; g.fillRect(0, 0, W, 22);
   g.fillStyle = '#06141a'; g.font = 'bold 15px sans-serif'; g.textBaseline = 'middle'; g.fillText('SIM · 훈련장', 10, 11);
   g.fillStyle = accent; g.font = 'bold 30px sans-serif'; g.textAlign = 'center';
   lines.forEach((l, i) => g.fillText(l, W / 2, 62 + i * 40));
   g.strokeStyle = 'rgba(159,232,255,0.35)'; g.lineWidth = 2; g.strokeRect(6, 30, W - 12, H - 36);
+}
+
+function screenTexture(lines: string[], accent: string): THREE.CanvasTexture {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 160;
+  drawScreen(c, lines, accent);
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
 
+function redrawScreen(t: THREE.CanvasTexture, lines: string[], accent: string): void {
+  drawScreen(t.image as HTMLCanvasElement, lines, accent);
+  t.needsUpdate = true;
+}
+
 /* ── arena ────────────────────────────────────────────────────────────────── */
 
-export class TrainingArena {
+export class TrainingArena implements TrainingRef {
   readonly group = new THREE.Group();
   readonly spawn = new THREE.Vector3(0, 0, SPAWN_Z);
-  /** Shot hits on a standing target / targets knocked down since the arena was built. */
+  /** Hits on a standing target in the current run (`TrainingRef.hits`; reset by `resetScore` / `startCourse`). */
   hits = 0;
+  /** Targets knocked down since the arena was built (all modes, never reset — the HUD objective line). */
   knockdowns = 0;
 
   private ctx: GameContext | null = null;
@@ -169,28 +207,100 @@ export class TrainingArena {
   private disposables: Array<{ dispose(): void }> = [];
   private strips: THREE.MeshStandardMaterial | null = null;
   private exitScreen: THREE.MeshStandardMaterial | null = null;
+  private modeScreen: THREE.MeshStandardMaterial | null = null;
   private exitLastAt = -Infinity;
-  private exitEntry: ObstacleEntry | null = null;
+  private consoleEntries: ObstacleEntry[] = [];
   private time = 0;
+
+  /* ── Phase 9: target modes ── */
+  private _mode: TrainingMode = 'static';
+  /** Knock-downs in the current run. */
+  private _score = 0;
+  private _best: number | null = null;
+  /** Timed course: start stamp and deadline (−1 = idle), cooldown after a finish, and whether E on the console starts one. */
+  private courseStart = -1;
+  private courseEndAt = -1;
+  private courseCooldownUntil = -Infinity;
+  private courseArmed = false;
+  private lastShownRemaining = -1;
 
   constructor() { this.group.name = 'TrainingArena'; }
 
   get targetCount(): number { return this.targets.length; }
-  /** Debug / smoke: state of one target. */
+  /** Debug / smoke: state of one target (`position` is the live obstacle entry — it moves in 이동 표적 mode). */
   getTargetState(i: number): { down: boolean; hp: number; position: THREE.Vector3 } | null {
     const t = this.targets[i];
     return t ? { down: t.down, hp: t.destructible.hp, position: t.entry.position } : null;
+  }
+
+  /* ── TrainingRef ── */
+  get mode(): TrainingMode { return this._mode; }
+  get score(): number { return this._score; }
+  get remaining(): number { return this.courseRunning ? Math.max(0, this.courseEndAt - this.time) : -1; }
+  get bestTime(): number | null { return this._best; }
+  private get courseRunning(): boolean { return this.courseEndAt >= 0; }
+
+  setMode(mode: TrainingMode): boolean {
+    if (!this.built || this.courseRunning) return false;
+    if (!TRAINING_MODES.includes(mode)) return false;
+    if (mode === this._mode) return true;
+    this._mode = mode;
+    this.courseArmed = mode === 'timed';
+    this.resetScore();
+    if (mode !== 'moving') for (const t of this.targets) { t.mvOffset = 0; t.mvDir = t.index % 2 ? 1 : -1; t.mvPauseUntil = -Infinity; this.setTargetX(t, t.baseX); }
+    this.refreshModeScreen();
+    this.ctx?.bus.emit('training:modeChanged', { mode });
+    this.ctx?.bus.emit('audio:play', { id: 'ui_click' });
+    this.announce();
+    return true;
+  }
+
+  startCourse(): boolean {
+    if (!this.built || this._mode !== 'timed' || this.courseRunning || this.time < this.courseCooldownUntil) return false;
+    this.resetScore();
+    for (const t of this.targets) if (t.down) this.raise(t);
+    this.courseStart = this.time;
+    this.courseEndAt = this.time + TRAINING_COURSE_TIME_S;
+    this.courseArmed = false;
+    this.lastShownRemaining = -1;
+    this.refreshModeScreen();
+    this.ctx?.bus.emit('audio:play', { id: 'countdown_beep' });
+    this.announce();
+    return true;
+  }
+
+  resetScore(): void {
+    this._score = 0;
+    this.hits = 0;
+    if (this.built) this.announce();
+  }
+
+  private finishCourse(completed: boolean): void {
+    if (!this.courseRunning) return;
+    const elapsed = completed ? Math.max(0.01, this.time - this.courseStart) : TRAINING_COURSE_TIME_S;
+    this.courseEndAt = -1;
+    this.courseStart = -1;
+    this.courseCooldownUntil = this.time + TRAINING_COURSE_COOLDOWN_S;
+    this.courseArmed = false;              // the next E on the console cycles on (static); a new course = cycle back to 타임 코스
+    if (completed && (this._best === null || elapsed < this._best)) { this._best = elapsed; saveBest(elapsed); }
+    this.refreshModeScreen();
+    this.ctx?.bus.emit('training:courseFinished', { time: elapsed, score: this._score, completed, best: this._best });
+    this.ctx?.bus.emit('audio:play', { id: completed ? 'level_up' : 'ui_deny' });
+    this.announce();
   }
 
   build(ctx: GameContext, rng: Random, root: THREE.Group, hash: SpatialHash): void {
     this.ctx = ctx;
     this.hash = hash;
     this.time = ctx.time;
-    this.hits = 0; this.knockdowns = 0;
+    this.hits = 0; this.knockdowns = 0; this._score = 0;
+    this._mode = 'static';
+    this._best = loadBest();
+    this.courseStart = -1; this.courseEndAt = -1; this.courseCooldownUntil = -Infinity; this.courseArmed = false;
     root.add(this.group);
     this.buildShell();
     this.buildTargets(rng);
-    this.buildExitConsole();
+    this.buildConsoles();
     this.buildFxPool();
     this.built = true;
   }
@@ -317,6 +427,7 @@ export class TrainingArena {
       const target: Target = {
         index: i, lane, root, board, boardMat, pose: 0, down: false, respawnAt: 0, flash: 0, inHash: false,
         entry: null!, destructible: null!,
+        baseX: x, mvOffset: 0, mvDir: i % 2 ? 1 : -1, mvPauseUntil: -Infinity,
       };
       const destructible = {
         id: `training_target_${i}`,
@@ -346,10 +457,40 @@ export class TrainingArena {
     t.down = true;
     t.respawnAt = this.time + TRAINING_TARGET_RESPAWN_S;
     this.knockdowns++;
+    this._score++;
     if (t.inHash) { this.hash?.remove(t.entry); t.inHash = false; }
     _v.set(t.entry.position.x, HINGE_Y + BOARD_H * 0.55, t.entry.position.z);
     this.spawnFx(_v, 0.35, 0.45, 0xffb347, 4.5);
     this.ctx?.bus.emit('audio:play', { id: 'hit_metal', position: _v.clone(), volume: 0.9, pitch: 0.7 });
+    this.ctx?.bus.emit('training:scored', { score: this._score, hits: this.hits, index: t.index });
+    if (this.courseRunning && this._score >= TRAINING_COURSE_TARGETS) this.finishCourse(true);
+  }
+
+  /* ── 이동 표적 (Phase 9): sweep about the lane centre, re-bucketing the hash entry when its cells change ── */
+  private setTargetX(t: Target, x: number): void {
+    const hash = this.hash;
+    const e = t.entry;
+    if (e.position.x === x) return;
+    let rebucket = false;
+    if (t.inHash && hash) {
+      const s = hash.cellSize, r = e.radius;
+      rebucket = Math.floor((e.position.x - r) / s) !== Math.floor((x - r) / s) || Math.floor((e.position.x + r) / s) !== Math.floor((x + r) / s);
+      if (rebucket) hash.remove(e);
+    }
+    e.position.x = x;
+    t.root.position.x = x;
+    if (rebucket && hash) hash.insert(e);
+  }
+
+  private updateMoving(dt: number): void {
+    for (const t of this.targets) {
+      if (this.time < t.mvPauseUntil) continue;
+      let o = t.mvOffset + t.mvDir * TRAINING_MOVING_SPEED * dt;
+      if (o >= TRAINING_MOVING_SPAN) { o = TRAINING_MOVING_SPAN; t.mvDir = -1; t.mvPauseUntil = this.time + TRAINING_MOVING_PAUSE_S; }
+      else if (o <= -TRAINING_MOVING_SPAN) { o = -TRAINING_MOVING_SPAN; t.mvDir = 1; t.mvPauseUntil = this.time + TRAINING_MOVING_PAUSE_S; }
+      t.mvOffset = o;
+      this.setTargetX(t, LANES_X[t.lane] + o);
+    }
   }
 
   private raise(t: Target): void {
@@ -359,23 +500,55 @@ export class TrainingArena {
     this.ctx?.bus.emit('audio:play', { id: 'ui_click', position: t.entry.position.clone(), volume: 0.4, pitch: 0.8 });
   }
 
-  /* ── exit console ── */
-  private buildExitConsole(): void {
-    const ctx = this.ctx!, hash = this.hash!;
+  /* ── consoles: exit (−8), target mode (+8), weapon rack (+14) — one pedestal each against the south wall ── */
+  private buildConsoles(): void {
+    this.exitScreen = this.buildConsole('training-exit', EXIT_X, ['훈련 종료'], '#9fe8ff');
+    this.modeScreen = this.buildConsole('training-mode', MODE_X, this.modeScreenLines(), '#ffd27a');
+    this.buildConsole('training-rack', RACK_X, ['무기 거치대'], '#c8ffb0');
+    this.buildRack();
+    const ctx = this.ctx!;
+    ctx.interactables.register({
+      id: 'training_exit',
+      position: new THREE.Vector3(EXIT_X, 0, EXIT_Z - 0.9),
+      radius: 2.2,
+      getPrompt: () => (this.built ? '훈련 종료' : null),
+      canInteract: () => this.built,
+      interact: () => this.requestExit(),
+    });
+    ctx.interactables.register({
+      id: 'training_mode',
+      position: new THREE.Vector3(MODE_X, 0, EXIT_Z - 0.9),
+      radius: 2.2,
+      getPrompt: () => this.modePrompt(),
+      canInteract: () => this.built,
+      interact: () => this.onModeConsole(),
+    });
+    ctx.interactables.register({
+      id: 'training_rack',
+      position: new THREE.Vector3(RACK_X, 0, EXIT_Z - 0.9),
+      radius: 2.2,
+      getPrompt: () => (this.built ? '무기 거치대' : null),
+      canInteract: () => this.built,
+      interact: () => this.openRack(),
+    });
+  }
+
+  /** Pedestal + tilted emissive screen + floor halo at (x, EXIT_Z); returns the screen material (its `map` can be swapped). */
+  private buildConsole(name: string, x: number, lines: string[], accent: string): THREE.MeshStandardMaterial {
+    const hash = this.hash!;
     const body = new THREE.MeshStandardMaterial({ color: 0x3a424c, roughness: 0.6, metalness: 0.4, emissive: 0x10151b, emissiveIntensity: 0.7 });
-    const tex = screenTexture(['훈련 종료'], '#9fe8ff');
+    const tex = screenTexture(lines, accent);
     const screen = new THREE.MeshStandardMaterial({ map: tex, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 1.1, roughness: 0.3 });
-    this.exitScreen = screen;
     this.disposables.push(body, tex, screen);
     const g = new THREE.Group();
-    g.name = 'training-exit';
-    g.position.set(EXIT_X, 0, EXIT_Z);
+    g.name = name;
+    g.position.set(x, 0, EXIT_Z);
     const parts: THREE.BufferGeometry[] = [
       box(0.9, 1.05, 0.5, 0, 0.525, 0),
       box(1.0, 0.06, 0.6, 0, 1.06, 0),
       box(0.8, 0.05, 0.05, 0, 0.35, -0.26),
     ];
-    const pedestal = mergedMesh(parts, body, 'exit-pedestal');
+    const pedestal = mergedMesh(parts, body, `${name}-pedestal`);
     if (pedestal) { pedestal.castShadow = true; g.add(pedestal); this.disposables.push(pedestal.geometry); }
     // tilted screen facing −Z (toward the arena)
     const scr = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.5, 0.04), screen);
@@ -392,18 +565,71 @@ export class TrainingArena {
     g.add(halo); this.disposables.push(halo.geometry);
     this.group.add(g);
 
-    this.exitEntry = { position: new THREE.Vector3(EXIT_X, 0, EXIT_Z), radius: 0.6, height: 1.6, stamp: 0, kind: 'console' };
-    hash.insert(this.exitEntry);
+    const entry: ObstacleEntry = { position: new THREE.Vector3(x, 0, EXIT_Z), radius: 0.6, height: 1.6, stamp: 0, kind: 'console' };
+    hash.insert(entry);
+    this.consoleEntries.push(entry);
+    return screen;
+  }
 
-    const it: Interactable = {
-      id: 'training_exit',
-      position: new THREE.Vector3(EXIT_X, 0, EXIT_Z - 0.9),
-      radius: 2.2,
-      getPrompt: () => (this.built ? '훈련 종료' : null),
-      canInteract: () => this.built,
-      interact: () => this.requestExit(),
-    };
-    ctx.interactables.register(it);
+  /** 무기 거치대 dressing behind its console: a wall rack with a few silhouetted guns (no interaction of its own). */
+  private buildRack(): void {
+    const frame = new THREE.MeshStandardMaterial({ color: 0x2a3138, roughness: 0.7, metalness: 0.4, emissive: 0x0c1014, emissiveIntensity: 0.6 });
+    const gun = new THREE.MeshStandardMaterial({ color: 0x4a525c, roughness: 0.5, metalness: 0.6 });
+    this.disposables.push(frame, gun);
+    const z = ARENA_HALF - 0.45;
+    const parts: THREE.BufferGeometry[] = [
+      box(2.6, 0.08, 0.3, RACK_X, 0.9, z), box(2.6, 0.08, 0.3, RACK_X, 1.9, z),
+      box(0.08, 1.2, 0.3, RACK_X - 1.26, 1.4, z), box(0.08, 1.2, 0.3, RACK_X + 1.26, 1.4, z),
+    ];
+    const guns: THREE.BufferGeometry[] = [];
+    for (let k = 0; k < 4; k++) {
+      const gx = RACK_X - 0.9 + k * 0.6;
+      guns.push(box(0.07, 0.95, 0.09, gx, 1.42, z - 0.12));          // body
+      guns.push(box(0.05, 0.28, 0.06, gx, 2.0, z - 0.13));           // barrel
+      guns.push(box(0.05, 0.22, 0.14, gx + 0.02, 1.2, z - 0.1, 0));  // magazine
+    }
+    const rack = mergedMesh(parts, frame, 'rack-frame');
+    if (rack) { rack.castShadow = true; this.group.add(rack); this.disposables.push(rack.geometry); }
+    const gunMesh = mergedMesh(guns, gun, 'rack-guns');
+    if (gunMesh) { gunMesh.castShadow = true; this.group.add(gunMesh); this.disposables.push(gunMesh.geometry); }
+  }
+
+  private modeScreenLines(): string[] {
+    if (this.courseRunning) return ['타임 코스', `${Math.ceil(this.remaining)}초`];
+    const best = this._best !== null ? `최고 ${this._best.toFixed(1)}초` : '';
+    return best && this._mode === 'timed' ? [TRAINING_MODE_LABEL_KO[this._mode], best] : [TRAINING_MODE_LABEL_KO[this._mode]];
+  }
+
+  private refreshModeScreen(): void {
+    const tex = this.modeScreen?.map as THREE.CanvasTexture | null | undefined;
+    if (tex) redrawScreen(tex, this.modeScreenLines(), this._mode === 'timed' ? '#ffb347' : '#ffd27a');
+  }
+
+  private modePrompt(): string | null {
+    if (!this.built) return null;
+    if (this.courseRunning) return `타임 코스 진행 중 · ${Math.ceil(this.remaining)}초`;
+    if (this._mode === 'timed' && this.courseArmed) return this.time < this.courseCooldownUntil ? '타임 코스 준비 중' : '타임 코스 시작';
+    return `표적 모드: ${TRAINING_MODE_LABEL_KO[this._mode]}`;
+  }
+
+  /** E on the mode console: cycle 고정 → 이동 → 타임 코스; in 타임 코스 (armed) start the course; nothing while one runs. */
+  private onModeConsole(): void {
+    if (!this.built || this.courseRunning) return;
+    if (this._mode === 'timed' && this.courseArmed) {
+      if (!this.startCourse()) this.ctx?.bus.emit('audio:play', { id: 'ui_deny' });
+      return;
+    }
+    const next = TRAINING_MODES[(TRAINING_MODES.indexOf(this._mode) + 1) % TRAINING_MODES.length];
+    this.setMode(next);
+  }
+
+  /** 무기 거치대: the 무한 상자 catalog on its 주무기 tab (game/'s training exit restores the loadout afterwards). */
+  private openRack(): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.built) return;
+    const inv = ctx.inventory as { openCatalog?: (opts?: { category?: 'primary' }) => void } | null;
+    if (inv && typeof inv.openCatalog === 'function') { inv.openCatalog({ category: 'primary' }); ctx.bus.emit('audio:play', { id: 'ui_click' }); }
+    else ctx.bus.emit('ui:notify', { text: '무기 거치대를 사용할 수 없습니다', kind: 'warning' });
   }
 
   private requestExit(): void {
@@ -444,13 +670,25 @@ export class TrainingArena {
 
   /** Objective sub-text with the counters (`ui:objective`; the HUD folder owns the layout). */
   announce(): void {
-    this.ctx?.bus.emit('ui:objective', { text: OBJECTIVE_TEXT, subText: `명중 ${this.hits} · 격추 ${this.knockdowns}` });
+    const label = TRAINING_MODE_LABEL_KO[this._mode];
+    const run = this.courseRunning
+      ? ` · ${this._score}/${TRAINING_COURSE_TARGETS} · 남은 ${Math.ceil(this.remaining)}초`
+      : this._mode === 'timed' && this._best !== null ? ` · 최고 ${this._best.toFixed(1)}초` : '';
+    this.ctx?.bus.emit('ui:objective', { text: OBJECTIVE_TEXT, subText: `${label}${run} · 명중 ${this.hits} · 격추 ${this.knockdowns}` });
   }
 
   /* ── frame ── */
   update(dt: number, time: number): void {
     if (!this.built) return;
     this.time = time;
+    if (this._mode === 'moving') this.updateMoving(dt);
+    if (this.courseRunning) {
+      if (time >= this.courseEndAt) this.finishCourse(false);
+      else {
+        const shown = Math.ceil(this.remaining);
+        if (shown !== this.lastShownRemaining) { this.lastShownRemaining = shown; this.refreshModeScreen(); this.announce(); }
+      }
+    }
     for (const t of this.targets) {
       if (t.down && time >= t.respawnAt) this.raise(t);
       const goal = t.down ? 1 : 0;
@@ -514,15 +752,19 @@ export class TrainingArena {
     this.built = false;
     const ctx = this.ctx;
     ctx?.interactables.unregister('training_exit');
+    ctx?.interactables.unregister('training_mode');
+    ctx?.interactables.unregister('training_rack');
+    this.courseEndAt = -1; this.courseStart = -1; this.courseArmed = false;
     for (const t of this.targets) { if (t.inHash) this.hash?.remove(t.entry); t.root.removeFromParent(); }
     this.targets.length = 0;
-    if (this.exitEntry) { this.hash?.remove(this.exitEntry); this.exitEntry = null; }
+    for (const e of this.consoleEntries) this.hash?.remove(e);
+    this.consoleEntries.length = 0;
     this.fx.length = 0;
     for (const d of this.disposables) d.dispose();
     this.disposables.length = 0;
     this.group.clear();
     this.group.removeFromParent();
-    this.strips = null; this.exitScreen = null;
+    this.strips = null; this.exitScreen = null; this.modeScreen = null;
     this.hash = null;
   }
 }

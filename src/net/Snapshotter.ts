@@ -50,6 +50,9 @@ export class Snapshotter {
     m.move = round3(p.moveBlend ?? 0);
     m.imp = inHub ? null : this.implantId;
     m.ar = this.armorId;
+    /* Phase 9: the down pool rides along while DOWNED so a host ghost inherits the real bleed state. */
+    if (p.isDowned) m.dhp = Math.round(p.downHp ?? 0);
+    else delete m.dhp;
 
     /* Phase 7: pose / held item / attachments from weapons' per-frame remote state (guarded: weapons may be absent). */
     const rs = ctx.weapons ? ctx.weapons.remoteState : undefined;

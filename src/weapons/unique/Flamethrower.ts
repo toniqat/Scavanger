@@ -100,6 +100,8 @@ export class Flamethrower implements UniqueHandler {
     const mgr = s.ctx.enemies;
     if (!mgr) return;
     const n = coneTargets(s, _muzzle, _d, range, half, MAX_TARGETS, this.targets);
+    // Phase 9: burn kills credit the one who lit the fire (`enemy:killed.by`)
+    const attacker = s.ctx.net?.localId ?? 'local';
     let anyKill = false;
     for (let i = 0; i < n; i++) {
       const e = this.targets[i];
@@ -108,12 +110,12 @@ export class Flamethrower implements UniqueHandler {
       const dmg = dps * dtTick;
       e.takeDamage(dmg, _c, _d);
       if (!wasDead && e.isDead) { anyKill = true; this.heat.delete(e.id); this.lastHit.delete(e.id); continue; }
-      if (typeof mgr.applyStatus === 'function') mgr.applyStatus(e.id, 'burning', FLAME_AFTERBURN_DPS, FLAME_AFTERBURN_DURATION);
+      if (typeof mgr.applyStatus === 'function') mgr.applyStatus(e.id, 'burning', FLAME_AFTERBURN_DPS, FLAME_AFTERBURN_DURATION, attacker);
       this.lastHit.set(e.id, s.ctx.time);
       const h = (this.heat.get(e.id) ?? 0) + dmg;
       if (h >= BURNOUT_THRESHOLD) {
         this.heat.delete(e.id); this.lastHit.delete(e.id);
-        if (typeof mgr.applyStatus === 'function') mgr.applyStatus(e.id, 'incinerated', 0, BURNOUT_DURATION);
+        if (typeof mgr.applyStatus === 'function') mgr.applyStatus(e.id, 'incinerated', 0, BURNOUT_DURATION, attacker);
       } else this.heat.set(e.id, h);
       if (i < 3) s.fx.impactEnemy(_c, _d, false);
     }

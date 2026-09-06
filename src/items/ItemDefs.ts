@@ -1,7 +1,7 @@
-import type { AmmoType, ArmorDef, AttachmentDef, BagDef, ItemCategory, ItemDef, Rarity, SeedDef, WeaponDef, WeaponGrade } from '@/shared';
+import type { AmmoType, ArmorDef, AttachmentDef, BagDef, ItemCategory, ItemDef, Rarity, SeedDef, SkillId, WeaponDef, WeaponGrade } from '@/shared';
 import {
   AMMO_STACK_ROUNDS, CATEGORY_COLOR, CATEGORY_ICON, QUICK_USABLE_CATEGORIES, RARITY_COLORS,
-  SEED_GROW_HOURS_BY_RARITY, rarityForGrade,
+  SEED_GROW_HOURS_BY_RARITY, SKILL_IDS, rarityForGrade,
 } from '@/shared';
 import { WEAPON_DEFS, gradeOf, isUniqueWeapon, weaponFamilyOf } from './WeaponDefs';
 import { ARMOR_DEFS, ARMOR_ICON, armorItemSize } from './ArmorDefs';
@@ -217,6 +217,65 @@ export const SEED_ITEM_DEFS: readonly ItemDef[] = [
     '희미하게 빛나는 발광버섯 균사 덩어리. 온실 재배층에서 약 6시간을 들여야 발광버섯 2개를 거둔다. 구하기 어려운 만큼 값도 비싸다.'),
 ];
 
+/* ── 서적 (Phase 9) ────────────────────────────────────────────────────────────
+ * One book per skill (`book_<skillId>`), shelved in a 서재 책장 (`furn_bookshelf`, housing/ owns the shelves and the
+ * bonus: `1 + BOOK_XP_PER_BOOK × Σ BOOK_RARITY_MUL[rarity]`, capped at `BOOK_GAIN_MAX`). Rarity is per book and decides
+ * its weight — common 4 / uncommon 5 / rare 3 / epic 2 across the 14 skills. Loot (tier 2–4 containers, 로그 시체) +
+ * 세레스 corp shop (신뢰도 2) only — never craftable, never quick-usable. 1×2, no stacking, 0.6 kg. */
+const BOOK_WEIGHT = 0.6;
+const BOOK_ICON = CATEGORY_ICON.book;
+const BOOK_COLOR = CATEGORY_COLOR.book;
+/** Sale value by rarity (the corp shop prices off `value`). */
+const BOOK_VALUE_BY_RARITY: Readonly<Record<Rarity, number>> = { common: 150, uncommon: 320, rare: 700, epic: 1500, legendary: 3000 };
+
+/** Item id of the book that teaches `skill` (`gun_AR` → `book_gun_AR`). */
+export function bookItemIdFor(skill: SkillId): string {
+  return `book_${skill}`;
+}
+
+const bookDef = (skill: SkillId, name: string, rarity: Rarity, description: string): ItemDef => ({
+  ...def({
+    id: bookItemIdFor(skill), name, category: 'book', rarity, width: 1, height: 2, stackMax: 1,
+    value: BOOK_VALUE_BY_RARITY[rarity], icon: BOOK_ICON, description, book: { skill }, weight: BOOK_WEIGHT,
+  }),
+  color: BOOK_COLOR,
+});
+
+/** The 14 books, in `SKILL_IDS` order (one per skill — `BOOK_ITEM_DEFS[i].book.skill === SKILL_IDS[i]`). */
+export const BOOK_ITEM_DEFS: readonly ItemDef[] = [
+  bookDef('carry', '『짐꾼의 요령』', 'common',
+    '무거운 짐을 오래 지는 요령을 정리한 수기. 서재 책장에 꽂으면 운반 숙련의 상승량이 늘어난다.'),
+  bookDef('appraisal', '『감정사의 눈』', 'uncommon',
+    '전리품 감정사의 현장 노트. 서재 책장에 꽂으면 감정 숙련의 상승량이 늘어난다.'),
+  bookDef('grit', '『버티는 법』', 'uncommon',
+    '치명상을 견디고 살아 돌아온 헬다이버들의 증언집. 서재 책장에 꽂으면 인내 숙련의 상승량이 늘어난다.'),
+  bookDef('gardening', '『함선 원예 입문』', 'common',
+    '무중력 재배층 관리 입문서. 서재 책장에 꽂으면 원예 숙련의 상승량이 늘어난다.'),
+  bookDef('crafting', '『야전 제작 편람』', 'uncommon',
+    '폐자재로 장비를 만드는 야전 편람. 서재 책장에 꽂으면 제작 숙련의 상승량이 늘어난다.'),
+  bookDef('medicine', '『전장 의학』', 'rare',
+    '스팀 조제와 응급 처치를 다룬 군의관 교재. 서재 책장에 꽂으면 의학 숙련의 상승량이 늘어난다.'),
+  bookDef('cryptography', '『암호 해독 원론』', 'epic',
+    '군 등급 암호 체계의 원리를 파헤친 금서. 서재 책장에 꽂으면 암호학 숙련의 상승량이 늘어난다.'),
+  bookDef('implant', '『전술 임플란트 운용 지침』', 'epic',
+    '임플란트 에너지 관리와 냉각 주기를 다룬 기밀 지침서. 서재 책장에 꽂으면 전술 임플란트 숙련의 상승량이 늘어난다.'),
+  bookDef('gun_AR', '『사격 교본: 돌격소총』', 'common',
+    '슈퍼 지구 표준 돌격소총 사격 교본. 서재 책장에 꽂으면 돌격소총 사격 숙련의 상승량이 늘어난다.'),
+  bookDef('gun_SMG', '『사격 교본: 기관단총』', 'common',
+    '근접 연사 교본. 서재 책장에 꽂으면 기관단총 사격 숙련의 상승량이 늘어난다.'),
+  bookDef('gun_SR', '『사격 교본: 저격소총』', 'rare',
+    '장거리 볼트액션 저격 교본. 서재 책장에 꽂으면 저격소총 사격 숙련의 상승량이 늘어난다.'),
+  bookDef('gun_DMR', '『사격 교본: 지정사수소총』', 'rare',
+    '중거리 정밀 사격 교본. 서재 책장에 꽂으면 지정사수소총 사격 숙련의 상승량이 늘어난다.'),
+  bookDef('gun_SG', '『사격 교본: 산탄총』', 'uncommon',
+    '근거리 제압 사격 교본. 서재 책장에 꽂으면 산탄총 사격 숙련의 상승량이 늘어난다.'),
+  bookDef('equipment', '『장비 정비 매뉴얼』', 'uncommon',
+    '방어구와 가방을 오래 쓰는 정비 매뉴얼. 서재 책장에 꽂으면 장비 관리 숙련의 상승량이 늘어난다.'),
+];
+/** Book def for a skill (undefined only if a skill was added without a book — every `SKILL_IDS` entry has one). */
+export const BOOK_DEF_BY_SKILL: ReadonlyMap<SkillId, ItemDef> = new Map(BOOK_ITEM_DEFS.map((d) => [d.book!.skill, d]));
+for (const s of SKILL_IDS) if (!BOOK_DEF_BY_SKILL.has(s)) console.warn(`[items] skill '${s}' has no book`);
+
 /* ── armor generated from the ArmorDef table (tactical kit) ───────────────── */
 const armorItem = (a: ArmorDef): ItemDef => {
   const { width, height } = armorItemSize(a);
@@ -314,6 +373,9 @@ export const ITEM_DEFS: readonly ItemDef[] = [
 
   /* seeds (Phase 8: 온실 재배층에 심는다) */
   ...SEED_ITEM_DEFS,
+
+  /* books (Phase 9: 서재 책장에 꽂는다) */
+  ...BOOK_ITEM_DEFS,
 
   /* gadgets (behaviour lives in src/gadgets; here they are just consumables) */
   def({ id: 'gad_cloak_veil', name: '은폐 장막', category: 'gadget', rarity: 'rare', width: 1, height: 2, stackMax: 2, value: 620, icon: '◌',

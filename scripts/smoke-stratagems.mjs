@@ -41,6 +41,21 @@ try {
   await page.evaluateOnNewDocument(() => {
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
+    // Park vite's HMR socket (another agent's save would otherwise full-reload the page mid-run and wipe `window.__ev`)
+    // AND the game's relay socket (`/ws?t=`): this smoke is single-player and fakes the net layer itself, so a missing
+    // relay must not show up as a console error. A socket stuck in CONNECTING is silent.
+    const RealWS = window.WebSocket;
+    class QuietSocket extends EventTarget {
+      constructor(url) { super(); this.url = String(url); this.readyState = 0; this.protocol = ''; this.binaryType = 'blob'; }
+      send() {} close() {}
+    }
+    window.WebSocket = new Proxy(RealWS, {
+      construct(target, args) {
+        const protos = Array.isArray(args[1]) ? args[1] : [args[1]];
+        if (protos.includes('vite-hmr') || /\/ws(\?|$)/.test(String(args[0]))) return new QuietSocket(args[0]);
+        return new target(...args);
+      },
+    });
   });
   page.on('pageerror', (e) => errors.push(String(e)));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
@@ -183,6 +198,92 @@ try {
   await P((t) => window.__game.ctx.bus.emit('grenade:exploded', { position: new (window.__game.ctx.player.position.constructor)(t[0], t[1], t[2]), radius: 30 }), sp);
   const dmgEv = await ev('structure:damaged');
   ok(dmgEv.length >= 3, 'grenade:exploded damages standing structures');
+
+  console.log('late-join sync (synthetic strat sync / stratq sync through the real NetSystem handlers)');
+  await P(() => {
+    const net = window.__game.ctx.net;
+    window.__sent = [];
+    window.__mp = { session: true, host: false };
+    Object.defineProperty(net, 'inSession', { get: () => window.__mp.session, configurable: true });
+    Object.defineProperty(net, 'isHost', { get: () => window.__mp.host, configurable: true });
+    net.send = (msg, to) => window.__sent.push({ msg: JSON.parse(JSON.stringify(msg)), to });
+    window.__recv = (msg, from) => { for (const h of net.handlers.get(msg.t) ?? []) h(msg, from); };
+  });
+  const base = await state();
+  const shakes0 = (await ev('camera:shake')).length, landed0 = (await ev('stratagem:landed')).length;
+  const syncP = await P(() => { const p = window.__game.ctx.player.position; return [p.x - 18, p.y, p.z - 6]; });
+  const sync = await P((sp) => {
+    const ctx = window.__game.ctx, s = window.__game.getSystem('stratagems');
+    const t0 = ctx.time, hp0 = ctx.player.hp;
+    const calls = [
+      { callId: 'H-1', kind: 'structure_drop', p: sp, seed: 12345, eta: -5, caller: 'HOST', st: [[0, 900], [1, 0]] },
+      { callId: 'H-2', kind: 'supply_drop', p: [sp[0] + 8, sp[1], sp[2]], seed: 777, eta: -3, caller: 'HOST' },
+      { callId: 'H-3', kind: 'supply_drop', p: [sp[0] + 8, sp[1], sp[2] + 8], seed: 778, eta: -2, caller: 'HOST', looted: true },
+      { callId: 'H-4', kind: 'airstrike', p: [sp[0] - 8, sp[1], sp[2]], seed: 9, eta: 2, caller: 'PEER2' },
+    ];
+    window.__recv({ t: 'strat', ev: 'sync', calls }, 'HOST');
+    // everything below is read in the SAME frame the message arrived in
+    const byId = (id) => s.getCalls().find((c) => c.id === id);
+    const c1 = byId('H-1'), c2 = byId('H-2'), c3 = byId('H-3'), c4 = byId('H-4');
+    const obs = ctx.world.getObstaclesNear(sp[0], sp[2], 14).filter((o) => o.destructible && o.destructible.id.startsWith('H-1:'));
+    const it2 = ctx.interactables.all().find((i) => i.id === 'supply:H-2');
+    const it3 = ctx.interactables.all().find((i) => i.id === 'supply:H-3');
+    return {
+      n: s.getCalls().length, structures: s.structureCount, hp: [hp0, ctx.player.hp],
+      c1: c1 && { stage: c1.stage, local: c1.local, caller: c1.caller, landed: c1.structures.filter((x) => x.landed).length, destroyed: c1.structures.filter((x) => x.destroyed).length, hp: c1.structures.map((x) => x.hp) },
+      obs: obs.map((o) => o.destructible.id).sort(),
+      c2: c2 && { stage: c2.stage, looted: c2.looted, it: !!it2, prompt: it2?.getPrompt() ?? null, can: !!it2?.canInteract(), obs: ctx.world.getObstaclesNear(sp[0] + 8, sp[2], 1.5).length },
+      c3: c3 && { stage: c3.stage, looted: c3.looted, it: !!it3, prompt: it3?.getPrompt() ?? null },
+      c4: c4 && { stage: c4.stage, eta: c4.landsAt - t0, marker: !!c4.marker, local: c4.local, caller: c4.caller },
+    };
+  }, syncP);
+  ok(sync.n === base.calls + 4, `strat sync created 4 unknown calls (${base.calls} → ${sync.n})`, JSON.stringify(sync));
+  ok(sync.c1 && sync.c1.landed === 5 && sync.c1.destroyed === 1 && sync.c1.stage === 'done', 'landed structure call (eta −5) fast-forwarded: 5 landed, 1 destroyed by st, stage done', JSON.stringify(sync.c1));
+  ok(sync.c1 && sync.c1.hp[0] === 900 && sync.c1.hp[1] === 0 && sync.c1.hp[2] === 2000, 'st = [index, hp] applied: 900 / 0 / untouched 2000', JSON.stringify(sync.c1?.hp));
+  ok(sync.c1 && !sync.c1.local && sync.c1.caller === 'HOST', 'synced call is remote (local false, caller kept)');
+  ok(sync.obs.length === 4 && !sync.obs.includes('H-1:1'), `4 destructible obstacles registered in the same frame, destroyed one absent (${sync.obs.join(',')})`);
+  ok(sync.structures === base.structures + 4, `structureCount ${base.structures} → ${sync.structures}`);
+  ok(sync.c2 && sync.c2.stage === 'active' && sync.c2.it && sync.c2.prompt === '보급 상자 열기' && sync.c2.can && sync.c2.obs >= 1, 'landed supply (eta −3): interactable + obstacle exist at once', JSON.stringify(sync.c2));
+  ok(sync.c3 && sync.c3.stage === 'done' && sync.c3.looted && sync.c3.it && sync.c3.prompt === null, 'looted supply: crate present, no prompt, call done', JSON.stringify(sync.c3));
+  ok(sync.c4 && sync.c4.stage === 'incoming' && sync.c4.eta > 1.9 && sync.c4.eta <= 2.01 && sync.c4.marker && !sync.c4.local && sync.c4.caller === 'PEER2', 'future airstrike (eta 2) stays incoming with a marker', JSON.stringify(sync.c4));
+  const silentEv = { landed: (await ev('stratagem:landed')).length - landed0, shakes: (await ev('camera:shake')).length - shakes0, hp: sync.hp };
+  ok(silentEv.landed === 3 && silentEv.shakes === 0 && sync.hp[0] === sync.hp[1], 'fast-forward is silent: 3 stratagem:landed, no camera:shake, no player damage', JSON.stringify(silentEv));
+  const dup = await P((sp) => {
+    const s = window.__game.getSystem('stratagems');
+    window.__recv({ t: 'strat', ev: 'sync', calls: [{ callId: 'H-1', kind: 'structure_drop', p: sp, seed: 1, eta: -1, caller: 'HOST' }, { callId: 'H-9', kind: 'nuke', p: sp, seed: 1, eta: 1, caller: 'HOST' }] }, 'HOST');
+    return { n: s.getCalls().length, structures: s.structureCount };
+  }, syncP);
+  ok(dup.n === sync.n && dup.structures === sync.structures, 'known callId and unknown kind are skipped');
+  const ans = await P(() => {
+    window.__sent.length = 0;
+    window.__recv({ t: 'stratq', ev: 'sync' }, 'PEER');
+    const asClient = window.__sent.slice();
+    window.__mp.host = true; window.__sent.length = 0;
+    window.__recv({ t: 'stratq', ev: 'sync' }, 'PEER');
+    const a = window.__sent.slice();
+    window.__sent.length = 0;
+    window.__recv({ t: 'flow', ev: 'rejoined' }, 'PEER');
+    const b = window.__sent.slice();
+    window.__mp.host = false; window.__sent.length = 0;
+    return { asClient, a, b };
+  });
+  ok(ans.asClient.length === 0, 'a non-host ignores stratq sync');
+  const aMsg = ans.a[0]?.msg;
+  ok(ans.a.length === 1 && ans.a[0].to === 'PEER' && aMsg?.t === 'strat' && aMsg.ev === 'sync' && Array.isArray(aMsg.calls), 'host answers stratq sync with one strat sync to the requester', JSON.stringify(ans.a));
+  const wireIds = (aMsg?.calls ?? []).map((c) => c.callId);
+  ok(!wireIds.includes(airId) && wireIds.includes(structId) && wireIds.includes(called.callId) && wireIds.includes('H-1') && wireIds.includes('H-4'), `done airstrike excluded, structures / supply / synced calls included (${wireIds.join(',')})`);
+  const w1 = aMsg?.calls.find((c) => c.callId === 'H-1'), wS = aMsg?.calls.find((c) => c.callId === structId), wSup = aMsg?.calls.find((c) => c.callId === called.callId), w4 = aMsg?.calls.find((c) => c.callId === 'H-4');
+  ok(w1 && w1.eta < 0 && JSON.stringify(w1.st) === '[[0,900],[1,0]]' && w1.caller === 'HOST' && w1.seed === 12345, 'wire: eta = landsAt − now (< 0), st = damaged structures only, caller / seed kept', JSON.stringify(w1));
+  ok(wS && Array.isArray(wS.st) && wS.st.length >= 2 && wS.st.length <= 5 && wS.st.every(([, hp]) => hp < 2000) && wS.st.some(([, hp]) => hp === 0), 'wire: the real structure call lists its damaged / destroyed blocks with hp < STRUCTURE_HP (destroyed = 0)', JSON.stringify(wS?.st));
+  ok(wSup && wSup.looted === true && w4 && w4.eta > 0 && w4.eta <= 2 && w4.caller === 'PEER2', 'wire: looted flag on the opened crate, positive eta on the pending airstrike', JSON.stringify({ wSup, w4 }));
+  // `flow rejoined` is answered by several host-authoritative systems (pickups / inventory / gadgets / gather / ghosts),
+  // so only our own `strat sync` entries are ours to assert on.
+  const bStrat = ans.b.filter((s) => s.msg.t === 'strat' && s.msg.ev === 'sync');
+  ok(bStrat.length === 1 && bStrat[0].to === 'PEER' && JSON.stringify(bStrat[0].msg.calls.map((c) => c.callId)) === JSON.stringify(wireIds),
+    'flow rejoined → the same strat sync to that peer', JSON.stringify(ans.b.map((s) => `${s.msg.t}:${s.msg.ev}→${s.to}`)));
+  await waitSim(2.3);
+  ok((await ev('stratagem:landed')).some((e) => e.callId === 'H-4' && e.kind === 'airstrike'), 'synced future airstrike lands on its own clock');
+  await P(() => { const net = window.__game.ctx.net; delete net.inSession; delete net.isHost; delete net.send; delete window.__recv; });
 
   console.log('top view (orbital laser)');
   await S((s) => s.debugCooldownReset());

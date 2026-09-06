@@ -1,5 +1,5 @@
 import type {
-  GameContext, GameSystem, GamePhase, FlowMessage, PeerId, MissionMode, RaidSessionBlob, PlayerRestoreState, GhostState, RemotePlayerRef,
+  GameContext, GameSystem, GamePhase, FlowMessage, PeerId, MissionMode, RaidSessionBlob, PlayerRestoreState, RemotePlayerRef,
 } from '@/shared';
 import {
   GameContext as Ctx, Keys, PlayerFlags, PLAYER_RESPAWN_DELAY, RAID_FAILED_AUTO_RETURN_S, RAID_SAVE_INTERVAL_S,
@@ -106,9 +106,6 @@ export class GameFlowSystem implements GameSystem {
   private restoreTimer = -1;
   /** Inventory as it was when the 훈련장 was entered (ammo / durability are refunded on exit). */
   private trainingSnapshot: unknown = null;
-  /** Last ghost state per suspended member (from `net:ghostState`) for the wipe check. */
-  private ghostStates = new Map<PeerId, GhostState>();
-
   /** Pointer lock lost (Esc, alt-tab, cursor to another monitor) while playing → pause. */
   private onPointerLockChange = (): void => {
     if (this.ctx.input.isPointerLocked) return;
@@ -149,7 +146,7 @@ export class GameFlowSystem implements GameSystem {
       b.on('game:paused', ({ paused }) => this.setPaused(paused, false)),
       /* multiplayer */
       b.on('net:remoteDied', () => this.checkAllDead()),
-      b.on('net:peerLeft', ({ id }) => { this.ghostStates.delete(id); this.checkAllDead(); }),
+      b.on('net:peerLeft', () => this.checkAllDead()),
       b.on('net:lobbyLeft', ({ reason }) => this.onLobbyLeft(reason)),
       /* reconnection (hub era) */
       b.on('net:reconnecting', ({ attempt }) => {
@@ -169,8 +166,9 @@ export class GameFlowSystem implements GameSystem {
       b.on('net:raidLoaded', ({ blob }) => { this.raidBlob = blob; }),
       b.on('net:gameStarting', ({ rejoin, mode }) => this.onGameStarting(rejoin ?? false, mode)),
       b.on('net:ghostRestore', ({ state }) => this.onGhostRestore(state)),
-      b.on('net:ghostState', ({ id, state }) => { this.ghostStates.set(id, state); this.checkAllDead(); }),
-      b.on('net:peerSuspended', ({ id, suspended }) => { if (!suspended) this.ghostStates.delete(id); this.checkAllDead(); }),
+      // Phase 9: ghost states live on the refs (`RemotePlayerRef.ghostState`, net fills them); a ghost that bleeds out
+      // is caught by the 0.5 s timer that runs while the local player is out
+      b.on('net:peerSuspended', () => this.checkAllDead()),
       b.on('net:hostChanged', ({ isLocalHost }) => this.onHostChanged(isLocalHost)),
       b.on('training:exitRequested', () => this.exitTraining()),
       b.on('inventory:itemAdded', () => this.saveRaid()),
@@ -330,8 +328,8 @@ export class GameFlowSystem implements GameSystem {
     if (!r.connected || !r.inMission || (r.flags & PlayerFlags.IN_HUB) !== 0) return false;
     const downed = (r.isDowned ?? false) || (r.flags & PlayerFlags.DOWNED) !== 0;
     if (r.suspended) {
-      const st = this.ghostStates.get(r.id);
-      if (st !== undefined) return st !== 2;
+      // Phase 9: the host ghost's state sits on the ref (net's `applyGhost` / the host's own `applyToRef`)
+      if (r.ghostState !== undefined) return r.ghostState !== 2;
       return !r.isDead || downed;
     }
     return !r.isDead || downed;
@@ -425,7 +423,6 @@ export class GameFlowSystem implements GameSystem {
     this.autoReturnTimer = -1;
     this.restoreTimer = -1;
     this.rewarded = false;
-    this.ghostStates.clear();
     ctx.stats = Ctx.freshStats(seed);
     ctx.stats.mode = ctx.missionMode;
     ctx.missionTime = 0;
@@ -571,7 +568,6 @@ export class GameFlowSystem implements GameSystem {
     ctx.rejoinPending = false;
     this.rewarded = false;
     this.awaitingWorld = false;
-    this.ghostStates.clear();
     ctx.uiBlockers.delete('inventory');
     ctx.inventory?.closeAll();
     this.setPhase('menu');

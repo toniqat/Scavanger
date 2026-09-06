@@ -10,7 +10,8 @@ const STAMINA_PULSE = 0.9; // seconds the bar stays amber after depletion
  * **Downed mode** (`.vitals.downed`, `player:downed` → `player:revived` / `player:spawned` / `player:died`): the bar
  * shows `downHp / PLAYER_DOWN_HP` in red (`player:downHpChanged`, also polled from `ctx.player.downHp`), the label reads
  * `전투불능 — 아군의 구조 대기 중` with `Space 길게: 포기` under it, and `player:reviveProgress` shows
- * `부활 중 <byName> … n%` + a progress bar (hidden on `t = -1`).
+ * `부활 중 <byName> … n%` + a progress bar (hidden on `t = -1`). **Phase 9:** the Space give-up hold shows a red
+ * `포기` bar (`.giveup`, `player:giveUpProgress {t}`, `t < 0` hides; also hidden whenever the downed state ends).
  */
 export class Vitals {
   readonly root: HTMLElement;
@@ -23,6 +24,8 @@ export class Vitals {
   private reviveEl: HTMLElement;
   private reviveTxt: HTMLElement;
   private reviveFill: HTMLElement;
+  private giveUpEl: HTMLElement;
+  private giveUpFill: HTMLElement;
   private stimPill: HTMLElement;
   private stimVal: HTMLElement;
   private grenPill: HTMLElement;
@@ -42,6 +45,7 @@ export class Vitals {
   private downed = false;
   private downHp = PLAYER_DOWN_HP;
   private lastReviveT = -1;
+  private lastGiveUpT = -1;
   private unsubs: Array<() => void> = [];
 
   constructor(parent: HTMLElement) {
@@ -61,6 +65,10 @@ export class Vitals {
     this.reviveTxt = el('div', { cls: 'txt', text: '', parent: this.reviveEl });
     const reviveBar = el('div', { cls: 'bar', parent: this.reviveEl });
     this.reviveFill = el('div', { cls: 'fill', parent: reviveBar });
+    this.giveUpEl = el('div', { cls: 'giveup', parent: this.root });
+    el('div', { cls: 'txt', text: '포기', parent: this.giveUpEl });
+    const giveUpBar = el('div', { cls: 'bar', parent: this.giveUpEl });
+    this.giveUpFill = el('div', { cls: 'fill', parent: giveUpBar });
 
     // Stamina: bottom-centre bar (its own HUD element, not part of the vitals block); hidden while full.
     this.stamRoot = el('div', { cls: 'stamina full', parent });
@@ -107,6 +115,7 @@ export class Vitals {
       }),
       ctx.bus.on('player:downHpChanged', ({ downHp }) => { this.downHp = downHp; }),
       ctx.bus.on('player:reviveProgress', ({ t, byName }) => this.setRevive(t, byName)),
+      ctx.bus.on('player:giveUpProgress', ({ t }) => this.setGiveUp(t)),
       ctx.bus.on('player:revived', ({ hp }) => {
         this.setDowned(false);
         this.hp = this.shown = this.ghost = hp;
@@ -151,7 +160,7 @@ export class Vitals {
   }
 
   private setDowned(on: boolean): void {
-    if (this.downed === on) { if (!on) this.setRevive(-1, null); return; }
+    if (this.downed === on) { if (!on) { this.setRevive(-1, null); this.setGiveUp(-1); } return; }
     this.downed = on;
     toggleClass(this.root, 'downed', on);
     setText(this.labelEl, on ? '전투불능 — 아군의 구조 대기 중' : '생명력');
@@ -161,6 +170,21 @@ export class Vitals {
       this.ghostDelay = 0;
     }
     this.setRevive(-1, null);
+    this.setGiveUp(-1);
+  }
+
+  /** Space give-up hold (Phase 9): `t` 0..1 fills the red bar, `t < 0` (released / cancelled) hides it. */
+  private setGiveUp(t: number): void {
+    const on = t >= 0 && this.downed;
+    toggleClass(this.giveUpEl, 'show', on);
+    if (!on) {
+      if (this.lastGiveUpT !== -1) { this.lastGiveUpT = -1; this.giveUpFill.style.transform = 'scaleX(0)'; }
+      return;
+    }
+    if (Math.abs(t - this.lastGiveUpT) > 0.004) {
+      this.lastGiveUpT = t;
+      this.giveUpFill.style.transform = `scaleX(${Math.min(1, t).toFixed(3)})`;
+    }
   }
 
   private setRevive(t: number, byName: string | null): void {
@@ -200,6 +224,9 @@ export class Vitals {
     setText(val, String(n));
     toggleClass(pill, 'zero', n <= 0);
   }
+
+  /** Whether the give-up bar is up (debug). */
+  get isGiveUpShowing(): boolean { return this.giveUpEl.classList.contains('show'); }
 
   dispose(): void { for (const u of this.unsubs) u(); this.root.remove(); this.stamRoot.remove(); }
 }

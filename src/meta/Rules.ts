@@ -120,7 +120,8 @@ export function contractBlockReason(def: ContractDef, level: number, activeCount
 
 /** Progress delta a hit is worth: local hits count fully, a squadmate's relayed hit `CONTRACT_SQUAD_SHARE`. */
 export function contractHitDelta(amount: number, local: boolean): number {
-  const a = Math.max(0, Number(amount) || 0);
+  const n = Number(amount);
+  const a = Number.isFinite(n) ? Math.max(0, n) : 0;
   return local ? a : a * CONTRACT_SQUAD_SHARE;
 }
 

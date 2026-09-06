@@ -1,6 +1,6 @@
-import type { GrowPlot, LoadoutPreset, PlacedFurniture, ProfileRef, RoomState, ShipState, StoredFurniture } from '@/shared';
+import type { GrowPlot, LoadoutPreset, PlacedBook, PlacedFurniture, ProfileRef, RoomState, ShipState, StoredFurniture } from '@/shared';
 import {
-  FURNITURE_DEF_MAP, GROW_PLOTS_PER_RACK, IMPLANT_IDS, SHIP_ROOM_COUNT, SHIP_STATE_VERSION, SHIP_STORAGE_KEY,
+  BOOKS_PER_SHELF, FURNITURE_DEF_MAP, GROW_PLOTS_PER_RACK, IMPLANT_IDS, SHIP_ROOM_COUNT, SHIP_STATE_VERSION, SHIP_STORAGE_KEY,
   WORKSHOP_ROOM_INDEX,
 } from '@/shared';
 import {
@@ -15,14 +15,13 @@ import {
  * into the server profile document `ship` (`ctx.net.profile.set`) when a profile is available.
  * Phase 8: state **version 2** — `plots` (온실 재배), `nameLocked`, `PlacedFurniture.layer`, and the 정비 벤치 that
  * left the cockpit is granted once to every profile (fresh state + v1 → v2 migration).
+ * Phase 9: state **version 3** — `books` (서재 책장 slots) + `bookDex` (every book ever shelved); absent → empty, no
+ * data migration. `SHIP_STATE_VERSION` in the contract is 3 now, so `SHIP_STATE_VERSION_CURRENT` follows it.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 const SAVE_DELAY_MS = 350;
-/**
- * Current on-disk version. Phase 8 writes v2; `SHIP_STATE_VERSION` in the contract is still 1 (it was not bumped in
- * the committed contract and `src/shared` is frozen for this phase), so housing/ owns the number.
- */
-export const SHIP_STATE_VERSION_CURRENT = Math.max(2, SHIP_STATE_VERSION);
+/** Current on-disk version (3 since Phase 9; never below the contract's `SHIP_STATE_VERSION`). */
+export const SHIP_STATE_VERSION_CURRENT = Math.max(3, SHIP_STATE_VERSION);
 /** The 정비 벤치 moved out of the cockpit in Phase 8 — every profile is handed one, once. */
 export const REPAIR_BENCH_DEF_ID = 'furn_repair_bench';
 export const GUN_BENCH_DEF_ID = 'furn_bench_gun';
@@ -66,6 +65,8 @@ export function freshState(): ShipState {
     presets: [],
     plots: [],
     nameLocked: false,
+    books: [],
+    bookDex: [],
   };
 }
 
@@ -78,6 +79,14 @@ function hasRepairBench(furniture: readonly PlacedFurniture[], storage: readonly
 export function isGrowRackDefId(defId: string): boolean {
   return FURNITURE_DEF_MAP.get(defId)?.interaction === 'grow_rack';
 }
+
+/** A 책장 (Phase 9: any furniture whose E opens the bookshelf panel). */
+export function isBookshelfDefId(defId: string): boolean {
+  return FURNITURE_DEF_MAP.get(defId)?.interaction === 'bookshelf';
+}
+
+/** Shape check of a book def id in a save (`book_<skill>`); whether it is a real 서적 is decided at runtime via `ctx.loot`. */
+const isBookDefIdShape = (v: unknown): v is string => typeof v === 'string' && /^book_[A-Za-z0-9_]{1,40}$/.test(v);
 
 const int = (v: unknown, fallback: number, min = 0, max = Number.MAX_SAFE_INTEGER): number => {
   const n = Math.floor(Number(v));
@@ -100,7 +109,9 @@ export function maxUidIndex(furniture: readonly PlacedFurniture[]): number {
  * Turn whatever was in localStorage into a valid ShipState: unknown furniture defs / purposes / out-of-range numbers
  * are dropped or clamped, duplicated uids re-minted, stack layers re-assigned, plots without a rack dropped.
  * Migrations: **v1 → v2** grants the 정비 벤치 that moved out of the cockpit (once — a save that already owns one is
- * left alone, and a v2 save never runs the grant again). The **room-1 작업실 invariant** (Phase 8 UI pass) is applied
+ * left alone, and a v2 save never runs the grant again). **v3** adds `books` / `bookDex` (Phase 9): a book needs a
+ * placed 책장 uid, a slot below `BOOKS_PER_SHELF`, one book per (uid, slot) and a `book_*`-shaped def id; the 도감 is
+ * a unique list of such ids. Whether an id still resolves to a 서적 is checked by `HousingSystem` once `ctx.loot` exists. The **room-1 작업실 invariant** (Phase 8 UI pass) is applied
  * on every load, not once: room `WORKSHOP_ROOM_INDEX` is always the 작업실, every other 작업실 falls back to 빈 방,
  * and furniture whose room no longer accepts it moves into furniture storage instead of being dropped.
  */
@@ -222,10 +233,31 @@ export function sanitize(raw: unknown): ShipState {
     plots.push({ uid: p.uid, slot, seedDefId: p.seedDefId, plantedAt, readyAt });
   }
 
+  // Phase 9 서재: a shelved book needs its 책장 to still be placed; one book per (uid, slot); slot < BOOKS_PER_SHELF
+  const books: PlacedBook[] = [];
+  const shelfUids = new Set(furniture.filter((f) => isBookshelfDefId(f.defId)).map((f) => f.uid));
+  const takenBookSlots = new Set<string>();
+  for (const b of Array.isArray(r.books) ? (r.books as Partial<PlacedBook>[]) : []) {
+    if (!b || typeof b.uid !== 'string' || !isBookDefIdShape(b.defId)) continue;
+    if (!shelfUids.has(b.uid)) continue;
+    const slot = int(b.slot, -1, -1);
+    if (slot < 0 || slot >= BOOKS_PER_SHELF) continue;
+    const key = `${b.uid}#${slot}`;
+    if (takenBookSlots.has(key)) continue;
+    takenBookSlots.add(key);
+    books.push({ uid: b.uid, slot, defId: b.defId });
+  }
+  // 도감: unique book ids, every shelved book included (a save edited by hand cannot forget what is on its shelves)
+  const bookDex: string[] = [];
+  for (const id of [...(Array.isArray(r.bookDex) ? r.bookDex : []), ...books.map((b) => b.defId)]) {
+    if (isBookDefIdShape(id) && !bookDex.includes(id)) bookDex.push(id);
+  }
+
   return {
     version: SHIP_STATE_VERSION_CURRENT,
     rooms, generatorLevel, storageLevel, furniture, furnitureStorage, presets, plots,
     nameLocked: r.nameLocked === true,
+    books, bookDex,
   };
 }
 
@@ -273,10 +305,14 @@ export class ShipStore {
     this.upload();
   }
 
-  /** Queue the state into the server profile (`profile:set ship`); no-op offline. */
+  /**
+   * Queue the state into the server profile (`profile:set ship`). Phase 9: called **offline too** — `ProfileSync`
+   * keeps an unsent document in its pending map (stamped with the save time) and pushes it on the next connection,
+   * where the newer side wins. Only a missing profile ref (net/ not registered) skips the call.
+   */
   upload(): void {
     const p = this.profile();
-    if (!p || !p.available || typeof p.set !== 'function') return;
+    if (!p || typeof p.set !== 'function') return;
     try { p.set('ship', JSON.parse(JSON.stringify(this.getState()))); } catch { /* net not ready */ }
   }
 

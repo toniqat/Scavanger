@@ -398,8 +398,9 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
   }
 
   /**
-   * Ship-facility skill-gain multiplier (사격장 → `gun_*`). Read from `ctx.housing`, which may still be a skeleton
-   * (returns 1) or absent — every hop is guarded so this never throws and never returns a bad number.
+   * Ship skill-gain multiplier: 사격장 (`gun_*` × `1 + 0.1 × level`) × 서재 (every book of that skill shelved on a
+   * 책장, Phase 9) — housing/ folds both into one `getSkillGainMul`, so progression/ never re-derives either. Read from
+   * `ctx.housing`, which may be absent — every hop is guarded so this never throws and never returns a bad number.
    */
   getSkillGainMul(id: SkillId): number {
     try {
@@ -487,10 +488,13 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     this.refreshSheets();
   }
 
-  /** Queue the profile into the server store (`profile:set progression`); no-op offline. */
+  /**
+   * Queue the profile into the server store (`profile:set progression`). Phase 9: called **offline too** — `ProfileSync`
+   * keeps the document pending (stamped with the save time) and pushes it on the next connection, newest side wins.
+   */
   private upload(): void {
     const p = this.profileRef();
-    if (!p || !p.available || typeof p.set !== 'function') return;
+    if (!p || typeof p.set !== 'function') return;
     try { p.set('progression', JSON.parse(JSON.stringify(this._profile))); } catch { /* net not ready */ }
   }
 

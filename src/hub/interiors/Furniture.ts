@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import type { FurnitureDef, FurnitureModelKind, GameContext, Interactable, PlacedFurniture, WorkbenchKind } from '@/shared';
-import { FURNITURE_DEF_MAP, GROW_PLOTS_PER_RACK, GROW_RACK_LAYER_HEIGHT, HOUSING_CELL_SIZE, benchKindOf, furnitureFootprint } from '@/shared';
+import type { FurnitureDef, FurnitureModelKind, GameContext, Interactable, PlacedFurniture, Rarity, WorkbenchKind } from '@/shared';
+import { BOOKS_PER_SHELF, FURNITURE_DEF_MAP, GROW_PLOTS_PER_RACK, GROW_RACK_LAYER_HEIGHT, HOUSING_CELL_SIZE, RARITY_COLORS, benchKindOf, furnitureFootprint } from '@/shared';
 import { GeoBatch, HUB_MATS as M, disposeMeshes } from './GeoBatch';
 import type { BoxInteriorCollider } from './InteriorCollider';
 import { roomCellToWorld, yawToRotation } from './RoomLayout';
@@ -25,6 +25,19 @@ function tint(css: string): THREE.MeshStandardMaterial {
   }
   return m;
 }
+const spineCache = new Map<string, THREE.MeshStandardMaterial>();
+/** Book-spine material per rarity colour (Phase 9 책장): matte, a faint glow so the colour reads in a dim room. Cached forever. */
+function spine(css: string): THREE.MeshStandardMaterial {
+  let m = spineCache.get(css);
+  if (!m) {
+    const c = new THREE.Color(css);
+    m = new THREE.MeshStandardMaterial({ color: c, roughness: 0.8, metalness: 0.05, emissive: c, emissiveIntensity: 0.18 });
+    spineCache.set(css, m);
+  }
+  return m;
+}
+/** 책장 shelves (BOOKS_PER_SHELF slots spread over them, top shelf first). */
+const BOOK_SHELF_ROWS = 3;
 const LAMP_GLOW = new THREE.MeshStandardMaterial({ color: 0xffe3a0, roughness: 0.3, metalness: 0, emissive: 0xffc060, emissiveIntensity: 2.4 });
 const LEAF = new THREE.MeshStandardMaterial({ color: 0x4f9a4a, roughness: 0.85, metalness: 0 });
 const POT = new THREE.MeshStandardMaterial({ color: 0x8a5a3c, roughness: 0.9, metalness: 0.05 });
@@ -48,14 +61,19 @@ export interface FurnitureModel {
   spinInner?: THREE.Group;
 }
 
-/** Build the model of `def` (unrotated, centred, front toward −Z). */
-export function buildFurniture(def: FurnitureDef, level = 1): FurnitureModel {
+/** Per-piece data a builder may read (Phase 9): the 책장's shelved books by slot (rarity, null = empty). */
+export interface BuildExtra {
+  books?: readonly (Rarity | null)[];
+}
+
+/** Build the model of `def` (unrotated, centred, front toward −Z). `extra` carries per-piece state (책장 books). */
+export function buildFurniture(def: FurnitureDef, level = 1, extra?: BuildExtra): FurnitureModel {
   const g = new THREE.Group();
   g.name = `furn-${def.id}`;
   const b = new GeoBatch();
   const w = def.cols * HOUSING_CELL_SIZE, d = def.rows * HOUSING_CELL_SIZE, h = def.height;
   const accent = tint(def.color);
-  BUILDERS[def.model](b, w, d, h, accent, level);
+  BUILDERS[def.model](b, w, d, h, accent, level, extra);
   const meshes: THREE.Mesh[] = [];
   b.build(g, meshes);
   const model: FurnitureModel = { group: g, meshes, w, d };
@@ -90,7 +108,7 @@ function simHubRings(model: FurnitureModel, r: number, h: number): void {
 }
 
 /* ── builders ─────────────────────────────────────────────────────────────── */
-type Builder = (b: GeoBatch, w: number, d: number, h: number, accent: THREE.Material, level: number) => void;
+type Builder = (b: GeoBatch, w: number, d: number, h: number, accent: THREE.Material, level: number, extra?: BuildExtra) => void;
 
 /** Shared workbench body: legs, top, drawer block, back tool board, accent strip. `deco` adds the per-kind top items. */
 function benchBody(b: GeoBatch, w: number, d: number, h: number, accent: THREE.Material, level: number, deco: (b: GeoBatch) => void): void {
@@ -215,10 +233,30 @@ const BUILDERS: Record<FurnitureModelKind, Builder> = {
     b.box(w - 0.2, 0.04, 0.04, 0, h - 0.12, 0, M.hullDark);
     b.boxB(0.3, 0.08, 0.2, -w * 0.25, h, 0.1, M.crateDark);
   },
-  /* Phase 9 skeleton: the 책장 reuses the 선반 builder until hub/ draws the shelved books. */
-  bookshelf: (b, w, d, h) => {
+  /* 서재 책장 (Phase 9): body + BOOK_SHELF_ROWS shelves, one spine box per shelved book (colour = rarity), empty slots stay empty. */
+  bookshelf: (b, w, d, h, a, _lv, extra) => {
     for (const sx of [-1, 1]) b.boxB(0.05, h, d, sx * (w / 2 - 0.03), 0, 0, M.hullLight);
-    b.box(w, h, 0.03, 0, h / 2, d / 2 - 0.02, M.hullDark);
+    b.box(w, h, 0.03, 0, h / 2, d / 2 - 0.02, M.hullDark);                                  // back board
+    b.box(w, 0.05, d, 0, h - 0.025, 0, M.hullLight);                                        // top
+    b.box(w - 0.1, 0.05, d - 0.02, 0, 0.06, 0, M.gunmetal);                                 // plinth
+    b.box(w - 0.14, 0.03, 0.04, 0, h - 0.06, -(d / 2 - 0.02), a);                           // accent lip under the top
+    const rows = BOOK_SHELF_ROWS, perRow = Math.ceil(BOOKS_PER_SHELF / rows);
+    const y0 = 0.1, rowH = (h - 0.2) / rows;
+    const books = extra?.books ?? [];
+    for (let r = 0; r < rows; r++) {
+      const y = y0 + r * rowH;
+      b.box(w - 0.1, 0.04, d - 0.06, 0, y, 0.01, M.gunmetal);                              // shelf board
+      b.box(w - 0.12, 0.02, 0.03, 0, y + 0.015, -(d / 2 - 0.05), M.trim);                    // front edge
+      for (let k = 0; k < perRow; k++) {
+        const slot = (rows - 1 - r) * perRow + k;                                          // slot 0 = top-left
+        const rarity = books[slot] ?? null;
+        if (!rarity) continue;
+        const bx = -(w / 2 - 0.16) + k * ((w - 0.32) / Math.max(1, perRow - 1));
+        const bh = 0.22 + ((slot * 7) % 3) * 0.03, bt = 0.06 + ((slot * 5) % 2) * 0.02;
+        b.boxB(bt, bh, d - 0.18, bx, y + 0.02, 0.02, spine(RARITY_COLORS[rarity]));        // spine (the book stands upright)
+        b.box(bt + 0.01, 0.015, d - 0.2, bx, y + 0.02 + bh * 0.72, 0.02, M.trim);           // title band
+      }
+    }
   },
   shelf: (b, w, d, h) => {
     for (const sx of [-1, 1]) b.boxB(0.05, h, d, sx * (w / 2 - 0.03), 0, 0, M.hullLight);
@@ -307,6 +345,8 @@ export interface FurnitureCallbacks {
   onGrowRack(uid: string): void;
   /** 정비 벤치 (Phase 8): open the weapon-repair menu (the cockpit bench moved into the 작업실). */
   onRepairBench(): void;
+  /** 책장 (Phase 9): open the bookshelf panel of this piece (`ctx.housing.openBookshelfMenu(uid)`). */
+  onBookshelf(uid: string): void;
 }
 
 interface Piece {
@@ -327,6 +367,7 @@ const _pos = new THREE.Vector3();
 const COVERED_CHANGE_REASONS: ReadonlySet<string> = new Set([
   'place', 'move', 'recover', 'furnitureUpgrade',   // per-piece events rebuilt the room
   'craft', 'preset', 'purpose',                       // storage / presets / purpose (its recoveries were per-piece)
+  'books',                                            // Phase 9: `housing:booksChanged` rebuilds that shelf's room
   'facility:generator', 'facility:storage', 'facility:workshop', 'facility:range',
 ]);
 
@@ -349,6 +390,8 @@ export class FurnitureLayer {
       b.on('housing:furnitureRecovered', ({ room }) => this.rebuildRoom(room)),
       b.on('housing:changed', ({ reason }) => { if (!COVERED_CHANGE_REASONS.has(reason)) this.rebuildAll(); }),
       b.on('housing:loaded', () => this.rebuildAll()),
+      // Phase 9: a book went on / off a 책장 → redraw that piece's room (the shelf model carries the spines)
+      b.on('housing:booksChanged', ({ uid }) => { const p = this.pieces.get(uid); if (p) this.rebuildRoom(p.item.room); }),
     );
     this.rebuildAll();
   }
@@ -400,7 +443,7 @@ export class FurnitureLayer {
     const def = FURNITURE_DEF_MAP.get(item.defId);
     if (!def) return;
     const fp = furnitureFootprint(def, item.yaw);
-    const model = buildFurniture(def, item.level);
+    const model = buildFurniture(def, item.level, def.model === 'bookshelf' ? { books: this.shelfBooks(item.uid) } : undefined);
     roomCellToWorld(item.room, item.x, item.y, _pos, fp.cols, fp.rows);
     // stacked furniture (재배층): each layer sits GROW_RACK_LAYER_HEIGHT higher on the same footprint
     const layer = item.layer ?? 0;
@@ -451,12 +494,24 @@ export class FurnitureLayer {
           else if (kind === 'sim_hub') cb.onSimHub();
           else if (kind === 'grow_rack') cb.onGrowRack(uid);
           else if (kind === 'repair_bench') cb.onRepairBench();
+          else if (kind === 'bookshelf') cb.onBookshelf(uid);
           else cb.onRangeConsole();
         },
       };
       this.ctx.interactables.register(interactable);
     }
     this.pieces.set(item.uid, { item, model, blocker, sign, interactable });
+  }
+
+  /** Shelved books of a 책장 by slot (rarity or null), from `ctx.housing.getBooks(uid)`; empty with the skeleton. */
+  private shelfBooks(uid: string): (Rarity | null)[] {
+    const out: (Rarity | null)[] = new Array(BOOKS_PER_SHELF).fill(null);
+    const h = this.ctx.housing;
+    if (!h || typeof h.getBooks !== 'function') return out;
+    try {
+      for (const s of h.getBooks(uid)) if (s.defId && s.slot >= 0 && s.slot < BOOKS_PER_SHELF) out[s.slot] = s.rarity ?? 'common';
+    } catch { /* stub */ }
+    return out;
   }
 
   private removePiece(p: Piece): void {

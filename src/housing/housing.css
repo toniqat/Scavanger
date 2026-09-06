@@ -1,5 +1,5 @@
 /* ============================================================================
- * SCAVANGER — ship housing panels (방 메뉴 · 시설 메뉴 · 프리셋 메뉴). Reuses .menu / .frame / .ui-* from
+ * SCAVANGER — ship housing panels (프리셋 · 재배 · 책장 · 함선 tab). Reuses .menu / .frame / .ui-* from
  * ui/styles/base.css; the layout mirrors hub/hub.css (scrolling page inside a fixed frame).
  * ========================================================================== */
 
@@ -118,6 +118,50 @@
 .hs-seed:hover { border-color: rgba(255, 255, 255, 0.4); }
 .hs-seed.sel { border-color: var(--c-accent); background: rgba(255, 179, 71, 0.12); }
 
+/* ── 서재 책장 (Phase 9) ────────────────────────────────────────────────── */
+.hs-shelf { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.hs-book {
+  display: flex; flex-direction: column; gap: 8px; padding: 10px;
+  border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03);
+}
+.hs-book.empty { border-style: dashed; }
+.hs-book:not(.empty) { border-color: rgba(201, 167, 122, 0.45); background: rgba(201, 167, 122, 0.06); }
+.hs-book .top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.hs-book .idx { font-family: var(--ui-mono); font-size: 12px; color: var(--c-text-dim); letter-spacing: 0.08em; }
+.hs-book .state { font-size: 10px; letter-spacing: 0.1em; color: var(--c-text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hs-book:not(.empty) .state { color: #c9a77a; }
+.hs-book .chipwrap { display: flex; align-items: center; gap: 8px; min-height: 34px; }
+.hs-book .line { font-size: 11px; color: var(--c-text-dim); letter-spacing: 0.04em; font-family: var(--ui-mono); }
+.hs-book .actions { display: flex; gap: 6px; }
+.hs-book .actions .ui-btn { flex: 1; }
+.hs-book .actions .ui-btn[hidden] { display: none; }
+
+.hs-books { display: flex; flex-wrap: wrap; gap: 8px; }
+.hs-books .hs-empty { flex: 1; }
+.hs-bookpick { cursor: pointer; padding: 4px; border: 1px solid transparent; background: none; }
+.hs-bookpick:hover { border-color: rgba(255, 255, 255, 0.4); }
+.hs-bookpick.sel { border-color: var(--c-accent); background: rgba(255, 179, 71, 0.12); }
+
+/* 도감: one row per skill (shared by the 책장 panel and the 함선 tab) */
+.hs-dex { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.hs-dex-sum { font-size: 11px; color: var(--c-text-faint); letter-spacing: 0.04em; font-family: var(--ui-mono); }
+.hs-dex-list { display: flex; flex-direction: column; gap: 4px; }
+.hs-dex-row {
+  display: grid; grid-template-columns: minmax(90px, 0.9fr) minmax(0, 1.6fr) auto auto; gap: 10px; align-items: center;
+  padding: 5px 10px; min-height: 34px;
+  border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03); font-size: 12px;
+}
+.hs-dex-row.owned { border-color: rgba(201, 167, 122, 0.45); }
+.hs-dex-row .skill { font-weight: 600; letter-spacing: 0.04em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hs-dex-row .book { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--c-text-dim); }
+.hs-dex-row .book .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hs-dex-row:not(.owned) .book { color: var(--c-text-faint); }
+.hs-dex-row:not(.owned) .book .item-chip { opacity: 0.45; filter: grayscale(0.7); }
+.hs-dex-row .state { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--c-text-faint); white-space: nowrap; }
+.hs-dex-row.owned .state { color: var(--c-success); }
+.hs-dex-row .mul { font-family: var(--ui-mono); font-size: 12px; color: var(--c-text-dim); min-width: 48px; text-align: right; }
+.hs-dex-row.boosted .mul { color: var(--c-accent); }
+
 /* ── embedded 함선 view (the 함선 tab of the Tab screen) ─────────────────── */
 /* Phase 8 UI pass: two columns — 기본 시설 (발전기 · 창고) + 효과 on the left, 방 목록 on the right — and a
  * sticky 시설 관리(M) button that stays in the bottom-right corner however far the screen is scrolled. */
@@ -176,5 +220,6 @@
   .menu.housing-menu .frame { min-width: 0; padding: 26px 22px; }
   .hs-purposes { grid-template-columns: repeat(3, 1fr); }
   .hs-list.presets, .hs-summary, .hs-plots { grid-template-columns: 1fr; }
+  .hs-shelf { grid-template-columns: repeat(2, 1fr); }
   .hs-row { flex-wrap: wrap; }
 }

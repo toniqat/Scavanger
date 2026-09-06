@@ -1,6 +1,6 @@
-import type { CraftIngredient, FacilityId, FurnitureDef, PlacedFurniture, RoomPurpose, ShipState, SkillId } from '@/shared';
+import type { CraftIngredient, FacilityId, FurnitureDef, ItemDef, PlacedBook, PlacedFurniture, RoomPurpose, ShipState, SkillId } from '@/shared';
 import {
-  BENCH_MAX_LEVEL, FACILITY_LABEL_KO, FURNITURE_DEF_MAP, GENERATOR_MAX_LEVEL, GENERATOR_UPGRADE_COST, PRESETS_BY_RANGE_LEVEL,
+  BENCH_MAX_LEVEL, BOOK_GAIN_MAX, BOOK_RARITY_MUL, BOOK_XP_PER_BOOK, FACILITY_LABEL_KO, FURNITURE_DEF_MAP, GENERATOR_MAX_LEVEL, GENERATOR_UPGRADE_COST, PRESETS_BY_RANGE_LEVEL,
   RANGE_MAX_LEVEL, RANGE_SKILL_GAIN_PER_LEVEL, RANGE_UPGRADE_COST, ROOM_GRID_COLS, ROOM_GRID_ROWS, ROOM_PURPOSE_LABEL_KO,
   ROOM_PURPOSES, STASH_COLS, STASH_ROWS_BY_STORAGE_LEVEL, STORAGE_MAX_LEVEL, STORAGE_UPGRADE_COST, WORKSHOP_COST_DISCOUNT_PER_LEVEL,
   WORKSHOP_MAX_LEVEL, WORKSHOP_UPGRADE_COST, WORKSHOP_ROOM_INDEX, furnitureFootprint,
@@ -124,6 +124,30 @@ export function craftCostMulFor(workshopLevel: number): number {
 /** Gun skills gain `1 + RANGE_SKILL_GAIN_PER_LEVEL × rangeLevel`; everything else 1. */
 export function skillGainMulFor(skill: SkillId, rangeLevel: number): number {
   return skill.startsWith('gun_') && rangeLevel > 0 ? 1 + RANGE_SKILL_GAIN_PER_LEVEL * rangeLevel : 1;
+}
+
+/* ── 서재 책장 (Phase 9) ──────────────────────────────────────────────────── */
+
+/** Weight one shelved book contributes (`BOOK_RARITY_MUL[rarity]`); 0 for anything that is not a 서적. */
+export function bookWeightOf(def: ItemDef | undefined): number {
+  if (!def || !def.book) return 0;
+  const w = BOOK_RARITY_MUL[def.rarity];
+  return Number.isFinite(w) && w > 0 ? w : 0;
+}
+
+/**
+ * 서재 multiplier for `skill`: `min(BOOK_GAIN_MAX, 1 + BOOK_XP_PER_BOOK × Σ BOOK_RARITY_MUL[rarity])` over every shelved
+ * book of that skill on the ship (any shelf, any room); exactly 1 when none. `defOf` resolves a book's def (unknown or
+ * non-book ids weigh 0). Multiplied into `HousingRef.getSkillGainMul` next to the 사격장 factor.
+ */
+export function bookGainMulFor(skill: SkillId, books: readonly PlacedBook[], defOf: (defId: string) => ItemDef | undefined): number {
+  let sum = 0;
+  for (const b of books) {
+    const def = defOf(b.defId);
+    if (def?.book?.skill === skill) sum += bookWeightOf(def);
+  }
+  if (sum <= 0) return 1;
+  return Math.min(BOOK_GAIN_MAX, 1 + BOOK_XP_PER_BOOK * sum);
 }
 
 /* ── rooms ────────────────────────────────────────────────────────────────── */

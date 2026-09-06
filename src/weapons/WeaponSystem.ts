@@ -6,7 +6,7 @@ import {
   type GameSystem, type WeaponDef, type ItemInstance, type ItemDef, type PlayerRef, type PlayerWeaponHost, type EnemyRef, type Vec3Tuple,
   type WeaponSlot, type EffectiveWeaponStats, type WeaponClass, type GadgetId, type WeaponRemoteState,
 } from '@/shared';
-import type { Obstacle as WorldObstacle, InterceptableRef } from '@/shared';
+import type { Obstacle as WorldObstacle, InterceptableRef, PeerId } from '@/shared';
 import { ARMOR_IMMUNE_AMMO } from '@/shared';
 import { FxManager } from '@/core/fx';
 import { randomInCone } from '@/core/util/MathUtil';
@@ -18,7 +18,7 @@ import { GrenadeManager } from './Grenade';
 import { ProjectilePool, projectileOptsFor, type ProjectileHit } from './Projectile';
 import { RemoteWeapons } from './RemoteWeapons';
 import { MeleeController } from './Melee';
-import { raycastBlockers } from './Blocking';
+import { raycastBlockers, damageBarrierAt, makeBlockInfo } from './Blocking';
 import { createUniqueHandler, UniqueFx, type UniqueHandler, type UniqueInput, type UniqueServices, type UniqueShot, type UniqueWeapon } from './unique';
 
 type Host = PlayerRef & PlayerWeaponHost;
@@ -42,7 +42,9 @@ interface WeaponInstance {
   durFrac: number;
 }
 
-interface HitInfo { point: THREE.Vector3; normal: THREE.Vector3; distance: number; enemy: EnemyRef | null; obstacle: boolean; valid: boolean; headshot: boolean; obstacleRef: WorldObstacle | null; armored: boolean; intercept: InterceptableRef | null }
+interface HitInfo { point: THREE.Vector3; normal: THREE.Vector3; distance: number; enemy: EnemyRef | null; obstacle: boolean; valid: boolean; headshot: boolean; obstacleRef: WorldObstacle | null; armored: boolean; intercept: InterceptableRef | null;
+  /** Phase 9: the hit stopped at an implant barrier of this owner (damage is applied once in `applyHit`, never by the raycast). */
+  barrierOwner: PeerId | 'local' | null }
 
 const BLOOM_PER_SHOT = 0.14;
 const BLOOM_DECAY = 2.6;
@@ -82,8 +84,9 @@ const _muzzle = new THREE.Vector3(), _target = new THREE.Vector3(), _md = new TH
 const _netDir = new THREE.Vector3();
 const _mq = new THREE.Quaternion();
 const _block = new THREE.Vector3();
+const _blockInfo = makeBlockInfo();
 
-function makeHit(): HitInfo { return { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, enemy: null, obstacle: false, valid: false, headshot: false, obstacleRef: null, armored: false, intercept: null }; }
+function makeHit(): HitInfo { return { point: new THREE.Vector3(), normal: new THREE.Vector3(), distance: 0, enemy: null, obstacle: false, valid: false, headshot: false, obstacleRef: null, armored: false, intercept: null, barrierOwner: null }; }
 
 /** Vector3 → wire tuple rounded to 3 dp (fresh tuples: messages are serialized asynchronously by the relay). */
 function toTuple(v: THREE.Vector3): Vec3Tuple {
@@ -965,7 +968,7 @@ export class WeaponSystem implements GameSystem {
   /** Nearest of world & enemy raycasts into `out`. */
   private raycastAll(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number, out: HitInfo): void {
     const ctx = this.ctx;
-    out.valid = false; out.enemy = null; out.obstacle = false; out.headshot = false; out.obstacleRef = null; out.armored = false; out.intercept = null;
+    out.valid = false; out.enemy = null; out.obstacle = false; out.headshot = false; out.obstacleRef = null; out.armored = false; out.intercept = null; out.barrierOwner = null;
     const eh = ctx.enemies ? ctx.enemies.raycast(origin, dir, maxDist) : null;
     const wh = ctx.world && ctx.world.ready ? ctx.world.raycast(origin, dir, maxDist) : null;
     if (eh && (!wh || eh.distance <= wh.distance)) {
@@ -979,11 +982,13 @@ export class WeaponSystem implements GameSystem {
       out.point.copy(ih.point); out.normal.copy(dir).negate(); out.distance = ih.distance; out.enemy = null; out.obstacle = false; out.obstacleRef = null; out.headshot = false; out.armored = false;
       out.intercept = ih.target; out.valid = true;
     }
-    // tactical kit: shields / solid deployables on the way (allied barriers ignore allied bullets — see Blocking.ts)
-    const bd = raycastBlockers(ctx, origin, dir, maxDist, _block, false);
+    // tactical kit: shields / solid deployables on the way (allied barriers ignore allied bullets — see Blocking.ts).
+    // Phase 9: this is a pure query — the barrier is damaged once in `applyHit` when the resolved hit is the barrier.
+    const bd = raycastBlockers(ctx, origin, dir, maxDist, _block, false, _blockInfo);
     if (bd >= 0 && (!out.valid || bd < out.distance)) {
       out.point.copy(_block); out.normal.copy(dir).negate(); out.distance = bd;
       out.enemy = null; out.headshot = false; out.armored = false; out.intercept = null; out.obstacleRef = null; out.obstacle = true; out.valid = true;
+      out.barrierOwner = _blockInfo.kind === 'barrier' ? _blockInfo.owner : null;
     }
   }
 
@@ -1069,6 +1074,8 @@ export class WeaponSystem implements GameSystem {
       ctx.bus.emit('audio:play', { id: 'hit_flesh', position: h.point, volume: light ? 0.4 : 0.7 });
       return killed;
     }
+    // Phase 9: a shot that really stopped at an implant barrier chews its durability — exactly once, here
+    if (h.barrierOwner) damageBarrierAt(ctx, h.barrierOwner, h.point);
     // Phase 3: destructible cover (dropped structures) takes the shot's damage
     h.obstacleRef?.destructible?.onDamage(damage, h.point);
     this.fx.impactSurface(h.point, h.normal, h.obstacle);
@@ -1080,13 +1087,17 @@ export class WeaponSystem implements GameSystem {
   private onProjectileHit(h: ProjectileHit, damage: number, weaponId: string): void {
     this.gunHit.point.copy(h.point); this.gunHit.normal.copy(h.normal); this.gunHit.distance = h.distance;
     this.gunHit.enemy = h.enemy; this.gunHit.obstacle = h.obstacle; this.gunHit.obstacleRef = h.obstacleRef ?? null; this.gunHit.valid = true; this.gunHit.headshot = h.part === 'head';
-    this.gunHit.armored = !!h.armored; this.gunHit.intercept = null;
+    this.gunHit.armored = !!h.armored; this.gunHit.intercept = null; this.gunHit.barrierOwner = h.barrierOwner ?? null;
     let def: WeaponDef | null = null;
     for (const s of WEAPON_SLOTS) {
       const w = this.slots[s];
       if (w && w.stats.weaponId === weaponId) {
         // Phase 6: rockets etc. resolve in their handler (area damage, self knockback)
-        if (w.unique && typeof w.unique.onProjectileHit === 'function') { w.unique.onProjectileHit(h, damage, w); return; }
+        if (w.unique && typeof w.unique.onProjectileHit === 'function') {
+          // Phase 9: the handler resolves the damage itself (rockets) — the barrier hit is still ours to bill, once
+          if (h.barrierOwner) damageBarrierAt(this.ctx, h.barrierOwner, h.point);
+          w.unique.onProjectileHit(h, damage, w); return;
+        }
         def = w.def; break;
       }
     }

@@ -14,7 +14,7 @@ engine.addSystem(new GadgetSystem());
 |---|---|
 | `GadgetSystem.ts` | The system + `GadgetsRef` impl. Use paths, host-authoritative deployable lifecycle, `gad`/`gadq` protocol, recover/defuse `Interactable`s, turret / mine / fire / lure simulation, jump pad launches, query API. |
 | `GadgetDefs.ts` | `GADGET_DEFS` (10 gadgets, 한국어 이름/설명), `gadgetDef(id)`, `gadgetForKind(kind)`, `RECOVERABLE_KINDS` / `isRecoverable`, `ENEMY_TARGET_KINDS`, `SOLID_KINDS`. |
-| `Deployable.ts` | `Deployable implements DeployableRef` — hp/armed/expires/yaw + per-kind runtime state (`fireTimer`, `targetId`, `headYaw`, `tickTimer`, `padCooldown`, `netCooldown`) and `takeDamage()` (routes to the authority). Also the physical sizes: `BARRICADE_HALF`, `MINE_TRIGGER_RADIUS`, `JUMPPAD_TRIGGER_RADIUS`, `DOME_UNFOLD_TIME`. |
+| `Deployable.ts` | `Deployable implements DeployableRef` — hp/armed/expires/yaw + per-kind runtime state (`fireTimer`, `targetId`, `headYaw`, `tickTimer`, `padCooldown` = 같은 프레임 가드, `padNext` = 플레이어별 재발동 시각(Phase 9), `netCooldown`) and `takeDamage()` (routes to the authority). Also the physical sizes: `BARRICADE_HALF`, `MINE_TRIGGER_RADIUS`, `JUMPPAD_TRIGGER_RADIUS`, `DOME_UNFOLD_TIME`. |
 | `GadgetVisuals.ts` | `GadgetVisualPool`: pooled procedural meshes per `DeployableKind` + a 12-slot expanding ring-pulse FX pool. Shared geometry, per-visual materials, recoloured on reuse. **No lights anywhere** (constant scene light count → no shader recompiles). `warm()` pre-builds one visual per kind. |
 | `ThrownGadget.ts` | `ThrownGadgetManager`: 8 pooled canisters with a gravity arc + obstacle push-out; deploys on the first ground contact (or after 4 s). |
 | `index.ts` | Barrel. |
@@ -32,7 +32,7 @@ engine.addSystem(new GadgetSystem());
 | `turret` | 포탑 설치 | place | `turret` | 90 초, hp 600, 사거리 32 m, 4 발/초 × 15 피해. **사선의 플레이어를 먼저 맞힌다**. 3 초 회수 |
 | `incendiary` | 화염수류탄 | throw | `fire` | 10 초 화염지대. 적은 `applyStatus('burning', 45)`, 플레이어는 `setBurning` / 원격은 `dmg` |
 | `defib` | 제세동기 | target | — | 5 m 안의 **다운된 원격 아군**에게 `buff {kind:'revive'}` 전송 |
-| `jumpPad` | 점프대 | place | `jumpPad` | 밟으면 +13 임펄스, 질주 중이면 진행 방향으로 +9 추가. 3 초 회수 |
+| `jumpPad` | 점프대 | place | `jumpPad` | 밟으면 +13 임펄스, 질주 중이면 진행 방향으로 +9 추가. 3 초 회수. **재발동은 플레이어별** (`Deployable.padNext: Map<PeerId\|'local', number>`, `JUMP_PAD_RETRIGGER_S`) — Phase 9 이전의 0.7 초 공용 쿨다운은 착지할 때마다 다시 튀어 2.5 초에 3연발이 나왔다. `padCooldown` 은 이제 같은 프레임 중복 발사만 막는다 |
 
 수치는 전부 `shared/constants.ts` 의 `GADGET_*` 상수를 그대로 쓴다 (이 폴더에서 재정의하지 않는다).
 
@@ -99,6 +99,8 @@ recover(id) → 아이템 지급 + gad remove      recover(id) → gadq recover 
 ──────────────────
 client world:ready (멀티, !host) → gadq sync ─► host → gad sync {items} ─► 그 피어 (전부 재구축)
 host 는 `flow rejoined` 에도 gad sync 로 답한다
+호스트 이전 (Phase 9): net:hostChanged {isLocalHost:false} + ctx.world.ready → gadq sync 재요청
+  (승격된 호스트가 우리가 못 본 설치물이나 다른 hp 를 들고 있을 수 있다)
 ```
 
 - **시뮬레이션은 `ctx.isAuthority` 뿐**이다. 비호스트는 무장 타이머(지뢰 3 초 / 돔 0.6 초)만 로컬로 돌려
@@ -107,6 +109,9 @@ host 는 `flow rejoined` 에도 gad sync 로 답한다
 - **화염지대의 로컬 플레이어 화상은 각 클라이언트가 스스로 적용**한다 (`setBurning`). 존은 이미 복제돼 있으므로
   왕복 지연 없이 반응하고, 원격 플레이어분만 호스트가 `dmg` 로 처리한다.
 - `buff` 수신은 **`kind === 'revive'` 만** 처리한다 (`heal` / `boost` 는 implants 소유 — 이중 적용 방지).
+  Phase 9 에서 implants 쪽에 남아 있던 `revive` 중복 분기를 지웠으므로, 제세동기 부활은 이제 정확히 한 번만 적용된다.
+- **화염지대 킬 크레딧 (Phase 9)**: `updateFireZone` 이 `enemies.applyStatus(id, 'burning', dps, dur, d.owner)` 로
+  불을 놓은 사람을 넘긴다 → 화상으로 죽은 적의 `enemy:killed.by` 가 마지막 타격자가 아니라 설치자를 가리킨다.
 
 ## 성능 / 리소스 규칙
 

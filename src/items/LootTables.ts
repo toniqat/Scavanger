@@ -60,7 +60,7 @@ export const LOOT_TABLES: readonly TierTable[] = [
   {
     tier: 2, label: '군수 상자', count: [3, 4],
     rarityWeights: { common: 45, uncommon: 38, rare: 15, epic: 2, legendary: 0 },
-    categoryWeights: { ammo: 20, stim: 14, grenade: 12, material: 16, valuable: 38, attachment: 10, bag: 3, gadget: 9, herb: 5, armor: 4, seed: 4 },
+    categoryWeights: { ammo: 20, stim: 14, grenade: 12, material: 16, valuable: 38, attachment: 10, bag: 3, gadget: 9, herb: 5, armor: 4, seed: 4, book: 3 },
     weaponChance: 0.35, maxStackQty: 4, ammoFraction: [0.35, 0.7],
     guaranteed: [{ categories: ['valuable'], minRarity: 'uncommon' }],
     // SMGs are field-common; snipers rarely in supply crates; legendary gear is tier 3+ only; 전력 케이블 / 회로 기판 from here (circuit scarce)
@@ -73,7 +73,7 @@ export const LOOT_TABLES: readonly TierTable[] = [
   {
     tier: 3, label: '귀중품 금고', count: [4, 5],
     rarityWeights: { common: 15, uncommon: 30, rare: 40, epic: 14, legendary: 1 },
-    categoryWeights: { ammo: 12, stim: 12, grenade: 8, material: 14, valuable: 54, attachment: 12, bag: 6, gadget: 11, herb: 3, armor: 4, seed: 3 },
+    categoryWeights: { ammo: 12, stim: 12, grenade: 8, material: 14, valuable: 54, attachment: 12, bag: 6, gadget: 11, herb: 3, armor: 4, seed: 3, book: 3 },
     weaponChance: 0.55, maxStackQty: 5, ammoFraction: [0.5, 0.85],
     guaranteed: [{ categories: ['valuable'], minRarity: 'rare' }],
     // uniques are tier 4+ / 5 / boss only (legendary weight 1 here would otherwise leak them)
@@ -82,7 +82,7 @@ export const LOOT_TABLES: readonly TierTable[] = [
   {
     tier: 4, label: '희귀 캐시', count: [5, 6],
     rarityWeights: { common: 5, uncommon: 15, rare: 40, epic: 30, legendary: 10 },
-    categoryWeights: { ammo: 10, stim: 12, grenade: 8, material: 10, valuable: 60, attachment: 12, bag: 8, gadget: 12, herb: 2, armor: 7 },
+    categoryWeights: { ammo: 10, stim: 12, grenade: 8, material: 10, valuable: 60, attachment: 12, bag: 8, gadget: 12, herb: 2, armor: 7, book: 2 },
     weaponChance: 1, maxStackQty: 6, ammoFraction: [0.6, 1],
     guaranteed: [
       { categories: ['valuable'], minRarity: 'epic' },
@@ -150,9 +150,16 @@ export interface CorpseUnique {
   durability: readonly [number, number];
 }
 
+/** Phase 9: chance of one 서적 (uniform over `BOOK_ITEM_DEFS`) on a rogue corpse — the reading kind of raider. */
+export interface CorpseBook {
+  chance: number;
+}
+
 export interface CorpseTable {
   type: EnemyType;
   drops: readonly CorpseDrop[];
+  /** Phase 9: 서적 roll (rogues only; bugs never carry books). */
+  book?: CorpseBook;
   /** Rounds of the weapon's calibre as a fraction of `AMMO_STACK_ROUNDS`, one stack (rogues only). */
   ammoFraction?: readonly [number, number];
   weapon?: CorpseWeapon;
@@ -162,6 +169,7 @@ export interface CorpseTable {
 /**
  * Phase 8: bugs graze on the local flora, so an undigested 씨앗 turns up in a bug corpse now and then
  * (≈ 6.5 % of bug corpses carry one). Rogues never do — 씨앗 are otherwise loot (tier 1–3) or 기업 상점 only.
+ * Phase 9: 서적 go the other way — rogue 3 % / boss 20 % (`CorpseTable.book`), never on a bug; tiers 2–4 carry `book: 3 / 3 / 2`.
  */
 const BUG_SEEDS: readonly CorpseDrop[] = [
   { defId: 'seed_bloodroot', qty: [1, 1], chance: 0.04 },
@@ -197,12 +205,14 @@ export const CORPSE_TABLES: readonly CorpseTable[] = [
     type: 'rogue', ammoFraction: ROGUE_AMMO,
     drops: [{ defId: 'stim', qty: [1, 1], chance: 0.3 }, { defId: 'grenade_frag', qty: [1, 1], chance: 0.2 }],
     weapon: { durability: [0.05, 0.15] },
+    book: { chance: 0.03 },
   },
   {
     type: 'rogue_boss', ammoFraction: ROGUE_AMMO,
     drops: [{ defId: 'stim', qty: [1, 2], chance: 1 }],
     weapon: { durability: [0.4, 0.7], grades: [3, 4], attachment: { maxRarity: 'epic' } },
     unique: { chance: 0.2, durability: [0.5, 0.8] },
+    book: { chance: 0.2 },
   },
 ];
 

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { GhostWire, ImplantId, PeerId, PlayerSnapshot, RemoteAvatarRef, RemotePlayerRef, Stance } from '@/shared';
+import type { GhostState, GhostWire, ImplantId, PeerId, PlayerSnapshot, RemoteAvatarRef, RemotePlayerRef, Stance } from '@/shared';
 import { NET_INTERP_DELAY, NET_STALE_AFTER, PLAYER_MAX_HP, PlayerFlags } from '@/shared';
 
 const RING_SIZE = 16;
@@ -62,8 +62,12 @@ export class RemotePlayer implements RemotePlayerRef {
   inMission = true;
   /** true while `position / yaw / hp / flags` come from `ghost state` instead of the snapshot ring. */
   ghosted = false;
-  /** Ghost bleed-out hp (state 1) from the last `ghost state`. */
-  ghostDownHp = 0;
+  /** Ghost bleed-out hp (state 1) from the last `ghost state`; undefined while snapshot-driven (Phase 9 contract). */
+  ghostDownHp: number | undefined = undefined;
+  /** Host ghost state (0 alive / 1 downed / 2 dead) while `ghosted`; undefined while snapshot-driven (Phase 9). */
+  ghostState: GhostState | undefined = undefined;
+  /** `PlayerSnapshot.dhp` of the newest snapshot: the member's own down pool while DOWNED (Phase 9). */
+  downHp: number | undefined = undefined;
   /** Def id of the consumable in hand (`PlayerSnapshot.h`), or null. */
   heldItemId: string | null = null;
   /** Attachment def ids on the active weapon (`PlayerSnapshot.att`); the same array while unchanged. */
@@ -142,6 +146,7 @@ export class RemotePlayer implements RemotePlayerRef {
     this.armorId = s.ar ?? null;
     this.heldItemId = typeof s.h === 'string' ? s.h : null;
     this.attachments = sameAttachments(this.attachments, s.att);
+    this.downHp = (s.f & PlayerFlags.DOWNED) !== 0 && typeof s.dhp === 'number' && Number.isFinite(s.dhp) ? s.dhp : undefined;
     if (!this.hasAny) {
       this.hasAny = true;
       this.position.set(s.p[0], s.p[1], s.p[2]);
@@ -171,6 +176,7 @@ export class RemotePlayer implements RemotePlayerRef {
     this.moveBlend = 0;
     this.hp = g.hp;
     this.ghostDownHp = g.dhp;
+    this.ghostState = g.st;
     let f = this.flags & ~(PlayerFlags.DOWNED | PlayerFlags.DEAD | PlayerFlags.DROPPING | PlayerFlags.IN_HUB | PlayerFlags.IN_POD);
     if (g.st === 1) f |= PlayerFlags.DOWNED;
     else if (g.st === 2) f |= PlayerFlags.DEAD;
@@ -182,6 +188,8 @@ export class RemotePlayer implements RemotePlayerRef {
   clearGhost(): void {
     if (!this.ghosted) return;
     this.ghosted = false;
+    this.ghostState = undefined;
+    this.ghostDownHp = undefined;
     this.resetStream();
   }
 

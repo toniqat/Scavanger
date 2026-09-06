@@ -1,20 +1,22 @@
 import type {
   BookSlotInfo, CraftIngredient, EmbeddedView, FacilityId, FacilityInfo, FurnitureDef, GameContext, GameSystem, GrowPlot, GrowPlotInfo,
-  HousingRef, ItemDef, LoadoutPreset, PlacedFurniture, ProfileRef, RoomPurpose, RoomState, ShipState, SkillId,
+  HousingRef, ItemDef, LoadoutPreset, PlacedBook, PlacedFurniture, ProfileRef, RoomPurpose, RoomState, ShipState, SkillId,
   StoredFurniture, WorkbenchKind,
 } from '@/shared';
 import {
-  FURNITURE_DEFS, FURNITURE_DEF_MAP, GROW_PLOTS_PER_RACK, GROW_SKILL_SPEEDUP, IMPLANT_IDS, SKILL_LEVEL_MAX, benchKindOf,
+  BOOKS_PER_SHELF, FURNITURE_DEFS, FURNITURE_DEF_MAP, GROW_PLOTS_PER_RACK, GROW_SKILL_SPEEDUP, IMPLANT_IDS, SKILL_IDS, SKILL_LEVEL_MAX,
+  benchKindOf,
 } from '@/shared';
 import {
-  canPlaceAt, craftCostMulFor, facilityBlockReason, facilityLevel, facilityMaxLevel, facilityName, furnitureAllowedIn,
-  furnitureUpgradeReason, isRoomIndex, isRoomPurpose, layerOf, missingIngredients, nextFacilityCost, nextFreeLayer,
+  bookGainMulFor, bookWeightOf, canPlaceAt, craftCostMulFor, facilityBlockReason, facilityLevel, facilityMaxLevel, facilityName,
+  furnitureAllowedIn, furnitureUpgradeReason, isRoomIndex, isRoomPurpose, layerOf, missingIngredients, nextFacilityCost, nextFreeLayer,
   nextFurnitureCost, presetCountFor, purposeChangeReason, recoverBlockReason, skillGainMulFor, stackLimitOf, stackMembers,
   stashSizeFor,
 } from './Rules';
-import { ShipStore, freshRoom, isGrowRackDefId, loadState, maxUidIndex, sanitize, writeState } from './ShipState';
+import { ShipStore, freshRoom, isBookshelfDefId, isGrowRackDefId, loadState, maxUidIndex, sanitize, writeState } from './ShipState';
 import { PresetMenu } from './ui/PresetMenu';
 import { GrowMenu } from './ui/GrowMenu';
+import { BookshelfMenu } from './ui/BookshelfMenu';
 import { createShipView } from './ui/ShipView';
 import { formatRemaining } from './ui/dom';
 import type { HousingPanel } from './ui/Panel';
@@ -22,6 +24,8 @@ import './housing.css';
 
 const FACILITY_IDS: readonly FacilityId[] = ['generator', 'storage', 'workshop', 'range'];
 const PRESET_NAME_MAX = 24;
+/** 한국어 refusal when a 책장 cannot be recovered because its books have nowhere to go. */
+export const BOOKS_BLOCK_REASON = '책을 먼저 빼세요';
 
 /**
  * Ship housing (함선 꾸미기): owns the ShipState (rooms / facilities / furniture / presets), every rule and number
@@ -32,6 +36,8 @@ const PRESET_NAME_MAX = 24;
  * because inventory/ is built in parallel — without them nothing can be bought.
  * Phase 7: the state is mirrored into the server profile document `ship` on every save; `net:profileLoaded` replaces
  * it with the server copy and re-emits `housing:loaded` so hub/ rebuilds the personal ship.
+ * Phase 9: 서재 책장 — `ShipState.books` (one `PlacedBook` per filled shelf slot) + `bookDex`; the 서재 multiplier
+ * (`getBookBonus`, Rules.bookGainMulFor) is folded into `getSkillGainMul`, so progression/ reads one number.
  */
 export class HousingSystem implements GameSystem, HousingRef {
   readonly name = 'housing';
@@ -50,7 +56,10 @@ export class HousingSystem implements GameSystem, HousingRef {
   private unsubs: Array<() => void> = [];
   private presetMenu: PresetMenu | null = null;
   private growMenu: GrowMenu | null = null;
+  private bookshelfMenu: BookshelfMenu | null = null;
   private lastStash = { cols: 0, rows: 0 };
+  /** `books` were checked against `ctx.loot` once (unknown / non-book ids dropped) — see `books()`. */
+  private booksPruned = false;
 
   constructor() {
     const loaded = loadState();
@@ -67,6 +76,7 @@ export class HousingSystem implements GameSystem, HousingRef {
     if (this.fresh) this.store.markDirty();
     this.presetMenu = new PresetMenu(ctx, this);
     this.growMenu = new GrowMenu(ctx, this);
+    this.bookshelfMenu = new BookshelfMenu(ctx, this);
     const b = ctx.bus;
     this.unsubs.push(
       b.on('game:newMission', () => { this.closeMenus(); this.exitHousingMode(); }),
@@ -88,8 +98,8 @@ export class HousingSystem implements GameSystem, HousingRef {
     this.closeMenus();
     for (const u of this.unsubs) u();
     this.unsubs = [];
-    this.presetMenu?.dispose(); this.growMenu?.dispose();
-    this.presetMenu = null; this.growMenu = null;
+    this.presetMenu?.dispose(); this.growMenu?.dispose(); this.bookshelfMenu?.dispose();
+    this.presetMenu = null; this.growMenu = null; this.bookshelfMenu = null;
     this.store?.dispose(); this.store = null;
   }
 
@@ -116,6 +126,7 @@ export class HousingSystem implements GameSystem, HousingRef {
     this.store?.cancel();
     this.state = sanitize(doc);
     this.nextUid = maxUidIndex(this.state.furniture);
+    this.booksPruned = false;
     this.fresh = false;
     writeState(this.state);                      // localStorage is the cache of the server copy (not re-uploaded)
     const b = this.ctx.bus;
@@ -295,9 +306,22 @@ export class HousingSystem implements GameSystem, HousingRef {
   /* ── rooms ─────────────────────────────────────────────────────────────── */
   getRoom(index: number): RoomState { return this.state.rooms[index] ?? freshRoom(); }
 
-  /** 한국어 reason `setRoomPurpose` would refuse (null = allowed). Used by the room menu for button hints. */
+  /**
+   * 한국어 reason `setRoomPurpose` would refuse (null = allowed). Used by the room menu for button hints. `empty`
+   * recovers every piece, so it is also refused while a 책장 in the room cannot hand its books to the stash.
+   */
   purposeBlock(index: number, purpose: RoomPurpose): string | null {
-    return purposeChangeReason(this.state, index, purpose);
+    return purposeChangeReason(this.state, index, purpose) ?? (purpose === 'empty' ? this.emptyRoomBlock(index) : null);
+  }
+
+  /** Why the room cannot be emptied right now (a 책장 whose books have no stash room), null when it can. */
+  private emptyRoomBlock(index: number): string | null {
+    for (const f of this.state.furniture) {
+      if (f.room !== index || !isBookshelfDefId(f.defId)) continue;
+      const reason = this.booksBlock(f.uid);
+      if (reason) return reason;
+    }
+    return null;
   }
 
   setRoomPurpose(index: number, purpose: RoomPurpose): boolean {
@@ -305,6 +329,7 @@ export class HousingSystem implements GameSystem, HousingRef {
     const room = this.state.rooms[index];
     if (room.purpose === purpose) return true;
     if (purposeChangeReason(this.state, index, purpose)) return false;
+    if (purpose === 'empty' && this.emptyRoomBlock(index)) return false;
     if (purpose === 'empty') {
       // top layers first so a stack never has to be taken apart from underneath
       const inRoom = this.state.furniture.filter((p) => p.room === index).sort((a, b) => layerOf(b) - layerOf(a));
@@ -365,7 +390,8 @@ export class HousingSystem implements GameSystem, HousingRef {
   }
 
   getCraftCostMul(): number { return craftCostMulFor(facilityLevel(this.state, 'workshop')); }
-  getSkillGainMul(skill: SkillId): number { return skillGainMulFor(skill, facilityLevel(this.state, 'range')); }
+  /** 사격장 (`gun_*` × `1 + 0.1 × level`) × 서재 (`getBookBonus`, every shelved book of that skill). */
+  getSkillGainMul(skill: SkillId): number { return skillGainMulFor(skill, facilityLevel(this.state, 'range')) * this.getBookBonus(skill); }
   getStashSize(): { cols: number; rows: number } { return stashSizeFor(this.state.storageLevel); }
 
   /* ── furniture ─────────────────────────────────────────────────────────── */
@@ -415,11 +441,15 @@ export class HousingSystem implements GameSystem, HousingRef {
     return true;
   }
 
-  /** 한국어 reason `recover(uid)` would refuse (null = go ahead). Only a stack blocks: the top layer leaves first. */
+  /**
+   * 한국어 reason `recover(uid)` would refuse (null = go ahead). A stack blocks (the top layer leaves first), and a
+   * 책장 blocks while its books cannot go to the stash (`책을 먼저 빼세요`, a cell-count estimate — `recover` itself
+   * does the real placement and rolls back).
+   */
   recoverBlock(uid: string): string | null {
     const item = this.getPlacedByUid(uid);
     if (!item) return '설치되지 않은 가구입니다';
-    return recoverBlockReason(this.state, item);
+    return recoverBlockReason(this.state, item) ?? this.booksBlock(uid);
   }
 
   recover(uid: string): boolean {
@@ -427,11 +457,15 @@ export class HousingSystem implements GameSystem, HousingRef {
     if (i < 0) return false;
     const item = this.state.furniture[i];
     if (recoverBlockReason(this.state, item)) return false;
+    // a 책장 hands its books to the stash first; when they do not all fit nothing moves
+    const hadBooks = this.booksOf(uid).length;
+    if (hadBooks > 0 && !this.stashBooksOf(uid)) { this.notify(BOOKS_BLOCK_REASON, 'warning'); return false; }
     this.state.furniture.splice(i, 1);
     this.addToStorage(item.defId, item.level);
     this.dropPlotsOf(uid);
     this.ctx.bus.emit('housing:furnitureRecovered', { uid, defId: item.defId, room: item.room });
     this.changed('recover');
+    if (hadBooks > 0) this.ctx.bus.emit('housing:booksChanged', { uid, count: 0 });
     return true;
   }
 
@@ -630,14 +664,185 @@ export class HousingSystem implements GameSystem, HousingRef {
   /* ── embedded 함선 view (the 함선 tab of the Tab screen) ───────────────── */
   createShipView(host: HTMLElement): EmbeddedView { return createShipView(this.ctx, this, host); }
 
-  /* ── Phase 9 skeleton: 서재 책장 (replace with the implementation, see docs/PHASE9-PLAN.md §7) ── */
-  getBooks(_uid: string): BookSlotInfo[] { return []; }
-  placeBook(_uid: string, _slot: number, _defId: string): string | null { return '책장은 아직 준비되지 않았습니다'; }
-  takeBook(_uid: string, _slot: number): string | null { return '책장은 아직 준비되지 않았습니다'; }
-  getOwnedBooks(): { defId: string; qty: number }[] { return []; }
-  getBookBonus(_skill: SkillId): number { return 1; }
-  getBookDex(): readonly string[] { return []; }
-  openBookshelfMenu(_uid: string): void { this.notify('책장은 아직 준비되지 않았습니다', 'warning'); }
+  /* ── 서재 책장 (Phase 9) ────────────────────────────────────────────────── */
+  /**
+   * The shelved books. The save only shape-checks def ids (`book_*`); the first time `ctx.loot` is around every id
+   * that is not a real 서적 any more is dropped here (a removed book def never breaks the shelf).
+   */
+  private books(): PlacedBook[] {
+    if (!Array.isArray(this.state.books)) this.state.books = [];
+    if (!this.booksPruned && this.ctx?.loot && typeof this.ctx.loot.getItemDef === 'function') {
+      this.booksPruned = true;
+      const books = this.state.books;
+      for (let i = books.length - 1; i >= 0; i--) {
+        if (!this.defOf(books[i].defId)?.book) { console.warn(`[housing] unknown book '${books[i].defId}' dropped from shelf ${books[i].uid}`); books.splice(i, 1); }
+      }
+    }
+    return this.state.books;
+  }
+
+  private bookDex(): string[] {
+    if (!Array.isArray(this.state.bookDex)) this.state.bookDex = [];
+    return this.state.bookDex;
+  }
+
+  /** The 책장 behind `uid`, or null when it is not a bookshelf (or gone). */
+  private shelfOf(uid: string): PlacedFurniture | null {
+    const item = this.getPlacedByUid(uid);
+    return item && isBookshelfDefId(item.defId) ? item : null;
+  }
+
+  private booksOf(uid: string): PlacedBook[] { return this.books().filter((b) => b.uid === uid); }
+
+  private bookAt(uid: string, slot: number): PlacedBook | null {
+    return this.books().find((b) => b.uid === uid && b.slot === slot) ?? null;
+  }
+
+  /** Drop every book of a shelf (used after they were moved to the stash, or by a recovered shelf). */
+  private dropBooksOf(uid: string): void {
+    const books = this.books();
+    for (let i = books.length - 1; i >= 0; i--) if (books[i].uid === uid) books.splice(i, 1);
+  }
+
+  private booksChanged(uid: string, reason: string): void {
+    this.changed(reason);
+    this.ctx.bus.emit('housing:booksChanged', { uid, count: this.booksOf(uid).length });
+  }
+
+  /** Book def with its `book` data, or null when `defId` is not a 서적. */
+  private bookDef(defId: string): ItemDef | null {
+    const def = this.defOf(defId);
+    return def && def.book ? def : null;
+  }
+
+  /** Free stash cells (cols × rows − occupied), −1 when inventory cannot tell. A cheap estimate for `recoverBlock`. */
+  private freeStashCells(): number {
+    const inv = this.ctx.inventory;
+    if (!inv || typeof inv.getStashSize !== 'function' || typeof inv.getStashItems !== 'function') return -1;
+    try {
+      const size = inv.getStashSize();
+      let used = 0;
+      for (const it of inv.getStashItems()) {
+        const def = this.defOf(it.defId);
+        used += def ? def.width * def.height : 1;
+      }
+      return size.cols * size.rows - used;
+    } catch { return -1; }
+  }
+
+  /** `책을 먼저 빼세요` while the shelf holds books the stash cannot take (by free-cell estimate), else null. */
+  private booksBlock(uid: string): string | null {
+    const books = this.booksOf(uid);
+    if (!books.length) return null;
+    const inv = this.ctx.inventory;
+    if (!inv || typeof inv.tryAddToStash !== 'function' || !this.ctx.loot || typeof this.ctx.loot.createItem !== 'function') return BOOKS_BLOCK_REASON;
+    const free = this.freeStashCells();
+    if (free < 0) return null;                                   // unknown → let `recover` try for real
+    let need = 0;
+    for (const b of books) { const def = this.defOf(b.defId); need += def ? def.width * def.height : 2; }
+    return free >= need ? null : BOOKS_BLOCK_REASON;
+  }
+
+  /**
+   * Move every book of `uid` into the stash (all or nothing: on the first refusal the ones already added are taken
+   * back out with `takeItem`). True when the shelf is empty afterwards.
+   */
+  private stashBooksOf(uid: string): boolean {
+    const books = this.booksOf(uid);
+    if (!books.length) return true;
+    const inv = this.ctx.inventory;
+    const loot = this.ctx.loot;
+    if (!inv || typeof inv.tryAddToStash !== 'function' || !loot || typeof loot.createItem !== 'function') return false;
+    const added: string[] = [];
+    for (const b of books) {
+      const item = loot.createItem(b.defId, 1);
+      if (!inv.tryAddToStash(item)) {
+        if (typeof inv.takeItem === 'function') for (const u of added) inv.takeItem(u);
+        return false;
+      }
+      added.push(item.uid);
+    }
+    this.dropBooksOf(uid);
+    return true;
+  }
+
+  getBooks(uid: string): BookSlotInfo[] {
+    if (!this.shelfOf(uid)) return [];
+    const out: BookSlotInfo[] = [];
+    for (let slot = 0; slot < BOOKS_PER_SHELF; slot++) {
+      const book = this.bookAt(uid, slot);
+      const def = book ? this.bookDef(book.defId) : null;
+      out.push({
+        slot,
+        defId: book?.defId ?? null,
+        skill: def?.book?.skill ?? null,
+        rarity: def?.rarity ?? null,
+        weight: def ? bookWeightOf(def) : 0,
+      });
+    }
+    return out;
+  }
+
+  placeBook(uid: string, slot: number, defId: string): string | null {
+    if (!this.shelfOf(uid)) return '책장이 아닙니다';
+    if (this.ctx.phase !== 'hub') return '함선에서만 책을 꽂을 수 있습니다';
+    if (!Number.isInteger(slot) || slot < 0 || slot >= BOOKS_PER_SHELF) return '없는 책장 칸입니다';
+    if (this.bookAt(uid, slot)) return '이미 책이 꽂혀 있습니다';
+    const def = this.bookDef(defId);
+    if (!def) return '서적이 아닙니다';
+    if (this.countDef(defId) < 1) return `${def.name}이(가) 없습니다`;
+    const inv = this.ctx.inventory;
+    // `consumeDefAll` takes from the bag first, then the stash
+    if (!inv || typeof inv.consumeDefAll !== 'function' || !inv.consumeDefAll(defId, 1)) return '책을 꺼낼 수 없습니다';
+    this.books().push({ uid, slot, defId });
+    const dex = this.bookDex();
+    if (!dex.includes(defId)) dex.push(defId);
+    this.booksChanged(uid, 'bookPlace');
+    return null;
+  }
+
+  takeBook(uid: string, slot: number): string | null {
+    if (!this.shelfOf(uid)) return '책장이 아닙니다';
+    const book = this.bookAt(uid, slot);
+    if (!book) return '꽂힌 책이 없습니다';
+    const loot = this.ctx.loot;
+    if (!loot || typeof loot.createItem !== 'function') return '책을 만들 수 없습니다';
+    const item = loot.createItem(book.defId, 1);
+    const inv = this.ctx.inventory;
+    const where = inv && typeof inv.tryAddItemAnywhere === 'function'
+      ? inv.tryAddItemAnywhere(item)
+      : inv && typeof inv.tryAddItem === 'function' && inv.tryAddItem(item) ? 'bag' : null;
+    if (!where) return '공간 없음 — 가방과 창고에 자리가 없습니다';
+    this.books().splice(this.books().indexOf(book), 1);
+    this.booksChanged(uid, 'bookTake');
+    return null;
+  }
+
+  getOwnedBooks(): { defId: string; qty: number }[] {
+    const loot = this.ctx.loot;
+    if (!loot || typeof loot.getAllItemDefs !== 'function') return [];
+    const out: { defId: string; qty: number }[] = [];
+    for (const def of loot.getAllItemDefs()) {
+      if (!def.book) continue;
+      const qty = this.countDef(def.id);
+      if (qty > 0) out.push({ defId: def.id, qty });
+    }
+    const order = (defId: string): number => { const i = SKILL_IDS.indexOf(this.bookDef(defId)?.book?.skill as SkillId); return i < 0 ? SKILL_IDS.length : i; };
+    out.sort((a, b) => order(a.defId) - order(b.defId));
+    return out;
+  }
+
+  getBookBonus(skill: SkillId): number { return bookGainMulFor(skill, this.books(), this.defOf); }
+
+  getBookDex(): readonly string[] { return this.bookDex(); }
+
+  openBookshelfMenu(uid: string): void {
+    if (!this.bookshelfMenu) return;
+    if (!this.shelfOf(uid)) { this.notify('책장이 없습니다', 'warning'); return; }
+    this.exitHousingMode();
+    this.closeMenus(false);
+    this.bookshelfMenu.openShelf(uid);
+  }
 
   /* ── loadout presets (사격장) ──────────────────────────────────────────── */
   getPresetCount(): number { return presetCountFor(facilityLevel(this.state, 'range')); }
@@ -691,6 +896,7 @@ export class HousingSystem implements GameSystem, HousingRef {
     const out: HousingPanel[] = [];
     if (this.presetMenu) out.push(this.presetMenu);
     if (this.growMenu) out.push(this.growMenu);
+    if (this.bookshelfMenu) out.push(this.bookshelfMenu);
     return out;
   }
 

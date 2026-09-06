@@ -130,6 +130,10 @@ try {
   await waitFor(A, () => window.__game.ctx.net.lobby?.players.length === 2, 'A sees 2 players');
   ok(true, 'both in the shared ship, 2 players');
 
+  console.log('implant equip in the ship (Phase 9: overcharge beam is replicated in the mission)');
+  const eq = await A.evaluate(() => { const r = window.__game.ctx.implants?.setEquipped?.('overcharge'); return { r, id: window.__game.ctx.implants?.equippedId ?? null }; });
+  ok(eq.r === true || eq.id === 'overcharge', `A equipped 오버차지 in the shared ship ${JSON.stringify(eq)}`);
+
   console.log('hub presence');
   await waitFor(A, () => window.__game.ctx.net.getRemotePlayers().length === 1 && !!window.__game.ctx.net.getRemotePlayers()[0].avatar, 'A hub remote avatar', 10000);
   ok(await A.evaluate(() => (window.__game.ctx.net.getRemotePlayers()[0].flags & (1 << 12)) !== 0), 'remote ref carries IN_HUB flag');
@@ -193,6 +197,11 @@ try {
   const aAlive = await waitFor(A, () => window.__game.ctx.enemies.getAliveCount() > 0 ? window.__game.ctx.enemies.getAliveCount() : 0, 'A enemies alive');
   const bAlive = await waitFor(B, () => window.__game.ctx.enemies.getEnemies().length > 0 ? window.__game.ctx.enemies.getEnemies().length : 0, 'B replica enemies');
   ok(Math.abs(aAlive - bAlive) <= 3, `enemy counts host=${aAlive} client=${bAlive}`);
+  // Phase 9: `es` is a delta stream (keyframe every NET_ENEMY_KEYFRAME_S) — the replica set must still track the host later on.
+  await sleep(3000);
+  const aAlive2 = await A.evaluate(() => window.__game.ctx.enemies.getAliveCount());
+  const bAlive2 = await B.evaluate(() => window.__game.ctx.enemies.getEnemies().filter((e) => !e.isDead).length);
+  ok(Math.abs(aAlive2 - bAlive2) <= 3, `enemy counts after 3 s of delta snapshots host=${aAlive2} client=${bAlive2}`);
 
   console.log('client hit → host damage');
   const target = await B.evaluate(() => { const e = window.__game.ctx.enemies.getEnemies().find((x) => !x.isDead); return e ? { id: e.id, hp: e.hp } : null; });
@@ -228,6 +237,114 @@ try {
   ok(bBagAfter === bBagBefore + 1, `B took the item (${bBagBefore} → ${bBagAfter})`);
   await waitFor(A, () => window.__game.ctx.pickups.getPickups().length === 0, 'A pickup removed', 8000);
   ok(true, 'host removed the pickup after the client took it');
+
+  console.log('overcharge beam replication (Phase 9 e2e)');
+  const aIdBeam = await A.evaluate(() => window.__game.ctx.net.localId);
+  const bIdBeam = await B.evaluate(() => window.__game.ctx.net.localId);
+  await B.evaluate(() => {
+    window.__beams = []; window.__game.ctx.net.onMessage('imp', (m, from) => { if (m.ev === 'beam') window.__beams.push({ target: m.target, self: m.self, from }); });
+    window.__beamAudio = 0; window.__game.ctx.bus.on('audio:play', (e) => { if (e.id === 'overcharge_beam') window.__beamAudio++; });
+  });
+  // ImplantSystem only channels while the pointer is locked: fake the lock on A (the real request is stubbed at open()).
+  await A.evaluate(() => { Object.defineProperty(Document.prototype, 'pointerLockElement', { get: () => document.querySelector('canvas'), configurable: true }); });
+  ok(await A.evaluate(() => window.__game.ctx.input.isPointerLocked), 'A input reports the (faked) pointer lock');
+  // B steps 7 m down A's aim ray so `findAlly` locks onto it.
+  const aimSpot = await A.evaluate(() => {
+    const p = window.__game.ctx.player; const V = p.position.constructor; const o = new V(); const d = new V();
+    if (typeof p.getAimRay === 'function') p.getAimRay(o, d); else { p.getEyePosition(o); p.getForward(d); }
+    const t = o.clone().addScaledVector(d, 7);
+    return [t.x, t.y, t.z];
+  });
+  await B.evaluate((t) => { const p = window.__game.ctx.player; const V = p.position.constructor; p.teleport(new V(t[0], t[1], t[2]), 0, true); }, aimSpot);
+  await waitFor(A, (bx) => { const r = window.__game.ctx.net.getRemotePlayers()[0]; return r && !r.stale && Math.abs(r.position.x - bx) < 1.5 ? 1 : 0; }, 'A sees B at the aim spot', 6000, aimSpot[0]);
+  ok(true, 'B stands in front of A');
+  await A.evaluate(() => { document.body.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyQ', key: 'q', bubbles: true })); });
+  const beamOn = await waitFor(B, (bid) => window.__beams.find((b) => b.target === bid) ?? null, 'B receives imp beam {target: B}', 6000, bIdBeam).catch(() => null);
+  ok(beamOn && beamOn.from === aIdBeam, `B received imp beam locked on itself ${JSON.stringify(beamOn)}`);
+  ok(await waitFor(B, () => window.__beamAudio > 0, 'overcharge_beam audio on B', 3000).catch(() => false), 'B played audio:play overcharge_beam for the remote channel');
+  const dbgOn = await waitFor(B, (aid) => { const s = window.__game.getSystem('implants'); if (!s || typeof s.debugBeam !== 'function') return { missing: true }; const d = s.debugBeam(aid); return d && d.on ? d : null; }, 'debugBeam on', 3000, aIdBeam).catch(() => null);
+  if (dbgOn && dbgOn.missing) console.log('  skip debugBeam (implants agent has not exposed it yet)');
+  else ok(!!dbgOn && dbgOn.on === true && dbgOn.target === bIdBeam, `RemoteImplants.debugBeam(A) on + target B ${JSON.stringify(dbgOn)}`);
+  await A.evaluate(() => { document.body.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyQ', key: 'q', bubbles: true })); });
+  const beamOff = await waitFor(B, () => { const n = window.__beams.length; return n > 0 && window.__beams[n - 1].target === null ? window.__beams[n - 1] : null; }, 'B receives imp beam {target: null}', 6000).catch(() => null);
+  ok(!!beamOff && beamOff.self === false, `B received the beam-off message ${JSON.stringify(beamOff)}`);
+  if (!(dbgOn && dbgOn.missing)) {
+    const dbgOff = await waitFor(B, (aid) => { const d = window.__game.getSystem('implants').debugBeam(aid); return d === null || d.on === false ? (d ?? { on: false }) : null; }, 'debugBeam off', 3000, aIdBeam).catch(() => null);
+    ok(!!dbgOff && dbgOff.on === false, `RemoteImplants.debugBeam(A) off after keyup ${JSON.stringify(dbgOff)}`);
+  }
+
+  console.log('container authority (Phase 9 e2e: contq take → cont taken / denied)');
+  await B.evaluate(() => {
+    window.__searchDone = []; window.__game.ctx.bus.on('container:searchDone', (e) => window.__searchDone.push(e.containerId));
+    window.__cont = []; window.__game.ctx.net.onMessage('cont', (m) => window.__cont.push({ ev: m.ev, id: m.id, idx: m.idx, qty: m.qty, by: m.by }));
+    window.__notes = []; window.__game.ctx.bus.on('ui:notify', (e) => window.__notes.push(e.text));
+  });
+  await A.evaluate(() => { window.__searchDone = []; window.__game.ctx.bus.on('container:searchDone', (e) => window.__searchDone.push(e.containerId)); });
+  // Open crates on B (teleported within SEARCH_MAX_DISTANCE) until one holds ≥ 2 items (the denial needs a second index).
+  const openCrateOn = (page, i) => page.evaluate((k) => {
+    const ctx = window.__game.ctx; const crate = ctx.world.getCrates()[k]; if (!crate) return null;
+    const V = crate.position.constructor;
+    ctx.player.teleport(crate.position.clone().add(new V(1.5, 0, 0)), 0, true);
+    ctx.bus.emit('crate:open', { crateId: crate.id, tier: crate.tier, position: crate.position.clone() });
+    return { id: crate.id, tier: crate.tier };
+  }, i);
+  const containerInfo = (page) => page.evaluate(() => {
+    const sys = window.__game.getSystem('inventory'); const c = sys.activeContainer; if (!c) return null;
+    return { id: c.id, order: c.order.slice(), items: c.order.map((uid) => { const p = c.grid.get(uid); return p ? { uid, defId: p.item.defId, qty: p.item.qty, searched: !!p.item.searched } : null; }) };
+  });
+  let crateB = null, cinfo = null;
+  for (let i = 0; i < 4 && !cinfo; i++) {
+    const opened = await openCrateOn(B, i);
+    if (!opened) break;
+    await waitFor(B, (id) => window.__searchDone.includes(id), `B search done ${opened.id}`, 25000, opened.id).catch(() => null);
+    const info = await containerInfo(B);
+    if (info && info.order.length >= 2 && info.items.every((it) => it && it.searched)) { crateB = opened; cinfo = info; }
+    else await B.evaluate(() => window.__game.getSystem('inventory').closeAll());
+  }
+  ok(!!cinfo, `B opened + searched crate ${crateB?.id} (${cinfo?.order.length} items)`);
+  if (cinfo) {
+    const first = cinfo.items[0];
+    const bCount0 = await B.evaluate((d) => window.__game.ctx.inventory.countWhere((def) => def.id === d), first.defId);
+    const qm = await B.evaluate((uid) => { const sys = window.__game.getSystem('inventory'); const r = sys.quickMove(uid, { kind: 'grid', grid: 'container' }); return { r, pending: [...sys.pendingTakeUids()] }; }, first.uid);
+    ok(qm.r === 'pending' && qm.pending.includes(first.uid), `B quickMove on a client → 'pending' + pendingTakeUids ${JSON.stringify(qm)}`);
+    const taken = await waitFor(B, (id) => window.__cont.find((m) => m.ev === 'taken' && m.id === id && m.idx === 0) ?? null, 'B cont taken', 8000, crateB.id).catch(() => null);
+    ok(taken && taken.qty === first.qty && taken.by === bIdBeam, `host confirmed the take: cont taken ${JSON.stringify(taken)}`);
+    const hostCopy = await waitFor(A, (id) => { const c = window.__game.getSystem('inventory').containers.get(id); return c && (c.taken.get(0) ?? 0) > 0 ? { taken: c.taken.get(0), remaining: c.remainingAt(0) } : null; }, 'host container taken', 5000, crateB.id).catch(() => null);
+    ok(hostCopy && hostCopy.taken === first.qty && hostCopy.remaining === 0, `host copy records idx 0 taken ${JSON.stringify(hostCopy)}`);
+    const bCount1 = await waitFor(B, (arg) => { const n = window.__game.ctx.inventory.countWhere((def) => def.id === arg.d); return n > arg.b ? n : 0; }, 'B bag grows after confirmation', 8000, { d: first.defId, b: bCount0 }).catch(() => -1);
+    ok(bCount1 === bCount0 + first.qty, `B received the item after the host's confirmation (${bCount0} → ${bCount1})`);
+    ok(await B.evaluate(() => window.__game.getSystem('inventory').pendingTakeUids().size === 0), 'B pendingTakeUids emptied');
+    ok(await B.evaluate((uid) => !window.__game.getSystem('inventory').activeContainer?.grid.get(uid), first.uid), 'item left B\'s container copy');
+    // Denial: A (host) opens the same crate, takes idx 1 first; B (its copy frozen) asks for the same index → cont denied + toast.
+    const second = cinfo.items[1];
+    const aOpened = await A.evaluate((k) => {
+      const ctx = window.__game.ctx; const crate = ctx.world.getCrates().find((c) => c.id === k); const V = crate.position.constructor;
+      ctx.player.teleport(crate.position.clone().add(new V(-1.5, 0, 0)), 0, true);
+      ctx.bus.emit('crate:open', { crateId: crate.id, tier: crate.tier, position: crate.position.clone() });
+      return crate.id;
+    }, crateB.id);
+    await waitFor(A, (id) => window.__searchDone.includes(id), 'A search done', 25000, aOpened).catch(() => null);
+    const aInfo = await containerInfo(A);
+    // contents are deterministic (missionSeed ^ id) but uids are minted per client: compare by index / defId
+    ok(aInfo && aInfo.items[1]?.defId === second.defId && aInfo.items[1]?.searched && !aInfo.items[0],
+      `host rolled the same container (idx 0 already gone, idx 1 = ${second.defId})`, JSON.stringify(aInfo && aInfo.items.map((it) => it && it.defId)));
+    await B.evaluate(() => { const sys = window.__game.getSystem('inventory'); sys.__realApply = sys.applyRemoteTaken; sys.applyRemoteTaken = () => {}; });
+    const aTake = await A.evaluate(() => {
+      const sys = window.__game.getSystem('inventory');
+      return sys.quickMove(sys.activeContainer.uidAt(1), { kind: 'grid', grid: 'container' });
+    });
+    ok(aTake === 'ok', `host took idx 1 itself (${aTake})`);
+    await waitFor(B, (id) => window.__cont.some((m) => m.ev === 'taken' && m.id === id && m.idx === 1), 'B saw the host take', 5000, crateB.id).catch(() => null);
+    const qm2 = await B.evaluate((uid) => window.__game.getSystem('inventory').quickMove(uid, { kind: 'grid', grid: 'container' }), second.uid);
+    ok(qm2 === 'pending', `B (frozen copy) requests the same index → '${qm2}'`);
+    const denied = await waitFor(B, (id) => window.__cont.find((m) => m.ev === 'denied' && m.id === id && m.idx === 1) ?? null, 'B cont denied', 8000, crateB.id).catch(() => null);
+    ok(!!denied, `host denied the second take of idx 1 ${JSON.stringify(denied)}`);
+    ok(await waitFor(B, () => window.__notes.some((t) => t.includes('먼저 가져갔습니다')), 'denied toast', 3000).catch(() => false), 'B showed the 다른 대원이 먼저 가져갔습니다 toast');
+    ok(await B.evaluate(() => window.__game.getSystem('inventory').pendingTakeUids().size === 0), 'B pending request cleared by the denial');
+    await B.evaluate(() => { const sys = window.__game.getSystem('inventory'); delete sys.applyRemoteTaken; sys.closeAll(); });
+    await A.evaluate(() => window.__game.getSystem('inventory').closeAll());
+  }
+  await A.evaluate(() => { window.__game.ctx.player.respawnAt ? null : null; });
 
   console.log('extraction request path');
   const padId = await A.evaluate(() => window.__game.ctx.world.getExtractionPoints()[0].id);
@@ -285,6 +402,11 @@ try {
   ok(rejoinedFrom === aId, 'returning A announced flow rejoined to the new host');
   await waitFor(B, () => window.__game.ctx.net.lobby.players.every((p) => p.connected) && !window.__game.ctx.net.getRemotePlayers()[0].suspended, 'B un-suspends A', 5000);
   ok(true, 'B sees A connected again, ref no longer suspended');
+  // Phase 9: the promoted host's snapshot stream (keyframe after takeover / rejoined, then deltas) keeps A's replicas in step.
+  await sleep(3000);
+  const hostAlive = await B.evaluate(() => window.__game.ctx.enemies.getAliveCount());
+  const clientAlive = await A.evaluate(() => window.__game.ctx.enemies.getEnemies().filter((e) => !e.isDead).length);
+  ok(Math.abs(hostAlive - clientAlive) <= 3, `enemy counts after the migration host(B)=${hostAlive} client(A)=${clientAlive}`);
 
   console.log('new host aborts → squad returns to the shared ship');
   await B.evaluate(() => window.__game.ctx.bus.emit('game:abort', {}));
@@ -294,6 +416,37 @@ try {
   ok(true, 'both back in the shared ship, lobby un-started (new host sent lobby:reset)');
   ok(await A.evaluate(() => !window.__game.ctx.player.isInPod && !window.__game.ctx.net.lobby.players.some((p) => p.ready)), 'pods empty after reset');
   ok(await A.evaluate(() => window.__game.ctx.net.lobby.players.every((p) => p.inMission === false) && window.__game.ctx.net.missionMode === null), 'reset cleared inMission for everyone, missionMode null');
+
+  console.log('training join (Phase 9 e2e: non-host starts, host joins, individual exits, server reset)');
+  const aIdT = await A.evaluate(() => window.__game.ctx.net.localId);
+  const bIdT = await B.evaluate(() => window.__game.ctx.net.localId);
+  await A.evaluate(() => { window.__membership = []; });
+  const startedT = await B.evaluate(() => window.__game.ctx.hub.startTraining());
+  ok(startedT === true, 'B (non-host) requested a training from the shared ship');
+  await waitFor(B, () => window.__game.ctx.net.inSession && window.__game.ctx.missionMode === 'training' && window.__game.ctx.world?.mode === 'training', 'B in the training arena', 20000);
+  ok(await B.evaluate(() => window.__game.ctx.net.missionMode === 'training' && window.__game.ctx.hub.ship === null), 'B: missionMode training, world.mode training, hub torn down');
+  await waitFor(A, (bid) => window.__game.ctx.net.lobby?.mode === 'training' && window.__game.ctx.net.lobby.players.find((p) => p.id === bid)?.inMission === true, 'A sees the training', 8000, bIdT);
+  ok(await A.evaluate((aid) => window.__game.ctx.phase === 'hub' && window.__game.ctx.hub.ship === 'shared' && !window.__game.ctx.net.inSession && window.__game.ctx.net.lobby.players.find((p) => p.id === aid)?.inMission === false && window.__game.ctx.net.missionInProgress, aIdT),
+    'A stays in the shared ship: lobby.mode training, only B inMission, missionInProgress');
+  ok(await A.evaluate((bid) => window.__membership.some((e) => e.id === bid && e.inMission === true), bIdT), 'A got net:missionMembership {B, inMission:true}');
+  const joinedT = await A.evaluate(() => window.__game.ctx.hub.startTraining());
+  ok(joinedT === true, 'A (host) joins the running training from the ship (rejoinMission)');
+  await waitFor(A, () => window.__game.ctx.net.inSession && window.__game.ctx.world?.mode === 'training', 'A in the training arena', 20000);
+  await waitFor(B, (aid) => window.__game.ctx.net.lobby.players.find((p) => p.id === aid)?.inMission === true, 'B sees A inMission', 8000, aIdT);
+  ok(await A.evaluate(() => window.__game.ctx.net.lobby.players.every((p) => p.inMission === true)), 'both inMission in the training');
+  await waitFor(A, () => window.__game.ctx.net.getRemotePlayers().length === 1 && !!window.__game.ctx.net.getRemotePlayers()[0].avatar, 'A remote avatar in the arena', 10000);
+  await waitFor(B, () => window.__game.ctx.net.getRemotePlayers().length === 1 && !!window.__game.ctx.net.getRemotePlayers()[0].avatar, 'B remote avatar in the arena', 10000);
+  ok(true, 'each trainee sees one remote avatar');
+  await B.evaluate(() => window.__game.ctx.bus.emit('training:exitRequested', {}));
+  await waitFor(B, () => window.__game.ctx.phase === 'hub' && !window.__game.ctx.net.inSession, 'B back in the ship', 15000);
+  ok(await B.evaluate(() => window.__game.ctx.hub.ship === 'shared' && window.__game.ctx.net.missionInProgress), 'B exited the training individually (shared ship, training still running for A)');
+  await waitFor(A, (bid) => window.__membership.some((e) => e.id === bid && e.inMission === false) && window.__game.ctx.net.lobby.players.find((p) => p.id === bid)?.inMission === false, 'A sees B leave the training', 8000, bIdT);
+  ok(await A.evaluate(() => window.__game.ctx.net.inSession && window.__game.ctx.net.lobby.started), 'A: net:missionMembership {B, false}, training keeps running');
+  await A.evaluate(() => window.__game.ctx.bus.emit('training:exitRequested', {}));
+  await waitFor(A, () => window.__game.ctx.phase === 'hub' && !window.__game.ctx.net.inSession, 'A back in the ship', 15000);
+  await waitFor(A, () => window.__game.ctx.net.lobby && !window.__game.ctx.net.lobby.started, 'lobby reset after the last trainee left', 8000);
+  await waitFor(B, () => window.__game.ctx.net.lobby && !window.__game.ctx.net.lobby.started, 'B sees the reset', 8000);
+  ok(await A.evaluate(() => window.__game.ctx.net.missionMode === null && window.__game.ctx.net.lobby.players.every((p) => !p.inMission)), 'server reset the training once its last member left (started false, missionMode null)');
 
   console.log('peer leave → undock');
   await B.evaluate(() => window.__game.ctx.net.leaveLobby());

@@ -94,26 +94,21 @@ export class Lobby {
   }
 
   /**
-   * Move the host role to the lowest-slot *connected* member (falling back to the lowest slot overall). While a
-   * mission is running (Phase 7) connected members that are *inside* it (`inMission`) are preferred, so the authority
-   * lands on someone who actually simulates the world. Returns true when the host changed. No-op when the current
-   * host is still connected.
+   * Move the host role. Not started (hub): lowest-slot *connected* member (falling back to the lowest slot overall).
+   * Started (Phase 9 rule): candidates are **connected members inside the mission** (`inMission`) only — when there is
+   * none the role is *parked* (returns false, host id kept; the relay retries when an in-mission member reconnects).
+   * Returns true when the host changed. No-op when the current host is still connected, unless `force` (Phase 9:
+   * a connected host that left the mission — page reload — must hand the authority to someone who simulates).
    */
-  migrateHost(): boolean {
+  migrateHost(force = false): boolean {
     const cur = this.players.get(this.hostId);
-    if (cur && cur.connected) return false;
+    if (cur && cur.connected && !force) return false;
     let next: LobbyPlayer | null = null;
     let anyConnected = false;
-    let anyConnectedInMission = false;
+    for (const p of this.players.values()) if (p.connected) anyConnected = true;
     for (const p of this.players.values()) {
-      if (!p.connected) continue;
-      anyConnected = true;
-      if (p.inMission) anyConnectedInMission = true;
-    }
-    const preferInMission = this.started && anyConnectedInMission;
-    for (const p of this.players.values()) {
-      if (anyConnected && !p.connected) continue;
-      if (preferInMission && !p.inMission) continue;
+      if (this.started) { if (!p.connected || !p.inMission) continue; }
+      else if (anyConnected && !p.connected) continue;
       if (!next || p.slot < next.slot) next = p;
     }
     if (!next || next.id === this.hostId) return false;
@@ -122,11 +117,18 @@ export class Lobby {
     return true;
   }
 
-  /** Remove a player. Returns true when the host changed (migrated to the lowest remaining connected slot). */
+  /**
+   * Remove a player. Returns true when the host changed. Phase 9: a started lobby left with **no `inMission` member
+   * at all** is over — `reset()` first, then the ordinary (hub) migration; otherwise the started rule applies (a
+   * removed host with no connected in-mission member stays parked).
+   */
   remove(id: PeerId): boolean {
     if (!this.players.delete(id)) return false;
     this.raid.delete(id);
-    if (this.hostId !== id || this.players.size === 0) return false;
+    if (this.players.size === 0) return false;
+    const missionOver = this.started && this.inMissionCount() === 0;
+    if (missionOver) this.reset();
+    if (this.hostId !== id && !missionOver) return false;
     return this.migrateHost();
   }
 

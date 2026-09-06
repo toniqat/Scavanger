@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type {
   ContainerMessage, ContainerRequest, CraftIngredient, CraftRecipe, CraftStation, DurabilityInfo, EffectiveWeaponStats, GameContext, GameSystem, InventoryRef,
-  ItemDef, ItemInstance, Loadout, LoadoutSlot, PeerId as NetPeerId, ProfileRecord, SocketSlot, WeaponSlot, WeightInfo, LoadoutPreset, WorkbenchKind,
+  ItemCategory, ItemDef, ItemInstance, Loadout, LoadoutSlot, PeerId as NetPeerId, ProfileRecord, SocketSlot, WeaponSlot, WeightInfo, LoadoutPreset, WorkbenchKind,
 } from '@/shared';
 import { BAG_DEFAULT_COLS, BAG_DEFAULT_QUICK_SLOTS, BAG_DEFAULT_ROWS, Keys, QUICK_SLOTS, SEARCH_MAX_DISTANCE, SOCKET_SLOTS, isQuickSlotActive } from '@/shared';
 import { AMMO_LABEL_KO, ITEM_DEF_MAP, LootService, STARTER_LOADOUT, ammoItemIdFor, getRecipe, isWeaponItemDef, itemWeight } from '@/items';
@@ -151,14 +151,12 @@ export class InventorySystem implements GameSystem, InventoryRef {
   private pendingTakes: PendingTake[] = [];
   private lastSearchEmit = -1;
   /**
-   * Profile documents saved while the server was unreachable (`profile.available` false). They are newer than the
-   * server copy, so on the next `net:profileLoaded` they are uploaded instead of being replaced. Only armed once the
-   * session had a chance to connect (first `hub:entered` / `world:ready` / profile) so a fresh browser's starter kit
-   * never clobbers a real server profile.
+   * Phase 9: no inventory-side offline queue any more — every save goes to `profile.set` (`ProfileSync` stamps it and
+   * keeps the newest doc per key while offline). `freshSave` marks the saves made inside `withFreshSave` as defaults
+   * (`{fresh:true}`: the server keeps them only while it has no document for that key) — the fresh-browser starter
+   * kit and the startup stash resize must never beat a real server profile.
    */
-  private offlineDocs: Partial<Record<'stash' | 'loadout', unknown>> = {};
-  private offlineArmed = false;
-  private suppressOfflineQueue = false;
+  private freshSave = false;
   private ui: InventoryUI | null = null;
   private offs: Array<() => void> = [];
   private escHandler = (e: KeyboardEvent): void => {
@@ -178,6 +176,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
     ctx.loot = this.loot;
     this.bag = new Grid(BAG_DEFAULT_COLS, BAG_DEFAULT_ROWS, (id) => ITEM_DEF_MAP.get(id));
     this.stash = new Stash((id) => ITEM_DEF_MAP.get(id), this.loot);
+    this.stash.onSaved = (file) => this.uploadProfileDoc('stash', file); // Phase 7: mirror to the server profile
     // ship housing: the 창고 facility decides the stash size. At startup only *grow* to it — a persisted larger grid
     // (older facility state, cheat) is kept, and a shrink could strand items; `housing:stashSizeChanged` applies exactly.
     const housing = ctx.housing;
@@ -185,8 +184,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
       const want = housing.getStashSize();
       if (want && Number.isFinite(want.cols) && Number.isFinite(want.rows)) {
         const cols = Math.max(this.stash.cols, Math.floor(want.cols)), rows = Math.max(this.stash.rows, Math.floor(want.rows));
-        if ((cols !== this.stash.cols || rows !== this.stash.rows) && this.stash.resize(cols, rows)) this.stash.flush(); // now: never an "offline edit"
-
+        // a default, not an edit: uploaded as a `fresh` document (Phase 9)
+        if ((cols !== this.stash.cols || rows !== this.stash.rows) && this.stash.resize(cols, rows)) this.withFreshSave(() => this.stash.flush());
       }
     }
     // Phase 5: the persisted loadout fills the bag + slots once, here; from now on the session state is the truth.
@@ -194,7 +193,6 @@ export class InventorySystem implements GameSystem, InventoryRef {
       ctx.bus.emit('inventory:loadoutSaved', { reason });
       if (reason !== 'profile') this.uploadProfileDoc('loadout', file); // Phase 7: mirror to the server profile
     });
-    this.stash.onSaved = (file) => this.uploadProfileDoc('stash', file);
     this.restoreLoadoutSave();
     this.ui = new InventoryUI(this, ctx);
     this.ui.mount();
@@ -207,7 +205,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
           ctx.bus.emit('ui:notify', { text: '창고 크기를 바꿀 수 없습니다: 범위 밖에 아이템이 있습니다', kind: 'warning', duration: 2.5 });
         }
       }),
-      bus.on('world:ready', ({ seed }) => { this.offlineArmed = true; this.onWorldReady(seed); }),
+      bus.on('world:ready', ({ seed }) => this.onWorldReady(seed)),
       bus.on('crate:open', ({ crateId, tier, position }) => this.openContainer(crateId, tier, position)),
       bus.on('player:died', () => this.closeAll()),
       bus.on('game:complete', () => { this.outcome = 'complete'; this.loadoutStore.saveNow('complete'); }),
@@ -220,11 +218,9 @@ export class InventorySystem implements GameSystem, InventoryRef {
       bus.on('net:hostChanged', ({ isLocalHost }) => { if (!isLocalHost) this.requestContainerSync(); }),
       bus.on('hub:entered', () => {
         if (this.isCompletelyEmpty()) {
-          // a fresh browser: the starter is "no data", not an edit — a server profile arriving later must win over it
-          this.suppressOfflineQueue = true;
-          try { this.applyStarter(); } finally { this.suppressOfflineQueue = false; }
+          // a fresh browser: the starter is "no data", not an edit — it goes up as a `fresh` document so a real server profile wins
+          this.withFreshSave(() => this.applyStarter());
         } else if (this.announcePending) this.announceLoaded();
-        this.offlineArmed = true;
       }),
       bus.on('game:phaseChanged', () => { if (!ctx.isGameplayPhase() && !ctx.isHubPhase()) this.closeAll(); }),
       bus.on('implant:equipped', () => { if (this._open) this.ui?.refresh(); }),
@@ -581,9 +577,10 @@ export class InventorySystem implements GameSystem, InventoryRef {
    * `/items` cheat: open the catalog panel (every item def, infinite stock) inside the inventory window — the ship
    * screen in the hub, the bag window on a mission. Opens the window itself when it is closed (blocker `'inventory'`).
    */
-  openCatalog(): void {
-    if (this.catalogOpen) return;
+  openCatalog(opts?: { category?: ItemCategory }): void {
     const ctx = this.ctx;
+    const category = opts?.category;
+    if (this.catalogOpen) { if (category) this.ui?.catalog.setTabForCategory(category); return; }
     if (!ctx.isGameplayPhase() && !ctx.isHubPhase()) {
       ctx.bus.emit('ui:notify', { text: '무한 상자는 함선이나 임무 중에만 열 수 있습니다', kind: 'warning', duration: 2 });
       return;
@@ -597,6 +594,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
       ctx.bus.emit('inventory:opened', { containerId: null });
     }
     this.ui?.setCatalog(true);
+    // Phase 9: `category` preselects the tab holding it (훈련장 무기 거치대 → 'primary'); unknown / unbuilt → 전체 stays
+    if (category) this.ui?.catalog.setTabForCategory(category);
     ctx.bus.emit('ui:catalogToggled', { open: true });
   }
 
@@ -1835,43 +1834,56 @@ export class InventorySystem implements GameSystem, InventoryRef {
 
   /* ── Phase 7: server profile documents ─────────────────────────────────── */
 
-  /** Mirror a local save to the server profile; unreachable server → remembered as an offline edit (see `offlineDocs`). */
+  /**
+   * Mirror a local save to the server profile. Phase 9: always handed to `profile.set` — offline included (`ProfileSync`
+   * stamps it with `serverNow()` and keeps the newest doc per key until the next connection); inside `withFreshSave`
+   * the document is sent as a default (`{fresh:true}`, accepted only while the server has none for that key).
+   */
   private uploadProfileDoc(key: 'stash' | 'loadout', doc: unknown): void {
     const profile = this.ctx.net?.profile;
-    if (profile && profile.available && typeof profile.set === 'function') {
-      profile.set(key, doc);
-      delete this.offlineDocs[key];
-      return;
-    }
-    if (this.offlineArmed && !this.suppressOfflineQueue) this.offlineDocs[key] = doc;
+    if (!profile || typeof profile.set !== 'function') return;
+    try { profile.set(key, doc, this.freshSave ? { fresh: true } : undefined); } catch { /* net not ready */ }
+  }
+
+  /** Run `fn` with every save it triggers uploaded as a `fresh` (default) document. */
+  private withFreshSave(fn: () => void): void {
+    const prev = this.freshSave;
+    this.freshSave = true;
+    try { fn(); } finally { this.freshSave = prev; }
+  }
+
+  /** JSON equality of two save documents (`ProfileSync` hands our own pending document back inside the merged record). */
+  private static sameDoc(a: unknown, b: unknown): boolean {
+    try { return JSON.stringify(a) === JSON.stringify(b); } catch { return false; }
   }
 
   /**
-   * `net:profileLoaded`: a server document replaces the local state (server wins) — unless a local edit was made while
-   * the server was unreachable (`offlineDocs`, newer → uploaded instead), and the loadout only outside a raid
-   * (mid-mission the raid blob is the truth). A key the server has never seen gets the current local state. Grids are
-   * rebuilt and announced.
+   * `net:profileLoaded`: the record is already merged newest-wins (Phase 9: `ProfileSync` weighed its pending offline
+   * edits against the server's `docsAt` before emitting), so a server document simply replaces the local state — the
+   * loadout only outside a raid (mid-mission the raid blob is the truth). A document that is **identical to the current
+   * local state** is our own upload coming back through the merge: nothing is applied, nothing is re-saved (Phase 9 —
+   * otherwise the starter kit would be re-announced and re-written with reason `profile` on every welcome). A key the
+   * server has never seen gets the current local state (stamped, so it becomes the profile); an empty local loadout is
+   * not worth uploading (the starter kit follows as a `fresh` document). Grids are rebuilt and announced.
    */
   private onProfileLoaded(profile: ProfileRecord): void {
     const docs = profile?.docs ?? {};
-    this.offlineArmed = true;
-    const profileRef = this.ctx.net?.profile;
-    const pushLocal = (key: 'stash' | 'loadout', doc: unknown): void => {
-      delete this.offlineDocs[key];
-      if (profileRef && profileRef.available && typeof profileRef.set === 'function') profileRef.set(key, doc);
-    };
-    if (this.offlineDocs.stash !== undefined) pushLocal('stash', this.offlineDocs.stash);
-    else if (docs.stash === undefined) pushLocal('stash', this.stash.saveFile());
+    if (docs.stash === undefined) this.uploadProfileDoc('stash', this.stash.saveFile());
+    else if (InventorySystem.sameDoc(docs.stash, this.stash.saveFile())) { /* our own document: already applied */ }
     else if (this.stash.loadFrom(docs.stash)) {
       this.lastStashVersion = this.stash.grid.version;
       this.ctx.bus.emit('inventory:stashChanged', { count: this.stash.count });
       if (this._open) this.ui?.refresh();
     }
-    if (this.offlineDocs.loadout !== undefined) { pushLocal('loadout', this.offlineDocs.loadout); return; }
-    if (docs.loadout === undefined) { pushLocal('loadout', this.captureLoadoutSave()); return; }
+    if (docs.loadout === undefined) {
+      const local = this.captureLoadoutSave();
+      if (!isEmptyLoadoutSave(local)) this.uploadProfileDoc('loadout', local);
+      return;
+    }
     if (this.ctx.isRaidActive()) return;
     const save = sanitizeLoadoutSave(docs.loadout);
     if (!save) return;
+    if (InventorySystem.sameDoc(save, sanitizeLoadoutSave(this.captureLoadoutSave()))) return; // our own document
     if (isEmptyLoadoutSave(save)) {
       if (this.ctx.isHubPhase() && !this.isCompletelyEmpty()) this.applyStarter();
       return;

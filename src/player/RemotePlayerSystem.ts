@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {
-  GHOST_BLEED_PER_SEC, NET_GHOST_STATE_HZ, PLAYER_DOWN_HP, PLAYER_MAX_HP, PLAYER_REVIVE_HOLD, PLAYER_REVIVE_HP,
+  GHOST_BLEED_PER_SEC, NET_GHOST_PARK_S, NET_GHOST_STATE_HZ, PLAYER_DOWN_HP, PLAYER_MAX_HP, PLAYER_REVIVE_HOLD, PLAYER_REVIVE_HP,
   PLAYER_REVIVE_RANGE, PlayerFlags,
   type GameContext, type GameSystem, type GhostState, type GhostWire, type ImplantId, type Interactable, type PeerId,
   type RemotePlayerRef, type Stance,
@@ -37,9 +37,21 @@ export interface DebugRemoteRef {
   inMission: boolean;
   /** Held consumable def id (`PlayerSnapshot.h` mirror; the real refs expose the same field name). */
   heldItemId: string | null;
+  /* Phase 9: ghost view on the ref (written by `applyToRef` while a ghost exists, cleared when it is dropped) */
+  ghostState?: GhostState;
+  ghostDownHp?: number;
+  /** The member's own down pool (`PlayerSnapshot.dhp` mirror) — a ghost created from a downed ref inherits it. */
+  downHp?: number;
 }
 
 interface ReviveEntry { interactable: Interactable; lastSent: number }
+
+/**
+ * Phase 9: a ghost whose member left the mission without rejoining (page reload → `inMission` false, or a socket that
+ * came back without `flow rejoined`). Not simulated, not targetable, not counted; `flow rejoined` inside
+ * `NET_GHOST_PARK_S` restores the body from `wire`.
+ */
+export interface ParkedGhost { wire: GhostWire; until: number; debug: boolean }
 
 /**
  * Host-simulated body of a suspended member (Phase 7). Lives only on the authority; everyone else sees it through
@@ -60,8 +72,8 @@ export interface Ghost {
   debug: boolean;
 }
 
-/** Optional hook net/ may expose on its refs so the host's own view of a suspended peer follows its ghost. */
-interface GhostApplicable { applyGhost?(g: GhostWire): void }
+/** Optional hooks net/ may expose on its refs so the host's own view of a suspended peer follows its ghost. */
+interface GhostApplicable { applyGhost?(g: GhostWire): void; clearGhost?(): void }
 
 const _kb = new THREE.Vector3();
 
@@ -101,6 +113,8 @@ export class RemotePlayerSystem implements GameSystem {
   private readonly ghosts = new Map<PeerId, Ghost>();
   /** Last `ghost state` / `sync` wire seen for each id (every client keeps it so a promoted host can rebuild). */
   private readonly lastGhost = new Map<PeerId, GhostWire>();
+  /** Phase 9: ghosts of members that left the mission without rejoining, kept for `NET_GHOST_PARK_S` (host only). */
+  private readonly parked = new Map<PeerId, ParkedGhost>();
   private readonly unsubs: (() => void)[] = [];
 
   init(ctx: GameContext): void {
@@ -109,7 +123,7 @@ export class RemotePlayerSystem implements GameSystem {
       const ref = ctx.net?.getRemotePlayer(id);
       if (ref) this.ensure(ref);
     });
-    ctx.bus.on('net:remotePlayerRemoved', ({ id }) => { this.remove(id); this.dropGhost(id, true); });
+    ctx.bus.on('net:remotePlayerRemoved', ({ id }) => { this.remove(id); this.dropGhost(id, true); this.parked.delete(id); });
     ctx.bus.on('game:abort', () => this.clearAll());
     ctx.bus.on('game:newMission', () => this.clearAll());
     // entering a ship: drop mission avatars so nobody lingers at a stale planet position; the peers still in
@@ -118,7 +132,8 @@ export class RemotePlayerSystem implements GameSystem {
 
     /* ── Phase 7: ghosts ── */
     ctx.bus.on('net:peerSuspended', ({ id, suspended }) => this.onPeerSuspended(id, suspended));
-    ctx.bus.on('net:missionMembership', ({ id, inMission }) => { if (!inMission) this.dropGhost(id, true); });
+    // Phase 9: a member that leaves the mission (page reload → `lobby:mission false`) has its ghost parked, not dropped
+    ctx.bus.on('net:missionMembership', ({ id, inMission }) => { if (!inMission) this.parkGhost(id); });
     ctx.bus.on('net:hostChanged', ({ isLocalHost }) => this.onHostChanged(isLocalHost));
     ctx.bus.on('ghost:damage', ({ id, amount, kb }) => this.damageGhost(id, amount, kb));
     const net = ctx.net;
@@ -131,7 +146,7 @@ export class RemotePlayerSystem implements GameSystem {
         }),
         net.onMessage('flow', (msg, from) => {
           if (msg.ev !== 'rejoined' || !this.hostsGhosts()) return;
-          // the returning member gets its own body back first, then the remaining ghosts
+          // the returning member gets its own body back first (active or parked ghost), then the remaining ghosts
           this.restoreTo(from);
           this.sendSync(from);
         }),
@@ -154,7 +169,7 @@ export class RemotePlayerSystem implements GameSystem {
     if (this.avatars.size > refs.length + this.debugRefs.length) {
       for (const [id, av] of this.avatars) if (av.seenFrame !== this.frame) this.remove(id);
     }
-    if (this.ghosts.size > 0) this.updateGhosts(dt, ctx);
+    if (this.ghosts.size > 0 || this.parked.size > 0) this.updateGhosts(dt, ctx);
   }
 
   dispose(): void {
@@ -173,6 +188,8 @@ export class RemotePlayerSystem implements GameSystem {
   getGhost(id: PeerId): Ghost | undefined { return this.ghosts.get(id); }
   /** Last ghost wire state seen per id (kept on every client for host promotion). */
   getLastGhostStates(): ReadonlyMap<PeerId, GhostWire> { return this.lastGhost; }
+  /** Phase 9: parked ghosts (host only) — `until` is the ctx.time they expire. */
+  getParkedGhosts(): ReadonlyMap<PeerId, ParkedGhost> { return this.parked; }
 
   /* ─────────────────────────── debug ─────────────────────────── */
   /**
@@ -180,7 +197,7 @@ export class RemotePlayerSystem implements GameSystem {
    * returned object (`ref.flags |= PlayerFlags.SPRINT`, `ref.stance = 'prone'`, `ref.isDowned = true`, `ref.position.x += …`).
    * `window.__game.getSystem('remotePlayers').debugSpawn({ slot: 1 })`.
    */
-  debugSpawn(opts: Partial<Pick<DebugRemoteRef, 'id' | 'name' | 'slot' | 'stance' | 'flags' | 'weaponId' | 'isDowned' | 'implantId' | 'armorId' | 'heldItemId'>> & { position?: THREE.Vector3 } = {}): DebugRemoteRef {
+  debugSpawn(opts: Partial<Pick<DebugRemoteRef, 'id' | 'name' | 'slot' | 'stance' | 'flags' | 'weaponId' | 'isDowned' | 'implantId' | 'armorId' | 'heldItemId' | 'downHp'>> & { position?: THREE.Vector3 } = {}): DebugRemoteRef {
     const slot = opts.slot ?? (this.debugRefs.length + 1) % 4;
     const pos = new THREE.Vector3();
     if (opts.position) pos.copy(opts.position);
@@ -207,6 +224,7 @@ export class RemotePlayerSystem implements GameSystem {
       implantId: opts.implantId ?? null,
       armorId: opts.armorId ?? null,
       heldItemId: opts.heldItemId ?? null,
+      downHp: opts.downHp,
       get isCloaked(): boolean { return (this.flags & PlayerFlags.CLOAKED) !== 0; },
     };
     this.debugRefs.push(ref);
@@ -221,6 +239,7 @@ export class RemotePlayerSystem implements GameSystem {
       this.debugRefs.splice(i, 1);
       this.remove(r.id);
       this.dropGhost(r.id, false);
+      this.parked.delete(r.id);
     }
   }
 
@@ -237,13 +256,24 @@ export class RemotePlayerSystem implements GameSystem {
     return this.ghosts.get(id);
   }
 
-  /** Smoke-test helper: the returning member's `flow rejoined` for a debug ghost (returns the restore wire). */
+  /**
+   * Smoke-test helper: the returning member's `flow rejoined` for a debug ghost — active or parked (Phase 9) —
+   * returns the restore wire, or null when there is nothing to restore.
+   */
   debugRejoin(id: PeerId): GhostWire | null {
     const g = this.ghosts.get(id);
-    if (!g) return null;
-    const wire = toWire(g);
+    const wire = g ? toWire(g) : (this.parked.get(id)?.wire ?? null);
+    if (!wire) return null;
     this.restoreTo(id);
     return wire;
+  }
+
+  /** Smoke-test helper: make a parked ghost expire on the next frame instead of after `NET_GHOST_PARK_S`. */
+  debugExpireParked(id: PeerId): boolean {
+    const e = this.parked.get(id);
+    if (!e) return false;
+    e.until = this.ctx.time;
+    return true;
   }
 
   /* ─────────────────────────── internals ─────────────────────────── */
@@ -284,6 +314,7 @@ export class RemotePlayerSystem implements GameSystem {
     this.avatars.clear();
     this.ghosts.clear();
     this.lastGhost.clear();
+    this.parked.clear();
   }
 
   /* ─────────────────────────── revive interactable ─────────────────────────── */
@@ -360,12 +391,18 @@ export class RemotePlayerSystem implements GameSystem {
   }
 
   private onPeerSuspended(id: PeerId, suspended: boolean): void {
-    if (!suspended) return;   // the body comes back through `flow rejoined` → restore (or the ghost stays until then)
+    if (!suspended) {
+      // Phase 9: the socket is back. A seamless resume sends `flow rejoined` right away (restore from the parked
+      // wire); a member that never rejoins (came back without the mission) keeps a parked body for NET_GHOST_PARK_S.
+      if (this.ghosts.has(id)) this.parkGhost(id);
+      return;
+    }
     if (!this.hostsGhosts() || this.ghosts.has(id)) return;
     const ref = this.findRef(id);
     if (!ref) return;
     const debug = this.debugRefs.some((r) => r.id === id);
     if (!debug && !(this.ctx.net?.inSession ?? false)) return;
+    this.parked.delete(id);   // a fresh suspension supersedes a parked body
     const g = this.createGhost(ref, this.lastGhost.get(id), debug);
     this.applyToRef(g);
     this.sendState(g);
@@ -383,7 +420,12 @@ export class RemotePlayerSystem implements GameSystem {
     } else {
       g.position.copy(ref.position);
       if (ref.isDead) { g.state = 2; g.hp = 0; g.downHp = 0; }
-      else if (ref.isDowned) { g.state = 1; g.hp = 0; g.downHp = PLAYER_DOWN_HP; }   // the wire carries no downHp: full pool
+      else if (ref.isDowned) {
+        // Phase 9: inherit the member's real bleed pool (`PlayerSnapshot.dhp` → `ref.downHp`); unknown → full pool
+        const dhp = ref.downHp;
+        g.state = 1; g.hp = 0;
+        g.downHp = Math.max(1, Math.min(PLAYER_DOWN_HP, Math.round(Number.isFinite(dhp) ? (dhp as number) : PLAYER_DOWN_HP)));
+      }
       else g.hp = Math.max(1, Math.min(PLAYER_MAX_HP, ref.hp));
     }
     this.ghosts.set(ref.id, g);
@@ -432,7 +474,9 @@ export class RemotePlayerSystem implements GameSystem {
   }
 
   private updateGhosts(dt: number, ctx: GameContext): void {
-    if (!this.hostsGhosts()) { this.ghosts.clear(); return; }
+    if (!this.hostsGhosts()) { this.ghosts.clear(); this.parked.clear(); return; }
+    // Phase 9: parked bodies expire quietly (`ghost gone` went out when they were parked)
+    if (this.parked.size > 0) for (const [id, e] of this.parked) if (ctx.time >= e.until) this.parked.delete(id);
     const interval = 1 / NET_GHOST_STATE_HZ;
     for (const g of this.ghosts.values()) {
       let changed = false;
@@ -458,10 +502,12 @@ export class RemotePlayerSystem implements GameSystem {
     const hook = ref as unknown as GhostApplicable;
     if (typeof hook.applyGhost === 'function') { hook.applyGhost(toWire(g)); return; }
     // no net hook (debug ref / older net): write the mutable view directly
-    const w = ref as unknown as { hp: number; flags: number; yaw: number; isDead?: boolean; isDowned?: boolean };
+    const w = ref as unknown as { hp: number; flags: number; yaw: number; isDead?: boolean; isDowned?: boolean; ghostState?: GhostState; ghostDownHp?: number };
     ref.position.copy(g.position);
     w.yaw = g.yaw;
     w.hp = g.hp;
+    w.ghostState = g.state;
+    w.ghostDownHp = g.downHp;
     let flags = w.flags & ~(PlayerFlags.DOWNED | PlayerFlags.DEAD);
     if (g.state === 1) flags |= PlayerFlags.DOWNED;
     if (g.state === 2) flags |= PlayerFlags.DEAD;
@@ -486,11 +532,32 @@ export class RemotePlayerSystem implements GameSystem {
     this.ctx.net?.send({ t: 'ghost', ev: 'sync', ghosts }, to);
   }
 
-  /** The suspended member is back in the mission: hand its body over and drop the ghost. */
+  /**
+   * The member is back in the mission (`flow rejoined`): hand its body over and drop the ghost. Phase 9: with no
+   * active ghost, a parked body inside its window is restored the same way (then forgotten).
+   */
   private restoreTo(id: PeerId): void {
     const g = this.ghosts.get(id);
+    if (g) {
+      if (!g.debug) this.ctx.net?.send({ t: 'ghost', ev: 'restore', g: toWire(g) }, id);
+      this.dropGhost(id, true);
+      return;
+    }
+    const p = this.parked.get(id);
+    if (!p) return;
+    this.parked.delete(id);
+    if (!p.debug) this.ctx.net?.send({ t: 'ghost', ev: 'restore', g: p.wire }, id);
+  }
+
+  /**
+   * Phase 9: the member left the mission without rejoining (page reload → `inMission` false, or its socket came back
+   * without `flow rejoined`) — keep the body's last state for `NET_GHOST_PARK_S`, out of the simulation, and tell
+   * everyone the ghost is gone (avatars go back to snapshot mode).
+   */
+  private parkGhost(id: PeerId): void {
+    const g = this.ghosts.get(id);
     if (!g) return;
-    if (!g.debug) this.ctx.net?.send({ t: 'ghost', ev: 'restore', g: toWire(g) }, id);
+    this.parked.set(id, { wire: toWire(g), until: this.ctx.time + NET_GHOST_PARK_S, debug: g.debug });
     this.dropGhost(id, true);
   }
 
@@ -499,13 +566,26 @@ export class RemotePlayerSystem implements GameSystem {
     this.lastGhost.delete(id);
     if (!g) return;
     this.ghosts.delete(id);
+    this.clearRefGhost(id);
     if (announce && !g.debug) this.ctx.net?.send({ t: 'ghost', ev: 'gone', id }, 'others');
+  }
+
+  /** The host's own ref of the member goes back to snapshot mode (net hook, or the debug ref's plain fields). */
+  private clearRefGhost(id: PeerId): void {
+    const ref = this.findRef(id);
+    if (!ref) return;
+    const hook = ref as unknown as GhostApplicable;
+    if (typeof hook.clearGhost === 'function') { hook.clearGhost(); return; }
+    const w = ref as unknown as { ghostState?: GhostState; ghostDownHp?: number };
+    w.ghostState = undefined;
+    w.ghostDownHp = undefined;
   }
 
   /** Promotion: rebuild every suspended member's ghost from the last wire state; demotion: drop them silently. */
   private onHostChanged(isLocalHost: boolean): void {
     if (!isLocalHost) {
       this.ghosts.clear();
+      this.parked.clear();   // parked bodies were announced gone; the new host cannot restore them
       // ask the new host for the current ghosts so our refs follow them
       if (this.ctx.net?.inSession) this.ctx.net.send({ t: 'ghostq', ev: 'sync' }, 'host');
       return;

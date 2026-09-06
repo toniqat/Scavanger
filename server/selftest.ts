@@ -4,13 +4,13 @@
  * WebSocket) through the lobby / relay / disconnect / reconnect / quick-match flows and exits 0 on success,
  * 1 on the first failed assertion.
  */
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ClientToServer, ServerToClient, LobbyState } from '../src/shared/net.ts';
 import type { RaidSessionBlob } from '../src/shared/profile.ts';
 import { NET_WS_PATH, NET_TOKEN_PARAM, NET_NAME_PARAM, NET_TOKEN_LENGTH } from '../src/shared/net.ts';
-import { PROFILE_DOC_MAX_BYTES, RAID_BLOB_MAX_BYTES } from '../src/shared/profile.ts';
+import { PROFILE_CLOCK_SKEW_MS, PROFILE_DOC_MAX_BYTES, RAID_BLOB_MAX_BYTES } from '../src/shared/profile.ts';
 import { startRelayServer, peerIdFromToken, PEER_ID_LENGTH } from './RelayServer.ts';
 import { ProfileStore } from './Store.ts';
 
@@ -388,6 +388,9 @@ async function main(): Promise<void> {
     ({ c: g } = await connect('G2', url, { token: T3, name: 'Golf' }));
     assert(g.lobby?.code === codeE && g.lobby.started === true && g.lobby.seed === 77, 'reconnect into a started lobby → welcome.lobby.started with the seed', g.lobby);
     await e.wait('lobby:state', (m) => m.lobby.players.find((p) => p.id === g.id)?.connected === true);
+    // Phase 9: a rejoin enters the mission (`lobby:mission true`) — only in-mission members can inherit the host role.
+    g.send({ t: 'lobby:mission', inMission: true });
+    await Promise.all([e, g].map((cl) => cl.wait('lobby:state', (m) => m.lobby.players.find((p) => p.id === g.id)?.inMission === true)));
     g.send({ t: 'relay', to: 'host', d: { t: 'flow', ev: 'rejoined' } });
     const rj = await e.wait('relay', (m) => m.d.t === 'flow');
     assert(rj.from === g.id, 'rejoined member can relay to the host again');
@@ -567,10 +570,10 @@ async function main(): Promise<void> {
     let docs = await u.wait('profile:docs');
     assert(JSON.stringify(docs.profile.docs.meta) === JSON.stringify({ credits: 7, rep: { helix: 2 } }) && JSON.stringify(docs.profile.docs.stash) === '[1,2,3]' && docs.profile.updatedAt > 0,
       'profile:get returns the stored documents verbatim', docs.profile);
-    u.send({ t: 'profile:set', key: 'meta', doc: { credits: 8 } });
+    u.send({ t: 'profile:set', key: 'meta', doc: { credits: 8 }, at: Date.now() });
     u.send({ t: 'profile:get' });
     docs = await u.wait('profile:docs');
-    assert(JSON.stringify(docs.profile.docs.meta) === '{"credits":8}' && JSON.stringify(docs.profile.docs.stash) === '[1,2,3]', 'profile:set replaces one key, keeps the others');
+    assert(JSON.stringify(docs.profile.docs.meta) === '{"credits":8}' && JSON.stringify(docs.profile.docs.stash) === '[1,2,3]', 'stamped profile:set replaces one key, keeps the others');
     u.sendRaw(JSON.stringify({ t: 'profile:set', key: 'bogus', doc: {} }));
     err = await u.wait('lobby:error');
     assert(err.code === 'invalid', 'profile:set with an unknown key → invalid');
@@ -582,6 +585,54 @@ async function main(): Promise<void> {
     assert(err.code === 'too_large', 'profile:set over PROFILE_DOC_MAX_BYTES → too_large');
     u.send({ t: 'profile:set', key: 'ship', doc: { pad: 'x'.repeat(PROFILE_DOC_MAX_BYTES - 100) } });
     assert(await u.expectNone('lobby:error', 150), 'profile:set just under the cap is accepted');
+
+    /* Phase 9: newest wins — stamped writes, stale writes, fresh writes, skew clamp, docsAt on the wire */
+    const now = Date.now();
+    u.send({ t: 'profile:set', key: 'progression', doc: { v: 'A' }, at: now - 10_000 });
+    u.send({ t: 'profile:get' });
+    docs = await u.wait('profile:docs');
+    assert(JSON.stringify(docs.profile.docs.progression) === '{"v":"A"}' && docs.profile.docsAt?.progression === now - 10_000,
+      'stamped profile:set stores the doc and its docsAt stamp', docs.profile.docsAt);
+    u.send({ t: 'profile:set', key: 'progression', doc: { v: 'OLD' }, at: now - 20_000 });
+    assert(await u.expectNone('lobby:error', 120), 'older stamp is ignored silently (no lobby:error)');
+    u.send({ t: 'profile:get' });
+    docs = await u.wait('profile:docs');
+    assert(JSON.stringify(docs.profile.docs.progression) === '{"v":"A"}' && docs.profile.docsAt?.progression === now - 10_000, 'older stamp did not replace the newer document');
+    u.send({ t: 'profile:set', key: 'progression', doc: { v: 'B' }, at: now - 5_000 });
+    u.send({ t: 'profile:set', key: 'progression', doc: { v: 'TIE' }, at: now - 5_000 });
+    u.send({ t: 'profile:get' });
+    docs = await u.wait('profile:docs');
+    assert(JSON.stringify(docs.profile.docs.progression) === '{"v":"TIE"}' && docs.profile.docsAt?.progression === now - 5_000, 'newer stamp replaces; an equal stamp is accepted (ties: latest write)');
+    u.send({ t: 'profile:set', key: 'progression', doc: { v: 'FRESH' }, fresh: true });
+    u.send({ t: 'profile:get' });
+    docs = await u.wait('profile:docs');
+    assert(JSON.stringify(docs.profile.docs.progression) === '{"v":"TIE"}', 'fresh write over an existing document is ignored');
+    u.send({ t: 'profile:set', key: 'loadout', doc: { v: 'FRESH' }, fresh: true });
+    u.send({ t: 'profile:get' });
+    docs = await u.wait('profile:docs');
+    assert(JSON.stringify(docs.profile.docs.loadout) === '{"v":"FRESH"}' && docs.profile.docsAt?.loadout === undefined, 'fresh write on an absent key is stored without a stamp');
+    u.send({ t: 'profile:set', key: 'loadout', doc: { v: 'STAMPED' }, at: 1 });
+    u.send({ t: 'profile:get' });
+    docs = await u.wait('profile:docs');
+    assert(JSON.stringify(docs.profile.docs.loadout) === '{"v":"STAMPED"}' && docs.profile.docsAt?.loadout === 1, 'any stamped write beats an unstamped (fresh) document');
+    u.send({ t: 'profile:set', key: 'loadout', doc: { v: 'UNSTAMPED' } });
+    u.send({ t: 'profile:get' });
+    docs = await u.wait('profile:docs');
+    assert(JSON.stringify(docs.profile.docs.loadout) === '{"v":"STAMPED"}', 'a set without at behaves like fresh (ignored over an existing doc)');
+    const far = now + 60 * 60_000;
+    u.send({ t: 'profile:set', key: 'loadout', doc: { v: 'FUTURE' }, at: far });
+    u.send({ t: 'profile:get' });
+    docs = await u.wait('profile:docs');
+    const clampedAt = docs.profile.docsAt?.loadout ?? 0;
+    assert(JSON.stringify(docs.profile.docs.loadout) === '{"v":"FUTURE"}' && clampedAt < far && clampedAt <= Date.now() + PROFILE_CLOCK_SKEW_MS && clampedAt > now,
+      'a stamp far in the future is clamped to now + PROFILE_CLOCK_SKEW_MS', { far, clampedAt });
+    u.sendRaw(JSON.stringify({ t: 'profile:set', key: 'loadout', doc: { v: 'X' }, at: 'yesterday' }));
+    err = await u.wait('lobby:error');
+    assert(err.code === 'invalid', 'profile:set with a non-numeric at → invalid');
+    u.send({ t: 'profile:set', key: 'meta', doc: { credits: 8 }, at: now });
+    u.send({ t: 'profile:get' });
+    docs = await u.wait('profile:docs');
+    assert(docs.profile.docsAt?.meta === now && docs.profile.docsAt?.stash === undefined, 'docsAt lists only stamped documents (pre-Phase-9 docs stay unstamped)', docs.profile.docsAt);
     u.sendRaw(JSON.stringify({ t: 'relay', to: 'all', d: { t: 'chat', text: 'y'.repeat(70 * 1024) } }));
     err = await u.wait('lobby:error');
     assert(err.code === 'invalid', 'ordinary frames keep the 64 KB cap (oversized relay → invalid)');
@@ -613,6 +664,7 @@ async function main(): Promise<void> {
     ({ c: u, welcome: uw } = await connect('U2', url, { token: TU, name: 'Uni' }));
     assert(uw.profile?.credits === 425 && JSON.stringify(uw.profile.docs.meta) === '{"credits":8}' && JSON.stringify(uw.profile.docs.stash) === '[1,2,3]',
       'reconnect → welcome.profile carries the stored credits and documents', uw.profile);
+    assert(uw.profile?.docsAt?.meta === now && uw.profile.docsAt.progression === now - 5_000, 'welcome.profile carries docsAt (Phase 9)', uw.profile?.docsAt);
     const healthP = await (await fetch(`http://127.0.0.1:${server.port}/health`)).json() as { profiles: number };
     assert(healthP.profiles >= 1, '/health reports the profile count', healthP);
 
@@ -786,6 +838,86 @@ async function main(): Promise<void> {
       st = await y.wait('lobby:state', (m) => m.lobby.players.find((p) => p.id === x.id)?.connected === false);
       assert(st.lobby.hostId === y.id, 'hub (not started) lobby still migrates the host immediately', st.lobby);
       y.close();
+
+      /* ── Phase 9: parked host, reload = mission leave, host-away, raid over ── */
+      const TI = makeToken('i'), TJ = makeToken('j'), TK = makeToken('k');
+      let { c: pi } = await connect('I', url2, { token: TI, name: 'Ivy' });
+      let { c: pj } = await connect('J', url2, { token: TJ, name: 'Jo' });
+      const { c: pk } = await connect('K', url2, { token: TK, name: 'Kim' });
+      pi.send({ t: 'lobby:create', name: 'Ivy' });
+      st = await pi.wait('lobby:state');
+      const codeI = st.lobby.code;
+      pj.send({ t: 'lobby:join', code: codeI, name: 'Jo' });
+      await Promise.all([pi.wait('lobby:state', (m) => m.lobby.players.length === 2), pj.wait('lobby:state')]);
+      pk.send({ t: 'lobby:join', code: codeI, name: 'Kim' });
+      await Promise.all([pi.wait('lobby:state', (m) => m.lobby.players.length === 3), pj.wait('lobby:state', (m) => m.lobby.players.length === 3), pk.wait('lobby:state')]);
+      const readyAll = async (cls: TestClient[]): Promise<void> => {
+        for (const cl of cls) cl.send({ t: 'lobby:ready', ready: true });
+        await Promise.all(cls.map((cl) => cl.wait('lobby:state', (m) => m.lobby.players.every((p) => !p.connected || p.ready))));
+      };
+      await readyAll([pi, pj, pk]);
+      pi.send({ t: 'lobby:start', seed: 51 });
+      await Promise.all([pi, pj, pk].map((cl) => cl.wait('game:start')));
+      /* K goes back to the hub (connected, out of the mission); J drops while inside */
+      pk.send({ t: 'lobby:mission', inMission: false });
+      await Promise.all([pi, pj, pk].map((cl) => cl.wait('lobby:state', (m) => m.lobby.players.find((p) => p.id === pk.id)?.inMission === false)));
+      pj.close(); await pj.closed();
+      await Promise.all([pi, pk].map((cl) => cl.wait('lobby:state', (m) => m.lobby.players.find((p) => p.id === pj.id)?.connected === false)));
+      /* host drops: only a hub member is connected → the role is parked, not handed to the hub */
+      pi.close(); await pi.closed();
+      await pk.wait('lobby:state', (m) => m.lobby.players.find((p) => p.id === pi.id)?.connected === false);
+      assert(await pk.expectNone('lobby:state', MIG_MS + 400, (m) => m.t === 'lobby:state' && m.lobby.hostId !== pi.id),
+        'host down past the delay with only a hub member connected → host parked (no migration to the hub member)');
+      assert(server2.lobbies.byCode(codeI)?.hostId === pi.id && server2.lobbies.byCode(codeI)?.started === true, 'parked lobby keeps the dropped host id and stays started');
+      pk.send({ t: 'relay', to: 'host', d: { t: 'exq', ev: 'sync' } });
+      assert(await pk.expectNone('lobby:error', 100), 'relay to a parked host is dropped silently');
+      /* an in-mission member reconnects → takes the role at once (welcome already says so) */
+      ({ c: pj } = await connect('J2', url2, { token: TJ, name: 'Jo' }));
+      assert(pj.lobby?.hostId === pj.id && pj.lobby.started && pj.lobby.players.find((p) => p.id === pj.id)?.isHost === true && pj.lobby.players.find((p) => p.id === pj.id)?.inMission === true,
+        'in-mission member reconnecting into a parked lobby becomes host immediately (welcome.lobby.hostId)', pj.lobby);
+      await pk.wait('lobby:state', (m) => m.lobby.hostId === pj.id);
+      pass('hub member sees the parked-host handover broadcast');
+      /* duplicate socket = a new page → out of the mission; nobody eligible → the role stays with it for now */
+      const pj2 = new TestClient('J3', url2, { token: TJ, name: 'Jo' });
+      await pj2.open();
+      const [dupErr9, dupW9] = await Promise.all([pj.wait('lobby:error'), pj2.wait('welcome')]);
+      pj2.id = dupW9.id;
+      assert(dupErr9.code === 'duplicate' && dupW9.lobby?.players.find((p) => p.id === pj2.id)?.inMission === false && dupW9.lobby.started,
+        'duplicate socket (page reload) → the member is out of the mission (inMission false), mission still running', dupW9.lobby);
+      assert(dupW9.lobby?.hostId === pj2.id, 'no connected in-mission member → the reloaded host keeps the role for now', dupW9.lobby);
+      await pk.wait('lobby:state', (m) => m.lobby.players.find((p) => p.id === pj2.id)?.inMission === false);
+      pj = pj2;
+      /* the old host returns inside the mission → takes the role from a host that is out of it */
+      ({ c: pi } = await connect('I2', url2, { token: TI, name: 'Ivy' }));
+      assert(pi.lobby?.hostId === pi.id && pi.lobby.players.find((p) => p.id === pi.id)?.inMission === true,
+        'returning in-mission member takes the role from a host that left the mission', pi.lobby);
+      await Promise.all([pj, pk].map((cl) => cl.wait('lobby:state', (m) => m.lobby.hostId === pi.id)));
+      pass('everyone sees the role move back inside the mission');
+      /* the last in-mission member leaves by message → the raid is over → server reset */
+      pi.send({ t: 'lobby:mission', inMission: false });
+      const over = await Promise.all([pi, pj, pk].map((cl) => cl.wait('lobby:state', (m) => !m.lobby.started)));
+      assert(over.every((m) => m.lobby.mode === undefined && m.lobby.hostId === pi.id && m.lobby.players.every((p) => !p.inMission)),
+        'last in-mission member leaving a raid → server reset (raids end like trainings), host kept (connected)', over[0].lobby);
+      /* host-away: a connected host that leaves the mission hands the role to a connected in-mission member */
+      pi.flush(); pj.flush(); pk.flush();
+      await readyAll([pi, pj, pk]);
+      pi.send({ t: 'lobby:start', seed: 52 });
+      await Promise.all([pi, pj, pk].map((cl) => cl.wait('game:start')));
+      pi.flush(); pj.flush(); pk.flush(); // ready broadcasts still queued
+      pi.send({ t: 'lobby:mission', inMission: false });
+      const away = await Promise.all([pi, pj, pk].map((cl) => cl.wait('lobby:state', (m) => m.lobby.started && m.lobby.players.find((p) => p.id === pi.id)?.inMission === false)));
+      assert(away.every((m) => m.lobby.started && m.lobby.hostId === pj.id && m.lobby.players.find((p) => p.id === pj.id)?.isHost === true),
+        'host reporting lobby:mission false mid-raid → role moves at once to the lowest-slot connected in-mission member', away[0].lobby);
+      /* grace expiry of a parked host with nobody left inside → reset + hub migration */
+      pk.send({ t: 'lobby:mission', inMission: false });
+      await Promise.all([pi, pj, pk].map((cl) => cl.wait('lobby:state', (m) => m.lobby.players.find((p) => p.id === pk.id)?.inMission === false)));
+      pj.close(); await pj.closed();
+      await Promise.all([pi, pk].map((cl) => cl.wait('lobby:state', (m) => m.lobby.players.find((p) => p.id === pj.id)?.connected === false)));
+      assert(await pi.expectNone('lobby:state', MIG_MS + 400, (m) => m.t === 'lobby:state' && m.lobby.hostId !== pj.id), 'host parked again (hub members only)');
+      const jGone = await Promise.all([pi, pk].map((cl) => cl.wait('peer:left', (m) => m.id === pj.id, 2_500 + 1_500)));
+      assert(jGone.every((m) => !m.lobby.started && m.lobby.hostId === pi.id && m.lobby.players.length === 2),
+        'parked host expiring with nobody inside → mission reset + ordinary hub migration', jGone[0].lobby);
+      pi.close(); pk.close();
     } finally {
       await server2.close();
     }
@@ -796,6 +928,10 @@ async function main(): Promise<void> {
       const s1 = new ProfileStore({ dataDir: dir, saveDebounceMs: 20, quiet: true });
       assert(s1.get('p1').credits === null && s1.size === 1, 'store.get creates an empty record');
       s1.setDoc('p1', 'meta', { a: 1 });
+      s1.setDoc('p1', 'stash', { b: 2 }, 1_000);
+      assert(s1.setDoc('p1', 'stash', { b: 3 }, 999) === 'stale' && JSON.stringify(s1.get('p1').docs.stash) === '{"b":2}' && s1.get('p1').docsAt?.stash === 1_000,
+        'store: stamped write keeps docsAt, an older stamp is stale', s1.get('p1'));
+      assert(s1.setDoc('p1', 'meta', { a: 2 }, undefined, true) === 'stale' && JSON.stringify(s1.get('p1').docs.meta) === '{"a":1}', 'store: fresh write over an existing doc is stale');
       const tx = s1.applyCredits('p1', 300, 'migrate');
       assert(tx.ok && tx.credits === 300, 'store migrate seeds credits');
       assert(s1.applyCredits('p1', -301, 'buy').ok === false && s1.applyCredits('p1', -300, 'buy').credits === 0, 'store refuses overdraft, allows exact spend');
@@ -806,7 +942,15 @@ async function main(): Promise<void> {
       const s2 = new ProfileStore({ dataDir: dir, quiet: true });
       assert(s2.size === 1 && s2.get('p1').credits === 0 && JSON.stringify(s2.get('p1').docs.meta) === '{"a":1}' && !s2.has('untouched'),
         'a new store reloads the file: credits + docs kept, placeholder records not persisted', s2.get('p1'));
+      assert(s2.get('p1').docsAt?.stash === 1_000 && s2.get('p1').docsAt?.meta === undefined, 'docsAt round-trips through the file (stamped keys only)', s2.get('p1').docsAt);
       s2.close();
+      /* corrupt / hostile docsAt is clamped on load: a far-future stamp, a stamp without a document */
+      writeFileSync(join(dir, 'profiles.json'), JSON.stringify({ v: 1, profiles: { p9: { credits: 1, docs: { meta: { z: 1 } }, updatedAt: 1, docsAt: { meta: 9e15, stash: 5, bogus: 3 } } } }), 'utf8');
+      const s3 = new ProfileStore({ dataDir: dir, quiet: true });
+      const at9 = s3.get('p9').docsAt;
+      assert(at9 !== undefined && at9.meta !== undefined && at9.meta <= Date.now() + PROFILE_CLOCK_SKEW_MS && at9.stash === undefined && !('bogus' in at9),
+        'sanitizeRecord clamps docsAt to now + PROFILE_CLOCK_SKEW_MS and drops stamps without a document', at9);
+      s3.close();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

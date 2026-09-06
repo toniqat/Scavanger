@@ -143,6 +143,8 @@ export const TEXT = {
     hipSpread: '지향 사격 퍼짐', adsTime: '정조준 시간', magSize: '장탄수', zoom: '배율', scope: '스코프', laser: '레이저',
   },
   bagStats: { grid: '칸', quickSlots: '퀵슬롯', tactical: '전술형' },
+  /* Phase 9: 서적 (`ItemDef.book`) */
+  bookStats: { skill: '스킬', use: '용도', shelf: '서재 책장에 꽂으면 해당 스킬 XP 증가' },
   /* appended: tactical kit */
   weight: '무게',
   armorStats: { dr: '피해 감소', durability: '내구도', perk: '특성' },
@@ -168,7 +170,7 @@ export const TEXT = {
     bagFull: '가방에 공간이 없습니다',
     tabs: {
       all: '전체', weapon: '무기', ammo: '탄약', attachment: '부착물', bag: '가방', armor: '방탄복',
-      gadget: '가젯', consumable: '소모품', material: '재료', herb: '약초', seed: '씨앗', furniture: '가구',
+      gadget: '가젯', consumable: '소모품', material: '재료', herb: '약초', seed: '씨앗', book: '서적', furniture: '가구',
     },
   },
   /* Phase 8: 아이템 분해 (right-click → modeless dialog with the expected result) */

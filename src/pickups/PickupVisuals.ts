@@ -74,6 +74,10 @@ export class PickupVisualPool {
   private readonly gemBase = new THREE.CylinderGeometry(0.11, 0.13, 0.03, 8);
   private readonly crate = new THREE.BoxGeometry(0.28, 0.28, 0.28);
   private readonly crateEdge = new THREE.BoxGeometry(0.3, 0.05, 0.3);
+  // Phase 9: 서적 — a flat slab (cover) with a lighter page block and a raised spine
+  private readonly bookCover = new THREE.BoxGeometry(0.24, 0.045, 0.32);
+  private readonly bookPages = new THREE.BoxGeometry(0.215, 0.05, 0.3);
+  private readonly bookSpine = new THREE.BoxGeometry(0.035, 0.055, 0.325);
   private readonly beamGeo = new THREE.CylinderGeometry(0.05, 0.16, BEAM_HEIGHT, 10, 1, true);
   private readonly ringGeo = new THREE.RingGeometry(0.28, 0.36, 24);
 
@@ -83,7 +87,7 @@ export class PickupVisualPool {
     this.ringGeo.rotateX(-Math.PI / 2);
     this.geos.push(this.rifleBody, this.rifleBarrel, this.rifleGrip, this.rifleMag, this.pistolBody, this.pistolGrip,
       this.ammoBox, this.ammoStripe, this.stimBody, this.stimCap, this.grenadeBody, this.grenadeBand, this.gem, this.gemBase,
-      this.crate, this.crateEdge, this.beamGeo, this.ringGeo);
+      this.crate, this.crateEdge, this.bookCover, this.bookPages, this.bookSpine, this.beamGeo, this.ringGeo);
   }
 
   acquire(def: ItemDef): PickupVisual {
@@ -173,6 +177,13 @@ export class PickupVisualPool {
         m(this.gemBase, bodyMat, 0, -0.15, 0);
         break;
       }
+      case 'book': {
+        m(this.bookCover, bodyMat);
+        m(this.bookPages, accentMat, 0.012, 0, 0);
+        m(this.bookSpine, accentMat, -0.115, 0, 0);
+        body.rotation.y = 0.35;
+        break;
+      }
       case 'material':
       default: {
         m(this.crate, bodyMat);
@@ -196,7 +207,7 @@ export class PickupVisualPool {
 
   /** Pre-create one visual per category so the first drop allocates nothing (and shaders can be warmed up). */
   warm(): void {
-    const cats: ItemCategory[] = ['primary', 'secondary', 'grenade', 'stim', 'ammo', 'valuable', 'material'];
+    const cats: ItemCategory[] = ['primary', 'secondary', 'grenade', 'stim', 'ammo', 'valuable', 'material', 'book'];
     for (const c of cats) {
       if ((this.free.get(c)?.length ?? 0) > 0) continue;
       const v = this.create(c);

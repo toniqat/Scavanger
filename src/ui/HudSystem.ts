@@ -40,6 +40,7 @@ import { ShipManage } from './hud/ShipManage';
 import { ShipManageHint } from './hud/ShipManageHint';
 import { RoomLabel } from './hud/RoomLabel';
 import { ContractPanel } from './hud/ContractPanel';
+import { TrainingPanel } from './hud/TrainingPanel';
 import { MetaToasts } from './hud/MetaToasts';
 import { MapScreen } from './map/MapScreen';
 import { TitleMenu } from './menus/TitleMenu';
@@ -127,6 +128,8 @@ export class HudSystem implements GameSystem {
   private itemTip!: ItemTip;
   /* Phase 5 (corporations) */
   private contractPanel!: ContractPanel;
+  /* Phase 9 (training modes) */
+  private trainingPanel!: TrainingPanel;
   private metaToasts!: MetaToasts;
 
   private title!: TitleMenu;
@@ -168,6 +171,7 @@ export class HudSystem implements GameSystem {
     this.compass = new Compass(this.hudRoot);
     this.objective = new Objective(this.hudRoot);
     this.contractPanel = new ContractPanel(this.hudRoot);
+    this.trainingPanel = new TrainingPanel(this.hudRoot);
     this.missionInfo = new MissionInfo(this.hudRoot);
     this.spectate = new SpectateOverlay(this.hudRoot);
     this.detection = new Detection(this.hudRoot);
@@ -217,7 +221,7 @@ export class HudSystem implements GameSystem {
     for (const c of [this.reticle, this.cook, this.wheel, this.swheel, this.strat, this.charge, this.targeting, this.offscreen, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.chat, this.map]) c.bind(ctx);
     for (const c of [this.implantWidget, this.weight, this.detection, this.scanReveal, this.deployables, this.progressToasts, this.actionFx]) c.bind(ctx);
     for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.housingHint, this.roomLabel, this.shipManage, this.shipHint, this.itemTip]) c.bind(ctx);
-    for (const c of [this.contractPanel, this.metaToasts]) c.bind(ctx);
+    for (const c of [this.contractPanel, this.trainingPanel, this.metaToasts]) c.bind(ctx);
     for (const m of [this.title, this.pause, this.death, this.complete]) m.bind(ctx);
 
     const b = ctx.bus;
@@ -276,6 +280,7 @@ export class HudSystem implements GameSystem {
     // 함선 관리 hint: two compares per frame, and it must survive a hidden social layer state change.
     this.shipHint.update(ctx);
     this.contractPanel.update(ctx);
+    this.trainingPanel.update(ctx);
     this.metaToasts.update(dt);
     // Self-gating components (they hide their own world meshes / markers outside gameplay).
     this.deployables.update(dt, ctx);
@@ -342,6 +347,12 @@ export class HudSystem implements GameSystem {
   /** Whether the contract panel is up / pulsing (debug). */
   get isContractPanelOn(): boolean { return this.contractPanel.isShowing; }
   get isContractPulsing(): boolean { return this.contractPanel.isPulsing; }
+  /** Whether the 훈련장 panel is up / pulsing, and its shown mode (debug, Phase 9). */
+  get isTrainingPanelOn(): boolean { return this.trainingPanel.isShowing; }
+  get isTrainingPulsing(): boolean { return this.trainingPanel.isPulsing; }
+  get trainingPanelMode(): string { return this.trainingPanel.shownMode; }
+  /** Whether the vitals' 포기 bar is up (debug, Phase 9). */
+  get isGiveUpBarOn(): boolean { return this.vitals.isGiveUpShowing; }
   /** Live meta toasts (debug). */
   get metaToastCount(): number { return this.metaToasts.liveCount; }
   /** Result-screen XP blocks (debug). */
@@ -398,7 +409,7 @@ export class HudSystem implements GameSystem {
     for (const c of [this.reticle, this.cook, this.wheel, this.swheel, this.strat, this.charge, this.targeting, this.offscreen, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.chat, this.missionInfo, this.deploy, this.map]) c.dispose();
     for (const c of [this.implantWidget, this.weight, this.detection, this.scanReveal, this.deployables, this.progressToasts, this.actionFx]) c.dispose();
     for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.housingHint, this.roomLabel, this.shipManage, this.shipHint, this.itemTip]) c.dispose();
-    for (const c of [this.contractPanel, this.metaToasts]) c.dispose();
+    for (const c of [this.contractPanel, this.trainingPanel, this.metaToasts]) c.dispose();
     for (const m of [this.title, this.pause, this.death, this.complete]) m.dispose();
     this.settings.dispose();
     this.keybinds.dispose();

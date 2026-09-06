@@ -329,6 +329,11 @@ export class HubSystem implements GameSystem, HubRef {
         else ctx.bus.emit('ui:notify', { text: '재배층을 사용할 수 없습니다', kind: 'warning' });
       },
       onRepairBench: () => this.wbMenu.open(),
+      onBookshelf: (uid) => {
+        const h = ctx.housing;
+        if (h && typeof h.openBookshelfMenu === 'function') h.openBookshelfMenu(uid);
+        else ctx.bus.emit('ui:notify', { text: '책장을 사용할 수 없습니다', kind: 'warning' });
+      },
     });
     this.housingMode.setShip(interior, this.furniture);
     this.refreshRoomSigns();

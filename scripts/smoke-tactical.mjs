@@ -269,15 +269,28 @@ try {
     const p = ctx.gadgets.getDeployables().find((d) => d.kind === 'jumpPad');
     if (!p) return null;
     window.__launches = [];
-    ctx.bus.on('player:launched', (e) => window.__launches.push(e.impulse.y));
+    ctx.bus.on('player:launched', (e) => window.__launches.push({ y: e.impulse.y, t: ctx.time }));
     ctx.player.respawnAt(new (ctx.player.position.constructor)(p.position.x, p.position.y, p.position.z), 0);
     return true;
   });
   ok(!!pad, 'jump pad present');
   if (pad) {
-    await gameSleep(page, 2.0);
+    const onPad = () => page.evaluate(() => {
+      const ctx = window.__game.ctx, p = ctx.gadgets.getDeployables().find((d) => d.kind === 'jumpPad');
+      ctx.player.respawnAt(new (ctx.player.position.constructor)(p.position.x, p.position.y, p.position.z), 0);
+    });
+    await gameSleep(page, 1.8);
     const launches = await page.evaluate(() => window.__launches);
-    ok(launches.length > 0 && launches[0] > 5, `jump pad launched the player (impulse.y ${launches[0]?.toFixed(2)})`);
+    ok(launches.length === 1 && launches[0].y > 5, `jump pad launched the player exactly once in 1.8 s (impulse.y ${launches[0]?.y?.toFixed(2)}, ${launches.length} launches)`);
+    // Phase 9: per-player re-trigger gate — standing on the pad again inside JUMP_PAD_RETRIGGER_S (2.5 s) does nothing
+    await onPad();
+    await gameSleep(page, 0.3);
+    const inside = await page.evaluate(() => window.__launches.length);
+    ok(inside === 1, `no re-launch inside JUMP_PAD_RETRIGGER_S (${inside} launches at ~2.1 s)`);
+    await onPad();
+    await gameSleep(page, 0.8);
+    const later = await page.evaluate(() => window.__launches);
+    ok(later.length >= 2 && later[1].t - later[0].t >= 2.4, `second launch after the retrigger window (${later.length} launches, gap ${later[1] ? (later[1].t - later[0].t).toFixed(2) : '-'} s)`);
   }
 
   /* ── field crafting ───────────────────────────────────────────────── */
@@ -300,6 +313,46 @@ try {
     return ['queryNear', 'addDistraction', 'applyStatus', 'applyAreaDamage'].every((k) => typeof e[k] === 'function');
   });
   ok(enemyApi, 'EnemyManagerRef tactical-kit methods present');
+
+  /* ── barrier (Phase 9): raycastBarrier is a pure query, damageBarrier applies the hit ── */
+  // equipping is ship-only: back to the ship, swap dash → barrier, drop into a fresh mission
+  await page.evaluate(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
+  await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub phase (barrier)');
+  const eqBarrier = await page.evaluate(() => { const im = window.__game.ctx.implants; return im.setEquipped('barrier') && im.equipped === 'barrier'; });
+  ok(eqBarrier, 'barrier implant equipped in the ship');
+  await page.evaluate(() => window.__game.ctx.bus.emit('game:newMission', { seed: 43 }));
+  await waitFor(page, () => window.__game.ctx.world?.ready === true && window.__game.ctx.isGameplayPhase() && window.__game.ctx.player?.isDropping === false, 'second mission (barrier)');
+  await gameSleep(page, 1.0);
+  const bar = await page.evaluate(() => {
+    const ctx = window.__game.ctx, im = ctx.implants, sys = window.__game.getSystem('implants');
+    window.__barrierHits = [];
+    ctx.bus.on('implant:barrierHit', (e) => window.__barrierHits.push(e.damage));
+    im.activate();
+    const V = ctx.player.position.constructor;
+    const fwd = new V(); ctx.player.getForward(fwd); fwd.y = 0; fwd.normalize();
+    const b = sys.barrier;
+    const origin = b.position.clone().addScaledVector(fwd, 5); origin.y = b.position.y + 1.2;
+    const dir = fwd.clone().negate();
+    const hp0 = im.barrierHp;
+    const friendly = im.raycastBarrier(origin, dir, 12, false);
+    const q1 = im.raycastBarrier(origin, dir, 12, true);
+    const q2 = im.raycastBarrier(origin, dir, 12, true);
+    const hp1 = im.barrierHp, hits1 = window.__barrierHits.length;
+    if (q1) im.damageBarrier(q1.owner, q1.point);
+    const hp2 = im.barrierHp;
+    if (q1) im.damageBarrier('local', q1.point, 100);
+    const hp3 = im.barrierHp;
+    im.damageBarrier('SOMEPEER', origin);   // a peer's barrier only sparks here
+    const hp4 = im.barrierHp;
+    return { active: im.barrierActive, max: im.barrierMaxHp, hp0, friendly, q1: q1 && { owner: q1.owner, d: q1.point.distanceTo(b.position) }, q2: !!q2, hp1, hits1, hp2, hp3, hp4, hits: window.__barrierHits };
+  });
+  ok(bar.active && bar.hp0 > 0, `barrier deployed (${bar.hp0}/${bar.max} hp)`);
+  ok(bar.friendly === null, 'raycastBarrier(fromEnemy = false) never blocks');
+  ok(bar.q1 && bar.q1.owner === 'local' && bar.q2, `raycastBarrier(fromEnemy = true) reports the local barrier (${bar.q1?.d?.toFixed(2)} m from its centre)`);
+  ok(bar.hp1 === bar.hp0 && bar.hits1 === 0, 'LOS queries leave barrierHp unchanged and emit no implant:barrierHit (pure query)');
+  ok(bar.hp2 === bar.hp0 - 30 && bar.hits[0] === 30, `damageBarrier(owner, point) takes the block damage 30 (${bar.hp0} → ${bar.hp2}) + implant:barrierHit`);
+  ok(bar.hp3 === bar.hp2 - 100 && bar.hits[1] === 100, 'damageBarrier(local, point, 100) applies the explicit amount');
+  ok(bar.hp4 === bar.hp3 && bar.hits.length === 2, 'damageBarrier on a peer barrier does not touch the local hp');
 
   /* ── HUD widgets ──────────────────────────────────────────────────── */
   const hud = await page.evaluate(() => {

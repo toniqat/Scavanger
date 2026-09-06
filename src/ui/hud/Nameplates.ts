@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { GameContext, PeerId, RemotePlayerRef } from '@/shared';
-import { NET_SLOT_COLORS_CSS, PlayerFlags, SUSPENDED_LABEL_KO } from '@/shared';
+import { NET_SLOT_COLORS_CSS, PLAYER_DOWN_HP, PlayerFlags, SUSPENDED_LABEL_KO } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 
 const HEAD_OFFSET = 0.35;   // metres above the avatar head
@@ -9,8 +9,10 @@ const FADE_FROM = 110;      // starts fading here
 const EMPTY: readonly RemotePlayerRef[] = [];
 /** Slot colour replacement for a suspended member (matches `.srow.suspended` / the map's grey). */
 const SUSPENDED_CSS = '#9aa0aa';
+/** Tag under the name of a suspended member whose host ghost bled out (`ghostState === 2`). */
+export const GHOST_DEAD_LABEL_KO = '사망';
 
-interface Plate { root: HTMLElement; name: HTMLElement; tag: HTMLElement; fill: HTMLElement; color: string; lastKey: string; lastName: string }
+interface Plate { root: HTMLElement; name: HTMLElement; tag: HTMLElement; fill: HTMLElement; bleed: HTMLElement; color: string; lastKey: string; lastName: string; lastTag: string }
 
 /**
  * Remote-player nameplates: name + tiny hp bar in the slot colour, projected from `avatar.getHeadPosition()`
@@ -21,6 +23,8 @@ interface Plate { root: HTMLElement; name: HTMLElement; tag: HTMLElement; fill: 
  * Phase 7: a **suspended** member (`RemotePlayerRef.suspended` — socket down, body kept as a host ghost) stays visible:
  * grey plate (`.suspended`) with a `연결 끊김` tag (`SUSPENDED_LABEL_KO`) under the name, even though the ref is `stale`.
  * `setDebugRefs` lets smoke tests feed refs from `remotePlayers.debugSpawn` (rendered in addition to `ctx.net`'s list).
+ * Phase 9: while the ghost is downed (`ref.ghostState === 1`) a red bleed bar (`.bleeding`, `ghostDownHp / PLAYER_DOWN_HP`)
+ * overlays the greyed hp bar; a bled-out ghost (`ghostState === 2`) reads `사망` (`.tag.dead`, strike-through name).
  */
 export class Nameplates {
   readonly root: HTMLElement;
@@ -89,18 +93,27 @@ export class Nameplates {
     if (dist < 2.5) alpha *= Math.max(0.2, (dist - 0.8) / 1.7);
     const hp = Math.min(1, Math.max(0, ref.hp / Math.max(1, ref.maxHp)));
     const far = dist > 60;
-    const key = `${Math.round(sx)}|${Math.round(sy)}|${hp.toFixed(2)}|${alpha.toFixed(2)}|${ref.isDead ? 1 : 0}|${far ? 1 : 0}|${suspended ? 1 : 0}`;
+    // Phase 9: host-ghost state on the ref (net fills it while suspended)
+    const ghostDowned = suspended && ref.ghostState === 1;
+    const ghostDead = suspended && ref.ghostState === 2;
+    const bleed = ghostDowned ? Math.min(1, Math.max(0, (ref.ghostDownHp ?? PLAYER_DOWN_HP) / PLAYER_DOWN_HP)) : 0;
+    const dead = ref.isDead || ghostDead;
+    const key = `${Math.round(sx)}|${Math.round(sy)}|${hp.toFixed(2)}|${alpha.toFixed(2)}|${dead ? 1 : 0}|${far ? 1 : 0}|${suspended ? 1 : 0}|${ghostDowned ? bleed.toFixed(2) : ghostDead ? 'x' : '-'}`;
     if (key === plate.lastKey) return;
     plate.lastKey = key;
     plate.root.style.transform = `translate(${sx.toFixed(0)}px, ${sy.toFixed(0)}px) translate(-50%, -100%)`;
     plate.root.style.opacity = alpha.toFixed(2);
     plate.fill.style.transform = `scaleX(${hp.toFixed(3)})`;
-    toggleClass(plate.root, 'dead', ref.isDead);
+    toggleClass(plate.root, 'dead', dead);
     toggleClass(plate.root, 'far', far);
     toggleClass(plate.root, 'suspended', suspended);
+    toggleClass(plate.root, 'bleeding', ghostDowned);
+    plate.bleed.style.transform = `scaleX(${bleed.toFixed(3)})`;
     // the slot colour is an inline custom property, so the grey has to be written inline too
     plate.root.style.setProperty('--sc', suspended ? SUSPENDED_CSS : plate.color);
     plate.tag.hidden = !suspended;
+    const tag = ghostDead ? GHOST_DEAD_LABEL_KO : SUSPENDED_LABEL_KO;
+    if (tag !== plate.lastTag) { plate.lastTag = tag; setText(plate.tag, tag); toggleClass(plate.tag, 'dead', ghostDead); }
   }
 
   private create(id: PeerId, slot: number): Plate {
@@ -112,7 +125,8 @@ export class Nameplates {
     tag.hidden = true;
     const hp = el('div', { cls: 'hp', parent: root });
     const fill = el('div', { cls: 'fill', parent: hp });
-    const plate: Plate = { root, name, tag, fill, color, lastKey: '', lastName: '' };
+    const bleed = el('div', { cls: 'bleed', parent: hp });
+    const plate: Plate = { root, name, tag, fill, bleed, color, lastKey: '', lastName: '', lastTag: SUSPENDED_LABEL_KO };
     this.plates.set(id, plate);
     return plate;
   }

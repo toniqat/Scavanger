@@ -1,11 +1,12 @@
 import type {
   ConsoleCommand, ContractDef, ContractGoalKind, ContractInfo, ContractSettlement, CorpId, CreditsTxResult, EmbeddedView,
-  GameContext, GameSystem, ItemInstance, MetaRef, MissionStats, ProfileRef, QuestInfo, QuestState, RepInfo, ShopItem,
+  GameContext, GameMessageOf, GameSystem, ItemInstance, MetaRef, MetaRequest, MissionStats, PeerId, ProfileRef, QuestInfo, QuestState,
+  RepInfo, ShopItem,
 } from '@/shared';
 import {
-  CONTRACT_DEFS, CONTRACT_GOAL_LABEL_KO, CORP_DEFS, CORP_IDS, CREDITS_MAX, QUEST_DEFS, repLevelOf, sellPriceOf,
+  CONTRACT_DEFS, CONTRACT_GOAL_LABEL_KO, CORP_DEFS, CORP_IDS, CREDITS_MAX, META_HIT_MAX, QUEST_DEFS, repLevelOf, sellPriceOf,
 } from '@/shared';
-import { MetaStorage } from './Storage';
+import { MAX_PROGRESS, MetaStorage } from './Storage';
 import {
   REASON, buildShop, contractBlockReason, contractHitDelta, corpSells, killGoalOf, questBlockReason, questStateOf, repInfoOf,
   settleContract,
@@ -25,10 +26,24 @@ import './meta.css';
  * optimistic local apply followed by a `credits:tx` whose answer overwrites the balance (or reverts it when refused);
  * `buy` is `canFit` → server debit → item creation, `meta:purchase` announces the (possibly async) completion. The
  * save also mirrors into the `meta` profile document; `net:profileLoaded` replaces it with the server copy.
+ *
+ * Phase 9 (late-join catch-up + relay validation): a client that rejoins a running raid (`net:gameStarting {rejoin}`)
+ * asks the squad for the contract hits it missed (`metaq sync` to others on `world:ready`); every peer answers ONCE per
+ * requester per mission with the hits it broadcast so far (`sentHits` → `meta sync {corp, hits}` unicast), and the
+ * requester feeds them through `reportContractHit(goal, n, false)` like live relayed hits. Relayed messages are
+ * validated (`GOAL_IDS` / `CORP_IDS` whitelists, finite `1..META_HIT_MAX` — a sync entry is capped by the contract
+ * target instead) and the progress is clamped to `MAX_PROGRESS`. The profile upload no longer needs the server
+ * (`ProfileSync` queues + stamps an offline `set`).
  * ──────────────────────────────────────────────────────────────────────────── */
 
 const CORP_ALIASES: Readonly<Record<string, CorpId>> = { helix: 'helix', bastion: 'bastion', nomad: 'nomad', ceres: 'ceres' };
 const GOAL_IDS: readonly ContractGoalKind[] = ['kill_bugs', 'kill_rogues', 'open_crates', 'loot_corpses', 'extract_with_value', 'use_stratagems'];
+
+/** Phase 9 relay validation: a whitelisted goal with a finite amount in `1..max`. */
+function isValidHit(goal: unknown, amount: unknown, max: number): goal is ContractGoalKind {
+  return typeof goal === 'string' && GOAL_IDS.includes(goal as ContractGoalKind)
+    && typeof amount === 'number' && Number.isFinite(amount) && amount >= 1 && amount <= max;
+}
 
 /** Why the last `buy()` / async purchase did not go through (corp screen message; folder-internal, not in `MetaRef`). */
 export interface PurchaseFailure { corp: CorpId; defId: string; price: number; reason: string; }
@@ -60,6 +75,13 @@ export class MetaSystem implements GameSystem, MetaRef {
   private containerOpenedSeen = false;
   /** Last `completeQuest` failure reason per quest id (shown as `QuestInfo.blocked`). */
   private readonly questBlocked = new Map<string, string>();
+  /* Phase 9: late-join catch-up */
+  /** Contract hits this client broadcast this mission, per goal (what a late joiner is handed on `metaq sync`). */
+  private readonly sentHits = new Map<ContractGoalKind, number>();
+  /** Requesters already answered this mission (one `meta sync` per peer per mission, answered or not). */
+  private readonly syncAnswered = new Set<PeerId>();
+  /** A rejoin is under way: ask the squad for its hits once the world is ready. */
+  private syncRequestPending = false;
 
   init(ctx: GameContext): void {
     this.ctx = ctx;
@@ -72,9 +94,18 @@ export class MetaSystem implements GameSystem, MetaRef {
     const counting = (): boolean => ctx.isGameplayPhase() && !this.inTraining();
     this.unsubs.push(
       b.on('game:newMission', () => this.onNewMission()),
+      // Phase 9: a rejoining client asks the squad for the hits it missed once its world exists
+      b.on('net:gameStarting', ({ rejoin }) => { this.syncRequestPending = rejoin === true; }),
+      b.on('world:ready', () => this.onWorldReady()),
       b.on('hub:entered', () => this.save()),
       b.on('net:profileLoaded', ({ migrated }) => this.onProfileLoaded(migrated)),
-      b.on('enemy:killed', ({ type }) => { if (counting()) this.localHit(killGoalOf(type), 1); }),
+      // Phase 9: `enemy:killed` now fires for a peer-credited kill too (`by`), and that peer sends its own
+      // `meta contractHit` — count only our own kills here or a squad kill lands twice.
+      b.on('enemy:killed', ({ type, by }) => {
+        if (!counting()) return;
+        if (by !== undefined && by !== 'local' && by !== (ctx.net?.localId ?? null)) return;
+        this.localHit(killGoalOf(type), 1);
+      }),
       b.on('crate:open', () => { if (counting()) this.localHit('open_crates', 1); }),
       b.on('inventory:containerOpened', ({ containerId, first }) => {
         this.containerOpenedSeen = true;
@@ -123,12 +154,58 @@ export class MetaSystem implements GameSystem, MetaRef {
   private subscribeNet(): void {
     const net = this.ctx.net;
     if (!net || typeof net.onMessage !== 'function') return;
-    this.unsubNet = net.onMessage('meta', (msg) => {
-      if (msg.ev !== 'contractHit' || !this.ctx.isGameplayPhase() || this.inTraining()) return;
-      const ac = this.activeDef();
-      if (!ac || ac.corp !== msg.corp) return;
+    const offMeta = net.onMessage('meta', (msg) => this.onMetaMessage(msg));
+    const offReq = net.onMessage('metaq', (msg, from) => this.onMetaRequest(msg, from));
+    this.unsubNet = () => { offMeta(); offReq(); };
+  }
+
+  /**
+   * Relayed contract traffic (`meta contractHit` live, `meta sync` catch-up). Both are validated before they touch the
+   * contract: corp / goal whitelists, a finite amount within `1..max` (`META_HIT_MAX` for a live hit — a real hit is 1 —
+   * and the contract target for a sync entry); a message for another corp's contract is ignored.
+   */
+  private onMetaMessage(msg: GameMessageOf<'meta'>): void {
+    if (!this.ctx.isGameplayPhase() || this.inTraining()) return;
+    const def = this.activeDef();
+    if (!def || !CORP_IDS.includes(msg.corp) || def.corp !== msg.corp) return;
+    if (msg.ev === 'contractHit') {
+      if (!isValidHit(msg.goal, msg.amount, META_HIT_MAX)) return;
       this.reportContractHit(msg.goal, msg.amount, false);
-    });
+    } else if (msg.ev === 'sync') {
+      if (!Array.isArray(msg.hits)) return;
+      for (const entry of msg.hits) {
+        if (!Array.isArray(entry) || entry.length < 2) continue;
+        const [goal, n] = entry;
+        if (!isValidHit(goal, n, def.target)) continue;
+        this.reportContractHit(goal, n, false);
+      }
+    }
+  }
+
+  /** `metaq sync`: answer a rejoining peer once per mission with the hits broadcast so far (only with an active contract). */
+  private onMetaRequest(msg: MetaRequest, from: PeerId): void {
+    if (msg.ev !== 'sync' || typeof from !== 'string' || this.syncAnswered.has(from)) return;
+    this.syncAnswered.add(from);
+    if (!this.ctx.isGameplayPhase() || this.inTraining()) return;
+    const def = this.activeDef();
+    const net = this.ctx.net;
+    if (!def || !net || typeof net.send !== 'function') return;
+    const hits: [ContractGoalKind, number][] = [];
+    for (const [goal, n] of this.sentHits) {
+      const v = Math.min(def.target, Math.floor(n));
+      if (v >= 1) hits.push([goal, v]);
+    }
+    if (hits.length === 0) return;
+    net.send({ t: 'meta', ev: 'sync', corp: def.corp, hits }, from);
+  }
+
+  /** `world:ready` after a rejoin: ask every other member for the hits this client missed. */
+  private onWorldReady(): void {
+    if (!this.syncRequestPending) return;
+    this.syncRequestPending = false;
+    const net = this.ctx.net;
+    if (!this.ctx.isMultiplayer || !net || typeof net.send !== 'function' || this.inTraining()) return;
+    net.send({ t: 'metaq', ev: 'sync' }, 'others');
   }
 
   /* ── helpers ─────────────────────────────────────────────────────────────── */
@@ -283,6 +360,8 @@ export class MetaSystem implements GameSystem, MetaRef {
     this.progressAtStart = this.store.data.activeContract?.progress ?? 0;
     this.corpsesCounted.clear();
     this.questBlocked.clear();
+    this.sentHits.clear();
+    this.syncAnswered.clear();
   }
 
   private localHit(goal: ContractGoalKind, amount: number): void {
@@ -294,7 +373,7 @@ export class MetaSystem implements GameSystem, MetaRef {
     const def = this.activeDef();
     const ac = this.store.data.activeContract;
     if (!def || !ac || def.goal !== 'extract_with_value') return;
-    const v = Math.max(0, Math.round(totalValue));
+    const v = Math.min(MAX_PROGRESS, Math.max(0, Math.round(totalValue)));
     if (v === ac.progress) return;
     const delta = v - ac.progress;
     ac.progress = v;
@@ -511,14 +590,20 @@ export class MetaSystem implements GameSystem, MetaRef {
   reportContractHit(goal: ContractGoalKind, amount: number, local: boolean): void {
     const def = this.activeDef();
     const ac = this.store.data.activeContract;
-    if (!def || !ac || def.goal !== goal) return;
+    if (!def || !ac || def.goal !== goal || !Number.isFinite(amount)) return;
     const delta = contractHitDelta(amount, local);
     if (delta <= 0) return;
-    ac.progress += delta;
+    const before = ac.progress;
+    ac.progress = Math.min(MAX_PROGRESS, before + delta);
     this.store.markDirty();
-    this.ctx.bus.emit('meta:contractProgress', { id: def.id, corp: def.corp, goal, progress: ac.progress, target: def.target, delta });
+    this.ctx.bus.emit('meta:contractProgress', { id: def.id, corp: def.corp, goal, progress: ac.progress, target: def.target, delta: ac.progress - before });
     if (local && this.ctx.isMultiplayer && this.ctx.net && typeof this.ctx.net.send === 'function') {
-      this.ctx.net.send({ t: 'meta', ev: 'contractHit', corp: def.corp, goal, amount: Math.max(0, amount) }, 'others');
+      // a receiver drops anything above META_HIT_MAX (a real hit is 1) — send the capped figure and remember it for `metaq sync`
+      const sent = Math.min(META_HIT_MAX, Math.max(0, amount));
+      if (sent >= 1) {
+        this.sentHits.set(goal, (this.sentHits.get(goal) ?? 0) + sent);
+        this.ctx.net.send({ t: 'meta', ev: 'contractHit', corp: def.corp, goal, amount: sent }, 'others');
+      }
     }
   }
 

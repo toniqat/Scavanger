@@ -386,7 +386,10 @@ export class InventoryUI {
     dropZone.append(dzTitle, dzSub);
     this.dropZone = dropZone;
 
-    this.tooltip = new Tooltip({ getWeapon: getWeaponDef, getDef, getStats, getArmorDef: (id) => this.sys.getLoot().getArmorDef(id) });
+    this.tooltip = new Tooltip({
+      getWeapon: getWeaponDef, getDef, getStats, getArmorDef: (id) => this.sys.getLoot().getArmorDef(id),
+      getSkillName: (id) => { try { return this.ctx.progression?.getSkillDef(id)?.name ?? id; } catch { return id; } },
+    });
     this.ghostLayer = document.createElement('div');
     this.ghostLayer.className = 'inv-ghost-layer';
 

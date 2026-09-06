@@ -1969,3 +1969,57 @@ button.item-chip[data-def-id] { cursor: pointer; }
 .fcard-cost { gap: 6px; min-height: 26px; }
 .fcard-own { font-family: var(--ui-mono); font-size: 10px; letter-spacing: 0.06em; color: var(--c-success); }
 .fcard-own.none { color: var(--c-text-faint); }
+
+/* ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * Phase 9 — 포기 hold bar · 훈련장 panel · ghost bleed bars (2026-09-06)
+ * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/* Vitals: Space give-up hold while downed (hud/Vitals, `player:giveUpProgress`) */
+.vitals .giveup { display: none; }
+.vitals .giveup.show { display: flex; flex-direction: column; gap: 4px; width: 300px; }
+.vitals .giveup .txt { font-size: 11px; font-weight: 600; letter-spacing: 0.14em; color: var(--c-danger); }
+.vitals .giveup .bar { height: 3px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
+.vitals .giveup .bar .fill { width: 100%; height: 100%; background: var(--c-danger); transform-origin: left; transform: scaleX(0); transition: transform 90ms linear; }
+
+/* 훈련장 panel under the objective (gameplay layer, hud/TrainingPanel; same slot as the contract panel, which never shows in a training) */
+.training-panel {
+  position: absolute; left: 32px; top: 104px;
+  display: flex; flex-direction: column; gap: 4px;
+  width: 240px; padding: 6px 10px 8px;
+  border-left: 2px solid var(--c-border-strong); background: rgba(8, 9, 11, 0.45);
+  opacity: 0; transform: translateX(-8px); pointer-events: none;
+  transition: opacity var(--t-med) var(--ease), transform var(--t-med) var(--ease), border-color var(--t-med) var(--ease);
+  text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+}
+.training-panel.show { opacity: 1; transform: none; }
+.training-panel .head { display: flex; align-items: center; gap: 8px; }
+.training-panel .mode {
+  font-size: 9px; letter-spacing: 0.2em; padding: 1px 5px; margin-left: auto;
+  border: 1px solid var(--c-info); color: var(--c-info);
+}
+.training-panel.timed .mode { border-color: var(--c-accent); color: var(--c-accent); }
+.training-panel .row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 11px; color: var(--c-text-dim); }
+.training-panel .num { font-family: var(--ui-mono); font-variant-numeric: tabular-nums; color: var(--c-text); }
+.training-panel .row.time .num { color: var(--c-accent); font-size: 13px; font-weight: 600; }
+.training-panel .row.time.urgent .num { color: var(--c-danger); animation: downedPulse 0.5s ease-in-out infinite alternate; }
+.training-panel .row.best .num { color: var(--c-success); }
+.training-panel .bar { position: relative; height: 3px; background: var(--c-fill); overflow: hidden; }
+.training-panel .bar .fill { position: absolute; inset: 0; background: var(--c-accent); transform-origin: left; transform: scaleX(0); transition: transform var(--t-med) var(--ease); will-change: transform; }
+.training-panel:not(.timed) .bar { display: none; }
+.training-panel.done { border-left-color: var(--c-success); }
+.training-panel.done .num { color: var(--c-success); }
+.training-panel.done .bar .fill { background: var(--c-success); }
+.training-panel.pulse { border-left-color: var(--c-accent); animation: contractPulse 900ms var(--ease); }
+.hud.spectating .training-panel { opacity: 0 !important; }
+
+/* Ghost bleed bars: a suspended member whose host ghost is downed (`ghostState 1`) shows its down pool in red over the grey hp bar */
+.nameplate .hp { position: relative; }
+.nameplate .hp .bleed, .srow .hp .bleed {
+  position: absolute; inset: 0; display: none;
+  background: var(--c-danger); transform-origin: left; transform: scaleX(0); will-change: transform;
+  transition: transform 120ms linear;
+}
+.nameplate.bleeding .hp .bleed, .srow.bleeding .hp .bleed { display: block; }
+.nameplate.bleeding .hp .fill, .srow.bleeding .hp .fill { background: rgba(154, 160, 170, 0.35); }
+.nameplate .tag.dead { color: var(--c-danger); border-color: rgba(255, 77, 77, 0.55); }
+.srow.suspended.dead .state { color: var(--c-danger); }

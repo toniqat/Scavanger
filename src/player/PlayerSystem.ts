@@ -40,6 +40,8 @@ const SPEEDMOD_ARMOR = 'armor';
 const INVULN_TIME = 0.15;
 const STIM_DURATION = 1.5;
 const DEATH_ANIM = 0.9;
+/** Phase 9: max rate of `player:giveUpProgress` while the Space give-up hold runs. */
+const GIVE_UP_PROGRESS_HZ = 20;
 /** Minimum upward speed (m/s) a knockback carries so the feet leave the ground and the shove is not eaten by friction. */
 const KNOCKBACK_MIN_LIFT = 1.5;
 
@@ -103,6 +105,9 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   private _downHp = 0;
   private bleedAcc = 0;
   private giveUpHold = 0;
+  /** Phase 9: last `player:giveUpProgress.t` emitted (-1 = idle) and when. */
+  private giveUpSent = -1;
+  private giveUpSentAt = -Infinity;
 
   // stamina
   // stamina (max comes from 지구력 via progression; PLAYER_MAX_STAMINA is the fallback)
@@ -1215,10 +1220,30 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     }
     if (active && this.ctx.input.isDown(Keys.GIVE_UP)) {
       this.giveUpHold += dt;
-      if (this.giveUpHold >= PLAYER_GIVE_UP_HOLD) { this.giveUpHold = 0; this.die(); }
+      if (this.giveUpHold >= PLAYER_GIVE_UP_HOLD) { this.giveUpHold = 0; this.die(); return; }   // die() → clearDowned → t -1
+      this.emitGiveUpProgress(Math.min(1, this.giveUpHold / PLAYER_GIVE_UP_HOLD));
     } else {
       this.giveUpHold = 0;
+      this.emitGiveUpProgress(-1);
     }
+  }
+
+  /**
+   * Phase 9: `player:giveUpProgress {t}` for the HUD bar — 0..1 while Space is held (≤ GIVE_UP_PROGRESS_HZ, only on
+   * change), a single `-1` when the hold is released / the downed state ends. Nothing is sent while idle.
+   */
+  private emitGiveUpProgress(t: number): void {
+    if (t < 0) {
+      if (this.giveUpSent < 0) return;
+      this.giveUpSent = -1;
+      this.ctx.bus.emit('player:giveUpProgress', { t: -1 });
+      return;
+    }
+    if (t === this.giveUpSent) return;
+    if (this.giveUpSent >= 0 && t < 1 && this.ctx.time - this.giveUpSentAt < 1 / GIVE_UP_PROGRESS_HZ) return;
+    this.giveUpSent = t;
+    this.giveUpSentAt = this.ctx.time;
+    this.ctx.bus.emit('player:giveUpProgress', { t });
   }
 
   private clearDowned(): void {
@@ -1226,6 +1251,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this._downHp = 0;
     this.bleedAcc = 0;
     this.giveUpHold = 0;
+    this.emitGiveUpProgress(-1);
   }
 
   private die(): void {
