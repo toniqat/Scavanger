@@ -2,7 +2,7 @@ import type { EffectiveWeaponStats, ItemDef, ItemInstance } from '@/shared';
 import { SOCKET_SLOTS } from '@/shared';
 import type { Grid } from '../Grid';
 import type { GridId } from '../InventorySystem';
-import { DURABILITY_LOW, STEP, tileSize } from './labels';
+import { DURABILITY_LOW, STEP, TEXT, tileSize } from './labels';
 
 export type DefLookup = (defId: string) => ItemDef | undefined;
 /** Effective stats for weapon instances (null for anything else); drives socket pips + durability bar. */
@@ -18,11 +18,42 @@ export interface TileHandlers {
   onDblClick(uid: string, gridId: GridId): void;
 }
 
+/** Phase 7: an item rolled into a container that has not been searched yet shows only its footprint. */
+export const isHiddenItem = (item: ItemInstance): boolean => item.searched === false;
+
+/**
+ * Footprint-only content for an unsearched container item (Phase 7 search): neutral colour, `?` icon, `???` name —
+ * nothing that leaks the def (no rarity class / colour, no qty, no pips, no durability).
+ */
+function buildHiddenTileContent(el: HTMLElement, item: ItemInstance, w: number, h: number): void {
+  el.className = 'inv-tile rarity-hidden is-hidden-item';
+  el.style.removeProperty('--rc');
+  const { width, height } = tileSize(w, h);
+  el.style.width = `${width}px`;
+  el.style.height = `${height}px`;
+  el.classList.toggle('is-wide', w >= 2);
+  el.classList.toggle('is-tall', h >= 2);
+  el.classList.toggle('is-rotated', item.rotated);
+  el.innerHTML = '';
+  const icon = document.createElement('div');
+  icon.className = 'inv-tile-icon';
+  icon.textContent = TEXT.search.hiddenIcon;
+  el.appendChild(icon);
+  if (w >= 2 || h >= 2) {
+    const name = document.createElement('div');
+    name.className = 'inv-tile-name';
+    name.textContent = TEXT.search.hiddenName;
+    el.appendChild(name);
+  }
+}
+
 /**
  * Builds the visual content of a tile (shared by grid tiles, slot tiles and the drag ghost). Weapons (`stats`
  * given) also get five socket pips (filled = attached) and a thin durability bar (amber < 30 %, red at 0).
+ * An unsearched container item (`searched === false`) renders the footprint mask instead.
  */
 export function buildTileContent(el: HTMLElement, item: ItemInstance, def: ItemDef, w: number, h: number, stats?: EffectiveWeaponStats | null): void {
+  if (isHiddenItem(item)) { buildHiddenTileContent(el, item, w, h); return; }
   el.className = `inv-tile rarity-${def.rarity}`;
   if (def.attachment) el.classList.add('is-attachment');
   if (def.bag) el.classList.add('is-bag');
@@ -107,6 +138,9 @@ export class GridView {
   private dims = '';
   /** uid → direction glyph for items assigned to the quick-use wheel (bag grid only). */
   private quickBadges = new Map<string, string>();
+  /** Phase 7: the container item being searched (`.inv-tile-scan` with `--p`) and takes awaiting the host. */
+  private scan: { uid: string; progress: number } | null = null;
+  private pendingUids = new Set<string>();
 
   constructor(readonly id: GridId, private readonly getDef: DefLookup, private readonly getStats: StatsLookup, private readonly handlers: TileHandlers) {
     this.el = document.createElement('div');
@@ -176,7 +210,9 @@ export class GridView {
       const wasHover = el.classList.contains('is-hover');
       buildTileContent(el, p.item, def, fp.w, fp.h, this.getStats(p.item));
       const badge = this.quickBadges.get(p.item.uid);
-      if (badge) addQuickBadge(el, badge);
+      if (badge && !isHiddenItem(p.item)) addQuickBadge(el, badge);
+      if (this.scan?.uid === p.item.uid) this.applyScan(el, this.scan.progress);
+      el.classList.toggle('is-pending', this.pendingUids.has(p.item.uid));
       if (wasDragging) el.classList.add('is-dragging');
       if (wasHover) el.classList.add('is-hover');
       el.style.transform = `translate(${p.x * STEP}px, ${p.y * STEP}px)`;
@@ -204,6 +240,51 @@ export class GridView {
     this.refresh(true);
   }
 
+  /* ── Phase 7: container search gauge / pending takes ── */
+
+  /**
+   * Show the search gauge on `uid` at `progress` (0..1); null clears it. Cheap: only the `--p` custom property changes
+   * while the same item is being searched (no re-render), so it can be called every frame.
+   */
+  setScan(uid: string | null, progress = 0): void {
+    const prev = this.scan;
+    if (uid === null) {
+      if (!prev) return;
+      this.scan = null;
+      const el = this.tiles.get(prev.uid);
+      if (el) { el.querySelector('.inv-tile-scan')?.remove(); el.classList.remove('is-scanning'); }
+      return;
+    }
+    const p = Math.max(0, Math.min(1, progress));
+    if (prev && prev.uid !== uid) {
+      const old = this.tiles.get(prev.uid);
+      if (old) { old.querySelector('.inv-tile-scan')?.remove(); old.classList.remove('is-scanning'); }
+    }
+    this.scan = { uid, progress: p };
+    const el = this.tiles.get(uid);
+    if (el) this.applyScan(el, p);
+  }
+
+  private applyScan(el: HTMLElement, progress: number): void {
+    let scan = el.querySelector<HTMLElement>('.inv-tile-scan');
+    if (!scan) {
+      scan = document.createElement('div');
+      scan.className = 'inv-tile-scan';
+      el.appendChild(scan);
+    }
+    scan.style.setProperty('--p', `${Math.round(progress * 100)}%`);
+    el.classList.add('is-scanning');
+  }
+
+  /** Tiles whose take is waiting for the host's answer pulse (`is-pending`). */
+  setPending(uids: ReadonlySet<string>): void {
+    let same = uids.size === this.pendingUids.size;
+    if (same) for (const u of uids) if (!this.pendingUids.has(u)) { same = false; break; }
+    if (same) return;
+    this.pendingUids = new Set(uids);
+    for (const [id, el] of this.tiles) el.classList.toggle('is-pending', this.pendingUids.has(id));
+  }
+
   /** Socket-drop feedback on a weapon tile (attachment dragged over it). null clears every tile. */
   setSocketTarget(uid: string | null, state: 'ok' | 'bad' | null): void {
     for (const [id, el] of this.tiles) {
@@ -215,6 +296,7 @@ export class GridView {
   private clearTiles(): void {
     for (const el of this.tiles.values()) el.remove();
     this.tiles.clear();
+    this.scan = null;
   }
 
   /* ── drag feedback ─────────────────────────────────────────────────────── */

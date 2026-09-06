@@ -1,10 +1,18 @@
-import type { GameContext, GameSystem, GamePhase, FlowMessage, PeerId } from '@/shared';
-import { GameContext as Ctx, Keys, PlayerFlags, PLAYER_RESPAWN_DELAY } from '@/shared';
+import type {
+  GameContext, GameSystem, GamePhase, FlowMessage, PeerId, MissionMode, RaidSessionBlob, PlayerRestoreState, GhostState, RemotePlayerRef,
+} from '@/shared';
+import {
+  GameContext as Ctx, Keys, PlayerFlags, PLAYER_RESPAWN_DELAY, RAID_FAILED_AUTO_RETURN_S, RAID_SAVE_INTERVAL_S,
+  NET_GHOST_RESTORE_TIMEOUT_S,
+} from '@/shared';
 
 const LIFTOFF_TO_COMPLETE = 6.5;   // seconds after extraction:liftoff
 const DEATH_TO_SCREEN = 2.5;       // seconds after player:died (single-player only)
-/** Phase 2: dead squads no longer fail the mission (everyone can respawn after PLAYER_RESPAWN_DELAY). Kept as a switch. */
-const MISSION_FAILS_WHEN_ALL_DEAD = false;
+/**
+ * Phase 7: a squad wipe (or a solo death) fails the raid again. Individual respawns (PLAYER_RESPAWN_DELAY) stay
+ * available in a squad until nobody is left alive / downed / alive-as-a-ghost.
+ */
+const MISSION_FAILS_WHEN_ALL_DEAD = true;
 const THREAT_MIN = 0.3;
 const THREAT_MAX = 0.7;
 const THREAT_RAMP_SECONDS = 8 * 60;
@@ -36,7 +44,7 @@ const XP_DEATH_MUL = 0.4;
  *
  * Multiplayer (all gated on `ctx.isMultiplayer`; single-player behaviour is unchanged):
  *   - Pause only shows the menu (`game:paused {freeze:false}`) — the world keeps running.
- *   - A dead player does not change phase; the host ends the mission (`flow over`) once *everyone* is dead.
+ *   - A dead player does not change phase; the host ends the raid (`flow over`) once *everyone* is out.
  *   - `flow` messages from the host mirror over / complete / abort on the clients.
  *   - `stats.extracted` = boarded && alive at completion (left-behind / dead players get `false`).
  *
@@ -48,6 +56,13 @@ const XP_DEATH_MUL = 0.4;
  *     microtask later so the squad regroups in the shared ship. Solo aborts keep the legacy title-menu behaviour.
  *   - Reconnection: `net:reconnecting` never aborts (toast only); `net:resumed {seamless:false}` aborts → shared ship;
  *     `net:lobbyLeft` (party gone) aborts after 2 s → personal ship.
+ *
+ * Phase 7 (known follow-ups):
+ *   - Squad wipe = raid failure (`game:raidFailed` + `game:over`, auto return to the ship after RAID_FAILED_AUTO_RETURN_S).
+ *   - Raid session blob (`ctx.net.saveRaid`) every RAID_SAVE_INTERVAL_S / on loot; rejoin restores it + the host's ghost.
+ *   - 시뮬레이션 훈련장 (`ctx.missionMode === 'training'`): no XP / settlement / threat, death = instant respawn,
+ *     `training:exitRequested` → abort + inventory snapshot restored + back to the ship.
+ *   - Host takeover (`net:hostChanged {isLocalHost:true}`): the new host runs the wipe check and sends `flow`.
  */
 export class GameFlowSystem implements GameSystem {
   readonly name = 'gameflow';
@@ -76,6 +91,22 @@ export class GameFlowSystem implements GameSystem {
   /** Mission-end XP is banked exactly once per mission (complete() and gameOver() are both idempotent). */
   private rewarded = false;
 
+  /* ── Phase 7 ── */
+  /** > 0 on the 레이드 실패 screen → automatic `hub:enter` when it expires. */
+  private autoReturnTimer = -1;
+  /** Raid session upload cadence (multiplayer raid only). */
+  private raidSaveTimer = -1;
+  /** Blob the server handed back with `welcome` (resume into a running raid); applied after the rejoin's `world:ready`. */
+  private raidBlob: RaidSessionBlob | null = null;
+  /** true between `net:gameStarting {rejoin:true}` and the restore / fallback. */
+  private rejoining = false;
+  /** > 0 while waiting for the host's `ghost restore` after a rejoin. */
+  private restoreTimer = -1;
+  /** Inventory as it was when the 훈련장 was entered (ammo / durability are refunded on exit). */
+  private trainingSnapshot: unknown = null;
+  /** Last ghost state per suspended member (from `net:ghostState`) for the wipe check. */
+  private ghostStates = new Map<PeerId, GhostState>();
+
   /** Pointer lock lost (Esc, alt-tab, cursor to another monitor) while playing → pause. */
   private onPointerLockChange = (): void => {
     if (this.ctx.input.isPointerLocked) return;
@@ -87,11 +118,11 @@ export class GameFlowSystem implements GameSystem {
     this.ctx = ctx;
     const b = ctx.bus;
     this.unsubs.push(
-      b.on('game:newMission', ({ seed }) => this.onNewMission(seed)),
+      b.on('game:newMission', ({ seed, mode }) => this.onNewMission(seed, mode)),
       b.on('world:ready', () => {
         if (!this.awaitingWorld) return;
         this.awaitingWorld = false;
-        this.setPhase('deploying');
+        this.onWorldReady();
       }),
       b.on('player:landed', () => {
         if (ctx.phase === 'deploying') this.setPhase('playing');
@@ -116,7 +147,7 @@ export class GameFlowSystem implements GameSystem {
       b.on('game:paused', ({ paused }) => this.setPaused(paused, false)),
       /* multiplayer */
       b.on('net:remoteDied', () => this.checkAllDead()),
-      b.on('net:peerLeft', () => this.checkAllDead()),
+      b.on('net:peerLeft', ({ id }) => { this.ghostStates.delete(id); this.checkAllDead(); }),
       b.on('net:lobbyLeft', ({ reason }) => this.onLobbyLeft(reason)),
       /* reconnection (hub era) */
       b.on('net:reconnecting', ({ attempt }) => {
@@ -132,6 +163,16 @@ export class GameFlowSystem implements GameSystem {
         ctx.bus.emit('game:abort', {});
         ctx.bus.emit('hub:enter', { ship: 'shared' });
       }),
+      /* Phase 7: raid session / rejoin / ghosts / host migration / training */
+      b.on('net:raidLoaded', ({ blob }) => { this.raidBlob = blob; }),
+      b.on('net:gameStarting', ({ rejoin, mode }) => this.onGameStarting(rejoin ?? false, mode)),
+      b.on('net:ghostRestore', ({ state }) => this.onGhostRestore(state)),
+      b.on('net:ghostState', ({ id, state }) => { this.ghostStates.set(id, state); this.checkAllDead(); }),
+      b.on('net:peerSuspended', ({ id, suspended }) => { if (!suspended) this.ghostStates.delete(id); this.checkAllDead(); }),
+      b.on('net:hostChanged', ({ isLocalHost }) => this.onHostChanged(isLocalHost)),
+      b.on('training:exitRequested', () => this.exitTraining()),
+      b.on('inventory:itemAdded', () => this.saveRaid()),
+      b.on('crate:looted', () => this.saveRaid()),
     );
     // Intended lock exits (inventory, map, menus, pause) add their blocker token / set paused
     // *before* calling exitPointerLock, so this handler only reacts to unexpected losses.
@@ -146,6 +187,15 @@ export class GameFlowSystem implements GameSystem {
   private inMission(): boolean {
     const p = this.ctx.phase;
     return this.ctx.isGameplayPhase() || p === 'deploying' || p === 'complete' || p === 'dead';
+  }
+
+  /** Live mission (not a result screen). */
+  private inLiveMission(): boolean {
+    return this.ctx.isGameplayPhase() || this.ctx.phase === 'deploying';
+  }
+
+  private isTraining(): boolean {
+    return this.ctx.missionMode === 'training';
   }
 
   /* ── Multiplayer helpers ─────────────────────────────────────────────── */
@@ -165,53 +215,58 @@ export class GameFlowSystem implements GameSystem {
     if (hostId && from !== hostId) return;
     switch (msg.ev) {
       case 'over':
-        if (ctx.isGameplayPhase() || ctx.phase === 'deploying') this.gameOver();
+        // the host decided the squad is wiped → 레이드 실패 for everyone
+        if (this.inLiveMission()) this.gameOver();
         break;
       case 'complete':
-        if (ctx.isGameplayPhase() || ctx.phase === 'deploying') this.complete();
+        if (this.inLiveMission()) this.complete();
         break;
       case 'abort':
         // host aborted the mission → the whole squad regroups in the shared ship (onAbort schedules hub:enter)
         if (this.inMission()) ctx.bus.emit('game:abort', {});
         break;
       case 'phase':
-        // Reserved: phases are derived locally from mirrored extraction events for now.
+      case 'rejoined':
+      case 'takeover':
+        // `takeover` is translated into `net:hostChanged {isLocalHost:false}` by NetSystem; phases are derived locally.
         break;
     }
   }
 
   private onLocalDied(): void {
     const ctx = this.ctx;
-    if (!ctx.isGameplayPhase() && ctx.phase !== 'deploying') return;
+    if (!this.inLiveMission()) return;
     this.boarded = false;
-    // Phase 2: death no longer fails the mission — a respawn (hellpod at the mission spawn) unlocks after PLAYER_RESPAWN_DELAY.
-    this.respawnTimer = PLAYER_RESPAWN_DELAY;
-    this.respawnLastSec = -1;
-    this.tickRespawn();
+    // 훈련장: no failure, no respawn timer — straight back onto the arena spawn.
+    if (this.isTraining()) {
+      this.setPaused(false);
+      this.respawnTimer = -1; this.respawnLastSec = -1;
+      const spawn = ctx.world?.getPlayerSpawn();
+      if (spawn) {
+        ctx.bus.emit('ui:notify', { text: '시뮬레이션 재시작', kind: 'info', duration: 2 });
+        ctx.bus.emit('player:respawn', { position: spawn.clone() });
+      }
+      return;
+    }
     if (!ctx.isMultiplayer) {
+      // Solo: the raid is lost the moment the player dies (Phase 7) — the death screen (레이드 실패) follows the usual delay.
       if (this.deathTimer >= 0) return;
+      this.respawnTimer = -1; this.respawnLastSec = -1;
       this.deathTimer = DEATH_TO_SCREEN;
       this.setPaused(false);
       return;
     }
-    // Multiplayer: the phase stays — the squad (and the host simulation) keeps going. The UI shows a spectate overlay.
+    // Multiplayer: the phase stays — the squad (and the host simulation) keeps going. The UI shows a spectate overlay;
+    // a respawn (hellpod at the mission spawn) unlocks after PLAYER_RESPAWN_DELAY unless the squad is wiped first.
+    this.respawnTimer = PLAYER_RESPAWN_DELAY;
+    this.respawnLastSec = -1;
+    this.tickRespawn();
     this.setPaused(false);
     ctx.bus.emit('ui:notify', { text: `전사 — ${PLAYER_RESPAWN_DELAY}초 후 부활 가능`, kind: 'danger', duration: 4 });
     if (MISSION_FAILS_WHEN_ALL_DEAD) {
       this.allDeadCheckTimer = ALL_DEAD_CHECK_INTERVAL;
       this.checkAllDead();
     }
-  }
-
-  /** Solo: the death screen phase (`dead`) — the mission keeps its world; `game:respawn` re-deploys. */
-  private enterDeadPhase(): void {
-    const ctx = this.ctx;
-    if (ctx.phase === 'complete' || ctx.phase === 'dead' || ctx.phase === 'menu') return;
-    ctx.stats.timeSeconds = ctx.missionTime;
-    ctx.uiBlockers.delete('inventory');
-    ctx.inventory?.closeAll();
-    this.deathTimer = -1;
-    this.setPhase('dead');
   }
 
   /** Emits `game:respawnAvailable` once per whole second while the respawn timer runs (and once at 0). */
@@ -222,25 +277,21 @@ export class GameFlowSystem implements GameSystem {
     this.ctx.bus.emit('game:respawnAvailable', { seconds: sec });
   }
 
-  /** `game:respawn` (UI): honoured only while dead and after the delay. */
+  /** `game:respawn` (UI): honoured only while dead, after the delay and while the raid is still running (never on 레이드 실패). */
   private onRespawnRequest(): void {
     const ctx = this.ctx;
     if (!(ctx.player?.isDead ?? false)) return;
-    if (this.respawnTimer > 0) return;
-    if (!(ctx.isGameplayPhase() || ctx.phase === 'deploying' || ctx.phase === 'dead')) return;
+    if (this.respawnTimer !== 0) return;
+    if (!this.inLiveMission()) return;
     const spawn = ctx.world?.getPlayerSpawn();
     if (!spawn) return;
-    this.respawnTimer = -1;
-    this.respawnLastSec = -1;
     this.deathTimer = -1; this.respawnTimer = -1; this.respawnLastSec = -1;
-    if (ctx.phase === 'dead') this.setPhase('deploying');
     ctx.bus.emit('player:respawn', { position: spawn.clone() });
   }
 
   /** Downed (tactical kit hook): the mission keeps running — a squadmate or a defibrillator can still bring the player back. */
   private onLocalDowned(): void {
-    const ctx = this.ctx;
-    if (!ctx.isGameplayPhase() && ctx.phase !== 'deploying') return;
+    if (!this.inLiveMission()) return;
     this.setPaused(false);
     // The all-dead check treats a downed player as alive, but a squadmate may be dead already: re-run it
     // so a wipe that happens while we bleed out is still noticed.
@@ -258,23 +309,45 @@ export class GameFlowSystem implements GameSystem {
     return p.isDead && !(p.isDowned ?? false);
   }
 
-  /** Host only: everyone dead → `flow over` to the squad and game over locally. Disabled by MISSION_FAILS_WHEN_ALL_DEAD (Phase 2). */
+  /**
+   * Is this remote member still "in the fight"? Ghost-aware (Phase 7):
+   *   - not part of the mission (`inMission` false / IN_HUB / left) → ignored (returns false);
+   *   - suspended (socket down, host simulates a ghost) → alive unless the ghost is dead (`state` 2);
+   *   - otherwise alive unless dead-and-not-downed (a downed peer can still be revived).
+   */
+  private isRemoteAlive(r: RemotePlayerRef): boolean {
+    if (!r.connected || !r.inMission || (r.flags & PlayerFlags.IN_HUB) !== 0) return false;
+    const downed = (r.isDowned ?? false) || (r.flags & PlayerFlags.DOWNED) !== 0;
+    if (r.suspended) {
+      const st = this.ghostStates.get(r.id);
+      if (st !== undefined) return st !== 2;
+      return !r.isDead || downed;
+    }
+    return !r.isDead || downed;
+  }
+
+  /** Host only: nobody left alive / downed / alive-as-a-ghost → `flow over` to the squad and 레이드 실패 locally. */
   private checkAllDead(): void {
     const ctx = this.ctx;
     const net = ctx.net;
     if (!MISSION_FAILS_WHEN_ALL_DEAD) return;
     if (!net || !ctx.isMultiplayer || !net.isHost) return;
-    if (!ctx.isGameplayPhase() && ctx.phase !== 'deploying') return;
+    if (this.isTraining()) return;
+    if (!this.inLiveMission()) return;
     if (!this.isLocalOut()) return;
-    for (const r of net.getRemotePlayers()) {
-      // a squadmate who aborted back to the ship (IN_HUB) or a dropped peer waiting for reconnection (stale) is not "alive in the mission";
-      // a downed peer IS still in the fight (a defibrillator can bring them back), so it blocks the wipe.
-      const downed = (r.isDowned ?? false) || (r.flags & PlayerFlags.DOWNED) !== 0;
-      if (r.connected && !r.stale && (!r.isDead || downed) && (r.flags & PlayerFlags.IN_HUB) === 0) return;
-    }
+    for (const r of net.getRemotePlayers()) if (this.isRemoteAlive(r)) return;
     this.allDeadCheckTimer = -1;
     net.send({ t: 'flow', ev: 'over' }, 'others');
     this.gameOver();
+  }
+
+  /** Phase 7: authority moved (host migration). The new host takes the wipe check over; the old one just mirrors. */
+  private onHostChanged(isLocalHost: boolean): void {
+    if (!this.inLiveMission()) return;
+    if (!isLocalHost) { this.allDeadCheckTimer = -1; return; }
+    this.wasMultiplayerHost = true;
+    if (this.isLocalOut() || (this.ctx.player?.isDowned ?? false)) this.allDeadCheckTimer = ALL_DEAD_CHECK_INTERVAL;
+    this.checkAllDead();
   }
 
   /**
@@ -284,7 +357,7 @@ export class GameFlowSystem implements GameSystem {
   private onLobbyLeft(reason: 'left' | 'disconnected' | 'kicked' | 'hostLeft'): void {
     const ctx = this.ctx;
     if (reason === 'left') return;                       // we chose to leave (abort / menu) — nothing to do
-    if (!ctx.isGameplayPhase() && ctx.phase !== 'deploying') return;
+    if (!this.inLiveMission()) return;
     if (this.disconnectAbortTimer >= 0) return;
     const text = reason === 'hostLeft' ? '호스트가 나갔습니다 — 함선으로 복귀' : reason === 'kicked' ? '분대에서 분리되었습니다' : '연결이 끊어졌습니다 — 함선으로 복귀';
     ctx.bus.emit('ui:notify', { text, kind: 'danger', duration: DISCONNECT_ABORT_DELAY });
@@ -315,7 +388,20 @@ export class GameFlowSystem implements GameSystem {
     });
   }
 
-  private onNewMission(seed: number): void {
+  /* ── Mission start / rejoin ──────────────────────────────────────────── */
+  /** NetSystem announces a session start right before its `game:newMission`; `rejoin` = re-entering a running mission. */
+  private onGameStarting(rejoin: boolean, mode: MissionMode | undefined): void {
+    const ctx = this.ctx;
+    this.rejoining = rejoin && mode !== 'training';
+    // The player must not hellpod-drop on `world:ready`: the host hands our body back with `ghost restore`.
+    ctx.rejoinPending = this.rejoining;
+    if (this.rejoining && !this.raidBlob && ctx.net?.raidBlob) this.raidBlob = ctx.net.raidBlob;
+  }
+
+  private onNewMission(seed: number, mode: MissionMode | undefined): void {
+    const ctx = this.ctx;
+    // The emitter (hub / net) sets `ctx.missionMode` before emitting; re-confirm from the event, else from the generated world.
+    ctx.missionMode = mode ?? ctx.world?.mode ?? 'raid';
     this.setPaused(false);
     this.completeTimer = -1;
     this.deathTimer = -1; this.respawnTimer = -1; this.respawnLastSec = -1;
@@ -323,19 +409,123 @@ export class GameFlowSystem implements GameSystem {
     this.boarded = false;
     this.allDeadCheckTimer = -1;
     this.disconnectAbortTimer = -1;
+    this.autoReturnTimer = -1;
+    this.restoreTimer = -1;
     this.rewarded = false;
-    this.ctx.stats = Ctx.freshStats(seed);
-    this.ctx.missionTime = 0;
-    this.ctx.uiBlockers.delete('menu');
+    this.ghostStates.clear();
+    ctx.stats = Ctx.freshStats(seed);
+    ctx.stats.mode = ctx.missionMode;
+    ctx.missionTime = 0;
+    ctx.uiBlockers.delete('menu');
+    if (!this.rejoining) ctx.rejoinPending = false;
+    // 훈련장: remember the inventory so ammo / durability spent on the range are refunded on exit.
+    this.trainingSnapshot = this.isTraining() ? (ctx.inventory?.captureRaidState() ?? null) : null;
+    this.raidSaveTimer = this.isRaidSession() ? RAID_SAVE_INTERVAL_S : -1;
     this.awaitingWorld = true;
     this.ensureNetHooks();
     // WorldSystem generates synchronously inside its own handler; if it already ran (registered earlier),
     // ctx.world.ready is true and world:ready has been emitted before we got here → handle immediately.
     // (world:ready listeners above would have been skipped because awaitingWorld was false at that time.)
-    if (this.ctx.world?.ready && this.ctx.world.seed === seed && this.ctx.phase !== 'deploying') {
+    if (ctx.world?.ready && ctx.world.seed === seed && ctx.phase !== 'deploying') {
       this.awaitingWorld = false;
-      this.setPhase('deploying');
+      this.onWorldReady();
     }
+  }
+
+  /** World generated: deploy — or, on a rejoin, restore the raid blob and wait for the host's ghost. */
+  private onWorldReady(): void {
+    const ctx = this.ctx;
+    this.setPhase('deploying');
+    if (!this.rejoining) return;
+    this.rejoining = false;
+    const blob = this.raidBlob;
+    this.raidBlob = null;
+    if (blob && blob.seed === ctx.stats.seed) {
+      try {
+        const applied = ctx.inventory?.applyRaidState(blob.inventory) ?? false;
+        ctx.stats = { ...blob.stats, seed: ctx.stats.seed, mode: ctx.missionMode };
+        ctx.missionTime = Math.max(0, blob.missionTime);
+        ctx.stats.timeSeconds = ctx.missionTime;
+        this.rewarded = false;
+        ctx.bus.emit('ui:notify', { text: applied ? '레이드 세션 복원됨' : '레이드 진행 상황 복원됨', kind: 'info', duration: 3 });
+      } catch (e) {
+        console.error('[gameflow] raid blob restore failed', e);
+      }
+    }
+    // The host answers our `flow rejoined` with `ghost restore`; if it never comes, drop in normally.
+    this.restoreTimer = NET_GHOST_RESTORE_TIMEOUT_S;
+  }
+
+  /** `ghost restore` from the host: stand where the ghost was; a dead ghost enters the respawn flow. */
+  private onGhostRestore(state: PlayerRestoreState): void {
+    const ctx = this.ctx;
+    if (!ctx.rejoinPending && this.restoreTimer < 0) return;
+    if (!this.inLiveMission()) return;
+    this.restoreTimer = -1;
+    ctx.rejoinPending = false;
+    this.rejoining = false;
+    try { ctx.player?.restoreState(state); } catch (e) { console.error('[gameflow] restoreState failed', e); }
+    if (ctx.phase === 'deploying') this.setPhase('playing');
+    if (state.state === 2) {
+      // Our body bled out while we were away: the usual squad death flow (spectate + timed respawn) applies.
+      this.respawnTimer = PLAYER_RESPAWN_DELAY;
+      this.respawnLastSec = -1;
+      this.tickRespawn();
+      ctx.bus.emit('ui:notify', { text: `전사 상태로 복귀 — ${PLAYER_RESPAWN_DELAY}초 후 부활 가능`, kind: 'danger', duration: 4 });
+      this.allDeadCheckTimer = ALL_DEAD_CHECK_INTERVAL;
+      this.checkAllDead();
+    } else {
+      ctx.bus.emit('ui:notify', { text: '임무 복귀', kind: 'success', duration: 2.5 });
+    }
+  }
+
+  /** No `ghost restore` within NET_GHOST_RESTORE_TIMEOUT_S → normal hellpod drop at the mission spawn. */
+  private restoreFallback(): void {
+    const ctx = this.ctx;
+    this.restoreTimer = -1;
+    ctx.rejoinPending = false;
+    this.rejoining = false;
+    if (!this.inLiveMission()) return;
+    const spawn = ctx.world?.getPlayerSpawn();
+    if (spawn) ctx.player?.respawn(spawn.clone());
+  }
+
+  /* ── Raid session (multiplayer raid only) ────────────────────────────── */
+  private isRaidSession(): boolean {
+    return this.ctx.isMultiplayer && this.ctx.missionMode === 'raid' && !!this.ctx.net;
+  }
+
+  /** Upload my mid-raid state so a reconnect can resume it (`RaidSessionBlob`). Cheap no-op outside a raid session. */
+  private saveRaid(): void {
+    const ctx = this.ctx;
+    if (!this.isRaidSession() || !ctx.isGameplayPhase() || ctx.rejoinPending) return;
+    const net = ctx.net!;
+    if (typeof net.saveRaid !== 'function') return;
+    try {
+      const inventory = ctx.inventory?.captureRaidState() ?? null;
+      net.saveRaid({ seed: ctx.stats.seed, missionTime: ctx.missionTime, stats: { ...ctx.stats }, inventory, savedAt: Date.now() });
+    } catch (e) {
+      console.error('[gameflow] raid save failed', e);
+    }
+    this.raidSaveTimer = RAID_SAVE_INTERVAL_S;
+  }
+
+  /* ── 훈련장 ─────────────────────────────────────────────────────────── */
+  /** The arena's exit console: leave the training, refund the inventory snapshot, back to the ship. */
+  private exitTraining(): void {
+    const ctx = this.ctx;
+    if (!this.isTraining() || !this.inMission()) return;
+    const snapshot = this.trainingSnapshot;
+    this.trainingSnapshot = null;
+    const lobby = !!ctx.net?.lobby;
+    const inSession = ctx.isMultiplayer;
+    ctx.bus.emit('game:abort', {});
+    if (snapshot != null) {
+      try { ctx.inventory?.applyRaidState(snapshot); } catch (e) { console.error('[gameflow] training snapshot restore failed', e); }
+    }
+    if (inSession && typeof ctx.net?.leaveMission === 'function') ctx.net.leaveMission();
+    ctx.bus.emit('ui:notify', { text: '시뮬레이션 훈련장 종료', kind: 'info', duration: 2.5 });
+    if (ctx.phase === 'menu') ctx.bus.emit('hub:enter', { ship: lobby ? 'shared' : 'personal' });
   }
 
   private onAbort(): void {
@@ -343,8 +533,9 @@ export class GameFlowSystem implements GameSystem {
     const fromMission = this.inMission();
     // Host abort *during* the mission → the whole squad returns to the ship together. A client aborting only leaves for
     // itself; leaving a result screen (complete / dead) is always local — the mission is already over for everyone.
-    const live = ctx.isGameplayPhase() || ctx.phase === 'deploying';
-    if (ctx.net && live && (this.wasMultiplayerHost || (ctx.isMultiplayer && ctx.net.isHost))) {
+    // A training is personal: leaving it never aborts the others.
+    const live = this.inLiveMission();
+    if (ctx.net && live && !this.isTraining() && (this.wasMultiplayerHost || (ctx.isMultiplayer && ctx.net.isHost))) {
       ctx.net.send({ t: 'flow', ev: 'abort' }, 'others');
     }
     this.wasMultiplayerHost = false;
@@ -359,8 +550,15 @@ export class GameFlowSystem implements GameSystem {
     this.boarded = false;
     this.allDeadCheckTimer = -1;
     this.disconnectAbortTimer = -1;
+    this.autoReturnTimer = -1;
+    this.raidSaveTimer = -1;
+    this.restoreTimer = -1;
+    this.rejoining = false;
+    this.raidBlob = null;
+    ctx.rejoinPending = false;
     this.rewarded = false;
     this.awaitingWorld = false;
+    this.ghostStates.clear();
     ctx.uiBlockers.delete('inventory');
     ctx.inventory?.closeAll();
     this.setPhase('menu');
@@ -385,7 +583,7 @@ export class GameFlowSystem implements GameSystem {
 
   update(dt: number, ctx: GameContext): void {
     this.ensureNetHooks();
-    if (ctx.isGameplayPhase() || ctx.phase === 'deploying') this.wasMultiplayerHost = ctx.isMultiplayer && (ctx.net?.isHost ?? false);
+    if (this.inLiveMission()) this.wasMultiplayerHost = ctx.isMultiplayer && (ctx.net?.isHost ?? false);
 
     // Escape: toggle pause (not while another UI blocker — inventory / map — is open; those
     // consume Escape in a capture-phase listener anyway).
@@ -396,8 +594,8 @@ export class GameFlowSystem implements GameSystem {
     // Single-player pause freezes everything (Engine also zeroes dt). Multiplayer: keep the timers ticking.
     if (this.paused && !ctx.isMultiplayer) return;
 
-    if (ctx.isGameplayPhase()) {
-      // Difficulty ramp 0.3 → 0.7 over 8 minutes of mission time.
+    if (ctx.isGameplayPhase() && !this.isTraining()) {
+      // Difficulty ramp 0.3 → 0.7 over 8 minutes of mission time (never on the training range).
       const t = Math.min(1, ctx.missionTime / THREAT_RAMP_SECONDS);
       const threat = THREAT_MIN + (THREAT_MAX - THREAT_MIN) * t;
       if (ctx.enemies && Math.abs(threat - this.lastThreat) > 0.01) {
@@ -412,7 +610,7 @@ export class GameFlowSystem implements GameSystem {
     }
     if (this.deathTimer >= 0) {
       this.deathTimer -= dt;
-      if (this.deathTimer < 0) this.enterDeadPhase();
+      if (this.deathTimer < 0) { this.deathTimer = -1; this.gameOver(); }
     }
     if (this.respawnTimer >= 0) {
       if (this.respawnTimer > 0) this.respawnTimer = Math.max(0, this.respawnTimer - dt);
@@ -424,6 +622,21 @@ export class GameFlowSystem implements GameSystem {
         const stillOut = this.isLocalOut() || (ctx.player?.isDowned ?? false);
         this.allDeadCheckTimer = stillOut ? ALL_DEAD_CHECK_INTERVAL : -1;
         this.checkAllDead();
+      }
+    }
+    if (this.restoreTimer >= 0) {
+      this.restoreTimer -= dt;
+      if (this.restoreTimer < 0) this.restoreFallback();
+    }
+    if (this.raidSaveTimer >= 0 && ctx.isGameplayPhase()) {
+      this.raidSaveTimer -= dt;
+      if (this.raidSaveTimer < 0) this.saveRaid();
+    }
+    if (this.autoReturnTimer >= 0) {
+      this.autoReturnTimer -= dt;
+      if (this.autoReturnTimer < 0) {
+        this.autoReturnTimer = -1;
+        if (ctx.phase === 'dead') ctx.bus.emit('hub:enter', { ship: ctx.net?.lobby ? 'shared' : 'personal' });
       }
     }
     if (this.disconnectAbortTimer >= 0) {
@@ -445,10 +658,12 @@ export class GameFlowSystem implements GameSystem {
     ctx.stats.extracted = ctx.isMultiplayer ? (this.boarded && !outOfAction) : true;
     ctx.stats.lootValue = ctx.inventory?.getTotalValue() ?? 0;
     ctx.stats.timeSeconds = ctx.missionTime;
+    ctx.stats.mode = ctx.missionMode;
     ctx.uiBlockers.delete('inventory');
     ctx.inventory?.closeAll();
     this.completeTimer = -1;
     this.allDeadCheckTimer = -1;
+    this.raidSaveTimer = -1;
     this.awardMissionXp();
     // Host: make sure every client (even one that missed the liftoff message) reaches the result screen.
     if (ctx.isMultiplayer && ctx.net?.isHost) ctx.net.send({ t: 'flow', ev: 'complete' }, 'others');
@@ -456,29 +671,40 @@ export class GameFlowSystem implements GameSystem {
     ctx.bus.emit('game:complete', { stats: { ...ctx.stats } });
   }
 
+  /** 레이드 실패: solo death (after DEATH_TO_SCREEN) or a squad wipe (host decision, mirrored by `flow over`). */
   private gameOver(): void {
     const ctx = this.ctx;
     if (ctx.phase === 'complete' || ctx.phase === 'dead' || ctx.phase === 'menu') return;
+    if (this.isTraining()) return;
     ctx.stats.extracted = false;
     ctx.stats.lootValue = ctx.inventory?.getTotalValue() ?? 0;
     ctx.stats.timeSeconds = ctx.missionTime;
+    ctx.stats.mode = ctx.missionMode;
     ctx.uiBlockers.delete('inventory');
     ctx.inventory?.closeAll();
     this.deathTimer = -1; this.respawnTimer = -1; this.respawnLastSec = -1;
     this.allDeadCheckTimer = -1;
+    this.raidSaveTimer = -1;
+    this.restoreTimer = -1;
+    ctx.rejoinPending = false;
     this.awardMissionXp();
+    const stats = { ...ctx.stats };
+    ctx.bus.emit('game:raidFailed', { stats });
     this.setPhase('dead');
-    ctx.bus.emit('game:over', { stats: { ...ctx.stats } });
+    ctx.bus.emit('game:over', { stats });
+    this.autoReturnTimer = RAID_FAILED_AUTO_RETURN_S;
   }
 
   /**
    * Bank the mission result into the persistent profile (progression/). Runs once per mission, before the
    * result screen appears, so `game:complete` / `game:over` listeners already see the new level.
    * Loot XP is only paid on a successful extraction — dying leaves the bag on the ground.
+   * A 훈련장 never pays out (and never settles a contract).
    */
   private awardMissionXp(): void {
     if (this.rewarded) return;
     this.rewarded = true;
+    if (this.isTraining()) return;
     const ctx = this.ctx;
     const prog = ctx.progression;
     if (!prog) return;

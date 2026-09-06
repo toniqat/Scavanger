@@ -160,8 +160,9 @@ try {
   await clearEv();
   await mouseDown(0);
   await waitSim(1.0);
-  const mid = await P((id) => ({ e: window.__enemy(id), lo: window.__loadout(), beam: window.__ev['weapon:beamChanged'][0] }), charger.id);
+  const mid = await P((id) => ({ e: window.__enemy(id), lo: window.__loadout(), beam: window.__ev['weapon:beamChanged'][0], rs: { ...window.__game.ctx.weapons.remoteState } }), charger.id);
   ok(mid.beam && mid.beam.active === true && mid.beam.mode === 'primary', 'weapon:beamChanged {active, primary} on LMB hold', JSON.stringify(mid.beam));
+  ok(mid.rs.spraying === true && mid.rs.charging === false, 'remoteState.spraying while the flame is on (Phase 7)', JSON.stringify(mid.rs));
   ok(mid.e && mid.e.hp < charger.hp, `flame cone damages the charger (${charger.hp} → ${mid.e?.hp?.toFixed(0)})`, JSON.stringify(mid.e));
   ok(mid.lo.mag < 120 && mid.lo.mag > 100, `fuel drains ~12/s (mag ${mid.lo.mag} after 1 s)`);
   await waitSim(2.2);
@@ -170,6 +171,7 @@ try {
   const after = await P((id) => ({ e: window.__enemy(id), lo: window.__loadout(), beam: window.__ev['weapon:beamChanged'].slice(-1)[0],
     inc: window.__ev['enemy:incinerated'], fired: window.__ev['weapon:fired'].length, dur: window.__ev['weapon:durabilityChanged'].slice(-1)[0] }), charger.id);
   ok(after.beam && after.beam.active === false, 'beam ends on release', JSON.stringify(after.beam));
+  ok((await P(() => window.__game.ctx.weapons.remoteState.spraying)) === false, 'remoteState.spraying clears on release');
   ok(after.inc.length >= 1 && after.inc[0].id === charger.id, `enemy:incinerated after ~2.5 s of flame (${after.inc.length})`, JSON.stringify(after.inc[0]));
   ok(after.e && (after.e.incap || after.e.dead), 'charger isIncapacitated (전소)', JSON.stringify(after.e));
   ok(after.fired >= 20, `weapon:fired ticks at ~10 Hz while spraying (${after.fired})`);
@@ -210,11 +212,14 @@ try {
   await waitSim(0.6);
   const charging = await P(() => window.__ev['weapon:chargeChanged'].filter((c) => c.kind === 'charge'));
   ok(charging.length >= 3 && charging.slice(-1)[0].t > 0.3 && charging.slice(-1)[0].t < 1, `chargeChanged kind:'charge' rising while RMB held (t=${charging.slice(-1)[0]?.t?.toFixed(2)})`);
+  const rsC = await P(() => ({ ...window.__game.ctx.weapons.remoteState }));
+  ok(rsC.charging === true && rsC.spraying === false, 'remoteState.charging while the bolt charges (Phase 7)', JSON.stringify(rsC));
   await waitSim(0.7);
   await mouseUp(2);
   await waitSim(0.2);
   const bolt = await P(() => ({ alt: window.__ev['weapon:altFired'].length, last: window.__ev['weapon:chargeChanged'].slice(-1)[0], hits: window.__ev['weapon:hit'].length, lo: window.__loadout(), fired: window.__ev['weapon:fired'].length }));
   ok(bolt.alt === 1 && bolt.last.t === -1, 'release → weapon:altFired + chargeChanged t:-1', JSON.stringify(bolt));
+  ok((await P(() => window.__game.ctx.weapons.remoteState.charging)) === false, 'remoteState.charging clears after the bolt');
   ok(bolt.lo.mag === magBefore - 6, `bolt consumes SHOCK_CHARGE_CELLS (${magBefore} → ${bolt.lo.mag})`);
   ok(bolt.hits >= 1, 'charged bolt hits something (weapon:hit)');
   await P(() => window.__killAll());
@@ -306,6 +311,7 @@ try {
   const eqZ = await P(() => window.__equip('wpn_u_bazooka', 'ammo_rocket', 6));
   ok(eqZ.ok, 'wpn_u_bazooka equipped', JSON.stringify(eqZ));
   await waitSim(0.6);
+  ok((await P(() => window.__game.ctx.weapons.remoteState.heavy)) === true, 'remoteState.heavy with the bazooka in hand (Phase 7)');
   const bz = await P(() => window.__spawnAhead('warrior', 14));
   const bz2 = await P(() => window.__spawnAhead('scavenger', 15, 2));
   await waitSim(0.2);
@@ -359,6 +365,8 @@ try {
   await waitSim(0.6);
   const spinning = await P(() => ({ fired: window.__ev['weapon:fired'].length, spin: window.__ev['weapon:chargeChanged'].filter((c) => c.kind === 'spinup') }));
   ok(spinning.fired === 0, 'no shot before MINIGUN_SPINUP_TIME (0.6 s in)');
+  const rsM = await P(() => ({ ...window.__game.ctx.weapons.remoteState }));
+  ok(rsM.heavy === true && rsM.charging === true, 'remoteState.heavy + charging while the minigun spins up (Phase 7)', JSON.stringify(rsM));
   ok(spinning.spin.length >= 3 && spinning.spin.slice(-1)[0].t > 0.3 && spinning.spin.slice(-1)[0].t < 1, `chargeChanged kind:'spinup' rising (t=${spinning.spin.slice(-1)[0]?.t?.toFixed(2)})`);
   await waitSim(1.4);
   const firing = await P((id) => ({ fired: window.__ev['weapon:fired'].length, e: window.__enemy(id), lo: window.__loadout(), spin: window.__ev['weapon:chargeChanged'].filter((c) => c.kind === 'spinup').slice(-1)[0] }), mg.id);
@@ -370,6 +378,7 @@ try {
   await waitSim(1.2);
   const down = await P(() => window.__ev['weapon:chargeChanged'].filter((c) => c.kind === 'spinup').slice(-1)[0]);
   ok(down && down.t === -1, 'spin-down ends with chargeChanged t:-1', JSON.stringify(down));
+  ok((await P(() => window.__game.ctx.weapons.remoteState.charging)) === false, 'remoteState.charging clears after the spin-down');
   // RMB = keep spun, no ammo
   await clearEv();
   await mouseDown(2);

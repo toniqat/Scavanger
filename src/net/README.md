@@ -8,10 +8,11 @@ Contract: `src/shared/net.ts` (types + constants) and the `net:*` events in `src
 
 | File | Responsibility |
 |---|---|
-| `NetSystem.ts` | `GameSystem` (`name: 'net'`, registered first in `main.ts`) implementing `NetRef`. Session token, connection lifecycle + auto-reconnect state machine, lobby mirror (`lobby:state` diff → `net:peerJoined/peerLeft`), quick match, `game:start` / `rejoinMission()` → `net:gameStarting` + `game:newMission`, session end (`game:complete/over/abort` → host sends `lobby:reset`), snapshot broadcast at `NET_PLAYER_SNAPSHOT_HZ` (mission + hub), inbound relay dispatch (bus translation + `onMessage` subscribers), remote player registry. |
-| `NetClient.ts` | Bare WebSocket transport: `connect(url)` resolves on `welcome`, JSON encode/decode with validation (type whitelist, 256 KB cap), `ping` every 2 s → `rttMs`, status changes (`offline/connecting/connected/error`), clean `close()`. No lobby, reconnect or gameplay knowledge. |
-| `Snapshotter.ts` | Builds the local `PlayerSnapshot` from `ctx.player` into one reused object (floats rounded to 3 decimals). Caches active weapon id/slot from `weapon:equipped` / `loadout:changed` for `w`, `HAS_WEAPON`, `TWO_HANDED`. Sets `IN_HUB` while `ctx.isHubPhase()` (and hides the weapon there) and `IN_POD` from `ctx.player.isInPod`. |
-| `RemotePlayer.ts` | `RemotePlayerRef` implementation. 16-entry ring buffer of `{arrival, snapshot}`; `tick(now)` renders at `now - NET_INTERP_DELAY`: lerp position/velocity/pitch, shortest-arc yaw/stride, extrapolate ≤ 0.25 s past the newest sample then hold, `stale` after `NET_STALE_AFTER`. Discrete fields (stance, flags, hp, weaponId, moveBlend) come from the newest sample. `resetStream()` forgets the `seq` guard + history when a peer's stream restarts (reload / rejoin with the same stable id); `push` also detects a restart itself (`seq` ≥ 200 below the last one, or any lower `seq` while stale). `position`/`velocity` are stable `Vector3` instances. |
+| `NetSystem.ts` | `GameSystem` (`name: 'net'`, registered first in `main.ts`) implementing `NetRef`. Session token, connection lifecycle + auto-reconnect state machine, lobby mirror (`lobby:state` diff → `net:peerJoined/peerLeft`; Phase 7: `net:missionMembership`, `net:peerSuspended`, `net:hostChanged`), quick match, `game:start` / `rejoinMission()` → `net:gameStarting` + `game:newMission` (training-aware), `leaveMission()`, session end (`game:complete/over/abort` → raid host sends `lobby:reset`, everyone else `lobby:mission false`), snapshot broadcast at `NET_PLAYER_SNAPSHOT_HZ` (mission + hub), inbound relay dispatch (bus translation + `onMessage` subscribers; `ghost` / `dmg.kb` / `flow takeover` applied here), remote player registry, `profile` / `raidBlob` / `saveRaid` / `missionMode` / `tookOver`. |
+| `ProfileSync.ts` | `ProfileRef` implementation behind `ctx.net.profile` (Phase 7): mirrors the server `ProfileRecord` from `welcome.profile` / `profile:docs`, `get(key)`, `set(key, doc)` with a `PROFILE_SYNC_DEBOUNCE_MS` upload queue (`profile:set`), `flush()` (also on `pagehide`, on session end and right after every welcome — queued docs are newer than the server's), `addCredits(delta, reason)` → `credits:tx` matched by `txId` (10 s timeout; rejects only when offline). Emits `net:profileLoaded {profile, migrated}` (`migrated` = server credits still null → meta/ uploads its local balance with reason `'migrate'`). `available=false` + `credits=null` while the socket is down; pending transactions reject on a drop. |
+| `NetClient.ts` | Bare WebSocket transport: `connect(url)` resolves on `welcome`, JSON encode/decode with validation (type whitelist incl. `profile:docs` / `credits:result`, 2 MB inbound cap — a welcome may carry every profile document plus a raid blob), `ping` every 2 s → `rttMs`, status changes (`offline/connecting/connected/error`), clean `close()`. No lobby, reconnect or gameplay knowledge. |
+| `Snapshotter.ts` | Builds the local `PlayerSnapshot` from `ctx.player` into one reused object (floats rounded to 3 decimals). Caches active weapon id/slot from `weapon:equipped` / `loadout:changed` for `w`, `HAS_WEAPON`, `TWO_HANDED`. Sets `IN_HUB` while `ctx.isHubPhase()` (and hides the weapon there) and `IN_POD` from `ctx.player.isInPod`. Phase 7: reads `ctx.weapons.remoteState` every snapshot (guarded when weapons is absent) → `h` (held consumable def id while `HOLDING_ITEM`), `att` (attachment ids of the active weapon, omitted when none / in the hub), flags `THROWING / COOKING / CHARGING / SPRAYING / HEAVY`; `ctx.player.isMeleeHeavy` → `MELEE_HEAVY`. |
+| `RemotePlayer.ts` | `RemotePlayerRef` implementation. 16-entry ring buffer of `{arrival, snapshot}`; `tick(now)` renders at `now - NET_INTERP_DELAY`: lerp position/velocity/pitch, shortest-arc yaw/stride, extrapolate ≤ 0.25 s past the newest sample then hold, `stale` after `NET_STALE_AFTER`. Discrete fields (stance, flags, hp, weaponId, moveBlend, `heldItemId`, `attachments` — same array while unchanged) come from the newest sample. `resetStream()` forgets the `seq` guard + history when a peer's stream restarts (reload / rejoin with the same stable id); `push` also detects a restart itself (`seq` ≥ 200 below the last one, or any lower `seq` while stale). Phase 7: `suspended` / `inMission` mirrors, `applyGhost(GhostWire)` (position / yaw / hp / DOWNED / DEAD from the host's ghost, `ghosted=true` → `tick` leaves the pose alone, `ghostDownHp`), `clearGhost()` (ghost gone; the next live `push` also clears it). `position`/`velocity` are stable `Vector3` instances. |
 | `index.ts` | Barrel. |
 
 ## Session token → stable PeerId
@@ -61,9 +62,15 @@ Contract: `src/shared/net.ts` (types + constants) and the `net:*` events in `src
 | `setReady(ready)` / `startGame(seed)` | Ready = "in a launch pod"; start requires every *connected* member ready. On a started lobby `setReady` is a server-side no-op. |
 | `setPlayerName(name)` | Persists the name; while in a lobby also sends `lobby:name` so the ship shows it. |
 | `missionInProgress` | `lobby.started && !inSession` — the party is in a mission we are not part of (after a resume, or after aborting alone). |
-| `rejoinMission()` | If `missionInProgress && lobby.seed != null`: `inSession=true`, `net:gameStarting {seed, lobby}` → `game:newMission {seed}`, then `flow rejoined` to `'all'`. The world is deterministic by seed; enemies arrive with the host's full `es` snapshots; extraction asks `exq sync`, pickups `itemq sync`. |
+| `rejoinMission()` | If `missionInProgress && lobby.seed != null`: sends `lobby:mission true`, `inSession=true`, `ctx.missionMode = lobby.mode ?? 'raid'`, `net:gameStarting {seed, lobby, rejoin:true, mode}` → `game:newMission {seed, mode}`, then `flow rejoined` to `'all'`. Used both for a raid rejoin (world by seed, enemies from `es`, extraction `exq sync`, pickups `itemq sync`, body back via `ghost restore`) and for **joining a running training** from the terminal. |
 | `inHubSession` | `lobby !== null && !inSession && phase === 'hub'`: snapshots are exchanged in the shared ship. |
 | `reconnecting`, `sessionToken` | See above. |
+| `startGame(seed, mode?)` | `'raid'` (default): host only, everyone ready. `'training'`: any member, no ready gating; the server marks only the caller `inMission`. |
+| `leaveMission()` | Leave the running mission but keep the lobby: `inSession=false`, remotes cleared, `lobby:mission false` (the server closes a training when its last member leaves), `net:lobbyUpdated`. game/ calls it on a training exit; a client's own abort goes through `game:abort` and ends the same way. |
+| `missionMode` | `lobby.mode ?? 'raid'` while the lobby is started, else null. |
+| `profile` | `ProfileRef` (see `ProfileSync.ts`). |
+| `raidBlob` / `saveRaid(blob)` | `welcome.raid` (also announced as `net:raidLoaded`) kept until the session ends; `saveRaid` sends `raid:save` only inside a raid session with the session's seed (size-guarded by `RAID_BLOB_MAX_BYTES`). |
+| `tookOver` | true once we were promoted to host during a session (reset at every session start / end). |
 
 ## Behaviour notes
 - **Never auto-connects on its own**; the hub calls `ensureConnected()`. Single-player works with no server.
@@ -80,13 +87,18 @@ Contract: `src/shared/net.ts` (types + constants) and the `net:*` events in `src
   - `fire/reload/grenade/died` → `net:remoteFired/remoteReloaded/remoteGrenade/remoteDied`
   - `ping` → `net:remotePing {id, position, kind}` (`kind` validated against `PingKind`, default `ground`; `label`/`enemyId` via `onMessage('ping')`)
   - `chat` → `net:chat {id, name, text, kind}` (`kind` validated against `ChatKind`, default `text`)
-  - `dmg` → `ctx.player.takeDamage(amount, from)` (+ `player:applySlow` when `slow` present), only while `inSession`
+  - `dmg` → `ctx.player.takeDamage(amount, from)` (+ `player:applySlow` when `slow` present, + `applyKnockback(d, s)` when `kb` present), only while `inSession`
+  - `ghost state` / `ghost sync` → the member's ref (created if missing) gets `applyGhost` → `net:ghostState {id, hp, downHp, state}`; `ghost restore` addressed to us → `net:ghostRestore {state}` (`PlayerRestoreState` with a `Vector3`); `ghost gone` → `clearGhost()`
+  - `flow takeover` (from the new host) → `net:hostChanged {hostId: from, prev, isLocalHost:false}` so every system re-requests its sync
   - **everything** (including the above) is also dispatched to `ctx.net.onMessage(type, handler)` subscribers —
-    `hit/explode/hitc/es/ee/ex/exq/flow/crate/item/itemq` are delivered *only* that way.
+    `hit/explode/hitc/es/ee/ex/exq/flow/crate/item/itemq/cont/contq/ghostq/…` are delivered *only* that way.
 - Lobby diffing: `lobby:state` emits `net:peerJoined/peerLeft` only when a previous state for the same lobby existed;
   a member flipping `connected` false → true resets that remote's snapshot stream. `peer:left` (grace expired) →
   lobby updated, RemotePlayer `connected=false`, removed 1 s later (`net:remotePlayerRemoved`).
 - `game:start` (and `rejoinMission`) clear the hub remotes; mission avatars are re-created from the first snapshots.
+  `game:start {mode:'training'}` enters the session only when our `LobbyPlayer.inMission` is true (the starter);
+  everyone else just mirrors the lobby (`missionInProgress`, `missionMode === 'training'`) and may join later with
+  `rejoinMission()`. `ctx.missionMode` is set right before `game:newMission` (the world generates synchronously inside it).
 - **Session end ordering.** NetSystem is registered before GameFlow/Extraction, so its `game:complete` / `game:over` /
   `game:abort` handlers do *not* flip `inSession` synchronously. The end is deferred with `queueMicrotask`: every
   synchronous handler of that same event (GameFlow's `flow abort`, Extraction's `ex reset`, …) still sees
@@ -95,6 +107,40 @@ Contract: `src/shared/net.ts` (types + constants) and the `net:*` events in `src
   the shared ship; a client that aborted alone sees `missionInProgress` until the host resets.
 - `lobby:left` → `lobby = null`, `inSession = false`, remotes disposed, `net:lobbyLeft {reason:'left'}`.
 - Debug: `window.__game.getSystem('net')` or `window.__game.ctx.net`.
+
+## Phase 7 (2026-09-06): profile · raid session · suspended members / ghosts · host migration · training
+- **Profile**: `welcome.profile` → `ProfileSync.onWelcome` → `net:profileLoaded {profile, migrated}` (skipped on a
+  *seamless* mid-mission resume: the documents cannot have changed, only availability / credits refresh). Persisting
+  folders call `profile.set(key, save)` after each local save; `get(key)` answers from the mirror. Offline → `set` no-op,
+  `addCredits` rejects (`오프라인`), callers fall back to their local path.
+- **Suspended members**: on every `lobby:state` the refs mirror `inMission` (`LobbyPlayer.inMission`, else
+  `started && connected`) and `suspended = inSession && inMission && !connected`. Changes emit `net:peerSuspended
+  {id, name, suspended}` (also right after a ref is created already suspended, e.g. from a `ghost state`) and
+  `net:missionMembership {id, inMission}` (for every member, ref or not). A suspended ref is **never removed** for it —
+  only `peer:left` (grace expiry) removes refs. The host's `RemotePlayerSystem` turns a suspended ref into a ghost and
+  broadcasts `ghost state`; here `applyGhost` overrides that ref's pose / vitals until `ghost gone` or a live snapshot.
+- **Host migration**: `lobby.hostId` changing while `inSession` → `net:hostChanged {hostId, prev, isLocalHost}` (from
+  `lobby:state` *and* `peer:left`). When we are the new host: `tookOver=true`, the event runs every local promotion
+  synchronously, then `flow takeover` goes to `'others'`, who emit `net:hostChanged {isLocalHost:false}` again and
+  re-request their syncs. A returning old host resumes seamlessly and is demoted by the same event. A seamless resume by
+  a non-host also sends `flow rejoined` (the new host may hold our body as a ghost → `ghost restore`).
+- **Session end**: raid host → `lobby:reset` (clears every `inMission` + raid blobs); raid client / any trainee →
+  `lobby:mission false` (the server resets a training once nobody is left). `leaveMission()` does the same synchronously
+  and is a no-op for the deferred end afterwards (`inSession` already false).
+- **Snapshot fields**: `h`, `att`, `THROWING / COOKING / CHARGING / SPRAYING / HEAVY / MELEE_HEAVY` (see `Snapshotter`);
+  `RemotePlayer.heldItemId` / `attachments` expose them (player/ and weapons/ may also read the raw `ps` via `onMessage`).
+- Not done here (other folders): ghost simulation itself (player/), raid blob capture / apply and the restore timeout
+  (game/), container authority (inventory/), training arena (world/), terminal entry (hub/).
+
+## Verified (2026-09-06, Phase 7)
+`npm run typecheck` clean for `src/net` (remaining errors were in other agents' in-progress folders), `npm run
+typecheck:server` clean, `npm run net:selftest` **165/165** (×4 runs). `node scripts/e2e-multiplayer.mjs` against a
+private relay (`PORT=8797`) + vite (`VITE_WS_URL=ws://127.0.0.1:8797/ws`, port 5311): **70/70** — profile loaded from
+welcome (`migrated:true`, meta migrated 500 credits), `addCredits(0)` round trip, overdraft refused with `크레딧 부족`,
+every member `inMission` after the raid start, `net:peerSuspended` true → false around B's socket drop, host A held
+offline > 4 s → B `net:hostChanged {isLocalHost:true}` + `tookOver` + authority, A resumed seamlessly and demoted
+(`isLocalHost:false`), `flow rejoined` reached the new host, the new host's abort reset the lobby for both, no console
+errors on either client.
 
 ## Verified (2026-09-05)
 `npm run net:selftest` 101/101. Node-level harness (TS sources under Node 24 type stripping + `@/` resolve hook, real

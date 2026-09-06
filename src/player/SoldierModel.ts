@@ -1,6 +1,7 @@
 import * as THREE from 'three';
-import { Layers } from '@/shared';
+import { Layers, type ArmorDef } from '@/shared';
 import { damp } from '@/core/util/MathUtil';
+import { buildArmorPlate, type GearLook } from './GearLook';
 
 /**
  * Per-frame pose parameters driving the procedural animation. All blends are 0..1 unless noted.
@@ -31,8 +32,6 @@ export interface SoldierPose {
   dead: number;
   /** lying on the belly, weapon forward; crawl cycle driven by stridePhase while moving */
   prone: number;
-  /** superman dive pose (body horizontal, arms forward, legs back) */
-  dive: number;
   /* ── appended: tactical kit ── */
   /** tuck-and-tumble roll blend 0..1 (Alt). Drives the limb tuck; `rollPhase` drives the rotation. */
   roll: number;
@@ -58,6 +57,9 @@ export interface SoldierPose {
   spraying?: number;
   /** heavy hip carry 0..1 (bazooka / minigun): right hand on the rear grip at the hip, left arm forward under the barrel, no ADS */
   heavyCarry?: number;
+  /* ── appended: Phase 7 (remote pose sync) ── */
+  /** pin pulled / cooking 0..1: item held in front of the chest, left hand reaching across to it (over `holdItem`) */
+  cooking?: number;
 }
 
 interface Limb {
@@ -111,6 +113,14 @@ export class SoldierModel {
   private readonly silMat: THREE.MeshBasicMaterial;
   private silhouetteOn = false;
   private fadeAlpha = 1;
+  /* ── Phase 7: armor plate look, overcharge rim glow, suspended grey tint ── */
+  private armorLook: GearLook | null = null;
+  private armorLookId: string | null = null;
+  private readonly plateMats: THREE.MeshStandardMaterial[] = [];
+  private readonly baseColors: number[] = [];
+  private glowTarget = 0;
+  private glow = 0;
+  private greyed = false;
 
   private readonly hipsBaseY = 0.98;
 
@@ -132,6 +142,7 @@ export class SoldierModel {
     this.visorMat.emissive.setHex(VISOR);
     if (accentColor !== ACCENT) this.visorMat.emissive.lerp(new THREE.Color(accentColor), 0.5);
     this.visorMat.emissiveIntensity = 0.9;
+    this.plateMats.push(mArmor, mSteel);
 
     this.root.add(this.bodyGroup);
     this.bodyGroup.add(this.hips);
@@ -227,6 +238,81 @@ export class SoldierModel {
       m.add(sil);
       this.silMeshes.push(sil);
     }
+    for (const m of this.materials) this.baseColors.push(m === this.silMat ? -1 : (m as THREE.MeshStandardMaterial).color?.getHex() ?? -1);
+  }
+
+  /* ─────────────── Phase 7: gear look / glow / grey ─────────────── */
+  /**
+   * Equipped 방탄복 plate set over the torso (`GearLook.buildArmorPlate`), the same rule for the local soldier
+   * (`PlayerGear.armor`) and remote avatars (`PlayerSnapshot.ar`). `null` removes it. Rebuilt only when the def id
+   * changes; the plates share the body's render order (never painted over by the silhouette) and follow the fade /
+   * grey tint.
+   */
+  setArmor(def: ArmorDef | null): void {
+    const id = def ? def.id : null;
+    if (id === this.armorLookId) return;
+    this.armorLookId = id;
+    if (this.armorLook) { this.armorLook.dispose(); this.armorLook = null; }
+    if (!def) return;
+    const look = buildArmorPlate(def);
+    look.group.traverse((o) => { o.renderOrder = BODY_ORDER; });
+    this.torso.add(look.group);
+    this.armorLook = look;
+    this.armorBaseColors.length = 0;
+    this.applyFadeTo(look.materials);
+    if (this.greyed) this.applyGrey(look.materials, true);
+  }
+  /** Def id of the armor plate currently shown (null = none). */
+  get armorId(): string | null { return this.armorLookId; }
+
+  /** Overcharge rim: the steel plates glow (emissive, damped in `update`) while on. */
+  setGlow(on: boolean): void { this.glowTarget = on ? 1 : 0; }
+  get glowAmount(): number { return this.glow; }
+
+  /**
+   * Suspended member (socket down, body kept by the host's ghost): every body material is desaturated to a
+   * flat grey and the visor dims. Restored exactly when turned off.
+   */
+  setGreyed(on: boolean): void {
+    if (on === this.greyed) return;
+    this.greyed = on;
+    this.applyGrey(this.materials, on);
+    if (this.armorLook) this.applyGrey(this.armorLook.materials, on);
+  }
+  get isGreyed(): boolean { return this.greyed; }
+
+  /** Desaturate (`on`) or restore every material in `mats`; base colours are the ones each material was built with. */
+  private applyGrey(mats: THREE.Material[], on: boolean): void {
+    const base = mats === this.materials ? this.baseColors : this.armorBaseColors;
+    if (mats !== this.materials && base.length !== mats.length) {
+      base.length = 0;
+      for (const m of mats) base.push((m as THREE.MeshStandardMaterial).color?.getHex() ?? -1);
+    }
+    for (let i = 0; i < mats.length; i++) {
+      if (mats[i] === this.silMat) continue;
+      const m = mats[i] as THREE.MeshStandardMaterial;
+      if (!m.color || base[i] < 0) continue;
+      if (on) {
+        const lum = _silColor.setHex(base[i]);
+        const g = 0.32 + (lum.r * 0.3 + lum.g * 0.5 + lum.b * 0.2) * 0.4;
+        m.color.setRGB(g, g, g);
+        if (m !== this.visorMat && m.emissiveIntensity > 0) m.emissiveIntensity = 0;
+      } else {
+        m.color.setHex(base[i]);
+      }
+    }
+    if (mats === this.materials) this.visorMat.emissiveIntensity = on ? 0.25 : 0.9;
+  }
+  private readonly armorBaseColors: number[] = [];
+
+  private applyFadeTo(mats: THREE.Material[]): void {
+    const alpha = this.fadeAlpha;
+    const transparent = alpha < 0.999;
+    for (const m of mats) {
+      m.transparent = transparent;
+      m.opacity = transparent ? alpha : 1;
+      m.depthWrite = !transparent || alpha > 0.5;
+    }
   }
 
   /**
@@ -257,6 +343,7 @@ export class SoldierModel {
       m.opacity = transparent ? alpha : 1;
       m.depthWrite = !transparent || alpha > 0.5;   // opacity/transparent are not shader-defining: no recompile
     }
+    if (this.armorLook) this.applyFadeTo(this.armorLook.materials);
     this.bodyGroup.visible = alpha > 0.02;
     if (transparent && this.silhouetteOn) this.setSilhouette(false);
   }
@@ -339,6 +426,7 @@ export class SoldierModel {
 
   update(dt: number, time: number, p: SoldierPose): void {
     this.syncSocketRenderOrder();
+    this.updateGlow(dt, time);
     const dead = p.dead;
     if (dead > 0) { this.poseDead(dt, p); return; }
     if (dt <= 0) return;
@@ -351,8 +439,8 @@ export class SoldierModel {
     const aim = p.aim * (p.hasWeapon ? 1 : 0);
     const ground = 1 - air;
     const breathe = Math.sin(time * 1.7);
-    // lying poses (prone / dive) blend on top of the upright pose
-    const pr = THREE.MathUtils.clamp(p.prone, 0, 1), dv = THREE.MathUtils.clamp(p.dive, 0, 1);
+    // the lying pose (prone) blends on top of the upright pose (the superman dive pose is gone — Alt rolls)
+    const pr = THREE.MathUtils.clamp(p.prone, 0, 1);
     // tactical kit blends
     const rollB = THREE.MathUtils.clamp(p.roll, 0, 1);
     const hov = THREE.MathUtils.clamp(p.hover, 0, 1);
@@ -367,23 +455,23 @@ export class SoldierModel {
     const slashSweep = mel > 0.32 ? Math.min(1, (mel - 0.32) / 0.38) : 0;
     const slashS = slashSweep * slashSweep * (3 - 2 * slashSweep);   // smoothstep so the blade accelerates through the arc
     // unique weapon stances (weapon in hand, upright only)
-    const upright = 1 - Math.min(1, THREE.MathUtils.clamp(p.prone, 0, 1) + THREE.MathUtils.clamp(p.dive, 0, 1));
+    const upright = 1 - pr;
     const chg = (p.hasWeapon ? THREE.MathUtils.clamp(p.charging ?? 0, 0, 1) : 0) * upright;
     const spr = (p.hasWeapon ? THREE.MathUtils.clamp(p.spraying ?? 0, 0, 1) : 0) * upright;
     const hvc = (p.hasWeapon ? THREE.MathUtils.clamp(p.heavyCarry ?? 0, 0, 1) : 0) * upright;
-    const lie = Math.min(1, pr + dv);
-    const dvW = lie > 0.001 ? dv / (pr + dv) : 0;      // fraction of the lying pose that is the dive
+    const lie = pr;
     const crawl = Math.min(1, p.moveBlend * 3) * pr * ground; // crawl cycle strength (prone speed ≈ 0.3 walk)
     const lerp = THREE.MathUtils.lerp;
-    // quick-use poses (item in hand / grenade wind-up) — arms only while upright, fade out while lying
+    // quick-use poses (item in hand / grenade wind-up / cooking) — arms only while upright, fade out while lying
     const hi = THREE.MathUtils.clamp(p.holdItem ?? 0, 0, 1) * (1 - lie);
     const th = THREE.MathUtils.clamp(p.throw ?? 0, 0, 1) * (1 - lie);
+    const ck = THREE.MathUtils.clamp(p.cooking ?? 0, 0, 1) * (1 - lie);
 
     // ── hips / root bob
     const bob = (Math.abs(Math.sin(phi)) - 0.5) * (0.045 + 0.03 * sp) * mv * ground;
     const standHipY = this.hipsBaseY + bob - 0.36 * cr + air * (p.verticalVel > 0 ? 0.05 : -0.02);
-    // lying: pelvis just above the ground (prone) or mid-air around the feet point (dive)
-    const lieHipY = lerp(0.27, 0.55, dvW);
+    // lying: pelvis just above the ground
+    const lieHipY = 0.27;
     let targetHipY = lerp(standHipY, lieHipY, lie);
     // braced charge / heavy slash: weight drops a little
     targetHipY -= 0.07 * chg + 0.05 * hvc + 0.09 * melW * hvy;
@@ -392,8 +480,8 @@ export class SoldierModel {
     this.hips.position.y = damp(this.hips.position.y, targetHipY, lie > 0.01 ? 10 : 20, dt);
     const hipRoll = Math.sin(phi) * 0.05 * mv * ground;
     const hipYaw = -Math.sin(phi) * 0.08 * mv * ground * (1 - aim);
-    // pitch the whole body forward: prone ≈ 85°, dive ≈ 78°
-    const hipPitch = -lerp(1.48, 1.36, dvW) * lie;
+    // pitch the whole body forward: prone ≈ 85°
+    const hipPitch = -1.48 * lie;
     const crawlRoll = Math.sin(phi) * 0.07 * crawl;
     this.j(this.hips, hipPitch, hipYaw * (1 - lie), hipRoll * (1 - lie) + crawlRoll, dt, lie > 0.01 ? 9 : 18);
 
@@ -413,11 +501,11 @@ export class SoldierModel {
     const up = THREE.MathUtils.clamp(p.verticalVel / 8, -1, 1);
     thighR += air * (0.55 + 0.2 * up); thighL += air * (-0.15 + 0.1 * up);
     kneeR += air * (-0.9); kneeL += air * (-0.5);
-    // lying: legs extended back; prone crawl = alternating knee push; dive = straight
-    const lieThighR = lerp(0.08 + Math.sin(phi) * 0.3 * crawl, -0.05, dvW);
-    const lieThighL = lerp(0.08 + Math.sin(phi + Math.PI) * 0.3 * crawl, -0.05, dvW);
-    const lieKneeR = lerp(-0.12 - 0.55 * crawl * Math.max(0, Math.cos(phi)), -0.08, dvW);
-    const lieKneeL = lerp(-0.12 - 0.55 * crawl * Math.max(0, Math.cos(phi + Math.PI)), -0.08, dvW);
+    // lying: legs extended back; prone crawl = alternating knee push
+    const lieThighR = 0.08 + Math.sin(phi) * 0.3 * crawl;
+    const lieThighL = 0.08 + Math.sin(phi + Math.PI) * 0.3 * crawl;
+    const lieKneeR = -0.12 - 0.55 * crawl * Math.max(0, Math.cos(phi));
+    const lieKneeL = -0.12 - 0.55 * crawl * Math.max(0, Math.cos(phi + Math.PI));
     const legSpread = lerp(0.03, 0.14, lie);
     let finThighR = lerp(thighR, lieThighR, lie), finThighL = lerp(thighL, lieThighL, lie);
     let finKneeR = lerp(kneeR, lieKneeR, lie), finKneeL = lerp(kneeL, lieKneeL, lie);
@@ -438,8 +526,8 @@ export class SoldierModel {
 
     // ── torso
     const standLean = -(0.06 * mv + 0.22 * sp * mv + 0.3 * cr) + p.aimPitch * 0.25 * aim + breathe * 0.012 + p.flinch * 0.25 - air * 0.08;
-    // prone: chest arched up off the ground (follows aim pitch); dive: flat
-    const lieLean = lerp(0.35 + THREE.MathUtils.clamp(p.aimPitch, -0.5, 0.8) * 0.35, 0.1, dvW) + breathe * 0.01;
+    // prone: chest arched up off the ground (follows aim pitch)
+    const lieLean = 0.35 + THREE.MathUtils.clamp(p.aimPitch, -0.5, 0.8) * 0.35 + breathe * 0.01;
     // throw wind-up: lean back a touch and twist the shoulders to the right (the arm goes back over the shoulder)
     let lean = lerp(standLean, lieLean, lie) + 0.14 * th;
     // braced charge leans into the gun; spray / heavy carry lean back against the weight
@@ -456,7 +544,7 @@ export class SoldierModel {
 
     // ── head: look along aim, counter the lean; lifted while lying
     const standHeadX = -standLean * 0.6 + p.aimPitch * 0.45 * (0.4 + 0.6 * aim) + p.flinch * 0.3;
-    const lieHeadX = lerp(0.95, 0.85, dvW) + THREE.MathUtils.clamp(p.aimPitch, -0.5, 0.8) * 0.3 + p.flinch * 0.2;
+    const lieHeadX = 0.95 + THREE.MathUtils.clamp(p.aimPitch, -0.5, 0.8) * 0.3 + p.flinch * 0.2;
     this.j(this.headPivot, lerp(standHeadX, lieHeadX, lie), twist * 0.4, 0, dt, 12);
 
     // ── arms
@@ -537,19 +625,25 @@ export class SoldierModel {
       rUx = lerp(rUx, tRUx, th); rUz = lerp(rUz, tRUz, th); rL = lerp(rL, tRL, th);
       lUx = lerp(lUx, tLUx, th); lUz = lerp(lUz, tLUz, th); lL = lerp(lL, tLL, th);
     }
+    if (ck > 0.001) {
+      // cooking (pin pulled): the item stays in front of the chest, the left hand reaches across to it and
+      // the shoulders hunch over the grenade
+      const cRUx = 0.95, cRUz = -0.3, cRL = 1.9;
+      const cLUx = 0.8, cLUz = -0.42, cLL = 1.95;
+      rUx = lerp(rUx, cRUx, ck); rUz = lerp(rUz, cRUz, ck); rL = lerp(rL, cRL, ck);
+      lUx = lerp(lUx, cLUx, ck); lUz = lerp(lUz, cLUz, ck); lL = lerp(lL, cLL, ck);
+    }
     if (lie > 0.001) {
       // prone: upper arms angled down to the ground (elbows planted), forearms up so the weapon
       // points forward along the body axis (upper + lower ≈ π); crawl = alternating reach.
-      // dive: both arms stretched straight forward (superman).
       const reachR = Math.sin(phi + Math.PI) * 0.25 * crawl, reachL = Math.sin(phi) * 0.25 * crawl;
       let pRUx = 2.55 + reachR, pRUz = -0.15, pRL = 0.6 - reachR * 0.8;
       let pLUx = (p.twoHanded ? 2.4 : 2.5) + reachL, pLUz = p.twoHanded ? 0.35 : 0.25, pLL = p.twoHanded ? 0.75 : 0.65;
       if (!p.hasWeapon) { pRL = 0.5; pLL = 0.5; }
       if (p.reloading && p.hasWeapon) { const t = time * 9; pLUx = 2.15 + Math.sin(t) * 0.12; pLUz = 0.3; pLL = 1.0 + Math.cos(t) * 0.1; }
       pRUx += p.recoil * 0.1; pRUz -= p.flinch * 0.1;
-      const dRUx = 3.0, dRUz = -0.25, dRL = 0.05, dLUx = 3.0, dLUz = 0.25, dLL = 0.05;
-      rUx = lerp(rUx, lerp(pRUx, dRUx, dvW), lie); rUz = lerp(rUz, lerp(pRUz, dRUz, dvW), lie); rL = lerp(rL, lerp(pRL, dRL, dvW), lie);
-      lUx = lerp(lUx, lerp(pLUx, dLUx, dvW), lie); lUz = lerp(lUz, lerp(pLUz, dLUz, dvW), lie); lL = lerp(lL, lerp(pLL, dLL, dvW), lie);
+      rUx = lerp(rUx, pRUx, lie); rUz = lerp(rUz, pRUz, lie); rL = lerp(rL, pRL, lie);
+      lUx = lerp(lUx, pLUx, lie); lUz = lerp(lUz, pLUz, lie); lL = lerp(lL, pLL, lie);
     }
     // ── tactical kit arm overrides (hover → arms out, roll → tucked in, melee → chop, downed → limp)
     if (hov > 0.001) {
@@ -586,13 +680,13 @@ export class SoldierModel {
     this.j(this.armL.upper, lUx, 0, lUz, dt, armLambda);
     this.j(this.armL.lower, lL, 0, 0, dt, armLambda);
 
-    // ── cape: trail behind with speed, flutter; drapes along the back when prone, streams when diving
+    // ── cape: trail behind with speed, flutter; drapes along the back when prone
     const trail = (0.25 * mv + 0.55 * sp * mv) * ground + air * 0.6 * (p.verticalVel < 0 ? 1.4 : 0.5);
     for (let i = 0; i < this.capeSegs.length; i++) {
       const seg = this.capeSegs[i];
       const flutter = Math.sin(time * (6 + i * 1.5) + i * 1.3) * (0.03 + 0.05 * mv + 0.04 * air);
       const standTarget = i === 0 ? trail * 0.5 + 0.1 : trail * 0.35 + flutter;
-      const lieTarget = lerp(0.05 + flutter * 0.3, -0.5 - i * 0.05 + flutter, dvW);
+      const lieTarget = 0.05 + flutter * 0.3;
       seg.rotation.x = damp(seg.rotation.x, lerp(standTarget, lieTarget, lie), 10 - i, dt);
       seg.rotation.z = damp(seg.rotation.z, Math.sin(time * 3 + i) * 0.02 * (1 + mv), 8, dt);
     }
@@ -646,6 +740,18 @@ export class SoldierModel {
     this.visorMat.emissiveIntensity = Math.max(0, 0.9 - d * 1.1);
   }
 
+  /** Overcharge rim glow: emissive on the steel / armor plates, damped toward `setGlow`, pulsing while on. */
+  private updateGlow(dt: number, time: number): void {
+    if (this.glow < 0.001 && this.glowTarget === 0) return;
+    this.glow = damp(this.glow, this.glowTarget, 8, dt);
+    if (this.glow < 0.001) this.glow = 0;
+    const k = this.glow * (0.55 + Math.sin(time * 5) * 0.15);
+    for (const m of this.plateMats) {
+      m.emissive.setHex(0x8fe9ff);
+      m.emissiveIntensity = k;
+    }
+  }
+
   /** Snap all joints to a neutral standing pose (respawn). */
   resetPose(): void {
     this.root.traverse((o) => { if (o !== this.root && o !== this.weaponSocket) o.rotation.set(0, 0, 0); });
@@ -659,6 +765,7 @@ export class SoldierModel {
   setVisible(v: boolean): void { this.root.visible = v; }
 
   dispose(): void {
+    if (this.armorLook) { this.armorLook.dispose(); this.armorLook = null; this.armorLookId = null; }
     for (const g of this.geometries) g.dispose();
     for (const m of this.materials) m.dispose();
     this.root.removeFromParent();

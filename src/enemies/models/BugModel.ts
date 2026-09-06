@@ -297,13 +297,18 @@ export interface BugAnim {
   writhe: number;
   /** shocked spark 0..1: cyan-white emissive strobe (flicker computed by Enemy.animate while `shockTimer` runs). */
   spark: number;
+  /* ── Phase 7 (rogue AI v2) ── */
+  /** rogue reload pose 0..1 (rifle lowered, hands at the magazine); replicas set it from wire hint 12 */
+  reload: number;
+  /** rogue grenade wind-up 0..1 (rifle to the hip, throwing arm raised with the grenade sphere); wire hint 13 */
+  throwing: number;
 }
 
 export function createBugAnim(): BugAnim {
   return {
     gait: 0, speed: 0, headYaw: 0, headPitch: 0, mandible: 0, flinch: 0, flinchX: 0, flinchZ: 0, hitFlash: 0,
     abdomen: 0, shake: 0, crouch: 0, death: -1, rollSign: 1, slopePitch: 0, slopeRoll: 0, time: 0,
-    fade: 0, aim: 0, recoil: 0, writhe: 0, spark: 0,
+    fade: 0, aim: 0, recoil: 0, writhe: 0, spark: 0, reload: 0, throwing: 0,
   };
 }
 

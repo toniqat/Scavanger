@@ -31,6 +31,8 @@ export interface RogueRig {
   gun: THREE.Group;
   /** rifle tip (world position via getWorldPosition) */
   muzzle: THREE.Object3D;
+  /** Phase 7: small grenade sphere in the off hand, visible only during the throw wind-up (`BugAnim.throwing`) */
+  grenade: THREE.Mesh;
   legs: { hip: THREE.Group; knee: THREE.Group; side: number }[];
   chitin: THREE.MeshStandardMaterial;
   eyeMat: THREE.MeshStandardMaterial;
@@ -59,8 +61,10 @@ interface Assets {
   gunArms: THREE.BufferGeometry;
   thigh: THREE.BufferGeometry;
   shin: THREE.BufferGeometry;
+  grenade: THREE.BufferGeometry;
   chitin: THREE.MeshStandardMaterial;
   eye: THREE.MeshStandardMaterial;
+  grenadeMat: THREE.MeshStandardMaterial;
 }
 const assets = new Map<RogueType, Assets>();
 const tmpColor = new THREE.Color();
@@ -149,10 +153,12 @@ function build(type: RogueType): Assets {
   ]);
   const thigh = merge([limb(0, 0, 0, 0, -THIGH, 0, 0.075, c.cloth), box(0.14, 0.2, 0.08, 0, -0.2, 0.06, c.armor)]);
   const shin = merge([limb(0, 0, 0, 0, -SHIN, 0, 0.06, c.cloth), box(0.12, 0.14, 0.12, 0, -SHIN + 0.07, 0.03, c.armor), box(0.13, 0.08, 0.26, 0, -SHIN + 0.04, 0.05, c.metal)]);
+  const grenade = new THREE.SphereGeometry(0.075, 10, 8);
   return {
-    pelvis, chest, head, visor, gunArms, thigh, shin,
+    pelvis, chest, head, visor, gunArms, thigh, shin, grenade,
     chitin: new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.6, metalness: 0.15, emissive: 0x000000 }),
     eye: new THREE.MeshStandardMaterial({ color: 0x050505, emissive: c.visor, emissiveIntensity: 2.2, roughness: 0.2 }),
+    grenadeMat: new THREE.MeshStandardMaterial({ color: 0x2a2e26, emissive: 0xc83a1a, emissiveIntensity: 0.8, roughness: 0.5, metalness: 0.4 }),
   };
 }
 
@@ -164,8 +170,8 @@ function getAssets(type: RogueType): Assets {
 
 export function disposeRogueAssets(): void {
   for (const a of assets.values()) {
-    a.pelvis.dispose(); a.chest.dispose(); a.head.dispose(); a.visor.dispose(); a.gunArms.dispose(); a.thigh.dispose(); a.shin.dispose();
-    a.chitin.dispose(); a.eye.dispose();
+    a.pelvis.dispose(); a.chest.dispose(); a.head.dispose(); a.visor.dispose(); a.gunArms.dispose(); a.thigh.dispose(); a.shin.dispose(); a.grenade.dispose();
+    a.chitin.dispose(); a.eye.dispose(); a.grenadeMat.dispose();
   }
   assets.clear();
 }
@@ -206,6 +212,13 @@ export function createRogueRig(type: RogueType): RogueRig {
   muzzle.position.set(-0.1, -0.13, 1.1);
   gun.add(muzzle);
   torso.add(gun);
+  // Phase 7: grenade in the off hand (shared material — it never flashes), hidden until the throw wind-up
+  const grenade = new THREE.Mesh(a.grenade, a.grenadeMat);
+  grenade.castShadow = true;
+  grenade.layers.enable(Layers.ENEMY);
+  grenade.visible = false;
+  grenade.position.set(-0.3, 0.5, 0.25);
+  torso.add(grenade);
 
   const legs: RogueRig['legs'] = [];
   for (const side of [1, -1]) {
@@ -222,7 +235,7 @@ export function createRogueRig(type: RogueType): RogueRig {
 
   const baseScale = type === 'rogue_boss' ? ROGUE_BOSS_SCALE : 1;
   root.scale.setScalar(baseScale);
-  return { kind: 'rogue', type, params: ROGUE_RIG_PARAMS[type], baseScale, root, body, torso, head, gun, muzzle, legs, chitin, eyeMat };
+  return { kind: 'rogue', type, params: ROGUE_RIG_PARAMS[type], baseScale, root, body, torso, head, gun, muzzle, grenade, legs, chitin, eyeMat };
 }
 
 export function disposeRogueRig(rig: RogueRig): void {
@@ -281,8 +294,25 @@ export function animateRogue(rig: RogueRig, a: BugAnim): void {
   // rifle: low-ready ↔ aimed, kick on recoil, sway while idle (flailed around while writhing)
   const k = a.recoil * a.recoil;
   const sway = (1 - a.aim) * (Math.sin(t * 1.3) * 0.03 + Math.sin(t * 2.1) * 0.02) + wr * (Math.sin(t * 9.6) * 0.5 - 0.3);
-  rig.gun.rotation.set(THREE.MathUtils.lerp(0.6, a.headPitch, a.aim) - k * 0.2 + sway + (dying ? 0.8 : 0), THREE.MathUtils.lerp(0.12, a.headYaw * 0.65, a.aim) + Math.sin(t * 8.8 + 2) * 0.4 * wr, 0);
-  rig.gun.position.set(0.23 - a.aim * 0.05, 0.5 - a.aim * 0.03, 0.06 - k * 0.07);
+  // Phase 7: reload = rifle tipped down and rolled toward the body while the hands work the magazine (small jitter);
+  // throwing = rifle dropped to the hip, off hand raised behind the head with the grenade
+  const rl = dying ? 0 : a.reload;
+  const th = dying ? 0 : a.throwing;
+  const rifleDown = rl * 0.55 + th * 0.75;
+  rig.gun.rotation.set(
+    THREE.MathUtils.lerp(0.6, a.headPitch, a.aim) - k * 0.2 + sway + (dying ? 0.8 : 0) + rifleDown + rl * Math.sin(t * 14) * 0.04,
+    THREE.MathUtils.lerp(0.12, a.headYaw * 0.65, a.aim) + Math.sin(t * 8.8 + 2) * 0.4 * wr - th * 0.35,
+    rl * 0.35 + rl * Math.sin(t * 11 + 1) * 0.05,
+  );
+  rig.gun.position.set(0.23 - a.aim * 0.05 + th * 0.05, 0.5 - a.aim * 0.03 - rl * 0.08 - th * 0.12, 0.06 - k * 0.07 - rl * 0.04);
+  const g = rig.grenade;
+  if (th > 0.02) {
+    g.visible = true;
+    // arm cocked: the grenade rises from the chest to above / behind the shoulder, then snaps forward as the blend fades
+    g.position.set(-0.32 - th * 0.08, 0.5 + th * 0.42, 0.25 - th * 0.38 + Math.sin(t * 6) * 0.02 * th);
+    const s = 0.7 + th * 0.3;
+    g.scale.setScalar(s);
+  } else if (g.visible) g.visible = false;
 
   // hit flash / 전소 glow / shock spark / visor
   statusEmissive(rig.chitin, a, 1, 0.6, 0.35, 1.1);

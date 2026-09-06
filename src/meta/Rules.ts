@@ -3,8 +3,8 @@ import type {
   ShopRule, WeaponDef,
 } from '@/shared';
 import {
-  CONTRACT_MAX_ACTIVE, CONTRACT_SQUAD_SHARE, REP_LEVEL_MAX, REP_TABLE, SHOP_BAG_RARITY_BONUS, SHOP_RARITY_CAP_BY_REP,
-  SHOP_UNLOCK_REP_LEVEL, buyPriceOf, repLevelOf,
+  CONTRACT_MAX_ACTIVE, CONTRACT_SQUAD_SHARE, RARITY_ORDER, REP_LEVEL_MAX, REP_TABLE, SHOP_BAG_RARITY_BONUS, SHOP_RARITY_CAP_BY_REP,
+  SHOP_UNLOCK_REP_LEVEL, buyPriceOf, repLevelOf, rarityRank as sharedRarityRank,
 } from '@/shared';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -12,8 +12,9 @@ import {
  * `MetaSystem` feeds them the live numbers; the smoke test and the corp screen never re-derive any of this.
  * ──────────────────────────────────────────────────────────────────────────── */
 
-export const RARITY_ORDER: readonly Rarity[] = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
-export const rarityRank = (r: Rarity): number => Math.max(0, RARITY_ORDER.indexOf(r));
+/** `@/shared` rarity rank clamped to 0 for an unknown rarity (Phase 7: the order itself lives in `shared/labels.ts`). */
+export const rarityRank = (r: Rarity): number => Math.max(0, sharedRarityRank(r));
+export { RARITY_ORDER };
 
 /** 한국어 reason strings (also what the corp screen prints). */
 export const REASON = {
@@ -72,9 +73,16 @@ const CATEGORY_SORT: readonly ItemDef['category'][] = [
   'primary', 'secondary', 'ammo', 'attachment', 'bag', 'armor', 'stim', 'grenade', 'gadget', 'material', 'herb', 'valuable', 'furniture',
 ];
 
-/** Sorted shop lines with prices and a blocking reason (`credits` = current balance; `inShip` = buying allowed now). */
+/** Would one unit of `defId` fit in the bag / stash right now? (`InventoryRef.canFit`, Phase 7). */
+export type FitLookup = (defId: string) => boolean;
+
+/**
+ * Sorted shop lines with prices and a blocking reason (`credits` = current balance; `inShip` = buying allowed now;
+ * `fits` = grid pre-check → `공간 없음`, checked last so the reason order is 함선 → 크레딧 → 공간).
+ */
 export function buildShop(
   corp: CorpDef, defs: readonly ItemDef[], level: number, credits: number, inShip: boolean, getWeaponDef: WeaponDefLookup,
+  fits: FitLookup = () => true,
 ): ShopItem[] {
   const out: ShopItem[] = [];
   for (const def of defs) {
@@ -83,6 +91,7 @@ export function buildShop(
     let blocked: string | null = null;
     if (!inShip) blocked = REASON.shipOnly;
     else if (credits < price) blocked = REASON.credits;
+    else if (!fits(def.id)) blocked = REASON.space;
     out.push({ def, price, blocked });
   }
   out.sort((a, b) => {
@@ -124,13 +133,17 @@ export interface SettleResult {
 /**
  * End-of-mission rule: `extract_with_value` reads `stats.lootValue`; success = extracted ∧ progress ≥ target (rewards paid,
  * contract cleared); extracted but short = progress kept; death = back to `progressAtStart`.
+ * `outcome` (Phase 7) names the branch: `success` / `incomplete` (extracted, short) / `failed` (raid failed — no rep even
+ * when the goal was met). ui words 미완 / 실패 from it, never from `stats.extracted`.
  */
 export function settleContract(def: ContractDef, progress: number, progressAtStart: number, stats: MissionStats): SettleResult {
   const p = def.goal === 'extract_with_value' ? Math.max(0, stats.lootValue) : progress;
   const success = !!stats.extracted && p >= def.target;
+  const outcome: NonNullable<ContractSettlement['outcome']> = success ? 'success' : stats.extracted ? 'incomplete' : 'failed';
   const settlement: ContractSettlement = {
     id: def.id, corp: def.corp, name: def.name, success, progress: p, target: def.target,
     rep: success ? def.repReward : 0, xp: success ? def.xpReward : 0, credits: success ? def.creditsReward : 0,
+    outcome,
   };
   const keepProgress = success ? null : stats.extracted ? p : Math.max(0, progressAtStart);
   return { settlement, keepProgress };

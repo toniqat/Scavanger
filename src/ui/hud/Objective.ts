@@ -7,6 +7,8 @@ export const OBJECTIVE_TEXT = {
   board: { text: '함선에 탑승하세요', sub: '후방 램프를 통해 진입' },
   liftoffSwitch: { text: '함선 내부 스위치를 작동하세요', sub: '탑승 완료 — 이륙 준비' },
   liftoff: { text: '이륙 중', sub: '임무 완료까지 대기' },
+  /** Phase 7 training arena (`ctx.isTraining()`): world/ refreshes `subText` with the target hit counter. */
+  training: { text: '시뮬레이션 훈련장 · 출구 콘솔로 종료', sub: '탄약 · 내구도 미소모' },
 } as const;
 
 /** Top-left objective panel + large digital countdown timer under the compass. */

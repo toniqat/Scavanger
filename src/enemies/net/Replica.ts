@@ -25,7 +25,7 @@ const TWO_PI = Math.PI * 2;
  */
 const STATUS_HOLD = 0.35;
 
-interface Sample {
+export interface Sample {
   t: number;              // arrival time (ctx.time)
   x: number; y: number; z: number;
   yaw: number;
@@ -130,6 +130,11 @@ export interface ReplicaHost {
   toxicVisual(id: number, p: THREE.Vector3): void;
   corpseSpawnedRemote(id: number, type: EnemyType, p: THREE.Vector3, weaponId: string | undefined): void;
   corpseGoneRemote(id: number): void;
+  /* ── Phase 7 (rogue AI v2) ── */
+  /** Visual rogue grenade from `ee grenade` (position / velocity / fuse as thrown on the host). */
+  grenadeVisual(id: number, p: THREE.Vector3, v: THREE.Vector3, fuse: number): void;
+  /** Host's `grenadeHit`: pop the local copy (or just the FX) at `p`. */
+  grenadeHitRemote(p: THREE.Vector3): void;
 }
 
 const _pose: Pose = { x: 0, y: 0, z: 0, yaw: 0 };
@@ -294,8 +299,34 @@ export class EnemyReplica {
       case 'corpseGone':
         host.corpseGoneRemote(msg.id);
         return;
+      /* ── Phase 7 ── */
+      case 'grenade': {
+        _p.set(msg.p[0], msg.p[1], msg.p[2]);
+        _p2.set(msg.v[0], msg.v[1], msg.v[2]);
+        host.grenadeVisual(msg.id, _p, _p2, msg.fuse);
+        return;
+      }
+      case 'grenadeHit':
+        _p.set(msg.p[0], msg.p[1], msg.p[2]);
+        host.grenadeHitRemote(_p);
+        return;
     }
   }
+
+  /**
+   * Phase 7 (host → client demotion): keep `e` rendering as a replica until the new host's first snapshot arrives.
+   * Seeds the ring buffer with the current pose / hp / state so `update` has something to sample; the enemy still
+   * drops out on the next full snapshot that does not list it.
+   */
+  adopt(e: Enemy, now: number): void {
+    const buf = e.netBuf ?? (e.netBuf = new ReplicaBuffer());
+    buf.clear();
+    buf.push(now, e.position.x, e.position.y, e.position.z, e.yaw, e.hp, e.state as EnemyWireState, 0, 0);
+    buf.seenSeq = this.seq;
+  }
+
+  /** Newest wire sample of a replica (promotion seeds the simulated enemy from it), or null. */
+  latestOf(e: Enemy): Sample | null { return e.netBuf ? e.netBuf.latest() : null; }
 
   /* ── per frame ────────────────────────────────────────────────────────── */
   update(dt: number): void {
@@ -333,6 +364,11 @@ export class EnemyReplica {
     e.toxicPhase = hint === 9 ? 1 : 0;
     e.dug = hint === 8 ? 1 : 0;
     e.roguePhase = hint === 5 ? 3 : hint === 6 ? 2 : hint === 7 ? 4 : 0;
+    // Phase 7: hold the reload / throw timers so Enemy.animate blends the same poses the host shows
+    if (rogue) {
+      e.reloadTimer = hint === 12 ? STATUS_HOLD : 0;
+      e.throwTimer = hint === 13 ? STATUS_HOLD : 0;
+    }
     e.position.set(_pose.x, _pose.y, _pose.z);
     if (!e.airborne) e.position.y = world.getHeightAt(_pose.x, _pose.z);   // hide small height mismatches
     e.yaw = _pose.yaw;
@@ -373,6 +409,8 @@ export class EnemyReplica {
       case 9: abdT = 1; crouchT = 0.25; mandT = 1; break;
       case 10: shakeT = 1; crouchT = a.shake * 0.3; mandT = 1; break;
       case 11: mandT = 1; pitchT = -0.2; break;
+      case 12: aimT = 0.25; crouchT = 1; break;          // Phase 7: reloading
+      case 13: aimT = 0.2; crouchT = 0; break;           // Phase 7: grenade wind-up
       default: break;
     }
     a.shake += (shakeT - a.shake) * Math.min(1, dt * (shakeT > 0 ? 2.5 : 4));

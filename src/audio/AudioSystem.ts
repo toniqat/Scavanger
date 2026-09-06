@@ -83,7 +83,7 @@ export class AudioSystem implements GameSystem {
       b.on('player:footstep', ({ position, sprinting }) => auto('footstep', position, sprinting ? 0.5 : 0.32, sprinting ? 1.05 : 1)),
       b.on('player:stimUsed', () => auto('stim')),
       b.on('player:landed', () => { auto('hellpod_impact', undefined, 1); }),
-      b.on('player:dived', () => auto('dive', undefined, 0.8, 0.95 + Math.random() * 0.1)),
+      // Phase 7: `player:dived` is the roll (the dive was replaced) — only the positional `roll` one-shot below plays now.
       b.on('player:staminaDepleted', () => auto('stamina_depleted', undefined, 0.7)),
       b.on('player:stanceChanged', ({ stance }) => auto('stance_change', undefined, 0.6, stance === 'prone' ? 0.72 : stance === 'crouch' ? 0.9 : 1.05)),
       // Scope in/out: only when the current weapon has a scope (tracked from weapon:scopeChanged).
@@ -253,7 +253,7 @@ export class AudioSystem implements GameSystem {
       b.on('inventory:overloaded', ({ state }) => { if (state === 'heavy' || state === 'over') auto('ui_deny', undefined, 0.7); }),
       b.on('equip:changed', () => auto('ui_equip', undefined, 0.6)),
       // progression
-      b.on('progress:levelUp', () => auto('level_up', undefined, 0.9)),
+      // Phase 7: `level_up` is played by the result screen (`ui/menus/RewardsBlock` → `audio:play`) when its XP bar crosses the level, not here.
       b.on('progress:skillUp', () => auto('skill_up', undefined, 0.5)),
 
       // flow

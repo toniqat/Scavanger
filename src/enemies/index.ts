@@ -14,6 +14,8 @@ export { WaveDirector, WAVE_ALIVE_CAP } from './WaveDirector';
 export { BloodFX } from './fx/BloodFX';
 export { AcidProjectiles, type AcidHost, type AcidSlow } from './fx/AcidProjectile';
 export { ShellProjectiles, type ShellHost } from './fx/ShellProjectile';
+export { RogueGrenades, type GrenadeHost } from './fx/RogueGrenade';
+export { pickCover, coverBlocksLine, flankCost, COVER_SEARCH_RADIUS } from './ai/RogueCover';
 export { LureField, type LureEntry } from './ai/Lures';
 export { refreshStructureTarget, biteStructure, STRUCT_DAMAGE_MUL } from './ai/Structures';
 export { hasLineOfSight, visionClarity, detectionRange, becomeAlert, acquireTarget, updatePerception } from './ai/Perception';

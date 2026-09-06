@@ -4,7 +4,7 @@ import {
   IMPLANT_OVERCHARGE_FIRERATE_MUL,
   QUICK_SLOTS, QUICK_SLOT_UNLOCK_ORDER, QUICK_USABLE_CATEGORIES, isQuickSlotActive, QUICK_WHEEL_HOLD, QUICK_WHEEL_DRAG_PX, GRENADE_FUSE, GRENADE_COOK_MAX, GRENADE_UNDERHAND_SPEED_MUL,
   type GameSystem, type WeaponDef, type ItemInstance, type ItemDef, type PlayerRef, type PlayerWeaponHost, type EnemyRef, type Vec3Tuple,
-  type WeaponSlot, type EffectiveWeaponStats, type SocketSlot, type WeaponClass, type GadgetId,
+  type WeaponSlot, type EffectiveWeaponStats, type WeaponClass, type GadgetId, type WeaponRemoteState,
 } from '@/shared';
 import type { Obstacle as WorldObstacle, InterceptableRef } from '@/shared';
 import { ARMOR_IMMUNE_AMMO } from '@/shared';
@@ -12,6 +12,7 @@ import { FxManager } from '@/core/fx';
 import { randomInCone } from '@/core/util/MathUtil';
 import { WEAPON_SLOTS, defaultFor, kindOf, shotSoundId, shotPitchFor, weaponClassOf, damageFalloff, statsFromDef, STANCE_ACCURACY } from './WeaponDefaults';
 import { WeaponModel, type WeaponAttachmentVisuals } from './WeaponModel';
+import { attachmentVisualsFor, attachmentIdsOf, sameIds } from './Attachments';
 import { WeaponFx } from './fx/WeaponFx';
 import { GrenadeManager } from './Grenade';
 import { ProjectilePool, projectileOptsFor, type ProjectileHit } from './Projectile';
@@ -178,6 +179,14 @@ export class WeaponSystem implements GameSystem {
   private readonly camHit = makeHit();
   private readonly gunHit = makeHit();
   private readonly weaponState = { hasWeapon: false, reloading: false, firing: false, twoHanded: false, throwing: false, holdingItem: false, charging: false, spraying: false, heavy: false, altFire: false };
+  /**
+   * Phase 7: what the snapshot builder (net/) reads every tick — one object updated in place at the end of `update`.
+   * `attachments` is replaced only when the socket set of the weapon in hand changes (`attachDirty` / uid change).
+   */
+  private readonly remoteState: WeaponRemoteState & { attachments: readonly string[] } = { heldItemId: null, throwing: false, cooking: false, charging: false, spraying: false, heavy: false, attachments: [] };
+  private attachUid: string | null = null;
+  private attachDirty = false;
+  private readonly attachScratch: string[] = [];
 
   /* ─────────────────────────── GameSystem ─────────────────────────── */
   init(ctx: GameContext): void {
@@ -187,8 +196,8 @@ export class WeaponSystem implements GameSystem {
     // Phase 3: live grenade positions for the HUD's off-screen indicators
     ctx.weapons = {
       getGrenades: () => this.grenades.getViews(),
-      /* Phase 7 skeleton (weapons/ agent implements; docs/PHASE7-PLAN.md §5) */
-      remoteState: { heldItemId: null, throwing: false, cooking: false, charging: false, spraying: false, heavy: false, attachments: [] },
+      // Phase 7: per-frame pose / held item / attachment list for the player snapshot (`PlayerSnapshot.h / att`, THROWING… flags)
+      remoteState: this.remoteState,
     };
     this.projectiles = new ProjectilePool(ctx,
       (h, dmg, weaponId) => this.onProjectileHit(h, dmg, weaponId),
@@ -399,6 +408,29 @@ export class WeaponSystem implements GameSystem {
     ws.altFire = armed && !!weapon?.unique && !weapon.unique.allowsAim;   // RMB = alt fire → player never enters ADS
     if (up?.firing) ws.firing = true;
     host.setWeaponState(ws);
+    this.updateRemoteState(armed ? weapon : null);
+  }
+
+  /**
+   * Phase 7: mirror the pose / held item into `ctx.weapons.remoteState` (read by net/ for the snapshot). The
+   * attachment list is rebuilt only when the weapon in hand changes or its sockets changed (`attachDirty`), and the
+   * array instance is replaced only when the id set actually differs.
+   */
+  private updateRemoteState(weapon: WeaponInstance | null): void {
+    const rs = this.remoteState, ws = this.weaponState;
+    rs.heldItemId = ws.holdingItem && this.quick ? this.quick.defId : null;
+    rs.throwing = ws.throwing;
+    rs.cooking = ws.throwing && this.cooking;
+    rs.charging = ws.charging;
+    rs.spraying = ws.spraying;
+    rs.heavy = ws.heavy;
+    const uid = weapon ? weapon.uid : null;
+    if (uid !== this.attachUid || this.attachDirty) {
+      this.attachUid = uid;
+      this.attachDirty = false;
+      const ids = attachmentIdsOf(weapon?.inst, this.attachScratch);
+      if (!sameIds(ids, rs.attachments)) rs.attachments = ids.slice();
+    }
   }
 
   /** Bolt-action cycle after each sniper shot: blocks firing, drives the model's bolt animation and the cycle sound. */
@@ -469,27 +501,9 @@ export class WeaponSystem implements GameSystem {
     return stats ?? statsFromDef(def);
   }
 
-  /** Attachment visuals from the instance's sockets (`att_brake`, `att_laser`, …) via the item defs. */
+  /** Attachment visuals from the instance's sockets (`att_brake`, `att_laser`, …) via the item defs (shared helper). */
   private attachmentsFor(inst: ItemInstance): WeaponAttachmentVisuals {
-    const out: WeaponAttachmentVisuals = {};
-    const sockets = inst.sockets;
-    if (!sockets) return out;
-    const loot = this.ctx.loot, inv = this.ctx.inventory;
-    for (const key of Object.keys(sockets) as SocketSlot[]) {
-      const att = sockets[key];
-      if (!att) continue;
-      const def: ItemDef | undefined = loot?.getItemDef(att.defId) ?? inv?.getDef(att.defId);
-      const socket: SocketSlot = def?.attachment?.socket ?? key;
-      const id = att.defId.toLowerCase();
-      switch (socket) {
-        case 'muzzle': out.muzzle = id.includes('comp') ? 'comp' : id.includes('choke') ? 'choke' : 'brake'; break;
-        case 'grip': out.grip = id.includes('angled') ? 'angled' : 'vertical'; break;
-        case 'sight': out.sight = (def?.attachment?.effects.laser || id.includes('laser')) ? 'laser' : 'scope'; break;
-        case 'mag': out.mag = true; break;
-        case 'stock': out.stock = true; break;
-      }
-    }
-    return out;
+    return attachmentVisualsFor(this.ctx, inst);
   }
 
   private onLoadout(items: Record<WeaponSlot, ItemInstance | null>): void {
@@ -503,6 +517,7 @@ export class WeaponSystem implements GameSystem {
         if (cur.inst !== item) cur.inst = item;
         cur.stats = this.resolveStats(item, cur.def);
         cur.model.setAttachments(this.attachmentsFor(item));
+        this.attachDirty = true;
         continue;
       }
       if (cur) this.flush(cur);
@@ -685,6 +700,7 @@ export class WeaponSystem implements GameSystem {
     if (w.inst !== item) {
       // a different object for the same uid → mirror the persistent fields onto ours and adopt it
       w.inst = item;
+      this.attachDirty = true;
     }
     if (w.inst.ammoInMag !== undefined && w.inst.ammoInMag > w.stats.magSize) w.inst.ammoInMag = w.stats.magSize;
     this.emitDurability(w);
@@ -698,6 +714,7 @@ export class WeaponSystem implements GameSystem {
     if (w.inst !== item) w.inst = item;
     w.stats = this.resolveStats(w.inst, w.def);
     w.model.setAttachments(this.attachmentsFor(w.inst));
+    this.attachDirty = true;
     // a smaller magazine (extended mag removed) → hand the excess rounds back to the bag when possible
     const mag = this.magOf(w);
     if (mag > w.stats.magSize) {

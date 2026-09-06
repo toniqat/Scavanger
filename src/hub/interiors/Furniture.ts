@@ -30,6 +30,9 @@ const LEAF = new THREE.MeshStandardMaterial({ color: 0x4f9a4a, roughness: 0.85, 
 const POT = new THREE.MeshStandardMaterial({ color: 0x8a5a3c, roughness: 0.9, metalness: 0.05 });
 const TARGET = new THREE.MeshStandardMaterial({ color: 0xe8e2d0, roughness: 0.8, metalness: 0.05 });
 const TARGET_RING = new THREE.MeshStandardMaterial({ color: 0xd23a2a, roughness: 0.7, metalness: 0.05 });
+/** 시뮬레이션 허브 hologram rings (emissive, translucent — no light). */
+const HOLO_RING = new THREE.MeshStandardMaterial({ color: 0x9fe8ff, roughness: 0.3, metalness: 0, emissive: 0x5fd7ff, emissiveIntensity: 2.2, transparent: true, opacity: 0.85, depthWrite: false });
+const HOLO_CORE = new THREE.MeshStandardMaterial({ color: 0xc8f4ff, roughness: 0.2, metalness: 0, emissive: 0x8fe0ff, emissiveIntensity: 1.6, transparent: true, opacity: 0.35, depthWrite: false });
 /** Ghost materials for the housing-mode preview. */
 export const GHOST_OK = new THREE.MeshBasicMaterial({ color: 0x5cff8a, transparent: true, opacity: 0.45, depthWrite: false });
 export const GHOST_BAD = new THREE.MeshBasicMaterial({ color: 0xff5a4a, transparent: true, opacity: 0.45, depthWrite: false });
@@ -40,6 +43,9 @@ export interface FurnitureModel {
   /** Footprint in metres (unrotated). */
   w: number;
   d: number;
+  /** Animated sub-groups (`sim_hub` hologram rings): `spin` turns about Y, `spinInner` tumbles inside it. */
+  spin?: THREE.Group;
+  spinInner?: THREE.Group;
 }
 
 /** Build the model of `def` (unrotated, centred, front toward −Z). */
@@ -52,7 +58,35 @@ export function buildFurniture(def: FurnitureDef, level = 1): FurnitureModel {
   BUILDERS[def.model](b, w, d, h, accent, level);
   const meshes: THREE.Mesh[] = [];
   b.build(g, meshes);
-  return { group: g, meshes, w, d };
+  const model: FurnitureModel = { group: g, meshes, w, d };
+  if (def.model === 'sim_hub') simHubRings(model, Math.min(w, d) / 2, h);
+  return model;
+}
+
+/**
+ * 시뮬레이션 허브 hologram: an outer horizontal ring with three emitter nodes and a tilted inner ring that tumbles,
+ * both in their own groups so `FurnitureLayer.update` can rotate them (the pedestal itself is merged and static).
+ */
+function simHubRings(model: FurnitureModel, r: number, h: number): void {
+  const dishTop = 0.15 + h * 0.42 + 0.17;
+  const y = dishTop + (h - dishTop) * 0.55;
+  const spin = new THREE.Group(); spin.name = 'sim-spin'; spin.position.y = y;
+  const outer = new GeoBatch();
+  outer.add(new THREE.TorusGeometry(r * 0.66, 0.022, 8, 48), HOLO_RING, 0, 0, 0, Math.PI / 2);
+  for (let k = 0; k < 3; k++) {
+    const a = (k / 3) * Math.PI * 2;
+    outer.box(0.09, 0.05, 0.05, Math.cos(a) * r * 0.66, 0, Math.sin(a) * r * 0.66, HOLO_RING, -a);
+  }
+  outer.build(spin, model.meshes, false, false);
+  const inner = new THREE.Group(); inner.name = 'sim-spin-inner'; inner.rotation.x = 0.55;
+  const ib = new GeoBatch();
+  ib.add(new THREE.TorusGeometry(r * 0.44, 0.016, 8, 40), HOLO_RING, 0, 0, 0, Math.PI / 2);
+  ib.add(new THREE.TorusGeometry(r * 0.3, 0.012, 8, 32), HOLO_RING, 0, 0, 0, 0, 0, Math.PI / 2);
+  ib.build(inner, model.meshes, false, false);
+  spin.add(inner);
+  model.group.add(spin);
+  model.spin = spin;
+  model.spinInner = inner;
 }
 
 /* ── builders ─────────────────────────────────────────────────────────────── */
@@ -189,8 +223,27 @@ const BUILDERS: Record<FurnitureModelKind, Builder> = {
     b.box(w - 0.12, h - seatY, 0.04, 0, seatY + (h - seatY) / 2, d / 2 - 0.07, M.padding, 0, -0.1);
     b.box(w - 0.16, 0.03, 0.03, 0, h - 0.02, d / 2 - 0.09, M.trim);
   },
-  /* Phase 7 skeleton (hub/ agent builds the real holo pedestal): plain pedestal so the catalogue stays complete. */
-  sim_hub: (b, w, d, h) => { b.box(w * 0.8, h * 0.5, d * 0.8, 0, h * 0.25, 0, M.hullDark); b.box(w * 0.5, h * 0.5, d * 0.5, 0, h * 0.75, 0, M.stripWhite); },
+  /** 시뮬레이션 허브 (Phase 7): holo pedestal — base plate, glowing foot ring, column, dish with three control pads,
+   *  emitter disc and a translucent core beam; the rotating rings are added by `simHubRings` after the merge. */
+  sim_hub: (b, w, d, h, a) => {
+    const r = Math.min(w, d) / 2;
+    b.cyl(r - 0.04, r, 0.1, 24, 0, 0.05, 0, M.hullDark);                                       // base plate
+    b.cyl(r - 0.1, r - 0.07, 0.04, 24, 0, 0.12, 0, a);                                          // foot glow ring
+    const colH = h * 0.42;
+    b.cyl(r * 0.42, r * 0.58, colH, 16, 0, 0.14 + colH / 2, 0, M.gunmetal);                    // column
+    for (let k = 0; k < 4; k++) b.box(0.03, colH - 0.1, 0.02, Math.cos(k * Math.PI / 2) * r * 0.5, 0.14 + colH / 2, Math.sin(k * Math.PI / 2) * r * 0.5, M.trim, -k * Math.PI / 2);
+    const dishY = 0.14 + colH;
+    b.cyl(r * 0.82, r * 0.52, 0.17, 24, 0, dishY + 0.085, 0, M.hullLight);                     // dish
+    const dishTop = dishY + 0.17;
+    b.cyl(r * 0.68, r * 0.68, 0.03, 24, 0, dishTop + 0.015, 0, a);                             // emitter disc
+    for (let k = 0; k < 3; k++) {                                                              // control pads
+      const ang = (k / 3) * Math.PI * 2 + Math.PI / 6;
+      const px = Math.cos(ang) * r * 0.86, pz = Math.sin(ang) * r * 0.86;
+      b.box(0.2, 0.05, 0.13, px, dishTop - 0.02, pz, M.hullDark, -ang);
+      b.box(0.15, 0.012, 0.08, px, dishTop + 0.01, pz, M.screen, -ang);
+    }
+    b.cyl(0.05, 0.11, h - dishTop - 0.15, 12, 0, dishTop + (h - dishTop - 0.15) / 2 + 0.03, 0, HOLO_CORE);   // core beam
+  },
   bunk: (b, w, d, h) => {
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.boxB(0.07, h, 0.07, sx * (w / 2 - 0.05), 0, sz * (d / 2 - 0.05), M.hullLight);
     for (const y of [0.45, h - 0.4]) {
@@ -210,6 +263,8 @@ export interface FurnitureCallbacks {
   canUse(): boolean;
   onBench(kind: WorkbenchKind, level: number): void;
   onRangeConsole(): void;
+  /** 시뮬레이션 허브 (Phase 7): start / join the 시뮬레이션 훈련장. */
+  onSimHub(): void;
 }
 
 interface Piece {
@@ -272,6 +327,16 @@ export class FurnitureLayer {
   /** Number of rendered pieces (debug / smoke). */
   get count(): number { return this.pieces.size; }
 
+  /** Per-frame animation: the 시뮬레이션 허브 rings turn slowly (nothing else animates). */
+  update(time: number): void {
+    for (const p of this.pieces.values()) {
+      const m = p.model;
+      if (!m.spin) continue;
+      m.spin.rotation.y = time * 0.6;
+      if (m.spinInner) { m.spinInner.rotation.x = 0.55 + Math.sin(time * 0.7) * 0.35; m.spinInner.rotation.z = time * 0.9; }
+    }
+  }
+
   rebuildAll(): void {
     for (const r of this.rooms) this.rebuildRoom(r.index);
   }
@@ -311,7 +376,8 @@ export class FurnitureLayer {
     let interactable: Interactable | null = null;
     if (def.interaction !== 'none') {
       const bench = benchKindOf(def.interaction);
-      const prompt = bench ? `${def.name} Lv.${item.level}` : def.name;
+      const simHub = def.interaction === 'sim_hub';
+      const prompt = bench ? `${def.name} Lv.${item.level}` : simHub ? `${def.name} · 훈련장 입장` : def.name;
       const cb = this.cb, level = item.level;
       interactable = {
         id: `hub_furn_${item.uid}`,
@@ -319,7 +385,7 @@ export class FurnitureLayer {
         radius: Math.max(w, d) / 2 + 1.1,
         getPrompt: () => (cb.canUse() ? prompt : null),
         canInteract: () => cb.canUse(),
-        interact: () => { if (bench) cb.onBench(bench, level); else cb.onRangeConsole(); },
+        interact: () => { if (bench) cb.onBench(bench, level); else if (simHub) cb.onSimHub(); else cb.onRangeConsole(); },
       };
       this.ctx.interactables.register(interactable);
     }

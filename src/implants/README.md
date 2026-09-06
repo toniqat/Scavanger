@@ -10,7 +10,7 @@
   (weapons 가 `stow()` 를 호출한 뒤 그 무기를 뽑는다 — 예전엔 장착형을 든 채로 무기 키가 먹지 않던 버그).
 
 멀티플레이 방침: **로컬 계산 + 시각 브로드캐스트**. 모든 판정은 시전자 클라이언트에서 하고, 남들에게는
-`imp` 메시지로 보여주기만 한다. 남의 캐릭터에 거는 우호 효과(회복/버프)만 `buff` 메시지로 보낸다.
+`imp` 메시지로 보여주기만 한다 (Phase 7 부터 오버차지 빔도 `imp beam` 으로 복제). 남의 캐릭터에 거는 우호 효과(회복/버프)만 `buff` 메시지로 보낸다.
 서버는 수정이 필요 없다 (`GameMessage` 를 그대로 중계).
 
 ## 파일
@@ -19,7 +19,7 @@
 |---|---|
 | `ImplantSystem.ts` | `GameSystem` + `ImplantsRef`. 입력(Q/좌/우클릭), 충전·쿨타임, 6종 동작, 이벤트 emit, `imp`/`buff` 송수신, `raycastBarrier` |
 | `ImplantDefs.ts` | `IMPLANT_DEFS` (한국어 이름/설명/아이콘/색), `getImplantDef`, `isImplantId`, `implantHex` |
-| `RemoteImplants.ts` | 원격 시전자 시각화: 손의 장치, 갈고리 와이어, 배리어(복제본도 적탄을 막는다), 스캔 파동, 로켓 |
+| `RemoteImplants.ts` | 원격 시전자 시각화: 손의 장치, 갈고리 와이어, 배리어(복제본도 적탄을 막는다), 스캔 파동, 로켓, **오버차지 빔 / 자기 발광** (Phase 7, `imp beam`) |
 | `devices/ImplantDevice.ts` | 손에 드는 절차적 장치 모델(갈고리 런처 / 오버차지 이미터 / 스캐너 / 대전차포). 무기 소켓에 붙으며 **-Z 가 총구 방향**, `muzzle` 이 끝점 |
 | `effects/Barrier.ts` | `BarrierField` — 헥사 CanvasTexture 실드 메시, 내구도, 선분 교차(`intersect`) |
 | `effects/Grapple.ts` | `GrappleWire` — 와이어 빔 + 작살 헤드 |
@@ -94,3 +94,17 @@
 임플란트 장착은 함선 **Tab 화면**(inventory 폴더, 장비 열 아래의 임플란트 슬롯 → 클릭 → 6종 카드; 장착 중인 카드를 다시 누르면 해제)에서 한다.
 터미널의 임플란트 탭과 `hub/ui/ImplantPanel` 은 삭제됐고, 함선의 임플란트 시술대(`hub_implant_bay`)는 그 Tab 화면을 연다.
 HUD 는 `ui/hud/ImplantWidget` 의 크로스헤어 좌측 세로 게이지 (대시 3분할 · 배리어 내구도/잠금 · 오버차지 에너지 · 그 외 쿨타임).
+
+## Phase 7 (2026-09-06): 오버차지 빔 복제 (`imp beam`)
+
+계약: `ImplantMessage` += `{ t: 'imp', ev: 'beam', target: PeerId | null, self: boolean }` (`src/shared/net.ts`).
+
+**송신 (`ImplantSystem`)** — `updateOvercharge` 가 매 프레임 `syncBeamNet(dt, targetId, !ally)` 를 부른다: 채널 시작, 잠긴 아군(`findAlly`) 변경, 그리고 켜져 있는 동안 `BEAM_SEND_INTERVAL` 0.25 s (≤ 4 Hz) 마다 `{target, self}` 를 `others` 에 보낸다. `self` = 아군 없이 자기만 회복 중. `setOvercharge(false)` (Q 놓음 / 에너지 0 / `stow` / 사망 / 페이즈 변경 — 모든 경로가 여기로 온다) 는 즉시 `sendBeamOff` → `{target: null, self: false}`. 늦게 합류한 클라이언트는 다음 0.25 s 갱신에서 빔을 본다.
+
+**수신 (`RemoteImplants`)** — `beam` 이벤트는 peer 상태(`beamOn / beamTarget / beamSelf / beamUntil`)만 갱신하고 시작 시 `overcharge_beam` 을 시전자 위치에서 재생한다. `update` 가 매 프레임 그린다:
+- 원점 = 시전자 아바타의 무기 소켓(없으면 가슴).
+- `target` 이 있으면 끝점 = 그 ref 의 가슴(`allyPoint`), **나 자신이 대상이면 로컬 플레이어 가슴** (`net.localId`). 대상의 hp ≥ `IMPLANT_OVERCHARGE_BUFF_HP_RATIO` 면 `boost` 색, 아니면 `heal` 색 (`OverchargeBeam` 재사용). 알 수 없는 / 끊긴 / 죽은 대상이면 아무것도 그리지 않는다 (상태는 유지).
+- `self` 면 시전자 가슴에 가산 합성 구(`glowGeo` 공유, peer 당 재질 하나)가 맥동한다. 라이트 없음.
+- `BEAM_TIMEOUT` 1 s 안에 갱신이 없으면 꺼진 것으로 본다(off 유실 대비). off / `net:remotePlayerRemoved` (`remove`) / 미션 리셋 (`clear`) 에서 빔·발광을 숨기거나 dispose 한다.
+
+검증: `npm run typecheck` (implants 폴더 0 오류). 빔은 멀티 전용이라 단일 클라이언트 smoke 로는 못 보고, `e2e:mp` 확장은 net 담당에게 위임 (실제 두 클라이언트 확인은 리드 `verify:all` 이후 권장).

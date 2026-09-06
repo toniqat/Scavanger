@@ -1,6 +1,6 @@
 import type {
   CraftIngredient, FacilityId, FacilityInfo, FurnitureDef, GameContext, GameSystem, HousingRef, LoadoutPreset, PlacedFurniture,
-  RoomPurpose, RoomState, ShipState, SkillId, StoredFurniture, WorkbenchKind,
+  ProfileRef, RoomPurpose, RoomState, ShipState, SkillId, StoredFurniture, WorkbenchKind,
 } from '@/shared';
 import { FURNITURE_DEFS, FURNITURE_DEF_MAP, IMPLANT_IDS, benchKindOf } from '@/shared';
 import {
@@ -8,7 +8,7 @@ import {
   furnitureUpgradeReason, isRoomIndex, isRoomPurpose, missingIngredients, nextFacilityCost, nextFurnitureCost, presetCountFor,
   purposeChangeReason, skillGainMulFor, stashSizeFor,
 } from './Rules';
-import { ShipStore, freshRoom, loadState, maxUidIndex } from './ShipState';
+import { ShipStore, freshRoom, loadState, maxUidIndex, sanitize, writeState } from './ShipState';
 import { RoomMenu } from './ui/RoomMenu';
 import { FacilityMenu } from './ui/FacilityMenu';
 import { PresetMenu } from './ui/PresetMenu';
@@ -25,6 +25,8 @@ const PRESET_NAME_MAX = 24;
  *
  * Materials come from `ctx.inventory.countDefAll / consumeDefAll` (bag + stash); both are guarded with `typeof`
  * because inventory/ is built in parallel — without them nothing can be bought.
+ * Phase 7: the state is mirrored into the server profile document `ship` on every save; `net:profileLoaded` replaces
+ * it with the server copy and re-emits `housing:loaded` so hub/ rebuilds the personal ship.
  */
 export class HousingSystem implements GameSystem, HousingRef {
   readonly name = 'housing';
@@ -55,7 +57,7 @@ export class HousingSystem implements GameSystem, HousingRef {
   init(ctx: GameContext): void {
     this.ctx = ctx;
     ctx.housing = this;
-    this.store = new ShipStore(() => this.state);
+    this.store = new ShipStore(() => this.state, () => this.profileRef());
     if (this.fresh) this.store.markDirty();
     this.roomMenu = new RoomMenu(ctx, this);
     this.facilityMenu = new FacilityMenu(ctx, this);
@@ -66,6 +68,7 @@ export class HousingSystem implements GameSystem, HousingRef {
       b.on('game:abort', () => { this.closeMenus(); this.exitHousingMode(); }),
       b.on('hub:left', () => { this.closeMenus(); this.exitHousingMode(); }),
       b.on('game:phaseChanged', ({ phase }) => { if (phase !== 'hub') { this.closeMenus(); this.exitHousingMode(); } }),
+      b.on('net:profileLoaded', () => this.onProfileLoaded()),
     );
     b.emit('housing:loaded', { state: this.state });
     this.lastStash = this.getStashSize();
@@ -83,6 +86,37 @@ export class HousingSystem implements GameSystem, HousingRef {
     this.roomMenu?.dispose(); this.facilityMenu?.dispose(); this.presetMenu?.dispose();
     this.roomMenu = this.facilityMenu = this.presetMenu = null;
     this.store?.dispose(); this.store = null;
+  }
+
+  /* ── server profile (Phase 7) ──────────────────────────────────────────── */
+  private profileRef(): ProfileRef | null {
+    const p = this.ctx?.net?.profile;
+    return p && typeof p === 'object' ? p : null;
+  }
+
+  /**
+   * `net:profileLoaded`: the server `ship` document (sanitised like a local load) replaces the state — housing mode and
+   * panels close first, `housing:loaded` + `housing:changed {reason:'profile'}` fire so hub/ rebuilds the personal
+   * ship, and the stash size event follows when the storage level differs. No document yet → the local state is
+   * uploaded instead.
+   */
+  private onProfileLoaded(): void {
+    const p = this.profileRef();
+    if (!p || !p.available) return;
+    let doc: unknown;
+    try { doc = p.get('ship'); } catch { doc = undefined; }
+    if (!doc || typeof doc !== 'object') { this.store?.upload(); return; }
+    this.closeMenus();
+    this.exitHousingMode();
+    this.store?.cancel();
+    this.state = sanitize(doc);
+    this.nextUid = maxUidIndex(this.state.furniture);
+    this.fresh = false;
+    writeState(this.state);                      // localStorage is the cache of the server copy (not re-uploaded)
+    const b = this.ctx.bus;
+    b.emit('housing:loaded', { state: this.state });
+    b.emit('housing:changed', { reason: 'profile' });
+    this.emitStashSizeIfChanged();
   }
 
   /* ── helpers ───────────────────────────────────────────────────────────── */

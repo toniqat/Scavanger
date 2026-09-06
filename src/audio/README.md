@@ -63,7 +63,7 @@ noise through a 0.09 Hz-swept bandpass for ventilation) fades to 0.15 in the hub
 
 ## Auto-hooked events → id
 `player:damaged`→player_hurt · `player:died`→player_death · `player:footstep`→footstep · `player:stimUsed`→stim ·
-`player:landed`→hellpod_impact · `player:dived`→dive · `player:staminaDepleted`→stamina_depleted · `player:stanceChanged`→stance_change (pitch by stance) ·
+`player:landed`→hellpod_impact · `player:dived`→roll (Phase 7: the legacy `dive` one-shot no longer doubles it) · `player:staminaDepleted`→stamina_depleted · `player:stanceChanged`→stance_change (pitch by stance) ·
 `player:aimChanged`→scope_in|scope_out **only** while the last `weapon:scopeChanged.scope` was `true` (the flag is tracked, no sound on `weapon:scopeChanged` itself; reset on `game:newMission`) ·
 `weapon:reloadStarted/Finished`→reload_start/end · `weapon:dryFire`→dry_fire ·
 `weapon:hit`→hit_flesh|hit_terrain · `grenade:thrown/exploded`→grenade_throw/explosion · `enemy:waveStarted`→wave_alarm ·
@@ -92,5 +92,5 @@ Appended (tactical kit):
   `gadget:removed {reason:'destroyed'}`→mine_explode (mines) | gadget_break, `'recovered'`→ui_equip · `gadget:throwModeChanged`→ui_click.
 - Gear / crafting / weight: `gather:collected`→gather · `craft:started`→craft_start · `craft:completed`→craft_done · `craft:failed` (not cancelled)→ui_error ·
   `repair:completed`→repair_done · `durability:broken`→durability_break · `inventory:overloaded` (heavy/over)→ui_deny · `quickbar:used`→ui_click · `equip:changed`→ui_equip.
-- Progression: `progress:levelUp`→level_up · `progress:skillUp`→skill_up.
+- Progression: `progress:skillUp`→skill_up. `level_up` is no longer auto-played on `progress:levelUp` (Phase 7) — the result screen's `RewardsBlock` emits `audio:play {id:'level_up'}` when its XP bar crosses the level, so the fanfare plays exactly once at the visible moment.
 `turret_shot` is provided for `gadgets/` to send via `audio:play` (turret fire is not auto-hooked — there is no per-shot event).

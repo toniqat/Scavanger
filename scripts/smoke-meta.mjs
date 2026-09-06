@@ -1,6 +1,9 @@
 // Single-player smoke test for the meta folder (Phase 5-c, 2026-09-06): credits / reputation / corp shop (filter, prices,
 // buy, refuse) / sale / contracts (accept gating, kill progress from a real enemy, squad share, death + success settlement)
 // / quests (deliver, rewards, chain unlock) / reload persistence / the 기업 네트워크 screen (DOM, blocker, tabs, Esc).
+// Phase 7 (2026-09-06): `canFit` pre-check (공간 없음 before the click), server credits through a fake `ctx.net.profile`
+// (optimistic debit → `credits:tx` → `meta:purchase` on the answer, refusal reverts, sell / addCredits go through the
+// transaction, `profile.set('meta')` on save, `net:profileLoaded` replace + migrate), settlement `outcome`, training.
 // Usage: node scripts/smoke-meta.mjs [http://localhost:5273/]   (needs a vite dev server; no relay required)
 import puppeteer from 'puppeteer-core';
 import { existsSync } from 'node:fs';
@@ -42,7 +45,9 @@ try {
     // Never let headless Chrome take a real pointer lock (Windows ClipCursor trap); scripts fake `pointerLockElement`.
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
-    // Park vite's HMR socket: another agent's save would otherwise full-reload the page mid-run (same trick as smoke-console).
+    // Park vite's HMR socket (another agent's save would otherwise full-reload the page mid-run, same trick as smoke-console)
+    // AND the relay socket (`/ws?t=`): a relay that happens to run on 8787 would hand the page a real server profile and make
+    // credits server-owned mid-run — this script drives that path itself with a fake `ctx.net.profile`.
     const RealWS = window.WebSocket;
     class QuietSocket extends EventTarget {
       constructor(url) { super(); this.url = String(url); this.readyState = 0; this.protocol = ''; this.binaryType = 'blob'; }
@@ -51,7 +56,7 @@ try {
     window.WebSocket = new Proxy(RealWS, {
       construct(target, args) {
         const protos = Array.isArray(args[1]) ? args[1] : [args[1]];
-        if (protos.includes('vite-hmr')) return new QuietSocket(args[0]);
+        if (protos.includes('vite-hmr') || /\/ws(\?|$)/.test(String(args[0]))) return new QuietSocket(args[0]);
         return new target(...args);
       },
     });
@@ -145,6 +150,18 @@ try {
   const cc = await lastEv('meta:creditsChanged');
   ok(cc && cc.delta === -cheap.price && cc.credits === after.credits, 'meta:creditsChanged delta −price', JSON.stringify(cc));
 
+  console.log('buy: canFit pre-check (Phase 7)');
+  await P(() => { const inv = window.__game.ctx.inventory; window.__origCanFit = inv.canFit; inv.canFit = () => null; });
+  const spaceBlocked = await P((id) => window.__game.ctx.meta.getShop('helix').find((s) => s.def.id === id)?.blocked ?? null, cheap.id);
+  ok(spaceBlocked === '공간 없음', 'shop line blocked = 공간 없음 while inventory.canFit → null (before the click)', `${spaceBlocked}`);
+  const purchasesA = (await ev('meta:purchase')).length;
+  const credA = await credits();
+  ok(await P((id) => window.__game.ctx.meta.buy('helix', id), cheap.id) === false, 'buy refused by canFit → false');
+  ok(await P(() => window.__game.ctx.meta.lastPurchaseFailure?.reason ?? null) === '공간 없음', 'lastPurchaseFailure.reason = 공간 없음');
+  ok(await credits() === credA && (await ev('meta:purchase')).length === purchasesA, 'no credits moved, no purchase event');
+  await P(() => { const inv = window.__game.ctx.inventory; if (window.__origCanFit) inv.canFit = window.__origCanFit; else delete inv.canFit; });
+  ok(await P((id) => window.__game.ctx.meta.getShop('helix').find((s) => s.def.id === id)?.blocked ?? null, cheap.id) === null, 'line unblocked again once canFit answers');
+
   console.log('refuse: no credits');
   const purchases = (await ev('meta:purchase')).length;
   await P(() => { const m = window.__game.ctx.meta; m.addCredits(-m.credits, 'smoke:drain'); });
@@ -156,6 +173,93 @@ try {
   ok(blockedNow === '크레딧 부족', 'shop line blocked = 크레딧 부족', `${blockedNow}`);
   await P((c) => window.__game.ctx.meta.addCredits(c, 'smoke:restore'), after.credits);
   ok(await credits() === after.credits, 'credits restored', `${await credits()}`);
+
+  console.log('server credits: fake ctx.net.profile (Phase 7)');
+  await P(() => {
+    const net = window.__game.ctx.net;
+    const fake = {
+      available: true, credits: window.__game.ctx.meta.credits, docs: {}, log: [], sets: [], refuseNext: false, delayMs: 30,
+      get(k) { return this.docs[k]; },
+      set(k, doc) { this.sets.push(k); this.docs[k] = JSON.parse(JSON.stringify(doc)); },
+      flush() {},
+      addCredits(delta, reason) {
+        this.log.push({ delta, reason });
+        return new Promise((resolve) => setTimeout(() => {
+          if (this.refuseNext) { this.refuseNext = false; resolve({ ok: false, credits: this.credits ?? 0, reason: '크레딧 부족' }); return; }
+          if (this.credits === null) { this.credits = reason === 'migrate' ? delta : 0; resolve({ ok: true, credits: this.credits }); return; }
+          if (this.credits + delta < 0) { resolve({ ok: false, credits: this.credits, reason: '크레딧 부족' }); return; }
+          this.credits += delta;
+          resolve({ ok: true, credits: this.credits });
+        }, this.delayMs));
+      },
+    };
+    window.__fakeProfile = fake;
+    window.__realProfileDesc = Object.getOwnPropertyDescriptor(net, 'profile') ?? null;
+    Object.defineProperty(net, 'profile', { value: fake, configurable: true, writable: true });
+  });
+  const fp = (fn) => P(fn);
+  const credS0 = await credits();
+  const purchasesS = (await ev('meta:purchase')).length;
+  const okS = await P((id) => window.__game.ctx.meta.buy('helix', id), cheap.id);
+  const sync = await P(() => ({ credits: window.__game.ctx.meta.credits, purchases: window.__ev['meta:purchase'].length, pending: window.__game.ctx.meta.hasPendingTx, last: window.__fakeProfile.log[window.__fakeProfile.log.length - 1] }));
+  ok(okS === true && sync.credits === credS0 - cheap.price && sync.purchases === purchasesS && sync.pending, 'buy() → true, optimistic debit, no meta:purchase yet, tx pending', JSON.stringify(sync));
+  ok(sync.last && sync.last.delta === -cheap.price && sync.last.reason === `buy:${cheap.id}`, `profile.addCredits(−${cheap.price}, buy:${cheap.id}) sent`, JSON.stringify(sync.last));
+  await waitFor(page, (n) => window.__ev['meta:purchase'].length > n, 'meta:purchase after the server answer', 10000, purchasesS);
+  const afterS = await P(() => ({ credits: window.__game.ctx.meta.credits, server: window.__fakeProfile.credits, pending: window.__game.ctx.meta.hasPendingTx, pu: window.__ev['meta:purchase'][window.__ev['meta:purchase'].length - 1] }));
+  ok(afterS.pu && afterS.pu.defId === cheap.id && afterS.pu.price === cheap.price && (afterS.pu.placed === 'bag' || afterS.pu.placed === 'stash'), 'meta:purchase emitted once the transaction answered', JSON.stringify(afterS.pu));
+  ok(afterS.credits === afterS.server && afterS.credits === credS0 - cheap.price && !afterS.pending, 'credits = server balance after the answer', JSON.stringify(afterS));
+  // refused transaction: the optimistic debit is reverted, no item, failure reported
+  await fp(() => { window.__fakeProfile.refuseNext = true; window.__game.ctx.meta.lastPurchaseFailure = null; });
+  const credR0 = await credits();
+  const purchasesR = (await ev('meta:purchase')).length;
+  ok(await P((id) => window.__game.ctx.meta.buy('helix', id), cheap.id) === true, 'buy() accepted before the server refuses');
+  await waitFor(page, () => !window.__game.ctx.meta.hasPendingTx, 'refusal answered', 10000);
+  const refused = await P(() => ({ credits: window.__game.ctx.meta.credits, fail: window.__game.ctx.meta.lastPurchaseFailure, purchases: window.__ev['meta:purchase'].length, cc: window.__ev['meta:creditsChanged'][window.__ev['meta:creditsChanged'].length - 1] }));
+  ok(refused.credits === credR0 && refused.purchases === purchasesR, 'server refusal → credits reverted, no meta:purchase', JSON.stringify(refused));
+  ok(refused.fail && refused.fail.reason === '크레딧 부족' && refused.fail.defId === cheap.id, 'lastPurchaseFailure {크레딧 부족} after the refusal', JSON.stringify(refused.fail));
+  ok(refused.cc && /^revert:buy:/.test(refused.cc.reason), 'meta:creditsChanged revert:buy:… on the refusal', JSON.stringify(refused.cc));
+  // every other credit move is a transaction too (optimistic apply, then the server balance)
+  const credT0 = await credits();
+  ok(await P(() => window.__game.ctx.meta.addCredits(75, 'smoke:srv')) === true && await credits() === credT0 + 75, 'addCredits(+75) applies locally at once');
+  await waitFor(page, () => !window.__game.ctx.meta.hasPendingTx, 'tx answered', 10000);
+  const tx = await P(() => ({ credits: window.__game.ctx.meta.credits, server: window.__fakeProfile.credits, last: window.__fakeProfile.log[window.__fakeProfile.log.length - 1] }));
+  ok(tx.last && tx.last.delta === 75 && tx.last.reason === 'smoke:srv' && tx.credits === tx.server, 'addCredits went through credits:tx and matches the server', JSON.stringify(tx));
+  // save mirrors the document
+  await P(() => window.__game.ctx.meta.save());
+  const setsS = await P(() => ({ sets: window.__fakeProfile.sets.slice(), doc: window.__fakeProfile.docs.meta }));
+  ok(setsS.sets.includes('meta') && setsS.doc && setsS.doc.v === 1 && setsS.doc.credits === tx.credits, "save → profile.set('meta', save)", JSON.stringify({ sets: setsS.sets, credits: setsS.doc?.credits }));
+  // net:profileLoaded: the server document replaces the save, the balance is the server's
+  const snapS = await P(() => JSON.parse(localStorage.getItem('scav.meta')));
+  const loadedBefore = (await ev('meta:loaded')).length;
+  await P((snap) => {
+    const fake = window.__fakeProfile;
+    fake.docs.meta = { ...snap, credits: 5, corps: { ...snap.corps, helix: { rep: 1000, quests: {} } } };
+    fake.credits = 4321;
+    window.__game.ctx.bus.emit('net:profileLoaded', { profile: { credits: 4321, docs: fake.docs, updatedAt: 0 }, migrated: false });
+  }, snapS);
+  const pl = await P(() => ({ credits: window.__game.ctx.meta.credits, helix: window.__game.ctx.meta.getRep('helix'), loaded: window.__ev['meta:loaded'].length, rc: window.__ev['meta:repChanged'][window.__ev['meta:repChanged'].length - 1], local: JSON.parse(localStorage.getItem('scav.meta')).credits }));
+  ok(pl.credits === 4321 && pl.local === 4321, "net:profileLoaded → credits = server balance (4321, not the document's 5), cached locally", JSON.stringify({ credits: pl.credits, local: pl.local }));
+  ok(pl.helix.rep === 1000 && pl.helix.level === 3 && pl.loaded === loadedBefore + 1 && pl.rc && pl.rc.corp === 'helix' && pl.rc.rep === 1000 && pl.rc.levelUp === true, 'server document replaced rep (helix 1000 / Lv.3) + meta:loaded + meta:repChanged {levelUp}', JSON.stringify({ helix: pl.helix, loaded: pl.loaded, rc: pl.rc }));
+  // migrate: server has no balance and no document → local balance uploaded with reason 'migrate', local save uploaded
+  await P((snap) => {
+    const fake = window.__fakeProfile;
+    // put the pre-test save back first (through the same path) so the rest of the run sees helix Lv.1 again
+    fake.docs = { meta: snap }; fake.credits = snap.credits;
+    window.__game.ctx.bus.emit('net:profileLoaded', { profile: { credits: snap.credits, docs: fake.docs, updatedAt: 0 }, migrated: false });
+    fake.docs = {}; fake.credits = null; fake.sets.length = 0; fake.log.length = 0;
+    window.__game.ctx.bus.emit('net:profileLoaded', { profile: { credits: null, docs: {}, updatedAt: 0 }, migrated: true });
+  }, snapS);
+  const mig = await P(() => ({ credits: window.__game.ctx.meta.credits, helix: window.__game.ctx.meta.getRep('helix').rep, log: window.__fakeProfile.log.slice(), sets: window.__fakeProfile.sets.slice() }));
+  ok(mig.credits === snapS.credits && mig.helix === snapS.corps.helix.rep, 'restored save through net:profileLoaded (helix rep back)', JSON.stringify({ credits: mig.credits, helix: mig.helix }));
+  ok(mig.log.length === 1 && mig.log[0].reason === 'migrate' && mig.log[0].delta === snapS.credits, `migrated:true → addCredits(${snapS.credits}, 'migrate')`, JSON.stringify(mig.log));
+  ok(mig.sets.includes('meta'), 'no server document → local save uploaded', JSON.stringify(mig.sets));
+  await waitFor(page, () => !window.__game.ctx.meta.hasPendingTx, 'migrate answered', 10000);
+  ok(await P(() => window.__fakeProfile.credits === window.__game.ctx.meta.credits), 'server balance = local balance after the migration');
+  await P(() => {
+    const net = window.__game.ctx.net;
+    if (window.__realProfileDesc) Object.defineProperty(net, 'profile', window.__realProfileDesc); else delete net.profile;
+  });
+  ok(await P(() => window.__game.ctx.net.profile.available === false), 'real (offline) profile restored');
 
   console.log('sell');
   const gem = await P(() => { const c = window.__game.ctx; const it = c.loot.createItem('gem_amber', 1); return c.inventory.tryAddItem(it) ? it.uid : null; });
@@ -224,17 +328,38 @@ try {
   const credBeforeSettle = await credits();
   const dead = await P(() => window.__game.ctx.meta.settleMission({ ...window.__game.ctx.stats, extracted: false }));
   ok(dead && dead.success === false && dead.progress === 31 && dead.rep === 0 && dead.credits === 0 && dead.xp === 0, 'settleMission(extracted:false) → not success, no rewards', JSON.stringify(dead));
+  ok(dead.outcome === 'failed', "settlement.outcome = 'failed' on a failed raid", `${dead.outcome}`);
   let acNow = await P(() => window.__game.ctx.meta.activeContract);
   ok(acNow && acNow.progress === 0, 'progress reverted to progressAtStart (0)', JSON.stringify(acNow && acNow.progress));
   ok(await credits() === credBeforeSettle, 'credits unchanged after death');
   let cs = await lastEv('meta:contractSettled');
   ok(cs && cs.id === 'helix_1' && cs.success === false, 'meta:contractSettled {helix_1, success:false}', JSON.stringify(cs));
 
+  console.log('settlement: training + incomplete (Phase 7)');
+  const settledN = (await ev('meta:contractSettled')).length;
+  ok(await P(() => window.__game.ctx.meta.settleMission({ ...window.__game.ctx.stats, mode: 'training', extracted: true })) === null, 'settleMission(mode:training) → null');
+  ok((await ev('meta:contractSettled')).length === settledN && (await P(() => window.__game.ctx.meta.activeContract?.def.id)) === 'helix_1', 'training settles nothing (no event, contract untouched)');
+  await P(() => window.__game.ctx.meta.reportContractHit('kill_bugs', 3, true));
+  const short = await P(() => window.__game.ctx.meta.settleMission({ ...window.__game.ctx.stats, mode: 'raid', extracted: true }));
+  ok(short && short.success === false && short.outcome === 'incomplete' && short.progress === 3 && short.rep === 0, "extracted short of the goal → outcome 'incomplete', no rewards", JSON.stringify(short));
+  ok((await P(() => window.__game.ctx.meta.activeContract?.progress)) === 3, 'incomplete keeps the progress (3)');
+  // goal counters ignore events while ctx.isTraining()
+  const progN = (await ev('meta:contractProgress')).length;
+  await P(() => {
+    const ctx = window.__game.ctx; const V = ctx.player.position.constructor;
+    ctx.missionMode = 'training';
+    ctx.bus.emit('enemy:killed', { id: 990001, type: 'scavenger', position: new V(0, 0, 0) });
+    ctx.missionMode = 'raid';
+  });
+  ok((await ev('meta:contractProgress')).length === progN && (await P(() => window.__game.ctx.meta.activeContract?.progress)) === 3, 'enemy:killed while isTraining() → no contract progress');
+  await P(() => { const ctx = window.__game.ctx; const V = ctx.player.position.constructor; ctx.bus.emit('enemy:killed', { id: 990002, type: 'scavenger', position: new V(0, 0, 0) }); });
+  ok((await ev('meta:contractProgress')).length === progN + 1 && (await P(() => window.__game.ctx.meta.activeContract?.progress)) === 4, 'same event in a raid → +1 (4)');
+
   console.log('settlement: extraction success');
-  await P(() => window.__game.ctx.meta.reportContractHit('kill_bugs', 30, true));
+  await P(() => window.__game.ctx.meta.reportContractHit('kill_bugs', 26, true));
   const repBefore = (await rep('helix')).rep;
   const win = await P(() => window.__game.ctx.meta.settleMission({ ...window.__game.ctx.stats, extracted: true }));
-  ok(win && win.success === true && win.progress === 30 && win.target === 25 && win.rep === 60 && win.xp === 150 && win.credits === 120, 'settleMission(extracted:true) → success {rep 60, xp 150, credits 120}', JSON.stringify(win));
+  ok(win && win.success === true && win.outcome === 'success' && win.progress === 30 && win.target === 25 && win.rep === 60 && win.xp === 150 && win.credits === 120, "settleMission(extracted:true) → success {outcome 'success', rep 60, xp 150, credits 120}", JSON.stringify(win));
   ok(await credits() === credBeforeSettle + 120, 'credits +120', `${await credits()}`);
   ok((await rep('helix')).rep === repBefore + 60, 'helix rep +60', `${(await rep('helix')).rep}`);
   ok(await P(() => window.__game.ctx.meta.activeContract) === null, 'contract cleared after success');

@@ -1,5 +1,7 @@
 // Single-player smoke test for the progression folder's stat XP (2026-09-06): addStatXp raise / clamp at STAT_MAX /
 // lower to STAT_MIN / carry-over, addSkillXpRaw down to level 0, profile migration + reload persistence, character sheet DOM.
+// Phase 7 (2026-09-06): 감정 XP from `container:itemRevealed` (not `inventory:itemAdded`), training = gun_* only,
+// server profile document (save → `profile.set('progression')`, `net:profileLoaded` replace + progress:* re-emit).
 // Usage: node scripts/smoke-progression.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { existsSync } from 'node:fs';
@@ -42,6 +44,21 @@ try {
   await page.evaluateOnNewDocument(() => {
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
+    // Park vite's HMR socket (another agent's save would full-reload the page) AND the relay socket (`/ws?t=`): this is a
+    // single-player script — a relay that happens to run on 8787 would otherwise hand the page a server profile and
+    // make credits / documents server-owned mid-run. `ctx.net.profile.available` stays false, as documented.
+    const RealWS = window.WebSocket;
+    class QuietSocket extends EventTarget {
+      constructor(url) { super(); this.url = String(url); this.readyState = 0; this.protocol = ''; this.binaryType = 'blob'; }
+      send() {} close() {}
+    }
+    window.WebSocket = new Proxy(RealWS, {
+      construct(target, args) {
+        const protos = Array.isArray(args[1]) ? args[1] : [args[1]];
+        if (protos.includes('vite-hmr') || /\/ws(\?|$)/.test(String(args[0]))) return new QuietSocket(args[0]);
+        return new target(...args);
+      },
+    });
   });
   page.on('pageerror', (e) => errors.push(String(e)));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
@@ -57,7 +74,7 @@ try {
       Object.defineProperty(Document.prototype, 'pointerLockElement', { get: () => canvas, configurable: true });
       window.__ev = {};
       const bus = window.__game.ctx.bus;
-      for (const n of ['progress:statXp', 'progress:statChanged', 'progress:skillUp', 'progress:skillProgress', 'ui:statsToggled']) {
+      for (const n of ['progress:statXp', 'progress:statChanged', 'progress:skillUp', 'progress:skillProgress', 'ui:statsToggled', 'progress:loaded', 'progress:xpGained']) {
         window.__ev[n] = [];
         bus.on(n, (p) => { window.__ev[n].push(JSON.parse(JSON.stringify(p))); });
       }
@@ -173,6 +190,36 @@ try {
   ok(k.mul === 1, 'getSkillGainMul(gun_AR) = 1 with the housing skeleton', `${k.mul}`);
   await page.evaluate(() => window.__game.ctx.progression.addSkillXpRaw('gun_AR', -100));
 
+  console.log('감정 XP via container:itemRevealed (Phase 7)');
+  await page.evaluate(() => window.__game.ctx.progression.addSkillXpRaw('appraisal', -1e6));
+  k = await skill('appraisal');
+  ok(k.level === 0 && k.progress === 0, 'appraisal reset to 0');
+  await page.evaluate(() => { const c = window.__game.ctx; const item = c.loot.createItem('mat_scrap', 1); c.bus.emit('inventory:itemAdded', { item, name: '폐금속', rarity: 'rare' }); });
+  k = await skill('appraisal');
+  ok(k.level === 0 && k.progress === 0, 'inventory:itemAdded no longer trains 감정');
+  await page.evaluate(() => window.__game.ctx.bus.emit('container:itemRevealed', { containerId: 'crate:smoke', uid: 'u-smoke', defId: 'mat_scrap', rarity: 'rare' }));
+  k = await skill('appraisal');
+  // APPRAISE_XP_BY_RARITY.rare 0.11 × skillGainMul × statFactor (인지력 / 지능 at base → 1) at level 0
+  ok(k.level === 0 && k.progress > 0.05 && k.progress < 0.3, 'container:itemRevealed {rare} trains 감정 (≈0.11)', JSON.stringify(k));
+  const revealedOnce = k.progress;
+  await page.evaluate(() => window.__game.ctx.bus.emit('container:itemRevealed', { containerId: 'crate:smoke', uid: 'u-smoke2', defId: 'mat_scrap', rarity: 'common' }));
+  k = await skill('appraisal');
+  ok(k.progress > revealedOnce && k.progress - revealedOnce < revealedOnce, 'a common reveal adds less than a rare one', JSON.stringify(k));
+
+  console.log('training: only gun_* skills train (Phase 7)');
+  await page.evaluate(() => { const c = window.__game.ctx; window.__origIsTraining = c.isTraining; c.isTraining = () => true; });
+  const gardenBefore = await skill('gardening');
+  await page.evaluate(() => { const p = window.__game.ctx.progression; p.addSkillXp('gardening', 5); p.addSkillXp('appraisal', 5); p.addSkillXp('carry', 5); });
+  const gardenAfter = await skill('gardening');
+  ok(gardenAfter.level === gardenBefore.level && gardenAfter.progress === gardenBefore.progress, 'addSkillXp(gardening / appraisal / carry) ignored while isTraining()', JSON.stringify(gardenAfter));
+  await page.evaluate(() => window.__game.ctx.progression.addSkillXpRaw('gun_SMG', -1e6));
+  await page.evaluate(() => window.__game.ctx.progression.addSkillXp('gun_SMG', 0.5));
+  k = await skill('gun_SMG');
+  ok(k.level === 0 && k.progress > 0.3 && k.progress <= 0.5, 'addSkillXp(gun_SMG, 0.5) trains in a training (× TRAINING_SKILL_GAIN_MUL 1)', JSON.stringify(k));
+  await page.evaluate(() => { const c = window.__game.ctx; if (window.__origIsTraining) c.isTraining = window.__origIsTraining; else delete c.isTraining; });
+  ok(await page.evaluate(() => window.__game.ctx.isTraining() === false), 'isTraining restored (false outside a training)');
+  await page.evaluate(() => { const p = window.__game.ctx.progression; p.addSkillXpRaw('gun_SMG', -1e6); p.addSkillXpRaw('appraisal', -1e6); });
+
   console.log('persistence / migration');
   // Leave strength at 1 with progress 0.9 (progress-only change → dirty, flushed by pagehide on reload).
   const key = await page.evaluate(() => {
@@ -216,6 +263,44 @@ try {
     return { str: p.getStatProgress('strength'), dex: p.getStatProgress('dexterity'), per: p.getStatProgress('perception'), int: p.getStatProgress('intelligence') };
   });
   ok(mig2.str < 1 && mig2.str >= 0.999 && mig2.dex === 0 && near(mig2.per, 0.4) && mig2.int === 0, 'migrate clamps statProgress to 0..0.999999', JSON.stringify(mig2));
+
+  console.log('server profile document (Phase 7)');
+  await page.evaluate(() => {
+    const net = window.__game.ctx.net;
+    const fake = { available: true, credits: 0, docs: {}, sets: [], get(k) { return this.docs[k]; }, set(k, doc) { this.sets.push(k); this.docs[k] = JSON.parse(JSON.stringify(doc)); }, flush() {}, addCredits: async () => ({ ok: true, credits: 0 }) };
+    window.__fakeProfile = fake;
+    window.__realProfileDesc = Object.getOwnPropertyDescriptor(net, 'profile') ?? null;
+    Object.defineProperty(net, 'profile', { value: fake, configurable: true, writable: true });
+  });
+  // save → profile.set('progression'); no document yet → net:profileLoaded uploads the local profile
+  const localSnap = await page.evaluate(() => JSON.parse(JSON.stringify(window.__game.ctx.progression.profile)));
+  await page.evaluate(() => { window.__game.ctx.progression.addStatXp('dexterity', 1); window.__game.ctx.progression.save(); });
+  ok(await page.evaluate(() => window.__fakeProfile.sets.includes('progression') && window.__fakeProfile.docs.progression.stats.dexterity === 7 && window.__fakeProfile.docs.progression.statProgress.dexterity > 0), "save → profile.set('progression', profile)");
+  await page.evaluate(() => { window.__fakeProfile.docs = {}; window.__fakeProfile.sets.length = 0; window.__game.ctx.bus.emit('net:profileLoaded', { profile: { credits: 0, docs: {}, updatedAt: 0 }, migrated: true }); });
+  const noDoc = await page.evaluate(() => ({ sets: window.__fakeProfile.sets.slice(), level: window.__game.ctx.progression.level, str: window.__game.ctx.progression.getStat('strength') }));
+  ok(noDoc.sets.includes('progression') && noDoc.level === localSnap.level && noDoc.str === localSnap.stats.strength, 'no server document → local profile uploaded, nothing replaced', JSON.stringify(noDoc));
+  // a server document replaces the profile and re-emits the progress:* events
+  const counts0 = await page.evaluate(() => ({ loaded: window.__ev['progress:loaded'].length, xp: window.__ev['progress:xpGained'].length, stat: window.__ev['progress:statChanged'].length, skill: window.__ev['progress:skillProgress'].length }));
+  await page.evaluate((snap) => {
+    const doc = { ...snap, level: 7, xp: 50, statPoints: 2, stats: { ...snap.stats, strength: 9 }, skills: { ...snap.skills, gun_AR: 12 }, skillProgress: { ...snap.skillProgress, gun_AR: 0.25 } };
+    window.__fakeProfile.docs = { progression: doc };
+    window.__game.ctx.bus.emit('net:profileLoaded', { profile: { credits: 0, docs: window.__fakeProfile.docs, updatedAt: 0 }, migrated: false });
+  }, localSnap);
+  const srv = await page.evaluate(() => {
+    const p = window.__game.ctx.progression;
+    return { level: p.level, xp: p.xp, points: p.statPoints, str: p.getStat('strength'), gunAR: p.getSkill('gun_AR'), gunProg: p.getSkillProgress('gun_AR'), carry: p.derived.carryCapacity,
+      loaded: window.__ev['progress:loaded'].length, xpEv: window.__ev['progress:xpGained'].length, stat: window.__ev['progress:statChanged'].length, skill: window.__ev['progress:skillProgress'].length,
+      local: JSON.parse(localStorage.getItem('scav.profile') ?? localStorage.getItem(Object.keys(localStorage).find((k) => (localStorage.getItem(k) ?? '').includes('"statProgress"')) ?? '') ?? 'null')?.level };
+  });
+  ok(srv.level === 7 && srv.xp === 50 && srv.points === 2 && srv.str === 9 && srv.gunAR === 12 && near(srv.gunProg, 0.25), 'net:profileLoaded → server document replaces level / xp / points / stats / skills', JSON.stringify(srv));
+  ok(near(srv.carry, 28 + 2.2 * 9, 1e-6), 'derived recomputed from the server profile (carry 47.8 at 근력 9)', `${srv.carry}`);
+  ok(srv.loaded === counts0.loaded + 1 && srv.xpEv === counts0.xp + 1 && srv.stat === counts0.stat + 5 && srv.skill === counts0.skill + 14, 're-emitted progress:loaded + xpGained + 5 statChanged + 14 skillProgress', JSON.stringify({ before: counts0, after: { loaded: srv.loaded, xp: srv.xpEv, stat: srv.stat, skill: srv.skill } }));
+  ok(srv.local === 7, 'localStorage cache updated with the server profile', `${srv.local}`);
+  // put the local profile back through the same path so the sheet checks below see the migrated values
+  await page.evaluate((snap) => { window.__fakeProfile.docs = { progression: snap }; window.__game.ctx.bus.emit('net:profileLoaded', { profile: { credits: 0, docs: window.__fakeProfile.docs, updatedAt: 0 }, migrated: false }); }, localSnap);
+  ok(await page.evaluate((snap) => window.__game.ctx.progression.level === snap.level && window.__game.ctx.progression.getStat('strength') === snap.stats.strength, localSnap), 'local profile restored through net:profileLoaded');
+  await page.evaluate(() => { const net = window.__game.ctx.net; if (window.__realProfileDesc) Object.defineProperty(net, 'profile', window.__realProfileDesc); else delete net.profile; });
+  ok(await page.evaluate(() => window.__game.ctx.net.profile.available === false), 'real (offline) profile restored');
 
   console.log('character sheet');
   await page.evaluate(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
@@ -266,7 +351,8 @@ try {
   // Clean up so the next script starts from a fresh character.
   await page.evaluate(() => window.__game.ctx.progression.resetProfile());
 
-  ok(errors.length === 0, '0 console errors', errors.slice(0, 5).join(' | '));
+  const gameErrors = errors.filter((e) => !/WebSocket/.test(e));   // no relay running: the net client's socket error is expected
+  ok(gameErrors.length === 0, '0 console errors', gameErrors.slice(0, 5).join(' | '));
 } catch (e) {
   fail++;
   console.log(`  FAIL exception: ${e && e.stack ? e.stack : e}`);

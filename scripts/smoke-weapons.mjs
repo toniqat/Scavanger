@@ -1,4 +1,5 @@
-// Single-player smoke test for the weapon package (grades / durability / ammo v2 / 3 slots / sockets / bags / repair).
+// Single-player smoke test for the weapon package (grades / durability / ammo v2 / 3 slots / sockets / bags / repair)
+// + Phase 7 `ctx.weapons.remoteState` (held item / throwing / cooking / attachments) and remote-grenade damage.
 // Usage: node scripts/smoke-weapons.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { existsSync } from 'node:fs';
@@ -176,6 +177,63 @@ try {
   ok(sock.detached && sock.backInBag && sock.emptyAfter, 'detachAllSockets returns the brake to the bag');
   const se = await ev('inventory:socketChanged');
   ok(se.length >= 2, 'inventory:socketChanged emitted for attach + detach', `${se.length}`);
+
+  console.log('remote state (Phase 7)');
+  // keydown + keyup in one frame on document.body (dt is clamped to 50 ms, any wait reads as a hold)
+  const tap = (code) => page.evaluate((c) => {
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { code: c, key: c, bubbles: true }));
+    document.body.dispatchEvent(new KeyboardEvent('keyup', { code: c, key: c, bubbles: true }));
+  }, code);
+  const mDown = (b) => page.evaluate((x) => document.body.dispatchEvent(new MouseEvent('mousedown', { button: x, bubbles: true })), b);
+  const mUp = (b) => page.evaluate((x) => document.body.dispatchEvent(new MouseEvent('mouseup', { button: x, bubbles: true })), b);
+  const rsNow = () => page.evaluate(() => { const rs = window.__game.ctx.weapons.remoteState; return { held: rs.heldItemId, throwing: rs.throwing, cooking: rs.cooking, charging: rs.charging, spraying: rs.spraying, heavy: rs.heavy, att: rs.attachments.slice() }; });
+  const rs0 = await rsNow();
+  ok(rs0.held === null && !rs0.throwing && !rs0.cooking && !rs0.charging && !rs0.spraying && !rs0.heavy && rs0.att.length === 0, 'remoteState idle: no held item / pose flags / attachments', JSON.stringify(rs0));
+  await page.evaluate(() => { const ctx = window.__game.ctx; const inv = ctx.inventory; const l = inv.getLoadout(); const b = ctx.loot.createItem('att_brake'); inv.tryAddItem(b); inv.attachToWeapon(l.primary.uid, b.uid); });
+  await waitSim(0.2);
+  await page.evaluate(() => { window.__rsArr = window.__game.ctx.weapons.remoteState.attachments; });
+  const rs1 = await rsNow();
+  ok(rs1.att.length === 1 && rs1.att[0] === 'att_brake', 'attachToWeapon → remoteState.attachments [att_brake]', JSON.stringify(rs1.att));
+  await waitSim(0.3);
+  ok(await page.evaluate(() => window.__game.ctx.weapons.remoteState.attachments === window.__rsArr), 'attachments array instance is stable while the socket set is unchanged');
+  await page.evaluate(() => { const ctx = window.__game.ctx; const inv = ctx.inventory; const l = inv.getLoadout(); const z = ctx.loot.createItem('att_laser'); inv.tryAddItem(z); inv.attachToWeapon(l.primary.uid, z.uid); });
+  await waitSim(0.2);
+  const rs2 = await page.evaluate(() => { const rs = window.__game.ctx.weapons.remoteState; return { att: rs.attachments.slice(), fresh: rs.attachments !== window.__rsArr }; });
+  ok(rs2.fresh && rs2.att.length === 2 && rs2.att.includes('att_brake') && rs2.att.includes('att_laser'), 'second socket → new array with both ids', JSON.stringify(rs2));
+  await page.evaluate(() => { const inv = window.__game.ctx.inventory; inv.detachAllSockets(inv.getLoadout().primary.uid); });
+  await waitSim(0.2);
+  ok((await rsNow()).att.length === 0, 'detachAllSockets → attachments []');
+  // grenade in hand: T tap (starter quick slot N = grenade) → LMB hold = throwing → R = cooking → release
+  await tap('KeyT');
+  await waitSim(0.4);
+  const held = await rsNow();
+  ok(held.held === 'grenade_frag', 'T tap → remoteState.heldItemId = grenade_frag', JSON.stringify(held));
+  await mDown(0);
+  await waitSim(0.3);
+  const thr = await rsNow();
+  ok(thr.throwing === true && thr.cooking === false, 'LMB held → throwing (not cooking yet)', JSON.stringify(thr));
+  await tap('KeyR');
+  await waitSim(0.3);
+  const cook = await rsNow();
+  ok(cook.throwing === true && cook.cooking === true, 'R → cooking', JSON.stringify(cook));
+  await mUp(0);
+  await waitSim(0.3);
+  const rel = await rsNow();
+  ok(rel.throwing === false && rel.cooking === false, 'release → throwing / cooking clear', JSON.stringify(rel));
+  await tap('Digit1');
+  await waitSim(0.8);
+  ok((await rsNow()).held === null, '1 → gun back in hand, heldItemId null');
+  await waitSim(3.5);
+  // remote (visual-only) grenade replicas now damage the local player — same radius / falloff as our own frags
+  await page.evaluate(() => { window.__ev['grenade:exploded'] = []; window.__game.ctx.bus.on('grenade:exploded', (p) => window.__ev['grenade:exploded'].push(1)); });
+  const hpG = await page.evaluate(() => { const p = window.__game.ctx.player; p.heal(1000); return p.hp; });
+  await page.evaluate(() => { const ctx = window.__game.ctx; const g = window.__game.getSystem('weapons').grenades; const p = ctx.player.position; const o = new p.constructor(p.x + 3.0, p.y + 0.5, p.z); g.throw(o, new p.constructor(0, 0, 0), true, 0.05); });
+  await waitSim(0.4);
+  const rg = await page.evaluate(() => ({ hp: window.__game.ctx.player.hp, exploded: window.__ev['grenade:exploded'].length }));
+  ok(rg.hp < hpG - 30, `visual-only replica grenade damages the local player (${hpG} → ${rg.hp.toFixed(0)})`);
+  ok(rg.exploded === 0, 'replica explosion emits no grenade:exploded (enemies do not hear it)');
+  await page.evaluate(() => { const p = window.__game.ctx.player; if (p.isDowned) p.revive(); p.heal(1000); });
+  await waitSim(0.3);
 
   console.log('unload / repair / broken');
   const un = await page.evaluate(() => {

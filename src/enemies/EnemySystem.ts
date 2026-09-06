@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 import {
   BEHEMOTH_KNOCKBACK, BURNOUT_DURATION, CORPSE_LIFETIME, ENEMY_STATUS_BITS, FLAME_AFTERBURN_DPS, FLAME_AFTERBURN_DURATION, GADGET_LURE_RADIUS, MAP_SIZE,
-  NET_ENEMY_SNAPSHOT_HZ, PLAYER_HEIGHT, PLAYER_RADIUS, ROGUE_DAMAGE, ROGUE_RANGE,
+  NET_ENEMY_SNAPSHOT_HZ, PLAYER_HEIGHT, PLAYER_RADIUS, ROGUE_DAMAGE, ROGUE_GRENADE_DAMAGE, ROGUE_GRENADE_FUSE, ROGUE_GRENADE_RADIUS, ROGUE_MAG_ROUNDS, ROGUE_RANGE,
   SHELL_BLAST_RADIUS, SHELL_DAMAGE, SHELL_FLIGHT_TIME, SHOCK_SLOW_DURATION, SHOCK_SLOW_FACTOR, TOXIC_DAMAGE, TOXIC_RADIUS,
-  type DamageMessage, type EnemyEvent, type EnemyHit, type EnemyManagerRef, type EnemyRef, type EnemyStatusKind, type EnemyType, type GameContext, type GameSystem,
-  type HitRequest, type InterceptableRef,
+  type DamageMessage, type EnemyEvent, type EnemyFaction, type EnemyHit, type EnemyManagerRef, type EnemyRef, type EnemyStatusKind, type EnemyType, type GameContext, type GameSystem,
+  type HitRequest, type InterceptableRef, type PeerId, type WorldRef,
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
 import { Enemy, type EnemyHost, type HitPart } from './Enemy';
@@ -17,12 +17,13 @@ import { becomeAlert } from './ai/Perception';
 import { BloodFX } from './fx/BloodFX';
 import { AcidProjectiles, type AcidHost, type AcidSlow } from './fx/AcidProjectile';
 import { ShellProjectiles, type ShellHost } from './fx/ShellProjectile';
+import { RogueGrenades, type GrenadeHost } from './fx/RogueGrenade';
 import { AmbientSpawner, type SpawnHost } from './Spawner';
 import { WaveDirector } from './WaveDirector';
 import { disposeBugAssets } from './models/BugModel';
 import { disposeRogueAssets } from './models/RogueModel';
 import { EnemyReplica, type ReplicaHost } from './net/Replica';
-import { encodeSnapshot, round, tuple } from './net/HostSync';
+import { animHint, encodeSnapshot, round, tuple } from './net/HostSync';
 import { CorpseManager } from './Corpses';
 import { placeRogueGuards, type RogueSpawnHost } from './RogueGuards';
 import { raySphere, rayCapsule, rayStandingCapsule } from './RayTests';
@@ -57,6 +58,15 @@ const SHOCK_SPARK_TIME = 0.6;
 const STATUS_REQUEST_INTERVAL = 0.25;
 /** Host clamps a client's requested status duration. */
 const MAX_STATUS_DURATION = 10;
+/* ── appended: Phase 7 (rogue AI v2 · live authority) ── */
+/** Grenade flight time is distance / this (clamped 0.8 … 1.8 s) — a lazy lob, not a bullet. */
+const GRENADE_LOB_SPEED = 11;
+/** Knockback speed at the blast centre (falls off linearly with the damage). */
+const GRENADE_KNOCKBACK = 7;
+/** Hearing radius of a rogue grenade blast (wakes bugs like a player grenade). */
+const GRENADE_NOISE = 60;
+/** Id headroom on promotion: ids the old host assigned that never reached us must not collide with ours. */
+const PROMOTE_ID_GAP = 100;
 
 const _v = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
@@ -70,6 +80,7 @@ const _dir = new THREE.Vector3();
 const _to = new THREE.Vector3();
 const _zero = new THREE.Vector3();
 const _eye = new THREE.Vector3();
+const _kb = new THREE.Vector3();
 const killedBuf: Enemy[] = [];
 const queryBuf: Enemy[] = [];
 
@@ -81,10 +92,11 @@ const queryBuf: Enemy[] = [];
  * `TargetList` (and, Phase 4, enemies of the other faction through `Enemy.asTarget`), and when a session is running it
  * broadcasts `EnemySnapshot`s (10 Hz) + `EnemyEvent`s and serves client `hit` / `explode` / `intq` requests. On a
  * joined client (`!ctx.isAuthority`) the same pools render replicas driven by `net/Replica.ts`; `Enemy.takeDamage`
- * becomes an optimistic FX + `HitRequest`. Authority is read at `world:ready` / `game:newMission` and cached for the
- * mission (host migration only takes effect between missions).
+ * becomes an optimistic FX + `HitRequest`. Authority is read at `world:ready` / `game:newMission` (`refreshMode`) and
+ * changes **live** through `setAuthority` (Phase 7: `net:hostChanged` mid-mission promotes replicas into simulated
+ * enemies or demotes the simulation into replicas) — nothing else caches it.
  */
-export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, SpawnHost, RogueSpawnHost, AcidHost, ShellHost, ReplicaHost {
+export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, SpawnHost, RogueSpawnHost, AcidHost, ShellHost, ReplicaHost, GrenadeHost {
   readonly name = 'enemies';
   ctx!: GameContext;
   readonly grid = new SpatialGrid<Enemy>(MAP_SIZE + 40, 8);
@@ -96,6 +108,8 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   private fx: BloodFX | null = null;
   private acid: AcidProjectiles | null = null;
   private shells: ShellProjectiles | null = null;
+  /** Phase 7: rogue grenades (host = damage, replica = visual copies from `ee grenade`). */
+  private grenades: RogueGrenades | null = null;
   readonly corpses = new CorpseManager();
   private readonly spawner = new AmbientSpawner();
   private readonly waves = new WaveDirector();
@@ -116,6 +130,16 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   private lastClash = -Infinity;
   /** Current boss (authority) for debugging / HUD. */
   bossId = 0;
+  /* ── Phase 7 ── */
+  /** 시뮬레이션 훈련장: no spawner / waves / guards / initial population (set at `world:ready`). */
+  private training = false;
+  /** Waves announced so far this mission (`enemy:waveStarted`, also from `ee wave` on a replica) — the wave director resumes from it on promotion. */
+  private wavesSeen = 0;
+  /** Debug counters (smoke tests): rogue grenades thrown / exploded on this client. */
+  grenadesThrown = 0;
+  grenadesExploded = 0;
+  /** Debug: where the last rogue grenade went off. */
+  readonly lastGrenadeBlast = new THREE.Vector3();
   private readonly unsub: Array<() => void> = [];
   private readonly netUnsub: Array<() => void> = [];
   private readonly lastAudio = new Map<string, number>();
@@ -132,6 +156,8 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     this.acid = new AcidProjectiles(ctx.scene, this.fx);
     this.shells = new ShellProjectiles(ctx.scene);
     this.shells.bind(this);
+    this.grenades = new RogueGrenades(ctx.scene);
+    this.grenades.bind(this);
     this.corpses.bind(ctx);
 
     const bus = ctx.bus;
@@ -141,6 +167,9 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
         this.reset();
         this.spawner.reset();
         this.ensureNet();
+        // Phase 7: the training arena has no enemies at all (world/ reports `mode`, game/ sets `ctx.missionMode` before emitting)
+        this.training = ctx.isTraining() || ctx.missionMode === 'training' || (ctx.world as Partial<WorldRef> | null)?.mode === 'training';
+        if (this.training) return;
         if (this.authority && ctx.world?.ready) {
           this.targets.refresh(ctx);
           this.spawner.initialPopulate(this, playerSpawn);
@@ -170,9 +199,12 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
         if (this.authority) this.fleeFrom(position, 18);
       }),
       bus.on('enemy:waveStarted', ({ index, count }) => {
+        this.wavesSeen = Math.max(this.wavesSeen, index + 1);
         if (this.hosting) this.ctx.net!.send({ t: 'ee', ev: 'wave', index, count }, 'others');
       }),
       bus.on('crate:looted', ({ crateId }) => this.corpses.markLooted(crateId)),
+      // Phase 7: mid-mission host migration — the only place authority changes while a mission runs
+      bus.on('net:hostChanged', ({ isLocalHost }) => this.setAuthority(isLocalHost)),
     );
     this.refreshMode();
     this.ensureNet();
@@ -229,8 +261,11 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
         for (let i = 0; i < this.active.length; i++) updateEnemyAI(this.active[i], dt, this);
         this.acid?.update(dt, this);
         this.shells?.update(dt, this);
-        this.spawner.update(dt, this);
-        this.waves.update(dt, this);
+        this.grenades?.update(dt);
+        if (!this.training) {
+          this.spawner.update(dt, this);
+          this.waves.update(dt, this);
+        }
       }
       if (this.hosting) {
         this.snapTimer -= dt;
@@ -243,6 +278,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       this.replicaMgr.update(dt);
       this.acid?.update(dt, this);      // visual only: damageTargetAcid is a no-op here
       this.shells?.update(dt, this);    // visual only: onShellLanded applies no damage on a replica
+      if (ctx.isGameplayPhase()) this.grenades?.update(dt);   // visual copies (`authority` false → FX only)
     }
 
     // visuals always tick (frozen AI still renders idle motion), then despawn finished corpses / fled bugs
@@ -266,6 +302,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     this.fx?.dispose(); this.fx = null;
     this.acid?.dispose(); this.acid = null;
     this.shells?.dispose(); this.shells = null;
+    this.grenades?.dispose(); this.grenades = null;
     if (this.ctx && this.ctx.enemies === this) this.ctx.enemies = null;
   }
 
@@ -357,12 +394,14 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     return this.explode(center, radius, damage, 'local', null, null);
   }
 
-  private explode(center: THREE.Vector3, radius: number, damage: number, attacker: TargetId, killedOut: Enemy[] | null, exclude: Enemy | null): number {
+  /** `skipFaction` (Phase 7): enemies of that faction are spared (a rogue grenade hurts bugs, not the rogues). */
+  private explode(center: THREE.Vector3, radius: number, damage: number, attacker: TargetId, killedOut: Enemy[] | null, exclude: Enemy | null, skipFaction: EnemyFaction | null = null): number {
     let kills = 0;
     const r2 = radius * radius;
     for (let i = 0; i < this.active.length; i++) {
       const e = this.active[i];
       if (e === exclude || !e.active || e.state === 'dead') continue;
+      if (skipFaction !== null && e.faction === skipFaction) continue;
       _v.set(e.position.x, e.position.y + e.stats.height * 0.5, e.position.z);
       const d2 = _v.distanceToSquared(center);
       const reach = radius + e.stats.radius;
@@ -387,7 +426,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
 
   setThreatLevel(level: number): void { this.spawner.threat = THREE.MathUtils.clamp(level, 0, 1); }
 
-  startExtractionWaves(target: THREE.Vector3): void { this.waves.start(target); }
+  startExtractionWaves(target: THREE.Vector3): void { if (!this.training) this.waves.start(target); }
 
   stopExtractionWaves(): void { this.waves.stop(); }
 
@@ -553,8 +592,82 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
    * Radial damage credited to `by` (turret, mine, rocket). Same falloff as `applyExplosion`.
    * On a replica this plays the local FX and forwards an `ExplodeRequest` (the host credits the requester).
    */
-  /* Phase 7 skeleton (enemies/ agent implements live promotion / demotion; docs/PHASE7-PLAN.md §6) */
-  setAuthority(_authority: boolean): void {}
+  /**
+   * Phase 7: live authority switch (mid-mission host migration; `net:hostChanged` → this). `true` promotes every replica
+   * into a simulated enemy seeded from its last wire sample and resumes the spawner / wave director; `false` demotes the
+   * simulation into replicas that the new host's first full `es` overwrites. Outside a running mission only the flag
+   * changes (the next `world:ready` re-reads `ctx.isAuthority` anyway).
+   */
+  setAuthority(authority: boolean): void {
+    if (authority === this.authority) return;
+    const ctx = this.ctx;
+    this.authority = authority;
+    this.multiplayer = ctx.isMultiplayer;
+    if (!ctx.world?.ready) return;
+    if (authority) this.promote(); else this.demote();
+  }
+
+  /** Replicas → simulated enemies. */
+  private promote(): void {
+    const ctx = this.ctx;
+    let maxId = 0;
+    for (let i = 0; i < this.active.length; i++) {
+      const e = this.active[i];
+      if (!e.active) continue;
+      maxId = Math.max(maxId, e.id);
+      if (e.state === 'dead') continue;                 // corpses are adopted as they are (registered from `ee corpse`)
+      const s = this.replicaMgr.latestOf(e);
+      const st = s ? s.st : e.state;
+      if (s) e.hp = Math.min(e.maxHp, Math.max(0.1, s.hp));
+      const aware = st !== 'idle' && st !== 'wander';
+      e.aware = aware;
+      e.state = aware ? 'chase' : 'idle';
+      e.stateTime = 0; e.wanderTimer = 1 + Math.random() * 2;
+      e.spawnPos.copy(e.position);
+      e.guardPos.copy(e.position); e.escortOf = null; e.leash = ROGUE_AI.leash;
+      e.target = null; e.targetTimer = 0; e.perceptionTimer = Math.random() * 0.3; e.hasLOS = false; e.lostTimer = 0;
+      e.roguePhase = 0; e.chargePhase = 0; e.spitPhase = 0; e.toxicPhase = 0; e.swellTimer = 0; e.dug = 0;
+      e.airborne = false; e.leaping = false; e.vy = 0;
+      e.burstLeft = 0; e.throwTimer = 0; e.reloadTimer = 0; e.magRounds = ROGUE_MAG_ROUNDS;
+      e.hasMoveTarget = false; e.hasFacePoint = false; e.hasCover = false;
+      e.velocity.set(0, 0, 0);
+      e.relentless = false;
+      e.lastDamager = 'ai';                               // whoever hurt it before belongs to the old host — no kill credit here
+      e.netBuf?.clear();
+      // status holds (0.35 s from the wire) become real durations
+      if (e.incapTimer > 0) e.incinerate(Math.max(e.incapTimer, 1.5));
+      if (e.burnTimer > 0) { e.burnDps = Math.max(e.burnDps, FLAME_AFTERBURN_DPS); e.burnTimer = Math.max(e.burnTimer, 1); e.burnTick = BURN_TICK; }
+      if (e.slowTimer > 0) { e.slowTimer = Math.max(e.slowTimer, 1); if (e.slowFactor >= 1) e.slowFactor = SHOCK_SLOW_FACTOR; }
+      if (e.shockTimer > 0) e.shockTimer = Math.min(e.shockTimer, SHOCK_SPARK_TIME);
+    }
+    this.nextId = Math.max(this.nextId, maxId + PROMOTE_ID_GAP);
+    this.nextShellId += 1000;
+    this.replicaMgr.clear();
+    this.lures.clear();
+    this.grenades?.setAuthorityAll(true);
+    this.snapTimer = 0;
+    this.spawner.resume();
+    this.waves.reset();
+    this.waves.prime(this.wavesSeen);                     // extraction/ re-requests `startExtractionWaves` on the new host
+    this.targets.refresh(ctx);
+  }
+
+  /** Simulated enemies → replicas (the next full snapshot from the new host takes over). */
+  private demote(): void {
+    const now = this.ctx.time;
+    this.waves.stop();
+    this.lures.clear();
+    this.grenades?.setAuthorityAll(false);
+    for (let i = 0; i < this.active.length; i++) {
+      const e = this.active[i];
+      if (!e.active || e.state === 'dead') continue;
+      e.throwTimer = 0; e.reloadTimer = 0;
+      e.target = null; e.hasMoveTarget = false; e.hasFacePoint = false;
+      e.chargePhase = 0; e.spitPhase = 0; e.toxicPhase = 0; e.roguePhase = 0; e.airborne = false; e.leaping = false;
+      e.velocity.set(0, 0, 0);
+      this.replicaMgr.adopt(e, now);
+    }
+  }
 
   applyAreaDamage(center: THREE.Vector3, radius: number, damage: number, by?: string): number {
     if (this.replica) return this.applyExplosion(center, radius, damage);
@@ -575,10 +688,15 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     this.fx?.clear();
     this.acid?.clear();
     this.shells?.clear();
+    this.grenades?.clear();
     this.lastAudio.clear();
     this.snapTimer = 0;
     this.bossId = 0;
     this.lastClash = -Infinity;
+    this.training = false;
+    this.wavesSeen = 0;
+    this.grenadesThrown = 0;
+    this.grenadesExploded = 0;
     this.resetting = false;
   }
 
@@ -596,6 +714,16 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   }
   /** Live artillery shells. */
   get shellCount(): number { return this.shells?.count() ?? 0; }
+  /** Live rogue grenades (Phase 7). */
+  get grenadeCount(): number { return this.grenades?.count() ?? 0; }
+  /** Position of a live grenade thrown by rogue `id` (debug), or null. */
+  debugGrenade(id: number): THREE.Vector3 | null { return this.grenades?.findByOwner(id) ?? null; }
+  /** true while this client simulates the enemies (debug / smoke). */
+  get isAuthority(): boolean { return this.authority; }
+  /** true in a 시뮬레이션 훈련장 world (no spawning). */
+  get isTrainingWorld(): boolean { return this.training; }
+  /** Wire animation hint (`EnemyWire.a`) enemy `id` would be sent with right now (debug / smoke), −1 when unknown. */
+  debugHint(id: number): number { const e = this.byId.get(id); return e ? animHint(e) : -1; }
   /** Position of live shell `sid` (debug), or null. */
   debugShell(sid: number): THREE.Vector3 | null { return this.shells?.find(sid)?.position ?? null; }
 
@@ -769,6 +897,16 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
 
   corpseGoneRemote(id: number): void { this.corpses.remove(id); }
 
+  grenadeVisual(id: number, p: THREE.Vector3, v: THREE.Vector3, fuse: number): void {
+    if (!this.grenades) return;
+    this.grenades.throw(id, p, v, fuse, false);
+    this.grenadesThrown++;
+    const e = this.byId.get(id);
+    this.playAudio('grenade_throw', e ? e.position : p, 0.7, 0.95);
+  }
+
+  grenadeHitRemote(p: THREE.Vector3): void { this.grenades?.explodeNear(p); }
+
   private despawn(e: Enemy): void {
     if (this.hosting && !this.resetting && e.active) this.ctx.net!.send({ t: 'ee', ev: 'despawn', id: e.id }, 'others');
     if (!this.resetting && this.corpses.remove(e.id) && this.hosting) this.ctx.net!.send({ t: 'ee', ev: 'corpseGone', id: e.id }, 'others');
@@ -826,6 +964,66 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
 
   emberBurst(position: THREE.Vector3, count: number): void {
     this.fx?.burst(position, count, 'ember', 1.6);
+  }
+
+  /* ── Phase 7: rogue grenades ───────────────────────────────────────────── */
+  /** Authority: lob a grenade from the rogue's off hand onto `target` (feet), `ee grenade` to the others. */
+  throwGrenade(e: Enemy, target: THREE.Vector3): boolean {
+    const ctx = this.ctx;
+    const world = ctx.world;
+    if (!world || !this.grenades || !this.authority) return false;
+    // launch point: off-hand height, a little ahead of the body
+    e.facing(_m).multiplyScalar(e.stats.radius * 0.8);
+    _m.add(e.position); _m.y += e.stats.height * 0.78;
+    _aim.copy(target);
+    _aim.x += (Math.random() - 0.5) * 2; _aim.z += (Math.random() - 0.5) * 2;
+    if (!world.isInsideBounds(_aim.x, _aim.z)) _aim.copy(target);
+    _aim.y = world.getHeightAt(_aim.x, _aim.z);
+    const dist = Math.hypot(_aim.x - _m.x, _aim.z - _m.z);
+    const flight = THREE.MathUtils.clamp(dist / GRENADE_LOB_SPEED, 0.8, 1.8);
+    RogueGrenades.launchVelocity(_m, _aim, flight, _dir);
+    // a rock right in front of the hand would bounce the grenade back onto the thrower: refuse (the AI retries elsewhere)
+    _v.copy(_dir).normalize();
+    if (world.raycast(_m, _v, 2.5) !== null) return false;
+    if (!this.grenades.throw(e.id, _m, _dir, ROGUE_GRENADE_FUSE, true)) return false;
+    this.grenadesThrown++;
+    this.playAudio('grenade_throw', e.position, 0.7, 0.95);
+    if (this.hosting) ctx.net!.send({ t: 'ee', ev: 'grenade', id: e.id, p: tuple(_m, 2), v: tuple(_dir, 2), fuse: ROGUE_GRENADE_FUSE }, 'others');
+    return true;
+  }
+
+  /* ── GrenadeHost ───────────────────────────────────────────────────────── */
+  /**
+   * Fuse ran out. Authority: ROGUE_GRENADE_DAMAGE with linear falloff over ROGUE_GRENADE_RADIUS to every alive player
+   * (local directly, remote via `dmg {kb}`, suspended via `ghost:damage`) and to enemies of the other faction, blast
+   * noise, `ee grenadeHit`. Everyone: audio, shake near the local player.
+   */
+  onGrenadeExploded(p: THREE.Vector3, authority: boolean, owner: number): void {
+    const ctx = this.ctx;
+    this.grenadesExploded++;
+    this.lastGrenadeBlast.copy(p);
+    if (authority && this.authority) {
+      const thrower = this.byId.get(owner);
+      const type: EnemyType = thrower?.type ?? 'rogue';
+      const players = this.targets.alive;
+      const reach = ROGUE_GRENADE_RADIUS + PLAYER_RADIUS;
+      for (let i = 0; i < players.length; i++) {
+        const t = players[i];
+        _c.set(t.position.x, t.position.y + PLAYER_HEIGHT * 0.5, t.position.z);
+        const d = _c.distanceTo(p);
+        if (d >= reach) continue;
+        const falloff = THREE.MathUtils.clamp(1 - Math.max(0, d - PLAYER_RADIUS) / ROGUE_GRENADE_RADIUS, 0.1, 1);
+        _kb.subVectors(_c, p); _kb.y = Math.max(_kb.y, 0) + 0.35;
+        if (_kb.lengthSq() < 1e-4) _kb.set(0, 1, 0); else _kb.normalize();
+        this.applyDamage(t, ROGUE_GRENADE_DAMAGE * falloff, p, owner, type, null, 0.9 * falloff, false, _kb, GRENADE_KNOCKBACK * falloff);
+      }
+      this.explode(p, ROGUE_GRENADE_RADIUS, ROGUE_GRENADE_DAMAGE, 'ai', null, null, 'rogue');
+      this.alertHearing(p, GRENADE_NOISE);
+      if (this.hosting) ctx.net!.send({ t: 'ee', ev: 'grenadeHit', p: tuple(p, 2) }, 'others');
+    }
+    this.playAudio('explosion', p, 0.9, 1.15);
+    const dl = this.targets.distToLocal(p);
+    if (dl < 30) ctx.bus.emit('camera:shake', { intensity: 0.7 * (1 - dl / 30), duration: 0.35 });
   }
 
   /* ── status effects (burning / slow / 전소 / shocked) ──────────────────── */
@@ -1070,12 +1268,8 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   /* ── behemoth ──────────────────────────────────────────────────────────── */
   chargeHit(e: Enemy, target: CombatTarget, damage: number, knockDir: THREE.Vector3): void {
     if (target.isDeadOrDowned) return;
-    this.applyDamage(target, damage, e.position, e.id, e.type, null, 1.0, true);
-    if (target.isLocal) {
-      const player = this.ctx.player;
-      if (player && !player.isDead && typeof player.applyKnockback === 'function') player.applyKnockback(knockDir, BEHEMOTH_KNOCKBACK);
-    }
-    // remote victims: `dmg` carries no knockback field — their client only takes the damage (see README)
+    // local: applyKnockback; remote: `dmg.kb` (Phase 7); suspended: `ghost:damage.kb`
+    this.applyDamage(target, damage, e.position, e.id, e.type, null, 1.0, true, knockDir, BEHEMOTH_KNOCKBACK);
     this.playAudio('bug_attack', e.position, 1, 0.4);
   }
 
@@ -1096,8 +1290,11 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
    * Remote player → `dmg` message to that peer (net applies it there) and, when `announce`, an `ee attack` to everyone
    * else so they hear the bite (the victim mirrors `enemy:attacked` from it).
    * Phase 4: an enemy target (`target.enemy`) takes `takeDamage(…, 'ai')` — no kill credit, faction clash toast.
+   * Phase 7: `kbDir` / `kbSpeed` = knockback (behemoth charge, grenade blast): local → `applyKnockback`, remote →
+   * `dmg.kb`; a **suspended** member (host-simulated ghost) gets `ghost:damage {id, amount, from, kb}` on the bus
+   * instead of a `dmg` message.
    */
-  private applyDamage(target: CombatTarget, amount: number, from: THREE.Vector3, id: number, type: EnemyType, slow: AcidSlow | null, shake: number, announce: boolean): void {
+  private applyDamage(target: CombatTarget, amount: number, from: THREE.Vector3, id: number, type: EnemyType, slow: AcidSlow | null, shake: number, announce: boolean, kbDir: THREE.Vector3 | null = null, kbSpeed = 0): void {
     if (target.isDeadOrDowned) return; // downed players are never AI victims (Phase 2)
     const ctx = this.ctx;
     if (target.enemy) {
@@ -1116,12 +1313,23 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       ctx.bus.emit('enemy:attacked', { id, type, damage: amount, position: from });
       if (slow) ctx.bus.emit('player:applySlow', slow);
       if (shake >= 0.4) ctx.bus.emit('camera:shake', { intensity: shake, duration: 0.3 });
+      if (kbDir && kbSpeed > 0 && !player.isDead && typeof player.applyKnockback === 'function') player.applyKnockback(kbDir, kbSpeed);
+      return;
+    }
+    if (target.suspended) {
+      // Phase 7: the member's socket is down — the host's RemotePlayerSystem simulates the body from this event
+      ctx.bus.emit('ghost:damage', {
+        id: target.id as PeerId, amount, from: from.clone(),
+        kb: kbDir && kbSpeed > 0 ? { direction: kbDir.clone(), speed: kbSpeed } : undefined,
+      });
+      if (announce && this.hosting) ctx.net!.send({ t: 'ee', ev: 'attack', id, ty: type, target: target.id, damage: round(amount, 1), p: tuple(from, 2) }, 'others');
       return;
     }
     const net = ctx.net;
     if (!net) return;
     const msg: DamageMessage = { t: 'dmg', amount: round(amount, 1), from: tuple(from, 2) };
     if (slow) msg.slow = slow;
+    if (kbDir && kbSpeed > 0) msg.kb = { d: tuple(kbDir, 2), s: round(kbSpeed, 1) };
     net.send(msg, target.id);
     if (announce) net.send({ t: 'ee', ev: 'attack', id, ty: type, target: target.id, damage: round(amount, 1), p: tuple(from, 2) }, 'others');
   }

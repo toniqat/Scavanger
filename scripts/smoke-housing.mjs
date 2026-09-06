@@ -1,6 +1,8 @@
 // Single-player smoke test for ship housing (src/housing): state load, room purposes, furniture placement rules,
 // facility upgrades + generator gating, stash size, furniture craft / upgrade, presets, persistence across a reload,
 // and the three DOM panels (blocker + Esc). Drives `ctx.housing` from page.evaluate.
+// Phase 7 (2026-09-06): `furn_sim_hub` (15th def, 사격장 only) crafted / placed / listed in the room menu; server profile
+// document `ship` (save → `profile.set`, `net:profileLoaded` replace + `housing:loaded` re-emit, stash size follows).
 // Usage: node scripts/smoke-housing.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { existsSync } from 'node:fs';
@@ -42,6 +44,21 @@ try {
   await page.evaluateOnNewDocument(() => {
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
+    // Park vite's HMR socket (another agent's save would full-reload the page) AND the relay socket (`/ws?t=`): this is a
+    // single-player script — a relay that happens to run on 8787 would otherwise hand the page a server profile and
+    // make credits / documents server-owned mid-run. `ctx.net.profile.available` stays false, as documented.
+    const RealWS = window.WebSocket;
+    class QuietSocket extends EventTarget {
+      constructor(url) { super(); this.url = String(url); this.readyState = 0; this.protocol = ''; this.binaryType = 'blob'; }
+      send() {} close() {}
+    }
+    window.WebSocket = new Proxy(RealWS, {
+      construct(target, args) {
+        const protos = Array.isArray(args[1]) ? args[1] : [args[1]];
+        if (protos.includes('vite-hmr') || /\/ws(\?|$)/.test(String(args[0]))) return new QuietSocket(args[0]);
+        return new target(...args);
+      },
+    });
   });
   page.on('pageerror', (e) => errors.push(String(e)));
   // The hub's `ensureConnected` dials the relay through the vite proxy; without `npm run server` Chrome logs one
@@ -106,7 +123,8 @@ try {
   ok(st0.furnitureStorage.length === 1 && st0.furnitureStorage[0].defId === 'furn_bench_gun' && st0.furnitureStorage[0].qty === 1, 'first run: one 총기 작업대 in furniture storage');
   const stash0 = await H(() => window.__game.ctx.housing.getStashSize());
   ok(stash0.cols === 10 && stash0.rows === 24, `getStashSize() 10×24 at storage 0 (${stash0.cols}×${stash0.rows})`);
-  ok(await H(() => window.__game.ctx.housing.getAllFurnitureDefs().length === 14), 'FURNITURE_DEFS exposed (14)');
+  ok(await H(() => window.__game.ctx.housing.getAllFurnitureDefs().length === 15), 'FURNITURE_DEFS exposed (15, incl. furn_sim_hub)');
+  ok(await H(() => window.__game.ctx.housing.getFurnitureFor('range').some((d) => d.id === 'furn_sim_hub' && d.interaction === 'sim_hub' && d.model === 'sim_hub') && !window.__game.ctx.housing.getFurnitureFor('workshop').some((d) => d.id === 'furn_sim_hub')), 'furn_sim_hub in the 사격장 catalogue only (interaction / model sim_hub)');
   ok(await H(() => window.__game.ctx.housing.getFurnitureFor('workshop').length === 12 && window.__game.ctx.housing.getFurnitureFor('empty').length === 8), 'getFurnitureFor: workshop 12 (4 benches + 8 any), empty 8');
   ok(await H(() => window.__game.ctx.housing.getPresetCount() === 0 && window.__game.ctx.housing.getCraftCostMul() === 1 && window.__game.ctx.housing.getSkillGainMul('gun_AR') === 1), 'no rooms: 0 presets, cost ×1, skill ×1');
   // `housing:loaded` fired inside init() before the recorder existed; the saved file proves the fresh state was written
@@ -264,6 +282,20 @@ try {
     ok(await H(() => window.__game.ctx.housing.craftFurniture('furn_target_lane') && window.__game.ctx.housing.place(5, 'furn_target_lane', 0, 0, 0) !== null), 'target lane crafted + placed in the range');
     ok(await H(() => window.__game.ctx.housing.place(5, 'furn_target_lane', 0, 0, 0) === null), 'second lane refused (none in storage)');
   } else console.log(`  TODO(lead): target lane needs 합금 판 (${JSON.stringify(lane.missing)})`);
+  // 시뮬레이션 허브 (Phase 7): 폐금속 8 + 케이블 2 + 회로 2, 2×2, range only — crafted and placed like every other piece
+  const simDef = await H(() => { const d = window.__game.ctx.housing.getFurnitureDef('furn_sim_hub'); return d ? { room: d.room, craft: d.craft } : null; });
+  ok(simDef && simDef.room === 'range' && simDef.craft.some((c) => c.defId === 'mat_circuit' && c.qty === 2) && simDef.craft.some((c) => c.defId === 'mat_cable' && c.qty === 2) && simDef.craft.some((c) => c.defId === 'mat_scrap' && c.qty === 8), 'furn_sim_hub def: range, 폐금속 8 + 케이블 2 + 회로 2', JSON.stringify(simDef));
+  await give('mat_scrap', 10); await give('mat_cable', 2); await give('mat_circuit', 2);
+  ok((await H(() => window.__game.ctx.housing.canCraftFurniture('furn_sim_hub'))).ok === true, 'canCraftFurniture(furn_sim_hub) with the materials in the bag');
+  const circuitBefore = await count('mat_circuit');
+  const simStoredBefore = await H(() => window.__game.ctx.housing.getStored().find((e) => e.defId === 'furn_sim_hub')?.qty ?? 0);
+  ok(await H(() => window.__game.ctx.housing.craftFurniture('furn_sim_hub') === true), 'craftFurniture(furn_sim_hub) → furniture storage');
+  ok((await count('mat_circuit')) === circuitBefore - 2 && await H((n) => (window.__game.ctx.housing.getStored().find((e) => e.defId === 'furn_sim_hub')?.qty ?? 0) === n + 1, simStoredBefore), 'sim hub consumed 회로 2 and sits in storage');
+  ok(await H(() => window.__game.ctx.housing.canPlace(0, 'furn_sim_hub', 4, 4, 0) === false && window.__game.ctx.housing.canPlace(5, 'furn_sim_hub', 4, 4, 0) === true), 'canPlace: sim hub refused in the workshop, allowed in the range');
+  const simPlaced = await H(() => window.__game.ctx.housing.place(5, 'furn_sim_hub', 4, 4, 0));
+  ok(simPlaced && simPlaced.defId === 'furn_sim_hub' && simPlaced.room === 5 && simPlaced.level === 1, `sim hub placed in the range (${simPlaced?.uid})`);
+  ok((await lastEv('housing:furniturePlaced'))?.item?.defId === 'furn_sim_hub', 'housing:furniturePlaced {furn_sim_hub}');
+  ok(await H(() => window.__game.ctx.housing.getPlaced(5).some((f) => f.defId === 'furn_sim_hub') && window.__game.ctx.housing.getFurnitureDef('furn_sim_hub').interaction === 'sim_hub'), "placed sim hub carries interaction 'sim_hub' for hub/");
   ok(await H(() => window.__game.ctx.housing.setRoomPurpose(1, 'lounge') === true && window.__game.ctx.housing.getPlaced(1).length === 1), "room 1 → lounge keeps its 'any' locker");
   ok(await H(() => window.__game.ctx.housing.setRoomPurpose(1, 'empty') === true && window.__game.ctx.housing.getPlaced(1).length === 0 && window.__game.ctx.housing.getStored().find((s) => s.defId === 'furn_locker')?.qty === 2), 'room 1 → empty recovers the locker');
   ok(await H(() => window.__game.ctx.housing.setRoomPurpose(2, 'gym') === true && window.__game.ctx.housing.getRoom(2).level === 1), 'inactive purpose (gym) can still be assigned');
@@ -351,8 +383,53 @@ try {
   await H(() => window.__game.ctx.housing.openRoomMenu(5));
   await sleep(50);
   ok(await H(() => document.querySelector('.preset-menu').hidden && !document.querySelector('.room-menu').hidden && window.__game.ctx.uiBlockers.has('housing')), 'opening another panel closes the previous one (single blocker)');
+  const rangeDom = await H(() => {
+    const root = document.querySelector('.menu.housing-menu.room-menu');
+    const craft = root.querySelector('.hs-row[data-craft="furn_sim_hub"]');
+    const placed = [...root.querySelectorAll('.hs-row[data-uid]')].map((r) => r.querySelector('.name').textContent);
+    return { title: root.querySelector('.hs-head .title').textContent, craft: !!craft, name: craft?.querySelector('.name')?.textContent, size: craft?.querySelector('.tag')?.textContent, placed };
+  });
+  ok(rangeDom.title.includes('사격장') && rangeDom.craft && rangeDom.name === '시뮬레이션 허브' && rangeDom.size === '2×2', `range room menu lists 시뮬레이션 허브 in 가구 제작 (${rangeDom.name} ${rangeDom.size})`);
+  ok(rangeDom.placed.includes('시뮬레이션 허브'), 'placed 시뮬레이션 허브 shows under 설치된 가구', JSON.stringify(rangeDom.placed));
   await H(() => window.__game.ctx.housing.closeMenus());
   ok(await H(() => !window.__game.ctx.housing.isMenuOpen && !window.__game.ctx.uiBlockers.has('housing')), 'closeMenus');
+
+  console.log('server profile document (Phase 7)');
+  await H(() => {
+    const net = window.__game.ctx.net;
+    const fake = { available: true, credits: 0, docs: {}, sets: [], get(k) { return this.docs[k]; }, set(k, doc) { this.sets.push(k); this.docs[k] = JSON.parse(JSON.stringify(doc)); }, flush() {}, addCredits: async () => ({ ok: true, credits: 0 }) };
+    window.__fakeProfile = fake;
+    window.__realProfileDesc = Object.getOwnPropertyDescriptor(net, 'profile') ?? null;
+    Object.defineProperty(net, 'profile', { value: fake, configurable: true, writable: true });
+  });
+  await H(() => { window.__game.ctx.housing.setRoomPurpose(8, 'lounge'); window.__game.ctx.housing.save(); });
+  ok(await H(() => window.__fakeProfile.sets.includes('ship') && window.__fakeProfile.docs.ship.rooms[8].purpose === 'lounge'), "save → profile.set('ship', state)");
+  const shipSnap = await H(() => JSON.parse(JSON.stringify(window.__game.ctx.housing.state)));
+  await H(() => { window.__fakeProfile.docs = {}; window.__fakeProfile.sets.length = 0; window.__game.ctx.bus.emit('net:profileLoaded', { profile: { credits: 0, docs: {}, updatedAt: 0 }, migrated: true }); });
+  ok(await H(() => window.__fakeProfile.sets.includes('ship') && window.__game.ctx.housing.getRoom(8).purpose === 'lounge'), 'no server document → local state uploaded, nothing replaced');
+  const loadedN = (await ev('housing:loaded')).length;
+  await H((snap) => {
+    const doc = JSON.parse(JSON.stringify(snap));
+    doc.rooms[8] = { purpose: 'kitchen', level: 1 };
+    doc.storageLevel = 2;
+    doc.furniture.push({ uid: 'f-90', defId: 'furn_crate', room: 8, x: 0, y: 0, yaw: 0, level: 1 });
+    window.__fakeProfile.docs = { ship: doc };
+    window.__game.ctx.bus.emit('net:profileLoaded', { profile: { credits: 0, docs: window.__fakeProfile.docs, updatedAt: 0 }, migrated: false });
+  }, shipSnap);
+  const srv = await H(() => ({ room8: window.__game.ctx.housing.getRoom(8).purpose, storage: window.__game.ctx.housing.state.storageLevel, crate: window.__game.ctx.housing.getPlaced(8).map((f) => f.uid + ':' + f.defId), rows: window.__game.ctx.housing.getStashSize().rows,
+    loaded: window.__ev['housing:loaded'].length, changed: window.__ev['housing:changed'][window.__ev['housing:changed'].length - 1], stash: window.__ev['housing:stashSizeChanged'][window.__ev['housing:stashSizeChanged'].length - 1], local: JSON.parse(localStorage.getItem('scav.ship')).rooms[8].purpose, sets: window.__fakeProfile.sets.filter((k) => k === 'ship').length }));
+  ok(srv.room8 === 'kitchen' && srv.storage === 2 && srv.crate.join() === 'f-90:furn_crate', 'net:profileLoaded → server ship document replaces the state (room 8 kitchen, storage 2, crate f-90)', JSON.stringify(srv));
+  ok(srv.loaded === loadedN + 1 && srv.changed?.reason === 'profile', 'housing:loaded re-emitted + housing:changed {profile}', JSON.stringify({ loaded: srv.loaded, changed: srv.changed }));
+  ok(srv.rows === 36 && srv.stash && srv.stash.rows === 36, 'stash size follows the server storage level (36 rows) + housing:stashSizeChanged', JSON.stringify({ rows: srv.rows, ev: srv.stash }));
+  ok(srv.local === 'kitchen' && srv.sets === 1, 'localStorage cache updated, server copy not echoed back', JSON.stringify({ local: srv.local, sets: srv.sets }));
+  const nextUid = await H(() => { const h = window.__game.ctx.housing; h.craftFurniture('furn_crate'); const p = h.place(8, 'furn_crate', 5, 5, 0); const uid = p?.uid; if (p) h.recover(p.uid); return uid; });
+  ok(nextUid === 'f-91', `uid counter continues after the server copy's highest uid (${nextUid})`);
+  // put the local state back through the same path, then restore the offline profile
+  await H((snap) => { window.__fakeProfile.docs = { ship: snap }; window.__game.ctx.bus.emit('net:profileLoaded', { profile: { credits: 0, docs: window.__fakeProfile.docs, updatedAt: 0 }, migrated: false }); }, shipSnap);
+  ok(await H(() => window.__game.ctx.housing.getRoom(8).purpose === 'lounge' && window.__game.ctx.housing.getPlaced(8).length === 0 && window.__game.ctx.housing.getStashSize().rows === 30), 'local state restored through net:profileLoaded');
+  await H(() => { const net = window.__game.ctx.net; if (window.__realProfileDesc) Object.defineProperty(net, 'profile', window.__realProfileDesc); else delete net.profile; });
+  ok(await H(() => window.__game.ctx.net.profile !== window.__fakeProfile && window.__game.ctx.net.profile.available === false), 'real (offline) profile restored');
+  await H(() => window.__game.ctx.housing.setRoomPurpose(8, 'empty'));
 
   console.log('persistence');
   await H(() => window.__game.ctx.housing.savePreset(0, { name: '리로드', primary: null, primary2: null, secondary: null, bag: null, armor: null, implant: 'scan' }));
@@ -363,13 +440,13 @@ try {
   const after = await H(() => JSON.parse(JSON.stringify(window.__game.ctx.housing.state)));
   ok(after.rooms[0].purpose === 'workshop' && after.rooms[5].purpose === 'range' && after.rooms[2].purpose === 'gym', 'room purposes persisted');
   ok(after.generatorLevel === before.generatorLevel && after.storageLevel === 1 && after.rooms[0].level === before.rooms[0].level, `facility levels persisted (gen ${after.generatorLevel}, storage ${after.storageLevel})`);
-  ok(after.furniture.length === before.furniture.length && after.furniture.some((f) => f.uid === 'f-2' && f.defId === 'furn_bench_gun'), `furniture persisted (${after.furniture.length})`);
+  ok(after.furniture.length === before.furniture.length && after.furniture.some((f) => f.uid === 'f-2' && f.defId === 'furn_bench_gun') && after.furniture.some((f) => f.defId === 'furn_sim_hub' && f.room === 5), `furniture persisted incl. the sim hub (${after.furniture.length})`);
   ok(JSON.stringify(after.furnitureStorage) === JSON.stringify(before.furnitureStorage), 'furniture storage persisted');
   ok(after.presets[0]?.name === '리로드' && after.presets[0].implant === 'scan', 'preset persisted');
   ok(await H(() => window.__game.ctx.housing.getStashSize().rows === 30), 'stash size 30 rows after reload');
   await give('mat_scrap', 10);                   // the bag is not persisted — only the stash is
   const next = await H(() => { window.__game.ctx.housing.setRoomPurpose(6, 'lounge'); const h = window.__game.ctx.housing; h.craftFurniture('furn_crate'); return h.place(6, 'furn_crate', 7, 7, 0); });
-  ok(next && next.uid === 'f-5', `uid counter continues after the highest persisted uid f-4 (${next?.uid})`);
+  ok(next && next.uid === 'f-6', `uid counter continues after the highest persisted uid f-5 — the sim hub (${next?.uid})`);
   // corrupt save → sanitised, not a crash (flush first so the unload flush does not overwrite the corrupt file)
   await H(() => window.__game.ctx.housing.save());
   await H(() => localStorage.setItem('scav.ship', JSON.stringify({ version: 1, rooms: [{ purpose: 'lab', level: 9 }], generatorLevel: 99, furniture: [{ uid: 'x', defId: 'nope', room: 0 }, { uid: 'f-3', defId: 'furn_crate', room: 30, x: 99, y: -1, yaw: 7, level: 5 }, { uid: 'f-3', defId: 'furn_bench_gun', room: 1, x: 0, y: 0, yaw: 0, level: 1 }, { uid: 'f-3', defId: 'furn_crate', room: 1, x: 7, y: 7, yaw: 0, level: 1 }, { uid: 'bad', defId: 'furn_crate', room: 1, x: 7, y: 7, yaw: 0, level: 1 }], furnitureStorage: [{ defId: 'furn_locker', qty: 'a' }], presets: [{ name: 1, implant: 'bogus' }] })));

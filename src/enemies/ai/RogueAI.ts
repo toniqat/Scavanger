@@ -1,22 +1,34 @@
 import * as THREE from 'three';
-import { ROGUE_AIM_ERROR, ROGUE_AIM_ERROR_SETTLED, ROGUE_BURST, ROGUE_REACTION, ROGUE_RUSH_CHANCE } from '@/shared';
+import {
+  ROGUE_AIM_ERROR, ROGUE_AIM_ERROR_SETTLED, ROGUE_BURST, ROGUE_GRENADE_COOLDOWN, ROGUE_GRENADE_HOLD_S, ROGUE_GRENADE_RADIUS, ROGUE_GRENADE_RANGE,
+  ROGUE_GRENADE_WINDUP, ROGUE_MAG_ROUNDS, ROGUE_REACTION, ROGUE_RELOAD_TIME, ROGUE_RUSH_CHANCE,
+} from '@/shared';
 import type { Enemy, EnemyHost } from '../Enemy';
 import { ROGUE_AI } from '../EnemyTypes';
 import type { CombatTarget } from '../Targets';
 import { lookAtTarget } from './Common';
 import { integrate } from './EnemyAI';
+import { pickCover } from './RogueCover';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Rogue gunner AI (Phase 4). Guards idle / patrol around `guardPos` (a crate, or the boss it escorts), react after
- * ROGUE_REACTION, then loop a cover cycle: move to cover → crouch-hold 2–4 s → pop out and fire a burst → (rush with
- * ROGUE_RUSH_CHANCE) → next cover. Shots are resolved by `host.fireGun` (hitscan, occlusion, damage, FX, events).
- * Uses the shared EnemyState machine: idle / wander (patrol), alert (reaction), chase (cover cycle via `roguePhase`),
- * stagger, dead. Movement goes through EnemyAI.integrate like every other enemy.
+ * Rogue gunner AI (Phase 4, v2 in Phase 7). Guards idle / patrol around `guardPos` (a crate, or the boss it escorts),
+ * react after ROGUE_REACTION, then loop a cover cycle: move to cover → crouch-hold 2–4 s → pop out and fire a burst →
+ * (rush with ROGUE_RUSH_CHANCE) → next cover. Shots are resolved by `host.fireGun` (hitscan, occlusion, damage, FX,
+ * events). Uses the shared EnemyState machine: idle / wander (patrol), alert (reaction), chase (cover cycle via
+ * `roguePhase`), stagger, dead. Movement goes through EnemyAI.integrate like every other enemy.
+ *
+ * v2 (Phase 7):
+ * - cover must block the line of sight and is scored with a flank preference (`RogueCover.ts`);
+ * - a magazine of ROGUE_MAG_ROUNDS: every shot spends one round, an empty mag forces a ROGUE_RELOAD_TIME crouched reload
+ *   (no shots, hint 12, the `reload` sound at the rogue) regardless of the cover phase;
+ * - a grenade toss when the target has been out of sight for ROGUE_GRENADE_HOLD_S within ROGUE_GRENADE_RANGE and the
+ *   per-rogue cooldown is over: ROGUE_GRENADE_WINDUP standing throw pose (hint 13, grenade sphere in the off hand), then
+ *   `host.throwGrenade` (the boss and its escorts use it too).
  * ──────────────────────────────────────────────────────────────────────────── */
 
 const TWO_PI = Math.PI * 2;
-const _d = new THREE.Vector3();
-const _c = new THREE.Vector3();
+/** Never toss a grenade at something inside its own blast (plus a margin). */
+const GRENADE_MIN_DIST = ROGUE_GRENADE_RADIUS + 1.5;
 
 export function updateRogue(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget | null, targetAlive: boolean): void {
   const ctx = host.ctx;
@@ -30,10 +42,19 @@ export function updateRogue(e: Enemy, dt: number, host: EnemyHost, t: CombatTarg
     else { e.escortOf = null; e.guardPos.copy(e.position); e.leash = ROGUE_AI.leash; }
   }
   if (e.hitCrouchTimer > 0) e.hitCrouchTimer -= dt;
+  if (e.grenadeCd > 0) e.grenadeCd -= dt;
+  // reload runs in every state (a staggered / relocating rogue keeps working the magazine)
+  if (e.reloadTimer > 0) {
+    e.reloadTimer -= dt;
+    if (e.reloadTimer <= 0) { e.reloadTimer = 0; e.magRounds = ROGUE_MAG_ROUNDS; }
+  }
+  // LOS hold: how long the current target has been hidden while we hunt it (grenade trigger)
+  if (e.aware && targetAlive && e.state === 'chase') e.noLosHold = e.hasLOS ? 0 : e.noLosHold + dt;
+  else e.noLosHold = 0;
 
   // nobody left to fight → stand down
   if (!targetAlive && e.aware && (e.state === 'chase' || e.state === 'alert')) {
-    e.aware = false; e.state = 'idle'; e.stateTime = 0; e.wanderTimer = 1.5; e.roguePhase = 0; e.burstLeft = 0;
+    e.aware = false; e.state = 'idle'; e.stateTime = 0; e.wanderTimer = 1.5; e.roguePhase = 0; e.burstLeft = 0; e.throwTimer = 0;
   }
 
   let speed = 0;
@@ -96,10 +117,48 @@ export function updateRogue(e: Enemy, dt: number, host: EnemyHost, t: CombatTarg
     default: break;
   }
 
+  // reloading overrides the pose in every state: crouched, rifle down (hint 12)
+  if (e.reloadTimer > 0 && e.state !== 'stagger') { crouchT = Math.max(crouchT, 1); aimT = Math.min(aimT, 0.25); }
+
   a.aim += (aimT - a.aim) * Math.min(1, dt * (aimT > a.aim ? 7 : 3));
   a.crouch += (crouchT - a.crouch) * Math.min(1, dt * 7);
   a.shake = Math.max(0, a.shake - dt * 4);
   integrate(e, dt, world, host, speed, false);
+}
+
+/** True while the rifle may fire (magazine not empty, not reloading, not winding up a throw). */
+function canShoot(e: Enemy): boolean {
+  return e.reloadTimer <= 0 && e.magRounds > 0 && e.throwTimer <= 0;
+}
+
+/** One rifle shot: spends a round; an empty magazine starts the reload right away (crouch, no shots, `reload` audio). */
+function shoot(e: Enemy, host: EnemyHost, t: CombatTarget, aimError: number, boss: boolean): void {
+  host.fireGun(e, t, aimError, boss ? ROGUE_AI.bossDamageMul : 1);
+  e.anim.recoil = 1;
+  e.magRounds = Math.max(0, e.magRounds - 1);
+  if (e.magRounds === 0) startReload(e, host);
+}
+
+function startReload(e: Enemy, host: EnemyHost): void {
+  e.reloadTimer = ROGUE_RELOAD_TIME;
+  e.burstLeft = 0;
+  host.playAudio('reload', e.position, 0.7, e.type === 'rogue_boss' ? 0.85 : 1);
+}
+
+/**
+ * Grenade trigger: the target has been hidden for ROGUE_GRENADE_HOLD_S, is within range but outside our own blast,
+ * the cooldown is over and nothing else (reload, stagger) is going on. Starts the wind-up (hint 13).
+ */
+function maybeStartThrow(e: Enemy, t: CombatTarget): boolean {
+  if (e.throwTimer > 0 || e.grenadeCd > 0 || e.reloadTimer > 0 || e.hasLOS) return false;
+  if (e.noLosHold < ROGUE_GRENADE_HOLD_S) return false;
+  const d = e.distToTarget;
+  if (d > ROGUE_GRENADE_RANGE || d < GRENADE_MIN_DIST) return false;
+  e.throwTimer = ROGUE_GRENADE_WINDUP;
+  e.grenadeTarget.copy(t.position);
+  e.burstLeft = 0;
+  e.stateTime = 0;
+  return true;
 }
 
 interface CycleResult { speed: number; aim: number; crouch: number }
@@ -108,12 +167,41 @@ const cycle: CycleResult = { speed: 0, aim: 0, crouch: 0 };
 /** One tick of the cover cycle while a live target exists. */
 function coverCycle(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget): CycleResult {
   const s = e.stats;
-  const a = e.anim;
   const r = cycle;
   const d = e.distToTarget;
   const boss = e.type === 'rogue_boss';
   r.speed = 0; r.aim = 1; r.crouch = 0;
   lookAtTarget(e, t, dt);
+
+  // grenade wind-up (Phase 7): step out beside the rock first (a lob from behind it would bounce straight back),
+  // then stand, face the last known position and toss
+  if (e.throwTimer > 0) {
+    e.facePoint.copy(e.grenadeTarget); e.hasFacePoint = true;
+    r.aim = 0.2; r.crouch = 0;
+    if (e.hasPop && e.stateTime < 2) {
+      const dx = e.popPos.x - e.position.x, dz = e.popPos.z - e.position.z;
+      if (dx * dx + dz * dz > 0.36) {
+        e.moveTarget.copy(e.popPos); e.hasMoveTarget = true;
+        r.speed = s.speed * 0.85;
+        return r;                                   // the wind-up itself starts once we are out
+      }
+    }
+    e.throwTimer -= dt;
+    if (e.throwTimer <= 0) {
+      e.throwTimer = 0;
+      if (host.throwGrenade(e, e.grenadeTarget)) {
+        e.grenadeCd = ROGUE_GRENADE_COOLDOWN * (boss ? 0.7 : 1) * (0.9 + Math.random() * 0.2);
+        e.noLosHold = 0;
+      } else {
+        // launch path blocked (rock in the face): try again in a moment from somewhere else
+        e.grenadeCd = 2;
+        e.noLosHold = ROGUE_GRENADE_HOLD_S * 0.5;
+      }
+      // back to cover after the toss (the blast will flush the target; a short hold keeps us from popping into it)
+      e.roguePhase = 0; e.stateTime = 0;
+    }
+    return r;
+  }
 
   // leash: never wander off the crate / boss unless rushing or the fight is right here
   const leashD = Math.hypot(e.position.x - e.guardPos.x, e.position.z - e.guardPos.z);
@@ -124,6 +212,9 @@ function coverCycle(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget): Cyc
     r.speed = s.speed; r.aim = 0.6;
     return r;
   }
+
+  // a hidden target inside grenade range gets a grenade instead of another cover shuffle (not while rushing)
+  if (e.roguePhase !== 4 && maybeStartThrow(e, t)) { r.aim = 0.2; return r; }
 
   if (e.roguePhase === 0) {
     pickCover(e, host, t);
@@ -139,40 +230,55 @@ function coverCycle(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget): Cyc
         r.speed = s.speed;
         const dx = e.coverPos.x - e.position.x, dz = e.coverPos.z - e.position.z;
         if (dx * dx + dz * dz < 0.8 || e.stateTime > 6) enterCover(e, boss);
-        else if (e.hasLOS && e.burstTimer <= 0 && d < 45 && Math.random() < dt * 0.6) {
+        else if (e.hasLOS && e.burstTimer <= 0 && d < 45 && canShoot(e) && Math.random() < dt * 0.6) {
           // an occasional snap shot while relocating
-          host.fireGun(e, t, ROGUE_AIM_ERROR * 1.5, boss ? ROGUE_AI.bossDamageMul : 1);
-          a.recoil = 1; e.burstTimer = 0.6;
+          shoot(e, host, t, ROGUE_AIM_ERROR * 1.5, boss);
+          e.burstTimer = 0.6;
         }
         e.burstTimer -= dt;
       } else enterCover(e, boss);
       break;
     }
     case 2: {
-      // crouched behind cover (hint 6)
+      // crouched behind cover (hint 6); a reload extends the hold until it is done
       r.crouch = 1; r.aim = 0.35;
       e.facePoint.copy(t.position); e.hasFacePoint = true;
       e.coverTimer -= dt;
+      if (e.reloadTimer > 0) break;
       if (e.coverTimer <= 0 || d < 6) popOut(e, boss);
       break;
     }
     case 3: {
-      // popped out: stand and fire the burst (hint 5)
+      // popped out: step out beside the rock (`popPos`, v2) and fire the burst standing (hint 5)
       e.facePoint.copy(t.position); e.hasFacePoint = true;
-      e.standTime += dt;
       r.crouch = e.hitCrouchTimer > 0 ? 0.7 : 0;
+      let stepping = false;
+      if (e.hasPop) {
+        const dx = e.popPos.x - e.position.x, dz = e.popPos.z - e.position.z;
+        if (dx * dx + dz * dz > 0.36 && e.stateTime < 2.5) {
+          e.moveTarget.copy(e.popPos); e.hasMoveTarget = true;
+          r.speed = s.speed * 0.85;
+          stepping = true;
+        }
+      }
+      if (!stepping) e.standTime += dt;
       if (!e.hasLOS) {
-        e.noLosTimer += dt;
+        // the target moved: wait a moment (not while still stepping out), then pick a new rock
+        if (!stepping) e.noLosTimer += dt;
         if (e.noLosTimer > 1.2) { e.roguePhase = 0; e.stateTime = 0; }
         break;
       }
       e.noLosTimer = 0;
       e.burstTimer -= dt;
+      if (e.reloadTimer > 0) {
+        // the magazine ran dry mid-burst: duck back into cover for the rest of the reload
+        e.roguePhase = 2; e.coverTimer = 0.4; e.stateTime = 0;
+        break;
+      }
       if (e.burstLeft > 0) {
-        if (e.burstTimer <= 0 && e.hitCrouchTimer <= 0) {
+        if (e.burstTimer <= 0 && e.hitCrouchTimer <= 0 && canShoot(e)) {
           const err = THREE.MathUtils.lerp(ROGUE_AIM_ERROR, ROGUE_AIM_ERROR_SETTLED, THREE.MathUtils.clamp(e.standTime / ROGUE_AI.settleTime, 0, 1));
-          host.fireGun(e, t, err, boss ? ROGUE_AI.bossDamageMul : 1);
-          a.recoil = 1;
+          shoot(e, host, t, err, boss);
           e.burstLeft--;
           e.burstTimer = e.burstLeft > 0 ? ROGUE_AI.shotGap : 0.5;
         }
@@ -189,9 +295,8 @@ function coverCycle(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget): Cyc
       r.speed = s.speed * 1.1;
       e.rushTimer += dt;
       e.burstTimer -= dt;
-      if (e.burstTimer <= 0 && e.hasLOS) {
-        host.fireGun(e, t, ROGUE_AIM_ERROR * 1.6, boss ? ROGUE_AI.bossDamageMul : 1);
-        a.recoil = 1;
+      if (e.burstTimer <= 0 && e.hasLOS && canShoot(e)) {
+        shoot(e, host, t, ROGUE_AIM_ERROR * 1.6, boss);
         e.burstTimer = 0.28;
       }
       if (d <= ROGUE_AI.rushDist || e.rushTimer > ROGUE_AI.rushMax) { e.roguePhase = 0; e.stateTime = 0; }
@@ -210,46 +315,9 @@ function enterCover(e: Enemy, boss: boolean): void {
 
 function popOut(e: Enemy, boss: boolean): void {
   e.roguePhase = 3;
-  e.burstLeft = boss ? ROGUE_AI.bossRounds : ROGUE_BURST;
+  e.burstLeft = Math.min(e.magRounds, boss ? ROGUE_AI.bossRounds : ROGUE_BURST);
   e.burstTimer = 0.15;
   e.standTime = 0;
   e.noLosTimer = 0;
   e.stateTime = 0;
-}
-
-/**
- * Choose cover: an obstacle within 16 m that lies roughly between the rogue and its target; the cover point sits on
- * the far side of the obstacle (away from the target), inside the leash. No candidate → `hasCover = false` (the rogue
- * crouches where it stands for a short "cover" hold instead).
- */
-function pickCover(e: Enemy, host: EnemyHost, t: CombatTarget): void {
-  const world = host.ctx.world!;
-  const obstacles = world.getObstaclesNear(e.position.x, e.position.z, 16);
-  const tp = t.position;
-  _d.set(tp.x - e.position.x, 0, tp.z - e.position.z);
-  const dist = _d.length();
-  if (dist > 1e-3) _d.multiplyScalar(1 / dist);
-  let best: number = Infinity;
-  e.hasCover = false;
-  for (let i = 0; i < obstacles.length; i++) {
-    const o = obstacles[i];
-    if (o.radius < 0.5 || o.height < 0.8) continue;
-    const ox = o.position.x - e.position.x, oz = o.position.z - e.position.z;
-    const along = ox * _d.x + oz * _d.z;
-    if (along < -2) continue;                                    // behind us
-    // cover point: behind the obstacle relative to the target
-    _c.set(o.position.x - tp.x, 0, o.position.z - tp.z);
-    const l = _c.length();
-    if (l < 1e-3) continue;
-    _c.multiplyScalar(1 / l);
-    const px = o.position.x + _c.x * (o.radius + 0.7), pz = o.position.z + _c.z * (o.radius + 0.7);
-    if (!world.isInsideBounds(px, pz)) continue;
-    const toTarget = Math.hypot(tp.x - px, tp.z - pz);
-    if (toTarget < 4 || toTarget > ROGUE_AI.range * 0.9) continue;
-    if (!e.escortOf && Math.hypot(px - e.guardPos.x, pz - e.guardPos.z) > e.leash) continue;
-    let score = Math.hypot(px - e.position.x, pz - e.position.z);
-    if (score < 1.5) score += 6;                                  // prefer a different rock than the one we are at
-    score += Math.max(0, toTarget - 35) * 0.5;
-    if (score < best) { best = score; e.coverPos.set(px, world.getHeightAt(px, pz), pz); e.hasCover = true; }
-  }
 }

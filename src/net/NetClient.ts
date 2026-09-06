@@ -3,9 +3,12 @@ import type { ClientToServer, NetStatus, PeerId, ServerToClient } from '@/shared
 /** Server → client message types we accept; anything else is dropped with a warning. */
 const SERVER_TYPES: ReadonlySet<string> = new Set([
   'welcome', 'lobby:state', 'lobby:error', 'lobby:left', 'game:start', 'relay', 'peer:left', 'pong',
+  /* Phase 7 */
+  'profile:docs', 'credits:result',
 ]);
 const PING_INTERVAL_MS = 2000;
-const MAX_INBOUND_BYTES = 256 * 1024;
+/** `welcome` may carry every profile document (5 × PROFILE_DOC_MAX_BYTES) plus a raid blob. */
+const MAX_INBOUND_BYTES = 2 * 1024 * 1024;
 
 /**
  * Thin WebSocket transport for the relay server: JSON framing, welcome handshake, RTT pings, status changes.

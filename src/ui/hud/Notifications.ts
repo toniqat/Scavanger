@@ -1,5 +1,5 @@
 import type { GameContext } from '@/shared';
-import { CONTRACT_DEFS, QUEST_DEFS, WEIGHT_STATE_LABEL_KO } from '@/shared';
+import { CONTRACT_DEFS, QUEST_DEFS, SUSPENDED_LABEL_KO, WEIGHT_STATE_LABEL_KO } from '@/shared';
 import { el, escapeHtml, rarityColor } from '../dom';
 import { stratagemDef } from './stratagemGlyphs';
 
@@ -99,7 +99,21 @@ export class Notifications {
         this.push('함선 호출 준비 완료', 'success', '호출', 3);
       }),
       b.on('game:abort', () => { this.clear(); this.cooldownWasRunning = false; }),
-      b.on('game:newMission', () => { this.clear(); this.lastCountdown = -1; this.cooldownWasRunning = false; this.durWarned.clear(); }),
+      b.on('game:newMission', ({ mode }) => {
+        this.clear(); this.lastCountdown = -1; this.cooldownWasRunning = false; this.durWarned.clear();
+        if (mode === 'training') this.push('시뮬레이션 훈련장 입장 — 탄약 · 내구도 미소모, 출구 콘솔로 종료', 'info', '훈련장', 5);
+      }),
+      /* ── Phase 7: host migration / suspended members / training ── */
+      b.on('net:hostChanged', ({ hostId, isLocalHost }) => {
+        const name = isLocalHost || hostId === ctx.net?.localId ? (ctx.net?.playerName ?? '나')
+          : (ctx.net?.getLobbyPlayer(hostId)?.name ?? ctx.net?.getRemotePlayer(hostId)?.name ?? '분대원');
+        this.push(`호스트 변경: <b>${escapeHtml(name)}</b>${isLocalHost ? ' <span style="color:var(--c-text-dim)">(나)</span>' : ''}`, 'warning', '네트워크', 4);
+      }),
+      b.on('net:peerSuspended', ({ name, suspended }) => {
+        if (suspended) this.push(`<b>${escapeHtml(name)}</b> ${SUSPENDED_LABEL_KO} — 자리 유지 중`, 'warning', '분대', 4);
+        else this.push(`<b>${escapeHtml(name)}</b> 재연결`, 'success', '분대', 3);
+      }),
+      b.on('training:exitRequested', () => this.push('시뮬레이션 훈련장 퇴장 — 장비 복원', 'info', '훈련장', 3)),
       /* ── tactical kit: gear, gathering, crafting, gadgets, progression ── */
       b.on('durability:changed', ({ uid, defId, durability, max }) => {
         if (max <= 0) return;

@@ -218,7 +218,7 @@ try {
   ok(beh && beh.front && beh.front.part === 'front' && beh.front.armored, `raycast from the front hits the armoured plate (part ${beh?.front?.part}, armored ${beh?.front?.armored})`, JSON.stringify(beh));
   ok(beh && beh.rear && beh.rear.part === 'rear' && !beh.rear.armored, `raycast from behind → rear, not armoured (${beh?.rear?.part})`);
   ok(beh && Math.abs((beh.before - beh.afterFront) - 35) < 0.5 && Math.abs((beh.afterFront - beh.afterRear) - 200) < 0.5, `multipliers: front ×0.35 (${(beh?.before - beh?.afterFront).toFixed(1)}), rear ×2 (${(beh?.afterFront - beh?.afterRear).toFixed(1)})`);
-  ok(beh && Math.abs(beh.h - 6.4) < 0.01 && beh.faction === 'bug', `behemoth is a ${beh?.h} m bug`);
+  ok(beh && Math.abs(beh.h - 1.6 * 3) < 0.01 && beh.faction === 'bug', `behemoth is a ${beh?.h} m bug (BEHEMOTH_SCALE 3 since Phase 7)`);
 
   console.log('corpses');
   const corpse = await P(() => {

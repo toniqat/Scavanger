@@ -1,11 +1,11 @@
 import * as THREE from 'three';
 import type {
-  CraftIngredient, CraftRecipe, CraftStation, DurabilityInfo, EffectiveWeaponStats, GameContext, GameSystem, InventoryRef, ItemDef, ItemInstance, Loadout, LoadoutSlot,
-  SocketSlot, WeaponSlot, WeightInfo, LoadoutPreset, WorkbenchKind,
+  ContainerMessage, ContainerRequest, CraftIngredient, CraftRecipe, CraftStation, DurabilityInfo, EffectiveWeaponStats, GameContext, GameSystem, InventoryRef,
+  ItemDef, ItemInstance, Loadout, LoadoutSlot, PeerId as NetPeerId, ProfileRecord, SocketSlot, WeaponSlot, WeightInfo, LoadoutPreset, WorkbenchKind,
 } from '@/shared';
-import { BAG_DEFAULT_COLS, BAG_DEFAULT_QUICK_SLOTS, BAG_DEFAULT_ROWS, Keys, QUICK_SLOTS, SOCKET_SLOTS, isQuickSlotActive } from '@/shared';
+import { BAG_DEFAULT_COLS, BAG_DEFAULT_QUICK_SLOTS, BAG_DEFAULT_ROWS, Keys, QUICK_SLOTS, SEARCH_MAX_DISTANCE, SOCKET_SLOTS, isQuickSlotActive } from '@/shared';
 import { AMMO_LABEL_KO, ITEM_DEF_MAP, LootService, STARTER_LOADOUT, ammoItemIdFor, getRecipe, isWeaponItemDef, itemWeight } from '@/items';
-import { durabilityInfo, gearMultipliers, makeWeightInfo, sumWeight } from './Gear';
+import { durabilityInfo, gearMultipliers, makeWeightInfo, searchTimeFor, sumWeight } from './Gear';
 import { Grid, OOB, type Placement, type PriorityPlacement } from './Grid';
 import { Container, ContainerStore } from './Container';
 import { attachedItems, clearSocket, findSocketed, setSocket } from './Sockets';
@@ -15,7 +15,7 @@ import {
 } from './QuickSlots';
 import { InventoryUI } from './ui/InventoryUI';
 import { Stash } from './Stash';
-import { LOADOUT_SAVE_VERSION, LoadoutStore, isEmptyLoadoutSave, loadLoadoutSave, type LoadoutSave } from './Loadout';
+import { LOADOUT_SAVE_VERSION, LoadoutStore, isEmptyLoadoutSave, loadLoadoutSave, sanitizeLoadoutSave, type LoadoutSave } from './Loadout';
 import { reviveItem, savedCell, serializeExtras, serializePlacement } from './Serialize';
 
 /* ── UI ↔ system vocabulary ─────────────────────────────────────────────── */
@@ -33,8 +33,11 @@ export type DropTarget =
   | { kind: 'weapon'; uid: string; loc: ItemLocation }
   /** A stim / grenade released over a quick-use wheel cell: assign it (`setQuickSlot`). */
   | { kind: 'quick'; index: number };
-/** `ok` mutated, `noop` nothing to do (drop in place), `fail` refused (UI shakes). */
-export type OpResult = 'ok' | 'noop' | 'fail';
+/**
+ * `ok` mutated, `noop` nothing to do (drop in place), `fail` refused (UI shakes), `pending` (Phase 7, multiplayer client)
+ * = the take was sent to the host; the move happens on `cont taken`, a `cont denied` shakes the tile.
+ */
+export type OpResult = 'ok' | 'noop' | 'fail' | 'pending';
 export type DropPreview = 'ok' | 'swap' | 'merge' | 'noop' | 'bad';
 export type UiSfx = 'ui_pickup' | 'ui_drop' | 'ui_rotate' | 'ui_error' | 'ui_equip';
 export type BagSize = { cols: number; rows: number; quickSlots: number };
@@ -52,6 +55,24 @@ export type BenchRepairRow = {
 };
 
 const AUTO_CLOSE_DISTANCE = 6;
+/** `container:searchProgress` rate cap (s). */
+const SEARCH_EMIT_INTERVAL = 1 / 20;
+/** A take request the host never answered is dropped after this (s, sim time) so the tile stops pulsing. */
+const TAKE_REQUEST_TIMEOUT = 8;
+
+/* ── Phase 7: host-authoritative container takes (multiplayer clients) ── */
+/** A container → player move waiting for the host's `cont taken` / `cont denied`; `run` replays the move on confirmation. */
+interface PendingTake {
+  containerId: string;
+  idx: number;
+  qty: number;
+  uid: string;
+  from: ItemLocation;
+  run: () => OpResult;
+  sentAt: number;
+}
+/** `captureRaidState()` shape: the loadout save plus `searched: false` flags on bag entries (never persisted to disk). */
+export interface RaidInventoryState extends LoadoutSave { raid: 1 }
 const BLOCKER_TOKEN = 'inventory';
 /** World-drop throw: eye position lowered / pushed forward, forward speed + upward pop. */
 const DROP_EYE_LOWER = 0.3;
@@ -119,6 +140,19 @@ export class InventorySystem implements GameSystem, InventoryRef {
   /* Phase 6: 무한 상자 window state + the bench the craft panel is showing. */
   private catalogOpen = false;
   private bench: ActiveBench | null = null;
+  /* Phase 7: container search + host authority + net subscriptions. */
+  private openedIds = new Set<string>();
+  private pendingTakes: PendingTake[] = [];
+  private lastSearchEmit = -1;
+  /**
+   * Profile documents saved while the server was unreachable (`profile.available` false). They are newer than the
+   * server copy, so on the next `net:profileLoaded` they are uploaded instead of being replaced. Only armed once the
+   * session had a chance to connect (first `hub:entered` / `world:ready` / profile) so a fresh browser's starter kit
+   * never clobbers a real server profile.
+   */
+  private offlineDocs: Partial<Record<'stash' | 'loadout', unknown>> = {};
+  private offlineArmed = false;
+  private suppressOfflineQueue = false;
   private ui: InventoryUI | null = null;
   private offs: Array<() => void> = [];
   private escHandler = (e: KeyboardEvent): void => {
@@ -145,11 +179,16 @@ export class InventorySystem implements GameSystem, InventoryRef {
       const want = housing.getStashSize();
       if (want && Number.isFinite(want.cols) && Number.isFinite(want.rows)) {
         const cols = Math.max(this.stash.cols, Math.floor(want.cols)), rows = Math.max(this.stash.rows, Math.floor(want.rows));
-        if ((cols !== this.stash.cols || rows !== this.stash.rows) && this.stash.resize(cols, rows)) this.stash.markDirty();
+        if ((cols !== this.stash.cols || rows !== this.stash.rows) && this.stash.resize(cols, rows)) this.stash.flush(); // now: never an "offline edit"
+
       }
     }
     // Phase 5: the persisted loadout fills the bag + slots once, here; from now on the session state is the truth.
-    this.loadoutStore = new LoadoutStore(() => this.captureLoadoutSave(), (reason) => ctx.bus.emit('inventory:loadoutSaved', { reason }));
+    this.loadoutStore = new LoadoutStore(() => this.captureLoadoutSave(), (reason, file) => {
+      ctx.bus.emit('inventory:loadoutSaved', { reason });
+      if (reason !== 'profile') this.uploadProfileDoc('loadout', file); // Phase 7: mirror to the server profile
+    });
+    this.stash.onSaved = (file) => this.uploadProfileDoc('stash', file);
     this.restoreLoadoutSave();
     this.ui = new InventoryUI(this, ctx);
     this.ui.mount();
@@ -162,21 +201,39 @@ export class InventorySystem implements GameSystem, InventoryRef {
           ctx.bus.emit('ui:notify', { text: '창고 크기를 바꿀 수 없습니다: 범위 밖에 아이템이 있습니다', kind: 'warning', duration: 2.5 });
         }
       }),
-      bus.on('world:ready', ({ seed }) => this.onWorldReady(seed)),
+      bus.on('world:ready', ({ seed }) => { this.offlineArmed = true; this.onWorldReady(seed); }),
       bus.on('crate:open', ({ crateId, tier, position }) => this.openContainer(crateId, tier, position)),
       bus.on('player:died', () => this.closeAll()),
       bus.on('game:complete', () => { this.outcome = 'complete'; this.loadoutStore.saveNow('complete'); }),
       bus.on('game:over', () => this.onGameOver()),
       bus.on('player:respawn', () => this.onRespawn()),
       bus.on('game:abort', () => this.onAbort()),
-      bus.on('game:newMission', () => { this.closeAll(); this.containers.clear(); this.outcome = 'none'; }),
+      bus.on('game:newMission', () => { this.closeAll(); this.clearContainers(); this.outcome = 'none'; }),
+      /* Phase 7: server profile documents + host migration */
+      bus.on('net:profileLoaded', ({ profile }) => this.onProfileLoaded(profile)),
+      bus.on('net:hostChanged', ({ isLocalHost }) => { if (!isLocalHost) this.requestContainerSync(); }),
       bus.on('hub:entered', () => {
-        if (this.isCompletelyEmpty()) this.applyStarter();
-        else if (this.announcePending) this.announceLoaded();
+        if (this.isCompletelyEmpty()) {
+          // a fresh browser: the starter is "no data", not an edit — a server profile arriving later must win over it
+          this.suppressOfflineQueue = true;
+          try { this.applyStarter(); } finally { this.suppressOfflineQueue = false; }
+        } else if (this.announcePending) this.announceLoaded();
+        this.offlineArmed = true;
       }),
       bus.on('game:phaseChanged', () => { if (!ctx.isGameplayPhase() && !ctx.isHubPhase()) this.closeAll(); }),
       bus.on('implant:equipped', () => { if (this._open) this.ui?.refresh(); }),
     );
+    // Phase 7: host-authoritative container contents (`cont` / `contq`, sync on rejoin)
+    const net = ctx.net;
+    if (net && typeof net.onMessage === 'function') {
+      this.offs.push(
+        net.onMessage('cont', (msg, from) => this.onContainerMessage(msg, from)),
+        net.onMessage('contq', (msg, from) => this.onContainerRequest(msg, from)),
+        net.onMessage('flow', (msg, from) => {
+          if (msg.ev === 'rejoined' && this.isNetAuthority()) net.send({ t: 'cont', ev: 'sync', items: this.containers.takenWire() }, from);
+        }),
+      );
+    }
     // Capture-phase so Escape closes the inventory without also reaching the menu system.
     window.addEventListener('keydown', this.escHandler, true);
   }
@@ -198,7 +255,10 @@ export class InventorySystem implements GameSystem, InventoryRef {
     if (player?.isDead) { this.closeAll(); return; }
     if (this.activeContainer && player && player.position.distanceTo(this.activeContainer.position) > AUTO_CLOSE_DISTANCE) {
       this.closeAll();
+      return;
     }
+    this.updateSearch(dt);
+    this.expirePendingTakes();
   }
 
   dispose(): void {
@@ -223,7 +283,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
     this.missionSeed = seed;
     this.outcome = 'none';
     this.closeAll();
-    this.containers.clear();
+    this.clearContainers();
     if (!this.hasAnyWeapon()) { this.applyStarter(); return; }
     this.lastGrenades = -1; this.lastStims = -1; this.lastQuickSig = '';
     if (this.announcePending) { this.announcePending = false; this.lastEquipUids = {}; this.lastWeight = null; }
@@ -254,6 +314,16 @@ export class InventorySystem implements GameSystem, InventoryRef {
   private restoreLoadoutSave(): boolean {
     const save = loadLoadoutSave();
     if (!save || isEmptyLoadoutSave(save)) return false;
+    this.applyLoadoutSave(save);
+    this.announcePending = true;
+    return true;
+  }
+
+  /**
+   * Replace the slots / bag / quick slots with `save` (no events — callers announce). Returns the revived bag
+   * instances in `save.bag` order (null = dropped) so a raid state can restore per-entry flags.
+   */
+  private applyLoadoutSave(save: LoadoutSave): (ItemInstance | null)[] {
     const getDef = (id: string): ItemDef | undefined => ITEM_DEF_MAP.get(id);
     const loadout: Loadout = { primary: null, primary2: null, secondary: null, bag: null, armor: null };
     for (const slot of LOADOUT_SLOTS) {
@@ -287,8 +357,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
       if (!item || !this.bag.has(item.uid) || !isQuickUsable(getDef(item.defId))) return;
       assignQuickSlot(this.quickSlots, i, item.uid);
     });
-    this.announcePending = true;
-    return true;
+    return revived;
   }
 
   /** First `hub:entered` after a restored save: tell every consumer (they subscribed after our init). */
@@ -305,7 +374,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
   private onGameOver(): void {
     this.outcome = 'over';
     this.closeAll();
-    this.containers.clear();
+    this.clearContainers();
     this.applyStarter();
   }
 
@@ -322,7 +391,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
    */
   private onAbort(): void {
     this.closeAll();
-    this.containers.clear();
+    this.clearContainers();
     const outcome = this.outcome;
     this.outcome = 'none';
     if (outcome === 'complete' || outcome === 'over') return;
@@ -1104,6 +1173,18 @@ export class InventorySystem implements GameSystem, InventoryRef {
    * durability, rounds stay on the instance). Dropping the equipped bag shrinks the grid first (`changeBag`).
    */
   dropItem(uid: string, qty?: number): boolean {
+    const found = this.locate(uid);
+    if (!found) return false;
+    if (this.isContainerLoc(found.from)) {
+      // Phase 7: a container item thrown into the world is a take (host-confirmed in multiplayer)
+      const n = qty === undefined ? null : Math.floor(qty);
+      const r = this.guardedTake(uid, found.from, n, () => (this.dropItemImpl(uid, qty) ? 'ok' : 'fail'));
+      return r === 'ok' || r === 'pending';
+    }
+    return this.dropItemImpl(uid, qty);
+  }
+
+  private dropItemImpl(uid: string, qty?: number): boolean {
     // in the ship `throwToWorld` lands the item in the stash first (no ground to drop onto)
     const found = this.locate(uid);
     if (!found) return false;
@@ -1139,6 +1220,9 @@ export class InventorySystem implements GameSystem, InventoryRef {
     const found = this.locateInGrids(uid);
     if (!found) return false;
     const { item, grid } = found;
+    // Phase 7: an unsearched item stays untouched; in multiplayer a split inside the container would create a stack
+    // the host cannot address (no roll index)
+    if (found.gridId === 'container' && (item.searched === false || this.ctx.isMultiplayer)) return false;
     const def = ITEM_DEF_MAP.get(item.defId);
     const n = Math.floor(qty);
     if (!def || def.stackMax <= 1 || !Number.isFinite(n) || n < 1 || n >= item.qty) return false;
@@ -1248,7 +1332,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
     const found = this.locate(uid);
     const def = found && ITEM_DEF_MAP.get(found.item.defId);
     if (!found || !def) return false;
-    return this.dropOnSlot(found.item, def, found.from, slot) === 'ok';
+    const r = this.guardedTake(uid, found.from, null, () => this.dropOnSlot(found.item, def, found.from, slot));
+    return r === 'ok' || r === 'pending';
   }
 
   /** Context menu `창고로 이동` on an equipped item (hub only): unequip straight into the stash. The bag slot shrinks the grid first. */
@@ -1276,6 +1361,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
 
   /** Quick chat: ammo request for weapons, "<name> 필요" for anything else (`chat:post`, kind 'request'). */
   requestItem(uid: string, from: ItemLocation): boolean {
+    if (this.isItemLocked(uid, from)) return false;
     const item = this.findItem(uid, from);
     const def = item && ITEM_DEF_MAP.get(item.defId);
     if (!item || !def) return false;
@@ -1286,7 +1372,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
   }
 
   openContainer(containerId: string, tier: number, position: THREE.Vector3): void {
-    const first = !this.containers.get(containerId);
+    const first = !this.openedIds.has(containerId);
+    this.openedIds.add(containerId);
     const c = this.containers.getOrCreate(containerId, tier, position, this.loot, this.missionSeed);
     this.showContainer(c);
     this.ctx.bus.emit('inventory:containerOpened', { containerId, first });
@@ -1298,7 +1385,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
    * overflow dropped with a warning); a known id shows what is left. Title defaults to `컨테이너`.
    */
   openContainerItems(containerId: string, items: ItemInstance[], position: THREE.Vector3, title?: string): void {
-    const first = !this.containers.get(containerId);
+    const first = !this.openedIds.has(containerId);
+    this.openedIds.add(containerId);
     const c = this.containers.getOrCreateWithItems(containerId, items, position, title);
     this.showContainer(c);
     this.ctx.bus.emit('inventory:containerOpened', { containerId, first });
@@ -1367,11 +1455,6 @@ export class InventorySystem implements GameSystem, InventoryRef {
    * socketed attachments and crate contents are refused (0). A bag stack that hits 0 leaves through the usual
    * path (`inventory:itemRemoved`, its wheel slot relinked / cleared); the stash persists through `afterChange`.
    */
-  /* ── Phase 7 skeleton (inventory/ agent implements; docs/PHASE7-PLAN.md §7) ── */
-  canFit(_defId: string, _qty?: number): 'bag' | 'stash' | null { return 'bag'; }
-  captureRaidState(): unknown { return null; }
-  applyRaidState(_state: unknown): boolean { return false; }
-
   takeItem(uid: string, qty?: number): number {
     const found = this.locateInGrids(uid);
     if (!found || found.gridId === 'container') return 0;
@@ -1449,8 +1532,355 @@ export class InventorySystem implements GameSystem, InventoryRef {
   /** Back to the starter kit (also closes windows and forgets rolled containers). */
   reset(): void {
     this.closeAll();
-    this.containers.clear();
+    this.clearContainers();
     this.applyStarter();
+  }
+
+  /** Forget every rolled container, pending take and opened id (new mission / abort). */
+  private clearContainers(): void {
+    this.containers.clear();
+    this.openedIds.clear();
+    this.pendingTakes = [];
+    this.lastSearchEmit = -1;
+  }
+
+  /* ── Phase 7 (2026-09-06): container search (감정) ──────────────────────── */
+
+  /**
+   * Every frame while a container window is open: reveal the first unsearched item in grid order (top-left →
+   * bottom-right) once its `searchTimeFor` elapsed. Progress only advances within `SEARCH_MAX_DISTANCE` of the
+   * container and is kept on the container across a close / reopen. `container:searchProgress` ≤ 20 Hz,
+   * `container:itemRevealed` per item, `container:searchDone` once everything is revealed.
+   */
+  private updateSearch(dt: number): void {
+    const c = this.activeContainer;
+    const player = this.ctx.player;
+    if (!c || !player) return;
+    const next = c.nextToSearch();
+    if (!next) {
+      this.ui?.setSearchProgress(null, 0, false);
+      if (!c.searchDoneEmitted) {
+        c.searchDoneEmitted = true;
+        this.ctx.bus.emit('container:searchDone', { containerId: c.id });
+        this.ui?.refreshSearchStatus();
+      }
+      return;
+    }
+    const item = next.item;
+    const def = ITEM_DEF_MAP.get(item.defId);
+    if (!def) { item.searched = true; c.grid.version++; return; }
+    const inRange = player.position.distanceTo(c.position) <= SEARCH_MAX_DISTANCE;
+    const need = searchTimeFor(def, gearMultipliers(this.ctx.progression?.derived).searchSpeedMul);
+    let t = c.searchProgress.get(item.uid) ?? 0;
+    if (inRange && dt > 0) { t += dt; c.searchProgress.set(item.uid, t); }
+    const progress = need > 0 ? Math.min(1, t / need) : 1;
+    this.ui?.setSearchProgress(item.uid, progress, inRange);
+    const now = this.ctx.time;
+    if (inRange && (now - this.lastSearchEmit >= SEARCH_EMIT_INTERVAL || progress >= 1)) {
+      this.lastSearchEmit = now;
+      this.ctx.bus.emit('container:searchProgress', { containerId: c.id, uid: item.uid, progress });
+    }
+    if (t < need) return;
+    item.searched = true;
+    c.searchProgress.delete(item.uid);
+    c.grid.version++;
+    this.ctx.bus.emit('container:itemRevealed', { containerId: c.id, uid: item.uid, defId: def.id, rarity: def.rarity });
+    this.ctx.bus.emit('audio:play', { id: 'ui_pickup', volume: 0.35 });
+    this.ui?.setSearchProgress(null, 0, inRange);
+    this.ui?.refresh();
+  }
+
+  /** True for a container item that has not been searched yet (no drag / menu / tooltip / take). */
+  isItemLocked(uid: string, from?: ItemLocation): boolean {
+    if (from && !(from.kind === 'grid' && from.grid === 'container')) return false;
+    const p = this.activeContainer?.grid.get(uid);
+    return !!p && p.item.searched === false;
+  }
+
+  /** Unsearched items left in the open container (0 without one). */
+  unsearchedCount(): number { return this.activeContainer?.unsearchedCount ?? 0; }
+
+  /* ── Phase 7: host-authoritative container takes (multiplayer) ─────────── */
+
+  /** Multiplayer client: every container → player move is a request to the host. */
+  private needsTakeRequest(from: ItemLocation): boolean {
+    return from.kind === 'grid' && from.grid === 'container' && this.ctx.isMultiplayer && !this.ctx.isAuthority;
+  }
+
+  /** Multiplayer host: applies takes itself and broadcasts them. */
+  private isNetAuthority(): boolean { return this.ctx.isMultiplayer && this.ctx.isAuthority; }
+
+  private isContainerLoc(loc: ItemLocation): boolean { return loc.kind === 'grid' && loc.grid === 'container'; }
+
+  /** Multiplayer: nothing may be put INTO a container (only takes are shared), so container-bound drops are refused. */
+  private refusesIntoContainer(from: ItemLocation, target: DropTarget): boolean {
+    if (!this.ctx.isMultiplayer) return false;
+    if (target.kind === 'grid' && target.grid === 'container' && !this.isContainerLoc(from)) return true;
+    return false;
+  }
+
+  /**
+   * Gate for a container → player move of `qty` units (null = the whole stack) of `uid`: an unsearched item is refused;
+   * a multiplayer client sends `contq take` and replays `run` on `cont taken` (`'pending'`); the host / single-player
+   * runs it now and — in multiplayer — records + broadcasts what actually left the container.
+   */
+  private guardedTake(uid: string, from: ItemLocation, qty: number | null, run: () => OpResult): OpResult {
+    if (this.isItemLocked(uid, from)) return 'fail';
+    if (this.needsTakeRequest(from)) return this.requestTake(uid, from, qty, run);
+    return this.trackTake(uid, from, run);
+  }
+
+  private requestTake(uid: string, from: ItemLocation, qty: number | null, run: () => OpResult): OpResult {
+    const c = this.activeContainer;
+    const net = this.ctx.net;
+    const p = c?.grid.get(uid);
+    if (!c || !p || !net) return 'fail';
+    const idx = c.indexOf(uid);
+    if (idx < 0) return 'fail';
+    if (this.pendingTakes.some((t) => t.uid === uid)) return 'noop';
+    const n = Math.max(1, Math.min(p.item.qty, Math.floor(qty ?? p.item.qty)));
+    this.pendingTakes.push({ containerId: c.id, idx, qty: n, uid, from, run, sentAt: this.ctx.time });
+    net.send({ t: 'contq', ev: 'take', id: c.id, idx, qty: n }, 'host');
+    this.ui?.refresh();
+    return 'pending';
+  }
+
+  /** Run a container take now; the multiplayer host records + broadcasts the units that left its copy. */
+  private trackTake(uid: string, from: ItemLocation, run: () => OpResult): OpResult {
+    const c = this.activeContainer;
+    if (!c || !this.isNetAuthority() || !this.isContainerLoc(from)) return run();
+    const idx = c.indexOf(uid);
+    const before = c.grid.get(uid)?.item.qty ?? 0;
+    const r = run();
+    const after = c.grid.get(uid)?.item.qty ?? 0;
+    if (idx >= 0 && before > after) this.announceTake(c, idx, before - after);
+    return r;
+  }
+
+  private announceTake(c: Container, idx: number, qty: number): void {
+    const net = this.ctx.net;
+    if (!net || !net.localId) return;
+    c.recordTaken(idx, qty);
+    net.send({ t: 'cont', ev: 'taken', id: c.id, idx, qty, by: net.localId }, 'others');
+  }
+
+  /** Uids of container items whose take is waiting for the host (UI pulse). */
+  pendingTakeUids(): ReadonlySet<string> {
+    const out = new Set<string>();
+    for (const t of this.pendingTakes) out.add(t.uid);
+    return out;
+  }
+
+  private expirePendingTakes(): void {
+    if (this.pendingTakes.length === 0) return;
+    const now = this.ctx.time;
+    const keep = this.pendingTakes.filter((t) => now - t.sentAt < TAKE_REQUEST_TIMEOUT);
+    if (keep.length === this.pendingTakes.length) return;
+    this.pendingTakes = keep;
+    this.ui?.refresh();
+  }
+
+  /** Host → all `cont` (taken / denied / sync). Only the lobby host is trusted. */
+  private onContainerMessage(msg: ContainerMessage, from: NetPeerId): void {
+    const net = this.ctx.net;
+    if (!net || !this.ctx.isMultiplayer) return;
+    const hostId = net.lobby?.hostId;
+    if (hostId && from !== hostId) return;
+    if (msg.ev === 'taken') {
+      if (msg.by === net.localId) this.resolvePendingTake(msg.id, msg.idx, msg.qty);
+      else this.applyRemoteTaken(msg.id, msg.idx, msg.qty);
+    } else if (msg.ev === 'denied') {
+      const i = this.pendingTakes.findIndex((t) => t.containerId === msg.id && t.idx === msg.idx);
+      if (i < 0) return;
+      const [t] = this.pendingTakes.splice(i, 1);
+      this.ctx.bus.emit('audio:play', { id: 'ui_error' });
+      this.ctx.bus.emit('ui:notify', { text: '다른 대원이 먼저 가져갔습니다', kind: 'warning', duration: 1.6 });
+      this.ui?.refresh();
+      this.ui?.shakeItem(t.uid, t.from);
+    } else if (msg.ev === 'sync') {
+      const changed = this.containers.applySync(msg.items);
+      for (const id of changed) { const c = this.containers.get(id); if (c) this.checkLootedFor(c); }
+      if (changed.length > 0) this.ui?.refresh();
+    }
+  }
+
+  /** My `contq take` was confirmed: replay the move (the item may sit in a container whose window closed meanwhile). */
+  private resolvePendingTake(id: string, idx: number, qty: number): void {
+    const i = this.pendingTakes.findIndex((t) => t.containerId === id && t.idx === idx);
+    if (i < 0) { this.applyRemoteTaken(id, idx, qty); return; }
+    const [t] = this.pendingTakes.splice(i, 1);
+    const c = this.containers.get(id);
+    if (!c) { this.containers.recordPending(id, idx, qty); return; }
+    const before = c.remainingAt(idx);
+    const prev = this.activeContainer;
+    this.activeContainer = c;
+    let r: OpResult = 'fail';
+    try { r = t.run(); } finally { this.activeContainer = prev; }
+    const removed = before - c.remainingAt(idx);
+    c.recordTaken(idx, Math.max(removed, 0));
+    if (removed < qty) {
+      // the replay took less than the host granted (bag changed meanwhile): stay consistent with the host's copy
+      if (r !== 'ok') console.warn(`[Inventory] confirmed take of ${id}#${idx} could not be applied (${r})`);
+      c.applyTaken(idx, qty - removed);
+      c.taken.set(idx, (c.taken.get(idx) ?? 0) - (qty - removed)); // applyTaken recorded it again
+    }
+    if (r === 'ok') this.ctx.bus.emit('audio:play', { id: 'ui_pickup' });
+    this.checkLootedFor(c);
+    this.ui?.refresh();
+  }
+
+  /** Someone else's take was confirmed: remove it from my copy (or remember it for a container I have not opened). */
+  private applyRemoteTaken(id: string, idx: number, qty: number): void {
+    const c = this.containers.get(id);
+    if (!c) { this.containers.recordPending(id, idx, qty); return; }
+    if (c.applyTaken(idx, qty) > 0) {
+      this.checkLootedFor(c);
+      if (this._open) this.ui?.refresh();
+    }
+  }
+
+  /** Host: validate a peer's `contq take` against its own copy (rolled on demand for world crates) and broadcast. */
+  private onContainerRequest(msg: ContainerRequest, from: NetPeerId): void {
+    const net = this.ctx.net;
+    if (!net || !this.isNetAuthority()) return;
+    if (msg.ev === 'sync') { net.send({ t: 'cont', ev: 'sync', items: this.containers.takenWire() }, from); return; }
+    const qty = Math.floor(msg.qty);
+    const c = this.containers.get(msg.id) ?? this.materializeCrate(msg.id);
+    const allowed = Number.isFinite(qty) && qty >= 1 && (c
+      ? c.uidAt(msg.idx) !== undefined && qty <= c.remainingAt(msg.idx)
+      : this.containers.pendingTakenOf(msg.id, msg.idx) === 0);
+    if (!allowed) { net.send({ t: 'cont', ev: 'denied', id: msg.id, idx: msg.idx }, from); return; }
+    if (c) {
+      c.applyTaken(msg.idx, qty);
+      this.checkLootedFor(c);
+      if (this._open) this.ui?.refresh();
+    } else {
+      this.containers.recordPending(msg.id, msg.idx, qty);
+    }
+    net.send({ t: 'cont', ev: 'taken', id: msg.id, idx: msg.idx, qty, by: from }, 'others');
+  }
+
+  /** Host: a world crate it never opened can still be rolled (deterministic seed ^ id) to validate a request. */
+  private materializeCrate(id: string): Container | null {
+    const crate = this.ctx.world?.getCrates().find((k) => k.id === id);
+    if (!crate) return null;
+    return this.containers.getOrCreate(id, crate.tier, crate.position, this.loot, this.missionSeed);
+  }
+
+  /** Ask the (new) host for every taken map (host migration, rejoin fallback). */
+  private requestContainerSync(): void {
+    const net = this.ctx.net;
+    if (!net || !this.ctx.isMultiplayer || this.ctx.isAuthority) return;
+    this.pendingTakes = [];
+    net.send({ t: 'contq', ev: 'sync' }, 'host');
+  }
+
+  /* ── Phase 7: canFit / raid state (InventoryRef) ───────────────────────── */
+
+  /** Would `qty` units of `defId` fit now? Bag first, then (hub phase) the stash. Non-mutating. */
+  canFit(defId: string, qty = 1): 'bag' | 'stash' | null {
+    const def = ITEM_DEF_MAP.get(defId);
+    const n = Math.floor(qty);
+    if (!def || !Number.isFinite(n) || n < 1) return null;
+    if (this.gridFits(this.bag, def, n)) return 'bag';
+    if (this.ctx.isHubPhase() && this.gridFits(this.stash.grid, def, n)) return 'stash';
+    return null;
+  }
+
+  /** Trial placement of `qty` units (merge into stacks, then new stacks chunked by `stackMax`), rolled back afterwards. */
+  private gridFits(grid: Grid, def: ItemDef, qty: number): boolean {
+    const snap = grid.snapshot();
+    const version = grid.version;
+    let left = qty;
+    let ok = true;
+    while (left > 0) {
+      const chunk = Math.min(def.stackMax, left);
+      left -= chunk;
+      const probe = this.loot.createItem(def.id, chunk);
+      if (grid.mergeIntoStacks(probe) <= 0) continue;
+      if (!grid.autoPlace(probe)) { ok = false; break; }
+    }
+    grid.restore(snap);
+    grid.version = version;
+    return ok;
+  }
+
+  /** Bag + 5 slots + quick slots with every instance field incl. `searched` (raid session blob / training freeze). */
+  captureRaidState(): unknown {
+    const save = this.captureLoadoutSave();
+    const placements = this.bag.items();
+    const bag = save.bag.map((sv, i) => {
+      const flag = placements[i]?.item.searched;
+      return flag === undefined ? sv : { ...sv, searched: flag };
+    });
+    const state: RaidInventoryState = { ...save, bag, raid: 1 };
+    return state;
+  }
+
+  /** Replace the bag / slots / quick slots with a `captureRaidState()` result and re-announce everything. */
+  applyRaidState(state: unknown): boolean {
+    const save = sanitizeLoadoutSave(state);
+    if (!save) return false;
+    this.cancelCraft();
+    const revived = this.applyLoadoutSave(save);
+    save.bag.forEach((sv, i) => {
+      const item = revived[i];
+      const flag = (sv as { searched?: boolean }).searched;
+      if (item && typeof flag === 'boolean') item.searched = flag;
+    });
+    this.announcePending = false;
+    this.announceLoaded();
+    return true;
+  }
+
+  /* ── Phase 7: server profile documents ─────────────────────────────────── */
+
+  /** Mirror a local save to the server profile; unreachable server → remembered as an offline edit (see `offlineDocs`). */
+  private uploadProfileDoc(key: 'stash' | 'loadout', doc: unknown): void {
+    const profile = this.ctx.net?.profile;
+    if (profile && profile.available && typeof profile.set === 'function') {
+      profile.set(key, doc);
+      delete this.offlineDocs[key];
+      return;
+    }
+    if (this.offlineArmed && !this.suppressOfflineQueue) this.offlineDocs[key] = doc;
+  }
+
+  /**
+   * `net:profileLoaded`: a server document replaces the local state (server wins) — unless a local edit was made while
+   * the server was unreachable (`offlineDocs`, newer → uploaded instead), and the loadout only outside a raid
+   * (mid-mission the raid blob is the truth). A key the server has never seen gets the current local state. Grids are
+   * rebuilt and announced.
+   */
+  private onProfileLoaded(profile: ProfileRecord): void {
+    const docs = profile?.docs ?? {};
+    this.offlineArmed = true;
+    const profileRef = this.ctx.net?.profile;
+    const pushLocal = (key: 'stash' | 'loadout', doc: unknown): void => {
+      delete this.offlineDocs[key];
+      if (profileRef && profileRef.available && typeof profileRef.set === 'function') profileRef.set(key, doc);
+    };
+    if (this.offlineDocs.stash !== undefined) pushLocal('stash', this.offlineDocs.stash);
+    else if (docs.stash === undefined) pushLocal('stash', this.stash.saveFile());
+    else if (this.stash.loadFrom(docs.stash)) {
+      this.lastStashVersion = this.stash.grid.version;
+      this.ctx.bus.emit('inventory:stashChanged', { count: this.stash.count });
+      if (this._open) this.ui?.refresh();
+    }
+    if (this.offlineDocs.loadout !== undefined) { pushLocal('loadout', this.offlineDocs.loadout); return; }
+    if (docs.loadout === undefined) { pushLocal('loadout', this.captureLoadoutSave()); return; }
+    if (this.ctx.isRaidActive()) return;
+    const save = sanitizeLoadoutSave(docs.loadout);
+    if (!save) return;
+    if (isEmptyLoadoutSave(save)) {
+      if (this.ctx.isHubPhase() && !this.isCompletelyEmpty()) this.applyStarter();
+      return;
+    }
+    this.cancelCraft();
+    this.applyLoadoutSave(save);
+    this.announcePending = false;
+    this.announceLoaded();
+    this.loadoutStore.saveNow('profile'); // mirror to localStorage without echoing the document back
   }
 
   /* ── UI-facing operations ──────────────────────────────────────────────── */
@@ -1521,6 +1951,12 @@ export class InventorySystem implements GameSystem, InventoryRef {
    * (capped by `stackMax`); onto the source or anything else → nothing.
    */
   dropPartial(uid: string, from: ItemLocation, qty: number, target: DropTarget): OpResult {
+    const takes = this.isContainerLoc(from) && !(target.kind === 'grid' && target.grid === 'container');
+    if (takes) return this.guardedTake(uid, from, Math.floor(qty), () => this.dropPartialImpl(uid, from, qty, target));
+    return this.dropPartialImpl(uid, from, qty, target);
+  }
+
+  private dropPartialImpl(uid: string, from: ItemLocation, qty: number, target: DropTarget): OpResult {
     const v = this.validatePartial(uid, from, qty, target);
     if (!v || target.kind !== 'grid' || from.kind !== 'grid') return 'fail';
     const { item, def, grid, blockers } = v;
@@ -1541,7 +1977,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
     if (blockers.length !== 1 || blockers[0] === OOB) return 'fail';
     if (blockers[0] === uid) return 'noop';
     const other = grid.get(blockers[0]);
-    if (!other || other.item.defId !== item.defId) return 'fail';
+    if (!other || other.item.defId !== item.defId || other.item.searched === false) return 'fail';
     const moved = Math.min(def.stackMax - other.item.qty, qty);
     if (moved <= 0) return 'fail';
     other.item.qty += moved;
@@ -1556,6 +1992,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
   private validatePartial(uid: string, from: ItemLocation, qty: number, target: DropTarget):
     { item: ItemInstance; def: ItemDef; grid: Grid; blockers: string[] } | null {
     if (from.kind !== 'grid' || target.kind !== 'grid') return null;
+    if (this.isItemLocked(uid, from) || this.refusesIntoContainer(from, target)) return null;
+    if (this.ctx.isMultiplayer && from.grid === 'container' && target.grid === 'container') return null; // no local splits of shared contents
     const item = this.findItem(uid, from);
     const def = item && ITEM_DEF_MAP.get(item.defId);
     if (!item || !def || def.stackMax <= 1) return null;
@@ -1572,6 +2010,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
     const item = this.findItem(uid, from);
     const def = item && ITEM_DEF_MAP.get(item.defId);
     if (!item || !def) return 'bad';
+    if (this.isItemLocked(uid, from) || this.refusesIntoContainer(from, target)) return 'bad';
 
     if (target.kind === 'weapon') return this.previewAttach(uid, from, target.uid, target.loc);
 
@@ -1606,20 +2045,31 @@ export class InventorySystem implements GameSystem, InventoryRef {
     if (blockers.length !== 1 || blockers[0] === OOB) return 'bad';
     const other = grid.get(blockers[0]);
     if (!other) return 'bad';
+    if (target.grid === 'container' && other.item.searched === false) return 'bad'; // never touch an unsearched item
     if (other.item.defId === item.defId && def.stackMax > 1 && other.item.qty < def.stackMax) return 'merge';
     if (from.kind === 'slot') {
       const od = ITEM_DEF_MAP.get(other.item.defId);
       return od && slotAccepts(od, from.slot) ? 'swap' : 'bad';
     }
+    // multiplayer: a swap would put my item into the container (not shared) — refused
+    if (this.ctx.isMultiplayer && (from.grid === 'container') !== (target.grid === 'container')) return 'bad';
     return this.canSwap(item, from.grid, other.item, grid) ? 'swap' : 'bad';
   }
 
-  /** Execute a drag-and-drop. */
+  /** Execute a drag-and-drop. Container → player moves go through `guardedTake` (Phase 7). */
   drop(uid: string, from: ItemLocation, target: DropTarget): OpResult {
+    if (this.refusesIntoContainer(from, target)) return 'fail';
+    const takes = this.isContainerLoc(from) && !(target.kind === 'grid' && target.grid === 'container') && target.kind !== 'quick';
+    if (takes) return this.guardedTake(uid, from, null, () => this.dropImpl(uid, from, target));
+    if (this.isItemLocked(uid, from)) return 'fail';
+    return this.dropImpl(uid, from, target);
+  }
+
+  private dropImpl(uid: string, from: ItemLocation, target: DropTarget): OpResult {
     const item = this.findItem(uid, from);
     const def = item && ITEM_DEF_MAP.get(item.defId);
     if (!item || !def) return 'fail';
-    if (target.kind === 'weapon') return this.attachFrom(uid, from, target.uid, target.loc);
+    if (target.kind === 'weapon') return this.attachFromImpl(uid, from, target.uid, target.loc);
     if (target.kind === 'quick') {
       const pv = this.previewDrop(uid, from, target);
       if (pv === 'bad') return 'fail';
@@ -1666,6 +2116,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
     if (blockers.length !== 1) return 'fail';
     const other = grid.get(blockers[0]);
     if (!other) return 'fail';
+    if (target.grid === 'container' && other.item.searched === false) return 'fail';
 
     // stack merge
     if (other.item.defId === item.defId && def.stackMax > 1 && other.item.qty < def.stackMax) {
@@ -1700,9 +2151,11 @@ export class InventorySystem implements GameSystem, InventoryRef {
     }
     const srcGrid = this.getGrid(from.grid);
     if (!srcGrid) return 'fail';
+    if (this.ctx.isMultiplayer && (from.grid === 'container') !== (target.grid === 'container')) return 'fail';
     if (!this.performSwap(item, srcGrid, other.item, grid, target.x, target.y, target.rotated)) return 'fail';
     if (from.grid !== target.grid) {
       const od = ITEM_DEF_MAP.get(other.item.defId);
+      if (from.grid === 'container') item.searched = true;
       this.emitTransfer(item, def, from, to);
       if (od) this.emitTransfer(other.item, od, to, from);
     }
@@ -1712,6 +2165,11 @@ export class InventorySystem implements GameSystem, InventoryRef {
 
   /** Right-click quick action: container ↔ bag auto-place; slot → bag (the bag slot shrinks the grid first). */
   quickMove(uid: string, from: ItemLocation): OpResult {
+    if (this.isContainerLoc(from)) return this.guardedTake(uid, from, null, () => this.quickMoveImpl(uid, from));
+    return this.quickMoveImpl(uid, from);
+  }
+
+  private quickMoveImpl(uid: string, from: ItemLocation): OpResult {
     const item = this.findItem(uid, from);
     const def = item && ITEM_DEF_MAP.get(item.defId);
     if (!item || !def) return 'fail';
@@ -1722,6 +2180,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
     else if (this.activeContainer) dest = 'container';
     else if (this.hubMode) dest = 'stash';
     else return 'fail';
+    if (dest === 'container' && this.ctx.isMultiplayer) return 'fail'; // Phase 7: nothing goes into a shared container
     const grid = this.getGrid(dest);
     if (!grid) return 'fail';
     if (!grid.canAbsorb(item)) {
@@ -1736,6 +2195,11 @@ export class InventorySystem implements GameSystem, InventoryRef {
 
   /** Double-click: weapons / bags equip (`equipTargetFor`), anything else quick-moves. */
   activate(uid: string, from: ItemLocation): OpResult {
+    if (this.isContainerLoc(from)) return this.guardedTake(uid, from, null, () => this.activateImpl(uid, from));
+    return this.activateImpl(uid, from);
+  }
+
+  private activateImpl(uid: string, from: ItemLocation): OpResult {
     const item = this.findItem(uid, from);
     const def = item && ITEM_DEF_MAP.get(item.defId);
     if (!item || !def) return 'fail';
@@ -1744,13 +2208,14 @@ export class InventorySystem implements GameSystem, InventoryRef {
       if (from.kind === 'slot') return 'noop';
       return this.dropOnSlot(item, def, from, slot);
     }
-    return this.quickMove(uid, from);
+    return this.quickMoveImpl(uid, from);
   }
 
   rotateItem(uid: string, gridId: GridId): OpResult {
     const grid = this.getGrid(gridId);
     const p = grid?.get(uid);
     if (!grid || !p) return 'fail';
+    if (gridId === 'container' && p.item.searched === false) return 'fail';
     const def = ITEM_DEF_MAP.get(p.item.defId);
     if (!def || def.width === def.height) return 'noop';
     if (!grid.rotate(uid)) return 'fail';
@@ -1759,11 +2224,15 @@ export class InventorySystem implements GameSystem, InventoryRef {
     return 'ok';
   }
 
-  /** "모두 가져가기": move every container item into the bag that fits. Returns moved count. */
+  /**
+   * "모두 가져가기": move every **searched** container item into the bag that fits (largest first). Returns the moved
+   * count — on a multiplayer client the number of takes requested (each lands on its `cont taken`).
+   */
   takeAll(): number {
     const c = this.activeContainer;
     if (!c) return 0;
-    const items = c.grid.items().map((p) => p.item).sort((a, b) => this.area(b) - this.area(a));
+    const from: ItemLocation = { kind: 'grid', grid: 'container' };
+    const items = c.grid.items().map((p) => p.item).filter((it) => it.searched !== false).sort((a, b) => this.area(b) - this.area(a));
     let moved = 0;
     let fullReported = false;
     for (const item of items) {
@@ -1773,19 +2242,32 @@ export class InventorySystem implements GameSystem, InventoryRef {
         if (!fullReported) { fullReported = true; this.ctx.bus.emit('inventory:full', { item, name: def.name }); }
         continue;
       }
-      c.grid.remove(item.uid);
-      this.bag.autoPlace(item);
-      this.ctx.bus.emit('inventory:itemAdded', { item, name: def.name, rarity: def.rarity });
-      moved++;
+      const r = this.guardedTake(item.uid, from, null, () => this.takeOne(item.uid));
+      if (r === 'ok' || r === 'pending') moved++;
     }
-    if (moved > 0) this.afterChange();
     return moved;
+  }
+
+  /** One container item into the bag (auto-place, `inventory:itemAdded`). */
+  private takeOne(uid: string): OpResult {
+    const c = this.activeContainer;
+    const p = c?.grid.get(uid);
+    const def = p && ITEM_DEF_MAP.get(p.item.defId);
+    if (!c || !p || !def) return 'fail';
+    if (!this.bag.canAbsorb(p.item)) { this.ctx.bus.emit('inventory:full', { item: p.item, name: def.name }); return 'fail'; }
+    c.grid.remove(uid);
+    p.item.searched = true;
+    this.bag.autoPlace(p.item);
+    this.ctx.bus.emit('inventory:itemAdded', { item: p.item, name: def.name, rarity: def.rarity });
+    this.afterChange();
+    return 'ok';
   }
 
   /* ── sockets (UI drag path) ────────────────────────────────────────────── */
 
   /** Can attachment `uid` (at `from`) be socketed into weapon `weaponUid` (at `loc`)? */
   previewAttach(uid: string, from: ItemLocation, weaponUid: string, loc: ItemLocation): DropPreview {
+    if (this.isItemLocked(uid, from)) return 'bad';
     const att = this.findItem(uid, from);
     const attDef = att && ITEM_DEF_MAP.get(att.defId);
     const weapon = this.findItem(weaponUid, loc);
@@ -1800,6 +2282,11 @@ export class InventorySystem implements GameSystem, InventoryRef {
    * (or drops to the ground when nothing fits). Emits `inventory:socketChanged`, `inventory:itemUpdated`.
    */
   attachFrom(uid: string, from: ItemLocation, weaponUid: string, loc: ItemLocation): OpResult {
+    if (this.isContainerLoc(from)) return this.guardedTake(uid, from, 1, () => this.attachFromImpl(uid, from, weaponUid, loc));
+    return this.attachFromImpl(uid, from, weaponUid, loc);
+  }
+
+  private attachFromImpl(uid: string, from: ItemLocation, weaponUid: string, loc: ItemLocation): OpResult {
     if (this.previewAttach(uid, from, weaponUid, loc) === 'bad' || from.kind !== 'grid') return 'fail';
     const att = this.findItem(uid, from)!;
     const attDef = ITEM_DEF_MAP.get(att.defId)!;
@@ -1808,6 +2295,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
     const grid = this.getGrid(from.grid);
     if (!grid) return 'fail';
     grid.remove(att.uid);
+    if (from.grid === 'container') att.searched = true;
     const prev = setSocket(weapon, socket, att);
     if (from.grid === 'container') this.ctx.bus.emit('inventory:itemAdded', { item: att, name: attDef.name, rarity: attDef.rarity });
     if (prev && !this.bag.autoPlace(prev)) this.throwToWorld(prev, true);
@@ -1960,12 +2448,13 @@ export class InventorySystem implements GameSystem, InventoryRef {
     return 'ok';
   }
 
-  /** Remove an item from wherever it currently lives (no events). */
+  /** Remove an item from wherever it currently lives (no events). Anything leaving a container counts as searched. */
   private detach(item: ItemInstance, from: ItemLocation): void {
     if (from.kind === 'slot') {
       if (this.loadout[from.slot]?.uid === item.uid) this.loadout[from.slot] = null;
     } else {
       this.getGrid(from.grid)?.remove(item.uid);
+      if (from.grid === 'container') item.searched = true;
     }
   }
 
@@ -2014,8 +2503,11 @@ export class InventorySystem implements GameSystem, InventoryRef {
   }
 
   private checkLooted(): void {
-    const c = this.activeContainer;
-    if (c && !c.lootedEmitted && c.grid.isEmpty) {
+    if (this.activeContainer) this.checkLootedFor(this.activeContainer);
+  }
+
+  private checkLootedFor(c: Container): void {
+    if (!c.lootedEmitted && c.grid.isEmpty) {
       c.lootedEmitted = true;
       this.ctx.bus.emit('crate:looted', { crateId: c.id });
     }
@@ -2028,6 +2520,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
     const src = srcGrid?.get(draggedUid);
     if (!srcGrid || !src) return false;
     const ignore = [draggedUid, current.uid];
+    // multiplayer: the displaced gear may not land in a shared container — only the bag can take it
+    if (this.ctx.isMultiplayer && from.grid === 'container') return this.bag.findFreeSlot(current) !== null;
     if (srcGrid.canPlace(current, src.x, src.y, current.rotated, ignore)) return true;
     if (srcGrid.canPlace(current, src.x, src.y, !current.rotated, ignore)) return true;
     if (srcGrid.findFreeSlot(current, current.rotated, ignore)) return true;
@@ -2055,12 +2549,15 @@ export class InventorySystem implements GameSystem, InventoryRef {
     const current = this.loadout[slot];
     const sx = src.x, sy = src.y, srot = item.rotated;
     srcGrid.remove(item.uid);
+    if (from.grid === 'container') item.searched = true;
     if (current) {
-      const placed =
-        srcGrid.place(current, sx, sy, current.rotated) ||
-        srcGrid.place(current, sx, sy, !current.rotated) ||
-        srcGrid.autoPlace(current) ||
-        (from.grid === 'container' && this.bag.autoPlace(current));
+      const intoShared = this.ctx.isMultiplayer && from.grid === 'container';
+      const placed = intoShared
+        ? this.bag.autoPlace(current)
+        : srcGrid.place(current, sx, sy, current.rotated) ||
+          srcGrid.place(current, sx, sy, !current.rotated) ||
+          srcGrid.autoPlace(current) ||
+          (from.grid === 'container' && this.bag.autoPlace(current));
       if (!placed) { srcGrid.place(item, sx, sy, srot); return 'fail'; }
       if (from.grid === 'container' && srcGrid.has(current.uid)) {
         const cd = ITEM_DEF_MAP.get(current.defId);

@@ -2,6 +2,12 @@
 // reputation level, contract settlement, quest / purchase / sale lines) and the result-screen XP settlement block
 // (count-up, level-up highlight + audio, XP bar, contract line). Enters a solo mission, then feeds synthetic bus events
 // from `page.evaluate` and asserts the DOM — `ctx.meta` may still be the skeleton.
+// Phase 7 additions: the level-up moment fires at the boundary crossing (badge + `.up-burst` + a single `audio:play
+// level_up`, no `progress:levelUp` toast), contract wording keyed on `settlement.outcome` (never `ctx.stats.extracted`),
+// the 레이드 실패 death screen (`game:raidFailed`: no 부활, auto-return countdown, Space ignored), suspended nameplate /
+// squad rows + 훈련장 / 임무 중 / 함선 badges (`remotePlayers.debugSpawn` + `hud.debugRemotes`), host-change / suspended /
+// training chat + notification lines, the training objective. 89 checks. Needs the relay on 8787 too (the hub's
+// `ensureConnected` logs a console error otherwise), e.g. `npm run dev:all` or `npm run server` + a private vite.
 // Usage: node scripts/smoke-ui-p5.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { existsSync } from 'node:fs';
@@ -68,7 +74,7 @@ try {
     Object.defineProperty(Document.prototype, 'pointerLockElement', { get: () => canvas, configurable: true });
     window.__ev = {};
     const bus = window.__game.ctx.bus;
-    for (const n of ['audio:play']) {
+    for (const n of ['audio:play', 'game:respawn']) {
       window.__ev[n] = [];
       bus.on(n, (p) => { window.__ev[n].push(JSON.parse(JSON.stringify(p, (k, v) => (v && v.isVector3) ? [v.x, v.y, v.z] : v))); });
     }
@@ -87,6 +93,8 @@ try {
   await emit('progress:levelUp', { level: 7, statPoints: 1 });
   chip = await P(() => document.querySelector('.menu.title .lv-chip').textContent);
   ok(chip === 'Lv. 7', 'progress:levelUp {level:7} → Lv. 7', chip);
+  const lvToasts = await P(() => document.querySelectorAll('.ptoast.level').length);
+  ok(lvToasts === 0, 'progress:levelUp raises no 레벨 업 toast any more (the result screen owns the moment)', String(lvToasts));
   await P(() => window.__game.ctx.bus.emit('progress:loaded', { profile: window.__game.ctx.progression.profile }));
   chip = await P(() => document.querySelector('.menu.title .lv-chip').textContent);
   ok(chip === `Lv. ${lvReal}`, 'progress:loaded → chip back to the real level', chip);
@@ -173,14 +181,18 @@ try {
   ok(notifs.some((t) => t.includes('계약 수락 · 용병 제거 I')), 'meta:contractAccepted → 계약 수락 line', JSON.stringify(notifs));
   ok(notifs.some((t) => t.includes(`구매: ${ammoName}`) && t.includes('−40 크레딧') && t.includes('(창고)')), 'meta:purchase → 구매 line with price and 창고', JSON.stringify(notifs));
   ok(notifs.some((t) => t.includes(`판매: ${gemName}`) && t.includes('×2') && t.includes('+130 크레딧')), 'meta:sale → 판매 line with qty and credits', JSON.stringify(notifs));
-  await P(() => { window.__game.ctx.stats.extracted = true; });
-  await emit('meta:contractSettled', { id: 'nomad_1', corp: 'nomad', name: '회수 임무 I', success: false, progress: 900, target: 1500, rep: 0, xp: 0, credits: 0 });
-  const keep = await texts('.ptoast.contract.keep');
-  ok(keep.length === 1 && keep[0].includes('계약 미완') && keep[0].includes('900 / 1,500') && keep[0].includes('계속'), 'unfinished settlement while extracted=true (ctx.stats) → 계약 미완 · 계속', JSON.stringify(keep));
+  // Phase 7: wording keyed on settlement.outcome only — ctx.stats.extracted is deliberately set to the opposite.
   await P(() => { window.__game.ctx.stats.extracted = false; });
-  await emit('meta:contractSettled', { id: 'nomad_1', corp: 'nomad', name: '회수 임무 I', success: false, progress: 900, target: 1500, rep: 0, xp: 0, credits: 0 });
+  await emit('meta:contractSettled', { id: 'nomad_1', corp: 'nomad', name: '회수 임무 I', success: false, outcome: 'incomplete', progress: 900, target: 1500, rep: 0, xp: 0, credits: 0 });
+  const keep = await texts('.ptoast.contract.keep');
+  ok(keep.length === 1 && keep[0].includes('계약 미완 · 계속') && keep[0].includes('900 / 1,500'), 'outcome incomplete (extracted=false ignored) → 계약 미완 · 계속 + 900 / 1,500', JSON.stringify(keep));
+  await P(() => { window.__game.ctx.stats.extracted = true; });
+  await emit('meta:contractSettled', { id: 'nomad_1', corp: 'nomad', name: '회수 임무 I', success: false, outcome: 'failed', progress: 900, target: 1500, rep: 0, xp: 0, credits: 0 });
   const failT = await texts('.ptoast.contract.fail');
-  ok(failT.length === 1 && failT[0].includes('계약 실패') && failT[0].includes('진척 유지 안 됨'), 'unfinished settlement while dead → 계약 실패 · 진척 유지 안 됨', JSON.stringify(failT));
+  ok(failT.length === 1 && failT[0].includes('계약 실패 · 진척 유지 안 됨') && !failT[0].includes('계속'), 'outcome failed (extracted=true ignored) → 계약 실패 · 진척 유지 안 됨', JSON.stringify(failT));
+  await emit('meta:contractSettled', { id: 'nomad_1', corp: 'nomad', name: '회수 임무 I', success: false, progress: 3, target: 15, rep: 0, xp: 0, credits: 0 });
+  const legacyKeep = await texts('.ptoast.contract.keep');
+  ok(legacyKeep.length === 2 && legacyKeep[1].includes('계약 미완 · 계속') && legacyKeep[1].includes('3 / 15'), 'settlement without outcome (older producer) falls back to 계약 미완 · 계속', JSON.stringify(legacyKeep));
   await P(() => { window.__game.ctx.stats.extracted = false; });
   const live = await hud('metaToastCount');
   ok(live <= 4, `meta toast stack capped at 4 (${live})`);
@@ -193,17 +205,25 @@ try {
   ok(!/\bhidden\b/.test(rw.menu) && !rw.hidden && rw.order, 'game:complete with rewards → .rewards block between stats and actions', `${rw.menu} hidden=${rw.hidden} order=${rw.order}`);
   ok(rw.lv === 'Lv. 2 → 3' && !rw.up && rw.badge && rw.counting, 'Lv. 2 → 3, no highlight before the count-up ends', JSON.stringify(rw));
   ok(rw.num === '40 / 300 XP', 'XP bar numbers 40 / 300 XP', rw.num);
-  ok(rw.contract === '계약 · 소탕 작전 I 성공 · 신뢰도 +60 · 크레딧 +120' && /\bsuccess\b/.test(rw.ccls), 'contract success line', `${rw.contract} ${rw.ccls}`);
-  await waitSim(0.9);
-  rw = await P(() => { const r = document.querySelector('.menu.complete .rewards'); return { gain: r.querySelector('.xp-gain').textContent, fill: r.querySelector('.xp-bar .fill').style.transform, counting: window.__game.getSystem('hud').completeRewards.isCounting }; });
-  const mid = Number(rw.gain.replace(/[^\d]/g, ''));
-  ok(mid > 0 && mid < 340 && rw.counting, `count-up in flight (${rw.gain}) with the bar moving`, JSON.stringify(rw));
-  await waitSim(1.0);
+  ok(rw.contract === '계약 성공 · 소탕 작전 I · 신뢰도 +60 · 크레딧 +120' && /\bsuccess\b/.test(rw.ccls), 'contract success line (outcome wording)', `${rw.contract} ${rw.ccls}`);
+  // The level-up moment fires when the count-up crosses the boundary (bar hits the old cap), not at the end.
+  const cross = await waitFor(page, () => {
+    const r = document.querySelector('.menu.complete .rewards');
+    if (!r.classList.contains('up')) return null;
+    return { gain: r.querySelector('.xp-gain').textContent, badge: r.querySelector('.up-badge').hidden, burst: !!r.querySelector('.up-burst'), bursting: window.__game.getSystem('hud').completeRewards.isBursting, counting: window.__game.getSystem('hud').completeRewards.isCounting, audio: window.__ev['audio:play'].filter((a) => a.id === 'level_up').length };
+  }, 'level-up crossing', 10000);
+  const atCross = Number(cross.gain.replace(/[^\d]/g, ''));
+  ok(cross.counting && atCross > 0 && atCross < 340, `.up fires mid count-up (${cross.gain}), not at the end`, JSON.stringify(cross));
+  ok(!cross.badge && cross.burst && cross.bursting, '레벨 업 badge + .up-burst light burst at the crossing', JSON.stringify(cross));
+  ok(cross.audio === 1, 'audio:play level_up emitted exactly once at the crossing', String(cross.audio));
+  await waitSim(1.6);
   rw = await P(() => { const r = document.querySelector('.menu.complete .rewards'); return { gain: r.querySelector('.xp-gain').textContent, fill: r.querySelector('.xp-bar .fill').style.transform, up: r.classList.contains('up'), badge: r.querySelector('.up-badge').hidden, counting: window.__game.getSystem('hud').completeRewards.isCounting, audio: window.__ev['audio:play'].filter((a) => a.id === 'level_up').length }; });
   ok(rw.gain === '+340' && !rw.counting, 'count-up ends at +340', rw.gain);
-  ok(rw.up && !rw.badge, 'level-up highlight (.up + 레벨 업 badge) after the count', JSON.stringify(rw));
+  ok(rw.up && !rw.badge, 'level-up highlight (.up + 레벨 업 badge) stays after the count', JSON.stringify(rw));
   ok(/scaleX\(0\.13/.test(rw.fill), 'bar settles at 40 / 300 (13 %)', rw.fill);
-  ok(rw.audio === 1, 'audio:play level_up emitted once by the block', String(rw.audio));
+  ok(rw.audio === 1, 'still a single level_up chime after the count (no second play at the end)', String(rw.audio));
+  await sleep(1000);
+  ok(await P(() => !document.querySelector('.menu.complete .rewards .up-burst')), 'burst element is removed after its animation');
   await emit('game:phaseChanged', { phase: 'playing', prev: 'complete' });
   ok(await P(() => document.querySelector('.menu.complete').classList.contains('hidden')), 'complete screen hides when the phase moves on');
 
@@ -213,11 +233,40 @@ try {
   ok(!/\bhidden\b/.test(rw.menu) && !rw.hidden && rw.counting, 'game:over with rewards → death screen .rewards block', `${rw.menu} hidden=${rw.hidden}`);
   ok(rw.lv === 'Lv. 3' && rw.num === '120 / 300 XP', 'no level-up → Lv. 3, 120 / 300 XP', `${rw.lv} ${rw.num}`);
   ok(/scaleX\(0\.13/.test(rw.fill), 'bar starts at the pre-mission fraction (40 / 300)', rw.fill);
-  ok(rw.contract === '계약 · 소탕 작전 II 12 / 60 · 진척 유지 안 됨' && /\blost\b/.test(rw.ccls), 'death contract line: p / t · 진척 유지 안 됨', `${rw.contract} ${rw.ccls}`);
+  ok(rw.contract === '계약 실패 · 진척 유지 안 됨 · 소탕 작전 II 12 / 60' && /\blost\b/.test(rw.ccls), 'death contract line without outcome falls back to 계약 실패 · 진척 유지 안 됨 · p / t', `${rw.contract} ${rw.ccls}`);
+  ok(!(await hud('isRaidFailed')) && (await P(() => !document.querySelector('.menu.death .ui-btn.respawn').hidden)), 'plain death keeps the 부활 button (not raid-failed)');
   await waitSim(1.8);
   rw = await P(() => { const r = document.querySelector('.menu.death .rewards'); return { gain: r.querySelector('.xp-gain').textContent, up: r.classList.contains('up'), fill: r.querySelector('.xp-bar .fill').style.transform, counting: window.__game.getSystem('hud').deathRewards.isCounting, audio: window.__ev['audio:play'].filter((a) => a.id === 'level_up').length }; });
   ok(rw.gain === '+80' && !rw.counting && !rw.up && /scaleX\(0\.4/.test(rw.fill) && rw.audio === 1, 'death count-up ends at +80, bar 40 %, no level-up audio', JSON.stringify(rw));
   await emit('game:phaseChanged', { phase: 'playing', prev: 'dead' });
+  // outcome beats the screen: an `incomplete` settlement on the death screen still reads 계약 미완 · 계속
+  await emit('game:over', { stats: { ...base, extracted: false, rewards: { xpEarned: 5, levelBefore: 3, levelAfter: 3, xp: 125, xpToNext: 300, contract: { id: 'helix_2', corp: 'helix', name: '소탕 작전 II', success: false, outcome: 'incomplete', progress: 12, target: 60, rep: 0, xp: 0, credits: 0 } } } });
+  rw = await P(() => { const r = document.querySelector('.menu.death .rewards'); return { contract: r.querySelector('.contract-line').textContent, ccls: r.querySelector('.contract-line').className }; });
+  ok(rw.contract === '계약 미완 · 계속 · 소탕 작전 II 12 / 60' && /\bkeep\b/.test(rw.ccls), 'outcome incomplete on the death screen → 계약 미완 · 계속 (.keep)', `${rw.contract} ${rw.ccls}`);
+  await emit('game:phaseChanged', { phase: 'playing', prev: 'dead' });
+
+  console.log('raid failed');
+  await P(() => { window.__ev['game:respawn'].length = 0; });
+  await emit('game:raidFailed', { stats: { ...base, extracted: false } });
+  await emit('game:over', { stats: { ...base, extracted: false } });
+  let rf = await P(() => { const m = document.querySelector('.menu.death'); return { cls: m.className, title: m.querySelector('.title').textContent, sub: m.querySelector('.subtitle').textContent, respawnHidden: m.querySelector('.ui-btn.respawn').hidden, autoHidden: m.querySelector('.auto-return').hidden, auto: m.querySelector('.auto-return').textContent, hasReturn: [...m.querySelectorAll('.ui-btn')].some((b) => b.textContent === '함선으로 귀환'), failed: window.__game.getSystem('hud').isRaidFailed }; });
+  ok(!/\bhidden\b/.test(rf.cls) && /\braid-failed\b/.test(rf.cls) && rf.failed, 'game:raidFailed + game:over → death screen in .raid-failed mode', rf.cls);
+  ok(rf.title === '레이드 실패' && rf.sub.includes('전멸'), 'title 레이드 실패', `${rf.title} / ${rf.sub}`);
+  ok(rf.respawnHidden && rf.hasReturn, 'no 부활 button, 함선으로 귀환 stays', JSON.stringify(rf));
+  const autoS = 12; // RAID_FAILED_AUTO_RETURN_S (src/shared/constants.ts)
+  ok(!rf.autoHidden && rf.auto === `${autoS}초 후 자동 귀환`, `auto-return line reads ${autoS}초 후 자동 귀환 (RAID_FAILED_AUTO_RETURN_S)`, rf.auto);
+  await waitSim(1.6);
+  rf = await P(() => ({ auto: document.querySelector('.menu.death .auto-return').textContent }));
+  const left = Number(rf.auto.replace(/[^\d]/g, ''));
+  ok(left > 0 && left <= autoS - 1, `countdown ticks on sim time (${rf.auto})`, rf.auto);
+  await P(() => { const ev = new KeyboardEvent('keydown', { code: 'Space', key: ' ', bubbles: true, cancelable: true }); document.body.dispatchEvent(ev); });
+  await emit('game:respawnAvailable', { seconds: 0 });
+  await P(() => { const ev = new KeyboardEvent('keydown', { code: 'Space', key: ' ', bubbles: true, cancelable: true }); document.body.dispatchEvent(ev); });
+  const respawns = await P(() => window.__ev['game:respawn'].length);
+  ok(respawns === 0 && (await P(() => document.querySelector('.menu.death').classList.contains('raid-failed'))), 'Space never emits game:respawn in raid-failed mode (even at 0 s)', String(respawns));
+  await emit('game:phaseChanged', { phase: 'playing', prev: 'dead' });
+  ok(await P(() => document.querySelector('.menu.death').classList.contains('hidden')), 'raid-failed screen hides when the phase moves on');
+  // (the mode reset on game:abort is asserted in the final "mission reset" section)
 
   console.log('rewards hidden without data');
   await emit('game:complete', { stats: { ...base, extracted: true, rewards: { xpEarned: 10, levelBefore: 1, levelAfter: 1, xp: 10, xpToNext: 120, contract: null } } });
@@ -233,13 +282,110 @@ try {
   ok(rw.hidden, 'death screen hides the block without rewards too', JSON.stringify(rw));
   await emit('game:phaseChanged', { phase: 'playing', prev: 'dead' });
 
+  console.log('suspended members / squad badges');
+  // A fake peer from remotePlayers.debugSpawn (real avatar, no relay) fed to the nameplates + squad panel through hud.debugRemotes.
+  await P(() => {
+    const ctx = window.__game.ctx;
+    const rp = window.__game.getSystem('remotePlayers');
+    const pos = ctx.player.position.clone();
+    const fwd = ctx.player.getForward(pos.clone());
+    pos.addScaledVector(fwd, 4);
+    window.__peer = rp.debugSpawn({ slot: 1, name: '브라보', position: pos });
+    window.__lobby = {
+      code: 'SMOKE1', hostId: 'me', started: true, seed: 11, isPublic: false, mode: 'raid',
+      players: [
+        { id: ctx.net?.localId ?? 'me', name: ctx.net?.playerName ?? '나', slot: 0, ready: true, isHost: true, connected: true, inMission: true },
+        { id: window.__peer.id, name: '브라보', slot: 1, ready: true, isHost: false, connected: true, inMission: true },
+      ],
+    };
+    window.__game.getSystem('hud').debugRemotes([window.__peer], window.__lobby);
+  });
+  await waitSim(0.3);
+  const rowOf = (name) => P((n) => { const r = [...document.querySelectorAll('.squad .srow')].find((e) => !e.hidden && e.querySelector('.name').textContent === n); return r ? { cls: r.className, state: r.querySelector('.state').textContent, badge: r.querySelector('.badge').textContent, badgeHidden: r.querySelector('.badge').hidden, badgeCls: r.querySelector('.badge').className } : null; }, name);
+  let row = await rowOf('브라보');
+  ok(!!row && !/\bsuspended\b/.test(row.cls) && row.state === '', 'debug peer row in the squad panel, connected (no state text)', JSON.stringify(row));
+  ok(!!row && row.badge === '임무 중' && !row.badgeHidden, 'raid member badge 임무 중', JSON.stringify(row));
+  const meRow = await P(() => { const r = document.querySelector('.squad .srow.me'); return r ? { badge: r.querySelector('.badge').textContent, name: r.querySelector('.name').textContent } : null; });
+  ok(!!meRow && meRow.badge === '임무 중' && meRow.name.endsWith('(나)'), 'local row also carries 임무 중', JSON.stringify(meRow));
+  let plate = await P(() => { const p = [...document.querySelectorAll('.nameplate')].find((e) => e.querySelector('.name').textContent === '브라보'); return p ? { cls: p.className, op: p.style.opacity, tagHidden: p.querySelector('.tag').hidden, tag: p.querySelector('.tag').textContent } : null; });
+  ok(!!plate && Number(plate.op) > 0 && !/\bsuspended\b/.test(plate.cls) && plate.tagHidden, 'nameplate visible over the avatar, no tag while connected', JSON.stringify(plate));
+  // socket drops: net/ flips ref.suspended (ref stays, stale by definition), LobbyPlayer.connected=false, net:peerSuspended
+  await P(() => {
+    window.__peer.suspended = true; window.__peer.stale = true;
+    window.__lobby.players[1].connected = false;
+    window.__game.ctx.bus.emit('net:peerSuspended', { id: window.__peer.id, name: '브라보', suspended: true });
+  });
+  await waitSim(0.3);
+  row = await rowOf('브라보');
+  ok(!!row && row.state === '연결 끊김' && /\bsuspended\b/.test(row.cls) && /\boff\b/.test(row.cls), 'suspended member → squad state 연결 끊김 (.suspended.off grey)', JSON.stringify(row));
+  plate = await P(() => { const p = [...document.querySelectorAll('.nameplate')].find((e) => e.querySelector('.name').textContent === '브라보'); return p ? { cls: p.className, op: p.style.opacity, tagHidden: p.querySelector('.tag').hidden, tag: p.querySelector('.tag').textContent, sc: getComputedStyle(p).getPropertyValue('--sc').trim() } : null; });
+  ok(!!plate && Number(plate.op) > 0 && /\bsuspended\b/.test(plate.cls), 'suspended nameplate stays visible (stale ignored) with .suspended', JSON.stringify(plate));
+  ok(!!plate && !plate.tagHidden && plate.tag === '연결 끊김' && plate.sc === '#9aa0aa', '연결 끊김 tag shown, slot colour swapped to grey', JSON.stringify(plate));
+  let sysLines = await texts('.chat-line.system .txt');
+  ok(sysLines.some((t) => t === '브라보 연결 끊김'), 'net:peerSuspended → chat system line 브라보 연결 끊김', JSON.stringify(sysLines.slice(-3)));
+  notifs = await texts('.notif');
+  ok(notifs.some((t) => t.includes('브라보') && t.includes('연결 끊김')), 'net:peerSuspended → 분대 notification', JSON.stringify(notifs.slice(-3)));
+  // training lobby: the peer stays in the ship, we are inside the arena
+  await P(() => {
+    window.__peer.suspended = false; window.__peer.stale = false;
+    window.__lobby.players[1].connected = true; window.__lobby.players[1].inMission = false;
+    window.__lobby.mode = 'training';
+    window.__game.ctx.bus.emit('net:peerSuspended', { id: window.__peer.id, name: '브라보', suspended: false });
+    window.__game.ctx.bus.emit('net:missionMembership', { id: window.__peer.id, inMission: false });
+  });
+  await waitSim(0.3);
+  row = await rowOf('브라보');
+  ok(!!row && row.state === '' && !/\bsuspended\b/.test(row.cls) && row.badge === '함선' && /\bship\b/.test(row.badgeCls), 'reconnected + out of the training → state clear, badge 함선 (.ship)', JSON.stringify(row));
+  const meRow2 = await P(() => { const r = document.querySelector('.squad .srow.me'); return r ? { badge: r.querySelector('.badge').textContent, cls: r.querySelector('.badge').className } : null; });
+  ok(!!meRow2 && meRow2.badge === '훈련장' && /\btraining\b/.test(meRow2.cls), 'local row badge 훈련장 while lobby.mode = training', JSON.stringify(meRow2));
+  sysLines = await texts('.chat-line.system .txt');
+  ok(sysLines.some((t) => t === '브라보 재연결'), 'suspended:false → chat line 브라보 재연결', JSON.stringify(sysLines.slice(-3)));
+  await P(() => { window.__lobby.started = false; });
+  await waitSim(0.3);
+  row = await rowOf('브라보');
+  ok(!!row && row.badgeHidden && row.badge === '', 'no badges while the lobby is not started', JSON.stringify(row));
+  await P(() => { window.__game.getSystem('hud').debugRemotes(null); window.__game.getSystem('remotePlayers').debugClear(); });
+  await waitSim(0.3);
+  const cleared = await P(() => ({ rows: [...document.querySelectorAll('.squad .srow')].filter((e) => !e.hidden).length, plates: document.querySelectorAll('.nameplate').length, squadHidden: document.querySelector('.squad').classList.contains('hidden') }));
+  ok(cleared.rows === 0 && cleared.plates === 0 && cleared.squadHidden, 'debugRemotes(null) clears rows and plates, squad hidden again (solo)', JSON.stringify(cleared));
+
+  console.log('host change / training lines');
+  await emit('net:hostChanged', { hostId: 'ghost-peer', prev: 'me', isLocalHost: false });
+  await emit('net:hostChanged', { hostId: 'me', prev: 'ghost-peer', isLocalHost: true });
+  const myName = await P(() => window.__game.ctx.net?.playerName ?? '나');
+  sysLines = await texts('.chat-line.system .txt');
+  ok(sysLines.some((t) => t === '호스트 변경: 분대원'), 'net:hostChanged (unknown peer) → 호스트 변경: 분대원', JSON.stringify(sysLines.slice(-3)));
+  ok(sysLines.some((t) => t === `호스트 변경: ${myName}`), 'net:hostChanged isLocalHost → 호스트 변경: <own name>', JSON.stringify(sysLines.slice(-3)));
+  notifs = await texts('.notif');
+  ok(notifs.filter((t) => t.includes('호스트 변경')).length === 2 && notifs.some((t) => t.includes('호스트 변경') && t.includes('(나)')), 'two 호스트 변경 notifications, the local one tagged (나)', JSON.stringify(notifs.slice(-3)));
+  await emit('training:exitRequested', {});
+  sysLines = await texts('.chat-line.system .txt');
+  notifs = await texts('.notif');
+  ok(sysLines.some((t) => t === '시뮬레이션 훈련장 퇴장') && notifs.some((t) => t.includes('훈련장') && t.includes('퇴장')), 'training:exitRequested → chat line + notification', JSON.stringify(sysLines.slice(-2)));
+
+  console.log('training objective');
+  const objective = () => P(() => { const o = document.querySelector('.hud.gameplay .objective'); return { text: o.querySelector('.text').textContent, sub: o.querySelector('.sub').textContent }; });
+  await P(() => { window.__game.ctx.missionMode = 'training'; });
+  await emit('game:phaseChanged', { phase: 'playing', prev: 'deploying' });
+  let obj = await objective();
+  ok(obj.text === '시뮬레이션 훈련장 · 출구 콘솔로 종료', 'phase playing while missionMode=training → training objective', JSON.stringify(obj));
+  await emit('ui:objective', { text: '시뮬레이션 훈련장 · 출구 콘솔로 종료', subText: '표적 명중 3 / 12' });
+  obj = await objective();
+  ok(obj.text === '시뮬레이션 훈련장 · 출구 콘솔로 종료' && obj.sub === '표적 명중 3 / 12', 'world/ refreshes the hit counter through ui:objective subText', JSON.stringify(obj));
+  await P(() => { window.__game.ctx.missionMode = 'raid'; });
+  await emit('game:phaseChanged', { phase: 'playing', prev: 'deploying' });
+  obj = await objective();
+  ok(obj.text === '탈출 지점을 찾아 스위치를 활성화하세요', 'back to raid mode: the find-objective returns', obj.text);
+
   console.log('mission reset');
   await emit('meta:contractProgress', { id: 'helix_1', corp: 'helix', goal: 'kill_bugs', progress: 5, target: 25, delta: 1 });
   await emit('meta:creditsChanged', { credits: 700, delta: 90, reason: 'x' });
+  ok(await hud('isRaidFailed'), 'raid-failed mode still armed before the abort');
   await emit('game:abort', {});
   await waitSim(1.2);
-  const reset = await P(() => { const h = window.__game.getSystem('hud'); return { panel: h.isContractPanelOn, toasts: h.metaToastCount, chips: document.querySelectorAll('.ptoast.credits').length, phase: window.__game.ctx.phase }; });
+  const reset = await P(() => { const h = window.__game.getSystem('hud'); return { panel: h.isContractPanelOn, toasts: h.metaToastCount, chips: document.querySelectorAll('.ptoast.credits').length, phase: window.__game.ctx.phase, failed: h.isRaidFailed }; });
   ok(!reset.panel && reset.toasts === 0 && reset.chips === 0, 'game:abort hides the panel and drops pending / live meta toasts', JSON.stringify(reset));
+  ok(!reset.failed, 'game:abort resets the death screen out of raid-failed mode', JSON.stringify(reset));
 
   ok(errors.length === 0, 'no console errors', errors.slice(0, 5).join(' | '));
 } catch (e) {

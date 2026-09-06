@@ -8,3 +8,6 @@ scripts/shots/
 # verification runner output
 scripts/logs/
 scripts/shots/
+
+# relay server profile store (Phase 7)
+server/data/

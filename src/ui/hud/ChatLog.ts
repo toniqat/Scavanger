@@ -20,7 +20,9 @@ interface Line { el: HTMLElement; time: number; faded: boolean }
  * with `stopImmediatePropagation` keeps Esc from pausing and letters from moving the player.
  *
  * Feeds: `chat:post` (own line, sent as `ChatMessage` to 'others' while in a lobby), `net:chat`, and system lines for
- * `net:peerJoined/peerLeft`, `pickup:taken` (remote), `hub:slotChanged`, `hub:launchCountdown`. Every line emits
+ * `net:peerJoined/peerLeft`, `pickup:taken` (remote), `hub:slotChanged`, `hub:launchCountdown`, and (Phase 7)
+ * `net:hostChanged` (`호스트 변경: <name>`), `net:peerSuspended` (`<name> 연결 끊김` / `재연결`), the training arena
+ * (`시뮬레이션 훈련장 입장` on `game:newMission {mode:'training'}`, `퇴장` on `training:exitRequested`). Every line emits
  * `chat:message`. Works as a local log in single-player too.
  */
 export class ChatLog {
@@ -102,7 +104,15 @@ export class ChatLog {
         this.system(s <= 0 ? '발사!' : `발사 ${s}초 전 (${ready}/${total} 탑승)`);
       }),
       b.on('hub:entered', () => { this.lastCountdown = -1; }),
-      b.on('game:newMission', () => { this.lastCountdown = -1; if (this._open) this.close(false); }),
+      /* ── Phase 7: host migration, suspended members, training arena ── */
+      b.on('net:hostChanged', ({ hostId, isLocalHost }) => this.system(`호스트 변경: ${this.peerName(hostId, isLocalHost)}`)),
+      b.on('net:peerSuspended', ({ name, suspended }) => this.system(`${name} ${suspended ? '연결 끊김' : '재연결'}`)),
+      b.on('training:exitRequested', () => this.system('시뮬레이션 훈련장 퇴장')),
+      b.on('game:newMission', ({ mode }) => {
+        this.lastCountdown = -1;
+        if (this._open) this.close(false);
+        if (mode === 'training') this.system('시뮬레이션 훈련장 입장');
+      }),
       b.on('game:abort', () => { if (this._open) this.close(false); }),
       b.on('game:phaseChanged', () => { if (this._open && !ctx.isGameplayPhase() && !ctx.isHubPhase()) this.close(false); }),
     );
@@ -133,6 +143,13 @@ export class ChatLog {
   }
 
   private system(text: string): void { this.add(null, '시스템', text, 'system', false); }
+
+  /** Display name of a peer id (lobby list → remote ref → own name when it is us). */
+  private peerName(id: PeerId, isLocal: boolean): string {
+    const net = this.ctx.net;
+    if (isLocal || id === net?.localId) return net?.playerName ?? '나';
+    return net?.getLobbyPlayer(id)?.name ?? net?.getRemotePlayer(id)?.name ?? '분대원';
+  }
 
   private add(id: PeerId | null, name: string, text: string, kind: ChatKind, local: boolean): void {
     const d = new Date();

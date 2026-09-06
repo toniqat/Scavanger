@@ -90,6 +90,8 @@ export class InventoryUI {
   private containerPanel!: HTMLElement;
   private containerTitle!: HTMLElement;
   private containerTier!: HTMLElement;
+  /** Phase 7: `감정 중 · n개 남음` / `감정 완료` readout in the container header. */
+  private searchStatus!: HTMLElement;
   private stashPanel!: HTMLElement;
   private stashCount!: HTMLElement;
   private bagCapacity!: HTMLElement;
@@ -197,7 +199,13 @@ export class InventoryUI {
       const moved = this.sys.takeAll();
       this.sys.sfx(moved > 0 ? 'ui_pickup' : 'ui_error');
     });
-    cHead.append(cTitleWrap, takeAll);
+    this.searchStatus = document.createElement('div');
+    this.searchStatus.className = 'inv-search-status';
+    this.searchStatus.hidden = true;
+    const cActions = document.createElement('div');
+    cActions.className = 'inv-head-actions';
+    cActions.append(this.searchStatus, takeAll);
+    cHead.append(cTitleWrap, cActions);
     this.containerView = new GridView('container', getDef, getStats, this.tileHandlers());
     cPanel.append(cHead, this.containerView.el);
     this.containerPanel = cPanel;
@@ -480,6 +488,8 @@ export class InventoryUI {
       this.containerView.refresh();
       this.containerPanel.classList.toggle('is-empty', c.grid.isEmpty);
     }
+    this.containerView.setPending(this.sys.pendingTakeUids());
+    this.refreshSearchStatus();
     if (this.hub) {
       const stash = this.sys.getStash();
       if (this.stashView.current !== stash) this.stashView.setGrid(stash);
@@ -493,6 +503,36 @@ export class InventoryUI {
     this.refreshWeight();
     this.craftPanel.refresh();
   }
+
+  /* ── Phase 7: container search (감정) ──────────────────────────────────── */
+
+  /**
+   * Gauge on the item being searched (`.inv-tile-scan`, `--p` 0..100 %); `active` false = the player stepped out of
+   * `SEARCH_MAX_DISTANCE` (readout dims). Called every frame by the system — cheap (one custom property).
+   */
+  setSearchProgress(uid: string | null, progress: number, active: boolean): void {
+    if (!this.root || this.root.hidden) return;
+    this.containerView.setScan(uid, progress);
+    this.searchStatus.classList.toggle('is-paused', uid !== null && !active);
+  }
+
+  /** Header readout: hidden without a container; `감정 중 · n개 남음` while items are hidden, `감정 완료` afterwards. */
+  refreshSearchStatus(): void {
+    if (!this.root) return;
+    const c = this.sys.getActiveContainer();
+    if (!c) { this.searchStatus.hidden = true; return; }
+    const left = this.sys.unsearchedCount();
+    this.searchStatus.hidden = false;
+    this.searchStatus.textContent = left > 0 ? TEXT.search.status(left) : TEXT.search.done;
+    this.searchStatus.classList.toggle('is-done', left === 0);
+    this.containerPanel.classList.toggle('is-searching', left > 0);
+  }
+
+  /** Shake a tile from outside the drag flow (a host-denied take). */
+  shakeItem(uid: string, loc: ItemLocation): void { this.shake(loc, uid); }
+
+  /** An unsearched container item: no tooltip, drag, menu or double-click (Phase 7). */
+  private locked(uid: string, loc: ItemLocation): boolean { return this.sys.isItemLocked(uid, loc); }
 
   /* ── appended: tactical kit — weight / crafting ────────────────────────── */
 
@@ -1010,6 +1050,7 @@ export class InventoryUI {
       onDblClick: (uid: string, gridId: GridId) => {
         if (this.drag?.started) return;
         const from: ItemLocation = { kind: 'grid', grid: gridId };
+        if (this.locked(uid, from)) return;
         const item = this.sys.findItem(uid, from);
         const def = item && ITEM_DEF_MAP.get(item.defId);
         // a stim / grenade in the bag with no crate open: double-click registers it on the wheel
@@ -1025,6 +1066,7 @@ export class InventoryUI {
 
   private hoverEnter(uid: string, loc: ItemLocation, e: PointerEvent): void {
     if (this.drag?.started) return;
+    if (this.locked(uid, loc)) { this.hovered = null; this.tooltip.hide(); return; }
     this.hovered = { uid, loc };
     const item = this.sys.findItem(uid, loc);
     const def = item && ITEM_DEF_MAP.get(item.defId);
@@ -1036,8 +1078,8 @@ export class InventoryUI {
     this.tooltip.hide();
   }
 
-  /** Result → sound + shake. `okSfx` is what plays on success. */
-  private result(r: 'ok' | 'noop' | 'fail', okSfx: 'ui_drop' | 'ui_equip' | 'ui_pickup' | 'ui_rotate', from: ItemLocation, uid: string): void {
+  /** Result → sound + shake. `okSfx` is what plays on success; `pending` (host-confirmed take) stays silent until the answer. */
+  private result(r: 'ok' | 'noop' | 'fail' | 'pending', okSfx: 'ui_drop' | 'ui_equip' | 'ui_pickup' | 'ui_rotate', from: ItemLocation, uid: string): void {
     if (r === 'ok') this.sys.sfx(okSfx);
     else if (r === 'fail') { this.sys.sfx('ui_error'); this.shake(from, uid); }
   }
@@ -1067,6 +1109,7 @@ export class InventoryUI {
     if (this.drag?.started || this.dialog.isOpen) return;
     this.menu.close();
     this.closePicker();
+    if (this.locked(uid, from)) return;
     const item = this.sys.findItem(uid, from);
     const def = item && ITEM_DEF_MAP.get(item.defId);
     if (!item || !def) return;
@@ -1250,10 +1293,11 @@ export class InventoryUI {
       // quick chat request (also stops the browser's middle-click autoscroll)
       e.preventDefault();
       this.menu.close();
-      this.sys.requestItem(uid, from);
+      if (!this.locked(uid, from)) this.sys.requestItem(uid, from);
       return;
     }
     if (e.button !== 0) return;
+    if (this.locked(uid, from)) return;
     const item = this.sys.findItem(uid, from);
     const def = item && ITEM_DEF_MAP.get(item.defId);
     if (!item || !def) return;

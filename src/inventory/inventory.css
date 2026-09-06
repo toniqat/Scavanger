@@ -764,13 +764,27 @@ kbd {
 .inv-tile-dur.is-broken i { background: var(--inv-bad); }
 .inv-tile-dur.is-broken { box-shadow: 0 0 8px color-mix(in srgb, var(--inv-bad) 55%, transparent); }
 
-/* ── crate search (감정) mask ───────────────────────────────────────────── */
-.inv-tile.is-hidden-item { cursor: progress; filter: saturate(0.2); }
-.inv-tile.is-hidden-item .inv-tile-icon { opacity: 0.5; font-weight: 700; }
+/* ── crate search (감정) mask (Phase 7) ─────────────────────────────────── */
+/* An unsearched container item shows only its footprint: neutral colour, `?` icon, `???` name, no qty / pips / bar. */
+.inv-tile.is-hidden-item {
+  cursor: progress;
+  --rc: rgba(190, 200, 210, 0.55);
+  background: repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.035) 0 5px, rgba(255, 255, 255, 0) 5px 11px), rgba(14, 18, 22, 0.75);
+  border-style: dashed;
+}
+.inv-tile.is-hidden-item .inv-tile-icon { opacity: 0.5; font-weight: 700; color: rgba(220, 228, 235, 0.8); transform: none; }
 .inv-tile.is-hidden-item .inv-tile-name { opacity: 0.4; letter-spacing: 0.3em; }
+.inv-tile.is-hidden-item .inv-tile-glow { display: none; }
+.inv-tile.is-hidden-item.is-hover, .inv-tile.is-hidden-item:hover { transform: none; box-shadow: none; }
+/* Search gauge on the item being revealed: a cyan fill rising bottom → top (`--p` = 0%..100%) under a moving sheen. */
 .inv-tile-scan {
-  position: absolute; inset: 0; pointer-events: none; overflow: hidden;
+  position: absolute; inset: 0; pointer-events: none; overflow: hidden; border-radius: inherit;
   background: repeating-linear-gradient(115deg, rgba(255,255,255,0.05) 0 6px, rgba(255,255,255,0) 6px 12px);
+}
+.inv-tile-scan::before {
+  content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: var(--p, 0%);
+  background: linear-gradient(180deg, rgba(143, 232, 255, 0.12), rgba(143, 232, 255, 0.4));
+  box-shadow: 0 -1px 0 rgba(143, 232, 255, 0.85), 0 0 10px rgba(143, 232, 255, 0.35);
 }
 .inv-tile-scan::after {
   content: ''; position: absolute; left: -40%; top: 0; bottom: 0; width: 40%;
@@ -778,6 +792,14 @@ kbd {
   animation: inv-scan 1.15s linear infinite;
 }
 @keyframes inv-scan { from { transform: translateX(0); } to { transform: translateX(350%); } }
+.inv-tile.is-scanning { border-color: rgba(143, 232, 255, 0.7); }
+/* Header readout while the container still has hidden items. */
+.inv-search-status { font-size: 11px; letter-spacing: 0.08em; color: rgba(143, 232, 255, 0.85); font-variant-numeric: tabular-nums; }
+.inv-search-status.is-done { color: var(--inv-muted); }
+.inv-search-status.is-paused { color: var(--inv-muted); }
+/* A take waiting for the host (multiplayer): the tile pulses until `cont taken` / `cont denied` arrives. */
+.inv-tile.is-pending { animation: inv-pending 0.9s ease-in-out infinite; }
+@keyframes inv-pending { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
 
 /* ── weight bar ─────────────────────────────────────────────────────────── */
 .inv-weight { display: flex; flex-direction: column; gap: 5px; }

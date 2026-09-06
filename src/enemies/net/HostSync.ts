@@ -18,12 +18,15 @@ export function tuple(v: THREE.Vector3, dp = 2): Vec3Tuple {
 
 /**
  * Animation hint: 0 none, 1 charger windup, 2 charger rush, 3 spewer windup, 4 hunter airborne;
- * Phase 4: 5 rogue shooting, 6 rogue in cover, 7 rogue rushing, 8 artillery dug in, 9 toxic swelling, 10 behemoth windup, 11 behemoth rush.
+ * Phase 4: 5 rogue shooting, 6 rogue in cover, 7 rogue rushing, 8 artillery dug in, 9 toxic swelling, 10 behemoth windup, 11 behemoth rush;
+ * Phase 7: 12 rogue reloading, 13 rogue throwing a grenade.
  */
 export function animHint(e: Enemy): number {
   if (e.isRogue) {
     if (e.incapTimer > 0) return 0;      // 전소: the replica writhes from the status bit, not the cover pose
     if (e.state === 'stagger') return 6;
+    if (e.throwTimer > 0) return 13;     // Phase 7: grenade wind-up
+    if (e.reloadTimer > 0) return 12;    // Phase 7: reloading (crouched, rifle down)
     switch (e.roguePhase) {
       case 2: return 6;
       case 3: return e.hitCrouchTimer > 0 ? 6 : 5;

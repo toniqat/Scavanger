@@ -1,12 +1,13 @@
 import * as THREE from 'three';
 import {
-  IMPLANT_AT_RADIUS, IMPLANT_SCAN_PULSE_INTERVAL,
+  IMPLANT_AT_RADIUS, IMPLANT_SCAN_PULSE_INTERVAL, IMPLANT_OVERCHARGE_BUFF_HP_RATIO, Layers,
   type GameContext, type ImplantId, type ImplantMessage, type PeerId,
 } from '@/shared';
 import { getImplantDef, implantHex, isImplantId } from './ImplantDefs';
 import { ImplantDevice } from './devices/ImplantDevice';
 import { BarrierField } from './effects/Barrier';
 import { GrappleWire } from './effects/Grapple';
+import { OverchargeBeam, allyPoint } from './effects/Overcharge';
 import type { RocketPool } from './effects/AtLauncher';
 import type { ImplantFx } from './fx/ImplantFx';
 
@@ -19,9 +20,23 @@ interface PeerVis {
   readonly wireFrom: THREE.Vector3;
   readonly wireTo: THREE.Vector3;
   barrier: BarrierField | null;
+  /* Phase 7: overcharge beam replication (`imp beam`) */
+  beam: OverchargeBeam | null;
+  beamOn: boolean;
+  beamTarget: PeerId | null;
+  beamSelf: boolean;
+  /** ctx.time after which a beam without a refresh is dropped (the sender refreshes ≤ 4 Hz, `BEAM_TIMEOUT` covers a lost off). */
+  beamUntil: number;
+  /** Self-channel glow at the caster's chest (additive sphere, no light). */
+  glow: THREE.Mesh | null;
+  glowMat: THREE.MeshBasicMaterial | null;
 }
 
 const _a = new THREE.Vector3(), _b = new THREE.Vector3();
+/** Chest height above the feet for beam endpoints on the local player (allyPoint covers remotes). */
+const CHEST_Y = 1.15;
+/** A remote beam not refreshed within this long is treated as ended (sender refreshes every 0.25 s while on). */
+const BEAM_TIMEOUT = 1.0;
 
 /**
  * Everything a *remote* caster's implants look like on this client: the device in their hands, their
@@ -33,6 +48,9 @@ const _a = new THREE.Vector3(), _b = new THREE.Vector3();
  */
 export class RemoteImplants {
   private readonly peers = new Map<PeerId, PeerVis>();
+  /** Shared glow sphere geometry (one material per peer for independent pulsing). */
+  private readonly glowGeo = new THREE.SphereGeometry(0.55, 14, 10);
+  private phase = 0;
 
   constructor(
     private readonly ctx: GameContext,
@@ -117,6 +135,19 @@ export class RemoteImplants {
         this.ctx.bus.emit('audio:play', { id: 'rocket_explode', position: _a, volume: 0.9 });
         break;
       }
+      case 'beam': {
+        // Phase 7: overcharge channel — `target` = the ally the beam locks onto (may be us), `self` = healing themselves
+        if (!msg.target && !msg.self) { this.endBeam(v); break; }
+        const starting = !v.beamOn;
+        v.beamOn = true; v.beamTarget = msg.target; v.beamSelf = msg.self;
+        v.beamUntil = this.ctx.time + BEAM_TIMEOUT;
+        if (starting) {
+          const ref = this.ctx.net?.getRemotePlayer(from);
+          if (ref) { _a.copy(ref.position); _a.y += CHEST_Y; }
+          this.ctx.bus.emit('audio:play', { id: 'overcharge_beam', position: ref ? _a : undefined, volume: 0.35 });
+        }
+        break;
+      }
     }
   }
 
@@ -139,8 +170,10 @@ export class RemoteImplants {
         vv.device?.update(dt, 1);
       }
     }
+    this.phase += dt;
     for (const [id, v] of this.peers) {
       if (v.barrier) v.barrier.update(dt);
+      if (v.beamOn) this.updateBeam(v, id, dt);
       if (v.wire) {
         v.wire.update(dt);
         if (v.wireActive) {
@@ -167,7 +200,7 @@ export class RemoteImplants {
     this.peers.clear();
   }
 
-  dispose(): void { this.clear(); }
+  dispose(): void { this.clear(); this.glowGeo.dispose(); }
 
   /* ─────────────────────────── internals ─────────────────────────── */
   private get(id: PeerId): PeerVis {
@@ -177,10 +210,72 @@ export class RemoteImplants {
         device: null, deviceId: null, deviceAttached: false,
         wire: null, wireActive: false, wireFrom: new THREE.Vector3(), wireTo: new THREE.Vector3(),
         barrier: null,
+        beam: null, beamOn: false, beamTarget: null, beamSelf: false, beamUntil: 0, glow: null, glowMat: null,
       };
       this.peers.set(id, v);
     }
     return v;
+  }
+
+  /* ── Phase 7: overcharge beam / self glow of a remote caster ── */
+  private updateBeam(v: PeerVis, id: PeerId, dt: number): void {
+    const ctx = this.ctx;
+    const net = ctx.net;
+    if (ctx.time > v.beamUntil) { this.endBeam(v); return; }
+    const caster = net?.getRemotePlayer(id);
+    if (!caster) { this.hideBeamVisuals(v); return; }
+    // origin: the caster's hand (weapon socket), else the chest
+    const socket = caster.avatar?.weaponSocket;
+    if (socket) { socket.updateWorldMatrix(true, false); _a.setFromMatrixPosition(socket.matrixWorld); }
+    else { _a.copy(caster.position); _a.y += CHEST_Y; }
+
+    if (v.beamTarget) {
+      // endpoint: the locked ally's chest — a remote ref, or the local player when the beam is aimed at us
+      let healthy = false;
+      if (net && v.beamTarget === net.localId) {
+        const me = ctx.player;
+        if (!me || me.isDead) { this.hideBeamVisuals(v); return; }
+        _b.copy(me.position); _b.y += CHEST_Y;
+        healthy = me.hp >= me.maxHp * IMPLANT_OVERCHARGE_BUFF_HP_RATIO;
+      } else {
+        const ref = net?.getRemotePlayer(v.beamTarget);
+        if (!ref || !ref.connected || ref.isDead) { this.hideBeamVisuals(v); return; }   // unknown / gone target: nothing to draw
+        allyPoint(ref, _b);
+        healthy = ref.maxHp > 0 && ref.hp >= ref.maxHp * IMPLANT_OVERCHARGE_BUFF_HP_RATIO;
+      }
+      if (!v.beam) v.beam = new OverchargeBeam(ctx.scene, this.fx, implantHex('overcharge'), implantHex('dash'));
+      v.beam.update(dt);
+      v.beam.set(_a, _b, healthy ? 'boost' : 'heal', ctx.camera);
+      if (v.glow) v.glow.visible = false;
+      return;
+    }
+    // self channel: pulsing glow around the caster's chest
+    v.beam?.hide();
+    if (!v.glow) {
+      v.glowMat = new THREE.MeshBasicMaterial({
+        color: implantHex('overcharge'), transparent: true, opacity: 0.22, depthWrite: false,
+        blending: THREE.AdditiveBlending, toneMapped: false,
+      });
+      v.glow = new THREE.Mesh(this.glowGeo, v.glowMat);
+      v.glow.layers.enable(Layers.NO_RAYCAST);
+      ctx.scene.add(v.glow);
+    }
+    _b.copy(caster.position); _b.y += CHEST_Y * 0.85;
+    v.glow.visible = true;
+    v.glow.position.copy(_b);
+    const pulse = 0.5 + Math.sin(this.phase * 9) * 0.5;
+    v.glow.scale.setScalar(0.85 + pulse * 0.35);
+    if (v.glowMat) v.glowMat.opacity = 0.14 + pulse * 0.16;
+  }
+
+  private hideBeamVisuals(v: PeerVis): void {
+    v.beam?.hide();
+    if (v.glow) v.glow.visible = false;
+  }
+
+  private endBeam(v: PeerVis): void {
+    v.beamOn = false; v.beamTarget = null; v.beamSelf = false;
+    this.hideBeamVisuals(v);
   }
 
   private setDevice(v: PeerVis, id: ImplantId | null): void {
@@ -194,7 +289,10 @@ export class RemoteImplants {
     v.device?.dispose();
     v.wire?.dispose();
     v.barrier?.dispose();
-    v.device = null; v.wire = null; v.barrier = null;
+    v.beam?.dispose();
+    if (v.glow) { v.glow.removeFromParent(); v.glowMat?.dispose(); }
+    v.device = null; v.wire = null; v.barrier = null; v.beam = null; v.glow = null; v.glowMat = null;
     v.deviceId = null; v.deviceAttached = false; v.wireActive = false;
+    v.beamOn = false; v.beamTarget = null; v.beamSelf = false;
   }
 }

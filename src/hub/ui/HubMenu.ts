@@ -8,6 +8,8 @@ export interface HubMenuHost {
   toTitle(): void;
   /** Called after the menu closed itself (Esc / 닫기) so the hub re-locks the pointer. */
   onClosed(): void;
+  /** 시뮬레이션 훈련장 (Phase 7, shared ship): start a training or join the one already running. */
+  startTraining(): void;
 }
 
 const MSG_TTL = 4500;
@@ -50,6 +52,9 @@ export class HubMenu {
   private crew: HTMLElement;
   private crewRows: Array<{ root: HTMLElement; name: HTMLElement; badge: HTMLElement; state: HTMLElement }> = [];
   private btnLeave: HTMLButtonElement;
+  // training (shared ship)
+  private secTrain: HTMLElement;
+  private btnTrain: HTMLButtonElement;
   private btnStats: HTMLButtonElement;
   // footer / message
   private msg: HTMLElement;
@@ -121,6 +126,11 @@ export class HubMenu {
       this.crewRows.push({ root: row, name, badge, state });
     }
     this.btnLeave = this.button(this.secShip, '도킹 해제', () => ctx.net?.leaveLobby(), 'danger wide');
+
+    // ── 시뮬레이션 훈련장 (shared ship; the personal ship enters through the 사격장 sim hub) ──
+    this.secTrain = this.section(page, '시뮬레이션 훈련장');
+    this.btnTrain = this.button(this.secTrain, '시작', () => host.startTraining(), 'primary wide');
+    el('div', { cls: 'hint', text: '개별 입장 · 카운트다운 없음. 탄약과 내구도는 소모되지 않습니다. 진행 중인 훈련에는 언제든 합류할 수 있습니다.', parent: this.secTrain });
 
     // ── message + footer ──
     this.msg = el('div', { cls: 'form-msg', parent: f });
@@ -215,7 +225,14 @@ export class HubMenu {
     this.btnCreate.disabled = !canNet;
     if (!net) setText(this.msgEl(), '');
 
+    this.secTrain.hidden = !lobby;
     if (lobby) {
+      const mode = net?.missionMode ?? lobby.mode ?? 'raid';
+      const training = lobby.started && mode === 'training';
+      const n = lobby.players.filter((p) => p.connected && p.inMission === true).length;
+      if (lobby.started && !training) { setText(this.btnTrain, '임무 진행 중'); this.btnTrain.disabled = true; }
+      else if (training) { setText(this.btnTrain, `합류 (${n}명 훈련 중)`); this.btnTrain.disabled = !(net?.missionInProgress ?? false); }
+      else { setText(this.btnTrain, '시작'); this.btnTrain.disabled = !net; }
       setText(this.codeText, lobby.code);
       setText(this.visTag, lobby.isPublic ? '공개' : '비공개');
       toggleClass(this.visTag, 'public', lobby.isPublic);
@@ -241,7 +258,8 @@ export class HubMenu {
       row.root.className = `crew-row${p.ready ? ' ready' : ''}${me ? ' me' : ''}${off ? ' off' : ''}`;
       setText(row.name, p.name);
       row.badge.hidden = !p.isHost;
-      setText(row.state, off ? '연결 끊김' : lobby.started ? (p.ready ? '임무 중' : '함선') : p.ready ? '탑승 완료' : '대기 중');
+      const training = lobby.started && (net?.missionMode ?? lobby.mode ?? 'raid') === 'training';
+      setText(row.state, off ? '연결 끊김' : training ? (p.inMission ? '훈련장' : '함선') : lobby.started ? (p.ready ? '임무 중' : '함선') : p.ready ? '탑승 완료' : '대기 중');
     }
   }
 

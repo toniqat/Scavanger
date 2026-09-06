@@ -63,6 +63,8 @@ export class Compass {
 
   private rebuild(ctx: GameContext): void {
     this.clear();
+    // Training arena (Phase 7): no extraction, so no markers even if a world reported pads.
+    if (ctx.missionMode === 'training' || ctx.world?.mode === 'training') return;
     const pts = ctx.world?.getExtractionPoints() ?? [];
     for (const p of pts) this.addMarker(p.id, p.position, 'marker');
   }

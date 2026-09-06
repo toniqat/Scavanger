@@ -40,6 +40,19 @@ try {
   await page.evaluateOnNewDocument(() => {
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
+    // Park vite's HMR socket: another agent's save would otherwise full-reload the page mid-run (same trick as smoke-meta).
+    const RealWS = window.WebSocket;
+    class QuietSocket extends EventTarget {
+      constructor(url) { super(); this.url = String(url); this.readyState = 0; this.protocol = ''; this.binaryType = 'blob'; }
+      send() {} close() {}
+    }
+    window.WebSocket = new Proxy(RealWS, {
+      construct(target, args) {
+        const protos = Array.isArray(args[1]) ? args[1] : [args[1]];
+        if (protos.includes('vite-hmr')) return new QuietSocket(args[0]);
+        return new target(...args);
+      },
+    });
   });
   page.on('pageerror', (e) => errors.push(String(e)));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
@@ -178,41 +191,6 @@ try {
   ok(!st.downed && st.hp === 10, 'revive() → up with 10 hp', JSON.stringify(st));
   ok((await ev('player:revived')).length === 1, 'player:revived emitted');
 
-  console.log('give up → dead → respawn');
-  await waitSim(2.5); // past any post-revive invulnerability
-  await P(() => window.__game.ctx.player.takeDamage(500));
-  await waitSim(0.3);
-  const downedAgain = await P(() => window.__game.ctx.player.isDowned);
-  ok(downedAgain, 'downed again after the revive');
-  await keyDown('Space'); await waitSim(2.2); await keyUp('Space');
-  await waitSim(0.3);
-  st = await P(() => ({ dead: window.__game.ctx.player.isDead, phase: window.__game.ctx.phase }));
-  ok(st.dead, 'holding Space while downed gives up → dead', JSON.stringify(st));
-  ok((await ev('game:over')).length === 0, 'no game:over on death any more');
-  await waitSim(3.0);
-  st = await P(() => ({ phase: window.__game.ctx.phase }));
-  ok(st.phase === 'dead', 'solo: phase dead (death screen) after the delay', st.phase);
-  let ra = await lastEv('game:respawnAvailable');
-  ok(ra && ra.seconds > 20 && ra.seconds <= 30, 'respawn countdown ticking', JSON.stringify(ra));
-  const deathScreen = await P(() => [...document.querySelectorAll('.menu')].some((el) => !el.hidden && getComputedStyle(el).visibility !== 'hidden' && /부활/.test(el.textContent ?? '')));
-  ok(deathScreen, 'death screen visible');
-  await P(() => window.__game.ctx.bus.emit('game:respawn', {}));
-  await waitSim(0.3);
-  ok((await ev('player:respawn')).length === 0, 'game:respawn refused before the timer');
-  // fast-forward the 30 s countdown with the engine time scale (GameFlow runs on scaled dt)
-  await P(() => { window.__game.ctx.timeScale = 10; });
-  await waitFor(page, () => { const a = window.__ev['game:respawnAvailable']; return a.length > 0 && a[a.length - 1].seconds === 0; }, 'respawn countdown', 120000);
-  await P(() => { window.__game.ctx.timeScale = 1; });
-  ra = await lastEv('game:respawnAvailable');
-  ok(ra && ra.seconds === 0, 'respawn available at 0', JSON.stringify(ra));
-  await P(() => window.__game.ctx.bus.emit('game:respawn', {}));
-  await waitFor(page, () => window.__game.ctx.phase === 'deploying' || window.__game.ctx.phase === 'playing', 'redeploy', 20000);
-  ok((await ev('player:respawn')).length === 1, 'player:respawn emitted');
-  await waitFor(page, () => window.__game.ctx.phase === 'playing' && !window.__game.ctx.player.isDropping, 'landed again', 120000);
-  st = await P(() => { const p = window.__game.ctx.player; const inv = window.__game.ctx.inventory; return { hp: p.hp, dead: p.isDead, downed: p.isDowned, primary: inv.getLoadout().primary?.defId, stims: inv.countWhere((d) => d.id === 'stim') }; });
-  ok(st.hp === 100 && !st.dead && !st.downed, 'respawned alive at full hp', JSON.stringify(st));
-  ok(st.primary === 'wpn_ar23' && st.stims === 2, 'starter kit reapplied on respawn', JSON.stringify(st));
-
   console.log('hud');
   const hud = await P(() => ({
     wheel: !!document.querySelector('.qwheel'),
@@ -223,7 +201,37 @@ try {
   ok(hud.cook, 'cook gauge element exists');
   ok(hud.fKey, 'stim pill shows the T / H key');
 
-  ok(errors.length === 0, 'no console errors', errors.slice(0, 5).join(' | '));
+  console.log('give up → dead → 레이드 실패 (Phase 7: a solo death fails the raid; the 30 s respawn is squad-only)');
+  await waitSim(2.5); // past any post-revive invulnerability
+  await P(() => window.__game.ctx.player.takeDamage(500));
+  await waitSim(0.3);
+  const downedAgain = await P(() => window.__game.ctx.player.isDowned);
+  ok(downedAgain, 'downed again after the revive');
+  await keyDown('Space'); await waitSim(2.2); await keyUp('Space');
+  await waitSim(0.3);
+  st = await P(() => ({ dead: window.__game.ctx.player.isDead, phase: window.__game.ctx.phase }));
+  ok(st.dead, 'holding Space while downed gives up → dead', JSON.stringify(st));
+  ok((await ev('game:over')).length === 0, 'game:over waits for the death delay');
+  await waitSim(3.0);
+  st = await P(() => ({ phase: window.__game.ctx.phase, over: window.__ev['game:over'].length, ra: window.__ev['game:respawnAvailable'].length }));
+  ok(st.phase === 'dead', 'solo: phase dead (death screen) after the delay', st.phase);
+  ok(st.over === 1, 'solo death → game:over (레이드 실패)', `${st.over}`);
+  ok(st.ra === 0, 'no respawn countdown in a solo raid', `${st.ra}`);
+  const deathScreen = await P(() => [...document.querySelectorAll('.menu')].some((el) => !el.hidden && getComputedStyle(el).visibility !== 'hidden' && /함선/.test(el.textContent ?? '')));
+  ok(deathScreen, 'death screen visible');
+  await P(() => window.__game.ctx.bus.emit('game:respawn', {}));
+  await waitSim(0.3);
+  ok((await ev('player:respawn')).length === 0, 'game:respawn refused after a raid failure');
+  // the failure screen returns to the ship by itself (RAID_FAILED_AUTO_RETURN_S); fast-forward with the time scale
+  await P(() => { window.__game.ctx.timeScale = 8; });
+  await waitFor(page, () => window.__game.ctx.phase === 'hub', 'auto return to the ship', 60000);
+  await P(() => { window.__game.ctx.timeScale = 1; });
+  st = await P(() => { const inv = window.__game.ctx.inventory; return { phase: window.__game.ctx.phase, primary: inv.getLoadout().primary?.defId, stims: inv.countWhere((d) => d.id === 'stim') }; });
+  ok(st.phase === 'hub', 'back in the ship after the failure', st.phase);
+  ok(st.primary === 'wpn_ar23' && st.stims === 2, 'starter kit reapplied after the failed raid', JSON.stringify(st));
+
+  const gameErrors = errors.filter((e) => !/WebSocket/.test(e));   // no relay running: the net client's socket error is expected
+  ok(gameErrors.length === 0, 'no console errors', gameErrors.slice(0, 5).join(' | '));
 } catch (e) {
   fail++; console.log('  FAIL', e.message);
   console.log(errors.slice(0, 10).join('\n'));

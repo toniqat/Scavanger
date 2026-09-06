@@ -1671,3 +1671,46 @@ input { font: inherit; color: inherit; }
   padding: 0 12px; border: 1px solid var(--c-accent); color: var(--c-accent); background: rgba(255, 179, 71, 0.08);
   font-family: var(--ui-mono); font-variant-numeric: tabular-nums; font-size: 12px; font-weight: 600; letter-spacing: 0.1em; white-space: nowrap;
 }
+
+/* ═══ Phase 7 (2026-09-06): level-up moment on the result screen · 레이드 실패 death screen · suspended members · squad mission badges ═══ */
+/* Result screens: the level-up moment (menus/RewardsBlock.cross) — badge pop, level flash, radial light burst */
+.menu .rewards { position: relative; }
+.menu .rewards .up-burst {
+  position: absolute; left: -20%; right: -20%; top: -60%; bottom: -60%;
+  pointer-events: none; z-index: 1;
+  background: radial-gradient(ellipse at 50% 45%, rgba(255, 236, 190, 0.95) 0%, rgba(255, 179, 71, 0.55) 22%, rgba(255, 179, 71, 0.18) 45%, transparent 70%);
+  mix-blend-mode: screen;
+  animation: rewardsBurst 900ms cubic-bezier(0.16, 0.84, 0.3, 1) forwards;
+}
+@keyframes rewardsBurst {
+  0% { opacity: 0; transform: scale(0.35); }
+  18% { opacity: 1; }
+  100% { opacity: 0; transform: scale(1.5); }
+}
+.menu .rewards.up .lv { animation: rewardsLvFlash 700ms var(--ease); }
+@keyframes rewardsLvFlash { 0% { color: #fff; text-shadow: 0 0 18px rgba(255, 236, 190, 1); transform: scale(1.18); } 100% { color: var(--c-accent); transform: none; } }
+.menu .rewards.up .xp-bar .fill { animation: rewardsBarFlash 700ms var(--ease); }
+@keyframes rewardsBarFlash { 0% { background: #fff; box-shadow: 0 0 16px rgba(255, 236, 190, 1); } 100% { background: var(--c-accent); } }
+
+/* Death screen in 레이드 실패 mode (menus/DeathScreen): no 부활 button, auto-return countdown under the actions */
+.menu.death .auto-return { font-family: var(--ui-mono); font-variant-numeric: tabular-nums; font-size: 11px; letter-spacing: 0.14em; color: var(--c-text-dim); text-align: center; margin-top: -4px; }
+.menu.death.raid-failed .frame { border-color: rgba(255, 77, 77, 0.55); box-shadow: 0 0 40px rgba(255, 77, 77, 0.12) inset; }
+.menu.death.raid-failed .title { letter-spacing: 0.22em; }
+.menu.death.raid-failed .subtitle { color: var(--c-danger); opacity: 0.85; }
+
+/* Suspended members (socket down, ghost body kept): grey nameplate with a 연결 끊김 tag, grey squad row */
+.nameplate.suspended { --sc: #9aa0aa; }
+.nameplate.suspended .name { color: var(--sc); opacity: 0.85; }
+.nameplate .tag { font-size: 8px; letter-spacing: 0.16em; padding: 0 5px; border: 1px solid rgba(154, 160, 170, 0.6); color: #9aa0aa; background: rgba(0, 0, 0, 0.55); white-space: nowrap; }
+.nameplate.far .tag { display: none; }
+.srow.suspended { --sc: #8a8f99; opacity: 0.55; }
+.srow.suspended .state { color: #9aa0aa; }
+
+/* Squad mission badges (Phase 7): 훈련장 / 임무 중 / 함선 between the name and the state text */
+.srow .badge {
+  flex: none; font-size: 8px; letter-spacing: 0.14em; padding: 1px 5px; margin-left: 6px;
+  border: 1px solid var(--c-border); color: var(--c-text-dim); background: rgba(0, 0, 0, 0.35); white-space: nowrap;
+}
+.srow .badge.training { color: var(--c-info); border-color: rgba(127, 183, 230, 0.55); }
+.srow .badge.ship { opacity: 0.7; }
+.srow .name { flex: 1; }

@@ -1,5 +1,8 @@
 // Two-client multiplayer smoke test: headless Chrome ×2 → relay server → personal ship → quick match →
 // docking → shared ship → launch pods → mission → pickups sync → reconnect → abort back to the ship.
+// Phase 7 additions: server profile (`ctx.net.profile`, credits transaction), suspended peer flags while a squadmate's
+// socket is down, and mid-mission HOST MIGRATION (host offline > NET_HOST_MIGRATE_DELAY_MS → the client takes over,
+// the returning host resumes demoted; the new host then aborts the mission for everyone).
 // Usage: node scripts/e2e-multiplayer.mjs [http://localhost:5273]
 // Requires `npm run server` and `npm run dev` to be running (or `npm run dev:all`).
 import puppeteer from 'puppeteer-core';
@@ -57,6 +60,15 @@ async function open(tag) {
   page.on('console', (m) => { if (m.type() === 'error') errors[tag].push(m.text()); });
   await page.goto(BASE, { waitUntil: 'load' });
   await waitFor(page, () => !!window.__game && !!window.__game.ctx.net, `${tag} boot`);
+  // Phase 7 listeners must be armed before the hub connects (profile arrives with `welcome`).
+  await page.evaluate(() => {
+    const bus = window.__game.ctx.bus;
+    window.__profileLoaded = null; bus.on('net:profileLoaded', (e) => { window.__profileLoaded = e; });
+    window.__susp = []; bus.on('net:peerSuspended', (e) => window.__susp.push(e));
+    window.__hostChanged = []; bus.on('net:hostChanged', (e) => window.__hostChanged.push(e));
+    window.__membership = []; bus.on('net:missionMembership', (e) => window.__membership.push(e));
+    window.__resumedEv = []; bus.on('net:resumed', (e) => window.__resumedEv.push(e));
+  });
   // Background tabs get no requestAnimationFrame in Chrome; drive Engine.frame() from a timer when rAF stalls.
   await page.evaluate(() => {
     let lastRaf = performance.now();
@@ -87,6 +99,16 @@ try {
   ok(await A.evaluate(() => window.__game.ctx.world === null || !window.__game.ctx.world.ready), 'A no world in the hub');
   await waitFor(A, () => window.__game.ctx.net.connected, 'A auto-connected');
   ok(await A.evaluate(() => typeof window.__game.ctx.net.sessionToken === 'string' && window.__game.ctx.net.sessionToken.length === 24), 'A has a 24-char session token');
+
+  console.log('server profile (Phase 7)');
+  await waitFor(A, () => window.__game.ctx.net.profile.available, 'A profile available', 5000);
+  const prof = await A.evaluate(() => ({ available: window.__game.ctx.net.profile.available, loaded: !!window.__profileLoaded, migrated: window.__profileLoaded?.migrated, credits: window.__game.ctx.net.profile.credits }));
+  ok(prof.available && prof.loaded, `A profile loaded from welcome ${JSON.stringify(prof)}`);
+  const tx = await A.evaluate(async () => { try { return await window.__game.ctx.net.profile.addCredits(0, 'e2e:probe'); } catch (e) { return { err: String(e) }; } });
+  ok(tx && tx.ok === true && typeof tx.credits === 'number', `A credits transaction round trip ${JSON.stringify(tx)}`);
+  const over = await A.evaluate(async () => { try { return await window.__game.ctx.net.profile.addCredits(-9999999, 'e2e:overdraft'); } catch (e) { return { err: String(e) }; } });
+  ok(over && over.ok === false && over.reason === '크레딧 부족' && over.credits === tx.credits, `overdraft refused by the server ${JSON.stringify(over)}`);
+  ok(await A.evaluate((c) => window.__game.ctx.net.profile.credits === c, tx.credits), 'profile.credits mirrors the server balance');
 
   console.log('quick match → docking → shared ship');
   await A.evaluate(() => { window.__matched = null; window.__game.ctx.bus.on('net:matched', (e) => { window.__matched = e; }); window.__game.ctx.net.quickMatch(); });
@@ -214,27 +236,64 @@ try {
   await waitFor(B, () => window.__game.ctx.phase === 'extracting', 'client mirrors extracting');
   ok(true, 'extraction activated on both via client request');
 
+  console.log('mission membership (Phase 7)');
+  ok(await A.evaluate(() => window.__game.ctx.net.lobby.players.every((p) => p.inMission === true) && window.__game.ctx.net.getRemotePlayers()[0].inMission === true), 'raid start marked every member inMission (lobby + remote ref)');
+  ok(await A.evaluate(() => window.__game.ctx.net.missionMode === 'raid' && window.__game.ctx.missionMode === 'raid'), 'missionMode raid on net + ctx');
+
   console.log('client socket drop → seamless resume');
   await A.evaluate(() => { window.__connFlags = []; window.__game.ctx.bus.on('net:lobbyUpdated', ({ lobby }) => window.__connFlags.push(lobby.players.map((p) => p.connected).join(''))); });
   await B.evaluate(() => { window.__resumed = null; window.__game.ctx.bus.on('net:resumed', (e) => { window.__resumed = e; }); window.__game.getSystem('net').client.ws.close(); });
   await waitFor(B, () => window.__game.ctx.net.reconnecting, 'B reconnecting', 5000);
   ok(true, 'B entered reconnecting state');
   await waitFor(A, () => window.__connFlags.some((f) => f.includes('0') || f.includes('false')), 'A sees B disconnected', 5000).catch(() => null);
+  const suspEv = await waitFor(A, () => window.__susp.length >= 1 ? window.__susp[0] : null, 'A net:peerSuspended', 5000).catch(() => null);
+  ok(suspEv && suspEv.suspended === true && suspEv.name === '분대원', `A got net:peerSuspended {suspended:true} for B ${JSON.stringify(suspEv)}`);
   const resumed = await waitFor(B, () => window.__resumed, 'B resumed', 15000);
   ok(resumed.seamless === true && resumed.lobby.code === code, `B resumed seamlessly ${JSON.stringify({ seamless: resumed.seamless, inProgress: resumed.inProgress })}`);
   ok(await B.evaluate(() => window.__game.ctx.phase === 'extracting' && window.__game.ctx.isMultiplayer), 'B still in the mission after resume');
   await waitFor(A, () => window.__game.ctx.net.lobby.players.every((p) => p.connected), 'A sees B reconnected', 5000);
   ok(true, 'A sees B connected again');
+  await waitFor(A, () => window.__susp.length >= 2 && window.__susp[1].suspended === false && !window.__game.ctx.net.getRemotePlayers()[0].suspended, 'A un-suspends B', 5000);
+  ok(true, 'A got net:peerSuspended {suspended:false}; remote ref no longer suspended');
   const remRem = await waitFor(B, () => { const r = window.__game.ctx.net.getRemotePlayers()[0]; return r && !r.stale ? 1 : 0; }, 'B remote fresh', 5000).catch(() => 0);
   ok(remRem === 1, 'B gets fresh snapshots from A after resume');
 
-  console.log('host abort → squad returns to the shared ship');
-  await A.evaluate(() => window.__game.ctx.bus.emit('game:abort', {}));
-  await waitFor(A, () => window.__game.ctx.phase === 'hub' && window.__game.ctx.hub.ship === 'shared', 'A shared ship after abort', 10000);
-  await waitFor(B, () => window.__game.ctx.phase === 'hub' && window.__game.ctx.hub.ship === 'shared', 'B shared ship (flow abort)', 10000);
+  console.log('host socket drop > NET_HOST_MIGRATE_DELAY_MS → B takes over, A resumes demoted (Phase 7)');
+  const aId = await A.evaluate(() => window.__game.ctx.net.localId);
+  const bId = await B.evaluate(() => window.__game.ctx.net.localId);
+  await B.evaluate(() => { window.__rejoinedFrom = null; window.__game.ctx.net.onMessage('flow', (m, from) => { if (m.ev === 'rejoined') window.__rejoinedFrom = from; }); });
+  await A.evaluate(() => {
+    // Keep A offline for longer than the migrate delay: point the reconnect at a dead port until B took over.
+    const sys = window.__game.getSystem('net');
+    window.__realUrl = sys.defaultUrl;
+    sys.defaultUrl = () => 'ws://127.0.0.1:1/ws';
+    sys.client.ws.close();
+  });
+  await waitFor(A, () => window.__game.ctx.net.reconnecting, 'A reconnecting', 5000);
+  ok(await A.evaluate(() => window.__game.ctx.net.isHost && window.__game.ctx.isAuthority), 'A keeps host/authority while reconnecting (before the delay)');
+  const hc = await waitFor(B, () => window.__hostChanged.find((e) => e.isLocalHost) ?? null, 'B net:hostChanged {isLocalHost:true}', 12000);
+  ok(hc.hostId === bId && hc.prev === aId, `B promoted: net:hostChanged ${JSON.stringify(hc)}`);
+  ok(await B.evaluate(() => window.__game.ctx.net.isHost && window.__game.ctx.net.tookOver && window.__game.ctx.isAuthority && window.__game.ctx.net.inSession), 'B is host + authority + tookOver, still in session');
+  ok(await B.evaluate(() => { const r = window.__game.ctx.net.getRemotePlayers()[0]; return !!r && r.suspended === true && r.inMission === true; }), 'B sees A as a suspended mission member (ref kept)');
+  await A.evaluate(() => { const sys = window.__game.getSystem('net'); sys.defaultUrl = window.__realUrl; });
+  const resumedA = await waitFor(A, () => window.__resumedEv[0] ?? null, 'A resumed', 20000);
+  ok(resumedA.seamless === true, `A resumed into the running mission ${JSON.stringify({ seamless: resumedA.seamless, host: resumedA.lobby.hostId === bId })}`);
+  const demoted = await waitFor(A, () => window.__hostChanged.find((e) => e.isLocalHost === false) ?? null, 'A net:hostChanged {isLocalHost:false}', 5000);
+  ok(demoted.hostId === bId && demoted.prev === aId, `A demoted: net:hostChanged ${JSON.stringify(demoted)}`);
+  ok(await A.evaluate(() => !window.__game.ctx.net.isHost && !window.__game.ctx.isAuthority && window.__game.ctx.net.inSession && !window.__game.ctx.net.tookOver), 'A is a client now (no authority), still in session');
+  const rejoinedFrom = await waitFor(B, () => window.__rejoinedFrom, 'B flow rejoined from A', 5000).catch(() => null);
+  ok(rejoinedFrom === aId, 'returning A announced flow rejoined to the new host');
+  await waitFor(B, () => window.__game.ctx.net.lobby.players.every((p) => p.connected) && !window.__game.ctx.net.getRemotePlayers()[0].suspended, 'B un-suspends A', 5000);
+  ok(true, 'B sees A connected again, ref no longer suspended');
+
+  console.log('new host aborts → squad returns to the shared ship');
+  await B.evaluate(() => window.__game.ctx.bus.emit('game:abort', {}));
+  await waitFor(B, () => window.__game.ctx.phase === 'hub' && window.__game.ctx.hub.ship === 'shared', 'B shared ship after abort', 10000);
+  await waitFor(A, () => window.__game.ctx.phase === 'hub' && window.__game.ctx.hub.ship === 'shared', 'A shared ship (flow abort from the new host)', 10000);
   await waitFor(A, () => window.__game.ctx.net.lobby && !window.__game.ctx.net.lobby.started && !window.__game.ctx.net.inSession, 'lobby reset');
-  ok(true, 'both back in the shared ship, lobby un-started');
+  ok(true, 'both back in the shared ship, lobby un-started (new host sent lobby:reset)');
   ok(await A.evaluate(() => !window.__game.ctx.player.isInPod && !window.__game.ctx.net.lobby.players.some((p) => p.ready)), 'pods empty after reset');
+  ok(await A.evaluate(() => window.__game.ctx.net.lobby.players.every((p) => p.inMission === false) && window.__game.ctx.net.missionMode === null), 'reset cleared inMission for everyone, missionMode null');
 
   console.log('peer leave → undock');
   await B.evaluate(() => window.__game.ctx.net.leaveLobby());
@@ -245,7 +304,7 @@ try {
   await A.evaluate(() => window.__game.ctx.net.leaveLobby());
   await waitFor(A, () => window.__game.ctx.net.lobby === null, 'A left');
 
-  const errA = errors.A.filter((e) => !/favicon|WebGL|GPU|swiftshader|GroupMarker/i.test(e));
+  const errA = errors.A.filter((e) => !/favicon|WebGL|GPU|swiftshader|GroupMarker|WebSocket connection/i.test(e));
   const errB = errors.B.filter((e) => !/favicon|WebGL|GPU|swiftshader|GroupMarker|WebSocket connection/i.test(e));
   ok(errA.length === 0, 'A: no console errors', errA.slice(0, 3).join(' | '));
   ok(errB.length === 0, 'B: no console errors (socket-drop noise ignored)', errB.slice(0, 3).join(' | '));

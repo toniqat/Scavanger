@@ -73,6 +73,59 @@ export class HubSystem implements GameSystem, HubRef {
   /** Debug: furniture renderer of the current personal ship. */
   get furnitureLayer(): FurnitureLayer | null { return this.furniture; }
 
+  /* ── 시뮬레이션 훈련장 (Phase 7) ─────────────────────────────────────────── */
+  /** A training is running in our lobby (`lobby.started` with mode `'training'`). */
+  private trainingRunning(): boolean {
+    const net = this.ctx.net, lobby = net?.lobby;
+    return !!lobby?.started && (net?.missionMode ?? lobby?.mode ?? 'raid') === 'training';
+  }
+  /** A raid is running in our lobby (pods rejoin it; the training hub is locked). */
+  private raidRunning(): boolean {
+    const net = this.ctx.net, lobby = net?.lobby;
+    return !!lobby?.started && (net?.missionMode ?? lobby?.mode ?? 'raid') !== 'training';
+  }
+  /** Connected members currently inside the training. */
+  private trainingCount(): number {
+    const lobby = this.ctx.net?.lobby;
+    return lobby ? lobby.players.filter((p) => p.connected && p.inMission === true).length : 0;
+  }
+
+  /**
+   * Enter the 시뮬레이션 훈련장 — from the 사격장 `furn_sim_hub` (personal ship) or the shared-ship terminal.
+   * No countdown, no ready gating, individual entry: in a lobby any member calls `ctx.net.startGame(seed, 'training')`
+   * (the server marks only the caller `inMission`), a training already running is joined with `rejoinMission()`, and a
+   * running raid refuses. Solo: `ctx.missionMode = 'training'` is set **before** `game:newMission {seed, mode}` so
+   * every `game:newMission` handler (world included) already sees the mode. Returns true when a request went out.
+   */
+  startTraining(): boolean {
+    const ctx = this.ctx;
+    if (ctx.phase !== 'hub' || this.cutscene || this.boardedSlot >= 0 || this.housingMode.active) return false;
+    const net = ctx.net;
+    const seed = this.resolveSeed();
+    const deny = (text: string): false => {
+      ctx.bus.emit('ui:notify', { text, kind: 'warning' });
+      ctx.bus.emit('audio:play', { id: 'ui_deny' });
+      return false;
+    };
+    if (net?.lobby) {
+      if (this.raidRunning()) return deny('임무 진행 중 — 훈련장을 열 수 없습니다');
+      if (this.trainingRunning()) {
+        if (!net.missionInProgress || typeof net.rejoinMission !== 'function') return deny('이미 훈련장에 있습니다');
+        ctx.bus.emit('ui:notify', { text: `훈련장에 합류합니다 (${this.trainingCount()}명 훈련 중)`, kind: 'info' });
+        net.rejoinMission();          // → net:gameStarting {mode:'training', rejoin} + game:newMission → teardown('mission')
+        return true;
+      }
+      if (typeof net.startGame !== 'function') return deny('훈련장을 열 수 없습니다');
+      ctx.bus.emit('ui:notify', { text: '시뮬레이션 훈련장 입장', kind: 'info' });
+      net.startGame(seed, 'training');   // server → game:start {mode:'training'} → net emits game:newMission for us only
+      return true;
+    }
+    ctx.missionMode = 'training';
+    ctx.bus.emit('ui:notify', { text: '시뮬레이션 훈련장 입장', kind: 'info' });
+    ctx.bus.emit('game:newMission', { seed, mode: 'training' });
+    return true;
+  }
+
   private interior: ShipInterior | null = null;
   private pods: LaunchPod[] = [];
   private terminal: Terminal | null = null;
@@ -116,6 +169,7 @@ export class HubSystem implements GameSystem, HubRef {
     this.menu = new HubMenu(ctx, {
       toTitle: () => this.toTitle(),
       onClosed: () => this.relock(),
+      startTraining: () => this.startTraining(),
     });
     this.wbMenu = new WorkbenchMenu(ctx, { onClosed: () => this.relock() });
     this.status = new HubStatus(ctx);
@@ -275,6 +329,7 @@ export class HubSystem implements GameSystem, HubRef {
         const h = ctx.housing;
         if (h && typeof h.openPresetMenu === 'function') h.openPresetMenu();
       },
+      onSimHub: () => this.startTraining(),
     });
     this.housingMode.setShip(interior, this.furniture);
     this.refreshRoomSigns();
@@ -472,6 +527,7 @@ export class HubSystem implements GameSystem, HubRef {
 
   private podPrompt(slot: number): string | null {
     if (!this.podCanInteract(slot)) return null;
+    if (this.trainingRunning()) return '훈련 진행 중 — 터미널에서 합류';
     return this.ctx.net?.lobby && this.ctx.net.missionInProgress ? '임무 진행 중 — 재투입' : '발사 슬롯 탑승';
   }
 
@@ -487,6 +543,12 @@ export class HubSystem implements GameSystem, HubRef {
     const ctx = this.ctx;
     if (!this.podCanInteract(slot)) return;
     const net = ctx.net;
+    if (this.trainingRunning()) {
+      // pods stay closed while a training runs: the terminal's 시뮬레이션 훈련장 entry joins it
+      ctx.bus.emit('ui:notify', { text: '훈련 진행 중 — 터미널에서 합류할 수 있습니다', kind: 'warning' });
+      ctx.bus.emit('audio:play', { id: 'ui_deny' });
+      return;
+    }
     if (net?.lobby && net.missionInProgress) {
       ctx.bus.emit('ui:notify', { text: '임무에 재투입합니다', kind: 'warning' });
       net.rejoinMission();          // → net:gameStarting + game:newMission → teardown('mission')
@@ -537,6 +599,7 @@ export class HubSystem implements GameSystem, HubRef {
     const localId: PeerId = net?.localId ?? 'local';
     const localSlot = this.localSlot();
     const me = lobby ? lobby.players.find((q) => q.id === localId) : undefined;
+    const training = this.trainingRunning();
 
     // server dropped our ready flag (lobby reset / kick-back) while we sit in the pod → step out
     if (this.boardedSlot >= 0 && lobby && me && !me.ready && !lobby.started && ctx.time - this.readySentAt > READY_ECHO_GRACE) {
@@ -554,12 +617,13 @@ export class HubSystem implements GameSystem, HubRef {
         local = true;
         name = net?.playerName ?? '스캐빈저';
         if (this.boardedSlot === slot) { occupant = localId; state = '탑승 완료'; }
-        else state = net?.missionInProgress ? '임무 진행 중 — 재투입' : '대기 중';
+        else state = training ? '훈련 진행 중' : net?.missionInProgress ? '임무 진행 중 — 재투입' : '대기 중';
       } else if (lobby) {
         const q = lobby.players.find((pl) => pl.slot === slot);
         if (q) {
           name = q.name;
           if (!q.connected) state = '연결 끊김';
+          else if (training) state = q.inMission ? '훈련 중' : '대기 중';      // a training never closes a pod door
           else if (q.ready) { occupant = q.id; state = lobby.started ? '임무 중' : '탑승 완료'; }
           else state = '대기 중';
         }
@@ -580,6 +644,7 @@ export class HubSystem implements GameSystem, HubRef {
     const lines = lobby
       ? [`함선 ${lobby.code}`, `승무원 ${lobby.players.length}/4 · ${lobby.isPublic ? '공개' : '비공개'}`, seedText]
       : ['개인 함선', status, seedText];
+    if (lobby && this.trainingRunning()) lines.push(`훈련장 ${this.trainingCount()}명`);
     const credits = this.credits();
     if (credits !== null) lines.push(`크레딧 ${credits.toLocaleString('ko-KR')}`);
     this.terminal.setScreen(lines, '#5fd7ff');
@@ -606,7 +671,8 @@ export class HubSystem implements GameSystem, HubRef {
       this.launched = true;
       net.startGame(seed);               // server → game:start → net emits game:newMission → teardown('mission')
     } else if (!net?.lobby) {
-      ctx.bus.emit('game:newMission', { seed });
+      ctx.missionMode = 'raid';          // the emitter sets the mode before `game:newMission` (Phase 7 contract)
+      ctx.bus.emit('game:newMission', { seed, mode: 'raid' });
     }
   }
 
@@ -655,7 +721,8 @@ export class HubSystem implements GameSystem, HubRef {
       else if (lobby) this.status.set(`탑승 대기 중 (${ready}/${total})`, '슬롯에서 내리기', { keycap: 'E' });
       else this.status.set('발사 준비', '슬롯에서 내리기', { keycap: 'E' });
     } else if (lobby && net?.missionInProgress) {
-      this.status.set('임무 진행 중', '발사 슬롯에 탑승하면 재투입됩니다');
+      if (this.trainingRunning()) this.status.set(`훈련 진행 중 (${this.trainingCount()}명)`, '터미널에서 합류할 수 있습니다');
+      else this.status.set('임무 진행 중', '발사 슬롯에 탑승하면 재투입됩니다');
     } else {
       this.status.hide();
     }
@@ -673,6 +740,7 @@ export class HubSystem implements GameSystem, HubRef {
     if (ctx.phase !== 'hub' || !this.interior) return;
 
     this.interior.update(dt, ctx.time);
+    this.furniture?.update(ctx.time);
     for (const pod of this.pods) pod.update(dt, ctx.time);
     this.garden?.update(dt, ctx.time);
     this.trackRoom();

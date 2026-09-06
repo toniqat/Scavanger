@@ -4,9 +4,15 @@
  * WebSocket) through the lobby / relay / disconnect / reconnect / quick-match flows and exits 0 on success,
  * 1 on the first failed assertion.
  */
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { ClientToServer, ServerToClient, LobbyState } from '../src/shared/net.ts';
+import type { RaidSessionBlob } from '../src/shared/profile.ts';
 import { NET_WS_PATH, NET_TOKEN_PARAM, NET_NAME_PARAM, NET_TOKEN_LENGTH } from '../src/shared/net.ts';
+import { PROFILE_DOC_MAX_BYTES, RAID_BLOB_MAX_BYTES } from '../src/shared/profile.ts';
 import { startRelayServer, peerIdFromToken, PEER_ID_LENGTH } from './RelayServer.ts';
+import { ProfileStore } from './Store.ts';
 
 const GRACE_MS = 300;
 const results: string[] = [];
@@ -107,7 +113,7 @@ function makeToken(seedChar: string): string {
 }
 
 async function main(): Promise<void> {
-  const server = await startRelayServer({ port: 0, host: '127.0.0.1', quiet: true, heartbeatMs: 1_000, reconnectGraceMs: GRACE_MS });
+  const server = await startRelayServer({ port: 0, host: '127.0.0.1', quiet: true, heartbeatMs: 1_000, reconnectGraceMs: GRACE_MS, dataDir: null });
   const url = `ws://127.0.0.1:${server.port}${NET_WS_PATH}`;
   console.log(`selftest: server on ${url}`);
 
@@ -540,6 +546,270 @@ async function main(): Promise<void> {
     for (const cl of [e, g, h, i, j, k, l, m, n, o, q, r, s2, t2]) cl.close();
     await sleep(GRACE_MS + 400);
     assert(server.lobbies.count === 0 && server.clientCount() === 0, 'all lobbies deleted after grace, no clients left', { lobbies: server.lobbies.count, clients: server.clientCount() });
+
+    /* ══════════════════════════ part 5: Phase 7 — profile store / credits / raid session / training / membership ══════════════════════════ */
+    const TU = makeToken('u'), TV = makeToken('v'), TW = makeToken('w');
+    let { c: u, welcome: uw } = await connect('U', url, { token: TU, name: 'Uni' });
+    assert(uw.profile !== undefined && uw.profile.credits === null && Object.keys(uw.profile.docs).length === 0 && uw.raid === undefined,
+      'token connect → welcome.profile {credits:null, docs:{}} (fresh record)', uw.profile);
+    const { c: anon, welcome: anonW } = await connect('ANON', url);
+    assert(anonW.profile === undefined, 'anonymous connect → no profile in welcome');
+    anon.send({ t: 'profile:set', key: 'meta', doc: { x: 1 } });
+    err = await anon.wait('lobby:error');
+    assert(err.code === 'invalid', 'profile:set from an anonymous id → invalid');
+    anon.close();
+
+    /* profile:set / profile:get */
+    u.send({ t: 'profile:set', key: 'meta', doc: { credits: 7, rep: { helix: 2 } } });
+    u.send({ t: 'profile:set', key: 'stash', doc: [1, 2, 3] });
+    assert(await u.expectNone('lobby:error', 150), 'profile:set with valid keys → no error');
+    u.send({ t: 'profile:get' });
+    let docs = await u.wait('profile:docs');
+    assert(JSON.stringify(docs.profile.docs.meta) === JSON.stringify({ credits: 7, rep: { helix: 2 } }) && JSON.stringify(docs.profile.docs.stash) === '[1,2,3]' && docs.profile.updatedAt > 0,
+      'profile:get returns the stored documents verbatim', docs.profile);
+    u.send({ t: 'profile:set', key: 'meta', doc: { credits: 8 } });
+    u.send({ t: 'profile:get' });
+    docs = await u.wait('profile:docs');
+    assert(JSON.stringify(docs.profile.docs.meta) === '{"credits":8}' && JSON.stringify(docs.profile.docs.stash) === '[1,2,3]', 'profile:set replaces one key, keeps the others');
+    u.sendRaw(JSON.stringify({ t: 'profile:set', key: 'bogus', doc: {} }));
+    err = await u.wait('lobby:error');
+    assert(err.code === 'invalid', 'profile:set with an unknown key → invalid');
+    u.sendRaw(JSON.stringify({ t: 'profile:set', key: 'ship' }));
+    err = await u.wait('lobby:error');
+    assert(err.code === 'invalid', 'profile:set without doc → invalid');
+    u.send({ t: 'profile:set', key: 'ship', doc: { pad: 'x'.repeat(PROFILE_DOC_MAX_BYTES + 100) } });
+    err = await u.wait('lobby:error');
+    assert(err.code === 'too_large', 'profile:set over PROFILE_DOC_MAX_BYTES → too_large');
+    u.send({ t: 'profile:set', key: 'ship', doc: { pad: 'x'.repeat(PROFILE_DOC_MAX_BYTES - 100) } });
+    assert(await u.expectNone('lobby:error', 150), 'profile:set just under the cap is accepted');
+    u.sendRaw(JSON.stringify({ t: 'relay', to: 'all', d: { t: 'chat', text: 'y'.repeat(70 * 1024) } }));
+    err = await u.wait('lobby:error');
+    assert(err.code === 'invalid', 'ordinary frames keep the 64 KB cap (oversized relay → invalid)');
+
+    /* credits transactions */
+    u.send({ t: 'credits:tx', txId: 1, delta: -100, reason: 'buy:test' });
+    let cr = await u.wait('credits:result', (m) => m.txId === 1);
+    assert(cr.ok === false && cr.credits === 0 && cr.reason === '크레딧 부족', 'credits:tx below zero on a null balance → refused with 크레딧 부족', cr);
+    u.send({ t: 'credits:tx', txId: 2, delta: 500, reason: 'migrate' });
+    cr = await u.wait('credits:result', (m) => m.txId === 2);
+    assert(cr.ok === true && cr.credits === 500 && cr.reason === undefined, "first 'migrate' tx seeds the balance with delta", cr);
+    u.send({ t: 'credits:tx', txId: 3, delta: 9999, reason: 'migrate' });
+    cr = await u.wait('credits:result', (m) => m.txId === 3);
+    assert(cr.ok === true && cr.credits === 500, "second 'migrate' is a no-op (balance kept)", cr);
+    u.send({ t: 'credits:tx', txId: 4, delta: -120, reason: 'buy:wpn_ar23' });
+    cr = await u.wait('credits:result', (m) => m.txId === 4);
+    assert(cr.ok === true && cr.credits === 380, 'debit applied atomically → 380', cr);
+    u.send({ t: 'credits:tx', txId: 5, delta: -381, reason: 'buy:too_much' });
+    cr = await u.wait('credits:result', (m) => m.txId === 5);
+    assert(cr.ok === false && cr.credits === 380 && cr.reason === '크레딧 부족', 'overdraft refused, balance unchanged', cr);
+    u.send({ t: 'credits:tx', txId: 6, delta: 45.9, reason: 'sell' });
+    cr = await u.wait('credits:result', (m) => m.txId === 6);
+    assert(cr.ok === true && cr.credits === 425, 'credit truncated to integers (+45.9 → +45)', cr);
+    u.sendRaw(JSON.stringify({ t: 'credits:tx', txId: 7, delta: 'lots', reason: 'x' }));
+    err = await u.wait('lobby:error');
+    assert(err.code === 'invalid', 'credits:tx with a non-numeric delta → invalid');
+    /* persistence across reconnect */
+    u.close(); await u.closed();
+    ({ c: u, welcome: uw } = await connect('U2', url, { token: TU, name: 'Uni' }));
+    assert(uw.profile?.credits === 425 && JSON.stringify(uw.profile.docs.meta) === '{"credits":8}' && JSON.stringify(uw.profile.docs.stash) === '[1,2,3]',
+      'reconnect → welcome.profile carries the stored credits and documents', uw.profile);
+    const healthP = await (await fetch(`http://127.0.0.1:${server.port}/health`)).json() as { profiles: number };
+    assert(healthP.profiles >= 1, '/health reports the profile count', healthP);
+
+    /* raid session: only while a raid with that seed runs */
+    const blob = (seed: number, extra = ''): RaidSessionBlob => ({ seed, missionTime: 12.5, stats: { kills: 3 } as never, inventory: { bag: [extra] }, savedAt: Date.now() });
+    u.send({ t: 'raid:save', blob: blob(1) });
+    assert(await u.expectNone('lobby:error', 150), 'raid:save outside a lobby is ignored silently');
+    u.send({ t: 'lobby:create', name: 'Uni' });
+    st = await u.wait('lobby:state');
+    const codeU = st.lobby.code;
+    assert(st.lobby.mode === undefined && st.lobby.players[0].inMission === false, 'fresh lobby: no mode, inMission=false', st.lobby);
+    const { c: v } = await connect('V', url, { token: TV, name: 'Vic' });
+    v.send({ t: 'lobby:join', code: codeU, name: 'Vic' });
+    await Promise.all([u.wait('lobby:state', (m) => m.lobby.players.length === 2), v.wait('lobby:state')]);
+    u.send({ t: 'raid:save', blob: blob(1) });
+    assert(await u.expectNone('lobby:error', 150), 'raid:save before start is ignored');
+    assert(server.lobbies.byCode(codeU)?.raid.size === 0, 'no blob stored before start');
+    /* lobby:mission true while nothing runs → in_mission */
+    v.send({ t: 'lobby:mission', inMission: true });
+    err = await v.wait('lobby:error');
+    assert(err.code === 'in_mission', 'lobby:mission {true} while nothing runs → in_mission');
+    /* raid start marks every connected member inMission; mode 'raid' on the wire */
+    for (const cl of [u, v]) cl.send({ t: 'lobby:ready', ready: true });
+    await Promise.all([u, v].map((cl) => cl.wait('lobby:state', (m) => m.lobby.players.every((p) => p.ready))));
+    u.send({ t: 'lobby:start', seed: 4242 });
+    const rs = await Promise.all([u, v].map((cl) => cl.wait('game:start')));
+    assert(rs.every((m) => m.mode === 'raid' && m.lobby.mode === 'raid' && m.lobby.players.every((p) => p.inMission === true)),
+      'raid start → game:start {mode:raid}, every connected member inMission', rs[0].lobby);
+    u.send({ t: 'raid:save', blob: blob(1) });
+    assert(await u.expectNone('lobby:error', 150), 'raid:save with a foreign seed is ignored (no error)');
+    assert(server.lobbies.byCode(codeU)?.raid.size === 0, 'foreign-seed blob not stored');
+    u.send({ t: 'raid:save', blob: blob(4242, 'first') });
+    u.send({ t: 'raid:save', blob: blob(4242, 'second') });
+    await sleep(80);
+    assert(server.lobbies.byCode(codeU)?.raid.get(u.id)?.inventory !== undefined && JSON.stringify(server.lobbies.byCode(codeU)?.raid.get(u.id)?.inventory) === '{"bag":["second"]}',
+      'raid:save with the running seed is stored (latest wins)');
+    u.send({ t: 'raid:save', blob: blob(4242, 'z'.repeat(RAID_BLOB_MAX_BYTES + 100)) });
+    err = await u.wait('lobby:error');
+    assert(err.code === 'too_large', 'raid:save over RAID_BLOB_MAX_BYTES → too_large');
+    u.sendRaw(JSON.stringify({ t: 'raid:save', blob: { seed: 4242 } }));
+    err = await u.wait('lobby:error');
+    assert(err.code === 'invalid', 'raid:save with a malformed blob → invalid');
+    /* the host drops and comes back: welcome carries lobby + raid blob; host kept (migrate delay 4 s > grace here) */
+    u.close(); await u.closed();
+    await v.wait('lobby:state', (m) => m.lobby.players.find((p) => p.id === u.id)?.connected === false);
+    ({ c: u, welcome: uw } = await connect('U3', url, { token: TU, name: 'Uni' }));
+    assert(uw.lobby?.started === true && uw.raid !== undefined && uw.raid !== null && uw.raid.seed === 4242 && JSON.stringify(uw.raid.inventory) === '{"bag":["second"]}',
+      'resume into the running raid → welcome.raid returns my blob', uw.raid);
+    assert(uw.lobby?.hostId === u.id && uw.lobby.players.find((p) => p.id === u.id)?.inMission === true, 'returning host inside the migrate delay stays host, still inMission', uw.lobby);
+    await v.wait('lobby:state', (m) => m.lobby.players.find((p) => p.id === u.id)?.connected === true);
+    /* a client leaves the mission: lobby:mission false → inMission false, blob dropped, lobby still started */
+    v.send({ t: 'lobby:mission', inMission: false });
+    const vm = await Promise.all([u, v].map((cl) => cl.wait('lobby:state', (m) => m.lobby.players.find((p) => p.id === v.id)?.inMission === false)));
+    assert(vm.every((m) => m.lobby.started && m.lobby.mode === 'raid'), 'lobby:mission {false} in a raid → inMission false, raid keeps running', vm[0].lobby);
+    v.send({ t: 'lobby:mission', inMission: true });
+    await Promise.all([u, v].map((cl) => cl.wait('lobby:state', (m) => m.lobby.players.find((p) => p.id === v.id)?.inMission === true)));
+    pass('lobby:mission {true} on a started lobby → inMission true again (rejoin)');
+    /* lobby:reset clears membership + blobs */
+    u.send({ t: 'lobby:reset' });
+    const rst = await Promise.all([u, v].map((cl) => cl.wait('lobby:state', (m) => !m.lobby.started)));
+    assert(rst.every((m) => m.lobby.mode === undefined && m.lobby.players.every((p) => p.inMission === false)) && server.lobbies.byCode(codeU)?.raid.size === 0,
+      'lobby:reset → mode cleared, everyone inMission=false, raid blobs dropped', rst[0].lobby);
+    u.close(); await u.closed();
+    ({ c: u, welcome: uw } = await connect('U4', url, { token: TU, name: 'Uni' }));
+    assert(uw.lobby?.code === codeU && uw.raid === undefined, 'resume after reset → no raid blob', uw);
+    assert(uw.lobby?.hostId === v.id, 'host drop in the hub (not started) migrated the host to V at once', uw.lobby);
+    await v.wait('lobby:state', (m) => m.lobby.players.find((p) => p.id === u.id)?.connected === true);
+    u.flush(); v.flush();
+
+    /* training: any member starts, no ready gating, only the starter enters, joins stay open, auto reset */
+    v.send({ t: 'lobby:start', seed: 1, mode: 'raid' });
+    err = await v.wait('lobby:error');
+    assert(err.code === 'not_ready', "explicit mode:'raid' keeps the ready gating");
+    u.send({ t: 'lobby:start', seed: 99, mode: 'training' });
+    const ts = await Promise.all([u, v].map((cl) => cl.wait('game:start')));
+    assert(ts.every((m) => m.mode === 'training' && m.seed === 99 && m.lobby.started && m.lobby.mode === 'training'
+      && m.lobby.players.find((p) => p.id === u.id)?.inMission === true && m.lobby.players.find((p) => p.id === v.id)?.inMission === false),
+      'non-host training start → game:start {mode:training} to all, only the starter inMission', ts[0].lobby);
+    u.send({ t: 'lobby:start', seed: 5, mode: 'training' });
+    err = await u.wait('lobby:error');
+    assert(err.code === 'started', 'second training start → started');
+    u.send({ t: 'raid:save', blob: blob(99) });
+    await sleep(60);
+    assert(server.lobbies.byCode(codeU)?.raid.size === 0, 'raid:save during a training is ignored');
+    const { c: w } = await connect('W', url, { token: TW, name: 'Whi' });
+    w.send({ t: 'lobby:join', code: codeU, name: 'Whi' });
+    const wj = await w.wait('lobby:state');
+    assert(wj.lobby.started && wj.lobby.mode === 'training' && wj.lobby.players.length === 3 && wj.lobby.players.find((p) => p.id === w.id)?.inMission === false,
+      'a training keeps the lobby open: newcomer joins with inMission=false', wj.lobby);
+    await Promise.all([u, v].map((cl) => cl.wait('lobby:state', (m) => m.lobby.players.length === 3)));
+    u.flush(); v.flush(); w.flush();
+    v.send({ t: 'lobby:mission', inMission: true });
+    await Promise.all([u, v, w].map((cl) => cl.wait('lobby:state', (m) => m.lobby.players.find((p) => p.id === v.id)?.inMission === true)));
+    pass('another member joins the training with lobby:mission {true}');
+    u.send({ t: 'lobby:mission', inMission: false });
+    const vl = await Promise.all([u, v, w].map((cl) => cl.wait('lobby:state', (m) => m.lobby.players.find((p) => p.id === u.id)?.inMission === false)));
+    assert(vl.every((m) => m.lobby.started && m.lobby.mode === 'training'), 'the starter leaving keeps the training running while someone is still in', vl[0].lobby);
+    v.send({ t: 'lobby:mission', inMission: false });
+    const ended = await Promise.all([u, v, w].map((cl) => cl.wait('lobby:state', (m) => !m.lobby.started)));
+    assert(ended.every((m) => m.lobby.mode === undefined && m.lobby.seed === null && m.lobby.players.every((p) => !p.inMission && !p.ready)),
+      'last member leaving a training → server reset (started=false, mode cleared)', ended[0].lobby);
+    /* auto reset also when the last trainee's grace expires */
+    w.send({ t: 'lobby:start', seed: 7, mode: 'training' });
+    await Promise.all([u, v, w].map((cl) => cl.wait('game:start')));
+    w.close();
+    const wGone = await Promise.all([u, v].map((cl) => cl.wait('peer:left', (m) => m.id === w.id, GRACE_MS + 1500)));
+    assert(wGone.every((m) => m.lobby.players.length === 2), 'trainee grace expiry → peer:left', wGone[0].lobby);
+    const wReset = await Promise.all([u, v].map((cl) => cl.wait('lobby:state', (m) => !m.lobby.started, 1500)));
+    assert(wReset.every((m) => m.lobby.mode === undefined), 'training whose only member expired → reset broadcast', wReset[0].lobby);
+    u.close(); v.close();
+    await sleep(GRACE_MS + 400);
+    assert(server.lobbies.count === 0 && server.clientCount() === 0, 'part 5 cleanup: all lobbies deleted', { lobbies: server.lobbies.count, clients: server.clientCount() });
+
+    /* ══════════════════════════ part 6: Phase 7 — mid-mission host migration (own server: short delay, longer grace) ══════════════════════════ */
+    const MIG_MS = 250;
+    const server2 = await startRelayServer({ port: 0, host: '127.0.0.1', quiet: true, heartbeatMs: 1_000, reconnectGraceMs: 2_500, hostMigrateDelayMs: MIG_MS, dataDir: null });
+    const url2 = `ws://127.0.0.1:${server2.port}${NET_WS_PATH}`;
+    try {
+      const TX = makeToken('x'), TY = makeToken('y'), TZ = makeToken('z');
+      let { c: x } = await connect('X', url2, { token: TX, name: 'Xen' });
+      const { c: y } = await connect('Y', url2, { token: TY, name: 'Yan' });
+      const { c: z } = await connect('Z', url2, { token: TZ, name: 'Zed' });
+      x.send({ t: 'lobby:create', name: 'Xen' });
+      st = await x.wait('lobby:state');
+      const codeX = st.lobby.code;
+      y.send({ t: 'lobby:join', code: codeX, name: 'Yan' });
+      await Promise.all([x.wait('lobby:state', (m) => m.lobby.players.length === 2), y.wait('lobby:state')]);
+      z.send({ t: 'lobby:join', code: codeX, name: 'Zed' });
+      await Promise.all([x.wait('lobby:state', (m) => m.lobby.players.length === 3), y.wait('lobby:state', (m) => m.lobby.players.length === 3), z.wait('lobby:state')]);
+      for (const cl of [x, y, z]) cl.send({ t: 'lobby:ready', ready: true });
+      await Promise.all([x, y, z].map((cl) => cl.wait('lobby:state', (m) => m.lobby.players.every((p) => p.ready))));
+      x.send({ t: 'lobby:start', seed: 31 });
+      await Promise.all([x, y, z].map((cl) => cl.wait('game:start')));
+      /* Y (slot 1) leaves the mission → Z (slot 2, inMission) must be preferred over Y when the host drops */
+      y.send({ t: 'lobby:mission', inMission: false });
+      await Promise.all([x, y, z].map((cl) => cl.wait('lobby:state', (m) => m.lobby.players.find((p) => p.id === y.id)?.inMission === false)));
+      /* brief blip: host back before the delay → stays host */
+      x.close(); await x.closed();
+      st = await z.wait('lobby:state', (m) => m.lobby.players.find((p) => p.id === x.id)?.connected === false);
+      assert(st.lobby.hostId === x.id, 'host drop while started → host id kept at first', st.lobby);
+      ({ c: x } = await connect('X2', url2, { token: TX, name: 'Xen' }));
+      assert(x.lobby?.hostId === x.id, 'host back within NET_HOST_MIGRATE_DELAY → still host', x.lobby);
+      await z.wait('lobby:state', (m) => m.lobby.players.find((p) => p.id === x.id)?.connected === true);
+      assert(await z.expectNone('lobby:state', MIG_MS + 200, (m) => m.t === 'lobby:state' && m.lobby.hostId !== x.id), 'no migration fires after the host returned');
+      /* real drop: after the delay the role moves to the connected member INSIDE the mission (Z, not Y) */
+      x.close(); await x.closed();
+      await Promise.all([y, z].map((cl) => cl.wait('lobby:state', (m) => m.lobby.players.find((p) => p.id === x.id)?.connected === false)));
+      const t0 = Date.now();
+      const mg = await Promise.all([y, z].map((cl) => cl.wait('lobby:state', (m) => m.lobby.hostId !== x.id, MIG_MS + 1500)));
+      const dtMig = Date.now() - t0;
+      assert(mg.every((m) => m.lobby.hostId === z.id && m.lobby.started && m.lobby.players.find((p) => p.id === z.id)?.isHost === true && m.lobby.players.find((p) => p.id === x.id)?.connected === false),
+        'host still down after the delay → lobby:state with the host migrated to the connected inMission member (Z over Y)', mg[0].lobby);
+      assert(dtMig >= MIG_MS - 50 && dtMig < MIG_MS + 1000, `migration happened after ~${MIG_MS} ms (${dtMig} ms)`);
+      assert(await y.expectNone('peer:left', 200), 'old host keeps its slot (grace still running)');
+      /* the old host returns: welcome.lobby.hostId says it is a client now; Z stays host */
+      ({ c: x } = await connect('X3', url2, { token: TX, name: 'Xen' }));
+      assert(x.lobby?.hostId === z.id && x.lobby.players.find((p) => p.id === x.id)?.isHost === false && x.lobby.players.find((p) => p.id === x.id)?.inMission === true,
+        'returning old host learns from welcome.lobby.hostId that it is a client (still inMission)', x.lobby);
+      x.send({ t: 'relay', to: 'host', d: { t: 'flow', ev: 'rejoined' } });
+      const rjz = await z.wait('relay', (m) => m.d.t === 'flow');
+      assert(rjz.from === x.id, "relay to 'host' reaches the new host");
+      /* new host drops with nobody left inside → falls back to a connected member (Y) */
+      z.close(); await z.closed();
+      const mg2 = await Promise.all([x, y].map((cl) => cl.wait('lobby:state', (m) => m.lobby.hostId !== z.id, MIG_MS + 1500)));
+      assert(mg2.every((m) => m.lobby.hostId === x.id), 'next migration prefers the connected inMission member again (X, slot 0)', mg2[0].lobby);
+      /* not-started lobby keeps the immediate migration */
+      x.send({ t: 'lobby:reset' });
+      await Promise.all([x, y].map((cl) => cl.wait('lobby:state', (m) => !m.lobby.started)));
+      y.flush();
+      x.close(); await x.closed();
+      st = await y.wait('lobby:state', (m) => m.lobby.players.find((p) => p.id === x.id)?.connected === false);
+      assert(st.lobby.hostId === y.id, 'hub (not started) lobby still migrates the host immediately', st.lobby);
+      y.close();
+    } finally {
+      await server2.close();
+    }
+
+    /* ══════════════════════════ part 7: profile store file round-trip ══════════════════════════ */
+    const dir = mkdtempSync(join(tmpdir(), 'scav-store-'));
+    try {
+      const s1 = new ProfileStore({ dataDir: dir, saveDebounceMs: 20, quiet: true });
+      assert(s1.get('p1').credits === null && s1.size === 1, 'store.get creates an empty record');
+      s1.setDoc('p1', 'meta', { a: 1 });
+      const tx = s1.applyCredits('p1', 300, 'migrate');
+      assert(tx.ok && tx.credits === 300, 'store migrate seeds credits');
+      assert(s1.applyCredits('p1', -301, 'buy').ok === false && s1.applyCredits('p1', -300, 'buy').credits === 0, 'store refuses overdraft, allows exact spend');
+      s1.get('untouched');
+      await sleep(80);
+      assert(s1.writeCount === 1, 'debounced write happened once', s1.writeCount);
+      s1.close();
+      const s2 = new ProfileStore({ dataDir: dir, quiet: true });
+      assert(s2.size === 1 && s2.get('p1').credits === 0 && JSON.stringify(s2.get('p1').docs.meta) === '{"a":1}' && !s2.has('untouched'),
+        'a new store reloads the file: credits + docs kept, placeholder records not persisted', s2.get('p1'));
+      s2.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   } catch (e) {
     fail('unexpected exception', (e as Error).message);
   } finally {

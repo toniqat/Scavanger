@@ -16,17 +16,33 @@ export class WaveDirector {
   private readonly target = new THREE.Vector3();
   private readonly center = new THREE.Vector3();
 
+  /** Phase 7: wave index to continue from when `start` is called after a host promotion (−1 = fresh start). */
+  private primed = -1;
+
   start(target: THREE.Vector3): void {
     if (this.active) { this.target.copy(target); return; }
     this.active = true;
+    this.target.copy(target);
+    if (this.primed >= 0) {
+      // resumed on a new host mid-extraction: continue the escalation instead of restarting at wave 0
+      this.index = this.primed;
+      this.timer = Math.min(this.interval(), 6);
+      this.primed = -1;
+      return;
+    }
     this.index = 0;
     this.timer = 3;               // first wave shortly after the switch is pressed
-    this.target.copy(target);
   }
 
   stop(): void { this.active = false; }
 
-  reset(): void { this.active = false; this.index = 0; this.timer = 0; }
+  reset(): void { this.active = false; this.index = 0; this.timer = 0; this.primed = -1; }
+
+  /**
+   * Phase 7 (host promotion): the next `start` (re-requested by extraction/ once we are the authority) continues from
+   * `index` — the number of `ee wave`s this client saw as a replica.
+   */
+  prime(index: number): void { this.primed = Math.max(0, index); }
 
   private interval(): number { return Math.max(9, 14 - this.index * 0.8); }
   private waveSize(): number { return Math.min(22, 6 + this.index * 2); }

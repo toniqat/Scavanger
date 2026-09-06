@@ -1,6 +1,6 @@
-import type { ArmorDef, DerivedStats, DurabilityInfo, ItemDef, ItemInstance, Rarity, WeightInfo, WeightState } from '@/shared';
+import type { ArmorDef, DerivedStats, DurabilityInfo, ItemDef, ItemInstance, WeightInfo, WeightState } from '@/shared';
 import {
-  STAT_BASE, WEIGHT_BASE_CAPACITY, WEIGHT_HEAVY_MOVE_MUL, WEIGHT_HEAVY_RATIO, WEIGHT_HEAVY_STAMINA_MUL,
+  SEARCH_TIME_BY_RARITY, STAT_BASE, WEIGHT_BASE_CAPACITY, WEIGHT_HEAVY_MOVE_MUL, WEIGHT_HEAVY_RATIO, WEIGHT_HEAVY_STAMINA_MUL,
   WEIGHT_LIGHT_RATIO, WEIGHT_LIGHT_STAMINA_MUL, WEIGHT_OVER_RATIO, WEIGHT_PER_STRENGTH,
 } from '@/shared';
 import { itemWeight, rarityRank } from '@/items';
@@ -82,16 +82,16 @@ export function durabilityRatio(item: ItemInstance, def: ItemDef): number | null
 
 /* ── crate search (감정) ──────────────────────────────────────────────────── */
 
-/** Seconds an item of each rarity stays hidden while the crate is being searched, before 감정. */
-export const SEARCH_TIME_BY_RARITY: Readonly<Record<Rarity, number>> = {
-  common: 0.35, uncommon: 0.7, rare: 1.3, epic: 2.0, legendary: 3.0,
-};
+/** Seconds by rarity — the table lives in the contract since Phase 7 (`@/shared` `SEARCH_TIME_BY_RARITY`); re-exported for callers. */
+export { SEARCH_TIME_BY_RARITY };
 
-/** Reveal delay for one item; `searchSpeedMul` comes from `derived.searchSpeedMul` (1 when unknown). */
+/**
+ * Reveal delay for one item (Phase 7 container search): `SEARCH_TIME_BY_RARITY[rarity] × (1 + (w·h − 1) × 0.05)` ÷
+ * `searchSpeedMul` (`derived.searchSpeedMul`, 1 when unknown / invalid). Multi-cell items add a little so a rifle never
+ * pops instantly.
+ */
 export function searchTimeFor(def: ItemDef, searchSpeedMul: number): number {
-  const mul = searchSpeedMul > 0 ? searchSpeedMul : 1;
-  // A big find takes longer to dig out: +0.12 s per extra rarity step is already in the table,
-  // and multi-cell items add a little on top so a rifle never pops instantly.
+  const mul = Number.isFinite(searchSpeedMul) && searchSpeedMul > 0 ? searchSpeedMul : 1;
   const bulk = 1 + Math.max(0, def.width * def.height - 1) * 0.05;
   return (SEARCH_TIME_BY_RARITY[def.rarity] ?? 0.5) * bulk / mul;
 }

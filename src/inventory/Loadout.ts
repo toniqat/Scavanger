@@ -36,20 +36,28 @@ export function isEmptyLoadoutSave(save: LoadoutSave | null): boolean {
 
 /** Read + sanitise the save file; null when missing / corrupt. */
 export function loadLoadoutSave(): LoadoutSave | null {
-  const file = readSaveFile<Partial<LoadoutSave>>(LOADOUT_STORAGE_KEY);
+  return sanitizeLoadoutSave(readSaveFile<Partial<LoadoutSave>>(LOADOUT_STORAGE_KEY));
+}
+
+/**
+ * Sanitise a save-shaped object (the localStorage file, the server profile doc or a raid-state blob); null when it is
+ * not a loadout save. Extra per-entry fields (e.g. `searched` in a raid state) pass through untouched.
+ */
+export function sanitizeLoadoutSave(file: unknown): LoadoutSave | null {
   if (!file || typeof file !== 'object') return null;
-  if (typeof file.v !== 'number' || file.v < 1 || file.v > LOADOUT_SAVE_VERSION) return null;
+  const f = file as Partial<LoadoutSave>;
+  if (typeof f.v !== 'number' || f.v < 1 || f.v > LOADOUT_SAVE_VERSION) return null;
   const slots: LoadoutSave['slots'] = {};
-  if (file.slots && typeof file.slots === 'object') {
-    for (const [k, v] of Object.entries(file.slots)) if (v && typeof v === 'object') slots[k as LoadoutSlot] = v as SavedExtras;
+  if (f.slots && typeof f.slots === 'object') {
+    for (const [k, v] of Object.entries(f.slots)) if (v && typeof v === 'object') slots[k as LoadoutSlot] = v as SavedExtras;
   }
-  const bag = Array.isArray(file.bag) ? file.bag.filter((e): e is SavedPlacement => !!e && typeof e === 'object') : [];
+  const bag = Array.isArray(f.bag) ? f.bag.filter((e): e is SavedPlacement => !!e && typeof e === 'object') : [];
   const quick: (number | null)[] = [];
   for (let i = 0; i < QUICK_SLOTS; i++) {
-    const q = Array.isArray(file.quick) ? file.quick[i] : null;
+    const q = Array.isArray(f.quick) ? f.quick[i] : null;
     quick.push(typeof q === 'number' && Number.isInteger(q) && q >= 0 && q < bag.length ? q : null);
   }
-  return { v: file.v, slots, bag, quick };
+  return { v: f.v, slots, bag, quick };
 }
 
 export class LoadoutStore {
@@ -57,7 +65,8 @@ export class LoadoutStore {
   private pendingReason: string | null = null;
   private onPageHide = (): void => this.flush();
 
-  constructor(private readonly capture: () => LoadoutSave, private readonly onSaved: (reason: string) => void) {
+  /** `onSaved(reason, file)` runs after every successful write (event + Phase 7 profile upload). */
+  constructor(private readonly capture: () => LoadoutSave, private readonly onSaved: (reason: string, file: LoadoutSave) => void) {
     window.addEventListener('pagehide', this.onPageHide);
     window.addEventListener('beforeunload', this.onPageHide);
   }
@@ -73,7 +82,8 @@ export class LoadoutStore {
   saveNow(reason: string): void {
     if (this.timer !== null) { clearTimeout(this.timer); this.timer = null; }
     this.pendingReason = null;
-    if (writeSaveFile(LOADOUT_STORAGE_KEY, this.capture())) this.onSaved(reason);
+    const file = this.capture();
+    if (writeSaveFile(LOADOUT_STORAGE_KEY, file)) this.onSaved(reason, file);
   }
 
   /** Write the pending change, if any (page hide, dispose). */

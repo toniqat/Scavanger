@@ -1,6 +1,6 @@
 import type {
-  ConsoleCommand, ContractDef, ContractGoalKind, ContractInfo, ContractSettlement, CorpId, GameContext, GameSystem, ItemInstance,
-  MetaRef, MissionStats, QuestInfo, QuestState, RepInfo, ShopItem,
+  ConsoleCommand, ContractDef, ContractGoalKind, ContractInfo, ContractSettlement, CorpId, CreditsTxResult, GameContext, GameSystem,
+  ItemInstance, MetaRef, MissionStats, ProfileRef, QuestInfo, QuestState, RepInfo, ShopItem,
 } from '@/shared';
 import {
   CONTRACT_DEFS, CONTRACT_GOAL_LABEL_KO, CORP_DEFS, CORP_IDS, CREDITS_MAX, QUEST_DEFS, repLevelOf, sellPriceOf,
@@ -19,10 +19,18 @@ import './meta.css';
  * `Rules.ts`, owns the corp screen DOM (`ui/CorpMenu.ts`, blocker `'corp'`) and the `credits / rep / contract / quest`
  * console commands. Contract goals rise from bus events during a mission; local hits are shared with the squad over
  * the relay-opaque `meta contractHit` message. Toasts are the ui folder's job: this system only emits `meta:*`.
+ *
+ * Phase 7 (server profile): when `ctx.net.profile.available`, credits are **server-owned** — every `addCredits` is an
+ * optimistic local apply followed by a `credits:tx` whose answer overwrites the balance (or reverts it when refused);
+ * `buy` is `canFit` → server debit → item creation, `meta:purchase` announces the (possibly async) completion. The
+ * save also mirrors into the `meta` profile document; `net:profileLoaded` replaces it with the server copy.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 const CORP_ALIASES: Readonly<Record<string, CorpId>> = { helix: 'helix', bastion: 'bastion', nomad: 'nomad', ceres: 'ceres' };
 const GOAL_IDS: readonly ContractGoalKind[] = ['kill_bugs', 'kill_rogues', 'open_crates', 'loot_corpses', 'extract_with_value', 'use_stratagems'];
+
+/** Why the last `buy()` / async purchase did not go through (corp screen message; folder-internal, not in `MetaRef`). */
+export interface PurchaseFailure { corp: CorpId; defId: string; price: number; reason: string; }
 
 export class MetaSystem implements GameSystem, MetaRef {
   readonly name = 'meta';
@@ -32,6 +40,12 @@ export class MetaSystem implements GameSystem, MetaRef {
   private unsubs: Array<() => void> = [];
   private unsubNet: (() => void) | null = null;
   private consoleRegistered = false;
+  /** Last refused purchase (sync or async) — the corp screen reads it for its message line. */
+  lastPurchaseFailure: PurchaseFailure | null = null;
+  /** Called after an async purchase failed (server refusal / placement); the corp screen shows the reason. */
+  onPurchaseFailed: ((f: PurchaseFailure) => void) | null = null;
+  /** Server transactions still in flight (purchase buttons stay enabled; the optimistic balance already covers them). */
+  private pendingTx = 0;
   /** Progress the active contract had when the current mission started (death rule). */
   private progressAtStart = 0;
   /** Corpse containers counted this mission (dedupes the `crate:looted` fallback against `inventory:containerOpened`). */
@@ -42,32 +56,35 @@ export class MetaSystem implements GameSystem, MetaRef {
 
   init(ctx: GameContext): void {
     this.ctx = ctx;
-    this.store = new MetaStorage();
+    this.store = new MetaStorage(() => this.profileRef());
     ctx.meta = this;
     this.menu = new CorpMenu(ctx, this);
 
     const b = ctx.bus;
+    // contract goals only count in a real raid (never in the 시뮬레이션 훈련장)
+    const counting = (): boolean => ctx.isGameplayPhase() && !this.inTraining();
     this.unsubs.push(
       b.on('game:newMission', () => this.onNewMission()),
       b.on('hub:entered', () => this.save()),
-      b.on('enemy:killed', ({ type }) => { if (ctx.isGameplayPhase()) this.localHit(killGoalOf(type), 1); }),
-      b.on('crate:open', () => { if (ctx.isGameplayPhase()) this.localHit('open_crates', 1); }),
+      b.on('net:profileLoaded', ({ migrated }) => this.onProfileLoaded(migrated)),
+      b.on('enemy:killed', ({ type }) => { if (counting()) this.localHit(killGoalOf(type), 1); }),
+      b.on('crate:open', () => { if (counting()) this.localHit('open_crates', 1); }),
       b.on('inventory:containerOpened', ({ containerId, first }) => {
         this.containerOpenedSeen = true;
-        if (!ctx.isGameplayPhase() || !first || !containerId.startsWith('corpse:')) return;
+        if (!counting() || !first || !containerId.startsWith('corpse:')) return;
         if (this.corpsesCounted.has(containerId)) return;
         this.corpsesCounted.add(containerId);
         this.localHit('loot_corpses', 1);
       }),
       // fallback while inventory has not shipped `inventory:containerOpened` yet: an emptied corpse counts once
       b.on('crate:looted', ({ crateId }) => {
-        if (this.containerOpenedSeen || !ctx.isGameplayPhase() || !crateId.startsWith('corpse:')) return;
+        if (this.containerOpenedSeen || !counting() || !crateId.startsWith('corpse:')) return;
         if (this.corpsesCounted.has(crateId)) return;
         this.corpsesCounted.add(crateId);
         this.localHit('loot_corpses', 1);
       }),
       b.on('stratagem:called', ({ caller }) => {
-        if (!ctx.isGameplayPhase()) return;
+        if (!counting()) return;
         if (caller === null || caller === (ctx.net?.localId ?? null)) this.localHit('use_stratagems', 1);
       }),
       // live `extract_with_value` readout for the HUD (the settlement still reads `stats.lootValue`)
@@ -96,7 +113,7 @@ export class MetaSystem implements GameSystem, MetaRef {
     const net = this.ctx.net;
     if (!net || typeof net.onMessage !== 'function') return;
     this.unsubNet = net.onMessage('meta', (msg) => {
-      if (msg.ev !== 'contractHit' || !this.ctx.isGameplayPhase()) return;
+      if (msg.ev !== 'contractHit' || !this.ctx.isGameplayPhase() || this.inTraining()) return;
       const ac = this.activeDef();
       if (!ac || ac.corp !== msg.corp) return;
       this.reportContractHit(msg.goal, msg.amount, false);
@@ -105,6 +122,106 @@ export class MetaSystem implements GameSystem, MetaRef {
 
   /* ── helpers ─────────────────────────────────────────────────────────────── */
   private get inShip(): boolean { return this.ctx.isHubPhase() && !this.ctx.isRaidActive(); }
+  /** `ctx.net.profile` when net published one (always present since Phase 7, `available` false offline). */
+  private profileRef(): ProfileRef | null {
+    const p = this.ctx?.net?.profile;
+    return p && typeof p === 'object' ? p : null;
+  }
+  /** Server-owned credits in effect (relay answered with a profile). */
+  private get serverCredits(): boolean {
+    const p = this.profileRef();
+    return !!p && p.available === true && typeof p.addCredits === 'function';
+  }
+  private inTraining(): boolean {
+    const ctx = this.ctx;
+    return typeof ctx.isTraining === 'function' ? ctx.isTraining() : ctx.missionMode === 'training';
+  }
+  /** Bag / stash pre-check (`InventoryRef.canFit`); a missing helper counts as "fits" (inventory/ built in parallel). */
+  private fits(defId: string, qty = 1): boolean {
+    const inv = this.ctx.inventory;
+    if (!inv || typeof inv.canFit !== 'function') return true;
+    try { return inv.canFit(defId, qty) !== null; } catch { return true; }
+  }
+  /** Overwrite the balance with the server's answer (no delta bookkeeping — the server is the truth). */
+  private adoptServerCredits(credits: number, reason: string): void {
+    const next = Math.max(0, Math.min(CREDITS_MAX, Math.round(Number(credits))));
+    if (!Number.isFinite(next)) return;
+    const cur = this.store.data.credits;
+    if (next === cur) return;
+    this.store.data.credits = next;
+    this.store.markDirty();
+    this.ctx.bus.emit('meta:creditsChanged', { credits: next, delta: next - cur, reason });
+  }
+  /** Local, synchronous credit move (the offline path and the optimistic half of a server transaction). */
+  private applyCreditsLocal(delta: number, reason: string): boolean {
+    const d = Math.round(Number(delta) || 0);
+    const cur = this.store.data.credits;
+    if (cur + d < 0) return false;
+    const next = Math.min(CREDITS_MAX, cur + d);
+    if (next === cur && d !== 0 && cur >= CREDITS_MAX) return true;
+    if (next === cur) return true;
+    this.store.data.credits = next;
+    this.store.markDirty();
+    this.ctx.bus.emit('meta:creditsChanged', { credits: next, delta: next - cur, reason });
+    return true;
+  }
+  /**
+   * Server transaction after the optimistic local apply: the answer overwrites the balance; a refusal reverts the
+   * local delta; a dead socket keeps the local value (offline fallback — resynced on the next `net:profileLoaded`).
+   */
+  private serverTx(delta: number, reason: string, revertOnRefuse = true): Promise<CreditsTxResult | null> {
+    const p = this.profileRef();
+    if (!p || !this.serverCredits) return Promise.resolve(null);
+    this.pendingTx++;
+    let promise: Promise<CreditsTxResult>;
+    try { promise = p.addCredits(delta, reason); } catch { this.pendingTx--; return Promise.resolve(null); }
+    return promise.then((res) => {
+      this.pendingTx--;
+      if (!res || typeof res !== 'object') return null;
+      if (res.ok) this.adoptServerCredits(res.credits, `server:${reason}`);
+      else {
+        if (revertOnRefuse) this.applyCreditsLocal(-delta, `revert:${reason}`);
+        if (Number.isFinite(res.credits)) this.adoptServerCredits(res.credits, `server:${reason}`);
+      }
+      return res;
+    }, () => { this.pendingTx--; return null; });
+  }
+  get hasPendingTx(): boolean { return this.pendingTx > 0; }
+
+  /**
+   * `net:profileLoaded`: the server `meta` document replaces the local save (server wins); the balance is the server's.
+   * `migrated` = the server had no balance yet → the local one is uploaded as the initial balance (`reason 'migrate'`).
+   * No document on the server → our local save is uploaded so the next client sees it.
+   */
+  private onProfileLoaded(migrated: boolean): void {
+    const p = this.profileRef();
+    if (!p || !p.available) return;
+    const localCredits = this.store.data.credits;
+    const before = { credits: localCredits, rep: CORP_IDS.map((c) => this.store.corp(c).rep) };
+    let doc: unknown;
+    try { doc = p.get('meta'); } catch { doc = undefined; }
+    if (doc && typeof doc === 'object') this.store.replace(doc);
+    else this.store.upload();
+    const b = this.ctx.bus;
+    if (typeof p.credits === 'number' && Number.isFinite(p.credits)) {
+      this.store.data.credits = Math.max(0, Math.min(CREDITS_MAX, Math.round(p.credits)));
+    } else if (migrated || p.credits === null) {
+      // first contact: the local balance becomes the server balance
+      this.store.data.credits = localCredits;
+      void this.serverTx(localCredits, 'migrate', false);
+    }
+    this.store.writeCache();                     // the cache carries the server balance, not the document's stale one
+    this.progressAtStart = this.store.data.activeContract?.progress ?? 0;
+    this.questBlocked.clear();
+    b.emit('meta:loaded', { credits: this.store.data.credits });
+    if (this.store.data.credits !== before.credits) {
+      b.emit('meta:creditsChanged', { credits: this.store.data.credits, delta: this.store.data.credits - before.credits, reason: 'profile' });
+    }
+    CORP_IDS.forEach((c, i) => {
+      const rep = this.store.corp(c).rep;
+      if (rep !== before.rep[i]) b.emit('meta:repChanged', { corp: c, rep, level: repLevelOf(rep), delta: rep - before.rep[i], levelUp: repLevelOf(rep) > repLevelOf(before.rep[i]) });
+    });
+  }
   private activeDef(): ContractDef | null {
     const ac = this.store.data.activeContract;
     if (!ac) return null;
@@ -161,7 +278,7 @@ export class MetaSystem implements GameSystem, MetaRef {
   }
 
   private trackLootValue(totalValue: number): void {
-    if (!this.ctx.isGameplayPhase()) return;
+    if (!this.ctx.isGameplayPhase() || this.inTraining()) return;
     const def = this.activeDef();
     const ac = this.store.data.activeContract;
     if (!def || !ac || def.goal !== 'extract_with_value') return;
@@ -177,15 +294,15 @@ export class MetaSystem implements GameSystem, MetaRef {
 
   getRep(corp: CorpId): RepInfo { return repInfoOf(this.store.corp(corp).rep); }
 
+  /**
+   * Credits move: refused synchronously below 0 (local pre-check). Offline that is the whole story; with a server
+   * profile the local apply is optimistic and a `credits:tx` follows — its answer overwrites the balance, a refusal
+   * reverts the delta (`meta:creditsChanged` with `revert:<reason>`).
+   */
   addCredits(delta: number, reason: string): boolean {
     const d = Math.round(Number(delta) || 0);
-    const cur = this.store.data.credits;
-    if (cur + d < 0) return false;
-    const next = Math.min(CREDITS_MAX, cur + d);
-    if (next === cur && d !== 0 && cur >= CREDITS_MAX) return true;
-    this.store.data.credits = next;
-    this.store.markDirty();
-    this.ctx.bus.emit('meta:creditsChanged', { credits: next, delta: next - cur, reason });
+    if (!this.applyCreditsLocal(d, reason)) return false;
+    if (d !== 0 && this.serverCredits) void this.serverTx(d, reason);
     return true;
   }
 
@@ -207,7 +324,7 @@ export class MetaSystem implements GameSystem, MetaRef {
     const loot = this.ctx.loot;
     const def = CORP_DEFS[corp];
     if (!loot || !def) return [];
-    return buildShop(def, loot.getAllItemDefs(), this.level(corp), this.credits, this.inShip, (id) => loot.getWeaponDef(id));
+    return buildShop(def, loot.getAllItemDefs(), this.level(corp), this.credits, this.inShip, (id) => loot.getWeaponDef(id), (id) => this.fits(id));
   }
 
   priceOf(corp: CorpId, defId: string): number | null {
@@ -220,19 +337,66 @@ export class MetaSystem implements GameSystem, MetaRef {
     return buildShop(cdef, [def], level, this.credits, true, (id) => loot.getWeaponDef(id))[0]?.price ?? null;
   }
 
+  /**
+   * Purchase. Synchronous answer = was the request accepted (ship, on the shelf, `canFit`, credits). Offline the item
+   * is created and placed right here (pre-checked, so no refund step is needed — a placement failure still refunds
+   * defensively). With a server profile the credits are debited optimistically, the server transaction runs, and only
+   * an `ok` answer creates + places the item (a placement failure refunds through the server); either way completion
+   * is announced by `meta:purchase` and a failure by `onPurchaseFailed` / `lastPurchaseFailure`.
+   */
   buy(corp: CorpId, defId: string): boolean {
-    if (!this.inShip) return false;
+    const fail = (reason: string, price = 0): false => {
+      this.lastPurchaseFailure = { corp, defId, price, reason };
+      return false;
+    };
+    if (!this.inShip) return fail(REASON.shipOnly);
     const loot = this.ctx.loot;
     const price = this.priceOf(corp, defId);
-    if (!loot || price === null) return false;
-    if (!this.addCredits(-price, `buy:${defId}`)) return false;
-    let placed: 'bag' | 'stash' | null = null;
-    try { placed = this.addAnywhere(loot.createItem(defId, 1)); } catch { placed = null; }
-    if (!placed) { this.addCredits(price, `refund:${defId}`); return false; }
+    if (!loot || price === null) return fail('판매하지 않는 품목');
+    if (!this.fits(defId)) return fail(REASON.space, price);
+    if (this.credits < price) return fail(REASON.credits, price);
+    this.lastPurchaseFailure = null;
+    const reason = `buy:${defId}`;
+
+    if (!this.serverCredits) {
+      if (!this.applyCreditsLocal(-price, reason)) return fail(REASON.credits, price);
+      let placed: 'bag' | 'stash' | null = null;
+      try { placed = this.addAnywhere(loot.createItem(defId, 1)); } catch { placed = null; }
+      if (!placed) { this.applyCreditsLocal(price, `refund:${defId}`); return fail(REASON.space, price); }
+      this.completePurchase(corp, defId, price, placed);
+      return true;
+    }
+
+    // server-owned credits: optimistic debit → transaction → item only on `ok`
+    if (!this.applyCreditsLocal(-price, reason)) return fail(REASON.credits, price);
+    void this.serverTx(-price, reason).then((res) => {
+      if (res && !res.ok) {                                   // refused (balance already reverted by serverTx)
+        this.failPurchase({ corp, defId, price, reason: res.reason || REASON.credits });
+        return;
+      }
+      // `null` = socket gone mid-transaction: the local debit stands (offline fallback) and the item is delivered
+      let placed: 'bag' | 'stash' | null = null;
+      try { placed = this.addAnywhere(loot.createItem(defId, 1)); } catch { placed = null; }
+      if (!placed) {
+        this.applyCreditsLocal(price, `refund:${defId}`);
+        if (res) void this.serverTx(price, `refund:${defId}`, false);
+        this.failPurchase({ corp, defId, price, reason: REASON.space });
+        return;
+      }
+      this.completePurchase(corp, defId, price, placed);
+    });
+    return true;
+  }
+
+  private completePurchase(corp: CorpId, defId: string, price: number, placed: 'bag' | 'stash'): void {
     this.store.data.stats.creditsSpent += price;
     this.store.markDirty();
     this.ctx.bus.emit('meta:purchase', { corp, defId, price, placed });
-    return true;
+  }
+
+  private failPurchase(f: PurchaseFailure): void {
+    this.lastPurchaseFailure = f;
+    try { this.onPurchaseFailed?.(f); } catch { /* ui */ }
   }
 
   sellPriceOf(uid: string, qty?: number): number | null {
@@ -340,6 +504,7 @@ export class MetaSystem implements GameSystem, MetaRef {
   }
 
   settleMission(stats: MissionStats): ContractSettlement | null {
+    if (!stats || stats.mode === 'training') return null;   // the 시뮬레이션 훈련장 settles nothing
     const def = this.activeDef();
     const ac = this.store.data.activeContract;
     if (!def || !ac) return null;

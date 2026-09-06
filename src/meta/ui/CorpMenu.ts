@@ -1,5 +1,6 @@
-import type { ContractInfo, CorpId, GameContext, ItemCategory, ItemInstance, MetaRef, QuestInfo, QuestState, Rarity, ShopItem } from '@/shared';
-import { CONTRACT_GOAL_LABEL_KO, CORP_DEFS, CORP_IDS, REP_TABLE, SHOP_UNLOCK_REP_LEVEL } from '@/shared';
+import type { ContractInfo, CorpId, GameContext, ItemInstance, QuestInfo, QuestState, ShopItem } from '@/shared';
+import { CATEGORY_LABEL_KO, CONTRACT_GOAL_LABEL_KO, CORP_DEFS, CORP_IDS, RARITY_LABEL_KO, REP_TABLE, SHOP_UNLOCK_REP_LEVEL } from '@/shared';
+import type { MetaSystem, PurchaseFailure } from '../MetaSystem';
 import { el, fmtNum, setText, toggleClass } from './dom';
 
 export type CorpPage = 'shop' | 'sell' | 'contracts' | 'quests';
@@ -8,11 +9,6 @@ const PAGES: readonly { id: CorpPage; label: string }[] = [
 ];
 const BLOCKER = 'corp';
 
-const RARITY_LABEL: Readonly<Record<Rarity, string>> = { common: '일반', uncommon: '고급', rare: '희귀', epic: '서사', legendary: '전설' };
-const CATEGORY_LABEL: Readonly<Record<ItemCategory, string>> = {
-  primary: '주무기', secondary: '보조무기', grenade: '수류탄', stim: '스팀', ammo: '탄약', valuable: '귀중품', material: '재료',
-  attachment: '부착물', bag: '가방', armor: '방탄복', gadget: '가젯', herb: '약초', furniture: '가구',
-};
 const QUEST_BADGE: Readonly<Record<QuestState, string>> = { locked: '잠김', available: '가능', accepted: '진행', complete: '완료' };
 
 /**
@@ -21,7 +17,9 @@ const QUEST_BADGE: Readonly<Record<QuestState, string>> = { locked: '잠김', av
  * sub-pages. Same etiquette as the hub / housing panels: the `'corp'` blocker is added **before** the pointer lock
  * exits, Esc closes through a capture-phase window listener, the lock is re-requested one microtask after closing
  * when nothing else blocks and the phase is still `hub`. Emits `ui:corpToggled`; results show inline (`.form-msg`),
- * toasts are the ui folder's (driven by the `meta:*` events the system emits).
+ * toasts are the ui folder's (driven by the `meta:*` events the system emits). Purchases complete asynchronously with
+ * a server profile: `buy()` only says whether the request went out, the row refreshes on `meta:purchase` and a refusal
+ * arrives through `MetaSystem.onPurchaseFailed`.
  */
 export class CorpMenu {
   readonly root: HTMLElement;
@@ -46,7 +44,7 @@ export class CorpMenu {
     this.close();
   };
 
-  constructor(private readonly ctx: GameContext, private readonly meta: MetaRef) {
+  constructor(private readonly ctx: GameContext, private readonly meta: MetaSystem) {
     const root = this.root = el('div', { cls: 'menu corp-menu interactive', parent: ctx.uiRoot });
     root.hidden = true;
     el('div', { cls: 'scan', parent: root });
@@ -108,9 +106,19 @@ export class CorpMenu {
     this.unsubs.push(
       b.on('meta:creditsChanged', refresh), b.on('meta:repChanged', refresh), b.on('meta:contractAccepted', refresh),
       b.on('meta:contractAbandoned', refresh), b.on('meta:contractSettled', refresh), b.on('meta:questChanged', refresh),
-      b.on('meta:purchase', refresh), b.on('meta:sale', refresh), b.on('meta:loaded', refresh),
+      b.on('meta:purchase', ({ defId, price }) => {
+        if (this._open) this.showMsg(`${this.defName(defId)} 구매 · −${fmtNum(price)} 크레딧`, 'success');
+        refresh();
+      }),
+      b.on('meta:sale', refresh), b.on('meta:loaded', refresh),
       b.on('inventory:changed', refresh), b.on('inventory:stashChanged', refresh), b.on('loadout:changed', refresh),
     );
+    meta.onPurchaseFailed = (f: PurchaseFailure): void => {
+      if (!this._open) return;
+      this.ctx.bus.emit('audio:play', { id: 'ui_deny' });
+      this.showMsg(`${this.defName(f.defId)} 구매 실패 · ${f.reason}`, 'danger');
+      this.refresh();
+    };
   }
 
   get isOpen(): boolean { return this._open; }
@@ -230,7 +238,7 @@ export class CorpMenu {
     const mid = el('div', { cls: 'mid', parent: r });
     const nm = el('div', { cls: 'name', text: d.name, parent: mid });
     nm.style.color = d.color;
-    el('div', { cls: 'sub', text: `${RARITY_LABEL[d.rarity]} · ${CATEGORY_LABEL[d.category] ?? d.category}${d.description ? ` · ${d.description}` : ''}`, parent: mid });
+    el('div', { cls: 'sub', text: `${RARITY_LABEL_KO[d.rarity]} · ${CATEGORY_LABEL_KO[d.category] ?? d.category}${d.description ? ` · ${d.description}` : ''}`, parent: mid });
     el('div', { cls: 'price', text: `${fmtNum(line.price)} cr`, parent: r });
     const btn = this.button(r, '구매', () => this.buy(d.id));
     btn.disabled = line.blocked !== null;
@@ -239,11 +247,11 @@ export class CorpMenu {
   }
 
   private buy(defId: string): void {
-    const price = this.meta.priceOf(this.corp, defId) ?? 0;
     const ok = this.meta.buy(this.corp, defId);
     this.ctx.bus.emit('audio:play', { id: ok ? 'ui_equip' : 'ui_deny' });
-    if (ok) this.showMsg(`${this.defName(defId)} 구매 · −${fmtNum(price)} 크레딧`, 'success');
-    else this.showMsg(this.meta.credits < price ? '크레딧이 부족합니다' : '가방과 창고에 자리가 없습니다', 'danger');
+    // success is announced by `meta:purchase` (synchronous offline, after the server answer otherwise)
+    if (ok) { if (this.meta.hasPendingTx) this.showMsg(`${this.defName(defId)} 구매 처리 중…`, 'info'); }
+    else this.showMsg(`구매 불가 · ${this.meta.lastPurchaseFailure?.reason ?? '알 수 없음'}`, 'danger');
     this.refresh();
   }
 
@@ -265,7 +273,7 @@ export class CorpMenu {
       const mid = el('div', { cls: 'mid', parent: r });
       const nm = el('div', { cls: 'name', text: d.name, parent: mid });
       nm.style.color = d.color;
-      el('div', { cls: 'sub', text: `${inBag ? '가방' : '창고'} · 수량 ${inst.qty} · ${RARITY_LABEL[d.rarity]} ${CATEGORY_LABEL[d.category] ?? d.category}`, parent: mid });
+      el('div', { cls: 'sub', text: `${inBag ? '가방' : '창고'} · 수량 ${inst.qty} · ${RARITY_LABEL_KO[d.rarity]} ${CATEGORY_LABEL_KO[d.category] ?? d.category}`, parent: mid });
       el('div', { cls: 'price', text: `+${fmtNum(price)} cr`, parent: r });
       const btn = this.button(r, inst.qty > 1 ? '전량 판매' : '판매', () => this.sell(inst));
       btn.disabled = !canSell || price <= 0;
@@ -407,6 +415,7 @@ export class CorpMenu {
 
   dispose(): void {
     this.close(false);
+    if (this.meta.onPurchaseFailed) this.meta.onPurchaseFailed = null;
     for (const u of this.unsubs) u();
     this.unsubs = [];
     this.root.remove();

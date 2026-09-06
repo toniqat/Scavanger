@@ -8,3 +8,6 @@ export { CameraRig } from './CameraRig';
 export { PlayerController } from './PlayerController';
 export { PlayerGear } from './PlayerGear';
 export { Hellpod } from './Hellpod';
+export type { Ghost } from './RemotePlayerSystem';
+export { buildArmorPlate, buildHeldItem } from './GearLook';
+export type { GearLook } from './GearLook';

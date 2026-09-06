@@ -40,6 +40,8 @@ const SPEEDMOD_ARMOR = 'armor';
 const INVULN_TIME = 0.15;
 const STIM_DURATION = 1.5;
 const DEATH_ANIM = 0.9;
+/** Minimum upward speed (m/s) a knockback carries so the feet leave the ground and the shove is not eaten by friction. */
+const KNOCKBACK_MIN_LIFT = 1.5;
 
 // stamina tuning
 const STAMINA_SPRINT_DRAIN = 14;     // per second
@@ -64,6 +66,8 @@ interface WeaponState {
   hasWeapon: boolean; reloading: boolean; firing: boolean; twoHanded: boolean; throwing: boolean; holdingItem: boolean;
   /* unique weapons (2026-09-06): braced charge stance, continuous hip spray, heavy hip carry */
   charging: boolean; spraying: boolean; heavy: boolean;
+  /* Phase 7: pin pulled (grenade cooking) — optional hint, remotes get it from the COOKING flag */
+  cooking: boolean;
 }
 /** Melee swing kinds: `light` = the F chop (MELEE_SWING_TIME), `heavy` = the 용검 two-handed slash (SLASH_DURATION). */
 type MeleeKind = 'light' | 'heavy';
@@ -155,15 +159,15 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   private scopeHidden = false;
   private crouchBlend = 0;
   private proneBlend = 0;
-  private diveBlend = 0;
   private sprintBlend = 0;
   private throwBlend = 0;
   private holdItemBlend = 0;
+  private cookBlend = 0;
   private bodyYaw = 0;
   private poseRecoil = 0;
   /** weapons holds the mouse for its quick-use wheel: camera ignores mouse deltas while true */
   private lookLocked = false;
-  private weaponState: WeaponState = { hasWeapon: false, reloading: false, firing: false, twoHanded: false, throwing: false, holdingItem: false, charging: false, spraying: false, heavy: false };
+  private weaponState: WeaponState = { hasWeapon: false, reloading: false, firing: false, twoHanded: false, throwing: false, holdingItem: false, charging: false, spraying: false, heavy: false, cooking: false };
   /** RMB is the weapon's alternative fire (unique weapons): never enter the ADS state. */
   private altFireWeapon = false;
   private slowTimer = 0;
@@ -189,8 +193,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   private readonly pose: SoldierPose = {
     moveBlend: 0, sprint: 0, stridePhase: 0, crouch: 0, aim: 0, aimPitch: 0, torsoTwist: 0, airborne: 0,
     verticalVel: 0, flinch: 0, hasWeapon: false, twoHanded: false, reloading: false, recoil: 0, dead: 0,
-    prone: 0, dive: 0, throw: 0, holdItem: 0, roll: 0, rollPhase: 0, melee: 0, hover: 0, downed: 0,
-    meleeHeavy: 0, charging: 0, spraying: 0, heavyCarry: 0,
+    prone: 0, throw: 0, holdItem: 0, roll: 0, rollPhase: 0, melee: 0, hover: 0, downed: 0,
+    meleeHeavy: 0, charging: 0, spraying: 0, heavyCarry: 0, cooking: 0,
   };
   private readonly rigInput: RigInput = {
     pivot: new THREE.Vector3(), aim: 0, sprint: 0, crouch: 0, prone: 0, dive: 0, moveBlend: 0, stridePhase: 0,
@@ -227,9 +231,85 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   /** Alt rolls (replaces the dive); the wire keeps the DIVE flag via `isDiving`. */
   get isRolling(): boolean { return this.controller.rolling; }
   get isMeleeing(): boolean { return this.meleeTimer > 0; }
-  /* ── Phase 7 skeleton (player/ agent implements; docs/PHASE7-PLAN.md §4) ── */
-  get isMeleeHeavy(): boolean { return false; }
-  restoreState(state: PlayerRestoreState): void { this.teleport(state.position, state.yaw); }
+  /* ── Phase 7 (docs/PHASE7-PLAN.md §4) ── */
+  /** true while the 용검 heavy slash pose plays (`startMelee('heavy')`); net puts MELEE_HEAVY on the wire from it. */
+  get isMeleeHeavy(): boolean { return this.meleeTimer > 0 && this.meleeKind === 'heavy'; }
+
+  /**
+   * Rejoin: resume the body exactly as the host's ghost left it — standing at `position` facing `yaw`, no hellpod,
+   * `hp`; `state` 1 = downed with `downHp` (prone crawl, bleeding, revivable — `player:downed` so the HUD shows the
+   * vitals); `state` 2 = dead (death pose, controls off) WITHOUT `player:died` — game/ runs the respawn flow itself.
+   * Emits `player:spawned` for 0 / 1. Clears any interior / ship box / pod state like `respawnAt`.
+   */
+  restoreState(state: PlayerRestoreState): void {
+    const bus = this.ctx.bus;
+    const yaw = Number.isFinite(state.yaw) ? state.yaw : this.bodyYaw;
+    _v.copy(state.position);
+    if (this.ctx.world?.ready && !this.ctx.world.isInsideBounds(_v.x, _v.z)) {
+      // off the map (bad wire data): fall back to the mission spawn
+      _v.copy(this.resolveSpawn(this.ctx.world.getPlayerSpawn()));
+    }
+    if (this.ctx.world?.ready) _v.y = Math.max(_v.y, this.ctx.world.getHeightAt(_v.x, _v.z));
+    this.hellpod.hide();
+    this.attachTo(null);
+    this.setInterior(null);
+    this._inPod = false;
+    this.shipBounds = null; this.controller.shipBounds = null;
+    this.controller.reset(_v);
+    this.slowTimer = 0; this.slowFactor = 1; this.controller.speedMultiplier = 1;
+    this.isDead = false; this.deadTimer = 0; this.invuln = 0.5; this.flinch = 0;
+    this.healPool = 0;
+    this.clearDowned();
+    this.stamina = this.maxStamina; this.regenDelay = 0; this.exhausted = false; this.exhaustedSlow = 0;
+    this.setStance('stand'); this.standUpTimer = 0;
+    this.resetTactical();
+    this.setAiming(false); this.aimBlend = 0; this.crouchBlend = 0; this.proneBlend = 0; this.sprintBlend = 0;
+    this.bodyYaw = yaw;
+    this.spawned = true;
+    this.controlsEnabled = true;
+    this.model.resetPose();
+    this.model.setFade(1);
+    this.scopeHidden = false;
+    this.model.setVisible(true);
+    this.model.root.position.copy(this.controller.position);
+    this.model.root.quaternion.setFromAxisAngle(_up, yaw);
+    this.eyePos.set(0, EYE_STAND, 0);
+    _v.copy(this.controller.position); _v.y += EYE_STAND;
+    this.rig.snapTo(_v, yaw);
+    this.rig.setOverride(null);
+    this.interactTarget = null; this.holdProgress = 0;
+
+    const st = state.state;
+    if (st === 2) {
+      // dead: lie where the ghost fell; the death anim is already over. No `player:died` — game/ owns the flow.
+      this.hp = 0;
+      this.isDead = true;
+      this.deadTimer = DEATH_ANIM;
+      this.controlsEnabled = false;
+      this.invuln = 0;
+      bus.emit('player:healthChanged', { hp: 0, maxHp: this.maxHp, delta: 0 });
+      return;
+    }
+    if (st === 1) {
+      this.hp = 0;
+      this._downed = true;
+      this._downHp = THREE.MathUtils.clamp(Math.round(Number.isFinite(state.downHp) ? state.downHp : PLAYER_DOWN_HP), 1, PLAYER_DOWN_HP);
+      this.bleedAcc = 0; this.giveUpHold = 0;
+      this.setStance('prone'); this.standUpTimer = 0;
+      this.proneBlend = 1;
+      this.eyePos.set(0, EYE_PRONE, 0);
+      _v.copy(this.controller.position); _v.y += EYE_PRONE;
+      this.rig.snapTo(_v, yaw);
+      bus.emit('player:spawned', { position: this.controller.position.clone() });
+      bus.emit('player:downed', { position: this.controller.position.clone() });
+      bus.emit('player:downHpChanged', { downHp: this._downHp, max: PLAYER_DOWN_HP });
+      bus.emit('player:healthChanged', { hp: 0, maxHp: this.maxHp, delta: 0 });
+      return;
+    }
+    this.hp = THREE.MathUtils.clamp(Number.isFinite(state.hp) ? state.hp : this.maxHp, 1, this.maxHp);
+    bus.emit('player:healthChanged', { hp: this.hp, maxHp: this.maxHp, delta: 0 });
+    bus.emit('player:spawned', { position: this.controller.position.clone() });
+  }
   get isCloaked(): boolean { return this._cloaked; }
   get isHovering(): boolean { return this._hovering; }
   get isOvercharged(): boolean { return this._overcharged; }
@@ -389,16 +469,28 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     bus.emit('audio:play', { id: 'stim', volume: 0.8 });
   }
 
-  /** Stim heal-over-time (1.5 s). The caller (weapons quick-use) has already consumed the item. */
-  /** Phase 4: shove (behemoth charge, blasts) — adds `direction × speed` to the controller velocity; y is allowed so the player lifts off. */
+  /**
+   * Shove (behemoth charge, blasts, `dmg.kb`): `direction × speed` through the controller's `applyImpulse` path —
+   * an in-flight roll is cancelled first and the impulse always carries at least a small lift so the feet leave the
+   * ground (grounded cleared) and the shove is not eaten by ground friction. Ignored while dead / downed / not
+   * spawned / inside the hellpod. No `player:launched` (that is the jump-pad / rocket-jump event).
+   */
   applyKnockback(direction: THREE.Vector3, speed: number): void {
-    if (this.isDead || !this.spawned) return;
+    if (this.isDead || this._downed || !this.spawned) return;
+    if (this.hellpod.isActive && this.hellpod.state !== 'exiting') return;
     const len = direction.length();
     if (len < 1e-5 || !(speed > 0)) return;
-    this.controller.velocity.addScaledVector(direction, speed / len);
+    const c = this.controller;
+    if (c.rolling) c.cancelRoll();
+    this.setHovering(false);
+    _dir.copy(direction).multiplyScalar(speed / len);
+    if (_dir.y < KNOCKBACK_MIN_LIFT) _dir.y = KNOCKBACK_MIN_LIFT;
+    c.applyImpulse(_dir);
+    c.sprinting = false;
     this.rig.addShake(Math.min(0.6, speed * 0.04), 0.4);
   }
 
+  /** Stim heal-over-time (1.5 s). The caller (weapons quick-use) has already consumed the item. */
   applyStim(healAmount: number): boolean {
     if (!this.spawned || this.isDead || this._downed || this.hp >= this.maxHp || healAmount <= 0) return false;
     if (this.healPool > 0) return false; // already healing
@@ -461,7 +553,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.stamina = this.maxStamina; this.regenDelay = 0; this.exhausted = false; this.exhaustedSlow = 0;
     this.setStance('stand'); this.standUpTimer = 0;
     this.resetTactical();
-    this.setAiming(false); this.aimBlend = 0; this.crouchBlend = 0; this.proneBlend = 0; this.diveBlend = 0; this.sprintBlend = 0;
+    this.setAiming(false); this.aimBlend = 0; this.crouchBlend = 0; this.proneBlend = 0; this.sprintBlend = 0;
     this.bodyYaw = yaw;
     this.spawned = true;
     this.controlsEnabled = true;
@@ -639,7 +731,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.stamina = this.maxStamina; this.regenDelay = 0; this.exhausted = false; this.exhaustedSlow = 0;
     this.setStance('stand'); this.standUpTimer = 0;
     this.resetTactical();
-    this.isAiming = false; this.aimBlend = 0; this.crouchBlend = 0; this.proneBlend = 0; this.diveBlend = 0; this.sprintBlend = 0;
+    this.isAiming = false; this.aimBlend = 0; this.crouchBlend = 0; this.proneBlend = 0; this.sprintBlend = 0;
     this.bodyYaw = y;
     this.spawned = true;
     this.controlsEnabled = true;
@@ -689,13 +781,15 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     return this.spawned && this.controlsEnabled && !this.isDead && !this._downed && !this.controller.diving
       && !(this.hellpod.isActive && this.hellpod.state !== 'exiting');
   }
-  setWeaponState(state: { hasWeapon: boolean; reloading: boolean; firing: boolean; twoHanded: boolean; throwing?: boolean; holdingItem?: boolean; charging?: boolean; spraying?: boolean; heavy?: boolean; altFire?: boolean }): void {
+  setWeaponState(state: { hasWeapon: boolean; reloading: boolean; firing: boolean; twoHanded: boolean; throwing?: boolean; holdingItem?: boolean; charging?: boolean; spraying?: boolean; heavy?: boolean; altFire?: boolean; cooking?: boolean }): void {
     this.weaponState.hasWeapon = state.hasWeapon;
     this.weaponState.reloading = state.reloading;
     this.weaponState.firing = state.firing;
     this.weaponState.twoHanded = state.twoHanded;
     this.weaponState.throwing = state.throwing ?? false;
     this.weaponState.holdingItem = state.holdingItem ?? false;
+    // Phase 7: optional cooking hint (pin pulled) — the local pose mirrors what remotes see from the COOKING flag
+    this.weaponState.cooking = (state.cooking ?? false) && this.weaponState.holdingItem;
     // unique weapons: braced charge stance / continuous hip spray / heavy hip carry (poses only; nothing on the wire)
     this.weaponState.charging = (state.charging ?? false) && state.hasWeapon;
     this.weaponState.spraying = (state.spraying ?? false) && state.hasWeapon;
@@ -726,6 +820,12 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.aimOrigin.copy(ctx.camera.position);
 
     ctx.bus.on('world:ready', ({ playerSpawn }) => {
+      if (ctx.rejoinPending) {
+        // rejoin (Phase 7): the body comes back through `restoreState` (or game/'s fallback `respawn`) — no hellpod.
+        // Park the hidden, control-less player at the spawn so the camera has something to frame meanwhile.
+        this.holdForRestore(this.resolveSpawn(playerSpawn));
+        return;
+      }
       this.respawnAt(this.resolveSpawn(playerSpawn));
       this.startDrop();
     });
@@ -776,6 +876,9 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     // ── gear cache (armor / bag / weight) + derived stat hooks (tactical kit)
     this.gear.update(dt, ctx);
     this.applyGearModifiers();
+    // Phase 7: the worn 방탄복 shows on the body (same look remotes get from `ar`); overcharge = rim glow
+    this.model.setArmor(this.gear.armor);
+    this.model.setGlow(this._overcharged && !this.isDead);
     c.jumpSpeedMul = Math.sqrt(Math.max(0.1, ctx.progression?.derived.jumpHeightMul ?? 1));
 
     // ── timers
@@ -900,7 +1003,6 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     if (scopeHide !== this.scopeHidden) { this.scopeHidden = scopeHide; this.model.setVisible(!scopeHide && !this._inPod); }
     this.crouchBlend = damp(this.crouchBlend, this._stance === 'crouch' && !diving ? 1 : 0, 10, dt);
     this.proneBlend = damp(this.proneBlend, this._stance === 'prone' && !diving ? 1 : 0, 8, dt);
-    this.diveBlend = 0;
     this.rollBlend = damp(this.rollBlend, diving ? 1 : 0, 18, dt);
     if (diving) this.rollPhase = c.rollProgress;
     else if (this.rollBlend < 0.01) { this.rollBlend = 0; this.rollPhase = 0; }
@@ -908,6 +1010,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.sprintBlend = damp(this.sprintBlend, c.sprinting ? 1 : 0, 8, dt);
     this.throwBlend = damp(this.throwBlend, this.weaponState.throwing ? 1 : 0, 12, dt);
     this.holdItemBlend = damp(this.holdItemBlend, this.weaponState.holdingItem ? 1 : 0, 10, dt);
+    this.cookBlend = damp(this.cookBlend, this.weaponState.cooking && !this.weaponState.throwing ? 1 : 0, 10, dt);
     this.chargeBlend = damp(this.chargeBlend, this.weaponState.charging ? 1 : 0, 10, dt);
     this.sprayBlend = damp(this.sprayBlend, this.weaponState.spraying ? 1 : 0, 12, dt);
     this.heavyBlend = damp(this.heavyBlend, this.weaponState.heavy ? 1 : 0, 8, dt);
@@ -928,7 +1031,6 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     p.stridePhase = c.stridePhase;
     p.crouch = this.crouchBlend;
     p.prone = this.proneBlend;
-    p.dive = this.diveBlend;
     p.aim = this.aimBlend;
     p.aimPitch = this.rig.pitch;
     p.torsoTwist = wrapAngle(this.rig.yaw - this.bodyYaw);
@@ -941,6 +1043,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     p.recoil = this.poseRecoil;
     p.throw = this.throwBlend;
     p.holdItem = this.holdItemBlend;
+    p.cooking = this.cookBlend;
     p.roll = this.rollBlend;
     p.rollPhase = this.rollPhase;
     p.melee = this.meleeTimer > 0 ? 1 - this.meleeTimer / this.meleeDuration : 0;
@@ -1369,6 +1472,19 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     return out;
   }
 
+  /** Rejoin wait: everything reset like `game:abort`, feet + camera parked at `position`, model hidden, no controls. */
+  private holdForRestore(position: THREE.Vector3): void {
+    this.resetAll();
+    this.setInterior(null);
+    this.controller.reset(position);
+    this.bodyYaw = Math.atan2(position.x, position.z);
+    this.model.root.position.copy(position);
+    this.model.root.quaternion.setFromAxisAngle(_up, this.bodyYaw);
+    this.eyePos.set(0, EYE_STAND, 0);
+    _v.copy(position); _v.y += EYE_STAND;
+    this.rig.snapTo(_v, this.bodyYaw);
+  }
+
   private startDrop(): void {
     const pos = this.controller.position;
     this.controlsEnabled = false;
@@ -1416,12 +1532,13 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.healPool = 0;
     this.clearDowned();
     this.lookLocked = false;
-    this.weaponState.throwing = false; this.weaponState.holdingItem = false; this.throwBlend = 0; this.holdItemBlend = 0;
+    this.weaponState.throwing = false; this.weaponState.holdingItem = false; this.weaponState.cooking = false;
+    this.throwBlend = 0; this.holdItemBlend = 0; this.cookBlend = 0;
     this.setAiming(false);
     this.setStance('stand'); this.standUpTimer = 0;
     this.stamina = this.maxStamina; this.regenDelay = 0; this.exhausted = false; this.exhaustedSlow = 0;
     this.resetTactical();
-    this.crouchBlend = 0; this.proneBlend = 0; this.diveBlend = 0;
+    this.crouchBlend = 0; this.proneBlend = 0;
     this.cancelHold(); this.interactTarget = null;
     if (this.lastPromptText !== null) { this.lastPromptText = null; this.lastHoldProgress = 0; this.ctx.bus.emit('interact:promptChanged', { text: null, holdProgress: 0 }); }
     this.rig.setOverride(null);

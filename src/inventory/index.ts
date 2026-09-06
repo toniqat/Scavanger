@@ -11,7 +11,11 @@ export type { QuickSlotUids } from './QuickSlots';
 export { Container, ContainerStore, CONTAINER_COLS, CONTAINER_ROWS } from './Container';
 export { runInventorySelfTest } from './__selftest__';
 /* Phase 5: loadout persistence + shared item serialisation */
-export { LoadoutStore, LOADOUT_SAVE_VERSION, loadLoadoutSave, isEmptyLoadoutSave } from './Loadout';
+export { LoadoutStore, LOADOUT_SAVE_VERSION, loadLoadoutSave, sanitizeLoadoutSave, isEmptyLoadoutSave } from './Loadout';
+/* Phase 7: container search + raid state */
+export { searchTimeFor } from './Gear';
+export type { RaidInventoryState } from './InventorySystem';
+export type { StashSaveFile } from './Stash';
 export type { LoadoutSave } from './Loadout';
 export { serializeExtras, serializePlacement, reviveItem, readSaveFile, writeSaveFile, safeStorage, savedCell } from './Serialize';
 export type { SavedExtras, SavedPlacement } from './Serialize';

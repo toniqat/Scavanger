@@ -14,16 +14,16 @@ Import via `@/game` → `GameFlowSystem`.
 | Trigger | Action |
 |---|---|
 | `init()` | re-emits `game:phaseChanged {menu}` so menus show |
-| `game:newMission {seed}` | `ctx.stats = freshStats(seed)`, `missionTime = 0`, then `deploying` once `world:ready` has fired (WorldSystem generates synchronously *inside* the same emit, so the handler also checks `ctx.world.ready && seed` directly) |
+| `game:newMission {seed, mode?}` | `ctx.missionMode = mode ?? world.mode ?? 'raid'`, `ctx.stats = freshStats(seed)` (+ `stats.mode`), `missionTime = 0`, then `deploying` once `world:ready` has fired (WorldSystem generates synchronously *inside* the same emit, so the handler also checks `ctx.world.ready && seed` directly). Training: `trainingSnapshot = inventory.captureRaidState()` |
 | `player:landed` (in `deploying`) | `playing` |
 | `extraction:activated` | `extracting` |
 | `extraction:shipLanded` | `shipLanded` |
 | `extraction:boarded` | remembers that the local player boarded (for `stats.extracted` in multiplayer) |
 | `extraction:liftoff` | `liftoff`; after 6.5 s → `complete()`: `stats.extracted = true` (multiplayer: `boarded && !isDead && !isDowned`), `lootValue = inventory.getTotalValue()`, `awardMissionXp()`, `complete`, `game:complete {stats}` |
-| `player:died` | single-player: after 2.5 s → `dead`, `game:over {stats}`. Multiplayer: phase unchanged, `ui:notify "전사 — 팀원이 임무를 계속합니다"`, host starts the all-dead check |
+| `player:died` | training: immediate `player:respawn` at the arena spawn (no failure). Solo raid: after 2.5 s → `gameOver()` (레이드 실패). Multiplayer: phase unchanged, 30 s respawn countdown (`game:respawnAvailable`), host runs the all-dead check |
 | `player:downed` | **not a death**: phase unchanged, `ui:notify "쓰러짐 — 아군의 제세동기를 기다립니다"`, the all-dead check is re-armed (a squadmate may already be dead) |
 | `player:revived` | stops the all-dead check when the local player is no longer dead |
-| `game:abort` | multiplayer host **during a live mission** (gameplay / `deploying`): `flow abort` to others first (leaving a result screen is local — the mission is already over); closes inventory, `menu`. If the abort ended a *lobby* mission / result screen, emits `hub:enter {ship:'shared'}` one microtask later (no-op when HubSystem's own `hub:enter` already built the ship) |
+| `game:abort` | multiplayer host **during a live raid** (gameplay / `deploying`, never a training): `flow abort` to others first (leaving a result screen is local — the mission is already over); closes inventory, `menu`. If the abort ended a *lobby* mission / result screen, emits `hub:enter {ship:'shared'}` one microtask later (no-op when HubSystem's own `hub:enter` already built the ship) |
 | Escape (gameplay phase, no `ctx.uiBlockers`) | toggles `game:paused {paused, freeze: !ctx.isMultiplayer}`; Engine zeroes `dt` while paused (single-player only — in multiplayer the menu shows but the world and GameFlow timers keep running); `PauseMenu` may emit `game:paused false`. Inventory / map consume Escape in a capture-phase listener, so it never reaches here while they are open |
 | `pointerlockchange` (lock lost) / `window` `blur` | if gameplay phase, no blocker, player alive, not paused and > 300 ms since `ctx.input.lastLockRequest` (a denied request) → emits `input:pointerLockLost` and pauses. Intended exits (inventory, map, menus, pause) add their blocker / set `paused` **before** `exitPointerLock()`, so they do not trigger this |
 | unpause (Esc or 계속) | after emitting `game:paused false`, re-requests pointer lock in a microtask when still in a gameplay phase with no blockers (a following synchronous abort → `menu` cancels it) |
@@ -76,10 +76,27 @@ It also bumps `ctx.progression.profile.raids` (always) and `.extractions` (on `s
   `hub:enter {ship: lobby ? 'shared' : 'personal'}` (normally personal — the lobby is gone). Reason `left` (we chose to leave) is ignored.
 - Single-player is untouched: solo aborts still land on the title menu (the title's `함선 탑승` re-enters the personal ship).
 
-## Phase 2 (2026-09-05): death → respawn instead of mission failure
-- `player:died` → `respawnTimer = PLAYER_RESPAWN_DELAY` (30 s) and `game:respawnAvailable {seconds}` once per second (0 = allowed). Solo: after 2.5 s
-  `enterDeadPhase()` → phase `dead` (death screen shown by the UI on the phase change; **no `game:over`**). Squad: phase unchanged (spectate overlay).
-- `game:respawn` (UI, Space / 부활 button) → `onRespawnRequest()`: only while dead and the timer is 0 → phase `deploying` (solo) + `player:respawn {position: world.getPlayerSpawn()}`
-  (player re-drops in the hellpod, inventory reapplies the starter kit). `player:landed` → `playing` as usual.
-- `MISSION_FAILS_WHEN_ALL_DEAD = false`: the host all-dead check (`flow over`) is disabled; `gameOver()` stays only for a legacy `flow over` from an old host.
-  A mission now ends by extraction or abort (함선으로 귀환) only.
+## Phase 2 (2026-09-05): death → respawn (squad only since Phase 7)
+- Multiplayer `player:died` → `respawnTimer = PLAYER_RESPAWN_DELAY` (30 s) and `game:respawnAvailable {seconds}` once per second (0 = allowed); phase unchanged (spectate overlay).
+- `game:respawn` (UI, Space / 부활 button) → `onRespawnRequest()`: only while dead, the timer is exactly 0 and the raid is still live → `player:respawn {position: world.getPlayerSpawn()}`
+  (player re-drops in the hellpod, inventory reapplies the starter kit). `player:landed` → `playing` as usual. Never honoured on the 레이드 실패 screen.
+
+## Phase 7 (2026-09-06): squad wipe · raid session · rejoin · 훈련장 · host takeover
+- **Wipe = failure** (`MISSION_FAILS_WHEN_ALL_DEAD = true`). `checkAllDead()` (host only, never in a training): the local player is out (`isDead && !isDowned`) and no
+  remote ref is alive per `isRemoteAlive()` — refs with `!connected`, `!inMission` or `IN_HUB` are ignored; a `suspended` ref (socket down, host ghost) counts alive
+  unless its last `net:ghostState` is 2 (fallback: the ref's own `isDead && !isDowned`); anyone else is alive while `!isDead || downed` (a downed peer can be revived;
+  a dead peer waiting on the 30 s respawn is dead). Runs on `player:died / downed`, `net:remoteDied / peerLeft / ghostState / peerSuspended`, every 0.5 s while out,
+  and on `net:hostChanged {isLocalHost:true}` (the new host takes the check + `flow` sending over; the old host stops). True → `flow over` to others + `gameOver()`.
+- **`gameOver()`** = 레이드 실패 for solo death (after `DEATH_TO_SCREEN`) and for every client on `flow over`: stats finalised (`extracted=false`, `mode`), XP banked once,
+  `game:raidFailed {stats}` → phase `dead` → `game:over {stats}` (ui shows 레이드 실패, inventory resets to the starter kit), then `hub:enter {shared | personal}`
+  by itself after `RAID_FAILED_AUTO_RETURN_S` while still in phase `dead`. No respawn countdown in a solo raid.
+- **Raid session**: in a multiplayer raid (`isMultiplayer && missionMode === 'raid'`) `saveRaid()` uploads `RaidSessionBlob {seed, missionTime, stats, inventory: captureRaidState(), savedAt}`
+  through `ctx.net.saveRaid` every `RAID_SAVE_INTERVAL_S` of gameplay and right after `inventory:itemAdded` / `crate:looted` (each save re-arms the timer; skipped while `rejoinPending`).
+- **Rejoin**: `net:raidLoaded {blob}` is kept (also read from `ctx.net.raidBlob`). `net:gameStarting {rejoin:true}` (not for a training) → `ctx.rejoinPending = true`
+  *before* the rejoin's `game:newMission`, so the player skips the hellpod on `world:ready`. `onWorldReady()` then applies a blob with the same seed
+  (`inventory.applyRaidState`, `ctx.stats` (seed / mode kept), `missionTime`) and arms `NET_GHOST_RESTORE_TIMEOUT_S`. `net:ghostRestore {state}` → `player.restoreState`,
+  `rejoinPending=false`, phase `playing`; state 2 (our body bled out) → the squad death flow (30 s countdown + wipe check). Timeout → `player.respawn(world.getPlayerSpawn())` fallback.
+- **훈련장** (`ctx.missionMode === 'training'`, `ctx.isTraining()`): no threat ramp, no `awardMissionXp` / `settleMission` / result screens (`gameOver()` is a no-op),
+  death → immediate `player:respawn` at the arena spawn, `MissionStats.mode = 'training'`. `training:exitRequested` → `game:abort` (never `flow abort` — a training is personal)
+  → `inventory.applyRaidState(trainingSnapshot)` (ammo / durability refunded) → `ctx.net.leaveMission()` when in a session → `hub:enter {shared if a lobby exists, else personal}`.
+- Smoke: `scripts/smoke-raidflow.mjs` (solo death → 레이드 실패 → auto return, training enter / death / exit, synthetic rejoin blob + ghost restore alive / dead + timeout fallback).

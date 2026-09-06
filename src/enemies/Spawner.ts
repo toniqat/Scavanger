@@ -177,6 +177,9 @@ export class AmbientSpawner {
 
   reset(): void { this.timer = 6; }
 
+  /** Phase 7 (host promotion): resume the ambient trickle mid-mission with a normal-length gap instead of the 6 s initial one. */
+  resume(): void { this.timer = THREE.MathUtils.lerp(20, 10, this.threat) * (0.6 + Math.random() * 0.4); }
+
   /** Seed the map with a few idle patrols far from the players right after world:ready. */
   initialPopulate(host: SpawnHost, around?: THREE.Vector3): void {
     const ctx = host.ctx;

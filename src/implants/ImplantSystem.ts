@@ -42,6 +42,8 @@ const BOOST_SEND_INTERVAL = 0.5;
 const BOOST_LINGER = 0.6;
 /** Channelling may start only with this much energy (seconds) left. */
 const OVERCHARGE_MIN_START = 0.75;
+/** Phase 7: `imp beam` refresh period while the overcharge beam is on (on / target change / off go out at once). */
+const BEAM_SEND_INTERVAL = 0.25;
 /** Blocked hits between two replicated shield-durability updates. */
 const BARRIER_SEND_EVERY_HITS = 4;
 
@@ -112,6 +114,11 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
   private ocHealAcc = 0;
   private ocSendAcc = 0;
   private ocBoostAcc = 0;
+  /** Phase 7: last `imp beam` state sent to the squad (on / target / self) + seconds since. */
+  private beamNetOn = false;
+  private beamNetTarget: PeerId | null = null;
+  private beamNetSelf = false;
+  private beamNetAcc = 0;
   private energyEmitAcc = 0;
   private lastEnergyEmitted = -1;
 
@@ -843,6 +850,7 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
     this.aimRay(_o, _d);
     const ally = findAlly(ctx, _o, _d, IMPLANT_OVERCHARGE_RANGE);
     const targetId = ally ? ally.id : null;
+    this.syncBeamNet(dt, targetId, !ally);
     if (targetId !== this.ocTarget) {
       this.ocTarget = targetId;
       this.ocHealAcc = 0;
@@ -888,8 +896,28 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
       if (p) this.activated('overcharge', p.position);
     } else {
       this.beam.hide();
+      this.sendBeamOff();
     }
     this.emitEnergy(true);
+  }
+
+  /**
+   * Phase 7: overcharge beam replication. `imp beam {target, self}` goes out when the channel starts, whenever the
+   * locked ally changes, and as a refresh at most every `BEAM_SEND_INTERVAL` while on (a late joiner sees the beam on
+   * the next refresh); `sendBeamOff` sends `{target: null, self: false}` immediately when the channel ends.
+   */
+  private syncBeamNet(dt: number, target: PeerId | null, self: boolean): void {
+    this.beamNetAcc += dt;
+    const changed = !this.beamNetOn || target !== this.beamNetTarget || self !== this.beamNetSelf;
+    if (!changed && this.beamNetAcc < BEAM_SEND_INTERVAL) return;
+    this.beamNetOn = true; this.beamNetTarget = target; this.beamNetSelf = self; this.beamNetAcc = 0;
+    this.send({ t: 'imp', ev: 'beam', target, self });
+  }
+
+  private sendBeamOff(): void {
+    if (!this.beamNetOn) return;
+    this.beamNetOn = false; this.beamNetTarget = null; this.beamNetSelf = false; this.beamNetAcc = 0;
+    this.send({ t: 'imp', ev: 'beam', target: null, self: false });
   }
 
   private localName(): string {

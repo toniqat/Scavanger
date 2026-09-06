@@ -12,7 +12,7 @@ frame already has real numbers; `NetSystem` still goes first).
 
 | File | Purpose |
 |---|---|
-| `ProgressionSystem.ts` | `GameSystem` + `ProgressionRef` (`name: 'progression'`). Profile ownership, bus subscriptions that train skills, `derived` recomputation, autosave, the character-sheet toggle. |
+| `ProgressionSystem.ts` | `GameSystem` + `ProgressionRef` (`name: 'progression'`). Profile ownership, bus subscriptions that train skills, `derived` recomputation, autosave, the character-sheet toggle; Phase 7: server profile document (`upload()` on every flush, `onProfileLoaded()` replace + `progress:*` re-emit), training gate in `addSkillXp`. |
 | `defs.ts` | The 5 `StatDef` / 14 `SkillDef` (한국어 이름·설명), `WEAPON_CLASS_SKILL`, and the raw skill-XP each trained action is worth. |
 | `derive.ts` | `computeDerived(profile, specialBackpack)` → `DerivedStats`, `xpForLevel(level)`, `DEFAULT_DERIVED`. All tuning constants live here. |
 | `Profile.ts` | `localStorage` load / save / migrate / clear. Every access in `try/catch`. |
@@ -59,7 +59,9 @@ statXpToNext(id) = round(STAT_XP_BASE × value^STAT_XP_EXPONENT)   // 5 → 1118
   레벨이 바뀌면 (내려가도) `progress:skillUp {id, level}`, 항상 `progress:skillProgress`. 치트 / 디버프 전용 — 정상 훈련은 `addSkillXp`.
 - `getSkillGainMul(id)`: `ctx.housing?.getSkillGainMul(id) ?? 1` (사격장 → `gun_*`). `addSkillXp` 가 **내부에서** 곱하므로 다른 폴더는
   이걸 다시 곱하지 않는다. housing 이 스켈레톤이거나 없으면 1. 시트의 스킬 행에 `시설 ×1.10` 배지로 표시 (1 이면 숨김).
-- 스모크: `node scripts/smoke-progression.mjs` (`verify.mjs` `SMOKES` 의 `smoke-progression`, `folders: ['progression']`).
+- 스모크: `node scripts/smoke-progression.mjs` (`verify.mjs` `SMOKES` 의 `smoke-progression`, `folders: ['progression']`) — **65 / 65** on 2026-09-06
+  (Phase 7: 감정 XP `container:itemRevealed`, 훈련장 `gun_*` 전용, 가짜 `ctx.net.profile` 로 `profile.set('progression')` / `net:profileLoaded` 대체 + 이벤트 재발행;
+  릴레이 소켓을 막아 8787 의 릴레이가 실행 중이어도 결과가 같다).
 
 ## 스킬 (14종)
 0..`SKILL_LEVEL_MAX`(100). 레벨 사이 진행도는 `profile.skillProgress[id]` (0..1).
@@ -73,7 +75,7 @@ gain = rawAmount × derived.skillGainMul × getSkillGainMul(skill) × statFactor
 | 스킬 | 상승 트리거 (버스 이벤트) | 파생 |
 |---|---|---|
 | `carry` 운반 | 무게 상태가 `light` 이상일 때 이동한 거리 (`inventory:weightChanged` + 매 프레임 거리 누적) | `carryReliefFactor` |
-| `appraisal` 감정 | `crate:open`, `inventory:itemAdded` (등급별 가중) | `searchSpeedMul` |
+| `appraisal` 감정 | `crate:open`, **`container:itemRevealed`** (등급별 가중 `APPRAISE_XP_BY_RARITY`; Phase 7 — 상자 검색이 아이템을 드러낼 때. `inventory:itemAdded` 는 더 이상 훈련하지 않는다) | `searchSpeedMul` |
 | `grit` 인내 | `player:gritSaved` | `gritChance` (최대 35 %) |
 | `gardening` 원예 | `gather:collected` | `gatherYieldMul` |
 | `crafting` 제작 | `craft:completed` (레시피 `skill === 'crafting'`) | `craftSpeedMul` |
@@ -84,6 +86,8 @@ gain = rawAmount × derived.skillGainMul × getSkillGainMul(skill) × statFactor
 | `equipment` 장비 관리 | `repair:completed` | `durabilityLossMul` |
 
 - 산탄총은 펠릿마다 `weapon:hit` 을 쏘므로 **한 발당 한 번만** 적립한다 (`weapon:fired` 로 리셋).
+- **훈련장 (Phase 7)**: `ctx.isTraining()` 인 동안 `addSkillXp` 는 `gun_*` 만 받고 (`× TRAINING_SKILL_GAIN_MUL`, shared/constants), 나머지 스킬은 0.
+  스탯 XP (`addStatXp`) · 캐릭터 XP (`addXp`) · `addSkillXpRaw` 는 그대로다 (훈련장은 `awardMissionXp` 를 부르지 않으므로 실질적으로 오르지 않는다).
 - `PISTOL` 클래스는 `gun_SMG` 를 훈련한다 (`skillForWeaponClass`).
 - 레시피의 `skill` 은 `ctx.loot.getAllRecipes()` 로 찾는다. items 가 아직 구현하지 않았으면 `crafting` 으로 폴백.
 
@@ -101,7 +105,11 @@ inventory / items 의 신규 API 가 아직 없으면 `typeof` 체크 + `try/cat
 미션 종료 보상은 **`game/GameFlowSystem.awardMissionXp()`** 가 계산한다 (킬 · 생존 시간 · 탈출 보너스 · 전리품 가치).
 
 ## 영속화
-`localStorage[PROFILE_STORAGE_KEY]`, `PROFILE_VERSION` 기반.
+`localStorage[PROFILE_STORAGE_KEY]`, `PROFILE_VERSION` 기반. **Phase 7 — 서버 프로필** (`ctx.net.profile`, 문서 키 `progression`):
+- 모든 flush 는 localStorage 에 쓴 뒤 `profile.set('progression', 프로필 사본)` 도 큐에 넣는다 (`available` 이 false 면 no-op).
+- `net:profileLoaded` → 서버 문서가 있으면 `migrate(doc)` 로 정규화해 로컬 프로필을 **대체**하고 (서버가 진실, localStorage 는 캐시로 갱신, 재업로드 없음),
+  `progress:loaded` · `progress:xpGained {amount 0}` · 스탯 5개 `progress:statChanged` · 스킬 14개 `progress:skillProgress` 를 다시 emit 한다 (`levelUp` 은 내지 않는다).
+  문서가 없으면 로컬 프로필을 업로드한다.
 
 - 저장 시점: 레벨업, 스탯 소비, 스킬 레벨업, `implant:equipped`, 미션 종료(`GameFlow` 가 `save()` 호출),
   `game:abort`, `pagehide` / `beforeunload`, 그리고 변경이 있으면 15 초 주기 오토세이브.

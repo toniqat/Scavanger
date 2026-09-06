@@ -27,6 +27,7 @@ export class WorldMarkers {
     this.unsubs.push(
       b.on('world:ready', () => {
         this.clear();
+        if (ctx.missionMode === 'training' || ctx.world?.mode === 'training') return; // Phase 7: no extraction in the arena
         for (const p of ctx.world?.getExtractionPoints() ?? []) this.add(p.id, p.position, '탈출 지점', 'wmarker');
       }),
       b.on('extraction:activated', ({ pointId }) => {

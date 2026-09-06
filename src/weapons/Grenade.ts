@@ -8,6 +8,8 @@ export const GRENADE_RADIUS = 6;
 export const GRENADE_DAMAGE = 250;
 const BODY_R = 0.08;
 const MAX_GRENADES = 8;
+/** Share of the blast damage a player takes (own grenade and, since Phase 7, squadmates' replicas alike). */
+const PLAYER_DAMAGE_MUL = 0.6;
 
 interface GrenadeBody {
   mesh: THREE.Group;
@@ -67,7 +69,8 @@ export class GrenadeManager {
 
   /**
    * @param visualOnly replica of a remote player's grenade (multiplayer): same arc, bounce, fuse and
-   *   explosion FX/audio, but no `applyExplosion`, no local player damage, no `grenade:*` events.
+   *   explosion FX/audio and (Phase 7) the same radial damage to the local player, but no `applyExplosion`
+   *   (enemy damage is the thrower's) and no `grenade:*` events.
    *   Prefers to evict another visual-only replica when the pool is full so a live local grenade never pops early.
    * @param fuse seconds until the explosion (`GRENADE_FUSE` − cook time for a cooked grenade; 0 → explodes on the next update).
    */
@@ -135,15 +138,16 @@ export class GrenadeManager {
     const pos = g.pos;
     const visualOnly = g.visualOnly;
     g.visualOnly = false;
-    // Visual-only replicas (remote players' grenades) never deal damage: the thrower's client resolves
-    // enemy damage through the host, and remote grenades don't hurt the local player yet.
+    // Visual-only replicas (remote players' grenades) never damage enemies here: the thrower's client resolves
+    // that through the host. Phase 7: they DO hurt the local player — same radius / falloff / friendly-fire
+    // rule as our own grenades (a squadmate's frag lands on you exactly like your own).
     const kills = !visualOnly && ctx.enemies ? ctx.enemies.applyExplosion(pos, GRENADE_RADIUS, GRENADE_DAMAGE) : 0;
     if (ctx.player && !ctx.player.isDead) {
       _tmp.copy(ctx.player.position); _tmp.y += 0.9;
       const d = _tmp.distanceTo(pos);
-      // self damage with linear falloff
-      if (!visualOnly && d < GRENADE_RADIUS) {
-        const dmg = GRENADE_DAMAGE * (1 - d / GRENADE_RADIUS) * 0.6;
+      // self / friendly damage with linear falloff
+      if (d < GRENADE_RADIUS) {
+        const dmg = GRENADE_DAMAGE * (1 - d / GRENADE_RADIUS) * PLAYER_DAMAGE_MUL;
         if (dmg > 1) ctx.player.takeDamage(dmg, pos.clone());
       }
       const shake = THREE.MathUtils.clamp(1 - d / 28, 0, 1);

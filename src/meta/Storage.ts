@@ -1,4 +1,4 @@
-import type { CorpId, MetaSave, QuestState } from '@/shared';
+import type { CorpId, MetaSave, ProfileRef, QuestState } from '@/shared';
 import { CONTRACT_DEFS, CORP_IDS, CREDITS_INITIAL, CREDITS_MAX, META_STORAGE_KEY, QUEST_DEFS } from '@/shared';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -6,6 +6,8 @@ import { CONTRACT_DEFS, CORP_IDS, CREDITS_INITIAL, CREDITS_MAX, META_STORAGE_KEY
  * every storage access is wrapped in try/catch (private mode / quota / hostile JSON), loads are sanitised field by
  * field (clamped credits, known corp / quest / contract ids only, `locked` / `available` quest states are never
  * stored — they are recomputed from `QuestDef.requires`), writes are debounced 350 ms and flushed on `pagehide`.
+ * Phase 7: every flush also mirrors the save into the server profile (`ctx.net.profile.set('meta', …)`) when one is
+ * available; `replace()` swaps the data for the server document without echoing it back.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 export const META_SAVE_VERSION = 1;
@@ -88,7 +90,8 @@ export class MetaStorage {
   private dirty = false;
   private onPageHide = (): void => this.flush();
 
-  constructor() {
+  /** `profile` = the server profile mirror (`ctx.net.profile`), read lazily because net/ may swap it after our init. */
+  constructor(private readonly profile: () => ProfileRef | null = () => null) {
     this.data = MetaStorage.load();
     window.addEventListener('pagehide', this.onPageHide);
     window.addEventListener('beforeunload', this.onPageHide);
@@ -111,14 +114,41 @@ export class MetaStorage {
     this.timer = window.setTimeout(() => { this.timer = null; this.flush(); }, SAVE_DELAY_MS);
   }
 
-  /** Write immediately (page hide, hub entry, dispose). */
+  /** Write immediately (page hide, hub entry, dispose) — localStorage first, then the server profile document. */
   flush(): void {
     if (this.timer !== null) { clearTimeout(this.timer); this.timer = null; }
     if (!this.dirty) return;
     this.dirty = false;
+    this.writeCache();
+    this.upload();
+  }
+
+  /** The serialisable save (`v` pinned). */
+  snapshot(): MetaSave { return JSON.parse(JSON.stringify({ ...this.data, v: META_SAVE_VERSION })) as MetaSave; }
+
+  /** localStorage write of the current data (the cache of the server copy); no upload. */
+  writeCache(): void {
     const s = storage();
     if (!s) return;
     try { s.setItem(META_STORAGE_KEY, JSON.stringify({ ...this.data, v: META_SAVE_VERSION })); } catch { /* quota / private mode */ }
+  }
+
+  /** Queue the save into the server profile (`profile:set meta`); no-op offline. */
+  upload(): void {
+    const p = this.profile();
+    if (!p || !p.available || typeof p.set !== 'function') return;
+    try { p.set('meta', this.snapshot()); } catch { /* net not ready */ }
+  }
+
+  /**
+   * Take a server document as the new truth (Phase 7 `net:profileLoaded`): sanitised like a local load, written to
+   * localStorage as the cache, **not** uploaded again (it came from the server).
+   */
+  replace(raw: unknown): void {
+    if (this.timer !== null) { clearTimeout(this.timer); this.timer = null; }
+    this.data = sanitizeMetaSave(raw);
+    this.dirty = false;
+    this.writeCache();
   }
 
   /** Replace the data with a fresh save and persist it right away. */

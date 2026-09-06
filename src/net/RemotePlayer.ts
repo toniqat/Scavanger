@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { ImplantId, PeerId, PlayerSnapshot, RemoteAvatarRef, RemotePlayerRef, Stance } from '@/shared';
+import type { GhostWire, ImplantId, PeerId, PlayerSnapshot, RemoteAvatarRef, RemotePlayerRef, Stance } from '@/shared';
 import { NET_INTERP_DELAY, NET_STALE_AFTER, PLAYER_MAX_HP, PlayerFlags } from '@/shared';
 
 const RING_SIZE = 16;
@@ -7,10 +7,22 @@ const MAX_EXTRAPOLATE = 0.25;
 /** A snapshot whose seq is this far below the last accepted one is a restarted stream, not a late packet. */
 const SEQ_RESET_GAP = 200;
 const TWO_PI = Math.PI * 2;
+const EMPTY_ATT: readonly string[] = [];
 
 interface Sample {
   arrival: number;
   s: PlayerSnapshot | null;
+}
+
+/** Keep the previous attachment array when the contents are equal (consumers compare by reference). */
+function sameAttachments(prev: readonly string[], next: string[] | undefined): readonly string[] {
+  if (!next || !Array.isArray(next) || next.length === 0) return EMPTY_ATT;
+  if (prev.length === next.length) {
+    let same = true;
+    for (let i = 0; i < next.length; i++) if (prev[i] !== next[i]) { same = false; break; }
+    if (same) return prev;
+  }
+  return next.filter((a) => typeof a === 'string');
 }
 
 /** Shortest signed angular difference b - a in (-π, π]. */
@@ -43,9 +55,19 @@ export class RemotePlayer implements RemotePlayerRef {
   lastUpdate = 0;
   connected = true;
   stale = false;
-  /* Phase 7 skeleton (net/ agent implements) */
+  /* appended (Phase 7): suspended members / ghosts / mission membership — maintained by NetSystem from `lobby:state`. */
+  /** Socket down but slot kept: the body is a host ghost (`applyGhost`), never removed for this. */
   suspended = false;
+  /** `LobbyPlayer.inMission` mirror. */
   inMission = true;
+  /** true while `position / yaw / hp / flags` come from `ghost state` instead of the snapshot ring. */
+  ghosted = false;
+  /** Ghost bleed-out hp (state 1) from the last `ghost state`. */
+  ghostDownHp = 0;
+  /** Def id of the consumable in hand (`PlayerSnapshot.h`), or null. */
+  heldItemId: string | null = null;
+  /** Attachment def ids on the active weapon (`PlayerSnapshot.att`); the same array while unchanged. */
+  attachments: readonly string[] = EMPTY_ATT;
   avatar: RemoteAvatarRef | null = null;
   /** ctx.time at which NetSystem removes this ref (set when the peer leaves). */
   removeAt = Infinity;
@@ -91,6 +113,8 @@ export class RemotePlayer implements RemotePlayerRef {
    * Returns false when dropped.
    */
   push(s: PlayerSnapshot, now: number): boolean {
+    // A snapshot from a ghosted member means they are back: the live stream replaces the host's ghost.
+    if (this.ghosted) this.clearGhost();
     if (s.seq <= this.lastSeq) {
       if (!this.stale && s.seq > this.lastSeq - SEQ_RESET_GAP) return false;
       this.resetStream();
@@ -116,6 +140,8 @@ export class RemotePlayer implements RemotePlayerRef {
     this.moveBlend = s.move;
     this.implantId = s.imp ?? null;
     this.armorId = s.ar ?? null;
+    this.heldItemId = typeof s.h === 'string' ? s.h : null;
+    this.attachments = sameAttachments(this.attachments, s.att);
     if (!this.hasAny) {
       this.hasAny = true;
       this.position.set(s.p[0], s.p[1], s.p[2]);
@@ -133,9 +159,36 @@ export class RemotePlayer implements RemotePlayerRef {
     this.hp = 0;
   }
 
+  /**
+   * Phase 7: the host's ghost of this (suspended) member — position / yaw / hp / downed / dead override the snapshot
+   * ring until a live snapshot (`push`) or `clearGhost()` (ghost gone). Velocity is zero: ghosts do not move.
+   */
+  applyGhost(g: GhostWire): void {
+    this.ghosted = true;
+    this.position.set(g.p[0], g.p[1], g.p[2]);
+    this.velocity.set(0, 0, 0);
+    this.yaw = g.yaw;
+    this.moveBlend = 0;
+    this.hp = g.hp;
+    this.ghostDownHp = g.dhp;
+    let f = this.flags & ~(PlayerFlags.DOWNED | PlayerFlags.DEAD | PlayerFlags.DROPPING | PlayerFlags.IN_HUB | PlayerFlags.IN_POD);
+    if (g.st === 1) f |= PlayerFlags.DOWNED;
+    else if (g.st === 2) f |= PlayerFlags.DEAD;
+    this.flags = f;
+    if (g.st === 2) this.hp = 0;
+  }
+
+  /** Back to snapshot mode (ghost gone / member returned). The next live snapshot snaps the view. */
+  clearGhost(): void {
+    if (!this.ghosted) return;
+    this.ghosted = false;
+    this.resetStream();
+  }
+
   /** Advance the interpolated view to `now` (ctx.time). Allocation-free. */
   tick(now: number): void {
     this.stale = now - this.lastUpdate > NET_STALE_AFTER;
+    if (this.ghosted) return; // the ghost owns the pose
     if (this.count === 0) return;
     const renderTime = now - NET_INTERP_DELAY;
     const newestIdx = (this.head + this.count - 1) % RING_SIZE;

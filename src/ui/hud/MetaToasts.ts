@@ -1,6 +1,7 @@
 import type { GameContext } from '@/shared';
 import { CORP_DEFS } from '@/shared';
 import { el, fmtInt, setText } from '../dom';
+import { CONTRACT_OUTCOME_TEXT, contractOutcome } from '../menus/RewardsBlock';
 
 const CREDITS_FLUSH = 1.0;    // seconds of credit changes coalesced into one chip
 const CREDITS_TTL = 2.0;
@@ -12,7 +13,8 @@ const MAX_TOASTS = 4;
  * Top-centre meta toasts (Phase 5), stacked in the same column as `ProgressToasts` (constructed with its root):
  *   `meta:creditsChanged`  → coalesced `+n 크레딧` / `−n 크레딧` chip (`CREDITS_FLUSH` s, signed net, 0 = no chip)
  *   `meta:repChanged`      → `<기업> 신뢰도 Lv.n` toast on `levelUp` only
- *   `meta:contractSettled` → large 계약 성공 / 계약 미완 (extracted, progress kept) / 계약 실패 (dead, `진척 유지 안 됨`) toast
+ *   `meta:contractSettled` → large `계약 성공` / `계약 미완 · 계속` / `계약 실패 · 진척 유지 안 됨` toast keyed on
+ *                             `settlement.outcome` (Phase 7; never on `ctx.stats.extracted`, wording shared with `RewardsBlock`)
  * Quest / purchase / sale lines live in `Notifications`. The meta folder never toasts itself.
  * Updated every frame regardless of the social layer's visibility so a settlement chip raised behind the result screen
  * expires like any other (the result screen already shows the same numbers).
@@ -40,14 +42,14 @@ export class MetaToasts {
         el('span', { cls: 'v', text: `${CORP_DEFS[corp]?.name ?? corp} 신뢰도 Lv.${level}`, parent: t });
       }),
       b.on('meta:contractSettled', (s) => {
-        const extracted = ctx.stats.extracted;
-        const kind = s.success ? 'success' : extracted ? 'keep' : 'fail';
+        const outcome = contractOutcome(s);
+        const kind = outcome === 'success' ? 'success' : outcome === 'incomplete' ? 'keep' : 'fail';
         const t = this.push(`contract ${kind}`, CONTRACT_TTL);
-        el('span', { cls: 'k', text: s.success ? '계약 성공' : extracted ? '계약 미완' : '계약 실패', parent: t });
+        el('span', { cls: 'k', text: CONTRACT_OUTCOME_TEXT[outcome], parent: t });
         el('span', { cls: 'v', text: s.name, parent: t });
-        const sub = s.success
+        const sub = outcome === 'success'
           ? `신뢰도 +${fmtInt(s.rep)} · 크레딧 +${fmtInt(s.credits)}`
-          : `${fmtInt(s.progress)} / ${fmtInt(s.target)}${extracted ? ' · 계속' : ' · 진척 유지 안 됨'}`;
+          : `${fmtInt(s.progress)} / ${fmtInt(s.target)}`;
         el('span', { cls: 's', text: sub, parent: t });
       }),
       b.on('game:abort', () => this.clear()),

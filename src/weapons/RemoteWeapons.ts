@@ -8,6 +8,7 @@ import { FxManager } from '@/core/fx';
 import { randomInCone } from '@/core/util/MathUtil';
 import { DEFAULT_RIFLE, DEFAULT_PISTOL, kindOf, shotSoundId, shotPitchFor, weaponClassOf } from './WeaponDefaults';
 import { WeaponModel } from './WeaponModel';
+import { attachmentVisualsFromIds, sameIds } from './Attachments';
 import type { WeaponFx } from './fx/WeaponFx';
 import { GRENADE_FUSE, type GrenadeManager } from './Grenade';
 import { projectileOptsFor, type ProjectilePool, type ProjectileHit } from './Projectile';
@@ -38,7 +39,13 @@ interface RemoteEntry {
   beamUntil: number;
   beamDir: THREE.Vector3;
   beamOrigin: THREE.Vector3;
+  /** Phase 7: attachment def ids last applied to the model (`PlayerSnapshot.att` → `RemotePlayerRef.attachments`). */
+  att: readonly string[];
 }
+
+/** Phase 7: `RemotePlayerRef.attachments` is appended by net/ — read it duck-typed so an older ref shape still compiles. */
+type RefWithAttachments = RemotePlayerRef & { attachments?: readonly string[] | null };
+const NO_ATT: readonly string[] = [];
 
 const _muzzle = new THREE.Vector3(), _dir = new THREE.Vector3(), _pd = new THREE.Vector3(), _tA = new THREE.Vector3(), _tB = new THREE.Vector3();
 const _end = new THREE.Vector3(), _pos = new THREE.Vector3(), _right = new THREE.Vector3(), _n = new THREE.Vector3(), _to = new THREE.Vector3();
@@ -96,28 +103,43 @@ export class RemoteWeapons {
   private entryFor(id: PeerId): RemoteEntry {
     let e = this.entries.get(id);
     if (!e) {
-      e = { id, weaponId: null, def: null, model: null, socket: null, fxBudget: FX_BURST, reloadT: -1, reloadDur: 1, boltT: -1, boltDur: 1, boltSoundT: 0, seen: 0, beam: -1, beamUntil: 0, beamDir: new THREE.Vector3(0, 0, -1), beamOrigin: new THREE.Vector3() };
+      e = { id, weaponId: null, def: null, model: null, socket: null, fxBudget: FX_BURST, reloadT: -1, reloadDur: 1, boltT: -1, boltDur: 1, boltSoundT: 0, seen: 0, beam: -1, beamUntil: 0, beamDir: new THREE.Vector3(0, 0, -1), beamOrigin: new THREE.Vector3(), att: NO_ATT };
       this.entries.set(id, e);
     }
     return e;
   }
 
-  /** Build / re-parent / drop the weapon model so it matches the ref's weapon and avatar. */
+  /** Build / re-parent / drop the weapon model so it matches the ref's weapon and avatar; then mirror its attachments. */
   private syncModel(e: RemoteEntry, ref: RemotePlayerRef): void {
     const socket = ref.avatar ? ref.avatar.weaponSocket : null;
-    if (e.weaponId === ref.weaponId && e.socket === socket) return;
-    if (e.model) { e.model.dispose(); e.model = null; }
-    if (e.beam >= 0) this.endBeam(e);
-    e.weaponId = ref.weaponId;
-    e.socket = socket;
-    e.def = ref.weaponId ? this.resolveDef(ref.weaponId) : null;
-    e.reloadT = -1; e.boltT = -1; e.boltSoundT = 0;
-    if (e.def && socket) {
-      const model = new WeaponModel(e.def);
-      socket.add(model.root);
-      model.setDraw(1); model.setReload(-1); model.setBolt(-1);
-      e.model = model;
+    if (e.weaponId !== ref.weaponId || e.socket !== socket) {
+      if (e.model) { e.model.dispose(); e.model = null; }
+      if (e.beam >= 0) this.endBeam(e);
+      e.weaponId = ref.weaponId;
+      e.socket = socket;
+      e.def = ref.weaponId ? this.resolveDef(ref.weaponId) : null;
+      e.reloadT = -1; e.boltT = -1; e.boltSoundT = 0;
+      e.att = NO_ATT;
+      if (e.def && socket) {
+        const model = new WeaponModel(e.def);
+        socket.add(model.root);
+        model.setDraw(1); model.setReload(-1); model.setBolt(-1);
+        e.model = model;
+      }
     }
+    this.syncAttachments(e, ref);
+  }
+
+  /**
+   * Phase 7: the snapshot's attachment ids (`att`) → `WeaponModel.setAttachments`, rebuilt only when the id set
+   * differs from what the model shows (element-wise compare — the ref may hand us a fresh array every snapshot).
+   */
+  private syncAttachments(e: RemoteEntry, ref: RemotePlayerRef): void {
+    if (!e.model) return;
+    const ids = (ref as RefWithAttachments).attachments ?? NO_ATT;
+    if (sameIds(ids, e.att)) return;
+    e.att = ids.length > 0 ? ids.slice() : NO_ATT;
+    e.model.setAttachments(attachmentVisualsFromIds(this.ctx, e.att));
   }
 
   private animate(e: RemoteEntry, ref: RemotePlayerRef, dt: number): void {
@@ -372,7 +394,12 @@ export class RemoteWeapons {
     }
   }
 
-  /** `net:remoteGrenade`: visual-only grenade replica (arc, bounce, fuse, explosion FX/audio; no damage). `fuse` = seconds left when released (cooked). */
+  /**
+   * `net:remoteGrenade`: replica of another player's grenade — arc, bounce, fuse, explosion FX/audio; **Phase 7**: it
+   * damages the local player on explosion (same radius / falloff / friendly-fire rule as our own grenades, see
+   * `GrenadeManager.explode`) but never enemies (the thrower's client → host owns that). `fuse` = seconds left when
+   * released (cooked); `0` = it went off in the thrower's hand and pops at `position` on the next update.
+   */
   onGrenade(position: THREE.Vector3, velocity: THREE.Vector3, fuse?: number): void {
     const ctx = this.ctx;
     if (!ctx.isMultiplayer || !ctx.net) return;
@@ -444,7 +471,7 @@ export class RemoteWeapons {
   private disposeEntry(e: RemoteEntry): void {
     this.endBeam(e);
     if (e.model) { e.model.dispose(); e.model = null; }
-    e.weaponId = null; e.def = null; e.socket = null;
+    e.weaponId = null; e.def = null; e.socket = null; e.att = NO_ATT;
     e.reloadT = -1; e.boltT = -1; e.boltSoundT = 0;
   }
 

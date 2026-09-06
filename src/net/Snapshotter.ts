@@ -25,7 +25,7 @@ export class Snapshotter {
   private readonly msg: PlayerSnapshot = {
     t: 'ps', seq: 0, time: 0, p: [0, 0, 0], v: [0, 0, 0], yaw: 0, pitch: 0,
     stance: 'stand', f: 0, hp: 0, w: null, stride: 0, move: 0,
-    imp: null, ar: null,
+    imp: null, ar: null, h: null,
   };
 
   reset(): void { this.seq = 0; }
@@ -51,6 +51,13 @@ export class Snapshotter {
     m.imp = inHub ? null : this.implantId;
     m.ar = this.armorId;
 
+    /* Phase 7: pose / held item / attachments from weapons' per-frame remote state (guarded: weapons may be absent). */
+    const rs = ctx.weapons ? ctx.weapons.remoteState : undefined;
+    const holding = this.holdingItem && !inHub;
+    m.h = holding && rs ? rs.heldItemId : null;
+    if (!inHub && rs && rs.attachments && rs.attachments.length > 0 && m.w !== null) m.att = rs.attachments as string[];
+    else delete m.att;
+
     let f = 0;
     if (p.isSprinting) f |= PlayerFlags.SPRINT;
     if (p.isAiming) f |= PlayerFlags.AIM;
@@ -70,7 +77,16 @@ export class Snapshotter {
     if (p.isHovering) f |= PlayerFlags.HOVER;
     if (p.isOvercharged) f |= PlayerFlags.OVERCHARGED;
     if (ctx.implants?.barrierActive) f |= PlayerFlags.BARRIER;
-    if (this.holdingItem && !inHub) {
+    /* appended: Phase 7 */
+    if (p.isMeleeHeavy) f |= PlayerFlags.MELEE_HEAVY;
+    if (rs && !inHub) {
+      if (rs.throwing) f |= PlayerFlags.THROWING;
+      if (rs.cooking) f |= PlayerFlags.COOKING;
+      if (rs.charging) f |= PlayerFlags.CHARGING;
+      if (rs.spraying) f |= PlayerFlags.SPRAYING;
+      if (rs.heavy) f |= PlayerFlags.HEAVY;
+    }
+    if (holding) {
       // a consumable is in hand (Phase 2): no gun is advertised, remote avatars pose one-handed
       f |= PlayerFlags.HOLDING_ITEM;
       m.w = null;

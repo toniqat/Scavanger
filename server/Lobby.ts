@@ -6,6 +6,8 @@
  * timer removes them (`LobbyManager.leave`). Host migration prefers connected members.
  */
 import type { LobbyErrorCode, LobbyPlayer, LobbyState, PeerId } from '../src/shared/net.ts';
+import type { MissionMode } from '../src/shared/types.ts';
+import type { RaidSessionBlob } from '../src/shared/profile.ts';
 import { NET_LOBBY_ALPHABET, NET_LOBBY_CODE_LENGTH, NET_MAX_PLAYERS } from '../src/shared/net.ts';
 
 export const LOBBY_ERROR_MESSAGE_KO: Record<LobbyErrorCode, string> = {
@@ -36,6 +38,11 @@ export class Lobby {
   readonly createdAt: number;
   /** Insertion order == join order; slots are assigned separately (lowest free). */
   readonly players = new Map<PeerId, LobbyPlayer>();
+  /* Phase 7 */
+  /** Kind of the running mission while `started`; null otherwise. A training keeps the lobby open to joins. */
+  mode: MissionMode | null = null;
+  /** Mid-raid state of each member (`raid:save`), returned in `welcome.raid` on a resume. Cleared with the mission. */
+  readonly raid = new Map<PeerId, RaidSessionBlob>();
 
   constructor(code: string, hostId: PeerId, isPublic = false, now: number = Date.now()) {
     this.code = code;
@@ -65,27 +72,48 @@ export class Lobby {
     return -1;
   }
 
+  /** Members currently inside the running mission (`inMission`). */
+  inMissionCount(): number {
+    let n = 0;
+    for (const p of this.players.values()) if (p.inMission) n++;
+    return n;
+  }
+
+  /** A raid closes the lobby to newcomers; a training keeps it open (they join from the terminal). */
+  isJoinable(): boolean {
+    return !this.started || this.mode === 'training';
+  }
+
   add(id: PeerId, name: string): LobbyPlayer | LobbyErrorCode {
-    if (this.started) return 'started';
+    if (!this.isJoinable()) return 'started';
     const slot = this.freeSlot();
     if (slot < 0 || this.players.size >= NET_MAX_PLAYERS) return 'full';
-    const player: LobbyPlayer = { id, name, slot, ready: false, isHost: id === this.hostId, connected: true };
+    const player: LobbyPlayer = { id, name, slot, ready: false, isHost: id === this.hostId, connected: true, inMission: false };
     this.players.set(id, player);
     return player;
   }
 
   /**
-   * Move the host role to the lowest-slot *connected* member (falling back to the lowest slot overall).
-   * Returns true when the host changed. No-op when the current host is still connected.
+   * Move the host role to the lowest-slot *connected* member (falling back to the lowest slot overall). While a
+   * mission is running (Phase 7) connected members that are *inside* it (`inMission`) are preferred, so the authority
+   * lands on someone who actually simulates the world. Returns true when the host changed. No-op when the current
+   * host is still connected.
    */
   migrateHost(): boolean {
     const cur = this.players.get(this.hostId);
     if (cur && cur.connected) return false;
     let next: LobbyPlayer | null = null;
     let anyConnected = false;
-    for (const p of this.players.values()) if (p.connected) { anyConnected = true; break; }
+    let anyConnectedInMission = false;
+    for (const p of this.players.values()) {
+      if (!p.connected) continue;
+      anyConnected = true;
+      if (p.inMission) anyConnectedInMission = true;
+    }
+    const preferInMission = this.started && anyConnectedInMission;
     for (const p of this.players.values()) {
       if (anyConnected && !p.connected) continue;
+      if (preferInMission && !p.inMission) continue;
       if (!next || p.slot < next.slot) next = p;
     }
     if (!next || next.id === this.hostId) return false;
@@ -97,6 +125,7 @@ export class Lobby {
   /** Remove a player. Returns true when the host changed (migrated to the lowest remaining connected slot). */
   remove(id: PeerId): boolean {
     if (!this.players.delete(id)) return false;
+    this.raid.delete(id);
     if (this.hostId !== id || this.players.size === 0) return false;
     return this.migrateHost();
   }
@@ -133,27 +162,62 @@ export class Lobby {
     return connected > 0;
   }
 
-  start(seed: number): void {
+  /**
+   * Start a mission. `raid` (default): every connected member enters (`inMission`). `training`: only `starterId`
+   * enters; the others stay in the hub and may join later with `lobby:mission {inMission:true}`.
+   * Old raid blobs are dropped (they belong to a previous seed).
+   */
+  start(seed: number, mode: MissionMode = 'raid', starterId?: PeerId): void {
     this.started = true;
     this.seed = seed;
+    this.mode = mode;
+    this.raid.clear();
+    for (const p of this.players.values()) {
+      p.inMission = mode === 'training' ? p.id === starterId : p.connected;
+    }
   }
 
   reset(): void {
     this.started = false;
     this.seed = null;
-    for (const p of this.players.values()) p.ready = false;
+    this.mode = null;
+    this.raid.clear();
+    for (const p of this.players.values()) { p.ready = false; p.inMission = false; }
   }
 
-  /** Open to newcomers via quick match. */
+  /** Update a member's mission membership. Returns the player or undefined when not a member. */
+  setInMission(id: PeerId, inMission: boolean): LobbyPlayer | undefined {
+    const p = this.players.get(id);
+    if (p) p.inMission = inMission;
+    return p;
+  }
+
+  /** Accept a raid blob: only while a raid with the same seed is running (`false` = ignored). */
+  setRaid(id: PeerId, blob: RaidSessionBlob): boolean {
+    if (!this.started || this.mode === 'training' || blob.seed !== this.seed || !this.players.has(id)) return false;
+    this.raid.set(id, blob);
+    return true;
+  }
+
+  /** The member's blob when it still belongs to the running raid, else null. */
+  getRaid(id: PeerId): RaidSessionBlob | null {
+    if (!this.started || this.mode === 'training') return null;
+    const b = this.raid.get(id);
+    return b && b.seed === this.seed ? b : null;
+  }
+
+  /** Open to newcomers via quick match (a not-started lobby, or one whose members are only training). */
   isQuickMatchable(): boolean {
-    return this.isPublic && !this.started && this.players.size < NET_MAX_PLAYERS && this.freeSlot() >= 0;
+    return this.isPublic && this.isJoinable() && this.players.size < NET_MAX_PLAYERS && this.freeSlot() >= 0;
   }
 
   toState(): LobbyState {
     const players = Array.from(this.players.values())
       .sort((a, b) => a.slot - b.slot)
       .map((p) => ({ ...p }));
-    return { code: this.code, hostId: this.hostId, players, started: this.started, seed: this.seed, isPublic: this.isPublic };
+    const state: LobbyState = { code: this.code, hostId: this.hostId, players, started: this.started, seed: this.seed, isPublic: this.isPublic };
+    if (this.started && this.mode) state.mode = this.mode;
+    return state;
   }
 }
 

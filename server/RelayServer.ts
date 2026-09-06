@@ -15,13 +15,22 @@ import { WebSocketServer, WebSocket, type RawData } from 'ws';
 import type {
   ClientToServer, ServerToClient, GameMessage, LobbyErrorCode, LobbyState, PeerId, RelayTarget,
 } from '../src/shared/net.ts';
+import type { MissionMode } from '../src/shared/types.ts';
+import type { RaidSessionBlob } from '../src/shared/profile.ts';
 import {
   NET_DEFAULT_PORT, NET_WS_PATH, NET_TOKEN_PARAM, NET_NAME_PARAM, NET_TOKEN_LENGTH, NET_RECONNECT_GRACE_MS,
-  isValidLobbyCode, normalizeLobbyCode, sanitizePlayerName,
+  NET_HOST_MIGRATE_DELAY_MS, isValidLobbyCode, normalizeLobbyCode, sanitizePlayerName,
 } from '../src/shared/net.ts';
+import { PROFILE_DOC_MAX_BYTES, RAID_BLOB_MAX_BYTES } from '../src/shared/profile.ts';
 import { Lobby, LobbyManager, LOBBY_ERROR_MESSAGE_KO } from './Lobby.ts';
+import { ProfileStore, docBytes, isProfileDocKey, type ProfileStoreOptions } from './Store.ts';
 
+/** Cap for ordinary frames (lobby ops, relayed game messages). */
 export const MAX_MESSAGE_BYTES = 64 * 1024;
+/** Cap for `profile:set` / `raid:save` frames: the document cap plus envelope headroom (the socket's maxPayload). */
+export const MAX_DOC_FRAME_BYTES = Math.max(PROFILE_DOC_MAX_BYTES, RAID_BLOB_MAX_BYTES) + 16 * 1024;
+const MAX_REASON_INPUT = 64;
+const MISSION_MODES: ReadonlySet<string> = new Set<MissionMode>(['raid', 'training']);
 export const HEARTBEAT_MS = 15_000;
 /** Length of the PeerId derived from a session token (base64url of sha256, truncated). */
 export const PEER_ID_LENGTH = 12;
@@ -37,6 +46,8 @@ interface Client {
   alive: boolean;
   name: string;
   remote: string;
+  /** Connected with a valid session token → a stable id with a profile record (anonymous ids get none). */
+  hasProfile: boolean;
 }
 
 export interface RelayServerOptions {
@@ -47,6 +58,13 @@ export interface RelayServerOptions {
   heartbeatMs?: number;
   /** How long a disconnected lobby member keeps their slot (default NET_RECONNECT_GRACE_MS; selftest uses ~300 ms). */
   reconnectGraceMs?: number;
+  /* Phase 7 */
+  /** Delay before a dropped HOST of a started lobby hands the role over (default NET_HOST_MIGRATE_DELAY_MS). */
+  hostMigrateDelayMs?: number;
+  /** Profile store directory (`null` = memory only; default `server/data/`). */
+  dataDir?: string | null;
+  /** Debounce for profile file writes (ms). */
+  profileSaveDebounceMs?: number;
 }
 
 export interface RelayServer {
@@ -54,6 +72,8 @@ export interface RelayServer {
   readonly http: HttpServer;
   readonly wss: WebSocketServer;
   readonly lobbies: LobbyManager;
+  /* Phase 7 */
+  readonly store: ProfileStore;
   clientCount(): number;
   close(): Promise<void>;
 }
@@ -80,11 +100,13 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 function parseClientMessage(raw: RawData, isBinary: boolean): ClientToServer | null {
   if (isBinary) return null;
   const text = typeof raw === 'string' ? raw : Array.isArray(raw) ? Buffer.concat(raw).toString('utf8') : raw.toString('utf8');
-  if (text.length > MAX_MESSAGE_BYTES) return null;
+  if (text.length > MAX_DOC_FRAME_BYTES) return null;
   let parsed: unknown;
   try { parsed = JSON.parse(text); } catch { return null; }
   if (!isRecord(parsed) || typeof parsed.t !== 'string') return null;
   const m = parsed;
+  // Only the two document uploads may exceed the ordinary cap (their payload is checked against the doc caps later).
+  if (text.length > MAX_MESSAGE_BYTES && m.t !== 'profile:set' && m.t !== 'raid:save') return null;
   const validName = typeof m.name === 'string' && m.name.length <= MAX_NAME_INPUT;
   switch (m.t) {
     case 'lobby:create':
@@ -96,8 +118,11 @@ function parseClientMessage(raw: RawData, isBinary: boolean): ClientToServer | n
       return { t: 'lobby:leave' };
     case 'lobby:ready':
       return typeof m.ready === 'boolean' ? { t: 'lobby:ready', ready: m.ready } : null;
-    case 'lobby:start':
-      return typeof m.seed === 'number' && Number.isFinite(m.seed) ? { t: 'lobby:start', seed: m.seed } : null;
+    case 'lobby:start': {
+      if (typeof m.seed !== 'number' || !Number.isFinite(m.seed)) return null;
+      if (m.mode === undefined) return { t: 'lobby:start', seed: m.seed };
+      return typeof m.mode === 'string' && MISSION_MODES.has(m.mode) ? { t: 'lobby:start', seed: m.seed, mode: m.mode as MissionMode } : null;
+    }
     case 'lobby:reset':
       return { t: 'lobby:reset' };
     case 'relay':
@@ -114,6 +139,24 @@ function parseClientMessage(raw: RawData, isBinary: boolean): ClientToServer | n
       return typeof m.seed === 'number' && Number.isFinite(m.seed) ? { t: 'lobby:seed', seed: m.seed } : null;
     case 'lobby:name':
       return validName ? { t: 'lobby:name', name: m.name as string } : null;
+    /* appended: Phase 7 — mission membership, profile store, credits, raid session */
+    case 'lobby:mission':
+      return typeof m.inMission === 'boolean' ? { t: 'lobby:mission', inMission: m.inMission } : null;
+    case 'profile:get':
+      return { t: 'profile:get' };
+    case 'profile:set':
+      // Key validity is answered with `invalid` by the handler (so a wrong key is reported, not silently dropped).
+      return typeof m.key === 'string' && 'doc' in m ? { t: 'profile:set', key: m.key as never, doc: m.doc } : null;
+    case 'credits:tx':
+      return typeof m.txId === 'number' && Number.isFinite(m.txId) && typeof m.delta === 'number' && Number.isFinite(m.delta)
+        && typeof m.reason === 'string' && m.reason.length <= MAX_REASON_INPUT
+        ? { t: 'credits:tx', txId: m.txId, delta: m.delta, reason: m.reason } : null;
+    case 'raid:save': {
+      const b = m.blob;
+      if (!isRecord(b) || typeof b.seed !== 'number' || !Number.isFinite(b.seed) || typeof b.missionTime !== 'number'
+        || !isRecord(b.stats) || !('inventory' in b) || typeof b.savedAt !== 'number') return null;
+      return { t: 'raid:save', blob: b as unknown as RaidSessionBlob };
+    }
     default:
       return null;
   }
@@ -139,25 +182,32 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
   const quiet = opts.quiet ?? false;
   const heartbeatMs = opts.heartbeatMs ?? HEARTBEAT_MS;
   const graceMs = opts.reconnectGraceMs ?? NET_RECONNECT_GRACE_MS;
+  const migrateMs = opts.hostMigrateDelayMs ?? NET_HOST_MIGRATE_DELAY_MS;
   const log = (line: string): void => { if (!quiet) console.log(`[relay ${new Date().toISOString()}] ${line}`); };
 
+  const storeOpts: ProfileStoreOptions = { quiet };
+  if (opts.dataDir !== undefined) storeOpts.dataDir = opts.dataDir;
+  if (opts.profileSaveDebounceMs !== undefined) storeOpts.saveDebounceMs = opts.profileSaveDebounceMs;
+  const store = new ProfileStore(storeOpts);
   const lobbies = new LobbyManager();
   const clients = new Map<PeerId, Client>();
   /** Lobby members whose socket is down: id → grace timer that removes them. */
   const graceTimers = new Map<PeerId, ReturnType<typeof setTimeout>>();
+  /** Started lobbies whose host dropped: lobby code → timer that migrates the host role (Phase 7). */
+  const migrateTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   const http = createServer((req, res) => {
     const url = req.url ?? '/';
     if (req.method === 'GET' && (url === '/health' || url.startsWith('/health?'))) {
       res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'access-control-allow-origin': '*' });
-      res.end(JSON.stringify({ ok: true, lobbies: lobbies.count, clients: clients.size, pendingReconnects: graceTimers.size, uptime: Math.round(process.uptime()) }));
+      res.end(JSON.stringify({ ok: true, lobbies: lobbies.count, clients: clients.size, pendingReconnects: graceTimers.size, profiles: store.size, uptime: Math.round(process.uptime()) }));
       return;
     }
     res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
     res.end('SCAVANGER relay: websocket at ' + NET_WS_PATH);
   });
 
-  const wss = new WebSocketServer({ server: http, path: NET_WS_PATH, maxPayload: MAX_MESSAGE_BYTES, perMessageDeflate: false });
+  const wss = new WebSocketServer({ server: http, path: NET_WS_PATH, maxPayload: MAX_DOC_FRAME_BYTES, perMessageDeflate: false });
 
   /* ── outbound helpers ─────────────────────────────────────────────────── */
   const sendTo = (c: Client, msg: ServerToClient): void => {
@@ -190,6 +240,22 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
     return true;
   };
 
+  const clearMigrate = (code: string): void => {
+    const t = migrateTimers.get(code);
+    if (t === undefined) return;
+    clearTimeout(t);
+    migrateTimers.delete(code);
+  };
+
+  /** A training whose last member left (`inMission` all false) is closed by the server; returns true when it reset. */
+  const autoResetTraining = (lobby: Lobby): boolean => {
+    if (!lobby.started || lobby.mode !== 'training' || lobby.inMissionCount() > 0) return false;
+    lobby.reset();
+    clearMigrate(lobby.code);
+    log(`lobby ${lobby.code}: training ended (last member left) → reset`);
+    return true;
+  };
+
   /** Final removal (explicit leave or grace expiry): `peer:left` to the rest, empty lobby deleted. */
   const removeFromLobby = (id: PeerId, name: string, reason: 'leave' | 'timeout'): void => {
     clearGrace(id);
@@ -197,19 +263,38 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
     if (!res) return;
     const { lobby, hostMigrated, deleted } = res;
     log(`lobby ${lobby.code}: ${name}(${id}) ${reason}${hostMigrated ? ` → host now ${lobby.hostId}` : ''}${deleted ? ' → lobby deleted' : ''}`);
-    if (!deleted) broadcast(lobby, { t: 'peer:left', id, lobby: lobby.toState() });
+    if (deleted) { clearMigrate(lobby.code); return; }
+    if (hostMigrated) clearMigrate(lobby.code);
+    broadcast(lobby, { t: 'peer:left', id, lobby: lobby.toState() });
+    if (autoResetTraining(lobby)) broadcastState(lobby);
   };
 
-  /** Socket of a lobby member went away: keep the slot, flag it, migrate host if needed, arm the grace timer. */
+  /**
+   * Socket of a lobby member went away: keep the slot, flag it, arm the grace timer. Host role: not started (hub) →
+   * migrates at once so the party can still launch; started → kept for `migrateMs` (a brief blip keeps the host),
+   * then moved to a connected member inside the mission (`Lobby.migrateHost` prefers `inMission`).
+   */
   const suspendInLobby = (c: Client): void => {
     const lobby = lobbies.lobbyOf(c.id);
     if (!lobby) return;
     lobby.setConnected(c.id, false);
-    // Hub (not started): hand the host role over right away so the party can still launch. Mission running: keep the
-    // host id through the grace so a returning host resumes as the authority; `remove()` migrates on expiry / leave.
     const migrated = lobby.started ? false : lobby.migrateHost();
-    log(`lobby ${lobby.code}: ${c.name}(${c.id}) disconnected, slot kept ${graceMs} ms${migrated ? ` → host now ${lobby.hostId}` : lobby.started && lobby.hostId === c.id ? ' (host kept: mission running)' : ''}`);
+    const hostDropped = lobby.started && lobby.hostId === c.id;
+    log(`lobby ${lobby.code}: ${c.name}(${c.id}) disconnected, slot kept ${graceMs} ms${migrated ? ` → host now ${lobby.hostId}` : hostDropped ? ` (host kept ${migrateMs} ms: mission running)` : ''}`);
     broadcastState(lobby);
+    if (hostDropped) {
+      clearMigrate(lobby.code);
+      const timer = setTimeout(() => {
+        migrateTimers.delete(lobby.code);
+        if (lobbies.byCode(lobby.code) !== lobby || !lobby.started) return;
+        if (lobby.migrateHost()) {
+          log(`lobby ${lobby.code}: host ${c.id} still down after ${migrateMs} ms → host now ${lobby.hostId}`);
+          broadcastState(lobby);
+        }
+      }, migrateMs);
+      timer.unref();
+      migrateTimers.set(lobby.code, timer);
+    }
     clearGrace(c.id);
     const timer = setTimeout(() => {
       graceTimers.delete(c.id);
@@ -278,12 +363,20 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
       case 'lobby:start': {
         const lobby = lobbies.lobbyOf(c.id);
         if (!lobby) { sendError(c, 'not_in_lobby'); return; }
-        if (lobby.hostId !== c.id) { sendError(c, 'not_host'); return; }
+        const mode: MissionMode = m.mode ?? 'raid';
         if (lobby.started) { sendError(c, 'started'); return; }
+        if (mode === 'training') {
+          // Any member, no ready gating: only the starter enters; the rest join later through `lobby:mission`.
+          lobby.start(m.seed, 'training', c.id);
+          log(`lobby ${lobby.code}: training started seed=${m.seed} by ${c.name}(${c.id})`);
+          broadcast(lobby, { t: 'game:start', seed: m.seed, lobby: lobby.toState(), mode: 'training' });
+          return;
+        }
+        if (lobby.hostId !== c.id) { sendError(c, 'not_host'); return; }
         if (!lobby.allReady()) { sendError(c, 'not_ready'); return; }
-        lobby.start(m.seed);
+        lobby.start(m.seed, 'raid', c.id);
         log(`lobby ${lobby.code}: started seed=${m.seed} players=${lobby.size} (${lobby.connectedCount()} connected)`);
-        broadcast(lobby, { t: 'game:start', seed: m.seed, lobby: lobby.toState() });
+        broadcast(lobby, { t: 'game:start', seed: m.seed, lobby: lobby.toState(), mode: 'raid' });
         return;
       }
 
@@ -292,8 +385,54 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         if (!lobby) { sendError(c, 'not_in_lobby'); return; }
         if (lobby.hostId !== c.id) { sendError(c, 'not_host'); return; }
         lobby.reset();
+        clearMigrate(lobby.code);
         log(`lobby ${lobby.code}: reset (reopened)`);
         broadcastState(lobby);
+        return;
+      }
+
+      /* appended: Phase 7 */
+      case 'lobby:mission': {
+        const lobby = lobbies.lobbyOf(c.id);
+        if (!lobby) { sendError(c, 'not_in_lobby'); return; }
+        if (m.inMission && !lobby.started) { sendError(c, 'in_mission'); return; }
+        lobby.setInMission(c.id, m.inMission);
+        log(`lobby ${lobby.code}: ${c.name}(${c.id}) inMission=${m.inMission} (${lobby.inMissionCount()} in mission)`);
+        if (!m.inMission) lobby.raid.delete(c.id);
+        autoResetTraining(lobby);
+        broadcastState(lobby);
+        return;
+      }
+
+      case 'profile:get': {
+        sendTo(c, { t: 'profile:docs', profile: store.snapshot(c.id) });
+        return;
+      }
+
+      case 'profile:set': {
+        if (!c.hasProfile) { sendError(c, 'invalid', '프로필이 없는 연결입니다 (세션 토큰 필요).'); return; }
+        if (!isProfileDocKey(m.key)) { sendError(c, 'invalid', '알 수 없는 프로필 문서 키입니다.'); return; }
+        const res = store.setDoc(c.id, m.key, m.doc);
+        if (res === 'too_large') { sendError(c, 'too_large'); return; }
+        if (res === 'invalid') { sendError(c, 'invalid'); return; }
+        return;
+      }
+
+      case 'credits:tx': {
+        if (!c.hasProfile) { sendTo(c, { t: 'credits:result', txId: m.txId, ok: false, credits: 0, reason: '프로필이 없는 연결입니다.' }); return; }
+        const res = store.applyCredits(c.id, m.delta, m.reason);
+        log(`credits ${c.id}: ${m.delta >= 0 ? '+' : ''}${m.delta} (${m.reason}) → ${res.ok ? res.credits : `refused (${res.reason})`}`);
+        sendTo(c, res.reason !== undefined
+          ? { t: 'credits:result', txId: m.txId, ok: res.ok, credits: res.credits, reason: res.reason }
+          : { t: 'credits:result', txId: m.txId, ok: res.ok, credits: res.credits });
+        return;
+      }
+
+      case 'raid:save': {
+        const lobby = lobbies.lobbyOf(c.id);
+        if (!lobby) return; // silently ignored: the mission is over for us
+        if (docBytes(m.blob) > RAID_BLOB_MAX_BYTES) { sendError(c, 'too_large'); return; }
+        lobby.setRaid(c.id, m.blob); // false = not a running raid of that seed → ignored
         return;
       }
 
@@ -350,7 +489,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
   wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
     const { token, name } = parseConnectQuery(req);
     const id = token ? peerIdFromToken(token) : randomPeerId();
-    const c: Client = { id, ws, alive: true, name: name ?? '', remote: req.socket.remoteAddress ?? '?' };
+    const c: Client = { id, ws, alive: true, name: name ?? '', remote: req.socket.remoteAddress ?? '?', hasProfile: token !== null };
 
     // Same session already attached (second tab / zombie socket): the newest connection wins.
     const old = clients.get(id);
@@ -366,15 +505,24 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
 
     // Still a lobby member (reconnect within grace, page reload, or replaced socket) → resume into it.
     const lobby = lobbies.lobbyOf(id);
+    const profile = c.hasProfile ? store.snapshot(id) : undefined;
     if (lobby) {
       const wasDown = clearGrace(id) || !(lobby.get(id)?.connected ?? true);
       lobby.setConnected(id, true);
+      // A returning host inside the migrate delay keeps the role; after it, `welcome.lobby.hostId` tells it otherwise.
+      if (lobby.hostId === id) clearMigrate(lobby.code);
       if (c.name) lobby.setName(id, c.name); else c.name = lobby.get(id)?.name ?? '';
-      log(`lobby ${lobby.code}: ${c.name}(${id}) resumed${wasDown ? ' (was disconnected)' : ''}`);
-      sendTo(c, { t: 'welcome', id, serverTime: Date.now(), lobby: lobby.toState(), resumed: true });
+      const raid = lobby.getRaid(id);
+      log(`lobby ${lobby.code}: ${c.name}(${id}) resumed${wasDown ? ' (was disconnected)' : ''}${raid ? ' + raid blob' : ''}`);
+      const welcome: ServerToClient = { t: 'welcome', id, serverTime: Date.now(), lobby: lobby.toState(), resumed: true };
+      if (profile) welcome.profile = profile;
+      if (raid) welcome.raid = raid;
+      sendTo(c, welcome);
       broadcastState(lobby);
     } else {
-      sendTo(c, { t: 'welcome', id, serverTime: Date.now() });
+      const welcome: ServerToClient = { t: 'welcome', id, serverTime: Date.now() };
+      if (profile) welcome.profile = profile;
+      sendTo(c, welcome);
     }
 
     ws.on('pong', () => { c.alive = true; });
@@ -414,17 +562,21 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
     http.listen(port, host, () => {
       const addr = http.address();
       const boundPort = typeof addr === 'object' && addr ? addr.port : port;
-      log(`listening on http://${host}:${boundPort}  ws path ${NET_WS_PATH}  health GET /health  grace ${graceMs} ms`);
+      log(`listening on http://${host}:${boundPort}  ws path ${NET_WS_PATH}  health GET /health  grace ${graceMs} ms  host migrate ${migrateMs} ms  profiles ${store.path ?? '(memory)'}`);
       resolve({
         port: boundPort,
         http,
         wss,
         lobbies,
+        store,
         clientCount: () => clients.size,
         close: () => new Promise<void>((done) => {
           clearInterval(heartbeat);
           for (const t of graceTimers.values()) clearTimeout(t);
           graceTimers.clear();
+          for (const t of migrateTimers.values()) clearTimeout(t);
+          migrateTimers.clear();
+          store.close();
           for (const c of clients.values()) { try { c.ws.terminate(); } catch { /* ignore */ } }
           wss.close(() => { http.close(() => done()); });
         }),

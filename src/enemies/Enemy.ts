@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CORPSE_LIFETIME, type DeployableRef, type EnemyFaction, type EnemyRef, type EnemyType, type GameContext, type Obstacle } from '@/shared';
+import { CORPSE_LIFETIME, ROGUE_GRENADE_COOLDOWN, ROGUE_MAG_ROUNDS, type DeployableRef, type EnemyFaction, type EnemyRef, type EnemyType, type GameContext, type Obstacle } from '@/shared';
 import { ENEMY_STATS, ROGUE_AI, isRogueType, type BugType, type EnemyStats } from './EnemyTypes';
 import { createBugRig, createBugAnim, disposeBugRig, animateBug, type BugRig, type BugAnim } from './models/BugModel';
 import { animateRogue, createRogueRig, disposeRogueRig, type RogueRig, type RogueType } from './models/RogueModel';
@@ -50,6 +50,12 @@ export interface EnemyHost {
   fireAcidAt(from: THREE.Vector3, aimFeet: THREE.Vector3, shooter: Enemy): void;
   /** Small ember puff for a burning bug (pooled, no lights). */
   emberBurst(position: THREE.Vector3, count: number): void;
+  /* ── appended: Phase 7 (rogue AI v2) ── */
+  /**
+   * Rogue grenade toss at `target` (feet): ballistic `RogueGrenade`, `ee grenade`; the host resolves the blast.
+   * Returns false when nothing was thrown (launch path blocked by a rock in the face, pool full).
+   */
+  throwGrenade(e: Enemy, target: THREE.Vector3): boolean;
 }
 
 const _v = new THREE.Vector3();
@@ -204,6 +210,25 @@ export class Enemy implements EnemyRef {
   /** Replica: last status bits forwarded to the host as a `HitRequest.st` and when (throttle for per-tick callers). */
   statusReqBits = 0;
   statusReqAt = -Infinity;
+  /* ── appended: Phase 7 (rogue AI v2, 2026-09-06) ─────────────────────── */
+  /** rogue: rounds left in the magazine (`ROGUE_MAG_ROUNDS`); 0 → reload */
+  magRounds = ROGUE_MAG_ROUNDS;
+  /** rogue: seconds of reload left (no shots, crouched, wire hint 12) */
+  reloadTimer = 0;
+  /** rogue: per-rogue grenade cooldown (s) */
+  grenadeCd = 0;
+  /** rogue: seconds the target has been out of LOS while hunting (grenade trigger after `ROGUE_GRENADE_HOLD_S`) */
+  noLosHold = 0;
+  /** rogue: grenade wind-up left (> 0 = throw pose, wire hint 13); the toss happens when it reaches 0 */
+  throwTimer = 0;
+  /** rogue: where the grenade goes (target feet at wind-up start) */
+  readonly grenadeTarget = new THREE.Vector3();
+  /**
+   * rogue: the spot beside the cover obstacle with a clear standing line to the target — the rogue steps out to it to
+   * fire (LOS-validated cover hides the rogue *and* the target, so popping out in place would never see anything).
+   */
+  readonly popPos = new THREE.Vector3();
+  hasPop = false;
 
   constructor(type: EnemyType) {
     this.rig = isRogueType(type) ? createRogueRig(type as RogueType) : createBugRig(type as BugType);
@@ -260,18 +285,21 @@ export class Enemy implements EnemyRef {
     this.netBuf?.clear();
     // Phase 4
     this.roguePhase = 0; this.guardPos.copy(position); this.leash = ROGUE_AI.leash; this.escortOf = null;
-    this.hasCover = false; this.coverTimer = 0; this.burstLeft = 0; this.burstTimer = 0; this.standTime = 0;
+    this.hasCover = false; this.hasPop = false; this.coverTimer = 0; this.burstLeft = 0; this.burstTimer = 0; this.standTime = 0;
     this.rushTimer = 0; this.hitCrouchTimer = 0; this.noLosTimer = 0; this.weaponId = '';
     this.shellTimer = 3 + Math.random() * 3; this.dug = 0;
     this.toxicPhase = 0; this.swellTimer = 0;
     this.chargeSeq = 0; this.hitByCharge = -1; this.chargeVictims.length = 0;
     this.corpseLife = CORPSE_LIFETIME;
+    // Phase 7: full magazine, grenade cooldown staggered so a squad never volleys at once
+    this.magRounds = ROGUE_MAG_ROUNDS; this.reloadTimer = 0;
+    this.grenadeCd = ROGUE_GRENADE_COOLDOWN * (0.25 + Math.random() * 0.5); this.noLosHold = 0; this.throwTimer = 0;
     this.syncTarget();
     const a = this.anim;
     a.gait = Math.random() * Math.PI * 2; a.speed = 0; a.headYaw = 0; a.headPitch = 0; a.mandible = 0;
     a.flinch = 0; a.flinchX = 0; a.flinchZ = 0; a.hitFlash = 0; a.abdomen = 0; a.shake = 0; a.crouch = 0;
     a.death = -1; a.rollSign = Math.random() < 0.5 ? -1 : 1; a.slopePitch = 0; a.slopeRoll = 0; a.time = Math.random() * 10;
-    a.fade = 0; a.aim = 0; a.recoil = 0; a.writhe = 0; a.spark = 0;
+    a.fade = 0; a.aim = 0; a.recoil = 0; a.writhe = 0; a.spark = 0; a.reload = 0; a.throwing = 0;
     this.rig.root.visible = true;
     this.rig.root.scale.setScalar(this.rig.baseScale);
     this.rig.root.position.copy(position);
@@ -447,6 +475,7 @@ export class Enemy implements EnemyRef {
     this.spitPhase = 0;
     this.roguePhase = 0;
     this.burstLeft = 0;
+    this.throwTimer = 0;      // a stagger drops the wind-up (the cooldown was not spent)
     this.anim.shake = 0;
     this.anim.abdomen = 0;
     this.hasMoveTarget = false;
@@ -488,6 +517,7 @@ export class Enemy implements EnemyRef {
     this.anim.crouch = 0;
     this.anim.aim = 0;
     this.anim.mandible = 0.2;
+    this.throwTimer = 0; this.reloadTimer = 0;
     this.velocity.set(0, 0, 0);
     this.syncTarget();
     this.burnDps = 0; this.burnTimer = 0;
@@ -505,6 +535,16 @@ export class Enemy implements EnemyRef {
     a.hitFlash = Math.max(0, a.hitFlash - dt * 6);
     a.flinch = Math.max(0, a.flinch - dt * 4.5);
     a.recoil = Math.max(0, a.recoil - dt * 6);
+    // Phase 7 rogue poses: reload (rifle down, hands at the magazine) / throw (grenade arm raised) blend in from the timers
+    if (this.isRogue) {
+      const alive = this.state !== 'dead';
+      const reloadT = alive && this.reloadTimer > 0 ? 1 : 0;
+      const throwT = alive && this.throwTimer > 0 ? 1 : 0;
+      a.reload += (reloadT - a.reload) * Math.min(1, dt * (reloadT > 0 ? 10 : 6));
+      a.throwing += (throwT - a.throwing) * Math.min(1, dt * (throwT > 0 ? 12 : 8));
+      if (a.reload < 0.001 && reloadT === 0) a.reload = 0;
+      if (a.throwing < 0.001 && throwT === 0) a.throwing = 0;
+    }
     // 전소 writhe blends in fast and settles out; the spark flicker is a short cyan strobe while `shockTimer` runs
     const writheT = this.state !== 'dead' && this.incapTimer > 0 ? 1 : 0;
     a.writhe += (writheT - a.writhe) * Math.min(1, dt * (writheT > 0 ? 9 : 4));

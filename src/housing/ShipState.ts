@@ -1,11 +1,12 @@
-import type { LoadoutPreset, PlacedFurniture, RoomState, ShipState, StoredFurniture } from '@/shared';
+import type { LoadoutPreset, PlacedFurniture, ProfileRef, RoomState, ShipState, StoredFurniture } from '@/shared';
 import { FURNITURE_DEF_MAP, IMPLANT_IDS, SHIP_ROOM_COUNT, SHIP_STATE_VERSION, SHIP_STORAGE_KEY } from '@/shared';
 import { canPlaceAt, facilityMaxLevel, furnitureMaxLevel, isRoomPurpose } from './Rules';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * ShipState persistence: fresh state, load + sanitise + migrate, debounced save with a pagehide flush. Same shape as
  * inventory/Stash.ts (try/catch around every localStorage touch, SAVE_DELAY_MS debounce). Uids of placed furniture
- * are `f-<n>`; `nextUid` continues after the highest one found in the save.
+ * are `f-<n>`; `nextUid` continues after the highest one found in the save. Phase 7: every flush also mirrors the state
+ * into the server profile document `ship` (`ctx.net.profile.set`) when a profile is available.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 const SAVE_DELAY_MS = 350;
@@ -152,13 +153,13 @@ export function writeState(state: ShipState): boolean {
   try { s.setItem(SHIP_STORAGE_KEY, JSON.stringify(state)); return true; } catch { return false; }
 }
 
-/** Debounced writer with a pagehide / beforeunload flush. */
+/** Debounced writer with a pagehide / beforeunload flush; `profile` = the server mirror (read lazily, may be offline). */
 export class ShipStore {
   private timer: number | null = null;
   private dirty = false;
   private onPageHide = (): void => this.flush();
 
-  constructor(private readonly getState: () => ShipState) {
+  constructor(private readonly getState: () => ShipState, private readonly profile: () => ProfileRef | null = () => null) {
     window.addEventListener('pagehide', this.onPageHide);
     window.addEventListener('beforeunload', this.onPageHide);
   }
@@ -174,6 +175,20 @@ export class ShipStore {
     if (!this.dirty) return;
     this.dirty = false;
     writeState(this.getState());
+    this.upload();
+  }
+
+  /** Queue the state into the server profile (`profile:set ship`); no-op offline. */
+  upload(): void {
+    const p = this.profile();
+    if (!p || !p.available || typeof p.set !== 'function') return;
+    try { p.set('ship', JSON.parse(JSON.stringify(this.getState()))); } catch { /* net not ready */ }
+  }
+
+  /** Drop a pending write (the state was just replaced by the server copy, which is already written locally). */
+  cancel(): void {
+    if (this.timer !== null) { clearTimeout(this.timer); this.timer = null; }
+    this.dirty = false;
   }
 
   dispose(): void {

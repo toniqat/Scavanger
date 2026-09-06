@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { MissionMode } from '@/shared';
 import {
-  MAP_SIZE, Random,
+  MAP_SIZE, Random, TRAINING_ARENA_SIZE,
   type CrateDef, type ExtractionPointDef, type GameContext, type GameSystem, type GatherNodeDef,
   type Obstacle, type TerrainHit, type WorldRef,
 } from '@/shared';
@@ -18,17 +18,24 @@ import { PLATFORM_HEIGHT, PLATFORM_RADIUS, Pads } from './Pads';
 import { Props } from './Props';
 import { type ObstacleEntry, SpatialHash } from './SpatialHash';
 import { HALF, Terrain } from './Terrain';
+import { TrainingArena } from './TrainingArena';
 
 const SOFT_WALL = HALF - 4;
+const NONE_CRATES: readonly CrateDef[] = [];
+const NONE_VEC: readonly THREE.Vector3[] = [];
+const NONE_GATHER: readonly GatherNodeDef[] = [];
 
 /**
  * Owns the procedural planet surface: terrain, props/obstacles, nests, pads, outposts, crates, ambience.
  * Generates synchronously on `game:newMission`, tears down on `game:abort`.
+ * Phase 7: `game:newMission {mode:'training'}` builds the 시뮬레이션 훈련장 (`TrainingArena`) instead — a flat walled
+ * arena with pop-up targets, no crates / nests / gather / extraction; every query below branches on `mode`.
  */
 export class WorldSystem implements GameSystem, WorldRef {
   readonly name = 'world';
-  readonly size = MAP_SIZE;
-  /* Phase 7 skeleton (world/ agent implements the training arena; docs/PHASE7-PLAN.md §9) */
+  /** Map side: `MAP_SIZE` for the planet, `TRAINING_ARENA_SIZE` for the arena (map screen / ping clamps read it). */
+  get size(): number { return this.mode === 'training' ? TRAINING_ARENA_SIZE : MAP_SIZE; }
+  /** Mode of the last generated world (`'raid'` until a training was built; kept through `clear()`). */
   mode: MissionMode = 'raid';
   seed = 0;
   ready = false;
@@ -43,6 +50,7 @@ export class WorldSystem implements GameSystem, WorldRef {
   private readonly crates = new Crates();
   private readonly gather = new Gather();
   private readonly ambience = new Ambience();
+  private readonly arena = new TrainingArena();
   private readonly hash = new SpatialHash(16);
   private layout: WorldLayout | null = null;
   private biome: Biome | null = null;
@@ -57,6 +65,7 @@ export class WorldSystem implements GameSystem, WorldRef {
   private readonly tmpN = new THREE.Vector3();
   private readonly heightFn = (x: number, z: number) => this.getHeightAt(x, z);
   private hitNx = 0; private hitNy = 1; private hitNz = 0;
+  private readonly shellN = new THREE.Vector3(0, 1, 0);
 
   constructor() { this.root.name = 'World'; }
 
@@ -68,7 +77,8 @@ export class WorldSystem implements GameSystem, WorldRef {
     ctx.scene.add(this.root);
     this.gather.attach(ctx);
     this.unsubs.push(
-      ctx.bus.on('game:newMission', ({ seed }) => this.generate(seed)),
+      // `mode` travels on the event; a rejoin without it falls back to `ctx.missionMode` (set by the emitter beforehand)
+      ctx.bus.on('game:newMission', ({ seed, mode }) => this.generate(seed, mode ?? (ctx.missionMode === 'training' ? 'training' : 'raid'))),
       ctx.bus.on('game:abort', () => {
         this.clear();
         ctx.bus.emit('world:cleared', {});
@@ -79,6 +89,7 @@ export class WorldSystem implements GameSystem, WorldRef {
   update(dt: number, ctx: GameContext): void {
     if (!this.ready) return;
     const t = ctx.time;
+    if (this.mode === 'training') { this.arena.update(dt, t); return; }
     this.props.update(t);
     this.nests.update(t);
     this.pads.update(t);
@@ -99,12 +110,14 @@ export class WorldSystem implements GameSystem, WorldRef {
 
   /* ── generation ────────────────────────────────────────────────────── */
 
-  generate(seed: number): void {
+  generate(seed: number, mode: MissionMode = 'raid'): void {
     const ctx = this.ctx;
     if (!ctx) return;
     if (this.generated) this.clear();
+    if (mode === 'training') { this.generateTraining(seed); return; }
     const t0 = performance.now();
 
+    this.mode = 'raid';
     this.seed = seed >>> 0;
     const rng = new Random(this.seed);
     const noise = new Noise(rng.fork('terrain'));
@@ -141,9 +154,52 @@ export class WorldSystem implements GameSystem, WorldRef {
     ctx.bus.emit('world:ready', { seed: this.seed, playerSpawn: this.spawnPos.clone() });
   }
 
+  /**
+   * 시뮬레이션 훈련장: flat arena, three lanes of pop-up targets, exit console. No terrain / props / crates / nests /
+   * gather / ambience; `world:ready` fires like the planet's. The atmosphere is switched to its space mode right after
+   * `world:ready` (Engine's handler re-applied the planet palette inside the emit) so the arena reads as an interior lit
+   * by its own emissive strips; `clear()` switches it back.
+   */
+  private generateTraining(seed: number): void {
+    const ctx = this.ctx!;
+    const t0 = performance.now();
+    this.mode = 'training';
+    this.seed = seed >>> 0;
+    const rng = new Random(this.seed);
+    this.layout = null;
+    this.biome = null;
+    this.spawnRng = rng.fork('spawns');
+    this.arena.build(ctx, rng, this.root, this.hash);
+    this.extractionPoints = [];
+    this.spawnPos.copy(this.arena.spawn);
+    this.generated = true;
+    this.ready = true;
+    const ms = performance.now() - t0;
+    console.info(`[World] training arena · seed ${this.seed} · ${this.arena.targetCount} targets · ${this.hash.getAll().length} obstacles · ${ms.toFixed(0)} ms`);
+    ctx.bus.emit('world:ready', { seed: this.seed, playerSpawn: this.spawnPos.clone() });
+    this.setSpaceMode(true);
+    this.arena.announce();
+  }
+
+  /** Debug / smoke: the arena (targets, counters) while a training world is up. */
+  get trainingArena(): TrainingArena | null { return this.mode === 'training' && this.ready ? this.arena : null; }
+
+  private setSpaceMode(on: boolean): void {
+    const atmo = this.ctx?.scene.userData.atmosphere as { setSpaceMode?: (on: boolean) => void } | undefined;
+    atmo?.setSpaceMode?.(on);
+  }
+
   clear(): void {
     if (!this.generated) return;
     this.ready = false;
+    if (this.mode === 'training') {
+      this.arena.dispose();
+      this.hash.clear();
+      this.extractionPoints = [];
+      this.generated = false;
+      this.setSpaceMode(false);
+      return;
+    }
     this.ambience.dispose();
     this.gather.dispose();
     this.crates.dispose();
@@ -166,6 +222,7 @@ export class WorldSystem implements GameSystem, WorldRef {
   /* ── WorldRef: terrain queries ─────────────────────────────────────── */
 
   getHeightAt(x: number, z: number): number {
+    if (this.mode === 'training') return 0;
     let h = this.terrain.getHeightAt(x, z);
     const layout = this.layout;
     if (layout) {
@@ -187,6 +244,7 @@ export class WorldSystem implements GameSystem, WorldRef {
   }
 
   getNormalAt(x: number, z: number, out: THREE.Vector3 = new THREE.Vector3()): THREE.Vector3 {
+    if (this.mode === 'training') return out.set(0, 1, 0);
     const e = 0.6;
     const hl = this.getHeightAt(x - e, z), hr = this.getHeightAt(x + e, z);
     const hd = this.getHeightAt(x, z - e), hu = this.getHeightAt(x, z + e);
@@ -195,6 +253,7 @@ export class WorldSystem implements GameSystem, WorldRef {
   }
 
   isInsideBounds(x: number, z: number): boolean {
+    if (this.mode === 'training') return this.arena.isInside(x, z);
     return Math.abs(x) <= HALF && Math.abs(z) <= HALF;
   }
 
@@ -216,6 +275,7 @@ export class WorldSystem implements GameSystem, WorldRef {
       position.x += (dx / d) * push;
       position.z += (dz / d) * push;
     }
+    if (this.mode === 'training') { this.arena.clampInside(position, radius); out.length = 0; return position; }
     // soft map wall
     const limit = SOFT_WALL - radius;
     if (position.x > limit) position.x = limit + (position.x - limit) * 0.2;
@@ -235,7 +295,10 @@ export class WorldSystem implements GameSystem, WorldRef {
     if (dl < 1e-8) return null;
     dx /= dl; dy /= dl; dz /= dl;
 
-    let bestT = this.terrain.raycast(ox, oy, oz, dx, dy, dz, maxDist, this.heightFn);
+    const training = this.mode === 'training';
+    let bestT = training
+      ? this.arena.raycastShell(ox, oy, oz, dx, dy, dz, maxDist, this.shellN)
+      : this.terrain.raycast(ox, oy, oz, dx, dy, dz, maxDist, this.heightFn);
     let bestObs: ObstacleEntry | null = null;
     const limitT = bestT > 0 ? bestT : maxDist;
 
@@ -254,7 +317,7 @@ export class WorldSystem implements GameSystem, WorldRef {
 
     if (bestT < 0) return null;
     const point = new THREE.Vector3(ox + dx * bestT, oy + dy * bestT, oz + dz * bestT);
-    const normal = bestObs ? this.tmpN.clone() : this.getNormalAt(point.x, point.z, new THREE.Vector3());
+    const normal = bestObs ? this.tmpN.clone() : training ? this.shellN.clone() : this.getNormalAt(point.x, point.z, new THREE.Vector3());
     const hit: TerrainHit = { point, normal, distance: bestT };
     if (bestObs) hit.obstacle = bestObs as Obstacle;
     return hit;
@@ -324,12 +387,12 @@ export class WorldSystem implements GameSystem, WorldRef {
 
   getExtractionPoints(): readonly ExtractionPointDef[] { return this.extractionPoints; }
 
-  getCrates(): readonly CrateDef[] { return this.crates.getDefs(); }
+  getCrates(): readonly CrateDef[] { return this.mode === 'training' ? NONE_CRATES : this.crates.getDefs(); }
 
-  getNestPositions(): readonly THREE.Vector3[] { return this.nests.getHolePositions(); }
+  getNestPositions(): readonly THREE.Vector3[] { return this.mode === 'training' ? NONE_VEC : this.nests.getHolePositions(); }
 
   /** Harvestable plants (consumed nodes stay in the list with `harvested: true`). */
-  getGatherNodes(): readonly GatherNodeDef[] { return this.gather.getNodes(); }
+  getGatherNodes(): readonly GatherNodeDef[] { return this.mode === 'training' ? NONE_GATHER : this.gather.getNodes(); }
 
   getEnemySpawnPoints(around: THREE.Vector3, count: number, minDist: number, maxDist: number): THREE.Vector3[] {
     const result: THREE.Vector3[] = [];

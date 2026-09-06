@@ -8,22 +8,31 @@ Registered in `main.ts` right after `InventorySystem` (buy / sell / deliveries n
 
 | File | Purpose |
 |---|---|
-| `MetaSystem.ts` | `GameSystem` (`name: 'meta'`) + `MetaRef`. Bus subscriptions for contract goals, `meta` net message (squad share), `settleMission`, shop buy / sell, quests, corp-screen open / close, console commands, save on `hub:entered` and after every change. |
-| `Storage.ts` | `MetaSave` v1: `freshMetaSave()`, `sanitizeMetaSave()` (clamped credits, known corp / quest / contract ids only, only `accepted` / `complete` quest states kept), `MetaStorage` (load, 350 ms debounced `markDirty()`, `flush()` on `pagehide` / hub entry / dispose, every storage access in try/catch). |
-| `Rules.ts` | Pure functions, no ctx / DOM: `repInfoOf`, shop filter (`ruleMatches` / `corpSells` / `shopRarityCap` / `buildShop` sorted by category → rarity → price), `killGoalOf`, `contractBlockReason`, `contractHitDelta`, `settleContract`, `questStateOf`, `questBlockReason`, the 한국어 `REASON` strings. |
-| `ui/CorpMenu.ts` | `.menu.corp-menu`: header 기업 네트워크 + credit readout, 4 corp tabs (`CorpDef.color` accent, `Lv.n`), banner (slogan, description, rep bar `rep / next`), sub-tabs 상점 / 판매 / 계약 / 퀘스트, rows with 구매 / 판매 / 수락 / 포기 / 납품 buttons (disabled + tooltip from `blocked`), `귀중품 전부 판매`, inline `.form-msg`. Hub pointer-lock etiquette (blocker first, Esc capture, microtask re-lock). |
+| `MetaSystem.ts` | `GameSystem` (`name: 'meta'`) + `MetaRef`. Bus subscriptions for contract goals, `meta` net message (squad share), `settleMission`, shop buy / sell, quests, corp-screen open / close, console commands, save on `hub:entered` and after every change. Phase 7: server credits (`addCredits` = optimistic local apply + `credits:tx`, `serverTx` adopts / reverts), `buy` = `canFit` → debit → item (async completion → `meta:purchase`, failure → `lastPurchaseFailure` / `onPurchaseFailed`), `net:profileLoaded` (replace / migrate), training gating. |
+| `Storage.ts` | `MetaSave` v1: `freshMetaSave()`, `sanitizeMetaSave()` (clamped credits, known corp / quest / contract ids only, only `accepted` / `complete` quest states kept), `MetaStorage` (load, 350 ms debounced `markDirty()`, `flush()` on `pagehide` / hub entry / dispose, every storage access in try/catch). Phase 7: `flush()` = `writeCache()` (localStorage) + `upload()` (`ctx.net.profile.set('meta', snapshot())` when available); `replace(doc)` adopts a server document without echoing it back. |
+| `Rules.ts` | Pure functions, no ctx / DOM: `repInfoOf`, shop filter (`ruleMatches` / `corpSells` / `shopRarityCap` / `buildShop` sorted by category → rarity → price, `fits` → 공간 없음), `killGoalOf`, `contractBlockReason`, `contractHitDelta`, `settleContract` (fills `outcome`), `questStateOf`, `questBlockReason`, the 한국어 `REASON` strings. `rarityRank` / `RARITY_ORDER` come from `@/shared` (`labels.ts`) since Phase 7. |
+| `ui/CorpMenu.ts` | `.menu.corp-menu`: header 기업 네트워크 + credit readout, 4 corp tabs (`CorpDef.color` accent, `Lv.n`), banner (slogan, description, rep bar `rep / next`), sub-tabs 상점 / 판매 / 계약 / 퀘스트, rows with 구매 / 판매 / 수락 / 포기 / 납품 buttons (disabled + tooltip from `blocked`), `귀중품 전부 판매`, inline `.form-msg`. Hub pointer-lock etiquette (blocker first, Esc capture, microtask re-lock). Labels from `RARITY_LABEL_KO` / `CATEGORY_LABEL_KO` (`@/shared`); the purchase message comes from `meta:purchase` (`구매 처리 중…` while a server transaction is pending) and refusals from `MetaSystem.onPurchaseFailed`. |
 | `ui/dom.ts` | `el / setText / toggleClass / fmtNum` helpers (other folders' helpers are internal to them). |
 | `meta.css` | Corp-screen styles on top of `.menu .frame .ui-btn .form-msg` (`ui/styles/base.css`) and `.hub-head .hub-foot` (`hub/hub.css`); `--cc` = selected corp colour. |
 | `index.ts` | Barrel. |
 
 ## Rules (all numbers from `src/shared/meta.ts`)
 - **Credits**: start `CREDITS_INITIAL` 500, cap `CREDITS_MAX`; `addCredits(delta)` refuses (false, no change) below 0 → `meta:creditsChanged`.
+  **Server-owned since Phase 7** whenever `ctx.net.profile.available`: the local apply is optimistic, then `profile.addCredits(delta, reason)`
+  (`credits:tx`) runs and its answer **overwrites** the balance (`meta:creditsChanged {reason: 'server:<reason>'}` when it differs); a refusal
+  reverts the delta (`revert:<reason>`); a dead socket keeps the local value (offline fallback, resynced on the next `net:profileLoaded`).
+  `hasPendingTx` = transactions in flight. Offline (no relay / single-player) nothing changes from Phase 5.
 - **Reputation**: cumulative per corp, `repLevelOf` over `REP_TABLE`, never below 0 → `meta:repChanged {levelUp}`.
 - **Shop** (`getShop / priceOf / buy`): opens at `SHOP_UNLOCK_REP_LEVEL` 1. `ctx.loot.getAllItemDefs()` filtered by the corp's `ShopRule`s — same
   `category`; weapons by `WeaponDef.weaponClass`, **uniques never**; ammo by `ammoType`; bags by `BagDef.tactical`; `minRepLevel` hides a rule; rarity ≤
-  `SHOP_RARITY_CAP_BY_REP[level]` (bags +`SHOP_BAG_RARITY_BONUS`); `value > 0`. Price `buyPriceOf(value, level)`. `blocked`: 함선에서만 가능 / 크레딧 부족
-  (space cannot be pre-checked — `buy` refunds when neither the bag nor the stash takes the item). `buy` = ship only → `addCredits(−price)` →
-  `loot.createItem` → `inventory.tryAddItemAnywhere` (bag, else stash; falls back to `tryAddItem` while the helper is a stub) → `meta:purchase {placed}`.
+  `SHOP_RARITY_CAP_BY_REP[level]` (bags +`SHOP_BAG_RARITY_BONUS`); `value > 0`. Price `buyPriceOf(value, level)`. `blocked` in order: 함선에서만 가능 /
+  크레딧 부족 / **공간 없음** (`inventory.canFit(defId)` null — pre-checked before the click; a missing `canFit` counts as "fits").
+  **`buy` (Phase 7)** stays synchronous and answers *was the request accepted*: ship → on the shelf → `canFit` → credits. Offline: debit →
+  `loot.createItem` → `inventory.tryAddItemAnywhere` (bag, else stash) → `meta:purchase {placed}` right away (a placement failure after the
+  pre-check still refunds defensively). With a server profile: optimistic debit → `profile.addCredits(−price, 'buy:<def>')` → only an `ok`
+  answer creates + places the item (placement failure → local refund + `addCredits(+price, 'refund:<def>')` on the server) → `meta:purchase`;
+  a refusal reverts the balance and reports through `lastPurchaseFailure` / `onPurchaseFailed` (folder-internal, the corp screen listens).
+  The corp screen refreshes on `meta:purchase`, never on the return value of `buy()`.
 - **Sale** (`getSellable / sellPriceOf / sell`): bag + stash items with a value, equipped gear excluded; `sellPriceOf(value, qty)` = value × 0.5;
   `sell` = ship only → `inventory.takeItem(uid, qty)` (stub → false) → credits for the units actually removed → `meta:sale`.
 - **Contracts**: one active (`CONTRACT_MAX_ACTIVE`), accepted in the ship at `minRepLevel` → `meta:contractAccepted`; `abandonContract` drops it
@@ -36,6 +45,9 @@ Registered in `main.ts` right after `InventorySystem` (buy / sell / deliveries n
 - **Settlement** (`settleMission(stats)`, called by `game/GameFlowSystem.awardMissionXp` before `game:complete` / `game:over`): `extract_with_value`
   reads `stats.lootValue`; **success = extracted ∧ progress ≥ target** → rep + credits paid here, **XP is not** (GameFlow adds `settlement.xp` to its
   `addXp`), contract cleared; extracted but short → progress kept; death → progress back to the value at `game:newMission`. Emits `meta:contractSettled`.
+  Phase 7: `settlement.outcome` = `'success'` / `'incomplete'` (extracted, short) / `'failed'` (raid failed) — ui words 미완 / 실패 from it;
+  `stats.mode === 'training'` → **null** (the 시뮬레이션 훈련장 settles nothing, no event). Goal counters, the live loot readout and relayed
+  `meta contractHit` messages are ignored while `ctx.isTraining()`.
 - **Quests**: `locked / available` recomputed from `QuestDef.requires` (rep level + prerequisite quests complete); `accepted / complete` in the save.
   `acceptQuest` ship only → `meta:questChanged`. `completeQuest` ship only: deliveries counted with `inventory.countDefAll` (bag + stash); **reward
   items are placed first** (`tryAddItemAnywhere`, stack-split by `stackMax`) — if one does not fit the placed ones are taken back and the quest reports
@@ -43,6 +55,11 @@ Registered in `main.ts` right after `InventorySystem` (buy / sell / deliveries n
 - **Corp screen**: `openCorpMenu(corp?)` (refused while `isRaidActive()`), `closeCorpMenu`, `isMenuOpen`. Emits `ui:corpToggled {open, corp}` and
   `audio:play ui_click / ui_equip / ui_deny / ui_close`. No `ui:notify` from this folder — toasts belong to `ui/` and listen to the `meta:*` events.
 - **Persistence**: every mutation `markDirty()`; `save()` flushes; `resetMeta()` wipes to a fresh save (emits `meta:loaded` / `creditsChanged` / `repChanged`).
+  **Server profile (Phase 7)**: every flush also `profile.set('meta', save)`. `net:profileLoaded` → the server `meta` document (when present)
+  replaces the save (`MetaStorage.replace`, sanitised, cached to localStorage, not re-uploaded) and the balance is `profile.credits`
+  (server wins over the document's stale figure); no document → the local save is uploaded; `migrated` (server had no balance) → the local
+  balance is uploaded once with `addCredits(local, 'migrate')`. Re-emits `meta:loaded`, `meta:creditsChanged {reason:'profile'}` and one
+  `meta:repChanged` per corp whose rep moved.
 - **Console** (dev clients, registered on the first `update()` once `ctx.console.enabled`): `credits <±n>`, `rep <helix|bastion|nomad|ceres|한국어> <±n>`,
   `contract list|accept <id>|abandon|hit <goal> <n>`, `quest list|accept <id>|complete <id>` (with completions).
 
@@ -56,22 +73,24 @@ Registered in `main.ts` right after `InventorySystem` (buy / sell / deliveries n
 | `meta:contractProgress {id, corp, goal, progress, target, delta}` | local or relayed hit on the matching goal; live loot value |
 | `meta:contractSettled (ContractSettlement)` | `settleMission` |
 | `meta:questChanged {id, corp, state}` | accept (`accepted`) / deliver (`complete`) |
-| `meta:purchase {corp, defId, price, placed}` · `meta:sale {defId, qty, credits}` | shop |
+| `meta:purchase {corp, defId, price, placed}` · `meta:sale {defId, qty, credits}` | shop (`purchase` fires after the server answer when credits are server-owned) |
 | `ui:corpToggled {open, corp}` | corp screen open / close |
 
-Listens: `game:newMission` (progress snapshot, per-mission dedupe reset), `hub:entered` (flush), `enemy:killed`, `crate:open`, `crate:looted`,
+Listens: `game:newMission` (progress snapshot, per-mission dedupe reset), `hub:entered` (flush), `net:profileLoaded`, `enemy:killed`, `crate:open`, `crate:looted`,
 `inventory:containerOpened`, `stratagem:called`, `inventory:changed`, net `meta`. The menu refreshes on every `meta:*`, `inventory:changed`,
 `inventory:stashChanged`, `loadout:changed`.
 
 ## Verification
 `node scripts/smoke-meta.mjs [url]` (registered in `scripts/verify.mjs` for `meta / inventory / hub / ui / game`): fresh save → rep → shop
-filter / prices → buy + refusal → sell → contract gating → real kill progress in a mission → death / success settlement → squad share → quest
-h1 → reload persistence → corrupt-save sanitising → corp-screen DOM / blocker / tabs / Esc. **90 / 90** on 2026-09-06 (0 skipped — inventory's
-`takeItem` was live by then), 0 console errors. `npm run typecheck` clean for this folder.
+filter / prices → buy + refusal → **`canFit` 공간 없음 pre-check** → **server credits through a fake `ctx.net.profile`** (optimistic debit,
+`meta:purchase` after the answer, refusal revert, `addCredits` tx, `profile.set('meta')`, `net:profileLoaded` replace + migrate) → sell →
+contract gating → real kill progress in a mission → death settlement (`outcome 'failed'`) → **training null + `'incomplete'` + goal counters off
+while `isTraining()`** → success (`'success'`) → squad share → quest h1 → reload persistence → corrupt-save sanitising → corp-screen DOM /
+blocker / tabs / Esc. **120 / 120** on 2026-09-06 (Phase 7, private vite 5307), 0 console errors. The script parks the relay socket so a relay
+on 8787 cannot hand the page a real profile mid-run. `npm run typecheck` clean for this folder.
 
 ## Known gaps
-- `ShopItem.blocked` never says 공간 없음 up front (grid fit is not queried); `buy` refunds instead.
 - `getSellable` lists the whole bag + stash; there is no per-unit partial sale in the UI (stacks sell whole, `sell(uid, qty)` supports it).
 - Relayed contract hits are not validated against the sender's position / phase; a late-joining client gets no catch-up of a squadmate's contract.
-- `RARITY_LABEL` / `CATEGORY_LABEL` are duplicated from `items/ItemDefs.ts` (folder isolation); the Korean strings must be kept in sync by hand.
+- A purchase whose server answer never arrives (socket dropped mid-transaction) delivers the item on the local debit; the balance is corrected on the next `net:profileLoaded`.
 - The corp screen has no keyboard navigation beyond Esc, and no item tooltips beyond the row subtitle.

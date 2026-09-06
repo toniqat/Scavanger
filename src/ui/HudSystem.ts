@@ -1,4 +1,4 @@
-import type { GameContext, GameSystem } from '@/shared';
+import type { GameContext, GameSystem, LobbyState, RemotePlayerRef } from '@/shared';
 import { el, toggleClass } from './dom';
 import { Reticle } from './hud/Reticle';
 import { Vitals } from './hud/Vitals';
@@ -203,7 +203,8 @@ export class HudSystem implements GameSystem {
       b.on('game:phaseChanged', ({ phase }) => {
         this.deploy.setVisible(phase === 'deploying');
         switch (phase) {
-          case 'playing': this.setObjective(OBJECTIVE_TEXT.find); break;
+          // Training arena (Phase 7): no extraction — the exit console ends it; world/ updates the subText counter.
+          case 'playing': this.setObjective(ctx.missionMode === 'training' ? OBJECTIVE_TEXT.training : OBJECTIVE_TEXT.find); break;
           case 'extracting': this.setObjective(OBJECTIVE_TEXT.countdown); break;
           case 'shipLanded': this.setObjective(OBJECTIVE_TEXT.board); break;
           case 'liftoff': this.setObjective(OBJECTIVE_TEXT.liftoff); break;
@@ -310,6 +311,17 @@ export class HudSystem implements GameSystem {
   /** Result-screen XP blocks (debug). */
   get completeRewards(): RewardsBlock { return this.complete.rewardsBlock; }
   get deathRewards(): RewardsBlock { return this.death.rewardsBlock; }
+  /** Whether the death screen is in 레이드 실패 mode (debug). */
+  get isRaidFailed(): boolean { return this.death.isRaidFailed; }
+  /**
+   * Smoke-test hook (Phase 7): feed synthetic remote refs (e.g. `remotePlayers.debugSpawn`, with `suspended` /
+   * `inMission` flipped by the test) and a synthetic `LobbyState` to the nameplates and the squad panel without a
+   * relay session. `debugRemotes(null)` clears both.
+   */
+  debugRemotes(refs: readonly RemotePlayerRef[] | null, lobby: LobbyState | null = null): void {
+    this.nameplates.setDebugRefs(refs);
+    this.squad.setDebug(lobby, refs ?? []);
+  }
 
   private applyVisibility(): void {
     const ctx = this.ctx;

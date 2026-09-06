@@ -72,6 +72,8 @@ export class ExtractionSystem implements GameSystem {
   private landFallbackTimer = -1;
   /** Scratch for required-player counting (host). */
   private requiredIds: PeerId[] = [];
+  /** Client: `boarded` list from the latest `boarding` / `sync` message — becomes `boardedPeers` on a host takeover (Phase 7). */
+  private lastBoarded: PeerId[] = [];
 
   init(ctx: GameContext): void {
     this.ctx = ctx;
@@ -99,7 +101,48 @@ export class ExtractionSystem implements GameSystem {
       ctx.bus.on('game:phaseChanged', ({ phase, prev }) => {
         if (phase === 'playing' && prev === 'deploying' && this.isClient()) this.sendReq({ t: 'exq', ev: 'sync' });
       }),
+      /* Phase 7: host migration — promote the mirrored state to authority, or re-sync from the new host. */
+      ctx.bus.on('net:hostChanged', ({ isLocalHost }) => this.onHostChanged(isLocalHost)),
+      // Host: a suspended member's body is a ghost (cannot board / ride); drop its boarding entry and re-broadcast.
+      ctx.bus.on('net:peerSuspended', ({ id, suspended }) => {
+        if (!this.isHost()) return;
+        if (suspended) this.boardedPeers.delete(id);
+        if (this.landed) this.broadcastBoarding();
+      }),
     );
+  }
+
+  /**
+   * Phase 7 host migration. New host: the client mirror (activePad / countdown / ship / landed / lifting) already holds
+   * the last `ex` state, so it simply becomes authoritative — the countdown keeps ticking (now broadcast), the ship
+   * continues its flight and `boardedPeers` starts from the last `boarding` list. Demoted / other clients: ask the
+   * new host for a fresh `sync` (numbers only when a flow is already active locally).
+   */
+  private onHostChanged(isLocalHost: boolean): void {
+    const ctx = this.ctx;
+    if (!ctx.isMultiplayer || !ctx.net) return;
+    if (!(ctx.isGameplayPhase() || ctx.phase === 'deploying')) return;
+    if (isLocalHost) {
+      this.landFallbackTimer = -1;
+      this.netTickAccum = 0;
+      this.boardedPeers.clear();
+      for (const id of this.lastBoarded) this.boardedPeers.add(id);
+      if (this.boarded) this.boardedPeers.add(this.localId()); else this.boardedPeers.delete(this.localId());
+      // the old host's id may linger in the list; collectRequired filters it, but keep the set honest
+      for (const id of Array.from(this.boardedPeers)) {
+        if (id === this.localId()) continue;
+        const r = ctx.net.getRemotePlayer(id);
+        if (!r || !r.connected || r.suspended) this.boardedPeers.delete(id);
+      }
+      if (this.activePad) {
+        // mirror the current stage once so every client (and the late-joining ones) is on the same numbers
+        this.sendEx({ t: 'ex', ev: 'tick', remaining: this.countdown });
+        if (this.landed) this.broadcastBoarding(false);
+      }
+    } else {
+      this.lastBoarded = [];
+      this.sendReq({ t: 'exq', ev: 'sync' });
+    }
   }
 
   /* ── Multiplayer helpers ─────────────────────────────────────────────── */
@@ -200,6 +243,7 @@ export class ExtractionSystem implements GameSystem {
 
   /** Client: update the n/m boarding mirror (from `boarding` or `sync`). Returns true when the numbers changed. */
   private applyBoarding(boarded: PeerId[], required: PeerId[]): boolean {
+    this.lastBoarded = boarded.slice();
     let n = 0;
     for (const id of required) if (boarded.includes(id)) n++;
     const changed = n !== this.clientBoardedCount || required.length !== this.clientRequiredCount;
@@ -265,6 +309,8 @@ export class ExtractionSystem implements GameSystem {
     if (net) {
       for (const r of net.getRemotePlayers()) {
         // Peers walking the shared ship (IN_HUB) are not in this mission and never block the liftoff.
+        // Phase 7: a suspended member (socket down, host-simulated ghost) cannot board either → not required, not extracted.
+        if (r.suspended) continue;
         if (r.connected && !r.stale && !r.isDead && (r.flags & (PlayerFlags.IN_HUB | PlayerFlags.DOWNED)) === 0) out.push(r.id);
       }
     }
@@ -310,7 +356,10 @@ export class ExtractionSystem implements GameSystem {
     const world = this.ctx.world;
     if (!world) return;
     this.padsSeed = world.seed;
-    for (const def of world.getExtractionPoints()) {
+    // 훈련장 (Phase 7): the arena has no pads → no consoles, no countdown, no ship. Nothing else to do.
+    const points = world.getExtractionPoints();
+    if (!points || points.length === 0) return;
+    for (const def of points) {
       const dir = new THREE.Vector3(Math.sin(def.yaw), 0, Math.cos(def.yaw));
       // def.position.y is the top of the (flat) landing platform — use it directly.
       const pos = def.position.clone().addScaledVector(dir, 5);
@@ -555,6 +604,7 @@ export class ExtractionSystem implements GameSystem {
     this.clientBoardedCount = 0;
     this.clientRequiredCount = 0;
     this.clientReady = false;
+    this.lastBoarded = [];
     this.landFallbackTimer = -1;
     if (this.boarded) {
       this.ctx.player?.setShipInterior(null);

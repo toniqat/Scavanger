@@ -31,6 +31,11 @@ export class CombatTarget {
   /** Set for the local target so eye/forward come straight from the player (camera yaw, pod state…). */
   player: PlayerRef | null = null;
   /**
+   * Phase 7: the remote member's socket is down and the host simulates its body (`RemotePlayerRef.suspended`).
+   * Still a target; damage goes out as `ghost:damage` instead of a `dmg` message (the host's RemotePlayerSystem applies it).
+   */
+  suspended = false;
+  /**
    * Phase 4: set when this target is another enemy (`id === 'ai'`). Every `Enemy` owns one such proxy (`Enemy.asTarget`)
    * refreshed by the system each frame so bug ↔ rogue combat reuses the player-hunting code paths unchanged.
    */
@@ -84,8 +89,9 @@ function readStealth(player: PlayerRef): number {
 
 /**
  * Per-frame list of every player the enemies know about: the local player (when spawned) plus every connected,
- * non-stale remote player that is not still inside its hellpod. In single-player only the local target exists,
- * so every query below degenerates to the old `ctx.player` behaviour.
+ * non-stale remote player that is not still inside its hellpod — and (Phase 7) every *suspended* member, whose body
+ * the host keeps simulating as a ghost. In single-player only the local target exists, so every query below
+ * degenerates to the old `ctx.player` behaviour.
  */
 export class TargetList {
   /** Every present target (alive, downed or dead). */
@@ -109,6 +115,7 @@ export class TargetList {
       t.downed = player.isDowned;
       t.eyeHeight = player.stance === 'prone' ? EYE_PRONE : player.stance === 'crouch' ? EYE_CROUCH : EYE_STAND;
       t.stealth = readStealth(player);
+      t.suspended = false;
     }
 
     const net = ctx.net;
@@ -116,9 +123,13 @@ export class TargetList {
       const remotes = net.getRemotePlayers();
       for (let i = 0; i < remotes.length; i++) {
         const r = remotes[i];
-        if (!r.connected || r.stale || (r.flags & PlayerFlags.DROPPING) !== 0) continue;
+        // Phase 7: a suspended member (socket down, slot kept) stays a target — its position / hp / downed / dead come
+        // from the host's ghost simulation through the same ref, so only a *non-suspended* stale ref drops out.
+        const suspended = r.suspended === true;
+        if (!r.connected || (r.stale && !suspended) || (r.flags & PlayerFlags.DROPPING) !== 0) continue;
         const t = this.obtain(r.id);
         t.player = null;
+        t.suspended = suspended;
         t.position.copy(r.position);
         t.velocity.copy(r.velocity);
         t.yaw = r.yaw;

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { GameContext, PingKind } from '@/shared';
-import { Keys, NET_SLOT_COLORS_CSS, PlayerFlags } from '@/shared';
+import { Keys, NET_SLOT_COLORS_CSS, PlayerFlags, SUSPENDED_LABEL_KO } from '@/shared';
 import { el, setText } from '../dom';
 import type { PingView } from '../hud/Pings';
 import { PING_LABEL } from '../hud/Pings';
@@ -36,6 +36,8 @@ const COL = {
   gather: '#7fe6a1',
   deploy: '#8fe8ff',
 };
+/** Phase 7: icon / label colour of a suspended squad member (socket down, ghost body kept). */
+const COL_SUSPENDED = '#8a8f99';
 const PING_CSS: Record<PingKind, string> = {
   ground: COL.info, enemy: COL.danger, crate: COL.success, extraction: COL.accent, item: COL.pickup, attack: COL.attack, caution: COL.caution,
 };
@@ -523,11 +525,13 @@ export class MapScreen {
     const net = ctx.net;
     if (net && ctx.isMultiplayer) {
       for (const r of net.getRemotePlayers()) {
-        if (!r.connected || (r.flags & PlayerFlags.DROPPING)) continue;
+        // Phase 7: a suspended member's ghost body stays on the map in grey (its ref is stale by definition).
+        const suspended = r.suspended === true;
+        if (!suspended && (!r.connected || (r.flags & PlayerFlags.DROPPING))) continue;
         const x = this.toX(r.position.x), y = this.toY(r.position.z);
         if (!this.inView(x, y, 30)) continue;
-        const col = NET_SLOT_COLORS_CSS[r.slot] ?? '#fff';
-        c.globalAlpha = r.stale ? 0.45 : 1;
+        const col = suspended ? COL_SUSPENDED : (NET_SLOT_COLORS_CSS[r.slot] ?? '#fff');
+        c.globalAlpha = suspended ? 0.6 : r.stale ? 0.45 : 1;
         if (r.isDead) {
           c.strokeStyle = col; c.lineWidth = 1.5;
           c.beginPath(); c.arc(x, y, 5, 0, Math.PI * 2); c.stroke();
@@ -544,7 +548,7 @@ export class MapScreen {
         c.fillStyle = col;
         c.font = FONT_LABEL;
         c.textAlign = 'center'; c.textBaseline = 'top';
-        c.fillText(r.isDead ? `${r.name} · 전사` : r.name, x, y + 9);
+        c.fillText(suspended ? `${r.name} · ${SUSPENDED_LABEL_KO}` : r.isDead ? `${r.name} · 전사` : r.name, x, y + 9);
         c.globalAlpha = 1;
       }
     }

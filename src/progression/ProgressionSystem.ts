@@ -1,17 +1,17 @@
 import type {
-  DerivedStats, GameContext, GameSystem, PlayerProfile, ProgressionRef,
+  DerivedStats, GameContext, GameSystem, PlayerProfile, ProfileRef, ProgressionRef,
   SkillDef, SkillId, StatDef, StatId, WeaponClass,
 } from '@/shared';
 import {
   SKILL_IDS, SKILL_LEVEL_MAX, STAT_BASE, STAT_IDS, STAT_MAX, STAT_MIN, STAT_POINTS_PER_LEVEL,
-  STAT_XP_BASE, STAT_XP_EXPONENT,
+  STAT_XP_BASE, STAT_XP_EXPONENT, TRAINING_SKILL_GAIN_MUL,
 } from '@/shared';
 import {
   APPRAISE_XP_BY_RARITY, CARRY_XP_PER_METER, CRAFT_XP, CRATE_OPEN_XP, CRYPTO_XP, GATHER_XP, GRIT_SAVE_XP,
   GUN_HIT_XP, IMPLANT_XP, REPAIR_XP, SKILL_DEF_MAP, SKILL_DEFS, STAT_DEF_MAP, STAT_DEFS, WEAPON_CLASS_SKILL,
 } from './defs';
 import { computeDerived, DEFAULT_DERIVED, SPECIAL_BACKPACK_CD_MUL, xpForLevel } from './derive';
-import { clearStoredProfile, freshProfile, loadProfile, saveProfile, zeroStatProgress } from './Profile';
+import { clearStoredProfile, freshProfile, loadProfile, migrate, saveProfile, zeroStatProgress } from './Profile';
 import { CharacterSheet } from './ui/CharacterSheet';
 
 /** Seconds between autosaves while the profile is dirty. */
@@ -39,6 +39,9 @@ export function statXpFor(value: number): number {
  *   wrapped in try/catch so private mode / a full quota can never break a mission (see `Profile.ts`).
  * - Skills rise from bus events (hits, crafts, repairs, harvests, hacks, implant casts, carrying weight).
  * - `derived` is recomputed whenever stats, skills or the equipped backpack change; nobody else re-derives.
+ * - Phase 7: the profile also lives in the server profile store (`ctx.net.profile`, document `progression`) — every
+ *   flush mirrors it there, `net:profileLoaded` replaces the local one with the server copy (server wins) and
+ *   re-emits the `progress:*` events the sheet / HUD read. In a 시뮬레이션 훈련장 only `gun_*` skills train.
  */
 export class ProgressionSystem implements GameSystem, ProgressionRef {
   readonly name = 'progression';
@@ -131,11 +134,13 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
       }),
       /* ── 암호학 ── */
       b.on('extraction:activated', () => this.addSkillXp('cryptography', CRYPTO_XP)),
-      /* ── 감정 ── */
+      /* ── 감정: opening a container + every item revealed by the Tarkov-style search (Phase 7; was `inventory:itemAdded`) ── */
       b.on('crate:open', () => this.addSkillXp('appraisal', CRATE_OPEN_XP)),
-      b.on('inventory:itemAdded', ({ rarity }) => {
+      b.on('container:itemRevealed', ({ rarity }) => {
         this.addSkillXp('appraisal', APPRAISE_XP_BY_RARITY[rarity] ?? APPRAISE_XP_BY_RARITY.common);
       }),
+      /* ── server profile (Phase 7) ── */
+      b.on('net:profileLoaded', () => this.onProfileLoaded()),
       /* ── 운반 (distance accumulated in update) ── */
       b.on('inventory:weightChanged', ({ state }) => { this.weightState = state; }),
       /* ── gear affects derived (특수 가방 halves implant cooldowns) ── */
@@ -214,6 +219,12 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
   addSkillXp(id: SkillId, amount: number): void {
     if (!(SKILL_IDS as readonly string[]).includes(id)) return;
     if (!(amount > 0)) return;
+    // 시뮬레이션 훈련장: only marksmanship trains, scaled by TRAINING_SKILL_GAIN_MUL (everything else 0)
+    if (this.inTraining()) {
+      if (!id.startsWith('gun_')) return;
+      amount *= TRAINING_SKILL_GAIN_MUL;
+      if (!(amount > 0)) return;
+    }
     const profile = this._profile;
     let level = profile.skills[id] ?? 0;
     if (level >= SKILL_LEVEL_MAX) return;
@@ -396,6 +407,56 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     }
   }
 
+  /* ── server profile (Phase 7) ─────────────────────────────────────────── */
+  private profileRef(): ProfileRef | null {
+    const p = this.ctx?.net?.profile;
+    return p && typeof p === 'object' ? p : null;
+  }
+
+  private inTraining(): boolean {
+    const ctx = this.ctx;
+    if (!ctx) return false;
+    return typeof ctx.isTraining === 'function' ? ctx.isTraining() : ctx.missionMode === 'training';
+  }
+
+  /**
+   * `net:profileLoaded`: the server `progression` document (when present) replaces the local profile — same
+   * `migrate` sanitising as a localStorage load — and the `progress:*` events the sheet / HUD read are re-emitted
+   * (`loaded`, `xpGained` with amount 0, one `statChanged` per stat, one `skillProgress` per skill; no `levelUp`).
+   * No document yet → the local profile is uploaded so the server has one.
+   */
+  private onProfileLoaded(): void {
+    const p = this.profileRef();
+    if (!p || !p.available) return;
+    let doc: unknown;
+    try { doc = p.get('progression'); } catch { doc = undefined; }
+    const next = doc && typeof doc === 'object' ? migrate(doc) : null;
+    if (!next) { this.upload(); return; }
+    this._profile = next;
+    this.lastEmitted = {};
+    this.recompute();
+    this.dirty = false;
+    this.saveTimer = 0;
+    saveProfile(this._profile);                 // localStorage is the cache of the server copy
+    const bus = this.ctx.bus;
+    bus.emit('progress:loaded', { profile: this._profile });
+    bus.emit('progress:xpGained', { amount: 0, xp: this._profile.xp, xpToNext: this.xpToNext });
+    for (const id of STAT_IDS) bus.emit('progress:statChanged', { id, value: this.getStat(id), pointsLeft: this._profile.statPoints });
+    for (const id of SKILL_IDS) {
+      const progress = this.getSkillProgress(id);
+      this.lastEmitted[id] = progress;
+      bus.emit('progress:skillProgress', { id, level: this.getSkill(id), progress });
+    }
+    this.sheet?.refresh();
+  }
+
+  /** Queue the profile into the server store (`profile:set progression`); no-op offline. */
+  private upload(): void {
+    const p = this.profileRef();
+    if (!p || !p.available || typeof p.set !== 'function') return;
+    try { p.set('progression', JSON.parse(JSON.stringify(this._profile))); } catch { /* net not ready */ }
+  }
+
   resetProfile(): void {
     const name = this._profile.name;
     clearStoredProfile();
@@ -487,12 +548,13 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     else if (this.saveTimer <= 0) this.saveTimer = AUTOSAVE_INTERVAL;
   }
 
-  /** Write the profile out now (no-op when nothing changed). */
+  /** Write the profile out now (no-op when nothing changed): localStorage, then the server profile document. */
   private flush(): void {
     if (!this.dirty) return;
     this.dirty = false;
     this.saveTimer = 0;
     saveProfile(this._profile);
+    this.upload();
   }
 }
 
