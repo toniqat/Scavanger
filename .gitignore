@@ -4,3 +4,7 @@ dist
 *.log
 .vscode
 scripts/shots/
+
+# verification runner output
+scripts/logs/
+scripts/shots/

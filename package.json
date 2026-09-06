@@ -14,7 +14,9 @@
     "typecheck:server": "tsc --noEmit -p server/tsconfig.json",
     "e2e:mp": "node scripts/e2e-multiplayer.mjs",
     "smoke:tactical": "node scripts/smoke-tactical.mjs",
-    "smoke:controls": "node scripts/smoke-controls-hub.mjs"
+    "smoke:controls": "node scripts/smoke-controls-hub.mjs",
+    "verify": "node scripts/verify.mjs",
+    "verify:all": "node scripts/verify.mjs --all"
   },
   "dependencies": {
     "three": "^0.185.1",

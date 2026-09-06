@@ -1,0 +1,73 @@
+# Verification — procedure and history
+
+This file is the record of what was actually tested, moved out of `CLAUDE.md` on 2026-09-06 so the command center stays
+short. **Append new results here** (one dated bullet per package, newest last); `CLAUDE.md` keeps only the procedure.
+
+## Procedure (what to run, in this order)
+
+| Step | Command | Wall time | When |
+|---|---|---|---|
+| 1. Static | `npm run typecheck` (+ `typecheck:server`) | seconds | after every edit |
+| 2. Targeted | `npm run verify` | 1–2 min | after a feature — picks the smokes mapped to the folders touched in the working tree (`node scripts/verify.mjs --list` shows the map); `--folders a,b` / `--only name,…` override |
+| 3. Re-check | `node scripts/verify.mjs --rerun-failed` | < 1 min | re-run only what failed in the last run (recorded in `scripts/logs/last-run.json`) |
+| 4. Full | `npm run verify:all` | ~2 min | before a merge to `main` or after touching `src/shared` / `src/core` / `main.ts` (the runner does this automatically when those paths changed) |
+| 5. Docs | update the folder `README.md`s you touched, the `CLAUDE.md` folder map row, and paste the runner's `docs line:` into the history below | — | last |
+
+Why the runner exists (measured 2026-09-06): the scripts used to render through **swiftshader** (CPU rasterizer, ~5 fps,
+`dt` clamped to 50 ms): one smoke script was ~140 s of wall time for 44 checks, the eight scripts 20–30 min one after another,
+and parallel lanes gained nothing because the work is CPU-bound (2 lanes: 31 min, machine at 90 %+ CPU). Switching the
+launch flags to the real GPU (`--use-angle=d3d11 --enable-gpu`, `GL_ARGS` in every script; headless Chrome reports the
+RTX 4080 SUPER) made the same script 18 s and the whole suite **2 min 7 s** with 4 lanes. The runner starts vite / relay
+itself, restarts the relay before `e2e:mp` (stale public lobbies from an interrupted run hijack quick match during the 5-min
+grace), staggers lane starts 8 s so vite warm-up and Chrome launches never coincide, keeps the console output to one line per
+script + the `FAIL` lines (full output in `scripts/logs/<name>.log`), and records failures for `--rerun-failed`.
+`SMOKE_GL=swiftshader` restores the CPU path for a machine without a GPU (use `--jobs 1`).
+
+Measured 2026-09-06 (same 9 scripts, all green):
+
+| Setup | Total |
+|---|---|
+| swiftshader, one script at a time (old practice) | ~25–30 min + reruns |
+| swiftshader, 2 lanes | 31 min 26 s |
+| GPU (D3D11), 2 lanes | 3 min 6 s |
+| GPU (D3D11), 4 lanes | 2 min 7 s |
+
+Cursor trap: headless Chrome honoured the game's `requestPointerLock()` after a trusted puppeteer click, and on Windows a
+pointer lock calls ClipCursor — the OS cursor got stuck inside the hidden 960×540 window at the top-left of the screen until
+the script ended. Every script now stubs `Element.prototype.requestPointerLock` / `Document.prototype.exitPointerLock` via
+`evaluateOnNewDocument` (the fake `pointerLockElement` getter still tells the game it is locked).
+
+Rules that still apply inside the scripts: waits are on simulation time (`ctx.time`, `waitSim`), key taps dispatch
+keydown+keyup in one frame on `document.body`, pointer lock is faked (never real), effects timed on `ctx.time` cannot be
+accelerated (on the GPU game time ≈ wall time; under swiftshader budget ~0.05 s of game time per frame). A check that fails on a timing window is usually the harness, not the game — read
+the log before changing code. Per-check resume is not possible: every script builds game state check by check, so the unit of
+re-run is the script.
+
+When you add a smoke script: add it to `SMOKES` in `scripts/verify.mjs` with the folders it covers, and to the Commands block
+in `CLAUDE.md`.
+
+## History (what was actually tested)
+
+- `npm run typecheck` → 0 errors (TypeScript 7: `tsconfig.json` uses `paths` only, no `baseUrl`).
+- `npm run build` → single ~870 kB JS chunk, ~28 kB CSS.
+- Headless/headed Chrome smoke tests (puppeteer-core, driving `window.__game` = Engine): title → deploy → hellpod drop → movement + pointer lock → firing/reload/stim/grenade → crate open → container drag/rotate/right-click/take-all → Tab bag → Esc pause → extraction switch → 120 s countdown (fast-forwarded) → ship lands → boarding → interior switch → liftoff → mission complete; death → restart. 0 console errors. ~55 fps at 1600×900 on a laptop GPU.
+- Real-mouse test (puppeteer `page.mouse`): title seed input + 임무 배치, pause 계속, inventory drag, death-screen 다시 배치 all clickable. Root cause of an earlier "nothing clickable" bug: the inventory overlay (`.inv-root`, fixed inset:0, z-index 50, pointer-events:auto) was hidden only via the `hidden` attribute, which its own `display:flex` overrode → invisible layer swallowed every click. Fixed with a global `[hidden] { display:none !important }` in `base.css`. Rule: never hide a full-screen layer with opacity alone.
+- Debug hooks: `window.__game.ctx` (GameContext), `window.__game.getSystem('extraction'|'player'|'weapons'|'net'|'enemies'|'remotePlayers'|…)`.
+- Multiplayer (2026-09-05): `npm run net:selftest` 44/44 (lobby create/join/ready/start gating/relay targets/reset/leave/host migration). `npm run e2e:mp` (puppeteer-core, two separate headless Chrome instances — a second tab in one window is throttled and never reaches `playing`) 34/34: lobby code + invite URL + LobbyMenu, start refused until all ready, both clients seed 42 / authority split, hellpod → playing, remote avatar within 0 m of the true position, spawn slots 5.7 m apart, nameplate + squad panel, teleport interpolated, host 18 / client 18 replica bugs with matching ids, client hit → host hp 60→50 → client mirrors 50, `net:remoteFired` / `net:remotePing` delivered, client console activates extraction on host + countdown mirrored (119.7/119.9), missionTime advances during `freeze:false` pause, host abort → both back in a reset lobby with remotes cleared, peer leave. 0 console errors.
+- Fixed while testing: `EnemySystem`'s `game:newMission → reset()` wiped the initial population (pre-existing ordering bug, see enemies README); `Input.requestPointerLock` now swallows the denied-lock promise rejection.
+- Ship hub / pings v2 / chat / drop & split / pickups / reconnection (2026-09-05): typecheck 0 (client + server), build ~1083 kB JS / 53 kB CSS, `npm run net:selftest` (token → stable id, duplicate takeover, grace, host kept while started, quick match, seed/name/public, ghost-host migration on join) — see server README for the count. `npm run e2e:mp` rewritten for the hub flow: personal ship → quick match (`net:matched`) → docking → shared ship → hub avatars with `IN_HUB` → chat relay in the hub → start refused → seed via lobby → pods (`IN_POD`) → countdown → mission seed 42 → remote avatar 0.4 m → replica bugs 20/20 → client hit 60→50 → attack ping with label + marker → host drop → client pickup take (4→5) → client socket drop → `net:resumed {seamless:true}` still extracting → host abort → both back in the shared ship, pods empty → peer leave → undock. Per-folder headless smokes: hub 41/42 offline, player 26/26 (camera clearance ≥ 0.30 m over 128 prone/slope checks, silhouette through a wall), inventory 56/56 real-mouse, ui 33/33 + 6/6 enemy-tracking, pickups 18/18, audio 6/6.
+- Grenade hitch root cause: per-grenade `PointLight` toggled via `visible` changed the scene light count → every lit shader recompiled on each throw/explosion (~1.1 s, `renderer.info.programs` growing 35→77). Fixed by removing the lights (pooled flash pulses instead) + `WeaponFx.warmUp()`; throw frame now ≤ 5.7 ms. Rule: never toggle light visibility at runtime; keep light counts constant.
+
+- Weapon package (2026-09-05): typecheck 0 (client + server), build 1126 kB JS / 60 kB CSS, `npm run net:selftest` 101/101, `npm run e2e:mp` 52/52 (unchanged flow, pickups now carry `ex`), `node scripts/smoke-weapons.mjs` 44/44: workbench interactable + menu/blocker/Esc, starter loadout AR I / — / P-2 + 일반 가방 5×6, AR I 60 dmg / 500 dur, AR III 74 dmg + numeral, secondary half ADS + faster swap, reserve = 90 bag rounds, fire → mag −n / durability −n / event, R reload refills from the bag, 3/2/Q/1 swaps (empty slot refused, `equip` into 주무기 II), brake attach (recoil ×0.75) / choke refused / detach back to bag, unload → bag rounds, repair cost 4 폐금속 / refused without / restores 500, broken weapon does not fire, legendary 10×6 → common 5×6 drops the overflow as pickups, HUD stamina/durability/slot strip. Screenshots (hip / ADS / side / inventory) checked: rifle renders, soldier sits bottom-left of the reticle while aiming, stamina bar bottom-centre only after sprinting.
+
+- Phase 2 (2026-09-06): typecheck 0 (client + server), build 1161 kB JS / 69 kB CSS, `npm run net:selftest` 101/101, `npm run e2e:mp` 52/52, `node scripts/smoke-weapons.mjs` 44/44, `node scripts/smoke-quickslots.mjs` 45/45, `node scripts/smoke-phase2.mjs` 44/44: starter quick slots N grenade / S stim (2 active with a common bag, locked E refused, weapon refused), F tap → item in hand, F hold → wheel → drag down hovers S → release equips the stim, LMB stim heals + stack −1, wheel N → grenade, LMB hold → wind-up, RMB underhand, R → cooking with shrinking fuse, release → thrown / stack −1 / early explosion, 1 → rifle; lethal damage → downed (prone, weapons off, downHp 100, ~1/s bleed, damage hits downHp), enemies drop the target, `revive()` → 10 hp; Space hold → dead, no `game:over`, phase `dead` + death screen + countdown, early respawn refused, countdown (time-scaled) → `game:respawn` → hellpod → alive at 100 hp with the starter kit. Screenshots: wheel with locked sectors, downed vitals + revive progress, cook arc + 언더핸드 tag. Fixed while testing: a blanket edit had reset the respawn timer inside `enterDeadPhase`.
+
+- Phase 3 (2026-09-06): typecheck 0 (client + server), build 1203 kB JS / 76 kB CSS, `npm run net:selftest` 101/101, `npm run e2e:mp` 52/52 (launch wait raised to 60 s — the extra HUD/stratagem work lowered the headless frame rate), `smoke-phase2` 44/44, `smoke-weapons` 44/44, `smoke-stratagems` 51/51, `smoke-phase3` 32/32: G tap arms / puts away, gun blocked while armed, G hold wheel → drag E → airstrike, LMB charge ~1/3 at 1 s → top view (camera +88 m, controls off) → cursor follows the mouse → RMB cancels and the camera eases back, `debugCall` airstrike lands and damages a bug parked in the blast, structure drop → 5 destructible obstacles, 500 dmg → hp 1500, 5000 → destroyed + removed + `structureCount` 4, supply drop → `supply:*` interactable → `crate:open` tier 5 → loot window, laser active → ended, HUD layers present, 0 console errors. Screenshots: barricades + supply crate, laser beam, top-view targeting frame with edge arrows. Fixed while testing: stratagem timestamps are `ctx.time` based — added a pause shift so a frozen single-player game never lands a call.
+
+- Phase 4 (2026-09-06): typecheck 0 (client + server), `npm run net:selftest` 101/101, `node scripts/smoke-phase4.mjs` (seed 21): rogue guards at tier ≥ 2 crates (≤ 16, boss + escorts once), rogue fires at a player 22 m away with LOS, bug ↔ rogue clash, artillery shell fired → `raycastInterceptable` → `intercept()` → `enemy:shellIntercepted`, shell landing damage, toxic burst hurts a neighbouring bug and kills itself, behemoth frontal raycast is `armored`, corpses register `corpse:<id>` → loot window, wire hints; plus `rollCorpse` rogue/boss tables, `applyKnockback`, `openContainerItems`. Regression after Phase 4: `smoke-phase4` 35/36 (the miss is a 3 s timing window on the rogue burst; relaxed afterwards), `smoke-phase3` 32/32, `smoke-phase2` 44/44, `smoke-weapons` 44/44, `e2e:mp` 52/52 (needs a freshly started relay — public lobbies left by an interrupted run persist for the 5-min grace and hijack quick match), build 1246 kB JS / 76 kB CSS.
+
+- Tactical-kit merge (2026-09-06, `feature/tactical-kit` → `main`): 53 conflicting files resolved with a **main-wins** policy (Phase 1–4 designs kept: `bag_*` bags, quick wheel, Phase 2 downed / revive, weapon durability, workbench) and the kit's non-overlapping systems grafted on top (implants, gadgets, progression, armor, weight, crafting, gather nodes, melee, roll, cloak, lures / smoke perception, ship stations, HUD widgets, SFX). typecheck 0 (client + server), build 1468 kB JS / 102 kB CSS, `npm run net:selftest` 101/101, `npm run e2e:mp` 52/52, `smoke-weapons` 44/44, `smoke-phase2` 44/44 (T/H keys), `smoke-quickslots` 45/45 (after removing the branch's colliding `.inv-quick-cell` CSS), `smoke-phase3` 32/32, `smoke-phase4` 36/36, `smoke-stratagems` 51/51, `smoke:tactical` 45/45 (bags instead of backpacks, `equip(uid, 'armor')`, legendary bag so every gadget fits). 0 console errors with the relay running (without `npm run server` the `/ws` proxy logs one WebSocket error).
+
+- Controls / hub screen / implant package (2026-09-06): typecheck 0, build 1490 kB JS / 108 kB CSS, `npm run smoke:controls` 60/60 (title diagram 60 keys / 25 lit / 3 mouse, rebinding 앉기 → N persisted + diagram follows, conflict rows, mouse-only refusal, reset, Esc; hub Tab screen layout 창고 | 장비 | 가방, 10×24 stash, tabs, bag → stash + reload persistence, implant picker equip / unequip, right-click 수리 (폐금속 4) → 500/500, 캐릭터 tab ↔ 인벤토리 tab, terminal 678/678 × 618/618 no overflow, gauge left of the reticle, launcher wielded → 3 stows it + draws the secondary, overcharge hold drains 6 → 4.5 and heals 60 → 80, release refills, dash 3 segments → 2 ready + 1 refilling, grapple bracket + instant fire), 0 console errors. Fixed while testing: Chrome runs listeners in registration order for events dispatched **at `window`** (capture-phase overlay handlers only win for real key events / `document.body` dispatch), the hub layout was squeezing the equipment column below 1600 px (panels `flex: none`, rose-right and two-column equipment only ≥ 1600 px), and dropping in the ship now lands in the stash.
+
+- Verification runner + GPU smokes (2026-09-06): `npm run verify:all` → typecheck ok, typecheck-server ok, net-selftest 101/101, build 1,490.21 kB JS / 108.36 kB CSS, smoke-weapons 44/44, smoke-quickslots 45/45, smoke-phase2 44/44, smoke-phase4 36/36, smoke-phase3 32/32, smoke-stratagems 51/51, smoke-tactical 45/45, smoke-controls-hub 60/60, e2e-mp 52/52 — **2 min 7 s** total on 4 GPU lanes (was 31 min on 2 swiftshader lanes; one swiftshader script alone 142 s vs 18 s on the GPU). Pointer-lock stub in every script (cursor no longer trapped top-left while a smoke runs). Under swiftshader load two harness-only flakes appeared and vanished on the GPU: smoke-phase2 "F tap puts a quick item in hand" and a headless AudioContext device error counted as a console error by smoke-phase3.

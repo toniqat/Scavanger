@@ -10,11 +10,13 @@ const CHROME = [
   'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
 ].find((p) => existsSync(p));
 if (!CHROME) { console.error('no chrome/edge found'); process.exit(2); }
+// Real GPU through ANGLE D3D11 by default (headless Chrome renders at full speed, CPU stays free). SMOKE_GL=swiftshader falls back to the CPU rasterizer (no GPU / CI).
+const GL_ARGS = process.env.SMOKE_GL === 'swiftshader' ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : ['--use-angle=d3d11', '--enable-gpu'];
 
 let pass = 0, fail = 0;
 const ok = (cond, label, extra = '') => { if (cond) { pass++; console.log(`  ok   ${label}`); } else { fail++; console.log(`  FAIL ${label} ${extra}`); } };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-async function waitFor(page, fn, label, timeout = 15000, arg) {
+async function waitFor(page, fn, label, timeout = 60000, arg) {
   const t0 = Date.now();
   while (Date.now() - t0 < timeout) {
     try { const v = await page.evaluate(fn, arg); if (v) return v; } catch (e) { /* loading */ }
@@ -25,7 +27,7 @@ async function waitFor(page, fn, label, timeout = 15000, arg) {
 
 const browser = await puppeteer.launch({
   executablePath: CHROME, headless: true,
-  args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist',
+  args: ['--use-gl=angle', ...GL_ARGS, '--ignore-gpu-blocklist',
     '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows',
     '--window-size=960,540', '--no-sandbox'],
 });
@@ -33,6 +35,12 @@ const errors = [];
 try {
   const page = (await browser.pages())[0] ?? await browser.newPage();
   await page.setViewport({ width: 960, height: 540 });
+  // Never let headless Chrome take a real pointer lock: on Windows it calls ClipCursor and traps the OS cursor inside the
+  // hidden 960×540 window at the top-left of the screen. Scripts fake `pointerLockElement` themselves where they need it.
+  await page.evaluateOnNewDocument(() => {
+    Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
+    Document.prototype.exitPointerLock = function () {};
+  });
   page.on('pageerror', (e) => errors.push(String(e)));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   await page.goto(BASE, { waitUntil: 'load' });

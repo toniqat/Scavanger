@@ -114,7 +114,7 @@ export interface MetaRef {                       // ctx.meta (owner: meta/MetaSy
 4. 계약 수락 → 미션에서 버그 5 처치(`debugSpawn` + `takeDamage`) → 진척 5 → 탈출(기존 e2e 흐름 재사용 or `debugComplete`) → `meta:contractSettled success` → 신뢰도 상승 → 상점 해금 → `buy` 성공(크레딧 차감, 가방에 아이템).
 5. 퀘스트 `h1`: 폐금속 10 보유 → `completeQuest` → 아이템 소모 + 보상.
 6. 멀티(e2e 확장): 호스트 처치 → 클라이언트가 같은 기업 계약 중일 때 25 % 진척 수신.
-7. 회귀: smoke-weapons/phase2/3/4, e2e:mp, net:selftest, build.
+7. 회귀: `npm run verify:all` (typecheck + build + net:selftest + 스모크 8종 병렬 + e2e:mp, `docs/VERIFICATION.md` 참조). 새 `smoke-phase5.mjs` 는 `scripts/verify.mjs` 의 `SMOKES` 표에 담당 폴더와 함께 등록한다.
 
 ## 7. 미결 (다음 세션 시작 시 확인)
 - 스탯 5종의 효과 수치(제안: 체력 +4 HP/pt, 스태미나 +4/pt, 운반 5pt 당 가방 +1행, 정비 내구도 소모 −2 %/pt, 사격 반동 −2 %/pt) — 이번엔 적립만.

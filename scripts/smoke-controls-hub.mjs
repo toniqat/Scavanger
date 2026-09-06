@@ -4,7 +4,7 @@
 // Usage: node scripts/smoke-controls-hub.mjs [http://localhost:5273/] [--shots]
 // Requires `npm run dev` (or `npm run dev:all`). `--shots` writes PNGs to scripts/shots/.
 //
-// Timing: headless Chrome renders through swiftshader at a few fps and Engine clamps dt to 50 ms, so every wait
+// Timing: Engine clamps dt to 50 ms and the frame rate depends on the machine (swiftshader fallback = a few fps), so every wait
 // is on simulation time (`waitSim`), never wall-clock. Key taps dispatch keydown+keyup in the same frame.
 import puppeteer from 'puppeteer-core';
 import { existsSync, mkdirSync } from 'node:fs';
@@ -18,6 +18,8 @@ const CHROME = [
   'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
 ].find((p) => existsSync(p));
 if (!CHROME) { console.error('no chrome/edge found'); process.exit(2); }
+// Real GPU through ANGLE D3D11 by default (headless Chrome renders at full speed, CPU stays free). SMOKE_GL=swiftshader falls back to the CPU rasterizer (no GPU / CI).
+const GL_ARGS = process.env.SMOKE_GL === 'swiftshader' ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : ['--use-angle=d3d11', '--enable-gpu'];
 if (SHOTS) mkdirSync('scripts/shots', { recursive: true });
 
 let pass = 0, fail = 0;
@@ -40,7 +42,7 @@ const browser = await puppeteer.launch({
   executablePath: CHROME,
   headless: true,
   args: [
-    '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist',
+    '--use-gl=angle', ...GL_ARGS, '--ignore-gpu-blocklist',
     '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows',
     '--autoplay-policy=no-user-gesture-required', '--window-size=1680,900', '--no-sandbox',
   ],
@@ -49,6 +51,12 @@ const browser = await puppeteer.launch({
 try {
   const page = await browser.newPage();
   await page.setViewport({ width: 1680, height: 900 });
+  // Never let headless Chrome take a real pointer lock: on Windows it calls ClipCursor and traps the OS cursor inside the
+  // hidden 960×540 window at the top-left of the screen. Scripts fake `pointerLockElement` themselves where they need it.
+  await page.evaluateOnNewDocument(() => {
+    Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
+    Document.prototype.exitPointerLock = function () {};
+  });
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   page.on('pageerror', (e) => errors.push(String(e)));
   // fresh profile / stash / bindings

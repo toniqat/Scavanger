@@ -3,7 +3,7 @@
 // Usage: node scripts/smoke-tactical.mjs [http://localhost:5273/]
 // Requires `npm run dev` (or `npm run dev:all`) to be running.
 //
-// NOTE ON TIMING: headless Chrome renders through swiftshader at ~5 fps, and Engine clamps dt to 0.05 s,
+// NOTE ON TIMING: Engine clamps dt to 0.05 s and the frame rate depends on the machine (swiftshader fallback ≈ 5 fps),
 // so wall time is NOT game time. Anything with a cooldown or a duration must be advanced with
 // `gameSleep`, which waits on `ctx.time`.
 import puppeteer from 'puppeteer-core';
@@ -16,6 +16,8 @@ const CHROME = [
   'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
 ].find((p) => existsSync(p));
 if (!CHROME) { console.error('no chrome/edge found'); process.exit(2); }
+// Real GPU through ANGLE D3D11 by default (headless Chrome renders at full speed, CPU stays free). SMOKE_GL=swiftshader falls back to the CPU rasterizer (no GPU / CI).
+const GL_ARGS = process.env.SMOKE_GL === 'swiftshader' ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : ['--use-angle=d3d11', '--enable-gpu'];
 
 let pass = 0, fail = 0;
 const ok = (cond, label, extra = '') => {
@@ -24,7 +26,7 @@ const ok = (cond, label, extra = '') => {
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function waitFor(page, fn, label, timeout = 40000) {
+async function waitFor(page, fn, label, timeout = 60000) {
   const t0 = Date.now();
   while (Date.now() - t0 < timeout) {
     try { const v = await page.evaluate(fn); if (v) return v; } catch { /* page still loading */ }
@@ -49,7 +51,7 @@ const browser = await puppeteer.launch({
   executablePath: CHROME,
   headless: true,
   args: [
-    '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist',
+    '--use-gl=angle', ...GL_ARGS, '--ignore-gpu-blocklist',
     '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows',
     '--autoplay-policy=no-user-gesture-required', '--window-size=960,540', '--no-sandbox',
   ],
@@ -58,6 +60,12 @@ const browser = await puppeteer.launch({
 try {
   const page = await browser.newPage();
   await page.setViewport({ width: 960, height: 540 });
+  // Never let headless Chrome take a real pointer lock: on Windows it calls ClipCursor and traps the OS cursor inside the
+  // hidden 960×540 window at the top-left of the screen. Scripts fake `pointerLockElement` themselves where they need it.
+  await page.evaluateOnNewDocument(() => {
+    Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
+    Document.prototype.exitPointerLock = function () {};
+  });
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   page.on('pageerror', (e) => errors.push(String(e)));
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
