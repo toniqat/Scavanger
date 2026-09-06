@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 import {
-  BEHEMOTH_KNOCKBACK, CORPSE_LIFETIME, GADGET_LURE_RADIUS, MAP_SIZE, NET_ENEMY_SNAPSHOT_HZ, PLAYER_HEIGHT, PLAYER_RADIUS, ROGUE_DAMAGE, ROGUE_RANGE,
-  SHELL_BLAST_RADIUS, SHELL_DAMAGE, SHELL_FLIGHT_TIME, TOXIC_DAMAGE, TOXIC_RADIUS,
+  BEHEMOTH_KNOCKBACK, BURNOUT_DURATION, CORPSE_LIFETIME, ENEMY_STATUS_BITS, FLAME_AFTERBURN_DPS, FLAME_AFTERBURN_DURATION, GADGET_LURE_RADIUS, MAP_SIZE,
+  NET_ENEMY_SNAPSHOT_HZ, PLAYER_HEIGHT, PLAYER_RADIUS, ROGUE_DAMAGE, ROGUE_RANGE,
+  SHELL_BLAST_RADIUS, SHELL_DAMAGE, SHELL_FLIGHT_TIME, SHOCK_SLOW_DURATION, SHOCK_SLOW_FACTOR, TOXIC_DAMAGE, TOXIC_RADIUS,
   type DamageMessage, type EnemyEvent, type EnemyHit, type EnemyManagerRef, type EnemyRef, type EnemyStatusKind, type EnemyType, type GameContext, type GameSystem,
-  type InterceptableRef,
+  type HitRequest, type InterceptableRef,
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
 import { Enemy, type EnemyHost, type HitPart } from './Enemy';
@@ -45,6 +46,17 @@ const SUSPICION_REFRESH = 0.2;
 /** Gunfire also acts as a weak lure so swarms converge on a firefight. */
 const GUNFIRE_LURE_WEIGHT = 0.25;
 const GUNFIRE_LURE_DURATION = 4;
+/* ── appended: unique weapons (2026-09-06) ── */
+/** 전소: ember puffs come ~3× as fast as plain burning (same pooled particles, no lights). */
+const INCAP_EMBER_INTERVAL = 0.12;
+/** Shocked: cyan spark puffs while `shockTimer` runs. */
+const SPARK_INTERVAL = 0.09;
+/** Seconds the spark visual lasts per `applyStatus('shocked')` (the slow itself uses the caller's duration). */
+const SHOCK_SPARK_TIME = 0.6;
+/** Replica → host status forwarding is throttled per enemy for the continuous callers (flame / arc every tick). */
+const STATUS_REQUEST_INTERVAL = 0.25;
+/** Host clamps a client's requested status duration. */
+const MAX_STATUS_DURATION = 10;
 
 const _v = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
@@ -183,7 +195,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
         if (!this.replica) return;
         if (msg.killed) this.ctx.bus.emit('ui:hitmarker', { kill: true, headshot: msg.part === 'head' });
       }),
-      net.onMessage('hit', (msg, from) => this.onHitRequest(msg.id, msg.dmg, msg.p, msg.d, from)),
+      net.onMessage('hit', (msg, from) => this.onHitRequest(msg, from)),
       net.onMessage('explode', (msg, from) => this.onExplodeRequest(msg.p, msg.r, msg.dmg, from)),
       net.onMessage('intq', (msg) => {
         // a client's bullet hit shell `sid`: validate it still exists, pop it here and broadcast
@@ -444,25 +456,97 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   /**
    * Apply a status effect. `burning` deals `dps` damage (in 0.5 s ticks) for `duration` seconds and
    * spits embers; `slowed` reads `dps` as the fraction of speed removed (0.4 → 60 % speed), clamped to 0.2…1.
-   * `dps` 0 clears the effect. Visuals run everywhere; damage only on the authority.
+   * `incinerated` (전소, 2026-09-06): `duration` s of writhing on the spot — no movement / attacks, still damageable —
+   * `isIncapacitated`, faster embers, `enemy:incinerated`; `dps` is ignored. `shocked`: `dps` is the **speed
+   * multiplier** (0..1, `SHOCK_SLOW_FACTOR` = 55 % speed) for `duration` s, plus a cyan spark strobe and
+   * `enemy:shocked` (emitted once per shock, not per tick — the arc calls this every frame).
+   * `dps` 0 (or `duration` 0 for 전소) clears the effect. Visuals run everywhere; gameplay only on the authority:
+   * a replica keeps the optimistic visual and forwards the request to the host as `hit {dmg: 0, st, dur}`
+   * (`ENEMY_STATUS_BITS`), throttled per enemy for the continuous callers.
    */
   applyStatus(id: number, status: EnemyStatusKind, dps: number, duration: number): void {
     const e = this.byId.get(id);
     if (!e || !e.active || e.state === 'dead') return;
-    // TODO(agent enemies): 'incinerated' (전소 writhing + enemy:incinerated) and 'shocked' (slow + enemy:shocked); replica → HitRequest.st.
-    if (status === 'incinerated') return;
-    if (status === 'shocked') status = 'slowed';
-    if (status === 'burning') {
-      if (dps <= 0) { e.burnDps = 0; e.burnTimer = 0; return; }
-      e.burnDps = Math.max(e.burnDps, dps);
-      e.burnTimer = Math.max(e.burnTimer, duration);
-      if (e.burnTick <= 0) e.burnTick = BURN_TICK;
-      return;
+    switch (status) {
+      case 'incinerated': {
+        if (!(duration > 0)) { e.incapTimer = 0; return; }
+        if (this.replica) {
+          this.requestStatus(e, ENEMY_STATUS_BITS.INCINERATED, duration);
+          if (e.incapTimer <= 0) this.ctx.bus.emit('enemy:incinerated', { id: e.id, position: e.position, duration });
+          e.incapTimer = Math.max(e.incapTimer, duration);
+          return;
+        }
+        this.incinerate(e, duration);
+        return;
+      }
+      case 'shocked': {
+        if (!(duration > 0) || !(dps > 0)) { e.shockTimer = 0; e.slowFactor = 1; e.slowTimer = 0; return; }
+        if (this.replica) this.requestStatus(e, ENEMY_STATUS_BITS.SHOCKED, duration);
+        const factor = THREE.MathUtils.clamp(dps, 0.2, 1);
+        e.slowFactor = Math.min(e.slowFactor, factor);
+        e.slowTimer = Math.max(e.slowTimer, duration);
+        if (e.shockTimer <= 0) {
+          this.ctx.bus.emit('enemy:shocked', { id: e.id, position: e.position });
+          this.playAudio('bug_hit', e.position, 0.35, 1.6);
+          e.sparkTimer = 0;
+        }
+        e.shockTimer = Math.max(e.shockTimer, Math.min(duration, SHOCK_SPARK_TIME));
+        return;
+      }
+      case 'burning': {
+        if (dps <= 0) { e.burnDps = 0; e.burnTimer = 0; return; }
+        if (this.replica) this.requestStatus(e, ENEMY_STATUS_BITS.BURNING, duration);
+        e.burnDps = Math.max(e.burnDps, dps);
+        e.burnTimer = Math.max(e.burnTimer, duration);
+        if (e.burnTick <= 0) e.burnTick = BURN_TICK;
+        return;
+      }
+      default: {
+        if (dps <= 0) { e.slowFactor = 1; e.slowTimer = 0; return; }
+        if (this.replica) this.requestStatus(e, ENEMY_STATUS_BITS.SLOWED, duration);
+        const factor = THREE.MathUtils.clamp(dps <= 1 ? 1 - dps : 1 / dps, 0.2, 1);
+        e.slowFactor = Math.min(e.slowFactor, factor);
+        e.slowTimer = Math.max(e.slowTimer, duration);
+      }
     }
-    if (dps <= 0) { e.slowFactor = 1; e.slowTimer = 0; return; }
-    const factor = THREE.MathUtils.clamp(dps <= 1 ? 1 - dps : 1 / dps, 0.2, 1);
-    e.slowFactor = Math.min(e.slowFactor, factor);
-    e.slowTimer = Math.max(e.slowTimer, duration);
+  }
+
+  /** Authority: put `e` into 전소 for `duration` s (event, scream, ember burst). */
+  private incinerate(e: Enemy, duration: number): void {
+    const fresh = e.incapTimer <= 0;
+    e.incinerate(duration);
+    if (!e.isIncapacitated) return;
+    if (fresh) {
+      this.ctx.bus.emit('enemy:incinerated', { id: e.id, position: e.position, duration });
+      if (e.isRogue) this.playAudio('player_hurt', e.position, 0.8, 0.9);
+      else this.playAudio('bug_screech', e.position, 0.9, e.type === 'behemoth' ? 0.5 : e.type === 'charger' ? 0.7 : 1.35);
+      _v.set(e.position.x, e.position.y + e.stats.height * 0.6, e.position.z);
+      this.emberBurst(_v, 14);
+      e.sparkTimer = 0;
+    }
+  }
+
+  /**
+   * Replica: forward a status to the host as a damage-less `HitRequest` (`st` bits + `dur`). Repeats of the same
+   * bits inside STATUS_REQUEST_INTERVAL are dropped (the flamethrower / arc call `applyStatus` every tick).
+   */
+  private requestStatus(e: Enemy, bits: number, duration: number): void {
+    const now = this.ctx.time;
+    if ((e.statusReqBits & bits) === bits && now - e.statusReqAt < STATUS_REQUEST_INTERVAL) return;
+    e.statusReqBits = now - e.statusReqAt < STATUS_REQUEST_INTERVAL ? e.statusReqBits | bits : bits;
+    e.statusReqAt = now;
+    _v.set(e.position.x, e.position.y + e.stats.height * 0.5, e.position.z);
+    const msg: HitRequest = { t: 'hit', id: e.id, dmg: 0, p: tuple(_v, 2), d: tuple(_zero, 3), st: bits, dur: round(Math.min(MAX_STATUS_DURATION, duration), 2) };
+    this.ctx.net?.send(msg, 'host');
+  }
+
+  /** Host: apply the status bits a client attached to its hit (`HitRequest.st` / `dur`); the wire carries no dps, so the defaults are the constants. */
+  private applyStatusBits(e: Enemy, bits: number, dur: number | undefined): void {
+    const d = dur !== undefined && dur > 0 ? Math.min(MAX_STATUS_DURATION, dur) : 0;
+    if (bits & ENEMY_STATUS_BITS.INCINERATED) this.applyStatus(e.id, 'incinerated', 0, d || BURNOUT_DURATION);
+    if (bits & ENEMY_STATUS_BITS.SHOCKED) this.applyStatus(e.id, 'shocked', SHOCK_SLOW_FACTOR, d || SHOCK_SLOW_DURATION);
+    if (bits & ENEMY_STATUS_BITS.BURNING) this.applyStatus(e.id, 'burning', FLAME_AFTERBURN_DPS, d || FLAME_AFTERBURN_DURATION);
+    if (bits & ENEMY_STATUS_BITS.SLOWED) this.applyStatus(e.id, 'slowed', 0.4, d || 2);
   }
 
   /**
@@ -513,18 +597,25 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   debugShell(sid: number): THREE.Vector3 | null { return this.shells?.find(sid)?.position ?? null; }
 
   /* ── client → host requests (authority only) ───────────────────────────── */
-  private onHitRequest(id: number, dmg: number, p: readonly number[], d: readonly number[], from: string): void {
+  /** `hit` from a client: damage (as before) and / or the status bits (`st` + `dur`, 2026-09-06; `dmg` may be 0 for a status-only request). */
+  private onHitRequest(msg: HitRequest, from: string): void {
     if (!this.hosting) return;
-    if (!(dmg > 0) || dmg > MAX_REQUEST_DAMAGE) return;
+    const { id, dmg, p, d } = msg;
+    const st = msg.st ?? 0;
+    if (!(dmg >= 0) || dmg > MAX_REQUEST_DAMAGE) return;
+    if (dmg <= 0 && st === 0) return;
     const e = this.byId.get(id);
     if (!e || !e.active || e.state === 'dead') return;
-    _hp.set(p[0], p[1], p[2]);
-    _hd.set(d[0], d[1], d[2]);
-    const dir = _hd.lengthSq() > 0.5 ? _hd : undefined;
-    const part = e.classifyHit(_hp, dir);
-    const before = e.hp;
-    e.takeDamage(dmg, _hp, dir, from);
-    this.ctx.net!.send({ t: 'hitc', id: e.id, dmg: round(before - e.hp, 1), killed: e.isDead, part }, from);
+    if (dmg > 0) {
+      _hp.set(p[0], p[1], p[2]);
+      _hd.set(d[0], d[1], d[2]);
+      const dir = _hd.lengthSq() > 0.5 ? _hd : undefined;
+      const part = e.classifyHit(_hp, dir);
+      const before = e.hp;
+      e.takeDamage(dmg, _hp, dir, from);
+      this.ctx.net!.send({ t: 'hitc', id: e.id, dmg: round(before - e.hp, 1), killed: e.isDead, part }, from);
+    }
+    if (st !== 0 && !e.isDead) this.applyStatusBits(e, st, msg.dur);
   }
 
   private onExplodeRequest(p: readonly number[], r: number, dmg: number, from: string): void {
@@ -734,27 +825,44 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     this.fx?.burst(position, count, 'ember', 1.6);
   }
 
-  /* ── status effects (burning / slow) ───────────────────────────────────── */
+  /* ── status effects (burning / slow / 전소 / shocked) ──────────────────── */
   private updateStatuses(dt: number): void {
     const authority = this.authority;
     for (let i = 0; i < this.active.length; i++) {
       const e = this.active[i];
-      if (!e.active || e.state === 'dead' || e.burnTimer <= 0) continue;
-      e.burnTimer -= dt;
-      e.emberTimer -= dt;
-      if (e.emberTimer <= 0) {
-        e.emberTimer = EMBER_INTERVAL;
-        _v.set(e.position.x, e.position.y + e.stats.height * 0.55, e.position.z);
-        this.emberBurst(_v, 4);
+      if (!e.active || e.state === 'dead') continue;
+      const incap = e.incapTimer > 0;
+      // replicas hold `incapTimer` / `slowTimer` from the wire bits (the AI ticks them on the authority)
+      if (!authority) {
+        if (incap) e.incapTimer = Math.max(0, e.incapTimer - dt);
+        if (e.slowTimer > 0) { e.slowTimer -= dt; if (e.slowTimer <= 0) e.slowFactor = 1; }
       }
-      if (authority) {
-        e.burnTick -= dt;
-        if (e.burnTick <= 0) {
-          e.burnTick += BURN_TICK;
-          e.applyDot(e.burnDps * BURN_TICK, e.lastDamager);
+      if (e.burnTimer > 0 || incap) {
+        if (e.burnTimer > 0) e.burnTimer -= dt;
+        e.emberTimer -= dt;
+        if (e.emberTimer <= 0) {
+          e.emberTimer = incap ? INCAP_EMBER_INTERVAL : EMBER_INTERVAL;
+          _v.set(e.position.x + (Math.random() - 0.5) * e.stats.radius, e.position.y + e.stats.height * (incap ? 0.35 + Math.random() * 0.4 : 0.55), e.position.z + (Math.random() - 0.5) * e.stats.radius);
+          this.emberBurst(_v, incap ? 5 : 4);
+        }
+        if (authority && e.burnTimer > 0) {
+          e.burnTick -= dt;
+          if (e.burnTick <= 0) {
+            e.burnTick += BURN_TICK;
+            e.applyDot(e.burnDps * BURN_TICK, e.lastDamager);
+          }
+        }
+        if (e.burnTimer <= 0) { e.burnDps = 0; e.burnTick = 0; }
+      }
+      if (e.shockTimer > 0) {
+        e.shockTimer -= dt;
+        e.sparkTimer -= dt;
+        if (e.sparkTimer <= 0) {
+          e.sparkTimer = SPARK_INTERVAL;
+          _v.set(e.position.x + (Math.random() - 0.5) * e.stats.radius * 1.4, e.position.y + e.stats.height * (0.3 + Math.random() * 0.6), e.position.z + (Math.random() - 0.5) * e.stats.radius * 1.4);
+          this.fx?.burst(_v, 3, 'spark', 2.2);
         }
       }
-      if (e.burnTimer <= 0) { e.burnDps = 0; e.burnTick = 0; }
     }
   }
 

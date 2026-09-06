@@ -14,10 +14,11 @@ import { WEAPON_SLOTS, defaultFor, kindOf, shotSoundId, shotPitchFor, weaponClas
 import { WeaponModel, type WeaponAttachmentVisuals } from './WeaponModel';
 import { WeaponFx } from './fx/WeaponFx';
 import { GrenadeManager } from './Grenade';
-import { ProjectilePool, type ProjectileHit } from './Projectile';
+import { ProjectilePool, projectileOptsFor, type ProjectileHit } from './Projectile';
 import { RemoteWeapons } from './RemoteWeapons';
 import { MeleeController } from './Melee';
 import { raycastBlockers } from './Blocking';
+import { createUniqueHandler, UniqueFx, type UniqueHandler, type UniqueInput, type UniqueServices, type UniqueShot, type UniqueWeapon } from './unique';
 
 type Host = PlayerRef & PlayerWeaponHost;
 
@@ -33,6 +34,11 @@ interface WeaponInstance {
   inst: ItemInstance;
   stats: EffectiveWeaponStats;
   model: WeaponModel;
+  /** Phase 6: behaviour handler for `def.unique` weapons (null for regular guns). */
+  unique: UniqueHandler | null;
+  /** Continuous weapons: fractional ammo / durability spent since the last whole unit was written. */
+  ammoFrac: number;
+  durFrac: number;
 }
 
 interface HitInfo { point: THREE.Vector3; normal: THREE.Vector3; distance: number; enemy: EnemyRef | null; obstacle: boolean; valid: boolean; headshot: boolean; obstacleRef: WorldObstacle | null; armored: boolean; intercept: InterceptableRef | null }
@@ -99,6 +105,11 @@ export class WeaponSystem implements GameSystem {
   private remote!: RemoteWeapons;
   /** Tactical kit: F melee attack — the player owns stamina / cooldown / pose, this owns the hit resolution. */
   private melee!: MeleeController;
+  /** Phase 6: pooled flame cones / lightning arcs shared by the local uniques and remote replicas. */
+  private ufx!: UniqueFx;
+  /** What unique handlers may touch (built once in `init`). */
+  private services!: UniqueServices;
+  private readonly uniqueInput: UniqueInput = { fireDown: false, firePressed: false, fireReleased: false, altDown: false, altPressed: false, altReleased: false, meleeDown: false, meleePressed: false, meleeReleased: false };
   /** True while the holster is caused by a wielded implant (`ctx.implants.blocksWeapons`): nothing in flight is cleared then. */
   private implantHolstered = false;
   /** Gadget throw mode toggled with RMB while a gadget is in hand. */
@@ -166,7 +177,7 @@ export class WeaponSystem implements GameSystem {
 
   private readonly camHit = makeHit();
   private readonly gunHit = makeHit();
-  private readonly weaponState = { hasWeapon: false, reloading: false, firing: false, twoHanded: false, throwing: false, holdingItem: false };
+  private readonly weaponState = { hasWeapon: false, reloading: false, firing: false, twoHanded: false, throwing: false, holdingItem: false, charging: false, spraying: false, heavy: false };
 
   /* ─────────────────────────── GameSystem ─────────────────────────── */
   init(ctx: GameContext): void {
@@ -177,9 +188,11 @@ export class WeaponSystem implements GameSystem {
     ctx.weapons = { getGrenades: () => this.grenades.getViews() };
     this.projectiles = new ProjectilePool(ctx,
       (h, dmg, weaponId) => this.onProjectileHit(h, dmg, weaponId),
-      (h) => this.remote.onVisualProjectileHit(h));
-    this.remote = new RemoteWeapons(ctx, this.fx, this.grenades, this.projectiles);
+      (h, weaponId) => this.remote.onVisualProjectileHit(h, weaponId));
+    this.ufx = new UniqueFx(ctx.scene);
+    this.remote = new RemoteWeapons(ctx, this.fx, this.grenades, this.projectiles, this.ufx);
     this.melee = new MeleeController(ctx, this.fx);
+    this.services = this.buildServices();
     // melee: anyone else emitting `melee:swing` gets resolved too (MeleeController guards against double resolution)
     ctx.bus.on('melee:swing', () => {
       if (!ctx.isGameplayPhase()) return;
@@ -232,10 +245,13 @@ export class WeaponSystem implements GameSystem {
     const net = this.ctx.net;
     if (!net || this.netUnsub.length > 0) return;
     this.netUnsub.push(net.onMessage('melee', (msg, from) => this.remote.onMelee(from, msg.p, msg.d, msg.hit)));
+    // unique weapons carry `m` / `c` that the `net:remoteFired` bus event drops → raw message path
+    this.netUnsub.push(net.onMessage('fire', (msg, from) => this.remote.onFireMessage(from, msg)));
   }
 
   update(dt: number, ctx: GameContext): void {
     this.fx.update(dt);
+    this.ufx.update(dt);
     this.grenades.update(dt);
     this.projectiles.update(dt);
     this.remote.update(dt);
@@ -256,7 +272,7 @@ export class WeaponSystem implements GameSystem {
       if (holster) {
         this.dropQuick();
         if (phaseHolster) { this.flushAll(); this.resetTransient(); }
-        else { if (this.phase === 'reloading') this.cancelReload(); if (this.phase === 'swapping') { this.phase = 'ready'; this.active = this.swapTarget; } this.applyAimZoom(null); }
+        else { if (this.phase === 'reloading') this.cancelReload(); if (this.phase === 'swapping') { this.phase = 'ready'; this.active = this.swapTarget; } this.slots[this.active]?.unique?.reset(); this.applyAimZoom(null); }
       } else this.attachActive(false);
     }
     this.implantHolstered = implantHolster;
@@ -283,7 +299,7 @@ export class WeaponSystem implements GameSystem {
     const weapon = this.quick ? null : this.slots[this.active];
 
     // ── melee (F, tactical kit). The player owns stamina / cooldown / animation; we only resolve the hit.
-    if (armedAndFree && !this.implantHolstered && !this.wheelOpen && !this.holding && input.wasPressed(Keys.MELEE)) {
+    if (armedAndFree && !this.implantHolstered && !this.wheelOpen && !this.holding && !weapon?.unique?.handlesMelee && input.wasPressed(Keys.MELEE)) {
       if (this.melee.tryStart(host, weapon?.def ?? null)) {
         if (this.phase === 'reloading') this.cancelReload();
         this.firingTimer = FIRING_POSE_HOLD * 0.5;
@@ -323,9 +339,19 @@ export class WeaponSystem implements GameSystem {
         else if (!want || !this.slots[want]) ctx.bus.emit('audio:play', { id: 'ui_deny', volume: 0.4 });
       }
     }
+    let uniqueUpdated = false;
     if (this.phase === 'swapping') this.updateSwap(dt);
     else if (this.phase === 'reloading') this.updateReload(dt);
     else if (this.quick) this.updateQuickHand(dt, host, usable, inputFree);
+    else if (weapon && weapon.unique && inputFree) {
+      // Phase 6: a unique weapon owns both mouse buttons (RMB = alt fire, never ADS) — R still reloads
+      if (input.wasPressed(Keys.RELOAD) && this.magOf(weapon) < weapon.stats.magSize) this.tryReload(weapon);
+      else {
+        weapon.unique.update(dt, weapon, this.readUniqueInput());
+        uniqueUpdated = true;
+      }
+      if (!input.isMouseDown(MouseButtons.FIRE) && !input.isMouseDown(MouseButtons.AIM)) this.dryFlagged = false;
+    }
     else if (weapon && inputFree) {
       const st = weapon.stats;
       const mag = this.magOf(weapon);
@@ -345,6 +371,11 @@ export class WeaponSystem implements GameSystem {
       if (!input.isMouseDown(MouseButtons.FIRE)) this.dryFlagged = false;
     }
 
+    // a unique in the active slot that got no input this frame (menu, wheel, reload, swap, consumable in hand,
+    // holstered): tick it with the trigger released so beams stop, spin decays, charges cancel
+    const activeUnique = this.slots[this.active];
+    if (activeUnique?.unique && !uniqueUpdated) activeUnique.unique.update(dt, activeUnique, null);
+
     // ── model animation & pose state
     this.updateQuickHolster(dt);
     for (const s of WEAPON_SLOTS) this.slots[s]?.model.update(dt, ctx.time);
@@ -357,6 +388,11 @@ export class WeaponSystem implements GameSystem {
     ws.twoHanded = armed && weapon ? weapon.stats.weaponClass !== 'PISTOL' : false;
     ws.holdingItem = !!this.quick && !this.holstered;
     ws.throwing = ws.holdingItem && this.holding;
+    const up = armed && weapon ? weapon.unique?.pose : undefined;
+    ws.charging = !!up?.charging;
+    ws.spraying = !!up?.spraying;
+    ws.heavy = !!up?.heavy;
+    if (up?.firing) ws.firing = true;
     host.setWeaponState(ws);
   }
 
@@ -393,7 +429,7 @@ export class WeaponSystem implements GameSystem {
     for (const u of this.netUnsub) u();
     this.netUnsub.length = 0;
     for (const s of WEAPON_SLOTS) this.setSlot(s, null);
-    this.remote.dispose(); this.fx.dispose(); this.grenades.dispose(); this.projectiles.dispose();
+    this.remote.dispose(); this.fx.dispose(); this.ufx.dispose(); this.grenades.dispose(); this.projectiles.dispose();
   }
 
   /* ─────────────────────────── loadout ─────────────────────────── */
@@ -469,7 +505,8 @@ export class WeaponSystem implements GameSystem {
       const stats = this.resolveStats(item, def);
       const model = new WeaponModel(def);
       model.setAttachments(this.attachmentsFor(item));
-      this.setSlot(slot, { uid: item.uid, slot, def, inst: item, stats, model });
+      const unique = def.unique ? createUniqueHandler(def.unique, this.services) : null;
+      this.setSlot(slot, { uid: item.uid, slot, def, inst: item, stats, model, unique, ammoFrac: 0, durFrac: 0 });
       this.initInstanceFields(this.slots[slot]!);
     }
     // make sure something usable is in hand
@@ -493,7 +530,8 @@ export class WeaponSystem implements GameSystem {
   private setSlot(slot: WeaponSlot, inst: WeaponInstance | null): void {
     const cur = this.slots[slot];
     if (cur) {
-      if (this.attachedModel === cur.model) { cur.model.root.removeFromParent(); this.attachedModel = null; }
+      if (this.attachedModel === cur.model) { cur.unique?.onUnequip(cur); cur.model.root.removeFromParent(); this.attachedModel = null; }
+      cur.unique?.dispose();
       cur.model.dispose();
     }
     this.slots[slot] = inst;
@@ -520,6 +558,8 @@ export class WeaponSystem implements GameSystem {
     const host = this.getHost();
     const weapon = this.slots[this.active];
     if (this.attachedModel && (!weapon || this.attachedModel !== weapon.model)) {
+      const prev = this.findByModel(this.attachedModel);
+      prev?.unique?.onUnequip(prev);
       this.attachedModel.root.removeFromParent();
       this.attachedModel = null;
     }
@@ -531,6 +571,7 @@ export class WeaponSystem implements GameSystem {
       weapon.model.setReload(-1);
       weapon.model.setBolt(-1);
       this.boltTimer = 0;
+      weapon.unique?.onEquip(weapon);
     }
     if (this.quick) {
       // a consumable is in hand: the gun stays parented but drawn down, no zoom, no `weapon:equipped`
@@ -538,7 +579,7 @@ export class WeaponSystem implements GameSystem {
       this.applyAimZoom(null);
       return;
     }
-    this.applyAimZoom(this.holstered ? null : weapon.stats);
+    this.applyAimZoom(this.holstered ? null : this.zoomStatsFor(weapon));
     if (announce) {
       const st = weapon.stats;
       this.ctx.bus.emit('weapon:equipped', {
@@ -610,6 +651,27 @@ export class WeaponSystem implements GameSystem {
     return null;
   }
 
+  private findByModel(model: WeaponModel): WeaponInstance | null {
+    for (const s of WEAPON_SLOTS) { const w = this.slots[s]; if (w && w.model === model) return w; }
+    return null;
+  }
+
+  /** Stats to aim with: every `altFire` unique aims at zoom 1 (RMB is its alt fire); the bow aims like a DMR. */
+  private zoomStatsFor(w: WeaponInstance): EffectiveWeaponStats | null {
+    if (w.unique && !w.unique.allowsAim) return null;
+    return w.stats;
+  }
+
+  /** Snapshot of the mouse / melee keys for a unique handler (one shared object, rewritten every frame). */
+  private readUniqueInput(): UniqueInput {
+    const input = this.ctx.input;
+    const u = this.uniqueInput;
+    u.fireDown = input.isMouseDown(MouseButtons.FIRE); u.firePressed = input.wasMousePressed(MouseButtons.FIRE); u.fireReleased = input.wasMouseReleased(MouseButtons.FIRE);
+    u.altDown = input.isMouseDown(MouseButtons.AIM); u.altPressed = input.wasMousePressed(MouseButtons.AIM); u.altReleased = input.wasMouseReleased(MouseButtons.AIM);
+    u.meleeDown = input.isDown(Keys.MELEE); u.meleePressed = input.wasPressed(Keys.MELEE); u.meleeReleased = input.wasReleased(Keys.MELEE);
+    return u;
+  }
+
   /** `inventory:itemUpdated` (repair at the workbench, unload, external edits): adopt the instance and re-announce. */
   private onItemUpdated(item: ItemInstance): void {
     if (this.selfWriting) return;
@@ -640,7 +702,7 @@ export class WeaponSystem implements GameSystem {
       this.persist(w, { ammoInMag: w.inst.ammoInMag });
     }
     if (w === this.slots[this.active]) {
-      if (!this.holstered) this.applyAimZoom(w.stats);
+      if (!this.holstered) this.applyAimZoom(this.zoomStatsFor(w));
       this.emitAmmo(w);
     }
     this.emitDurability(w);
@@ -833,7 +895,7 @@ export class WeaponSystem implements GameSystem {
       if (pellets === 1) _netDir.copy(_md);
 
       if (def.projectileSpeed) {
-        this.projectiles.fire(_muzzle, _md, def.projectileSpeed, st.damage, def.range, def.tracerColor, st.weaponId);
+        this.projectiles.fire(_muzzle, _md, def.projectileSpeed, st.damage, def.range, def.tracerColor, st.weaponId, false, projectileOptsFor(def));
         continue;
       }
       this.raycastAll(_muzzle, _md, mdist + 0.05, this.gunHit);
@@ -859,7 +921,7 @@ export class WeaponSystem implements GameSystem {
     _tmp.setFromMatrixPosition(w.model.ejectPort.matrixWorld);
     w.model.ejectPort.getWorldQuaternion(_mq);
     _right.set(1, 0, 0).applyQuaternion(_mq);
-    if (kindOf(def) !== 'energy') this.fx.casing(_tmp, _right, host.position.y);
+    if (kindOf(def) !== 'energy' && (!def.unique || def.unique === 'minigun')) this.fx.casing(_tmp, _right, host.position.y);
     w.model.kick(pellets > 1 ? 2.2 : cls === 'SR' ? 2.6 : 1);
     // 사격 스킬 (tactical kit): recoil shrinks as the class skill rises (`derived.recoilMul`)
     const recoilMul = this.recoilMulFor(cls);
@@ -993,7 +1055,14 @@ export class WeaponSystem implements GameSystem {
     this.gunHit.enemy = h.enemy; this.gunHit.obstacle = h.obstacle; this.gunHit.obstacleRef = h.obstacleRef ?? null; this.gunHit.valid = true; this.gunHit.headshot = h.part === 'head';
     this.gunHit.armored = !!h.armored; this.gunHit.intercept = null;
     let def: WeaponDef | null = null;
-    for (const s of WEAPON_SLOTS) { const w = this.slots[s]; if (w && w.stats.weaponId === weaponId) { def = w.def; break; } }
+    for (const s of WEAPON_SLOTS) {
+      const w = this.slots[s];
+      if (w && w.stats.weaponId === weaponId) {
+        // Phase 6: rockets etc. resolve in their handler (area damage, self knockback)
+        if (w.unique && typeof w.unique.onProjectileHit === 'function') { w.unique.onProjectileHit(h, damage, w); return; }
+        def = w.def; break;
+      }
+    }
     const dmg = def ? damage * damageFalloff(def, h.distance) : damage;
     const killed = this.applyHit(this.gunHit, dmg, h.dir, false, def?.ammoType);
     if (h.enemy) this.ctx.bus.emit('ui:hitmarker', { kill: killed, headshot: this.gunHit.headshot });
@@ -1321,9 +1390,11 @@ export class WeaponSystem implements GameSystem {
 
   private resetTransient(): void {
     this.melee.cancel();
+    for (const s of WEAPON_SLOTS) this.slots[s]?.unique?.reset();
     this.grenades.clear();
     this.projectiles.clear();
     this.fx.clear();
+    this.ufx.clear();
     this.remote.clear();
     this.phase = 'ready';
     this.cooldown = 0; this.bloom = 0; this.firingTimer = 0;
@@ -1334,5 +1405,158 @@ export class WeaponSystem implements GameSystem {
     this.slots[this.active]?.model.setReload(-1);
     this.slots[this.active]?.model.setBolt(-1);
     this.applyAimZoom(null);
+  }
+
+  /* ─────────────────────────── Phase 6: unique weapon services ─────────────────────────── */
+  private readonly uniqueHit = makeHit();
+
+  /**
+   * The narrow API a `UniqueHandler` gets. Ammo / durability stay on the shared item instance and go through
+   * `persist()` exactly like regular shots; the hitscan helper mirrors `fire()`'s single-pellet path.
+   */
+  private buildServices(): UniqueServices {
+    const sys = this;
+    const ctx = this.ctx;
+    return {
+      ctx,
+      fx: this.fx,
+      ufx: this.ufx,
+      projectiles: this.projectiles,
+      host: () => sys.getHost(),
+      mag: (w) => sys.magOf(w as WeaponInstance),
+      reserve: (w) => sys.reserveOf(w as WeaponInstance),
+      drain(w, dt) {
+        const wi = w as WeaponInstance;
+        const mag = sys.magOf(wi);
+        if (mag <= 0) return false;
+        wi.ammoFrac += (wi.def.ammoPerSec ?? 0) * dt;
+        wi.durFrac += dt;
+        const units = Math.floor(wi.ammoFrac);
+        const wear = Math.floor(wi.durFrac);
+        if (units > 0 || wear > 0) {
+          if (units > 0) { wi.ammoFrac -= units; wi.inst.ammoInMag = Math.max(0, mag - units); }
+          if (wear > 0) { wi.durFrac -= wear; wi.inst.durability = Math.max(0, sys.durabilityOf(wi) - wear * WEAPON_DURABILITY_PER_SHOT); }
+          sys.persist(wi, { ammoInMag: sys.magOf(wi), durability: sys.durabilityOf(wi) });
+          if (units > 0) sys.emitAmmo(wi);
+          if (wear > 0) sys.emitDurability(wi);
+        }
+        return true;
+      },
+      spend(w, rounds) {
+        const wi = w as WeaponInstance;
+        const mag = sys.magOf(wi);
+        if (mag < rounds || rounds <= 0) return false;
+        wi.inst.ammoInMag = mag - rounds;
+        wi.inst.durability = Math.max(0, sys.durabilityOf(wi) - WEAPON_DURABILITY_PER_SHOT);
+        sys.persist(wi, { ammoInMag: wi.inst.ammoInMag, durability: wi.inst.durability });
+        sys.emitAmmo(wi);
+        sys.emitDurability(wi);
+        return true;
+      },
+      brokenCheck(w) {
+        const wi = w as WeaponInstance;
+        if (sys.durabilityOf(wi) > 0) return false;
+        if (!sys.dryFlagged) { sys.dryFlagged = true; sys.onBrokenTrigger(wi); }
+        return true;
+      },
+      dryFire(w) {
+        const wi = w as WeaponInstance;
+        if (sys.dryFlagged) return;
+        sys.dryFlagged = true;
+        ctx.bus.emit('weapon:dryFire', { weaponId: wi.stats.weaponId });
+        ctx.bus.emit('audio:play', { id: 'dry_fire', volume: 0.6 });
+        sys.tryReload(wi);
+      },
+      tryReload: (w) => sys.tryReload(w as WeaponInstance),
+      muzzle(w, out) {
+        w.model.muzzle.updateWorldMatrix(true, false);
+        return out.setFromMatrixPosition(w.model.muzzle.matrixWorld);
+      },
+      aimRay(origin, dir) {
+        const host = sys.getHost();
+        if (host) host.getAimRay(origin, dir); else { origin.set(0, 0, 0); dir.set(0, 0, -1); }
+      },
+      aimTarget(range, out) {
+        const host = sys.getHost();
+        if (!host) { out.set(0, 0, 0); return; }
+        host.getAimRay(_o, _d);
+        _tmp.copy(host.position); _tmp.y += 1.5;
+        const camToPlayer = _tmp.distanceTo(_o) + 0.4;
+        sys.raycastAll(_o, _d, range, sys.uniqueHit);
+        if (sys.uniqueHit.valid && sys.uniqueHit.distance < camToPlayer) sys.uniqueHit.valid = false;
+        if (sys.uniqueHit.valid) out.copy(sys.uniqueHit.point); else out.copy(_o).addScaledVector(_d, range);
+      },
+      hitscan(w, spread, damage, range, tracerWidth, out: UniqueShot) {
+        const wi = w as WeaponInstance;
+        out.hit = false; out.enemy = false; out.killed = false;
+        const host = sys.getHost();
+        if (!host) return;
+        host.getAimRay(_o, _d);
+        wi.model.muzzle.updateWorldMatrix(true, false);
+        _muzzle.setFromMatrixPosition(wi.model.muzzle.matrixWorld);
+        _tmp.copy(host.position); _tmp.y += 1.5;
+        const camToPlayer = _tmp.distanceTo(_o) + 0.4;
+        randomInCone(_d, spread, _pd, _tA, _tB);
+        sys.raycastAll(_o, _pd, range, sys.camHit);
+        if (sys.camHit.valid && sys.camHit.distance < camToPlayer) sys.camHit.valid = false;
+        if (sys.camHit.valid) _target.copy(sys.camHit.point); else _target.copy(_o).addScaledVector(_pd, range);
+        _md.subVectors(_target, _muzzle);
+        const mdist = _md.length();
+        if (mdist < 1e-3) { out.end.copy(_target); return; }
+        _md.divideScalar(mdist);
+        sys.raycastAll(_muzzle, _md, mdist + 0.05, sys.gunHit);
+        const hit = sys.gunHit.valid ? sys.gunHit : (sys.camHit.valid ? sys.camHit : null);
+        out.end.copy(hit ? hit.point : _target);
+        const fxm = FxManager.get();
+        if (fxm) fxm.tracers.add(_muzzle, out.end, wi.def.tracerColor, tracerWidth, _muzzle.distanceTo(out.end) / 600 + 0.06, 600);
+        if (!hit) return;
+        const dmg = damage * damageFalloff(wi.def, _muzzle.distanceTo(hit.point));
+        const killed = sys.applyHit(hit, dmg, _md, false, wi.stats.ammoType);
+        out.hit = true; out.enemy = !!hit.enemy; out.killed = killed;
+        if (hit.enemy) ctx.bus.emit('ui:hitmarker', { kill: killed, headshot: hit.headshot });
+      },
+      fireStandard(w) {
+        const host = sys.getHost();
+        if (host) sys.fire(host, w as WeaponInstance);
+      },
+      announceFire(w, origin, dir, m, c) {
+        ctx.bus.emit('weapon:fired', { weaponId: w.stats.weaponId, origin: origin.clone(), direction: dir.clone() });
+        if (ctx.isMultiplayer && ctx.net) ctx.net.send({ t: 'fire', w: w.stats.weaponId, o: toTuple(origin), d: toTuple(dir), m, c: Math.round(c * 100) / 100 });
+      },
+      announceBeamEnd(w, m) {
+        if (!ctx.isMultiplayer || !ctx.net) return;
+        const host = sys.getHost();
+        w.model.muzzle.updateWorldMatrix(true, false);
+        _muzzle.setFromMatrixPosition(w.model.muzzle.matrixWorld);
+        if (host) host.getAimRay(_o, _d); else _d.set(0, 0, -1);
+        ctx.net.send({ t: 'fire', w: w.stats.weaponId, o: toTuple(_muzzle), d: toTuple(_d), m, c: -1 });
+      },
+      recoil(pitch, yaw) { sys.getHost()?.addRecoil(pitch, yaw); },
+      setCooldown(seconds) { sys.cooldown = Math.max(sys.cooldown, seconds); sys.firingTimer = FIRING_POSE_HOLD; },
+      cooldown: () => sys.cooldown,
+      deny: () => sys.deny(),
+      notify(text) { ctx.bus.emit('ui:notify', { text, kind: 'warning', duration: 1.4 }); },
+      lightMelee() {
+        const host = sys.getHost();
+        if (!host) return false;
+        const ok = sys.melee.tryStart(host, sys.slots[sys.active]?.def ?? null);
+        if (ok) { if (sys.phase === 'reloading') sys.cancelReload(); sys.firingTimer = FIRING_POSE_HOLD * 0.5; }
+        return ok;
+      },
+      lineOfSight(from, to) {
+        _tmp.subVectors(to, from);
+        const dist = _tmp.length();
+        if (dist < 1e-3) return true;
+        _tmp.divideScalar(dist);
+        const world = ctx.world;
+        if (world && world.ready) {
+          const wh = world.raycast(from, _tmp, dist);
+          if (wh && wh.distance < dist - 0.35) return false;
+        }
+        const bd = raycastBlockers(ctx, from, _tmp, dist, _block, false);
+        return !(bd >= 0 && bd < dist - 0.35);
+      },
+      emitAmmo: (w) => sys.emitAmmo(w as WeaponInstance),
+    };
   }
 }

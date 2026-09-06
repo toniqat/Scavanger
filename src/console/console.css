@@ -1,0 +1,51 @@
+/* ============================================================================
+ * SCAVANGER — developer console (dev clients only). Bottom bar + output log above it.
+ * ========================================================================== */
+
+.dev-console {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  display: flex; flex-direction: column;
+  z-index: 90;                              /* above menus (58) and the inventory layers (≤ 80) */
+  font-family: var(--ui-mono);
+  font-size: 12px;
+  line-height: 1.4;
+  user-select: text; -webkit-user-select: text;
+}
+
+.dev-console .dc-log {
+  max-height: 38vh;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  padding: 6px 10px 4px;
+  background: linear-gradient(to bottom, rgba(5, 7, 10, 0.25), rgba(5, 7, 10, 0.72));
+  border-top: 1px solid var(--c-border);
+}
+.dev-console .dc-line { white-space: pre-wrap; word-break: break-all; color: var(--c-text-dim); }
+.dev-console .dc-line.input { color: var(--c-text); }
+.dev-console .dc-line.success { color: var(--c-success); }
+.dev-console .dc-line.error { color: var(--c-danger); }
+
+.dev-console .dc-suggest {
+  display: flex; flex-direction: column;
+  background: var(--c-panel-strong);
+  border-top: 1px solid var(--c-border);
+  padding: 2px 0;
+}
+.dev-console .dc-sug { padding: 2px 12px; color: var(--c-text-dim); cursor: pointer; white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+.dev-console .dc-sug:hover { color: var(--c-text); }
+.dev-console .dc-sug.sel { color: var(--c-accent); background: rgba(255, 179, 71, 0.10); }
+
+.dev-console .dc-input-row {
+  display: flex; align-items: center; gap: 8px;
+  height: 32px; padding: 0 10px;
+  background: rgba(8, 9, 11, 0.94);
+  border-top: 1px solid var(--c-border-strong);
+}
+.dev-console .dc-prompt { color: var(--c-accent); }
+.dev-console .dc-input {
+  flex: 1; min-width: 0; height: 100%;
+  background: none; border: none; outline: none;
+  color: var(--c-text); font: inherit; caret-color: var(--c-accent);
+}
+.dev-console .dc-input::placeholder { color: var(--c-text-faint); }
+.dev-console .dc-hint { font-size: 9px; letter-spacing: 0.2em; color: var(--c-text-faint); }

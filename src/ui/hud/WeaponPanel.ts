@@ -1,4 +1,4 @@
-import type { GameContext, ItemInstance, WeaponSlot } from '@/shared';
+import type { GameContext, ItemInstance, UniqueWeaponKind, WeaponDef, WeaponSlot } from '@/shared';
 import { Keys, WEAPON_DEFAULT_DURABILITY, keyLabel } from '@/shared';
 import { WEAPON_CLASS_LABEL_KO, weaponClassOf, AMMO_LABEL_KO } from '@/items';
 import { el, setText, toggleClass } from '../dom';
@@ -11,6 +11,16 @@ const DURABILITY_WORN = 0.3;
 const CONSUMABLE_HINT: Record<string, string> = {
   stim: '좌클릭 사용',
   grenade: '좌클릭 홀드 · R 코킹 · 우클릭 언더핸드',
+};
+
+/** Fixed `좌: … / 우: …` fire-mode texts per unique weapon kind (`WeaponDef.altFire` — RMB is an alternative fire, not ADS). */
+const UNIQUE_MODES: Readonly<Record<UniqueWeaponKind, { l: string; r: string }>> = {
+  flamethrower: { l: '넓은 화염', r: '긴 화염 제트' },
+  shockgun: { l: '연쇄 전격', r: '충전 볼트' },
+  shuriken: { l: '표창 1개', r: '표창 3개 (F 길게: 용검)' },
+  bow: { l: '화살', r: '정조준' },
+  bazooka: { l: '착탄 로켓', r: '공중 폭발 (바닥 우클릭: 로켓 점프)' },
+  minigun: { l: '예열 후 사격', r: '—' },
 };
 
 /**
@@ -37,6 +47,10 @@ export class WeaponPanel {
   private arc: HTMLElement;
   private arcProg: SVGCircleElement;
   private readonly circ = 2 * Math.PI * 14;
+
+  private modesEl: HTMLElement;
+  private modeL: HTMLElement;
+  private modeR: HTMLElement;
 
   private consName: HTMLElement;
   private consKey: HTMLElement;
@@ -89,6 +103,15 @@ export class WeaponPanel {
     this.reloadingEl = el('span', { cls: 'reloading', text: '재장전', parent: tagRow });
     this.typeEl = el('span', { cls: 'type', text: '—', parent: tagRow });
 
+    // Unique-weapon fire modes (`.modes`, only for defs with `altFire` / `unique`): `좌: …` / `우: …`.
+    this.modesEl = el('div', { cls: 'modes', parent: this.root });
+    const rowL = el('div', { cls: 'mode', parent: this.modesEl });
+    el('span', { cls: 'mk', text: '좌', parent: rowL });
+    this.modeL = el('span', { cls: 'mv', text: '', parent: rowL });
+    const rowR = el('div', { cls: 'mode', parent: this.modesEl });
+    el('span', { cls: 'mk', text: '우', parent: rowR });
+    this.modeR = el('span', { cls: 'mv', text: '', parent: rowR });
+
     // Consumable mode block (stim / grenade in hand) — shown instead of the gun rows via `.weapon.consumable`.
     const cons = el('div', { cls: 'cons', parent: this.root });
     const consRow = el('div', { cls: 'name-row', parent: cons });
@@ -125,6 +148,7 @@ export class WeaponPanel {
         setText(this.nameEl, p.name);
         const def = ctx.loot?.getWeaponDef(p.weaponId);
         setText(this.typeEl, def ? `${WEAPON_CLASS_LABEL_KO[weaponClassOf(def)]} · ${AMMO_LABEL_KO[def.ammoType] ?? def.ammoType}` : '—');
+        this.setModes(def);
         this.setAmmo(p.ammoInMag, p.reserveRounds);
         this.endReload();
         // Seed the durability bar from the equipped item instance (durabilityChanged only fires on change).
@@ -165,6 +189,7 @@ export class WeaponPanel {
           this.weaponUid = '';
           setText(this.nameEl, '무장 없음');
           setText(this.typeEl, '—');
+          this.setModes(undefined);
           this.setAmmo(0, 0);
           this.setDurability(1, 1, false);
           this.endSwap();
@@ -216,6 +241,17 @@ export class WeaponPanel {
     if (this.weaponUid) return uid === this.weaponUid;
     return weaponId === this.weaponId;
   }
+
+  /** `좌: … / 우: …` mode lines for unique weapons (`.weapon.has-modes`); hidden for every graded weapon. */
+  private setModes(def: WeaponDef | undefined): void {
+    const modes = def && (def.altFire || def.unique) && def.unique ? UNIQUE_MODES[def.unique] : null;
+    toggleClass(this.root, 'has-modes', !!modes);
+    setText(this.modeL, modes ? modes.l : '');
+    setText(this.modeR, modes ? modes.r : '');
+  }
+
+  /** Whether the unique fire-mode lines are showing (debug). */
+  get hasModes(): boolean { return this.root.classList.contains('has-modes'); }
 
   private setSlot(slot: WeaponSlot): void {
     setText(this.slotEl, weaponSlotKey(slot));

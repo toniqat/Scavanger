@@ -31,6 +31,11 @@ import { ScanReveal } from './hud/ScanReveal';
 import { Deployables } from './hud/Deployables';
 import { ProgressToasts } from './hud/ProgressToasts';
 import { ActionFeedback } from './hud/ActionFeedback';
+import { WeaponChargeGauge } from './hud/WeaponChargeGauge';
+import { StatusMarkers } from './hud/StatusMarkers';
+import { CheatTag } from './hud/CheatTag';
+import { HousingHint } from './hud/HousingHint';
+import { RoomLabel } from './hud/RoomLabel';
 import { MapScreen } from './map/MapScreen';
 import { TitleMenu } from './menus/TitleMenu';
 import { PauseMenu } from './menus/PauseMenu';
@@ -52,6 +57,9 @@ import { MissionComplete } from './menus/MissionComplete';
  * Phase 3 (ship calls): `StratagemWheel` (G held), `StratagemPanel` (armed call / shared cooldown), `ChargeGauge` (LMB charge
  * ring), `TargetingHud` (toggles `.hud.targeting` on the gameplay root, which hides the reticle) and `OffscreenIndicators`
  * (edge arrows for grenades / squad pings / incoming calls).
+ * Phase 6: `WeaponChargeGauge` (unique-weapon charge / spin-up / slash arc) and `StatusMarkers` (🔥 전소 / ⚡ world markers)
+ * in the gameplay layer; `CheatTag` (`MOVE CHEAT`) and `RoomLabel` (`방 n · 용도`) in the social layer; `HousingHint` in its
+ * own `.hud.housing` layer (placement hints while the ship housing mode is active).
  */
 export class HudSystem implements GameSystem {
   readonly name = 'hud';
@@ -93,6 +101,13 @@ export class HudSystem implements GameSystem {
   private deployables!: Deployables;
   private progressToasts!: ProgressToasts;
   private actionFx!: ActionFeedback;
+  /* Phase 6 (dev console · unique weapons · ship housing) */
+  private housingRoot!: HTMLElement;
+  private wcharge!: WeaponChargeGauge;
+  private statusMarkers!: StatusMarkers;
+  private cheatTag!: CheatTag;
+  private housingHint!: HousingHint;
+  private roomLabel!: RoomLabel;
 
   private title!: TitleMenu;
   private pause!: PauseMenu;
@@ -121,6 +136,8 @@ export class HudSystem implements GameSystem {
     this.reticle = new Reticle(this.hudRoot);
     this.cook = new CookGauge(this.hudRoot);
     this.charge = new ChargeGauge(this.hudRoot);
+    this.wcharge = new WeaponChargeGauge(this.hudRoot);
+    this.statusMarkers = new StatusMarkers(this.hudRoot);
     this.targeting = new TargetingHud(this.hudRoot, (active) => toggleClass(this.hudRoot, 'targeting', active));
     this.wheel = new QuickWheel(this.hudRoot);
     this.swheel = new StratagemWheel(this.hudRoot);
@@ -144,6 +161,13 @@ export class HudSystem implements GameSystem {
     this.notifs = new Notifications(this.socialRoot);
     this.chat = new ChatLog(this.socialRoot);
     this.progressToasts = new ProgressToasts(this.socialRoot);
+    this.cheatTag = new CheatTag(this.socialRoot);
+    this.roomLabel = new RoomLabel(this.socialRoot);
+
+    // Housing-mode layer: its own `.hud.housing` root (always attached; the hint bar toggles `.show` itself) so the
+    // placement hints are visible in the ship where the gameplay HUD is hidden.
+    this.housingRoot = el('div', { cls: 'hud housing', parent: ctx.uiRoot });
+    this.housingHint = new HousingHint(this.housingRoot);
 
     this.deploy = new DeployOverlay(ctx.uiRoot);
     this.map = new MapScreen(ctx.uiRoot);
@@ -159,6 +183,7 @@ export class HudSystem implements GameSystem {
 
     for (const c of [this.reticle, this.cook, this.wheel, this.swheel, this.strat, this.charge, this.targeting, this.offscreen, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.chat, this.map]) c.bind(ctx);
     for (const c of [this.implantWidget, this.weight, this.detection, this.scanReveal, this.deployables, this.progressToasts, this.actionFx]) c.bind(ctx);
+    for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.housingHint, this.roomLabel]) c.bind(ctx);
     for (const m of [this.title, this.pause, this.death, this.complete]) m.bind(ctx);
 
     const b = ctx.bus;
@@ -210,6 +235,8 @@ export class HudSystem implements GameSystem {
       this.chat.update(dt);
       this.progressToasts.update(dt);
     }
+    // Room label times itself out on `ctx.time` regardless of layer visibility (one compare per frame).
+    this.roomLabel.update(ctx);
     // Self-gating components (they hide their own world meshes / markers outside gameplay).
     this.deployables.update(dt, ctx);
     this.actionFx.update(dt, ctx);
@@ -223,6 +250,7 @@ export class HudSystem implements GameSystem {
       this.markers.lateUpdate(ctx);
       this.pings.lateUpdate(ctx);
       this.offscreen.lateUpdate(ctx);
+      this.statusMarkers.lateUpdate(ctx);
     }
     if (this.socialVisible) this.nameplates.lateUpdate(ctx);
     this.detection.lateUpdate(dt, ctx);
@@ -246,6 +274,18 @@ export class HudSystem implements GameSystem {
   get isKeybindsOpen(): boolean { return this.keybinds.isOpen; }
   /** Edge arrows currently visible (debug). */
   get offscreenCount(): number { return this.offscreen.visibleCount; }
+  /** Unique-weapon charge gauge kind while showing, else null (debug). */
+  get weaponChargeKind(): 'charge' | 'spinup' | 'slash' | null { return this.wcharge.activeKind; }
+  /** Live 전소 / 감전 world markers (debug). */
+  get statusMarkerCount(): number { return this.statusMarkers.activeCount; }
+  /** Whether the weapon panel shows unique fire-mode lines (debug). */
+  get hasWeaponModes(): boolean { return this.weapon.hasModes; }
+  /** Whether the `MOVE CHEAT` tag is on (debug). */
+  get isMoveCheatTagOn(): boolean { return this.cheatTag.isOn; }
+  /** Whether the housing hint bar is showing (debug). */
+  get isHousingHintOn(): boolean { return this.housingHint.isActive; }
+  /** Whether the room label is up (debug). */
+  get isRoomLabelOn(): boolean { return this.roomLabel.isShowing; }
 
   private applyVisibility(): void {
     const ctx = this.ctx;
@@ -285,8 +325,9 @@ export class HudSystem implements GameSystem {
     for (const u of this.unsubs) u();
     for (const c of [this.reticle, this.cook, this.wheel, this.swheel, this.strat, this.charge, this.targeting, this.offscreen, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.chat, this.missionInfo, this.deploy, this.map]) c.dispose();
     for (const c of [this.implantWidget, this.weight, this.detection, this.scanReveal, this.deployables, this.progressToasts, this.actionFx]) c.dispose();
+    for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.housingHint, this.roomLabel]) c.dispose();
     for (const m of [this.title, this.pause, this.death, this.complete]) m.dispose();
     this.keybinds.dispose();
-    this.hudRoot.remove(); this.socialRoot.remove(); this.overlayRoot.remove();
+    this.hudRoot.remove(); this.socialRoot.remove(); this.overlayRoot.remove(); this.housingRoot.remove();
   }
 }

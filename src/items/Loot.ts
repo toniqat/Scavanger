@@ -1,7 +1,8 @@
 import type { ArmorDef, CraftRecipe, EffectiveWeaponStats, EnemyType, ItemDef, ItemInstance, ItemInstanceExtras, LootRef, WeaponDef } from '@/shared';
 import { Random } from '@/shared';
+import { UNIQUE_WEAPON_IDS } from '@/shared';
 import { ATTACHMENT_ITEM_DEFS, ITEM_DEFS, ITEM_DEF_MAP, ammoItemIdFor, isWeaponItemDef, itemIdForWeapon, rarityRank } from './ItemDefs';
-import { WEAPON_DEF_MAP, weaponFamilyOf, weaponIdForGrade } from './WeaponDefs';
+import { WEAPON_DEF_MAP, isUniqueWeapon, weaponFamilyOf, weaponIdForGrade } from './WeaponDefs';
 import { canAttach as canAttachDef, computeWeaponStats, repairCost } from './WeaponStats';
 import { ARMOR_DEF_MAP } from './ArmorDefs';
 import { CRAFT_RECIPES } from './Recipes';
@@ -35,7 +36,8 @@ export class LootService implements LootRef {
     const inst: ItemInstance = { uid: nextUid(), defId, qty: Math.max(1, Math.min(def.stackMax, Math.floor(qty))), rotated: false };
     const weapon = def.weaponId ? WEAPON_DEF_MAP.get(def.weaponId) : undefined;
     if (weapon) {
-      if (extras?.sockets) inst.sockets = extras.sockets;
+      // uniques never carry sockets (no attachment fits them); everything else keeps its sockets across drops / storage
+      if (extras?.sockets && !isUniqueWeapon(weapon)) inst.sockets = extras.sockets;
       const stats = computeWeaponStats(weapon, inst);
       inst.durability = extras?.durability ?? stats.maxDurability;
       inst.ammoInMag = extras?.ammoInMag ?? stats.magSize;
@@ -108,6 +110,14 @@ export class LootService implements LootRef {
       if (d) picks.push(d); else break;
     }
 
+    // Phase 6: a unique weapon always brings one stack of its dedicated calibre (beyond `count`)
+    for (const d of picks.slice()) {
+      const w = d.weaponId ? WEAPON_DEF_MAP.get(d.weaponId) : undefined;
+      if (!w || !isUniqueWeapon(w)) continue;
+      const ammo = ITEM_DEF_MAP.get(ammoItemIdFor(w.ammoType));
+      if (ammo && !picks.includes(ammo)) picks.push(ammo);
+    }
+
     // materialise + merge stacks
     const out: ItemInstance[] = [];
     for (const def of picks) {
@@ -177,6 +187,23 @@ export class LootService implements LootRef {
           const fitting = pool.filter((d) => d.attachment && canAttachDef(weapon, d.attachment));
           const pick = rng.pick(fitting.length > 0 ? fitting : pool);
           if (pick) out.push(this.createItem(pick.id, 1));
+        }
+      }
+    }
+
+    // Phase 6: bosses may carry one legendary unique (rolled last so earlier draws are unchanged) + a stack of its calibre
+    if (table.unique && rng.chance(table.unique.chance)) {
+      const unique = WEAPON_DEF_MAP.get(rng.pick(UNIQUE_WEAPON_IDS));
+      if (unique) {
+        const stats = computeWeaponStats(unique);
+        const [dLo, dHi] = table.unique.durability;
+        const durability = Math.max(1, Math.round(stats.maxDurability * rng.range(dLo, dHi)));
+        const ammoInMag = rng.int(0, stats.magSize);
+        out.push(this.createItem(itemIdForWeapon(unique.id), 1, { durability, ammoInMag }));
+        const ammoDef = ITEM_DEF_MAP.get(ammoItemIdFor(unique.ammoType));
+        if (ammoDef) {
+          const [lo, hi] = table.ammoFraction ?? [0.3, 0.6];
+          out.push(this.createItem(ammoDef.id, Math.max(1, Math.min(ammoDef.stackMax, Math.round(ammoDef.stackMax * rng.range(lo, hi))))));
         }
       }
     }

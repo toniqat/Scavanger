@@ -1,11 +1,14 @@
 import * as THREE from 'three';
-import type { GameContext, GameSystem, HubLaunchSlot, HubRef, HubShipKind, Interactable, InteriorCollider, LobbyState, PeerId } from '@/shared';
-import { HUB_DOCKING_DURATION, HUB_LAUNCH_COUNTDOWN, Keys, NET_SLOT_COLORS } from '@/shared';
+import type { GameContext, GameSystem, HubLaunchSlot, HubRef, HubShipKind, Interactable, InteriorCollider, LobbyState, PeerId, RoomPurpose } from '@/shared';
+import { HUB_DOCKING_DURATION, HUB_LAUNCH_COUNTDOWN, Keys, NET_SLOT_COLORS, ROOM_PURPOSE_LABEL_KO } from '@/shared';
 import { PersonalShip } from './interiors/PersonalShip';
 import { SharedShip } from './interiors/SharedShip';
 import type { StationDef } from './interiors/stations';
 import type { ShipInterior } from './interiors/types';
+import { FurnitureLayer } from './interiors/Furniture';
+import { roomAtWorld } from './interiors/RoomLayout';
 import { GardenStation } from './GardenStation';
+import { HousingMode } from './HousingMode';
 import { LaunchPod } from './LaunchPod';
 import { Terminal } from './Terminal';
 import { Workbench } from './Workbench';
@@ -46,20 +49,28 @@ export class HubSystem implements GameSystem, HubRef {
   collider: InteriorCollider | null = null;
   missionSeed: number | null = null;
   get active(): boolean { return this.ctx?.phase === 'hub' || this.ctx?.phase === 'docking'; }
-  /** TODO(agent hub): console `/seed` entry point (host also pushes `setLobbySeed`; non-host refused). Stub. */
+  /**
+   * Next mission seed (null = random). Only the dev console's `/seed` calls this — the terminal has no seed field any
+   * more. In a lobby the host also pushes it to the server (`setLobbySeed`); a non-host is refused (false).
+   */
   setMissionSeed(seed: number | null): boolean {
     const net = this.ctx?.net;
     if (net?.lobby && !net.isHost) return false;
-    this.missionSeed = seed;
-    if (net?.lobby && seed !== null) net.setLobbySeed(seed);
+    this.missionSeed = seed === null ? null : seed >>> 0;
+    if (net?.lobby && this.missionSeed !== null) net.setLobbySeed(this.missionSeed);
     this.updateTerminalScreen();
     return true;
   }
-  /** TODO(agent hub): room index the player stands in (personal ship rooms). Stub. */
-  get currentRoom(): number | null { return null; }
+  /** Personal-ship room the player stands in (XZ inside the room's 4 × 4 m floor), else null. */
+  get currentRoom(): number | null { return this._currentRoom; }
+  private _currentRoom: number | null = null;
   getLaunchSlots(): readonly HubLaunchSlot[] { return this.slots; }
   /** Debug: true while the workbench (repair) menu is open. */
   get isWorkbenchOpen(): boolean { return !!this.wbMenu?.isOpen; }
+  /** Debug: housing-mode controller (camera / cursor / ghost). */
+  get housing(): HousingMode { return this.housingMode; }
+  /** Debug: furniture renderer of the current personal ship. */
+  get furnitureLayer(): FurnitureLayer | null { return this.furniture; }
 
   private interior: ShipInterior | null = null;
   private pods: LaunchPod[] = [];
@@ -68,6 +79,9 @@ export class HubSystem implements GameSystem, HubRef {
   /** 함선 시설 (tactical kit): hydroponics + the two terminal-shortcut consoles. */
   private garden: GardenStation | null = null;
   private stationIds: string[] = [];
+  /** 함선 꾸미기: furniture meshes / colliders / interactables of the personal ship + the housing-mode controller. */
+  private furniture: FurnitureLayer | null = null;
+  private housingMode!: HousingMode;
   private slots: HubLaunchSlot[] = [];
   private cutscene: DockingCutscene | null = null;
   private menu!: HubMenu;
@@ -85,6 +99,7 @@ export class HubSystem implements GameSystem, HubRef {
     const ctx = this.ctx;
     if (ctx.input.isPointerLocked || ctx.phase !== 'hub' || ctx.uiBlockers.size > 0) return;
     if (performance.now() - ctx.input.lastLockRequest < LOCK_REQUEST_GRACE_MS) return;
+    if (this.housingMode.active) { this.housingMode.exit(); this.relock(); return; }   // browser Esc while decorating = leave housing mode
     this.menu.open();     // hub has no pause: a lost lock just opens the terminal menu
   };
 
@@ -93,16 +108,18 @@ export class HubSystem implements GameSystem, HubRef {
     this.ctx = ctx;
     ctx.hub = this;
     this.menu = new HubMenu(ctx, {
-      getMissionSeed: () => this.missionSeed,
-      setMissionSeed: (s) => { this.missionSeed = s; this.updateTerminalScreen(); },
       toTitle: () => this.toTitle(),
       onClosed: () => this.relock(),
     });
     this.wbMenu = new WorkbenchMenu(ctx, { onClosed: () => this.relock() });
     this.status = new HubStatus(ctx);
+    this.housingMode = new HousingMode(ctx);
     const b = ctx.bus;
     this.unsubs.push(
       b.on('hub:enter', ({ ship }) => this.enter(ship)),
+      b.on('housing:roomPurposeChanged', ({ room }) => this.refreshRoomSign(room)),
+      b.on('housing:changed', () => this.refreshRoomSigns()),
+      b.on('housing:loaded', () => this.refreshRoomSigns()),
       b.on('game:newMission', () => this.teardown('mission')),
       b.on('game:abort', () => { if (this.interior || this.cutscene) this.teardown('menu'); }),
       b.on('net:lobbyUpdated', ({ lobby }) => this.onLobbyUpdated(lobby)),
@@ -123,6 +140,7 @@ export class HubSystem implements GameSystem, HubRef {
     this.menu.dispose();
     this.wbMenu.dispose();
     this.status.dispose();
+    this.housingMode.dispose();
     if (this.ctx?.hub === this) this.ctx.hub = null;
   }
 
@@ -171,6 +189,7 @@ export class HubSystem implements GameSystem, HubRef {
     this.terminal = new Terminal(ctx, interior.terminal, () => this.menu.open(), canUseConsole);
     this.workbench = new Workbench(ctx, interior.workbench, () => this.wbMenu.open(), canUseConsole);
     this.buildStations(interior);
+    this.buildHousing(interior);
 
     const spawn = viaAirlock ? interior.airlock : interior.spawn;
     const yaw = viaAirlock ? interior.airlockYaw : interior.spawnYaw;
@@ -203,12 +222,12 @@ export class HubSystem implements GameSystem, HubRef {
     });
   }
 
-  private addStation(id: string, def: StationDef, prompt: string, onUse: () => void): void {
+  private addStation(id: string, def: StationDef, prompt: string | (() => string), onUse: () => void, radius = 2.3): void {
     const it: Interactable = {
       id,
       position: def.position.clone(),
-      radius: 2.3,
-      getPrompt: () => (this.stationUsable() ? prompt : null),
+      radius,
+      getPrompt: () => (this.stationUsable() ? (typeof prompt === 'function' ? prompt() : prompt) : null),
       canInteract: () => this.stationUsable(),
       interact: onUse,
     };
@@ -216,12 +235,81 @@ export class HubSystem implements GameSystem, HubRef {
     this.stationIds.push(id);
   }
 
-  /** Terminal / station consoles are usable while walking the ship (not boarded, no menu, not docking). */
+  /**
+   * 함선 꾸미기 (personal ship): room door consoles `hub_room_<i>` → `ctx.housing.openRoomMenu(i)`, the cockpit
+   * facility console `hub_facility` → `openFacilityMenu()`, the furniture layer and the housing-mode controller.
+   */
+  private buildHousing(interior: ShipInterior): void {
+    const ctx = this.ctx;
+    if (!(interior instanceof PersonalShip)) { this.housingMode.setShip(null, null); return; }
+    for (const room of interior.rooms) {
+      const i = room.index;
+      this.addStation(`hub_room_${i}`, room.console, () => `방 ${i + 1} · ${this.roomPurposeLabel(i)}`, () => {
+        const h = ctx.housing;
+        if (h && typeof h.openRoomMenu === 'function') h.openRoomMenu(i);
+        else ctx.bus.emit('ui:notify', { text: '함선 꾸미기를 사용할 수 없습니다', kind: 'warning' });
+      }, 1.6);
+    }
+    this.addStation('hub_facility', interior.facility, '함선 시설', () => {
+      const h = ctx.housing;
+      if (h && typeof h.openFacilityMenu === 'function') h.openFacilityMenu();
+      else ctx.bus.emit('ui:notify', { text: '함선 시설을 사용할 수 없습니다', kind: 'warning' });
+    });
+    this.furniture = new FurnitureLayer(ctx, interior.rooms, interior.collider, {
+      canUse: () => this.stationUsable(),
+      onBench: (kind, level) => {
+        const inv = ctx.inventory;
+        if (inv && typeof inv.openBenchCraft === 'function') inv.openBenchCraft(kind, level);
+        else ctx.bus.emit('ui:notify', { text: '작업대를 사용할 수 없습니다', kind: 'warning' });
+      },
+      onRangeConsole: () => {
+        const h = ctx.housing;
+        if (h && typeof h.openPresetMenu === 'function') h.openPresetMenu();
+      },
+    });
+    this.housingMode.setShip(interior, this.furniture);
+    this.refreshRoomSigns();
+  }
+
+  private roomPurpose(i: number): RoomPurpose | null {
+    const h = this.ctx.housing;
+    if (!h || typeof h.getRoom !== 'function') return null;
+    try { return h.getRoom(i).purpose; } catch { return null; }
+  }
+  private roomPurposeLabel(i: number): string {
+    const p = this.roomPurpose(i);
+    return p ? ROOM_PURPOSE_LABEL_KO[p] : '빈 방';
+  }
+  private refreshRoomSign(i: number): void {
+    const ship = this.interior;
+    if (!(ship instanceof PersonalShip)) return;
+    const p = this.roomPurpose(i);
+    ship.setRoomLabel(i, this.roomPurposeLabel(i), p && p !== 'empty' ? '#ffd27a' : '#e8e6e1');
+  }
+  private refreshRoomSigns(): void {
+    if (!(this.interior instanceof PersonalShip)) return;
+    for (const r of this.interior.rooms) this.refreshRoomSign(r.index);
+  }
+
+  /** Track the personal-ship room under the player; emits `hub:roomEntered` on change (null = corridor / cockpit). */
+  private trackRoom(): void {
+    const p = this.ctx.player;
+    let room: number | null = null;
+    if (p && this.interior instanceof PersonalShip) room = roomAtWorld(p.position.x, p.position.z);
+    if (room === this._currentRoom) return;
+    this._currentRoom = room;
+    this.ctx.bus.emit('hub:roomEntered', { room, purpose: room === null ? null : this.roomPurpose(room) });
+  }
+
+  /** Terminal / station consoles are usable while walking the ship (not boarded, no menu, not docking, not decorating). */
   private stationUsable(): boolean {
-    return this.ctx.phase === 'hub' && !this.menu.isOpen && !this.wbMenu.isOpen && !(this.ctx.inventory?.isOpen ?? false) && this.boardedSlot < 0 && !this.cutscene;
+    return this.ctx.phase === 'hub' && !this.menu.isOpen && !this.wbMenu.isOpen && !(this.ctx.inventory?.isOpen ?? false)
+      && !(this.ctx.housing?.isMenuOpen ?? false) && this.boardedSlot < 0 && !this.cutscene && !this.housingMode.active;
   }
 
   private disposeInterior(): void {
+    this.housingMode.setShip(null, null);
+    this.furniture?.dispose(); this.furniture = null;
     for (const pod of this.pods) pod.dispose();
     this.pods = [];
     this.garden?.dispose(); this.garden = null;
@@ -257,6 +345,7 @@ export class HubSystem implements GameSystem, HubRef {
       if (reason === 'menu') p.setControlsEnabled(true);
     }
     if (reason === 'menu') this.setSpaceMode(false);
+    if (this._currentRoom !== null) { this._currentRoom = null; ctx.bus.emit('hub:roomEntered', { room: null, purpose: null }); }
     ctx.bus.emit('hub:left', {});
   }
 
@@ -360,7 +449,7 @@ export class HubSystem implements GameSystem, HubRef {
 
   private podCanInteract(slot: number): boolean {
     const ctx = this.ctx;
-    if (ctx.phase !== 'hub' || this.cutscene || this.boardedSlot >= 0 || this.menu.isOpen || this.wbMenu.isOpen) return false;
+    if (ctx.phase !== 'hub' || this.cutscene || this.boardedSlot >= 0 || this.menu.isOpen || this.wbMenu.isOpen || this.housingMode.active) return false;
     if (slot !== this.localSlot()) return false;
     const pod = this.pods[slot];
     return !!pod && pod.occupant === null;
@@ -548,6 +637,10 @@ export class HubSystem implements GameSystem, HubRef {
     this.interior.update(dt, ctx.time);
     for (const pod of this.pods) pod.update(dt, ctx.time);
     this.garden?.update(dt, ctx.time);
+    this.trackRoom();
+
+    // housing mode owns the input (cursor / place / rotate / recover / Esc) while active
+    if (this.housingMode.active) { this.housingMode.update(); this.tickCountdown(dt); return; }
 
     // Esc: menu toggle / un-board (no pause in the hub). E while boarded: un-board.
     if (ctx.input.wasPressed(Keys.MENU)) {

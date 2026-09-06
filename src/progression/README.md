@@ -35,13 +35,40 @@ frame already has real numbers; `NetSystem` still goes first).
 스탯 효과는 **`STAT_BASE` 기준**으로 계산한다 (레벨 1 캐릭터 = 배율 1). 적재량·감지 반경만
 `constants.ts` 의 정의대로 스탯 값에 직접 비례한다.
 
+## 스탯 경험치 (2026-09-06)
+레벨업 포인트(`spendStatPoint`)와 **별개로** 스탯마다 경험치 진행도가 있다: `profile.statProgress[id]` (0..1, 옵셔널 —
+2026-09-06 이전 저장본은 `migrate` 가 0 으로 채우고 0..0.999999 로 클램프, `STAT_MAX` 인 스탯만 1 허용).
+체육 기구 · 개발자 콘솔 `/stat` 같은 곳이 `addStatXp(id, ±xp)` 로 올리고 내린다.
+
+```
+statXpToNext(id) = round(STAT_XP_BASE × value^STAT_XP_EXPONENT)   // 5 → 1118, 10 → 3162 (shared/constants)
+```
+- `addStatXp(id, amount)`: 저장된 진행도를 현재 값 기준 raw XP 로 바꾼 뒤 `amount` 를 더한다.
+  raw ≥ 필요량 → 스탯 +1, 남는 XP 는 **새 값의 필요량 기준**으로 이월. raw < 0 → 스탯 −1, 부족분을 새 값의 필요량에서
+  뺀다 (예: 6 · 10 % 에서 −500 → 5 · 68 %). `STAT_MAX` 에서는 진행도 1 로 고정, `STAT_MIN`(1) 에서는 0 으로 고정.
+  루프는 스탯 범위 폭으로 제한되어 있어 100만 XP 를 줘도 안전하다.
+- 이벤트: 호출마다 `progress:statXp {id, value, progress, delta}` (`delta` = 넘겨준 XP). 값이 바뀌면
+  `progress:statChanged {id, value, pointsLeft}` 도 emit (레벨업 포인트는 그대로), `derived` 재계산 + 즉시 저장.
+  진행도만 움직이면 dirty 로 표시해 오토세이브 / `pagehide` 가 쓴다.
+- `getStatProgress(id)` / `statXpToNext(id)` 는 시트·콘솔 표시용. `migrate` 는 스탯 자체도 `STAT_MIN..STAT_MAX` 로 클램프한다.
+- 캐릭터 시트의 스탯 행에는 진행도 바(`.cs-stat .sp .bar`) 와 `xp / next XP` 텍스트가 붙고 (`refreshStat(id)` 부분 갱신), 최대치는 `최대`.
+
+### raw 스킬 경험치 · 시설 보너스
+- `addSkillXpRaw(id, ±amount)`: 지능·스탯·레벨·시설 스케일 **없이** 0..1 진행도에 부호 그대로 더한다 (`1` = 어느 레벨에서든 한 레벨).
+  1 이상이면 레벨 +1 (상한 `SKILL_LEVEL_MAX`, 도달 시 진행도 0), 0 미만이면 레벨 −1 (하한 0, 도달 시 진행도 0).
+  레벨이 바뀌면 (내려가도) `progress:skillUp {id, level}`, 항상 `progress:skillProgress`. 치트 / 디버프 전용 — 정상 훈련은 `addSkillXp`.
+- `getSkillGainMul(id)`: `ctx.housing?.getSkillGainMul(id) ?? 1` (사격장 → `gun_*`). `addSkillXp` 가 **내부에서** 곱하므로 다른 폴더는
+  이걸 다시 곱하지 않는다. housing 이 스켈레톤이거나 없으면 1. 시트의 스킬 행에 `시설 ×1.10` 배지로 표시 (1 이면 숨김).
+- 스모크: `node scripts/smoke-progression.mjs` (`verify.mjs` `SMOKES` 의 `smoke-progression`, `folders: ['progression']`).
+
 ## 스킬 (14종)
 0..`SKILL_LEVEL_MAX`(100). 레벨 사이 진행도는 `profile.skillProgress[id]` (0..1).
 
 ```
-gain = rawAmount × derived.skillGainMul × statFactor(skill.stats) / (1 + level × 0.06)
+gain = rawAmount × derived.skillGainMul × getSkillGainMul(skill) × statFactor(skill.stats) / (1 + level × 0.06)
 ```
 `statFactor = max(0.4, 1 + 0.04 × (관련 스탯 평균 − STAT_BASE))`. 레벨이 오를수록 필요량이 늘어난다.
+`getSkillGainMul` 은 함선 시설(사격장) 배율 — 위 "스탯 경험치" 절 참고.
 
 | 스킬 | 상승 트리거 (버스 이벤트) | 파생 |
 |---|---|---|

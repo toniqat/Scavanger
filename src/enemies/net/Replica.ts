@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {
-  NET_INTERP_DELAY, type EnemyEvent, type EnemySnapshot, type EnemyType, type EnemyWireState, type GameContext,
+  BURNOUT_DURATION, ENEMY_STATUS_BITS, NET_INTERP_DELAY, type EnemyEvent, type EnemySnapshot, type EnemyType, type EnemyWireState, type GameContext,
 } from '@/shared';
 import type { Enemy } from '../Enemy';
 import type { CombatTarget, TargetList } from '../Targets';
@@ -19,6 +19,11 @@ import { lookAtTarget } from '../ai/Common';
 const RING = 8;
 const MAX_EXTRAPOLATE = 0.25;
 const TWO_PI = Math.PI * 2;
+/**
+ * A status bit seen in a snapshot keeps the matching visual timer alive at least this long (snapshots arrive every
+ * 0.1 s); a bit that is gone clamps an optimistic local timer down to it so the effect fades within a beat.
+ */
+const STATUS_HOLD = 0.35;
 
 interface Sample {
   t: number;              // arrival time (ctx.time)
@@ -27,6 +32,8 @@ interface Sample {
   hp: number;
   st: EnemyWireState;
   a: number;
+  /** status bits (`ENEMY_STATUS_BITS`) */
+  sb: number;
 }
 
 interface Pose { x: number; y: number; z: number; yaw: number }
@@ -40,14 +47,14 @@ export class ReplicaBuffer {
   seenSeq = 0;
 
   constructor() {
-    for (let i = 0; i < RING; i++) this.s.push({ t: 0, x: 0, y: 0, z: 0, yaw: 0, hp: 0, st: 'idle', a: 0 });
+    for (let i = 0; i < RING; i++) this.s.push({ t: 0, x: 0, y: 0, z: 0, yaw: 0, hp: 0, st: 'idle', a: 0, sb: 0 });
   }
 
   clear(): void { this.head = 0; this.count = 0; this.seenSeq = 0; }
 
-  push(t: number, x: number, y: number, z: number, yaw: number, hp: number, st: EnemyWireState, a: number): void {
+  push(t: number, x: number, y: number, z: number, yaw: number, hp: number, st: EnemyWireState, a: number, sb = 0): void {
     const smp = this.s[this.head];
-    smp.t = t; smp.x = x; smp.y = y; smp.z = z; smp.yaw = yaw; smp.hp = hp; smp.st = st; smp.a = a;
+    smp.t = t; smp.x = x; smp.y = y; smp.z = z; smp.yaw = yaw; smp.hp = hp; smp.st = st; smp.a = a; smp.sb = sb;
     this.head = (this.head + 1) % RING;
     if (this.count < RING) this.count++;
   }
@@ -154,7 +161,7 @@ export class EnemyReplica {
       }
       if (w.w) e.weaponId = w.w;
       const buf = e.netBuf ?? (e.netBuf = new ReplicaBuffer());
-      buf.push(now, w.p[0], w.p[1], w.p[2], w.yaw, w.hp, w.st, w.a ?? 0);
+      buf.push(now, w.p[0], w.p[1], w.p[2], w.yaw, w.hp, w.st, w.a ?? 0, w.sb ?? 0);
       buf.seenSeq = seq;
     }
     if (msg.full) {
@@ -333,6 +340,7 @@ export class EnemyReplica {
     e.state = latest.st;
     e.aware = latest.st !== 'idle' && latest.st !== 'wander';
     if (latest.st === 'flee') e.fleeTimer += dt;
+    this.applyStatusBits(e, latest.sb);
 
     // gait from displacement
     const dx = e.position.x - px, dz = e.position.z - pz;
@@ -383,5 +391,27 @@ export class EnemyReplica {
     if (pitchT !== null) a.headPitch = THREE.MathUtils.lerp(a.headPitch, pitchT, dt * 6);
 
     if (!e.airborne) applySlope(e, world, dt);
+  }
+
+  /**
+   * Mirror the host's status bits (`EnemyWire.sb`) into the local visual timers: burning embers, the 전소 writhe and
+   * the shock spark all run from the same fields the authority uses, so `EnemySystem.updateStatuses` / `Enemy.animate`
+   * render them unchanged. A bit that rises while the local timer is idle also emits the matching bus event
+   * (`enemy:incinerated` / `enemy:shocked`) — an optimistic local `applyStatus` already set the timer, so no double emit.
+   */
+  private applyStatusBits(e: Enemy, sb: number): void {
+    const bus = this.host.ctx.bus;
+    if (sb & ENEMY_STATUS_BITS.INCINERATED) {
+      if (e.incapTimer <= 0) bus.emit('enemy:incinerated', { id: e.id, position: e.position, duration: BURNOUT_DURATION });
+      e.incapTimer = Math.max(e.incapTimer, STATUS_HOLD);
+    } else if (e.incapTimer > STATUS_HOLD) e.incapTimer = STATUS_HOLD;
+    if (sb & ENEMY_STATUS_BITS.SHOCKED) {
+      if (e.shockTimer <= 0) bus.emit('enemy:shocked', { id: e.id, position: e.position });
+      e.shockTimer = Math.max(e.shockTimer, STATUS_HOLD);
+    } else if (e.shockTimer > STATUS_HOLD) e.shockTimer = STATUS_HOLD;
+    if (sb & ENEMY_STATUS_BITS.BURNING) e.burnTimer = Math.max(e.burnTimer, STATUS_HOLD);
+    else if (e.burnTimer > STATUS_HOLD) e.burnTimer = STATUS_HOLD;
+    if (sb & ENEMY_STATUS_BITS.SLOWED) e.slowTimer = Math.max(e.slowTimer, STATUS_HOLD);
+    else if (e.slowTimer > STATUS_HOLD) e.slowTimer = STATUS_HOLD;
   }
 }

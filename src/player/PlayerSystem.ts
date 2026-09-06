@@ -3,7 +3,7 @@ import {
   GameContext, Keys, MouseButtons, PLAYER_MAX_HP, PLAYER_MAX_STAMINA, PLAYER_RADIUS, PLAYER_WALK_SPEED,
   PLAYER_DOWN_HP, PLAYER_DOWN_BLEED_PER_SEC, PLAYER_DOWN_SPEED_MUL, PLAYER_REVIVE_HP, PLAYER_GIVE_UP_HOLD,
   ARMOR_DURABILITY_PER_DAMAGE, CLOAK_BREAK_TIME, CLOAK_DETECT_MUL, CLOAK_REVEAL_DISTANCE, MELEE_COOLDOWN, MELEE_STAMINA_COST,
-  ROLL_COOLDOWN, ROLL_DAMAGE_MUL, ROLL_DURATION, ROLL_STAMINA_COST,
+  ROLL_COOLDOWN, ROLL_DAMAGE_MUL, ROLL_DURATION, ROLL_STAMINA_COST, SLASH_DURATION,
   type GameSystem, type PlayerRef, type PlayerWeaponHost, type Interactable, type Stance, type InteriorCollider,
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
@@ -59,7 +59,13 @@ const _v = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0), _spawn = new T
 const _q = new THREE.Quaternion(), _camPos = new THREE.Vector3(), _camLook = new THREE.Vector3();
 const _dir = new THREE.Vector3();
 
-interface WeaponState { hasWeapon: boolean; reloading: boolean; firing: boolean; twoHanded: boolean; throwing: boolean; holdingItem: boolean }
+interface WeaponState {
+  hasWeapon: boolean; reloading: boolean; firing: boolean; twoHanded: boolean; throwing: boolean; holdingItem: boolean;
+  /* unique weapons (2026-09-06): braced charge stance, continuous hip spray, heavy hip carry */
+  charging: boolean; spraying: boolean; heavy: boolean;
+}
+/** Melee swing kinds: `light` = the F chop (MELEE_SWING_TIME), `heavy` = the 용검 two-handed slash (SLASH_DURATION). */
+type MeleeKind = 'light' | 'heavy';
 
 /** One entry of the multiplicative speed-modifier stack (`setSpeedModifier`). */
 interface SpeedMod { mul: number; until: number }
@@ -108,6 +114,13 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   private rollCooldown = 0;
   private meleeTimer = 0;
   private meleeCooldown = 0;
+  /** kind + total length of the swing in progress (pose progress = 1 − meleeTimer / meleeDuration) */
+  private meleeKind: MeleeKind = 'light';
+  private meleeDuration = MELEE_SWING_TIME;
+  /* unique weapon poses (setWeaponState extras), damped blends */
+  private chargeBlend = 0;
+  private sprayBlend = 0;
+  private heavyBlend = 0;
   private cloakTimer = 0;
   private cloakSource: 'gadget' | 'armor' | null = null;
   private cloakBreak = 0;
@@ -149,7 +162,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   private poseRecoil = 0;
   /** weapons holds the mouse for its quick-use wheel: camera ignores mouse deltas while true */
   private lookLocked = false;
-  private weaponState: WeaponState = { hasWeapon: false, reloading: false, firing: false, twoHanded: false, throwing: false, holdingItem: false };
+  private weaponState: WeaponState = { hasWeapon: false, reloading: false, firing: false, twoHanded: false, throwing: false, holdingItem: false, charging: false, spraying: false, heavy: false };
   private slowTimer = 0;
   private slowFactor = 1;
   private attachedParent: THREE.Object3D | null = null;
@@ -174,6 +187,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     moveBlend: 0, sprint: 0, stridePhase: 0, crouch: 0, aim: 0, aimPitch: 0, torsoTwist: 0, airborne: 0,
     verticalVel: 0, flinch: 0, hasWeapon: false, twoHanded: false, reloading: false, recoil: 0, dead: 0,
     prone: 0, dive: 0, throw: 0, holdItem: 0, roll: 0, rollPhase: 0, melee: 0, hover: 0, downed: 0,
+    meleeHeavy: 0, charging: 0, spraying: 0, heavyCarry: 0,
   };
   private readonly rigInput: RigInput = {
     pivot: new THREE.Vector3(), aim: 0, sprint: 0, crouch: 0, prone: 0, dive: 0, moveBlend: 0, stridePhase: 0,
@@ -258,19 +272,26 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   }
 
   /**
-   * Start a melee swing (F). Costs MELEE_STAMINA_COST and locks out for MELEE_COOLDOWN; the pose plays for
-   * MELEE_SWING_TIME. WeaponSystem owns the key binding, the hit resolution and `melee:swing` / `melee:hit`.
+   * Start a melee swing (F). `light` (default) costs MELEE_STAMINA_COST and plays for MELEE_SWING_TIME;
+   * `heavy` = the 용검 big slash: two-handed wide horizontal swing for SLASH_DURATION (`isMeleeing` stays true
+   * meanwhile) — the caller (weapons) has already taken the stamina through `consumeStamina`, so no cost here.
+   * Both lock out for MELEE_COOLDOWN (a swing never starts inside another). WeaponSystem owns the key binding,
+   * the hit resolution and `melee:swing` / `melee:hit` / `player:slashed`.
    */
-  startMelee(): boolean {
+  startMelee(kind: MeleeKind = 'light'): boolean {
     if (!this.canAct() || this.controller.rolling) return false;
     if (this.meleeTimer > 0 || this.meleeCooldown > 0) return false;
-    if (this.stamina < MELEE_STAMINA_COST) {
-      this.ctx.bus.emit('audio:play', { id: 'ui_deny', volume: 0.4 });
-      return false;
+    if (kind !== 'heavy') {
+      if (this.stamina < MELEE_STAMINA_COST) {
+        this.ctx.bus.emit('audio:play', { id: 'ui_deny', volume: 0.4 });
+        return false;
+      }
+      this.spendStamina(MELEE_STAMINA_COST);
     }
-    this.spendStamina(MELEE_STAMINA_COST);
-    this.meleeTimer = MELEE_SWING_TIME;
-    this.meleeCooldown = MELEE_COOLDOWN;
+    this.meleeKind = kind;
+    this.meleeDuration = kind === 'heavy' ? SLASH_DURATION : MELEE_SWING_TIME;
+    this.meleeTimer = this.meleeDuration;
+    this.meleeCooldown = Math.max(MELEE_COOLDOWN, this.meleeDuration + 0.1);
     return true;
   }
 
@@ -546,19 +567,53 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     if (delta > 0) this.ctx.bus.emit('player:healthChanged', { hp: this.hp, maxHp: this.maxHp, delta });
   }
 
-  /* TODO(agent player): contract stubs (2026-09-06) — replace with real implementations. */
-  /** Instant move (console `/move`, Home move cheat): feet to `position`, velocity cleared, everything else kept. */
-  teleport(position: THREE.Vector3, yaw?: number, _snap?: boolean): void {
-    this.controller.reset(position);
-    if (yaw !== undefined) this.rig.yaw = yaw;
+  /* ── dev console / unique weapons (2026-09-06) ─────────────────────────── */
+  /**
+   * Instant move without a hellpod (console `/move`, Home move cheat): feet to `position`, velocity / roll / grapple
+   * cleared, stance / hp / items / interior untouched, no `player:spawned`. Unless `snap === false` the feet are put
+   * on the ground under the target: the interior deck (`interior.getFloorAt`) in the hub, else the terrain
+   * (`world.getHeightAt`). Optional `yaw` turns both the camera and the body; the camera follows immediately.
+   * Works in the hub and on a mission; ignored while dead, in a pod, or inside the hellpod drop.
+   */
+  teleport(position: THREE.Vector3, yaw?: number, snap?: boolean): void {
+    if (!this.spawned || this.isDead || this._inPod) return;
+    if (this.hellpod.isActive && this.hellpod.state !== 'exiting') return;
+    _v.copy(position);
+    if (snap !== false) {
+      if (this._interior) _v.y = this._interior.getFloorAt(_v.x, _v.z);
+      else if (this.ctx.world?.ready) _v.y = this.ctx.world.getHeightAt(_v.x, _v.z);
+    }
+    const c = this.controller;
+    const stance = c.stance;
+    const wasGrounded = c.grounded;
+    c.reset(_v);
+    c.stance = stance;                       // reset() forces stand; keep crouch / prone (downed stays prone)
+    if (snap === false) c.grounded = wasGrounded;
+    this.controller.speedMultiplier = 1;
+    this.standUpTimer = 0;
+    this.rollBlend = 0; this.rollPhase = 0;
+    this._grappling = false;
+    if (yaw !== undefined) this.bodyYaw = yaw;
+    const root = this.model.root;
+    if (!this.attachedParent) { root.position.copy(_v); root.quaternion.setFromAxisAngle(_up, this.bodyYaw); }
+    _v.y += this.eyePos.y;
+    this.rig.jumpTo(_v, yaw);   // keeps pitch (and yaw unless given) — the move cheat calls this every frame
   }
-  /** Wide-angle camera for the 용검 slash. Stub: no-op. */
-  setViewWiden(_active: boolean): void { /* TODO(agent player) */ }
-  /** Spend stamina; false when short. */
+  /**
+   * Wide-angle camera (target FOV × SLASH_FOV_MUL, damped in and out on the rig, composed with the sprint / ADS
+   * FOV logic) while true — the 용검 slash wind-up and swing. Cleared by every reset.
+   */
+  setViewWiden(active: boolean): void { this.rig.viewWiden = !!active; }
+  /**
+   * Spend stamina (the big slash costs `maxStamina × SLASH_STAMINA_RATIO`). False — and nothing spent — when short
+   * or while exhausted (stamina hit 0 and has not recovered to STAMINA_SPRINT_RECOVER yet, same as sprint / roll).
+   * Spending goes through the regular path (regen delay, `player:staminaDepleted` at 0).
+   */
   consumeStamina(amount: number): boolean {
-    if (amount <= 0) return true;
-    if (this.stamina < amount) return false;
-    this.stamina -= amount;
+    if (!(amount > 0)) return true;
+    if (!this.spawned || this.isDead || this._downed) return false;
+    if (this.exhausted || this.stamina < amount) return false;
+    this.spendStamina(amount);
     return true;
   }
 
@@ -628,13 +683,17 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     return this.spawned && this.controlsEnabled && !this.isDead && !this._downed && !this.controller.diving
       && !(this.hellpod.isActive && this.hellpod.state !== 'exiting');
   }
-  setWeaponState(state: { hasWeapon: boolean; reloading: boolean; firing: boolean; twoHanded: boolean; throwing?: boolean; holdingItem?: boolean }): void {
+  setWeaponState(state: { hasWeapon: boolean; reloading: boolean; firing: boolean; twoHanded: boolean; throwing?: boolean; holdingItem?: boolean; charging?: boolean; spraying?: boolean; heavy?: boolean }): void {
     this.weaponState.hasWeapon = state.hasWeapon;
     this.weaponState.reloading = state.reloading;
     this.weaponState.firing = state.firing;
     this.weaponState.twoHanded = state.twoHanded;
     this.weaponState.throwing = state.throwing ?? false;
     this.weaponState.holdingItem = state.holdingItem ?? false;
+    // unique weapons: braced charge stance / continuous hip spray / heavy hip carry (poses only; nothing on the wire)
+    this.weaponState.charging = (state.charging ?? false) && state.hasWeapon;
+    this.weaponState.spraying = (state.spraying ?? false) && state.hasWeapon;
+    this.weaponState.heavy = (state.heavy ?? false) && state.hasWeapon;
     if (!state.hasWeapon) this.setAiming(false);
   }
   /** Quick-use wheel open: the camera ignores mouse deltas (movement keeps working). */
@@ -841,6 +900,9 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.sprintBlend = damp(this.sprintBlend, c.sprinting ? 1 : 0, 8, dt);
     this.throwBlend = damp(this.throwBlend, this.weaponState.throwing ? 1 : 0, 12, dt);
     this.holdItemBlend = damp(this.holdItemBlend, this.weaponState.holdingItem ? 1 : 0, 10, dt);
+    this.chargeBlend = damp(this.chargeBlend, this.weaponState.charging ? 1 : 0, 10, dt);
+    this.sprayBlend = damp(this.sprayBlend, this.weaponState.spraying ? 1 : 0, 12, dt);
+    this.heavyBlend = damp(this.heavyBlend, this.weaponState.heavy ? 1 : 0, 8, dt);
     const eyeTarget = diving ? EYE_ROLL : this._stance === 'prone' ? EYE_PRONE : this._stance === 'crouch' ? EYE_CROUCH : EYE_STAND;
     this.eyePos.y = damp(this.eyePos.y, eyeTarget, 10, dt);
 
@@ -873,7 +935,11 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     p.holdItem = this.holdItemBlend;
     p.roll = this.rollBlend;
     p.rollPhase = this.rollPhase;
-    p.melee = this.meleeTimer > 0 ? 1 - this.meleeTimer / MELEE_SWING_TIME : 0;
+    p.melee = this.meleeTimer > 0 ? 1 - this.meleeTimer / this.meleeDuration : 0;
+    p.meleeHeavy = this.meleeTimer > 0 && this.meleeKind === 'heavy' ? 1 : 0;
+    p.charging = this.chargeBlend;
+    p.spraying = this.sprayBlend;
+    p.heavyCarry = this.heavyBlend;
     p.hover = this.hoverBlend;
     p.downed = 0;   // 전투불능 keeps the Phase 2 prone crawl
     p.dead = this.isDead ? Math.min(1, this.deadTimer / DEATH_ANIM) : 0;
@@ -1080,7 +1146,10 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.controller.grappleTarget = null; this._grappling = false;
     this.controller.hovering = false;
     this.rollBlend = 0; this.rollPhase = 0; this.rollCooldown = 0;
-    this.meleeTimer = 0; this.meleeCooldown = 0;
+    this.meleeTimer = 0; this.meleeCooldown = 0; this.meleeKind = 'light'; this.meleeDuration = MELEE_SWING_TIME;
+    this.chargeBlend = 0; this.sprayBlend = 0; this.heavyBlend = 0;
+    this.weaponState.charging = false; this.weaponState.spraying = false; this.weaponState.heavy = false;
+    if (this.rig) this.rig.viewWiden = false;
     this.cloakTimer = 0; this.cloakBreak = 0; this.cloakProbe = 0; this.cloakNearEnemy = false;
     this.cloakSource = null;
     if (this._cloaked) { this._cloaked = false; this.ctx?.bus.emit('player:cloakChanged', { cloaked: false, source: null }); }

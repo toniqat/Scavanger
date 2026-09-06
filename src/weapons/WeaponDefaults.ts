@@ -1,4 +1,4 @@
-import type { WeaponClass, WeaponDef, WeaponSlot, EffectiveWeaponStats } from '@/shared';
+import type { WeaponClass, WeaponDef, WeaponSlot, EffectiveWeaponStats, UniqueWeaponKind } from '@/shared';
 import { WEAPON_ADS_TIME, WEAPON_DEFAULT_DURABILITY, WEAPON_SWAP_TIME_PRIMARY, WEAPON_SWAP_TIME_SECONDARY } from '@/shared';
 import { weaponClassOf, damageFalloff } from '@/items';
 
@@ -57,11 +57,15 @@ export function statsFromDef(def: WeaponDef): EffectiveWeaponStats {
   };
 }
 
-/** Visual / audio family of a weapon (drives WeaponModel silhouette and shot sound). */
-export type WeaponKind = 'rifle' | 'pistol' | 'shotgun' | 'energy' | 'smg' | 'sniper';
+/**
+ * Visual / audio family of a weapon (drives WeaponModel silhouette and shot sound). The six unique kinds
+ * (`WeaponDef.unique`) each have their own silhouette.
+ */
+export type WeaponKind = 'rifle' | 'pistol' | 'shotgun' | 'energy' | 'smg' | 'sniper' | UniqueWeaponKind;
 
-/** Kind by class → graded ids (`ar23_g3`) pick the same procedural model as their family. */
+/** Kind by class → graded ids (`ar23_g3`) pick the same procedural model as their family; uniques pick theirs. */
 export function kindOf(def: WeaponDef): WeaponKind {
+  if (def.unique) return def.unique;
   if (def.pellets && def.pellets > 1) return 'shotgun';
   if (def.ammoType === 'energy') return 'energy';
   switch (weaponClassOf(def)) {
@@ -80,8 +84,20 @@ export function shotSoundId(kind: WeaponKind): string {
     case 'energy': return 'shot_energy';
     case 'smg': return 'shot_smg';
     case 'sniper': return 'shot_sniper';
+    // uniques reuse existing SFX ids (no dedicated samples yet — see README)
+    case 'flamethrower': return 'shot_energy';
+    case 'shockgun': return 'shot_energy';
+    case 'shuriken': return 'melee_swing';
+    case 'bow': return 'melee_swing';
+    case 'bazooka': return 'shot_shotgun';
+    case 'minigun': return 'shot_rifle';
     default: return 'shot_rifle';
   }
+}
+
+/** True when `kind` is one of the six unique silhouettes. */
+export function isUniqueKind(kind: WeaponKind): kind is UniqueWeaponKind {
+  return kind === 'flamethrower' || kind === 'shockgun' || kind === 'shuriken' || kind === 'bow' || kind === 'bazooka' || kind === 'minigun';
 }
 
 /** Base pitch of the shot sound per class (DMR fires the rifle sample lower / heavier). */

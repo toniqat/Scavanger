@@ -1,6 +1,6 @@
 import type { ImplantId, PlayerProfile, SkillId, StatId } from '@/shared';
 import {
-  IMPLANT_IDS, PROFILE_STORAGE_KEY, PROFILE_VERSION, SKILL_IDS, SKILL_LEVEL_MAX, STAT_BASE, STAT_IDS, STAT_MAX,
+  IMPLANT_IDS, PROFILE_STORAGE_KEY, PROFILE_VERSION, SKILL_IDS, SKILL_LEVEL_MAX, STAT_BASE, STAT_IDS, STAT_MAX, STAT_MIN,
 } from '@/shared';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -44,6 +44,13 @@ function baseStats(): Record<StatId, number> {
   return out;
 }
 
+/** Zero stat-XP progress for every stat (fresh profile / migration of a save from before 2026-09-06). */
+export function zeroStatProgress(): Record<StatId, number> {
+  const out = {} as Record<StatId, number>;
+  for (const id of STAT_IDS) out[id] = 0;
+  return out;
+}
+
 export function freshProfile(name = '스캐빈저'): PlayerProfile {
   return {
     version: PROFILE_VERSION,
@@ -57,6 +64,7 @@ export function freshProfile(name = '스캐빈저'): PlayerProfile {
     implant: null,
     raids: 0,
     extractions: 0,
+    statProgress: zeroStatProgress(),
   };
 }
 
@@ -87,8 +95,15 @@ export function migrate(raw: unknown): PlayerProfile | null {
   p.raids = Math.round(num(r.raids, 0, 0, 1e7));
   p.extractions = Math.round(num(r.extractions, 0, 0, 1e7));
 
+  // Stats live in STAT_MIN..STAT_MAX (stat XP can lower them, never below the floor).
   const stats = (r.stats ?? {}) as Record<string, unknown>;
-  for (const id of STAT_IDS) p.stats[id] = Math.round(num(stats[id], STAT_BASE, 0, STAT_MAX));
+  for (const id of STAT_IDS) p.stats[id] = Math.round(num(stats[id], STAT_BASE, STAT_MIN, STAT_MAX));
+
+  // Stat XP progress (appended 2026-09-06): missing → zeros; a maxed stat may sit at exactly 1, everything else < 1.
+  const statProg = (r.statProgress ?? {}) as Record<string, unknown>;
+  const sp = zeroStatProgress();
+  for (const id of STAT_IDS) sp[id] = num(statProg[id], 0, 0, p.stats[id] >= STAT_MAX ? 1 : 0.999999);
+  p.statProgress = sp;
 
   const skills = (r.skills ?? {}) as Record<string, unknown>;
   const prog = (r.skillProgress ?? {}) as Record<string, unknown>;

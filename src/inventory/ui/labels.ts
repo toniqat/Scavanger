@@ -135,6 +135,39 @@ export const TEXT = {
   socketEmpty: '비어 있음',
   broken: '고장',
   auto: '자동', semi: '반자동', pellets: '펠릿',
+  /* Phase 6: 무한 상자 (cheat catalog) */
+  catalog: {
+    eyebrow: 'CHEAT · INFINITE CRATE',
+    title: '무한 상자',
+    search: '이름으로 검색…',
+    count: (n: number): string => `${n}종`,
+    hint: '드래그 → 가방 · 창고 · 슬롯에 새 아이템 생성 · 더블클릭 → 가방에 넣기',
+    empty: '일치하는 아이템이 없습니다',
+    close: '닫기',
+    bagFull: '가방에 공간이 없습니다',
+    tabs: {
+      all: '전체', weapon: '무기', ammo: '탄약', attachment: '부착물', bag: '가방', armor: '방탄복',
+      gadget: '가젯', consumable: '소모품', material: '재료', herb: '약초', furniture: '가구',
+    },
+  },
+  /* Phase 6: 작업실 bench crafting */
+  bench: {
+    eyebrow: 'WORKSHOP BENCH',
+    level: (n: number): string => `Lv.${n}`,
+    lockedLevel: (n: number): string => `작업대 Lv.${n} 필요`,
+    discount: (pct: number): string => `작업실 할인 −${pct} %`,
+    repairTitle: '수리',
+    repairNone: '수리할 장비가 없습니다',
+    repairDone: '정비 완료',
+    repairAll: '모두 수리',
+    repairShort: '재료 부족',
+    repairBtn: '수리',
+    repairOk: '수리 완료',
+    repairFail: '재료가 부족합니다',
+    repairAllResult: (done: number, skipped: number): string =>
+      done > 0 ? `${done}개 수리 완료${skipped > 0 ? ` · ${skipped}개 재료 부족` : ''}` : skipped > 0 ? '재료가 부족합니다' : '수리할 장비가 없습니다',
+    close: '닫기',
+  },
 } as const;
 
 /** Pixel size of a w×h-cell tile. */

@@ -292,14 +292,36 @@ export interface BugAnim {
   aim: number;
   /** rogue rifle / artillery mortar recoil impulse 0..1 (decays fast) */
   recoil: number;
+  /* ── unique weapons (2026-09-06) ── */
+  /** 전소 writhe blend 0..1: body twists side to side, limbs flail, chitin glows orange (Enemy.animate drives it from `incapTimer`). */
+  writhe: number;
+  /** shocked spark 0..1: cyan-white emissive strobe (flicker computed by Enemy.animate while `shockTimer` runs). */
+  spark: number;
 }
 
 export function createBugAnim(): BugAnim {
   return {
     gait: 0, speed: 0, headYaw: 0, headPitch: 0, mandible: 0, flinch: 0, flinchX: 0, flinchZ: 0, hitFlash: 0,
     abdomen: 0, shake: 0, crouch: 0, death: -1, rollSign: 1, slopePitch: 0, slopeRoll: 0, time: 0,
-    fade: 0, aim: 0, recoil: 0,
+    fade: 0, aim: 0, recoil: 0, writhe: 0, spark: 0,
   };
+}
+
+const statusColor = new THREE.Color();
+/**
+ * Emissive for hit flash + 전소 glow + shock spark on a per-rig chitin material (shared by bugs and rogues).
+ * Returns false when nothing glows so the caller can reset the material once.
+ */
+export function statusEmissive(mat: THREE.MeshStandardMaterial, a: BugAnim, flashR: number, flashG: number, flashB: number, flashMul: number): void {
+  const glow = a.writhe * (0.32 + 0.18 * Math.abs(Math.sin(a.time * 17)));
+  if (a.hitFlash > 0.001 || glow > 0.001 || a.spark > 0.001) {
+    statusColor.setRGB(flashR, flashG, flashB).multiplyScalar(a.hitFlash * flashMul);
+    if (glow > 0.001) { statusColor.r += 1.0 * glow; statusColor.g += 0.32 * glow; statusColor.b += 0.05 * glow; }
+    if (a.spark > 0.001) { statusColor.r += 0.35 * a.spark; statusColor.g += 0.85 * a.spark; statusColor.b += 1.1 * a.spark; }
+    mat.emissive.copy(statusColor);
+  } else if (mat.emissive.r !== 0 || mat.emissive.g !== 0 || mat.emissive.b !== 0) {
+    mat.emissive.setRGB(0, 0, 0);
+  }
 }
 
 const LEG_SPREAD = [0.55, 0.0, -0.55];
@@ -407,7 +429,6 @@ export function disposeBugRig(rig: BugRig): void {
 /* ────────────────────────────────────────────────────────────────────────────
  * Animation
  * ──────────────────────────────────────────────────────────────────────────── */
-const flashColor = new THREE.Color();
 const smooth = (t: number) => t * t * (3 - 2 * t);
 
 export function animateBug(rig: BugRig, a: BugAnim): void {
@@ -425,6 +446,15 @@ export function animateBug(rig: BugRig, a: BugAnim): void {
   let yaw = 0;
   let sink = 0;
   let curl = 0;
+  // 전소 writhe: the whole body twists and bucks, thorax dropped toward the ground
+  const wr = a.writhe;
+  if (wr > 0.001 && !dying) {
+    roll += Math.sin(t * 9.3) * 0.38 * wr;
+    pitch += (Math.sin(t * 7.1 + 0.7) * 0.22 - 0.1) * wr;
+    yaw += Math.sin(t * 5.4 + 2.1) * 0.3 * wr;
+    body.position.x += Math.sin(t * 23) * 0.04 * wr;
+    body.position.y -= p.thoraxY * 0.18 * wr;
+  }
   if (dying) {
     const d = a.death;
     const fall = smooth(Math.min(1, d / 0.22));
@@ -440,8 +470,8 @@ export function animateBug(rig: BugRig, a: BugAnim): void {
   body.rotation.set(pitch, yaw, roll);
 
   // ── head tracking + mandibles ───────────────────────────────────────────
-  rig.head.rotation.set(a.headPitch + (dying ? curl * 0.6 : 0) + Math.sin(t * 3.1) * 0.02, a.headYaw, 0);
-  const snap = a.mandible;
+  rig.head.rotation.set(a.headPitch + (dying ? curl * 0.6 : 0) + Math.sin(t * 3.1) * 0.02 + Math.sin(t * 11) * 0.25 * wr, a.headYaw + Math.sin(t * 8.2) * 0.3 * wr, 0);
+  const snap = Math.max(a.mandible, wr * Math.abs(Math.sin(t * 10.5)));
   rig.mandibleL.rotation.y = -0.55 + snap * 0.5 + (dying ? 0 : Math.sin(t * 6 + 1) * 0.05);
   rig.mandibleR.rotation.y = 0.55 - snap * 0.5 - (dying ? 0 : Math.sin(t * 6) * 0.05);
 
@@ -477,6 +507,12 @@ export function animateBug(rig: BugRig, a: BugAnim): void {
     let knee = leg.restKnee - lift * 0.55 - idle * 0.5;
     if (a.crouch > 0) { hipPitch += a.crouch * 0.35; knee -= a.crouch * 0.4; }
     if (a.flinch > 0) { hipPitch += a.flinch * 0.15; }
+    if (wr > 0.001) {
+      // 전소: legs kick and claw at the air out of phase with each other
+      hipYaw += Math.sin(t * 9 + i * 1.7) * 0.35 * wr;
+      hipPitch += (0.45 + Math.sin(t * 11.5 + i * 1.9) * 0.5) * wr;
+      knee -= (0.35 + Math.cos(t * 13 + i * 1.3) * 0.45) * wr;
+    }
     if (curl > 0) {
       hipYaw += leg.side * (leg.index - 1) * -0.4 * curl;
       hipPitch += curl * 1.0;
@@ -487,14 +523,8 @@ export function animateBug(rig: BugRig, a: BugAnim): void {
     leg.knee.rotation.z = knee;
   }
 
-  // ── hit flash ───────────────────────────────────────────────────────────
-  const mat = rig.chitin;
-  if (a.hitFlash > 0.001) {
-    flashColor.setRGB(1, 0.55, 0.3).multiplyScalar(a.hitFlash * 1.2);
-    mat.emissive.copy(flashColor);
-  } else if (mat.emissive.r !== 0 || mat.emissive.g !== 0) {
-    mat.emissive.setRGB(0, 0, 0);
-  }
+  // ── hit flash / 전소 glow / shock spark ─────────────────────────────────
+  statusEmissive(rig.chitin, a, 1, 0.55, 0.3, 1.2);
   if (dying) {
     rig.eyeMat.emissiveIntensity = 2.4 * (1 - smooth(Math.min(1, a.death / 0.5)));
     if (a.fade > 0) rig.eyeMat.emissiveIntensity = 0;

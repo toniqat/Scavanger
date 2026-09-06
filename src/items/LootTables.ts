@@ -1,4 +1,16 @@
 import type { EnemyType, ItemCategory, Rarity, WeaponGrade } from '@/shared';
+import { UNIQUE_WEAPON_IDS } from '@/shared';
+import { WEAPON_FAMILIES } from './WeaponDefs';
+import { UNIQUE_AMMO_TYPES, ammoItemIdFor, itemIdForWeapon } from './ItemDefs';
+
+/* ── Phase 6 helpers: weight records for the six uniques / their ammo / graded families ── */
+const record = (ids: readonly string[], mul: number): Record<string, number> => Object.fromEntries(ids.map((id) => [id, mul]));
+/** `wpn_u_*` → mul (exact item ids; a unique is its own family). */
+const uniqueWeapons = (mul: number): Record<string, number> => record(UNIQUE_WEAPON_IDS.map(itemIdForWeapon), mul);
+/** `ammo_fuel` … `ammo_belt` → mul. */
+const uniqueAmmo = (mul: number): Record<string, number> => record(UNIQUE_AMMO_TYPES.map(ammoItemIdFor), mul);
+/** Every graded family (`ar23` … `p19`, all grades) → mul. */
+const gradedFamilies = (mul: number): Record<string, number> => record(WEAPON_FAMILIES, mul);
 
 /**
  * Per-tier crate tables. Rolling picks a category by `categoryWeights`, then an
@@ -41,7 +53,8 @@ export const LOOT_TABLES: readonly TierTable[] = [
     rarityWeights: { common: 80, uncommon: 18, rare: 2, epic: 0, legendary: 0 },
     categoryWeights: { ammo: 30, stim: 18, grenade: 16, material: 20, valuable: 16, attachment: 6, gadget: 6, herb: 8, armor: 1 },
     weaponChance: 0, maxStackQty: 3, ammoFraction: [0.25, 0.5], guaranteed: [],
-    itemWeightMul: { gad_turret: 0, gad_dome_shield: 0 },   // heavy deployables never in a supply crate
+    // heavy deployables never in a supply crate; unique ammo / housing materials start at tier 2+
+    itemWeightMul: { gad_turret: 0, gad_dome_shield: 0, ...uniqueAmmo(0), mat_cable: 0, mat_circuit: 0 },
   },
   {
     tier: 2, label: '군수 상자', count: [3, 4],
@@ -49,11 +62,11 @@ export const LOOT_TABLES: readonly TierTable[] = [
     categoryWeights: { ammo: 20, stim: 14, grenade: 12, material: 16, valuable: 38, attachment: 10, bag: 3, gadget: 9, herb: 5, armor: 4 },
     weaponChance: 0.35, maxStackQty: 4, ammoFraction: [0.35, 0.7],
     guaranteed: [{ categories: ['valuable'], minRarity: 'uncommon' }],
-    // SMGs are field-common; snipers rarely in supply crates; legendary gear is tier 3+ only
+    // SMGs are field-common; snipers rarely in supply crates; legendary gear is tier 3+ only; 전력 케이블 from here, 회로 기판 tier 3+
     itemWeightMul: {
       wpn_smg37: 1.3, wpn_sr9: 0.35,
       armor_regen: 0, armor_ultralight: 0, armor_optical: 0,
-
+      ...uniqueAmmo(0), mat_cable: 1.2, mat_circuit: 0,
     },
   },
   {
@@ -62,7 +75,8 @@ export const LOOT_TABLES: readonly TierTable[] = [
     categoryWeights: { ammo: 12, stim: 12, grenade: 8, material: 14, valuable: 54, attachment: 12, bag: 6, gadget: 11, herb: 3, armor: 4 },
     weaponChance: 0.55, maxStackQty: 5, ammoFraction: [0.5, 0.85],
     guaranteed: [{ categories: ['valuable'], minRarity: 'rare' }],
-    itemWeightMul: { wpn_sr9: 1.2 },
+    // uniques are tier 4+ / 5 / boss only (legendary weight 1 here would otherwise leak them)
+    itemWeightMul: { wpn_sr9: 1.2, ...uniqueWeapons(0), ...uniqueAmmo(0), mat_circuit: 0.6 },
   },
   {
     tier: 4, label: '희귀 캐시', count: [5, 6],
@@ -74,15 +88,26 @@ export const LOOT_TABLES: readonly TierTable[] = [
       { categories: ['primary', 'secondary'], minRarity: 'common' },
       { categories: ['armor', 'bag', 'gadget'], minRarity: 'rare' },
     ],
-    itemWeightMul: { wpn_sr9: 1.5, wpn_smg37: 0.7 },
+    // Uniques: 6 × (10 × 0.25) = 15 of the ~97 legendary weapon weight (≈ 15 % of legendary weapon rolls, ≈ 2 % of all
+    // tier-4 weapons). Their ammo: rare (40) × 0.025 = 1 each vs 4 × 5 for the standard calibres (≈ 23 % of ammo picks);
+    // a rolled unique always brings one stack of its calibre on top (`rollCrate`).
+    itemWeightMul: { wpn_sr9: 1.5, wpn_smg37: 0.7, ...uniqueWeapons(0.25), ...uniqueAmmo(0.025) },
   },
-  /* Phase 3: ship-call supply drop (`SUPPLY_CRATE_TIER`) — consumables only, no weapons / valuables. */
+  /*
+   * Phase 3: ship-call supply drop (`SUPPLY_CRATE_TIER`) — consumables only, no valuables.
+   * Phase 6: 3 % of drops carry a unique (the only weapons allowed here — every graded family is zeroed),
+   * a little unique ammo, and 회로 기판 as the only material.
+   */
   {
     tier: 5, label: '보급 투하 상자', count: [4, 6],
-    rarityWeights: { common: 60, uncommon: 35, rare: 5, epic: 0, legendary: 0 },
-    categoryWeights: { ammo: 45, stim: 30, grenade: 25 },
-    weaponChance: 0, maxStackQty: 6, ammoFraction: [0.6, 1],
+    rarityWeights: { common: 60, uncommon: 35, rare: 5, epic: 0, legendary: 1 },
+    categoryWeights: { ammo: 45, stim: 30, grenade: 25, material: 4 },
+    weaponChance: 0.03, maxStackQty: 6, ammoFraction: [0.6, 1],
     guaranteed: [{ categories: ['stim'], minRarity: 'common' }, { categories: ['ammo'], minRarity: 'common' }],
+    itemWeightMul: {
+      ...gradedFamilies(0), ...uniqueWeapons(1), ...uniqueAmmo(0.3),
+      mat_scrap: 0, mat_bio_sample: 0, mat_alloy: 0, mat_power_cell: 0, mat_gunpowder: 0, mat_cable: 0, mat_circuit: 1,
+    },
   },
 ];
 
@@ -117,12 +142,20 @@ export interface CorpseWeapon {
   attachment?: { maxRarity: Rarity };
 }
 
+/** Phase 6: chance of one extra legendary unique (`UNIQUE_WEAPON_IDS`, uniform) plus a stack of its calibre. */
+export interface CorpseUnique {
+  chance: number;
+  /** Durability as a fraction of the def's max, drawn from [min, max]. */
+  durability: readonly [number, number];
+}
+
 export interface CorpseTable {
   type: EnemyType;
   drops: readonly CorpseDrop[];
   /** Rounds of the weapon's calibre as a fraction of `AMMO_STACK_ROUNDS`, one stack (rogues only). */
   ammoFraction?: readonly [number, number];
   weapon?: CorpseWeapon;
+  unique?: CorpseUnique;
 }
 
 const BUG_BASE: readonly CorpseDrop[] = [
@@ -156,6 +189,7 @@ export const CORPSE_TABLES: readonly CorpseTable[] = [
     type: 'rogue_boss', ammoFraction: ROGUE_AMMO,
     drops: [{ defId: 'stim', qty: [1, 2], chance: 1 }],
     weapon: { durability: [0.4, 0.7], grades: [3, 4], attachment: { maxRarity: 'epic' } },
+    unique: { chance: 0.2, durability: [0.5, 0.8] },
   },
 ];
 

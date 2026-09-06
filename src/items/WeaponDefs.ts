@@ -1,5 +1,14 @@
-import type { WeaponClass, WeaponDef, WeaponGrade } from '@/shared';
-import { AMMO_FOR_CLASS, MELEE_STOCK_MUL_DEFAULT, WEAPON_GRADE_DAMAGE_STEP, WEAPON_GRADE_DURABILITY_STEP, WEAPON_GRADE_ROMAN } from '@/shared';
+import type { UniqueWeaponKind, WeaponClass, WeaponDef, WeaponGrade } from '@/shared';
+import {
+  AMMO_FOR_CLASS, MELEE_STOCK_MUL_DEFAULT, WEAPON_GRADE_DAMAGE_STEP, WEAPON_GRADE_DURABILITY_STEP, WEAPON_GRADE_ROMAN,
+  UNIQUE_WEAPON_IDS, UNIQUE_WEAPON_LABEL_KO,
+  FLAME_RANGE, FLAME_CONE_DEG, FLAME_DPS, FLAME_ALT_CONE_DEG, FLAME_ALT_DPS, FLAME_FUEL_PER_SEC,
+  SHOCK_RANGE, SHOCK_CONE_DEG, SHOCK_DPS, SHOCK_CELL_PER_SEC, SHOCK_CHARGE_TIME, SHOCK_CHARGE_DAMAGE, SHOCK_CHARGE_RANGE,
+  SHURIKEN_DAMAGE, SHURIKEN_SPEED, SHURIKEN_FIRE_RATE, SHURIKEN_TRIPLE_SPREAD_DEG,
+  BOW_DAMAGE, BOW_RANGE, BOW_FIRE_RATE, BOW_PROJECTILE_SPEED,
+  BAZOOKA_DAMAGE, BAZOOKA_SPEED, BAZOOKA_ALT_DAMAGE, BAZOOKA_FIRE_RATE,
+  MINIGUN_SPINUP_TIME, MINIGUN_DAMAGE, MINIGUN_FIRE_RATE, MINIGUN_SPREAD_DEG,
+} from '@/shared';
 
 const deg = (d: number): number => (d * Math.PI) / 180;
 
@@ -139,8 +148,111 @@ function buildGrade(base: FamilyDef, grade: WeaponGrade): WeaponDef {
   };
 }
 
-/** Every weapon def: 8 families × 5 grades, ordered family-major (`ar23`, `ar23_g2`, … `p19_g5`). */
-export const WEAPON_DEFS: readonly WeaponDef[] = FAMILY_DEFS.flatMap((f) => WEAPON_GRADES.map((g) => buildGrade(f, g)));
+/* ── unique weapons (Phase 6, 2026-09-06) ─────────────────────────────────── */
+export type UniqueWeaponId = (typeof UNIQUE_WEAPON_IDS)[number];
+
+/**
+ * Generous max durability per unique (shots / seconds of spray for the continuous ones).
+ * Uniques are never graded, so this is the final number (`WeaponStats` never scales it).
+ */
+export const UNIQUE_WEAPON_DURABILITY: Readonly<Record<UniqueWeaponId, number>> = {
+  u_flame: 1500, u_shock: 1200, u_shuriken: 900, u_bow: 700, u_bazooka: 320, u_minigun: 3000,
+};
+
+/** Fixed magazine per unique (tank / cell pack / holder / quiver / tube / half belt). No constant exists for these. */
+export const UNIQUE_WEAPON_MAG: Readonly<Record<UniqueWeaponId, number>> = {
+  u_flame: 120, u_shock: 48, u_shuriken: 10, u_bow: 12, u_bazooka: 1, u_minigun: 150,
+};
+
+/** 「이름」 + kind label (`「인페르노」 화염방사기`). */
+const uniqueName = (nick: string, kind: UniqueWeaponKind): string => `「${nick}」 ${UNIQUE_WEAPON_LABEL_KO[kind]}`;
+
+/**
+ * The six legendary uniques. `grade: 5` (legendary rarity / repair cost), no `family` (they are their own
+ * family, `buildGrades` never touches them), a dedicated `ammoType` (never `AMMO_FOR_CLASS`), `altFire`
+ * (RMB = alternative fire, no ADS) on every one except the bow. Numbers are the `FLAME_* / SHOCK_* /
+ * SHURIKEN_* / BOW_* / BAZOOKA_* / MINIGUN_*` constants; `weaponClass` only picks the shooting skill
+ * (flamethrower / minigun → AR, shockgun / bow → DMR, shuriken → SMG, bazooka → SR). Behaviour lives in
+ * `src/weapons/unique/*`; these defs only carry data.
+ *
+ * Continuous weapons (flame / shock arc): `damage` is damage **per second**, `fireRate` is a tick hint
+ * (weapons applies `damage × dt`), and `ammoPerSec` replaces per-shot ammo. `spread` is the LMB cone
+ * half-angle, `adsSpread` the RMB jet half-angle for the flamethrower.
+ */
+export const UNIQUE_WEAPON_DEFS: readonly WeaponDef[] = [
+  {
+    id: 'u_flame', name: uniqueName('인페르노', 'flamethrower'), slot: 'primary', weaponClass: 'AR', unique: 'flamethrower', altFire: true,
+    ammoType: 'fuel', grade: 5, maxDurability: UNIQUE_WEAPON_DURABILITY.u_flame,
+    damage: FLAME_DPS, altDamage: FLAME_ALT_DPS, ammoPerSec: FLAME_FUEL_PER_SEC,
+    fireRate: 10, magSize: UNIQUE_WEAPON_MAG.u_flame, reserveMags: 2, reloadTime: 3.2,
+    spread: deg(FLAME_CONE_DEG / 2), adsSpread: deg(FLAME_ALT_CONE_DEG / 2), range: FLAME_RANGE, automatic: true,
+    recoil: deg(0.05), tracerColor: 0xff7a2a, meleeMul: 1.3,
+  },
+  {
+    id: 'u_shock', name: uniqueName('테슬라 코일', 'shockgun'), slot: 'primary', weaponClass: 'DMR', unique: 'shockgun', altFire: true,
+    ammoType: 'cell', grade: 5, maxDurability: UNIQUE_WEAPON_DURABILITY.u_shock,
+    damage: SHOCK_DPS, altDamage: SHOCK_CHARGE_DAMAGE, chargeTime: SHOCK_CHARGE_TIME, ammoPerSec: SHOCK_CELL_PER_SEC,
+    fireRate: 1 / SHOCK_CHARGE_TIME, magSize: UNIQUE_WEAPON_MAG.u_shock, reserveMags: 2, reloadTime: 2.8,
+    spread: deg(SHOCK_CONE_DEG / 2), adsSpread: deg(0.1), range: SHOCK_RANGE, automatic: true,
+    recoil: deg(0.4), tracerColor: 0x9fe8ff,
+    falloffStart: SHOCK_RANGE, falloffEnd: SHOCK_CHARGE_RANGE, falloffMin: 0.7, meleeMul: 1.2,
+  },
+  {
+    id: 'u_shuriken', name: uniqueName('카게', 'shuriken'), slot: 'primary', weaponClass: 'SMG', unique: 'shuriken', altFire: true,
+    ammoType: 'shuriken', grade: 5, maxDurability: UNIQUE_WEAPON_DURABILITY.u_shuriken,
+    damage: SHURIKEN_DAMAGE, fireRate: SHURIKEN_FIRE_RATE, magSize: UNIQUE_WEAPON_MAG.u_shuriken, reserveMags: 3, reloadTime: 1.6,
+    spread: deg(0.6), adsSpread: deg(SHURIKEN_TRIPLE_SPREAD_DEG), range: 70, automatic: false,
+    projectileSpeed: SHURIKEN_SPEED, recoil: deg(0.15), tracerColor: 0xd8dde6,
+    falloffStart: 30, falloffEnd: 70, falloffMin: 0.6, meleeMul: 1.8,
+  },
+  {
+    // the only unique with ADS (no RMB alt fire): DMR cadence, shorter reach than a legendary SR
+    id: 'u_bow', name: uniqueName('롱혼', 'bow'), slot: 'primary', weaponClass: 'DMR', unique: 'bow', altFire: false,
+    ammoType: 'arrow', grade: 5, maxDurability: UNIQUE_WEAPON_DURABILITY.u_bow,
+    damage: BOW_DAMAGE, fireRate: BOW_FIRE_RATE, magSize: UNIQUE_WEAPON_MAG.u_bow, reserveMags: 2, reloadTime: 2.2,
+    spread: deg(1.0), adsSpread: deg(0.08), range: BOW_RANGE, automatic: false,
+    projectileSpeed: BOW_PROJECTILE_SPEED, recoil: deg(0.5), tracerColor: 0xc9a86a, adsZoom: 1.6,
+    falloffStart: 80, falloffEnd: BOW_RANGE, falloffMin: 0.75, meleeMul: 1.1,
+  },
+  {
+    id: 'u_bazooka', name: uniqueName('해머헤드', 'bazooka'), slot: 'primary', weaponClass: 'SR', unique: 'bazooka', altFire: true,
+    ammoType: 'rocket', grade: 5, maxDurability: UNIQUE_WEAPON_DURABILITY.u_bazooka,
+    damage: BAZOOKA_DAMAGE, altDamage: BAZOOKA_ALT_DAMAGE,
+    fireRate: BAZOOKA_FIRE_RATE, magSize: UNIQUE_WEAPON_MAG.u_bazooka, reserveMags: 3, reloadTime: 3.0,
+    spread: deg(1.2), adsSpread: deg(0.5), range: 160, automatic: false,
+    projectileSpeed: BAZOOKA_SPEED, recoil: deg(2.5), tracerColor: 0xffc060, meleeMul: 1.5,
+  },
+  {
+    id: 'u_minigun', name: uniqueName('사이클론', 'minigun'), slot: 'primary', weaponClass: 'AR', unique: 'minigun', altFire: true,
+    ammoType: 'belt', grade: 5, maxDurability: UNIQUE_WEAPON_DURABILITY.u_minigun,
+    damage: MINIGUN_DAMAGE, chargeTime: MINIGUN_SPINUP_TIME,
+    fireRate: MINIGUN_FIRE_RATE, magSize: UNIQUE_WEAPON_MAG.u_minigun, reserveMags: 1, reloadTime: 5.0,
+    spread: deg(MINIGUN_SPREAD_DEG), adsSpread: deg(MINIGUN_SPREAD_DEG), range: 180, automatic: true,
+    recoil: deg(0.2), tracerColor: 0xffd27a,
+    falloffStart: 60, falloffEnd: 180, falloffMin: 0.55, meleeMul: 1.6,
+  },
+];
+
+export const UNIQUE_WEAPON_DEF_MAP: ReadonlyMap<string, WeaponDef> = new Map(UNIQUE_WEAPON_DEFS.map((w) => [w.id, w]));
+
+/** True for the six legendary uniques (`WeaponDef.unique` set). Never graded, never socketed. */
+export function isUniqueWeapon(def: WeaponDef | undefined): def is WeaponDef & { unique: UniqueWeaponKind } {
+  return !!def?.unique;
+}
+
+/** True when `id` is one of `UNIQUE_WEAPON_IDS`. */
+export function isUniqueWeaponId(id: string): id is UniqueWeaponId {
+  return (UNIQUE_WEAPON_IDS as readonly string[]).includes(id);
+}
+
+/**
+ * Every weapon def: 8 families × 5 grades, ordered family-major (`ar23`, `ar23_g2`, … `p19_g5`),
+ * followed by the six uniques (`u_flame` … `u_minigun`; not expanded by `buildGrade`).
+ */
+export const WEAPON_DEFS: readonly WeaponDef[] = [
+  ...FAMILY_DEFS.flatMap((f) => WEAPON_GRADES.map((g) => buildGrade(f, g))),
+  ...UNIQUE_WEAPON_DEFS,
+];
 
 export const WEAPON_DEF_MAP: ReadonlyMap<string, WeaponDef> = new Map(WEAPON_DEFS.map((w) => [w.id, w]));
 

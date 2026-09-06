@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { InteriorCollider, WorldRef } from '@/shared';
+import { SLASH_FOV_MUL, type InteriorCollider, type WorldRef } from '@/shared';
 import { damp, dampVec3, noise1, smoothDamp, type SpringState } from '@/core/util/MathUtil';
 
 export interface RigInput {
@@ -81,6 +81,9 @@ export class CameraRig {
   private fov = 70;
   /** ADS FOV divisor from the active weapon (1 = default ADS, 4 = sniper scope). */
   aimZoom = 1;
+  /** 용검 slash view widen (`PlayerRef.setViewWiden`): target FOV × SLASH_FOV_MUL while true, damped both ways. */
+  viewWiden = false;
+  private fovMul = 1;
   /** true → while aiming the camera tucks into the shoulder so the soldier leaves the frame. */
   scoped = false;
   private pitchMin = PITCH_MIN;
@@ -169,6 +172,18 @@ export class CameraRig {
     // place the camera behind the pivot right away so the first frame doesn't lerp from the old spot
     _pivotS.set(pivot.x + Math.cos(yaw) * HIP_SHOULDER, pivot.y, pivot.z - Math.sin(yaw) * HIP_SHOULDER);
     this.position.set(_pivotS.x + Math.sin(yaw) * HIP_DIST, _pivotS.y + 0.38, _pivotS.z + Math.cos(yaw) * HIP_DIST);
+  }
+
+  /**
+   * Teleport follow (`PlayerRef.teleport`): move the pivot and carry the camera along by the same offset, keeping
+   * pitch / yaw (unless `yaw` is given), the distance spring and the collision state — so a per-frame move cheat
+   * never resets the look and nothing lerps across the map on the next frame.
+   */
+  jumpTo(pivot: THREE.Vector3, yaw?: number): void {
+    if (yaw !== undefined) this.yaw = yaw;
+    if (this.pivotInit) { _pivotS.subVectors(pivot, this.pivot); this.position.add(_pivotS); }
+    this.pivot.copy(pivot); this.pivotInit = true;
+    this.trauma = 0;
   }
 
   /** Horizontal forward from yaw. */
@@ -317,7 +332,9 @@ export class CameraRig {
     const hipFov = this.baseFov + SPRINT_FOV_KICK * inp.sprint * inp.moveBlend;
     const aimFov = this.aimZoom > 1 ? this.baseFov / this.aimZoom : this.baseFov - ADS_FOV_DROP;
     const targetFov = THREE.MathUtils.lerp(hipFov, aimFov, inp.aim);
-    this.fov = damp(this.fov, targetFov, 6, dt);
+    // view widen (big slash): multiplies whatever the sprint / ADS logic wants, snappy in, softer out
+    this.fovMul = damp(this.fovMul, this.viewWiden ? SLASH_FOV_MUL : 1, this.viewWiden ? 14 : 7, dt);
+    this.fov = damp(this.fov, Math.min(150, targetFov * this.fovMul), 6, dt);
 
     // ── cutscene override blend
     this.overrideWeight = damp(this.overrideWeight, this.overrideTarget, this.overrideTarget > 0.5 ? 12 : 4, dt);

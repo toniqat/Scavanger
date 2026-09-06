@@ -961,3 +961,117 @@ kbd {
   .inv-root.is-hub .inv-slot-armor { grid-area: armor; }
   .inv-root.is-hub .inv-slot-bag { grid-area: bag; }
 }
+
+/* ═══ Phase 6 (2026-09-06): 무한 상자 catalog · 작업실 bench crafting · repair list ═══ */
+
+/* ── 무한 상자: leftmost panel, uniform 2×2 tiles in a scrolling grid ────── */
+.inv-panel-catalog { order: -1; width: 486px; animation: inv-slide-in 200ms var(--inv-ease) both; }
+.inv-panel-catalog .inv-head .inv-title { color: var(--inv-accent); }
+.inv-cat-tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+.inv-cat-tab {
+  appearance: none;
+  padding: 5px 9px;
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--inv-muted);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--inv-line);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 120ms var(--inv-ease), border-color 120ms var(--inv-ease), background 120ms var(--inv-ease);
+}
+.inv-cat-tab:hover { color: var(--inv-text); border-color: var(--inv-line-strong); }
+.inv-cat-tab.is-on { color: #1a1408; background: var(--inv-accent); border-color: var(--inv-accent); font-weight: 700; }
+.inv-cat-search {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 10px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--inv-text);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--inv-line-strong);
+  border-radius: 3px;
+  outline: none;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.inv-cat-search::placeholder { color: var(--inv-muted); }
+.inv-cat-search:focus { border-color: var(--inv-accent); box-shadow: 0 0 10px color-mix(in srgb, var(--inv-accent) 35%, transparent); }
+.inv-cat-scroll {
+  max-height: min(560px, calc(100vh - 360px));
+  overflow-y: auto; overflow-x: hidden;
+  padding: 2px 8px 2px 2px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+}
+.inv-cat-scroll::-webkit-scrollbar { width: 6px; }
+.inv-cat-scroll::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.22); border-radius: 3px; }
+.inv-cat-grid { display: grid; grid-template-columns: repeat(4, calc(2 * var(--inv-cell) + var(--inv-gap))); gap: 10px 8px; }
+.inv-cat-item { display: flex; flex-direction: column; gap: 4px; align-items: stretch; }
+.inv-cat-item .inv-tile { position: relative; left: auto; top: auto; }
+.inv-cat-cap {
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  line-height: 1.25;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.85;
+}
+.inv-cat-empty { color: var(--inv-muted); font-size: 12px; padding: 12px 2px; }
+.inv-cat-count { font-size: 11px; }
+/* dragging out of the catalog: no world drop, no wheel targets */
+.inv-root.is-catalog-drag .inv-dropzone { display: none !important; }
+.inv-root.is-catalog-drag .inv-hints { display: flex; }
+
+/* ── bench mode of the craft panel ─────────────────────────────────────── */
+.inv-craft-discount { color: var(--inv-ok); font-size: 11px; }
+.inv-craft-row.is-bench-locked { opacity: 0.55; border-style: dashed; }
+.inv-craft-row.is-bench-locked .inv-craft-btn { visibility: hidden; }
+.inv-craft-locktag {
+  margin-left: 8px;
+  padding: 1px 6px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  vertical-align: middle;
+  color: color-mix(in srgb, var(--inv-accent) 85%, white 15%);
+  border: 1px solid color-mix(in srgb, var(--inv-accent) 45%, transparent);
+  border-radius: 2px;
+}
+
+/* ── repair list under the bench recipes ───────────────────────────────── */
+.inv-craft-repair { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; border-top: 1px solid var(--inv-line); }
+.inv-craft-repair-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.inv-repair-list { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto; padding-right: 4px; }
+.inv-repair-row {
+  display: grid;
+  grid-template-columns: 62px 1fr auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--inv-line);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.inv-repair-row.is-full { opacity: 0.6; }
+.inv-repair-row.is-broken { border-color: color-mix(in srgb, var(--inv-bad) 45%, transparent); }
+.inv-repair-slot { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--inv-muted); }
+.inv-repair-mid { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.inv-repair-name { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.inv-repair-row.is-broken .inv-repair-name { color: color-mix(in srgb, var(--inv-bad) 80%, white 20%); }
+.inv-repair-bar { height: 4px; border-radius: 2px; overflow: hidden; background: rgba(255, 255, 255, 0.1); }
+.inv-repair-bar i { display: block; height: 100%; background: var(--inv-ok); }
+.inv-repair-bar.warn i { background: var(--inv-accent); }
+.inv-repair-bar.low i { background: var(--inv-bad); }
+.inv-repair-dur { font-size: 10px; font-variant-numeric: tabular-nums; color: var(--inv-muted); }
+.inv-repair-cost { font-size: 10px; letter-spacing: 0.02em; color: var(--inv-text); white-space: nowrap; }
+.inv-repair-cost.is-short { color: color-mix(in srgb, var(--inv-bad) 80%, white 20%); }
+.inv-repair-btn { padding: 6px 10px; }
+.inv-repair-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.inv-repair-msg { font-size: 11px; letter-spacing: 0.04em; }
+.inv-repair-msg.is-ok { color: var(--inv-ok); }
+.inv-repair-msg.is-bad { color: color-mix(in srgb, var(--inv-bad) 80%, white 20%); }

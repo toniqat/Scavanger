@@ -2,13 +2,16 @@ import type {
   DerivedStats, GameContext, GameSystem, PlayerProfile, ProgressionRef,
   SkillDef, SkillId, StatDef, StatId, WeaponClass,
 } from '@/shared';
-import { SKILL_IDS, SKILL_LEVEL_MAX, STAT_BASE, STAT_IDS, STAT_MAX, STAT_POINTS_PER_LEVEL } from '@/shared';
+import {
+  SKILL_IDS, SKILL_LEVEL_MAX, STAT_BASE, STAT_IDS, STAT_MAX, STAT_MIN, STAT_POINTS_PER_LEVEL,
+  STAT_XP_BASE, STAT_XP_EXPONENT,
+} from '@/shared';
 import {
   APPRAISE_XP_BY_RARITY, CARRY_XP_PER_METER, CRAFT_XP, CRATE_OPEN_XP, CRYPTO_XP, GATHER_XP, GRIT_SAVE_XP,
   GUN_HIT_XP, IMPLANT_XP, REPAIR_XP, SKILL_DEF_MAP, SKILL_DEFS, STAT_DEF_MAP, STAT_DEFS, WEAPON_CLASS_SKILL,
 } from './defs';
 import { computeDerived, DEFAULT_DERIVED, SPECIAL_BACKPACK_CD_MUL, xpForLevel } from './derive';
-import { clearStoredProfile, freshProfile, loadProfile, saveProfile } from './Profile';
+import { clearStoredProfile, freshProfile, loadProfile, saveProfile, zeroStatProgress } from './Profile';
 import { CharacterSheet } from './ui/CharacterSheet';
 
 /** Seconds between autosaves while the profile is dirty. */
@@ -21,6 +24,12 @@ const SKILL_COST_SLOPE = 0.06;
 const SKILL_STAT_FACTOR = 0.04;
 /** Optional convenience key that toggles the character sheet (the ship terminal is the primary entry point). */
 const KEY_CHARACTER = 'KeyP';
+
+/** Raw stat XP needed for the point after stat value `value`: round(STAT_XP_BASE × value^STAT_XP_EXPONENT). */
+export function statXpFor(value: number): number {
+  const v = Math.max(STAT_MIN, Math.min(STAT_MAX, Math.round(value)));
+  return Math.max(1, Math.round(STAT_XP_BASE * Math.pow(v, STAT_XP_EXPONENT)));
+}
 
 /**
  * Character stats, skills, the persistent profile and every number derived from them.
@@ -210,7 +219,9 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     if (level >= SKILL_LEVEL_MAX) return;
 
     const def = SKILL_DEF_MAP.get(id);
-    const gain = amount * this._derived.skillGainMul * this.statFactor(def) / (1 + level * SKILL_COST_SLOPE);
+    // 사격장 (ship facility) bonus multiplies in here, on top of 지능 (`skillGainMul`) and the skill's own stats.
+    const gain = amount * this._derived.skillGainMul * this.getSkillGainMul(id) * this.statFactor(def)
+      / (1 + level * SKILL_COST_SLOPE);
     if (!(gain > 0)) return;
 
     let progress = (profile.skillProgress[id] ?? 0) + gain;
@@ -271,12 +282,119 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
    */
   save(): void { this.dirty = true; this.flush(); }
 
-  /* TODO(agent progression): stat XP + raw skill XP contract stubs (2026-09-06) — replace with real implementations. */
-  getStatProgress(id: StatId): number { return this._profile.statProgress?.[id] ?? 0; }
-  statXpToNext(_id: StatId): number { return 0; }
-  addStatXp(_id: StatId, _amount: number): void { /* TODO(agent progression) */ }
-  addSkillXpRaw(_id: SkillId, _amount: number): void { /* TODO(agent progression) */ }
-  getSkillGainMul(_id: SkillId): number { return 1; }
+  /* ── stat XP (appended 2026-09-06) ─────────────────────────────────────── */
+  /** 0..1 toward the next point of `id` (exactly 1 only while the stat sits at STAT_MAX). */
+  getStatProgress(id: StatId): number {
+    const p = this._profile.statProgress?.[id];
+    return typeof p === 'number' && Number.isFinite(p) ? p : 0;
+  }
+
+  /** Raw XP for the next point of `id` at its current value: round(STAT_XP_BASE × value^STAT_XP_EXPONENT). */
+  statXpToNext(id: StatId): number { return statXpFor(this.getStat(id)); }
+
+  /**
+   * Signed raw stat XP. The stored fraction is converted to raw XP at the current value, the amount is added,
+   * then points are gained (≥ need → +1, progress carries over relative to the *new* value's need) or lost
+   * (< 0 → −1, the deficit is taken off the new value's need). Clamps: STAT_MAX keeps progress pinned at 1,
+   * STAT_MIN pins it at 0. Always emits `progress:statXp`; a value change also emits `progress:statChanged`
+   * (level-up points untouched), recomputes `derived` and saves immediately.
+   */
+  addStatXp(id: StatId, amount: number): void {
+    if (!(STAT_IDS as readonly string[]).includes(id)) return;
+    if (typeof amount !== 'number' || !Number.isFinite(amount)) return;
+    const profile = this._profile;
+    const sp = profile.statProgress ?? (profile.statProgress = zeroStatProgress());
+    const prev = Math.min(STAT_MAX, Math.max(STAT_MIN, Math.round(this.getStat(id))));
+    let value = prev;
+    let xp = this.getStatProgress(id) * statXpFor(value) + amount;
+
+    // Bounded loop: a cheat may hand over millions of XP, but the stat range is only STAT_MAX − STAT_MIN wide.
+    for (let i = 0; i <= STAT_MAX - STAT_MIN + 1; i++) {
+      const need = statXpFor(value);
+      if (xp >= need) {
+        if (value >= STAT_MAX) { xp = need; break; }          // pinned at 1 on the cap
+        xp -= need;
+        value += 1;
+      } else if (xp < 0) {
+        if (value <= STAT_MIN) { xp = 0; break; }             // pinned at 0 on the floor
+        value -= 1;
+        xp += statXpFor(value);                               // deficit carried over relative to the new need
+      } else {
+        break;
+      }
+    }
+
+    const need = statXpFor(value);
+    let progress = need > 0 ? xp / need : 0;
+    progress = Math.max(0, Math.min(value >= STAT_MAX ? 1 : 0.999999, progress));
+    if (!Number.isFinite(progress)) progress = 0;
+    sp[id] = progress;
+
+    const changed = value !== prev;
+    if (changed) {
+      profile.stats[id] = value;
+      this.recompute();
+      this.markDirty(true);
+    } else {
+      this.markDirty(false);
+    }
+    const bus = this.ctx?.bus;
+    bus?.emit('progress:statXp', { id, value, progress, delta: amount });
+    if (changed) bus?.emit('progress:statChanged', { id, value, pointsLeft: profile.statPoints });
+    this.sheet?.refreshStat(id);
+  }
+
+  /**
+   * Signed raw skill XP straight onto the 0..1 progress fraction — no 지능 / facility / stat / level scaling
+   * (`1` = one level at any level). Crossing 1 → level +1 (max SKILL_LEVEL_MAX, progress then 0); dropping below 0
+   * → level −1 (never below 0, progress then 0). `progress:skillUp` fires on every level change (also downward,
+   * payload carries the new level), `progress:skillProgress` always.
+   */
+  addSkillXpRaw(id: SkillId, amount: number): void {
+    if (!(SKILL_IDS as readonly string[]).includes(id)) return;
+    if (typeof amount !== 'number' || !Number.isFinite(amount)) return;
+    const profile = this._profile;
+    const prevLevel = profile.skills[id] ?? 0;
+    let level = prevLevel;
+    let progress = (profile.skillProgress[id] ?? 0) + amount;
+
+    // Bounded loops: the level range is only SKILL_LEVEL_MAX wide.
+    for (let i = 0; i <= SKILL_LEVEL_MAX && progress >= 1 && level < SKILL_LEVEL_MAX; i++) { progress -= 1; level += 1; }
+    for (let i = 0; i <= SKILL_LEVEL_MAX && progress < 0 && level > 0; i++) { progress += 1; level -= 1; }
+    if (level >= SKILL_LEVEL_MAX) { level = SKILL_LEVEL_MAX; progress = 0; }
+    if (level <= 0 && progress < 0) { level = 0; progress = 0; }
+    progress = Math.max(0, Math.min(0.999999, progress));
+    if (!Number.isFinite(progress)) progress = 0;
+
+    profile.skills[id] = level;
+    profile.skillProgress[id] = progress;
+    const bus = this.ctx?.bus;
+    if (level !== prevLevel) {
+      this.recompute();
+      this.markDirty(true);
+      bus?.emit('progress:skillUp', { id, level });
+    } else {
+      this.markDirty(false);
+    }
+    this.lastEmitted[id] = progress;
+    bus?.emit('progress:skillProgress', { id, level, progress });
+    if (level !== prevLevel) this.sheet?.refresh(); else this.sheet?.refreshSkill(id);
+  }
+
+  /**
+   * Ship-facility skill-gain multiplier (사격장 → `gun_*`). Read from `ctx.housing`, which may still be a skeleton
+   * (returns 1) or absent — every hop is guarded so this never throws and never returns a bad number.
+   */
+  getSkillGainMul(id: SkillId): number {
+    try {
+      const h = this.ctx?.housing;
+      if (!h || typeof h.getSkillGainMul !== 'function') return 1;
+      const m = h.getSkillGainMul(id);
+      return typeof m === 'number' && Number.isFinite(m) && m > 0 ? m : 1;
+    } catch {
+      return 1;
+    }
+  }
 
   resetProfile(): void {
     const name = this._profile.name;

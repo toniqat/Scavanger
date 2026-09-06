@@ -1498,3 +1498,98 @@ input { font: inherit; color: inherit; }
 .scr-tab.is-on { color: #1a1408; background: var(--c-text); border-color: var(--c-text); }
 .scr-tab.is-disabled { opacity: 0.4; cursor: default; }
 .scr-tab.is-disabled:hover { color: var(--c-text-dim); background: none; }
+
+/* ═══ Phase 6: unique-weapon charge arc · 전소/감전 markers · MOVE CHEAT tag · housing hint bar · room label (2026-09-06) ═══ */
+/* Weapon charge gauge — 120° arc right of the reticle (CookGauge silhouette), colour per kind */
+.wcharge {
+  position: absolute; left: 50%; top: 50%;
+  width: 120px; height: 120px; margin: -60px 0 0 -60px;
+  pointer-events: none;
+  opacity: 0; transition: opacity 80ms var(--ease);
+  --wc: var(--c-info);
+}
+.wcharge.show { opacity: 1; }
+.wcharge.charge { --wc: #5fc8ff; }
+.wcharge.spinup { --wc: var(--c-accent); }
+.wcharge.slash { --wc: var(--c-danger); }
+.wcharge svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.wcharge path { fill: none; stroke-width: 3; stroke-linecap: butt; }
+.wcharge .track { stroke: rgba(255, 255, 255, 0.14); }
+.wcharge .fill { stroke: var(--wc); transition: stroke var(--t-fast) var(--ease); filter: drop-shadow(0 0 3px var(--wc)); }
+.wcharge.ready .fill { animation: cookPulse 260ms ease-in-out infinite alternate; }
+.wcharge .lbl {
+  position: absolute; left: 100%; top: 50%; transform: translate(-6px, 28px);
+  font-size: 11px; letter-spacing: 0.1em; color: var(--wc); white-space: nowrap; text-shadow: 0 0 4px #000;
+}
+.wcharge.ready .lbl { font-weight: 600; }
+.hud.spectating .wcharge { opacity: 0 !important; visibility: hidden; }
+
+/* 전소 / 감전 world markers (pooled, projected) */
+.status-markers { position: absolute; inset: 0; pointer-events: none; }
+.smarker {
+  position: absolute; left: 0; top: 0;
+  transform: translate(-50%, -50%);
+  will-change: transform, opacity;
+  opacity: 0; display: none;
+  white-space: nowrap; font-size: 12px; font-weight: 600; letter-spacing: 0.08em;
+  text-shadow: 0 0 4px #000, 0 0 8px rgba(0,0,0,0.8);
+}
+.smarker.show { display: block; }
+.smarker.burn { color: #ff9a3c; }
+.smarker.shock { color: #b8ecff; font-size: 18px; animation: sparkPop 0.6s ease-out 1; }
+@keyframes sparkPop { 0% { transform: translate(-50%, -50%) scale(0.6); } 30% { transform: translate(-50%, -50%) scale(1.35); } 100% { transform: translate(-50%, -50%) scale(1); } }
+
+/* MOVE CHEAT corner tag (social layer → also in the ship) */
+.cheat-tag {
+  position: absolute; right: 32px; top: 64px;
+  font-size: 10px; letter-spacing: 0.24em; font-weight: 700;
+  color: #ffd166; border: 1px solid rgba(255, 209, 102, 0.7); background: rgba(40, 30, 0, 0.55);
+  padding: 3px 8px;
+  opacity: 0; transition: opacity var(--t-fast) var(--ease);
+}
+.cheat-tag.show { opacity: 1; }
+
+/* Housing-mode hint bar: own layer `.hud.housing` (never hidden by the gameplay/social gating) */
+.hud.housing { pointer-events: none; }
+.housing-hint {
+  position: absolute; left: 50%; bottom: 40px; transform: translate(-50%, 12px);
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 10px 18px; min-width: 320px;
+  background: rgba(8, 9, 11, 0.72); border: 1px solid var(--c-border);
+  opacity: 0; visibility: hidden;
+  transition: opacity var(--t-fast) var(--ease), transform var(--t-fast) var(--ease), visibility var(--t-fast);
+}
+.housing-hint.show { opacity: 1; visibility: visible; transform: translate(-50%, 0); }
+.housing-hint .row { display: flex; align-items: center; gap: 10px; font-size: 12px; }
+.housing-hint .k { font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--c-text-faint); }
+.housing-hint .v { color: var(--c-text); }
+.housing-hint .name { font-weight: 600; letter-spacing: 0.06em; color: var(--fc, var(--c-text)); }
+.housing-hint .name.none { color: var(--c-text-dim); font-weight: 400; }
+.housing-hint .yaw { font-family: var(--ui-mono); font-size: 11px; color: var(--c-text-dim); }
+.housing-hint .valid { font-size: 10px; letter-spacing: 0.14em; padding: 1px 6px; border: 1px solid var(--c-border); color: var(--c-text-dim); }
+.housing-hint .valid.ok { color: var(--c-success); border-color: rgba(79, 209, 126, 0.6); }
+.housing-hint .valid.bad { color: var(--c-danger); border-color: rgba(255, 77, 77, 0.6); }
+.housing-hint .valid:empty { display: none; }
+.housing-hint .keys { font-size: 10px; letter-spacing: 0.12em; color: var(--c-text-dim); margin-top: 2px; }
+
+/* Room entry label (social layer, top-centre; fades after the hold time) */
+.room-label {
+  position: absolute; left: 50%; top: 64px; transform: translate(-50%, -6px);
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 16px; border: 1px solid var(--c-border); background: rgba(8, 9, 11, 0.6);
+  font-size: 13px; letter-spacing: 0.14em;
+  opacity: 0; visibility: hidden;
+  transition: opacity 500ms var(--ease), transform 500ms var(--ease), visibility 500ms;
+}
+.room-label.show { opacity: 1; visibility: visible; transform: translate(-50%, 0); transition-duration: 160ms; }
+.room-label .num { font-weight: 700; color: var(--c-accent); }
+.room-label .sep { color: var(--c-text-faint); }
+.room-label .purpose { color: var(--c-text); }
+
+/* Weapon panel: unique fire-mode lines (only with `.has-modes`; hidden in consumable mode) */
+.weapon .modes { display: none; flex-direction: column; align-items: flex-end; gap: 2px; }
+.weapon.has-modes > .modes { display: flex; }
+.weapon.consumable > .modes { display: none; }
+.weapon .mode { display: flex; align-items: center; gap: 6px; font-size: 10px; letter-spacing: 0.08em; }
+.weapon .mode .mk { font-family: var(--ui-mono); font-size: 9px; color: var(--c-text-faint); border: 1px solid var(--c-border); padding: 0 4px; }
+.weapon .mode .mv { color: var(--c-text-dim); }

@@ -10,3 +10,7 @@ export { MeleeController, MELEE_WINDUP } from './Melee';
 export { raycastBlockers } from './Blocking';
 export { DEFAULT_RIFLE, DEFAULT_PISTOL, WEAPON_SLOTS, defaultFor, statsFromDef, kindOf, shotSoundId, shotPitchFor, STANCE_ACCURACY } from './WeaponDefaults';
 export type { WeaponKind } from './WeaponDefaults';
+export { projectileOptsFor } from './Projectile';
+export type { ProjectileOptions, ProjectileStyle } from './Projectile';
+export { createUniqueHandler, UniqueFx } from './unique';
+export type { UniqueHandler, UniqueServices, UniqueInput } from './unique';

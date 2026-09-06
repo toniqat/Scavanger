@@ -1,6 +1,6 @@
 import type { AmmoType, ArmorDef, AttachmentDef, BagDef, ItemCategory, ItemDef, Rarity, WeaponDef, WeaponGrade } from '@/shared';
 import { AMMO_STACK_ROUNDS, QUICK_USABLE_CATEGORIES } from '@/shared';
-import { WEAPON_DEFS, gradeOf, weaponFamilyOf } from './WeaponDefs';
+import { WEAPON_DEFS, gradeOf, isUniqueWeapon, weaponFamilyOf } from './WeaponDefs';
 import { ARMOR_DEFS, ARMOR_ICON, armorItemSize } from './ArmorDefs';
 
 /* ── palette / labels ─────────────────────────────────────────────────────── */
@@ -57,8 +57,10 @@ export const AMMO_LABEL_KO: Readonly<Record<AmmoType, string>> = {
   fuel: '연료통', cell: '전지', shuriken: '표창', arrow: '화살', rocket: '로켓', belt: '탄띠',
 };
 
-/** v2 calibres in display order. */
-export const AMMO_TYPES_V2: readonly AmmoType[] = ['light', 'medium', 'heavy', 'shell'];
+/** v2 calibres in display order: the four graded-weapon calibres, then the six unique-weapon calibres. */
+export const AMMO_TYPES_V2: readonly AmmoType[] = ['light', 'medium', 'heavy', 'shell', 'fuel', 'cell', 'shuriken', 'arrow', 'rocket', 'belt'];
+/** Calibres only a unique weapon fires (never rolled with the graded-weapon ammo). */
+export const UNIQUE_AMMO_TYPES: readonly AmmoType[] = ['fuel', 'cell', 'shuriken', 'arrow', 'rocket', 'belt'];
 
 /** Ammo item id for a calibre (`medium` → `ammo_medium`). */
 export function ammoItemIdFor(ammoType: AmmoType): string {
@@ -99,7 +101,32 @@ const FALLBACK_META: WeaponFamilyMeta = { width: 3, height: 2, icon: '⌐', valu
 /** Value multiplier per grade above I. */
 export const WEAPON_GRADE_VALUE_STEP = 0.6;
 
+/* ── unique weapons (Phase 6): fixed legendary items, description names the LMB / RMB behaviour ── */
+interface UniqueWeaponMeta extends WeaponFamilyMeta { rarity: Rarity }
+const UNIQUE_WEAPON_META: Readonly<Record<string, UniqueWeaponMeta>> = {
+  u_flame: { width: 5, height: 2, icon: '⌐♨', value: 6800, weight: 9.5, rarity: 'legendary',
+    description: '연료를 태워 불길을 뿜는 화염방사기. 좌클릭: 넓은 화염 분사 (지속 피해 + 잔불). 우클릭: 길고 가는 화염 제트. 열이 쌓인 적은 전소되어 몸부림친다. 정조준 없음.' },
+  u_shock: { width: 4, height: 2, icon: '⌐⚡', value: 7200, weight: 6.2, rarity: 'legendary',
+    description: '테슬라 코일 전격총. 좌클릭: 시야 안 최대 4마리에게 동시에 전격 (감전·둔화). 우클릭: 충전 후 놓으면 고위력 전격탄. 정조준 없음.' },
+  u_shuriken: { width: 3, height: 2, icon: '⌐✧', value: 5400, weight: 2.4, rarity: 'legendary',
+    description: '팔 보호구형 표창 발사기. 좌클릭: 표창 1개. 우클릭: 부채꼴로 3개. 근접(F) 홀드 후 놓으면 스태미나 절반을 써서 넓은 용검 베기. 정조준 없음.' },
+  u_bow: { width: 5, height: 2, icon: '⌐)', value: 5900, weight: 3.6, rarity: 'legendary',
+    description: '컴포짓 보우. 좌클릭: 직선으로 날아가는 화살 (낙차 없음). 우클릭: 정조준 (유니크 중 유일). 저격소총보다 짧지만 지정사수소총 연사.' },
+  u_bazooka: { width: 5, height: 2, icon: '⌐═▶', value: 8400, weight: 11.8, rarity: 'legendary',
+    description: '해머헤드 바주카. 좌클릭: 착탄 폭발 로켓 (구조물 파괴). 우클릭: 짧은 신관으로 공중 폭발. 폭발 반경 안에 있으면 자신도 피해와 넉백을 받는다 — 공중에서 발밑을 쏘면 로켓 점프. 정조준 없음.' },
+  u_minigun: { width: 5, height: 2, icon: '⌐≣', value: 7600, weight: 14.5, rarity: 'legendary',
+    description: '6총열 미니건. 좌클릭 홀드: 1.2초 예열 후 초당 24발 연사, 회전 중 이동 속도 55 %. 우클릭: 예열 유지. 정조준 없음.' },
+};
+
 function weaponItemDef(w: WeaponDef): ItemDef {
+  if (isUniqueWeapon(w)) {
+    const meta = UNIQUE_WEAPON_META[w.id] ?? { ...FALLBACK_META, rarity: 'legendary' as const };
+    return def({
+      id: itemIdForWeapon(w.id), name: w.name, category: w.slot, rarity: meta.rarity,
+      width: meta.width, height: meta.height, value: meta.value,
+      icon: meta.icon, weaponId: w.id, description: meta.description, weight: meta.weight,
+    });
+  }
   const meta = WEAPON_FAMILY_META[weaponFamilyOf(w)] ?? FALLBACK_META;
   const grade = gradeOf(w);
   return def({
@@ -113,9 +140,13 @@ export const WEAPON_ITEM_DEFS: readonly ItemDef[] = WEAPON_DEFS.map(weaponItemDe
 
 /* ── ammo v2 (qty = rounds) ───────────────────────────────────────────────── */
 /** kg per round (tactical kit weight budget). */
-const AMMO_ROUND_WEIGHT: Readonly<Partial<Record<AmmoType, number>>> = { light: 0.012, medium: 0.02, heavy: 0.04, shell: 0.05 };
-const ammoDef = (type: AmmoType, name: string, value: number, icon: string, description: string): ItemDef =>
-  def({ id: ammoItemIdFor(type), name, category: 'ammo', rarity: 'common', width: 1, height: 1,
+export const AMMO_ROUND_WEIGHT: Readonly<Partial<Record<AmmoType, number>>> = {
+  light: 0.012, medium: 0.02, heavy: 0.04, shell: 0.05,
+  /* unique calibres: a full stack weighs 4–7 kg (fuel 200 → 4 kg, rockets 6 → 7.2 kg) */
+  fuel: 0.02, cell: 0.06, shuriken: 0.07, arrow: 0.05, rocket: 1.2, belt: 0.015,
+};
+const ammoDef = (type: AmmoType, name: string, value: number, icon: string, description: string, rarity: Rarity = 'common'): ItemDef =>
+  def({ id: ammoItemIdFor(type), name, category: 'ammo', rarity, width: 1, height: 1,
     stackMax: AMMO_STACK_ROUNDS[type], value, icon, ammoType: type, description, weight: AMMO_ROUND_WEIGHT[type] ?? 0.02 });
 
 export const AMMO_ITEM_DEFS: readonly ItemDef[] = [
@@ -123,6 +154,13 @@ export const AMMO_ITEM_DEFS: readonly ItemDef[] = [
   ammoDef('medium', '준중량탄', 2, '▮', '돌격소총용 준중량 탄약. 수량은 발수.'),
   ammoDef('heavy', '중량탄', 3, '▬', '저격소총·지정사수소총용 중량 탄약. 수량은 발수.'),
   ammoDef('shell', '산탄', 3, '◘', '산탄총용 셸. 수량은 발수.'),
+  /* unique-weapon calibres (rare: loot tables weight them by rarity, tiers 1–3 zero them out) */
+  ammoDef('fuel', '연료통', 1, '⛽', '「인페르노」 화염방사기용 연료. 수량은 연료 단위 (초당 12 소모).', 'rare'),
+  ammoDef('cell', '전지', 4, '▯', '「테슬라 코일」 전격총용 전지. 수량은 전지 단위.', 'rare'),
+  ammoDef('shuriken', '표창', 5, '✧', '「카게」 표창 발사기용 강철 표창. 수량은 개수.', 'rare'),
+  ammoDef('arrow', '화살', 4, '➶', '「롱혼」 컴포짓 보우용 카본 화살. 수량은 개수.', 'rare'),
+  ammoDef('rocket', '로켓', 60, '▶', '「해머헤드」 바주카용 로켓. 수량은 발수. 한 발이 1.2 kg.', 'rare'),
+  ammoDef('belt', '탄띠', 1, '≣', '「사이클론」 미니건용 연결 탄띠. 수량은 발수.', 'rare'),
 ];
 
 /* ── attachments ──────────────────────────────────────────────────────────── */
@@ -263,6 +301,11 @@ export const ITEM_DEFS: readonly ItemDef[] = [
     description: '충전된 소형 전력 셀.' }),
   def({ id: 'mat_gunpowder', name: '화약', category: 'material', rarity: 'common', width: 1, height: 1, stackMax: 20, value: 12, icon: '⋆', weight: 0.05,
     description: '탄약을 분해해 얻는 추진제. 원하는 탄종으로 다시 만들 수 있다.' }),
+  /* ship housing (Phase 6): facility / furniture costs */
+  def({ id: 'mat_cable', name: '전력 케이블', category: 'material', rarity: 'common', width: 1, height: 1, stackMax: 10, value: 25, icon: '∿', weight: 0.3,
+    description: '피복이 벗겨진 전력 케이블 뭉치. 함선 시설과 작업대 설치에 쓰인다.' }),
+  def({ id: 'mat_circuit', name: '회로 기판', category: 'material', rarity: 'rare', width: 1, height: 1, stackMax: 10, value: 120, icon: '▦', weight: 0.15,
+    description: '멀쩡히 남은 제어 회로 기판. 함선 시설·작업대 업그레이드에 필수.' }),
 
   /* herbs (gathered from world plants) */
   def({ id: 'herb_bloodroot', name: '혈근초', category: 'herb', rarity: 'common', width: 1, height: 1, stackMax: 8, value: 25, icon: '❦', weight: 0.08,

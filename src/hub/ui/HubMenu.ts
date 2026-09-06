@@ -1,11 +1,9 @@
 import type { GameContext, LobbyState, NetRef } from '@/shared';
 import { NET_SLOT_COLORS_CSS, NET_MAX_PLAYERS, isValidLobbyCode, normalizeLobbyCode, sanitizePlayerName } from '@/shared';
-import { el, isolateInput, parseSeed, randomSeed, setText, toggleClass } from './dom';
+import { el, isolateInput, setText, toggleClass } from './dom';
 
 /** What the menu needs from HubSystem. */
 export interface HubMenuHost {
-  getMissionSeed(): number | null;
-  setMissionSeed(seed: number | null): void;
   /** "타이틀로": tear the hub down and return to the title. */
   toTitle(): void;
   /** Called after the menu closed itself (Esc / 닫기) so the hub re-locks the pointer. */
@@ -15,8 +13,9 @@ export interface HubMenuHost {
 const MSG_TTL = 4500;
 
 /**
- * Ship terminal menu (`.menu.hub-menu`): pilot name, mission seed, signal search (quick match) / dock by code /
+ * Ship terminal menu (`.menu.hub-menu`): pilot name, signal search (quick match) / dock by code /
  * broadcast (private ship) in the personal ship; code + invite + public toggle + crew + undock in the shared ship.
+ * The mission-seed field left the terminal on 2026-09-06: seeds are set only through the dev console (`/seed`).
  * Adds the `'hub'` blocker token before exiting pointer lock; emits `ui:hubMenuToggled`.
  * Implants and repairs left the terminal on 2026-09-06: both live on the Tab ship screen (inventory folder —
  * implant slot under the gear, 수리 in the right-click menu). The footer's 캐릭터 button stays as a shortcut.
@@ -33,11 +32,9 @@ export class HubMenu {
   private subtitle: HTMLElement;
   private pill: HTMLElement;
   private pillText: HTMLElement;
-  // pilot / seed
+  // pilot
   private nameInput: HTMLInputElement;
-  private seedInput: HTMLInputElement;
   private seedHint: HTMLElement;
-  private seedRandom: HTMLButtonElement;
   // personal
   private secSignal: HTMLElement;
   private btnMatch: HTMLButtonElement;
@@ -87,15 +84,7 @@ export class HubMenu {
       this.showMsg(`호출명 변경: ${n}`, 'success');
     });
     el('div', { cls: 'hint', text: '분대에 표시되는 이름입니다.', parent: secPilot });
-
-    // ── seed ──
-    const secSeed = this.section(page, '임무 시드');
-    const seedRow = el('div', { cls: 'row', parent: secSeed });
-    this.seedInput = el('input', { cls: 'ui-input', attrs: { type: 'text', placeholder: '비워두면 무작위', spellcheck: 'false' }, parent: seedRow });
-    isolateInput(this.seedInput, () => this.close());
-    this.seedInput.addEventListener('change', () => this.applySeed(parseSeed(this.seedInput.value)));
-    this.seedRandom = this.button(seedRow, '무작위', () => { const s = randomSeed(); this.seedInput.value = String(s); this.applySeed(s); });
-    this.seedHint = el('div', { cls: 'hint', text: '', parent: secSeed });
+    this.seedHint = el('div', { cls: 'hint seed-hint', text: '임무 시드는 개발자 콘솔 /seed 로만 설정합니다.', parent: secPilot });
 
     // ── signal (personal ship) ──
     this.secSignal = this.section(page, '신호');
@@ -182,8 +171,6 @@ export class HubMenu {
     void this.frame.offsetWidth;
     this.frame.style.animation = '';
     this.nameInput.value = this.ctx.net?.playerName ?? '스캐빈저';
-    const seed = this.currentSeed();
-    this.seedInput.value = seed === null ? '' : String(seed);
     this.refresh();
     this.ctx.bus.emit('ui:hubMenuToggled', { open: true });
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
@@ -212,13 +199,9 @@ export class HubMenu {
     this.pill.className = `status-pill ${status}`;
     setText(this.pillText, status === 'connected' ? `연결됨${net && net.rttMs > 0 ? ` · ${Math.round(net.rttMs)} ms` : ''}` : status === 'connecting' ? '연결 중' : status === 'error' ? '오류' : '오프라인');
 
-    // seed
-    const seedEditable = !lobby || isHost;
-    this.seedInput.disabled = !seedEditable;
-    this.seedRandom.disabled = !seedEditable;
-    if (lobby && !isHost) this.seedInput.value = lobby.seed === null ? '' : String(lobby.seed);
-    setText(this.seedHint, !lobby ? '숫자 또는 임의의 문구. 비워두면 발사 시 무작위 시드가 선택됩니다.'
-      : isHost ? '분대 전원이 같은 시드로 투입됩니다.' : lobby.seed === null ? '호스트가 시드를 선택합니다 (무작위).' : '호스트가 선택한 시드입니다.');
+    // seed (read-only hint: the console owns it)
+    const seed = lobby ? lobby.seed : (ctx.hub?.missionSeed ?? null);
+    setText(this.seedHint, `임무 시드는 개발자 콘솔 /seed 로만 설정합니다. 현재: ${seed === null ? '무작위' : seed}${lobby && !isHost ? ' (호스트 설정)' : ''}`);
 
     // 캐릭터 needs progression
     this.btnStats.disabled = !ctx.progression;
@@ -263,24 +246,6 @@ export class HubMenu {
   }
 
   /* ── actions ──────────────────────────────────────────────────────────── */
-  private currentSeed(): number | null {
-    const lobby = this.ctx.net?.lobby;
-    if (lobby) return lobby.seed;
-    return this.host.getMissionSeed();
-  }
-
-  private applySeed(seed: number | null): void {
-    const net = this.ctx.net;
-    if (net?.lobby) {
-      if (!net.isHost) return;
-      if (seed !== null) net.setLobbySeed(seed);
-      else this.showMsg('공유 함선에서는 시드를 비울 수 없습니다 — 무작위 버튼을 사용하세요', 'info');
-    } else {
-      this.host.setMissionSeed(seed);
-    }
-    this.refresh();
-  }
-
   private join(): void {
     const code = normalizeLobbyCode(this.codeInput.value);
     if (!isValidLobbyCode(code)) { this.showMsg('6자리 함선 코드를 입력하세요', 'warning'); return; }

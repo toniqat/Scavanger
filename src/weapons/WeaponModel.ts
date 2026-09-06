@@ -40,6 +40,13 @@ const ANCHORS: Readonly<Record<WeaponKind, KindAnchors>> = {
   energy:  { barrelY: 0.07,  fore: [0.015, -0.4],  rail: [0.14, -0.15], stock: [0.05, 0.26] },
   smg:     { barrelY: 0.065, fore: [0.045, -0.22], rail: [0.112, -0.1], stock: [0.06, 0.245] },
   sniper:  { barrelY: 0.075, fore: [0.0125, -0.5], rail: null, stock: [0.045, 0.365] },
+  /* uniques: no sockets (`LootRef.canAttach` → false); anchors exist only so the table stays total */
+  flamethrower: { barrelY: 0.07, fore: null, rail: null, stock: null },
+  shockgun:     { barrelY: 0.08, fore: null, rail: null, stock: null },
+  shuriken:     { barrelY: 0.05, fore: null, rail: null, stock: null },
+  bow:          { barrelY: 0.0,  fore: null, rail: null, stock: null },
+  bazooka:      { barrelY: 0.11, fore: null, rail: null, stock: null },
+  minigun:      { barrelY: 0.09, fore: null, rail: null, stock: null },
 };
 
 /**
@@ -72,6 +79,19 @@ export class WeaponModel {
   private reloadT = -1;
   private boltT = -1;
   private drawT = 1;
+  /* unique weapons */
+  /** Minigun barrel cluster (rotates about local Z while `spin` > 0). */
+  private barrels: THREE.Object3D | null = null;
+  private spin = 0;
+  private barrelAngle = 0;
+  /** Bow string + nocked arrow: pulled back on `kick`. */
+  private bowString: THREE.Object3D | null = null;
+  private bowArrow: THREE.Object3D | null = null;
+  private bowStringBase = new THREE.Vector3();
+  private bowArrowBase = new THREE.Vector3();
+  /** Flamethrower pilot light / shock coil glow: 0..1 heat driven by `setHeat` (spraying / arcing). */
+  private heat = 0;
+  private heatMat: THREE.MeshStandardMaterial | null = null;
 
   constructor(def: WeaponDef) {
     this.kind = kindOf(def);
@@ -89,6 +109,12 @@ export class WeaponModel {
       case 'energy': this.mag = this.buildEnergy(mMetal, mSteel, mAccent, mDark); break;
       case 'smg': this.mag = this.buildSmg(mMetal, mSteel, mAccent, mDark); break;
       case 'sniper': this.mag = this.buildSniper(mMetal, mSteel, mAccent, mDark); break;
+      case 'flamethrower': this.mag = this.buildFlamethrower(mMetal, mSteel, mAccent, mDark); break;
+      case 'shockgun': this.mag = this.buildShockgun(mMetal, mSteel, mAccent, mDark); break;
+      case 'shuriken': this.mag = this.buildShuriken(mMetal, mSteel, mAccent, mDark); break;
+      case 'bow': this.mag = this.buildBow(mMetal, mSteel, mAccent, mDark); break;
+      case 'bazooka': this.mag = this.buildBazooka(mMetal, mSteel, mAccent, mDark); break;
+      case 'minigun': this.mag = this.buildMinigun(mMetal, mSteel, mAccent, mDark); break;
       default: this.mag = this.buildRifle(mMetal, mSteel, mAccent, mDark);
     }
     if (this.mag) this.magBase.copy(this.mag.position);
@@ -393,6 +419,181 @@ export class WeaponModel {
     return mag;
   }
 
+
+  /* ─────────── unique weapons (Phase 6) ─────────── */
+  /** 「인페르노」: fuel tank slung under the fore-end, hose, wide nozzle with a pilot light. */
+  private buildFlamethrower(mMetal: THREE.Material, mSteel: THREE.Material, mAccent: THREE.Material, mDark: THREE.Material): THREE.Object3D {
+    const mTank = this.mat(0xb0412a, 0.55, 0.45);
+    const pilot = this.mat(0x3a1a08, 0.1, 0.6); pilot.emissive.setHex(0xff7a2a); pilot.emissiveIntensity = 1.2;
+    this.heatMat = pilot;
+    this.box(0.055, 0.08, 0.34, mMetal, 0, 0.065, -0.1);                   // receiver
+    this.box(0.05, 0.03, 0.2, mDark, 0, 0.115, -0.12);                     // top cover
+    this.tube(0.022, 0.42, mSteel, 0, 0.07, -0.5);                         // feed pipe
+    this.tube(0.038, 0.1, mDark, 0, 0.07, -0.72);                           // nozzle bell
+    this.tube(0.026, 0.02, pilot, 0, 0.07, -0.775);                         // pilot flame ring
+    this.box(0.012, 0.06, 0.06, mAccent, 0.032, 0.11, -0.66);              // igniter fin
+    for (let i = 0; i < 3; i++) this.box(0.06, 0.008, 0.01, mSteel, 0, 0.07, -0.34 - i * 0.09); // heat-shield rings
+    // fuel tank hanging under the fore-end (the animated "magazine": swapped on reload)
+    const mag = new THREE.Object3D(); mag.position.set(0, 0.0, -0.3); this.body.add(mag);
+    this.tube(0.05, 0.28, mTank, 0, -0.06, 0, mag);
+    this.tube(0.052, 0.02, mSteel, 0, -0.06, -0.12, mag);
+    this.tube(0.052, 0.02, mSteel, 0, -0.06, 0.12, mag);
+    this.box(0.02, 0.03, 0.04, mDark, 0, -0.005, 0, mag);                  // tank clamp
+    const hose = this.tube(0.012, 0.3, mDark, -0.03, -0.02, 0.0); hose.rotation.z = 0.2; // hose back to the grip
+    this.box(0.05, 0.07, 0.18, mMetal, 0, 0.05, 0.14);                     // stock stub
+    this.box(0.05, 0.09, 0.03, mDark, 0, 0.03, 0.24);
+    const grip = this.box(0.035, 0.11, 0.05, mDark, 0, -0.05, 0.01); grip.rotation.x = -0.25;
+    this.box(0.03, 0.05, 0.03, mDark, 0, 0.0, -0.45);                      // fore grip
+    this.muzzle.position.set(0, 0.07, -0.79);
+    this.ejectPort.position.set(0.04, 0.08, -0.1);
+    return mag;
+  }
+
+  /** 「테슬라 코일」: stacked copper coil rings around a glowing core, capacitor pack as the magazine. */
+  private buildShockgun(mMetal: THREE.Material, mSteel: THREE.Material, mAccent: THREE.Material, mDark: THREE.Material): THREE.Object3D {
+    const core = this.mat(0x0c2a36, 0.3, 0.3); core.emissive.setHex(0x5fe0ff); core.emissiveIntensity = 1.6;
+    this.heatMat = core;
+    const mCopper = this.mat(0xb8733a, 0.9, 0.35);
+    this.box(0.055, 0.09, 0.32, mMetal, 0, 0.065, -0.08);                  // receiver
+    this.box(0.05, 0.02, 0.24, mDark, 0, 0.12, -0.1);
+    this.tube(0.016, 0.5, core, 0, 0.08, -0.5);                            // glowing core rod
+    for (let i = 0; i < 6; i++) this.tube(0.04, 0.02, mCopper, 0, 0.08, -0.3 - i * 0.075); // coil rings
+    this.box(0.01, 0.09, 0.44, mSteel, 0.045, 0.08, -0.52);                // side rails holding the coils
+    this.box(0.01, 0.09, 0.44, mSteel, -0.045, 0.08, -0.52);
+    this.tube(0.03, 0.05, mDark, 0, 0.08, -0.77);                            // emitter cap
+    this.tube(0.02, 0.012, core, 0, 0.08, -0.8);                            // emitter tip
+    this.box(0.045, 0.06, 0.2, mMetal, 0, 0.05, 0.15);                     // stock
+    this.box(0.05, 0.09, 0.03, mDark, 0, 0.03, 0.25);
+    this.box(0.02, 0.014, 0.16, mAccent, 0.03, 0.06, 0.14);
+    const grip = this.box(0.035, 0.11, 0.05, mDark, 0, -0.05, 0.01); grip.rotation.x = -0.25;
+    this.box(0.03, 0.05, 0.03, mDark, 0, 0.0, -0.36);                      // fore grip
+    const mag = new THREE.Object3D(); mag.position.set(0, 0.01, -0.1); this.body.add(mag);
+    this.box(0.04, 0.13, 0.07, mMetal, 0, -0.07, 0, mag);                  // capacitor pack
+    this.box(0.03, 0.03, 0.04, core, 0, -0.135, 0, mag);
+    this.muzzle.position.set(0, 0.08, -0.81);
+    this.ejectPort.position.set(0.04, 0.09, -0.1);
+    return mag;
+  }
+
+  /** 「카게」: forearm bracer with a launcher rail and a holder stacked with stars. Short — barely past the hand. */
+  private buildShuriken(mMetal: THREE.Material, mSteel: THREE.Material, mAccent: THREE.Material, mDark: THREE.Material): THREE.Object3D {
+    const mStar = this.mat(0xd8dde6, 0.95, 0.3);
+    const plate = this.box(0.07, 0.03, 0.22, mDark, 0, 0.03, 0.1);        // bracer plate along the forearm
+    plate.rotation.x = 0.05;
+    this.box(0.075, 0.012, 0.22, mMetal, 0, 0.048, 0.1);                   // plate rim
+    this.box(0.02, 0.012, 0.2, mAccent, 0.03, 0.05, 0.1);
+    this.box(0.05, 0.02, 0.16, mSteel, 0, 0.055, -0.08);                   // launcher rail
+    this.box(0.012, 0.03, 0.14, mDark, 0.025, 0.06, -0.08);                // rail guides
+    this.box(0.012, 0.03, 0.14, mDark, -0.025, 0.06, -0.08);
+    this.box(0.04, 0.03, 0.03, mDark, 0, 0.065, 0.02);                     // spring housing
+    // holder with a stack of stars (the animated "magazine")
+    const mag = new THREE.Object3D(); mag.position.set(0, 0.07, 0.1); this.body.add(mag);
+    this.box(0.05, 0.01, 0.05, mDark, 0, 0.0, 0, mag);
+    for (let i = 0; i < 3; i++) {
+      const y = 0.012 + i * 0.012;
+      this.box(0.11, 0.005, 0.02, mStar, 0, y, 0, mag);
+      const b = this.box(0.11, 0.005, 0.02, mStar, 0, y, 0, mag); b.rotation.y = Math.PI / 2;
+    }
+    this.box(0.012, 0.05, 0.012, mSteel, 0, 0.03, 0.1, mag);               // holder pin
+    this.box(0.08, 0.008, 0.02, mDark, 0, 0.012, 0.03);                    // straps under the arm
+    this.box(0.08, 0.008, 0.02, mDark, 0, 0.012, 0.17);
+    this.muzzle.position.set(0, 0.06, -0.17);
+    this.ejectPort.position.set(0.03, 0.07, -0.02);
+    return mag;
+  }
+
+  /** 「롱혼」: composite limbs, riser grip, string and a nocked arrow (string / arrow pull back on `kick`). */
+  private buildBow(mMetal: THREE.Material, mSteel: THREE.Material, mAccent: THREE.Material, mDark: THREE.Material): THREE.Object3D {
+    const mLimb = this.mat(0x3b2d22, 0.2, 0.7);
+    const mString = this.mat(0xe6e2d6, 0.0, 0.9);
+    const mShaft = this.mat(0x8a6a3c, 0.1, 0.8);
+    // held vertically: limbs go ±Y from the riser at the grip, the arrow flies -Z
+    this.box(0.035, 0.22, 0.05, mMetal, 0, 0.0, -0.02);                    // riser
+    this.box(0.03, 0.06, 0.03, mDark, 0, 0.0, -0.045);                     // arrow shelf
+    this.box(0.02, 0.05, 0.02, mAccent, 0, 0.09, -0.02);
+    for (const sy of [-1, 1]) {
+      const upper = this.box(0.03, 0.36, 0.02, mLimb, 0, sy * 0.27, -0.06); upper.rotation.x = sy * -0.32;
+      const tip = this.box(0.028, 0.12, 0.016, mLimb, 0, sy * 0.5, -0.17); tip.rotation.x = sy * -0.85;
+      this.box(0.026, 0.02, 0.026, mSteel, 0, sy * 0.36, -0.1);           // limb bolt
+      this.box(0.012, 0.03, 0.02, mSteel, 0, sy * 0.55, -0.2);            // string nock
+    }
+    // string: thin box between the two nocks; pulled back (toward +Z) with the arrow when drawn
+    const str = new THREE.Object3D(); str.position.set(0, 0, -0.2); this.body.add(str);
+    this.box(0.004, 1.1, 0.004, mString, 0, 0, 0, str);
+    this.bowString = str; this.bowStringBase.copy(str.position);
+    // nocked arrow along -Z (the "magazine": drops / re-nocks on reload)
+    const mag = new THREE.Object3D(); mag.position.set(0, 0.01, -0.2); this.body.add(mag);
+    this.tube(0.006, 0.72, mShaft, 0, 0, -0.16, mag);
+    const head = this.box(0.012, 0.012, 0.06, mSteel, 0, 0, -0.55, mag); head.rotation.y = Math.PI / 4;
+    this.box(0.004, 0.04, 0.08, mString, 0, 0, 0.14, mag);                 // fletching
+    this.box(0.04, 0.004, 0.08, mString, 0, 0, 0.14, mag);
+    this.bowArrow = mag; this.bowArrowBase.copy(mag.position);
+    this.box(0.03, 0.04, 0.04, mDark, 0.03, -0.06, 0.0);                   // stabiliser mount
+    this.tube(0.008, 0.16, mDark, 0, -0.03, 0.02);                          // stabiliser rod
+    this.muzzle.position.set(0, 0.01, -0.62);
+    this.ejectPort.position.set(0.03, 0.02, -0.02);
+    return mag;
+  }
+
+  /** 「해머헤드」: fat launch tube with a flared front, shoulder rest, side grip and a flip-up sight. */
+  private buildBazooka(mMetal: THREE.Material, mSteel: THREE.Material, mAccent: THREE.Material, mDark: THREE.Material): THREE.Object3D {
+    const mOlive = this.mat(0x4d5a3a, 0.5, 0.6);
+    const warhead = this.mat(0x7a2a1a, 0.5, 0.5);
+    this.tube(0.075, 0.95, mOlive, 0, 0.11, -0.3);                         // main tube
+    this.tube(0.09, 0.08, mDark, 0, 0.11, -0.8);                             // front flare
+    this.tube(0.078, 0.02, mSteel, 0, 0.11, -0.74);
+    this.tube(0.09, 0.06, mDark, 0, 0.11, 0.2);                              // rear venturi
+    for (let i = 0; i < 3; i++) this.box(0.16, 0.012, 0.008, mAccent, 0, 0.11, -0.05 - i * 0.2); // bands
+    this.box(0.045, 0.05, 0.12, mDark, 0, 0.19, -0.2);                     // sight block
+    const sight = this.box(0.03, 0.06, 0.006, mSteel, 0, 0.245, -0.25); sight.rotation.x = -0.1;
+    this.box(0.05, 0.03, 0.2, mMetal, 0, 0.03, 0.06);                      // trigger housing
+    const grip = this.box(0.035, 0.11, 0.05, mDark, 0, -0.05, 0.01); grip.rotation.x = -0.25;
+    const fore = this.box(0.03, 0.09, 0.045, mDark, 0, -0.01, -0.36); fore.rotation.x = -0.15; // fore grip
+    this.box(0.07, 0.06, 0.2, mMetal, 0, 0.04, 0.32);                      // shoulder rest
+    this.box(0.08, 0.1, 0.03, mDark, 0, 0.03, 0.43);
+    // loaded rocket visible in the muzzle (the animated "magazine")
+    const mag = new THREE.Object3D(); mag.position.set(0, 0.11, -0.72); this.body.add(mag);
+    this.tube(0.05, 0.14, warhead, 0, 0, -0.05, mag);
+    this.muzzle.position.set(0, 0.11, -0.86);
+    this.ejectPort.position.set(0.05, 0.11, 0.25);
+    return mag;
+  }
+
+  /** 「사이클론」: six barrels around a hub (spun by `setSpin`), motor housing, top carry handle, ammo drum. */
+  private buildMinigun(mMetal: THREE.Material, mSteel: THREE.Material, mAccent: THREE.Material, mDark: THREE.Material): THREE.Object3D {
+    this.box(0.09, 0.11, 0.3, mMetal, 0, 0.09, 0.0);                       // motor housing
+    this.box(0.1, 0.03, 0.3, mDark, 0, 0.16, 0.0);
+    this.box(0.02, 0.05, 0.16, mAccent, 0.052, 0.1, 0.0);                  // side stripe
+    this.box(0.03, 0.03, 0.2, mSteel, 0, 0.21, -0.02);                     // carry handle
+    this.box(0.03, 0.05, 0.02, mSteel, 0, 0.19, 0.08);
+    this.box(0.03, 0.05, 0.02, mSteel, 0, 0.19, -0.12);
+    this.tube(0.05, 0.06, mSteel, 0, 0.09, -0.18);                          // front bearing plate
+    this.tube(0.05, 0.05, mSteel, 0, 0.09, -0.62);                          // muzzle clamp
+    // barrel cluster (rotates about local Z)
+    const barrels = new THREE.Object3D(); barrels.position.set(0, 0.09, -0.4); this.body.add(barrels);
+    this.tube(0.02, 0.5, mDark, 0, 0, 0, barrels);                          // axle
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      this.tube(0.009, 0.5, mSteel, Math.cos(a) * 0.036, Math.sin(a) * 0.036, 0, barrels);
+    }
+    this.barrels = barrels;
+    const spade = this.box(0.04, 0.09, 0.05, mDark, 0, -0.04, -0.35); spade.rotation.x = -0.2; // fore grip
+    const grip = this.box(0.035, 0.11, 0.05, mDark, 0, -0.05, 0.01); grip.rotation.x = -0.25;
+    this.box(0.06, 0.07, 0.12, mMetal, 0, 0.06, 0.2);                      // rear block
+    // ammo drum + feed chute (the animated "magazine")
+    const mag = new THREE.Object3D(); mag.position.set(-0.03, 0.03, 0.05); this.body.add(mag);
+    const drum = this.tube(0.06, 0.12, mMetal, -0.05, -0.04, 0, mag); drum.rotation.set(0, 0, Math.PI / 2);
+    this.box(0.04, 0.03, 0.06, mAccent, -0.04, 0.0, 0, mag);               // chute
+    this.muzzle.position.set(0, 0.09, -0.66);
+    this.ejectPort.position.set(0.05, 0.06, 0.02);
+    return mag;
+  }
+
+  /** Minigun barrel spin 0..1 (0 = still, 1 = full speed). No-op on other kinds. */
+  setSpin(t: number): void { this.spin = t < 0 ? 0 : t > 1 ? 1 : t; }
+  /** Flamethrower pilot / shock core glow 0..1 (spraying / arcing). No-op on other kinds. */
+  setHeat(t: number): void { this.heat = t < 0 ? 0 : t > 1 ? 1 : t; }
+
   /* ─────────── animation ─────────── */
   kick(strength = 1): void {
     this.kickZ = Math.min(0.12, this.kickZ + 0.045 * strength);
@@ -456,6 +657,18 @@ export class WeaponModel {
     }
     this.body.rotation.set(rx, 0, rz);
     if (this.glowMat) this.glowMat.emissiveIntensity = 1.8 + Math.sin(time * 5) * 0.4;
+    // unique extras: spinning barrels, bow draw, pilot / coil glow
+    if (this.barrels && this.spin > 0) {
+      this.barrelAngle += this.spin * 34 * dt;
+      this.barrels.rotation.z = this.barrelAngle;
+    }
+    if (this.bowString && this.bowArrow) {
+      // the recoil kick doubles as the string release: kickZ decays from the draw
+      const pull = Math.min(1, this.kickZ / 0.06) * 0.22;
+      this.bowString.position.set(this.bowStringBase.x, this.bowStringBase.y, this.bowStringBase.z + pull);
+      if (this.reloadT < 0) this.bowArrow.position.set(this.bowArrowBase.x, this.bowArrowBase.y, this.bowArrowBase.z + pull);
+    }
+    if (this.heatMat) this.heatMat.emissiveIntensity = 1.0 + this.heat * 2.4 + Math.sin(time * 9) * 0.25 * this.heat;
   }
 
   dispose(): void {

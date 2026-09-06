@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { Layers, ROGUE_BOSS_SCALE } from '@/shared';
-import type { BugAnim } from './BugModel';
+import { statusEmissive, type BugAnim } from './BugModel';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Procedural humanoid rig for the rogue gunners (Phase 4). Root at the feet, +Z = facing, 1.8 m tall at scale 1.
@@ -231,7 +231,6 @@ export function disposeRogueRig(rig: RogueRig): void {
   rig.root.removeFromParent();
 }
 
-const flashColor = new THREE.Color();
 const smooth = (t: number) => t * t * (3 - 2 * t);
 
 /**
@@ -244,22 +243,26 @@ export function animateRogue(rig: RogueRig, a: BugAnim): void {
   const moving = a.speed > 0.03 ? 1 : 0;
   const crouch = THREE.MathUtils.clamp(a.crouch, 0, 1);
 
+  // 전소 writhe: staggering half-crouch, torso and pelvis bucking, legs kicking, rifle waved around
+  const wr = dying ? 0 : a.writhe;
+
   // legs
   for (const leg of rig.legs) {
     const ph = a.gait + (leg.side > 0 ? 0 : Math.PI);
     const swing = Math.sin(ph) * 0.65 * a.speed * moving;
     const bend = Math.max(0, -Math.cos(ph)) * 1.0 * a.speed * moving;
-    leg.hip.rotation.x = -swing + crouch * 1.15 + (dying ? 0.3 : 0);
-    leg.knee.rotation.x = bend + crouch * 1.5;
-    leg.hip.rotation.z = leg.side * crouch * 0.25;
+    const kick = wr * (0.35 + Math.sin(t * 10.5 + leg.side * 1.4) * 0.45);
+    leg.hip.rotation.x = -swing + crouch * 1.15 + (dying ? 0.3 : 0) + kick;
+    leg.knee.rotation.x = bend + crouch * 1.5 + wr * (0.5 + Math.cos(t * 12 + leg.side) * 0.4);
+    leg.hip.rotation.z = leg.side * crouch * 0.25 + leg.side * wr * 0.2;
   }
 
   // pelvis: bob, crouch, death fall
   const bob = Math.abs(Math.sin(a.gait)) * 0.035 * a.speed;
   const shake = a.shake > 0 ? (Math.sin(t * 50) * 0.02) * a.shake : 0;
-  let y = HIP_Y - crouch * 0.42 + bob;
-  let pitch = a.slopePitch + a.speed * 0.08 + crouch * 0.28 + a.flinch * a.flinchZ * 0.25;
-  let roll = a.slopeRoll + a.flinch * a.flinchX * 0.3 + shake;
+  let y = HIP_Y - crouch * 0.42 + bob - wr * 0.22;
+  let pitch = a.slopePitch + a.speed * 0.08 + crouch * 0.28 + a.flinch * a.flinchZ * 0.25 + wr * (0.25 + Math.sin(t * 7.3) * 0.2);
+  let roll = a.slopeRoll + a.flinch * a.flinchX * 0.3 + shake + Math.sin(t * 9.1) * 0.3 * wr;
   if (dying) {
     const fall = smooth(Math.min(1, a.death / 0.3));
     pitch += -fall * 1.5 * (a.rollSign > 0 ? 1 : 0.55);     // fall backward (or mostly sideways)
@@ -270,23 +273,19 @@ export function animateRogue(rig: RogueRig, a: BugAnim): void {
   rig.body.rotation.set(pitch, 0, roll);
 
   // torso lean into the aim / cover
-  rig.torso.rotation.set(a.aim * 0.1 + crouch * 0.15, a.aim * a.headYaw * 0.35, 0);
+  rig.torso.rotation.set(a.aim * 0.1 + crouch * 0.15 + wr * 0.2, a.aim * a.headYaw * 0.35 + Math.sin(t * 8.4 + 1) * 0.45 * wr, Math.sin(t * 6.2) * 0.15 * wr);
 
   // head
-  rig.head.rotation.set(a.headPitch * 0.7 + (dying ? -0.6 : 0), a.headYaw * (1 - a.aim * 0.35), 0);
+  rig.head.rotation.set(a.headPitch * 0.7 + (dying ? -0.6 : 0) + Math.sin(t * 11) * 0.3 * wr, a.headYaw * (1 - a.aim * 0.35) + Math.sin(t * 7.7) * 0.35 * wr, 0);
 
-  // rifle: low-ready ↔ aimed, kick on recoil, sway while idle
+  // rifle: low-ready ↔ aimed, kick on recoil, sway while idle (flailed around while writhing)
   const k = a.recoil * a.recoil;
-  const sway = (1 - a.aim) * (Math.sin(t * 1.3) * 0.03 + Math.sin(t * 2.1) * 0.02);
-  rig.gun.rotation.set(THREE.MathUtils.lerp(0.6, a.headPitch, a.aim) - k * 0.2 + sway + (dying ? 0.8 : 0), THREE.MathUtils.lerp(0.12, a.headYaw * 0.65, a.aim), 0);
+  const sway = (1 - a.aim) * (Math.sin(t * 1.3) * 0.03 + Math.sin(t * 2.1) * 0.02) + wr * (Math.sin(t * 9.6) * 0.5 - 0.3);
+  rig.gun.rotation.set(THREE.MathUtils.lerp(0.6, a.headPitch, a.aim) - k * 0.2 + sway + (dying ? 0.8 : 0), THREE.MathUtils.lerp(0.12, a.headYaw * 0.65, a.aim) + Math.sin(t * 8.8 + 2) * 0.4 * wr, 0);
   rig.gun.position.set(0.23 - a.aim * 0.05, 0.5 - a.aim * 0.03, 0.06 - k * 0.07);
 
-  // hit flash / visor
-  const mat = rig.chitin;
-  if (a.hitFlash > 0.001) {
-    flashColor.setRGB(1, 0.6, 0.35).multiplyScalar(a.hitFlash * 1.1);
-    mat.emissive.copy(flashColor);
-  } else if (mat.emissive.r !== 0 || mat.emissive.g !== 0) mat.emissive.setRGB(0, 0, 0);
+  // hit flash / 전소 glow / shock spark / visor
+  statusEmissive(rig.chitin, a, 1, 0.6, 0.35, 1.1);
   if (dying) rig.eyeMat.emissiveIntensity = 2.2 * (1 - smooth(Math.min(1, a.death / 0.4)));
   else if (rig.eyeMat.emissiveIntensity !== 2.2) rig.eyeMat.emissiveIntensity = 2.2;
 }

@@ -1,5 +1,5 @@
 import type * as THREE from 'three';
-import type { EnemySnapshot, EnemyWire, EnemyWireState, Vec3Tuple } from '@/shared';
+import { ENEMY_STATUS_BITS, type EnemySnapshot, type EnemyWire, type EnemyWireState, type Vec3Tuple } from '@/shared';
 import type { Enemy } from '../Enemy';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -22,6 +22,7 @@ export function tuple(v: THREE.Vector3, dp = 2): Vec3Tuple {
  */
 export function animHint(e: Enemy): number {
   if (e.isRogue) {
+    if (e.incapTimer > 0) return 0;      // 전소: the replica writhes from the status bit, not the cover pose
     if (e.state === 'stagger') return 6;
     switch (e.roguePhase) {
       case 2: return 6;
@@ -47,6 +48,16 @@ export function animHint(e: Enemy): number {
 /** Corpses leave the snapshot once the death animation has settled (replicas keep them from their own corpse timer). */
 const CORPSE_SNAPSHOT_SECONDS = 1.5;
 
+/** Live status bits (`EnemyWire.sb`, `ENEMY_STATUS_BITS`): burning / slowed / 전소 / shocked. 0 when clean. */
+export function statusBits(e: Enemy): number {
+  let b = 0;
+  if (e.burnTimer > 0) b |= ENEMY_STATUS_BITS.BURNING;
+  if (e.slowTimer > 0 && e.slowFactor < 1) b |= ENEMY_STATUS_BITS.SLOWED;
+  if (e.incapTimer > 0) b |= ENEMY_STATUS_BITS.INCINERATED;
+  if (e.shockTimer > 0) b |= ENEMY_STATUS_BITS.SHOCKED;
+  return b;
+}
+
 /**
  * Full snapshot of every active enemy (alive, staggered, fleeing, or a corpse still animating).
  * Size: ~90 bytes per enemy as JSON (`{"id":123,"ty":"scavenger","p":[123.45,12.34,-56.78],"yaw":1.234,"hp":60,"st":"chase"}`),
@@ -69,6 +80,8 @@ export function encodeSnapshot(active: readonly Enemy[], time: number): EnemySna
     const a = animHint(x);
     if (a !== 0) w.a = a;
     if (x.weaponId) w.w = x.weaponId;
+    const sb = x.state === 'dead' ? 0 : statusBits(x);
+    if (sb !== 0) w.sb = sb;
     e.push(w);
   }
   return { t: 'es', time, full: true, e };

@@ -1,12 +1,17 @@
 import * as THREE from 'three';
-import { MELEE_RANGE, PlayerFlags, type GameContext, type WeaponDef, type PeerId, type RemotePlayerRef, type EnemyRef, type Vec3Tuple } from '@/shared';
+import {
+  MELEE_RANGE, PlayerFlags, FLAME_RANGE, FLAME_CONE_DEG, FLAME_ALT_RANGE, FLAME_ALT_CONE_DEG, SHOCK_RANGE, SHOCK_CONE_DEG, SHOCK_MAX_TARGETS,
+  SHOCK_CHARGE_RANGE, SHURIKEN_TRIPLE_SPREAD_DEG, BAZOOKA_ALT_FUSE, BAZOOKA_RADIUS, BAZOOKA_ALT_RADIUS,
+  type GameContext, type WeaponDef, type PeerId, type RemotePlayerRef, type EnemyRef, type Vec3Tuple, type FireMessage,
+} from '@/shared';
 import { FxManager } from '@/core/fx';
 import { randomInCone } from '@/core/util/MathUtil';
 import { DEFAULT_RIFLE, DEFAULT_PISTOL, kindOf, shotSoundId, shotPitchFor, weaponClassOf } from './WeaponDefaults';
 import { WeaponModel } from './WeaponModel';
 import type { WeaponFx } from './fx/WeaponFx';
 import { GRENADE_FUSE, type GrenadeManager } from './Grenade';
-import type { ProjectilePool, ProjectileHit } from './Projectile';
+import { projectileOptsFor, type ProjectilePool, type ProjectileHit } from './Projectile';
+import type { UniqueFx } from './unique/UniqueFx';
 
 /** Max replicated shots per second per remote player that produce FX/audio (token bucket, small burst). */
 const FX_RATE = 20;
@@ -28,11 +33,20 @@ interface RemoteEntry {
   boltDur: number;
   boltSoundT: number;
   seen: number;
+  /** Phase 6: a continuous unique beam (flame / arc) this peer is holding; `beamUntil` = ctx.time it expires without a refresh. */
+  beam: -1 | 0 | 1;
+  beamUntil: number;
+  beamDir: THREE.Vector3;
+  beamOrigin: THREE.Vector3;
 }
 
 const _muzzle = new THREE.Vector3(), _dir = new THREE.Vector3(), _pd = new THREE.Vector3(), _tA = new THREE.Vector3(), _tB = new THREE.Vector3();
-const _end = new THREE.Vector3(), _pos = new THREE.Vector3(), _right = new THREE.Vector3(), _n = new THREE.Vector3();
+const _end = new THREE.Vector3(), _pos = new THREE.Vector3(), _right = new THREE.Vector3(), _n = new THREE.Vector3(), _to = new THREE.Vector3();
 const _mq = new THREE.Quaternion();
+const _up = new THREE.Vector3(0, 1, 0);
+const DEG = Math.PI / 180;
+/** A continuous beam without a refresh for this long is considered ended (sender sends at 10 Hz + a final c:-1). */
+const BEAM_GRACE = 0.35;
 
 /**
  * Multiplayer view of other players' weapons (only active while `ctx.isMultiplayer && ctx.net`):
@@ -46,12 +60,17 @@ export class RemoteWeapons {
   private readonly entries = new Map<PeerId, RemoteEntry>();
   private frame = 0;
 
+  private readonly arcEnds: THREE.Vector3[] = [];
+
   constructor(
     private readonly ctx: GameContext,
     private readonly fx: WeaponFx,
     private readonly grenades: GrenadeManager,
     private readonly projectiles: ProjectilePool,
-  ) {}
+    private readonly ufx: UniqueFx,
+  ) {
+    for (let i = 0; i < SHOCK_MAX_TARGETS; i++) this.arcEnds.push(new THREE.Vector3());
+  }
 
   /* ─────────────────────────── per frame ─────────────────────────── */
   update(dt: number): void {
@@ -77,7 +96,7 @@ export class RemoteWeapons {
   private entryFor(id: PeerId): RemoteEntry {
     let e = this.entries.get(id);
     if (!e) {
-      e = { id, weaponId: null, def: null, model: null, socket: null, fxBudget: FX_BURST, reloadT: -1, reloadDur: 1, boltT: -1, boltDur: 1, boltSoundT: 0, seen: 0 };
+      e = { id, weaponId: null, def: null, model: null, socket: null, fxBudget: FX_BURST, reloadT: -1, reloadDur: 1, boltT: -1, boltDur: 1, boltSoundT: 0, seen: 0, beam: -1, beamUntil: 0, beamDir: new THREE.Vector3(0, 0, -1), beamOrigin: new THREE.Vector3() };
       this.entries.set(id, e);
     }
     return e;
@@ -88,6 +107,7 @@ export class RemoteWeapons {
     const socket = ref.avatar ? ref.avatar.weaponSocket : null;
     if (e.weaponId === ref.weaponId && e.socket === socket) return;
     if (e.model) { e.model.dispose(); e.model = null; }
+    if (e.beam >= 0) this.endBeam(e);
     e.weaponId = ref.weaponId;
     e.socket = socket;
     e.def = ref.weaponId ? this.resolveDef(ref.weaponId) : null;
@@ -118,6 +138,7 @@ export class RemoteWeapons {
       }
       if (e.boltT >= 1) { e.boltT = -1; model.setBolt(-1); } else model.setBolt(e.boltT);
     }
+    if (e.beam >= 0) this.animateBeam(e, ref, model);
     model.update(dt, this.ctx.time);
     // holstered / hidden remotes: unarmed in the hub, inside a launch pod or the hellpod, holding a consumable
     // (stim / grenade in hand), downed, or no weapon equipped
@@ -159,6 +180,9 @@ export class RemoteWeapons {
     e.fxBudget -= 1;
     const ref = ctx.net.getRemotePlayer(id);
     const def = e.def && e.weaponId === weaponId ? e.def : this.resolveDef(weaponId);
+    // Phase 6: flame / arc / shuriken / bazooka replay from the raw `fire` message (needs `m` / `c`); the bus event
+    // drops those fields. Bow / minigun are ordinary shots and stay on this path.
+    if (def.unique && def.unique !== 'bow' && def.unique !== 'minigun') { e.fxBudget += 1; return; }
     const cls = weaponClassOf(def);
     const kind = kindOf(def);
 
@@ -172,7 +196,7 @@ export class RemoteWeapons {
     for (let i = 0; i < pellets; i++) {
       randomInCone(_dir, spread, _pd, _tA, _tB);
       if (def.projectileSpeed) {
-        this.projectiles.fire(_muzzle, _pd, def.projectileSpeed, 0, def.range, def.tracerColor, def.id, true);
+        this.projectiles.fire(_muzzle, _pd, def.projectileSpeed, 0, def.range, def.tracerColor, def.id, true, projectileOptsFor(def));
         continue;
       }
       const hit = this.visualRaycast(_muzzle, _pd, def.range, _end, _n);
@@ -188,7 +212,7 @@ export class RemoteWeapons {
     const model = e.model;
     if (model) {
       model.kick(pellets > 1 ? 2.2 : cls === 'SR' ? 2.6 : 1);
-      if (kind !== 'energy' && ref) {
+      if (kind !== 'energy' && (!def.unique || def.unique === 'minigun') && ref) {
         model.ejectPort.updateWorldMatrix(false, false);
         _pos.setFromMatrixPosition(model.ejectPort.matrixWorld);
         model.ejectPort.getWorldQuaternion(_mq);
@@ -202,6 +226,109 @@ export class RemoteWeapons {
       }
     }
     ctx.bus.emit('audio:play', { id: shotSoundId(kind), position: _muzzle, volume: 0.9, pitch: shotPitchFor(cls) * (0.95 + Math.random() * 0.1) });
+  }
+
+  /* ─────────────────────────── Phase 6: unique weapon replay ─────────────────────────── */
+  /**
+   * Raw `fire` message (carries `m` = alt fire, `c` = charge / spin, `c: -1` = beam ended). Presentation only:
+   * flame cone / lightning arcs held until the next refresh (≤ 10 Hz sender) or `BEAM_GRACE`, a charged bolt
+   * tracer, a fan of visual shuriken, a visual rocket that pops on impact / fuse (`onVisualProjectileHit`).
+   */
+  onFireMessage(id: PeerId, msg: FireMessage): void {
+    const ctx = this.ctx;
+    if (!ctx.isMultiplayer || !ctx.net) return;
+    const e = this.entryFor(id);
+    const def = e.def && e.weaponId === msg.w ? e.def : this.resolveDef(msg.w);
+    const u = def.unique;
+    if (!u || u === 'bow' || u === 'minigun') return;
+    const m: 0 | 1 = msg.m === 1 ? 1 : 0;
+    const c = typeof msg.c === 'number' ? msg.c : 0;
+    if (!this.getMuzzleWorld(id, _muzzle)) _muzzle.set(msg.o[0], msg.o[1], msg.o[2]);
+    _dir.set(msg.d[0], msg.d[1], msg.d[2]);
+    if (_dir.lengthSq() < 1e-6) _dir.set(0, 0, -1); else _dir.normalize();
+
+    if (u === 'flamethrower' || (u === 'shockgun' && m === 0)) {
+      if (c < 0) { this.endBeam(e); return; }
+      const starting = e.beam < 0 || e.beam !== m;
+      e.beam = m; e.beamUntil = ctx.time + BEAM_GRACE;
+      e.beamDir.copy(_dir); e.beamOrigin.copy(_muzzle);
+      if (starting) {
+        e.model?.setHeat(1);
+        ctx.bus.emit('audio:play', { id: 'shot_energy', position: _muzzle, volume: 0.35, pitch: u === 'flamethrower' ? 0.5 : 1.3 });
+      }
+      return;
+    }
+    if (e.fxBudget < 1) return;
+    e.fxBudget -= 1;
+    if (u === 'shockgun') {
+      // charged bolt: thick tracer to the first thing in the way
+      const hit = this.visualRaycast(_muzzle, _dir, SHOCK_CHARGE_RANGE, _end, _n);
+      if (!hit) _end.copy(_muzzle).addScaledVector(_dir, SHOCK_CHARGE_RANGE);
+      const fxm = FxManager.get();
+      if (fxm) fxm.tracers.add(_muzzle, _end, def.tracerColor, 0.09, _muzzle.distanceTo(_end) / 600 + 0.06, 600);
+      if (hit) this.impactFx(_end, _n, _dir, hit.enemy, hit.obstacle, false);
+      this.fx.muzzleFlash(_muzzle, _dir, def.tracerColor, 1.6);
+      e.model?.kick(2.2);
+      ctx.bus.emit('audio:play', { id: 'shot_energy', position: _muzzle, volume: 0.9, pitch: 0.7 + c * 0.2 });
+      return;
+    }
+    if (u === 'shuriken') {
+      const n = m === 1 ? 3 : 1;
+      for (let i = 0; i < n; i++) {
+        _pd.copy(_dir).applyAxisAngle(_up, n === 1 ? 0 : (i - (n - 1) / 2) * SHURIKEN_TRIPLE_SPREAD_DEG * DEG);
+        this.projectiles.fire(_muzzle, _pd, def.projectileSpeed ?? 65, 0, def.range, def.tracerColor, def.id, true, projectileOptsFor(def));
+      }
+      e.model?.kick(0.6);
+      ctx.bus.emit('audio:play', { id: 'melee_swing', position: _muzzle, volume: 0.5, pitch: 1.5 });
+      return;
+    }
+    if (u === 'bazooka') {
+      const opts = { ...(projectileOptsFor(def) ?? {}), tag: m, fuse: m === 1 ? BAZOOKA_ALT_FUSE : undefined };
+      this.projectiles.fire(_muzzle, _dir, def.projectileSpeed ?? 48, 0, def.range, def.tracerColor, def.id, true, opts);
+      this.fx.muzzleFlash(_muzzle, _dir, 0xffb060, 2.2);
+      e.model?.kick(3);
+      ctx.bus.emit('audio:play', { id: 'shot_shotgun', position: _muzzle, volume: 0.9, pitch: 0.6 });
+    }
+  }
+
+  /** Per frame while a remote beam is on: cone / arcs from the replica muzzle along the last direction. */
+  private animateBeam(e: RemoteEntry, ref: RemotePlayerRef, model: WeaponModel): void {
+    const ctx = this.ctx;
+    if (ctx.time > e.beamUntil || !e.def) { this.endBeam(e); return; }
+    if (!this.getMuzzleWorld(e.id, _muzzle)) _muzzle.copy(e.beamOrigin);
+    const dir = e.beamDir;
+    const owner = e.id;
+    if (e.def.unique === 'flamethrower') {
+      const alt = e.beam === 1;
+      this.ufx.setFlame(owner, _muzzle, dir, alt ? FLAME_ALT_RANGE : FLAME_RANGE, (alt ? FLAME_ALT_CONE_DEG : FLAME_CONE_DEG) * 0.5 * DEG);
+    } else {
+      // arcs to the nearest enemies in the replica's view cone (visual only; the host applies the real damage)
+      const mgr = ctx.enemies;
+      let n = 0;
+      if (mgr && typeof mgr.queryNear === 'function') {
+        const near = mgr.queryNear(_muzzle, SHOCK_RANGE + 1.5);
+        const cosHalf = Math.cos(SHOCK_CONE_DEG * 0.5 * DEG);
+        for (let i = 0; i < near.length && n < SHOCK_MAX_TARGETS; i++) {
+          const en = near[i];
+          if (!en || en.isDead) continue;
+          _to.copy(en.position); _to.y += Math.min(en.height * 0.5, 1.4);
+          _end.subVectors(_to, _muzzle);
+          const d = _end.length();
+          if (d > SHOCK_RANGE + en.radius || d < 1e-3) continue;
+          if (_end.divideScalar(d).dot(dir) < cosHalf) continue;
+          this.arcEnds[n++].copy(_to);
+        }
+      }
+      if (n > 0) this.ufx.setArc(owner, _muzzle, this.arcEnds, n); else this.ufx.release(owner);
+    }
+    void ref; void model;
+  }
+
+  private endBeam(e: RemoteEntry): void {
+    if (e.beam < 0) return;
+    e.beam = -1;
+    e.model?.setHeat(0);
+    this.ufx.release(e.id);
   }
 
   /** `net:remoteReloaded`: reload animation on the remote model + reload sound at the remote's position. */
@@ -252,8 +379,21 @@ export class RemoteWeapons {
     this.grenades.throw(position, velocity, true, fuse === undefined ? GRENADE_FUSE : Math.max(0, fuse));
   }
 
-  /** Impact FX for a visual-only projectile replica (ProjectilePool `onVisualHit`). */
-  onVisualProjectileHit(h: ProjectileHit): void {
+  /** Impact FX for a visual-only projectile replica (ProjectilePool `onVisualHit`). Remote rockets pop (FX only). */
+  onVisualProjectileHit(h: ProjectileHit, weaponId?: string): void {
+    if (weaponId === 'u_bazooka') {
+      const radius = h.tag === 1 ? BAZOOKA_ALT_RADIUS : BAZOOKA_RADIUS;
+      _pos.copy(h.point); if (!h.enemy && !h.fused) _pos.addScaledVector(h.normal, 0.25);
+      this.fx.explosion(_pos, radius);
+      const bus = this.ctx.bus;
+      bus.emit('audio:play', { id: 'explosion', position: _pos, volume: 0.9 });
+      const me = this.ctx.player;
+      if (me) {
+        const shake = THREE.MathUtils.clamp(1 - me.position.distanceTo(_pos) / 30, 0, 1);
+        if (shake > 0) bus.emit('camera:shake', { intensity: 0.2 + shake * 0.6, duration: 0.35 });
+      }
+      return;
+    }
     this.impactFx(h.point, h.normal, h.dir, h.enemy, h.obstacle, false);
   }
 
@@ -302,6 +442,7 @@ export class RemoteWeapons {
   }
 
   private disposeEntry(e: RemoteEntry): void {
+    this.endBeam(e);
     if (e.model) { e.model.dispose(); e.model = null; }
     e.weaponId = null; e.def = null; e.socket = null;
     e.reloadT = -1; e.boltT = -1; e.boltSoundT = 0;

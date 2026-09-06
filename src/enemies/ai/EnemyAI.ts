@@ -146,10 +146,19 @@ export function updateEnemyAI(e: Enemy, dt: number, host: EnemyHost): void {
     case 'stagger': {
       e.staggerTimer -= dt;
       speed = 0;
-      a.crouch = THREE.MathUtils.lerp(a.crouch, e.type === 'charger' || e.type === 'behemoth' ? 0.5 : 0.3, dt * 10);
-      a.headPitch = THREE.MathUtils.lerp(a.headPitch, 0.35, dt * 6);
-      if (e.staggerTimer <= 0) {
+      if (e.incapTimer > 0) {
+        // 전소: writhing on the spot (pose from anim.writhe), mandibles snapping, no attacks until it wears off
+        e.incapTimer = Math.max(0, e.incapTimer - dt);
+        a.crouch = THREE.MathUtils.lerp(a.crouch, 0.45, dt * 8);
+        a.headPitch = THREE.MathUtils.lerp(a.headPitch, -0.15, dt * 6);
+        mandibleTarget = 1;
+      } else {
+        a.crouch = THREE.MathUtils.lerp(a.crouch, e.type === 'charger' || e.type === 'behemoth' ? 0.5 : 0.3, dt * 10);
+        a.headPitch = THREE.MathUtils.lerp(a.headPitch, 0.35, dt * 6);
+      }
+      if (e.staggerTimer <= 0 && e.incapTimer <= 0) {
         a.crouch = 0;
+        e.incapTimer = 0;
         e.state = e.aware && targetAlive ? 'chase' : 'idle';
         e.stateTime = 0; e.wanderTimer = 1;
       }

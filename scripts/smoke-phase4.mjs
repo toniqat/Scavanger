@@ -1,5 +1,7 @@
 // Single-player smoke test for Phase 4 (enemies): rogue guards + shots, faction clash, artillery shell interception,
-// toxic burst friendly fire, behemoth armour plate, lootable corpses.
+// toxic burst friendly fire, behemoth armour plate, lootable corpses. Phase 6 block at the end: 전소 / 감전 statuses
+// (applyStatus incinerated / shocked, events, frozen writhe, recovery) and the player hooks (teleport, consumeStamina,
+// startMelee('heavy'), setViewWiden).
 // Usage: node scripts/smoke-phase4.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { existsSync } from 'node:fs';
@@ -255,6 +257,85 @@ try {
     return { snap, types: [...new Set(sys.active.map((e) => e.type))], alive: sys.getAliveCount() };
   });
   ok(wire.types.includes('rogue') && wire.types.includes('behemoth'), `pools hold new types (${wire.types.join(', ')}), alive ${wire.alive}`);
+
+  console.log('phase 6: enemy statuses (전소 / 감전) + player hooks');
+  const inc = await P(() => {
+    const ctx = window.__game.ctx; const sys = window.__sys; const p = ctx.player.position;
+    window.__ev['enemy:incinerated'] = []; window.__ev['enemy:shocked'] = [];
+    ctx.bus.on('enemy:incinerated', (e) => window.__ev['enemy:incinerated'].push({ id: e.id, duration: e.duration }));
+    ctx.bus.on('enemy:shocked', (e) => window.__ev['enemy:shocked'].push({ id: e.id }));
+    const b = sys.debugSpawn('warrior', { x: p.x + 7, z: p.z + 7 }, true);   // chase = true: it would run at the player
+    if (!b) return null;
+    ctx.enemies.applyStatus(b.id, 'incinerated', 0, 2);
+    return { id: b.id, incap: b.isIncapacitated, combatant: b.isCombatant, state: b.state, x: b.position.x, z: b.position.z, hp: b.hp, ev: window.__ev['enemy:incinerated'].length };
+  });
+  ok(inc && inc.incap && inc.state === 'stagger' && !inc.combatant, `applyStatus('incinerated', 0, 2) → isIncapacitated, state stagger, non-combatant`, JSON.stringify(inc));
+  ok(inc && inc.ev === 1 && inc.ev === (await ev('enemy:incinerated')).length && (await ev('enemy:incinerated'))[0].duration === 2, 'enemy:incinerated emitted once with the duration');
+  await waitSim(1.0);
+  const inc2 = await P((id) => {
+    const sys = window.__sys; const b = sys.active.find((e) => e.id === id);
+    if (!b) return null;
+    const before = b.hp;
+    b.takeDamage(50);
+    const mid = b.hp;
+    const stillIncap = b.isIncapacitated;
+    b.takeDamage(10000);
+    return { x: b.position.x, z: b.position.z, incap: stillIncap, writhe: b.anim.writhe, before, mid, dead: b.isDead, incapAfterKill: b.isIncapacitated };
+  }, inc.id);
+  ok(inc2 && Math.hypot(inc2.x - inc.x, inc2.z - inc.z) < 0.05 && inc2.incap && inc2.writhe > 0.6, `position frozen for 1 s while writhing (moved ${inc2 ? Math.hypot(inc2.x - inc.x, inc2.z - inc.z).toFixed(3) : '?'} m, writhe ${inc2?.writhe?.toFixed(2)})`, JSON.stringify(inc2));
+  ok(inc2 && inc2.mid < inc2.before && inc2.dead && !inc2.incapAfterKill, `still takes damage mid-writhe (${inc2?.before} → ${inc2?.mid}) and a kill ends it`);
+  const shk = await P(() => {
+    const ctx = window.__game.ctx; const sys = window.__sys; const p = ctx.player.position;
+    const b = sys.debugSpawn('hunter', { x: p.x - 8, z: p.z + 4 }, true);
+    if (!b) return null;
+    ctx.enemies.applyStatus(b.id, 'shocked', 0.5, 1);
+    ctx.enemies.applyStatus(b.id, 'shocked', 0.5, 1);   // per-tick caller: no second event
+    const r = { id: b.id, slow: b.slowFactor, slowTimer: b.slowTimer, shock: b.shockTimer, incap: b.isIncapacitated, ev: window.__ev['enemy:shocked'].length };
+    ctx.enemies.applyStatus(b.id, 'incinerated', 0, 0.6);   // short 전소 → returns to chase afterwards
+    return r;
+  });
+  ok(shk && shk.ev === 1 && shk.slow === 0.5 && shk.slowTimer === 1 && shk.shock > 0 && !shk.incap, `applyStatus('shocked', 0.5, 1) → enemy:shocked once, slowFactor 0.5 for 1 s, spark ${shk?.shock}`, JSON.stringify(shk));
+  await waitSim(1.4);
+  const rec = await P((id) => { const b = window.__sys.active.find((e) => e.id === id); return b ? { incap: b.isIncapacitated, state: b.state, combatant: b.isCombatant, writhe: b.anim.writhe, dead: b.isDead } : null; }, shk.id);
+  ok(rec && !rec.incap && rec.state !== 'stagger' && rec.combatant && rec.writhe < 0.2, `전소 over → back to ${rec?.state}, combatant again (writhe ${rec?.writhe?.toFixed(2)})`, JSON.stringify(rec));
+  // player hooks: the rogues have been shooting at the player for minutes — clear the field and get back on our feet first
+  const state = await P(() => { const ctx = window.__game.ctx; const pl = ctx.player; window.__sys.killAll(); const was = { downed: pl.isDowned, dead: pl.isDead, hp: pl.hp }; if (pl.isDowned) pl.revive(); return was; });
+  await waitSim(0.6);
+  const tp = await P(() => {
+    const ctx = window.__game.ctx; const pl = ctx.player; const V = pl.position.constructor;
+    const from = pl.position.clone();
+    const tx = from.x + 25, tz = from.z - 18;
+    const pitch0 = pl.pitch;
+    pl.teleport(new V(tx, 400, tz));
+    const ground = ctx.world.getHeightAt(tx, tz);
+    return { tx, tz, dx: pl.position.x - tx, dz: pl.position.z - tz, dy: pl.position.y - ground, vel: pl.velocity.length(), pitchKept: Math.abs(pl.pitch - pitch0) < 1e-6, was: null };
+  });
+  await waitSim(0.15);
+  const tp2 = await P((t) => { const ctx = window.__game.ctx; const cam = ctx.camera.position; const pl = ctx.player; return { camDist: Math.hypot(cam.x - t.tx, cam.z - t.tz), dx: pl.position.x - t.tx, dz: pl.position.z - t.tz, dy: pl.position.y - ctx.world.getHeightAt(t.tx, t.tz) }; }, tp);
+  ok(tp && Math.abs(tp.dx) < 1e-6 && Math.abs(tp.dz) < 1e-6 && Math.abs(tp.dy) < 1e-3 && tp.vel === 0 && tp.pitchKept && tp2.camDist < 8 && Math.abs(tp2.dy) < 0.05,
+    `teleport → feet on the terrain (dy ${tp?.dy?.toFixed(3)}), velocity 0, pitch kept, camera followed (${tp2?.camDist?.toFixed(1)} m), still there a frame later (dy ${tp2?.dy?.toFixed(3)})`, JSON.stringify({ tp, tp2, state }));
+  const st = await P(() => {
+    const pl = window.__game.ctx.player;
+    pl.stamina = 10;
+    const a = pl.consumeStamina(50); const s1 = pl.stamina;
+    const b = pl.consumeStamina(5); const s2 = pl.stamina;
+    pl.stamina = pl.maxStamina;
+    return { a, s1, b, s2 };
+  });
+  ok(st && st.a === false && st.s1 === 10 && st.b === true && st.s2 === 5, `consumeStamina: 50 of 10 refused (stays ${st?.s1}), 5 of 10 → ${st?.s2}`, JSON.stringify(st));
+  const hv = await P(() => { const pl = window.__game.ctx.player; const started = pl.startMelee('heavy'); return { started, meleeing: pl.isMeleeing, fov0: window.__game.ctx.camera.fov }; });
+  await waitSim(0.3);
+  const hv2 = await P(() => ({ meleeing: window.__game.ctx.player.isMeleeing }));
+  await waitSim(0.5);
+  const hv3 = await P(() => ({ meleeing: window.__game.ctx.player.isMeleeing }));
+  ok(hv && hv.started && hv.meleeing && hv2.meleeing && !hv3.meleeing, `startMelee('heavy') → isMeleeing for ~SLASH_DURATION (0.3 s: ${hv2.meleeing}, 0.8 s: ${hv3.meleeing})`, JSON.stringify(hv));
+  await P(() => window.__game.ctx.player.setViewWiden(true));
+  await waitSim(1.0);
+  const wide = await P(() => window.__game.ctx.camera.fov);
+  await P(() => window.__game.ctx.player.setViewWiden(false));
+  await waitSim(1.5);
+  const narrow = await P(() => window.__game.ctx.camera.fov);
+  ok(wide > hv.fov0 + 8 && narrow < wide - 6, `setViewWiden(true) raises camera.fov ${hv.fov0.toFixed(1)} → ${wide.toFixed(1)} within 1 s, back to ${narrow.toFixed(1)} after false`);
 
   const gameErrors = errors.filter((e) => !/WebSocket/.test(e));   // no relay running: the net client's socket error is expected
   console.log('corpse loot tables / knockback (lead checks)');

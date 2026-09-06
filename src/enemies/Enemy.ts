@@ -190,6 +190,20 @@ export class Enemy implements EnemyRef {
   structAttack = false;
   /** true when `structTarget` is what stands between this bug and its player target. */
   structBlocking = false;
+  /* ── appended: unique weapons (2026-09-06) ─────────────────────────────── */
+  /**
+   * 전소 (incinerated): seconds left writhing on the spot. Rides on the `stagger` state (`staggerTimer` is kept ≥ this)
+   * so every AI / wire path that already stops a staggered enemy stops this one too; `isIncapacitated` reads it.
+   * Authority: ticked by the AI stagger case. Replica: held from `EnemyWire.sb` (INCINERATED bit) each snapshot.
+   */
+  incapTimer = 0;
+  /** Shocked spark visual (cyan flicker + spark particles) seconds left; the slow itself uses `slowFactor` / `slowTimer`. */
+  shockTimer = 0;
+  /** Spark / writhe ember FX interval accumulator. */
+  sparkTimer = 0;
+  /** Replica: last status bits forwarded to the host as a `HitRequest.st` and when (throttle for per-tick callers). */
+  statusReqBits = 0;
+  statusReqAt = -Infinity;
 
   constructor(type: EnemyType) {
     this.rig = isRogueType(type) ? createRogueRig(type as RogueType) : createBugRig(type as BugType);
@@ -205,10 +219,10 @@ export class Enemy implements EnemyRef {
   get object(): THREE.Object3D { return this.rig.root; }
   get faction(): EnemyFaction { return this.stats.faction; }
   get isRogue(): boolean { return this.stats.faction === 'rogue'; }
-  /** TODO(agent enemies): 전소 (incinerated) — writhing, no AI, still damageable. Stub until the enemies agent implements it. */
-  get isIncapacitated(): boolean { return false; }
-  /** Alive and fighting (not dead / fleeing / inactive). */
-  get isCombatant(): boolean { return this.active && this.state !== 'dead' && this.state !== 'flee'; }
+  /** 전소 (incinerated): writhing on the spot — no movement / attacks, still damageable (a kill mid-writhe works). */
+  get isIncapacitated(): boolean { return this.active && this.state !== 'dead' && this.incapTimer > 0; }
+  /** Alive and fighting (not dead / fleeing / inactive / 전소). Incapacitated enemies are non-combatants: the other faction stops hunting them. */
+  get isCombatant(): boolean { return this.active && this.state !== 'dead' && this.state !== 'flee' && this.incapTimer <= 0; }
 
   /** (Re)initialize a pooled instance. */
   reset(id: number, position: THREE.Vector3, yaw: number, now: number): void {
@@ -242,6 +256,7 @@ export class Enemy implements EnemyRef {
     this.burnDps = 0; this.burnTimer = 0; this.burnTick = 0; this.emberTimer = 0;
     this.slowFactor = 1; this.slowTimer = 0;
     this.structTarget = null; this.structTimer = 0; this.structAttack = false; this.structBlocking = false;
+    this.incapTimer = 0; this.shockTimer = 0; this.sparkTimer = 0; this.statusReqBits = 0; this.statusReqAt = -Infinity;
     this.netBuf?.clear();
     // Phase 4
     this.roguePhase = 0; this.guardPos.copy(position); this.leash = ROGUE_AI.leash; this.escortOf = null;
@@ -256,7 +271,7 @@ export class Enemy implements EnemyRef {
     a.gait = Math.random() * Math.PI * 2; a.speed = 0; a.headYaw = 0; a.headPitch = 0; a.mandible = 0;
     a.flinch = 0; a.flinchX = 0; a.flinchZ = 0; a.hitFlash = 0; a.abdomen = 0; a.shake = 0; a.crouch = 0;
     a.death = -1; a.rollSign = Math.random() < 0.5 ? -1 : 1; a.slopePitch = 0; a.slopeRoll = 0; a.time = Math.random() * 10;
-    a.fade = 0; a.aim = 0; a.recoil = 0;
+    a.fade = 0; a.aim = 0; a.recoil = 0; a.writhe = 0; a.spark = 0;
     this.rig.root.visible = true;
     this.rig.root.scale.setScalar(this.rig.baseScale);
     this.rig.root.position.copy(position);
@@ -426,7 +441,8 @@ export class Enemy implements EnemyRef {
   enterStagger(duration: number): void {
     this.state = 'stagger';
     this.stateTime = 0;
-    this.staggerTimer = duration;
+    // a stagger never shortens a running 전소
+    this.staggerTimer = Math.max(duration, this.incapTimer);
     this.chargePhase = 0;
     this.spitPhase = 0;
     this.roguePhase = 0;
@@ -435,6 +451,24 @@ export class Enemy implements EnemyRef {
     this.anim.abdomen = 0;
     this.hasMoveTarget = false;
     this.velocity.multiplyScalar(0.2);
+  }
+
+  /**
+   * 전소: writhe on the spot for `duration` s (authority). Rides on the stagger state — movement, attacks, charges,
+   * bursts, spits and toxic swells all stop — while `incapTimer` drives the writhing pose and `isIncapacitated`.
+   * Damage still applies (a kill mid-writhe works); when the timer runs out the AI stagger exit resumes chase / idle.
+   */
+  incinerate(duration: number): void {
+    if (!this.active || this.state === 'dead' || !(duration > 0)) return;
+    const extend = Math.max(this.incapTimer, duration);
+    if (this.state !== 'stagger') this.enterStagger(extend);
+    this.incapTimer = extend;
+    this.staggerTimer = Math.max(this.staggerTimer, extend);
+    this.toxicPhase = 0; this.swellTimer = 0;
+    this.hitCrouchTimer = 0; this.rushTimer = 0;
+    this.spitAtPoint = false; this.structAttack = false;
+    this.anim.aim = 0;
+    this.syncTarget();
   }
 
   /** Transition to dead (death animation, corpse stays `corpseLife` seconds, then the system despawns). */
@@ -458,6 +492,7 @@ export class Enemy implements EnemyRef {
     this.syncTarget();
     this.burnDps = 0; this.burnTimer = 0;
     this.slowFactor = 1; this.slowTimer = 0;
+    this.incapTimer = 0; this.shockTimer = 0;
     this.structTarget = null; this.structAttack = false; this.structBlocking = false;
     this.hasLure = false; this.spitAtPoint = false;
     this.host?.onEnemyKilled(this, countKill);
@@ -470,6 +505,14 @@ export class Enemy implements EnemyRef {
     a.hitFlash = Math.max(0, a.hitFlash - dt * 6);
     a.flinch = Math.max(0, a.flinch - dt * 4.5);
     a.recoil = Math.max(0, a.recoil - dt * 6);
+    // 전소 writhe blends in fast and settles out; the spark flicker is a short cyan strobe while `shockTimer` runs
+    const writheT = this.state !== 'dead' && this.incapTimer > 0 ? 1 : 0;
+    a.writhe += (writheT - a.writhe) * Math.min(1, dt * (writheT > 0 ? 9 : 4));
+    if (a.writhe < 0.001 && writheT === 0) a.writhe = 0;
+    if (this.state !== 'dead' && this.shockTimer > 0) {
+      const t = a.time;
+      a.spark = 0.55 + 0.45 * Math.abs(Math.sin(t * 41) * Math.cos(t * 17 + 1.3));
+    } else if (a.spark > 0) a.spark = Math.max(0, a.spark - dt * 8);
     if (this.state === 'dead') {
       a.death = Math.min(1, this.deathTimer / 4);
       a.fade = THREE.MathUtils.clamp((this.deathTimer - (this.corpseLife - 3)) / 3, 0, 1);

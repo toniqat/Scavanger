@@ -1,7 +1,7 @@
 import type * as THREE from 'three';
 import type { HubShipKind } from '@/shared';
 import type { BoxInteriorCollider } from './InteriorCollider';
-import type { ShipStations } from './stations';
+import type { ShipStations, StationDef } from './stations';
 import type { TextPlane } from '../Labels';
 
 /** Where a launch pod stands. `door` = unit XZ direction from the pod centre out through its door. */
@@ -30,6 +30,20 @@ export interface TerminalDef {
   screen: TextPlane;
 }
 
+/** One of the personal ship's ten housing rooms (see `RoomLayout.ts` for the numbers). */
+export interface RoomDef {
+  index: number;
+  /** −1 = port (−X) side, +1 = starboard (+X). */
+  side: -1 | 1;
+  minX: number; maxX: number; minZ: number; maxZ: number;
+  /** Corridor-side door console: interaction anchor (`hub_room_<i>`). */
+  console: StationDef;
+  /** `방 n` + purpose sign beside the door (corridor side); the hub rewrites its second line. */
+  sign: TextPlane;
+  /** Parent for the room's furniture meshes (one group per room, added / cleared by the furniture layer). */
+  furnitureGroup: THREE.Group;
+}
+
 /** A built ship interior (personal or shared). Geometry is at world origin on every client. */
 export interface ShipInterior {
   readonly kind: HubShipKind;
@@ -46,6 +60,9 @@ export interface ShipInterior {
   readonly workbench: WorkbenchDef;
   /** 함선 시설 (tactical kit): 수경 재배 / 정비대 / 임플란트 시술대 anchors. */
   readonly stations: ShipStations;
+  /** 함선 꾸미기 (personal ship only): the ten rooms and the cockpit facility console (`hub_facility`). */
+  readonly rooms?: readonly RoomDef[];
+  readonly facility?: StationDef;
   update(dt: number, time: number): void;
   dispose(): void;
 }

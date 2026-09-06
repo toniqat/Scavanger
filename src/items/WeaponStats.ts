@@ -4,7 +4,7 @@ import {
   WEAPON_SWAP_TIME_PRIMARY, WEAPON_SWAP_TIME_SECONDARY,
 } from '@/shared';
 import { ITEM_DEF_MAP } from './ItemDefs';
-import { gradeOf, weaponClassOf } from './WeaponDefs';
+import { gradeOf, isUniqueWeapon, weaponClassOf } from './WeaponDefs';
 
 /** Horizontal recoil as a fraction of the def's (vertical) recoil. */
 export const RECOIL_H_RATIO = 0.7;
@@ -72,26 +72,30 @@ export function socketedAttachments(inst: ItemInstance | undefined): AttachmentD
 /**
  * Graded + socketed numbers a weapon instance fires with. Starts from the def
  * (already graded), applies slot-based ADS/swap times, then folds every socketed
- * attachment in `inst.sockets`.
+ * attachment in `inst.sockets`. Uniques (`WeaponDef.unique`) return the def numbers
+ * untouched: no grade scaling exists for them and sockets are ignored even if an
+ * instance somehow carries one.
  */
 export function computeWeaponStats(def: WeaponDef, inst?: ItemInstance): EffectiveWeaponStats {
   const stats = baseWeaponStats(def);
+  if (isUniqueWeapon(def)) return stats;
   for (const att of socketedAttachments(inst)) applyAttachmentEffects(stats, att.effects);
   return stats;
 }
 
-/** Materials to fully repair `inst` (empty when nothing is missing). */
+/** Materials to fully repair `inst` (empty when nothing is missing). Uniques cost like a legendary (grade V). */
 export function repairCost(def: WeaponDef, inst: ItemInstance): { defId: string; qty: number }[] {
   const max = def.maxDurability ?? WEAPON_DEFAULT_DURABILITY;
   const missing = max - (inst.durability ?? max);
   if (missing <= 0) return [];
   const cost = [{ defId: 'mat_scrap', qty: Math.ceil(missing / REPAIR_SCRAP_PER) }];
-  if (gradeOf(def) >= 3) cost.push({ defId: 'mat_alloy', qty: Math.ceil(missing / REPAIR_ALLOY_PER) });
+  if (isUniqueWeapon(def) || gradeOf(def) >= 3) cost.push({ defId: 'mat_alloy', qty: Math.ceil(missing / REPAIR_ALLOY_PER) });
   return cost;
 }
 
-/** Does `attachment` fit `weaponDef`? (class list and calibre list, when given). */
+/** Does `attachment` fit `weaponDef`? (class list and calibre list, when given). Uniques take no attachments. */
 export function canAttach(weaponDef: WeaponDef, attachment: AttachmentDef): boolean {
+  if (isUniqueWeapon(weaponDef)) return false;
   if (attachment.classes && !attachment.classes.includes(weaponClassOf(weaponDef))) return false;
   if (attachment.ammoTypes && !attachment.ammoTypes.includes(weaponDef.ammoType)) return false;
   return true;

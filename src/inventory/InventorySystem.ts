@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import type {
-  CraftRecipe, CraftStation, DurabilityInfo, EffectiveWeaponStats, GameContext, GameSystem, InventoryRef, ItemDef, ItemInstance, Loadout, LoadoutSlot,
+  CraftIngredient, CraftRecipe, CraftStation, DurabilityInfo, EffectiveWeaponStats, GameContext, GameSystem, InventoryRef, ItemDef, ItemInstance, Loadout, LoadoutSlot,
   SocketSlot, WeaponSlot, WeightInfo, LoadoutPreset, WorkbenchKind,
 } from '@/shared';
-import { BAG_DEFAULT_COLS, BAG_DEFAULT_QUICK_SLOTS, BAG_DEFAULT_ROWS, Keys, QUICK_SLOTS, SOCKET_SLOTS, STASH_COLS, STASH_ROWS, isQuickSlotActive } from '@/shared';
+import { BAG_DEFAULT_COLS, BAG_DEFAULT_QUICK_SLOTS, BAG_DEFAULT_ROWS, Keys, QUICK_SLOTS, SOCKET_SLOTS, isQuickSlotActive } from '@/shared';
 import { AMMO_LABEL_KO, ITEM_DEF_MAP, LootService, STARTER_LOADOUT, ammoItemIdFor, getRecipe, isWeaponItemDef, itemWeight } from '@/items';
 import { durabilityInfo, gearMultipliers, makeWeightInfo, sumWeight } from './Gear';
 import { Grid, OOB, type Placement, type PriorityPlacement } from './Grid';
@@ -38,6 +38,16 @@ export type UiSfx = 'ui_pickup' | 'ui_drop' | 'ui_rotate' | 'ui_error' | 'ui_equ
 export type BagSize = { cols: number; rows: number; quickSlots: number };
 /** How the last mission ended; decides what `game:abort` does to the bag (see README "Reset policy"). */
 type MissionOutcome = 'none' | 'complete' | 'over';
+/* ── Phase 6: bench crafting vocabulary (CraftPanel) ── */
+/** Active 작업실 bench of the craft panel (`openBenchCraft`); null = the plain 제작 panel. */
+export type ActiveBench = { kind: WorkbenchKind; level: number };
+/** A craft-panel row: `locked` = the recipe belongs to this bench but needs a higher bench level. */
+export type BenchRecipeRow = { recipe: CraftRecipe; locked: boolean };
+/** A repair-list row of the bench panel (`where` = loadout slot, null = in the bag grid). */
+export type BenchRepairRow = {
+  uid: string; item: ItemInstance; def: ItemDef; where: LoadoutSlot | null; dur: DurabilityInfo;
+  cost: { defId: string; qty: number; name: string; have: number }[]; short: boolean;
+};
 
 const AUTO_CLOSE_DISTANCE = 6;
 const BLOCKER_TOKEN = 'inventory';
@@ -101,6 +111,9 @@ export class InventorySystem implements GameSystem, InventoryRef {
   private quickSlots: QuickSlotUids = createQuickSlots();
   private lastQuickSig = '';
   private lastStashVersion = 0;
+  /* Phase 6: 무한 상자 window state + the bench the craft panel is showing. */
+  private catalogOpen = false;
+  private bench: ActiveBench | null = null;
   private ui: InventoryUI | null = null;
   private offs: Array<() => void> = [];
   private escHandler = (e: KeyboardEvent): void => {
@@ -120,11 +133,26 @@ export class InventorySystem implements GameSystem, InventoryRef {
     ctx.loot = this.loot;
     this.bag = new Grid(BAG_DEFAULT_COLS, BAG_DEFAULT_ROWS, (id) => ITEM_DEF_MAP.get(id));
     this.stash = new Stash((id) => ITEM_DEF_MAP.get(id), this.loot);
+    // ship housing: the 창고 facility decides the stash size. At startup only *grow* to it — a persisted larger grid
+    // (older facility state, cheat) is kept, and a shrink could strand items; `housing:stashSizeChanged` applies exactly.
+    const housing = ctx.housing;
+    if (housing && typeof housing.getStashSize === 'function') {
+      const want = housing.getStashSize();
+      if (want && Number.isFinite(want.cols) && Number.isFinite(want.rows)) {
+        const cols = Math.max(this.stash.cols, Math.floor(want.cols)), rows = Math.max(this.stash.rows, Math.floor(want.rows));
+        if ((cols !== this.stash.cols || rows !== this.stash.rows) && this.stash.resize(cols, rows)) this.stash.markDirty();
+      }
+    }
     this.ui = new InventoryUI(this, ctx);
     this.ui.mount();
 
     const bus = ctx.bus;
     this.offs.push(
+      bus.on('housing:stashSizeChanged', ({ cols, rows }) => {
+        if (!this.setStashSize(cols, rows)) {
+          ctx.bus.emit('ui:notify', { text: '창고 크기를 바꿀 수 없습니다: 범위 밖에 아이템이 있습니다', kind: 'warning', duration: 2.5 });
+        }
+      }),
       bus.on('world:ready', ({ seed }) => this.onWorldReady(seed)),
       bus.on('crate:open', ({ crateId, tier, position }) => this.openContainer(crateId, tier, position)),
       bus.on('player:died', () => this.closeAll()),
@@ -385,37 +413,407 @@ export class InventorySystem implements GameSystem, InventoryRef {
     return this.ctx.isRaidActive() ? 'field' : 'ship';
   }
 
-  /* TODO(agent inventory): contract stubs (2026-09-06) — 무한 상자 catalog, stash resize, bag+stash materials, loadout presets, bench crafting. */
-  openCatalog(): void { /* TODO(agent inventory) */ }
-  closeCatalog(): void { /* TODO(agent inventory) */ }
-  get isCatalogOpen(): boolean { return false; }
-  getStashSize(): { cols: number; rows: number } { return { cols: STASH_COLS, rows: STASH_ROWS }; }
-  setStashSize(_cols: number, _rows: number): boolean { return false; }
-  countDefAll(defId: string): number { return this.countWhere((d) => d.id === defId); }
-  consumeDefAll(defId: string, qty: number): boolean { return this.consumeDef(defId, qty); }
+  /* ── Phase 6 (2026-09-06): 무한 상자 catalog ──────────────────────────── */
+
+  /**
+   * `/items` cheat: open the catalog panel (every item def, infinite stock) inside the inventory window — the ship
+   * screen in the hub, the bag window on a mission. Opens the window itself when it is closed (blocker `'inventory'`).
+   */
+  openCatalog(): void {
+    if (this.catalogOpen) return;
+    const ctx = this.ctx;
+    if (!ctx.isGameplayPhase() && !ctx.isHubPhase()) {
+      ctx.bus.emit('ui:notify', { text: '무한 상자는 함선이나 임무 중에만 열 수 있습니다', kind: 'warning', duration: 2 });
+      return;
+    }
+    this.catalogOpen = true;
+    if (!this._open) {
+      this.activeContainer = null;
+      this.hubMode = ctx.isHubPhase();
+      this.setOpen(true);
+      this.ui?.show(null, this.hubMode);
+      ctx.bus.emit('inventory:opened', { containerId: null });
+    }
+    this.ui?.setCatalog(true);
+    ctx.bus.emit('ui:catalogToggled', { open: true });
+  }
+
+  /** Close the catalog panel; the rest of the window stays open. */
+  closeCatalog(): void {
+    if (!this.catalogOpen) return;
+    this.catalogOpen = false;
+    this.ui?.setCatalog(false);
+    this.ctx.bus.emit('ui:catalogToggled', { open: false });
+  }
+
+  get isCatalogOpen(): boolean { return this.catalogOpen; }
+
+  /** Units a catalog drag / double-click creates: a full stack for stackables, one otherwise. */
+  catalogQty(def: ItemDef): number { return def.stackMax > 1 ? def.stackMax : 1; }
+
+  /** Drag preview for a detached (catalog) instance over `target`: grids (free cell / merge) and equipment slots. */
+  previewCatalog(item: ItemInstance, target: DropTarget): DropPreview {
+    const def = ITEM_DEF_MAP.get(item.defId);
+    if (!def) return 'bad';
+    if (target.kind === 'quick' || target.kind === 'weapon') return 'bad';
+    if (target.kind === 'slot') {
+      if (!slotAccepts(def, target.slot)) return 'bad';
+      const current = this.loadout[target.slot];
+      if (!current) return 'ok';
+      if (target.slot === 'bag') return 'swap'; // the displaced bag is placed first in the resized grid
+      return this.canStow(current) ? 'swap' : 'bad';
+    }
+    const grid = this.getGrid(target.grid);
+    if (!grid) return 'bad';
+    const blockers = grid.blockersAt(item, target.x, target.y, target.rotated, item.uid);
+    if (blockers.length === 0) return 'ok';
+    if (blockers.length !== 1 || blockers[0] === OOB) return 'bad';
+    const other = grid.get(blockers[0]);
+    return other && other.item.defId === item.defId && def.stackMax > 1 && other.item.qty < def.stackMax ? 'merge' : 'bad';
+  }
+
+  /**
+   * Release a catalog drag: the fresh instance lands in the grid cell (or merges into the stack there) / the slot
+   * (displaced gear → bag, else stash in the ship). The catalog tile is untouched. 'fail' → the UI shakes the tile.
+   */
+  dropFromCatalog(item: ItemInstance, target: DropTarget): OpResult {
+    const def = ITEM_DEF_MAP.get(item.defId);
+    if (!def || this.previewCatalog(item, target) === 'bad') return 'fail';
+    if (target.kind === 'slot') {
+      const slot = target.slot;
+      if (slot === 'bag') {
+        if (this.changeBag(item, null, 'grid') !== 'ok') return 'fail';
+        this.ctx.bus.emit('inventory:itemAdded', { item, name: def.name, rarity: def.rarity });
+        return 'ok';
+      }
+      const current = this.loadout[slot];
+      if (current) {
+        const dest = this.stow(current);
+        if (!dest) return 'fail';
+        const cd = ITEM_DEF_MAP.get(current.defId);
+        if (cd) this.emitTransfer(current, cd, { kind: 'slot', slot }, { kind: 'grid', grid: dest });
+      }
+      this.loadout[slot] = item;
+      this.ctx.bus.emit('inventory:itemAdded', { item, name: def.name, rarity: def.rarity });
+      this.emitLoadout();
+      this.afterChange();
+      return 'ok';
+    }
+    if (target.kind !== 'grid') return 'fail';
+    const grid = this.getGrid(target.grid);
+    if (!grid) return 'fail';
+    const blockers = grid.blockersAt(item, target.x, target.y, target.rotated, item.uid);
+    if (blockers.length === 0) {
+      if (!grid.place(item, target.x, target.y, target.rotated)) return 'fail';
+    } else {
+      const other = grid.get(blockers[0]);
+      if (!other || grid.mergeInto(item, other.item.uid) <= 0) return 'fail';
+    }
+    if (target.grid === 'bag') this.ctx.bus.emit('inventory:itemAdded', { item, name: def.name, rarity: def.rarity });
+    this.afterChange();
+    return 'ok';
+  }
+
+  /** Catalog double-click: a fresh instance straight into the bag (merge into stacks first). */
+  takeFromCatalog(defId: string): OpResult {
+    const def = ITEM_DEF_MAP.get(defId);
+    if (!def || !this.catalogOpen) return 'fail';
+    const item = this.loot.createItem(defId, this.catalogQty(def));
+    if (!this.bag.autoPlace(item)) {
+      this.ctx.bus.emit('inventory:full', { item, name: def.name });
+      return 'fail';
+    }
+    this.ctx.bus.emit('inventory:itemAdded', { item, name: def.name, rarity: def.rarity });
+    this.afterChange();
+    return 'ok';
+  }
+
+  /** Where displaced gear can go: the bag, else the ship stash (hub only). */
+  private canStow(item: ItemInstance): boolean {
+    return this.bag.canAbsorb(item) || (this.ctx.isHubPhase() && this.stash.grid.canAbsorb(item));
+  }
+
+  /** Put a detached item into the bag, else the stash (ship). Returns where it went, null when nothing fits. */
+  private stow(item: ItemInstance): GridId | null {
+    if (this.bag.autoPlace(item)) return 'bag';
+    if (this.ctx.isHubPhase() && this.stash.grid.autoPlace(item)) return 'stash';
+    return null;
+  }
+
+  /* ── Phase 6: stash size (housing 창고 facility) ─────────────────────── */
+
+  getStashSize(): { cols: number; rows: number } { return { cols: this.stash.cols, rows: this.stash.rows }; }
+
+  /** Grow / shrink the stash grid (shrink refused while an item would fall outside). Persists; emits `inventory:stashChanged`. */
+  setStashSize(cols: number, rows: number): boolean {
+    if (!this.stash.resize(cols, rows)) return false;
+    this.afterChange(); // stash version changed → markDirty + inventory:stashChanged + UI re-render
+    return true;
+  }
+
+  /* ── Phase 6: materials across bag + stash (facility upgrades / furniture) ── */
+
+  countDefAll(defId: string): number { return this.countDef(defId) + this.stashCountDef(defId); }
+
+  private stashCountDef(defId: string): number {
+    let n = 0;
+    for (const p of this.stash.grid.items()) if (p.item.defId === defId) n += p.item.qty;
+    return n;
+  }
+
+  /** Bag first, then the stash; all-or-nothing. */
+  consumeDefAll(defId: string, qty: number): boolean {
+    const want = Math.max(0, Math.floor(qty));
+    if (want === 0) return true;
+    if (this.countDefAll(defId) < want) return false;
+    let left = want;
+    const fromBag = Math.min(left, this.countDef(defId));
+    if (fromBag > 0) left -= this.consumeWhere((d) => d.id === defId, fromBag);
+    if (left > 0) {
+      const stash = this.stash.grid;
+      const matches = stash.items().filter((p) => p.item.defId === defId).sort((a, b) => a.item.qty - b.item.qty);
+      for (const p of matches) {
+        if (left <= 0) break;
+        const take = Math.min(left, p.item.qty);
+        p.item.qty -= take; left -= take;
+        if (p.item.qty <= 0) stash.remove(p.item.uid);
+        else stash.version++;
+      }
+      this.afterChange();
+    }
+    return left === 0;
+  }
+
+  /* ── Phase 6: loadout presets (사격장) ───────────────────────────────── */
+
   captureLoadout(): LoadoutPreset {
-    const l = this.getLoadout();
+    const l = this.loadout;
     return {
       name: '프리셋', primary: l.primary?.defId ?? null, primary2: l.primary2?.defId ?? null, secondary: l.secondary?.defId ?? null,
-      bag: l.bag?.defId ?? null, armor: l.armor?.defId ?? null, implant: this.ctx.progression?.profile.implant ?? null,
+      bag: l.bag?.defId ?? null, armor: l.armor?.defId ?? null,
+      implant: this.ctx.progression?.profile.implant ?? this.ctx.implants?.equipped ?? null,
     };
   }
-  applyLoadout(_preset: LoadoutPreset): { equipped: number; missing: string[] } { return { equipped: 0, missing: [] }; }
-  openBenchCraft(_bench: WorkbenchKind, _level: number): void { /* TODO(agent inventory) */ }
 
+  /**
+   * Equip a preset from the bag (first) and the stash: a slot whose def is found gets the first matching instance
+   * (displaced gear → bag, else stash), a def that is nowhere empties the slot and lands in `missing`; `null`
+   * entries leave the slot as it is. The implant goes through `ctx.implants.setEquipped` (the Tab screen's path).
+   * Ship only — on a mission nothing changes and the result is empty.
+   */
+  applyLoadout(preset: LoadoutPreset): { equipped: number; missing: string[] } {
+    if (!this.ctx.isHubPhase()) return { equipped: 0, missing: [] };
+    let equipped = 0;
+    const missing: string[] = [];
+    for (const slot of LOADOUT_SLOTS) {
+      const want = preset[slot];
+      if (want === null || want === undefined) continue;
+      const cur = this.loadout[slot];
+      if (cur?.defId === want) { equipped++; continue; }
+      const found = this.findStoredByDef(want);
+      if (!found) {
+        missing.push(want);
+        if (cur) this.unequipToStorage(slot);
+        continue;
+      }
+      if (this.equipFromStorage(found.item, found.grid, slot)) equipped++;
+      else missing.push(want);
+    }
+    if (preset.implant !== null && preset.implant !== undefined) {
+      const imp = this.ctx.implants;
+      if (imp?.equipped === preset.implant) equipped++;
+      else if (imp && typeof imp.setEquipped === 'function' && imp.setEquipped(preset.implant)) equipped++;
+      else missing.push(preset.implant);
+    }
+    this.emitLoadout();
+    this.afterChange();
+    return { equipped, missing };
+  }
+
+  /** First instance of `defId` in the bag, then the stash. */
+  private findStoredByDef(defId: string): { item: ItemInstance; grid: GridId } | null {
+    for (const gridId of ['bag', 'stash'] as const) {
+      const p = this.getGrid(gridId)?.items().find((q) => q.item.defId === defId);
+      if (p) return { item: p.item, grid: gridId };
+    }
+    return null;
+  }
+
+  /** Unequip `slot` into the bag, else the stash (ship). The bag slot shrinks the grid first. */
+  private unequipToStorage(slot: LoadoutSlot): boolean {
+    const cur = this.loadout[slot];
+    if (!cur) return true;
+    if (slot === 'bag') {
+      // the old bag lands in the shrunk grid (priority), else the ship stash through `throwToWorld`
+      if (this.changeBag(null, null, 'grid') === 'ok') return true;
+      return this.changeBag(null, null, 'world') === 'ok';
+    }
+    this.loadout[slot] = null;
+    const dest = this.stow(cur);
+    if (!dest) { this.loadout[slot] = cur; return false; }
+    const def = ITEM_DEF_MAP.get(cur.defId);
+    if (def) this.emitTransfer(cur, def, { kind: 'slot', slot }, { kind: 'grid', grid: dest });
+    return true;
+  }
+
+  /** Move a bag / stash item into `slot`; the displaced item goes to the bag, else the stash, else the vacated cells. */
+  private equipFromStorage(item: ItemInstance, gridId: GridId, slot: LoadoutSlot): boolean {
+    const def = ITEM_DEF_MAP.get(item.defId);
+    const grid = this.getGrid(gridId);
+    if (!def || !grid || !slotAccepts(def, slot)) return false;
+    const from: ItemLocation = { kind: 'grid', grid: gridId };
+    if (slot === 'bag') {
+      let r = this.changeBag(item, from, 'grid');
+      if (r === 'fail' && this.loadout.bag) {
+        // the displaced bag does not fit the new grid: park it in the stash first, then retry
+        if (this.moveToStash(this.loadout.bag.uid, { kind: 'slot', slot: 'bag' }) !== 'ok') return false;
+        const again = this.locate(item.uid);
+        if (!again || again.from.kind !== 'grid') return false;
+        r = this.changeBag(item, again.from, 'grid');
+      }
+      return r === 'ok';
+    }
+    const cur = this.loadout[slot];
+    const src = grid.get(item.uid);
+    if (!src) return false;
+    const sx = src.x, sy = src.y, srot = item.rotated;
+    grid.remove(item.uid);
+    if (cur) {
+      this.loadout[slot] = null;
+      let dest: GridId | null = this.stow(cur);
+      if (!dest && grid.autoPlace(cur)) dest = gridId;
+      if (!dest) { this.loadout[slot] = cur; grid.place(item, sx, sy, srot); return false; }
+      const cd = ITEM_DEF_MAP.get(cur.defId);
+      if (cd) this.emitTransfer(cur, cd, { kind: 'slot', slot }, { kind: 'grid', grid: dest });
+    }
+    this.loadout[slot] = item;
+    this.emitTransfer(item, def, from, { kind: 'slot', slot });
+    return true;
+  }
+
+  /* ── Phase 6: 작업실 bench crafting ─────────────────────────────────── */
+
+  /**
+   * Open the craft panel in bench mode (ship only): recipes of `getRecipes('ship', bench, level)` + locked rows for
+   * the bench's higher-level recipes, workshop cost discount, and the repair list of the gear that bench services.
+   */
+  openBenchCraft(bench: WorkbenchKind, level: number): void {
+    const ctx = this.ctx;
+    if (!ctx.isHubPhase()) {
+      ctx.bus.emit('ui:notify', { text: '작업대는 함선에서만 사용할 수 있습니다', kind: 'warning', duration: 2 });
+      return;
+    }
+    this.bench = { kind: bench, level: Math.max(0, Math.floor(level)) };
+    if (!this._open) {
+      this.activeContainer = null;
+      this.hubMode = true;
+      this.setOpen(true);
+      this.ui?.show(null, true);
+      ctx.bus.emit('inventory:opened', { containerId: null });
+    }
+    this.ui?.setCraftOpen(true);
+    ctx.bus.emit('ui:craftToggled', { open: true });
+  }
+
+  /** Bench the craft panel is showing (null = plain 제작 panel). */
+  getBench(): ActiveBench | null { return this.bench; }
+
+  /** Leave bench mode (panel 닫기 / window closed). The window itself stays open. */
+  closeBench(): void {
+    if (!this.bench) return;
+    this.bench = null;
+    this.cancelCraft();
+    this.ui?.setCraftOpen(false);
+    this.ctx.bus.emit('ui:craftToggled', { open: false });
+  }
+
+  /** Rows for the craft panel: available recipes, then (bench mode) the bench's recipes above its level as locked. */
+  getBenchRecipes(): BenchRecipeRow[] {
+    const b = this.bench;
+    if (!b) return this.getRecipes(this.currentStation()).map((recipe) => ({ recipe, locked: false }));
+    const open = this.getRecipes('ship', b.kind, b.level);
+    const skillOf = (id: CraftRecipe['skill']): number => this.ctx.progression?.getSkill(id) ?? 0;
+    const locked = this.loot.getAllRecipes().filter((r) =>
+      r.station === 'ship' && r.bench === b.kind && (r.benchLevel ?? 1) > b.level && skillOf(r.skill) >= r.skillRequired);
+    return [...open.map((recipe) => ({ recipe, locked: false })), ...locked.map((recipe) => ({ recipe, locked: true }))];
+  }
+
+  /** Gear the active bench repairs: gun → weapons (slots + bag), gear → armor + bags, others none. Items without durability are skipped. */
+  benchRepairRows(): BenchRepairRow[] {
+    const b = this.bench;
+    if (!b || (b.kind !== 'gun' && b.kind !== 'gear')) return [];
+    const wants = (def: ItemDef): boolean => b.kind === 'gun' ? isWeaponItemDef(def) : (def.category === 'armor' || def.category === 'bag');
+    const rows: BenchRepairRow[] = [];
+    const push = (item: ItemInstance, where: LoadoutSlot | null): void => {
+      const def = ITEM_DEF_MAP.get(item.defId);
+      if (!def || !wants(def)) return;
+      const dur = this.getDurability(item.uid);
+      if (!dur || dur.max <= 0) return;
+      const cost = (this.loot.getEffectiveStats(item) ? this.loot.getRepairCost(item) : []).map((c) => ({
+        ...c, name: ITEM_DEF_MAP.get(c.defId)?.name ?? c.defId, have: this.countDef(c.defId),
+      }));
+      rows.push({ uid: item.uid, item, def, where, dur, cost, short: cost.some((c) => c.have < c.qty) });
+    };
+    for (const slot of LOADOUT_SLOTS) { const it = this.loadout[slot]; if (it) push(it, slot); }
+    for (const p of this.bag.items()) push(p.item, null);
+    return rows;
+  }
+
+  /** `모두 수리`: every worn row in order while the materials last. */
+  benchRepairAll(): { done: number; skipped: number } {
+    let done = 0, skipped = 0;
+    for (const row of this.benchRepairRows()) {
+      if (row.dur.durability >= row.dur.max) continue;
+      if (row.short) { skipped++; continue; }
+      if (this.repair(row.uid)) done++; else skipped++;
+    }
+    return { done, skipped };
+  }
+
+  /**
+   * Recipes for a station given the current skills. Field: `station: 'field'` recipes only. Ship: field recipes
+   * too; a recipe with `bench` needs that bench — at `bench` (given) with `benchLevel ≤ level`, otherwise a placed
+   * bench of that kind at that level (`ctx.housing.getBenchLevel`, 0 without housing).
+   */
   getRecipes(station: CraftStation, bench?: WorkbenchKind, level = 0): readonly CraftRecipe[] {
     const skillOf = (id: CraftRecipe['skill']): number => this.ctx.progression?.getSkill(id) ?? 0;
+    const housing = this.ctx.housing;
+    const placedLevel = (kind: WorkbenchKind): number =>
+      housing && typeof housing.getBenchLevel === 'function' ? Math.max(0, housing.getBenchLevel(kind) || 0) : 0;
     return this.loot.getAllRecipes().filter((r) => {
-      if (station === 'field' && r.station !== 'field') return false;
-      if (station === 'ship' && bench !== undefined && r.bench !== undefined && (r.bench !== bench || (r.benchLevel ?? 1) > level)) return false;
-      return skillOf(r.skill) >= r.skillRequired;
+      if (skillOf(r.skill) < r.skillRequired) return false;
+      if (station === 'field') return r.station === 'field';
+      if (r.bench === undefined) return true;
+      const need = r.benchLevel ?? 1;
+      if (bench !== undefined) return r.bench === bench && need <= level;
+      return placedLevel(r.bench) >= need;
     });
+  }
+
+  /** Recipes the running station / bench may craft right now. */
+  private availableRecipes(): readonly CraftRecipe[] {
+    const b = this.bench;
+    return b ? this.getRecipes('ship', b.kind, b.level) : this.getRecipes(this.currentStation());
+  }
+
+  /** Workshop material discount (`ctx.housing.getCraftCostMul`, ship only); 1 when nothing applies. */
+  craftCostMul(): number {
+    if (this.currentStation() !== 'ship') return 1;
+    const h = this.ctx.housing;
+    const m = h && typeof h.getCraftCostMul === 'function' ? h.getCraftCostMul() : 1;
+    return Number.isFinite(m) && m > 0 && m < 1 ? m : 1;
+  }
+
+  /** Inputs of a recipe after the workshop discount (ceil, never below 1). */
+  craftCost(recipe: CraftRecipe): CraftIngredient[] {
+    const mul = this.craftCostMul();
+    return recipe.inputs.map((i) => ({ defId: i.defId, qty: Math.max(1, Math.ceil(i.qty * mul - 1e-9)) }));
   }
 
   canCraft(recipeId: string): boolean {
     const r = getRecipe(recipeId);
     if (!r) return false;
-    return r.inputs.every((i) => this.countDef(i.defId) >= i.qty);
+    return this.craftCost(r).every((i) => this.countDef(i.defId) >= i.qty);
   }
 
   /** Seconds one craft takes right now (recipe duration scaled by 제작 skill and 재주). */
@@ -431,7 +829,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
     const r = getRecipe(recipeId);
     if (!r) return Promise.resolve(null);
     this.cancelCraft();
-    if (this.getRecipes(this.currentStation()).indexOf(r) < 0 || !this.canCraft(recipeId)) {
+    if (this.availableRecipes().indexOf(r) < 0 || !this.canCraft(recipeId)) {
       this.ctx.bus.emit('craft:failed', { recipeId, reason: 'missing' });
       return Promise.resolve(null);
     }
@@ -482,7 +880,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
       this.ui?.refreshCraft();
       return;
     }
-    for (const i of r.inputs) this.consumeDef(i.defId, i.qty);
+    for (const i of this.craftCost(r)) this.consumeDef(i.defId, i.qty);
     const made = this.addUnits(r.outputDefId, r.outputQty);
     const first = made[0] ?? product;
     this.ctx.bus.emit('inventory:itemAdded', { item: first, name: outDef.name, rarity: outDef.rarity });
@@ -849,6 +1247,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
 
   closeAll(relock = true): void {
     if (!this._open) return;
+    this.closeCatalog();
+    this.closeBench();
     this.activeContainer = null;
     this.hubMode = false;
     this.setOpen(false);
@@ -1338,6 +1738,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
    * first (at `hint`, else the new bag's former cells, else the first free slot), everything else is relocated
    * around it and whatever no longer fits is dropped into the world (`inventory:bagChanged.dropped`).
    * Refused (nothing changes) only when the displaced bag itself cannot fit the new grid at all.
+   * `from` null with a `next` = a detached instance (catalog drag) that lives in no grid yet.
    */
   private changeBag(next: ItemInstance | null, from: ItemLocation | null, oldTo: 'grid' | 'world', hint?: { x: number; y: number }): OpResult {
     const old = this.loadout.bag;
@@ -1349,8 +1750,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
     const snap = this.bag.snapshot();
     const srcGrid = from?.kind === 'grid' ? this.getGrid(from.grid) : null;
     let srcPos: Placement | undefined;
-    if (next) {
-      if (!from || from.kind !== 'grid' || !srcGrid) return 'fail';
+    if (next && from) {
+      if (from.kind !== 'grid' || !srcGrid) return 'fail';
       srcPos = srcGrid.get(next.uid);
       if (!srcPos) return 'fail';
       srcGrid.remove(next.uid);

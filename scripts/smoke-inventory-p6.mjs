@@ -1,0 +1,434 @@
+// Smoke test for the Phase 6 inventory work: 무한 상자 catalog (tabs / search / real-mouse drag into the bag /
+// double-click), stash size (housing 창고: setStashSize + reload persistence, shrink refusal), bag + stash materials
+// (countDefAll / consumeDefAll), loadout presets (captureLoadout / applyLoadout with a missing def), and the 작업실
+// bench craft panel (openBenchCraft: title, locked rows, discount, repair list).
+// Usage: node scripts/smoke-inventory-p6.mjs [http://localhost:5273/]   (needs `npm run dev`)
+//
+// Timing: Engine clamps dt to 50 ms and the frame rate depends on the machine, so every wait is on simulation time
+// (`waitSim`), never wall-clock. Key taps dispatch keydown+keyup in the same frame on document.body.
+import puppeteer from 'puppeteer-core';
+import { existsSync } from 'node:fs';
+
+const BASE = process.argv.find((a) => a.startsWith('http')) ?? 'http://localhost:5273/';
+const CHROME = [
+  'C:/Program Files/Google/Chrome/Application/chrome.exe',
+  'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
+  'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
+].find((p) => existsSync(p));
+if (!CHROME) { console.error('no chrome/edge found'); process.exit(2); }
+// Real GPU through ANGLE D3D11 by default (headless Chrome renders at full speed, CPU stays free). SMOKE_GL=swiftshader falls back to the CPU rasterizer (no GPU / CI).
+const GL_ARGS = process.env.SMOKE_GL === 'swiftshader' ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : ['--use-angle=d3d11', '--enable-gpu'];
+
+let pass = 0, fail = 0;
+const ok = (cond, label, extra = '') => { if (cond) { pass++; console.log(`  ok   ${label}`); } else { fail++; console.log(`  FAIL ${label} ${extra}`); } };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function waitFor(page, fn, label, timeout = 60000, arg) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < timeout) {
+    try { const v = await page.evaluate(fn, arg); if (v) return v; } catch (e) { /* loading */ }
+    await sleep(100);
+  }
+  throw new Error(`timeout waiting for ${label}`);
+}
+
+const browser = await puppeteer.launch({
+  executablePath: CHROME, headless: true,
+  args: ['--use-gl=angle', ...GL_ARGS, '--ignore-gpu-blocklist',
+    '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows',
+    '--window-size=1680,900', '--no-sandbox'],
+});
+const errors = [];
+try {
+  const page = (await browser.pages())[0] ?? await browser.newPage();
+  await page.setViewport({ width: 1680, height: 900 });
+  // Never let headless Chrome take a real pointer lock: on Windows it calls ClipCursor and traps the OS cursor inside the
+  // hidden window at the top-left of the screen. Scripts fake `pointerLockElement` themselves where they need it.
+  await page.evaluateOnNewDocument(() => {
+    Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
+    Document.prototype.exitPointerLock = function () {};
+  });
+  page.on('pageerror', (e) => errors.push(String(e)));
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+  // fresh stash so the size checks start from the default grid
+  await page.goto(BASE, { waitUntil: 'domcontentloaded' });
+  await page.evaluate(() => { localStorage.removeItem('scav.stash'); });
+  await page.goto(BASE, { waitUntil: 'load' });
+  await waitFor(page, () => !!window.__game && !!window.__game.ctx.inventory, 'boot');
+  const install = () => page.evaluate(() => {
+    let lastRaf = performance.now();
+    (function tick() { lastRaf = performance.now(); requestAnimationFrame(tick); })();
+    setInterval(() => { const now = performance.now(); if (now - lastRaf > 100) window.__game.frame(now); }, 33);
+    // fake pointer lock so gameplay input is accepted in headless mode
+    const canvas = document.getElementById('game-canvas');
+    Object.defineProperty(Document.prototype, 'pointerLockElement', { get: () => canvas, configurable: true });
+    window.__ev = {};
+    const bus = window.__game.ctx.bus;
+    for (const n of ['ui:catalogToggled', 'inventory:itemAdded', 'inventory:stashChanged', 'inventory:opened', 'inventory:closed', 'ui:craftToggled', 'loadout:changed', 'inventory:changed']) {
+      window.__ev[n] = [];
+      bus.on(n, (p) => { window.__ev[n].push(JSON.parse(JSON.stringify(p, (k, v) => (v && v.isVector3) ? [v.x, v.y, v.z] : v))); });
+    }
+  });
+  await install();
+  /** keydown + keyup inside one frame on document.body (a wait between them would read as a hold). */
+  const tap = (code) => page.evaluate((c) => {
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { code: c, key: c, bubbles: true }));
+    document.body.dispatchEvent(new KeyboardEvent('keyup', { code: c, key: c, bubbles: true }));
+  }, code);
+  const waitSim = async (sec) => { const t0 = await page.evaluate(() => window.__game.ctx.time); await waitFor(page, (t) => window.__game.ctx.time >= t, `sim +${sec}s`, 240000, t0 + sec); };
+  const ev = (n) => page.evaluate((k) => window.__ev[k], n);
+  const lastEv = async (n) => { const a = await ev(n); return a[a.length - 1]; };
+  // scrolls the element into view first (catalog tiles live in a scrolling grid)
+  const centre = async (sel) => page.evaluate((s) => { const el = document.querySelector(s); if (!el) return null; el.scrollIntoView({ block: 'nearest' }); const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }, sel);
+  const dragMouse = async (from, to) => {
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(from.x + 8, from.y + 8, { steps: 2 });
+    await page.mouse.move((from.x + to.x) / 2, (from.y + to.y) / 2, { steps: 4 });
+    await page.mouse.move(to.x, to.y, { steps: 4 });
+    await sleep(60);
+    await page.mouse.up();
+    await sleep(120);
+  };
+  const inv = () => page.evaluate(() => {
+    const i = window.__game.ctx.inventory;
+    return { open: i.isOpen, catalog: i.isCatalogOpen, blockers: [...window.__game.ctx.uiBlockers], bag: i.getAllItems().map((x) => ({ id: x.defId, qty: x.qty })) };
+  });
+
+  /* ── 1. hub: catalog (무한 상자) ───────────────────────────────────── */
+  console.log('catalog (hub)');
+  await page.evaluate(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
+  await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub phase');
+  await waitSim(0.3);
+  const defCount = await page.evaluate(() => window.__game.ctx.loot.getAllItemDefs().length);
+  await page.evaluate(() => window.__game.ctx.inventory.openCatalog());
+  await sleep(250);
+  let s = await inv();
+  ok(s.open && s.catalog && s.blockers.includes('inventory'), 'openCatalog opens the window with the catalog + inventory blocker', JSON.stringify(s));
+  ok((await lastEv('ui:catalogToggled'))?.open === true, 'ui:catalogToggled {open:true}');
+  const cat = await page.evaluate(() => {
+    const root = document.querySelector('.inv-root');
+    const panel = root.querySelector('.inv-panel-catalog');
+    const items = [...panel.querySelectorAll('.inv-cat-item')];
+    const first = panel.getBoundingClientRect(), stash = root.querySelector('.inv-panel-stash').getBoundingClientRect();
+    return {
+      hidden: panel.hidden, tiles: items.length, tabs: [...panel.querySelectorAll('.inv-cat-tab')].map((b) => b.textContent),
+      onTab: panel.querySelector('.inv-cat-tab.is-on')?.textContent, search: !!panel.querySelector('.inv-cat-search'),
+      leftOfStash: first.right <= stash.left + 4, hub: root.classList.contains('is-hub'),
+      weaponGrades: items.filter((n) => n.dataset.def.startsWith('wpn_ar23')).length,
+      count: panel.querySelector('.inv-cat-count').textContent,
+    };
+  });
+  ok(!cat.hidden && cat.tiles === defCount, `one tile per item def (${cat.tiles} / ${defCount})`, JSON.stringify(cat));
+  ok(cat.tabs[0] === '전체' && cat.tabs.includes('무기') && cat.tabs.includes('탄약') && cat.tabs.includes('부착물') && cat.tabs.includes('가방') && cat.tabs.includes('방탄복') && cat.tabs.includes('가젯') && cat.tabs.includes('소모품') && cat.tabs.includes('재료') && cat.tabs.includes('약초'), `category tabs: ${cat.tabs.join(' ')}`);
+  ok(cat.onTab === '전체' && cat.search, '전체 tab active, search box present');
+  ok(cat.weaponGrades >= 5, `every weapon grade is its own tile (ar23 ×${cat.weaponGrades})`);
+  ok(cat.hub && cat.leftOfStash, 'catalog sits left of the stash in the ship screen');
+
+  // tabs: 무기 shows only primary / secondary defs
+  await page.evaluate(() => [...document.querySelectorAll('.inv-cat-tab')].find((b) => b.textContent === '무기').click());
+  const weaponTab = await page.evaluate(() => {
+    const loot = window.__game.ctx.loot;
+    const shown = [...document.querySelectorAll('.inv-panel-catalog .inv-cat-item')].map((n) => n.dataset.def);
+    const expected = loot.getAllItemDefs().filter((d) => d.category === 'primary' || d.category === 'secondary').length;
+    return { n: shown.length, expected, allWeapons: shown.every((id) => { const c = loot.getItemDef(id).category; return c === 'primary' || c === 'secondary'; }) };
+  });
+  ok(weaponTab.n === weaponTab.expected && weaponTab.n > 0 && weaponTab.allWeapons, `무기 tab lists ${weaponTab.n} weapon defs only`);
+  // search: Korean substring on the name
+  await page.evaluate(() => [...document.querySelectorAll('.inv-cat-tab')].find((b) => b.textContent === '전체').click());
+  await page.focus('.inv-cat-search');
+  await page.keyboard.type('스팀');
+  await sleep(120);
+  const search = await page.evaluate(() => ({
+    shown: [...document.querySelectorAll('.inv-panel-catalog .inv-cat-item')].map((n) => n.dataset.def),
+    names: [...document.querySelectorAll('.inv-panel-catalog .inv-cat-cap')].map((n) => n.textContent),
+    open: window.__game.ctx.inventory.isOpen, value: document.querySelector('.inv-cat-search').value,
+  }));
+  ok(search.shown.length >= 2 && search.names.every((n) => n.includes('스팀')), `search '스팀' → ${search.shown.join(', ')}`, JSON.stringify(search));
+  ok(search.open && search.value === '스팀', 'typing in the search box never reached the game (window still open)');
+  await page.evaluate(() => { const i = document.querySelector('.inv-cat-search'); i.value = ''; i.dispatchEvent(new Event('input')); i.blur(); });
+  await sleep(80);
+  ok((await page.evaluate(() => document.querySelectorAll('.inv-panel-catalog .inv-cat-item').length)) === defCount, 'clearing the search shows every def again');
+
+  // real-mouse drag: 폐금속 tile → a free bag cell creates a full stack; the tile stays
+  await page.evaluate(() => [...document.querySelectorAll('.inv-cat-tab')].find((b) => b.textContent === '재료').click());
+  const before = await inv();
+  const scrapTile = await centre('.inv-cat-item[data-def="mat_scrap"] .inv-tile');
+  const freeCell = await page.evaluate(() => {
+    const inv = window.__game.getSystem('inventory');
+    const g = inv.getGrid('bag');
+    for (let y = 0; y < g.rows; y++) for (let x = 0; x < g.cols; x++) if (!g.cellUid(x, y)) {
+      const r = document.querySelector('.inv-grid-bag').getBoundingClientRect();
+      return { x: r.left + x * 56 + 27, y: r.top + y * 56 + 27, cx: x, cy: y };
+    }
+    return null;
+  });
+  ok(!!scrapTile && !!freeCell, 'catalog tile + free bag cell located', JSON.stringify({ scrapTile, freeCell }));
+  const addedBefore = (await ev('inventory:itemAdded')).length;
+  await dragMouse(scrapTile, freeCell);
+  const afterDrag = await inv();
+  const scrapStack = await page.evaluate((c) => { const g = window.__game.getSystem('inventory').getGrid('bag'); const p = g.at(c.cx, c.cy); return p ? { id: p.item.defId, qty: p.item.qty, x: p.x, y: p.y } : null; }, freeCell);
+  const stackMax = await page.evaluate(() => window.__game.ctx.loot.getItemDef('mat_scrap').stackMax);
+  ok(scrapStack && scrapStack.id === 'mat_scrap' && scrapStack.qty === stackMax, `mouse drag created a full 폐금속 stack (${scrapStack?.qty}/${stackMax}) at the target cell`, JSON.stringify(scrapStack));
+  ok(afterDrag.bag.length === before.bag.length + 1, 'bag gained one stack');
+  ok((await ev('inventory:itemAdded')).length === addedBefore + 1, 'inventory:itemAdded emitted for the catalog item');
+  ok(await page.evaluate(() => !!document.querySelector('.inv-cat-item[data-def="mat_scrap"] .inv-tile')), 'catalog tile stays after the drag (infinite stock)');
+  // drag into the stash creates the item there
+  const stashBefore = await page.evaluate(() => window.__game.getSystem('inventory').getStashItems().length);
+  const alloyTile = await centre('.inv-cat-item[data-def="mat_alloy"] .inv-tile');
+  const stashCell = await page.evaluate(() => { const r = document.querySelector('.inv-grid-stash').getBoundingClientRect(); return { x: r.left + 27, y: r.top + 27 }; });
+  await dragMouse(alloyTile, stashCell);
+  const stashAfter = await page.evaluate(() => { const s = window.__game.getSystem('inventory').getStashItems(); return { n: s.length, alloy: s.find((i) => i.defId === 'mat_alloy')?.qty ?? 0 }; });
+  ok(stashAfter.n === stashBefore + 1 && stashAfter.alloy > 0, `mouse drag into the stash created 합금 판 (${stashAfter.alloy})`);
+  // drag a weapon onto the 주무기 II slot equips a fresh instance
+  await page.evaluate(() => [...document.querySelectorAll('.inv-cat-tab')].find((b) => b.textContent === '무기').click());
+  const gunTile = await centre('.inv-cat-item[data-def="wpn_ar23_g3"] .inv-tile');
+  const slot2 = await centre('.inv-slot-primary2 .inv-slot-body');
+  await dragMouse(gunTile, slot2);
+  const p2 = await page.evaluate(() => { const l = window.__game.ctx.inventory.getLoadout(); return l.primary2 ? { id: l.primary2.defId, dur: l.primary2.durability, mag: l.primary2.ammoInMag } : null; });
+  ok(p2 && p2.id === 'wpn_ar23_g3' && p2.dur > 0 && p2.mag > 0, `drag onto 주무기 II equipped a loaded AR III (${JSON.stringify(p2)})`);
+  // double-click → into the bag
+  await page.evaluate(() => [...document.querySelectorAll('.inv-cat-tab')].find((b) => b.textContent === '소모품').click());
+  const stimTile = await centre('.inv-cat-item[data-def="stim"] .inv-tile');
+  const stimBefore = await page.evaluate(() => window.__game.ctx.inventory.countWhere((d) => d.id === 'stim'));
+  await page.mouse.click(stimTile.x, stimTile.y);
+  await sleep(80);
+  await page.mouse.click(stimTile.x, stimTile.y);
+  await sleep(150);
+  const stimAfter = await page.evaluate(() => window.__game.ctx.inventory.countWhere((d) => d.id === 'stim'));
+  ok(stimAfter > stimBefore, `double-click put 스팀 into the bag (${stimBefore} → ${stimAfter})`);
+  // Esc closes the whole window incl. the catalog
+  await tap('Escape');
+  await waitFor(page, () => !window.__game.ctx.inventory.isOpen, 'window closed');
+  s = await inv();
+  ok(!s.open && !s.catalog && !s.blockers.includes('inventory'), 'Esc closes the window and the catalog, blocker released');
+  ok((await lastEv('ui:catalogToggled'))?.open === false, 'ui:catalogToggled {open:false}');
+
+  /* ── 2. stash size ────────────────────────────────────────────────── */
+  console.log('stash size');
+  const size0 = await page.evaluate(() => window.__game.ctx.inventory.getStashSize());
+  ok(size0.cols === 10 && size0.rows === 24, `default stash 10×24 (${size0.cols}×${size0.rows})`);
+  const stashEvBefore = (await ev('inventory:stashChanged')).length;
+  const grow = await page.evaluate(() => { const i = window.__game.ctx.inventory; return { r: i.setStashSize(10, 30), size: i.getStashSize() }; });
+  ok(grow.r === true && grow.size.rows === 30, 'setStashSize(10, 30) grows the stash');
+  ok((await ev('inventory:stashChanged')).length > stashEvBefore, 'inventory:stashChanged emitted on resize');
+  // an item parked in the last row blocks a shrink below it
+  const shrink = await page.evaluate(() => {
+    const ctx = window.__game.ctx, i = ctx.inventory, sys = window.__game.getSystem('inventory');
+    const g = sys.getStash();
+    const it = ctx.loot.createItem('mat_scrap', 3);
+    g.place(it, 0, 29, false);
+    const refused = i.setStashSize(10, 24);
+    const still = i.getStashSize().rows;
+    g.remove(it.uid);
+    const okShrink = i.setStashSize(10, 26);
+    return { refused, still, okShrink, rows: i.getStashSize().rows, before: g.count };
+  });
+  ok(shrink.refused === false && shrink.still === 30, 'shrink refused while an item sits outside the new bounds');
+  ok(shrink.okShrink === true && shrink.rows === 26, 'shrink accepted once the row is free (26)');
+  await page.evaluate(() => window.__game.ctx.inventory.setStashSize(10, 30));
+  // Tab screen renders the new grid and scrolls
+  await tap('Tab');
+  await waitFor(page, () => window.__game.ctx.inventory.isOpen, 'Tab opens the ship screen');
+  const grid = await page.evaluate(() => {
+    const cells = document.querySelectorAll('.inv-grid-stash .inv-cell').length;
+    const sc = document.querySelector('.inv-stash-scroll');
+    return { cells, scrolls: sc.scrollHeight > sc.clientHeight, count: document.querySelector('.inv-panel-stash .inv-capacity').textContent };
+  });
+  ok(grid.cells === 300, `stash grid re-rendered at 10×30 (${grid.cells} cells)`);
+  ok(grid.scrolls && /\/ 300/.test(grid.count), `stash panel scrolls and shows / 300 (${grid.count})`);
+  await tap('Escape');
+  await waitFor(page, () => !window.__game.ctx.inventory.isOpen, 'closed');
+  await sleep(600); // debounced save
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('scav.stash') ?? 'null'));
+  ok(saved && saved.v === 2 && saved.cols === 10 && saved.rows === 30, `save file carries cols/rows (v${saved?.v} ${saved?.cols}×${saved?.rows})`);
+
+  /* ── 3. materials across bag + stash ─────────────────────────────── */
+  console.log('countDefAll / consumeDefAll');
+  const mats = await page.evaluate(() => {
+    const ctx = window.__game.ctx, i = ctx.inventory, sys = window.__game.getSystem('inventory');
+    // clean slate for mat_cable: 4 in the bag, 7 in the stash
+    i.consumeWhere((d) => d.id === 'mat_cable', 999);
+    for (const p of sys.getStash().items().filter((p) => p.item.defId === 'mat_cable')) sys.getStash().remove(p.item.uid);
+    i.tryAddItem(ctx.loot.createItem('mat_cable', 4));
+    sys.getStash().autoPlace(ctx.loot.createItem('mat_cable', 7));
+    const total = i.countDefAll('mat_cable');
+    const short = i.consumeDefAll('mat_cable', 12);
+    const afterShort = i.countDefAll('mat_cable');
+    const okConsume = i.consumeDefAll('mat_cable', 9);
+    const bagLeft = i.countWhere((d) => d.id === 'mat_cable');
+    const stashLeft = sys.getStashItems().filter((x) => x.defId === 'mat_cable').reduce((n, x) => n + x.qty, 0);
+    const zero = i.consumeDefAll('mat_cable', 0);
+    return { total, short, afterShort, okConsume, bagLeft, stashLeft, zero, all: i.countDefAll('mat_cable') };
+  });
+  ok(mats.total === 11, `countDefAll sums bag + stash (${mats.total})`);
+  ok(mats.short === false && mats.afterShort === 11, 'consumeDefAll refuses when short and consumes nothing');
+  ok(mats.okConsume === true && mats.bagLeft === 0 && mats.stashLeft === 2 && mats.all === 2, `consumeDefAll(9): bag first (0 left), then stash (2 left)`, JSON.stringify(mats));
+  ok(mats.zero === true, 'consumeDefAll(0) is a no-op success');
+
+  /* ── 4. loadout presets ─────────────────────────────────────────── */
+  console.log('captureLoadout / applyLoadout');
+  const preset = await page.evaluate(() => {
+    const ctx = window.__game.ctx, i = ctx.inventory, sys = window.__game.getSystem('inventory');
+    // put an SMG and armor II in the stash, then capture the current kit
+    sys.getStash().autoPlace(ctx.loot.createItem('wpn_smg37'));
+    const armorDef = ctx.loot.getAllItemDefs().find((d) => d.category === 'armor');
+    if (armorDef) sys.getStash().autoPlace(ctx.loot.createItem(armorDef.id));
+    const cap = i.captureLoadout();
+    return { cap, armor: armorDef?.id ?? null, smg: !!ctx.loot.getItemDef('wpn_smg37') };
+  });
+  ok(preset.cap && preset.cap.primary === 'wpn_ar23' && preset.cap.primary2 === 'wpn_ar23_g3' && preset.cap.secondary === 'wpn_p2' && preset.cap.bag === 'bag_common', `captureLoadout reflects the current kit (${JSON.stringify(preset.cap)})`);
+  const applied = await page.evaluate((p) => {
+    const ctx = window.__game.ctx, i = ctx.inventory;
+    const r = i.applyLoadout({ name: 't', primary: 'wpn_smg37', primary2: 'wpn_does_not_exist', secondary: null, bag: null, armor: p.armor, implant: 'dash' });
+    const l = i.getLoadout();
+    const stashHasAr3 = window.__game.getSystem('inventory').getStashItems().some((x) => x.defId === 'wpn_ar23_g3');
+    const bagHasAr3 = i.getAllItems().some((x) => x.defId === 'wpn_ar23_g3');
+    return { r, primary: l.primary?.defId, primary2: l.primary2?.defId ?? null, secondary: l.secondary?.defId, armor: l.armor?.defId ?? null, implant: ctx.implants?.equipped, stashHasAr3, bagHasAr3, arSomewhere: i.getAllItems().some((x) => x.defId === 'wpn_ar23') || window.__game.getSystem('inventory').getStashItems().some((x) => x.defId === 'wpn_ar23') };
+  }, preset);
+  ok(applied.primary === 'wpn_smg37', `preset equipped the stash SMG as 주무기 I (${applied.primary})`);
+  ok(applied.primary2 === null && applied.r.missing.includes('wpn_does_not_exist'), `missing def empties 주무기 II and is reported (${JSON.stringify(applied.r.missing)})`);
+  ok(applied.secondary === 'wpn_p2', 'null entry leaves 보조무기 untouched');
+  ok(!preset.armor || applied.armor === preset.armor, `armor equipped from the stash (${applied.armor})`);
+  ok(applied.implant === 'dash', `implant applied through ctx.implants (${applied.implant})`);
+  ok(applied.arSomewhere && (applied.bagHasAr3 || applied.stashHasAr3), 'displaced weapons landed in the bag / stash');
+  ok(applied.r.equipped >= 3, `applyLoadout equipped ${applied.r.equipped}`);
+  const onMission = await page.evaluate(() => {
+    const ctx = window.__game.ctx;
+    const was = ctx.phase; ctx.phase = 'playing';
+    const r = ctx.inventory.applyLoadout({ name: 't', primary: 'wpn_ar23', primary2: null, secondary: null, bag: null, armor: null, implant: null });
+    const p = ctx.inventory.getLoadout().primary?.defId;
+    ctx.phase = was;
+    return { r, p };
+  });
+  ok(onMission.r.equipped === 0 && onMission.r.missing.length === 0 && onMission.p === 'wpn_smg37', 'applyLoadout is a no-op outside the hub');
+
+  /* ── 5. bench crafting ───────────────────────────────────────────── */
+  console.log('openBenchCraft');
+  await page.evaluate(() => {
+    const ctx = window.__game.ctx;
+    ctx.inventory.updateItem(ctx.inventory.getLoadout().primary.uid, { durability: 50 });
+    // skill-gated recipes stay hidden (locked or not): max the crafting skill so the level-3 rows can show as locked
+    const p = ctx.progression;
+    if (p && typeof p.addSkillXpRaw === 'function') p.addSkillXpRaw('crafting', 1e6);
+  });
+  await page.evaluate(() => window.__game.ctx.inventory.openBenchCraft('gun', 2));
+  await sleep(250);
+  const bench = await page.evaluate(() => {
+    const ctx = window.__game.ctx, i = ctx.inventory;
+    const panel = document.querySelector('.inv-panel-craft');
+    const rows = [...panel.querySelectorAll('.inv-craft-row')].map((r) => ({ id: r.dataset.recipe, locked: r.classList.contains('is-bench-locked') }));
+    const all = ctx.loot.getAllRecipes();
+    const expectOpen = i.getRecipes('ship', 'gun', 2).map((r) => r.id);
+    const skill = (id) => ctx.progression?.getSkill(id) ?? 0;
+    const expectLocked = all.filter((r) => r.station === 'ship' && r.bench === 'gun' && (r.benchLevel ?? 1) > 2 && skill(r.skill) >= r.skillRequired).map((r) => r.id);
+    return {
+      open: i.isOpen, hidden: panel.hidden, blockers: [...ctx.uiBlockers], title: panel.querySelector('.inv-title').textContent,
+      rows, expectOpen, expectLocked, lockTags: panel.querySelectorAll('.inv-craft-locktag').length,
+      repairShown: !panel.querySelector('.inv-craft-repair').hidden,
+      repairRows: [...panel.querySelectorAll('.inv-repair-row')].map((r) => ({ uid: r.dataset.uid, slot: r.querySelector('.inv-repair-slot').textContent, cost: r.querySelector('.inv-repair-cost').textContent, btn: !r.querySelector('.inv-repair-btn').disabled })),
+      anyGunRecipes: all.some((r) => r.bench === 'gun'),
+    };
+  });
+  ok(bench.open && !bench.hidden && bench.blockers.includes('inventory'), 'openBenchCraft opens the window + craft panel with the inventory blocker');
+  ok(bench.title === '총기 작업대 Lv.2', `title '${bench.title}'`);
+  ok((await lastEv('ui:craftToggled'))?.open === true, 'ui:craftToggled {open:true}');
+  const openIds = bench.rows.filter((r) => !r.locked).map((r) => r.id), lockedIds = bench.rows.filter((r) => r.locked).map((r) => r.id);
+  ok(openIds.length === bench.expectOpen.length && bench.expectOpen.every((id) => openIds.includes(id)), `${openIds.length} craftable rows = getRecipes('ship','gun',2)`);
+  ok(lockedIds.length === bench.expectLocked.length && bench.expectLocked.every((id) => lockedIds.includes(id)) && bench.lockTags === lockedIds.length, `${lockedIds.length} locked level-3 rows (${lockedIds.join(', ') || 'none defined yet'})`);
+  ok(!openIds.some((id) => bench.expectLocked.includes(id)), 'no level-3 recipe is craftable at level 2');
+  ok(bench.repairShown && bench.repairRows.length >= 3, `repair list shows the owned weapons (${bench.repairRows.length})`);
+  const worn = bench.repairRows.find((r) => r.slot === '주무기 I');
+  ok(worn && /폐금속|합금/.test(worn.cost), `worn 주무기 I lists its material cost (${worn?.cost})`);
+  // cost multiplier: stub a workshop discount and check the chips + consumption
+  const discount = await page.evaluate(() => {
+    const ctx = window.__game.ctx, i = ctx.inventory;
+    const h = ctx.housing; const orig = h.getCraftCostMul;
+    h.getCraftCostMul = () => 0.8;
+    const r = ctx.loot.getAllRecipes().find((x) => x.inputs.some((in_) => in_.qty >= 5)) ?? ctx.loot.getAllRecipes()[0];
+    const sys = window.__game.getSystem('inventory');
+    const cost = sys.craftCost(r);
+    const expect = r.inputs.map((in_) => Math.max(1, Math.ceil(in_.qty * 0.8)));
+    window.__game.getSystem('inventory')['ui'].refreshCraft();
+    const chip = document.querySelector('.inv-craft-discount');
+    const out = { id: r.id, cost: cost.map((c) => c.qty), expect, chip: chip && !chip.hidden ? chip.textContent : null };
+    h.getCraftCostMul = orig;
+    return out;
+  });
+  ok(JSON.stringify(discount.cost) === JSON.stringify(discount.expect), `craft cost ×0.8 ceil (${discount.id}: ${discount.cost.join('/')})`);
+  ok(discount.chip === '작업실 할인 −20 %', `discount chip '${discount.chip}'`);
+  // repair through the list
+  const repaired = await page.evaluate(() => {
+    const ctx = window.__game.ctx, i = ctx.inventory;
+    i.tryAddItem(ctx.loot.createItem('mat_scrap', 10));
+    i.tryAddItem(ctx.loot.createItem('mat_alloy', 5));
+    window.__game.getSystem('inventory')['ui'].refreshCraft();
+    const row = [...document.querySelectorAll('.inv-repair-row')].find((r) => r.querySelector('.inv-repair-slot').textContent === '주무기 I');
+    const btn = row.querySelector('.inv-repair-btn');
+    const enabled = !btn.disabled;
+    btn.click();
+    const d = i.getDurability(i.getLoadout().primary.uid);
+    return { enabled, d, msg: document.querySelector('.inv-repair-msg')?.textContent };
+  });
+  ok(repaired.enabled && repaired.d.durability === repaired.d.max, `수리 button repaired 주무기 I to ${repaired.d.durability}/${repaired.d.max} (${repaired.msg})`);
+  // gear bench lists armor + bags only, gadget bench has no repair list
+  const gear = await page.evaluate(() => {
+    const i = window.__game.ctx.inventory;
+    i.openBenchCraft('gear', 1);
+    window.__game.getSystem('inventory')['ui'].refreshCraft();
+    const t1 = document.querySelector('.inv-panel-craft .inv-title').textContent;
+    const rows = [...document.querySelectorAll('.inv-repair-row')].map((r) => r.querySelector('.inv-repair-name').textContent);
+    i.openBenchCraft('gadget', 1);
+    window.__game.getSystem('inventory')['ui'].refreshCraft();
+    const t2 = document.querySelector('.inv-panel-craft .inv-title').textContent;
+    const repairHidden = document.querySelector('.inv-craft-repair').hidden;
+    return { t1, rows, t2, repairHidden };
+  });
+  ok(gear.t1 === '장비 작업대 Lv.1' && !gear.rows.some((n) => /AR|SMG|P-2/.test(n)), `gear bench repair list has no weapons (${gear.rows.join(', ') || 'empty'})`);
+  ok(gear.t2 === '가젯 작업대 Lv.1' && gear.repairHidden, 'gadget bench has no repair list');
+  // 닫기 leaves bench mode, window stays; Esc closes the window
+  await page.evaluate(() => document.querySelector('.inv-craft-close').click());
+  await sleep(100);
+  const closed = await page.evaluate(() => ({ bench: window.__game.getSystem('inventory').getBench(), panel: document.querySelector('.inv-panel-craft').hidden, open: window.__game.ctx.inventory.isOpen }));
+  ok(closed.bench === null && closed.panel && closed.open, '닫기 leaves bench mode (panel hidden, window open)');
+  ok((await lastEv('ui:craftToggled'))?.open === false, 'ui:craftToggled {open:false}');
+  await tap('Escape');
+  await waitFor(page, () => !window.__game.ctx.inventory.isOpen, 'closed (bench)');
+  // outside the hub the bench refuses
+  const benchMission = await page.evaluate(() => { const ctx = window.__game.ctx; const was = ctx.phase; ctx.phase = 'playing'; ctx.inventory.openBenchCraft('gun', 1); const r = { open: ctx.inventory.isOpen, bench: window.__game.getSystem('inventory').getBench() }; ctx.phase = was; return r; });
+  ok(!benchMission.open && benchMission.bench === null, 'openBenchCraft is refused outside the hub');
+
+  /* ── 6. reload keeps the stash size; catalog on a mission ─────────── */
+  console.log('reload / mission');
+  await page.goto(BASE, { waitUntil: 'load' });
+  await waitFor(page, () => !!window.__game && !!window.__game.ctx.inventory, 'boot (reload)');
+  await install();
+  const sizeAfter = await page.evaluate(() => window.__game.ctx.inventory.getStashSize());
+  ok(sizeAfter.cols === 10 && sizeAfter.rows === 30, `stash size survived the reload (${sizeAfter.cols}×${sizeAfter.rows})`);
+  await page.evaluate(() => window.__game.ctx.bus.emit('game:newMission', { seed: 7 }));
+  await waitFor(page, () => window.__game.ctx.phase === 'playing', 'playing', 40000);
+  await waitFor(page, () => !window.__game.ctx.player.isDropping, 'hellpod exit', 20000);
+  await waitSim(0.3);
+  await page.evaluate(() => window.__game.ctx.inventory.openCatalog());
+  await sleep(250);
+  const mission = await page.evaluate(() => {
+    const root = document.querySelector('.inv-root');
+    return { open: window.__game.ctx.inventory.isOpen, catalog: window.__game.ctx.inventory.isCatalogOpen, hub: root.classList.contains('is-hub'), stashHidden: root.querySelector('.inv-panel-stash').hidden, panel: !root.querySelector('.inv-panel-catalog').hidden, blockers: [...window.__game.ctx.uiBlockers] };
+  });
+  ok(mission.open && mission.catalog && mission.panel && !mission.hub && mission.stashHidden, 'catalog opens on a mission (bag window, no stash)');
+  const take = await page.evaluate(() => { const r = window.__game.getSystem('inventory').takeFromCatalog('grenade_frag'); return { r, n: window.__game.ctx.inventory.countWhere((d) => d.id === 'grenade_frag') }; });
+  ok(take.r === 'ok' && take.n >= 4, `takeFromCatalog on a mission (grenades ${take.n})`);
+  await page.evaluate(() => window.__game.ctx.inventory.closeCatalog());
+  const partial = await page.evaluate(() => ({ open: window.__game.ctx.inventory.isOpen, catalog: window.__game.ctx.inventory.isCatalogOpen, panel: !document.querySelector('.inv-panel-catalog').hidden }));
+  ok(partial.open && !partial.catalog && !partial.panel, 'closeCatalog hides only the catalog panel');
+  await tap('Escape');
+  await waitFor(page, () => !window.__game.ctx.inventory.isOpen, 'closed (mission)');
+} catch (e) {
+  fail++;
+  console.log(`  FAIL exception: ${e && e.stack ? e.stack : e}`);
+} finally {
+  await browser.close();
+}
+const errs = errors.filter((e) => !/favicon|ERR_CONNECTION_REFUSED|WebSocket/.test(e));
+ok(errs.length === 0, `no console errors (${errs.length})`, errs.slice(0, 3).join(' | '));
+console.log(`\n${pass} passed, ${fail} failed`);
+process.exit(fail ? 1 : 0);

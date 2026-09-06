@@ -33,12 +33,15 @@ export class BoxInteriorCollider implements InteriorCollider {
 
   /** Solid box by min/max corners. Returns the blocker index (see `setBlockerEnabled`). */
   addBlocker(minX: number, minY: number, minZ: number, maxX: number, maxY: number, maxZ: number): number {
-    this.blockers.push({
+    const b: Blocker = {
       minX: Math.min(minX, maxX), maxX: Math.max(minX, maxX),
       minY: Math.min(minY, maxY), maxY: Math.max(minY, maxY),
       minZ: Math.min(minZ, maxZ), maxZ: Math.max(minZ, maxZ),
       enabled: true,
-    });
+    };
+    const reuse = this.free.pop();
+    if (reuse !== undefined) { this.blockers[reuse] = b; return reuse; }   // bounds unchanged: furniture sits inside a room
+    this.blockers.push(b);
     this.refreshBounds();
     return this.blockers.length - 1;
   }
@@ -53,6 +56,20 @@ export class BoxInteriorCollider implements InteriorCollider {
     const b = this.blockers[index];
     if (b) b.enabled = enabled;
   }
+
+  /**
+   * Remove a dynamic blocker (placed furniture). The slot is disabled and recycled by the next `addBlocker`, so
+   * indices handed out earlier stay valid.
+   */
+  removeBlocker(index: number): void {
+    const b = this.blockers[index];
+    if (!b) return;
+    b.enabled = false;
+    b.minX = b.maxX = b.minY = b.maxY = b.minZ = b.maxZ = 0;
+    this.free.push(index);
+  }
+
+  private free: number[] = [];
 
   private refreshBounds(): void {
     let minX = Infinity, minY = Infinity, minZ = Infinity, maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;

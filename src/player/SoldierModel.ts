@@ -49,6 +49,15 @@ export interface SoldierPose {
   throw: number;
   /** consumable in the right hand 0..1: one-handed, right forearm raised in front of the chest, left arm free (Phase 2) */
   holdItem: number;
+  /* ── appended: unique weapons (2026-09-06) — all optional, remote avatars leave them undefined ── */
+  /** 1 while `melee` is the 용검 big slash: two-handed wide horizontal sweep (wind-up right, swing across to the left) instead of the chop */
+  meleeHeavy?: number;
+  /** braced charge stance 0..1 (shockgun RMB / minigun spin-up): weight low, elbows tucked, leaning into the gun */
+  charging?: number;
+  /** continuous hip spray 0..1 (flamethrower / arc): gun held low at the hip, a little lean back, arms jittering */
+  spraying?: number;
+  /** heavy hip carry 0..1 (bazooka / minigun): right hand on the rear grip at the hip, left arm forward under the barrel, no ADS */
+  heavyCarry?: number;
 }
 
 interface Limb {
@@ -352,6 +361,16 @@ export class SoldierModel {
     // melee: 0..0.3 windup (arm cocked back), 0.3..0.62 chop, then recovery. `melW` fades the whole thing in/out.
     const melChop = mel > 0.3 ? Math.min(1, (mel - 0.3) / 0.32) : 0;
     const melW = mel > 0.001 ? Math.sin(Math.PI * Math.min(1, mel)) : 0;
+    // 용검 big slash: the same progress drives a two-handed horizontal sweep — wind-up to the right (0..0.32),
+    // sweep across the body to the left (0.32..0.7), then recover. `hvy` selects it over the chop.
+    const hvy = mel > 0.001 ? THREE.MathUtils.clamp(p.meleeHeavy ?? 0, 0, 1) : 0;
+    const slashSweep = mel > 0.32 ? Math.min(1, (mel - 0.32) / 0.38) : 0;
+    const slashS = slashSweep * slashSweep * (3 - 2 * slashSweep);   // smoothstep so the blade accelerates through the arc
+    // unique weapon stances (weapon in hand, upright only)
+    const upright = 1 - Math.min(1, THREE.MathUtils.clamp(p.prone, 0, 1) + THREE.MathUtils.clamp(p.dive, 0, 1));
+    const chg = (p.hasWeapon ? THREE.MathUtils.clamp(p.charging ?? 0, 0, 1) : 0) * upright;
+    const spr = (p.hasWeapon ? THREE.MathUtils.clamp(p.spraying ?? 0, 0, 1) : 0) * upright;
+    const hvc = (p.hasWeapon ? THREE.MathUtils.clamp(p.heavyCarry ?? 0, 0, 1) : 0) * upright;
     const lie = Math.min(1, pr + dv);
     const dvW = lie > 0.001 ? dv / (pr + dv) : 0;      // fraction of the lying pose that is the dive
     const crawl = Math.min(1, p.moveBlend * 3) * pr * ground; // crawl cycle strength (prone speed ≈ 0.3 walk)
@@ -366,6 +385,8 @@ export class SoldierModel {
     // lying: pelvis just above the ground (prone) or mid-air around the feet point (dive)
     const lieHipY = lerp(0.27, 0.55, dvW);
     let targetHipY = lerp(standHipY, lieHipY, lie);
+    // braced charge / heavy slash: weight drops a little
+    targetHipY -= 0.07 * chg + 0.05 * hvc + 0.09 * melW * hvy;
     // roll: pull the pelvis into a ball around the tumble pivot
     if (rollB > 0.001) targetHipY = lerp(targetHipY, 0.5, rollB);
     this.hips.position.y = damp(this.hips.position.y, targetHipY, lie > 0.01 ? 10 : 20, dt);
@@ -385,6 +406,9 @@ export class SoldierModel {
     let kneeL = -kneeAmt * Math.max(0, Math.cos(phi + Math.PI));
     // crouch
     thighR += 1.05 * cr; thighL += 1.0 * cr; kneeR -= 1.55 * cr; kneeL -= 1.5 * cr;
+    // braced stance / heavy carry: knees bent a touch; the big slash plants the legs wide and low
+    const brace = 0.35 * chg + 0.22 * hvc + 0.4 * melW * hvy;
+    thighR += brace; thighL += brace * 0.9; kneeR -= brace * 1.4; kneeL -= brace * 1.3;
     // airborne tuck
     const up = THREE.MathUtils.clamp(p.verticalVel / 8, -1, 1);
     thighR += air * (0.55 + 0.2 * up); thighL += air * (-0.15 + 0.1 * up);
@@ -418,11 +442,15 @@ export class SoldierModel {
     const lieLean = lerp(0.35 + THREE.MathUtils.clamp(p.aimPitch, -0.5, 0.8) * 0.35, 0.1, dvW) + breathe * 0.01;
     // throw wind-up: lean back a touch and twist the shoulders to the right (the arm goes back over the shoulder)
     let lean = lerp(standLean, lieLean, lie) + 0.14 * th;
+    // braced charge leans into the gun; spray / heavy carry lean back against the weight
+    lean += 0.14 * chg - 0.06 * spr - 0.09 * hvc;
     if (hov > 0.001) lean = lerp(lean, -0.12, hov);
     if (rollB > 0.001) lean = lerp(lean, 0.9, rollB);      // curl into the tumble
     const twist = THREE.MathUtils.clamp(p.torsoTwist, -0.6, 0.6) * (1 - aim) * (1 - 0.6 * lie) - 0.38 * th;
-    // the chop drags the shoulders around with it
-    const meleeTwist = melW * (0.35 - 0.85 * melChop);
+    // the chop drags the shoulders around with it; the big slash winds the shoulders far right and whips them left
+    const chopTwist = melW * (0.35 - 0.85 * melChop);
+    const slashTwist = melW * lerp(0.75, -0.95, slashS);
+    const meleeTwist = lerp(chopTwist, slashTwist, hvy);
     this.j(this.torso, lean, twist + meleeTwist, -hipRoll * 0.5 * (1 - lie), dt, mel > 0.001 ? 22 : 14);
     this.chestMesh.scale.y = 1 + breathe * 0.012;
 
@@ -469,6 +497,28 @@ export class SoldierModel {
       rUx += p.recoil * 0.14; lUx += p.recoil * 0.12;
       // sprint: pump the rifle up
       if (!p.reloading) { rUx -= 0.1 * sp * mv * (1 - aim); }
+      // ── unique weapon stances (blend over hip / ADS, never while reloading)
+      if (!p.reloading) {
+        if (chg > 0.001) {
+          // braced: both elbows tucked in, gun pulled tight against the shoulder, following the aim pitch
+          const cRUx = 1.35 + pitchArm * 0.6, cRL = 0.7, cLUx = 1.25 + pitchArm * 0.6, cLUz = 0.3, cLL = 1.15;
+          rUx = lerp(rUx, cRUx, chg); rUz = lerp(rUz, -0.05, chg); rL = lerp(rL, cRL, chg);
+          lUx = lerp(lUx, cLUx, chg); lUz = lerp(lUz, cLUz, chg); lL = lerp(lL, cLL, chg);
+        }
+        if (spr > 0.001) {
+          // hip spray: gun low at the hip, left hand forward on the fore-grip, a fast tremble on both arms
+          const jit = Math.sin(time * 31) * 0.03 + Math.sin(time * 47) * 0.02;
+          const sRUx = 0.75 + pitchArm * 0.4 + jit, sRL = 1.0, sLUx = 1.05 + pitchArm * 0.4 - jit, sLUz = 0.4, sLL = 1.05;
+          rUx = lerp(rUx, sRUx, spr); rUz = lerp(rUz, -0.15, spr); rL = lerp(rL, sRL, spr);
+          lUx = lerp(lUx, sLUx, spr); lUz = lerp(lUz, sLUz, spr); lL = lerp(lL, sLL, spr);
+        }
+        if (hvc > 0.001) {
+          // heavy carry: right hand on the rear grip at the hip, left arm stretched forward under the barrel
+          const hRUx = 0.45 + pitchArm * 0.3, hRL = 0.95, hLUx = 1.15 + pitchArm * 0.5, hLUz = 0.5, hLL = 0.75;
+          rUx = lerp(rUx, hRUx, hvc); rUz = lerp(rUz, -0.2, hvc); rL = lerp(rL, hRL, hvc);
+          lUx = lerp(lUx, hLUx, hvc); lUz = lerp(lUz, hLUz, hvc); lL = lerp(lL, hLL, hvc);
+        }
+      }
     }
     rUx += p.flinch * -0.3; lUx += p.flinch * -0.3;
     if (hi > 0.001) {
@@ -510,12 +560,21 @@ export class SoldierModel {
       rUx = lerp(rUx, 2.35, rollB); rUz = lerp(rUz, -0.35, rollB); rL = lerp(rL, 2.1, rollB);
       lUx = lerp(lUx, 2.35, rollB); lUz = lerp(lUz, 0.35, rollB); lL = lerp(lL, 2.1, rollB);
     }
-    if (melW > 0.001) {
+    if (melW > 0.001 && hvy < 0.999) {
       // right arm cocks back over the shoulder and chops down across the body
-      rUx = lerp(rUx, lerp(-0.75, 2.25, melChop), melW);
-      rUz = lerp(rUz, lerp(-0.7, 0.35, melChop), melW);
-      rL = lerp(rL, lerp(1.6, 0.25, melChop), melW);
-      lUx = lerp(lUx, lerp(0.5, 0.15, melChop), melW * 0.7);
+      const w = melW * (1 - hvy);
+      rUx = lerp(rUx, lerp(-0.75, 2.25, melChop), w);
+      rUz = lerp(rUz, lerp(-0.7, 0.35, melChop), w);
+      rL = lerp(rL, lerp(1.6, 0.25, melChop), w);
+      lUx = lerp(lUx, lerp(0.5, 0.15, melChop), w * 0.7);
+    }
+    if (melW > 0.001 && hvy > 0.001) {
+      // 용검: both arms straight out at chest height gripping the hilt; the sweep carries them from far right
+      // (rUz swung outward, lUz across the chest) to far left with the elbows nearly locked
+      const w = melW * hvy;
+      const armX = Math.PI / 2 - 0.15 + p.aimPitch * 0.5;
+      rUx = lerp(rUx, armX + 0.1 * slashS, w); rUz = lerp(rUz, lerp(-1.05, 0.55, slashS), w); rL = lerp(rL, lerp(0.55, 0.15, slashS), w);
+      lUx = lerp(lUx, armX - 0.05, w); lUz = lerp(lUz, lerp(-0.35, 1.15, slashS), w); lL = lerp(lL, lerp(0.35, 0.7, slashS), w);
     }
     if (dwn > 0.001) {
       rUx = lerp(rUx, 1.35, dwn); rUz = lerp(rUz, -0.55, dwn); rL = lerp(rL, 0.2, dwn);

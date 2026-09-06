@@ -128,21 +128,25 @@ export class GridView {
     this.grid = grid;
     this.lastVersion = -1;
     if (!grid) { this.clearTiles(); return; }
-    const dims = `${grid.cols}x${grid.rows}`;
-    if (dims !== this.dims) {
-      this.dims = dims;
-      this.el.style.setProperty('--cols', String(grid.cols));
-      this.el.style.setProperty('--rows', String(grid.rows));
-      this.el.style.width = `${grid.cols * STEP - 2}px`;
-      this.el.style.height = `${grid.rows * STEP - 2}px`;
-      this.cellsEl.innerHTML = '';
-      for (let i = 0; i < grid.cols * grid.rows; i++) {
-        const c = document.createElement('div');
-        c.className = 'inv-cell';
-        this.cellsEl.appendChild(c);
-      }
-    }
+    this.syncDims(grid);
     this.refresh(true);
+  }
+
+  /** Rebuild the cell layer when the grid dimensions changed (bag swap, stash resize). */
+  private syncDims(grid: Grid): void {
+    const dims = `${grid.cols}x${grid.rows}`;
+    if (dims === this.dims) return;
+    this.dims = dims;
+    this.el.style.setProperty('--cols', String(grid.cols));
+    this.el.style.setProperty('--rows', String(grid.rows));
+    this.el.style.width = `${grid.cols * STEP - 2}px`;
+    this.el.style.height = `${grid.rows * STEP - 2}px`;
+    this.cellsEl.innerHTML = '';
+    for (let i = 0; i < grid.cols * grid.rows; i++) {
+      const c = document.createElement('div');
+      c.className = 'inv-cell';
+      this.cellsEl.appendChild(c);
+    }
   }
 
   refresh(force = false): void {
@@ -150,6 +154,7 @@ export class GridView {
     if (!grid) return;
     if (!force && grid.version === this.lastVersion) return;
     this.lastVersion = grid.version;
+    this.syncDims(grid);
 
     const seen = new Set<string>();
     for (const p of grid.items()) {

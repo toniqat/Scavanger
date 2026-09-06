@@ -13,6 +13,11 @@ export interface CharacterSheetHost {
   getStat(id: StatId): number;
   getSkill(id: SkillId): number;
   getSkillProgress(id: SkillId): number;
+  /** Stat XP (2026-09-06): 0..1 toward the next point, and the raw XP that point costs. */
+  getStatProgress(id: StatId): number;
+  statXpToNext(id: StatId): number;
+  /** Ship-facility skill-gain multiplier (사격장); 1 when nothing applies. */
+  getSkillGainMul(id: SkillId): number;
   getAllStatDefs(): readonly StatDef[];
   getAllSkillDefs(): readonly SkillDef[];
   spendStatPoint(id: StatId): boolean;
@@ -40,8 +45,8 @@ const pct = (v: number): string => `${Math.round(v * 100)} %`;
 const mul = (v: number): string => `×${v.toFixed(2)}`;
 const dist = (v: number): string => `${v.toFixed(1)} m`;
 
-interface StatRow { root: HTMLElement; value: HTMLElement; plus: HTMLButtonElement }
-interface SkillRow { root: HTMLElement; level: HTMLElement; fill: HTMLElement }
+interface StatRow { root: HTMLElement; value: HTMLElement; plus: HTMLButtonElement; fill: HTMLElement; xp: HTMLElement }
+interface SkillRow { root: HTMLElement; level: HTMLElement; fill: HTMLElement; bonus: HTMLElement }
 
 /**
  * 캐릭터 시트 (`.menu.char-sheet`): level + XP bar, the five stats with a `＋` button that only works in the ship,
@@ -205,10 +210,9 @@ export class CharacterSheet {
 
     for (const [id, row] of this.statRows) {
       const v = host.getStat(id);
-      setText(row.value, String(v));
       const canSpend = !inRaid && pts > 0 && v < STAT_MAX;
       row.plus.disabled = !canSpend;
-      row.root.classList.toggle('maxed', v >= STAT_MAX);
+      this.refreshStat(id);
     }
 
     for (const id of this.skillRows.keys()) this.refreshSkill(id);
@@ -231,6 +235,26 @@ export class CharacterSheet {
     const p = lv >= SKILL_LEVEL_MAX ? 1 : Math.min(1, Math.max(0, this.host.getSkillProgress(id)));
     row.fill.style.transform = `scaleX(${p.toFixed(4)})`;
     row.root.classList.toggle('maxed', lv >= SKILL_LEVEL_MAX);
+    // 사격장 etc. — only shown when a facility actually boosts this skill.
+    const bonus = this.host.getSkillGainMul(id);
+    const hasBonus = Number.isFinite(bonus) && Math.abs(bonus - 1) > 1e-6;
+    row.bonus.hidden = !hasBonus;
+    setText(row.bonus, hasBonus ? `시설 ×${bonus.toFixed(2)}` : '');
+  }
+
+  /** Cheap partial update for a single stat row (value, stat-XP bar and `xp/next` readout). */
+  refreshStat(id: StatId): void {
+    if (!this._open) return;
+    const row = this.statRows.get(id);
+    if (!row) return;
+    const v = this.host.getStat(id);
+    setText(row.value, String(v));
+    const maxed = v >= STAT_MAX;
+    const need = Math.max(1, this.host.statXpToNext(id));
+    const p = Math.min(1, Math.max(0, this.host.getStatProgress(id)));
+    row.fill.style.transform = `scaleX(${(maxed ? 1 : p).toFixed(4)})`;
+    setText(row.xp, maxed ? '최대' : `${Math.floor(p * need)} / ${need} XP`);
+    row.root.classList.toggle('maxed', maxed);
   }
 
   /* ── builders ─────────────────────────────────────────────────────────── */
@@ -239,6 +263,11 @@ export class CharacterSheet {
     const txt = el('div', { cls: 't', parent: row });
     el('div', { cls: 'n', text: def.name, parent: txt });
     el('div', { cls: 'd', text: def.description, parent: txt });
+    // Stat XP (2026-09-06): progress bar + `xp / next XP` under the description.
+    const prog = el('div', { cls: 'sp', parent: txt });
+    const bar = el('div', { cls: 'bar', parent: prog });
+    const fill = el('i', { parent: bar });
+    const xp = el('div', { cls: 'xp ui-mono', text: '', parent: prog });
     const value = el('div', { cls: 'v ui-mono', text: '0', parent: row });
     const plus = el('button', { cls: 'ui-btn plus', text: '＋', parent: row });
     plus.addEventListener('click', (e) => {
@@ -248,17 +277,19 @@ export class CharacterSheet {
         this.refresh();
       }
     });
-    this.statRows.set(def.id, { root: row, value, plus });
+    this.statRows.set(def.id, { root: row, value, plus, fill, xp });
   }
 
   private buildSkillRow(parent: HTMLElement, def: SkillDef): void {
     const row = el('div', { cls: 'cs-skill', parent, attrs: { title: def.description } });
     const head = el('div', { cls: 'h', parent: row });
     el('div', { cls: 'n', text: def.name, parent: head });
+    const bonus = el('div', { cls: 'bonus', text: '', parent: head });
+    bonus.hidden = true;
     const level = el('div', { cls: 'lv ui-mono', text: '0', parent: head });
     const bar = el('div', { cls: 'bar', parent: row });
     const fill = el('i', { parent: bar });
-    this.skillRows.set(def.id, { root: row, level, fill });
+    this.skillRows.set(def.id, { root: row, level, fill, bonus });
   }
 
   private button(parent: HTMLElement, label: string, onClick: () => void, extraCls = ''): HTMLButtonElement {

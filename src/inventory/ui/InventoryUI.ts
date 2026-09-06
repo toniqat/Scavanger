@@ -5,6 +5,7 @@ import { ITEM_DEF_MAP, getWeaponDef } from '@/items';
 import type { Container } from '../Container';
 import { LOADOUT_SLOTS, isArmorDef, isAttachmentDef, isBagDef, isWeaponDef, type DropTarget, type GridId, type InventorySystem, type ItemLocation, type SlotId } from '../InventorySystem';
 import { CraftPanel } from './CraftPanel';
+import { CatalogView } from './CatalogView';
 import { filledSocketCount } from '../Sockets';
 import { isQuickUsable } from '../QuickSlots';
 import { GridView, buildTileContent, type HighlightState } from './GridView';
@@ -15,6 +16,8 @@ import { QUICK_DIR_GLYPH, QUICK_ROSE_ORDER, SLOT_LABEL, STEP, TEXT, fmtValue, sl
 
 const DRAG_THRESHOLD = 4; // px before a press becomes a drag
 const MIDDLE_BUTTON = 1;
+/** Two presses on the same catalog tile within this window = 가방에 넣기. */
+const CATALOG_DBL_MS = 400;
 const BAG_LOC: ItemLocation = { kind: 'grid', grid: 'bag' };
 const LOCK_SVG = '<svg viewBox="0 0 12 14" aria-hidden="true"><rect x="1.5" y="6" width="9" height="7" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M3.5 6V4a2.5 2.5 0 0 1 5 0v2" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>';
 
@@ -35,6 +38,8 @@ interface DragState {
   quickFrom: number | null;
   /** Units carried by a Shift (half) / Ctrl (one) drag; null = the whole item. */
   qty: number | null;
+  /** Phase 6: the item is a fresh catalog instance (lives in no grid; `from` is a placeholder). */
+  catalog: boolean;
   rotated: boolean;
   started: boolean;
   startX: number;
@@ -93,6 +98,8 @@ export class InventoryUI {
   private slots = new Map<SlotId, SlotView>();
   /* appended: tactical kit */
   private craftPanel!: CraftPanel;
+  /* Phase 6: 무한 상자 */
+  private catalogView!: CatalogView;
   private weightEl!: HTMLElement;
   private weightValue!: HTMLElement;
   private weightState!: HTMLElement;
@@ -283,7 +290,18 @@ export class InventoryUI {
     eq.appendChild(eqGrid);
     eq.appendChild(this.buildImplantSlot());
 
-    layout.append(sPanel, cPanel, eq, bPanel, this.craftPanel.el);
+    /* 무한 상자 (Phase 6): leftmost panel, shown only while the catalog is open */
+    this.catalogView = new CatalogView(this.sys, getDef, {
+      onPointerDown: (def, sample, e, tile) => this.beginCatalogPress(def, sample, e, tile),
+      onEnter: (def, sample, e) => { if (!this.drag?.started) this.tooltip.show(sample, def, e.clientX, e.clientY); },
+      onMove: (e) => this.tooltip.move(e.clientX, e.clientY),
+      onLeave: () => this.tooltip.hide(),
+      // double presses are detected in `beginCatalogPress`; a native dblclick that still arrives is ignored there
+      onDblClick: () => { /* handled by the press timing */ },
+      onClose: () => { this.sys.sfx('ui_drop'); this.sys.closeCatalog(); },
+    });
+
+    layout.append(this.catalogView.el, sPanel, cPanel, eq, bPanel, this.craftPanel.el);
 
     /* hints (mission only; the ship screen has nothing to throw away and its keys are on the slots) */
     this.hintsEl = document.createElement('div');
@@ -375,6 +393,7 @@ export class InventoryUI {
     }
     this.stashView.setGrid(hub ? this.sys.getStash() : null);
     this.bagView.setGrid(this.sys.getGrid('bag'));
+    this.catalogView.setOpen(this.sys.isCatalogOpen);
     this.root.hidden = false;
     this.visible = true;
     this.refresh();
@@ -402,6 +421,8 @@ export class InventoryUI {
     this.containerView.dispose();
     this.stashView.dispose();
     this.bagView.dispose();
+    this.catalogView?.dispose();
+    this.craftPanel?.dispose();
     this.tooltip.dispose();
     this.root?.remove();
     this.root = null;
@@ -463,14 +484,103 @@ export class InventoryUI {
 
   toggleCraft(): void {
     const open = !this.craftPanel.isOpen;
-    this.craftPanel.setOpen(open);
+    if (!open && this.sys.getBench()) this.sys.closeBench(); // bench mode: closing the panel leaves the bench
+    else this.craftPanel.setOpen(open);
     this.sys.sfx('ui_pickup');
+  }
+
+  /** System-driven craft panel visibility (`openBenchCraft` / `closeBench`). */
+  setCraftOpen(open: boolean): void {
+    this.craftPanel.setOpen(open);
+    if (open) this.craftPanel.refresh();
   }
 
   /** Repaint the craft rows (progress / counts) without rebuilding the rest of the window. */
   refreshCraft(): void {
     if (!this.root || this.root.hidden) return;
     this.craftPanel.refresh();
+  }
+
+  /* ── Phase 6: 무한 상자 ─────────────────────────────────────────────── */
+
+  /** Show / hide the catalog panel (system state lives in `InventorySystem.isCatalogOpen`). */
+  setCatalog(open: boolean): void {
+    this.catalogView.setOpen(open);
+    if (!open && this.drag?.catalog) this.cancelDrag();
+    if (!open) this.tooltip.hide();
+  }
+
+  /** Catalog panel (smoke tests / tab & search control). */
+  get catalog(): CatalogView { return this.catalogView; }
+
+  /** Double-press on a catalog tile: a fresh instance straight into the bag. */
+  private catalogTake(def: ItemDef): void {
+    const r = this.sys.takeFromCatalog(def.id);
+    if (r === 'ok') this.sys.sfx('ui_pickup');
+    else { this.sys.sfx('ui_error'); this.catalogView.shake(def.id); this.ctx.bus.emit('ui:notify', { text: TEXT.catalog.bagFull, kind: 'warning', duration: 1.6 }); }
+  }
+
+  /** Last catalog press (double-press detection: a second press on the same tile within `CATALOG_DBL_MS` = 가방에 넣기). */
+  private lastCatalogPress: { defId: string; t: number } | null = null;
+
+  /**
+   * Press on a catalog tile: mint a fresh instance and drag it like any other item (the tile stays). A second press
+   * on the same tile within `CATALOG_DBL_MS` counts as the double-click (`takeFromCatalog`) — detected here because
+   * the cancelled pointerdown keeps Chrome from synthesising `dblclick` reliably.
+   */
+  private beginCatalogPress(def: ItemDef, sample: ItemInstance, e: PointerEvent, tileEl: HTMLElement): void {
+    if (this.drag || this.dialog.isOpen) return;
+    if (e.button !== 0) return;
+    e.preventDefault();
+    this.menu.close();
+    this.closePicker();
+    const now = performance.now();
+    const last = this.lastCatalogPress;
+    if (last && last.defId === def.id && now - last.t < CATALOG_DBL_MS) {
+      this.lastCatalogPress = null;
+      this.catalogTake(def);
+      return;
+    }
+    this.lastCatalogPress = { defId: def.id, t: now };
+    const item = this.sys.getLoot().createItem(def.id, sample.qty);
+    const r = tileEl.getBoundingClientRect();
+    // grab offset relative to the item's real footprint (the catalog tile is a uniform 2×2)
+    const { width, height } = tileSize(def.width, def.height);
+    this.drag = {
+      uid: item.uid, item, def, from: BAG_LOC, quickFrom: null, qty: null, catalog: true,
+      rotated: false,
+      started: false,
+      startX: e.clientX, startY: e.clientY,
+      grabX: Math.min(width * 0.5, e.clientX - r.left), grabY: Math.min(height * 0.5, e.clientY - r.top),
+      ghost: null, target: null,
+      lastX: e.clientX, lastY: e.clientY,
+    };
+    window.addEventListener('pointermove', this.onWindowMove);
+    window.addEventListener('pointerup', this.onWindowUp);
+    window.addEventListener('pointercancel', this.onWindowUp);
+  }
+
+  /** Drag targets of a catalog instance: equipment slots, then the active grids (never the wheel / sockets / world). */
+  private updateCatalogTarget(d: DragState, px: number, py: number): void {
+    for (const sv of this.slots.values()) {
+      const r = sv.body.getBoundingClientRect();
+      if (px >= r.left && px <= r.right && py >= r.top && py <= r.bottom) {
+        d.target = { kind: 'slot', slot: sv.slot };
+        const pv = this.sys.previewCatalog(d.item, d.target);
+        sv.el.classList.add(pv === 'bad' ? 'is-target-bad' : 'is-target-ok');
+        return;
+      }
+    }
+    const { w, h } = this.footprint(d);
+    const left = px - d.grabX, top = py - d.grabY;
+    for (const view of this.activeViews()) {
+      const cell = view.cellForGhost(left, top, w, h, px, py);
+      if (!cell) continue;
+      d.target = { kind: 'grid', grid: view.id, x: cell.x, y: cell.y, rotated: d.rotated };
+      const pv = this.sys.previewCatalog(d.item, d.target);
+      view.showHighlight(cell.x, cell.y, w, h, pv === 'bad' ? 'bad' : pv === 'swap' ? 'swap' : pv === 'merge' ? 'merge' : 'ok');
+      return;
+    }
   }
 
   /* ── implant slot (hub screen) ─────────────────────────────────────────── */
@@ -1070,6 +1180,7 @@ export class InventoryUI {
     if (this.dialog.isOpen) return;
     this.menu.close();
     const d = this.drag;
+    if (d?.catalog) { this.cancelDrag(); return; } // a catalog instance has nothing to throw away
     let uid: string, from: ItemLocation;
     if (d?.started) { uid = d.uid; from = d.from; }
     else if (this.hovered) { uid = this.hovered.uid; from = this.hovered.loc; }
@@ -1133,7 +1244,7 @@ export class InventoryUI {
     }
     const r = tileEl.getBoundingClientRect();
     this.drag = {
-      uid, item, def, from, quickFrom, qty,
+      uid, item, def, from, quickFrom, qty, catalog: false,
       rotated: item.rotated,
       started: false,
       startX: e.clientX, startY: e.clientY,
@@ -1150,6 +1261,13 @@ export class InventoryUI {
     d.started = true;
     this.tooltip.hide();
     this.root?.classList.add('is-dragging');
+    if (d.catalog) {
+      // catalog: the source tile stays as it is (infinite stock); no world drop, no wheel targets
+      this.root?.classList.add('is-catalog-drag');
+      this.rebuildGhost(d);
+      this.sys.sfx('ui_pickup');
+      return;
+    }
     // a stim / grenade from the bag (or a wheel cell): light the usable cells as targets
     if (isQuickUsable(d.def) && d.from.kind === 'grid' && d.from.grid === 'bag' && d.qty === null) this.root?.classList.add('is-quick-drag');
     if (d.quickFrom !== null) {
@@ -1216,6 +1334,8 @@ export class InventoryUI {
     this.clearSocketTarget();
     for (const c of this.quickCells) c.el.classList.remove('is-target-ok', 'is-target-bad', 'is-target-swap');
 
+    if (d.catalog) { this.updateCatalogTarget(d, px, py); return; }
+
     // quick-use wheel cells (any drag: non-usable items light red)
     const cell = this.quickCellAt(px, py);
     if (cell) {
@@ -1269,6 +1389,7 @@ export class InventoryUI {
   }
 
   private preview(d: DragState, target: DropTarget) {
+    if (d.catalog) return this.sys.previewCatalog(d.item, target);
     return d.qty !== null ? this.sys.previewPartial(d.uid, d.from, d.qty, target) : this.sys.previewDrop(d.uid, d.from, target);
   }
 
@@ -1324,6 +1445,15 @@ export class InventoryUI {
     if (!d.started) return; // plain click
     this.endDragVisuals(d);
 
+    // catalog instance: only a grid cell / slot takes it; anywhere else simply discards the fresh instance
+    if (d.catalog) {
+      if (!d.target) { this.sys.sfx('ui_error'); return; }
+      const r = this.sys.dropFromCatalog(d.item, d.target);
+      if (r === 'ok') this.sys.sfx(d.target.kind === 'grid' ? 'ui_drop' : 'ui_equip');
+      else if (r === 'fail') { this.sys.sfx('ui_error'); this.catalogView.shake(d.def.id); }
+      return;
+    }
+
     // dragged out of a wheel cell: another cell moves the assignment, anywhere else clears it (the item stays in the bag)
     if (d.quickFrom !== null && d.target?.kind !== 'quick') {
       this.result(this.sys.setQuickSlot(d.quickFrom, null) ? 'ok' : 'fail', 'ui_drop', d.from, d.uid);
@@ -1349,7 +1479,7 @@ export class InventoryUI {
   private endDragVisuals(d: DragState): void {
     d.ghost?.remove();
     d.ghost = null;
-    this.root?.classList.remove('is-dragging', 'is-quick-drag', 'is-quick-source');
+    this.root?.classList.remove('is-dragging', 'is-quick-drag', 'is-quick-source', 'is-catalog-drag');
     this.dropZone.classList.remove('is-hot');
     for (const c of this.quickCells) {
       c.el.classList.remove('is-target-ok', 'is-target-bad', 'is-target-swap');

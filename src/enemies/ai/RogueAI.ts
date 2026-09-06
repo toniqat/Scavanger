@@ -78,9 +78,16 @@ export function updateRogue(e: Enemy, dt: number, host: EnemyHost, t: CombatTarg
     }
     case 'stagger': {
       e.staggerTimer -= dt;
-      crouchT = 0.5;
-      a.headPitch = THREE.MathUtils.lerp(a.headPitch, 0.3, dt * 6);
-      if (e.staggerTimer <= 0) {
+      if (e.incapTimer > 0) {
+        // 전소: rifle dropped to the hip, writhing (anim.writhe); no cover cycle, no shots
+        e.incapTimer = Math.max(0, e.incapTimer - dt);
+        crouchT = 0.35; aimT = 0;
+      } else {
+        crouchT = 0.5;
+        a.headPitch = THREE.MathUtils.lerp(a.headPitch, 0.3, dt * 6);
+      }
+      if (e.staggerTimer <= 0 && e.incapTimer <= 0) {
+        e.incapTimer = 0;
         e.state = e.aware && targetAlive ? 'chase' : 'idle';
         e.stateTime = 0; e.wanderTimer = 1; e.roguePhase = 0;
       }
