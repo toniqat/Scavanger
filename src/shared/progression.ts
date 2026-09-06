@@ -1,5 +1,5 @@
 import type { ImplantId } from './implants';
-import type { WeaponClass } from './types';
+import type { EmbeddedView, WeaponClass } from './types';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Character stats, skills and the persistent profile.
@@ -176,4 +176,12 @@ export interface ProgressionRef {
    * `ctx.housing?.getSkillGainMul(id)` itself inside `addSkillXp`; this getter exposes the combined value for UI.
    */
   getSkillGainMul(id: SkillId): number;
+
+  /* ══ appended: Phase 8 (2026-09-06) ══════════════════════════════════════ */
+  /**
+   * Render the 캐릭터 sheet inside `host` (the 캐릭터 tab of the inventory Tab screen) instead of as its own
+   * full-screen overlay. The embedded view must not add the `'stats'` blocker, exit the pointer lock or install a
+   * window-level Escape listener — the inventory window owns all three.
+   */
+  createSheetView(host: HTMLElement): EmbeddedView;
 }

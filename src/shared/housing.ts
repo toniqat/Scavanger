@@ -1,6 +1,7 @@
 import type { CraftIngredient } from './gear';
 import type { ImplantId } from './implants';
 import type { SkillId } from './progression';
+import type { EmbeddedView } from './types';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Ship housing (함선 꾸미기, 2026-09-06). Owner: housing/HousingSystem publishes `ctx.housing` and persists the
@@ -40,15 +41,15 @@ export const ROOM_PURPOSE_DESC_KO: Readonly<Record<RoomPurpose, string>> = {
   range: '로드아웃 프리셋을 관리하고 레이드 사격 숙련 상승량을 높입니다.',
   gym: '운동 기구로 근력 · 지구력을 단련합니다. (다음 업데이트)',
   library: '책장에 책을 꽂아 상시 효과를 받습니다. (다음 업데이트)',
-  greenhouse: '스마트팜 층 스테이션에서 약초를 재배합니다. (다음 업데이트)',
+  greenhouse: '재배층을 설치하고 씨앗을 심어 현실 시간에 맞춰 약초를 재배합니다.',
   lab: '배양기와 생체 프린터로 토양 · 씨앗 · 배양고기를 연구합니다. 온실이 먼저 필요합니다. (다음 업데이트)',
   kitchen: '요리로 다음 레이드 버프를 만듭니다. (다음 업데이트)',
   mining: '그래픽카드로 암호화폐를 채굴합니다. (다음 업데이트)',
   lounge: 'TV · 스피커로 비디오와 Vinyl 을 재생합니다. (다음 업데이트)',
 };
 
-/** Purposes with mechanics in this build; the rest are decoration-only. */
-export const ROOM_PURPOSES_ACTIVE: readonly RoomPurpose[] = ['empty', 'workshop', 'range'];
+/** Purposes with mechanics in this build; the rest are decoration-only. (Phase 8 appended `greenhouse`.) */
+export const ROOM_PURPOSES_ACTIVE: readonly RoomPurpose[] = ['empty', 'workshop', 'range', 'greenhouse'];
 
 /** Upgradeable facilities that are not furniture. `workshop` / `range` levels belong to the room of that purpose. */
 export type FacilityId = 'generator' | 'storage' | 'workshop' | 'range';
@@ -69,6 +70,8 @@ export type FurnitureModelKind =
   | 'bench_gun' | 'bench_gear' | 'bench_gadget' | 'bench_medical'
   | 'range_console' | 'target_lane'
   | 'sim_hub'   // appended (Phase 7): 시뮬레이션 허브 — holo pedestal in the 사격장
+  /* appended (Phase 8): 온실 재배층 (stackable grow rack) and the 정비 벤치 moved out of the cockpit */
+  | 'grow_rack' | 'repair_bench'
   | 'locker' | 'table' | 'shelf' | 'crate' | 'lamp' | 'plant' | 'chair' | 'bunk';
 
 /** What E does on a placed piece. */
@@ -76,7 +79,10 @@ export type FurnitureInteraction =
   | 'none'
   | 'workbench_gun' | 'workbench_gear' | 'workbench_gadget' | 'workbench_medical'  // → ctx.inventory.openBenchCraft(kind)
   | 'range_console'                                                               // → ctx.housing.openPresetMenu()
-  | 'sim_hub';                                                                    // appended (Phase 7) → hub starts / joins the 시뮬레이션 훈련장
+  | 'sim_hub'                                                                     // appended (Phase 7) → hub starts / joins the 시뮬레이션 훈련장
+  /* appended (Phase 8) */
+  | 'grow_rack'                                                                   // → ctx.housing.openGrowMenu(uid): 씨앗 심기 / 수확
+  | 'repair_bench';                                                               // → the 정비 벤치 repair menu (hub/WorkbenchMenu), no longer built into the cockpit
 
 export interface FurnitureDef {
   id: string;
@@ -99,6 +105,13 @@ export interface FurnitureDef {
   upgradeCost: CraftIngredient[][];
   /** CSS colour for icons / tint. */
   color: string;
+  /* ── appended (Phase 8) ── */
+  /**
+   * Stackable furniture (재배층): how many copies may share one footprint, each on its own `PlacedFurniture.layer`
+   * (0-based, rendered `layer × def.height` above the deck). Undefined / 1 = the normal "no overlap at all" rule.
+   * A stack is homogeneous: only the same `defId` at the same `x`/`y`/`yaw` may share the footprint.
+   */
+  stackLimit?: number;
 }
 
 /** A piece placed in a room. `x`/`y` = top-left cell, `yaw` = quarter turns clockwise seen from above. */
@@ -110,6 +123,43 @@ export interface PlacedFurniture {
   y: number;
   yaw: 0 | 1 | 2 | 3;
   level: number;
+  /* ── appended (Phase 8) ── */
+  /** Stack index for `FurnitureDef.stackLimit` furniture (0 = on the deck). Absent / 0 for everything else. */
+  layer?: number;
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * 온실 재배 (Phase 8). A 재배층 (`furn_grow_rack`) holds `GROW_PLOTS_PER_RACK` plots. A plot grows in **real world
+ * time**: `plantedAt` is an epoch-ms stamp taken from the relay when one is connected (`ctx.net.serverNow()`), else
+ * `Date.now()`, so a crop keeps growing while the player is offline, in a raid, or on another device.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/** One planted (or ready) plot. Empty plots are simply absent from `ShipState.plots`. */
+export interface GrowPlot {
+  /** `PlacedFurniture.uid` of the 재배층 it belongs to. */
+  uid: string;
+  /** Plot index inside that rack, 0 … GROW_PLOTS_PER_RACK − 1. */
+  slot: number;
+  /** Seed item def id (`ItemDef.seed` must be set). */
+  seedDefId: string;
+  /** Epoch ms when it was planted. */
+  plantedAt: number;
+  /** Epoch ms when it may be harvested (`plantedAt + growHours × 3600e3 × 원예 speed`). Stored so a skill change mid-grow never moves a running timer. */
+  readyAt: number;
+}
+
+/** A plot as the UI sees it — `seedDefId === null` means the slot is free. */
+export interface GrowPlotInfo {
+  slot: number;
+  seedDefId: string | null;
+  /** 0 … 1; −1 when empty. */
+  progress: number;
+  /** Seconds left, 0 when ready or empty. */
+  remainingS: number;
+  ready: boolean;
+  /** What harvesting yields, for the panel. */
+  yieldDefId: string | null;
+  yieldQty: number;
 }
 
 /** Furniture storage entry (no grid, no cap): recovered / crafted pieces waiting to be placed. */
@@ -147,6 +197,11 @@ export interface ShipState {
   furnitureStorage: StoredFurniture[];
   /** Up to `getPresetCount()` entries; null = empty preset slot. */
   presets: (LoadoutPreset | null)[];
+  /* ── appended (Phase 8) ── */
+  /** 온실 재배층 plots. Absent in a v1 save; entries whose `uid` no longer exists are dropped on load. */
+  plots?: GrowPlot[];
+  /** true once the crew name has been chosen; the terminal never offers to change it again. */
+  nameLocked?: boolean;
 }
 
 export interface FacilityInfo {
@@ -236,6 +291,43 @@ export interface HousingRef {
 
   /** Persist now (also debounced after every change). */
   save(): void;
+
+  /* ══ appended: Phase 8 (2026-09-06) ══════════════════════════════════════ */
+
+  /* ── 함선 관리 mode (M in the ship) ── */
+  /**
+   * True while the player is managing the ship from the M screen: the same housing-mode camera / cursor, but entered
+   * from anywhere in the personal ship (no "stand inside the room" gate) with the room list and the furniture bar
+   * shown by ui/. `enterHousingMode` keeps its old room-local gate for the room console.
+   */
+  readonly shipManageMode: boolean;
+  /** Enter 함선 관리 at `room` (default: the room the player is in, else the first non-empty room, else 0). */
+  openShipManage(room?: number): boolean;
+  /** Move the manage camera / edit target to another room. False while not in manage mode. */
+  setManageRoom(room: number): boolean;
+  /** Leave 함선 관리 (also leaves housing mode). */
+  closeShipManage(): void;
+
+  /* ── 온실 재배 ── */
+  /** Plot states of one 재배층, always `GROW_PLOTS_PER_RACK` long. Empty array when `uid` is not a 재배층. */
+  getPlots(uid: string): GrowPlotInfo[];
+  /** Plant one seed from the bag or the stash (consumes 1). Returns a 한국어 reason on failure, null on success. */
+  plantSeed(uid: string, slot: number, seedDefId: string): string | null;
+  /** Harvest one ready plot into the bag (falls back to the stash in the ship). 한국어 reason on failure. */
+  harvestPlot(uid: string, slot: number): string | null;
+  /** Harvest every ready plot of the rack; returns how many were taken. */
+  harvestAll(uid: string): number;
+  /** Seed item defs the player currently owns (bag + stash), for the 재배 panel. */
+  getOwnedSeeds(): { defId: string; qty: number }[];
+  /** Open the 재배층 panel (`furn_grow_rack` interaction). */
+  openGrowMenu(uid: string): void;
+
+  /* ── embedded 함선 view (the 함선 tab of the Tab screen) ── */
+  /**
+   * Render the ship-management screen (시설 업그레이드 + 방 목록) inside `host`, which the caller owns and empties.
+   * The returned handle is the only way to refresh / tear it down; the folder keeps no other reference.
+   */
+  createShipView(host: HTMLElement): EmbeddedView;
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -267,6 +359,13 @@ export const FURNITURE_DEFS: readonly FurnitureDef[] = [
   /* appended (Phase 7): 시뮬레이션 훈련장 entry */
   { id: 'furn_sim_hub', name: '시뮬레이션 허브', description: '시뮬레이션 훈련장에 입장합니다. 탄약과 내구도는 소모되지 않습니다.', room: 'range', cols: 2, rows: 2, height: 1.5,
     model: 'sim_hub', interaction: 'sim_hub', craft: [c('mat_scrap', 8), c('mat_cable', 2), c('mat_circuit', 2)], maxLevel: 1, upgradeCost: [], color: '#9fe8ff' },
+  /* appended (Phase 8): the 정비 벤치 is no longer built into the cockpit — place it in the 작업실 */
+  { id: 'furn_repair_bench', name: '정비 벤치', description: '무기 내구도를 재료로 수리합니다. 조종석에서 작업실로 옮겨졌습니다.', room: 'workshop', cols: 4, rows: 2, height: 1.0,
+    model: 'repair_bench', interaction: 'repair_bench', craft: [c('mat_scrap', 6), c('mat_alloy', 1)], maxLevel: 1, upgradeCost: [], color: '#d7c39a' },
+  /* appended (Phase 8): 온실 — up to GROW_RACK_STACK_LIMIT racks share one footprint, each its own 층 */
+  { id: 'furn_grow_rack', name: '재배층', description: '씨앗을 심어 현실 시간에 맞춰 약초를 키웁니다. 같은 자리에 4층까지 쌓을 수 있습니다.', room: 'greenhouse', cols: 4, rows: 2, height: 0.8,
+    model: 'grow_rack', interaction: 'grow_rack', craft: [c('mat_scrap', 5), c('mat_cable', 1), c('mat_bio_sample', 2)], maxLevel: 1, upgradeCost: [], color: '#7ee08a',
+    stackLimit: 4 },
   /* 공용 장식 */
   { id: 'furn_locker', name: '사물함', description: '강철 사물함.', room: 'any', cols: 1, rows: 2, height: 2.0,
     model: 'locker', interaction: 'none', craft: [c('mat_scrap', 4)], maxLevel: 1, upgradeCost: [], color: '#b0b8c4' },

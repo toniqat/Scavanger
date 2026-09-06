@@ -58,7 +58,9 @@ export type ItemCategory =
   | 'gadget'      // special gadget consumable (see GadgetDef), usable from the quick wheel
   | 'herb'        // gathered plant, crafting input for medicine
   /* appended: ship housing (2026-09-06) */
-  | 'furniture';  // ship furniture as an inventory item (see `ItemDef.furnitureId` → FurnitureDef); placed via housing/
+  | 'furniture'   // ship furniture as an inventory item (see `ItemDef.furnitureId` → FurnitureDef); placed via housing/
+  /* appended: Phase 8 (2026-09-06) */
+  | 'seed';       // 씨앗 planted in a 온실 재배층 (see `ItemDef.seed`); loot + corp shop, never craftable
 
 export type Rarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
 
@@ -251,6 +253,19 @@ export interface ItemDef {
   /* ── appended: ship housing (2026-09-06, owner: items) ── */
   /** category 'furniture': links to a FurnitureDef (owned by housing/). Placing it moves it into the furniture storage. */
   furnitureId?: string;
+  /* ── appended: Phase 8 (2026-09-06, owner: items) ── */
+  /** category 'seed': what it grows into in a 온실 재배층 and how long that takes in **real** hours. */
+  seed?: SeedDef;
+}
+
+/** 씨앗 growth data. `growHours` is wall-clock time and keeps running while the game is closed. */
+export interface SeedDef {
+  /** Real hours from planting to harvest, before the 원예 speed-up (`GROW_SKILL_SPEEDUP`). */
+  growHours: number;
+  /** Item def harvested from a ripe plot. */
+  yieldDefId: string;
+  /** Units per plot, before `derived.gatherYieldMul`. */
+  yieldQty: number;
 }
 
 export interface ItemInstance {
@@ -1060,4 +1075,39 @@ export interface EnemyManagerRef {
 export interface ItemInstance {
   /* appended (Phase 7, owner: inventory): Tarkov-style container search — true once revealed (default for anything not from a container). */
   searched?: boolean;
+}
+
+/* ══ appended: Phase 8 — UI/UX pass (2026-09-06) ═══════════════════════════════════════════════════════════ */
+
+/**
+ * A screen another folder renders **inside a host element the caller owns** (the 캐릭터 / 기업 / 함선 tabs of the
+ * inventory Tab screen). The owning folder builds its DOM into `host` and hands back this handle; the caller calls
+ * `refresh()` when its own state changes and `dispose()` when the tab goes away. An embedded view must NOT touch
+ * `ctx.uiBlockers`, exit the pointer lock, or install a window-level Escape listener — the host window owns all three.
+ */
+export interface EmbeddedView {
+  /** Repaint from the current state. Safe to call every time the tab is shown. */
+  refresh(): void;
+  /** Remove every element and listener the view added to the host. */
+  dispose(): void;
+}
+
+/** Volume channels the settings menu exposes. `sfx` scales gameplay one-shots; `master` scales everything. */
+export type AudioChannel = 'master' | 'sfx';
+
+export interface AudioSettings {
+  master: number;
+  sfx: number;
+}
+
+/**
+ * `ctx.audio` — published by audio/AudioSystem so ui/ can drive the settings sliders without importing the folder.
+ * Values are 0 … 1 and are persisted to localStorage (`AUDIO_STORAGE_KEY`) by audio/ itself.
+ */
+export interface AudioRef {
+  readonly settings: Readonly<AudioSettings>;
+  /** Apply immediately (ramps the matching GainNode) and persist (debounced). */
+  setVolume(channel: AudioChannel, value: number): void;
+  /** Play a short reference blip so the player hears the level they just set. */
+  preview(channel: AudioChannel): void;
 }

@@ -645,3 +645,45 @@ export const ROGUE_GRENADE_WINDUP = 0.6;
 /* ghosts — owner: player (host) */
 /** Bleed rate of a downed ghost (same as a live player: PLAYER_DOWN_BLEED_PER_SEC), kept here for the host loop. */
 export const GHOST_BLEED_PER_SEC = 1;
+
+/* ══ appended: Phase 8 — UI/UX pass (2026-09-06) ═══════════════════════════════════════════════════════════ */
+
+/* ── 온실 재배 (owner: housing rules, hub geometry, items seed data) ── */
+/** Plots in one 재배층. */
+export const GROW_PLOTS_PER_RACK = 4;
+/** How many 재배층 may share one floor footprint (each on its own `PlacedFurniture.layer`). */
+export const GROW_RACK_STACK_LIMIT = 4;
+/** Vertical spacing (m) between stacked 재배층 layers. */
+export const GROW_RACK_LAYER_HEIGHT = 0.8;
+/**
+ * 원예 skill speeds a *new* planting up by at most this fraction (skill SKILL_LEVEL_MAX → grow time × (1 − this)).
+ * Applied once when the seed goes in; `GrowPlot.readyAt` is then fixed so a later skill change never moves the timer.
+ */
+export const GROW_SKILL_SPEEDUP = 0.35;
+/** Real hours a seed needs by its rarity, before `GROW_SKILL_SPEEDUP` (items' `ItemDef.seed.growHours` overrides it). */
+export const SEED_GROW_HOURS_BY_RARITY: Readonly<Record<'common' | 'uncommon' | 'rare' | 'epic' | 'legendary', number>> = {
+  common: 1, uncommon: 2.5, rare: 6, epic: 6, legendary: 6,
+};
+
+/* ── audio settings (owner: audio) ── */
+/** localStorage key of the volume settings (`AudioSettings`). */
+export const AUDIO_STORAGE_KEY = 'scav.audio';
+export const AUDIO_DEFAULT_MASTER = 0.8;
+export const AUDIO_DEFAULT_SFX = 1;
+
+/* ── ship doors + room lighting (owner: hub) ── */
+/** A room / cockpit door slides open when the player is within this many metres of its threshold. */
+export const DOOR_OPEN_DISTANCE = 3.2;
+/** Door slide speed (fraction of full travel per second). */
+export const DOOR_SLIDE_SPEED = 3.0;
+/**
+ * Real point lights reserved for the rooms. Kept **constant** (toggling `light.visible` recompiles every shader):
+ * the pool is created once and re-anchored to the nearest non-empty rooms, with `intensity` ramped instead.
+ */
+export const ROOM_LIGHT_POOL = 3;
+/** Point-light intensity / distance of a lit (non-empty) room. */
+export const ROOM_LIGHT_INTENSITY = 11;
+export const ROOM_LIGHT_DISTANCE = 7;
+/** `emissiveIntensity` of a room's wall strips when the room is empty vs. assigned a purpose. */
+export const ROOM_STRIP_DIM = 0.15;
+export const ROOM_STRIP_LIT = 2.2;

@@ -466,7 +466,7 @@ export interface GameEvents {
 
 /* ══ appended: Phase 7 — known follow-ups (2026-09-06) ═══════════════════════════════════════════════════ */
 import type { GhostState, PeerId as NetPeerId } from './net';
-import type { PlayerRestoreState, Rarity } from './types';
+import type { AudioChannel, PlayerRestoreState, Rarity } from './types';
 import type { ProfileRecord, RaidSessionBlob } from './profile';
 export interface GameEvents {
   /* ── game flow (owner: game) ── */
@@ -509,4 +509,26 @@ export interface GameEvents {
   /* ── remote pose (owner: player) ── */
   /** A remote player's held consumable changed (for FX / audio). */
   'net:remoteHeldItem': { id: NetPeerId; defId: string | null };
+
+  /* ══ appended: Phase 8 — UI/UX pass (2026-09-06) ══════════════════════════ */
+
+  /* ── 온실 재배 (owner: housing) ── */
+  /** A plot of `uid` was planted, harvested or became ready. `ready` = how many plots of that rack can be harvested now. */
+  'housing:growChanged': { uid: string; ready: number };
+  /** The 재배층 panel opened / closed (blocker `housing`). */
+  'ui:growToggled': { open: boolean; uid: string | null };
+
+  /* ── 함선 관리 (owner: housing, rendered by ui) ── */
+  /** 함선 관리 (M) opened / closed, and which room the camera is on. ui/ draws the room list + furniture bar from this. */
+  'housing:shipManageChanged': { active: boolean; room: number | null };
+
+  /* ── 설정 (owner: ui, applied by audio) ── */
+  /** A volume slider moved. audio/ persists; anything else that cares can react. */
+  'audio:volumeChanged': { channel: AudioChannel; value: number };
+  /** The 설정 screen opened / closed (inside the pause menu, no blocker of its own). */
+  'ui:settingsToggled': { open: boolean };
+
+  /* ── 아이템 분해 (owner: inventory) ── */
+  /** The modeless 분해 dialog opened / closed over the inventory window. */
+  'ui:disassembleToggled': { open: boolean; uid: string | null };
 }

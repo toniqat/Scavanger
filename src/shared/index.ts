@@ -20,3 +20,5 @@ export * from './meta';
 /* appended (2026-09-06): Phase 7 — server profile / raid session, item labels */
 export * from './profile';
 export * from './labels';
+/* appended (2026-09-06): Phase 8 — shared 재료 요구 칩 renderer */
+export * from './itemChip';

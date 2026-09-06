@@ -10,6 +10,8 @@ const REST_Y: Record<ItemCategory, number> = {
   armor: 0.12, gadget: 0.1, herb: 0.07,
   /* appended: ship housing */
   furniture: 0.16,
+  /* appended: Phase 8 — 씨앗 (small pouch, sits low like a herb) */
+  seed: 0.07,
 };
 
 /**

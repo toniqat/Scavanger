@@ -11,6 +11,7 @@ import type { ImplantsRef } from './implants';
 import type { GadgetsRef } from './gadgets';
 import type { ProgressionRef } from './progression';
 import type { ConsoleRef } from './console';
+import type { AudioRef } from './types';
 import type { HousingRef } from './housing';
 import type { MetaRef } from './meta';
 
@@ -95,6 +96,9 @@ export class GameContext {
    * `world:ready`; game/ clears it after `restoreState` / the fallback respawn.
    */
   rejoinPending = false;
+  /* ── appended: Phase 8 (2026-09-06) ── */
+  /** Volume settings (전체 / 효과음) for the 설정 menu. Published by audio/AudioSystem. */
+  audio: AudioRef | null = null;
 
   /** True when this client simulates authoritative gameplay (enemies, extraction): single-player or lobby host. */
   get isAuthority(): boolean { return this.net?.isAuthority ?? true; }

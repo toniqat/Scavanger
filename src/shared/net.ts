@@ -620,6 +620,14 @@ export interface NetRef {
   readonly raidBlob: RaidSessionBlob | null;
   /** Upload my mid-raid state (game/ calls it every RAID_SAVE_INTERVAL_S and on loot). No-op outside a raid session. */
   saveRaid(blob: RaidSessionBlob): void;
+
+  /* ── appended: Phase 8 (2026-09-06) ── */
+  /**
+   * Best estimate of the relay's wall clock in epoch ms (`welcome.serverTime` plus the elapsed local time, refreshed
+   * on every pong). Falls back to `Date.now()` while offline. Used for real-time systems that must agree across
+   * devices and must not be advanced by moving the local clock — today only 온실 재배 (`GrowPlot.plantedAt`).
+   */
+  serverNow(): number;
   /** Kind of the lobby's running mission (`lobby.mode ?? 'raid'`), null when nothing runs. */
   readonly missionMode: MissionMode | null;
   /**

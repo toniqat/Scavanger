@@ -1,4 +1,4 @@
-import type { AmmoType, ItemCategory, ItemDef, ItemInstance, MissionStats, Rarity, WeaponClass } from './types';
+import type { AmmoType, EmbeddedView, ItemCategory, ItemDef, ItemInstance, MissionStats, Rarity, WeaponClass } from './types';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Phase 5-c — corporations, reputation, contracts, quests, credits and the corp shop.
@@ -340,4 +340,12 @@ export interface MetaRef {
   save(): void;
   /** Wipe back to a fresh save (credits `CREDITS_INITIAL`, rep 0, no contract, quests locked/available). */
   resetMeta(): void;
+
+  /* ══ appended: Phase 8 (2026-09-06) ══════════════════════════════════════ */
+  /**
+   * Render the 기업 네트워크 screen inside `host` (the 기업 tab of the inventory Tab screen) instead of as its own
+   * full-screen overlay. The embedded view reuses the standalone screen's renderers so both stay in sync; it must not
+   * add the `'corp'` blocker or exit the pointer lock — the inventory window already owns both.
+   */
+  createCorpView(host: HTMLElement): EmbeddedView;
 }
