@@ -1,9 +1,9 @@
 import type { FacilityId, GameContext, RoomPurpose } from '@/shared';
 import { ROOM_PURPOSES, ROOM_PURPOSES_ACTIVE, ROOM_PURPOSE_DESC_KO, ROOM_PURPOSE_LABEL_KO, furnitureFootprint } from '@/shared';
 import type { HousingSystem } from '../HousingSystem';
-import { nextFurnitureCost } from '../Rules';
+import { nextFurnitureCost, stackLimitOf } from '../Rules';
 import { HousingPanel } from './Panel';
-import { clear, el, levelText, renderCost, setText, toggleClass } from './dom';
+import { CHIP_SIZE, CHIP_SIZE_SMALL, clear, el, levelText, renderCost, setText, toggleClass } from './dom';
 
 const YAW_LABEL = ['0°', '90°', '180°', '270°'];
 
@@ -152,7 +152,7 @@ export class RoomMenu extends HousingPanel {
     if (fid) {
       const info = h.getFacility(fid);
       setText(this.levelText, `${info.name} ${levelText(info.level, info.maxLevel)}`);
-      if (info.nextCost) renderCost(this.levelCost, info.nextCost, h.countDef, h.nameOf); else { clear(this.levelCost); el('span', { cls: 'mat free', text: '최대', parent: this.levelCost }); }
+      if (info.nextCost) renderCost(this.levelCost, info.nextCost, h, CHIP_SIZE); else { clear(this.levelCost); el('span', { cls: 'item-chip-free', text: '최대', parent: this.levelCost }); }
       setText(this.levelBlocked, info.blocked ?? (fid === 'workshop' ? `제작 비용 ×${h.getCraftCostMul().toFixed(2)}` : `프리셋 ${h.getPresetCount()}개 · 사격 숙련 ×${h.getSkillGainMul('gun_AR').toFixed(1)}`));
       toggleClass(this.levelBlocked, 'ok', !info.blocked);
       this.btnLevel.disabled = !!info.blocked;
@@ -175,7 +175,8 @@ export class RoomMenu extends HousingPanel {
       el('span', { cls: 'name', text: def.name, parent: nl });
       if (def.maxLevel > 1) el('span', { cls: 'tag', text: `Lv.${s.level}`, parent: nl });
       el('span', { cls: 'qty', text: `×${s.qty}`, parent: nl });
-      el('div', { cls: 'desc', text: `${def.cols}×${def.rows} 칸 · ${fits ? '이 방에 설치 가능' : `${def.room === 'any' ? '' : ROOM_PURPOSE_LABEL_KO[def.room as RoomPurpose]} 전용`}`, parent: mid });
+      const stack = stackLimitOf(def) > 1 ? ` · 같은 자리에 ${stackLimitOf(def)}층까지` : '';
+      el('div', { cls: 'desc', text: `${def.cols}×${def.rows} 칸 · ${fits ? '이 방에 설치 가능' : `${def.room === 'any' ? '' : ROOM_PURPOSE_LABEL_KO[def.room as RoomPurpose]} 전용`}${stack}`, parent: mid });
       const b = this.button(row, '배치', () => this.placeFromStorage(s.defId), 'small');
       b.disabled = !fits || purpose === 'empty';
       b.title = fits ? '' : '용도가 맞지 않습니다';
@@ -196,11 +197,12 @@ export class RoomMenu extends HousingPanel {
       el('span', { cls: 'name', text: def.name, parent: nl });
       if (def.maxLevel > 1) el('span', { cls: 'tag', text: `Lv.${item.level} / ${def.maxLevel}`, parent: nl });
       const fp = furnitureFootprint(def, item.yaw);
-      el('div', { cls: 'desc', text: `칸 (${item.x}, ${item.y}) · ${fp.cols}×${fp.rows} · ${YAW_LABEL[item.yaw]}`, parent: mid });
+      const layer = stackLimitOf(def) > 1 ? ` · ${(item.layer ?? 0) + 1}층` : '';
+      el('div', { cls: 'desc', text: `칸 (${item.x}, ${item.y}) · ${fp.cols}×${fp.rows} · ${YAW_LABEL[item.yaw]}${layer}`, parent: mid });
       const cost = nextFurnitureCost(def, item.level);
       if (cost) {
         const costEl = el('div', { cls: 'cost', parent: mid });
-        renderCost(costEl, cost, h.countDef, h.nameOf);
+        renderCost(costEl, cost, h, CHIP_SIZE_SMALL);
         const reason = h.furnitureUpgradeBlock(item.uid);
         if (reason) el('div', { cls: 'blocked', text: reason, parent: mid });
         const bu = this.button(row, '업그레이드', () => {
@@ -211,7 +213,15 @@ export class RoomMenu extends HousingPanel {
         bu.disabled = !!reason;
         bu.title = reason ?? '';
       }
-      this.button(row, '회수', () => { if (h.recover(item.uid)) this.showMsg(`${def.name} 회수`, 'info'); this.refresh(); }, 'small');
+      const rBlock = h.recoverBlock(item.uid);
+      const br = this.button(row, '회수', () => {
+        const reason = h.recoverBlock(item.uid);
+        if (reason) this.showMsg(reason, 'warning');
+        else if (h.recover(item.uid)) this.showMsg(`${def.name} 회수`, 'info');
+        this.refresh();
+      }, 'small');
+      br.disabled = !!rBlock;
+      br.title = rBlock ?? '';
     }
 
     // craftable furniture
@@ -228,7 +238,7 @@ export class RoomMenu extends HousingPanel {
       el('span', { cls: 'tag dim', text: `${def.cols}×${def.rows}`, parent: nl });
       el('div', { cls: 'desc', text: def.description, parent: mid });
       const costEl = el('div', { cls: 'cost', parent: mid });
-      const ok = renderCost(costEl, def.craft!, h.countDef, h.nameOf);
+      const ok = renderCost(costEl, def.craft!, h, CHIP_SIZE_SMALL);
       const b = this.button(row, '제작', () => {
         if (h.craftFurniture(def.id)) this.showMsg(`${def.name} 제작 완료 → 가구 창고`, 'success');
         else this.showMsg('재료가 부족합니다', 'warning');

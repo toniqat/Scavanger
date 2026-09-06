@@ -24,9 +24,9 @@ Import via `@/game` → `GameFlowSystem`.
 | `player:downed` | **not a death**: phase unchanged, `ui:notify "쓰러짐 — 아군의 제세동기를 기다립니다"`, the all-dead check is re-armed (a squadmate may already be dead) |
 | `player:revived` | stops the all-dead check when the local player is no longer dead |
 | `game:abort` | multiplayer host **during a live raid** (gameplay / `deploying`, never a training): `flow abort` to others first (leaving a result screen is local — the mission is already over); closes inventory, `menu`. If the abort ended a *lobby* mission / result screen, emits `hub:enter {ship:'shared'}` one microtask later (no-op when HubSystem's own `hub:enter` already built the ship) |
-| Escape (gameplay phase, no `ctx.uiBlockers`) | toggles `game:paused {paused, freeze: !ctx.isMultiplayer}`; Engine zeroes `dt` while paused (single-player only — in multiplayer the menu shows but the world and GameFlow timers keep running); `PauseMenu` may emit `game:paused false`. Inventory / map consume Escape in a capture-phase listener, so it never reaches here while they are open |
+| Escape (gameplay phase **or `hub`**, no `ctx.uiBlockers`) | toggles `game:paused {paused, freeze}`; `freeze = !ctx.isMultiplayer && phase !== 'hub'`, and Engine zeroes `dt` only while `freeze` (single-player mission) — in multiplayer *and in the ship* the menu shows while the world / ship keeps running; `PauseMenu` may emit `game:paused false`. Inventory / map / terminal consume Escape in a capture-phase listener or hold a blocker, so it never reaches here while they are open; **housing / 함선 관리 mode** (`ctx.housing.housingMode`) also keeps Escape (it cancels the placement) |
 | `pointerlockchange` (lock lost) / `window` `blur` | if gameplay phase, no blocker, player alive, not paused and > 300 ms since `ctx.input.lastLockRequest` (a denied request) → emits `input:pointerLockLost` and pauses. Intended exits (inventory, map, menus, pause) add their blocker / set `paused` **before** `exitPointerLock()`, so they do not trigger this |
-| unpause (Esc or 계속) | after emitting `game:paused false`, re-requests pointer lock in a microtask when still in a gameplay phase with no blockers (a following synchronous abort → `menu` cancels it) |
+| unpause (Esc or 게임으로 돌아가기) | after emitting `game:paused false`, re-requests pointer lock in a microtask when still in a gameplay phase **or the ship** with no blockers (a following synchronous abort → `menu` cancels it) |
 
 ## Notes
 - `missionTime` / `stats.timeSeconds` advance in `Engine.frame()`; `kills`, `cratesOpened`, `damageTaken` are
@@ -62,9 +62,9 @@ It also bumps `ctx.progression.profile.raids` (always) and `.extractions` (on `s
 `ctx.progression.save()`. `ProgressionRef` has no counter setters, so the fields are mutated directly and
 `save()` forces the write. Everything is behind `ctx.progression?` — single-player without the system registered is unaffected.
 
-## Ship hub & reconnection (2026-09-05)
-- `hub` / `docking` are **not** gameplay phases: nothing to pause / freeze, Esc and pointer-lock loss are handled by `hub/HubSystem`
-  (`onFocusLost` / the Esc toggle / `setPaused` all gate on `isGameplayPhase()`).
+## Ship hub & reconnection (2026-09-05, pause added in Phase 8)
+- `hub` / `docking` are **not** gameplay phases. Pointer-lock loss / window blur in the ship is still ignored here
+  (`onFocusLost` gates on `isGameplayPhase()`); only Escape pauses.
 - Order for `hub:enter` during a mission or result screen: HubSystem emits `game:abort` (→ `onAbort` → `menu`, World cleared, Player reset),
   then builds the ship and sets `hub`. A mission may start **from `hub`**: `game:newMission` from the solo launch pod, from `ctx.net.startGame`
   (host countdown) or from `ctx.net.rejoinMission()` (late joiner; spawns via the normal hellpod). `onNewMission` does not care about the previous phase.
@@ -100,3 +100,18 @@ It also bumps `ctx.progression.profile.raids` (always) and `.extractions` (on `s
   death → immediate `player:respawn` at the arena spawn, `MissionStats.mode = 'training'`. `training:exitRequested` → `game:abort` (never `flow abort` — a training is personal)
   → `inventory.applyRaidState(trainingSnapshot)` (ammo / durability refunded) → `ctx.net.leaveMission()` when in a session → `hub:enter {shared if a lobby exists, else personal}`.
 - Smoke: `scripts/smoke-raidflow.mjs` (solo death → 레이드 실패 → auto return, training enter / death / exit, synthetic rejoin blob + ghost restore alive / dead + timeout fallback).
+
+## Phase 8 (2026-09-06): 함선에서 ESC = 일시정지
+Escape in the ship used to open the hub terminal; it now opens the **pause menu** instead (the terminal is reached from
+its console). Three surgical changes in `GameFlowSystem`, nothing else:
+- `inShip()` = `ctx.phase === 'hub'` (never `docking` — the cutscene has no controls to pause).
+- `setPaused()` accepts a pause while `inShip()`, and computes `freeze = !ctx.isMultiplayer && !inShip()` so the ship
+  pause is **menu-only**: `Engine` keeps stepping (`freeze:false`), the ship keeps animating, and nothing
+  mission-related happens — no `game:abort`, no stats, no timers (GameFlow's own timers are all mission timers and are
+  already −1 in the hub).
+- The Escape poll pauses in `hub` as well, unless `ctx.housing?.housingMode` is true — housing / 함선 관리 mode owns
+  Escape (it cancels the placement / leaves the mode). `relock()` re-requests the pointer lock in the ship too, since
+  the hub is walked with a pointer lock.
+`PauseMenu` (ui/) renders the ship variant: 게임으로 돌아가기 / 설정 / 타이틀로 and **no** 함선으로 귀환. Its 타이틀로
+leaves the lobby first and then emits `game:abort`, which lands on `menu` (HubSystem tears the ship down on the same
+event) — without the `leaveLobby()` first, `onAbort` would regroup us in the shared ship.

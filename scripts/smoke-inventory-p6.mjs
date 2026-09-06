@@ -318,14 +318,15 @@ try {
     const panel = document.querySelector('.inv-panel-craft');
     const rows = [...panel.querySelectorAll('.inv-craft-row')].map((r) => ({ id: r.dataset.recipe, locked: r.classList.contains('is-bench-locked') }));
     const all = ctx.loot.getAllRecipes();
-    const expectOpen = i.getRecipes('ship', 'gun', 2).map((r) => r.id);
+    // Phase 8: 분해 (`break_*`) moved to the item right-click menu, so the bench panel no longer lists it
+    const expectOpen = i.getRecipes('ship', 'gun', 2).filter((r) => !/^break_/.test(r.id)).map((r) => r.id);
     const skill = (id) => ctx.progression?.getSkill(id) ?? 0;
     const expectLocked = all.filter((r) => r.station === 'ship' && r.bench === 'gun' && (r.benchLevel ?? 1) > 2 && skill(r.skill) >= r.skillRequired).map((r) => r.id);
     return {
       open: i.isOpen, hidden: panel.hidden, blockers: [...ctx.uiBlockers], title: panel.querySelector('.inv-title').textContent,
       rows, expectOpen, expectLocked, lockTags: panel.querySelectorAll('.inv-craft-locktag').length,
       repairShown: !panel.querySelector('.inv-craft-repair').hidden,
-      repairRows: [...panel.querySelectorAll('.inv-repair-row')].map((r) => ({ uid: r.dataset.uid, slot: r.querySelector('.inv-repair-slot').textContent, cost: r.querySelector('.inv-repair-cost').textContent, btn: !r.querySelector('.inv-repair-btn').disabled })),
+      repairRows: [...panel.querySelectorAll('.inv-repair-row')].map((r) => ({ uid: r.dataset.uid, slot: r.querySelector('.inv-repair-slot').textContent, cost: r.querySelector('.inv-repair-cost').textContent, chips: r.querySelectorAll('.inv-repair-cost .item-chip').length, btn: !r.querySelector('.inv-repair-btn').disabled })),
       anyGunRecipes: all.some((r) => r.bench === 'gun'),
     };
   });
@@ -338,7 +339,8 @@ try {
   ok(!openIds.some((id) => bench.expectLocked.includes(id)), 'no level-3 recipe is craftable at level 2');
   ok(bench.repairShown && bench.repairRows.length >= 3, `repair list shows the owned weapons (${bench.repairRows.length})`);
   const worn = bench.repairRows.find((r) => r.slot === '주무기 I');
-  ok(worn && /폐금속|합금/.test(worn.cost), `worn 주무기 I lists its material cost (${worn?.cost})`);
+  // Phase 8: the cost is rendered as item chips (thumbnail + 보유/필요), not a text run
+  ok(worn && worn.chips > 0, `worn 주무기 I lists its material cost as chips (${worn?.chips})`);
   // cost multiplier: stub a workshop discount and check the chips + consumption
   const discount = await page.evaluate(() => {
     const ctx = window.__game.ctx, i = ctx.inventory;

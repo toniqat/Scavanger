@@ -60,6 +60,15 @@ export class Input {
 
   isDown(code: string): boolean { return this.down.has(code); }
   wasPressed(code: string): boolean { return this.pressed.has(code); }
+  /**
+   * Swallow a press for the rest of this frame (Phase 8). Systems are polled in registration order, so a later system
+   * would otherwise react to the same key a earlier one just handled — e.g. hub/ closes the terminal on Escape and
+   * drops its blocker, and game/ then sees an unblocked Escape and opens the 일시정지 메뉴 in the same frame.
+   * Call this right after handling a key that a later system also polls.
+   */
+  consume(code: string): void { this.pressed.delete(code); }
+  /** Same for a mouse button (`wasMousePressed`), including its synthetic `MouseN` key code. */
+  consumeMouse(button: number): void { this.mousePressed.delete(button); this.pressed.delete(`Mouse${button}`); }
   wasReleased(code: string): boolean { return this.released.has(code); }
   /** 0 = left, 1 = middle, 2 = right */
   isMouseDown(button: number): boolean { return this.mouseDown.has(button); }

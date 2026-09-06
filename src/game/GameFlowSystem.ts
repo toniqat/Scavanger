@@ -48,7 +48,9 @@ const XP_DEATH_MUL = 0.4;
  *   - `flow` messages from the host mirror over / complete / abort on the clients.
  *   - `stats.extracted` = boarded && alive at completion (left-behind / dead players get `false`).
  *
- * Ship hub (phases 'hub' / 'docking' are owned by hub/HubSystem and are NOT gameplay: nothing to pause or freeze):
+ * Ship hub (phases 'hub' / 'docking' are owned by hub/HubSystem and are NOT gameplay):
+ *   - Phase 8: Escape in 'hub' with no blocker opens the **pause menu** (`game:paused {freeze:false}`) — the ship keeps
+ *     animating and no mission side effect (abort / stats / timers) is produced. 'docking' (the cutscene) never pauses.
  *   - `hub:enter` while a mission / result phase is active → HubSystem emits `game:abort` first (we go to 'menu'),
  *     then it builds the ship and sets 'hub'. A mission may start from 'hub' (`game:newMission` from the launch pod,
  *     `ctx.net.startGame` or `ctx.net.rejoinMission`).
@@ -196,6 +198,15 @@ export class GameFlowSystem implements GameSystem {
 
   private isTraining(): boolean {
     return this.ctx.missionMode === 'training';
+  }
+
+  /**
+   * Phase 8: standing in the personal / shared ship. Esc pauses here too (the terminal is opened from the console,
+   * not from Escape any more), but the pause is menu-only — `freeze` stays false so the ship keeps animating and
+   * nothing mission-related (abort, stats, timers) happens.
+   */
+  private inShip(): boolean {
+    return this.ctx.phase === 'hub';
   }
 
   /* ── Multiplayer helpers ─────────────────────────────────────────────── */
@@ -378,11 +389,13 @@ export class GameFlowSystem implements GameSystem {
    * Re-acquire the pointer after the pause menu closed. Deferred one microtask so a synchronous
    * follow-up transition (e.g. abort → setPhase('menu'), which unpauses first) is visible to the
    * check; the user activation from the key/click that resumed is still valid by then.
+   * Phase 8: the ship (`hub`) can be paused too and is walked with a pointer lock, so it re-locks as well.
    */
   private relock(): void {
     queueMicrotask(() => {
       const ctx = this.ctx;
-      if (this.paused || !ctx.isGameplayPhase() || ctx.uiBlockers.size > 0) return;
+      if (this.paused || ctx.uiBlockers.size > 0) return;
+      if (!ctx.isGameplayPhase() && !this.inShip()) return;
       if (ctx.player?.isDead ?? false) return;
       ctx.input.requestPointerLock();
     });
@@ -570,13 +583,15 @@ export class GameFlowSystem implements GameSystem {
 
   private setPaused(paused: boolean, emit = true): void {
     if (this.paused === paused) return;
-    if (paused && !this.ctx.isGameplayPhase()) return;
+    if (paused && !this.ctx.isGameplayPhase() && !this.inShip()) return;
     this.paused = paused;
     // Single-player: Engine zeroes dt for every system while game:paused is active.
-    // Multiplayer: freeze=false → only the menu shows; the simulation (and the extraction countdown) keeps running.
+    // Multiplayer (and the ship, Phase 8): freeze=false → only the menu shows; the simulation (and the extraction
+    // countdown, and the ship's own animation) keeps running.
     // `paused` is set before exiting the lock so onPointerLockChange treats it as intended.
+    const freeze = !this.ctx.isMultiplayer && !this.inShip();
     if (paused) this.ctx.input.exitPointerLock();
-    if (emit) this.ctx.bus.emit('game:paused', { paused, freeze: !this.ctx.isMultiplayer });
+    if (emit) this.ctx.bus.emit('game:paused', { paused, freeze });
     // Resume (Esc or "계속" click): PauseMenu has removed its 'menu' blocker by now → re-lock.
     if (!paused) this.relock();
   }
@@ -585,11 +600,13 @@ export class GameFlowSystem implements GameSystem {
     this.ensureNetHooks();
     if (this.inLiveMission()) this.wasMultiplayerHost = ctx.isMultiplayer && (ctx.net?.isHost ?? false);
 
-    // Escape: toggle pause (not while another UI blocker — inventory / map — is open; those
-    // consume Escape in a capture-phase listener anyway).
+    // Escape: toggle pause (not while another UI blocker — inventory / map / terminal — is open; those
+    // consume Escape in a capture-phase listener anyway). Phase 8: the ship pauses on Escape as well,
+    // except while the housing / 함선 관리 mode owns the key (it cancels the placement instead).
     if (ctx.input.wasPressed(Keys.MENU)) {
       if (this.paused) this.setPaused(false);
-      else if (ctx.isGameplayPhase() && ctx.uiBlockers.size === 0 && !(ctx.player?.isDead ?? false)) this.setPaused(true);
+      else if (ctx.uiBlockers.size === 0 && !(ctx.player?.isDead ?? false)
+        && (ctx.isGameplayPhase() || (this.inShip() && !(ctx.housing?.housingMode ?? false)))) this.setPaused(true);
     }
     // Single-player pause freezes everything (Engine also zeroes dt). Multiplayer: keep the timers ticking.
     if (this.paused && !ctx.isMultiplayer) return;

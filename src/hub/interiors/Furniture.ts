@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { FurnitureDef, FurnitureModelKind, GameContext, Interactable, PlacedFurniture, WorkbenchKind } from '@/shared';
-import { FURNITURE_DEF_MAP, HOUSING_CELL_SIZE, benchKindOf, furnitureFootprint } from '@/shared';
+import { FURNITURE_DEF_MAP, GROW_PLOTS_PER_RACK, GROW_RACK_LAYER_HEIGHT, HOUSING_CELL_SIZE, benchKindOf, furnitureFootprint } from '@/shared';
 import { GeoBatch, HUB_MATS as M, disposeMeshes } from './GeoBatch';
 import type { BoxInteriorCollider } from './InteriorCollider';
 import { roomCellToWorld, yawToRotation } from './RoomLayout';
@@ -142,6 +142,39 @@ const BUILDERS: Record<FurnitureModelKind, Builder> = {
     for (let k = 0; k < 3; k++) b.cyl(0.03, 0.03, 0.16, 8, w * 0.05 + k * 0.1, top + 0.08, 0.08, M.glassDark);   // vials
     b.boxB(0.26, 0.1, 0.2, w * 0.3, top, 0.08, M.hullLight);
   }),
+  /**
+   * 정비 벤치 (Phase 8): the old cockpit `Parts.workbench` silhouette at furniture scale — steel table with a
+   * drawer block, a vise on the left, a parts tray and the wall tool board that `benchBody` already draws.
+   */
+  repair_bench: (b, w, d, h, a, lv) => benchBody(b, w, d, h, a, lv, (b) => {
+    const top = h - 0.02;
+    b.boxB(0.3, 0.18, 0.22, -w * 0.3, top, 0.04, M.hullDark);                                   // vise body
+    b.box(0.36, 0.05, 0.05, -w * 0.3, top + 0.26, 0.04, M.hullLight);                            // vise jaw
+    b.cyl(0.02, 0.02, 0.3, 8, -w * 0.3, top + 0.24, -0.1, M.trim, 0, 0, Math.PI / 2);           // vise handle
+    b.boxB(0.44, 0.08, 0.3, w * 0.28, top, 0.06, M.crateDark);                                   // spare-parts tray
+    b.boxB(0.5, 0.12, 0.12, 0.02, top, 0.14, M.hullDark);                                        // weapon rest block
+    for (let k = 0; k < 4; k++) b.box(0.04, 0.22 + (k % 2) * 0.12, 0.04, -0.36 + k * 0.24, top + 0.72, d / 2 - 0.08, k % 2 ? M.gunmetal : M.hullLight);
+  }),
+  /**
+   * 재배층 (Phase 8): a shallow hydroponic tray on four short legs with `GROW_PLOTS_PER_RACK` plot pads and a
+   * magenta grow strip under the tray (it lights the layer below — stacks read as a vertical farm). The whole
+   * model stays under `GROW_RACK_LAYER_HEIGHT` so stacked layers never intersect.
+   */
+  grow_rack: (b, w, d, h, a) => {
+    const trayY = Math.min(h, GROW_RACK_LAYER_HEIGHT) - 0.3;
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.boxB(0.07, trayY, 0.07, sx * (w / 2 - 0.06), 0, sz * (d / 2 - 0.06), M.gunmetal);
+    b.box(w - 0.06, 0.05, d - 0.06, 0, trayY + 0.025, 0, M.hullLight);                            // tray floor
+    b.box(w - 0.5, 0.05, 0.12, 0, trayY - 0.04, 0, M.stripGrow);                                  // grow light under the tray
+    for (const sz of [-1, 1]) b.box(w - 0.06, 0.14, 0.05, 0, trayY + 0.12, sz * (d / 2 - 0.055), M.hullDark);
+    for (const sx of [-1, 1]) b.box(0.05, 0.14, d - 0.16, sx * (w / 2 - 0.055), trayY + 0.12, 0, M.hullDark);
+    b.box(w - 0.16, 0.05, d - 0.16, 0, trayY + 0.08, 0, M.soil);                                  // soil bed
+    for (let k = 0; k < GROW_PLOTS_PER_RACK; k++) {
+      const px = -w / 2 + (k + 0.5) * (w / GROW_PLOTS_PER_RACK);
+      b.cyl(0.11, 0.13, 0.07, 12, px, trayY + 0.12, 0, M.crateDark);                              // plot pad
+      b.box(0.05, 0.02, 0.03, px, trayY + 0.2, -(d / 2 - 0.11), a);                               // plot marker
+    }
+    b.box(w - 0.3, 0.04, 0.04, 0, trayY - 0.14, -(d / 2 - 0.04), a);                              // front accent
+  },
   range_console: (b, w, d, h, a) => {
     b.boxB(w - 0.1, h - 0.45, d - 0.2, 0, 0, 0.05, M.hullDark);
     b.box(w - 0.06, 0.06, d - 0.16, 0, h - 0.43, 0.05, M.trimDark);
@@ -265,6 +298,10 @@ export interface FurnitureCallbacks {
   onRangeConsole(): void;
   /** 시뮬레이션 허브 (Phase 7): start / join the 시뮬레이션 훈련장. */
   onSimHub(): void;
+  /** 재배층 (Phase 8): open the grow panel of this rack (`ctx.housing.openGrowMenu(uid)`). */
+  onGrowRack(uid: string): void;
+  /** 정비 벤치 (Phase 8): open the weapon-repair menu (the cockpit bench moved into the 작업실). */
+  onRepairBench(): void;
 }
 
 interface Piece {
@@ -311,17 +348,19 @@ export class FurnitureLayer {
     this.rebuildAll();
   }
 
-  /** Placed piece under a room cell, or null. */
+  /** Placed piece under a room cell, or null. With a stack (재배층) the **top** layer wins — housing only lets the top one be recovered. */
   pieceAt(room: number, x: number, y: number): PlacedFurniture | null {
+    let best: PlacedFurniture | null = null;
     for (const p of this.pieces.values()) {
       const it = p.item;
       if (it.room !== room) continue;
       const def = FURNITURE_DEF_MAP.get(it.defId);
       if (!def) continue;
       const fp = furnitureFootprint(def, it.yaw);
-      if (x >= it.x && x < it.x + fp.cols && y >= it.y && y < it.y + fp.rows) return it;
+      if (x < it.x || x >= it.x + fp.cols || y < it.y || y >= it.y + fp.rows) continue;
+      if (!best || (it.layer ?? 0) > (best.layer ?? 0)) best = it;
     }
-    return null;
+    return best;
   }
 
   /** Number of rendered pieces (debug / smoke). */
@@ -358,16 +397,19 @@ export class FurnitureLayer {
     const fp = furnitureFootprint(def, item.yaw);
     const model = buildFurniture(def, item.level);
     roomCellToWorld(item.room, item.x, item.y, _pos, fp.cols, fp.rows);
-    model.group.position.copy(_pos);
+    // stacked furniture (재배층): each layer sits GROW_RACK_LAYER_HEIGHT higher on the same footprint
+    const layer = item.layer ?? 0;
+    const layerY = layer * GROW_RACK_LAYER_HEIGHT;
+    model.group.position.set(_pos.x, layerY, _pos.z);
     model.group.rotation.y = yawToRotation(item.yaw);
     roomDef.furnitureGroup.add(model.group);
     const w = fp.cols * HOUSING_CELL_SIZE, d = fp.rows * HOUSING_CELL_SIZE;
-    const blocker = this.collider.addBox(_pos.x, 0, _pos.z, w, def.height, d);
+    const blocker = this.collider.addBox(_pos.x, layerY, _pos.z, w, def.height, d);
 
     let sign: TextPlane | null = null;
     if (def.maxLevel > 1) {
       sign = new TextPlane(0.5, 0.2, 128);
-      sign.mesh.position.set(_pos.x, def.height + 0.9, _pos.z);
+      sign.mesh.position.set(_pos.x, layerY + def.height + 0.9, _pos.z);
       sign.mesh.rotation.y = yawToRotation(item.yaw) + Math.PI;     // PlaneGeometry faces +Z; the model's front is −Z
       sign.set([`Lv.${item.level}`], def.color, 'rgba(6,8,10,0.75)');
       roomDef.furnitureGroup.add(sign.mesh);
@@ -376,16 +418,36 @@ export class FurnitureLayer {
     let interactable: Interactable | null = null;
     if (def.interaction !== 'none') {
       const bench = benchKindOf(def.interaction);
-      const simHub = def.interaction === 'sim_hub';
-      const prompt = bench ? `${def.name} Lv.${item.level}` : simHub ? `${def.name} · 훈련장 입장` : def.name;
-      const cb = this.cb, level = item.level;
+      const kind = def.interaction;
+      const stack = Math.max(1, def.stackLimit ?? 1);
+      const prompt = bench ? `${def.name} Lv.${item.level}`
+        : kind === 'sim_hub' ? `${def.name} · 훈련장 입장`
+        : stack > 1 ? `${def.name} ${layer + 1}층`
+        : def.name;
+      // A stack shares one footprint, so every layer would sit on the same anchor: spread the layers along the
+      // piece's front edge instead (a control panel per 층) so `findBest` can tell them apart.
+      const anchor = _pos.clone();
+      if (stack > 1) {
+        const lw = def.cols * HOUSING_CELL_SIZE, ld = def.rows * HOUSING_CELL_SIZE;
+        const ox = (layer - (stack - 1) / 2) * (lw / stack);
+        const oz = -(ld / 2 + 0.55);
+        const rot = yawToRotation(item.yaw), cos = Math.cos(rot), sin = Math.sin(rot);
+        anchor.set(_pos.x + ox * cos + oz * sin, 0, _pos.z - ox * sin + oz * cos);
+      }
+      const cb = this.cb, level = item.level, uid = item.uid;
       interactable = {
         id: `hub_furn_${item.uid}`,
-        position: _pos.clone(),
-        radius: Math.max(w, d) / 2 + 1.1,
+        position: anchor,
+        radius: stack > 1 ? 1.2 : Math.max(w, d) / 2 + 1.1,
         getPrompt: () => (cb.canUse() ? prompt : null),
         canInteract: () => cb.canUse(),
-        interact: () => { if (bench) cb.onBench(bench, level); else if (simHub) cb.onSimHub(); else cb.onRangeConsole(); },
+        interact: () => {
+          if (bench) cb.onBench(bench, level);
+          else if (kind === 'sim_hub') cb.onSimHub();
+          else if (kind === 'grow_rack') cb.onGrowRack(uid);
+          else if (kind === 'repair_bench') cb.onRepairBench();
+          else cb.onRangeConsole();
+        },
       };
       this.ctx.interactables.register(interactable);
     }

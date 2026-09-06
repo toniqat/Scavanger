@@ -1,17 +1,29 @@
-import type { LoadoutPreset, PlacedFurniture, ProfileRef, RoomState, ShipState, StoredFurniture } from '@/shared';
-import { FURNITURE_DEF_MAP, IMPLANT_IDS, SHIP_ROOM_COUNT, SHIP_STATE_VERSION, SHIP_STORAGE_KEY } from '@/shared';
-import { canPlaceAt, facilityMaxLevel, furnitureMaxLevel, isRoomPurpose } from './Rules';
+import type { GrowPlot, LoadoutPreset, PlacedFurniture, ProfileRef, RoomState, ShipState, StoredFurniture } from '@/shared';
+import { FURNITURE_DEF_MAP, GROW_PLOTS_PER_RACK, IMPLANT_IDS, SHIP_ROOM_COUNT, SHIP_STATE_VERSION, SHIP_STORAGE_KEY } from '@/shared';
+import { canPlaceAt, facilityMaxLevel, furnitureMaxLevel, isRoomPurpose, nextFreeLayer, stackLimitOf, stackMembers } from './Rules';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * ShipState persistence: fresh state, load + sanitise + migrate, debounced save with a pagehide flush. Same shape as
  * inventory/Stash.ts (try/catch around every localStorage touch, SAVE_DELAY_MS debounce). Uids of placed furniture
  * are `f-<n>`; `nextUid` continues after the highest one found in the save. Phase 7: every flush also mirrors the state
  * into the server profile document `ship` (`ctx.net.profile.set`) when a profile is available.
+ * Phase 8: state **version 2** — `plots` (온실 재배), `nameLocked`, `PlacedFurniture.layer`, and the 정비 벤치 that
+ * left the cockpit is granted once to every profile (fresh state + v1 → v2 migration).
  * ──────────────────────────────────────────────────────────────────────────── */
 
 const SAVE_DELAY_MS = 350;
-/** Convenience for a first run: one 총기 작업대 waiting in furniture storage. */
-const STARTER_FURNITURE: StoredFurniture[] = [{ defId: 'furn_bench_gun', level: 1, qty: 1 }];
+/**
+ * Current on-disk version. Phase 8 writes v2; `SHIP_STATE_VERSION` in the contract is still 1 (it was not bumped in
+ * the committed contract and `src/shared` is frozen for this phase), so housing/ owns the number.
+ */
+export const SHIP_STATE_VERSION_CURRENT = Math.max(2, SHIP_STATE_VERSION);
+/** The 정비 벤치 moved out of the cockpit in Phase 8 — every profile is handed one, once. */
+export const REPAIR_BENCH_DEF_ID = 'furn_repair_bench';
+/** Convenience for a first run: one 총기 작업대 + the granted 정비 벤치 waiting in furniture storage. */
+const STARTER_FURNITURE: StoredFurniture[] = [
+  { defId: 'furn_bench_gun', level: 1, qty: 1 },
+  { defId: REPAIR_BENCH_DEF_ID, level: 1, qty: 1 },
+];
 
 export function storage(): Storage | null {
   try {
@@ -26,14 +38,26 @@ export function freshRoom(): RoomState { return { purpose: 'empty', level: 0 }; 
 
 export function freshState(): ShipState {
   return {
-    version: SHIP_STATE_VERSION,
+    version: SHIP_STATE_VERSION_CURRENT,
     rooms: Array.from({ length: SHIP_ROOM_COUNT }, freshRoom),
     generatorLevel: 0,
     storageLevel: 0,
     furniture: [],
     furnitureStorage: STARTER_FURNITURE.map((s) => ({ ...s })),
     presets: [],
+    plots: [],
+    nameLocked: false,
   };
+}
+
+/** Does the ship already own a 정비 벤치 (placed or stored)? Keeps the v1 → v2 grant idempotent. */
+function hasRepairBench(furniture: readonly PlacedFurniture[], storage: readonly StoredFurniture[]): boolean {
+  return furniture.some((f) => f.defId === REPAIR_BENCH_DEF_ID) || storage.some((s) => s.defId === REPAIR_BENCH_DEF_ID && s.qty > 0);
+}
+
+/** A 재배층 (or any other stackable rack that grows things). */
+export function isGrowRackDefId(defId: string): boolean {
+  return FURNITURE_DEF_MAP.get(defId)?.interaction === 'grow_rack';
 }
 
 const int = (v: unknown, fallback: number, min = 0, max = Number.MAX_SAFE_INTEGER): number => {
@@ -55,14 +79,16 @@ export function maxUidIndex(furniture: readonly PlacedFurniture[]): number {
 
 /**
  * Turn whatever was in localStorage into a valid ShipState: unknown furniture defs / purposes / out-of-range numbers
- * are dropped or clamped, duplicated uids re-minted. Older versions migrate here (none yet — version 1).
+ * are dropped or clamped, duplicated uids re-minted, stack layers re-assigned, plots without a rack dropped.
+ * Migrations: **v1 → v2** grants the 정비 벤치 that moved out of the cockpit (once — a save that already owns one is
+ * left alone, and a v2 save never runs the grant again).
  */
 export function sanitize(raw: unknown): ShipState {
   const fresh = freshState();
   if (!raw || typeof raw !== 'object') return fresh;
   const r = raw as Partial<ShipState> & Record<string, unknown>;
   const version = int(r.version, 0);
-  if (version > SHIP_STATE_VERSION) console.warn(`[housing] ship state v${version} is newer than v${SHIP_STATE_VERSION} — loading best-effort`);
+  if (version > SHIP_STATE_VERSION_CURRENT) console.warn(`[housing] ship state v${version} is newer than v${SHIP_STATE_VERSION_CURRENT} — loading best-effort`);
 
   const rooms: RoomState[] = [];
   const srcRooms = Array.isArray(r.rooms) ? r.rooms : [];
@@ -100,6 +126,14 @@ export function sanitize(raw: unknown): ShipState {
       console.warn(`[housing] '${def.id}' at room ${room} (${item.x}, ${item.y}) does not fit — dropped`);
       continue;
     }
+    // stacked furniture: keep the persisted layer when it is free, otherwise drop the piece onto the lowest free one
+    const limit = stackLimitOf(def);
+    if (limit > 1) {
+      const members = stackMembers(partial, room, def, item.x, item.y, item.yaw);
+      const want = int(f.layer, 0, 0, limit - 1);
+      item.layer = members.some((m) => (m.layer ?? 0) === want) ? nextFreeLayer(members, limit) : want;
+      if (item.layer < 0) { console.warn(`[housing] '${def.id}' stack at room ${room} (${item.x}, ${item.y}) is full — dropped`); continue; }
+    }
     if (!/^f-\d+$/.test(item.uid) || seen.has(item.uid)) pending.push(item);
     else seen.add(item.uid);
     furniture.push(item);
@@ -118,6 +152,10 @@ export function sanitize(raw: unknown): ShipState {
     const existing = furnitureStorage.find((e) => e.defId === def.id && e.level === level);
     if (existing) existing.qty += qty; else furnitureStorage.push({ defId: def.id, level, qty });
   }
+  // v1 → v2: the 정비 벤치 left the cockpit, so every existing profile is handed one (never twice)
+  if (version < 2 && !hasRepairBench(furniture, furnitureStorage) && FURNITURE_DEF_MAP.has(REPAIR_BENCH_DEF_ID)) {
+    furnitureStorage.push({ defId: REPAIR_BENCH_DEF_ID, level: 1, qty: 1 });
+  }
 
   const presets: (LoadoutPreset | null)[] = [];
   for (const p of Array.isArray(r.presets) ? (r.presets as (Partial<LoadoutPreset> | null)[]) : []) {
@@ -131,7 +169,29 @@ export function sanitize(raw: unknown): ShipState {
     });
   }
 
-  return { version: SHIP_STATE_VERSION, rooms, generatorLevel, storageLevel, furniture, furnitureStorage, presets };
+  // 온실 재배: a plot needs its 재배층 to still exist; one plot per (uid, slot), timestamps must be usable numbers
+  const plots: GrowPlot[] = [];
+  const rackUids = new Set(furniture.filter((f) => isGrowRackDefId(f.defId)).map((f) => f.uid));
+  const takenSlots = new Set<string>();
+  for (const p of Array.isArray(r.plots) ? (r.plots as Partial<GrowPlot>[]) : []) {
+    if (!p || typeof p.uid !== 'string' || typeof p.seedDefId !== 'string' || !p.seedDefId) continue;
+    if (!rackUids.has(p.uid)) continue;
+    const slot = int(p.slot, -1, -1);
+    if (slot < 0 || slot >= GROW_PLOTS_PER_RACK) continue;
+    const key = `${p.uid}#${slot}`;
+    if (takenSlots.has(key)) continue;
+    const plantedAt = int(p.plantedAt, 0, 0);
+    if (plantedAt <= 0) continue;
+    const readyAt = int(p.readyAt, plantedAt, plantedAt);
+    takenSlots.add(key);
+    plots.push({ uid: p.uid, slot, seedDefId: p.seedDefId, plantedAt, readyAt });
+  }
+
+  return {
+    version: SHIP_STATE_VERSION_CURRENT,
+    rooms, generatorLevel, storageLevel, furniture, furnitureStorage, presets, plots,
+    nameLocked: r.nameLocked === true,
+  };
 }
 
 /** Load from localStorage; `fresh` = nothing valid was stored (first run). */

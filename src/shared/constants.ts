@@ -552,7 +552,8 @@ export const STAT_MIN = 1;
 
 /* ── ship housing (owner: housing/ rules, hub/ geometry) ── */
 export const SHIP_STORAGE_KEY = 'scav.ship';
-export const SHIP_STATE_VERSION = 1;
+/** Bumped to 2 in Phase 8: `ShipState.plots` / `nameLocked` and the one-off `furn_repair_bench` grant. */
+export const SHIP_STATE_VERSION = 2;
 export const SHIP_ROOM_COUNT = 10;
 /** Room floor grid (cells) and cell size (m): 8 × 8 × 0.5 = a 4 × 4 m room. */
 export const ROOM_GRID_COLS = 8;

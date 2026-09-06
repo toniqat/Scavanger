@@ -5,15 +5,19 @@ persists everything in localStorage `META_STORAGE_KEY` (`scav.meta`), owns the *
 blocker token `'corp'`) and the `credits / rep / contract / quest` developer-console commands. Character XP stays with
 `progression/` (`ctx.progression.addXp`), the bag / stash with `inventory/`; this folder only asks them through `ctx.*Ref`.
 Registered in `main.ts` right after `InventorySystem` (buy / sell / deliveries need the bag + stash) — see the root `CLAUDE.md`.
+**Phase 8** (2026-09-06, brief `docs/PHASE8-PLAN.md` §2.6): the screen body moved to `ui/CorpView.ts` so the standalone overlay and the
+**embedded 기업 tab** of the inventory Tab screen (`createCorpView(host)` → `EmbeddedView`) share one set of renderers; the popup has a fixed
+size (no more per-tab resizing) and every item requirement is a `buildItemChip` / `renderItemCost` thumbnail.
 
 | File | Purpose |
 |---|---|
-| `MetaSystem.ts` | `GameSystem` (`name: 'meta'`) + `MetaRef`. Bus subscriptions for contract goals, `meta` net message (squad share), `settleMission`, shop buy / sell, quests, corp-screen open / close, console commands, save on `hub:entered` and after every change. Phase 7: server credits (`addCredits` = optimistic local apply + `credits:tx`, `serverTx` adopts / reverts), `buy` = `canFit` → debit → item (async completion → `meta:purchase`, failure → `lastPurchaseFailure` / `onPurchaseFailed`), `net:profileLoaded` (replace / migrate), training gating. |
+| `MetaSystem.ts` | `GameSystem` (`name: 'meta'`) + `MetaRef`. Bus subscriptions for contract goals, `meta` net message (squad share), `settleMission`, shop buy / sell, quests, corp-screen open / close, console commands, save on `hub:entered` and after every change. Phase 7: server credits (`addCredits` = optimistic local apply + `credits:tx`, `serverTx` adopts / reverts), `buy` = `canFit` → debit → item (async completion → `meta:purchase`, failure → `lastPurchaseFailure` / `onPurchaseFailed`), `net:profileLoaded` (replace / migrate), training gating. Phase 8: `createCorpView(host)` (embedded 기업 tab, tracked in a `views` set whose message timers tick with `update()`), `onPurchaseFailure(fn)` fan-out, public `countAll(defId)`. |
 | `Storage.ts` | `MetaSave` v1: `freshMetaSave()`, `sanitizeMetaSave()` (clamped credits, known corp / quest / contract ids only, only `accepted` / `complete` quest states kept), `MetaStorage` (load, 350 ms debounced `markDirty()`, `flush()` on `pagehide` / hub entry / dispose, every storage access in try/catch). Phase 7: `flush()` = `writeCache()` (localStorage) + `upload()` (`ctx.net.profile.set('meta', snapshot())` when available); `replace(doc)` adopts a server document without echoing it back. |
 | `Rules.ts` | Pure functions, no ctx / DOM: `repInfoOf`, shop filter (`ruleMatches` / `corpSells` / `shopRarityCap` / `buildShop` sorted by category → rarity → price, `fits` → 공간 없음), `killGoalOf`, `contractBlockReason`, `contractHitDelta`, `settleContract` (fills `outcome`), `questStateOf`, `questBlockReason`, the 한국어 `REASON` strings. `rarityRank` / `RARITY_ORDER` come from `@/shared` (`labels.ts`) since Phase 7. |
-| `ui/CorpMenu.ts` | `.menu.corp-menu`: header 기업 네트워크 + credit readout, 4 corp tabs (`CorpDef.color` accent, `Lv.n`), banner (slogan, description, rep bar `rep / next`), sub-tabs 상점 / 판매 / 계약 / 퀘스트, rows with 구매 / 판매 / 수락 / 포기 / 납품 buttons (disabled + tooltip from `blocked`), `귀중품 전부 판매`, inline `.form-msg`. Hub pointer-lock etiquette (blocker first, Esc capture, microtask re-lock). Labels from `RARITY_LABEL_KO` / `CATEGORY_LABEL_KO` (`@/shared`); the purchase message comes from `meta:purchase` (`구매 처리 중…` while a server transaction is pending) and refusals from `MetaSystem.onPurchaseFailed`. |
+| `ui/CorpView.ts` | **(Phase 8)** The screen **body**, shared by both shells: header 기업 네트워크 + credit readout, 4 corp tabs (`CorpDef.color` accent, `Lv.n`), banner (slogan, description, rep bar `rep / next`), sub-tabs 상점 / 판매 / 계약 / 퀘스트, rows with 구매 / 판매 / 수락 / 포기 / 납품 buttons (disabled + tooltip from `blocked`), `귀중품 전부 판매`, `.form-msg` in a reserved slot. Renders into whatever host it is given and marks it `.corp-view` (`.is-embedded` for the inventory tab). Item thumbnails / 납품 requirements use `buildItemChip` / `renderItemCost` (`@/shared/itemChip`). Purchase messages come from `meta:purchase` (`구매 처리 중…` while a server transaction is pending) and refusals from `MetaSystem.onPurchaseFailure(fn)`. **No blocker, no pointer-lock, no window listener** — those belong to the shell. |
+| `ui/CorpMenu.ts` | The **standalone overlay shell** `.menu.corp-menu` (ship computer): builds a `CorpView` into its `.frame` and adds the hub pointer-lock etiquette (blocker `'corp'` first, `exitPointerLock`, capture-phase Esc, 닫기 button, microtask re-lock), `ui:corpToggled`. Re-exports `CorpPage`. |
 | `ui/dom.ts` | `el / setText / toggleClass / fmtNum` helpers (other folders' helpers are internal to them). |
-| `meta.css` | Corp-screen styles on top of `.menu .frame .ui-btn .form-msg` (`ui/styles/base.css`) and `.hub-head .hub-foot` (`hub/hub.css`); `--cc` = selected corp colour. |
+| `meta.css` | Corp-screen styles on top of `.menu .frame .ui-btn .form-msg` (`ui/styles/base.css`) and `.hub-head .hub-foot` (`hub/hub.css`); `--cc` = selected corp colour, `--corp-page-h` = the **fixed** page height. `.item-chip*` itself is ui's (`base.css`). |
 | `index.ts` | Barrel. |
 
 ## Rules (all numbers from `src/shared/meta.ts`)
@@ -54,6 +58,16 @@ Registered in `main.ts` right after `InventorySystem` (buy / sell / deliveries n
   `blocked: 공간 없음`, nothing consumed; then `consumeDefAll`, credits, rep, `progression.addXp` → `meta:questChanged {complete}`.
 - **Corp screen**: `openCorpMenu(corp?)` (refused while `isRaidActive()`), `closeCorpMenu`, `isMenuOpen`. Emits `ui:corpToggled {open, corp}` and
   `audio:play ui_click / ui_equip / ui_deny / ui_close`. No `ui:notify` from this folder — toasts belong to `ui/` and listen to the `meta:*` events.
+- **Embedded 기업 tab (Phase 8)**: `createCorpView(host)` builds the **same** `CorpView` body inside the inventory Tab screen's host and returns an
+  `EmbeddedView {refresh, dispose}`. It adds **no `'corp'` blocker, never calls `exitPointerLock()` and installs no window Escape listener** — the
+  inventory window owns all three; `dispose()` removes only the nodes / listeners the view added (never the host). Several views may live at once, so
+  async purchase refusals are broadcast through `MetaSystem.onPurchaseFailure(fn)` (the legacy single-slot `onPurchaseFailed` still fires first).
+- **Fixed popup size (Phase 8)**: `.corp-page` has a constant `height` (`--corp-page-h`, only the viewport height changes it — no min/max band), the
+  `.form-msg` sits in a reserved `.corp-msg-slot` and `.hub-foot` keeps a `min-height`, so switching 상점 / 판매 / 계약 / 퀘스트, an empty ↔ full list
+  or hiding 귀중품 전부 판매 never resizes the frame. Rows scroll inside the page (`overflow-y: auto; overflow-x: hidden; scrollbar-width: thin`).
+- **Item chips (Phase 8)**: 상점 / 판매 rows show the item through `buildItemChip` (`.thumb` cell; sell rows carry the stack `×qty`, shop rows the owned
+  count when non-zero), 퀘스트 납품 uses `renderItemCost` (썸네일 + 보유/필요, `is-short` → dimmed chip + red 보유 number) and quest reward items are
+  `buildItemChip(..., {need: qty})`. No plain-text material runs remain in this folder.
 - **Persistence**: every mutation `markDirty()`; `save()` flushes; `resetMeta()` wipes to a fresh save (emits `meta:loaded` / `creditsChanged` / `repChanged`).
   **Server profile (Phase 7)**: every flush also `profile.set('meta', save)`. `net:profileLoaded` → the server `meta` document (when present)
   replaces the save (`MetaStorage.replace`, sanitised, cached to localStorage, not re-uploaded) and the balance is `profile.credits`
@@ -93,4 +107,7 @@ on 8787 cannot hand the page a real profile mid-run. `npm run typecheck` clean f
 - `getSellable` lists the whole bag + stash; there is no per-unit partial sale in the UI (stacks sell whole, `sell(uid, qty)` supports it).
 - Relayed contract hits are not validated against the sender's position / phase; a late-joining client gets no catch-up of a squadmate's contract.
 - A purchase whose server answer never arrives (socket dropped mid-transaction) delivers the item on the local debit; the balance is corrected on the next `net:profileLoaded`.
-- The corp screen has no keyboard navigation beyond Esc, and no item tooltips beyond the row subtitle.
+- The corp screen has no keyboard navigation beyond Esc, and no item tooltips beyond the row subtitle (the chip's `title` carries name + description).
+- `--corp-page-h` is a constant per viewport height, not per host: an embedded 기업 tab inside a short inventory window cannot shrink it on its own
+  (the host may override the variable inline if it ever needs to).
+- `.item-chip*` styling is ui's (`ui/styles/base.css`); until that lands the chips render as bare glyph + count.

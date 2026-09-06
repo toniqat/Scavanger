@@ -28,6 +28,12 @@
 .hub-section .ui-btn.on { border-color: var(--c-success); color: var(--c-success); background: rgba(79, 209, 126, 0.08); }
 .hub-section .ui-input.code-input { font-size: 18px; letter-spacing: 0.38em; text-transform: uppercase; font-weight: 600; }
 
+/* crew name once it is locked (Phase 8: the terminal no longer offers a rename) */
+.hub-crew-name {
+  font-size: 15px; font-weight: 600; letter-spacing: 0.1em; color: var(--c-text);
+  border-left: 2px solid var(--c-accent); padding: 4px 0 4px 10px;
+}
+
 .hub-code { display: flex; align-items: baseline; gap: 16px; }
 .hub-code .code {
   font-family: var(--ui-mono); font-size: 40px; font-weight: 700; letter-spacing: 0.42em; line-height: 1;
@@ -60,7 +66,8 @@
 .hub-page { display: flex; flex-direction: column; gap: 18px; }
 .hub-section .hint.warn { color: var(--c-accent); }
 
-.hub-foot { display: flex; justify-content: space-between; gap: 10px; padding-top: 6px; border-top: 1px solid var(--c-border); }
+/* the footer only carries 닫기 / 타이틀로 since Phase 8 (캐릭터 moved to the Tab screen) */
+.hub-foot { display: flex; justify-content: flex-end; gap: 10px; padding-top: 6px; border-top: 1px solid var(--c-border); }
 .hub-foot .right { display: flex; gap: 10px; }
 .hub-foot .ui-btn { min-width: 0; padding: 0 18px; }
 .hub-menu .ui-btn:disabled { opacity: 0.45; cursor: default; pointer-events: none; }

@@ -12,12 +12,14 @@ frame already has real numbers; `NetSystem` still goes first).
 
 | File | Purpose |
 |---|---|
-| `ProgressionSystem.ts` | `GameSystem` + `ProgressionRef` (`name: 'progression'`). Profile ownership, bus subscriptions that train skills, `derived` recomputation, autosave, the character-sheet toggle; Phase 7: server profile document (`upload()` on every flush, `onProfileLoaded()` replace + `progress:*` re-emit), training gate in `addSkillXp`. |
+| `ProgressionSystem.ts` | `GameSystem` + `ProgressionRef` (`name: 'progression'`). Profile ownership, bus subscriptions that train skills, `derived` recomputation, autosave, the character-sheet toggle; Phase 7: server profile document (`upload()` on every flush, `onProfileLoaded()` replace + `progress:*` re-emit), training gate in `addSkillXp`; Phase 8: `createSheetView(host)` + the `views` set (overlay **and** every embedded tab are repainted through `refreshSheets` / `refreshSheetSkill` / `refreshSheetStat`). |
 | `defs.ts` | The 5 `StatDef` / 14 `SkillDef` (한국어 이름·설명), `WEAPON_CLASS_SKILL`, and the raw skill-XP each trained action is worth. |
 | `derive.ts` | `computeDerived(profile, specialBackpack)` → `DerivedStats`, `xpForLevel(level)`, `DEFAULT_DERIVED`. All tuning constants live here. |
 | `Profile.ts` | `localStorage` load / save / migrate / clear. Every access in `try/catch`. |
-| `ui/CharacterSheet.ts` | 캐릭터 시트 패널 (`.menu.char-sheet`). Blocker token `'stats'`. |
-| `ui/character.css` | Its styles (imported from `CharacterSheet.ts`); reuses `.menu` / `.ui-*` from `ui/styles/base.css`. |
+| `ui/SheetBody.ts` | **공용 렌더러** (Phase 8): `CharacterSheetHost` 인터페이스 + `SheetBody` — 헤더 / XP 바 / 능력치 · 숙련도 2단 / 파생 능력치 그리드 / 푸터(캐릭터 초기화)를 넘겨받은 부모 요소 안에 만든다. blocker · 포인터 락 · Esc · `.scr-tabs` 는 **모른다** (껍데기의 몫). `el()` 헬퍼도 여기서 export. |
+| `ui/CharacterSheet.ts` | 단독 오버레이 (`.menu.char-sheet`): `.scr-tabs` + `.frame` + `SheetBody`. Blocker token `'stats'`, 포인터 락, capture-phase Esc. |
+| `ui/SheetView.ts` | 인벤토리 Tab 화면의 **캐릭터 탭** (`EmbeddedView`): `host` 안에 `.cs-embed` + 같은 `SheetBody`. blocker / 락 / Esc / 탭 pill 없음. |
+| `ui/character.css` | Its styles (imported from `CharacterSheet.ts` / `SheetView.ts`); reuses `.menu` / `.ui-*` from `ui/styles/base.css`. |
 | `index.ts` | Barrel. |
 
 ## 스탯 (5종)
@@ -118,15 +120,31 @@ inventory / items 의 신규 API 가 아직 없으면 `typeof` 체크 + `try/cat
   알 수 없는 임플란트 id → `null`). 저장본 버전이 **더 높으면** 이름만 남기고 새 캐릭터로 시작한다.
 - localStorage 자체가 없거나(프라이빗 모드) 쿼터가 차도 게임은 그대로 진행된다 — 모든 접근이 `try/catch`.
 
-## 캐릭터 시트 (`ui/CharacterSheet.ts`)
-- `ui:statsToggled {open}` 로 열고 닫는다 (인벤토리 창의 **캐릭터** 탭과 함선 터미널의 **캐릭터** 버튼이 emit). 편의상 **P** 키로도 토글되며,
+## 캐릭터 시트 — 단독 오버레이 (`ui/CharacterSheet.ts`)
+- `ui:statsToggled {open}` 로 열고 닫는다. 편의상 **P** 키로도 토글되며,
+  (Phase 8: 인벤토리 Tab 화면은 이 오버레이 대신 아래 임베드 뷰를 쓴다. 함선 터미널의 캐릭터 버튼도 Phase 8 에서 제거됐다.)
 - 상단에 공용 화면 탭 `.scr-tabs` (인벤토리 · 캐릭터 · 기업 비활성; `ui/styles/base.css`) — **인벤토리** 탭은 시트를 닫고(`close(false)`) `ctx.inventory.toggleBag()` 을 부른다.
   게임플레이 / 함선 phase 에서 다른 blocker 가 없을 때만 열린다.
 - `ctx.uiBlockers` 에 `'stats'` 토큰을 **먼저** 넣고 `ctx.input.exitPointerLock()` 을 호출한다
   (GameFlow 가 의도된 lock 해제로 인식하도록). 닫을 때는 토큰을 지우고, blocker 가 없으면 마이크로태스크에서 재잠금.
 - Esc 는 capture-phase 리스너로 잡아 시트만 닫는다 (일시정지 메뉴로 새지 않는다).
 - 내용: 레벨 + XP 바, 스탯 5종(설명 · 값 · `＋` 버튼 — 레이드 중 비활성) + 잔여 포인트, 스킬 14종 진행도 바,
-  파생 능력치 18개 readout, 2단계 확인식 **캐릭터 초기화** 버튼(함선에서만).
+  파생 능력치 18개 readout, 2단계 확인식 **캐릭터 초기화** 버튼(함선에서만). 이 본문 전체는 `ui/SheetBody.ts` 하나가 그린다.
+
+### 임베드 뷰 `createSheetView(host)` (Phase 8)
+인벤토리 Tab 화면의 **캐릭터 탭**이 부르는 진입점. 같은 `SheetBody` 를 `host` 안의 `.cs-embed` 래퍼에 만들고
+`EmbeddedView {refresh, dispose}` 를 돌려준다. 오버레이와 **렌더러가 하나**라 표시 내용이 갈라지지 않는다.
+- 임베드 뷰는 `'stats'` blocker 를 넣지 않고, `exitPointerLock()` 을 부르지 않으며, window Esc 리스너도 달지 않고,
+  `.scr-tabs` pill 도 그리지 않는다 — 전부 인벤토리 창의 몫 (`src/shared/types.ts` `EmbeddedView` 계약).
+- `ProgressionSystem` 은 넘겨준 뷰를 `views` 셋에 담아 스탯 · 스킬 · `derived` 가 바뀔 때마다 오버레이와 함께 갱신한다
+  (`refreshSheets` / `refreshSheetSkill(id)` / `refreshSheetStat(id)`). `dispose()` 하면 셋에서 빠진다.
+- `refresh()` 는 **캐릭터 초기화** 확인 단계를 항상 풀어 둔다 (탭을 다시 열었을 때 위험한 버튼이 눌린 채로 남지 않도록).
+
+### 스크롤바 (Phase 8 수정)
+`.menu .frame::before/::after` 코너 브래킷이 `-1px` 에 있어 `overflow-y: auto` 프레임에 가로·세로 1px 오버플로가
+생기고 스크롤바가 상시 표시됐다. `character.css` 에서 브래킷을 안쪽(`left/top: 0`, `right/bottom: 0`)으로 당기고
+`overflow-x: hidden; scrollbar-width: thin;` 을 명시, `min-width` 도 `min(820px, 100%)` 로 낮춰 좁은 창에서
+가로 스크롤이 생기지 않게 했다 (`src/hub/hub.css` 5–13 줄과 같은 패턴). `.cs-embed` 도 같은 규칙을 쓴다.
 
 ## 다른 폴더가 쓰는 법
 ```ts

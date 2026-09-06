@@ -1714,3 +1714,195 @@ input { font: inherit; color: inherit; }
 .srow .badge.training { color: var(--c-info); border-color: rgba(127, 183, 230, 0.55); }
 .srow .badge.ship { opacity: 0.7; }
 .srow .name { flex: 1; }
+
+/* ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * Phase 8 — UI/UX pass (2026-09-06): shared item-cost chips · 설정 overlay · 함선 관리 hint + screen
+ * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/* ── 재료 요구 칩 (markup contract: src/shared/itemChip.ts — housing / inventory / meta / ui all emit it) ──
+ * `--chip-size` sizes the thumbnail, `--rc` is the rarity ring, `--ic` tints the glyph. `.is-short` (보유 < 필요)
+ * dims the whole chip and turns the 보유 number red; `.is-free` marks a cost-free chip. */
+.item-chips { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; }
+.item-chip {
+  --chip-size: 34px;
+  --rc: var(--r-common);
+  --ic: var(--c-text);
+  position: relative;
+  display: inline-flex; flex-direction: column; align-items: center; gap: 3px;
+  flex: none;
+  min-width: var(--chip-size); max-width: calc(var(--chip-size) * 2.4);
+  padding: 0; border: none; background: none;
+  font: inherit; color: var(--c-text); text-align: center;
+  transition: opacity var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
+}
+button.item-chip { cursor: pointer; }
+button.item-chip:hover { transform: translateY(-1px); }
+button.item-chip:focus-visible { outline: 1px solid var(--c-accent); outline-offset: 2px; }
+.item-chip-thumb {
+  position: relative;
+  width: var(--chip-size); height: var(--chip-size);
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--rc);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.08), rgba(0, 0, 0, 0.4));
+  box-shadow: inset 0 0 9px -3px var(--rc);
+}
+.item-chip-icon {
+  font-size: calc(var(--chip-size) * 0.52); line-height: 1;
+  color: var(--ic);
+  text-shadow: 0 0 5px rgba(0, 0, 0, 0.85);
+}
+/* 보유 / 필요, pinned to the bottom-right corner of the thumbnail */
+.item-chip-count {
+  position: absolute; right: -3px; bottom: -4px;
+  display: inline-flex; align-items: center; gap: 1px;
+  height: 14px; padding: 0 3px;
+  border: 1px solid var(--c-border);
+  background: rgba(6, 7, 9, 0.94);
+  font-family: var(--ui-mono); font-variant-numeric: tabular-nums;
+  font-size: 10px; line-height: 1; letter-spacing: 0;
+}
+.item-chip-have { color: var(--c-text); font-weight: 700; }
+.item-chip-sep { color: var(--c-text-faint); }
+.item-chip-need { color: var(--c-text-dim); }
+.item-chip-name {
+  width: 100%;
+  font-size: 9px; line-height: 1.15; letter-spacing: 0.02em;
+  color: var(--c-text-dim);
+  overflow: hidden; text-overflow: ellipsis;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+.item-chip.is-short { opacity: 0.62; }
+.item-chip.is-short .item-chip-thumb { border-color: rgba(255, 77, 77, 0.6); box-shadow: none; }
+.item-chip.is-short .item-chip-have { color: var(--c-danger); }
+.item-chip.is-free { opacity: 0.6; }
+.item-chip-free { font-size: 11px; letter-spacing: 0.14em; color: var(--c-text-dim); }
+
+/* ── 설정 overlay (menus/SettingsMenu): keys + audio, above the pause menu, below the key-settings overlay ── */
+.menu.settings-menu { z-index: 56; background: rgba(3, 4, 6, 0.72); }
+.menu.settings-menu .frame {
+  min-width: 520px; max-width: 680px; width: min(680px, calc(100vw - 40px));
+  max-height: calc(100vh - 32px); overflow: hidden; gap: 16px; padding: 28px 32px 22px;
+}
+.set-head { display: flex; flex-direction: column; gap: 6px; }
+.set-head .title { font-size: 26px; letter-spacing: 0.18em; }
+.set-head .subtitle { margin-top: 0; }
+.set-body { display: flex; flex-direction: column; gap: 18px; overflow-y: auto; overflow-x: hidden; min-height: 0; padding-right: 4px; scrollbar-width: thin; }
+.set-section { display: flex; flex-direction: column; gap: 10px; }
+.set-section-title {
+  font-size: 10px; letter-spacing: 0.24em; text-transform: uppercase; font-weight: 700;
+  color: var(--c-accent);
+  padding-bottom: 6px; border-bottom: 1px solid var(--c-border);
+}
+.set-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 38px; }
+.set-row-left { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.set-row-label { font-size: 13px; letter-spacing: 0.06em; color: var(--c-text); }
+.set-row-desc { font-size: 10px; letter-spacing: 0.04em; color: var(--c-text-faint); }
+.set-row-right { display: flex; align-items: center; gap: 12px; flex: none; }
+.set-key-btn { min-width: 180px; height: 34px; padding: 0 16px; font-size: 11px; }
+.set-slider {
+  -webkit-appearance: none; appearance: none;
+  width: 210px; height: 4px;
+  background: var(--c-fill); border: 1px solid var(--c-border);
+  outline: none; cursor: pointer;
+}
+.set-slider::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 12px; height: 18px; border: 1px solid var(--c-accent); border-radius: 1px;
+  background: #1a1408; box-shadow: 0 0 6px rgba(255, 179, 71, 0.5); cursor: pointer;
+}
+.set-slider::-moz-range-thumb { width: 12px; height: 18px; border: 1px solid var(--c-accent); border-radius: 1px; background: #1a1408; cursor: pointer; }
+.set-slider:disabled { opacity: 0.35; cursor: default; }
+.set-vol { min-width: 44px; text-align: right; font-size: 12px; color: var(--c-text-dim); }
+.set-hint { font-size: 10px; letter-spacing: 0.08em; color: var(--c-text-faint); }
+.set-foot { display: flex; justify-content: flex-end; padding-top: 10px; border-top: 1px solid var(--c-border); }
+.set-foot .ui-btn { min-width: 0; padding: 0 22px; }
+
+/* ── 함선 관리(M) hint: bottom-right of the social layer, persistent in the ship ── */
+.ship-hint {
+  position: absolute; right: 28px; bottom: 28px;
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px;
+  background: rgba(8, 9, 11, 0.6); border: 1px solid var(--c-border);
+  opacity: 0; visibility: hidden; transform: translateY(6px);
+  transition: opacity var(--t-fast) var(--ease), transform var(--t-fast) var(--ease), visibility var(--t-fast);
+  pointer-events: none;
+}
+.ship-hint.show { opacity: 1; visibility: visible; transform: none; }
+.ship-hint .t { font-size: 11px; letter-spacing: 0.16em; color: var(--c-text-dim); }
+.ship-hint .keycap { min-width: 20px; height: 20px; font-size: 10px; }
+
+/* ── 함선 관리 screen (hud/ShipManage) in the `.hud.housing` layer ── */
+.ship-manage {
+  position: absolute; inset: 0;
+  pointer-events: none;
+  opacity: 0; visibility: hidden;
+  transition: opacity var(--t-fast) var(--ease), visibility var(--t-fast);
+}
+.ship-manage.show { opacity: 1; visibility: visible; }
+
+.sm-rooms {
+  position: absolute; left: 24px; top: 96px;
+  width: 216px; max-height: calc(100vh - 300px);
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 12px;
+  background: rgba(8, 9, 11, 0.78); border: 1px solid var(--c-border);
+}
+.sm-title { font-size: 10px; letter-spacing: 0.24em; text-transform: uppercase; font-weight: 700; color: var(--c-accent); }
+.sm-room-list { display: flex; flex-direction: column; gap: 3px; overflow-y: auto; overflow-x: hidden; min-height: 0; scrollbar-width: thin; }
+.sm-room {
+  display: flex; align-items: baseline; gap: 8px;
+  width: 100%; padding: 6px 8px;
+  border: 1px solid transparent; background: rgba(255, 255, 255, 0.03);
+  font: inherit; text-align: left; cursor: pointer;
+  transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.sm-room:hover { background: rgba(255, 255, 255, 0.09); }
+.sm-room .n { flex: none; font-family: var(--ui-mono); font-size: 11px; letter-spacing: 0.04em; color: var(--c-text-dim); }
+.sm-room .p { flex: 1; font-size: 12px; letter-spacing: 0.06em; color: var(--c-text); }
+.sm-room .c { flex: none; font-family: var(--ui-mono); font-size: 10px; color: var(--c-text-faint); }
+.sm-room.empty .p { color: var(--c-text-faint); }
+.sm-room.is-on { border-color: var(--c-accent); background: rgba(255, 179, 71, 0.14); }
+.sm-room.is-on .p { color: var(--c-accent); }
+
+.sm-bar {
+  position: absolute; left: 260px; right: 24px; bottom: 24px;
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 10px 12px;
+  background: rgba(8, 9, 11, 0.78); border: 1px solid var(--c-border);
+}
+.sm-bar-head { font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase; font-weight: 700; color: var(--c-text-dim); }
+.sm-empty { font-size: 11px; letter-spacing: 0.06em; color: var(--c-text-faint); padding: 10px 2px; }
+.sm-cards {
+  display: flex; flex-direction: row; flex-wrap: nowrap; gap: 8px;
+  overflow-x: auto; overflow-y: hidden;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+}
+.sm-cards::-webkit-scrollbar { height: 6px; }
+.sm-cards::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.22); }
+.fcard {
+  --fc: var(--c-text);
+  flex: none; width: 132px;
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  padding: 8px 6px;
+  border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03);
+  font: inherit; color: var(--c-text); cursor: pointer;
+  transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
+}
+.fcard:hover { background: rgba(255, 255, 255, 0.08); border-color: var(--c-border-strong); transform: translateY(-1px); }
+.fcard.is-sel { border-color: var(--c-accent); background: rgba(255, 179, 71, 0.14); }
+.fcard.is-empty { opacity: 0.55; }
+.fcard-thumb {
+  position: relative;
+  width: 54px; height: 44px;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--fc);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.08), rgba(0, 0, 0, 0.45));
+  box-shadow: inset 0 0 12px -4px var(--fc);
+}
+.fcard-glyph { font-size: 22px; line-height: 1; color: var(--fc); text-shadow: 0 0 6px rgba(0, 0, 0, 0.9); }
+.fcard-size { position: absolute; right: 2px; bottom: 1px; font-family: var(--ui-mono); font-size: 9px; color: var(--c-text-faint); }
+.fcard-name { font-size: 11px; line-height: 1.2; letter-spacing: 0.04em; text-align: center; color: var(--c-text); }
+.fcard-cost { justify-content: center; gap: 6px; min-height: 26px; }
+.fcard-own { font-family: var(--ui-mono); font-size: 10px; letter-spacing: 0.06em; color: var(--c-success); }
+.fcard-own.none { color: var(--c-text-faint); }

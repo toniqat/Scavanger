@@ -1,8 +1,15 @@
 import type { GameContext } from '@/shared';
-import { el } from './dom';
+import { el, section } from './dom';
 
-export type HousingPage = 'room' | 'facility' | 'presets';
+export type HousingPage = 'room' | 'facility' | 'presets' | 'grow';
 const BLOCKER = 'housing';
+
+/**
+ * `ui:housingToggled` only knows the three Phase 6 pages; the Phase 8 재배 panel reports itself as `null` there and
+ * carries its own `ui:growToggled` event instead (the contract is frozen — page ids may not be appended).
+ */
+type WirePage = 'room' | 'facility' | 'presets' | null;
+const wirePage = (p: HousingPage): WirePage => (p === 'grow' ? null : p);
 
 /**
  * Shared shell of the three housing panels (`.menu.housing-menu`): adds the `'housing'` blocker **before** exiting
@@ -59,7 +66,7 @@ export abstract class HousingPanel {
     this.frame.style.animation = '';
     window.addEventListener('keydown', this.onKeyCapture, true);
     this.refresh();
-    this.ctx.bus.emit('ui:housingToggled', { open: true, page: this.page });
+    this.ctx.bus.emit('ui:housingToggled', { open: true, page: wirePage(this.page) });
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
   }
 
@@ -71,7 +78,7 @@ export abstract class HousingPanel {
     this.msg.hidden = true;
     (document.activeElement as HTMLElement | null)?.blur?.();
     this.ctx.uiBlockers.delete(BLOCKER);
-    this.ctx.bus.emit('ui:housingToggled', { open: false, page: this.page });
+    this.ctx.bus.emit('ui:housingToggled', { open: false, page: wirePage(this.page) });
     if (relock) this.relock();
   }
 
@@ -86,11 +93,7 @@ export abstract class HousingPanel {
   /** Append the message line to the frame (call after the content, before the footer). */
   protected mountMsg(): void { this.frame.appendChild(this.msg); }
 
-  protected section(parent: HTMLElement, label: string): HTMLElement {
-    const s = el('div', { cls: 'hs-section', parent });
-    el('div', { cls: 'ui-label', text: label, parent: s });
-    return s;
-  }
+  protected section(parent: HTMLElement, label: string): HTMLElement { return section(parent, label); }
 
   protected button(parent: HTMLElement, label: string, onClick: () => void, extraCls = ''): HTMLButtonElement {
     const b = el('button', { cls: `ui-btn ${extraCls}`.trim(), text: label, parent });

@@ -312,14 +312,15 @@ try {
       tabs: [...root.querySelectorAll('.scr-tab')].map((b) => b.textContent).join(' '),
     };
   });
-  const expectCredits = screen.credits === null ? '크레딧 —' : `크레딧 ${screen.credits.toLocaleString('ko-KR')}`;
+  // Phase 8: the eyebrow already says CREDITS, so the value is the bare number (no duplicated 크레딧 label)
+  const expectCredits = screen.credits === null ? '—' : `${screen.credits.toLocaleString('ko-KR')}`;
   ok(screen.hidden === false && screen.visible && screen.text === expectCredits, `크레딧 readout shows ctx.meta.credits (${screen.text})`, JSON.stringify(screen));
-  ok(screen.corpDisabled === false && screen.corpOff === false && screen.tabs === '인벤토리 캐릭터 기업', '기업 tab is active', JSON.stringify(screen));
+  ok(screen.corpDisabled === false && screen.corpOff === false && screen.tabs === '인벤토리 캐릭터 기업 함선', '기업 tab is active', JSON.stringify(screen));
   await page.evaluate(() => window.__game.ctx.bus.emit('meta:creditsChanged', { credits: 1234, delta: 734, reason: 'smoke' }));
   await sleep(50);
   const creditsText = await page.evaluate(() => document.querySelector('.inv-credits-value')?.textContent);
   // the readout reads ctx.meta.credits (the event only triggers a refresh), so a stub meta keeps its own number
-  const expectAfter = await page.evaluate(() => { const m = window.__game.ctx.meta; return m ? `크레딧 ${m.credits.toLocaleString('ko-KR')}` : '크레딧 —'; });
+  const expectAfter = await page.evaluate(() => { const m = window.__game.ctx.meta; return m ? `${m.credits.toLocaleString('ko-KR')}` : '—'; });
   ok(creditsText === expectAfter, `meta:creditsChanged refreshes the readout (${creditsText})`);
   const notifyBefore = await evCount('ui:notify');
   await page.evaluate(() => [...document.querySelectorAll('.inv-root .scr-tab')].find((b) => b.textContent === '기업').click());
@@ -327,18 +328,14 @@ try {
   const corpClick = await page.evaluate((nb) => {
     const ctx = window.__game.ctx;
     const notes = window.__ev['ui:notify'].slice(nb);
-    return { invOpen: ctx.inventory.isOpen, metaOpen: !!ctx.meta?.isMenuOpen, blockers: [...ctx.uiBlockers], warned: notes.some((n) => n.kind === 'warning'), notes };
+    return { invOpen: ctx.inventory.isOpen, metaOpen: !!ctx.meta?.isMenuOpen, blockers: [...ctx.uiBlockers], warned: notes.some((n) => n.kind === 'warning'), embedded: !document.querySelector('.inv-root .inv-screen')?.hidden, notes };
   }, notifyBefore);
-  ok(!corpClick.invOpen, '기업 tab closes the ship screen', JSON.stringify(corpClick));
-  if (corpClick.metaOpen) {
-    ok(corpClick.blockers.includes('corp'), 'corp screen opened (blocker corp)', JSON.stringify(corpClick.blockers));
-    await page.evaluate(() => window.__game.ctx.meta.closeCorpMenu());
-  } else {
-    ok(corpClick.warned && !corpClick.blockers.includes('inventory'), 'meta could not open its screen → warning toast, no stale blocker', JSON.stringify(corpClick));
-  }
-  // the window still works afterwards
-  await tap('Tab');
-  await waitFor(page, () => window.__game.ctx.inventory.isOpen, 'ship screen re-opened');
+  // Phase 8: the 기업 tab renders INSIDE the Tab screen; the window stays open and keeps its single blocker
+  ok(corpClick.invOpen, '기업 tab keeps the ship screen open (embedded view)', JSON.stringify(corpClick));
+  ok(!corpClick.metaOpen && !corpClick.blockers.includes('corp'), 'the standalone corp overlay and its blocker stay out of it', JSON.stringify(corpClick.blockers));
+  ok(corpClick.embedded, '기업 view mounted in the Tab screen host', JSON.stringify(corpClick));
+  await page.evaluate(() => [...document.querySelectorAll('.inv-root .scr-tab')].find((b) => b.textContent === '인벤토리').click());
+  await sleep(80);
   await tap('Escape');
   await waitFor(page, () => !window.__game.ctx.inventory.isOpen, 'closed');
   // the ship-only guard: the corp tab on a mission warns instead of opening
@@ -346,10 +343,12 @@ try {
   await tap('Tab');
   await waitFor(page, () => window.__game.ctx.inventory.isOpen, 'bag window (mission)');
   const nb2 = await evCount('ui:notify');
-  await page.evaluate(() => [...document.querySelectorAll('.inv-root .scr-tab')].find((b) => b.textContent === '기업').click());
+  // the tab may not exist at all outside the hub — clicking is best-effort
+  await page.evaluate(() => [...document.querySelectorAll('.inv-root .scr-tab')].find((b) => b.textContent === '기업')?.click());
   await sleep(100);
-  const missionCorp = await page.evaluate((nb) => ({ open: window.__game.ctx.inventory.isOpen, warned: window.__ev['ui:notify'].slice(nb).some((n) => n.kind === 'warning'), creditsHidden: document.querySelector('.inv-credits').hidden }), nb2);
-  ok(missionCorp.open && missionCorp.warned && missionCorp.creditsHidden, 'on a mission the 기업 tab only warns (window stays, no credits readout)', JSON.stringify(missionCorp));
+  const missionCorp = await page.evaluate((nb) => ({ open: window.__game.ctx.inventory.isOpen, creditsHidden: document.querySelector('.inv-credits').hidden, tabsHidden: !!document.querySelector('.inv-root .scr-tabs')?.hidden }), nb2);
+  // Phase 8: the screen tabs only exist in the ship, so on a mission there is nothing to click and no credits readout
+  ok(missionCorp.open && missionCorp.creditsHidden && missionCorp.tabsHidden, 'on a mission the screen tabs and the credits readout are hidden', JSON.stringify(missionCorp));
   await tap('Escape');
   await waitFor(page, () => !window.__game.ctx.inventory.isOpen, 'closed (mission)');
 } catch (e) {

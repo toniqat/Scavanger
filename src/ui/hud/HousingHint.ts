@@ -10,8 +10,9 @@ const YAW_GLYPH: readonly string[] = ['↑', '→', '↓', '←'];
  * Housing-mode hint bar (`.housing-hint`, bottom-centre of its own `.hud.housing` layer so it shows in the ship where the
  * gameplay HUD is hidden). Shown on `housing:modeChanged {active:true}`: selected furniture name (`FURNITURE_DEF_MAP`) +
  * yaw glyph / degrees from `housing:selectionChanged` (`선택 없음 — 휠로 선택` when nothing is picked), cursor cell `x,y` +
- * `설치 가능` / `설치 불가` from `housing:cursorChanged`, and the key hints `LMB 설치 · R 회전 · X 회수 · 휠 선택 · Esc 종료`
- * read from the live bindings (`keyLabel(Keys.FIRE / ROTATE_ITEM / DROP_ITEM / MENU)`, refreshed on `input:bindingsChanged`).
+ * `설치 가능` / `설치 불가` from `housing:cursorChanged`, and the key hints
+ * `LMB 설치 · R 회전 · X 회수 · 휠 선택 · C 취소 · Esc 종료` read from the live bindings
+ * (`keyLabel(Keys.FIRE / ROTATE_ITEM / DROP_ITEM / MENU)`, refreshed on `input:bindingsChanged`; `C` is fixed).
  * Hidden (and reset) on `active:false`, `game:newMission` and `game:abort`.
  */
 export class HousingHint {
@@ -79,8 +80,10 @@ export class HousingHint {
   }
 
   private refreshKeys(): void {
+    // `C` is a fixed cancel key owned by hub/HousingMode (Phase 8, alongside Escape) — not a rebindable action,
+    // so it is printed literally while every other hint reads its live binding.
     setText(this.keysEl,
-      `${keyLabel(Keys.FIRE)} 설치 · ${keyLabel(Keys.ROTATE_ITEM)} 회전 · ${keyLabel(Keys.DROP_ITEM)} 회수 · 휠 선택 · ${keyLabel(Keys.MENU)} 종료`);
+      `${keyLabel(Keys.FIRE)} 설치 · ${keyLabel(Keys.ROTATE_ITEM)} 회전 · ${keyLabel(Keys.DROP_ITEM)} 회수 · 휠 선택 · C 취소 · ${keyLabel(Keys.MENU)} 종료`);
   }
 
   dispose(): void { for (const u of this.unsubs) u(); this.root.remove(); }

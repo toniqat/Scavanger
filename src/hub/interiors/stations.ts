@@ -3,11 +3,13 @@ import { GeoBatch, HUB_MATS as M } from './GeoBatch';
 import type { BoxInteriorCollider } from './InteriorCollider';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Ship stations (tactical kit): hydroponics garden, repair bench, implant bay.
+ * Ship stations (tactical kit): repair bench, implant bay, ship computer.
  * All static geometry goes through the interior's `GeoBatch`, so a station costs
- * **zero extra draw calls** (it merges into the existing per-material meshes; the
- * grow-light / soil materials add one merged mesh each). Only the garden's living
- * plants are dynamic — one `InstancedMesh` owned by `hub/GardenStation`.
+ * **zero extra draw calls** (it merges into the existing per-material meshes).
+ *
+ * Phase 8 (2026-09-06): the hydroponics rack and `hub/GardenStation` are gone — 재배 lives in the 온실 room
+ * (`furn_grow_rack` furniture → `ctx.housing.openGrowMenu`). The personal ship also lost its built-in repair
+ * bench (`furn_repair_bench` furniture in the 작업실); only the shared ship still models one.
  *
  * Local frame (matching `parts.ts`): local +X → (cos ry, −sin ry), local +Z → (sin ry, cos ry),
  * so the *front* (toward the player) is local −Z = (−sin ry, −cos ry).
@@ -19,15 +21,9 @@ export interface StationDef {
   yaw: number;
 }
 
-/** Hydroponics rack: `plots` are the world positions where a plant grows (tray surface). */
-export interface GardenStationDef extends StationDef {
-  plots: THREE.Vector3[];
-}
-
-/** Every station an interior offers. */
+/** Every station an interior offers. `bench` only exists where the ship still has a built-in repair bench. */
 export interface ShipStations {
-  garden: GardenStationDef;
-  bench: StationDef;
+  bench?: StationDef;
   implantBay: StationDef;
 }
 
@@ -38,55 +34,6 @@ const lz = (z: number, ry: number, ox: number, oz: number): number => z - Math.s
 function footprint(ry: number, w: number, d: number): [number, number] {
   const c = Math.abs(Math.cos(ry)), s = Math.abs(Math.sin(ry));
   return [c * w + s * d, s * w + c * d];
-}
-
-/* ── 수경 재배 스테이션 (hydroponics) ─────────────────────────────────────── */
-const GARDEN_W = 2.2;
-const GARDEN_D = 0.72;
-const GARDEN_H = 2.15;
-/** Local X offsets of the three plots on each shelf. */
-const PLOT_X = [-0.68, 0, 0.68];
-/** Tray surface heights (lower shelf, upper shelf). */
-const SHELF_Y = [0.92, 1.56];
-
-/**
- * Two-shelf hydroponics rack against a wall: cabinet, soil trays, magenta grow-lights, canopy.
- * Returns the 6 plot positions (bottom-left → top-right) and the interaction anchor.
- */
-export function hydroponics(b: GeoBatch, col: BoxInteriorCollider, x: number, z: number, ry: number): GardenStationDef {
-  const fx = -Math.sin(ry), fz = -Math.cos(ry);
-  const W = GARDEN_W, D = GARDEN_D, H = GARDEN_H;
-
-  // cabinet + posts + canopy
-  b.boxB(W, 0.78, D, x, 0, z, M.hullDark, ry);
-  b.box(W + 0.06, 0.06, D + 0.04, lx(x, ry, 0, 0), 0.8, lz(z, ry, 0, 0), M.trimDark, ry);
-  for (const ox of [-(W / 2 - 0.05), W / 2 - 0.05]) {
-    b.boxB(0.1, H, D, lx(x, ry, ox, 0), 0, lz(z, ry, ox, 0), M.hullLight, ry);
-  }
-  b.box(W, 0.12, D, x, H, z, M.hullLight, ry);
-  b.box(0.1, H - 0.8, D, lx(x, ry, 0, D / 2 - 0.05), (H + 0.8) / 2, lz(z, ry, 0, D / 2 - 0.05), M.hullDark, ry);   // back panel
-
-  // shelves: tray + soil + a rail so plants read as contained
-  for (let s = 0; s < SHELF_Y.length; s++) {
-    const y = SHELF_Y[s];
-    b.box(W - 0.18, 0.05, D - 0.1, x, y - 0.055, z, M.hullLight, ry);
-    b.box(W - 0.3, 0.07, D - 0.26, x, y - 0.015, z, M.soil, ry);
-    b.box(W - 0.28, 0.06, 0.04, lx(x, ry, 0, -(D / 2 - 0.12)), y + 0.02, lz(z, ry, 0, -(D / 2 - 0.12)), M.trimDark, ry);
-    // grow-light strip above this shelf (under the next shelf / the canopy)
-    const lightY = s + 1 < SHELF_Y.length ? SHELF_Y[s + 1] - 0.1 : H - 0.09;
-    b.box(W - 0.34, 0.045, 0.14, x, lightY, z, M.stripGrow, ry);
-  }
-  // label strip on the canopy front
-  b.box(W - 0.5, 0.07, 0.04, lx(x, ry, 0, -(D / 2 + 0.02)), H + 0.12, lz(z, ry, 0, -(D / 2 + 0.02)), M.stripAmber, ry);
-
-  const [fw, fd] = footprint(ry, W, D);
-  col.addBox(x, 0, z, fw, H, fd);
-
-  const plots: THREE.Vector3[] = [];
-  for (const y of SHELF_Y) {
-    for (const ox of PLOT_X) plots.push(new THREE.Vector3(lx(x, ry, ox, 0), y, lz(z, ry, ox, 0)));
-  }
-  return { position: new THREE.Vector3(x + fx * (D / 2 + 0.95), 0, z + fz * (D / 2 + 0.95)), yaw: ry, plots };
 }
 
 /* ── 정비대 (repair bench) ────────────────────────────────────────────────── */

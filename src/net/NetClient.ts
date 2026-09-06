@@ -18,8 +18,13 @@ export class NetClient {
   status: NetStatus = 'offline';
   localId: PeerId | null = null;
   rttMs = 0;
-  /** serverTime - performance.now() at the last pong (informational only). */
+  /**
+   * `serverTime - performance.now()` from the last `welcome` / `pong`. Adding `performance.now()` back gives the
+   * relay's wall clock in epoch ms (`NetRef.serverNow()`); only valid while `hasServerTime` is true.
+   */
   serverTimeOffset = 0;
+  /** True once a `welcome`/`pong` supplied a server clock on the current connection (reset by `teardown`). */
+  hasServerTime = false;
 
   onMessage: ((msg: ServerToClient) => void) | null = null;
   onStatus: ((status: NetStatus, reason?: string) => void) | null = null;
@@ -77,6 +82,9 @@ export class NetClient {
           if (welcomed) return;
           welcomed = true;
           this.localId = msg.id;
+          // Server clock available from the handshake on, so `serverNow()` is right before the first pong.
+          this.serverTimeOffset = msg.serverTime - performance.now();
+          this.hasServerTime = true;
           this.connectPromise = null;
           this.setStatus('connected');
           this.startPing();
@@ -87,6 +95,7 @@ export class NetClient {
         if (msg.t === 'pong') {
           this.rttMs = Math.max(0, Math.round(performance.now() - msg.ts));
           this.serverTimeOffset = msg.serverTime - performance.now();
+          this.hasServerTime = true;
         }
         if (!welcomed) return; // ignore anything before the handshake
         this.onMessage?.(msg);
@@ -129,6 +138,8 @@ export class NetClient {
     this.ws = null;
     this.localId = null;
     this.rttMs = 0;
+    this.hasServerTime = false;
+    this.serverTimeOffset = 0;
   }
 
   private startPing(): void {

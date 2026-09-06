@@ -138,6 +138,18 @@ export class NetSystem implements GameSystem, NetRef {
   get raidBlob(): RaidSessionBlob | null { return this._raidBlob; }
   get missionMode(): MissionMode | null { return this._lobby?.started ? (this._lobby.mode ?? 'raid') : null; }
   get tookOver(): boolean { return this._tookOver; }
+  /* ── Phase 8 ── */
+  /**
+   * Relay wall clock in epoch ms: the offset captured at the last `welcome` / `pong` plus the elapsed local time.
+   * `performance.now()` is monotonic, so moving the system clock cannot advance a crop timer. Falls back to
+   * `Date.now()` while offline (single-player keeps working, just on the local clock).
+   */
+  serverNow(): number {
+    const c = this.client;
+    if (!c.connected || !c.hasServerTime) return Date.now();
+    const t = performance.now() + c.serverTimeOffset;
+    return Number.isFinite(t) ? t : Date.now();
+  }
 
   /* ── GameSystem ─────────────────────────────────────────────────────── */
   init(ctx: GameContext): void {

@@ -80,10 +80,22 @@ try {
   console.log('hub / workbench');
   await page.evaluate(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
   await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub phase');
+  // Phase 8: the cockpit no longer has a built-in bench — place the starter 정비 벤치 in a 작업실 and use that.
+  const benchUid = await page.evaluate(() => {
+    const h = window.__game.ctx.housing;
+    if (!h) return null;
+    let room = h.state.rooms.findIndex((r) => r.purpose === 'workshop');
+    if (room < 0) { room = 0; h.setRoomPurpose(0, 'workshop'); }
+    const placed = h.getPlaced(room).find((f) => f.defId === 'furn_repair_bench');
+    if (placed) return placed.uid;
+    if (!h.getStored().some((e) => e.defId === 'furn_repair_bench' && e.qty > 0)) h.craftFurniture('furn_repair_bench');
+    return h.place(room, 'furn_repair_bench', 0, 0, 0)?.uid ?? null;
+  });
+  ok(!!benchUid, 'personal ship: 정비 벤치 placed in the 작업실', String(benchUid));
   const ids = await page.evaluate(() => window.__game.ctx.interactables.all().map((i) => i.id));
-  ok(ids.includes('hub_workbench'), 'personal ship registers hub_workbench', ids.join(','));
+  ok(ids.includes(`hub_furn_${benchUid}`), 'placed 정비 벤치 registers its interactable', ids.join(','));
   ok(ids.includes('hub_terminal'), 'terminal still registered');
-  await page.evaluate(() => window.__game.ctx.interactables.all().find((i) => i.id === 'hub_workbench').interact());
+  await page.evaluate((uid) => window.__game.ctx.interactables.all().find((i) => i.id === `hub_furn_${uid}`).interact(), benchUid);
   await sleep(200);
   const wb = await lastEv('hub:workbenchToggled');
   ok(wb && wb.open === true, 'workbench menu opens (hub:workbenchToggled)');

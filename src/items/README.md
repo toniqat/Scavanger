@@ -5,9 +5,9 @@ Pure data + the `LootRef` implementation. No DOM, no Three.js scene objects. Wea
 | File | Purpose |
 |---|---|
 | `WeaponDefs.ts` | 8 weapon **families** × 5 grades = 40 `WeaponDef`s built by `buildGrade` **+ 6 legendary uniques** (`UNIQUE_WEAPON_DEFS`, `UNIQUE_WEAPON_DEF_MAP`, `isUniqueWeapon(def)`, `isUniqueWeaponId`, `UNIQUE_WEAPON_DURABILITY`, `UNIQUE_WEAPON_MAG`) — all in `WEAPON_DEFS`, `WEAPON_DEF_MAP`, `getWeaponDef`; `WEAPON_FAMILIES` (graded families only), `WEAPON_GRADES`, `weaponGradesOf(family)`, `weaponIdForGrade(family, grade)`; `WEAPON_CLASS_LABEL_KO`, `WEAPON_CLASS_SHORT` (`SMG/AR/SG/SR/DMR/HG`), `WEAPON_BASE_DURABILITY` (per class), `weaponClassOf(def)`, `weaponFamilyOf(def)`, `gradeOf(def)`, `damageFalloff(def, distance)` |
-| `ItemDefs.ts` | 102 `ItemDef`s (`ITEM_DEFS`, `ITEM_DEF_MAP`, `getItemDef`, `itemDefsByCategory`, `isWeaponItemDef`) — 46 weapon items generated from `WEAPON_DEFS` (`WEAPON_ITEM_DEFS`; uniques use `UNIQUE_WEAPON_META`), `AMMO_ITEM_DEFS` (10), `ATTACHMENT_ITEM_DEFS`, `BAG_ITEM_DEFS`, consumables, valuables, materials; rarity palette `RARITY_COLORS`, `RARITY_ORDER`, `rarityRank`, `rarityForGrade` / `gradeForRarity`; Korean labels (`RARITY_LABEL_KO`, `CATEGORY_LABEL_KO`, `AMMO_LABEL_KO`); `AMMO_TYPES_V2` (10), `UNIQUE_AMMO_TYPES`, `AMMO_ROUND_WEIGHT`, `ammoItemIdFor(type)`, `itemIdForWeapon(weaponId)`, `WEAPON_GRADE_VALUE_STEP`; `STARTER_LOADOUT` + `StarterLoadout` type |
+| `ItemDefs.ts` | 105 `ItemDef`s (`ITEM_DEFS`, `ITEM_DEF_MAP`, `getItemDef`, `itemDefsByCategory`, `isWeaponItemDef`) — 46 weapon items generated from `WEAPON_DEFS` (`WEAPON_ITEM_DEFS`; uniques use `UNIQUE_WEAPON_META`), `AMMO_ITEM_DEFS` (10), `ATTACHMENT_ITEM_DEFS`, `BAG_ITEM_DEFS`, `SEED_ITEM_DEFS` (3, Phase 8), consumables, valuables, materials; rarity palette `RARITY_COLORS`, `RARITY_ORDER`, `rarityRank`, `rarityForGrade` / `gradeForRarity`; Korean labels (`RARITY_LABEL_KO`, `CATEGORY_LABEL_KO`, `AMMO_LABEL_KO`); `AMMO_TYPES_V2` (10), `UNIQUE_AMMO_TYPES`, `AMMO_ROUND_WEIGHT`, `ammoItemIdFor(type)`, `itemIdForWeapon(weaponId)`, `WEAPON_GRADE_VALUE_STEP`; `STARTER_LOADOUT` + `StarterLoadout` type |
 | `WeaponStats.ts` | `computeWeaponStats(def, inst?)` → `EffectiveWeaponStats` (grade already in the def + slot timings + socketed attachments; **uniques return the def numbers untouched**), `baseWeaponStats`, `applyAttachmentEffects`, `socketedAttachments`, `repairCost(def, inst)` (uniques = legendary), `canAttach(weaponDef, attachmentDef)` (false for uniques), `gradeRoman`, `clampGrade`, `RECOIL_H_RATIO` (0.7), `SECONDARY_ADS_TIME_MUL` (0.5) |
-| `LootTables.ts` | Per-tier `TierTable`s (`LOOT_TABLES`, `getTierTable`, `getTierLabel`): item count, rarity weights (= weapon grade weights), category weights incl. `attachment` / `bag`, weapon chance, `ammoFraction`, guaranteed picks, `itemWeightMul` (family-wide for weapons; Phase 6 helpers `uniqueWeapons / uniqueAmmo / gradedFamilies`). Phase 4: per-`EnemyType` `CorpseTable`s (`CORPSE_TABLES`, `CORPSE_TABLE_MAP`, `CorpseDrop`, `CorpseWeapon`, `CorpseUnique`, `DEFAULT_ROGUE_WEAPON_ID`) |
+| `LootTables.ts` | Per-tier `TierTable`s (`LOOT_TABLES`, `getTierTable`, `getTierLabel`): item count, rarity weights (= weapon grade weights), category weights incl. `attachment` / `bag`, weapon chance, `ammoFraction`, guaranteed picks, `itemWeightMul` (family-wide for weapons; Phase 6 helpers `uniqueWeapons / uniqueAmmo / gradedFamilies`; Phase 8 `seed` weights at tiers 1–3). Phase 4: per-`EnemyType` `CorpseTable`s (`CORPSE_TABLES`, `CORPSE_TABLE_MAP`, `CorpseDrop`, `CorpseWeapon`, `CorpseUnique`, `DEFAULT_ROGUE_WEAPON_ID`; Phase 8 `BUG_SEEDS` on every bug type) |
 | `Loot.ts` | `LootService implements LootRef` — `rollCrate(tier, rng?)` (a rolled unique brings one stack of its calibre), `rollCorpse(type, rng?, rogueWeaponId?)` (boss unique roll last), `createItem(defId, qty?, extras?)`, `getEffectiveStats`, `getRepairCost`, `canAttach`, def lookups (`getAllItemDefs` includes uniques / unique ammo / new materials — the cheat catalog lists everything); `nextUid()` |
 | `index.ts` | Barrel — import via `@/items` |
 
@@ -133,7 +133,7 @@ STARTER_LOADOUT = {
 | 3 | 귀중품 금고 | 4–5 | 55 % | 12 / 6 | 50–85 % | guaranteed rare+ valuable |
 | 4 | 희귀 캐시 | 5–6 | 100 % | 12 / 8 | 60–100 % | guaranteed epic/legendary valuable **and** a weapon |
 
-Rarity weights double as weapon-grade weights (grade ↔ rarity). `itemWeightMul` keys match an exact item id or, for weapons, the family (`wpn_sr9` or `sr9`) — applied to every grade (a unique is its own family, so `wpn_u_flame` is the key). At most one bag per crate. `rollCrate` is deterministic for a given `Random`; same-def stackables merge (an ammo overflow becomes a second smaller stack — so a crate can hold fewer instances than `count`) and the result is sorted largest-first for container placement. Phase 6: tier 5 gained `material: 4` (회로 기판 only), `weaponChance` 0.03 (uniques only) and `legendary: 1`; see *Unique weapons* for the unique / unique-ammo weights per tier.
+Rarity weights double as weapon-grade weights (grade ↔ rarity). `itemWeightMul` keys match an exact item id or, for weapons, the family (`wpn_sr9` or `sr9`) — applied to every grade (a unique is its own family, so `wpn_u_flame` is the key). At most one bag per crate. `rollCrate` is deterministic for a given `Random`; same-def stackables merge (an ammo overflow becomes a second smaller stack — so a crate can hold fewer instances than `count`) and the result is sorted largest-first for container placement. Phase 6: tier 5 gained `material: 4` (회로 기판 only), `weaponChance` 0.03 (uniques only) and `legendary: 1`; see *Unique weapons* for the unique / unique-ammo weights per tier. Phase 8: tiers 1–3 gained `seed: 4 / 4 / 3`; see *씨앗*.
 
 ## Phase 3 (2026-09-06)
 - Loot tier 5 `보급 투하 상자` (`SUPPLY_CRATE_TIER`): 4–6 consumables only (ammo 45 / stim 30 / grenade 25, guaranteed stim + ammo, no weapons or valuables). Used by the ship-call supply drop.
@@ -152,6 +152,8 @@ Rarity weights double as weapon-grade weights (grade ↔ rarity). `itemWeightMul
 | `behemoth` | `mat_alloy` ×2–4, `terminid_gland` ×1–2 | 30 % `alien_artifact` |
 | `rogue` | calibre rounds + **its weapon** (see below) | 30 % `stim`, 20 % `grenade_frag` |
 | `rogue_boss` | calibre rounds + **graded weapon** + one `att_*` (rarity ≤ epic, fitting the weapon when any does), `stim` ×1–2 | 20 % one **unique** (`wpn_u_*`, durability 50–80 %, random `ammoInMag`) + a 30–60 % stack of its calibre (Phase 6, rolled last) |
+
+Phase 8: every **bug** row above also rolls `BUG_SEEDS` (4 % `seed_bloodroot`, 2 % `seed_ashleaf`, 0.6 % `seed_glowcap`, one each) — see *씨앗*. `rogue` / `rogue_boss` do not.
 
 Rogue weapon (`CorpseWeapon`): `rogueWeaponId` is the `WeaponDef` id the rogue carried (`DEFAULT_ROGUE_WEAPON_ID` = `ar23` when undefined / unknown). The corpse holds one ammo stack of that calibre (`ammoItemIdFor(def.ammoType)`, 30–60 % of `AMMO_STACK_ROUNDS`) and the weapon item `wpn_<weaponId>` created with `durability = round(max × 0.05–0.15)` (min 1) and `ammoInMag = rng 0..magSize`. Bosses swap the def for the same family at grade III or IV (`weaponIdForGrade`) with durability 40–70 %.
 
@@ -211,8 +213,22 @@ Perks are **declared here and implemented in `src/player`** (regen tick, ultrali
 
 ## Herbs & crafting materials
 
-`herb_bloodroot` 혈근초 (common, stack 8) · `herb_ashleaf` 잿빛잎 (uncommon, stack 8) · `herb_glowcap` 발광버섯 (rare, stack 6) — all 1×1, gathered from `WorldRef.getGatherNodes()`.
+`herb_bloodroot` 혈근초 (common, stack 8) · `herb_ashleaf` 잿빛잎 (uncommon, stack 8) · `herb_glowcap` 발광버섯 (rare, stack 6) — all 1×1, gathered from `WorldRef.getGatherNodes()` **or** harvested from a 온실 재배층 (see *씨앗* below).
 `mat_gunpowder` 화약 (material, 1×1, stack 20, 0.05 kg) is the ammo-conversion currency.
+
+## 씨앗 (Phase 8, 2026-09-06)
+
+`category: 'seed'`, `ItemDef.seed: SeedDef {growHours, yieldDefId, yieldQty}`. Planted in a 온실 **재배층** (`furn_grow_rack`, 4 plots per rack, stack 4 racks); `growHours` is **real** wall-clock time and keeps running while the game is closed — `src/housing` owns the plots, the timers (`GROW_SKILL_SPEEDUP` 원예 discount, `derived.gatherYieldMul` on the harvest) and the panel. Items only carry the data.
+
+All three: 1×1, `stackMax` 5, `weight` 0.05 kg, icon `CATEGORY_ICON.seed` (`⁘`), colour `CATEGORY_COLOR.seed` (`#c8e08a`) — seeds deliberately break the rarity-colour rule so a 씨앗 reads as one at a glance; the rarity ring still separates them. `growHours` comes from the shared `SEED_GROW_HOURS_BY_RARITY` table, never a literal here.
+
+| id | 이름 | rarity | ₩ | growHours | 수확 |
+|---|---|---|---|---|---|
+| `seed_bloodroot` | 혈근초 씨앗 | common | 40 | 1 h | `herb_bloodroot` ×3 |
+| `seed_ashleaf` | 잿빛잎 씨앗 | uncommon | 90 | 2.5 h | `herb_ashleaf` ×3 |
+| `seed_glowcap` | 발광버섯 씨앗 | rare | 220 | 6 h | `herb_glowcap` ×2 |
+
+**Where they come from** (design decision: 루팅 + 기업 상점, **제작 불가**): container tiers **1–3** carry `seed` as a modest category (`categoryWeights` 4 / 4 / 3 — ≈ 3 % of picks; the tier rarity weights make tier 1 almost always 혈근초 씨앗 and only tier 3 reaches 발광버섯 씨앗 comfortably), rolling 1–`maxStackQty` seeds per pick. Tiers 4 / 5 have no `seed` weight at all. Every **bug** corpse table (`scavenger` / `hunter` / `warrior` / `charger` via `BUG_BASE`, plus `spewer` / `toxic` / `artillery` / `behemoth`) adds `BUG_SEEDS` — 4 % 혈근초 / 2 % 잿빛잎 / 0.6 % 발광버섯, ≈ 6.5 % of bug corpses carrying one; rogue and boss corpses carry none. The corp shop reads `ITEM_DEFS` directly, so seeds show up there without extra wiring. **No `CraftRecipe` exists for a seed** — `Recipes.ts` is untouched by Phase 8.
 
 ## Recipes (`getAllRecipes`) — 40
 

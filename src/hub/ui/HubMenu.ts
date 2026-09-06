@@ -20,7 +20,9 @@ const MSG_TTL = 4500;
  * The mission-seed field left the terminal on 2026-09-06: seeds are set only through the dev console (`/seed`).
  * Adds the `'hub'` blocker token before exiting pointer lock; emits `ui:hubMenuToggled`.
  * Implants and repairs left the terminal on 2026-09-06: both live on the Tab ship screen (inventory folder —
- * implant slot under the gear, 수리 in the right-click menu). The footer's 캐릭터 button stays as a shortcut.
+ * implant slot under the gear, 수리 in the right-click menu).
+ * Phase 8 (2026-09-06): the 캐릭터 button is gone (캐릭터 is a Tab-screen tab now) and the 승무원 name can only be
+ * set **once** — after `ShipState.nameLocked` it is a read-only line.
  */
 export class HubMenu {
   readonly root: HTMLElement;
@@ -34,8 +36,13 @@ export class HubMenu {
   private subtitle: HTMLElement;
   private pill: HTMLElement;
   private pillText: HTMLElement;
-  // pilot
+  // pilot (name asked once, then read-only)
+  private nameRow: HTMLElement;
   private nameInput: HTMLInputElement;
+  private nameText: HTMLElement;
+  private nameHint: HTMLElement;
+  /** The name was entered in this session — the input disappears immediately, before housing persists `nameLocked`. */
+  private nameChosen = false;
   private seedHint: HTMLElement;
   // personal
   private secSignal: HTMLElement;
@@ -55,7 +62,6 @@ export class HubMenu {
   // training (shared ship)
   private secTrain: HTMLElement;
   private btnTrain: HTMLButtonElement;
-  private btnStats: HTMLButtonElement;
   // footer / message
   private msg: HTMLElement;
 
@@ -77,18 +83,22 @@ export class HubMenu {
     // ── page (the terminal is ship-only since the Tab screen took implants / repairs) ──
     const page = el('div', { cls: 'hub-page', parent: f });
 
-    // ── pilot ──
+    // ── pilot (the name is asked once; after that it is a read-only line — Phase 8) ──
     const secPilot = this.section(page, '승무원');
-    const nameRow = el('div', { cls: 'row', parent: secPilot });
-    this.nameInput = el('input', { cls: 'ui-input', attrs: { type: 'text', maxlength: '16', placeholder: '호출명', spellcheck: 'false' }, parent: nameRow });
+    this.nameRow = el('div', { cls: 'row', parent: secPilot });
+    this.nameInput = el('input', { cls: 'ui-input', attrs: { type: 'text', maxlength: '16', placeholder: '호출명', spellcheck: 'false' }, parent: this.nameRow });
     isolateInput(this.nameInput, () => this.close());
     this.nameInput.addEventListener('change', () => {
       const n = sanitizePlayerName(this.nameInput.value);
       this.nameInput.value = n;
       ctx.net?.setPlayerName(n);      // also renames in-lobby (server broadcasts lobby:state)
-      this.showMsg(`호출명 변경: ${n}`, 'success');
+      this.nameChosen = true;
+      ctx.housing?.lockCrewName?.();  // persist the one-time choice (ShipState.nameLocked, owned by housing/)
+      this.showMsg(`호출명 등록: ${n}`, 'success');
+      this.refresh();
     });
-    el('div', { cls: 'hint', text: '분대에 표시되는 이름입니다.', parent: secPilot });
+    this.nameText = el('div', { cls: 'hub-crew-name', text: '스캐빈저', parent: secPilot });
+    this.nameHint = el('div', { cls: 'hint', text: '분대에 표시되는 이름입니다.', parent: secPilot });
     this.seedHint = el('div', { cls: 'hint seed-hint', text: '임무 시드는 개발자 콘솔 /seed 로만 설정합니다.', parent: secPilot });
 
     // ── signal (personal ship) ──
@@ -136,7 +146,6 @@ export class HubMenu {
     this.msg = el('div', { cls: 'form-msg', parent: f });
     this.msg.hidden = true;
     const foot = el('div', { cls: 'hub-foot', parent: f });
-    this.btnStats = this.button(foot, '캐릭터', () => this.openStats());
     const footRight = el('div', { cls: 'right', parent: foot });
     this.button(footRight, '닫기', () => this.close());
     this.button(footRight, '타이틀로', () => { this.close(false); host.toTitle(); }, 'danger');
@@ -163,11 +172,13 @@ export class HubMenu {
 
   get isOpen(): boolean { return this._open; }
 
-  /** 캐릭터: hand over to progression's character sheet (it owns the panel and its own blocker token). */
-  private openStats(): void {
-    if (!this.ctx.progression) { this.showMsg('캐릭터 정보를 사용할 수 없습니다', 'warning'); return; }
-    this.close(false);                       // release the 'hub' blocker; the sheet adds 'stats'
-    this.ctx.bus.emit('ui:statsToggled', { open: true });
+  /**
+   * The crew name is chosen once (`ShipState.nameLocked`, owned by housing/) and is a read-only line afterwards.
+   * `nameChosen` covers the same session, so the input disappears the moment the player commits a name.
+   */
+  private nameLocked(): boolean {
+    if (this.nameChosen) return true;
+    try { return this.ctx.housing?.state?.nameLocked === true; } catch { return false; }
   }
 
   /* ── open / close ─────────────────────────────────────────────────────── */
@@ -213,8 +224,12 @@ export class HubMenu {
     const seed = lobby ? lobby.seed : (ctx.hub?.missionSeed ?? null);
     setText(this.seedHint, `임무 시드는 개발자 콘솔 /seed 로만 설정합니다. 현재: ${seed === null ? '무작위' : seed}${lobby && !isHost ? ' (호스트 설정)' : ''}`);
 
-    // 캐릭터 needs progression
-    this.btnStats.disabled = !ctx.progression;
+    // crew name: input on the very first run, a read-only line once it is locked
+    const locked = this.nameLocked();
+    this.nameRow.hidden = locked;
+    this.nameText.hidden = !locked;
+    setText(this.nameText, net?.playerName ?? '스캐빈저');
+    setText(this.nameHint, locked ? '호출명은 처음 한 번만 정할 수 있습니다.' : '분대에 표시되는 이름입니다. 한 번만 정할 수 있습니다.');
 
     // sections
     this.secSignal.hidden = !!lobby;

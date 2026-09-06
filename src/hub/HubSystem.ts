@@ -7,7 +7,6 @@ import type { StationDef } from './interiors/stations';
 import type { ShipInterior } from './interiors/types';
 import { FurnitureLayer } from './interiors/Furniture';
 import { roomAtWorld } from './interiors/RoomLayout';
-import { GardenStation } from './GardenStation';
 import { HousingMode } from './HousingMode';
 import { LaunchPod } from './LaunchPod';
 import { Terminal } from './Terminal';
@@ -134,8 +133,6 @@ export class HubSystem implements GameSystem, HubRef {
   private computer: Computer | null = null;
   /** `ctx.meta.isMenuOpen` as seen by the previous frame — an Esc that the corp screen's own listener already consumed must not open the terminal. */
   private corpWasOpen = false;
-  /** 함선 시설 (tactical kit): hydroponics + the two terminal-shortcut consoles. */
-  private garden: GardenStation | null = null;
   private stationIds: string[] = [];
   /** 함선 꾸미기: furniture meshes / colliders / interactables of the personal ship + the housing-mode controller. */
   private furniture: FurnitureLayer | null = null;
@@ -153,13 +150,18 @@ export class HubSystem implements GameSystem, HubRef {
   private lastCountdownSecond = -1;
   private launched = false;
 
+  /**
+   * A lost pointer lock only leaves the *room-console* housing mode (browser Esc while decorating). Since Phase 8
+   * the hub **pauses** like a mission — `game/` owns that — so the terminal menu is never forced open here any more,
+   * and 함선 관리 runs **deliberately unlocked** (clickable 방 목록 / 가구 카드 바), so it ignores lock changes.
+   */
   private onPointerLockChange = (): void => {
     const ctx = this.ctx;
-    // any blocker (inventory / housing panels / the corp screen's 'corp' token) owns the lock loss — never open the terminal over it
+    if (this.housingMode.manage) return;                    // 함선 관리 owns the free pointer
+    // any blocker (inventory / housing panels / the corp screen's 'corp' token) owns the lock loss
     if (ctx.input.isPointerLocked || ctx.phase !== 'hub' || ctx.uiBlockers.size > 0 || this.corpMenuOpen()) return;
     if (performance.now() - ctx.input.lastLockRequest < LOCK_REQUEST_GRACE_MS) return;
-    if (this.housingMode.active) { this.housingMode.exit(); this.relock(); return; }   // browser Esc while decorating = leave housing mode
-    this.menu.open();     // hub has no pause: a lost lock just opens the terminal menu
+    if (this.housingMode.active) { this.housingMode.exit(); this.relock(); }
   };
 
   /* ── lifecycle ─────────────────────────────────────────────────────────── */
@@ -249,7 +251,8 @@ export class HubSystem implements GameSystem, HubRef {
     this.slots = interior.pods.map((d) => ({ slot: d.slot, position: d.position.clone(), yaw: d.yaw, occupant: null }));
     const canUseConsole = (): boolean => this.stationUsable();
     this.terminal = new Terminal(ctx, interior.terminal, () => this.menu.open(), canUseConsole);
-    this.workbench = new Workbench(ctx, interior.workbench, () => this.wbMenu.open(), canUseConsole);
+    // the personal ship has no built-in bench since Phase 8 (a placed `furn_repair_bench` opens the same menu)
+    this.workbench = interior.workbench ? new Workbench(ctx, interior.workbench, () => this.wbMenu.open(), canUseConsole) : null;
     this.computer = new Computer(ctx, interior.computer, () => this.openCorpMenu(), canUseConsole);
     this.buildStations(interior);
     this.buildHousing(interior);
@@ -272,13 +275,13 @@ export class HubSystem implements GameSystem, HubRef {
   }
 
   /**
-   * 함선 시설: the hydroponics garden (real plant / harvest loop) plus the implant bay, which opens the Tab ship
-   * screen (inventory window: 창고 / 장비 + 임플란트 슬롯 / 가방). Their geometry is already merged into the interior.
+   * 함선 시설: the implant bay, which opens the Tab ship screen (inventory window: 창고 / 장비 + 임플란트 슬롯 /
+   * 가방). Its geometry is already merged into the interior. (Phase 8 removed the hydroponics station — 재배 is
+   * the 온실 room's `furn_grow_rack` furniture now.)
    */
   private buildStations(interior: ShipInterior): void {
     const s = interior.stations;
     if (!s) return;
-    this.garden = new GardenStation(this.ctx, s.garden);
     this.addStation('hub_implant_bay', s.implantBay, '전술 임플란트 장착', () => {
       const inv = this.ctx.inventory;
       if (inv && !inv.isOpen) inv.toggleBag();
@@ -330,6 +333,12 @@ export class HubSystem implements GameSystem, HubRef {
         if (h && typeof h.openPresetMenu === 'function') h.openPresetMenu();
       },
       onSimHub: () => this.startTraining(),
+      onGrowRack: (uid) => {
+        const h = ctx.housing;
+        if (h && typeof h.openGrowMenu === 'function') h.openGrowMenu(uid);
+        else ctx.bus.emit('ui:notify', { text: '재배층을 사용할 수 없습니다', kind: 'warning' });
+      },
+      onRepairBench: () => this.wbMenu.open(),
     });
     this.housingMode.setShip(interior, this.furniture);
     this.refreshRoomSigns();
@@ -344,11 +353,14 @@ export class HubSystem implements GameSystem, HubRef {
     const p = this.roomPurpose(i);
     return p ? ROOM_PURPOSE_LABEL_KO[p] : '빈 방';
   }
+  /** Door sign + 방 조명 of one room (an empty room reads dark, an assigned one is lit and gets a pool light). */
   private refreshRoomSign(i: number): void {
     const ship = this.interior;
     if (!(ship instanceof PersonalShip)) return;
     const p = this.roomPurpose(i);
-    ship.setRoomLabel(i, this.roomPurposeLabel(i), p && p !== 'empty' ? '#ffd27a' : '#e8e6e1');
+    const assigned = !!p && p !== 'empty';
+    ship.setRoomLabel(i, this.roomPurposeLabel(i), assigned ? '#ffd27a' : '#e8e6e1');
+    ship.setRoomLit(i, assigned);
   }
   private refreshRoomSigns(): void {
     if (!(this.interior instanceof PersonalShip)) return;
@@ -394,7 +406,6 @@ export class HubSystem implements GameSystem, HubRef {
     this.furniture?.dispose(); this.furniture = null;
     for (const pod of this.pods) pod.dispose();
     this.pods = [];
-    this.garden?.dispose(); this.garden = null;
     for (const id of this.stationIds) this.ctx.interactables.unregister(id);
     this.stationIds.length = 0;
     this.terminal?.dispose(); this.terminal = null;
@@ -448,7 +459,8 @@ export class HubSystem implements GameSystem, HubRef {
   private relock(): void {
     queueMicrotask(() => {
       const ctx = this.ctx;
-      if (ctx.phase !== 'hub' || ctx.uiBlockers.size > 0) return;
+      // never grab the pointer back while decorating — 함선 관리 needs the free cursor for its panels
+      if (ctx.phase !== 'hub' || ctx.uiBlockers.size > 0 || this.housingMode.active) return;
       ctx.input.requestPointerLock();
     });
   }
@@ -740,31 +752,56 @@ export class HubSystem implements GameSystem, HubRef {
     if (ctx.phase !== 'hub' || !this.interior) return;
 
     this.interior.update(dt, ctx.time);
+    // 자동문 + 방 조명 follow the player (personal ship only)
+    if (this.interior instanceof PersonalShip) {
+      const pp = ctx.player?.position;
+      this.interior.updateNear(dt, pp?.x ?? 0, pp?.z ?? 0);
+    }
     this.furniture?.update(ctx.time);
     for (const pod of this.pods) pod.update(dt, ctx.time);
-    this.garden?.update(dt, ctx.time);
     this.trackRoom();
 
-    // housing mode owns the input (cursor / place / rotate / recover / Esc) while active
+    // housing mode owns the input (cursor / place / rotate / recover / C / Esc) while active
     if (this.housingMode.active) { this.housingMode.update(); this.tickCountdown(dt); this.corpWasOpen = this.corpMenuOpen(); return; }
 
-    // Esc: corp screen first, then the menus / un-board (no pause in the hub). E while boarded: un-board.
+    // Esc: corp screen first, then the menus / un-board. It must **not** open the terminal any more — an Esc that
+    // reaches nothing here is the 일시정지 메뉴 (owned by game/, Phase 8). E while boarded: un-board.
     const corpOpen = this.corpMenuOpen();
     if (ctx.input.wasPressed(Keys.MENU)) {
-      if (corpOpen) this.ctx.meta?.closeCorpMenu();
-      else if (this.corpWasOpen) { /* the corp screen's own Esc listener just closed it — consumed */ }
-      else if (this.wbMenu.isOpen) this.wbMenu.close();
-      else if (this.menu.isOpen) this.menu.close();
-      else if (ctx.uiBlockers.size === 0) {
-        if (this.boardedSlot >= 0) this.leavePod(true);
-        else this.menu.open();
-      }
+      // Whatever we handle here must be swallowed: game/ polls the same Escape later in the frame and would
+      // otherwise open the 일시정지 메뉴 the instant a hub panel released its blocker (Phase 8).
+      if (corpOpen) { this.ctx.meta?.closeCorpMenu(); ctx.input.consume(Keys.MENU); }
+      else if (this.corpWasOpen) { ctx.input.consume(Keys.MENU); /* the corp screen's own Esc listener just closed it */ }
+      else if (this.wbMenu.isOpen) { this.wbMenu.close(); ctx.input.consume(Keys.MENU); }
+      else if (this.menu.isOpen) { this.menu.close(); ctx.input.consume(Keys.MENU); }
+      else if (ctx.uiBlockers.size === 0 && this.boardedSlot >= 0) { this.leavePod(true); ctx.input.consume(Keys.MENU); }
     }
     this.corpWasOpen = corpOpen;
     if (this.boardedSlot >= 0 && ctx.uiBlockers.size === 0 && ctx.input.wasPressed(Keys.INTERACT) && ctx.time - this.boardedAt > UNBOARD_GRACE) {
       this.leavePod(true);
     }
+    // M: 함선 관리 (housing's manage mode; the HUD draws the room list / furniture bar). Read `Keys.MAP` live.
+    if (ctx.uiBlockers.size === 0 && !corpOpen && this.boardedSlot < 0 && ctx.input.wasPressed(Keys.MAP)) this.openShipManage();
 
     this.tickCountdown(dt);
+  }
+
+  /**
+   * 함선 관리 (M in the ship): housing enters its manage mode from anywhere in the personal ship (no "stand in the
+   * room" gate) and `HousingMode` takes the camera on `housing:shipManageChanged`. Refused in the shared ship.
+   */
+  openShipManage(): boolean {
+    const ctx = this.ctx;
+    if (ctx.phase !== 'hub' || this.cutscene || this.housingMode.active) return false;
+    if (!(this.interior instanceof PersonalShip)) {
+      ctx.bus.emit('ui:notify', { text: '개인 함선에서만 관리할 수 있습니다', kind: 'warning' });
+      return false;
+    }
+    const h = ctx.housing;
+    if (!h || typeof h.openShipManage !== 'function') {
+      ctx.bus.emit('ui:notify', { text: '함선 관리를 사용할 수 없습니다', kind: 'warning' });
+      return false;
+    }
+    try { return h.openShipManage(this._currentRoom ?? undefined); } catch { return false; }
   }
 }

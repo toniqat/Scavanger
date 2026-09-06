@@ -1,5 +1,5 @@
 import type { CraftRecipe, ItemDef, LoadoutSlot } from '@/shared';
-import { WORKBENCH_LABEL_KO } from '@/shared';
+import { WORKBENCH_LABEL_KO, renderItemCost } from '@/shared';
 import type { BenchRecipeRow, BenchRepairRow, InventorySystem } from '../InventorySystem';
 import { SLOT_LABEL, TEXT, fmtSeconds } from './labels';
 
@@ -7,6 +7,8 @@ interface RowView {
   recipe: CraftRecipe;
   locked: boolean;
   el: HTMLElement;
+  /** Host of the `renderItemCost` chips (Phase 8) — the time chip is its sibling. */
+  costsEl: HTMLElement;
   inputsEl: HTMLElement;
   button: HTMLButtonElement;
   fill: HTMLElement;
@@ -14,6 +16,12 @@ interface RowView {
 
 /**
  * Crafting panel (인벤토리 안의 `제작` 버튼, or a 작업실 bench through `InventoryRef.openBenchCraft`).
+ *
+ * **Phase 8**: the panel is no longer a column of `.inv-layout` — `InventoryUI` adopts `el` into a `Modeless`
+ * frame that floats above the window while the grid stays interactive behind it. Only the shell and the material
+ * readout changed: costs are `renderItemCost` item chips (`@/shared`) instead of text chips, the 닫기 button is
+ * always visible (bench mode leaves the bench, otherwise it closes the popup through `onClose`), and the
+ * `break_*` 분해 rows are gone from the list — 분해 lives in the item context menu now (`DisassemblePanel`).
  *
  * Normal mode: recipes filtered by station (`field` on a mission, `ship` in the hub) and by the crafting /
  * medicine / gardening skill. **Bench mode** (Phase 6, `sys.getBench()` set): title `WORKBENCH_LABEL_KO[kind] Lv.n`,
@@ -42,7 +50,12 @@ export class CraftPanel {
   private holding: string | null = null;
   private onWindowUp = (): void => { this.release(); };
 
-  constructor(private readonly sys: InventorySystem, private readonly getDef: (id: string) => ItemDef | undefined) {
+  constructor(
+    private readonly sys: InventorySystem,
+    private readonly getDef: (id: string) => ItemDef | undefined,
+    /** Phase 8: the 닫기 button outside bench mode (the window closes the modeless popup). */
+    private readonly onClose: () => void = () => {},
+  ) {
     this.el = document.createElement('section');
     this.el.className = 'inv-panel inv-panel-craft';
     this.el.hidden = true;
@@ -66,8 +79,9 @@ export class CraftPanel {
     this.closeBtn.type = 'button';
     this.closeBtn.className = 'inv-btn inv-craft-close';
     this.closeBtn.textContent = TEXT.bench.close;
-    this.closeBtn.hidden = true;
-    this.closeBtn.addEventListener('click', () => this.sys.closeBench());
+    this.closeBtn.addEventListener('click', () => {
+      if (this.sys.getBench()) this.sys.closeBench(); else this.onClose();
+    });
     actions.append(this.discountEl, this.closeBtn);
     head.append(titles, actions);
 
@@ -122,12 +136,10 @@ export class CraftPanel {
     if (bench) {
       this.stationEl.textContent = TEXT.bench.eyebrow;
       this.titleEl.textContent = `${WORKBENCH_LABEL_KO[bench.kind]} ${TEXT.bench.level(bench.level)}`;
-      this.closeBtn.hidden = false;
     } else {
       const station = this.sys.currentStation();
       this.stationEl.textContent = station === 'ship' ? TEXT.craftStationShip : TEXT.craftStationField;
       this.titleEl.textContent = TEXT.craftPanel;
-      this.closeBtn.hidden = true;
     }
     const mul = this.sys.craftCostMul();
     this.discountEl.hidden = mul >= 1;
@@ -168,6 +180,9 @@ export class CraftPanel {
       }
       const inputs = document.createElement('div');
       inputs.className = 'inv-craft-inputs';
+      const costs = document.createElement('div');
+      costs.className = 'inv-craft-costs';
+      inputs.appendChild(costs);
       const desc = document.createElement('div');
       desc.className = 'inv-craft-desc';
       desc.textContent = recipe.description;
@@ -193,7 +208,7 @@ export class CraftPanel {
 
       row.append(info, button);
       this.listEl.appendChild(row);
-      this.rows.push({ recipe, locked, el: row, inputsEl: inputs, button, fill });
+      this.rows.push({ recipe, locked, el: row, costsEl: costs, inputsEl: inputs, button, fill });
     }
   }
 
@@ -204,16 +219,9 @@ export class CraftPanel {
       row.el.classList.toggle('is-locked', !ok);
       row.button.disabled = row.locked || (!ok && job?.recipeId !== row.recipe.id);
 
-      row.inputsEl.innerHTML = '';
-      for (const ing of this.sys.craftCost(row.recipe)) {
-        const def = this.getDef(ing.defId);
-        const have = this.sys.countWhere((d) => d.id === ing.defId);
-        const chip = document.createElement('span');
-        chip.className = 'inv-craft-chip';
-        if (have < ing.qty) chip.classList.add('is-missing');
-        chip.textContent = `${def?.name ?? ing.defId} ${have}/${ing.qty}`;
-        row.inputsEl.appendChild(chip);
-      }
+      // Phase 8: thumbnail chips with 보유/필요 at the bottom right (dimmed + red 보유 when short)
+      renderItemCost(row.costsEl, this.sys.craftCost(row.recipe), this.getDef, (id) => this.sys.countWhere((d) => d.id === id), { size: 30 });
+      row.inputsEl.querySelector('.inv-craft-chip.is-time')?.remove();
       const time = document.createElement('span');
       time.className = 'inv-craft-chip is-time';
       time.textContent = fmtSeconds(this.sys.craftDuration(row.recipe.id));
@@ -263,7 +271,12 @@ export class CraftPanel {
       mid.append(name, bar, text);
       const cost = document.createElement('div');
       cost.className = `inv-repair-cost${r.short && needs ? ' is-short' : ''}`;
-      cost.textContent = !needs ? TEXT.bench.repairDone : r.cost.length === 0 ? '무료' : r.cost.map((c) => `${c.name} ×${c.qty}`).join(' · ');
+      if (!needs) cost.textContent = TEXT.bench.repairDone;
+      else {
+        // Phase 8: the same item chips as the recipe rows (`have` comes straight off the row)
+        const have = new Map(r.cost.map((c) => [c.defId, c.have]));
+        renderItemCost(cost, r.cost, this.getDef, (id) => have.get(id) ?? 0, { size: 28 });
+      }
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'inv-btn inv-repair-btn';

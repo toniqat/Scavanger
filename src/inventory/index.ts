@@ -19,3 +19,6 @@ export type { StashSaveFile } from './Stash';
 export type { LoadoutSave } from './Loadout';
 export { serializeExtras, serializePlacement, reviveItem, readSaveFile, writeSaveFile, safeStorage, savedCell } from './Serialize';
 export type { SavedExtras, SavedPlacement } from './Serialize';
+/* Phase 8: Tab-screen host, modeless popups, 아이템 분해 */
+export { isDisassembleRecipe } from './InventorySystem';
+export { Modeless } from './ui/Modeless';

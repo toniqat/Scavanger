@@ -1,17 +1,24 @@
 import type {
-  CraftIngredient, FacilityId, FacilityInfo, FurnitureDef, GameContext, GameSystem, HousingRef, LoadoutPreset, PlacedFurniture,
-  ProfileRef, RoomPurpose, RoomState, ShipState, SkillId, StoredFurniture, WorkbenchKind,
+  CraftIngredient, EmbeddedView, FacilityId, FacilityInfo, FurnitureDef, GameContext, GameSystem, GrowPlot, GrowPlotInfo,
+  HousingRef, ItemDef, LoadoutPreset, PlacedFurniture, ProfileRef, RoomPurpose, RoomState, ShipState, SkillId,
+  StoredFurniture, WorkbenchKind,
 } from '@/shared';
-import { FURNITURE_DEFS, FURNITURE_DEF_MAP, IMPLANT_IDS, benchKindOf } from '@/shared';
+import {
+  FURNITURE_DEFS, FURNITURE_DEF_MAP, GROW_PLOTS_PER_RACK, GROW_SKILL_SPEEDUP, IMPLANT_IDS, SKILL_LEVEL_MAX, benchKindOf,
+} from '@/shared';
 import {
   canPlaceAt, craftCostMulFor, facilityBlockReason, facilityLevel, facilityMaxLevel, facilityName, furnitureAllowedIn,
-  furnitureUpgradeReason, isRoomIndex, isRoomPurpose, missingIngredients, nextFacilityCost, nextFurnitureCost, presetCountFor,
-  purposeChangeReason, skillGainMulFor, stashSizeFor,
+  furnitureUpgradeReason, isRoomIndex, isRoomPurpose, layerOf, missingIngredients, nextFacilityCost, nextFreeLayer,
+  nextFurnitureCost, presetCountFor, purposeChangeReason, recoverBlockReason, skillGainMulFor, stackLimitOf, stackMembers,
+  stashSizeFor,
 } from './Rules';
-import { ShipStore, freshRoom, loadState, maxUidIndex, sanitize, writeState } from './ShipState';
+import { ShipStore, freshRoom, isGrowRackDefId, loadState, maxUidIndex, sanitize, writeState } from './ShipState';
 import { RoomMenu } from './ui/RoomMenu';
 import { FacilityMenu } from './ui/FacilityMenu';
 import { PresetMenu } from './ui/PresetMenu';
+import { GrowMenu } from './ui/GrowMenu';
+import { createShipView } from './ui/ShipView';
+import { formatRemaining } from './ui/dom';
 import type { HousingPanel } from './ui/Panel';
 import './housing.css';
 
@@ -35,6 +42,8 @@ export class HousingSystem implements GameSystem, HousingRef {
   housingRoom: number | null = null;
   selectedFurniture: string | null = null;
   selectedYaw: 0 | 1 | 2 | 3 = 0;
+  /** Phase 8: housing mode entered from the M screen (no "stand inside the room" gate, room list + furniture bar). */
+  shipManageMode = false;
 
   private ctx!: GameContext;
   private store: ShipStore | null = null;
@@ -44,6 +53,7 @@ export class HousingSystem implements GameSystem, HousingRef {
   private roomMenu: RoomMenu | null = null;
   private facilityMenu: FacilityMenu | null = null;
   private presetMenu: PresetMenu | null = null;
+  private growMenu: GrowMenu | null = null;
   private lastStash = { cols: 0, rows: 0 };
 
   constructor() {
@@ -62,6 +72,7 @@ export class HousingSystem implements GameSystem, HousingRef {
     this.roomMenu = new RoomMenu(ctx, this);
     this.facilityMenu = new FacilityMenu(ctx, this);
     this.presetMenu = new PresetMenu(ctx, this);
+    this.growMenu = new GrowMenu(ctx, this);
     const b = ctx.bus;
     this.unsubs.push(
       b.on('game:newMission', () => { this.closeMenus(); this.exitHousingMode(); }),
@@ -83,8 +94,8 @@ export class HousingSystem implements GameSystem, HousingRef {
     this.closeMenus();
     for (const u of this.unsubs) u();
     this.unsubs = [];
-    this.roomMenu?.dispose(); this.facilityMenu?.dispose(); this.presetMenu?.dispose();
-    this.roomMenu = this.facilityMenu = this.presetMenu = null;
+    this.roomMenu?.dispose(); this.facilityMenu?.dispose(); this.presetMenu?.dispose(); this.growMenu?.dispose();
+    this.roomMenu = null; this.facilityMenu = null; this.presetMenu = null; this.growMenu = null;
     this.store?.dispose(); this.store = null;
   }
 
@@ -134,6 +145,19 @@ export class HousingSystem implements GameSystem, HousingRef {
 
   /** 한국어 item name for cost lines. */
   nameOf = (defId: string): string => this.ctx.loot?.getItemDef(defId)?.name ?? defId;
+
+  /** Item def for a cost chip (`renderItemCost` lookup); undefined renders the neutral placeholder chip. */
+  defOf = (defId: string): ItemDef | undefined => this.ctx.loot?.getItemDef(defId);
+
+  /** Epoch ms from the relay when connected, else the local clock — 재배 runs on real world time. */
+  private nowMs(): number {
+    const net = this.ctx.net;
+    if (net && typeof net.serverNow === 'function') {
+      const t = net.serverNow();
+      if (Number.isFinite(t) && t > 0) return t;
+    }
+    return Date.now();
+  }
 
   private canAfford(cost: readonly CraftIngredient[]): boolean {
     return missingIngredients(cost, this.countDef).length === 0;
@@ -187,8 +211,21 @@ export class HousingSystem implements GameSystem, HousingRef {
     return null;
   }
 
+  /** Why 함선 관리 cannot start at all (no room gate — that is what separates it from `enterHousingMode`). */
+  shipManageBlock(): string | null {
+    const ctx = this.ctx;
+    if (ctx.phase !== 'hub') return '함선에서만 꾸밀 수 있습니다';
+    if (ctx.hub?.ship !== 'personal') return '개인 함선에서만 꾸밀 수 있습니다';
+    return null;
+  }
+
   enterHousingMode(room: number): boolean {
     if (this.housingModeBlock(room)) return false;
+    return this.enterMode(room);
+  }
+
+  /** Shared body of `enterHousingMode` / `openShipManage` — the gates differ, the state change does not. */
+  private enterMode(room: number): boolean {
     this.closeMenus();
     if (this.housingMode && this.housingRoom === room) return true;
     this.housingMode = true;
@@ -201,12 +238,51 @@ export class HousingSystem implements GameSystem, HousingRef {
   }
 
   exitHousingMode(): void {
-    if (!this.housingMode) return;
-    this.housingMode = false;
-    this.housingRoom = null;
+    const wasManage = this.shipManageMode;
+    this.shipManageMode = false;
+    if (this.housingMode) {
+      this.housingMode = false;
+      this.housingRoom = null;
+      this.selectedFurniture = null;
+      this.selectedYaw = 0;
+      this.ctx.bus.emit('housing:modeChanged', { active: false, room: null });
+    }
+    if (wasManage) this.ctx.bus.emit('housing:shipManageChanged', { active: false, room: null });
+  }
+
+  /* ── 함선 관리 (Phase 8, M in the ship) ────────────────────────────────── */
+  /**
+   * Enter the ship-management screen: the housing-mode camera / cursor without the "player stands in the room" gate,
+   * plus the room list + furniture bar ui/ draws off `housing:shipManageChanged`. Default room: the one the player is
+   * standing in, else the first room with a purpose, else room 1.
+   */
+  openShipManage(room?: number): boolean {
+    if (this.shipManageBlock()) return false;
+    const target = isRoomIndex(this.state, room ?? -1)
+      ? (room as number)
+      : this.ctx.hub?.currentRoom ?? this.state.rooms.findIndex((r) => r.purpose !== 'empty');
+    const index = isRoomIndex(this.state, target) ? target : 0;
+    this.enterMode(index);
+    this.shipManageMode = true;
+    this.ctx.bus.emit('housing:shipManageChanged', { active: true, room: index });
+    return true;
+  }
+
+  setManageRoom(room: number): boolean {
+    if (!this.shipManageMode || !isRoomIndex(this.state, room)) return false;
+    if (this.housingRoom === room) return true;
+    this.housingRoom = room;
     this.selectedFurniture = null;
     this.selectedYaw = 0;
-    this.ctx.bus.emit('housing:modeChanged', { active: false, room: null });
+    this.ctx.bus.emit('housing:modeChanged', { active: true, room });
+    this.ctx.bus.emit('housing:selectionChanged', { defId: null, yaw: 0 });
+    this.ctx.bus.emit('housing:shipManageChanged', { active: true, room });
+    return true;
+  }
+
+  closeShipManage(): void {
+    if (!this.shipManageMode) return;
+    this.exitHousingMode();
   }
 
   /** `null` clears the selection; a def that is not in furniture storage is ignored (selection unchanged). */
@@ -236,7 +312,9 @@ export class HousingSystem implements GameSystem, HousingRef {
     if (room.purpose === purpose) return true;
     if (purposeChangeReason(this.state, index, purpose)) return false;
     if (purpose === 'empty') {
-      for (const f of this.state.furniture.filter((p) => p.room === index)) this.recover(f.uid);
+      // top layers first so a stack never has to be taken apart from underneath
+      const inRoom = this.state.furniture.filter((p) => p.room === index).sort((a, b) => layerOf(b) - layerOf(a));
+      for (const f of inRoom) this.recover(f.uid);
     }
     // a greenhouse that goes away takes its labs with it
     if (room.purpose === 'greenhouse' && !this.state.rooms.some((r, i) => i !== index && r.purpose === 'greenhouse')) {
@@ -311,9 +389,12 @@ export class HousingSystem implements GameSystem, HousingRef {
 
   place(room: number, defId: string, x: number, y: number, yaw: 0 | 1 | 2 | 3): PlacedFurniture | null {
     const entry = this.storageEntry(defId);
-    if (!entry || !this.canPlace(room, defId, x, y, yaw)) return null;
+    const def = FURNITURE_DEF_MAP.get(defId);
+    if (!def || !entry || !this.canPlace(room, defId, x, y, yaw)) return null;
     this.takeFromStorage(entry);
     const item: PlacedFurniture = { uid: `f-${++this.nextUid}`, defId, room, x, y, yaw, level: entry.level };
+    const limit = stackLimitOf(def);
+    if (limit > 1) item.layer = Math.max(0, nextFreeLayer(stackMembers(this.state, room, def, x, y, yaw), limit));
     this.state.furniture.push(item);
     this.ctx.bus.emit('housing:furniturePlaced', { item });
     this.changed('place');
@@ -325,18 +406,36 @@ export class HousingSystem implements GameSystem, HousingRef {
     const item = this.getPlacedByUid(uid);
     if (!item || !this.canPlace(item.room, item.defId, x, y, yaw, uid)) return false;
     if (item.x === x && item.y === y && item.yaw === yaw) return true;
+    // a stacked piece may only leave its stack from the top, and lands on the lowest free layer of the target stack
+    const def = FURNITURE_DEF_MAP.get(item.defId)!;
+    const limit = stackLimitOf(def);
+    if (limit > 1) {
+      if (recoverBlockReason(this.state, item)) return false;
+      const layer = nextFreeLayer(stackMembers(this.state, item.room, def, x, y, yaw, uid), limit);
+      if (layer < 0) return false;
+      item.layer = layer;
+    }
     item.x = x; item.y = y; item.yaw = yaw;
     this.ctx.bus.emit('housing:furnitureMoved', { item });
     this.changed('move');
     return true;
   }
 
+  /** 한국어 reason `recover(uid)` would refuse (null = go ahead). Only a stack blocks: the top layer leaves first. */
+  recoverBlock(uid: string): string | null {
+    const item = this.getPlacedByUid(uid);
+    if (!item) return '설치되지 않은 가구입니다';
+    return recoverBlockReason(this.state, item);
+  }
+
   recover(uid: string): boolean {
     const i = this.state.furniture.findIndex((f) => f.uid === uid);
     if (i < 0) return false;
     const item = this.state.furniture[i];
+    if (recoverBlockReason(this.state, item)) return false;
     this.state.furniture.splice(i, 1);
     this.addToStorage(item.defId, item.level);
+    this.dropPlotsOf(uid);
     this.ctx.bus.emit('housing:furnitureRecovered', { uid, defId: item.defId, room: item.room });
     this.changed('recover');
     return true;
@@ -375,6 +474,167 @@ export class HousingSystem implements GameSystem, HousingRef {
     this.changed('furnitureUpgrade');
     return true;
   }
+
+  /* ── 온실 재배 (Phase 8) ───────────────────────────────────────────────── */
+  private plots(): GrowPlot[] {
+    if (!Array.isArray(this.state.plots)) this.state.plots = [];
+    return this.state.plots;
+  }
+
+  /** The 재배층 behind `uid`, or null when it is not a rack (or gone). */
+  private rackOf(uid: string): PlacedFurniture | null {
+    const item = this.getPlacedByUid(uid);
+    return item && isGrowRackDefId(item.defId) ? item : null;
+  }
+
+  private plotAt(uid: string, slot: number): GrowPlot | null {
+    return this.plots().find((p) => p.uid === uid && p.slot === slot) ?? null;
+  }
+
+  /** Drop every plot of a rack that is being recovered (its crops go with it). */
+  private dropPlotsOf(uid: string): void {
+    const plots = this.plots();
+    for (let i = plots.length - 1; i >= 0; i--) if (plots[i].uid === uid) plots.splice(i, 1);
+  }
+
+  /** Ready plots of a rack (for the `housing:growChanged` payload and the hub's rack visuals). */
+  private readyCount(uid: string): number {
+    const now = this.nowMs();
+    return this.plots().filter((p) => p.uid === uid && now >= p.readyAt).length;
+  }
+
+  private growChanged(uid: string, reason: string): void {
+    this.changed(reason);
+    this.ctx.bus.emit('housing:growChanged', { uid, ready: this.readyCount(uid) });
+  }
+
+  /** Seed def with its `seed` data, or null when `defId` is not a seed. */
+  private seedDef(defId: string): ItemDef | null {
+    const def = this.defOf(defId);
+    return def && def.seed ? def : null;
+  }
+
+  /** 원예 skill 0..SKILL_LEVEL_MAX. */
+  private gardening(): number {
+    const p = this.ctx.progression;
+    if (!p || typeof p.getSkill !== 'function') return 0;
+    const v = p.getSkill('gardening');
+    return Number.isFinite(v) ? Math.max(0, Math.min(SKILL_LEVEL_MAX, v)) : 0;
+  }
+
+  getPlots(uid: string): GrowPlotInfo[] {
+    if (!this.rackOf(uid)) return [];
+    const now = this.nowMs();
+    const out: GrowPlotInfo[] = [];
+    for (let slot = 0; slot < GROW_PLOTS_PER_RACK; slot++) {
+      const plot = this.plotAt(uid, slot);
+      if (!plot) {
+        out.push({ slot, seedDefId: null, progress: -1, remainingS: 0, ready: false, yieldDefId: null, yieldQty: 0 });
+        continue;
+      }
+      const total = Math.max(1, plot.readyAt - plot.plantedAt);
+      const seed = this.seedDef(plot.seedDefId)?.seed ?? null;
+      out.push({
+        slot,
+        seedDefId: plot.seedDefId,
+        progress: Math.max(0, Math.min(1, (now - plot.plantedAt) / total)),
+        remainingS: Math.max(0, Math.ceil((plot.readyAt - now) / 1000)),
+        ready: now >= plot.readyAt,
+        yieldDefId: seed?.yieldDefId ?? null,
+        yieldQty: seed ? this.yieldQty(seed.yieldQty) : 0,
+      });
+    }
+    return out;
+  }
+
+  /** Harvest size after the 원예 `gatherYieldMul` (at least one unit). */
+  private yieldQty(base: number): number {
+    const mul = this.ctx.progression?.derived?.gatherYieldMul ?? 1;
+    return Math.max(1, Math.round(base * (Number.isFinite(mul) && mul > 0 ? mul : 1)));
+  }
+
+  plantSeed(uid: string, slot: number, seedDefId: string): string | null {
+    if (!this.rackOf(uid)) return '재배층이 아닙니다';
+    if (!Number.isInteger(slot) || slot < 0 || slot >= GROW_PLOTS_PER_RACK) return '없는 재배 칸입니다';
+    if (this.plotAt(uid, slot)) return '이미 씨앗이 심어져 있습니다';
+    const def = this.seedDef(seedDefId);
+    if (!def || !def.seed) return '씨앗이 아닙니다';
+    if (this.countDef(seedDefId) < 1) return `${def.name}이(가) 없습니다`;
+    const inv = this.ctx.inventory;
+    if (!inv || typeof inv.consumeDefAll !== 'function' || !inv.consumeDefAll(seedDefId, 1)) return '씨앗을 꺼낼 수 없습니다';
+    const plantedAt = this.nowMs();
+    // the 원예 speed-up is baked in once: a later skill change never moves a running timer
+    const speed = 1 - GROW_SKILL_SPEEDUP * (this.gardening() / SKILL_LEVEL_MAX);
+    const readyAt = plantedAt + Math.max(1000, Math.round(def.seed.growHours * 3600e3 * speed));
+    this.plots().push({ uid, slot, seedDefId, plantedAt, readyAt });
+    this.growChanged(uid, 'plant');
+    return null;
+  }
+
+  harvestPlot(uid: string, slot: number): string | null {
+    if (!this.rackOf(uid)) return '재배층이 아닙니다';
+    const plot = this.plotAt(uid, slot);
+    if (!plot) return '심어진 씨앗이 없습니다';
+    const now = this.nowMs();
+    if (now < plot.readyAt) return `아직 자라는 중입니다 (${formatRemaining(Math.ceil((plot.readyAt - now) / 1000))} 남음)`;
+    const seed = this.seedDef(plot.seedDefId)?.seed ?? null;
+    const loot = this.ctx.loot;
+    if (!seed || !loot || typeof loot.createItem !== 'function') return '수확물을 만들 수 없습니다';
+    const qty = this.yieldQty(seed.yieldQty);
+    const item = loot.createItem(seed.yieldDefId, qty);
+    const inv = this.ctx.inventory;
+    const where = inv && typeof inv.tryAddItemAnywhere === 'function'
+      ? inv.tryAddItemAnywhere(item)
+      : inv && typeof inv.tryAddItem === 'function' && inv.tryAddItem(item) ? 'bag' : null;
+    if (!where) return '가방과 창고에 자리가 없습니다';
+    this.plots().splice(this.plots().indexOf(plot), 1);
+    // the 원예 skill rises off `gather:collected`, exactly like a field herb node
+    this.ctx.bus.emit('gather:collected', { nodeId: `grow:${uid}:${slot}`, defId: seed.yieldDefId, qty });
+    this.growChanged(uid, 'harvest');
+    return null;
+  }
+
+  harvestAll(uid: string): number {
+    let taken = 0;
+    for (let slot = 0; slot < GROW_PLOTS_PER_RACK; slot++) {
+      const plot = this.plotAt(uid, slot);
+      if (!plot || this.nowMs() < plot.readyAt) continue;
+      if (this.harvestPlot(uid, slot) === null) taken++;
+    }
+    return taken;
+  }
+
+  getOwnedSeeds(): { defId: string; qty: number }[] {
+    const loot = this.ctx.loot;
+    if (!loot || typeof loot.getAllItemDefs !== 'function') return [];
+    const out: { defId: string; qty: number }[] = [];
+    for (const def of loot.getAllItemDefs()) {
+      if (!def.seed) continue;
+      const qty = this.countDef(def.id);
+      if (qty > 0) out.push({ defId: def.id, qty });
+    }
+    out.sort((a, b) => (this.seedDef(a.defId)?.seed?.growHours ?? 0) - (this.seedDef(b.defId)?.seed?.growHours ?? 0));
+    return out;
+  }
+
+  openGrowMenu(uid: string): void {
+    if (!this.growMenu) return;
+    if (!this.rackOf(uid)) { this.notify('재배층이 없습니다', 'warning'); return; }
+    this.exitHousingMode();
+    this.closeMenus(false);
+    this.growMenu.openRack(uid);
+  }
+
+  /* ── 승무원 호출명 (Phase 8) ─────────────────────────────────────────── */
+  /** hub/ calls this the first time the player names the crew; afterwards the terminal shows a read-only line. */
+  lockCrewName(): void {
+    if (this.state.nameLocked === true) return;
+    this.state.nameLocked = true;
+    this.changed('name');
+  }
+
+  /* ── embedded 함선 view (the 함선 tab of the Tab screen) ───────────────── */
+  createShipView(host: HTMLElement): EmbeddedView { return createShipView(this.ctx, this, host); }
 
   /* ── loadout presets (사격장) ──────────────────────────────────────────── */
   getPresetCount(): number { return presetCountFor(facilityLevel(this.state, 'range')); }
@@ -429,6 +689,7 @@ export class HousingSystem implements GameSystem, HousingRef {
     if (this.roomMenu) out.push(this.roomMenu);
     if (this.facilityMenu) out.push(this.facilityMenu);
     if (this.presetMenu) out.push(this.presetMenu);
+    if (this.growMenu) out.push(this.growMenu);
     return out;
   }
 

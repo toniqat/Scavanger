@@ -180,32 +180,94 @@ export function insideGrid(def: FurnitureDef, x: number, y: number, yaw: 0 | 1 |
   return x + fp.cols <= ROOM_GRID_COLS && y + fp.rows <= ROOM_GRID_ROWS;
 }
 
-/** Placed piece under cell (x, y) of `room`, or null. */
+/** Placed piece under cell (x, y) of `room`, or null. In a stack the **top** layer wins (that is what E / X reach). */
 export function furnitureAtCell(furniture: readonly PlacedFurniture[], room: number, x: number, y: number): PlacedFurniture | null {
+  let best: PlacedFurniture | null = null;
   for (const f of furniture) {
     if (f.room !== room) continue;
     const def = FURNITURE_DEF_MAP.get(f.defId);
     if (!def) continue;
     const fp = furnitureFootprint(def, f.yaw);
-    if (x >= f.x && x < f.x + fp.cols && y >= f.y && y < f.y + fp.rows) return f;
+    if (x < f.x || x >= f.x + fp.cols || y < f.y || y >= f.y + fp.rows) continue;
+    if (!best || layerOf(f) > layerOf(best)) best = f;
   }
-  return null;
+  return best;
 }
 
-/** Purpose match (or 'any') + inside the grid + no overlap with other pieces in the room (`ignoreUid` = the piece being moved). */
+/* ── stacking (Phase 8: 재배층) ─────────────────────────────────────────────
+ * `FurnitureDef.stackLimit > 1` lets several copies of the **same** def share one footprint, each on its own
+ * `PlacedFurniture.layer` (0 = deck). Everything else keeps the strict "nothing may overlap" rule, and a stack is
+ * homogeneous: same defId, same `x`/`y`, same `yaw`. hub/ lifts layer n by `n × GROW_RACK_LAYER_HEIGHT`.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+/** How many copies may share one footprint (1 = no stacking). */
+export function stackLimitOf(def: FurnitureDef): number {
+  const n = Math.floor(Number(def.stackLimit ?? 1));
+  return Number.isFinite(n) && n > 1 ? n : 1;
+}
+
+export function layerOf(item: PlacedFurniture): number {
+  const n = Math.floor(Number(item.layer ?? 0));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/** Pieces already sitting in the same stack slot (same def / cell / yaw) of `room`, `ignoreUid` excluded. */
+export function stackMembers(
+  state: ShipState, room: number, def: FurnitureDef, x: number, y: number, yaw: 0 | 1 | 2 | 3, ignoreUid?: string,
+): PlacedFurniture[] {
+  return state.furniture.filter((f) => f.room === room && f.uid !== ignoreUid && f.defId === def.id && f.x === x && f.y === y && f.yaw === yaw);
+}
+
+/** Lowest unused layer of a stack, or −1 when it is full. */
+export function nextFreeLayer(members: readonly PlacedFurniture[], limit: number): number {
+  const used = new Set(members.map(layerOf));
+  for (let i = 0; i < limit; i++) if (!used.has(i)) return i;
+  return -1;
+}
+
+/** Highest occupied layer of a stack (−1 when empty). */
+export function topLayer(members: readonly PlacedFurniture[]): number {
+  let top = -1;
+  for (const m of members) top = Math.max(top, layerOf(m));
+  return top;
+}
+
+/**
+ * Purpose match (or 'any') + inside the grid + no overlap with other pieces in the room (`ignoreUid` = the piece being
+ * moved). Stackable defs (`stackLimit > 1`) may share their footprint with the same def at the same cell / yaw while
+ * the stack is below its limit.
+ */
 export function canPlaceAt(state: ShipState, room: number, def: FurnitureDef, x: number, y: number, yaw: 0 | 1 | 2 | 3, ignoreUid?: string): boolean {
   if (!isRoomIndex(state, room)) return false;
   if (!furnitureAllowedIn(def, state.rooms[room].purpose)) return false;
   if (!insideGrid(def, x, y, yaw)) return false;
+  const limit = stackLimitOf(def);
+  if (limit > 1 && nextFreeLayer(stackMembers(state, room, def, x, y, yaw, ignoreUid), limit) < 0) return false;
   const fp = furnitureFootprint(def, yaw);
   for (const other of state.furniture) {
     if (other.room !== room || other.uid === ignoreUid) continue;
     const odef = FURNITURE_DEF_MAP.get(other.defId);
     if (!odef) continue;
     const ofp = furnitureFootprint(odef, other.yaw);
-    if (overlaps(x, y, fp.cols, fp.rows, other.x, other.y, ofp.cols, ofp.rows)) return false;
+    if (!overlaps(x, y, fp.cols, fp.rows, other.x, other.y, ofp.cols, ofp.rows)) continue;
+    // a stack may only be shared by the identical def in the identical spot
+    if (limit > 1 && other.defId === def.id && other.x === x && other.y === y && other.yaw === yaw) continue;
+    return false;
   }
   return true;
+}
+
+/**
+ * 한국어 reason a placed piece may not be recovered right now; null = go ahead. Only stacks block: taking a piece out
+ * from under another one would leave the upper layers floating, so only the top layer may leave.
+ */
+export function recoverBlockReason(state: ShipState, item: PlacedFurniture): string | null {
+  const def = FURNITURE_DEF_MAP.get(item.defId);
+  if (!def) return null;                                   // unknown def: let the player clean it up
+  if (stackLimitOf(def) <= 1) return null;
+  const above = topLayer(stackMembers(state, item.room, def, item.x, item.y, item.yaw, item.uid));
+  if (above > layerOf(item)) return `위층 ${def.name}을(를) 먼저 회수하세요`;
+  return null;
 }
 
 /* ── furniture upgrades ───────────────────────────────────────────────────── */

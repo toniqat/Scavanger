@@ -2,6 +2,11 @@ export interface MenuEntry {
   label: string;
   /** Right-aligned shortcut hint (e.g. `X`). */
   hint?: string;
+  /**
+   * Phase 8: material requirement chips rendered on a second line of the entry (built with `renderItemCost`
+   * from `@/shared`, e.g. the 수리 cost). The menu only adopts the element — the caller fills it.
+   */
+  costs?: HTMLElement;
   /** Red styling for destructive actions. */
   danger?: boolean;
   /** Visual separator above this entry. */
@@ -39,13 +44,21 @@ export class ContextMenu {
       b.className = 'inv-menu-item';
       if (entry.danger) b.classList.add('is-danger');
       if (entry.separator) b.classList.add('has-sep');
+      const line = document.createElement('span');
+      line.className = 'inv-menu-line';
       const label = document.createElement('span');
       label.textContent = entry.label;
-      b.appendChild(label);
+      line.appendChild(label);
       if (entry.hint) {
         const k = document.createElement('kbd');
         k.textContent = entry.hint;
-        b.appendChild(k);
+        line.appendChild(k);
+      }
+      b.appendChild(line);
+      if (entry.costs) {
+        b.classList.add('has-costs');
+        entry.costs.classList.add('inv-menu-costs');
+        b.appendChild(entry.costs);
       }
       b.addEventListener('pointerdown', (e) => e.stopPropagation());
       b.addEventListener('click', (e) => { e.stopPropagation(); this.close(); entry.run(); });

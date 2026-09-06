@@ -322,6 +322,13 @@ export interface HousingRef {
   /** Open the 재배층 panel (`furn_grow_rack` interaction). */
   openGrowMenu(uid: string): void;
 
+  /* ── 승무원 호출명 ── */
+  /**
+   * Mark the crew name as chosen for good (`ShipState.nameLocked`). hub/ calls it the first time the player sets a
+   * name in the terminal; afterwards the terminal shows a read-only line instead of the input. Idempotent.
+   */
+  lockCrewName(): void;
+
   /* ── embedded 함선 view (the 함선 tab of the Tab screen) ── */
   /**
    * Render the ship-management screen (시설 업그레이드 + 방 목록) inside `host`, which the caller owns and empties.

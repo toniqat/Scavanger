@@ -57,7 +57,13 @@ export const TEXT = {
   /* hub screen (2026-09-06) */
   stash: '함선 창고',
   stashHint: '가방 ↔ 창고: 드래그 또는 우클릭. 창고는 함선에 보관되어 임무·사망 후에도 유지됩니다.',
-  tabs: { inventory: '인벤토리', character: '캐릭터', corp: '기업', corpHint: '기업 네트워크: 상점 · 계약 · 퀘스트' },
+  tabs: {
+    inventory: '인벤토리', character: '캐릭터', corp: '기업', ship: '함선',
+    corpHint: '기업 네트워크: 상점 · 계약 · 퀘스트',
+    characterHint: '캐릭터: 능력치 · 스킬 · 레벨',
+    shipHint: '함선 관리: 시설 업그레이드 · 방 용도',
+    unavailable: (what: string): string => `${what} 정보를 사용할 수 없습니다`,
+  },
   /* Phase 7: container search (감정) */
   search: {
     hiddenIcon: '?',
@@ -71,7 +77,8 @@ export const TEXT = {
     denied: '다른 대원이 먼저 가져갔습니다',
   },
   /* Phase 5: credits readout on the ship screen */
-  credits: { eyebrow: 'CREDITS', value: (n: number): string => `크레딧 ${Math.max(0, Math.floor(n)).toLocaleString('ko-KR')}`, none: '크레딧 —' },
+  /* Phase 8: the pill already carries the `CREDITS` eyebrow — the value is the bare number (`CREDITS 500`). */
+  credits: { eyebrow: 'CREDITS', value: (n: number): string => Math.max(0, Math.floor(n)).toLocaleString('ko-KR'), none: '—' },
   implant: {
     slot: '전술 임플란트',
     empty: '비어 있음 · 클릭해 장착',
@@ -161,9 +168,28 @@ export const TEXT = {
     bagFull: '가방에 공간이 없습니다',
     tabs: {
       all: '전체', weapon: '무기', ammo: '탄약', attachment: '부착물', bag: '가방', armor: '방탄복',
-      gadget: '가젯', consumable: '소모품', material: '재료', herb: '약초', furniture: '가구',
+      gadget: '가젯', consumable: '소모품', material: '재료', herb: '약초', seed: '씨앗', furniture: '가구',
     },
   },
+  /* Phase 8: 아이템 분해 (right-click → modeless dialog with the expected result) */
+  disassemble: {
+    eyebrow: 'DISASSEMBLE',
+    title: '아이템 분해',
+    menu: '분해',
+    /** Column captions of the input → output preview. */
+    input: '재료',
+    output: '결과물',
+    arrow: '→',
+    button: '분해',
+    working: '분해 중…',
+    short: '재료가 부족합니다',
+    done: '분해 완료',
+    fail: '분해할 수 없습니다',
+    close: '닫기',
+    hint: (n: number): string => `1회 분해 · ${n.toFixed(1)} s`,
+  },
+  /** Shared close affordance of the modeless popups (임플란트 / 제작 / 분해). */
+  modelessClose: '닫기',
   /* Phase 6: 작업실 bench crafting */
   bench: {
     eyebrow: 'WORKSHOP BENCH',

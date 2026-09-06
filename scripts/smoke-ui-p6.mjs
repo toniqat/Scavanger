@@ -162,7 +162,8 @@ try {
   let hh = await P(() => { const e = document.querySelector('.housing-hint'); return { cls: e.className, name: e.querySelector('.name').textContent, keys: e.querySelector('.keys').textContent, on: window.__game.getSystem('hud').isHousingHintOn, vis: getComputedStyle(e).visibility }; });
   ok(/\bshow\b/.test(hh.cls) && hh.on, 'housing:modeChanged active → bar .show', hh.cls);
   ok(hh.name === '선택 없음 — 휠로 선택', 'no selection text', hh.name);
-  ok(hh.keys === 'LMB 설치 · R 회전 · X 회수 · 휠 선택 · Esc 종료', 'key hints from live bindings', hh.keys);
+  // Phase 8: the 함선 관리 mode added C as a cancel key
+  ok(hh.keys === 'LMB 설치 · R 회전 · X 회수 · 휠 선택 · C 취소 · Esc 종료', 'key hints from live bindings', hh.keys);
   await emit('housing:selectionChanged', { defId: 'furn_bench_gun', yaw: 1 });
   hh = await P(() => { const e = document.querySelector('.housing-hint'); return { name: e.querySelector('.name').textContent, yaw: e.querySelector('.yaw').textContent, none: e.querySelector('.name').classList.contains('none') }; });
   ok(hh.name !== 'furn_bench_gun' && hh.name !== '선택 없음 — 휠로 선택' && !hh.none, 'selection resolves the furniture name via FURNITURE_DEF_MAP', hh.name);

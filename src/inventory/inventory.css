@@ -954,10 +954,13 @@ kbd {
 .inv-implant-card .desc { font-size: 11px; line-height: 1.45; color: var(--inv-muted); }
 .inv-implant-body .inv-implant-card { border: none; background: none; padding: 0 4px; pointer-events: none; }
 .inv-implant-body .inv-implant-card::after { content: "▾"; margin-left: auto; color: var(--inv-muted); font-size: 12px; }
+/* Phase 8: the picker is the body of a modeless popup (`.inv-modeless-implant`), not an inline expander */
 .inv-implant-picker {
-  display: flex; flex-direction: column; gap: 6px; width: 234px;
-  margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--inv-line);
-  animation: inv-pop 160ms var(--inv-ease) both;
+  display: flex; flex-direction: column; gap: 6px;
+  max-height: min(560px, calc(100vh - 180px));
+  overflow-y: auto; overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
 }
 .inv-implant-picker .inv-implant-card.is-equipped::after { content: "장착 중 · 클릭해 해제"; margin-left: auto; font-size: 9px; letter-spacing: 0.08em; color: var(--ic); white-space: nowrap; }
 
@@ -1090,7 +1093,9 @@ kbd {
 .inv-repair-bar.warn i { background: var(--inv-accent); }
 .inv-repair-bar.low i { background: var(--inv-bad); }
 .inv-repair-dur { font-size: 10px; font-variant-numeric: tabular-nums; color: var(--inv-muted); }
+/* Phase 8: the cost cell holds `renderItemCost` chips (or the 정비 완료 text) */
 .inv-repair-cost { font-size: 10px; letter-spacing: 0.02em; color: var(--inv-text); white-space: nowrap; }
+.inv-repair-cost.item-chips { display: flex; align-items: center; gap: 6px; }
 .inv-repair-cost.is-short { color: color-mix(in srgb, var(--inv-bad) 80%, white 20%); }
 .inv-repair-btn { padding: 6px 10px; }
 .inv-repair-btn:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -1113,3 +1118,84 @@ kbd {
   color: var(--inv-accent);
 }
 .inv-credits.is-unavailable .inv-credits-value { color: var(--inv-muted); }
+
+/* ═══ Phase 8 (2026-09-06): Tab 화면 호스트 · 모달리스 팝업 · 분해 다이얼로그 · 요구 아이템 칩 ═══ */
+
+/* ── embedded screens (캐릭터 / 기업 / 함선 inside the Tab window) ─────────── */
+/* The blurred `.inv-root` backdrop is the requested 배경 블러; the host simply replaces `.inv-layout`. */
+.inv-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: min(1180px, calc(100vw - 56px));
+  max-height: calc(100vh - 130px);
+  overflow: hidden auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+  animation: inv-pop 160ms var(--inv-ease) both;
+}
+.inv-screen::-webkit-scrollbar { width: 6px; }
+.inv-screen::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.22); border-radius: 3px; }
+/* the owning folder is missing (no ctx.progression / meta / housing): a line under the grid, not a blank screen */
+.inv-screen-note {
+  font-size: 12px; letter-spacing: 0.06em;
+  color: color-mix(in srgb, var(--inv-bad) 75%, white 25%);
+}
+
+/* ── modeless popups (임플란트 / 필드 제작 / 분해) ────────────────────────── */
+/* Children of the inventory window: no blocker, no pointer-lock change — the grid stays live behind them. */
+.inv-modeless-layer { position: fixed; inset: 0; z-index: 70; pointer-events: none; }
+.inv-modeless {
+  position: fixed;
+  left: 0; top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px 16px;
+  pointer-events: auto;
+  background: linear-gradient(180deg, rgba(18, 21, 27, 0.97), rgba(10, 12, 17, 0.97));
+  border: 1px solid var(--inv-line-strong);
+  border-radius: 6px;
+  box-shadow: 0 26px 64px rgba(0, 0, 0, 0.62), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  animation: inv-pop 150ms var(--inv-ease) both;
+}
+.inv-modeless.is-centred { left: 50%; top: 50%; transform: translate(-50%, -50%); }
+.inv-modeless-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.inv-modeless-body { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.inv-modeless-close { padding: 6px 12px; }
+.inv-modeless-implant { width: 268px; }
+/* the craft panel brings its own `.inv-panel` chrome — the frame only positions it */
+.inv-modeless-craft { padding: 0; background: none; border: 0; box-shadow: none; }
+.inv-modeless-craft .inv-modeless-body { gap: 0; }
+/* park the craft popup at the right edge instead of over the grid it feeds from */
+.inv-modeless-craft.is-centred {
+  left: auto; right: 28px; top: 50%; bottom: auto;
+  transform: translateY(-50%);
+  max-height: calc(100vh - 60px);
+}
+.inv-modeless-disassemble { width: 340px; }
+
+/* ── 아이템 분해 dialog ─────────────────────────────────────────────────── */
+.inv-dis-preview {
+  display: flex; align-items: center; justify-content: center; gap: 16px;
+  padding: 14px 6px;
+  border: 1px solid var(--inv-line);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.inv-dis-col { display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: 0; flex: 1; }
+.inv-dis-side { display: flex; align-items: center; justify-content: center; gap: 10px; min-width: 0; }
+.inv-dis-side.item-chips { flex-wrap: wrap; }
+.inv-dis-arrow { flex: none; font-size: 18px; color: var(--inv-muted); }
+.inv-dis-hint { font-size: 11px; letter-spacing: 0.04em; color: var(--inv-muted); text-align: center; }
+.inv-dis-msg { font-size: 11px; letter-spacing: 0.04em; text-align: center; }
+.inv-dis-msg.is-ok { color: var(--inv-ok); }
+.inv-dis-msg.is-bad { color: color-mix(in srgb, var(--inv-bad) 80%, white 20%); }
+.inv-dis-btn { width: 100%; min-width: 0; justify-content: center; }
+
+/* ── item chips in the craft rows / context menu ─────────────────────────── */
+.inv-craft-costs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.inv-craft-inputs { align-items: center; }
+.inv-menu-line { display: flex; align-items: center; justify-content: space-between; gap: 18px; width: 100%; }
+.inv-menu-item.has-costs { flex-direction: column; align-items: stretch; gap: 6px; }
+.inv-menu-costs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }

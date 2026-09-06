@@ -1,10 +1,26 @@
 import * as THREE from 'three';
-import type { GameContext, GameSystem } from '@/shared';
+import type { AudioChannel, AudioRef, AudioSettings, GameContext, GameSystem } from '@/shared';
+import { AUDIO_DEFAULT_MASTER, AUDIO_DEFAULT_SFX, AUDIO_STORAGE_KEY } from '@/shared';
 import { Synth, SOUNDS } from './Synth';
 
 const RATE_WINDOW = 0.1;       // seconds
 const RATE_MAX_SAME = 8;       // max identical ids per window
 const DEDUPE_WINDOW = 0.1;     // auto-hook vs explicit `audio:play` of the same id
+
+/* ── Phase 8: volume settings ─────────────────────────────────────────── */
+/** `setTargetAtTime` time constant for a volume change — fast enough to feel instant, slow enough not to click. */
+const VOLUME_RAMP = 0.03;
+/** Master multiplier while `game:paused` (the classic 25 % duck), applied on top of the master setting. */
+const PAUSE_DUCK = 0.25;
+const SETTINGS_SAVE_DEBOUNCE_MS = 250;
+/** One short reference sound per channel for `preview()`; both run through the sfx bus. */
+const PREVIEW_SOUND: Record<AudioChannel, { id: string; volume: number }> = {
+  master: { id: 'ui_click', volume: 0.8 },
+  sfx: { id: 'shot_pistol', volume: 0.7 },
+};
+/** Dragging a slider must not machine-gun the preview. */
+const PREVIEW_MIN_INTERVAL_MS = 140;
+const SETTINGS_SAVE_VERSION = 1;
 
 interface Ambient {
   wind: { src: AudioBufferSourceNode; filter: BiquadFilterNode; gain: GainNode; lfo: OscillatorNode } | null;
@@ -22,7 +38,7 @@ const LOCAL_DROP_SPAWN_WINDOW = 0.15;
  * Procedural WebAudio SFX + ambience. Plays `audio:play {id, position, volume, pitch}` and auto-hooks
  * gameplay events that don't send their own audio. Positional sounds are spatialized with a PannerNode.
  */
-export class AudioSystem implements GameSystem {
+export class AudioSystem implements GameSystem, AudioRef {
   readonly name = 'audio';
   private ctx!: GameContext;
   private ac: AudioContext | null = null;
@@ -60,10 +76,22 @@ export class AudioSystem implements GameSystem {
   private camUp = new THREE.Vector3();
   private tmp = new THREE.Vector3();
 
-  masterVolume = 0.8;
+  /* ── Phase 8: volume settings (`ctx.audio`) ────────────────────────── */
+  private _settings: AudioSettings = { master: AUDIO_DEFAULT_MASTER, sfx: AUDIO_DEFAULT_SFX };
+  /** True while `game:paused` — the master gain is the setting × PAUSE_DUCK. */
+  private ducked = false;
+  private saveTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastPreview = -Infinity;
+
+  /** 0 … 1 per channel; persisted in `localStorage[AUDIO_STORAGE_KEY]`. */
+  get settings(): Readonly<AudioSettings> { return this._settings; }
+  /** Legacy alias kept for readability inside this folder — the master channel level (without the pause duck). */
+  get masterVolume(): number { return this._settings.master; }
 
   init(ctx: GameContext): void {
     this.ctx = ctx;
+    ctx.audio = this;
+    this.loadSettings(); // before the graph is built so the first gains are correct
     // Create lazily on first gesture (autoplay policy).
     const unlock = () => this.ensureContext();
     for (const ev of ['pointerdown', 'keydown', 'touchstart'] as const) {
@@ -270,9 +298,8 @@ export class AudioSystem implements GameSystem {
         this.barrierActive = false; this.barrierHp = 0;
       }),
       b.on('game:paused', ({ paused }) => {
-        if (!this.ac) return;
-        if (paused) this.master.gain.setTargetAtTime(this.masterVolume * 0.25, this.ac.currentTime, 0.1);
-        else this.master.gain.setTargetAtTime(this.masterVolume, this.ac.currentTime, 0.1);
+        this.ducked = paused;
+        this.applyVolumes(0.1); // slower ramp: the duck is a mood change, not a setting
       }),
     );
   }
@@ -289,8 +316,8 @@ export class AudioSystem implements GameSystem {
       this.synth = new Synth(ac);
       const comp = ac.createDynamicsCompressor();
       comp.threshold.value = -14; comp.knee.value = 18; comp.ratio.value = 6; comp.attack.value = 0.004; comp.release.value = 0.2;
-      this.master = ac.createGain(); this.master.gain.value = this.masterVolume;
-      this.sfxBus = ac.createGain(); this.sfxBus.gain.value = 1;
+      this.master = ac.createGain(); this.master.gain.value = this._settings.master * (this.ducked ? PAUSE_DUCK : 1);
+      this.sfxBus = ac.createGain(); this.sfxBus.gain.value = this._settings.sfx;
       this.ambBus = ac.createGain(); this.ambBus.gain.value = 1;
       this.sfxBus.connect(comp); this.ambBus.connect(comp);
       comp.connect(this.master).connect(ac.destination);
@@ -359,6 +386,62 @@ export class AudioSystem implements GameSystem {
     vsrc.connect(vf).connect(vg).connect(hg);
     h1.start(); h2.start(); h3.start(); vsrc.start(); vlfo.start();
     this.amb.hub = { filter: hf, gain: hg, vent: vg };
+  }
+
+  /* ── volume settings (`AudioRef`) ────────────────────────────────────── */
+  /** Clamp, apply to the live graph, persist (debounced) and announce. Safe before the AudioContext exists. */
+  setVolume(channel: AudioChannel, value: number): void {
+    const v = Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0));
+    if (this._settings[channel] === v) return;
+    this._settings[channel] = v;
+    this.applyVolumes();
+    this.queueSave();
+    this.ctx?.bus.emit('audio:volumeChanged', { channel, value: v });
+  }
+
+  /** Short reference blip so the player hears the level just set (throttled while a slider is dragged). */
+  preview(channel: AudioChannel): void {
+    const now = performance.now();
+    if (now - this.lastPreview < PREVIEW_MIN_INTERVAL_MS) return;
+    this.lastPreview = now;
+    this.ensureContext(); // the click that moved the slider is a valid unlock gesture
+    const s = PREVIEW_SOUND[channel] ?? PREVIEW_SOUND.master;
+    this.play(s.id, undefined, s.volume, 1, false);
+  }
+
+  /** Master = setting × pause duck, sfx bus = setting. Ambience rides `ambBus` → master only (no slider). */
+  private applyVolumes(ramp = VOLUME_RAMP): void {
+    if (!this.ac) return;
+    const now = this.ac.currentTime;
+    const master = this._settings.master * (this.ducked ? PAUSE_DUCK : 1);
+    this.master.gain.setTargetAtTime(master, now, ramp);
+    this.sfxBus.gain.setTargetAtTime(this._settings.sfx, now, ramp);
+  }
+
+  private loadSettings(): void {
+    try {
+      const raw = localStorage.getItem(AUDIO_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { master?: unknown; sfx?: unknown };
+      if (typeof parsed !== 'object' || parsed === null) return;
+      const num = (v: unknown, fallback: number): number =>
+        typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : fallback;
+      this._settings = {
+        master: num(parsed.master, AUDIO_DEFAULT_MASTER),
+        sfx: num(parsed.sfx, AUDIO_DEFAULT_SFX),
+      };
+    } catch { /* corrupt or unavailable storage → defaults */ }
+  }
+
+  private queueSave(): void {
+    if (this.saveTimer !== null) clearTimeout(this.saveTimer);
+    this.saveTimer = setTimeout(() => { this.saveTimer = null; this.saveSettings(); }, SETTINGS_SAVE_DEBOUNCE_MS);
+  }
+
+  private saveSettings(): void {
+    try {
+      localStorage.setItem(AUDIO_STORAGE_KEY, JSON.stringify({ v: SETTINGS_SAVE_VERSION, ...this._settings }));
+    } catch { /* private mode / quota → keep the session values only */ }
   }
 
   /* ── playback ────────────────────────────────────────────────────────── */
@@ -470,6 +553,8 @@ export class AudioSystem implements GameSystem {
   dispose(): void {
     for (const u of this.unsubs) u();
     for (const u of this.unlockHandlers) u();
+    if (this.saveTimer !== null) { clearTimeout(this.saveTimer); this.saveTimer = null; this.saveSettings(); }
+    if (this.ctx?.audio === this) this.ctx.audio = null;
     if (this.ac) { void this.ac.close().catch(() => { /* ignore */ }); this.ac = null; }
   }
 }

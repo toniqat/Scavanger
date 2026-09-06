@@ -336,7 +336,7 @@ try {
   } else {
     await waitFor(page, () => window.__game.ctx.phase === 'hub' && window.__game.ctx.hub.ship === 'shared', 'shared ship');
     await waitSim(0.3);
-    await tap('Escape');
+    await page.evaluate(() => window.__game.ctx.interactables.all().find((i) => i.id === 'hub_terminal').interact());
     await waitFor(page, () => !document.querySelector('.menu.hub-menu').hidden, 'terminal open');
     const readMenu = () => P(() => {
       const secs = [...document.querySelectorAll('.menu.hub-menu .hub-section')];
@@ -379,7 +379,7 @@ try {
       net._lobby = { ...net._lobby, mode: 'raid', players: [{ ...net._lobby.players[0], ready: true }] };
       window.__game.ctx.bus.emit('net:lobbyUpdated', { lobby: net._lobby });
     });
-    await tap('Escape');
+    await page.evaluate(() => window.__game.ctx.interactables.all().find((i) => i.id === 'hub_terminal').interact());
     await waitFor(page, () => !document.querySelector('.menu.hub-menu').hidden, 'terminal open (raid)');
     const m2 = await readMenu();
     ok(m2.label === '임무 진행 중' && m2.disabled === true, `raid running → "${m2.label}" disabled`);

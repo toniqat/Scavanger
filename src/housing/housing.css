@@ -57,9 +57,9 @@
 .hs-row .tag.dim { color: var(--c-text-dim); border-color: var(--c-border); }
 .hs-row .qty { font-family: var(--ui-mono); font-size: 12px; color: var(--c-text-dim); margin-left: auto; }
 .hs-row .desc { font-size: 11px; color: var(--c-text-faint); letter-spacing: 0.03em; }
-.hs-row .cost { display: flex; flex-wrap: wrap; gap: 4px 10px; font-family: var(--ui-mono); font-size: 11px; color: var(--c-text-dim); }
-.hs-row .cost .mat.short { color: var(--c-danger); }
-.hs-row .cost .mat.free { color: var(--c-success); }
+/* costs are `.item-chip` rows now (Phase 8) — the chip itself is styled by ui/styles/base.css */
+.hs-row .cost { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px; font-family: var(--ui-mono); font-size: 11px; color: var(--c-text-dim); }
+.hs-row .cost .item-chip-free, .item-chip-free { font-size: 11px; letter-spacing: 0.08em; color: var(--c-success); align-self: center; }
 .hs-row .blocked { font-size: 11px; color: var(--c-danger); letter-spacing: 0.03em; }
 .hs-row .blocked.ok { color: var(--c-success); }
 .hs-row.dim { opacity: 0.6; }
@@ -90,6 +90,42 @@
 .hs-preset .actions { display: flex; gap: 6px; }
 .hs-preset .actions .ui-btn { flex: 1; padding: 0 8px; }
 
+/* ── 온실 재배 (Phase 8) ────────────────────────────────────────────────── */
+.hs-plots { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.hs-plot {
+  display: flex; flex-direction: column; gap: 8px; padding: 10px;
+  border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03);
+}
+.hs-plot.empty { border-style: dashed; }
+.hs-plot.ready { border-color: rgba(126, 224, 138, 0.55); background: rgba(126, 224, 138, 0.07); }
+.hs-plot .top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.hs-plot .idx { font-family: var(--ui-mono); font-size: 12px; color: var(--c-text-dim); letter-spacing: 0.08em; }
+.hs-plot .state { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--c-text-faint); }
+.hs-plot.ready .state { color: var(--c-success); }
+.hs-plot .chipwrap { display: flex; align-items: center; gap: 8px; min-height: 34px; }
+.hs-plot .bar { height: 5px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
+.hs-plot .bar i { display: block; height: 100%; width: 0%; background: var(--c-accent); transition: width var(--t-fast) linear; }
+.hs-plot.ready .bar i { background: var(--c-success); box-shadow: 0 0 8px rgba(126, 224, 138, 0.6); }
+.hs-plot .line { font-size: 11px; color: var(--c-text-dim); letter-spacing: 0.04em; font-family: var(--ui-mono); }
+.hs-plot .actions { display: flex; gap: 6px; }
+.hs-plot .actions .ui-btn { flex: 1; }
+/* `.ui-btn` sets its own display, so the hidden attribute needs to win explicitly */
+.hs-plot .actions .ui-btn[hidden] { display: none; }
+
+.hs-seeds { display: flex; flex-wrap: wrap; gap: 8px; }
+.hs-seeds .hs-empty { flex: 1; }
+.hs-seed { cursor: pointer; padding: 4px; border: 1px solid transparent; background: none; }
+.hs-seed:hover { border-color: rgba(255, 255, 255, 0.4); }
+.hs-seed.sel { border-color: var(--c-accent); background: rgba(255, 179, 71, 0.12); }
+
+/* ── embedded 함선 view (the 함선 tab of the Tab screen) ─────────────────── */
+.hs-ship { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.hs-ship .hs-head .title { font-size: 20px; letter-spacing: 0.16em; }
+.hs-ship .hs-list.rooms { max-height: 320px; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; padding-right: 2px; }
+.hs-ship .hs-row.room { padding-left: 12px; }
+.hs-ship .hs-row.room .purpose { height: 32px; min-width: 132px; font-size: 12px; }
+.hs-ship .hs-row.room.dim { opacity: 0.75; }
+
 /* ── footer ─────────────────────────────────────────────────────────────── */
 .hs-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding-top: 6px; border-top: 1px solid var(--c-border); }
 .hs-foot .left { display: flex; align-items: center; gap: 12px; min-width: 0; }
@@ -100,6 +136,6 @@
 @media (max-width: 760px) {
   .menu.housing-menu .frame { min-width: 0; padding: 26px 22px; }
   .hs-purposes { grid-template-columns: repeat(3, 1fr); }
-  .hs-list.presets, .hs-summary { grid-template-columns: 1fr; }
+  .hs-list.presets, .hs-summary, .hs-plots { grid-template-columns: 1fr; }
   .hs-row { flex-wrap: wrap; }
 }

@@ -35,6 +35,8 @@ import { WeaponChargeGauge } from './hud/WeaponChargeGauge';
 import { StatusMarkers } from './hud/StatusMarkers';
 import { CheatTag } from './hud/CheatTag';
 import { HousingHint } from './hud/HousingHint';
+import { ShipManage } from './hud/ShipManage';
+import { ShipManageHint } from './hud/ShipManageHint';
 import { RoomLabel } from './hud/RoomLabel';
 import { ContractPanel } from './hud/ContractPanel';
 import { MetaToasts } from './hud/MetaToasts';
@@ -42,6 +44,7 @@ import { MapScreen } from './map/MapScreen';
 import { TitleMenu } from './menus/TitleMenu';
 import { PauseMenu } from './menus/PauseMenu';
 import { KeybindMenu } from './menus/KeybindMenu';
+import { SettingsMenu } from './menus/SettingsMenu';
 import { DeathScreen } from './menus/DeathScreen';
 import { MissionComplete } from './menus/MissionComplete';
 import type { RewardsBlock } from './menus/RewardsBlock';
@@ -66,6 +69,9 @@ import type { RewardsBlock } from './menus/RewardsBlock';
  * Phase 5: `ContractPanel` (active corp contract under the objective) in the gameplay layer; `MetaToasts` (credits chip /
  * reputation level / contract settlement) share the `ProgressToasts` column in the social layer; quest / purchase / sale
  * lines go through `Notifications`; the result screens carry a `RewardsBlock`; the title menu a `Lv. n` chip.
+ * Phase 8 (ship UX): `ShipManageHint` (bottom-right `함선 관리` + `Keys.MAP` keycap) in the social layer, `ShipManage`
+ * (방 목록 + 가구 카드 바) in the `.hud.housing` layer, and the `SettingsMenu` overlay (키 설정 + 오디오) that the pause
+ * menu's `설정` button opens; the pause menu itself gained 타이틀로 and hides 함선으로 귀환 in the ship.
  */
 export class HudSystem implements GameSystem {
   readonly name = 'hud';
@@ -114,6 +120,9 @@ export class HudSystem implements GameSystem {
   private cheatTag!: CheatTag;
   private housingHint!: HousingHint;
   private roomLabel!: RoomLabel;
+  /* Phase 8 (ship UX) */
+  private shipManage!: ShipManage;
+  private shipHint!: ShipManageHint;
   /* Phase 5 (corporations) */
   private contractPanel!: ContractPanel;
   private metaToasts!: MetaToasts;
@@ -123,6 +132,7 @@ export class HudSystem implements GameSystem {
   private death!: DeathScreen;
   private complete!: MissionComplete;
   private keybinds!: KeybindMenu;
+  private settings!: SettingsMenu;
 
   private unsubs: Array<() => void> = [];
   private hudVisible = true;
@@ -174,27 +184,33 @@ export class HudSystem implements GameSystem {
     this.metaToasts = new MetaToasts(this.progressToasts.root);
     this.cheatTag = new CheatTag(this.socialRoot);
     this.roomLabel = new RoomLabel(this.socialRoot);
+    this.shipHint = new ShipManageHint(this.socialRoot);
 
     // Housing-mode layer: its own `.hud.housing` root (always attached; the hint bar toggles `.show` itself) so the
     // placement hints are visible in the ship where the gameplay HUD is hidden.
     this.housingRoot = el('div', { cls: 'hud housing', parent: ctx.uiRoot });
     this.housingHint = new HousingHint(this.housingRoot);
+    // Phase 8: the 함선 관리 screen (방 목록 + 가구 카드 바) shares that layer so it survives the same gating.
+    this.shipManage = new ShipManage(this.housingRoot);
 
     this.deploy = new DeployOverlay(ctx.uiRoot);
     this.map = new MapScreen(ctx.uiRoot);
     this.map.setPingSource(() => this.pings.getPings());
 
-    // Key-settings overlay sits above the title / pause menus, which both open it.
+    // Key-settings overlay sits above the title / pause / settings menus, which all open it.
     this.keybinds = new KeybindMenu(ctx.uiRoot);
     this.keybinds.bind(ctx);
+    // 설정 (Phase 8): keys + audio, opened from the pause menu; it holds the one KeybindMenu instance.
+    this.settings = new SettingsMenu(ctx.uiRoot, this.keybinds);
+    this.settings.bind(ctx);
     this.title = new TitleMenu(ctx.uiRoot, () => this.keybinds.open());
-    this.pause = new PauseMenu(ctx.uiRoot, () => this.keybinds.open());
+    this.pause = new PauseMenu(ctx.uiRoot, () => this.settings.open());
     this.death = new DeathScreen(ctx.uiRoot);
     this.complete = new MissionComplete(ctx.uiRoot);
 
     for (const c of [this.reticle, this.cook, this.wheel, this.swheel, this.strat, this.charge, this.targeting, this.offscreen, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.chat, this.map]) c.bind(ctx);
     for (const c of [this.implantWidget, this.weight, this.detection, this.scanReveal, this.deployables, this.progressToasts, this.actionFx]) c.bind(ctx);
-    for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.housingHint, this.roomLabel]) c.bind(ctx);
+    for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.housingHint, this.roomLabel, this.shipManage, this.shipHint]) c.bind(ctx);
     for (const c of [this.contractPanel, this.metaToasts]) c.bind(ctx);
     for (const m of [this.title, this.pause, this.death, this.complete]) m.bind(ctx);
 
@@ -251,6 +267,8 @@ export class HudSystem implements GameSystem {
     // Room label / contract pulse time themselves out on `ctx.time` regardless of layer visibility (one compare per frame);
     // meta toasts keep expiring behind a result screen so a stale chip never greets the hub.
     this.roomLabel.update(ctx);
+    // 함선 관리 hint: two compares per frame, and it must survive a hidden social layer state change.
+    this.shipHint.update(ctx);
     this.contractPanel.update(ctx);
     this.metaToasts.update(dt);
     // Self-gating components (they hide their own world meshes / markers outside gameplay).
@@ -303,6 +321,16 @@ export class HudSystem implements GameSystem {
   get isHousingHintOn(): boolean { return this.housingHint.isActive; }
   /** Whether the room label is up (debug). */
   get isRoomLabelOn(): boolean { return this.roomLabel.isShowing; }
+  /** Whether the 설정 overlay is open (debug). */
+  get isSettingsOpen(): boolean { return this.settings.isOpen; }
+  /** Whether the 함선 관리 screen is showing / which room it edits / how many furniture cards it renders (debug). */
+  get isShipManageOn(): boolean { return this.shipManage.isShowing; }
+  get shipManageRoom(): number | null { return this.shipManage.activeRoom; }
+  get shipManageCardCount(): number { return this.shipManage.cardCount; }
+  /** Whether the 함선 관리(M) hint is showing (debug). */
+  get isShipHintOn(): boolean { return this.shipHint.isShowing; }
+  /** Whether the pause menu is in its ship variant (debug). */
+  get isPauseHubVariant(): boolean { return this.pause.isHubVariant; }
   /** Whether the contract panel is up / pulsing (debug). */
   get isContractPanelOn(): boolean { return this.contractPanel.isShowing; }
   get isContractPulsing(): boolean { return this.contractPanel.isPulsing; }
@@ -361,9 +389,10 @@ export class HudSystem implements GameSystem {
     for (const u of this.unsubs) u();
     for (const c of [this.reticle, this.cook, this.wheel, this.swheel, this.strat, this.charge, this.targeting, this.offscreen, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.chat, this.missionInfo, this.deploy, this.map]) c.dispose();
     for (const c of [this.implantWidget, this.weight, this.detection, this.scanReveal, this.deployables, this.progressToasts, this.actionFx]) c.dispose();
-    for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.housingHint, this.roomLabel]) c.dispose();
+    for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.housingHint, this.roomLabel, this.shipManage, this.shipHint]) c.dispose();
     for (const c of [this.contractPanel, this.metaToasts]) c.dispose();
     for (const m of [this.title, this.pause, this.death, this.complete]) m.dispose();
+    this.settings.dispose();
     this.keybinds.dispose();
     this.hudRoot.remove(); this.socialRoot.remove(); this.overlayRoot.remove(); this.housingRoot.remove();
   }

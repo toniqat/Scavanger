@@ -2,11 +2,23 @@ import * as THREE from 'three';
 import type { GameContext } from '@/shared';
 import { FURNITURE_DEF_MAP, HOUSING_CELL_SIZE, Keys, MouseButtons, ROOM_GRID_COLS, ROOM_GRID_ROWS, furnitureFootprint } from '@/shared';
 import { GHOST_BAD, GHOST_OK, buildFurniture, type FurnitureLayer, type FurnitureModel } from './interiors/Furniture';
-import { ROOM_BOXES, roomCellToWorld, yawToRotation } from './interiors/RoomLayout';
+import { ROOM_BOXES, roomCellToWorld, yawToRotation, type RoomBox } from './interiors/RoomLayout';
 import type { PersonalShip } from './interiors/PersonalShip';
 
 /** Cursor speed: metres of room floor per pixel of pointer-locked mouse movement. */
 const CURSOR_M_PER_PX = 0.012;
+/**
+ * 배치 취소 key (Phase 8). Fixed to `KeyC` by the design brief — the movement keys are off in housing mode, so it
+ * never collides with `Keys.CROUCH`; it is deliberately not a rebindable action.
+ */
+const CANCEL_KEY = 'KeyC';
+/**
+ * UI blocker token held for the whole 함선 관리 session (Phase 8). The mode is driven with a **free** mouse (the
+ * `ui/hud/ShipManage` 방 목록 / 가구 카드 바 are clickable DOM), so the pointer lock is released — and without a
+ * token `ctx.isControlActive()` would stay true and `player/`'s click-to-relock fallback would grab the pointer
+ * back on the first click. Its own token is ignored by this controller (see `blockedByPanel`).
+ */
+const MANAGE_BLOCKER = 'shipmanage';
 /** Camera over the room: how far toward the door from the room centre, and how high. */
 const CAM_TOWARD_DOOR = 2.2;
 const CAM_HEIGHT = 6.6;
@@ -17,6 +29,9 @@ interface Carry { uid: string; defId: string; yaw: Yaw; level: number }
 const _cam = new THREE.Vector3();
 const _look = new THREE.Vector3();
 const _pos = new THREE.Vector3();
+/** 함선 관리 cursor picking (free mouse → deck plane). */
+const _ndc = new THREE.Vector2();
+const _ray = new THREE.Raycaster();
 
 /**
  * 3D side of housing mode (`housing:modeChanged {active:true, room}` → this; the rules live in `ctx.housing`).
@@ -27,12 +42,19 @@ const _pos = new THREE.Vector3();
  *   R   (`Keys.ROTATE_ITEM`)  rotate the selection / the carried piece
  *   X   (`Keys.DROP_ITEM`)    recover the piece under the cursor (→ furniture storage)
  *   wheel / [ ]               cycle the selection through the furniture storage (null = cursor only)
- *   Esc (`Keys.MENU`)         exit housing mode
+ *   C   (`CANCEL_KEY`)        cancel the current selection / put a carried piece back (Phase 8)
+ *   Esc (`Keys.MENU`)         leave 함선 관리 (`closeShipManage`) or plain housing mode
  * Emits `housing:cursorChanged {room, x, y, valid}` whenever the footprint cell or its validity changes.
+ *
+ * **함선 관리 (Phase 8)**: `housing:shipManageChanged {active, room}` enters the same camera / cursor from
+ * anywhere in the ship (no "stand in the room" gate — housing owns that rule) and retargets the camera with the
+ * rig's own blend when `ctx.housing.setManageRoom` moves the edit room.
  */
 export class HousingMode {
   active = false;
   room = -1;
+  /** True while the session was entered through 함선 관리 (M) rather than a room console. */
+  manage = false;
   /** Top-left cell of the current footprint (debug / smoke). */
   readonly cell = { x: -1, y: -1, valid: false };
 
@@ -56,7 +78,12 @@ export class HousingMode {
     this.unsubs.push(
       ctx.bus.on('housing:modeChanged', ({ active, room }) => {
         if (active && room !== null) this.activate(room);
-        else this.deactivate();
+        else { this.manage = false; this.deactivate(); }
+      }),
+      // 함선 관리 (M): same camera, **unlocked** cursor, entered from anywhere; `setManageRoom` re-emits the room.
+      ctx.bus.on('housing:shipManageChanged', ({ active, room }) => {
+        if (active && room !== null) { this.enterManage(); this.activate(room); }
+        else { this.manage = false; this.deactivate(); }
       }),
     );
   }
@@ -71,21 +98,36 @@ export class HousingMode {
   }
 
   /* ── enter / leave ───────────────────────────────────────────────────── */
+  /**
+   * 함선 관리: take the blocker token **before** leaving the pointer lock (the hub's UI etiquette) and stay
+   * unlocked for the whole session so the 방 목록 / 가구 카드 바 can be clicked. Idempotent — `setManageRoom`
+   * re-emits the event on every room change.
+   */
+  private enterManage(): void {
+    this.manage = true;
+    if (this.ctx.uiBlockers.has(MANAGE_BLOCKER)) return;
+    this.ctx.uiBlockers.add(MANAGE_BLOCKER);
+    this.ctx.input.exitPointerLock();
+  }
+
+  /** Enter (or, when already active on another room, retarget to) `room`. The camera blend is the rig's. */
   private activate(room: number): void {
     const ctx = this.ctx;
     const rb = ROOM_BOXES[room];
     if (!this.ship || !rb) { ctx.housing?.exitHousingMode(); return; }
     if (this.active && this.room === room) return;
+    const retarget = this.active;
+    if (this.manage) this.enterManage();      // `housing:modeChanged` may arrive before `housing:shipManageChanged`
     this.active = true;
     this.room = room;
-    this.carry = null;
+    this.carry = null;                       // a carried piece belongs to the room it was picked up in
     this.cell.x = -1; this.cell.y = -1; this.cell.valid = false;
     const p = ctx.player;
     if (p) {
       p.setControlsEnabled(false);
       const cx = (rb.minX + rb.maxX) / 2, cz = (rb.minZ + rb.maxZ) / 2;
       // start the cursor where the player stands (clamped into the room), else at the room centre
-      const inside = p.position.x >= rb.minX && p.position.x <= rb.maxX && p.position.z >= rb.minZ && p.position.z <= rb.maxZ;
+      const inside = !retarget && p.position.x >= rb.minX && p.position.x <= rb.maxX && p.position.z >= rb.minZ && p.position.z <= rb.maxZ;
       this.cursor.set(inside ? p.position.x : cx, 0, inside ? p.position.z : cz);
       _cam.set(cx - rb.side * CAM_TOWARD_DOOR, CAM_HEIGHT, cz);
       _look.set(cx, 0.2, cz);
@@ -97,7 +139,9 @@ export class HousingMode {
 
   private deactivate(): void {
     if (!this.active) return;
+    const wasManage = this.manage;
     this.active = false;
+    this.manage = false;      // exit() reads it before calling us
     this.room = -1;
     this.carry = null;
     this.disposeGhost();
@@ -107,14 +151,31 @@ export class HousingMode {
       p.setCameraOverride(null);
       p.setControlsEnabled(true);
     }
+    if (wasManage) { this.ctx.uiBlockers.delete(MANAGE_BLOCKER); this.relock(); }
   }
 
-  /** Esc / lost pointer lock: ask housing to leave; if it stays silent (stub) leave locally and tell the HUD. */
+  /** Back to the walking hub: re-lock the pointer the way the hub does — only in `hub` with no blocker left. */
+  private relock(): void {
+    queueMicrotask(() => {
+      const ctx = this.ctx;
+      if (this.active || ctx.phase !== 'hub' || ctx.uiBlockers.size > 0) return;
+      ctx.input.requestPointerLock();
+    });
+  }
+
+  /**
+   * Esc / lost pointer lock: ask housing to leave (함선 관리 → `closeShipManage`, room console → `exitHousingMode`);
+   * if it stays silent (stub) leave locally and tell the HUD.
+   */
   exit(): void {
     const housing = this.ctx.housing;
-    if (housing && typeof housing.exitHousingMode === 'function') housing.exitHousingMode();
+    const manage = this.manage;
+    if (manage && housing && typeof housing.closeShipManage === 'function') housing.closeShipManage();
+    else if (housing && typeof housing.exitHousingMode === 'function') housing.exitHousingMode();
     if (this.active && !(housing?.housingMode ?? false)) {
+      this.manage = false;
       this.deactivate();
+      if (manage) this.ctx.bus.emit('housing:shipManageChanged', { active: false, room: null });
       this.ctx.bus.emit('housing:modeChanged', { active: false, room: null });
     }
   }
@@ -125,11 +186,15 @@ export class HousingMode {
     const ctx = this.ctx, input = ctx.input;
     const housing = ctx.housing;
     if (ctx.phase !== 'hub' || !this.ship) { this.exit(); return; }
-    if (ctx.uiBlockers.size > 0) return;        // a DOM panel (console / housing menu) has the input
+    if (this.blockedByPanel()) return;          // a DOM panel (console / housing menu) has the input
 
-    // cursor: pointer-locked deltas → room floor (screen right = world ±Z, screen up = away from the door)
     const rb = ROOM_BOXES[this.room];
-    if (input.mouseDX !== 0 || input.mouseDY !== 0) {
+    if (this.manage) {
+      // 함선 관리: the pointer is free (the room list / furniture bar are clicked), so the floor cursor follows the
+      // real mouse — a camera ray onto the deck plane, clamped into the room.
+      this.raycastCursor(rb);
+    } else if (input.mouseDX !== 0 || input.mouseDY !== 0) {
+      // room console: pointer-locked deltas → room floor (screen right = world ±Z, screen up = away from the door)
       this.cursor.z += input.mouseDX * CURSOR_M_PER_PX * rb.side;
       this.cursor.x -= input.mouseDY * CURSOR_M_PER_PX * rb.side;
       this.cursor.x = THREE.MathUtils.clamp(this.cursor.x, rb.minX, rb.maxX);
@@ -137,20 +202,60 @@ export class HousingMode {
     }
 
     // keys
-    if (input.wasPressed(Keys.MENU)) { this.exit(); return; }
+    // Swallow the Escape: game/ polls it later in the frame and would open the 일시정지 메뉴 the moment we
+    // release the manage-mode blocker on the way out (Phase 8).
+    if (input.wasPressed(Keys.MENU)) { input.consume(Keys.MENU); this.exit(); return; }
+    if (input.wasPressed(CANCEL_KEY)) this.cancelSelection();
     if (input.wasPressed(Keys.ROTATE_ITEM)) {
       if (this.carry) { this.carry.yaw = ((this.carry.yaw + 1) % 4) as Yaw; this.announceSelection(); }
       else housing?.rotateSelection();
     }
+    // a wheel over the furniture bar scrolls that list — it must not cycle the selection as well
+    const overUI = this.pointerOverUI();
     let dir = 0;
-    if (input.wheelDelta > 0 || input.wasPressed('BracketRight')) dir = 1;
-    else if (input.wheelDelta < 0 || input.wasPressed('BracketLeft')) dir = -1;
+    if (!overUI) {
+      if (input.wheelDelta > 0 || input.wasPressed('BracketRight')) dir = 1;
+      else if (input.wheelDelta < 0 || input.wasPressed('BracketLeft')) dir = -1;
+    }
     if (dir !== 0 && !this.carry) this.cycleSelection(dir);
 
     this.refresh(false);
 
     if (input.wasPressed(Keys.DROP_ITEM)) this.recoverUnderCursor();
-    if (input.wasMousePressed(MouseButtons.FIRE)) this.primary();
+    // a click on the 방 목록 / 가구 카드 바 must not also drop a piece on the floor behind the panel
+    if (input.wasMousePressed(MouseButtons.FIRE) && !overUI) this.primary();
+  }
+
+  /** Any UI blocker except our own 함선 관리 token (the panels the hub / housing open own the input). */
+  private blockedByPanel(): boolean {
+    const b = this.ctx.uiBlockers;
+    if (b.size === 0) return false;
+    return !(b.size === 1 && b.has(MANAGE_BLOCKER));
+  }
+
+  /** True while the free mouse is over the HTML UI (`#ui-root`) — only possible in the unlocked 함선 관리 mode. */
+  private pointerOverUI(): boolean {
+    const input = this.ctx.input;
+    if (input.isPointerLocked) return false;
+    try {
+      const e = document.elementFromPoint(input.mouseX, input.mouseY);
+      return !!e?.closest?.('#ui-root');
+    } catch { return false; }
+  }
+
+  /** 함선 관리 cursor: mouse → NDC on the canvas → camera ray → deck plane (y = 0), clamped into the room. */
+  private raycastCursor(rb: RoomBox): void {
+    const ctx = this.ctx;
+    const rect = ctx.canvas.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+    _ndc.set(((ctx.input.mouseX - rect.left) / rect.width) * 2 - 1, -((ctx.input.mouseY - rect.top) / rect.height) * 2 + 1);
+    _ray.setFromCamera(_ndc, ctx.camera);
+    const o = _ray.ray.origin, d = _ray.ray.direction;
+    if (Math.abs(d.y) < 1e-4) return;
+    const t = -o.y / d.y;
+    if (!(t > 0)) return;                    // the deck is behind the camera (mid-blend) — keep the last cursor
+    this.cursor.x = THREE.MathUtils.clamp(o.x + d.x * t, rb.minX, rb.maxX);
+    this.cursor.z = THREE.MathUtils.clamp(o.z + d.z * t, rb.minZ, rb.maxZ);
   }
 
   /** Footprint of what the cursor carries: the housing selection, the picked-up piece, or a single cell. */
@@ -260,6 +365,25 @@ export class HousingMode {
     const housing = this.ctx.housing;
     if (this.carry) this.ctx.bus.emit('housing:selectionChanged', { defId: this.carry.defId, yaw: this.carry.yaw });
     else this.ctx.bus.emit('housing:selectionChanged', { defId: housing?.selectedFurniture ?? null, yaw: (housing?.selectedYaw ?? 0) as Yaw });
+  }
+
+  /**
+   * C: cancel what the cursor holds — a carried piece goes back to where it was picked up (it was never removed
+   * from the housing state), otherwise the furniture selection is cleared. Esc still leaves the mode entirely.
+   */
+  private cancelSelection(): void {
+    if (this.carry) {
+      this.carry = null;
+      this.announceSelection();
+      this.ctx.bus.emit('audio:play', { id: 'ui_click' });
+      this.refresh(true);
+      return;
+    }
+    const housing = this.ctx.housing;
+    if (!housing || typeof housing.selectFurniture !== 'function' || housing.selectedFurniture === null) return;
+    housing.selectFurniture(null);
+    this.ctx.bus.emit('audio:play', { id: 'ui_click' });
+    this.refresh(true);
   }
 
   private recoverUnderCursor(): void {

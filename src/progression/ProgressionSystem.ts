@@ -1,5 +1,5 @@
 import type {
-  DerivedStats, GameContext, GameSystem, PlayerProfile, ProfileRef, ProgressionRef,
+  DerivedStats, EmbeddedView, GameContext, GameSystem, PlayerProfile, ProfileRef, ProgressionRef,
   SkillDef, SkillId, StatDef, StatId, WeaponClass,
 } from '@/shared';
 import {
@@ -13,6 +13,7 @@ import {
 import { computeDerived, DEFAULT_DERIVED, SPECIAL_BACKPACK_CD_MUL, xpForLevel } from './derive';
 import { clearStoredProfile, freshProfile, loadProfile, migrate, saveProfile, zeroStatProgress } from './Profile';
 import { CharacterSheet } from './ui/CharacterSheet';
+import { SheetView } from './ui/SheetView';
 
 /** Seconds between autosaves while the profile is dirty. */
 const AUTOSAVE_INTERVAL = 15;
@@ -51,6 +52,8 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
   private _derived: DerivedStats = DEFAULT_DERIVED;
   private offs: Array<() => void> = [];
   private sheet: CharacterSheet | null = null;
+  /** Embedded 캐릭터 tabs handed out by `createSheetView` (Phase 8) — refreshed alongside the overlay. */
+  private views = new Set<SheetView>();
 
   private dirty = false;
   private saveTimer = 0;
@@ -147,7 +150,7 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
       b.on('equip:changed', () => this.recompute()),
       b.on('loadout:changed', () => this.recompute()),
       /* ── stat points may not be spent mid-raid; refresh the sheet on every phase change ── */
-      b.on('game:phaseChanged', () => this.sheet?.refresh()),
+      b.on('game:phaseChanged', () => this.refreshSheets()),
       b.on('game:newMission', () => { this.hasLastPos = false; this.weightState = 'normal'; }),
       b.on('game:abort', () => { this.hasLastPos = false; this.flush(); }),
       /* ── character sheet ── */
@@ -195,6 +198,8 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     window.removeEventListener('beforeunload', this.onPageHide);
     this.sheet?.dispose();
     this.sheet = null;
+    for (const v of this.views) v.dispose();
+    this.views.clear();
     if (this.ctx?.progression === this) this.ctx.progression = null;
   }
 
@@ -211,7 +216,7 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     this.recompute();
     this.markDirty(true);
     ctx?.bus.emit('progress:statChanged', { id, value: this._profile.stats[id], pointsLeft: this._profile.statPoints });
-    this.sheet?.refresh();
+    this.refreshSheets();
     return true;
   }
 
@@ -252,7 +257,7 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
       this.ctx?.bus.emit('progress:skillUp', { id, level });
       this.lastEmitted[id] = progress;
       this.ctx?.bus.emit('progress:skillProgress', { id, level, progress });
-      this.sheet?.refresh();
+      this.refreshSheets();
       return;
     }
     this.markDirty(false);
@@ -260,7 +265,7 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     if (Math.abs(progress - last) >= PROGRESS_EMIT_STEP) {
       this.lastEmitted[id] = progress;
       this.ctx?.bus.emit('progress:skillProgress', { id, level, progress });
-      this.sheet?.refreshSkill(id);
+      this.refreshSheetSkill(id);
     }
   }
 
@@ -283,7 +288,7 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     }
     if (leveled) this.markDirty(true);
     else this.markDirty(false);
-    this.sheet?.refresh();
+    this.refreshSheets();
   }
 
   /* ── persistence ───────────────────────────────────────────────────────── */
@@ -352,7 +357,7 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     const bus = this.ctx?.bus;
     bus?.emit('progress:statXp', { id, value, progress, delta: amount });
     if (changed) bus?.emit('progress:statChanged', { id, value, pointsLeft: profile.statPoints });
-    this.sheet?.refreshStat(id);
+    this.refreshSheetStat(id);
   }
 
   /**
@@ -389,7 +394,7 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     }
     this.lastEmitted[id] = progress;
     bus?.emit('progress:skillProgress', { id, level, progress });
-    if (level !== prevLevel) this.sheet?.refresh(); else this.sheet?.refreshSkill(id);
+    if (level !== prevLevel) this.refreshSheets(); else this.refreshSheetSkill(id);
   }
 
   /**
@@ -405,6 +410,38 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     } catch {
       return 1;
     }
+  }
+
+  /* ── embedded 캐릭터 tab (Phase 8) ─────────────────────────────────────── */
+  /**
+   * Render the sheet body inside `host` (the inventory Tab screen's 캐릭터 tab). Same renderer as the standalone
+   * overlay (`ui/SheetBody`), but **no** `'stats'` blocker, no pointer-lock handling, no Escape listener and no
+   * `.scr-tabs` pill — the inventory window owns all of those. The handle is refreshed together with the overlay
+   * whenever stats / skills / derived change, and drops out of the set on `dispose()`.
+   */
+  createSheetView(host: HTMLElement): EmbeddedView {
+    const view = new SheetView(this.ctx, this, host);
+    this.views.add(view);
+    return {
+      refresh: () => view.refresh(),
+      dispose: () => { this.views.delete(view); view.dispose(); },
+    };
+  }
+
+  /** Full repaint of the overlay and every embedded 캐릭터 tab. */
+  private refreshSheets(): void {
+    this.sheet?.refresh();
+    for (const v of this.views) v.refresh();
+  }
+
+  private refreshSheetSkill(id: SkillId): void {
+    this.sheet?.refreshSkill(id);
+    for (const v of this.views) v.refreshSkill(id);
+  }
+
+  private refreshSheetStat(id: StatId): void {
+    this.sheet?.refreshStat(id);
+    for (const v of this.views) v.refreshStat(id);
   }
 
   /* ── server profile (Phase 7) ─────────────────────────────────────────── */
@@ -447,7 +484,7 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
       this.lastEmitted[id] = progress;
       bus.emit('progress:skillProgress', { id, level: this.getSkill(id), progress });
     }
-    this.sheet?.refresh();
+    this.refreshSheets();
   }
 
   /** Queue the profile into the server store (`profile:set progression`); no-op offline. */
@@ -466,14 +503,14 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     this.markDirty(true);
     this.flush();
     this.ctx?.bus.emit('progress:loaded', { profile: this._profile });
-    this.sheet?.refresh();
+    this.refreshSheets();
   }
 
   /* ── internals ─────────────────────────────────────────────────────────── */
   /** Recompute `derived`; folds in the 특수 가방 perk (implant cooldown −50 %). */
   private recompute(): void {
     this._derived = computeDerived(this._profile, this.hasSpecialBackpack());
-    this.sheet?.refresh();
+    this.refreshSheets();
   }
 
   /**

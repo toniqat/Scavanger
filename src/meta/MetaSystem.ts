@@ -1,6 +1,6 @@
 import type {
-  ConsoleCommand, ContractDef, ContractGoalKind, ContractInfo, ContractSettlement, CorpId, CreditsTxResult, GameContext, GameSystem,
-  ItemInstance, MetaRef, MissionStats, ProfileRef, QuestInfo, QuestState, RepInfo, ShopItem,
+  ConsoleCommand, ContractDef, ContractGoalKind, ContractInfo, ContractSettlement, CorpId, CreditsTxResult, EmbeddedView,
+  GameContext, GameSystem, ItemInstance, MetaRef, MissionStats, ProfileRef, QuestInfo, QuestState, RepInfo, ShopItem,
 } from '@/shared';
 import {
   CONTRACT_DEFS, CONTRACT_GOAL_LABEL_KO, CORP_DEFS, CORP_IDS, CREDITS_MAX, QUEST_DEFS, repLevelOf, sellPriceOf,
@@ -11,6 +11,7 @@ import {
   settleContract,
 } from './Rules';
 import { CorpMenu } from './ui/CorpMenu';
+import { CorpView } from './ui/CorpView';
 import './meta.css';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -37,13 +38,19 @@ export class MetaSystem implements GameSystem, MetaRef {
   private ctx!: GameContext;
   private store!: MetaStorage;
   private menu: CorpMenu | null = null;
+  /** Embedded 기업 tabs handed out by `createCorpView` (their message timers tick with the system). */
+  private readonly views = new Set<CorpView>();
   private unsubs: Array<() => void> = [];
   private unsubNet: (() => void) | null = null;
   private consoleRegistered = false;
   /** Last refused purchase (sync or async) — the corp screen reads it for its message line. */
   lastPurchaseFailure: PurchaseFailure | null = null;
-  /** Called after an async purchase failed (server refusal / placement); the corp screen shows the reason. */
+  /**
+   * Called after an async purchase failed (server refusal / placement). Legacy single slot — every corp view now
+   * subscribes through `onPurchaseFailure()` instead, so the standalone screen and an embedded 기업 tab can coexist.
+   */
   onPurchaseFailed: ((f: PurchaseFailure) => void) | null = null;
+  private readonly purchaseFailListeners = new Set<(f: PurchaseFailure) => void>();
   /** Server transactions still in flight (purchase buttons stay enabled; the optimistic balance already covers them). */
   private pendingTx = 0;
   /** Progress the active contract had when the current mission started (death rule). */
@@ -98,6 +105,7 @@ export class MetaSystem implements GameSystem, MetaRef {
     if (!this.consoleRegistered && ctx.console?.enabled) { this.consoleRegistered = true; this.registerConsole(); }
     if (!this.unsubNet) this.subscribeNet();
     this.menu?.update();
+    for (const v of this.views) v.update();
   }
 
   dispose(): void {
@@ -105,6 +113,9 @@ export class MetaSystem implements GameSystem, MetaRef {
     this.unsubs = [];
     this.unsubNet?.(); this.unsubNet = null;
     this.menu?.dispose(); this.menu = null;
+    for (const v of [...this.views]) v.dispose();
+    this.views.clear();
+    this.purchaseFailListeners.clear();
     this.store.dispose();
     if (this.ctx?.meta === this) this.ctx.meta = null;
   }
@@ -244,7 +255,8 @@ export class MetaSystem implements GameSystem, MetaRef {
     if (typeof inv.findItemAnywhere === 'function') { const i = inv.findItemAnywhere(uid); if (i) return i; }
     return inv.findItem(uid) ?? null;
   }
-  private countAll(defId: string): number {
+  /** Bag + stash units of a def (corp views render 보유/필요 chips from it). */
+  countAll(defId: string): number {
     const inv = this.ctx.inventory;
     if (!inv) return 0;
     if (typeof inv.countDefAll === 'function') return inv.countDefAll(defId);
@@ -397,6 +409,13 @@ export class MetaSystem implements GameSystem, MetaRef {
   private failPurchase(f: PurchaseFailure): void {
     this.lastPurchaseFailure = f;
     try { this.onPurchaseFailed?.(f); } catch { /* ui */ }
+    for (const fn of [...this.purchaseFailListeners]) { try { fn(f); } catch { /* ui */ } }
+  }
+
+  /** Subscribe to async purchase refusals (folder-internal; the standalone screen and every embedded 기업 tab use it). */
+  onPurchaseFailure(fn: (f: PurchaseFailure) => void): () => void {
+    this.purchaseFailListeners.add(fn);
+    return () => { this.purchaseFailListeners.delete(fn); };
   }
 
   sellPriceOf(uid: string, qty?: number): number | null {
@@ -609,6 +628,21 @@ export class MetaSystem implements GameSystem, MetaRef {
   }
   closeCorpMenu(): void { this.menu?.close(); }
   get isMenuOpen(): boolean { return this.menu?.isOpen ?? false; }
+
+  /**
+   * Phase 8: the 기업 tab of the inventory Tab screen. Builds the same body as the standalone screen (`ui/CorpView.ts`)
+   * inside the caller's host — **no `'corp'` blocker, no `exitPointerLock`, no window Escape listener**; the inventory
+   * window already owns all three. `dispose()` removes only what the view added.
+   */
+  createCorpView(host: HTMLElement): EmbeddedView {
+    const view = new CorpView(this.ctx, this, host, { embedded: true });
+    this.views.add(view);
+    view.refresh();
+    return {
+      refresh: () => view.refresh(),
+      dispose: () => { this.views.delete(view); view.dispose(); },
+    };
+  }
 
   /* ── MetaRef: persistence ───────────────────────────────────────────────── */
   save(): void { this.store.flush(); }

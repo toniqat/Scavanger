@@ -183,7 +183,8 @@ try {
   });
   ok(hubScreen.hub && hubScreen.stash, 'hub Tab shows the ship screen with the stash');
   ok(hubScreen.stashCells === 240, `stash grid is 10×24 (${hubScreen.stashCells} cells)`);
-  ok(hubScreen.tabs === '인벤토리* 캐릭터 기업', `screen tabs: ${hubScreen.tabs}` + ' (기업 active since Phase 5)');
+  // Phase 8: 함선 joined the strip (시설 업그레이드 inside the Tab screen)
+  ok(hubScreen.tabs === '인벤토리* 캐릭터 기업 함선', `screen tabs: ${hubScreen.tabs}` + ' (함선 added in Phase 8)');
   ok(hubScreen.implantSlot, 'implant slot under the gear');
   ok(hubScreen.equipMid, 'layout: stash | equipment | bag');
   ok(hubScreen.quickRight, 'quick-use rose sits right of the bag grid (≥ 1600 px)');
@@ -206,7 +207,7 @@ try {
 
   // implant picker: open, pick overcharge, toggle it off, pick dash
   await click('.inv-implant-body');
-  ok(await page.evaluate(() => !document.querySelector('.inv-implant-picker').hidden && document.querySelectorAll('.inv-implant-picker .inv-implant-card').length === 6), 'implant picker lists the six implants');
+  ok(await page.evaluate(() => !document.querySelector('.inv-modeless-implant').hidden && document.querySelectorAll('.inv-implant-picker .inv-implant-card').length === 6), 'implant picker lists the six implants (modeless frame)');
   await shot('04-implant-picker');
   await page.evaluate(() => document.querySelector('.inv-implant-picker .inv-implant-card[data-id="overcharge"]').click());
   ok(await page.evaluate(() => window.__game.ctx.implants.equipped === 'overcharge'), 'clicking a card equips it');
@@ -214,7 +215,7 @@ try {
   await page.evaluate(() => document.querySelector('.inv-implant-picker .inv-implant-card[data-id="overcharge"]').click());
   ok(await page.evaluate(() => window.__game.ctx.implants.equipped === null), 'clicking the equipped card unequips it');
   await page.evaluate(() => document.querySelector('.inv-implant-picker .inv-implant-card[data-id="atlauncher"]').click());
-  ok(await page.evaluate(() => window.__game.ctx.implants.equipped === 'atlauncher' && document.querySelector('.inv-implant-picker').hidden), 'picked 대전차포, picker closed');
+  ok(await page.evaluate(() => window.__game.ctx.implants.equipped === 'atlauncher' && document.querySelector('.inv-modeless-implant').hidden), 'picked 대전차포, picker closed');
 
   // right-click repair on a worn equipped weapon
   const repairPrep = await page.evaluate(() => {
@@ -237,14 +238,18 @@ try {
   const repaired = await page.evaluate((uid) => window.__game.ctx.inventory.getDurability(uid), repairPrep.uid);
   ok(repaired.durability === repaired.max, `repaired to ${repaired.durability}/${repaired.max}`);
 
-  // screen tabs: 캐릭터 opens the sheet, its 인벤토리 tab comes back
+  // screen tabs (Phase 8): 캐릭터 / 기업 / 함선 render INSIDE the Tab screen, the window never closes
   await page.evaluate(() => [...document.querySelectorAll('.inv-root .scr-tab')].find((b) => b.textContent === '캐릭터').click());
-  await waitFor(page, () => !document.querySelector('.menu.char-sheet').hidden && !window.__game.ctx.inventory.isOpen, 'character sheet via tab');
-  ok(true, '캐릭터 tab opens the character sheet and closes the inventory');
+  await waitFor(page, () => !!document.querySelector('.inv-root .inv-screen .cs-embed') && !document.querySelector('.inv-root .inv-screen').hidden && window.__game.ctx.inventory.isOpen, 'character view embedded in the Tab screen');
+  ok(true, '캐릭터 tab renders inside the Tab screen without closing it');
+  ok(await page.evaluate(() => document.querySelector('.menu.char-sheet')?.hidden !== false), 'the standalone character overlay stays closed');
   await shot('06-character-tabs');
-  await page.evaluate(() => [...document.querySelectorAll('.char-sheet .scr-tab')].find((b) => b.textContent === '인벤토리').click());
-  await waitFor(page, () => document.querySelector('.menu.char-sheet').hidden && window.__game.ctx.inventory.isOpen, 'back to inventory via tab');
-  ok(true, 'sheet 인벤토리 tab returns to the ship screen');
+  await page.evaluate(() => [...document.querySelectorAll('.inv-root .scr-tab')].find((b) => b.textContent === '함선').click());
+  await waitFor(page, () => !!document.querySelector('.inv-root .inv-screen'), '함선 view embedded in the Tab screen');
+  ok(true, '함선 tab renders the ship facilities inside the Tab screen');
+  await page.evaluate(() => [...document.querySelectorAll('.inv-root .scr-tab')].find((b) => b.textContent === '인벤토리').click());
+  await waitFor(page, () => document.querySelector('.inv-root .inv-screen').hidden && !document.querySelector('.inv-root .inv-layout').hidden && window.__game.ctx.inventory.isOpen, 'back to the bag view');
+  ok(true, '인벤토리 tab returns to the bag / stash view');
   await keyDown('Escape'); await keyUp('Escape');
   await waitFor(page, () => !window.__game.ctx.inventory.isOpen, 'inventory closed');
 
@@ -262,7 +267,8 @@ try {
   await page.evaluate(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
   await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub phase (2)');
   await waitSim(0.3);
-  await tap('Escape');
+  // Phase 8: Escape in the ship opens the PAUSE menu now, so the terminal is opened through its interactable.
+  await page.evaluate(() => window.__game.ctx.interactables.all().find((i) => i.id === 'hub_terminal').interact());
   await waitFor(page, () => !document.querySelector('.menu.hub-menu').hidden, 'terminal open');
   const term = await page.evaluate(() => {
     const f = document.querySelector('.menu.hub-menu .frame');

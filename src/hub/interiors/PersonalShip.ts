@@ -1,21 +1,30 @@
 import * as THREE from 'three';
 import type { HubShipKind } from '@/shared';
-import { HOUSING_CELL_SIZE, ROOM_GRID_COLS, ROOM_GRID_ROWS } from '@/shared';
+import {
+  HOUSING_CELL_SIZE, ROOM_GRID_COLS, ROOM_GRID_ROWS, ROOM_LIGHT_DISTANCE, ROOM_LIGHT_INTENSITY, ROOM_LIGHT_POOL,
+  ROOM_STRIP_DIM, ROOM_STRIP_LIT, SHIP_ROOM_COUNT,
+} from '@/shared';
 import { GeoBatch, HUB_MATS as M, disposeMeshes, yawFromForward } from './GeoBatch';
 import { BoxInteriorCollider } from './InteriorCollider';
+import { ShipDoors } from './Doors';
 import { Parts, fixture } from './parts';
 import { Starfield, Planet } from './Starfield';
-import { hydroponics, implantBay, shipComputer, type ShipStations, type StationDef } from './stations';
+import { implantBay, shipComputer, type ShipStations, type StationDef } from './stations';
 import { TextPlane } from '../Labels';
 import { AIRLOCK, CEIL, COCKPIT, CORRIDOR, DOOR_HEIGHT, DOOR_WIDTH, ROOM_BOXES, ROOMS_PER_SIDE, SEGMENT, WALL, type RoomBox } from './RoomLayout';
-import type { PodSlotDef, RoomDef, ShipInterior, TerminalDef, WorkbenchDef } from './types';
+import type { PodSlotDef, RoomDef, ShipInterior, TerminalDef } from './types';
 
 /**
  * Personal ship (함선 꾸미기, 2026-09-06): cockpit (−Z) → 3 m corridor running +Z → ten 4 × 4 m housing rooms
  * (five per side, doors on the corridor) → airlock. Every coordinate lives in `RoomLayout.ts`.
- * Static geometry is merged per material (`GeoBatch`); rooms are lit by emissive strips only and the point-light
- * count is constant (**10**: cockpit 4, corridor 5, airlock 1). Furniture is rendered by `Furniture.ts` into
- * `RoomDef.furnitureGroup`.
+ * Static geometry is merged per material (`GeoBatch`); the point-light count is constant
+ * (**13**: cockpit 4, corridor 5, airlock 1 + the `ROOM_LIGHT_POOL` room lights, which are re-anchored and
+ * ramped, never toggled). Furniture is rendered by `Furniture.ts` into `RoomDef.furnitureGroup`.
+ *
+ * Phase 8 (2026-09-06): the terminal moved to the **cockpit centre** (between the pilot seats, facing the
+ * corridor), the built-in workbench and the hydroponics rack are gone (정비 벤치 / 재배층 are placeable furniture
+ * now), every doorway carries a sliding `ShipDoors` door and each room owns its emissive strip materials so an
+ * empty room reads dark (`ROOM_STRIP_DIM`) and an assigned one lit (`ROOM_STRIP_LIT`).
  */
 export class PersonalShip implements ShipInterior {
   readonly kind: HubShipKind = 'personal';
@@ -27,11 +36,12 @@ export class PersonalShip implements ShipInterior {
   readonly airlockYaw = 0;
   readonly pods: PodSlotDef[] = [];
   readonly terminal: TerminalDef;
-  readonly workbench: WorkbenchDef;
   readonly computer: StationDef;
   readonly stations: ShipStations;
   readonly rooms: RoomDef[] = [];
   readonly facility: StationDef;
+  /** 자동문: room doorways + the cockpit arch (own meshes, never merged, no collider). */
+  readonly doors = new ShipDoors(this.root);
 
   private meshes: THREE.Mesh[] = [];
   private lights: THREE.PointLight[] = [];
@@ -40,6 +50,12 @@ export class PersonalShip implements ShipInterior {
   private screens: TextPlane[] = [];
   private beacon: THREE.Mesh;
   private beaconMat: THREE.MeshBasicMaterial;
+  /** Per-room emissive strip materials (own instances so one room can be dimmed without touching the others). */
+  private stripMats: THREE.MeshStandardMaterial[][] = [];
+  private roomLit: boolean[] = new Array(SHIP_ROOM_COUNT).fill(false);
+  /** Constant pool of room point lights + the room each one currently sits in (−1 = parked, intensity 0). */
+  private roomLights: THREE.PointLight[] = [];
+  private roomLightRoom: number[] = [];
 
   constructor() {
     const r = this.root;
@@ -95,33 +111,29 @@ export class PersonalShip implements ShipInterior {
       this.screens.push(tp);
     }
 
-    // −X wall (front → back): implant bay, terminal, bunk
-    const faceX = yawFromForward(1, 0);
-    const implantDef = implantBay(b, col, C.minX + 0.95, -4.9, faceX);
-    const tx = C.minX + 0.75, tz = -3.0;
-    const c = P.consolePedestal(tx, tz, faceX);
+    // ship terminal on the centre line between the pilot seats, screen facing +Z (read walking in from the corridor)
+    const faceZ = yawFromForward(0, 1);
+    const tx = 0, tz = C.minZ + 1.45;
+    const c = P.consolePedestal(tx, tz, faceZ);
     const screen = new TextPlane(0.92, 0.6, 512, false);
     screen.mesh.position.copy(c.screenPos);
     screen.mesh.rotation.copy(c.screenRot);
     r.add(screen.mesh);
-    this.terminal = { position: new THREE.Vector3(tx + 0.9, 0, tz), yaw: faceX, screen };
-    P.signStrip(C.minX + WALL / 2 + 0.03, 2.3, tz, 1.2, M.stripCyan, Math.PI / 2);
+    this.terminal = { position: new THREE.Vector3(tx, 0, tz + 1.0), yaw: yawFromForward(0, -1), screen };
+    P.signStrip(tx, CEIL - 0.07, tz, 1.4, M.stripCyan, 0);      // ceiling bar over the terminal
+
+    // −X wall (front → back): implant bay, bunk
+    const faceX = yawFromForward(1, 0);
+    const implantDef = implantBay(b, col, C.minX + 0.95, -4.9, faceX);
     b.boxB(1.0, 0.5, 2.1, C.minX + 0.55, 0, -1.2, M.hullDark);
     b.box(0.94, 0.14, 2.0, C.minX + 0.55, 0.57, -1.2, M.fabric);
     b.box(0.5, 0.1, 0.4, C.minX + 0.55, 0.7, -2.05, M.padding);
     col.addBox(C.minX + 0.55, 0, -1.2, 1.0, 0.7, 2.1);
 
-    // +X wall (front → back): weapon workbench, ship computer, launch pod
+    // +X wall (front → back): storage lockers (the workbench moved to the 작업실), ship computer, launch pod
     const faceNegX = yawFromForward(-1, 0);
-    const wb = P.workbench(C.maxX - 0.55, -4.9, faceNegX);
-    this.workbench = { position: wb.position, yaw: wb.yaw };
-    const wbSign = new TextPlane(0.9, 0.3, 256);
-    wbSign.mesh.position.copy(wb.signPos);
-    wbSign.mesh.rotation.copy(wb.signRot);
-    wbSign.set(['정비'], '#9be8ff', 'rgba(6,8,10,0.85)');
-    r.add(wbSign.mesh);
-    this.screens.push(wbSign);
-    // 함선 컴퓨터 (기업 네트워크): desk between the workbench and the pod socket, monitors facing −X
+    P.lockers(C.maxX - 0.27, -4.7, 2, faceNegX);
+    // 함선 컴퓨터 (기업 네트워크): desk between the lockers and the pod socket, monitors facing −X
     const cp = shipComputer(b, col, C.maxX - 0.35, -3.1, faceNegX);
     const cScreen = new TextPlane(0.56, 0.34, 256, false);
     cScreen.mesh.position.copy(cp.screenPos);
@@ -143,8 +155,8 @@ export class PersonalShip implements ShipInterior {
     this.pods.push({ slot: 0, position: new THREE.Vector3(px, 0, pz), yaw: faceNegX, door: new THREE.Vector3(-1, 0, 0), doorBlocker });
     P.signStrip(C.maxX - WALL / 2 - 0.03, 2.6, pz, 1.6, M.stripAmber, Math.PI / 2);
 
-    // +Z wall: hydroponics + stash cabinet left of the arch, facility console right of it
-    const gardenDef = hydroponics(b, col, -3.6, C.maxZ - 0.38, 0);
+    // +Z wall: lockers + stash cabinet left of the arch, facility console right of it (재배 moved to the 온실)
+    P.lockers(-3.9, C.maxZ - 0.3, 2, 0);
     this.stashCabinet(b, col, -2.0, C.maxZ - 0.3);
     const fc = P.consolePedestal(2.3, C.maxZ - 0.35, 0);
     const fScreen = new TextPlane(0.92, 0.6, 512, false);
@@ -155,7 +167,9 @@ export class PersonalShip implements ShipInterior {
     this.screens.push(fScreen);
     this.facility = { position: new THREE.Vector3(2.3, 0, C.maxZ - 1.25), yaw: yawFromForward(0, 1) };
     P.signStrip(2.3, 2.3, C.maxZ - WALL / 2 - 0.03, 1.2, M.stripAmber, 0);
-    this.stations = { garden: gardenDef, implantBay: implantDef, bench: { position: wb.position, yaw: wb.yaw } };
+    this.stations = { implantBay: implantDef };
+    // 자동문 on the cockpit arch (x −1.5 … 1.5, the wall slab at z 0 … 0.3)
+    this.doors.add(0, C.maxZ + WALL / 2, CORRIDOR.maxX - CORRIDOR.minX, 2.55, 0.12, 'x');
 
     /* ── corridor ── */
     P.deck(CORRIDOR, false);
@@ -212,6 +226,14 @@ export class PersonalShip implements ShipInterior {
     fixture(r, px - 1.2, 2.4, pz, 0xffb347, 12, 6, this.lights);
     for (let k = 0; k < ROOMS_PER_SIDE; k++) fixture(r, 0, CEIL - 0.25, CORRIDOR.minZ + k * SEGMENT + SEGMENT / 2, 0xeef2ff, 14, 8, this.lights);
     fixture(r, 0, 2.7, 26.3, 0xff6a4a, 8, 5, this.lights);
+    // room-light pool (constant count, never toggled): parked at intensity 0 until `updateNear` anchors them
+    for (let k = 0; k < ROOM_LIGHT_POOL; k++) {
+      const before = this.lights.length;
+      fixture(r, 0, CEIL - 0.6, CORRIDOR.minZ + SEGMENT, 0xfff0d8, 0, ROOM_LIGHT_DISTANCE, this.lights);
+      const l = this.lights[before];
+      this.roomLights.push(l);
+      this.roomLightRoom.push(-1);
+    }
 
     // space outside
     this.stars = new Starfield(320, 1800, 11);
@@ -256,11 +278,18 @@ export class PersonalShip implements ShipInterior {
     b.box(0.1, DOOR_HEIGHT, 0.1, fx, DOOR_HEIGHT / 2, doorHi + 0.05, M.trim);
     b.box(0.1, 0.1, DOOR_WIDTH + 0.2, fx, DOOR_HEIGHT + 0.05, rb.doorZ, M.trim);
     // emissive strips: white bands high on both side walls (nothing hangs under the ceiling, so the housing-mode
-    // camera above the room sees the whole floor), a cyan band on the outer wall, amber threshold
-    for (const zz of [rb.minZ + 0.03, rb.maxZ - 0.03]) b.box(ROOM_GRID_COLS * HOUSING_CELL_SIZE * 0.7, 0.08, 0.04, cx, CEIL - 0.35, zz, M.stripWhite);
+    // camera above the room sees the whole floor), a cyan band on the outer wall, amber threshold.
+    // Each room owns **its own material instances** so `setRoomLit` can dim an empty room (ROOM_STRIP_DIM) without
+    // touching the rest of the ship; GeoBatch groups by material, so a room costs 3 extra merged meshes.
+    const white = M.stripWhite.clone(), cyan = M.stripCyan.clone(), amber = M.stripAmber.clone();
+    for (const m of [white, cyan, amber]) m.emissiveIntensity = ROOM_STRIP_DIM;
+    this.stripMats[rb.index] = [white, cyan, amber];
+    for (const zz of [rb.minZ + 0.03, rb.maxZ - 0.03]) b.box(ROOM_GRID_COLS * HOUSING_CELL_SIZE * 0.7, 0.08, 0.04, cx, CEIL - 0.35, zz, white);
     const outerX = side < 0 ? rb.minX + 0.03 : rb.maxX - 0.03;
-    b.box(0.04, 0.08, 3.0, outerX, 2.4, cz, M.stripCyan);
-    b.box(0.06, 0.02, DOOR_WIDTH - 0.2, face + (side < 0 ? -0.45 : 0.45), 0.012, rb.doorZ, M.stripAmber);
+    b.box(0.04, 0.08, 3.0, outerX, 2.4, cz, cyan);
+    b.box(0.06, 0.02, DOOR_WIDTH - 0.2, face + (side < 0 ? -0.45 : 0.45), 0.012, rb.doorZ, amber);
+    // 자동문 in the doorway (inside the wall slab between the room and the corridor face)
+    this.doors.add(face + (side < 0 ? -WALL / 2 : WALL / 2), rb.doorZ, DOOR_WIDTH, DOOR_HEIGHT - 0.05, 0.1, 'z');
     // sign above the door (corridor side) — second line = purpose, rewritten by the hub
     const sign = new TextPlane(1.3, 0.5, 384);
     sign.mesh.position.set(fx, DOOR_HEIGHT + 0.42, rb.doorZ);
@@ -288,6 +317,58 @@ export class PersonalShip implements ShipInterior {
     if (def) def.sign.set([`방 ${room + 1}`, purposeLabel], accent, 'rgba(6,8,10,0.85)', '#9fb4c8');
   }
 
+  /**
+   * 방 조명 (Phase 8): a room with a purpose lights its own emissive wall strips (`ROOM_STRIP_LIT`) and becomes a
+   * candidate for the point-light pool; an empty one stays at `ROOM_STRIP_DIM` and gets no light.
+   */
+  setRoomLit(room: number, lit: boolean): void {
+    const mats = this.stripMats[room];
+    if (!mats) return;
+    this.roomLit[room] = lit;
+    const v = lit ? ROOM_STRIP_LIT : ROOM_STRIP_DIM;
+    for (const m of mats) m.emissiveIntensity = v;
+  }
+
+  /** Lit rooms (debug / smoke). */
+  isRoomLit(room: number): boolean { return this.roomLit[room] === true; }
+  /** Room each pool light currently sits in (debug / smoke). */
+  get roomLightRooms(): readonly number[] { return this.roomLightRoom; }
+
+  /**
+   * Player-proximity animation: sliding doors + the room-light pool. The light **count never changes** and no
+   * light is ever toggled — a light that must move to another room first ramps its intensity to 0, is repositioned,
+   * then ramps back up (`ROOM_LIGHT_INTENSITY`).
+   */
+  updateNear(dt: number, px: number, pz: number): void {
+    this.doors.update(dt, px, pz);
+    const pool = this.roomLights;
+    if (pool.length === 0) return;
+    // the nearest lit rooms deserve the pool
+    const cand: Array<{ i: number; d: number }> = [];
+    for (const rb of ROOM_BOXES) {
+      if (!this.roomLit[rb.index]) continue;
+      const cx = (rb.minX + rb.maxX) / 2, cz = (rb.minZ + rb.maxZ) / 2;
+      cand.push({ i: rb.index, d: (cx - px) * (cx - px) + (cz - pz) * (cz - pz) });
+    }
+    cand.sort((a, b) => a.d - b.d);
+    const want = cand.slice(0, pool.length).map((q) => q.i);
+    const free = want.filter((i) => !this.roomLightRoom.includes(i));
+    const rate = ROOM_LIGHT_INTENSITY * 2.5 * dt;
+    for (let k = 0; k < pool.length; k++) {
+      const l = pool[k];
+      let target = 0;
+      if (want.includes(this.roomLightRoom[k])) target = ROOM_LIGHT_INTENSITY;
+      else if (l.intensity <= 0.02 && free.length > 0) {
+        const next = free.shift() as number;
+        const rb = ROOM_BOXES[next];
+        this.roomLightRoom[k] = next;
+        l.position.set((rb.minX + rb.maxX) / 2, CEIL - 0.6, (rb.minZ + rb.maxZ) / 2);
+        target = ROOM_LIGHT_INTENSITY;
+      } else if (l.intensity <= 0.02) this.roomLightRoom[k] = -1;
+      l.intensity = target > l.intensity ? Math.min(target, l.intensity + rate) : Math.max(target, l.intensity - rate);
+    }
+  }
+
   update(dt: number, time: number): void {
     this.stars.update(dt);
     this.planet.update(dt);
@@ -295,9 +376,13 @@ export class PersonalShip implements ShipInterior {
   }
 
   dispose(): void {
+    this.doors.dispose();
     disposeMeshes(this.meshes);
     for (const l of this.lights) l.removeFromParent();
     this.lights.length = 0;
+    this.roomLights.length = 0;
+    for (const mats of this.stripMats) for (const m of mats ?? []) m.dispose();     // per-room clones, not shared
+    this.stripMats.length = 0;
     for (const s of this.screens) s.dispose();
     this.terminal.screen.dispose();
     for (const rd of this.rooms) rd.furnitureGroup.removeFromParent();

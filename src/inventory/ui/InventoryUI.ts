@@ -1,11 +1,13 @@
 import './../inventory.css';
-import type { GameContext, ImplantDef, ImplantId, ItemDef, ItemInstance } from '@/shared';
-import { Keys, QUICK_SLOTS, QUICK_SLOT_LABEL_KO, isQuickSlotActive, keyLabel } from '@/shared';
+import type { EmbeddedView, GameContext, ImplantDef, ImplantId, ItemDef, ItemInstance } from '@/shared';
+import { Keys, QUICK_SLOTS, QUICK_SLOT_LABEL_KO, isQuickSlotActive, keyLabel, renderItemCost } from '@/shared';
 import { ITEM_DEF_MAP, getWeaponDef } from '@/items';
 import type { Container } from '../Container';
 import { LOADOUT_SLOTS, isArmorDef, isAttachmentDef, isBagDef, isWeaponDef, type DropTarget, type GridId, type InventorySystem, type ItemLocation, type SlotId } from '../InventorySystem';
 import { CraftPanel } from './CraftPanel';
 import { CatalogView } from './CatalogView';
+import { Modeless } from './Modeless';
+import { DisassemblePanel } from './DisassemblePanel';
 import { filledSocketCount } from '../Sockets';
 import { isQuickUsable } from '../QuickSlots';
 import { GridView, buildTileContent, type HighlightState } from './GridView';
@@ -21,12 +23,21 @@ const CATALOG_DBL_MS = 400;
 const BAG_LOC: ItemLocation = { kind: 'grid', grid: 'bag' };
 const LOCK_SVG = '<svg viewBox="0 0 12 14" aria-hidden="true"><rect x="1.5" y="6" width="9" height="7" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M3.5 6V4a2.5 2.5 0 0 1 5 0v2" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>';
 
-/** Screen tabs above the window (Arc Raiders style). 기업 (Phase 5) hands over to the corp screen (`ctx.meta`). */
-type ScreenTab = 'inventory' | 'character' | 'corp';
+/**
+ * Screen tabs above the window (Arc Raiders style), hub mode only.
+ *
+ * **Phase 8**: the tabs no longer close the window and open a separate full-screen popup. Selecting one swaps the
+ * `.inv-layout` content for a `.inv-screen` host and builds the owning folder's **embedded view** into it —
+ * `ctx.progression.createSheetView` / `ctx.meta.createCorpView` / `ctx.housing.createShipView`, each an
+ * `EmbeddedView` we `refresh()` on show and `dispose()` on leave. The window keeps its single `inventory` blocker
+ * and its blurred `.inv-root` backdrop is the 배경 블러 the design asks for.
+ */
+type ScreenTab = 'inventory' | 'character' | 'corp' | 'ship';
 const SCREEN_TABS: readonly { id: ScreenTab; label: string; title?: string }[] = [
   { id: 'inventory', label: TEXT.tabs.inventory },
-  { id: 'character', label: TEXT.tabs.character },
+  { id: 'character', label: TEXT.tabs.character, title: TEXT.tabs.characterHint },
   { id: 'corp', label: TEXT.tabs.corp, title: TEXT.tabs.corpHint },
+  { id: 'ship', label: TEXT.tabs.ship, title: TEXT.tabs.shipHint },
 ];
 
 interface DragState {
@@ -85,6 +96,17 @@ export class InventoryUI {
   private root: HTMLElement | null = null;
   private layout!: HTMLElement;
   private tabsEl!: HTMLElement;
+  /** Phase 8: tab buttons by id, and the host the embedded 캐릭터 / 기업 / 함선 views are built into. */
+  private tabButtons = new Map<ScreenTab, HTMLButtonElement>();
+  private screenHost!: HTMLElement;
+  private screenNote!: HTMLElement;
+  private activeTab: ScreenTab = 'inventory';
+  private screenView: EmbeddedView | null = null;
+  /** Layer that holds the modeless popups (임플란트 picker / 제작 / 분해) above `.inv-layout`. */
+  private modelessLayer!: HTMLElement;
+  private craftModeless!: Modeless;
+  private implantModeless!: Modeless;
+  private disassemble!: DisassemblePanel;
   private creditsEl!: HTMLElement;
   private creditsValue!: HTMLElement;
   private containerPanel!: HTMLElement;
@@ -154,6 +176,7 @@ export class InventoryUI {
     /* screen tabs */
     this.tabsEl = document.createElement('nav');
     this.tabsEl.className = 'scr-tabs';
+    this.tabsEl.hidden = true; // hub mode only — never over a mission crate window (Phase 8 fix)
     for (const t of SCREEN_TABS) {
       const b = document.createElement('button');
       b.type = 'button';
@@ -162,6 +185,7 @@ export class InventoryUI {
       if (t.title) b.title = t.title;
       b.addEventListener('click', () => this.onTab(t.id));
       this.tabsEl.appendChild(b);
+      this.tabButtons.set(t.id, b);
     }
     /* credits readout (Phase 5, ship screen only) */
     this.creditsEl = document.createElement('div');
@@ -294,7 +318,7 @@ export class InventoryUI {
     wTrack.appendChild(this.weightFill);
     this.weightEl.append(wRow, wTrack);
     bPanel.append(bHead, bBody, this.weightEl, bFoot);
-    this.craftPanel = new CraftPanel(this.sys, getDef);
+    this.craftPanel = new CraftPanel(this.sys, getDef, () => this.closeCraft());
 
     /* equipment column */
     const eq = document.createElement('aside');
@@ -320,7 +344,27 @@ export class InventoryUI {
       onClose: () => { this.sys.sfx('ui_drop'); this.sys.closeCatalog(); },
     });
 
-    layout.append(this.catalogView.el, sPanel, cPanel, eq, bPanel, this.craftPanel.el);
+    layout.append(this.catalogView.el, sPanel, cPanel, eq, bPanel);
+
+    /* Phase 8: embedded 캐릭터 / 기업 / 함선 screens replace the layout in place */
+    this.screenHost = document.createElement('div');
+    this.screenHost.className = 'inv-screen';
+    this.screenHost.hidden = true;
+    this.screenNote = document.createElement('div');
+    this.screenNote.className = 'inv-screen-note';
+    this.screenNote.hidden = true;
+
+    /* Phase 8: modeless popups float above the window; the grid stays visible and interactive behind them */
+    this.modelessLayer = document.createElement('div');
+    this.modelessLayer.className = 'inv-modeless-layer';
+    this.craftModeless = new Modeless('craft', () => this.closeCraft());
+    this.craftModeless.adopt(this.craftPanel.el);
+    this.implantModeless = new Modeless('implant', () => this.closePicker());
+    this.implantModeless.withHeader('IMPLANT', TEXT.implant.slot).adopt(this.implantPicker);
+    this.disassemble = new DisassemblePanel(this.sys, getDef, (open, uid) => {
+      this.ctx.bus.emit('ui:disassembleToggled', { open, uid });
+    });
+    this.modelessLayer.append(this.craftModeless.el, this.implantModeless.el, this.disassemble.el);
 
     /* hints (mission only; the ship screen has nothing to throw away and its keys are on the slots) */
     this.hintsEl = document.createElement('div');
@@ -346,7 +390,8 @@ export class InventoryUI {
     this.ghostLayer = document.createElement('div');
     this.ghostLayer.className = 'inv-ghost-layer';
 
-    root.append(this.tabsEl, this.creditsEl, layout, this.hintsEl, dropZone, this.tooltip.el, this.ghostLayer);
+    root.append(this.tabsEl, this.creditsEl, layout, this.screenHost, this.screenNote, this.hintsEl, dropZone,
+      this.modelessLayer, this.tooltip.el, this.ghostLayer);
     this.menu = new ContextMenu(root);
     this.dialog = new SplitDialog(root);
     this.ctx.uiRoot.appendChild(root);
@@ -380,12 +425,18 @@ export class InventoryUI {
     if (dz) dz.textContent = keyLabel(Keys.DROP_ITEM);
   }
 
-  /** Close the context menu / split dialog if open. Returns true when something was closed (Escape consumed). */
+  /**
+   * Close the context menu / split dialog / modeless popups if open. Returns true when something was closed, so the
+   * system's Escape handler consumes that press instead of closing the whole window (Phase 8: the 임플란트 picker,
+   * the 필드 제작 panel and the 분해 dialog all sit in this chain — none of them owns a blocker of its own).
+   */
   closeOverlays(): boolean {
     const a = this.dialog?.close() ?? false;
     const b = this.menu?.close() ?? false;
     const c = this.closePicker();
-    return a || b || c;
+    const d = this.disassemble?.close() ?? false;
+    const e = this.craftPanel?.isOpen ? (this.closeCraft(), true) : false;
+    return a || b || c || d || e;
   }
 
   show(container: Container | null, hub = false): void {
@@ -394,6 +445,10 @@ export class InventoryUI {
     this.container = container;
     this.hub = hub;
     this.root.classList.toggle('is-hub', hub);
+    // screen tabs are a ship affordance — outside the hub the pill used to draw over the crate window (Phase 8 fix)
+    this.tabsEl.hidden = !hub;
+    this.setTab('inventory');
+    this.markTab();
     this.containerPanel.hidden = !container;
     this.stashPanel.hidden = !hub;
     this.creditsEl.hidden = !hub;
@@ -427,6 +482,7 @@ export class InventoryUI {
     this.visible = false;
     this.cancelDrag();
     this.closeOverlays();
+    this.setTab('inventory');
     this.tooltip.hide();
     this.hovered = null;
     this.root.classList.remove('is-visible');
@@ -442,7 +498,12 @@ export class InventoryUI {
     this.stashView.dispose();
     this.bagView.dispose();
     this.catalogView?.dispose();
+    this.screenView?.dispose();
+    this.screenView = null;
     this.craftPanel?.dispose();
+    this.craftModeless?.dispose();
+    this.implantModeless?.dispose();
+    this.disassemble?.dispose();
     this.tooltip.dispose();
     this.root?.remove();
     this.root = null;
@@ -451,11 +512,83 @@ export class InventoryUI {
   /* ── screen tabs ───────────────────────────────────────────────────────── */
 
   private onTab(tab: ScreenTab): void {
-    if (tab === 'inventory') return;
-    if (tab === 'character') { this.sys.sfx('ui_pickup'); this.sys.openCharacter(); return; }
-    // 기업 (Phase 5): the system closes the window and opens the corp screen; a refusal shakes / errors here
-    if (this.sys.openCorp()) this.sys.sfx('ui_pickup');
-    else this.sys.sfx('ui_error');
+    if (tab === this.activeTab) return;
+    this.setTab(tab);
+    this.sys.sfx(this.activeTab === tab ? 'ui_pickup' : 'ui_error');
+  }
+
+  /** The tab currently shown (smoke tests). */
+  get screenTab(): ScreenTab { return this.activeTab; }
+
+  /**
+   * Swap the window content. `inventory` shows `.inv-layout`; every other tab hides it, shows the `.inv-screen`
+   * host and builds that folder's `EmbeddedView` into it. The old view is always disposed first, so exactly one
+   * view exists at a time and nothing survives a window close.
+   */
+  private setTab(tab: ScreenTab): void {
+    if (!this.root) return;
+    if (tab !== 'inventory' && !this.hub) tab = 'inventory'; // the embedded screens are ship-only
+    if (tab === this.activeTab && (tab === 'inventory' || this.screenView)) return;
+    // leaving a screen: dispose its view, close the popups that belong to the grid
+    this.screenView?.dispose();
+    this.screenView = null;
+    this.screenHost.replaceChildren();
+    this.screenNote.hidden = true;
+    if (tab !== 'inventory') { this.closePicker(); this.closeCraft(); this.disassemble?.close(); }
+
+    if (tab === 'inventory') {
+      this.activeTab = 'inventory';
+      this.layout.hidden = false;
+      this.screenHost.hidden = true;
+      this.markTab();
+      return;
+    }
+    const view = this.buildScreenView(tab);
+    if (!view) {
+      // the owning folder is unavailable (no ctx.progression / meta / housing): stay on the grid with a note
+      this.activeTab = 'inventory';
+      this.layout.hidden = false;
+      this.screenHost.hidden = true;
+      this.screenNote.hidden = false;
+      this.screenNote.textContent = TEXT.tabs.unavailable(SCREEN_TABS.find((t) => t.id === tab)?.label ?? '');
+      this.markTab();
+      this.sys.sfx('ui_error');
+      return;
+    }
+    this.activeTab = tab;
+    this.screenView = view;
+    this.layout.hidden = true;
+    this.screenHost.hidden = false;
+    view.refresh();
+    this.markTab();
+  }
+
+  /** `createSheetView` / `createCorpView` / `createShipView`; null when that system is not present. */
+  private buildScreenView(tab: ScreenTab): EmbeddedView | null {
+    try {
+      if (tab === 'character') {
+        const p = this.ctx.progression;
+        return p && typeof p.createSheetView === 'function' ? p.createSheetView(this.screenHost) : null;
+      }
+      if (tab === 'corp') {
+        const m = this.ctx.meta;
+        return m && typeof m.createCorpView === 'function' ? m.createCorpView(this.screenHost) : null;
+      }
+      const h = this.ctx.housing;
+      return h && typeof h.createShipView === 'function' ? h.createShipView(this.screenHost) : null;
+    } catch (e) {
+      console.warn('[inventory] embedded screen failed', tab, e);
+      this.screenHost.replaceChildren();
+      return null;
+    }
+  }
+
+  private markTab(): void {
+    for (const [id, b] of this.tabButtons) {
+      b.classList.toggle('is-on', id === this.activeTab);
+      // 함선 needs the housing system; hide the tab entirely when there is none
+      if (id === 'ship') b.hidden = !this.ctx.housing;
+    }
   }
 
   /** `크레딧 n` readout on the ship screen (`ctx.meta.credits`; refreshed on `meta:creditsChanged`). */
@@ -502,6 +635,9 @@ export class InventoryUI {
     this.refreshQuick();
     this.refreshWeight();
     this.craftPanel.refresh();
+    if (this.disassemble.isOpen) this.disassemble.refresh();
+    // Phase 8: an embedded 캐릭터 / 기업 / 함선 view repaints from its own state whenever the window does
+    if (this.screenView) { try { this.screenView.refresh(); } catch (e) { console.warn('[inventory] screen refresh failed', e); } }
   }
 
   /* ── Phase 7: container search (감정) ──────────────────────────────────── */
@@ -549,14 +685,31 @@ export class InventoryUI {
   toggleCraft(): void {
     const open = !this.craftPanel.isOpen;
     if (!open && this.sys.getBench()) this.sys.closeBench(); // bench mode: closing the panel leaves the bench
-    else this.craftPanel.setOpen(open);
+    else this.setCraftOpen(open);
     this.sys.sfx('ui_pickup');
   }
 
-  /** System-driven craft panel visibility (`openBenchCraft` / `closeBench`). */
+  /**
+   * System-driven craft panel visibility (`openBenchCraft` / `closeBench`). **Phase 8**: the panel lives in a
+   * modeless popup, so the frame follows the panel — no blocker, no pointer-lock change, the grid stays live.
+   */
   setCraftOpen(open: boolean): void {
     this.craftPanel.setOpen(open);
-    if (open) this.craftPanel.refresh();
+    if (open) {
+      this.closePicker();
+      this.disassemble.close();
+      this.craftPanel.refresh();
+      this.craftModeless.open(null);
+    } else {
+      this.craftModeless.close();
+    }
+  }
+
+  /** The panel's 닫기 button / Escape / an outside click: leave the bench too when one is active. */
+  private closeCraft(): void {
+    if (!this.craftPanel.isOpen && !this.craftModeless.isOpen) return;
+    if (this.sys.getBench()) this.sys.closeBench(); // → setCraftOpen(false) through the system
+    else this.setCraftOpen(false);
   }
 
   /** Repaint the craft rows (progress / counts) without rebuilding the rest of the window. */
@@ -665,10 +818,11 @@ export class InventoryUI {
     this.implantBody.addEventListener('click', (e) => { e.stopPropagation(); this.togglePicker(); });
     this.implantMeta = document.createElement('div');
     this.implantMeta.className = 'inv-slot-meta';
+    // Phase 8: the picker is no longer an inline expander of this column — it lives in a modeless popup
+    // (`implantModeless`) anchored to the slot; the grid behind it stays visible and interactive.
     this.implantPicker = document.createElement('div');
     this.implantPicker.className = 'inv-implant-picker';
-    this.implantPicker.hidden = true;
-    el.append(head, this.implantBody, this.implantMeta, this.implantPicker);
+    el.append(head, this.implantBody, this.implantMeta);
     this.implantSlot = el;
     return el;
   }
@@ -719,21 +873,22 @@ export class InventoryUI {
     }
     this.menu.close();
     this.tooltip.hide();
+    this.disassemble.close();
     this.pickerOpen = true;
-    this.implantPicker.hidden = false;
     this.implantSlot.classList.add('is-picking');
     this.renderPicker();
+    // modeless: anchored to the slot, dismissed by Escape / an outside click, no blocker of its own
+    this.implantModeless.open(this.implantSlot);
     this.sys.sfx('ui_pickup');
-    // the equipment column scrolls on short windows: bring the cards into view
-    requestAnimationFrame(() => this.implantPicker.scrollIntoView({ block: 'nearest' }));
+    requestAnimationFrame(() => this.implantModeless.place());
   }
 
   private closePicker(): boolean {
-    if (!this.pickerOpen) return false;
+    const wasOpen = this.pickerOpen;
     this.pickerOpen = false;
-    this.implantPicker.hidden = true;
-    this.implantSlot.classList.remove('is-picking');
-    return true;
+    this.implantSlot?.classList.remove('is-picking');
+    const closed = this.implantModeless?.close() ?? false;
+    return wasOpen || closed;
   }
 
   /** Picker cards: one per implant; the equipped one is lit and a click on it unequips. */
@@ -1116,7 +1271,8 @@ export class InventoryUI {
     const isStack = def.stackMax > 1 && item.qty >= 2;
     const quickable = isQuickUsable(def) && from.kind === 'grid' && from.grid === 'bag';
     const repairable = this.hub && !!this.sys.repairInfo(uid);
-    const hasMenu = isStack || isWeaponDef(def) || isBagDef(def) || isArmorDef(def) || quickable || repairable;
+    const breakable = this.canDisassemble(uid, from);
+    const hasMenu = isStack || isWeaponDef(def) || isBagDef(def) || isArmorDef(def) || quickable || repairable || breakable;
     if (!hasMenu && !e.shiftKey) {
       this.result(this.sys.quickMove(uid, from), 'ui_drop', from, uid);
       return;
@@ -1161,10 +1317,14 @@ export class InventoryUI {
     if (this.hub && owned) {
       const info = this.sys.repairInfo(uid);
       if (info) {
-        const cost = info.cost.length ? ` (${info.cost.map((c) => `${c.name} ${c.qty}`).join(' · ')})` : '';
+        // Phase 8: the material requirement is item chips (thumbnail + 보유/필요), not a text run
+        const costs = document.createElement('div');
+        const have = new Map(info.cost.map((c) => [c.defId, c.have]));
+        renderItemCost(costs, info.cost, (id) => ITEM_DEF_MAP.get(id), (id) => have.get(id) ?? 0, { size: 28 });
         entries.push({
-          label: `${TEXT.menu.repair}${cost}`,
+          label: TEXT.menu.repair,
           hint: info.short ? TEXT.menu.repairShort : undefined,
+          costs,
           separator: entries.length > 0,
           run: () => {
             const ok = this.sys.repair(uid);
@@ -1195,6 +1355,15 @@ export class InventoryUI {
       }
     }
 
+    // 1d. 분해 (Phase 8): any item with a matching `break_*` recipe — the ammo packs today
+    if (this.canDisassemble(uid, from)) {
+      entries.push({
+        label: TEXT.disassemble.menu,
+        separator: entries.length > 0,
+        run: () => this.openDisassemble(uid),
+      });
+    }
+
     // 2. split
     if (isStack && from.kind === 'grid') {
       const half = Math.max(1, Math.floor(item.qty / 2));
@@ -1219,6 +1388,30 @@ export class InventoryUI {
     }
     return entries;
   }
+
+  /**
+   * Phase 8 — 분해 is offered on player-owned items (bag / equipment slots) that have a `break_*` recipe; a
+   * container stack must be taken first, because the recipe consumes from the bag.
+   */
+  private canDisassemble(uid: string, from: ItemLocation): boolean {
+    // the recipe consumes from the bag, so a crate / 창고 stack has to be taken into the bag first
+    if (from.kind === 'grid' && from.grid !== 'bag') return false;
+    return !!this.sys.disassembleRecipeFor(uid);
+  }
+
+  /** Open the modeless 분해 dialog for `uid` (expected result + a 분해 button). False when the item has no recipe. */
+  openDisassemble(uid: string): boolean {
+    this.menu.close();
+    this.closePicker();
+    this.tooltip.hide();
+    if (this.disassemble.isOpen) this.disassemble.close();
+    const ok = this.disassemble.open(uid, null);
+    this.sys.sfx(ok ? 'ui_pickup' : 'ui_error');
+    return ok;
+  }
+
+  /** The 분해 dialog (smoke tests). */
+  get disassemblePanel(): DisassemblePanel { return this.disassemble; }
 
   private split(uid: string, from: ItemLocation, qty: number): void {
     const ok = this.sys.splitItem(uid, qty);
@@ -1498,7 +1691,7 @@ export class InventoryUI {
   /** True when the point lies on a panel / equipment column (a miss there snaps back instead of dropping). */
   private isOverPanel(x: number, y: number): boolean {
     const el = document.elementFromPoint(x, y);
-    return !!el && !!(el as Element).closest('.inv-panel, .inv-equip, .inv-menu, .inv-dialog, .scr-tabs');
+    return !!el && !!(el as Element).closest('.inv-panel, .inv-equip, .inv-menu, .inv-dialog, .scr-tabs, .inv-modeless, .inv-screen');
   }
 
   private handlePointerUp(e: PointerEvent): void {

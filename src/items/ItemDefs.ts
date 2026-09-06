@@ -1,5 +1,8 @@
-import type { AmmoType, ArmorDef, AttachmentDef, BagDef, ItemCategory, ItemDef, Rarity, WeaponDef, WeaponGrade } from '@/shared';
-import { AMMO_STACK_ROUNDS, QUICK_USABLE_CATEGORIES, RARITY_COLORS, rarityForGrade } from '@/shared';
+import type { AmmoType, ArmorDef, AttachmentDef, BagDef, ItemCategory, ItemDef, Rarity, SeedDef, WeaponDef, WeaponGrade } from '@/shared';
+import {
+  AMMO_STACK_ROUNDS, CATEGORY_COLOR, CATEGORY_ICON, QUICK_USABLE_CATEGORIES, RARITY_COLORS,
+  SEED_GROW_HOURS_BY_RARITY, rarityForGrade,
+} from '@/shared';
 import { WEAPON_DEFS, gradeOf, isUniqueWeapon, weaponFamilyOf } from './WeaponDefs';
 import { ARMOR_DEFS, ARMOR_ICON, armorItemSize } from './ArmorDefs';
 
@@ -182,6 +185,38 @@ export const BAG_ITEM_DEFS: readonly ItemDef[] = [
   bagDef('bag_legendary_tac', '전설 전술 가방', 'legendary', 1950, { cols: 9, rows: 6, quickSlots: 9, tactical: true }, '전술 조끼 일체형. 9×6 칸, 퀵슬롯 9.'),
 ];
 
+/* ── 씨앗 (Phase 8) ───────────────────────────────────────────────────────────
+ * Planted in a 온실 재배층 (`furn_grow_rack`); `SeedDef.growHours` is **real** wall-clock time and keeps running while
+ * the game is closed (housing/ owns the plots). Loot (tier 1–3 containers, 벌레 시체) + 기업 상점 only — never craftable.
+ * Growth hours come from the shared `SEED_GROW_HOURS_BY_RARITY` table so the contract stays the single source. */
+const SEED_STACK_MAX = 5;
+const SEED_WEIGHT = 0.05;
+/** Seeds share the category glyph and a leaf-green tint so a 씨앗 reads as one at a glance in the grid. */
+const SEED_ICON = CATEGORY_ICON.seed;
+const SEED_COLOR = CATEGORY_COLOR.seed;
+
+const seedDef = (
+  id: string, name: string, rarity: Rarity, value: number, seed: SeedDef, description: string,
+): ItemDef => ({
+  ...def({
+    id, name, category: 'seed', rarity, width: 1, height: 1, stackMax: SEED_STACK_MAX,
+    value, icon: SEED_ICON, description, seed, weight: SEED_WEIGHT,
+  }),
+  color: SEED_COLOR,
+});
+
+export const SEED_ITEM_DEFS: readonly ItemDef[] = [
+  seedDef('seed_bloodroot', '혈근초 씨앗', 'common', 40,
+    { growHours: SEED_GROW_HOURS_BY_RARITY.common, yieldDefId: 'herb_bloodroot', yieldQty: 3 },
+    '혈근초의 붉은 씨앗. 온실 재배층에 심으면 약 1시간 뒤 혈근초 3개를 거둘 수 있다. 함선을 떠나 있어도 현실 시간에 맞춰 자란다.'),
+  seedDef('seed_ashleaf', '잿빛잎 씨앗', 'uncommon', 90,
+    { growHours: SEED_GROW_HOURS_BY_RARITY.uncommon, yieldDefId: 'herb_ashleaf', yieldQty: 3 },
+    '화산재에 굳어 있던 잿빛잎 포자낭. 온실 재배층에서 약 2.5시간이면 잿빛잎 3개가 된다. 원예 숙련도가 높을수록 빨리 자란다.'),
+  seedDef('seed_glowcap', '발광버섯 씨앗', 'rare', 220,
+    { growHours: SEED_GROW_HOURS_BY_RARITY.rare, yieldDefId: 'herb_glowcap', yieldQty: 2 },
+    '희미하게 빛나는 발광버섯 균사 덩어리. 온실 재배층에서 약 6시간을 들여야 발광버섯 2개를 거둔다. 구하기 어려운 만큼 값도 비싸다.'),
+];
+
 /* ── armor generated from the ArmorDef table (tactical kit) ───────────────── */
 const armorItem = (a: ArmorDef): ItemDef => {
   const { width, height } = armorItemSize(a);
@@ -276,6 +311,9 @@ export const ITEM_DEFS: readonly ItemDef[] = [
     description: '화산재 지대에서 자라는 잎. 인화성이 강해 소이 제조에도 쓰인다.' }),
   def({ id: 'herb_glowcap', name: '발광버섯', category: 'herb', rarity: 'rare', width: 1, height: 1, stackMax: 6, value: 140, icon: '✿', weight: 0.12,
     description: '스스로 빛나는 균류. 강력한 재생 촉진제.' }),
+
+  /* seeds (Phase 8: 온실 재배층에 심는다) */
+  ...SEED_ITEM_DEFS,
 
   /* gadgets (behaviour lives in src/gadgets; here they are just consumables) */
   def({ id: 'gad_cloak_veil', name: '은폐 장막', category: 'gadget', rarity: 'rare', width: 1, height: 2, stackMax: 2, value: 620, icon: '◌',

@@ -95,6 +95,12 @@ export const isAttachmentDef = (def: ItemDef | undefined): boolean => !!def?.att
 export const isBagDef = (def: ItemDef | undefined): boolean => !!def?.bag;
 export const isArmorDef = (def: ItemDef | undefined): boolean => def?.category === 'armor' && !!def.armorId;
 
+/**
+ * Phase 8 — a **분해** recipe (`break_*`). These no longer appear in the craft list: 분해 is a context-menu entry
+ * on the item itself (`disassembleRecipeFor` → the modeless `DisassemblePanel`). `craft()` still accepts them.
+ */
+export const isDisassembleRecipe = (r: CraftRecipe): boolean => r.id.startsWith('break_');
+
 /** Minimum craft speed multiplier so a pathological derived value cannot make a craft instant. */
 const CRAFT_MIN_SPEED = 0.2;
 
@@ -886,8 +892,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
   /** Rows for the craft panel: available recipes, then (bench mode) the bench's recipes above its level as locked. */
   getBenchRecipes(): BenchRecipeRow[] {
     const b = this.bench;
-    if (!b) return this.getRecipes(this.currentStation()).map((recipe) => ({ recipe, locked: false }));
-    const open = this.getRecipes('ship', b.kind, b.level);
+    if (!b) return this.getRecipes(this.currentStation()).filter((r) => !isDisassembleRecipe(r)).map((recipe) => ({ recipe, locked: false }));
+    const open = this.getRecipes('ship', b.kind, b.level).filter((r) => !isDisassembleRecipe(r));
     const skillOf = (id: CraftRecipe['skill']): number => this.ctx.progression?.getSkill(id) ?? 0;
     const locked = this.loot.getAllRecipes().filter((r) =>
       r.station === 'ship' && r.bench === b.kind && (r.benchLevel ?? 1) > b.level && skillOf(r.skill) >= r.skillRequired);
@@ -944,6 +950,30 @@ export class InventorySystem implements GameSystem, InventoryRef {
       if (bench !== undefined) return r.bench === bench && need <= level;
       return placedLevel(r.bench) >= need;
     });
+  }
+
+  /**
+   * Phase 8 — 분해 recipe of an item the player owns, or null. A `break_*` recipe whose **only** input is that
+   * item's def id counts; the UI turns it into the `분해` context-menu entry and the modeless dialog. Crafting
+   * itself is unchanged (`craft()` still accepts these recipes) — they are only hidden from the craft *list*.
+   */
+  disassembleRecipeFor(uid: string): CraftRecipe | null {
+    const item = this.findItem(uid);
+    if (!item) return null;
+    for (const r of this.loot.getAllRecipes()) {
+      if (!isDisassembleRecipe(r)) continue;
+      if (r.inputs.length === 1 && r.inputs[0].defId === item.defId) return r;
+    }
+    return null;
+  }
+
+  /**
+   * Open the modeless 분해 dialog over the open window (the item context menu's `분해` entry; also a handle for
+   * the console / smoke tests). False when the window is closed or the item has no `break_*` recipe.
+   */
+  openDisassemble(uid: string): boolean {
+    if (!this._open) return false;
+    return this.ui?.openDisassemble(uid) ?? false;
   }
 
   /** Recipes the running station / bench may craft right now. */
@@ -1471,36 +1501,6 @@ export class InventorySystem implements GameSystem, InventoryRef {
     }
     this.afterChange();
     return n;
-  }
-
-  /** 캐릭터 tab: hand over to progression's character sheet (it owns its own blocker token). */
-  openCharacter(): void {
-    if (!this.ctx.progression) { this.ctx.bus.emit('ui:notify', { text: '캐릭터 정보를 사용할 수 없습니다', kind: 'warning' }); return; }
-    this.closeAll(false);
-    this.ctx.bus.emit('ui:statsToggled', { open: true });
-  }
-
-  /**
-   * 기업 tab (Phase 5): close the window, then hand over to the corp screen (`ctx.meta.openCorpMenu`, blocker
-   * `'corp'`). Ship only. Without a meta system — or when it does not open anything — a warning toast and the
-   * pointer lock come back instead.
-   */
-  openCorp(): boolean {
-    const meta = this.ctx.meta;
-    if (!meta || typeof meta.openCorpMenu !== 'function') {
-      this.ctx.bus.emit('ui:notify', { text: '기업 네트워크를 사용할 수 없습니다', kind: 'warning', duration: 2 });
-      return false;
-    }
-    if (!this.ctx.isHubPhase()) {
-      this.ctx.bus.emit('ui:notify', { text: '기업 네트워크는 함선에서만 접속할 수 있습니다', kind: 'warning', duration: 2 });
-      return false;
-    }
-    this.closeAll(false);
-    meta.openCorpMenu();
-    if (meta.isMenuOpen) return true;
-    this.ctx.bus.emit('ui:notify', { text: '기업 네트워크에 접속할 수 없습니다', kind: 'warning', duration: 2 });
-    this.relockLater();
-    return false;
   }
 
   closeAll(relock = true): void {

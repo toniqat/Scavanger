@@ -118,16 +118,20 @@ try {
     return { ship: ctx.hub.ship, ids, lights, roomGroups, pos: [ctx.player.position.x, ctx.player.position.z], room: ctx.hub.currentRoom };
   });
   ok(ship.ship === 'personal' && Math.abs(ship.pos[0]) < 0.01 && Math.abs(ship.pos[1] + 1.8) < 0.05, `spawned in the cockpit at (${ship.pos.map((n) => n.toFixed(2))})`);
-  for (const id of ['hub_terminal', 'hub_workbench', 'hub_implant_bay', 'hub_garden', 'hub_pod_0', 'hub_computer']) ok(ship.ids.includes(id), `cockpit interactable ${id} registered`);
+  // Phase 8: the cockpit lost its built-in 정비 벤치 (now 작업실 furniture) and its 수경 재배 rack (now 온실 재배층).
+  for (const id of ['hub_terminal', 'hub_implant_bay', 'hub_pod_0', 'hub_computer']) ok(ship.ids.includes(id), `cockpit interactable ${id} registered`);
+  for (const id of ['hub_workbench', 'hub_garden']) ok(!ship.ids.includes(id), `cockpit no longer registers ${id}`);
   ok(ship.ids.includes('hub_facility'), 'facility console hub_facility registered');
   const roomIds = ship.ids.filter((i) => /^hub_room_\d$/.test(i));
   ok(roomIds.length === 10, `10 room consoles hub_room_0..9 registered (${roomIds.length})`);
-  ok(ship.lights === 10, `constant point-light count 10 (${ship.lights})`);
+  // Phase 8: + ROOM_LIGHT_POOL (3) lights that re-anchor to the nearest non-empty rooms; the count stays constant.
+  ok(ship.lights === 13, `constant point-light count 13 (${ship.lights})`);
   ok(ship.roomGroups === 10, `one furniture group per room (${ship.roomGroups})`);
   ok(ship.room === null, 'currentRoom is null in the cockpit');
 
   /* ── 2. terminal: no seed section ───────────────────────────────────── */
-  await tap('Escape');
+  // Phase 8: Escape in the ship opens the PAUSE menu now, so the terminal is opened through its interactable.
+  await page.evaluate(() => window.__game.ctx.interactables.all().find((i) => i.id === 'hub_terminal').interact());
   await waitFor(page, () => !document.querySelector('.menu.hub-menu').hidden, 'terminal open');
   const term = await page.evaluate(() => ({
     labels: [...document.querySelectorAll('.menu.hub-menu .ui-label')].map((n) => n.textContent),
@@ -296,10 +300,13 @@ try {
     ok((await page.evaluate(() => window.__game.ctx.housing.selectedYaw)) === 1, 'R rotated the selection (yaw 1)');
     await tap('KeyR'); await tap('KeyR'); await tap('KeyR');
     await waitSim(0.1);
+    // Rotation changes the footprint, so the clamped top-left cell moves with it — sample the ghost again
+    // right before the click instead of comparing against the pre-rotation cell.
+    const ghostNow = await page.evaluate(() => ({ ...window.__game.getSystem('hub').housing.cell }));
     await click(0);
     await waitSim(0.2);
     placedItem = await lastEv('housing:furniturePlaced');
-    ok(!!placedItem && placedItem.item.room === 0 && placedItem.item.x === ghost.cell.x && placedItem.item.y === ghost.cell.y, `LMB placed the bench at (${placedItem?.item.x},${placedItem?.item.y})`);
+    ok(!!placedItem && placedItem.item.room === 0 && placedItem.item.x === ghostNow.x && placedItem.item.y === ghostNow.y, `LMB placed the bench at (${placedItem?.item.x},${placedItem?.item.y}), ghost at (${ghostNow.x},${ghostNow.y})`);
     placedItem = placedItem?.item ?? null;
   } else {
     console.log('  (housing rules not implemented — faking housing:furniturePlaced)');
@@ -318,7 +325,7 @@ try {
     const group = root.getObjectByName('room-0');
     const meshes = []; group.traverse((o) => { if (o.isMesh) meshes.push(o); });
     const layer = window.__game.getSystem('hub').furnitureLayer;
-    return { children: group.children.length, meshes: meshes.length, count: layer.count, furn: ctx.interactables.all().filter((i) => i.id.startsWith('hub_furn_')).map((i) => i.id), center: group.children[0] ? [group.children[0].position.x, group.children[0].position.z] : null };
+    return { children: group.children.length, meshes: meshes.length, count: layer.count, furn: ctx.interactables.all().filter((i) => i.id.startsWith('hub_furn_')).map((i) => i.id), center: (() => { const m = group.children.find((c) => typeof c.name === 'string' && c.name.startsWith('furn-')) ?? group.children[0]; return m ? [m.position.x, m.position.z] : null; })() };
   });
   ok(rendered.children >= 1 && rendered.meshes >= 2 && rendered.count === 1, `furniture mesh under the room-0 group (${rendered.children} objects, ${rendered.meshes} meshes)`);
   ok(rendered.furn.length === 1 && rendered.furn[0] === `hub_furn_${placedItem.uid}`, `bench interactable ${rendered.furn[0]}`);

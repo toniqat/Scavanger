@@ -1,3 +1,3 @@
 export { HousingSystem } from './HousingSystem';
 export * from './Rules';
-export { freshState, loadState, sanitize } from './ShipState';
+export { SHIP_STATE_VERSION_CURRENT, freshState, isGrowRackDefId, loadState, sanitize } from './ShipState';

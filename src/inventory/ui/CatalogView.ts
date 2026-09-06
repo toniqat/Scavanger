@@ -13,7 +13,7 @@ export interface CatalogHandlers {
   onClose(): void;
 }
 
-export type CatalogTabId = 'all' | 'weapon' | 'ammo' | 'attachment' | 'bag' | 'armor' | 'gadget' | 'consumable' | 'material' | 'herb' | 'furniture';
+export type CatalogTabId = 'all' | 'weapon' | 'ammo' | 'attachment' | 'bag' | 'armor' | 'gadget' | 'consumable' | 'material' | 'herb' | 'seed' | 'furniture';
 
 interface CatalogTab {
   id: CatalogTabId;
@@ -34,6 +34,7 @@ export const CATALOG_TABS: readonly CatalogTab[] = [
   { id: 'consumable', label: TEXT.catalog.tabs.consumable, categories: ['grenade', 'stim'] },
   { id: 'material', label: TEXT.catalog.tabs.material, categories: ['material', 'valuable'] },
   { id: 'herb', label: TEXT.catalog.tabs.herb, categories: ['herb'] },
+  { id: 'seed', label: TEXT.catalog.tabs.seed, categories: ['seed'] },
   { id: 'furniture', label: TEXT.catalog.tabs.furniture, categories: ['furniture'] },
 ];
 

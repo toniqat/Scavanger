@@ -8,9 +8,25 @@ Import via `@/audio` → `AudioSystem`, `Synth`, `SOUNDS`, `SOUND_IDS`.
 
 | File | Purpose |
 |---|---|
-| `AudioSystem.ts` | `GameSystem` (`name: 'audio'`). Plays `audio:play {id, position?, volume?, pitch?}` (positional → equal-power panner, inverse distance, listener follows `ctx.camera` each frame). Auto-hooks events whose owners do not send audio themselves (see below). Dedupe: the same id from an explicit `audio:play` and an auto-hook within 100 ms plays once. Rate limit: max 8 identical ids per 100 ms. Ambience: wind/planet drone (looped noise → LFO-swept lowpass + 42 Hz sub), tension pulse during `extracting`/`shipLanded` (tremolo rate rises as the countdown runs out), ship engine hum while the ship is present (fades 8 s after liftoff), **ship-interior hum + ventilation** while in the hub (see below). Master ducks to 25 % while paused. |
+| `AudioSystem.ts` | `GameSystem` (`name: 'audio'`). Plays `audio:play {id, position?, volume?, pitch?}` (positional → equal-power panner, inverse distance, listener follows `ctx.camera` each frame). Auto-hooks events whose owners do not send audio themselves (see below). Dedupe: the same id from an explicit `audio:play` and an auto-hook within 100 ms plays once. Rate limit: max 8 identical ids per 100 ms. Ambience: wind/planet drone (looped noise → LFO-swept lowpass + 42 Hz sub), tension pulse during `extracting`/`shipLanded` (tremolo rate rises as the countdown runs out), ship engine hum while the ship is present (fades 8 s after liftoff), **ship-interior hum + ventilation** while in the hub (see below). Master ducks to 25 % while paused. **Phase 8**: implements `AudioRef` and publishes `ctx.audio` (volume settings, see below). |
 | `Synth.ts` | `Synth` primitives (`tone()`, `noise()`, `envelope()`, `click()` metallic transient, `tail()` staggered reverberant noise) and the `SOUNDS` library: `Record<id, (synth, dest, t0, pitch) => duration>`. |
 | `index.ts` | Barrel. |
+
+## 볼륨 설정 — `ctx.audio` (`AudioRef`, Phase 8)
+`AudioSystem` assigns `ctx.audio = this` in `init` (and nulls it in `dispose`), so `ui/menus/SettingsMenu` drives the
+sliders without importing this folder.
+
+| Member | Behaviour |
+|---|---|
+| `settings` | `Readonly<AudioSettings>` — `{ master, sfx }`, both 0 … 1. Loaded in `init()` from `localStorage[AUDIO_STORAGE_KEY]` (`{v:1, master, sfx}`, clamped, corrupt/blocked storage → `AUDIO_DEFAULT_MASTER` 0.8 / `AUDIO_DEFAULT_SFX` 1) **before** the graph is built, so the very first gains are already the player's. |
+| `setVolume(channel, value)` | Clamps to 0…1, ignores an unchanged value, ramps the matching GainNode immediately (`setTargetAtTime`, 0.03 s), saves debounced (250 ms; also flushed in `dispose`) and emits `audio:volumeChanged {channel, value}`. Works before the `AudioContext` exists (the value is applied when the graph is created). |
+| `preview(channel)` | `master` → `ui_click` @0.8, `sfx` → `shot_pistol` @0.7 (both through the sfx bus). Calls `ensureContext()` first (the slider click is a valid unlock gesture) and is throttled to one blip per 140 ms so dragging does not machine-gun. |
+
+- **Routing**: `sfxBus.gain = settings.sfx`, `master.gain = settings.master × (paused ? 0.25 : 1)`. The `game:paused`
+  duck now only flips a `ducked` flag and re-applies (0.1 s ramp), so it composes with a mid-pause slider change.
+- **Ambience** (`ambBus`) is deliberately *not* on the sfx slider — it goes straight to the limiter → master, i.e. it
+  follows 전체 only. There is no BGM and no ambience slider.
+- `masterVolume` survives as a read-only alias of `settings.master` for readability inside this folder.
 
 ## Sound ids (`SOUNDS`)
 Weapons: `shot_rifle` `shot_pistol` `shot_shotgun` `shot_energy` `shot_smg` `shot_sniper` `bolt_cycle` `dry_fire` `reload_start` `reload_end` `hit_flesh` `hit_terrain` `grenade_throw` `grenade_bounce` `explosion`
