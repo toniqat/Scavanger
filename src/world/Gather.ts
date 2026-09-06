@@ -50,7 +50,7 @@ interface Node {
  *
  * - `GATHER_NODES_PER_MISSION` procedural plants in 3 variants, drawn with one `InstancedMesh` per part
  *   (2 parts per variant → 6 draw calls total) so 34 nodes cost nothing.
- * - Each node registers an `Interactable` with `holdTime = GATHER_INTERACT_TIME / derived.interactSpeedMul`.
+ * - Each node registers an `Interactable` with `holdTime = GATHER_INTERACT_TIME` (the player scales holds by `derived.interactSpeedMul`).
  * - Harvesting emits `gather:collected` and then hands the herb to `ctx.inventory.tryAddItem`
  *   (quantity scaled by `derived.gatherYieldMul`).
  * - Multiplayer is host-authoritative, mirroring pickups: clients send `harvq take/sync`, the host answers with
@@ -235,10 +235,8 @@ export class Gather {
     return {
       id: `gather:${node.def.id}`,
       position: node.def.position,
-      get holdTime(): number {
-        const mul = game()?.progression?.derived.interactSpeedMul ?? 1;
-        return GATHER_INTERACT_TIME / Math.max(0.25, mul);
-      },
+      // base hold; the player applies `derived.interactSpeedMul` to every hold (Phase 5)
+      holdTime: GATHER_INTERACT_TIME,
       radius: NODE_RADIUS,
       getPrompt: () => {
         if (node.def.harvested) return null;

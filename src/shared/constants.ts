@@ -423,12 +423,12 @@ export const CRAFT_DEFAULT_TIME = 3;
 /* ── progression ── */
 export const STAT_BASE = 5;
 export const STAT_MAX = 20;
-export const STAT_POINTS_PER_LEVEL = 2;
+export const STAT_POINTS_PER_LEVEL = 1;   // Phase 5 (2026-09-06): was 2
 export const SKILL_LEVEL_MAX = 100;
 export const PROFILE_STORAGE_KEY = 'scav.profile';
 export const PROFILE_VERSION = 1;
 /** XP needed to reach level n+1: XP_BASE * n^XP_EXPONENT. */
-export const XP_BASE = 240;
+export const XP_BASE = 120;   // Phase 5 (2026-09-06): was 240 (plan: 120 × n^1.35)
 export const XP_EXPONENT = 1.35;
 
 /* ── appended: key rebinding + ship stash (2026-09-06) ── */
@@ -596,3 +596,9 @@ export const RANGE_UPGRADE_COST: readonly { defId: string; qty: number }[][] = [
   [{ defId: 'mat_alloy', qty: 6 }, { defId: 'mat_circuit', qty: 2 }],
   [{ defId: 'mat_alloy', qty: 12 }, { defId: 'mat_circuit', qty: 4 }, { defId: 'mat_power_cell', qty: 2 }],
 ];
+
+/* ══ appended: Phase 5 — meta progression (2026-09-06) ═══════════════════════════════════════════════════ */
+/** localStorage key of the meta save (credits / reputation / contracts / quests, `meta/`). */
+export const META_STORAGE_KEY = 'scav.meta';
+/** localStorage key of the persisted bag + loadout + quick slots (`inventory/Loadout.ts`). */
+export const LOADOUT_STORAGE_KEY = 'scav.loadout';

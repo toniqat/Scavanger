@@ -928,3 +928,41 @@ export interface PlayerWeaponHost {
    */
   setWeaponState(state: { hasWeapon: boolean; reloading: boolean; firing: boolean; twoHanded: boolean; throwing?: boolean; holdingItem?: boolean; charging?: boolean; spraying?: boolean; heavy?: boolean }): void;
 }
+
+/* ══ appended: Phase 5 — meta progression (2026-09-06, owner: meta/ unless noted) ═══════════════════════ */
+/**
+ * Mission-end rewards, filled by game/GameFlowSystem right before `game:complete` / `game:over` so the result
+ * screens (ui) can show the XP line and the contract settlement. All optional: older emitters keep compiling.
+ */
+export interface MissionRewards {
+  /** Character XP paid for this mission (`ctx.progression.addXp`). */
+  xpEarned: number;
+  levelBefore: number;
+  levelAfter: number;
+  /** XP into the current level / needed for the next, after the award. */
+  xp: number;
+  xpToNext: number;
+  /** Active-contract settlement (`ctx.meta.settleMission`), null when no contract was running. */
+  contract: import('./meta').ContractSettlement | null;
+}
+export interface MissionStats {
+  /* appended (Phase 5) */
+  rewards?: MissionRewards;
+}
+
+export interface InventoryRef {
+  /* ── appended: Phase 5 — corp shop / stash access (owner: inventory) ── */
+  /** Every stack in the ship stash (read-only snapshot). */
+  getStashItems(): ItemInstance[];
+  /** Like `findItem` but also searches the stash. */
+  findItemAnywhere(uid: string): ItemInstance | null;
+  /** Add a fresh instance to the stash grid (auto-placed). False when it does not fit. */
+  tryAddToStash(item: ItemInstance): boolean;
+  /** Bag first, then the stash. Returns where it landed, null when neither has room. */
+  tryAddItemAnywhere(item: ItemInstance): 'bag' | 'stash' | null;
+  /**
+   * Remove `qty` units (default: the whole stack) of bag / stash item `uid` without dropping it (corp sale). Equipped
+   * gear is refused. Returns how many units were removed (0 = not found / refused). Clears quick slots at 0.
+   */
+  takeItem(uid: string, qty?: number): number;
+}

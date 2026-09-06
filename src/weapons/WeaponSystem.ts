@@ -966,6 +966,11 @@ export class WeaponSystem implements GameSystem {
   }
 
   /* ───────────────── tactical kit: progression / implant modifiers (all optional, default 1) ───────────────── */
+  /** 재주 (Phase 5): consumable / gadget use speed — divides the quick-use cooldown. */
+  private useSpeedMul(): number {
+    const v = this.ctx.progression?.derived.useSpeedMul;
+    return typeof v === 'number' && v > 0 ? Math.max(0.25, v) : 1;
+  }
   /** 사격 스킬 recoil multiplier for a class (1 when progression is not registered yet). */
   private recoilMulFor(cls: WeaponClass): number {
     const v = this.ctx.progression?.derived.recoilMul[cls];
@@ -1005,7 +1010,7 @@ export class WeaponSystem implements GameSystem {
     let ok = false;
     try { ok = gadgets.use(id, this.gadgetUnderhand); } finally { this.quickBusy = false; }
     if (!ok) { this.deny(); return; }
-    this.quickCooldown = QUICK_USE_COOLDOWN;
+    this.quickCooldown = QUICK_USE_COOLDOWN / this.useSpeedMul();
     this.firingTimer = FIRING_POSE_HOLD * 0.5;
     host.addRecoil(0.01, 0);
     const cur = inv && typeof inv.getQuickSlots === 'function' ? inv.getQuickSlots()[q.index] : null;
@@ -1264,7 +1269,7 @@ export class WeaponSystem implements GameSystem {
     if (host.hp >= host.maxHp) { this.deny(); return; }
     const remaining = this.consumeQuick(q);
     if (remaining < 0) { this.deny(); return; }
-    this.quickCooldown = QUICK_USE_COOLDOWN;
+    this.quickCooldown = QUICK_USE_COOLDOWN / this.useSpeedMul();
     this.firingTimer = FIRING_POSE_HOLD * 0.5;
     host.applyStim(q.def.healAmount ?? 50);
     this.ctx.bus.emit('quick:used', { index: q.index, item: q.item, remaining });
@@ -1331,18 +1336,20 @@ export class WeaponSystem implements GameSystem {
       _md.set(0, 0.5, 0);
     } else {
       host.getAimRay(_o, _d);
+      // 근력 (Phase 5): range ∝ speed², so the speed scales by √throwRangeMul
+      const throwMul = Math.sqrt(Math.max(0.25, this.ctx.progression?.derived.throwRangeMul ?? 1));
       if (this.underhand) {
-        _md.copy(_d).multiplyScalar(GRENADE_THROW_SPEED * GRENADE_UNDERHAND_SPEED_MUL).addScaledVector(host.velocity, 0.5);
+        _md.copy(_d).multiplyScalar(GRENADE_THROW_SPEED * GRENADE_UNDERHAND_SPEED_MUL * throwMul).addScaledVector(host.velocity, 0.5);
         _md.y = Math.max(_md.y * 0.5, 0) + GRENADE_UNDERHAND_LIFT;
       } else {
-        _md.copy(_d).multiplyScalar(GRENADE_THROW_SPEED).addScaledVector(host.velocity, 0.5);
+        _md.copy(_d).multiplyScalar(GRENADE_THROW_SPEED * throwMul).addScaledVector(host.velocity, 0.5);
         _md.y += GRENADE_THROW_LIFT;
       }
     }
     this.grenades.throw(_tmp, _md, false, fuse);
     if (this.ctx.isMultiplayer && this.ctx.net) this.ctx.net.send({ t: 'grenade', p: toTuple(_tmp), v: toTuple(_md), fuse: Math.round(fuse * 100) / 100 });
     this.firingTimer = FIRING_POSE_HOLD;
-    this.quickCooldown = QUICK_USE_COOLDOWN;
+    this.quickCooldown = QUICK_USE_COOLDOWN / this.useSpeedMul();
     this.ctx.bus.emit('quick:used', { index: q.index, item: q.item, remaining });
     this.endHold(true);
     if (remaining <= 0 && !dropAtFeet) this.returnToGun();
@@ -1355,7 +1362,7 @@ export class WeaponSystem implements GameSystem {
     _md.set(0, 0, 0);
     this.grenades.throw(_tmp, _md, false, 0);
     if (this.ctx.isMultiplayer && this.ctx.net) this.ctx.net.send({ t: 'grenade', p: toTuple(_tmp), v: [0, 0, 0], fuse: 0 });
-    this.quickCooldown = QUICK_USE_COOLDOWN;
+    this.quickCooldown = QUICK_USE_COOLDOWN / this.useSpeedMul();
     if (remaining >= 0) this.ctx.bus.emit('quick:used', { index: q.index, item: q.item, remaining });
     this.endHold(true);
     if (remaining <= 0) this.returnToGun();

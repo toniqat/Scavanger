@@ -15,3 +15,5 @@ export * from './Keybinds';
 /* appended (2026-09-06): dev console + ship housing contracts */
 export * from './console';
 export * from './housing';
+/* appended (2026-09-06): Phase 5 meta progression contract */
+export * from './meta';

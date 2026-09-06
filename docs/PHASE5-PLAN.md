@@ -121,3 +121,62 @@ export interface MetaRef {                       // ctx.meta (owner: meta/MetaSy
 - 크레딧 초기값(제안 500), 귀중품 판매를 컴퓨터에서만 허용할지.
 - 창고 용량 상한(제안 200칸 자동 배치, 초과 시 이관 거부).
 - 프로필을 서버(릴레이)로 옮길지 여부는 이후 판단.
+
+---
+
+## 8. 실행 브리프 (2026-09-06 세션 — 미구현분 착수)
+
+### 8-0. 현황과 사용자 결정
+| 항목 | 상태 / 결정 |
+|---|---|
+| 5-a 창고 | **구현됨** (`inventory/Stash.ts`, 함선 Tab 3열 화면, `scav.stash`). **로드아웃 영속화(5절)는 미구현 → 이번에 구현** (inventory). |
+| 5-b XP/레벨 | **구현됨** (`progression/`). 결과 화면 XP 정산 줄·타이틀 레벨은 없음 → 이번에 구현 (ui). **레벨당 스탯 1 포인트**, `XP_BASE` 120 (`120·n^1.35`) — 계약 커밋에서 변경 완료. |
+| 스탯 5종 효과 | 사용자 정의 = 기존 `DerivedStats` 그대로: 근력(적재량·근접·점프·투척 사거리) · 지구력(스태미나 회복/최대) · 인지력(감지 반경·적 인디케이터 반경) · 지능(스킬 상승 속도) · 재주(소모품 사용 속도·상호작용 속도). 빠져 있던 소비처(수류탄 투척 거리, 퀵 사용 쿨다운, 모든 홀드 상호작용)는 계약 커밋에서 리드가 연결. **스킬 북은 이번엔 제외.** |
+| 5-c 기업·계약·퀘스트·상점·크레딧·컴퓨터 | **전부 미구현 → 이번에 구현** (meta / hub / ui / inventory). |
+| 크레딧 초기값 | 500 (`CREDITS_INITIAL`). 판매는 컴퓨터(기업 화면)에서만. |
+| 창고 용량 상한 | **그리드가 곧 상한** (10×24, 창고 시설로 최대 60행). 칸이 없으면 이관·구매·보상 거부. 별도 200칸 카운트 없음. |
+| 프로필 서버 | 계속 localStorage. 서버 저장은 이후 판단. |
+
+계약(`src/shared`)은 **이미 커밋됨**: `shared/meta.ts` 와 `types / events / constants / net / GameContext / index` 의 `Phase 5` 구역, 요약은 `src/shared/README.md` 마지막 절. 스켈레톤 `src/meta/MetaSystem.ts` 가 `main.ts` 에 등록되어 있고 (`InventorySystem` 다음), `InventorySystem` 에는 4개 스텁(`findItemAnywhere / tryAddToStash / tryAddItemAnywhere / takeItem`) 이 있으며, `GameFlowSystem.awardMissionXp` 가 `ctx.meta.settleMission(stats)` 를 부르고 `stats.rewards` 를 채운다.
+
+### 8-1. `src/meta/` (에이전트 A — 스켈레톤 교체)
+- `Storage.ts`: `MetaSave` v1 로드/정규화/저장 (`META_STORAGE_KEY`, 디바운스 350 ms, `pagehide` flush, 모든 접근 try/catch, 이상값 클램프 — `inventory/Stash.ts` 와 같은 패턴). 새 저장: 크레딧 `CREDITS_INITIAL`, 신뢰도 0, 계약 없음, 퀘스트 기록 없음. 퀘스트 상태는 `accepted / complete` 만 저장하고 `locked / available` 은 `QuestDef.requires` 로 매번 계산한다.
+- `Rules.ts` (순수 함수): 상점 목록 = `ctx.loot.getAllItemDefs()` 를 `CorpDef.stock` 규칙으로 필터 (무기는 `ctx.loot.getWeaponDef(def.weaponId).weaponClass`, `unique` 제외; 탄약 `ammoType`; 가방 `bag.tactical`; `minRepLevel`), 등급 상한 `SHOP_RARITY_CAP_BY_REP[level]` (가방 +`SHOP_BAG_RARITY_BONUS`), 가격 `buyPriceOf(def.value, level)`, 신뢰도 `repLevelOf`, 계약 수락 조건, 퀘스트 가용성.
+- `MetaSystem.ts`:
+  - 계약 진척 구독: `enemy:killed` (`type` 이 `rogue | rogue_boss` 면 `kill_rogues`, 아니면 `kill_bugs`), `crate:open` → `open_crates`, `inventory:containerOpened` (`containerId` 가 `corpse:` 로 시작 + `first`) → `loot_corpses` (이벤트가 아직 없으면 `crate:looted` 의 `corpse:` 로 폴백), `stratagem:called` (`caller` 가 null 또는 `ctx.net.localId`) → `use_stratagems`. 각 로컬 히트는 `reportContractHit(goal, n, true)` + 멀티면 `ctx.net.send({t:'meta', ev:'contractHit', corp, goal, amount}, 'others')`; `ctx.net.onMessage('meta', …)` 수신은 같은 기업 계약 중일 때 `reportContractHit(goal, amount, false)` (× `CONTRACT_SQUAD_SHARE`). 진척은 미션 중에만 오른다 (`ctx.isGameplayPhase()`).
+  - `game:newMission` 에서 `progressAtStart` 스냅샷. `settleMission(stats)` 규칙은 `MetaRef` 주석대로 (`extract_with_value` 는 `stats.lootValue`; 성공 = `extracted && progress ≥ target` → rep/credits 지급 + 계약 해제, **XP 는 지급하지 않는다** — GameFlow 가 `settlement.xp` 를 `addXp` 에 합산; 탈출·미완 = 진척 유지; 사망 = `progressAtStart` 로 복귀). 반환값을 `meta:contractSettled` 로도 emit.
+  - 상점/판매/계약 수락/퀘스트는 **함선에서만** (`ctx.isHubPhase() && !ctx.isRaidActive()`). `buy` → `addCredits(−price)` → `ctx.loot.createItem` → `ctx.inventory.tryAddItemAnywhere` (null 이면 환불 + false). `sell(uid, qty)` → `ctx.inventory.takeItem` 이 돌려준 수량 × `sellPriceOf`. `completeQuest` → 납품은 `countDefAll / consumeDefAll`, 보상 아이템은 `tryAddItemAnywhere` (자리 없으면 실패·소모 없음 — `QuestInfo.blocked` 에 `공간 없음`), `rep` 은 `addRep`, `xp` 는 `ctx.progression.addXp`, `credits` 는 `addCredits`.
+  - `hub:entered` / 모든 변경 후 저장. `resetMeta()`.
+  - 개발자 콘솔 (`ctx.console?.enabled` 일 때 `update()` 첫 프레임에 `register`): `credits <±n>`, `rep <helix|bastion|nomad|ceres|한국어> <±n>`, `contract list|accept <id>|abandon|hit <goal> <n>`, `quest list|accept <id>|complete <id>`.
+- `ui/CorpMenu.ts` + `meta.css` (`.menu.corp-menu`, `hub/hub.css` 의 `.menu .frame .ui-btn .hub-head .hub-section` 과 `ui/styles/base.css` 재사용): 헤더 `기업 네트워크` + 크레딧 readout; 기업 탭 4개 (`CorpDef.color` 강조, 이름·슬로건, 신뢰도 바 `rep / next` + `Lv.n`); 하위 탭 **상점 / 판매 / 계약 / 퀘스트**. 상점 행: 아이콘·이름(등급색)·가격·`구매`(`blocked` 사유로 disabled + 툴팁). 판매 행: 가방/창고 아이템(수량·판매가)·`판매` (스택은 전량, `전부 판매` 버튼은 귀중품만). 계약 행: 이름·설명·목표 `p / t` 바·보상·`수락 / 포기`. 퀘스트 행: 상태 배지(잠김/가능/진행/완료)·납품 목록 `have / qty`·보상·`수락 / 납품`. 블로커 토큰 `'corp'` 를 **먼저** 넣고 `exitPointerLock()`, 닫을 때 토큰 제거 후 blocker 없고 hub 면 마이크로태스크 재잠금, Esc 는 capture 리스너 (예: `hub/ui/WorkbenchMenu.ts` 를 읽고 같은 예절). `ui:corpToggled {open, corp}`. 패널 안 결과 메시지는 인라인 `.form-msg`; **토스트는 ui 폴더가 이벤트로 띄운다** (meta 는 `ui:notify` 를 쏘지 않는다). `audio:play` `ui_equip` / `ui_deny`.
+- 스모크 `scripts/smoke-meta.mjs` (`SMOKES` 등록 `folders: ['meta', 'inventory', 'hub', 'ui', 'game']`): `resetMeta` → 크레딧 500·`getShop('helix')` 빈 배열·`priceOf` null → `addRep('helix', 100)` → `meta:repChanged levelUp`, 레벨 1, 상점에 AR I / SMG I / P-2 / 경량탄 / 준중량탄만(희귀 없음, 유니크 없음), 가격 = `round(value × 1.45)` → `buy` → 크레딧 차감·가방에 인스턴스·`meta:purchase` → 잔액 부족 거부 → `sell`(가방의 `gem_amber`) → +130·아이템 소멸·`meta:sale` (inventory 의 `takeItem` 이 아직 스텁이면 이 체크는 `skip` 으로 출력하고 보고) → 계약 `helix_1` 수락(두 번째 거부, 신뢰도 부족 거부) → `game:newMission` (smoke-phase4 참고) → `enemies.debugSpawn` + 처치 → `meta:contractProgress` → `reportContractHit('kill_bugs', 30, true)` → `settleMission({…ctx.stats, extracted:false})` = 사망 규칙(진척 복귀) → 다시 채우고 `extracted:true` → 성공·rep +60·크레딧 +120·`meta:contractSettled` → 분대 공유 `reportContractHit(goal, 4, false)` = +1 → 퀘스트 `h1`: `createItem('mat_scrap', 10)` → `tryAddItem` → `acceptQuest` → `completeQuest` → 재료 소모·크레딧 +150·rep +150·`h2` available → **페이지 리로드 후** 크레딧/신뢰도/퀘스트 유지 → `openCorpMenu('ceres')` DOM·블로커·탭·Esc. 콘솔 오류 0.
+- README (파일 표, 규칙, 이벤트 표, 검증).
+
+### 8-2. `src/inventory/` (에이전트 B)
+- 스텁 4개 구현: `findItemAnywhere` (가방 → 슬롯 → 소켓 → 창고), `tryAddToStash` (`stash.grid.autoPlace` + `markDirty` + `inventory:stashChanged`), `tryAddItemAnywhere` (가방 → 창고), `takeItem(uid, qty?)` (가방/창고에서 수량 제거·장착품 거부·퀵슬롯 정리·이벤트). `openContainer / openContainerItems` 에서 `inventory:containerOpened {containerId, first}` emit (`containers` 캐시에 없었으면 `first: true`).
+- **로드아웃 영속화** `Loadout.ts` (`LOADOUT_STORAGE_KEY`, v1): 장착 5슬롯 + 가방 아이템(위치·회전·`durability / ammoInMag / sockets`) + 퀵슬롯(가방 인덱스). `Stash.ts` 의 직렬화/복원 코드를 `Serialize.ts` 로 추출해 둘이 공유한다. **정책(5절 확정)**: `init` 에서 저장본이 있으면 가방·슬롯을 그것으로 채운다(세션 상태가 진실); 이후 `hub` 페이즈의 모든 `afterChange()` 와 `game:complete`, `pagehide` 에 디바운스 저장 (`inventory:loadoutSaved {reason}`); `applyStarter()` 가 돌 때마다(사망 `game:over`·`player:respawn`·미션 중 abort·빈 함선 진입) **스타터를 저장**해 리로드가 잃어버린 가방을 되살리지 못하게 한다. 저장본이 없거나 비어 있으면 기존대로 `hub:entered` 에서 스타터.
+- 함선 Tab 화면(`is-hub`): 헤더에 `크레딧 n` readout (`ctx.meta?.credits`, `meta:creditsChanged` 로 갱신), 공용 탭의 **기업** 을 활성화 → 창을 닫고 `ctx.meta.openCorpMenu()` (meta 가 없으면 `ui:notify` 경고).
+- 스모크 `scripts/smoke-loadout.mjs` (`SMOKES` 등록 `folders: ['inventory']`): `localStorage.removeItem('scav.loadout')` → 리로드 → 함선 진입 → 스타터 → `createItem('gem_amber')` 넣기 + `createItem('wpn_smg37')` 를 `primary2` 에 `equip` → `inventory:loadoutSaved` → 리로드 → 가방·슬롯 동일 → `game:newMission` → `player:respawn` → 스타터 → 리로드 → 스타터 유지; `tryAddToStash` / `tryAddItemAnywhere`(가방 가득 → `'stash'`) / `takeItem`(가방·창고·장착품 거부) / `inventory:containerOpened` (`crate:open` 두 번 → first true / false); 기존 `smoke-quickslots`, `smoke-controls-hub`, `smoke-inventory-p6` 회귀 확인.
+- README (파일 표 + Reset policy 절 갱신).
+
+### 8-3. `src/hub/` (에이전트 C)
+- **함선 컴퓨터** 프롭 (`interiors/stations.ts` 또는 `parts.ts`: 책상 + 모니터 2대 + emissive 화면 `TextPlane` `기업 네트워크`, 라이트 추가 금지) — 개인 함선 조종석(예: −X 벽 터미널과 침상 사이, 또는 +Z 벽) 과 공유 함선 브리지에 각 1대. `ShipInterior.computer: StationDef` (hub 내부 `interiors/types.ts`). `Computer.ts`: `Interactable` `hub_computer` (즉시, 반경 2.2, 프롬프트 `기업 네트워크`) → `ctx.meta?.openCorpMenu()` (없으면 `ui:notify` 경고). `Terminal / Workbench` 와 같은 등록·해제 패턴.
+- `stationUsable()` 에 `ctx.meta?.isMenuOpen` 추가; hub 의 Esc 처리는 기업 화면이 열려 있으면 `ctx.meta.closeCorpMenu()` 를 먼저; 포인터락 상실 → 메뉴 열기 로직이 `'corp'` 블로커를 `'housing'` 처럼 무시하게.
+- 터미널 화면 상태 줄에 `크레딧 n` 한 줄 (`meta:creditsChanged` 갱신).
+- `scripts/smoke-ship-rooms.mjs` 확장: `hub_computer` 등록, E → `ui:corpToggled {open:true}` (meta 가 스텁이면 경고 토스트로 폴백 확인), Esc 로 닫힘, 컴퓨터 콜라이더에 밀려남. README (파일 표·좌표 표·Flow 표).
+
+### 8-4. `src/ui/` (에이전트 D)
+- `menus/MissionComplete.ts` / `menus/DeathScreen.ts`: `stats.rewards` 가 있으면 **XP 정산 블록** — `획득 XP +n` (카운트업), `Lv. a → b` (레벨업이면 강조 + `audio:play`), XP 바 `xp / xpToNext`; **계약 줄** — 성공 `계약 · <name> 성공 · 신뢰도 +rep · 크레딧 +credits`, 미완 `계약 · <name> p / t · 계속`, 사망 시 `진척 유지 안 됨` 문구. `rewards` 없으면 숨김.
+- `hud/ContractPanel.ts` (`.hud.gameplay`, 목표 패널 아래): 미션 시작(`world:ready`) 시 `ctx.meta?.activeContract` 가 있으면 `계약 · <name>` + `p / t` 진행 바; `meta:contractProgress` 로 갱신 + 잠깐 강조; 완료(≥ target) 시 `달성` 배지.
+- 토스트 (`hud/Notifications` 또는 `ProgressToasts` 방식): `meta:creditsChanged` → 합산 `+n 크레딧` 칩 (XP 칩처럼 1 s 코얼레싱, 음수는 `−n`), `meta:repChanged {levelUp:true}` → `헬릭스 방산 신뢰도 Lv.2`, `meta:contractSettled` → 성공/실패 큰 토스트, `meta:questChanged {state:'complete'}` → `퀘스트 완료 · <name>`, `meta:purchase / sale` → 짧은 줄.
+- `menus/TitleMenu.ts`: 콜사인 옆 `Lv. n` 칩 (`ctx.progression?.level`, `progress:loaded / levelUp` 갱신).
+- 스모크 `scripts/smoke-ui-p5.mjs` (`SMOKES` 등록 `folders: ['ui', 'meta', 'game']`): 합성 이벤트 — `game:complete {stats: {…, rewards}}` → 정산 DOM(레벨업/계약 성공), `game:over` + rewards(계약 미완) → DOM, `meta:contractProgress` 만으로 패널이 뜨는지, `meta:contractSettled` / `meta:repChanged` / `meta:creditsChanged` 토스트, 타이틀 `Lv.` 칩. 기존 `smoke-ui-p6`, `smoke-phase2` 회귀.
+- README.
+
+### 8-5. 공통 규칙 (Phase 6 §6 과 동일)
+1. 읽기 순서: `CLAUDE.md` → 이 문서 §8 → 자기 폴더 `README.md` → `src/shared/README.md` 마지막 절 → `src/shared/meta.ts`. **계약 파일 수정 금지** (필요하면 보고).
+2. 다른 폴더 파일은 수정하지 않는다. 다른 시스템은 `ctx.*Ref` 로만 쓰고, 스텁이면 `typeof fn === 'function'` / 옵셔널 체이닝으로 방어한다.
+3. 끝내기 전 `npm run typecheck` 0 오류, 자기 스모크 통과, 자기 폴더 README 갱신, `scripts/verify.mjs` `SMOKES` 등록 + `scripts/README.md` 한 줄 + `CLAUDE.md` Commands 블록 한 줄.
+4. 스모크: `scripts/smoke-progression.mjs` 머리(GL_ARGS, 포인터락 스텁, `waitFor` 60 s, `waitSim`, `tap`) 를 복사. **여러 에이전트가 동시에 편집하므로 자기 전용 vite 를 띄운다**: A `npx vite --port 5301 --strictPort`, B 5302, C 5303, D 5304 (다른 에이전트의 저장이 페이지를 리로드시키면 스크립트가 죽을 수 있다 — `smoke-console.mjs` 의 `vite-hmr` 소켓 파킹 기법을 복사하거나 재실행). 스크립트 첫 인자로 URL 을 받게 한다. 콘솔 오류 0.
+5. 한국어 UI, 절차적 지오메트리만, 라이트 개수 고정, 핫패스 할당 금지, `game:abort` / `game:newMission` 에서 dispose.
+6. 커밋하지 않는다. 완료 보고에 **변경 파일 목록 · 스모크 결과 수치 · 남은 이슈** 를 적는다.

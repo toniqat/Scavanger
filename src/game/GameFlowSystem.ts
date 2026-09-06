@@ -493,8 +493,18 @@ export class GameFlowSystem implements GameSystem {
       // `raids` / `extractions` are plain profile counters; ProgressionRef has no setter, so bump + save.
       prog.profile.raids += 1;
       if (extracted) prog.profile.extractions += 1;
+      const levelBefore = prog.level;
+      // Phase 5: settle the active corp contract first — its XP reward is paid through `addXp` below.
+      let contract = null;
+      const meta = ctx.meta;
+      if (meta && typeof meta.settleMission === 'function') {
+        try { contract = meta.settleMission(s); } catch (e) { console.error('[gameflow] contract settlement failed', e); }
+      }
+      if (contract?.success && contract.xp > 0) xp += contract.xp;
       if (xp > 0) prog.addXp(xp);
       prog.save();
+      // Result screens (ui) read the rewards from the `game:complete` / `game:over` stats payload.
+      s.rewards = { xpEarned: xp, levelBefore, levelAfter: prog.level, xp: prog.xp, xpToNext: prog.xpToNext, contract };
     } catch (e) {
       console.error('[gameflow] mission XP award failed', e);
     }

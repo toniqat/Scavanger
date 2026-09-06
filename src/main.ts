@@ -18,6 +18,7 @@ import { AudioSystem } from '@/audio/AudioSystem';
 import { GameFlowSystem } from '@/game/GameFlowSystem';
 import { HousingSystem } from '@/housing/HousingSystem';
 import { ConsoleSystem } from '@/console/ConsoleSystem';
+import { MetaSystem } from '@/meta/MetaSystem';
 import { loadKeybinds } from '@/shared';
 
 const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
@@ -45,6 +46,8 @@ engine.addSystem(new ImplantSystem());
 engine.addSystem(new WeaponSystem());
 engine.addSystem(new EnemySystem());
 engine.addSystem(new InventorySystem());
+// Phase 5: corporations / credits / contracts / quests — after inventory so buy / sell / deliveries can use the bag + stash.
+engine.addSystem(new MetaSystem());
 engine.addSystem(new GadgetSystem());     // deployables; after inventory so `use` can consume items
 engine.addSystem(new PickupSystem());     // world pickups (dropped items), after inventory
 engine.addSystem(new StratagemSystem());  // ship calls (Phase 3): after weapons/enemies/inventory, before extraction

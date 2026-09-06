@@ -1238,6 +1238,12 @@ export class InventorySystem implements GameSystem, InventoryRef {
   getStash(): Grid { return this.stash.grid; }
   getStashItems(): ItemInstance[] { return this.stash.items(); }
 
+  /* ── Phase 5 skeleton (2026-09-06): stubs until the inventory agent implements corp-shop access ── */
+  findItemAnywhere(uid: string): ItemInstance | null { return this.findItem(uid) ?? this.stash.grid.get(uid)?.item ?? null; }
+  tryAddToStash(_item: ItemInstance): boolean { return false; }
+  tryAddItemAnywhere(item: ItemInstance): 'bag' | 'stash' | null { return this.tryAddItem(item) ? 'bag' : null; }
+  takeItem(_uid: string, _qty?: number): number { return 0; }
+
   /** 캐릭터 tab: hand over to progression's character sheet (it owns its own blocker token). */
   openCharacter(): void {
     if (!this.ctx.progression) { this.ctx.bus.emit('ui:notify', { text: '캐릭터 정보를 사용할 수 없습니다', kind: 'warning' }); return; }

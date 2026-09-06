@@ -21,7 +21,7 @@ frame already has real numbers; `NetSystem` still goes first).
 | `index.ts` | Barrel. |
 
 ## 스탯 (5종)
-`STAT_BASE` 5 로 시작, `STAT_MAX` 20, 레벨업마다 `STAT_POINTS_PER_LEVEL`(2) 포인트.
+`STAT_BASE` 5 로 시작, `STAT_MAX` 20, 레벨업마다 `STAT_POINTS_PER_LEVEL`(1, Phase 5 부터 — 이전 2) 포인트.
 `spendStatPoint(id)` 는 **함선에서만** — `ctx.isRaidActive()` 이면 `false` 를 돌려주고 아무것도 바꾸지 않는다.
 
 | id | 이름 | 파생 |
@@ -96,7 +96,7 @@ gain = rawAmount × derived.skillGainMul × getSkillGainMul(skill) × statFactor
 inventory / items 의 신규 API 가 아직 없으면 `typeof` 체크 + `try/catch` 로 조용히 "퍼크 없음" 처리한다.
 
 ## 캐릭터 XP / 레벨
-`xpToNext = round(XP_BASE × level^XP_EXPONENT)` (240, 612, 1071, …).
+`xpToNext = round(XP_BASE × level^XP_EXPONENT)` (Phase 5 부터 `XP_BASE` 120: 120, 306, 536, …; 이전 240).
 `addXp` 는 남는 XP 를 이월하며 레벨업마다 `progress:levelUp` 을 emit 하고 즉시 저장한다.
 미션 종료 보상은 **`game/GameFlowSystem.awardMissionXp()`** 가 계산한다 (킬 · 생존 시간 · 탈출 보너스 · 전리품 가치).
 

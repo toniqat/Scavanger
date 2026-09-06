@@ -1304,7 +1304,9 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     let text: string | null = null;
     if (target) {
       text = target.getPrompt();
-      const hold = target.holdTime ?? 0;
+      // 재주 (Phase 5): every hold interaction runs `derived.interactSpeedMul` times faster — applied here once, so
+      // interactables publish their base `holdTime` and never scale it themselves.
+      const hold = (target.holdTime ?? 0) / Math.max(0.25, ctx.progression?.derived.interactSpeedMul ?? 1);
       if (hold > 0) {
         if (input.isDown(Keys.INTERACT) && this.holdArmed) {
           this.holdProgress += dt / hold;

@@ -436,3 +436,28 @@ export interface GameEvents {
 }
 
 export type GameEventName = keyof GameEvents;
+
+/* ══ appended: Phase 5 — meta progression (2026-09-06) ═══════════════════════════════════════════════════ */
+import type { ContractGoalKind, ContractSettlement, CorpId, QuestState } from './meta';
+export interface GameEvents {
+  /* ── corporations / credits / contracts / quests (owner: meta/MetaSystem) ── */
+  'meta:loaded': { credits: number };
+  'meta:creditsChanged': { credits: number; delta: number; reason: string };
+  'meta:repChanged': { corp: CorpId; rep: number; level: number; delta: number; levelUp: boolean };
+  'meta:contractAccepted': { id: string; corp: CorpId };
+  'meta:contractAbandoned': { id: string; corp: CorpId };
+  /** Progress moved (`delta` may be fractional for a squad share). HUD shows `progress / target` under the objective. */
+  'meta:contractProgress': { id: string; corp: CorpId; goal: ContractGoalKind; progress: number; target: number; delta: number };
+  'meta:contractSettled': ContractSettlement;
+  'meta:questChanged': { id: string; corp: CorpId; state: QuestState };
+  'meta:purchase': { corp: CorpId; defId: string; price: number; placed: 'bag' | 'stash' };
+  'meta:sale': { defId: string; qty: number; credits: number };
+  /** Corp screen (ship computer) opened / closed. Blocker token `'corp'`. */
+  'ui:corpToggled': { open: boolean; corp: CorpId | null };
+
+  /* ── owner: inventory ── */
+  /** A crate / corpse / supply container window opened; `first` = first time this container id was opened this mission. */
+  'inventory:containerOpened': { containerId: string; first: boolean };
+  /** The bag + loadout + quick slots were written to localStorage (`LOADOUT_STORAGE_KEY`). */
+  'inventory:loadoutSaved': { reason: string };
+}

@@ -346,6 +346,13 @@ export type ItemRequest =
   | { t: 'itemq'; ev: 'take'; id: string }
   | { t: 'itemq'; ev: 'sync' };
 
+/**
+ * Phase 5 (owner: meta/): a contract-goal action happened on this client (kill / crate / corpse / ship call). Sent to
+ * `others`; a receiver running a contract of the same corp progresses by `amount × CONTRACT_SQUAD_SHARE`. The relay
+ * is opaque; NetSystem hands it to `onMessage('meta')` subscribers.
+ */
+export interface MetaMessage { t: 'meta'; ev: 'contractHit'; corp: import('./meta').CorpId; goal: import('./meta').ContractGoalKind; amount: number }
+
 export type GameMessage =
   | PlayerSnapshot
   | FireMessage
@@ -375,7 +382,8 @@ export type GameMessage =
   | GadgetMessage
   | GadgetRequest
   | HarvestMessage
-  | HarvestRequest;
+  | HarvestRequest
+  | MetaMessage;
   /* append new message types above this line (keep `t` unique; prefix by owning folder if in doubt) */
 
 export type GameMessageType = GameMessage['t'];

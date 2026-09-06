@@ -445,9 +445,8 @@ export class GadgetSystem implements GameSystem, GadgetsRef {
       getPrompt: () => prompt,
       canInteract: () => sys.ctx.isGameplayActive() && !d.removing && !sys.pendingRecover.has(d.id),
       interact: () => { sys.recover(d.id); },
-      get holdTime(): number {
-        return (def.recoverTime || GADGET_DEFUSE_TIME) / Math.max(0.25, sys.derived('interactSpeedMul', 1));
-      },
+      // base hold; the player applies `derived.interactSpeedMul` to every hold (Phase 5)
+      holdTime: def.recoverTime || GADGET_DEFUSE_TIME,
     };
   }
 

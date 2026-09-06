@@ -285,9 +285,8 @@ export class GardenStation {
     const now = Date.now();
     this.refreshInstances(now, time);
     const c = this.counts(now);
-    const speed = this.ctx.progression?.derived?.interactSpeedMul ?? 1;
-    const base = c.ready > 0 ? HARVEST_HOLD : PLANT_HOLD;
-    this.interactable.holdTime = base / Math.max(0.2, speed);
+    // base hold only — the player applies `derived.interactSpeedMul` to every hold (Phase 5)
+    this.interactable.holdTime = c.ready > 0 ? HARVEST_HOLD : PLANT_HOLD;
     this.mat.emissiveIntensity = 0.35 + (c.ready > 0 ? 0.45 + 0.2 * Math.sin(time * 2.4) : 0);
   }
 
