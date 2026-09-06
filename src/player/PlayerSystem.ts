@@ -163,6 +163,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   /** weapons holds the mouse for its quick-use wheel: camera ignores mouse deltas while true */
   private lookLocked = false;
   private weaponState: WeaponState = { hasWeapon: false, reloading: false, firing: false, twoHanded: false, throwing: false, holdingItem: false, charging: false, spraying: false, heavy: false };
+  /** RMB is the weapon's alternative fire (unique weapons): never enter the ADS state. */
+  private altFireWeapon = false;
   private slowTimer = 0;
   private slowFactor = 1;
   private attachedParent: THREE.Object3D | null = null;
@@ -683,7 +685,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     return this.spawned && this.controlsEnabled && !this.isDead && !this._downed && !this.controller.diving
       && !(this.hellpod.isActive && this.hellpod.state !== 'exiting');
   }
-  setWeaponState(state: { hasWeapon: boolean; reloading: boolean; firing: boolean; twoHanded: boolean; throwing?: boolean; holdingItem?: boolean; charging?: boolean; spraying?: boolean; heavy?: boolean }): void {
+  setWeaponState(state: { hasWeapon: boolean; reloading: boolean; firing: boolean; twoHanded: boolean; throwing?: boolean; holdingItem?: boolean; charging?: boolean; spraying?: boolean; heavy?: boolean; altFire?: boolean }): void {
     this.weaponState.hasWeapon = state.hasWeapon;
     this.weaponState.reloading = state.reloading;
     this.weaponState.firing = state.firing;
@@ -694,7 +696,9 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.weaponState.charging = (state.charging ?? false) && state.hasWeapon;
     this.weaponState.spraying = (state.spraying ?? false) && state.hasWeapon;
     this.weaponState.heavy = (state.heavy ?? false) && state.hasWeapon;
-    if (!state.hasWeapon) this.setAiming(false);
+    // unique weapons with an alternative fire on RMB: the aim state is suppressed (no aim pose / camera facing / `aiming` bit)
+    this.altFireWeapon = (state.altFire ?? false) && state.hasWeapon;
+    if (!state.hasWeapon || this.altFireWeapon) this.setAiming(false);
   }
   /** Quick-use wheel open: the camera ignores mouse deltas (movement keeps working). */
   setLookLocked(locked: boolean): void { this.lookLocked = locked; }
@@ -790,7 +794,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
 
     // ── look & aim (aiming is cancelled during a roll / while downed; the quick-use wheel locks the look)
     if (active && locked && !this.lookLocked) this.rig.applyLook(input.mouseDX, input.mouseDY, this.aimBlend);
-    this.setAiming(active && locked && !downed && this.weaponState.hasWeapon && input.isMouseDown(MouseButtons.AIM) && !c.rolling);
+    this.setAiming(active && locked && !downed && this.weaponState.hasWeapon && !this.altFireWeapon && input.isMouseDown(MouseButtons.AIM) && !c.rolling);
 
     // ── movement input
     const mi = this.moveInput;

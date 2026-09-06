@@ -177,7 +177,7 @@ export class WeaponSystem implements GameSystem {
 
   private readonly camHit = makeHit();
   private readonly gunHit = makeHit();
-  private readonly weaponState = { hasWeapon: false, reloading: false, firing: false, twoHanded: false, throwing: false, holdingItem: false, charging: false, spraying: false, heavy: false };
+  private readonly weaponState = { hasWeapon: false, reloading: false, firing: false, twoHanded: false, throwing: false, holdingItem: false, charging: false, spraying: false, heavy: false, altFire: false };
 
   /* ─────────────────────────── GameSystem ─────────────────────────── */
   init(ctx: GameContext): void {
@@ -392,6 +392,7 @@ export class WeaponSystem implements GameSystem {
     ws.charging = !!up?.charging;
     ws.spraying = !!up?.spraying;
     ws.heavy = !!up?.heavy;
+    ws.altFire = armed && !!weapon?.unique && !weapon.unique.allowsAim;   // RMB = alt fire → player never enters ADS
     if (up?.firing) ws.firing = true;
     host.setWeaponState(ws);
   }

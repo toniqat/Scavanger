@@ -113,7 +113,7 @@ try {
     ok(m.type.includes('·') && !m.type.endsWith(uniq.ammo), `ammo label comes from AMMO_LABEL_KO (${uniq.ammo})`, m.type);
     for (const [id, l, r] of [['u_shock', '연쇄 전격', '충전 볼트'], ['u_shuriken', '표창 1개', '표창 3개 (F 길게: 용검)'], ['u_bow', '화살', '정조준'], ['u_bazooka', '착탄 로켓', '공중 폭발 (바닥 우클릭: 로켓 점프)'], ['u_minigun', '예열 후 사격', '—']]) {
       const has = await P((w) => !!window.__game.ctx.loot.getWeaponDef(w), id);
-      if (!has) { console.log(`  skip ${id} (no def yet)`); continue; }
+      if (!has) { ok(false, `${id} weapon def exists`); continue; }
       await emit('weapon:equipped', { ...eq, weaponId: id, name: id });
       const mv = await P(() => [...document.querySelectorAll('.weapon .modes .mv')].map((e) => e.textContent));
       ok(mv[0] === l && mv[1] === r, `${id} lines 좌 ${l} / 우 ${r}`, JSON.stringify(mv));
@@ -121,12 +121,7 @@ try {
     await emit('weapon:equipped', eq);
     const back = await P(() => ({ cls: document.querySelector('.weapon').className, disp: getComputedStyle(document.querySelector('.weapon .modes')).display }));
     ok(!/\bhas-modes\b/.test(back.cls) && back.disp === 'none', 'graded rifle → mode lines hidden again', `${back.cls} ${back.disp}`);
-  } else {
-    // TODO(lead): the items agent adds `u_flame` (WeaponDef.unique / altFire) in parallel — re-run once it lands to cover the mode lines.
-    console.log('  skip weapon panel mode lines: ctx.loot.getWeaponDef("u_flame") is undefined (items Phase 6 not merged yet)');
-    const none = await P(() => document.querySelector('.weapon').className);
-    ok(!/\bhas-modes\b/.test(none), 'graded rifle shows no mode lines', none);
-  }
+  } else ok(false, 'u_flame weapon def exists (items Phase 6)');
 
   console.log('status markers');
   const spot = () => P(() => { const p = window.__game.ctx.player; const f = p.getForward(); return [p.position.x + f.x * 5, p.position.y, p.position.z + f.z * 5]; });

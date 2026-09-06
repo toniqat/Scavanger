@@ -62,11 +62,11 @@ export const LOOT_TABLES: readonly TierTable[] = [
     categoryWeights: { ammo: 20, stim: 14, grenade: 12, material: 16, valuable: 38, attachment: 10, bag: 3, gadget: 9, herb: 5, armor: 4 },
     weaponChance: 0.35, maxStackQty: 4, ammoFraction: [0.35, 0.7],
     guaranteed: [{ categories: ['valuable'], minRarity: 'uncommon' }],
-    // SMGs are field-common; snipers rarely in supply crates; legendary gear is tier 3+ only; 전력 케이블 from here, 회로 기판 tier 3+
+    // SMGs are field-common; snipers rarely in supply crates; legendary gear is tier 3+ only; 전력 케이블 / 회로 기판 from here (circuit scarce)
     itemWeightMul: {
       wpn_smg37: 1.3, wpn_sr9: 0.35,
       armor_regen: 0, armor_ultralight: 0, armor_optical: 0,
-      ...uniqueAmmo(0), mat_cable: 1.2, mat_circuit: 0,
+      ...uniqueAmmo(0), mat_cable: 1.2, mat_circuit: 0.3,
     },
   },
   {

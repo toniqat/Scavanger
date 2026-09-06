@@ -269,7 +269,14 @@ try {
   ok(await H(() => window.__game.ctx.housing.setRoomPurpose(2, 'gym') === true && window.__game.ctx.housing.getRoom(2).level === 1), 'inactive purpose (gym) can still be assigned');
   ok(await H(() => window.__game.ctx.housing.setRoomPurpose(3, 'greenhouse') && window.__game.ctx.housing.setRoomPurpose(4, 'lab')), 'lab allowed once a greenhouse exists');
 
+  ok(await H(() => window.__game.ctx.housing.setRoomPurpose(7, 'workshop') === false && /하나만/.test(window.__game.ctx.housing.purposeBlock(7, 'workshop') ?? '')), 'second 작업실 refused (facility rooms are unique per ship)');
+  ok(await H(() => window.__game.ctx.housing.setRoomPurpose(7, 'range') === false), 'second 사격장 refused');
+
   console.log('housing mode');
+  ok(await H(() => window.__game.ctx.housing.enterHousingMode(0) === false && /안에서만/.test(window.__game.ctx.housing.housingModeBlock(0) ?? '')), 'enterHousingMode(0) refused from the cockpit (currentRoom null)');
+  await H(() => { const p = window.__game.ctx.player; const v = p.position.clone(); v.set(-3.8, 0, 2.5); p.spawnStanding(v, 0); });
+  await waitSim(0.3);
+  ok(await H(() => window.__game.ctx.hub.currentRoom === 0), 'player teleported into room 0 (hub.currentRoom 0)');
   ok(await H(() => window.__game.ctx.housing.enterHousingMode(0) === true), 'enterHousingMode(0)');
   const hm = await lastEv('housing:modeChanged');
   ok(hm && hm.active === true && hm.room === 0, 'housing:modeChanged {active, room 0}');

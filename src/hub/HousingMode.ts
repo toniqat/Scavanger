@@ -139,7 +139,7 @@ export class HousingMode {
     // keys
     if (input.wasPressed(Keys.MENU)) { this.exit(); return; }
     if (input.wasPressed(Keys.ROTATE_ITEM)) {
-      if (this.carry) this.carry.yaw = ((this.carry.yaw + 1) % 4) as Yaw;
+      if (this.carry) { this.carry.yaw = ((this.carry.yaw + 1) % 4) as Yaw; this.announceSelection(); }
       else housing?.rotateSelection();
     }
     let dir = 0;
@@ -226,6 +226,7 @@ export class HousingMode {
     if (this.carry) {
       if (typeof housing.move === 'function' && housing.move(this.carry.uid, x, y, this.carry.yaw)) {
         this.carry = null;
+        this.announceSelection();
         this.ctx.bus.emit('audio:play', { id: 'ui_equip' });
       } else this.ctx.bus.emit('audio:play', { id: 'ui_deny' });
       this.refresh(true);
@@ -245,9 +246,20 @@ export class HousingMode {
       const def = FURNITURE_DEF_MAP.get(under.defId);
       const fp = def ? furnitureFootprint(def, under.yaw) : { cols: 1, rows: 1 };
       roomCellToWorld(this.room, under.x, under.y, this.cursor, fp.cols, fp.rows);
+      this.announceSelection();
       this.ctx.bus.emit('audio:play', { id: 'ui_click' });
       this.refresh(true);
     }
+  }
+
+  /**
+   * `housing:selectionChanged` for what the cursor carries: the picked-up piece (its def + yaw) while moving one,
+   * otherwise the housing selection again — so the HUD hint never shows `선택 없음` while a piece is in hand.
+   */
+  private announceSelection(): void {
+    const housing = this.ctx.housing;
+    if (this.carry) this.ctx.bus.emit('housing:selectionChanged', { defId: this.carry.defId, yaw: this.carry.yaw });
+    else this.ctx.bus.emit('housing:selectionChanged', { defId: housing?.selectedFurniture ?? null, yaw: (housing?.selectedYaw ?? 0) as Yaw });
   }
 
   private recoverUnderCursor(): void {
@@ -256,7 +268,7 @@ export class HousingMode {
     const uid = this.carry?.uid ?? this.layer?.pieceAt(this.room, this.cell.x, this.cell.y)?.uid ?? null;
     if (!uid) return;
     const ok = housing.recover(uid);
-    if (ok) this.carry = null;
+    if (ok && this.carry) { this.carry = null; this.announceSelection(); }
     this.ctx.bus.emit('audio:play', { id: ok ? 'ui_equip' : 'ui_deny' });
     this.refresh(true);
   }

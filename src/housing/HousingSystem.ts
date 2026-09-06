@@ -148,9 +148,8 @@ export class HousingSystem implements GameSystem, HousingRef {
     if (!isRoomIndex(this.state, room)) return '없는 방입니다';
     if (ctx.phase !== 'hub') return '함선에서만 꾸밀 수 있습니다';
     if (ctx.hub?.ship !== 'personal') return '개인 함선에서만 꾸밀 수 있습니다';
-    // hub's `currentRoom` is null in the corridor / cockpit (and while it is still a stub): only a *different* room refuses
-    const cur = ctx.hub.currentRoom;
-    if (typeof cur === 'number' && cur !== room) return `방 ${room + 1} 안에서만 꾸밀 수 있습니다`;
+    // hub's `currentRoom` is null in the corridor / cockpit: the player has to stand inside the room being decorated
+    if (ctx.hub.currentRoom !== room) return `방 ${room + 1} 안에서만 꾸밀 수 있습니다`;
     return null;
   }
 

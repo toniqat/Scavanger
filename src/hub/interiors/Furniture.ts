@@ -221,9 +221,21 @@ interface Piece {
 const _pos = new THREE.Vector3();
 
 /**
+ * `housing:changed` reasons whose furniture effect already arrived through a per-piece `housing:furniture*` event
+ * (or that touch no placed piece at all) — the layer must not rebuild all ten rooms for them. Anything else
+ * (an unknown / future reason) still rebuilds everything.
+ */
+const COVERED_CHANGE_REASONS: ReadonlySet<string> = new Set([
+  'place', 'move', 'recover', 'furnitureUpgrade',   // per-piece events rebuilt the room
+  'craft', 'preset', 'purpose',                       // storage / presets / purpose (its recoveries were per-piece)
+  'facility:generator', 'facility:storage', 'facility:workshop', 'facility:range',
+]);
+
+/**
  * Renders `ctx.housing.getPlaced(room)` for every room of the personal ship: a model per piece under the room's
  * `furnitureGroup`, a collider blocker, a `Lv.n` sign for upgradeable pieces and an `Interactable`
- * `hub_furn_<uid>` for pieces with an interaction. Rebuilds a room on every `housing:furniture*` / `housing:changed`.
+ * `hub_furn_<uid>` for pieces with an interaction. Rebuilds a room on every `housing:furniture*`; `housing:changed`
+ * rebuilds everything only for a reason no per-piece event covered (`COVERED_CHANGE_REASONS`), `housing:loaded` always.
  */
 export class FurnitureLayer {
   private pieces = new Map<string, Piece>();
@@ -236,7 +248,7 @@ export class FurnitureLayer {
       b.on('housing:furnitureMoved', ({ item }) => this.rebuildRoom(item.room)),
       b.on('housing:furnitureUpgraded', ({ item }) => this.rebuildRoom(item.room)),
       b.on('housing:furnitureRecovered', ({ room }) => this.rebuildRoom(room)),
-      b.on('housing:changed', () => this.rebuildAll()),
+      b.on('housing:changed', ({ reason }) => { if (!COVERED_CHANGE_REASONS.has(reason)) this.rebuildAll(); }),
       b.on('housing:loaded', () => this.rebuildAll()),
     );
     this.rebuildAll();

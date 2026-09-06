@@ -36,6 +36,11 @@ export function facilityPurpose(id: FacilityId): RoomPurpose | null {
   return id === 'workshop' ? 'workshop' : id === 'range' ? 'range' : null;
 }
 
+/** Facility a room purpose carries (`workshop` / `range`), null for every other purpose. */
+export function facilityPurposeOf(purpose: RoomPurpose): FacilityId | null {
+  return purpose === 'workshop' ? 'workshop' : purpose === 'range' ? 'range' : null;
+}
+
 /** Current level of a facility. Room facilities read the (first) room of their purpose, 0 when there is none. */
 export function facilityLevel(state: ShipState, id: FacilityId): number {
   if (id === 'generator') return state.generatorLevel;
@@ -145,6 +150,11 @@ export function purposeChangeReason(state: ShipState, index: number, purpose: Ro
   if (!isRoomIndex(state, index)) return '없는 방입니다';
   if (purpose === 'empty') return null;
   if (purpose === 'lab' && !state.rooms.some((r, i) => i !== index && r.purpose === 'greenhouse')) return '연구실은 온실이 먼저 필요합니다';
+  // facility rooms (작업실 / 사격장) carry the facility level, so the ship holds at most one of each
+  if (facilityPurposeOf(purpose)) {
+    const other = state.rooms.findIndex((r, i) => i !== index && r.purpose === purpose);
+    if (other >= 0) return `${ROOM_PURPOSE_LABEL_KO[purpose]}은(는) 함선에 하나만 둘 수 있습니다 (방 ${other + 1})`;
+  }
   const blocking = state.furniture.filter((f) => {
     if (f.room !== index) return false;
     const def = FURNITURE_DEF_MAP.get(f.defId);
