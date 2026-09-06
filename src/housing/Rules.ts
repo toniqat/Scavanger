@@ -2,7 +2,8 @@ import type { CraftIngredient, FacilityId, FurnitureDef, ItemDef, PlacedBook, Pl
 import {
   BENCH_MAX_LEVEL, BOOK_GAIN_MAX, BOOK_RARITY_MUL, BOOK_XP_PER_BOOK, FACILITY_LABEL_KO, FURNITURE_DEF_MAP, GENERATOR_MAX_LEVEL, GENERATOR_UPGRADE_COST, PRESETS_BY_RANGE_LEVEL,
   RANGE_MAX_LEVEL, RANGE_SKILL_GAIN_PER_LEVEL, RANGE_UPGRADE_COST, ROOM_GRID_COLS, ROOM_GRID_ROWS, ROOM_PURPOSE_LABEL_KO,
-  ROOM_PURPOSES, STASH_COLS, STASH_ROWS_BY_STORAGE_LEVEL, STORAGE_MAX_LEVEL, STORAGE_UPGRADE_COST, WORKSHOP_COST_DISCOUNT_PER_LEVEL,
+  ROOM_PURPOSES, ROOM_PURPOSE_BUILD_COST, ROOM_PURPOSE_BUILD_GENERATOR_LEVEL,
+  STASH_COLS, STASH_ROWS_BY_STORAGE_LEVEL, STORAGE_MAX_LEVEL, STORAGE_UPGRADE_COST, WORKSHOP_COST_DISCOUNT_PER_LEVEL,
   WORKSHOP_MAX_LEVEL, WORKSHOP_UPGRADE_COST, WORKSHOP_ROOM_INDEX, furnitureFootprint,
 } from '@/shared';
 
@@ -102,6 +103,63 @@ export function facilityBlockReason(state: ShipState, id: FacilityId, count: Cou
 }
 
 export function facilityName(id: FacilityId): string { return FACILITY_LABEL_KO[id]; }
+
+/**
+ * Everything the player has **spent** raising `id` to `level`, merged per material (Phase 9 UI pass — the 시설 제거
+ * button in the 방 목록 refunds it into the 함선 창고). Level 1 of a room facility comes free with the purpose, so
+ * only the level → level + 1 tables from `nextFacilityCost` are summed; a ship-wide facility starts at level 0 and
+ * therefore refunds its first step too. Empty array when nothing was ever paid.
+ */
+export function facilityRefundCost(id: FacilityId, level: number): CraftIngredient[] {
+  const start = facilityPurpose(id) ? 1 : 0;       // room facilities: level 1 is paid by the 시설 증축 instead
+  const total = new Map<string, number>();
+  for (let k = start; k < level; k++) {
+    for (const c of nextFacilityCost(id, k) ?? []) total.set(c.defId, (total.get(c.defId) ?? 0) + c.qty);
+  }
+  return [...total].map(([defId, qty]) => ({ defId, qty }));
+}
+
+/* ── 시설 증축 (Phase 9 UI pass) ───────────────────────────────────────────
+ * Giving an empty room a purpose costs materials now (`ROOM_PURPOSE_BUILD_COST`) and sits behind the same 발전기
+ * gate as every other upgrade. 빈 방 (tearing a room back down) stays free and always refunds.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+/** Materials a 시설 증축 to `purpose` costs; empty for 빈 방 (and for anything the table does not know). */
+export function purposeBuildCost(purpose: RoomPurpose): readonly CraftIngredient[] {
+  return purpose === 'empty' ? [] : ROOM_PURPOSE_BUILD_COST[purpose] ?? [];
+}
+
+/**
+ * Full 한국어 reason a 시설 증축 is refused; null = go ahead. Structure first (`purposeChangeReason` — locked room,
+ * duplicate facility, blocking furniture, 연구실 prerequisite), then the 발전기 gate, then the materials. 빈 방 only
+ * ever hits the structural rules.
+ */
+export function purposeBuildBlockReason(
+  state: ShipState, index: number, purpose: RoomPurpose, count: CountFn, nameOf: NameFn,
+): string | null {
+  const structural = purposeChangeReason(state, index, purpose);
+  if (structural) return structural;
+  if (purpose === 'empty') return null;
+  const gate = generatorGateReason(state, ROOM_PURPOSE_BUILD_GENERATOR_LEVEL);
+  if (gate) return gate;
+  const missing = missingIngredients(purposeBuildCost(purpose), count);
+  if (missing.length) return `재료 부족: ${formatCost(missing, nameOf)}`;
+  return null;
+}
+
+/**
+ * Everything a room got charged for: the 시설 증축 plus every facility upgrade above level 1. This is what 시설 제거
+ * hands back into the 함선 창고.
+ */
+export function roomRefundCost(purpose: RoomPurpose, level: number): CraftIngredient[] {
+  const total = new Map<string, number>();
+  for (const c of purposeBuildCost(purpose)) total.set(c.defId, (total.get(c.defId) ?? 0) + c.qty);
+  const fid = facilityPurposeOf(purpose);
+  if (fid) {
+    for (const c of facilityRefundCost(fid, Math.max(1, level))) total.set(c.defId, (total.get(c.defId) ?? 0) + c.qty);
+  }
+  return [...total].map(([defId, qty]) => ({ defId, qty }));
+}
 
 /* ── derived numbers ──────────────────────────────────────────────────────── */
 

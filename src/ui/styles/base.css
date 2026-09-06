@@ -481,10 +481,17 @@ input { font: inherit; color: inherit; }
   transition: opacity var(--t-med) var(--ease);
 }
 .stamina.full { opacity: 0; }
-.stamina .ui-label { font-size: 9px; letter-spacing: 0.22em; opacity: 0.7; }
-.stam-bar { position: relative; width: 200px; height: 3px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
+/* Phase 9 UI pass: the bar used to be a translucent grey that vanished against a bright floor — it is solid white
+   on a dark track now, with a soft glow so it reads over anything. */
+.stamina .ui-label { font-size: 9px; letter-spacing: 0.22em; opacity: 1; color: var(--c-text); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9); }
+.stam-bar {
+  position: relative; width: 210px; height: 5px; overflow: hidden;
+  background: rgba(0, 0, 0, 0.65); border: 1px solid rgba(255, 255, 255, 0.35);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+}
 .stam-bar .fill {
-  position: absolute; inset: 0; background: var(--c-text-dim);
+  position: absolute; inset: 0; background: #fff;
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.55);
   transform-origin: left; will-change: transform;
   transition: background var(--t-fast) var(--ease);
 }
@@ -720,13 +727,14 @@ input { font: inherit; color: inherit; }
   padding: 8px 12px; border-left: 2px solid var(--c-accent); background: rgba(255, 179, 71, 0.07);
 }
 
-/* ── Squad list (top-left, under the objective) ── */
+/* ── Squad list (Phase 9 UI pass: bottom-left, directly above the vitals — see `.hud-bl`) ── */
 .squad {
-  position: absolute; left: 32px; top: 118px;
   display: flex; flex-direction: column; gap: 6px;
-  width: 210px;
+  width: 232px;
   transition: opacity var(--t-med) var(--ease), visibility var(--t-med) var(--ease);
 }
+/* inside the column an invisible list must not reserve a gap, so it collapses outright */
+.hud-bl > .squad.hidden { display: none !important; }
 .squad .ui-label { margin-bottom: 2px; }
 .srow { --sc: #fff; display: flex; gap: 8px; height: 30px; }
 .srow .bar { width: 3px; background: var(--sc); box-shadow: 0 0 6px color-mix(in srgb, var(--sc) 50%, transparent); }
@@ -798,15 +806,20 @@ input { font: inherit; color: inherit; }
  *                        is visible in gameplay AND in the hub; `.hud.hub` marks the hub phases
  * ══════════════════════════════════════════════════════════════════════════ */
 
-/* Chat log (bottom-left, above the vitals; sits at the bottom in the hub where there are no vitals) */
-.chat {
-  position: absolute; left: 32px; bottom: 150px;
+/* Bottom-left column (Phase 9 UI pass): chat log on top, squad list under it, both stacked over the vitals.
+   In the hub / while spectating there are no vitals, so the whole column drops to the bottom edge. */
+.hud-bl {
+  position: absolute; left: 32px; bottom: 122px;
   width: 380px; max-width: calc(100vw - 64px);
-  display: flex; flex-direction: column; gap: 6px;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 12px;
   transition: bottom var(--t-med) var(--ease);
 }
-.hud.hub .chat { bottom: 32px; }
-.hud.spectating .chat { bottom: 32px; }
+.hud.hub .hud-bl { bottom: 32px; }
+.hud.spectating .hud-bl { bottom: 32px; }
+.chat {
+  width: 100%;
+  display: flex; flex-direction: column; gap: 6px;
+}
 .chat-lines {
   display: flex; flex-direction: column; gap: 2px;
   max-height: 168px; overflow-y: auto;
@@ -854,7 +867,7 @@ input { font: inherit; color: inherit; }
 
 /* hub: the interaction prompt sits a little lower (no weapon / vitals), squad list moves up under the top edge */
 .hud.hub .prompt { bottom: 22%; }
-.hud.hub .squad { top: 28px; }
+
 
 /* ── Phase 2: quick-use wheel / grenade cook gauge / downed vitals / respawn ── */
 
@@ -1001,10 +1014,11 @@ input { font: inherit; color: inherit; }
 .swheel .ssub { font-size: 8px; letter-spacing: 0.08em; color: var(--c-text-faint); line-height: 1.3; }
 
 /* Ship-call panel: above the weapon panel, bottom-right */
+/* Phase 9 UI pass: in the weapon column (topmost) instead of a fixed `bottom` — the 임플란트 / 빠른 사용 strips made
+   that offset land inside the panel, and the column's height now depends on what the player carries. */
 .strat-panel {
-  position: absolute; right: 32px; bottom: 176px;
   display: flex; flex-direction: column; align-items: flex-end; gap: 3px;
-  min-width: 150px; max-width: 260px;
+  min-width: 150px; max-width: 260px; margin-bottom: 4px;
   opacity: 0.8; transition: opacity var(--t-fast) var(--ease);
 }
 .strat-panel.off { display: none; }
@@ -1200,28 +1214,6 @@ input { font: inherit; color: inherit; }
 .qslot.used { animation: qslotUse 420ms ease-out; }
 @keyframes qslotUse { 0% { border-color: var(--c-accent); background: rgba(255, 179, 71, 0.25); } 100% { border-color: var(--c-border); background: var(--c-panel); } }
 
-/* Carry weight (right side, above the weapon panel) */
-.weightbar {
-  position: absolute; right: 32px; bottom: 138px;
-  width: 200px;
-  display: flex; flex-direction: column; gap: 4px; align-items: flex-end;
-}
-.weightbar .row { display: flex; align-items: baseline; gap: 10px; width: 100%; justify-content: space-between; }
-.weightbar .val { font-size: 12px; color: var(--c-text); }
-.weightbar .bar { position: relative; width: 100%; height: 4px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
-.weightbar .bar .fill { position: absolute; inset: 0; background: var(--c-text); transform-origin: left; transform: scaleX(0); will-change: transform; }
-.weightbar .bar .tick { position: absolute; top: 0; width: 1px; height: 100%; background: rgba(0, 0, 0, 0.75); }
-.weightbar .bar .tick.heavy { background: rgba(255, 77, 77, 0.8); }
-.weightbar .state { font-size: 10px; letter-spacing: 0.16em; color: var(--c-text-dim); }
-.weightbar.light .bar .fill { background: var(--c-info); }
-.weightbar.light .state { color: var(--c-info); }
-.weightbar.heavy .bar .fill { background: var(--c-accent); }
-.weightbar.heavy .state { color: var(--c-accent); }
-.weightbar.over .bar .fill { background: var(--c-danger); }
-.weightbar.over .state { color: var(--c-danger); animation: pulseRed 1s ease-in-out infinite; }
-.weightbar.alert { animation: weightAlert 420ms ease-out; }
-@keyframes weightAlert { 0% { transform: translateX(6px); } 40% { transform: translateX(-4px); } 100% { transform: none; } }
-
 /* Detection: off-screen enemy arrows */
 .detect-arrows { position: absolute; inset: 0; }
 .detect-arrow { position: absolute; left: 0; top: 0; width: 0; height: 0; will-change: transform, opacity; }
@@ -1378,7 +1370,7 @@ input { font: inherit; color: inherit; }
   linear-gradient(-45deg, transparent 44%, var(--sw) 44% 56%, transparent 56%); }
 
 /* dead-but-spectating: hide the personal tactical widgets too */
-.hud.spectating .implant, .hud.spectating .quickbar, .hud.spectating .weightbar { opacity: 0 !important; visibility: hidden; }
+.hud.spectating .implant, .hud.spectating .quickbar { opacity: 0 !important; visibility: hidden; }
 
 /* ═══ Controls diagram (title screen) + key-settings overlay (2026-09-06) ═══ */
 .menu.title .frame {
@@ -1549,28 +1541,33 @@ input { font: inherit; color: inherit; }
 }
 .cheat-tag.show { opacity: 1; }
 
-/* Housing-mode hint bar: own layer `.hud.housing` (never hidden by the gameplay/social gating) */
+/* Housing-mode hints: own layer `.hud.housing` (never hidden by the gameplay/social gating).
+ * Phase 9 UI pass — the bottom-centre bar carries only the placement key hints, and 종료 (Esc) moved to its own
+ * bottom-right chip styled like the ship's 시설 관리(M) hint it stands in for. */
 .hud.housing { pointer-events: none; }
 .housing-hint {
   position: absolute; left: 50%; bottom: 40px; transform: translate(-50%, 12px);
   display: flex; flex-direction: column; align-items: center; gap: 4px;
-  padding: 10px 18px; min-width: 320px;
+  padding: 8px 18px;
   background: rgba(8, 9, 11, 0.72); border: 1px solid var(--c-border);
   opacity: 0; visibility: hidden;
   transition: opacity var(--t-fast) var(--ease), transform var(--t-fast) var(--ease), visibility var(--t-fast);
 }
 .housing-hint.show { opacity: 1; visibility: visible; transform: translate(-50%, 0); }
 .housing-hint .row { display: flex; align-items: center; gap: 10px; font-size: 12px; }
-.housing-hint .k { font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--c-text-faint); }
-.housing-hint .v { color: var(--c-text); }
-.housing-hint .name { font-weight: 600; letter-spacing: 0.06em; color: var(--fc, var(--c-text)); }
-.housing-hint .name.none { color: var(--c-text-dim); font-weight: 400; }
-.housing-hint .yaw { font-family: var(--ui-mono); font-size: 11px; color: var(--c-text-dim); }
-.housing-hint .valid { font-size: 10px; letter-spacing: 0.14em; padding: 1px 6px; border: 1px solid var(--c-border); color: var(--c-text-dim); }
-.housing-hint .valid.ok { color: var(--c-success); border-color: rgba(79, 209, 126, 0.6); }
-.housing-hint .valid.bad { color: var(--c-danger); border-color: rgba(255, 77, 77, 0.6); }
-.housing-hint .valid:empty { display: none; }
-.housing-hint .keys { font-size: 10px; letter-spacing: 0.12em; color: var(--c-text-dim); margin-top: 2px; }
+.housing-hint .keys { font-size: 11px; letter-spacing: 0.12em; color: var(--c-text-dim); white-space: nowrap; }
+
+.housing-exit {
+  position: absolute; right: 28px; bottom: 28px;
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px;
+  background: rgba(8, 9, 11, 0.6); border: 1px solid var(--c-border);
+  opacity: 0; visibility: hidden; transform: translateY(6px);
+  transition: opacity var(--t-fast) var(--ease), transform var(--t-fast) var(--ease), visibility var(--t-fast);
+}
+.housing-exit.show { opacity: 1; visibility: visible; transform: none; }
+.housing-exit .t { font-size: 11px; letter-spacing: 0.16em; color: var(--c-text-dim); }
+.housing-exit .keycap { min-width: 20px; height: 20px; font-size: 10px; }
 
 /* Room entry label (social layer, top-centre; fades after the hold time) */
 .room-label {
@@ -1642,10 +1639,10 @@ input { font: inherit; color: inherit; }
 .contract-panel .name { font-size: 13px; font-weight: 600; letter-spacing: 0.02em; }
 .contract-panel .row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 11px; color: var(--c-text-dim); }
 .contract-panel .num { font-family: var(--ui-mono); font-variant-numeric: tabular-nums; color: var(--c-text); }
-.contract-panel.done .num { color: var(--c-success); }
+.contract-panel.done .mine .num { color: var(--c-success); }
 .contract-panel .bar { position: relative; height: 3px; background: var(--c-fill); overflow: hidden; }
 .contract-panel .bar .fill { position: absolute; inset: 0; background: var(--c-accent); transform-origin: left; transform: scaleX(0); transition: transform var(--t-med) var(--ease); will-change: transform; }
-.contract-panel.done .bar .fill { background: var(--c-success); }
+.contract-panel.done .mine .bar .fill { background: var(--c-success); }
 .contract-panel.pulse { border-left-color: var(--c-accent); animation: contractPulse 900ms var(--ease); }
 @keyframes contractPulse { 0% { background: rgba(255, 179, 71, 0.28); } 100% { background: rgba(8, 9, 11, 0.45); } }
 .hud.spectating .contract-panel { opacity: 0 !important; }
@@ -1893,6 +1890,17 @@ button.item-chip[data-def-id] { cursor: pointer; }
 .sm-room.is-on { border-color: var(--c-accent); background: rgba(255, 179, 71, 0.14); }
 .sm-room.is-on .p { color: var(--c-accent); }
 
+/* shared facility thumbnail (Phase 9 UI pass): the same icon in the room list and in the 용도 지정 picker */
+.sm-room { align-items: center; }
+.sm-thumb {
+  flex: none; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--pc, #7d858f) 45%, transparent);
+  background: linear-gradient(160deg, color-mix(in srgb, var(--pc, #7d858f) 16%, transparent), rgba(0, 0, 0, 0.3));
+}
+.sm-thumb .g { font-size: 14px; line-height: 1; color: var(--pc, #7d858f); }
+.sm-purpose .sm-thumb { width: 34px; height: 34px; }
+.sm-purpose .sm-thumb .g { font-size: 18px; }
+
 /* Phase 8 UI pass: the furniture list is a **vertical side panel on the right**, not a bar along the bottom, and
  * it swaps to a 용도 지정 picker while an empty room is selected. */
 .sm-side {
@@ -1913,33 +1921,46 @@ button.item-chip[data-def-id] { cursor: pointer; }
 .sm-clear:hover { color: var(--c-danger); border-color: rgba(255, 77, 77, 0.6); }
 .sm-clear[hidden] { display: none; }
 .sm-empty { font-size: 11px; letter-spacing: 0.06em; color: var(--c-text-faint); padding: 10px 2px; }
-.sm-cards, .sm-purposes {
+/* 가구 제작 / 가구 창고 tabs (Phase 9 UI pass) — hidden while an empty room shows the 용도 지정 picker */
+.sm-tabs { display: flex; gap: 4px; }
+.sm-tabs[hidden] { display: none; }
+.sm-tab {
+  flex: 1; padding: 4px 6px;
+  border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03);
+  font: inherit; font-size: 10px; letter-spacing: 0.12em; color: var(--c-text-dim); cursor: pointer;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease);
+}
+.sm-tab:hover { color: var(--c-text); border-color: var(--c-border-strong); }
+.sm-tab.is-on { color: var(--c-accent); border-color: var(--c-accent); background: rgba(255, 179, 71, 0.12); }
+.sm-cards, .sm-purposes, .sm-store {
   display: flex; flex-direction: column; gap: 6px;
   flex: 1; min-height: 0;
   overflow-y: auto; overflow-x: hidden;
   padding-right: 4px;
   scrollbar-width: thin;
 }
-.sm-cards[hidden], .sm-purposes[hidden] { display: none; }
-.sm-cards::-webkit-scrollbar, .sm-purposes::-webkit-scrollbar { width: 6px; }
-.sm-cards::-webkit-scrollbar-thumb, .sm-purposes::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.22); }
+.sm-cards[hidden], .sm-purposes[hidden], .sm-store[hidden] { display: none; }
+.sm-cards::-webkit-scrollbar, .sm-purposes::-webkit-scrollbar, .sm-store::-webkit-scrollbar { width: 6px; }
+.sm-cards::-webkit-scrollbar-thumb, .sm-purposes::-webkit-scrollbar-thumb, .sm-store::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.22); }
 
-/* 용도 지정 (empty room) */
+/* 용도 지정 (empty room) — sorted 제작 가능 → 제작 불가 → 이미 제작, each row led by the facility thumbnail */
 .sm-purpose {
-  display: flex; flex-direction: column; gap: 3px; flex: none;
+  display: flex; flex-direction: row; align-items: center; gap: 10px; flex: none;
   padding: 8px 10px; text-align: left;
   border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03);
   font: inherit; color: var(--c-text); cursor: pointer;
   transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
 }
 .sm-purpose:hover { background: rgba(255, 255, 255, 0.09); border-color: var(--c-border-strong); }
+.sm-purpose .bd { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.sm-purpose.rank-2 { opacity: 0.7; }
 .sm-purpose .ln { display: flex; align-items: center; gap: 8px; }
 .sm-purpose .nm { font-size: 13px; font-weight: 600; letter-spacing: 0.06em; }
 .sm-purpose .badge { font-size: 8px; letter-spacing: 0.12em; color: var(--c-text-faint); border: 1px solid var(--c-border); padding: 1px 5px; }
-.sm-purpose .ds { font-size: 10px; line-height: 1.4; color: var(--c-text-faint); }
+/* Phase 9 UI pass: the prose description is gone — a 용도 row carries its 시설 증축 cost chips instead */
+.sm-cost { display: flex; flex-wrap: wrap; gap: 6px; min-height: 24px; }
 .sm-purpose.is-blocked { cursor: not-allowed; border-style: dashed; }
 .sm-purpose.is-blocked .nm { color: var(--c-text-dim); }
-.sm-purpose.is-blocked .ds { color: var(--c-danger); }
 
 /* 가구 카드: horizontal row inside the vertical list */
 .fcard {
@@ -2023,3 +2044,89 @@ button.item-chip[data-def-id] { cursor: pointer; }
 .nameplate.bleeding .hp .fill, .srow.bleeding .hp .fill { background: rgba(154, 160, 170, 0.35); }
 .nameplate .tag.dead { color: var(--c-danger); border-color: rgba(255, 77, 77, 0.55); }
 .srow.suspended.dead .state { color: var(--c-danger); }
+
+/* ═══ Phase 9 UI pass (2026-09-07): in-raid HUD — 분대 계약 rows, 빠른 사용 · 임플란트 썸네일 column ═══ */
+
+/* Contract panel: own block + the squad's contracts under it (hud/ContractPanel) */
+.contract-panel { width: 250px; gap: 8px; }
+.contract-panel > .mine { display: flex; flex-direction: column; gap: 4px; }
+.contract-panel .mates { display: flex; flex-direction: column; gap: 5px; padding-top: 6px; border-top: 1px solid var(--c-border); }
+.contract-panel .mates .ui-label { font-size: 9px; letter-spacing: 0.2em; }
+.contract-panel .mrow { --sc: #fff; display: flex; flex-direction: column; gap: 2px; }
+.contract-panel .mrow .top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.contract-panel .mrow .who {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.02em; color: var(--sc);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.contract-panel .mrow .num { font-family: var(--ui-mono); font-variant-numeric: tabular-nums; font-size: 10px; color: var(--c-text-dim); flex: none; }
+.contract-panel .mrow .ct { font-size: 10px; color: var(--c-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.contract-panel .mrow .bar { position: relative; height: 2px; background: var(--c-fill); overflow: hidden; }
+.contract-panel .mrow .bar .fill {
+  position: absolute; inset: 0; background: var(--sc); transform-origin: left; transform: scaleX(0);
+  transition: transform var(--t-med) var(--ease); will-change: transform;
+}
+.contract-panel .mrow.done .num { color: var(--c-success); }
+.contract-panel .mrow.done .bar .fill { background: var(--c-success); }
+
+/* 빠른 사용 thumbnails (hud/QuickStrip) — a row above the weapon slot strip, right aligned */
+.qstrip { display: flex; gap: 4px; margin-bottom: 2px; }
+.qs-cell {
+  position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 3px 3px 2px; border: 1px solid var(--c-border); background: rgba(0, 0, 0, 0.32);
+  transition: border-color var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease), opacity var(--t-fast) var(--ease);
+}
+.qs-cell .qs-dir { font-size: 9px; line-height: 1; color: var(--c-text-faint); }
+.qs-body { display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; }
+.qs-cell.empty { opacity: 0.35; }
+.qs-cell.empty .qs-body::after {
+  content: ""; width: 10px; height: 10px; border: 1px solid var(--c-border-strong); transform: rotate(45deg);
+}
+.qs-cell.is-hand { border-color: var(--c-accent); background: rgba(255, 179, 71, 0.16); }
+.qs-cell.is-hand .qs-dir { color: var(--c-accent); }
+/* the shared item chip already draws the thumbnail; kill its own frame inside a tile */
+.qs-body .item-chip { pointer-events: auto; }
+
+/* 전술 임플란트 thumbnail (hud/ImplantChip) — above the 빠른 사용 strip */
+.implant-chip {
+  --ic: #9fb6c8;
+  display: flex; align-items: center; gap: 8px;
+  padding: 3px 8px 3px 3px; margin-bottom: 2px;
+  border: 1px solid color-mix(in srgb, var(--ic) 45%, transparent);
+  background: rgba(0, 0, 0, 0.35);
+  transition: opacity var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.implant-chip .ic-thumb {
+  flex: none; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--ic) 55%, transparent);
+  background: color-mix(in srgb, var(--ic) 12%, transparent);
+}
+.implant-chip .ic-glyph { font-size: 14px; line-height: 1; color: var(--ic); }
+.implant-chip .ic-body { display: flex; align-items: center; gap: 8px; }
+.implant-chip .ic-name { font-size: 10px; letter-spacing: 0.1em; color: var(--c-text); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8); }
+.implant-chip .ic-key {
+  font-family: var(--ui-mono); font-size: 9px; color: var(--c-text-dim);
+  border: 1px solid var(--c-border); padding: 0 4px;
+}
+.implant-chip.is-cooling { opacity: 0.45; }
+.implant-chip.is-cooling .ic-glyph { color: var(--c-text-dim); }
+.implant-chip.is-wielded { border-color: var(--c-accent); }
+.implant-chip.is-wielded .ic-key { color: var(--c-accent); border-color: var(--c-accent); }
+.implant-chip.flash .ic-thumb { animation: implantChipFlash 420ms ease-out; }
+@keyframes implantChipFlash {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ic) 70%, transparent); background: color-mix(in srgb, var(--ic) 45%, transparent); }
+  100% { box-shadow: 0 0 0 10px transparent; background: color-mix(in srgb, var(--ic) 12%, transparent); }
+}
+
+/* 시설 관리 furniture rows (Phase 9 UI pass): the 제작 button on a craft row, the storage-tab variants */
+.fcard-craft {
+  flex: none; align-self: center; padding: 4px 10px;
+  border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.04);
+  font: inherit; font-size: 10px; letter-spacing: 0.12em; color: var(--c-text); cursor: pointer;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease);
+}
+.fcard-craft:hover:not(:disabled) { color: var(--c-accent); border-color: var(--c-accent); background: rgba(255, 179, 71, 0.14); }
+.fcard-craft:disabled { color: var(--c-text-faint); border-style: dashed; cursor: not-allowed; }
+.fcard-note { font-size: 10px; letter-spacing: 0.06em; color: var(--c-text-faint); }
+.fcard.store.is-blocked { cursor: not-allowed; border-style: dashed; opacity: 0.55; }
+.fcard.store.is-blocked .fcard-name { color: var(--c-text-dim); }
+.fcard.store.is-blocked:hover { background: rgba(255, 255, 255, 0.03); border-color: var(--c-border); }

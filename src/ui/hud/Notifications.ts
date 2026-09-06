@@ -65,9 +65,13 @@ export class Notifications {
       }),
       // reconnection / matchmaking / hub
       b.on('net:reconnecting', ({ attempt }) => this.push(`서버 재연결 중… <span style="color:var(--c-text-dim)">(${attempt})</span>`, 'warning', '네트워크', 3)),
-      b.on('net:resumed', ({ seamless, inProgress }) => {
-        if (seamless) this.push('재연결됨', 'success', '네트워크', 3);
-        else this.push(inProgress ? '함선에 복귀했습니다 — 임무 진행 중, 발사 포드에서 재합류' : '함선에 복귀했습니다', 'success', '네트워크', 4);
+      b.on('net:resumed', ({ seamless, inProgress, lobby }) => {
+        if (seamless) { this.push('재연결됨', 'success', '네트워크', 3); return; }
+        // A 훈련장 is not the squad's mission — it never reads as 임무 진행 중 (individual entry from the terminal).
+        const training = lobby?.started === true && (lobby.mode ?? 'raid') === 'training';
+        this.push(inProgress && !training
+          ? '함선에 복귀했습니다 — 임무 진행 중, 발사 포드에서 재합류'
+          : training ? '함선에 복귀했습니다 — 훈련장 진행 중, 터미널에서 합류' : '함선에 복귀했습니다', 'success', '네트워크', 4);
       }),
       b.on('net:matched', ({ created }) => this.push(created ? '신호 송출 시작 — 대원 대기 중' : '공유 함선 신호 포착', created ? 'info' : 'success', '매치', 4)),
       b.on('hub:launchCountdown', ({ seconds }) => {

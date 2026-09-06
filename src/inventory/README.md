@@ -369,3 +369,31 @@ after 약초). Seeds are otherwise ordinary 1×1 stackable items — no other ch
   `ui/hud/ItemTip` turns into an inventory-style hover card — the craft rows, the repair list, the 분해 dialog and the
   context menu all get item tooltips for free. The folder's own `ui/Tooltip.ts` (instance-level: durability, sockets,
   loaded ammo) is unchanged and still owns the grid tiles.
+
+## Phase 9 UI pass (2026-09-07) — `ui/TradeGrids.ts`
+
+`InventoryRef.createTradeGrids(host, opts)` renders the player's **real 가방 / 함선 창고 grids** into another folder's
+screen (the 기업 거래 desk) with the same `GridView` the Tab window uses. Deliberately narrow: **read + drag-out only**
+— no rearranging, no rotation, no socketing, no drop-to-world. A tile dragged onto one of the caller's `dropSelector`
+targets (or double-clicked) calls `onTake` with the `ItemInstance`; everything the caller then does to the item goes
+through the public `InventoryRef` API (`takeItem` / `tryAddItemAnywhere`). `isStaged(uid)` dims tiles the caller has
+already staged. The view adds **no blocker, no pointer-lock call and no window key listener** — the caller's shell owns
+those — and `dispose()` removes exactly what it added.
+
+Known follow-ups: the drag ghost is a plain tile copy (no rotation preview, no stack split — a drag stages the whole
+stack), and there is no tooltip inside these grids.
+
+## Phase 9 UI/UX 개선 pass (2026-09-07)
+
+- **인게임 가방 = 함선 가방 − 창고.** The mission window now uses the ship layout: panel order is
+  `상자 · 장착 장비 · 가방 · 제작` (it used to be `상자 · 가방 · 제작 · 장비`), the equipment column is the two-column
+  grid (`primary / primary2 / secondary` left, `armor / bag` right) and the quick-use rose sits to the right of the bag
+  grid. The wide arrangement needs room, so it is gated at **1280 px** on a mission and stays at **1600 px** in the
+  ship (which also carries the 창고 panel). The 버리기 zone and the key-hint bar remain mission-only — a raid still
+  needs to throw things away.
+- **전술 임플란트 slot moved out.** `buildImplantSlot` / `refreshImplant` / the `implant` `Modeless` picker and every
+  `.inv-slot-implant` / `.inv-implant-*` style are gone from this folder; the implant is chosen on the **캐릭터 tab**
+  (`progression/ui/SheetBody`, which owns its own labels). `TEXT.implant` was removed from `ui/labels.ts`.
+  `inventory:*` still triggers a window refresh on `implant:equipped`, which is now only cosmetic.
+- **`ui/TradeGrids.ts`** stamps `data-item-tip` + `data-def-id` on every tile it renders, so the shared
+  `ui/hud/ItemTip` hover card describes a 기업 거래 tile — this view still owns no tooltip of its own.

@@ -1,8 +1,8 @@
 import type { GameContext, ItemInstance, UniqueWeaponKind, WeaponDef, WeaponSlot } from '@/shared';
 import { Keys, WEAPON_DEFAULT_DURABILITY, keyLabel } from '@/shared';
-import { WEAPON_CLASS_LABEL_KO, weaponClassOf, AMMO_LABEL_KO } from '@/items';
+import { WEAPON_CLASS_LABEL_KO, weaponClassOf } from '@/items';
 import { el, setText, toggleClass } from '../dom';
-import { SlotStrip, WEAPON_SLOT_LABEL_KO, weaponSlotKey } from './SlotStrip';
+import { SlotStrip, weaponSlotKey } from './SlotStrip';
 
 /** Durability ratio at/below which the bar turns amber (`.worn`). */
 const DURABILITY_WORN = 0.3;
@@ -35,7 +35,6 @@ export class WeaponPanel {
   readonly root: HTMLElement;
   readonly slots: SlotStrip;
   private slotEl: HTMLElement;
-  private slotLblEl: HTMLElement;
   private nameEl: HTMLElement;
   private magEl: HTMLElement;
   private reserveEl: HTMLElement;
@@ -74,7 +73,6 @@ export class WeaponPanel {
 
     const nameRow = el('div', { cls: 'name-row', parent: this.root });
     this.slotEl = el('span', { cls: 'slot', text: '1', parent: nameRow });
-    this.slotLblEl = el('span', { cls: 'slot-lbl', text: WEAPON_SLOT_LABEL_KO.primary, parent: nameRow });
     this.nameEl = el('span', { cls: 'name', text: '—', parent: nameRow });
 
     this.duraEl = el('div', { cls: 'dura', parent: this.root });
@@ -147,7 +145,8 @@ export class WeaponPanel {
         this.setSlot(p.slot);
         setText(this.nameEl, p.name);
         const def = ctx.loot?.getWeaponDef(p.weaponId);
-        setText(this.typeEl, def ? `${WEAPON_CLASS_LABEL_KO[weaponClassOf(def)]} · ${AMMO_LABEL_KO[def.ammoType] ?? def.ammoType}` : '—');
+        // Phase 9 UI pass: the slot word (주무기 …) and the calibre (준중량탄 …) are gone — the numbered chip and the class say enough.
+        setText(this.typeEl, def ? WEAPON_CLASS_LABEL_KO[weaponClassOf(def)] : '—');
         this.setModes(def);
         this.setAmmo(p.ammoInMag, p.reserveRounds);
         this.endReload();
@@ -255,7 +254,6 @@ export class WeaponPanel {
 
   private setSlot(slot: WeaponSlot): void {
     setText(this.slotEl, weaponSlotKey(slot));
-    setText(this.slotLblEl, WEAPON_SLOT_LABEL_KO[slot] ?? '');
   }
 
   private setAmmo(mag: number, reserve: number): void {

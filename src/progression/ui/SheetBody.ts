@@ -1,5 +1,5 @@
-import type { DerivedStats, GameContext, PlayerProfile, SkillDef, SkillId, StatDef, StatId } from '@/shared';
-import { SKILL_LEVEL_MAX, STAT_MAX } from '@/shared';
+import type { DerivedStats, GameContext, ImplantId, ImplantMode, PlayerProfile, SkillDef, SkillId, StatDef, StatId } from '@/shared';
+import { Keys, SKILL_LEVEL_MAX, STAT_MAX, keyLabel } from '@/shared';
 
 /** What the sheet needs from ProgressionSystem (kept structural so there is no circular import). */
 export interface CharacterSheetHost {
@@ -45,6 +45,23 @@ const dist = (v: number): string => `${v.toFixed(1)} m`;
 interface StatRow { root: HTMLElement; value: HTMLElement; plus: HTMLButtonElement; fill: HTMLElement; xp: HTMLElement }
 interface SkillRow { root: HTMLElement; level: HTMLElement; fill: HTMLElement; bonus: HTMLElement }
 
+/* ── 전술 임플란트 (Phase 9 UI pass) ────────────────────────────────────────
+ * The implant slot used to live in the inventory window's 장착 장비 column behind a modeless picker. It is a
+ * character choice, not a bag item, so it is a section of this sheet now: every implant is a card, the equipped one
+ * is lit, and a click equips it (a click on the lit one unequips). Raid-locked exactly as before.
+ * ────────────────────────────────────────────────────────────────────────── */
+const IMPLANT_TEXT = {
+  label: '전술 임플란트',
+  empty: '장착한 임플란트가 없습니다 — 카드를 눌러 장착하세요.',
+  unavailable: '임플란트 시스템을 사용할 수 없습니다.',
+  raidLocked: '레이드 중에는 임플란트를 교체할 수 없습니다 — 함선에서 바꾸세요.',
+  equipped: '장착',
+  unequipped: '임플란트를 해제했습니다',
+  cooldown: '쿨타임',
+  charges: '충전',
+  mode: { instant: '즉시', hold: '홀드', wielded: '장비형' } as Readonly<Record<ImplantMode, string>>,
+};
+
 export interface SheetBodyOptions {
   /** Standalone overlay only: the 닫기 button in the footer. */
   onClose?: () => void;
@@ -71,6 +88,8 @@ export class SheetBody {
   private xpFill: HTMLElement;
   private xpText: HTMLElement;
   private statHint: HTMLElement;
+  private implantHint: HTMLElement;
+  private implantCards = new Map<ImplantId, { root: HTMLButtonElement; meta: HTMLElement }>();
   private resetBtn: HTMLButtonElement;
   private resetArmed = false;
 
@@ -95,6 +114,16 @@ export class SheetBody {
     const xpBar = el('div', { cls: 'bar', parent: xp });
     this.xpFill = el('i', { parent: xpBar });
     this.xpText = el('div', { cls: 'txt ui-mono', text: '', parent: xp });
+
+    /* ── 전술 임플란트 (moved here from the inventory 장착 장비 column) ── */
+    const imp = this.own(el('div', { cls: 'cs-implants', parent }));
+    const impHead = el('div', { cls: 'h', parent: imp });
+    el('div', { cls: 'ui-label', text: IMPLANT_TEXT.label, parent: impHead });
+    el('kbd', { cls: 'cs-imp-key', text: keyLabel(Keys.IMPLANT), parent: impHead });
+    this.implantHint = el('div', { cls: 'hint', text: '', parent: imp });
+    const impGrid = el('div', { cls: 'cs-imp-grid', parent: imp });
+    for (const def of ctx.implants?.getAllDefs() ?? []) this.buildImplantCard(impGrid, def.id);
+    if (this.implantCards.size === 0) imp.classList.add('is-empty');
 
     /* ── body: stats | skills ── */
     const body = this.own(el('div', { cls: 'cs-body', parent }));
@@ -165,6 +194,8 @@ export class SheetBody {
     const d = host.derived;
     for (const row of this.derivedRows) setText(row.value, derivedText(row.key, d));
 
+    this.refreshImplants();
+
     this.resetBtn.disabled = inRaid;
     setText(this.resetBtn, this.resetArmed ? '정말 초기화합니다' : '캐릭터 초기화');
     this.resetBtn.classList.toggle('armed', this.resetArmed);
@@ -223,6 +254,64 @@ export class SheetBody {
     this.statRows.set(def.id, { root: row, value, plus, fill, xp });
   }
 
+  /* ── 전술 임플란트 ─────────────────────────────────────────────────────── */
+
+  private buildImplantCard(parent: HTMLElement, id: ImplantId): void {
+    const def = this.ctx.implants?.getDef(id);
+    if (!def) return;
+    const card = el('button', { cls: 'cs-imp-card', parent, attrs: { type: 'button', 'data-id': id, title: def.description } });
+    card.style.setProperty('--ic', def.color);
+    const ico = el('span', { cls: 'ico', text: def.icon, parent: card });
+    ico.setAttribute('aria-hidden', 'true');
+    const body = el('span', { cls: 'body', parent: card });
+    const line = el('span', { cls: 'line', parent: body });
+    el('span', { cls: 'nm', text: def.name, parent: line });
+    el('span', { cls: 'tag', text: IMPLANT_TEXT.mode[def.mode], parent: line });
+    el('span', { cls: 'desc', text: def.description, parent: body });
+    const meta = el('span', { cls: 'meta', text: '', parent: body });
+    card.addEventListener('click', (e) => { e.stopPropagation(); this.pickImplant(id); });
+    this.implantCards.set(id, { root: card, meta });
+  }
+
+  private refreshImplants(): void {
+    const imp = this.ctx.implants;
+    if (this.implantCards.size === 0) {
+      setText(this.implantHint, imp ? IMPLANT_TEXT.empty : IMPLANT_TEXT.unavailable);
+      return;
+    }
+    const inRaid = this.ctx.isRaidActive();
+    const equipped = imp?.equipped ?? null;
+    const def = equipped ? imp?.getDef(equipped) ?? null : null;
+    setText(this.implantHint, inRaid ? IMPLANT_TEXT.raidLocked
+      : def ? `${def.name} · ${IMPLANT_TEXT.mode[def.mode]}${def.cooldown > 0 ? ` · ${IMPLANT_TEXT.cooldown} ${def.cooldown}s` : ''}${def.charges > 1 ? ` · ${IMPLANT_TEXT.charges} ${def.charges}` : ''}`
+      : IMPLANT_TEXT.empty);
+    for (const [id, card] of this.implantCards) {
+      const d = imp?.getDef(id);
+      card.root.classList.toggle('is-equipped', id === equipped);
+      card.root.disabled = inRaid;
+      setText(card.meta, d ? `${IMPLANT_TEXT.cooldown} ${d.cooldown}s${d.charges > 1 ? ` · ${IMPLANT_TEXT.charges} ${d.charges}` : ''}` : '');
+    }
+  }
+
+  private pickImplant(id: ImplantId): void {
+    const imp = this.ctx.implants;
+    if (!imp) return;
+    if (this.ctx.isRaidActive()) {
+      this.ctx.bus.emit('audio:play', { id: 'ui_error' });
+      this.ctx.bus.emit('ui:notify', { text: IMPLANT_TEXT.raidLocked, kind: 'warning', duration: 1.8 });
+      return;
+    }
+    const next = imp.equipped === id ? null : id;
+    if (!imp.setEquipped(next)) { this.ctx.bus.emit('audio:play', { id: 'ui_error' }); return; }
+    this.ctx.bus.emit('audio:play', { id: 'ui_equip' });
+    const def = imp.getDef(id);
+    this.ctx.bus.emit('ui:notify', {
+      text: next ? `${def?.name ?? id} ${IMPLANT_TEXT.equipped}` : IMPLANT_TEXT.unequipped,
+      kind: 'success', duration: 1.6,
+    });
+    this.refreshImplants();
+  }
+
   private buildSkillRow(parent: HTMLElement, def: SkillDef): void {
     const row = el('div', { cls: 'cs-skill', parent, attrs: { title: def.description } });
     const head = el('div', { cls: 'h', parent: row });
@@ -260,6 +349,7 @@ export class SheetBody {
     this.created = [];
     this.statRows.clear();
     this.skillRows.clear();
+    this.implantCards.clear();
     this.derivedRows = [];
   }
 }

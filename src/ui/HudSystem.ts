@@ -25,7 +25,8 @@ import { ChargeGauge } from './hud/ChargeGauge';
 import { TargetingHud } from './hud/TargetingHud';
 import { OffscreenIndicators } from './hud/OffscreenIndicators';
 import { ImplantWidget } from './hud/ImplantWidget';
-import { WeightBar } from './hud/WeightBar';
+import { ImplantChip } from './hud/ImplantChip';
+import { QuickStrip } from './hud/QuickStrip';
 import { Detection } from './hud/Detection';
 import { ScanReveal } from './hud/ScanReveal';
 import { Deployables } from './hud/Deployables';
@@ -109,7 +110,9 @@ export class HudSystem implements GameSystem {
   private map!: MapScreen;
   /* tactical kit */
   private implantWidget!: ImplantWidget;
-  private weight!: WeightBar;
+  /* Phase 9 UI pass: right-hand column above the weapon panel — 임플란트 썸네일 over the 빠른 사용 썸네일 strip */
+  private implantChip!: ImplantChip;
+  private quickStrip!: QuickStrip;
   private detection!: Detection;
   private scanReveal!: ScanReveal;
   private deployables!: Deployables;
@@ -117,6 +120,8 @@ export class HudSystem implements GameSystem {
   private actionFx!: ActionFeedback;
   /* Phase 6 (dev console · unique weapons · ship housing) */
   private housingRoot!: HTMLElement;
+  /** Bottom-left social column (chat log over the squad list), anchored above the vitals. */
+  private bottomLeft!: HTMLElement;
   private wcharge!: WeaponChargeGauge;
   private statusMarkers!: StatusMarkers;
   private cheatTag!: CheatTag;
@@ -167,7 +172,14 @@ export class HudSystem implements GameSystem {
     this.swheel = new StratagemWheel(this.hudRoot);
     this.vitals = new Vitals(this.hudRoot);
     this.weapon = new WeaponPanel(this.hudRoot);
-    this.strat = new StratagemPanel(this.hudRoot);
+    // Both strips live **inside** the weapon panel so they stack on top of its slot strip and inherit its
+    // right-bottom anchor, its fade and the `.hud.spectating` rule. `prepend` puts them above `.wslots`.
+    this.implantChip = new ImplantChip(this.weapon.root);
+    this.quickStrip = new QuickStrip(this.weapon.root);
+    // The ship-call readout joins the same column (it used to be absolutely positioned at `bottom: 176px`, which the
+    // two new strips now occupy) — `.strat-panel.off` is `display:none`, so it costs no height while idle.
+    this.strat = new StratagemPanel(this.weapon.root);
+    this.weapon.root.prepend(this.strat.root, this.implantChip.root, this.quickStrip.root);
     this.compass = new Compass(this.hudRoot);
     this.objective = new Objective(this.hudRoot);
     this.contractPanel = new ContractPanel(this.hudRoot);
@@ -177,15 +189,17 @@ export class HudSystem implements GameSystem {
     this.detection = new Detection(this.hudRoot);
     this.deployables = new Deployables(this.hudRoot);
     this.implantWidget = new ImplantWidget(this.hudRoot);
-    this.weight = new WeightBar(this.hudRoot);
     this.scanReveal = new ScanReveal();
 
     this.socialRoot = el('div', { cls: 'hud social', parent: ctx.uiRoot });
     this.nameplates = new Nameplates(this.socialRoot);
-    this.squad = new Squad(this.socialRoot);
+    // Phase 9 UI pass: chat log + squad list share one bottom-left column that sits directly on top of the vitals,
+    // so the squad health bars read next to the player's own instead of colliding with the contract panel top-left.
+    this.bottomLeft = el('div', { cls: 'hud-bl', parent: this.socialRoot });
+    this.chat = new ChatLog(this.bottomLeft);
+    this.squad = new Squad(this.bottomLeft);
     this.prompt = new InteractionPrompt(this.socialRoot);
     this.notifs = new Notifications(this.socialRoot);
-    this.chat = new ChatLog(this.socialRoot);
     this.progressToasts = new ProgressToasts(this.socialRoot);
     this.metaToasts = new MetaToasts(this.progressToasts.root);
     this.cheatTag = new CheatTag(this.socialRoot);
@@ -219,7 +233,7 @@ export class HudSystem implements GameSystem {
     this.complete = new MissionComplete(ctx.uiRoot);
 
     for (const c of [this.reticle, this.cook, this.wheel, this.swheel, this.strat, this.charge, this.targeting, this.offscreen, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.chat, this.map]) c.bind(ctx);
-    for (const c of [this.implantWidget, this.weight, this.detection, this.scanReveal, this.deployables, this.progressToasts, this.actionFx]) c.bind(ctx);
+    for (const c of [this.implantWidget, this.implantChip, this.quickStrip, this.detection, this.scanReveal, this.deployables, this.progressToasts, this.actionFx]) c.bind(ctx);
     for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.housingHint, this.roomLabel, this.shipManage, this.shipHint, this.itemTip]) c.bind(ctx);
     for (const c of [this.contractPanel, this.trainingPanel, this.metaToasts]) c.bind(ctx);
     for (const m of [this.title, this.pause, this.death, this.complete]) m.bind(ctx);
@@ -267,7 +281,7 @@ export class HudSystem implements GameSystem {
       this.pings.update(dt, ctx);
       this.spectate.update(dt, ctx);
       this.implantWidget.update(dt, ctx);
-      this.weight.update(dt, ctx);
+      this.quickStrip.update();
     }
     if (this.socialVisible) {
       this.squad.update(dt, ctx);
@@ -407,7 +421,7 @@ export class HudSystem implements GameSystem {
   dispose(): void {
     for (const u of this.unsubs) u();
     for (const c of [this.reticle, this.cook, this.wheel, this.swheel, this.strat, this.charge, this.targeting, this.offscreen, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.chat, this.missionInfo, this.deploy, this.map]) c.dispose();
-    for (const c of [this.implantWidget, this.weight, this.detection, this.scanReveal, this.deployables, this.progressToasts, this.actionFx]) c.dispose();
+    for (const c of [this.implantWidget, this.implantChip, this.quickStrip, this.detection, this.scanReveal, this.deployables, this.progressToasts, this.actionFx]) c.dispose();
     for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.housingHint, this.roomLabel, this.shipManage, this.shipHint, this.itemTip]) c.dispose();
     for (const c of [this.contractPanel, this.trainingPanel, this.metaToasts]) c.dispose();
     for (const m of [this.title, this.pause, this.death, this.complete]) m.dispose();

@@ -153,11 +153,17 @@ export class GameFlowSystem implements GameSystem {
         if (!this.inMission()) return;
         ctx.bus.emit('ui:notify', { text: `서버 재연결 중… (${attempt})`, kind: 'warning', duration: 3 });
       }),
-      b.on('net:resumed', ({ seamless, inProgress }) => {
+      b.on('net:resumed', ({ seamless, inProgress, lobby }) => {
         if (!this.inMission()) return;
         if (seamless) { ctx.bus.emit('ui:notify', { text: '재연결됨', kind: 'success' }); return; }
-        // the party moved on (different mission / back in the ship): drop our stale mission and regroup
-        ctx.bus.emit('ui:notify', { text: inProgress ? '분대가 다른 임무를 진행 중입니다 — 함선으로 복귀' : '분대가 함선으로 복귀했습니다', kind: 'warning', duration: 4 });
+        // the party moved on (different mission / back in the ship): drop our stale mission and regroup.
+        // A 훈련장 is entered individually and is not the squad's mission — never report it as one.
+        const training = lobby?.started === true && (lobby.mode ?? 'raid') === 'training';
+        ctx.bus.emit('ui:notify', {
+          text: training ? '훈련장 연결이 끊겼습니다 — 함선으로 복귀'
+            : inProgress ? '분대가 다른 임무를 진행 중입니다 — 함선으로 복귀' : '분대가 함선으로 복귀했습니다',
+          kind: 'warning', duration: 4,
+        });
         this.disconnectAbortTimer = -1;
         ctx.bus.emit('game:abort', {});
         ctx.bus.emit('hub:enter', { ship: 'shared' });

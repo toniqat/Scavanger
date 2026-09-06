@@ -455,6 +455,12 @@ export interface GameEvents {
   'meta:questChanged': { id: string; corp: CorpId; state: QuestState };
   'meta:purchase': { corp: CorpId; defId: string; price: number; placed: 'bag' | 'stash' };
   'meta:sale': { defId: string; qty: number; credits: number };
+  /**
+   * appended (Phase 9 UI pass): a squad member's active contract changed as far as this client knows — from a relayed
+   * `meta contract` broadcast, or from the list being cleared (`id` null). `ui/hud/ContractPanel` repaints on it;
+   * `ctx.meta.getSquadContracts()` is the full list.
+   */
+  'meta:squadContract': { peer: string; id: string | null; progress: number };
   /** Corp screen (ship computer) opened / closed. Blocker token `'corp'`. */
   'ui:corpToggled': { open: boolean; corp: CorpId | null };
 

@@ -162,41 +162,82 @@
 .hs-dex-row .mul { font-family: var(--ui-mono); font-size: 12px; color: var(--c-text-dim); min-width: 48px; text-align: right; }
 .hs-dex-row.boosted .mul { color: var(--c-accent); }
 
+/* ── facility thumbnail (shared by every facility row, Phase 9 UI pass) ───── */
+.hs-thumb {
+  flex: none; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--pc, #7d858f) 45%, transparent);
+  background: linear-gradient(160deg, color-mix(in srgb, var(--pc, #7d858f) 16%, transparent), rgba(0, 0, 0, 0.28));
+  box-shadow: inset 0 0 12px color-mix(in srgb, var(--pc, #7d858f) 14%, transparent);
+}
+.hs-thumb .g { font-size: 20px; line-height: 1; color: var(--pc, #7d858f); text-shadow: 0 0 10px color-mix(in srgb, var(--pc, #7d858f) 55%, transparent); }
+
 /* ── embedded 함선 view (the 함선 tab of the Tab screen) ─────────────────── */
-/* Phase 8 UI pass: two columns — 기본 시설 (발전기 · 창고) + 효과 on the left, 방 목록 on the right — and a
- * sticky 시설 관리(M) button that stays in the bottom-right corner however far the screen is scrolled. */
-.hs-ship { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+/* Phase 9 UI pass: two columns — 기본 시설 (발전기 · 창고) + 효과 on the left, 방 목록 on the right — over a
+ * separate bottom bar carrying the 시설 관리(M) button on its right. Room rows are thumbnail + 용도 + 레벨 with the
+ * upgrade button and the red 제거 icon on the far right; an empty room keeps the same height (min-height). */
+.hs-ship { display: flex; flex-direction: column; gap: 16px; min-width: 0; position: relative; }
 .hs-ship .hs-head .title { font-size: 20px; letter-spacing: 0.16em; }
 .hs-ship-cols { display: grid; grid-template-columns: minmax(300px, 400px) minmax(0, 1fr); gap: 22px; align-items: start; }
 .hs-ship-col { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
 /* the columns are narrow: a row wraps instead of squeezing its name to one glyph, and the summary is one column */
-.hs-ship .hs-row { flex-wrap: wrap; }
+.hs-ship .hs-row { flex-wrap: wrap; align-items: center; gap: 12px; }
 .hs-ship .hs-row .name { flex: none; }
 .hs-ship .hs-row .mid { flex: 1 1 180px; }
 .hs-ship .hs-row .ui-btn { min-width: 0; height: 32px; padding: 0 14px; font-size: 11px; white-space: nowrap; margin-left: auto; }
+.hs-ship .hs-row .ui-btn.wide { min-width: 118px; justify-content: center; }
 .hs-ship .hs-row .ui-btn:disabled { opacity: 0.45; cursor: default; pointer-events: none; }
+.hs-ship .hs-row .ui-btn[hidden] { display: none; }
 .hs-ship-col.left .hs-summary { grid-template-columns: 1fr; }
 .hs-ship .hs-summary .k { white-space: nowrap; }
 .hs-ship .hs-summary .v { text-align: right; }
-.hs-ship .hs-row.room { padding-left: 12px; align-items: flex-start; }
-.hs-ship .hs-row.room .purpose { height: 32px; min-width: 132px; font-size: 12px; margin-top: 2px; }
-.hs-ship .hs-row.room .purpose:disabled { opacity: 0.6; cursor: not-allowed; }
+.hs-ship .hs-row.facility { min-height: 62px; }
+.hs-ship .hs-row.room { padding-left: 12px; min-height: 62px; }
 .hs-ship .hs-row.room.dim { opacity: 0.75; }
 .hs-ship .hs-row.room.is-locked { border-color: rgba(255, 179, 71, 0.4); }
+/* right-hand action cluster of a room row: wide 업그레이드 + the icon-only 제거 */
+.hs-row-acts { display: flex; align-items: center; gap: 8px; margin-left: auto; flex: none; }
+.hs-ship .hs-row-acts .ui-btn { margin-left: 0; }
+.hs-del {
+  flex: none; width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center;
+  font-size: 14px; line-height: 1; cursor: pointer;
+  color: var(--c-danger); background: rgba(255, 90, 74, 0.08);
+  border: 1px solid color-mix(in srgb, var(--c-danger) 55%, transparent);
+}
+.hs-del:hover { background: rgba(255, 90, 74, 0.22); box-shadow: 0 0 12px rgba(255, 90, 74, 0.35); }
+.hs-del[hidden] { display: none; }
 /* the 작업실 / 사격장 level line inside a room row */
 .hs-room-fac { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 2px; }
 .hs-room-fac[hidden] { display: none; }
 .hs-room-fac .cost { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .hs-room-fac .blocked { font-size: 11px; color: var(--c-danger); letter-spacing: 0.03em; }
 .hs-room-fac .blocked.ok { color: var(--c-success); }
-.hs-room-fac .ui-btn.small { min-width: 0; height: 28px; padding: 0 12px; font-size: 11px; white-space: nowrap; margin-left: auto; }
-.hs-room-fac .ui-btn:disabled { opacity: 0.45; cursor: default; pointer-events: none; }
 
-.hs-ship-foot { display: flex; justify-content: flex-end; position: sticky; bottom: -18px; z-index: 3; padding: 10px 0 0; pointer-events: none; }
+/* 시설 제거 confirmation card (never a browser dialog — the window owns the keyboard) */
+.hs-confirm { position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center; background: rgba(4, 6, 9, 0.62); }
+.hs-confirm[hidden] { display: none; }
+.hs-confirm .card {
+  width: min(440px, 88vw); display: flex; flex-direction: column; gap: 12px; padding: 22px 24px;
+  background: rgba(14, 17, 21, 0.98); border: 1px solid color-mix(in srgb, var(--c-danger) 45%, transparent);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.7);
+}
+.hs-confirm .title { font-size: 15px; font-weight: 700; letter-spacing: 0.14em; color: var(--c-danger); }
+.hs-confirm .body { font-size: 12px; line-height: 1.6; color: var(--c-text-dim); }
+.hs-confirm .cost { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.hs-confirm .acts { display: flex; justify-content: flex-end; gap: 10px; padding-top: 4px; }
+.hs-confirm .acts .ui-btn { min-width: 92px; padding: 0 18px; }
+
+/* bottom bar: its own strip, sticky at the foot of the scrolling screen */
+.hs-ship-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  position: sticky; bottom: -18px; z-index: 3; margin-top: 4px;
+  padding: 10px 12px; border-top: 1px solid var(--c-border);
+  background: rgba(10, 12, 16, 0.97);
+  box-shadow: 0 -10px 18px rgba(8, 10, 13, 0.85);
+}
+.hs-ship-bar .bar-left { font-size: 11px; color: var(--c-text-faint); letter-spacing: 0.05em; min-width: 0; }
 .hs-manage-btn {
-  pointer-events: auto;
   display: inline-flex; align-items: center; gap: 10px;
-  min-width: 0; padding: 0 20px;
+  min-width: 0; padding: 0 20px; margin-left: auto;
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55);
 }
 .hs-keycap {
@@ -223,3 +264,59 @@
   .hs-shelf { grid-template-columns: repeat(2, 1fr); }
   .hs-row { flex-wrap: wrap; }
 }
+
+/* ── Phase 9 UI pass: the 함선 tab owns its height ────────────────────────────
+   The inventory window frame used to scroll the whole screen; now `.inv-screen.is-ship` is fixed and only the
+   방 목록 scrolls, so the 기본 시설 column and the 시설 관리 bar always stay in view. */
+.inv-screen.is-ship { overflow: hidden; height: calc(100vh - 130px); }
+.inv-screen.is-ship .hs-ship { flex: 1; min-height: 0; }
+.hs-ship { min-height: 0; }
+.inv-screen.is-ship .hs-ship-cols { flex: 1; min-height: 0; align-items: stretch; }
+.inv-screen.is-ship .hs-ship-col { min-height: 0; }
+.inv-screen.is-ship .hs-ship-col.left { overflow-y: auto; scrollbar-width: thin; padding-right: 4px; }
+.inv-screen.is-ship .hs-ship-col.right { display: flex; }
+.inv-screen.is-ship .hs-ship-col.right > .hs-section { flex: 1; min-height: 0; }
+.inv-screen.is-ship .hs-list.rooms {
+  flex: 1; min-height: 0;
+  overflow-y: auto; overflow-x: hidden;
+  padding-right: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+}
+.inv-screen.is-ship .hs-list.rooms::-webkit-scrollbar { width: 6px; }
+.inv-screen.is-ship .hs-list.rooms::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.22); border-radius: 3px; }
+/* the bar is a plain strip again — nothing above it scrolls past it */
+.inv-screen.is-ship .hs-ship-bar { position: static; }
+
+/* ── 시설 증축 popup (empty room → pick a purpose) ───────────────────────── */
+.hs-build .card {
+  width: min(560px, 92vw); max-height: min(70vh, 640px);
+  border-color: color-mix(in srgb, var(--c-accent) 45%, transparent);
+}
+.hs-build .title { color: var(--c-accent); }
+.hs-build-list {
+  display: flex; flex-direction: column; gap: 6px;
+  flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden;
+  padding-right: 4px; scrollbar-width: thin;
+}
+.hs-build-list::-webkit-scrollbar { width: 6px; }
+.hs-build-list::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.22); border-radius: 3px; }
+.hs-build-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 10px; border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03);
+}
+.hs-build-row .mid { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 0; }
+/* `.hs-build-row` is not a `.hs-row`, so it needs its own name-line typography (the shared rules would not apply
+   and the 다음 업데이트 tag ran straight into the room name). */
+.hs-build-row .name-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.hs-build-row .name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hs-build-row .tag.dim {
+  font-size: 9px; letter-spacing: 0.14em; color: var(--c-text-dim);
+  border: 1px solid var(--c-border); padding: 1px 6px; white-space: nowrap; flex: none;
+}
+.hs-build-row .cost { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.hs-build-row .blocked { font-size: 11px; color: var(--c-danger); letter-spacing: 0.03em; }
+.hs-build-row .ui-btn { flex: none; height: 32px; padding: 0 16px; font-size: 11px; }
+.hs-build-row .ui-btn:disabled { opacity: 0.45; cursor: default; pointer-events: none; }
+.hs-build-row.is-blocked { border-style: dashed; opacity: 0.75; }
+.hs-build-row.is-blocked .name { color: var(--c-text-dim); }

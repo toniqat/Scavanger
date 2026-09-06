@@ -48,6 +48,42 @@ export const ROOM_PURPOSE_DESC_KO: Readonly<Record<RoomPurpose, string>> = {
   lounge: 'TV · 스피커로 비디오와 Vinyl 을 재생합니다. (다음 업데이트)',
 };
 
+/**
+ * appended (Phase 9 UI pass): the **one** icon + accent colour per room purpose. Every place a facility is shown —
+ * the 함선 tab 방 목록, the 시설 관리 room list, its 용도 지정 picker — draws this glyph on a `--pc`-tinted thumbnail,
+ * so a facility looks the same everywhere. Procedural on purpose: no asset files (see CLAUDE.md).
+ */
+export const ROOM_PURPOSE_GLYPH: Readonly<Record<RoomPurpose, string>> = {
+  empty: '·', workshop: '⚒', range: '◎', gym: '⚖', library: '▤', greenhouse: '❀',
+  lab: '⚗', kitchen: '♨', mining: '⛏', lounge: '☕',
+};
+export const ROOM_PURPOSE_COLOR: Readonly<Record<RoomPurpose, string>> = {
+  empty: '#7d858f', workshop: '#ffd27a', range: '#7fd2ff', gym: '#ff9f7a', library: '#c9a77a', greenhouse: '#7ee08a',
+  lab: '#c79fff', kitchen: '#ffb0a0', mining: '#9fb4c8', lounge: '#e8a0d0',
+};
+
+/**
+ * appended (Phase 9 UI pass): materials a **시설 증축** costs — giving an empty room a purpose is no longer free.
+ * This is the price of the facility's level 1 (levels 2+ keep their own `*_UPGRADE_COST` tables); 빈 방 costs
+ * nothing, and 시설 제거 refunds this table plus every upgrade (`Rules.facilityRefundCost`). Building anything also
+ * needs 발전기 Lv.1, exactly like every other upgrade — see `Rules.purposeBuildBlockReason`.
+ */
+export const ROOM_PURPOSE_BUILD_COST: Readonly<Record<RoomPurpose, readonly { defId: string; qty: number }[]>> = {
+  empty: [],
+  workshop: [{ defId: 'mat_scrap', qty: 8 }, { defId: 'mat_cable', qty: 2 }],
+  range: [{ defId: 'mat_scrap', qty: 10 }, { defId: 'mat_cable', qty: 2 }],
+  gym: [{ defId: 'mat_scrap', qty: 8 }],
+  library: [{ defId: 'mat_scrap', qty: 10 }, { defId: 'mat_alloy', qty: 2 }],
+  greenhouse: [{ defId: 'mat_scrap', qty: 12 }, { defId: 'mat_alloy', qty: 2 }],
+  lab: [{ defId: 'mat_alloy', qty: 6 }, { defId: 'mat_circuit', qty: 2 }],
+  kitchen: [{ defId: 'mat_scrap', qty: 8 }, { defId: 'mat_alloy', qty: 2 }],
+  mining: [{ defId: 'mat_alloy', qty: 6 }, { defId: 'mat_circuit', qty: 3 }],
+  lounge: [{ defId: 'mat_scrap', qty: 6 }, { defId: 'mat_cable', qty: 1 }],
+};
+
+/** Generator level a 시설 증축 needs (the same gate every facility upgrade sits behind). */
+export const ROOM_PURPOSE_BUILD_GENERATOR_LEVEL = 1;
+
 /** Purposes with mechanics in this build; the rest are decoration-only. (Phase 8 appended `greenhouse`.) */
 export const ROOM_PURPOSES_ACTIVE: readonly RoomPurpose[] = ['empty', 'workshop', 'range', 'greenhouse', 'library'];   // Phase 9 appended `library`
 
@@ -64,6 +100,14 @@ export type FacilityId = 'generator' | 'storage' | 'workshop' | 'range';
 
 export const FACILITY_LABEL_KO: Readonly<Record<FacilityId, string>> = {
   generator: '발전기', storage: '창고', workshop: '작업실', range: '사격장',
+};
+
+/** appended (Phase 9 UI pass): icon + accent per facility, the ship-wide counterpart of `ROOM_PURPOSE_GLYPH`. */
+export const FACILITY_GLYPH: Readonly<Record<FacilityId, string>> = {
+  generator: '⚡', storage: '▦', workshop: '⚒', range: '◎',
+};
+export const FACILITY_COLOR: Readonly<Record<FacilityId, string>> = {
+  generator: '#ffd166', storage: '#9fb4ff', workshop: '#ffd27a', range: '#7fd2ff',
 };
 
 /** The four 작업실 benches. */
@@ -384,6 +428,12 @@ export interface HousingRef {
    * system can never disagree about what is assignable.
    */
   purposeBlock(index: number, purpose: RoomPurpose): string | null;
+  /**
+   * appended (Phase 9 UI pass): materials a **시설 증축** to `purpose` consumes from bag + stash
+   * (`ROOM_PURPOSE_BUILD_COST`; empty for 빈 방). `setRoomPurpose` spends them and 시설 제거 refunds them into the
+   * 함선 창고, so the pickers render this as their cost chips.
+   */
+  purposeCost(purpose: RoomPurpose): readonly { defId: string; qty: number }[];
 
   /* ══ appended: Phase 9 — 서재 책장 (2026-09-06) ══════════════════════════ */
   /** Slots of one 책장, always BOOKS_PER_SHELF long; empty array when `uid` is not a placed 책장. */
@@ -400,6 +450,20 @@ export interface HousingRef {
   getBookDex(): readonly string[];
   /** Open the 책장 panel (blocker `housing`, `ui:bookshelfToggled`). */
   openBookshelfMenu(uid: string): void;
+
+  /* ══ appended: Phase 9 UI pass — 시설 제거 (2026-09-07) ═══════════════════ */
+  /**
+   * Materials that would be refunded by `removeRoomFacility(index)`: everything spent upgrading that room's facility
+   * (level 1 comes free with the purpose, so a Lv.1 room refunds nothing). Empty for a room with no facility.
+   * ui/ renders it as the cost chips of the 제거 confirmation.
+   */
+  facilityRefund(index: number): CraftIngredient[];
+  /**
+   * 시설 제거: hand room `index` back — every placed piece into furniture storage, every upgrade material into the
+   * **함선 창고**, purpose → 빈 방. All-or-nothing: a 한국어 reason is returned (and nothing changes) when the stash
+   * has no space or the rules refuse the room (the built-in 작업실, a 책장 whose books do not fit). null = removed.
+   */
+  removeRoomFacility(index: number): string | null;
 }
 
 /* ────────────────────────────────────────────────────────────────────────────

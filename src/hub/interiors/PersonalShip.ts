@@ -21,10 +21,18 @@ import type { PodSlotDef, RoomDef, ShipInterior, TerminalDef } from './types';
  * (**13**: cockpit 4, corridor 5, airlock 1 + the `ROOM_LIGHT_POOL` room lights, which are re-anchored and
  * ramped, never toggled). Furniture is rendered by `Furniture.ts` into `RoomDef.furnitureGroup`.
  *
- * Phase 8 (2026-09-06): the terminal moved to the **cockpit centre** (between the pilot seats, facing the
- * corridor), the built-in workbench and the hydroponics rack are gone (정비 벤치 / 재배층 are placeable furniture
- * now), every doorway carries a sliding `ShipDoors` door and each room owns its emissive strip materials so an
- * empty room reads dark (`ROOM_STRIP_DIM`) and an assigned one lit (`ROOM_STRIP_LIT`).
+ * Phase 8 (2026-09-06): the built-in workbench and the hydroponics rack are gone (정비 벤치 / 재배층 are placeable
+ * furniture now), every doorway carries a sliding `ShipDoors` door and each room owns its emissive strip materials
+ * so an empty room reads dark (`ROOM_STRIP_DIM`) and an assigned one lit (`ROOM_STRIP_LIT`).
+ *
+ * Phase 9 UI pass (2026-09-07) — cockpit clean-up:
+ *   • the console pedestal terminal is **gone**; the dashboard's centre monitor *is* `terminal.screen` (the 항법 /
+ *     통신 side readouts were dropped with it), so nothing stands on the walk-in line any more;
+ *   • the **함선 컴퓨터** moved from the +X wall (where its 기업 네트워크 prompt fought the launch pod's boarding
+ *     prompt) to the port half of the rear wall, replacing the lockers that overlapped the bunk;
+ *   • the stash cabinet moved to the starboard half of the rear wall, and the bunk sits flush to the −X wall;
+ *   • door frames stand clear of the wall slab (they used to intersect it) and the waist-high wainscot band no
+ *     longer crosses a doorway (`Parts.walls` splits it around floor-level openings).
  */
 export class PersonalShip implements ShipInterior {
   readonly kind: HubShipKind = 'personal';
@@ -82,7 +90,9 @@ export class PersonalShip implements ShipInterior {
     });
     P.glass(r, 6.4, 1.7, 0, 1.85, C.minZ - WALL / 2, 0, this.meshes);
     for (const x of [-3.3, 0, 3.3]) { P.rib(x, C.minZ + 0.16); P.beam(C.maxZ - C.minZ, x, C.minZ + (C.maxZ - C.minZ) / 2, Math.PI / 2); }
-    for (const x of [-3.3, 3.3]) P.rib(x, C.maxZ - 0.16);
+    // rear ribs: only the starboard one survives — the port rear corner is the 함선 컴퓨터 desk now, and the rib
+    // stood inside it (it hid the 기업 네트워크 monitor).
+    P.rib(3.3, C.maxZ - 0.16);
     P.rib(C.minX + 0.16, -3.95);
     // corridor arch trim
     b.box(0.12, 2.6, 0.36, CORRIDOR.minX - 0.06, 1.3, C.maxZ + WALL / 2, M.trim);
@@ -101,46 +111,39 @@ export class PersonalShip implements ShipInterior {
       b.box(0.62, 0.12, 0.6, x, 0.5, C.minZ + 1.35, M.padding);
       col.addBox(x, 0, C.minZ + 1.45, 0.7, 1.3, 0.75);
     }
-    for (let i = 0; i < 3; i++) {
-      const tp = new TextPlane(1.5, 0.42, 384);
-      tp.mesh.position.set(-2 + i * 2, 1.12, C.minZ + 0.42);
-      tp.mesh.rotation.x = -0.6;
-      tp.set(i === 0 ? ['항법', '궤도 유지'] : i === 1 ? ['동력', '98 %'] : ['통신', '대기'], i === 1 ? '#7cf07a' : '#5fd7ff', 'rgba(6,14,20,0.9)');
-      r.add(tp.mesh);
-      this.screens.push(tp);
-    }
-
-    // ship terminal on the centre line between the pilot seats, screen facing +Z (read walking in from the corridor)
-    const faceZ = yawFromForward(0, 1);
-    const tx = 0, tz = C.minZ + 1.45;
-    const c = P.consolePedestal(tx, tz, faceZ);
-    const screen = new TextPlane(0.92, 0.6, 512, false);
-    screen.mesh.position.copy(c.screenPos);
-    screen.mesh.rotation.copy(c.screenRot);
+    /**
+     * 함선 터미널 (Phase 9 UI pass): the cockpit console pedestal between the pilot seats is **gone** — it stood on
+     * the walk-in line and its 기업 네트워크 neighbour clashed with the launch pod. The dashboard's centre readout
+     * (the old `동력 98 %` monitor) *is* the terminal now, and the flanking 항법 / 통신 readouts were dropped so the
+     * one screen reads at a glance. The player uses it standing between the seats at the dashboard.
+     */
+    const TILT = -0.5;
+    const BX = 0, BY = 1.27, BZ = C.minZ + 0.62;
+    b.box(2.06, 0.94, 0.06, BX, BY, BZ, M.hullDark, 0, TILT);
+    b.box(2.14, 0.05, 0.07, 0, 1.72, C.minZ + 0.38, M.trim);
+    // the screen sits on the bezel's **front** face: its normal is (0,0,1) rotated by TILT around X
+    const nY = -Math.sin(TILT), nZ = Math.cos(TILT), off = 0.045;
+    const screen = new TextPlane(1.9, 0.8, 512, false);
+    screen.mesh.position.set(BX, BY + nY * off, BZ + nZ * off);
+    screen.mesh.rotation.x = TILT;
     r.add(screen.mesh);
-    this.terminal = { position: new THREE.Vector3(tx, 0, tz + 1.0), yaw: yawFromForward(0, -1), screen };
-    P.signStrip(tx, CEIL - 0.07, tz, 1.4, M.stripCyan, 0);      // ceiling bar over the terminal
+    this.terminal = { position: new THREE.Vector3(0, 0, C.minZ + 1.5), yaw: yawFromForward(0, -1), screen };
+    P.signStrip(0, CEIL - 0.07, C.minZ + 0.9, 1.8, M.stripCyan, 0);      // ceiling bar over the dashboard
 
-    // −X wall (front → back): implant bay, bunk
+    // −X wall (front → back): implant bay, bunk. The bunk sits flush against the wall (x −5.0 … −4.0) and was moved
+    // aft to z −2.8 … −0.7 — it used to run into the rear-wall lockers that stood where the 함선 컴퓨터 is now.
     const faceX = yawFromForward(1, 0);
     const implantDef = implantBay(b, col, C.minX + 0.95, -4.9, faceX);
-    b.boxB(1.0, 0.5, 2.1, C.minX + 0.55, 0, -1.2, M.hullDark);
-    b.box(0.94, 0.14, 2.0, C.minX + 0.55, 0.57, -1.2, M.fabric);
-    b.box(0.5, 0.1, 0.4, C.minX + 0.55, 0.7, -2.05, M.padding);
-    col.addBox(C.minX + 0.55, 0, -1.2, 1.0, 0.7, 2.1);
+    const bunkX = C.minX + 0.5, bunkZ = -1.75;
+    b.boxB(1.0, 0.5, 2.1, bunkX, 0, bunkZ, M.hullDark);
+    b.box(0.94, 0.14, 2.0, bunkX, 0.57, bunkZ, M.fabric);
+    b.box(0.5, 0.1, 0.4, bunkX, 0.7, bunkZ - 0.85, M.padding);
+    col.addBox(bunkX, 0, bunkZ, 1.0, 0.7, 2.1);
 
-    // +X wall (front → back): storage lockers (the workbench moved to the 작업실), ship computer, launch pod
+    // +X wall (front → back): storage lockers (the workbench moved to the 작업실), launch pod. The 함선 컴퓨터 used to
+    // stand here and its 기업 네트워크 prompt overlapped the pod's boarding prompt — it moved to the rear wall.
     const faceNegX = yawFromForward(-1, 0);
     P.lockers(C.maxX - 0.27, -4.7, 2, faceNegX);
-    // 함선 컴퓨터 (기업 네트워크): desk between the lockers and the pod socket, monitors facing −X
-    const cp = shipComputer(b, col, C.maxX - 0.35, -3.1, faceNegX);
-    const cScreen = new TextPlane(0.56, 0.34, 256, false);
-    cScreen.mesh.position.copy(cp.screenPos);
-    cScreen.mesh.rotation.copy(cp.screenRot);
-    cScreen.set(['기업 네트워크', '접속 대기'], '#7cf07a', 'rgba(4,14,10,1)', '#9fd8b0');
-    r.add(cScreen.mesh);
-    this.screens.push(cScreen);
-    this.computer = { position: cp.position, yaw: cp.yaw };
     // pod socket: floor plate, rear frame, side lips + toggleable door blocker (cell stays walkable, see README)
     const px = C.maxX - 1.0, pz = -1.2;
     b.box(2.0, 0.06, 2.0, px, 0.03, pz, M.hullDark);
@@ -154,10 +157,18 @@ export class PersonalShip implements ShipInterior {
     this.pods.push({ slot: 0, position: new THREE.Vector3(px, 0, pz), yaw: faceNegX, door: new THREE.Vector3(-1, 0, 0), doorBlocker });
     P.signStrip(C.maxX - WALL / 2 - 0.03, 2.6, pz, 1.6, M.stripAmber, Math.PI / 2);
 
-    // +Z wall: lockers + stash cabinet left of the arch (재배 moved to the 온실; the 함선 시설 console was removed
-    // in the Phase 8 UI pass — facilities live in the Tab 함선 tab and in 시설 관리)
-    P.lockers(-3.9, C.maxZ - 0.3, 2, 0);
-    this.stashCabinet(b, col, -2.0, C.maxZ - 0.3);
+    // +Z (rear) wall, port side: **함선 컴퓨터** (기업 네트워크) where the lockers used to be — they overlapped the
+    // bunk and the desk needed a spot away from the launch pod. Monitors face −Z, into the cockpit.
+    const cp = shipComputer(b, col, -3.15, C.maxZ - 0.35, 0);
+    const cScreen = new TextPlane(0.56, 0.34, 256, false);
+    cScreen.mesh.position.copy(cp.screenPos);
+    cScreen.mesh.rotation.copy(cp.screenRot);
+    cScreen.set(['기업 네트워크', '접속 대기'], '#7cf07a', 'rgba(4,14,10,1)', '#9fd8b0');
+    r.add(cScreen.mesh);
+    this.screens.push(cScreen);
+    this.computer = { position: cp.position, yaw: cp.yaw };
+    // stash cabinet on the starboard half of the rear wall (clear of the arch and the pod socket)
+    this.stashCabinet(b, col, 2.4, C.maxZ - 0.3);
     this.stations = { implantBay: implantDef };
     // 자동문 on the cockpit arch (x −1.5 … 1.5, the wall slab at z 0 … 0.3)
     this.doors.add(0, C.maxZ + WALL / 2, CORRIDOR.maxX - CORRIDOR.minX, 2.55, 0.12, 'x');
@@ -263,8 +274,10 @@ export class PersonalShip implements ShipInterior {
     // walls (door on the corridor side)
     const door = { lo: doorLo, hi: doorHi, y0: 0, y1: DOOR_HEIGHT };
     P.walls({ minX: rb.minX, maxX: rb.maxX, minZ: rb.minZ, maxZ: rb.maxZ }, WALL, side < 0 ? { e: door } : { w: door });
-    // door frame (corridor side)
-    const fx = face + (side < 0 ? -0.02 : 0.02);
+    // Door frame, standing **in the corridor just clear of the wall slab**. It used to sit at `face ∓ 0.02`, i.e.
+    // buried 3 cm inside the 30 cm door wall, so the posts and the header intersected the wall segments around the
+    // opening (visible z-fighting on the frame). `face − side · 0.06` puts the 10 cm trim wholly on the corridor side.
+    const fx = face - side * 0.06;
     b.box(0.1, DOOR_HEIGHT, 0.1, fx, DOOR_HEIGHT / 2, doorLo - 0.05, M.trim);
     b.box(0.1, DOOR_HEIGHT, 0.1, fx, DOOR_HEIGHT / 2, doorHi + 0.05, M.trim);
     b.box(0.1, 0.1, DOOR_WIDTH + 0.2, fx, DOOR_HEIGHT + 0.05, rb.doorZ, M.trim);

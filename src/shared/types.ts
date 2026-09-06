@@ -993,6 +993,32 @@ export interface InventoryRef {
    * gear is refused. Returns how many units were removed (0 = not found / refused). Clears quick slots at 0.
    */
   takeItem(uid: string, qty?: number): number;
+
+  /* ══ appended: Phase 9 UI pass — embedded trade grids (2026-09-07) ══════════════════════════════════════ */
+  /**
+   * Render the player's **real 가방 / 함선 창고 grids** into `host` for another folder's screen (the 기업 거래
+   * screen's right-hand column). Read + drag-out only: a tile can be dragged onto one of `dropSelector`'s targets
+   * or double-clicked, which calls `onTake` — nothing is moved, removed or rearranged by the view itself, so the
+   * caller stays the only one mutating the inventory (`takeItem` / `tryAddItemAnywhere`).
+   *
+   * The view adds **no blocker, no pointer-lock call and no window key listener** — the caller's shell owns those,
+   * exactly like `createCorpView` / `createShipView`. `dispose()` removes only what it added.
+   */
+  createTradeGrids(host: HTMLElement, opts?: TradeGridsViewOptions): EmbeddedView;
+}
+
+/** Options for `InventoryRef.createTradeGrids` (Phase 9 UI pass). */
+export interface TradeGridsViewOptions {
+  /** Grids to render, top to bottom. Default: `['bag', 'stash']`. */
+  grids?: readonly ('bag' | 'stash')[];
+  /** A tile was dragged onto a `dropSelector` target (`target`) or double-clicked (`target` null). */
+  onTake?(item: ItemInstance, gridId: 'bag' | 'stash', target: HTMLElement | null): void;
+  /** CSS selector of the caller's legal drop targets. Without it a drag simply snaps back. */
+  dropSelector?: string;
+  /** Tiles to mark `.is-staged` (already staged in the caller's tray). */
+  isStaged?(uid: string): boolean;
+  /** Extra class on the view root so the caller can size the blocks from its own stylesheet. */
+  className?: string;
 }
 
 /* ══ appended: Phase 7 — known follow-ups (2026-09-06) ═══════════════════════════════════════════════════════ */

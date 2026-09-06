@@ -427,34 +427,76 @@ try {
     const subs = [...root.querySelectorAll('.corp-subtabs .scr-tab')].map((b) => ({ page: b.dataset.page, on: b.classList.contains('is-on') }));
     return {
       hidden: root.hidden, blocker: window.__game.ctx.uiBlockers.has('corp'), isOpen: window.__game.ctx.meta.isMenuOpen,
-      title: root.querySelector('.hub-head .title')?.textContent, credits: root.querySelector('.corp-credits .v')?.textContent,
-      banner: root.querySelector('.corp-banner .name')?.textContent, tabs, subs, rows: root.querySelectorAll('.corp-page .corp-row, .corp-page .corp-empty').length,
+      // Phase 9 UI pass: the `기업 네트워크` title + subtitle are gone — the corp list occupies the header's left slot
+      title: root.querySelector('.hub-head .title')?.textContent ?? null,
+      headTabs: root.querySelectorAll('.hub-head .corp-tabs .corp-tab').length,
+      credits: root.querySelector('.corp-credits .v')?.textContent,
+      // Phase 9 UI pass: the banner (motto + description) became a compact 기업 패널 — name + 신뢰도 only
+      panel: root.querySelector('.corp-panel .name')?.textContent,
+      motto: !!root.querySelector('.corp-banner'),
+      tabs, subs, rows: root.querySelectorAll('.corp-page .corp-row, .corp-page .ct-cell, .corp-page .corp-empty').length,
     };
   });
   ok(dom && !dom.hidden && dom.blocker && dom.isOpen, 'openCorpMenu(ceres) → visible, blocker corp, isMenuOpen', JSON.stringify(dom && { hidden: dom.hidden, blocker: dom.blocker }));
-  ok(dom && dom.title === '기업 네트워크' && dom.credits === snap.credits.toLocaleString('en-US'), 'header 기업 네트워크 + credit readout', JSON.stringify(dom && { title: dom.title, credits: dom.credits }));
-  ok(dom && dom.tabs.length === 4 && dom.tabs.find((t) => t.corp === 'ceres')?.on && dom.banner === '세레스 바이오', '4 corp tabs, ceres selected, banner 세레스 바이오', JSON.stringify(dom && dom.tabs));
-  ok(dom && dom.subs.map((s) => s.page).join(',') === 'shop,sell,contracts,quests' && dom.subs[0].on, 'sub-tabs 상점 / 판매 / 계약 / 퀘스트 (상점 on)', JSON.stringify(dom && dom.subs));
-  ok(dom && dom.rows >= 1, 'shop page shows the locked-shop notice (ceres Lv.0)', `${dom && dom.rows}`);
+  ok(dom && dom.title === null && dom.headTabs === 4 && dom.credits === snap.credits.toLocaleString('en-US'),
+    '헤더: 제목 없이 기업 목록 + 크레딧', JSON.stringify(dom && { title: dom.title, headTabs: dom.headTabs, credits: dom.credits }));
+  ok(dom && dom.tabs.length === 4 && dom.tabs.find((t) => t.corp === 'ceres')?.on && dom.panel === '세레스 바이오' && !dom.motto,
+    '4 corp tabs, ceres selected, 기업 패널 세레스 바이오 (no motto banner)', JSON.stringify(dom && dom.tabs));
+  ok(dom && dom.subs.map((s) => s.page).join(',') === 'trade,contracts,quests' && dom.subs[0].on, 'sub-tabs 거래 / 계약 / 퀘스트 (거래 on)', JSON.stringify(dom && dom.subs));
+  ok(dom && dom.rows >= 1, '거래 page shows the locked-shop notice (ceres Lv.0)', `${dom && dom.rows}`);
   let tg = await lastEv('ui:corpToggled');
   ok(tg && tg.open === true && tg.corp === 'ceres', 'ui:corpToggled {open:true, ceres}', JSON.stringify(tg));
   await P(() => document.querySelector('.corp-subtabs .scr-tab[data-page="contracts"]').click());
   const contractsDom = await P(() => ({
-    rows: [...document.querySelectorAll('.corp-page .corp-row.contract')].map((r) => ({ id: r.dataset.id, btn: r.querySelector('.ui-btn')?.textContent, disabled: r.querySelector('.ui-btn')?.disabled })),
+    rows: [...document.querySelectorAll('.cc-list .corp-row.contract')].map((r) => ({ id: r.dataset.id, btn: r.querySelector('.ui-btn')?.textContent, disabled: r.querySelector('.ui-btn')?.disabled })),
+    active: document.querySelectorAll('.cc-active .corp-row.contract, .cc-active .corp-empty').length,
     on: document.querySelector('.corp-subtabs .scr-tab.is-on')?.dataset.page,
   }));
   ok(contractsDom.on === 'contracts' && contractsDom.rows.length === 4 && contractsDom.rows[0].id === 'ceres_1' && contractsDom.rows[0].btn === '수락' && contractsDom.rows[0].disabled === false, '계약 tab: 4 ceres rows, ceres_1 수락 enabled', JSON.stringify(contractsDom));
   await P(() => document.querySelector('.corp-tab[data-corp="helix"]').click());
   await P(() => document.querySelector('.corp-subtabs .scr-tab[data-page="quests"]').click());
-  const questsDom = await P(() => [...document.querySelectorAll('.corp-page .corp-row.quest')].map((r) => ({ id: r.dataset.id, badge: r.querySelector('.badge')?.textContent })));
-  ok(questsDom.length === 4 && questsDom[0].id === 'h1' && questsDom[0].badge === '완료' && questsDom[1].badge === '가능', 'helix 퀘스트 tab: h1 완료, h2 가능', JSON.stringify(questsDom));
-  await P(() => document.querySelector('.corp-subtabs .scr-tab[data-page="shop"]').click());
+  const questsDom = await P(() => ({
+    rows: [...document.querySelectorAll('.cq-list .corp-row.quest')].map((r) => ({ id: r.dataset.id, badge: r.querySelector('.badge')?.textContent })),
+    // the middle column shows the selected quest's delivery table; the right column is the embedded grids
+    deliver: document.querySelectorAll('.cq-deliver .cq-line').length,
+    grids: document.querySelectorAll('.cq-col.inv .trade-grids .tg-block').length,
+  }));
+  ok(questsDom.rows.length === 4 && questsDom.rows[0].id === 'h1' && questsDom.rows[0].badge === '완료' && questsDom.rows[1].badge === '가능', 'helix 퀘스트 tab: h1 완료, h2 가능', JSON.stringify(questsDom.rows));
+  ok(questsDom.deliver >= 1 && questsDom.grids === 2, `퀘스트 tab: 납품 table in the middle, 가방 + 함선 창고 grids on the right (${questsDom.deliver} lines, ${questsDom.grids} grids)`);
+  await P(() => document.querySelector('.corp-subtabs .scr-tab[data-page="trade"]').click());
   // helix is Lv.2 by now (310 rep): the shelf grew past the Lv.1 list, so compare with the live shop
-  const shopDom = await P(() => ({ rows: document.querySelectorAll('.corp-page .corp-row.shop').length, firstBtn: document.querySelector('.corp-page .corp-row.shop .ui-btn')?.textContent, live: window.__game.ctx.meta.getShop('helix').length }));
-  ok(shopDom.rows === shopDom.live && shopDom.rows > shop1.length && shopDom.firstBtn === '구매', `helix 상점 tab: one row per shop line (${shopDom.live}, more than the ${shop1.length} at Lv.1) with 구매 buttons`, JSON.stringify(shopDom));
-  await P(() => document.querySelector('.corp-subtabs .scr-tab[data-page="sell"]').click());
-  const sellDom = await P(() => ({ rows: document.querySelectorAll('.corp-page .corp-row.sell').length, sellAll: !document.querySelector('.corp-menu .hub-foot .right .ui-btn').hidden }));
-  ok(sellDom.rows >= 1 && sellDom.sellAll, '판매 tab: bag items listed, 전부 판매 button visible', JSON.stringify(sellDom));
+  const shopDom = await P(() => ({
+    // Phase 9 UI pass: the stock list is an **item grid** of `.ct-cell` thumbnails, not wide rows
+    rows: document.querySelectorAll('.ct-shop-list .ct-cell.shop').length,
+    tips: document.querySelectorAll('.ct-shop-list .ct-cell.shop .item-chip[data-def-id]').length,
+    live: window.__game.ctx.meta.getShop('helix').length,
+    buyBtn: !!document.querySelector('.ct-shop-list .ct-cell.shop .ui-btn'),   // 즉시 구매 buttons are gone (장바구니)
+    grids: document.querySelectorAll('.ct-col.inv .trade-grids .tg-block').length,
+    trays: document.querySelectorAll('.ct-trays .ct-tray').length,
+    confirm: document.querySelector('.ct-confirm')?.textContent,
+    confirmOff: document.querySelector('.ct-confirm')?.disabled,
+    stage: !document.querySelector('.corp-menu .hub-foot .right .ui-btn').hidden,
+  }));
+  ok(shopDom.rows === shopDom.live && shopDom.rows > shop1.length && !shopDom.buyBtn,
+    `거래 tab: one stock cell per shop line (${shopDom.live}, more than the ${shop1.length} at Lv.1), no per-cell 구매 button`, JSON.stringify(shopDom));
+  ok(shopDom.tips === shopDom.rows, `모든 재고 칸이 item-chip 썸네일 (호버 툴팁 대상, ${shopDom.tips}/${shopDom.rows})`);
+  ok(shopDom.trays === 2 && shopDom.grids === 2 && shopDom.confirm === '거래 성사' && shopDom.confirmOff,
+    '거래 tab: 구매 / 판매 trays, 가방 + 함선 창고 grids, 거래 성사 disabled on an empty basket', JSON.stringify(shopDom));
+  // stage one purchase from the stock list and one sale from the bag, then settle the basket
+  const staged = await P(() => {
+    document.querySelector('.ct-shop-list .ct-cell.shop.is-draggable')?.click();
+    const inst = window.__game.ctx.meta.getSellable()[0];
+    const view = window.__game.getSystem('meta');
+    return { inst: !!inst, buy: document.querySelectorAll('.ct-tray.buy .ct-chip').length, hasView: !!view };
+  });
+  ok(staged.buy === 1, `clicking a stock cell stages it in the 구매 tray (${staged.buy})`);
+  const settled = await P(() => {
+    const before = window.__game.ctx.meta.credits;
+    document.querySelector('.ct-confirm').click();
+    return { before, after: window.__game.ctx.meta.credits, buy: document.querySelectorAll('.ct-tray.buy .ct-chip').length };
+  });
+  ok(settled.after < settled.before && settled.buy === 0, `거래 성사 settles the basket and empties the trays (${settled.before} → ${settled.after})`, JSON.stringify(settled));
+  ok(shopDom.stage, '귀중품 전부 담기 button visible on the 거래 tab');
   await tap('Escape');
   await sleep(30);
   const closed = await P(() => ({ hidden: document.querySelector('.menu.corp-menu').hidden, blocker: window.__game.ctx.uiBlockers.has('corp'), isOpen: window.__game.ctx.meta.isMenuOpen }));
@@ -463,6 +505,9 @@ try {
   ok(tg && tg.open === false, 'ui:corpToggled {open:false}', JSON.stringify(tg));
 
   console.log('persistence: corrupt save is sanitised');
+  // the 거래 성사 above left a debounced save pending — let it land first, or the pagehide flush would
+  // overwrite the corrupt payload we are about to plant (SAVE_DELAY_MS = 350 ms)
+  await sleep(600);
   await P(() => localStorage.setItem('scav.meta', JSON.stringify({
     v: 1, credits: -50, corps: { helix: { rep: 'x', quests: { h1: 'locked', zzz: 'complete', b1: 'complete' } }, ceres: { rep: 250.7, quests: { c1: 'accepted' } } },
     activeContract: { id: 'nope', progress: 3 }, stats: null,

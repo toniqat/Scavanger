@@ -67,14 +67,23 @@ export class Parts {
           this.col.addBlocker(s.at - t / 2, g.y0, g.lo, s.at + t / 2, g.y1, g.hi);
         }
       }
-      // wainscot band + trim line
+      // Wainscot band + trim line. It is **split around a floor-level opening** (`o.y0 < band`): the band used to run
+      // the full length of every side, which left a waist-high slab standing across each doorway and the cockpit arch.
       const band = 1.0;
-      if (s.axisX) {
-        this.b.box(s.hi - s.lo, band, 0.04, (s.lo + s.hi) / 2, band / 2, s.at + (s.k === 'n' ? t / 2 + 0.02 : -t / 2 - 0.02), M.hullDark);
-        this.b.box(s.hi - s.lo, 0.05, 0.05, (s.lo + s.hi) / 2, band + 0.05, s.at + (s.k === 'n' ? t / 2 + 0.03 : -t / 2 - 0.03), M.trim);
-      } else {
-        this.b.box(0.04, band, s.hi - s.lo, s.at + (s.k === 'w' ? t / 2 + 0.02 : -t / 2 - 0.02), band / 2, (s.lo + s.hi) / 2, M.hullDark);
-        this.b.box(0.05, 0.05, s.hi - s.lo, s.at + (s.k === 'w' ? t / 2 + 0.03 : -t / 2 - 0.03), band + 0.05, (s.lo + s.hi) / 2, M.trim);
+      const bandSegs: Array<{ lo: number; hi: number }> = o && o.y0 < band
+        ? [{ lo: s.lo, hi: o.lo }, { lo: o.hi, hi: s.hi }]
+        : [{ lo: s.lo, hi: s.hi }];
+      for (const g of bandSegs) {
+        const len = g.hi - g.lo;
+        if (len <= 0.001) continue;
+        const mid = (g.lo + g.hi) / 2;
+        if (s.axisX) {
+          this.b.box(len, band, 0.04, mid, band / 2, s.at + (s.k === 'n' ? t / 2 + 0.02 : -t / 2 - 0.02), M.hullDark);
+          this.b.box(len, 0.05, 0.05, mid, band + 0.05, s.at + (s.k === 'n' ? t / 2 + 0.03 : -t / 2 - 0.03), M.trim);
+        } else {
+          this.b.box(0.04, band, len, s.at + (s.k === 'w' ? t / 2 + 0.02 : -t / 2 - 0.02), band / 2, mid, M.hullDark);
+          this.b.box(0.05, 0.05, len, s.at + (s.k === 'w' ? t / 2 + 0.03 : -t / 2 - 0.03), band + 0.05, mid, M.trim);
+        }
       }
     }
   }

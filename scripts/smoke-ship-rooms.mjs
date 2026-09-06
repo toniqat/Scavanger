@@ -166,15 +166,17 @@ try {
     return it ? { pos: [it.position.x, it.position.z], radius: it.radius, prompt: it.getPrompt(), can: it.canInteract(), hold: it.holdTime ?? 0 } : null;
   });
   ok(!!comp && comp.prompt === '기업 네트워크' && comp.radius === 2.2 && comp.hold === 0, `hub_computer: prompt ${comp?.prompt}, radius ${comp?.radius}, instant`);
-  ok(!!comp && comp.pos[0] > 2.5 && comp.pos[0] < 4.5 && comp.pos[1] > -4 && comp.pos[1] < -2.2, `anchor on the +X wall between the workbench and the pod (${comp?.pos.map((n) => n.toFixed(2))})`);
-  // desk collider (desk + chair box x 3.83 … 4.98): a 0.45 m circle just inside the front edge is pushed back into the room
+  // Phase 9 UI pass: the desk moved off the +X wall (where its prompt fought the launch pod) to the port half of
+  // the rear wall, replacing the lockers that overlapped the bunk. Anchor ≈ (−3.15, −1.83), facing −Z.
+  ok(!!comp && comp.pos[0] > -4.2 && comp.pos[0] < -2.1 && comp.pos[1] > -2.6 && comp.pos[1] < -1.0, `anchor on the rear wall, port side (${comp?.pos.map((n) => n.toFixed(2))})`);
+  // desk collider (desk + chair box x −3.92 … −2.38, z −1.18 … −0.03): a 0.45 m circle inside it is pushed into the room
   const deskPush = await page.evaluate(() => {
     const col = window.__game.ctx.player.interior;
-    const v = window.__game.ctx.player.position.clone(); v.set(4.0, 0, -3.1);
+    const v = window.__game.ctx.player.position.clone(); v.set(-3.15, 0, -1.0);
     col.resolveCollision(v, 0.45);
     return [v.x, v.z];
   });
-  ok(deskPush[0] < 3.9 && deskPush[0] > 3.0, `desk collider pushes a circle out toward the room (${deskPush.map((n) => n.toFixed(2))})`);
+  ok(deskPush[1] < -1.2 && deskPush[1] > -2.8, `desk collider pushes a circle out toward the room (${deskPush.map((n) => n.toFixed(2))})`);
   // terminal screen carries a 크레딧 line (meta) — read the TextPlane's last drawn key
   const screenText = () => page.evaluate(() => window.__game.getSystem('hub').terminal?.def.screen.last ?? '');
   const hasMeta = await page.evaluate(() => !!window.__game.ctx.meta && typeof window.__game.ctx.meta.credits === 'number');
@@ -216,10 +218,10 @@ try {
   }
   ok((await page.evaluate(() => window.__game.ctx.interactables.all().find((i) => i.id === 'hub_computer').canInteract())) === true, 'computer usable again afterwards');
   // a player standing in the front edge of the desk is pushed back into the room
-  await teleport(4.0, -3.1, 0);
+  await teleport(-3.15, -1.0, 0);
   await waitSim(0.5);
   const inDesk = await playerPos();
-  ok(inDesk[0] < 3.9 && inDesk[0] > 3.0, `player spawned in the desk edge is pushed out into the room (${inDesk[0].toFixed(2)}, ${inDesk[2].toFixed(2)})`);
+  ok(inDesk[2] < -1.2 && inDesk[2] > -2.8, `player spawned in the desk edge is pushed out into the room (${inDesk[0].toFixed(2)}, ${inDesk[2].toFixed(2)})`);
 
   /* ── 3. corridor → room 0: walking through the door, room tracking ──── */
   console.log('rooms');

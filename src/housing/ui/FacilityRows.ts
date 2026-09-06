@@ -1,13 +1,7 @@
 import type { FacilityId, GameContext } from '@/shared';
+import { FACILITY_COLOR, FACILITY_GLYPH } from '@/shared';
 import type { HousingSystem } from '../HousingSystem';
-import { CHIP_SIZE, clear, el, levelText, renderCost, section, setText, toggleClass } from './dom';
-
-export const FACILITY_DESC: Readonly<Record<FacilityId, string>> = {
-  generator: '모든 시설과 작업대는 발전기 레벨 이상으로 올릴 수 없습니다.',
-  storage: '함선 창고(Tab)의 칸 수를 늘립니다.',
-  workshop: '작업실 방의 레벨. 제작 재료 비용을 줄입니다.',
-  range: '사격장 방의 레벨. 프리셋 슬롯과 사격 숙련 상승량을 늘립니다.',
-};
+import { CHIP_SIZE, clear, el, facilityThumb, levelText, renderCost, section, setText, toggleClass } from './dom';
 
 type Msg = (text: string, kind: 'info' | 'success' | 'warning' | 'danger') => void;
 
@@ -26,6 +20,9 @@ interface Row {
  *
  * Phase 8 UI pass: the caller picks **which** facilities to list. The 함선 tab passes the two ship-wide ones
  * (발전기 · 창고); 작업실 / 사격장 are room facilities now and are upgraded from their row in the 방 목록.
+ *
+ * Phase 9 UI pass: each row leads with the shared facility thumbnail (`FACILITY_GLYPH` / `FACILITY_COLOR`) and the
+ * per-facility explainer lines are gone — the level pips, the cost chips and the block reason already say it.
  */
 export class FacilityRows {
   private rows = new Map<FacilityId, Row>();
@@ -40,16 +37,16 @@ export class FacilityRows {
     const list = el('div', { cls: 'hs-list', parent: sec });
     for (const info of ids.map((id) => housing.getFacility(id))) {
       const row = el('div', { cls: 'hs-row facility', parent: list, attrs: { 'data-facility': info.id } });
+      facilityThumb(row, FACILITY_GLYPH[info.id], FACILITY_COLOR[info.id]);
       const mid = el('div', { cls: 'mid', parent: row });
       const nl = el('div', { cls: 'name-line', parent: mid });
       el('span', { cls: 'name', text: info.name, parent: nl });
       const level = el('span', { cls: 'tag', text: '', parent: nl });
       const pips = el('div', { cls: 'pips', parent: nl });
       for (let i = 0; i < info.maxLevel; i++) el('i', { parent: pips });
-      el('div', { cls: 'desc', text: FACILITY_DESC[info.id], parent: mid });
       const cost = el('div', { cls: 'cost', parent: mid });
       const blocked = el('div', { cls: 'blocked', text: '', parent: mid });
-      const btn = el('button', { cls: 'ui-btn small', text: '업그레이드', parent: row });
+      const btn = el('button', { cls: 'ui-btn small wide', text: '업그레이드', parent: row });
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         this.ctx.bus.emit('audio:play', { id: 'ui_click' });

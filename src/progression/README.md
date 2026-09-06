@@ -154,3 +154,15 @@ const cap = d?.carryCapacity ?? 39;          // 근력 5 기준값
 ctx.progression?.addSkillXp('gardening', 0.35);
 const implant = ctx.progression?.profile.implant ?? null;
 ```
+
+## Phase 9 UI/UX 개선 pass (2026-09-07)
+
+- **전술 임플란트 moved into the character sheet.** `ui/SheetBody` gained a `cs-implants` section between the XP bar
+  and the 능력치 / 숙련도 columns: one `.cs-imp-card[data-id]` per `ctx.implants.getAllDefs()` (glyph, name, mode tag,
+  description, cooldown / charges), the equipped one lit, a click equips it and a click on the lit one unequips.
+  Raid-locked exactly as the old slot was (`ctx.isRaidActive()` → cards disabled + a 한국어 hint). It replaces the
+  inventory window's 장착 장비 slot and its modeless picker, both of which are gone; the labels (`IMPLANT_TEXT`) live
+  here now rather than in `inventory/ui/labels.ts`. Both shells (`CharacterSheet` overlay and the embedded
+  `SheetView` = 캐릭터 tab) get it, since they share `SheetBody`.
+- **CSS**: `.cs-implants(.is-empty) .h .hint`, `.cs-imp-key`, `.cs-imp-grid`,
+  `.cs-imp-card(.is-equipped) .ico .body .line .nm .tag .desc .meta` in `ui/character.css`.

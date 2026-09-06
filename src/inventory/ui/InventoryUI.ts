@@ -1,5 +1,5 @@
 import './../inventory.css';
-import type { EmbeddedView, GameContext, ImplantDef, ImplantId, ItemDef, ItemInstance } from '@/shared';
+import type { EmbeddedView, GameContext, ItemDef, ItemInstance } from '@/shared';
 import { Keys, QUICK_SLOTS, QUICK_SLOT_LABEL_KO, isQuickSlotActive, keyLabel, renderItemCost } from '@/shared';
 import { ITEM_DEF_MAP, getWeaponDef } from '@/items';
 import type { Container } from '../Container';
@@ -87,7 +87,7 @@ interface QuickCell {
  * Arc Raiders-styled DOM for the Diablo grid.
  *   - Mission (Tab / crate): container panel (left), bag (center, quick-use rose underneath), equipment column (right).
  *   - Ship (`hub` = true, 2026-09-06): screen tabs (인벤토리 / 캐릭터 / 기업) on top, then **함선 창고** (scrollable stash
- *     grid, left) · **장착 장비** (5 slots + the tactical-implant slot with its picker, center) · **가방** with the
+ *     grid, left) · **장착 장비** (5 slots; the 전술 임플란트 moved to the 캐릭터 tab in the Phase 9 UI pass) · **가방** with the
  *     quick-use rose to its right (≥ 1600 px wide; under the grid on narrower windows). Right-click on worn gear
  *     offers 수리 there; a "drop" (X / backdrop release) lands in the stash because the ship has no ground.
  * Owns drag & drop, rotation, tooltips, context menus.
@@ -105,7 +105,6 @@ export class InventoryUI {
   /** Layer that holds the modeless popups (임플란트 picker / 제작 / 분해) above `.inv-layout`. */
   private modelessLayer!: HTMLElement;
   private craftModeless!: Modeless;
-  private implantModeless!: Modeless;
   private disassemble!: DisassemblePanel;
   private creditsEl!: HTMLElement;
   private creditsValue!: HTMLElement;
@@ -135,13 +134,6 @@ export class InventoryUI {
   private quickKey!: HTMLElement;
   private quickHold!: HTMLElement;
   private hintsEl!: HTMLElement;
-  /* implant slot (hub) */
-  private implantSlot!: HTMLElement;
-  private implantBody!: HTMLElement;
-  private implantMeta!: HTMLElement;
-  private implantPicker!: HTMLElement;
-  private implantCards = new Map<ImplantId, HTMLElement>();
-  private pickerOpen = false;
   private tooltip!: Tooltip;
   private ghostLayer!: HTMLElement;
   private dropZone!: HTMLElement;
@@ -331,7 +323,6 @@ export class InventoryUI {
     eqGrid.className = 'inv-equip-grid';
     for (const slot of LOADOUT_SLOTS) eqGrid.appendChild(this.buildSlot(slot, SLOT_LABEL[slot]).el);
     eq.appendChild(eqGrid);
-    eq.appendChild(this.buildImplantSlot());
 
     /* 무한 상자 (Phase 6): leftmost panel, shown only while the catalog is open */
     this.catalogView = new CatalogView(this.sys, getDef, {
@@ -359,12 +350,10 @@ export class InventoryUI {
     this.modelessLayer.className = 'inv-modeless-layer';
     this.craftModeless = new Modeless('craft', () => this.closeCraft());
     this.craftModeless.adopt(this.craftPanel.el);
-    this.implantModeless = new Modeless('implant', () => this.closePicker());
-    this.implantModeless.withHeader('IMPLANT', TEXT.implant.slot).adopt(this.implantPicker);
     this.disassemble = new DisassemblePanel(this.sys, getDef, (open, uid) => {
       this.ctx.bus.emit('ui:disassembleToggled', { open, uid });
     });
-    this.modelessLayer.append(this.craftModeless.el, this.implantModeless.el, this.disassemble.el);
+    this.modelessLayer.append(this.craftModeless.el, this.disassemble.el);
 
     /* hints (mission only; the ship screen has nothing to throw away and its keys are on the slots) */
     this.hintsEl = document.createElement('div');
@@ -436,10 +425,9 @@ export class InventoryUI {
   closeOverlays(): boolean {
     const a = this.dialog?.close() ?? false;
     const b = this.menu?.close() ?? false;
-    const c = this.closePicker();
     const d = this.disassemble?.close() ?? false;
     const e = this.craftPanel?.isOpen ? (this.closeCraft(), true) : false;
-    return a || b || c || d || e;
+    return a || b || d || e;
   }
 
   show(container: Container | null, hub = false): void {
@@ -505,7 +493,6 @@ export class InventoryUI {
     this.screenView = null;
     this.craftPanel?.dispose();
     this.craftModeless?.dispose();
-    this.implantModeless?.dispose();
     this.disassemble?.dispose();
     this.tooltip.dispose();
     this.root?.remove();
@@ -537,7 +524,7 @@ export class InventoryUI {
     this.screenView = null;
     this.screenHost.replaceChildren();
     this.screenNote.hidden = true;
-    if (tab !== 'inventory') { this.closePicker(); this.closeCraft(); this.disassemble?.close(); }
+    if (tab !== 'inventory') { this.closeCraft(); this.disassemble?.close(); }
 
     if (tab === 'inventory') {
       this.activeTab = 'inventory';
@@ -634,7 +621,6 @@ export class InventoryUI {
       this.refreshCredits();
     }
     this.refreshSlots();
-    this.refreshImplant();
     this.refreshQuick();
     this.refreshWeight();
     this.craftPanel.refresh();
@@ -699,7 +685,6 @@ export class InventoryUI {
   setCraftOpen(open: boolean): void {
     this.craftPanel.setOpen(open);
     if (open) {
-      this.closePicker();
       this.disassemble.close();
       this.craftPanel.refresh();
       this.craftModeless.open(null);
@@ -753,7 +738,6 @@ export class InventoryUI {
     if (e.button !== 0) return;
     e.preventDefault();
     this.menu.close();
-    this.closePicker();
     const now = performance.now();
     const last = this.lastCatalogPress;
     if (last && last.defId === def.id && now - last.t < CATALOG_DBL_MS) {
@@ -801,147 +785,6 @@ export class InventoryUI {
       view.showHighlight(cell.x, cell.y, w, h, pv === 'bad' ? 'bad' : pv === 'swap' ? 'swap' : pv === 'merge' ? 'merge' : 'ok');
       return;
     }
-  }
-
-  /* ── implant slot (hub screen) ─────────────────────────────────────────── */
-
-  /** Below the gear slots: the equipped 전술 임플란트. Click → picker (ship only); clicking the equipped card unequips. */
-  private buildImplantSlot(): HTMLElement {
-    const el = document.createElement('div');
-    el.className = 'inv-slot inv-slot-implant';
-    const head = document.createElement('div');
-    head.className = 'inv-slot-label';
-    head.textContent = TEXT.implant.slot;
-    const k = document.createElement('kbd');
-    k.className = 'inv-key-implant';
-    k.textContent = keyLabel(Keys.IMPLANT);
-    head.appendChild(k);
-    this.implantBody = document.createElement('div');
-    this.implantBody.className = 'inv-slot-body inv-implant-body';
-    this.implantBody.addEventListener('click', (e) => { e.stopPropagation(); this.togglePicker(); });
-    this.implantMeta = document.createElement('div');
-    this.implantMeta.className = 'inv-slot-meta';
-    // Phase 8: the picker is no longer an inline expander of this column — it lives in a modeless popup
-    // (`implantModeless`) anchored to the slot; the grid behind it stays visible and interactive.
-    this.implantPicker = document.createElement('div');
-    this.implantPicker.className = 'inv-implant-picker';
-    el.append(head, this.implantBody, this.implantMeta);
-    this.implantSlot = el;
-    return el;
-  }
-
-  private implantDefs(): readonly ImplantDef[] { return this.ctx.implants?.getAllDefs() ?? []; }
-
-  private refreshImplant(): void {
-    const imp = this.ctx.implants;
-    const id = imp?.equipped ?? null;
-    const def = id ? imp?.getDef(id) ?? null : null;
-    this.implantBody.innerHTML = '';
-    if (def) {
-      const card = document.createElement('div');
-      card.className = 'inv-implant-card is-equipped';
-      card.style.setProperty('--ic', def.color);
-      const ico = document.createElement('span');
-      ico.className = 'ico';
-      ico.textContent = def.icon;
-      const name = document.createElement('span');
-      name.className = 'nm';
-      name.textContent = def.name;
-      card.append(ico, name);
-      this.implantBody.appendChild(card);
-      this.implantSlot.classList.add('has-item');
-      this.implantSlot.style.setProperty('--rc', def.color);
-      this.implantMeta.textContent = `${TEXT.implant.mode[def.mode]}${def.cooldown > 0 ? ` · ${TEXT.implant.cooldown} ${def.cooldown}s` : ''}${def.charges > 1 ? ` · ${TEXT.implant.charges} ${def.charges}` : ''}`;
-    } else {
-      const empty = document.createElement('div');
-      empty.className = 'inv-slot-empty';
-      empty.innerHTML = `<span class="inv-implant-empty-ico">◈</span><span>${imp ? TEXT.implant.empty : TEXT.implant.unavailable}</span>`;
-      this.implantBody.appendChild(empty);
-      this.implantSlot.classList.remove('has-item');
-      this.implantSlot.style.removeProperty('--rc');
-      this.implantMeta.textContent = '';
-    }
-    this.implantSlot.classList.toggle('is-locked', this.ctx.isRaidActive());
-    this.implantBody.title = this.ctx.isRaidActive() ? TEXT.implant.raidLocked : TEXT.implant.clickHint;
-    if (this.pickerOpen) this.renderPicker();
-  }
-
-  private togglePicker(): void {
-    if (this.pickerOpen) { this.closePicker(); return; }
-    if (!this.ctx.implants) { this.sys.sfx('ui_error'); return; }
-    if (this.ctx.isRaidActive()) {
-      this.sys.sfx('ui_error');
-      this.ctx.bus.emit('ui:notify', { text: TEXT.implant.raidLocked, kind: 'warning', duration: 1.6 });
-      return;
-    }
-    this.menu.close();
-    this.tooltip.hide();
-    this.disassemble.close();
-    this.pickerOpen = true;
-    this.implantSlot.classList.add('is-picking');
-    this.renderPicker();
-    // modeless: **centred** with a fixed frame that scrolls internally (Phase 8 UI pass — it used to be anchored to
-    // the slot and read as a context menu). Still dismissed by Escape / an outside click, still no blocker.
-    this.implantModeless.open(this.implantSlot, true);
-    this.sys.sfx('ui_pickup');
-  }
-
-  private closePicker(): boolean {
-    const wasOpen = this.pickerOpen;
-    this.pickerOpen = false;
-    this.implantSlot?.classList.remove('is-picking');
-    const closed = this.implantModeless?.close() ?? false;
-    return wasOpen || closed;
-  }
-
-  /** Picker cards: one per implant; the equipped one is lit and a click on it unequips. */
-  private renderPicker(): void {
-    const imp = this.ctx.implants;
-    const equipped = imp?.equipped ?? null;
-    if (this.implantCards.size === 0) {
-      for (const def of this.implantDefs()) {
-        const card = document.createElement('button');
-        card.type = 'button';
-        card.className = 'inv-implant-card';
-        card.style.setProperty('--ic', def.color);
-        card.dataset.id = def.id;
-        const ico = document.createElement('span');
-        ico.className = 'ico';
-        ico.textContent = def.icon;
-        const body = document.createElement('span');
-        body.className = 'body';
-        const nm = document.createElement('span');
-        nm.className = 'nm';
-        nm.textContent = def.name;
-        const tag = document.createElement('span');
-        tag.className = 'tag';
-        tag.textContent = TEXT.implant.mode[def.mode];
-        const desc = document.createElement('span');
-        desc.className = 'desc';
-        desc.textContent = def.description;
-        const line = document.createElement('span');
-        line.className = 'line';
-        line.append(nm, tag);
-        body.append(line, desc);
-        card.append(ico, body);
-        card.addEventListener('click', (e) => { e.stopPropagation(); this.pickImplant(def.id); });
-        this.implantPicker.appendChild(card);
-        this.implantCards.set(def.id, card);
-      }
-    }
-    for (const [id, card] of this.implantCards) card.classList.toggle('is-equipped', id === equipped);
-  }
-
-  private pickImplant(id: ImplantId): void {
-    const imp = this.ctx.implants;
-    if (!imp) return;
-    const next = imp.equipped === id ? null : id;
-    if (!imp.setEquipped(next)) { this.sys.sfx('ui_error'); return; }
-    this.sys.sfx('ui_equip');
-    const def = imp.getDef(id);
-    this.ctx.bus.emit('ui:notify', { text: next ? `${def?.name ?? id} ${TEXT.implant.equipped}` : TEXT.implant.unequipped, kind: 'success', duration: 1.6 });
-    this.refreshImplant();
-    if (next) this.closePicker();
   }
 
   /* ── quick-use wheel panel ─────────────────────────────────────────────── */
@@ -1266,7 +1109,6 @@ export class InventoryUI {
   private onContextMenu(uid: string, from: ItemLocation, e: MouseEvent): void {
     if (this.drag?.started || this.dialog.isOpen) return;
     this.menu.close();
-    this.closePicker();
     if (this.locked(uid, from)) return;
     const item = this.sys.findItem(uid, from);
     const def = item && ITEM_DEF_MAP.get(item.defId);
@@ -1405,7 +1247,6 @@ export class InventoryUI {
   /** Open the modeless 분해 dialog for `uid` (expected result + a 분해 button). False when the item has no recipe. */
   openDisassemble(uid: string): boolean {
     this.menu.close();
-    this.closePicker();
     this.tooltip.hide();
     if (this.disassemble.isOpen) this.disassemble.close();
     const ok = this.disassemble.open(uid, null);
@@ -1499,7 +1340,6 @@ export class InventoryUI {
     if (!item || !def) return;
     e.preventDefault();
     this.menu.close();
-    this.closePicker();
     // Shift → half the stack, Ctrl → one unit (grid stacks only; falls back to a whole-item drag)
     let qty: number | null = null;
     if (from.kind === 'grid' && quickFrom === null) {

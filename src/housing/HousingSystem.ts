@@ -9,8 +9,9 @@ import {
 } from '@/shared';
 import {
   bookGainMulFor, bookWeightOf, canPlaceAt, craftCostMulFor, facilityBlockReason, facilityLevel, facilityMaxLevel, facilityName,
+  facilityPurposeOf, purposeBuildBlockReason, purposeBuildCost, roomRefundCost,
   furnitureAllowedIn, furnitureUpgradeReason, isRoomIndex, isRoomPurpose, layerOf, missingIngredients, nextFacilityCost, nextFreeLayer,
-  nextFurnitureCost, presetCountFor, purposeChangeReason, recoverBlockReason, skillGainMulFor, stackLimitOf, stackMembers,
+  nextFurnitureCost, presetCountFor, recoverBlockReason, skillGainMulFor, stackLimitOf, stackMembers,
   stashSizeFor,
 } from './Rules';
 import { ShipStore, freshRoom, isBookshelfDefId, isGrowRackDefId, loadState, maxUidIndex, sanitize, writeState } from './ShipState';
@@ -311,8 +312,13 @@ export class HousingSystem implements GameSystem, HousingRef {
    * recovers every piece, so it is also refused while a 책장 in the room cannot hand its books to the stash.
    */
   purposeBlock(index: number, purpose: RoomPurpose): string | null {
-    return purposeChangeReason(this.state, index, purpose) ?? (purpose === 'empty' ? this.emptyRoomBlock(index) : null);
+    // Phase 9 UI pass: 시설 증축 costs materials and sits behind the 발전기 gate, so the block reason covers those too.
+    return purposeBuildBlockReason(this.state, index, purpose, this.countDef, this.nameOf)
+      ?? (purpose === 'empty' ? this.emptyRoomBlock(index) : null);
   }
+
+  /** Materials a 시설 증축 to `purpose` would consume (empty for 빈 방). The pickers render these as cost chips. */
+  purposeCost(purpose: RoomPurpose): readonly CraftIngredient[] { return purposeBuildCost(purpose); }
 
   /** Why the room cannot be emptied right now (a 책장 whose books have no stash room), null when it can. */
   private emptyRoomBlock(index: number): string | null {
@@ -324,12 +330,20 @@ export class HousingSystem implements GameSystem, HousingRef {
     return null;
   }
 
+  /**
+   * Give room `index` a purpose. Since the Phase 9 UI pass a 시설 증축 **consumes** `purposeBuildCost(purpose)` from
+   * bag + stash (all-or-nothing) and needs 발전기 Lv.1; 빈 방 is free and is the path `removeRoomFacility` takes
+   * after it has already worked out the refund.
+   */
   setRoomPurpose(index: number, purpose: RoomPurpose): boolean {
     if (!isRoomIndex(this.state, index) || !isRoomPurpose(purpose)) return false;
     const room = this.state.rooms[index];
     if (room.purpose === purpose) return true;
-    if (purposeChangeReason(this.state, index, purpose)) return false;
-    if (purpose === 'empty' && this.emptyRoomBlock(index)) return false;
+    if (this.purposeBlock(index, purpose)) return false;
+    if (purpose !== 'empty') {
+      const cost = purposeBuildCost(purpose);
+      if (cost.length && !this.consume(cost)) return false;
+    }
     if (purpose === 'empty') {
       // top layers first so a stack never has to be taken apart from underneath
       const inRoom = this.state.furniture.filter((p) => p.room === index).sort((a, b) => layerOf(b) - layerOf(a));
@@ -378,6 +392,78 @@ export class HousingSystem implements GameSystem, HousingRef {
     this.changed(`facility:${id}`);
     if (id === 'storage') this.emitStashSizeIfChanged();
     return true;
+  }
+
+  /**
+   * Materials the player would get back by removing the facility in room `index` — the sum of every upgrade it was
+   * raised with — the 시설 증축 price of level 1 plus every upgrade (`Rules.roomRefundCost`). Empty for a 빈 방.
+   */
+  facilityRefund(index: number): CraftIngredient[] {
+    const room = this.state.rooms[index];
+    if (!room || room.purpose === 'empty') return [];
+    // the 시설 증축 price of level 1 plus every upgrade above it
+    return roomRefundCost(room.purpose, Math.max(1, room.level));
+  }
+
+  /**
+   * 시설 제거 (Phase 9 UI pass): give the room back. Every placed piece goes to furniture storage (that is
+   * `setRoomPurpose(index, 'empty')`) and every material spent on the facility's upgrades is refunded into the
+   * **함선 창고**. All-or-nothing: when the stash cannot take the refund nothing is touched and the 한국어 reason is
+   * returned (null = removed).
+   */
+  removeRoomFacility(index: number): string | null {
+    const room = this.state.rooms[index];
+    if (!room) return '알 수 없는 방입니다';
+    if (room.purpose === 'empty') return '이미 빈 방입니다';
+    const block = this.purposeBlock(index, 'empty');
+    if (block) return block;
+    const refund = this.facilityRefund(index);
+    const noRoom = this.stashSpaceBlock(refund);
+    if (noRoom) return noRoom;
+    if (!this.setRoomPurpose(index, 'empty')) return '용도를 해제할 수 없습니다';
+    const left = this.refundToStash(refund);
+    if (left > 0) this.notify('함선 창고가 가득 차 일부 재료를 돌려주지 못했습니다', 'warning');
+    return null;
+  }
+
+  /** 한국어 reason the stash cannot take `cost` (free-cell estimate, deliberately conservative); null when it can. */
+  private stashSpaceBlock(cost: readonly CraftIngredient[]): string | null {
+    if (!cost.length) return null;
+    const inv = this.ctx.inventory;
+    if (!inv || typeof inv.tryAddToStash !== 'function' || !this.ctx.loot || typeof this.ctx.loot.createItem !== 'function') {
+      return '함선 창고를 사용할 수 없습니다';
+    }
+    const free = this.freeStashCells();
+    if (free < 0) return null;                                   // unknown → let the refund try for real
+    let need = 0;
+    for (const c of cost) {
+      const def = this.defOf(c.defId);
+      const stack = Math.max(1, def?.stackMax ?? 1);
+      need += Math.ceil(c.qty / stack) * (def ? def.width * def.height : 1);
+    }
+    return free >= need ? null : '함선 창고에 공간이 없습니다';
+  }
+
+  /** Drop `cost` into the stash, splitting at `stackMax`. Returns how many units could **not** be placed. */
+  private refundToStash(cost: readonly CraftIngredient[]): number {
+    const inv = this.ctx.inventory, loot = this.ctx.loot;
+    if (!cost.length) return 0;
+    if (!inv || typeof inv.tryAddToStash !== 'function' || !loot || typeof loot.createItem !== 'function') {
+      return cost.reduce((n, c) => n + c.qty, 0);
+    }
+    let lost = 0;
+    for (const c of cost) {
+      const def = this.defOf(c.defId);
+      const stack = Math.max(1, def?.stackMax ?? 1);
+      let left = c.qty;
+      while (left > 0) {
+        const qty = Math.min(stack, left);
+        const item = loot.createItem(c.defId, qty);
+        if (!item || !inv.tryAddToStash(item)) { lost += left; break; }
+        left -= qty;
+      }
+    }
+    return lost;
   }
 
   getBenchLevel(kind: WorkbenchKind): number {

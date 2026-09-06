@@ -60,6 +60,18 @@ export function renderCost(parent: HTMLElement, cost: readonly CraftIngredient[]
   return renderItemCost(parent, cost, src.defOf, src.countDef, { size });
 }
 
+/**
+ * Facility / room-purpose thumbnail (`.hs-thumb`, Phase 9 UI pass): a `--pc`-tinted frame carrying the shared glyph
+ * from `ROOM_PURPOSE_GLYPH` / `FACILITY_GLYPH`. Every facility row in the game uses it, so the same room reads the
+ * same in the 함선 tab, in the 시설 관리 room list and in its 용도 지정 picker. Procedural — no asset files.
+ */
+export function facilityThumb(parent: HTMLElement, glyph: string, color: string): HTMLElement {
+  const t = el('div', { cls: 'hs-thumb', parent });
+  t.style.setProperty('--pc', color);
+  el('span', { cls: 'g', text: glyph, parent: t });
+  return t;
+}
+
 export function levelText(level: number, max: number): string {
   return `Lv.${level} / ${max}`;
 }

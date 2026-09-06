@@ -112,3 +112,52 @@ on 8787 cannot hand the page a real profile mid-run. `npm run typecheck` clean f
 - `--corp-page-h` is a constant per viewport height, not per host: an embedded 기업 tab inside a short inventory window cannot shrink it on its own
   (the host may override the variable inline if it ever needs to).
 - `.item-chip*` styling is ui's (`ui/styles/base.css`); until that lands the chips render as bare glyph + count.
+
+## Phase 9 UI pass (2026-09-07) — the trading desk
+
+`ui/CorpView.ts` was rebuilt around a Tarkov-style desk (both shells still share it):
+
+- **header** — a compact **기업 패널** (name + 신뢰도 bar) top-left beside the corp tabs. The motto and the description
+  paragraph are gone.
+- **거래** (상점 + 판매 merged) — the corp's stock on the left, a two-tray **거래칸** in the middle (구매 / 판매) with the
+  net credit delta and one big **거래 성사** button under it, and the player's real 가방 + 함선 창고 grids down the right
+  (`InventoryRef.createTradeGrids`). Nothing buys or sells on click any more: a stock row is clicked or dragged into the
+  구매 tray, an inventory tile is dragged (or double-clicked) into the 판매 tray, and the whole basket settles at once —
+  sales first (they free credits and space), then the purchases, in staging order. The footer button became
+  **귀중품 전부 담기** (it stages, it no longer sells).
+- **계약** — the corp's contract list with the accepted contract (whatever corp it belongs to) pinned on the right.
+- **퀘스트** — the quest list on the left, the selected quest's 납품 table in the middle and the same inventory grids on
+  the right.
+
+Page bodies are built **once** and swapped, not rebuilt per refresh: the embedded grids own bus subscriptions and a
+pointer drag, so recreating them on every `inventory:changed` would drop a drag mid-flight.
+
+### Known follow-ups (Phase 9 UI pass)
+- The basket is **not** validated per line: `tradeBlock` only checks that the balance survives (`credits + revenue ≥
+  cost`). A purchase that fails for space mid-settle stops that line and is reported in the summary; earlier lines stay
+  bought.
+- With server-owned credits `meta.buy` resolves asynchronously, so `bought` / `spent` in the summary are the optimistic
+  counts. `quietPurchases` swallows the late per-purchase toasts so the summary is the message that stands; a late
+  **failure** still toasts (it is a real problem).
+- Staging is whole-stack: there is no split-on-drag, and a staged sale is only re-checked (and dropped) when the item
+  disappears from bag + stash (`pruneBasket`). Switching corps clears the basket.
+- The right-hand grids are hidden below 1240 px — the desk falls back to stock + trays there.
+
+## Phase 9 UI/UX 개선 pass (2026-09-07)
+
+- **분대 계약 동기화.** Every member broadcasts its own contract over the new `meta contract {id, progress}` message
+  (`shared/net.ts`): on `world:ready`, on every local progress change (deduped on `{id}|{floor(progress)}`), on accept
+  and on abandon, and once more to whoever asks with `metaq sync`. Received entries land in a per-peer map that
+  `MetaRef.getSquadContracts()` exposes and `meta:squadContract` announces; `ui/hud/ContractPanel` draws one row per
+  entry under the player's own contract. The map is per-mission — cleared at `game:newMission`, `game:abort`,
+  `hub:entered` and `net:lobbyLeft`, and a peer that leaves drops its row. Nothing is aggregated and nobody is
+  authoritative: an unknown contract id or a progress above the contract's target is clamped / ignored on arrival.
+- **기업 화면.** The `기업 네트워크` title and its `거래 / 계약 / 퀘스트` subtitle are gone — the **corp list** sits in
+  the header's top-left slot with the credits readout on its right, and the compact 기업 패널 (name + 신뢰도) became a
+  full-width strip under it. The frame widened to `min(1760px, 100vw − 32px)` (and `.inv-screen.corp-view` matches it,
+  so the embedded 기업 tab is just as wide).
+- **거래 page is item grids.** 기업 판매 물품 and both 거래칸 trays render `.ct-cell` tiles built from
+  `buildItemChip` — thumbnail, name, price, a `×n` staged badge — instead of wide rows, so hovering any of them raises
+  the shared `ui/hud/ItemTip` card (no element carries a `title` that would race it). The right-hand 내 가방 /
+  함선 창고 column stretches over the full page height, and its tiles get the same card through the `data-item-tip`
+  hook. Staging, the credit delta and the 거래 성사 settlement are unchanged.

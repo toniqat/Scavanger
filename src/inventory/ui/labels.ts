@@ -1,4 +1,4 @@
-import type { AmmoType, EffectiveWeaponStats, ImplantMode, ItemDef, LoadoutSlot, WeaponDef, WeightState } from '@/shared';
+import type { AmmoType, EffectiveWeaponStats, ItemDef, LoadoutSlot, WeaponDef, WeightState } from '@/shared';
 import { Keys, WEAPON_GRADE_ROMAN, WEIGHT_STATE_LABEL_KO, keyLabel } from '@/shared';
 import { AMMO_LABEL_KO, CATEGORY_LABEL_KO, RARITY_COLORS, RARITY_LABEL_KO, WEAPON_CLASS_LABEL_KO, getTierLabel, weaponClassOf } from '@/items';
 
@@ -79,18 +79,6 @@ export const TEXT = {
   /* Phase 5: credits readout on the ship screen */
   /* Phase 8: the pill already carries the `CREDITS` eyebrow — the value is the bare number (`CREDITS 500`). */
   credits: { eyebrow: 'CREDITS', value: (n: number): string => Math.max(0, Math.floor(n)).toLocaleString('ko-KR'), none: '—' },
-  implant: {
-    slot: '전술 임플란트',
-    empty: '비어 있음 · 클릭해 장착',
-    unavailable: '사용 불가',
-    clickHint: '클릭: 임플란트 교체',
-    raidLocked: '임무 중에는 임플란트를 교체할 수 없습니다',
-    equipped: '장착',
-    unequipped: '임플란트를 해제했습니다',
-    cooldown: '쿨타임',
-    charges: '충전',
-    mode: { instant: '즉시', hold: '홀드', wielded: '장비형' } as Readonly<Record<ImplantMode, string>>,
-  },
   quick: {
     title: '퀵슬롯',
     eyebrow: 'QUICK USE',

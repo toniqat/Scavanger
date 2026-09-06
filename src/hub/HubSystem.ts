@@ -520,12 +520,20 @@ export class HubSystem implements GameSystem, HubRef {
     else { this.syncPods(); this.updateTerminalScreen(); }
   }
 
+  /**
+   * `net:resumed`. A **훈련장** is not the squad's mission (individual entry, the lobby stays open), so a reconnect
+   * while one runs must never read as `분대가 임무 중` — it points at the terminal instead.
+   */
   private onResumed(inProgress: boolean): void {
     if (!this.active) return;
     if (this.ship !== 'shared') this.swapDirect('shared');
+    const training = this.trainingRunning();
+    const raid = inProgress && !training;
     this.ctx.bus.emit('ui:notify', {
-      text: inProgress ? '분대가 임무 중입니다 — 발사 슬롯에 탑승하면 재투입됩니다' : '함선에 재접속했습니다',
-      kind: inProgress ? 'warning' : 'success', duration: 5,
+      text: raid ? '분대가 임무 중입니다 — 발사 슬롯에 탑승하면 재투입됩니다'
+        : training ? '함선에 재접속했습니다 — 훈련장이 열려 있습니다 (터미널에서 합류)'
+        : '함선에 재접속했습니다',
+      kind: raid ? 'warning' : 'success', duration: 5,
     });
   }
 
@@ -757,7 +765,7 @@ export class HubSystem implements GameSystem, HubRef {
     this.trackRoom();
 
     // housing mode owns the input (cursor / place / rotate / recover / C / Esc) while active
-    if (this.housingMode.active) { this.housingMode.update(); this.tickCountdown(dt); this.corpWasOpen = this.corpMenuOpen(); return; }
+    if (this.housingMode.active) { this.housingMode.update(dt); this.tickCountdown(dt); this.corpWasOpen = this.corpMenuOpen(); return; }
 
     // Esc: corp screen first, then the menus / un-board. It must **not** open the terminal any more — an Esc that
     // reaches nothing here is the 일시정지 메뉴 (owned by game/, Phase 8). E while boarded: un-board.

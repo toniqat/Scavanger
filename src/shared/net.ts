@@ -477,7 +477,11 @@ export type ItemRequest =
 export type MetaMessage =
   | { t: 'meta'; ev: 'contractHit'; corp: import('./meta').CorpId; goal: import('./meta').ContractGoalKind; amount: number }
   /* appended (Phase 9): late-join catch-up — every peer answers `metaq sync` ONCE per requester per mission with the hits it broadcast so far this mission. */
-  | { t: 'meta'; ev: 'sync'; corp: import('./meta').CorpId; hits: [import('./meta').ContractGoalKind, number][] };
+  | { t: 'meta'; ev: 'sync'; corp: import('./meta').CorpId; hits: [import('./meta').ContractGoalKind, number][] }
+  /* appended (Phase 9 UI pass): this member's own active contract + progress, so every squad HUD can draw it
+   * (`ui/hud/ContractPanel`). `id` null = no contract / abandoned / settled. Broadcast on `world:ready`, on every
+   * local progress change (≤ 1 Hz) and on accept / abandon, and repeated to whoever asks with `metaq sync`. */
+  | { t: 'meta'; ev: 'contract'; id: string | null; progress: number };
 /** Client → others (Phase 9): peer-to-peer (the host holds no tallies) — sent on `world:ready` of a rejoin. */
 export type MetaRequest = { t: 'metaq'; ev: 'sync' };
 

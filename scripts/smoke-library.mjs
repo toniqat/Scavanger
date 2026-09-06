@@ -193,12 +193,14 @@ try {
     `furn_bookshelf def: 서재 only, 2×1, interaction / model 'bookshelf' (${JSON.stringify(shelfDef && { room: shelfDef.room, i: shelfDef.interaction, m: shelfDef.model })})`);
   ok(await H(() => window.__game.ctx.housing.getFurnitureFor('library').some((d) => d.id === 'furn_bookshelf')
     && !window.__game.ctx.housing.getFurnitureFor('gym').some((d) => d.id === 'furn_bookshelf')), '책장 only in the 서재 catalogue');
-  ok(await H(() => window.__game.ctx.housing.setRoomPurpose(3, 'library') === true), '방 4 → 서재');
-  ok((await lastEv('housing:roomPurposeChanged'))?.purpose === 'library', 'housing:roomPurposeChanged {library}');
-  const scrap = await give('mat_scrap', 30);
+  // Phase 9 UI pass: a 시설 증축 costs materials and needs 발전기 Lv.1 — pay for the 서재 before assigning it.
+  const scrap = await give('mat_scrap', 40);
   const alloy = await give('mat_alloy', 10);
-  ok(scrap === 30 && alloy === 10, `materials in the bag (폐금속 ${scrap}, 합금 ${alloy})`);
-  ok(await H(() => window.__game.ctx.housing.upgrade('generator') === true), '발전기 → 1 (책장은 발전기를 요구하지 않지만 함선을 켠다)');
+  const cable = await give('mat_cable', 6);
+  ok(scrap === 40 && alloy === 10 && cable === 6, `materials in the bag (폐금속 ${scrap}, 합금 ${alloy}, 케이블 ${cable})`);
+  ok(await H(() => window.__game.ctx.housing.upgrade('generator') === true), '발전기 → 1 (시설 증축의 전제)');
+  ok(await H(() => window.__game.ctx.housing.setRoomPurpose(3, 'library') === true), '방 4 → 서재 (폐금속 10 + 합금 2)');
+  ok((await lastEv('housing:roomPurposeChanged'))?.purpose === 'library', 'housing:roomPurposeChanged {library}');
   const craftInfo = await H(() => window.__game.ctx.housing.canCraftFurniture('furn_bookshelf'));
   ok(craftInfo.ok === true && craftInfo.missing.length === 0, 'canCraftFurniture(furn_bookshelf) with 폐금속 6 + 합금 1');
   ok(await H(() => window.__game.ctx.housing.craftFurniture('furn_bookshelf') && window.__game.ctx.housing.craftFurniture('furn_bookshelf')), 'craftFurniture(furn_bookshelf) ×2');
@@ -259,6 +261,7 @@ try {
   ok(await H((u) => window.__game.ctx.housing.placeBook(u, 1, 'book_gun_AR') === null, shelfA), 'second 돌격소총 book shelved');
   ok(near(await bonus('gun_AR'), 1 + BOOK_XP_PER_BOOK * 2 * BOOK_RARITY_MUL.common), `two common books stack additively (${await bonus('gun_AR')})`);
   // 사격장 × 서재
+  await give('mat_scrap', 20); await give('mat_cable', 6);
   ok(await H(() => window.__game.ctx.housing.setRoomPurpose(5, 'range') === true), '방 6 → 사격장 (skill gain ×1.1 for gun_*)');
   const gm = await H(() => ({ ar: window.__game.ctx.housing.getSkillGainMul('gun_AR'), med: window.__game.ctx.housing.getSkillGainMul('medicine'), carry: window.__game.ctx.housing.getSkillGainMul('carry') }));
   ok(near(gm.ar, 1.1 * (1 + BOOK_XP_PER_BOOK * 2)), `getSkillGainMul(gun_AR) = 사격장 1.1 × 서재 1.10 (${gm.ar})`);
@@ -431,7 +434,7 @@ try {
   ok((await lastEv('ui:bookshelfToggled'))?.open === false, 'ui:bookshelfToggled {open:false} on close');
   const notShelfMenu = await H(() => { const n = window.__ev['ui:notify'].length; window.__game.ctx.housing.openBookshelfMenu('f-999'); return { opened: !document.querySelector('.menu.bookshelf-menu').hidden, notified: window.__ev['ui:notify'].length > n }; });
   ok(!notShelfMenu.opened && notShelfMenu.notified, 'openBookshelfMenu on a missing 책장 warns instead of opening');
-  // 함선 tab 도감 section
+  // Phase 9 UI pass: the 도감 was **removed** from the 함선 tab — it is read on a 책장 in the 서재 instead
   const shipView = await H(() => {
     const host = document.createElement('div');
     host.id = 'smoke-shipview';
@@ -440,17 +443,14 @@ try {
     return {
       dex: host.querySelectorAll('.hs-dex').length,
       rows: host.querySelectorAll('.hs-dex-row').length,
-      owned: host.querySelectorAll('.hs-dex-row.owned').length,
-      mul: host.querySelector('.hs-dex-row[data-skill="gun_AR"] .mul')?.textContent ?? '',
-      grit: host.querySelector('.hs-dex-row[data-skill="grit"] .state')?.textContent ?? '',
       heads: [...host.querySelectorAll('.hs-section > .ui-label')].map((n) => n.textContent).join('|'),
+      roomRows: host.querySelectorAll('.hs-row.room').length,
     };
   });
-  ok(shipView.dex === 1 && shipView.rows === 14, `createShipView renders one 도감 with 14 rows (${shipView.dex}/${shipView.rows})`);
-  // 『버티는 법』 was shelved through the panel a moment ago, so the 함선 탭 도감 now shows two 보유 rows
-  ok(shipView.owned === 2 && shipView.mul === '×1.05' && shipView.grit === '보유', `함선 탭 도감 mirrors the shelf state (${shipView.owned} 보유, gun_AR ${shipView.mul}, 인내 ${shipView.grit})`);
-  ok(/도감/.test(shipView.heads), `the 함선 탭 has a 도감 section heading (${shipView.heads.slice(0, 120)})`);
-  ok(await H(() => { window.__view.dispose(); const n = document.getElementById('smoke-shipview').querySelectorAll('.hs-dex').length; document.getElementById('smoke-shipview').remove(); return n === 0; }), 'createShipView().dispose() removes the 도감');
+  ok(shipView.dex === 0 && shipView.rows === 0, `함선 tab carries no 도감 any more (${shipView.dex}/${shipView.rows})`);
+  ok(!/도감/.test(shipView.heads), `no 도감 section heading in the 함선 tab (${shipView.heads.slice(0, 120)})`);
+  ok(shipView.roomRows === 10, `함선 tab still lists the ten rooms (${shipView.roomRows})`);
+  ok(await H(() => { window.__view.dispose(); const n = document.getElementById('smoke-shipview').querySelectorAll('.hs-ship').length; document.getElementById('smoke-shipview').remove(); return n === 0; }), 'createShipView().dispose() removes the view');
 
   ok(errors.length === 0, 'no console errors', errors.slice(0, 5).join(' | '));
 } catch (e) {

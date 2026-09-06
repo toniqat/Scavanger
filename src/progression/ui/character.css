@@ -133,3 +133,48 @@
   .cs-body { grid-template-columns: 1fr; gap: 18px; }
   .cs-skills { grid-template-columns: 1fr; }
 }
+
+/* ── 전술 임플란트 (Phase 9 UI pass) ──────────────────────────────────────────
+   Moved out of the inventory 장착 장비 column: the implant is a character choice, so it is a section of the sheet.
+   Every implant is a card; the equipped one is lit and a click on it unequips. Disabled during a raid. */
+.cs-implants { display: flex; flex-direction: column; gap: 8px; }
+.cs-implants .h { display: flex; align-items: center; gap: 8px; }
+.cs-imp-key {
+  font-family: var(--ui-mono); font-size: 10px; color: var(--c-text-dim);
+  border: 1px solid var(--c-border); padding: 1px 6px;
+}
+.cs-implants .hint { font-size: 11px; color: var(--c-text-dim); }
+.cs-imp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; }
+.cs-imp-card {
+  --ic: #9fb6c8;
+  appearance: none; font: inherit; text-align: left; color: var(--c-text);
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 9px 11px; cursor: pointer;
+  border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03);
+  transition: border-color var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease);
+}
+.cs-imp-card:hover:not(:disabled) { border-color: var(--c-border-strong); background: rgba(255, 255, 255, 0.07); }
+.cs-imp-card:disabled { cursor: not-allowed; }
+.cs-imp-card.is-equipped { border-color: var(--ic); background: color-mix(in srgb, var(--ic) 14%, transparent); }
+.cs-imp-card .ico {
+  flex: none; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
+  font-size: 16px; line-height: 1; color: var(--ic);
+  border: 1px solid color-mix(in srgb, var(--ic) 50%, transparent);
+  background: color-mix(in srgb, var(--ic) 10%, transparent);
+}
+.cs-imp-card.is-equipped .ico { box-shadow: 0 0 12px color-mix(in srgb, var(--ic) 45%, transparent); }
+.cs-imp-card .body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.cs-imp-card .line { display: flex; align-items: center; gap: 8px; }
+.cs-imp-card .nm { font-size: 13px; font-weight: 600; }
+.cs-imp-card.is-equipped .nm { color: var(--ic); }
+.cs-imp-card .tag {
+  font-size: 9px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--c-text-dim);
+  border: 1px solid var(--c-border); padding: 1px 5px;
+}
+.cs-imp-card .desc { font-size: 11px; line-height: 1.45; color: var(--c-text-dim); }
+.cs-imp-card .meta { font-size: 10px; letter-spacing: 0.08em; color: var(--c-text-faint); }
+.cs-imp-card.is-equipped .body::after {
+  content: "장착 중 · 클릭해 해제";
+  font-size: 9px; letter-spacing: 0.12em; color: var(--ic);
+}
+.cs-implants.is-empty .cs-imp-grid { display: none; }

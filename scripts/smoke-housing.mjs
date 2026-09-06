@@ -152,13 +152,13 @@ try {
   ok(await H(() => /기본 작업실/.test(window.__game.ctx.housing.purposeBlock(0, 'empty') ?? '') && window.__game.ctx.housing.setRoomPurpose(0, 'empty') === false), 'room 1 cannot be re-purposed');
   const r0 = await H(() => window.__game.ctx.housing.getRoom(0));
   ok(r0.purpose === 'workshop' && r0.level === 1, 'workshop room is level 1');
-  ok(await H(() => window.__game.ctx.housing.setRoomPurpose(3, 'gym') === true), 'room 4 → 헬스장');
-  const pc = await lastEv('housing:roomPurposeChanged');
-  ok(pc && pc.room === 3 && pc.purpose === 'gym', 'housing:roomPurposeChanged emitted');
-  ok((await lastEv('housing:changed'))?.reason === 'purpose', 'housing:changed {reason: purpose}');
+  // Phase 9 UI pass: a 시설 증축 costs materials (`purposeCost`) and sits behind the 발전기 Lv.1 gate — a fresh save has neither.
+  ok(await H(() => window.__game.ctx.housing.setRoomPurpose(3, 'gym') === false && /발전기/.test(window.__game.ctx.housing.purposeBlock(3, 'gym') ?? '')), '시설 증축 refused at 발전기 Lv0');
+  const gymCost = await H(() => window.__game.ctx.housing.purposeCost('gym'));
+  ok(gymCost.length === 1 && gymCost[0].defId === 'mat_scrap' && gymCost[0].qty === 8, `purposeCost('gym') = 폐금속 8 (${JSON.stringify(gymCost)})`);
+  ok(await H(() => window.__game.ctx.housing.purposeCost('empty').length === 0 && window.__game.ctx.housing.purposeCost('range').some((c) => c.defId === 'mat_cable')), '빈 방 is free; 사격장 needs 케이블');
   ok(await H(() => window.__game.ctx.housing.findRoom('workshop') === 0 && window.__game.ctx.housing.findRoom('range') === -1), 'findRoom');
   ok(await H(() => window.__game.ctx.housing.getFacility('workshop').level === 1 && window.__game.ctx.housing.getCraftCostMul() === 1), 'workshop facility level 1, cost ×1');
-  await H(() => window.__game.ctx.housing.setRoomPurpose(3, 'empty'));
 
   console.log('placement');
   // start the placement checks from an empty 작업실: the two built-in benches go back to furniture storage
@@ -210,6 +210,14 @@ try {
   ok(await H(() => window.__game.ctx.housing.upgrade('generator') === true), 'generator → 1');
   ok((await lastEv('housing:facilityUpgraded'))?.id === 'generator', 'housing:facilityUpgraded generator');
   ok((await count('mat_scrap')) === 36, `4 폐금속 consumed (${await count('mat_scrap')})`);
+  // 시설 증축 with the gate open: it goes through and pays its materials
+  ok(await H(() => window.__game.ctx.housing.setRoomPurpose(3, 'gym') === true), 'room 4 → 헬스장 (발전기 1 + 폐금속 8)');
+  const pc = await lastEv('housing:roomPurposeChanged');
+  ok(pc && pc.room === 3 && pc.purpose === 'gym', 'housing:roomPurposeChanged emitted');
+  ok((await lastEv('housing:changed'))?.reason === 'purpose', 'housing:changed {reason: purpose}');
+  ok((await count('mat_scrap')) === 28, `시설 증축 consumed 폐금속 8 (${await count('mat_scrap')})`);
+  await H(() => window.__game.ctx.housing.setRoomPurpose(3, 'empty'));
+  await give('mat_scrap', 8);                    // put the 헬스장 price back so the facility maths below is unchanged
   ok(await H(() => window.__game.ctx.housing.upgrade('storage') === true), 'storage → 1 (6 폐금속)');
   ok((await count('mat_scrap')) === 30, `6 폐금속 consumed (${await count('mat_scrap')})`);
   const stash1 = await H(() => window.__game.ctx.housing.getStashSize());
@@ -271,6 +279,8 @@ try {
   }
 
   console.log('range / presets');
+  // Phase 9 UI pass: every 시설 증축 below costs materials — keep the bag stocked
+  await give('mat_scrap', 60); await give('mat_alloy', 20); await give('mat_cable', 20); await give('mat_circuit', 10);
   ok(await H(() => window.__game.ctx.housing.setRoomPurpose(5, 'range') === true), 'room 5 → range');
   ok(await H(() => window.__game.ctx.housing.getPresetCount() === 3), 'range level 1 → 3 preset slots');
   ok(await H(() => Math.abs(window.__game.ctx.housing.getSkillGainMul('gun_SR') - 1.1) < 1e-9 && window.__game.ctx.housing.getSkillGainMul('melee') === 1), 'skill gain ×1.1 for gun_*, ×1 otherwise');
@@ -357,16 +367,51 @@ try {
   });
   ok(smDom.rooms === 10 && /방 1/.test(smDom.on), `방 목록: 10 rows, room 1 active (${smDom.on})`);
   ok(smDom.cards === 13 && smDom.purposes === 0 && /작업실/.test(smDom.head), `가구 목록 for the 작업실 (${smDom.cards} cards, '${smDom.head}')`);
+  /* Phase 9 UI pass: 가구 제작 / 가구 창고 tabs on the side panel */
+  const smTabs = await H(() => {
+    const root = document.querySelector('.ship-manage');
+    return {
+      tabs: [...root.querySelectorAll('.sm-tabs .sm-tab')].map((b) => `${b.textContent}${b.classList.contains('is-on') ? '*' : ''}`).join(' '),
+      tabsHidden: root.querySelector('.sm-tabs').hidden,
+      craftBtns: root.querySelectorAll('.sm-cards .fcard .fcard-craft').length,
+      storeHidden: root.querySelector('.sm-store').hidden,
+    };
+  });
+  ok(smTabs.tabs === '가구 제작* 가구 창고' && !smTabs.tabsHidden && smTabs.craftBtns === 13 && smTabs.storeHidden,
+    `side panel tabs 가구 제작 / 가구 창고, every craft row has a 제작 button (${smTabs.craftBtns})`, JSON.stringify(smTabs));
+  await H(() => [...document.querySelectorAll('.ship-manage .sm-tabs .sm-tab')].find((b) => b.textContent === '가구 창고').click());
+  await sleep(120);
+  const smStore = await H(() => {
+    const root = document.querySelector('.ship-manage');
+    const stored = new Set(window.__game.ctx.housing.getStored().map((s) => s.defId));
+    return {
+      cardsHidden: root.querySelector('.sm-cards').hidden, storeHidden: root.querySelector('.sm-store').hidden,
+      rows: root.querySelectorAll('.sm-store .fcard').length, stored: stored.size,
+      blocked: root.querySelectorAll('.sm-store .fcard.is-blocked').length,
+      firstFits: !root.querySelector('.sm-store .fcard')?.classList.contains('is-blocked'),
+    };
+  });
+  ok(smStore.storeHidden === false && smStore.cardsHidden && smStore.rows === smStore.stored,
+    `가구 창고 tab lists every stored def (${smStore.rows} / ${smStore.stored})`, JSON.stringify(smStore));
+  ok(smStore.rows === 0 || smStore.firstFits, '이 방에 놓을 수 있는 가구가 목록 맨 위에 온다', JSON.stringify(smStore));
+  await H(() => [...document.querySelectorAll('.ship-manage .sm-tabs .sm-tab')].find((b) => b.textContent === '가구 제작').click());
+  await sleep(120);
   await H(() => window.__game.ctx.housing.setManageRoom(9));
   await sleep(120);
   const smEmpty = await H(() => {
     const root = document.querySelector('.ship-manage');
     return { purposes: root.querySelectorAll('.sm-purposes .sm-purpose').length,
       blocked: root.querySelectorAll('.sm-purposes .sm-purpose.is-blocked').length,
+      // Phase 9 UI pass: the prose description is replaced by the 시설 증축 cost chips
+      costs: root.querySelectorAll('.sm-purposes .sm-purpose .sm-cost .item-chip').length,
+      descs: root.querySelectorAll('.sm-purposes .sm-purpose .ds').length,
+      tabsHidden: root.querySelector('.sm-tabs').hidden,
       cardsHidden: root.querySelector('.sm-cards').hidden, head: root.querySelector('.sm-bar-head').textContent };
   });
   ok(smEmpty.purposes === 9 && smEmpty.cardsHidden && /용도 지정/.test(smEmpty.head), `an empty room shows the 용도 지정 picker instead of the furniture list (${smEmpty.purposes})`);
   ok(smEmpty.blocked >= 2, `작업실 / 사격장 are disabled there with a reason (${smEmpty.blocked})`);
+  ok(smEmpty.costs > 0 && smEmpty.descs === 0 && smEmpty.tabsHidden,
+    `용도 지정 rows carry 시설 증축 cost chips instead of a description (${smEmpty.costs} chips), 가구 탭 숨김`, JSON.stringify(smEmpty));
   await H(() => window.__game.ctx.housing.openFacilityMenu());
   await sleep(120);
   ok(await H(() => window.__game.ctx.housing.shipManageMode === true), 'openFacilityMenu() also redirects to 시설 관리');
@@ -455,7 +500,7 @@ try {
   ok(JSON.stringify(after.furnitureStorage) === JSON.stringify(before.furnitureStorage), 'furniture storage persisted');
   ok(after.presets[0]?.name === '리로드' && after.presets[0].implant === 'scan', 'preset persisted');
   ok(await H(() => window.__game.ctx.housing.getStashSize().rows === 30), 'stash size 30 rows after reload');
-  await give('mat_scrap', 10);                   // the bag is not persisted — only the stash is
+  await give('mat_scrap', 20); await give('mat_cable', 4);   // the bag is not persisted — only the stash is
   const next = await H(() => { window.__game.ctx.housing.setRoomPurpose(6, 'lounge'); const h = window.__game.ctx.housing; h.craftFurniture('furn_crate'); return h.place(6, 'furn_crate', 7, 7, 0); });
   ok(next && next.uid === 'f-8', `uid counter continues after the highest persisted uid (${next?.uid})`);
   // corrupt save → sanitised, not a crash (flush first so the unload flush does not overwrite the corrupt file)
@@ -467,6 +512,47 @@ try {
   const sanStore = san.furnitureStorage.map((e) => e.defId).sort().join(',');
   ok(san.rooms.length === 10 && san.rooms[0].purpose === 'workshop' && san.generatorLevel === 5 && san.furniture.length === 1 && san.furniture[0].uid === 'f-3' && san.furniture[0].defId === 'furn_crate' && san.presets[0].name === '프리셋' && san.presets[0].implant === null, `corrupt save sanitised: lab→작업실 (room 1 invariant), gen clamped, bad rooms / purpose / overlap dropped (${JSON.stringify({ r0: san.rooms[0], g: san.generatorLevel, f: san.furniture, p: san.presets[0] })})`);
   ok(sanStore === 'furn_bench_gun,furn_repair_bench', `furniture that no longer fits its room went to storage, not the bin (${sanStore})`);
+
+  /* ── 시설 제거 (Phase 9 UI pass): refund every upgrade material into the stash and empty the room ── */
+  console.log('시설 제거 (facilityRefund / removeRoomFacility)');
+  await give('mat_scrap', 40);
+  await give('mat_alloy', 5);
+  await give('mat_cable', 8);
+  // room 1 is the ship's built-in 작업실 — it can never be handed back
+  ok(await H(() => /기본 작업실/.test(window.__game.ctx.housing.removeRoomFacility(0) ?? '')), 'removeRoomFacility(0) refuses the built-in 작업실');
+  ok(await H(() => window.__game.ctx.housing.facilityRefund(2).length === 0), 'a room with no facility refunds nothing');
+  const rangeSetup = await H(() => {
+    const h = window.__game.ctx.housing;
+    const purpose = h.setRoomPurpose(5, 'range');
+    const atLv1 = h.facilityRefund(5).length;
+    const up = h.upgrade('range');
+    h.craftFurniture('furn_target_lane');
+    const placed = h.place(5, 'furn_target_lane', 0, 0, 0);
+    return { purpose, atLv1, up, level: h.getFacility('range').level, refund: h.facilityRefund(5), placed: !!placed };
+  });
+  // Phase 9 UI pass: level 1 is paid by the 시설 증축, so even a Lv.1 room refunds that price
+  ok(rangeSetup.purpose && rangeSetup.atLv1 === 2, `a Lv.1 사격장 refunds its 시설 증축 price (${rangeSetup.atLv1} lines)`);
+  ok(rangeSetup.up && rangeSetup.level === 2 && rangeSetup.refund.some((c) => c.defId === 'mat_scrap' && c.qty === 18) && rangeSetup.refund.some((c) => c.defId === 'mat_cable' && c.qty === 2),
+    `사격장 Lv.2 refund = 증축 (폐금속 10 · 케이블 2) + 업그레이드 (폐금속 8) (${JSON.stringify(rangeSetup.refund)})`);
+  const removed = await H(() => {
+    const h = window.__game.ctx.housing, inv = window.__game.ctx.inventory;
+    const stashOf = (id) => inv.getStashItems().filter((i) => i.defId === id).reduce((n, i) => n + i.qty, 0);
+    const refund = h.facilityRefund(5);
+    const stashBefore = Object.fromEntries(refund.map((c) => [c.defId, stashOf(c.defId)]));
+    const placed = h.getPlaced(5).length;
+    const storedBefore = h.getStored().reduce((n, s) => n + s.qty, 0);
+    const reason = h.removeRoomFacility(5);
+    return { reason, refund, stashBefore, placed, storedBefore,
+      stashAfter: Object.fromEntries(refund.map((c) => [c.defId, stashOf(c.defId)])),
+      purpose: h.getRoom(5).purpose, level: h.getRoom(5).level, stillPlaced: h.getPlaced(5).length,
+      stored: h.getStored().reduce((n, s) => n + s.qty, 0), rangeLevel: h.getFacility('range').level };
+  });
+  ok(removed.reason === null && removed.purpose === 'empty' && removed.level === 0, `removeRoomFacility(5) emptied the room (${removed.reason ?? 'ok'})`);
+  ok(removed.stillPlaced === 0 && removed.placed > 0 && removed.stored === removed.storedBefore + removed.placed,
+    `every placed piece went to furniture storage (${removed.placed} → 0, storage ${removed.storedBefore} → ${removed.stored})`);
+  ok(removed.refund.every((c) => removed.stashAfter[c.defId] === removed.stashBefore[c.defId] + c.qty),
+    `upgrade materials refunded into the 함선 창고 (${JSON.stringify(removed.stashBefore)} → ${JSON.stringify(removed.stashAfter)})`);
+  ok(removed.rangeLevel === 0, '사격장 facility is gone with its room');
 
   ok(errors.length === 0, 'no console errors', errors.slice(0, 5).join(' | '));
 } catch (e) {

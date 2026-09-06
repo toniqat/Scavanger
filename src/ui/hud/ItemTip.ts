@@ -6,7 +6,9 @@ import { el, setText } from '../dom';
  * 재료 요구 칩 hover card (`.item-tip`, Phase 8 UI pass). Every cost chip anywhere in the game — 시설 업그레이드,
  * 가구 제작, 필드 · 작업대 제작, 수리, 퀘스트 납품, 씨앗 — is rendered by `src/shared/itemChip.ts`, which stamps the
  * item def on the element as `data-def-id`. This component is the single reader of that hook: one delegated
- * `pointerover` on `ctx.uiRoot` shows an inventory-style card for the item under the cursor.
+ * `pointerover` on `ctx.uiRoot` shows an inventory-style card for the item under the cursor. Anything that is not a
+ * chip can opt in by stamping `data-item-tip` next to its own `data-def-id` (the 기업 거래 screen's inventory grids
+ * do that, so a stash tile there gets the same card).
  *
  * It lives directly under `#ui-root` (not in a `.hud.*` layer) so it floats above the inventory window, the 함선 관리
  * screen and every menu alike, and it is `pointer-events: none` — the chip underneath keeps its own click.
@@ -82,7 +84,9 @@ export class ItemTip {
   private chipAt(target: EventTarget | null): HTMLElement | null {
     const node = target as Element | null;
     if (!node || typeof node.closest !== 'function') return null;
-    return node.closest('.item-chip[data-def-id]') as HTMLElement | null;
+    // `.item-chip` is the shared cost chip; `[data-item-tip]` lets another folder opt a plain element in
+    // (inventory/ui/TradeGrids stamps it on the 기업 거래 grids' tiles, which are not chips).
+    return node.closest('.item-chip[data-def-id], [data-item-tip][data-def-id]') as HTMLElement | null;
   }
 
   private defOf(defId: string): ItemDef | undefined {

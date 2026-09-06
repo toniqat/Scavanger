@@ -113,7 +113,8 @@ try {
     const m = await P(() => { const w = document.querySelector('.weapon'); const mv = [...w.querySelectorAll('.modes .mv')].map((e) => e.textContent); return { cls: w.className, mv, type: w.querySelector('.type').textContent, has: window.__game.getSystem('hud').hasWeaponModes, disp: getComputedStyle(w.querySelector('.modes')).display }; });
     ok(/\bhas-modes\b/.test(m.cls) && m.has && m.disp === 'flex', 'unique def → .weapon.has-modes, mode block displayed', `${m.cls} ${m.disp}`);
     ok(m.mv[0] === '넓은 화염' && m.mv[1] === '긴 화염 제트', 'flamethrower lines 좌 넓은 화염 / 우 긴 화염 제트', JSON.stringify(m.mv));
-    ok(m.type.includes('·') && !m.type.endsWith(uniq.ammo), `ammo label comes from AMMO_LABEL_KO (${uniq.ammo})`, m.type);
+    // Phase 9 UI pass: the tag is the weapon **class** only — the 슬롯 word (주무기) and the calibre (준중량탄 …) are gone
+    ok(!m.type.includes('·') && m.type.length > 0 && !m.type.includes(uniq.ammo), `무기 태그는 분류만 남는다 (${m.type})`, m.type);
     for (const [id, l, r] of [['u_shock', '연쇄 전격', '충전 볼트'], ['u_shuriken', '표창 1개', '표창 3개 (F 길게: 용검)'], ['u_bow', '화살', '정조준'], ['u_bazooka', '착탄 로켓', '공중 폭발 (바닥 우클릭: 로켓 점프)'], ['u_minigun', '예열 후 사격', '—']]) {
       const has = await P((w) => !!window.__game.ctx.loot.getWeaponDef(w), id);
       if (!has) { ok(false, `${id} weapon def exists`); continue; }
@@ -160,29 +161,23 @@ try {
   ct = await P(() => ({ cls: document.querySelector('.cheat-tag').className, on: window.__game.getSystem('hud').isMoveCheatTagOn }));
   ok(!/\bshow\b/.test(ct.cls) && !ct.on, 'cheat:moveCheat false → tag off', JSON.stringify(ct));
 
+  // Phase 9 UI pass: the bar carries **only** the placement key hints, and 종료 (Esc) is its own bottom-right chip.
   console.log('housing hint bar');
   await emit('housing:modeChanged', { active: true, room: 0 });
-  let hh = await P(() => { const e = document.querySelector('.housing-hint'); return { cls: e.className, name: e.querySelector('.name').textContent, keys: e.querySelector('.keys').textContent, on: window.__game.getSystem('hud').isHousingHintOn, vis: getComputedStyle(e).visibility }; });
+  let hh = await P(() => {
+    const e = document.querySelector('.housing-hint'); const x = document.querySelector('.housing-exit');
+    return { cls: e.className, rows: e.children.length, keys: e.querySelector('.keys').textContent,
+      sel: !!e.querySelector('.name'), cell: !!e.querySelector('.cell'),
+      on: window.__game.getSystem('hud').isHousingHintOn, vis: getComputedStyle(e).visibility,
+      exitCls: x.className, exitText: x.textContent };
+  });
   ok(/\bshow\b/.test(hh.cls) && hh.on, 'housing:modeChanged active → bar .show', hh.cls);
-  ok(hh.name === '선택 없음 — 휠로 선택', 'no selection text', hh.name);
-  // Phase 8: the 함선 관리 mode added C as a cancel key
-  ok(hh.keys === 'LMB 설치 · R 회전 · X 회수 · 휠 선택 · C 취소 · Esc 종료', 'key hints from live bindings', hh.keys);
-  await emit('housing:selectionChanged', { defId: 'furn_bench_gun', yaw: 1 });
-  hh = await P(() => { const e = document.querySelector('.housing-hint'); return { name: e.querySelector('.name').textContent, yaw: e.querySelector('.yaw').textContent, none: e.querySelector('.name').classList.contains('none') }; });
-  ok(hh.name !== 'furn_bench_gun' && hh.name !== '선택 없음 — 휠로 선택' && !hh.none, 'selection resolves the furniture name via FURNITURE_DEF_MAP', hh.name);
-  ok(hh.yaw === '→ 90°', 'yaw 1 → → 90°', hh.yaw);
-  await emit('housing:cursorChanged', { room: 0, x: 2, y: 3, valid: true });
-  hh = await P(() => { const e = document.querySelector('.housing-hint'); return { cell: e.querySelector('.cell .v').textContent, valid: e.querySelector('.valid').textContent, cls: e.querySelector('.valid').className }; });
-  ok(hh.cell === '2,3' && hh.valid === '설치 가능' && /\bok\b/.test(hh.cls), 'cursor 2,3 valid → 설치 가능 (.ok)', JSON.stringify(hh));
-  await emit('housing:cursorChanged', { room: 0, x: 5, y: 1, valid: false });
-  hh = await P(() => { const e = document.querySelector('.housing-hint'); return { cell: e.querySelector('.cell .v').textContent, valid: e.querySelector('.valid').textContent, cls: e.querySelector('.valid').className }; });
-  ok(hh.cell === '5,1' && hh.valid === '설치 불가' && /\bbad\b/.test(hh.cls), 'cursor 5,1 invalid → 설치 불가 (.bad)', JSON.stringify(hh));
-  await emit('housing:selectionChanged', { defId: null, yaw: 0 });
-  hh = await P(() => ({ name: document.querySelector('.housing-hint .name').textContent, yaw: document.querySelector('.housing-hint .yaw').textContent }));
-  ok(hh.name === '선택 없음 — 휠로 선택' && hh.yaw === '', 'selection null → back to no-selection text', JSON.stringify(hh));
+  ok(hh.rows === 1 && !hh.sel && !hh.cell, `the bar is the key line only (${hh.rows} row(s))`);
+  ok(hh.keys === 'LMB 설치 · R 회전 · X 회수 · 휠 선택 · C 취소', 'key hints from live bindings, no Esc', hh.keys);
+  ok(/\bshow\b/.test(hh.exitCls) && /종료/.test(hh.exitText) && /Esc/.test(hh.exitText), '종료 (Esc) chip bottom-right', hh.exitText);
   await emit('housing:modeChanged', { active: false, room: null });
-  hh = await P(() => ({ cls: document.querySelector('.housing-hint').className, on: window.__game.getSystem('hud').isHousingHintOn, cell: document.querySelector('.housing-hint .cell .v').textContent }));
-  ok(!/\bshow\b/.test(hh.cls) && !hh.on && hh.cell === '—', 'housing:modeChanged inactive → hidden and reset', JSON.stringify(hh));
+  hh = await P(() => ({ cls: document.querySelector('.housing-hint').className, exitCls: document.querySelector('.housing-exit').className, on: window.__game.getSystem('hud').isHousingHintOn }));
+  ok(!/\bshow\b/.test(hh.cls) && !/\bshow\b/.test(hh.exitCls) && !hh.on, 'housing:modeChanged inactive → both hidden', JSON.stringify(hh));
 
   console.log('room label');
   await emit('hub:roomEntered', { room: 0, purpose: 'workshop' });

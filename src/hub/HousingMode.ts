@@ -22,6 +22,8 @@ const MANAGE_BLOCKER = 'shipmanage';
 /** Camera over the room: how far toward the door from the room centre, and how high. */
 const CAM_TOWARD_DOOR = 2.2;
 const CAM_HEIGHT = 6.6;
+/** Exponential rate the camera glides to another room's goal while 시설 관리 is already open. Higher = snappier. */
+const CAM_GLIDE = 5.0;
 
 type Yaw = 0 | 1 | 2 | 3;
 interface Carry { uid: string; defId: string; yaw: Yaw; level: number }
@@ -48,8 +50,10 @@ const _ray = new THREE.Raycaster();
  * Emits `housing:cursorChanged {room, x, y, valid}` whenever the footprint cell or its validity changes.
  *
  * **함선 관리 (Phase 8)**: `housing:shipManageChanged {active, room}` enters the same camera / cursor from
- * anywhere in the ship (no "stand in the room" gate — housing owns that rule) and retargets the camera with the
- * rig's own blend when `ctx.housing.setManageRoom` moves the edit room.
+ * anywhere in the ship (no "stand in the room" gate — housing owns that rule) and retargets the camera when
+ * `ctx.housing.setManageRoom` moves the edit room. Phase 9 UI pass: that retarget **glides** — the override pose
+ * handed to the rig eases toward the new room every frame (`glideCamera`), instead of jumping there in one frame
+ * (the rig only blends the override *weight*, which is long since 1 by then).
  */
 export class HousingMode {
   active = false;
@@ -63,6 +67,11 @@ export class HousingMode {
   private layer: FurnitureLayer | null = null;
   private unsubs: Array<() => void> = [];
   private readonly cursor = new THREE.Vector3();
+  /** Live override pose handed to the rig, and the goal it eases toward when the edit room changes. */
+  private readonly camPos = new THREE.Vector3();
+  private readonly lookPos = new THREE.Vector3();
+  private readonly camGoal = new THREE.Vector3();
+  private readonly lookGoal = new THREE.Vector3();
   private carry: Carry | null = null;
   private ghost: FurnitureModel | null = null;
   private ghostKey = '';
@@ -133,12 +142,28 @@ export class HousingMode {
       // start the cursor where the player stands (clamped into the room), else at the room centre
       const inside = !retarget && p.position.x >= rb.minX && p.position.x <= rb.maxX && p.position.z >= rb.minZ && p.position.z <= rb.maxZ;
       this.cursor.set(inside ? p.position.x : cx, 0, inside ? p.position.z : cz);
-      _cam.set(cx - rb.side * CAM_TOWARD_DOOR, CAM_HEIGHT, cz);
-      _look.set(cx, 0.2, cz);
-      p.setCameraOverride(_cam, _look, false);
+      // Camera goal over the new room. Entering the mode places it at once (the rig blends the override *weight*
+      // in); switching rooms while the mode is already up **glides** there instead — `update()` walks
+      // `camPos` / `camLook` toward the goal, so picking another room in the 시설 관리 list flies the camera over
+      // the ship rather than cutting to it (Phase 9 UI pass).
+      this.camGoal.set(cx - rb.side * CAM_TOWARD_DOOR, CAM_HEIGHT, cz);
+      this.lookGoal.set(cx, 0.2, cz);
+      if (!retarget) { this.camPos.copy(this.camGoal); this.lookPos.copy(this.lookGoal); }
+      p.setCameraOverride(this.camPos, this.lookPos, false);
     }
     this.frame.visible = true;
     this.refresh(true);
+  }
+
+  /** Ease the override pose toward the current room's goal; no-op once it has arrived. */
+  private glideCamera(dt: number): void {
+    const p = this.ctx.player;
+    if (!p) return;
+    if (this.camPos.distanceToSquared(this.camGoal) < 1e-6 && this.lookPos.distanceToSquared(this.lookGoal) < 1e-6) return;
+    const k = 1 - Math.exp(-CAM_GLIDE * Math.min(0.05, dt));
+    this.camPos.lerp(this.camGoal, k);
+    this.lookPos.lerp(this.lookGoal, k);
+    p.setCameraOverride(this.camPos, this.lookPos, false);
   }
 
   /**
@@ -194,11 +219,12 @@ export class HousingMode {
   }
 
   /* ── frame ────────────────────────────────────────────────────────────── */
-  update(): void {
+  update(dt = 0): void {
     if (!this.active) return;
     const ctx = this.ctx, input = ctx.input;
     const housing = ctx.housing;
     if (ctx.phase !== 'hub' || !this.ship) { this.exit(); return; }
+    this.glideCamera(dt);
     if (this.blockedByPanel()) return;          // a DOM panel (console / housing menu) has the input
 
     const rb = ROOM_BOXES[this.room];

@@ -324,9 +324,12 @@ try {
   ok(rocket.e && (rocket.e.dead || rocket.e.hp < bz.hp), `blast damages the warrior (${bz.hp} → ${rocket.e?.hp?.toFixed(0)})`, JSON.stringify(rocket.e));
   ok(rocket.e2 && (rocket.e2.dead || rocket.e2.hp < bz2.hp), 'area damage reaches the scavenger 2 m aside');
   ok(rocket.hp === hpBefore, 'no self damage from a far blast');
-  ok(rocket.reload >= 1, 'empty tube reloads itself (weapon:reloadStarted)');
+  // the auto-reload starts a beat after the shot, so sample the event **after** waiting it out (it used to be read
+  // at 1.2 s, which raced under a loaded GPU lane)
   await waitSim(3.5);
-  ok((await P(() => window.__loadout())).mag === 1, 'tube reloaded to 1 rocket');
+  const reloaded = await P(() => ({ mag: window.__loadout().mag, reload: window.__ev['weapon:reloadStarted'].length }));
+  ok(reloaded.reload >= 1, 'empty tube reloads itself (weapon:reloadStarted)', JSON.stringify(reloaded));
+  ok(reloaded.mag === 1, 'tube reloaded to 1 rocket');
   // rocket jump: airborne, aim at the feet, RMB air-burst
   await clearEv();
   await P(() => window.__heal());

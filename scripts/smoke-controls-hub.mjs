@@ -185,7 +185,8 @@ try {
   ok(hubScreen.stashCells === 240, `stash grid is 10×24 (${hubScreen.stashCells} cells)`);
   // Phase 8: 함선 joined the strip (시설 업그레이드 inside the Tab screen)
   ok(hubScreen.tabs === '인벤토리* 캐릭터 기업 함선', `screen tabs: ${hubScreen.tabs}` + ' (함선 added in Phase 8)');
-  ok(hubScreen.implantSlot, 'implant slot under the gear');
+  // Phase 9 UI pass: the 전술 임플란트 slot left the 장착 장비 column — it is a section of the 캐릭터 tab now
+  ok(!hubScreen.implantSlot, '전술 임플란트 슬롯이 장비 칸에서 빠졌다 (캐릭터 탭으로 이동)');
   ok(hubScreen.equipMid, 'layout: stash | equipment | bag');
   ok(hubScreen.quickRight, 'quick-use rose sits right of the bag grid (≥ 1600 px)');
   ok(hubScreen.hints, 'inventory hint bar hidden in the ship');
@@ -205,39 +206,38 @@ try {
   const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('scav.stash') ?? 'null'));
   ok(saved && saved.items?.length === stashMove.after + 1, `stash saved to localStorage (${saved?.items?.length} stacks)`);
 
-  // implant picker: open, pick overcharge, toggle it off, pick dash
-  await click('.inv-implant-body');
-  ok(await page.evaluate(() => !document.querySelector('.inv-modeless-implant').hidden && document.querySelectorAll('.inv-implant-picker .inv-implant-card').length === 6), 'implant picker lists the six implants (modeless frame)');
-  // Phase 8 UI pass: a fixed-size panel centred on the screen, scrolling internally (it used to be anchored
-  // to the slot and read as a context menu)
-  await sleep(260);                                  // let the pop animation settle before measuring the frame
-  const picker = await page.evaluate(() => {
-    const frame = document.querySelector('.inv-modeless-implant');
-    const list = document.querySelector('.inv-implant-picker');
-    const fr = frame.getBoundingClientRect();
-    return { centred: frame.classList.contains('is-centred'),
-      dx: Math.abs((fr.left + fr.width / 2) - window.innerWidth / 2), dy: Math.abs((fr.top + fr.height / 2) - window.innerHeight / 2),
-      overflow: getComputedStyle(list).overflowY, w: Math.round(fr.width) };
-  });
-  ok(picker.centred && picker.dx < 2 && picker.dy < 2, `implant panel centred on screen (off by ${picker.dx.toFixed(1)}, ${picker.dy.toFixed(1)})`);
-  ok(picker.overflow === 'auto' && picker.w === 380, `fixed 380 px frame, list scrolls vertically (${picker.w} px, overflow-y ${picker.overflow})`);
-  await shot('04-implant-picker');
-  await page.evaluate(() => document.querySelector('.inv-implant-picker .inv-implant-card[data-id="overcharge"]').click());
+  /* 전술 임플란트 (Phase 9 UI pass): the modeless picker is gone — every implant is a card in the 캐릭터 tab */
+  const toTab = (label) => page.evaluate((l) => {
+    const b = [...document.querySelectorAll('.inv-root .scr-tab')].find((x) => x.textContent === l);
+    b?.click();
+    return !!b;
+  }, label);
+  ok(await toTab('캐릭터'), '캐릭터 탭으로 전환');
+  await sleep(220);
+  const impTab = await page.evaluate(() => ({
+    cards: document.querySelectorAll('.cs-implants .cs-imp-card').length,
+    picker: !!document.querySelector('.inv-implant-picker'),
+    hint: document.querySelector('.cs-implants .hint')?.textContent ?? '',
+  }));
+  ok(impTab.cards === 6 && !impTab.picker, `캐릭터 탭이 임플란트 6종을 카드로 보여준다 (${impTab.cards}, 옛 picker ${impTab.picker})`);
+  await shot('04-implant-cards');
+  await page.evaluate(() => document.querySelector('.cs-imp-card[data-id="overcharge"]').click());
   ok(await page.evaluate(() => window.__game.ctx.implants.equipped === 'overcharge'), 'clicking a card equips it');
-  await click('.inv-implant-body');
   // the 장착 중 label hangs under the description column, not off the right edge of the row
   const tag = await page.evaluate(() => {
-    const card = document.querySelector('.inv-implant-picker .inv-implant-card.is-equipped');
+    const card = document.querySelector('.cs-imp-card.is-equipped');
     if (!card) return null;
-    const body = getComputedStyle(card.querySelector('.body'), '::after');
-    const row = getComputedStyle(card, '::after');
-    return { body: body.content, row: row.content, desc: !!card.querySelector('.desc') };
+    return { body: getComputedStyle(card.querySelector('.body'), '::after').content,
+      row: getComputedStyle(card, '::after').content, desc: !!card.querySelector('.desc') };
   });
   ok(!!tag && /장착 중/.test(tag.body) && !/장착 중/.test(tag.row) && tag.desc, `장착 중 label renders under the description (${tag?.body})`);
-  await page.evaluate(() => document.querySelector('.inv-implant-picker .inv-implant-card[data-id="overcharge"]').click());
+  await page.evaluate(() => document.querySelector('.cs-imp-card[data-id="overcharge"]').click());
   ok(await page.evaluate(() => window.__game.ctx.implants.equipped === null), 'clicking the equipped card unequips it');
-  await page.evaluate(() => document.querySelector('.inv-implant-picker .inv-implant-card[data-id="atlauncher"]').click());
-  ok(await page.evaluate(() => window.__game.ctx.implants.equipped === 'atlauncher' && document.querySelector('.inv-modeless-implant').hidden), 'picked 대전차포, picker closed');
+  await page.evaluate(() => document.querySelector('.cs-imp-card[data-id="atlauncher"]').click());
+  ok(await page.evaluate(() => window.__game.ctx.implants.equipped === 'atlauncher'
+    && document.querySelector('.cs-imp-card[data-id="atlauncher"]').classList.contains('is-equipped')), '대전차포 장착 (카드가 켜진다)');
+  ok(await toTab('인벤토리'), '인벤토리 탭으로 복귀');
+  await sleep(200);
 
   // right-click repair on a worn equipped weapon
   const repairPrep = await page.evaluate(() => {
@@ -277,13 +277,28 @@ try {
     return { bg: cs.backgroundImage, border: cs.borderTopWidth, cols: !!host.querySelector('.hs-ship-cols'),
       facilities: [...host.querySelectorAll('.hs-row.facility')].map((r) => r.dataset.facility),
       rooms: host.querySelectorAll('.hs-row.room').length,
-      lockedRoom: !!host.querySelector('.hs-row.room[data-room="0"] .purpose')?.disabled,
+      // Phase 9 UI pass: no 용도 드롭다운 in the 방 목록 any more, and room 1 offers no 제거 button
+      pickers: host.querySelectorAll('.hs-row.room .purpose').length,
+      workshopName: host.querySelector('.hs-row.room[data-room="0"] .name')?.textContent ?? '',
+      workshopDel: !host.querySelector('.hs-row.room[data-room="0"] .hs-del')?.hidden,
+      thumbs: host.querySelectorAll('.hs-row.room .hs-thumb, .hs-row.facility .hs-thumb').length,
+      bar: !!host.querySelector('.hs-ship-bar'),
+      // Phase 9 UI pass: the panel itself no longer scrolls (the 방 목록 does), so the bar is a plain bottom strip
+      screenScroll: getComputedStyle(host).overflowY,
+      roomsScroll: getComputedStyle(host.querySelector('.hs-list.rooms')).overflowY,
+      subtitle: !!host.querySelector('.hs-ship .hs-head .subtitle'),
+      buildBtns: [...host.querySelectorAll('.hs-row.room .hs-row-acts .ui-btn')].filter((b) => !b.hidden && /시설 증축/.test(b.textContent)).length,
       btn: btn?.textContent ?? null, sticky: btn ? getComputedStyle(btn.parentElement).position : null };
   });
   ok(ship.bg !== 'none' && ship.border !== '0px', `the Tab screen has its own panel background (${ship.border} border)`);
   ok(ship.cols && ship.facilities.join(',') === 'generator,storage' && ship.rooms === 10, `기본 시설 발전기 · 창고 left, 방 목록 (${ship.rooms}) right (${ship.facilities.join(',')})`);
-  ok(ship.lockedRoom, '방 1 purpose picker is locked to the built-in 작업실');
-  ok(/시설 관리/.test(ship.btn ?? '') && ship.sticky === 'sticky', `sticky 시설 관리 (M) button bottom-right (${ship.btn})`);
+  ok(ship.pickers === 0 && ship.workshopName === '작업실', `방 목록 has no 용도 드롭다운, rows read the purpose name ('${ship.workshopName}')`);
+  ok(!ship.workshopDel, '방 1 (기본 작업실) offers no 시설 제거 button');
+  ok(ship.thumbs === 12, `every 시설 / 방 row leads with the shared thumbnail (${ship.thumbs})`);
+  ok(ship.bar && /시설 관리/.test(ship.btn ?? '') && ship.sticky === 'static', `separate bottom bar with the 시설 관리 (M) button on its right (${ship.btn})`);
+  ok(ship.screenScroll === 'hidden' && ship.roomsScroll === 'auto' && !ship.subtitle,
+    `패널은 스크롤하지 않고 방 목록만 스크롤한다, '용도가 정해진 방' 라벨 없음 (${ship.screenScroll} / ${ship.roomsScroll})`);
+  ok(ship.buildBtns === 9, `빈 방 9개가 시설 증축 버튼을 가진다 (${ship.buildBtns})`);
   // 재료 요구 칩 hover card (ui/hud/ItemTip): any cost chip anywhere shows the item's info
   const tip = await page.evaluate(() => {
     const chip = document.querySelector('.inv-root .inv-screen .item-chip[data-def-id]');

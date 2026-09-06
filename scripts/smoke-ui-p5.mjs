@@ -104,6 +104,8 @@ try {
   console.log('mission');
   await P(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
   await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub');
+  // an implant can only be chosen in the ship — the raid HUD then shows its thumbnail (Phase 9 UI pass)
+  await P(() => { try { window.__game.ctx.implants?.setEquipped('dash'); } catch { /* no implant system */ } });
   await P(() => window.__game.ctx.bus.emit('game:newMission', { seed: 11 }));
   await waitFor(page, () => window.__game.ctx.phase === 'playing', 'playing', 25000);
   await waitFor(page, () => !window.__game.ctx.player.isDropping, 'hellpod exit', 10000);
@@ -115,6 +117,35 @@ try {
   }));
   ok(layers.panel && layers.afterObjective, 'contract panel lives in the gameplay layer after the objective', JSON.stringify(layers));
   ok(layers.toasts, 'meta toasts share the .progress-toasts column in the social layer');
+
+  /* ── Phase 9 UI pass: 무게 표시 제거 · 분대 목록은 좌하단 · 우하단은 임플란트 → 빠른 사용 → 무기 슬롯 ── */
+  const p9 = await P(() => {
+    const bl = document.querySelector('.hud.social .hud-bl');
+    const vitals = document.querySelector('.hud.gameplay .vitals');
+    const w = document.querySelector('.hud.gameplay .weapon');
+    const filled = [...document.querySelectorAll('.qstrip .qs-cell')].filter((c) => !c.hidden && !c.classList.contains('empty'));
+    return {
+      weight: !!document.querySelector('.weightbar'),
+      column: !!bl && !!bl.querySelector('.chat') && !!bl.querySelector('.squad'),
+      aboveVitals: !!bl && !!vitals && bl.getBoundingClientRect().bottom <= vitals.getBoundingClientRect().top + 4,
+      left: bl ? Math.round(bl.getBoundingClientRect().left) : -1,
+      order: w ? [...w.children].slice(0, 4).map((n) => n.className.split(' ')[0]).join(',') : '',
+      slotLbl: !!w?.querySelector(':scope > .name-row .slot-lbl'),   // the 빠른 사용 block keeps its own label
+      type: w?.querySelector('.type')?.textContent ?? '',
+      quick: filled.length,
+      chips: document.querySelectorAll('.qstrip .qs-cell .item-chip[data-def-id]').length,
+      implant: (() => { const c = document.querySelector('.implant-chip'); return c && !c.hidden ? c.querySelector('.ic-name').textContent : null; })(),
+      equipped: window.__game.ctx.implants?.equipped ?? null,
+      stamFill: getComputedStyle(document.querySelector('.stam-bar .fill')).backgroundColor,
+    };
+  });
+  ok(!p9.weight, '인게임 무게 표시(.weightbar) 제거');
+  ok(p9.column && p9.aboveVitals && p9.left === 32, `채팅 + 분대 목록이 좌하단 한 열(.hud-bl)에서 체력바 위에 (left ${p9.left})`, JSON.stringify(p9));
+  ok(p9.order === 'strat-panel,implant-chip,qstrip,wslots', `우하단 순서: 함선 호출 → 임플란트 → 빠른 사용 → 무기 슬롯 (${p9.order})`);
+  ok(!p9.slotLbl && !p9.type.includes('·'), `무기 정보에서 '주무기' / 탄약 표기 제거 (type '${p9.type}')`);
+  ok(p9.quick >= 1 && p9.chips === p9.quick, `빠른 사용 썸네일 ${p9.quick}칸 (모두 item-chip)`, JSON.stringify({ quick: p9.quick, chips: p9.chips }));
+  ok(p9.equipped === null ? p9.implant === null : !!p9.implant, `전술 임플란트 썸네일 (${p9.implant ?? '없음'} / equipped ${p9.equipped})`);
+  ok(p9.stamFill === 'rgb(255, 255, 255)', `스태미나 바가 불투명한 흰색 (${p9.stamFill})`);
   const activeAtStart = await P(() => !!(window.__game.ctx.meta && window.__game.ctx.meta.activeContract));
   const shown0 = await hud('isContractPanelOn');
   ok(shown0 === activeAtStart, `panel at world:ready follows ctx.meta.activeContract (${activeAtStart ? 'active' : 'none / skeleton'})`, String(shown0));
@@ -144,6 +175,16 @@ try {
   ok(cp.on && cp.name === '검체 채취 II' && cp.goal === '시체 수색', 'a new contract re-opens the panel with its own name / goal', JSON.stringify(cp));
   await emit('meta:contractAbandoned', { id: 'ceres_2', corp: 'ceres' });
   ok((await hud('isContractPanelOn')) === false, 'meta:contractAbandoned hides the panel');
+  /* Phase 9 UI pass: 분대 계약 rows under the own contract — empty (and hidden) without a squad */
+  const mates = await P(() => {
+    const p = document.querySelector('.contract-panel');
+    const list = window.__game.ctx.meta && typeof window.__game.ctx.meta.getSquadContracts === 'function'
+      ? window.__game.ctx.meta.getSquadContracts() : null;
+    return { block: !!p.querySelector('.mates'), hidden: p.querySelector('.mates').hidden,
+      rows: p.querySelectorAll('.mates .mrow').length, api: Array.isArray(list) ? list.length : -1 };
+  });
+  ok(mates.block && mates.hidden && mates.rows === 0 && mates.api === 0,
+    '분대 계약 블록은 분대원 계약이 없으면 숨는다 (ctx.meta.getSquadContracts() = [])', JSON.stringify(mates));
 
   console.log('meta toasts');
   const settledToast = await texts('.ptoast.contract');
@@ -306,6 +347,12 @@ try {
   let row = await rowOf('브라보');
   ok(!!row && !/\bsuspended\b/.test(row.cls) && row.state === '', 'debug peer row in the squad panel, connected (no state text)', JSON.stringify(row));
   ok(!!row && row.badge === '임무 중' && !row.badgeHidden, 'raid member badge 임무 중', JSON.stringify(row));
+  const squadPos = await P(() => {
+    const s = document.querySelector('.squad'), v = document.querySelector('.hud.gameplay .vitals');
+    const sr = s.getBoundingClientRect(), vr = v.getBoundingClientRect();
+    return { h: Math.round(sr.height), above: sr.bottom <= vr.top + 4, left: Math.round(sr.left), vLeft: Math.round(vr.left) };
+  });
+  ok(squadPos.h > 0 && squadPos.above && squadPos.left === squadPos.vLeft, `분대 목록이 좌하단 체력바 바로 위 (h ${squadPos.h}, left ${squadPos.left})`, JSON.stringify(squadPos));
   const meRow = await P(() => { const r = document.querySelector('.squad .srow.me'); return r ? { badge: r.querySelector('.badge').textContent, name: r.querySelector('.name').textContent } : null; });
   ok(!!meRow && meRow.badge === '임무 중' && meRow.name.endsWith('(나)'), 'local row also carries 임무 중', JSON.stringify(meRow));
   let plate = await P(() => { const p = [...document.querySelectorAll('.nameplate')].find((e) => e.querySelector('.name').textContent === '브라보'); return p ? { cls: p.className, op: p.style.opacity, tagHidden: p.querySelector('.tag').hidden, tag: p.querySelector('.tag').textContent } : null; });

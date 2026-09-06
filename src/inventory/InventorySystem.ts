@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type {
   ContainerMessage, ContainerRequest, CraftIngredient, CraftRecipe, CraftStation, DurabilityInfo, EffectiveWeaponStats, GameContext, GameSystem, InventoryRef,
   ItemCategory, ItemDef, ItemInstance, Loadout, LoadoutSlot, PeerId as NetPeerId, ProfileRecord, SocketSlot, WeaponSlot, WeightInfo, LoadoutPreset, WorkbenchKind,
+  EmbeddedView, TradeGridsViewOptions,
 } from '@/shared';
 import { BAG_DEFAULT_COLS, BAG_DEFAULT_QUICK_SLOTS, BAG_DEFAULT_ROWS, Keys, QUICK_SLOTS, SEARCH_MAX_DISTANCE, SOCKET_SLOTS, isQuickSlotActive } from '@/shared';
 import { AMMO_LABEL_KO, ITEM_DEF_MAP, LootService, STARTER_LOADOUT, ammoItemIdFor, getRecipe, isWeaponItemDef, itemWeight } from '@/items';
@@ -14,6 +15,7 @@ import {
   quickSlotOf, quickSlotsSignature, relinkQuickSlot, type QuickSlotUids,
 } from './QuickSlots';
 import { InventoryUI } from './ui/InventoryUI';
+import { TradeGrids, type TradeGridsOptions } from './ui/TradeGrids';
 import { Stash } from './Stash';
 import { LOADOUT_SAVE_VERSION, LoadoutStore, isEmptyLoadoutSave, loadLoadoutSave, sanitizeLoadoutSave, type LoadoutSave } from './Loadout';
 import { reviveItem, savedCell, serializeExtras, serializePlacement } from './Serialize';
@@ -1445,6 +1447,14 @@ export class InventorySystem implements GameSystem, InventoryRef {
   /** Ship stash grid (persisted). */
   getStash(): Grid { return this.stash.grid; }
   getStashItems(): ItemInstance[] { return this.stash.items(); }
+
+  /**
+   * Phase 9 UI pass: the player's real 가방 / 함선 창고 grids embedded in another folder's screen (기업 거래).
+   * `ui/TradeGrids.ts` is read + drag-out only and mutates nothing — see `InventoryRef.createTradeGrids`.
+   */
+  createTradeGrids(host: HTMLElement, opts: TradeGridsViewOptions = {}): EmbeddedView {
+    return new TradeGrids(this, this.ctx, host, opts as TradeGridsOptions);
+  }
 
   /* ── Phase 5: corp shop / stash access (InventoryRef) ─────────────────── */
 

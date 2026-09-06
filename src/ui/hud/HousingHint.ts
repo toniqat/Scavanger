@@ -1,41 +1,36 @@
 import type { GameContext } from '@/shared';
-import { FURNITURE_DEF_MAP, Keys, keyLabel } from '@/shared';
+import { Keys, keyLabel } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 
-type Yaw = 0 | 1 | 2 | 3;
-/** Facing glyph per 90° step (yaw 0 = the furniture's default facing). */
-const YAW_GLYPH: readonly string[] = ['↑', '→', '↓', '←'];
-
 /**
- * Housing-mode hint bar (`.housing-hint`, bottom-centre of its own `.hud.housing` layer so it shows in the ship where the
- * gameplay HUD is hidden). Shown on `housing:modeChanged {active:true}`: selected furniture name (`FURNITURE_DEF_MAP`) +
- * yaw glyph / degrees from `housing:selectionChanged` (`선택 없음 — 휠로 선택` when nothing is picked), cursor cell `x,y` +
- * `설치 가능` / `설치 불가` from `housing:cursorChanged`, and the key hints
- * `LMB 설치 · R 회전 · X 회수 · 휠 선택 · C 취소 · Esc 종료` read from the live bindings
- * (`keyLabel(Keys.FIRE / ROTATE_ITEM / DROP_ITEM / MENU)`, refreshed on `input:bindingsChanged`; `C` is fixed).
- * Hidden (and reset) on `active:false`, `game:newMission` and `game:abort`.
+ * 시설 관리 (housing-mode) hints, both in the `.hud.housing` layer so they show in the ship where the gameplay HUD
+ * is hidden. Shown on `housing:modeChanged {active:true}`, hidden on `active:false` / `game:newMission` / `game:abort`.
+ *
+ * Phase 9 UI pass — the bar carries **only the placement key hints** now:
+ *   • `.housing-hint` (bottom centre) — `LMB 설치 · R 회전 · X 회수 · 휠 선택 · C 취소`, every label read live from the
+ *     bindings (`keyLabel`, refreshed on `input:bindingsChanged`; `C` is a fixed key owned by hub/HousingMode).
+ *     The old 가구 / 셀 rows are gone: the selected piece is highlighted in the right-hand 시설 관리 panel and the
+ *     ghost is already green / red under the cursor, so repeating both in text was noise.
+ *   • `.housing-exit` (bottom right) — the `종료` + `Esc` chip, styled like the ship's 시설 관리 (M) hint that it
+ *     replaces while the mode is open.
  */
 export class HousingHint {
   readonly root: HTMLElement;
-  private selEl: HTMLElement;
-  private yawEl: HTMLElement;
-  private cellEl: HTMLElement;
-  private validEl: HTMLElement;
+  /** Bottom-right 종료 chip (its own element so it can sit in the corner). */
+  readonly exit: HTMLElement;
   private keysEl: HTMLElement;
+  private exitKey: HTMLElement;
   private active = false;
   private unsubs: Array<() => void> = [];
 
   constructor(parent: HTMLElement) {
     this.root = el('div', { cls: 'housing-hint', parent });
-    const sel = el('div', { cls: 'row sel', parent: this.root });
-    el('span', { cls: 'k', text: '가구', parent: sel });
-    this.selEl = el('span', { cls: 'v name', text: '선택 없음 — 휠로 선택', parent: sel });
-    this.yawEl = el('span', { cls: 'yaw', text: '', parent: sel });
-    const cell = el('div', { cls: 'row cell', parent: this.root });
-    el('span', { cls: 'k', text: '셀', parent: cell });
-    this.cellEl = el('span', { cls: 'v ui-mono', text: '—', parent: cell });
-    this.validEl = el('span', { cls: 'valid', text: '', parent: cell });
     this.keysEl = el('div', { cls: 'row keys', text: '', parent: this.root });
+
+    this.exit = el('div', { cls: 'housing-exit', parent });
+    el('span', { cls: 't', text: '종료', parent: this.exit });
+    this.exitKey = el('span', { cls: 'keycap', text: keyLabel(Keys.MENU), parent: this.exit });
+
     this.refreshKeys();
   }
 
@@ -43,13 +38,6 @@ export class HousingHint {
     const b = ctx.bus;
     this.unsubs.push(
       b.on('housing:modeChanged', ({ active }) => this.setActive(active)),
-      b.on('housing:selectionChanged', ({ defId, yaw }) => this.setSelection(defId, yaw)),
-      b.on('housing:cursorChanged', ({ x, y, valid }) => {
-        setText(this.cellEl, `${x},${y}`);
-        setText(this.validEl, valid ? '설치 가능' : '설치 불가');
-        toggleClass(this.validEl, 'ok', valid);
-        toggleClass(this.validEl, 'bad', !valid);
-      }),
       b.on('input:bindingsChanged', () => this.refreshKeys()),
       b.on('game:newMission', () => this.setActive(false)),
       b.on('game:abort', () => this.setActive(false)),
@@ -63,28 +51,20 @@ export class HousingHint {
     if (this.active === on) return;
     this.active = on;
     toggleClass(this.root, 'show', on);
-    if (!on) {
-      this.setSelection(null, 0);
-      setText(this.cellEl, '—');
-      setText(this.validEl, '');
-      this.validEl.classList.remove('ok', 'bad');
-    }
-  }
-
-  private setSelection(defId: string | null, yaw: Yaw): void {
-    const def = defId ? FURNITURE_DEF_MAP.get(defId) : undefined;
-    setText(this.selEl, def ? def.name : defId ? defId : '선택 없음 — 휠로 선택');
-    toggleClass(this.selEl, 'none', !defId);
-    setText(this.yawEl, defId ? `${YAW_GLYPH[yaw] ?? '↑'} ${yaw * 90}°` : '');
-    if (def) this.selEl.style.setProperty('--fc', def.color); else this.selEl.style.removeProperty('--fc');
+    toggleClass(this.exit, 'show', on);
   }
 
   private refreshKeys(): void {
-    // `C` is a fixed cancel key owned by hub/HousingMode (Phase 8, alongside Escape) — not a rebindable action,
-    // so it is printed literally while every other hint reads its live binding.
+    // `C` is a fixed cancel key owned by hub/HousingMode (Phase 8) — not a rebindable action, so it is printed
+    // literally while every other hint reads its live binding. Esc lives in the bottom-right 종료 chip.
     setText(this.keysEl,
-      `${keyLabel(Keys.FIRE)} 설치 · ${keyLabel(Keys.ROTATE_ITEM)} 회전 · ${keyLabel(Keys.DROP_ITEM)} 회수 · 휠 선택 · C 취소 · ${keyLabel(Keys.MENU)} 종료`);
+      `${keyLabel(Keys.FIRE)} 설치 · ${keyLabel(Keys.ROTATE_ITEM)} 회전 · ${keyLabel(Keys.DROP_ITEM)} 회수 · 휠 선택 · C 취소`);
+    setText(this.exitKey, keyLabel(Keys.MENU));
   }
 
-  dispose(): void { for (const u of this.unsubs) u(); this.root.remove(); }
+  dispose(): void {
+    for (const u of this.unsubs) u();
+    this.root.remove();
+    this.exit.remove();
+  }
 }

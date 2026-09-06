@@ -89,3 +89,48 @@ Registered in `scripts/verify.mjs` (`smoke-housing`, folders housing / hub / inv
   free-cell estimate — a stash that is fragmented but not full can still refuse a 회수 at the real `tryAddToStash` call
   (the recover then rolls back and toasts). `placeBook` requires phase `hub`; `takeBook` does not (nothing calls it
   elsewhere). Shelves are per-ship state, so the books never appear in a raid.
+
+## Phase 9 UI pass (2026-09-07)
+
+- `Rules.facilityRefundCost(id, level)` — the cumulative upgrade cost of a facility, merged per material. Room
+  facilities start at level 1 (granted with the purpose) so only levels 2… are summed; ship-wide ones start at 0.
+- `HousingSystem.facilityRefund(index)` / `removeRoomFacility(index)` implement 시설 제거: the room is emptied through
+  the existing `setRoomPurpose(index, 'empty')` path (every piece goes to furniture storage) and the refund is dropped
+  into the 함선 창고 with `inventory.tryAddToStash`, split at each item's `stackMax`. The stash space is **pre-checked**
+  with the same free-cell estimate `booksBlock` uses, so a full stash refuses the removal instead of eating materials.
+- `ui/ShipView.ts` rewritten: no 도감 (books are read on a 책장 in the 서재), no 용도 드롭다운 (assignment moved to
+  시설 관리), no room numbers / furniture counts / purpose descriptions. A room row is **thumbnail + 용도 + 레벨** with
+  the upgrade cost chips, a wide 업그레이드 button and a red 🗑 제거 icon that opens an in-screen confirmation card
+  (never a browser dialog — the inventory window owns the keyboard). Empty rooms keep the same row height. The
+  시설 관리 (M) button moved into its own sticky `.hs-ship-bar` under the two columns.
+- `ui/FacilityRows.ts` lost `FACILITY_DESC` (the pips, the cost chips and the block reason already say it) and each row
+  now leads with the shared `facilityThumb`.
+- `ui/dom.facilityThumb(parent, glyph, color)` is the single thumbnail renderer for a facility / room purpose.
+
+### Known follow-ups (Phase 9 UI pass)
+- The refund is computed from the **current cost tables**: rebalancing `RANGE_UPGRADE_COST` / `WORKSHOP_UPGRADE_COST`
+  changes what an already-built facility hands back. It also refunds at 100 %, so 짓고 부수기 is free — deliberate for
+  now (there is no other way to move a facility to another room).
+- `removeRoomFacility` pre-checks stash space with a free-cell estimate; a fragmented stash can still lose the tail of
+  a refund at the real `tryAddToStash` call (a warning toast says so). Furniture storage is unbounded, so the pieces
+  always land.
+- A room's purpose can still be **assigned** only in 시설 관리 — the 함선 tab levels and removes, it does not create.
+
+## Phase 9 UI/UX 개선 pass (2026-09-07)
+
+- **시설 증축 costs materials.** Giving an empty room a purpose is no longer free: `ROOM_PURPOSE_BUILD_COST`
+  (`@/shared`) is the price of the facility's level 1 and `ROOM_PURPOSE_BUILD_GENERATOR_LEVEL` (1) gates it like every
+  other upgrade. `Rules.purposeBuildCost` / `purposeBuildBlockReason` are the pure rules, `HousingRef.purposeCost`
+  exposes the table to the pickers, `setRoomPurpose` consumes it (all-or-nothing, bag → stash) and `purposeBlock` now
+  reports 발전기 / 재료 shortages alongside the structural reasons. 빈 방 stays free.
+- **시설 제거 refunds it too.** `Rules.roomRefundCost(purpose, level)` = the 시설 증축 price **plus** every upgrade
+  above level 1, so `facilityRefund` works on any assigned room (it used to return `[]` for a room without a
+  작업실 / 사격장 facility and for a facility still at level 1).
+- **`ui/ShipView.ts` (함선 tab)** — the `용도가 정해진 방 n / m · 발전기 Lv.x` subtitle is gone; the host gets an
+  `is-ship` class so the **panel no longer scrolls** and the 방 목록 scrolls on its own; an **empty** room row carries a
+  **시설 증축** button that opens a centred `.hs-build` popup — one row per purpose with its cost chips, disabled with
+  the 한국어 reason when the rules or the materials refuse it, dismissed with 닫기 or a click on the backdrop. The
+  popup re-renders on every `refresh()`, so material counts and block reasons follow the state while it is open.
+- The 용도 지정 picker and the 가구 제작 / 가구 창고 tabs live in `ui/hud/ShipManage.ts` (the ui folder owns that
+  screen's DOM); this folder only supplies `purposeCost`, `purposeBlock`, `getFurnitureFor`, `getStored`,
+  `canCraftFurniture` / `craftFurniture` and `selectFurniture`.

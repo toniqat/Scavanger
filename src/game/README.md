@@ -117,3 +117,9 @@ its console). Three surgical changes in `GameFlowSystem`, nothing else:
 `PauseMenu` (ui/) renders the ship variant: 게임으로 돌아가기 / 설정 / 타이틀로 and **no** 함선으로 귀환. Its 타이틀로
 leaves the lobby first and then emits `game:abort`, which lands on `menu` (HubSystem tears the ship down on the same
 event) — without the `leaveLobby()` first, `onAbort` would regroup us in the shared ship.
+
+## Phase 9 UI/UX 개선 pass (2026-09-07)
+
+- `net:resumed` reads `lobby.mode`: a non-seamless resume while a **훈련장** runs reports
+  `훈련장 연결이 끊겼습니다 — 함선으로 복귀` instead of `분대가 다른 임무를 진행 중입니다`. The abort → shared-ship
+  path is unchanged (our arena session is gone either way).

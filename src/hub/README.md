@@ -180,3 +180,31 @@ join via `rejoinMission`) is the net/server agent's `e2e:mp` territory — the h
 - Not done here (other folders own them): the `함선 관리 (M)` HUD hint, the 방 목록 / 가구 카드 바 screen and the
   `HousingHint` C line are `ui/`; the pause menu is `game/` + `ui/`; the grow panel, the stacking rules and
   `nameLocked` persistence are `housing/`.
+
+## Phase 9 UI pass (2026-09-07) — cockpit clean-up + housing-mode camera
+
+- `interiors/parts.ts` — `Parts.walls()` splits the waist-high **wainscot band** around a floor-level opening
+  (`o.y0 < band`). It used to run the full length of every side, leaving a waist-high slab standing across each room
+  doorway and the cockpit arch.
+- `interiors/PersonalShip.ts`:
+  - the cockpit **console pedestal terminal is gone**; the dashboard's centre monitor *is* `terminal.screen` now (a
+    `TextPlane` on the tilted bezel's front face, anchor between the pilot seats). The 항법 / 통신 side readouts went
+    with it, so the one screen reads at a glance and nothing stands on the walk-in line;
+  - the **함선 컴퓨터** moved from the +X wall — where its 기업 네트워크 prompt fought the launch pod's boarding prompt
+    — to the port half of the rear wall, replacing the lockers that overlapped the bunk. The port rear rib went with
+    them (it stood inside the desk and hid the monitor);
+  - the stash cabinet moved to the starboard half of the rear wall and the bunk sits flush against the −X wall;
+  - **door frames** stand in the corridor clear of the wall slab (`face − side · 0.06`); they used to sit 3 cm inside
+    the 30 cm door wall and intersected the wall segments around the opening.
+- `HousingMode.ts` — switching rooms in 시설 관리 **glides** the camera instead of cutting: the mode keeps its own
+  override pose (`camPos` / `lookPos`) and eases it toward the new room's goal every frame (`glideCamera`, rate
+  `CAM_GLIDE`). The rig only blends the override *weight*, which is long since 1 by then, so copying the new position
+  straight in teleported the camera across the ship in a single frame. `update(dt)` takes the frame time now.
+
+## Phase 9 UI/UX 개선 pass (2026-09-07)
+
+- **훈련장 재접속 fix.** `onResumed` (and `ui/hud/Notifications` / `game/GameFlowSystem` on the same `net:resumed`)
+  now read the lobby's mode: a 훈련장 is entered individually and keeps the lobby open, so it is **not** the squad's
+  mission. Reconnecting while one runs says `함선에 재접속했습니다 — 훈련장이 열려 있습니다 (터미널에서 합류)` instead
+  of `분대가 임무 중입니다 — 발사 슬롯에 탑승하면 재투입됩니다`. The pod prompts, the pod tags and the status line
+  already branched on `trainingRunning()`; this closes the last three places that did not.

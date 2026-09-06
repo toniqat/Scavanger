@@ -882,15 +882,14 @@ kbd {
 
 /* ═══ ship screen (hub Tab, 2026-09-06): 창고 · 장착 장비 (+ 임플란트) · 가방 + 퀵슬롯 ═══ */
 
-/* panel order: mission = crate · bag · craft · equipment; ship = stash · equipment · bag · craft */
+/* Phase 9 UI pass: the mission window now uses the **ship** layout minus the 창고 panel, so a raid bag looks and
+   works exactly like the one in the ship (장비 left, 가방 right, quick rose beside the grid).
+   Panel order: ship = 창고 · 장비 · 가방 · 제작; mission = 상자 · 장비 · 가방 · 제작. */
 .inv-panel-stash { order: 0; }
 .inv-panel-container { order: 0; }
-.inv-panel-bag { order: 1; }
-.inv-panel-craft { order: 2; }
-.inv-equip { order: 3; }
-.inv-root.is-hub .inv-equip { order: 1; }
-.inv-root.is-hub .inv-panel-bag { order: 2; }
-.inv-root.is-hub .inv-panel-craft { order: 3; }
+.inv-equip { order: 1; }
+.inv-panel-bag { order: 2; }
+.inv-panel-craft { order: 3; }
 
 /* stash: fixed 10-wide grid, rows scroll */
 .inv-panel-stash { animation: inv-slide-in 200ms var(--inv-ease) both; }
@@ -905,95 +904,40 @@ kbd {
 .inv-stash-scroll::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.22); border-radius: 3px; }
 .inv-stash-hint { font-size: 11px; letter-spacing: 0.04em; color: var(--inv-muted); }
 
-/* bag body: rose under the grid on a mission; in the ship it moves to the right of the grid once the window is
-   wide enough for 창고 + 장비 + 가방 side by side (≥ 1600 px) */
+/* bag body + equipment column: the wide arrangement (rose right of the grid, two-column gear) needs room. The ship
+   also carries the 창고 panel, so it asks for 1600 px; a mission has one panel fewer and gets it from 1280 px. */
 .inv-bag-body { display: flex; flex-direction: column; gap: 14px; }
-@media (min-width: 1600px) {
-  .inv-root.is-hub .inv-bag-body { flex-direction: row; align-items: flex-start; gap: 18px; }
-  .inv-root.is-hub .inv-quick {
-    flex-direction: column; align-items: stretch; gap: 12px;
-    padding-top: 0; padding-left: 18px; border-top: none; border-left: 1px solid var(--inv-line);
-  }
-  .inv-root.is-hub .inv-quick-legend { max-width: calc(3 * var(--inv-cell) + 8px); }
-}
-
-/* equipment column: labelled grid in the ship (weapons left, armor / bag right), single column on a mission */
 .inv-equip-grid { display: flex; flex-direction: column; gap: 14px; }
-.inv-root.is-hub .inv-equip-grid {
-  display: grid; gap: 12px 18px; align-items: start;
-  grid-template-columns: auto auto;
-  grid-template-areas: "primary armor" "primary2 armor" "secondary bag";
-}
-.inv-root.is-hub .inv-slot-primary { grid-area: primary; }
-.inv-root.is-hub .inv-slot-primary2 { grid-area: primary2; }
-.inv-root.is-hub .inv-slot-secondary { grid-area: secondary; }
-.inv-root.is-hub .inv-slot-armor { grid-area: armor; }
-.inv-root.is-hub .inv-slot-bag { grid-area: bag; }
 .inv-slot.is-worn .inv-slot-meta { color: var(--inv-accent); }
 
-/* tactical-implant slot (below the gear) */
-.inv-slot-implant { padding-top: 12px; border-top: 1px solid var(--inv-line); }
-.inv-slot-implant .inv-slot-body { width: 222px; height: 52px; cursor: pointer; }
-.inv-slot-implant.is-locked .inv-slot-body { cursor: not-allowed; opacity: 0.7; }
-.inv-slot-implant .inv-slot-body:hover { border-color: var(--inv-line-strong); background: rgba(255, 255, 255, 0.07); }
-.inv-slot-implant.is-picking .inv-slot-body { border-color: var(--inv-accent); box-shadow: 0 0 14px color-mix(in srgb, var(--inv-accent) 35%, transparent); }
-.inv-implant-empty-ico { font-size: 18px; line-height: 1; }
-.inv-implant-card {
-  --ic: #9fb6c8;
-  appearance: none; text-align: left; font: inherit; color: var(--inv-text);
-  display: flex; align-items: center; gap: 10px; width: 100%;
-  padding: 6px 10px; border-radius: 4px;
-  border: 1px solid var(--inv-line); background: rgba(255, 255, 255, 0.03);
-  cursor: pointer;
-  transition: border-color 140ms var(--inv-ease), background 140ms var(--inv-ease);
-}
-.inv-implant-card:hover { border-color: var(--inv-line-strong); background: rgba(255, 255, 255, 0.07); }
-.inv-implant-card.is-equipped { border-color: var(--ic); background: color-mix(in srgb, var(--ic) 14%, transparent); }
-.inv-implant-card .ico {
-  flex: none; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
-  font-size: 16px; line-height: 1; color: var(--ic);
-  border: 1px solid color-mix(in srgb, var(--ic) 50%, transparent); border-radius: 3px;
-  background: color-mix(in srgb, var(--ic) 10%, transparent);
-}
-.inv-implant-card.is-equipped .ico { box-shadow: 0 0 12px color-mix(in srgb, var(--ic) 45%, transparent); }
-.inv-implant-card .nm { font-size: 13px; font-weight: 600; }
-.inv-implant-card.is-equipped .nm { color: var(--ic); }
-.inv-implant-card .body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.inv-implant-card .line { display: flex; align-items: center; gap: 8px; }
-.inv-implant-card .tag { font-size: 9px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--inv-muted); border: 1px solid var(--inv-line); padding: 1px 5px; }
-.inv-implant-card .desc { font-size: 11px; line-height: 1.45; color: var(--inv-muted); }
-.inv-implant-body .inv-implant-card { border: none; background: none; padding: 0 4px; pointer-events: none; }
-.inv-implant-body .inv-implant-card::after { content: "▾"; margin-left: auto; color: var(--inv-muted); font-size: 12px; }
-/* Phase 8 UI pass: the picker is the body of a **centred, fixed-size** modeless panel (`.inv-modeless-implant`) that
- * scrolls internally — it used to be anchored to the slot and read as a context menu. */
-.inv-implant-picker {
-  display: flex; flex-direction: column; gap: 6px;
-  flex: 1; min-height: 0;
-  overflow-y: auto; overflow-x: hidden;
-  padding-right: 4px;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
-}
-.inv-implant-picker::-webkit-scrollbar { width: 6px; }
-.inv-implant-picker::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.22); border-radius: 3px; }
-.inv-implant-picker .inv-implant-card { align-items: flex-start; padding: 9px 11px; }
-/* 장착 중 label under the description, not squeezed against the right edge of the row */
-.inv-implant-picker .inv-implant-card.is-equipped .body::after {
-  content: "장착 중 · 클릭해 해제";
-  margin-top: 2px;
-  font-size: 9px; letter-spacing: 0.12em; color: var(--ic); white-space: nowrap;
-}
-
-/* nothing can be thrown away in the ship */
+/* nothing can be thrown away in the ship (a raid keeps the drop zone and the key hints) */
 .inv-root.is-hub .inv-dropzone { display: none !important; }
-.inv-root.is-hub .inv-layout { align-items: flex-start; }
+.inv-layout { align-items: flex-start; }
 
 /* panels keep their natural width; a too-narrow window scrolls the layout instead of squeezing a grid */
 .inv-panel, .inv-equip { flex: none; }
-/* equipment: two columns only when the window is wide enough for 창고 + 장비 + 가방 side by side */
-.inv-root.is-hub .inv-equip-grid { display: flex; flex-direction: column; }
-.inv-root.is-hub .inv-slot-primary, .inv-root.is-hub .inv-slot-primary2, .inv-root.is-hub .inv-slot-secondary,
-.inv-root.is-hub .inv-slot-armor, .inv-root.is-hub .inv-slot-bag { grid-area: auto; }
+
+/* mission (no 창고 panel): the wide arrangement fits from 1280 px */
+@media (min-width: 1280px) {
+  .inv-root:not(.is-hub) .inv-equip-grid {
+    display: grid; gap: 12px 18px; align-items: start;
+    grid-template-columns: auto auto;
+    grid-template-areas: "primary armor" "primary2 armor" "secondary bag";
+  }
+  .inv-root:not(.is-hub) .inv-slot-primary { grid-area: primary; }
+  .inv-root:not(.is-hub) .inv-slot-primary2 { grid-area: primary2; }
+  .inv-root:not(.is-hub) .inv-slot-secondary { grid-area: secondary; }
+  .inv-root:not(.is-hub) .inv-slot-armor { grid-area: armor; }
+  .inv-root:not(.is-hub) .inv-slot-bag { grid-area: bag; }
+  .inv-root:not(.is-hub) .inv-bag-body { flex-direction: row; align-items: flex-start; gap: 18px; }
+  .inv-root:not(.is-hub) .inv-quick {
+    flex-direction: column; align-items: stretch; gap: 12px;
+    padding-top: 0; padding-left: 18px; border-top: none; border-left: 1px solid var(--inv-line);
+  }
+  .inv-root:not(.is-hub) .inv-quick-legend { max-width: calc(3 * var(--inv-cell) + 8px); }
+}
+
+/* ship (창고 + 장비 + 가방 side by side): the same arrangement, but it needs more room */
 @media (min-width: 1600px) {
   .inv-root.is-hub .inv-equip-grid {
     display: grid; gap: 12px 18px; align-items: start;
@@ -1005,6 +949,12 @@ kbd {
   .inv-root.is-hub .inv-slot-secondary { grid-area: secondary; }
   .inv-root.is-hub .inv-slot-armor { grid-area: armor; }
   .inv-root.is-hub .inv-slot-bag { grid-area: bag; }
+  .inv-root.is-hub .inv-bag-body { flex-direction: row; align-items: flex-start; gap: 18px; }
+  .inv-root.is-hub .inv-quick {
+    flex-direction: column; align-items: stretch; gap: 12px;
+    padding-top: 0; padding-left: 18px; border-top: none; border-left: 1px solid var(--inv-line);
+  }
+  .inv-root.is-hub .inv-quick-legend { max-width: calc(3 * var(--inv-cell) + 8px); }
 }
 
 /* ═══ Phase 6 (2026-09-06): 무한 상자 catalog · 작업실 bench crafting · repair list ═══ */
@@ -1197,9 +1147,6 @@ kbd {
 .inv-modeless-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
 .inv-modeless-body { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .inv-modeless-close { padding: 6px 12px; }
-/* 전술 임플란트: fixed frame in the middle of the screen, list scrolls inside it */
-.inv-modeless-implant { width: 380px; height: min(620px, calc(100vh - 140px)); }
-.inv-modeless-implant .inv-modeless-body { flex: 1; min-height: 0; }
 /* the craft panel brings its own `.inv-panel` chrome — the frame only positions it */
 .inv-modeless-craft { padding: 0; background: none; border: 0; box-shadow: none; }
 .inv-modeless-craft .inv-modeless-body { gap: 0; }
@@ -1235,3 +1182,27 @@ kbd {
 .inv-menu-line { display: flex; align-items: center; justify-content: space-between; gap: 18px; width: 100%; }
 .inv-menu-item.has-costs { flex-direction: column; align-items: stretch; gap: 6px; }
 .inv-menu-costs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+
+/* ══ Phase 9 UI pass: embedded 가방 / 함선 창고 grids (ui/TradeGrids, used by the 기업 거래 screen) ════════════ */
+.trade-grids { display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 0; }
+.tg-block { display: flex; flex-direction: column; gap: 6px; min-width: 0; min-height: 0; }
+.tg-block.tg-stash { flex: 1 1 auto; }
+.tg-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.tg-label { font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase; font-weight: 700; color: var(--inv-muted, #8b94a0); }
+.tg-count { font-family: var(--ui-mono); font-size: 10px; color: var(--inv-muted, #8b94a0); }
+.tg-scroll {
+  overflow: auto; min-height: 0;
+  padding: 6px; scrollbar-width: thin;
+  border: 1px solid var(--inv-line, rgba(255, 255, 255, 0.12));
+  background: rgba(0, 0, 0, 0.28);
+}
+.tg-scroll::-webkit-scrollbar { width: 7px; height: 7px; }
+.tg-scroll::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.22); }
+.trade-grids .inv-tile { cursor: grab; }
+.trade-grids .inv-tile.is-staged { opacity: 0.3; filter: grayscale(0.7); cursor: default; }
+/* drag ghost: same tile content, following the cursor above everything */
+.tg-ghost {
+  position: fixed; z-index: 999; pointer-events: none;
+  opacity: 0.9; filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.6));
+}
+.tg-ghost.is-ok { outline: 2px solid var(--inv-ok, #4fd17e); outline-offset: 1px; }

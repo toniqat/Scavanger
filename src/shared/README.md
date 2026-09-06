@@ -246,3 +246,51 @@ Brief for the implementing agents: `docs/PHASE9-PLAN.md`.
   `weapons/` + `pickups/` `damageBarrier` at real hits · flame / shock attacker · pickup re-sync ·· `enemies/` delta snapshots · burn attacker · `enemy:killed.by` · enemy fire vs barriers ··
   `housing/` + `items/` + `progression/` 서재 (books, shelf, codex) ·· `world/` + `hub/` training modes · rack / mode consoles · bookshelf model ·· `inventory/` + `meta/` profile `fresh` ·
   catalog tab · meta sync + validation ·· `ui/` give-up bar · TrainingPanel · ghost bleed bar.
+
+## Phase 9 UI pass (2026-09-07) — appended contract
+
+Appended, never renamed. Everything below is additive; existing readers are untouched.
+
+- `housing.ts`:
+  - `ROOM_PURPOSE_GLYPH` / `ROOM_PURPOSE_COLOR` and `FACILITY_GLYPH` / `FACILITY_COLOR` — the **one** icon + accent
+    per room purpose / facility. Every facility row in the game draws this glyph on a `--pc`-tinted thumbnail
+    (`housing/ui/dom.facilityThumb`, `ui/hud/ShipManage`'s `.sm-thumb`), so a room reads the same in the 함선 tab
+    방 목록, the 시설 관리 room list and its 용도 지정 picker. Procedural — no asset files.
+  - `HousingRef.facilityRefund(index)` — every material spent upgrading that room's facility (level 1 comes free with
+    the purpose, so a Lv.1 room refunds nothing). Rendered as the cost chips of the 제거 confirmation.
+  - `HousingRef.removeRoomFacility(index)` — 시설 제거: placed pieces → furniture storage, upgrade materials → the
+    **함선 창고**, purpose → 빈 방. All-or-nothing; returns a 한국어 reason (and changes nothing) when the stash has no
+    room or the rules refuse the room (the built-in 작업실, a 책장 whose books do not fit).
+- `types.ts`:
+  - `InventoryRef.createTradeGrids(host, opts?)` + `TradeGridsViewOptions` — the player's **real 가방 / 함선 창고
+    grids** embedded in another folder's screen (the 기업 거래 desk). Read + drag-out only: a tile dragged onto one of
+    `dropSelector`'s targets (or double-clicked) calls `onTake`; the view never moves, removes or rearranges anything,
+    so the caller stays the only one mutating the inventory. No blocker, no pointer-lock call, no window key listener.
+- Ownership: `hub/` cockpit rebuild (terminal on the dashboard, computer on the rear wall, door frames / wainscot) ·
+  `housing/` refund + 방 목록 rewrite · `ui/` 시설 관리 hints + sorted 용도 지정 picker · `inventory/` `TradeGrids` ·
+  `meta/` the 거래 desk (상점 + 판매 merged into a staged basket).
+
+## Phase 9 UI/UX 개선 pass (2026-09-07) — appended contract
+
+Appended, never renamed. Everything below is additive; existing readers are untouched.
+
+- `housing.ts`:
+  - `ROOM_PURPOSE_BUILD_COST` + `ROOM_PURPOSE_BUILD_GENERATOR_LEVEL` (1) — a **시설 증축** (giving an empty room a
+    purpose) costs materials now and sits behind the same 발전기 gate as every other upgrade. This table is the price
+    of the facility's level 1; the `*_UPGRADE_COST` tables still cover levels 2+. 빈 방 costs nothing.
+  - `HousingRef.purposeCost(purpose)` — that table, for the pickers' cost chips. `setRoomPurpose` consumes it and
+    `purposeBlock` reports a shortage; `facilityRefund` hands it back on 시설 제거 (so a Lv.1 room refunds its build
+    price now, where it used to refund nothing).
+- `meta.ts`:
+  - `SquadContractInfo { peer, id, progress }` + `MetaRef.getSquadContracts()` — every squad member's active contract
+    as last broadcast, the local player excluded. Per-mission: cleared at `game:newMission` / `game:abort` /
+    `hub:entered` / `net:lobbyLeft`. Read by `ui/hud/ContractPanel`.
+- `net.ts`:
+  - `MetaMessage` gained `{ t:'meta', ev:'contract', id: string | null, progress: number }` — a member's own contract,
+    broadcast on `world:ready`, on every local progress change (deduped) and on accept / abandon, and repeated to a
+    peer that asks with `metaq sync`. `id` null clears the sender's row.
+- `events.ts`:
+  - `'meta:squadContract' { peer, id, progress }` — a squad member's contract changed (or the list was cleared).
+- Ownership: `meta/` the broadcast + the per-peer map · `ui/` the 분대 계약 rows, the 빠른 사용 / 임플란트 썸네일
+  column, the bottom-left squad column and the 가구 제작 / 가구 창고 tabs · `housing/` the 시설 증축 cost + refund and
+  the 함선 tab 증축 popup · `inventory/` the raid window taking the ship layout · `progression/` the implant cards.

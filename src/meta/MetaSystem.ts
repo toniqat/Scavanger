@@ -1,7 +1,7 @@
 import type {
   ConsoleCommand, ContractDef, ContractGoalKind, ContractInfo, ContractSettlement, CorpId, CreditsTxResult, EmbeddedView,
   GameContext, GameMessageOf, GameSystem, ItemInstance, MetaRef, MetaRequest, MissionStats, PeerId, ProfileRef, QuestInfo, QuestState,
-  RepInfo, ShopItem,
+  RepInfo, ShopItem, SquadContractInfo,
 } from '@/shared';
 import {
   CONTRACT_DEFS, CONTRACT_GOAL_LABEL_KO, CORP_DEFS, CORP_IDS, CREDITS_MAX, META_HIT_MAX, QUEST_DEFS, repLevelOf, sellPriceOf,
@@ -82,6 +82,11 @@ export class MetaSystem implements GameSystem, MetaRef {
   private readonly syncAnswered = new Set<PeerId>();
   /** A rejoin is under way: ask the squad for its hits once the world is ready. */
   private syncRequestPending = false;
+  /* Phase 9 UI pass: the squad's contracts, so the HUD can draw a row per member (`meta contract`). */
+  /** Last `meta contract` broadcast per peer; an `id: null` broadcast removes the entry. Never holds the local peer. */
+  private readonly squadContracts = new Map<PeerId, { id: string; progress: number }>();
+  /** Last `{id}|{progress}` we broadcast, so an unchanged contract never re-sends. */
+  private lastContractSent = '';
 
   init(ctx: GameContext): void {
     this.ctx = ctx;
@@ -97,7 +102,10 @@ export class MetaSystem implements GameSystem, MetaRef {
       // Phase 9: a rejoining client asks the squad for the hits it missed once its world exists
       b.on('net:gameStarting', ({ rejoin }) => { this.syncRequestPending = rejoin === true; }),
       b.on('world:ready', () => this.onWorldReady()),
-      b.on('hub:entered', () => this.save()),
+      b.on('hub:entered', () => { this.save(); this.clearSquadContracts(); }),
+      b.on('game:abort', () => this.clearSquadContracts()),
+      b.on('net:lobbyLeft', () => this.clearSquadContracts()),
+      b.on('net:peerLeft', ({ id }) => this.applySquadContract(id, null, 0)),
       b.on('net:profileLoaded', ({ migrated }) => this.onProfileLoaded(migrated)),
       // Phase 9: `enemy:killed` now fires for a peer-credited kill too (`by`), and that peer sends its own
       // `meta contractHit` — count only our own kills here or a squad kill lands twice.
@@ -154,7 +162,7 @@ export class MetaSystem implements GameSystem, MetaRef {
   private subscribeNet(): void {
     const net = this.ctx.net;
     if (!net || typeof net.onMessage !== 'function') return;
-    const offMeta = net.onMessage('meta', (msg) => this.onMetaMessage(msg));
+    const offMeta = net.onMessage('meta', (msg, from) => this.onMetaMessage(msg, from));
     const offReq = net.onMessage('metaq', (msg, from) => this.onMetaRequest(msg, from));
     this.unsubNet = () => { offMeta(); offReq(); };
   }
@@ -164,8 +172,13 @@ export class MetaSystem implements GameSystem, MetaRef {
    * contract: corp / goal whitelists, a finite amount within `1..max` (`META_HIT_MAX` for a live hit — a real hit is 1 —
    * and the contract target for a sync entry); a message for another corp's contract is ignored.
    */
-  private onMetaMessage(msg: GameMessageOf<'meta'>): void {
+  private onMetaMessage(msg: GameMessageOf<'meta'>, from: PeerId): void {
     if (!this.ctx.isGameplayPhase() || this.inTraining()) return;
+    // `contract` describes the *sender's* contract, so it is never filtered by ours
+    if (msg.ev === 'contract') {
+      if (typeof from === 'string' && from !== this.ctx.net?.localId) this.applySquadContract(from, msg.id, msg.progress);
+      return;
+    }
     const def = this.activeDef();
     if (!def || !CORP_IDS.includes(msg.corp) || def.corp !== msg.corp) return;
     if (msg.ev === 'contractHit') {
@@ -187,6 +200,7 @@ export class MetaSystem implements GameSystem, MetaRef {
     if (msg.ev !== 'sync' || typeof from !== 'string' || this.syncAnswered.has(from)) return;
     this.syncAnswered.add(from);
     if (!this.ctx.isGameplayPhase() || this.inTraining()) return;
+    this.broadcastContract(from);        // a late joiner also wants the contract row, not just the missed hits
     const def = this.activeDef();
     const net = this.ctx.net;
     if (!def || !net || typeof net.send !== 'function') return;
@@ -201,6 +215,8 @@ export class MetaSystem implements GameSystem, MetaRef {
 
   /** `world:ready` after a rejoin: ask every other member for the hits this client missed. */
   private onWorldReady(): void {
+    // Everyone announces its contract at mission start — a rejoin additionally asks for what it missed.
+    this.broadcastContract('others', true);
     if (!this.syncRequestPending) return;
     this.syncRequestPending = false;
     const net = this.ctx.net;
@@ -362,6 +378,61 @@ export class MetaSystem implements GameSystem, MetaRef {
     this.questBlocked.clear();
     this.sentHits.clear();
     this.syncAnswered.clear();
+    this.clearSquadContracts();
+    this.lastContractSent = '';
+  }
+
+  /* ── squad contracts (Phase 9 UI pass) ───────────────────────────────────
+   * Every member broadcasts its own `{id, progress}`; nobody aggregates. The list is per-mission: it is emptied at
+   * `game:newMission`, on `game:abort` and when the lobby goes away, so the HUD never shows a stale raid's contracts.
+   * ──────────────────────────────────────────────────────────────────────── */
+
+  /** `MetaRef.getSquadContracts` — other members only, in peer order. */
+  getSquadContracts(): readonly SquadContractInfo[] {
+    const out: SquadContractInfo[] = [];
+    for (const [peer, v] of this.squadContracts) out.push({ peer, id: v.id, progress: v.progress });
+    return out;
+  }
+
+  private clearSquadContracts(): void {
+    if (this.squadContracts.size === 0) return;
+    const peers = [...this.squadContracts.keys()];
+    this.squadContracts.clear();
+    for (const peer of peers) this.ctx.bus.emit('meta:squadContract', { peer, id: null, progress: 0 });
+  }
+
+  /** Store a relayed `meta contract`; `id` null (or an unknown def) drops the member's row. */
+  private applySquadContract(peer: PeerId, id: string | null, progress: number): void {
+    const known = typeof id === 'string' && CONTRACT_DEFS.some((d) => d.id === id) ? id : null;
+    if (!known) {
+      if (!this.squadContracts.delete(peer)) return;
+      this.ctx.bus.emit('meta:squadContract', { peer, id: null, progress: 0 });
+      return;
+    }
+    const def = CONTRACT_DEFS.find((d) => d.id === known)!;
+    const p = Math.min(def.target, Math.max(0, Number.isFinite(progress) ? progress : 0));
+    const prev = this.squadContracts.get(peer);
+    if (prev && prev.id === known && prev.progress === p) return;
+    this.squadContracts.set(peer, { id: known, progress: p });
+    this.ctx.bus.emit('meta:squadContract', { peer, id: known, progress: p });
+  }
+
+  /**
+   * Tell the squad what we are working on. `to` defaults to every other member; a `metaq sync` answer targets one.
+   * Silent outside a real multiplayer raid, and a no-op when nothing changed since the last broadcast.
+   */
+  private broadcastContract(to: PeerId | 'others' = 'others', force = false): void {
+    const net = this.ctx.net;
+    if (!this.ctx.isMultiplayer || !net || typeof net.send !== 'function' || this.inTraining()) return;
+    const ac = this.activeDef() ? this.store.data.activeContract : null;
+    const id = ac?.id ?? null;
+    const progress = ac ? Math.floor(ac.progress) : 0;
+    const key = `${id ?? '-'}|${progress}`;
+    if (to === 'others') {
+      if (!force && key === this.lastContractSent) return;
+      this.lastContractSent = key;
+    }
+    net.send({ t: 'meta', ev: 'contract', id, progress }, to);
   }
 
   private localHit(goal: ContractGoalKind, amount: number): void {
@@ -378,6 +449,7 @@ export class MetaSystem implements GameSystem, MetaRef {
     const delta = v - ac.progress;
     ac.progress = v;
     this.ctx.bus.emit('meta:contractProgress', { id: def.id, corp: def.corp, goal: def.goal, progress: v, target: def.target, delta });
+    this.broadcastContract();
   }
 
   /* ── MetaRef: credits / rep ─────────────────────────────────────────────── */
@@ -574,6 +646,7 @@ export class MetaSystem implements GameSystem, MetaRef {
     this.progressAtStart = 0;
     this.store.markDirty();
     this.ctx.bus.emit('meta:contractAccepted', { id: def.id, corp: def.corp });
+    this.broadcastContract();
     return true;
   }
 
@@ -584,6 +657,7 @@ export class MetaSystem implements GameSystem, MetaRef {
     this.progressAtStart = 0;
     this.store.markDirty();
     this.ctx.bus.emit('meta:contractAbandoned', { id: def.id, corp: def.corp });
+    this.broadcastContract();
     return true;
   }
 
@@ -605,6 +679,8 @@ export class MetaSystem implements GameSystem, MetaRef {
         this.ctx.net.send({ t: 'meta', ev: 'contractHit', corp: def.corp, goal, amount: sent }, 'others');
       }
     }
+    // the squad's HUD rows follow our own progress (deduped on `{id}|{floor(progress)}`)
+    if (local) this.broadcastContract();
   }
 
   settleMission(stats: MissionStats): ContractSettlement | null {

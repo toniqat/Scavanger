@@ -349,4 +349,21 @@ export interface MetaRef {
    * add the `'corp'` blocker or exit the pointer lock — the inventory window already owns both.
    */
   createCorpView(host: HTMLElement): EmbeddedView;
+
+  /* ══ appended: Phase 9 UI pass (2026-09-07) ════════════════════════ */
+  /**
+   * Every squad member's active contract as last broadcast over `meta contract` (the local player is **not** in the
+   * list — the HUD reads `activeContract` for that). Cleared at `game:newMission` and when the lobby goes away, so it
+   * only ever describes the running mission. Read by `ui/hud/ContractPanel`.
+   */
+  getSquadContracts(): readonly SquadContractInfo[];
+}
+
+/** One squad member's contract as seen from here (`meta contract` broadcast; `ui/hud/ContractPanel` renders it). */
+export interface SquadContractInfo {
+  /** PeerId of the member (a plain string — meta/ never needs the branded net type). */
+  peer: string;
+  /** Contract def id; the def itself is resolved from `CONTRACT_DEFS` by the reader. */
+  id: string;
+  progress: number;
 }
