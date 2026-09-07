@@ -130,15 +130,17 @@ try {
   ok(ship.lights === 13, `constant point-light count 13 (${ship.lights})`);
   ok(ship.roomGroups === 10, `one furniture group per room (${ship.roomGroups})`);
   ok(ship.room === null, 'currentRoom is null in the cockpit');
-  // Phase 8 UI pass: room 1 is the ship's built-in 작업실 and its two benches start placed in it
+  // 2026-09-07: a ship starts with ten empty rooms and no furniture — the room-1 작업실 is gone. The housing-mode
+  // walk-through below needs a 작업실 with a bench in storage, so seed room 1 the way a player would build it.
   const room0 = await page.evaluate(() => {
     const h = window.__game.ctx.housing;
-    return { purpose: h.getRoom(0).purpose, placed: h.getPlaced(0).map((f) => f.defId).sort(), block: h.purposeBlock(0, 'empty'), other: h.purposeBlock(3, 'workshop') };
+    const before = { purpose: h.getRoom(0).purpose, placed: h.getPlaced(0).length };
+    h.state.rooms[0] = { purpose: 'workshop', level: 1 };
+    h.state.furnitureStorage.push({ defId: 'furn_bench_gun', level: 1, qty: 1 });
+    return { ...before, seeded: h.getRoom(0).purpose, stored: h.getStored().map((e) => e.defId).join(',') };
   });
-  ok(room0.purpose === 'workshop' && room0.placed.join(',') === 'furn_bench_gun,furn_repair_bench', `room 1 is the built-in 작업실 with both benches placed (${room0.placed.join(',')})`);
-  ok(!!room0.block && !!room0.other, `room 1 cannot be re-purposed and no other room can be a 작업실 (${room0.block} / ${room0.other})`);
-  // the rest of this test walks through an *empty* room 1: send both benches back to furniture storage
-  await page.evaluate(() => { const h = window.__game.ctx.housing; if (h) for (const f of [...h.getPlaced(0)]) h.recover(f.uid); });
+  ok(room0.purpose === 'empty' && room0.placed === 0, `a fresh ship has no built-in 작업실 (방 1 = ${room0.purpose}, ${room0.placed} 가구)`);
+  ok(room0.seeded === 'workshop' && room0.stored === 'furn_bench_gun', `seeded 방 1 = 작업실 with a 총기 작업대 in storage (${room0.stored})`);
   await waitSim(0.1);
 
   /* ── 2. terminal: no seed section ───────────────────────────────────── */
@@ -258,8 +260,7 @@ try {
   const real = await page.evaluate(() => {
     const h = window.__game.ctx.housing;
     if (!h) return { impl: false };
-    let purpose = false;
-    try { purpose = h.setRoomPurpose(0, 'workshop'); } catch {}
+    const purpose = h.getRoom(0).purpose === 'workshop';   // seeded above (시설 증축 costs materials now)
     let entered = false;
     try { entered = h.enterHousingMode(0); } catch {}
     return { impl: entered === true, purpose, mode: h.housingMode };

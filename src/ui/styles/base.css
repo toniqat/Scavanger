@@ -1423,7 +1423,12 @@ input { font: inherit; color: inherit; }
 .menu.title .frame::before { left: 0; top: 0; }
 .title-foot { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .title-foot .hint { flex: 1; min-width: 0; }
-.title-foot .ui-btn.keybinds { min-width: 0; padding: 0 16px; height: 36px; font-size: 11px; }
+.title-foot .ui-btn.keybinds,
+.title-foot .ui-btn.newchar { min-width: 0; padding: 0 16px; height: 36px; font-size: 11px; }
+/* 새 캐릭터로 시작 (2026-09-07): a two-step confirm card under the controls diagram. */
+.newchar-confirm { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.newchar-confirm .row { display: flex; gap: 10px; justify-content: flex-end; }
+.newchar-confirm .ui-btn { min-width: 0; padding: 0 18px; height: 36px; font-size: 12px; }
 
 .controls-panel { display: flex; flex-direction: column; gap: 14px; }
 .ctl-diagram { display: flex; align-items: flex-start; gap: 22px; }

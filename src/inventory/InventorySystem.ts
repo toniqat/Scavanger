@@ -17,7 +17,7 @@ import {
 import { InventoryUI, type ScreenTab } from './ui/InventoryUI';
 export type { ScreenTab } from './ui/InventoryUI';
 import { TradeGrids, type TradeGridsOptions } from './ui/TradeGrids';
-import { Stash } from './Stash';
+import { Stash, setStarterGrantState, starterGrantState } from './Stash';
 import { LOADOUT_SAVE_VERSION, LoadoutStore, isEmptyLoadoutSave, loadLoadoutSave, sanitizeLoadoutSave, type LoadoutSave } from './Loadout';
 import { reviveItem, savedCell, serializeExtras, serializePlacement, type SavedPlacement } from './Serialize';
 /* appended (Phase 10): 분대원 장비 열람 */
@@ -197,9 +197,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
         if ((cols !== this.stash.cols || rows !== this.stash.rows) && this.stash.resize(cols, rows)) this.withFreshSave(() => this.stash.flush());
       }
     }
-    // 2026-09-07: 기본 지급품 — a profile that has never had a stash gets `STARTER_STASH` once. Like the starter kit
-    // this is "no data", not an edit, so it goes up as a `fresh` document and a real server profile still wins.
-    if (this.stash.firstRun) { this.withFreshSave(() => this.grantStarterStash()); this.firstRunGrant = true; }
+    // 2026-09-07: 기본 지급품 — handed out once per **profile** (`starterGrantState()`), not once per stash file.
+    if (starterGrantState() === 'none') this.tryStarterGrant();
     // Phase 10: a take that arrives through the shared state (`cont sync`, or the pending map applied on the first
     // open) is a catch-up, not something happening in front of the player → `live: false`, no animation.
     this.containers.onTaken = (info) =>
@@ -458,7 +457,29 @@ export class InventorySystem implements GameSystem, InventoryRef {
   }
 
   /**
-   * 기본 지급품 (2026-09-07): `STARTER_STASH` into the 함선 창고, once per profile (`Stash.firstRun`). `stacks`
+   * 기본 지급품, once per profile (2026-09-07 fix). The old condition was `Stash.firstRun` — no `scav.stash` file —
+   * which silently skipped every profile that existed before the grant did, and every profile whose 창고 was emptied
+   * by an incoming (empty) server document. The state now lives in its own localStorage key:
+   *   `none` → grant here (as a `fresh` document on a true first run, so a real server profile still wins) and mark
+   *            `pending`; `pending` → re-checked once at `net:profileLoaded`, where the server's 창고 is known, and
+   *            settled to `done` either way. A player who already owns something is settled without a grant.
+   */
+  private tryStarterGrant(): void {
+    const state = starterGrantState();
+    // already owns a 창고 → nothing to hand out, and never ask again
+    if (this.stash.count > 0) { setStarterGrantState('done'); return; }
+    // a grant made at init can still be replaced by an (empty) server 창고 document, so it stays `pending` until
+    // the `net:profileLoaded` re-check has seen the result once — that call is the one that settles it.
+    setStarterGrantState(state === 'none' ? 'pending' : 'done');
+    if (this.stash.firstRun && state === 'none') this.withFreshSave(() => this.grantStarterStash());
+    else this.grantStarterStash();
+    // the minimum kit is equipped from `hub:entered`; a grant that lands after the player is already aboard equips now
+    if (this.ctx.isHubPhase() && this.isCompletelyEmpty()) this.applyStarter();
+    else this.firstRunGrant = true;
+  }
+
+  /**
+   * `STARTER_STASH` into the 함선 창고 (2026-09-07); the "once per profile" decision is `tryStarterGrant`. `stacks`
    * splits an entry into that many full stacks — one 세트 per grid cell.
    */
   private grantStarterStash(): void {
@@ -2000,6 +2021,13 @@ export class InventorySystem implements GameSystem, InventoryRef {
    * not worth uploading (the starter kit follows as a `fresh` document). Grids are rebuilt and announced.
    */
   private onProfileLoaded(profile: ProfileRecord): void {
+    this.applyProfileDocs(profile);
+    // 2026-09-07: a first-run grant goes up as a `fresh` document, so an (empty) server 창고 has just replaced it —
+    // re-check exactly once, now that the server's stash is known. A profile that really owns something skips it.
+    if (starterGrantState() === 'pending') this.tryStarterGrant();
+  }
+
+  private applyProfileDocs(profile: ProfileRecord): void {
     const docs = profile?.docs ?? {};
     if (docs.stash === undefined) this.uploadProfileDoc('stash', this.stash.saveFile());
     else if (InventorySystem.sameDoc(docs.stash, this.stash.saveFile())) { /* our own document: already applied */ }

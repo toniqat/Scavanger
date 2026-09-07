@@ -128,7 +128,7 @@ try {
   await page.goto(BASE, { waitUntil: 'load' });
   await waitFor(page, () => !!window.__game, 'engine');
   // fresh ship + stash so the run is deterministic, then reload so the housing system boots from the fresh state
-  await page.evaluate(() => { localStorage.removeItem('scav.ship'); localStorage.removeItem('scav.stash'); });
+  await page.evaluate(() => { localStorage.removeItem('scav.ship'); localStorage.removeItem('scav.stash'); localStorage.removeItem('scav.grant'); });
   await page.reload({ waitUntil: 'load' });
   await setup();
 
@@ -205,7 +205,7 @@ try {
   ok(craftInfo.ok === true && craftInfo.missing.length === 0, 'canCraftFurniture(furn_bookshelf) with 폐금속 6 + 합금 1');
   ok(await H(() => window.__game.ctx.housing.craftFurniture('furn_bookshelf') && window.__game.ctx.housing.craftFurniture('furn_bookshelf')), 'craftFurniture(furn_bookshelf) ×2');
   ok(await H(() => window.__game.ctx.housing.canPlace(0, 'furn_bookshelf', 0, 0, 0) === false && window.__game.ctx.housing.canPlace(3, 'furn_bookshelf', 0, 0, 0) === true),
-    'canPlace: 책장 refused in the 작업실, allowed in the 서재');
+    'canPlace: 책장 refused in a 빈 방, allowed in the 서재');
   const shelfA = await H(() => window.__game.ctx.housing.place(3, 'furn_bookshelf', 0, 0, 0)?.uid ?? null);
   const shelfB = await H(() => window.__game.ctx.housing.place(3, 'furn_bookshelf', 0, 2, 0)?.uid ?? null);
   ok(!!shelfA && !!shelfB && shelfA !== shelfB, `two 책장 placed in the 서재 (${shelfA}, ${shelfB})`);

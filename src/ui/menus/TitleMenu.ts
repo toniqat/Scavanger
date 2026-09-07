@@ -1,6 +1,7 @@
 import type { GameContext } from '@/shared';
 import { sanitizePlayerName } from '@/shared';
 import { el, setText } from '../dom';
+import { NEW_CHARACTER_LABEL, resetCharacterSaves } from './newCharacter';
 import { MenuBase } from './MenuBase';
 import { ControlsPanel, KEYBIND_BUTTON_LABEL } from './ControlsPanel';
 
@@ -14,6 +15,8 @@ import { ControlsPanel, KEYBIND_BUTTON_LABEL } from './ControlsPanel';
  * A failed connection shows an inline message and falls back to the offline personal ship on the next click.
  * Phase 5: a `Lv. n` chip (`.lv-chip`) right of the callsign field reads `ctx.progression?.level`, refreshed on show and on
  * `progress:loaded` / `progress:levelUp`; hidden without a progression system.
+ * 2026-09-07: a `새 캐릭터로 시작` button in the footer (two-step confirm) wipes every character save and reloads —
+ * typing a new callsign only renames the existing character, which read as "a new character with an empty 창고".
  */
 export class TitleMenu extends MenuBase {
   private nameInput: HTMLInputElement;
@@ -22,6 +25,7 @@ export class TitleMenu extends MenuBase {
   private lvChip: HTMLElement;
   private controls: ControlsPanel;
   private busy = false;
+  private confirmEl!: HTMLElement;
   private inviteFailed = false;
 
   constructor(parent: HTMLElement, private readonly onKeybinds: () => void) {
@@ -51,6 +55,13 @@ export class TitleMenu extends MenuBase {
     const foot = el('div', { cls: 'title-foot', parent: this.frame });
     el('div', { cls: 'hint', text: '함선의 단말기에서 임무 시드를 고르고 분대를 모으세요. 발사 포드에 탑승하면 강하합니다.', parent: foot });
     this.button(foot, KEYBIND_BUTTON_LABEL, () => this.onKeybinds(), 'keybinds');
+    this.button(foot, NEW_CHARACTER_LABEL, () => this.askNewCharacter(), 'newchar');
+    this.confirmEl = el('div', { cls: 'newchar-confirm', parent: this.frame });
+    el('div', { cls: 'form-msg danger', text: '함선 창고 · 장비 · 함선 · 진행도 · 크레딧이 모두 사라집니다. 되돌릴 수 없습니다.', parent: this.confirmEl });
+    const confirmRow = el('div', { cls: 'row', parent: this.confirmEl });
+    this.button(confirmRow, '초기화하고 새로 시작', () => this.newCharacter(), 'danger');
+    this.button(confirmRow, '취소', () => { this.confirmEl.hidden = true; });
+    this.confirmEl.hidden = true;
     el('div', { cls: 'version', text: 'SCAVANGER · PROTOTYPE', parent: this.root });
   }
 
@@ -87,7 +98,19 @@ export class TitleMenu extends MenuBase {
     this.controls.refresh();
   }
 
-  protected override onHide(): void { this.msg.hidden = true; }
+  protected override onHide(): void { this.msg.hidden = true; this.confirmEl.hidden = true; }
+
+  /** Step 1 of 새 캐릭터: show the confirm card (this throws away every character save). */
+  private askNewCharacter(): void {
+    this.confirmEl.hidden = !this.confirmEl.hidden;
+  }
+
+  /** Step 2: wipe the character saves and reload — a reload is the only way every system re-reads its storage. */
+  private newCharacter(): void {
+    this.confirmEl.hidden = true;
+    resetCharacterSaves();
+    window.location.reload();
+  }
 
   private applyName(): void {
     const net = this.ctx.net;

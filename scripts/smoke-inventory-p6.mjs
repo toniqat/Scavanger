@@ -51,7 +51,7 @@ try {
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   // fresh stash so the size checks start from the default grid
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
-  await page.evaluate(() => { localStorage.removeItem('scav.stash'); });
+  await page.evaluate(() => { localStorage.removeItem('scav.stash'); localStorage.removeItem('scav.grant'); });
   await page.goto(BASE, { waitUntil: 'load' });
   await waitFor(page, () => !!window.__game && !!window.__game.ctx.inventory, 'boot');
   const install = () => page.evaluate(() => {

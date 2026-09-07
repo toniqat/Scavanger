@@ -126,7 +126,7 @@ try {
   });
 
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
-  await page.evaluate(() => { localStorage.removeItem('scav.loadout'); localStorage.removeItem('scav.stash'); localStorage.removeItem('scav.profile'); });
+  await page.evaluate(() => { localStorage.removeItem('scav.loadout'); localStorage.removeItem('scav.stash'); localStorage.removeItem('scav.grant'); localStorage.removeItem('scav.profile'); });
   await page.goto(BASE, { waitUntil: 'load' });
   await boot();
   await enterHub();

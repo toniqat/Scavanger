@@ -94,17 +94,24 @@ try {
   console.log('hub / workbench');
   await page.evaluate(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
   await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub phase');
-  // Phase 8: the cockpit no longer has a built-in bench — place the starter 정비 벤치 in a 작업실 and use that.
+  // Phase 8: the cockpit no longer has a built-in bench — place a 정비 벤치 in a 작업실 and use that.
+  // 2026-09-07: a ship starts with neither, and 시설 증축 / 가구 제작 cost materials, so seed both directly.
+  // The server profile lands a moment after the hub does and replaces the ship state with its own `ship` document,
+  // so seed *after* that (a fresh ship used to carry the benches, which is why this never mattered before).
+  await sleep(1500);
   const benchUid = await page.evaluate(() => {
     const h = window.__game.ctx.housing;
     if (!h) return null;
     let room = h.state.rooms.findIndex((r) => r.purpose === 'workshop');
-    if (room < 0) { room = 0; h.setRoomPurpose(0, 'workshop'); }
+    if (room < 0) { room = 0; h.state.rooms[0] = { purpose: 'workshop', level: 1 }; }
     const placed = h.getPlaced(room).find((f) => f.defId === 'furn_repair_bench');
     if (placed) return placed.uid;
-    if (!h.getStored().some((e) => e.defId === 'furn_repair_bench' && e.qty > 0)) h.craftFurniture('furn_repair_bench');
+    if (!h.getStored().some((e) => e.defId === 'furn_repair_bench' && e.qty > 0)) {
+      h.state.furnitureStorage.push({ defId: 'furn_repair_bench', level: 1, qty: 1 });
+    }
     return h.place(room, 'furn_repair_bench', 0, 0, 0)?.uid ?? null;
   });
+  await sleep(300);                       // the placement rebuilds the room's furniture layer on the next frames
   ok(!!benchUid, 'personal ship: 정비 벤치 placed in the 작업실', String(benchUid));
   const ids = await page.evaluate(() => window.__game.ctx.interactables.all().map((i) => i.id));
   ok(ids.includes(`hub_furn_${benchUid}`), 'placed 정비 벤치 registers its interactable', ids.join(','));

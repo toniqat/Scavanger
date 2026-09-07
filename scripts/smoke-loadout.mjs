@@ -118,7 +118,7 @@ try {
   /* ── 0. fresh: no save → starter on the first hub entry ─────────────── */
   console.log('fresh save');
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
-  await page.evaluate(() => { localStorage.removeItem('scav.loadout'); localStorage.removeItem('scav.stash'); });
+  await page.evaluate(() => { localStorage.removeItem('scav.loadout'); localStorage.removeItem('scav.stash'); localStorage.removeItem('scav.grant'); });
   await reload();
   const beforeHub = await snapshot();
   ok(!beforeHub.slots.primary && beforeHub.bag.length === 0, 'no save: bag + slots empty before the first hub entry', JSON.stringify(beforeHub.slots));
@@ -431,6 +431,48 @@ try {
   ok(view.unchanged && !view.dragging && !view.menu, 'read-only: press / drag / context menu / double-click change nothing', JSON.stringify(view));
   ok(view.blockersSame && view.locked, 'EmbeddedView contract: no ui blocker, the pointer lock is untouched', JSON.stringify({ blockers: view.blockersSame, locked: view.locked }));
   ok(view.afterDispose === 0, 'dispose() empties the host');
+
+  /* ── 8. 기본 지급품 is once per **profile**, not once per stash file (2026-09-07) ────── */
+  console.log('기본 지급품 grant flag');
+  // An account made before the grant existed has a `scav.stash` file (empty) and no `scav.grant` flag: the old
+  // `Stash.firstRun` condition skipped it forever, which is what left a "new character" with an empty 창고.
+  await page.evaluate(() => {
+    localStorage.setItem('scav.stash', JSON.stringify({ v: 2, cols: 10, rows: 24, items: [] }));
+    localStorage.removeItem('scav.grant');
+    localStorage.removeItem('scav.loadout');
+    localStorage.removeItem('scav.sessionToken');     // a new relay identity: no server document to overwrite the grant
+  });
+  await reload();
+  const retro = await page.evaluate(() => ({ n: window.__game.getSystem('inventory').getStashItems().length, flag: localStorage.getItem('scav.grant') }));
+  // the flag is `pending` until the server profile has been reconciled once, `done` after — either proves it was recorded
+  ok(retro.n > 0 && (retro.flag === 'pending' || retro.flag === 'done'), `an existing but empty 창고 with no grant flag is granted once (${retro.n} 아이템, flag ${retro.flag})`);
+  await reload();
+  const again = await page.evaluate(() => window.__game.getSystem('inventory').getStashItems().length);
+  ok(again === retro.n, `the grant does not repeat on the next launch (${again})`);
+  // 새 캐릭터로 시작 (2026-09-07): the title button wipes every character save but keeps the client settings
+  const shown = await page.evaluate(() => {
+    localStorage.setItem('scav.audio', '{"master":0.5}');
+    localStorage.setItem('scav.keybinds', '{}');
+    localStorage.setItem('scav.meta', '{"credits":1234}');
+    const btn = [...document.querySelectorAll('.menu.title .ui-btn')].find((b) => b.textContent === '새 캐릭터로 시작');
+    if (!btn) return { btn: false };
+    btn.click();
+    const card = document.querySelector('.menu.title .newchar-confirm');
+    return { btn: true, shown: !!card && !card.hidden, confirm: !!card?.querySelector('.ui-btn.danger'), token: localStorage.getItem('scav.sessionToken') };
+  });
+  ok(shown.btn && shown.shown && shown.confirm, '타이틀의 새 캐릭터로 시작 → 확인 카드 + 초기화 버튼', JSON.stringify(shown));
+  // pressing 초기화 clears the saves and reloads the page — drive the reload ourselves so the run stays in control
+  await page.evaluate(() => [...document.querySelectorAll('.menu.title .newchar-confirm .ui-btn')].find((b) => /초기화/.test(b.textContent)).click());
+  await reload();
+  // (the systems write their own defaults again on the next boot, so compare the *contents*, not mere presence)
+  const afterReset = await page.evaluate(() => ({
+    meta: localStorage.getItem('scav.meta'), token: localStorage.getItem('scav.sessionToken'),
+    audio: localStorage.getItem('scav.audio'), keybinds: localStorage.getItem('scav.keybinds'),
+    stash: window.__game.getSystem('inventory').getStashItems().length,
+  }));
+  ok(!(afterReset.meta ?? '').includes('1234') && afterReset.token !== shown.token, `초기화가 캐릭터 저장과 세션 토큰을 버린다 (meta ${afterReset.meta}, 새 토큰 ${afterReset.token !== shown.token})`);
+  ok(afterReset.audio === '{"master":0.5}' && afterReset.keybinds === '{}', '오디오 · 키 설정은 캐릭터가 아니므로 남는다');
+  ok(afterReset.stash > 0, `새 캐릭터의 함선 창고에 기본 지급품이 들어 있다 (${afterReset.stash} 아이템)`);
 } catch (e) {
   fail++;
   console.log(`  FAIL exception: ${e && e.stack ? e.stack : e}`);
