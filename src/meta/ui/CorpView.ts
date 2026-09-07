@@ -3,7 +3,7 @@ import type {
 } from '@/shared';
 import {
   CONTRACT_GOAL_LABEL_KO, CORP_DEFS, CORP_IDS, REP_TABLE, SHOP_UNLOCK_REP_LEVEL,
-  buildItemChip, formatCredits, renderItemCost,
+  buildItemChip, formatCreditAmount, formatCredits, renderItemCost,
 } from '@/shared';
 import type { MetaSystem, PurchaseFailure } from '../MetaSystem';
 import { el, fmtNum, setText, toggleClass } from './dom';
@@ -11,11 +11,14 @@ import { el, fmtNum, setText, toggleClass } from './dom';
 /* ────────────────────────────────────────────────────────────────────────────
  * CorpView — the **body** of the 기업 네트워크 screen.
  *
- * Two shells share these renderers:
- *   • `ui/CorpMenu.ts` — the standalone `.menu.corp-menu` overlay (ship computer `hub_computer`): blocker `'corp'`,
- *     pointer-lock etiquette, capture-phase Escape, 닫기 button.
- *   • `MetaSystem.createCorpView(host)` — the **embedded** variant for the inventory Tab screen's 기업 tab:
- *     no blocker, no pointer-lock call, no window Escape listener (the inventory window owns all three).
+ * **2026-09-07**: there is only one shell left — `MetaSystem.createCorpView(host)`, the inventory Tab screen's
+ * 기업 tab. The standalone `.menu.corp-menu` overlay (and its `'corp'` blocker, pointer-lock etiquette and Escape
+ * listener) is gone; the ship computer's `E` calls `ctx.inventory.openScreen('corp')`, so there is exactly one
+ * 기업 네트워크 screen in the game and the window owns the blocker, the cursor and Escape.
+ *
+ * Screen shape (2026-09-07): top = the window's own screen tabs · left = the **기업 목록 rail** (vertical) ·
+ * right = the main panel, whose own left column carries the 기업 패널 (이름 · Lv · 신뢰도) over the vertical
+ * 거래 / 계약 / 퀘스트 tabs. 가방 / 함선 창고 always take the panel's full height on the right.
  *
  * Phase 9 UI pass — rebuilt around a Tarkov-style trading desk:
  *   • the `기업 네트워크` title is gone: the **corp list** occupies the top-left slot with the credits readout on the
@@ -42,6 +45,18 @@ const PAGES: readonly { id: CorpPage; label: string }[] = [
 
 const QUEST_BADGE: Readonly<Record<QuestState, string>> = { locked: '잠김', available: '가능', accepted: '진행', complete: '완료' };
 
+/**
+ * Columns of every trade grid on this screen (2026-09-07). An item is at most 5 cells wide, so five columns is the
+ * narrowest grid that can show any item — the 구매 / 판매 trays are sized to exactly that and `--ct-cell` in
+ * `meta.css` is what makes the 기업 재고 / 가방 / 함선 창고 grids match them.
+ */
+const CT_GRID_COLS = 5;
+/** Cell edge of every grid on this screen, in px. Mirrors `--ct-cell` in `meta.css` — keep the two in step. */
+const CT_CELL = 40;
+/** Chip edge that fits inside a footprint cell (short edge of the footprint, minus the cell padding). */
+const cellChip = (def: ItemDef | undefined): number =>
+  Math.min(2, Math.max(1, Math.min(def?.width ?? 1, def?.height ?? 1))) * CT_CELL - 14;
+
 /** One staged purchase (a shop line, `qty` copies) / one staged sale (a whole stack by uid). */
 interface BuyLine { defId: string; qty: number }
 interface SellLine { uid: string; qty: number }
@@ -66,7 +81,8 @@ export class CorpView {
   private readonly subTabs = new Map<CorpPage, HTMLButtonElement>();
   private readonly page: HTMLElement;
   private readonly msg: HTMLElement;
-  private readonly btnStageValuables: HTMLButtonElement;
+  /** 귀중품 전부 담기 — under the 판매 tray since 2026-09-07, so it is built with the 거래 page. */
+  private btnStageValuables: HTMLButtonElement | null = null;
   private unsubs: Array<() => void> = [];
   private corp: CorpId = 'helix';
   private current: CorpPage = 'trade';
@@ -119,17 +135,30 @@ export class CorpView {
       return e;
     };
 
-    // Phase 9 UI pass (2026-09-07): the `기업 네트워크` title and its `거래 / 계약 / 퀘스트` subtitle are gone — the
-    // **corp list** sits in that top-left slot instead, with the credits readout on the right of the same row.
-    const head = add(el('div', { cls: 'hub-head corp-head', parent: host }));
-    const tabs = el('div', { cls: 'corp-tabs', parent: head });
-    const cr = el('div', { cls: 'corp-credits', parent: head });
+    /* left: 기업 목록 rail · right: main panel (2026-09-07) */
+    const shell = add(el('div', { cls: 'corp-shell', parent: host }));
+
+    const rail = el('div', { cls: 'corp-rail', parent: shell });
+    el('div', { cls: 'ct-title', text: '기업', parent: rail });
+    const tabs = el('div', { cls: 'corp-tabs', parent: rail });
+    for (const id of CORP_IDS) {
+      const def = CORP_DEFS[id];
+      const b = el('button', { cls: 'corp-tab', parent: tabs, attrs: { 'data-corp': id } });
+      b.style.setProperty('--cc', def.color);
+      el('span', { cls: 'name', text: def.name, parent: b });
+      this.corpLv.set(id, el('span', { cls: 'lv', text: 'Lv.0', parent: b }));
+      b.addEventListener('click', (e) => { e.stopPropagation(); this.setCorp(id); });
+      this.corpTabs.set(id, b);
+    }
+    const cr = el('div', { cls: 'corp-credits', parent: rail });
     el('span', { cls: 'k', text: '크레딧', parent: cr });
     this.creditsEl = el('span', { cls: 'v', text: '0', parent: cr });
 
-    /* 기업 패널: name + 신뢰도 of the selected corp, under the corp list */
-    const top = add(el('div', { cls: 'corp-top', parent: host }));
-    const panel = el('div', { cls: 'corp-panel', parent: top });
+    const main = el('div', { cls: 'corp-main', parent: shell });
+
+    /* main panel's left column: 기업 패널 (top) + 거래 / 계약 / 퀘스트 (bottom, vertical) */
+    const side = el('div', { cls: 'corp-side', parent: main });
+    const panel = el('div', { cls: 'corp-panel', parent: side });
     const pl = el('div', { cls: 'pl', parent: panel });
     const name = el('div', { cls: 'name', parent: pl });
     const lv = el('div', { cls: 'lv', text: 'Lv.0', parent: pl });
@@ -140,34 +169,19 @@ export class CorpView {
     const text = el('div', { cls: 'rep-text', parent: pr });
     this.panel = { name, lv, bar: fill, text };
 
-    for (const id of CORP_IDS) {
-      const def = CORP_DEFS[id];
-      const b = el('button', { cls: 'corp-tab', parent: tabs, attrs: { 'data-corp': id } });
-      b.style.setProperty('--cc', def.color);
-      el('span', { cls: 'name', text: def.name, parent: b });
-      this.corpLv.set(id, el('span', { cls: 'lv', text: 'Lv.0', parent: b }));
-      b.addEventListener('click', (e) => { e.stopPropagation(); this.setCorp(id); });
-      this.corpTabs.set(id, b);
-    }
-
-    const sub = add(el('div', { cls: 'corp-subtabs', parent: host }));
+    const sub = el('div', { cls: 'corp-subtabs', parent: side });
     for (const p of PAGES) {
       const b = el('button', { cls: 'scr-tab', text: p.label, parent: sub, attrs: { 'data-page': p.id } });
       b.addEventListener('click', (e) => { e.stopPropagation(); this.setPage(p.id); });
       this.subTabs.set(p.id, b);
     }
+    if (opts.onClose) this.button(side, '닫기', () => opts.onClose?.());
 
-    this.page = add(el('div', { cls: 'corp-page', parent: host }));
+    this.page = el('div', { cls: 'corp-page', parent: main });
     // the message keeps a reserved slot so showing / hiding it never moves the frame
     const msgSlot = add(el('div', { cls: 'corp-msg-slot', parent: host }));
     this.msg = el('div', { cls: 'form-msg', parent: msgSlot });
     this.msg.hidden = true;
-
-    const foot = add(el('div', { cls: 'hub-foot', parent: host }));
-    if (opts.onClose) this.button(foot, '닫기', () => opts.onClose?.());
-    else el('span', { cls: 'foot-spacer', parent: foot });
-    const right = el('div', { cls: 'right', parent: foot });
-    this.btnStageValuables = this.button(right, '귀중품 전부 담기', () => this.stageValuables(), 'primary');
 
     const b = ctx.bus;
     const refresh = (): void => this.refreshIfVisible();
@@ -247,7 +261,6 @@ export class CorpView {
     setText(this.panel.text, rep.next === null ? `${fmtNum(rep.rep)} · 최고 등급` : `${fmtNum(rep.rep)} / ${fmtNum(rep.next)}`);
 
     for (const p of PAGES) toggleClass(this.subTabs.get(p.id)!, 'is-on', p.id === this.current);
-    this.btnStageValuables.hidden = this.current !== 'trade';
 
     this.page.dataset.page = this.current;
     this.pruneBasket();
@@ -276,20 +289,24 @@ export class CorpView {
     el('div', { cls: 'ct-title', text: '기업 판매 물품', parent: shop });
     this.shopListEl = el('div', { cls: 'ct-shop-list ct-grid', parent: shop });
 
+    // 2026-09-07: the two trays are **stacked** (구매 over 판매) so each one is a real 5-cell-wide item grid —
+    // an item is at most 5 cells across, so five columns is the width every grid on this screen is sized from.
     const deal = el('div', { cls: 'ct-col deal', parent: root });
     const trays = el('div', { cls: 'ct-trays', parent: deal });
-    const mkTray = (kind: 'buy' | 'sell', label: string): { slots: HTMLElement; total: HTMLElement } => {
+    const mkTray = (kind: 'buy' | 'sell', label: string): { tray: HTMLElement; slots: HTMLElement; total: HTMLElement } => {
       const tray = el('div', { cls: `ct-tray ${kind}`, parent: trays });
       const head = el('div', { cls: 'ct-tray-head', parent: tray });
       el('span', { cls: 'k', text: label, parent: head });
       const total = el('span', { cls: 'v', text: '0', parent: head });
       const slots = el('div', { cls: 'ct-slots ct-grid', parent: tray });
-      return { slots, total };
+      return { tray, slots, total };
     };
     const buy = mkTray('buy', '구매');
     const sell = mkTray('sell', '판매');
     this.buySlotsEl = buy.slots; this.buyTotalEl = buy.total;
     this.sellSlotsEl = sell.slots; this.sellTotalEl = sell.total;
+    // 귀중품 전부 담기 moved out of the (now deleted) screen footer into the 판매 tray it fills
+    this.btnStageValuables = this.button(sell.tray, '귀중품 전부 담기', () => this.stageValuables(), 'ct-stage');
 
     const totals = el('div', { cls: 'ct-total', parent: deal });
     el('span', { cls: 'k', text: '거래 후 크레딧', parent: totals });
@@ -305,6 +322,21 @@ export class CorpView {
     return root;
   }
 
+  /**
+   * One cell of a trade grid. The cell **spans the item's footprint** (`grid-column / row: span n`) on a 5-column
+   * grid of `--ct-cell` squares, so 기업 재고 · 구매 · 판매 read like the 가방 / 함선 창고 next to them; the chip
+   * inside is sized to the short edge and carries `data-def-id`, which is what raises the shared `ui/hud/ItemTip`.
+   */
+  private gridCell(parent: HTMLElement, def: ItemDef | undefined, cls: string): HTMLElement {
+    const w = Math.max(1, Math.min(CT_GRID_COLS, def?.width ?? 1));
+    const h = Math.max(1, Math.min(CT_GRID_COLS, def?.height ?? 1));
+    const cell = el('div', { cls: `ct-cell ${cls} rarity-${def?.rarity ?? 'common'}` , parent });
+    cell.style.gridColumn = `span ${w}`;
+    cell.style.gridRow = `span ${h}`;
+    if (def) cell.style.setProperty('--rc', def.color);
+    return cell;
+  }
+
   /** Embedded 가방 + 함선 창고 grids; a tile dropped on `dropSelector` (or double-clicked) is staged for sale. */
   private makeGrids(host: HTMLElement, dropSelector: string): EmbeddedView | null {
     const inv = this.ctx.inventory;
@@ -314,16 +346,17 @@ export class CorpView {
     }
     return inv.createTradeGrids(host, {
       dropSelector,
+      cell: CT_CELL,          // match the 5-column 구매 / 판매 tray next to them (2026-09-07)
       isStaged: (uid) => this.sellLines.some((s) => s.uid === uid),
       onTake: (item) => this.stageSell(item),
     });
   }
 
   private renderTrade(): void {
-    /* 좌: 기업 판매 물품 */
+    /* 좌: 기업 판매 물품 — the grid keeps its shape even when it is locked / empty, with the reason centred in it */
     this.shopListEl.replaceChildren();
     const rep = this.meta.getRep(this.corp);
-    if (rep.level < SHOP_UNLOCK_REP_LEVEL) this.empty(this.shopListEl, `신뢰도 Lv.${SHOP_UNLOCK_REP_LEVEL} 부터 거래할 수 있습니다`);
+    if (rep.level < SHOP_UNLOCK_REP_LEVEL) this.empty(this.shopListEl, `신뢰도 Lv.${SHOP_UNLOCK_REP_LEVEL} 부터 거래 가능`);
     else {
       const lines = this.meta.getShop(this.corp);
       if (lines.length === 0) this.empty(this.shopListEl, '판매 중인 품목이 없습니다');
@@ -335,21 +368,21 @@ export class CorpView {
     this.buySlotsEl.replaceChildren();
     if (this.buyLines.length === 0) el('div', { cls: 'ct-slot-hint', text: '왼쪽 목록에서 담으세요', parent: this.buySlotsEl });
     for (const line of this.buyLines) {
-      const chip = el('button', { cls: 'ct-chip ct-cell', parent: this.buySlotsEl });
-      chip.appendChild(buildItemChip(this.itemDef(line.defId), { size: 48, need: line.qty }));
-      el('div', { cls: 'ct-cell-name', text: this.defName(line.defId), parent: chip });
-      chip.addEventListener('click', (e) => { e.stopPropagation(); this.unstageBuy(line.defId); });
+      const def = this.itemDef(line.defId);
+      const cell = this.gridCell(this.buySlotsEl, def, 'ct-chip');
+      cell.appendChild(buildItemChip(def, { size: cellChip(def) }));
+      el('div', { cls: 'ct-cell-qty', text: `×${line.qty}`, parent: cell });
+      cell.addEventListener('click', (e) => { e.stopPropagation(); this.unstageBuy(line.defId); });
     }
     this.sellSlotsEl.replaceChildren();
     if (this.sellLines.length === 0) el('div', { cls: 'ct-slot-hint', text: '오른쪽 가방 / 창고에서 끌어 놓으세요', parent: this.sellSlotsEl });
     for (const line of this.sellLines) {
       const inst = this.ctx.inventory?.findItemAnywhere?.(line.uid) ?? null;
       const def = inst ? this.itemDef(inst.defId) : undefined;
-      const chip = el('button', { cls: 'ct-chip ct-cell', parent: this.sellSlotsEl });
-      chip.appendChild(buildItemChip(def, { size: 48, need: line.qty }));
-      el('div', { cls: 'ct-cell-name', text: def?.name ?? '—', parent: chip });
-      el('div', { cls: 'ct-cell-price', text: formatCredits(this.meta.sellPriceOf(line.uid, line.qty) ?? 0), parent: chip });
-      chip.addEventListener('click', (e) => { e.stopPropagation(); this.unstageSell(line.uid); });
+      const cell = this.gridCell(this.sellSlotsEl, def, 'ct-chip');
+      cell.appendChild(buildItemChip(def, { size: cellChip(def) }));
+      el('div', { cls: 'ct-cell-price', text: formatCreditAmount(this.meta.sellPriceOf(line.uid, line.qty) ?? 0), parent: cell });
+      cell.addEventListener('click', (e) => { e.stopPropagation(); this.unstageSell(line.uid); });
     }
     setText(this.buyTotalEl, `−${formatCredits(cost)}`);
     setText(this.sellTotalEl, `+${formatCredits(revenue)}`);
@@ -360,7 +393,7 @@ export class CorpView {
     const blocked = this.tradeBlock(cost, revenue);
     this.confirmBtn.disabled = !!blocked;
     this.confirmBtn.title = blocked ?? '';
-    this.btnStageValuables.disabled = this.meta.getSellable().length === 0;
+    if (this.btnStageValuables) this.btnStageValuables.disabled = this.meta.getSellable().length === 0;
 
     this.tradeGrids?.refresh();
   }
@@ -392,11 +425,10 @@ export class CorpView {
    */
   private shopCell(line: ShopItem): void {
     const d = line.def;
-    const cell = el('div', { cls: `ct-cell shop rarity-${d.rarity}`, parent: this.shopListEl, attrs: { 'data-def': d.id } });
-    const owned = this.meta.countAll(d.id);
-    cell.appendChild(buildItemChip(d, { size: 48, ...(owned > 0 ? { have: owned } : {}) }));
-    el('div', { cls: 'ct-cell-name', text: d.name, parent: cell }).style.color = d.color;
-    el('div', { cls: 'ct-cell-price', text: formatCredits(line.price), parent: cell });
+    const cell = this.gridCell(this.shopListEl, d, 'shop');
+    cell.dataset.def = d.id;
+    cell.appendChild(buildItemChip(d, { size: cellChip(d) }));
+    el('div', { cls: 'ct-cell-price', text: formatCreditAmount(line.price), parent: cell });
     const staged = this.buyLines.find((b) => b.defId === d.id);
     if (staged) el('div', { cls: 'ct-staged', text: `×${staged.qty}`, parent: cell });
     toggleClass(cell, 'blocked', line.blocked !== null);

@@ -1,4 +1,4 @@
-import type { DerivedStats, GameContext, ImplantId, ImplantMode, PlayerProfile, SkillDef, SkillId, StatDef, StatId } from '@/shared';
+import type { DerivedStats, GameContext, ImplantDef, ImplantId, ImplantMode, PlayerProfile, SkillDef, SkillId, StatDef, StatId } from '@/shared';
 import { Keys, SKILL_LEVEL_MAX, STAT_MAX, keyLabel } from '@/shared';
 
 /** What the sheet needs from ProgressionSystem (kept structural so there is no circular import). */
@@ -45,14 +45,23 @@ const dist = (v: number): string => `${v.toFixed(1)} m`;
 interface StatRow { root: HTMLElement; value: HTMLElement; plus: HTMLButtonElement; fill: HTMLElement; xp: HTMLElement }
 interface SkillRow { root: HTMLElement; level: HTMLElement; fill: HTMLElement; bonus: HTMLElement }
 
-/* ── 전술 임플란트 (Phase 9 UI pass) ────────────────────────────────────────
+/* ── 전술 임플란트 (Phase 9 UI pass; reshaped 2026-09-07) ───────────────────
  * The implant slot used to live in the inventory window's 장착 장비 column behind a modeless picker. It is a
- * character choice, not a bag item, so it is a section of this sheet now: every implant is a card, the equipped one
- * is lit, and a click equips it (a click on the lit one unequips). Raid-locked exactly as before.
+ * character choice, not a bag item, so it belongs to this sheet — and since 2026-09-07 it is the **third column**
+ * of `.cs-body` (능력치 | 숙련도 | 전술 임플란트): the column shows one **slot card** for the equipped implant and
+ * pressing it raises a **modeless picker** with every implant as a card. The card list is unchanged (`.cs-imp-card`,
+ * `.is-equipped`, click to equip / unequip, raid-locked); only where it lives changed.
+ *
+ * The picker is a direct child of `ctx.uiRoot` (`.cs-imp-pop.interactive`), not of the column: the embedded 캐릭터
+ * tab sits inside `.inv-screen`, whose `inv-pop` animation leaves a `scale:` on the element and would therefore
+ * become the containing block of a `position: fixed` popup.
  * ────────────────────────────────────────────────────────────────────────── */
 const IMPLANT_TEXT = {
   label: '전술 임플란트',
-  empty: '장착한 임플란트가 없습니다 — 카드를 눌러 장착하세요.',
+  empty: '장착한 임플란트가 없습니다 — 칸을 눌러 고르세요.',
+  slotEmpty: '비어 있음',
+  pick: '임플란트 선택',
+  none: '해제',
   unavailable: '임플란트 시스템을 사용할 수 없습니다.',
   raidLocked: '레이드 중에는 임플란트를 교체할 수 없습니다 — 함선에서 바꾸세요.',
   equipped: '장착',
@@ -67,6 +76,12 @@ export interface SheetBodyOptions {
   onClose?: () => void;
   /** Footer hint (standalone: `ESC 또는 P 로 닫기`); omitted in the embedded tab. */
   hint?: string;
+  /**
+   * Which shell this body belongs to. Both shells exist at once (the overlay is built at init and merely hidden),
+   * and the 전술 임플란트 picker is a `uiRoot` child rather than a child of the sheet — so the popup carries
+   * `.cs-imp-pop-<variant>` to keep the two apart for CSS and the smokes.
+   */
+  variant?: 'overlay' | 'embed';
 }
 
 /**
@@ -90,6 +105,24 @@ export class SheetBody {
   private statHint: HTMLElement;
   private implantHint: HTMLElement;
   private implantCards = new Map<ImplantId, { root: HTMLButtonElement; meta: HTMLElement }>();
+  /** 전술 임플란트 column: the equipped-implant slot and the modeless picker it raises. */
+  private implantSlot!: HTMLButtonElement;
+  private implantPop!: HTMLElement;
+  private implantGrid!: HTMLElement;
+  private implantCol!: HTMLElement;
+  private pickerOpen = false;
+  private onPickerOutside = (e: PointerEvent): void => {
+    const t = e.target as Node | null;
+    if (!t) return;
+    if (this.implantPop.contains(t) || this.implantSlot.contains(t)) return;
+    this.closePicker();
+  };
+  private onPickerKey = (e: KeyboardEvent): void => {
+    if (!this.pickerOpen || e.code !== 'Escape') return;
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    this.closePicker();
+  };
   private resetBtn: HTMLButtonElement;
   private resetArmed = false;
 
@@ -115,17 +148,7 @@ export class SheetBody {
     this.xpFill = el('i', { parent: xpBar });
     this.xpText = el('div', { cls: 'txt ui-mono', text: '', parent: xp });
 
-    /* ── 전술 임플란트 (moved here from the inventory 장착 장비 column) ── */
-    const imp = this.own(el('div', { cls: 'cs-implants', parent }));
-    const impHead = el('div', { cls: 'h', parent: imp });
-    el('div', { cls: 'ui-label', text: IMPLANT_TEXT.label, parent: impHead });
-    el('kbd', { cls: 'cs-imp-key', text: keyLabel(Keys.IMPLANT), parent: impHead });
-    this.implantHint = el('div', { cls: 'hint', text: '', parent: imp });
-    const impGrid = el('div', { cls: 'cs-imp-grid', parent: imp });
-    for (const def of ctx.implants?.getAllDefs() ?? []) this.buildImplantCard(impGrid, def.id);
-    if (this.implantCards.size === 0) imp.classList.add('is-empty');
-
-    /* ── body: stats | skills ── */
+    /* ── body: 능력치 | 숙련도 | 전술 임플란트 (2026-09-07) ── */
     const body = this.own(el('div', { cls: 'cs-body', parent }));
 
     const statCol = el('div', { cls: 'cs-col', parent: body });
@@ -137,6 +160,23 @@ export class SheetBody {
     el('div', { cls: 'ui-label', text: '숙련도', parent: skillCol });
     const skillGrid = el('div', { cls: 'cs-skills', parent: skillCol });
     for (const def of host.getAllSkillDefs()) this.buildSkillRow(skillGrid, def);
+
+    const imp = el('div', { cls: 'cs-col cs-implants', parent: body });
+    const impHead = el('div', { cls: 'h', parent: imp });
+    el('div', { cls: 'ui-label', text: IMPLANT_TEXT.label, parent: impHead });
+    el('kbd', { cls: 'cs-imp-key', text: keyLabel(Keys.IMPLANT), parent: impHead });
+    this.implantSlot = this.buildImplantSlot(imp);
+    this.implantHint = el('div', { cls: 'hint', text: '', parent: imp });
+    /* the picker itself hangs off `ctx.uiRoot` (see the block comment above) */
+    this.implantPop = this.own(el('div', { cls: `cs-imp-pop cs-imp-pop-${opts.variant ?? 'embed'} interactive`, parent: ctx.uiRoot }));
+    this.implantPop.hidden = true;
+    const popHead = el('div', { cls: 'h', parent: this.implantPop });
+    el('div', { cls: 'ui-label', text: IMPLANT_TEXT.pick, parent: popHead });
+    const popClose = el('button', { cls: 'ui-btn cs-imp-close', text: '닫기', parent: popHead, attrs: { type: 'button' } });
+    popClose.addEventListener('click', (e) => { e.stopPropagation(); this.closePicker(); });
+    this.implantGrid = el('div', { cls: 'cs-imp-grid', parent: this.implantPop });
+    this.implantCol = imp;
+    this.buildImplantCards();
 
     /* ── derived ── */
     const der = this.own(el('div', { cls: 'cs-derived', parent }));
@@ -256,6 +296,73 @@ export class SheetBody {
 
   /* ── 전술 임플란트 ─────────────────────────────────────────────────────── */
 
+  /**
+   * The 전술 임플란트 **slot** — one card showing what is equipped (icon / name / mode / cooldown), or 비어 있음.
+   * Pressing it raises the picker; pressing it again closes it.
+   */
+  private buildImplantSlot(parent: HTMLElement): HTMLButtonElement {
+    const slot = el('button', { cls: 'cs-imp-slot', parent, attrs: { type: 'button' } });
+    el('span', { cls: 'ico', parent: slot }).setAttribute('aria-hidden', 'true');
+    const body = el('span', { cls: 'body', parent: slot });
+    const line = el('span', { cls: 'line', parent: body });
+    el('span', { cls: 'nm', parent: line });
+    el('span', { cls: 'tag', parent: line });
+    el('span', { cls: 'desc', parent: body });
+    slot.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (this.pickerOpen) { this.closePicker(); return; }
+      if (this.ctx.isRaidActive()) {
+        this.ctx.bus.emit('audio:play', { id: 'ui_error' });
+        this.ctx.bus.emit('ui:notify', { text: IMPLANT_TEXT.raidLocked, kind: 'warning', duration: 1.8 });
+        return;
+      }
+      this.openPicker();
+    });
+    return slot;
+  }
+
+  /* ── 모달리스 picker ─────────────────────────────────────────────────── */
+
+  /** true while the implant picker is up (smoke tests / the shell's Escape chain). */
+  get isPickerOpen(): boolean { return this.pickerOpen; }
+
+  private openPicker(): void {
+    if (this.pickerOpen || this.implantCards.size === 0) return;
+    this.pickerOpen = true;
+    this.implantPop.hidden = false;
+    this.implantSlot.classList.add('is-open');
+    this.refreshImplants();
+    this.placePicker();
+    requestAnimationFrame(() => this.placePicker());
+    document.addEventListener('pointerdown', this.onPickerOutside, true);
+    window.addEventListener('keydown', this.onPickerKey, true);
+    this.ctx.bus.emit('audio:play', { id: 'ui_click' });
+  }
+
+  /** Closes the picker; returns true when it was actually open (so a shell can consume that Escape). */
+  closePicker(): boolean {
+    if (!this.pickerOpen) return false;
+    this.pickerOpen = false;
+    this.implantPop.hidden = true;
+    this.implantSlot.classList.remove('is-open');
+    document.removeEventListener('pointerdown', this.onPickerOutside, true);
+    window.removeEventListener('keydown', this.onPickerKey, true);
+    return true;
+  }
+
+  /** Anchor the picker to the left of the slot, clamped into the viewport. */
+  private placePicker(): void {
+    if (!this.pickerOpen) return;
+    const a = this.implantSlot.getBoundingClientRect();
+    const r = this.implantPop.getBoundingClientRect();
+    const m = 12;
+    let left = a.left - r.width - m;
+    if (left < m) left = Math.min(a.right + m, window.innerWidth - r.width - m);
+    const top = Math.min(Math.max(m, a.top), window.innerHeight - r.height - m);
+    this.implantPop.style.left = `${Math.round(Math.max(m, left))}px`;
+    this.implantPop.style.top = `${Math.round(Math.max(m, top))}px`;
+  }
+
   private buildImplantCard(parent: HTMLElement, id: ImplantId): void {
     const def = this.ctx.implants?.getDef(id);
     if (!def) return;
@@ -269,28 +376,59 @@ export class SheetBody {
     el('span', { cls: 'tag', text: IMPLANT_TEXT.mode[def.mode], parent: line });
     el('span', { cls: 'desc', text: def.description, parent: body });
     const meta = el('span', { cls: 'meta', text: '', parent: body });
-    card.addEventListener('click', (e) => { e.stopPropagation(); this.pickImplant(id); });
+    card.addEventListener('click', (e) => { e.stopPropagation(); this.pickImplant(id); this.closePicker(); });
     this.implantCards.set(id, { root: card, meta });
+  }
+
+  /**
+   * Build one card per implant. Called again from `refreshImplants` while the list is still empty: `ctx.implants` is
+   * only set by `ImplantSystem.init`, which runs **after** `ProgressionSystem.init` builds the standalone sheet
+   * (see the registration order in `main.ts`), so the overlay would otherwise never show a single implant.
+   */
+  private buildImplantCards(): void {
+    for (const def of this.ctx.implants?.getAllDefs() ?? []) this.buildImplantCard(this.implantGrid, def.id);
+    this.implantCol.classList.toggle('is-empty', this.implantCards.size === 0);
   }
 
   private refreshImplants(): void {
     const imp = this.ctx.implants;
+    if (this.implantCards.size === 0 && imp) this.buildImplantCards();
     if (this.implantCards.size === 0) {
       setText(this.implantHint, imp ? IMPLANT_TEXT.empty : IMPLANT_TEXT.unavailable);
+      this.implantHint.hidden = false;
+      this.paintImplantSlot(null, false);
       return;
     }
     const inRaid = this.ctx.isRaidActive();
     const equipped = imp?.equipped ?? null;
     const def = equipped ? imp?.getDef(equipped) ?? null : null;
-    setText(this.implantHint, inRaid ? IMPLANT_TEXT.raidLocked
-      : def ? `${def.name} · ${IMPLANT_TEXT.mode[def.mode]}${def.cooldown > 0 ? ` · ${IMPLANT_TEXT.cooldown} ${def.cooldown}s` : ''}${def.charges > 1 ? ` · ${IMPLANT_TEXT.charges} ${def.charges}` : ''}`
-      : IMPLANT_TEXT.empty);
+    // the slot card already carries the name / mode / description, so the hint is only the raid lock
+    setText(this.implantHint, inRaid ? IMPLANT_TEXT.raidLocked : '');
+    this.implantHint.hidden = !inRaid;
     for (const [id, card] of this.implantCards) {
       const d = imp?.getDef(id);
       card.root.classList.toggle('is-equipped', id === equipped);
       card.root.disabled = inRaid;
       setText(card.meta, d ? `${IMPLANT_TEXT.cooldown} ${d.cooldown}s${d.charges > 1 ? ` · ${IMPLANT_TEXT.charges} ${d.charges}` : ''}` : '');
     }
+    this.paintImplantSlot(def, inRaid);
+    if (inRaid) this.closePicker();
+  }
+
+  /** The equipped-implant slot card (empty state included). */
+  private paintImplantSlot(def: ImplantDef | null, inRaid: boolean): void {
+    const slot = this.implantSlot;
+    if (!slot) return;
+    slot.classList.toggle('is-filled', !!def);
+    slot.disabled = this.implantCards.size === 0;
+    slot.style.setProperty('--ic', def?.color ?? 'rgba(255,255,255,0.35)');
+    slot.title = inRaid ? IMPLANT_TEXT.raidLocked : IMPLANT_TEXT.pick;
+    setText(slot.querySelector<HTMLElement>('.ico')!, def?.icon ?? '＋');
+    setText(slot.querySelector<HTMLElement>('.nm')!, def?.name ?? IMPLANT_TEXT.slotEmpty);
+    const tag = slot.querySelector<HTMLElement>('.tag')!;
+    tag.hidden = !def;
+    setText(tag, def ? IMPLANT_TEXT.mode[def.mode] : '');
+    setText(slot.querySelector<HTMLElement>('.desc')!, def?.description ?? IMPLANT_TEXT.empty);
   }
 
   private pickImplant(id: ImplantId): void {
@@ -345,6 +483,7 @@ export class SheetBody {
   }
 
   dispose(): void {
+    this.closePicker();
     for (const e of this.created) e.remove();
     this.created = [];
     this.statRows.clear();

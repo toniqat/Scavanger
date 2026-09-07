@@ -207,7 +207,7 @@ try {
   const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('scav.stash') ?? 'null'));
   ok(saved && saved.items?.length === stashMove.after + 1, `stash saved to localStorage (${saved?.items?.length} stacks)`);
 
-  /* 전술 임플란트 (Phase 9 UI pass): the modeless picker is gone — every implant is a card in the 캐릭터 tab */
+  /* 전술 임플란트 (2026-09-07): 캐릭터 탭의 3번째 열이 임플란트 — 장착 칸 하나를 누르면 카드 목록 팝업이 뜬다 */
   const toTab = (label) => page.evaluate((l) => {
     const b = [...document.querySelectorAll('.inv-root .scr-tab')].find((x) => x.textContent === l);
     b?.click();
@@ -215,28 +215,50 @@ try {
   }, label);
   ok(await toTab('캐릭터'), '캐릭터 탭으로 전환');
   await sleep(220);
-  const impTab = await page.evaluate(() => ({
-    cards: document.querySelectorAll('.cs-implants .cs-imp-card').length,
-    picker: !!document.querySelector('.inv-implant-picker'),
-    hint: document.querySelector('.cs-implants .hint')?.textContent ?? '',
-  }));
-  ok(impTab.cards === 6 && !impTab.picker, `캐릭터 탭이 임플란트 6종을 카드로 보여준다 (${impTab.cards}, 옛 picker ${impTab.picker})`);
+  // both shells exist at once (the standalone overlay is built at init and only hidden), so scope to the Tab screen
+  const impTab = await page.evaluate(() => {
+    const cols = [...document.querySelectorAll('.inv-screen .cs-body > .cs-col')];
+    return {
+      cards: document.querySelectorAll('.cs-imp-pop-embed .cs-imp-card').length,
+      picker: !!document.querySelector('.inv-implant-picker'),
+      hint: document.querySelector('.inv-screen .cs-implants .hint')?.textContent ?? '',
+      slot: !!document.querySelector('.inv-screen .cs-implants .cs-imp-slot'),
+      popHidden: document.querySelector('.cs-imp-pop-embed')?.hidden,
+      // 능력치 좌 · 숙련도 중 · 전술 임플란트 우
+      cols: cols.length,
+      lastIsImplant: cols[cols.length - 1]?.classList.contains('cs-implants') ?? false,
+      firstLabel: cols[0]?.querySelector('.ui-label')?.textContent ?? '',
+    };
+  });
+  ok(impTab.cards === 6 && !impTab.picker && impTab.slot && impTab.popHidden === true,
+    `캐릭터 탭: 임플란트 장착 칸 + 닫힌 카드 팝업 6종 (${impTab.cards}, 옛 picker ${impTab.picker})`);
+  ok(impTab.cols === 3 && impTab.firstLabel === '능력치' && impTab.lastIsImplant,
+    `본문이 3열 (능력치 | 숙련도 | 전술 임플란트) — ${impTab.cols}열, 첫 열 '${impTab.firstLabel}'`);
+  // 장착 칸을 누르면 팝업이 열리고, 카드를 고르면 장착 후 닫힌다
+  await page.evaluate(() => document.querySelector('.inv-screen .cs-implants .cs-imp-slot').click());
+  await sleep(120);
+  ok(await page.evaluate(() => document.querySelector('.cs-imp-pop-embed').hidden === false), '장착 칸 클릭 → 임플란트 목록 팝업');
   await shot('04-implant-cards');
-  await page.evaluate(() => document.querySelector('.cs-imp-card[data-id="overcharge"]').click());
+  await page.evaluate(() => document.querySelector('.cs-imp-pop-embed .cs-imp-card[data-id="overcharge"]').click());
+  ok(await page.evaluate(() => document.querySelector('.cs-imp-pop-embed').hidden === true), '카드를 고르면 팝업이 닫힌다');
+  ok(await page.evaluate(() => {
+    const slot = document.querySelector('.inv-screen .cs-imp-slot');
+    return slot.classList.contains('is-filled') && slot.querySelector('.nm').textContent === (window.__game.ctx.implants.getDef('overcharge')?.name ?? '');
+  }), '장착 칸이 고른 임플란트를 보여준다');
   ok(await page.evaluate(() => window.__game.ctx.implants.equipped === 'overcharge'), 'clicking a card equips it');
   // the 장착 중 label hangs under the description column, not off the right edge of the row
   const tag = await page.evaluate(() => {
-    const card = document.querySelector('.cs-imp-card.is-equipped');
+    const card = document.querySelector('.cs-imp-pop-embed .cs-imp-card.is-equipped');
     if (!card) return null;
     return { body: getComputedStyle(card.querySelector('.body'), '::after').content,
       row: getComputedStyle(card, '::after').content, desc: !!card.querySelector('.desc') };
   });
   ok(!!tag && /장착 중/.test(tag.body) && !/장착 중/.test(tag.row) && tag.desc, `장착 중 label renders under the description (${tag?.body})`);
-  await page.evaluate(() => document.querySelector('.cs-imp-card[data-id="overcharge"]').click());
+  await page.evaluate(() => document.querySelector('.cs-imp-pop-embed .cs-imp-card[data-id="overcharge"]').click());
   ok(await page.evaluate(() => window.__game.ctx.implants.equipped === null), 'clicking the equipped card unequips it');
-  await page.evaluate(() => document.querySelector('.cs-imp-card[data-id="atlauncher"]').click());
+  await page.evaluate(() => document.querySelector('.cs-imp-pop-embed .cs-imp-card[data-id="atlauncher"]').click());
   ok(await page.evaluate(() => window.__game.ctx.implants.equipped === 'atlauncher'
-    && document.querySelector('.cs-imp-card[data-id="atlauncher"]').classList.contains('is-equipped')), '대전차포 장착 (카드가 켜진다)');
+    && document.querySelector('.cs-imp-pop-embed .cs-imp-card[data-id="atlauncher"]').classList.contains('is-equipped')), '대전차포 장착 (카드가 켜진다)');
   ok(await toTab('인벤토리'), '인벤토리 탭으로 복귀');
   await sleep(200);
 

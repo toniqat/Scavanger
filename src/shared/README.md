@@ -470,3 +470,20 @@ The seed still decides layout / crates / nests / loot; the **planet** decides th
   `hub/` the full-screen terminal, planet selection, the travel cutscene and the launch-slot gate · `ui/` the ESC
   layout (buttons left, social column right), the settings panel, the community icon / invite panels and the whisper
   mode · `world/` planet → biome + herbs · `core/` planet → sky / fog (lead) · `enemies/` the ecosystem.
+
+## appended: 2026-09-07 UI/UX pass (기업 화면 통합 · 그리드 칸 크기)
+
+Two **appended** additions only — nothing was renamed or removed.
+
+- `types.ts`: `InventoryScreenTab` (`'inventory' | 'character' | 'corp' | 'ship'`) and, on `InventoryRef`,
+  **`openScreen(tab)`** + **`screenTab`**. The Tab window is the only shell for the embedded screens, so a folder that
+  wants to *show* one (meta/ from the 함선 컴퓨터) opens it through this instead of owning an overlay. `openScreen`
+  is ship-only and returns whether that tab is what the window ended up showing.
+- `types.ts`: `TradeGridsViewOptions.cell` — the grid cell edge in px (default 54). The 기업 거래 desk passes 40 so
+  its 가방 / 함선 창고 match the 5-column 구매 / 판매 tray beside them. `inventory/ui/GridView` takes the same number
+  at construction; it is fixed for the life of the view.
+
+Not a contract change but worth knowing: `body.soft-cursor-on *`'s `cursor: none !important` (ui/styles/base.css, the
+software cursor from Phase 10) is **beatable on specificity**. `inventory.css` had `.inv-root.is-dragging *
+{ cursor: grabbing !important }`, which brought the real Windows cursor back for the length of a drag. Any new rule
+that forces a `cursor` has to be scoped `body:not(.soft-cursor-on)`.

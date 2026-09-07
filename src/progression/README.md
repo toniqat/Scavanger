@@ -179,3 +179,20 @@ const implant = ctx.progression?.profile.implant ?? null;
   `click` / `wheel` 이벤트를 합성하므로 시트 · `SheetBody` · 임플란트 카드의 클릭 · 호버 배선이 그대로 동작한다.
   이 폴더는 `input.mouseX / mouseY` 도 `document.elementFromPoint` 도 폴링하지 않으므로 그 외 이관 대상은 없다.
 - 임베드 뷰(`createSheetView`)는 변함없이 blocker · 커서 · Esc 를 건드리지 않는다.
+
+## 2026-09-07 UI/UX pass — 3열 본문 + 임플란트 모달리스 picker
+
+- **`ui/SheetBody`** 의 본문이 **능력치 | 숙련도 | 전술 임플란트** 3열(`.cs-body`)이 되었다. 파생 능력치는 예전처럼
+  그 아래 전체 폭이다.
+- **전술 임플란트 열**은 카드 6장을 늘어놓는 대신 **장착 칸 하나**(`.cs-imp-slot`: 아이콘 · 이름 · 모드 · 설명)를
+  보여주고, 누르면 **모달리스 picker**(`.cs-imp-pop`)가 떠서 그 안의 `.cs-imp-card` 목록에서 고른다. 고르면 장착
+  하고 닫히며, 이미 장착한 카드를 누르면 해제한다. 바깥 클릭 · 닫기 · Esc(캡처 단계에서 삼킨다)로 닫힌다.
+  레이드 중에는 예전처럼 잠긴다(칸을 누르면 경고 토스트).
+- picker 는 `ctx.uiRoot` 의 직계 자식이다 — 임베드 탭이 사는 `.inv-screen` 이 `inv-pop` 애니메이션의 `scale:` 을
+  남기므로 그 안에 두면 `position: fixed` 의 컨테이닝 블록이 되어 버린다. 두 shell 이 동시에 존재하므로 팝업은
+  `.cs-imp-pop-overlay` / `.cs-imp-pop-embed` 로 구분한다(`SheetBodyOptions.variant`).
+- **버그 수정**: 카드 목록을 생성자에서만 만들던 탓에, `ProgressionSystem` 이 `ImplantSystem` 보다 먼저 등록되는
+  standalone 시트(`CharacterSheet`)는 `ctx.implants` 가 아직 없어 임플란트를 **영영 하나도 못 보여주고 있었다**.
+  `refreshImplants` 가 목록이 비어 있고 `ctx.implants` 가 생겼으면 그때 만든다.
+- **CSS**: `.cs-body` 3열(1280 px 아래 2열 + 임플란트가 전체 폭), `.cs-imp-slot(.is-filled/.is-open)`,
+  `.cs-imp-pop(.cs-imp-pop-embed/-overlay)`, `.cs-imp-close` 를 `ui/character.css` 에 추가.

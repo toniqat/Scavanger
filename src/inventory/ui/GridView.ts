@@ -2,7 +2,7 @@ import type { EffectiveWeaponStats, ItemDef, ItemInstance } from '@/shared';
 import { CONTAINER_TAKE_ANIM_S, CONTAINER_TAKE_END_SCALE, CONTAINER_TAKE_RISE_PX, SOCKET_SLOTS } from '@/shared';
 import type { Grid } from '../Grid';
 import type { GridId } from '../InventorySystem';
-import { DURABILITY_LOW, STEP, TEXT, tileSize } from './labels';
+import { CELL, DURABILITY_LOW, GAP, STEP, TEXT, tileSize, tileSizeAt } from './labels';
 
 export type DefLookup = (defId: string) => ItemDef | undefined;
 /** Effective stats for weapon instances (null for anything else); drives socket pips + durability bar. */
@@ -25,10 +25,10 @@ export const isHiddenItem = (item: ItemInstance): boolean => item.searched === f
  * Footprint-only content for an unsearched container item (Phase 7 search): neutral colour, `?` icon, `???` name —
  * nothing that leaks the def (no rarity class / colour, no qty, no pips, no durability).
  */
-function buildHiddenTileContent(el: HTMLElement, item: ItemInstance, w: number, h: number): void {
+function buildHiddenTileContent(el: HTMLElement, item: ItemInstance, w: number, h: number, cell: number): void {
   el.className = 'inv-tile rarity-hidden is-hidden-item';
   el.style.removeProperty('--rc');
-  const { width, height } = tileSize(w, h);
+  const { width, height } = tileSizeAt(w, h, cell);
   el.style.width = `${width}px`;
   el.style.height = `${height}px`;
   el.classList.toggle('is-wide', w >= 2);
@@ -52,13 +52,13 @@ function buildHiddenTileContent(el: HTMLElement, item: ItemInstance, w: number, 
  * given) also get five socket pips (filled = attached) and a thin durability bar (amber < 30 %, red at 0).
  * An unsearched container item (`searched === false`) renders the footprint mask instead.
  */
-export function buildTileContent(el: HTMLElement, item: ItemInstance, def: ItemDef, w: number, h: number, stats?: EffectiveWeaponStats | null): void {
-  if (isHiddenItem(item)) { buildHiddenTileContent(el, item, w, h); return; }
+export function buildTileContent(el: HTMLElement, item: ItemInstance, def: ItemDef, w: number, h: number, stats?: EffectiveWeaponStats | null, cell: number = CELL): void {
+  if (isHiddenItem(item)) { buildHiddenTileContent(el, item, w, h, cell); return; }
   el.className = `inv-tile rarity-${def.rarity}`;
   if (def.attachment) el.classList.add('is-attachment');
   if (def.bag) el.classList.add('is-bag');
   el.style.setProperty('--rc', def.color);
-  const { width, height } = tileSize(w, h);
+  const { width, height } = tileSizeAt(w, h, cell);
   el.style.width = `${width}px`;
   el.style.height = `${height}px`;
   el.classList.toggle('is-wide', w >= 2);
@@ -146,9 +146,16 @@ export class GridView {
   /** Tiles currently animating out → their removal timer. */
   private vanishing = new Map<HTMLElement, number>();
 
-  constructor(readonly id: GridId, private readonly getDef: DefLookup, private readonly getStats: StatsLookup, private readonly handlers: TileHandlers) {
+  /** Cell edge / cell pitch of this grid in px. Only the 기업 거래 desk passes anything but the default. */
+  private readonly cell: number;
+  private readonly step: number;
+
+  constructor(readonly id: GridId, private readonly getDef: DefLookup, private readonly getStats: StatsLookup, private readonly handlers: TileHandlers, cell: number = CELL) {
+    this.cell = cell;
+    this.step = cell + GAP;
     this.el = document.createElement('div');
     this.el.className = `inv-grid inv-grid-${id}`;
+    if (cell !== CELL) this.el.style.setProperty('--inv-cell', `${cell}px`);
     this.cellsEl = document.createElement('div');
     this.cellsEl.className = 'inv-cells';
     this.tilesEl = document.createElement('div');
@@ -177,8 +184,8 @@ export class GridView {
     this.dims = dims;
     this.el.style.setProperty('--cols', String(grid.cols));
     this.el.style.setProperty('--rows', String(grid.rows));
-    this.el.style.width = `${grid.cols * STEP - 2}px`;
-    this.el.style.height = `${grid.rows * STEP - 2}px`;
+    this.el.style.width = `${grid.cols * this.step - GAP}px`;
+    this.el.style.height = `${grid.rows * this.step - GAP}px`;
     this.cellsEl.innerHTML = '';
     for (let i = 0; i < grid.cols * grid.rows; i++) {
       const c = document.createElement('div');
@@ -212,14 +219,14 @@ export class GridView {
       }
       const wasDragging = el.classList.contains('is-dragging');
       const wasHover = el.classList.contains('is-hover');
-      buildTileContent(el, p.item, def, fp.w, fp.h, this.getStats(p.item));
+      buildTileContent(el, p.item, def, fp.w, fp.h, this.getStats(p.item), this.cell);
       const badge = this.quickBadges.get(p.item.uid);
       if (badge && !isHiddenItem(p.item)) addQuickBadge(el, badge);
       if (this.scan?.uid === p.item.uid) this.applyScan(el, this.scan.progress);
       el.classList.toggle('is-pending', this.pendingUids.has(p.item.uid));
       if (wasDragging) el.classList.add('is-dragging');
       if (wasHover) el.classList.add('is-hover');
-      el.style.transform = `translate(${p.x * STEP}px, ${p.y * STEP}px)`;
+      el.style.transform = `translate(${p.x * this.step}px, ${p.y * this.step}px)`;
     }
     for (const [uid, el] of this.tiles) {
       if (seen.has(uid)) continue;
@@ -355,10 +362,10 @@ export class GridView {
     const grid = this.grid;
     if (!grid) return null;
     const r = this.rect();
-    const pad = STEP * 0.5;
+    const pad = this.step * 0.5;
     if (pointerX < r.left - pad || pointerX > r.right + pad || pointerY < r.top - pad || pointerY > r.bottom + pad) return null;
-    let x = Math.round((left - r.left) / STEP);
-    let y = Math.round((top - r.top) / STEP);
+    let x = Math.round((left - r.left) / this.step);
+    let y = Math.round((top - r.top) / this.step);
     x = Math.max(0, Math.min(grid.cols - w, x));
     y = Math.max(0, Math.min(grid.rows - h, y));
     if (w > grid.cols || h > grid.rows) return null;
@@ -366,12 +373,12 @@ export class GridView {
   }
 
   showHighlight(x: number, y: number, w: number, h: number, state: HighlightState): void {
-    const { width, height } = tileSize(w, h);
+    const { width, height } = tileSizeAt(w, h, this.cell);
     this.hlEl.hidden = false;
     this.hlEl.className = `inv-hl is-${state}`;
     this.hlEl.style.width = `${width}px`;
     this.hlEl.style.height = `${height}px`;
-    this.hlEl.style.transform = `translate(${x * STEP}px, ${y * STEP}px)`;
+    this.hlEl.style.transform = `translate(${x * this.step}px, ${y * this.step}px)`;
   }
 
   hideHighlight(): void { this.hlEl.hidden = true; }

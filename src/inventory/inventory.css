@@ -37,7 +37,10 @@
   -webkit-user-select: none;
 }
 .inv-root.is-visible { opacity: 1; }
-.inv-root.is-dragging, .inv-root.is-dragging * { cursor: grabbing !important; }
+/* The `!important` here beat `body.soft-cursor-on *`'s `cursor: none !important` on specificity, so a drag under the
+   in-game software cursor flashed the real Windows grab cursor. Scope it to the no-soft-cursor case. */
+body:not(.soft-cursor-on) .inv-root.is-dragging,
+body:not(.soft-cursor-on) .inv-root.is-dragging * { cursor: grabbing !important; }
 
 .inv-layout {
   display: flex;
@@ -920,6 +923,33 @@ kbd {
 .inv-panel-bag { order: 2; }
 .inv-panel-craft { order: 3; }
 
+/* ── 제작 열 (2026-09-07) ───────────────────────────────────────────────────
+   The 작업대 / 필드 제작 panel is a **column of the window** again (it was a modeless popup in Phase 8): the recipe
+   list takes the leftmost slot — where 함선 창고 normally sits — and `.inv-col-right` stops being `display: contents`
+   so 가방 stacks over 함선 창고 on the right. In a raid there is no 창고, so the right column is just the 가방 and the
+   row reads 제작 · 장비 · 가방 + 퀵슬롯. */
+.inv-col-right { display: contents; }
+.inv-layout.is-craft .inv-col-right {
+  order: 2;
+  display: flex; flex-direction: column; align-items: stretch; gap: 24px;
+  min-width: 0; max-height: calc(100vh - 140px); overflow-y: auto; overflow-x: hidden;
+  scrollbar-width: thin; padding-right: 2px;
+}
+.inv-layout.is-craft .inv-col-right::-webkit-scrollbar { width: 6px; }
+.inv-layout.is-craft .inv-col-right::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.22); border-radius: 3px; }
+/* inside the stacked column the panels keep their own `order`, so re-state it: 가방 위 · 함선 창고 아래 */
+.inv-layout.is-craft .inv-col-right .inv-panel-bag { order: 0; }
+.inv-layout.is-craft .inv-col-right .inv-panel-stash { order: 1; }
+.inv-layout.is-craft .inv-panel-craft { order: -1; }
+.inv-layout.is-craft .inv-panel-catalog { order: -2; }
+/* the stash keeps its own scroller inside the stacked column, just shorter */
+.inv-layout.is-craft .inv-stash-scroll { max-height: min(290px, calc(100vh - 620px)); }
+.inv-panel-craft { width: 460px; max-height: calc(100vh - 140px); }
+.inv-panel-craft .inv-craft-list { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; padding-right: 4px; }
+.inv-panel-craft .inv-craft-list::-webkit-scrollbar { width: 6px; }
+.inv-panel-craft .inv-craft-list::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.22); border-radius: 3px; }
+.inv-panel-craft .inv-craft-repair { min-height: 0; }
+
 /* stash: fixed 10-wide grid, rows scroll */
 .inv-panel-stash { animation: inv-slide-in 200ms var(--inv-ease) both; }
 .inv-stash-scroll {
@@ -1176,15 +1206,6 @@ kbd {
 .inv-modeless-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
 .inv-modeless-body { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .inv-modeless-close { padding: 6px 12px; }
-/* the craft panel brings its own `.inv-panel` chrome — the frame only positions it */
-.inv-modeless-craft { padding: 0; background: none; border: 0; box-shadow: none; }
-.inv-modeless-craft .inv-modeless-body { gap: 0; }
-/* park the craft popup at the right edge instead of over the grid it feeds from */
-.inv-modeless-craft.is-centred {
-  left: auto; right: 28px; top: 50%; bottom: auto;
-  transform: translateY(-50%);
-  max-height: calc(100vh - 60px);
-}
 .inv-modeless-disassemble { width: 340px; }
 
 /* ── 아이템 분해 dialog ─────────────────────────────────────────────────── */
@@ -1214,7 +1235,8 @@ kbd {
 
 /* ══ Phase 9 UI pass: embedded 가방 / 함선 창고 grids (ui/TradeGrids, used by the 기업 거래 screen) ════════════ */
 .trade-grids { display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 0; }
-.tg-block { display: flex; flex-direction: column; gap: 6px; min-width: 0; min-height: 0; }
+/* the 가방 keeps its natural height (it is small and fixed); the 창고 takes the rest of the column */
+.tg-block { display: flex; flex-direction: column; gap: 6px; min-width: 0; min-height: 0; flex: none; }
 .tg-block.tg-stash { flex: 1 1 auto; }
 .tg-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .tg-label { font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase; font-weight: 700; color: var(--inv-muted, #8b94a0); }

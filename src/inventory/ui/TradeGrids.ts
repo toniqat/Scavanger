@@ -1,7 +1,7 @@
 import type { EmbeddedView, GameContext, ItemInstance } from '@/shared';
 import type { InventorySystem, GridId } from '../InventorySystem';
 import { GridView, buildTileContent } from './GridView';
-import { STEP } from './labels';
+import { CELL, GAP } from './labels';
 
 /** Which of the player's grids a trade screen may show, top to bottom. */
 export type TradeGridId = Extract<GridId, 'bag' | 'stash'>;
@@ -21,6 +21,11 @@ export interface TradeGridsOptions {
   isStaged?(uid: string): boolean;
   /** Extra class on the root, so the caller can size the blocks from its own stylesheet. */
   className?: string;
+  /**
+   * Grid cell edge in px (default `CELL` = the Tab window's 54). The 기업 거래 desk passes a smaller edge so its
+   * 가방 / 함선 창고 grids match the 5-column 구매 / 판매 tray beside them.
+   */
+  cell?: number;
 }
 
 interface Block {
@@ -48,6 +53,9 @@ interface Block {
 export class TradeGrids implements EmbeddedView {
   private readonly root: HTMLElement;
   private readonly blocks: Block[] = [];
+  /** Grid cell edge / pitch in px (`TradeGridsOptions.cell`; the 기업 거래 desk shrinks them). */
+  private readonly cell: number = CELL;
+  private readonly step: number = CELL + GAP;
   private readonly unsubs: Array<() => void> = [];
   private drag: { uid: string; gridId: TradeGridId; ghost: HTMLElement; el: HTMLElement } | null = null;
   /** Drop target currently under the cursor, marked `.is-over` so the tray lights up. */
@@ -64,6 +72,10 @@ export class TradeGrids implements EmbeddedView {
     this.root.className = `trade-grids${opts.className ? ` ${opts.className}` : ''}`;
     host.appendChild(this.root);
 
+    const cell = Math.max(16, Math.round(opts.cell ?? CELL));
+    this.cell = cell;
+    this.step = cell + GAP;
+    if (cell !== CELL) this.root.style.setProperty('--inv-cell', `${cell}px`);
     const ids = opts.grids ?? (['bag', 'stash'] as const);
     for (const id of ids) {
       const block = document.createElement('div');
@@ -85,7 +97,7 @@ export class TradeGrids implements EmbeddedView {
         onLeave: () => { /* no-op */ },
         onContext: () => { /* no context menu in a trade */ },
         onDblClick: (uid, gridId) => this.take(uid, gridId as TradeGridId, null),
-      });
+      }, cell);
       scroll.appendChild(view.el);
       block.append(head, scroll);
       this.root.appendChild(block);
@@ -134,10 +146,10 @@ export class TradeGrids implements EmbeddedView {
     const fp = grid.footprintOf(p.item);
     const ghost = document.createElement('div');
     ghost.className = 'tg-ghost';
-    buildTileContent(ghost, p.item, def, fp.w, fp.h, this.inv.getStats(p.item));
+    buildTileContent(ghost, p.item, def, fp.w, fp.h, this.inv.getStats(p.item), this.cell);
     ghost.classList.add('tg-ghost');
-    ghost.style.left = `${e.clientX - (fp.w * STEP) / 2}px`;
-    ghost.style.top = `${e.clientY - (fp.h * STEP) / 2}px`;
+    ghost.style.left = `${e.clientX - (fp.w * this.step) / 2}px`;
+    ghost.style.top = `${e.clientY - (fp.h * this.step) / 2}px`;
     document.body.appendChild(ghost);
     el.classList.add('is-dragging');
     this.drag = { uid, gridId, ghost, el };

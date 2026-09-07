@@ -51,7 +51,7 @@ export class CharacterSheet {
     tabCorp.disabled = true;
     const f = this.frame = el('div', { cls: 'frame', parent: root });
 
-    this.body = new SheetBody(ctx, host, f, { hint: 'ESC 또는 P 로 닫기', onClose: () => this.close() });
+    this.body = new SheetBody(ctx, host, f, { hint: 'ESC 또는 P 로 닫기', onClose: () => this.close(), variant: 'overlay' });
 
     root.addEventListener('mousedown', (e) => e.stopPropagation());
     window.addEventListener('keydown', this.escHandler, true);
@@ -81,6 +81,7 @@ export class CharacterSheet {
     if (!this._open) return;
     this._open = false;
     this.body.disarmReset();
+    this.body.closePicker();      // the 전술 임플란트 picker is a `uiRoot` child, not a child of the frame
     this.root.hidden = true;
     (document.activeElement as HTMLElement | null)?.blur?.();
     this.ctx.uiBlockers.delete(BLOCKER);

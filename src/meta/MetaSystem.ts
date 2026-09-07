@@ -12,14 +12,13 @@ import {
   REASON, buildShop, contractBlockReason, contractHitDelta, corpSells, killGoalOf, questBlockReason, questStateOf, repInfoOf,
   settleContract,
 } from './Rules';
-import { CorpMenu } from './ui/CorpMenu';
 import { CorpView } from './ui/CorpView';
 import './meta.css';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * MetaSystem (Phase 5-c, 2026-09-06): corporations · reputation · credits · contracts · quests · corp shop.
  * Publishes `ctx.meta` (`MetaRef`), persists `MetaSave` v1 in localStorage (`Storage.ts`), applies the pure rules of
- * `Rules.ts`, owns the corp screen DOM (`ui/CorpMenu.ts`, blocker `'corp'`) and the `credits / rep / contract / quest`
+ * `Rules.ts`, owns the corp screen DOM (`ui/CorpView.ts`, the Tab window's 기업 tab) and the `credits / rep / contract / quest`
  * console commands. Contract goals rise from bus events during a mission; local hits are shared with the squad over
  * the relay-opaque `meta contractHit` message. Toasts are the ui folder's job: this system only emits `meta:*`.
  *
@@ -53,9 +52,10 @@ export class MetaSystem implements GameSystem, MetaRef {
   readonly name = 'meta';
   private ctx!: GameContext;
   private store!: MetaStorage;
-  private menu: CorpMenu | null = null;
   /** Embedded 기업 tabs handed out by `createCorpView` (their message timers tick with the system). */
   private readonly views = new Set<CorpView>();
+  /** Corp the next 기업 tab opens on (`openCorpMenu(corp)`); the tab builds a fresh `CorpView` every time. */
+  private preferredCorp: CorpId | null = null;
   private unsubs: Array<() => void> = [];
   private unsubNet: (() => void) | null = null;
   private consoleRegistered = false;
@@ -93,7 +93,6 @@ export class MetaSystem implements GameSystem, MetaRef {
     this.ctx = ctx;
     this.store = new MetaStorage(() => this.profileRef());
     ctx.meta = this;
-    this.menu = new CorpMenu(ctx, this);
 
     const b = ctx.bus;
     // contract goals only count in a real raid (never in the 시뮬레이션 훈련장)
@@ -144,7 +143,6 @@ export class MetaSystem implements GameSystem, MetaRef {
   update(_dt: number, ctx: GameContext): void {
     if (!this.consoleRegistered && ctx.console?.enabled) { this.consoleRegistered = true; this.registerConsole(); }
     if (!this.unsubNet) this.subscribeNet();
-    this.menu?.update();
     for (const v of this.views) v.update();
   }
 
@@ -152,7 +150,6 @@ export class MetaSystem implements GameSystem, MetaRef {
     for (const u of this.unsubs) u();
     this.unsubs = [];
     this.unsubNet?.(); this.unsubNet = null;
-    this.menu?.dispose(); this.menu = null;
     for (const v of [...this.views]) v.dispose();
     this.views.clear();
     this.purchaseFailListeners.clear();
@@ -784,25 +781,52 @@ export class MetaSystem implements GameSystem, MetaRef {
   }
 
   /* ── MetaRef: corp screen ───────────────────────────────────────────────── */
+  /**
+   * 기업 네트워크. **2026-09-07**: there is no separate overlay any more — the screen *is* the Tab window's 기업 tab
+   * (`InventoryRef.openScreen('corp')`), so the ship computer's `E` and Tab → 기업 land on exactly the same DOM,
+   * blocker and cursor. `corp` preselects which corporation the tab opens on.
+   */
   openCorpMenu(corp?: CorpId): void {
-    if (!this.menu || this.ctx.isRaidActive()) return;
-    this.menu.open(corp);
+    if (this.ctx.isRaidActive()) return;
+    if (corp && CORP_DEFS[corp]) this.preferredCorp = corp;
+    const inv = this.ctx.inventory;
+    if (!inv || typeof inv.openScreen !== 'function') return;
+    if (!inv.openScreen('corp')) return;
+    for (const v of this.views) v.refresh();
   }
-  closeCorpMenu(): void { this.menu?.close(); }
-  get isMenuOpen(): boolean { return this.menu?.isOpen ?? false; }
+
+  /** Close the 기업 screen = close the Tab window it lives in (nothing else owns it). */
+  closeCorpMenu(): void {
+    if (!this.isMenuOpen) return;
+    this.ctx.inventory?.closeAll();
+  }
+
+  /** true while the Tab window is showing the 기업 tab. */
+  get isMenuOpen(): boolean {
+    const inv = this.ctx?.inventory;
+    return !!inv && inv.isOpen === true && inv.screenTab === 'corp';
+  }
 
   /**
-   * Phase 8: the 기업 tab of the inventory Tab screen. Builds the same body as the standalone screen (`ui/CorpView.ts`)
-   * inside the caller's host — **no `'corp'` blocker, no cursor-mode / pointer-lock call, no window Escape listener**; the inventory
-   * window already owns all three. `dispose()` removes only what the view added.
+   * The 기업 tab of the inventory Tab screen (Phase 8; the only shell since 2026-09-07). **No `'corp'` blocker, no
+   * cursor-mode / pointer-lock call, no window Escape listener** — the inventory window owns all three. `dispose()`
+   * removes only what the view added, and both ends emit `ui:corpToggled` so listeners still see the screen open /
+   * close exactly once.
    */
   createCorpView(host: HTMLElement): EmbeddedView {
     const view = new CorpView(this.ctx, this, host, { embedded: true });
+    if (this.preferredCorp) { view.setCorpSilent(this.preferredCorp); this.preferredCorp = null; }
     this.views.add(view);
     view.refresh();
+    this.ctx.bus.emit('ui:corpToggled', { open: true, corp: view.currentCorp });
     return {
       refresh: () => view.refresh(),
-      dispose: () => { this.views.delete(view); view.dispose(); },
+      dispose: () => {
+        this.views.delete(view);
+        const corp = view.currentCorp;
+        view.dispose();
+        this.ctx.bus.emit('ui:corpToggled', { open: false, corp });
+      },
     };
   }
 

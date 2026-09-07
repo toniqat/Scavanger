@@ -2,9 +2,18 @@ import type { AmmoType, EffectiveWeaponStats, ItemDef, LoadoutSlot, WeaponDef, W
 import { Keys, WEAPON_GRADE_ROMAN, WEIGHT_STATE_LABEL_KO, formatCreditAmount, formatCredits, keyLabel } from '@/shared';
 import { AMMO_LABEL_KO, CATEGORY_LABEL_KO, RARITY_COLORS, RARITY_LABEL_KO, WEAPON_CLASS_LABEL_KO, getTierLabel, weaponClassOf } from '@/items';
 
-export const CELL = 54;   // px
+export const CELL = 54;   // px — default grid cell edge (the Tab window / container grids)
 export const GAP = 2;     // px
 export const STEP = CELL + GAP;
+/**
+ * Pixel size of a `w × h` footprint at an arbitrary cell edge (2026-09-07). `GridView` is built with a `cell` so a
+ * screen that needs a denser grid — the 기업 거래 desk, whose 구매 / 판매 tray must show five columns inside its
+ * column — can render the very same tiles smaller. `tileSize` keeps the default edge.
+ */
+export const tileSizeAt = (w: number, h: number, cell: number): { width: number; height: number } => ({
+  width: w * (cell + GAP) - GAP,
+  height: h * (cell + GAP) - GAP,
+});
 
 /**
  * Credit value of an item / a grid (Phase 10): the one shared formatter, `1,200 C`. The old `₩` prefix is gone —

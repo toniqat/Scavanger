@@ -17,7 +17,7 @@ export class SheetView implements EmbeddedView {
 
   constructor(ctx: GameContext, host: CharacterSheetHost, container: HTMLElement) {
     this.wrap = el('div', { cls: 'cs-embed', parent: container });
-    this.body = new SheetBody(ctx, host, this.wrap);
+    this.body = new SheetBody(ctx, host, this.wrap, { variant: 'embed' });
     this.body.refresh();
   }
 

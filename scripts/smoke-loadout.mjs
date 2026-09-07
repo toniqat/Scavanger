@@ -332,7 +332,8 @@ try {
   }, notifyBefore);
   // Phase 8: the 기업 tab renders INSIDE the Tab screen; the window stays open and keeps its single blocker
   ok(corpClick.invOpen, '기업 tab keeps the ship screen open (embedded view)', JSON.stringify(corpClick));
-  ok(!corpClick.metaOpen && !corpClick.blockers.includes('corp'), 'the standalone corp overlay and its blocker stay out of it', JSON.stringify(corpClick.blockers));
+  // 2026-09-07: the 기업 tab **is** the corp screen (`meta.isMenuOpen`), and it still has no blocker of its own
+  ok(corpClick.metaOpen && !corpClick.blockers.includes('corp'), '기업 탭이 곧 기업 화면 (전용 corp 블로커 없음)', JSON.stringify(corpClick.blockers));
   ok(corpClick.embedded, '기업 view mounted in the Tab screen host', JSON.stringify(corpClick));
   await page.evaluate(() => [...document.querySelectorAll('.inv-root .scr-tab')].find((b) => b.textContent === '인벤토리').click());
   await sleep(80);

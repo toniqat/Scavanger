@@ -421,32 +421,46 @@ try {
   await P(() => window.__game.ctx.meta.openCorpMenu('ceres'));
   await sleep(50);
   const dom = await P(() => {
-    const root = document.querySelector('.menu.corp-menu');
+    // 2026-09-07: the standalone `.menu.corp-menu` overlay is gone — the 기업 screen is the Tab window's 기업 tab
+    const root = document.querySelector('.inv-screen.corp-view');
     if (!root) return null;
     const tabs = [...root.querySelectorAll('.corp-tab')].map((b) => ({ corp: b.dataset.corp, on: b.classList.contains('is-on') }));
     const subs = [...root.querySelectorAll('.corp-subtabs .scr-tab')].map((b) => ({ page: b.dataset.page, on: b.classList.contains('is-on') }));
+    const ctx = window.__game.ctx;
     return {
-      hidden: root.hidden, blocker: window.__game.ctx.uiBlockers.has('corp'), isOpen: window.__game.ctx.meta.isMenuOpen,
-      cursor: window.__game.ctx.input.isCursorMode,
-      // Phase 9 UI pass: the `기업 네트워크` title + subtitle are gone — the corp list occupies the header's left slot
-      title: root.querySelector('.hub-head .title')?.textContent ?? null,
-      headTabs: root.querySelectorAll('.hub-head .corp-tabs .corp-tab').length,
+      hidden: root.hidden, oldOverlay: !!document.querySelector('.menu.corp-menu'),
+      corpBlocker: ctx.uiBlockers.has('corp'), blocker: ctx.uiBlockers.has('inventory'),
+      isOpen: ctx.meta.isMenuOpen, tab: ctx.inventory.screenTab, invOpen: ctx.inventory.isOpen,
+      cursor: ctx.input.isCursorMode,
+      // 상단은 창의 화면 탭, 좌측은 기업 목록 rail, 우측이 메인 패널
+      railTabs: root.querySelectorAll('.corp-shell > .corp-rail .corp-tabs .corp-tab').length,
+      sideOrder: [...root.querySelectorAll('.corp-main > .corp-side > *')].map((e) => e.className.split(' ')[0]),
       credits: root.querySelector('.corp-credits .v')?.textContent,
-      // Phase 9 UI pass: the banner (motto + description) became a compact 기업 패널 — name + 신뢰도 only
-      panel: root.querySelector('.corp-panel .name')?.textContent,
-      motto: !!root.querySelector('.corp-banner'),
+      panel: root.querySelector('.corp-side .corp-panel .name')?.textContent,
+      motto: !!root.querySelector('.corp-banner'), foot: !!root.querySelector('.hub-foot'),
       tabs, subs, rows: root.querySelectorAll('.corp-page .corp-row, .corp-page .ct-cell, .corp-page .corp-empty').length,
     };
   });
-  // Phase 10: the corp screen keeps the pointer lock and turns on the in-game cursor instead of exiting the lock
-  ok(dom && !dom.hidden && dom.blocker && dom.isOpen && dom.cursor, 'openCorpMenu(ceres) → visible, blocker corp, isMenuOpen, in-game cursor on', JSON.stringify(dom && { hidden: dom.hidden, blocker: dom.blocker, cursor: dom.cursor }));
+  // 2026-09-07: the screen is a tab of the Tab window, so the blocker + in-game cursor are the window's
+  ok(dom && !dom.hidden && !dom.oldOverlay && !dom.corpBlocker && dom.blocker && dom.isOpen && dom.invOpen && dom.tab === 'corp' && dom.cursor,
+    'openCorpMenu(ceres) → Tab 창의 기업 탭 (전용 오버레이 · corp 블로커 없음, inventory 블로커 + 인게임 커서)',
+    JSON.stringify(dom && { oldOverlay: dom.oldOverlay, corpBlocker: dom.corpBlocker, blocker: dom.blocker, tab: dom.tab, cursor: dom.cursor }));
   // Phase 10: every credit readout is `formatCredits` → `1,200 C` (ko-KR grouping + the `C` unit, never `₩` / `cr`)
-  ok(dom && dom.title === null && dom.headTabs === 4 && dom.credits === `${snap.credits.toLocaleString('ko-KR')} C`,
-    '헤더: 제목 없이 기업 목록 + 크레딧 (100 C 표기)', JSON.stringify(dom && { title: dom.title, headTabs: dom.headTabs, credits: dom.credits }));
+  ok(dom && dom.railTabs === 4 && dom.credits === `${snap.credits.toLocaleString('ko-KR')} C` && !dom.foot,
+    '좌측 rail 에 기업 목록 4개 + 크레딧 (100 C 표기), 푸터 없음', JSON.stringify(dom && { railTabs: dom.railTabs, credits: dom.credits, foot: dom.foot }));
+  ok(dom && dom.sideOrder[0] === 'corp-panel' && dom.sideOrder[1] === 'corp-subtabs',
+    '메인 패널 좌열: 기업 패널 위 · 거래/계약/퀘스트 아래', JSON.stringify(dom && dom.sideOrder));
   ok(dom && dom.tabs.length === 4 && dom.tabs.find((t) => t.corp === 'ceres')?.on && dom.panel === '세레스 바이오' && !dom.motto,
     '4 corp tabs, ceres selected, 기업 패널 세레스 바이오 (no motto banner)', JSON.stringify(dom && dom.tabs));
   ok(dom && dom.subs.map((s) => s.page).join(',') === 'trade,contracts,quests' && dom.subs[0].on, 'sub-tabs 거래 / 계약 / 퀘스트 (거래 on)', JSON.stringify(dom && dom.subs));
   ok(dom && dom.rows >= 1, '거래 page shows the locked-shop notice (ceres Lv.0)', `${dom && dom.rows}`);
+  // 거래 불가일 때도 그리드는 형태를 유지하고 사유를 가운데에 띄운다
+  const lockedGrid = await P(() => {
+    const g = document.querySelector('.ct-shop-list');
+    return { note: g?.querySelector('.corp-empty')?.textContent ?? null, display: g ? getComputedStyle(g).display : null };
+  });
+  ok(lockedGrid.display === 'grid' && /신뢰도 Lv\.1 부터 거래 가능/.test(lockedGrid.note ?? ''),
+    `거래 불가 재고도 그리드 형태 + 중앙 라벨 ('${lockedGrid.note}')`);
   let tg = await lastEv('ui:corpToggled');
   ok(tg && tg.open === true && tg.corp === 'ceres', 'ui:corpToggled {open:true, ceres}', JSON.stringify(tg));
   await P(() => document.querySelector('.corp-subtabs .scr-tab[data-page="contracts"]').click());
@@ -479,14 +493,24 @@ try {
     trays: document.querySelectorAll('.ct-trays .ct-tray').length,
     confirm: document.querySelector('.ct-confirm')?.textContent,
     confirmOff: document.querySelector('.ct-confirm')?.disabled,
-    stage: !document.querySelector('.corp-menu .hub-foot .right .ui-btn').hidden,
+    // 귀중품 전부 담기 moved into the 판매 tray (the screen footer is gone)
+    stage: !!document.querySelector('.ct-tray.sell .ct-stage'),
+    // 구매 / 판매 트레이는 5칸 그리드, 그리드 칸 크기는 가방 / 창고와 같다
+    trayCols: getComputedStyle(document.querySelector('.ct-tray.buy .ct-slots')).gridTemplateColumns.split(' ').length,
+    cellPx: getComputedStyle(document.querySelector('.corp-view')).getPropertyValue('--ct-cell').trim(),
+    bagCell: getComputedStyle(document.querySelector('.ct-col.inv .trade-grids')).getPropertyValue('--inv-cell').trim(),
+    // 재고 칸은 아이템 발자국만큼 자리를 차지한다
+    spans: [...document.querySelectorAll('.ct-shop-list .ct-cell.shop')].map((c) => c.style.gridColumn),
   }));
   ok(shopDom.rows === shopDom.live && shopDom.rows > shop1.length && !shopDom.buyBtn,
     `거래 tab: one stock cell per shop line (${shopDom.live}, more than the ${shop1.length} at Lv.1), no per-cell 구매 button`, JSON.stringify(shopDom));
   ok(shopDom.tips === shopDom.rows, `모든 재고 칸이 item-chip 썸네일 (호버 툴팁 대상, ${shopDom.tips}/${shopDom.rows})`);
-  // Phase 10: the old `123 cr` suffix is gone — every price is `formatCredits` (`1,200 C`)
-  ok(shopDom.prices.length === shopDom.rows && shopDom.prices.every((t) => /^[\d,]+ C$/.test(t ?? '')),
-    `재고 칸 가격이 100 C 표기 (${shopDom.prices[0]})`, JSON.stringify(shopDom.prices.slice(0, 3)));
+  // the price badge sits in the cell corner now, so it is the grouped number without the unit
+  ok(shopDom.prices.length === shopDom.rows && shopDom.prices.every((t) => /^[\d,]+$/.test(t ?? '')),
+    `재고 칸 가격 배지 (${shopDom.prices[0]})`, JSON.stringify(shopDom.prices.slice(0, 3)));
+  ok(shopDom.trayCols === 5 && shopDom.cellPx === '40px' && shopDom.bagCell === '40px',
+    `구매/판매 트레이가 5칸, 재고·가방·창고가 같은 칸 크기 (${shopDom.trayCols}칸 / ${shopDom.cellPx} / ${shopDom.bagCell})`);
+  ok(shopDom.spans.every((v) => /^span \d$/.test(v ?? '')), `재고 칸이 아이템 발자국만큼 차지한다 (${shopDom.spans.slice(0, 3).join(', ')})`);
   ok(shopDom.trays === 2 && shopDom.grids === 2 && shopDom.confirm === '거래 성사' && shopDom.confirmOff,
     '거래 tab: 구매 / 판매 trays, 가방 + 함선 창고 grids, 거래 성사 disabled on an empty basket', JSON.stringify(shopDom));
   // stage one purchase from the stock list and one sale from the bag, then settle the basket
@@ -503,11 +527,15 @@ try {
     return { before, after: window.__game.ctx.meta.credits, buy: document.querySelectorAll('.ct-tray.buy .ct-chip').length };
   });
   ok(settled.after < settled.before && settled.buy === 0, `거래 성사 settles the basket and empties the trays (${settled.before} → ${settled.after})`, JSON.stringify(settled));
-  ok(shopDom.stage, '귀중품 전부 담기 button visible on the 거래 tab');
+  ok(shopDom.stage, '귀중품 전부 담기 button sits under the 판매 tray');
   await tap('Escape');
-  await sleep(30);
-  const closed = await P(() => ({ hidden: document.querySelector('.menu.corp-menu').hidden, blocker: window.__game.ctx.uiBlockers.has('corp'), isOpen: window.__game.ctx.meta.isMenuOpen, cursor: window.__game.ctx.input.isCursorMode }));
-  ok(closed.hidden && !closed.blocker && !closed.isOpen && !closed.cursor, 'Esc closes: hidden, blocker + in-game cursor removed', JSON.stringify(closed));
+  await sleep(60);
+  const closed = await P(() => ({
+    view: !!document.querySelector('.inv-screen.corp-view'),
+    blocker: window.__game.ctx.uiBlockers.has('inventory'),
+    isOpen: window.__game.ctx.meta.isMenuOpen, cursor: window.__game.ctx.input.isCursorMode,
+  }));
+  ok(!closed.view && !closed.blocker && !closed.isOpen && !closed.cursor, 'Esc closes the window: view gone, blocker + in-game cursor removed', JSON.stringify(closed));
   tg = await lastEv('ui:corpToggled');
   ok(tg && tg.open === false, 'ui:corpToggled {open:false}', JSON.stringify(tg));
 

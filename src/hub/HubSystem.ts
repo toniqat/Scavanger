@@ -251,8 +251,6 @@ export class HubSystem implements GameSystem, HubRef {
   private workbench: Workbench | null = null;
   /** 함선 컴퓨터 (Phase 5): `hub_computer` → `ctx.meta.openCorpMenu()`. */
   private computer: Computer | null = null;
-  /** `ctx.meta.isMenuOpen` as seen by the previous frame — an Esc that the corp screen's own listener already consumed must not open the terminal. */
-  private corpWasOpen = false;
   private stationIds: string[] = [];
   /** 함선 꾸미기: furniture meshes / colliders / interactables of the personal ship + the housing-mode controller. */
   private furniture: FurnitureLayer | null = null;
@@ -289,8 +287,8 @@ export class HubSystem implements GameSystem, HubRef {
   private onPointerLockChange = (): void => {
     const ctx = this.ctx;
     if (this.housingMode.manage) return;                    // 함선 관리 owns the cursor
-    // any blocker (inventory / housing panels / the corp screen's 'corp' token) owns the lock loss —
-    // except the READY panel's own token, which never released the lock in the first place (Phase 10)
+    // any blocker (inventory / housing panels; the 기업 screen is the inventory window's own blocker since
+    // 2026-09-07) owns the lock loss — except the READY panel's token, which never released the lock (Phase 10)
     if (ctx.input.isPointerLocked || ctx.phase !== 'hub' || this.uiBlocked() || this.corpMenuOpen()) return;
     if (performance.now() - ctx.input.lastLockRequest < LOCK_REQUEST_GRACE_MS) return;
     if (this.housingMode.active) { this.housingMode.exit(); this.relock(); }
@@ -613,8 +611,9 @@ export class HubSystem implements GameSystem, HubRef {
   }
 
   /**
-   * 함선 컴퓨터: open the corporation screen (meta owns the DOM + the `'corp'` blocker). While `ctx.meta` is missing,
-   * a stub, or refuses (menu not open afterwards) the player gets a warning toast instead of silence.
+   * 함선 컴퓨터: open the corporation screen. **2026-09-07**: it has no overlay of its own any more — `openCorpMenu`
+   * opens the Tab window on its 기업 tab (`InventoryRef.openScreen('corp')`), so the blocker and the in-game cursor
+   * are the inventory window's. While `ctx.meta` is missing, a stub, or refuses, the player gets a warning toast.
    */
   private openCorpMenu(): void {
     const meta = this.ctx.meta;
@@ -1079,28 +1078,26 @@ export class HubSystem implements GameSystem, HubRef {
     this.trackRoom();
 
     // housing mode owns the input (cursor / place / rotate / recover / C / Esc) while active
-    if (this.housingMode.active) { this.housingMode.update(dt); this.tickCountdown(dt); this.corpWasOpen = this.corpMenuOpen(); return; }
+    if (this.housingMode.active) { this.housingMode.update(dt); this.tickCountdown(dt); return; }
 
-    // Esc: corp screen first, then the menus / un-board. It must **not** open the terminal any more — an Esc that
-    // reaches nothing here is the 일시정지 메뉴 (owned by game/, Phase 8). E while boarded: un-board.
-    const corpOpen = this.corpMenuOpen();
-    if (ctx.input.wasPressed(Keys.MENU)) {
+    // Esc: the hub menus / un-board. It must **not** open the terminal any more — an Esc that reaches nothing here
+    // is the 일시정지 메뉴 (owned by game/, Phase 8). E while boarded: un-board.
+    // 2026-09-07: the 기업 screen is a **tab of the inventory window**, so an Escape while it is up belongs to
+    // inventory/ — the hub must not swallow it here (it is polled later in the frame).
+    if (ctx.input.wasPressed(Keys.MENU) && !this.corpMenuOpen()) {
       // Whatever we handle here must be swallowed: game/ polls the same Escape later in the frame and would
       // otherwise open the 일시정지 메뉴 the instant a hub panel released its blocker (Phase 8).
-      if (corpOpen) { this.ctx.meta?.closeCorpMenu(); ctx.input.consume(Keys.MENU); }
-      else if (this.corpWasOpen) { ctx.input.consume(Keys.MENU); /* the corp screen's own Esc listener just closed it */ }
-      else if (this.wbMenu.isOpen) { this.wbMenu.close(); ctx.input.consume(Keys.MENU); }
+      if (this.wbMenu.isOpen) { this.wbMenu.close(); ctx.input.consume(Keys.MENU); }
       else if (this.menu.isOpen) { this.menu.close(); ctx.input.consume(Keys.MENU); }
       // 분대원 장비 popup before the pod: the READY panel is modeless over the pod view (Phase 10)
       else if (this.ready.closePopup()) { ctx.input.consume(Keys.MENU); }
       else if (!this.uiBlocked() && this.boardedSlot >= 0) { this.leavePod(true); ctx.input.consume(Keys.MENU); }
     }
-    this.corpWasOpen = corpOpen;
     if (this.boardedSlot >= 0 && !this.uiBlocked() && ctx.input.wasPressed(Keys.INTERACT) && ctx.time - this.boardedAt > UNBOARD_GRACE) {
       this.leavePod(true);
     }
     // M: 함선 관리 (housing's manage mode; the HUD draws the room list / furniture bar). Read `Keys.MAP` live.
-    if (ctx.uiBlockers.size === 0 && !corpOpen && this.boardedSlot < 0 && ctx.input.wasPressed(Keys.MAP)) this.openShipManage();
+    if (ctx.uiBlockers.size === 0 && this.boardedSlot < 0 && ctx.input.wasPressed(Keys.MAP)) this.openShipManage();
 
     this.tickCountdown(dt);
   }

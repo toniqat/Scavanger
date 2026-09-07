@@ -14,7 +14,8 @@ import {
   assignQuickSlot, autoAssignQuickSlots, createQuickSlots, firstFreeQuickSlot, isQuickIndex, isQuickUsable, pruneQuickSlots,
   quickSlotOf, quickSlotsSignature, relinkQuickSlot, type QuickSlotUids,
 } from './QuickSlots';
-import { InventoryUI } from './ui/InventoryUI';
+import { InventoryUI, type ScreenTab } from './ui/InventoryUI';
+export type { ScreenTab } from './ui/InventoryUI';
 import { TradeGrids, type TradeGridsOptions } from './ui/TradeGrids';
 import { Stash } from './Stash';
 import { LOADOUT_SAVE_VERSION, LoadoutStore, isEmptyLoadoutSave, loadLoadoutSave, sanitizeLoadoutSave, type LoadoutSave } from './Loadout';
@@ -1454,6 +1455,26 @@ export class InventorySystem implements GameSystem, InventoryRef {
 
   /** true while the hub screen (with the stash) is what the window shows. */
   get isHubScreen(): boolean { return this._open && this.hubMode; }
+
+  /**
+   * Open the Tab window in ship mode on a **screen tab** (2026-09-07). The 기업 네트워크 console uses this: the corp
+   * screen has no overlay of its own any more, it is the window's 기업 tab. Ship-only (the embedded screens are), and
+   * returns false when the tab could not be shown (wrong phase, the owning folder missing).
+   */
+  openScreen(tab: ScreenTab): boolean {
+    if (!this.ctx.isHubPhase()) return false;
+    if (!this._open) {
+      this.activeContainer = null;
+      this.hubMode = true;
+      this.setOpen(true);
+      this.ui?.show(null, true);
+      this.ctx.bus.emit('inventory:opened', { containerId: null });
+    }
+    return this.ui?.showScreenTab(tab) ?? false;
+  }
+
+  /** Screen tab the window is showing (`'inventory'` while it is closed). */
+  get screenTab(): ScreenTab { return this._open ? this.ui?.screenTab ?? 'inventory' : 'inventory'; }
 
   /** Ship stash grid (persisted). */
   getStash(): Grid { return this.stash.grid; }

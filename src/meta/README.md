@@ -15,7 +15,7 @@ size (no more per-tab resizing) and every item requirement is a `buildItemChip` 
 | `Storage.ts` | `MetaSave` v1: `freshMetaSave()`, `sanitizeMetaSave()` (clamped credits, known corp / quest / contract ids only, only `accepted` / `complete` quest states kept), `MetaStorage` (load, 350 ms debounced `markDirty()`, `flush()` on `pagehide` / hub entry / dispose, every storage access in try/catch). Phase 7: `flush()` = `writeCache()` (localStorage) + `upload()` (`ctx.net.profile.set('meta', snapshot())`); `replace(doc)` adopts a server document without echoing it back. **Phase 9**: `upload()` dropped its `available` guard — the document is handed to `ProfileSync` offline too (stamped + queued, newest wins on the next connection) — and `MAX_PROGRESS` is exported so live hits clamp to the same ceiling as a load. |
 | `Rules.ts` | Pure functions, no ctx / DOM: `repInfoOf`, shop filter (`ruleMatches` / `corpSells` / `shopRarityCap` / `buildShop` sorted by category → rarity → price, `fits` → 공간 없음), `killGoalOf`, `contractBlockReason`, `contractHitDelta` (Phase 9: a non-finite `amount` is 0, not `NaN`), `settleContract` (fills `outcome`), `questStateOf`, `questBlockReason`, the 한국어 `REASON` strings. `rarityRank` / `RARITY_ORDER` come from `@/shared` (`labels.ts`) since Phase 7. |
 | `ui/CorpView.ts` | **(Phase 8)** The screen **body**, shared by both shells: header 기업 네트워크 + credit readout, 4 corp tabs (`CorpDef.color` accent, `Lv.n`), banner (slogan, description, rep bar `rep / next`), sub-tabs 상점 / 판매 / 계약 / 퀘스트, rows with 구매 / 판매 / 수락 / 포기 / 납품 buttons (disabled + tooltip from `blocked`), `귀중품 전부 판매`, `.form-msg` in a reserved slot. Renders into whatever host it is given and marks it `.corp-view` (`.is-embedded` for the inventory tab). Item thumbnails / 납품 requirements use `buildItemChip` / `renderItemCost` (`@/shared/itemChip`). Purchase messages come from `meta:purchase` (`구매 처리 중…` while a server transaction is pending) and refusals from `MetaSystem.onPurchaseFailure(fn)`. **No blocker, no pointer-lock, no window listener** — those belong to the shell. |
-| `ui/CorpMenu.ts` | The **standalone overlay shell** `.menu.corp-menu` (ship computer): builds a `CorpView` into its `.frame` and adds the overlay etiquette (blocker `'corp'` first, then **`input.setCursorMode(true, 'corp')`** — Phase 10: the pointer lock is kept, so no `exitPointerLock` and no microtask re-lock — capture-phase Esc, 닫기 button), `ui:corpToggled`. Re-exports `CorpPage`. |
+| ~~`ui/CorpMenu.ts`~~ | **Deleted 2026-09-07.** The standalone overlay `.menu.corp-menu` (and with it the `'corp'` blocker, the capture-phase Esc and the cursor ownership) is gone: the 기업 screen is the Tab window's 기업 tab, opened through `ctx.inventory.openScreen('corp')`. `CorpPage` is exported from `ui/CorpView.ts`. |
 | `ui/dom.ts` | `el / setText / toggleClass / fmtNum` helpers (other folders' helpers are internal to them). `fmtNum` is for **non-credit** numbers only (신뢰도, 목표 진척, 납품 수량) — every credit readout goes through `formatCredits` (`@/shared`). |
 | `meta.css` | Corp-screen styles on top of `.menu .frame .ui-btn .form-msg` (`ui/styles/base.css`) and `.hub-head .hub-foot` (`hub/hub.css`); `--cc` = selected corp colour, `--corp-page-h` = the **fixed** page height. `.item-chip*` itself is ui's (`base.css`). |
 | `index.ts` | Barrel. |
@@ -190,3 +190,27 @@ pointer drag, so recreating them on every `inventory:changed` would drop a drag 
   the two is consistent by accident, not by contract.
 - `CorpMenu.close(relock)` and `CorpView`'s two `elementFromPoint` calls are the only places that still mention the
   old lock etiquette; nothing reads `relock` any more.
+
+## 2026-09-07 UI/UX pass — 기업 화면이 Tab 창의 탭이 되었다
+
+- **`ui/CorpMenu.ts` 삭제.** 전용 오버레이(`.menu.corp-menu`)와 `'corp'` blocker · 자체 Esc 리스너 · 커서 소유가
+  모두 사라졌다. `openCorpMenu(corp?)` 는 이제 `ctx.inventory.openScreen('corp')` 를 불러 **Tab 창을 기업 탭으로**
+  연다 (함선 컴퓨터 `E` 와 Tab > 기업 이 같은 DOM 을 쓴다). `closeCorpMenu()` 는 그 창을 닫고, `isMenuOpen` 은
+  `inventory.isOpen && inventory.screenTab === 'corp'` 이다. 어느 기업으로 열지는 `preferredCorp` 에 담아 두었다가
+  `createCorpView` 가 `setCorpSilent` 로 소비하며, `ui:corpToggled` 는 뷰 생성 / dispose 에서 한 번씩 나간다.
+- **화면 구성이 바뀌었다** (`ui/CorpView.ts` + `meta.css`):
+  - 상단은 창의 화면 탭(인벤토리 / 캐릭터 / 기업 / 함선)이고, `.corp-shell` 이 **좌 `.corp-rail`(세로 기업 목록 +
+    크레딧) · 우 `.corp-main`** 으로 나뉜다.
+  - `.corp-main` 의 좌열 `.corp-side` 는 **기업 패널(이름 · Lv · 신뢰도) 위 · 거래 / 계약 / 퀘스트 세로 탭 아래**.
+  - 화면 푸터는 없어졌고 **귀중품 전부 담기**는 판매 트레이 하단 버튼(`.ct-stage`)이 되었다.
+- **거래가 전부 아이템 그리드다.** 구매 / 판매 트레이는 위아래로 쌓여 각각 **가로 5칸**(아이템 최대 폭)이고,
+  기업 재고 · 가방 · 함선 창고가 같은 칸 크기(`--ct-cell` = `CT_CELL` 40 px, `createTradeGrids({cell})`)를 쓴다.
+  칸은 아이템 발자국만큼 자리를 차지하고(`gridCell`, `grid-column/row: span n`), 이름은 공용 호버 카드
+  (`ui/hud/ItemTip`)가 맡으며 칸에는 가격 / 수량 배지만 그린다. 거래 불가한 재고도 그리드 형태를 유지한 채
+  가운데에 `신뢰도 Lv.1 부터 거래 가능` 을 띄운다.
+
+### Known follow-ups (2026-09-07)
+- `CorpViewOptions.accentTarget / onClose / isVisible` 는 남아 있지만 지금은 아무도 넘기지 않는다 (임베드 뷰 하나뿐).
+- 재고 / 트레이 칸은 이름을 그리지 않는다 — 호버 카드가 없는 입력(터치 등)에서는 아이콘과 가격만 보인다.
+- 데스크는 여전히 넓다: 1240 px 아래에서는 우측 가방 / 창고 열이 숨는다(기존 미디어 쿼리 그대로).
+- 기업 탭에서 Esc 는 창 전체를 닫는다(`hub/` 가 Escape 를 삼키지 않고 `inventory/` 가 처리한다).

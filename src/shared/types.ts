@@ -1022,6 +1022,11 @@ export interface TradeGridsViewOptions {
   isStaged?(uid: string): boolean;
   /** Extra class on the view root so the caller can size the blocks from its own stylesheet. */
   className?: string;
+  /**
+   * Grid cell edge in px (default 54 — the Tab window's). Appended 2026-09-07 for the 기업 거래 desk, whose
+   * 가방 / 함선 창고 grids must match the 5-column 구매 / 판매 tray beside them.
+   */
+  cell?: number;
 }
 
 /* ══ appended: Phase 7 — known follow-ups (2026-09-06) ═══════════════════════════════════════════════════════ */
@@ -1325,4 +1330,20 @@ export interface WorldRef {
    * a training, `MissionComplete`'s 다시 배치 without one). `world:ready.planet` carries the same value.
    */
   readonly planet: PlanetId | null;
+}
+
+/* ══ appended: 2026-09-07 UI/UX pass — 기업 화면이 Tab 창의 탭이 되었다 ══════════════════════════════════════ */
+
+/** A screen of the Tab window (`InventoryRef.openScreen` / `screenTab`). */
+export type InventoryScreenTab = 'inventory' | 'character' | 'corp' | 'ship';
+
+export interface InventoryRef {
+  /**
+   * Open the Tab window in ship mode on a **screen tab**. The 기업 네트워크 console (`hub_computer`) uses this since
+   * the corp screen lost its own overlay: `ctx.meta.openCorpMenu()` is `openScreen('corp')`. Ship-only — the embedded
+   * screens are — and false when the tab could not be shown (wrong phase, or the owning folder is missing).
+   */
+  openScreen(tab: InventoryScreenTab): boolean;
+  /** Screen tab the window is showing; `'inventory'` while the window is closed. */
+  readonly screenTab: InventoryScreenTab;
 }

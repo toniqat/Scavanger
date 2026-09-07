@@ -6,7 +6,6 @@ import type { Container } from '../Container';
 import { LOADOUT_SLOTS, isArmorDef, isAttachmentDef, isBagDef, isWeaponDef, type DropTarget, type GridId, type InventorySystem, type ItemLocation, type SlotId } from '../InventorySystem';
 import { CraftPanel } from './CraftPanel';
 import { CatalogView } from './CatalogView';
-import { Modeless } from './Modeless';
 import { DisassemblePanel } from './DisassemblePanel';
 import { filledSocketCount } from '../Sockets';
 import { isQuickUsable } from '../QuickSlots';
@@ -32,7 +31,7 @@ const LOCK_SVG = '<svg viewBox="0 0 12 14" aria-hidden="true"><rect x="1.5" y="6
  * `EmbeddedView` we `refresh()` on show and `dispose()` on leave. The window keeps its single `inventory` blocker
  * and its blurred `.inv-root` backdrop is the 배경 블러 the design asks for.
  */
-type ScreenTab = 'inventory' | 'character' | 'corp' | 'ship';
+export type ScreenTab = 'inventory' | 'character' | 'corp' | 'ship';
 const SCREEN_TABS: readonly { id: ScreenTab; label: string; title?: string }[] = [
   { id: 'inventory', label: TEXT.tabs.inventory },
   { id: 'character', label: TEXT.tabs.character, title: TEXT.tabs.characterHint },
@@ -104,7 +103,8 @@ export class InventoryUI {
   private screenView: EmbeddedView | null = null;
   /** Layer that holds the modeless popups (임플란트 picker / 제작 / 분해) above `.inv-layout`. */
   private modelessLayer!: HTMLElement;
-  private craftModeless!: Modeless;
+  /** Right-hand column wrapper (`display: contents` normally): while 제작 is open it stacks 가방 over 함선 창고. */
+  private rightCol!: HTMLElement;
   private disassemble!: DisassemblePanel;
   private creditsEl!: HTMLElement;
   private creditsValue!: HTMLElement;
@@ -335,7 +335,13 @@ export class InventoryUI {
       onClose: () => { this.sys.sfx('ui_drop'); this.sys.closeCatalog(); },
     });
 
-    layout.append(this.catalogView.el, sPanel, cPanel, eq, bPanel);
+    /* 2026-09-07: 가방 + 함선 창고 share a wrapper. It is `display: contents` normally, so the flex `order`s below
+       keep today's row (창고 · 장비 · 가방); while the 제작 column is open it becomes a real column and stacks the
+       두 격자 on the right (가방 위 · 창고 아래). */
+    this.rightCol = document.createElement('div');
+    this.rightCol.className = 'inv-col-right';
+    this.rightCol.append(bPanel, sPanel);
+    layout.append(this.catalogView.el, this.rightCol, cPanel, this.craftPanel.el, eq);
 
     /* Phase 8: embedded 캐릭터 / 기업 / 함선 screens replace the layout in place */
     this.screenHost = document.createElement('div');
@@ -348,12 +354,10 @@ export class InventoryUI {
     /* Phase 8: modeless popups float above the window; the grid stays visible and interactive behind them */
     this.modelessLayer = document.createElement('div');
     this.modelessLayer.className = 'inv-modeless-layer';
-    this.craftModeless = new Modeless('craft', () => this.closeCraft());
-    this.craftModeless.adopt(this.craftPanel.el);
     this.disassemble = new DisassemblePanel(this.sys, getDef, (open, uid) => {
       this.ctx.bus.emit('ui:disassembleToggled', { open, uid });
     });
-    this.modelessLayer.append(this.craftModeless.el, this.disassemble.el);
+    this.modelessLayer.append(this.disassemble.el);
 
     /* hints (mission only; the ship screen has nothing to throw away and its keys are on the slots) */
     this.hintsEl = document.createElement('div');
@@ -492,7 +496,6 @@ export class InventoryUI {
     this.screenView?.dispose();
     this.screenView = null;
     this.craftPanel?.dispose();
-    this.craftModeless?.dispose();
     this.disassemble?.dispose();
     this.tooltip.dispose();
     this.root?.remove();
@@ -509,6 +512,17 @@ export class InventoryUI {
 
   /** The tab currently shown (smoke tests). */
   get screenTab(): ScreenTab { return this.activeTab; }
+
+  /**
+   * Select a screen tab from outside (`InventorySystem.openScreen`, e.g. the ship's 기업 네트워크 console). Returns
+   * true when that tab is what the window ends up showing — `setTab` falls back to 인벤토리 outside the hub or when
+   * the owning folder has no view.
+   */
+  showScreenTab(tab: ScreenTab): boolean {
+    this.setTab(tab);
+    this.markTab();
+    return this.activeTab === tab;
+  }
 
   /**
    * Swap the window content. `inventory` shows `.inv-layout`; every other tab hides it, shows the `.inv-screen`
@@ -689,23 +703,22 @@ export class InventoryUI {
   }
 
   /**
-   * System-driven craft panel visibility (`openBenchCraft` / `closeBench`). **Phase 8**: the panel lives in a
-   * modeless popup, so the frame follows the panel — no blocker, no pointer-lock change, the grid stays live.
+   * System-driven craft panel visibility (`openBenchCraft` / `closeBench`).
+   *
+   * **2026-09-07**: the panel is a **column of the window** again instead of a modeless popup — `.inv-layout.is-craft`
+   * puts the recipe list leftmost (where 함선 창고 sits otherwise) and stacks 가방 over 함선 창고 on the right, so the
+   * materials a recipe needs are visible next to it. Still no blocker and no pointer-lock change: the window owns both.
    */
   setCraftOpen(open: boolean): void {
     this.craftPanel.setOpen(open);
-    if (open) {
-      this.disassemble.close();
-      this.craftPanel.refresh();
-      this.craftModeless.open(null);
-    } else {
-      this.craftModeless.close();
-    }
+    if (open) this.disassemble.close();
+    this.layout?.classList.toggle('is-craft', open);
+    if (open) this.craftPanel.refresh();
   }
 
   /** The panel's 닫기 button / Escape / an outside click: leave the bench too when one is active. */
   private closeCraft(): void {
-    if (!this.craftPanel.isOpen && !this.craftModeless.isOpen) return;
+    if (!this.craftPanel.isOpen) return;
     if (this.sys.getBench()) this.sys.closeBench(); // → setCraftOpen(false) through the system
     else this.setCraftOpen(false);
   }
@@ -757,15 +770,14 @@ export class InventoryUI {
     }
     this.lastCatalogPress = { defId: def.id, t: now };
     const item = this.sys.getLoot().createItem(def.id, sample.qty);
-    const r = tileEl.getBoundingClientRect();
-    // grab offset relative to the item's real footprint (the catalog tile is a uniform 2×2)
+    // the ghost is centred on the cursor and uses the item's real footprint (the catalog tile is a uniform 2×2)
     const { width, height } = tileSize(def.width, def.height);
     this.drag = {
       uid: item.uid, item, def, from: BAG_LOC, quickFrom: null, qty: null, catalog: true,
       rotated: false,
       started: false,
       startX: e.clientX, startY: e.clientY,
-      grabX: Math.min(width * 0.5, e.clientX - r.left), grabY: Math.min(height * 0.5, e.clientY - r.top),
+      grabX: width * 0.5, grabY: height * 0.5,       // the ghost rides the cursor centred (2026-09-07)
       ghost: null, target: null,
       lastX: e.clientX, lastY: e.clientY,
     };
@@ -1356,13 +1368,16 @@ export class InventoryUI {
       if (e.shiftKey) qty = this.sys.partialQtyFor(item, 'half');
       else if (e.ctrlKey) qty = this.sys.partialQtyFor(item, 'one');
     }
-    const r = tileEl.getBoundingClientRect();
+    // 2026-09-07: the ghost is **centred on the cursor** rather than anchored where the tile was grabbed, so the
+    // item the cursor points at is the item that lands. `rebuildGhost` re-centres after a rotation.
+    const fp = item.rotated ? { w: def.height, h: def.width } : { w: def.width, h: def.height };
+    const size = tileSize(fp.w, fp.h);
     this.drag = {
       uid, item, def, from, quickFrom, qty, catalog: false,
       rotated: item.rotated,
       started: false,
       startX: e.clientX, startY: e.clientY,
-      grabX: e.clientX - r.left, grabY: e.clientY - r.top,
+      grabX: size.width * 0.5, grabY: size.height * 0.5,
       ghost: null, target: null,
       lastX: e.clientX, lastY: e.clientY,
     };
@@ -1413,9 +1428,9 @@ export class InventoryUI {
     d.ghost.classList.add('inv-ghost');
     d.ghost.classList.toggle('is-partial', d.qty !== null);
     const { width, height } = tileSize(w, h);
-    // keep the ghost anchored under the cursor: clamp grab offset into the new footprint
-    d.grabX = Math.min(Math.max(d.grabX, STEP * 0.5), width - STEP * 0.5);
-    d.grabY = Math.min(Math.max(d.grabY, STEP * 0.5), height - STEP * 0.5);
+    // keep the ghost centred under the cursor (a rotation changes the footprint, so this runs again)
+    d.grabX = width * 0.5;
+    d.grabY = height * 0.5;
     this.positionGhost(d, d.lastX, d.lastY);
   }
 
