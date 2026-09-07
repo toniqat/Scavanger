@@ -29,18 +29,25 @@ loadKeybinds();
 
 const engine = new Engine(canvas, uiRoot);
 
-// Phase 10: bridge the software cursor's mode changes onto the bus. `shared/Input` owns the cursor but has no bus, and
-// `ui/hud/SoftCursor` (the sprite) listens for `input:cursorModeChanged` — this is the only place that can join them.
+/*
+ * 2026-09-07 (커서 rework): the **single** place the pointer lock is re-acquired.
+ *
+ * A UI surface that wants the mouse calls `input.setCursorMode(true, token)`, which releases the lock; when the last
+ * owner leaves, the camera should have the mouse back immediately. Doing that here (instead of in each of the ~14
+ * screens) is what keeps a popup closing over the inventory, or a menu closing over the terminal, from re-locking
+ * while another screen is still open. `shared/Input` owns the cursor but has no bus, so this also mirrors the mode
+ * onto `input:cursorModeChanged` for `ui/hud/GameCursor`.
+ */
 engine.ctx.input.cursor.onModeChange((active, owner) => {
   engine.ctx.bus.emit('input:cursorModeChanged', { active, owner });
-  // Chrome drops the pointer lock on *every* Escape, and a cursor-mode screen never releases it itself — so a screen
-  // closed with Escape would leave the player unlocked. Re-request it once the last cursor owner is gone and no blocker
-  // is left; `requestPointerLock()` returns early when the lock survived, so this is idempotent. One place for every
-  // folder: the per-screen relock microtasks the Phase 10 lanes removed all funnel through here.
   if (active) return;
   queueMicrotask(() => {
-    // Only the 일시정지 메뉴 wants the real OS cursor; every other blocker keeps the lock (Phase 10).
-    if (!engine.ctx.input.isCursorMode && !engine.ctx.uiBlockers.has('menu')) engine.ctx.input.requestPointerLock();
+    const ctx = engine.ctx;
+    if (ctx.input.isCursorMode) return;                     // someone opened another screen in the same tick
+    // The title / result screens are cursor screens by nature — never steal the mouse back there.
+    if (!ctx.isGameplayPhase() && !ctx.isHubPhase()) return;
+    if (ctx.player?.isDead ?? false) return;
+    ctx.input.requestPointerLock();
   });
 });
 

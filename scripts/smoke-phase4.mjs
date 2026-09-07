@@ -371,10 +371,10 @@ try {
 
   const gameErrors = errors.filter((e) => !/WebSocket/.test(e));   // no relay running: the net client's socket error is expected
   console.log('corpse loot tables / knockback (lead checks)');
-  const rolled = await P(() => window.__game.ctx.loot.rollCorpse('rogue', undefined, 'smg37').map((i) => ({ d: i.defId, q: i.qty, dur: i.durability })));
-  ok(rolled.some((i) => i.d === 'wpn_smg37' && i.dur !== undefined && i.dur <= 90) && rolled.some((i) => i.d === 'ammo_light'), 'rollCorpse(rogue): low-durability weapon + matching calibre ammo', JSON.stringify(rolled));
-  const bossRoll = await P(() => window.__game.ctx.loot.rollCorpse('rogue_boss', undefined, 'ar23').map((i) => i.defId));
-  ok(bossRoll.some((d) => /^wpn_ar23_g[34]$/.test(d)) && bossRoll.some((d) => d.startsWith('att_')), 'rollCorpse(rogue_boss): grade III/IV weapon + attachment', JSON.stringify(bossRoll));
+  const rolled = await P(() => window.__game.ctx.loot.rollCorpse('rogue', undefined, 'smg').map((i) => ({ d: i.defId, q: i.qty, dur: i.durability })));
+  ok(rolled.some((i) => i.d === 'wpn_smg' && i.dur !== undefined && i.dur <= 90) && rolled.some((i) => i.d === 'ammo_light'), 'rollCorpse(rogue): low-durability weapon + matching calibre ammo', JSON.stringify(rolled));
+  const bossRoll = await P(() => window.__game.ctx.loot.rollCorpse('rogue_boss', undefined, 'ar').map((i) => i.defId));
+  ok(bossRoll.some((d) => /^wpn_ar_g[34]$/.test(d)) && bossRoll.some((d) => d.startsWith('att_')), 'rollCorpse(rogue_boss): grade III/IV weapon + attachment', JSON.stringify(bossRoll));
   const kb = await P(() => { const ctx = window.__game.ctx; const V = ctx.player.position.constructor; const v0 = ctx.player.velocity.length(); ctx.player.applyKnockback(new V(1, 0.4, 0), 12); return { v0, v1: ctx.player.velocity.length() }; });
   ok(kb.v1 > kb.v0 + 5, 'applyKnockback adds velocity', JSON.stringify(kb));
   const openItems = await P(() => { const ctx = window.__game.ctx; const V = ctx.player.position.constructor; const items = ctx.loot.rollCorpse('warrior'); ctx.inventory.openContainerItems('corpse:test', items, ctx.player.position.clone().add(new V(1, 0, 0)), '시체'); const open = ctx.inventory.isOpen; ctx.inventory.closeAll(); return open; });

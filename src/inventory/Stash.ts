@@ -33,9 +33,18 @@ export class Stash {
   /** Called after every successful write with the file just written (Phase 7 profile upload). */
   onSaved: ((file: StashSaveFile) => void) | null = null;
 
+  /**
+   * True when no `scav.stash` file existed at startup — a profile that has never had a stash. `InventorySystem`
+   * uses it once to grant `STARTER_STASH` (기본 지급품, 2026-09-07); a server profile still wins over that grant
+   * because it is uploaded as a `fresh` document.
+   */
+  readonly firstRun: boolean;
+
   constructor(private readonly getDef: DefLookup, private readonly loot: LootRef) {
     this.grid = new Grid(STASH_COLS, STASH_ROWS, getDef);
-    this.load(readSaveFile<StashSaveFile>(STASH_STORAGE_KEY));
+    const file = readSaveFile<StashSaveFile>(STASH_STORAGE_KEY);
+    this.firstRun = file === null;
+    this.load(file);
     window.addEventListener('pagehide', this.onPageHide);
     window.addEventListener('beforeunload', this.onPageHide);
   }

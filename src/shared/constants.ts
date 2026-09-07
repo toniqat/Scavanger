@@ -37,7 +37,7 @@ export interface KeyBindings {
   CROUCH: string; PRONE: string; DIVE: string;
   RELOAD: string; INTERACT: string;
   STIM: string; GRENADE: string;
-  PRIMARY: string; PRIMARY2: string; SECONDARY: string; SWAP: string;
+  PRIMARY: string; PRIMARY2: string; SECONDARY: string;
   INVENTORY: string; ROTATE_ITEM: string; MENU: string; MAP: string;
   DROP_ITEM: string; CHAT: string;
   QUICK: string; RESPAWN: string; GIVE_UP: string;
@@ -51,19 +51,21 @@ export interface KeyBindings {
   CONSOLE: string; MOVE_CHEAT: string;
   /* appended (Phase 11): hold P to accept a 분대 초대 (ship only). Took P off the undocumented character-sheet shortcut. */
   INVITE: string;
+  /* appended (2026-09-07, 커서 rework): Alt frees the mouse cursor during gameplay without opening any screen. */
+  CURSOR: string;
 }
 
 /** Factory defaults; `Keys` is the live (rebindable) copy. Both are keyed by `KeyAction`. */
 export const DEFAULT_KEYS: Readonly<KeyBindings> = {
   FORWARD: 'KeyW', BACK: 'KeyS', LEFT: 'KeyA', RIGHT: 'KeyD',
   SPRINT: 'ShiftLeft', JUMP: 'Space',
-  /** C toggles crouch, Z toggles prone, Alt rolls (ends prone). */
-  CROUCH: 'KeyC', PRONE: 'KeyZ', DIVE: 'AltLeft',
+  /** C toggles crouch, Z toggles prone, V rolls (ends prone) — Alt is the 커서 호출 key since 2026-09-07. */
+  CROUCH: 'KeyC', PRONE: 'KeyZ', DIVE: 'KeyV',
   RELOAD: 'KeyR', INTERACT: 'KeyE',
   /** Tactical kit: H puts a stim in hand directly (F is the melee attack). GRENADE is legacy (G = ship calls). */
   STIM: 'KeyH', GRENADE: 'KeyG',
-  /** Weapon package: 1 = 주무기 I, 2 = 주무기 II, 3 = 보조무기. Tactical kit: V = previous weapon (Q is the implant). */
-  PRIMARY: 'Digit1', PRIMARY2: 'Digit2', SECONDARY: 'Digit3', SWAP: 'KeyV',
+  /** Weapon package: 1 = 주무기 I, 2 = 주무기 II, 3 = 보조무기. (이전 무기 was V; V is 구르기 since 2026-09-07.) */
+  PRIMARY: 'Digit1', PRIMARY2: 'Digit2', SECONDARY: 'Digit3',
   INVENTORY: 'Tab', ROTATE_ITEM: 'KeyR', MENU: 'Escape', MAP: 'KeyM',
   /* X drops the hovered/selected inventory item; Enter opens text chat. */
   DROP_ITEM: 'KeyX', CHAT: 'Enter',
@@ -82,6 +84,8 @@ export const DEFAULT_KEYS: Readonly<KeyBindings> = {
   CONSOLE: 'Backquote', MOVE_CHEAT: 'Home',
   /* Phase 11: 분대 초대 수락 (홀드). The P character-sheet shortcut is gone — 캐릭터 is a Tab-screen tab. */
   INVITE: 'KeyP',
+  /* 2026-09-07 (커서 rework): Alt = 커서 표시 / 숨기기. 구르기 moved off Alt onto V. */
+  CURSOR: 'AltLeft',
 };
 
 /**
@@ -149,8 +153,9 @@ export const AMMO_FOR_CLASS: Readonly<Record<WeaponClass, AmmoType>> = {
 };
 /** Rounds per ammo stack (`ItemDef.stackMax` of ammo items). */
 export const AMMO_STACK_ROUNDS: Readonly<Record<AmmoType, number>> = {
-  light: 120, medium: 90, heavy: 30, shell: 24,
-  rifle: 90, pistol: 120, shotgun: 24, energy: 90,
+  /* 2026-09-07: one 세트 = one stack (경 80 · 준중 50 · 중 25 · 산탄 25) — the 기본 지급품 counts sets. */
+  light: 80, medium: 50, heavy: 25, shell: 25,
+  rifle: 50, pistol: 80, shotgun: 25, energy: 50,
   /* unique-weapon calibres (2026-09-06): 연료통 / 전지 / 표창 / 화살 / 로켓 / 탄띠 */
   fuel: 200, cell: 60, shuriken: 40, arrow: 30, rocket: 6, belt: 300,
 };
@@ -313,7 +318,7 @@ export const MELEE_COOLDOWN = 0.75;
 /** Weapons whose stock adds melee damage list a multiplier; this is the default for everything else. */
 export const MELEE_STOCK_MUL_DEFAULT = 1;
 
-/* ── roll (구르기, replaces the dive on Alt) ── */
+/* ── roll (구르기, replaced the dive; on V since the 2026-09-07 커서 rework moved Alt to the cursor) ── */
 export const ROLL_DURATION = 0.55;
 export const ROLL_DISTANCE = 4.2;
 export const ROLL_STAMINA_COST = 22;
@@ -791,10 +796,24 @@ export const PLAYER_CARRY_SPEED_MUL = 0.75;
 export const PLAYER_CARRY_OFFSET: readonly [number, number, number] = [0.24, 0.02, 0.06];
 
 /* ── 회복약 (was 스팀; the `stim` def id / `ItemCategory 'stim'` / `applyStim` are unchanged) ── */
-/** LMB must be held this long with a 회복약 in hand before it is consumed (radial gauge at the crosshair). */
+/**
+ * Fallback hold for a 회복 소모품 whose def carries no `heal` block. Since 2026-09-07 every real one states its
+ * own `ItemDef.heal.useTime` (붕대 5 s · 약초 붕대 5 s · 회복주사 2 s) and the HUD reads the duration off the event.
+ */
 export const HEAL_HOLD_S = 2;
 /** Taking damage does not cancel the hold (moving never did). Kept as a constant so the HUD mirrors the rule. */
 export const HEAL_HOLD_CANCEL_ON_DAMAGE = false;
+
+/* ── appended: 소모품 사용 (2026-09-07) ── */
+/** Movement speed multiplier while a consumable is being used / channelled (`PlayerRef.setSpeedModifier`). */
+export const CONSUMABLE_SLOW_MUL = 0.5;
+/** `setSpeedModifier` key weapons uses for that slow, so nothing else can clash with it. */
+export const CONSUMABLE_SLOW_KEY = 'consumable';
+/** Seconds LMB must be held with a 제세동기 in hand before the revive fires. */
+export const DEFIB_USE_TIME_S = 1;
+/** 회복 스프레이: gauge of a fresh can (the instance's `durability`) and the radius its ticks heal in. */
+export const HEAL_SPRAY_GAUGE = 100;
+export const HEAL_SPRAY_RADIUS = 8;
 
 /* ── 발사 준비 패널 (owner: hub, portraits from player/) ── */
 /** Cells in the READY panel. Kept separate from the lobby size so the panel never resizes. */
@@ -808,18 +827,17 @@ export const CREW_CARD_MIN_INTERVAL_S = 1;
 /** Don't answer `crewq loadout` from the same peer more often than this (seconds). */
 export const CREW_LOADOUT_COOLDOWN_S = 2;
 
-/* ── 인게임 마우스 커서 (owner: shared/cursor.ts + Input, drawn by ui/hud/SoftCursor) ── */
-/** Client px the virtual cursor moves per px of raw pointer-locked movement. */
-export const SOFT_CURSOR_SENSITIVITY = 1;
-/** Cursor sprite size in px (the drawn hotspot is its top-left corner). */
-export const SOFT_CURSOR_SIZE = 22;
-/** Two synthetic clicks within this many ms on the same element also dispatch a `dblclick`. */
-export const SOFT_CURSOR_DBLCLICK_MS = 350;
+/* ── 마우스 커서 (owner: shared/cursor.ts + Input; the art is ui/hud/GameCursor) ── */
 /*
- * 2026-09-07: `SOFT_CURSOR_ACCEL` / `SOFT_CURSOR_ACCEL_MAX` (a home-made acceleration curve on top of the raw locked
- * deltas) are **gone**. They overshot — a 14 px hand movement travelled 27 px — so the arrow never landed where it
- * was aimed. `SoftCursor.moveBy` is strictly linear now.
+ * 2026-09-07 rework: the virtual cursor is gone. A cursor screen releases the pointer lock and the **real** OS cursor
+ * comes back, restyled as the game's own arrow through a procedurally drawn CSS `cursor:` image — so there is no
+ * sensitivity, no sprite position and no synthetic double-click window to tune any more.
  */
+/** Side of the drawn cursor image in CSS px (a 2× copy is generated for HiDPI through `image-set`). */
+export const GAME_CURSOR_SIZE = 22;
+/** `ctx.uiBlockers` token the Alt 커서 (a free cursor with no screen behind it) holds while it is up. */
+export const FREE_CURSOR_BLOCKER = 'cursor';
+
 /** How long a denied pointer-lock request keeps waiting for the next real user gesture to retry (ms). */
 export const LOCK_GESTURE_RETRY_MS = 10000;
 

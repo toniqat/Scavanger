@@ -1,5 +1,5 @@
 import type { GameContext, ItemDef, ItemInstance, UniqueWeaponKind, WeaponDef, WeaponSlot } from '@/shared';
-import { Keys, WEAPON_DEFAULT_DURABILITY, keyLabel } from '@/shared';
+import { DEFIB_USE_TIME_S, Keys, WEAPON_DEFAULT_DURABILITY, keyLabel } from '@/shared';
 import { buildItemChip } from '@/shared';
 import { WEAPON_CLASS_LABEL_KO, weaponClassOf } from '@/items';
 import { el, setText, toggleClass } from '../dom';
@@ -13,10 +13,20 @@ const WEAPON_THUMB_SIZE = 34;
 
 /** Usage hint per consumable category (`.weapon.consumable .hint`). */
 const CONSUMABLE_HINT: Record<string, string> = {
-  // Phase 10: the 회복약 is a 2 s hold (`HEAL_HOLD_S`), shown as the crosshair ring `hud/HealGauge`.
-  stim: '좌클릭 2초 홀드',
+  // 2026-09-07: each 회복 소모품 states its own hold (`ItemDef.heal.useTime`), so the line is built per item
+  // (`consumableHint`) and this is only the fallback per category. The ring itself is `hud/HealGauge`.
+  stim: '좌클릭 홀드',
   grenade: '좌클릭 홀드 · R 코킹 · 우클릭 언더핸드',
 };
+
+/** Usage hint for the item in hand: the real hold time / 스프레이 channel when the def declares one. */
+function consumableHint(def: ItemDef | undefined): string {
+  const heal = def?.heal;
+  if (heal?.spray) return '좌클릭 홀드 · 게이지 소모';
+  if (heal) return `좌클릭 ${heal.useTime}초 홀드 · 이동 50 %`;
+  if (def?.gadgetId === 'defib') return `좌클릭 ${DEFIB_USE_TIME_S}초 홀드 · 이동 50 %`;
+  return CONSUMABLE_HINT[def?.category ?? ''] ?? '좌클릭 사용';
+}
 
 /** Fixed `좌: … / 우: …` fire-mode texts per unique weapon kind (`WeaponDef.altFire` — RMB is an alternative fire, not ADS). */
 const UNIQUE_MODES: Readonly<Record<UniqueWeaponKind, { l: string; r: string }>> = {
@@ -200,7 +210,7 @@ export class WeaponPanel {
     this.consUid = item.uid;
     this.consumable = true;
     setText(this.consName, def?.name ?? item.defId);
-    setText(this.consHint, CONSUMABLE_HINT[def?.category ?? ''] ?? '좌클릭 사용');
+    setText(this.consHint, consumableHint(def));
     this.setConsCount(item.qty);
     toggleClass(this.root, 'consumable', true);
   }

@@ -1853,19 +1853,11 @@ button.item-chip[data-def-id] { cursor: pointer; }
 .item-tip .it-value .k { font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--c-text-faint); }
 .item-tip .it-value .v { font-size: 14px; font-weight: 700; color: var(--c-accent); font-variant-numeric: tabular-nums; }
 
-/* ── 인게임 마우스 커서 스프라이트 (hud/SoftCursor) ── */
-/* Hide the native cursor while the sprite is up: with the pointer lock there is none, but the unlocked fallback
-   (Escape, headless smokes) mirrors the real cursor and would otherwise read as two arrows. */
-body.soft-cursor-on, body.soft-cursor-on * { cursor: none !important; }
-.soft-cursor {
-  position: fixed; left: 0; top: 0;
-  z-index: 400;                       /* above every window, overlay and menu */
-  pointer-events: none;               /* it must never be the element under itself */
-  will-change: translate;
-}
-.soft-cursor svg { width: 100%; height: 100%; display: block; overflow: visible; }
-.soft-cursor .edge { fill: none; stroke: rgba(0, 0, 0, 0.85); stroke-width: 3.4; stroke-linejoin: round; }
-.soft-cursor .body { fill: var(--c-text); }
+/* ── 마우스 커서 (hud/GameCursor) ── */
+/* The art is a procedurally drawn `cursor:` image injected at runtime by `ui/hud/GameCursor` under `body.cursor-ui`
+   — nothing is drawn in the DOM any more (2026-09-07 rework: the real OS cursor is back, restyled in place). While
+   the pointer is locked the browser shows no cursor at all, so the rules cost nothing during play.
+   `body.cursor-on` additionally marks "a UI surface owns the mouse right now" for anything that needs to know. */
 
 /* ── 설정 overlay (menus/SettingsMenu): keys + audio, above the pause menu, below the key-settings overlay ── */
 .menu.settings-menu { z-index: 56; background: rgba(3, 4, 6, 0.72); }

@@ -1,5 +1,5 @@
 import { LOCK_GESTURE_RETRY_MS } from './constants';
-import { SoftCursor, isSoftCursorEvent } from './cursor';
+import { CursorMode } from './cursor';
 
 /** How long after a lock request we check whether it actually took (engines that return no promise). */
 const LOCK_RESULT_CHECK_MS = 250;
@@ -18,37 +18,24 @@ export class Input {
   mouseDX = 0;
   mouseDY = 0;
   wheelDelta = 0;
-  /** Client-space pointer position (for UI when pointer is not locked). */
+  /** Client-space pointer position. The single source of truth for every UI hit test (`uiX` / `uiY` alias it). */
   mouseX = 0;
   mouseY = 0;
   private lockTarget: HTMLElement | null = null;
   private bound = false;
   /**
-   * appended (Phase 10): 인게임 마우스 커서. While `cursor.active` the pointer lock is KEPT and this virtual cursor is
-   * driven by the raw `movementX/movementY` deltas, synthesising the DOM pointer/mouse events at its own position
-   * (see `shared/cursor.ts`). Systems use `setCursorMode` / `uiX` / `uiY` / `elementUnderCursor` instead of touching it.
+   * 2026-09-07 rework: which UI surfaces want the **real** mouse cursor. While `cursor.active` the pointer lock is
+   * released, so the browser delivers genuine events to the DOM and gameplay simply stops seeing the mouse
+   * (`mouseDX/DY` need the lock, and the button sets below are not filled). See `shared/cursor.ts`.
    */
-  readonly cursor = new SoftCursor();
-  /**
-   * appended (Phase 10): does `document.pointerLockElement` describe a *real* lock?
-   *
-   * Per spec a locked pointer holds `clientX/clientY` constant, so a `mousemove` that both claims a lock and moves the
-   * client coordinates can only be a **faked** one — which is exactly what every headless smoke does
-   * (`Object.defineProperty(Document.prototype, 'pointerLockElement', …)` over the canvas). Under a faked lock the real
-   * device events already reach the DOM with true coordinates, so synthesising a second set at the virtual cursor would
-   * double every click and fight the script's own drags. Detected once and latched; `requestPointerLock()` re-arms it.
-   *
-   * `mouseDX / mouseDY` deliberately stay gated on `isPointerLocked` alone — the camera-look smokes depend on the
-   * faked lock accumulating their synthetic `movementX/Y`.
-   */
-  private lockLooksReal = true;
+  readonly cursor = new CursorMode();
 
   bind(target: HTMLElement): void {
     if (this.bound) return;
     this.bound = true;
     this.lockTarget = target;
     window.addEventListener('keydown', (e) => {
-      // Tab/Esc are game keys; Alt would otherwise focus the browser menu bar (dive key).
+      // Tab/Esc are game keys; Alt would otherwise focus the browser menu bar (커서 호출 키).
       if (e.code === 'Tab' || e.code === 'Escape' || e.code === 'AltLeft' || e.code === 'AltRight') e.preventDefault();
       if (!this.down.has(e.code)) this.pressed.add(e.code);
       this.down.add(e.code);
@@ -59,12 +46,11 @@ export class Input {
     });
     window.addEventListener('blur', () => { this.down.clear(); this.mouseDown.clear(); });
     window.addEventListener('mousedown', (e) => {
-      if (isSoftCursorEvent(e)) return;   // our own synthetic echo — never register it as a second press
       // middle button = ping; stop browser auto-scroll while locked
       if (e.button === 1 && this.isPointerLocked) e.preventDefault();
-      // Software cursor: the press belongs to the UI under the virtual cursor, not to gameplay. Only while the lock is
-      // actually held — unlocked, the real cursor already delivers native events and a second set would double-click.
-      if (this.cursorOwnsInput) { this.cursor.press(e.button); return; }
+      // 커서 모드: the press belongs to the UI under the real cursor, which already received it natively. Recording
+      // it here as well would fire the gun behind an open panel.
+      if (this.cursor.active) return;
       if (!this.mouseDown.has(e.button)) this.mousePressed.add(e.button);
       this.mouseDown.add(e.button);
       // Rebindable actions may sit on a mouse button: mirror it as the synthetic key code `MouseN`.
@@ -73,8 +59,7 @@ export class Input {
       this.down.add(code);
     });
     window.addEventListener('mouseup', (e) => {
-      if (isSoftCursorEvent(e)) return;
-      if (this.cursorOwnsInput) { this.cursor.release(e.button); this.mouseDown.delete(e.button); return; }
+      if (this.cursor.active) { this.mouseDown.delete(e.button); return; }
       this.mouseDown.delete(e.button);
       this.mouseReleased.add(e.button);
       const code = `Mouse${e.button}`;
@@ -82,26 +67,21 @@ export class Input {
       this.released.add(code);
     });
     window.addEventListener('mousemove', (e) => {
-      if (isSoftCursorEvent(e)) return;
-      const prevX = this.mouseX, prevY = this.mouseY;
+      // A locked pointer freezes the client coordinates, so this only tracks a real position while the cursor is
+      // free — which is exactly when the UI needs one.
       this.mouseX = e.clientX; this.mouseY = e.clientY;
-      // A real lock freezes the client coordinates; movement here means the lock is faked (headless smokes).
-      if (this.isPointerLocked && (e.clientX !== prevX || e.clientY !== prevY)) this.lockLooksReal = false;
-      if (this.cursor.active) {
-        if (this.cursorOwnsInput) this.cursor.moveBy(e.movementX || 0, e.movementY || 0);
-        else this.cursor.mirror(e.clientX, e.clientY);   // no lock (Escape / headless): mirror, never synthesise
-        return;
-      }
-      if (this.isPointerLocked) { this.mouseDX += e.movementX; this.mouseDY += e.movementY; }
+      if (this.isPointerLocked && !this.cursor.active) { this.mouseDX += e.movementX; this.mouseDY += e.movementY; }
     });
     window.addEventListener('wheel', (e) => {
-      if (isSoftCursorEvent(e)) return;
-      if (this.cursorOwnsInput) { this.cursor.wheel(e.deltaY, e.deltaX); return; }
+      if (this.cursor.active) return;                  // the panel under the cursor scrolls natively
       this.wheelDelta += Math.sign(e.deltaY);
     }, { passive: true });
     window.addEventListener('contextmenu', (e) => { if (this.isPointerLocked) e.preventDefault(); });
     // The lock arrived (from a request of ours or a click on the canvas) — stop waiting for a gesture.
     document.addEventListener('pointerlockchange', () => { if (this.isPointerLocked) this.disarmLockGestureRetry(); });
+    // 전체화면에서 Escape 를 게임 키로 (see `syncKeyboardLock`).
+    document.addEventListener('fullscreenchange', this.syncKeyboardLock);
+    this.syncKeyboardLock();
   }
 
   isDown(code: string): boolean { return this.down.has(code); }
@@ -128,7 +108,6 @@ export class Input {
     if (!this.lockTarget || this.isPointerLocked) return;
     this.wantLock = true;
     this.lastLockRequest = performance.now();
-    this.lockLooksReal = true;   // re-arm the faked-lock detection (Phase 10)
     // Modern Chrome returns a Promise that rejects when the lock is denied (e.g. headless, no user gesture) —
     // swallow it so a denied re-lock never surfaces as an unhandled rejection, and wait for a gesture instead.
     const denied = (): void => this.armLockGestureRetry();
@@ -146,15 +125,15 @@ export class Input {
     if (this.isPointerLocked) document.exitPointerLock();
   }
 
-  /* ── appended 2026-09-07: a denied lock request waits for the next real user gesture ──────────────────────────
+  /* ── 2026-09-07: a denied lock request waits for the next real user gesture ──────────────────────────────────
    *
    * Chrome does **not** treat Escape as user activation (it is reserved for leaving fullscreen / pointer lock), and
-   * it refuses a pointer-lock request for a moment after the user escaped out of one. So closing the 일시정지 메뉴
-   * with Escape — the way most players close it — asks for the lock at the one instant Chrome will not grant it: the
-   * Windows cursor stayed on screen and `game/`'s lost-lock watchdog put the menu straight back up, a loop only a
-   * mouse click on 계속 could break. Instead of giving up, hold the intent and retry from the player's next real
-   * gesture (a click, or any key that is not Escape) — in practice the first WASD tap, so the lock comes back at
-   * once. `game/` suspends its watchdog while this is armed (`awaitingLockGesture`).
+   * it refuses a pointer-lock request for a moment after the user escaped out of one. So closing a screen with
+   * Escape — the way most players close one — asks for the lock at the one instant Chrome will not grant it. Instead
+   * of giving up, hold the intent and retry from the player's next real gesture (a click, or any key that is not
+   * Escape) — in practice the first WASD tap, so the lock comes back at once.
+   *
+   * `syncKeyboardLock` below removes the problem outright while the game is fullscreen.
    */
   /** Someone asked for the lock and it has not been granted or cancelled yet. */
   private wantLock = false;
@@ -182,41 +161,70 @@ export class Input {
   }
 
   private onLockGesture = (e: Event): void => {
-    if (isSoftCursorEvent(e)) return;                   // our own synthetic events carry no user activation
     if (e instanceof KeyboardEvent && (e.code === 'Escape' || e.repeat)) return;   // Escape grants none in Chrome
     if (!this.wantLock || this.isPointerLocked || !this.awaitingLockGesture) { this.disarmLockGestureRetry(); return; }
+    if (this.cursor.active) { this.disarmLockGestureRetry(); return; }             // a screen opened in the meantime
     this.disarmLockGestureRetry();
     this.requestPointerLock();
   };
 
-  /* ── appended: Phase 10 — 인게임 마우스 커서 ────────────────────────────────── */
-  /** true while the virtual cursor owns UI input (the pointer lock is kept and raw deltas drive `cursorX/Y`). */
+  /* ── 전체화면 키보드 락 (2026-09-07) ──────────────────────────────────────────
+   *
+   * Escape is the one key the page cannot keep: Chrome consumes it to leave fullscreen / pointer lock, which is why a
+   * screen closed with Escape lands in the retry above. `navigator.keyboard.lock(['Escape'])` — available **only**
+   * while the document is fullscreen — routes it to the page instead, so Escape stops breaking the lock and
+   * "메뉴를 Esc 로 닫으면 즉시 카메라" becomes literally true. Leaving fullscreen is then a *long* Escape press,
+   * which is the browser's own documented affordance for it.
+   */
+  private readonly syncKeyboardLock = (): void => {
+    const kb = (navigator as unknown as {
+      keyboard?: { lock?(codes?: string[]): Promise<void> | undefined; unlock?(): void };
+    }).keyboard;
+    if (!kb) return;
+    try {
+      if (document.fullscreenElement) {
+        const r = kb.lock?.(['Escape']);
+        if (r && typeof r.catch === 'function') r.catch(() => { /* denied — the gesture retry covers it */ });
+      } else kb.unlock?.();
+    } catch { /* unsupported (Firefox / Safari) — the gesture retry covers it */ }
+  };
+
+  /** Is the document fullscreen with Escape routed to the page? (HUD hint / diagnostics.) */
+  get keyboardLocked(): boolean {
+    const kb = (navigator as unknown as { keyboard?: { lock?: unknown } }).keyboard;
+    return !!document.fullscreenElement && !!kb?.lock;
+  }
+
+  /* ── 마우스 커서 모드 ────────────────────────────────────────────────────── */
+  /** true while a UI surface owns the real mouse cursor (the pointer lock is released, the camera does not turn). */
   get isCursorMode(): boolean { return this.cursor.active; }
+  /** Cursor position in client px. Kept under its own name so UI code reads intent, not the raw field. */
+  get cursorX(): number { return this.mouseX; }
+  get cursorY(): number { return this.mouseY; }
   /**
-   * true while the software cursor must **synthesise** the DOM events itself: cursor mode is on and the pointer lock is
-   * real. With a faked / absent lock the native device events already reach the DOM, so the cursor only mirrors.
+   * Enter / leave 커서 모드. `owner` is the caller's `ctx.uiBlockers` token; nesting is ref-counted, so a popup
+   * layered over the inventory does not take the cursor away when it closes. Entering **releases the pointer lock**
+   * (that is the whole mechanism); the re-lock on the way out is `main.ts`'s single relock point.
    */
-  get cursorOwnsInput(): boolean { return this.cursor.active && this.isPointerLocked && this.lockLooksReal; }
-  /** Escape hatch for tests: force the synthesis path off (or back on) regardless of the auto-detection. */
-  setCursorSynthetic(on: boolean): void { this.lockLooksReal = on; }
-  /** Virtual cursor position in client px (only meaningful while `isCursorMode`). */
-  get cursorX(): number { return this.cursor.x; }
-  get cursorY(): number { return this.cursor.y; }
-  /**
-   * Enter / leave software-cursor mode. `owner` is the caller's `ctx.uiBlockers` token; nesting is ref-counted, so a
-   * popup layered over the inventory does not steal the cursor when it closes. A caller must **not** also call
-   * `exitPointerLock()` — keeping the lock is the whole point.
-   */
-  setCursorMode(active: boolean, owner: string): void { this.cursor.setMode(active, owner); }
-  /** Warp the virtual cursor (e.g. onto a panel's default button when it opens). */
-  setCursorPosition(x: number, y: number): void { this.cursor.setPosition(x, y); }
-  /** Cursor position a UI surface should read: virtual while in cursor mode, the real OS cursor otherwise. */
-  get uiX(): number { return this.cursor.active ? this.cursor.x : this.mouseX; }
-  get uiY(): number { return this.cursor.active ? this.cursor.y : this.mouseY; }
-  /** Element under the UI cursor (`document.elementFromPoint(uiX, uiY)`); null when nothing is hit. */
+  setCursorMode(active: boolean, owner: string): void {
+    if (!this.cursor.setMode(active, owner)) return;
+    if (this.cursor.active) {
+      this.exitPointerLock();
+      // Buttons held when the lock went away would stay stuck down (no `mouseup` reaches the gameplay path).
+      this.mouseDown.clear(); this.mousePressed.clear(); this.mouseReleased.clear();
+      this.mouseDX = 0; this.mouseDY = 0; this.wheelDelta = 0;
+    }
+    this.cursor.emitChange();
+  }
+  /** Seed the tracked cursor position (a panel's default focus, tests). The OS cursor itself cannot be warped. */
+  setCursorPosition(x: number, y: number): void { this.mouseX = x; this.mouseY = y; }
+  /** Cursor position a UI surface should read. */
+  get uiX(): number { return this.mouseX; }
+  get uiY(): number { return this.mouseY; }
+  /** Element under the cursor (`document.elementFromPoint`); null when nothing is hit. */
   elementUnderCursor(): Element | null {
     if (typeof document.elementFromPoint !== 'function') return null;
-    return this.cursor.active ? this.cursor.elementUnder() : document.elementFromPoint(this.mouseX, this.mouseY);
+    return document.elementFromPoint(this.mouseX, this.mouseY);
   }
 
   /** Called by Engine at the end of every frame. */

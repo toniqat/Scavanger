@@ -585,17 +585,24 @@ export interface GameEvents {
 
   /* ── 회복약 2초 홀드 (owner: weapons, drawn by ui/hud/HealGauge) ── */
   /**
-   * 회복약 in hand: `holding` while LMB is down, `t` = 0..1 of `HEAL_HOLD_S`, `t: -1` on cancel. Same contract shape
+   * 회복약 in hand: `holding` while LMB is down, `t` = 0..1 of the use time, `t: -1` on cancel. Same contract shape
    * as `grenade:holdChanged`, so the HUD gauge is a sibling of `CookGauge`.
+   * appended 2026-09-07: `dur` = the item's own use time in seconds (`ItemDef.heal.useTime`, `HEAL_HOLD_S` when a
+   * def omits it) so the ring can count down real seconds; `spray` marks the 회복 스프레이 channel, where `t` is the
+   * remaining gauge (0..1) rather than progress toward a use.
    */
-  'heal:holdChanged': { holding: boolean; t: number };
+  'heal:holdChanged': { holding: boolean; t: number; dur?: number; spray?: boolean };
 
   /* ── 지도 핑 (owner: ui — map screen → ping system, in-folder) ── */
   /** A ping was asked for at a world position by a surface with no aim ray (tactical-map middle click). */
   'ping:requestAt': { position: THREE.Vector3; kind: PingKind };
 
-  /* ── 인게임 마우스 커서 (owner: shared/cursor.ts, drawn by ui/hud/SoftCursor) ── */
-  /** Software-cursor mode began / ended. `owner` = the blocker token that asked for it, null on the last release. */
+  /* ── 마우스 커서 모드 (owner: shared/cursor.ts + Input; the art is ui/hud/GameCursor) ── */
+  /**
+   * A UI surface took / released the mouse. `owner` = the blocker token that asked for it, null on the last release.
+   * 2026-09-07: cursor mode means the **pointer lock is released** and the real OS cursor is back (restyled in place),
+   * so this is also the signal that the camera has stopped following the mouse.
+   */
   'input:cursorModeChanged': { active: boolean; owner: string | null };
 
   /* ── 컨테이너 실시간 루팅 (owner: inventory) ── */
@@ -679,6 +686,8 @@ export interface GameEvents {
   /* ── 커뮤니티 / 귓속말 UI (owner: ui) ── */
   /** The ship's top-right 커뮤니티 panel opened / closed (blocker `COMMUNITY_BLOCKER`). */
   'ui:communityToggled': { open: boolean };
+  /* appended (2026-09-07, 커서 rework): Alt freed / re-captured the mouse cursor with no screen behind it. */
+  'ui:freeCursorToggled': { active: boolean };
   /**
    * Command: open the chat input in whisper mode aimed at `code` (the ESC screen's 귓속말하기 closes itself and emits
    * this). ChatLog keeps the target until the player clears it, so the next Enter also whispers.

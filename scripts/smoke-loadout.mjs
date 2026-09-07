@@ -124,14 +124,24 @@ try {
   ok(!beforeHub.slots.primary && beforeHub.bag.length === 0, 'no save: bag + slots empty before the first hub entry', JSON.stringify(beforeHub.slots));
   await enterHub();
   let snap = await snapshot();
-  ok(snap.slots.primary?.defId === 'wpn_ar23' && snap.slots.secondary?.defId === 'wpn_p2' && snap.slots.bag?.defId === 'bag_common' && snap.slots.armor?.defId === 'armor_2' && snap.slots.primary2 === null,
-    'first hub entry hands out the starter loadout', JSON.stringify(snap.slots));
-  ok(snap.bag.some((i) => i.defId === 'grenade_frag') && snap.bag.some((i) => i.defId === 'stim') && snap.quick[0] === 'grenade_frag' && snap.quick[4] === 'stim',
+  // 2026-09-07: the starter is the minimum kit (권총 I · 가방 I · 방탄복 I); every other weapon starts in the 창고
+  ok(snap.slots.primary === null && snap.slots.secondary?.defId === 'wpn_hg' && snap.slots.bag?.defId === 'bag_common' && snap.slots.armor?.defId === 'armor_1' && snap.slots.primary2 === null,
+    'first hub entry hands out the starter loadout (권총 I / 가방 I / 방탄복 I)', JSON.stringify(snap.slots));
+  const granted = await page.evaluate(() => {
+    const items = window.__game.getSystem('inventory').getStashItems();
+    const ids = new Set(items.map((i) => i.defId));
+    return { n: items.length, weapons: ['wpn_ar', 'wpn_smg', 'wpn_sg', 'wpn_dmr', 'wpn_sr'].every((d) => ids.has(d)),
+      bags: items.filter((i) => i.defId === 'bag_common').length, armor: items.filter((i) => i.defId === 'armor_1').length,
+      ammo: items.filter((i) => i.defId.startsWith('ammo_')).length, defib: items.filter((i) => i.defId === 'gad_defib').length };
+  });
+  ok(granted.weapons && granted.bags === 3 && granted.armor === 3 && granted.ammo === 40 && granted.defib === 2,
+    '기본 지급품: 총기 5종 · 여분 가방 3 · 방탄복 3 · 탄약 40세트 · 재세동기 2세트 in the 함선 창고', JSON.stringify(granted));
+  ok(snap.bag.some((i) => i.defId === 'grenade_frag') && snap.bag.some((i) => i.defId === 'heal_bandage') && snap.quick[0] === 'grenade_frag' && snap.quick[4] === 'heal_bandage',
     'starter bag items + quick slots N grenade / S stim', JSON.stringify(snap.quick));
   let saved = await lastEv('inventory:loadoutSaved');
   ok(saved && saved.reason === 'starter', 'applyStarter saved the starter (inventory:loadoutSaved {reason: starter})', JSON.stringify(saved));
   let file = await saveFile();
-  ok(file && file.v === 1 && file.slots.primary?.defId === 'wpn_ar23' && Array.isArray(file.bag) && file.bag.length === snap.bag.length && Array.isArray(file.quick) && file.quick.length === 8,
+  ok(file && file.v === 1 && file.slots.secondary?.defId === 'wpn_hg' && Array.isArray(file.bag) && file.bag.length === snap.bag.length && Array.isArray(file.quick) && file.quick.length === 8,
     'scav.loadout v1: slots + bag placements + 8 quick indices', JSON.stringify(file && { v: file.v, slots: Object.keys(file.slots), bag: file.bag.length, quick: file.quick }));
 
   /* ── 1. ship changes persist across a reload ───────────────────────── */
@@ -140,36 +150,36 @@ try {
   const changed = await page.evaluate(() => {
     const ctx = window.__game.ctx, inv = ctx.inventory;
     const gem = ctx.loot.createItem('gem_amber');
-    const smg = ctx.loot.createItem('wpn_smg37');
+    const smg = ctx.loot.createItem('wpn_smg');
     const addedGem = inv.tryAddItem(gem);
     const addedSmg = inv.tryAddItem(smg);
     const equipped = inv.equip(smg.uid, 'primary2');
     inv.updateItem(smg.uid, { durability: 123, ammoInMag: 5 });
     return { addedGem, addedSmg, equipped, primary2: inv.getLoadout().primary2?.defId };
   });
-  ok(changed.addedGem && changed.addedSmg && changed.equipped && changed.primary2 === 'wpn_smg37', 'gem_amber into the bag, SMG equipped as 주무기 II', JSON.stringify(changed));
+  ok(changed.addedGem && changed.addedSmg && changed.equipped && changed.primary2 === 'wpn_smg', 'gem_amber into the bag, SMG equipped as 주무기 II', JSON.stringify(changed));
   await waitSaved('hub', since);
   ok(true, 'debounced save after the ship change (reason hub)');
   file = await saveFile();
   const gemEntry = file?.bag.find((e) => e.defId === 'gem_amber');
-  ok(file?.slots.primary2?.defId === 'wpn_smg37' && file.slots.primary2.durability === 123 && file.slots.primary2.ammoInMag === 5, 'save carries the SMG with durability 123 / 5 rounds', JSON.stringify(file?.slots.primary2));
+  ok(file?.slots.primary2?.defId === 'wpn_smg' && file.slots.primary2.durability === 123 && file.slots.primary2.ammoInMag === 5, 'save carries the SMG with durability 123 / 5 rounds', JSON.stringify(file?.slots.primary2));
   ok(gemEntry && Number.isInteger(gemEntry.x) && Number.isInteger(gemEntry.y) && typeof gemEntry.rotated === 'boolean', 'save carries the gem with its cell + rotation', JSON.stringify(gemEntry));
   const grenadeIdx = file?.bag.findIndex((e) => e.defId === 'grenade_frag');
-  ok(file?.quick[0] === grenadeIdx && file.quick[4] === file.bag.findIndex((e) => e.defId === 'stim'), 'quick slots saved as bag indices (N grenade, S stim)', JSON.stringify(file?.quick));
+  ok(file?.quick[0] === grenadeIdx && file.quick[4] === file.bag.findIndex((e) => e.defId === 'heal_bandage'), 'quick slots saved as bag indices (N grenade, S stim)', JSON.stringify(file?.quick));
   const before = await snapshot();
   await reload();
   const restored = await snapshot();
-  ok(restored.slots.primary2?.defId === 'wpn_smg37' && restored.bag.some((i) => i.defId === 'gem_amber'), 'reload: the save is restored at init (before any hub entry)', JSON.stringify(restored.slots));
+  ok(restored.slots.primary2?.defId === 'wpn_smg' && restored.bag.some((i) => i.defId === 'gem_amber'), 'reload: the save is restored at init (before any hub entry)', JSON.stringify(restored.slots));
   await enterHub();
   const after = await snapshot();
   ok(JSON.stringify(after) === JSON.stringify(before), 'reload + hub entry: slots / bag placements / quick slots identical', `${JSON.stringify(after)} vs ${JSON.stringify(before)}`);
   ok(after.slots.primary2?.durability === 123 && after.slots.primary2.ammoInMag === 5, 'durability / rounds restored on the SMG');
   const announced = await ev('loadout:changed');
-  ok(announced.length > 0 && announced[announced.length - 1].primary2?.defId === 'wpn_smg37', 'hub:entered announced the restored loadout (loadout:changed)', JSON.stringify(announced.length));
+  ok(announced.length > 0 && announced[announced.length - 1].primary2?.defId === 'wpn_smg', 'hub:entered announced the restored loadout (loadout:changed)', JSON.stringify(announced.length));
   const reasons = (await ev('inventory:loadoutSaved')).map((e) => e.reason);
   ok(!reasons.includes('starter'), 'no starter reset after the reload', JSON.stringify(reasons));
   const qs = await lastEv('inventory:quickSlotsChanged');
-  ok(qs && qs.slots[0]?.defId === 'grenade_frag' && qs.slots[4]?.defId === 'stim', 'inventory:quickSlotsChanged re-emitted with the restored slots', JSON.stringify(qs && qs.slots.map((s) => s && s.defId)));
+  ok(qs && qs.slots[0]?.defId === 'grenade_frag' && qs.slots[4]?.defId === 'heal_bandage', 'inventory:quickSlotsChanged re-emitted with the restored slots', JSON.stringify(qs && qs.slots.map((s) => s && s.defId)));
 
   /* ── 2. starter resets overwrite the save; game:complete saves ─────── */
   console.log('respawn / complete');
@@ -183,7 +193,7 @@ try {
   ok(file && !file.slots.primary2 && !file.bag.some((e) => e.defId === 'gem_amber'), 'the starter overwrote the save immediately', JSON.stringify(file && Object.keys(file.slots)));
   await reload();
   snap = await snapshot();
-  ok(snap.slots.primary?.defId === 'wpn_ar23' && snap.slots.primary2 === null && !snap.bag.some((i) => i.defId === 'gem_amber'), 'reload after the respawn: starter kept, lost bag not resurrected', JSON.stringify(snap.slots));
+  ok(snap.slots.secondary?.defId === 'wpn_hg' && snap.slots.primary2 === null && !snap.bag.some((i) => i.defId === 'gem_amber'), 'reload after the respawn: starter kept, lost bag not resurrected', JSON.stringify(snap.slots));
   // mission loot is saved on game:complete
   await startMission(6);
   since = await evCount('inventory:loadoutSaved');
@@ -203,17 +213,17 @@ try {
   const stashChangedBefore = await evCount('inventory:stashChanged');
   const toStash = await page.evaluate(() => {
     const ctx = window.__game.ctx, inv = ctx.inventory;
-    const scrap = ctx.loot.createItem('mat_scrap', 5);
+    const scrap = ctx.loot.createItem('mat_bio_sample', 5);
     const r = inv.tryAddToStash(scrap);
     const bogus = inv.tryAddToStash({ uid: 'x', defId: 'nope_def', qty: 1, rotated: false });
     return { r, bogus, n: inv.getStashItems().length, uid: scrap.uid, found: inv.findItemAnywhere(scrap.uid)?.defId ?? null, inBag: inv.findItem(scrap.uid) };
   });
   ok(toStash.r && !toStash.bogus && toStash.n === stashBefore + 1, 'tryAddToStash places a fresh stack (unknown def refused)', JSON.stringify(toStash));
   ok((await evCount('inventory:stashChanged')) > stashChangedBefore, 'inventory:stashChanged emitted');
-  ok(toStash.found === 'mat_scrap' && toStash.inBag === null, 'findItemAnywhere finds the stash item (findItem does not)');
+  ok(toStash.found === 'mat_bio_sample' && toStash.inBag === null, 'findItemAnywhere finds the stash item (findItem does not)');
   await sleep(600);
   const stashFile = await page.evaluate(() => JSON.parse(localStorage.getItem('scav.stash') ?? 'null'));
-  ok(stashFile && stashFile.items.some((e) => e.defId === 'mat_scrap' && e.qty === 5), 'stash persisted (scav.stash) after tryAddToStash', JSON.stringify(stashFile?.items?.length));
+  ok(stashFile && stashFile.items.some((e) => e.defId === 'mat_bio_sample' && e.qty === 5), 'stash persisted (scav.stash) after tryAddToStash', JSON.stringify(stashFile?.items?.length));
   const anywhere = await page.evaluate(() => {
     const ctx = window.__game.ctx, inv = ctx.inventory;
     const first = inv.tryAddItemAnywhere(ctx.loot.createItem('gem_amber'));
@@ -238,16 +248,16 @@ try {
   const take = await page.evaluate((stashUid) => {
     const ctx = window.__game.ctx, inv = ctx.inventory;
     const bagGem = inv.getAllItems().find((i) => i.defId === 'gem_amber');
-    const ammo = inv.getAllItems().find((i) => i.defId === 'ammo_medium' && i.qty >= 20);
+    const ammo = inv.getAllItems().find((i) => i.defId === 'ammo_light' && i.qty >= 20);
     const ammoBefore = ammo?.qty ?? 0;
     const partial = ammo ? inv.takeItem(ammo.uid, 10) : -1;
     const ammoAfter = ammo ? inv.findItem(ammo.uid)?.qty ?? 0 : 0;
     const whole = bagGem ? inv.takeItem(bagGem.uid) : -1;
     const gemGone = bagGem ? inv.findItemAnywhere(bagGem.uid) === null : false;
-    const stashScrap = inv.getStashItems().find((i) => i.defId === 'mat_scrap');
+    const stashScrap = inv.getStashItems().find((i) => i.defId === 'mat_bio_sample');
     const fromStash = stashScrap ? inv.takeItem(stashScrap.uid, 2) : -1;
     const stashAfter = stashScrap ? inv.findItemAnywhere(stashScrap.uid)?.qty ?? 0 : 0;
-    const equipped = inv.takeItem(inv.getLoadout().primary.uid);
+    const equipped = inv.takeItem(inv.getLoadout().secondary.uid);
     const unknown = inv.takeItem('no-such-uid');
     const zero = ammo ? inv.takeItem(ammo.uid, 0) : -1;
     const stashGem = inv.takeItem(stashUid);
@@ -263,15 +273,15 @@ try {
     const inv = window.__game.ctx.inventory;
     const stim = inv.getQuickSlots()[4];
     const n = stim ? inv.takeItem(stim.uid) : -1;
-    return { n, slot: inv.getQuickSlots()[4], stims: inv.countWhere((d) => d.id === 'stim') };
+    return { n, slot: inv.getQuickSlots()[4], stims: inv.countWhere((d) => d.id === 'heal_bandage') };
   });
   ok(quickTake.n === 2 && quickTake.slot === null && quickTake.stims === 0, 'taking the quick-slotted stim stack clears wheel slot S', JSON.stringify(quickTake));
   const foundAll = await page.evaluate(() => {
     const inv = window.__game.ctx.inventory;
     const l = inv.getLoadout();
-    return { eq: inv.findItemAnywhere(l.primary.uid)?.defId, bag: inv.findItemAnywhere(inv.getAllItems()[0].uid)?.defId, none: inv.findItemAnywhere('nope') };
+    return { eq: inv.findItemAnywhere(l.secondary.uid)?.defId, bag: inv.findItemAnywhere(inv.getAllItems()[0].uid)?.defId, none: inv.findItemAnywhere('nope') };
   });
-  ok(foundAll.eq === 'wpn_ar23' && !!foundAll.bag && foundAll.none === null, 'findItemAnywhere: equipped / bag / unknown', JSON.stringify(foundAll));
+  ok(foundAll.eq === 'wpn_hg' && !!foundAll.bag && foundAll.none === null, 'findItemAnywhere: equipped / bag / unknown', JSON.stringify(foundAll));
 
   /* ── 4. inventory:containerOpened {first} ──────────────────────────── */
   console.log('containerOpened');

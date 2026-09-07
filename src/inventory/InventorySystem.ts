@@ -5,7 +5,7 @@ import type {
   EmbeddedView, TradeGridsViewOptions,
 } from '@/shared';
 import { BAG_DEFAULT_COLS, BAG_DEFAULT_QUICK_SLOTS, BAG_DEFAULT_ROWS, Keys, QUICK_SLOTS, SEARCH_MAX_DISTANCE, SOCKET_SLOTS, isQuickSlotActive } from '@/shared';
-import { AMMO_LABEL_KO, ITEM_DEF_MAP, LootService, STARTER_LOADOUT, ammoItemIdFor, getRecipe, isWeaponItemDef, itemWeight } from '@/items';
+import { AMMO_LABEL_KO, ITEM_DEF_MAP, LootService, STARTER_LOADOUT, STARTER_STASH, ammoItemIdFor, getRecipe, isWeaponItemDef, itemWeight } from '@/items';
 import { durabilityInfo, gearMultipliers, makeWeightInfo, searchTimeFor, sumWeight } from './Gear';
 import { Grid, OOB, type Placement, type PriorityPlacement } from './Grid';
 import { Container, ContainerStore } from './Container';
@@ -164,6 +164,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
    * kit and the startup stash resize must never beat a real server profile.
    */
   private freshSave = false;
+  /** 2026-09-07: `STARTER_STASH` was granted this session (a brand-new profile) → equip the minimum kit once. */
+  private firstRunGrant = false;
   private ui: InventoryUI | null = null;
   private offs: Array<() => void> = [];
   private escHandler = (e: KeyboardEvent): void => {
@@ -195,6 +197,9 @@ export class InventorySystem implements GameSystem, InventoryRef {
         if ((cols !== this.stash.cols || rows !== this.stash.rows) && this.stash.resize(cols, rows)) this.withFreshSave(() => this.stash.flush());
       }
     }
+    // 2026-09-07: 기본 지급품 — a profile that has never had a stash gets `STARTER_STASH` once. Like the starter kit
+    // this is "no data", not an edit, so it goes up as a `fresh` document and a real server profile still wins.
+    if (this.stash.firstRun) { this.withFreshSave(() => this.grantStarterStash()); this.firstRunGrant = true; }
     // Phase 10: a take that arrives through the shared state (`cont sync`, or the pending map applied on the first
     // open) is a catch-up, not something happening in front of the player → `live: false`, no animation.
     this.containers.onTaken = (info) =>
@@ -228,7 +233,10 @@ export class InventorySystem implements GameSystem, InventoryRef {
       bus.on('net:profileLoaded', ({ profile }) => this.onProfileLoaded(profile)),
       bus.on('net:hostChanged', ({ isLocalHost }) => { if (!isLocalHost) this.requestContainerSync(); }),
       bus.on('hub:entered', () => {
-        if (this.isCompletelyEmpty()) {
+        // 2026-09-07: only the very first run (`STARTER_STASH` was just granted) and a player with nothing anywhere
+        // get the kit handed to them — a lost raid is re-equipped from the 함선 창고, not refilled for free.
+        if (this.isCompletelyEmpty() && (this.firstRunGrant || this.stash.count === 0)) {
+          this.firstRunGrant = false;
           // a fresh browser: the starter is "no data", not an edit — it goes up as a `fresh` document so a real server profile wins
           this.withFreshSave(() => this.applyStarter());
         } else if (this.announcePending) this.announceLoaded();
@@ -292,15 +300,17 @@ export class InventorySystem implements GameSystem, InventoryRef {
   /* ── reset policy ──────────────────────────────────────────────────────── */
 
   /**
-   * `world:ready`: first mission (no weapon anywhere) → starter kit; otherwise everything is kept and only the
-   * events every consumer needs (`loadout:changed`, counts, `inventory:changed`) are re-emitted.
+   * `world:ready`: the kit the player equipped in the ship is what they raid with (2026-09-07 — no automatic starter
+   * per mission any more). Only a player with nothing anywhere (loadout, bag **and** 함선 창고) gets the minimum kit
+   * so a lost run can never soft-lock the game; otherwise everything is kept and only the events every consumer needs
+   * (`loadout:changed`, counts, `inventory:changed`) are re-emitted.
    */
   private onWorldReady(seed: number): void {
     this.missionSeed = seed;
     this.outcome = 'none';
     this.closeAll();
     this.clearContainers();
-    if (!this.hasAnyWeapon()) { this.applyStarter(); return; }
+    if (this.isDestitute()) { this.applyStarter(); return; }
     this.lastGrenades = -1; this.lastStims = -1; this.lastQuickSig = '';
     if (this.announcePending) { this.announcePending = false; this.lastEquipUids = {}; this.lastWeight = null; }
     this.emitLoadout();
@@ -386,12 +396,12 @@ export class InventorySystem implements GameSystem, InventoryRef {
     this.afterChange();
   }
 
-  /** Legacy mission failure (Phase 2 death flow no longer emits it): everything is lost, back to the starter kit. */
+  /** Legacy mission failure (Phase 2 death flow no longer emits it): everything carried is lost (2026-09-07). */
   private onGameOver(): void {
     this.outcome = 'over';
     this.closeAll();
     this.clearContainers();
-    this.applyStarter();
+    this.loseKit();
   }
 
   /** Phase 2 death flow: the hellpod re-drop after `PLAYER_RESPAWN_DELAY` brings the starter kit (mission continues, crates keep their state). */
@@ -411,7 +421,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
     const outcome = this.outcome;
     this.outcome = 'none';
     if (outcome === 'complete' || outcome === 'over') return;
-    this.applyStarter();
+    this.loseKit();
   }
 
   private hasAnyWeapon(): boolean {
@@ -421,6 +431,51 @@ export class InventorySystem implements GameSystem, InventoryRef {
 
   private isCompletelyEmpty(): boolean {
     return LOADOUT_SLOTS.every((s) => !this.loadout[s]) && this.bag.isEmpty;
+  }
+
+  /** Nothing to raid with anywhere: no loadout, empty bag **and** an empty 함선 창고 (2026-09-07 safety net). */
+  private isDestitute(): boolean {
+    return this.isCompletelyEmpty() && this.stash.count === 0;
+  }
+
+  /**
+   * A failed / abandoned raid: everything the player carried is gone and they re-equip from the 함선 창고
+   * (2026-09-07). Only a player whose stash is empty too falls back to the minimum kit.
+   */
+  private loseKit(): void {
+    if (this.stash.count === 0) { this.applyStarter(); return; }
+    this.bag.clear();
+    this.loadout = { primary: null, primary2: null, secondary: null, bag: null, armor: null };
+    const size = this.bagSizeOf(null);
+    this.bag.resize(size.cols, size.rows);
+    this.quickSlots.fill(null);
+    this.lastGrenades = -1; this.lastStims = -1; this.lastQuickSig = '';
+    this.ctx.bus.emit('inventory:bagChanged', { ...size, dropped: [] });
+    this.emitLoadout();
+    this.afterChange();
+    this.announcePending = false;
+    this.loadoutStore.saveNow('starter');
+  }
+
+  /**
+   * 기본 지급품 (2026-09-07): `STARTER_STASH` into the 함선 창고, once per profile (`Stash.firstRun`). `stacks`
+   * splits an entry into that many full stacks — one 세트 per grid cell.
+   */
+  private grantStarterStash(): void {
+    for (const e of STARTER_STASH) {
+      const def = ITEM_DEF_MAP.get(e.id);
+      if (!def) { console.warn(`[Inventory] 기본 지급품 '${e.id}' has no def`); continue; }
+      for (let n = 0; n < Math.max(1, e.stacks ?? 1); n++) {
+        const qty = Math.max(1, Math.min(e.qty, def.stackMax));
+        if (!this.stash.grid.autoPlace(this.loot.createItem(e.id, qty))) {
+          console.warn(`[Inventory] 함선 창고가 가득 차 기본 지급품 '${e.id}'를 넣지 못했습니다`);
+          break;
+        }
+      }
+    }
+    this.stash.markDirty();
+    this.stash.flush();
+    this.ctx.bus.emit('inventory:stashChanged', { count: this.stash.count });
   }
 
   /** Wipe the bag + slots and apply `STARTER_LOADOUT` (`items[].qty` are units / rounds). */
@@ -1560,11 +1615,11 @@ export class InventorySystem implements GameSystem, InventoryRef {
     this.ctx.bus.emit('inventory:closed', {});
   }
 
-  /** Back to the starter kit (also closes windows and forgets rolled containers). */
+  /** Lose the carried kit (also closes windows and forgets rolled containers). */
   reset(): void {
     this.closeAll();
     this.clearContainers();
-    this.applyStarter();
+    this.loseKit();
   }
 
   /** Forget every rolled container, pending take and opened id (new mission / abort). */
@@ -1963,7 +2018,10 @@ export class InventorySystem implements GameSystem, InventoryRef {
     if (!save) return;
     if (InventorySystem.sameDoc(save, sanitizeLoadoutSave(this.captureLoadoutSave()))) return; // our own document
     if (isEmptyLoadoutSave(save)) {
-      if (this.ctx.isHubPhase() && !this.isCompletelyEmpty()) this.applyStarter();
+      // 2026-09-07: an empty server document must never wipe a kit the player is standing in — it only means the
+      // profile has no loadout yet. The local kit stays (and is uploaded); only a player with nothing anywhere is
+      // handed the minimum kit.
+      if (this.ctx.isHubPhase() && this.isDestitute()) this.applyStarter();
       return;
     }
     this.cancelCraft();

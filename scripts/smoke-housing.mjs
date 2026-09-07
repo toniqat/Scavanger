@@ -117,6 +117,8 @@ try {
   await page.evaluate(() => { localStorage.removeItem('scav.ship'); localStorage.removeItem('scav.stash'); });
   await page.reload({ waitUntil: 'load' });
   await setup();
+  // 2026-09-07: a fresh stash is granted the 기본 지급품 — empty it again so the material counts below are exact
+  await page.evaluate(() => { const st = window.__game.getSystem('inventory').getStash(); for (const p of st.items()) st.remove(p.item.uid); });
 
   console.log('fresh state');
   const st0 = await H(() => JSON.parse(JSON.stringify(window.__game.ctx.housing.state)));
@@ -287,7 +289,7 @@ try {
   ok(await H(() => window.__game.ctx.housing.getPresets().length === 3 && window.__game.ctx.housing.getPresets().every((p) => p === null)), 'getPresets → 3 empty slots');
   const cap = await H(() => (typeof window.__game.ctx.inventory.captureLoadout === 'function' ? window.__game.ctx.inventory.captureLoadout() : null));
   if (!cap) console.log('  TODO(lead): inventory.captureLoadout missing — saving a synthetic preset instead');
-  const saved = await H((c) => window.__game.ctx.housing.savePreset(1, c ?? { name: '테스트', primary: 'wpn_ar23', primary2: null, secondary: 'wpn_p2', bag: null, armor: null, implant: 'dash' }), cap ? { ...cap, name: '테스트' } : null);
+  const saved = await H((c) => window.__game.ctx.housing.savePreset(1, c ?? { name: '테스트', primary: 'wpn_ar', primary2: null, secondary: 'wpn_hg', bag: null, armor: null, implant: 'dash' }), cap ? { ...cap, name: '테스트' } : null);
   ok(saved === true, 'savePreset(1)');
   ok(await H(() => window.__game.ctx.housing.savePreset(3, { name: 'x', primary: null, primary2: null, secondary: null, bag: null, armor: null, implant: null }) === false), 'savePreset(3) refused (only 3 slots)');
   ok(await H(() => window.__game.ctx.housing.getPresets()[1]?.name === '테스트'), 'preset 1 stored with its name');

@@ -110,7 +110,7 @@ try {
   ok(r.rep === 0 && r.level === 0 && r.next === 100, 'helix rep 0 / Lv.0 / next 100', JSON.stringify(r));
   const shop0 = await P(() => window.__game.ctx.meta.getShop('helix'));
   ok(Array.isArray(shop0) && shop0.length === 0, 'getShop(helix) empty below SHOP_UNLOCK_REP_LEVEL', `${shop0.length}`);
-  ok(await P(() => window.__game.ctx.meta.priceOf('helix', 'wpn_ar23')) === null, 'priceOf null while the shop is closed');
+  ok(await P(() => window.__game.ctx.meta.priceOf('helix', 'wpn_ar')) === null, 'priceOf null while the shop is closed');
   ok(await P(() => window.__game.ctx.meta.activeContract) === null, 'no active contract');
   const loaded = await lastEv('meta:loaded');
   ok(loaded && loaded.credits === 500, 'meta:loaded {credits 500} emitted by resetMeta (the boot-time one fires before any listener)', JSON.stringify(loaded));
@@ -129,7 +129,7 @@ try {
     });
   });
   const ids1 = shop1.map((s) => s.id);
-  ok(shop1.length > 0 && ['wpn_ar23', 'wpn_smg37', 'wpn_p2', 'ammo_light', 'ammo_medium'].every((id) => ids1.includes(id)), 'Lv.1 shop lists AR I / SMG I / P-2 / 경량탄 / 준중량탄', ids1.join(','));
+  ok(shop1.length > 0 && ['wpn_ar', 'wpn_smg', 'wpn_hg', 'ammo_light', 'ammo_medium'].every((id) => ids1.includes(id)), 'Lv.1 shop lists AR I / SMG I / P-2 / 경량탄 / 준중량탄', ids1.join(','));
   ok(shop1.every((s) => s.rarity === 'common' || s.rarity === 'uncommon'), 'no rarity above the Lv.1 cap (uncommon)', shop1.filter((s) => s.rarity !== 'common' && s.rarity !== 'uncommon').map((s) => s.id).join(','));
   ok(shop1.every((s) => !s.unique), 'no unique weapons on the shelf');
   ok(shop1.every((s) => (s.cat === 'primary' && (s.cls === 'AR' || s.cls === 'SMG')) || (s.cat === 'secondary' && s.cls === 'PISTOL') || (s.cat === 'ammo' && (s.ammo === 'light' || s.ammo === 'medium'))), 'only helix stock rules match (AR/SMG, PISTOL, light/medium ammo)', JSON.stringify(shop1.filter((s) => !((s.cat === 'primary' && (s.cls === 'AR' || s.cls === 'SMG')) || (s.cat === 'secondary' && s.cls === 'PISTOL') || (s.cat === 'ammo' && (s.ammo === 'light' || s.ammo === 'medium')))).map((s) => s.id)));

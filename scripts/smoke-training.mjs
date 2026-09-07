@@ -229,6 +229,24 @@ try {
   console.log('shooting');
   await waitFor(page, () => window.__game.ctx.phase === 'playing', 'phase playing (drop-in)');
   await waitSim(0.5);
+  // 2026-09-07: the starter kit is 권총 only — take a 돌격소총 + 준중량탄 into the training so the shots below land
+  const armed = await P(() => {
+    const ctx = window.__game.ctx, inv = ctx.inventory;
+    let equipped = true;
+    if (!inv.getLoadout().primary) {
+      // the furniture-material section above filled the 5×3 bagless grid — clear it, put a 가방 on, then the 돌격소총
+      for (const it of [...inv.getAllItems()]) inv.takeItem(it.uid);
+      const b = ctx.loot.createItem('bag_common');
+      equipped = inv.tryAddItem(b) && inv.equip(b.uid, 'bag');
+      const g = ctx.loot.createItem('wpn_ar');
+      equipped = equipped && inv.tryAddItem(g) && inv.equip(g.uid, 'primary');
+      inv.tryAddItem(ctx.loot.createItem('ammo_medium', 50));
+    }
+    return { equipped, primary: inv.getLoadout().primary?.defId ?? null };
+  });
+  ok(armed.equipped && armed.primary === 'wpn_ar', `돌격소총 I equipped for the shooting checks (${JSON.stringify(armed)})`);
+  await tap('Digit1');
+  await waitSim(1.2);
   // stand 10 m behind target 0 facing −Z, then shift so the over-the-shoulder camera ray passes through the board
   const aim = await P(() => {
     const ctx = window.__game.ctx, p = ctx.player;
@@ -435,11 +453,11 @@ try {
   // a weapon taken from the rack must not survive the exit restore (game/ snapshot)
   const granted = await tr(() => {
     const ctx = window.__game.ctx;
-    const inst = ctx.loot.createItem('wpn_ar23_g3', 1);
+    const inst = ctx.loot.createItem('wpn_ar_g3', 1);
     const added = ctx.inventory.tryAddItem(inst);
     if (typeof ctx.inventory.closeCatalog === 'function') ctx.inventory.closeCatalog();
     if (ctx.inventory.isOpen) ctx.inventory.toggleBag();
-    return { added, uid: inst.uid, count: ctx.inventory.countDefAll('wpn_ar23_g3'), blockers: [...ctx.uiBlockers] };
+    return { added, uid: inst.uid, count: ctx.inventory.countDefAll('wpn_ar_g3'), blockers: [...ctx.uiBlockers] };
   });
   ok(granted.added && granted.count >= 1 && granted.blockers.length === 0, `rack weapon in the bag for the rest of the training (${granted.count}), catalog closed`);
 
@@ -473,7 +491,7 @@ try {
   ok(!after.worldReady && !after.arena && !after.exit && after.obstacles === 0, 'arena disposed: world not ready, group removed, exit console unregistered, hash empty');
   ok(after.cleared >= 1 && after.entered >= 2, `world:cleared (${after.cleared}) + hub:entered (${after.entered})`);
   ok(after.space === true, 'space mode back on for the ship');
-  const restored = await P((uid) => ({ count: window.__game.ctx.inventory.countDefAll('wpn_ar23_g3'), item: !!window.__game.ctx.inventory.findItemAnywhere(uid), training: window.__game.ctx.world?.training ?? null }), granted.uid);
+  const restored = await P((uid) => ({ count: window.__game.ctx.inventory.countDefAll('wpn_ar_g3'), item: !!window.__game.ctx.inventory.findItemAnywhere(uid), training: window.__game.ctx.world?.training ?? null }), granted.uid);
   ok(restored.count === 0 && !restored.item, `rack weapon gone after the exit restore (${restored.count})`);
   ok(restored.training === null, 'ctx.world.training null outside the arena');
 

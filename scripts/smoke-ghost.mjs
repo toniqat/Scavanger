@@ -210,10 +210,10 @@ try {
   ok(av1.shown && av1.held === 'grenade_frag' && av1.kids.some((n) => n === 'HeldItem:grenade'), 'held grenade → sphere mesh in the hand', JSON.stringify(av1));
   ok(av1.throw > 0.6, 'THROWING → wind-up pose', String(av1.throw));
   ok(av1.events.some((e) => e.id === 'dbg-a' && e.defId === 'grenade_frag'), 'net:remoteHeldItem emitted', JSON.stringify(av1.events));
-  await P((pf) => { window.__refA.flags = pf.HOLDING_ITEM | pf.COOKING; window.__refA.heldItemId = 'stim'; }, PF);
+  await P((pf) => { window.__refA.flags = pf.HOLDING_ITEM | pf.COOKING; window.__refA.heldItemId = 'heal_bandage'; }, PF);
   await waitSim(0.6);
   const av2 = await P(() => { const av = window.__rp.getAvatar('dbg-a'); return { held: av.heldItemId, kids: av.weaponSocket.children.map((c) => c.name), cooking: av.poseView.cooking, throw: av.poseView.throw }; });
-  ok(av2.held === 'stim' && av2.kids.some((n) => n === 'HeldItem:stim') && !av2.kids.some((n) => n === 'HeldItem:grenade'), 'held stim → cylinder replaces the grenade', JSON.stringify(av2));
+  ok(av2.held === 'heal_bandage' && av2.kids.some((n) => n === 'HeldItem:stim') && !av2.kids.some((n) => n === 'HeldItem:grenade'), 'held stim → cylinder replaces the grenade', JSON.stringify(av2));
   ok(av2.cooking > 0.6 && av2.throw < 0.2, 'COOKING → pin-pull pose', JSON.stringify(av2));
   await P((pf) => { window.__refA.flags = pf.HAS_WEAPON | pf.CHARGING; window.__refA.heldItemId = null; }, PF);
   await waitSim(0.6);

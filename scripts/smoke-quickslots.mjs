@@ -91,19 +91,27 @@ try {
   console.log('starter kit');
   await page.evaluate(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
   await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub phase');
+  // the relay's profile document lands a moment after the hub entry and rebuilds the bag with fresh uids — wait
+  // for it (or time out when no relay is running) so the uids captured below stay valid
+  await page.evaluate(() => new Promise((res) => {
+    let off = null;
+    const done = () => { if (off) off(); res(true); };
+    off = window.__game.ctx.bus.on('net:profileLoaded', () => setTimeout(done, 150));
+    setTimeout(done, 2500);
+  }));
   let s = await slots();
   ok(s.length === 8, 'getQuickSlots() has 8 entries');
-  ok(s[0]?.defId === 'grenade_frag' && s[0].qty === 2, 'starter: grenades in slot 0 (N)', JSON.stringify(s[0]));
+  ok(s[0]?.defId === 'grenade_frag' && s[0].qty === 3, 'starter: grenades in slot 0 (N)', JSON.stringify(s[0]));
   const active = await page.evaluate(() => window.__game.ctx.inventory.getQuickSlotCount());
   ok(active === 2, 'starter bag_common → 2 usable slots', String(active));
-  ok(s[4]?.defId === 'stim' && s[1] === null, 'starter: stims in slot 4 (S) — N + S are the first two unlocks', JSON.stringify(s));
+  ok(s[4]?.defId === 'heal_bandage' && s[1] === null, 'starter: stims in slot 4 (S) — N + S are the first two unlocks', JSON.stringify(s));
   let q = await lastEv('inventory:quickSlotsChanged');
   ok(q && q.active === 2 && q.slots.length === 8 && q.slots[0]?.defId === 'grenade_frag', 'inventory:quickSlotsChanged emitted with {slots, active}');
 
   console.log('setQuickSlot / consumeItem');
-  const [stim] = await bagDef('stim');
+  const [stim] = await bagDef('heal_bandage');
   const [nade] = await bagDef('grenade_frag');
-  const [ammo] = await bagDef('ammo_medium');
+  const [ammo] = await bagDef('ammo_light');
   let r = await page.evaluate((u) => window.__game.ctx.inventory.setQuickSlot(2, u), stim.uid);
   ok(r === false, 'setQuickSlot into a locked slot (E, 3rd unlock) refused');
   r = await page.evaluate((u) => window.__game.ctx.inventory.setQuickSlot(0, u), ammo.uid);
@@ -135,39 +143,46 @@ try {
   s = await slots();
   ok(r === true && s[4] === null && s.every((x) => x === null), 'dropItem clears the grenade slot', JSON.stringify(s));
   // sibling relink: two stim stacks, consume the assigned one to 0 → slot follows the other stack
-  await page.evaluate(() => { const inv = window.__game.ctx.inventory; inv.tryAddItem(window.__game.ctx.loot.createItem('stim', 1)); inv.tryAddItem(window.__game.ctx.loot.createItem('grenade_frag', 1)); });
-  const stims = await bagDef('stim');
+  await page.evaluate(() => { const inv = window.__game.ctx.inventory; inv.tryAddItem(window.__game.ctx.loot.createItem('heal_bandage', 1)); inv.tryAddItem(window.__game.ctx.loot.createItem('grenade_frag', 1)); });
+  const stims = await bagDef('heal_bandage');
   ok(stims.length === 1, 'one stim stack in the bag again');
-  await page.evaluate(() => { const inv = window.__game.ctx.inventory; const it = window.__game.ctx.loot.createItem('stim', 3); inv.tryAddItem(it); });
-  const stims2 = await bagDef('stim');
-  ok(stims2.length === 2, 'two stim stacks (1 + 3)', JSON.stringify(stims2));
-  const small = stims2.find((x) => x.qty === 1), big = stims2.find((x) => x.qty === 3);
+  // top the existing stack up to stackMax and leave exactly 1 in a second stack, whatever the starter left behind
+  const bandageMax = await page.evaluate(() => window.__game.ctx.loot.getItemDef('heal_bandage').stackMax);
+  await page.evaluate((n) => { const inv = window.__game.ctx.inventory; inv.tryAddItem(window.__game.ctx.loot.createItem('heal_bandage', n)); }, bandageMax - stims[0].qty + 1);
+  const stims2 = await bagDef('heal_bandage');
+  ok(stims2.length === 2, `two 붕대 stacks (${bandageMax} + 1)`, JSON.stringify(stims2));
+  const small = stims2.find((x) => x.qty === 1), big = stims2.find((x) => x.qty === bandageMax);
   await page.evaluate((u) => window.__game.ctx.inventory.setQuickSlot(4, u), small.uid);
   await page.evaluate((u) => window.__game.ctx.inventory.consumeItem(u, 1), small.uid);
   s = await slots();
   ok(s[4]?.uid === big.uid, 'consumed-to-0 stack hands its slot to the sibling stim stack', JSON.stringify(s[1]));
 
-  console.log('reset → starter auto-assign');
+  console.log('reset → 장비 상실 / respawn → starter auto-assign');
+  // 2026-09-07: reset() = a lost raid. With items in the 함선 창고 the kit is **not** refilled — it is emptied and
+  // the player re-equips from the 창고; only the hellpod respawn still hands out the minimum kit.
   await page.evaluate(() => window.__game.ctx.inventory.reset());
   s = await slots();
-  ok(s[0]?.defId === 'grenade_frag' && s[4]?.defId === 'stim', 'reset() re-applies N grenade / S stim');
+  const lost = await page.evaluate(() => { const inv = window.__game.ctx.inventory; return { slots: inv.getQuickSlots().map((x) => x?.defId ?? null), items: inv.getAllItems().length, primary: inv.getLoadout().primary?.defId ?? null, stash: inv.getStashItems ? inv.getStashItems().length : -1 }; });
+  ok(lost.items === 0 && lost.primary === null && lost.slots.every((x) => x === null), 'reset() with a stocked 창고 empties the kit instead of refilling it', JSON.stringify(lost));
   await page.evaluate((u) => window.__game.ctx.inventory.setQuickSlot(0, null), null);
   await page.evaluate(() => window.__game.ctx.bus.emit('player:respawn', { position: window.__game.ctx.player.position.clone().set(0, 0, 0) }));
   s = await slots();
-  ok(s[0]?.defId === 'grenade_frag' && s[4]?.defId === 'stim', 'player:respawn re-applies the starter kit + auto-assign');
+  ok(s[0]?.defId === 'grenade_frag' && s[4]?.defId === 'heal_bandage', 'player:respawn re-applies the starter kit + auto-assign');
   // bag swap: legendary tactical bag → 8 usable; back to no bag → 1 usable, assignments beyond it kept
   await page.evaluate(() => { const inv = window.__game.ctx.inventory; const b = window.__game.ctx.loot.createItem('bag_epic_tac'); inv.tryAddItem(b); inv.equip(b.uid, 'bag'); });
   ok((await page.evaluate(() => window.__game.ctx.inventory.getQuickSlotCount())) === 8, 'bag_epic_tac → 8 usable slots');
   q = await lastEv('inventory:quickSlotsChanged');
   ok(q.active === 8, 'quickSlotsChanged re-emitted with active 8 on bag change');
-  const [stimA] = await bagDef('stim');
+  const [stimA] = await bagDef('heal_bandage');
   ok(await page.evaluate((u) => window.__game.ctx.inventory.setQuickSlot(7, u), stimA.uid), 'stim into slot 7 (NW) now allowed');
   await page.evaluate(() => window.__game.ctx.inventory.equip(null, 'bag'));
   s = await slots();
   const cnt = await page.evaluate(() => window.__game.ctx.inventory.getQuickSlotCount());
-  const stillThere = await bagDef('stim');
+  const stillThere = await bagDef('heal_bandage');
   ok(cnt === 1 && (stillThere.length === 0 ? s[7] === null : s[7]?.uid === stimA.uid), 'unequipping the bag → 1 usable; slot 7 keeps its item while it stays in the bag (cleared if it overflowed)', JSON.stringify({ cnt, s7: s[7], stillThere }));
-  await page.evaluate(() => window.__game.ctx.inventory.reset());
+  // 2026-09-07: reset() only empties the kit now — the hellpod respawn is what hands the starter kit back
+  await page.evaluate(() => window.__game.ctx.bus.emit('player:respawn', { position: window.__game.ctx.player.position.clone() }));
+  await sleep(150);
 
   console.log('bag window (real mouse)');
   await page.evaluate(() => window.__game.ctx.inventory.toggleBag());
@@ -182,7 +197,7 @@ try {
   const roseOrder = await page.evaluate(() => [...document.querySelector('.inv-quick-rose').children].map((c) => c.dataset.index ?? 'c').join(','));
   ok(roseOrder === '7,0,1,6,c,2,5,4,3', 'rose DOM order NW,N,NE / W,centre,E / SW,S,SE', roseOrder);
   // drag the stim tile from the bag grid onto cell 0 → stim moves to N, grenade unassigned
-  const [stimB] = await bagDef('stim');
+  const [stimB] = await bagDef('heal_bandage');
   const [nadeB] = await bagDef('grenade_frag');
   const stimTile = await centre(`.inv-grid-bag .inv-tile[data-uid="${stimB.uid}"]`);
   const cell0 = await centre('.inv-quick-cell[data-index="0"]');
@@ -218,10 +233,10 @@ try {
   const c1tile = await centre('.inv-quick-cell[data-index="4"] .inv-tile');
   await dragMouse(c1tile, { x: 40, y: 40 });
   s = await slots();
-  const stimStill = await bagDef('stim');
+  const stimStill = await bagDef('heal_bandage');
   ok(s[4] === null && stimStill.length === 1 && (await ev('inventory:itemDropped')).length === droppedBefore, 'cell dragged to the backdrop clears the slot; the stim stays in the bag', JSON.stringify(s));
   // drag a non-usable item (ammo) onto cell 0 → red target, refused
-  const [ammoB] = await bagDef('ammo_medium');
+  const [ammoB] = await bagDef('ammo_light');
   await dragMouse(await centre(`.inv-grid-bag .inv-tile[data-uid="${ammoB.uid}"]`), cell0);
   s = await slots();
   ok(s[0] === null, 'ammo onto a cell refused', JSON.stringify(s));

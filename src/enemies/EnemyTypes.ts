@@ -118,8 +118,8 @@ export const ROGUE_AI = {
   /** boss burst */
   bossRounds: 6, bossDamageMul: 1.6,
   /** rifles handed to guards / the boss (item def ids of items/WeaponDefs) */
-  weapons: ['ar23', 'smg37', 'sg8', 'r63', 'las16'] as readonly string[],
-  bossWeapon: 'r63',
+  weapons: ['ar', 'smg', 'sg', 'dmr'] as readonly string[],
+  bossWeapon: 'dmr',
   /** hitscan range (m) */
   range: 90,
 };

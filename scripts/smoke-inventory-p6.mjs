@@ -114,14 +114,14 @@ try {
       hidden: panel.hidden, tiles: items.length, tabs: [...panel.querySelectorAll('.inv-cat-tab')].map((b) => b.textContent),
       onTab: panel.querySelector('.inv-cat-tab.is-on')?.textContent, search: !!panel.querySelector('.inv-cat-search'),
       leftOfStash: first.right <= stash.left + 4, hub: root.classList.contains('is-hub'),
-      weaponGrades: items.filter((n) => n.dataset.def.startsWith('wpn_ar23')).length,
+      weaponGrades: items.filter((n) => n.dataset.def.startsWith('wpn_ar')).length,
       count: panel.querySelector('.inv-cat-count').textContent,
     };
   });
   ok(!cat.hidden && cat.tiles === defCount, `one tile per item def (${cat.tiles} / ${defCount})`, JSON.stringify(cat));
   ok(cat.tabs[0] === '전체' && cat.tabs.includes('무기') && cat.tabs.includes('탄약') && cat.tabs.includes('부착물') && cat.tabs.includes('가방') && cat.tabs.includes('방탄복') && cat.tabs.includes('가젯') && cat.tabs.includes('소모품') && cat.tabs.includes('재료') && cat.tabs.includes('약초'), `category tabs: ${cat.tabs.join(' ')}`);
   ok(cat.onTab === '전체' && cat.search, '전체 tab active, search box present');
-  ok(cat.weaponGrades >= 5, `every weapon grade is its own tile (ar23 ×${cat.weaponGrades})`);
+  ok(cat.weaponGrades >= 5, `every weapon grade is its own tile (돌격소총 ×${cat.weaponGrades})`);
   ok(cat.hub && cat.leftOfStash, 'catalog sits left of the stash in the ship screen');
 
   // tabs: 무기 shows only primary / secondary defs
@@ -136,15 +136,15 @@ try {
   // search: Korean substring on the name
   await page.evaluate(() => [...document.querySelectorAll('.inv-cat-tab')].find((b) => b.textContent === '전체').click());
   await page.focus('.inv-cat-search');
-  await page.keyboard.type('스팀');
+  await page.keyboard.type('붕대');
   await sleep(120);
   const search = await page.evaluate(() => ({
     shown: [...document.querySelectorAll('.inv-panel-catalog .inv-cat-item')].map((n) => n.dataset.def),
     names: [...document.querySelectorAll('.inv-panel-catalog .inv-cat-cap')].map((n) => n.textContent),
     open: window.__game.ctx.inventory.isOpen, value: document.querySelector('.inv-cat-search').value,
   }));
-  ok(search.shown.length >= 2 && search.names.every((n) => n.includes('스팀')), `search '스팀' → ${search.shown.join(', ')}`, JSON.stringify(search));
-  ok(search.open && search.value === '스팀', 'typing in the search box never reached the game (window still open)');
+  ok(search.shown.length >= 2 && search.names.every((n) => n.includes('붕대')), `search '붕대' → ${search.shown.join(', ')}`, JSON.stringify(search));
+  ok(search.open && search.value === '붕대', 'typing in the search box never reached the game (window still open)');
   await page.evaluate(() => { const i = document.querySelector('.inv-cat-search'); i.value = ''; i.dispatchEvent(new Event('input')); i.blur(); });
   await sleep(80);
   ok((await page.evaluate(() => document.querySelectorAll('.inv-panel-catalog .inv-cat-item').length)) === defCount, 'clearing the search shows every def again');
@@ -174,28 +174,36 @@ try {
   ok(await page.evaluate(() => !!document.querySelector('.inv-cat-item[data-def="mat_scrap"] .inv-tile')), 'catalog tile stays after the drag (infinite stock)');
   // drag into the stash creates the item there
   const stashBefore = await page.evaluate(() => window.__game.getSystem('inventory').getStashItems().length);
+  const alloyBefore = await page.evaluate(() => window.__game.getSystem('inventory').getStashItems().filter((i) => i.defId === 'mat_alloy').reduce((n, i) => n + i.qty, 0));
   const alloyTile = await centre('.inv-cat-item[data-def="mat_alloy"] .inv-tile');
-  const stashCell = await page.evaluate(() => { const r = document.querySelector('.inv-grid-stash').getBoundingClientRect(); return { x: r.left + 27, y: r.top + 27 }; });
+  // 2026-09-07: the 기본 지급품 fills the first stash cells — aim at the first free one instead of (0,0)
+  const stashCell = await page.evaluate(() => {
+    const g = window.__game.getSystem('inventory').getStash();
+    const r = document.querySelector('.inv-grid-stash').getBoundingClientRect();
+    for (let y = 0; y < g.rows; y++) for (let x = 0; x < g.cols; x++) if (!g.cellUid(x, y)) return { x: r.left + x * 56 + 27, y: r.top + y * 56 + 27 };
+    return { x: r.left + 27, y: r.top + 27 };
+  });
   await dragMouse(alloyTile, stashCell);
-  const stashAfter = await page.evaluate(() => { const s = window.__game.getSystem('inventory').getStashItems(); return { n: s.length, alloy: s.find((i) => i.defId === 'mat_alloy')?.qty ?? 0 }; });
-  ok(stashAfter.n === stashBefore + 1 && stashAfter.alloy > 0, `mouse drag into the stash created 합금 판 (${stashAfter.alloy})`);
+  const stashAfter = await page.evaluate(() => { const s = window.__game.getSystem('inventory').getStashItems(); return { n: s.length, alloy: s.filter((i) => i.defId === 'mat_alloy').reduce((n, i) => n + i.qty, 0) }; });
+  // 2026-09-07: the 기본 지급품 already put 합금 판 in the 창고, so the drag merges into that stack instead of adding a tile
+  ok(stashAfter.n === stashBefore + 1 && stashAfter.alloy > alloyBefore, `mouse drag into the stash created a 합금 판 stack (${alloyBefore} → ${stashAfter.alloy})`);
   // drag a weapon onto the 주무기 II slot equips a fresh instance
   await page.evaluate(() => [...document.querySelectorAll('.inv-cat-tab')].find((b) => b.textContent === '무기').click());
-  const gunTile = await centre('.inv-cat-item[data-def="wpn_ar23_g3"] .inv-tile');
+  const gunTile = await centre('.inv-cat-item[data-def="wpn_ar_g3"] .inv-tile');
   const slot2 = await centre('.inv-slot-primary2 .inv-slot-body');
   await dragMouse(gunTile, slot2);
   const p2 = await page.evaluate(() => { const l = window.__game.ctx.inventory.getLoadout(); return l.primary2 ? { id: l.primary2.defId, dur: l.primary2.durability, mag: l.primary2.ammoInMag } : null; });
-  ok(p2 && p2.id === 'wpn_ar23_g3' && p2.dur > 0 && p2.mag > 0, `drag onto 주무기 II equipped a loaded AR III (${JSON.stringify(p2)})`);
+  ok(p2 && p2.id === 'wpn_ar_g3' && p2.dur > 0 && p2.mag > 0, `drag onto 주무기 II equipped a loaded AR III (${JSON.stringify(p2)})`);
   // double-click → into the bag
   await page.evaluate(() => [...document.querySelectorAll('.inv-cat-tab')].find((b) => b.textContent === '소모품').click());
-  const stimTile = await centre('.inv-cat-item[data-def="stim"] .inv-tile');
-  const stimBefore = await page.evaluate(() => window.__game.ctx.inventory.countWhere((d) => d.id === 'stim'));
+  const stimTile = await centre('.inv-cat-item[data-def="heal_bandage"] .inv-tile');
+  const stimBefore = await page.evaluate(() => window.__game.ctx.inventory.countWhere((d) => d.id === 'heal_bandage'));
   await page.mouse.click(stimTile.x, stimTile.y);
   await sleep(80);
   await page.mouse.click(stimTile.x, stimTile.y);
   await sleep(150);
-  const stimAfter = await page.evaluate(() => window.__game.ctx.inventory.countWhere((d) => d.id === 'stim'));
-  ok(stimAfter > stimBefore, `double-click put 스팀 into the bag (${stimBefore} → ${stimAfter})`);
+  const stimAfter = await page.evaluate(() => window.__game.ctx.inventory.countWhere((d) => d.id === 'heal_bandage'));
+  ok(stimAfter > stimBefore, `double-click put 붕대 into the bag (${stimBefore} → ${stimAfter})`);
   // Esc closes the whole window incl. the catalog
   await tap('Escape');
   await waitFor(page, () => !window.__game.ctx.inventory.isOpen, 'window closed');
@@ -270,24 +278,25 @@ try {
   const preset = await page.evaluate(() => {
     const ctx = window.__game.ctx, i = ctx.inventory, sys = window.__game.getSystem('inventory');
     // put an SMG and armor II in the stash, then capture the current kit
-    sys.getStash().autoPlace(ctx.loot.createItem('wpn_smg37'));
+    sys.getStash().autoPlace(ctx.loot.createItem('wpn_smg'));
     const armorDef = ctx.loot.getAllItemDefs().find((d) => d.category === 'armor');
     if (armorDef) sys.getStash().autoPlace(ctx.loot.createItem(armorDef.id));
     const cap = i.captureLoadout();
-    return { cap, armor: armorDef?.id ?? null, smg: !!ctx.loot.getItemDef('wpn_smg37') };
+    return { cap, armor: armorDef?.id ?? null, smg: !!ctx.loot.getItemDef('wpn_smg') };
   });
-  ok(preset.cap && preset.cap.primary === 'wpn_ar23' && preset.cap.primary2 === 'wpn_ar23_g3' && preset.cap.secondary === 'wpn_p2' && preset.cap.bag === 'bag_common', `captureLoadout reflects the current kit (${JSON.stringify(preset.cap)})`);
+  // 2026-09-07: the starter equips no 주무기 I — the AR III dragged onto 주무기 II above is the captured primary2
+  ok(preset.cap && preset.cap.primary === null && preset.cap.primary2 === 'wpn_ar_g3' && preset.cap.secondary === 'wpn_hg' && preset.cap.bag === 'bag_common', `captureLoadout reflects the current kit (${JSON.stringify(preset.cap)})`);
   const applied = await page.evaluate((p) => {
     const ctx = window.__game.ctx, i = ctx.inventory;
-    const r = i.applyLoadout({ name: 't', primary: 'wpn_smg37', primary2: 'wpn_does_not_exist', secondary: null, bag: null, armor: p.armor, implant: 'dash' });
+    const r = i.applyLoadout({ name: 't', primary: 'wpn_smg', primary2: 'wpn_does_not_exist', secondary: null, bag: null, armor: p.armor, implant: 'dash' });
     const l = i.getLoadout();
-    const stashHasAr3 = window.__game.getSystem('inventory').getStashItems().some((x) => x.defId === 'wpn_ar23_g3');
-    const bagHasAr3 = i.getAllItems().some((x) => x.defId === 'wpn_ar23_g3');
-    return { r, primary: l.primary?.defId, primary2: l.primary2?.defId ?? null, secondary: l.secondary?.defId, armor: l.armor?.defId ?? null, implant: ctx.implants?.equipped, stashHasAr3, bagHasAr3, arSomewhere: i.getAllItems().some((x) => x.defId === 'wpn_ar23') || window.__game.getSystem('inventory').getStashItems().some((x) => x.defId === 'wpn_ar23') };
+    const stashHasAr3 = window.__game.getSystem('inventory').getStashItems().some((x) => x.defId === 'wpn_ar_g3');
+    const bagHasAr3 = i.getAllItems().some((x) => x.defId === 'wpn_ar_g3');
+    return { r, primary: l.primary?.defId, primary2: l.primary2?.defId ?? null, secondary: l.secondary?.defId, armor: l.armor?.defId ?? null, implant: ctx.implants?.equipped, stashHasAr3, bagHasAr3, arSomewhere: i.getAllItems().some((x) => x.defId === 'wpn_ar') || window.__game.getSystem('inventory').getStashItems().some((x) => x.defId === 'wpn_ar') };
   }, preset);
-  ok(applied.primary === 'wpn_smg37', `preset equipped the stash SMG as 주무기 I (${applied.primary})`);
+  ok(applied.primary === 'wpn_smg', `preset equipped the stash SMG as 주무기 I (${applied.primary})`);
   ok(applied.primary2 === null && applied.r.missing.includes('wpn_does_not_exist'), `missing def empties 주무기 II and is reported (${JSON.stringify(applied.r.missing)})`);
-  ok(applied.secondary === 'wpn_p2', 'null entry leaves 보조무기 untouched');
+  ok(applied.secondary === 'wpn_hg', 'null entry leaves 보조무기 untouched');
   ok(!preset.armor || applied.armor === preset.armor, `armor equipped from the stash (${applied.armor})`);
   ok(applied.implant === 'dash', `implant applied through ctx.implants (${applied.implant})`);
   ok(applied.arSomewhere && (applied.bagHasAr3 || applied.stashHasAr3), 'displaced weapons landed in the bag / stash');
@@ -295,12 +304,12 @@ try {
   const onMission = await page.evaluate(() => {
     const ctx = window.__game.ctx;
     const was = ctx.phase; ctx.phase = 'playing';
-    const r = ctx.inventory.applyLoadout({ name: 't', primary: 'wpn_ar23', primary2: null, secondary: null, bag: null, armor: null, implant: null });
+    const r = ctx.inventory.applyLoadout({ name: 't', primary: 'wpn_ar', primary2: null, secondary: null, bag: null, armor: null, implant: null });
     const p = ctx.inventory.getLoadout().primary?.defId;
     ctx.phase = was;
     return { r, p };
   });
-  ok(onMission.r.equipped === 0 && onMission.r.missing.length === 0 && onMission.p === 'wpn_smg37', 'applyLoadout is a no-op outside the hub');
+  ok(onMission.r.equipped === 0 && onMission.r.missing.length === 0 && onMission.p === 'wpn_smg', 'applyLoadout is a no-op outside the hub');
 
   /* ── 5. bench crafting ───────────────────────────────────────────── */
   console.log('openBenchCraft');

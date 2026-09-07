@@ -57,19 +57,28 @@ Since Phase 5 (2026-09-06) the bag, the five slots and the quick slots are **per
 | Event | Effect |
 |---|---|
 | `init` | a non-empty save fills the slots (wrong-category entries dropped), resizes the bag to the saved bag and places every stack at its cell (fallback `autoPlace`, else discarded with a warning), then rebuilds the quick slots from the saved bag indices (locked slots keep theirs). No events yet — the other systems subscribe after us — so `announcePending` is set |
-| first `hub:entered` | completely empty inventory (no save / empty save) → `STARTER_LOADOUT` as before; otherwise, when `announcePending`, **announce** the restored loadout: gates reset (`lastEquipUids`, weight, counts, quick signature) + `inventory:bagChanged` + `loadout:changed` / `equip:changed` + `afterChange()` (which saves once more, reason `hub`) |
+| first `hub:entered` | **2026-09-07**: `STARTER_LOADOUT` only when the kit is empty **and** either this session just granted `STARTER_STASH` (`Stash.firstRun` — a brand-new profile) or the 함선 창고 is empty too; otherwise, when `announcePending`, **announce** the restored loadout: gates reset (`lastEquipUids`, weight, counts, quick signature) + `inventory:bagChanged` + `loadout:changed` / `equip:changed` + `afterChange()` (which saves once more, reason `hub`) |
 | every `afterChange()` while `ctx.isHubPhase()` | `markDirty('hub')` → one debounced write per burst (drag session, preset, bench craft, stash move…) |
-| `world:ready` | no weapon in any weapon slot **and** none in the bag → `STARTER_LOADOUT`; otherwise keep everything. Always re-emits `loadout:changed` (weapons clear their slots on `world:ready`), `grenade:countChanged`, `stim:countChanged`, `inventory:changed` (a pending announce is folded in here when a mission starts without a hub entry) |
+| `world:ready` | **2026-09-07**: nothing anywhere (`isDestitute()`: no loadout, empty bag **and** an empty 함선 창고) → `STARTER_LOADOUT`; otherwise the kit the player equipped in the ship is what they raid with. Always re-emits `loadout:changed` (weapons clear their slots on `world:ready`), `grenade:countChanged`, `stim:countChanged`, `inventory:changed` (a pending announce is folded in here when a mission starts without a hub entry) |
 | mission changes (loot, consumption, drops) | **not saved** until the mission ends: a reload mid-mission restores the last ship state |
 | `game:complete` | keep everything (worn weapons return to the ship for the workbench) and `saveNow('complete')`; the `game:abort` the hub emits right after is ignored |
 | `player:respawn` (Phase 2 death flow: hellpod re-drop after `PLAYER_RESPAWN_DELAY`) | `STARTER_LOADOUT` immediately; the mission continues, so rolled containers and `outcome` are kept |
-| `game:over` (legacy mission failure; the Phase 2 flow no longer emits it) | `STARTER_LOADOUT` immediately |
-| `game:abort` | after `game:complete` → keep; after `game:over` → already reset; otherwise (quit mid-mission, lobby lost, back to title) → `STARTER_LOADOUT` |
-| every `applyStarter()` (the three rows above, `reset()`, the empty first hub entry) | **`saveNow('starter')`** right after the reset, so a reload can never resurrect a bag that was lost to death / abort |
+| `game:over` (legacy mission failure; the Phase 2 flow no longer emits it) | **`loseKit()`**: the carried kit is gone (slots + bag emptied, quick slots cleared) and the player re-equips from the 함선 창고; only an empty 창고 falls back to `STARTER_LOADOUT` |
+| `game:abort` | after `game:complete` → keep; after `game:over` → already reset; otherwise (quit mid-mission, lobby lost, back to title) → `loseKit()` |
+| `reset()` (public) | `loseKit()` — same rule as a failed raid |
+| every `applyStarter()` / `loseKit()` | **`saveNow('starter')`** right after, so a reload can never resurrect a bag that was lost to death / abort |
 | `pagehide` / `beforeunload` / `dispose` | `flush()` the pending debounced write |
 | `game:newMission` | close windows, forget rolled containers |
 
 Every write emits `inventory:loadoutSaved {reason}` (`starter` / `hub` / `complete`). The stash (`scav.stash`) is independent and never reset.
+
+**기본 지급품 (2026-09-07)** — `Stash.firstRun` is true when no `scav.stash` file existed at startup. The system then
+writes `STARTER_STASH` (`@/items`) into the 함선 창고 once, inside `withFreshSave` so it goes up as a `fresh` profile
+document and a real server profile still wins, and remembers it in `firstRunGrant` so the same session's first
+`hub:entered` also equips the minimum kit. Entries are `{id, qty, stacks?}` — `qty` units per stack (clamped to
+`stackMax`), `stacks` stacks of them, i.e. one 세트 per grid cell. An entry that no longer fits the 창고 is warned about
+and skipped. Since the kit is lost on a failed / abandoned raid, those spare 가방 · 방탄복 · 총기 are what the player
+re-equips from.
 
 `STARTER_LOADOUT` = `{primary, primary2, secondary, bag, items: [{id, qty}]}`; ammo `qty` are rounds, added through `addUnits` (merge into stacks, then new stacks chunked by `stackMax`). A reset always emits `inventory:bagChanged` (dropped `[]`), `loadout:changed`, both count events, `inventory:quickSlotsChanged` (after `autoAssignQuickSlots`, see below) and `inventory:changed`.
 
@@ -198,7 +207,7 @@ locked with a toast during a raid) · **가방** with the quick-use rose to its 
 Skill gate first (`ctx.progression.getSkill(r.skill) ≥ r.skillRequired`). `field`: `station: 'field'` recipes only (bench args ignored). `ship`: field recipes too; a recipe with `bench` needs that bench — with `bench` given, `r.bench === bench && (r.benchLevel ?? 1) ≤ level`; without one (the bag's `제작` panel, the legacy `hub_workbench`), a **placed** bench of that kind at that level (`ctx.housing.getBenchLevel(kind)`, 0 without housing — so bench recipes only appear once the 작업실 has the bench).
 
 ### Verification (Phase 6)
-`node scripts/smoke-inventory-p6.mjs` 63/63, 0 console errors: catalog open/blocker/event, 124 tiles = defs, tabs + 무기 filter, search `스팀`, real-mouse drags (tile → free bag cell = full 폐금속 stack, tile → stash, AR III → 주무기 II loaded), double press → bag, Esc closes all; `setStashSize(10, 30)` + event, shrink refused with an item in row 29 / accepted at 26, Tab screen 300 cells + scroll, save v2 `cols/rows`, size kept after reload; `countDefAll` 4+7, `consumeDefAll` short refusal / 9 = bag 0 + stash 2 / 0 no-op; `captureLoadout`, `applyLoadout` (stash SMG → 주무기 I, missing def empties 주무기 II + reported, null untouched, armor from stash, implant `dash`, displaced gear stowed, no-op outside the hub); `openBenchCraft('gun', 2)` title / blocker / event, craftable rows = `getRecipes`, 6 locked level-3 rows, repair list with the worn 주무기 I cost, ×0.8 ceil costs + discount chip, `수리` restores durability, gear bench without weapons, gadget bench without a repair list, `닫기` leaves bench mode, refused on a mission; catalog on a mission (no stash) + `closeCatalog` keeps the window. Regression: `smoke-quickslots` 45/45, `smoke-controls-hub` 60/60.
+`node scripts/smoke-inventory-p6.mjs` 63/63, 0 console errors: catalog open/blocker/event, 124 tiles = defs, tabs + 무기 filter, search `붕대`, real-mouse drags (tile → free bag cell = full 폐금속 stack, tile → stash, AR III → 주무기 II loaded), double press → bag, Esc closes all; `setStashSize(10, 30)` + event, shrink refused with an item in row 29 / accepted at 26, Tab screen 300 cells + scroll, save v2 `cols/rows`, size kept after reload; `countDefAll` 4+7, `consumeDefAll` short refusal / 9 = bag 0 + stash 2 / 0 no-op; `captureLoadout`, `applyLoadout` (stash SMG → 주무기 I, missing def empties 주무기 II + reported, null untouched, armor from stash, implant `dash`, displaced gear stowed, no-op outside the hub); `openBenchCraft('gun', 2)` title / blocker / event, craftable rows = `getRecipes`, 6 locked level-3 rows, repair list with the worn 주무기 I cost, ×0.8 ceil costs + discount chip, `수리` restores durability, gear bench without weapons, gadget bench without a repair list, `닫기` leaves bench mode, refused on a mission; catalog on a mission (no stash) + `closeCatalog` keeps the window. Regression: `smoke-quickslots` 45/45, `smoke-controls-hub` 60/60.
 
 ### Known limits (Phase 6)
 - Catalog drags cannot socket an attachment straight into a weapon tile or land on a wheel cell (take it into the bag first). No catalog item is ever a world pickup.
@@ -212,7 +221,7 @@ Skill gate first (`ctx.progression.getSkill(r.skill) ≥ r.skillRequired`). `fie
 See **Reset policy** above for the full event table. Shape of `scav.loadout` (v1, `Loadout.ts`):
 ```json
 { "v": 1,
-  "slots": { "primary": { "defId": "wpn_ar23", "qty": 1, "durability": 480, "ammoInMag": 30, "sockets": { "muzzle": { "defId": "att_suppressor", "qty": 1 } } }, "bag": { … }, "armor": { … } },
+  "slots": { "primary": { "defId": "wpn_ar", "qty": 1, "durability": 480, "ammoInMag": 30, "sockets": { "muzzle": { "defId": "att_suppressor", "qty": 1 } } }, "bag": { … }, "armor": { … } },
   "bag":   [ { "defId": "grenade_frag", "qty": 2, "rotated": false, "x": 0, "y": 0 }, … ],
   "quick": [ 0, null, null, null, 1, null, null, null ] }
 ```
@@ -264,7 +273,7 @@ Contents are still rolled per client (deterministic `seed ^ hash(id)`), only the
 
 ### Server profile documents
 - After every stash write (`Stash.onSaved`) and every loadout write (`LoadoutStore.onSaved(reason, file)`, except reason `profile`) the file goes to `ctx.net.profile.set('stash' | 'loadout', file)` (net debounces the upload).
-- `net:profileLoaded {profile}`: the **stash** document replaces the local stash (`Stash.loadFrom` → grid rebuilt, local file rewritten without echo, `inventory:stashChanged`); the **loadout** document replaces slots / bag / quick slots (`applyLoadoutSave` + announce, local file rewritten with reason `profile`) — only outside a raid (`!ctx.isRaidActive()`, mid-mission the raid blob is the truth); an empty loadout doc in the hub applies the starter. A key the server has never seen gets the current local state uploaded.
+- `net:profileLoaded {profile}`: the **stash** document replaces the local stash (`Stash.loadFrom` → grid rebuilt, local file rewritten without echo, `inventory:stashChanged`); the **loadout** document replaces slots / bag / quick slots (`applyLoadoutSave` + announce, local file rewritten with reason `profile`) — only outside a raid (`!ctx.isRaidActive()`, mid-mission the raid blob is the truth); an empty loadout doc in the hub applies the starter **only when the player has nothing anywhere** (2026-09-07 — it used to wipe a kit the player was standing in). A key the server has never seen gets the current local state uploaded.
 - **Offline edits (Phase 9 — the local queue is gone)**: `offlineDocs` / `offlineArmed` / `suppressOfflineQueue` were removed. `uploadProfileDoc` now hands **every** save to `profile.set`, online or not: `ProfileSync` stamps it with `serverNow()`, keeps the newest document per key while offline and pushes it on the next connection, where the server decides newest-wins by stamp. What used to be "not an edit" is now a **`fresh` document**: `withFreshSave(fn)` sets a flag so every save `fn` triggers goes up as `profile.set(key, doc, {fresh:true})` — the server keeps such a document only while it has none for that key. Two callers use it: the fresh-browser starter kit on the first `hub:entered` and the startup stash resize to the 창고 facility size. So a brand-new browser can never overwrite a real server profile, and a genuine offline edit always survives.
 - `onProfileLoaded` is correspondingly simpler: the record it receives is **already merged** (ProfileSync weighed its pending edits against the server's `docsAt`), so a present document just replaces the local state and a missing one gets the current local state uploaded — except an empty local loadout, which is not worth a document (the starter kit follows as a `fresh` one).
 - A document that is **byte-identical to the current local state** (`InventorySystem.sameDoc`, JSON compare) is our own upload coming back inside that merged record: it is skipped entirely — no `Stash.loadFrom`, no `applyLoadoutSave`, no `loadout:changed`, no `inventory:loadoutSaved {reason:'profile'}`. Without it the very first welcome after the starter kit re-applied and re-saved the starter under the reason `profile` (the fresh save is queued in `ProfileSync`, so it is part of the merged record).
@@ -479,7 +488,9 @@ their own; the window's ref-counted token covers them.
   맞춘다. 드롭 셀 계산(`cellForGhost`)은 고스트의 좌상단으로 하던 그대로라 "커서가 가리키는 칸에 놓인다"가 된다.
 - **드래그 중 윈도우 커서가 번쩍이던 문제.** `.inv-root.is-dragging *` 의 `cursor: grabbing !important` 가
   `body.soft-cursor-on *` 의 `cursor: none !important` 보다 명시도가 높아 실제 OS 커서를 되살리고 있었다. 규칙을
-  `body:not(.soft-cursor-on)` 로 한정했다 (`inventory.css`).
+  `body:not(.soft-cursor-on)` 로 한정했다 (`inventory.css`). **2026-09-07 커서 rework 로 무효**: 소프트 커서가
+  사라져 `.inv-root.is-dragging { cursor: grabbing }` 은 폴백일 뿐이고, 드래그 중 커서는 `ui/hud/GameCursor` 가
+  그 규칙을 미러링해 만든 **잡기 아트**다.
 - **제작이 다시 창의 열이다.** Phase 8 의 모달리스 팝업(`Modeless('craft')`)을 걷어내고 `CraftPanel.el` 을
   `.inv-layout` 에 직접 넣는다. `setCraftOpen` 이 `.inv-layout.is-craft` 를 토글하면 제작 목록이 맨 왼쪽(함선 창고
   자리)으로 가고, 새 래퍼 `.inv-col-right` 가 평소의 `display: contents` 를 벗고 실제 열이 되어 **가방 위 · 함선

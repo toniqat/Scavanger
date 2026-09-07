@@ -301,56 +301,10 @@ Appended, never renamed. Everything below is additive; existing readers are unto
 Appended, never renamed. Everything below is additive; existing readers are untouched. `/* Phase 10 skeleton */`
 markers in `implants/` `inventory/` `net/` `player/` exist only to keep `npm run typecheck` green — replace them.
 
-### New file: `cursor.ts` — 인게임 마우스 커서
-The second (and last) DOM file in `shared/`, after `itemChip.ts`.
-- `class SoftCursor` — a virtual cursor that keeps the **pointer lock** and drives itself from raw `movementX/Y`, then
-  **synthesises** the DOM pointer/mouse events (`pointermove` + `mousemove`, `pointerdown/up`, `click`, `dblclick`,
-  `contextmenu`, `wheel`, and the `over/out/enter/leave` pairs) at its own position, dispatching them to
-  `document.elementFromPoint(x, y)`. Because those are real bubbling events, **no UI surface has to change**: the
-  `pointer-events: none` + `.interactive` opt-in on `#ui-root` still decides what is hit, delegated listeners still
-  fire, window-level drag listeners still get the bubbled move/up, and the three `document.elementFromPoint` hit tests
-  in `inventory/` `meta/` keep working.
-- `SOFT_CURSOR_FLAG` / `isSoftCursorEvent(e)` — the marker on every synthesised event. The window listeners inside
-  `Input` ignore it, so a synthetic click is never also read as a gameplay press.
-- `Input` gained: `readonly cursor`, `isCursorMode`, `cursorX` / `cursorY`, `setCursorMode(active, owner)`
-  (**ref-counted by blocker token** — a popup layered over the inventory does not steal the cursor when it closes),
-  `setCursorPosition`, `uiX` / `uiY` (virtual in cursor mode, `mouseX/mouseY` otherwise), `elementUnderCursor()`.
-  A caller that enters cursor mode must **not** also call `exitPointerLock()`.
-- `constants.ts`: `SOFT_CURSOR_SENSITIVITY`, `SOFT_CURSOR_SIZE`, `SOFT_CURSOR_DBLCLICK_MS`, `LOCK_GESTURE_RETRY_MS`.
-- **2026-09-07 — responsiveness.** Two things made the virtual cursor feel slower than the Windows one, neither of
-  them the hit test (the synthetic `pointermove` always went out on the input event):
-  1. the **sprite** was written once per game frame, so the whole 3D render pipeline sat between the mouse and the
-     drawn arrow. `onMove(listener)` hands the position straight to `ui/hud/SoftCursor` from `moveBy` / `setPosition` /
-     `mirror`; the per-frame `update()` is now only a safety net;
-  2. an acceleration curve (`SOFT_CURSOR_ACCEL` / `_MAX`) briefly re-added the OS acceleration that the lock's
-     `unadjustedMovement: true` strips. It is **gone** (later the same day): a 14 px hand movement travelled 27 px,
-     so the arrow never landed where it was aimed and the cursor read as "not where my mouse is". `moveBy` is
-     strictly linear — `SOFT_CURSOR_SENSITIVITY` (1) client px per raw px, which is also Windows' own default.
-- **2026-09-07 — a denied lock waits for a gesture.** Chrome grants **no user activation for Escape** and refuses a
-  pointer-lock request for a moment after the user escaped out of one, so closing the 일시정지 메뉴 with Escape — the
-  usual way — asked for the lock at the one instant Chrome would not grant it. `requestPointerLock()` now keeps the
-  intent: a denied request (a rejected promise, or simply no lock `LOCK_RESULT_CHECK_MS` later) arms a one-shot
-  window listener that retries from the player's next **real** gesture — a `pointerdown`, or any `keydown` that is
-  not Escape and not a key repeat (in practice the first WASD tap). `exitPointerLock()` cancels the intent, a granted
-  lock disarms it, and `awaitingLockGesture` (true for at most `LOCK_GESTURE_RETRY_MS`) tells `game/`'s lost-lock
-  watchdog to hold off instead of re-opening the menu 0.5 s later, forever.
-- **Default-action emulation.** A synthesised event is untrusted, so the browser performs **no default action** for
-  it — a text field never takes the caret and a range slider never moves. `SoftCursor.press` therefore focuses the
-  nearest focusable ancestor (and blurs a text field when the click lands elsewhere), and a left-drag on an
-  `input[type=range]` is re-implemented (value from the client-x within the element's rect, `input` while dragging,
-  `change` on release). That covers every such control in the game (인벤토리 검색 · 분할 대화상자 슬라이더 ·
-  프리셋 이름 · 함선 코드); anything new of that kind gets it for free.
-- **Faked-lock detection.** Per spec a locked pointer holds `clientX/clientY` constant, so a `mousemove` that claims a
-  lock *and* moves the client coordinates can only be a faked one — which is exactly what every headless smoke does
-  (`Object.defineProperty(Document.prototype, 'pointerLockElement', …)` over the canvas). `Input` latches that as
-  `lockLooksReal = false`, and `Input.cursorOwnsInput` (cursor mode **and** a real lock) is what actually gates
-  synthesis: with a faked or absent lock the native device events already reach the DOM, so the cursor only
-  `mirror`s the real position and never doubles a click or fights a script's own drag. `requestPointerLock()`
-  re-arms it; `setCursorSynthetic(on)` is the test escape hatch. `mouseDX / mouseDY` stay gated on
-  `isPointerLocked` alone, because the camera-look smokes depend on a faked lock accumulating their deltas.
-- `events.ts`: `'input:cursorModeChanged' { active, owner }`.
-- The Esc **일시정지 메뉴 is deliberately excluded** and keeps the real OS cursor — it is the one screen that must work
-  when the lock is already gone (after an alt-tab, or a re-lock Chrome refused).
+### `cursor.ts` — 마우스 커서 모드  *(rewritten 2026-09-07, see the last section)*
+The second (and last) DOM-adjacent file in `shared/`, after `itemChip.ts` — and since the rework it touches no DOM at
+all. Phase 10's virtual cursor (a pointer lock kept open while synthesised events drove the UI) is **gone**; what is
+left is a ref-counted mode flag. See **마우스 커서 rework** at the end of this file for the current contract.
 
 ### `implants.ts` — 배리어 = 들고 다니는 방패
 - `ImplantsRef.barrierCarried` + `getBarrierPose(out)`. The def's `mode` becomes `'wielded'`, so Q takes the shield
@@ -501,7 +455,69 @@ Two **appended** additions only — nothing was renamed or removed.
   its 가방 / 함선 창고 match the 5-column 구매 / 판매 tray beside them. `inventory/ui/GridView` takes the same number
   at construction; it is fixed for the life of the view.
 
-Not a contract change but worth knowing: `body.soft-cursor-on *`'s `cursor: none !important` (ui/styles/base.css, the
-software cursor from Phase 10) is **beatable on specificity**. `inventory.css` had `.inv-root.is-dragging *
-{ cursor: grabbing !important }`, which brought the real Windows cursor back for the length of a drag. Any new rule
-that forces a `cursor` has to be scoped `body:not(.soft-cursor-on)`.
+Not a contract change but worth knowing (**superseded 2026-09-07**): the Phase 10 software cursor hid the native one
+with `body.soft-cursor-on * { cursor: none !important }`, which any `cursor` rule could beat on specificity. Both the
+class and that hazard are gone — `ui/hud/GameCursor` now *restyles* the real cursor, and it mirrors every stylesheet
+`cursor:` affordance automatically, so a new `cursor: pointer` rule needs no coordination at all.
+
+
+## appended: 2026-09-07 총기 이름 정리 · 회복 소모품 개편 · 기본 지급품
+
+Contract additions (append-only; the one **removal** is the two duplicate weapon families, see below).
+
+- `types.ts`: `ItemDef.heal?: HealDef` and the new `HealDef {useTime, amount, overTime, spray?}` /
+  `SprayDef {tick, gaugePerTick, healPerTick, radius}`. `useTime` is the LMB hold in seconds, `amount` / `overTime`
+  the hp and the seconds it is spread over, `spray` marks a channelled item whose gauge is the instance's
+  `durability` (`ItemDef.durabilityMax`). Owner: items/ declares them, weapons/ executes them.
+- `types.ts`: `PlayerRef.applyHeal(amount, seconds, quiet?)` next to `applyStim` — the same heal-over-time pool with
+  the consumable's own duration; `quiet` skips the SFX and the "already healing" refusal (회복 스프레이 ticks 10×/s).
+- `constants.ts`: `CONSUMABLE_SLOW_MUL` (0.5) + `CONSUMABLE_SLOW_KEY` (`'consumable'`) — the movement penalty while a
+  consumable is being used, applied through `PlayerRef.setSpeedModifier`; `DEFIB_USE_TIME_S` (1); `HEAL_SPRAY_GAUGE`
+  (100) / `HEAL_SPRAY_RADIUS` (8). `HEAL_HOLD_S` stays as the fallback for a `stim` def with no `heal` block.
+- `constants.ts`: **`AMMO_STACK_ROUNDS` changed** — light 120 → **80**, medium 90 → **50**, heavy 30 → **25**,
+  shell 24 → **25**. One stack is one 세트 (the 기본 지급품 counts sets). The legacy `rifle/pistol/shotgun/energy`
+  entries were moved to match. Anything that assumed a stack size (loot `ammoFraction`, corpse `ammoFraction`, the
+  reload reserve display) reads the constant, so nothing else needed a change.
+- `events.ts`: `heal:holdChanged` gained **`dur?`** (the item's own use time in seconds) and **`spray?`** (while
+  spraying, `t` is the remaining gauge 0..1 instead of progress). Existing readers that only use `{holding, t}`
+  keep working.
+- **Weapon families are the classes now** (items/, but every folder that named a weapon id is affected): the eight
+  branded families collapsed to six — `ar` 돌격소총 · `smg` 기관단총 · `sg` 산탄총 · `dmr` 지정사수소총 · `sr`
+  저격소총 · `hg` 권총 — and `las16` (a second AR) / `p19` (a second pistol) are **gone**. Ids: `ar`, `ar_g3`,
+  items `wpn_ar`, `wpn_ar_g3`; names are the class label + grade numeral (`돌격소총 III`). Nothing in `src/shared`
+  holds a weapon id except the `meta.ts` quest rewards, which were repointed.
+- **스팀 / 고급 스팀 are gone** (`stim` / `stim_advanced` def ids), replaced by 붕대 / 약초 붕대 / 회복주사 /
+  회복 스프레이 — `ItemCategory 'stim'`, `QUICK_USABLE_CATEGORIES`, `applyStim` and `player:stimUsed` are unchanged.
+  `meta.ts`'s quest reward now hands out `heal_syringe`.
+
+
+## 마우스 커서 rework (2026-09-07)
+
+Phase 10's premise — *never release the pointer lock, drive a virtual cursor, synthesise the DOM events* — is
+reversed. **락 = 시점 조작 / 언락 = 진짜 커서.** The public API did not move, so no screen had to change.
+
+- **`cursor.ts` is now `class CursorMode`**: a ref-counted set of blocker tokens plus a mode listener
+  (`setMode(active, owner) → changed`, `active`, `owner`, `has(token)`, `clear()`, `emitChange()`). No position, no
+  dispatch, no hover bookkeeping, no default-action emulation — the browser does all of that again, because the
+  events are real. `SoftCursor`, `SOFT_CURSOR_FLAG` and `isSoftCursorEvent` are **deleted**.
+- **`Input.setCursorMode(active, owner)`** (unchanged signature) releases the pointer lock on the first owner and
+  clears the gameplay mouse state; the **re-lock on the way out is `main.ts` alone** (one place for every folder).
+  While cursor mode is on, `Input` records **no** gameplay mouse presses / wheel — the press belongs to whatever the
+  cursor is over, which already got it natively — so a click on a panel can never also fire the gun.
+- `uiX` / `uiY` / `cursorX` / `cursorY` are all `mouseX` / `mouseY` now; `elementUnderCursor()` is
+  `document.elementFromPoint` at the real position; `setCursorPosition` only seeds the tracked coordinates (the OS
+  cursor cannot be warped from a page). `cursorOwnsInput` / `setCursorSynthetic` are gone.
+- **`syncKeyboardLock`**: while the document is fullscreen, `navigator.keyboard.lock(['Escape'])` routes Escape to
+  the page, so Escape stops breaking the pointer lock and "Esc 로 닫으면 즉시 카메라" is literally true. Leaving
+  fullscreen becomes a long Escape press (the browser's own affordance). Outside fullscreen the gesture retry below
+  is still the fallback. `Input.keyboardLocked` reports it.
+- The **denied-lock gesture retry** (`awaitingLockGesture`, `LOCK_GESTURE_RETRY_MS`) is unchanged and still needed
+  outside fullscreen; it now also disarms itself if a screen opened in the meantime.
+- `constants.ts`: `SOFT_CURSOR_SENSITIVITY` / `SOFT_CURSOR_SIZE` / `SOFT_CURSOR_DBLCLICK_MS` are **gone**, replaced by
+  `GAME_CURSOR_SIZE` (the drawn art) and `FREE_CURSOR_BLOCKER` (`'cursor'`, the Alt cursor's token).
+- **Keys**: `DIVE` moved off Alt onto **V**, the new **`CURSOR`** action took `AltLeft`, and **`SWAP` (이전 무기) was
+  removed from `KeyBindings` entirely** — the only key-table *deletion* so far. A stale `SWAP` entry in a saved
+  `scav.keybinds` is ignored by `loadKeybinds`.
+- `events.ts`: `'ui:freeCursorToggled' { active }` next to `'input:cursorModeChanged'`.
+- The 일시정지 메뉴 is **no longer a special case**: `ui/menus/MenuBase` takes the `'menu'` cursor token like every
+  other screen, so there is exactly one way to show the mouse in the whole game.

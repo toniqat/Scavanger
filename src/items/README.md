@@ -4,7 +4,7 @@ Pure data + the `LootRef` implementation. No DOM, no Three.js scene objects. Wea
 
 | File | Purpose |
 |---|---|
-| `WeaponDefs.ts` | 8 weapon **families** × 5 grades = 40 `WeaponDef`s built by `buildGrade` **+ 6 legendary uniques** (`UNIQUE_WEAPON_DEFS`, `UNIQUE_WEAPON_DEF_MAP`, `isUniqueWeapon(def)`, `isUniqueWeaponId`, `UNIQUE_WEAPON_DURABILITY`, `UNIQUE_WEAPON_MAG`) — all in `WEAPON_DEFS`, `WEAPON_DEF_MAP`, `getWeaponDef`; `WEAPON_FAMILIES` (graded families only), `WEAPON_GRADES`, `weaponGradesOf(family)`, `weaponIdForGrade(family, grade)`; `WEAPON_CLASS_LABEL_KO`, `WEAPON_CLASS_SHORT` (`SMG/AR/SG/SR/DMR/HG`), `WEAPON_BASE_DURABILITY` (per class), `weaponClassOf(def)`, `weaponFamilyOf(def)`, `gradeOf(def)`, `damageFalloff(def, distance)` |
+| `WeaponDefs.ts` | 6 weapon **families** (one per class, 2026-09-07) × 5 grades = 30 `WeaponDef`s built by `buildGrade` **+ 6 legendary uniques** (`UNIQUE_WEAPON_DEFS`, `UNIQUE_WEAPON_DEF_MAP`, `isUniqueWeapon(def)`, `isUniqueWeaponId`, `UNIQUE_WEAPON_DURABILITY`, `UNIQUE_WEAPON_MAG`) — all in `WEAPON_DEFS`, `WEAPON_DEF_MAP`, `getWeaponDef`; `WEAPON_FAMILIES` (graded families only), `WEAPON_GRADES`, `weaponGradesOf(family)`, `weaponIdForGrade(family, grade)`; `WEAPON_CLASS_LABEL_KO`, `WEAPON_CLASS_SHORT` (`SMG/AR/SG/SR/DMR/HG`), `WEAPON_BASE_DURABILITY` (per class), `weaponClassOf(def)`, `weaponFamilyOf(def)`, `gradeOf(def)`, `damageFalloff(def, distance)` |
 | `ItemDefs.ts` | 105 `ItemDef`s (`ITEM_DEFS`, `ITEM_DEF_MAP`, `getItemDef`, `itemDefsByCategory`, `isWeaponItemDef`) — 46 weapon items generated from `WEAPON_DEFS` (`WEAPON_ITEM_DEFS`; uniques use `UNIQUE_WEAPON_META`), `AMMO_ITEM_DEFS` (10), `ATTACHMENT_ITEM_DEFS`, `BAG_ITEM_DEFS`, `SEED_ITEM_DEFS` (3, Phase 8), `BOOK_ITEM_DEFS` (14, Phase 9 — `bookItemIdFor`, `BOOK_DEF_BY_SKILL`), consumables, valuables, materials; rarity palette `RARITY_COLORS`, `RARITY_ORDER`, `rarityRank`, `rarityForGrade` / `gradeForRarity`; Korean labels (`RARITY_LABEL_KO`, `CATEGORY_LABEL_KO`, `AMMO_LABEL_KO`); `AMMO_TYPES_V2` (10), `UNIQUE_AMMO_TYPES`, `AMMO_ROUND_WEIGHT`, `ammoItemIdFor(type)`, `itemIdForWeapon(weaponId)`, `WEAPON_GRADE_VALUE_STEP`; `STARTER_LOADOUT` + `StarterLoadout` type |
 | `WeaponStats.ts` | `computeWeaponStats(def, inst?)` → `EffectiveWeaponStats` (grade already in the def + slot timings + socketed attachments; **uniques return the def numbers untouched**), `baseWeaponStats`, `applyAttachmentEffects`, `socketedAttachments`, `repairCost(def, inst)` (uniques = legendary), `canAttach(weaponDef, attachmentDef)` (false for uniques), `gradeRoman`, `clampGrade`, `RECOIL_H_RATIO` (0.7), `SECONDARY_ADS_TIME_MUL` (0.5) |
 | `LootTables.ts` | Per-tier `TierTable`s (`LOOT_TABLES`, `getTierTable`, `getTierLabel`): item count, rarity weights (= weapon grade weights), category weights incl. `attachment` / `bag`, weapon chance, `ammoFraction`, guaranteed picks, `itemWeightMul` (family-wide for weapons; Phase 6 helpers `uniqueWeapons / uniqueAmmo / gradedFamilies`; Phase 8 `seed` weights at tiers 1–3; Phase 9 `book` weights at tiers 2–4). Phase 4: per-`EnemyType` `CorpseTable`s (`CORPSE_TABLES`, `CORPSE_TABLE_MAP`, `CorpseDrop`, `CorpseWeapon`, `CorpseUnique`, `DEFAULT_ROGUE_WEAPON_ID`; Phase 8 `BUG_SEEDS` on every bug type; Phase 9 `CorpseBook` on 로그 / 보스) |
@@ -13,22 +13,29 @@ Pure data + the `LootRef` implementation. No DOM, no Three.js scene objects. Wea
 
 ## Weapon families & grades
 
-Ids: grade I keeps the family id (`ar23`); grade g ≥ 2 is `${family}_g${g}` (`ar23_g3`). Item id = `wpn_${weaponId}` (`wpn_ar23`, `wpn_ar23_g3`). Name = family name + roman numeral (`AR-23 리버레이터 III`; grade I is `… I`). Every def carries `grade`, `family`, `maxDurability` and the v2 `ammoType` from `AMMO_FOR_CLASS`.
+2026-09-07: **one weapon per class**, and the family *is* the class — the branded 8 families (AR-23 리버레이터, SMG-37
+디펜더, LAS-16 사이드, P-19 리디머 …) are gone, together with the two duplicates (LAS-16 was a second AR, P-19 a second
+pistol). Ids are the class tag (`ar`, `smg`, `sg`, `dmr`, `sr`, `hg`) and the display name is the Korean class label
+plus the grade numeral: `돌격소총 III`, `저격소총 I`, `권총 V`.
 
-Per grade above I: damage × (1 + 0.12·(g−1)) rounded, max durability × (1 + 0.25·(g−1)) rounded, item value × (1 + 0.6·(g−1)), rarity = grade (I 일반 · II 고급 · III 희귀 · IV 서사 · V 전설).
+Ids: grade I keeps the family id (`ar`); grade g ≥ 2 is `${family}_g${g}` (`ar_g3`). Item id = `wpn_${weaponId}`
+(`wpn_ar`, `wpn_ar_g3`). Every def carries `grade`, `family`, `maxDurability` and the v2 `ammoType` from `AMMO_FOR_CLASS`.
 
-| family | class | ammo | grid | dmg I → V | dur I → V | rps | mag | reload | falloff start→end (×min) | notes |
-|---|---|---|---|---|---|---|---|---|---|---|
-| `ar23` AR-23 리버레이터 | AR | medium | 4×2 | 60 → 89 | 500 → 1000 | 10 | 45 | 2.4 s | 60→220 (×0.6) | auto |
-| `smg37` SMG-37 디펜더 | SMG | light | 3×2 | 32 → 47 | 550 → 1100 | 14 | 40 | 1.9 s | 15→45 (×0.4) | auto |
-| `sg8` SG-8 퍼니셔 | SG | shell | 3×2 | 22×8 → 33×8 | 200 → 400 | 1.3 | 8 | 3.0 s | 8→30 (×0.25) | pellets |
-| `r63` R-63 딜리전스 | DMR | heavy | 4×1 | 120 → 178 | 250 → 500 | 3 | 15 | 2.6 s | 120→400 (×0.75) | semi, adsZoom 1.6 |
-| `sr9` SR-9 이래디케이터 | SR | heavy | 5×1 | 330 → 488 | 120 → 240 | 0.9 | 5 | 3.4 s | 300→700 (×0.85) | bolt, adsZoom 4, scope |
-| `las16` LAS-16 사이드 | AR | medium | 3×2 | 28 → 41 | 500 → 1000 | 16 | 60 | 3.2 s | 60→160 (×0.6) | energy projectile (180 m/s) |
-| `p2` P-2 피스메이커 | PISTOL | light | 2×1 | 45 → 67 | 350 → 700 | 6 | 15 | 1.6 s | 20→70 (×0.5) | semi |
-| `p19` P-19 리디머 | PISTOL | light | 2×1 | 30 → 44 | 350 → 700 | 18 | 31 | 1.9 s | 15→45 (×0.4) | machine pistol |
+Per grade above I: damage × (1 + 0.12·(g−1)) rounded, max durability × (1 + 0.25·(g−1)) rounded, item value ×
+(1 + 0.6·(g−1)), rarity = grade (I 일반 · II 고급 · III 희귀 · IV 서사 · V 전설).
 
-Base item values (grade I): ar23 350 · smg37 480 · sg8 520 · r63 780 · sr9 950 · las16 1250 · p2 140 · p19 260. Hip spreads are deliberately loose (AR 1.4°, SMG 1.9°, SR 4°); `src/weapons` scales them by stance/ADS.
+| family | name | class | ammo | grid | dmg I → V | dur I → V | rps | mag | reload | falloff start→end (×min) | notes |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| `ar` | 돌격소총 | AR | medium | 4×2 | 60 → 89 | 500 → 1000 | 10 | 45 | 2.4 s | 60→220 (×0.6) | auto |
+| `smg` | 기관단총 | SMG | light | 3×2 | 32 → 47 | 550 → 1100 | 14 | 40 | 1.9 s | 15→45 (×0.4) | auto |
+| `sg` | 산탄총 | SG | shell | 3×2 | 22×8 → 33×8 | 200 → 400 | 1.3 | 8 | 3.0 s | 8→30 (×0.25) | pellets |
+| `dmr` | 지정사수소총 | DMR | heavy | 4×1 | 120 → 178 | 250 → 500 | 3 | 15 | 2.6 s | 120→400 (×0.75) | semi, adsZoom 1.6 |
+| `sr` | 저격소총 | SR | heavy | 5×1 | 330 → 488 | 120 → 240 | 0.9 | 5 | 3.4 s | 300→700 (×0.85) | bolt, adsZoom 4, scope |
+| `hg` | 권총 | PISTOL | light | 2×1 | 45 → 67 | 350 → 700 | 6 | 15 | 1.6 s | 20→70 (×0.5) | semi, secondary slot |
+
+Base item values (grade I): ar 350 · smg 480 · sg 520 · dmr 780 · sr 950 · hg 140. Hip spreads are deliberately loose
+(AR 1.4°, SMG 1.9°, SR 4°); `src/weapons` scales them by stance/ADS. The energy-weapon path (`kindOf` → `'energy'`,
+`ammoType 'energy'`) is unused by any def now but kept for the uniques / fallbacks.
 
 ## Unique weapons (Phase 6, 2026-09-06)
 
@@ -57,10 +64,10 @@ Category `ammo`, 1×1, `qty` **is** the round count, `stackMax = AMMO_STACK_ROUN
 
 | id | name | calibre | stack | classes | value/round |
 |---|---|---|---|---|---|
-| `ammo_light` | 경량탄 | light | 120 | SMG, PISTOL | 1 |
-| `ammo_medium` | 준중량탄 | medium | 90 | AR (incl. las16) | 2 |
-| `ammo_heavy` | 중량탄 | heavy | 30 | SR, DMR | 3 |
-| `ammo_shell` | 산탄 | shell | 24 | SG | 3 |
+| `ammo_light` | 경량탄 | light | 80 | SMG, PISTOL | 1 |
+| `ammo_medium` | 준중량탄 | medium | 50 | AR | 2 |
+| `ammo_heavy` | 중량탄 | heavy | 25 | SR, DMR | 3 |
+| `ammo_shell` | 산탄 | shell | 25 | SG | 3 |
 
 The legacy `ammo_rifle/pistol/shotgun/energy` defs are gone; `AMMO_LABEL_KO` still labels the legacy `AmmoType` members for safety.
 
@@ -102,27 +109,58 @@ Category `bag`, 2×2, stack 1, `ItemDef.bag: { cols, rows, quickSlots, tactical?
 
 ## Other items
 
-**Consumables**: `grenade_frag`, `grenade_incendiary` (1×1, stack 4) · `stim` (+50), `stim_advanced` (+100) (1×1, stack 3).
+**회복 소모품** (2026-09-07, category `stim`, `ItemDef.heal`): 사용 중 이동 속도 50 % (`CONSUMABLE_SLOW_MUL`).
+
+| id | name | rarity | grid · stack | 사용 | 효과 | 제작 |
+|---|---|---|---|---|---|---|
+| `heal_bandage` | 붕대 | common | 1×1 · 5 | 5 s | 5초에 걸쳐 hp 20 | 천조각 5 (야전) |
+| `heal_bandage_herb` | 약초 붕대 | uncommon | 1×1 · 5 | 5 s | 5초에 걸쳐 hp 50 | 천조각 5 + 혈근초 1 (야전) |
+| `heal_syringe` | 회복주사 | rare | 1×1 · 3 | 2 s | 1초 만에 hp 50 | 주사기 1 + 소독약 1 (의학 Lv.1) |
+| `heal_spray` | 회복 스프레이 | epic | 1×2 · 1 | 채널 | 게이지 100, 0.1 s마다 게이지 1 → 반경 8 m 자신·아군 hp 1 | 캔 1 + 소독약 1 (의학 Lv.2) |
+
+The 스프레이's gauge is the instance's `durability` (`durabilityMax` 100), so a half-used can keeps its charge in the
+stash and shows the ordinary durability bar. `제세동기` (`gad_defib`, a gadget) is stack 2 and now takes a
+`DEFIB_USE_TIME_S` (1 s) hold. 스팀 / 고급 스팀 are **removed** — `ItemCategory 'stim'` and `applyStim` are unchanged.
+
+**Consumables**: `grenade_frag`, `grenade_incendiary` (1×1, stack **3** — 한 칸에 3개).
 
 **Valuables**: `gem_quartz`, `gem_amber`, `gem_sapphire`, `gem_void`, `cred_chip` (stack 5), `super_earth_medal` (1×1) · `salvage_electronics`, `data_core`, `data_core_encrypted` (2×1) · `sample_canister`, `sample_canister_pure` (3×1) · `terminid_gland` (1×1) · `alien_artifact`, `alien_relic` (2×2).
 
 **Materials** (1×1, stack 10): `mat_scrap` (repair), `mat_bio_sample`, `mat_alloy` (repair, grade ≥ III), `mat_power_cell`.
+2026-09-07 회복 재료: `mat_cloth` 천조각 (common, stack 20, tiers 1–3), `mat_can` 캔 (common, stack 10, tiers 1–3),
+`mat_syringe` 주사기 (uncommon, stack 10, tiers 2–3), `mat_antiseptic` 소독약 (uncommon, **crafted only**: 캔 1 + 혈근초 1).
 
-## Starter loadout
+## Starter loadout & 기본 지급품 (2026-09-07)
+
+The kit is no longer handed out every mission. `STARTER_LOADOUT` is the **minimum kit** — applied only on a brand-new
+profile and as the "nothing anywhere" safety net (`InventorySystem.isDestitute`, see `src/inventory/README.md`):
 
 ```ts
 STARTER_LOADOUT = {
-  primary: 'wpn_ar23', primary2: null, secondary: 'wpn_p2', bag: 'bag_common',
-  items: [grenade_frag×2, stim×2, ammo_medium×90, ammo_light×60],
-}   // as const; `StarterLoadout` is the widened type
+  primary: null, primary2: null, secondary: 'wpn_hg', bag: 'bag_common', armor: 'armor_1',
+  items: [ammo_light×80, heal_bandage×2, grenade_frag×3],
+}
 ```
+
+`STARTER_STASH` is the 기본 지급품, written into the 함선 창고 **once** (a profile that has never had a stash).
+`qty` is units per stack and `stacks` how many stacks — one 세트 per grid cell:
+
+| entry | 세트 |
+|---|---|
+| `ammo_light` 80 · `ammo_medium` 50 · `ammo_heavy` 25 · `ammo_shell` 25 | 10 stacks each |
+| `wpn_smg` · `wpn_sg` · `wpn_ar` · `wpn_dmr` · `wpn_sr` (grade I) | 1 each (권총 I is equipped instead) |
+| `bag_common` · `armor_1` | 3 each (spares) |
+| `mat_scrap` 8×2 · `mat_cable` 3 · `mat_alloy` 2 | 작업실 증축 + 총기 작업대 제작 재료 |
+| `gad_defib` 2×2 · `grenade_frag` 3×3 | 재세동기 2세트 · 수류탄 3세트 |
+
+Ammo stack sizes are the 세트 sizes (`AMMO_STACK_ROUNDS`: light 80 / medium 50 / heavy 25 / shell 25).
 
 ## Stats & helpers (`WeaponStats.ts`, exposed via `LootRef`)
 
 - `computeWeaponStats(def, inst?)`: starts from the def (damage/magSize/spreads/durability already graded), `recoilV = def.recoil`, `recoilH = recoil × 0.7`, `adsTime = WEAPON_ADS_TIME` (× 0.5 for secondaries), `swapTime = WEAPON_SWAP_TIME_PRIMARY | _SECONDARY`, `adsZoom = def.adsZoom ?? 1`, `scope = !!def.scope`, `laser = false`, `maxDurability = def.maxDurability ?? WEAPON_DEFAULT_DURABILITY`; then folds each attachment in `inst.sockets` in `SOCKET_SLOTS` order — multipliers multiply (`spread` hits hip + ADS, `hipSpread` only hip), `magSize` rounded (min 1), `adsZoom`/`scope`/`laser` override.
 - `repairCost(def, inst)`: missing = max − (`inst.durability ?? max`); `ceil(missing / REPAIR_SCRAP_PER)` × `mat_scrap`, plus `ceil(missing / REPAIR_ALLOY_PER)` × `mat_alloy` when grade ≥ III; `[]` when nothing is missing.
 - `canAttach(weaponDef, attachmentDef)`: `classes` (via `weaponClassOf`) and `ammoTypes` (def calibre) checks.
-- `LootService.createItem(defId, qty?, extras?)`: weapons spawn with `durability = maxDurability` and `ammoInMag = magSize` (extended mag in `extras.sockets` counted) unless `extras` overrides; `sockets` copied from `extras`. `getEffectiveStats` accepts an instance, a weapon def id (`ar23_g3`) or a weapon item id (`wpn_ar23_g3`); returns `null` / `[]` / `false` for non-weapons.
+- `LootService.createItem(defId, qty?, extras?)`: weapons spawn with `durability = maxDurability` and `ammoInMag = magSize` (extended mag in `extras.sockets` counted) unless `extras` overrides; `sockets` copied from `extras`. `getEffectiveStats` accepts an instance, a weapon def id (`ar_g3`) or a weapon item id (`wpn_ar_g3`); returns `null` / `[]` / `false` for non-weapons.
 
 ## Loot tiers
 
@@ -133,7 +171,7 @@ STARTER_LOADOUT = {
 | 3 | 귀중품 금고 | 4–5 | 55 % | 12 / 6 | 50–85 % | guaranteed rare+ valuable |
 | 4 | 희귀 캐시 | 5–6 | 100 % | 12 / 8 | 60–100 % | guaranteed epic/legendary valuable **and** a weapon |
 
-Rarity weights double as weapon-grade weights (grade ↔ rarity). `itemWeightMul` keys match an exact item id or, for weapons, the family (`wpn_sr9` or `sr9`) — applied to every grade (a unique is its own family, so `wpn_u_flame` is the key). At most one bag per crate. `rollCrate` is deterministic for a given `Random`; same-def stackables merge (an ammo overflow becomes a second smaller stack — so a crate can hold fewer instances than `count`) and the result is sorted largest-first for container placement. Phase 6: tier 5 gained `material: 4` (회로 기판 only), `weaponChance` 0.03 (uniques only) and `legendary: 1`; see *Unique weapons* for the unique / unique-ammo weights per tier. Phase 8: tiers 1–3 gained `seed: 4 / 4 / 3`; see *씨앗*. Phase 9: tiers 2–4 gained `book: 3 / 3 / 2`; see *서적*.
+Rarity weights double as weapon-grade weights (grade ↔ rarity). `itemWeightMul` keys match an exact item id or, for weapons, the family (`wpn_sr` or `sr`) — applied to every grade (a unique is its own family, so `wpn_u_flame` is the key). At most one bag per crate. `rollCrate` is deterministic for a given `Random`; same-def stackables merge (an ammo overflow becomes a second smaller stack — so a crate can hold fewer instances than `count`) and the result is sorted largest-first for container placement. Phase 6: tier 5 gained `material: 4` (회로 기판 only), `weaponChance` 0.03 (uniques only) and `legendary: 1`; see *Unique weapons* for the unique / unique-ammo weights per tier. Phase 8: tiers 1–3 gained `seed: 4 / 4 / 3`; see *씨앗*. Phase 9: tiers 2–4 gained `book: 3 / 3 / 2`; see *서적*.
 
 ## Phase 3 (2026-09-06)
 - Loot tier 5 `보급 투하 상자` (`SUPPLY_CRATE_TIER`): 4–6 consumables only (ammo 45 / stim 30 / grenade 25, guaranteed stim + ammo, no weapons or valuables). Used by the ship-call supply drop.
@@ -157,7 +195,7 @@ Phase 10: **whether a corpse can be searched at all** is no longer this folder's
 Phase 8: every **bug** row above also rolls `BUG_SEEDS` (4 % `seed_bloodroot`, 2 % `seed_ashleaf`, 0.6 % `seed_glowcap`, one each) — see *씨앗*. `rogue` / `rogue_boss` do not.
 Phase 9: `rogue` (3 %) and `rogue_boss` (20 %) roll one 서적 (`CorpseTable.book`, uniform over `BOOK_ITEM_DEFS`, rolled last) — see *서적*. Bugs do not.
 
-Rogue weapon (`CorpseWeapon`): `rogueWeaponId` is the `WeaponDef` id the rogue carried (`DEFAULT_ROGUE_WEAPON_ID` = `ar23` when undefined / unknown). The corpse holds one ammo stack of that calibre (`ammoItemIdFor(def.ammoType)`, 30–60 % of `AMMO_STACK_ROUNDS`) and the weapon item `wpn_<weaponId>` created with `durability = round(max × 0.05–0.15)` (min 1) and `ammoInMag = rng 0..magSize`. Bosses swap the def for the same family at grade III or IV (`weaponIdForGrade`) with durability 40–70 %.
+Rogue weapon (`CorpseWeapon`): `rogueWeaponId` is the `WeaponDef` id the rogue carried (`DEFAULT_ROGUE_WEAPON_ID` = `ar` when undefined / unknown). The corpse holds one ammo stack of that calibre (`ammoItemIdFor(def.ammoType)`, 30–60 % of `AMMO_STACK_ROUNDS`) and the weapon item `wpn_<weaponId>` created with `durability = round(max × 0.05–0.15)` (min 1) and `ammoInMag = rng 0..magSize`. Bosses swap the def for the same family at grade III or IV (`weaponIdForGrade`) with durability 40–70 %.
 
 ## Tactical kit (merged 2026-09-06)
 
@@ -270,7 +308,8 @@ outputs a book.
 | `make_ammo_heavy` | crafting 20 | 화약 5 + 합금 판 1 → 중량탄 10 |
 | `make_smoke` | crafting 10 | 화약 4 + 생체 조직 2 → 연막탄 |
 | `make_incendiary` | crafting 15 | 화약 8 + 잿빛잎 2 → 소이 수류탄 |
-| `make_stim` | medicine 0 | 혈근초 3 + 잿빛잎 1 → 스팀 |
+| `make_bandage` | medicine 0 | 천조각 5 → 붕대 |
+| `make_bandage_herb` | medicine 0 | 천조각 5 + 혈근초 1 → 약초 붕대 |
 
 **총기 작업대** (`bench: 'gun'`, 15)
 
@@ -313,9 +352,11 @@ outputs a book.
 
 | id | Lv | skill (req) | in → out |
 |---|---|---|---|
-| `make_stim_advanced` (**moved from the field**) | 1 | medicine 25 | 혈근초 4 + 발광버섯 2 + 잿빛잎 2 → 고급 스팀 |
+| `make_antiseptic` | 1 | medicine 10 | 캔 1 + 혈근초 1 → 소독약 |
+| `make_heal_syringe` | 1 | medicine 25 | 주사기 1 + 소독약 1 → 회복주사 |
+| `make_heal_spray` | 2 | medicine 45 | 캔 1 + 소독약 1 → 회복 스프레이 |
 | `grow_bloodroot` (was ship/any) | 1 | gardening 0 | 잿빛잎 4 → 혈근초 6 |
-| `make_stim_batch` | 2 | medicine 10 | 혈근초 8 + 잿빛잎 3 → 스팀 ×3 |
+| `make_bandage_batch` | 2 | medicine 10 | 천조각 12 + 혈근초 2 → 약초 붕대 ×3 |
 | `grow_glowcap` (was ship/any) | 2 | gardening 20 | 혈근초 6 + 생체 조직 3 → 발광버섯 2 |
 
 No `station: 'ship'` recipe is left without a bench, so the legacy `hub_workbench` only offers field recipes until a bench exists (the plan's "undefined = any ship workbench" case is currently unused).
@@ -326,6 +367,6 @@ No `station: 'ship'` recipe is left without a bench, so the legacy `hub_workbenc
 
 **Materials** (1×1): `mat_scrap`, `mat_bio_sample`, `mat_alloy`, `mat_power_cell` (stack 10), `mat_gunpowder` (stack 20), Phase 6 `mat_cable` 전력 케이블 (common, stack 10), `mat_circuit` 회로 기판 (rare, stack 10).
 
-`STARTER_LOADOUT = { primary: 'wpn_ar23', secondary: 'wpn_p2', armor: 'armor_2', backpack: 'bp_2', bag: [grenade_frag×4, stim×2, ammo_medium (30발)×1, gad_smoke×1] }`.
+`STARTER_LOADOUT = { primary: null, secondary: 'wpn_hg', bag: 'bag_common', armor: 'armor_1', items: [ammo_light×80, heal_bandage×2, grenade_frag×3] }` — the minimum kit only; see *Starter loadout & 기본 지급품*.
 
 Ammo recipes were rewritten for ammo v2 (`qty` = rounds): 경량탄 30 ↔ 화약 4, 준중량탄 30 ↔ 화약 6, 중량탄 10 ↔ 화약 5 (+ 합금 판, 제작 20), 산탄 8 ↔ 화약 5.

@@ -516,12 +516,23 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
 
   /** Stim heal-over-time (1.5 s). The caller (weapons quick-use) has already consumed the item. */
   applyStim(healAmount: number): boolean {
-    if (!this.spawned || this.isDead || this._downed || this.hp >= this.maxHp || healAmount <= 0) return false;
-    if (this.healPool > 0) return false; // already healing
-    this.healPool = healAmount;
-    this.healRate = healAmount / STIM_DURATION;
+    return this.applyHeal(healAmount, STIM_DURATION);
+  }
+
+  /**
+   * appended (2026-09-07): the consumable's own heal-over-time. `seconds` ≤ 0 lands the whole `amount` on the next
+   * frame; `quiet` skips the SFX (the 회복 스프레이 ticks 10×/s). A pool already running is **topped up** rather than
+   * refused for a spray tick — a fresh use still refuses while one is running, which is what `applyStim` always did.
+   */
+  applyHeal(amount: number, seconds: number, quiet = false): boolean {
+    if (!this.spawned || this.isDead || this._downed || this.hp >= this.maxHp || amount <= 0) return false;
+    if (this.healPool > 0 && !quiet) return false; // already healing
+    const dur = Math.max(0.05, seconds);
+    const rate = amount / dur;
+    this.healRate = this.healPool > 0 ? Math.max(this.healRate, rate) : rate;
+    this.healPool += amount;
     this.ctx.bus.emit('player:stimUsed', { hp: this.hp });
-    this.ctx.bus.emit('audio:play', { id: 'stim', volume: 0.8 });
+    if (!quiet) this.ctx.bus.emit('audio:play', { id: 'stim', volume: 0.8 });
     return true;
   }
 
@@ -1040,6 +1051,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
       const h = Math.min(this.healPool, this.healRate * dt);
       this.healPool -= h;
       this.heal(h);
+      if (this.healPool <= 0) { this.healPool = 0; this.healRate = 0; }
     }
 
     // ── downed: bleed-out + give-up hold

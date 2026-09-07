@@ -53,9 +53,17 @@ try {
   await page.setViewport({ width: 1680, height: 900 });
   // Never let headless Chrome take a real pointer lock: on Windows it calls ClipCursor and traps the OS cursor inside the
   // hidden 960×540 window at the top-left of the screen. Scripts fake `pointerLockElement` themselves where they need it.
+  // 2026-09-07 (커서 rework): the fake is a *realistic* lock — cursor screens really do release it now and the
+  // relock is `main.ts`'s job, so a stub that stayed locked forever would hide both halves of the mechanism.
   await page.evaluateOnNewDocument(() => {
-    Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
-    Document.prototype.exitPointerLock = function () {};
+    window.__lockCalls = { req: 0, exit: 0 };
+    window.__lockEl = null;
+    Element.prototype.requestPointerLock = function () {
+      window.__lockCalls.req++;
+      window.__lockEl = document.getElementById('game-canvas');
+      return Promise.resolve();
+    };
+    Document.prototype.exitPointerLock = function () { window.__lockCalls.exit++; window.__lockEl = null; };
   });
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   page.on('pageerror', (e) => errors.push(String(e)));
@@ -70,7 +78,8 @@ try {
     (function tick() { lastRaf = performance.now(); requestAnimationFrame(tick); })();
     setInterval(() => { const now = performance.now(); if (now - lastRaf > 100) window.__game.frame(now); }, 33);
     const canvas = document.getElementById('game-canvas');
-    Object.defineProperty(Document.prototype, 'pointerLockElement', { get: () => canvas, configurable: true });
+    window.__lockEl = canvas;
+    Object.defineProperty(Document.prototype, 'pointerLockElement', { get: () => window.__lockEl, configurable: true });
     window.__ev = {};
     const bus = window.__game.ctx.bus;
     for (const n of ['implant:wieldChanged', 'implant:energyChanged', 'implant:grappleTargetChanged', 'implant:activated', 'input:bindingsChanged', 'inventory:stashChanged', 'ui:statsToggled', 'weapon:swapStarted']) {
@@ -265,6 +274,8 @@ try {
   // right-click repair on a worn equipped weapon
   const repairPrep = await page.evaluate(() => {
     const ctx = window.__game.ctx, inv = ctx.inventory;
+    // 2026-09-07: the starter equips no 주무기 — take one out of the 창고 so there is worn gear to repair
+    if (!inv.getEquipped('primary')) { const g = ctx.loot.createItem('wpn_ar'); inv.tryAddItem(g); inv.equip(g.uid, 'primary'); }
     const w = inv.getEquipped('primary');
     inv.updateItem(w.uid, { durability: 100 });
     inv.tryAddItem(ctx.loot.createItem('mat_scrap', 10));
@@ -367,28 +378,96 @@ try {
   });
   ok(term.sw <= term.cw && term.sh <= term.ch, `terminal frame has no scroll overflow (${term.sw}/${term.cw} × ${term.sh}/${term.ch})`);
   ok(term.tabs === 0 && term.panels === 0, 'terminal has no 임플란트 / 정비 tabs any more');
-  // Phase 10 cursor migration: the terminal takes the software cursor and KEEPS the pointer lock (no exitPointerLock).
+  /* 2026-09-07 (커서 rework): a cursor screen **releases** the pointer lock and the real OS cursor comes back,
+     restyled by `ui/hud/GameCursor`. The virtual cursor, its sprite and the synthesised events are gone. */
   const termCursor = await page.evaluate(() => ({
     blocker: window.__game.ctx.uiBlockers.has('hub'),
     cursor: window.__game.ctx.input.isCursorMode,
+    locked: window.__game.ctx.input.isPointerLocked,
+    bodyMode: document.body.classList.contains('cursor-on'),
+    bodyArt: document.body.classList.contains('cursor-ui'),
+    sprite: document.querySelectorAll('.soft-cursor').length,
   }));
-  ok(termCursor.blocker && termCursor.cursor === true, `terminal holds the 'hub' blocker and the software cursor (cursor ${termCursor.cursor})`);
-  // 2026-09-07: the virtual cursor is **linear** again — the acceleration curve added earlier that day overshot
-  // (a 14 px hand movement travelled 27 px), so the arrow never landed where it was aimed.
-  const linear = await page.evaluate(() => {
-    const cur = window.__game.ctx.input.cursor;
-    cur.setPosition(300, 300); cur.moveBy(4, 3);
-    const slow = [cur.x - 300, cur.y - 300];
-    cur.setPosition(300, 300); cur.moveBy(60, 40);
-    return { slow, fast: [cur.x - 300, cur.y - 300] };
+  ok(termCursor.blocker && termCursor.cursor === true, `terminal holds the 'hub' blocker and 커서 모드 (cursor ${termCursor.cursor})`);
+  ok(!termCursor.locked, 'the terminal RELEASES the pointer lock — that is how the real cursor comes back');
+  ok(termCursor.bodyMode && termCursor.bodyArt && termCursor.sprite === 0,
+    'body.cursor-on / .cursor-ui are set and no cursor sprite exists any more', JSON.stringify(termCursor));
+  // The generated art: one blanket rule plus a mirror of every `cursor: pointer/grab` rule the stylesheets declare.
+  const art = await page.evaluate(() => {
+    const style = document.getElementById('game-cursor-style');
+    const txt = style ? style.textContent : '';
+    const body = getComputedStyle(document.body).cursor;
+    return {
+      installed: !!style,
+      blanket: /body\.cursor-ui \* \{ cursor: image-set\(url\(data:image\/png/.test(txt),
+      mirrored: (txt.match(/body\.cursor-ui [^{*][^{]*\{ cursor: image-set/g) || []).length,
+      onBody: body.startsWith('image-set') || body.startsWith('url'),
+    };
   });
-  ok(linear.slow[0] === 4 && linear.slow[1] === 3 && linear.fast[0] === 60 && linear.fast[1] === 40,
-    'virtual cursor moves 1:1 with the raw delta, slow move and flick alike', JSON.stringify(linear));
+  ok(art.installed && art.blanket, 'the procedural cursor art is generated into a data: image and applied to everything', JSON.stringify(art));
+  ok(art.mirrored > 10, `every stylesheet cursor affordance is mirrored onto the game art (${art.mirrored} selectors)`);
+  // A click in 커서 모드 belongs to the UI: it must never reach the gameplay button set (which would fire the gun).
+  const clickGate = await page.evaluate(() => {
+    window.dispatchEvent(new MouseEvent('mousedown', { button: 0, bubbles: true, clientX: 500, clientY: 400 }));
+    const seen = window.__game.ctx.input.wasMousePressed(0) || window.__game.ctx.input.isMouseDown(0);
+    window.dispatchEvent(new MouseEvent('mouseup', { button: 0, bubbles: true }));
+    return seen;
+  });
+  ok(clickGate === false, 'a click while a screen owns the cursor never reaches gameplay input');
   await shot('07-terminal');
   await tap('Escape');
   await waitFor(page, () => document.querySelector('.menu.hub-menu').hidden, 'terminal closed');
   await waitSim(0.2);
-  ok((await page.evaluate(() => window.__game.ctx.input.isCursorMode)) === false, 'closing the terminal releases the software cursor');
+  const afterTerm = await page.evaluate(() => ({
+    cursor: window.__game.ctx.input.isCursorMode,
+    locked: window.__game.ctx.input.isPointerLocked,
+    mode: document.body.classList.contains('cursor-on'),
+  }));
+  ok(afterTerm.cursor === false && afterTerm.mode === false, 'closing the terminal leaves 커서 모드');
+  ok(afterTerm.locked, 'the pointer lock is back the moment the last cursor owner leaves (main.ts relock)');
+
+  /* Alt (`Keys.CURSOR`): free the mouse with no screen behind it, and no pause. */
+  const alt = await page.evaluate(async () => {
+    const key = (code, type) => document.body.dispatchEvent(new KeyboardEvent(type, { code, bubbles: true }));
+    key('AltLeft', 'keydown'); key('AltLeft', 'keyup');
+    await new Promise((r) => setTimeout(r, 120));
+    window.__game.frame(performance.now());
+    const menu = document.querySelector('.menu.pause');
+    return {
+      cursor: window.__game.ctx.input.isCursorMode,
+      blocker: window.__game.ctx.uiBlockers.has('cursor'),
+      locked: window.__game.ctx.input.isPointerLocked,
+      paused: !!menu && !menu.classList.contains('hidden'),
+    };
+  });
+  ok(alt.cursor && alt.blocker && !alt.locked, 'Alt frees the mouse in place (cursor mode + its own blocker, lock released)', JSON.stringify(alt));
+  ok(!alt.paused, 'Alt does not pause the game');
+  const altOff = await page.evaluate(async () => {
+    const key = (code, type) => document.body.dispatchEvent(new KeyboardEvent(type, { code, bubbles: true }));
+    key('Escape', 'keydown'); key('Escape', 'keyup');
+    await new Promise((r) => setTimeout(r, 120));
+    window.__game.frame(performance.now());
+    const menu = document.querySelector('.menu.pause');
+    return {
+      cursor: window.__game.ctx.input.isCursorMode, blocker: window.__game.ctx.uiBlockers.has('cursor'),
+      locked: window.__game.ctx.input.isPointerLocked, paused: !!menu && !menu.classList.contains('hidden'),
+    };
+  });
+  ok(!altOff.cursor && !altOff.blocker && altOff.locked, 'Escape gives the mouse straight back to the camera', JSON.stringify(altOff));
+  ok(!altOff.paused, 'that Escape closes the Alt cursor instead of opening the 일시정지 메뉴');
+
+  /* A lost pointer lock is no longer a pause: it just means the mouse is a cursor for a moment. */
+  const lost = await page.evaluate(async () => {
+    window.__lockEl = null;
+    document.dispatchEvent(new Event('pointerlockchange'));
+    for (let i = 0; i < 30; i++) window.__game.frame(performance.now() + i * 60);
+    await new Promise((r) => setTimeout(r, 900));
+    for (let i = 0; i < 30; i++) window.__game.frame(performance.now() + 2000 + i * 60);
+    const menu = document.querySelector('.menu.pause');
+    return { paused: !!menu && !menu.classList.contains('hidden'), phase: window.__game.ctx.phase };
+  });
+  ok(!lost.paused, 'a pointer lock lost for a second does not force the 일시정지 메뉴 any more', JSON.stringify(lost));
+  await page.evaluate(() => { window.__game.ctx.input.requestPointerLock(); });
 
   /* 2026-09-07: a denied pointer-lock request waits for the next real user gesture. Chrome grants no user activation
      for Escape and refuses a re-lock right after one, so closing the 일시정지 메뉴 with Escape used to leave the

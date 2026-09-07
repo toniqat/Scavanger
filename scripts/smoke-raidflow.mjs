@@ -158,7 +158,7 @@ try {
   console.log('훈련장: enter / death respawn / exit');
   await resetEv();
   await P(() => { for (const k of Object.keys(window.__spy)) window.__spy[k] = []; });
-  const hubInv = await P(() => { const inv = window.__game.ctx.inventory; const s = inv.captureRaidState(); return { stims: inv.countWhere((d) => d.id === 'stim'), snap: s == null ? null : JSON.stringify(s) }; });
+  const hubInv = await P(() => { const inv = window.__game.ctx.inventory; const s = inv.captureRaidState(); return { stims: inv.countWhere((d) => d.id === 'heal_bandage'), snap: s == null ? null : JSON.stringify(s) }; });
   await startMission(5, 'training');
   st = await P(() => { const ctx = window.__game.ctx; return { mode: ctx.missionMode, statsMode: ctx.stats.mode, training: ctx.isTraining(), worldMode: ctx.world?.mode, pads: ctx.interactables.all().filter((i) => i.id.startsWith('extract_')).length, threat: window.__spy.threat.length }; });
   ok(st.mode === 'training' && st.statsMode === 'training' && st.training, 'training: ctx.missionMode / stats.mode / isTraining()', JSON.stringify(st));
@@ -166,7 +166,7 @@ try {
   if (st.worldMode === 'training') ok(st.pads === 0, 'training arena: no extraction consoles', `${st.pads}`);
   else console.log('  skip world mode is not training yet (world/ skeleton) — console check skipped');
   // spend something on the range so the exit refund is observable
-  const spent = await P(() => { const inv = window.__game.ctx.inventory; const before = inv.countWhere((d) => d.id === 'stim'); const c = typeof inv.consumeDef === 'function' ? inv.consumeDef('stim', 1) : false; return { before, after: inv.countWhere((d) => d.id === 'stim'), c }; });
+  const spent = await P(() => { const inv = window.__game.ctx.inventory; const before = inv.countWhere((d) => d.id === 'heal_bandage'); const c = typeof inv.consumeDef === 'function' ? inv.consumeDef('heal_bandage', 1) : false; return { before, after: inv.countWhere((d) => d.id === 'heal_bandage'), c }; });
   // death on the range: give up while downed → immediate respawn at the arena spawn, no failure
   await giveUp();
   await waitFor(page, () => window.__ev['player:respawn'].length > 0, 'training respawn', 10000);
@@ -178,7 +178,7 @@ try {
   // exit console → abort + snapshot restore + back to the ship
   await P(() => window.__game.ctx.bus.emit('training:exitRequested', {}));
   await waitFor(page, () => window.__game.ctx.phase === 'hub', 'back in the hub', 20000);
-  st = await P(() => { const ctx = window.__game.ctx; const inv = ctx.inventory; return { phase: ctx.phase, ship: window.__ev['hub:entered'].at(-1)?.ship, aborts: window.__ev['game:abort'].length, applied: window.__spy.applyRaidState.length, appliedSnap: window.__spy.applyRaidState[0] == null ? null : JSON.stringify(window.__spy.applyRaidState[0]), stims: inv.countWhere((d) => d.id === 'stim'), xp: window.__spy.addXp.length, settle: window.__spy.settle.length, over: window.__ev['game:over'].length, complete: window.__ev['game:complete'].length, training: ctx.isTraining() }; });
+  st = await P(() => { const ctx = window.__game.ctx; const inv = ctx.inventory; return { phase: ctx.phase, ship: window.__ev['hub:entered'].at(-1)?.ship, aborts: window.__ev['game:abort'].length, applied: window.__spy.applyRaidState.length, appliedSnap: window.__spy.applyRaidState[0] == null ? null : JSON.stringify(window.__spy.applyRaidState[0]), stims: inv.countWhere((d) => d.id === 'heal_bandage'), xp: window.__spy.addXp.length, settle: window.__spy.settle.length, over: window.__ev['game:over'].length, complete: window.__ev['game:complete'].length, training: ctx.isTraining() }; });
   ok(st.phase === 'hub' && st.ship === 'personal' && st.aborts === 1, 'training exit → game:abort → personal ship', JSON.stringify({ phase: st.phase, ship: st.ship, aborts: st.aborts }));
   ok(st.xp === 0 && st.settle === 0 && st.over === 0 && st.complete === 0, 'training: no XP, no contract settlement, no result screen', JSON.stringify({ xp: st.xp, settle: st.settle }));
   ok(!st.training, 'isTraining() false back in the hub');
