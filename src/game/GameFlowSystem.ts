@@ -423,6 +423,11 @@ export class GameFlowSystem implements GameSystem {
    *
    * It is a plain cursor-mode owner with its own blocker token, so gameplay input is gated exactly the way an open
    * panel gates it (no firing, no camera) and `main.ts` re-locks when it is released. Escape closes it too.
+   *
+   * 2026-09-07: **좌클릭도 닫는다.** This is the one cursor owner with no window behind it, so a click on the 3D
+   * canvas can only mean "give me the camera back" — and a click is the real user gesture Chrome wants before it
+   * grants the pointer lock, so the camera comes back at once instead of at the next keypress. A click that lands
+   * on a HUD element (its own event target) is left alone.
    */
   private toggleFreeCursor(on?: boolean): void {
     const ctx = this.ctx;
@@ -434,12 +439,20 @@ export class GameFlowSystem implements GameSystem {
       if (ctx.player?.isDead ?? false) return;
       ctx.uiBlockers.add(FREE_CURSOR_BLOCKER);
       ctx.input.setCursorMode(true, FREE_CURSOR_BLOCKER);
+      window.addEventListener('mousedown', this.onFreeCursorClick);
     } else {
+      window.removeEventListener('mousedown', this.onFreeCursorClick);
       ctx.uiBlockers.delete(FREE_CURSOR_BLOCKER);
       ctx.input.setCursorMode(false, FREE_CURSOR_BLOCKER);
     }
     ctx.bus.emit('ui:freeCursorToggled', { active: want });
   }
+
+  /** Left click on the world while the Alt 커서 is up = 카메라 복귀 (see `toggleFreeCursor`). */
+  private readonly onFreeCursorClick = (e: MouseEvent): void => {
+    if (e.button !== 0 || e.target !== this.ctx.canvas) return;
+    this.toggleFreeCursor(false);
+  };
 
   /* ── Mission start / rejoin ──────────────────────────────────────────── */
   /** NetSystem announces a session start right before its `game:newMission`; `rejoin` = re-entering a running mission. */
@@ -894,5 +907,6 @@ export class GameFlowSystem implements GameSystem {
     window.removeEventListener('blur', this.onWindowBlur);
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
     window.removeEventListener('pagehide', this.onPageHide);
+    window.removeEventListener('mousedown', this.onFreeCursorClick);
   }
 }

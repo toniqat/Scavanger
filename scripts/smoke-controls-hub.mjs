@@ -69,7 +69,7 @@ try {
   page.on('pageerror', (e) => errors.push(String(e)));
   // fresh profile / stash / bindings
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
-  await page.evaluate(() => { localStorage.removeItem('scav.stash'); localStorage.removeItem('scav.keybinds'); });
+  await page.evaluate(() => { localStorage.removeItem('scav.stash'); localStorage.removeItem('scav.grant'); localStorage.removeItem('scav.keybinds'); });
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
   await waitFor(page, () => !!window.__game?.ctx, 'engine boot');
 
@@ -311,10 +311,10 @@ try {
     return { bg: cs.backgroundImage, border: cs.borderTopWidth, cols: !!host.querySelector('.hs-ship-cols'),
       facilities: [...host.querySelectorAll('.hs-row.facility')].map((r) => r.dataset.facility),
       rooms: host.querySelectorAll('.hs-row.room').length,
-      // Phase 9 UI pass: no 용도 드롭다운 in the 방 목록 any more, and room 1 offers no 제거 button
+      // Phase 9 UI pass: no 용도 드롭다운 in the 방 목록 any more; 2026-09-07: every room starts 빈 방
       pickers: host.querySelectorAll('.hs-row.room .purpose').length,
-      workshopName: host.querySelector('.hs-row.room[data-room="0"] .name')?.textContent ?? '',
-      workshopDel: !host.querySelector('.hs-row.room[data-room="0"] .hs-del')?.hidden,
+      room0Name: host.querySelector('.hs-row.room[data-room="0"] .name')?.textContent ?? '',
+      room0Del: !host.querySelector('.hs-row.room[data-room="0"] .hs-del')?.hidden,
       thumbs: host.querySelectorAll('.hs-row.room .hs-thumb, .hs-row.facility .hs-thumb').length,
       bar: !!host.querySelector('.hs-ship-bar'),
       // Phase 9 UI pass: the panel itself no longer scrolls (the 방 목록 does), so the bar is a plain bottom strip
@@ -326,13 +326,13 @@ try {
   });
   ok(ship.bg !== 'none' && ship.border !== '0px', `the Tab screen has its own panel background (${ship.border} border)`);
   ok(ship.cols && ship.facilities.join(',') === 'generator,storage' && ship.rooms === 10, `기본 시설 발전기 · 창고 left, 방 목록 (${ship.rooms}) right (${ship.facilities.join(',')})`);
-  ok(ship.pickers === 0 && ship.workshopName === '작업실', `방 목록 has no 용도 드롭다운, rows read the purpose name ('${ship.workshopName}')`);
-  ok(!ship.workshopDel, '방 1 (기본 작업실) offers no 시설 제거 button');
+  ok(ship.pickers === 0 && ship.room0Name === '빈 방', `방 목록 has no 용도 드롭다운, rows read the purpose name ('${ship.room0Name}')`);
+  ok(!ship.room0Del, '빈 방 offers no 시설 제거 button (2026-09-07: 방 1 is empty on a new ship)');
   ok(ship.thumbs === 12, `every 시설 / 방 row leads with the shared thumbnail (${ship.thumbs})`);
   ok(ship.bar && /시설 관리/.test(ship.btn ?? '') && ship.sticky === 'static', `separate bottom bar with the 시설 관리 (M) button on its right (${ship.btn})`);
   ok(ship.screenScroll === 'hidden' && ship.roomsScroll === 'auto' && !ship.subtitle,
     `패널은 스크롤하지 않고 방 목록만 스크롤한다, '용도가 정해진 방' 라벨 없음 (${ship.screenScroll} / ${ship.roomsScroll})`);
-  ok(ship.buildBtns === 9, `빈 방 9개가 시설 증축 버튼을 가진다 (${ship.buildBtns})`);
+  ok(ship.buildBtns === 10, `빈 방 10개가 시설 증축 버튼을 가진다 (${ship.buildBtns})`);
   // 재료 요구 칩 hover card (ui/hud/ItemTip): any cost chip anywhere shows the item's info
   const tip = await page.evaluate(() => {
     const chip = document.querySelector('.inv-root .inv-screen .item-chip[data-def-id]');
@@ -456,6 +456,24 @@ try {
   ok(!altOff.cursor && !altOff.blocker && altOff.locked, 'Escape gives the mouse straight back to the camera', JSON.stringify(altOff));
   ok(!altOff.paused, 'that Escape closes the Alt cursor instead of opening the 일시정지 메뉴');
 
+  /* 2026-09-07: the Alt 커서 also closes on a left click on the world — it is the one cursor owner with no window
+     behind it, and a click is the user gesture Chrome wants before it grants the lock back. */
+  const altClick = await page.evaluate(async () => {
+    const key = (code, type) => document.body.dispatchEvent(new KeyboardEvent(type, { code, bubbles: true }));
+    key('AltLeft', 'keydown'); key('AltLeft', 'keyup');
+    await new Promise((r) => setTimeout(r, 120));
+    window.__game.frame(performance.now());
+    const on = window.__game.ctx.input.isCursorMode;
+    const canvas = document.getElementById('game-canvas');
+    canvas.dispatchEvent(new MouseEvent('mousedown', { button: 0, bubbles: true }));
+    await new Promise((r) => setTimeout(r, 60));
+    window.__game.frame(performance.now());
+    const ctx = window.__game.ctx;
+    return { on, cursor: ctx.input.isCursorMode, blocker: ctx.uiBlockers.has('cursor'), locked: ctx.input.isPointerLocked };
+  });
+  ok(altClick.on, 'Alt opens the free cursor again');
+  ok(!altClick.cursor && !altClick.blocker && altClick.locked, '좌클릭으로도 Alt 커서가 닫히고 카메라가 돌아온다', JSON.stringify(altClick));
+
   /* A lost pointer lock is no longer a pause: it just means the mouse is a cursor for a moment. */
   const lost = await page.evaluate(async () => {
     window.__lockEl = null;
@@ -496,6 +514,27 @@ try {
   ok(relock.armed, 'a denied pointer-lock request arms the gesture retry');
   ok(relock.afterEsc, 'Escape never counts as the gesture (Chrome grants it no user activation)');
   ok(relock.retried && !relock.disarmed, 'any other key retries the lock and disarms the wait', JSON.stringify(relock));
+
+  /* 2026-09-07: 좌클릭으로 카메라 되찾기 — a click on the 3D canvas while the camera wants the lock but does not
+     have it re-requests it **and is swallowed**, so the recapture click never fires the weapon. */
+  const clickBack = await page.evaluate(async () => {
+    const input = window.__game.ctx.input;
+    const faked = Object.getOwnPropertyDescriptor(Document.prototype, 'pointerLockElement');
+    Object.defineProperty(Document.prototype, 'pointerLockElement', { get: () => null, configurable: true });
+    input.exitPointerLock();
+    input.requestPointerLock();                    // the camera wants it; the stub never grants it here
+    await new Promise((r) => setTimeout(r, 60));
+    const at = input.lastLockRequest;
+    const canvas = document.getElementById('game-canvas');
+    canvas.dispatchEvent(new MouseEvent('mousedown', { button: 0, bubbles: true }));
+    const out = { retried: input.lastLockRequest !== at, swallowed: !input.isMouseDown(0) && !input.wasMousePressed(0) };
+    canvas.dispatchEvent(new MouseEvent('mouseup', { button: 0, bubbles: true }));
+    input.exitPointerLock();
+    Object.defineProperty(Document.prototype, 'pointerLockElement', faked);
+    return out;
+  });
+  ok(clickBack.retried, '좌클릭이 잃어버린 포인터 락을 즉시 다시 요청한다', JSON.stringify(clickBack));
+  ok(clickBack.swallowed, 'and that recapture click is swallowed (no shot behind it)', JSON.stringify(clickBack));
 
   /* ── 5. mission A: 대전차포 wielded → weapon key stows it ─────────── */
   const startMission = async (seed) => {

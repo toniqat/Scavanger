@@ -51,6 +51,11 @@ export class Input {
       // 커서 모드: the press belongs to the UI under the real cursor, which already received it natively. Recording
       // it here as well would fire the gun behind an open panel.
       if (this.cursor.active) return;
+      // 좌클릭으로 카메라 되찾기 (2026-09-07): nobody owns the cursor, yet the lock is missing — a screen was closed
+      // with Escape and Chrome refused to hand the lock back (see the gesture retry below). The click *is* the
+      // gesture Chrome was waiting for, so take the camera back on the spot and swallow the press: the recapture
+      // click must not also fire the weapon.
+      if (this.takeLockOnClick(e)) return;
       if (!this.mouseDown.has(e.button)) this.mousePressed.add(e.button);
       this.mouseDown.add(e.button);
       // Rebindable actions may sit on a mouse button: mirror it as the synthetic key code `MouseN`.
@@ -102,6 +107,18 @@ export class Input {
   wasMouseReleased(button: number): boolean { return this.mouseReleased.has(button); }
 
   get isPointerLocked(): boolean { return !!this.lockTarget && document.pointerLockElement === this.lockTarget; }
+  /**
+   * A left click **on the 3D canvas** while the camera wants the lock but does not have it: re-request it and
+   * report true so the caller swallows the press. Gated on `wantLock`, so the title screen (nobody asked for the
+   * lock) is untouched, and on the canvas being the event target, so a click on an interactive HUD element still
+   * belongs to that element. A denied request still arms the gesture retry, exactly as before.
+   */
+  private takeLockOnClick(e: MouseEvent): boolean {
+    if (e.button !== 0 || !this.wantLock || this.isPointerLocked || !this.lockTarget) return false;
+    if (e.target !== this.lockTarget) return false;
+    this.requestPointerLock();
+    return true;
+  }
   /** performance.now() of the last pointer-lock request (Chrome throttles re-locks right after an Esc exit). */
   lastLockRequest = 0;
   requestPointerLock(): void {

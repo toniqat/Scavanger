@@ -208,10 +208,10 @@ Brief for the implementing agents: `docs/PHASE7-PLAN.md`.
   the single reader of that hook — one delegated hover on `#ui-root` gives every cost chip everywhere the same
   inventory-style item card. Nothing else about the markup changed.
 - `housing.ts`:
-  - **`WORKSHOP_ROOM_INDEX`** (0) — the ship's permanent 작업실. `housing/Rules.purposeChangeReason` refuses any other
-    purpose for that room and refuses `workshop` for every other room; `housing/ShipState` enforces it on every load
-    (older saves migrate, displaced furniture goes to furniture storage) and `freshState()` places the 총기 작업대 +
-    정비 벤치 in it.
+  - **`WORKSHOP_ROOM_INDEX`** (0) — **deprecated 2026-09-07, no longer enforced.** It used to make room 1 the ship's
+    permanent 작업실 (built for free, with the 총기 작업대 + 정비 벤치 already placed). A new ship is now ten 빈 방 with
+    no furniture and the 작업실 is an ordinary purpose: any room may take it, one per ship, paid for with
+    `ROOM_PURPOSE_BUILD_COST`. The constant stays exported so the contract remains append-only; nothing reads it.
   - `HousingRef.purposeBlock(index, purpose)` appended — the 한국어 reason `setRoomPurpose` would refuse, so ui/ can
     render the 시설 관리 purpose picker and the 방 목록 `<select>` disabled states from the same rule.
   - `HousingRef.openRoomMenu / openFacilityMenu` are kept but now **redirect to `openShipManage`** (the standalone
@@ -513,6 +513,12 @@ reversed. **락 = 시점 조작 / 언락 = 진짜 커서.** The public API did n
   is still the fallback. `Input.keyboardLocked` reports it.
 - The **denied-lock gesture retry** (`awaitingLockGesture`, `LOCK_GESTURE_RETRY_MS`) is unchanged and still needed
   outside fullscreen; it now also disarms itself if a screen opened in the meantime.
+- **좌클릭으로 카메라 되찾기** (2026-09-07): the `mousedown` handler now checks `takeLockOnClick(e)` right after the
+  cursor-mode branch — a **left** click whose target is the **canvas**, while `wantLock` is set and the lock is
+  missing, re-requests the lock and **swallows the press** (it is never recorded as a gameplay button, so the click
+  that takes the camera back cannot also fire the weapon). That is the state a screen closed with Escape leaves
+  behind outside fullscreen; the click is the user gesture Chrome was waiting for. A click on an interactive HUD
+  element keeps its own target and is untouched, and the title screen never qualifies (`wantLock` is false there).
 - `constants.ts`: `SOFT_CURSOR_SENSITIVITY` / `SOFT_CURSOR_SIZE` / `SOFT_CURSOR_DBLCLICK_MS` are **gone**, replaced by
   `GAME_CURSOR_SIZE` (the drawn art) and `FREE_CURSOR_BLOCKER` (`'cursor'`, the Alt cursor's token).
 - **Keys**: `DIVE` moved off Alt onto **V**, the new **`CURSOR`** action took `AltLeft`, and **`SWAP` (이전 무기) was
