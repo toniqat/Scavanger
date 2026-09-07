@@ -175,8 +175,11 @@ export class SocialColumn {
         this.squadList.replaceChildren();
         for (const p of players) {
           const local = p.id === ctx.net?.localId;
+          /* Phase 11: the lobby wire carries the 아이디 / level itself now; the name match is only a fallback. */
           const known = local ? social.me : this.byName(social, p.name);
-          this.squadList.appendChild(this.squadRow(p.id, p.slot, p.name, local, known?.code ?? null, known?.level ?? 0));
+          const code = p.code ?? known?.code ?? null;
+          const level = p.level ?? known?.level ?? 0;
+          this.squadList.appendChild(this.squadRow(p.id, p.slot, p.name, local, code, level));
         }
       }
     }
@@ -204,8 +207,8 @@ export class SocialColumn {
   }
 
   /**
-   * The lobby wire carries a name, never a `PlayerCode`, so a squad-mate's 아이디 / 레벨 can only be resolved when
-   * they also appear in one of my own lists. Unknown → `아이디 미확인` (honest, and it never fabricates an id).
+   * Fallback for a squad-mate whose `LobbyPlayer.code` is absent (an anonymous socket, or a relay without a profile
+   * store): match them against my own lists by name. Unknown → `아이디 미확인`, never a fabricated id.
    */
   private byName(social: SocialRef, name: string): SocialPlayer | undefined {
     if (!name) return undefined;

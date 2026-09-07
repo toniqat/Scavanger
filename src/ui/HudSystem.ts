@@ -426,10 +426,11 @@ export class HudSystem implements GameSystem {
   /**
    * Smoke-test hook (Phase 11): install a synthetic `SocialSnapshot` (+ live squad invites) as `ctx.net.social` for
    * every ui component that reads the social mirror — the ESC column, the community thumbnail / panel and the invite
-   * stack. Same shape as `debugRemotes`: `debugSocial(null)` hands the UI back to the real `ctx.net.social`.
+   * stack. Same shape as `debugRemotes`: `debugSocial(null)` hands the UI back to the real `ctx.net.social`, and
+   * `debugSocial('offline')` forces the unavailable state even when a relay is connected.
    * `mySquad` is the member count of *my* lobby, which `playBlockReason` needs to judge 같이 하기.
    */
-  debugSocial(snapshot: SocialSnapshot | null, invites: readonly SquadInvite[] = [], mySquad = 1): void {
+  debugSocial(snapshot: SocialSnapshot | 'offline' | null, invites: readonly SquadInvite[] = [], mySquad = 1): void {
     setDebugSocial(snapshot, invites, mySquad);
     this.pause.socialColumn.refresh(true);
     this.community.socialColumn.refresh(true);

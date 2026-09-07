@@ -101,6 +101,15 @@ export interface LobbyPlayer {
    * older servers keep parsing; treat undefined as `started && connected`.
    */
   inMission?: boolean;
+  /* appended (Phase 11) */
+  /**
+   * Public 아이디 and level of this member, filled in by the relay from its profile store (absent for an anonymous
+   * socket, and on any server without one). Needed because the ESC 분대원 rows show both, and before Phase 11 the
+   * lobby wire carried a **name only** — matching a squad-mate against my own friends list by name was ambiguous.
+   * Never a `PeerId`: `code` is the same `PlayerCode` every social message uses.
+   */
+  code?: PlayerCode;
+  level?: number;
 }
 
 export interface LobbyState {

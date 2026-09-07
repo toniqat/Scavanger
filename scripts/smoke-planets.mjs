@@ -263,6 +263,7 @@ try {
   ok(typeof beforeHex === 'number', `the window planet is readable (0x${(beforeHex ?? 0).toString(16)})`);
   await clickSel('.ui-btn.hp-travel');
   await waitFor(page, () => window.__game.ctx.hub.travelling === true, 'travelling');
+  await waitSim(0.2);   // the status line is written by the next `HubSystem.update` frame, not by `startTravel`
   const t1 = await P(() => {
     const ctx = window.__game.ctx;
     const cut = ctx.scene.getObjectByName('DockingCutscene');

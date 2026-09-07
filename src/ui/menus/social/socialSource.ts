@@ -34,14 +34,29 @@ export const SOCIAL_UNAVAILABLE_KO = '소셜 기능을 사용할 수 없습니�
 
 /**
  * Smoke hook: install a synthetic `SocialRef` built from `snapshot` (null clears it and hands the ui back to
- * `ctx.net.social`). The mutators are real enough for a UI test — `acceptInvite` / `dismissInvite` drop the invite,
- * `respondFriend(code, true)` moves the row into `friends` — and every call is appended to `debugSocialCalls`.
+ * `ctx.net.social`; the string `'offline'` installs an **unavailable** one, which is how the
+ * `소셜 기능을 사용할 수 없습니다` path is tested even when a relay happens to be running). The mutators are real enough
+ * for a UI test — `acceptInvite` / `dismissInvite` drop the invite, `respondFriend(code, true)` moves the row into
+ * `friends` — and every call is appended to `debugSocialCalls`.
  */
 export function setDebugSocial(
-  snapshot: SocialSnapshot | null, invites: readonly SquadInvite[] = [], mySquad = 1,
+  snapshot: SocialSnapshot | 'offline' | null, invites: readonly SquadInvite[] = [], mySquad = 1,
 ): void {
   debugSocialCalls.length = 0;
   if (!snapshot) { debugRef = null; return; }
+  if (snapshot === 'offline') {
+    const nop = (m: string) => (...args: unknown[]): void => { debugSocialCalls.push({ m, args }); };
+    debugRef = {
+      available: false, me: null, friends: [], incoming: [], outgoing: [], recent: [], invites: [],
+      onlineFriends: 0, hasNews: false,
+      refresh: nop('refresh'), requestFriend: nop('requestFriend'), respondFriend: nop('respondFriend'),
+      removeFriend: nop('removeFriend'), playWith: nop('playWith'), acceptInvite: nop('acceptInvite'),
+      dismissInvite: nop('dismissInvite'), setLevel: nop('setLevel'),
+      whisper(code, text) { debugSocialCalls.push({ m: 'whisper', args: [code, text] }); return false; },
+      find() { return undefined; }, playBlock() { return 'offline' as PlayBlock; },
+    };
+    return;
+  }
   const snap: SocialSnapshot = {
     me: snapshot.me,
     friends: [...(snapshot.friends ?? [])],

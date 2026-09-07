@@ -100,11 +100,12 @@ try {
   /* ── 1. title: controls diagram ───────────────────────────────────── */
   const title = await page.evaluate(() => ({
     panel: !!document.querySelector('.menu.title .controls-panel'),
-    keys: document.querySelectorAll('.ctl-key').length,
-    bound: document.querySelectorAll('.ctl-key.bound').length,
-    mouseBound: document.querySelectorAll('.ctl-mouse-svg .btn.bound').length,
-    wasd: !!document.querySelector('.ctl-key[data-code="KeyW"].bound') && !!document.querySelector('.ctl-key[data-code="KeyQ"].bound'),
-    rows: [...document.querySelectorAll('.ctl-fn .fn')].map((n) => n.textContent),
+    // Scoped to the title menu since Phase 11: the 설정 side panel holds a second ControlsPanel instance.
+    keys: document.querySelectorAll('.menu.title .ctl-key').length,
+    bound: document.querySelectorAll('.menu.title .ctl-key.bound').length,
+    mouseBound: document.querySelectorAll('.menu.title .ctl-mouse-svg .btn.bound').length,
+    wasd: !!document.querySelector('.menu.title .ctl-key[data-code="KeyW"].bound') && !!document.querySelector('.menu.title .ctl-key[data-code="KeyQ"].bound'),
+    rows: [...document.querySelectorAll('.menu.title .ctl-fn .fn')].map((n) => n.textContent),
     oldList: !!document.querySelector('.menu.title .controls'),
     btn: [...document.querySelectorAll('.menu.title .ui-btn')].some((b) => b.textContent === '키 설정 변경'),
     frame: (() => { const f = document.querySelector('.menu.title .frame'); return { sw: f.scrollWidth, cw: f.clientWidth }; })(),

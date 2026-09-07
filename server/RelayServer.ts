@@ -283,9 +283,23 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
       try { c.ws.send(text); } catch { /* peer is going away; heartbeat will reap it */ }
     }
   };
-  const broadcastState = (lobby: Lobby): void => {
+  /**
+   * Phase 11: every `LobbyState` that leaves the server carries each member's 아이디 + level from the profile store.
+   * `Lobby` itself knows nothing about the store (it is pure data), so the decoration happens here — one place every
+   * emitter goes through. Anonymous members simply have neither field.
+   */
+  const lobbyState = (lobby: Lobby): LobbyState => {
     const state: LobbyState = lobby.toState();
-    broadcast(lobby, { t: 'lobby:state', lobby: state });
+    for (const p of state.players) {
+      const card = store.card(p.id);
+      if (!card) continue;
+      p.code = card.code;
+      if (card.level > 0) p.level = card.level;
+    }
+    return state;
+  };
+  const broadcastState = (lobby: Lobby): void => {
+    broadcast(lobby, { t: 'lobby:state', lobby: lobbyState(lobby) });
   };
 
   /* ── Phase 11: presence + the out-of-lobby push channel ───────────────── */
@@ -471,7 +485,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
     log(`lobby ${lobby.code}: ${name}(${id}) ${reason}${ended ? ' → mission over (nobody inside) → reset' : ''}${hostMigrated ? ` → host now ${lobby.hostId}` : ''}${deleted ? ' → lobby deleted' : ''}`);
     if (deleted) { clearMigrate(lobby.code); pushPresence(id); return; }
     if (hostMigrated || ended) clearMigrate(lobby.code);
-    broadcast(lobby, { t: 'peer:left', id, lobby: lobby.toState() });
+    broadcast(lobby, { t: 'peer:left', id, lobby: lobbyState(lobby) });
     if (autoResetMission(lobby) || ended) broadcastState(lobby);
     /* Phase 11: the leaver's squad shrank to nothing and the rest of the squad got smaller. */
     pushPresence(id);
@@ -570,7 +584,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         const lobby = lobbies.lobbyOf(c.id);
         if (!lobby) { sendError(c, 'not_in_lobby'); return; }
         // Started lobby: ready = "in pod" is handled client-side in the hub; accept as a no-op and echo the state.
-        if (lobby.started) { sendTo(c, { t: 'lobby:state', lobby: lobby.toState() }); return; }
+        if (lobby.started) { sendTo(c, { t: 'lobby:state', lobby: lobbyState(lobby) }); return; }
         lobby.setReady(c.id, m.ready);
         log(`lobby ${lobby.code}: ${c.name} ready=${m.ready}`);
         broadcastState(lobby);
@@ -587,7 +601,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
           // A training has no 목표 행성 (the arena is not on a planet), so `planet` is ignored here.
           lobby.start(m.seed, 'training', c.id);
           log(`lobby ${lobby.code}: training started seed=${m.seed} by ${c.name}(${c.id})`);
-          broadcast(lobby, { t: 'game:start', seed: m.seed, lobby: lobby.toState(), mode: 'training' });
+          broadcast(lobby, { t: 'game:start', seed: m.seed, lobby: lobbyState(lobby), mode: 'training' });
           pushLobbyPresence(lobby);
           return;
         }
@@ -599,7 +613,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         lobby.planet = planet;
         lobby.start(m.seed, 'raid', c.id);
         log(`lobby ${lobby.code}: started seed=${m.seed} planet=${planet} players=${lobby.size} (${lobby.connectedCount()} connected)`);
-        broadcast(lobby, { t: 'game:start', seed: m.seed, lobby: lobby.toState(), mode: 'raid', planet });
+        broadcast(lobby, { t: 'game:start', seed: m.seed, lobby: lobbyState(lobby), mode: 'raid', planet });
         pushLobbyPresence(lobby);
         return;
       }
@@ -622,7 +636,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         if (!lobby) { sendError(c, 'not_in_lobby'); return; }
         if (lobby.hostId !== c.id) { sendError(c, 'not_host'); return; }
         if (lobby.started) { sendError(c, 'started'); return; }
-        if (lobby.planet === m.planet) { sendTo(c, { t: 'lobby:state', lobby: lobby.toState() }); return; }
+        if (lobby.planet === m.planet) { sendTo(c, { t: 'lobby:state', lobby: lobbyState(lobby) }); return; }
         lobby.planet = m.planet;
         log(`lobby ${lobby.code}: planet=${m.planet} (by ${c.name})`);
         // No travel message exists: every member starts the cutscene off its own copy of `LobbyState.planet`.
@@ -908,7 +922,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
       }
       const raid = lobby.getRaid(id);
       log(`lobby ${lobby.code}: ${c.name}(${id}) resumed${wasDown ? ' (was disconnected)' : ''}${raid ? ' + raid blob' : ''}${note}`);
-      const welcome: ServerToClient = { t: 'welcome', id, serverTime: Date.now(), lobby: lobby.toState(), resumed: true };
+      const welcome: ServerToClient = { t: 'welcome', id, serverTime: Date.now(), lobby: lobbyState(lobby), resumed: true };
       if (profile) welcome.profile = profile;
       if (raid) welcome.raid = raid;
       const social = c.hasProfile ? buildSnapshot(id) : null;

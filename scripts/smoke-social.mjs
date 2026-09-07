@@ -164,6 +164,8 @@ try {
   ok(layout.buttons[2].d === 'none', '함선으로 귀환 stays display:none in the ship', layout.buttons[2].d);
 
   console.log('offline fallback');
+  // Forced, not assumed: a relay may well be up (the net / server lanes are live), so ask for the unavailable state.
+  await P(() => window.__setSocial('offline'));
   let off = await P(() => ({
     off: document.querySelector('.pause-social .sc-off').hidden,
     body: document.querySelector('.pause-social .sc-body').hidden,
@@ -516,7 +518,7 @@ try {
   await P(() => { window.__key('Escape', 'keydown'); window.__key('Escape', 'keyup'); });
 
   console.log('귓속말 without a relay');
-  await P(() => window.__setSocial(null));
+  await P(() => window.__setSocial('offline'));
   await emit('chat:whisperTo', { code: 'CDEF2345', name: '친구하나' });
   await waitSim(0.1);
   await P(() => { document.querySelector('.chat-input').value = '들리나'; window.__key('Enter', 'keydown'); });
@@ -527,10 +529,12 @@ try {
   });
   ok(String(failed.last).startsWith('귓속말 전송 실패'), 'an unavailable mirror leaves a failure line', JSON.stringify(failed));
   ok(failed.whispers === 2, 'and no new whisper line', String(failed.whispers));
-  let offCol = await P(() => {
-    window.__game.ctx.bus.emit('game:paused', { paused: true, freeze: false });
-    return { off: !document.querySelector('.pause-social .sc-off').hidden, body: document.querySelector('.pause-social .sc-body').hidden };
-  });
+  await emit('game:paused', { paused: true, freeze: false });
+  await waitSim(0.1);
+  let offCol = await P(() => ({
+    off: !document.querySelector('.pause-social .sc-off').hidden,
+    body: document.querySelector('.pause-social .sc-body').hidden,
+  }));
   ok(offCol.off && offCol.body, 'losing the mirror collapses the column back to the one line', JSON.stringify(offCol));
   await emit('game:paused', { paused: false });
 
@@ -585,5 +589,5 @@ try {
 } finally {
   await browser.close();
 }
-console.log(`\n${pass}/${pass + fail} checks passed`);
+console.log(`\n${pass} passed, ${fail} failed`);   // the tally format `scripts/verify.mjs` parses
 process.exit(fail === 0 ? 0 : 1);

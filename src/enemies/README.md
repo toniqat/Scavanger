@@ -44,9 +44,9 @@ Gameplay numbers live in `EnemyTypes.ts` (`ENEMY_STATS`, `HUNTER_LEAP`, `SPEWER_
 | `EnemyTypes.ts` | `ENEMY_STATS` table (with `faction`) plus ability tuning `HUNTER_LEAP`, `SPEWER_SPIT`, `CHARGER_CHARGE`, `ROGUE_AI`, `ARTILLERY_AI`, `TOXIC_AI`, `BEHEMOTH_AI`; `BugType` (rig type), `isRogueType`. |
 | `RayTests.ts` | Allocation-free `raySphere`, `rayCapsule`, `rayStandingCapsule` shared by hit detection, rogue shots and shell interception. |
 | `SpatialGrid.ts` | Allocation-free uniform XZ hash grid, rebuilt per frame, used for separation queries. |
-| `Spawner.ts` | `AmbientSpawner` (threat 0..1 → cap `12 + 24·threat`, patrol every 12–25 s from nests 60–140 m around a random alive player — or a random present body via `randomPresent` when everyone is downed — initial population on `world:ready`; from threat 0.5 `maybeArtillery` digs one in 80–120 m out, ≤ `MAX_ARTILLERY` alive), spawn helpers `findSpawnCenter`, `isVisibleToAnyPlayer`, `spawnGroup`, compositions `ambientGroup` (toxics from threat 0.4) / `waveGroup` (toxics from wave 2, a behemoth from wave 3), and the `SpawnHost` interface (`targets`, `countAlive`). Phase 7: `resume()` restarts the trickle mid-mission after a host promotion with a normal-length gap. |
-| `RogueGuards.ts` | `placeRogueGuards(host, seed)` on `world:ready` (authority): squads of 2–4 rogues 6–12 m around every tier-3/4 crate and 30 % of tier-2 crates (> 45 m from the player spawn), ≤ `MAX_GUARDS` (16) in total; one random tier-3/4 crate gets the `rogue_boss` + `ROGUE_BOSS_ESCORTS` escorts (leash to the boss). Seeded by the world seed; rifles from `ROGUE_AI.weapons` (boss `ROGUE_AI.bossWeapon`). `RogueSpawnHost.spawnRogue`. Guards are not waves and are never recycled by `ensureCapacity`. |
-| `WaveDirector.ts` | Extraction waves: first wave 3 s after activation, then every 14 s → 9 s; size 6, 8, 10 … (≤ 22), split into 1–3 groups spawned 45–90 m from the target, facing the nearest alive player; pauses while nobody is alive. A second behemoth (`MAX_BEHEMOTH`) becomes a warrior. Emits `enemy:waveStarted`. Alive cap 60. Authority only. Phase 7: `prime(index)` — the next `start` (re-requested by extraction/ after a host promotion) continues the escalation from that wave index with a ≤ 6 s gap instead of restarting at wave 0. |
+| `Spawner.ts` | `AmbientSpawner` (threat 0..1 → cap `12 + 24·threat`, patrol every 12–25 s from nests 60–140 m around a random alive player — or a random present body via `randomPresent` when everyone is downed — initial population on `world:ready`; from threat 0.5 `maybeArtillery` digs one in 80–120 m out, ≤ `MAX_ARTILLERY` alive), spawn helpers `findSpawnCenter`, `isVisibleToAnyPlayer`, `spawnGroup`, compositions `ambientGroup` (toxics from threat 0.4) / `waveGroup` (toxics from wave 2, a behemoth from wave 3), and the `SpawnHost` interface (`targets`, `countAlive`). Phase 7: `resume()` restarts the trickle mid-mission after a host promotion with a normal-length gap. **Phase 11**: `AmbientSpawner.eco` (the 목표 행성's `PlanetEcosystem`) — `cap` is `ambientCap` (`× eco.pressure`), the artillery ceiling is `maxArtilleryOf` and a planet whose `eco.bugs` has no artillery digs none in; `ambientGroup(threat, eco)` / `waveGroup(index, count, eco)` keep the whole ladder (same rolls, same probabilities, same gates in `AMBIENT_GATE` / `WAVE_GATE`) and only draw each slot's silhouette from `eco.bugs` inside its power tier (`TIER_FILLER` / `MEDIUM` / `HEAVY` / `RUNNER`). `eco === null` → every helper returns the pre-Phase-11 answer verbatim. |
+| `RogueGuards.ts` | `placeRogueGuards(host, seed)` on `world:ready` (authority): squads of 2–4 rogues 6–12 m around every tier-3/4 crate and 30 % of tier-2 crates (> 45 m from the player spawn), ≤ `MAX_GUARDS` (16) in total; one random tier-3/4 crate gets the `rogue_boss` + `ROGUE_BOSS_ESCORTS` escorts (leash to the boss). Seeded by the world seed; rifles from `ROGUE_AI.weapons` (boss `ROGUE_AI.bossWeapon`). `RogueSpawnHost.spawnRogue`. Guards are not waves and are never recycled by `ensureCapacity`. **Phase 11**: `placeRogueGuards(host, seed, eco)` — `guardCap` = `MAX_GUARDS × eco.rogues` (0 = a planet with no raiders, placed without touching the rng), the tier-2 share is `0.3 × eco.rogues`, and on an `eco.boss === false` planet the boss squad only appears when the seed rolls `ECO_BOSS_CHANCE`. Still fully seeded: same seed + same planet = same placement. |
+| `WaveDirector.ts` | Extraction waves: first wave 3 s after activation, then every 14 s → 9 s; size 6, 8, 10 … (≤ 22), split into 1–3 groups spawned 45–90 m from the target, facing the nearest alive player; pauses while nobody is alive. A behemoth over the cap becomes a warrior (**Phase 11**: the cap is `maxBehemothOf(eco)` — 0 on a planet with none — and the count now includes behemoths rolled earlier in the same wave; `WaveDirector.eco` also feeds `waveGroup`). Emits `enemy:waveStarted`. Alive cap 60. Authority only. Phase 7: `prime(index)` — the next `start` (re-requested by extraction/ after a host promotion) continues the escalation from that wave index with a ≤ 6 s gap instead of restarting at wave 0. |
 | `Corpses.ts` | `Corpse` (`Interactable` `corpse:<enemyId>`, `CORPSE_INTERACT_RADIUS`, `holdTime` 0.6, prompt `시체 수색` → `수색 완료`; `canInteract` = `ctx.isGameplayActive()` && player alive & not downed && `ctx.inventory.openContainerItems` exists; `interact()` rolls once via `ctx.loot.rollCorpse(type, new Random(seed ^ id·φ), weaponId)` and calls `ctx.inventory.openContainerItems(id, items, position, '시체')`; an empty roll counts as searched) and `CorpseManager` (`add` → `corpse:spawned`, `remove` → `corpse:removed`, `markLooted(containerId)` from `crate:looted`, own `CORPSE_LIFETIME` safety timer, `clear`). Contents are per-client like crates. **Phase 10**: `rollCorpseLootable(seed, enemyId, type)` decides whether a body can be searched at all from `CORPSE_LOOT_CHANCE` on an **independent** seeded stream (`worldSeed ^ (enemyId · 0x9e3779b1)`) — never on the `rng` that feeds `rollCorpse`, whose exact output `src/inventory/__selftest__.ts` pins for `warrior` / `rogue` / `rogue_boss` at seeds 5 / 11 / 3. `add(…, opts?: CorpseWireOpts)` takes the host's `lootable` / `deathDir` (`ee corpse.lt / .dd`) over the local roll, **returns null and registers no interactable** when the roll fails, and emits `corpse:spawned { lootable, deathDir }` either way (so a listener can tell "a body is here" from "loot is here"). |
 | `ai/EnemyAI.ts` | State machine per bug: `idle` → `wander` → `alert` → `chase` → `attack` → `stagger`, plus `dead`/`flee`. Everything target-relative reads `e.target` (`acquireTarget` each tick). Rogues branch to `RogueAI.updateRogue` after perception; artillery / toxic / behemoth chase & attack dispatch to `GimmickAI`. Charger rush contact and hunter leap landing hit the nearest alive (not downed) player in range; melee / spit fire only while `!e.target.isDeadOrDowned`. `integrate()` (exported) handles steering, separation, obstacle avoidance (a charging body that deviates → `stumble` with the type's cooldown; behemoth shakes the camera), terrain snapping, gait, footsteps, yaw, slope. **Phase 10**: `integrateDeathFall(e, dt, world)` (exported, called from the `state === 'dead'` early-return here **and** from `net/Replica.update`) integrates `deathVy` under `GRAVITY` and snaps to `world.getHeightAt` → `deathLanded`, so a body killed mid-leap falls instead of freezing in the air. |
 | `ai/RogueAI.ts` | Humanoid gunner: guards idle / patrol 6–12 m around `guardPos` (escorts 3–6 m around the boss, `guardPos` follows it), `alert` = `ROGUE_REACTION` delay with the rifle raised, then the **cover cycle** in `chase` via `roguePhase`: 0 pick cover (`ai/RogueCover.ts`, Phase 7: LOS-validated + flank scored, also yields the **pop-out spot** `popPos`) → 1 move there (snap shots while relocating) → 2 crouch-hold 2–4 s (hint 6; boss ×0.6; target < 6 m pops out early; a running reload extends the hold) → 3 **step out to `popPos`** (≤ 2.5 s, no LOS penalty while stepping), stand and fire `ROGUE_BURST` rounds 0.12 s apart (hint 5) with aim error `ROGUE_AIM_ERROR` → `ROGUE_AIM_ERROR_SETTLED` over 1.2 s standing; no LOS for 1.2 s → new cover; after the burst `ROGUE_RUSH_CHANCE` → 4 **rush** to ~8 m firing from the hip every 0.28 s (hint 7, error ×1.6, ≤ 6 s) else back to 0. Leash: never farther than `leash` (45 m; escorts 18 m) from `guardPos` unless rushing or the target is visible within 30 m. Every shot goes through `shoot()` → `host.fireGun` and spends one of `ROGUE_MAG_ROUNDS` (`Enemy.magRounds`); an empty magazine starts a `ROGUE_RELOAD_TIME` **reload** in any phase (`reloadTimer`: crouched, rifle down, no shots, `reload` audio at the rogue, hint 12; a burst caught mid-reload ducks back to phase 2; `popOut` never loads more rounds than the mag holds). **Grenade** (`maybeStartThrow`, not while rushing): target hidden (`noLosHold` ≥ `ROGUE_GRENADE_HOLD_S`), `ROGUE_GRENADE_RADIUS + 1.5` < distance ≤ `ROGUE_GRENADE_RANGE`, `grenadeCd` ≤ 0, no reload → walk to `popPos` (≤ 2 s) then `ROGUE_GRENADE_WINDUP` throw pose (hint 13, sphere in the off hand) → `host.throwGrenade(e, grenadeTarget)`; success arms `ROGUE_GRENADE_COOLDOWN` (boss ×0.7, ±10 %), a refused launch (rock in the face) retries in 2 s; then back to phase 0. The boss and its escorts throw too. Stagger drops a wind-up (cooldown unspent). |
@@ -246,6 +246,49 @@ Brief: `docs/PHASE10-PLAN.md` §3-3. Contract (read-only): `EnemyDeathDir` / `EN
   **no interactable** (the corpse mesh stays, so the world still reads right) and `corpse:spawned` reports
   `lootable: false`. `rollCorpse` and `CORPSE_TABLES` (items/) are untouched.
 
+## 행성 생태계 (Phase 11, 2026-09-07)
+Brief: `docs/PHASE11-PLAN.md` §3-5(B). Contract (read-only): `src/shared/planets.ts` (`PlanetEcosystem.bugs` /
+`pressure` / `rogues` / `boss` / `maxArtillery` / `maxBehemoth`), `world:ready.planet?`, `WorldRef.planet`.
+
+- **Where it enters.** `EnemySystem`'s `world:ready` handler resolves `getPlanet(planet ?? ctx.world.planet ??
+  ctx.missionPlanet)?.eco` into `this.eco` and pushes it into `spawner.eco` / `waves.eco` / `placeRogueGuards`. A
+  training and a mission without a planet keep it null, which means **every number is exactly what it was** — this is
+  a re-weighting of existing content, not new content.
+- **Host only.** The ecosystem changes what the authority *composes*; `es` / `ee`, the replica path and every wire
+  type are untouched, so a joined client needs to know nothing about the planet.
+- **Composition = same ladder, planet-drawn silhouettes.** The rolls, their probabilities and their gates are
+  transcribed unchanged into `AMBIENT_GATE` / `WAVE_GATE`; each slot then draws from `eco.bugs` inside its power tier
+  (filler `scavenger` · medium `hunter / warrior / spewer` · heavy `behemoth / charger` · runner `toxic`). A weighted
+  type still cannot appear before its gate opens, a type the planet does not list can never appear at all, and a slot
+  whose whole tier is missing here is skipped — in a wave the leftover count falls through to the filler, so waves
+  keep their size. Artillery is never part of a group (it digs in through `maybeArtillery`) and the ambient gate for
+  the behemoth is closed, exactly as before.
+- **Ceilings.** `ambientCap(threat, eco)` = `(12 + 24 × threat) × eco.pressure`; `maxArtilleryOf` / `maxBehemothOf`
+  replace the module constants (which stay as the no-planet defaults).
+- **Guards.** Density scales `MAX_GUARDS` and the tier-2 share; `eco.rogues === 0` places nothing (아무 행성도 아직
+  0 은 아니다); `eco.boss === false` (보레아스 IX, 베르단트 III) turns the boss squad into a `ECO_BOSS_CHANCE` seed roll.
+- **Determinism.** Guard placement is drawn from the world-seeded `Random` as before, so **same seed + same planet =
+  same placement**; the ecology only changes how many draws are taken. Group **composition** is still unseeded
+  `Math.random()` — deliberately left as it was (it never was reproducible, and making it seeded would change every
+  existing smoke's expectations).
+- Debug hooks for the smoke: `debugEcology`, `debugAmbientCap`, `debugAmbientGroup(threat)`,
+  `debugWaveGroup(index, count)`, `debugGuardCount()`.
+
+### Known follow-ups (Phase 11)
+- A planet that lists a type but caps it at 0 (`tundra` / `mossy` carry `maxArtillery` 1 with no artillery weight,
+  `maxBehemoth` 1 with no behemoth weight) gets **none** — `eco.bugs` wins, per the contract's "a type absent from
+  the map never spawns". The two numbers can therefore disagree without an error.
+- The heavy tier draws behemoth vs charger **by weight**, so 피로스 VII's wave-3 behemoth slot is a charger most of
+  the time (charger 3 : behemoth 1) and its charger slot can be a behemoth in return — the cap (`maxBehemoth` 2)
+  bounds the outcome, but the exact behemoth cadence is now planetary, not fixed.
+- A behemoth over the cap still becomes a **warrior** without consulting the weights (every current planet lists
+  warriors, so it never produces a forbidden type — a future planet without warriors would).
+- `eco.rogues` scales the guard **cap** and the tier-2 crate share, not the squad size (still `rng.int(2, 4)`), so a
+  dense planet mostly means *more squads*, not bigger ones.
+- The ecosystem is read once at `world:ready`: a host promoted mid-mission re-reads it from `ctx.world.planet`, but a
+  client that never generated the world (impossible today) would have none.
+- Ambient / wave composition remains unseeded, so two hosts on the same seed compose different patrols — as before.
+
 ## Known gaps / follow-ups
 - Phase 10: a **replica** has no real `vy` (it only mirrors the `airborne` hint), so a body that dies mid-leap starts
   its fall from rest on the client and lands a fraction of a second later than on the host — the resting spot is the
@@ -286,6 +329,20 @@ Brief: `docs/PHASE10-PLAN.md` §3-3. Contract (read-only): `EnemyDeathDir` / `EN
   most rock pairs now, but a charge still stumbles on any obstacle it clips (`resolveCollision` deviation > 5 cm).
 - Guard placement is host-seeded but the individual rogue ids depend on spawn order after the ambient population; clients only ever
   receive ids from the wire, so this is cosmetic.
+
+## Verification (Phase 11, 2026-09-07)
+`npm run typecheck` 0 errors in `src/enemies` / `src/world`. New `scripts/smoke-ecology.mjs` (single-player, private
+`npx vite --port 5297`, sim-time waits, HMR + relay sockets parked) — **83/83**, 0 console errors. Enemy side: the
+no-planet baseline keeps the old type set (no behemoth in an ambient patrol, behemoth from wave 3, no toxic before
+wave 2), the cap is `12 + 24 × threat` and 16 guards + a boss are placed; each of the five planets composes 24
+patrols at threat 0.3 / 0.5 / 0.9 and 24 waves per index 0..7 with **no type outside `eco.bugs`**, **no gate broken**,
+no artillery in a group, behemoths only where `eco.bugs.behemoth` and `maxBehemoth` allow (피로스 VII 10, everywhere
+else 0), the cap scaled by `pressure` (20 / 24 / 28 / 29 / 22 at threat 0.5) and guard counts following `eco.rogues`
+(카민 I 26 > 베르단트 III 10, 보레아스 IX / 베르단트 III bossless on this seed); the same seed + planet reproduces the
+guard placement exactly. Regressions on the same build: `smoke-rogue-v2` **52/52**, `smoke-enemy-delta` **52/52**,
+`smoke-phase4` **49/49**, `smoke-tactical` 63/64 (the miss is the relay socket, not the kit), `smoke-training`
+101/109 — those 8 failures are the **hub lane's new launch-pod 목표 행성 gate** (the smoke boards `hub_pod_0` with no
+planet selected), not this lane's.
 
 ## Fix (2026-09-05): initial population survived only by accident
 `WorldSystem` (registered earlier) generates synchronously inside its own `game:newMission` handler and emits `world:ready` **before** `EnemySystem`'s `game:newMission` handler runs, so the old `game:newMission → reset()` wiped the bugs that `initialPopulate` had just spawned. The handler now resets only when `ctx.world` is not ready for that seed. Verified in headless Chrome: 18–20 bugs alive right after deploy (host and client replicas agree on ids/counts).
