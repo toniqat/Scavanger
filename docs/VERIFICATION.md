@@ -226,3 +226,12 @@ in `CLAUDE.md`.
   Two reds, neither from this change: **smoke-rogue-v2** is the known 로그 수류탄 타이밍 flake (46/52, then 51/52 on
   the rerun with a different failing line), and **smoke-tactical 63/64** (`domeShield` false in `throwable gadgets
   used`) reproduces **on a clean tree** — a pre-existing red on this branch, unrelated to the cursor.
+
+- 2026-09-07 (smoke-tactical `domeShield` red 해소): `node scripts/verify.mjs --only smoke-tactical` → **64/64**
+  (typecheck ok, typecheck-server ok, net-selftest 278/278). 게임 버그가 아니라 스모크의 자충수였다 — 던지기
+  가젯 루프가 화염수류탄을 첫 번째로 던지는데, 그 화염지대는 설계대로 피아 구분이 없고 서 있는 플레이어 몇 m
+  앞에 깔린다. 지금 스타터 장비로는 그 화상이 루프 중간에 플레이어를 전투불능으로 만들고, `GadgetSystem.use` 는
+  전투불능 플레이어를 `deny(null)` 로 **조용히** 거부하므로(토스트도 로그도 없다) 네 번째 `domeShield` 만
+  false 로 보였다. 계측(`deny` / `consumeItem` 을 런타임에 감싸 확인)으로 `downed:true` 를 잡고, 루프 전에
+  `respawnAt` 로 체력을 채운 뒤 화염수류탄을 **마지막**으로 옮겼다. 루프는 이제 매 던지기의 `hp` · `downed` 도
+  함께 기록한다(다음에 같은 일이 생기면 실패 줄에 바로 보이도록).
