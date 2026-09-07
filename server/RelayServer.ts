@@ -19,11 +19,18 @@ import type { MissionMode } from '../src/shared/types.ts';
 import type { RaidSessionBlob } from '../src/shared/profile.ts';
 import {
   NET_DEFAULT_PORT, NET_WS_PATH, NET_TOKEN_PARAM, NET_NAME_PARAM, NET_TOKEN_LENGTH, NET_RECONNECT_GRACE_MS,
-  NET_HOST_MIGRATE_DELAY_MS, isValidLobbyCode, normalizeLobbyCode, sanitizePlayerName,
+  NET_HOST_MIGRATE_DELAY_MS, NET_MAX_PLAYERS, isValidLobbyCode, normalizeLobbyCode, sanitizePlayerName,
 } from '../src/shared/net.ts';
 import { PROFILE_DOC_MAX_BYTES, RAID_BLOB_MAX_BYTES } from '../src/shared/profile.ts';
+/* Phase 11 */
+import type { PlanetId } from '../src/shared/planets.ts';
+import { isPlanetId } from '../src/shared/planets.ts';
+import type { PlayerCode, PresenceState, SocialErrorCode, SocialPlayer, SocialSnapshot } from '../src/shared/social.ts';
+import {
+  SOCIAL_ERROR_MESSAGE_KO, SOCIAL_WHISPER_MAX, normalizePlayerCode, playBlockReason,
+} from '../src/shared/social.ts';
 import { Lobby, LobbyManager, LOBBY_ERROR_MESSAGE_KO } from './Lobby.ts';
-import { ProfileStore, docBytes, isProfileDocKey, type ProfileStoreOptions } from './Store.ts';
+import { ProfileStore, SOCIAL_LEVEL_MAX, docBytes, isProfileDocKey, type ProfileStoreOptions } from './Store.ts';
 
 /** Cap for ordinary frames (lobby ops, relayed game messages). */
 export const MAX_MESSAGE_BYTES = 64 * 1024;
@@ -39,6 +46,8 @@ export const CLOSE_DUPLICATE = 4001;
 const MAX_CODE_INPUT = 32;
 const MAX_NAME_INPUT = 64;
 const TOKEN_RE = /^[A-Za-z0-9_-]+$/;
+/* Phase 11: what a `social:whisper` frame may carry before the handler trims it to `SOCIAL_WHISPER_MAX`. */
+const MAX_WHISPER_INPUT = 4 * SOCIAL_WHISPER_MAX;
 
 interface Client {
   id: PeerId;
@@ -120,8 +129,13 @@ function parseClientMessage(raw: RawData, isBinary: boolean): ClientToServer | n
       return typeof m.ready === 'boolean' ? { t: 'lobby:ready', ready: m.ready } : null;
     case 'lobby:start': {
       if (typeof m.seed !== 'number' || !Number.isFinite(m.seed)) return null;
-      if (m.mode === undefined) return { t: 'lobby:start', seed: m.seed };
-      return typeof m.mode === 'string' && MISSION_MODES.has(m.mode) ? { t: 'lobby:start', seed: m.seed, mode: m.mode as MissionMode } : null;
+      if (m.mode !== undefined && (typeof m.mode !== 'string' || !MISSION_MODES.has(m.mode))) return null;
+      /* Phase 11: an unknown planet id is refused here rather than silently dropped. */
+      if (m.planet !== undefined && !isPlanetId(m.planet)) return null;
+      const out: ClientToServer = { t: 'lobby:start', seed: m.seed };
+      if (m.mode !== undefined) out.mode = m.mode as MissionMode;
+      if (m.planet !== undefined) out.planet = m.planet as PlanetId;
+      return out;
     }
     case 'lobby:reset':
       return { t: 'lobby:reset' };
@@ -164,9 +178,45 @@ function parseClientMessage(raw: RawData, isBinary: boolean): ClientToServer | n
         || !isRecord(b.stats) || !('inventory' in b) || typeof b.savedAt !== 'number') return null;
       return { t: 'raid:save', blob: b as unknown as RaidSessionBlob };
     }
+    /* appended: Phase 11 — 목표 행성 + 소셜. Shapes only; every social rule is the handler's (and the store's). */
+    case 'lobby:planet':
+      return isPlanetId(m.planet) ? { t: 'lobby:planet', planet: m.planet } : null;
+    case 'social:get':
+      return { t: 'social:get' };
+    case 'social:me':
+      return typeof m.level === 'number' && Number.isFinite(m.level) ? { t: 'social:me', level: m.level } : null;
+    case 'social:request':
+      return validSocialCode(m.code) ? { t: 'social:request', code: m.code as string } : null;
+    case 'social:respond':
+      return validSocialCode(m.code) && typeof m.accept === 'boolean'
+        ? { t: 'social:respond', code: m.code as string, accept: m.accept } : null;
+    case 'social:remove':
+      return validSocialCode(m.code) ? { t: 'social:remove', code: m.code as string } : null;
+    case 'social:play':
+      return validSocialCode(m.code) ? { t: 'social:play', code: m.code as string } : null;
+    case 'social:whisper':
+      return validSocialCode(m.code) && typeof m.text === 'string' && m.text.length <= MAX_WHISPER_INPUT
+        ? { t: 'social:whisper', code: m.code as string, text: m.text } : null;
     default:
       return null;
   }
+}
+
+/** A typed-in 아이디 arrives dashed / lower case; only the shape is checked here (`normalizePlayerCode` follows). */
+function validSocialCode(v: unknown): boolean {
+  return typeof v === 'string' && v.length > 0 && v.length <= MAX_CODE_INPUT;
+}
+
+/** One whisper line: control characters and markup out, `SOCIAL_WHISPER_MAX` characters kept. */
+function sanitizeWhisper(raw: string): string {
+  let out = '';
+  for (const ch of raw) {
+    const cc = ch.codePointAt(0) ?? 0;
+    if (cc < 0x20 || cc === 0x7f) { out += ' '; continue; }  // control characters
+    if (ch === '<' || ch === '>') continue;                  // markup
+    out += ch;
+  }
+  return out.trim().slice(0, SOCIAL_WHISPER_MAX);
 }
 
 /** `?t=…&n=…` from the upgrade request. Invalid / missing token → null (random id). */
@@ -238,6 +288,134 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
     broadcast(lobby, { t: 'lobby:state', lobby: state });
   };
 
+  /* ── Phase 11: presence + the out-of-lobby push channel ───────────────── */
+  /**
+   * Presence is only a fold of what the relay already knows: no socket → `offline` (a member inside the reconnect
+   * grace is gone *now*), inside a started mission → `raid` / `training`, anything else (personal ship, shared ship,
+   * docking, title) → `ship`. `squad` is their lobby's size — slots held by disconnected members count as taken.
+   */
+  const presenceOf = (id: PeerId): { presence: PresenceState; squad: number } => {
+    if (!clients.has(id)) return { presence: 'offline', squad: 0 };
+    const lobby = lobbies.lobbyOf(id);
+    if (!lobby) return { presence: 'ship', squad: 0 };
+    const inside = lobby.started && (lobby.get(id)?.inMission ?? false);
+    const presence: PresenceState = inside ? (lobby.mode === 'training' ? 'training' : 'raid') : 'ship';
+    return { presence, squad: lobby.size };
+  };
+
+  /** One resolved row. null when the 아이디 has no profile any more — the caller then skips it. */
+  const resolveRow = (viewer: PeerId, mySquad: number, code: PlayerCode, at?: number): SocialPlayer | null => {
+    const id = store.peerByCode(code);
+    if (id === undefined) return null;
+    const card = store.card(id);
+    if (!card) return null;
+    const { presence, squad } = presenceOf(id);
+    const row: SocialPlayer = {
+      code: card.code, name: card.name, level: card.level, presence, squad,
+      joinable: playBlockReason({ presence, squad }, mySquad, NET_MAX_PLAYERS, id === viewer) === null,
+    };
+    if (at !== undefined) row.at = at;
+    return row;
+  };
+
+  /**
+   * The whole ESC social screen for one profile, resolved from codes only: a client never learns another player's
+   * PeerId. null for a connection without a profile (anonymous socket).
+   */
+  const buildSnapshot = (id: PeerId): SocialSnapshot | null => {
+    const soc = store.social(id);
+    if (!soc) return null;
+    const mySquad = lobbies.lobbyOf(id)?.size ?? 0;
+    const rows = (codes: readonly PlayerCode[]): SocialPlayer[] => {
+      const out: SocialPlayer[] = [];
+      for (const code of codes) { const r = resolveRow(id, mySquad, code); if (r) out.push(r); }
+      return out;
+    };
+    const recent: SocialPlayer[] = [];
+    for (const e of soc.recent) { const r = resolveRow(id, mySquad, e.code, e.at); if (r) recent.push(r); }
+    return {
+      me: { code: soc.code, name: soc.name, level: soc.level },
+      friends: rows(soc.friends), incoming: rows(soc.incoming), outgoing: rows(soc.outgoing), recent,
+    };
+  };
+
+  /**
+   * `broadcast()` only reaches a lobby, so a friend sitting in their own personal ship would never hear about a
+   * presence change. These two indexes are the missing channel: `watchers` = subject → connected clients that have
+   * the subject as a friend, `watching` = its reverse so a disconnect costs O(friends). Nothing polls.
+   */
+  const watchers = new Map<PeerId, Set<PeerId>>();
+  const watching = new Map<PeerId, Set<PeerId>>();
+
+  const unwatchAll = (id: PeerId): void => {
+    const subs = watching.get(id);
+    if (subs === undefined) return;
+    for (const s of subs) {
+      const set = watchers.get(s);
+      if (!set) continue;
+      set.delete(id);
+      if (set.size === 0) watchers.delete(s);
+    }
+    watching.delete(id);
+  };
+
+  /** (Re)build one connected client's watch entries from its friends list (connect, and after any friend change). */
+  const rewatch = (id: PeerId): void => {
+    unwatchAll(id);
+    if (!clients.has(id)) return;
+    const soc = store.social(id);
+    if (!soc) return;
+    const subs = new Set<PeerId>();
+    for (const code of soc.friends) {
+      const other = store.peerByCode(code);
+      if (other === undefined) continue;
+      subs.add(other);
+      let set = watchers.get(other);
+      if (set === undefined) { set = new Set<PeerId>(); watchers.set(other, set); }
+      set.add(id);
+    }
+    if (subs.size > 0) watching.set(id, subs);
+  };
+
+  const pushSocial = (id: PeerId): void => {
+    const c = clients.get(id);
+    if (!c || !c.hasProfile) return;
+    const snap = buildSnapshot(id);
+    if (snap) sendTo(c, { t: 'social:state', social: snap });
+  };
+  /** Everyone who has `id` as a friend learns about it (the subject itself excluded). */
+  const notifyWatchers = (id: PeerId): void => {
+    const set = watchers.get(id);
+    if (set === undefined) return;
+    for (const w of set) if (w !== id) pushSocial(w);
+  };
+  /** `id` moved (connected / disconnected / joined / left / entered a mission / picked a planet). */
+  const pushPresence = (id: PeerId): void => { pushSocial(id); notifyWatchers(id); };
+  /** A whole squad moved at once (start, reset, membership, 목표 행성). */
+  const pushLobbyPresence = (lobby: Lobby): void => { for (const id of lobby.players.keys()) pushPresence(id); };
+
+  const socialError = (c: Client, code: SocialErrorCode): void => {
+    sendTo(c, { t: 'social:error', code, message: SOCIAL_ERROR_MESSAGE_KO[code] });
+  };
+  /** My own social record, or null when this connection has no profile (anonymous → `unavailable`). */
+  const socialOf = (c: Client) => (c.hasProfile ? store.ensureSocial(c.id, c.name) : null);
+  /** `PlayerCode` → PeerId for an incoming request; undefined for an unknown / malformed 아이디. */
+  const peerOfCode = (raw: string): { code: PlayerCode; id: PeerId } | null => {
+    const code = normalizePlayerCode(raw);
+    if (!code) return null;
+    const id = store.peerByCode(code);
+    return id === undefined ? null : { code, id };
+  };
+
+  /**
+   * 최근 만난 플레이어: a join put two or more profiles in the same ship, so each pair remembers the other (unless
+   * they are already friends). Mutation only — the caller broadcasts the fresh snapshots.
+   */
+  const recordMet = (lobby: Lobby, joiner: PeerId): void => {
+    if (!store.social(joiner)) return;
+    for (const id of lobby.players.keys()) if (id !== joiner && store.social(id)) store.recordMet(joiner, id);
+  };
+
   /* ── lobby ops ────────────────────────────────────────────────────────── */
   const clearGrace = (id: PeerId): boolean => {
     const t = graceTimers.get(id);
@@ -291,10 +469,13 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
     const { lobby, hostMigrated, deleted } = res;
     const ended = wasStarted && !lobby.started;
     log(`lobby ${lobby.code}: ${name}(${id}) ${reason}${ended ? ' → mission over (nobody inside) → reset' : ''}${hostMigrated ? ` → host now ${lobby.hostId}` : ''}${deleted ? ' → lobby deleted' : ''}`);
-    if (deleted) { clearMigrate(lobby.code); return; }
+    if (deleted) { clearMigrate(lobby.code); pushPresence(id); return; }
     if (hostMigrated || ended) clearMigrate(lobby.code);
     broadcast(lobby, { t: 'peer:left', id, lobby: lobby.toState() });
     if (autoResetMission(lobby) || ended) broadcastState(lobby);
+    /* Phase 11: the leaver's squad shrank to nothing and the rest of the squad got smaller. */
+    pushPresence(id);
+    pushLobbyPresence(lobby);
   };
 
   /**
@@ -349,6 +530,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         if (typeof res === 'string') { sendError(c, res); return; }
         log(`lobby ${res.code}: created (private) by ${c.name}(${c.id})`);
         broadcastState(res);
+        pushPresence(c.id);
         return;
       }
 
@@ -357,7 +539,9 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         const res = lobbies.quickMatch(c.id, c.name);
         if (typeof res === 'string') { sendError(c, res); return; }
         log(`lobby ${res.lobby.code}: quickmatch ${res.created ? 'created (public)' : `joined (${res.lobby.size} players)`} by ${c.name}(${c.id})`);
+        if (!res.created) recordMet(res.lobby, c.id);
         broadcastState(res.lobby);
+        pushLobbyPresence(res.lobby);
         return;
       }
 
@@ -368,7 +552,9 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         const res = lobbies.join(c.id, code, c.name);
         if (typeof res === 'string') { sendError(c, res); return; }
         log(`lobby ${code}: ${c.name}(${c.id}) joined (${res.size} players)`);
+        recordMet(res, c.id);
         broadcastState(res);
+        pushLobbyPresence(res);
         return;
       }
 
@@ -398,16 +584,23 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         if (lobby.started) { sendError(c, 'started'); return; }
         if (mode === 'training') {
           // Any member, no ready gating: only the starter enters; the rest join later through `lobby:mission`.
+          // A training has no 목표 행성 (the arena is not on a planet), so `planet` is ignored here.
           lobby.start(m.seed, 'training', c.id);
           log(`lobby ${lobby.code}: training started seed=${m.seed} by ${c.name}(${c.id})`);
           broadcast(lobby, { t: 'game:start', seed: m.seed, lobby: lobby.toState(), mode: 'training' });
+          pushLobbyPresence(lobby);
           return;
         }
         if (lobby.hostId !== c.id) { sendError(c, 'not_host'); return; }
         if (!lobby.allReady()) { sendError(c, 'not_ready'); return; }
+        /* Phase 11: a raid needs a destination — the message's planet, or the one already picked (`lobby:planet`). */
+        const planet: PlanetId | null = m.planet ?? lobby.planet;
+        if (planet === null) { sendError(c, 'no_planet'); return; }
+        lobby.planet = planet;
         lobby.start(m.seed, 'raid', c.id);
-        log(`lobby ${lobby.code}: started seed=${m.seed} players=${lobby.size} (${lobby.connectedCount()} connected)`);
-        broadcast(lobby, { t: 'game:start', seed: m.seed, lobby: lobby.toState(), mode: 'raid' });
+        log(`lobby ${lobby.code}: started seed=${m.seed} planet=${planet} players=${lobby.size} (${lobby.connectedCount()} connected)`);
+        broadcast(lobby, { t: 'game:start', seed: m.seed, lobby: lobby.toState(), mode: 'raid', planet });
+        pushLobbyPresence(lobby);
         return;
       }
 
@@ -415,10 +608,26 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         const lobby = lobbies.lobbyOf(c.id);
         if (!lobby) { sendError(c, 'not_in_lobby'); return; }
         if (lobby.hostId !== c.id) { sendError(c, 'not_host'); return; }
-        lobby.reset();
+        lobby.reset(); // Phase 11: keeps `planet` — the destination outlives the mission
         clearMigrate(lobby.code);
         log(`lobby ${lobby.code}: reset (reopened)`);
         broadcastState(lobby);
+        pushLobbyPresence(lobby);
+        return;
+      }
+
+      /* appended: Phase 11 */
+      case 'lobby:planet': {
+        const lobby = lobbies.lobbyOf(c.id);
+        if (!lobby) { sendError(c, 'not_in_lobby'); return; }
+        if (lobby.hostId !== c.id) { sendError(c, 'not_host'); return; }
+        if (lobby.started) { sendError(c, 'started'); return; }
+        if (lobby.planet === m.planet) { sendTo(c, { t: 'lobby:state', lobby: lobby.toState() }); return; }
+        lobby.planet = m.planet;
+        log(`lobby ${lobby.code}: planet=${m.planet} (by ${c.name})`);
+        // No travel message exists: every member starts the cutscene off its own copy of `LobbyState.planet`.
+        broadcastState(lobby);
+        pushLobbyPresence(lobby);
         return;
       }
 
@@ -437,6 +646,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         }
         autoResetMission(lobby);
         broadcastState(lobby);
+        pushLobbyPresence(lobby);
         return;
       }
 
@@ -496,10 +706,134 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
 
       case 'lobby:name': {
         c.name = sanitizePlayerName(m.name);
+        /* Phase 11: the social record keeps the last name, so an offline friend still has one. */
+        if (c.hasProfile) { store.ensureSocial(c.id, c.name); pushPresence(c.id); }
         const lobby = lobbies.lobbyOf(c.id);
         if (!lobby) return; // nothing to broadcast; the name is used by the next create/join anyway
         lobby.setName(c.id, c.name);
         broadcastState(lobby);
+        return;
+      }
+
+      /* ── appended: Phase 11 — 소셜. Every branch needs a profile; an anonymous socket gets `unavailable`. ── */
+      case 'social:get': {
+        if (!socialOf(c)) { socialError(c, 'unavailable'); return; }
+        pushSocial(c.id);
+        return;
+      }
+
+      case 'social:me': {
+        if (!socialOf(c)) { socialError(c, 'unavailable'); return; }
+        if (store.setSocialLevel(c.id, m.level)) notifyWatchers(c.id);
+        pushSocial(c.id);
+        return;
+      }
+
+      case 'social:request': {
+        const soc = socialOf(c);
+        if (!soc) { socialError(c, 'unavailable'); return; }
+        const target = peerOfCode(m.code);
+        if (!target) { socialError(c, 'not_found'); return; }
+        if (target.id === c.id || target.code === soc.code) { socialError(c, 'self'); return; }
+        const res = store.addFriendRequest(c.id, target.id);
+        if (res !== 'ok') { socialError(c, res); return; }
+        log(`social: ${soc.code} → ${target.code} 친구 요청`);
+        pushSocial(c.id);
+        pushSocial(target.id);
+        return;
+      }
+
+      case 'social:respond': {
+        const soc = socialOf(c);
+        if (!soc) { socialError(c, 'unavailable'); return; }
+        const target = peerOfCode(m.code);
+        if (!target) { socialError(c, 'invalid'); return; }
+        const res = store.respondFriendRequest(c.id, target.id, m.accept);
+        if (res !== 'ok') { socialError(c, res); return; }
+        log(`social: ${soc.code} ${m.accept ? '수락' : '거절'} ${target.code}`);
+        // A new friendship changes both watch sets (the push channel outside a lobby).
+        rewatch(c.id);
+        rewatch(target.id);
+        pushSocial(c.id);
+        pushSocial(target.id);
+        return;
+      }
+
+      case 'social:remove': {
+        const soc = socialOf(c);
+        if (!soc) { socialError(c, 'unavailable'); return; }
+        const target = peerOfCode(m.code);
+        if (!target) { socialError(c, 'invalid'); return; }
+        const res = store.removeFriend(c.id, target.id);
+        if (res !== 'ok') { socialError(c, res); return; }
+        log(`social: ${soc.code} 친구 삭제 ${target.code}`);
+        rewatch(c.id);
+        rewatch(target.id);
+        pushSocial(c.id);
+        pushSocial(target.id);
+        return;
+      }
+
+      case 'social:play': {
+        const soc = socialOf(c);
+        if (!soc) { socialError(c, 'unavailable'); return; }
+        const target = peerOfCode(m.code);
+        if (!target) { socialError(c, 'not_found'); return; }
+        if (target.id === c.id) { socialError(c, 'self'); return; }
+        const mine = lobbies.lobbyOf(c.id);
+        const theirs = lobbies.lobbyOf(target.id);
+        const where = presenceOf(target.id);
+        /* The same gate the UI greys the button out with (`playBlockReason`), mapped onto the error codes. */
+        const block = playBlockReason(where, mine?.size ?? 0, NET_MAX_PLAYERS);
+        if (block === 'offline') { socialError(c, 'offline'); return; }
+        if (block === 'in_mission') { socialError(c, 'in_mission'); return; }
+        if (block === 'my_squad_full') { socialError(c, 'my_squad_full'); return; }
+        if (block !== null) { socialError(c, 'full'); return; }   // squad_full
+        const name = store.card(target.id)?.name ?? '';
+        if (theirs) {
+          /* ② they already have a ship: I move over — but only if I am not dragging a squad along. */
+          if (theirs === mine) { socialError(c, 'in_squad'); return; }
+          if (mine && mine.size > 1) { socialError(c, 'busy'); return; }
+          if (!theirs.isJoinable()) { socialError(c, 'in_mission'); return; }
+          const code = theirs.code;
+          if (mine) { removeFromLobby(c.id, c.name, 'leave'); sendTo(c, { t: 'lobby:left' }); }
+          const res = lobbies.join(c.id, code, c.name);
+          if (typeof res === 'string') { socialError(c, res === 'full' ? 'full' : res === 'started' ? 'in_mission' : 'invalid'); return; }
+          log(`social: ${soc.code} joined ${target.code}'s ship ${res.code} (같이 하기)`);
+          recordMet(res, c.id);
+          broadcastState(res);
+          sendTo(c, { t: 'social:play', code: target.code, name, outcome: 'joined' });
+          pushLobbyPresence(res);
+          return;
+        }
+        /* ③ they have no ship: make sure I have one, then invite them into it. */
+        let lobby = mine;
+        if (lobby === undefined) {
+          const created = lobbies.create(c.id, c.name, false);
+          if (typeof created === 'string') { socialError(c, 'invalid'); return; }
+          lobby = created;
+          log(`lobby ${lobby.code}: created (private) by ${c.name}(${c.id}) for 같이 하기`);
+          broadcastState(lobby);
+          pushPresence(c.id);
+        } else if (!lobby.isJoinable()) { socialError(c, 'busy'); return; }
+        const tc = clients.get(target.id);
+        if (!tc) { socialError(c, 'offline'); return; }
+        log(`social: ${soc.code} invited ${target.code} to ${lobby.code}`);
+        sendTo(tc, { t: 'social:invited', invite: { from: soc.code, name: soc.name, lobby: lobby.code, at: Date.now() } });
+        sendTo(c, { t: 'social:play', code: target.code, name, outcome: 'invited' });
+        return;
+      }
+
+      case 'social:whisper': {
+        const soc = socialOf(c);
+        if (!soc) { socialError(c, 'unavailable'); return; }
+        const text = sanitizeWhisper(m.text);
+        if (text.length === 0) { socialError(c, 'invalid'); return; }
+        const target = peerOfCode(m.code);
+        if (!target) { socialError(c, 'not_found'); return; }
+        const tc = clients.get(target.id);
+        if (!tc) { socialError(c, 'offline'); return; }
+        sendTo(tc, { t: 'social:whisper', code: soc.code, name: soc.name, text, at: Date.now() });
         return;
       }
 
@@ -543,6 +877,8 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
     // Still a lobby member (reconnect within grace, page reload, or replaced socket) → resume into it.
     const lobby = lobbies.lobbyOf(id);
     const profile = c.hasProfile ? store.snapshot(id) : undefined;
+    /* Phase 11: a token connection gets (or is given) an 아이디 and its social snapshot; anonymous gets neither. */
+    if (c.hasProfile) store.ensureSocial(id, c.name);
     if (lobby) {
       const wasDown = clearGrace(id) || !(lobby.get(id)?.connected ?? true);
       lobby.setConnected(id, true);
@@ -575,13 +911,19 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
       const welcome: ServerToClient = { t: 'welcome', id, serverTime: Date.now(), lobby: lobby.toState(), resumed: true };
       if (profile) welcome.profile = profile;
       if (raid) welcome.raid = raid;
+      const social = c.hasProfile ? buildSnapshot(id) : null;
+      if (social) welcome.social = social;
       sendTo(c, welcome);
       broadcastState(lobby);
     } else {
       const welcome: ServerToClient = { t: 'welcome', id, serverTime: Date.now() };
       if (profile) welcome.profile = profile;
+      const social = c.hasProfile ? buildSnapshot(id) : null;
+      if (social) welcome.social = social;
       sendTo(c, welcome);
     }
+    /* Phase 11: subscribe this socket to its friends' presence and tell everyone watching that it is online. */
+    if (c.hasProfile) { rewatch(id); notifyWatchers(id); }
 
     ws.on('pong', () => { c.alive = true; });
     ws.on('message', (raw: RawData, isBinary: boolean) => {
@@ -601,6 +943,8 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
       if (clients.get(c.id) !== c) { log(`closed replaced socket ${c.id}`); return; }
       clients.delete(c.id);
       try { suspendInLobby(c); } catch (e) { log(`cleanup error ${c.id}: ${(e as Error).message}`); }
+      /* Phase 11: the socket is gone → presence `offline` for everyone watching, and its own watches are dropped. */
+      try { notifyWatchers(c.id); unwatchAll(c.id); } catch (e) { log(`social cleanup error ${c.id}: ${(e as Error).message}`); }
       log(`disconnect ${c.id} (${clients.size} clients)`);
     });
   });
@@ -634,6 +978,9 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
           graceTimers.clear();
           for (const t of migrateTimers.values()) clearTimeout(t);
           migrateTimers.clear();
+          /* Phase 11: the presence push channel is per-process state — drop it with the sockets. */
+          watchers.clear();
+          watching.clear();
           store.close();
           for (const c of clients.values()) { try { c.ws.terminate(); } catch { /* ignore */ } }
           wss.close(() => { http.close(() => done()); });

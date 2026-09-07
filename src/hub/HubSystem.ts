@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { PlanetId } from '@/shared';
-import { getPlanet } from '@/shared';
+import { getPlanet, isPlanetId, planetLabel, HUB_TRAVEL_DURATION, PLANET_NONE_LABEL, PLANET_STORAGE_KEY } from '@/shared';
 import type { CrewCardWire, GameContext, GameSystem, HubLaunchSlot, HubRef, HubShipKind, Interactable, InteriorCollider, LoadoutSlot, LobbyState, PeerId, RoomPurpose } from '@/shared';
 import { CREW_CARD_MIN_INTERVAL_S, CREW_LOADOUT_COOLDOWN_S, HUB_DOCKING_DURATION, HUB_LAUNCH_COUNTDOWN, HUB_READY_BLOCKER, HUB_READY_CELLS, Keys, NET_SLOT_COLORS, ROOM_PURPOSE_LABEL_KO } from '@/shared';
 import { PersonalShip } from './interiors/PersonalShip';
@@ -28,6 +28,8 @@ const LOCK_REQUEST_GRACE_MS = 300;
 const UNBOARD_GRACE = 0.6;
 /** Seconds after `setReady(true)` before a server-side `ready=false` is treated as a lobby reset. */
 const READY_ECHO_GRACE = 1.5;
+/** The two cutscene directions that swap the ship interior (`'travel'` keeps it — see `startTravel`). */
+type DockTransition = Exclude<DockDirection, 'travel'>;
 
 const _camPos = new THREE.Vector3();
 const _camLook = new THREE.Vector3();
@@ -64,20 +66,119 @@ export class HubSystem implements GameSystem, HubRef {
     this.updateTerminalScreen();
     return true;
   }
-  /* ── Phase 11 skeleton — replace with the terminal's planet selection + the travel cutscene. ── */
-  /** 목표 행성 of the next raid (lobby: the host's `LobbyState.planet`; solo: the local pick). */
-  planet: PlanetId | null = null;
-  /** true while the ship is flying to a new planet. */
-  travelling = false;
-  /** Pick the 목표 행성 (host only in a lobby); starts the travel cutscene. */
-  setPlanet(planet: PlanetId): boolean {
+  /* ── 목표 행성 (Phase 11) ──────────────────────────────────────────────── */
+  /**
+   * 목표 행성 of the next raid. In a lobby this **mirrors `LobbyState.planet`** (the host owns it and every member
+   * reads the same value off its own `lobby:state`); solo it is the local pick, remembered in localStorage
+   * `PLANET_STORAGE_KEY`. Null = nothing picked yet — the launch slots refuse boarding until it is set.
+   */
+  get planet(): PlanetId | null {
     const net = this.ctx?.net;
-    if (net?.lobby && !net.isHost) return false;
-    if (!getPlanet(planet)) return false;
-    this.planet = planet;
-    if (net?.lobby) net.setLobbyPlanet(planet);
-    this.updateTerminalScreen();
+    if (net?.lobby) return net.lobbyPlanet ?? null;
+    return this.localPlanet;
+  }
+  /** true while the travel cutscene runs (controls locked, terminal closed, pods unavailable). */
+  travelling = false;
+  /** The solo pick (persisted); in a lobby `LobbyState.planet` wins and this is only the fallback. */
+  private localPlanet: PlanetId | null = null;
+  /** `lobby.planet` as of the last `net:lobbyUpdated` we reacted to — a change starts the squad's cutscene. */
+  private knownLobbyPlanet: PlanetId | null = null;
+
+  /**
+   * Pick the 목표 행성 and fly there. Refused (false) for a non-host in a lobby, for an unknown id, while a
+   * cutscene / travel runs, while a launch countdown is ticking, outside the hub and when it is already the target.
+   * On success: `hub:travel {stage:'start'}` → the docking cutscene reused as a warp → `hub:travel {stage:'end'}` +
+   * `hub:planetChanged`. The ship interior is **not** rebuilt — only the view outside it changes.
+   */
+  setPlanet(planet: PlanetId): boolean {
+    const ctx = this.ctx;
+    if (!isPlanetId(planet)) return false;
+    if (this.travelBlockReason() !== null) return false;
+    if (this.planet === planet) return false;
+    const net = ctx.net;
+    if (net?.lobby) {
+      // the host owns `lobby.planet`; net mirrors it optimistically, so `this.planet` is already the new value
+      net.setLobbyPlanet(planet);
+      this.knownLobbyPlanet = planet;
+    } else {
+      this.localPlanet = planet;
+      this.savePlanet();
+    }
+    this.startTravel(planet, 'local');
     return true;
+  }
+
+  /** Korean reason 행성 이동 is refused right now, or null when it is allowed (the terminal renders it). */
+  private travelBlockReason(): string | null {
+    const ctx = this.ctx;
+    const net = ctx?.net;
+    if (net?.lobby && !net.isHost) return '호스트만 지정할 수 있습니다';
+    if (this.travelling || this.cutscene) return '이동 중';
+    if (this.countdown >= 0) return '발사 카운트다운 중';
+    if (ctx?.phase !== 'hub') return '함선에서만 지정할 수 있습니다';
+    return null;
+  }
+
+  /** Restore the solo pick (`PLANET_STORAGE_KEY`); an unknown / absent value stays null (목표 미지정). */
+  private loadPlanet(): void {
+    try {
+      const raw = localStorage.getItem(PLANET_STORAGE_KEY);
+      if (isPlanetId(raw)) this.localPlanet = raw;
+    } catch { /* private mode */ }
+  }
+
+  private savePlanet(): void {
+    try {
+      if (this.localPlanet) localStorage.setItem(PLANET_STORAGE_KEY, this.localPlanet);
+      else localStorage.removeItem(PLANET_STORAGE_KEY);
+    } catch { /* private mode */ }
+  }
+
+  /**
+   * Fly to `planet`. Everyone steps out of their pod, the terminal / workbench close and `DockingCutscene` runs in
+   * `'travel'` mode (`HUB_TRAVEL_DURATION`). The interior is **kept** (no `disposeInterior`, no rebuild, the phase
+   * stays `'hub'`) — a planet change is a change of scenery, not a new ship.
+   */
+  private startTravel(planet: PlanetId, by: 'local' | 'squad'): void {
+    const ctx = this.ctx;
+    const def = getPlanet(planet);
+    if (!def) return;
+    if (this.boardedSlot >= 0) this.leavePod(true, true);
+    this.menu.close(false);
+    this.wbMenu.close(false);
+    this.ready.hide();
+    this.countdown = -1; this.lastCountdownSecond = -1; this.launched = false;
+    this.travelling = true;
+    this.cutscene?.dispose();
+    ctx.bus.emit('hub:travel', { stage: 'start', planet });
+    ctx.bus.emit('ui:notify', { text: `${def.name} 항로 진입`, kind: 'info' });
+    ctx.bus.emit('audio:play', { id: 'hub_dock_thrusters', volume: 0.85 });
+    this.cutscene = new DockingCutscene(ctx, 'travel', HUB_TRAVEL_DURATION, () => this.finishTravel(planet, by), {
+      shared: this.ship === 'shared', color: def.hologram, atmo: def.hologramAtmo,
+    });
+  }
+
+  private finishTravel(planet: PlanetId, by: 'local' | 'squad'): void {
+    const ctx = this.ctx;
+    this.cutscene?.dispose(); this.cutscene = null;
+    this.travelling = false;
+    const p = ctx.player;
+    if (p) { p.setCameraOverride(null); p.setControlsEnabled(true); }
+    this.applyPlanetLook();
+    this.updateTerminalScreen();
+    this.syncPods();
+    ctx.bus.emit('hub:travel', { stage: 'end', planet });
+    ctx.bus.emit('hub:planetChanged', { planet, by });
+    ctx.bus.emit('ui:notify', { text: `${planetLabel(planet)} 궤도 진입 — 발사 슬롯 개방`, kind: 'success' });
+    ctx.bus.emit('audio:play', { id: 'hub_dock_clamp', volume: 0.8 });
+    this.relock();
+  }
+
+  /** The decorative planet outside the viewports takes the 목표 행성's colours (nothing else is rebuilt). */
+  private applyPlanetLook(): void {
+    const def = getPlanet(this.planet);
+    if (!def) return;
+    this.interior?.setPlanetLook?.(def.hologram, def.hologramAtmo);
   }
   /** Personal-ship room the player stands in (XZ inside the room's 4 × 4 m floor), else null. */
   get currentRoom(): number | null { return this._currentRoom; }
@@ -138,6 +239,7 @@ export class HubSystem implements GameSystem, HubRef {
       return true;
     }
     ctx.missionMode = 'training';
+    ctx.missionPlanet = null;            // the arena has no planet (Phase 11 contract: a training clears it)
     ctx.bus.emit('ui:notify', { text: '시뮬레이션 훈련장 입장', kind: 'info' });
     ctx.bus.emit('game:newMission', { seed, mode: 'training' });
     return true;
@@ -198,10 +300,14 @@ export class HubSystem implements GameSystem, HubRef {
   init(ctx: GameContext): void {
     this.ctx = ctx;
     ctx.hub = this;
+    this.loadPlanet();
     this.menu = new HubMenu(ctx, {
       toTitle: () => this.toTitle(),
       onClosed: () => this.relock(),
       startTraining: () => this.startTraining(),
+      planet: () => this.planet,
+      travelBlock: () => this.travelBlockReason(),
+      travelTo: (p) => { this.setPlanet(p); },
     });
     this.wbMenu = new WorkbenchMenu(ctx, { onClosed: () => this.relock() });
     // ReadyPanel **before** HubStatus: `hub.css` lifts the status line off the panel with a sibling selector.
@@ -348,7 +454,7 @@ export class HubSystem implements GameSystem, HubRef {
     if (requested !== ship) console.info(`[hub] hub:enter ${requested} → ${ship} (lobby ${ctx.net?.lobby ? 'present' : 'absent'})`);
     const phase = ctx.phase;
     if (phase !== 'menu' && phase !== 'hub' && phase !== 'docking') ctx.bus.emit('game:abort', {});   // abort the mission / result screen first
-    if (this.cutscene) { this.cutscene.dispose(); this.cutscene = null; }
+    if (this.cutscene) { this.cutscene.dispose(); this.cutscene = null; this.travelling = false; }
     if (this.interior && this.ship === ship && ctx.phase === 'hub') return;      // idempotent
     this.disposeInterior();
     const spawn = this.build(ship, false);
@@ -401,6 +507,8 @@ export class HubSystem implements GameSystem, HubRef {
     }
     this.setSpaceMode(true);
     this.countdown = -1; this.launched = false; this.lastCountdownSecond = -1;
+    this.knownLobbyPlanet = ctx.net?.lobby ? (ctx.net.lobbyPlanet ?? null) : null;
+    this.applyPlanetLook();
     this.syncPods();
     this.updateTerminalScreen();
     return spawn;
@@ -557,6 +665,7 @@ export class HubSystem implements GameSystem, HubRef {
     this.status.hide();
     this.ready.hide();
     this.cutscene?.dispose(); this.cutscene = null;
+    this.travelling = false;
     this.disposeInterior();
     this.countdown = -1; this.launched = false;
     const p = ctx.player;
@@ -594,11 +703,11 @@ export class HubSystem implements GameSystem, HubRef {
   }
 
   /* ── docking transitions ───────────────────────────────────────────────── */
-  private startTransition(direction: DockDirection): void {
+  private startTransition(direction: DockTransition): void {
     const ctx = this.ctx;
     if (this.cutscene) {
       if (this.cutscene.direction === direction) return;
-      this.cutscene.dispose(); this.cutscene = null;
+      this.cutscene.dispose(); this.cutscene = null; this.travelling = false;
     }
     if (this.boardedSlot >= 0) this.leavePod(false, false);
     this.menu.close(false);
@@ -612,9 +721,9 @@ export class HubSystem implements GameSystem, HubRef {
     this.cutscene = new DockingCutscene(ctx, direction, duration, () => this.finishTransition(direction));
   }
 
-  private finishTransition(direction: DockDirection): void {
+  private finishTransition(direction: DockTransition): void {
     const ctx = this.ctx;
-    this.cutscene?.dispose(); this.cutscene = null;
+    this.cutscene?.dispose(); this.cutscene = null; this.travelling = false;
     const target: HubShipKind = direction === 'dock' && ctx.net?.lobby ? 'shared' : 'personal';
     const spawn = this.build(target, target === 'shared');
     ctx.setPhase('hub');
@@ -626,7 +735,7 @@ export class HubSystem implements GameSystem, HubRef {
   /** Swap interiors without a cutscene (resume after reload / seamless cases). */
   private swapDirect(target: HubShipKind): void {
     const ctx = this.ctx;
-    this.cutscene?.dispose(); this.cutscene = null;
+    this.cutscene?.dispose(); this.cutscene = null; this.travelling = false;
     if (this.boardedSlot >= 0) this.leavePod(false, false);
     this.menu.close(false);
     this.wbMenu.close(false);
@@ -644,6 +753,17 @@ export class HubSystem implements GameSystem, HubRef {
       if (lobby.started) this.swapDirect('shared');     // resumed into a running mission: no cutscene
       else this.startTransition('dock');
       return;
+    }
+    // 목표 행성 (Phase 11): the host's pick reaches everyone as `lobby:state` — there is no travel message on the
+    // wire, each member plays the cutscene off its own copy. Arriving in the lobby only fills the value (see `build`).
+    const lp = lobby.planet ?? null;
+    if (lp !== this.knownLobbyPlanet) {
+      this.knownLobbyPlanet = lp;
+      if (lp && !this.travelling && !this.cutscene && this.ctx.phase === 'hub' && !lobby.started) {
+        this.startTravel(lp, 'squad');
+        return;                                          // startTravel already re-synced the pods / screen
+      }
+      this.applyPlanetLook();
     }
     this.syncPods();
     this.updateTerminalScreen();
@@ -677,16 +797,31 @@ export class HubSystem implements GameSystem, HubRef {
 
   private podPrompt(slot: number): string | null {
     if (!this.podCanInteract(slot)) return null;
-    if (this.trainingRunning()) return '훈련 진행 중 — 터미널에서 합류';
-    return this.ctx.net?.lobby && this.ctx.net.missionInProgress ? '임무 진행 중 — 재투입' : '발사 슬롯 탑승';
+    return this.podBlockReason(slot) ?? (this.ctx.net?.lobby && this.ctx.net.missionInProgress ? '임무 진행 중 — 재투입' : '발사 슬롯 탑승');
   }
 
+  /**
+   * Basic pod availability: the pod is reachable and free. The **reasons boarding is refused anyway** live in
+   * `podBlockReason` — they keep `canInteract` true on purpose, because `ctx.interactables.findBest` skips an
+   * interactable that answers false and the player would then see no prompt at all (and no reason).
+   */
   private podCanInteract(slot: number): boolean {
     const ctx = this.ctx;
-    if (ctx.phase !== 'hub' || this.cutscene || this.boardedSlot >= 0 || this.menu.isOpen || this.wbMenu.isOpen || this.housingMode.active || this.corpMenuOpen()) return false;
+    if (ctx.phase !== 'hub' || this.cutscene || this.travelling || this.boardedSlot >= 0 || this.menu.isOpen || this.wbMenu.isOpen || this.housingMode.active || this.corpMenuOpen()) return false;
     if (slot !== this.localSlot()) return false;
     const pod = this.pods[slot];
     return !!pod && pod.occupant === null;
+  }
+
+  /**
+   * Why boarding is refused right now (also the pod's prompt text), or null when the slot takes us:
+   * a training runs in the lobby (join from the terminal instead), or the ship has no 목표 행성 (Phase 11).
+   */
+  private podBlockReason(slot: number): string | null {
+    void slot;
+    if (this.trainingRunning()) return '훈련 진행 중 — 터미널에서 합류';
+    if (this.planet === null) return '목표 행성 미지정 — 터미널에서 지정';
+    return null;
   }
 
   private boardPod(slot: number): void {
@@ -696,6 +831,12 @@ export class HubSystem implements GameSystem, HubRef {
     if (this.trainingRunning()) {
       // pods stay closed while a training runs: the terminal's 시뮬레이션 훈련장 entry joins it
       ctx.bus.emit('ui:notify', { text: '훈련 진행 중 — 터미널에서 합류할 수 있습니다', kind: 'warning' });
+      ctx.bus.emit('audio:play', { id: 'ui_deny' });
+      return;
+    }
+    if (this.planet === null) {
+      // 목표 행성 미지정: nothing to launch at (the server refuses a raid start with `no_planet` as well)
+      ctx.bus.emit('ui:notify', { text: '목표 행성이 없습니다 — 터미널에서 행성을 지정하세요', kind: 'warning' });
       ctx.bus.emit('audio:play', { id: 'ui_deny' });
       return;
     }
@@ -817,9 +958,10 @@ export class HubSystem implements GameSystem, HubRef {
     const seed = lobby ? lobby.seed : this.missionSeed;
     const seedText = seed === null ? '시드 무작위' : `시드 ${seed}`;
     const status = net?.status === 'connected' ? '네트워크 연결됨' : net?.status === 'connecting' ? '연결 중…' : '오프라인';
+    const planetLine = `목표 ${this.travelling ? `${planetLabel(this.planet)} 이동 중` : (getPlanet(this.planet)?.name ?? PLANET_NONE_LABEL)}`;
     const lines = lobby
-      ? [`함선 ${lobby.code}`, `승무원 ${lobby.players.length}/4 · ${lobby.isPublic ? '공개' : '비공개'}`, seedText]
-      : ['개인 함선', status, seedText];
+      ? [`함선 ${lobby.code}`, `승무원 ${lobby.players.length}/4 · ${lobby.isPublic ? '공개' : '비공개'}`, planetLine, seedText]
+      : ['개인 함선', status, planetLine, seedText];
     if (lobby && this.trainingRunning()) lines.push(`훈련장 ${this.trainingCount()}명`);
     const credits = this.credits();
     if (credits !== null) lines.push(`크레딧 ${credits.toLocaleString('ko-KR')}`);
@@ -843,12 +985,17 @@ export class HubSystem implements GameSystem, HubRef {
     const ctx = this.ctx;
     const net = ctx.net;
     const seed = this.resolveSeed();
+    const planet = this.planet;
+    if (planet === null) return;         // the pod gate should have caught this (server: `no_planet`)
     if (net?.lobby && net.isHost) {
       this.launched = true;
-      net.startGame(seed);               // server → game:start → net emits game:newMission → teardown('mission')
+      // server → game:start {planet} → net emits game:newMission → teardown('mission')
+      net.startGame(seed, 'raid', planet);
     } else if (!net?.lobby) {
-      ctx.missionMode = 'raid';          // the emitter sets the mode before `game:newMission` (Phase 7 contract)
-      ctx.bus.emit('game:newMission', { seed, mode: 'raid' });
+      // the emitter sets the mode AND the planet before `game:newMission` (Phase 7 / 11 contract)
+      ctx.missionMode = 'raid';
+      ctx.missionPlanet = planet;
+      ctx.bus.emit('game:newMission', { seed, mode: 'raid', planet });
     }
   }
 
@@ -906,14 +1053,17 @@ export class HubSystem implements GameSystem, HubRef {
 
   /* ── frame ─────────────────────────────────────────────────────────────── */
   update(dt: number, ctx: GameContext): void {
-    this.menu.update();
+    this.menu.update(dt);
     this.wbMenu.update();
     this.ready.update(dt, ctx.time);
     // a card change inside the debounce window goes out as soon as it expires
     if (this.cardDirty) this.sendCrewCard(false);
     if (this.cutscene) {
       this.cutscene.update(dt);
-      if (this.cutscene) this.status.set(this.cutscene.direction === 'dock' ? '도킹 절차 진행 중' : '도킹 해제 중', null);
+      if (this.cutscene) {
+        const d = this.cutscene.direction;
+        this.status.set(d === 'dock' ? '도킹 절차 진행 중' : d === 'undock' ? '도킹 해제 중' : `${planetLabel(this.planet)} 항로 이동 중`, null);
+      }
       return;
     }
     if (ctx.phase !== 'hub' || !this.interior) return;

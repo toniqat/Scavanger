@@ -1,5 +1,5 @@
 export { WorldSystem } from './WorldSystem';
-export { BIOMES, pickBiome, type Biome, type TreeStyle } from './biomes';
+export { BIOMES, biomeById, pickBiome, type Biome, type TreeStyle } from './biomes';
 export { Noise, lerp, clamp, smoothstep } from './noise';
 export { SpatialHash, type ObstacleEntry } from './SpatialHash';
 export { Terrain, HALF, EXTENT, CELL, HEIGHT_MIN, HEIGHT_MAX } from './Terrain';

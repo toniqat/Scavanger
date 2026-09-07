@@ -3,9 +3,10 @@ import type {
   ChatKind, GameContext, GameSystem, GameMessage, GameMessageOf, GameMessageType, GhostWire, LobbyPlayer, LobbyState,
   NetRef, NetStatus, PeerId, PingKind, RelayTarget, RemotePlayerRef, ServerToClient, Vec3Tuple,
 } from '@/shared';
-import type { MissionMode, ProfileRef, RaidSessionBlob } from '@/shared';
+import type { ClientToServer, MissionMode, ProfileRef, RaidSessionBlob } from '@/shared';
 /* appended (Phase 11): 행성 선택 · 소셜 */
 import type { PlanetId, SocialRef } from '@/shared';
+import { isPlanetId } from '@/shared';
 import {
   NET_INVITE_PARAM, NET_MISSION_RESUME_TIMEOUT_MS, NET_NAME_PARAM, NET_PLAYER_SNAPSHOT_HZ, NET_RECONNECT_BACKOFF_MS,
   NET_TOKEN_LENGTH, NET_TOKEN_PARAM, NET_TOKEN_STORAGE_KEY, NET_WS_PATH, PlayerFlags, RAID_BLOB_MAX_BYTES,
@@ -13,6 +14,7 @@ import {
 } from '@/shared';
 import { NetClient } from './NetClient';
 import { ProfileSync } from './ProfileSync';
+import { SocialSync } from './SocialSync';
 import { RemotePlayer } from './RemotePlayer';
 import { Snapshotter } from './Snapshotter';
 /* appended (Phase 10): 발사 준비 패널 crew cards */
@@ -159,6 +161,10 @@ export class NetSystem implements GameSystem, NetRef {
   /** true while anybody (local or remote) is carrying someone: gates the per-frame `carriedBy` derivation. */
   private carryActive = false;
 
+  /* ── Phase 11 ── */
+  /** `ctx.net.social`: the relay's social state (friends / requests / recent / whispers / squad invites). */
+  private readonly socialSync = new SocialSync();
+
   /* ── NetRef getters ─────────────────────────────────────────────────── */
   get status(): NetStatus { return this.client.status; }
   get connected(): boolean { return this.client.connected; }
@@ -183,20 +189,26 @@ export class NetSystem implements GameSystem, NetRef {
   get raidBlob(): RaidSessionBlob | null { return this._raidBlob; }
   get missionMode(): MissionMode | null { return this._lobby?.started ? (this._lobby.mode ?? 'raid') : null; }
   get tookOver(): boolean { return this._tookOver; }
-  /* ── Phase 11 skeleton — replace with `SocialSync` + the lobby planet wire. ── */
+  /* ── Phase 11 ── */
+  /** The squad's 목표 행성 (`lobby.planet`), or null outside a lobby / while nothing is picked. */
   get lobbyPlanet(): PlanetId | null { return this._lobby?.planet ?? null; }
+  /**
+   * Host only, while not started: share the 목표 행성 with the ship. Mirrored optimistically (like `setLobbySeed`) so
+   * the host's own terminal reacts without a round trip; the server's `lobby:state` confirms it for everyone else.
+   * There is no travel message — each client starts the cutscene off its own copy of `lobby.planet`.
+   */
   setLobbyPlanet(planet: PlanetId): void {
-    if (!this._lobby || !this.isHost) return;
-    this._lobby = { ...this._lobby, planet };
+    if (!isPlanetId(planet)) return;
+    const lobby = this._lobby;
+    if (!lobby || !this.isHost || lobby.started) return;
+    if (lobby.planet === planet) return;
+    lobby.planet = planet;   // optimistic mirror; the broadcast confirms it
+    // No event: hub/ drives its own terminal / cutscene from `setPlanet` and reacts to a *squadmate's* change through
+    // the server's `net:lobbyUpdated`. Emitting here would make the host's own pick look like a remote one.
     this.client.send({ t: 'lobby:planet', planet });
   }
-  readonly social: SocialRef = {
-    available: false, me: null, friends: [], incoming: [], outgoing: [], recent: [], invites: [],
-    onlineFriends: 0, hasNews: false,
-    refresh() {}, requestFriend() {}, respondFriend() {}, removeFriend() {}, playWith() {},
-    acceptInvite() {}, dismissInvite() {}, whisper() { return false; }, setLevel() {},
-    find() { return undefined; }, playBlock() { return null; },
-  };
+  /** 친구 · 요청 · 최근 플레이어 · 귓속말 · 분대 초대 (always present; `available` is false offline). */
+  get social(): SocialRef { return this.socialSync; }
   /* ── Phase 8 ── */
   /**
    * Relay wall clock in epoch ms: the offset captured at the last `welcome` / `pong` plus the elapsed local time.
@@ -219,6 +231,12 @@ export class NetSystem implements GameSystem, NetRef {
     this.profileSync.bus = ctx.bus;
     this.profileSync.send = (m) => this.client.send(m);
     this.profileSync.serverNow = () => this.serverNow();
+    /* Phase 11: the social mirror gets the same injected wiring (no socket / no lobby knowledge of its own). */
+    this.socialSync.bus = ctx.bus;
+    this.socialSync.send = (m) => this.client.send(m);
+    this.socialSync.serverNow = () => this.serverNow();
+    this.socialSync.joinLobby = (code) => this.joinLobby(code);
+    this.socialSync.squadSize = () => this._lobby?.players.length ?? 0;
 
     try {
       const stored = localStorage.getItem(NAME_STORAGE_KEY);
@@ -239,6 +257,7 @@ export class NetSystem implements GameSystem, NetRef {
       ctx.bus.emit('net:statusChanged', reason !== undefined ? { status, reason } : { status });
       if (status === 'offline' || status === 'error') {
         this.profileSync.onDisconnected();
+        this.socialSync.onDisconnected();   // Phase 11: nothing social survives a connection (the server owns it)
         this.onSocketDown(wasConnected);
       }
     };
@@ -268,6 +287,15 @@ export class NetSystem implements GameSystem, NetRef {
     bus.on('game:complete', () => this.scheduleEndSession());
     bus.on('game:over', () => this.scheduleEndSession());
     bus.on('game:abort', () => this.scheduleEndSession());
+    /* Phase 11: publish my level for friends' rows (debounced inside SocialSync; progression may be absent). */
+    bus.on('progress:loaded', () => this.pushLevel());
+    bus.on('progress:levelUp', () => this.pushLevel());
+  }
+
+  /** `social:me` with the current character level; a no-op without a progression system (headless tests / stubs). */
+  private pushLevel(): void {
+    const level = this.ctx.progression?.level;
+    if (typeof level === 'number') this.socialSync.setLevel(level);
   }
 
   update(dt: number, ctx: GameContext): void {
@@ -308,6 +336,7 @@ export class NetSystem implements GameSystem, NetRef {
     this.stopReconnect();
     this.intentionalClose = true;
     this.profileSync.flush();
+    this.socialSync.dispose();
     this.client.close();
     this.clearRemotes();
     this.handlers.clear();
@@ -438,6 +467,10 @@ export class NetSystem implements GameSystem, NetRef {
     // Profile first: persisting folders replace their local state from it before any lobby / mission event. During a
     // seamless resume the documents cannot have changed (only this client writes them) — refresh availability only.
     this.profileSync.onWelcome(msg.profile, !seamless);
+    // Phase 11: the social snapshot belongs to the connection, not the session — refresh it on every welcome, then
+    // (re-)publish my level, which the relay forgets when nothing reported it yet.
+    this.socialSync.onWelcome(msg.social);
+    this.pushLevel();
 
     if (lobby) {
       if (!seamless) {
@@ -495,10 +528,19 @@ export class NetSystem implements GameSystem, NetRef {
     if (this._lobby || this._inSession) this.dropLobby('left');
   }
   setReady(ready: boolean): void { this.client.send({ t: 'lobby:ready', ready }); }
-  /** Raid (default): host only, everyone ready. Training: any member; only the caller enters (`inMission`). */
-  startGame(seed: number, mode?: MissionMode): void {
+  /**
+   * Raid (default): host only, everyone ready. Training: any member; only the caller enters (`inMission`).
+   * Phase 11: `planet` is the raid's 목표 행성 (the server refuses a raid without one — `no_planet`); a training
+   * ignores it, and an unknown id is dropped here rather than sent. Falls back to `lobby.planet` when omitted.
+   */
+  startGame(seed: number, mode?: MissionMode, planet?: PlanetId): void {
     const s = Math.floor(seed) >>> 0;
-    this.client.send(mode ? { t: 'lobby:start', seed: s, mode } : { t: 'lobby:start', seed: s });
+    const training = mode === 'training';
+    const p = training ? undefined : (isPlanetId(planet) ? planet : (this._lobby?.planet ?? undefined));
+    const msg: Extract<ClientToServer, { t: 'lobby:start' }> = { t: 'lobby:start', seed: s };
+    if (mode) msg.mode = mode;
+    if (p !== undefined) msg.planet = p;
+    this.client.send(msg);
   }
 
   quickMatch(): void {
@@ -529,7 +571,9 @@ export class NetSystem implements GameSystem, NetRef {
     this.client.send({ t: 'lobby:mission', inMission: true });
     const me = this.localId ? this.getLobbyPlayer(this.localId) : undefined;
     if (me) me.inMission = true; // optimistic; the broadcast confirms it
-    this.beginSession(seed, lobby, mode, true);
+    // Phase 11: a rejoin takes the 목표 행성 from the lobby (the mission is already running on it).
+    const planet = mode === 'training' ? null : (isPlanetId(lobby.planet) ? lobby.planet : null);
+    this.beginSession(seed, lobby, mode, true, planet);
     this.send({ t: 'flow', ev: 'rejoined' }, 'all');
   }
 
@@ -643,7 +687,9 @@ export class NetSystem implements GameSystem, NetRef {
         // the rest just see the lobby running (`missionInProgress`) and may join from the terminal.
         const enters = me ? (me.inMission ?? true) : true;
         if (this._inSession || (mode === 'training' && !enters)) { this.applyLobby(msg.lobby); return; }
-        this.beginSession(msg.seed, msg.lobby, mode, false);
+        // Phase 11: the raid's 목표 행성 — the server echoes it, `lobby.planet` is the fallback for an older relay.
+        const planet = mode === 'training' ? null : (isPlanetId(msg.planet) ? msg.planet : (isPlanetId(msg.lobby.planet) ? msg.lobby.planet : null));
+        this.beginSession(msg.seed, msg.lobby, mode, false, planet);
         return;
       }
 
@@ -674,11 +720,31 @@ export class NetSystem implements GameSystem, NetRef {
       case 'credits:result':
         this.profileSync.onCreditsResult(msg);
         return;
+
+      /* Phase 11: 소셜 — SocialSync validates every frame before it reaches the UI. */
+      case 'social:state':
+        this.socialSync.onState(msg.social);
+        return;
+      case 'social:invited':
+        this.socialSync.onInvited(msg.invite);
+        return;
+      case 'social:whisper':
+        this.socialSync.onWhisper(msg);
+        return;
+      case 'social:play':
+        this.socialSync.onPlay(msg);
+        return;
+      case 'social:error':
+        this.socialSync.onError(msg);
+        return;
     }
   }
 
-  /** Enter the mission of `lobby` with `seed` (server `game:start`, or `rejoinMission()`). */
-  private beginSession(seed: number, lobby: LobbyState, mode: MissionMode, rejoin: boolean): void {
+  /**
+   * Enter the mission of `lobby` with `seed` (server `game:start`, or `rejoinMission()`).
+   * Phase 11: `planet` is the raid's 목표 행성 (null for a training / an older relay with nothing picked).
+   */
+  private beginSession(seed: number, lobby: LobbyState, mode: MissionMode, rejoin: boolean, planet: PlanetId | null): void {
     const bus = this.ctx.bus;
     this.applyLobby(lobby);
     this._inSession = true;
@@ -688,10 +754,13 @@ export class NetSystem implements GameSystem, NetRef {
     this.snapshotter.reset();
     this.lastSnapshotAt = -Infinity;
     this.clearRemotes(); // hub avatars are re-created from the first mission snapshots
-    // Contract: whoever emits `game:newMission` sets `ctx.missionMode` first (world generates synchronously inside).
+    // Contract: whoever emits `game:newMission` sets `ctx.missionMode` **and** `ctx.missionPlanet` first — world/ and
+    // core/ read them inside their synchronous handlers (the world generates during the emit).
     this.ctx.missionMode = mode;
-    bus.emit('net:gameStarting', { seed, lobby, rejoin, mode });
-    bus.emit('game:newMission', { seed, mode });
+    this.ctx.missionPlanet = mode === 'training' ? null : planet;
+    const p = this.ctx.missionPlanet;
+    bus.emit('net:gameStarting', p !== null ? { seed, lobby, rejoin, mode, planet: p } : { seed, lobby, rejoin, mode });
+    bus.emit('game:newMission', p !== null ? { seed, mode, planet: p } : { seed, mode });
   }
 
   private applyLobby(next: LobbyState): void {

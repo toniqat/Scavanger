@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { EnemyType, GameContext } from '@/shared';
+import type { EnemyType, GameContext, PlanetEcosystem } from '@/shared';
 import type { Enemy } from './Enemy';
 import type { TargetList } from './Targets';
 
@@ -16,9 +16,110 @@ export interface SpawnHost {
   countAlive(type: EnemyType): number;
 }
 
-/** Per-type alive caps for the gimmick bugs. */
+/**
+ * Per-type alive caps for the gimmick bugs — the **defaults** since Phase 11: a mission generated for a planet uses
+ * `PlanetEcosystem.maxArtillery` / `maxBehemoth` instead (`maxArtilleryOf` / `maxBehemothOf`). With no planet these
+ * are still the numbers, so single-player without a destination behaves exactly as before.
+ */
 export const MAX_ARTILLERY = 2;
 export const MAX_BEHEMOTH = 1;
+
+/* ══ Phase 11: 행성 생태계 (`PlanetEcosystem`) ═══════════════════════════════════════════════════════════════════
+ * The ecosystem is a **re-weighting of existing content**: it never adds a type and never opens a threat gate.
+ * Group composition keeps the exact ladder it had (the same rolls, the same probabilities, the same
+ * `threat > x` / `index >= n` gates, so the difficulty curve is unchanged) — what changed is that each *slot* now
+ * draws its silhouette from the planet's weights inside its own power tier. A type the planet does not list (or
+ * lists as 0) can never fill a slot, and a slot whose whole tier is missing here is simply skipped (in a wave the
+ * leftover count falls through to the filler tier, so waves keep their size).
+ * With `eco === null` every helper below returns the pre-Phase-11 answer verbatim.
+ * ══════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** Bug types a patrol / wave can be composed of. Artillery digs in on its own, rogues are crate guards. */
+const GROUP_TYPES: readonly EnemyType[] = ['scavenger', 'hunter', 'warrior', 'spewer', 'charger', 'toxic', 'behemoth'];
+
+/** Interchangeable peer tiers: a slot keeps its power tier, the planet decides which member of it appears. */
+const TIER_FILLER: readonly EnemyType[] = ['scavenger'];
+const TIER_MEDIUM: readonly EnemyType[] = ['hunter', 'warrior', 'spewer'];
+const TIER_HEAVY: readonly EnemyType[] = ['behemoth', 'charger'];
+const TIER_RUNNER: readonly EnemyType[] = ['toxic'];
+
+/** Ambient threat gates, transcribed from the pre-Phase-11 `ambientGroup` ladder (behemoths are waves-only). */
+const AMBIENT_GATE: Partial<Record<EnemyType, (threat: number) => boolean>> = {
+  scavenger: () => true,
+  hunter: () => true,
+  warrior: (t) => t > 0.25,
+  spewer: (t) => t > 0.3,
+  toxic: (t) => t >= 0.4,
+  charger: (t) => t > 0.5,
+  behemoth: () => false,
+};
+
+/** Wave gates, transcribed from `waveGroup`'s index ladder (the charger's `index === 3 || index >= 6` stays a slot roll). */
+const WAVE_GATE: Partial<Record<EnemyType, (index: number) => boolean>> = {
+  scavenger: () => true,
+  hunter: () => true,
+  warrior: (i) => i >= 2,
+  spewer: (i) => i >= 2,
+  toxic: (i) => i >= 2,
+  charger: (i) => i >= 3,
+  behemoth: (i) => i >= 3,
+};
+
+type Gate = (t: EnemyType) => boolean;
+
+function weightOf(eco: PlanetEcosystem, t: EnemyType): number {
+  const w = eco.bugs[t];
+  return typeof w === 'number' && Number.isFinite(w) && w > 0 ? w : 0;
+}
+
+/** true when this planet has the type at all (any positive weight). `null` eco = everything lives everywhere. */
+export function ecoAllows(eco: PlanetEcosystem | null, t: EnemyType): boolean {
+  return !eco || weightOf(eco, t) > 0;
+}
+
+export function maxArtilleryOf(eco: PlanetEcosystem | null): number {
+  if (!eco || !Number.isFinite(eco.maxArtillery)) return MAX_ARTILLERY;
+  return Math.max(0, Math.round(eco.maxArtillery));
+}
+
+export function maxBehemothOf(eco: PlanetEcosystem | null): number {
+  if (!eco || !Number.isFinite(eco.maxBehemoth)) return MAX_BEHEMOTH;
+  return Math.max(0, Math.round(eco.maxBehemoth));
+}
+
+/** Weighted draw over `from`, restricted to what this planet has and what the gate allows. null = nothing eligible. */
+function weightedPick(eco: PlanetEcosystem, from: readonly EnemyType[], open: Gate): EnemyType | null {
+  let total = 0;
+  for (const t of from) if (open(t)) total += weightOf(eco, t);
+  if (total <= 0) return null;
+  // deliberately `Math.random()`: composition has always been unseeded (only placement / guards are seed-deterministic)
+  let r = Math.random() * total;
+  for (const t of from) {
+    if (!open(t)) continue;
+    const w = weightOf(eco, t);
+    if (w <= 0) continue;
+    r -= w;
+    if (r <= 0) return t;
+  }
+  for (let i = from.length - 1; i >= 0; i--) if (open(from[i]) && weightOf(eco, from[i]) > 0) return from[i];
+  return null;
+}
+
+/**
+ * The type that fills one composition slot. `def` is what the pre-Phase-11 ladder pushed here (used verbatim when
+ * there is no planet); `widen` lets the filler tier fall back to any eligible type so a group is never empty.
+ */
+function slotType(eco: PlanetEcosystem | null, tier: readonly EnemyType[], def: EnemyType, open: Gate, widen: boolean): EnemyType | null {
+  if (!eco) return def;
+  return weightedPick(eco, tier, open) ?? (widen ? weightedPick(eco, GROUP_TYPES, open) : null);
+}
+
+/** Extra spawn ceilings a planet imposes on the ambient trickle. */
+export function ambientCap(threat: number, eco: PlanetEcosystem | null): number {
+  const base = 12 + 24 * threat;
+  const p = eco && Number.isFinite(eco.pressure) ? Math.max(0, eco.pressure) : 1;
+  return Math.max(1, Math.round(base * p));
+}
 
 const _eye = new THREE.Vector3();
 const _fwd = new THREE.Vector3();
@@ -121,46 +222,60 @@ export function spawnGroup(host: SpawnHost, types: readonly EnemyType[], center:
 
 const groupBuf: EnemyType[] = [];
 
-/** Composition of an ambient patrol for the current threat level (0..1). */
-export function ambientGroup(threat: number): readonly EnemyType[] {
+/**
+ * Composition of an ambient patrol for the current threat level (0..1).
+ * `eco` (Phase 11): the planet's ecosystem. The ladder — how many slots there are and when each one opens — is
+ * untouched; only the type that fills a slot is drawn from `eco.bugs` inside the slot's tier.
+ */
+export function ambientGroup(threat: number, eco: PlanetEcosystem | null = null): readonly EnemyType[] {
   groupBuf.length = 0;
+  const open: Gate = (t) => (AMBIENT_GATE[t] ?? (() => false))(threat);
+  const slot = (tier: readonly EnemyType[], def: EnemyType, widen = false): void => {
+    const t = slotType(eco, tier, def, open, widen);
+    if (t) groupBuf.push(t);
+  };
   const scavs = 4 + Math.floor(Math.random() * (5 * (0.5 + threat)));
-  for (let i = 0; i < Math.min(8, scavs); i++) groupBuf.push('scavenger');
-  if (Math.random() < 0.25 + threat * 0.6) groupBuf.push('hunter');
-  if (Math.random() < threat * 0.5) groupBuf.push('hunter');
-  if (threat > 0.25 && Math.random() < threat * 0.55) groupBuf.push('warrior');
-  if (threat > 0.3 && Math.random() < threat * 0.4) groupBuf.push('spewer');
-  if (threat > 0.5 && Math.random() < (threat - 0.5) * 0.4) groupBuf.push('charger');
+  for (let i = 0; i < Math.min(8, scavs); i++) slot(TIER_FILLER, 'scavenger', true);
+  if (Math.random() < 0.25 + threat * 0.6) slot(TIER_MEDIUM, 'hunter');
+  if (Math.random() < threat * 0.5) slot(TIER_MEDIUM, 'hunter');
+  if (threat > 0.25 && Math.random() < threat * 0.55) slot(TIER_MEDIUM, 'warrior');
+  if (threat > 0.3 && Math.random() < threat * 0.4) slot(TIER_MEDIUM, 'spewer');
+  if (threat > 0.5 && Math.random() < (threat - 0.5) * 0.4) slot(TIER_HEAVY, 'charger');
   // Phase 4: suicide runners from threat 0.4 (artillery is placed separately, 80–120 m out)
-  if (threat >= 0.4 && Math.random() < threat * 0.6) groupBuf.push('toxic');
-  if (threat >= 0.6 && Math.random() < (threat - 0.4) * 0.5) groupBuf.push('toxic');
+  if (threat >= 0.4 && Math.random() < threat * 0.6) slot(TIER_RUNNER, 'toxic');
+  if (threat >= 0.6 && Math.random() < (threat - 0.4) * 0.5) slot(TIER_RUNNER, 'toxic');
   return groupBuf;
 }
 
-/** Composition of extraction wave `index` (0-based) with `count` bugs. */
-export function waveGroup(index: number, count: number): readonly EnemyType[] {
+/**
+ * Composition of extraction wave `index` (0-based) with `count` bugs.
+ * `eco` (Phase 11) as in `ambientGroup`: the slot counts and index gates are unchanged, the silhouettes are drawn
+ * from the planet's weights. A tier the planet lacks skips its slots and the leftover count becomes filler, so the
+ * wave still arrives with `count` bugs.
+ */
+export function waveGroup(index: number, count: number, eco: PlanetEcosystem | null = null): readonly EnemyType[] {
   groupBuf.length = 0;
+  const open: Gate = (t) => (WAVE_GATE[t] ?? (() => false))(index);
   let remaining = count;
-  // Phase 4: a behemoth from wave 3 (WaveDirector enforces MAX_BEHEMOTH), toxics from wave 2
-  if (index >= 3 && remaining > 6) { groupBuf.push('behemoth'); remaining--; }
+  const add = (tier: readonly EnemyType[], def: EnemyType, n = 1): void => {
+    for (let i = 0; i < n; i++) {
+      const t = slotType(eco, tier, def, open, false);
+      if (!t) return;                       // this tier does not live here → the slot falls through to the filler
+      groupBuf.push(t);
+      remaining--;
+    }
+  };
+  // Phase 4: a behemoth from wave 3 (WaveDirector enforces the behemoth cap), toxics from wave 2
+  if (index >= 3 && remaining > 6) add(TIER_HEAVY, 'behemoth');
+  if (index >= 2) add(TIER_RUNNER, 'toxic', Math.min(remaining - 4, index >= 4 ? 3 : 2));
+  if (index === 3 || index >= 6) add(TIER_HEAVY, 'charger');
   if (index >= 2) {
-    const toxics = Math.min(remaining - 4, index >= 4 ? 3 : 2);
-    for (let i = 0; i < toxics; i++) groupBuf.push('toxic');
-    remaining -= Math.max(0, toxics);
+    add(TIER_MEDIUM, 'warrior', Math.min(remaining - 3, 1 + Math.floor(index / 2)));
+    add(TIER_MEDIUM, 'spewer', Math.min(remaining - 3, index >= 4 ? 2 : 1));
   }
-  if (index === 3 || index >= 6) { groupBuf.push('charger'); remaining--; }
-  if (index >= 2) {
-    const warriors = Math.min(remaining - 3, 1 + Math.floor(index / 2));
-    for (let i = 0; i < warriors; i++) groupBuf.push('warrior');
-    remaining -= Math.max(0, warriors);
-    const spewers = Math.min(remaining - 3, index >= 4 ? 2 : 1);
-    for (let i = 0; i < spewers; i++) groupBuf.push('spewer');
-    remaining -= Math.max(0, spewers);
-  }
-  const hunters = Math.min(remaining - 2, 1 + Math.floor(index * 0.75));
-  for (let i = 0; i < hunters; i++) groupBuf.push('hunter');
-  remaining -= Math.max(0, hunters);
-  for (let i = 0; i < remaining; i++) groupBuf.push('scavenger');
+  add(TIER_MEDIUM, 'hunter', Math.min(remaining - 2, 1 + Math.floor(index * 0.75)));
+  const rest = Math.max(0, remaining);
+  for (let i = 0; i < rest; i++) groupBuf.push(slotType(eco, TIER_FILLER, 'scavenger', open, true) ?? 'scavenger');
   return groupBuf;
 }
 
@@ -170,10 +285,15 @@ export function waveGroup(index: number, count: number): readonly EnemyType[] {
  */
 export class AmbientSpawner {
   threat = 0.35;
+  /**
+   * Phase 11: ecosystem of the 목표 행성 (set by `EnemySystem` at `world:ready`, null = no planet → the old numbers).
+   * Scales the population cap (`eco.pressure`), the artillery ceiling and every group's composition.
+   */
+  eco: PlanetEcosystem | null = null;
   private timer = 6;
   private readonly center = new THREE.Vector3();
 
-  get cap(): number { return Math.round(12 + 24 * this.threat); }
+  get cap(): number { return ambientCap(this.threat, this.eco); }
 
   reset(): void { this.timer = 6; }
 
@@ -189,7 +309,7 @@ export class AmbientSpawner {
     const groups = 2 + Math.round(this.threat * 3);
     for (let g = 0; g < groups; g++) {
       if (!findSpawnCenter(host, around, 70, 220, true, 60, this.center)) break;
-      const types = ambientGroup(this.threat);
+      const types = ambientGroup(this.threat, this.eco);
       const allowed = host.ensureCapacity(types.length, this.cap);
       if (allowed <= 0) break;
       spawnGroup(host, types.slice(0, allowed), this.center, false, false);
@@ -205,7 +325,7 @@ export class AmbientSpawner {
     if (host.aliveCount() >= this.cap) return;
     const around = host.targets.randomAlive() ?? host.targets.randomPresent(); // everyone downed → still spawn around a body
     if (!around) return;
-    const types = ambientGroup(this.threat);
+    const types = ambientGroup(this.threat, this.eco);
     const allowed = host.ensureCapacity(types.length, this.cap);
     if (allowed <= 0) return;
     if (!findSpawnCenter(host, around.position, 60, 140, true, 30, this.center)) return;
@@ -215,10 +335,14 @@ export class AmbientSpawner {
     this.maybeArtillery(host, around.position);
   }
 
-  /** Phase 4: from threat 0.5 an artillery bug may dig in 80–120 m out (≤ MAX_ARTILLERY alive), already aware. */
+  /**
+   * Phase 4: from threat 0.5 an artillery bug may dig in 80–120 m out, already aware.
+   * Phase 11: the ceiling is `eco.maxArtillery` and a planet whose `eco.bugs` has no artillery never digs one in.
+   */
   private maybeArtillery(host: SpawnHost, around: THREE.Vector3): void {
     if (this.threat < 0.5 || Math.random() > 0.35 + (this.threat - 0.5) * 0.6) return;
-    if (host.countAlive('artillery') >= MAX_ARTILLERY) return;
+    if (!ecoAllows(this.eco, 'artillery')) return;
+    if (host.countAlive('artillery') >= maxArtilleryOf(this.eco)) return;
     if (host.ensureCapacity(1, this.cap + 2) <= 0) return;
     if (!findSpawnCenter(host, around, 80, 120, false, 60, this.center)) return;
     const yaw = Math.atan2(around.x - this.center.x, around.z - this.center.z);

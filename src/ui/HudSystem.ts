@@ -1,4 +1,4 @@
-import type { GameContext, GameSystem, LobbyState, RemotePlayerRef } from '@/shared';
+import type { GameContext, GameSystem, LobbyState, RemotePlayerRef, SocialSnapshot, SquadInvite } from '@/shared';
 import { el, toggleClass } from './dom';
 import { Reticle } from './hud/Reticle';
 import { Vitals } from './hud/Vitals';
@@ -42,6 +42,8 @@ import { ItemTip } from './hud/ItemTip';
 import { SoftCursor } from './hud/SoftCursor';
 import { ShipManage } from './hud/ShipManage';
 import { ShipManageHint } from './hud/ShipManageHint';
+import { Community } from './hud/Community';
+import { setDebugSocial, debugSocialCalls } from './menus/social/socialSource';
 import { RoomLabel } from './hud/RoomLabel';
 import { ContractPanel } from './hud/ContractPanel';
 import { TrainingPanel } from './hud/TrainingPanel';
@@ -83,6 +85,9 @@ import type { RewardsBlock } from './menus/RewardsBlock';
  * `SoftCursor` sprite joins `ItemTip` as a direct child of `ctx.uiRoot` and is positioned every frame from
  * `ctx.input.cursorX / cursorY`, even while a blocker is up; the tactical map gets a `setPingPlacer` wired to
  * `Pings.placeAtWorld` so a middle-click on the map drops a squad ping.
+ * Phase 11 (소셜): `Community` joins the social layer — the ship-only 커뮤니티 thumbnail, its panel (which reuses the
+ * ESC screen's `menus/social/SocialColumn`) and the 분대 초대 stack with its `Keys.INVITE` hold; the pause menu's own
+ * social column is built by `PauseMenu`, and `debugSocial(snapshot, invites)` fakes the mirror for the smoke.
  */
 export class HudSystem implements GameSystem {
   readonly name = 'hud';
@@ -141,6 +146,8 @@ export class HudSystem implements GameSystem {
   /* Phase 8 (ship UX) */
   private shipManage!: ShipManage;
   private shipHint!: ShipManageHint;
+  /* Phase 11: ship-only 커뮤니티 icon + 분대 초대 stack (social layer) */
+  private community!: Community;
   private itemTip!: ItemTip;
   /* Phase 10: the software-cursor sprite (a direct child of `ctx.uiRoot`, like `itemTip`) */
   private softCursor!: SoftCursor;
@@ -220,6 +227,8 @@ export class HudSystem implements GameSystem {
     this.cheatTag = new CheatTag(this.socialRoot);
     this.roomLabel = new RoomLabel(this.socialRoot);
     this.shipHint = new ShipManageHint(this.socialRoot);
+    // Phase 11: the 커뮤니티 thumbnail + 분대 초대 panels — ship only, self-gated on `ctx.isHubPhase()`.
+    this.community = new Community(this.socialRoot);
 
     // Housing-mode layer: its own `.hud.housing` root (always attached; the hint bar toggles `.show` itself) so the
     // placement hints are visible in the ship where the gameplay HUD is hidden.
@@ -256,6 +265,7 @@ export class HudSystem implements GameSystem {
     for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.housingHint, this.roomLabel, this.shipManage, this.shipHint, this.itemTip]) c.bind(ctx);
     for (const c of [this.reload, this.heal, this.softCursor]) c.bind(ctx);
     for (const c of [this.contractPanel, this.trainingPanel, this.metaToasts]) c.bind(ctx);
+    this.community.bind(ctx);
     for (const m of [this.title, this.pause, this.death, this.complete]) m.bind(ctx);
 
     const b = ctx.bus;
@@ -315,6 +325,8 @@ export class HudSystem implements GameSystem {
     this.roomLabel.update(ctx);
     // 함선 관리 hint: two compares per frame, and it must survive a hidden social layer state change.
     this.shipHint.update(ctx);
+    // 커뮤니티: same self-gating, plus the P-hold on a 분대 초대 (it needs dt).
+    this.community.update(dt, ctx);
     this.contractPanel.update(ctx);
     this.trainingPanel.update(ctx);
     this.metaToasts.update(dt);
@@ -411,6 +423,28 @@ export class HudSystem implements GameSystem {
     this.squad.setDebug(lobby, refs ?? []);
   }
 
+  /**
+   * Smoke-test hook (Phase 11): install a synthetic `SocialSnapshot` (+ live squad invites) as `ctx.net.social` for
+   * every ui component that reads the social mirror — the ESC column, the community thumbnail / panel and the invite
+   * stack. Same shape as `debugRemotes`: `debugSocial(null)` hands the UI back to the real `ctx.net.social`.
+   * `mySquad` is the member count of *my* lobby, which `playBlockReason` needs to judge 같이 하기.
+   */
+  debugSocial(snapshot: SocialSnapshot | null, invites: readonly SquadInvite[] = [], mySquad = 1): void {
+    setDebugSocial(snapshot, invites, mySquad);
+    this.pause.socialColumn.refresh(true);
+    this.community.socialColumn.refresh(true);
+  }
+
+  /** Mutations the synthetic social ref received, newest last (debug; empty in a real session). */
+  get debugSocialLog(): readonly { m: string; args: unknown[] }[] { return debugSocialCalls; }
+  /** 커뮤니티 widget / panel / invite state (debug, Phase 11). */
+  get isCommunityOn(): boolean { return this.community.isShowing; }
+  get isCommunityOpen(): boolean { return this.community.isOpen; }
+  get communityInviteCount(): number { return this.community.inviteCount; }
+  get communityHoldProgress(): number { return this.community.holdProgress; }
+  /** 귓속말 target of the chat input, null when it is ordinary squad chat (debug, Phase 11). */
+  get chatWhisperTarget(): string | null { return this.chat.whisperTarget; }
+
   private applyVisibility(): void {
     const ctx = this.ctx;
     const inGame = ctx.isGameplayPhase() || ctx.phase === 'deploying';
@@ -452,6 +486,7 @@ export class HudSystem implements GameSystem {
     for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.housingHint, this.roomLabel, this.shipManage, this.shipHint, this.itemTip]) c.dispose();
     for (const c of [this.reload, this.heal, this.softCursor]) c.dispose();
     for (const c of [this.contractPanel, this.trainingPanel, this.metaToasts]) c.dispose();
+    this.community.dispose();
     for (const m of [this.title, this.pause, this.death, this.complete]) m.dispose();
     this.settings.dispose();
     this.keybinds.dispose();

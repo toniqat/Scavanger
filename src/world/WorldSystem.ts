@@ -2,12 +2,12 @@ import * as THREE from 'three';
 import type { PlanetId } from '@/shared';
 import type { MissionMode, TrainingRef } from '@/shared';
 import {
-  MAP_SIZE, Random, TRAINING_ARENA_SIZE,
+  MAP_SIZE, Random, TRAINING_ARENA_SIZE, getPlanet, isPlanetId,
   type CrateDef, type ExtractionPointDef, type GameContext, type GameSystem, type GatherNodeDef,
-  type Obstacle, type TerrainHit, type WorldRef,
+  type Obstacle, type PlanetDef, type TerrainHit, type WorldRef,
 } from '@/shared';
 import { Ambience } from './Ambience';
-import { type Biome, pickBiome } from './biomes';
+import { type Biome, biomeById, pickBiome } from './biomes';
 import { type BuildCtx, PLAY_LIMIT } from './build';
 import { Crates } from './Crates';
 import { Gather } from './Gather';
@@ -38,7 +38,11 @@ export class WorldSystem implements GameSystem, WorldRef {
   get size(): number { return this.mode === 'training' ? TRAINING_ARENA_SIZE : MAP_SIZE; }
   /** Mode of the last generated world (`'raid'` until a training was built; kept through `clear()`). */
   mode: MissionMode = 'raid';
-  /* Phase 11 skeleton — replace: set from `game:newMission.planet` in `generate()` and echo it in `world:ready`. */
+  /**
+   * Phase 11: 목표 행성 the current world was generated for, or null when it came from the seeded biome draw
+   * (an older peer, `MissionComplete`'s 다시 배치 without one, a training). Echoed in `world:ready.planet` and
+   * **kept through `clear()`** exactly like `mode`, so a late abort handler can still read it.
+   */
   planet: PlanetId | null = null;
   seed = 0;
   ready = false;
@@ -80,8 +84,13 @@ export class WorldSystem implements GameSystem, WorldRef {
     ctx.scene.add(this.root);
     this.gather.attach(ctx);
     this.unsubs.push(
-      // `mode` travels on the event; a rejoin without it falls back to `ctx.missionMode` (set by the emitter beforehand)
-      ctx.bus.on('game:newMission', ({ seed, mode }) => this.generate(seed, mode ?? (ctx.missionMode === 'training' ? 'training' : 'raid'))),
+      // `mode` / `planet` travel on the event; a rejoin without them falls back to `ctx.missionMode` / `ctx.missionPlanet`
+      // (the emitter sets both before emitting, per the contract, because generation runs inside this emit)
+      ctx.bus.on('game:newMission', ({ seed, mode, planet }) => this.generate(
+        seed,
+        mode ?? (ctx.missionMode === 'training' ? 'training' : 'raid'),
+        planet ?? ctx.missionPlanet,
+      )),
       ctx.bus.on('game:abort', () => {
         this.clear();
         ctx.bus.emit('world:cleared', {});
@@ -113,7 +122,11 @@ export class WorldSystem implements GameSystem, WorldRef {
 
   /* ── generation ────────────────────────────────────────────────────── */
 
-  generate(seed: number, mode: MissionMode = 'raid'): void {
+  /**
+   * `planet` (Phase 11): the 목표 행성 whose biome / ecosystem this world uses. null (or an unknown id) keeps the
+   * pre-Phase-11 behaviour — the biome is drawn from the seed and paired with the sky core draws for the same seed.
+   */
+  generate(seed: number, mode: MissionMode = 'raid', planet: PlanetId | null = null): void {
     const ctx = this.ctx;
     if (!ctx) return;
     if (this.generated) this.clear();
@@ -122,9 +135,13 @@ export class WorldSystem implements GameSystem, WorldRef {
 
     this.mode = 'raid';
     this.seed = seed >>> 0;
+    // an unknown id (older peer / hand-edited save) is reported as "no planet" so every reader agrees with core's fallback
+    this.planet = isPlanetId(planet) ? planet : null;
+    const def: PlanetDef | undefined = getPlanet(this.planet);
     const rng = new Random(this.seed);
     const noise = new Noise(rng.fork('terrain'));
-    this.biome = pickBiome(this.seed);   // paired with the sky palette core picks for the same seed
+    // 행성이 있으면 팔레트는 데이터로 정해진다; 없으면 시드 추첨 (core 의 하늘 추첨과 짝이 맞는 기존 동작)
+    this.biome = biomeById(def?.biome) ?? pickBiome(this.seed);
     this.layout = generateLayout(rng.fork('layout'));
     this.spawnRng = rng.fork('spawns');
 
@@ -139,7 +156,7 @@ export class WorldSystem implements GameSystem, WorldRef {
     this.outposts.build(bctx);
     this.props.build(bctx);
     this.crates.build(bctx, ctx);
-    this.gather.build(bctx, ctx);
+    this.gather.build(bctx, ctx, def?.eco ?? null);
     this.ambience.build(bctx);
 
     this.extractionPoints = this.layout.extraction.map((p, i) => ({
@@ -153,8 +170,8 @@ export class WorldSystem implements GameSystem, WorldRef {
     this.generated = true;
     this.ready = true;
     const ms = performance.now() - t0;
-    console.info(`[World] seed ${this.seed} · biome ${this.biome.id} (${this.biome.name}) · ${this.hash.getAll().length} obstacles · ${this.crates.getDefs().length} crates · ${ms.toFixed(0)} ms`);
-    ctx.bus.emit('world:ready', { seed: this.seed, playerSpawn: this.spawnPos.clone() });
+    console.info(`[World] seed ${this.seed} · planet ${def ? `${this.planet} (${def.name})` : '—'} · biome ${this.biome.id} (${this.biome.name}) · ${this.hash.getAll().length} obstacles · ${this.crates.getDefs().length} crates · ${this.gather.getNodes().length} herbs · ${ms.toFixed(0)} ms`);
+    ctx.bus.emit('world:ready', { seed: this.seed, playerSpawn: this.spawnPos.clone(), planet: this.planet });
   }
 
   /**
@@ -168,6 +185,7 @@ export class WorldSystem implements GameSystem, WorldRef {
     const t0 = performance.now();
     this.mode = 'training';
     this.seed = seed >>> 0;
+    this.planet = null;              // the arena is not a place — no biome, no ecosystem, no sky palette
     const rng = new Random(this.seed);
     this.layout = null;
     this.biome = null;
@@ -179,7 +197,7 @@ export class WorldSystem implements GameSystem, WorldRef {
     this.ready = true;
     const ms = performance.now() - t0;
     console.info(`[World] training arena · seed ${this.seed} · ${this.arena.targetCount} targets · ${this.hash.getAll().length} obstacles · ${ms.toFixed(0)} ms`);
-    ctx.bus.emit('world:ready', { seed: this.seed, playerSpawn: this.spawnPos.clone() });
+    ctx.bus.emit('world:ready', { seed: this.seed, playerSpawn: this.spawnPos.clone(), planet: null });
     this.setSpaceMode(true);
     this.arena.announce();
   }

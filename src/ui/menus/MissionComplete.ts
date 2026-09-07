@@ -1,5 +1,5 @@
 import type { GameContext, MissionStats } from '@/shared';
-import { formatCredits } from '@/shared';
+import { formatCredits, planetLabel } from '@/shared';
 import { el, fmtTime, fmtInt, setText } from '../dom';
 import { MenuBase } from './MenuBase';
 import { RewardsBlock } from './RewardsBlock';
@@ -9,6 +9,10 @@ import { RewardsBlock } from './RewardsBlock';
  * (shared while in a lobby); `다시 배치` (same seed) only in single-player.
  * Phase 5: a `RewardsBlock` (XP count-up, level, XP bar, contract line) between the stats and the actions, shown only
  * when `stats.rewards` is present.
+ *
+ * Phase 11: the banner carries the 목표 행성 name (`planetLabel(ctx.missionPlanet)`) and **`다시 배치` re-emits that
+ * planet** — `game:newMission {seed, planet}`. Without the field the same seed would be generated for whatever planet
+ * happened to be selected next, which is exactly the bug the button is supposed to avoid.
  */
 export class MissionComplete extends MenuBase {
   private vals: Record<string, HTMLElement> = {};
@@ -19,6 +23,7 @@ export class MissionComplete extends MenuBase {
   private counting = false;
   private lastLootText = '';
   private redeployBtn: HTMLButtonElement;
+  private planetEl!: HTMLElement;
   private rewards: RewardsBlock;
 
   constructor(parent: HTMLElement) {
@@ -27,6 +32,7 @@ export class MissionComplete extends MenuBase {
     el('span', { cls: 'ui-label', text: '임무 보고', parent: head });
     el('div', { cls: 'title success', text: '탈출 성공', parent: head });
     el('div', { cls: 'subtitle', text: '스캐빈저 회수 완료 — 전리품 확보', parent: head });
+    this.planetEl = el('div', { cls: 'planet-line', parent: head });
 
     const stats = el('div', { cls: 'stats', parent: this.frame });
     const loot = el('div', { cls: 'stat wide', parent: stats });
@@ -42,7 +48,7 @@ export class MissionComplete extends MenuBase {
 
     const actions = el('div', { cls: 'actions', parent: this.frame });
     this.button(actions, '함선으로 귀환', () => this.ctx.bus.emit('hub:enter', { ship: this.ctx.net?.lobby ? 'shared' : 'personal' }), 'primary');
-    this.redeployBtn = this.button(actions, '다시 배치 (같은 시드)', () => this.ctx.bus.emit('game:newMission', { seed: this.seed }));
+    this.redeployBtn = this.button(actions, '다시 배치 (같은 시드)', () => this.redeploy());
   }
 
   override bind(ctx: GameContext): void {
@@ -54,9 +60,19 @@ export class MissionComplete extends MenuBase {
     );
   }
 
+  /**
+   * 다시 배치. `ctx.missionPlanet` is already this raid's planet, so re-emitting it keeps the pair (seed, 행성) intact;
+   * the contract asks the emitter of `game:newMission` to have `ctx.missionPlanet` set before the emit, which it is.
+   */
+  private redeploy(): void {
+    const planet = this.ctx.missionPlanet;
+    this.ctx.bus.emit('game:newMission', planet ? { seed: this.seed, planet } : { seed: this.seed });
+  }
+
   private fill(s: MissionStats): void {
     this.seed = s.seed;
     this.redeployBtn.hidden = !!this.ctx.net?.lobby;
+    setText(this.planetEl, `행성 · ${planetLabel(this.ctx.missionPlanet)}`);
     setText(this.vals.kills, String(s.kills));
     setText(this.vals.time, fmtTime(s.timeSeconds));
     setText(this.vals.crates, String(s.cratesOpened));

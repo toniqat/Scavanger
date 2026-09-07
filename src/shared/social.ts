@@ -180,6 +180,9 @@ export type SocialErrorCode =
   | 'limit'         // SOCIAL_FRIEND_MAX / SOCIAL_REQUEST_MAX / SOCIAL_RECENT_MAX
   | 'busy'          // 같이 하기 while I lead a squad with other members in it
   | 'full'          // target squad full
+  /* appended alongside the first draft: `playBlockReason` distinguishes these, so the messages must too. */
+  | 'my_squad_full' // my own squad has no free slot to invite them into
+  | 'in_squad'      // they are already in my squad
   | 'in_mission'
   | 'invalid';
 
@@ -192,6 +195,8 @@ export const SOCIAL_ERROR_MESSAGE_KO: Readonly<Record<SocialErrorCode, string>> 
   limit: '목록이 가득 찼습니다',
   busy: '분대를 먼저 해체하거나 초대를 보내세요',
   full: '상대 분대가 가득 찼습니다',
+  my_squad_full: '내 분대가 가득 찼습니다',
+  in_squad: '이미 같은 분대입니다',
   in_mission: '상대가 임무 중입니다',
   invalid: '잘못된 요청입니다',
 };

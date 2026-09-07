@@ -7,6 +7,7 @@
  */
 import type { LobbyErrorCode, LobbyPlayer, LobbyState, PeerId } from '../src/shared/net.ts';
 import type { MissionMode } from '../src/shared/types.ts';
+import type { PlanetId } from '../src/shared/planets.ts';
 import type { RaidSessionBlob } from '../src/shared/profile.ts';
 import { NET_LOBBY_ALPHABET, NET_LOBBY_CODE_LENGTH, NET_MAX_PLAYERS } from '../src/shared/net.ts';
 
@@ -45,6 +46,12 @@ export class Lobby {
   mode: MissionMode | null = null;
   /** Mid-raid state of each member (`raid:save`), returned in `welcome.raid` on a resume. Cleared with the mission. */
   readonly raid = new Map<PeerId, RaidSessionBlob>();
+  /* Phase 11 */
+  /**
+   * 목표 행성 the host picked (`lobby:planet`), or null while nothing is chosen. A raid needs it (`no_planet`);
+   * a training ignores it. **`reset()` keeps it** — the destination outlives the mission.
+   */
+  planet: PlanetId | null = null;
 
   constructor(code: string, hostId: PeerId, isPublic = false, now: number = Date.now()) {
     this.code = code;
@@ -181,6 +188,7 @@ export class Lobby {
     }
   }
 
+  /** End the mission and reopen the lobby. Phase 11: `planet` is deliberately **not** cleared. */
   reset(): void {
     this.started = false;
     this.seed = null;
@@ -221,6 +229,7 @@ export class Lobby {
       .map((p) => ({ ...p }));
     const state: LobbyState = { code: this.code, hostId: this.hostId, players, started: this.started, seed: this.seed, isPublic: this.isPublic };
     if (this.started && this.mode) state.mode = this.mode;
+    if (this.planet) state.planet = this.planet;
     return state;
   }
 }

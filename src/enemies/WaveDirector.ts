@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import type { EnemyType } from '@/shared';
-import { MAX_BEHEMOTH, findSpawnCenter, spawnGroup, waveGroup, type SpawnHost } from './Spawner';
+import type { EnemyType, PlanetEcosystem } from '@/shared';
+import { findSpawnCenter, maxBehemothOf, spawnGroup, waveGroup, type SpawnHost } from './Spawner';
 
 export const WAVE_ALIVE_CAP = 60;
 
@@ -12,6 +12,8 @@ export const WAVE_ALIVE_CAP = 60;
 export class WaveDirector {
   active = false;
   index = 0;
+  /** Phase 11: ecosystem of the 목표 행성 (set by `EnemySystem` at `world:ready`); null = the pre-Phase-11 tables. */
+  eco: PlanetEcosystem | null = null;
   private timer = 0;
   private readonly target = new THREE.Vector3();
   private readonly center = new THREE.Vector3();
@@ -58,9 +60,16 @@ export class WaveDirector {
     const size = this.waveSize();
     const allowed = host.ensureCapacity(size, WAVE_ALIVE_CAP);
     if (allowed <= 0) { this.timer = 3; return; }   // try again soon
-    const rolled = waveGroup(this.index, Math.min(size, allowed));
-    // per-type cap: a second behemoth becomes a warrior
-    const types: EnemyType[] = rolled.map((t) => (t === 'behemoth' && host.countAlive('behemoth') >= MAX_BEHEMOTH ? 'warrior' : t));
+    const rolled = waveGroup(this.index, Math.min(size, allowed), this.eco);
+    // per-type cap (Phase 11: `eco.maxBehemoth`, 0 on a planet with none): a behemoth over the cap becomes a warrior
+    const behemoths = maxBehemothOf(this.eco);
+    let alive = host.countAlive('behemoth');
+    const types: EnemyType[] = rolled.map((t) => {
+      if (t !== 'behemoth') return t;
+      if (alive >= behemoths) return 'warrior';
+      alive++;
+      return t;
+    });
     ctx.bus.emit('enemy:waveStarted', { index: this.index, count: types.length });
 
     // split big waves into 1–3 groups arriving from different directions

@@ -6,8 +6,11 @@ export { createBugRig, disposeBugRig, animateBug, createBugAnim, disposeBugAsset
 export { createRogueRig, disposeRogueRig, animateRogue, disposeRogueAssets, ROGUE_RIG_PARAMS, type RogueRig, type RogueType } from './models/RogueModel';
 export { SpatialGrid } from './SpatialGrid';
 export { CombatTarget, TargetList, type TargetId } from './Targets';
-export { AmbientSpawner, findSpawnCenter, spawnGroup, ambientGroup, waveGroup, isVisibleToAnyPlayer, MAX_ARTILLERY, MAX_BEHEMOTH, type SpawnHost } from './Spawner';
-export { placeRogueGuards, MAX_GUARDS, type RogueSpawnHost, type GuardPlacement } from './RogueGuards';
+export {
+  AmbientSpawner, findSpawnCenter, spawnGroup, ambientGroup, waveGroup, isVisibleToAnyPlayer,
+  MAX_ARTILLERY, MAX_BEHEMOTH, ambientCap, ecoAllows, maxArtilleryOf, maxBehemothOf, type SpawnHost,
+} from './Spawner';
+export { placeRogueGuards, guardCap, ECO_BOSS_CHANCE, MAX_GUARDS, type RogueSpawnHost, type GuardPlacement } from './RogueGuards';
 export { Corpse, CorpseManager } from './Corpses';
 export { raySphere, rayCapsule, rayStandingCapsule } from './RayTests';
 export { WaveDirector, WAVE_ALIVE_CAP } from './WaveDirector';

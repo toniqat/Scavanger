@@ -1,5 +1,5 @@
 import type { GameContext, MissionStats } from '@/shared';
-import { Keys, PLAYER_RESPAWN_DELAY, RAID_FAILED_AUTO_RETURN_S, formatCredits } from '@/shared';
+import { Keys, PLAYER_RESPAWN_DELAY, RAID_FAILED_AUTO_RETURN_S, formatCredits, planetLabel } from '@/shared';
 import { el, fmtTime, fmtInt, setText, toggleClass } from '../dom';
 import { MenuBase } from './MenuBase';
 import { RewardsBlock } from './RewardsBlock';
@@ -20,6 +20,7 @@ export class DeathScreen extends MenuBase {
   private vals: Record<string, HTMLElement> = {};
   private titleEl: HTMLElement;
   private subtitleEl: HTMLElement;
+  private planetEl!: HTMLElement;
   private respawnBtn: HTMLButtonElement;
   private autoEl: HTMLElement;
   private seconds = PLAYER_RESPAWN_DELAY;
@@ -39,6 +40,8 @@ export class DeathScreen extends MenuBase {
     const head = el('div', { parent: this.frame });
     this.titleEl = el('div', { cls: 'title danger', text: '전사', parent: head });
     this.subtitleEl = el('div', { cls: 'subtitle', text: '스캐빈저 신호 소실 — 재강하 대기 중', parent: head });
+    // Phase 11: which planet this went wrong on (`PLANET_NONE_LABEL` when the raid carried no planet).
+    this.planetEl = el('div', { cls: 'planet-line', parent: head });
 
     const stats = el('div', { cls: 'stats', parent: this.frame });
     for (const [k, label] of [['kills', '처치'], ['time', '생존 시간'], ['crates', '개봉한 상자'], ['damage', '받은 피해']] as const) {
@@ -132,6 +135,7 @@ export class DeathScreen extends MenuBase {
   }
 
   private fill(s: MissionStats): void {
+    setText(this.planetEl, `행성 · ${planetLabel(this.ctx.missionPlanet)}`);
     setText(this.vals.kills, String(s.kills));
     setText(this.vals.time, fmtTime(s.timeSeconds));
     setText(this.vals.crates, String(s.cratesOpened));

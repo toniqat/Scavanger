@@ -367,6 +367,11 @@ export class PersonalShip implements ShipInterior {
     }
   }
 
+  /** 목표 행성 (Phase 11): the planet outside the cockpit viewport takes the selected planet's colours. */
+  setPlanetLook(color: number, atmo: number): void {
+    this.planet.setColors(color, atmo);
+  }
+
   update(dt: number, time: number): void {
     this.stars.update(dt);
     this.planet.update(dt);

@@ -11,8 +11,14 @@ import type { ClientToServer, ServerToClient, LobbyState } from '../src/shared/n
 import type { RaidSessionBlob } from '../src/shared/profile.ts';
 import { NET_WS_PATH, NET_TOKEN_PARAM, NET_NAME_PARAM, NET_TOKEN_LENGTH } from '../src/shared/net.ts';
 import { PROFILE_CLOCK_SKEW_MS, PROFILE_DOC_MAX_BYTES, RAID_BLOB_MAX_BYTES } from '../src/shared/profile.ts';
+/* Phase 11 */
+import type { PlanetId } from '../src/shared/planets.ts';
+import type { PlayerCode } from '../src/shared/social.ts';
+import {
+  SOCIAL_ERROR_MESSAGE_KO, SOCIAL_FRIEND_MAX, SOCIAL_RECENT_MAX, SOCIAL_WHISPER_MAX, isValidPlayerCode, playerCodeFrom,
+} from '../src/shared/social.ts';
 import { startRelayServer, peerIdFromToken, PEER_ID_LENGTH } from './RelayServer.ts';
-import { ProfileStore } from './Store.ts';
+import { ProfileStore, PROFILE_FILE, SOCIAL_LEVEL_MAX } from './Store.ts';
 
 const GRACE_MS = 300;
 const results: string[] = [];
@@ -110,6 +116,16 @@ async function connect(label: string, url: string, query?: { token?: string; nam
 
 function makeToken(seedChar: string): string {
   return seedChar.repeat(NET_TOKEN_LENGTH).slice(0, NET_TOKEN_LENGTH);
+}
+
+/**
+ * Phase 11: a raid start needs a 목표 행성 (`no_planet` otherwise), so every existing raid in this file picks one
+ * first. `watchers` are the other connected members that must see the broadcast (so no stale `lobby:state` is left
+ * queued for a later `expectNone`).
+ */
+async function pickPlanet(host: TestClient, planet: PlanetId, watchers: TestClient[] = []): Promise<void> {
+  host.send({ t: 'lobby:planet', planet });
+  await Promise.all([host, ...watchers].map((cl) => cl.wait('lobby:state', (mm) => mm.lobby.planet === planet)));
 }
 
 async function main(): Promise<void> {
@@ -210,7 +226,8 @@ async function main(): Promise<void> {
     await Promise.all([a, b, c].map((cl) => cl.wait('lobby:state', (m) => m.lobby.players.every((p) => p.ready))));
     pass('all three ready and every client saw it');
 
-    /* start */
+    /* start (Phase 11: a raid needs a 목표 행성 first) */
+    await pickPlanet(a, 'mossy', [b, c]);
     a.send({ t: 'lobby:start', seed: 1234 });
     const starts = await Promise.all([a, b, c].map((cl) => cl.wait('game:start')));
     assert(starts.every((m) => m.seed === 1234 && m.lobby.started && m.lobby.seed === 1234), 'game:start broadcast with seed to all 3');
@@ -380,6 +397,7 @@ async function main(): Promise<void> {
     assert(err.code === 'not_ready', 'start with a connected member not ready → not_ready');
     g.close();
     await e.wait('lobby:state', (m) => m.lobby.players.find((p) => p.id === g.id)?.connected === false);
+    await pickPlanet(e, 'amber');
     e.send({ t: 'lobby:start', seed: 77 });
     const gs = await e.wait('game:start');
     assert(gs.seed === 77 && gs.lobby.started && gs.lobby.players.length === 2, 'start succeeds while a not-ready member is disconnected (allReady ignores dropped members)', gs.lobby);
@@ -462,6 +480,7 @@ async function main(): Promise<void> {
     await Promise.all([h, i].map((cl) => cl.wait('lobby:state', (m) => m.lobby.players.length === 3)));
     for (const cl of [h, i, k]) cl.send({ t: 'lobby:ready', ready: true });
     await Promise.all([h, i, k].map((cl) => cl.wait('lobby:state', (m) => m.lobby.players.every((p) => p.ready))));
+    await pickPlanet(h, 'tundra', [i, k]);
     h.send({ t: 'lobby:start', seed: 11 });
     await Promise.all([h, i, k].map((cl) => cl.wait('game:start')));
     const { c: l } = await connect('L', url, { name: 'Lima' });
@@ -490,6 +509,7 @@ async function main(): Promise<void> {
     /* close J's lobby to quick match by starting it */
     for (const cl of [j, l]) cl.send({ t: 'lobby:ready', ready: true });
     await Promise.all([j, l].map((cl) => cl.wait('lobby:state', (m) => m.lobby.players.every((p) => p.ready))));
+    await pickPlanet(j, 'ashen', [l]);
     j.send({ t: 'lobby:start', seed: 5 });
     await Promise.all([j, l].map((cl) => cl.wait('game:start')));
     /* N creates a public lobby and drops → zero connected members, still within grace */
@@ -689,6 +709,7 @@ async function main(): Promise<void> {
     /* raid start marks every connected member inMission; mode 'raid' on the wire */
     for (const cl of [u, v]) cl.send({ t: 'lobby:ready', ready: true });
     await Promise.all([u, v].map((cl) => cl.wait('lobby:state', (m) => m.lobby.players.every((p) => p.ready))));
+    await pickPlanet(u, 'crimson', [v]);
     u.send({ t: 'lobby:start', seed: 4242 });
     const rs = await Promise.all([u, v].map((cl) => cl.wait('game:start')));
     assert(rs.every((m) => m.mode === 'raid' && m.lobby.mode === 'raid' && m.lobby.players.every((p) => p.inMission === true)),
@@ -796,6 +817,7 @@ async function main(): Promise<void> {
       await Promise.all([x.wait('lobby:state', (m) => m.lobby.players.length === 3), y.wait('lobby:state', (m) => m.lobby.players.length === 3), z.wait('lobby:state')]);
       for (const cl of [x, y, z]) cl.send({ t: 'lobby:ready', ready: true });
       await Promise.all([x, y, z].map((cl) => cl.wait('lobby:state', (m) => m.lobby.players.every((p) => p.ready))));
+      await pickPlanet(x, 'mossy', [y, z]);
       x.send({ t: 'lobby:start', seed: 31 });
       await Promise.all([x, y, z].map((cl) => cl.wait('game:start')));
       /* Y (slot 1) leaves the mission → Z (slot 2, inMission) must be preferred over Y when the host drops */
@@ -856,6 +878,7 @@ async function main(): Promise<void> {
         await Promise.all(cls.map((cl) => cl.wait('lobby:state', (m) => m.lobby.players.every((p) => !p.connected || p.ready))));
       };
       await readyAll([pi, pj, pk]);
+      await pickPlanet(pi, 'tundra', [pj, pk]);
       pi.send({ t: 'lobby:start', seed: 51 });
       await Promise.all([pi, pj, pk].map((cl) => cl.wait('game:start')));
       /* K goes back to the hub (connected, out of the mission); J drops while inside */
@@ -954,6 +977,356 @@ async function main(): Promise<void> {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+
+    /* ══════════════════════════ part 8: Phase 11 — 행성 + 소셜 ══════════════════════════ */
+    const T81 = makeToken('1'), T82 = makeToken('2'), T83 = makeToken('3'), T84 = makeToken('4');
+    let { c: p8a, welcome: w8a } = await connect('P1', url, { token: T81, name: 'Uno' });
+    const { c: p8b } = await connect('P2', url, { token: T82, name: 'Duo' });
+    const { c: p8c } = await connect('P3', url, { token: T83, name: 'Tres' });
+    let se: Extract<ServerToClient, { t: 'social:error' }>;
+    let sn: Extract<ServerToClient, { t: 'social:state' }>;
+
+    /* ── 아이디 assignment + welcome.social ── */
+    const code1: PlayerCode = w8a.social?.me.code ?? '';
+    const codes = await Promise.all([p8b, p8c].map(async (cl) => { cl.send({ t: 'social:get' }); return (await cl.wait('social:state')).social.me.code; }));
+    const codeB: PlayerCode = codes[0], codeC: PlayerCode = codes[1];
+    assert(w8a.social !== undefined && isValidPlayerCode(code1) && code1 === playerCodeFrom(peerIdFromToken(T81)),
+      'token connect → welcome.social with the 아이디 derived from the PeerId', w8a.social?.me);
+    assert(w8a.social?.me.name === 'Uno' && w8a.social?.me.level === 0 && w8a.social.friends.length === 0
+      && w8a.social.incoming.length === 0 && w8a.social.outgoing.length === 0 && w8a.social.recent.length === 0,
+      'a fresh social record: name from ?n=, level 0, empty lists', w8a.social);
+    assert(new Set([code1, codeB, codeC]).size === 3 && isValidPlayerCode(codeB) && isValidPlayerCode(codeC), 'every profile has its own valid 아이디', [code1, codeB, codeC]);
+    const { c: p8anon, welcome: w8anon } = await connect('P-ANON', url);
+    assert(w8anon.social === undefined && w8anon.profile === undefined, 'anonymous connect → no profile and no social in welcome');
+    p8anon.send({ t: 'social:get' });
+    se = await p8anon.wait('social:error');
+    assert(se.code === 'unavailable' && se.message === SOCIAL_ERROR_MESSAGE_KO.unavailable, 'social:get from an anonymous socket → social:error unavailable (Korean message)', se);
+    p8anon.send({ t: 'social:whisper', code: code1, text: 'hi' });
+    se = await p8anon.wait('social:error');
+    assert(se.code === 'unavailable', 'every social request from an anonymous socket → unavailable');
+    p8anon.close(); await p8anon.closed();
+
+    /* ── social:me ── */
+    p8a.send({ t: 'social:me', level: 12 });
+    sn = await p8a.wait('social:state', (mm) => mm.social.me.level === 12);
+    assert(sn.social.me.code === code1, 'social:me {level} → social:state with the level stored');
+    p8a.send({ t: 'social:me', level: -4 });
+    sn = await p8a.wait('social:state');
+    assert(sn.social.me.level === 0, 'a negative level is clamped to 0', sn.social.me);
+    p8a.send({ t: 'social:me', level: 4000 });
+    sn = await p8a.wait('social:state');
+    assert(sn.social.me.level === SOCIAL_LEVEL_MAX, `a level above the cap is clamped to ${SOCIAL_LEVEL_MAX}`, sn.social.me);
+    p8a.send({ t: 'social:me', level: 12 });
+    await p8a.wait('social:state', (mm) => mm.social.me.level === 12);
+    p8a.sendRaw(JSON.stringify({ t: 'social:me', level: 'high' }));
+    err = await p8a.wait('lobby:error');
+    assert(err.code === 'invalid', 'social:me with a non-numeric level → lobby:error invalid');
+
+    /* ── friend requests ── */
+    p8a.send({ t: 'social:request', code: code1 });
+    se = await p8a.wait('social:error');
+    assert(se.code === 'self', 'a friend request to my own 아이디 → self');
+    p8a.send({ t: 'social:request', code: 'ZZZZZZZZ' });
+    se = await p8a.wait('social:error');
+    assert(se.code === 'not_found', 'a friend request to an unassigned 아이디 → not_found');
+    p8a.send({ t: 'social:request', code: 'ab-cd' });
+    se = await p8a.wait('social:error');
+    assert(se.code === 'not_found', 'a malformed 아이디 (too short) → not_found, never an exception');
+    p8a.sendRaw(JSON.stringify({ t: 'social:request', code: 'X'.repeat(64) }));
+    err = await p8a.wait('lobby:error');
+    assert(err.code === 'invalid', 'an oversized 아이디 field is refused by the parser → invalid');
+    /* dashed / lower-case input is what a player actually types */
+    p8a.send({ t: 'social:request', code: `${codeB.slice(0, 4).toLowerCase()}-${codeB.slice(4)}` });
+    const [reqA, reqB] = await Promise.all([
+      p8a.wait('social:state', (mm) => mm.social.outgoing.length === 1),
+      p8b.wait('social:state', (mm) => mm.social.incoming.length === 1),
+    ]);
+    assert(reqA.social.outgoing[0].code === codeB && reqA.social.outgoing[0].name === 'Duo'
+      && reqA.social.outgoing[0].presence === 'ship' && reqA.social.outgoing[0].squad === 0 && reqA.social.outgoing[0].joinable === true,
+      'friend request (dashed / lower-case) → the sender sees it in outgoing, resolved with presence', reqA.social.outgoing[0]);
+    assert(reqB.social.incoming[0].code === code1 && reqB.social.incoming[0].level === 12 && reqB.social.friends.length === 0,
+      'the target sees it in incoming with my level', reqB.social.incoming[0]);
+    assert(JSON.stringify(reqB.social).indexOf(p8a.id) < 0, 'a snapshot never contains another player PeerId (아이디 only)');
+    p8a.send({ t: 'social:request', code: codeB });
+    se = await p8a.wait('social:error');
+    assert(se.code === 'already', 'a second identical request → already');
+    p8b.send({ t: 'social:request', code: code1 });
+    se = await p8b.wait('social:error');
+    assert(se.code === 'already', 'a request in the opposite direction of a pending one → already');
+    p8b.send({ t: 'social:respond', code: code1, accept: false });
+    const [decA, decB] = await Promise.all([
+      p8a.wait('social:state', (mm) => mm.social.outgoing.length === 0),
+      p8b.wait('social:state', (mm) => mm.social.incoming.length === 0),
+    ]);
+    assert(decA.social.friends.length === 0 && decB.social.friends.length === 0, 'declining drops the request on both sides without befriending');
+    p8b.send({ t: 'social:respond', code: code1, accept: true });
+    se = await p8b.wait('social:error');
+    assert(se.code === 'invalid', 'responding to a request that is not in incoming → invalid');
+    p8a.send({ t: 'social:request', code: codeB });
+    await Promise.all([p8a.wait('social:state', (mm) => mm.social.outgoing.length === 1), p8b.wait('social:state', (mm) => mm.social.incoming.length === 1)]);
+    p8b.send({ t: 'social:respond', code: code1, accept: true });
+    const [okA, okB] = await Promise.all([
+      p8a.wait('social:state', (mm) => mm.social.friends.length === 1),
+      p8b.wait('social:state', (mm) => mm.social.friends.length === 1),
+    ]);
+    assert(okA.social.friends[0].code === codeB && okA.social.outgoing.length === 0
+      && okB.social.friends[0].code === code1 && okB.social.incoming.length === 0,
+      'accepting → mutual friends, the request cleared on both sides', { a: okA.social.friends, b: okB.social.friends });
+
+    /* ── presence pushed outside a lobby (the watcher index, not polling) ── */
+    p8a.send({ t: 'lobby:create', name: 'Uno' });
+    st = await p8a.wait('lobby:state');
+    sn = await p8b.wait('social:state', (mm) => mm.social.friends[0]?.squad === 1);
+    assert(sn.social.friends[0].presence === 'ship' && sn.social.friends[0].joinable === true,
+      'a friend in no lobby of mine is still pushed my new squad size', sn.social.friends[0]);
+    p8a.send({ t: 'lobby:leave' });
+    await p8a.wait('lobby:left');
+    sn = await p8b.wait('social:state', (mm) => mm.social.friends[0]?.squad === 0);
+    assert(sn.social.friends[0].presence === 'ship', 'leaving the ship is pushed to the friend as squad 0', sn.social.friends[0]);
+    p8a.close(); await p8a.closed();
+    sn = await p8b.wait('social:state', (mm) => mm.social.friends[0]?.presence === 'offline');
+    assert(sn.social.friends[0].joinable === false, 'a dropped friend reads offline at once (the reconnect grace does not count as online)', sn.social.friends[0]);
+    ({ c: p8a, welcome: w8a } = await connect('P1b', url, { token: T81, name: 'Uno' }));
+    sn = await p8b.wait('social:state', (mm) => mm.social.friends[0]?.presence === 'ship');
+    assert(w8a.social?.friends[0]?.code === codeB && w8a.social.me.level === 12,
+      'welcome.social carries the friends list and the stored level across a reconnect', w8a.social);
+    assert(sn.social.friends[0].squad === 0, 'a friend coming back online is pushed as ship / squad 0', sn.social.friends[0]);
+
+    /* ── 최근 만난 플레이어 ── */
+    p8a.send({ t: 'lobby:create', name: 'Uno' });
+    st = await p8a.wait('lobby:state');
+    const code8A = st.lobby.code;
+    p8c.send({ t: 'lobby:join', code: code8A, name: 'Tres' });
+    await Promise.all([p8a.wait('lobby:state', (mm) => mm.lobby.players.length === 2), p8c.wait('lobby:state')]);
+    const [recA, recC] = await Promise.all([
+      p8a.wait('social:state', (mm) => mm.social.recent.length === 1),
+      p8c.wait('social:state', (mm) => mm.social.recent.length === 1),
+    ]);
+    assert(recA.social.recent[0].code === codeC && (recA.social.recent[0].at ?? 0) > 0 && recA.social.recent[0].squad === 2,
+      'sharing a ship records 최근 만난 플레이어 with a timestamp', recA.social.recent[0]);
+    assert(recC.social.recent[0].code === code1 && recC.social.friends.length === 0, 'the other side got the same entry (and is not a friend)', recC.social.recent[0]);
+    sn = await p8b.wait('social:state', (mm) => mm.social.friends[0]?.squad === 2);
+    assert(sn.social.recent.length === 0, 'a friend of a member gets the presence push but no 최근 만난 플레이어 entry', sn.social);
+    p8a.send({ t: 'social:request', code: codeC });
+    await Promise.all([p8a.wait('social:state', (mm) => mm.social.outgoing.length === 1), p8c.wait('social:state', (mm) => mm.social.incoming.length === 1)]);
+    p8c.send({ t: 'social:respond', code: code1, accept: true });
+    const [fa, fc] = await Promise.all([
+      p8a.wait('social:state', (mm) => mm.social.friends.length === 2),
+      p8c.wait('social:state', (mm) => mm.social.friends.length === 1),
+    ]);
+    assert(fa.social.recent.length === 0 && fc.social.recent.length === 0, 'becoming friends drops the 최근 만난 플레이어 entry on both sides', { a: fa.social.recent, c: fc.social.recent });
+
+    /* ── 목표 행성 ── */
+    p8c.send({ t: 'lobby:planet', planet: 'ashen' });
+    err = await p8c.wait('lobby:error');
+    assert(err.code === 'not_host', 'lobby:planet from a non-host → not_host');
+    p8a.sendRaw(JSON.stringify({ t: 'lobby:planet', planet: 'atlantis' }));
+    err = await p8a.wait('lobby:error');
+    assert(err.code === 'invalid', 'lobby:planet with an unknown planet id → invalid (never thrown)');
+    for (const cl of [p8a, p8c]) cl.send({ t: 'lobby:ready', ready: true });
+    await Promise.all([p8a, p8c].map((cl) => cl.wait('lobby:state', (mm) => mm.lobby.players.every((p) => p.ready))));
+    p8a.send({ t: 'lobby:start', seed: 811 });
+    err = await p8a.wait('lobby:error');
+    assert(err.code === 'no_planet' && /행성/.test(err.message), 'a raid start with no 목표 행성 → no_planet (Korean message)', err);
+    p8a.send({ t: 'lobby:start', seed: 811, mode: 'training' });
+    const t8 = await Promise.all([p8a, p8c].map((cl) => cl.wait('game:start')));
+    assert(t8.every((mm) => mm.mode === 'training' && mm.planet === undefined && mm.lobby.planet === undefined),
+      'a training starts without a planet and carries none', t8[0]);
+    sn = await p8b.wait('social:state', (mm) => mm.social.friends[0]?.presence === 'training');
+    assert(sn.social.friends[0].joinable === false, '훈련장 presence reaches the friend and blocks 같이 하기', sn.social.friends[0]);
+    p8a.send({ t: 'lobby:reset' });
+    await Promise.all([p8a, p8c].map((cl) => cl.wait('lobby:state', (mm) => !mm.lobby.started)));
+    await pickPlanet(p8a, 'mossy', [p8c]);
+    p8a.flush(); p8c.flush();
+    p8a.send({ t: 'lobby:planet', planet: 'mossy' });
+    st = await p8a.wait('lobby:state');
+    assert(st.lobby.planet === 'mossy', 'picking the planet that is already selected → state echo to the sender', st.lobby);
+    assert(await p8c.expectNone('lobby:state', 200), 'a no-op planet pick is not broadcast to the squad');
+    for (const cl of [p8a, p8c]) cl.send({ t: 'lobby:ready', ready: true });
+    await Promise.all([p8a, p8c].map((cl) => cl.wait('lobby:state', (mm) => mm.lobby.players.every((p) => p.ready))));
+    p8a.send({ t: 'lobby:start', seed: 812 });
+    const r8 = await Promise.all([p8a, p8c].map((cl) => cl.wait('game:start')));
+    assert(r8.every((mm) => mm.mode === 'raid' && mm.planet === 'mossy' && mm.lobby.planet === 'mossy'),
+      'a raid start uses the lobby planet → game:start {planet} for every member', r8[0]);
+    sn = await p8b.wait('social:state', (mm) => mm.social.friends[0]?.presence === 'raid');
+    assert(sn.social.friends[0].joinable === false, '임무 중 presence reaches the friend and blocks 같이 하기', sn.social.friends[0]);
+    p8a.send({ t: 'lobby:reset' });
+    const rs8 = await Promise.all([p8a, p8c].map((cl) => cl.wait('lobby:state', (mm) => !mm.lobby.started)));
+    assert(rs8.every((mm) => mm.lobby.planet === 'mossy' && mm.lobby.seed === null),
+      'lobby:reset keeps the 목표 행성 (the destination outlives the mission)', rs8[0].lobby);
+    p8a.send({ t: 'lobby:start', seed: 813, planet: 'crimson' });
+    err = await p8a.wait('lobby:error');
+    assert(err.code === 'not_ready', 'the ready gating still comes before the planet gate');
+    for (const cl of [p8a, p8c]) cl.send({ t: 'lobby:ready', ready: true });
+    await Promise.all([p8a, p8c].map((cl) => cl.wait('lobby:state', (mm) => mm.lobby.players.every((p) => p.ready))));
+    p8a.send({ t: 'lobby:start', seed: 813, planet: 'crimson' });
+    const r8b = await Promise.all([p8a, p8c].map((cl) => cl.wait('game:start')));
+    assert(r8b.every((mm) => mm.planet === 'crimson' && mm.lobby.planet === 'crimson'), 'lobby:start {planet} overrides the stored destination', r8b[0]);
+    p8a.send({ t: 'lobby:planet', planet: 'amber' });
+    err = await p8a.wait('lobby:error');
+    assert(err.code === 'started', 'lobby:planet while the mission runs → started');
+    p8b.send({ t: 'social:play', code: code1 });
+    se = await p8b.wait('social:error');
+    assert(se.code === 'in_mission', '같이 하기 with someone inside a running raid → in_mission');
+    p8a.send({ t: 'lobby:reset' });
+    await Promise.all([p8a, p8c].map((cl) => cl.wait('lobby:state', (mm) => !mm.lobby.started)));
+
+    /* ── 같이 하기 (social:play): the server picks the branch ── */
+    p8b.send({ t: 'social:play', code: codeB });
+    se = await p8b.wait('social:error');
+    assert(se.code === 'self', '같이 하기 with my own 아이디 → self');
+    p8b.send({ t: 'social:play', code: code1 });
+    const [played, joinedState] = await Promise.all([p8b.wait('social:play'), p8a.wait('lobby:state', (mm) => mm.lobby.players.length === 3)]);
+    assert(played.outcome === 'joined' && played.code === code1 && played.name === 'Uno', '같이 하기 with a squadded friend → outcome joined', played);
+    assert(joinedState.lobby.players.some((p) => p.id === p8b.id) && p8b.lobby?.code === code8A && p8b.lobby?.planet === 'crimson',
+      'the caller is added to the target ship (both sides get lobby:state, planet included)', joinedState.lobby);
+    p8b.send({ t: 'social:play', code: code1 });
+    se = await p8b.wait('social:error');
+    assert(se.code === 'in_squad', '같이 하기 with someone already in my ship → in_squad');
+    const { c: p8d } = await connect('P4', url, { token: T84, name: 'Quad' });
+    p8d.send({ t: 'social:get' });
+    const codeD: PlayerCode = (await p8d.wait('social:state')).social.me.code;
+    p8d.send({ t: 'lobby:create', name: 'Quad' });
+    await p8d.wait('lobby:state');
+    p8b.send({ t: 'social:play', code: codeD });
+    se = await p8b.wait('social:error');
+    assert(se.code === 'busy', '같이 하기 while other members are in my ship → busy (disband or invite instead)');
+    p8b.send({ t: 'lobby:leave' });
+    await p8b.wait('lobby:left');
+    p8d.send({ t: 'lobby:leave' });
+    await p8d.wait('lobby:left');
+    p8b.flush();
+    p8b.send({ t: 'social:play', code: codeD });
+    const [invited, invite] = await Promise.all([p8b.wait('social:play'), p8d.wait('social:invited')]);
+    const myShip = await p8b.wait('lobby:state', (mm) => mm.lobby.players.length === 1);
+    assert(invited.outcome === 'invited' && invited.code === codeD, '같이 하기 with a friend who has no ship → outcome invited', invited);
+    assert(invite.invite.from === codeB && invite.invite.name === 'Duo' && invite.invite.lobby === myShip.lobby.code && invite.invite.at > 0,
+      'the invite carries my 아이디 / name and the lobby code to join, and my ship was created for it', invite.invite);
+    p8d.close(); await p8d.closed(); await sleep(80);
+    p8b.send({ t: 'social:play', code: codeD });
+    se = await p8b.wait('social:error');
+    assert(se.code === 'offline', '같이 하기 with a profile that is not connected → offline');
+    /* ② from a ship of my own: alone in it, so it is left behind and I dock into theirs */
+    p8b.send({ t: 'social:play', code: code1 });
+    const [leftOwn, joined2] = await Promise.all([p8b.wait('lobby:left'), p8b.wait('social:play')]);
+    assert(leftOwn.t === 'lobby:left' && joined2.outcome === 'joined' && p8b.lobby?.code === code8A,
+      '같이 하기 from a ship where I am alone → my own ship is left behind and I dock into theirs', p8b.lobby?.code);
+    p8b.send({ t: 'lobby:leave' });
+    await p8b.wait('lobby:left');
+
+    /* ── 귓속말 ── */
+    p8a.send({ t: 'social:whisper', code: codeB, text: '  안녕 <b>친구</b>  ' });
+    const wh = await p8b.wait('social:whisper');
+    assert(wh.code === code1 && wh.name === 'Uno' && wh.text === '안녕 b친구/b' && wh.at > 0,
+      'a whisper reaches the target with the sender 아이디 / name, trimmed and with markup stripped', wh);
+    p8a.send({ t: 'social:whisper', code: codeB, text: '   ' });
+    se = await p8a.wait('social:error');
+    assert(se.code === 'invalid', 'an empty / whitespace whisper → invalid');
+    p8a.send({ t: 'social:whisper', code: codeB, text: 'y'.repeat(SOCIAL_WHISPER_MAX + 50) });
+    const whLong = await p8b.wait('social:whisper');
+    assert(whLong.text.length === SOCIAL_WHISPER_MAX, `a whisper is truncated to SOCIAL_WHISPER_MAX (${SOCIAL_WHISPER_MAX})`, whLong.text.length);
+    p8a.sendRaw(JSON.stringify({ t: 'social:whisper', code: codeB, text: 'z'.repeat(4 * SOCIAL_WHISPER_MAX + 10) }));
+    err = await p8a.wait('lobby:error');
+    assert(err.code === 'invalid', 'a whisper frame far over the input cap is refused by the parser');
+    p8a.send({ t: 'social:whisper', code: 'ZZZZZZZZ', text: 'hello' });
+    se = await p8a.wait('social:error');
+    assert(se.code === 'not_found', 'a whisper to an unknown 아이디 → not_found');
+    p8c.close(); await p8c.closed(); await sleep(80);
+    p8a.send({ t: 'social:whisper', code: codeC, text: 'hello' });
+    se = await p8a.wait('social:error');
+    assert(se.code === 'offline', 'a whisper to a profile that is not connected → offline');
+
+    /* ── 친구 삭제 tears the push channel down ── */
+    p8b.send({ t: 'social:remove', code: code1 });
+    const [remB, remA] = await Promise.all([
+      p8b.wait('social:state', (mm) => mm.social.friends.length === 0),
+      p8a.wait('social:state', (mm) => !mm.social.friends.some((f) => f.code === codeB)),
+    ]);
+    assert(remB.social.friends.length === 0 && remA.social.friends.length === 1, 'social:remove is mutual and pushed to both sides', { b: remB.social.friends, a: remA.social.friends });
+    p8b.send({ t: 'social:remove', code: code1 });
+    se = await p8b.wait('social:error');
+    assert(se.code === 'invalid', 'removing someone who is not a friend → invalid');
+    p8b.flush();
+    p8a.send({ t: 'lobby:leave' });
+    await p8a.wait('lobby:left');
+    assert(await p8b.expectNone('social:state', 250), 'after 친구 삭제 no presence push reaches the ex-friend (watcher index cleaned)');
+
+    /* ── store level: caps, index, sanitisation ── */
+    const s8 = new ProfileStore({ dataDir: null, quiet: true });
+    const soc8 = s8.ensureSocial('peer-one', 'One');
+    assert(isValidPlayerCode(soc8.code) && soc8.code === playerCodeFrom('peer-one') && soc8.salt === 0 && s8.peerByCode(soc8.code) === 'peer-one',
+      'store.ensureSocial assigns the derived 아이디 and indexes it', soc8);
+    assert(s8.ensureSocial('peer-one', 'One') === soc8 && s8.getIfExists('nobody') === undefined,
+      'ensureSocial is idempotent and getIfExists never creates a record');
+    assert(s8.peerByCode('ZZZZZZZZ') === undefined && s8.peerByCode('nope') === undefined, 'peerByCode: an unknown / malformed 아이디 → undefined');
+    for (let n = 0; n < SOCIAL_RECENT_MAX + 3; n++) {
+      s8.ensureSocial(`peer-met-${n}`, `Met${n}`);
+      s8.recordMet('peer-one', `peer-met-${n}`, 1_000 + n);
+    }
+    const rec8 = s8.social('peer-one')?.recent ?? [];
+    assert(rec8.length === SOCIAL_RECENT_MAX && rec8[0].code === s8.social(`peer-met-${SOCIAL_RECENT_MAX + 2}`)?.code
+      && rec8[0].at === 1_000 + SOCIAL_RECENT_MAX + 2 && !rec8.some((r) => r.code === s8.social('peer-met-0')?.code),
+      `최근 만난 플레이어 is capped at SOCIAL_RECENT_MAX (${SOCIAL_RECENT_MAX}), newest first, oldest dropped`, rec8.length);
+    s8.recordMet('peer-one', 'peer-met-5', 9_999);
+    const rec8b = s8.social('peer-one')?.recent ?? [];
+    assert(rec8b[0].code === s8.social('peer-met-5')?.code && rec8b.length === SOCIAL_RECENT_MAX
+      && rec8b.filter((r) => r.code === rec8b[0].code).length === 1, 'meeting the same player again moves the entry to the front (no duplicate)');
+    assert(s8.addFriendRequest('peer-one', 'peer-one') === 'self', 'store: a request to myself → self');
+    assert(s8.addFriendRequest('peer-one', 'peer-met-1') === 'ok' && s8.addFriendRequest('peer-one', 'peer-met-1') === 'already', 'store: a duplicate request → already');
+    assert(s8.respondFriendRequest('peer-met-1', 'peer-one', true) === 'ok'
+      && (s8.social('peer-one')?.friends ?? []).includes(s8.social('peer-met-1')?.code ?? '')
+      && !(s8.social('peer-one')?.recent ?? []).some((r) => r.code === s8.social('peer-met-1')?.code),
+      'store: accepting befriends both sides and clears the recent entry');
+    assert(s8.removeFriend('peer-one', 'peer-met-1') === 'ok' && (s8.social('peer-met-1')?.friends.length ?? -1) === 0
+      && s8.removeFriend('peer-one', 'peer-met-1') === 'invalid', 'store: removal is mutual; a second removal → invalid');
+    const filler = s8.social('peer-one');
+    if (filler) while (filler.friends.length < SOCIAL_FRIEND_MAX) filler.friends.push(playerCodeFrom(`filler-${filler.friends.length}`));
+    assert(s8.addFriendRequest('peer-one', 'peer-met-2') === 'limit', `store: a request past SOCIAL_FRIEND_MAX (${SOCIAL_FRIEND_MAX}) → limit`);
+    s8.close();
+
+    const dir8 = mkdtempSync(join(tmpdir(), 'scav-social-'));
+    try {
+      /* p-own squats the 아이디 p-clone would derive, and p-clone's stored code is unusable → re-derive with a salt. */
+      const squatted = playerCodeFrom('p-clone');
+      writeFileSync(join(dir8, PROFILE_FILE), JSON.stringify({ v: 1, profiles: {
+        'p-own': { credits: 0, docs: {}, updatedAt: 5, social: {
+          code: squatted, salt: 0, name: 'Own<b>', level: 5.7,
+          friends: ['AAAABBBB', 'AAAABBBB', squatted, 'bogus!', 'CCCCDDDD'],
+          incoming: ['CCCCDDDD'], outgoing: ['nope'],
+          recent: [{ code: 'AAAABBBB', at: 7 }, { code: 'EEEEFFFF', at: -3 }, { code: 'zz', at: 1 }], updatedAt: 5,
+        } },
+        'p-clone': { credits: 0, docs: {}, updatedAt: 5, social: { code: 'nope', salt: 0, name: 'Clone', level: 0, friends: [], incoming: [], outgoing: [], recent: [], updatedAt: 5 } },
+        'p-bad': { credits: 0, docs: {}, updatedAt: 5, social: 42 },
+      } }), 'utf8');
+      const s9 = new ProfileStore({ dataDir: dir8, quiet: true });
+      const own = s9.social('p-own');
+      assert(own?.friends.length === 2 && own.friends.includes('AAAABBBB') && own.friends.includes('CCCCDDDD'),
+        'sanitizeSocial: duplicates, my own 아이디 and malformed codes are dropped from friends', own?.friends);
+      assert(own?.incoming.length === 0 && own.outgoing.length === 0,
+        'sanitizeSocial: a friend cannot also sit in incoming, and a malformed outgoing code goes', { i: own?.incoming, o: own?.outgoing });
+      assert(own?.recent.length === 1 && own.recent[0].code === 'EEEEFFFF' && own.recent[0].at === 0,
+        'sanitizeSocial: recent drops friends / malformed codes and clamps a negative timestamp', own?.recent);
+      assert(own?.name === 'Ownb' && own.level === 5, 'sanitizeSocial: the name is sanitized and the level floored', { name: own?.name, level: own?.level });
+      assert(s9.social('p-bad') === undefined && s9.getIfExists('p-bad') !== undefined, 'sanitizeSocial: a non-object social field is dropped, the profile itself kept');
+      assert(s9.peerByCode(squatted) === 'p-own', 'the 아이디 → PeerId index is rebuilt from the file');
+      const clone = s9.social('p-clone');
+      assert(clone !== undefined && isValidPlayerCode(clone.code) && clone.code !== squatted && clone.salt === 1
+        && clone.code === playerCodeFrom('p-clone', 1) && s9.peerByCode(clone.code) === 'p-clone',
+        'a colliding 아이디 is re-derived with the next salt and re-indexed', clone);
+      s9.close();
+      /* the assigned 아이디 and the friends list survive a store restart */
+      const s10 = new ProfileStore({ dataDir: dir8, quiet: true });
+      assert(s10.peerByCode(squatted) === 'p-own' && (s10.social('p-own')?.friends.length ?? 0) === 2,
+        'a social record round-trips through profiles.json (아이디 + friends)', s10.social('p-own'));
+      s10.close();
+    } finally {
+      rmSync(dir8, { recursive: true, force: true });
+    }
+
+    /* cleanup */
+    p8a.close(); p8b.close();
+    await sleep(GRACE_MS + 400);
+    assert(server.lobbies.count === 0 && server.clientCount() === 0, 'part 8 cleanup: all lobbies deleted, no clients left', { lobbies: server.lobbies.count, clients: server.clientCount() });
   } catch (e) {
     fail('unexpected exception', (e as Error).message);
   } finally {

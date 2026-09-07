@@ -3,7 +3,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { GameContext, type GameSystem } from '@/shared';
+import { GameContext, getPlanet, type GameSystem } from '@/shared';
 import { Atmosphere } from './Atmosphere';
 import { FxManager } from './fx/FxManager';
 
@@ -59,8 +59,10 @@ export class Engine {
     this.resize();
     window.addEventListener('resize', () => this.resize());
 
-    this.ctx.bus.on('world:ready', ({ seed }) => {
-      const p = this.atmosphere.applySeed(seed);
+    this.ctx.bus.on('world:ready', ({ seed, planet }) => {
+      /* Phase 11: a selected planet names its own sky palette; without one the sky is still drawn from the seed. */
+      const def = getPlanet(planet ?? this.ctx.missionPlanet);
+      const p = def ? this.atmosphere.applyPlanet(def) : this.atmosphere.applySeed(seed);
       this.renderer.toneMappingExposure = p.exposure;
       this.fx.clear();
     });

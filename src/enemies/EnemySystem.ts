@@ -2,9 +2,9 @@ import * as THREE from 'three';
 import {
   BEHEMOTH_KNOCKBACK, BURNOUT_DURATION, CORPSE_LAND_TIMEOUT, CORPSE_LIFETIME, ENEMY_DEATH_DIRS, ENEMY_STATUS_BITS, FLAME_AFTERBURN_DPS, FLAME_AFTERBURN_DURATION, GADGET_LURE_RADIUS, MAP_SIZE,
   NET_ENEMY_SNAPSHOT_HZ, PLAYER_HEIGHT, PLAYER_RADIUS, ROGUE_DAMAGE, ROGUE_GRENADE_DAMAGE, ROGUE_GRENADE_FUSE, ROGUE_GRENADE_RADIUS, ROGUE_MAG_ROUNDS, ROGUE_RANGE,
-  SHELL_BLAST_RADIUS, SHELL_DAMAGE, SHELL_FLIGHT_TIME, SHOCK_SLOW_DURATION, SHOCK_SLOW_FACTOR, TOXIC_DAMAGE, TOXIC_RADIUS,
+  SHELL_BLAST_RADIUS, SHELL_DAMAGE, SHELL_FLIGHT_TIME, SHOCK_SLOW_DURATION, SHOCK_SLOW_FACTOR, TOXIC_DAMAGE, TOXIC_RADIUS, getPlanet,
   type DamageMessage, type EnemyDeathDir, type EnemyEvent, type EnemyFaction, type EnemyHit, type EnemyManagerRef, type EnemyRef, type EnemySnapshot, type EnemyStatusKind, type EnemyType, type GameContext, type GameSystem,
-  type HitRequest, type InterceptableRef, type PeerId, type WorldRef,
+  type HitRequest, type InterceptableRef, type PeerId, type PlanetEcosystem, type WorldRef,
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
 import { Enemy, type EnemyHost, type HitPart } from './Enemy';
@@ -18,7 +18,7 @@ import { BloodFX } from './fx/BloodFX';
 import { AcidProjectiles, type AcidHost, type AcidSlow } from './fx/AcidProjectile';
 import { ShellProjectiles, type ShellHost } from './fx/ShellProjectile';
 import { RogueGrenades, type GrenadeHost } from './fx/RogueGrenade';
-import { AmbientSpawner, type SpawnHost } from './Spawner';
+import { AmbientSpawner, ambientGroup, waveGroup, type SpawnHost } from './Spawner';
 import { WaveDirector } from './WaveDirector';
 import { disposeBugAssets } from './models/BugModel';
 import { disposeRogueAssets } from './models/RogueModel';
@@ -142,6 +142,9 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   /* ── Phase 7 ── */
   /** 시뮬레이션 훈련장: no spawner / waves / guards / initial population (set at `world:ready`). */
   private training = false;
+  /* ── Phase 11 ── */
+  /** Ecosystem of the 목표 행성 this mission runs on (`world:ready.planet` → `PLANET_DEFS`), null = the default tables. */
+  private eco: PlanetEcosystem | null = null;
   /** Waves announced so far this mission (`enemy:waveStarted`, also from `ee wave` on a replica) — the wave director resumes from it on promotion. */
   private wavesSeen = 0;
   /** Debug counters (smoke tests): rogue grenades thrown / exploded on this client. */
@@ -171,18 +174,23 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
 
     const bus = ctx.bus;
     this.unsub.push(
-      bus.on('world:ready', ({ seed, playerSpawn }) => {
+      bus.on('world:ready', ({ seed, playerSpawn, planet }) => {
         this.refreshMode();
         this.reset();
         this.spawner.reset();
         this.ensureNet();
         // Phase 7: the training arena has no enemies at all (world/ reports `mode`, game/ sets `ctx.missionMode` before emitting)
         this.training = ctx.isTraining() || ctx.missionMode === 'training' || (ctx.world as Partial<WorldRef> | null)?.mode === 'training';
+        // Phase 11: 목표 행성 생태계 → spawner / waves / guards. Training keeps it null; so does a mission without a planet
+        // (the ecosystem is host-side composition only — the `es` / `ee` wire and replica behaviour are untouched).
+        this.eco = this.training ? null : (getPlanet(planet ?? ctx.world?.planet ?? ctx.missionPlanet)?.eco ?? null);
+        this.spawner.eco = this.eco;
+        this.waves.eco = this.eco;
         if (this.training) return;
         if (this.authority && ctx.world?.ready) {
           this.targets.refresh(ctx);
           this.spawner.initialPopulate(this, playerSpawn);
-          const guards = placeRogueGuards(this, seed);
+          const guards = placeRogueGuards(this, seed, this.eco);
           if (guards.boss) {
             this.bossId = guards.boss.id;
             ctx.bus.emit('enemy:bossSpawned', { id: guards.boss.id, type: guards.boss.type, position: guards.boss.position });
@@ -769,6 +777,35 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   debugHint(id: number): number { const e = this.byId.get(id); return e ? animHint(e) : -1; }
   /** Position of live shell `sid` (debug), or null. */
   debugShell(sid: number): THREE.Vector3 | null { return this.shells?.find(sid)?.position ?? null; }
+  /**
+   * Phase 11 (debug / smoke): the 행성 생태계 in force plus the numbers derived from it, or null with no planet.
+   * `cap` is the ambient population ceiling at the current threat.
+   */
+  get debugEcology(): { bugs: Partial<Record<EnemyType, number>>; pressure: number; rogues: number; boss: boolean; maxArtillery: number; maxBehemoth: number; gatherDensity: number; threat: number; cap: number } | null {
+    const eco = this.eco;
+    if (!eco) return null;
+    return {
+      bugs: eco.bugs, pressure: eco.pressure, rogues: eco.rogues, boss: eco.boss,
+      maxArtillery: eco.maxArtillery, maxBehemoth: eco.maxBehemoth, gatherDensity: eco.gatherDensity,
+      threat: this.spawner.threat, cap: this.spawner.cap,
+    };
+  }
+  /** Phase 11 (debug / smoke): the ambient population ceiling right now (`(12 + 24 × threat) × eco.pressure`). */
+  get debugAmbientCap(): number { return this.spawner.cap; }
+  /** Phase 11 (debug / smoke): one ambient patrol composition for `threat` through the live ecosystem. Spawns nothing. */
+  debugAmbientGroup(threat: number): EnemyType[] { return ambientGroup(threat, this.eco).slice(); }
+  /** Phase 11 (debug / smoke): one extraction-wave composition through the live ecosystem. Spawns nothing. */
+  debugWaveGroup(index: number, count: number): EnemyType[] { return waveGroup(index, count, this.eco).slice(); }
+  /** Phase 11 (debug / smoke): rogues placed as crate guards right now (boss included). */
+  debugGuardCount(): { rogues: number; boss: boolean } {
+    let rogues = 0; let boss = false;
+    for (const e of this.active) {
+      if (!e.active || e.state === 'dead') continue;
+      if (e.type === 'rogue') rogues++;
+      else if (e.type === 'rogue_boss') { rogues++; boss = true; }
+    }
+    return { rogues, boss };
+  }
 
   /* ── client → host requests (authority only) ───────────────────────────── */
   /** `hit` from a client: damage (as before) and / or the status bits (`st` + `dur`, 2026-09-06; `dmg` may be 0 for a status-only request). */

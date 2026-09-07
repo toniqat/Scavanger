@@ -456,7 +456,9 @@ The seed still decides layout / crates / nests / loot; the **planet** decides th
 - Wire: `social:get / me / request / respond / remove / play / whisper` up, `social:state / invited / whisper / play /
   error` down, `welcome.social?`. Caps in this file: `SOCIAL_RECENT_MAX` 20, `SOCIAL_FRIEND_MAX` 100,
   `SOCIAL_REQUEST_MAX` 50, `SOCIAL_WHISPER_MAX` 200, `SQUAD_INVITE_TTL_S` 90, `SQUAD_INVITE_HOLD_S` 3,
-  `SQUAD_INVITE_MAX` 3, `SOCIAL_ME_DEBOUNCE_MS`.
+  `SQUAD_INVITE_MAX` 3, `SOCIAL_ME_DEBOUNCE_MS`. `SocialErrorCode` gained `my_squad_full` / `in_squad` after the first
+  draft: `playBlockReason` already told those two apart, so collapsing them onto `full` / `already` printed the wrong
+  Korean sentence (내 분대 vs 상대 분대).
 - `net.ts`: `NetRef.social` (`SocialRef`), `lobbyPlanet`, `setLobbyPlanet`. `events.ts`: `social:updated / invited /
   inviteClosed / whisper / play / error`, `ui:communityToggled`, `chat:whisperTo`. `types.ts`: `ChatKind 'whisper'`.
   `constants.ts`: `COMMUNITY_BLOCKER` (`community`), `SOCIAL_CARDS_PER_ROW` / `SOCIAL_FRIEND_ROWS` /

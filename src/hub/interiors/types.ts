@@ -66,6 +66,12 @@ export interface ShipInterior {
   readonly stations: ShipStations;
   /** 함선 꾸미기 (personal ship only): the ten rooms. The door / facility consoles were removed in the Phase 8 UI pass. */
   readonly rooms?: readonly RoomDef[];
+  /**
+   * 목표 행성 (Phase 11): re-tint the decorative planet outside the viewports to the selected planet's
+   * `PlanetDef.hologram` / `hologramAtmo`. Called on build and when a travel cutscene ends — the interior itself is
+   * never rebuilt for a planet change, only the view outside it.
+   */
+  setPlanetLook?(color: number, atmo: number): void;
   update(dt: number, time: number): void;
   dispose(): void;
 }

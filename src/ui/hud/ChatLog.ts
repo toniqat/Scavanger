@@ -1,6 +1,7 @@
-import type { GameContext, ChatKind, PeerId } from '@/shared';
-import { Keys, CHAT_MAX_LINES } from '@/shared';
-import { el, toggleClass } from '../dom';
+import type { GameContext, ChatKind, PeerId, PlayerCode, WhisperLine } from '@/shared';
+import { Keys, CHAT_MAX_LINES, formatPlayerCode } from '@/shared';
+import { el, setText, toggleClass } from '../dom';
+import { socialOf } from '../menus/social/socialSource';
 
 const BLOCKER = 'chat';
 const LINE_FADE_AFTER = 12;   // seconds a line stays fully visible while the input is closed
@@ -25,17 +26,29 @@ interface Line { el: HTMLElement; time: number; faded: boolean }
  * `net:hostChanged` (`호스트 변경: <name>`), `net:peerSuspended` (`<name> 연결 끊김` / `재연결`), the training arena
  * (`시뮬레이션 훈련장 입장` on `game:newMission {mode:'training'}`, `퇴장` on `training:exitRequested`). Every line emits
  * `chat:message`. Works as a local log in single-player too.
+ *
+ * **귓속말 (Phase 11).** `chat:whisperTo {code, name}` (emitted by the ESC social column / the community panel's
+ * 귓속말하기) opens the input in **whisper mode**: a `.chat-target` chip reads `→ 이름` and every Enter goes out through
+ * `ctx.net.social.whisper(code, text)` instead of `chat:post`. The sender's echo is **not** written locally — the
+ * whisper mirror answers with `social:whisper {line}` for both directions (`line.out` distinguishes them) and that is
+ * what draws a `kind:'whisper'` line; a `whisper()` that returns false (offline / unavailable / empty) leaves a system
+ * failure line instead. Clearing the target (the chip's ×, or Escape on an empty input) drops back to squad chat.
+ * While a target is set the bottom-left column is raised to mid-screen (`.hud-bl.whispering`).
  */
 export class ChatLog {
   readonly root: HTMLElement;
   private list: HTMLElement;
   private inputRow: HTMLElement;
   private input: HTMLInputElement;
+  private targetChip: HTMLElement;
+  private targetName: HTMLElement;
   private ctx!: GameContext;
   private lines: Line[] = [];
   private _open = false;
   private acc = 0;
   private lastCountdown = -1;
+  /** Active 귓속말 target, or null for ordinary squad chat (Phase 11). */
+  private target: { code: PlayerCode; name: string } | null = null;
   private unsubs: Array<() => void> = [];
 
   private keyHandler = (e: KeyboardEvent): void => {
@@ -47,7 +60,9 @@ export class ChatLog {
         if (!e.repeat) this.send();
       } else if (e.code === Keys.MENU) {
         e.preventDefault(); e.stopImmediatePropagation();
-        this.close();
+        // Escape on an empty whisper input drops the target first — one key, two steps out.
+        if (this.target && !this.input.value.trim()) this.setTarget(null);
+        else this.close();
       }
       // other keys reach the input element (which stops their propagation itself)
       return;
@@ -64,6 +79,12 @@ export class ChatLog {
     this.list = el('div', { cls: 'chat-lines', parent: this.root });
     this.inputRow = el('div', { cls: 'chat-input-row', parent: this.root });
     this.inputRow.hidden = true;
+    this.targetChip = el('span', { cls: 'chat-target', parent: this.inputRow });
+    this.targetChip.hidden = true;
+    this.targetName = el('span', { cls: 't', text: '', parent: this.targetChip });
+    const clearTarget = el('button', { cls: 'x', text: '×', parent: this.targetChip });
+    clearTarget.title = '귓속말 대상 해제';
+    clearTarget.addEventListener('click', (e) => { e.stopPropagation(); this.setTarget(null); this.input.focus(); });
     el('span', { cls: 'chat-prompt', text: '›', parent: this.inputRow });
     this.input = el('input', {
       cls: 'chat-input', attrs: { type: 'text', maxlength: String(MAX_TEXT), placeholder: '메시지 입력… (Enter 전송 · Esc 취소)', spellcheck: 'false', autocomplete: 'off' },
@@ -109,12 +130,16 @@ export class ChatLog {
       b.on('net:hostChanged', ({ hostId, isLocalHost }) => this.system(`호스트 변경: ${this.peerName(hostId, isLocalHost)}`)),
       b.on('net:peerSuspended', ({ name, suspended }) => this.system(`${name} ${suspended ? '연결 끊김' : '재연결'}`)),
       b.on('training:exitRequested', () => this.system('시뮬레이션 훈련장 퇴장')),
+      /* ── Phase 11: 귓속말 ── */
+      b.on('chat:whisperTo', ({ code, name }) => { this.setTarget({ code, name }); this.open(); this.input.focus(); }),
+      b.on('social:whisper', ({ line }) => this.addWhisper(line)),
       b.on('game:newMission', ({ mode }) => {
         this.lastCountdown = -1;
         if (this._open) this.close(false);
+        this.setTarget(null);
         if (mode === 'training') this.system('시뮬레이션 훈련장 입장');
       }),
-      b.on('game:abort', () => { if (this._open) this.close(false); }),
+      b.on('game:abort', () => { if (this._open) this.close(false); this.setTarget(null); }),
       b.on('game:phaseChanged', () => { if (this._open && !ctx.isGameplayPhase() && !ctx.isHubPhase()) this.close(false); }),
     );
     window.addEventListener('keydown', this.keyHandler, true);
@@ -144,6 +169,27 @@ export class ChatLog {
   }
 
   private system(text: string): void { this.add(null, '시스템', text, 'system', false); }
+
+  /** One whisper, either direction (`line.out` = I sent it). Drawn as a `kind:'whisper'` line. */
+  private addWhisper(line: WhisperLine): void {
+    const who = line.out ? `귓속말 → ${line.name || formatPlayerCode(line.code)}` : `귓속말 ${line.name || formatPlayerCode(line.code)}`;
+    this.add(null, who, line.text, 'whisper', line.out);
+  }
+
+  /** Aim the input at one 아이디 (null = back to squad chat). Also raises the bottom-left column. */
+  private setTarget(t: { code: PlayerCode; name: string } | null): void {
+    this.target = t;
+    this.targetChip.hidden = !t;
+    if (t) setText(this.targetName, `→ ${t.name || formatPlayerCode(t.code)}`);
+    this.input.placeholder = t ? '귓속말 입력… (Enter 전송 · Esc 대상 해제)' : '메시지 입력… (Enter 전송 · Esc 취소)';
+    toggleClass(this.root, 'whispering', !!t);
+    // The column that holds the log is owned by HudSystem (`.hud-bl`); the spec puts it mid-left while whispering.
+    const col = this.root.parentElement;
+    if (col && col.classList.contains('hud-bl')) toggleClass(col, 'whispering', !!t);
+  }
+
+  /** Whether the input is aimed at a 귓속말 target (debug). */
+  get whisperTarget(): PlayerCode | null { return this.target?.code ?? null; }
 
   /** Display name of a peer id (lobby list → remote ref → own name when it is us). */
   private peerName(id: PeerId, isLocal: boolean): string {
@@ -204,7 +250,14 @@ export class ChatLog {
 
   private send(): void {
     const text = this.input.value.trim().slice(0, MAX_TEXT);
-    if (text) this.ctx.bus.emit('chat:post', { text, kind: 'text' });
+    const t = this.target;
+    if (text && t) {
+      // The mirror echoes a successful whisper back as `social:whisper {line.out}` — never double-write it here.
+      const sent = socialOf(this.ctx)?.whisper(t.code, text) ?? false;
+      if (!sent) this.system(`귓속말 전송 실패 — ${t.name || formatPlayerCode(t.code)}`);
+    } else if (text) {
+      this.ctx.bus.emit('chat:post', { text, kind: 'text' });
+    }
     this.close();
   }
 

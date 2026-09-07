@@ -5,6 +5,8 @@ const SERVER_TYPES: ReadonlySet<string> = new Set([
   'welcome', 'lobby:state', 'lobby:error', 'lobby:left', 'game:start', 'relay', 'peer:left', 'pong',
   /* Phase 7 */
   'profile:docs', 'credits:result',
+  /* Phase 11: 소셜 (the snapshots are small — MAX_INBOUND_BYTES is unchanged) */
+  'social:state', 'social:invited', 'social:whisper', 'social:play', 'social:error',
 ]);
 const PING_INTERVAL_MS = 2000;
 /** `welcome` may carry every profile document (5 × PROFILE_DOC_MAX_BYTES) plus a raid blob. */

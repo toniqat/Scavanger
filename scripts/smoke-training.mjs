@@ -65,7 +65,9 @@ try {
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   await page.goto(BASE, { waitUntil: 'load' });
   await waitFor(page, () => !!window.__game && !!window.__game.ctx.hub, 'boot');
-  await page.evaluate(() => { try { localStorage.removeItem('scav.ship'); localStorage.removeItem('scav.loadout'); localStorage.removeItem('scav.training'); } catch {} });
+  // Phase 11: a launch slot refuses boarding while the ship has no 목표 행성, so give this profile one up front
+  // (the planet itself is `smoke-planets`' business; here it only has to be set so the READY-panel block can board).
+  await page.evaluate(() => { try { localStorage.removeItem('scav.ship'); localStorage.removeItem('scav.loadout'); localStorage.removeItem('scav.training'); localStorage.setItem('scav.planet', 'mossy'); } catch {} });
   await page.goto(BASE, { waitUntil: 'load' });
   await waitFor(page, () => !!window.__game && !!window.__game.ctx.hub, 'boot (fresh ship state)');
   await page.evaluate(() => {

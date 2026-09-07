@@ -1,6 +1,8 @@
 import type {
   GameContext, GameSystem, GamePhase, FlowMessage, PeerId, MissionMode, RaidSessionBlob, PlayerRestoreState, RemotePlayerRef,
 } from '@/shared';
+/* appended (Phase 11): 목표 행성 */
+import type { PlanetId } from '@/shared';
 import {
   GameContext as Ctx, Keys, PlayerFlags, PLAYER_RESPAWN_DELAY, RAID_FAILED_AUTO_RETURN_S, RAID_SAVE_INTERVAL_S,
   NET_GHOST_RESTORE_TIMEOUT_S,
@@ -117,7 +119,7 @@ export class GameFlowSystem implements GameSystem {
     this.ctx = ctx;
     const b = ctx.bus;
     this.unsubs.push(
-      b.on('game:newMission', ({ seed, mode }) => this.onNewMission(seed, mode)),
+      b.on('game:newMission', ({ seed, mode, planet }) => this.onNewMission(seed, mode, planet)),
       b.on('world:ready', () => {
         if (!this.awaitingWorld) return;
         this.awaitingWorld = false;
@@ -415,10 +417,16 @@ export class GameFlowSystem implements GameSystem {
     if (this.rejoining && !this.raidBlob && ctx.net?.raidBlob) this.raidBlob = ctx.net.raidBlob;
   }
 
-  private onNewMission(seed: number, mode: MissionMode | undefined): void {
+  private onNewMission(seed: number, mode: MissionMode | undefined, planet?: PlanetId | null): void {
     const ctx = this.ctx;
     // The emitter (hub / net) sets `ctx.missionMode` before emitting; re-confirm from the event, else from the generated world.
     ctx.missionMode = mode ?? ctx.world?.mode ?? 'raid';
+    /*
+     * Phase 11: same contract for the 목표 행성 — the emitter sets `ctx.missionPlanet` first, this only re-confirms it.
+     * A training has no planet; `MissionComplete`'s 다시 배치 re-emits with the planet it was launched with, and an
+     * emit without the field (an older path) keeps whatever the ship last flew to rather than silently rerolling.
+     */
+    ctx.missionPlanet = this.isTraining() ? null : (planet ?? ctx.missionPlanet);
     this.setPaused(false);
     this.completeTimer = -1;
     this.deathTimer = -1; this.respawnTimer = -1; this.respawnLastSec = -1;

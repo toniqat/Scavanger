@@ -126,3 +126,14 @@ export function pickBiome(seed: number): Biome {
   const rng = new Random(seed >>> 0).fork('atmosphere');
   return rng.pick(BIOMES);
 }
+
+const BIOME_BY_ID = new Map<string, Biome>(BIOMES.map((b) => [b.id, b]));
+
+/**
+ * Biome named by a planet (Phase 11): `PlanetDef.biome` is a `Biome.id`, so the seed no longer decides the palette
+ * when a 목표 행성 is set. Returns `undefined` for null / an unknown id — every caller falls back to `pickBiome(seed)`,
+ * which keeps the pre-Phase-11 behaviour for an older peer or a training.
+ */
+export function biomeById(id: string | null | undefined): Biome | undefined {
+  return id == null ? undefined : BIOME_BY_ID.get(id);
+}

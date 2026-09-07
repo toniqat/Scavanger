@@ -199,6 +199,11 @@ export class SharedShip implements ShipInterior {
     r.add(this.planet.group);
   }
 
+  /** 목표 행성 (Phase 11): the planet outside the −X viewport takes the squad's selected planet colours. */
+  setPlanetLook(color: number, atmo: number): void {
+    this.planet.setColors(color, atmo);
+  }
+
   update(dt: number, time: number): void {
     this.stars.update(dt);
     this.planet.update(dt);

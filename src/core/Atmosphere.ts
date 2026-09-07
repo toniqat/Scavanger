@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { PlanetDef } from '@/shared';
 import { Sky, SKY_PALETTES, type SkyPalette } from './Sky';
 import { Random } from '@/shared';
 
@@ -47,10 +48,32 @@ export class Atmosphere {
     this.applyPalette(SKY_PALETTES[0]);
   }
 
+  /**
+   * Pre-Phase-11 path, and still the fallback whenever a mission has no planet: draw the sky from the seed.
+   * `world/biomes.pickBiome` mirrors this draw, which is why both lists must keep exactly 5 entries.
+   */
   applySeed(seed: number): SkyPalette {
     const rng = new Random(seed).fork('atmosphere');
     const p = rng.pick(SKY_PALETTES);
     this.applyPalette(p);
+    return p;
+  }
+
+  /**
+   * Phase 11: the sky of a **selected planet**. The palette is named by `PlanetDef.sky` (no more implicit index
+   * pairing with the biome list), the fog density is scaled by `fogMul`, and a `fog: false` planet gets no fog at
+   * all — its background comes from the sky's own horizon instead of the (now unused) fog colour.
+   * Returns the palette so `Engine` can set the tone-mapping exposure exactly as it does for `applySeed`.
+   */
+  applyPlanet(planet: PlanetDef): SkyPalette {
+    const p = SKY_PALETTES.find((s) => s.name === planet.sky) ?? SKY_PALETTES[0];
+    this.applyPalette(p);
+    if (planet.fog) {
+      this.fog.density = p.fogDensity * planet.fogMul;
+    } else {
+      this.fog.density = 0;
+      this.scene.background = new THREE.Color(p.horizon);
+    }
     return p;
   }
 

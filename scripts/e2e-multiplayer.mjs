@@ -68,6 +68,15 @@ async function open(tag) {
     window.__hostChanged = []; bus.on('net:hostChanged', (e) => window.__hostChanged.push(e));
     window.__membership = []; bus.on('net:missionMembership', (e) => window.__membership.push(e));
     window.__resumedEv = []; bus.on('net:resumed', (e) => window.__resumedEv.push(e));
+    /* Phase 11: 행성 + 소셜 */
+    window.__gameStarting = []; bus.on('net:gameStarting', (e) => window.__gameStarting.push({ seed: e.seed, mode: e.mode, planet: e.planet ?? null }));
+    window.__newMission = []; bus.on('game:newMission', (e) => window.__newMission.push({ seed: e.seed, mode: e.mode ?? 'raid', planet: e.planet ?? null }));
+    window.__socialUpdated = []; bus.on('social:updated', (e) => window.__socialUpdated.push({ first: e.first, friends: e.snapshot.friends.length, incoming: e.snapshot.incoming.length }));
+    window.__whispers = []; bus.on('social:whisper', (e) => window.__whispers.push({ ...e.line }));
+    window.__socialPlay = []; bus.on('social:play', (e) => window.__socialPlay.push(e));
+    window.__socialErr = []; bus.on('social:error', (e) => window.__socialErr.push({ code: e.code, message: e.message }));
+    window.__travel = []; bus.on('hub:travel', (e) => window.__travel.push({ stage: e.stage, planet: e.planet }));
+    window.__planetChanged = []; bus.on('hub:planetChanged', (e) => window.__planetChanged.push({ planet: e.planet, by: e.by }));
   });
   // Background tabs get no requestAnimationFrame in Chrome; drive Engine.frame() from a timer when rAF stalls.
   await page.evaluate(() => {
@@ -187,6 +196,82 @@ try {
   ok(chat && chat.text === '안녕' && chat.name === '분대원', `A received chat ${JSON.stringify(chat)}`);
   ok(await A.evaluate(() => !!document.querySelector('.chat') && document.querySelector('.chat').textContent.includes('안녕')), 'A chat log shows the line');
 
+  console.log('social (Phase 11: 아이디 · 친구 요청 → 수락 → 상호 프리즌스 · 귓속말)');
+  const socialA = await waitFor(A, () => window.__game.ctx.net.social.available, 'A social available', 6000).catch(() => false);
+  const socialB = socialA && await waitFor(B, () => window.__game.ctx.net.social.available, 'B social available', 6000).catch(() => false);
+  let aCode = null, bCode = null;
+  if (!socialB) {
+    console.log('  skip social (this relay has no social store yet — server lane)');
+    ok(await A.evaluate(() => { const s = window.__game.ctx.net.social; return s.available === false && s.me === null && s.friends.length === 0 && s.invites.length === 0 && s.whisper('AB3D9KMN', 'x') === false; }),
+      'unavailable social is inert (no me, empty lists, whisper false)');
+  } else {
+    ok(true, 'both clients report ctx.net.social.available');
+    aCode = await A.evaluate(() => window.__game.ctx.net.social.me.code);
+    bCode = await B.evaluate(() => window.__game.ctx.net.social.me.code);
+    ok(/^[A-HJ-NP-Z2-9]{8}$/.test(aCode) && /^[A-HJ-NP-Z2-9]{8}$/.test(bCode) && aCode !== bCode, `distinct 8-char 아이디 A=${aCode} B=${bCode}`);
+    ok(await A.evaluate(() => window.__socialUpdated.some((e) => e.first === true)), 'A got social:updated {first:true} from the welcome snapshot');
+    ok(await A.evaluate((c) => window.__game.ctx.net.social.playBlock(c) === 'self', aCode), 'playBlock(my own 아이디) is self');
+    ok(await A.evaluate(() => window.__game.ctx.net.social.whisper('AB3D9KMN', '   ') === false), 'whisper with empty text is refused locally');
+    // Leftovers from an earlier run would answer `already`: unfriend first (a no-op error when they are not friends).
+    await A.evaluate((c) => window.__game.ctx.net.social.removeFriend(c), bCode);
+    await sleep(400);
+    ok(await A.evaluate((c) => !window.__game.ctx.net.social.friends.some((f) => f.code === c), bCode), 'A starts with B not in its friends list');
+    ok(await A.evaluate((c) => window.__game.ctx.net.social.recent.some((r) => r.code === c), bCode), 'A has B in 최근 만난 플레이어 (same ship)');
+    await A.evaluate((c) => window.__game.ctx.net.social.requestFriend(c), bCode);
+    const inc = await waitFor(B, (c) => window.__game.ctx.net.social.incoming.find((p) => p.code === c) ?? null, 'B incoming request', 6000, aCode).catch(() => null);
+    ok(inc && inc.name === '호스트' && inc.presence === 'ship', `B received A's friend request ${JSON.stringify(inc && { name: inc.name, presence: inc.presence, squad: inc.squad })}`);
+    ok(await B.evaluate(() => window.__game.ctx.net.social.hasNews === true), 'B hasNews (red dot) while a request waits');
+    ok(await A.evaluate((c) => window.__game.ctx.net.social.outgoing.some((p) => p.code === c), bCode), 'A lists the request as outgoing');
+    await B.evaluate((c) => window.__game.ctx.net.social.respondFriend(c, true), aCode);
+    const friendOnA = await waitFor(A, (c) => window.__game.ctx.net.social.friends.find((f) => f.code === c) ?? null, 'A friend row', 6000, bCode).catch(() => null);
+    ok(friendOnA && friendOnA.name === '분대원' && friendOnA.presence === 'ship' && friendOnA.squad === 2, `A sees B as a friend in the ship ${JSON.stringify(friendOnA && { name: friendOnA.name, presence: friendOnA.presence, squad: friendOnA.squad })}`);
+    ok(await A.evaluate(() => window.__game.ctx.net.social.onlineFriends === 1), 'A onlineFriends = 1 (the community thumbnail count)');
+    ok(await waitFor(B, (c) => window.__game.ctx.net.social.friends.some((f) => f.code === c) && window.__game.ctx.net.social.incoming.length === 0 && !window.__game.ctx.net.social.hasNews, 'B mutual friend', 6000, aCode).catch(() => false),
+      'B has A as a friend too, the request is gone, hasNews cleared');
+    ok(await A.evaluate((c) => !window.__game.ctx.net.social.recent.some((r) => r.code === c), bCode), 'a friend left 최근 만난 플레이어');
+    ok(await A.evaluate((c) => window.__game.ctx.net.social.find(c)?.code === c, bCode), 'find(아이디) resolves the row');
+    // 귓속말: A → B, with a local echo on the sender.
+    const sent = await A.evaluate((c) => window.__game.ctx.net.social.whisper(c, '귓속말 테스트'), bCode);
+    ok(sent === true, 'A whisper() accepted');
+    ok(await A.evaluate(() => { const w = window.__whispers[window.__whispers.length - 1]; return !!w && w.out === true && w.text === '귓속말 테스트' && w.name === '분대원'; }), 'A rendered its own whisper line (out:true, target name)');
+    const got = await waitFor(B, (c) => window.__whispers.find((w) => w.code === c && !w.out) ?? null, 'B whisper line', 6000, aCode).catch(() => null);
+    ok(got && got.text === '귓속말 테스트' && got.name === '호스트', `B received the whisper ${JSON.stringify(got && { name: got.name, text: got.text, out: got.out })}`);
+    // Unfriend (mutual) so the next run starts clean.
+    await B.evaluate((c) => window.__game.ctx.net.social.removeFriend(c), aCode);
+    ok(await waitFor(A, (c) => window.__game.ctx.net.social.friends.every((f) => f.code !== c) ? 1 : 0, 'A unfriended', 6000, bCode).catch(() => 0) === 1,
+      'removeFriend is mutual (A lost B as well)');
+  }
+
+  console.log('목표 행성 (Phase 11: host picks, squad mirrors, guest refused)');
+  await A.evaluate(() => window.__game.ctx.net.setLobbyPlanet('tundra'));
+  ok(await A.evaluate(() => window.__game.ctx.net.lobbyPlanet === 'tundra' && window.__game.ctx.net.lobby.planet === 'tundra'), 'host setLobbyPlanet mirrors optimistically');
+  const planetWire = !!(await waitFor(B, () => window.__game.ctx.net.lobbyPlanet === 'tundra', 'B mirrors lobby.planet', 6000).catch(() => false));
+  if (!planetWire) console.log('  skip lobby:planet wire checks (this relay does not handle lobby:planet yet — server lane)');
+  else ok(true, 'the guest mirrors the host\'s 목표 행성 through lobby:state');
+  await B.evaluate(() => window.__game.ctx.net.setLobbyPlanet('amber'));
+  await sleep(400);
+  ok(await B.evaluate(() => window.__game.ctx.net.lobbyPlanet !== 'amber'), 'a guest\'s setLobbyPlanet is refused (host only)');
+  ok(await A.evaluate(() => { const before = window.__game.ctx.net.lobbyPlanet; window.__game.ctx.net.setLobbyPlanet('not-a-planet'); return window.__game.ctx.net.lobbyPlanet === before; }), 'an unknown planet id is dropped before it is sent');
+  const hubPlanetB = await B.evaluate(() => (typeof window.__game.ctx.hub?.setPlanet === 'function' ? window.__game.ctx.hub.setPlanet('amber') : 'missing'));
+  if (hubPlanetB === 'missing') console.log('  skip ctx.hub.setPlanet (hub lane has not implemented it yet)');
+  else ok(hubPlanetB === false, `a guest's ctx.hub.setPlanet is refused (${hubPlanetB})`);
+  if (planetWire) {
+    ok(await waitFor(B, () => (window.__game.ctx.hub?.planet ?? null) === 'tundra', 'B hub.planet', 6000).catch(() => false) !== false,
+      'ctx.hub.planet follows the squad\'s 목표 행성');
+  }
+  // The launch slots are gated on a 목표 행성 from here on: pick one (through hub/ when it is ready) and let any
+  // travel cutscene finish before boarding.
+  const picked = await A.evaluate(() => {
+    const ctx = window.__game.ctx;
+    if (typeof ctx.hub?.setPlanet === 'function' && ctx.hub.setPlanet('tundra') === true) return 'hub';
+    ctx.net.setLobbyPlanet('tundra');
+    return 'net';
+  });
+  console.log(`  planet set through ${picked}`);
+  await waitFor(A, () => window.__game.ctx.phase === 'hub' && !window.__game.ctx.hub?.travelling, 'A travel finished', 20000).catch(() => null);
+  await waitFor(B, () => window.__game.ctx.phase === 'hub' && !window.__game.ctx.hub?.travelling, 'B travel finished', 20000).catch(() => null);
+  ok(await A.evaluate(() => window.__game.ctx.phase === 'hub' && window.__game.ctx.net.lobbyPlanet === 'tundra'), 'both back in the shared ship with 목표 행성 tundra');
+
   console.log('launch pods');
   await A.evaluate(() => window.__game.ctx.net.startGame(42));
   await sleep(400);
@@ -211,6 +296,15 @@ try {
   ok(await A.evaluate(() => window.__game.ctx.hub.ship === null && window.__game.ctx.player.interior === null), 'A hub torn down');
   ok(await A.evaluate(() => window.__game.ctx.world?.seed === 42), 'A world seed 42');
   ok(await B.evaluate(() => window.__game.ctx.world?.seed === 42), 'B world seed 42');
+  if (planetWire) {
+    const startA = await A.evaluate(() => window.__gameStarting[window.__gameStarting.length - 1] ?? null);
+    ok(startA && startA.planet === 'tundra' && startA.mode === 'raid', `A net:gameStarting carries the 목표 행성 ${JSON.stringify(startA)}`);
+    ok(await A.evaluate(() => { const m = window.__newMission[window.__newMission.length - 1]; return !!m && m.planet === 'tundra'; }), 'A game:newMission carries planet tundra');
+    ok(await A.evaluate(() => window.__game.ctx.missionPlanet === 'tundra'), 'A ctx.missionPlanet was set before the mission was emitted');
+    const startB = await B.evaluate(() => window.__gameStarting[window.__gameStarting.length - 1] ?? null);
+    ok(startB && startB.planet === 'tundra', `B net:gameStarting carries the same planet ${JSON.stringify(startB)}`);
+    ok(await B.evaluate(() => window.__game.ctx.missionPlanet === 'tundra'), 'B ctx.missionPlanet = tundra (the squad flew to one planet)');
+  }
   ok(await A.evaluate(() => window.__game.ctx.isAuthority && window.__game.ctx.isMultiplayer), 'A authority + multiplayer');
   ok(await B.evaluate(() => !window.__game.ctx.isAuthority && window.__game.ctx.isMultiplayer), 'B non-authority + multiplayer');
   await waitFor(A, () => window.__game.ctx.phase === 'playing', 'A playing', 20000);
@@ -501,6 +595,7 @@ try {
   ok(startedT === true, 'B (non-host) requested a training from the shared ship');
   await waitFor(B, () => window.__game.ctx.net.inSession && window.__game.ctx.missionMode === 'training' && window.__game.ctx.world?.mode === 'training', 'B in the training arena', 20000);
   ok(await B.evaluate(() => window.__game.ctx.net.missionMode === 'training' && window.__game.ctx.hub.ship === null), 'B: missionMode training, world.mode training, hub torn down');
+  ok(await B.evaluate(() => window.__game.ctx.missionPlanet === null && (window.__newMission[window.__newMission.length - 1]?.planet ?? null) === null), 'a training carries no 목표 행성 (ctx.missionPlanet null)');
   await waitFor(A, (bid) => window.__game.ctx.net.lobby?.mode === 'training' && window.__game.ctx.net.lobby.players.find((p) => p.id === bid)?.inMission === true, 'A sees the training', 8000, bIdT);
   ok(await A.evaluate((aid) => window.__game.ctx.phase === 'hub' && window.__game.ctx.hub.ship === 'shared' && !window.__game.ctx.net.inSession && window.__game.ctx.net.lobby.players.find((p) => p.id === aid)?.inMission === false && window.__game.ctx.net.missionInProgress, aIdT),
     'A stays in the shared ship: lobby.mode training, only B inMission, missionInProgress');

@@ -54,21 +54,50 @@ export class Starfield {
   }
 }
 
-/** A lit planet sphere with a thin emissive atmosphere shell (seen through viewports). */
+/**
+ * A lit planet sphere with a thin emissive atmosphere shell (seen through viewports, and — since Phase 11 — inside
+ * the terminal's planet hologram). `setColors` re-tints it in place so the ship's window planet can follow the
+ * 목표 행성 without rebuilding the geometry, and `setOpacity` drives the hologram's `PLANET_SWAP_TIME` cross-fade.
+ */
 export class Planet {
   readonly group = new THREE.Group();
   private readonly disposables: Array<THREE.BufferGeometry | THREE.Material> = [];
+  private readonly bodyMat: THREE.MeshStandardMaterial;
+  private readonly shellMat: THREE.MeshBasicMaterial;
+  /** Atmosphere opacity at full strength (`setOpacity` scales this, never overwrites it). */
+  private readonly shellBase: number;
+  private readonly spin: number;
 
-  constructor(radius: number, color: number, atmo: number) {
+  constructor(radius: number, color: number, atmo: number, spin = 0.01, shellOpacity = 0.16) {
     const g = new THREE.SphereGeometry(radius, 40, 28);
-    const m = new THREE.MeshStandardMaterial({ color, roughness: 0.95, metalness: 0.0, emissive: color, emissiveIntensity: 0.08 });
+    const m = this.bodyMat = new THREE.MeshStandardMaterial({ color, roughness: 0.95, metalness: 0.0, emissive: color, emissiveIntensity: 0.08 });
     const body = new THREE.Mesh(g, m);
     const ag = new THREE.SphereGeometry(radius * 1.035, 40, 28);
-    const am = new THREE.MeshBasicMaterial({ color: atmo, transparent: true, opacity: 0.16, side: THREE.BackSide, blending: THREE.AdditiveBlending, depthWrite: false });
+    const am = this.shellMat = new THREE.MeshBasicMaterial({ color: atmo, transparent: true, opacity: shellOpacity, side: THREE.BackSide, blending: THREE.AdditiveBlending, depthWrite: false });
     const shell = new THREE.Mesh(ag, am);
     this.group.add(body, shell);
+    this.group.name = 'HubPlanet';
+    body.name = 'HubPlanetBody';
     this.disposables.push(g, m, ag, am);
+    this.shellBase = shellOpacity;
+    this.spin = spin;
   }
-  update(dt: number): void { this.group.rotation.y += dt * 0.01; }
+
+  /** Re-tint the sphere and its shell (the 목표 행성 changed) — no geometry is rebuilt. */
+  setColors(color: number, atmo: number): void {
+    this.bodyMat.color.setHex(color);
+    this.bodyMat.emissive.setHex(color);
+    this.shellMat.color.setHex(atmo);
+  }
+
+  /** 0..1 fade for the hologram swap (1 = the material's own opacity). */
+  setOpacity(o: number): void {
+    const k = THREE.MathUtils.clamp(o, 0, 1);
+    this.bodyMat.transparent = k < 1;
+    this.bodyMat.opacity = k;
+    this.shellMat.opacity = this.shellBase * k;
+  }
+
+  update(dt: number): void { this.group.rotation.y += dt * this.spin; }
   dispose(): void { for (const d of this.disposables) d.dispose(); this.group.removeFromParent(); }
 }

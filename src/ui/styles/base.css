@@ -2184,3 +2184,234 @@ body.soft-cursor-on, body.soft-cursor-on * { cursor: none !important; }
 .fcard.store.is-blocked { cursor: not-allowed; border-style: dashed; opacity: 0.55; }
 .fcard.store.is-blocked .fcard-name { color: var(--c-text-dim); }
 .fcard.store.is-blocked:hover { background: rgba(255, 255, 255, 0.03); border-color: var(--c-border); }
+
+/* ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * Phase 11 — ESC 재배치 (버튼 좌측 · 소셜 우측) · 설정 사이드 패널 · 커뮤니티 · 분대 초대 · 귓속말 (2026-09-07)
+ * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/* ── ESC: the button column moves to the left edge, the social column takes the right (ship only) ── */
+.menu.pause { justify-content: flex-start; }
+.menu.pause .frame { margin-left: 72px; min-width: 340px; max-width: 380px; }
+.pause-social {
+  position: absolute; right: 56px; top: 50%; transform: translateY(-50%);
+  width: 520px; max-width: calc(100vw - 480px);
+  max-height: calc(100vh - 64px);
+  padding: 20px 22px;
+  background: var(--c-panel-strong); border: 1px solid var(--c-border);
+  pointer-events: auto;
+  animation: menuIn 320ms var(--ease);
+}
+@media (max-width: 1180px) {
+  .menu.pause .frame { margin-left: 40px; }
+  .pause-social { right: 24px; width: 420px; padding: 16px 18px; }
+}
+
+/* ── 소셜 열 (menus/social/SocialColumn) — shared by the ESC screen and the 커뮤니티 panel ── */
+.social-col { display: flex; flex-direction: column; gap: 16px; min-height: 0; }
+.sc-off {
+  padding: 14px 16px; border-left: 2px solid var(--c-border-strong);
+  font-size: 12px; letter-spacing: 0.06em; color: var(--c-text-dim); background: rgba(255, 255, 255, 0.03);
+}
+.sc-body { display: flex; flex-direction: column; gap: 16px; min-height: 0; }
+.sc-section { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.sc-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding-bottom: 5px; border-bottom: 1px solid var(--c-border); }
+.sc-head .ui-label { font-size: 10px; letter-spacing: 0.2em; }
+.sc-note { font-size: 9px; letter-spacing: 0.1em; color: var(--c-text-faint); }
+.sc-empty { font-size: 10px; letter-spacing: 0.04em; color: var(--c-text-faint); }
+.sc-grid {
+  --cols: 2; --rows: 3.5;
+  display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); gap: 6px;
+  max-height: calc(var(--rows) * 56px); overflow-y: auto; overflow-x: hidden;
+  scrollbar-width: thin; padding-right: 4px;
+}
+.sc-grid::-webkit-scrollbar { width: 4px; }
+.sc-grid::-webkit-scrollbar-thumb { background: var(--c-border-strong); }
+.sc-grid.is-empty { display: none; }
+
+/* one profile card */
+.sc-card {
+  display: flex; flex-direction: column; gap: 3px;
+  padding: 6px 8px; min-width: 0;
+  border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03);
+  cursor: context-menu;
+  transition: border-color var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease);
+}
+.sc-card:hover { border-color: var(--c-border-strong); background: rgba(255, 255, 255, 0.06); }
+.sc-top, .sc-bot { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; }
+.sc-id { font-size: 11px; letter-spacing: 0.08em; color: var(--c-accent); }
+.sc-lv { font-size: 10px; color: var(--c-text-dim); flex: none; }
+.sc-name { font-size: 11px; color: var(--c-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sc-pres { display: flex; align-items: center; gap: 4px; flex: none; font-size: 9px; letter-spacing: 0.08em; color: var(--c-text-faint); }
+.sc-pres .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--c-text-faint); }
+.sc-card.is-ship .sc-pres { color: var(--c-success); }
+.sc-card.is-ship .sc-pres .dot { background: var(--c-success); }
+.sc-card.is-raid .sc-pres, .sc-card.is-training .sc-pres { color: var(--c-accent); }
+.sc-card.is-raid .sc-pres .dot, .sc-card.is-training .sc-pres .dot { background: var(--c-accent); }
+.sc-card.is-offline { opacity: 0.55; }
+.sc-card.is-request { border-color: rgba(255, 179, 71, 0.5); background: rgba(255, 179, 71, 0.07); }
+.sc-acts { display: flex; gap: 5px; padding-top: 3px; }
+.sc-act {
+  flex: 1; padding: 3px 0; border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.04);
+  font: inherit; font-size: 10px; letter-spacing: 0.1em; color: var(--c-text-dim); cursor: pointer;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.sc-act:hover { color: var(--c-text); border-color: var(--c-border-strong); }
+.sc-act.ok { color: var(--c-success); border-color: rgba(79, 209, 126, 0.5); }
+
+/* 분대원 rows: simple profile left, the UI-only voice slider + mute right */
+.sc-squad { display: flex; flex-direction: column; gap: 5px; }
+.sc-srow {
+  --sc: #fff;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 5px 8px 5px 6px;
+  border-left: 2px solid var(--sc); background: rgba(255, 255, 255, 0.035);
+}
+.sc-srow.me { background: rgba(255, 179, 71, 0.08); }
+.sc-sleft { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.sc-sleft .sc-name { flex: 1; min-width: 0; }
+.sc-sright { display: flex; align-items: center; gap: 6px; flex: none; }
+.sc-vol {
+  -webkit-appearance: none; appearance: none;
+  width: 96px; height: 3px; background: var(--c-fill); border: 1px solid var(--c-border);
+  outline: none; cursor: pointer;
+}
+.sc-vol::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 9px; height: 14px; border: 1px solid var(--c-border-strong); border-radius: 1px; background: #14161a; cursor: pointer;
+}
+.sc-vol::-moz-range-thumb { width: 9px; height: 14px; border: 1px solid var(--c-border-strong); border-radius: 1px; background: #14161a; cursor: pointer; }
+.sc-vol:disabled { opacity: 0.3; cursor: default; }
+.sc-mute {
+  width: 24px; height: 22px; padding: 0;
+  border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.04);
+  font: inherit; font-size: 11px; line-height: 1; color: var(--c-text-dim); cursor: pointer;
+}
+.sc-mute.is-on { color: var(--c-danger); border-color: rgba(255, 77, 77, 0.5); }
+
+/* right-click menu + 친구 삭제 confirm (direct children of #ui-root) */
+.sc-menu {
+  position: fixed; z-index: 300; min-width: 190px;
+  padding: 5px; background: var(--c-panel-strong); border: 1px solid var(--c-border-strong);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+}
+.sc-menu-items { display: flex; flex-direction: column; }
+.sc-mi {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  padding: 7px 9px; border: none; background: none;
+  font: inherit; font-size: 12px; color: var(--c-text); text-align: left; cursor: pointer;
+  transition: background-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.sc-mi:hover:not(:disabled) { background: rgba(255, 179, 71, 0.14); color: var(--c-accent); }
+.sc-mi.is-off { color: var(--c-text-faint); cursor: not-allowed; }
+.sc-mi .w { font-size: 9px; letter-spacing: 0.06em; color: var(--c-danger); flex: none; }
+.sc-confirm {
+  position: fixed; inset: 0; z-index: 302;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(3, 4, 6, 0.6);
+}
+.sc-confirm-card {
+  width: 360px; padding: 22px 24px 18px;
+  display: flex; flex-direction: column; gap: 12px;
+  background: var(--c-panel-strong); border: 1px solid var(--c-danger);
+}
+.sc-confirm-title { font-size: 16px; font-weight: 700; letter-spacing: 0.16em; color: var(--c-danger); }
+.sc-confirm-body { font-size: 12px; line-height: 1.5; color: var(--c-text-dim); }
+.sc-confirm-foot { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* ── 설정: left-centre side panel with the controls diagram inside 키 설정 ── */
+.menu.settings-menu.side { justify-content: flex-start; background: rgba(3, 4, 6, 0.6); }
+.menu.settings-menu.side .frame {
+  margin-left: 72px;
+  min-width: 560px; max-width: 720px; width: min(720px, calc(100vw - 120px));
+  max-height: calc(100vh - 48px); overflow: hidden;
+}
+.menu.settings-menu .set-section.keys .controls-panel { gap: 10px; }
+.menu.settings-menu .set-section.keys .ctl-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 900px) {
+  .menu.settings-menu.side .frame { margin-left: 24px; min-width: 0; width: calc(100vw - 48px); }
+}
+
+/* ── 커뮤니티 icon + thumbnail + 분대 초대 stack (hud/Community, social layer, ship only) ── */
+.community {
+  position: absolute; right: 32px; top: 28px;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
+  opacity: 0; pointer-events: none;
+  transition: opacity var(--t-fast) var(--ease);
+}
+.community.show { opacity: 1; }
+.community.show .cm-btn, .community.show .cm-invites { pointer-events: auto; }
+/* the MOVE CHEAT tag shares this corner — push it under the thumbnail while in the ship */
+.hud.hub .cheat-tag { top: 108px; }
+.cm-btn {
+  position: relative;
+  width: 64px; height: 64px; padding: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  border: 1px solid var(--c-border-strong); background: rgba(8, 9, 11, 0.72);
+  font: inherit; color: var(--c-text-dim); cursor: pointer;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease);
+}
+.cm-btn:hover { color: var(--c-accent); border-color: var(--c-accent); background: rgba(255, 179, 71, 0.12); }
+.cm-glyph { font-size: 22px; line-height: 1; }
+.cm-tag { font-size: 8px; letter-spacing: 0.16em; }
+.cm-count {
+  position: absolute; right: 3px; bottom: 2px;
+  font-size: 10px; line-height: 1; letter-spacing: 0.02em; color: var(--c-success);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+}
+.cm-dot {
+  position: absolute; right: -3px; top: -3px;
+  width: 9px; height: 9px; border-radius: 50%;
+  background: var(--c-danger); box-shadow: 0 0 6px rgba(255, 77, 77, 0.8);
+  animation: cmDot 1.4s ease-in-out infinite alternate;
+}
+@keyframes cmDot { from { opacity: 0.55; } to { opacity: 1; } }
+.cm-invites { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.cm-invite {
+  width: 214px; padding: 6px 8px 7px;
+  display: flex; flex-direction: column; gap: 3px;
+  border: 1px solid var(--c-border); background: rgba(8, 9, 11, 0.78);
+  animation: objSwap 200ms var(--ease);
+}
+.cm-invite.is-active { border-color: var(--c-accent); }
+.ci-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.ci-id { font-size: 11px; letter-spacing: 0.08em; color: var(--c-accent); }
+.ci-x {
+  width: 16px; height: 16px; padding: 0; border: none; background: none;
+  font: inherit; font-size: 13px; line-height: 1; color: var(--c-text-faint); cursor: pointer;
+}
+.ci-x:hover { color: var(--c-danger); }
+.ci-name { font-size: 11px; color: var(--c-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ci-hint { font-size: 9px; letter-spacing: 0.1em; color: var(--c-text-dim); }
+.ci-bar { height: 3px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
+.ci-bar i { display: block; height: 100%; background: var(--c-accent); transform-origin: left; transform: scaleX(0); transition: transform 90ms linear; }
+
+/* 커뮤니티 panel (direct child of #ui-root so the social layer gating never hides it) */
+.community-panel {
+  position: absolute; inset: 0; z-index: 46;
+  display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(ellipse at 50% 40%, rgba(8, 10, 14, 0.55), rgba(3, 4, 6, 0.88));
+}
+.cp-frame {
+  position: relative;
+  width: min(680px, calc(100vw - 64px)); max-height: calc(100vh - 64px);
+  display: flex; flex-direction: column; gap: 16px;
+  padding: 26px 28px 22px;
+  background: var(--c-panel-strong); border: 1px solid var(--c-border);
+  animation: menuIn 260ms var(--ease);
+}
+.cp-head { display: flex; align-items: baseline; gap: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--c-border); }
+.cp-title { font-size: 22px; font-weight: 700; letter-spacing: 0.2em; }
+.cp-code { flex: 1; min-width: 0; font-size: 11px; letter-spacing: 0.08em; color: var(--c-text-dim); }
+.cp-close { flex: none; }
+
+/* ── 귓속말 (hud/ChatLog): target chip, whisper lines, the mid-left column while a target is set ── */
+.chat-target {
+  display: flex; align-items: center; gap: 4px; flex: none;
+  padding: 1px 4px 1px 6px;
+  border: 1px solid var(--c-accent); background: rgba(255, 179, 71, 0.14);
+  font-size: 10px; letter-spacing: 0.04em; color: var(--c-accent);
+}
+.chat-target .x { border: none; background: none; font: inherit; font-size: 12px; line-height: 1; color: var(--c-accent); cursor: pointer; }
+.chat-target .x:hover { color: var(--c-text); }
+.chat-line.whisper .txt, .chat-line.whisper .who { color: #d9a3ff; font-style: italic; }
+.hud-bl.whispering { bottom: 46%; }

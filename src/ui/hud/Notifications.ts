@@ -1,5 +1,5 @@
 import type { GameContext } from '@/shared';
-import { CONTRACT_DEFS, QUEST_DEFS, SUSPENDED_LABEL_KO, WEIGHT_STATE_LABEL_KO, formatCredits } from '@/shared';
+import { CONTRACT_DEFS, Keys, QUEST_DEFS, SUSPENDED_LABEL_KO, WEIGHT_STATE_LABEL_KO, formatCredits, keyLabel } from '@/shared';
 import { el, escapeHtml, rarityColor } from '../dom';
 import { stratagemDef } from './stratagemGlyphs';
 
@@ -118,6 +118,14 @@ export class Notifications {
         else this.push(`<b>${escapeHtml(name)}</b> 재연결`, 'success', '분대', 3);
       }),
       b.on('training:exitRequested', () => this.push('시뮬레이션 훈련장 퇴장 — 장비 복원', 'info', '훈련장', 3)),
+      /* ── Phase 11 소셜: the folder's one toast owner reports every social outcome (the panels never toast) ── */
+      b.on('social:error', ({ message }) => this.push(escapeHtml(message), 'warning', '소셜', 3.5)),
+      b.on('social:play', ({ name, outcome }) => {
+        const who = escapeHtml(name || '분대원');
+        if (outcome === 'joined') this.push(`<b>${who}</b> 분대에 합류합니다`, 'success', '소셜', 3.5);
+        else this.push(`<b>${who}</b>에게 분대 초대를 보냈습니다`, 'info', '소셜', 3.5);
+      }),
+      b.on('social:invited', ({ invite }) => this.push(`<b>${escapeHtml(invite.name || '분대원')}</b> 분대 초대 — ${keyLabel(Keys.INVITE)} 홀드로 참여`, 'info', '소셜', 5)),
       /* ── tactical kit: gear, gathering, crafting, gadgets, progression ── */
       b.on('durability:changed', ({ uid, defId, durability, max }) => {
         if (max <= 0) return;

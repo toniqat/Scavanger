@@ -1,7 +1,7 @@
 import type { AudioChannel, GameContext } from '@/shared';
 import { el, setText } from '../dom';
 import type { KeybindMenu } from './KeybindMenu';
-import { KEYBIND_BUTTON_LABEL } from './ControlsPanel';
+import { ControlsPanel, KEYBIND_BUTTON_LABEL } from './ControlsPanel';
 
 interface Slider {
   channel: AudioChannel;
@@ -18,21 +18,26 @@ const CHANNEL_DESC: Readonly<Record<AudioChannel, string>> = {
 const CHANNELS: readonly AudioChannel[] = ['master', 'sfx'];
 
 /**
- * 설정 overlay (`.menu.settings-menu`, Phase 8) opened from the pause menu's `설정` button — in a mission and in the
- * ship alike. Two sections:
- *   - **키 설정**: a single button that opens the shared `KeybindMenu` overlay on top of this one. There is exactly one
- *     rebinding code path in the game (that class); this menu never duplicates its rows.
+ * 설정 panel (`.menu.settings-menu.side`, Phase 8; a **left-centre side panel** since Phase 11 so it sits on the same
+ * side as the re-laid-out ESC button column) opened from the pause menu's `설정` button — in a mission and in the ship
+ * alike. Two sections:
  *   - **오디오**: 전체 / 효과음 sliders driving `ctx.audio.setVolume(channel, v)` live, with `ctx.audio.preview(channel)`
  *     on release and the current percentage next to the label. `ctx.audio` may be null (audio system not registered) —
  *     the rows then render disabled with a note. Room is left for a future BGM row (`CHANNELS`), but there is no BGM.
+ *   - **키 설정**: a real `menus/ControlsPanel` instance (the procedural keyboard + mouse diagram and the per-function
+ *     list, identical to the title screen) with the `KEYBIND_BUTTON_LABEL` button under it, which opens the shared
+ *     `KeybindMenu` overlay on top of this one. There is exactly one rebinding code path in the game (that class);
+ *     this panel never duplicates its rows.
  *
  * Like `KeybindMenu` it takes **no** `ctx.uiBlockers` token: it only ever opens on top of a menu that already holds
- * `'menu'` (the pause menu), so closing it must not release the host's blocker. Emits `ui:settingsToggled`.
+ * `'menu'` (the pause menu), so closing it must not release the host's blocker. Escape is captured and yields while
+ * `keybinds.isOpen`. Emits `ui:settingsToggled`.
  */
 export class SettingsMenu {
   readonly root: HTMLElement;
   private frame: HTMLElement;
   private note: HTMLElement;
+  private controls: ControlsPanel;
   private sliders: Slider[] = [];
   private _open = false;
   private ctx!: GameContext;
@@ -47,7 +52,7 @@ export class SettingsMenu {
   };
 
   constructor(parent: HTMLElement, private readonly keybinds: KeybindMenu) {
-    this.root = el('div', { cls: 'menu settings-menu interactive', parent });
+    this.root = el('div', { cls: 'menu settings-menu side interactive', parent });
     this.root.hidden = true;
     el('div', { cls: 'scan', parent: this.root });
     const f = this.frame = el('div', { cls: 'frame', parent: this.root });
@@ -57,18 +62,6 @@ export class SettingsMenu {
     this.note = el('div', { cls: 'subtitle', text: '키 설정과 오디오 볼륨을 조절합니다.', parent: head });
 
     const body = el('div', { cls: 'set-body', parent: f });
-
-    /* ── 키 설정 ── */
-    const keys = el('div', { cls: 'set-section', parent: body });
-    el('div', { cls: 'set-section-title', text: '키 설정', parent: keys });
-    const keyRow = el('div', { cls: 'set-row', parent: keys });
-    el('div', { cls: 'set-row-label', text: '키 배치를 변경하고 충돌을 확인합니다.', parent: keyRow });
-    const keyBtn = el('button', { cls: 'ui-btn set-key-btn', text: KEYBIND_BUTTON_LABEL, parent: keyRow });
-    keyBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.ctx.bus.emit('audio:play', { id: 'ui_click' });
-      this.keybinds.open();
-    });
 
     /* ── 오디오 ── */
     const audio = el('div', { cls: 'set-section audio', parent: body });
@@ -96,6 +89,19 @@ export class SettingsMenu {
       this.sliders.push({ channel, input, value });
     }
     el('div', { cls: 'set-hint', text: '배경 음악은 아직 없습니다.', parent: audio });
+
+    /* ── 키 설정 — the title screen's own diagram, then the one rebinding entry point ── */
+    const keys = el('div', { cls: 'set-section keys', parent: body });
+    el('div', { cls: 'set-section-title', text: '키 설정', parent: keys });
+    this.controls = new ControlsPanel(keys);
+    const keyRow = el('div', { cls: 'set-row', parent: keys });
+    el('div', { cls: 'set-row-label', text: '키 배치를 변경하고 충돌을 확인합니다.', parent: keyRow });
+    const keyBtn = el('button', { cls: 'ui-btn set-key-btn', text: KEYBIND_BUTTON_LABEL, parent: keyRow });
+    keyBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.ctx.bus.emit('audio:play', { id: 'ui_click' });
+      this.keybinds.open();
+    });
 
     const foot = el('div', { cls: 'set-foot', parent: f });
     const close = el('button', { cls: 'ui-btn primary', text: '닫기', parent: foot });
@@ -133,8 +139,9 @@ export class SettingsMenu {
     this.ctx.bus.emit('ui:settingsToggled', { open: false });
   }
 
-  /** Re-read the live volumes (called on open; cheap enough to call again from a smoke). */
+  /** Re-read the live volumes + key diagram (called on open; cheap enough to call again from a smoke). */
   refresh(): void {
+    this.controls.refresh();
     const audio = this.ctx.audio;
     for (const s of this.sliders) {
       const v = audio ? audio.settings[s.channel] : 1;
@@ -156,6 +163,8 @@ export class SettingsMenu {
 
   dispose(): void {
     this.close();
+    // Same order as `TitleMenu`: the diagram unsubscribes from `onKeybindsChanged` before its host goes away.
+    this.controls.dispose();
     this.root.remove();
   }
 }

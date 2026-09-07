@@ -1,6 +1,10 @@
-import type { GameContext, LobbyState, NetRef } from '@/shared';
-import { NET_SLOT_COLORS_CSS, NET_MAX_PLAYERS, isValidLobbyCode, normalizeLobbyCode, sanitizePlayerName } from '@/shared';
+import type { GameContext, LobbyState, NetRef, PlanetDef, PlanetId } from '@/shared';
+import {
+  NET_SLOT_COLORS_CSS, NET_MAX_PLAYERS, PLANET_DEFS, PLANET_IDS, PLANET_THREAT_LABELS,
+  isValidLobbyCode, normalizeLobbyCode, planetIndex,
+} from '@/shared';
 import { el, isolateInput, setText, toggleClass } from './dom';
+import { createPlanetHologram, type PlanetHologram } from './PlanetHologram';
 
 /** What the menu needs from HubSystem. */
 export interface HubMenuHost {
@@ -10,19 +14,35 @@ export interface HubMenuHost {
   onClosed(): void;
   /** 시뮬레이션 훈련장 (Phase 7, shared ship): start a training or join the one already running. */
   startTraining(): void;
+  /* ── 목표 행성 (Phase 11) ── */
+  /** The ship's current 목표 행성 (`HubRef.planet`), or null while nothing is picked. */
+  planet(): PlanetId | null;
+  /**
+   * Why 행성 이동 is refused right now (Korean, shown on the disabled button), or null when it is allowed.
+   * The rules live in `HubSystem.travelBlockReason` — the menu only renders them.
+   */
+  travelBlock(): string | null;
+  /** Commit the previewed planet: `HubRef.setPlanet` (starts the travel cutscene). */
+  travelTo(planet: PlanetId): void;
 }
 
 const MSG_TTL = 4500;
 
 /**
- * Ship terminal menu (`.menu.hub-menu`): pilot name, signal search (quick match) / dock by code /
- * broadcast (private ship) in the personal ship; code + invite + public toggle + crew + undock in the shared ship.
+ * Ship terminal (`.menu.hub-menu.fullscreen`) — **full-screen since Phase 11**, three columns:
+ *
+ * - **left**: the matchmaking sections, unchanged in behaviour — `신호` (개인 함선: 신호 찾기 / 코드로 도킹 /
+ *   신호 송출) and `공유 함선` (코드 · 초대 링크 · 공개 전환 · 승무원 4행 · 도킹 해제).
+ * - **centre**: the 행성 홀로그램 (`ui/PlanetHologram`, its own WebGL canvas) with the planet's name, 지형, a
+ *   위협 badge and its one-line brief, `◀ ▶` (mouse, `←` / `→` and `A` / `D`) and the **행성 이동** button.
+ *   Stepping left / right only *previews* — the ship flies when 행성 이동 is pressed (`HubRef.setPlanet`).
+ * - **right, bottom**: `시뮬레이션 훈련장` + the `/seed` hint; the footer keeps 닫기 (Esc) / 타이틀로.
+ *
+ * The 승무원 이름 section is **gone** (Phase 11): the call sign is entered once on the title screen
+ * (`ui/menus/TitleMenu` → `net.setPlayerName`), so the terminal no longer renames anyone.
  * The mission-seed field left the terminal on 2026-09-06: seeds are set only through the dev console (`/seed`).
- * Adds the `'hub'` blocker token before exiting pointer lock; emits `ui:hubMenuToggled`.
- * Implants and repairs left the terminal on 2026-09-06: both live on the Tab ship screen (inventory folder —
- * implant slot under the gear, 수리 in the right-click menu).
- * Phase 8 (2026-09-06): the 캐릭터 button is gone (캐릭터 is a Tab-screen tab now) and the 승무원 name can only be
- * set **once** — after `ShipState.nameLocked` it is a read-only line.
+ * Cursor etiquette is Phase 10's: add the `'hub'` blocker, then `ctx.input.setCursorMode(true, 'hub')` — the pointer
+ * lock is **kept**, never `exitPointerLock()`. Emits `ui:hubMenuToggled` **and** `hub:terminalToggled`.
  */
 export class HubMenu {
   readonly root: HTMLElement;
@@ -36,13 +56,6 @@ export class HubMenu {
   private subtitle: HTMLElement;
   private pill: HTMLElement;
   private pillText: HTMLElement;
-  // pilot (name asked once, then read-only)
-  private nameRow: HTMLElement;
-  private nameInput: HTMLInputElement;
-  private nameText: HTMLElement;
-  private nameHint: HTMLElement;
-  /** The name was entered in this session — the input disappears immediately, before housing persists `nameLocked`. */
-  private nameChosen = false;
   private seedHint: HTMLElement;
   // personal
   private secSignal: HTMLElement;
@@ -62,11 +75,26 @@ export class HubMenu {
   // training (shared ship)
   private secTrain: HTMLElement;
   private btnTrain: HTMLButtonElement;
+  // planet (Phase 11)
+  private holoHost: HTMLElement;
+  private holo: PlanetHologram | null = null;
+  private holoTried = false;
+  private pName: HTMLElement;
+  private pTerrain: HTMLElement;
+  private pThreat: HTMLElement;
+  private pBrief: HTMLElement;
+  private pDots: HTMLElement[] = [];
+  private btnPrev: HTMLButtonElement;
+  private btnNext: HTMLButtonElement;
+  private btnTravel: HTMLButtonElement;
+  private pCurrent: HTMLElement;
+  /** Previewed planet index into `PLANET_IDS` (not the ship's planet until 행성 이동 is pressed). */
+  private cursor = 0;
   // footer / message
   private msg: HTMLElement;
 
   constructor(private readonly ctx: GameContext, private readonly host: HubMenuHost) {
-    const root = this.root = el('div', { cls: 'menu hub-menu interactive', parent: ctx.uiRoot });
+    const root = this.root = el('div', { cls: 'menu hub-menu fullscreen interactive', parent: ctx.uiRoot });
     root.hidden = true;
     el('div', { cls: 'scan', parent: root });
     const f = this.frame = el('div', { cls: 'frame', parent: root });
@@ -80,29 +108,14 @@ export class HubMenu {
     el('i', { parent: this.pill });
     this.pillText = el('span', { text: '오프라인', parent: this.pill });
 
-    // ── page (the terminal is ship-only since the Tab screen took implants / repairs) ──
-    const page = el('div', { cls: 'hub-page', parent: f });
-
-    // ── pilot (the name is asked once; after that it is a read-only line — Phase 8) ──
-    const secPilot = this.section(page, '승무원');
-    this.nameRow = el('div', { cls: 'row', parent: secPilot });
-    this.nameInput = el('input', { cls: 'ui-input', attrs: { type: 'text', maxlength: '16', placeholder: '호출명', spellcheck: 'false' }, parent: this.nameRow });
-    isolateInput(this.nameInput, () => this.close());
-    this.nameInput.addEventListener('change', () => {
-      const n = sanitizePlayerName(this.nameInput.value);
-      this.nameInput.value = n;
-      ctx.net?.setPlayerName(n);      // also renames in-lobby (server broadcasts lobby:state)
-      this.nameChosen = true;
-      ctx.housing?.lockCrewName?.();  // persist the one-time choice (ShipState.nameLocked, owned by housing/)
-      this.showMsg(`호출명 등록: ${n}`, 'success');
-      this.refresh();
-    });
-    this.nameText = el('div', { cls: 'hub-crew-name', text: '스캐빈저', parent: secPilot });
-    this.nameHint = el('div', { cls: 'hint', text: '분대에 표시되는 이름입니다.', parent: secPilot });
-    this.seedHint = el('div', { cls: 'hint seed-hint', text: '임무 시드는 개발자 콘솔 /seed 로만 설정합니다.', parent: secPilot });
+    // ── three columns (the terminal is ship-only since the Tab screen took implants / repairs) ──
+    const grid = el('div', { cls: 'hub-grid', parent: f });
+    const left = el('div', { cls: 'hub-col left', parent: grid });
+    const centre = el('div', { cls: 'hub-col centre', parent: grid });
+    const right = el('div', { cls: 'hub-col right', parent: grid });
 
     // ── signal (personal ship) ──
-    this.secSignal = this.section(page, '신호');
+    this.secSignal = this.section(left, '신호');
     this.btnMatch = this.button(this.secSignal, '신호 찾기 (자동 매칭)', () => this.connectThen((n) => n.quickMatch()), 'primary wide');
     const codeRow = el('div', { cls: 'row', parent: this.secSignal });
     this.codeInput = el('input', { cls: 'ui-input code-input', attrs: { type: 'text', maxlength: '8', placeholder: '함선 코드', spellcheck: 'false', autocomplete: 'off' }, parent: codeRow });
@@ -114,7 +127,7 @@ export class HubMenu {
     el('div', { cls: 'hint', text: '자동 매칭은 공개 함선에 도킹합니다. 코드가 있으면 분대의 함선에 직접 도킹하세요.', parent: this.secSignal });
 
     // ── ship (shared) ──
-    this.secShip = this.section(page, '공유 함선');
+    this.secShip = this.section(left, '공유 함선');
     const codeBlock = el('div', { cls: 'hub-code', parent: this.secShip });
     this.codeText = el('div', { cls: 'code', text: '------', parent: codeBlock });
     this.visTag = el('div', { cls: 'vis', text: '비공개', parent: codeBlock });
@@ -137,17 +150,40 @@ export class HubMenu {
     }
     this.btnLeave = this.button(this.secShip, '도킹 해제', () => ctx.net?.leaveLobby(), 'danger wide');
 
+    // ── 목표 행성 (centre column, Phase 11) ──
+    const planet = el('div', { cls: 'hub-planet', parent: centre });
+    el('div', { cls: 'hp-eyebrow', text: '목표 행성', parent: planet });
+    const stage = el('div', { cls: 'hp-stage', parent: planet });
+    this.btnPrev = this.button(stage, '◀', () => this.step(-1), 'hp-arrow prev');
+    this.holoHost = el('div', { cls: 'hp-holo', parent: stage });
+    this.btnNext = this.button(stage, '▶', () => this.step(1), 'hp-arrow next');
+    this.pCurrent = el('div', { cls: 'hp-current', text: '현재 목표', parent: this.holoHost });
+    this.pCurrent.hidden = true;
+    const dots = el('div', { cls: 'hp-dots', parent: planet });
+    for (let i = 0; i < PLANET_IDS.length; i++) {
+      const d = el('i', { parent: dots });
+      d.dataset.planet = PLANET_IDS[i];
+      this.pDots.push(d);
+    }
+    const nameRow = el('div', { cls: 'hp-name-row', parent: planet });
+    this.pName = el('div', { cls: 'hp-name', text: '—', parent: nameRow });
+    this.pThreat = el('div', { cls: 'hp-threat', text: '', parent: nameRow });
+    this.pTerrain = el('div', { cls: 'hp-terrain', text: '', parent: planet });
+    this.pBrief = el('div', { cls: 'hp-brief', text: '', parent: planet });
+    this.btnTravel = this.button(planet, '행성 이동', () => this.travel(), 'primary hp-travel');
+
     // ── 시뮬레이션 훈련장 (shared ship; the personal ship enters through the 사격장 sim hub) ──
-    this.secTrain = this.section(page, '시뮬레이션 훈련장');
+    this.secTrain = this.section(right, '시뮬레이션 훈련장');
     this.btnTrain = this.button(this.secTrain, '시작', () => host.startTraining(), 'primary wide');
     el('div', { cls: 'hint', text: '개별 입장 · 카운트다운 없음. 탄약과 내구도는 소모되지 않습니다. 진행 중인 훈련에는 언제든 합류할 수 있습니다.', parent: this.secTrain });
+    this.seedHint = el('div', { cls: 'hint seed-hint', text: '임무 시드는 개발자 콘솔 /seed 로만 설정합니다.', parent: right });
 
     // ── message + footer ──
     this.msg = el('div', { cls: 'form-msg', parent: f });
     this.msg.hidden = true;
     const foot = el('div', { cls: 'hub-foot', parent: f });
     const footRight = el('div', { cls: 'right', parent: foot });
-    this.button(footRight, '닫기', () => this.close());
+    this.button(footRight, '닫기 (Esc)', () => this.close());
     this.button(footRight, '타이틀로', () => { this.close(false); host.toTitle(); }, 'danger');
 
     // keep clicks inside from reaching the canvas' click-to-lock fallback
@@ -167,18 +203,75 @@ export class HubMenu {
       b.on('net:matched', ({ created }) => this.showMsg(created ? '열린 신호가 없어 새 공개 함선을 열었습니다' : '신호 포착 — 도킹 절차 시작', 'success')),
       b.on('net:peerJoined', ({ name }) => this.showMsg(`${name} 합류`, 'info')),
       b.on('net:peerLeft', ({ name }) => this.showMsg(`${name} 이탈`, 'warning')),
+      // 목표 행성: a squad-mate's pick (or our own, once the cutscene landed) re-syncs the preview
+      b.on('hub:planetChanged', ({ planet: p }) => { this.cursor = planetIndex(p); this.syncPlanet(0); this.refresh(); }),
+      b.on('hub:travel', () => this.refresh()),
     );
+    window.addEventListener('keydown', this.onKeyDown);
   }
 
   get isOpen(): boolean { return this._open; }
 
-  /**
-   * The crew name is chosen once (`ShipState.nameLocked`, owned by housing/) and is a read-only line afterwards.
-   * `nameChosen` covers the same session, so the input disappears the moment the player commits a name.
-   */
-  private nameLocked(): boolean {
-    if (this.nameChosen) return true;
-    try { return this.ctx.housing?.state?.nameLocked === true; } catch { return false; }
+  /* ── 목표 행성 ─────────────────────────────────────────────────────────── */
+  /** `←` / `→` and `A` / `D` step the hologram. Bubble phase, so `isolateInput` fields swallow their own keys. */
+  private onKeyDown = (e: KeyboardEvent): void => {
+    if (!this._open) return;
+    if (e.code === 'ArrowLeft' || e.code === 'KeyA') { this.step(-1); e.preventDefault(); }
+    else if (e.code === 'ArrowRight' || e.code === 'KeyD') { this.step(1); e.preventDefault(); }
+  };
+
+  private def(): PlanetDef { return PLANET_DEFS[this.cursor] ?? PLANET_DEFS[0]; }
+
+  private step(dir: number): void {
+    const n = PLANET_IDS.length;
+    const next = ((this.cursor + dir) % n + n) % n;
+    if (next === this.cursor) return;
+    this.cursor = next;
+    this.ctx.bus.emit('audio:play', { id: 'ui_click' });
+    this.syncPlanet(dir);
+    this.refresh();
+  }
+
+  /** Push the previewed planet into the hologram + the labels. `dir` 0 = no slide (open / external change). */
+  private syncPlanet(dir: number): void {
+    const d = this.def();
+    if (!this.holoTried) {
+      this.holoTried = true;
+      this.holo = createPlanetHologram(this.holoHost);
+      toggleClass(this.root, 'no-holo', !this.holo);
+    }
+    this.holo?.setPlanet(d, dir === 0 ? 1 : dir);
+    setText(this.pName, d.name);
+    setText(this.pTerrain, d.terrain);
+    setText(this.pThreat, PLANET_THREAT_LABELS[d.threat] ?? '');
+    this.pThreat.dataset.threat = String(d.threat);
+    setText(this.pBrief, d.brief);
+    for (let i = 0; i < this.pDots.length; i++) toggleClass(this.pDots[i], 'on', i === this.cursor);
+  }
+
+  private travel(): void {
+    const d = this.def();
+    const blocked = this.host.travelBlock();
+    if (blocked) { this.showMsg(blocked, 'warning'); this.ctx.bus.emit('audio:play', { id: 'ui_deny' }); return; }
+    if (this.host.planet() === d.id) return;
+    this.host.travelTo(d.id);
+  }
+
+  /** Button state of 행성 이동: 현재 목표 / a `travelBlock` reason / enabled. */
+  private refreshTravel(): void {
+    const d = this.def();
+    const here = this.host.planet() === d.id;
+    const blocked = this.host.travelBlock();
+    this.pCurrent.hidden = !here;
+    if (here) { setText(this.btnTravel, '현재 목표'); this.btnTravel.disabled = true; }
+    else if (blocked) { setText(this.btnTravel, blocked); this.btnTravel.disabled = true; }
+    else { setText(this.btnTravel, `${d.name}(으)로 이동`); this.btnTravel.disabled = false; }
+    const lock = !!blocked;
+    this.btnPrev.disabled = false;      // stepping is a preview — never locked
+    this.btnNext.disabled = false;
+    toggleClass(this.btnTravel, 'locked', lock);
+    const cur = this.host.planet();
+    for (let i = 0; i < this.pDots.length; i++) toggleClass(this.pDots[i], 'here', PLANET_IDS[i] === cur);
   }
 
   /* ── open / close ─────────────────────────────────────────────────────── */
@@ -192,9 +285,12 @@ export class HubMenu {
     this.frame.style.animation = 'none';
     void this.frame.offsetWidth;
     this.frame.style.animation = '';
-    this.nameInput.value = this.ctx.net?.playerName ?? '스캐빈저';
+    this.cursor = planetIndex(this.host.planet());
+    this.syncPlanet(0);
+    this.holo?.setVisible(true);
     this.refresh();
     this.ctx.bus.emit('ui:hubMenuToggled', { open: true });
+    this.ctx.bus.emit('hub:terminalToggled', { open: true });
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
   }
 
@@ -202,10 +298,12 @@ export class HubMenu {
     if (!this._open) return;
     this._open = false;
     this.root.hidden = true;
+    this.holo?.setVisible(false);              // stop rendering the second WebGL context while it is closed
     (document.activeElement as HTMLElement | null)?.blur?.();
     this.ctx.uiBlockers.delete('hub');
     this.ctx.input.setCursorMode(false, 'hub');
     this.ctx.bus.emit('ui:hubMenuToggled', { open: false });
+    this.ctx.bus.emit('hub:terminalToggled', { open: false });
     if (relock) this.host.onClosed();
   }
 
@@ -226,13 +324,6 @@ export class HubMenu {
     const seed = lobby ? lobby.seed : (ctx.hub?.missionSeed ?? null);
     setText(this.seedHint, `임무 시드는 개발자 콘솔 /seed 로만 설정합니다. 현재: ${seed === null ? '무작위' : seed}${lobby && !isHost ? ' (호스트 설정)' : ''}`);
 
-    // crew name: input on the very first run, a read-only line once it is locked
-    const locked = this.nameLocked();
-    this.nameRow.hidden = locked;
-    this.nameText.hidden = !locked;
-    setText(this.nameText, net?.playerName ?? '스캐빈저');
-    setText(this.nameHint, locked ? '호출명은 처음 한 번만 정할 수 있습니다.' : '분대에 표시되는 이름입니다. 한 번만 정할 수 있습니다.');
-
     // sections
     this.secSignal.hidden = !!lobby;
     this.secShip.hidden = !lobby;
@@ -240,7 +331,8 @@ export class HubMenu {
     this.btnMatch.disabled = !canNet;
     this.btnJoin.disabled = !canNet;
     this.btnCreate.disabled = !canNet;
-    if (!net) setText(this.msgEl(), '');
+
+    this.refreshTravel();
 
     this.secTrain.hidden = !lobby;
     if (lobby) {
@@ -321,6 +413,7 @@ export class HubMenu {
       case 'not_in_lobby': return '도킹된 함선이 없습니다';
       case 'not_started': return '진행 중인 임무가 없습니다';
       case 'duplicate': return '다른 탭에서 같은 세션이 연결되었습니다';
+      case 'no_planet': return '목표 행성을 먼저 지정하세요';
       case 'invalid': return '잘못된 요청입니다';
       default: return message || '서버 오류';
     }
@@ -339,8 +432,6 @@ export class HubMenu {
     return b;
   }
 
-  private msgEl(): HTMLElement { return this.msg; }
-
   showMsg(text: string, kind: 'info' | 'success' | 'warning' | 'danger' = 'info'): void {
     if (!this._open) return;
     this.msg.className = `form-msg ${kind}`;
@@ -349,13 +440,17 @@ export class HubMenu {
     this.msgTimer = performance.now() + MSG_TTL;
   }
 
-  update(): void {
+  /** Called every hub frame: expire the inline message and drive the hologram's own render loop. */
+  update(dt = 0): void {
     if (this.msgTimer > 0 && !this.msg.hidden && performance.now() > this.msgTimer) { this.msg.hidden = true; this.msgTimer = 0; }
+    if (this._open) this.holo?.render(dt);
   }
 
   dispose(): void {
     for (const u of this.unsubs) u();
     this.unsubs.length = 0;
+    window.removeEventListener('keydown', this.onKeyDown);
+    this.holo?.dispose(); this.holo = null;
     this.ctx.uiBlockers.delete('hub');
     this.ctx.input.setCursorMode(false, 'hub');
     this.root.remove();

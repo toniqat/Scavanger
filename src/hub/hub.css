@@ -66,6 +66,64 @@
 .hub-page { display: flex; flex-direction: column; gap: 18px; }
 .hub-section .hint.warn { color: var(--c-accent); }
 
+/* ── full-screen terminal + 행성 선택 (Phase 11) ──────────────────────────────
+   `.fullscreen` makes the frame fill the viewport (no 680px card) and lays the sections out in three columns:
+   matchmaking left, the planet hologram centre, 시뮬레이션 훈련장 + the /seed hint bottom-right. The frame itself
+   never scrolls (`overflow: hidden` above) — each column scrolls on its own if the window is short. */
+.menu.hub-menu.fullscreen .frame {
+  min-width: 0; max-width: none; width: 100vw; height: 100vh; max-height: 100vh;
+  padding: 26px 34px 22px; gap: 14px;
+  box-sizing: border-box;
+}
+.menu.hub-menu.fullscreen .hub-grid {
+  flex: 1; min-height: 0;
+  display: grid; grid-template-columns: minmax(300px, 380px) minmax(0, 1fr) minmax(280px, 340px); gap: 26px;
+}
+.hub-col { display: flex; flex-direction: column; gap: 18px; min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
+.hub-col.centre { align-items: center; justify-content: center; overflow: hidden; }
+.hub-col.right { justify-content: flex-end; }
+
+/* the planet card: hologram, name / 지형 / 위협 badge / brief, then 행성 이동 */
+.hub-planet { display: flex; flex-direction: column; align-items: center; gap: 8px; width: min(560px, 100%); }
+.hp-eyebrow { font-size: 10px; letter-spacing: 0.3em; text-transform: uppercase; color: var(--c-text-faint); }
+.hp-stage { position: relative; display: flex; align-items: center; justify-content: center; gap: 10px; }
+.hp-holo {
+  position: relative;
+  width: 360px; height: 360px; max-width: min(42vh, 42vw); max-height: min(42vh, 42vw);
+  border: 1px solid rgba(95, 215, 255, 0.16);
+  background: radial-gradient(circle at 50% 55%, rgba(95, 215, 255, 0.1), rgba(4, 10, 16, 0) 68%);
+}
+.hp-holo canvas { display: block; width: 100%; height: 100%; }
+/* createPlanetHologram returned null (no second WebGL context): the card degrades to the text block */
+.menu.hub-menu.no-holo .hp-holo { width: 220px; height: 120px; }
+.hp-current {
+  position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%);
+  font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--c-success);
+  border: 1px solid rgba(79, 209, 126, 0.45); padding: 2px 8px; background: rgba(8, 10, 14, 0.7);
+}
+.ui-btn.hp-arrow { min-width: 0; width: 44px; height: 64px; padding: 0; font-size: 18px; }
+.hp-dots { display: flex; gap: 8px; padding: 4px 0; }
+.hp-dots i { width: 7px; height: 7px; border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.06); }
+.hp-dots i.here { border-color: rgba(79, 209, 126, 0.7); background: rgba(79, 209, 126, 0.35); }
+.hp-dots i.on { border-color: var(--c-accent); background: var(--c-accent); box-shadow: 0 0 8px rgba(255, 179, 71, 0.5); }
+.hp-name-row { display: flex; align-items: baseline; gap: 12px; }
+.hp-name { font-size: 24px; font-weight: 700; letter-spacing: 0.14em; }
+.hp-threat {
+  font-size: 9px; letter-spacing: 0.16em; text-transform: uppercase; white-space: nowrap;
+  color: var(--c-success); border: 1px solid rgba(79, 209, 126, 0.45); padding: 2px 8px;
+}
+.hp-threat[data-threat="2"] { color: var(--c-accent); border-color: rgba(255, 179, 71, 0.5); }
+.hp-threat[data-threat="3"] { color: var(--c-danger); border-color: rgba(255, 90, 70, 0.5); }
+.hp-terrain { font-size: 12px; letter-spacing: 0.16em; color: var(--c-text-dim); }
+.hp-brief { font-size: 12px; line-height: 1.55; color: var(--c-text-dim); text-align: center; max-width: 480px; }
+.ui-btn.hp-travel { min-width: 240px; margin-top: 6px; }
+.ui-btn.hp-travel.locked { letter-spacing: 0.04em; font-size: 11px; }
+
+@media (max-width: 1180px) {
+  .menu.hub-menu.fullscreen .hub-grid { grid-template-columns: minmax(260px, 320px) minmax(0, 1fr); }
+  .menu.hub-menu.fullscreen .hub-col.right { grid-column: 1 / 2; }
+}
+
 /* the footer only carries 닫기 / 타이틀로 since Phase 8 (캐릭터 moved to the Tab screen) */
 .hub-foot { display: flex; justify-content: flex-end; gap: 10px; padding-top: 6px; border-top: 1px solid var(--c-border); }
 .hub-foot .right { display: flex; gap: 10px; }

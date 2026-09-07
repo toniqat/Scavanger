@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import {
   GATHER_INTERACT_TIME, GATHER_NODES_PER_MISSION, Layers,
   type GameContext, type GatherNodeDef, type GatherWire, type HarvestMessage, type HarvestRequest,
-  type Interactable, type ItemInstance, type PeerId, type Random,
+  type Interactable, type ItemInstance, type PeerId, type PlanetEcosystem, type Random,
 } from '@/shared';
 import { type BuildCtx, PLAY_LIMIT, composeMatrix, isSpotFree, merge, paint, paintGradient, xform } from './build';
 
@@ -29,6 +29,9 @@ interface Variant {
   glowMat: THREE.MeshStandardMaterial;
   count: number;
 }
+
+/** One placed cluster member: where it stands, which of the 3 shapes it uses and which herb it hands over. */
+interface Spot { x: number; z: number; variant: number; defId: string }
 
 interface Node {
   def: GatherNodeDef;
@@ -81,11 +84,18 @@ export class Gather {
 
   getNodes(): readonly GatherNodeDef[] { return this.defs; }
 
-  build(ctx: BuildCtx, game: GameContext): void {
+  /**
+   * `eco` (Phase 11): the 목표 행성's ecosystem — `eco.herbs` are relative weights **by herb def id** (replacing the
+   * old uniform "one herb per plant shape") and `eco.gatherDensity` scales `GATHER_NODES_PER_MISSION`.
+   * null (no planet / an unknown id) reproduces the pre-Phase-11 placement draw exactly for the same seed.
+   */
+  build(ctx: BuildCtx, game: GameContext, eco: PlanetEcosystem | null = null): void {
     this.game = game;
     this.ensureNet();
     const rng = ctx.rng.fork('gather');
     const herbIds = this.resolveHerbIds(game);
+    const weights = this.resolveHerbWeights(herbIds, eco);
+    const target = this.nodeTarget(eco);
 
     this.bodyMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86, metalness: 0.0, side: THREE.DoubleSide });
 
@@ -96,8 +106,8 @@ export class Gather {
       });
       const geos = this.makeVariantGeometry(k, ctx, rng);
       const meshes: THREE.InstancedMesh[] = [];
-      const bodyIm = new THREE.InstancedMesh(geos[0], this.bodyMat, GATHER_NODES_PER_MISSION);
-      const glowIm = new THREE.InstancedMesh(geos[1], glowMat, GATHER_NODES_PER_MISSION);
+      const bodyIm = new THREE.InstancedMesh(geos[0], this.bodyMat, target);
+      const glowIm = new THREE.InstancedMesh(geos[1], glowMat, target);
       for (const im of [bodyIm, glowIm]) {
         im.name = `gather_plant_${k}`;
         im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -112,7 +122,7 @@ export class Gather {
     }
 
     // ── placement: sparse clusters on gentle, unoccupied ground ──────────
-    const spots: { x: number; z: number; variant: number }[] = [];
+    const spots: Spot[] = [];
     const spacing2 = MIN_SPACING * MIN_SPACING;
     const free = (x: number, z: number, near: number): boolean => {
       if (!isSpotFree(ctx, x, z, 0.7, { maxSlope: 0.3, padExtra: 3 })) return false;
@@ -122,33 +132,36 @@ export class Gather {
       }
       return true;
     };
-    for (let a = 0; a < 5000 && spots.length < GATHER_NODES_PER_MISSION; a++) {
+    for (let a = 0; a < 5000 && spots.length < target; a++) {
       const x = rng.range(-PLAY_LIMIT + 8, PLAY_LIMIT - 8);
       const z = rng.range(-PLAY_LIMIT + 8, PLAY_LIMIT - 8);
       if (!free(x, z, spacing2)) continue;
       const variant = rng.int(0, 2);
-      spots.push({ x, z, variant });
+      // Phase 11: the plant **shape** (`variant`) and the **herb it drops** (`defId`) are independent draws now — the
+      // shape is cosmetic, the herb comes from the planet's weights. With no planet the old `herbIds[variant]` pairing
+      // is used verbatim so the rng stream (and therefore the whole layout) is byte-identical to before.
+      const defId = weights ? this.pickHerb(weights, rng) : herbIds[variant % herbIds.length];
+      spots.push({ x, z, variant, defId });
       // small cluster of the same herb so gathering feels like finding a patch
       const extra = rng.chance(0.55) ? rng.int(1, 2) : 0;
-      for (let c = 0; c < extra && spots.length < GATHER_NODES_PER_MISSION; c++) {
+      for (let c = 0; c < extra && spots.length < target; c++) {
         const ang = rng.range(0, Math.PI * 2), d = rng.range(2.2, 4.2);
         const cx = x + Math.cos(ang) * d, cz = z + Math.sin(ang) * d;
-        if (free(cx, cz, 1.6 * 1.6)) spots.push({ x: cx, z: cz, variant });
+        if (free(cx, cz, 1.6 * 1.6)) spots.push({ x: cx, z: cz, variant, defId });
       }
     }
 
     let id = 0;
     for (const s of spots) {
       const v = this.variants[s.variant];
-      if (v.count >= GATHER_NODES_PER_MISSION) continue;
+      if (v.count >= target) continue;
       const y = ctx.terrain.getHeightAt(s.x, s.z);
       const yaw = rng.range(0, Math.PI * 2);
       const scale = rng.range(0.85, 1.3);
-      const defId = herbIds[s.variant % herbIds.length];
       const def: GatherNodeDef = {
         id: `gather_${id++}`,
         position: new THREE.Vector3(s.x, y, s.z),
-        defId,
+        defId: s.defId,
         qty: rng.chance(0.25) ? 2 : 1,
         harvested: false,
       };
@@ -370,6 +383,39 @@ export class Gather {
     const herbs = defs.filter((d) => d.category === 'herb').map((d) => d.id);
     if (herbs.length > 0) return herbs.slice(0, 3);
     return FALLBACK_HERB_IDS.slice();
+  }
+
+  /**
+   * Phase 11: `eco.herbs` folded into a cumulative table over the herb ids this build actually knows.
+   * An id `items/` never registered is ignored (contract), and a planet whose whole mix is unknown / non-positive
+   * falls back to null = the old shape-bound pairing.
+   */
+  private resolveHerbWeights(herbIds: readonly string[], eco: PlanetEcosystem | null): { ids: string[]; cum: number[] } | null {
+    if (!eco) return null;
+    const ids: string[] = [];
+    const cum: number[] = [];
+    let total = 0;
+    for (const id of herbIds) {
+      const w = eco.herbs[id];
+      if (typeof w !== 'number' || !(w > 0)) continue;   // absent / 0 / NaN → this herb does not grow here
+      total += w;
+      ids.push(id);
+      cum.push(total);
+    }
+    return ids.length > 0 && total > 0 ? { ids, cum } : null;
+  }
+
+  private pickHerb(w: { ids: string[]; cum: number[] }, rng: Random): string {
+    const r = rng.next() * w.cum[w.cum.length - 1];
+    for (let i = 0; i < w.cum.length; i++) if (r < w.cum[i]) return w.ids[i];
+    return w.ids[w.ids.length - 1];
+  }
+
+  /** Node count for this mission: `GATHER_NODES_PER_MISSION × eco.gatherDensity`, at least 1 plant. */
+  private nodeTarget(eco: PlanetEcosystem | null): number {
+    const d = eco && Number.isFinite(eco.gatherDensity) ? eco.gatherDensity : 1;
+    if (!(d > 0)) return 0;
+    return Math.max(1, Math.round(GATHER_NODES_PER_MISSION * d));
   }
 
   private writeMatrix(node: Node, shrink: number): void {
