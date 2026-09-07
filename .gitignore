@@ -11,3 +11,7 @@ scripts/shots/
 
 # relay server profile store (Phase 7)
 server/data/
+
+# electron desktop build
+dist-electron
+release/
