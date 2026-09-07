@@ -1046,4 +1046,10 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
   private applyBoost(p: PlayerRef, mul: number, duration: number): void {
     if (typeof p.setSpeedModifier === 'function') p.setSpeedModifier('overcharge', mul, duration);
   }
+  /* ══ Phase 10 skeleton — 배리어 = 들고 다니는 방패. Replace with the real implementation. ══ */
+  /** true while the shield is in the hands. */
+  get barrierCarried(): boolean { return this.wielded && this.equipped === 'barrier'; }
+  /** Panel-bottom centre + facing of the raised shield; null while it is down. */
+  getBarrierPose(_outPosition: THREE.Vector3): { yaw: number } | null { return null; }
+
 }

@@ -44,6 +44,8 @@ export interface KeyBindings {
   SHIP_CALL: string;
   /* appended (key rebinding, 2026-09-06): the tactical-kit keys and the three mouse actions joined the table. */
   IMPLANT: string; MELEE: string; THROW_MODE: string;
+  /* appended (Phase 10): contextual second use of MELEE — a downed squadmate in range turns the F tap into 들쳐메기. */
+  CARRY: string;
   FIRE: string; AIM: string; PING: string;
   /* appended (dev console, 2026-09-06): ` opens the console on a dev client, Home = /movecheat fast move. */
   CONSOLE: string; MOVE_CHEAT: string;
@@ -70,6 +72,8 @@ export const DEFAULT_KEYS: Readonly<KeyBindings> = {
   SHIP_CALL: 'KeyG',
   /* tactical kit */
   IMPLANT: 'KeyQ', MELEE: 'KeyF', THROW_MODE: 'KeyB',
+  /* Phase 10: 들쳐메기 follows MELEE (see KEY_ALIASES); H (STIM) is retired — 회복약 is a quick-use item now. */
+  CARRY: 'KeyF',
   /* mouse actions (rebindable to other mouse buttons only) */
   FIRE: 'Mouse0', AIM: 'Mouse2', PING: 'Mouse1',
   /* dev console */
@@ -717,3 +721,93 @@ export const TRAINING_COURSE_TIME_S = 60;
 export const TRAINING_COURSE_COOLDOWN_S = 3;
 /** localStorage key of the best timed-course time. */
 export const TRAINING_BEST_STORAGE_KEY = 'scav.training';
+
+/* ══ appended: Phase 10 — UI 개선 pass (2026-09-07) ═════════════════════════════════════════════════════════ */
+
+/* ── 배리어 = 들고 다니는 방패 (owner: implants; the 7 × 3.2 m deployed panel constants above stay for nothing —
+ *    they are superseded by the CARRY_* pair, kept only so an older save / smoke that reads them still compiles) ── */
+/** Hand-shield panel size (m). Much smaller than the old deployed wall: it covers the carrier, not a lane. */
+export const IMPLANT_BARRIER_CARRY_WIDTH = 1.5;
+export const IMPLANT_BARRIER_CARRY_HEIGHT = 1.35;
+/**
+ * Metres in front of the player axis the panel plane sits. **Must stay > `PLAYER_RADIUS`** or enemy hitscan clamps to
+ * the player capsule before the barrier query runs (`enemies/EnemySystem.fireGun`) and the shield never blocks.
+ */
+export const IMPLANT_BARRIER_CARRY_OFFSET = 0.7;
+/** Height of the panel's bottom edge above the feet (`BarrierField.intersect` measures dy from `position.y`). */
+export const IMPLANT_BARRIER_CARRY_BASE_Y = 0.55;
+/** Movement multiplier while the shield is up (`player.setSpeedModifier('shield', …)`). */
+export const IMPLANT_BARRIER_CARRY_SPEED_MUL = 0.78;
+/** Half-angle (rad) around the carrier's forward inside which the raised shield blocks; wider shots pass by. */
+export const IMPLANT_BARRIER_CARRY_ARC = Math.PI / 2;
+/** Shield hp removed per blocked hostile projectile (was the module-local `BARRIER_BLOCK_DAMAGE`). */
+export const IMPLANT_BARRIER_BLOCK_DAMAGE = 30;
+/** Regen per second while the shield is raised, after `IMPLANT_BARRIER_CARRY_REGEN_DELAY` without a hit. */
+export const IMPLANT_BARRIER_CARRY_REGEN = 40;
+export const IMPLANT_BARRIER_CARRY_REGEN_DELAY = 3;
+
+/* ── 다각화된 적 사망 + 확률 루팅 (owner: enemies; the chance table is `CORPSE_LOOT_CHANCE` in types.ts) ── */
+/** Seconds of `Enemy.deathTimer` over which the fall pose blends in (bugs and rogues). */
+export const DEATH_FALL_TIME = 0.9;
+/** Terminal speed (m/s) of a body that died in the air and is still falling to the terrain. */
+export const CORPSE_FALL_MAX_SPEED = 22;
+/** A mid-air kill registers its `corpse:<id>` interactable only once the body lands, or after this long. */
+export const CORPSE_LAND_TIMEOUT = 2.5;
+
+/* ── 컨테이너 실시간 동기화 연출 (owner: inventory grid view) ── */
+/** Length of the "float up + fade out" a container tile plays when someone else takes it (seconds). */
+export const CONTAINER_TAKE_ANIM_S = 0.22;
+/** How far the vanishing tile floats up, in grid px, and the scale it ends at. */
+export const CONTAINER_TAKE_RISE_PX = 14;
+export const CONTAINER_TAKE_END_SCALE = 0.9;
+
+/* ── 루팅 표시 = 빛기둥 (replaces the light-blue fresnel sphere of Detection / ScanReveal) ── */
+/** In-range interactable pillar: height (m), bottom / top radius (m), peak opacity at the base. */
+export const INTERACT_PILLAR_HEIGHT = 2.6;
+export const INTERACT_PILLAR_RADIUS_BOTTOM = 0.3;
+export const INTERACT_PILLAR_RADIUS_TOP = 0.1;
+export const INTERACT_PILLAR_OPACITY = 0.28;
+/** Vertical fraction at which the pillar has faded to nothing (1 = fades exactly at the top). */
+export const INTERACT_PILLAR_FADE = 0.85;
+/** The scan-reveal (through-wall) pillar is taller so it still reads behind geometry. */
+export const SCAN_PILLAR_HEIGHT = 3.6;
+/** Per-pickup pillar (replaces the 5.5 m `PickupVisuals.BEAM_HEIGHT` beam). */
+export const PICKUP_PILLAR_HEIGHT = 3.2;
+export const PICKUP_PILLAR_OPACITY = 0.22;
+
+/* ── 부상자 들쳐메기 (owner: player) ── */
+/** Max distance (m) at which an F tap can shoulder a downed squadmate. */
+export const PLAYER_CARRY_RANGE = 2.2;
+/** Pick-up / put-down animation length (s); the carrier's controls are locked for it. */
+export const PLAYER_CARRY_PICKUP_S = 0.7;
+export const PLAYER_CARRY_DROP_S = 0.5;
+/** Speed multiplier while carrying. Walking and sprinting are allowed; every other action drops the body first. */
+export const PLAYER_CARRY_SPEED_MUL = 0.75;
+/** Carried body's local offset in the carrier's right-shoulder socket. */
+export const PLAYER_CARRY_OFFSET: readonly [number, number, number] = [0.24, 0.02, 0.06];
+
+/* ── 회복약 (was 스팀; the `stim` def id / `ItemCategory 'stim'` / `applyStim` are unchanged) ── */
+/** LMB must be held this long with a 회복약 in hand before it is consumed (radial gauge at the crosshair). */
+export const HEAL_HOLD_S = 2;
+/** Taking damage does not cancel the hold (moving never did). Kept as a constant so the HUD mirrors the rule. */
+export const HEAL_HOLD_CANCEL_ON_DAMAGE = false;
+
+/* ── 발사 준비 패널 (owner: hub, portraits from player/) ── */
+/** Cells in the READY panel. Kept separate from the lobby size so the panel never resizes. */
+export const HUB_READY_CELLS = 4;
+/** Body yaw of a portrait: turned diagonally toward the camera's right (the soldier model's front is −Z). */
+export const HUB_READY_PORTRAIT_YAW = -Math.PI / 4;
+/** `ctx.uiBlockers` token the READY panel holds while it is open. */
+export const HUB_READY_BLOCKER = 'ready';
+/** Debounce for re-broadcasting my own `crew card` (seconds). */
+export const CREW_CARD_MIN_INTERVAL_S = 1;
+/** Don't answer `crewq loadout` from the same peer more often than this (seconds). */
+export const CREW_LOADOUT_COOLDOWN_S = 2;
+
+/* ── 인게임 마우스 커서 (owner: shared/cursor.ts + Input, drawn by ui/hud/SoftCursor) ── */
+/** Client px the virtual cursor moves per px of raw pointer-locked movement. */
+export const SOFT_CURSOR_SENSITIVITY = 1;
+/** Cursor sprite size in px (the drawn hotspot is its top-left corner). */
+export const SOFT_CURSOR_SIZE = 22;
+/** Two synthetic clicks within this many ms on the same element also dispatch a `dblclick`. */
+export const SOFT_CURSOR_DBLCLICK_MS = 350;

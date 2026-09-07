@@ -1185,3 +1185,111 @@ export interface WorldRef {
   /** 시뮬레이션 훈련장 controller; null outside a training world. */
   readonly training: TrainingRef | null;
 }
+
+/* ══ appended: Phase 10 — UI 개선 pass (2026-09-07) ═════════════════════════════════════════════════════════ */
+
+/* ── 다각화된 적 사망 + 확률 루팅 (owner: enemies) ── */
+/** Which way a dying body goes down. Decided deterministically from the world seed × enemy id, so every client agrees. */
+export type EnemyDeathDir = 'left' | 'right' | 'back';
+/** Wire order of `EnemyDeathDir` (`ee kill/corpse.dd` is an index into this; omitted = 0 = `'left'`). */
+export const ENEMY_DEATH_DIRS: readonly EnemyDeathDir[] = ['left', 'right', 'back'];
+/**
+ * Probability that a corpse of each enemy type can be searched at all. Rolled from an **independent** seeded stream
+ * (`worldSeed ^ (enemyId * 0x9e3779b1)`) so it never shifts the existing `rollCorpse` rolls, and so host and replicas
+ * agree without a wire field. A corpse that fails the roll registers no interactable (`Corpse.canInteract` false).
+ */
+export const CORPSE_LOOT_CHANCE: Readonly<Record<EnemyType, number>> = {
+  scavenger: 0.1, toxic: 0.1, hunter: 0.1,
+  spewer: 0.35, warrior: 0.35, artillery: 0.35, charger: 0.35,
+  behemoth: 1, rogue: 1, rogue_boss: 1,
+};
+
+export interface EnemyRef {
+  /** The direction this body fell; undefined while alive. */
+  readonly deathDir?: EnemyDeathDir;
+  /** false when this corpse rolled un-searchable (`CORPSE_LOOT_CHANCE`); undefined while alive. */
+  readonly lootable?: boolean;
+}
+
+/* ── 부상자 들쳐메기 (owner: player) ── */
+/** Why a carried squadmate was put back down. `'action'` = the carrier did something other than run. */
+export type CarryEndReason = 'manual' | 'action' | 'damage' | 'revived' | 'died' | 'reset';
+
+export interface PlayerRef {
+  /** PeerId of the squadmate on our right shoulder, or null. A string so player/ never needs the branded net type. */
+  readonly carrying: string | null;
+  /** true while another player carries us (we are still DOWNED and our position follows their shoulder socket). */
+  readonly isCarried: boolean;
+  /**
+   * Shoulder a downed squadmate (F tap). false when out of `PLAYER_CARRY_RANGE`, already carrying, downed / dead
+   * ourselves, or the target is not downed. The gun is holstered for as long as the carry lasts.
+   */
+  carry(id: string): boolean;
+  /**
+   * Put the carried squadmate down at our feet. Returns true when someone was actually dropped — every non-movement
+   * action calls this first and re-tries itself on the next frame (`PLAYER_CARRY_DROP_S`).
+   */
+  dropCarried(reason?: CarryEndReason): boolean;
+  /** Ride along on another player's shoulder socket; null detaches. Called on the carried side by player/. */
+  setCarriedBy(socket: THREE.Object3D | null): void;
+}
+
+export interface PlayerWeaponHost {
+  /** Right-shoulder socket a carried squadmate is parented to. Optional — callers must feature-detect. */
+  getShoulderSocket?(): THREE.Object3D;
+}
+
+/* ── 발사 준비 패널 초상화 (owner: player, hosted by hub) ── */
+/**
+ * A strip of character portraits rendered into a DOM element. player/ owns it because it needs `SoldierModel`; it uses
+ * its **own** `THREE.WebGLRenderer` + scene + lights, because `core/Engine` renders through the composer at the end of
+ * the frame and offers no post-render hook, so a portrait cannot share the main canvas.
+ */
+export interface PortraitRef {
+  /** The canvas the portraits draw into (already appended to the host). */
+  readonly canvas: HTMLCanvasElement;
+  /** Cell `index` shows a body with this slot colour / armor; `null` = empty cell (member not ready). */
+  setMember(index: number, member: { slot: number; armorId: string | null } | null): void;
+  /** Body yaw in radians for one cell (3/4 view = `HUB_READY_PORTRAIT_YAW`; the model's front is −Z). */
+  setYaw(index: number, yaw: number): void;
+  /** Draw one frame. No-op while `visible` is false. Call from the owner's `update`. */
+  render(dt: number, time: number): void;
+  setVisible(visible: boolean): void;
+  dispose(): void;
+}
+
+export interface PlayerRef {
+  /**
+   * Build `cells` character portraits into `host` (one canvas, `cells` scissored viewports). Returns null when a second
+   * WebGL context is unavailable — callers must degrade to a name-only cell.
+   */
+  createPortraits(host: HTMLElement, cells: number): PortraitRef | null;
+}
+
+/* ── 분대원 장비 열람 (owner: inventory) ── */
+/** Options for `InventoryRef.createCrewLoadoutView`. */
+export interface CrewLoadoutViewOptions {
+  /** Name shown in the header (`LobbyPlayer.name`). */
+  name?: string;
+  /** Slot colour index for the accent (`NET_SLOT_COLORS_CSS`). */
+  slot?: number;
+  /** Blocks to render, left to right. Default `['equip', 'bag', 'quick']` — the ship layout minus 함선 창고. */
+  blocks?: readonly ('equip' | 'bag' | 'quick')[];
+  /** Extra class on the view root so the caller sizes it from its own stylesheet. */
+  className?: string;
+}
+
+export interface InventoryRef {
+  /**
+   * Serialize MY bag + equip slots + quick slots for the wire (`CrewMessage.loadout`). Opaque to callers — the same
+   * document `captureRaidState()` builds, minus the per-container `searched` flags.
+   */
+  captureCrewLoadout(): unknown;
+  /**
+   * Render **another member's** read-only 장비 / 가방 / 빠른 사용 layout from a `captureCrewLoadout()` document into
+   * `host`. Nothing is draggable, rotatable, socketable or droppable, there is no credits pill, and unknown def ids are
+   * skipped. Returns null when the document is not a loadout. Like every `EmbeddedView`: no `uiBlockers`, no
+   * pointer-lock call, no window Escape listener.
+   */
+  createCrewLoadoutView(host: HTMLElement, loadout: unknown, opts?: CrewLoadoutViewOptions): EmbeddedView | null;
+}

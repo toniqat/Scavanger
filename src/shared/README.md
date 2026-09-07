@@ -294,3 +294,101 @@ Appended, never renamed. Everything below is additive; existing readers are unto
 - Ownership: `meta/` the broadcast + the per-peer map · `ui/` the 분대 계약 rows, the 빠른 사용 / 임플란트 썸네일
   column, the bottom-left squad column and the 가구 제작 / 가구 창고 tabs · `housing/` the 시설 증축 cost + refund and
   the 함선 tab 증축 popup · `inventory/` the raid window taking the ship layout · `progression/` the implant cards.
+
+## Phase 10 UI 개선 pass (2026-09-07) — appended contract
+
+Appended, never renamed. Everything below is additive; existing readers are untouched. `/* Phase 10 skeleton */`
+markers in `implants/` `inventory/` `net/` `player/` exist only to keep `npm run typecheck` green — replace them.
+
+### New file: `cursor.ts` — 인게임 마우스 커서
+The second (and last) DOM file in `shared/`, after `itemChip.ts`.
+- `class SoftCursor` — a virtual cursor that keeps the **pointer lock** and drives itself from raw `movementX/Y`, then
+  **synthesises** the DOM pointer/mouse events (`pointermove` + `mousemove`, `pointerdown/up`, `click`, `dblclick`,
+  `contextmenu`, `wheel`, and the `over/out/enter/leave` pairs) at its own position, dispatching them to
+  `document.elementFromPoint(x, y)`. Because those are real bubbling events, **no UI surface has to change**: the
+  `pointer-events: none` + `.interactive` opt-in on `#ui-root` still decides what is hit, delegated listeners still
+  fire, window-level drag listeners still get the bubbled move/up, and the three `document.elementFromPoint` hit tests
+  in `inventory/` `meta/` keep working.
+- `SOFT_CURSOR_FLAG` / `isSoftCursorEvent(e)` — the marker on every synthesised event. The window listeners inside
+  `Input` ignore it, so a synthetic click is never also read as a gameplay press.
+- `Input` gained: `readonly cursor`, `isCursorMode`, `cursorX` / `cursorY`, `setCursorMode(active, owner)`
+  (**ref-counted by blocker token** — a popup layered over the inventory does not steal the cursor when it closes),
+  `setCursorPosition`, `uiX` / `uiY` (virtual in cursor mode, `mouseX/mouseY` otherwise), `elementUnderCursor()`.
+  A caller that enters cursor mode must **not** also call `exitPointerLock()`.
+- `constants.ts`: `SOFT_CURSOR_SENSITIVITY`, `SOFT_CURSOR_SIZE`, `SOFT_CURSOR_DBLCLICK_MS`.
+- `events.ts`: `'input:cursorModeChanged' { active, owner }`.
+- The Esc **일시정지 메뉴 is deliberately excluded** and keeps the real OS cursor — it is the one screen that must work
+  when the lock is already gone (after an alt-tab, or a re-lock Chrome refused).
+
+### `implants.ts` — 배리어 = 들고 다니는 방패
+- `ImplantsRef.barrierCarried` + `getBarrierPose(out)`. The def's `mode` becomes `'wielded'`, so Q takes the shield
+  into the hands and `blocksWeapons` holsters the gun (the 대전차포 flow). `raycastBarrier` / `damageBarrier` keep
+  their signatures — they were always transform-agnostic; `barrierActive` now means "raised in hand".
+- `constants.ts`: `IMPLANT_BARRIER_CARRY_WIDTH / _HEIGHT / _OFFSET / _BASE_Y / _SPEED_MUL / _ARC / _REGEN /
+  _REGEN_DELAY` and `IMPLANT_BARRIER_BLOCK_DAMAGE`. **`_OFFSET` must stay greater than `PLAYER_RADIUS`** or enemy
+  hitscan clamps to the player capsule before the barrier query runs and the shield never blocks.
+- `net.ts`: `ImplantMessage` gained `{ t:'imp', ev:'shield', up, hp }` (the transform rides on the sender's own
+  snapshot: `p`, `yaw`, `PlayerFlags.BARRIER`); `PlayerSnapshot.bhp`; `RemotePlayerRef.isBarrierUp / barrierHp`.
+  `ev:'barrier'` stays parsed for an older peer.
+- `events.ts`: `'implant:barrierCarried' { up }`.
+
+### `types.ts` — 적 사망 다각화 · 확률 루팅
+- `EnemyDeathDir` (`'left' | 'right' | 'back'`) + `ENEMY_DEATH_DIRS` (wire order) + `CORPSE_LOOT_CHANCE` per
+  `EnemyType` (trash bug 0.1 · 상위 버그 0.35 · 보스 / 로그 1). The lootable roll comes from an **independent** seeded
+  stream (`worldSeed ^ (enemyId * 0x9e3779b1)`) so it neither shifts the existing `rollCorpse` rolls nor needs a wire
+  field. `EnemyRef.deathDir? / lootable?`.
+- `constants.ts`: `DEATH_FALL_TIME`, `CORPSE_FALL_MAX_SPEED`, `CORPSE_LAND_TIMEOUT`.
+- `net.ts`: `ee kill.dd?` and `ee corpse.dd? / lt?` (index into `ENEMY_DEATH_DIRS`; `lt: 0` = un-searchable).
+- `events.ts`: `enemy:killed.deathDir?`, `corpse:spawned.lootable? / deathDir?`.
+
+### `types.ts` — 부상자 들쳐메기
+- `CarryEndReason`; `PlayerRef.carrying / isCarried / carry(id) / dropCarried(reason?) / setCarriedBy(socket)`;
+  `PlayerWeaponHost.getShoulderSocket?()`; `RemoteAvatarRef.shoulderSocket?`.
+- `net.ts`: `PlayerFlags.CARRYING` (1 << 26) / `CARRIED` (1 << 27), `PlayerSnapshot.cr?`,
+  `RemotePlayerRef.carrying? / isCarried? / carriedBy?`, `CarryMessage` (`carry pick|drop`).
+- `constants.ts`: `PLAYER_CARRY_RANGE / _PICKUP_S / _DROP_S / _SPEED_MUL / _OFFSET`.
+- `events.ts`: `'player:carryStarted'`, `'player:carryEnded'`, `'net:remoteCarryChanged'`.
+- `Keybinds.ts`: `KEY_ALIASES.CARRY = 'MELEE'` (+ `KeyBindings.CARRY` / `DEFAULT_KEYS.CARRY = 'KeyF'`). **E-hold
+  revive is unchanged** — only the F *tap* is contextual.
+
+### 회복약 (was 스팀)
+- `constants.ts`: `HEAL_HOLD_S` (2), `HEAL_HOLD_CANCEL_ON_DAMAGE` (false).
+- `events.ts`: `'heal:holdChanged' { holding, t }` — the same shape as `grenade:holdChanged`.
+- `labels.ts`: the `stim` category label is **회복약**. The `stim` def id, `ItemCategory 'stim'`, `ItemDef.healAmount`
+  and `PlayerRef.applyStim` are **unchanged**, so every existing save / loot table / recipe keeps working.
+- `Keybinds.ts`: the `STIM` action is **gone from `KEY_ACTION_DEFS`** (H is retired), exactly the way `GRENADE` was.
+  `KeyBindings.STIM` / `DEFAULT_KEYS.STIM` stay for append-only compatibility and are now unread.
+
+### 크레딧 표기 · 재장전 게이지 · 지도 핑 · 컨테이너 실시간 루팅 · 빛기둥
+- `meta.ts`: `CREDIT_SUFFIX` (`'C'`), `formatCredits(n, {sign?, suffix?})`, `formatCreditAmount(n)`,
+  `itemCreditValue(def, qty?)`. **The one formatter** — the `fmtValue` currency prefix in `inventory/ui/labels.ts` and
+  the `cr` suffix in `ui/hud/ItemTip` / `meta/ui/CorpView` both go away. `크레딧` stays a word in sentences; the unit
+  is `C`.
+- `events.ts`: `'weapon:reloadCancelled' { weaponId }` — genuinely new: `WeaponSystem.cancelReload()` was silent, and
+  the bottom-right panel only got away with it because `weapon:equipped` closed its arc.
+- `events.ts`: `'ping:requestAt' { position, kind }` — a ping asked for by a surface with no aim ray (map middle-click).
+- `events.ts`: `'container:itemTaken' { containerId, idx, uid, qty, remaining, by, byName, byLocal, live }`.
+  `cont taken` was **already broadcast to every peer**, so the live sync was only ever a presentation gap; `live`
+  separates a real-time take (animate) from a `cont sync` catch-up (silent). `net.ts`: `cont taken.rem? / seq?`.
+- `constants.ts`: `CONTAINER_TAKE_ANIM_S / _RISE_PX / _END_SCALE`;
+  `INTERACT_PILLAR_HEIGHT / _RADIUS_BOTTOM / _RADIUS_TOP / _OPACITY / _FADE`, `SCAN_PILLAR_HEIGHT`,
+  `PICKUP_PILLAR_HEIGHT / _OPACITY`. The light-blue fresnel sphere lives in **`ui/hud/Detection.ts` and
+  `ui/hud/ScanReveal.ts`** (not in `pickups/`) — both become fading pillars.
+
+### 발사 준비 패널
+- `net.ts`: `CrewCardWire { level, implant, armor, primary?, primary2?, secondary? }`, `CrewMessage`
+  (`crew card` / `crew loadout`), `CrewRequest` (`crewq sync` / `crewq loadout`),
+  `RemotePlayerRef.crewLevel? / equippedImplant?`, `NetRef.getCrewCard(id) / requestCrewLoadout(id)`.
+  Needed because **`PlayerSnapshot.imp` and `.w` are nulled in the hub** and `LobbyPlayer` carries no level;
+  `equippedImplant` is the ship choice, `implantId` is the wielded one.
+- `types.ts`: `PortraitRef` + `PlayerRef.createPortraits(host, cells)` (own `THREE.WebGLRenderer` — `core/Engine`
+  renders through the composer at the end of the frame and offers no post-render hook, so a portrait cannot share the
+  main canvas); `CrewLoadoutViewOptions` + `InventoryRef.captureCrewLoadout() / createCrewLoadoutView(...)`.
+- `constants.ts`: `HUB_READY_CELLS`, `HUB_READY_PORTRAIT_YAW`, `HUB_READY_BLOCKER`, `CREW_CARD_MIN_INTERVAL_S`,
+  `CREW_LOADOUT_COOLDOWN_S`.
+- `events.ts`: `'net:crewCard'`, `'net:crewLoadout'`, `'hub:readyPanelToggled'`, `'hub:crewLoadoutToggled'`.
+- Ownership: `player/` the soldier model rewrite (스플래툰 3등신) + portraits + carrying · `implants/` the shield ·
+  `enemies/` deaths + lootable corpses · `ui/` the crosshair reload gauge, the heal gauge, the map ping, the credit
+  bar on both tooltips, the software-cursor sprite and the pillars · `inventory/` the live container sync + the
+  foreign loadout view · `weapons/` the 2 s heal hold and the retired H key · `hub/` the READY panel and the housing
+  camera · `net/` the crew wire · `meta/` the credit formatter rollout.

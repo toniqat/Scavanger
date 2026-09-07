@@ -13,6 +13,8 @@ import { NetClient } from './NetClient';
 import { ProfileSync } from './ProfileSync';
 import { RemotePlayer } from './RemotePlayer';
 import { Snapshotter } from './Snapshotter';
+/* appended (Phase 10): 발사 준비 패널 crew cards */
+import type { CrewCardWire } from '@/shared';
 
 const NAME_STORAGE_KEY = 'scav.playerName';
 const SNAPSHOT_INTERVAL = 1 / NET_PLAYER_SNAPSHOT_HZ;
@@ -904,4 +906,10 @@ export class NetSystem implements GameSystem, NetRef {
     if (this.remotes.size === 0) return;
     for (const id of Array.from(this.remotes.keys())) this.removeRemote(id);
   }
+  /* ══ Phase 10 skeleton — 발사 준비 패널 crew cards. Replace with the real implementation. ══ */
+  /** Last `crew card` seen for `id` (the local player included); null when none arrived. */
+  getCrewCard(_id: PeerId): CrewCardWire | null { return null; }
+  /** Ask `id` for its full loadout (`crewq loadout`); the answer arrives as `net:crewLoadout`. */
+  requestCrewLoadout(_id: PeerId): void { /* Phase 10 skeleton */ }
+
 }

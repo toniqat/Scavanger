@@ -19,6 +19,8 @@ import { TradeGrids, type TradeGridsOptions } from './ui/TradeGrids';
 import { Stash } from './Stash';
 import { LOADOUT_SAVE_VERSION, LoadoutStore, isEmptyLoadoutSave, loadLoadoutSave, sanitizeLoadoutSave, type LoadoutSave } from './Loadout';
 import { reviveItem, savedCell, serializeExtras, serializePlacement } from './Serialize';
+/* appended (Phase 10): 분대원 장비 열람 */
+import type { CrewLoadoutViewOptions } from '@/shared';
 
 /* ── UI ↔ system vocabulary ─────────────────────────────────────────────── */
 /** 'stash' = the ship stash (hub Tab screen only; persisted, see Stash.ts). */
@@ -2628,6 +2630,12 @@ export class InventorySystem implements GameSystem, InventoryRef {
     }
     return true;
   }
+  /* ══ Phase 10 skeleton — 분대원 장비 열람. Replace with the real implementation. ══ */
+  /** Serialize my bag + equip slots + quick slots for `CrewMessage.loadout`. */
+  captureCrewLoadout(): unknown { return null; }
+  /** Read-only 장비 / 가방 / 빠른 사용 view of another member's loadout document. */
+  createCrewLoadoutView(_host: HTMLElement, _loadout: unknown, _opts?: CrewLoadoutViewOptions): EmbeddedView | null { return null; }
+
 }
 
 /** Attachments socketed in `weapon` (socket order) — re-exported for the UI. */

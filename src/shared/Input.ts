@@ -1,3 +1,5 @@
+import { SoftCursor, isSoftCursorEvent } from './cursor';
+
 /**
  * Global input state. Owned by shared/, read by player, inventory UI and menus.
  * Poll `isDown` / `wasPressed` in update(); mouse delta is accumulated per frame and cleared by Engine.endFrame().
@@ -17,6 +19,12 @@ export class Input {
   mouseY = 0;
   private lockTarget: HTMLElement | null = null;
   private bound = false;
+  /**
+   * appended (Phase 10): 인게임 마우스 커서. While `cursor.active` the pointer lock is KEPT and this virtual cursor is
+   * driven by the raw `movementX/movementY` deltas, synthesising the DOM pointer/mouse events at its own position
+   * (see `shared/cursor.ts`). Systems use `setCursorMode` / `uiX` / `uiY` / `elementUnderCursor` instead of touching it.
+   */
+  readonly cursor = new SoftCursor();
 
   bind(target: HTMLElement): void {
     if (this.bound) return;
@@ -34,8 +42,12 @@ export class Input {
     });
     window.addEventListener('blur', () => { this.down.clear(); this.mouseDown.clear(); });
     window.addEventListener('mousedown', (e) => {
+      if (isSoftCursorEvent(e)) return;   // our own synthetic echo — never register it as a second press
       // middle button = ping; stop browser auto-scroll while locked
       if (e.button === 1 && this.isPointerLocked) e.preventDefault();
+      // Software cursor: the press belongs to the UI under the virtual cursor, not to gameplay. Only while the lock is
+      // actually held — unlocked, the real cursor already delivers native events and a second set would double-click.
+      if (this.cursor.active && this.isPointerLocked) { this.cursor.press(e.button); return; }
       if (!this.mouseDown.has(e.button)) this.mousePressed.add(e.button);
       this.mouseDown.add(e.button);
       // Rebindable actions may sit on a mouse button: mirror it as the synthetic key code `MouseN`.
@@ -44,6 +56,8 @@ export class Input {
       this.down.add(code);
     });
     window.addEventListener('mouseup', (e) => {
+      if (isSoftCursorEvent(e)) return;
+      if (this.cursor.active && this.isPointerLocked) { this.cursor.release(e.button); this.mouseDown.delete(e.button); return; }
       this.mouseDown.delete(e.button);
       this.mouseReleased.add(e.button);
       const code = `Mouse${e.button}`;
@@ -51,10 +65,20 @@ export class Input {
       this.released.add(code);
     });
     window.addEventListener('mousemove', (e) => {
+      if (isSoftCursorEvent(e)) return;
       this.mouseX = e.clientX; this.mouseY = e.clientY;
+      if (this.cursor.active) {
+        if (this.isPointerLocked) this.cursor.moveBy(e.movementX || 0, e.movementY || 0);
+        else this.cursor.mirror(e.clientX, e.clientY);   // no lock (Escape / headless): mirror, never synthesise
+        return;
+      }
       if (this.isPointerLocked) { this.mouseDX += e.movementX; this.mouseDY += e.movementY; }
     });
-    window.addEventListener('wheel', (e) => { this.wheelDelta += Math.sign(e.deltaY); }, { passive: true });
+    window.addEventListener('wheel', (e) => {
+      if (isSoftCursorEvent(e)) return;
+      if (this.cursor.active && this.isPointerLocked) { this.cursor.wheel(e.deltaY, e.deltaX); return; }
+      this.wheelDelta += Math.sign(e.deltaY);
+    }, { passive: true });
     window.addEventListener('contextmenu', (e) => { if (this.isPointerLocked) e.preventDefault(); });
   }
 
@@ -88,6 +112,29 @@ export class Input {
     catch { try { swallow(this.lockTarget.requestPointerLock()); } catch { /* ignore */ } }
   }
   exitPointerLock(): void { if (this.isPointerLocked) document.exitPointerLock(); }
+
+  /* ── appended: Phase 10 — 인게임 마우스 커서 ────────────────────────────────── */
+  /** true while the virtual cursor owns UI input (the pointer lock is kept and raw deltas drive `cursorX/Y`). */
+  get isCursorMode(): boolean { return this.cursor.active; }
+  /** Virtual cursor position in client px (only meaningful while `isCursorMode`). */
+  get cursorX(): number { return this.cursor.x; }
+  get cursorY(): number { return this.cursor.y; }
+  /**
+   * Enter / leave software-cursor mode. `owner` is the caller's `ctx.uiBlockers` token; nesting is ref-counted, so a
+   * popup layered over the inventory does not steal the cursor when it closes. A caller must **not** also call
+   * `exitPointerLock()` — keeping the lock is the whole point.
+   */
+  setCursorMode(active: boolean, owner: string): void { this.cursor.setMode(active, owner); }
+  /** Warp the virtual cursor (e.g. onto a panel's default button when it opens). */
+  setCursorPosition(x: number, y: number): void { this.cursor.setPosition(x, y); }
+  /** Cursor position a UI surface should read: virtual while in cursor mode, the real OS cursor otherwise. */
+  get uiX(): number { return this.cursor.active ? this.cursor.x : this.mouseX; }
+  get uiY(): number { return this.cursor.active ? this.cursor.y : this.mouseY; }
+  /** Element under the UI cursor (`document.elementFromPoint(uiX, uiY)`); null when nothing is hit. */
+  elementUnderCursor(): Element | null {
+    if (typeof document.elementFromPoint !== 'function') return null;
+    return this.cursor.active ? this.cursor.elementUnder() : document.elementFromPoint(this.mouseX, this.mouseY);
+  }
 
   /** Called by Engine at the end of every frame. */
   endFrame(): void {

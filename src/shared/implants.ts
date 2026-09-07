@@ -94,3 +94,22 @@ export interface ImplantsRef {
 
   reset(): void;
 }
+
+/* ══ appended: Phase 10 — 배리어 = 들고 다니는 방패 (2026-09-07) ═══════════════════════════════════════════════
+ * The 배리어 def's `mode` becomes `'wielded'`, so Q takes the shield into the hands, the gun is holstered
+ * (`blocksWeapons`), and a weapon key or Q again puts it away — exactly the 대전차포 flow. Remote replication comes
+ * for free: `RemoteImplants` already builds a hand device for any implant whose `mode === 'wielded'` from
+ * `PlayerSnapshot.imp`. `raycastBarrier` / `damageBarrier` keep their signatures — they were always transform-agnostic;
+ * only the panel now follows the carrier's position + yaw instead of a fixed world spot, and it blocks a shot only
+ * inside `IMPLANT_BARRIER_CARRY_ARC` of the carrier's forward.
+ * `barrierHp / barrierMaxHp / barrierLockout` are unchanged; `barrierActive` now means "raised in hand".
+ * ────────────────────────────────────────────────────────────────────────────────────────────────────────────── */
+export interface ImplantsRef {
+  /** true while the shield is in the hands. Mirrors `wielded` when `equipped === 'barrier'`, false otherwise. */
+  readonly barrierCarried: boolean;
+  /**
+   * Local shield pose for renderers / tests: writes the panel-bottom centre into `outPosition` and returns its facing.
+   * null when the shield is down.
+   */
+  getBarrierPose(outPosition: THREE.Vector3): { yaw: number } | null;
+}

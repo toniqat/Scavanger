@@ -49,11 +49,10 @@ export const KEY_ACTION_DEFS: readonly KeyActionDef[] = [
   { id: 'PRIMARY2', label: '주무기 II', group: '전투', scope: 'game' },
   { id: 'SECONDARY', label: '보조무기', group: '전투', scope: 'game' },
   { id: 'SWAP', label: '이전 무기', group: '전투', scope: 'game' },
-  { id: 'MELEE', label: '근접 공격', group: '전투', scope: 'game' },
+  { id: 'MELEE', label: '근접 공격 · (전투불능 아군 근처) 들쳐메기 / 내려놓기', group: '전투', scope: 'game' },
 
   { id: 'IMPLANT', label: '전술 임플란트', group: '장비', scope: 'game' },
-  { id: 'STIM', label: '스팀', group: '장비', scope: 'game' },
-  { id: 'QUICK', label: '빠른 사용 (길게: 휠)', group: '장비', scope: 'game' },
+  { id: 'QUICK', label: '빠른 사용 (길게: 휠) · 회복약은 좌클릭 2초', group: '장비', scope: 'game' },
   { id: 'SHIP_CALL', label: '함선 호출', group: '장비', scope: 'game' },
   { id: 'THROW_MODE', label: '투척 방식 전환 (가젯)', group: '장비', scope: 'game' },
 
@@ -76,6 +75,8 @@ export const KEY_ACTION_DEFS: readonly KeyActionDef[] = [
 /** Hidden actions that always follow another one (contextual uses of the same key). */
 export const KEY_ALIASES: Readonly<Partial<Record<KeyAction, KeyAction>>> = {
   RESPAWN: 'JUMP', GIVE_UP: 'JUMP', GRENADE: 'SHIP_CALL',
+  /* appended (Phase 10): 들쳐메기 is the contextual F tap; STIM is retired (kept in KeyBindings, left in the table but unbound). */
+  CARRY: 'MELEE',
 };
 
 const DEF_BY_ID = new Map<KeyAction, KeyActionDef>(KEY_ACTION_DEFS.map((d) => [d.id, d]));

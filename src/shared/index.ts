@@ -22,3 +22,5 @@ export * from './profile';
 export * from './labels';
 /* appended (2026-09-06): Phase 8 — shared 재료 요구 칩 renderer */
 export * from './itemChip';
+/* appended (2026-09-07): Phase 10 — 인게임 마우스 커서 */
+export * from './cursor';

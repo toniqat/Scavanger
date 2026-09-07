@@ -14,6 +14,8 @@ import { CameraRig, type RigInput } from './CameraRig';
 import { PlayerController, type MoveInput, type MoveResult, type ShipBounds } from './PlayerController';
 import { Hellpod, type HellpodEvents } from './Hellpod';
 import { PlayerGear } from './PlayerGear';
+/* appended (Phase 10): 부상자 들쳐메기 + 준비 패널 초상화 */
+import type { CarryEndReason, PortraitRef } from '@/shared';
 
 const EYE_STAND = 1.55;
 const EYE_CROUCH = 1.15;
@@ -1569,4 +1571,18 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     if (this.lastPromptText !== null) { this.lastPromptText = null; this.lastHoldProgress = 0; this.ctx.bus.emit('interact:promptChanged', { text: null, holdProgress: 0 }); }
     this.rig.setOverride(null);
   }
+  /* ══ Phase 10 skeleton — 부상자 들쳐메기 + 준비 패널 초상화. Replace with the real implementation. ══ */
+  /** PeerId of the squadmate on our right shoulder, or null. */
+  get carrying(): string | null { return null; }
+  /** true while another player carries us. */
+  get isCarried(): boolean { return false; }
+  /** Shoulder a downed squadmate (F tap). */
+  carry(_id: string): boolean { return false; }
+  /** Put the carried squadmate down at our feet. */
+  dropCarried(_reason?: CarryEndReason): boolean { return false; }
+  /** Ride along on another player's shoulder socket; null detaches. */
+  setCarriedBy(_socket: THREE.Object3D | null): void { /* Phase 10 skeleton */ }
+  /** Build `cells` character portraits into `host` (own WebGL context). */
+  createPortraits(_host: HTMLElement, _cells: number): PortraitRef | null { return null; }
+
 }

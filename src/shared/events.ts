@@ -1,5 +1,7 @@
 import type * as THREE from 'three';
 import type { GamePhase, ItemInstance, MissionStats, EnemyType, Stance, HubShipKind, ChatKind, PingKind, WeaponSlot, SocketSlot, StratagemId } from './types';
+/* appended (Phase 10): varied enemy deaths / probabilistic corpse looting */
+import type { EnemyDeathDir } from './types';
 import type { LobbyErrorCode, LobbyState, PeerId } from './net';
 import type { EquipSlot, WeightState } from './gear';
 import type { ImplantId, ScanTarget } from './implants';
@@ -76,7 +78,8 @@ export interface GameEvents {
   'enemy:spawned': { id: number; type: EnemyType; position: THREE.Vector3 };
   'enemy:damaged': { id: number; type: EnemyType; amount: number; position: THREE.Vector3; hp: number };
   /** `by` (appended, Phase 9): PeerId | 'local' credited (burn kills go to the fire's owner), null for an AI / unknown kill. */
-  'enemy:killed': { id: number; type: EnemyType; position: THREE.Vector3; by?: string | null };
+  /** `deathDir` appended (Phase 10): which way the body went down (enemies/ decides it seeded, so it replicates). */
+  'enemy:killed': { id: number; type: EnemyType; position: THREE.Vector3; by?: string | null; deathDir?: EnemyDeathDir };
   'enemy:attacked': { id: number; type: EnemyType; damage: number; position: THREE.Vector3 };
   'enemy:alerted': { id: number; type: EnemyType; position: THREE.Vector3 };
   'enemy:waveStarted': { index: number; count: number };
@@ -285,7 +288,8 @@ export interface GameEvents {
   /** A boss (rogue_boss) appeared with its escorts. */
   'enemy:bossSpawned': { id: number; type: EnemyType; position: THREE.Vector3 };
   /** A lootable corpse is available (`Interactable` `corpse:<enemyId>`), removed after CORPSE_LIFETIME or when looted. */
-  'corpse:spawned': { enemyId: number; type: EnemyType; position: THREE.Vector3 };
+  /** `lootable` / `deathDir` appended (Phase 10): false = this corpse rolled un-searchable (`CORPSE_LOOT_CHANCE`). */
+  'corpse:spawned': { enemyId: number; type: EnemyType; position: THREE.Vector3; lootable?: boolean; deathDir?: EnemyDeathDir };
   'corpse:removed': { enemyId: number };
   /** Two factions clashing nearby (first contact only, throttled) — HUD may toast `교전 감지`. */
   'enemy:factionClash': { position: THREE.Vector3 };
@@ -559,4 +563,76 @@ export interface GameEvents {
   'housing:booksChanged': { uid: string; count: number };
   /** The 책장 panel opened / closed (blocker `housing`). */
   'ui:bookshelfToggled': { open: boolean; uid: string | null };
+}
+
+/* ══ appended: Phase 10 — UI 개선 pass (2026-09-07) ═════════════════════════════════════════════════════════ */
+import type { CarryEndReason } from './types';
+import type { CrewCardWire } from './net';
+export interface GameEvents {
+  /* ── 재장전 게이지를 크로스헤어로 (owner: weapons, drawn by ui/hud/ReloadGauge) ── */
+  /**
+   * A reload was aborted before it finished (melee / swap / put-away / death / a unique taking over). Genuinely new:
+   * `WeaponSystem.cancelReload()` used to be silent, and the bottom-right panel only got away with it because
+   * `weapon:equipped` closed its arc. A crosshair ring must be told explicitly.
+   */
+  'weapon:reloadCancelled': { weaponId: string };
+
+  /* ── 회복약 2초 홀드 (owner: weapons, drawn by ui/hud/HealGauge) ── */
+  /**
+   * 회복약 in hand: `holding` while LMB is down, `t` = 0..1 of `HEAL_HOLD_S`, `t: -1` on cancel. Same contract shape
+   * as `grenade:holdChanged`, so the HUD gauge is a sibling of `CookGauge`.
+   */
+  'heal:holdChanged': { holding: boolean; t: number };
+
+  /* ── 지도 핑 (owner: ui — map screen → ping system, in-folder) ── */
+  /** A ping was asked for at a world position by a surface with no aim ray (tactical-map middle click). */
+  'ping:requestAt': { position: THREE.Vector3; kind: PingKind };
+
+  /* ── 인게임 마우스 커서 (owner: shared/cursor.ts, drawn by ui/hud/SoftCursor) ── */
+  /** Software-cursor mode began / ended. `owner` = the blocker token that asked for it, null on the last release. */
+  'input:cursorModeChanged': { active: boolean; owner: string | null };
+
+  /* ── 컨테이너 실시간 루팅 (owner: inventory) ── */
+  /**
+   * A confirmed take removed units from this client's copy of a container. `live` true = it just happened (`cont taken`
+   * or a local take) and the tile plays the float-up + fade-out; `live` false = a silent catch-up reconciliation
+   * (`cont sync`, or the first open of a container with pending takes).
+   */
+  'container:itemTaken': {
+    containerId: string;
+    idx: number;
+    /** uid in THIS client's copy (`Container.uidAt(idx)`), null when the container was never rolled here. */
+    uid: string | null;
+    qty: number;
+    /** Units of `idx` left in this copy after the removal. */
+    remaining: number;
+    /** Peer that took it; null for a local single-player take. */
+    by: NetPeerId | null;
+    /** Lobby name of the taker; null for the local player / an unknown peer. */
+    byName: string | null;
+    byLocal: boolean;
+    live: boolean;
+  };
+
+  /* ── 부상자 들쳐메기 (owner: player; the remote mirror is net's) ── */
+  /** We shouldered a downed squadmate (`id` null = a host-simulated ghost body). */
+  'player:carryStarted': { id: NetPeerId | null; name: string | null };
+  /** The carried squadmate is back on the ground. */
+  'player:carryEnded': { id: NetPeerId | null; reason: CarryEndReason };
+  /** A squadmate picked up / put down another squadmate (HUD markers, 분대 목록). */
+  'net:remoteCarryChanged': { id: NetPeerId; carrying: NetPeerId | null };
+
+  /* ── 발사 준비 패널 (owner: hub; the crew wire is net's) ── */
+  /** A member's ship-side card arrived / changed. The local player is included (`id === net.localId`). */
+  'net:crewCard': { id: NetPeerId; card: CrewCardWire };
+  /** A member answered `crewq loadout`; `loadout` is inventory's opaque document — validate before rendering. */
+  'net:crewLoadout': { id: NetPeerId; card: CrewCardWire; loadout: unknown };
+  /** The READY panel opened / closed (blocker `HUB_READY_BLOCKER`, software cursor on). */
+  'hub:readyPanelToggled': { open: boolean };
+  /** A member's 장비 popup opened / closed from the READY panel; `peerId` null = closed. */
+  'hub:crewLoadoutToggled': { open: boolean; peerId: NetPeerId | null };
+
+  /* ── 배리어 방패 (owner: implants) ── */
+  /** The shield was raised / lowered (distinct from the old deploy/stow of `implant:barrierChanged`). */
+  'implant:barrierCarried': { up: boolean };
 }

@@ -367,3 +367,32 @@ export interface SquadContractInfo {
   id: string;
   progress: number;
 }
+
+/* ══ appended: Phase 10 — 크레딧 표기 (2026-09-07) ══════════════════════════════════════════════════════════════
+ * Every credit readout in the game renders `100 C`. The old `₩ 100` prefix (`inventory/ui/labels.ts fmtValue`) and the
+ * bare `100 cr` suffix (`ui/hud/ItemTip`, `meta/ui/CorpView`) are both replaced by these helpers, so there is exactly
+ * one formatter. `크레딧` stays as a *word* in sentences (toasts, quest rewards); the unit suffix is `C`.
+ * ────────────────────────────────────────────────────────────────────────────────────────────────────────────── */
+
+/** Credit unit suffix. Never a prefix, never `₩` / `\`. */
+export const CREDIT_SUFFIX = 'C';
+
+/** `100` → `'100 C'`; `12345` → `'12,345 C'`. `sign` prefixes `+` / `−`; `suffix: false` drops the ` C`. */
+export function formatCredits(n: number, opts?: { sign?: boolean; suffix?: boolean }): string {
+  const v = Math.round(Number.isFinite(n) ? n : 0);
+  const body = Math.abs(v).toLocaleString('ko-KR');
+  const sign = opts?.sign ? (v < 0 ? '−' : '+') : (v < 0 ? '−' : '');
+  const tail = opts?.suffix === false ? '' : ` ${CREDIT_SUFFIX}`;
+  return `${sign}${body}${tail}`;
+}
+
+/** Grouped number without the unit, for a pill that carries its own `CREDITS` eyebrow. */
+export function formatCreditAmount(n: number): string {
+  return formatCredits(n, { suffix: false });
+}
+
+/** The credit value of an item: `ItemDef.value × qty`. 0 for a missing def. */
+export function itemCreditValue(def: Pick<ItemDef, 'value'> | null | undefined, qty = 1): number {
+  if (!def || !Number.isFinite(def.value)) return 0;
+  return Math.max(0, Math.round(def.value * Math.max(1, Math.floor(qty))));
+}

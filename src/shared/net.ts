@@ -244,6 +244,11 @@ export const PlayerFlags = {
   HEAVY: 1 << 24,
   /** The 용검 big slash (MELEE is set too; remotes play the heavy sweep for SLASH_DURATION). */
   MELEE_HEAVY: 1 << 25,
+  /* appended (Phase 10): 부상자 들쳐메기 */
+  /** A downed squadmate is on this player's right shoulder — unarmed; `PlayerSnapshot.cr` names them. */
+  CARRYING: 1 << 26,
+  /** This player is carried by a squadmate (DOWNED is set too; ignore their `p`, use the carrier's socket). */
+  CARRIED: 1 << 27,
 } as const;
 
 /** Local player state → everyone, NET_PLAYER_SNAPSHOT_HZ. Owner: net (built from ctx.player / ctx.inventory). */
@@ -371,7 +376,8 @@ export interface EnemySnapshot { t: 'es'; time: number; seq: number; full: boole
 /** Host → all: discrete enemy events (spawn/kill/attack) for FX, audio and stats. Owner: enemies. */
 export type EnemyEvent =
   | { t: 'ee'; ev: 'spawn'; id: number; ty: EnemyType; p: Vec3Tuple; yaw: number }
-  | { t: 'ee'; ev: 'kill'; id: number; ty: EnemyType; p: Vec3Tuple; killer: PeerId | null }
+  /** `dd` (appended Phase 10) = index into `ENEMY_DEATH_DIRS`; omitted = 0 (`'left'`). */
+  | { t: 'ee'; ev: 'kill'; id: number; ty: EnemyType; p: Vec3Tuple; killer: PeerId | null; dd?: number }
   | { t: 'ee'; ev: 'despawn'; id: number }
   | { t: 'ee'; ev: 'damaged'; id: number; amount: number; p: Vec3Tuple; d?: Vec3Tuple }
   | { t: 'ee'; ev: 'attack'; id: number; ty: EnemyType; target: PeerId; damage: number; p: Vec3Tuple }
@@ -384,7 +390,8 @@ export type EnemyEvent =
   | { t: 'ee'; ev: 'shellHit'; sid: number; p: Vec3Tuple }
   | { t: 'ee'; ev: 'charge'; id: number; target: Vec3Tuple }
   | { t: 'ee'; ev: 'toxic'; id: number; p: Vec3Tuple }
-  | { t: 'ee'; ev: 'corpse'; id: number; ty: EnemyType; p: Vec3Tuple; w?: string }
+  /** `dd` / `lt` appended (Phase 10): death-direction index, and 0 = this corpse rolled un-searchable (omitted = lootable). */
+  | { t: 'ee'; ev: 'corpse'; id: number; ty: EnemyType; p: Vec3Tuple; w?: string; dd?: number; lt?: 0 | 1 }
   | { t: 'ee'; ev: 'corpseGone'; id: number }
   /* appended (Phase 7): rogue AI v2 */
   /** A rogue threw a grenade (replicas fly a visual one; the host resolves damage: own player directly, remotes via `dmg`). */
@@ -523,7 +530,11 @@ export type GameMessage =
   | ContainerRequest
   /* appended (Phase 9) */
   | StratagemRequest
-  | MetaRequest;
+  | MetaRequest
+  /* appended (Phase 10) */
+  | CarryMessage
+  | CrewMessage
+  | CrewRequest;
   /* append new message types above this line (keep `t` unique; prefix by owning folder if in doubt) */
 
 export type GameMessageType = GameMessage['t'];
@@ -727,7 +738,12 @@ export type GhostRequest =
  */
 export interface ContainerTakenWire { id: string; t: [number, number][] }
 export type ContainerMessage =
-  | { t: 'cont'; ev: 'taken'; id: string; idx: number; qty: number; by: PeerId }
+  /**
+   * `rem` / `seq` appended (Phase 10, live container view sync): `rem` = units of `idx` left in the host's copy after
+   * the take (omitted when the host cannot roll the container, e.g. a corpse it never opened); `seq` = the host's
+   * monotonic take counter for this container, so a viewer drops a duplicate / out-of-order take instead of animating twice.
+   */
+  | { t: 'cont'; ev: 'taken'; id: string; idx: number; qty: number; by: PeerId; rem?: number; seq?: number }
   | { t: 'cont'; ev: 'denied'; id: string; idx: number }
   | { t: 'cont'; ev: 'sync'; items: ContainerTakenWire[] };
 /** Client → host. `take` = I want `qty` units of item `idx` from container `id` (host validates against its taken map). */
@@ -765,7 +781,13 @@ export type ImplantMessage =
   | { t: 'imp'; ev: 'rocket'; o: Vec3Tuple; d: Vec3Tuple }
   | { t: 'imp'; ev: 'rocketHit'; p: Vec3Tuple }
   /* appended (Phase 7): overcharge beam replication. `target` null = beam off; `self` = healing myself (no target). */
-  | { t: 'imp'; ev: 'beam'; target: PeerId | null; self: boolean };
+  | { t: 'imp'; ev: 'beam'; target: PeerId | null; self: boolean }
+  /**
+   * appended (Phase 10): the 배리어 is a shield carried in hand. Its transform comes from the sender's own
+   * `PlayerSnapshot` (`p`, `yaw`) plus `PlayerFlags.BARRIER`, so only the state and durability travel here.
+   * `ev:'barrier'` above is dead for the local implant but still parsed, so an older peer keeps working.
+   */
+  | { t: 'imp'; ev: 'shield'; up: boolean; hp: number };
 
 /**
  * Any → one peer: a friendly effect. 'heal' / 'boost' are the overcharge implant, 'revive' the defibrillator
@@ -825,3 +847,87 @@ export type HarvestMessage =
 export type HarvestRequest =
   | { t: 'harvq'; ev: 'take'; id: string }
   | { t: 'harvq'; ev: 'sync' };
+
+/* ══ appended: Phase 10 — UI 개선 pass (2026-09-07) ═════════════════════════════════════════════════════════ */
+
+/* ── 부상자 들쳐메기 (owner: player) ── */
+/**
+ * Carrier → everyone. The steady state rides on `PlayerFlags.CARRYING` + `PlayerSnapshot.cr`, so these one-shots only
+ * buy instant feedback (and tell the host where a body landed when the carrier suspends mid-carry).
+ */
+export type CarryMessage =
+  | { t: 'carry'; ev: 'pick'; target: PeerId }
+  | { t: 'carry'; ev: 'drop'; target: PeerId; p: Vec3Tuple };
+
+/* ── 발사 준비 패널 crew cards (owner: hub, relayed in the shared ship) ── */
+/**
+ * A member's ship-side crew card: what the READY panel needs but no snapshot carries — `PlayerSnapshot.imp` and `.w`
+ * are nulled in the hub (`Snapshotter`) and `LobbyPlayer` has no level. Broadcast to `others` on `hub:entered`
+ * (shared ship) and whenever level / implant / armor / weapons change, debounced by `CREW_CARD_MIN_INTERVAL_S`.
+ */
+export interface CrewCardWire {
+  /** `ProgressionRef.level`. */
+  level: number;
+  /** Implant chosen on the ship (`ImplantsRef.equipped`), null = none. */
+  implant: ImplantId | null;
+  /** Equipped armor def id (mirrors `PlayerSnapshot.ar`, so one card is enough to pose a portrait). */
+  armor: string | null;
+  /** Equipped weapon def ids per slot, for the card / portrait (no attachments). */
+  primary?: string | null;
+  primary2?: string | null;
+  secondary?: string | null;
+}
+export type CrewMessage =
+  | { t: 'crew'; ev: 'card'; card: CrewCardWire }
+  /**
+   * Full card + the sender's opaque loadout document (`InventoryRef.captureCrewLoadout()`), answered to whoever sent
+   * `crewq loadout`. The receiver validates it exactly like `RaidSessionBlob.inventory` before rendering.
+   */
+  | { t: 'crew'; ev: 'loadout'; card: CrewCardWire; loadout: unknown };
+export type CrewRequest =
+  | { t: 'crewq'; ev: 'sync' }
+  | { t: 'crewq'; ev: 'loadout' };
+
+export interface PlayerSnapshot {
+  /* appended (Phase 10) — optional, older senders stay compatible. */
+  /** PeerId of the downed squadmate on our right shoulder while `CARRYING`; omitted otherwise. */
+  cr?: PeerId | null;
+  /** Carried-shield hp while `BARRIER` is set, so remotes tint the panel and a late joiner needs no `imp shield`. */
+  bhp?: number;
+}
+
+export interface RemoteAvatarRef {
+  /**
+   * Right-shoulder socket (appended Phase 10): a carried squadmate's body is parented here. Optional — a caller must
+   * feature-detect, and `player/` lifts its children to the body render order like it does for `weaponSocket`.
+   */
+  readonly shoulderSocket?: THREE.Object3D;
+}
+
+export interface RemotePlayerRef {
+  /* appended (Phase 10): 들쳐메기 */
+  /** `PlayerSnapshot.cr` — the peer this ref is carrying, or null. */
+  readonly carrying?: PeerId | null;
+  /** `flags & CARRIED` — this ref's body hangs on `carriedBy`'s shoulder; ignore `position`. */
+  readonly isCarried?: boolean;
+  /** Peer carrying this ref (derived by net/ from everyone's `cr`), or null. */
+  readonly carriedBy?: PeerId | null;
+  /* appended (Phase 10): 배리어 방패 */
+  /** `flags & BARRIER` — the peer's shield is raised (implants/ follows their position + yaw with it). */
+  readonly isBarrierUp?: boolean;
+  /** `PlayerSnapshot.bhp` of the latest snapshot; undefined when unknown. */
+  readonly barrierHp?: number;
+  /* appended (Phase 10): crew card */
+  /** `CrewCardWire.level`; undefined until a `crew card` arrived. */
+  readonly crewLevel?: number;
+  /** Implant EQUIPPED on the ship — distinct from `implantId`, which is the *wielded* one and always null in the hub. */
+  readonly equippedImplant?: ImplantId | null;
+}
+
+export interface NetRef {
+  /* ── appended: Phase 10 — 발사 준비 패널 ── */
+  /** Last `crew card` seen for `id`, including the local player's own card. null when none arrived. */
+  getCrewCard(id: PeerId): CrewCardWire | null;
+  /** Ask `id` for its full loadout (`crewq loadout`); the answer arrives as the `net:crewLoadout` event. */
+  requestCrewLoadout(id: PeerId): void;
+}

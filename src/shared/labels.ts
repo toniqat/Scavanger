@@ -25,7 +25,7 @@ export const RARITY_LABEL_KO: Readonly<Record<Rarity, string>> = {
 };
 
 export const CATEGORY_LABEL_KO: Readonly<Record<ItemCategory, string>> = {
-  primary: '주무기', secondary: '보조무기', grenade: '수류탄', stim: '스팀',
+  primary: '주무기', secondary: '보조무기', grenade: '수류탄', stim: '회복약',
   ammo: '탄약', valuable: '귀중품', material: '재료',
   attachment: '부착물', bag: '가방',
   armor: '방탄복', gadget: '가젯', herb: '약초',
