@@ -3,15 +3,20 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite --host --port 5273",
     "build": "tsc --noEmit && vite build",
+    "app": "electron .",
+    "app:build": "npm run build && node electron/build.mjs",
+    "app:dist": "npm run app:build && electron-builder --win portable",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview --port 5274",
     "server": "node --experimental-strip-types --disable-warning=ExperimentalWarning server/index.ts",
     "dev:all": "node scripts/dev-all.mjs",
     "net:selftest": "node --experimental-strip-types --disable-warning=ExperimentalWarning server/selftest.ts",
     "typecheck:server": "tsc --noEmit -p server/tsconfig.json",
+    "typecheck:app": "tsc --noEmit -p electron/tsconfig.json",
     "e2e:mp": "node scripts/e2e-multiplayer.mjs",
     "smoke:tactical": "node scripts/smoke-tactical.mjs",
     "smoke:controls": "node scripts/smoke-controls-hub.mjs",
@@ -26,8 +31,39 @@
     "@types/node": "^26.4.1",
     "@types/three": "^0.185.4",
     "@types/ws": "^8.18.1",
+    "electron": "^44.2.0",
+    "electron-builder": "^26.15.3",
     "puppeteer-core": "^25.10.0",
     "typescript": "^7.0.2",
     "vite": "^8.2.2"
+  },
+  "build": {
+    "appId": "com.scavanger.game",
+    "productName": "SCAVANGER",
+    "directories": {
+      "output": "release",
+      "buildResources": "electron/resources"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json",
+      "!node_modules/**/*",
+      "node_modules/ws/**/*"
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "portable": {
+      "artifactName": "SCAVANGER-${version}-portable.exe"
+    }
   }
 }

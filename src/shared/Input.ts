@@ -1,4 +1,8 @@
+import { LOCK_GESTURE_RETRY_MS } from './constants';
 import { SoftCursor, isSoftCursorEvent } from './cursor';
+
+/** How long after a lock request we check whether it actually took (engines that return no promise). */
+const LOCK_RESULT_CHECK_MS = 250;
 
 /**
  * Global input state. Owned by shared/, read by player, inventory UI and menus.
@@ -96,6 +100,8 @@ export class Input {
       this.wheelDelta += Math.sign(e.deltaY);
     }, { passive: true });
     window.addEventListener('contextmenu', (e) => { if (this.isPointerLocked) e.preventDefault(); });
+    // The lock arrived (from a request of ours or a click on the canvas) — stop waiting for a gesture.
+    document.addEventListener('pointerlockchange', () => { if (this.isPointerLocked) this.disarmLockGestureRetry(); });
   }
 
   isDown(code: string): boolean { return this.down.has(code); }
@@ -120,15 +126,68 @@ export class Input {
   lastLockRequest = 0;
   requestPointerLock(): void {
     if (!this.lockTarget || this.isPointerLocked) return;
+    this.wantLock = true;
     this.lastLockRequest = performance.now();
     this.lockLooksReal = true;   // re-arm the faked-lock detection (Phase 10)
     // Modern Chrome returns a Promise that rejects when the lock is denied (e.g. headless, no user gesture) —
-    // swallow it so a denied re-lock never surfaces as an unhandled rejection.
-    const swallow = (r: unknown): void => { if (r && typeof (r as Promise<void>).catch === 'function') (r as Promise<void>).catch(() => { /* denied */ }); };
+    // swallow it so a denied re-lock never surfaces as an unhandled rejection, and wait for a gesture instead.
+    const denied = (): void => this.armLockGestureRetry();
+    const swallow = (r: unknown): void => {
+      if (r && typeof (r as Promise<void>).catch === 'function') (r as Promise<void>).catch(denied);
+    };
     try { swallow((this.lockTarget as any).requestPointerLock?.({ unadjustedMovement: true }) ?? this.lockTarget.requestPointerLock()); }
-    catch { try { swallow(this.lockTarget.requestPointerLock()); } catch { /* ignore */ } }
+    catch { try { swallow(this.lockTarget.requestPointerLock()); } catch { denied(); } }
+    // Older engines return nothing at all, so also check the outcome once the event loop has settled.
+    window.setTimeout(denied, LOCK_RESULT_CHECK_MS);
   }
-  exitPointerLock(): void { if (this.isPointerLocked) document.exitPointerLock(); }
+  exitPointerLock(): void {
+    this.wantLock = false;
+    this.disarmLockGestureRetry();
+    if (this.isPointerLocked) document.exitPointerLock();
+  }
+
+  /* ── appended 2026-09-07: a denied lock request waits for the next real user gesture ──────────────────────────
+   *
+   * Chrome does **not** treat Escape as user activation (it is reserved for leaving fullscreen / pointer lock), and
+   * it refuses a pointer-lock request for a moment after the user escaped out of one. So closing the 일시정지 메뉴
+   * with Escape — the way most players close it — asks for the lock at the one instant Chrome will not grant it: the
+   * Windows cursor stayed on screen and `game/`'s lost-lock watchdog put the menu straight back up, a loop only a
+   * mouse click on 계속 could break. Instead of giving up, hold the intent and retry from the player's next real
+   * gesture (a click, or any key that is not Escape) — in practice the first WASD tap, so the lock comes back at
+   * once. `game/` suspends its watchdog while this is armed (`awaitingLockGesture`).
+   */
+  /** Someone asked for the lock and it has not been granted or cancelled yet. */
+  private wantLock = false;
+  private lockRetryUntil = 0;
+  private lockRetryBound = false;
+
+  /** true while a denied lock request is still waiting for a user gesture to retry from. */
+  get awaitingLockGesture(): boolean { return this.lockRetryBound && performance.now() < this.lockRetryUntil; }
+
+  private armLockGestureRetry(): void {
+    if (!this.wantLock || this.isPointerLocked || !this.lockTarget) return;
+    if (this.lockRetryBound) return;                    // keep the original deadline: never wait longer than one window
+    this.lockRetryBound = true;
+    this.lockRetryUntil = performance.now() + LOCK_GESTURE_RETRY_MS;
+    window.addEventListener('pointerdown', this.onLockGesture, true);
+    window.addEventListener('keydown', this.onLockGesture, true);
+  }
+
+  private disarmLockGestureRetry(): void {
+    this.lockRetryUntil = 0;
+    if (!this.lockRetryBound) return;
+    this.lockRetryBound = false;
+    window.removeEventListener('pointerdown', this.onLockGesture, true);
+    window.removeEventListener('keydown', this.onLockGesture, true);
+  }
+
+  private onLockGesture = (e: Event): void => {
+    if (isSoftCursorEvent(e)) return;                   // our own synthetic events carry no user activation
+    if (e instanceof KeyboardEvent && (e.code === 'Escape' || e.repeat)) return;   // Escape grants none in Chrome
+    if (!this.wantLock || this.isPointerLocked || !this.awaitingLockGesture) { this.disarmLockGestureRetry(); return; }
+    this.disarmLockGestureRetry();
+    this.requestPointerLock();
+  };
 
   /* ── appended: Phase 10 — 인게임 마우스 커서 ────────────────────────────────── */
   /** true while the virtual cursor owns UI input (the pointer lock is kept and raw deltas drive `cursorX/Y`). */

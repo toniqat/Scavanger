@@ -64,16 +64,23 @@ try {
   const slots = () => page.evaluate(() => window.__game.ctx.inventory.getQuickSlots().map((i) => i && { uid: i.uid, defId: i.defId, qty: i.qty }));
   const bagDef = (defId) => page.evaluate((d) => window.__game.ctx.inventory.getAllItems().filter((i) => i.defId === d).map((i) => ({ uid: i.uid, qty: i.qty })), defId);
   const centre = async (sel) => page.evaluate((s) => { const r = document.querySelector(s)?.getBoundingClientRect(); return r ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : null; }, sel);
-  const dragMouse = async (from, to) => {
+  const dragMouse = async (from, to, onMid) => {
     await page.mouse.move(from.x, from.y);
     await page.mouse.down();
     await page.mouse.move(from.x + 8, from.y + 8, { steps: 2 });
-    await page.mouse.move((from.x + to.x) / 2, (from.y + to.y) / 2, { steps: 4 });
+    const mid = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 };
+    await page.mouse.move(mid.x, mid.y, { steps: 4 });
+    if (onMid) await onMid(mid);
     await page.mouse.move(to.x, to.y, { steps: 4 });
     await sleep(60);
     await page.mouse.up();
     await sleep(120);
   };
+  /** Centre of the drag ghost, so a drag can assert it rides the pointer. */
+  const ghostCentre = () => page.evaluate(() => {
+    const r = document.querySelector('.inv-ghost')?.getBoundingClientRect();
+    return r ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : null;
+  });
 
   console.log('selftest');
   // the dev server serves the TS module directly; a `vite preview` build has no /src → skipped
@@ -179,7 +186,16 @@ try {
   const [nadeB] = await bagDef('grenade_frag');
   const stimTile = await centre(`.inv-grid-bag .inv-tile[data-uid="${stimB.uid}"]`);
   const cell0 = await centre('.inv-quick-cell[data-index="0"]');
-  await dragMouse(stimTile, cell0);
+  /* 2026-09-07: the ghost must sit **centred on the pointer**. `.inv-ghost` carried its 1.04 lift as a standalone
+     `scale:`, which CSS applies before the `transform` the drag writes — so the translate was multiplied and the
+     picture drifted further from the cursor the further right / down it went (42 px at x = 1080). */
+  let ghostOff = null;
+  await dragMouse(stimTile, cell0, async (mid) => {
+    const g = await ghostCentre();
+    ghostOff = g && { dx: Math.round(g.x - mid.x), dy: Math.round(g.y - mid.y) };
+  });
+  ok(ghostOff !== null && Math.abs(ghostOff.dx) <= 2 && Math.abs(ghostOff.dy) <= 2,
+    'the drag ghost rides centred on the pointer', JSON.stringify(ghostOff));
   s = await slots();
   ok(s[0]?.uid === stimB.uid && s[4] === null, 'real-mouse drag stim → cell N assigns it (grenade unassigned)', JSON.stringify(s));
   // drag the grenade onto the locked cell 2 (E) → refused, still unassigned

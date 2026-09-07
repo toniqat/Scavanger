@@ -39,7 +39,8 @@ engine.ctx.input.cursor.onModeChange((active, owner) => {
   // folder: the per-screen relock microtasks the Phase 10 lanes removed all funnel through here.
   if (active) return;
   queueMicrotask(() => {
-    if (!engine.ctx.input.isCursorMode && engine.ctx.uiBlockers.size === 0) engine.ctx.input.requestPointerLock();
+    // Only the 일시정지 메뉴 wants the real OS cursor; every other blocker keeps the lock (Phase 10).
+    if (!engine.ctx.input.isCursorMode && !engine.ctx.uiBlockers.has('menu')) engine.ctx.input.requestPointerLock();
   });
 });
 

@@ -1,4 +1,4 @@
-import { SOFT_CURSOR_ACCEL, SOFT_CURSOR_ACCEL_MAX, SOFT_CURSOR_DBLCLICK_MS, SOFT_CURSOR_SENSITIVITY } from './constants';
+import { SOFT_CURSOR_DBLCLICK_MS, SOFT_CURSOR_SENSITIVITY } from './constants';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * 인게임 마우스 커서 (Phase 10). Owner: shared/ — the second (and last) DOM file here after `itemChip.ts`.
@@ -199,14 +199,15 @@ export class SoftCursor {
   /**
    * Integrate one raw locked movement event. `Input` calls this from its `mousemove` handler.
    *
-   * The lock is taken with `unadjustedMovement: true`, so these deltas carry no OS pointer acceleration at all.
-   * `gain` re-adds a curve of our own (`SOFT_CURSOR_ACCEL` / `_MAX`): slow, precise moves stay 1:1 with the raw
-   * delta, a flick covers up to `SOFT_CURSOR_ACCEL_MAX` times as much ground — which is what makes the desktop
-   * cursor feel quick.
+   * **Strictly linear** (`SOFT_CURSOR_SENSITIVITY`, 1 client px per raw px). 2026-09-07 briefly added a curve of its
+   * own on the theory that the lock's `unadjustedMovement: true` had stripped the OS acceleration and the cursor
+   * needed it back; in practice it made the arrow overshoot — a 14 px move travelled 27 px — so the pointer never
+   * ended up where the hand aimed it. Windows' own default (pointer speed 6/11, no "enhance pointer precision") is
+   * 1:1 too, so linear is both the predictable answer and the closest match to the desktop cursor.
    */
   moveBy(dx: number, dy: number): void {
     if (!this.active || (dx === 0 && dy === 0)) return;
-    const gain = this.sensitivity * (1 + Math.min(SOFT_CURSOR_ACCEL_MAX - 1, Math.hypot(dx, dy) * SOFT_CURSOR_ACCEL));
+    const gain = this.sensitivity;
     this.x = this.clampX(this.x + dx * gain);
     this.y = this.clampY(this.y + dy * gain);
     this.moveListener?.(this.x, this.y);

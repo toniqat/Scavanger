@@ -353,7 +353,10 @@ body:not(.soft-cursor-on) .inv-root.is-dragging * { cursor: grabbing !important;
   cursor: grabbing;
   transition: none;
   filter: drop-shadow(0 14px 22px rgba(0, 0, 0, 0.65)) brightness(1.08);
-  scale: 1.04;
+  /* 2026-09-07: the 1.04 lift is baked into `positionGhost`'s `transform` instead of the individual `scale:`
+     property. Individual transforms are applied translate → rotate → scale → `transform`, so a standalone
+     `scale: 1.04` multiplied the translate the JS writes: at x = 1080 the ghost drew 42 px right of the cursor
+     (and further out the wider the window), which read as the item and the in-game cursor drifting apart. */
 }
 
 /* ── equipment ──────────────────────────────────────────────────────────── */

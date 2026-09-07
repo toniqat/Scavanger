@@ -16,6 +16,8 @@ import { SplitDialog } from './SplitDialog';
 import { QUICK_DIR_GLYPH, QUICK_ROSE_ORDER, SLOT_LABEL, STEP, TEXT, fmtValue, slotKeyLabel, tierTitle, tileSize, fmtKg, weightLabel } from './labels';
 
 const DRAG_THRESHOLD = 4; // px before a press becomes a drag
+/** The dragged ghost's size lift. Lives here, not in CSS — see `positionGhost`. */
+const GHOST_SCALE = 1.04;
 const MIDDLE_BUTTON = 1;
 /** Two presses on the same catalog tile within this window = 가방에 넣기. */
 const CATALOG_DBL_MS = 400;
@@ -1465,7 +1467,9 @@ export class InventoryUI {
 
   private positionGhost(d: DragState, x: number, y: number): void {
     if (!d.ghost) return;
-    d.ghost.style.transform = `translate(${Math.round(x - d.grabX)}px, ${Math.round(y - d.grabY)}px)`;
+    // The lift must be part of *this* transform (see `.inv-ghost` in inventory.css): as a standalone `scale:` it is
+    // applied before the `transform` property and scales the translate, which pushed the ghost away from the cursor.
+    d.ghost.style.transform = `translate(${Math.round(x - d.grabX)}px, ${Math.round(y - d.grabY)}px) scale(${GHOST_SCALE})`;
   }
 
   private handlePointerMove(e: PointerEvent): void {

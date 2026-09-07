@@ -373,11 +373,50 @@ try {
     cursor: window.__game.ctx.input.isCursorMode,
   }));
   ok(termCursor.blocker && termCursor.cursor === true, `terminal holds the 'hub' blocker and the software cursor (cursor ${termCursor.cursor})`);
+  // 2026-09-07: the virtual cursor is **linear** again — the acceleration curve added earlier that day overshot
+  // (a 14 px hand movement travelled 27 px), so the arrow never landed where it was aimed.
+  const linear = await page.evaluate(() => {
+    const cur = window.__game.ctx.input.cursor;
+    cur.setPosition(300, 300); cur.moveBy(4, 3);
+    const slow = [cur.x - 300, cur.y - 300];
+    cur.setPosition(300, 300); cur.moveBy(60, 40);
+    return { slow, fast: [cur.x - 300, cur.y - 300] };
+  });
+  ok(linear.slow[0] === 4 && linear.slow[1] === 3 && linear.fast[0] === 60 && linear.fast[1] === 40,
+    'virtual cursor moves 1:1 with the raw delta, slow move and flick alike', JSON.stringify(linear));
   await shot('07-terminal');
   await tap('Escape');
   await waitFor(page, () => document.querySelector('.menu.hub-menu').hidden, 'terminal closed');
   await waitSim(0.2);
   ok((await page.evaluate(() => window.__game.ctx.input.isCursorMode)) === false, 'closing the terminal releases the software cursor');
+
+  /* 2026-09-07: a denied pointer-lock request waits for the next real user gesture. Chrome grants no user activation
+     for Escape and refuses a re-lock right after one, so closing the 일시정지 메뉴 with Escape used to leave the
+     Windows cursor on screen and the lost-lock watchdog re-opened the menu forever. (Headless: the stubbed
+     `requestPointerLock` resolves but never sets `pointerLockElement`, which is exactly the denied case.) */
+  const relock = await page.evaluate(async () => {
+    const input = window.__game.ctx.input;
+    const key = (code, type) => { window.dispatchEvent(new KeyboardEvent(type, { code, bubbles: true })); };
+    // this script fakes `pointerLockElement` over the canvas — drop it for the length of the check
+    const faked = Object.getOwnPropertyDescriptor(Document.prototype, 'pointerLockElement');
+    Object.defineProperty(Document.prototype, 'pointerLockElement', { get: () => null, configurable: true });
+    input.exitPointerLock();
+    input.requestPointerLock();
+    await new Promise((r) => setTimeout(r, 400));
+    const armed = input.awaitingLockGesture;
+    key('Escape', 'keydown'); key('Escape', 'keyup'); input.consume('Escape');
+    const afterEsc = input.awaitingLockGesture;
+    const at = input.lastLockRequest;
+    key('KeyJ', 'keydown'); key('KeyJ', 'keyup'); input.consume('KeyJ');
+    const retried = input.lastLockRequest !== at;
+    input.exitPointerLock();
+    const out = { armed, afterEsc, retried, disarmed: input.awaitingLockGesture };
+    Object.defineProperty(Document.prototype, 'pointerLockElement', faked);
+    return out;
+  });
+  ok(relock.armed, 'a denied pointer-lock request arms the gesture retry');
+  ok(relock.afterEsc, 'Escape never counts as the gesture (Chrome grants it no user activation)');
+  ok(relock.retried && !relock.disarmed, 'any other key retries the lock and disarms the wait', JSON.stringify(relock));
 
   /* ── 5. mission A: 대전차포 wielded → weapon key stows it ─────────── */
   const startMission = async (seed) => {
