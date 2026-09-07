@@ -90,13 +90,19 @@ export class WeaponFx {
   /**
    * Pre-compile every shader the scene can need (hidden pooled meshes included: explosion rings, flash
    * sprites, grenade bodies, projectiles, gore decals …) so the first throw / shot / kill does not stall on a
-   * shader compile. Uses `compileAsync` (KHR_parallel_shader_compile → no main-thread stall) when available.
+   * shader compile.
+   *
+   * `renderer.compile()` and not `compileAsync()`: both issue the same program links (the driver finishes them
+   * in the background through KHR_parallel_shader_compile either way), but `compileAsync` then polls
+   * `program.isReady()` every 10 ms on the whole material set it collected — and that set is the **live scene**,
+   * whose materials get disposed under it (a remote avatar leaving, a gear look rebuilt, an enemy despawning).
+   * A disposed material has no `currentProgram` any more, so the poll throws `Cannot read properties of
+   * undefined (reading 'isReady')` from inside three's own `setTimeout`, where our `.catch` cannot reach it.
+   * We never awaited the promise, so nothing is lost by dropping it.
    */
   warmUp(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera): void {
     try {
-      const r = renderer as THREE.WebGLRenderer & { compileAsync?: (s: THREE.Object3D, c: THREE.Camera) => Promise<unknown> };
-      if (typeof r.compileAsync === 'function') r.compileAsync(scene, camera).catch(() => { /* context lost */ });
-      else renderer.compile(scene, camera);
+      renderer.compile(scene, camera);
     } catch { /* never let a warm-up break the frame */ }
   }
 

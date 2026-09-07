@@ -401,7 +401,7 @@ The second (and last) DOM file in `shared/`, after `itemChip.ts`.
 - `constants.ts`: `HUB_READY_CELLS`, `HUB_READY_PORTRAIT_YAW`, `HUB_READY_BLOCKER`, `CREW_CARD_MIN_INTERVAL_S`,
   `CREW_LOADOUT_COOLDOWN_S`.
 - `events.ts`: `'net:crewCard'`, `'net:crewLoadout'`, `'hub:readyPanelToggled'`, `'hub:crewLoadoutToggled'`.
-- Ownership: `player/` the soldier model rewrite (스플래툰 3등신) + portraits + carrying · `implants/` the shield ·
+- Ownership: `player/` the soldier model rewrite (스플래툰 3등신 — **2026-09-07 롤백**) + portraits + carrying · `implants/` the shield ·
   `enemies/` deaths + lootable corpses · `ui/` the crosshair reload gauge, the heal gauge, the map ping, the credit
   bar on both tooltips, the software-cursor sprite and the pillars · `inventory/` the live container sync + the
   foreign loadout view · `weapons/` the 2 s heal hold and the retired H key · `hub/` the READY panel and the housing

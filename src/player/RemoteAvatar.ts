@@ -8,10 +8,10 @@ import { damp, dampAngle, wrapAngle } from '@/core/util/MathUtil';
 import { SoldierModel, SOLDIER_DEFAULT_ACCENT, type SoldierPose } from './SoldierModel';
 import { buildHeldItem, type GearLook } from './GearLook';
 
-/* Nameplate anchors, matching the Phase 10 body (head centre 1.47 m, head top ≈ 1.76 m; the HUD adds +0.35 m). */
-const HEAD_STAND = 1.6;
-const HEAD_CROUCH = 1.34;
-const HEAD_PRONE = 0.55;
+/* Nameplate anchors for the armoured trooper body (head ≈ 1.7 m standing; the HUD adds +0.35 m). */
+const HEAD_STAND = 1.7;
+const HEAD_CROUCH = 1.3;
+const HEAD_PRONE = 0.5;
 const DEATH_ANIM = 0.9;
 /** Seconds between recoil pulses while the FIRING flag is set (≈ a 9 rps rifle). */
 const FIRE_PULSE_INTERVAL = 0.11;
@@ -19,8 +19,8 @@ const FIRE_PULSE_INTERVAL = 0.11;
 const MELEE_SWING_TIME = 0.45;
 /** Opacity of a cloaked remote (matches the local player's own shimmer). */
 const CLOAK_FADE = 0.4;
-/** Height of the "downed" beacon above the feet (clears the prone body's big head at ~0.55 m). */
-const DOWN_MARKER_Y = 0.9;
+/** Height of the "downed" beacon above the feet. */
+const DOWN_MARKER_Y = 0.95;
 /**
  * Flags that still mean something while a member is suspended (its last snapshot is frozen, the host's ghost
  * drives hp / downed / dead): everything animated (sprint, aim, fire, melee, …) is masked out.

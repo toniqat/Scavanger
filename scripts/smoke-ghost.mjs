@@ -9,7 +9,7 @@
 // left the mission (`net:missionMembership {inMission:false}`) or whose socket came back without `flow rejoined`
 // keeps a non-simulated body for NET_GHOST_PARK_S (`getParkedGhosts`), restored by a rejoin inside the window, expired
 // after it (`debugExpireParked`), cleared by demotion / `game:abort`.
-// Phase 10: the 3등신 model's `shoulderSocket` (weaponSocket still at -PI/2, no cape, `SoldierPose.carry`) and
+// Phase 10: the soldier model's `shoulderSocket` (weaponSocket still at -PI/2, `SoldierPose.carry`) and
 // **부상자 들쳐메기** — `findCarriable` / `carry` / the revive prompt following the socket / the automatic drop when
 // the body is revived / `setCarriedBy` riding along on a carrier's shoulder (`debugCarryLocal`).
 // Usage: node scripts/smoke-ghost.mjs [http://localhost:5273]   (needs `npm run dev` or a private `npx vite --port 5303`)
@@ -413,7 +413,7 @@ try {
   ok(k6.parkedBefore === 1 && k6.parked === 0 && k6.ghosts === 0, 'game:abort clears parked bodies', JSON.stringify(k6));
   await P(() => { window.__rp.debugClear(); });
 
-  console.log('Phase 10: 3등신 모델 소켓 · 부상자 들쳐메기');
+  console.log('Phase 10: 어깨 소켓 · 부상자 들쳐메기 (모델은 헬다이버즈식으로 롤백)');
   await P(() => { const ctx = window.__game.ctx; ctx.rejoinPending = false; ctx.bus.emit('game:newMission', { seed: 21 }); });
   await waitFor(page, () => !!window.__game.ctx.world && window.__game.ctx.world.ready, 'world ready (2)', 25000);
   await P(() => { const ctx = window.__game.ctx; if (ctx.phase !== 'playing') ctx.setPhase('playing'); });
@@ -427,12 +427,12 @@ try {
       hostSocket: typeof p.getShoulderSocket === 'function' && p.getShoulderSocket() === m.shoulderSocket,
       poseCarry: Object.keys(ps.pose).includes('carry'),
       carrying: p.carrying, isCarried: p.isCarried,
-      capeGone: !('capeSegs' in m),
+      cape: 'capeSegs' in m,   // rolled back to the armoured trooper: the cape is part of the look again
     };
   });
   ok(sock.shoulder && sock.hostSocket, 'SoldierModel.shoulderSocket exposed through getShoulderSocket()', JSON.stringify(sock));
   ok(Math.abs(sock.weaponRotX + Math.PI / 2) < 1e-3, 'weaponSocket keeps the -PI/2 (weapon -Z) contract', String(sock.weaponRotX));
-  ok(sock.poseCarry && sock.capeGone, 'SoldierPose has `carry`; the cape segments are gone', JSON.stringify(sock));
+  ok(sock.poseCarry && sock.cape, 'SoldierPose has `carry`; the armoured trooper look (cape) is restored', JSON.stringify(sock));
   ok(sock.carrying === null && sock.isCarried === false, 'nobody is carried at mission start', JSON.stringify(sock));
 
   await P(() => {
