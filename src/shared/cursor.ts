@@ -61,3 +61,17 @@ export class CursorMode {
   /** Fire the mode listener. Called by `Input` once the pointer-lock side of the transition is settled. */
   emitChange(): void { this.listener?.(this.active, this.owner); }
 }
+
+
+/* ══ appended: 2026-09-08 — 데스크톱 셸 판별 ═══════════════════════════════════════════════════════════════════════
+ * The Electron shell (`electron/`) loads the same bundle from `http://127.0.0.1:<port>/`, so nothing in the page knows
+ * it is a desktop app except the user agent. Two behaviours differ there: no '좌측 클릭으로 게임 재개' gate (the shell
+ * hides the cursor itself whenever no screen owns it — Alt 커서 excepted), and `start-game.bat` is gone in favour of
+ * the exe. Read it at use time; a test may override it with `window.__scavDesktop`.
+ * ────────────────────────────────────────────────────────────────────────────────────────────────────────────── */
+export function isDesktopShell(): boolean {
+  if (typeof window === 'undefined') return false;
+  const w = window as unknown as { __scavDesktop?: boolean };
+  if (typeof w.__scavDesktop === 'boolean') return w.__scavDesktop;
+  return typeof navigator !== 'undefined' && /\bElectron\//.test(navigator.userAgent);
+}

@@ -1,4 +1,4 @@
-import type {
+import type { EquippedImplant,
   DerivedStats, EmbeddedView, GameContext, GameSystem, PlayerProfile, ProfileRef, ProgressionRef,
   SkillDef, SkillId, StatDef, StatId, WeaponClass,
 } from '@/shared';
@@ -49,6 +49,14 @@ export function statXpFor(value: number): number {
  */
 export class ProgressionSystem implements GameSystem, ProgressionRef {
   readonly name = 'progression';
+  /* ── 2026-09-08 contract stubs (lead) — the progression agent replaces these ── */
+  get implantSlots(): number { return 4; /* TODO(progression agent) */ }
+  get implantSlotsUsed(): number { return 0; }
+  getEquippedImplants(): readonly EquippedImplant[] { return []; }
+  equipImplant(_uid: string): boolean { return false; }
+  unequipImplant(_uid: string): boolean { return false; }
+  getStatWithImplants(id: StatId): number { return this.getStat(id); }
+  getImplantBonus(_id: StatId): number { return 0; }
 
   private ctx!: GameContext;
   private _profile: PlayerProfile = freshProfile();

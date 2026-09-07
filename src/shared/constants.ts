@@ -812,7 +812,7 @@ export const CONSUMABLE_SLOW_KEY = 'consumable';
 /** Seconds LMB must be held with a 제세동기 in hand before the revive fires. */
 export const DEFIB_USE_TIME_S = 1;
 /** 회복 스프레이: gauge of a fresh can (the instance's `durability`) and the radius its ticks heal in. */
-export const HEAL_SPRAY_GAUGE = 100;
+export const HEAL_SPRAY_GAUGE = 200;   // 2026-09-08: 100 → 200; an empty can stays at 0 (repairable in the ship) instead of vanishing
 export const HEAL_SPRAY_RADIUS = 8;
 
 /* ── 발사 준비 패널 (owner: hub, portraits from player/) ── */
@@ -870,3 +870,52 @@ export const SOCIAL_FRIEND_ROWS = 3.5;
 export const SOCIAL_RECENT_ROWS = 5.5;
 /** Squad voice sliders are UI-only in Phase 11 (no voice chat yet); this is their stored default. */
 export const SQUAD_VOICE_DEFAULT = 1;
+
+
+/* ══ appended: 2026-09-08 batch — 임플란트 아이템 · 배리어 rework · 정찰 rework · 총알 추적 · 실드 배쉬 ═══════════════ */
+
+/* ── 임플란트(능력치 장착 아이템) 칸 (owner: progression) ── */
+export const IMPLANT_SLOTS_BASE = 4;
+/** +1 slot per this many character levels. */
+export const IMPLANT_SLOTS_PER_LEVELS = 5;
+export const IMPLANT_SLOTS_MAX = 10;
+
+/* ── 실드 배쉬 (owner: implants) ── */
+/** Stamina spent per bash (same units as `PlayerRef.consumeStamina`). */
+export const IMPLANT_SHIELD_BASH_STAMINA = 25;
+/** Base damage per enemy in the arc (× `derived.meleeDamageMul` only — no weapon / 개머리판 bonus). */
+export const IMPLANT_SHIELD_BASH_DAMAGE = 55;
+/** Reach in front of the shield plane, metres. Width = the shield's own carry width. */
+export const IMPLANT_SHIELD_BASH_RANGE = 1.6;
+export const IMPLANT_SHIELD_BASH_COOLDOWN = 0.8;
+/** Knockback impulse applied to each struck enemy (m/s along the shield forward). */
+export const IMPLANT_SHIELD_BASH_KNOCKBACK = 6;
+/** Seconds the bash pose / FX play. */
+export const IMPLANT_SHIELD_BASH_SWING_S = 0.35;
+
+/* ── 정찰 rework (owner: implants) — one wide instant pulse ── */
+/** Radius of the single pulse, metres. */
+export const IMPLANT_SCAN_RADIUS = 70;
+/** Seconds the reveal lasts (self + squad). Replaces `IMPLANT_SCAN_REVEAL_TIME` (10) for the new implant. */
+export const IMPLANT_SCAN_REVEAL_TIME_V2 = 15;
+export const IMPLANT_SCAN_COOLDOWN_V2 = 30;
+
+/* ── 총알 추적 (owner: enemies) ── */
+/** An enemy this close to the bullet path (metres, closest approach) reacts even without perceiving the shooter. */
+export const ENEMY_SHOT_ALERT_DIST = 6;
+/** … or this close to the impact point. */
+export const ENEMY_SHOT_IMPACT_DIST = 10;
+/** Seconds the enemy faces the origin with a widened perception cone before it starts advancing. */
+export const ENEMY_SHOT_ALERT_WATCH_S = 3;
+/** Perception range multiplier toward the shot origin during the watch (and while advancing). */
+export const ENEMY_SHOT_ALERT_CONE_MUL = 2;
+/** Give up the investigation after this many seconds without finding anyone (returns to the previous behaviour). */
+export const ENEMY_SHOT_ALERT_GIVE_UP_S = 20;
+
+/* ── 나침반 적 표시 (owner: ui) ── */
+/** Compass tick colour for enemies inside `derived.enemyDetectRadius` / a 정찰 reveal. */
+export const COMPASS_ENEMY_COLOR = '#ff4d4d';
+
+/* ── 브라우저 재개 게이트 (owner: game) ── */
+/** `ctx.uiBlockers` token the '좌측 클릭으로 게임 재개' gate holds (browser only, never in the Electron shell). */
+export const RESUME_GATE_BLOCKER = 'resumegate';

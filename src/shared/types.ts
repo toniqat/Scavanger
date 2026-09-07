@@ -66,7 +66,9 @@ export type ItemCategory =
   /* appended: Phase 8 (2026-09-06) */
   | 'seed'        // 씨앗 planted in a 온실 재배층 (see `ItemDef.seed`); loot + corp shop, never craftable
   /* appended: Phase 9 (2026-09-06) */
-  | 'book';       // 서적 shelved on a 서재 책장 (see `ItemDef.book`): raises one skill's XP gain; loot + corp shop, never craftable
+  | 'book'        // 서적 shelved on a 서재 책장 (see `ItemDef.book`): raises one skill's XP gain; loot + corp shop, never craftable
+  /* appended: 2026-09-08 */
+  | 'implant';    // 임플란트 (능력치 장착 아이템, see `ItemDef.implant`): equipped on the 캐릭터 tab, 세레스 바이오 sells / repairs, broken ones are raid loot
 
 export type Rarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
 
@@ -1382,4 +1384,54 @@ export interface InventoryRef {
   openScreen(tab: InventoryScreenTab): boolean;
   /** Screen tab the window is showing; `'inventory'` while the window is closed. */
   readonly screenTab: InventoryScreenTab;
+}
+
+/* ══ appended: 2026-09-08 — 임플란트(능력치 장착 아이템) · 배리어 충돌 · 총알 추적 · 스캔 실루엣 ═══════════════════
+ * Contract for the 2026-09-08 batch (see `src/shared/README.md`, last section, and `docs/PHASE12-PLAN.md`).
+ * Append-only, as always. Owners are named per member.
+ * ────────────────────────────────────────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * category 'implant' (owner: items). An 임플란트 is a Hollow-Knight-charm style equippable: it occupies `slots` of the
+ * character's implant slots (`ProgressionRef.implantSlots`, 4 + 1 per 5 levels, max 10) and adds `stats` to the five
+ * base stats while equipped. `broken` implants (raid loot) give nothing and cannot be equipped; 세레스 바이오's 임플란트
+ * desk repairs one into `repairsTo` for the materials in `repairCost`. Legendary implants may carry a `perk`
+ * (`PerkId`, progression folds it into `DerivedStats.perks`). Equip / unequip only in the ship, never mid-raid.
+ */
+export interface ImplantItemDef {
+  /** Implant slots this item occupies while equipped (1..4). */
+  slots: number;
+  /** Flat stat bonuses while equipped (e.g. `{ strength: 1 }`). Empty for a broken implant. */
+  stats: Partial<Record<import('./progression').StatId, number>>;
+  /** Legendary perk this implant grants (progression → `derived.perks[perk] = true`). */
+  perk?: import('./progression').PerkId;
+  /** 망가진 임플란트: cannot be equipped, gives nothing; only a repair desk wants it. */
+  broken?: boolean;
+  /** Broken only: the def id this repairs into at 세레스 바이오. */
+  repairsTo?: string;
+  /** Broken only: materials consumed by the repair, besides the broken implant itself. */
+  repairCost?: Array<{ defId: string; qty: number }>;
+}
+
+export interface ItemDef {
+  /** category 'implant' (owner: items): slot cost, stat bonuses, perk, broken / repair data. */
+  implant?: ImplantItemDef;
+}
+
+export interface EnemyManagerRef {
+  /**
+   * A bullet flew (owner: enemies; called by weapons for **every** local hitscan / projectile shot, host or not — on a
+   * non-host client enemies/ forwards it to the host as a `shotq`). `origin` → `origin + dir × range`, `hit` = the
+   * impact point when the shot stopped somewhere (null = flew its full range). An enemy that could **not** perceive the
+   * shooter but whose body lies within `ENEMY_SHOT_ALERT_DIST` of the bullet path, or within `ENEMY_SHOT_IMPACT_DIST`
+   * of the impact, turns to face the shot origin, widens its perception toward it by `ENEMY_SHOT_ALERT_CONE_MUL` for
+   * `ENEMY_SHOT_ALERT_WATCH_S`, and — if it still has not found anyone — advances toward the origin (rogues from cover
+   * to cover, bugs directly). Finding the shooter drops into the normal combat cycle. No-op on the 훈련장.
+   */
+  reportShot(origin: THREE.Vector3, dir: THREE.Vector3, range: number, hit: THREE.Vector3 | null): void;
+  /**
+   * 정찰 x-ray (owner: enemies): draw a **red silhouette through geometry** (GreaterDepth pass, like the player's
+   * occlusion silhouette) for these enemies for `seconds`; a second call extends. Replicas included. `[]` + 0 clears.
+   */
+  setXray(ids: readonly number[], seconds: number): void;
 }

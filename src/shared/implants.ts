@@ -113,3 +113,34 @@ export interface ImplantsRef {
    */
   getBarrierPose(outPosition: THREE.Vector3): { yaw: number } | null;
 }
+
+/* ══ appended: 2026-09-08 — 배리어 rework (넓은 방패 · 충돌 · 정면 흡수 · 실드 배쉬) · 정찰 rework ═══════════════════
+ * 배리어: the carried shield is wider (`IMPLANT_BARRIER_CARRY_WIDTH` raised), and it is now a **physical wall for
+ * bugs**: enemies/ resolves their movement against it and cannot walk through, and a bug that bumps it retargets the
+ * carrier. A melee attack that reaches the carrier from inside the shield arc is **absorbed by the shield** instead of
+ * the player (`absorbFrontalAttack`). LMB or the melee key while the shield is raised = **실드 배쉬** (`bashing`): a
+ * melee strike over the shield's own width in front of the carrier, costing `IMPLANT_SHIELD_BASH_STAMINA`, dealing
+ * `IMPLANT_SHIELD_BASH_DAMAGE` (no 개머리판 / melee-weapon bonus — only `derived.meleeDamageMul` applies) and knocking
+ * enemies back. 정찰: `mode` becomes 'instant' — one press, usable while moving, one wide pulse
+ * (`IMPLANT_SCAN_RADIUS`) that reveals every interactable + enemy for `IMPLANT_SCAN_REVEAL_TIME` (15 s) to the caster
+ * **and the squad** (`imp scanCast` → each receiver reveals from its own world), on the compass and as red silhouettes
+ * through walls (`EnemyManagerRef.setXray`). Owner: implants.
+ * ────────────────────────────────────────────────────────────────────────────────────────────────────────────── */
+export interface ImplantsRef {
+  /**
+   * Movement collision for enemies (owner: implants; called by enemies/ per simulated bug per tick). If a raised shield
+   * (local or a peer's, from `imp shield` + their snapshot) overlaps the mover at `pos` (radius honoured), `pos` is
+   * pushed out to the shield's front face and the carrier is returned so the AI can retarget; null when nothing was
+   * touched. Pure apart from writing `pos`.
+   */
+  resolveBarrierCollision(pos: THREE.Vector3, radius: number): PeerId | 'local' | null;
+  /**
+   * A melee attack of `amount` from `fromPos` is about to land on `owner` (owner: implants; called by enemies/ on the
+   * host **before** applying enemy melee damage). Returns true when the carrier's raised shield faces the attacker
+   * (inside `IMPLANT_BARRIER_CARRY_ARC`) and took it instead — for the local owner the shield hp is deducted here;
+   * for a peer owner nothing is deducted (the caller sends `ee barrierHit` to that peer, whose own shield takes it).
+   */
+  absorbFrontalAttack(owner: PeerId | 'local', fromPos: THREE.Vector3, amount: number): boolean;
+  /** 실드 배쉬 swing in progress (pose + FX); enemies inside the arc were already hit when this went true. */
+  readonly bashing: boolean;
+}

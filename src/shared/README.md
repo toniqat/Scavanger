@@ -527,3 +527,60 @@ reversed. **락 = 시점 조작 / 언락 = 진짜 커서.** The public API did n
 - `events.ts`: `'ui:freeCursorToggled' { active }` next to `'input:cursorModeChanged'`.
 - The 일시정지 메뉴 is **no longer a special case**: `ui/menus/MenuBase` takes the `'menu'` cursor token like every
   other screen, so there is exactly one way to show the mouse in the whole game.
+
+
+## appended: 2026-09-08 — 임플란트 아이템 · 배리어 rework · 정찰 rework · 총알 추적 · UX 정리 (Phase 12)
+
+Plan: `docs/PHASE12-PLAN.md`. Everything below is append-only; owners in brackets.
+
+### `types.ts`
+- `ItemCategory` gains **`'implant'`** [items]. `ItemDef.implant?: ImplantItemDef` — `slots` (1..4 of the character's
+  implant slots), `stats` (flat `Partial<Record<StatId, number>>`), `perk?` (`PerkId`, legendary only), `broken?`
+  (raid loot; unequippable, no stats), `repairsTo?` + `repairCost?` (what 세레스 바이오 turns it into, and for what).
+- `EnemyManagerRef.reportShot(origin, dir, range, hit | null)` [enemies; called by weapons on **every** local shot]:
+  an enemy that could not perceive the shooter but sits within `ENEMY_SHOT_ALERT_DIST` of the bullet path (or
+  `ENEMY_SHOT_IMPACT_DIST` of the impact) faces the origin with `ENEMY_SHOT_ALERT_CONE_MUL` perception for
+  `ENEMY_SHOT_ALERT_WATCH_S`, then advances toward it; gives up after `ENEMY_SHOT_ALERT_GIVE_UP_S`. A non-host forwards
+  the report to the host as `shotq`.
+- `EnemyManagerRef.setXray(ids, seconds)` [enemies]: red through-wall silhouette for those enemies (정찰 reveal).
+
+### `progression.ts`
+- `PerkId` = `auto_revive` (player: 레이드당 1회 자동 기상) · `quick_heal` (weapons: 회복 hold ×0.5) · `kill_stamina`
+  (player: 처치 시 스태미나 전량); `PERK_IDS`, `PERK_DEFS` (한국어 이름 · 설명).
+- `EquippedImplant {uid, defId, durability?}` — the item instance is held by progression while equipped (out of the grids).
+- `PlayerProfile.implants?`, `DerivedStats.perks: Record<PerkId, boolean>` (every key present).
+- `ProgressionRef.implantSlots` (= `IMPLANT_SLOTS_BASE + ⌊level / IMPLANT_SLOTS_PER_LEVELS⌋`, ≤ `IMPLANT_SLOTS_MAX`),
+  `implantSlotsUsed`, `getEquippedImplants()`, `equipImplant(uid)` / `unequipImplant(uid)` (ship only; the item moves
+  via `ctx.inventory.takeItem` / `tryAddToStash`), `getStatWithImplants(id)`, `getImplantBonus(id)`. `getStat` stays
+  the **base** value; `derived` is computed from the effective one.
+
+### `implants.ts`
+- `ImplantsRef.resolveBarrierCollision(pos, radius) → PeerId | 'local' | null` [implants; enemies call it per simulated
+  bug per tick]: pushes the mover out of any raised shield (local or a peer's) and names the carrier.
+- `ImplantsRef.absorbFrontalAttack(owner, fromPos, amount) → boolean` [implants; enemies call it on the host before
+  enemy melee damage]: true = the carrier's shield faced the attacker and took it (local owner: hp deducted here; peer
+  owner: the caller sends `ee barrierHit`).
+- `ImplantsRef.bashing` — 실드 배쉬 swing in progress.
+- 정찰 `mode` becomes `'instant'`: one wide pulse (`IMPLANT_SCAN_RADIUS`) for `IMPLANT_SCAN_REVEAL_TIME_V2` (15 s),
+  shared with the squad over `imp scanCast`; `ScanTarget.kind` unchanged (`'enemy'` + the interactable kinds).
+
+### `net.ts`
+- `ShotReport {t:'shotq', o, d, r, h?}` client → host [enemies]. `ee barrierHit {id, amount, p}` host → one peer.
+  `imp bash {p, yaw}`, `imp scanCast {p, radius, dur}` any → others [implants]. Joined into the unions as
+  `EnemyEventAppended2026_09_08` / `ImplantMessageAppended2026_09_08`.
+
+### `events.ts`
+`progress:implantsChanged {equipped, slots, used}` · `implant:bashed {position, yaw, hits}` ·
+`implant:barrierBumped {owner, enemyId, point}` · `enemy:shotAlerted {id, position, toward}` ·
+`scan:cast {position, radius, duration, targets, byLocal}` (ui draws compass marks / indicators from it) ·
+`ui:resumeGate {shown}` (browser-only '좌측 클릭으로 게임 재개') · `inventory:disassembleProgress {uid, t, done}` ·
+`item:channelChanged {uid, defId, active, gauge}` (one ticker for a channelled 회복 스프레이).
+
+### `constants.ts` / `labels.ts` / `cursor.ts`
+- `IMPLANT_SLOTS_BASE 4 / _PER_LEVELS 5 / _MAX 10`; `IMPLANT_SHIELD_BASH_STAMINA 25 / _DAMAGE 55 / _RANGE 1.6 /
+  _COOLDOWN 0.8 / _KNOCKBACK 6 / _SWING_S 0.35`; `IMPLANT_SCAN_RADIUS 70 / IMPLANT_SCAN_REVEAL_TIME_V2 15 /
+  IMPLANT_SCAN_COOLDOWN_V2 30`; `ENEMY_SHOT_ALERT_DIST 6 / _IMPACT_DIST 10 / _WATCH_S 3 / _CONE_MUL 2 / _GIVE_UP_S 20`;
+  `COMPASS_ENEMY_COLOR`; `RESUME_GATE_BLOCKER 'resumegate'`; **`HEAL_SPRAY_GAUGE` 100 → 200** (an empty can stays at
+  durability 0 and is repaired in the ship instead of vanishing).
+- `labels.ts`: `implant` → `임플란트` / `#e39cff` / `⬡`.
+- `cursor.ts`: `isDesktopShell()` — Electron user agent (or `window.__scavDesktop` for tests).

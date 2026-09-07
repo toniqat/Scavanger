@@ -466,7 +466,9 @@ export type EnemyEvent =
   /** A rogue threw a grenade (replicas fly a visual one; the host resolves damage: own player directly, remotes via `dmg`). */
   | { t: 'ee'; ev: 'grenade'; id: number; p: Vec3Tuple; v: Vec3Tuple; fuse: number }
   /** The rogue grenade exploded (FX on replicas). */
-  | { t: 'ee'; ev: 'grenadeHit'; p: Vec3Tuple };
+  | { t: 'ee'; ev: 'grenadeHit'; p: Vec3Tuple }
+  /* appended (2026-09-08): 배리어 정면 흡수 — see the last section */
+  | EnemyEventAppended2026_09_08;
 /** Client → host (Phase 4): my shot intercepted shell `sid`. Owner: enemies. */
 export interface InterceptRequest { t: 'intq'; sid: number; p: Vec3Tuple }
 
@@ -603,7 +605,9 @@ export type GameMessage =
   /* appended (Phase 10) */
   | CarryMessage
   | CrewMessage
-  | CrewRequest;
+  | CrewRequest
+  /* appended (2026-09-08): client → host bullet report (owner: enemies) */
+  | ShotReport;
   /* append new message types above this line (keep `t` unique; prefix by owning folder if in doubt) */
 
 export type GameMessageType = GameMessage['t'];
@@ -856,7 +860,9 @@ export type ImplantMessage =
    * `PlayerSnapshot` (`p`, `yaw`) plus `PlayerFlags.BARRIER`, so only the state and durability travel here.
    * `ev:'barrier'` above is dead for the local implant but still parsed, so an older peer keeps working.
    */
-  | { t: 'imp'; ev: 'shield'; up: boolean; hp: number };
+  | { t: 'imp'; ev: 'shield'; up: boolean; hp: number }
+  /* appended (2026-09-08): 실드 배쉬 · 정찰 one-shot — see the last section */
+  | ImplantMessageAppended2026_09_08;
 
 /**
  * Any → one peer: a friendly effect. 'heal' / 'boost' are the overcharge implant, 'revive' the defibrillator
@@ -1022,3 +1028,23 @@ export interface NetRef {
   /** Friends / requests / recent players / whispers / squad invites. Always present; `available` is false offline. */
   readonly social: SocialRef;
 }
+
+/* ══ appended: 2026-09-08 — 총알 추적 · 배리어 정면 흡수 · 실드 배쉬 · 정찰 rework ════════════════════════════════
+ * These members are joined into `GameMessage` / `EnemyEvent` / `ImplantMessage` below (the unions are re-declared as
+ * `type X = XBase | XAppended` — no existing member changed). Owners as noted.
+ * ────────────────────────────────────────────────────────────────────────────────────────────────────────────── */
+/**
+ * Client → host: a shot I fired (owner: enemies — `EnemyManagerRef.reportShot` forwards it on a non-host, the host
+ * applies it to its simulated enemies). `o` origin, `d` unit direction, `r` range, `h` impact point or absent.
+ */
+export interface ShotReport { t: 'shotq'; o: Vec3Tuple; d: Vec3Tuple; r: number; h?: Vec3Tuple }
+
+/** Host → one peer: an enemy melee attack was absorbed by **your** raised shield — deduct `amount` from it (owner: enemies → implants). */
+export type EnemyEventAppended2026_09_08 =
+  | { t: 'ee'; ev: 'barrierHit'; id: number; amount: number; p: Vec3Tuple };
+
+export type ImplantMessageAppended2026_09_08 =
+  /** Any → others: 실드 배쉬 swing FX at `p` facing `yaw` (damage is resolved by the caster on its own replicas → `hit`). */
+  | { t: 'imp'; ev: 'bash'; p: Vec3Tuple; yaw: number }
+  /** Any → others: the one-shot 정찰 pulse. Receivers reveal interactables + enemies inside `radius` of `p` for `dur` s. */
+  | { t: 'imp'; ev: 'scanCast'; p: Vec3Tuple; radius: number; dur: number };

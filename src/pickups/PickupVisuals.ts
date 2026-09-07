@@ -39,6 +39,8 @@ const REST_Y: Record<ItemCategory, number> = {
   seed: 0.07,
   /* appended: Phase 9 — 서적 (flat, lies like a plate) */
   book: 0.06,
+  /* appended: 2026-09-08 — 임플란트 (small capsule) */
+  implant: 0.08,
 };
 
 /**

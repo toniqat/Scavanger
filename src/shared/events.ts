@@ -7,6 +7,7 @@ import type { EquipSlot, WeightState } from './gear';
 import type { ImplantId, ScanTarget } from './implants';
 import type { DeployableKind, GadgetId } from './gadgets';
 import type { PlayerProfile, SkillId, StatId } from './progression';
+import type { EquippedImplant } from './progression';
 /* appended (2026-09-06): ship housing payloads */
 import type { FacilityId, PlacedFurniture, RoomPurpose, ShipState } from './housing';
 
@@ -693,4 +694,32 @@ export interface GameEvents {
    * this). ChatLog keeps the target until the player clears it, so the next Enter also whispers.
    */
   'chat:whisperTo': { code: PlayerCode; name: string };
+
+  /* ══ appended: 2026-09-08 batch — 임플란트 아이템 · 배리어 · 정찰 · 총알 추적 · 재개 게이트 · 분해 게이지 ═══════ */
+  /** Equipped 임플란트 items changed (owner: progression). `slots` = total, `used` = occupied. */
+  'progress:implantsChanged': { equipped: readonly EquippedImplant[]; slots: number; used: number };
+  /** 실드 배쉬 swung (owner: implants; audio / HUD). `hits` = enemies struck. */
+  'implant:bashed': { position: THREE.Vector3; yaw: number; hits: number };
+  /** A bug bumped into a raised shield (owner: enemies; implants sparks, audio thuds). `owner` = the carrier. */
+  'implant:barrierBumped': { owner: PeerId | 'local'; enemyId: number; point: THREE.Vector3 };
+  /** An enemy that could not see the shooter reacted to a bullet (owner: enemies; HUD / audio may cue it). */
+  'enemy:shotAlerted': { id: number; position: THREE.Vector3; toward: THREE.Vector3 };
+  /**
+   * 정찰 pulse cast by me or a squadmate (owner: implants). ui draws the compass marks + timers from this; enemies/
+   * gets `setXray` from implants directly. `targets` includes kind 'enemy' and every interactable in range.
+   */
+  'scan:cast': { position: THREE.Vector3; radius: number; duration: number; targets: ScanTarget[]; byLocal: boolean };
+  /**
+   * 브라우저 전용 '좌측 클릭으로 게임 재개' gate (owner: game). Shown when the last cursor screen closed with Escape and
+   * the pointer lock could not be re-taken (Chrome grants Escape no activation); hidden on the click that re-locks.
+   */
+  'ui:resumeGate': { shown: boolean };
+  /** 아이템 분해 progress 0..1 while the hold runs (owner: inventory; the 분해 panel draws its bar from this). */
+  'inventory:disassembleProgress': { uid: string; t: number; done: boolean };
+  /**
+   * Continuous-use item (회복 스프레이) channel started / stopped (owner: weapons). ui keeps **one** ticker alive for the
+   * length of the channel instead of one per tick. `gauge` = remaining gauge 0..1.
+   */
+  'item:channelChanged': { uid: string; defId: string; active: boolean; gauge: number };
+
 }

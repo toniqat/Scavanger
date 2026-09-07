@@ -71,6 +71,10 @@ function tuple(v: THREE.Vector3): Vec3Tuple {
  */
 export class ImplantSystem implements GameSystem, ImplantsRef {
   readonly name = 'implants';
+  /* ── 2026-09-08 contract stubs (lead) — the implants agent replaces these ── */
+  resolveBarrierCollision(_pos: THREE.Vector3, _radius: number): PeerId | 'local' | null { return null; /* TODO(implants agent) */ }
+  absorbFrontalAttack(_owner: PeerId | 'local', _fromPos: THREE.Vector3, _amount: number): boolean { return false; /* TODO(implants agent) */ }
+  get bashing(): boolean { return false; /* TODO(implants agent) */ }
 
   private ctx!: GameContext;
   private fx!: ImplantFx;

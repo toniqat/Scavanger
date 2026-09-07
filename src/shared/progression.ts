@@ -185,3 +185,70 @@ export interface ProgressionRef {
    */
   createSheetView(host: HTMLElement): EmbeddedView;
 }
+
+/* ══ appended: 2026-09-08 — 임플란트(능력치 장착 아이템) · 전설 퍽 ════════════════════════════════════════════════
+ * Distinct from the six 전술 임플란트 (`ImplantId`, Q key): these are **items** (`ItemDef.implant`, category
+ * 'implant') sold / repaired by 세레스 바이오, looted broken from raids, and slotted on the 캐릭터 tab. The character has
+ * `implantSlots` = IMPLANT_SLOTS_BASE + floor(level / IMPLANT_SLOTS_PER_LEVELS), capped at IMPLANT_SLOTS_MAX; each
+ * item takes `ItemDef.implant.slots`. Equipped implants add their `stats` to the base stats before `derived` is
+ * computed — `getStat(id)` keeps returning the **base** value, `getStatWithImplants(id)` the effective one — and a
+ * legendary `perk` becomes `derived.perks[perk] = true`. Owner: progression (rules, storage, 캐릭터 tab UI).
+ * ────────────────────────────────────────────────────────────────────────────────────────────────────────────── */
+
+/** Legendary implant perks. Effects are read from `derived.perks` by the named owner — never re-derived. */
+export type PerkId =
+  | 'auto_revive'    // 전투불능 시 레이드당 1회 자동 기상 (owner: player — hp 10 로 즉시 기상, 레이드마다 1회)
+  | 'quick_heal'     // 회복 아이템 사용 시간 절반 (owner: weapons — heal hold `useTime × 0.5`)
+  | 'kill_stamina';  // 처치 시 스태미나 전량 회복 (owner: player — `enemy:killed.by` 가 로컬이면 stamina = max)
+
+export const PERK_IDS: readonly PerkId[] = ['auto_revive', 'quick_heal', 'kill_stamina'];
+
+export interface PerkDef {
+  id: PerkId;
+  name: string;        // 한국어
+  description: string;
+}
+
+export const PERK_DEFS: Readonly<Record<PerkId, PerkDef>> = {
+  auto_revive: { id: 'auto_revive', name: '재기동 회로', description: '전투불능이 되면 레이드당 한 번 자동으로 일어난다.' },
+  quick_heal: { id: 'quick_heal', name: '가속 대사', description: '회복 아이템 사용 시간이 절반이 된다.' },
+  kill_stamina: { id: 'kill_stamina', name: '아드레날린 펌프', description: '적을 처치하면 스태미나가 전부 회복된다.' },
+};
+
+/** One equipped implant. The item instance lives here (removed from the inventory grids) until unequipped. */
+export interface EquippedImplant {
+  uid: string;
+  defId: string;
+  /** Instance durability, kept so wear survives the round trip (undefined = fresh). */
+  durability?: number;
+}
+
+export interface PlayerProfile {
+  /** appended (2026-09-08): equipped 임플란트 items. Optional so older saves migrate to `[]`. */
+  implants?: EquippedImplant[];
+}
+
+export interface DerivedStats {
+  /** appended (2026-09-08): legendary implant perks currently active. Every key present, false when not equipped. */
+  perks: Record<PerkId, boolean>;
+}
+
+export interface ProgressionRef {
+  /** Total implant slots at the current level (IMPLANT_SLOTS_BASE + level ÷ IMPLANT_SLOTS_PER_LEVELS, ≤ IMPLANT_SLOTS_MAX). */
+  readonly implantSlots: number;
+  /** Slots occupied by the equipped implants. */
+  readonly implantSlotsUsed: number;
+  getEquippedImplants(): readonly EquippedImplant[];
+  /**
+   * Ship only. Takes the item `uid` out of the inventory (`ctx.inventory.takeItem`) and equips it. false — and nothing
+   * changes — during a raid, for a non-implant / broken item, or when `slots` would exceed `implantSlots`.
+   * Emits `progress:implantsChanged`, recomputes `derived`, saves.
+   */
+  equipImplant(uid: string): boolean;
+  /** Ship only. Returns the item to the 함선 창고 (then the bag; refuses when neither has room). */
+  unequipImplant(uid: string): boolean;
+  /** Base stat + equipped implant bonuses (what `derived` is computed from). */
+  getStatWithImplants(id: StatId): number;
+  /** Sum of implant bonuses for `id` (0 when none). */
+  getImplantBonus(id: StatId): number;
+}

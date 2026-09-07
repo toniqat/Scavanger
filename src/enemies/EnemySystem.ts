@@ -105,6 +105,9 @@ const queryBuf: Enemy[] = [];
  */
 export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, SpawnHost, RogueSpawnHost, AcidHost, ShellHost, ReplicaHost, GrenadeHost {
   readonly name = 'enemies';
+  /* ── 2026-09-08 contract stubs (lead) — the enemies agent replaces these ── */
+  reportShot(_origin: THREE.Vector3, _dir: THREE.Vector3, _range: number, _hit: THREE.Vector3 | null): void { /* TODO(enemies agent) */ }
+  setXray(_ids: readonly number[], _seconds: number): void { /* TODO(enemies agent) */ }
   ctx!: GameContext;
   readonly grid = new SpatialGrid<Enemy>(MAP_SIZE + 40, 8);
   readonly targets = new TargetList();

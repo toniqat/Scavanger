@@ -108,6 +108,8 @@ export function computeDerived(profile: PlayerProfile, specialBackpack: boolean)
     durabilityLossMul: 1 - DURABILITY_AT_MAX * frac(profile, 'equipment'),
     gatherYieldMul: 1 + GATHER_YIELD_AT_MAX * frac(profile, 'gardening'),
     craftSpeedMul: 1 + CRAFT_SPEED_AT_MAX * frac(profile, 'crafting'),
+    /* 2026-09-08 stub (lead) — the progression agent derives these from the equipped legendary implants */
+    perks: { auto_revive: false, quick_heal: false, kill_stamina: false },
   };
 }
 
