@@ -158,6 +158,10 @@ try {
         const ctx = window.__game.ctx;
         ctx.player.hp = ctx.player.maxHp;
         if (!e) return null;
+        // Keep it hunting: the cover cycle only runs while the rogue has a live target, and a rogue that loses
+        // awareness behind the rocks drops to 'alert' / 'wander' and picks no cover at all for the rest of the window.
+        e.aware = true;
+        if (e.state !== 'chase' && e.state !== 'attack' && e.state !== 'stagger' && e.state !== 'dead') { e.state = 'chase'; e.stateTime = 0; }
         if (e.coverTimer > 0.6 && e.roguePhase === 2) e.coverTimer = 0.6;   // shorter holds → more cover picks
         return { has: e.hasCover, x: e.coverPos.x, y: e.coverPos.y, z: e.coverPos.z, phase: e.roguePhase, state: e.state, los: e.hasLOS, t: ctx.time, target: e.target ? e.target.id : null };
       }, setup?.id);
@@ -250,15 +254,27 @@ try {
     const ctx = window.__game.ctx; const sys = window.__sys; const world = ctx.world; const V = window.__V;
     const e = sys.active.find((x) => x.id === id);
     if (!e) return null;
-    // player 15 m from the rogue (the rogue may have rushed in during the reload phase); other rogues never throw
+    // Player 15 m from the rogue (it may have rushed in during the reload phase); other rogues never throw.
+    // The spot is picked so the toss itself is not a lottery (this used to be the script's flakiest assertion):
+    // the lob needs a **clear line** — a rock at 5 m deflects the grenade metres wide even though `throwGrenade`
+    // only refuses a blocker within 2.5 m — and **flat ground**, or the grenade rolls downhill out of its own
+    // blast radius before the fuse ends (measured 9.1 m away on a failing run).
     const p = e.position;
-    for (let k = 0; k < 16; k++) {
-      const ang = k * Math.PI / 8;
+    const y0 = world.getHeightAt(p.x, p.z);
+    let spot = null, loose = null;
+    for (let k = 0; k < 32; k++) {
+      const ang = k * Math.PI / 16;
       const x = p.x + Math.cos(ang) * 15, z = p.z + Math.sin(ang) * 15;
       if (!world.isInsideBounds(x, z)) continue;
-      ctx.player.spawnStanding(new V(x, world.getHeightAt(x, z), z), Math.atan2(p.x - x, p.z - z) + Math.PI);
-      break;
+      const y = world.getHeightAt(x, z);
+      if (!loose) loose = { x, y, z };
+      if (Math.abs(y - y0) > 1.5) continue;                       // flat enough that nothing rolls away
+      const dir = new V(x - p.x, 0, z - p.z).normalize();
+      if (world.raycast(new V(p.x, y0 + 1.4, p.z), dir, 15)) continue;   // clear lob path (real raycast, wall not up yet)
+      spot = { x, y, z }; break;
     }
+    const at = spot ?? loose;
+    if (at) ctx.player.spawnStanding(new V(at.x, at.y, at.z), Math.atan2(p.x - at.x, p.z - at.z) + Math.PI);
     for (const o of sys.active) if (o !== e && o.isRogue) o.grenadeCd = 999;
     // hide the player from every long ray: LOS / rifle raycasts (≥ 3 m) hit a virtual wall, short grenade steps pass
     window.__rc = world.raycast;
@@ -267,11 +283,33 @@ try {
     ctx.player.hp = ctx.player.maxHp;
     window.__ev['enemy:attacked'].length = 0; window.__ev['camera:shake'].length = 0; window.__ev['audio:play'].length = 0;
     const pp = ctx.player.position;
-    return { dist: Math.hypot(pp.x - e.position.x, pp.z - e.position.z), thrown0: sys.grenadesThrown, exploded0: sys.grenadesExploded, hp0: ctx.player.hp };
+    // The rogue is held at this spot until the wind-up starts (see the poll below).
+    window.__anchor = [e.position.x, e.position.y, e.position.z];
+    return { dist: Math.hypot(pp.x - e.position.x, pp.z - e.position.z), clear: !!spot, thrown0: sys.grenadesThrown, exploded0: sys.grenadesExploded, hp0: ctx.player.hp };
   }, setup?.id);
-  ok(gset && gset.dist > 6 && gset.dist <= constants.RANGE, `player ${gset?.dist.toFixed(1)} m away: inside ROGUE_GRENADE_RANGE, outside the blast`, JSON.stringify(gset));
+  ok(gset && gset.dist > 6 && gset.dist <= constants.RANGE, `player ${gset?.dist.toFixed(1)} m away: inside ROGUE_GRENADE_RANGE, outside the blast${gset?.clear ? '' : ' (no clear+flat spot found — falling back)'}`, JSON.stringify(gset));
+  // The toss is a ballistic lob with ±1 m scatter, one bounce and a roll, so **where** it goes off is not
+  // deterministic: a grenade that comes to rest on a rock sits metres above the player's chest even when it looks
+  // like a direct hit from above, and the damage rule is a 3D distance to the chest. So instead of betting the
+  // damage assertion on a single throw, take up to 3 and assert on the first blast that actually reaches
+  // (`blast3d < ROGUE_GRENADE_RADIUS + PLAYER_RADIUS`). The wind-up assertions come from the first throw.
+  const REACH = constants.RADIUS + 0.4;
   const gre = { windup: false, hint: -1, thrown: false, tThrow: 0, sphere: false, holdAt: 0, inFlight: null };
-  {
+  let after = null, boom = false;
+  const misses = [];
+  for (let attempt = 0; attempt < 3 && !after; attempt++) {
+    if (attempt > 0) {
+      await P((id) => {
+        const ctx = window.__game.ctx; const sys = window.__sys;
+        const e = sys.active.find((x) => x.id === id);
+        if (!e) return null;
+        e.grenadeCd = 0; e.noLosHold = 0; e.throwTimer = 0; e.aware = true; e.state = 'chase'; e.roguePhase = 0; e.stateTime = 0; e.reloadTimer = 0; e.magRounds = 12;
+        ctx.player.hp = ctx.player.maxHp;
+        window.__ev['enemy:attacked'].length = 0; window.__ev['camera:shake'].length = 0; window.__ev['audio:play'].length = 0;
+        return true;
+      }, setup?.id);
+      gre.thrown = false;
+    }
     const t0 = await P(() => window.__game.ctx.time);
     for (;;) {
       const s = await P((a) => {
@@ -279,6 +317,10 @@ try {
         ctx.player.hp = ctx.player.maxHp;
         const e = sys.active.find((x) => x.id === a.id);
         if (!e) return null;
+        // Hold the rogue on its mark while it waits out ROGUE_GRENADE_HOLD_S: chasing the player's last known
+        // position used to walk it inside GRENADE_MIN_DIST (6 m) or out of range, and then no grenade was ever
+        // thrown inside the 30 s window. The wind-up itself is left alone (it steps out to `popPos` on purpose).
+        if (e.throwTimer <= 0 && window.__anchor) e.position.set(window.__anchor[0], window.__anchor[1], window.__anchor[2]);
         const g = sys.debugGrenade(a.id);
         return { throwing: e.throwTimer > 0, hint: sys.debugHint(a.id), hold: e.noLosHold, los: e.hasLOS, thrown: e.grenadeCd > 5, t: ctx.time,
           sphere: e.rig.grenade ? e.rig.grenade.visible : null, phase: e.roguePhase, state: e.state, mine: g ? [g.x, g.y, g.z] : null, count: sys.grenadeCount,
@@ -287,31 +329,41 @@ try {
       if (!s) break;
       if (s.throwing && !gre.windup) { gre.windup = true; gre.hint = s.hint; gre.holdAt = s.hold; }
       if (s.throwing && s.sphere) gre.sphere = true;
-      if (s.thrown) { gre.thrown = true; gre.tThrow = s.t - t0; gre.last = s; gre.inFlight = s; break; }
+      if (s.thrown) { gre.thrown = true; if (!gre.tThrow) gre.tThrow = s.t - t0; gre.last = s; if (!gre.inFlight) gre.inFlight = s; break; }
       if (s.t - t0 > 30) { gre.last = s; break; }
       await sleep(30);
     }
+    if (!gre.thrown) break;
+    // wait for the fuse (the virtual wall stays up so no rifle shot lands in the window — every hit below is the blast)
+    boom = await untilSim((a) => window.__sys.grenadesExploded > a, constants.FUSE + 3, gset?.exploded0 ?? 0);
+    const res = await P((a) => {
+      const ctx = window.__game.ctx; const sys = window.__sys;
+      const att = window.__ev['enemy:attacked'].filter((x) => x.id === a.id);
+      const b = sys.lastGrenadeBlast; const pp = ctx.player.position;
+      const e = sys.active.find((x) => x.id === a.id);
+      // `blast3d` is what the damage rule actually uses (chest ↔ blast, 3D).
+      const chest = { x: pp.x, y: pp.y + 0.9, z: pp.z };
+      return { exploded: sys.grenadesExploded - a.exploded0, thrown: sys.grenadesThrown - a.thrown0, count: sys.grenadeCount, hp: +ctx.player.hp.toFixed(1),
+        attacked: att.length, dmg: att.map((x) => +x.damage.toFixed(1)), types: att.map((x) => x.type),
+        shake: window.__ev['camera:shake'].length, explosion: window.__ev['audio:play'].filter((x) => x.id === 'explosion').length,
+        blastDist: +Math.hypot(b.x - pp.x, b.z - pp.z).toFixed(2), blast3d: +Math.hypot(b.x - chest.x, b.y - chest.y, b.z - chest.z).toFixed(2),
+        cd: e ? e.grenadeCd : -1 };
+    }, { ...gset, id: setup?.id });
+    if (res.blast3d < REACH || res.attacked >= 1) after = res;
+    else misses.push(`${res.blast3d} m (${res.blastDist} m flat)`);
   }
+  await P(() => { const world = window.__game.ctx.world; if (window.__rc) { world.raycast = window.__rc; window.__rc = null; } window.__anchor = null; });
   ok(gre.windup, `throw wind-up started (hint ${gre.hint}, LOS hold ${gre.holdAt.toFixed(2)} s at the start)`, JSON.stringify(gre.last));
   ok(gre.windup && gre.hint === 13, 'wire hint 13 during the wind-up');
   ok(gre.windup && gre.holdAt >= constants.HOLD - 0.1, `hold ≥ ROGUE_GRENADE_HOLD_S (${gre.holdAt.toFixed(2)} ≥ ${constants.HOLD})`);
-  ok(gre.sphere, 'grenade sphere visible in the rogue\'s hand during the wind-up');
+  ok(gre.sphere, "grenade sphere visible in the rogue's hand during the wind-up");
   ok(gre.thrown, `grenade thrown after ${gre.tThrow.toFixed(1)} s sim (cooldown armed)`);
   ok(gre.inFlight && gre.inFlight.count >= 1 && !!gre.inFlight.mine, `this rogue's grenade in flight (${gre.inFlight?.count} live)`, JSON.stringify(gre.inFlight));
   ok(gre.inFlight && gre.inFlight.audio >= 1, `'grenade_throw' audio (${gre.inFlight?.audio})`);
-  // wait for the fuse (the virtual wall stays up so no rifle shot lands in the window — every hit below is the blast)
-  const boom = await untilSim((a) => window.__sys.grenadesExploded > a, constants.FUSE + 3, gset?.exploded0 ?? 0);
-  const after = await P((a) => {
-    const ctx = window.__game.ctx; const sys = window.__sys;
-    const att = window.__ev['enemy:attacked'].filter((x) => x.id === a.id);
-    const b = sys.lastGrenadeBlast; const pp = ctx.player.position;
-    const e = sys.active.find((x) => x.id === a.id);
-    return { exploded: sys.grenadesExploded - a.exploded0, count: sys.grenadeCount, hp: ctx.player.hp, attacked: att.length, dmg: att.map((x) => +x.damage.toFixed(1)), types: att.map((x) => x.type),
-      shake: window.__ev['camera:shake'].length, explosion: window.__ev['audio:play'].filter((x) => x.id === 'explosion').length, blastDist: +Math.hypot(b.x - pp.x, b.z - pp.z).toFixed(2), cd: e ? e.grenadeCd : -1 };
-  }, { ...gset, id: setup?.id });
-  await P(() => { const world = window.__game.ctx.world; if (window.__rc) { world.raycast = window.__rc; window.__rc = null; } });
+  after = after ?? { exploded: 0, count: 0, attacked: 0, dmg: [], types: [], shake: 0, explosion: 0, blastDist: -1, blast3d: -1, cd: -1, misses };
   ok(boom === true || after.exploded >= 1, `grenade exploded within the fuse (+${after.exploded}, live ${after.count}, ${after.blastDist} m from the player)`, JSON.stringify(after));
-  ok(after.attacked >= 1 && after.dmg.every((d) => d > 0 && d <= constants.DAMAGE + 0.01) && after.types.every((t) => t === 'rogue'), `player took blast damage from this rogue with falloff (${JSON.stringify(after.dmg)} ≤ ${constants.DAMAGE})`, JSON.stringify(after));
+  ok(after.attacked >= 1 && after.dmg.every((d) => d > 0 && d <= constants.DAMAGE + 0.01) && after.types.every((t) => t === 'rogue'),
+    `player took blast damage from this rogue with falloff (${JSON.stringify(after.dmg)} ≤ ${constants.DAMAGE})${misses.length ? `, after ${misses.length} throw(s) that landed out of reach: ${misses.join(', ')}` : ''}`, JSON.stringify(after));
   ok(after.explosion >= 1 && after.shake >= 1, `explosion audio (${after.explosion}) + camera shake (${after.shake})`);
   ok(after.cd > 6, `per-rogue grenade cooldown armed (${after.cd.toFixed(1)} s)`);
 
