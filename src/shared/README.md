@@ -316,17 +316,24 @@ The second (and last) DOM file in `shared/`, after `itemChip.ts`.
   (**ref-counted by blocker token** — a popup layered over the inventory does not steal the cursor when it closes),
   `setCursorPosition`, `uiX` / `uiY` (virtual in cursor mode, `mouseX/mouseY` otherwise), `elementUnderCursor()`.
   A caller that enters cursor mode must **not** also call `exitPointerLock()`.
-- `constants.ts`: `SOFT_CURSOR_SENSITIVITY`, `SOFT_CURSOR_SIZE`, `SOFT_CURSOR_DBLCLICK_MS`, and (2026-09-07)
-  `SOFT_CURSOR_ACCEL` / `SOFT_CURSOR_ACCEL_MAX`.
+- `constants.ts`: `SOFT_CURSOR_SENSITIVITY`, `SOFT_CURSOR_SIZE`, `SOFT_CURSOR_DBLCLICK_MS`, `LOCK_GESTURE_RETRY_MS`.
 - **2026-09-07 — responsiveness.** Two things made the virtual cursor feel slower than the Windows one, neither of
   them the hit test (the synthetic `pointermove` always went out on the input event):
-  1. the lock is taken with `unadjustedMovement: true`, so Chrome hands over the **raw** device deltas — none of
-     Windows' pointer-speed scaling and none of its "enhance pointer precision" acceleration. `moveBy` now applies its
-     own curve, `gain = 1 + min(SOFT_CURSOR_ACCEL_MAX − 1, |delta| · SOFT_CURSOR_ACCEL)`: slow moves stay 1:1, a flick
-     covers up to 2.4× the raw distance;
-  2. the **sprite** was written once per game frame, so the whole 3D render pipeline sat between the mouse and the
+  1. the **sprite** was written once per game frame, so the whole 3D render pipeline sat between the mouse and the
      drawn arrow. `onMove(listener)` hands the position straight to `ui/hud/SoftCursor` from `moveBy` / `setPosition` /
-     `mirror`; the per-frame `update()` is now only a safety net.
+     `mirror`; the per-frame `update()` is now only a safety net;
+  2. an acceleration curve (`SOFT_CURSOR_ACCEL` / `_MAX`) briefly re-added the OS acceleration that the lock's
+     `unadjustedMovement: true` strips. It is **gone** (later the same day): a 14 px hand movement travelled 27 px,
+     so the arrow never landed where it was aimed and the cursor read as "not where my mouse is". `moveBy` is
+     strictly linear — `SOFT_CURSOR_SENSITIVITY` (1) client px per raw px, which is also Windows' own default.
+- **2026-09-07 — a denied lock waits for a gesture.** Chrome grants **no user activation for Escape** and refuses a
+  pointer-lock request for a moment after the user escaped out of one, so closing the 일시정지 메뉴 with Escape — the
+  usual way — asked for the lock at the one instant Chrome would not grant it. `requestPointerLock()` now keeps the
+  intent: a denied request (a rejected promise, or simply no lock `LOCK_RESULT_CHECK_MS` later) arms a one-shot
+  window listener that retries from the player's next **real** gesture — a `pointerdown`, or any `keydown` that is
+  not Escape and not a key repeat (in practice the first WASD tap). `exitPointerLock()` cancels the intent, a granted
+  lock disarms it, and `awaitingLockGesture` (true for at most `LOCK_GESTURE_RETRY_MS`) tells `game/`'s lost-lock
+  watchdog to hold off instead of re-opening the menu 0.5 s later, forever.
 - **Default-action emulation.** A synthesised event is untrusted, so the browser performs **no default action** for
   it — a text field never takes the caret and a range slider never moves. `SoftCursor.press` therefore focuses the
   nearest focusable ancestor (and blurs a text field when the click lands elsewhere), and a left-drag on an

@@ -441,6 +441,9 @@ export class GameFlowSystem implements GameSystem {
       && (ctx.isGameplayPhase() || this.inShip())
       && !(ctx.player?.isDead ?? false)
       && !ctx.input.isPointerLocked
+      // A denied request is not a lost lock: `shared/Input` is holding the intent until the player's next real
+      // gesture (Chrome refuses a re-lock asked for from Escape, which is exactly how the menu is closed).
+      && !ctx.input.awaitingLockGesture
       && performance.now() - ctx.input.lastLockRequest >= LOCK_REQUEST_GRACE_MS;
     if (!eligible) { this.lockLostFor = 0; return; }
     this.lockLostFor += dt;
@@ -459,7 +462,13 @@ export class GameFlowSystem implements GameSystem {
   private relock(): void {
     queueMicrotask(() => {
       const ctx = this.ctx;
-      if (this.paused || ctx.uiBlockers.size > 0) return;
+      /*
+       * 2026-09-07: only the 일시정지 메뉴 blocks the lock. Every other UI surface *keeps* it since Phase 10, so the
+       * old `uiBlockers.size > 0` guard silently skipped the re-lock whenever the menu had been opened over the
+       * inventory / the terminal / 함선 관리 (the watchdog path) — and the watchdog then put the menu back up 0.5 s
+       * later, forever.
+       */
+      if (this.paused || ctx.uiBlockers.has('menu')) return;
       if (!ctx.isGameplayPhase() && !this.inShip()) return;
       if (ctx.player?.isDead ?? false) return;
       ctx.input.requestPointerLock();

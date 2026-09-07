@@ -816,15 +816,12 @@ export const SOFT_CURSOR_SIZE = 22;
 /** Two synthetic clicks within this many ms on the same element also dispatch a `dblclick`. */
 export const SOFT_CURSOR_DBLCLICK_MS = 350;
 /*
- * Pointer acceleration (2026-09-07). The lock is requested with `unadjustedMovement: true`, so Chrome hands us the
- * **raw** device deltas: none of Windows' pointer-speed scaling and none of its "enhance pointer precision"
- * acceleration. At a flat sensitivity of 1 that makes slow moves feel identical to the desktop cursor but fast
- * flicks travel far less — the "in-game cursor is less snappy" complaint. These two re-add an acceleration curve:
- * `gain = 1 + min(SOFT_CURSOR_ACCEL_MAX - 1, |delta| * SOFT_CURSOR_ACCEL)`, per mousemove event.
+ * 2026-09-07: `SOFT_CURSOR_ACCEL` / `SOFT_CURSOR_ACCEL_MAX` (a home-made acceleration curve on top of the raw locked
+ * deltas) are **gone**. They overshot — a 14 px hand movement travelled 27 px — so the arrow never landed where it
+ * was aimed. `SoftCursor.moveBy` is strictly linear now.
  */
-export const SOFT_CURSOR_ACCEL = 0.06;
-/** Upper bound of the acceleration gain (a flick never travels more than this multiple of its raw distance). */
-export const SOFT_CURSOR_ACCEL_MAX = 2.4;
+/** How long a denied pointer-lock request keeps waiting for the next real user gesture to retry (ms). */
+export const LOCK_GESTURE_RETRY_MS = 10000;
 
 /* ══ appended: Phase 11 — 행성 선택 · 소셜 (2026-09-07) ═════════════════════════════════════════════════════ */
 
