@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { GameContext } from '@/shared';
-import { FURNITURE_DEF_MAP, HOUSING_CELL_SIZE, Keys, MouseButtons, ROOM_GRID_COLS, ROOM_GRID_ROWS, furnitureFootprint, isSoftCursorEvent } from '@/shared';
+import { FURNITURE_DEF_MAP, HOUSING_CELL_SIZE, Keys, MouseButtons, ROOM_GRID_COLS, ROOM_GRID_ROWS, furnitureFootprint } from '@/shared';
 import { GHOST_BAD, GHOST_OK, buildFurniture, type FurnitureLayer, type FurnitureModel } from './interiors/Furniture';
 import { ROOM_BOXES, roomCellToWorld, yawToRotation, type RoomBox } from './interiors/RoomLayout';
 import type { PersonalShip } from './interiors/PersonalShip';
@@ -101,19 +101,22 @@ export class HousingMode {
   private readonly frameMat: THREE.MeshBasicMaterial;
 
   /**
-   * Phase 10: mouse buttons / wheel notches the **software cursor** synthesised this frame. While cursor mode owns the
-   * input `Input` routes real presses into the cursor and never records them (`wasMousePressed` stays false), so the
-   * placement click and the selection wheel have to come off the DOM. Only events carrying the soft-cursor marker are
-   * collected here — a native press is still read through `Input`, exactly as before, so both paths stay live.
+   * Mouse buttons / wheel notches seen this frame. 함선 관리 runs in 커서 모드, where `Input` deliberately keeps the
+   * gameplay button sets empty (the press belongs to whatever the cursor is over), so the placement click and the
+   * selection wheel are collected straight off the DOM instead. `update()` ORs this with the native `Input` path, so
+   * the mode also works with the pointer still locked (the pre-cursor-mode entry paths and the headless smokes).
+   *
+   * 2026-09-07: these used to accept **only** the synthesised soft-cursor events; with the real cursor back they take
+   * the genuine ones.
    */
   private readonly softPressed = new Set<number>();
   private softWheel = 0;
   private readonly onSoftPointerDown = (e: Event): void => {
-    if (!this.active || !isSoftCursorEvent(e)) return;
+    if (!this.active) return;
     this.softPressed.add((e as MouseEvent).button);
   };
   private readonly onSoftWheel = (e: Event): void => {
-    if (!this.active || !isSoftCursorEvent(e)) return;
+    if (!this.active) return;
     this.softWheel += Math.sign((e as WheelEvent).deltaY);
   };
 
@@ -137,7 +140,10 @@ export class HousingMode {
         else this.deactivate();
       }),
     );
+    // Both events, because the two callers differ: a real browser fires `pointerdown` then `mousedown` (the Set
+    // below dedupes them inside the frame), while the headless smokes dispatch only `mousedown`.
     window.addEventListener('pointerdown', this.onSoftPointerDown);
+    window.addEventListener('mousedown', this.onSoftPointerDown);
     window.addEventListener('wheel', this.onSoftWheel, { passive: true });
   }
 
@@ -152,10 +158,9 @@ export class HousingMode {
 
   /* ── enter / leave ───────────────────────────────────────────────────── */
   /**
-   * 함선 관리: take the blocker token and switch to the **software cursor** for the whole session so the 방 목록 /
-   * 가구 카드 바 can be clicked. Phase 10: the pointer lock is deliberately **kept** (`setCursorMode`, never
-   * `exitPointerLock`) so the OS cursor cannot wander onto another monitor. Idempotent — `setManageRoom` re-emits the
-   * event on every room change.
+   * 함선 관리: take the blocker token and switch to 커서 모드 for the whole session so the 방 목록 / 가구 카드 바 can
+   * be clicked. `setCursorMode` releases the pointer lock and hands the real mouse back (2026-09-07 rework).
+   * Idempotent — `setManageRoom` re-emits the event on every room change.
    */
   private enterManage(): void {
     this.manage = true;
@@ -238,10 +243,8 @@ export class HousingMode {
   }
 
   /**
-   * Back to the walking hub. Phase 10 keeps the lock through the whole session, so this is only a **safety net**:
-   * Chrome always drops a pointer lock on Escape (and the headless smokes stub `requestPointerLock` away), and the
-   * software cursor silently falls back to mirroring the real one in that state. Re-requesting is a no-op while the
-   * lock is still held.
+   * Back to the walking hub. `main.ts` already re-locks when the last cursor owner leaves; this is the safety net for
+   * the paths that leave the mode without going through `setCursorMode` (and it is a no-op while the lock is held).
    */
   private relock(): void {
     queueMicrotask(() => {
@@ -306,7 +309,7 @@ export class HousingMode {
     }
     // a wheel over the furniture bar scrolls that list — it must not cycle the selection as well
     const overUI = this.pointerOverUI();
-    // `input.wheelDelta` / `wasMousePressed` are empty while the software cursor owns the mouse (Phase 10), so both
+    // `input.wheelDelta` / `wasMousePressed` are empty while 커서 모드 owns the mouse, so both
     // the native and the synthesised path are read here.
     const wheel = input.wheelDelta !== 0 ? input.wheelDelta : this.softWheel;
     let dir = 0;
@@ -340,8 +343,7 @@ export class HousingMode {
 
   /**
    * True while the UI cursor is over the HTML UI (`#ui-root`) — only possible in 함선 관리, the one mode with a
-   * cursor. Phase 10: `input.elementUnderCursor()` reads the **software** cursor while it owns the input and the real
-   * one otherwise, so this works both with the lock held and after Chrome dropped it on Escape.
+   * cursor. `input.elementUnderCursor()` is `document.elementFromPoint` at the real cursor.
    */
   private pointerOverUI(): boolean {
     if (!this.manage) return false;
@@ -536,6 +538,7 @@ export class HousingMode {
   dispose(): void {
     this.deactivate();
     window.removeEventListener('pointerdown', this.onSoftPointerDown);
+    window.removeEventListener('mousedown', this.onSoftPointerDown);
     window.removeEventListener('wheel', this.onSoftWheel);
     for (const u of this.unsubs) u();
     this.unsubs.length = 0;

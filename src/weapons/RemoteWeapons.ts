@@ -174,7 +174,7 @@ export class RemoteWeapons {
     return _pos.copy(ref.position).setY(ref.position.y + 1.3);
   }
 
-  /** Graded ids (`ar23_g3`) resolve through the loot service; if unknown, fall back to the family id, then the built-ins. */
+  /** Graded ids (`ar_g3`) resolve through the loot service; if unknown, fall back to the family id, then the built-ins. */
   private resolveDef(weaponId: string): WeaponDef {
     const loot = this.ctx.loot;
     const def = loot?.getWeaponDef(weaponId) ?? loot?.getWeaponDef(weaponId.replace(/_g\d+$/, ''));

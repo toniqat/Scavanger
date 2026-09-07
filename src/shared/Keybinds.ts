@@ -48,7 +48,6 @@ export const KEY_ACTION_DEFS: readonly KeyActionDef[] = [
   { id: 'PRIMARY', label: '주무기 I', group: '전투', scope: 'game' },
   { id: 'PRIMARY2', label: '주무기 II', group: '전투', scope: 'game' },
   { id: 'SECONDARY', label: '보조무기', group: '전투', scope: 'game' },
-  { id: 'SWAP', label: '이전 무기', group: '전투', scope: 'game' },
   { id: 'MELEE', label: '근접 공격 · (전투불능 아군 근처) 들쳐메기 / 내려놓기', group: '전투', scope: 'game' },
 
   { id: 'IMPLANT', label: '전술 임플란트', group: '장비', scope: 'game' },
@@ -63,6 +62,8 @@ export const KEY_ACTION_DEFS: readonly KeyActionDef[] = [
   { id: 'INVENTORY', label: '인벤토리', group: '인터페이스', scope: 'global' },
   { id: 'MAP', label: '지도', group: '인터페이스', scope: 'game' },
   { id: 'MENU', label: '일시 정지 · 닫기', group: '인터페이스', scope: 'global' },
+  /* appended (2026-09-07, 커서 rework): frees the mouse cursor without opening a screen; press again to give it back. */
+  { id: 'CURSOR', label: '마우스 커서 표시 / 숨기기', group: '인터페이스', scope: 'global' },
   /* appended (Phase 11): only listened to in the ship, and only while an invite panel is up. */
   { id: 'INVITE', label: '분대 초대 수락 (함선에서 길게)', group: '인터페이스', scope: 'global' },
 
@@ -190,6 +191,13 @@ export function loadKeybinds(): void {
       const v = saved[d.id];
       if (typeof v === 'string' && canBind(d.id, v)) Keys[d.id] = v;
     }
+    /*
+     * 2026-09-07 (커서 rework): Alt used to be 구르기 and is now 마우스 커서. `saveKeybinds` only writes entries that
+     * differ from the defaults, so a player who never rebound 구르기 has nothing stored and lands on the new V —
+     * but someone who explicitly bound it to Alt (or to whatever `CURSOR` holds) would end up rolling every time
+     * they asked for the cursor. Give the older action back its default rather than leaving both on one key.
+     */
+    if (Keys.DIVE === Keys.CURSOR) Keys.DIVE = DEFAULT_KEYS.DIVE;
     applyAliases();
   } catch { /* corrupt → defaults */ }
 }

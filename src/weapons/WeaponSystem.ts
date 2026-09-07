@@ -3,7 +3,7 @@ import {
   GameContext, Keys, MouseButtons, WEAPON_DURABILITY_PER_SHOT, WEAPON_SWAP_TIME_PRIMARY, WEAPON_SWAP_TIME_SECONDARY,
   IMPLANT_OVERCHARGE_FIRERATE_MUL,
   QUICK_SLOTS, QUICK_SLOT_UNLOCK_ORDER, QUICK_USABLE_CATEGORIES, isQuickSlotActive, QUICK_WHEEL_HOLD, QUICK_WHEEL_DRAG_PX, GRENADE_FUSE, GRENADE_COOK_MAX, GRENADE_UNDERHAND_SPEED_MUL,
-  HEAL_HOLD_S,
+  HEAL_HOLD_S, CONSUMABLE_SLOW_KEY, CONSUMABLE_SLOW_MUL, DEFIB_USE_TIME_S,
   type GameSystem, type WeaponDef, type ItemInstance, type ItemDef, type PlayerRef, type PlayerWeaponHost, type EnemyRef, type Vec3Tuple,
   type WeaponSlot, type EffectiveWeaponStats, type WeaponClass, type GadgetId, type WeaponRemoteState,
 } from '@/shared';
@@ -80,6 +80,22 @@ interface QuickHand {
   kind: QuickKind;
 }
 
+/** Seconds a 회복 소모품 / 제세동기 must be held before it fires (0 = instant, e.g. every other gadget). */
+function useTimeOf(def: ItemDef): number {
+  if (def.heal) return def.heal.spray ? 0 : Math.max(0, def.heal.useTime);
+  if (def.category === 'stim') return HEAL_HOLD_S;
+  return def.gadgetId === 'defib' ? DEFIB_USE_TIME_S : 0;
+}
+
+/** Remaining gauge of a 회복 스프레이 instance (a fresh can that never got a `durability` reads full). */
+function gaugeOf(inst: ItemInstance, def: ItemDef): number {
+  const max = def.durabilityMax ?? 0;
+  return Math.max(0, Math.min(max, inst.durability ?? max));
+}
+
+/** Seconds between the batched `buff heal` messages a 스프레이 sends to squadmates in range. */
+const SPRAY_SEND_INTERVAL = 0.5;
+
 const _o = new THREE.Vector3(), _d = new THREE.Vector3(), _pd = new THREE.Vector3(), _tA = new THREE.Vector3(), _tB = new THREE.Vector3();
 const _muzzle = new THREE.Vector3(), _target = new THREE.Vector3(), _md = new THREE.Vector3(), _right = new THREE.Vector3(), _tmp = new THREE.Vector3();
 const _netDir = new THREE.Vector3();
@@ -125,8 +141,6 @@ export class WeaponSystem implements GameSystem {
   /** Dev fallback (no `ctx.inventory`): reserve rounds per weapon uid. */
   private readonly fallbackReserve = new Map<string, number>();
   private active: WeaponSlot = 'primary';
-  /** Slot that was in hand before the last swap (Q returns to it). */
-  private prevActive: WeaponSlot | null = null;
   private attachedModel: WeaponModel | null = null;
 
   private phase: 'ready' | 'reloading' | 'swapping' = 'ready';
@@ -179,10 +193,19 @@ export class WeaponSystem implements GameSystem {
   private cooking = false;
   private cooked = 0;
   private underhand = false;
-  /** Phase 10 회복약: LMB held with a 회복약 in hand, seconds held so far, `ctx.time` of the last `heal:holdChanged`. */
+  /**
+   * Phase 10 회복약, generalised 2026-09-07: LMB held with a 소모품 in hand (붕대 · 약초 붕대 · 회복주사 · 제세동기),
+   * seconds held so far, `ctx.time` of the last `heal:holdChanged`. `healSpray` marks the 회복 스프레이 channel
+   * (gauge instead of a fixed hold) and `sprayAcc` is its 0.1 s tick accumulator.
+   */
   private healHeld = false;
   private healT = 0;
   private healEmitAt = -Infinity;
+  private healSpray = false;
+  private sprayAcc = 0;
+  /** 회복 스프레이: hp owed to each squadmate in range, flushed as a `buff heal` at most twice a second. */
+  private sprayOwed = new Map<string, number>();
+  private spraySendAcc = 0;
 
   private readonly camHit = makeHit();
   private readonly gunHit = makeHit();
@@ -240,7 +263,6 @@ export class WeaponSystem implements GameSystem {
       this.resetTransient();
       this.fallbackReserve.clear();
       for (const s of WEAPON_SLOTS) this.setSlot(s, null);
-      this.prevActive = null;
       this.lastQuickIndex = null;
       this.fallbackGrenades = 4;
       this.loadoutWait = LOADOUT_FALLBACK_DELAY;
@@ -250,7 +272,6 @@ export class WeaponSystem implements GameSystem {
       this.flushAll();
       this.resetTransient();
       for (const s of WEAPON_SLOTS) this.setSlot(s, null);
-      this.prevActive = null;
       this.lastQuickIndex = null;
       this.loadoutWait = -1;
     });
@@ -349,21 +370,20 @@ export class WeaponSystem implements GameSystem {
     // the wheel eats mouse buttons as well as the look delta
     const inputFree = usable && !this.wheelOpen && !carryBusy;
 
-    // ── swap (1 / 2 / 3 / V) — also the way back from a consumable to a gun
+    // ── swap (1 / 2 / 3) — also the way back from a consumable to a gun.
+    // 2026-09-07: the 이전 무기 key (V) is retired — V is 구르기 now, and Alt frees the cursor.
     if (inputFree) {
       const want: WeaponSlot | null | undefined =
         input.wasPressed(Keys.PRIMARY) ? 'primary'
           : input.wasPressed(Keys.PRIMARY2) ? 'primary2'
-            : input.wasPressed(Keys.SECONDARY) ? 'secondary'
-              : input.wasPressed(Keys.SWAP) ? this.quickSwapTarget() : undefined;
+            : input.wasPressed(Keys.SECONDARY) ? 'secondary' : undefined;
       if (want !== undefined) this.requestSwap(want);
     } else if (this.implantHolstered && armedAndFree && !carryBusy && !this.wheelOpen) {
       // a wielded implant (대전차포) is in the hands: a weapon key stows it and draws that weapon
       const want: WeaponSlot | null | undefined =
         input.wasPressed(Keys.PRIMARY) ? 'primary'
           : input.wasPressed(Keys.PRIMARY2) ? 'primary2'
-            : input.wasPressed(Keys.SECONDARY) ? 'secondary'
-              : input.wasPressed(Keys.SWAP) ? this.quickSwapTarget() : undefined;
+            : input.wasPressed(Keys.SECONDARY) ? 'secondary' : undefined;
       if (want !== undefined) {
         ctx.implants?.stow();
         if (want && this.slots[want] && want !== this.active) this.requestSwap(want);
@@ -552,7 +572,6 @@ export class WeaponSystem implements GameSystem {
       const next = this.nextOccupied(this.active);
       if (next) this.active = next;
     }
-    if (this.prevActive && !this.slots[this.prevActive]) this.prevActive = null;
     if (this.phase === 'reloading') this.cancelReload();
     if (this.phase === 'swapping') { this.phase = 'ready'; }
     this.attachActive(true);
@@ -583,12 +602,6 @@ export class WeaponSystem implements GameSystem {
       if (this.slots[s]) return s;
     }
     return null;
-  }
-
-  /** Q: the previously active slot when it still holds a weapon, else the next occupied slot. */
-  private quickSwapTarget(): WeaponSlot | null {
-    if (this.prevActive && this.prevActive !== this.active && this.slots[this.prevActive]) return this.prevActive;
-    return this.nextOccupied(this.active);
   }
 
   /** Parent the active weapon model to the hand socket and announce it. */
@@ -807,7 +820,6 @@ export class WeaponSystem implements GameSystem {
     } else {
       if (!this.swapSwitched) {
         this.swapSwitched = true;
-        if (this.swapTarget !== this.active) this.prevActive = this.active;
         this.active = this.swapTarget;
         this.attachActive(true);
         this.slots[this.active]?.model.setDraw(0);
@@ -1052,7 +1064,7 @@ export class WeaponSystem implements GameSystem {
     const acted = input.isMouseDown(MouseButtons.FIRE) || input.wasMousePressed(MouseButtons.FIRE)
       || input.wasMousePressed(MouseButtons.AIM)
       || input.wasPressed(Keys.RELOAD) || input.wasPressed(Keys.QUICK) || input.wasPressed(Keys.MELEE)
-      || input.wasPressed(Keys.PRIMARY) || input.wasPressed(Keys.PRIMARY2) || input.wasPressed(Keys.SECONDARY) || input.wasPressed(Keys.SWAP);
+      || input.wasPressed(Keys.PRIMARY) || input.wasPressed(Keys.PRIMARY2) || input.wasPressed(Keys.SECONDARY);
     if (!acted) return false;
     p.dropCarried('action');
     return true;
@@ -1316,7 +1328,7 @@ export class WeaponSystem implements GameSystem {
       this.updateHold(dt, host, q);
       return;
     }
-    // Phase 10: 회복약 = 2 s LMB hold. Death / downed / menu / a wielded implant all clear `usable` → cancel.
+    // Phase 10 / 2026-09-07: 소모품은 LMB 홀드로 쓴다. Death / downed / menu / a wielded implant clear `usable` → cancel.
     if (this.healHeld) {
       if (!usable) { this.cancelHeal(); if (this.quick && !this.quickSlotItem(q.index)) this.returnToGun(); return; }
       this.updateHeal(dt, host, q);
@@ -1330,28 +1342,47 @@ export class WeaponSystem implements GameSystem {
       return;
     }
     if (!input.wasMousePressed(MouseButtons.FIRE)) return;
-    if (q.kind === 'stim') this.beginHeal(host);
-    else if (q.kind === 'gadget') this.useGadget(host, q);
+    if (q.kind === 'stim') this.beginHeal(host, q);
+    else if (q.kind === 'gadget') { if (useTimeOf(q.def) > 0) this.beginHeal(host, q); else this.useGadget(host, q); }
     else this.beginHold();
   }
 
-  /* ── 회복약 (Phase 10): LMB held for `HEAL_HOLD_S`, gauge at the crosshair ── */
+  /* ── 소모품 사용 (Phase 10 회복약 → 2026-09-07 모든 회복 소모품 + 제세동기) ─── */
   /**
-   * `heal:holdChanged` at ≤ 30 Hz. `t` = 0..1 of `HEAL_HOLD_S` while holding, `-1` on a cancel. `force` bypasses the
-   * throttle (start / finish / cancel must always land).
+   * `heal:holdChanged` at ≤ 30 Hz. `t` = 0..1 of the item's own use time while holding (remaining gauge for a
+   * 스프레이), `-1` on a cancel. `force` bypasses the throttle (start / finish / cancel must always land).
    */
-  private emitHeal(t: number, force: boolean): void {
+  private emitHeal(t: number, force: boolean, dur = HEAL_HOLD_S): void {
     if (!force && this.ctx.time - this.healEmitAt < 1 / 30) return;
     this.healEmitAt = this.ctx.time;
-    this.ctx.bus.emit('heal:holdChanged', { holding: this.healHeld, t });
+    this.ctx.bus.emit('heal:holdChanged', { holding: this.healHeld, t, dur, spray: this.healSpray });
   }
 
-  /** LMB pressed with a 회복약 in hand. Refused at full hp (the old instant-use rule). */
-  private beginHeal(host: Host): void {
-    if (host.hp >= host.maxHp) { this.deny(); return; }
+  /** Movement penalty while a consumable is being used (`CONSUMABLE_SLOW_MUL`); `1` releases it. */
+  private setConsumableSlow(on: boolean): void {
+    this.ctx.player?.setSpeedModifier(CONSUMABLE_SLOW_KEY, on ? CONSUMABLE_SLOW_MUL : 1);
+  }
+
+  /**
+   * LMB pressed with a 회복 소모품 / 제세동기 in hand. A plain heal is refused at full hp (the old instant-use rule);
+   * the 스프레이 is refused only when its gauge is empty (it also heals squadmates), the 제세동기 never checks hp.
+   */
+  private beginHeal(host: Host, q: QuickHand): void {
+    const spray = q.def.heal?.spray;
+    if (spray) {
+      if (gaugeOf(q.item, q.def) <= 0) { this.deny(); return; }
+      this.healSpray = true; this.sprayAcc = 0; this.spraySendAcc = 0; this.sprayOwed.clear();
+      this.healHeld = true; this.healT = 0;
+      this.setConsumableSlow(true);
+      this.emitHeal(gaugeOf(q.item, q.def) / Math.max(1, q.def.durabilityMax ?? 1), true, 0);
+      return;
+    }
+    if (q.kind === 'stim' && host.hp >= host.maxHp) { this.deny(); return; }
+    this.healSpray = false;
     this.healHeld = true;
     this.healT = 0;
-    this.emitHeal(0, true);
+    this.setConsumableSlow(true);
+    this.emitHeal(0, true, useTimeOf(q.def));
   }
 
   /**
@@ -1360,20 +1391,92 @@ export class WeaponSystem implements GameSystem {
    */
   private updateHeal(dt: number, host: Host, q: QuickHand): void {
     if (!this.ctx.input.isMouseDown(MouseButtons.FIRE)) { this.cancelHeal(); return; }
+    if (this.healSpray) { this.updateSpray(dt, host, q); return; }
+    const dur = useTimeOf(q.def);
     this.healT += dt;
-    if (this.healT >= HEAL_HOLD_S) { this.finishHeal(host, q); return; }
-    this.emitHeal(Math.min(1, this.healT / HEAL_HOLD_S), false);
+    if (this.healT >= dur) { this.finishHeal(host, q); return; }
+    this.emitHeal(Math.min(1, this.healT / Math.max(0.01, dur)), false, dur);
   }
 
-  /** Hold completed: what the old instant `useStim` did. */
+  /**
+   * 회복 스프레이: every `spray.tick` seconds one gauge unit is spent and `healPerTick` hp goes to the user and to
+   * every squadmate inside `spray.radius` (remote ones as a batched `buff heal`, the same wire the overcharge beam
+   * uses). The gauge lives on the instance (`durability`), so a half-used can keeps its charge in the stash.
+   */
+  private updateSpray(dt: number, host: Host, q: QuickHand): void {
+    const spray = q.def.heal!.spray!;
+    const max = Math.max(1, q.def.durabilityMax ?? 1);
+    this.sprayAcc += dt;
+    this.spraySendAcc += dt;
+    let gauge = gaugeOf(q.item, q.def);
+    let spent = 0;
+    while (this.sprayAcc >= spray.tick && gauge > 0) {
+      this.sprayAcc -= spray.tick;
+      gauge = Math.max(0, gauge - spray.gaugePerTick);
+      spent++;
+    }
+    if (spent > 0) {
+      const hp = spray.healPerTick * spent;
+      this.ctx.inventory?.updateItem(q.uid, { durability: gauge });
+      const p = this.ctx.player as (PlayerRef & { applyHeal?: (a: number, s: number, quiet?: boolean) => boolean }) | null;
+      p?.applyHeal?.(hp, spray.tick * spent, true);
+      this.sprayAllies(hp, spray.radius);
+      this.ctx.bus.emit('audio:play', { id: 'stim', volume: 0.15 });
+    }
+    if (this.spraySendAcc >= SPRAY_SEND_INTERVAL) { this.spraySendAcc = 0; this.flushSprayHeals(); }
+    this.emitHeal(gauge / max, spent > 0, 0);
+    if (gauge <= 0) { this.finishHeal(host, q); return; }
+  }
+
+  /** Squadmates inside `radius` owe `hp` this tick (flushed as `buff heal` at `SPRAY_SEND_INTERVAL`). */
+  private sprayAllies(hp: number, radius: number): void {
+    const net = this.ctx.net;
+    const me = this.ctx.player;
+    if (!net || !me || !this.ctx.isMultiplayer) return;
+    const r2 = radius * radius;
+    for (const peer of net.getRemotePlayers()) {
+      if (!peer.connected || peer.isDead) continue;
+      if (peer.position.distanceToSquared(me.position) > r2) continue;
+      this.sprayOwed.set(peer.id, (this.sprayOwed.get(peer.id) ?? 0) + hp);
+    }
+  }
+
+  /** Send one `buff heal` per owed squadmate and clear the ledger. */
+  private flushSprayHeals(): void {
+    if (this.sprayOwed.size === 0) return;
+    const net = this.ctx.net;
+    const by = net?.playerName ?? '';
+    for (const [id, hp] of this.sprayOwed) {
+      if (hp <= 0) continue;
+      net?.send({ t: 'buff', kind: 'heal', amount: Math.round(hp * 10) / 10, duration: 0, by }, id as PeerId);
+    }
+    this.sprayOwed.clear();
+  }
+
+  /** Hold completed: consume the item and apply its effect (a 제세동기 hands off to the gadget path). */
   private finishHeal(host: Host, q: QuickHand): void {
+    const spray = q.def.heal?.spray;
+    const wasSpray = this.healSpray;
+    this.healHeld = false; this.healT = 0; this.healSpray = false;
+    this.setConsumableSlow(false);
+    if (wasSpray) this.flushSprayHeals();
+    if (q.kind === 'gadget') {
+      this.emitHeal(1, true, useTimeOf(q.def));
+      this.useGadget(host, q);
+      return;
+    }
     const remaining = this.consumeQuick(q);
-    this.healHeld = false; this.healT = 0;
-    this.emitHeal(remaining < 0 ? -1 : 1, true);
+    this.emitHeal(remaining < 0 ? -1 : 1, true, useTimeOf(q.def));
     if (remaining < 0) { this.deny(); return; }
     this.quickCooldown = QUICK_USE_COOLDOWN / this.useSpeedMul();
     this.firingTimer = FIRING_POSE_HOLD * 0.5;
-    host.applyStim(q.def.healAmount ?? 50);
+    if (!spray) {
+      const heal = q.def.heal;
+      const p = this.ctx.player as (PlayerRef & { applyHeal?: (a: number, s: number, quiet?: boolean) => boolean }) | null;
+      const amount = heal?.amount ?? q.def.healAmount ?? 50;
+      if (heal && typeof p?.applyHeal === 'function') p.applyHeal(amount, heal.overTime);
+      else host.applyStim(amount);
+    }
     this.ctx.bus.emit('quick:used', { index: q.index, item: q.item, remaining });
     if (remaining <= 0) this.returnToGun();
   }
@@ -1381,7 +1484,10 @@ export class WeaponSystem implements GameSystem {
   /** Button released, swap, implant wield, death / downed, phase change, world reset: the hold is thrown away. */
   private cancelHeal(): void {
     if (!this.healHeld) return;
-    this.healHeld = false; this.healT = 0;
+    const wasSpray = this.healSpray;
+    this.healHeld = false; this.healT = 0; this.healSpray = false;
+    this.setConsumableSlow(false);
+    if (wasSpray) this.flushSprayHeals();
     this.emitHeal(-1, true);
   }
 

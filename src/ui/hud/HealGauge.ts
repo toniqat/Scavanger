@@ -7,9 +7,9 @@ const RADIUS = 48;
 const NEAR = 0.75;   // ring turns green past this point ("almost injected")
 
 /**
- * 회복약 hold gauge (`.heal`, Phase 10). The 회복약 (the item formerly labelled 스팀 — the `stim` def id is unchanged)
- * is no longer a tap: LMB has to be **held for `HEAL_HOLD_S`** while it is in hand, and this ring at the crosshair is
- * that hold. Modelled on `hud/CookGauge` (same 48 px radius, same `.show` fade, same reticle anchor) but drawn as a
+ * 회복 소모품 hold gauge (`.heal`, Phase 10; generalised 2026-09-07). A 회복 소모품 is never a tap: LMB has to be held
+ * for the item's own use time (`ItemDef.heal.useTime` — 붕대 5 s, 회복주사 2 s, 제세동기 1 s), and this ring at the
+ * crosshair is that hold. A 회복 스프레이 channels instead, and the ring shows its remaining gauge. Modelled on `hud/CookGauge` (same 48 px radius, same `.show` fade, same reticle anchor) but drawn as a
  * **full circle** like `hud/ChargeGauge` / `hud/ReloadGauge`, because a 360° single SVG arc degenerates — the ring is a
  * `circle` with `stroke-dasharray` on its circumference, rotated −90° so it fills from 12 o'clock.
  *
@@ -50,15 +50,16 @@ export class HealGauge {
   bind(ctx: GameContext): void {
     const b = ctx.bus;
     this.unsubs.push(
-      b.on('heal:holdChanged', ({ holding, t }) => {
+      b.on('heal:holdChanged', ({ holding, t, dur, spray }) => {
         if (!holding || t < 0) { this.hide(); return; }
         const c = Math.min(1, Math.max(0, t));
         toggleClass(this.root, 'show', true);
-        toggleClass(this.root, 'near', c > NEAR && c < 1);
-        toggleClass(this.root, 'ready', c >= 1);
+        toggleClass(this.root, 'near', !spray && c > NEAR && c < 1);
+        toggleClass(this.root, 'ready', !spray && c >= 1);
         this.setFill(c);
-        const secs = `${Math.max(0, (1 - c) * HEAL_HOLD_S).toFixed(1)} s`;
-        if (secs !== this.lastLabel) { this.lastLabel = secs; setText(this.label, `회복약 ${secs}`); }
+        // 2026-09-07: the ring counts down the item's own use time (`dur`); a 스프레이 shows its remaining gauge %.
+        const label = spray ? `스프레이 ${Math.round(c * 100)} %` : `회복 ${Math.max(0, (1 - c) * (dur ?? HEAL_HOLD_S)).toFixed(1)} s`;
+        if (label !== this.lastLabel) { this.lastLabel = label; setText(this.label, label); }
       }),
       b.on('player:died', () => this.hide()),
       b.on('player:downed', () => this.hide()),

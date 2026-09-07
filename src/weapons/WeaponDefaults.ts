@@ -9,14 +9,14 @@ export const WEAPON_SLOTS: readonly WeaponSlot[] = ['primary', 'primary2', 'seco
 
 /** Built-in fallbacks used when `ctx.loot` is unavailable or a weaponId cannot be resolved (v2 calibres). */
 export const DEFAULT_RIFLE: WeaponDef = {
-  id: 'ar23_liberator', name: 'AR-23 리버레이터', slot: 'primary', ammoType: 'medium', weaponClass: 'AR',
+  id: 'ar_fallback', name: '돌격소총', slot: 'primary', ammoType: 'medium', weaponClass: 'AR',
   damage: 60, fireRate: 10, magSize: 45, reserveMags: 6, reloadTime: 2.4,
   spread: 0.024, adsSpread: 0.006, range: 220, automatic: true, recoil: 0.011, tracerColor: 0xffd070,
   falloffStart: 60, falloffEnd: 220, falloffMin: 0.6,
 };
 
 export const DEFAULT_PISTOL: WeaponDef = {
-  id: 'p2_peacemaker', name: 'P-2 피스메이커', slot: 'secondary', ammoType: 'light', weaponClass: 'PISTOL',
+  id: 'hg_fallback', name: '권총', slot: 'secondary', ammoType: 'light', weaponClass: 'PISTOL',
   damage: 45, fireRate: 6, magSize: 15, reserveMags: 6, reloadTime: 1.6,
   spread: 0.022, adsSpread: 0.007, range: 140, automatic: false, recoil: 0.02, tracerColor: 0xffe2a8,
   falloffStart: 20, falloffEnd: 70, falloffMin: 0.5,
@@ -63,7 +63,7 @@ export function statsFromDef(def: WeaponDef): EffectiveWeaponStats {
  */
 export type WeaponKind = 'rifle' | 'pistol' | 'shotgun' | 'energy' | 'smg' | 'sniper' | UniqueWeaponKind;
 
-/** Kind by class → graded ids (`ar23_g3`) pick the same procedural model as their family; uniques pick theirs. */
+/** Kind by class → graded ids (`ar_g3`) pick the same procedural model as their family; uniques pick theirs. */
 export function kindOf(def: WeaponDef): WeaponKind {
   if (def.unique) return def.unique;
   if (def.pellets && def.pellets > 1) return 'shotgun';

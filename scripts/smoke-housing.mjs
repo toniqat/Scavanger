@@ -114,18 +114,20 @@ try {
   await page.goto(BASE, { waitUntil: 'load' });
   await waitFor(page, () => !!window.__game, 'engine');
   // fresh ship + stash so the run is deterministic, then reload so the housing system boots from the fresh state
-  await page.evaluate(() => { localStorage.removeItem('scav.ship'); localStorage.removeItem('scav.stash'); });
+  await page.evaluate(() => { localStorage.removeItem('scav.ship'); localStorage.removeItem('scav.stash'); localStorage.removeItem('scav.grant'); });
   await page.reload({ waitUntil: 'load' });
   await setup();
+  // 2026-09-07: a fresh stash is granted the 기본 지급품 — empty it again so the material counts below are exact
+  await page.evaluate(() => { const st = window.__game.getSystem('inventory').getStash(); for (const p of st.items()) st.remove(p.item.uid); });
 
   console.log('fresh state');
   const st0 = await H(() => JSON.parse(JSON.stringify(window.__game.ctx.housing.state)));
-  // Phase 8 UI pass: room 1 is the ship's permanent 작업실 and ships with its two benches already placed
-  ok(st0.rooms.length === 10 && st0.rooms[0].purpose === 'workshop' && st0.rooms[0].level === 1
-    && st0.rooms.slice(1).every((r) => r.purpose === 'empty' && r.level === 0), 'fresh state: room 1 = 작업실, the other nine empty');
+  // 2026-09-07: a new ship is ten **empty** rooms with no furniture — the built-in 작업실 + its two benches are gone
+  ok(st0.rooms.length === 10 && st0.rooms.every((r) => r.purpose === 'empty' && r.level === 0), 'fresh state: all ten rooms empty');
   ok(st0.generatorLevel === 0 && st0.storageLevel === 0 && st0.presets.length === 0 && st0.furnitureStorage.length === 0, 'fresh state: gen 0 / storage 0 / no presets / empty furniture storage');
-  const startIds = st0.furniture.map((e) => e.defId).sort().join(',');
-  ok(st0.furniture.length === 2 && startIds === 'furn_bench_gun,furn_repair_bench' && st0.furniture.every((e) => e.room === 0), `first run: 총기 작업대 + 정비 벤치 placed in 방 1 (${startIds})`);
+  ok(st0.furniture.length === 0, `first run: no 총기 작업대 / 정비 벤치 placed (${st0.furniture.length})`);
+  ok(await H(() => window.__game.ctx.housing.findRoom('workshop') === -1 && window.__game.ctx.housing.getFacility('workshop').level === 0
+    && window.__game.ctx.housing.getBenchLevel('gun') === 0), 'no 작업실 facility and no bench on a fresh ship');
   const stash0 = await H(() => window.__game.ctx.housing.getStashSize());
   ok(stash0.cols === 10 && stash0.rows === 24, `getStashSize() 10×24 at storage 0 (${stash0.cols}×${stash0.rows})`);
   // Phase 8 added furn_repair_bench (작업실) and furn_grow_rack (온실); Phase 9 furn_bookshelf (서재)
@@ -147,9 +149,19 @@ try {
 
   console.log('room purposes');
   ok(await H(() => window.__game.ctx.housing.setRoomPurpose(3, 'lab') === false), 'lab refused without a greenhouse');
-  // Phase 8 UI pass: room 1 is locked to 작업실 and no other room may become one
-  ok(await H(() => window.__game.ctx.housing.setRoomPurpose(3, 'workshop') === false && /방 1에만/.test(window.__game.ctx.housing.purposeBlock(3, 'workshop') ?? '')), '작업실 refused outside room 1');
-  ok(await H(() => /기본 작업실/.test(window.__game.ctx.housing.purposeBlock(0, 'empty') ?? '') && window.__game.ctx.housing.setRoomPurpose(0, 'empty') === false), 'room 1 cannot be re-purposed');
+  // 2026-09-07: the 작업실 is an ordinary purpose — it may go in any room, and the ship starts without one.
+  // The placement / facility checks below want one, so seed room 1 the way a player would build it.
+  ok(await H(() => /발전기/.test(window.__game.ctx.housing.purposeBlock(3, 'workshop') ?? '')), '작업실 is buildable in any room (only the 발전기 gate refuses it here)');
+  await H(() => {
+    const h = window.__game.ctx.housing;
+    h.state.rooms[0] = { purpose: 'workshop', level: 1 };
+    h.state.furnitureStorage.push({ defId: 'furn_bench_gun', level: 1, qty: 1 }, { defId: 'furn_repair_bench', level: 1, qty: 1 });
+    h.place(0, 'furn_bench_gun', 0, 0, 0);
+    h.place(0, 'furn_repair_bench', 0, 3, 0);
+  });
+  ok(await H(() => window.__game.ctx.housing.getPlaced(0).length === 2 && window.__game.ctx.housing.getStored().length === 0), 'seeded 방 1 = 작업실 with both benches placed');
+  ok(await H(() => window.__game.ctx.housing.setRoomPurpose(3, 'workshop') === false && /하나만/.test(window.__game.ctx.housing.purposeBlock(3, 'workshop') ?? '')), 'a second 작업실 is refused (one facility room per ship)');
+  ok(await H(() => window.__game.ctx.housing.purposeBlock(0, 'empty') === null), '빈 방 is always allowed (the 작업실 is no longer locked)');
   const r0 = await H(() => window.__game.ctx.housing.getRoom(0));
   ok(r0.purpose === 'workshop' && r0.level === 1, 'workshop room is level 1');
   // Phase 9 UI pass: a 시설 증축 costs materials (`purposeCost`) and sits behind the 발전기 Lv.1 gate — a fresh save has neither.
@@ -161,9 +173,9 @@ try {
   ok(await H(() => window.__game.ctx.housing.getFacility('workshop').level === 1 && window.__game.ctx.housing.getCraftCostMul() === 1), 'workshop facility level 1, cost ×1');
 
   console.log('placement');
-  // start the placement checks from an empty 작업실: the two built-in benches go back to furniture storage
+  // start the placement checks from an empty 작업실: the two seeded benches go back to furniture storage
   await H(() => { const h = window.__game.ctx.housing; for (const f of [...h.getPlaced(0)]) h.recover(f.uid); });
-  ok(await H(() => window.__game.ctx.housing.getPlaced(0).length === 0 && window.__game.ctx.housing.getStored().length === 2), 'built-in benches recovered into furniture storage');
+  ok(await H(() => window.__game.ctx.housing.getPlaced(0).length === 0 && window.__game.ctx.housing.getStored().length === 2), 'benches recovered into furniture storage');
   ok(await H(() => window.__game.ctx.housing.canPlace(0, 'furn_bench_gun', 0, 0, 0) === true), 'canPlace 4×2 bench at (0,0) yaw 0');
   ok(await H(() => window.__game.ctx.housing.canPlace(0, 'furn_bench_gun', 5, 0, 0) === false), 'canPlace refuses x=5 (4 wide in an 8-col grid)');
   ok(await H(() => window.__game.ctx.housing.canPlace(0, 'furn_bench_gun', 5, 0, 1) === true), 'canPlace yaw 1 (2×4) at x=5 fits');
@@ -192,7 +204,7 @@ try {
   const re = await H(() => window.__game.ctx.housing.place(0, 'furn_bench_gun', 0, 0, 0));
   ok(re && re.uid === 'f-4', 're-place → new uid f-4');
   ok(await H(() => window.__game.ctx.housing.setRoomPurpose(0, 'range') === false), 'purpose change refused while a workshop bench is placed');
-  ok(await H(() => /기본 작업실/.test(window.__game.ctx.housing.purposeBlock(0, 'range') ?? '')), 'room 1 keeps its 작업실 whatever is placed in it');
+  ok(await H(() => /회수/.test(window.__game.ctx.housing.purposeBlock(0, 'range') ?? '')), 'the block names the furniture to recover first');
 
   console.log('materials / facilities');
   const hasCountAll = (await count('mat_scrap')) >= 0;
@@ -287,7 +299,7 @@ try {
   ok(await H(() => window.__game.ctx.housing.getPresets().length === 3 && window.__game.ctx.housing.getPresets().every((p) => p === null)), 'getPresets → 3 empty slots');
   const cap = await H(() => (typeof window.__game.ctx.inventory.captureLoadout === 'function' ? window.__game.ctx.inventory.captureLoadout() : null));
   if (!cap) console.log('  TODO(lead): inventory.captureLoadout missing — saving a synthetic preset instead');
-  const saved = await H((c) => window.__game.ctx.housing.savePreset(1, c ?? { name: '테스트', primary: 'wpn_ar23', primary2: null, secondary: 'wpn_p2', bag: null, armor: null, implant: 'dash' }), cap ? { ...cap, name: '테스트' } : null);
+  const saved = await H((c) => window.__game.ctx.housing.savePreset(1, c ?? { name: '테스트', primary: 'wpn_ar', primary2: null, secondary: 'wpn_hg', bag: null, armor: null, implant: 'dash' }), cap ? { ...cap, name: '테스트' } : null);
   ok(saved === true, 'savePreset(1)');
   ok(await H(() => window.__game.ctx.housing.savePreset(3, { name: 'x', primary: null, primary2: null, secondary: null, bag: null, armor: null, implant: null }) === false), 'savePreset(3) refused (only 3 slots)');
   ok(await H(() => window.__game.ctx.housing.getPresets()[1]?.name === '테스트'), 'preset 1 stored with its name');
@@ -328,7 +340,7 @@ try {
   ok(await H(() => window.__game.ctx.housing.setRoomPurpose(2, 'gym') === true && window.__game.ctx.housing.getRoom(2).level === 1), 'inactive purpose (gym) can still be assigned');
   ok(await H(() => window.__game.ctx.housing.setRoomPurpose(3, 'greenhouse') && window.__game.ctx.housing.setRoomPurpose(4, 'lab')), 'lab allowed once a greenhouse exists');
 
-  ok(await H(() => window.__game.ctx.housing.setRoomPurpose(7, 'workshop') === false && /방 1에만/.test(window.__game.ctx.housing.purposeBlock(7, 'workshop') ?? '')), 'second 작업실 refused (room 1 owns it)');
+  ok(await H(() => window.__game.ctx.housing.setRoomPurpose(7, 'workshop') === false && /하나만/.test(window.__game.ctx.housing.purposeBlock(7, 'workshop') ?? '')), 'second 작업실 refused (방 1 already has it)');
   ok(await H(() => window.__game.ctx.housing.setRoomPurpose(7, 'range') === false), 'second 사격장 refused');
 
   console.log('housing mode');
@@ -519,7 +531,8 @@ try {
   await setup();
   const san = await H(() => JSON.parse(JSON.stringify(window.__game.ctx.housing.state)));
   const sanStore = san.furnitureStorage.map((e) => e.defId).sort().join(',');
-  ok(san.rooms.length === 10 && san.rooms[0].purpose === 'workshop' && san.generatorLevel === 5 && san.furniture.length === 1 && san.furniture[0].uid === 'f-3' && san.furniture[0].defId === 'furn_crate' && san.presets[0].name === '프리셋' && san.presets[0].implant === null, `corrupt save sanitised: lab→작업실 (room 1 invariant), gen clamped, bad rooms / purpose / overlap dropped (${JSON.stringify({ r0: san.rooms[0], g: san.generatorLevel, f: san.furniture, p: san.presets[0] })})`);
+  // 2026-09-07: no room-1 invariant any more — the corrupt save's room 1 = 연구실 falls back to 빈 방 (no 온실)
+  ok(san.rooms.length === 10 && san.rooms[0].purpose === 'empty' && san.generatorLevel === 5 && san.furniture.length === 1 && san.furniture[0].uid === 'f-3' && san.furniture[0].defId === 'furn_crate' && san.presets[0].name === '프리셋' && san.presets[0].implant === null, `corrupt save sanitised: lab→빈 방 (온실 없음), gen clamped, bad rooms / purpose / overlap dropped (${JSON.stringify({ r0: san.rooms[0], g: san.generatorLevel, f: san.furniture, p: san.presets[0] })})`);
   ok(sanStore === 'furn_bench_gun,furn_repair_bench', `furniture that no longer fits its room went to storage, not the bin (${sanStore})`);
 
   /* ── 시설 제거 (Phase 9 UI pass): refund every upgrade material into the stash and empty the room ── */
@@ -527,8 +540,8 @@ try {
   await give('mat_scrap', 40);
   await give('mat_alloy', 5);
   await give('mat_cable', 8);
-  // room 1 is the ship's built-in 작업실 — it can never be handed back
-  ok(await H(() => /기본 작업실/.test(window.__game.ctx.housing.removeRoomFacility(0) ?? '')), 'removeRoomFacility(0) refuses the built-in 작업실');
+  // 2026-09-07: there is no built-in 작업실 any more — an empty room simply has nothing to hand back
+  ok(await H(() => /빈 방/.test(window.__game.ctx.housing.removeRoomFacility(0) ?? '')), 'removeRoomFacility on a 빈 방 refuses with a reason');
   ok(await H(() => window.__game.ctx.housing.facilityRefund(2).length === 0), 'a room with no facility refunds nothing');
   const rangeSetup = await H(() => {
     const h = window.__game.ctx.housing;

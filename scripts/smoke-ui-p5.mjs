@@ -143,45 +143,48 @@ try {
   ok(gaugeDom.off <= 2 && gaugeDom.size === 120 && /matrix\(0,\s*-1,\s*1,\s*0/.test(gaugeDom.rot), `reload ring is reticle-centred (SIZE 120, off ${gaugeDom.off}px) and rotated -90deg (fills from 12 o clock)`, JSON.stringify(gaugeDom));
   ok(gaugeDom.hidden, 'reload ring starts hidden');
   const reloadRing = () => P(() => { const e = document.querySelector('.reload'); const h = window.__game.getSystem('hud'); return { cls: e.className, dash: e.querySelector('.fill').style.strokeDasharray, lbl: e.querySelector('.lbl').textContent, on: h.isReloadGaugeOn, t: h.reloadProgress }; });
-  await emit('weapon:reloadStarted', { weaponId: 'ar23', duration: 2 });
+  await emit('weapon:reloadStarted', { weaponId: 'ar', duration: 2 });
   let rg = await reloadRing();
   ok(/\bshow\b/.test(rg.cls) && rg.on && dashT(rg.dash) < 0.02 && rg.lbl === '재장전 2.0 s', 'weapon:reloadStarted {duration:2} -> ring shown, empty, 재장전 2.0 s', JSON.stringify(rg));
   await waitSim(0.9);
   rg = await reloadRing();
   ok(dashT(rg.dash) > 0.2 && dashT(rg.dash) < 0.9 && rg.t > 0.2, `ring fills on its own countdown (${rg.dash} · ${rg.lbl})`, JSON.stringify(rg));
-  await emit('weapon:reloadCancelled', { weaponId: 'ar23' });
+  await emit('weapon:reloadCancelled', { weaponId: 'ar' });
   rg = await reloadRing();
   ok(!/\bshow\b/.test(rg.cls) && !rg.on && dashT(rg.dash) < 0.02, 'weapon:reloadCancelled hides the ring and resets it (a melee / swap cancel no longer leaves it filling)', JSON.stringify(rg));
-  await emit('weapon:reloadStarted', { weaponId: 'ar23', duration: 2 });
-  await emit('weapon:reloadFinished', { weaponId: 'ar23' });
+  await emit('weapon:reloadStarted', { weaponId: 'ar', duration: 2 });
+  await emit('weapon:reloadFinished', { weaponId: 'ar' });
   rg = await reloadRing();
   ok(!/\bshow\b/.test(rg.cls) && !rg.on, 'weapon:reloadFinished hides it too', JSON.stringify(rg));
-  await emit('weapon:reloadStarted', { weaponId: 'ar23', duration: 5 });
+  await emit('weapon:reloadStarted', { weaponId: 'ar', duration: 5 });
   await emit('player:downed', { bleedout: 60 });
   rg = await reloadRing();
   ok(!rg.on, 'player:downed closes the ring mid-reload', JSON.stringify(rg));
   await emit('player:revived', { hp: 100, byName: null });
-  // 회복약: LMB 2 s hold (HEAL_HOLD_S), a full circle rather than the cook gauge's 120 deg arc
+  // 회복 소모품: LMB hold of the item's own length (`heal:holdChanged.dur`), a full circle rather than the cook gauge's 120 deg arc
   const healRing = () => P(() => { const e = document.querySelector('.heal'); return { cls: e.className, dash: e.querySelector('.fill').style.strokeDasharray, lbl: e.querySelector('.lbl').textContent, on: window.__game.getSystem('hud').isHealGaugeOn, circle: !!e.querySelector('circle.fill') }; });
-  await emit('heal:holdChanged', { holding: true, t: 0 });
+  await emit('heal:holdChanged', { holding: true, t: 0, dur: 2 });
   let hg = await healRing();
   ok(/\bshow\b/.test(hg.cls) && hg.on && hg.circle, 'heal:holdChanged {holding} -> 회복약 ring shown, drawn as a full circle (not an arc path)', JSON.stringify(hg));
-  await emit('heal:holdChanged', { holding: true, t: 0.5 });
+  await emit('heal:holdChanged', { holding: true, t: 0.5, dur: 2 });
   hg = await healRing();
-  ok(Math.abs(dashT(hg.dash) - 0.5) < 0.02 && hg.lbl === '회복약 1.0 s', 'half-held -> ring half full, 1.0 s left of HEAL_HOLD_S', JSON.stringify(hg));
-  await emit('heal:holdChanged', { holding: true, t: 1 });
+  ok(Math.abs(dashT(hg.dash) - 0.5) < 0.02 && hg.lbl === '회복 1.0 s', 'half-held -> ring half full, 1.0 s left of the item use time (dur 2)', JSON.stringify(hg));
+  await emit('heal:holdChanged', { holding: true, t: 0.4, dur: 5, spray: true });
+  hg = await healRing();
+  ok(hg.lbl === '스프레이 40 %' && !/ready/.test(hg.cls), '회복 스프레이 channel -> the ring shows the remaining gauge', JSON.stringify(hg));
+  await emit('heal:holdChanged', { holding: true, t: 1, dur: 2 });
   hg = await healRing();
   ok(/\bready\b/.test(hg.cls) && Math.abs(dashT(hg.dash) - 1) < 0.02, 't = 1 -> .ready, full ring', JSON.stringify(hg));
   await emit('heal:holdChanged', { holding: false, t: -1 });
   hg = await healRing();
   ok(!/\bshow\b/.test(hg.cls) && !hg.on && dashT(hg.dash) < 0.02, 'releasing (holding false / t -1) hides and resets it', JSON.stringify(hg));
-  // the weapon panel's 회복약 hint follows the 2 s hold
+  // the weapon panel's hint follows the item's own use time (붕대 = 5 s)
   const stimHint = await P(() => {
-    window.__game.ctx.bus.emit('quick:equipped', { item: { uid: 'smoke-stim', defId: 'stim', qty: 2, x: 0, y: 0, rot: 0 }, slot: 1 });
+    window.__game.ctx.bus.emit('quick:equipped', { item: { uid: 'smoke-stim', defId: 'heal_bandage', qty: 2, x: 0, y: 0, rot: 0 }, slot: 1 });
     const w = document.querySelector('.weapon');
     return { hint: w.querySelector('.cons .hint').textContent, cons: w.className.includes('consumable') };
   });
-  ok(stimHint.cons && stimHint.hint === '좌클릭 2초 홀드', '회복약 in hand -> 좌클릭 2초 홀드 hint', JSON.stringify(stimHint));
+  ok(stimHint.cons && stimHint.hint === '좌클릭 5초 홀드 · 이동 50 %', '붕대 in hand -> 좌클릭 5초 홀드 · 이동 50 % hint', JSON.stringify(stimHint));
   await emit('quick:equipped', { item: null, slot: 1 });
   // 2026-09-07: the bottom-left 회복약 / 수류탄 pills were removed — the counts are the right-hand 빠른 사용 thumbnail
   // and the weapon panel's consumable block, so the health corner is health + stamina only.
@@ -218,30 +221,39 @@ try {
   ok(mapPing.n === 1 && !!mapPing.last, 'a middle-click on the map places exactly one ping (ping:placed)', JSON.stringify(mapPing));
   ok(mapPing.open, 'the middle-click does not close the map or start a pan');
   ok(mapPing.markers >= 1, 'the map ping got its own world marker', JSON.stringify(mapPing));
-  // the map keeps the pointer lock now (Phase 10 section 2): a cursor-mode owner instead of exitPointerLock
-  const mapCursor = await P(() => ({ mode: window.__game.ctx.input.isCursorMode, blocked: window.__game.ctx.uiBlockers.has('map'), sprite: window.__game.getSystem('hud').isSoftCursorOn, bodyCls: document.body.classList.contains('soft-cursor-on') }));
-  ok(mapCursor.mode && mapCursor.blocked, 'the open map is a cursor-mode owner with the map blocker (no exitPointerLock)', JSON.stringify(mapCursor));
-  ok(mapCursor.sprite && mapCursor.bodyCls, 'the software cursor sprite is drawn and the native cursor is hidden', JSON.stringify(mapCursor));
-  const sprite = await P(() => {
-    const s = document.querySelector('#ui-root > .soft-cursor');
-    window.__game.ctx.input.setCursorPosition(420, 260);
-    window.__game.frame(performance.now());
-    return { direct: !!s, hidden: s ? s.hidden : true, translate: s ? s.style.translate : '', pe: s ? getComputedStyle(s).pointerEvents : '' };
+  /* 2026-09-07 (커서 rework): the open map is a cursor-mode owner and the pointer lock is **released** — the real OS
+     cursor comes back, restyled by `ui/hud/GameCursor`. The DOM sprite and the virtual cursor are gone. */
+  const mapCursor = await P(() => ({
+    mode: window.__game.ctx.input.isCursorMode,
+    blocked: window.__game.ctx.uiBlockers.has('map'),
+    art: window.__game.getSystem('hud').isGameCursorOn,
+    bodyMode: document.body.classList.contains('cursor-on'),
+    bodyArt: document.body.classList.contains('cursor-ui'),
+    sprite: document.querySelectorAll('.soft-cursor').length,
+  }));
+  ok(mapCursor.mode && mapCursor.blocked, 'the open map is a cursor-mode owner with the map blocker', JSON.stringify(mapCursor));
+  ok(mapCursor.art && mapCursor.bodyArt && mapCursor.bodyMode, 'the game cursor art is installed and the mode class is on', JSON.stringify(mapCursor));
+  ok(mapCursor.sprite === 0, 'there is no cursor sprite in the DOM any more (the OS cursor draws it)');
+  // `uiX / uiY` are simply the real cursor position now — no virtual position to keep in sync.
+  const pos = await P(() => {
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX: 420, clientY: 260, bubbles: true }));
+    const i = window.__game.ctx.input;
+    return { x: i.uiX, y: i.uiY, cx: i.cursorX, cy: i.cursorY };
   });
-  ok(sprite.direct && !sprite.hidden && sprite.pe === 'none', 'the sprite is a direct child of #ui-root and never takes pointer events', JSON.stringify(sprite));
-  ok(sprite.translate === '420px 260px', `it is positioned on the translate channel from input.cursorX/Y (${sprite.translate})`);
+  ok(pos.x === 420 && pos.y === 260 && pos.cx === 420 && pos.cy === 260,
+    'input.uiX / uiY follow the real cursor position', JSON.stringify(pos));
   await P(() => { tapKey('KeyM'); });
   await waitFor(page, () => !window.__game.getSystem('hud').isMapOpen, 'map closed');
-  const afterMap = await P(() => ({ mode: window.__game.ctx.input.isCursorMode, sprite: window.__game.getSystem('hud').isSoftCursorOn, bodyCls: document.body.classList.contains('soft-cursor-on') }));
-  ok(!afterMap.mode && !afterMap.sprite && !afterMap.bodyCls, 'closing the map releases cursor mode and hides the sprite', JSON.stringify(afterMap));
+  const afterMap = await P(() => ({ mode: window.__game.ctx.input.isCursorMode, bodyMode: document.body.classList.contains('cursor-on') }));
+  ok(!afterMap.mode && !afterMap.bodyMode, 'closing the map releases cursor mode', JSON.stringify(afterMap));
 
   /* -- Phase 10: the item card's credit bar -- */
   console.log('item tip credit bar (Phase 10)');
   const tipBar = await P(() => {
-    const def = window.__game.ctx.loot.getItemDef('stim');
+    const def = window.__game.ctx.loot.getItemDef('heal_bandage');
     const chip = document.createElement('span');
     chip.className = 'item-chip';
-    chip.dataset.defId = 'stim';
+    chip.dataset.defId = 'heal_bandage';
     window.__game.ctx.uiRoot.appendChild(chip);
     chip.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, clientX: 200, clientY: 200 }));
     const tip = document.querySelector('#ui-root > .item-tip');

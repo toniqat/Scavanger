@@ -51,7 +51,7 @@ export class LootService implements LootRef {
     return inst;
   }
 
-  /** Graded + socketed stats. Accepts an instance, a weapon def id (`ar23_g3`) or a weapon item id (`wpn_ar23_g3`). */
+  /** Graded + socketed stats. Accepts an instance, a weapon def id (`ar_g3`) or a weapon item id (`wpn_ar_g3`). */
   getEffectiveStats(inst: ItemInstance | string): EffectiveWeaponStats | null {
     if (typeof inst === 'string') {
       const weapon = WEAPON_DEF_MAP.get(inst) ?? this.weaponDefOfItem(inst);
@@ -144,7 +144,7 @@ export class LootService implements LootRef {
   /**
    * Corpse loot (Phase 4). Bugs drop bio samples / glands / alloy per `CORPSE_TABLES`;
    * rogues drop rounds of their weapon's calibre plus the weapon itself at very low
-   * durability (`rogueWeaponId`, default `ar23`); bosses re-grade the weapon to III/IV
+   * durability (`rogueWeaponId`, default `ar`); bosses re-grade the weapon to III/IV
    * and add an attachment. Deterministic for a given `rng`; sorted largest-first like
    * `rollCrate`. Unknown types yield a single bio sample.
    */

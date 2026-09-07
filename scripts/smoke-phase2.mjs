@@ -97,18 +97,18 @@ try {
 
   console.log('quick slots');
   const qs = await P(() => { const inv = window.__game.ctx.inventory; return { slots: inv.getQuickSlots().map((s) => s?.defId ?? null), n: inv.getQuickSlotCount() }; });
-  ok(qs.slots.length === 8 && qs.slots[0] === 'grenade_frag' && qs.slots[4] === 'stim', 'starter kit auto-assigns grenade → N, stim → S', JSON.stringify(qs));
+  ok(qs.slots.length === 8 && qs.slots[0] === 'grenade_frag' && qs.slots[4] === 'heal_bandage', 'starter kit auto-assigns grenade → N, 붕대 → S', JSON.stringify(qs));
   ok(qs.n === 2, 'common bag → 2 usable quick slots (N and S per the unlock order)', `${qs.n}`);
   const qsEv = await ev('inventory:quickSlotsChanged');
   ok(qsEv.length > 0 && qsEv[qsEv.length - 1].active === 2, 'inventory:quickSlotsChanged emitted with active count');
-  const setRes = await P(() => { const inv = window.__game.ctx.inventory; const stim = inv.getAllItems().find((i) => i.defId === 'stim'); const gun = inv.getLoadout().primary;
+  const setRes = await P(() => { const inv = window.__game.ctx.inventory; const stim = inv.getAllItems().find((i) => i.defId === 'heal_bandage'); const gun = inv.getLoadout().secondary;
     const lockedRefused = !inv.setQuickSlot(2, stim.uid);
     const moveOk = inv.setQuickSlot(0, stim.uid);
     return { lockedRefused, moveOk, gunRefused: !inv.setQuickSlot(4, gun.uid), slots: inv.getQuickSlots().map((s) => s?.defId ?? null) }; });
   ok(setRes.lockedRefused, 'a locked slot (E with a common bag) refuses assignment');
-  ok(setRes.moveOk && setRes.slots[0] === 'stim' && setRes.slots[4] === null, 'setQuickSlot moves the stim S→N (one slot per item)', JSON.stringify(setRes.slots));
+  ok(setRes.moveOk && setRes.slots[0] === 'heal_bandage' && setRes.slots[4] === null, 'setQuickSlot moves the stim S→N (one slot per item)', JSON.stringify(setRes.slots));
   ok(setRes.gunRefused, 'a weapon cannot go into a quick slot');
-  await P(() => { const inv = window.__game.ctx.inventory; const stim = inv.getAllItems().find((i) => i.defId === 'stim'); const g = inv.getAllItems().find((i) => i.defId === 'grenade_frag'); inv.setQuickSlot(4, stim.uid); inv.setQuickSlot(0, g.uid); });
+  await P(() => { const inv = window.__game.ctx.inventory; const stim = inv.getAllItems().find((i) => i.defId === 'heal_bandage'); const g = inv.getAllItems().find((i) => i.defId === 'grenade_frag'); inv.setQuickSlot(4, stim.uid); inv.setQuickSlot(0, g.uid); });
 
   console.log('stim in hand (F tap)');
   await P(() => window.__game.ctx.player.takeDamage(40));
@@ -116,7 +116,7 @@ try {
   await key('KeyT', 0.08);
   await waitSim(0.4);
   let qe = await lastEv('quick:equipped');
-  ok(qe && qe.item && (qe.item.defId === 'grenade_frag' || qe.item.defId === 'stim'), 'F tap puts a quick item in hand', JSON.stringify(qe));
+  ok(qe && qe.item && (qe.item.defId === 'grenade_frag' || qe.item.defId === 'heal_bandage'), 'F tap puts a quick item in hand', JSON.stringify(qe));
   // make sure the stim is in hand: open the wheel and pick S (drag down)
   await keyDown('KeyT');
   await waitSim(0.5);
@@ -129,25 +129,32 @@ try {
   await keyUp('KeyT');
   await waitSim(0.3);
   qe = await lastEv('quick:equipped');
-  ok(qe && qe.item && qe.item.defId === 'stim' && qe.index === 4, 'release equips the stim', JSON.stringify(qe));
+  ok(qe && qe.item && qe.item.defId === 'heal_bandage' && qe.index === 4, 'release equips the stim', JSON.stringify(qe));
   const hpBefore = await P(() => window.__game.ctx.player.hp);
-  const stimBefore = await P(() => window.__game.ctx.inventory.countWhere((d) => d.id === 'stim'));
-  // Phase 10: the 회복약 needs a HEAL_HOLD_S (2 s) LMB hold — a tap must NOT consume it
+  const stimBefore = await P(() => window.__game.ctx.inventory.countWhere((d) => d.id === 'heal_bandage'));
+  // 2026-09-07: 붕대는 5초 홀드 (`ItemDef.heal.useTime`) — 짧은 탭은 소모하지 않는다
+  const useTime = await P(() => window.__game.ctx.loot.getItemDef('heal_bandage')?.heal?.useTime ?? null);
+  ok(useTime === 5, '붕대 사용 시간 5초 (ItemDef.heal.useTime)', String(useTime));
   await mouseDown(0); await waitSim(0.4); await mouseUp(0);
   await waitSim(0.6);
-  const tapped = await P(() => window.__game.ctx.inventory.countWhere((d) => d.id === 'stim'));
-  ok(tapped === stimBefore, 'a short LMB tap does not consume the 회복약 (2 s hold)', `${stimBefore} → ${tapped}`);
+  const tapped = await P(() => window.__game.ctx.inventory.countWhere((d) => d.id === 'heal_bandage'));
+  ok(tapped === stimBefore, 'a short LMB tap does not consume the 붕대 (5 s hold)', `${stimBefore} → ${tapped}`);
   const cancelled = await lastEv('heal:holdChanged');
   ok(cancelled && cancelled.holding === false, 'releasing early cancels heal:holdChanged', JSON.stringify(cancelled));
   await mouseDown(0); await waitSim(0.8);
   const holding = await lastEv('heal:holdChanged');
   ok(holding && holding.holding === true && holding.t > 0.1 && holding.t < 1, 'heal:holdChanged rises while LMB is held', JSON.stringify(holding));
-  await waitSim(1.8); await mouseUp(0);
-  await waitSim(2.0);
+  ok(holding && holding.dur === 5, 'heal:holdChanged carries the item use time (dur 5)', JSON.stringify(holding));
+  const slowed = await P(() => window.__game.getSystem('player')?.controller?.speedMultiplier ?? null);
+  ok(slowed !== null && slowed <= 0.55, `사용 중 이동 속도 50 % (speedMultiplier=${slowed})`);
+  await waitSim(4.6); await mouseUp(0);
+  await waitSim(5.5);
   const hpAfter = await P(() => window.__game.ctx.player.hp);
-  const stimAfter = await P(() => window.__game.ctx.inventory.countWhere((d) => d.id === 'stim'));
-  ok(hpAfter > hpBefore, 'a full 2 s LMB hold uses the 회복약 (hp up)', `${hpBefore} → ${hpAfter}`);
-  ok(stimAfter === stimBefore - 1, 'stim stack −1', `${stimBefore} → ${stimAfter}`);
+  const stimAfter = await P(() => window.__game.ctx.inventory.countWhere((d) => d.id === 'heal_bandage'));
+  ok(hpAfter > hpBefore, 'a full 5 s LMB hold uses the 붕대 (hp up over 5 s)', `${hpBefore} → ${hpAfter}`);
+  ok(stimAfter === stimBefore - 1, '붕대 stack −1', `${stimBefore} → ${stimAfter}`);
+  const unslowed = await P(() => window.__game.getSystem('player')?.controller?.speedMultiplier ?? null);
+  ok(unslowed !== null && unslowed > 0.9, `사용이 끝나면 이동 속도가 돌아온다 (speedMultiplier=${unslowed})`);
   ok((await ev('quick:used')).length >= 1, 'quick:used emitted');
 
   console.log('grenade cooking');
@@ -178,10 +185,11 @@ try {
   ok(gAfter === gBefore - 1, 'grenade stack −1', `${gBefore} → ${gAfter}`);
   await waitSim(2.5);
   ok((await ev('grenade:exploded')).length >= 1, 'cooked grenade explodes within its shortened fuse');
-  await key('Digit1', 0.08); await waitSim(0.6);
+  // 2026-09-07: the starter kit carries no 주무기 — 3 goes back to the 권총 (the only weapon in the kit)
+  await key('Digit3', 0.08); await waitSim(0.6);
   qe = await lastEv('quick:equipped');
   const weq = await lastEv('weapon:equipped');
-  ok(qe && qe.item === null && weq && weq.slot === 'primary', '1 returns to the rifle', JSON.stringify({ qe, weq }));
+  ok(qe && qe.item === null && weq && weq.slot === 'secondary', '3 returns to the 권총', JSON.stringify({ qe, weq }));
 
   console.log('downed / revive');
   await P(() => window.__game.ctx.player.takeDamage(500));
@@ -251,9 +259,10 @@ try {
   await P(() => { window.__game.ctx.timeScale = 8; });
   await waitFor(page, () => window.__game.ctx.phase === 'hub', 'auto return to the ship', 60000);
   await P(() => { window.__game.ctx.timeScale = 1; });
-  st = await P(() => { const inv = window.__game.ctx.inventory; return { phase: window.__game.ctx.phase, primary: inv.getLoadout().primary?.defId, stims: inv.countWhere((d) => d.id === 'stim') }; });
+  st = await P(() => { const inv = window.__game.ctx.inventory; return { phase: window.__game.ctx.phase, primary: inv.getLoadout().primary?.defId, stims: inv.countWhere((d) => d.id === 'heal_bandage') }; });
   ok(st.phase === 'hub', 'back in the ship after the failure', st.phase);
-  ok(st.primary === 'wpn_ar23' && st.stims === 2, 'starter kit reapplied after the failed raid', JSON.stringify(st));
+  // 2026-09-07: a failed raid loses the kit — the player re-equips from the 함선 창고 (기본 지급품 is there)
+  ok(st.primary === undefined && st.stims === 0, '레이드 실패 후 장비를 잃는다 (창고에서 재장비)', JSON.stringify(st));
 
   const gameErrors = errors.filter((e) => !/WebSocket/.test(e));   // no relay running: the net client's socket error is expected
   ok(gameErrors.length === 0, 'no console errors', gameErrors.slice(0, 5).join(' | '));

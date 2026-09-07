@@ -8,6 +8,8 @@ import {
   GameContext as Ctx, Keys, PlayerFlags, PLAYER_RESPAWN_DELAY, RAID_FAILED_AUTO_RETURN_S, RAID_SAVE_INTERVAL_S,
   NET_GHOST_RESTORE_TIMEOUT_S,
 } from '@/shared';
+/* appended (2026-09-07, 커서 rework): Alt 커서 blocker token */
+import { FREE_CURSOR_BLOCKER } from '@/shared';
 /* appended (2026-09-07): 솔로 레이드 로컬 세션 저장 — the single-player counterpart of the relay's raid store */
 import { clearSoloRaid, loadSoloRaid, saveSoloRaid, soloRaidStatus, type SoloRaidSave } from './SoloRaid';
 
@@ -21,10 +23,6 @@ const MISSION_FAILS_WHEN_ALL_DEAD = true;
 const THREAT_MIN = 0.3;
 const THREAT_MAX = 0.7;
 const THREAT_RAMP_SECONDS = 8 * 60;
-/** A pointer-lock exit this soon after a lock request is a denied/failed request, not the user leaving. */
-const LOCK_REQUEST_GRACE_MS = 300;
-/** Seconds the pointer lock may stay lost during gameplay / the ship before the 일시정지 메뉴 takes over (2026-09-07). */
-const LOCK_LOST_GRACE_S = 0.5;
 /** Multiplayer host: how often the "is everyone dead?" check re-runs while the local player is dead. */
 const ALL_DEAD_CHECK_INTERVAL = 0.5;
 /** Multiplayer: seconds between the connection-lost toast and the automatic abort to the menu. */
@@ -109,10 +107,6 @@ export class GameFlowSystem implements GameSystem {
   private raidBlob: RaidSessionBlob | null = null;
   /** true between `net:gameStarting {rejoin:true}` and the restore / fallback. */
   private rejoining = false;
-  /** Seconds the pointer lock has been continuously lost while it should be held (`checkLockLost`). */
-  private lockLostFor = 0;
-  /** true once a real pointer lock was ever held — the watchdog below only applies where the lock works at all. */
-  private sawPointerLock = false;
   /** 솔로 레이드 found in localStorage at boot and not consumed yet (`resumeSoloRaid` / `failSoloRaid`). */
   private soloPending: SoloRaidSave | null = null;
   /** true when the stored solo raid was already past `SOLO_RAID_GRACE_MS` at boot → 레이드 실패 on the first frame. */
@@ -123,12 +117,15 @@ export class GameFlowSystem implements GameSystem {
   private restoreTimer = -1;
   /** Inventory as it was when the 훈련장 was entered (ammo / durability are refunded on exit). */
   private trainingSnapshot: unknown = null;
-  /** Pointer lock lost (Esc, alt-tab, cursor to another monitor) while playing → pause. */
-  private onPointerLockChange = (): void => {
-    if (this.ctx.input.isPointerLocked) return;
-    this.onFocusLost();
-  };
+  /**
+   * 2026-09-07 (커서 rework): **a lost pointer lock is no longer a pause.**
+   *
+   * Releasing the lock is now how every screen shows the mouse, and Chrome drops it on any Escape, so treating the
+   * missing lock as "the player left" is what made the game freeze every time the cursor appeared. Only losing the
+   * *window* means the player really left — that still pauses, exactly like alt-tabbing out of any other game.
+   */
   private onWindowBlur = (): void => this.onFocusLost();
+  private onVisibilityChange = (): void => { if (document.visibilityState === 'hidden') this.onFocusLost(); };
   /** Tab closing mid-solo-raid: flush the session so the last seconds of the run are not lost (2026-09-07). */
   private onPageHide = (): void => { if (this.isSoloRaid() && this.ctx.isGameplayPhase()) this.saveSolo(); };
 
@@ -199,10 +196,8 @@ export class GameFlowSystem implements GameSystem {
       b.on('inventory:itemAdded', () => this.saveRaid()),
       b.on('crate:looted', () => this.saveRaid()),
     );
-    // Intended lock exits (inventory, map, menus, pause) add their blocker token / set paused
-    // *before* calling exitPointerLock, so this handler only reacts to unexpected losses.
-    document.addEventListener('pointerlockchange', this.onPointerLockChange);
     window.addEventListener('blur', this.onWindowBlur);
+    document.addEventListener('visibilitychange', this.onVisibilityChange);
     window.addEventListener('pagehide', this.onPageHide);
     /*
      * 2026-09-07: a solo raid interrupted by a closed tab / crash is resumable for `SOLO_RAID_GRACE_MS`. Read the
@@ -410,70 +405,54 @@ export class GameFlowSystem implements GameSystem {
   }
 
   /* ── Pause / focus ───────────────────────────────────────────────────── */
+  /**
+   * The player left the window (alt-tab, another app, a hidden tab). This is the **only** pause trigger besides
+   * Escape since the 2026-09-07 커서 rework: a missing pointer lock means the mouse is being used as a cursor, which
+   * is a normal in-game state now, while a missing window really is someone walking away.
+   */
   private onFocusLost(): void {
     const ctx = this.ctx;
     if (this.paused || !ctx.isGameplayPhase() || ctx.uiBlockers.size > 0) return;
     if (ctx.player?.isDead ?? false) return;
-    if (performance.now() - ctx.input.lastLockRequest < LOCK_REQUEST_GRACE_MS) return;
     ctx.bus.emit('input:pointerLockLost', {});
     this.setPaused(true);
   }
 
   /**
-   * 2026-09-07: **a lost pointer lock always ends up in the 일시정지 메뉴.**
+   * Alt (`Keys.CURSOR`): hand the mouse over without opening anything, and take it back on the next press.
    *
-   * `onFocusLost` only reacts while no UI blocker is up, which left the worst case open: a cursor-mode screen (the
-   * inventory, the terminal, 함선 관리 …) keeps the lock by design since Phase 10, but Chrome drops it on any Escape
-   * and sometimes refuses to hand it back without a fresh user gesture. `shared/cursor.ts` then silently falls back
-   * to *mirroring* the real OS cursor — the game looks playable while the Windows cursor is free to wander onto
-   * another monitor and click something else. Since the pause menu is the one screen that deliberately owns the real
-   * cursor, putting it up is both the honest state and the way back in (`계속` re-locks).
+   * It is a plain cursor-mode owner with its own blocker token, so gameplay input is gated exactly the way an open
+   * panel gates it (no firing, no camera) and `main.ts` re-locks when it is released. Escape closes it too.
    *
-   * Debounced by `LOCK_LOST_GRACE_S` so it never races `main.ts`'s relock microtask or a per-screen re-request.
+   * 2026-09-07: **좌클릭도 닫는다.** This is the one cursor owner with no window behind it, so a click on the 3D
+   * canvas can only mean "give me the camera back" — and a click is the real user gesture Chrome wants before it
+   * grants the pointer lock, so the camera comes back at once instead of at the next keypress. A click that lands
+   * on a HUD element (its own event target) is left alone.
    */
-  private checkLockLost(dt: number): void {
+  private toggleFreeCursor(on?: boolean): void {
     const ctx = this.ctx;
-    if (ctx.input.isPointerLocked) this.sawPointerLock = true;
-    // Never fire where the lock was never granted in the first place (headless smokes stub `requestPointerLock`
-    // away, a browser can refuse it outright) — an unclosable pause menu would be worse than no lock.
-    if (!this.sawPointerLock) { this.lockLostFor = 0; return; }
-    const eligible = !this.paused
-      && (ctx.isGameplayPhase() || this.inShip())
-      && !(ctx.player?.isDead ?? false)
-      && !ctx.input.isPointerLocked
-      // A denied request is not a lost lock: `shared/Input` is holding the intent until the player's next real
-      // gesture (Chrome refuses a re-lock asked for from Escape, which is exactly how the menu is closed).
-      && !ctx.input.awaitingLockGesture
-      && performance.now() - ctx.input.lastLockRequest >= LOCK_REQUEST_GRACE_MS;
-    if (!eligible) { this.lockLostFor = 0; return; }
-    this.lockLostFor += dt;
-    if (this.lockLostFor < LOCK_LOST_GRACE_S) return;
-    this.lockLostFor = 0;
-    ctx.bus.emit('input:pointerLockLost', {});
-    this.setPaused(true);
+    const want = on ?? !ctx.uiBlockers.has(FREE_CURSOR_BLOCKER);
+    if (want === ctx.uiBlockers.has(FREE_CURSOR_BLOCKER)) return;
+    if (want) {
+      // Only where the pointer is actually captured — never over another screen, a menu or a result phase.
+      if (ctx.uiBlockers.size > 0 || !(ctx.isGameplayPhase() || this.inShip())) return;
+      if (ctx.player?.isDead ?? false) return;
+      ctx.uiBlockers.add(FREE_CURSOR_BLOCKER);
+      ctx.input.setCursorMode(true, FREE_CURSOR_BLOCKER);
+      window.addEventListener('mousedown', this.onFreeCursorClick);
+    } else {
+      window.removeEventListener('mousedown', this.onFreeCursorClick);
+      ctx.uiBlockers.delete(FREE_CURSOR_BLOCKER);
+      ctx.input.setCursorMode(false, FREE_CURSOR_BLOCKER);
+    }
+    ctx.bus.emit('ui:freeCursorToggled', { active: want });
   }
 
-  /**
-   * Re-acquire the pointer after the pause menu closed. Deferred one microtask so a synchronous
-   * follow-up transition (e.g. abort → setPhase('menu'), which unpauses first) is visible to the
-   * check; the user activation from the key/click that resumed is still valid by then.
-   * Phase 8: the ship (`hub`) can be paused too and is walked with a pointer lock, so it re-locks as well.
-   */
-  private relock(): void {
-    queueMicrotask(() => {
-      const ctx = this.ctx;
-      /*
-       * 2026-09-07: only the 일시정지 메뉴 blocks the lock. Every other UI surface *keeps* it since Phase 10, so the
-       * old `uiBlockers.size > 0` guard silently skipped the re-lock whenever the menu had been opened over the
-       * inventory / the terminal / 함선 관리 (the watchdog path) — and the watchdog then put the menu back up 0.5 s
-       * later, forever.
-       */
-      if (this.paused || ctx.uiBlockers.has('menu')) return;
-      if (!ctx.isGameplayPhase() && !this.inShip()) return;
-      if (ctx.player?.isDead ?? false) return;
-      ctx.input.requestPointerLock();
-    });
-  }
+  /** Left click on the world while the Alt 커서 is up = 카메라 복귀 (see `toggleFreeCursor`). */
+  private readonly onFreeCursorClick = (e: MouseEvent): void => {
+    if (e.button !== 0 || e.target !== this.ctx.canvas) return;
+    this.toggleFreeCursor(false);
+  };
 
   /* ── Mission start / rejoin ──────────────────────────────────────────── */
   /** NetSystem announces a session start right before its `game:newMission`; `rejoin` = re-entering a running mission. */
@@ -748,13 +727,12 @@ export class GameFlowSystem implements GameSystem {
      * stopping the clock, the enemies and the extraction countdown with a keypress made it a save-scum button, and it
      * also fought the new rule below (a lost pointer lock puts this menu up, which must not stall the mission).
      * `freeze` stays on the wire because `Engine` and the HUD still read it; it is simply always false now.
-     * `paused` is set before exiting the lock so onPointerLockChange treats it as intended.
+     * 2026-09-07 (커서 rework): the pointer lock is not touched here any more — `ui/menus/MenuBase` takes the
+     * `'menu'` cursor-mode token when the pause menu shows and drops it when it hides, and `main.ts` does the single
+     * re-lock once the last cursor owner is gone. One owner of the lock, no per-system relock races.
      */
     const freeze = false;
-    if (paused) this.ctx.input.exitPointerLock();
     if (emit) this.ctx.bus.emit('game:paused', { paused, freeze });
-    // Resume (Esc or "계속" click): PauseMenu has removed its 'menu' blocker by now → re-lock.
-    if (!paused) this.relock();
   }
 
   update(dt: number, ctx: GameContext): void {
@@ -767,11 +745,17 @@ export class GameFlowSystem implements GameSystem {
     // except while the housing / 함선 관리 mode owns the key (it cancels the placement instead).
     if (ctx.input.wasPressed(Keys.MENU)) {
       if (this.paused) this.setPaused(false);
+      // Alt 커서 is the innermost thing Escape can close (it holds a blocker, so the branch below would skip anyway).
+      else if (ctx.uiBlockers.has(FREE_CURSOR_BLOCKER)) { this.toggleFreeCursor(false); ctx.input.consume(Keys.MENU); }
       else if (ctx.uiBlockers.size === 0 && !(ctx.player?.isDead ?? false)
         && (ctx.isGameplayPhase() || (this.inShip() && !(ctx.housing?.housingMode ?? false)))) this.setPaused(true);
     }
-    // The pause is menu-only since 2026-09-07 (no `freeze`), so the mission timers below keep running while it is up.
-    this.checkLockLost(dt);
+    // Alt: free the mouse cursor in place (no screen, no pause). Pressed again — or Escape — gives it back.
+    if (ctx.input.wasPressed(Keys.CURSOR)) this.toggleFreeCursor();
+    // It is the only cursor owner with no window behind it, so nothing else would ever drop it: a phase change
+    // (mission end, abort, docking) or a death has to.
+    if (ctx.uiBlockers.has(FREE_CURSOR_BLOCKER)
+      && (!(ctx.isGameplayPhase() || this.inShip()) || (ctx.player?.isDead ?? false))) this.toggleFreeCursor(false);
 
     if (ctx.isGameplayPhase() && !this.isTraining()) {
       // Difficulty ramp 0.3 → 0.7 over 8 minutes of mission time (never on the training range).
@@ -920,8 +904,9 @@ export class GameFlowSystem implements GameSystem {
   dispose(): void {
     for (const u of this.unsubs) u();
     this.netUnsub?.(); this.netUnsub = null;
-    document.removeEventListener('pointerlockchange', this.onPointerLockChange);
     window.removeEventListener('blur', this.onWindowBlur);
+    document.removeEventListener('visibilitychange', this.onVisibilityChange);
     window.removeEventListener('pagehide', this.onPageHide);
+    window.removeEventListener('mousedown', this.onFreeCursorClick);
   }
 }

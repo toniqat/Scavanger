@@ -160,12 +160,12 @@ try {
     window.__crewCards = []; window.__game.ctx.bus.on('net:crewCard', (e) => window.__crewCards.push({ id: e.id, level: e.card.level }));
     window.__crewq = []; window.__game.ctx.net.onMessage('crewq', (m, from) => window.__crewq.push({ ev: m.ev, from }));
     // hub/ owns *sending* the card; drive the wire directly so net's receive path is covered on its own.
-    window.__game.ctx.net.send({ t: 'crew', ev: 'card', card: { level: 7, implant: 'overcharge', armor: 'armor_2', primary: 'ar23', primary2: null, secondary: 'p9' } }, 'others');
+    window.__game.ctx.net.send({ t: 'crew', ev: 'card', card: { level: 7, implant: 'overcharge', armor: 'armor_2', primary: 'ar', primary2: null, secondary: 'p9' } }, 'others');
   });
   ok(await A.evaluate((id) => { const c = window.__game.ctx.net.getCrewCard(id); return !!c && c.level === 7 && c.implant === 'overcharge'; }, aIdCrew), 'A getCrewCard(localId) returns its own broadcast card');
   ok(await A.evaluate((id) => window.__crewCards.some((c) => c.id === id && c.level === 7), aIdCrew), 'A emitted net:crewCard for its own card');
   const cardOnB = await waitFor(B, (id) => window.__crewCards.find((c) => c.id === id) ?? null, 'B net:crewCard from A', 6000, aIdCrew).catch(() => null);
-  ok(cardOnB && cardOnB.level === 7 && cardOnB.implant === 'overcharge' && cardOnB.armor === 'armor_2' && cardOnB.primary === 'ar23', `B received A's crew card ${JSON.stringify(cardOnB)}`);
+  ok(cardOnB && cardOnB.level === 7 && cardOnB.implant === 'overcharge' && cardOnB.armor === 'armor_2' && cardOnB.primary === 'ar', `B received A's crew card ${JSON.stringify(cardOnB)}`);
   ok(await B.evaluate((id) => { const c = window.__game.ctx.net.getCrewCard(id); return !!c && c.level === 7 && c.secondary === 'p9'; }, aIdCrew), 'B getCrewCard(A) mirrors the card');
   ok(await B.evaluate((id) => { const r = window.__game.ctx.net.getRemotePlayer(id); return !!r && r.crewLevel === 7 && r.equippedImplant === 'overcharge'; }, aIdCrew),
     'B remote ref mirrors crewLevel / equippedImplant (distinct from the wielded implantId)');

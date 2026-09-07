@@ -94,17 +94,24 @@ try {
   console.log('hub / workbench');
   await page.evaluate(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
   await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub phase');
-  // Phase 8: the cockpit no longer has a built-in bench — place the starter 정비 벤치 in a 작업실 and use that.
+  // Phase 8: the cockpit no longer has a built-in bench — place a 정비 벤치 in a 작업실 and use that.
+  // 2026-09-07: a ship starts with neither, and 시설 증축 / 가구 제작 cost materials, so seed both directly.
+  // The server profile lands a moment after the hub does and replaces the ship state with its own `ship` document,
+  // so seed *after* that (a fresh ship used to carry the benches, which is why this never mattered before).
+  await sleep(1500);
   const benchUid = await page.evaluate(() => {
     const h = window.__game.ctx.housing;
     if (!h) return null;
     let room = h.state.rooms.findIndex((r) => r.purpose === 'workshop');
-    if (room < 0) { room = 0; h.setRoomPurpose(0, 'workshop'); }
+    if (room < 0) { room = 0; h.state.rooms[0] = { purpose: 'workshop', level: 1 }; }
     const placed = h.getPlaced(room).find((f) => f.defId === 'furn_repair_bench');
     if (placed) return placed.uid;
-    if (!h.getStored().some((e) => e.defId === 'furn_repair_bench' && e.qty > 0)) h.craftFurniture('furn_repair_bench');
+    if (!h.getStored().some((e) => e.defId === 'furn_repair_bench' && e.qty > 0)) {
+      h.state.furnitureStorage.push({ defId: 'furn_repair_bench', level: 1, qty: 1 });
+    }
     return h.place(room, 'furn_repair_bench', 0, 0, 0)?.uid ?? null;
   });
+  await sleep(300);                       // the placement rebuilds the room's furniture layer on the next frames
   ok(!!benchUid, 'personal ship: 정비 벤치 placed in the 작업실', String(benchUid));
   const ids = await page.evaluate(() => window.__game.ctx.interactables.all().map((i) => i.id));
   ok(ids.includes(`hub_furn_${benchUid}`), 'placed 정비 벤치 registers its interactable', ids.join(','));
@@ -121,6 +128,17 @@ try {
   const eqBar = await page.evaluate(() => { const imp = window.__game.ctx.implants; return imp ? { ok: imp.setEquipped('barrier'), eq: imp.equipped } : null; });
   ok(eqBar && eqBar.ok && eqBar.eq === 'barrier', 'hub: 배리어 implant equipped (setEquipped)', JSON.stringify(eqBar));
 
+  // 2026-09-07: the starter kit is 권총 I / 가방 I / 방탄복 I only — the 돌격소총 and its ammo come out of the
+  // 함선 창고 (기본 지급품). Equip them here so the ballistics assertions below have their AR and 90 준중량탄.
+  const armed = await page.evaluate(() => {
+    const ctx = window.__game.ctx, inv = ctx.inventory;
+    const ar = ctx.loot.createItem('wpn_ar');
+    const added = inv.tryAddItem(ar) && inv.equip(ar.uid, 'primary');
+    for (const q of [50, 40]) inv.tryAddItem(ctx.loot.createItem('ammo_medium', q));
+    return { added, primary: inv.getLoadout().primary?.defId, medium: inv.countWhere((d) => d.category === 'ammo' && d.ammoType === 'medium') };
+  });
+  ok(armed.added && armed.primary === 'wpn_ar' && armed.medium === 90, 'ship: 돌격소총 I + 준중량탄 90발 equipped from the 창고', JSON.stringify(armed));
+
   console.log('mission / loadout');
   await page.evaluate(() => window.__game.ctx.bus.emit('game:newMission', { seed: 7 }));
   await waitFor(page, () => window.__game.ctx.phase === 'playing', 'playing', 25000);
@@ -131,17 +149,19 @@ try {
     return { p: l.primary?.defId, p2: l.primary2?.defId ?? null, s: l.secondary?.defId, bag: l.bag?.defId, size: window.__game.ctx.inventory.getBagSize(),
       dur: l.primary?.durability, mag: l.primary?.ammoInMag };
   });
-  ok(lo.p === 'wpn_ar23' && lo.s === 'wpn_p2' && lo.p2 === null, 'starter loadout: AR I / — / P-2', JSON.stringify(lo));
+  ok(lo.p === 'wpn_ar' && lo.s === 'wpn_hg' && lo.p2 === null, 'raid loadout kept from the ship: 돌격소총 I / — / 권총 I', JSON.stringify(lo));
   ok(lo.bag === 'bag_common' && lo.size.cols === 5 && lo.size.rows === 6, 'starter bag_common → 5×6 grid', JSON.stringify(lo.size));
   ok(lo.dur === 500 && lo.mag === 45, 'AR starts at 500 durability, 45 in mag', `dur=${lo.dur} mag=${lo.mag}`);
   const stats = await page.evaluate(() => {
     const loot = window.__game.ctx.loot;
     const l = window.__game.ctx.inventory.getLoadout();
-    return { ar: loot.getEffectiveStats(l.primary), g3: loot.getEffectiveStats('ar23_g3'), p2: loot.getEffectiveStats(l.secondary), name3: loot.getWeaponDef('ar23_g3')?.name };
+    return { ar: loot.getEffectiveStats(l.primary), g3: loot.getEffectiveStats('ar_g3'), p2: loot.getEffectiveStats(l.secondary), name3: loot.getWeaponDef('ar_g3')?.name };
   });
   ok(stats.ar && stats.ar.damage === 60 && stats.ar.maxDurability === 500 && stats.ar.ammoType === 'medium', 'AR I stats (60 dmg, 500 dur, medium)', JSON.stringify(stats.ar));
-  ok(stats.g3 && stats.g3.damage === 74 && stats.g3.grade === 3 && /III/.test(stats.name3 ?? ''), 'AR III: +24 % damage, roman numeral in name', `${stats.g3?.damage} ${stats.name3}`);
+  ok(stats.g3 && stats.g3.damage === 74 && stats.g3.grade === 3 && stats.name3 === '돌격소총 III', 'AR III: +24 % damage, class name + roman numeral', `${stats.g3?.damage} ${stats.name3}`);
   ok(stats.p2 && Math.abs(stats.p2.adsTime - stats.ar.adsTime / 2) < 1e-6 && stats.p2.swapTime < stats.ar.swapTime, 'secondary: half ADS time, faster swap');
+  await key('Digit1');   // 2026-09-07: the raid starts on the 권총 (the only starter weapon) — take the AR out
+  await waitSim(0.8);
   const eq = await lastEv('weapon:equipped');
   ok(eq && eq.slot === 'primary' && eq.reserveRounds === 90, 'weapon:equipped primary, reserve = 90 medium rounds in bag', JSON.stringify(eq));
 
@@ -163,21 +183,25 @@ try {
   await key('Digit3');
   await waitSim(0.5);
   const eq3 = await lastEv('weapon:equipped');
-  ok(eq3 && eq3.slot === 'secondary' && eq3.weaponId === 'p2', '3 → secondary (P-2)', JSON.stringify(eq3));
+  ok(eq3 && eq3.slot === 'secondary' && eq3.weaponId === 'hg', '3 → secondary (권총 I)', JSON.stringify(eq3));
   const sw = await lastEv('weapon:swapStarted');
   ok(sw && sw.slot === 'secondary' && sw.duration <= 0.11, 'secondary swap ≤ 0.1 s', JSON.stringify(sw));
   await key('Digit2');
   await waitSim(0.3);
   ok((await lastEv('weapon:equipped')).slot === 'secondary', '2 with empty 주무기 II is refused');
-  const p2added = await page.evaluate(() => { const ctx = window.__game.ctx; const it = ctx.loot.createItem('wpn_smg37_g2'); const okAdd = ctx.inventory.tryAddItem(it); return okAdd && ctx.inventory.equip(it.uid, 'primary2'); });
+  const p2added = await page.evaluate(() => { const ctx = window.__game.ctx; const it = ctx.loot.createItem('wpn_smg_g2'); const okAdd = ctx.inventory.tryAddItem(it); return okAdd && ctx.inventory.equip(it.uid, 'primary2'); });
   ok(p2added, 'equip SMG II into primary2 via InventoryRef.equip');
   await key('Digit2');
   await waitSim(0.8);
   const eq2 = await lastEv('weapon:equipped');
-  ok(eq2 && eq2.slot === 'primary2' && eq2.weaponId === 'smg37_g2', '2 → 주무기 II (SMG II)', JSON.stringify(eq2));
+  ok(eq2 && eq2.slot === 'primary2' && eq2.weaponId === 'smg_g2', '2 → 주무기 II (SMG II)', JSON.stringify(eq2));
+  // 2026-09-07 (커서 rework): the 이전 무기 key is retired — V is 구르기 now, so a weapon swap is 1 / 2 / 3 only.
   await key('KeyV');
   await waitSim(0.8);
-  ok((await lastEv('weapon:equipped')).slot === 'secondary', 'Q returns to the previous weapon');
+  ok((await lastEv('weapon:equipped')).slot === 'primary2', 'V no longer swaps weapons (it rolls)');
+  await key('Digit3');
+  await waitSim(0.8);
+  ok((await lastEv('weapon:equipped')).slot === 'secondary', '3 → 보조무기');
   await key('Digit1');
   await waitSim(0.8);
   ok((await lastEv('weapon:equipped')).slot === 'primary', '1 → primary');
@@ -191,7 +215,7 @@ try {
     r.attached = inv.attachToWeapon(l.primary.uid, brake.uid);
     r.chokeRefused = !inv.attachToWeapon(l.primary.uid, choke.uid);
     const st = ctx.loot.getEffectiveStats(l.primary);
-    r.recoilV = st.recoilV; r.base = ctx.loot.getEffectiveStats('ar23').recoilV;
+    r.recoilV = st.recoilV; r.base = ctx.loot.getEffectiveStats('ar').recoilV;
     r.socket = l.primary.sockets?.muzzle?.defId ?? null;
     r.inBag = inv.getAllItems().some((i) => i.uid === brake.uid);
     r.detached = inv.detachAllSockets(l.primary.uid);
@@ -278,19 +302,20 @@ try {
   const hKey = await page.evaluate(() => ({ held: window.__game.ctx.weapons.remoteState.heldItemId, eq: window.__ev['quick:equipped'].length }));
   ok(hKey.held === null && hKey.eq === 0, 'H does nothing any more (the Keys.STIM reader is gone)', JSON.stringify(hKey));
   // 회복약 into the hand through the quick slot N + T tap, player damaged so the hold is allowed to start
+  // 2026-09-07: each 회복 소모품 has its own hold (`ItemDef.heal.useTime`) — the 회복주사 keeps this section's 2 s.
   const stimReady = await page.evaluate(() => {
     const ctx = window.__game.ctx; const inv = ctx.inventory; const p = ctx.player;
     p.heal(1000);
-    let stim = inv.getAllItems().find((i) => i.defId === 'stim');
-    if (!stim) { stim = ctx.loot.createItem('stim', 2); inv.tryAddItem(stim); }
+    let stim = inv.getAllItems().find((i) => i.defId === 'heal_syringe');
+    if (!stim) { stim = ctx.loot.createItem('heal_syringe', 2); inv.tryAddItem(stim); }
     const moved = inv.setQuickSlot(0, stim.uid);
     p.takeDamage(35);
-    return { moved, hp: p.hp, max: p.maxHp, qty: stim.qty };
+    return { moved, hp: p.hp, max: p.maxHp, qty: stim.qty, useTime: ctx.loot.getItemDef('heal_syringe')?.heal?.useTime };
   });
-  ok(stimReady.moved && stimReady.hp < stimReady.max, '회복약 in quick slot N, player below full hp', JSON.stringify(stimReady));
+  ok(stimReady.moved && stimReady.hp < stimReady.max && stimReady.useTime === 2, '회복주사 in quick slot N (useTime 2 s), player below full hp', JSON.stringify(stimReady));
   await tap('KeyT');
   await waitSim(0.4);
-  ok((await rsNow()).held === 'stim', 'T tap → 회복약 in hand', JSON.stringify(await rsNow()));
+  ok((await rsNow()).held === 'heal_syringe', 'T tap → 회복주사 in hand', JSON.stringify(await rsNow()));
   // LMB held: the gauge rises and nothing is consumed before HEAL_HOLD_S (2 s)
   await mDown(0);
   await waitSim(0.6);
@@ -299,6 +324,9 @@ try {
   ok(!!first && first.holding === true && first.t === 0, 'LMB press → heal:holdChanged {holding:true, t:0}', JSON.stringify(first));
   ok(!!last1 && last1.t > 0 && last1.t < 1, `gauge rising after 0.6 s (t=${last1 ? last1.t.toFixed(2) : 'none'})`);
   ok(h1.used === 0, 'nothing is consumed before the 2 s hold completes');
+  // 소모품 사용 중 이동 속도 50 % (`CONSUMABLE_SLOW_MUL`), read off the controller the player system writes
+  const slowed = await page.evaluate(() => window.__game.getSystem('player')?.controller?.speedMultiplier ?? null);
+  ok(slowed !== null && slowed <= 0.55, `사용 중 이동 속도가 절반으로 (speedMultiplier=${slowed})`);
   await mUp(0);
   await waitSim(0.2);
   const cancelEv = await lastEv('heal:holdChanged');
@@ -321,6 +349,40 @@ try {
   const denied = await ev('heal:holdChanged');
   await mUp(0);
   ok(denied.length === 0, 'full hp refuses to start the hold', JSON.stringify(denied));
+  /* ── 회복 스프레이 (2026-09-07): 게이지 채널, 사용 중 이동 50 % ── */
+  const sprayReady = await page.evaluate(() => {
+    const ctx = window.__game.ctx, inv = ctx.inventory, p = ctx.player;
+    const can = ctx.loot.createItem('heal_spray');
+    const added = inv.tryAddItem(can);
+    const moved = inv.setQuickSlot(0, can.uid);
+    p.takeDamage(60);
+    return { added, moved, uid: can.uid, gauge: can.durability, max: ctx.loot.getItemDef('heal_spray').durabilityMax, hp: p.hp };
+  });
+  ok(sprayReady.added && sprayReady.moved && sprayReady.gauge === sprayReady.max && sprayReady.max === 100,
+    '회복 스프레이 in quick slot N with a full 100 gauge', JSON.stringify(sprayReady));
+  await tap('KeyT');
+  await waitSim(0.5);
+  ok((await rsNow()).held === 'heal_spray', 'T tap → 회복 스프레이 in hand');
+  await mDown(0);
+  await waitSim(0.6);
+  const sprayed = await page.evaluate((uid) => {
+    const ctx = window.__game.ctx;
+    return { gauge: ctx.inventory.findItem(uid)?.durability ?? -1, hp: ctx.player.hp,
+      last: window.__ev['heal:holdChanged'].slice(-1)[0],
+      speed: window.__game.getSystem('player')?.controller?.speedMultiplier ?? null };
+  }, sprayReady.uid);
+  await mUp(0);
+  await waitSim(0.3);
+  ok(sprayed.gauge > 0 && sprayed.gauge < 100, `holding LMB drains the gauge (${sprayed.gauge}/100 after 0.6 s)`);
+  ok(sprayed.hp > sprayReady.hp, `the spray heals the user while it runs (${sprayReady.hp.toFixed(0)} → ${sprayed.hp.toFixed(0)})`);
+  ok(!!sprayed.last && sprayed.last.spray === true && sprayed.last.t > 0 && sprayed.last.t < 1,
+    'heal:holdChanged carries {spray:true} and the remaining gauge as t', JSON.stringify(sprayed.last));
+  ok(sprayed.speed !== null && sprayed.speed <= 0.55, `사용 중 이동 속도 50 % (speedMultiplier=${sprayed.speed})`);
+  const sprayStopped = await page.evaluate(() => ({ last: window.__ev['heal:holdChanged'].slice(-1)[0], speed: window.__game.getSystem('player')?.controller?.speedMultiplier ?? null }));
+  ok(sprayStopped.last && sprayStopped.last.holding === false && sprayStopped.speed > 0.9, '릴리스 → 채널 종료 + 감속 해제', JSON.stringify(sprayStopped));
+  // put the can away again — the unique-weapon section below needs the bag space back
+  await page.evaluate((uid) => window.__game.ctx.inventory.takeItem(uid), sprayReady.uid);
+
   // back to the gun, then a swap mid-reload → weapon:reloadCancelled (new in Phase 10)
   await tap('Digit1');
   await waitSim(0.8);
@@ -338,7 +400,7 @@ try {
   await tap('Digit3');
   await waitSim(0.4);
   const rc = await lastEv('weapon:reloadCancelled');
-  ok(!!rc && rc.weaponId === 'ar23', 'a swap mid-reload emits weapon:reloadCancelled', JSON.stringify(rc));
+  ok(!!rc && rc.weaponId === 'ar', 'a swap mid-reload emits weapon:reloadCancelled', JSON.stringify(rc));
   await tap('Digit1');
   await waitSim(0.8);
   ok((await ev('weapon:reloadCancelled')).length === 1, 'no reloadCancelled when nothing was reloading', JSON.stringify(await ev('weapon:reloadCancelled')));
@@ -370,7 +432,7 @@ try {
   await waitSim(0.2);
   const broken = await lastEv('weapon:broken');
   const magB = await page.evaluate(() => window.__game.ctx.inventory.getLoadout().primary.ammoInMag);
-  ok(broken && broken.weaponId === 'ar23' && magB === 45, 'broken weapon does not fire (weapon:broken)', `mag=${magB}`);
+  ok(broken && broken.weaponId === 'ar' && magB === 45, 'broken weapon does not fire (weapon:broken)', `mag=${magB}`);
   await page.evaluate(() => { const inv = window.__game.ctx.inventory; const l = inv.getLoadout(); inv.updateItem(l.primary.uid, { durability: 500 }); });
 
   console.log('barrier shield / blockers (Phase 9 purity + Phase 10 carried shield)');
@@ -496,7 +558,7 @@ try {
     for (const uid of window.__uniqUids ?? []) inv.dropItem(uid);
     return { back, primary: inv.getLoadout().primary?.defId ?? null };
   });
-  ok(restored.back && restored.primary === 'wpn_ar23', 'AR I back in 주무기 I, uniques dropped', JSON.stringify(restored));
+  ok(restored.back && restored.primary === 'wpn_ar', 'AR I back in 주무기 I, uniques dropped', JSON.stringify(restored));
   await waitSim(0.5);
 
   console.log('bags');

@@ -51,6 +51,12 @@
       "!node_modules/**/*",
       "node_modules/ws/**/*"
     ],
+    "extraFiles": [
+      {
+        "from": "electron/default-relay.txt",
+        "to": "relay.txt"
+      }
+    ],
     "asar": true,
     "win": {
       "target": [

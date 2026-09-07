@@ -1,7 +1,7 @@
 import type { AmmoType, ArmorDef, AttachmentDef, BagDef, ItemCategory, ItemDef, Rarity, SeedDef, SkillId, WeaponDef, WeaponGrade } from '@/shared';
 import {
-  AMMO_STACK_ROUNDS, CATEGORY_COLOR, CATEGORY_ICON, QUICK_USABLE_CATEGORIES, RARITY_COLORS,
-  SEED_GROW_HOURS_BY_RARITY, SKILL_IDS, rarityForGrade,
+  AMMO_STACK_ROUNDS, CATEGORY_COLOR, CATEGORY_ICON, HEAL_SPRAY_GAUGE, HEAL_SPRAY_RADIUS,
+  QUICK_USABLE_CATEGORIES, RARITY_COLORS, SEED_GROW_HOURS_BY_RARITY, SKILL_IDS, rarityForGrade,
 } from '@/shared';
 import { WEAPON_DEFS, gradeOf, isUniqueWeapon, weaponFamilyOf } from './WeaponDefs';
 import { ARMOR_DEFS, ARMOR_ICON, armorItemSize } from './ArmorDefs';
@@ -52,14 +52,12 @@ interface WeaponFamilyMeta {
   weight: number;
 }
 const WEAPON_FAMILY_META: Readonly<Record<string, WeaponFamilyMeta>> = {
-  ar23: { width: 4, height: 2, icon: '⌐╦', value: 350, weight: 4.2, description: '슈퍼 지구 표준 돌격소총. 균형 잡힌 연사와 안정적인 반동.' },
-  smg37: { width: 3, height: 2, icon: '⌐╪', value: 480, weight: 3.1, description: '경량 기관단총. 근거리 연사에 특화되었으나 거리가 멀어질수록 위력이 급감.' },
-  sg8: { width: 3, height: 2, icon: '⌐═', value: 520, weight: 4.6, description: '펌프액션 산탄총. 근거리에서 압도적인 제압력.' },
-  r63: { width: 4, height: 1, icon: '⌐──', value: 780, weight: 4.4, description: '반자동 지정사수 소총. 원거리 정밀 사격에 최적화.' },
-  sr9: { width: 5, height: 1, icon: '⌐───', value: 950, weight: 6.8, description: '볼트액션 저격소총. 4배율 조준경. 한 발로 대부분의 벌레를 무력화하지만 장전이 느리다.' },
-  las16: { width: 3, height: 2, icon: '⌐≡', value: 1250, weight: 5.5, description: '레이저 소총. 준중량탄을 플라즈마 볼트로 가속하는 에너지 무기.' },
-  p2: { width: 2, height: 1, icon: '⌐', value: 140, weight: 1.1, description: '표준 지급 권총. 신뢰할 수 있는 반자동 사이드암.' },
-  p19: { width: 2, height: 1, icon: '⌐╡', value: 260, weight: 1.3, description: '완전 자동 기관권총. 탄약 소모가 빠르지만 화력이 우수.' },
+  ar: { width: 4, height: 2, icon: '⌐╦', value: 350, weight: 4.2, description: '균형 잡힌 연사와 안정적인 반동의 표준 돌격소총. 준중량탄.' },
+  smg: { width: 3, height: 2, icon: '⌐╪', value: 480, weight: 3.1, description: '경량 기관단총. 근거리 연사에 특화되었으나 거리가 멀어질수록 위력이 급감. 경량탄.' },
+  sg: { width: 3, height: 2, icon: '⌐═', value: 520, weight: 4.6, description: '펌프액션 산탄총. 근거리에서 압도적인 제압력. 산탄.' },
+  dmr: { width: 4, height: 1, icon: '⌐──', value: 780, weight: 4.4, description: '반자동 지정사수소총. 원거리 정밀 사격에 최적화. 중량탄.' },
+  sr: { width: 5, height: 1, icon: '⌐───', value: 950, weight: 6.8, description: '볼트액션 저격소총. 4배율 조준경. 한 발로 대부분의 벌레를 무력화하지만 장전이 느리다. 중량탄.' },
+  hg: { width: 2, height: 1, icon: '⌐', value: 140, weight: 1.1, description: '신뢰할 수 있는 반자동 사이드암. 경량탄.' },
 };
 const FALLBACK_META: WeaponFamilyMeta = { width: 3, height: 2, icon: '⌐', value: 300, weight: 3.5, description: '무기.' };
 
@@ -292,20 +290,28 @@ export const ITEM_DEFS: readonly ItemDef[] = [
   ...WEAPON_ITEM_DEFS,
 
   /* grenades */
-  def({ id: 'grenade_frag', name: 'G-12 고폭 수류탄', category: 'grenade', rarity: 'common', width: 1, height: 1, stackMax: 4, value: 40, icon: '●',
+  def({ id: 'grenade_frag', name: 'G-12 고폭 수류탄', category: 'grenade', rarity: 'common', width: 1, height: 1, stackMax: 3, value: 40, icon: '●',
     weight: 0.45, quickUsable: true,
     description: '파편 수류탄. 반경 6 m 광역 피해.' }),
-  def({ id: 'grenade_incendiary', name: 'G-10 소이 수류탄', category: 'grenade', rarity: 'uncommon', width: 1, height: 1, stackMax: 4, value: 70, icon: '◉',
+  def({ id: 'grenade_incendiary', name: 'G-10 소이 수류탄', category: 'grenade', rarity: 'uncommon', width: 1, height: 1, stackMax: 3, value: 70, icon: '◉',
     weight: 0.5, quickUsable: true,
     description: '소이 수류탄. 넓은 반경에 화염 피해.' }),
 
-  /* stims */
-  def({ id: 'stim', name: '스팀', category: 'stim', rarity: 'common', width: 1, height: 1, stackMax: 3, value: 60, icon: '✚', healAmount: 50,
-    weight: 0.2, quickUsable: true,
-    description: '자동 주사기. 체력 50 회복.' }),
-  def({ id: 'stim_advanced', name: '고급 스팀', category: 'stim', rarity: 'uncommon', width: 1, height: 1, stackMax: 3, value: 120, icon: '✚', healAmount: 100,
-    weight: 0.25, quickUsable: true,
-    description: '군용 나노 주사기. 체력 완전 회복.' }),
+  /* 회복 소모품 (2026-09-07: 스팀 / 고급 스팀을 대체한다 — 사용 중에는 이동 속도가 절반)
+   * `heal.useTime` = LMB 홀드 시간, `amount` / `overTime` = 회복량과 그 회복이 퍼지는 시간. */
+  def({ id: 'heal_bandage', name: '붕대', category: 'stim', rarity: 'common', width: 1, height: 1, stackMax: 5, value: 45, icon: '▭', healAmount: 20,
+    weight: 0.15, quickUsable: true, heal: { useTime: 5, amount: 20, overTime: 5 },
+    description: '천을 감아 지혈한다. 사용 5초, 5초에 걸쳐 체력 20 회복. 사용 중 이동 속도 50 %.' }),
+  def({ id: 'heal_bandage_herb', name: '약초 붕대', category: 'stim', rarity: 'uncommon', width: 1, height: 1, stackMax: 5, value: 130, icon: '▤', healAmount: 50,
+    weight: 0.18, quickUsable: true, heal: { useTime: 5, amount: 50, overTime: 5 },
+    description: '혈근초를 덧댄 붕대. 사용 5초, 5초에 걸쳐 체력 50 회복. 사용 중 이동 속도 50 %.' }),
+  def({ id: 'heal_syringe', name: '회복주사', category: 'stim', rarity: 'rare', width: 1, height: 1, stackMax: 3, value: 260, icon: '✚', healAmount: 50,
+    weight: 0.2, quickUsable: true, heal: { useTime: 2, amount: 50, overTime: 1 },
+    description: '가압 주사기. 사용 2초, 1초 만에 체력 50 회복. 사용 중 이동 속도 50 %.' }),
+  def({ id: 'heal_spray', name: '회복 스프레이', category: 'stim', rarity: 'epic', width: 1, height: 2, stackMax: 1, value: 780, icon: '⌁',
+    weight: 0.9, quickUsable: true, durabilityMax: HEAL_SPRAY_GAUGE,
+    heal: { useTime: 0, amount: 0, overTime: 0, spray: { tick: 0.1, gaugePerTick: 1, healPerTick: 1, radius: HEAL_SPRAY_RADIUS } },
+    description: `재생 촉진제 분무기. 좌클릭을 누르고 있으면 0.1초마다 게이지 1을 써서 반경 ${HEAL_SPRAY_RADIUS} m 안의 자신과 아군을 체력 1씩 회복. 게이지 ${HEAL_SPRAY_GAUGE}. 사용 중 이동 속도 50 %.` }),
 
   /* ammo v2 */
   ...AMMO_ITEM_DEFS,
@@ -357,6 +363,15 @@ export const ITEM_DEFS: readonly ItemDef[] = [
     description: '충전된 소형 전력 셀.' }),
   def({ id: 'mat_gunpowder', name: '화약', category: 'material', rarity: 'common', width: 1, height: 1, stackMax: 20, value: 12, icon: '⋆', weight: 0.05,
     description: '탄약을 분해해 얻는 추진제. 원하는 탄종으로 다시 만들 수 있다.' }),
+  /* 회복 소모품 재료 (2026-09-07) */
+  def({ id: 'mat_cloth', name: '천조각', category: 'material', rarity: 'common', width: 1, height: 1, stackMax: 20, value: 8, icon: '▬', weight: 0.05,
+    description: '찢어낸 천 조각. 붕대의 기본 재료.' }),
+  def({ id: 'mat_can', name: '캔', category: 'material', rarity: 'common', width: 1, height: 1, stackMax: 10, value: 12, icon: '⌸', weight: 0.1,
+    description: '빈 압력 캔. 소독약과 스프레이 용기로 쓴다.' }),
+  def({ id: 'mat_syringe', name: '주사기', category: 'material', rarity: 'uncommon', width: 1, height: 1, stackMax: 10, value: 50, icon: '⚲', weight: 0.05,
+    description: '멸균 포장된 일회용 주사기.' }),
+  def({ id: 'mat_antiseptic', name: '소독약', category: 'material', rarity: 'uncommon', width: 1, height: 1, stackMax: 10, value: 80, icon: '⚗', weight: 0.15,
+    description: '약초를 졸여 만든 소독약. 회복주사와 회복 스프레이의 재료.' }),
   /* ship housing (Phase 6): facility / furniture costs */
   def({ id: 'mat_cable', name: '전력 케이블', category: 'material', rarity: 'common', width: 1, height: 1, stackMax: 10, value: 25, icon: '∿', weight: 0.3,
     description: '피복이 벗겨진 전력 케이블 뭉치. 함선 시설과 작업대 설치에 쓰인다.' }),
@@ -402,9 +417,9 @@ export const ITEM_DEFS: readonly ItemDef[] = [
   def({ id: 'gad_incendiary', name: '화염수류탄', category: 'gadget', rarity: 'uncommon', width: 1, height: 1, stackMax: 3, value: 210, icon: '♨',
     gadgetId: 'incendiary', weight: 0.6, quickUsable: true,
     description: '착탄점에 10초간 화염지대를 만든다. 피아 구분 없음.' }),
-  def({ id: 'gad_defib', name: '제세동기', category: 'gadget', rarity: 'rare', width: 2, height: 1, stackMax: 1, value: 780, icon: '⚡',
+  def({ id: 'gad_defib', name: '제세동기', category: 'gadget', rarity: 'rare', width: 2, height: 1, stackMax: 2, value: 780, icon: '⚡',
     gadgetId: 'defib', weight: 2.4, quickUsable: true,
-    description: '쓰러진 아군을 즉시 만피로 일으켜 세운다.' }),
+    description: '사용 1초. 쓰러진 아군을 즉시 만피로 일으켜 세운다.' }),
   def({ id: 'gad_jumppad', name: '점프대', category: 'gadget', rarity: 'rare', width: 2, height: 2, stackMax: 1, value: 640, icon: '⌃',
     gadgetId: 'jumpPad', weight: 6.4, quickUsable: true,
     description: '밟으면 튀어오른다. 달리면서 밟으면 전방으로 크게 도약. 회수 가능.' }),
@@ -423,7 +438,7 @@ export function itemDefsByCategory(category: ItemCategory): ItemDef[] {
   return ITEM_DEFS.filter((d) => d.category === category);
 }
 
-/** Item id for a weapon def id (`ar23` → `wpn_ar23`, `ar23_g3` → `wpn_ar23_g3`). */
+/** Item id for a weapon def id (`ar` → `wpn_ar`, `ar_g3` → `wpn_ar_g3`). */
 export function itemIdForWeapon(weaponId: string): string {
   return `wpn_${weaponId}`;
 }
@@ -438,22 +453,53 @@ export function isQuickUsable(def: ItemDef): boolean {
   return def.quickUsable === true || QUICK_USABLE_CATEGORIES.includes(def.category);
 }
 
-/** Starter kit applied on every `world:ready`. Ids are ItemDef ids. */
+/**
+ * Minimum kit (2026-09-07). No longer handed out at every `world:ready` — the player equips out of the 함선 창고
+ * (`STARTER_STASH`, granted once on a fresh profile). `inventory` only falls back to this when the loadout **and**
+ * the stash are empty, so a player who lost everything is never stuck with no way to raid.
+ */
 export const STARTER_LOADOUT = {
-  primary: 'wpn_ar23',
+  primary: null,
   primary2: null,
-  secondary: 'wpn_p2',
+  secondary: 'wpn_hg',
   bag: 'bag_common',
   /* appended: tactical kit */
-  armor: 'armor_2',
+  armor: 'armor_1',
   items: [
-    { id: 'grenade_frag', qty: 2 },
-    { id: 'stim', qty: 2 },
-    { id: 'ammo_medium', qty: 90 },
-    { id: 'ammo_light', qty: 60 },
-    { id: 'gad_smoke', qty: 1 },
+    { id: 'ammo_light', qty: AMMO_STACK_ROUNDS.light },
+    { id: 'heal_bandage', qty: 2 },
+    { id: 'grenade_frag', qty: 3 },
   ],
 } as const;
+
+/**
+ * 기본 지급품 (2026-09-07): written into the 함선 창고 **once**, on a profile that has never had a stash.
+ * `qty` is units **per stack** (ammo: rounds, clamped to the def's `stackMax`) and `stacks` how many of them —
+ * one 세트 per stack, so `{ ammo_light, qty: 80, stacks: 10 }` is the 경탄 10세트 of the 기본 지급품 list.
+ */
+export const STARTER_STASH: readonly { id: string; qty: number; stacks?: number }[] = [
+  /* 탄약 10세트씩 (한 세트 = 한 칸 가득) */
+  { id: 'ammo_light', qty: AMMO_STACK_ROUNDS.light, stacks: 10 },
+  { id: 'ammo_medium', qty: AMMO_STACK_ROUNDS.medium, stacks: 10 },
+  { id: 'ammo_heavy', qty: AMMO_STACK_ROUNDS.heavy, stacks: 10 },
+  { id: 'ammo_shell', qty: AMMO_STACK_ROUNDS.shell, stacks: 10 },
+  /* 일반 등급 총기 한 자루씩 (권총은 기본 장착분과 별개로 지급하지 않는다) */
+  { id: 'wpn_smg', qty: 1 },
+  { id: 'wpn_sg', qty: 1 },
+  { id: 'wpn_ar', qty: 1 },
+  { id: 'wpn_dmr', qty: 1 },
+  { id: 'wpn_sr', qty: 1 },
+  /* 여분 가방 · 방탄복 (장착분은 STARTER_LOADOUT) */
+  { id: 'bag_common', qty: 1, stacks: 3 },
+  { id: 'armor_1', qty: 1, stacks: 3 },
+  /* 작업실 시설 재료 + 총기 작업대 제작 재료 (`ROOM_PURPOSE_BUILD_COST.workshop` + `furn_bench_gun.craft`) */
+  { id: 'mat_scrap', qty: 8, stacks: 2 },
+  { id: 'mat_cable', qty: 3 },
+  { id: 'mat_alloy', qty: 2 },
+  /* 소모품 */
+  { id: 'gad_defib', qty: 2, stacks: 2 },
+  { id: 'grenade_frag', qty: 3, stacks: 3 },
+];
 
 export type StarterLoadout = {
   primary: string | null;

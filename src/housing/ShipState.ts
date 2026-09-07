@@ -1,11 +1,10 @@
 import type { GrowPlot, LoadoutPreset, PlacedBook, PlacedFurniture, ProfileRef, RoomState, ShipState, StoredFurniture } from '@/shared';
 import {
   BOOKS_PER_SHELF, FURNITURE_DEF_MAP, GROW_PLOTS_PER_RACK, IMPLANT_IDS, SHIP_ROOM_COUNT, SHIP_STATE_VERSION, SHIP_STORAGE_KEY,
-  WORKSHOP_ROOM_INDEX,
 } from '@/shared';
 import {
-  canPlaceAt, facilityMaxLevel, furnitureAllowedIn, furnitureMaxLevel, isRoomPurpose, nextFreeLayer, stackLimitOf,
-  stackMembers,
+  canPlaceAt, facilityMaxLevel, facilityPurposeOf, furnitureAllowedIn, furnitureMaxLevel, isRoomPurpose, nextFreeLayer,
+  stackLimitOf, stackMembers,
 } from './Rules';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -25,15 +24,6 @@ export const SHIP_STATE_VERSION_CURRENT = Math.max(3, SHIP_STATE_VERSION);
 /** The 정비 벤치 moved out of the cockpit in Phase 8 — every profile is handed one, once. */
 export const REPAIR_BENCH_DEF_ID = 'furn_repair_bench';
 export const GUN_BENCH_DEF_ID = 'furn_bench_gun';
-/**
- * Phase 8 UI pass: a first run no longer starts with the benches boxed up — room 1 is the built-in 작업실 and the two
- * benches are already **placed** in it. They behave like any other furniture (recover to storage, move, re-place).
- */
-const STARTER_PLACED: ReadonlyArray<{ defId: string; x: number; y: number }> = [
-  { defId: GUN_BENCH_DEF_ID, x: 0, y: 0 },
-  { defId: REPAIR_BENCH_DEF_ID, x: 0, y: 3 },
-];
-
 export function storage(): Storage | null {
   try {
     const s = window.localStorage;
@@ -45,11 +35,12 @@ export function storage(): Storage | null {
 
 export function freshRoom(): RoomState { return { purpose: 'empty', level: 0 }; }
 
-/** The ten rooms of a new ship: room 1 is the built-in 작업실 (`WORKSHOP_ROOM_INDEX`), the rest are empty. */
+/**
+ * The ten rooms of a new ship: **all empty** (2026-09-07). The built-in 작업실 of the Phase 8 UI pass is gone — the
+ * player assigns every purpose, 작업실 included, from 시설 관리 and pays `ROOM_PURPOSE_BUILD_COST` for it.
+ */
 function freshRooms(): RoomState[] {
-  const rooms = Array.from({ length: SHIP_ROOM_COUNT }, freshRoom);
-  rooms[WORKSHOP_ROOM_INDEX] = { purpose: 'workshop', level: 1 };
-  return rooms;
+  return Array.from({ length: SHIP_ROOM_COUNT }, freshRoom);
 }
 
 export function freshState(): ShipState {
@@ -58,9 +49,7 @@ export function freshState(): ShipState {
     rooms: freshRooms(),
     generatorLevel: 0,
     storageLevel: 0,
-    furniture: STARTER_PLACED
-      .filter((s) => FURNITURE_DEF_MAP.has(s.defId))
-      .map((s, i) => ({ uid: `f-${i + 1}`, defId: s.defId, room: WORKSHOP_ROOM_INDEX, x: s.x, y: s.y, yaw: 0 as const, level: 1 })),
+    furniture: [],                            // 2026-09-07: no free 총기 작업대 / 정비 벤치 — both are crafted
     furnitureStorage: [],
     presets: [],
     plots: [],
@@ -111,9 +100,9 @@ export function maxUidIndex(furniture: readonly PlacedFurniture[]): number {
  * Migrations: **v1 → v2** grants the 정비 벤치 that moved out of the cockpit (once — a save that already owns one is
  * left alone, and a v2 save never runs the grant again). **v3** adds `books` / `bookDex` (Phase 9): a book needs a
  * placed 책장 uid, a slot below `BOOKS_PER_SHELF`, one book per (uid, slot) and a `book_*`-shaped def id; the 도감 is
- * a unique list of such ids. Whether an id still resolves to a 서적 is checked by `HousingSystem` once `ctx.loot` exists. The **room-1 작업실 invariant** (Phase 8 UI pass) is applied
- * on every load, not once: room `WORKSHOP_ROOM_INDEX` is always the 작업실, every other 작업실 falls back to 빈 방,
- * and furniture whose room no longer accepts it moves into furniture storage instead of being dropped.
+ * a unique list of such ids. Whether an id still resolves to a 서적 is checked by `HousingSystem` once `ctx.loot`
+ * exists. 2026-09-07: the room-1 작업실 invariant is gone — the only room rule left is "at most one facility room of
+ * each kind"; furniture whose room no longer accepts it moves into furniture storage instead of being dropped.
  */
 export function sanitize(raw: unknown): ShipState {
   const fresh = freshState();
@@ -131,14 +120,15 @@ export function sanitize(raw: unknown): ShipState {
     const level = purpose === 'empty' ? 0 : int(s?.level, 1, 1, maxLv);
     rooms.push({ purpose, level });
   }
-  // Phase 8 UI pass: the 작업실 is permanently room `WORKSHOP_ROOM_INDEX`. A save that put it somewhere else (or
-  // nowhere) is migrated onto room 1 with its level; the old room falls back to 빈 방. Furniture that no longer fits
-  // its room is moved into furniture storage below — nothing is destroyed by the migration.
-  const oldWorkshop = rooms.findIndex((x, i) => i !== WORKSHOP_ROOM_INDEX && x.purpose === 'workshop');
-  if (rooms[WORKSHOP_ROOM_INDEX].purpose !== 'workshop') {
-    rooms[WORKSHOP_ROOM_INDEX] = { purpose: 'workshop', level: Math.max(1, oldWorkshop >= 0 ? rooms[oldWorkshop].level : 1) };
+  // 2026-09-07: the 작업실 is an ordinary purpose again — any room may hold it (one per ship, `purposeChangeReason`),
+  // and a ship may hold none at all. A save made under the room-1 rule keeps its 작업실 exactly where it is.
+  // The ship still holds at most one of each facility room: an edited save with two keeps the first.
+  const seenFacility = new Set<string>();
+  for (let i = 0; i < rooms.length; i++) {
+    const fid = facilityPurposeOf(rooms[i].purpose);
+    if (!fid) continue;
+    if (seenFacility.has(fid)) rooms[i] = freshRoom(); else seenFacility.add(fid);
   }
-  for (let i = 0; i < rooms.length; i++) if (i !== WORKSHOP_ROOM_INDEX && rooms[i].purpose === 'workshop') rooms[i] = freshRoom();
   // a lab without a greenhouse (edited save) falls back to empty
   if (!rooms.some((x) => x.purpose === 'greenhouse')) for (const x of rooms) if (x.purpose === 'lab') { x.purpose = 'empty'; x.level = 0; }
 

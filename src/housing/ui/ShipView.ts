@@ -1,7 +1,7 @@
 import type { EmbeddedView, FacilityId, GameContext } from '@/shared';
 import {
   Keys, ROOM_PURPOSES, ROOM_PURPOSES_ACTIVE, ROOM_PURPOSE_COLOR, ROOM_PURPOSE_GLYPH, ROOM_PURPOSE_LABEL_KO,
-  WORKSHOP_ROOM_INDEX, keyLabel,
+  keyLabel,
 } from '@/shared';
 import type { HousingSystem } from '../HousingSystem';
 import { facilityPurposeOf } from '../Rules';
@@ -240,22 +240,19 @@ export function createShipView(ctx: GameContext, housing: HousingSystem, host: H
     rows.forEach((row, i) => {
       const state = housing.getRoom(i);
       const fid = facilityPurposeOf(state.purpose);
-      const locked = i === WORKSHOP_ROOM_INDEX;
       const empty = state.purpose === 'empty';
       row.thumb.style.setProperty('--pc', ROOM_PURPOSE_COLOR[state.purpose]);
       setText(row.glyph, ROOM_PURPOSE_GLYPH[state.purpose]);
       setText(row.name, ROOM_PURPOSE_LABEL_KO[state.purpose]);
       toggleClass(row.root, 'dim', empty);
-      toggleClass(row.root, 'is-locked', locked);
-      // 제거 is offered on any assigned room the rules let go back to 빈 방 (never the built-in 작업실);
-      // an empty room offers 시설 증축 instead (room 1 is the locked 작업실 and is never empty)
+      // 제거 is offered on any assigned room the rules let go back to 빈 방; an empty room offers 시설 증축 instead
       row.delBtn.hidden = empty || !!housing.purposeBlock(i, 'empty');
       row.buildBtn.hidden = !empty;
       row.fac.hidden = !fid;
       row.facBtn.hidden = !fid;
       if (!fid) {
-        setText(row.tag, locked ? '기본' : '');
-        row.tag.hidden = !locked;
+        setText(row.tag, '');
+        row.tag.hidden = true;
         return;
       }
       const info = housing.getFacility(fid);

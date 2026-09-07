@@ -203,7 +203,7 @@ export interface WeaponDef {
   grade?: WeaponGrade;
   /** Shots before the weapon stops firing (repaired at the ship workbench). undefined → WEAPON_DEFAULT_DURABILITY. */
   maxDurability?: number;
-  /** Base weapon this grade belongs to (`ar23` for `ar23_g3`); undefined → the def is its own family. */
+  /** Base weapon this grade belongs to (`ar` for `ar_g3`); undefined → the def is its own family. */
   family?: string;
   /* appended: tactical kit */
   /** Melee damage multiplier granted by this weapon's stock (undefined = MELEE_STOCK_MUL_DEFAULT). */
@@ -265,6 +265,37 @@ export interface ItemDef {
   /* ── appended: Phase 9 (2026-09-06, owner: items) ── */
   /** category 'book': which skill the book teaches when shelved in a 서재 책장 (`BOOK_RARITY_MUL[rarity]` weight). */
   book?: BookDef;
+  /* ── appended: 회복 아이템 개편 (2026-09-07, owner: items) ── */
+  /** category 'stim': how long it takes to use, how much it heals, and (스프레이) how it channels. */
+  heal?: HealDef;
+}
+
+/**
+ * 회복 소모품 (2026-09-07). `weapons` holds LMB for `useTime` (moving at `CONSUMABLE_SLOW_MUL` speed), then
+ * consumes one unit and hands `amount` / `overTime` to `PlayerRef.applyHeal`. A def with `spray` is channelled
+ * instead: LMB drains the item's own gauge (`ItemDef.durabilityMax` on the instance) tick by tick.
+ */
+export interface HealDef {
+  /** Seconds LMB must be held before the item is consumed (0 = instant; ignored for a `spray`). */
+  useTime: number;
+  /** Total hp restored (0 for a 스프레이 — it heals per tick instead). */
+  amount: number;
+  /** Seconds the hp is spread over once the use completes (0 = instant). */
+  overTime: number;
+  /** 회복 스프레이: channelled from the instance's gauge while LMB is held. */
+  spray?: SprayDef;
+}
+
+/** Channelled healing (회복 스프레이). The gauge is the instance `durability` out of `ItemDef.durabilityMax`. */
+export interface SprayDef {
+  /** Seconds per tick. */
+  tick: number;
+  /** Gauge units drained per tick. */
+  gaugePerTick: number;
+  /** hp restored per tick, to the user and to every squadmate inside `radius`. */
+  healPerTick: number;
+  /** Effect radius in metres. */
+  radius: number;
 }
 
 /** 서적 data (Phase 9). One book per skill; rarity decides its weight in `HousingRef.getBookBonus`. */
@@ -739,6 +770,11 @@ export interface PlayerRef {
   revive(): void;
   /** Start the stim heal-over-time (`player:stimUsed`, `player:healthChanged`). False when dead / downed / already full. Consuming the item is the caller's job. */
   applyStim(healAmount: number): boolean;
+  /**
+   * appended (2026-09-07): like `applyStim` but with the consumable's own duration — `amount` hp spread over
+   * `seconds` (0 / negative = instant). `quiet` skips the 스팀 SFX (스프레이 ticks every 0.1 s). Refuses at full hp.
+   */
+  applyHeal(amount: number, seconds: number, quiet?: boolean): boolean;
   /** Respawn like at mission start: hellpod drop-in at `position`, full hp, alive, not downed. Emits `player:spawned` / `player:landed`. */
   respawn(position: THREE.Vector3): void;
   /* ── appended: Phase 4 (owner: player) ── */

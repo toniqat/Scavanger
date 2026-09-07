@@ -152,3 +152,102 @@ in `CLAUDE.md`.
   - **왜 로컬 http 인가**: `file://` 로드는 `location.host` 가 비어 `NetSystem.defaultUrl()` 의 `ws://${location.host}/ws` 가 깨진다 → 빌드 타임 `VITE_WS_URL` 이나 preload 주입이 필요했을 것. 릴레이의 http 서버 위에 `dist/` 를 얹어(`electron/static.ts` 가 기존 `request` 리스너를 앞에서 가로채고 `/health` · 404 는 그대로 넘긴다) 같은 오리진에서 서빙하니 클라이언트 계약이 한 줄도 안 바뀌었다.
   - **번들 이유**: `server/` 는 erasable TS 라 `--experimental-strip-types` 없이는 Electron 메인에서 못 돈다 → **rolldown**(vite 의존성이라 새 패키지 0)으로 메인 + 릴레이를 한 파일로 묶고 `electron` / `ws` 만 external.
   - **자동화 없음**: 스모크 · e2e 는 전부 vite 를 보므로 데스크톱 셸을 검증하는 스크립트는 없다. 위 CDP 절차가 유일한 기록이다.
+
+- 2026-09-07 총기 이름 정리 · 회복 소모품 개편 · 기본 지급품 (`src/items` · `src/inventory` · `src/weapons` · `src/player` · `src/ui` · `src/shared`): `npm run verify:all` → typecheck ok, typecheck-server ok, net-selftest **278/278**, build 2,040.12 kB JS / 200.61 kB CSS, smoke-quickslots 46/46, **smoke-weapons 102/102**, **smoke-phase2 53/53**, smoke-stratagems 70/70, smoke-phase3 32/32, smoke-phase4 49/49, smoke-tactical 64/64, smoke-ship-rooms 71/71, smoke-inventory-p6 63/63, smoke-controls-hub 85/85, smoke-housing 173/173, smoke-progression 68/68, smoke-console 63/63, **smoke-loadout 55/55**, smoke-ui-p6 68/68, smoke-search 59/59, **smoke-ui-p5 133/133**, smoke-meta 130/130, **smoke-training 110/110**, smoke-uniques 71/71, smoke-library 126/126, smoke-enemy-delta 52/52, smoke-ghost 86/86, smoke-planets 76/76, smoke-ecology 83/83, smoke-raidflow 42/42, smoke-social 116/116, e2e-mp 156/156 — **5 min 4 s** on 4 GPU lanes, 1 red.
+  - The single red was the known **smoke-rogue-v2** grenade / blast-falloff timing block (51/52, then 49/52 with *different* checks failing on a re-run inside a busy lane, then **52/52** when run alone). Same intermittent AI-timing flake recorded in the Phase 8 / 9 and the UI/UX pass III entries; nothing in this package touches `src/enemies`.
+  - **New checks written for the new behaviour**: `smoke-weapons` +9 — the 회복주사's own 2 s hold read off `ItemDef.heal.useTime`, `speedMultiplier ≤ 0.55` while a consumable is being used, and a whole 회복 스프레이 section (full 100 gauge in a quick slot, T tap into the hand, 0.6 s of LMB drains the gauge to 94 and heals the user, `heal:holdChanged {spray:true}` carrying the remaining gauge as `t`, and the slow released on release). `smoke-phase2` +4 (붕대 = 5 s from the def, `dur` on the event, the slow on and off). `smoke-ui-p5` +1 (the ring renders a spray channel as `스프레이 40 %`). `smoke-loadout` +1 (the 기본 지급품 inventory in the 창고: 총기 5종 · 여분 가방 3 · 방탄복 3 · 탄약 40세트 · 재세동기 2세트). `smoke-quickslots` (reset() now empties the kit instead of refilling it).
+  - **Smoke updates the content change forced**: every weapon id in `scripts/` (`wpn_ar23` → `wpn_ar`, `wpn_p2` → `wpn_hg`, …) and every `stim` def id (→ `heal_bandage`, or `heal_syringe` where a 2 s hold was being timed); `smoke-weapons` / `smoke-training` / `smoke-search` / `smoke-controls-hub` equip a 돌격소총 out of the 창고 first, because the starter kit no longer has a 주무기; `smoke-housing` / `smoke-search` empty the 창고 after the reload so the 기본 지급품 does not skew their material / document counts; `smoke-inventory-p6`'s catalog drag aims at the first **free** stash cell.
+  - **Two real bugs the new tests found.** (1) `src/inventory`: `onProfileLoaded` applied the starter kit whenever the server's loadout document was empty and the local one was **not** — with the kit now something the player loses and re-equips, that quietly wiped the bag a second or two after entering the ship (it also made `smoke-quickslots` flaky, since the relay's answer landed mid-test). It now only fires when the player has nothing anywhere. (2) `src/inventory/__selftest__.ts` hard-coded the grenade stack size in four checks (`stackMax` 4 → 3), which `runInventorySelfTest()` reported as 10 failures through `smoke-quickslots`' first assertion.
+  - **Not covered by a smoke**: the 회복 스프레이's **ally** heal (it needs two clients — the local half is covered), the 제세동기's new 1 s hold (no downed squadmate in a solo smoke), and the new craft recipes (the craft panel is covered generically by `smoke-inventory-p6`, not per recipe).
+
+- 2026-09-07 (기본 지급품 지급 조건 · 기본 작업실 폐지): `verify:all` 4분 54초 — 30개 중 28개 green,
+  두 red 는 재실행에서 전부 통과했다. typecheck ok, typecheck-server ok, net-selftest 278/278,
+  build 2,038.28 kB JS / 200.40 kB CSS, smoke-quickslots 46/46, smoke-weapons 103/103, smoke-phase2 53/53,
+  smoke-stratagems 70/70, smoke-phase3 32/32, smoke-phase4 49/49, smoke-tactical 64/64, smoke-ship-rooms 71/71,
+  smoke-inventory-p6 63/63, smoke-controls-hub 95/95, **smoke-housing 176/176**, smoke-console 63/63,
+  smoke-progression 68/68, smoke-search 59/59, smoke-ui-p6 68/68, **smoke-loadout 61/61**, smoke-ui-p5 133/133,
+  smoke-meta 130/130, smoke-training 110/110, smoke-uniques 71/71, smoke-library 126/126, smoke-ghost 86/86,
+  smoke-enemy-delta 52/52, smoke-planets 76/76, smoke-raidflow 42/42, smoke-social 116/116, smoke-ecology 83/83.
+  Red 였다가 `--rerun-failed` 에서 통과: **smoke-rogue-v2 51/52 → 52/52** (전부터 알려진 로그 수류탄 · 폭발
+  falloff 타이밍 flake) 와 **e2e-mp 12/14 → 156/156** (퀵매치가 앞선 스모크들이 남긴 로비를 잡았다 — 릴레이는
+  실행 **처음**에만 재시작되므로 e2e 가 마지막에 도는 이 배치에서 가끔 나온다).
+  - **새 검사 9개**: `smoke-loadout` +6 — 지급 플래그(`scav.grant`)가 없고 `scav.stash` 파일만 있는(빈) 프로필이
+    **한 번** 지급받고 다음 실행에는 다시 받지 않는 것, 타이틀의 `새 캐릭터로 시작` → 확인 카드 → 초기화가
+    캐릭터 저장과 세션 토큰을 버리고 오디오 · 키 설정은 남기며 새로 부팅한 창고에 기본 지급품이 들어 있는 것.
+    `smoke-housing` +3 — 새 함선이 **빈 방 10개 · 가구 0**(작업실 시설도 벤치도 없음), 작업실이 아무 방에나
+    지어지되 함선당 하나라는 것, 빈 방에는 `removeRoomFacility` 가 이유를 돌려준다는 것.
+  - **작업실 전제를 쓰던 스모크 수정**: `smoke-housing` / `smoke-ship-rooms` / `smoke-weapons` 는 이제 방 1을
+    작업실로 **직접 심고** 벤치를 가구 창고에 넣어 배치한다(증축 · 가구 제작이 재료를 먹으므로). 그 과정에서
+    `smoke-weapons` 가 드러낸 것: 함선 상태를 **서버 프로필이 도착하기 전에** 직접 건드리면 welcome 의 `ship`
+    문서(부팅 때 올라간 빈 상태)가 그대로 덮어써서 조용히 되돌아간다 — 시딩을 프로필 로드 뒤로 옮겼다(예전에는
+    무료 작업실이 fresh state 에 들어 있어서 이 순서가 문제되지 않았다). `smoke-controls-hub` 는 방 1 행이
+    `빈 방`이고 시설 증축 버튼이 10개인 것으로, `smoke-library` 는 메시지만 바꿨다.
+  - **스모크 전반**: `scav.stash` 를 지워 새 프로필을 흉내내던 6개 스크립트가 `scav.grant` 도 함께 지운다
+    (플래그가 남아 있으면 지급이 다시 일어나지 않는다).
+  - `verify:all` 뒤 한 줄 고쳤다: 지급 직후 상태를 `pending` 으로 두는 조건이 "진짜 첫 실행"에 묶여 있어서,
+    기존 프로필(= 이 버그의 당사자)이 지급받은 뒤 서버의 빈 창고 문서에 덮이면 재확인이 돌지 않았다 —
+    이제 **지급했으면 항상 `pending`**, 이미 가진 경우에만 `done` 이다. 영향을 받는 스모크 8개를 다시 돌려
+    전부 green (smoke-inventory-p6 63/63, smoke-housing 176/176, smoke-loadout 61/61, smoke-search 59/59,
+    smoke-quickslots 46/46, smoke-weapons 103/103, smoke-controls-hub 95/95, smoke-phase2 53/53).
+  - **스모크가 덮지 않는 것**: 서버 프로필이 이미 창고를 가진 채 새 브라우저로 들어오는 경우(플래그가 `done` 으로
+    정리되고 지급이 없는 경로 — 릴레이에 실제 프로필을 만들어야 재현된다), 그리고 새 캐릭터 이후 **릴레이가
+    새 아이디를 발급하는지**(토큰이 바뀌는 것까지만 확인한다).
+
+- 2026-09-07 (마우스 커서 시스템 갈아엎기 — 락 = 시점 / 언락 = 진짜 커서): `verify:all` **전부 통과**, 6분 45초.
+  typecheck ok, typecheck-server ok, net-selftest 278/278, build 2,037.30 kB JS / 200.20 kB CSS, smoke-quickslots
+  46/46, smoke-weapons 103/103, smoke-phase2 53/53, smoke-phase3 32/32, smoke-stratagems 70/70, smoke-phase4 49/49,
+  smoke-tactical 64/64, smoke-ship-rooms 71/71, smoke-inventory-p6 63/63, smoke-housing 173/173, smoke-console 63/63,
+  smoke-progression 68/68, smoke-ui-p6 68/68, smoke-search 59/59, smoke-controls-hub 95/95, smoke-loadout 55/55,
+  smoke-ui-p5 133/133, smoke-meta 130/130, smoke-training 110/110, smoke-uniques 71/71, smoke-ghost 86/86,
+  smoke-library 126/126, smoke-raidflow 42/42, smoke-rogue-v2 52/52, smoke-enemy-delta 52/52, smoke-planets 76/76,
+  smoke-ecology 83/83, smoke-social 116/116, e2e-mp 156/156.
+  New checks: **smoke-controls-hub 85 → 95** (the terminal releases the lock and takes 커서 모드, `body.cursor-on` /
+  `.cursor-ui` with no sprite, the generated `#game-cursor-style` blanket arrow + mirrored affordances, a cursor-mode
+  click never reaching gameplay input, the relock on close, Alt free-cursor on / off without a pause, and a lost lock
+  that no longer forces the menu; the two `moveBy` linearity checks are gone with the virtual cursor),
+  **smoke-ui-p5 133** (same count — the sprite assertions became cursor-art / `uiX-uiY` ones) and **smoke-weapons
+  102 → 103** (V rolls instead of swapping; 3 draws the 보조무기).
+  Also verified by hand in a real browser before the suite (a throwaway puppeteer script, 16/16): the art is installed
+  and mirrors 41 selectors, walking the ship keeps the lock, Tab releases it and shows the cursor, a click in cursor
+  mode never reaches gameplay, Escape closes and re-locks at once with no pause menu, a lock lost for a second does
+  not pause, Alt toggles the free cursor, and the pause menu is a normal cursor owner that gives the mouse straight
+  back on Escape. That script was deleted afterwards — its assertions live in smoke-controls-hub now.
+
+- 2026-09-07 (좌클릭으로 카메라 복귀): `verify:all` 5분 27초 — typecheck ok, typecheck-server ok, net-selftest
+  278/278, build 2,038.74 kB JS / 200.40 kB CSS, smoke-quickslots 46/46, smoke-weapons 103/103, smoke-phase2 53/53,
+  smoke-stratagems 70/70, smoke-phase3 32/32, smoke-phase4 49/49, smoke-tactical 63/64, smoke-ship-rooms 71/71,
+  smoke-inventory-p6 63/63, smoke-controls-hub 99/99, smoke-housing 176/176, smoke-console 63/63,
+  smoke-progression 68/68, smoke-ui-p6 68/68, smoke-search 59/59, smoke-loadout 61/61, smoke-ui-p5 133/133,
+  smoke-meta 130/130, smoke-training 110/110, smoke-uniques 71/71, smoke-library 126/126, smoke-ghost 86/86,
+  smoke-enemy-delta 52/52, smoke-raidflow 42/42, smoke-planets 76/76, smoke-social 116/116, smoke-ecology 83/83,
+  smoke-rogue-v2 46/52, e2e-mp 156/156.
+  New checks: **smoke-controls-hub 95 → 99** — Alt 커서가 캔버스 좌클릭으로 닫히고 락이 돌아온다(2), 락이 없는
+  상태의 캔버스 좌클릭이 락을 즉시 다시 요청하고(1) 그 누름이 삼켜진다(1).
+  Two reds, neither from this change: **smoke-rogue-v2** is the known 로그 수류탄 타이밍 flake (46/52, then 51/52 on
+  the rerun with a different failing line), and **smoke-tactical 63/64** (`domeShield` false in `throwable gadgets
+  used`) reproduces **on a clean tree** — a pre-existing red on this branch, unrelated to the cursor.
+
+- 2026-09-07 (smoke-tactical `domeShield` red 해소): `node scripts/verify.mjs --only smoke-tactical` → **64/64**
+  (typecheck ok, typecheck-server ok, net-selftest 278/278). 게임 버그가 아니라 스모크의 자충수였다 — 던지기
+  가젯 루프가 화염수류탄을 첫 번째로 던지는데, 그 화염지대는 설계대로 피아 구분이 없고 서 있는 플레이어 몇 m
+  앞에 깔린다. 지금 스타터 장비로는 그 화상이 루프 중간에 플레이어를 전투불능으로 만들고, `GadgetSystem.use` 는
+  전투불능 플레이어를 `deny(null)` 로 **조용히** 거부하므로(토스트도 로그도 없다) 네 번째 `domeShield` 만
+  false 로 보였다. 계측(`deny` / `consumeItem` 을 런타임에 감싸 확인)으로 `downed:true` 를 잡고, 루프 전에
+  `respawnAt` 로 체력을 채운 뒤 화염수류탄을 **마지막**으로 옮겼다. 루프는 이제 매 던지기의 `hp` · `downed` 도
+  함께 기록한다(다음에 같은 일이 생기면 실패 줄에 바로 보이도록).
+
+- 2026-09-07 (smoke-rogue-v2 수류탄 flake 제거): `verify:all` **전부 통과**, 4분 56초 — typecheck ok,
+  typecheck-server ok, net-selftest 278/278, build 2,038.74 kB JS / 200.40 kB CSS, smoke-quickslots 46/46,
+  smoke-weapons 103/103, smoke-phase2 53/53, smoke-stratagems 70/70, smoke-phase3 32/32, smoke-phase4 49/49,
+  smoke-tactical 64/64, smoke-ship-rooms 71/71, smoke-inventory-p6 63/63, smoke-controls-hub 99/99,
+  smoke-housing 176/176, smoke-console 63/63, smoke-progression 68/68, smoke-ui-p6 68/68, smoke-loadout 61/61,
+  smoke-search 59/59, smoke-ui-p5 133/133, smoke-meta 130/130, smoke-training 110/110, smoke-uniques 71/71,
+  smoke-library 126/126, smoke-ghost 86/86, smoke-rogue-v2 52/52, smoke-enemy-delta 52/52, smoke-ecology 83/83,
+  smoke-planets 76/76, smoke-social 116/116, smoke-raidflow 42/42, e2e-mp 156/156.
+  이 브랜치에서 처음으로 **red 0**. 수류탄 구간의 원인 두 가지: (1) 로그가 마지막 목격 지점으로 걸어가
+  `GRENADE_MIN_DIST`(6 m) 안으로 들어오거나 사거리를 벗어나 30초 안에 던지지 않는 경우(그러면 이후 6개 검사가
+  연쇄로 실패한다 — 실제 46/52 실행이 그것이었다), (2) 던지기가 ±1 m 산포 + 한 번 튕김 + 구름이라 폭발 지점이
+  복불복인 경우(피해 판정은 가슴까지의 **3D** 거리라, 바위 위에 얹히면 수평 2.6 m 여도 반경 밖이다; 실패 샘플에
+  9.06 m). 수정: 와인드업 전까지 로그를 제자리에 고정하고, 플레이어 자리를 **평평하고 시야가 트인** 곳으로 고르며,
+  최대 3번까지 던져 **실제로 닿은 첫 폭발**로 피해를 검증한다(빗나간 시도는 실패 메시지에 남는다). 고친 뒤
+  단독 8연속 52/52 — 그중 한 번은 첫 투척이 6.09 m 로 빗나가 재시도 경로를 실제로 탔다.

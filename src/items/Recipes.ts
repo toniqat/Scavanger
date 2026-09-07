@@ -8,7 +8,7 @@ import { CRAFT_DEFAULT_TIME } from '@/shared';
  *  1. **탄약 분해** — an ammo pack breaks down into 화약 (`mat_gunpowder`).
  *  2. **탄약 제작** — 화약 + 폐금속/합금 makes the ammo pack you actually need.
  *  3. **야전 병기** — smoke / incendiary grenades.
- *  4. **의약** — gathered herbs (`herb`) become stims; the 의학 skill gates the good ones.
+ *  4. **의약** — 천조각 / 캔 / 주사기 + 혈근초 become 붕대 · 소독약 · 회복주사 · 회복 스프레이; the 의학 skill gates the good ones.
  *  5. **원예** — ship hydroponics.
  *  6. **작업실 (Phase 6)** — `station: 'ship'` + `bench` (`gun` / `gear` / `gadget` / `medical`) at `benchLevel`
  *     or higher (`ctx.housing.getBenchLevel`): bulk ammo, attachments, unique-weapon ammo, armor / bags,
@@ -97,20 +97,41 @@ export const CRAFT_RECIPES: readonly CraftRecipe[] = [
   },
 
   /* ── 4. herbs → medicine ─────────────────────────────────────────────── */
+  /* 2026-09-07: 붕대 · 약초 붕대는 야전에서, 주사 계열은 의학 작업대에서. `약초` = 혈근초. */
   {
-    id: 'make_stim', name: '스팀 조제', station: 'field',
-    inputs: [{ defId: 'herb_bloodroot', qty: 3 }, { defId: 'herb_ashleaf', qty: 1 }],
-    outputDefId: 'stim', outputQty: 1,
+    id: 'make_bandage', name: '붕대 제작', station: 'field',
+    inputs: [{ defId: 'mat_cloth', qty: 5 }],
+    outputDefId: 'heal_bandage', outputQty: 1,
     duration: 3, skill: 'medicine', skillRequired: 0,
-    description: '혈근초 3 + 잿빛잎 1 → 스팀.',
+    description: '천조각 5 → 붕대.',
   },
   {
-    // Phase 6: moved from the field to the 의학 작업대
-    id: 'make_stim_advanced', name: '고급 스팀 조제', station: 'ship', bench: 'medical', benchLevel: 1,
-    inputs: [{ defId: 'herb_bloodroot', qty: 4 }, { defId: 'herb_glowcap', qty: 2 }, { defId: 'herb_ashleaf', qty: 2 }],
-    outputDefId: 'stim_advanced', outputQty: 1,
+    id: 'make_bandage_herb', name: '약초 붕대 제작', station: 'field',
+    inputs: [{ defId: 'mat_cloth', qty: 5 }, { defId: 'herb_bloodroot', qty: 1 }],
+    outputDefId: 'heal_bandage_herb', outputQty: 1,
+    duration: 4, skill: 'medicine', skillRequired: 0,
+    description: '천조각 5 + 혈근초 1 → 약초 붕대.',
+  },
+  {
+    id: 'make_antiseptic', name: '소독약 조제', station: 'ship', bench: 'medical', benchLevel: 1,
+    inputs: [{ defId: 'mat_can', qty: 1 }, { defId: 'herb_bloodroot', qty: 1 }],
+    outputDefId: 'mat_antiseptic', outputQty: 1,
+    duration: 4, skill: 'medicine', skillRequired: 10,
+    description: '캔 1 + 혈근초 1 → 소독약. 의학 작업대.',
+  },
+  {
+    id: 'make_heal_syringe', name: '회복주사 조제', station: 'ship', bench: 'medical', benchLevel: 1,
+    inputs: [{ defId: 'mat_syringe', qty: 1 }, { defId: 'mat_antiseptic', qty: 1 }],
+    outputDefId: 'heal_syringe', outputQty: 1,
     duration: 5, skill: 'medicine', skillRequired: 25,
-    description: '혈근초 4 + 발광버섯 2 + 잿빛잎 2 → 고급 스팀. 의학 작업대, 의학 25 필요.',
+    description: '주사기 1 + 소독약 1 → 회복주사. 의학 작업대, 의학 25 필요.',
+  },
+  {
+    id: 'make_heal_spray', name: '회복 스프레이 제작', station: 'ship', bench: 'medical', benchLevel: 2,
+    inputs: [{ defId: 'mat_can', qty: 1 }, { defId: 'mat_antiseptic', qty: 1 }],
+    outputDefId: 'heal_spray', outputQty: 1,
+    duration: 8, skill: 'medicine', skillRequired: 45,
+    description: '캔 1 + 소독약 1 → 회복 스프레이. 의학 작업대 Lv.2, 의학 45 필요.',
   },
   {
     id: 'make_defib_charge', name: '제세동기 정비', station: 'ship', bench: 'gadget', benchLevel: 2,
@@ -307,13 +328,13 @@ export const CRAFT_RECIPES: readonly CraftRecipe[] = [
     description: '화약 8 + 잿빛잎 3 → 화염수류탄 (화염지대). 가젯 작업대 Lv.2, 제작 25 필요.',
   },
 
-  /* ── 6-f. 의학 작업대: stim batch ── */
+  /* ── 6-f. 의학 작업대: 붕대 대량 조제 ── */
   {
-    id: 'make_stim_batch', name: '스팀 대량 조제', station: 'ship', bench: 'medical', benchLevel: 2,
-    inputs: [{ defId: 'herb_bloodroot', qty: 8 }, { defId: 'herb_ashleaf', qty: 3 }],
-    outputDefId: 'stim', outputQty: 3,
+    id: 'make_bandage_batch', name: '붕대 대량 제작', station: 'ship', bench: 'medical', benchLevel: 2,
+    inputs: [{ defId: 'mat_cloth', qty: 12 }, { defId: 'herb_bloodroot', qty: 2 }],
+    outputDefId: 'heal_bandage_herb', outputQty: 3,
     duration: 8, skill: 'medicine', skillRequired: 10,
-    description: '혈근초 8 + 잿빛잎 3 → 스팀 3. 의학 작업대 Lv.2, 의학 10 필요.',
+    description: '천조각 12 + 혈근초 2 → 약초 붕대 3. 의학 작업대 Lv.2, 의학 10 필요.',
   },
 ];
 

@@ -190,16 +190,16 @@ export const QUEST_DEFS: readonly QuestDef[] = [
   quest('h2', 'helix', '합금 납품', '합금 판 6개를 납품한다.', { quests: ['h1'] }, [{ defId: 'mat_alloy', qty: 6 }],
     { rep: 220, xp: 350, credits: 250, items: [{ defId: 'att_brake', qty: 1 }] }),
   quest('h3', 'helix', '전력 조달', '파워 셀 4개를 납품한다.', { quests: ['h2'], repLevel: 2 }, [{ defId: 'mat_power_cell', qty: 4 }],
-    { rep: 320, xp: 600, credits: 400, items: [{ defId: 'wpn_smg37_g3', qty: 1 }] }),
+    { rep: 320, xp: 600, credits: 400, items: [{ defId: 'wpn_smg_g3', qty: 1 }] }),
   quest('h4', 'helix', '기밀 회수', '데이터 코어 1개를 납품한다.', { quests: ['h3'], repLevel: 3 }, [{ defId: 'data_core', qty: 1 }],
-    { rep: 600, xp: 1500, credits: 900, items: [{ defId: 'wpn_ar23_g4', qty: 1 }] }),
+    { rep: 600, xp: 1500, credits: 900, items: [{ defId: 'wpn_ar_g4', qty: 1 }] }),
   /* bastion chain */
   quest('b1', 'bastion', '분비선 샘플', '터미니드 분비선 3개를 납품한다.', {}, [{ defId: 'terminid_gland', qty: 3 }],
     { rep: 180, xp: 250, credits: 200 }),
   quest('b2', 'bastion', '정제 샘플', '정제 샘플 캐니스터 1개를 납품한다.', { quests: ['b1'] }, [{ defId: 'sample_canister_pure', qty: 1 }],
     { rep: 300, xp: 550, credits: 400, items: [{ defId: 'att_scope4', qty: 1 }] }),
   quest('b3', 'bastion', '외계 유물', '외계 유물 1개를 납품한다.', { quests: ['b2'], repLevel: 3 }, [{ defId: 'alien_artifact', qty: 1 }],
-    { rep: 600, xp: 1500, credits: 1200, items: [{ defId: 'wpn_sr9_g4', qty: 1 }] }),
+    { rep: 600, xp: 1500, credits: 1200, items: [{ defId: 'wpn_sr_g4', qty: 1 }] }),
   /* nomad chain */
   quest('n1', 'nomad', '크레딧 칩 수거', '크레딧 칩 5개를 납품한다.', {}, [{ defId: 'cred_chip', qty: 5 }],
     { rep: 150, xp: 200, credits: 300 }),
@@ -207,7 +207,7 @@ export const QUEST_DEFS: readonly QuestDef[] = [
     { rep: 280, xp: 500, credits: 350, items: [{ defId: 'bag_rare', qty: 1 }] }),
   /* ceres chain */
   quest('c1', 'ceres', '생체 조직', '생체 조직 12개를 납품한다.', {}, [{ defId: 'mat_bio_sample', qty: 12 }],
-    { rep: 150, xp: 200, credits: 150, items: [{ defId: 'stim_advanced', qty: 2 }] }),
+    { rep: 150, xp: 200, credits: 150, items: [{ defId: 'heal_syringe', qty: 2 }] }),
   quest('c2', 'ceres', '분비선 연구', '터미니드 분비선 5개를 납품한다.', { quests: ['c1'] }, [{ defId: 'terminid_gland', qty: 5 }],
     { rep: 260, xp: 450, credits: 300, items: [{ defId: 'gad_defib', qty: 1 }] }),
   quest('c3', 'ceres', '고대 성유물', '고대 성유물 1개를 납품한다.', { quests: ['c2'], repLevel: 2 }, [{ defId: 'alien_relic', qty: 1 }],

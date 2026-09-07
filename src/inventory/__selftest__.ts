@@ -22,12 +22,12 @@ export function runInventorySelfTest(): boolean {
   const grid = new Grid(INVENTORY_COLS, INVENTORY_ROWS, getDef);
 
   // place / bounds
-  const rifle = loot.createItem('wpn_ar23');            // 4×2
+  const rifle = loot.createItem('wpn_ar');            // 4×2
   check(grid.place(rifle, 0, 0), 'place rifle at 0,0');
   check(!grid.place(rifle, 5, 0), 'cannot place same uid twice');
   check(grid.at(3, 1)?.item.uid === rifle.uid, 'rifle covers (3,1)');
   check(grid.at(4, 0) === undefined, '(4,0) is free');
-  const rifle2 = loot.createItem('wpn_ar23');
+  const rifle2 = loot.createItem('wpn_ar');
   check(!grid.canPlace(rifle2, 3, 0), 'overlap detected');
   check(!grid.canPlace(rifle2, 7, 0), 'out of bounds detected (x)');
   check(grid.canPlace(rifle2, 6, 0), 'fits at 6,0');
@@ -44,18 +44,18 @@ export function runInventorySelfTest(): boolean {
   check(fp.w === 1 && fp.h === 3, 'footprint swaps after rotate');
 
   // rotate with nearby offset fallback: put a 4×1 at bottom-right corner so in-place rotation is OOB
-  const dmr = loot.createItem('wpn_r63');               // 4×1
+  const dmr = loot.createItem('wpn_dmr');               // 4×1
   check(grid.place(dmr, 6, 5), 'place dmr bottom-right');
   check(grid.rotate(dmr.uid), 'rotate dmr via offset search');
   check(dmr.rotated && grid.get(dmr.uid)!.y <= 2, 'dmr moved up to fit vertically');
 
   // stacks
-  const frag = loot.createItem('grenade_frag', 3);
+  const frag = loot.createItem('grenade_frag', 2);
   check(grid.autoPlace(frag), 'autoPlace frag stack');
-  const frag2 = loot.createItem('grenade_frag', 3);
-  check(grid.autoPlace(frag2), 'autoPlace second frag stack (merge 1, place 2)');
-  check(frag.qty === 4, 'first stack topped up to stackMax 4');
-  check(frag2.qty === 2 && grid.has(frag2.uid), 'remainder placed as new stack');
+  const frag2 = loot.createItem('grenade_frag', 2);
+  check(grid.autoPlace(frag2), 'autoPlace second frag stack (merge 1, place 1)');
+  check(frag.qty === 3, 'first stack topped up to stackMax 3');
+  check(frag2.qty === 1 && grid.has(frag2.uid), 'remainder placed as new stack');
   const frag3 = loot.createItem('grenade_frag', 2);
   check(grid.mergeCapacity('grenade_frag') === 2, 'merge capacity 2');
   check(grid.autoPlace(frag3) && !grid.has(frag3.uid) && frag3.qty === 0, 'fully merged stack is not placed');
@@ -64,23 +64,23 @@ export function runInventorySelfTest(): boolean {
   // split / partial-merge math (what InventorySystem.splitItem / dropPartial do on top of Grid)
   {
     const g = new Grid(4, 2, getDef);
-    const src = loot.createItem('grenade_frag', 4);       // stackMax 4, 1×1
+    const src = loot.createItem('grenade_frag', 3);       // stackMax 3 (2026-09-07: 수류탄은 한 칸에 3개), 1×1
     check(g.autoPlace(src), 'split: place source stack');
     const half = Math.max(1, Math.floor(src.qty / 2));
-    check(half === 2, 'split: half of 4 is 2');
+    check(half === 1, 'split: half of 3 is 1');
     const piece = loot.createItem('grenade_frag', half);
     const slot = g.findFreeSlot(piece, src.rotated);
     check(!!slot && !(slot.x === g.get(src.uid)!.x && slot.y === g.get(src.uid)!.y), 'split: free slot differs from source');
     check(g.place(piece, slot!.x, slot!.y, slot!.rotated), 'split: new stack placed');
     src.qty -= half;
-    check(src.qty === 2 && piece.qty === 2 && g.count === 2, 'split: 4 → 2 + 2');
-    // partial drag onto a same-def stack merges capped by stackMax (3 into a stack of 2 with max 4 → moves 2)
+    check(src.qty === 2 && piece.qty === 1 && g.count === 2, 'split: 3 → 2 + 1');
+    // partial drag onto a same-def stack merges capped by stackMax (3 into a stack of 1 with max 3 → moves 2)
     const big = loot.createItem('grenade_frag', 3);
     check(g.place(big, 3, 1), 'split: place third stack');
-    const room = 4 - piece.qty;
+    const room = 3 - piece.qty;
     const moved = Math.min(room, big.qty);
     piece.qty += moved; big.qty -= moved;
-    check(moved === 2 && piece.qty === 4 && big.qty === 1, 'partial merge capped by stackMax');
+    check(moved === 2 && piece.qty === 3 && big.qty === 1, 'partial merge capped by stackMax');
     check(g.mergeInto(big, piece.uid) === 0, 'partial merge into full stack moves 0');
     // probe with a foreign uid sees the source as a blocker (drop-on-source → noop path)
     const probe = { uid: '__split__', defId: 'grenade_frag', qty: 1, rotated: false };
@@ -89,12 +89,12 @@ export function runInventorySelfTest(): boolean {
     check(bl.length === 1 && bl[0] === src.uid, 'partial probe reports the source stack as blocker');
     // no free cell → split refused
     const tiny = new Grid(1, 1, getDef);
-    const lone = loot.createItem('grenade_frag', 4);
+    const lone = loot.createItem('grenade_frag', 3);
     check(tiny.autoPlace(lone), 'split: 1×1 grid holds the stack');
     check(tiny.findFreeSlot(loot.createItem('grenade_frag', 1)) === null, 'split: refused when the grid is full');
     // invalid quantities
     const bad = (q: number) => !Number.isFinite(q) || Math.floor(q) < 1 || Math.floor(q) >= lone.qty;
-    check(bad(0) && bad(4) && bad(NaN) && !bad(3) && !bad(1.7), 'split: qty must be within 1..qty-1');
+    check(bad(0) && bad(3) && bad(NaN) && !bad(2) && !bad(1.7), 'split: qty must be within 1..qty-1');
   }
 
   // full grid → tryAdd fails without side effects
@@ -131,18 +131,19 @@ export function runInventorySelfTest(): boolean {
   const c1 = loot.rollCorpse('warrior', new Random(5)).map((i) => `${i.defId}x${i.qty}`).join(',');
   const c2 = loot.rollCorpse('warrior', new Random(5)).map((i) => `${i.defId}x${i.qty}`).join(',');
   check(c1 === c2 && c1.includes('mat_bio_sample'), 'rollCorpse deterministic, bugs drop bio samples');
-  const rogue = loot.rollCorpse('rogue', new Random(11), 'smg37');
-  const rogueWeapon = rogue.find((i) => i.defId === 'wpn_smg37');
+  const rogue = loot.rollCorpse('rogue', new Random(11), 'smg');
+  const rogueWeapon = rogue.find((i) => i.defId === 'wpn_smg');
   const rogueStats = rogueWeapon && loot.getEffectiveStats(rogueWeapon);
   check(!!rogueWeapon && !!rogueStats && (rogueWeapon.durability ?? 0) <= rogueStats.maxDurability * 0.15 + 1, 'rogue corpse carries its weapon at ≤ 15 % durability');
-  check(rogue.some((i) => i.defId === 'ammo_light' && i.qty >= 36 && i.qty <= 72), 'rogue corpse drops 30–60 % of the light stack');
-  const boss = loot.rollCorpse('rogue_boss', new Random(3), 'r63');
-  check(boss.some((i) => i.defId === 'wpn_r63_g3' || i.defId === 'wpn_r63_g4'), 'boss corpse weapon is grade III/IV of the same family');
-  check(boss.some((i) => getDef(i.defId)!.category === 'attachment') && boss.some((i) => i.defId === 'stim'), 'boss corpse has an attachment and stims');
+  const lightStack = getDef('ammo_light')!.stackMax;
+  check(rogue.some((i) => i.defId === 'ammo_light' && i.qty >= lightStack * 0.3 && i.qty <= lightStack * 0.6), 'rogue corpse drops 30–60 % of the light stack');
+  const boss = loot.rollCorpse('rogue_boss', new Random(3), 'dmr');
+  check(boss.some((i) => i.defId === 'wpn_dmr_g3' || i.defId === 'wpn_dmr_g4'), 'boss corpse weapon is grade III/IV of the same family');
+  check(boss.some((i) => getDef(i.defId)!.category === 'attachment') && boss.some((i) => getDef(i.defId)!.category === 'stim'), 'boss corpse has an attachment and stims');
   check(loot.rollCorpse('nope' as never, new Random(1)).length === 1, 'unknown corpse type → single bio sample');
 
   // starter ids exist (weapon package shape: primary / primary2 / secondary / bag / items[{id, qty}])
-  check(!!getDef(STARTER_LOADOUT.primary) && !!getDef(STARTER_LOADOUT.secondary), 'starter weapon defs exist');
+  check(!!getDef(STARTER_LOADOUT.secondary), 'starter weapon def exists');
   check(!!getDef(STARTER_LOADOUT.bag) && !!getDef(STARTER_LOADOUT.bag)!.bag, 'starter bag def exists and is a bag');
   for (const e of STARTER_LOADOUT.items) {
     const d = getDef(e.id);
@@ -152,7 +153,7 @@ export function runInventorySelfTest(): boolean {
   // resize: grow keeps every placement, shrink relocates then overflows
   {
     const g = new Grid(5, 6, getDef);
-    const ar = loot.createItem('wpn_ar23');              // 4×2
+    const ar = loot.createItem('wpn_ar');              // 4×2
     const gem = loot.createItem('gem_quartz');            // 1×1
     check(g.place(ar, 0, 0) && g.place(gem, 4, 5), 'resize: seed a 5×6 grid');
     check(g.resize(10, 6).length === 0, 'resize: growing drops nothing');
@@ -188,7 +189,7 @@ export function runInventorySelfTest(): boolean {
 
   // sockets: attach / detach bookkeeping + effective stats + compatibility
   {
-    const ar = loot.createItem('wpn_ar23');
+    const ar = loot.createItem('wpn_ar');
     const brake = loot.createItem('att_brake');
     const choke = loot.createItem('att_choke');
     const brake2 = loot.createItem('att_brake');
@@ -206,7 +207,7 @@ export function runInventorySelfTest(): boolean {
     check(removed.length === 2 && ar.sockets === undefined && loot.getEffectiveStats(ar)!.magSize === 45, 'sockets: clearAllSockets empties and restores base stats');
     check(clearSocket(ar, 'grip') === undefined, 'sockets: clearing an empty socket is a no-op');
     // a weapon created with an extended mag in `extras` spawns with the bigger magazine
-    const loaded = loot.createItem('wpn_ar23', 1, { sockets: { mag: loot.createItem('att_mag_medium') } });
+    const loaded = loot.createItem('wpn_ar', 1, { sockets: { mag: loot.createItem('att_mag_medium') } });
     check(loaded.ammoInMag === 63 && loaded.durability === 500, 'sockets: createItem honours socketed mag size');
   }
 
@@ -214,12 +215,12 @@ export function runInventorySelfTest(): boolean {
   {
     const g = new Grid(5, 6, getDef);
     const nade = loot.createItem('grenade_frag', 2);
-    const stim = loot.createItem('stim', 2);
-    const stim2 = loot.createItem('stim', 1);
+    const stim = loot.createItem('heal_bandage', 2);
+    const stim2 = loot.createItem('heal_bandage', 1);
     const ammo = loot.createItem('ammo_medium', 30);
     check(g.autoPlace(nade) && g.autoPlace(stim) && g.autoPlace(ammo), 'quick: seed bag');
     check(g.autoPlace(stim2) && !g.has(stim2.uid) && stim.qty === 3 && stim2.qty === 0, 'quick: second stim merges into the first (3/3), no new tile');
-    check(isQuickUsable(getDef('stim')) && isQuickUsable(getDef('grenade_frag')) && !isQuickUsable(getDef('ammo_medium')), 'quick: only stims / grenades are usable');
+    check(isQuickUsable(getDef('heal_bandage')) && isQuickUsable(getDef('grenade_frag')) && !isQuickUsable(getDef('ammo_medium')), 'quick: only stims / grenades are usable');
     const slots = createQuickSlots();
     check(slots.length === QUICK_SLOTS && slots.every((s) => s === null), 'quick: 8 empty slots');
     // starter policy with the common bag (2 usable slots = N + S per QUICK_SLOT_UNLOCK_ORDER): grenade → N, stim → S
@@ -247,7 +248,7 @@ export function runInventorySelfTest(): boolean {
     // consume to 0: the slot follows a sibling stack of the same def when one exists, else clears
     assignQuickSlot(slots, 2, stim.uid);
     stim.qty = 0; g.remove(stim.uid);
-    const stimB = loot.createItem('stim', 1);
+    const stimB = loot.createItem('heal_bandage', 1);
     check(g.autoPlace(stimB), 'quick: sibling stim stack placed');
     check(relinkQuickSlot(slots, stim.uid, stimB.uid) && slots[2] === stimB.uid, 'quick: consumed stack hands its slot to the sibling stack');
     check(!relinkQuickSlot(slots, stimB.uid, stimB.uid), 'quick: relink onto itself is a no-op');

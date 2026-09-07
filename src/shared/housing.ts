@@ -88,10 +88,10 @@ export const ROOM_PURPOSE_BUILD_GENERATOR_LEVEL = 1;
 export const ROOM_PURPOSES_ACTIVE: readonly RoomPurpose[] = ['empty', 'workshop', 'range', 'greenhouse', 'library'];   // Phase 9 appended `library`
 
 /**
- * appended (Phase 8 UI pass): the ship always ships with a 작업실, and it is **always room 1** (index 0). The room
- * cannot be re-purposed and no other room may become a 작업실 — housing/Rules enforces both, housing/ShipState
- * migrates older saves onto it (furniture that no longer fits its room goes back to furniture storage), and the
- * 방 목록 pickers render the room as locked.
+ * @deprecated 2026-09-07 — **no longer enforced**. The Phase 8 UI pass gave every ship a built-in 작업실 locked to
+ * room 1; a new ship now starts with ten empty rooms and no furniture, and the 작업실 is an ordinary purpose that
+ * may be built in any room (one per ship, like the 사격장) for `ROOM_PURPOSE_BUILD_COST`. Kept only so the contract
+ * stays append-only; nothing reads it any more.
  */
 export const WORKSHOP_ROOM_INDEX = 0;
 

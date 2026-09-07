@@ -126,7 +126,7 @@ try {
   });
 
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
-  await page.evaluate(() => { localStorage.removeItem('scav.loadout'); localStorage.removeItem('scav.stash'); localStorage.removeItem('scav.profile'); });
+  await page.evaluate(() => { localStorage.removeItem('scav.loadout'); localStorage.removeItem('scav.stash'); localStorage.removeItem('scav.grant'); localStorage.removeItem('scav.profile'); });
   await page.goto(BASE, { waitUntil: 'load' });
   await boot();
   await enterHub();
@@ -153,6 +153,9 @@ try {
 
   /* ── 1. canFit (hub: bag then stash) ────────────────────────────────── */
   console.log('canFit');
+  // 2026-09-07: a fresh profile is granted the 기본 지급품 — empty the 창고 so the canFit / document assertions below
+  // see exactly what this test puts there
+  await page.evaluate(() => { const st = window.__game.getSystem('inventory').getStash(); for (const p of st.items()) st.remove(p.item.uid); });
   const fit = await page.evaluate(() => {
     const sys = window.__game.getSystem('inventory');
     const bag = sys.getGrid('bag');
@@ -161,7 +164,7 @@ try {
     const v0 = bag.version, n0 = bag.count;
     const exact = sys.canFit('mat_scrap', free * 10 + cap);
     const over = sys.canFit('mat_scrap', free * 10 + cap + 1);
-    return { free, cap, exact, over, one: sys.canFit('stim', 1), zero: sys.canFit('stim', 0), unknown: sys.canFit('nope_def', 1), unchanged: bag.version === v0 && bag.count === n0, stashCount: sys.getStash().count };
+    return { free, cap, exact, over, one: sys.canFit('heal_bandage', 1), zero: sys.canFit('heal_bandage', 0), unknown: sys.canFit('nope_def', 1), unchanged: bag.version === v0 && bag.count === n0, stashCount: sys.getStash().count };
   });
   ok(fit.exact === 'bag' && fit.over === 'stash' && fit.one === 'bag', 'canFit: exact bag capacity → bag, one unit more → stash (hub), unit → bag', JSON.stringify(fit));
   ok(fit.zero === null && fit.unknown === null && fit.unchanged && fit.stashCount === 0, 'canFit: qty 0 / unknown def → null; non-mutating (bag + stash untouched)', JSON.stringify(fit));
@@ -191,8 +194,8 @@ try {
     const ctx = window.__game.ctx;
     const sys = window.__game.getSystem('inventory');
     const before = { stashChanged: window.__ev['inventory:stashChanged'].length, loadout: window.__ev['loadout:changed'].length, saved: window.__ev['inventory:loadoutSaved'].length, calls: window.__profileCalls.length };
-    const stashDoc = { v: 2, cols: 10, rows: 24, items: [{ defId: 'mat_gunpowder', qty: 7, rotated: false, x: 2, y: 3 }, { defId: 'wpn_smg37', qty: 1, rotated: false, x: 0, y: 0, durability: 55, ammoInMag: 9 }] };
-    const loadoutDoc = { v: 1, slots: { primary: { defId: 'wpn_sg8', qty: 1, durability: 210, ammoInMag: 4 }, bag: { defId: 'bag_common', qty: 1 } }, bag: [{ defId: 'stim', qty: 2, rotated: false, x: 1, y: 1 }], quick: [null, null, null, null, 0, null, null, null] };
+    const stashDoc = { v: 2, cols: 10, rows: 24, items: [{ defId: 'mat_gunpowder', qty: 7, rotated: false, x: 2, y: 3 }, { defId: 'wpn_smg', qty: 1, rotated: false, x: 0, y: 0, durability: 55, ammoInMag: 9 }] };
+    const loadoutDoc = { v: 1, slots: { primary: { defId: 'wpn_sg', qty: 1, durability: 210, ammoInMag: 4 }, bag: { defId: 'bag_common', qty: 1 } }, bag: [{ defId: 'heal_bandage', qty: 2, rotated: false, x: 1, y: 1 }], quick: [null, null, null, null, 0, null, null, null] };
     ctx.bus.emit('net:profileLoaded', { profile: { credits: 120, docs: { stash: stashDoc, loadout: loadoutDoc }, updatedAt: Date.now() }, migrated: false });
     const stash = sys.getStash().items().map((p) => ({ defId: p.item.defId, qty: p.item.qty, x: p.x, y: p.y, durability: p.item.durability ?? null, ammoInMag: p.item.ammoInMag ?? null })).sort((a, b) => a.y - b.y || a.x - b.x);
     const l = sys.getLoadout();
@@ -206,10 +209,10 @@ try {
       fileSlots: Object.keys(file.slots).sort(), stashFile: stashFile.items.map((i) => i.defId).sort(),
     };
   });
-  ok(loaded.stash.length === 2 && loaded.stash[0].defId === 'wpn_smg37' && loaded.stash[0].durability === 55 && loaded.stash[0].ammoInMag === 9 && loaded.stash[1].defId === 'mat_gunpowder' && loaded.stash[1].x === 2 && loaded.stash[1].y === 3,
+  ok(loaded.stash.length === 2 && loaded.stash[0].defId === 'wpn_smg' && loaded.stash[0].durability === 55 && loaded.stash[0].ammoInMag === 9 && loaded.stash[1].defId === 'mat_gunpowder' && loaded.stash[1].x === 2 && loaded.stash[1].y === 3,
     'net:profileLoaded: the stash document replaces the local stash (placements + durability / rounds)', JSON.stringify(loaded.stash));
-  ok(loaded.stashChanged >= 1 && loaded.stashFile.join() === ['mat_gunpowder', 'wpn_smg37'].join(), 'stash replaced → inventory:stashChanged + localStorage mirror', JSON.stringify([loaded.stashChanged, loaded.stashFile]));
-  ok(loaded.primary?.defId === 'wpn_sg8' && loaded.primary.durability === 210 && loaded.primary.ammoInMag === 4 && loaded.secondary === null && loaded.bag.join() === 'stim' && loaded.quick[4] === 'stim',
+  ok(loaded.stashChanged >= 1 && loaded.stashFile.join() === ['mat_gunpowder', 'wpn_smg'].join(), 'stash replaced → inventory:stashChanged + localStorage mirror', JSON.stringify([loaded.stashChanged, loaded.stashFile]));
+  ok(loaded.primary?.defId === 'wpn_sg' && loaded.primary.durability === 210 && loaded.primary.ammoInMag === 4 && loaded.secondary === null && loaded.bag.join() === 'heal_bandage' && loaded.quick[4] === 'heal_bandage',
     'net:profileLoaded: the loadout document replaces slots / bag / quick slots', JSON.stringify({ p: loaded.primary, bag: loaded.bag, quick: loaded.quick }));
   ok(loaded.loadoutEv >= 1 && loaded.savedProfile.includes('profile') && !loaded.echoed.includes('loadout') && loaded.fileSlots.join() === 'bag,primary',
     'loadout replaced → loadout:changed, local file rewritten (reason profile) without echoing the doc back', JSON.stringify({ ev: loaded.loadoutEv, saved: loaded.savedProfile, echoed: loaded.echoed, fileSlots: loaded.fileSlots }));
@@ -472,16 +475,24 @@ try {
   const raid = await page.evaluate(() => {
     const sys = window.__game.getSystem('inventory');
     const ctx = window.__game.ctx;
+    // 2026-09-07: the starter equips no 주무기 — take one out of the 창고 for the socket / durability assertions
+    if (!sys.getLoadout().primary) {
+      if (!sys.getLoadout().bag) { const b = ctx.loot.createItem('bag_common'); if (sys.tryAddItem(b)) sys.equip(b.uid, 'bag'); }
+      const g = ctx.loot.createItem('wpn_ar');
+      if (!sys.tryAddItem(g)) { for (const it of [...sys.getAllItems()]) sys.takeItem(it.uid); sys.tryAddItem(g); }
+      sys.equip(g.uid, 'primary');
+    }
     const l = sys.getLoadout();
+    if (!l.primary) throw new Error(`no 주무기 to test with: bag ${JSON.stringify(sys.getBagSize())} items ${sys.getAllItems().map((i) => i.defId).join(',')}`);
     sys.updateItem(l.primary.uid, { durability: 123, ammoInMag: 5 });
     const att = ctx.loot.createItem('att_brake', 1);
     sys.tryAddItem(att);
     sys.attachToWeapon(l.primary.uid, att.uid);
-    const worn = ctx.loot.createItem('wpn_smg37', 1); worn.durability = 77; worn.ammoInMag = 3;
+    const worn = ctx.loot.createItem('wpn_smg', 1); worn.durability = 77; worn.ammoInMag = 3;
     sys.tryAddItem(worn);
     const flagged = ctx.loot.createItem('mat_alloy', 2); flagged.searched = false; // contract: `searched` travels with the raid state
     sys.tryAddItem(flagged);
-    const stims = sys.getAllItems().filter((i) => i.defId === 'stim');
+    const stims = sys.getAllItems().filter((i) => i.defId === 'heal_bandage');
     sys.setQuickSlot(2, null);
     const state = sys.captureRaidState();
     return { state, flaggedUid: flagged.uid, stimCount: stims.length, json: JSON.stringify(state).length };

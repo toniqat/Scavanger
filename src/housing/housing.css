@@ -193,7 +193,6 @@
 .hs-ship .hs-row.facility { min-height: 62px; }
 .hs-ship .hs-row.room { padding-left: 12px; min-height: 62px; }
 .hs-ship .hs-row.room.dim { opacity: 0.75; }
-.hs-ship .hs-row.room.is-locked { border-color: rgba(255, 179, 71, 0.4); }
 /* right-hand action cluster of a room row: wide 업그레이드 + the icon-only 제거 */
 .hs-row-acts { display: flex; align-items: center; gap: 8px; margin-left: auto; flex: none; }
 .hs-ship .hs-row-acts .ui-btn { margin-left: 0; }

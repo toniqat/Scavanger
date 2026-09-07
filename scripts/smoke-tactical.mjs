@@ -212,12 +212,23 @@ try {
       if (d.category === 'gadget') ctx.inventory.tryAddItem(ctx.loot.createItem(d.id, 3));
     }
   });
+  // Full health on the spot first, and 화염수류탄 **last**: its fire zone is friendly-fire by design and lands a few
+  // metres ahead of a standing player, so with the current starter gear the burn downed the player partway through
+  // the loop — and a downed player is refused **silently** (`deny(null)`), so every later `use()` returned false.
+  await page.evaluate(() => {
+    const ctx = window.__game.ctx;
+    ctx.player.respawnAt(ctx.player.position.clone(), ctx.player.yaw);
+  });
+  await gameSleep(page, 0.3);
   const thrown = {};
-  for (const id of ['incendiary', 'smokeGrenade', 'lureGrenade', 'domeShield']) {
-    thrown[id] = await page.evaluate((g) => window.__game.ctx.gadgets.use(g, false), id);
+  for (const id of ['smokeGrenade', 'lureGrenade', 'domeShield', 'incendiary']) {
+    thrown[id] = await page.evaluate((g) => {
+      const ctx = window.__game.ctx;
+      return { used: ctx.gadgets.use(g, false), downed: ctx.player.isDowned, hp: Math.round(ctx.player.hp) };
+    }, id);
     await gameSleep(page, 1.1);   // USE_COOLDOWN is game time
   }
-  ok(Object.values(thrown).every(Boolean), `throwable gadgets used: ${JSON.stringify(thrown)}`);
+  ok(Object.values(thrown).every((r) => r.used), `throwable gadgets used: ${JSON.stringify(thrown)}`);
 
   // Place-type gadgets refuse to stack (PLACE_CLEARANCE), so move between placements.
   const placeIds = ['turret', 'barricade', 'jumpPad', 'mine'];

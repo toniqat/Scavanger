@@ -37,10 +37,9 @@
   -webkit-user-select: none;
 }
 .inv-root.is-visible { opacity: 1; }
-/* The `!important` here beat `body.soft-cursor-on *`'s `cursor: none !important` on specificity, so a drag under the
-   in-game software cursor flashed the real Windows grab cursor. Scope it to the no-soft-cursor case. */
-body:not(.soft-cursor-on) .inv-root.is-dragging,
-body:not(.soft-cursor-on) .inv-root.is-dragging * { cursor: grabbing !important; }
+/* Fallback only: while the game cursor is applied (`body.cursor-ui`) `ui/hud/GameCursor` paints its own 잡기 art over
+   a drag with a more specific rule. This keeps a sane cursor if the canvas art could not be generated. */
+.inv-root.is-dragging, .inv-root.is-dragging * { cursor: grabbing; }
 
 .inv-layout {
   display: flex;
