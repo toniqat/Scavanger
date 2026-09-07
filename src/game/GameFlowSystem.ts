@@ -54,8 +54,9 @@ const XP_DEATH_MUL = 0.4;
  *   - `stats.extracted` = boarded && alive at completion (left-behind / dead players get `false`).
  *
  * Ship hub (phases 'hub' / 'docking' are owned by hub/HubSystem and are NOT gameplay):
- *   - Phase 8: Escape in 'hub' with no blocker opens the **pause menu** (`game:paused {freeze:false}`) — the ship keeps
- *     animating and no mission side effect (abort / stats / timers) is produced. 'docking' (the cutscene) never pauses.
+ *   - Phase 8: Escape in 'hub' opens the **pause menu** (`game:paused {freeze:false}`) — the ship keeps animating and
+ *     no mission side effect (abort / stats / timers) is produced. 'docking' (the cutscene) never pauses.
+ *     2026-09-08: blockers no longer gate it — the menu stacks over an open screen (see `escapePause`).
  *   - `hub:enter` while a mission / result phase is active → HubSystem emits `game:abort` first (we go to 'menu'),
  *     then it builds the ship and sets 'hub'. A mission may start from 'hub' (`game:newMission` from the launch pod,
  *     `ctx.net.startGame` or `ctx.net.rejoinMission`).
@@ -118,11 +119,13 @@ export class GameFlowSystem implements GameSystem {
   /** Inventory as it was when the 훈련장 was entered (ammo / durability are refunded on exit). */
   private trainingSnapshot: unknown = null;
   /**
-   * 2026-09-07 (커서 rework): **a lost pointer lock is no longer a pause.**
+   * 2026-09-07 (커서 rework): a lost pointer lock is not, by itself, a pause. Releasing the lock is how every screen
+   * shows the mouse, so treating a missing lock as "the player left" made the game freeze whenever the cursor
+   * appeared. Losing the *window* means the player really left — that still pauses.
    *
-   * Releasing the lock is now how every screen shows the mouse, and Chrome drops it on any Escape, so treating the
-   * missing lock as "the player left" is what made the game freeze every time the cursor appeared. Only losing the
-   * *window* means the player really left — that still pauses, exactly like alt-tabbing out of any other game.
+   * 2026-09-08: a lock the player took away **while the camera still wanted it** is a different thing — it is the
+   * Escape key, which the browser swallowed. `Input.onUserUnlock` reports exactly that case (our own releases are
+   * marked and skipped) and it opens the 일시정지 메뉴 through the same `input:pointerLockLost` event.
    */
   private onWindowBlur = (): void => this.onFocusLost();
   private onVisibilityChange = (): void => { if (document.visibilityState === 'hidden') this.onFocusLost(); };
@@ -195,6 +198,9 @@ export class GameFlowSystem implements GameSystem {
       b.on('training:exitRequested', () => this.exitTraining()),
       b.on('inventory:itemAdded', () => this.saveRaid()),
       b.on('crate:looted', () => this.saveRaid()),
+      // The browser ate an Escape to free the cursor (`main.ts` ← `Input.onUserUnlock`) — that press was the
+      // 일시정지 메뉴. Also fired by `onFocusLost` below, where the pause is the same outcome.
+      b.on('input:pointerLockLost', () => this.escapePause()),
     );
     window.addEventListener('blur', this.onWindowBlur);
     document.addEventListener('visibilitychange', this.onVisibilityChange);
@@ -414,7 +420,30 @@ export class GameFlowSystem implements GameSystem {
     const ctx = this.ctx;
     if (this.paused || !ctx.isGameplayPhase() || ctx.uiBlockers.size > 0) return;
     if (ctx.player?.isDead ?? false) return;
-    ctx.bus.emit('input:pointerLockLost', {});
+    ctx.bus.emit('input:pointerLockLost', {});   // → escapePause() below does the pausing
+  }
+
+  /* ── Escape (2026-09-08) ───────────────────────────────────────────────────
+   *
+   * **Escape always opens the 일시정지 메뉴, and never closes it.** Two entry points reach here because the browser
+   * splits the key in two: while the pointer is locked Escape never becomes a keydown (it only frees the cursor, and
+   * `Input.onUserUnlock` reports that as `input:pointerLockLost`), while a screen that already freed the cursor
+   * delivers a real `Keys.MENU` press. Both mean the same thing, so both land in this one method.
+   *
+   * The menu deliberately has no Escape-to-close: the browser refuses a re-lock until it sees a fresh engagement
+   * gesture after an Escape exit, so `게임으로 돌아가기` (a click) is what gives the camera back. It also means the
+   * key can be mashed with no effect at all, instead of walking into the UA's repeated-Escape throttle.
+   *
+   * Screens no longer close on Escape either — each closes on the key that opened it (Tab / M / P / E) — so the menu
+   * simply stacks on top of whatever is open and `게임으로 돌아가기` returns to it.
+   */
+  private escapePause(): void {
+    const ctx = this.ctx;
+    if (this.paused) return;
+    if (!(ctx.isGameplayPhase() || this.inShip())) return;
+    if (ctx.player?.isDead ?? false) return;
+    // The Alt 커서 has no window behind it, so leaving it up under the menu would strand the player without a camera.
+    if (ctx.uiBlockers.has(FREE_CURSOR_BLOCKER)) this.toggleFreeCursor(false);
     this.setPaused(true);
   }
 
@@ -422,7 +451,8 @@ export class GameFlowSystem implements GameSystem {
    * Alt (`Keys.CURSOR`): hand the mouse over without opening anything, and take it back on the next press.
    *
    * It is a plain cursor-mode owner with its own blocker token, so gameplay input is gated exactly the way an open
-   * panel gates it (no firing, no camera) and `main.ts` re-locks when it is released. Escape closes it too.
+   * panel gates it (no firing, no camera) and `main.ts` re-locks when it is released. 2026-09-08: Escape drops it
+   * as well, but only on the way to the 일시정지 메뉴 (`escapePause`) — it is not a plain close any more.
    *
    * 2026-09-07: **좌클릭도 닫는다.** This is the one cursor owner with no window behind it, so a click on the 3D
    * canvas can only mean "give me the camera back" — and a click is the real user gesture Chrome wants before it
@@ -740,17 +770,11 @@ export class GameFlowSystem implements GameSystem {
     if (this.soloPending || this.soloExpired) this.consumeStoredSoloRaid();
     if (this.inLiveMission()) this.wasMultiplayerHost = ctx.isMultiplayer && (ctx.net?.isHost ?? false);
 
-    // Escape: toggle pause (not while another UI blocker — inventory / map / terminal — is open; those
-    // consume Escape in a capture-phase listener anyway). Phase 8: the ship pauses on Escape as well,
-    // except while the housing / 함선 관리 mode owns the key (it cancels the placement instead).
-    if (ctx.input.wasPressed(Keys.MENU)) {
-      if (this.paused) this.setPaused(false);
-      // Alt 커서 is the innermost thing Escape can close (it holds a blocker, so the branch below would skip anyway).
-      else if (ctx.uiBlockers.has(FREE_CURSOR_BLOCKER)) { this.toggleFreeCursor(false); ctx.input.consume(Keys.MENU); }
-      else if (ctx.uiBlockers.size === 0 && !(ctx.player?.isDead ?? false)
-        && (ctx.isGameplayPhase() || (this.inShip() && !(ctx.housing?.housingMode ?? false)))) this.setPaused(true);
-    }
-    // Alt: free the mouse cursor in place (no screen, no pause). Pressed again — or Escape — gives it back.
+    // Escape **always** means the 일시정지 메뉴 (2026-09-08) — see `escapePause`. Reached only while the pointer is
+    // already free (a screen is open); the locked case arrives as `input:pointerLockLost` instead.
+    if (ctx.input.wasPressed(Keys.MENU)) { ctx.input.consume(Keys.MENU); this.escapePause(); }
+    // Alt: free the mouse cursor in place (no screen, no pause). Pressed again gives it back; Escape drops it and
+    // opens the 일시정지 메뉴 instead (2026-09-08).
     if (ctx.input.wasPressed(Keys.CURSOR)) this.toggleFreeCursor();
     // It is the only cursor owner with no window behind it, so nothing else would ever drop it: a phase change
     // (mission end, abort, docking) or a death has to.

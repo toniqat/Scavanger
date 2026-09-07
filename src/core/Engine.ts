@@ -105,8 +105,34 @@ export class Engine {
   /** Bloom / output post chain. Off → plain renderer.render (tone mapping still applied). */
   setPostProcessing(enabled: boolean): void {
     this.postEnabled = enabled;
+    if (enabled) this.perfChecked = true;   // an explicit 화면 설정 choice outranks the auto-disable guard below
   }
   get isPostProcessing(): boolean { return this.postEnabled && this.composer !== null; }
+
+  /* ── 화면 설정 (2026-09-08, driven by `ui:displayChanged` from main.ts) ────────────────────────────────────
+   *
+   * Two knobs beyond the bloom above. Both are deliberately shallow: nothing here recompiles a material or rebuilds
+   * the render graph, so a player can flick them while standing in a raid.
+   */
+  /**
+   * 그림자. `renderer.shadowMap.enabled` is the tempting switch and the wrong one — flipping it invalidates every
+   * material's shader and would need a `needsUpdate` sweep of the whole scene. The sun is the only shadow caster, so
+   * turning *it* off costs one boolean, skips the shadow-map pass entirely, and leaves every shader untouched.
+   */
+  setShadows(enabled: boolean): void {
+    this.atmosphere.sun.castShadow = enabled;
+  }
+  get hasShadows(): boolean { return this.atmosphere.sun.castShadow; }
+
+  /**
+   * 해상도 배율: how many device pixels the canvas gets per CSS pixel, on top of the 1.5 cap the constructor sets.
+   * Below 1 the frame is rendered small and upscaled by the compositor (the cheapest real perf knob there is).
+   */
+  setResolutionScale(scale: number): void {
+    const s = Math.max(0.5, Math.min(2, scale || 1));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5) * s);
+    this.resize();
+  }
 
   private setupPost(): void {
     try {

@@ -71,6 +71,7 @@ export class RemoteAvatar implements RemoteAvatarRef {
   private sprintBlend = 0;
   private crouchBlend = 0;
   private proneBlend = 0;
+  private downedBlend = 0;
   private aimBlend = 0;
   private airBlend = 0;
   private holdItemBlend = 0;
@@ -264,6 +265,7 @@ export class RemoteAvatar implements RemoteAvatarRef {
     this.aimBlend = damp(this.aimBlend, aiming && hasWeapon && !downed ? 1 : 0, 12, dt);
     this.crouchBlend = damp(this.crouchBlend, ref.stance === 'crouch' && !rolling && !downed ? 1 : 0, 10, dt);
     this.proneBlend = damp(this.proneBlend, prone && !rolling ? 1 : 0, 8, dt);
+    this.downedBlend = damp(this.downedBlend, downed && !ref.isDead ? 1 : 0, 7, dt);
     this.airBlend = damp(this.airBlend, airborne && !downed && !rolling ? 1 : 0, 12, dt);
     this.holdItemBlend = damp(this.holdItemBlend, holdingItem ? 1 : 0, 10, dt);
     this.throwBlend = damp(this.throwBlend, throwing ? 1 : 0, 12, dt);
@@ -335,7 +337,7 @@ export class RemoteAvatar implements RemoteAvatarRef {
     p.spraying = this.sprayBlend;
     p.heavyCarry = this.heavyBlend;
     p.hover = this.hoverBlend;
-    p.downed = 0;   // 전투불능 keeps the Phase 2 prone crawl
+    p.downed = this.downedBlend;   // 2026-09-08: 전투불능 = the backward-fall pose, same as the local player
     p.dead = ref.isDead ? Math.min(1, this.deadTimer / DEATH_ANIM) : 0;
     p.carry = this.carryBlend;
     this.model.update(dt, ctx.time, p);

@@ -497,8 +497,8 @@ try {
 
   /* ── 4b. 발사 준비 패널 (Phase 10, solo personal ship) ────────────────────
      The panel appears as soon as a launch slot is filled, holds `HUB_READY_BLOCKER` + the software cursor **only**
-     while WE are boarded (never `exitPointerLock`), right-click opens the modeless 분대원 장비 popup, and Escape
-     closes the popup before it un-boards. The solo launch countdown is HUB_LAUNCH_COUNTDOWN (3 s), so this block
+     while WE are boarded (never `exitPointerLock`), right-click opens the modeless 분대원 장비 popup, and E
+     closes the popup before it un-boards (2026-09-08: Escape is the 일시정지 메뉴 everywhere). The solo launch countdown is HUB_LAUNCH_COUNTDOWN (3 s), so this block
      un-boards well inside it. */
   console.log('발사 준비 패널');
   const readyHidden = await P(() => ({
@@ -539,23 +539,24 @@ try {
   ok(popup.open === true && popup.name.length > 0, `right-click opens the 분대원 장비 popup (${popup.name})`);
   ok(popup.ev?.open === true, 'hub:crewLoadoutToggled {open:true}');
   ok(!popup.stash && !popup.credits, 'popup shows no 함선 창고 column and no credits');
-  await tap('Escape');
+  await tap('KeyE');
   await waitSim(0.15);
   const afterEsc = await P(() => ({
     open: !(document.querySelector('.hub-crew-loadout')?.hidden ?? true),
     inPod: window.__game.ctx.player.isInPod,
     ev: window.__ev['hub:crewLoadoutToggled'].slice(-1)[0] ?? null,
   }));
-  ok(afterEsc.open === false && afterEsc.ev?.open === false, 'Escape closes the popup first');
-  ok(afterEsc.inPod === true, 'the same Escape did NOT un-board (the popup ate it)');
-  await tap('Escape');
+  ok(afterEsc.open === false && afterEsc.ev?.open === false, 'E closes the popup first');
+  ok(afterEsc.inPod === true, 'the same E did NOT un-board (the popup ate it)');
+  await waitSim(0.7);   // UNBOARD_GRACE: E only un-boards once the boarding press is well past
+  await tap('KeyE');
   await waitSim(0.2);
   const off = await P(() => ({
     inPod: window.__game.ctx.player.isInPod, hidden: document.querySelector('.hub-ready')?.hidden ?? null,
     blocker: window.__game.ctx.uiBlockers.has('ready'), cursor: window.__game.ctx.input.isCursorMode,
     phase: window.__game.ctx.phase,
   }));
-  ok(off.inPod === false && off.phase === 'hub', 'the next Escape un-boards (the ready token does not block it)');
+  ok(off.inPod === false && off.phase === 'hub', 'the next E un-boards (the ready token does not block it)');
   ok(off.hidden === true && !off.blocker && off.cursor === false, 'un-boarding hides the panel and releases the blocker + cursor');
 
   /* ── 5. shared ship terminal entry + pod lock (faked lobby, no relay) ───── */
@@ -595,7 +596,7 @@ try {
     const m1 = await readMenu();
     ok(m1.label === '합류 (1명 훈련 중)' && m1.disabled === false, `training running → "${m1.label}" enabled`);
     ok(m1.crew[0] === '훈련장', `crew row shows 훈련장 (${m1.crew[0]})`);
-    await tap('Escape');
+    await tap('KeyE');   // 2026-09-08: the terminal closes on E
     await waitFor(page, () => document.querySelector('.menu.hub-menu').hidden, 'terminal closed');
     await waitSim(0.2);
     const pod = await P(() => {
@@ -639,7 +640,7 @@ try {
     ok(m2.label === '임무 진행 중' && m2.disabled === true, `raid running → "${m2.label}" disabled`);
     const refused = await P(() => { const n0 = window.__ev['ui:notify'].length; const r = window.__game.getSystem('hub').startTraining(); return { r, notes: window.__ev['ui:notify'].slice(n0).map((n) => n.text) }; });
     ok(refused.r === false && refused.notes.some((t) => /임무 진행 중/.test(t)), `startTraining refused during a raid (${refused.notes.join(' | ')})`);
-    await tap('Escape');
+    await tap('KeyE');
     await P(() => { window.__game.getSystem('net')._lobby = null; });
   }
 } catch (e) {

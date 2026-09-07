@@ -527,3 +527,40 @@ reversed. **락 = 시점 조작 / 언락 = 진짜 커서.** The public API did n
 - `events.ts`: `'ui:freeCursorToggled' { active }` next to `'input:cursorModeChanged'`.
 - The 일시정지 메뉴 is **no longer a special case**: `ui/menus/MenuBase` takes the `'menu'` cursor token like every
   other screen, so there is exactly one way to show the mouse in the whole game.
+
+
+## 2026-09-08 — ESC = 항상 일시정지 (shared)
+
+- **`Input.onUserUnlock(listener)`** + the `selfExit` flag. The browser reserves Escape for leaving the pointer lock
+  and **swallows the keydown**, so `pointerlockchange` is the only evidence the key was pressed — this is the hook
+  `main.ts` mirrors onto `input:pointerLockLost` and `game/` turns into the 일시정지 메뉴. `exitPointerLock()` marks
+  releases the game itself made (a screen taking 커서 모드) so they stay silent; what reaches the listener is a lock
+  the player took away while the camera still wanted it. Only one listener (`main.ts`), like `cursor.onModeChange`.
+- **`MENU_BLOCKER`** (`'menu'`): the token every `ui/menus/MenuBase` screen holds. Screens whose own key doubles as
+  their close key (Tab / M / P / E) test for it so that key does not reach through the 일시정지 메뉴 stacked on top.
+- **`COMMUNITY_TAP_MAX_S`** (0.3 s): `Keys.INVITE` (P) is tap = 커뮤니티 패널, hold = 분대 초대 수락.
+- **`events.ts`**: appended `ui:displayChanged {fullscreen, bloom, shadows, scale}` — the 화면 설정 section publishes
+  it, `main.ts` applies it to the `Engine` (ui/ cannot import core/).
+- **`Keybinds.ts`**: the 인터페이스 labels now name both jobs of each key — `INVENTORY` 인벤토리 · 캐릭터 · 기업 ·
+  함선 (열기 / 닫기), `MAP` 지도 · 함선 관리 (열기 / 닫기), `MENU` 일시 정지 (메뉴는 게임으로 돌아가기로 닫기),
+  `INVITE` 커뮤니티 (길게: 분대 초대 수락). No id changed, so existing saves are unaffected.
+
+### Known follow-ups
+- `onUserUnlock` cannot tell an Escape from an alt-tab: both are "a lock we did not release". That is fine — a focus
+  loss pauses anyway — but it does mean a lock revoked by the browser for its own reasons also opens the menu.
+- The `selfExit` flag is cleared on the next `pointerlockchange` of any kind. A release that never produces one (an
+  engine that fires nothing) would leave it set and swallow the *next* genuine Escape.
+
+
+## 2026-09-08 — 빛기둥 · 엄폐 (types.ts, append-only)
+
+- **`Interactable.hidePillar?: boolean`** — true = `ui/hud/Detection` draws **no** 빛기둥 for this interactable even
+  though it is in range and still interactable. Purely local presentation, and deliberately not replicated: a corpse
+  sets it the first time *this* client opens it (`enemies/Corpses`), so the pillar goes away for whoever searched the
+  body while it stays lit for everyone else. Undefined keeps the old "in range → pillar" behaviour.
+- **`Obstacle.shotRadius?: number` / `shotHeight?: number`** — the cylinder `WorldRef.raycast` shoots at, when it
+  differs from the movement cylinder. `radius` / `height` are tuned so nobody walks into an invisible wall, which for
+  a lumpy rock means they sit *inside* its silhouette — bullets and line-of-sight then went through rock that was
+  plainly in the way (엄폐가 통하지 않던 원인), and for a boulder the collider was also ~0.4 m **taller** than the
+  rock, stopping shots in mid-air above it. `world/Props.ts` measures the drawn extent of each variant and passes it
+  in; every other consumer keeps reading `radius` / `height` unchanged. Undefined = use those two, as before.

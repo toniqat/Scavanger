@@ -157,7 +157,7 @@ try {
   const seedSet = await page.evaluate(() => ({ r: window.__game.ctx.hub.setMissionSeed(1234), v: window.__game.ctx.hub.missionSeed }));
   ok(seedSet.r === true && seedSet.v === 1234, 'setMissionSeed(1234) accepted solo');
   await page.evaluate(() => window.__game.ctx.hub.setMissionSeed(null));
-  await tap('Escape');
+  await tap('KeyE');   // 2026-09-08: the terminal closes on E (Escape is the 일시정지 메뉴)
   await waitFor(page, () => document.querySelector('.menu.hub-menu').hidden, 'terminal closed');
   await waitSim(0.2);
 
@@ -208,11 +208,11 @@ try {
   if (corpOpened) {
     ok(used.metaOpen, `E opened the corp screen (ui:corpToggled ${JSON.stringify(used.corp[used.corp.length - 1])}, blockers ${used.blockers.join(',')})`);
     ok((await page.evaluate(() => window.__game.ctx.interactables.all().find((i) => i.id === 'hub_terminal').canInteract())) === false, 'terminal not interactable while the corp screen is open');
-    await tap('Escape');
+    await tap('Tab');   // 2026-09-08: the 기업 screen is a tab of the Tab window, so Tab closes it
     await waitSim(0.3);
     const closed = await page.evaluate(() => ({ metaOpen: !!window.__game.ctx.meta?.isMenuOpen, corp: window.__ev['ui:corpToggled'].slice(-1)[0], hubMenu: !document.querySelector('.menu.hub-menu').hidden, blockers: [...window.__game.ctx.uiBlockers] }));
-    ok(!closed.metaOpen && closed.corp?.open === false, `Esc closed the corp screen (${JSON.stringify(closed.corp)})`);
-    ok(!closed.hubMenu && closed.blockers.length === 0, `terminal menu stayed closed after Esc (blockers ${closed.blockers.join(',') || 'none'})`);
+    ok(!closed.metaOpen && closed.corp?.open === false, `Tab closed the corp screen (${JSON.stringify(closed.corp)})`);
+    ok(!closed.hubMenu && closed.blockers.length === 0, `terminal menu stayed closed after Tab (blockers ${closed.blockers.join(',') || 'none'})`);
   } else {
     console.log('  (ctx.meta.openCorpMenu is a stub — checking the fallback toast)');
     ok(used.toasts.length >= 1 && used.toasts[0].kind === 'warning', `E emitted the fallback warning toast (${used.toasts[0]?.text})`);
@@ -352,11 +352,11 @@ try {
   }, [expX, expZ]);
   ok(Math.abs(pushed[0] - expX) > 0.3 || Math.abs(pushed[1] - expZ) > 0.3, `collider pushes out of the bench (${pushed.map((n) => n.toFixed(2))})`);
 
-  /* ── 6. Esc exits; walking resumes; the bench blocks the player ─────── */
-  await tap('Escape');
+  /* ── 6. M exits; walking resumes; the bench blocks the player ──────── */
+  await tap('KeyM');   // 2026-09-08: housing mode leaves on M, the key that entered it
   await waitSim(0.2);
   const exited = await page.evaluate(() => ({ active: window.__game.getSystem('hub').housing.active, ev: window.__ev['housing:modeChanged'], mode: window.__game.ctx.housing?.housingMode }));
-  ok(!exited.active && exited.ev.some((e) => e.active === false), 'Esc left housing mode (housing:modeChanged {active:false})');
+  ok(!exited.active && exited.ev.some((e) => e.active === false), 'M left housing mode (housing:modeChanged {active:false})');
   await waitSim(1.5);
   const cam2 = await page.evaluate(() => window.__game.ctx.camera.position.y);
   ok(cam2 < 3.5, `camera released (y ${cam2.toFixed(2)})`);
@@ -390,11 +390,11 @@ try {
     await waitSim(0.2);
     const rec = await page.evaluate(() => ({ ev: window.__ev['housing:furnitureRecovered'].length, count: window.__game.getSystem('hub').furnitureLayer.count, furn: window.__game.ctx.interactables.all().filter((i) => i.id.startsWith('hub_furn_')).length, stored: window.__game.ctx.housing.getStored().length }));
     ok(rec.ev === recBefore + 1 && rec.count === 0 && rec.furn === 0, `X recovered the bench (meshes ${rec.count}, interactables ${rec.furn}, storage entries ${rec.stored})`);
-    await tap('Escape');
+    await tap('KeyM');
     await waitSim(0.2);
   }
 
-  /* ── 7b. 시설 관리 (M): Esc / C leave cleanly (Phase 8 UI pass) ─────── */
+  /* ── 7b. 시설 관리 (M): M / C leave cleanly (2026-09-08: was Esc) ───── */
   if (real.impl) {
     console.log('시설 관리 (M)');
     await teleport(0, -1.8, 0);
@@ -410,7 +410,7 @@ try {
     }));
     ok(mng.manage && mng.ctrl && mng.blocker && mng.screen, 'M opens 시설 관리 (screen up, shipmanage blocker taken)');
     ok(!mng.hint && mng.hintText === '시설 관리', `the corner hint reads 시설 관리 and hides while the screen is up (${mng.hintText})`);
-    await tap('Escape');
+    await tap('KeyM');
     await waitSim(0.5);
     const left = await page.evaluate(() => ({
       manage: window.__game.ctx.housing.shipManageMode, blockers: [...window.__game.ctx.uiBlockers],
@@ -452,9 +452,9 @@ try {
   await waitSim(0.2);
   const sbCur = await page.evaluate(() => ({ ...window.__game.getSystem('hub').housing.cell }));
   ok(sbCur.y > sb.cell.y, `−160 px moves the starboard cursor toward +Z exactly like a port room — not mirrored (cell y ${sb.cell.y} → ${sbCur.y})`);
-  await tap('Escape');
+  await tap('KeyM');
   await waitSim(0.4);
-  ok((await page.evaluate(() => window.__game.getSystem('hub').housing.active)) === false, 'Esc left the starboard housing session');
+  ok((await page.evaluate(() => window.__game.getSystem('hub').housing.active)) === false, 'M left the starboard housing session');
 
   /* ── 8. teardown + re-enter ─────────────────────────────────────────── */
   await page.evaluate(() => window.__game.ctx.bus.emit('game:abort', {}));

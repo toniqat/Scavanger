@@ -312,10 +312,12 @@ try {
   const afterDown = await lastEv('stratagem:targeting');
   ok(afterDown.position[2] - afterMove.position[2] > 10, 'mouse down moves the cursor +Z');
   ok(await P(() => window.__game.ctx.player.canUseWeapons() === false), 'controls disabled during the top view');
-  await keyDown('Escape'); await keyUp('Escape'); await waitSim(0.15);
+  // 2026-09-08: RMB is the cancel. Escape never reached this code even before — the browser eats it to free the
+  // pointer lock — and that unlock is now the 일시정지 메뉴, whose blocker cancels the targeting through `baseActive`.
+  await mouseDown(2); await mouseUp(2); await waitSim(0.15);
   st = await state();
-  ok(st.targeting === false && st.armed === 'orbital_laser' && (await lastEv('stratagem:targeting'))?.active === false, 'Esc cancels the top view, call stays armed', JSON.stringify(st));
-  ok(await P(() => window.__game.ctx.phase === 'playing' && window.__game.ctx.uiBlockers.size === 0), 'Esc was swallowed (no pause menu)', JSON.stringify(await P(() => ({ phase: window.__game.ctx.phase, blockers: [...window.__game.ctx.uiBlockers] }))));
+  ok(st.targeting === false && st.armed === 'orbital_laser' && (await lastEv('stratagem:targeting'))?.active === false, 'RMB cancels the top view, call stays armed', JSON.stringify(st));
+  ok(await P(() => window.__game.ctx.phase === 'playing' && window.__game.ctx.uiBlockers.size === 0), 'no pause menu came up', JSON.stringify(await P(() => ({ phase: window.__game.ctx.phase, blockers: [...window.__game.ctx.uiBlockers] }))));
   await mouseDown(0); await waitSim(3.3);
   ok((await state()).targeting === true, 'top view again');
   await mouseUp(0); await waitSim(0.1); await mouseDown(0); await waitSim(0.1); await mouseUp(0); await waitSim(0.15);

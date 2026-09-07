@@ -6,14 +6,14 @@
  * empty 창고 with no 기본 지급품 (that grant is once per profile). This is the explicit way to start over.
  *
  * Everything under the `scav.` prefix is cleared except the client **settings** below, which are not part of a
- * character: key bindings, audio volumes and the dev-console history. The prefix sweep (rather than a hand-written
+ * character: key bindings, audio volumes, 화면 설정 and the dev-console history. The prefix sweep (rather than a hand-written
  * key list) means a save added later is wiped too — the failure mode of forgetting one is a half-reset character.
  *
  * The session token goes with it: the relay hands the new token a fresh PeerId, so the server-side profile
  * (credits, stash / loadout / ship / progression documents, 소셜 아이디 · 친구) is a new one as well. Without that,
  * the old server profile would simply be downloaded again on the next connection.
  */
-const KEEP = new Set(['scav.keybinds', 'scav.audio', 'scav.console.history']);
+const KEEP = new Set(['scav.keybinds', 'scav.audio', 'scav.display', 'scav.console.history']);
 
 /** Clears the character saves. Returns the keys removed (empty when localStorage is unavailable). */
 export function resetCharacterSaves(): string[] {

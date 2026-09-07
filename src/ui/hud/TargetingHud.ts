@@ -6,7 +6,7 @@ import { STRATAGEM_COLOR, STRATAGEM_GLYPH, stratagemDef, stratagemTargetHint } f
 /**
  * Ship-call targeting frame (`.targeting-hud`): shown on `stratagem:targeting {active:true}` — the HUD root gets
  * `.targeting` (CSS hides the reticle) and a centre frame with four corner brackets (`.corner`), the call glyph + name
- * (tinted), `좌클 확정 · 우클/Esc 취소` (topview) / `좌클 투하 · 우클 취소` (ground) and a distance readout from the last
+ * (tinted), `좌클 확정 · 우클 취소` (topview) / `좌클 투하 · 우클 취소` (ground) and a distance readout from the last
  * `position` to `ctx.player.position` (refreshed each update; `position` is also polled from the event payload the
  * stratagems system re-emits while active). Removed on `active:false`, death, reset. `pointer-events:none`.
  */

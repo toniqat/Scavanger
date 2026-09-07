@@ -128,7 +128,7 @@ inventory / items 의 신규 API 가 아직 없으면 `typeof` 체크 + `try/cat
 - `ctx.uiBlockers` 에 `'stats'` 토큰을 **먼저** 넣고 `ctx.input.setCursorMode(true, 'stats')` 로 인게임 커서를 켠다
   (**Phase 10**: 포인터 락은 그대로 유지한다 — `exitPointerLock()` 도, 닫을 때의 재잠금 마이크로태스크도 없다).
   닫을 때는 토큰을 지우고 `setCursorMode(false, 'stats')`. `close(relock)` 의 인자는 호출 시그니처 유지용으로만 남아 있다.
-- Esc 는 capture-phase 리스너로 잡아 시트만 닫는다 (일시정지 메뉴로 새지 않는다).
+- **2026-09-08**: 시트를 닫는 키는 **Tab**(`Keys.INVENTORY`)이다 — capture-phase 리스너가 잡되 `MENU_BLOCKER` 가 떠 있거나 포커스가 텍스트 입력에 있으면 넘긴다. Escape 는 더 이상 여기서 처리하지 않고 game/ 의 일시정지 메뉴로 간다(시트 위에 쌓인다).
 - 내용: 레벨 + XP 바, 스탯 5종(설명 · 값 · `＋` 버튼 — 레이드 중 비활성) + 잔여 포인트, 스킬 14종 진행도 바,
   파생 능력치 18개 readout, 2단계 확인식 **캐릭터 초기화** 버튼(함선에서만). 이 본문 전체는 `ui/SheetBody.ts` 하나가 그린다.
 
@@ -196,3 +196,12 @@ const implant = ctx.progression?.profile.implant ?? null;
   `refreshImplants` 가 목록이 비어 있고 `ctx.implants` 가 생겼으면 그때 만든다.
 - **CSS**: `.cs-body` 3열(1280 px 아래 2열 + 임플란트가 전체 폭), `.cs-imp-slot(.is-filled/.is-open)`,
   `.cs-imp-pop(.cs-imp-pop-embed/-overlay)`, `.cs-imp-close` 를 `ui/character.css` 에 추가.
+
+
+## 2026-09-08 — 캐릭터 시트는 Tab 으로 닫는다
+
+`ui/CharacterSheet` (the standalone overlay) closes on **`Keys.INVENTORY` (Tab)**, the key that opens the same screen
+as a tab of the inventory window; Escape is not handled here at all any more and belongs to the 일시정지 메뉴, which
+stacks over the sheet. The handler is capture-phase, so it ignores the press while `MENU_BLOCKER` is up and skips
+events aimed at a focused text field. The footer hint reads `Tab 으로 닫기`. The 전술 임플란트 picker in
+`ui/SheetBody` still eats its own Escape — it is the innermost popup.

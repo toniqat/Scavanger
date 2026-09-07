@@ -18,3 +18,17 @@ Owner: `Engine`. Publishes `ctx.scene / ctx.camera / ctx.renderer` (via `GameCon
 Notes
 - `three/addons/postprocessing/*` is used for bloom. Everything else is procedural.
 - Only `src/player` and `src/weapons` import `@/core/fx` and `@/core/util` (same author); other folders should stay on `@/shared`.
+
+
+## 2026-09-08 — 화면 설정 hooks
+
+`Engine` gained two shallow display knobs for the new 설정 > 화면 설정 section (driven from `main.ts` off
+`ui:displayChanged`; ui/ must not import core/):
+
+- **`setShadows(enabled)`** toggles `atmosphere.sun.castShadow`, **not** `renderer.shadowMap.enabled`. Flipping the
+  renderer flag invalidates every material's shader and would need a `needsUpdate` sweep of the whole scene; the sun
+  is the only shadow caster, so turning *it* off costs one boolean, skips the shadow-map pass, and recompiles nothing.
+  `hasShadows` getter.
+- **`setResolutionScale(scale)`** multiplies the constructor's `min(devicePixelRatio, 1.5)` cap by 0.5…2 and resizes.
+- `setPostProcessing(true)` now also sets `perfChecked`, so an explicit 화면 효과 choice is not undone by the
+  sustained-slow-frames guard that disables bloom on its own.

@@ -204,8 +204,8 @@ try {
   await sleep(150);
   const stimAfter = await page.evaluate(() => window.__game.ctx.inventory.countWhere((d) => d.id === 'heal_bandage'));
   ok(stimAfter > stimBefore, `double-click put 붕대 into the bag (${stimBefore} → ${stimAfter})`);
-  // Esc closes the whole window incl. the catalog
-  await tap('Escape');
+  // 2026-09-08: Tab closes the whole window incl. the catalog (Esc is the 일시정지 메뉴)
+  await tap('Tab');
   await waitFor(page, () => !window.__game.ctx.inventory.isOpen, 'window closed');
   s = await inv();
   ok(!s.open && !s.catalog && !s.blockers.includes('inventory'), 'Esc closes the window and the catalog, blocker released');
@@ -244,7 +244,7 @@ try {
   });
   ok(grid.cells === 300, `stash grid re-rendered at 10×30 (${grid.cells} cells)`);
   ok(grid.scrolls && /\/ 300/.test(grid.count), `stash panel scrolls and shows / 300 (${grid.count})`);
-  await tap('Escape');
+  await tap('Tab');
   await waitFor(page, () => !window.__game.ctx.inventory.isOpen, 'closed');
   await sleep(600); // debounced save
   const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('scav.stash') ?? 'null'));
@@ -402,7 +402,7 @@ try {
   const closed = await page.evaluate(() => ({ bench: window.__game.getSystem('inventory').getBench(), panel: document.querySelector('.inv-panel-craft').hidden, open: window.__game.ctx.inventory.isOpen }));
   ok(closed.bench === null && closed.panel && closed.open, '닫기 leaves bench mode (panel hidden, window open)');
   ok((await lastEv('ui:craftToggled'))?.open === false, 'ui:craftToggled {open:false}');
-  await tap('Escape');
+  await tap('Tab');
   await waitFor(page, () => !window.__game.ctx.inventory.isOpen, 'closed (bench)');
   // outside the hub the bench refuses
   const benchMission = await page.evaluate(() => { const ctx = window.__game.ctx; const was = ctx.phase; ctx.phase = 'playing'; ctx.inventory.openBenchCraft('gun', 1); const r = { open: ctx.inventory.isOpen, bench: window.__game.getSystem('inventory').getBench() }; ctx.phase = was; return r; });
@@ -431,7 +431,7 @@ try {
   await page.evaluate(() => window.__game.ctx.inventory.closeCatalog());
   const partial = await page.evaluate(() => ({ open: window.__game.ctx.inventory.isOpen, catalog: window.__game.ctx.inventory.isCatalogOpen, panel: !document.querySelector('.inv-panel-catalog').hidden }));
   ok(partial.open && !partial.catalog && !partial.panel, 'closeCatalog hides only the catalog panel');
-  await tap('Escape');
+  await tap('Tab');
   await waitFor(page, () => !window.__game.ctx.inventory.isOpen, 'closed (mission)');
 } catch (e) {
   fail++;

@@ -119,6 +119,9 @@ export class ImplantWidget {
     // Late registration: pick the equipped implant up as soon as the system exists.
     if (imp && imp.equipped !== this.equipped) this.setEquipped(imp.equipped);
     if (this.equipped === null) { if (!this.root.hidden) this.root.hidden = true; return; }
+    // 2026-09-08: nothing next to the crosshair while 전투불능 — the implant is unusable there, and the downed
+    //   screen belongs to the bleed-out / 포기 ring.
+    if (ctx.player?.isDowned) { if (!this.root.hidden) this.root.hidden = true; return; }
     if (!this.def && imp) this.def = imp.getDef(this.equipped) ?? null;
 
     if (imp) {

@@ -48,6 +48,73 @@ function buildHiddenTileContent(el: HTMLElement, item: ItemInstance, w: number, 
 }
 
 /**
+ * The equipped-item card that fills an **equipment slot** box (2026-09-08). Shared by the Tab window
+ * (`ui/InventoryUI`) and the read-only 분대원 장비 view (`ui/CrewLoadoutView`) so the two never drift apart.
+ *
+ * The slot no longer draws the item at its grid footprint: a 4×2 돌격소총 and a 5×1 저격소총 are the same object in
+ * the hand and only differ in how they pack a bag, so the box is one size and the card fills it. Everything the old
+ * `.inv-slot-meta` sentence carried is laid out in fixed corners instead — name top-left, sockets top-right, rounds
+ * bottom-left, durability bottom-right (a step smaller) over the durability bar along the bottom edge — so the same
+ * number is always in the same place, 무기 · 방탄복 · 가방 alike.
+ *
+ * Keeps the `.inv-tile` (+ `.is-weapon`) contract the drag / socket-drop / tooltip code matches on.
+ *
+ * @returns true when the item is worn (durability below max) — the caller flags its `.inv-slot` with `is-worn`.
+ */
+export function buildSlotCardContent(el: HTMLElement, item: ItemInstance, def: ItemDef, stats?: EffectiveWeaponStats | null): boolean {
+  el.className = `inv-tile inv-slot-card rarity-${def.rarity}`;
+  el.style.setProperty('--rc', def.color);
+  el.innerHTML = '';
+
+  const icon = document.createElement('div');
+  icon.className = 'inv-slot-ico';
+  icon.textContent = def.icon;
+  el.appendChild(icon);
+
+  const name = document.createElement('div');
+  name.className = 'inv-slot-name';
+  name.textContent = def.name;
+  el.appendChild(name);
+
+  if (stats) {
+    el.classList.add('is-weapon');
+    const pips = document.createElement('div');
+    pips.className = 'inv-slot-sockets';
+    for (const sk of SOCKET_SLOTS) {
+      const pip = document.createElement('i');
+      pip.className = 'inv-pip';
+      pip.dataset.socket = sk;
+      if (item.sockets?.[sk]) pip.classList.add('is-filled');
+      pips.appendChild(pip);
+    }
+    el.appendChild(pips);
+
+    const ammo = document.createElement('div');
+    ammo.className = 'inv-slot-ammo';
+    ammo.textContent = `${item.ammoInMag ?? 0}/${stats.magSize}`;
+    el.appendChild(ammo);
+  }
+
+  // 무기 read their durability from the effective stats; 방탄복 / 가방 from the def
+  const max = stats ? Math.max(1, stats.maxDurability) : (def.durabilityMax ?? 0);
+  if (max <= 0) return false;
+  const cur = Math.max(0, Math.min(max, item.durability ?? max));
+  const ratio = cur / max;
+  const bar = document.createElement('div');
+  bar.className = 'inv-slot-dur';
+  bar.style.setProperty('--p', `${Math.round(ratio * 100)}%`);
+  if (cur <= 0) { bar.classList.add('is-broken'); el.classList.add('is-broken'); }
+  else if (ratio < DURABILITY_LOW) bar.classList.add('is-low');
+  el.appendChild(bar);
+
+  const num = document.createElement('div');
+  num.className = 'inv-slot-durnum';
+  num.textContent = `${Math.round(cur)}/${max}`;
+  el.appendChild(num);
+  return cur < max;
+}
+
+/**
  * Builds the visual content of a tile (shared by grid tiles, slot tiles and the drag ghost). Weapons (`stats`
  * given) also get five socket pips (filled = attached) and a thin durability bar (amber < 30 %, red at 0).
  * An unsearched container item (`searched === false`) renders the footprint mask instead.

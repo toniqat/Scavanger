@@ -251,3 +251,68 @@ in `CLAUDE.md`.
   9.06 m). 수정: 와인드업 전까지 로그를 제자리에 고정하고, 플레이어 자리를 **평평하고 시야가 트인** 곳으로 고르며,
   최대 3번까지 던져 **실제로 닿은 첫 폭발**로 피해를 검증한다(빗나간 시도는 실패 메시지에 남는다). 고친 뒤
   단독 8연속 52/52 — 그중 한 번은 첫 투척이 6.09 m 로 빗나가 재시도 경로를 실제로 탔다.
+
+- 2026-09-08 (ESC = 항상 일시정지 · 설정 3분할 · 소셜 일원화): `verify:all` **전부 통과**, 5분 0초 —
+  typecheck ok, typecheck-server ok, net-selftest 278/278, build 2,041.76 kB JS / 201.28 kB CSS,
+  smoke-quickslots 46/46, smoke-weapons 103/103, smoke-phase2 53/53, smoke-stratagems 70/70, smoke-phase3 32/32,
+  smoke-phase4 49/49, smoke-tactical 64/64, smoke-ship-rooms 71/71, smoke-inventory-p6 63/63,
+  smoke-controls-hub 109/109, smoke-housing 176/176, smoke-progression 68/68, smoke-console 63/63,
+  smoke-loadout 61/61, smoke-ui-p6 68/68, smoke-search 59/59, smoke-ui-p5 133/133, smoke-meta 130/130,
+  smoke-training 110/110, smoke-uniques 71/71, smoke-library 126/126, smoke-ghost 86/86, smoke-enemy-delta 52/52,
+  smoke-planets 76/76, smoke-raidflow 42/42, smoke-social 130/130, smoke-rogue-v2 52/52, smoke-ecology 83/83,
+  e2e-mp 156/156. 새 검사 24개(smoke-controls-hub 99 → 109, smoke-social 116 → 130).
+
+  **애드혹 실물 확인 (12/12)** — 이 변경의 핵심은 헤드리스 스모크가 검증할 수 없다. 스크립트들은 Windows 에서
+  진짜 포인터 락이 `ClipCursor` 로 OS 커서를 숨겨진 창에 가두기 때문에 `requestPointerLock` 을 **스텁**하고,
+  그래서 "브라우저가 Escape 키다운을 삼킨다"는 이 작업의 전제 자체가 재현되지 않는다. 그래서 스텁 없이
+  헤드리스 Chrome 을 띄우고 캔버스를 **진짜로 클릭해 실제 락을 잡은 뒤** 확인했다(스크립트는 저장소에 넣지
+  않았다 — 커서 트랩 위험 때문에 `verify.mjs` 에 들어가면 안 된다):
+    - 캔버스 클릭으로 실제 포인터 락 획득 (`document.pointerLockElement === #game-canvas`)
+    - **Escape 한 번**에 일시정지 메뉴 (`menu` blocker, 제목 `일시 정지`) — 락은 사라진 상태
+    - **두 번째 Escape 는 메뉴를 닫지 않는다**
+    - `게임으로 돌아가기` 클릭 → 메뉴가 닫히고 **포인터 락이 즉시 복귀** (그 클릭이 브라우저가 요구하는
+      engagement gesture 였다)
+    - Tab → 가방이 열리고 락이 풀린다(커서 모드) → Escape → 메뉴가 **가방 위에 쌓이고** 가방은 열린 채 남는다
+    - 페이지 에러 0
+  참고로 이 헤드리스 빌드는 락 중에도 Escape 키다운을 페이지에 전달했다(headed Chrome 은 삼킨다). 두 경로가
+  모두 `escapePause()` 로 모이고 `paused` 면 즉시 반환하므로, 어느 쪽이든 **한 번**이면 충분하다.
+
+  두 번째 `verify:all` 에서 `e2e-mp` 가 11/12 로 한 번 떨어졌는데 이 변경과 무관한 **릴레이 드롭 flake** 였다:
+  두 클라이언트가 도킹 컷씬까지 간 뒤 **동시에** `net: 'offline'` · `phase: 'menu'` 로 떨어졌고(`ctx.time` 도 두
+  쪽이 소수점 12자리까지 같은 값에서 멈췄다) 이는 소켓이 사라져 `net:lobbyLeft` → `game:abort` 를 탄 모양이다.
+  단독 재실행 156/156.
+
+
+### 2026-09-08 — 투척 궤적 · 전투불능 연출 · 홀드 링 · 바위 엄폐 · 장착 슬롯 카드
+
+`npm run verify:all` — **4분 55초**, red 1건:
+
+```
+2026-09-08: typecheck ok, typecheck-server ok, net-selftest 278/278, build 2,047.48 kB JS / 202.58 kB CSS,
+smoke-quickslots 46/46, smoke-weapons 103/103, smoke-phase2 53/53, smoke-stratagems 70/70, smoke-phase3 32/32,
+smoke-phase4 49/49, smoke-tactical 64/64, smoke-ship-rooms 68/71, smoke-inventory-p6 63/63,
+smoke-controls-hub 109/109, smoke-housing 176/176, smoke-progression 68/68, smoke-console 63/63,
+smoke-loadout 61/61, smoke-ui-p6 70/70, smoke-search 59/59, smoke-ui-p5 133/133, smoke-meta 130/130,
+smoke-training 110/110, smoke-uniques 71/71, smoke-library 126/126, smoke-ghost 86/86, smoke-enemy-delta 52/52,
+smoke-rogue-v2 52/52, smoke-planets 76/76, smoke-raidflow 42/42, smoke-social 130/130, smoke-ecology 83/83,
+e2e-mp 156/156
+```
+
+**smoke-ship-rooms 68/71 은 flake.** 실패한 3건은 전부 하우징 모드의 커서 셀 판정
+(`cell → world centre` · `cursor over the bench is a valid pick-up target (2,4; was 4,3)` · `X recovered the bench`)
+이고, 커서가 한 칸 옆을 가리켰다 — 방을 고를 때 카메라가 `glideCamera` 로 **스르륵** 움직이므로 4레인 병렬 부하
+에서 프레임이 밀리면 아직 도착하지 않은 카메라로 바닥 레이를 쏜다. 이번 변경은 hub / housing 을 건드리지 않았고,
+단독 재실행 **3연속 71/71**.
+
+업데이트한 스모크 2건 (설계가 바뀐 자리):
+- `smoke-ui-p6` — 포기 홀드가 `.vitals .giveup` 의 가로 바에서 크로스헤어 링(`.hold.is-giveup`)으로 옮겨졌으므로
+  캡션(`.giveup.show` + `포기`)과 링(`isHoldGaugeOn` / `holdGaugeProgress` / `isHoldGaugeGiveUp`)을 따로 본다.
+  색은 해석된 `stroke` 가 아니라 **`--hc` 커스텀 속성**으로 검사한다 — 헤드리스 Chrome 은 `var()` 에 의존하는
+  속성을 클래스 토글 **다음 프레임**에야 다시 해석해서, 같은 태스크 안에서 `getComputedStyle(...).stroke` 를 읽으면
+  이전 색이 나온다(인라인 `stroke: red` 조차 무시된다). `--hc` 자체는 즉시 갱신되고, 실제 렌더는 정상이다.
+- `smoke-controls-hub` — 장착 슬롯의 `.inv-slot-meta` 문장이 없어졌으므로 카드 안의 이름 · 발수 · 내구도
+  (`.inv-slot-name` / `.inv-slot-ammo` / `.inv-slot-durnum`)를 본다.
+
+**애드혹 시각 확인** (스모크가 검증하지 않는 부분, 스크립트는 저장소에 넣지 않음): 함선 Tab 화면(장착 카드 5칸 ·
+장비+가방 한 패널 · 용량/가치), 레이드에서 수류탄을 손에 든 궤적 + 착탄 링(`throw-arc` 12점, 착탄 6.3 m — 실제
+투척 물리와 일치), 전투불능 자세(등을 대고 누움 · 무장 없음 · 크로스헤어 임플란트 게이지 없음 · 빨간 포기 링).

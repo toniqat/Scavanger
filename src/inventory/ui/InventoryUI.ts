@@ -9,7 +9,7 @@ import { CatalogView } from './CatalogView';
 import { DisassemblePanel } from './DisassemblePanel';
 import { filledSocketCount } from '../Sockets';
 import { isQuickUsable } from '../QuickSlots';
-import { GridView, buildTileContent, type HighlightState } from './GridView';
+import { GridView, buildSlotCardContent, buildTileContent, type HighlightState } from './GridView';
 import { Tooltip } from './Tooltip';
 import { ContextMenu, type MenuEntry } from './ContextMenu';
 import { SplitDialog } from './SplitDialog';
@@ -68,9 +68,6 @@ interface SlotView {
   slot: SlotId;
   el: HTMLElement;
   body: HTMLElement;
-  bodyW: number;
-  bodyH: number;
-  meta: HTMLElement;
   key: HTMLElement | null;
   tile: HTMLElement | null;
   uid: string | null;
@@ -134,7 +131,6 @@ export class InventoryUI {
   private quickCells: QuickCell[] = [];
   private quickCount!: HTMLElement;
   private quickKey!: HTMLElement;
-  private quickHold!: HTMLElement;
   private hintsEl!: HTMLElement;
   private tooltip!: Tooltip;
   private ghostLayer!: HTMLElement;
@@ -259,17 +255,10 @@ export class InventoryUI {
     /* bag panel */
     const bPanel = document.createElement('section');
     bPanel.className = 'inv-panel inv-panel-bag';
+    // 2026-09-08: no `INVENTORY` eyebrow and no `가방` title — the grid under it is unmistakable, and the equipment
+    //   column is joined to this panel now, so two stacked headings only pushed the two grids apart.
     const bHead = document.createElement('header');
-    bHead.className = 'inv-head';
-    const bTitleWrap = document.createElement('div');
-    bTitleWrap.className = 'inv-head-titles';
-    const bEyebrow = document.createElement('div');
-    bEyebrow.className = 'inv-eyebrow';
-    bEyebrow.textContent = 'INVENTORY';
-    const bTitle = document.createElement('h2');
-    bTitle.className = 'inv-title';
-    bTitle.textContent = TEXT.bag;
-    bTitleWrap.append(bEyebrow, bTitle);
+    bHead.className = 'inv-head is-bare';
     this.bagCapacity = document.createElement('div');
     this.bagCapacity.className = 'inv-capacity';
     const bActions = document.createElement('div');
@@ -280,7 +269,7 @@ export class InventoryUI {
     craftBtn.textContent = TEXT.craft;
     craftBtn.addEventListener('click', () => this.toggleCraft());
     bActions.append(this.bagCapacity, craftBtn);
-    bHead.append(bTitleWrap, bActions);
+    bHead.append(bActions);
     this.bagView = new GridView('bag', getDef, getStats, this.tileHandlers());
     const bBody = document.createElement('div');
     bBody.className = 'inv-bag-body';
@@ -317,10 +306,6 @@ export class InventoryUI {
     /* equipment column */
     const eq = document.createElement('aside');
     eq.className = 'inv-equip';
-    const eqEyebrow = document.createElement('div');
-    eqEyebrow.className = 'inv-eyebrow';
-    eqEyebrow.textContent = TEXT.equipment;
-    eq.appendChild(eqEyebrow);
     const eqGrid = document.createElement('div');
     eqGrid.className = 'inv-equip-grid';
     for (const slot of LOADOUT_SLOTS) eqGrid.appendChild(this.buildSlot(slot, SLOT_LABEL[slot]).el);
@@ -427,7 +412,6 @@ export class InventoryUI {
     this.buildHints();
     for (const sv of this.slots.values()) if (sv.key) sv.key.textContent = slotKeyLabel(sv.slot);
     this.quickKey.textContent = keyLabel(Keys.QUICK);
-    this.quickHold.textContent = TEXT.quick.holdHint(keyLabel(Keys.QUICK));
     const dz = this.dropZone.querySelector<HTMLElement>('.inv-key-drop');
     if (dz) dz.textContent = keyLabel(Keys.DROP_ITEM);
   }
@@ -438,11 +422,23 @@ export class InventoryUI {
    * the 필드 제작 panel and the 분해 dialog all sit in this chain — none of them owns a blocker of its own).
    */
   closeOverlays(): boolean {
+    const c = this.closePopups();
+    const e = this.craftPanel?.isOpen ? (this.closeCraft(), true) : false;
+    return c || e;
+  }
+
+  /**
+   * The **popups only** — split dialog, right-click context menu, 분해 dialog — without the 제작 column.
+   *
+   * 2026-09-08 (ESC = 항상 일시정지): Escape no longer closes the window, it cancels the innermost popup and
+   * otherwise falls through to the 일시정지 메뉴. The 제작 column is a column of the window (its own 제작 button
+   * toggles it), not a popup, so it deliberately stays open under the menu.
+   */
+  closePopups(): boolean {
     const a = this.dialog?.close() ?? false;
     const b = this.menu?.close() ?? false;
     const d = this.disassemble?.close() ?? false;
-    const e = this.craftPanel?.isOpen ? (this.closeCraft(), true) : false;
-    return a || b || d || e;
+    return a || b || d;
   }
 
   show(container: Container | null, hub = false): void {
@@ -623,9 +619,10 @@ export class InventoryUI {
     if (bag) {
       if (this.bagView.current !== bag) this.bagView.setGrid(bag);
       else this.bagView.refresh();
-      const size = this.sys.getBagSize();
-      this.bagCapacity.textContent = `${bag.cols}×${bag.rows} · ${bag.usedCells()} / ${bag.cols * bag.rows} · ${TEXT.quickSlots} ${size.quickSlots}`;
-      this.valueEl.textContent = fmtValue(bag.totalValue());
+      // 2026-09-08: used / total cells only. The `5×3` grid size and the `퀵슬롯 n` count both restate what the
+      //   grid and the rose right below already draw.
+      this.bagCapacity.textContent = `${bag.usedCells()} / ${bag.cols * bag.rows}`;
+      this.valueEl.textContent = fmtValue(bag.totalValue() + this.equippedValue());
     }
     const c = this.sys.getActiveContainer();
     if (c !== this.container) {
@@ -882,22 +879,10 @@ export class InventoryUI {
       rose.appendChild(el);
       this.quickCells[index] = { index, el, tile: null, uid: null }; // indexed by wheel slot, not DOM order
     }
-    const legend = document.createElement('div');
-    legend.className = 'inv-quick-legend';
-    const eyebrow = document.createElement('div');
-    eyebrow.className = 'inv-eyebrow';
-    eyebrow.textContent = TEXT.quick.eyebrow;
-    const title = document.createElement('div');
-    title.className = 'inv-quick-title';
-    title.textContent = TEXT.quick.title;
-    const hint = document.createElement('div');
-    hint.className = 'inv-quick-hint';
-    hint.textContent = TEXT.quick.hint;
-    this.quickHold = document.createElement('div');
-    this.quickHold.className = 'inv-quick-hint';
-    this.quickHold.textContent = TEXT.quick.holdHint(keyLabel(Keys.QUICK));
-    legend.append(eyebrow, title, hint, this.quickHold);
-    section.append(rose, legend);
+    // 2026-09-08: the rose stands on its own — no `QUICK USE` / `빠른 사용` heading and no "끌어다 놓기" sentence.
+    //   The compass glyphs, the centre key cap and the lock icons already say what it is, and the panel sits
+    //   directly under the bag grid it is filled from.
+    section.append(rose);
     return section;
   }
 
@@ -975,6 +960,22 @@ export class InventoryUI {
     return this.quickCells[index] ?? null;
   }
 
+  /**
+   * Credit value of everything in the equipment slots (2026-09-08). The 가치 readout under the bag used to count
+   * only what was *in* the bag, so equipping a rifle made the number you are carrying out of the raid drop.
+   */
+  private equippedValue(): number {
+    const loadout = this.sys.getLoadout();
+    let v = 0;
+    for (const slot of LOADOUT_SLOTS) {
+      const item = loadout[slot];
+      if (!item) continue;
+      const def = ITEM_DEF_MAP.get(item.defId);
+      if (def) v += def.value * Math.max(1, item.qty);
+    }
+    return v;
+  }
+
   private refreshSlots(): void {
     const loadout = this.sys.getLoadout();
     for (const sv of this.slots.values()) {
@@ -988,33 +989,8 @@ export class InventoryUI {
           sv.body.appendChild(sv.tile);
         }
         sv.uid = item.uid;
-        const stats = this.sys.getStats(item);
-        buildTileContent(sv.tile, item, def, def.width, def.height, stats);
+        sv.el.classList.toggle('is-worn', buildSlotCardContent(sv.tile, item, def, this.sys.getStats(item)));
         sv.tile.dataset.uid = item.uid;
-        // oversized tiles (SR 5×1) shrink to the slot body
-        const { width, height } = tileSize(def.width, def.height);
-        const scale = Math.min(1, sv.bodyW / width, sv.bodyH / height);
-        sv.tile.style.transform = scale < 1 ? `scale(${scale.toFixed(3)})` : '';
-        if (stats) {
-          const max = stats.maxDurability;
-          const cur = Math.max(0, Math.min(max, item.durability ?? max));
-          sv.meta.textContent = `${def.name} · ${item.ammoInMag ?? 0}/${stats.magSize}발 · ${TEXT.weaponStats.durability} ${cur}/${max}`;
-          sv.el.classList.toggle('is-worn', cur < max);
-        } else if (def.bag) {
-          sv.meta.textContent = `${def.name} · ${def.bag.cols}×${def.bag.rows} · ${TEXT.quickSlots} ${def.bag.quickSlots}`;
-          sv.el.classList.remove('is-worn');
-        } else if (def.armorId) {
-          const a = this.sys.getLoot().getArmorDef(def.armorId);
-          const max = def.durabilityMax ?? 0;
-          const cur = Math.max(0, Math.min(max, item.durability ?? max));
-          sv.meta.textContent = a
-            ? `${def.name} · ${TEXT.armorStats.dr} ${Math.round(a.damageReduction * 100)}% · ${TEXT.armorStats.durability} ${Math.round(cur)}/${max}`
-            : def.name;
-          sv.el.classList.toggle('is-worn', max > 0 && cur < max);
-        } else {
-          sv.meta.textContent = def.name;
-          sv.el.classList.remove('is-worn');
-        }
         sv.el.classList.add('has-item');
         sv.el.style.setProperty('--rc', def.color);
       } else {
@@ -1025,7 +1001,6 @@ export class InventoryUI {
         empty.className = 'inv-slot-empty';
         empty.innerHTML = `<svg viewBox="0 0 64 24" aria-hidden="true"><path d="M2 12h40l6-4h8l4 4v4H46l-4 4H30l-2 3h-6l1-3H2z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg><span>${TEXT.emptySlot}</span>`;
         sv.body.appendChild(empty);
-        sv.meta.textContent = '';
         sv.el.classList.remove('has-item', 'is-worn');
         sv.el.style.removeProperty('--rc');
       }
@@ -1047,18 +1022,19 @@ export class InventoryUI {
     }
     const body = document.createElement('div');
     body.className = 'inv-slot-body';
-    const { width, height } = slot === 'bag' ? tileSize(2, 2) : slot === 'armor' ? tileSize(2, 3) : tileSize(4, 2);
-    body.style.width = `${width}px`;
-    body.style.height = `${height}px`;
-    const meta = document.createElement('div');
-    meta.className = 'inv-slot-meta';
-    el.append(head, body, meta);
+    /*
+     * 2026-09-08: **every** slot is the same box. It used to be the item's own footprint (weapon 4×2, 방탄복 2×3,
+     * 가방 2×2) with the tile scaled to fit, which made a 5×1 저격소총 draw much smaller than a 4×2 돌격소총 — the
+     * grid footprint is a bag-packing property and says nothing about the gun. The box is the equipped item's
+     * card now; the footprint only shows up in the drag ghost, where it is what the player actually needs.
+     */
+    el.append(head, body);
     el.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       const sv = this.slots.get(slot);
       if (sv?.uid) this.onContextMenu(sv.uid, { kind: 'slot', slot }, e);
     });
-    const sv: SlotView = { slot, el, body, bodyW: width, bodyH: height, meta, key, tile: null, uid: null };
+    const sv: SlotView = { slot, el, body, key, tile: null, uid: null };
     this.slots.set(slot, sv);
     return sv;
   }

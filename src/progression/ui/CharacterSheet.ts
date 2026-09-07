@@ -1,5 +1,5 @@
 import type { GameContext, SkillId, StatId } from '@/shared';
-import { Keys } from '@/shared';
+import { Keys, MENU_BLOCKER } from '@/shared';
 import type { CharacterSheetHost } from './SheetBody';
 import { el, SheetBody } from './SheetBody';
 import './character.css';
@@ -14,7 +14,8 @@ const BLOCKER = 'stats';
  * number. The body itself is `SheetBody`, shared with the embedded 캐릭터 tab (`SheetView`) so there is exactly one
  * renderer (Phase 8).
  *
- * Opened / closed by `ui:statsToggled` (the ship terminal / `P`) — see ProgressionSystem.
+ * Opened by `ui:statsToggled` — see ProgressionSystem. **Closed by Tab** since 2026-09-08 (Escape is the
+ * 일시정지 메뉴 everywhere), the same key that opens the 캐릭터 tab of the inventory window.
  * Carries the shared screen tabs (인벤토리 → closes the sheet and opens the inventory window · 캐릭터 · 기업 disabled). Adds the
  * `'stats'` UI blocker token and then turns on the **in-game cursor** (`input.setCursorMode(true, 'stats')` —
  * Phase 10: the pointer lock is *kept* and a virtual cursor synthesises the DOM events, so `exitPointerLock()` and
@@ -26,8 +27,16 @@ export class CharacterSheet {
   private body: SheetBody;
   private _open = false;
 
+  /**
+   * 2026-09-08: the sheet closes on **Tab** (`Keys.INVENTORY`), the key that opens the same screen as a tab of the
+   * inventory window. Escape is no longer handled here at all — it falls through to `game/` and is the 일시정지 메뉴,
+   * which then stacks on top of this overlay. The 전술 임플란트 picker still eats its own Escape (`SheetBody`).
+   */
   private escHandler = (e: KeyboardEvent): void => {
-    if (e.code !== Keys.MENU || !this._open) return;
+    if (e.code !== Keys.INVENTORY || !this._open) return;
+    if (this.ctx.uiBlockers.has(MENU_BLOCKER)) return;     // the 일시정지 메뉴 is on top — it owns the keyboard
+    const t = e.target;                                    // capture-phase: never steal a Tab out of a focused field
+    if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) return;
     e.preventDefault();
     e.stopPropagation();
     this.close();
@@ -51,7 +60,7 @@ export class CharacterSheet {
     tabCorp.disabled = true;
     const f = this.frame = el('div', { cls: 'frame', parent: root });
 
-    this.body = new SheetBody(ctx, host, f, { hint: 'ESC 또는 P 로 닫기', onClose: () => this.close(), variant: 'overlay' });
+    this.body = new SheetBody(ctx, host, f, { hint: 'Tab 으로 닫기', onClose: () => this.close(), variant: 'overlay' });
 
     root.addEventListener('mousedown', (e) => e.stopPropagation());
     window.addEventListener('keydown', this.escHandler, true);

@@ -495,11 +495,19 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
     return def.charges > 1 ? 0 : this.cdRemaining;
   }
 
-  /** Spend one charge. `startCooldown` false = the caller starts it later (scan starts it when the train ends). */
+  /**
+   * Spend one charge. `startCooldown` false = the caller starts it later (scan starts it when the train ends).
+   *
+   * 2026-09-08: a refill already in flight is **never restarted**. A charge-based implant (대시, 3 charges) may fire
+   * while its refill timer runs (`cdRemainingBlocking` lets it), and the old unconditional `startCooldown()` reset
+   * that timer to full — so spending a charge also threw away the progress of the one that was recharging. A
+   * single-charge implant can never reach here with `cdRemaining > 0` (`ready` gates it), so this only ever
+   * changes multi-charge implants.
+   */
   private useCharge(startCooldown = true): boolean {
     if (!this.ready) { this.deny(); return false; }
     this.chargesLeft--;
-    if (startCooldown) this.startCooldown();
+    if (startCooldown && this.cdRemaining <= 0) this.startCooldown();
     this.emitCooldown(true);
     return true;
   }

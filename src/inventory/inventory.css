@@ -86,6 +86,8 @@
   min-height: 40px;
 }
 .inv-head-titles { display: flex; flex-direction: column; gap: 3px; }
+/* 2026-09-08: the 가방 header lost its INVENTORY / 가방 titles, so only the actions are left — pin them right. */
+.inv-head.is-bare { justify-content: flex-end; min-height: 0; }
 .inv-eyebrow {
   font-size: 10px;
   font-weight: 600;
@@ -385,12 +387,16 @@
   text-transform: uppercase;
   color: var(--inv-muted);
 }
+/* 2026-09-08: one box for every slot. The footprint (4×2 vs 5×1) is a bag-packing property, so sizing the box by it
+   made a 저격소총 look like a smaller gun than a 돌격소총. `--inv-cell` keeps it on the same rhythm as the grids. */
 .inv-slot-body {
   position: relative;
   box-sizing: content-box;
   display: flex;
   align-items: center;
   justify-content: center;
+  width: calc(3 * var(--inv-cell) + 8px);
+  height: calc(2 * var(--inv-cell) - 6px);
   padding: 6px;
   border: 1px dashed var(--inv-line-strong);
   border-radius: 4px;
@@ -401,6 +407,51 @@
 .inv-slot.is-target-ok .inv-slot-body { border-color: var(--inv-ok); background: color-mix(in srgb, var(--inv-ok) 14%, transparent); box-shadow: 0 0 16px color-mix(in srgb, var(--inv-ok) 35%, transparent); }
 .inv-slot.is-target-bad .inv-slot-body { border-color: var(--inv-bad); background: color-mix(in srgb, var(--inv-bad) 14%, transparent); }
 .inv-slot-body .inv-tile { position: relative; transform-origin: center; }
+
+/* ── equipped-item card (2026-09-08): fills the slot box, everything in fixed corners ── */
+.inv-slot-card { width: 100%; height: 100%; display: block; }
+.inv-slot-ico {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 34px; line-height: 1;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.55));
+  pointer-events: none;
+}
+.inv-slot-name {
+  position: absolute; left: 8px; top: 6px; right: 62px;
+  font-size: 12px; font-weight: 600; letter-spacing: 0.02em;
+  color: color-mix(in srgb, var(--rc) 35%, white 65%);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  pointer-events: none;
+}
+.inv-slot-sockets { position: absolute; right: 8px; top: 8px; display: flex; gap: 3px; pointer-events: none; }
+/* nothing in the top-right corner without sockets (방탄복 / 가방) — the name gets the whole width */
+.inv-slot-card:not(.is-weapon) .inv-slot-name { right: 8px; }
+.inv-slot-ammo, .inv-slot-durnum {
+  position: absolute; bottom: 7px;
+  font-family: var(--ui-mono, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+  pointer-events: none;
+}
+.inv-slot-ammo { left: 8px; font-size: 13px; font-weight: 600; color: rgba(255, 255, 255, 0.92); }
+/* 내구도 is the number you check least often — a step smaller than the round count. */
+.inv-slot-durnum { right: 8px; font-size: 10px; color: var(--inv-muted); }
+.inv-slot.is-worn .inv-slot-durnum { color: var(--inv-accent); }
+.inv-slot-dur {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.1);
+}
+.inv-slot-dur::after {
+  content: "";
+  display: block; height: 100%; width: var(--p, 100%);
+  background: var(--inv-ok);
+  transition: width 140ms var(--inv-ease);
+}
+.inv-slot-dur.is-low::after { background: var(--inv-accent); }
+.inv-slot-dur.is-broken::after { background: var(--inv-bad); }
 .inv-slot-bag .inv-slot-body { align-self: flex-start; }
 .inv-slot-bag .inv-slot-empty svg { width: 40px; height: 28px; }
 .inv-slot-empty {
@@ -414,13 +465,7 @@
   text-transform: uppercase;
 }
 .inv-slot-empty svg { width: 72px; height: 28px; }
-.inv-slot-meta {
-  min-height: 14px;
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  color: var(--inv-muted);
-  font-variant-numeric: tabular-nums;
-}
+/* 2026-09-08: `.inv-slot-meta` is gone — the card inside the box says all of it (see `.inv-slot-card`). */
 
 /* ── hints ──────────────────────────────────────────────────────────────── */
 .inv-hints {
@@ -765,9 +810,7 @@ kbd {
 /* dragging a cell out: the bag / backdrop mean "unassign", so the drop zone stays hidden */
 .inv-root.is-quick-source .inv-dropzone { display: none; }
 .inv-root.is-quick-source .inv-hints { display: flex; }
-.inv-quick-legend { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.inv-quick-title { font-size: 14px; font-weight: 600; letter-spacing: 0.02em; }
-.inv-quick-hint { font-size: 11px; letter-spacing: 0.04em; color: var(--inv-muted); }
+/* 2026-09-08: the rose has no legend any more — no title, no "끌어다 놓기" hint. */
 
 /* direction badge on bag tiles assigned to the wheel (top-left; the qty badge sits bottom-right) */
 .inv-tile-quick {
@@ -941,6 +984,18 @@ kbd {
 .inv-panel-bag { order: 2; }
 .inv-panel-craft { order: 3; }
 
+/* 2026-09-08: 장비 and 가방 are **one** panel to look at. They are already neighbours in the flex order, so the
+   24 px gap is cancelled and the two touching edges are squared off. The 제작 layout stacks 가방 over 함선 창고 in a
+   real column, where the join would be meaningless — hence `:not(.is-craft)`. */
+.inv-layout:not(.is-craft) .inv-equip {
+  margin-right: -24px;
+  border-right: none;
+  border-top-right-radius: 0; border-bottom-right-radius: 0;
+}
+.inv-layout:not(.is-craft) .inv-panel-bag {
+  border-top-left-radius: 0; border-bottom-left-radius: 0;
+}
+
 /* ── 제작 열 (2026-09-07) ───────────────────────────────────────────────────
    The 작업대 / 필드 제작 panel is a **column of the window** again (it was a modeless popup in Phase 8): the recipe
    list takes the leftmost slot — where 함선 창고 normally sits — and `.inv-col-right` stops being `display: contents`
@@ -985,7 +1040,6 @@ kbd {
    also carries the 창고 panel, so it asks for 1600 px; a mission has one panel fewer and gets it from 1280 px. */
 .inv-bag-body { display: flex; flex-direction: column; gap: 14px; }
 .inv-equip-grid { display: flex; flex-direction: column; gap: 14px; }
-.inv-slot.is-worn .inv-slot-meta { color: var(--inv-accent); }
 
 /* nothing can be thrown away in the ship (a raid keeps the drop zone and the key hints) */
 .inv-root.is-hub .inv-dropzone { display: none !important; }
@@ -1011,7 +1065,6 @@ kbd {
     flex-direction: column; align-items: stretch; gap: 12px;
     padding-top: 0; padding-left: 18px; border-top: none; border-left: 1px solid var(--inv-line);
   }
-  .inv-root:not(.is-hub) .inv-quick-legend { max-width: calc(3 * var(--inv-cell) + 8px); }
 }
 
 /* ship (창고 + 장비 + 가방 side by side): the same arrangement, but it needs more room */
@@ -1031,7 +1084,6 @@ kbd {
     flex-direction: column; align-items: stretch; gap: 12px;
     padding-top: 0; padding-left: 18px; border-top: none; border-left: 1px solid var(--inv-line);
   }
-  .inv-root.is-hub .inv-quick-legend { max-width: calc(3 * var(--inv-cell) + 8px); }
 }
 
 /* ═══ Phase 6 (2026-09-06): 무한 상자 catalog · 작업실 bench crafting · repair list ═══ */

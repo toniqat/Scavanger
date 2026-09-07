@@ -371,13 +371,14 @@ try {
     return { cls: row.className, xp: row.querySelector('.sp .xp').textContent, fill: row.querySelector('.sp .bar i').style.transform };
   });
   ok(/maxed/.test(maxed.cls) && maxed.xp === '최대' && /scaleX\(1/.test(maxed.fill), 'maxed stat shows 최대 with a full bar', JSON.stringify(maxed));
-  await tap('Escape');
+  // 2026-09-08: Tab closes the sheet (it is the 캐릭터 tab of the same window); Escape is the 일시정지 메뉴
+  await tap('Tab');
   await sleep(150);
   const closed = await page.evaluate(() => ({
     hidden: document.querySelector('.char-sheet').hidden, blocker: window.__game.ctx.uiBlockers.has('stats'),
     cursor: window.__game.ctx.input.isCursorMode,
   }));
-  ok(closed.hidden && !closed.blocker && !closed.cursor, 'Esc closes the sheet and drops the blocker + the cursor', JSON.stringify(closed));
+  ok(closed.hidden && !closed.blocker && !closed.cursor, 'Tab closes the sheet and drops the blocker + the cursor', JSON.stringify(closed));
   const toggled = await lastEv('ui:statsToggled');
   ok(toggled && toggled.open === false, 'ui:statsToggled {open:false}');
 

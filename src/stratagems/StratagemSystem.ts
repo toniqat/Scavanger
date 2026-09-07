@@ -99,7 +99,7 @@ class Call implements StratagemCall {
  * Input state machine (gameplay only, pointer locked):
  *   idle ──G tap──▶ armed(last)      ──G tap / RMB──▶ idle
  *        ──G hold──▶ wheel ──release──▶ armed(hover)
- *   armed(topview def) ──LMB hold 3 s──▶ topview cursor ──LMB──▶ confirm / ──RMB, Esc──▶ armed
+ *   armed(topview def) ──LMB hold 3 s──▶ topview cursor ──LMB──▶ confirm / ──RMB──▶ armed
  *   armed(ground def)  = ring on the aim ray ──LMB──▶ confirm
  *   confirm → Call {incoming} → landsAt → effect (active) → done. One shared cooldown.
  * Every client simulates the effect FX + its own player's damage; enemy damage is applied on the caller's client only
@@ -139,7 +139,6 @@ export class StratagemSystem implements GameSystem, StratagemsRef {
   private charge = -1;
   private topview = false;
   private needRelease = false;
-  private escRequested = false;
   private readonly cursor = new THREE.Vector3();
   /* ground */
   private groundTargeting = false;
@@ -436,18 +435,16 @@ export class StratagemSystem implements GameSystem, StratagemsRef {
   }
 
   /* ─────────────────────────── top view ─────────────────────────── */
-  private readonly escHandler = (e: KeyboardEvent): void => {
-    if (e.code !== Keys.MENU || !this.topview) return;
-    e.preventDefault();
-    e.stopImmediatePropagation();
-    this.escRequested = true;
-  };
+  /*
+   * 2026-09-08: Escape no longer cancels the top view. It could never actually reach us — the browser eats the key
+   * to free the pointer lock — and that unlock is now the 일시정지 메뉴, whose `'menu'` blocker fails `baseActive()`
+   * and cancels the targeting through the normal path above. RMB is the cancel that works while aiming.
+   */
 
   private enterTopview(host: Host): void {
     if (this.topview || !this._armed) return;
     this.topview = true;
     this.needRelease = true;
-    this.escRequested = false;
     host.setControlsEnabled(false);
     host.setLookLocked(true);
     const pos = host.position.clone(); pos.y += TOPVIEW_HEIGHT; pos.z += 0.001;
@@ -457,7 +454,6 @@ export class StratagemSystem implements GameSystem, StratagemsRef {
     if (world) this.cursor.y = world.getHeightAt(this.cursor.x, this.cursor.z);
     this.ring.show(true);
     this.ring.animate(this.cursor, this.ctx.time);
-    window.addEventListener('keydown', this.escHandler, true);
     this.lastEmitted.set(NaN, NaN, NaN);
     this.emitTargeting();
     this.audio('ui_open', undefined, 0.5);
@@ -483,7 +479,7 @@ export class StratagemSystem implements GameSystem, StratagemsRef {
     this.emitTargeting();
 
     if (!input.isMouseDown(MouseButtons.FIRE)) this.needRelease = false;
-    if (this.escRequested || input.wasMousePressed(MouseButtons.AIM)) { this.escRequested = false; this.cancelTargeting(); return; }
+    if (input.wasMousePressed(MouseButtons.AIM)) { this.cancelTargeting(); return; }
     if (!this.needRelease && input.wasMousePressed(MouseButtons.FIRE) && this._armed) this.confirm(defOf(this._armed));
   }
 
@@ -495,8 +491,7 @@ export class StratagemSystem implements GameSystem, StratagemsRef {
     else if (this.wheelOpen) { this.wheelOpen = false; this.wheelHover = null; this.ctx.bus.emit('stratagem:wheelChanged', { open: false, hover: null }); }
     if (!this.topview) return;
     this.topview = false;
-    this.escRequested = false;
-    window.removeEventListener('keydown', this.escHandler, true);
+
     if (host) {
       host.setCameraOverride(null);
       host.setControlsEnabled(true);

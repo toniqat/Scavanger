@@ -141,14 +141,15 @@ try {
   let layout = await P(() => {
     const menu = document.querySelector('.menu.pause');
     const frame = menu.querySelector('.frame');
-    const social = menu.querySelector('.pause-social');
-    const fr = frame.getBoundingClientRect(), sr = social.getBoundingClientRect();
+    const fr = frame.getBoundingClientRect();
     return {
       shown: !menu.classList.contains('hidden'),
       justify: getComputedStyle(menu).justifyContent,
       frameLeft: Math.round(fr.left), frameRight: Math.round(fr.right),
-      socialLeft: Math.round(sr.left), w: window.innerWidth,
-      socialHidden: social.hidden,
+      w: window.innerWidth,
+      social: !!menu.querySelector('.community-panel'),
+      title: frame.querySelector('.title')?.textContent ?? '',
+      subtitle: !!frame.querySelector('.subtitle'), mpNote: !!frame.querySelector('.mp-note'), hint: !!frame.querySelector('.hint'),
       buttons: [...frame.querySelectorAll('.actions .ui-btn')].map((b) => ({ t: b.textContent, d: b.style.display })),
       hubVariant: window.__game.getSystem('hud').isPauseHubVariant,
     };
@@ -156,20 +157,34 @@ try {
   ok(layout.shown, 'ESC opens the pause menu in the ship');
   ok(layout.justify === 'flex-start', '.menu.pause left-aligns its frame (justify-content: flex-start)', layout.justify);
   ok(layout.frameRight < layout.w / 2, 'the button column sits entirely in the left half', JSON.stringify([layout.frameRight, layout.w]));
-  ok(layout.socialLeft > layout.w / 2, 'the social column sits in the right half', String(layout.socialLeft));
-  ok(!layout.socialHidden, 'the social column is shown in the ship');
+  ok(!layout.social, '2026-09-08: no 소셜 열 on the ESC screen (social is the 커뮤니티 panel alone)');
+  ok(layout.title === '일시 정지' && !layout.subtitle && !layout.mpNote && !layout.hint,
+    'the ship variant is a bare 일시 정지 title + buttons (no 함선 · 일시 정지, no subtitle / note / hint)', JSON.stringify(layout));
   ok(layout.hubVariant, 'the pause menu is in its ship variant');
   ok(layout.buttons.length === 4 && layout.buttons.map((b) => b.t).join('|') === '게임으로 돌아가기|설정|함선으로 귀환|타이틀로',
     'button set / wording unchanged', JSON.stringify(layout.buttons.map((b) => b.t)));
   ok(layout.buttons[2].d === 'none', '함선으로 귀환 stays display:none in the ship', layout.buttons[2].d);
+  // 2026-09-08: Escape never closes the pause menu — only 게임으로 돌아가기 does (that click is also the user
+  // gesture Chrome demands before it hands the pointer lock back after an Escape exit).
+  await P(() => window.__tap('Escape'));
+  await waitSim(0.1);
+  ok(await P(() => !document.querySelector('.menu.pause').classList.contains('hidden')), 'Escape does NOT close the pause menu');
+  await click('.menu.pause .actions .ui-btn', 0);
+  await waitSim(0.2);
+  ok(await P(() => document.querySelector('.menu.pause').classList.contains('hidden') && !window.__game.ctx.uiBlockers.has('menu')),
+    '게임으로 돌아가기 is what closes it (blocker released)');
 
   console.log('offline fallback');
   // Forced, not assumed: a relay may well be up (the net / server lanes are live), so ask for the unavailable state.
+  // 2026-09-08: the one social surface left is the 커뮤니티 panel, so every column check below runs inside it.
   await P(() => window.__setSocial('offline'));
+  await waitSim(0.3);
+  await click('.cm-btn');
+  await waitSim(0.15);
   let off = await P(() => ({
-    off: document.querySelector('.pause-social .sc-off').hidden,
-    body: document.querySelector('.pause-social .sc-body').hidden,
-    txt: document.querySelector('.pause-social .sc-off').textContent,
+    off: document.querySelector('.community-panel .sc-off').hidden,
+    body: document.querySelector('.community-panel .sc-body').hidden,
+    txt: document.querySelector('.community-panel .sc-off').textContent,
   }));
   ok(!off.off && off.body, 'with no relay the column is only the unavailable line', JSON.stringify(off));
   ok(off.txt === '소셜 기능을 사용할 수 없습니다', 'the unavailable line reads 소셜 기능을 사용할 수 없습니다', off.txt);
@@ -177,7 +192,7 @@ try {
   console.log('social column');
   await P(() => window.__setSocial(window.__snap()));
   let col = await P(() => {
-    const wrap = document.querySelector('.pause-social');
+    const wrap = document.querySelector('.community-panel');
     const fg = wrap.querySelector('.sc-section.friends .sc-grid');
     const rg = wrap.querySelector('.sc-section.recent .sc-grid');
     const cs = getComputedStyle(fg);
@@ -208,11 +223,11 @@ try {
   ok(col.reqActs.join('|') === '수락|거절', 'a request card carries 수락 / 거절', JSON.stringify(col.reqActs));
 
   let card = await P(() => {
-    const c = document.querySelector('.pause-social .sc-section.friends .sc-card');
+    const c = document.querySelector('.community-panel .sc-section.friends .sc-card');
     return {
       code: c.dataset.code, id: c.querySelector('.sc-id').textContent, lv: c.querySelector('.sc-lv').textContent,
       name: c.querySelector('.sc-name').textContent, pres: c.querySelector('.sc-pres .t').textContent,
-      offlineCls: [...document.querySelectorAll('.pause-social .sc-section.friends .sc-card')][2].className,
+      offlineCls: [...document.querySelectorAll('.community-panel .sc-section.friends .sc-card')][2].className,
     };
   });
   ok(card.id === 'CDEF-2345', 'the card shows the formatted PlayerCode', card.id);
@@ -222,22 +237,22 @@ try {
   ok(card.offlineCls.includes('is-offline'), 'an offline friend is dimmed (.is-offline)', card.offlineCls);
 
   console.log('context menu');
-  await P(() => window.__ctxMenu('.pause-social .sc-section.friends .sc-card', 0));
+  await P(() => window.__ctxMenu('.community-panel .sc-section.friends .sc-card', 0));
   let menu = await P(() => window.__menu());
   ok(menu.open, 'right-click opens the profile context menu');
   ok(menu.items.map((i) => i.act).join('|') === 'play|whisper|remove',
     'a friend gets 같이 하기 / 귓속말하기 / 친구 삭제', JSON.stringify(menu.items.map((i) => i.label)));
   ok(!menu.items[0].off && menu.items[0].why === '', '같이 하기 enabled for a friend in the ship with no squad', JSON.stringify(menu.items[0]));
-  await P(() => window.__ctxMenu('.pause-social .sc-section.friends .sc-card', 1));
+  await P(() => window.__ctxMenu('.community-panel .sc-section.friends .sc-card', 1));
   menu = await P(() => window.__menu());
   ok(menu.items[0].off && menu.items[0].why === '임무 중', '같이 하기 disabled with 임무 중 for a friend in a raid', JSON.stringify(menu.items[0]));
-  await P(() => window.__ctxMenu('.pause-social .sc-section.friends .sc-card', 2));
+  await P(() => window.__ctxMenu('.community-panel .sc-section.friends .sc-card', 2));
   menu = await P(() => window.__menu());
   ok(menu.items[0].off && menu.items[0].why === '오프라인', '같이 하기 disabled with 오프라인', JSON.stringify(menu.items[0]));
-  await P(() => window.__ctxMenu('.pause-social .sc-section.friends .sc-card', 3));
+  await P(() => window.__ctxMenu('.community-panel .sc-section.friends .sc-card', 3));
   menu = await P(() => window.__menu());
   ok(menu.items[0].off && menu.items[0].why === '상대 분대가 가득 참', '같이 하기 disabled with 상대 분대가 가득 참', JSON.stringify(menu.items[0]));
-  await P(() => window.__ctxMenu('.pause-social .sc-section.recent .sc-card', 0));
+  await P(() => window.__ctxMenu('.community-panel .sc-section.recent .sc-card', 0));
   menu = await P(() => window.__menu());
   ok(menu.items.map((i) => i.act).join('|') === 'play|whisper|add', 'a non-friend gets 친구 추가 instead of 친구 삭제', JSON.stringify(menu.items.map((i) => i.label)));
   ok(menu.items[2].label === '친구 추가', 'the fourth entry reads 친구 추가', menu.items[2].label);
@@ -249,19 +264,19 @@ try {
   ok(await P(() => !window.__menuEl()), 'the menu closes after an action');
 
   // 같이 하기 → playWith
-  await P(() => window.__ctxMenu('.pause-social .sc-section.friends .sc-card', 0));
+  await P(() => window.__ctxMenu('.community-panel .sc-section.friends .sc-card', 0));
   await click('.sc-menu:not([hidden]) .sc-mi[data-act="play"]');
   log = await P(() => window.__log());
   ok(log.at(-1) === 'playWith:CDEF2345', '같이 하기 calls playWith', JSON.stringify(log.slice(-2)));
 
   // a disabled entry does nothing
-  await P(() => window.__ctxMenu('.pause-social .sc-section.friends .sc-card', 2));
+  await P(() => window.__ctxMenu('.community-panel .sc-section.friends .sc-card', 2));
   await click('.sc-menu:not([hidden]) .sc-mi[data-act="play"]');
   log = await P(() => window.__log());
   ok(log.at(-1) === 'playWith:CDEF2345', 'a disabled 같이 하기 fires nothing', JSON.stringify(log.slice(-2)));
 
   console.log('친구 삭제 confirm');
-  await P(() => window.__ctxMenu('.pause-social .sc-section.friends .sc-card', 0));
+  await P(() => window.__ctxMenu('.community-panel .sc-section.friends .sc-card', 0));
   await click('.sc-menu:not([hidden]) .sc-mi[data-act="remove"]');
   let conf = await P(() => ({
     open: !!window.__confirmEl(),
@@ -277,31 +292,43 @@ try {
   ok(await P(() => !window.__confirmEl()), '취소 closes the confirm');
   log = await P(() => window.__log());
   ok(!log.some((l) => l.startsWith('removeFriend')), '취소 removes nothing', JSON.stringify(log.slice(-2)));
-  await P(() => window.__ctxMenu('.pause-social .sc-section.friends .sc-card', 0));
+  await P(() => window.__ctxMenu('.community-panel .sc-section.friends .sc-card', 0));
   await click('.sc-menu:not([hidden]) .sc-mi[data-act="remove"]');
   await click('.sc-confirm:not([hidden]) .sc-confirm-foot .ui-btn.danger');
   log = await P(() => window.__log());
   ok(log.at(-1) === 'removeFriend:CDEF2345', '삭제 calls removeFriend', JSON.stringify(log.slice(-2)));
-  ok(await count('.pause-social .sc-section.friends .sc-card') === 3, 'the friend list repainted to 3 cards');
+  ok(await count('.community-panel .sc-section.friends .sc-card') === 3, 'the friend list repainted to 3 cards');
 
   console.log('friend request 수락');
-  await click('.pause-social .sc-section.reqs .sc-act.ok');
+  await click('.community-panel .sc-section.reqs .sc-act.ok');
   log = await P(() => window.__log());
   ok(log.at(-1) === 'respondFriend:UVWX2345,true', '수락 calls respondFriend(code, true)', JSON.stringify(log.slice(-2)));
   let after = await P(() => ({
-    reqs: document.querySelector('.pause-social .sc-section.reqs').hidden,
-    friends: document.querySelectorAll('.pause-social .sc-section.friends .sc-card').length,
+    reqs: document.querySelector('.community-panel .sc-section.reqs').hidden,
+    friends: document.querySelectorAll('.community-panel .sc-section.friends .sc-card').length,
   }));
   ok(after.reqs && after.friends === 4, 'the accepted request became a friend card', JSON.stringify(after));
 
-  console.log('Escape only closes the menu');
-  await P(() => window.__ctxMenu('.pause-social .sc-section.friends .sc-card', 0));
+  console.log('Escape: the context menu first, then the 일시정지 메뉴');
+  await P(() => window.__ctxMenu('.community-panel .sc-section.friends .sc-card', 0));
   await P(() => window.__tap('Escape'));
+  await waitSim(0.1);
   let esc = await P(() => ({
     menu: !window.__menuEl(),
     pause: !document.querySelector('.menu.pause').classList.contains('hidden'),
+    panel: !document.querySelector('.community-panel').hidden,
   }));
-  ok(esc.menu && esc.pause, 'Escape closes the context menu and leaves the pause screen up', JSON.stringify(esc));
+  ok(esc.menu && !esc.pause, 'Escape cancels the context menu without opening the 일시정지 메뉴', JSON.stringify(esc));
+  ok(esc.panel, 'the 커뮤니티 panel behind it stays open');
+  // 2026-09-08: with nothing innermost left, the next Escape is the 일시정지 메뉴 — stacked over the panel.
+  await P(() => window.__tap('Escape'));
+  await waitSim(0.15);
+  let esc2 = await P(() => ({
+    pause: !document.querySelector('.menu.pause').classList.contains('hidden'),
+    panel: !document.querySelector('.community-panel').hidden,
+  }));
+  ok(esc2.pause, 'the next Escape opens the 일시정지 메뉴 over the panel', JSON.stringify(esc2));
+  ok(esc2.panel, 'and the 커뮤니티 panel is left open underneath (it closes on its own key)');
 
   console.log('설정 side panel');
   await click('.menu.pause .actions .ui-btn', 1);
@@ -310,18 +337,27 @@ try {
     const root = document.querySelector('.menu.settings-menu');
     const frame = root.querySelector('.frame');
     const fr = frame.getBoundingClientRect();
-    const secs = [...root.querySelectorAll('.set-section-title')].map((e) => e.textContent);
+    const nav = [...root.querySelectorAll('.set-nav-btn')];
+    const paneBox = root.querySelector('.set-pane').getBoundingClientRect();
     return {
       open: window.__game.getSystem('hud').isSettingsOpen,
       side: root.classList.contains('side'),
       justify: getComputedStyle(root).justifyContent,
       left: Math.round(fr.left), right: Math.round(fr.right), w: window.innerWidth,
-      secs,
-      keys: root.querySelectorAll('.set-section.keys .controls-panel').length,
-      keycaps: root.querySelectorAll('.set-section.keys .ctl-keyboard .ctl-key').length,
-      bound: root.querySelectorAll('.set-section.keys .ctl-key.bound').length,
-      mouse: root.querySelectorAll('.set-section.keys .ctl-mouse-svg').length,
-      groups: root.querySelectorAll('.set-section.keys .ctl-list .ctl-group').length,
+      nav: nav.map((b) => b.textContent),
+      on: nav.filter((b) => b.classList.contains('is-on')).map((b) => b.textContent),
+      section: window.__game.getSystem('hud').settingsSection,
+      shownPanes: [...root.querySelectorAll('.set-body')].filter((e) => !e.hidden).map((e) => e.className),
+      frameH: Math.round(frame.getBoundingClientRect().height),
+      paneScroll: getComputedStyle(root.querySelector('.set-body.display')).overflowY,
+      displayRows: [...root.querySelectorAll('.set-body.display .set-row-label')].map((e) => e.textContent),
+      toggles: root.querySelectorAll('.set-body.display .set-toggle').length,
+      segs: [...root.querySelectorAll('.set-body.display .set-seg')].map((b) => b.textContent),
+      keys: root.querySelectorAll('.set-body.keys .controls-panel').length,
+      keycaps: root.querySelectorAll('.set-body.keys .ctl-keyboard .ctl-key').length,
+      bound: root.querySelectorAll('.set-body.keys .ctl-key.bound').length,
+      mouse: root.querySelectorAll('.set-body.keys .ctl-mouse-svg').length,
+      groups: root.querySelectorAll('.set-body.keys .ctl-list .ctl-group').length,
       btn: root.querySelector('.set-key-btn')?.textContent,
       vols: [...root.querySelectorAll('.set-row.vol .set-row-label')].map((e) => e.textContent),
       sliders: root.querySelectorAll('.set-row.vol .set-slider').length,
@@ -330,7 +366,12 @@ try {
   ok(set.open, '설정 opens from the pause menu');
   ok(set.side && set.justify === 'flex-start', 'the 설정 overlay is a left side panel (.side)', `${set.side} ${set.justify}`);
   ok(set.right < set.w * 0.75, 'the 설정 panel stays on the left', JSON.stringify([set.right, set.w]));
-  ok(set.secs.join('|') === '오디오|키 설정', '오디오 first, 키 설정 second', JSON.stringify(set.secs));
+  ok(set.nav.join('|') === '화면 설정|오디오 설정|키 설정', 'the left rail lists the three sections in order', JSON.stringify(set.nav));
+  ok(set.on.join('|') === '화면 설정' && set.section === 'display', '화면 설정 is selected by default', JSON.stringify([set.on, set.section]));
+  ok(set.shownPanes.length === 1 && /display/.test(set.shownPanes[0]), 'exactly one pane is visible at a time', JSON.stringify(set.shownPanes));
+  ok(set.paneScroll === 'auto', 'the right pane scrolls vertically', set.paneScroll);
+  ok(set.displayRows.join('|') === '전체화면|화면 효과|그림자|해상도 배율', '화면 설정 rows', JSON.stringify(set.displayRows));
+  ok(set.toggles === 3 && set.segs.join('|') === '75%|100%|125%', 'three on/off pills + the 해상도 배율 steps', JSON.stringify([set.toggles, set.segs]));
   ok(set.vols.join('|') === '전체|효과음' && set.sliders === 2, '오디오 keeps 전체 · 효과음 sliders', JSON.stringify(set.vols));
   ok(set.keys === 1, '키 설정 holds one real ControlsPanel instance', String(set.keys));
   ok(set.keycaps > 50, 'the keyboard diagram rendered its keys', String(set.keycaps));
@@ -338,6 +379,19 @@ try {
   ok(set.mouse === 1, 'the mouse diagram is there too', String(set.mouse));
   ok(set.groups >= 3, 'the per-function list is grouped', String(set.groups));
   ok(set.btn === '키 설정 변경', 'the KEYBIND_BUTTON_LABEL button sits under the diagram', String(set.btn));
+  // switching sections must not resize the frame — the pane box is fixed
+  const paneSwap = await P((before) => {
+    const root = document.querySelector('.menu.settings-menu');
+    [...root.querySelectorAll('.set-nav-btn')][2].click();
+    return {
+      before, after: Math.round(root.querySelector('.frame').getBoundingClientRect().height),
+      section: window.__game.getSystem('hud').settingsSection,
+      keysShown: !root.querySelector('.set-body.keys').hidden,
+      displayShown: !root.querySelector('.set-body.display').hidden,
+    };
+  }, set.frameH);
+  ok(paneSwap.section === 'keys' && paneSwap.keysShown && !paneSwap.displayShown, 'clicking 키 설정 swaps the pane', JSON.stringify(paneSwap));
+  ok(paneSwap.before === paneSwap.after, 'the panel does not resize between sections', JSON.stringify(paneSwap));
   await P(() => window.__tap('Escape'));
   let closed = await P(() => ({
     set: window.__game.getSystem('hud').isSettingsOpen,
@@ -349,6 +403,10 @@ try {
 
   console.log('커뮤니티 thumbnail');
   await emit('game:paused', { paused: false });
+  await waitSim(0.1);
+  await P(() => window.__tap('KeyP'));    // 2026-09-08: P closes the 커뮤니티 panel we left open above
+  await waitSim(0.2);
+  ok(await P(() => !window.__game.getSystem('hud').isCommunityOpen), 'a P tap closes the 커뮤니티 panel');
   await P(() => window.__setSocial(window.__snap()));
   await waitSim(0.3);
   let cm = await P(() => {
@@ -390,17 +448,19 @@ try {
   ok(panel.cursor === true, 'and switches on the software cursor (never exitPointerLock)', String(panel.cursor));
   ok(panel.col === 1 && panel.friends === 4, 'the panel reuses the same SocialColumn component', JSON.stringify(panel));
   ok(panel.code.includes('AB3D-9KMN'), 'the panel head shows my own 아이디', panel.code);
-  ok(panel.ev.join(',') === 'true', 'ui:communityToggled {open:true}', JSON.stringify(panel.ev));
-  await P(() => window.__tap('Escape'));
-  await waitSim(0.1);
+  ok(panel.ev.slice(-1)[0] === true, 'ui:communityToggled {open:true}', JSON.stringify(panel.ev));
+  // 2026-09-08: P closes it (Escape is the 일시정지 메뉴); the close button reads the live key label.
+  ok(await P(() => (document.querySelector('.cp-close')?.textContent ?? '') === '닫기 (P)'), 'the close button names the P key');
+  await P(() => window.__tap('KeyP'));
+  await waitSim(0.2);
   let cclosed = await P(() => ({
     open: window.__game.getSystem('hud').isCommunityOpen,
     blocker: window.__game.ctx.uiBlockers.has('community'),
     cursor: window.__game.ctx.input.isCursorMode,
     ev: window.__ev['ui:communityToggled'].map((e) => e.open),
   }));
-  ok(!cclosed.open && !cclosed.blocker && !cclosed.cursor, 'Escape closes it and releases blocker + cursor mode', JSON.stringify(cclosed));
-  ok(cclosed.ev.join(',') === 'true,false', 'ui:communityToggled open → close', JSON.stringify(cclosed.ev));
+  ok(!cclosed.open && !cclosed.blocker && !cclosed.cursor, 'a P tap closes it and releases blocker + cursor mode', JSON.stringify(cclosed));
+  ok(cclosed.ev.slice(-1)[0] === false, 'ui:communityToggled open → close', JSON.stringify(cclosed.ev));
 
   console.log('분대 초대 stack');
   await P(() => {
@@ -532,8 +592,8 @@ try {
   await emit('game:paused', { paused: true, freeze: false });
   await waitSim(0.1);
   let offCol = await P(() => ({
-    off: !document.querySelector('.pause-social .sc-off').hidden,
-    body: document.querySelector('.pause-social .sc-body').hidden,
+    off: !document.querySelector('.community-panel .sc-off').hidden,
+    body: document.querySelector('.community-panel .sc-body').hidden,
   }));
   ok(offCol.off && offCol.body, 'losing the mirror collapses the column back to the one line', JSON.stringify(offCol));
   await emit('game:paused', { paused: false });
@@ -545,7 +605,7 @@ try {
   await emit('game:paused', { paused: true, freeze: true });
   await waitSim(0.1);
   let raid = await P(() => ({
-    social: document.querySelector('.pause-social').hidden,
+    social: document.querySelector('.community-panel').hidden,
     ret: [...document.querySelectorAll('.menu.pause .actions .ui-btn')][2].style.display,
     hub: window.__game.getSystem('hud').isPauseHubVariant,
     community: document.querySelector('.community').classList.contains('show'),

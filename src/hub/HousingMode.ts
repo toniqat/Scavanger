@@ -60,7 +60,7 @@ const _ray = new THREE.Raycaster();
  *   wheel / [ ]               cycle the selection through the furniture storage (null = cursor only)
  *   C   (`CANCEL_KEY`)        cancel the current selection / put a carried piece back — and, with an empty
  *                             cursor, leave the mode just like Esc (Phase 8 UI pass)
- *   Esc (`Keys.MENU`)         leave 함선 관리 (`closeShipManage`) or plain housing mode
+ *   M (`Keys.MAP`)            leave 함선 관리 (`closeShipManage`) or plain housing mode (2026-09-08: was Esc)
  * Emits `housing:cursorChanged {room, x, y, valid}` whenever the footprint cell or its validity changes.
  *
  * **함선 관리 (Phase 8)**: `housing:shipManageChanged {active, room}` enters the same camera / cursor from
@@ -298,9 +298,10 @@ export class HousingMode {
     }
 
     // keys
-    // Swallow the Escape: game/ polls it later in the frame and would open the 일시정지 메뉴 the moment we
-    // release the manage-mode blocker on the way out (Phase 8).
-    if (input.wasPressed(Keys.MENU)) { input.consume(Keys.MENU); this.exit(); return; }
+    // 2026-09-08: **M leaves the mode**, the same key that entered it (`HubSystem` reads `Keys.MAP` for 함선 관리).
+    // Escape is no longer touched here — it falls through to game/ and is the 일시정지 메뉴, which stacks over the
+    // mode and hands it back on 게임으로 돌아가기.
+    if (input.wasPressed(Keys.MAP)) { input.consume(Keys.MAP); this.exit(); return; }
     // C: cancel what the cursor holds; with an empty cursor it leaves the mode, exactly like Esc
     if (input.wasPressed(CANCEL_KEY) && !this.cancelSelection()) { this.exit(); return; }
     if (input.wasPressed(Keys.ROTATE_ITEM)) {

@@ -88,7 +88,7 @@ export class StratagemPanel {
         this.ico.style.color = STRATAGEM_COLOR[def.id];
         setText(this.nameEl, def.name);
         setText(this.hintEl, def.hint);
-        setText(this.ctrlEl, this.targeting ? (def.targeting === 'topview' ? '좌클 확정 · 우클/Esc 취소' : '좌클 투하 · 우클 취소') : stratagemArmHint(def));
+        setText(this.ctrlEl, this.targeting ? (def.targeting === 'topview' ? '좌클 확정 · 우클 취소' : '좌클 투하 · 우클 취소') : stratagemArmHint(def));
       } else {
         setText(this.ico, '');
         setText(this.nameEl, cooling ? `재충전 ${secs}초` : '함선 호출 준비');

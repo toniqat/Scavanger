@@ -88,3 +88,11 @@ registers the system at runtime if `main.ts` has not).
 `landsAt` / structure `landAt` are `ctx.time` stamps (unscaled clock, so the HUD can compute ETAs). `updateCalls` tracks the wall time between
 updates and, whenever it is called with `dt === 0` (single-player pause), pushes every pending stamp forward by that amount — a call never
 lands, ticks or ends while the game is frozen. (`ctx.timeScale ≠ 1` is debug-only and not compensated.)
+
+
+## 2026-09-08 — 상단 시점 취소는 RMB
+
+The top view's capture-phase Escape listener (and `escRequested`) is **removed**. It could never fire in practice:
+while the pointer is locked the browser eats Escape to free the cursor, so the key never reached the page. That
+unlock is now the 일시정지 메뉴, whose `'menu'` blocker fails `baseActive()` and cancels the targeting through the
+existing path. **RMB** is the cancel that works while aiming, and the HUD hints say so (`좌클 확정 · 우클 취소`).

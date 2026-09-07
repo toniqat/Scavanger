@@ -528,7 +528,7 @@ try {
   });
   ok(settled.after < settled.before && settled.buy === 0, `거래 성사 settles the basket and empties the trays (${settled.before} → ${settled.after})`, JSON.stringify(settled));
   ok(shopDom.stage, '귀중품 전부 담기 button sits under the 판매 tray');
-  await tap('Escape');
+  await tap('Tab');
   await sleep(60);
   const closed = await P(() => ({
     view: !!document.querySelector('.inv-screen.corp-view'),

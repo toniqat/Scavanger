@@ -1,4 +1,5 @@
 import type { GameContext } from '@/shared';
+import { Keys, MENU_BLOCKER } from '@/shared';
 import { el, section } from './dom';
 
 export type HousingPage = 'room' | 'facility' | 'presets' | 'grow' | 'bookshelf';
@@ -25,8 +26,18 @@ export abstract class HousingPanel {
   protected unsubs: Array<() => void> = [];
   private _open = false;
   private msgTimer = 0;
+  /**
+   * 2026-09-08: these panels hang off a piece of furniture, so **E closes them** — the same key that opened them.
+   * Escape is the 일시정지 메뉴 now and is not captured here at all (it stacks over the panel and returns to it).
+   * The key is read live from `Keys`, never cached, and ignored while a menu owns the screen above us.
+   */
   private onKeyCapture = (e: KeyboardEvent): void => {
-    if (!this._open || e.code !== 'Escape') return;
+    if (!this._open || e.code !== Keys.INTERACT) return;
+    if (this.ctx.uiBlockers.has(MENU_BLOCKER)) return;
+    // This listener is capture-phase on `window`, so it runs *before* a focused field's own handler: without this
+    // the E of a 프리셋 이름 would close the panel instead of being typed.
+    const t = e.target;
+    if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) return;
     e.stopImmediatePropagation();
     e.preventDefault();
     this.close();

@@ -74,7 +74,7 @@ const IMPLANT_TEXT = {
 export interface SheetBodyOptions {
   /** Standalone overlay only: the 닫기 button in the footer. */
   onClose?: () => void;
-  /** Footer hint (standalone: `ESC 또는 P 로 닫기`); omitted in the embedded tab. */
+  /** Footer hint (standalone: `Tab 으로 닫기`); omitted in the embedded tab. */
   hint?: string;
   /**
    * Which shell this body belongs to. Both shells exist at once (the overlay is built at init and merely hidden),

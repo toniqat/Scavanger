@@ -169,6 +169,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   private scopeHidden = false;
   private crouchBlend = 0;
   private proneBlend = 0;
+  /** 전투불능 fall progress 0..1 — drives `SoldierModel.poseDowned` (the backward fall), 2026-09-08. */
+  private downedBlend = 0;
   private sprintBlend = 0;
   private throwBlend = 0;
   private holdItemBlend = 0;
@@ -284,7 +286,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.stamina = this.maxStamina; this.regenDelay = 0; this.exhausted = false; this.exhaustedSlow = 0;
     this.setStance('stand'); this.standUpTimer = 0;
     this.resetTactical();
-    this.setAiming(false); this.aimBlend = 0; this.crouchBlend = 0; this.proneBlend = 0; this.sprintBlend = 0;
+    this.setAiming(false); this.aimBlend = 0; this.crouchBlend = 0; this.proneBlend = 0; this.sprintBlend = 0; this.downedBlend = 0;
     this.bodyYaw = yaw;
     this.spawned = true;
     this.controlsEnabled = true;
@@ -318,6 +320,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
       this.bleedAcc = 0; this.giveUpHold = 0;
       this.setStance('prone'); this.standUpTimer = 0;
       this.proneBlend = 1;
+      this.downedBlend = 1;
       this.eyePos.set(0, EYE_PRONE, 0);
       _v.copy(this.controller.position); _v.y += EYE_PRONE;
       this.rig.snapTo(_v, yaw);
@@ -588,7 +591,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.stamina = this.maxStamina; this.regenDelay = 0; this.exhausted = false; this.exhaustedSlow = 0;
     this.setStance('stand'); this.standUpTimer = 0;
     this.resetTactical();
-    this.setAiming(false); this.aimBlend = 0; this.crouchBlend = 0; this.proneBlend = 0; this.sprintBlend = 0;
+    this.setAiming(false); this.aimBlend = 0; this.crouchBlend = 0; this.proneBlend = 0; this.sprintBlend = 0; this.downedBlend = 0;
     this.bodyYaw = yaw;
     this.spawned = true;
     this.controlsEnabled = true;
@@ -766,7 +769,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.stamina = this.maxStamina; this.regenDelay = 0; this.exhausted = false; this.exhaustedSlow = 0;
     this.setStance('stand'); this.standUpTimer = 0;
     this.resetTactical();
-    this.isAiming = false; this.aimBlend = 0; this.crouchBlend = 0; this.proneBlend = 0; this.sprintBlend = 0;
+    this.isAiming = false; this.aimBlend = 0; this.crouchBlend = 0; this.proneBlend = 0; this.sprintBlend = 0; this.downedBlend = 0;
     this.bodyYaw = y;
     this.spawned = true;
     this.controlsEnabled = true;
@@ -1071,6 +1074,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     if (scopeHide !== this.scopeHidden) { this.scopeHidden = scopeHide; this.model.setVisible(!scopeHide && !this._inPod); }
     this.crouchBlend = damp(this.crouchBlend, this._stance === 'crouch' && !diving ? 1 : 0, 10, dt);
     this.proneBlend = damp(this.proneBlend, this._stance === 'prone' && !diving ? 1 : 0, 8, dt);
+    this.downedBlend = damp(this.downedBlend, this._downed && !this.isDead ? 1 : 0, 7, dt);
     this.rollBlend = damp(this.rollBlend, diving ? 1 : 0, 18, dt);
     if (diving) this.rollPhase = c.rollProgress;
     else if (this.rollBlend < 0.01) { this.rollBlend = 0; this.rollPhase = 0; }
@@ -1122,7 +1126,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     p.heavyCarry = this.heavyBlend;
     p.hover = this.hoverBlend;
     p.carry = this.carryBlend;
-    p.downed = 0;   // 전투불능 keeps the Phase 2 prone crawl
+    p.downed = this.downedBlend;   // 2026-09-08: 전투불능 is its own backward-fall pose (SoldierModel.poseDowned)
     p.dead = this.isDead ? Math.min(1, this.deadTimer / DEATH_ANIM) : 0;
     this.model.update(dt, ctx.time, p);
 
@@ -1636,7 +1640,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.setStance('stand'); this.standUpTimer = 0;
     this.stamina = this.maxStamina; this.regenDelay = 0; this.exhausted = false; this.exhaustedSlow = 0;
     this.resetTactical();
-    this.crouchBlend = 0; this.proneBlend = 0;
+    this.crouchBlend = 0; this.proneBlend = 0; this.downedBlend = 0;
     this.cancelHold(); this.interactTarget = null;
     if (this.lastPromptText !== null) { this.lastPromptText = null; this.lastHoldProgress = 0; this.ctx.bus.emit('interact:promptChanged', { text: null, holdProgress: 0 }); }
     this.rig.setOverride(null);

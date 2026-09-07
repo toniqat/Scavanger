@@ -26,5 +26,5 @@ export function stratagemArmHint(def: StratagemDef): string {
   return def.targeting === 'topview' ? '좌클 홀드 → 위치 지정' : '좌클 투하 · 우클 취소';
 }
 export function stratagemTargetHint(def: StratagemDef): string {
-  return def.targeting === 'topview' ? '좌클 확정 · 우클/Esc 취소' : '좌클 투하 · 우클 취소';
+  return def.targeting === 'topview' ? '좌클 확정 · 우클 취소' : '좌클 투하 · 우클 취소';
 }

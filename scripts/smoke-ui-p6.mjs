@@ -174,7 +174,8 @@ try {
   ok(/\bshow\b/.test(hh.cls) && hh.on, 'housing:modeChanged active → bar .show', hh.cls);
   ok(hh.rows === 1 && !hh.sel && !hh.cell, `the bar is the key line only (${hh.rows} row(s))`);
   ok(hh.keys === 'LMB 설치 · R 회전 · X 회수 · 휠 선택 · C 취소', 'key hints from live bindings, no Esc', hh.keys);
-  ok(/\bshow\b/.test(hh.exitCls) && /종료/.test(hh.exitText) && /Esc/.test(hh.exitText), '종료 (Esc) chip bottom-right', hh.exitText);
+  // 2026-09-08: 함선 관리 leaves on M (the key that entered it), not Escape
+  ok(/\bshow\b/.test(hh.exitCls) && /종료/.test(hh.exitText) && /M/.test(hh.exitText), '종료 (M) chip bottom-right', hh.exitText);
   await emit('housing:modeChanged', { active: false, room: null });
   hh = await P(() => ({ cls: document.querySelector('.housing-hint').className, exitCls: document.querySelector('.housing-exit').className, on: window.__game.getSystem('hud').isHousingHintOn }));
   ok(!/\bshow\b/.test(hh.cls) && !/\bshow\b/.test(hh.exitCls) && !hh.on, 'housing:modeChanged inactive → both hidden', JSON.stringify(hh));
@@ -197,34 +198,55 @@ try {
   rl = await P(() => ({ cls: document.querySelector('.room-label').className, on: window.__game.getSystem('hud').isRoomLabelOn }));
   ok(!/\bshow\b/.test(rl.cls) && !rl.on, 'room null → hidden at once', JSON.stringify(rl));
 
-  console.log('give-up bar (Phase 9)');
+  console.log('give-up: 포기 caption + crosshair ring (2026-09-08)');
   // A real down (lethal damage → downed, not dead) so the vitals are in downed mode; the hold itself is player/'s, so it is synthesised.
+  // 2026-09-08: the horizontal fill moved out of `.vitals .giveup` into the crosshair ring (`hud/HoldGauge`,
+  // `.hold.is-giveup`) — the caption stays where it was, the progress is read off the ring.
   await P(() => window.__game.ctx.player.takeDamage(500));
   await waitSim(0.2);
-  const giveUp = () => P(() => { const v = document.querySelector('.vitals'); const g = v.querySelector('.giveup'); return { downed: v.classList.contains('downed'), pDowned: window.__game.ctx.player.isDowned, cls: g.className, txt: g.querySelector('.txt').textContent, tf: g.querySelector('.fill').style.transform, disp: getComputedStyle(g).display, color: getComputedStyle(g.querySelector('.fill')).backgroundColor, on: window.__game.getSystem('hud').isGiveUpBarOn }; });
+  // NOTE: the ring's own `stroke: var(--hc)` is only re-resolved a frame later in headless Chrome, so the state
+  // colour is asserted on `--hc` itself (which updates at once) rather than on the resolved stroke.
+  const giveUp = () => P(() => {
+    const v = document.querySelector('.vitals');
+    const g = v.querySelector('.giveup');
+    const ring = document.querySelector('.hold');
+    const h = window.__game.getSystem('hud');
+    return {
+      downed: v.classList.contains('downed'), pDowned: window.__game.ctx.player.isDowned,
+      cls: g.className, txt: g.querySelector('.txt').textContent, disp: getComputedStyle(g).display,
+      on: h.isGiveUpBarOn,
+      ringCls: ring.className, ringOn: h.isHoldGaugeOn, ringGiveUp: h.isHoldGaugeGiveUp, ringT: h.holdGaugeProgress,
+      ringLbl: ring.querySelector('.lbl').textContent,
+      ringHc: getComputedStyle(ring).getPropertyValue('--hc').trim(),
+      danger: getComputedStyle(document.documentElement).getPropertyValue('--c-danger').trim(),
+      hasBar: !!g.querySelector('.bar'),
+    };
+  });
   let gu = await giveUp();
   ok(gu.downed && gu.pDowned, 'lethal damage → vitals in downed mode (player downed, not dead)', JSON.stringify(gu));
-  ok(!/\bshow\b/.test(gu.cls) && gu.disp === 'none' && !gu.on, 'give-up bar hidden until the hold starts', JSON.stringify(gu));
+  ok(!gu.cls.split(' ').includes('show') && gu.disp === 'none' && !gu.on && !gu.ringOn, 'caption and ring both hidden until the hold starts', JSON.stringify(gu));
+  ok(!gu.hasBar, 'the old horizontal .giveup .bar is gone from the vitals', JSON.stringify(gu));
   await emit('player:giveUpProgress', { t: 0.5 });
   gu = await giveUp();
-  ok(/\bshow\b/.test(gu.cls) && gu.disp === 'flex' && gu.on, 'player:giveUpProgress 0.5 → .giveup.show', JSON.stringify(gu));
-  ok(gu.txt === '포기' && gu.tf === 'scaleX(0.5)' && gu.color === 'rgb(255, 77, 77)', 'label 포기, fill scaleX 0.5 in --c-danger', JSON.stringify(gu));
+  ok(gu.cls.split(' ').includes('show') && gu.disp === 'flex' && gu.on, 'player:giveUpProgress 0.5 → .giveup.show caption', JSON.stringify(gu));
+  ok(gu.txt === '포기' && gu.ringOn && gu.ringGiveUp && Math.abs(gu.ringT - 0.5) < 0.01, 'caption 포기, crosshair ring at 0.5 in give-up mode', JSON.stringify(gu));
+  ok(gu.ringLbl === '포기' && gu.ringHc === gu.danger, 'ring labelled 포기 and switched to the danger colour (--hc)', JSON.stringify(gu));
   await emit('player:giveUpProgress', { t: 0.9 });
   gu = await giveUp();
-  ok(gu.tf === 'scaleX(0.9)' && gu.on, 't 0.9 → fill scaleX 0.9', gu.tf);
+  ok(Math.abs(gu.ringT - 0.9) < 0.01 && gu.on, 't 0.9 → ring at 0.9', JSON.stringify(gu));
   await emit('player:giveUpProgress', { t: -1 });
   gu = await giveUp();
-  ok(!/\bshow\b/.test(gu.cls) && !gu.on && gu.tf === 'scaleX(0)', 't −1 (released) → hidden, fill reset', JSON.stringify(gu));
+  ok(!gu.cls.split(' ').includes('show') && !gu.on && !gu.ringOn, 't −1 (released) → caption and ring both hidden', JSON.stringify(gu));
   await emit('player:giveUpProgress', { t: 0.3 });
   gu = await giveUp();
-  ok(gu.on && gu.tf === 'scaleX(0.3)', 'a new hold shows the bar again', JSON.stringify(gu));
+  ok(gu.on && gu.ringOn && Math.abs(gu.ringT - 0.3) < 0.01, 'a new hold shows both again', JSON.stringify(gu));
   await P(() => window.__game.ctx.player.revive());
   await waitSim(0.2);
   gu = await giveUp();
-  ok(!gu.downed && !gu.pDowned && !gu.on && !/\bshow\b/.test(gu.cls), 'revive → downed mode off, give-up bar hidden with it', JSON.stringify(gu));
+  ok(!gu.downed && !gu.pDowned && !gu.on && !gu.ringOn, 'revive → downed mode off, caption and ring hidden with it', JSON.stringify(gu));
   await emit('player:giveUpProgress', { t: 0.6 });
   gu = await giveUp();
-  ok(!gu.on, 'giveUpProgress while not downed is ignored', JSON.stringify(gu));
+  ok(!gu.on && !gu.ringOn, 'giveUpProgress while not downed is ignored by both', JSON.stringify(gu));
 
   console.log('training panel (Phase 9)');
   const tpanel = () => P(() => { const e = document.querySelector('.training-panel'); const h = window.__game.getSystem('hud'); const timeRow = e.querySelector('.row.time'); const bestRow = e.querySelector('.row.best'); return { cls: e.className, on: h.isTrainingPanelOn, pulsing: h.isTrainingPulsing, mode: h.trainingPanelMode, modeTxt: e.querySelector('.mode').textContent, num: e.querySelector('.row.score .num').textContent, fill: e.querySelector('.bar .fill').style.transform, barDisp: getComputedStyle(e.querySelector('.bar')).display, timeHidden: timeRow.hidden, time: timeRow.querySelector('.num').textContent, urgent: timeRow.classList.contains('urgent'), bestHidden: bestRow.hidden, best: bestRow.querySelector('.num').textContent, inLayer: !!document.querySelector('.hud.gameplay .training-panel') }; });

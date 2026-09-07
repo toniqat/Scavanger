@@ -51,6 +51,24 @@ engine.ctx.input.cursor.onModeChange((active, owner) => {
   });
 });
 
+/*
+ * 2026-09-08 (ESC = 항상 일시정지): the browser eats the Escape that leaves the pointer lock, so the *unlock* is the
+ * only evidence the key was pressed. `Input` reports one it did not cause; `game/GameFlowSystem` listens on the bus
+ * and puts the 일시정지 메뉴 up, exactly as it does for a focus loss.
+ */
+engine.ctx.input.onUserUnlock(() => engine.ctx.bus.emit('input:pointerLockLost', {}));
+
+/*
+ * 화면 설정 (2026-09-08). `ui/menus/SettingsMenu` owns the panel and the localStorage file; this is the only place
+ * that holds the `Engine`, so it is where the choices are applied. 전체화면 is applied by the panel itself (a
+ * fullscreen request needs the click's user activation) and only reported here.
+ */
+engine.ctx.bus.on('ui:displayChanged', ({ bloom, shadows, scale }) => {
+  engine.setPostProcessing(bloom);
+  engine.setShadows(shadows);
+  engine.setResolutionScale(scale);
+});
+
 // Registration order == update order (see CLAUDE.md "System lifecycle").
 // NetSystem goes first so incoming snapshots are applied before any system reads ctx.net this frame.
 engine.addSystem(new NetSystem());

@@ -13,7 +13,8 @@ const STAMINA_PULSE = 0.9; // seconds the bar stays amber after depletion
  * shows `downHp / PLAYER_DOWN_HP` in red (`player:downHpChanged`, also polled from `ctx.player.downHp`), the label reads
  * `전투불능 — 아군의 구조 대기 중` with `Space 길게: 포기` under it, and `player:reviveProgress` shows
  * `부활 중 <byName> … n%` + a progress bar (hidden on `t = -1`). **Phase 9:** the Space give-up hold shows a red
- * `포기` bar (`.giveup`, `player:giveUpProgress {t}`, `t < 0` hides; also hidden whenever the downed state ends).
+ * `포기` caption (`.giveup`, `player:giveUpProgress {t}`, `t < 0` hides; also hidden whenever the downed state ends).
+ * 2026-09-08: the progress itself is drawn by `hud/HoldGauge` at the crosshair — this is only the label now.
  */
 export class Vitals {
   readonly root: HTMLElement;
@@ -27,7 +28,6 @@ export class Vitals {
   private reviveTxt: HTMLElement;
   private reviveFill: HTMLElement;
   private giveUpEl: HTMLElement;
-  private giveUpFill: HTMLElement;
   private stamRoot: HTMLElement;
   private stamFill: HTMLElement;
 
@@ -65,8 +65,6 @@ export class Vitals {
     this.reviveFill = el('div', { cls: 'fill', parent: reviveBar });
     this.giveUpEl = el('div', { cls: 'giveup', parent: this.root });
     el('div', { cls: 'txt', text: '포기', parent: this.giveUpEl });
-    const giveUpBar = el('div', { cls: 'bar', parent: this.giveUpEl });
-    this.giveUpFill = el('div', { cls: 'fill', parent: giveUpBar });
 
     // Stamina: bottom-centre bar (its own HUD element, not part of the vitals block); hidden while full.
     this.stamRoot = el('div', { cls: 'stamina full', parent });
@@ -162,18 +160,12 @@ export class Vitals {
     this.setGiveUp(-1);
   }
 
-  /** Space give-up hold (Phase 9): `t` 0..1 fills the red bar, `t < 0` (released / cancelled) hides it. */
+  /** Space give-up hold: `t ≥ 0` shows the 포기 caption, `t < 0` (released / cancelled) hides it. 2026-09-08: the
+   *  fill moved to `hud/HoldGauge`, so this only tracks whether the hold is running. */
   private setGiveUp(t: number): void {
     const on = t >= 0 && this.downed;
     toggleClass(this.giveUpEl, 'show', on);
-    if (!on) {
-      if (this.lastGiveUpT !== -1) { this.lastGiveUpT = -1; this.giveUpFill.style.transform = 'scaleX(0)'; }
-      return;
-    }
-    if (Math.abs(t - this.lastGiveUpT) > 0.004) {
-      this.lastGiveUpT = t;
-      this.giveUpFill.style.transform = `scaleX(${Math.min(1, t).toFixed(3)})`;
-    }
+    this.lastGiveUpT = on ? t : -1;
   }
 
   private setRevive(t: number, byName: string | null): void {

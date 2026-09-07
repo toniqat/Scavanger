@@ -112,7 +112,8 @@ try {
     if (!c) return null;
     return { id: c.id, items: c.grid.items().sort((a, b) => a.y - b.y || a.x - b.x).map((p) => ({ uid: p.item.uid, defId: p.item.defId, qty: p.item.qty, searched: p.item.searched })), unsearched: c.unsearchedCount };
   });
-  const closeWindow = async () => { await tap('Escape'); await waitFor(page, () => !window.__game.ctx.inventory.isOpen, 'closed'); };
+  // 2026-09-08: the window closes on Tab (Escape opens the 일시정지 메뉴 over it instead)
+  const closeWindow = async () => { await tap('Tab'); await waitFor(page, () => !window.__game.ctx.inventory.isOpen, 'closed'); };
   const snapshot = () => page.evaluate(() => {
     const sys = window.__game.getSystem('inventory');
     const l = sys.getLoadout();

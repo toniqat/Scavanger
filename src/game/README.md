@@ -25,13 +25,13 @@ Import via `@/game` → `GameFlowSystem`.
 | `player:downed` | **not a death**: phase unchanged, `ui:notify "쓰러짐 — 아군의 제세동기를 기다립니다"`, the all-dead check is re-armed (a squadmate may already be dead) |
 | `player:revived` | stops the all-dead check when the local player is no longer dead |
 | `game:abort` | multiplayer host **during a live raid** (gameplay / `deploying`, never a training): `flow abort` to others first (leaving a result screen is local — the mission is already over); closes inventory, `menu`. If the abort ended a *lobby* mission / result screen, emits `hub:enter {ship:'shared'}` one microtask later (no-op when HubSystem's own `hub:enter` already built the ship) |
-| Escape (gameplay phase **or `hub`**, no `ctx.uiBlockers`) | toggles `game:paused {paused, freeze}`. **2026-09-07: `freeze` is always false** — a raid is an extraction run, and stopping the clock, the enemies and the extraction countdown with a keypress made Escape a save-scum button (it also fought the lost-lock rule below, which must never stall a mission). The field stays on the wire because Engine and the HUD read it; nothing sets it any more. `PauseMenu` may emit `game:paused false`. Inventory / map / terminal consume Escape in a capture-phase listener or hold a blocker, so it never reaches here while they are open; **housing / 함선 관리 mode** (`ctx.housing.housingMode`) also keeps Escape (it cancels the placement) |
+| Escape (gameplay phase **or `hub`**) | **2026-09-08: always `escapePause()`** — the 일시정지 메뉴 opens no matter what is on screen, and Escape never closes it or anything else (see the section at the end). Two entry points reach that method because the browser splits the key: a real `Keys.MENU` press when a screen already freed the cursor, and `input:pointerLockLost` when the pointer was locked and the browser ate the keydown to free it. Blockers are **not** checked — the menu stacks over an open screen. `PauseMenu` emits `game:paused false` from its button. `freeze` is always false (2026-09-07): a raid is an extraction run, and stopping the clock with a keypress made Escape a save-scum button; the field stays on the wire because Engine and the HUD read it |
 | `window` `blur` / `visibilitychange` → hidden | if gameplay phase, no blocker, player alive and not paused → emits `input:pointerLockLost` and pauses. **2026-09-07 (커서 rework): losing the pointer lock is no longer one of these triggers.** Releasing the lock is how every screen shows the mouse now, and Chrome drops it on any Escape, so treating a missing lock as "the player left" is exactly what made the game freeze whenever the Windows cursor appeared. Only losing the *window* means someone actually walked away |
 | ~~lost-lock watchdog~~ (`checkLockLost`) | **deleted 2026-09-07.** It existed because Phase 10 screens kept the lock and a lock that went missing meant the software cursor had silently fallen back to mirroring the real OS one. With the rework there is no hybrid state to detect: no lock simply means the mouse is a cursor |
-| Escape while the Alt 커서 is up | closes it (`toggleFreeCursor(false)`) and `input.consume(Keys.MENU)`, so the same press cannot also open the 일시정지 메뉴 |
+| Escape while the Alt 커서 is up | **2026-09-08**: `escapePause()` drops the free cursor **and** opens the menu in the same press — the Alt 커서 is the one cursor owner with no window behind it, so leaving it up under the menu would strand the player with no camera |
 | left click on the canvas while the Alt 커서 is up | **2026-09-07:** closes it (`onFreeCursorClick` → `toggleFreeCursor(false)`) — it is the one cursor owner with no window behind it, so a click on the world can only mean 카메라 복귀, and a click is the user gesture Chrome wants before it grants the lock back. A click whose target is a HUD element is left alone |
 | `Keys.CURSOR` (Alt) | **2026-09-07:** frees the mouse in place with no screen behind it — `ctx.uiBlockers` token `FREE_CURSOR_BLOCKER` (`'cursor'`) + `input.setCursorMode(true, 'cursor')`, so gameplay input is gated exactly as an open panel gates it and `main.ts` re-locks on release. Emits `ui:freeCursorToggled {active}`. Only from a gameplay phase or the ship, alive, with no other blocker; a phase change or a death releases it in `update()` |
-| unpause (Esc or 게임으로 돌아가기) | emits `game:paused false` and nothing else — **2026-09-07 (커서 rework)**: `ui/menus/MenuBase` owns the `'menu'` cursor token (taken on `show()`, dropped on `hide()`) and `main.ts` is the single place that re-requests the lock once the last cursor owner is gone. `GameFlowSystem` no longer touches the pointer lock at all. Outside fullscreen Chrome still grants no activation for Escape, so that request may be denied and `Input` retries it from the next click or key; in fullscreen `navigator.keyboard.lock(['Escape'])` means it never had to |
+| unpause (**게임으로 돌아가기 only** — 2026-09-08: Escape is inert on the menu, and that click is the engagement gesture the browser requires before it will re-lock) | emits `game:paused false` and nothing else — **2026-09-07 (커서 rework)**: `ui/menus/MenuBase` owns the `'menu'` cursor token (taken on `show()`, dropped on `hide()`) and `main.ts` is the single place that re-requests the lock once the last cursor owner is gone. `GameFlowSystem` no longer touches the pointer lock at all. Outside fullscreen Chrome still grants no activation for Escape, so that request may be denied and `Input` retries it from the next click or key; in fullscreen `navigator.keyboard.lock(['Escape'])` means it never had to |
 
 ## Notes
 - `missionTime` / `stats.timeSeconds` advance in `Engine.frame()`; `kills`, `cratesOpened`, `damageTaken` are
@@ -146,3 +146,33 @@ event) — without the `leaveLobby()` first, `onAbort` would regroup us in the s
 - `net:resumed` reads `lobby.mode`: a non-seamless resume while a **훈련장** runs reports
   `훈련장 연결이 끊겼습니다 — 함선으로 복귀` instead of `분대가 다른 임무를 진행 중입니다`. The abort → shared-ship
   path is unchanged (our arena session is gone either way).
+
+
+## 2026-09-08 — ESC = 항상 일시정지
+
+**Escape opens the 일시정지 메뉴, from anywhere, and never closes it.** The menu closes on 게임으로 돌아가기 only.
+
+Why the shape is forced by the browser, not by taste:
+
+1. While the pointer is locked the browser **eats the Escape keydown** — it uses the key to free the cursor and the
+   page is never told. That is why the menu used to need two presses. Every browser FPS solves it the same way, by
+   treating the *unlock itself* as the key: `Input.onUserUnlock` → `main.ts` → `input:pointerLockLost` → `escapePause()`.
+2. After that default unlock gesture the spec requires a fresh **engagement gesture** before `requestPointerLock`
+   succeeds, and it lets the UA demand more still if Escape is repeated. So the camera can only come back on a click —
+   and `게임으로 돌아가기` **is** that click. An Escape-to-close would ask for the lock at the one instant the browser
+   refuses it, which is exactly the bug the old build had.
+3. Because Escape is inert on the menu, mashing it does nothing at all instead of walking into the UA's
+   repeated-Escape throttle.
+
+`update()` therefore reduces to `if (wasPressed(Keys.MENU)) { consume; escapePause(); }` — reached only when a screen
+already freed the cursor and the key really arrives — and `escapePause()` is the single entry point for both paths:
+it refuses while already paused, requires a gameplay or hub phase and a living player, drops the Alt 커서 (it has no
+window behind it and would strand the player under the menu), and pauses. Screens are **not** closed: the menu stacks
+over them and 게임으로 돌아가기 returns to what was open. `onFocusLost` now only emits the event; the handler pauses.
+
+### Known follow-ups
+- `input:pointerLockLost` is emitted by both `main.ts` (a user unlock) and `onFocusLost` (a window blur). The handler
+  is idempotent, but the event no longer means only one thing.
+- With Escape inert on the menu, a player whose mouse stops working has no keyboard way out of the pause screen.
+- The pause stacking is one level deep by design: Escape over the menu does nothing, so there is no "close the menu
+  and the screen under it" gesture.

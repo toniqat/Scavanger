@@ -693,4 +693,12 @@ export interface GameEvents {
    * this). ChatLog keeps the target until the player clears it, so the next Enter also whispers.
    */
   'chat:whisperTo': { code: PlayerCode; name: string };
+
+  /* ── 화면 설정 (2026-09-08, owner: ui/menus/SettingsMenu) ── */
+  /**
+   * The 화면 설정 section changed (or was restored at startup). Applied by **`main.ts`**, the one place that holds the
+   * `Engine`: bloom → `setPostProcessing`, shadows → `setShadows`, scale → `setResolutionScale`. `fullscreen` is
+   * already applied by the panel itself (only a user gesture may request it) and is reported here for completeness.
+   */
+  'ui:displayChanged': { fullscreen: boolean; bloom: boolean; shadows: boolean; scale: number };
 }
