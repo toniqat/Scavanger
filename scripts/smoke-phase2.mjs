@@ -209,11 +209,12 @@ try {
   const hud = await P(() => ({
     wheel: !!document.querySelector('.qwheel'),
     cook: !!document.querySelector('.cook'),
-    fKey: /T|H/.test(document.querySelector('.vitals .pill .key')?.textContent ?? ''),
+    // 2026-09-07: the 회복약 / 수류탄 pills under the health bar are gone (the counts live in the right-hand column).
+    noPills: !document.querySelector('.vitals .pill'),
   }));
   ok(hud.wheel, 'quick wheel element exists');
   ok(hud.cook, 'cook gauge element exists');
-  ok(hud.fKey, 'stim pill shows the T / H key');
+  ok(hud.noPills, 'no 회복약 / 수류탄 pills under the health bar any more');
 
   console.log('give up → dead → 레이드 실패 (Phase 7: a solo death fails the raid; the 30 s respawn is squad-only)');
   await waitSim(2.5); // past any post-revive invulnerability

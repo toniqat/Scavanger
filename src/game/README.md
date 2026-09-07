@@ -8,6 +8,7 @@ Import via `@/game` → `GameFlowSystem`.
 | File | Purpose |
 |---|---|
 | `GameFlowSystem.ts` | `GameSystem` (`name: 'gameflow'`). Phases: `menu → deploying → playing → extracting → shipLanded → liftoff → complete` or `dead`. The ship hub phases `hub` / `docking` are owned by `hub/HubSystem` (see below). |
+| `SoloRaid.ts` | 솔로 레이드 세션 저장 (2026-09-07): localStorage `scav.soloraid` (`SOLO_RAID_STORAGE_KEY`), `SoloRaidSave` / `SoloRaidPose`, `loadSoloRaid` / `saveSoloRaid` / `clearSoloRaid` / `soloRaidStatus`, `SOLO_RAID_GRACE_MS` (5 min). Pure storage — no context, no listeners. |
 | `index.ts` | Barrel. |
 
 ## Transitions
@@ -24,8 +25,9 @@ Import via `@/game` → `GameFlowSystem`.
 | `player:downed` | **not a death**: phase unchanged, `ui:notify "쓰러짐 — 아군의 제세동기를 기다립니다"`, the all-dead check is re-armed (a squadmate may already be dead) |
 | `player:revived` | stops the all-dead check when the local player is no longer dead |
 | `game:abort` | multiplayer host **during a live raid** (gameplay / `deploying`, never a training): `flow abort` to others first (leaving a result screen is local — the mission is already over); closes inventory, `menu`. If the abort ended a *lobby* mission / result screen, emits `hub:enter {ship:'shared'}` one microtask later (no-op when HubSystem's own `hub:enter` already built the ship) |
-| Escape (gameplay phase **or `hub`**, no `ctx.uiBlockers`) | toggles `game:paused {paused, freeze}`; `freeze = !ctx.isMultiplayer && phase !== 'hub'`, and Engine zeroes `dt` only while `freeze` (single-player mission) — in multiplayer *and in the ship* the menu shows while the world / ship keeps running; `PauseMenu` may emit `game:paused false`. Inventory / map / terminal consume Escape in a capture-phase listener or hold a blocker, so it never reaches here while they are open; **housing / 함선 관리 mode** (`ctx.housing.housingMode`) also keeps Escape (it cancels the placement) |
+| Escape (gameplay phase **or `hub`**, no `ctx.uiBlockers`) | toggles `game:paused {paused, freeze}`. **2026-09-07: `freeze` is always false** — a raid is an extraction run, and stopping the clock, the enemies and the extraction countdown with a keypress made Escape a save-scum button (it also fought the lost-lock rule below, which must never stall a mission). The field stays on the wire because Engine and the HUD read it; nothing sets it any more. `PauseMenu` may emit `game:paused false`. Inventory / map / terminal consume Escape in a capture-phase listener or hold a blocker, so it never reaches here while they are open; **housing / 함선 관리 mode** (`ctx.housing.housingMode`) also keeps Escape (it cancels the placement) |
 | `pointerlockchange` (lock lost) / `window` `blur` | if gameplay phase, no blocker, player alive, not paused and > 300 ms since `ctx.input.lastLockRequest` (a denied request) → emits `input:pointerLockLost` and pauses. Intended exits (inventory, map, menus, pause) add their blocker / set `paused` **before** `exitPointerLock()`, so they do not trigger this |
+| **lost-lock watchdog** (`checkLockLost`, every frame, 2026-09-07) | the handler above bails while a UI blocker is up, which left the worst case open: a cursor-mode screen keeps the lock by design (Phase 10), but Chrome drops it on any Escape and sometimes refuses to hand it back — `shared/cursor.ts` then silently *mirrors* the real OS cursor, so the game looks playable while the Windows cursor is free to wander onto another monitor. So: gameplay phase **or the ship**, not paused, player alive, no lock for `LOCK_LOST_GRACE_S` (0.5 s) and > 300 ms since the last request → 일시정지 메뉴, **regardless of blockers**. It is armed only once a real lock was ever held (`sawPointerLock`), so a browser (or a headless smoke) where the lock never works never gets an unclosable menu |
 | unpause (Esc or 게임으로 돌아가기) | after emitting `game:paused false`, re-requests pointer lock in a microtask when still in a gameplay phase **or the ship** with no blockers (a following synchronous abort → `menu` cancels it) |
 
 ## Notes
@@ -102,6 +104,24 @@ It also bumps `ctx.progression.profile.raids` (always) and `.extractions` (on `s
   death → immediate `player:respawn` at the arena spawn, `MissionStats.mode = 'training'`. `training:exitRequested` → `game:abort` (never `flow abort` — a training is personal)
   → `inventory.applyRaidState(trainingSnapshot)` (ammo / durability refunded) → `ctx.net.leaveMission()` when in a session → `hub:enter {shared if a lobby exists, else personal}`.
 - Smoke: `scripts/smoke-raidflow.mjs` (solo death → 레이드 실패 → auto return, training enter / death / exit, synthetic rejoin blob + ghost restore alive / dead + timeout fallback).
+
+## 2026-09-07: 레이드 접속 끊김 처리
+- **`SoloRaid.ts`** (new) — the single-player counterpart of the relay's raid store, in localStorage `scav.soloraid`
+  (`SoloRaidSave` = seed / 목표 행성 / `missionTime` / `MissionStats` / `captureRaidState()` / the body pose).
+  `saveRaid()` routes to `saveSolo()` while `!ctx.isMultiplayer && missionMode === 'raid'` (same cadence: every
+  `RAID_SAVE_INTERVAL_S` and on loot), plus a `pagehide` flush so a closed tab keeps the last seconds.
+- **Resume**: `init()` reads the file and the first `update()` acts on it (`consumeStoredSoloRaid`, phase `menu` only —
+  a lobby resume that beat us to it wins). Inside `SOLO_RAID_GRACE_MS` (5 min) → `resumeSoloRaid()`: `rejoining` +
+  `ctx.rejoinPending` are set, the save becomes `this.raidBlob`, the pose becomes `soloRestore`, and `game:newMission`
+  is emitted with the stored seed / planet. `onWorldReady()` applies the blob exactly as a multiplayer rejoin does and
+  then calls `onGhostRestore(soloRestore)` directly — there is no host to answer `flow rejoined`, so no
+  `NET_GHOST_RESTORE_TIMEOUT_S` wait. Past the window → `game:abort` (which resets the kit to the starter, the same
+  loss any failed raid takes) + a `복귀가 너무 늦었습니다 — 레이드 실패` toast. The file is cleared on `complete()`,
+  `gameOver()`, `onAbort()` and on being read, so no reload can resurrect a finished run.
+- **Multiplayer** is unchanged here but reaches further: the relay keeps a dropped raider's lobby slot for the whole
+  mission (`server/RelayServer.armGrace`) and the host parks their body for `NET_GHOST_PARK_S` (now an hour), and
+  `hub/HubSystem.onResumed` **auto-calls `rejoinMission()`** instead of parking the player next to a pod, so a
+  reconnect drops straight back into the raid. `net:resumed {inProgress:false}` still lands in the shared ship.
 
 ## Phase 8 (2026-09-06): 함선에서 ESC = 일시정지
 Escape in the ship used to open the hub terminal; it now opens the **pause menu** instead (the terminal is reached from

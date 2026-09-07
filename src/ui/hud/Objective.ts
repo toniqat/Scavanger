@@ -11,13 +11,15 @@ export const OBJECTIVE_TEXT = {
   training: { text: '시뮬레이션 훈련장 · 출구 콘솔로 종료', sub: '탄약 · 내구도 미소모' },
 } as const;
 
-/** Top-left objective panel + large digital countdown timer under the compass. */
+/** Top-left objective panel (with the small mission clock beside its label) + large countdown timer under the compass. */
 export class Objective {
   readonly root: HTMLElement;
   readonly timerRoot: HTMLElement;
   private textEl: HTMLElement;
   private subEl: HTMLElement;
   private timeEl: HTMLElement;
+  private clockEl: HTMLElement;
+  private lastClockStr = '';
   private lastTimeStr = '';
   private counting = false;
   private unsubs: Array<() => void> = [];
@@ -26,6 +28,9 @@ export class Objective {
     this.root = el('div', { cls: 'objective', parent });
     const head = el('div', { cls: 'head', parent: this.root });
     el('span', { cls: 'ui-label', text: '임무 목표', parent: head });
+    // 2026-09-07: the 임무 시간 moved here from the top-right `mission-info` block (which also carried the 처치 counter,
+    // now dropped entirely) — small, right of the label, so the top-right corner is free.
+    this.clockEl = el('span', { cls: 'clock ui-mono', text: '00:00', parent: head });
     this.textEl = el('div', { cls: 'text', text: '', parent: this.root });
     this.subEl = el('div', { cls: 'sub', text: '', parent: this.root });
 
@@ -59,6 +64,14 @@ export class Objective {
       b.on('game:abort', () => this.reset()),
       b.on('game:newMission', () => this.reset()),
     );
+  }
+
+  /** Mission clock beside the label; called every frame by `HudSystem`. */
+  update(ctx: GameContext): void {
+    const t = fmtTime(ctx.missionTime);
+    if (t === this.lastClockStr) return;
+    this.lastClockStr = t;
+    setText(this.clockEl, t);
   }
 
   private reset(): void {

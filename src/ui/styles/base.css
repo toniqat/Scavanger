@@ -204,7 +204,6 @@ input { font: inherit; color: inherit; }
 .vitals .seg .ghost { position: absolute; inset: 0; background: rgba(255, 255, 255, 0.55); transform-origin: left; will-change: transform; }
 .vitals .seg .fill { position: absolute; inset: 0; background: var(--c-text); transform-origin: left; will-change: transform; }
 .vitals.low .seg .fill { background: var(--c-danger); }
-.vitals .pills { display: flex; gap: 8px; }
 .pill {
   display: inline-flex; align-items: center; gap: 8px;
   height: 26px; padding: 0 10px 0 8px;
@@ -227,7 +226,22 @@ input { font: inherit; color: inherit; }
 .weapon .name-row { display: flex; align-items: center; gap: 10px; }
 .weapon .slot { font-family: var(--ui-mono); font-size: 10px; color: var(--c-text-dim); border: 1px solid var(--c-border); padding: 1px 5px; }
 .weapon .name { font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase; font-weight: 600; }
-.weapon .ammo-row { display: flex; align-items: flex-end; gap: 10px; position: relative; }
+.weapon .ammo-row { display: flex; align-items: flex-end; gap: 12px; position: relative; }
+.weapon .ammo-nums { display: flex; align-items: flex-end; gap: 10px; }
+/* 2026-09-07: fixed-size horizontal weapon box right of the ammo count — inventory item chip + name. Its width is
+   constant so a long weapon name can never move the ammo digits. */
+.weapon .wthumb {
+  display: flex; align-items: center; gap: 8px;
+  box-sizing: border-box; width: 208px; height: 46px; padding: 4px 10px 4px 4px;
+  border: 1px solid var(--c-border); background: rgba(0, 0, 0, 0.32);
+}
+.weapon .wthumb .wt-icon { display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; flex: none; }
+.weapon .wthumb .wt-name {
+  min-width: 0; font-size: 11px; letter-spacing: 0.1em; line-height: 1.2;
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+.weapon .wthumb.is-empty .wt-name { color: var(--c-text-faint); }
+.weapon .wthumb .item-chip { pointer-events: none; }
 /* Phase 10: the reload radial left this panel for the crosshair — see `.reload` (hud/ReloadGauge). */
 .weapon .mag { font-family: var(--ui-mono); font-size: 40px; font-weight: 600; line-height: 1; letter-spacing: -0.03em; transition: color var(--t-fast) var(--ease); }
 .weapon .mag.low { color: var(--c-accent); }
@@ -331,18 +345,15 @@ input { font: inherit; color: inherit; }
 }
 .objective .head { display: flex; align-items: center; gap: 8px; }
 .objective .head::before { content: ""; width: 6px; height: 6px; background: var(--c-accent); transform: rotate(45deg); }
+/* 2026-09-07: the mission clock lives here now (the top-right `mission-info` block, 처치 counter included, is gone). */
+.objective .head .clock {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.08em; color: var(--c-text-dim);
+  font-variant-numeric: tabular-nums; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
 .objective .text { font-size: 14px; font-weight: 600; letter-spacing: 0.02em; text-shadow: 0 1px 3px rgba(0,0,0,0.8); }
 .objective .sub { font-size: 12px; color: var(--c-text-dim); padding-left: 14px; text-shadow: 0 1px 3px rgba(0,0,0,0.8); }
 .objective.swap { animation: objSwap 300ms var(--ease); }
 @keyframes objSwap { 0% { opacity: 0; transform: translateX(-8px); } 100% { opacity: 1; transform: none; } }
-
-/* Mission info (top-right) */
-.mission-info {
-  position: absolute; right: 32px; top: 28px;
-  display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
-}
-.mission-info .stat { display: flex; align-items: baseline; gap: 10px; }
-.mission-info .val { font-family: var(--ui-mono); font-size: 16px; font-weight: 600; }
 
 /* Interaction prompt */
 .prompt {
@@ -948,7 +959,6 @@ input { font: inherit; color: inherit; }
 .vitals.downed .hp-num { color: var(--c-danger); animation: downedPulse 1.2s ease-in-out infinite alternate; }
 .vitals.downed .ui-label { color: var(--c-danger); letter-spacing: 0.14em; }
 .vitals.downed .down-sub { display: block; font-size: 10px; letter-spacing: 0.12em; color: var(--c-text-dim); }
-.vitals.downed .pills { opacity: 0.35; }
 .vitals .revive.show { display: flex; flex-direction: column; gap: 4px; width: 300px; }
 .vitals .revive .txt { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; color: var(--c-success); }
 .vitals .revive .bar { height: 3px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
@@ -2122,8 +2132,13 @@ body.soft-cursor-on, body.soft-cursor-on * { cursor: none !important; }
 .contract-panel .mrow.done .num { color: var(--c-success); }
 .contract-panel .mrow.done .bar .fill { background: var(--c-success); }
 
-/* 빠른 사용 thumbnails (hud/QuickStrip) — a row above the weapon slot strip, right aligned */
+/* 빠른 사용 thumbnail (hud/QuickStrip) — one cell above the weapon slot strip, right aligned.
+   2026-09-07: `.is-single` draws only the last-selected wheel slot, at twice the old 30 px thumbnail. */
 .qstrip { display: flex; gap: 4px; margin-bottom: 2px; }
+.qstrip.is-single { justify-content: flex-end; }
+.qstrip.is-single .qs-body { width: 60px; height: 60px; }
+.qstrip.is-single .qs-cell { padding: 4px 4px 3px; }
+.qstrip.is-single .qs-cell .qs-dir { font-size: 11px; }
 .qs-cell {
   position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px;
   padding: 3px 3px 2px; border: 1px solid var(--c-border); background: rgba(0, 0, 0, 0.32);

@@ -1,11 +1,15 @@
-import type { GameContext, ItemInstance, UniqueWeaponKind, WeaponDef, WeaponSlot } from '@/shared';
+import type { GameContext, ItemDef, ItemInstance, UniqueWeaponKind, WeaponDef, WeaponSlot } from '@/shared';
 import { Keys, WEAPON_DEFAULT_DURABILITY, keyLabel } from '@/shared';
+import { buildItemChip } from '@/shared';
 import { WEAPON_CLASS_LABEL_KO, weaponClassOf } from '@/items';
 import { el, setText, toggleClass } from '../dom';
 import { SlotStrip, weaponSlotKey } from './SlotStrip';
 
 /** Durability ratio at/below which the bar turns amber (`.worn`). */
 const DURABILITY_WORN = 0.3;
+
+/** Thumbnail edge of the weapon chip in the bottom-right box. */
+const WEAPON_THUMB_SIZE = 34;
 
 /** Usage hint per consumable category (`.weapon.consumable .hint`). */
 const CONSUMABLE_HINT: Record<string, string> = {
@@ -25,9 +29,13 @@ const UNIQUE_MODES: Readonly<Record<UniqueWeaponKind, { l: string; r: string }>>
 };
 
 /**
- * Bottom-right weapon readout: slot strip (1/2/3/F), slot tag + Korean slot label, weapon name, durability bar,
- * mag / reserve (bag rounds), class tag, swap sweep, low / empty / broken states. The reload readout moved to the
- * crosshair in Phase 10 (`hud/ReloadGauge`) — this panel no longer owns an arc or a `재장전` pill.
+ * Bottom-right weapon readout: slot strip (1/2/3/F), durability bar, mag / reserve (bag rounds) with the weapon
+ * **thumbnail** beside them, slot tag + class tag, swap sweep, low / empty / broken states. The reload readout moved
+ * to the crosshair in Phase 10 (`hud/ReloadGauge`) — this panel no longer owns an arc or a `재장전` pill.
+ *
+ * 2026-09-07: the separate name line above the durability bar is gone. The name now lives in `.wthumb`, a
+ * fixed-size horizontal box right of the ammo count holding the inventory item chip (`buildItemChip`, so the icon
+ * and rarity colour match the bag exactly) plus the weapon name.
  * **Consumable mode** (`.weapon.consumable`, `quick:equipped {item}`): the gun rows are hidden and a `.cons` block shows
  * the item name + stack count (`quick:used.remaining` / `inventory:itemUpdated`) with a usage hint; back to gun mode on
  * `quick:equipped {item:null}` or the next `weapon:equipped`. Gun state keeps updating underneath, so the switch back is
@@ -41,6 +49,8 @@ export class WeaponPanel {
   private magEl: HTMLElement;
   private reserveEl: HTMLElement;
   private typeEl: HTMLElement;
+  private thumbEl: HTMLElement;
+  private thumbIcon: HTMLElement;
   private duraEl: HTMLElement;
   private duraFill: HTMLElement;
   private swapEl: HTMLElement;
@@ -66,10 +76,6 @@ export class WeaponPanel {
     this.root = el('div', { cls: 'weapon', parent });
     this.slots = new SlotStrip(this.root);
 
-    const nameRow = el('div', { cls: 'name-row', parent: this.root });
-    this.slotEl = el('span', { cls: 'slot', text: '1', parent: nameRow });
-    this.nameEl = el('span', { cls: 'name', text: '—', parent: nameRow });
-
     this.duraEl = el('div', { cls: 'dura', parent: this.root });
     this.duraFill = el('div', { cls: 'fill', parent: this.duraEl });
     this.swapEl = el('div', { cls: 'swap', parent: this.root });
@@ -77,10 +83,16 @@ export class WeaponPanel {
 
     // Phase 10: the reload arc that used to sit left of this row is gone — `hud/ReloadGauge` draws it at the crosshair.
     const ammoRow = el('div', { cls: 'ammo-row', parent: this.root });
-    this.magEl = el('span', { cls: 'mag', text: '0', parent: ammoRow });
-    this.reserveEl = el('span', { cls: 'reserve', text: '0', parent: ammoRow });
+    const ammoNums = el('div', { cls: 'ammo-nums', parent: ammoRow });
+    this.magEl = el('span', { cls: 'mag', text: '0', parent: ammoNums });
+    this.reserveEl = el('span', { cls: 'reserve', text: '0', parent: ammoNums });
+    // Fixed-size thumbnail box right of the count: inventory item chip + weapon name (2026-09-07).
+    this.thumbEl = el('div', { cls: 'wthumb', parent: ammoRow });
+    this.thumbIcon = el('div', { cls: 'wt-icon', parent: this.thumbEl });
+    this.nameEl = el('span', { cls: 'name wt-name', text: '—', parent: this.thumbEl });
 
     const tagRow = el('div', { cls: 'name-row', parent: this.root });
+    this.slotEl = el('span', { cls: 'slot', text: '1', parent: tagRow });
     this.typeEl = el('span', { cls: 'type', text: '—', parent: tagRow });
 
     // Unique-weapon fire modes (`.modes`, only for defs with `altFire` / `unique`): `좌: …` / `우: …`.
@@ -134,6 +146,9 @@ export class WeaponPanel {
         // Seed the durability bar from the equipped item instance (durabilityChanged only fires on change).
         const inst = ctx.inventory?.getLoadout()[p.slot] ?? null;
         this.weaponUid = inst?.uid ?? '';
+        // the item def behind the equipped weapon (`wpn_<id>` for graded guns) drives the thumbnail
+        const itemDefId = inst?.defId ?? `wpn_${p.weaponId}`;
+        this.setThumb(ctx.inventory?.getDef(itemDefId) ?? ctx.loot?.getItemDef(itemDefId));
         const max = def?.maxDurability ?? WEAPON_DEFAULT_DURABILITY;
         this.setDurability(inst?.durability ?? max, max, false);
       }),
@@ -162,6 +177,7 @@ export class WeaponPanel {
           this.weaponUid = '';
           setText(this.nameEl, '무장 없음');
           setText(this.typeEl, '—');
+          this.setThumb(undefined);
           this.setModes(undefined);
           this.setAmmo(0, 0);
           this.setDurability(1, 1, false);
@@ -170,6 +186,13 @@ export class WeaponPanel {
         }
       }),
     );
+  }
+
+  /** Rebuild the weapon thumbnail (the shared inventory chip, so icon + rarity colour match the bag). */
+  private setThumb(def: ItemDef | undefined): void {
+    this.thumbIcon.replaceChildren();
+    if (def) this.thumbIcon.appendChild(buildItemChip(def, { size: WEAPON_THUMB_SIZE }));
+    toggleClass(this.thumbEl, 'is-empty', !def);
   }
 
   private enterConsumable(item: ItemInstance, ctx: GameContext): void {

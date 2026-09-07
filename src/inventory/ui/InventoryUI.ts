@@ -386,7 +386,16 @@ export class InventoryUI {
     this.ghostLayer = document.createElement('div');
     this.ghostLayer.className = 'inv-ghost-layer';
 
-    root.append(this.tabsEl, this.creditsEl, layout, this.screenHost, this.screenNote, this.hintsEl, dropZone,
+    /*
+     * 2026-09-07 UI/UX: hints and the drop zone share one **fixed-height** slot. They used to be two siblings of the
+     * centred column, and swapping the 37 px hint bar for the 63 px drop zone at drag start re-centred the whole
+     * window (the panels visibly jumped up). The footer now reserves the taller of the two for good.
+     */
+    const footer = document.createElement('div');
+    footer.className = 'inv-footer';
+    footer.append(this.hintsEl, dropZone);
+
+    root.append(this.tabsEl, this.creditsEl, layout, this.screenHost, this.screenNote, footer,
       this.modelessLayer, this.tooltip.el, this.ghostLayer);
     this.menu = new ContextMenu(root);
     this.dialog = new SplitDialog(root);
@@ -786,6 +795,27 @@ export class InventoryUI {
     window.addEventListener('pointercancel', this.onWindowUp);
   }
 
+  /**
+   * Grid cell a ghost of `w × h` at (left, top) would land on, resolved **strictly first**: a grid that actually
+   * contains the pointer always wins over one that only sits within its half-cell tolerance. The two-pass order is
+   * what stopped 가방 and 함선 창고 (stacked with a small gap since the 2026-09-07 pass) from stealing each other's
+   * edge rows — `activeViews()` is ordered 창고 → 가방, so the padded box of the stash used to swallow drops the
+   * player aimed at the bag's last row.
+   */
+  private resolveGridTarget(views: GridView[], left: number, top: number, w: number, h: number, px: number, py: number):
+    { view: GridView; x: number; y: number } | null {
+    for (const view of views) {
+      if (!view.hitTest(px, py, 0)) continue;
+      const cell = view.cellForGhost(left, top, w, h, px, py, 0);
+      if (cell) return { view, x: cell.x, y: cell.y };
+    }
+    for (const view of views) {
+      const cell = view.cellForGhost(left, top, w, h, px, py);
+      if (cell) return { view, x: cell.x, y: cell.y };
+    }
+    return null;
+  }
+
   /** Drag targets of a catalog instance: equipment slots, then the active grids (never the wheel / sockets / world). */
   private updateCatalogTarget(d: DragState, px: number, py: number): void {
     for (const sv of this.slots.values()) {
@@ -799,13 +829,12 @@ export class InventoryUI {
     }
     const { w, h } = this.footprint(d);
     const left = px - d.grabX, top = py - d.grabY;
-    for (const view of this.activeViews()) {
-      const cell = view.cellForGhost(left, top, w, h, px, py);
-      if (!cell) continue;
-      d.target = { kind: 'grid', grid: view.id, x: cell.x, y: cell.y, rotated: d.rotated };
+    const hit = this.resolveGridTarget(this.activeViews(), left, top, w, h, px, py);
+    if (hit) {
+      const view = hit.view;
+      d.target = { kind: 'grid', grid: view.id, x: hit.x, y: hit.y, rotated: d.rotated };
       const pv = this.sys.previewCatalog(d.item, d.target);
-      view.showHighlight(cell.x, cell.y, w, h, pv === 'bad' ? 'bad' : pv === 'swap' ? 'swap' : pv === 'merge' ? 'merge' : 'ok');
-      return;
+      view.showHighlight(hit.x, hit.y, w, h, pv === 'bad' ? 'bad' : pv === 'swap' ? 'swap' : pv === 'merge' ? 'merge' : 'ok');
     }
   }
 
@@ -1500,13 +1529,31 @@ export class InventoryUI {
 
     const { w, h } = this.footprint(d);
     const left = px - d.grabX, top = py - d.grabY;
-    for (const view of this.activeViews()) {
-      const cell = view.cellForGhost(left, top, w, h, px, py);
-      if (!cell) continue;
-      d.target = { kind: 'grid', grid: view.id, x: cell.x, y: cell.y, rotated: d.rotated };
-      const pv = this.preview(d, d.target);
+    const hit = this.resolveGridTarget(this.activeViews(), left, top, w, h, px, py);
+    if (hit) {
+      d.target = { kind: 'grid', grid: hit.view.id, x: hit.x, y: hit.y, rotated: d.rotated };
+      let pv = this.preview(d, d.target);
+      /*
+       * 2026-09-07: an **equipment slot → grid** drag that lands on an occupied cell used to be refused outright —
+       * the weapon snapped back into its slot and shook even with half the bag free. Retarget the drop (and the
+       * highlight, so the player sees where it goes) to the nearest free footprint instead. Grid → grid keeps the
+       * strict Diablo rule: the cell you point at is the cell you get.
+       */
+      if (pv === 'bad' && d.from.kind === 'slot' && d.from.slot !== 'bag' && d.qty === null) {
+        const spot = this.sys.nearestFreeSpot(d.uid, d.from, hit.view.id, hit.x, hit.y, d.rotated);
+        if (spot) {
+          const retarget: DropTarget = { kind: 'grid', grid: hit.view.id, x: spot.x, y: spot.y, rotated: spot.rotated };
+          if (this.sys.previewDrop(d.uid, d.from, retarget) === 'ok') {
+            d.target = retarget;
+            pv = 'ok';
+            const fp = spot.rotated ? { w: d.def.height, h: d.def.width } : { w: d.def.width, h: d.def.height };
+            hit.view.showHighlight(spot.x, spot.y, fp.w, fp.h, 'ok');
+            return;
+          }
+        }
+      }
       const state: HighlightState = pv === 'bad' ? 'bad' : pv === 'swap' ? 'swap' : pv === 'merge' ? 'merge' : 'ok';
-      view.showHighlight(cell.x, cell.y, w, h, state);
+      hit.view.showHighlight(hit.x, hit.y, w, h, state);
       return;
     }
 

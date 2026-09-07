@@ -11,6 +11,9 @@ import {
 
 export type LoadOutcome = 'loaded' | 'migrated' | 'fresh' | 'corrupt';
 
+/** 전술 임플란트 a brand-new profile starts with (all six are owned from level 1; 갈고리 is the mobility staple). */
+export const DEFAULT_IMPLANT: ImplantId = 'grapple';
+
 export interface LoadResult {
   profile: PlayerProfile;
   outcome: LoadOutcome;
@@ -61,7 +64,9 @@ export function freshProfile(name = '스캐빈저'): PlayerProfile {
     stats: baseStats(),
     skills: zeroSkills(),
     skillProgress: zeroSkills(),
-    implant: null,
+    // 2026-09-07: a fresh character starts with 갈고리 in the tactical implant slot rather than an empty one
+    // (every implant is owned from the start, so an empty slot was just a missed default).
+    implant: DEFAULT_IMPLANT,
     raids: 0,
     extractions: 0,
     statProgress: zeroStatProgress(),

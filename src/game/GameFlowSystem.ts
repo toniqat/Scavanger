@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import type {
   GameContext, GameSystem, GamePhase, FlowMessage, PeerId, MissionMode, RaidSessionBlob, PlayerRestoreState, RemotePlayerRef,
 } from '@/shared';
@@ -7,6 +8,8 @@ import {
   GameContext as Ctx, Keys, PlayerFlags, PLAYER_RESPAWN_DELAY, RAID_FAILED_AUTO_RETURN_S, RAID_SAVE_INTERVAL_S,
   NET_GHOST_RESTORE_TIMEOUT_S,
 } from '@/shared';
+/* appended (2026-09-07): 솔로 레이드 로컬 세션 저장 — the single-player counterpart of the relay's raid store */
+import { clearSoloRaid, loadSoloRaid, saveSoloRaid, soloRaidStatus, type SoloRaidSave } from './SoloRaid';
 
 const LIFTOFF_TO_COMPLETE = 6.5;   // seconds after extraction:liftoff
 const DEATH_TO_SCREEN = 2.5;       // seconds after player:died (single-player only)
@@ -20,6 +23,8 @@ const THREAT_MAX = 0.7;
 const THREAT_RAMP_SECONDS = 8 * 60;
 /** A pointer-lock exit this soon after a lock request is a denied/failed request, not the user leaving. */
 const LOCK_REQUEST_GRACE_MS = 300;
+/** Seconds the pointer lock may stay lost during gameplay / the ship before the 일시정지 메뉴 takes over (2026-09-07). */
+const LOCK_LOST_GRACE_S = 0.5;
 /** Multiplayer host: how often the "is everyone dead?" check re-runs while the local player is dead. */
 const ALL_DEAD_CHECK_INTERVAL = 0.5;
 /** Multiplayer: seconds between the connection-lost toast and the automatic abort to the menu. */
@@ -104,6 +109,16 @@ export class GameFlowSystem implements GameSystem {
   private raidBlob: RaidSessionBlob | null = null;
   /** true between `net:gameStarting {rejoin:true}` and the restore / fallback. */
   private rejoining = false;
+  /** Seconds the pointer lock has been continuously lost while it should be held (`checkLockLost`). */
+  private lockLostFor = 0;
+  /** true once a real pointer lock was ever held — the watchdog below only applies where the lock works at all. */
+  private sawPointerLock = false;
+  /** 솔로 레이드 found in localStorage at boot and not consumed yet (`resumeSoloRaid` / `failSoloRaid`). */
+  private soloPending: SoloRaidSave | null = null;
+  /** true when the stored solo raid was already past `SOLO_RAID_GRACE_MS` at boot → 레이드 실패 on the first frame. */
+  private soloExpired = false;
+  /** Pose to hand `restoreState` once the resumed world is ready (solo counterpart of the host's `ghost restore`). */
+  private soloRestore: PlayerRestoreState | null = null;
   /** > 0 while waiting for the host's `ghost restore` after a rejoin. */
   private restoreTimer = -1;
   /** Inventory as it was when the 훈련장 was entered (ammo / durability are refunded on exit). */
@@ -114,6 +129,8 @@ export class GameFlowSystem implements GameSystem {
     this.onFocusLost();
   };
   private onWindowBlur = (): void => this.onFocusLost();
+  /** Tab closing mid-solo-raid: flush the session so the last seconds of the run are not lost (2026-09-07). */
+  private onPageHide = (): void => { if (this.isSoloRaid() && this.ctx.isGameplayPhase()) this.saveSolo(); };
 
   init(ctx: GameContext): void {
     this.ctx = ctx;
@@ -186,6 +203,17 @@ export class GameFlowSystem implements GameSystem {
     // *before* calling exitPointerLock, so this handler only reacts to unexpected losses.
     document.addEventListener('pointerlockchange', this.onPointerLockChange);
     window.addEventListener('blur', this.onWindowBlur);
+    window.addEventListener('pagehide', this.onPageHide);
+    /*
+     * 2026-09-07: a solo raid interrupted by a closed tab / crash is resumable for `SOLO_RAID_GRACE_MS`. Read the
+     * file here and act on it from the first `update()` — the other systems are registered but have not run a frame
+     * yet, and `WorldSystem` must be listening before we emit `game:newMission`.
+     */
+    const solo = loadSoloRaid();
+    const status = soloRaidStatus(solo);
+    this.soloPending = status === 'fresh' ? solo : null;
+    this.soloExpired = status === 'stale';
+    if (status !== 'none') clearSoloRaid();
     // Make sure listeners know the initial phase even though ctx.phase already equals 'menu'.
     ctx.phase = 'menu';
     ctx.bus.emit('game:phaseChanged', { phase: 'menu', prev: 'menu' });
@@ -392,6 +420,37 @@ export class GameFlowSystem implements GameSystem {
   }
 
   /**
+   * 2026-09-07: **a lost pointer lock always ends up in the 일시정지 메뉴.**
+   *
+   * `onFocusLost` only reacts while no UI blocker is up, which left the worst case open: a cursor-mode screen (the
+   * inventory, the terminal, 함선 관리 …) keeps the lock by design since Phase 10, but Chrome drops it on any Escape
+   * and sometimes refuses to hand it back without a fresh user gesture. `shared/cursor.ts` then silently falls back
+   * to *mirroring* the real OS cursor — the game looks playable while the Windows cursor is free to wander onto
+   * another monitor and click something else. Since the pause menu is the one screen that deliberately owns the real
+   * cursor, putting it up is both the honest state and the way back in (`계속` re-locks).
+   *
+   * Debounced by `LOCK_LOST_GRACE_S` so it never races `main.ts`'s relock microtask or a per-screen re-request.
+   */
+  private checkLockLost(dt: number): void {
+    const ctx = this.ctx;
+    if (ctx.input.isPointerLocked) this.sawPointerLock = true;
+    // Never fire where the lock was never granted in the first place (headless smokes stub `requestPointerLock`
+    // away, a browser can refuse it outright) — an unclosable pause menu would be worse than no lock.
+    if (!this.sawPointerLock) { this.lockLostFor = 0; return; }
+    const eligible = !this.paused
+      && (ctx.isGameplayPhase() || this.inShip())
+      && !(ctx.player?.isDead ?? false)
+      && !ctx.input.isPointerLocked
+      && performance.now() - ctx.input.lastLockRequest >= LOCK_REQUEST_GRACE_MS;
+    if (!eligible) { this.lockLostFor = 0; return; }
+    this.lockLostFor += dt;
+    if (this.lockLostFor < LOCK_LOST_GRACE_S) return;
+    this.lockLostFor = 0;
+    ctx.bus.emit('input:pointerLockLost', {});
+    this.setPaused(true);
+  }
+
+  /**
    * Re-acquire the pointer after the pause menu closed. Deferred one microtask so a synchronous
    * follow-up transition (e.g. abort → setPhase('menu'), which unpauses first) is visible to the
    * check; the user activation from the key/click that resumed is still valid by then.
@@ -444,7 +503,7 @@ export class GameFlowSystem implements GameSystem {
     if (!this.rejoining) ctx.rejoinPending = false;
     // 훈련장: remember the inventory so ammo / durability spent on the range are refunded on exit.
     this.trainingSnapshot = this.isTraining() ? (ctx.inventory?.captureRaidState() ?? null) : null;
-    this.raidSaveTimer = this.isRaidSession() ? RAID_SAVE_INTERVAL_S : -1;
+    this.raidSaveTimer = (this.isRaidSession() || this.isSoloRaid()) ? RAID_SAVE_INTERVAL_S : -1;
     this.awaitingWorld = true;
     this.ensureNetHooks();
     // WorldSystem generates synchronously inside its own handler; if it already ran (registered earlier),
@@ -475,6 +534,13 @@ export class GameFlowSystem implements GameSystem {
       } catch (e) {
         console.error('[gameflow] raid blob restore failed', e);
       }
+    }
+    // Solo resume: there is no host to answer `flow rejoined` — we already hold the body state ourselves.
+    const solo = this.soloRestore;
+    if (solo) {
+      this.soloRestore = null;
+      this.onGhostRestore(solo);
+      return;
     }
     // The host answers our `flow rejoined` with `ghost restore`; if it never comes, drop in normally.
     this.restoreTimer = NET_GHOST_RESTORE_TIMEOUT_S;
@@ -519,10 +585,17 @@ export class GameFlowSystem implements GameSystem {
     return this.ctx.isMultiplayer && this.ctx.missionMode === 'raid' && !!this.ctx.net;
   }
 
-  /** Upload my mid-raid state so a reconnect can resume it (`RaidSessionBlob`). Cheap no-op outside a raid session. */
+  /** Solo raid: no relay to upload to, so the session is mirrored into localStorage instead (`SoloRaid.ts`). */
+  private isSoloRaid(): boolean {
+    return !this.ctx.isMultiplayer && this.ctx.missionMode === 'raid';
+  }
+
+  /** Upload my mid-raid state so a reconnect can resume it (`RaidSessionBlob`) — or, solo, write it to localStorage. */
   private saveRaid(): void {
     const ctx = this.ctx;
-    if (!this.isRaidSession() || !ctx.isGameplayPhase() || ctx.rejoinPending) return;
+    if (!ctx.isGameplayPhase() || ctx.rejoinPending) return;
+    if (this.isSoloRaid()) { this.saveSolo(); return; }
+    if (!this.isRaidSession()) return;
     const net = ctx.net!;
     if (typeof net.saveRaid !== 'function') return;
     try {
@@ -532,6 +605,70 @@ export class GameFlowSystem implements GameSystem {
       console.error('[gameflow] raid save failed', e);
     }
     this.raidSaveTimer = RAID_SAVE_INTERVAL_S;
+  }
+
+  /** Mirror the live solo raid (seed / planet / clock / stats / inventory / body) into localStorage. */
+  private saveSolo(): void {
+    const ctx = this.ctx;
+    const p = ctx.player;
+    if (!p) return;
+    try {
+      saveSoloRaid({
+        v: 1,
+        savedAt: Date.now(),
+        seed: ctx.stats.seed,
+        planet: ctx.missionPlanet ?? null,
+        missionTime: ctx.missionTime,
+        stats: { ...ctx.stats },
+        inventory: ctx.inventory?.captureRaidState() ?? null,
+        pose: {
+          x: p.position.x, y: p.position.y, z: p.position.z, yaw: p.yaw,
+          hp: p.hp, downHp: p.downHp,
+          state: p.isDead ? 2 : p.isDowned ? 1 : 0,
+        },
+      });
+    } catch (e) {
+      console.error('[gameflow] solo raid save failed', e);
+    }
+    this.raidSaveTimer = RAID_SAVE_INTERVAL_S;
+  }
+
+  /**
+   * First frame after boot: either drop back into the stored solo raid (inside `SOLO_RAID_GRACE_MS`) or count it as
+   * a 레이드 실패. Runs once — both fields are cleared before anything is emitted.
+   */
+  private consumeStoredSoloRaid(): void {
+    const ctx = this.ctx;
+    const save = this.soloPending;
+    const expired = this.soloExpired;
+    this.soloPending = null;
+    this.soloExpired = false;
+    if (ctx.phase !== 'menu') return;   // already somewhere else (a lobby resume beat us to it): leave it alone
+    if (expired) {
+      // Losing the kit is what `game:abort` outside a completed mission already does (inventory resets to the
+      // starter and saves), so the failure needs no special case beyond the message.
+      ctx.bus.emit('game:abort', {});
+      ctx.bus.emit('ui:notify', { text: '복귀가 너무 늦었습니다 — 레이드 실패', kind: 'danger', duration: 6 });
+      return;
+    }
+    if (!save) return;
+    this.resumeSoloRaid(save);
+  }
+
+  /** Re-enter the stored solo raid: same seed / planet, blob restored on `world:ready`, body placed (no hellpod). */
+  private resumeSoloRaid(save: SoloRaidSave): void {
+    const ctx = this.ctx;
+    this.rejoining = true;
+    ctx.rejoinPending = true;
+    ctx.missionMode = 'raid';
+    ctx.missionPlanet = save.planet;
+    this.raidBlob = { seed: save.seed, missionTime: save.missionTime, stats: save.stats, inventory: save.inventory, savedAt: save.savedAt };
+    this.soloRestore = {
+      position: new THREE.Vector3(save.pose.x, save.pose.y, save.pose.z),
+      yaw: save.pose.yaw, hp: save.pose.hp, downHp: save.pose.downHp, state: save.pose.state,
+    };
+    ctx.bus.emit('ui:notify', { text: '중단된 레이드를 이어서 진행합니다', kind: 'warning', duration: 5 });
+    ctx.bus.emit('game:newMission', { seed: save.seed, mode: 'raid', planet: save.planet ?? undefined });
   }
 
   /* ── 훈련장 ─────────────────────────────────────────────────────────── */
@@ -579,6 +716,8 @@ export class GameFlowSystem implements GameSystem {
     this.restoreTimer = -1;
     this.rejoining = false;
     this.raidBlob = null;
+    this.soloRestore = null;
+    clearSoloRaid();          // quitting to the ship / title ends the solo session (the kit resets below)
     ctx.rejoinPending = false;
     this.rewarded = false;
     this.awaitingWorld = false;
@@ -595,11 +734,14 @@ export class GameFlowSystem implements GameSystem {
     if (this.paused === paused) return;
     if (paused && !this.ctx.isGameplayPhase() && !this.inShip()) return;
     this.paused = paused;
-    // Single-player: Engine zeroes dt for every system while game:paused is active.
-    // Multiplayer (and the ship, Phase 8): freeze=false → only the menu shows; the simulation (and the extraction
-    // countdown, and the ship's own animation) keeps running.
-    // `paused` is set before exiting the lock so onPointerLockChange treats it as intended.
-    const freeze = !this.ctx.isMultiplayer && !this.inShip();
+    /*
+     * 2026-09-07: the pause **never freezes the world any more**, solo raids included. A raid is an extraction run —
+     * stopping the clock, the enemies and the extraction countdown with a keypress made it a save-scum button, and it
+     * also fought the new rule below (a lost pointer lock puts this menu up, which must not stall the mission).
+     * `freeze` stays on the wire because `Engine` and the HUD still read it; it is simply always false now.
+     * `paused` is set before exiting the lock so onPointerLockChange treats it as intended.
+     */
+    const freeze = false;
     if (paused) this.ctx.input.exitPointerLock();
     if (emit) this.ctx.bus.emit('game:paused', { paused, freeze });
     // Resume (Esc or "계속" click): PauseMenu has removed its 'menu' blocker by now → re-lock.
@@ -608,6 +750,7 @@ export class GameFlowSystem implements GameSystem {
 
   update(dt: number, ctx: GameContext): void {
     this.ensureNetHooks();
+    if (this.soloPending || this.soloExpired) this.consumeStoredSoloRaid();
     if (this.inLiveMission()) this.wasMultiplayerHost = ctx.isMultiplayer && (ctx.net?.isHost ?? false);
 
     // Escape: toggle pause (not while another UI blocker — inventory / map / terminal — is open; those
@@ -618,8 +761,8 @@ export class GameFlowSystem implements GameSystem {
       else if (ctx.uiBlockers.size === 0 && !(ctx.player?.isDead ?? false)
         && (ctx.isGameplayPhase() || (this.inShip() && !(ctx.housing?.housingMode ?? false)))) this.setPaused(true);
     }
-    // Single-player pause freezes everything (Engine also zeroes dt). Multiplayer: keep the timers ticking.
-    if (this.paused && !ctx.isMultiplayer) return;
+    // The pause is menu-only since 2026-09-07 (no `freeze`), so the mission timers below keep running while it is up.
+    this.checkLockLost(dt);
 
     if (ctx.isGameplayPhase() && !this.isTraining()) {
       // Difficulty ramp 0.3 → 0.7 over 8 minutes of mission time (never on the training range).
@@ -691,6 +834,7 @@ export class GameFlowSystem implements GameSystem {
     this.completeTimer = -1;
     this.allDeadCheckTimer = -1;
     this.raidSaveTimer = -1;
+    clearSoloRaid();          // the run is over — nothing left to resume
     this.awardMissionXp();
     // Host: make sure every client (even one that missed the liftoff message) reaches the result screen.
     if (ctx.isMultiplayer && ctx.net?.isHost) ctx.net.send({ t: 'flow', ev: 'complete' }, 'others');
@@ -713,6 +857,7 @@ export class GameFlowSystem implements GameSystem {
     this.allDeadCheckTimer = -1;
     this.raidSaveTimer = -1;
     this.restoreTimer = -1;
+    clearSoloRaid();          // 레이드 실패 — the stored session must not resurrect the run
     ctx.rejoinPending = false;
     this.awardMissionXp();
     const stats = { ...ctx.stats };
@@ -768,5 +913,6 @@ export class GameFlowSystem implements GameSystem {
     this.netUnsub?.(); this.netUnsub = null;
     document.removeEventListener('pointerlockchange', this.onPointerLockChange);
     window.removeEventListener('blur', this.onWindowBlur);
+    window.removeEventListener('pagehide', this.onPageHide);
   }
 }

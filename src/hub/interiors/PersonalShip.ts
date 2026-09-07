@@ -186,10 +186,20 @@ export class PersonalShip implements ShipInterior {
       }
       P.beam(CORRIDOR.maxX - CORRIDOR.minX, 0, z, 0);
     }
-    // wainscot along both corridor walls (the rooms' door walls carry none)
-    for (const side of [-1, 1]) {
+    // Wainscot trim along both corridor walls (the rooms' door walls carry none). 2026-09-07: it used to be one
+    // full-length bar per side, so the 1.05 m amber line ran straight across every room doorway and read as a rope
+    // barring the door. Split it into the segments **between** the doorways instead.
+    for (const side of [-1, 1] as const) {
       const x = side < 0 ? CORRIDOR.minX + 0.03 : CORRIDOR.maxX - 0.03;
-      b.box(0.05, 0.05, CORRIDOR.maxZ - CORRIDOR.minZ, x, 1.05, (CORRIDOR.minZ + CORRIDOR.maxZ) / 2, M.trim);
+      const gaps = ROOM_BOXES.filter((rb) => rb.side === side)
+        .map((rb) => ({ lo: rb.doorZ - DOOR_WIDTH / 2 - 0.12, hi: rb.doorZ + DOOR_WIDTH / 2 + 0.12 }))
+        .sort((a, c) => a.lo - c.lo);
+      let z = CORRIDOR.minZ;
+      for (const g of [...gaps, { lo: CORRIDOR.maxZ, hi: CORRIDOR.maxZ }]) {
+        const len = Math.min(g.lo, CORRIDOR.maxZ) - z;
+        if (len > 0.02) b.box(0.05, 0.05, len, x, 1.05, z + len / 2, M.trim);
+        z = Math.max(z, g.hi);
+      }
     }
 
     /* ── rooms ── */

@@ -524,7 +524,18 @@ kbd {
   box-shadow: 0 0 8px color-mix(in srgb, var(--inv-accent) 40%, transparent);
 }
 
-/* ── world-drop zone (shown while dragging, replaces the hint bar) ───────── */
+/* ── footer slot: hints ↔ world-drop zone, one fixed height ──────────────
+   Both live in `.inv-footer`, whose height is reserved for the taller (the drop zone). Before this the two were
+   siblings of the centred column and the swap at drag start moved every panel up by ~13 px. */
+.inv-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 66px;
+  flex: 0 0 auto;
+}
+/* The ship screen has neither bar (nothing to throw away, keys live on the slots) — no reason to reserve the space. */
+.inv-root.is-hub .inv-footer { min-height: 0; }
 .inv-root.is-dragging .inv-hints { display: none; }
 .inv-dropzone {
   display: none;
@@ -826,7 +837,12 @@ kbd {
 @keyframes inv-scan { from { transform: translateX(0); } to { transform: translateX(350%); } }
 .inv-tile.is-scanning { border-color: rgba(143, 232, 255, 0.7); }
 /* Header readout while the container still has hidden items. */
-.inv-search-status { font-size: 11px; letter-spacing: 0.08em; color: rgba(143, 232, 255, 0.85); font-variant-numeric: tabular-nums; }
+/* Fixed width: `감정 중 · n개 남음` is ~41 px wider than `감정 완료`, and the header drives the container panel's
+   shrink-to-fit width — finishing a search used to slide the whole window sideways. */
+.inv-search-status {
+  font-size: 11px; letter-spacing: 0.08em; color: rgba(143, 232, 255, 0.85); font-variant-numeric: tabular-nums;
+  min-width: 116px; text-align: right; white-space: nowrap;
+}
 .inv-search-status.is-done { color: var(--inv-muted); }
 .inv-search-status.is-paused { color: var(--inv-muted); }
 /* A take waiting for the host (multiplayer): the tile pulses until `cont taken` / `cont denied` arrives. */

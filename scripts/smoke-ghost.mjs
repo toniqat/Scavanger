@@ -7,7 +7,7 @@
 // demotion / promotion rebuild, rejoin restore wire). Phase 9: a ghost built from a downed ref inherits `ref.downHp`
 // (clamped 1..PLAYER_DOWN_HP), `ref.ghostState / ghostDownHp` mirror the ghost, and **parked ghosts** — a member that
 // left the mission (`net:missionMembership {inMission:false}`) or whose socket came back without `flow rejoined`
-// keeps a non-simulated body for NET_GHOST_PARK_S (`getParkedGhosts`), restored by a rejoin inside the window, expired
+// keeps a non-simulated body for NET_GHOST_PARK_S (the whole raid since 2026-09-07) (`getParkedGhosts`), restored by a rejoin inside the window, expired
 // after it (`debugExpireParked`), cleared by demotion / `game:abort`.
 // Phase 10: the soldier model's `shoulderSocket` (weaponSocket still at -PI/2, `SoldierPose.carry`) and
 // **부상자 들쳐메기** — `findCarriable` / `carry` / the revive prompt following the socket / the automatic drop when
@@ -361,7 +361,7 @@ try {
   });
   ok(k0.active.st === 0 && k0.active.hp === 50 && k0.active.refSt === 0, 'active ghost hp 50 before parking (ref.ghostState 0)', JSON.stringify(k0.active));
   ok(k0.ghosts === 0 && k0.parked === 1 && k0.wireHp === 50 && k0.wireSt === 0, 'net:missionMembership {inMission:false} → ghost parked with its last wire (hp 50)', JSON.stringify(k0));
-  ok(k0.window > 119 && k0.window <= 120.01, 'parked until ctx.time + NET_GHOST_PARK_S (120 s)', String(k0.window));
+  ok(k0.window > 3599 && k0.window <= 3600.01, 'parked until ctx.time + NET_GHOST_PARK_S (3600 s — the whole raid)', String(k0.window));
   ok(!k0.last && k0.refSt === undefined && k0.refDhp === undefined && k0.evDelta === 0, 'lastGhost dropped, ref.ghostState cleared, no net:ghostState on parking', JSON.stringify(k0));
   await waitSim(1.5);
   const k1 = await P(() => {

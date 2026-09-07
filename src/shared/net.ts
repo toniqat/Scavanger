@@ -69,8 +69,13 @@ export const NET_GHOST_RESTORE_TIMEOUT_S = 3;
  * Phase 9: a member that left the mission without rejoining (page reload → `lobby:mission {inMission:false}`) has its
  * ghost **parked** on the host for this many seconds: not simulated, not targetable, not counted, but a rejoin inside
  * the window still gets `ghost restore` with the body as it was.
+ *
+ * 2026-09-07: raised from 120 s to an hour — effectively "for the rest of the raid". The relay now keeps a dropped
+ * raider's lobby slot for the whole mission too, so a 2-minute window was the one thing left throwing the body
+ * away before the player could get back in. `parked` is cleared with the mission anyway (`clearAll`), so nothing
+ * survives past the raid it belongs to.
  */
-export const NET_GHOST_PARK_S = 120;
+export const NET_GHOST_PARK_S = 3600;
 /** Phase 9: relayed `meta contractHit.amount` above this is dropped (a real hit is always 1; `meta sync` entries are capped by the contract target). */
 export const META_HIT_MAX = 10;
 /** Nameplate / squad tag for a member whose socket is down but whose slot (and body) is kept. */

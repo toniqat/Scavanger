@@ -5,6 +5,9 @@ import { el, toggleClass } from '../dom';
 /** Arrow glyph per wheel direction (`QUICK_SLOT_DIRS` order), so a tile reads as its wheel sector at a glance. */
 const DIR_GLYPH: readonly string[] = ['↑', '↗', '→', '↘', '↓', '↙', '←', '↖'];
 
+/** Thumbnail edge in px (twice the 30 px the multi-cell strip used). */
+const THUMB = 60;
+
 interface Cell {
   root: HTMLElement;
   body: HTMLElement;
@@ -13,17 +16,15 @@ interface Cell {
 }
 
 /**
- * 빠른 사용 thumbnail strip (`.qstrip`, gameplay layer, Phase 9 UI pass) — the row of item thumbnails that sits on the
- * right **above the weapon slot strip**, so the wheel's contents are readable without holding `Keys.QUICK`.
+ * 빠른 사용 thumbnail (`.qstrip`, gameplay layer) — sits on the right **above the weapon slot strip**.
  *
- * One tile per **unlocked** wheel slot (`isQuickSlotActive` against the equipped bag's `quickSlots`), in wheel order,
- * each showing the direction arrow plus the shared item chip (`buildItemChip` — the same thumbnail every cost row and
- * catalogue card draws, so it also picks up the `ui/hud/ItemTip` hover card). An empty slot is a dim placeholder so
- * the tiles never move under the player's eye; the item currently in hand is lit (`.is-hand`, from `quick:equipped`).
+ * 2026-09-07: it used to draw one tile per **unlocked** wheel slot, which grew to a ~300 px row on an 8-slot bag.
+ * It now shows a **single** cell — the wheel slot the player last selected (`quick:equipped`, else `quick:used`,
+ * else the first filled slot) — at twice the old thumbnail size, with its direction arrow. The cell is lit
+ * (`.is-hand`) while that item is actually in the hands; the whole widget hides when the wheel is empty.
  *
  * Data: `inventory:quickSlotsChanged` (seeded from `ctx.inventory.getQuickSlots()`), counts from `quick:used` /
  * `inventory:itemUpdated`, unlock count from `ctx.inventory.getBagSize().quickSlots` (`inventory:bagChanged`).
- * The whole strip hides while no slot is unlocked and while the player has nothing in any of them.
  */
 export class QuickStrip {
   readonly root: HTMLElement;
@@ -31,12 +32,14 @@ export class QuickStrip {
   private slots: (ItemInstance | null)[] = new Array(QUICK_SLOTS).fill(null);
   private active = 0;
   private handUid = '';
+  /** Wheel index the player last selected / used; the only one drawn. */
+  private selected: number | null = null;
   private ctx: GameContext | null = null;
   private dirty = true;
   private unsubs: Array<() => void> = [];
 
   constructor(parent: HTMLElement) {
-    this.root = el('div', { cls: 'qstrip', parent });
+    this.root = el('div', { cls: 'qstrip is-single', parent });
     this.root.hidden = true;
     for (let i = 0; i < QUICK_SLOTS; i++) {
       const root = el('div', { cls: 'qs-cell empty', parent: this.root, attrs: { 'data-dir': QUICK_SLOT_DIRS[i] } });
@@ -57,10 +60,15 @@ export class QuickStrip {
       b.on('inventory:itemUpdated', touch),
       b.on('inventory:changed', touch),
       b.on('loadout:changed', touch),
-      b.on('quick:used', touch),
-      b.on('quick:equipped', ({ item }) => { this.handUid = item?.uid ?? ''; this.dirty = true; }),
+      b.on('quick:used', ({ index }) => { this.selected = index; this.dirty = true; }),
+      b.on('quick:equipped', ({ index, item }) => {
+        this.handUid = item?.uid ?? '';
+        // an unequip (`item: null`) keeps the selection so the widget does not blink out when the gun comes back
+        if (index !== null) this.selected = index;
+        this.dirty = true;
+      }),
       b.on('world:ready', () => { this.pull(); this.dirty = true; }),
-      b.on('game:newMission', () => { this.handUid = ''; this.dirty = true; }),
+      b.on('game:newMission', () => { this.handUid = ''; this.selected = null; this.dirty = true; }),
     );
     this.pull();
   }
@@ -81,29 +89,42 @@ export class QuickStrip {
     this.pull();
     try { this.active = inv.getBagSize().quickSlots; } catch { this.active = 0; }
 
-    let shown = 0, filled = 0;
+    const shownIndex = this.pickIndex(inv);
+    let visible = false;
     for (let i = 0; i < QUICK_SLOTS; i++) {
       const cell = this.cells[i];
-      const on = isQuickSlotActive(i, this.active);
+      const on = i === shownIndex;
       if (cell.root.hidden === on) cell.root.hidden = !on;
       if (!on) { cell.key = ''; continue; }
-      shown++;
       const uid = this.slots[i]?.uid ?? '';
       const inst = uid ? inv.findItem(uid) ?? this.slots[i] : null;
-      if (inst) filled++;
-      const key = inst ? `${inst.defId}|${inst.qty}|${this.handUid === inst.uid ? 1 : 0}` : '-';
+      if (!inst) { cell.root.hidden = true; cell.key = ''; continue; }
+      visible = true;
+      const key = `${inst.defId}|${inst.qty}|${this.handUid === inst.uid ? 1 : 0}`;
       if (key === cell.key) continue;
       cell.key = key;
       cell.body.replaceChildren();
-      if (inst) {
-        const def = inv.getDef(inst.defId) ?? this.ctx?.loot?.getItemDef(inst.defId);
-        cell.body.appendChild(buildItemChip(def, { size: 30, need: inst.qty > 1 ? inst.qty : undefined }));
-      }
-      toggleClass(cell.root, 'empty', !inst);
-      toggleClass(cell.root, 'is-hand', !!inst && inst.uid === this.handUid);
+      const def = inv.getDef(inst.defId) ?? this.ctx?.loot?.getItemDef(inst.defId);
+      cell.body.appendChild(buildItemChip(def, { size: THUMB, need: inst.qty > 1 ? inst.qty : undefined }));
+      toggleClass(cell.root, 'empty', false);
+      toggleClass(cell.root, 'is-hand', inst.uid === this.handUid);
     }
-    const visible = shown > 0 && filled > 0;
     if (this.root.hidden === visible) this.root.hidden = !visible;
+  }
+
+  /**
+   * Wheel index to draw: the last selected slot while it is unlocked and filled, else the first unlocked slot that
+   * holds something (so a fresh mission shows the starter grenade before anything has been picked).
+   */
+  private pickIndex(inv: NonNullable<GameContext['inventory']>): number | null {
+    const filled = (i: number): boolean => {
+      if (!isQuickSlotActive(i, this.active)) return false;
+      const uid = this.slots[i]?.uid ?? '';
+      return !!uid && !!(inv.findItem(uid) ?? this.slots[i]);
+    };
+    if (this.selected !== null && filled(this.selected)) return this.selected;
+    for (let i = 0; i < QUICK_SLOTS; i++) if (filled(i)) return i;
+    return null;
   }
 
   /** Tiles currently rendered with an item (debug). */

@@ -9,7 +9,6 @@ import { Objective, OBJECTIVE_TEXT } from './hud/Objective';
 import { InteractionPrompt } from './hud/InteractionPrompt';
 import { Notifications } from './hud/Notifications';
 import { DamageOverlay } from './hud/DamageOverlay';
-import { MissionInfo } from './hud/MissionInfo';
 import { DeployOverlay } from './hud/DeployOverlay';
 import { ScopeOverlay } from './hud/ScopeOverlay';
 import { Pings } from './hud/Pings';
@@ -60,7 +59,7 @@ import type { RewardsBlock } from './menus/RewardsBlock';
 /**
  * Arc Raiders-style HUD + menus. All DOM under `ctx.uiRoot`, in three `.hud` layers:
  *   - overlay (vignette, damage arcs, scope): gameplay + dead
- *   - gameplay HUD (reticle, vitals, weapon, compass, markers, objective, mission info, pings, spectate banner):
+ *   - gameplay HUD (reticle, vitals, weapon, compass, markers, objective (with the mission clock), pings, spectate banner):
  *     gameplay phases + `deploying`, hidden while a `'menu'` blocker is up or the player is dead in single-player
  *     (phase `dead` → `DeathScreen` with the respawn countdown)
  *   - social HUD (chat log, squad list, nameplates, notifications, interaction prompt): additionally visible in the
@@ -121,7 +120,6 @@ export class HudSystem implements GameSystem {
   private notifs!: Notifications;
   private damage!: DamageOverlay;
   private scope!: ScopeOverlay;
-  private missionInfo!: MissionInfo;
   private deploy!: DeployOverlay;
   private map!: MapScreen;
   /* tactical kit */
@@ -206,7 +204,6 @@ export class HudSystem implements GameSystem {
     this.objective = new Objective(this.hudRoot);
     this.contractPanel = new ContractPanel(this.hudRoot);
     this.trainingPanel = new TrainingPanel(this.hudRoot);
-    this.missionInfo = new MissionInfo(this.hudRoot);
     this.spectate = new SpectateOverlay(this.hudRoot);
     this.detection = new Detection(this.hudRoot);
     this.deployables = new Deployables(this.hudRoot);
@@ -309,7 +306,7 @@ export class HudSystem implements GameSystem {
       this.strat.update(ctx);
       this.targeting.update(ctx);
       this.compass.update(ctx);
-      this.missionInfo.update(ctx);
+      this.objective.update(ctx);
       this.pings.update(dt, ctx);
       this.spectate.update(dt, ctx);
       this.implantWidget.update(dt, ctx);
@@ -482,7 +479,7 @@ export class HudSystem implements GameSystem {
 
   dispose(): void {
     for (const u of this.unsubs) u();
-    for (const c of [this.reticle, this.cook, this.wheel, this.swheel, this.strat, this.charge, this.targeting, this.offscreen, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.chat, this.missionInfo, this.deploy, this.map]) c.dispose();
+    for (const c of [this.reticle, this.cook, this.wheel, this.swheel, this.strat, this.charge, this.targeting, this.offscreen, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.chat, this.deploy, this.map]) c.dispose();
     for (const c of [this.implantWidget, this.implantChip, this.quickStrip, this.detection, this.scanReveal, this.deployables, this.progressToasts, this.actionFx]) c.dispose();
     for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.housingHint, this.roomLabel, this.shipManage, this.shipHint, this.itemTip]) c.dispose();
     for (const c of [this.reload, this.heal, this.softCursor]) c.dispose();

@@ -1,4 +1,4 @@
-import { SOFT_CURSOR_DBLCLICK_MS, SOFT_CURSOR_SENSITIVITY } from './constants';
+import { SOFT_CURSOR_ACCEL, SOFT_CURSOR_ACCEL_MAX, SOFT_CURSOR_DBLCLICK_MS, SOFT_CURSOR_SENSITIVITY } from './constants';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * 인게임 마우스 커서 (Phase 10). Owner: shared/ — the second (and last) DOM file here after `itemChip.ts`.
@@ -28,6 +28,8 @@ export function isSoftCursorEvent(e: Event): boolean {
 }
 
 type ModeListener = (active: boolean, owner: string | null) => void;
+/** Fired on every position change so the sprite can follow **immediately** instead of once per game frame. */
+type MoveListener = (x: number, y: number) => void;
 
 interface SynthInit {
   clientX: number;
@@ -118,6 +120,7 @@ export class SoftCursor {
 
   private readonly owners = new Set<string>();
   private listener: ModeListener | null = null;
+  private moveListener: MoveListener | null = null;
   private hovered: Element | null = null;
   private pressedOn: Element | null = null;
   private lastClickEl: Element | null = null;
@@ -132,6 +135,15 @@ export class SoftCursor {
   get owner(): string | null { return this.owners.values().next().value ?? null; }
 
   onModeChange(listener: ModeListener | null): void { this.listener = listener; }
+
+  /**
+   * 2026-09-07: the sprite used to be written once per **game** frame (`HudSystem.update` → `ui/hud/SoftCursor`),
+   * which put the whole 3D render pipeline between a mouse move and the drawn arrow — the OS cursor is composited
+   * with none of that, which is most of why the in-game one felt sluggish. Hit-testing was never lagged (the
+   * synthetic `pointermove` goes out from `moveBy` at once); only the picture was. This hands the position straight
+   * to the sprite on the input event.
+   */
+  onMove(listener: MoveListener | null): void { this.moveListener = listener; }
 
   /**
    * Ref-counted enter / leave, keyed by the caller's `ctx.uiBlockers` token, so a panel layered over the inventory does
@@ -168,6 +180,7 @@ export class SoftCursor {
   setPosition(x: number, y: number): void {
     this.x = this.clampX(x);
     this.y = this.clampY(y);
+    this.moveListener?.(this.x, this.y);
     if (this.active) this.dispatch('pointermove', -1);
   }
 
@@ -180,13 +193,23 @@ export class SoftCursor {
   mirror(x: number, y: number): void {
     this.x = this.clampX(x);
     this.y = this.clampY(y);
+    this.moveListener?.(this.x, this.y);
   }
 
-  /** Integrate one frame of raw locked movement. `Input` calls this from its `mousemove` handler. */
+  /**
+   * Integrate one raw locked movement event. `Input` calls this from its `mousemove` handler.
+   *
+   * The lock is taken with `unadjustedMovement: true`, so these deltas carry no OS pointer acceleration at all.
+   * `gain` re-adds a curve of our own (`SOFT_CURSOR_ACCEL` / `_MAX`): slow, precise moves stay 1:1 with the raw
+   * delta, a flick covers up to `SOFT_CURSOR_ACCEL_MAX` times as much ground — which is what makes the desktop
+   * cursor feel quick.
+   */
   moveBy(dx: number, dy: number): void {
     if (!this.active || (dx === 0 && dy === 0)) return;
-    this.x = this.clampX(this.x + dx * this.sensitivity);
-    this.y = this.clampY(this.y + dy * this.sensitivity);
+    const gain = this.sensitivity * (1 + Math.min(SOFT_CURSOR_ACCEL_MAX - 1, Math.hypot(dx, dy) * SOFT_CURSOR_ACCEL));
+    this.x = this.clampX(this.x + dx * gain);
+    this.y = this.clampY(this.y + dy * gain);
+    this.moveListener?.(this.x, this.y);
     if (this.rangeDrag) driveRange(this.rangeDrag, this.x);
     this.dispatch('pointermove', -1);
   }

@@ -2146,6 +2146,36 @@ export class InventorySystem implements GameSystem, InventoryRef {
     return this.canSwap(item, from.grid, other.item, grid) ? 'swap' : 'bad';
   }
 
+  /**
+   * Free footprint **closest to (x, y)** for `uid` (living at `from`) inside `gridId`, preferring `rotated`.
+   * Null when the item does not fit anywhere.
+   *
+   * The drag UI uses this for an **equipment slot → grid** drag only: aiming a 4×2 weapon at a grid that has a
+   * single small item under the cursor used to refuse the drop outright (red highlight, snap back to the slot and
+   * shake), even with half the bag empty. The highlight now retargets to the spot the item really lands on.
+   */
+  nearestFreeSpot(uid: string, from: ItemLocation, gridId: GridId, x: number, y: number, rotated: boolean): { x: number; y: number; rotated: boolean } | null {
+    const item = this.findItem(uid, from);
+    const def = item && ITEM_DEF_MAP.get(item.defId);
+    const grid = this.getGrid(gridId);
+    if (!item || !def || !grid) return null;
+    const orientations = def.width !== def.height ? [rotated, !rotated] : [rotated];
+    let best: { x: number; y: number; rotated: boolean } | null = null;
+    let bestD = Infinity;
+    for (const rot of orientations) {
+      const { w, h } = grid.footprintOf(item, rot);
+      for (let gy = 0; gy + h <= grid.rows; gy++) {
+        for (let gx = 0; gx + w <= grid.cols; gx++) {
+          if (!grid.canPlace(item, gx, gy, rot, uid)) continue;
+          // slight bias to the requested orientation so a fitting rotation is not preferred over an equal-distance one
+          const d = (gx - x) * (gx - x) + (gy - y) * (gy - y) + (rot === rotated ? 0 : 0.5);
+          if (d < bestD) { bestD = d; best = { x: gx, y: gy, rotated: rot }; }
+        }
+      }
+    }
+    return best;
+  }
+
   /** Execute a drag-and-drop. Container → player moves go through `guardedTake` (Phase 7). */
   drop(uid: string, from: ItemLocation, target: DropTarget): OpResult {
     if (this.refusesIntoContainer(from, target)) return 'fail';

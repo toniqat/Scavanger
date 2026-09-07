@@ -227,7 +227,8 @@ Brief for the implementing agents: `docs/PHASE9-PLAN.md`.
   accepted only while the server has no document for that key.
 - `net.ts`: `profile:set {at?, fresh?}`; `PlayerSnapshot.dhp?` (down pool while DOWNED → host ghosts inherit it); `EnemyWire` pose fields are **optional** (`es` is a delta stream) +
   `EnemySnapshot.seq / gone?`, `NET_ENEMY_KEYFRAME_S` (keyframe cadence, also right after `flow rejoined / takeover`); `NET_GHOST_PARK_S` (a member who left the mission without
-  rejoining keeps a parked, non-simulated ghost the host restores on a rejoin inside the window); `META_HIT_MAX`; `strat sync {calls: StratagemCallWire[]}` + `stratq sync`
+  rejoining keeps a parked, non-simulated ghost the host restores on a rejoin inside the window — **2026-09-07**
+  raised 120 s → 3600 s, i.e. "for the rest of the raid", matching the relay now keeping their lobby slot that long); `META_HIT_MAX`; `strat sync {calls: StratagemCallWire[]}` + `stratq sync`
   (host answers on `world:ready` / `flow rejoined` — the host is the sync authority, calls stay client-simulated); `meta sync {corp, hits}` + `metaq sync` (peer-to-peer, once per requester
   per mission); `RemotePlayerRef.ghostState? / ghostDownHp? / downHp?` (net fills them from `ghost` messages / snapshots; game/ dropped its own map).
 - `types.ts`: `ItemCategory 'book'`, `ItemDef.book` / `BookDef {skill}`, `InventoryRef.openCatalog(opts?: {category?})` (widened in place), `EnemyManagerRef.applyStatus(..., attacker?)`
@@ -315,7 +316,17 @@ The second (and last) DOM file in `shared/`, after `itemChip.ts`.
   (**ref-counted by blocker token** — a popup layered over the inventory does not steal the cursor when it closes),
   `setCursorPosition`, `uiX` / `uiY` (virtual in cursor mode, `mouseX/mouseY` otherwise), `elementUnderCursor()`.
   A caller that enters cursor mode must **not** also call `exitPointerLock()`.
-- `constants.ts`: `SOFT_CURSOR_SENSITIVITY`, `SOFT_CURSOR_SIZE`, `SOFT_CURSOR_DBLCLICK_MS`.
+- `constants.ts`: `SOFT_CURSOR_SENSITIVITY`, `SOFT_CURSOR_SIZE`, `SOFT_CURSOR_DBLCLICK_MS`, and (2026-09-07)
+  `SOFT_CURSOR_ACCEL` / `SOFT_CURSOR_ACCEL_MAX`.
+- **2026-09-07 — responsiveness.** Two things made the virtual cursor feel slower than the Windows one, neither of
+  them the hit test (the synthetic `pointermove` always went out on the input event):
+  1. the lock is taken with `unadjustedMovement: true`, so Chrome hands over the **raw** device deltas — none of
+     Windows' pointer-speed scaling and none of its "enhance pointer precision" acceleration. `moveBy` now applies its
+     own curve, `gain = 1 + min(SOFT_CURSOR_ACCEL_MAX − 1, |delta| · SOFT_CURSOR_ACCEL)`: slow moves stay 1:1, a flick
+     covers up to 2.4× the raw distance;
+  2. the **sprite** was written once per game frame, so the whole 3D render pipeline sat between the mouse and the
+     drawn arrow. `onMove(listener)` hands the position straight to `ui/hud/SoftCursor` from `moveBy` / `setPosition` /
+     `mirror`; the per-frame `update()` is now only a safety net.
 - **Default-action emulation.** A synthesised event is untrusted, so the browser performs **no default action** for
   it — a text field never takes the caret and a range slider never moves. `SoftCursor.press` therefore focuses the
   nearest focusable ancestor (and blurs a text field when the click lands elsewhere), and a left-drag on an

@@ -355,15 +355,29 @@ export class GridView {
   rect(): DOMRect { return this.el.getBoundingClientRect(); }
 
   /**
-   * Cell under a ghost whose top-left is at (left, top) in client space, clamped
-   * so a w×h footprint stays inside. Null when the pointer is outside the grid.
+   * True when the pointer lies within `pad` px of this grid's box. `pad = 0` is strict containment — the caller
+   * (`InventoryUI.updateDragTarget`) resolves strictly first and only then with a tolerance, so two grids that sit
+   * a few px apart (가방 over 함선 창고) can no longer steal each other's edge rows.
    */
-  cellForGhost(left: number, top: number, w: number, h: number, pointerX: number, pointerY: number): { x: number; y: number } | null {
+  hitTest(pointerX: number, pointerY: number, pad: number): boolean {
+    if (!this.grid) return false;
+    const r = this.rect();
+    if (r.width <= 0 || r.height <= 0) return false;
+    return pointerX >= r.left - pad && pointerX <= r.right + pad && pointerY >= r.top - pad && pointerY <= r.bottom + pad;
+  }
+
+  /** Tolerance (px) used for the padded second pass. */
+  get hitPad(): number { return this.step * 0.5; }
+
+  /**
+   * Cell under a ghost whose top-left is at (left, top) in client space, clamped
+   * so a w×h footprint stays inside. Null when the pointer is outside the grid (`pad` px of tolerance).
+   */
+  cellForGhost(left: number, top: number, w: number, h: number, pointerX: number, pointerY: number, pad = this.step * 0.5): { x: number; y: number } | null {
     const grid = this.grid;
     if (!grid) return null;
+    if (!this.hitTest(pointerX, pointerY, pad)) return null;
     const r = this.rect();
-    const pad = this.step * 0.5;
-    if (pointerX < r.left - pad || pointerX > r.right + pad || pointerY < r.top - pad || pointerY > r.bottom + pad) return null;
     let x = Math.round((left - r.left) / this.step);
     let y = Math.round((top - r.top) / this.step);
     x = Math.max(0, Math.min(grid.cols - w, x));

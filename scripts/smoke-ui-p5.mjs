@@ -183,9 +183,10 @@ try {
   });
   ok(stimHint.cons && stimHint.hint === '좌클릭 2초 홀드', '회복약 in hand -> 좌클릭 2초 홀드 hint', JSON.stringify(stimHint));
   await emit('quick:equipped', { item: null, slot: 1 });
-  // the 회복약 pill's key line is the live 빠른 사용 binding, never a hard-coded H
-  const pillKey = await P(() => { const k = document.querySelector('.vitals .pill .key'); return k ? k.textContent : null; });
-  ok(!!pillKey && !/H/.test(pillKey) && /빠른 사용$/.test(pillKey), `회복약 pill key line = keyLabel(Keys.QUICK) 빠른 사용 (${pillKey})`);
+  // 2026-09-07: the bottom-left 회복약 / 수류탄 pills were removed — the counts are the right-hand 빠른 사용 thumbnail
+  // and the weapon panel's consumable block, so the health corner is health + stamina only.
+  const bl = await P(() => ({ pills: document.querySelectorAll('.vitals .pill').length, stam: !!document.querySelector('.stamina') }));
+  ok(bl.pills === 0 && bl.stam, `bottom-left vitals = health + stamina, no pills (${bl.pills})`);
 
   /* -- Phase 10: middle-click ping on the tactical map -- */
   console.log('map middle-click ping (Phase 10)');

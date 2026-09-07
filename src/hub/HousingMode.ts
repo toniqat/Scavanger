@@ -76,6 +76,13 @@ export class HousingMode {
   manage = false;
   /** Top-left cell of the current footprint (debug / smoke). */
   readonly cell = { x: -1, y: -1, valid: false };
+  /**
+   * 2026-09-07: false while the 함선 관리 cursor points **outside** the edit room. The deck ray is still clamped into
+   * the room (so the ghost has a defined pose), but the cyan cell frame, the furniture ghost and every placement
+   * action are suppressed — the highlight used to stick to the nearest edge cell while the player was clearly
+   * pointing at the corridor or another room.
+   */
+  private cursorInRoom = true;
 
   private ship: PersonalShip | null = null;
   private layer: FurnitureLayer | null = null;
@@ -187,6 +194,7 @@ export class HousingMode {
       if (!retarget) { this.camPos.copy(this.camGoal); this.lookPos.copy(this.lookGoal); }
       p.setCameraOverride(this.camPos, this.lookPos, false);
     }
+    this.cursorInRoom = true;
     this.frame.visible = true;
     this.refresh(true);
   }
@@ -283,6 +291,7 @@ export class HousingMode {
       this.cursor.x += input.mouseDY * CURSOR_M_PER_PX;
       this.cursor.x = THREE.MathUtils.clamp(this.cursor.x, rb.minX, rb.maxX);
       this.cursor.z = THREE.MathUtils.clamp(this.cursor.z, rb.minZ, rb.maxZ);
+      this.cursorInRoom = true;   // the locked-delta cursor can never leave the room
     }
 
     // keys
@@ -309,10 +318,11 @@ export class HousingMode {
 
     this.refresh(false);
 
-    if (input.wasPressed(Keys.DROP_ITEM)) this.recoverUnderCursor();
-    // a click on the 방 목록 / 가구 카드 바 must not also drop a piece on the floor behind the panel
+    if (input.wasPressed(Keys.DROP_ITEM) && this.cursorInRoom) this.recoverUnderCursor();
+    // a click on the 방 목록 / 가구 카드 바 must not also drop a piece on the floor behind the panel,
+    // and a click aimed outside the edit room (no cell highlight) must not place at the clamped edge cell
     const fire = input.wasMousePressed(MouseButtons.FIRE) || this.softPressed.has(MouseButtons.FIRE);
-    if (fire && !overUI) this.primary();
+    if (fire && !overUI && this.cursorInRoom) this.primary();
     this.clearSoftInput();
   }
 
@@ -352,8 +362,10 @@ export class HousingMode {
     if (Math.abs(d.y) < 1e-4) return;
     const t = -o.y / d.y;
     if (!(t > 0)) return;                    // the deck is behind the camera (mid-blend) — keep the last cursor
-    this.cursor.x = THREE.MathUtils.clamp(o.x + d.x * t, rb.minX, rb.maxX);
-    this.cursor.z = THREE.MathUtils.clamp(o.z + d.z * t, rb.minZ, rb.maxZ);
+    const hx = o.x + d.x * t, hz = o.z + d.z * t;
+    this.cursorInRoom = hx >= rb.minX && hx <= rb.maxX && hz >= rb.minZ && hz <= rb.maxZ;
+    this.cursor.x = THREE.MathUtils.clamp(hx, rb.minX, rb.maxX);
+    this.cursor.z = THREE.MathUtils.clamp(hz, rb.minZ, rb.maxZ);
   }
 
   /** Footprint of what the cursor carries: the housing selection, the picked-up piece, or a single cell. */
@@ -382,8 +394,10 @@ export class HousingMode {
     const x = THREE.MathUtils.clamp(Math.round(fx - sel.cols / 2), 0, ROOM_GRID_COLS - sel.cols);
     const y = THREE.MathUtils.clamp(Math.round(fz - sel.rows / 2), 0, ROOM_GRID_ROWS - sel.rows);
     const housing = this.ctx.housing;
+    const inRoom = this.cursorInRoom;
     let valid = false;
-    if (sel.defId) {
+    if (!inRoom) valid = false;
+    else if (sel.defId) {
       try { valid = !!housing && typeof housing.canPlace === 'function' && housing.canPlace(this.room, sel.defId, x, y, sel.yaw, sel.ignoreUid); } catch { valid = false; }
     } else {
       valid = this.layer?.pieceAt(this.room, x, y) !== null && this.layer !== null;
@@ -408,12 +422,14 @@ export class HousingMode {
     }
     roomCellToWorld(this.room, x, y, _pos, sel.cols, sel.rows);
     if (this.ghost) {
+      this.ghost.group.visible = inRoom;
       this.ghost.group.position.set(_pos.x, 0.01, _pos.z);
       if (this.ghostValid !== valid) {
         this.ghostValid = valid;
         for (const m of this.ghost.meshes) m.material = valid ? GHOST_OK : GHOST_BAD;
       }
     }
+    this.frame.visible = inRoom;
     this.frame.position.set(_pos.x, 0.02, _pos.z);
     this.frame.scale.set(sel.cols * HOUSING_CELL_SIZE, sel.rows * HOUSING_CELL_SIZE, 1);
     this.frameMat.color.setHex(sel.defId ? (valid ? 0x5cff8a : 0xff5a4a) : valid ? 0xffd27a : 0x5fd7ff);

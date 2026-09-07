@@ -20,6 +20,10 @@ const BODY_CLASS = 'soft-cursor-on';
  * arrow is what keeps that from reading as two cursors.
  *
  * Position is written on the `translate:` channel (never `transform`, and never `left/top`) so a move costs no layout.
+ *
+ * 2026-09-07: the sprite follows `SoftCursor.onMove` — the input event itself — rather than waiting for the next
+ * `HudSystem.update`. A game frame plus the composer's render sat between the mouse and the drawn arrow, which is
+ * what made the in-game cursor feel a step behind the Windows one. `update()` is kept as a per-frame safety net.
  */
 export class SoftCursor {
   readonly root: HTMLElement;
@@ -52,14 +56,22 @@ export class SoftCursor {
     this.unsubs.push(
       ctx.bus.on('input:cursorModeChanged', ({ active }) => this.setActive(active)),
     );
+    // Draw on the input event, not on the game frame (see the class comment).
+    ctx.input.cursor.onMove((x, y) => this.draw(x, y));
+    this.unsubs.push(() => ctx.input.cursor.onMove(null));
     // Seed from the live state (a surface may already be in cursor mode when the HUD rebinds).
     this.setActive(ctx.input.isCursorMode);
   }
 
-  /** Follow the virtual cursor; called every frame from `HudSystem` (also while a blocker is up). */
+  /** Per-frame safety net (a position set outside `SoftCursor`, or a listener lost on a HUD rebuild). */
   update(ctx: GameContext): void {
     if (!this.active) return;
-    const x = Math.round(ctx.input.cursorX), y = Math.round(ctx.input.cursorY);
+    this.draw(ctx.input.cursorX, ctx.input.cursorY);
+  }
+
+  private draw(cx: number, cy: number): void {
+    if (!this.active) return;
+    const x = Math.round(cx), y = Math.round(cy);
     if (x === this.lastX && y === this.lastY) return;
     this.lastX = x; this.lastY = y;
     this.root.style.translate = `${x}px ${y}px`;

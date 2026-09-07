@@ -431,12 +431,19 @@ async function main(): Promise<void> {
     assert(st.lobby.hostId === e.id, 'second host drop while started still keeps the host id', st.lobby);
     g.send({ t: 'relay', to: 'host', d: { t: 'exq', ev: 'sync' } });
     assert(await g.expectNone('lobby:error', 100), 'relay to a dropped host is silently skipped (no error)');
-    const hostExpired = await g.wait('peer:left', (m) => m.id === e.id, GRACE_MS + 1500);
-    assert(hostExpired.lobby.hostId === g.id && hostExpired.lobby.players.find((p) => p.id === g.id)?.isHost === true && hostExpired.lobby.started,
-      'grace expiry while started → peer:left + host migrated to G', hostExpired.lobby);
+    // 2026-09-07: the grace expiry of an in-mission member of a **started** lobby no longer reaps the slot — the raid
+    // keeps the body until it ends. The host role still moves at that first expiry.
+    const hostMoved = await g.wait('lobby:state', (m) => m.lobby.hostId === g.id, GRACE_MS + 1500);
+    assert(hostMoved.lobby.players.find((p) => p.id === g.id)?.isHost === true && hostMoved.lobby.started
+      && hostMoved.lobby.players.length === 2 && hostMoved.lobby.players.find((p) => p.id === e.id)?.connected === false,
+      'grace expiry while started → host migrated to G, the dropped raider keeps their slot', hostMoved.lobby);
+    assert(await g.expectNone('peer:left', 400), 'no peer:left while the raid is still running');
     g.send({ t: 'lobby:reset' });
     await g.wait('lobby:state', (m) => !m.lobby.started);
     pass('new host reset after the mission');
+    /* mission over → the next grace tick finally reaps the member who never came back */
+    const eLeft = await g.wait('peer:left', (m) => m.id === e.id, GRACE_MS + 1500);
+    assert(eLeft.lobby.players.length === 1, 'mission reset → the kept slot is reaped at the next grace tick', eLeft.lobby);
     /* E is out of the lobby now; reconnect it lobby-less so the cleanup below closes a live socket */
     ({ c: e } = await connect('E6', url, { token: T1, name: 'Echo' }));
     assert(e.lobby === null, 'expired host returns without a lobby');

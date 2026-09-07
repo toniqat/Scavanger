@@ -1,13 +1,14 @@
 import type { GameContext } from '@/shared';
-import { Keys, PLAYER_MAX_HP, PLAYER_MAX_STAMINA, PLAYER_DOWN_HP, keyLabel } from '@/shared';
+import { PLAYER_MAX_HP, PLAYER_MAX_STAMINA, PLAYER_DOWN_HP } from '@/shared';
 import { el, setText, toggleClass, damp } from '../dom';
 
 const SEGMENTS = 10;
 const STAMINA_PULSE = 0.9; // seconds the bar stays amber after depletion
 
 /**
- * Segmented health bar with damage ghost trail, HP number, stamina bar, 회복약 / grenade pills (the 회복약 pill's key
- * line is the live `keyLabel(Keys.QUICK)` binding, refreshed on `input:bindingsChanged` — the H shortcut is retired).
+ * Segmented health bar with damage ghost trail, HP number and stamina bar. 2026-09-07: the 회복약 / 수류탄 pills that
+ * used to sit under the bar are gone — both counts live in the right-hand column (`hud/QuickStrip` thumbnail and
+ * `hud/WeaponPanel`'s consumable block), so the bottom-left corner carries health + stamina only.
  * **Downed mode** (`.vitals.downed`, `player:downed` → `player:revived` / `player:spawned` / `player:died`): the bar
  * shows `downHp / PLAYER_DOWN_HP` in red (`player:downHpChanged`, also polled from `ctx.player.downHp`), the label reads
  * `전투불능 — 아군의 구조 대기 중` with `Space 길게: 포기` under it, and `player:reviveProgress` shows
@@ -27,11 +28,6 @@ export class Vitals {
   private reviveFill: HTMLElement;
   private giveUpEl: HTMLElement;
   private giveUpFill: HTMLElement;
-  private stimPill: HTMLElement;
-  private stimVal: HTMLElement;
-  private stimKey: HTMLElement;
-  private grenPill: HTMLElement;
-  private grenVal: HTMLElement;
   private stamRoot: HTMLElement;
   private stamFill: HTMLElement;
 
@@ -78,17 +74,9 @@ export class Vitals {
     this.stamFill = el('div', { cls: 'fill', parent: stamBar });
     el('div', { cls: 'ui-label', text: '스태미나', parent: this.stamRoot });
 
-    const pills = el('div', { cls: 'pills', parent: this.root });
-    this.stimPill = el('div', { cls: 'pill', parent: pills });
-    el('i', { cls: 'ico stim', parent: this.stimPill });
-    this.stimVal = el('span', { cls: 'val', text: '0', parent: this.stimPill });
-    // Phase 10: the H shortcut is retired and the item is the 회복약 — the pill names the live 빠른 사용 binding only.
-    this.stimKey = el('span', { cls: 'key', text: `${keyLabel(Keys.QUICK)} 빠른 사용`, parent: this.stimPill });
-    this.grenPill = el('div', { cls: 'pill', parent: pills });
-    el('i', { cls: 'ico gren', parent: this.grenPill });
-    this.grenVal = el('span', { cls: 'val', text: '0', parent: this.grenPill });
-    this.setCount(this.stimPill, this.stimVal, 0);
-    this.setCount(this.grenPill, this.grenVal, 0);
+    // 2026-09-07: the 회복약 / 수류탄 pills that used to sit under the health bar are gone. Both counts read off the
+    // right-hand column now (`hud/QuickStrip` thumbnail + `hud/WeaponPanel`'s consumable block), so the bottom-left
+    // corner is health + stamina only.
   }
 
   bind(ctx: GameContext): void {
@@ -102,10 +90,6 @@ export class Vitals {
         this.setDowned(false);
         this.hp = this.shown = this.ghost = ctx.player?.hp ?? PLAYER_MAX_HP;
       }),
-      ctx.bus.on('stim:countChanged', ({ count }) => this.setCount(this.stimPill, this.stimVal, count)),
-      // Never cache a key label — it changes in the 키 설정 overlay.
-      ctx.bus.on('input:bindingsChanged', () => setText(this.stimKey, `${keyLabel(Keys.QUICK)} 빠른 사용`)),
-      ctx.bus.on('grenade:countChanged', ({ count }) => this.setCount(this.grenPill, this.grenVal, count)),
       ctx.bus.on('player:staminaDepleted', () => {
         this.depletedTimer = STAMINA_PULSE;
         // restart the pulse animation even if it is still running
@@ -223,11 +207,6 @@ export class Vitals {
     this.stamFill.style.transform = `scaleX(${this.staminaShown.toFixed(3)})`;
     toggleClass(this.stamRoot, 'full', full);
     toggleClass(this.stamRoot, 'low', low);
-  }
-
-  private setCount(pill: HTMLElement, val: HTMLElement, n: number): void {
-    setText(val, String(n));
-    toggleClass(pill, 'zero', n <= 0);
   }
 
   /** Whether the give-up bar is up (debug). */

@@ -783,11 +783,26 @@ export class HubSystem implements GameSystem, HubRef {
     if (this.ship !== 'shared') this.swapDirect('shared');
     const training = this.trainingRunning();
     const raid = inProgress && !training;
+    const net = this.ctx.net;
+    /*
+     * 2026-09-07: a reconnect into a **running raid** goes straight back into the mission instead of parking the
+     * player in the shared ship next to a pod. The relay keeps a dropped raider's slot for the whole mission and the
+     * host keeps their body parked, so the squad member returns exactly where they left off — walking to a pod first
+     * was busywork that could also time the body out. A 훈련장 is still joined by hand (it is entered individually).
+     */
+    if (raid && net?.lobby && typeof net.rejoinMission === 'function') {
+      this.ctx.bus.emit('ui:notify', { text: '진행 중인 임무로 복귀합니다', kind: 'warning', duration: 4 });
+      // one turn later: `swapDirect` above rebuilt the interior this frame, and `rejoinMission` tears it down again
+      queueMicrotask(() => {
+        if (!this.active || this.ctx.phase !== 'hub' || !net.missionInProgress) return;
+        net.rejoinMission();        // → net:gameStarting + game:newMission → teardown('mission')
+      });
+      return;
+    }
     this.ctx.bus.emit('ui:notify', {
-      text: raid ? '분대가 임무 중입니다 — 발사 슬롯에 탑승하면 재투입됩니다'
-        : training ? '함선에 재접속했습니다 — 훈련장이 열려 있습니다 (터미널에서 합류)'
+      text: training ? '함선에 재접속했습니다 — 훈련장이 열려 있습니다 (터미널에서 합류)'
         : '함선에 재접속했습니다',
-      kind: raid ? 'warning' : 'success', duration: 5,
+      kind: 'success', duration: 5,
     });
   }
 

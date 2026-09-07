@@ -5,7 +5,8 @@
  *
  * Sessions: clients connect with `?t=<token>&n=<name>`; the PeerId is derived from the token, so a page reload or a
  * network drop comes back with the same id. A lobby member whose socket drops keeps their slot (`connected=false`)
- * for `reconnectGraceMs` (NET_RECONNECT_GRACE_MS) and is removed only when that timer expires.
+ * for `reconnectGraceMs` (NET_RECONNECT_GRACE_MS) and is removed only when that timer expires — except for a member
+ * who dropped **inside a running raid**, whose slot is kept for the whole mission (see `armGrace`, 2026-09-07).
  *
  * Erasable-TypeScript only (runs under Node 24's native type stripping).
  */
@@ -493,7 +494,8 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
   };
 
   /**
-   * Socket of a lobby member went away: keep the slot, flag it, arm the grace timer. Host role: not started (hub) →
+   * Socket of a lobby member went away: keep the slot, flag it, arm the grace timer (`armGrace` — inside a running
+   * raid the slot is kept for the whole mission). Host role: not started (hub) →
    * migrates at once so the party can still launch; started → kept for `migrateMs` (a brief blip keeps the host),
    * then moved to a connected member inside the mission (`Lobby.migrateHost` prefers `inMission`).
    */
@@ -521,11 +523,41 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
       timer.unref();
       migrateTimers.set(lobby.code, timer);
     }
+    armGrace(c);
+  };
+
+  /**
+   * Arm (or re-arm) the reconnect-grace timer for a disconnected lobby member.
+   *
+   * 2026-09-07: a member who dropped **inside a running raid** keeps their slot for as long as the raid lasts, not
+   * just `graceMs` — the host holds their body as a ghost and a reconnect drops straight back into it, so reaping
+   * the slot at 5 minutes was throwing the run away mid-mission. The timer simply re-arms while
+   * `started && raid && inMission && another connected member is still inside`; that last clause keeps an abandoned
+   * lobby from living forever — when the expiring member was the last one in the raid the slot is reaped exactly as
+   * before, which ends the mission and migrates the host.
+   * The host role does **not** wait for that: it still moves at the first expiry (on top of the `migrateMs` path),
+   * so the squad never sits without an authority.
+   */
+  const armGrace = (c: Client): void => {
     clearGrace(c.id);
     const timer = setTimeout(() => {
       graceTimers.delete(c.id);
       // Reconnected in the meantime (timer should have been cleared, but be safe).
       if (clients.has(c.id)) return;
+      const lobby = lobbies.lobbyOf(c.id);
+      const me = lobby?.get(c.id);
+      // A 훈련장 is entered and left individually and holds no body — only a **raid** keeps the slot, and only while
+      // somebody else is still actually inside it (the last member inside expiring ends the mission, as before).
+      let othersInside = 0;
+      if (lobby) for (const p of lobby.players.values()) if (p.id !== c.id && p.connected && p.inMission) othersInside++;
+      if (lobby && me && lobby.started && lobby.mode !== 'training' && me.inMission && othersInside > 0) {
+        if (lobby.hostId === c.id && lobby.migrateHost()) {
+          log(`lobby ${lobby.code}: host ${c.id} still down after ${graceMs} ms → host now ${lobby.hostId} (slot kept: raid running)`);
+          broadcastState(lobby);
+        }
+        armGrace(c);
+        return;
+      }
       removeFromLobby(c.id, c.name, 'timeout');
     }, graceMs);
     timer.unref();
