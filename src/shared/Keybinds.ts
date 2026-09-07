@@ -63,6 +63,8 @@ export const KEY_ACTION_DEFS: readonly KeyActionDef[] = [
   { id: 'INVENTORY', label: '인벤토리', group: '인터페이스', scope: 'global' },
   { id: 'MAP', label: '지도', group: '인터페이스', scope: 'game' },
   { id: 'MENU', label: '일시 정지 · 닫기', group: '인터페이스', scope: 'global' },
+  /* appended (Phase 11): only listened to in the ship, and only while an invite panel is up. */
+  { id: 'INVITE', label: '분대 초대 수락 (함선에서 길게)', group: '인터페이스', scope: 'global' },
 
   /* dev console (only active on a dev client; listed so the key can be moved off a layout that lacks `) */
   { id: 'CONSOLE', label: '개발자 콘솔 (서버 PC 전용)', group: '인터페이스', scope: 'global', menuOnly: true },

@@ -19,7 +19,11 @@ export interface GameEvents {
   'game:phaseChanged': { phase: GamePhase; prev: GamePhase };
   /** Command: start a fresh mission. World must generate synchronously and then emit world:ready. */
   /** `mode` (appended, Phase 7): `'training'` = 시뮬레이션 훈련장 instead of the planet (default `'raid'`). */
-  'game:newMission': { seed: number; mode?: import('./types').MissionMode };
+  /**
+   * `planet` (appended, Phase 11): 목표 행성 of this raid. Absent = generate the old way (biome and sky drawn from
+   * the seed). The emitter sets `ctx.missionPlanet` before emitting, exactly as it does for `ctx.missionMode`.
+   */
+  'game:newMission': { seed: number; mode?: import('./types').MissionMode; planet?: PlanetId };
   /** Command: return to menu; all systems reset visuals/state. */
   'game:abort': Record<string, never>;
   'game:complete': { stats: MissionStats };
@@ -31,7 +35,8 @@ export interface GameEvents {
   'game:paused': { paused: boolean; freeze?: boolean };
 
   /* ── world (owner: world/WorldSystem) ───────────────────────────────── */
-  'world:ready': { seed: number; playerSpawn: THREE.Vector3 };
+  /** `planet` (appended, Phase 11): what the world was generated for; null = the seeded biome draw. */
+  'world:ready': { seed: number; playerSpawn: THREE.Vector3; planet?: PlanetId | null };
   'world:cleared': Record<string, never>;
   /** A crate was interacted with; Inventory opens the container window. */
   'crate:open': { crateId: string; tier: number; position: THREE.Vector3 };
@@ -130,7 +135,8 @@ export interface GameEvents {
   'net:peerLeft': { id: PeerId; name: string };
   /** Server accepted the host's start. Net emits `game:newMission {seed}` right after this. */
   /** `rejoin` / `mode` (appended, Phase 7): `rejoin` true when re-entering a running mission (player waits for `restoreState`). */
-  'net:gameStarting': { seed: number; lobby: LobbyState; rejoin?: boolean; mode?: import('./types').MissionMode };
+  /** `planet` appended (Phase 11): 목표 행성 from `game:start` / `LobbyState.planet` on a rejoin. */
+  'net:gameStarting': { seed: number; lobby: LobbyState; rejoin?: boolean; mode?: import('./types').MissionMode; planet?: PlanetId };
   /** A RemotePlayerRef was created (first snapshot arrived) / removed (peer left). */
   'net:remotePlayerAdded': { id: PeerId };
   'net:remotePlayerRemoved': { id: PeerId };
@@ -635,4 +641,47 @@ export interface GameEvents {
   /* ── 배리어 방패 (owner: implants) ── */
   /** The shield was raised / lowered (distinct from the old deploy/stow of `implant:barrierChanged`). */
   'implant:barrierCarried': { up: boolean };
+}
+
+/* ══ appended: Phase 11 — 행성 선택 · 소셜 (2026-09-07) ══════════════════════════════════════════════════════ */
+import type { PlanetId } from './planets';
+import type { PlayOutcome, PlayerCode, SocialErrorCode, SocialSnapshot, SquadInvite, WhisperLine } from './social';
+
+export interface GameEvents {
+  /* ── 목표 행성 (owner: hub; world / core / enemies read `ctx.missionPlanet` instead) ── */
+  /**
+   * The ship's 목표 행성 changed and the travel cutscene has finished. `by` distinguishes my own terminal pick from a
+   * squad-mate's (`'squad'` = the host changed it and my `lobby:state` brought it in).
+   */
+  'hub:planetChanged': { planet: PlanetId; by: 'local' | 'squad' };
+  /**
+   * Ship travel: `'start'` locks controls, closes the terminal, un-boards every pod and runs the docking cutscene as
+   * a warp; `'end'` hands control back. Local to each client — it is driven by each client's own `lobby:state`.
+   */
+  'hub:travel': { stage: 'start' | 'end'; planet: PlanetId };
+  /** The full-screen terminal opened / closed (blocker `'hub'`, software cursor on). Replaces nothing — new. */
+  'hub:terminalToggled': { open: boolean };
+
+  /* ── 소셜 (owner: net/SocialSync; drawn by ui/) ── */
+  /** A snapshot arrived. `first` = the one that came with `welcome` / the first `social:get` of this connection. */
+  'social:updated': { snapshot: SocialSnapshot; first: boolean };
+  /** A squad invite arrived (panel under the community thumbnail, P-hold to accept). */
+  'social:invited': { invite: SquadInvite };
+  /** An invite left the list: accepted, dismissed, or `SQUAD_INVITE_TTL_S` expired. */
+  'social:inviteClosed': { from: PlayerCode; reason: 'accepted' | 'dismissed' | 'expired' };
+  /** A whisper was sent or received (`line.out` distinguishes). ChatLog renders it, nothing else consumes it. */
+  'social:whisper': { line: WhisperLine };
+  /** How my 같이 하기 resolved — `joined` (a docking cutscene follows) or `invited` (they were asked). */
+  'social:play': { code: PlayerCode; name: string; outcome: PlayOutcome };
+  /** A social request was refused. `message` is the Korean line from `SOCIAL_ERROR_MESSAGE_KO`. */
+  'social:error': { code: SocialErrorCode; message: string };
+
+  /* ── 커뮤니티 / 귓속말 UI (owner: ui) ── */
+  /** The ship's top-right 커뮤니티 panel opened / closed (blocker `COMMUNITY_BLOCKER`). */
+  'ui:communityToggled': { open: boolean };
+  /**
+   * Command: open the chat input in whisper mode aimed at `code` (the ESC screen's 귓속말하기 closes itself and emits
+   * this). ChatLog keeps the target until the player clears it, so the next Enter also whispers.
+   */
+  'chat:whisperTo': { code: PlayerCode; name: string };
 }

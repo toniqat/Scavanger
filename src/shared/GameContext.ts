@@ -7,6 +7,8 @@ import type {
 } from './types';
 import type { NetRef } from './net';
 import type { MissionMode } from './types';
+/* appended (Phase 11, 2026-09-07): 행성 선택 */
+import type { PlanetId } from './planets';
 import type { ImplantsRef } from './implants';
 import type { GadgetsRef } from './gadgets';
 import type { ProgressionRef } from './progression';
@@ -96,6 +98,13 @@ export class GameContext {
    * `world:ready`; game/ clears it after `restoreState` / the fallback respawn.
    */
   rejoinPending = false;
+  /* ── appended: Phase 11 (2026-09-07) ── */
+  /**
+   * 목표 행성 of the running / last raid, or null when the mission was generated the old way (no planet: a seeded
+   * biome + a seeded sky). Set by the **emitter** of `game:newMission` before it emits, exactly like `missionMode`,
+   * so `world/` and `core/` can read it inside their synchronous handlers. A training always sets it to null.
+   */
+  missionPlanet: PlanetId | null = null;
   /* ── appended: Phase 8 (2026-09-06) ── */
   /** Volume settings (전체 / 효과음) for the 설정 menu. Published by audio/AudioSystem. */
   audio: AudioRef | null = null;

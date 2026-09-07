@@ -49,6 +49,8 @@ export interface KeyBindings {
   FIRE: string; AIM: string; PING: string;
   /* appended (dev console, 2026-09-06): ` opens the console on a dev client, Home = /movecheat fast move. */
   CONSOLE: string; MOVE_CHEAT: string;
+  /* appended (Phase 11): hold P to accept a 분대 초대 (ship only). Took P off the undocumented character-sheet shortcut. */
+  INVITE: string;
 }
 
 /** Factory defaults; `Keys` is the live (rebindable) copy. Both are keyed by `KeyAction`. */
@@ -78,6 +80,8 @@ export const DEFAULT_KEYS: Readonly<KeyBindings> = {
   FIRE: 'Mouse0', AIM: 'Mouse2', PING: 'Mouse1',
   /* dev console */
   CONSOLE: 'Backquote', MOVE_CHEAT: 'Home',
+  /* Phase 11: 분대 초대 수락 (홀드). The P character-sheet shortcut is gone — 캐릭터 is a Tab-screen tab. */
+  INVITE: 'KeyP',
 };
 
 /**
@@ -811,3 +815,33 @@ export const SOFT_CURSOR_SENSITIVITY = 1;
 export const SOFT_CURSOR_SIZE = 22;
 /** Two synthetic clicks within this many ms on the same element also dispatch a `dblclick`. */
 export const SOFT_CURSOR_DBLCLICK_MS = 350;
+
+/* ══ appended: Phase 11 — 행성 선택 · 소셜 (2026-09-07) ═════════════════════════════════════════════════════ */
+
+/* ── 행성 이동 (owner: hub; the cutscene is `DockingCutscene` reused as a warp) ── */
+/** Seconds of the 행성 이동 cutscene. Shorter than `HUB_DOCKING_DURATION` — it is a hop, not an arrival. */
+export const HUB_TRAVEL_DURATION = 4.5;
+/** Fraction of the cutscene spent in the streaked-star warp before the destination sphere resolves. */
+export const HUB_TRAVEL_WARP_FRACTION = 0.55;
+/** How far the warp stretches a star (multiplier on its own length while `HUB_TRAVEL_WARP_FRACTION` runs). */
+export const HUB_TRAVEL_WARP_STRETCH = 22;
+
+/* ── 터미널 (owner: hub/ui/HubMenu — full-screen since Phase 11) ── */
+/** Side of the square WebGL canvas the planet hologram renders into (device px are scaled by the DPR cap). */
+export const PLANET_HOLOGRAM_PX = 360;
+/** Idle spin of the hologram sphere (rad/s) and the tilt it is seen at (rad). */
+export const PLANET_HOLOGRAM_SPIN = 0.24;
+export const PLANET_HOLOGRAM_TILT = 0.28;
+/** Seconds the hologram takes to swap planets when the player steps left / right. */
+export const PLANET_SWAP_TIME = 0.35;
+
+/* ── 소셜 UI (owner: ui) ── */
+/** `ctx.uiBlockers` token the ship's 커뮤니티 panel holds while open (the ESC screen is inside the `'menu'` token). */
+export const COMMUNITY_BLOCKER = 'community';
+/** Profile cards per row in the 친구 / 최근 플레이어 lists (the spec's 가로 2개씩). */
+export const SOCIAL_CARDS_PER_ROW = 2;
+/** Rows the 친구 list and the 최근 플레이어 list show before they scroll (2 × 3.5 and 2 × 5.5 in the spec). */
+export const SOCIAL_FRIEND_ROWS = 3.5;
+export const SOCIAL_RECENT_ROWS = 5.5;
+/** Squad voice sliders are UI-only in Phase 11 (no voice chat yet); this is their stored default. */
+export const SQUAD_VOICE_DEFAULT = 1;

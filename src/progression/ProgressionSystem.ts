@@ -23,8 +23,11 @@ const PROGRESS_EMIT_STEP = 0.01;
 const SKILL_COST_SLOPE = 0.06;
 /** How strongly the skill's own stats speed up training (per point above STAT_BASE). */
 const SKILL_STAT_FACTOR = 0.04;
-/** Optional convenience key that toggles the character sheet (the ship terminal is the primary entry point). */
-const KEY_CHARACTER = 'KeyP';
+/*
+ * Phase 11 (2026-09-07): the undocumented `P` convenience toggle is **retired**. 캐릭터 is a Tab-screen tab since
+ * Phase 8 (`ui:statsToggled` still opens the overlay for anyone who emits it), and P now belongs to `Keys.INVITE`
+ * (분대 초대 수락 홀드). Both listened with `uiBlockers.size === 0`, so they would have fought each other.
+ */
 
 /** Raw stat XP needed for the point after stat value `value`: round(STAT_XP_BASE × value^STAT_XP_EXPONENT). */
 export function statXpFor(value: number): number {
@@ -173,14 +176,6 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
   }
 
   update(dt: number, ctx: GameContext): void {
-    // Optional convenience toggle (the ship terminal's 캐릭터 entry emits `ui:statsToggled` too).
-    if (ctx.input.wasPressed(KEY_CHARACTER)) {
-      const open = this.sheet?.isOpen ?? false;
-      if (open) this.sheet?.close();
-      else if ((ctx.isGameplayPhase() || ctx.isHubPhase()) && ctx.uiBlockers.size === 0 && !(ctx.player?.isDead ?? false)) {
-        this.sheet?.open();
-      }
-    }
 
     this.trackCarry(ctx);
 

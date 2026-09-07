@@ -24,3 +24,6 @@ export * from './labels';
 export * from './itemChip';
 /* appended (2026-09-07): Phase 10 — 인게임 마우스 커서 */
 export * from './cursor';
+/* appended (2026-09-07): Phase 11 — 행성 선택 · 소셜 */
+export * from './planets';
+export * from './social';

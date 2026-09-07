@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import type { PlanetId } from '@/shared';
+import { getPlanet } from '@/shared';
 import type { CrewCardWire, GameContext, GameSystem, HubLaunchSlot, HubRef, HubShipKind, Interactable, InteriorCollider, LoadoutSlot, LobbyState, PeerId, RoomPurpose } from '@/shared';
 import { CREW_CARD_MIN_INTERVAL_S, CREW_LOADOUT_COOLDOWN_S, HUB_DOCKING_DURATION, HUB_LAUNCH_COUNTDOWN, HUB_READY_BLOCKER, HUB_READY_CELLS, Keys, NET_SLOT_COLORS, ROOM_PURPOSE_LABEL_KO } from '@/shared';
 import { PersonalShip } from './interiors/PersonalShip';
@@ -59,6 +61,21 @@ export class HubSystem implements GameSystem, HubRef {
     if (net?.lobby && !net.isHost) return false;
     this.missionSeed = seed === null ? null : seed >>> 0;
     if (net?.lobby && this.missionSeed !== null) net.setLobbySeed(this.missionSeed);
+    this.updateTerminalScreen();
+    return true;
+  }
+  /* ── Phase 11 skeleton — replace with the terminal's planet selection + the travel cutscene. ── */
+  /** 목표 행성 of the next raid (lobby: the host's `LobbyState.planet`; solo: the local pick). */
+  planet: PlanetId | null = null;
+  /** true while the ship is flying to a new planet. */
+  travelling = false;
+  /** Pick the 목표 행성 (host only in a lobby); starts the travel cutscene. */
+  setPlanet(planet: PlanetId): boolean {
+    const net = this.ctx?.net;
+    if (net?.lobby && !net.isHost) return false;
+    if (!getPlanet(planet)) return false;
+    this.planet = planet;
+    if (net?.lobby) net.setLobbyPlanet(planet);
     this.updateTerminalScreen();
     return true;
   }

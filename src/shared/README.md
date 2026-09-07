@@ -406,3 +406,65 @@ The second (and last) DOM file in `shared/`, after `itemChip.ts`.
   bar on both tooltips, the software-cursor sprite and the pillars · `inventory/` the live container sync + the
   foreign loadout view · `weapons/` the 2 s heal hold and the retired H key · `hub/` the READY panel and the housing
   camera · `net/` the crew wire · `meta/` the credit formatter rollout.
+
+## Phase 11 — 행성 선택 · 소셜 (2026-09-07)
+Appended, never renamed. `/* Phase 11 skeleton */` markers in `hub/HubSystem.ts`, `net/NetSystem.ts` and
+`world/WorldSystem.ts` exist only to keep `npm run typecheck` green — replace them.
+
+### New file: `planets.ts` — 행성
+The seed still decides layout / crates / nests / loot; the **planet** decides the look and the wildlife.
+- `PlanetId` (`amber | tundra | mossy | ashen | crimson`, one per `world/biomes.ts` entry) + `PLANET_IDS` (terminal
+  and wire order), `PLANET_DEFS` (5 × `PlanetDef`), `getPlanet` / `isPlanetId` / `planetIndex` / `planetLabel`,
+  `PLANET_NONE_LABEL` (`목표 미지정`), `PLANET_THREAT_LABELS`, `PLANET_STORAGE_KEY` (`scav.planet`).
+- `PlanetDef` names its `biome` (`world/biomes.ts`) **and** its `sky` (`core/Sky.ts` `SKY_PALETTES.name`) explicitly.
+  Before Phase 11 both were drawn from the seed and matched only because both lists happened to have 5 entries
+  (`biomes.pickBiome` mirrored `Atmosphere.applySeed`); with a planet the pairing is data, not luck. **Both hook
+  points must be overridden together** — `world/WorldSystem.generate` (`this.biome`) and `core/Engine`'s
+  `world:ready` handler (`atmosphere.applySeed`). No planet = the old seeded draw, unchanged.
+- `fog: false` (카민 I) is the one planet without fog: core forces `fog.density = 0` and paints the background from
+  the sky's horizon instead of the fog colour (`Atmosphere.applyPalette` forces `background = p.fog` today).
+  `fogMul` scales the palette's own `fogDensity` for the other four.
+- `PlanetEcosystem` is pure re-weighting of existing content (no new enemy, no new item): `bugs` are relative weights
+  for `enemies/Spawner.ts`'s `ambientGroup` / `waveGroup` — **the existing threat gates still apply on top**, so the
+  difficulty ramp is unchanged and only the silhouettes differ — plus `pressure` (ambient cap), `rogues` /`boss`
+  (`RogueGuards`), `maxArtillery` / `maxBehemoth` (were module constants), `herbs` (weights by herb def id, replacing
+  `Gather.resolveHerbIds`'s uniform 1/3) and `gatherDensity`.
+- Wire: `LobbyState.planet?`, `lobby:planet` (host, not started), `lobby:start.planet?`, `game:start.planet?`,
+  `LobbyErrorCode 'no_planet'`. **There is no travel message** — a planet change broadcasts `lobby:state`, and every
+  member starting the cutscene off its own copy is what keeps the squad in sync.
+- `types.ts`: `HubRef.planet / setPlanet / travelling`, `WorldRef.planet`. `GameContext.missionPlanet` (the emitter
+  of `game:newMission` sets it **before** emitting, exactly like `missionMode`, because `world/` generates inside the
+  emit). `events.ts`: `game:newMission.planet?`, `world:ready.planet?`, `net:gameStarting.planet?`,
+  `hub:planetChanged`, `hub:travel`, `hub:terminalToggled`.
+- `constants.ts`: `HUB_TRAVEL_DURATION` (4.5) / `HUB_TRAVEL_WARP_FRACTION` / `HUB_TRAVEL_WARP_STRETCH`,
+  `PLANET_HOLOGRAM_PX` / `_SPIN` / `_TILT`, `PLANET_SWAP_TIME`.
+
+### New file: `social.ts` — 아이디 · 친구 · 최근 만난 플레이어 · 귓속말 · 분대 초대
+- **Identity.** `PlayerCode` = 8 chars of `PLAYER_CODE_ALPHABET` (no I/O/0/1), displayed `AB3D-9KMN`
+  (`formatPlayerCode`), derived from the relay's stable `PeerId` by the pure `playerCodeFrom(peerId, salt)` — the
+  server assigns it once, keeps a code → PeerId index and bumps `salt` on a collision. `normalizePlayerCode` /
+  `isValidPlayerCode` for typed input. **Only the code travels**; a client never learns another player's PeerId.
+- **Storage.** `SocialRecord` (friends / incoming / outgoing / recent / name / level / code / salt) lives on
+  `ProfileRecord.social` — **server-owned and server-readable**, unlike the opaque `docs`, because the relay has to
+  cross-reference it. Nothing social is cached client-side: with no relay the whole feature is absent
+  (`SocialRef.available === false`).
+- **Presence.** `PresenceState` (`offline | ship | raid | training`, `PRESENCE_LABELS`) + `SocialPlayer.squad`
+  (0 = 개인 함선). A member inside the 5-minute reconnect grace reads `offline` — they are gone *now*.
+- **Rules.** `playBlockReason(target, mySquad, maxSquad, isSelf)` → `PlayBlock | null` with `PLAY_BLOCK_LABELS` is the
+  single 같이 하기 gate: the UI greys the button out with it and the server refuses with it. `PlayOutcome`
+  (`joined` | `invited`) is how the server reports which branch it took; the **server** decides, not the UI.
+- Wire: `social:get / me / request / respond / remove / play / whisper` up, `social:state / invited / whisper / play /
+  error` down, `welcome.social?`. Caps in this file: `SOCIAL_RECENT_MAX` 20, `SOCIAL_FRIEND_MAX` 100,
+  `SOCIAL_REQUEST_MAX` 50, `SOCIAL_WHISPER_MAX` 200, `SQUAD_INVITE_TTL_S` 90, `SQUAD_INVITE_HOLD_S` 3,
+  `SQUAD_INVITE_MAX` 3, `SOCIAL_ME_DEBOUNCE_MS`.
+- `net.ts`: `NetRef.social` (`SocialRef`), `lobbyPlanet`, `setLobbyPlanet`. `events.ts`: `social:updated / invited /
+  inviteClosed / whisper / play / error`, `ui:communityToggled`, `chat:whisperTo`. `types.ts`: `ChatKind 'whisper'`.
+  `constants.ts`: `COMMUNITY_BLOCKER` (`community`), `SOCIAL_CARDS_PER_ROW` / `SOCIAL_FRIEND_ROWS` /
+  `SOCIAL_RECENT_ROWS`, `SQUAD_VOICE_DEFAULT`. `Keybinds.ts` / `constants.ts`: **`Keys.INVITE` = P** (분대 초대 수락
+  홀드) — the undocumented `P` character-sheet toggle in `progression/ProgressionSystem` was retired for it (캐릭터 is
+  a Tab-screen tab since Phase 8), because both listened with `uiBlockers.size === 0`.
+- Voice sliders in the 분대원 panel are **UI only** (`SQUAD_VOICE_DEFAULT`); there is no voice chat.
+- Ownership: `server/` the social store + presence fan-out + `lobby:planet` · `net/` `SocialSync` + the planet wire ·
+  `hub/` the full-screen terminal, planet selection, the travel cutscene and the launch-slot gate · `ui/` the ESC
+  layout (buttons left, social column right), the settings panel, the community icon / invite panels and the whisper
+  mode · `world/` planet → biome + herbs · `core/` planet → sky / fog (lead) · `enemies/` the ecosystem.

@@ -5,6 +5,11 @@ import type { ImplantId } from './implants';
 /* appended (Phase 7, 2026-09-06): server profile / raid session */
 import type { ProfileDocKey, ProfileRecord, ProfileRef, RaidSessionBlob } from './profile';
 import type { MissionMode } from './types';
+/* appended (Phase 11, 2026-09-07): 행성 선택 + 소셜 */
+import type { PlanetId } from './planets';
+import type {
+  PlayOutcome, PlayerCode, SocialErrorCode, SocialRef, SocialSnapshot, SquadInvite,
+} from './social';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Multiplayer contract (owner: net/NetSystem publishes `ctx.net`).
@@ -111,6 +116,13 @@ export interface LobbyState {
   /* appended (Phase 7) */
   /** Kind of the running mission while `started` (`'raid'` when absent). A training keeps the lobby open to joins. */
   mode?: MissionMode;
+  /* appended (Phase 11) */
+  /**
+   * 목표 행성 the **host** picked at the terminal (`lobby:planet`), or absent while nothing is chosen. Every member
+   * mirrors it, plays the travel cutscene when it changes and may only board a launch slot while it is set. A raid
+   * started from this lobby carries it in `game:start.planet`; a training ignores it.
+   */
+  planet?: PlanetId;
 }
 
 export type LobbyErrorCode =
@@ -121,7 +133,9 @@ export type LobbyErrorCode =
   | 'duplicate'     // same session token connected from another tab → the older socket is closed with this code
   /* appended (Phase 7) */
   | 'too_large'     // profile:set / raid:save document over the byte cap
-  | 'in_mission';   // lobby:mission {inMission:true} while another mission kind is running
+  | 'in_mission'    // lobby:mission {inMission:true} while another mission kind is running
+  /* appended (Phase 11) */
+  | 'no_planet';    // lobby:start of a raid while the lobby has no 목표 행성
 
 /* ── Wire protocol: client ↔ server (JSON) ─────────────────────────────────── */
 export type RelayTarget = PeerId | 'host' | 'all' | 'others';
@@ -135,7 +149,8 @@ export type ClientToServer =
    * Host only. Requires every player to be ready. `mode` (appended, Phase 7): `'training'` may be sent by ANY member
    * while nothing is running — no ready gating, only the sender gets `inMission`, others stay in the hub and join later.
    */
-  | { t: 'lobby:start'; seed: number; mode?: MissionMode }
+  /** `planet` appended (Phase 11): the raid's 목표 행성. Omitted for a training (the arena has no planet). */
+  | { t: 'lobby:start'; seed: number; mode?: MissionMode; planet?: PlanetId }
   /** Host only, after a mission ended: started=false, every ready=false, lobby reopened for joins. */
   | { t: 'lobby:reset' }
   /** Relay an opaque game message. 'all' includes the sender; 'others' excludes it. */
@@ -165,7 +180,33 @@ export type ClientToServer =
   /** Credits transaction; server answers `credits:result {txId}`. */
   | { t: 'credits:tx'; txId: number; delta: number; reason: string }
   /** Save my mid-raid state for a reconnect (only accepted while my lobby is started with `blob.seed`). */
-  | { t: 'raid:save'; blob: RaidSessionBlob };
+  | { t: 'raid:save'; blob: RaidSessionBlob }
+  /* ── appended (Phase 11): 목표 행성 ── */
+  /**
+   * Host only, while not started: pick the squad's 목표 행성 (`LobbyState.planet`). Broadcast as `lobby:state`, which
+   * is what makes every member play the travel cutscene — there is no separate travel message. Refused with
+   * `not_host` / `started`, and with `invalid` for an unknown id.
+   */
+  | { t: 'lobby:planet'; planet: PlanetId }
+  /* ── appended (Phase 11): 소셜. Every one of these needs a profile (a token); anonymous → `unavailable`. ── */
+  /** Ask for a fresh `social:state` (also delivered in `welcome.social`). */
+  | { t: 'social:get' }
+  /** Publish my level so friends' rows can show it. The name comes from the socket (`?n=` / `lobby:name`). */
+  | { t: 'social:me'; level: number }
+  /** Friend request by 아이디. Server answers both sides with `social:state`, or the sender with `social:error`. */
+  | { t: 'social:request'; code: PlayerCode }
+  /** Accept / decline a request sitting in my `incoming`. */
+  | { t: 'social:respond'; code: PlayerCode; accept: boolean }
+  /** Mutual removal (both profiles lose the other). */
+  | { t: 'social:remove'; code: PlayerCode }
+  /**
+   * 같이 하기. The server picks the branch and reports it as `social:play {outcome}`: the target already sits in a
+   * lobby → the sender is added to it (`lobby:state` follows, the hub plays a docking cutscene); the target has no
+   * lobby → a `social:invited` goes to them, the sender's own lobby being created first when they had none.
+   */
+  | { t: 'social:play'; code: PlayerCode }
+  /** Direct message by 아이디, delivered as `social:whisper` if the target is connected. Works outside a lobby. */
+  | { t: 'social:whisper'; code: PlayerCode; text: string };
 
 export type ServerToClient =
   /**
@@ -180,19 +221,33 @@ export type ServerToClient =
       profile?: ProfileRecord;
       /** My saved mid-raid state when resuming into a started lobby that still runs `blob.seed`. */
       raid?: RaidSessionBlob | null;
+      /* appended (Phase 11) */
+      /** Friends / requests / recent players of this token (absent on servers without a store, or when anonymous). */
+      social?: SocialSnapshot;
     }
   | { t: 'lobby:state'; lobby: LobbyState }
   | { t: 'lobby:error'; code: LobbyErrorCode; message: string }
   | { t: 'lobby:left' }
   /** `mode` (appended, Phase 7): a training start reaches everyone but only members with `inMission` enter it. */
-  | { t: 'game:start'; seed: number; lobby: LobbyState; mode?: MissionMode }
+  /** `planet` (appended, Phase 11): the raid's 목표 행성, echoed from `LobbyState.planet` at start time. */
+  | { t: 'game:start'; seed: number; lobby: LobbyState; mode?: MissionMode; planet?: PlanetId }
   /* appended (Phase 7) */
   | { t: 'profile:docs'; profile: ProfileRecord }
   | { t: 'credits:result'; txId: number; ok: boolean; credits: number; reason?: string }
   | { t: 'relay'; from: PeerId; d: GameMessage }
   /** A peer disconnected/left mid-lobby or mid-game. `lobby` is the updated state (host may have migrated). */
   | { t: 'peer:left'; id: PeerId; lobby: LobbyState }
-  | { t: 'pong'; ts: number; serverTime: number };
+  | { t: 'pong'; ts: number; serverTime: number }
+  /* ── appended (Phase 11): 소셜. Pushed on every change to anyone the change concerns, never polled. ── */
+  /** The whole social snapshot. Sent after `social:get`, after any mutation, and whenever a friend's presence moves. */
+  | { t: 'social:state'; social: SocialSnapshot }
+  /** Someone asked me into their squad. Held client-side for `SQUAD_INVITE_TTL_S`, accepted with a P hold. */
+  | { t: 'social:invited'; invite: SquadInvite }
+  /** A whisper arrived. `code` / `name` are the sender's. */
+  | { t: 'social:whisper'; code: PlayerCode; name: string; text: string; at: number }
+  /** How my `social:play` was resolved (`joined` = I am in their lobby now, `invited` = the invite went out). */
+  | { t: 'social:play'; code: PlayerCode; name: string; outcome: PlayOutcome }
+  | { t: 'social:error'; code: SocialErrorCode; message: string };
 
 /* ── Game messages (relayed verbatim, never inspected by the server) ───────── */
 
@@ -930,4 +985,26 @@ export interface NetRef {
   getCrewCard(id: PeerId): CrewCardWire | null;
   /** Ask `id` for its full loadout (`crewq loadout`); the answer arrives as the `net:crewLoadout` event. */
   requestCrewLoadout(id: PeerId): void;
+}
+
+/* ══ appended: Phase 11 — 행성 선택 · 소셜 (2026-09-07) ═════════════════════════════════════════════════════ */
+
+export interface NetRef {
+  /* ── 목표 행성 ── */
+  /** The squad's 목표 행성 (`lobby.planet`), or null outside a lobby / while nothing is picked. */
+  readonly lobbyPlanet: PlanetId | null;
+  /**
+   * Host only, while not started: share the 목표 행성 with the ship (`lobby:planet`). Mirrors `lobby.planet`
+   * optimistically like `setLobbySeed` does, so the host's own terminal reacts without a round trip.
+   */
+  setLobbyPlanet(planet: PlanetId): void;
+  /**
+   * `planet` appended (Phase 11): the raid's 목표 행성. Host only for `'raid'`; ignored for `'training'`.
+   * A raid started without one is refused by the server (`no_planet`) — hub/ gates the launch slots long before that.
+   */
+  startGame(seed: number, mode?: MissionMode, planet?: PlanetId): void;
+
+  /* ── 소셜 ── */
+  /** Friends / requests / recent players / whispers / squad invites. Always present; `available` is false offline. */
+  readonly social: SocialRef;
 }

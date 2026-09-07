@@ -4,6 +4,8 @@ import type {
   NetRef, NetStatus, PeerId, PingKind, RelayTarget, RemotePlayerRef, ServerToClient, Vec3Tuple,
 } from '@/shared';
 import type { MissionMode, ProfileRef, RaidSessionBlob } from '@/shared';
+/* appended (Phase 11): 행성 선택 · 소셜 */
+import type { PlanetId, SocialRef } from '@/shared';
 import {
   NET_INVITE_PARAM, NET_MISSION_RESUME_TIMEOUT_MS, NET_NAME_PARAM, NET_PLAYER_SNAPSHOT_HZ, NET_RECONNECT_BACKOFF_MS,
   NET_TOKEN_LENGTH, NET_TOKEN_PARAM, NET_TOKEN_STORAGE_KEY, NET_WS_PATH, PlayerFlags, RAID_BLOB_MAX_BYTES,
@@ -181,6 +183,20 @@ export class NetSystem implements GameSystem, NetRef {
   get raidBlob(): RaidSessionBlob | null { return this._raidBlob; }
   get missionMode(): MissionMode | null { return this._lobby?.started ? (this._lobby.mode ?? 'raid') : null; }
   get tookOver(): boolean { return this._tookOver; }
+  /* ── Phase 11 skeleton — replace with `SocialSync` + the lobby planet wire. ── */
+  get lobbyPlanet(): PlanetId | null { return this._lobby?.planet ?? null; }
+  setLobbyPlanet(planet: PlanetId): void {
+    if (!this._lobby || !this.isHost) return;
+    this._lobby = { ...this._lobby, planet };
+    this.client.send({ t: 'lobby:planet', planet });
+  }
+  readonly social: SocialRef = {
+    available: false, me: null, friends: [], incoming: [], outgoing: [], recent: [], invites: [],
+    onlineFriends: 0, hasNews: false,
+    refresh() {}, requestFriend() {}, respondFriend() {}, removeFriend() {}, playWith() {},
+    acceptInvite() {}, dismissInvite() {}, whisper() { return false; }, setLevel() {},
+    find() { return undefined; }, playBlock() { return null; },
+  };
   /* ── Phase 8 ── */
   /**
    * Relay wall clock in epoch ms: the offset captured at the last `welcome` / `pong` plus the elapsed local time.

@@ -4,6 +4,8 @@ import type { GameContext } from './GameContext';
 import type { ArmorDef, CraftRecipe, CraftStation, DurabilityInfo, WeightInfo } from './gear';
 import type { LoadoutPreset, WorkbenchKind } from './housing';
 import type { SkillId } from './progression';
+/* appended (Phase 11, 2026-09-07): 행성 선택 */
+import type { PlanetId } from './planets';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Game phase / flow
@@ -28,7 +30,8 @@ export type HubShipKind = 'personal' | 'shared';
 export type PingKind = 'ground' | 'enemy' | 'crate' | 'extraction' | 'item' | 'attack' | 'caution';
 
 /** Chat line categories (owner: ui/hud/ChatLog). */
-export type ChatKind = 'text' | 'ping' | 'request' | 'system';
+/** `whisper` appended (Phase 11): a direct message, rendered with a → 아이디 prefix and never relayed to the squad. */
+export type ChatKind = 'text' | 'ping' | 'request' | 'system' | 'whisper';
 
 export interface MissionStats {
   seed: number;
@@ -1292,4 +1295,34 @@ export interface InventoryRef {
    * pointer-lock call, no window Escape listener.
    */
   createCrewLoadoutView(host: HTMLElement, loadout: unknown, opts?: CrewLoadoutViewOptions): EmbeddedView | null;
+}
+
+/* ══ appended: Phase 11 — 행성 선택 (2026-09-07) ════════════════════════════════════════════════════════════ */
+
+export interface HubRef {
+  /* ── 목표 행성 (owner: hub; the terminal is the only place it is picked) ── */
+  /**
+   * 목표 행성 of the next raid, or null while nothing is picked. In a lobby this mirrors `LobbyState.planet` (the
+   * host's choice); solo it is the local pick, remembered in localStorage `PLANET_STORAGE_KEY`. Launch slots refuse
+   * boarding while it is null.
+   */
+  readonly planet: PlanetId | null;
+  /**
+   * Pick the 목표 행성. Refused (`false`) for a non-host in a lobby, while a launch countdown runs, during a travel
+   * cutscene, and for an unknown id. On success the ship flies there: `hub:travel {stage:'start'}` → the docking
+   * cutscene reused as a warp → `hub:travel {stage:'end'}` → `hub:planetChanged`. In a lobby the host also calls
+   * `ctx.net.setLobbyPlanet`, and every member's own `lobby:state` starts the same cutscene locally.
+   */
+  setPlanet(planet: PlanetId): boolean;
+  /** true while the ship is flying to a new planet (controls locked, terminal closed, pods unavailable). */
+  readonly travelling: boolean;
+}
+
+export interface WorldRef {
+  /* ── 행성 (owner: world) ── */
+  /**
+   * Planet the current world was generated for, or null when it came from the seeded biome draw (an older client,
+   * a training, `MissionComplete`'s 다시 배치 without one). `world:ready.planet` carries the same value.
+   */
+  readonly planet: PlanetId | null;
 }

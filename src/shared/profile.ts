@@ -1,4 +1,6 @@
 import type { MissionStats } from './types';
+/* appended (Phase 11, 2026-09-07): 소셜 */
+import type { SocialRecord } from './social';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Server profile + raid session (Phase 7, 2026-09-06).
@@ -99,4 +101,16 @@ export interface ProfileRef {
    * the delta locally themselves (meta/ does).
    */
   addCredits(delta: number, reason: string): Promise<CreditsTxResult>;
+}
+
+/* ══ appended: Phase 11 — 소셜 (2026-09-07) ═════════════════════════════════════════════════════════════════ */
+
+export interface ProfileRecord {
+  /**
+   * Friends / requests / 최근 만난 플레이어 of this profile, plus the 아이디 the server assigned it.
+   * **Server-owned and server-readable** — unlike `docs`, which are opaque blobs the relay never interprets, the
+   * relay has to cross-reference these to resolve a `SocialSnapshot`. A client never receives this record verbatim.
+   * Absent until the profile first connects with a token (an anonymous socket gets no profile at all).
+   */
+  social?: SocialRecord;
 }

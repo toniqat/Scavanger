@@ -25,6 +25,8 @@ export const LOBBY_ERROR_MESSAGE_KO: Record<LobbyErrorCode, string> = {
   server: '서버 오류가 발생했습니다.',
   not_started: '진행 중인 임무가 없습니다.',
   duplicate: '다른 탭에서 같은 세션으로 접속했습니다. 이 연결은 종료됩니다.',
+  /* Phase 11 */
+  no_planet: '목표 행성을 먼저 지정해야 합니다.',
 };
 
 export class Lobby {

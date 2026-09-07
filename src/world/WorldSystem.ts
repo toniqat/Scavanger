@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { PlanetId } from '@/shared';
 import type { MissionMode, TrainingRef } from '@/shared';
 import {
   MAP_SIZE, Random, TRAINING_ARENA_SIZE,
@@ -37,6 +38,8 @@ export class WorldSystem implements GameSystem, WorldRef {
   get size(): number { return this.mode === 'training' ? TRAINING_ARENA_SIZE : MAP_SIZE; }
   /** Mode of the last generated world (`'raid'` until a training was built; kept through `clear()`). */
   mode: MissionMode = 'raid';
+  /* Phase 11 skeleton — replace: set from `game:newMission.planet` in `generate()` and echo it in `world:ready`. */
+  planet: PlanetId | null = null;
   seed = 0;
   ready = false;
 
