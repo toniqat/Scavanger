@@ -315,6 +315,40 @@ try {
   ok(after.explosion >= 1 && after.shake >= 1, `explosion audio (${after.explosion}) + camera shake (${after.shake})`);
   ok(after.cd > 6, `per-rogue grenade cooldown armed (${after.cd.toFixed(1)} s)`);
 
+  /* ── Phase 10: a body killed in the air falls, then becomes lootable ──── */
+  console.log('mid-air death → fall → corpse at the landing spot');
+  const air = await P(() => {
+    const sys = window.__sys; const ctx = window.__game.ctx; const p = ctx.player.position;
+    const has = (id) => !!ctx.interactables.all().find((it) => it.id === `corpse:${id}`);
+    const r = sys.debugSpawn('rogue', { x: p.x + 6, z: p.z + 6 }, false);   // rogue: CORPSE_LOOT_CHANCE 1
+    if (!r) return null;
+    const ground = ctx.world.getHeightAt(r.position.x, r.position.z);
+    r.position.y = ground + 6;
+    r.airborne = true; r.vy = 3;            // shot at the top of a leap
+    r.takeDamage(5000);
+    return { id: r.id, ground: +ground.toFixed(2), y0: +r.position.y.toFixed(2), landed: r.deathLanded, vy: +r.deathVy.toFixed(2),
+      corpse0: has(r.id), pending: r.corpsePending, dir: r.deathDir };
+  });
+  ok(air && air.y0 > air.ground + 5 && air.landed === false && air.pending === true && air.corpse0 === false,
+    `a mid-air kill defers its corpse (y ${air?.y0}, ground ${air?.ground})`, JSON.stringify(air));
+  ok(air && Math.abs(air.vy - 3) < 0.01, `the leap's vy carries into deathVy (${air?.vy})`);
+  ok(air && ['left', 'right', 'back'].includes(air.dir), `the fall direction is picked at death (${air?.dir})`);
+  await waitSim(1.6);
+  const landed = await P((id) => {
+    const sys = window.__sys; const ctx = window.__game.ctx;
+    const e = sys.find(id);
+    if (!e) return null;
+    const it = ctx.interactables.all().find((x) => x.id === `corpse:${id}`);
+    const ground = ctx.world.getHeightAt(e.position.x, e.position.z);
+    return { landed: e.deathLanded, dy: +(e.position.y - ground).toFixed(3), lootable: e.lootable, pending: e.corpsePending,
+      corpse: !!it, cy: it ? +(it.position.y - ground).toFixed(3) : null, dirAnim: e.anim.deathDir, fall: +e.anim.deathFall.toFixed(2) };
+  }, air?.id);
+  ok(landed && landed.landed === true && Math.abs(landed.dy) < 0.05, `the dead body fell to the terrain (dy ${landed?.dy} m)`, JSON.stringify(landed));
+  ok(landed && landed.corpse === true && landed.lootable === true && !landed.pending && Math.abs(landed.cy) < 0.05,
+    `the corpse interactable registers at the landing position (dy ${landed?.cy} m)`);
+  ok(landed && landed.fall >= 1 && landed.dirAnim >= 0 && landed.dirAnim <= 2,
+    `the fall pose blended in over DEATH_FALL_TIME (deathFall ${landed?.fall}, anim dir ${landed?.dirAnim})`);
+
   /* ── live authority round-trip ────────────────────────────────────────── */
   console.log('setAuthority round-trip');
   const before = await P(() => { const sys = window.__sys; return { n: sys.active.filter((e) => e.active).length, alive: sys.getAliveCount(), maxId: Math.max(...sys.active.map((e) => e.id)), auth: sys.isAuthority }; });

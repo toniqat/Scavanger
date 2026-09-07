@@ -316,6 +316,20 @@ The second (and last) DOM file in `shared/`, after `itemChip.ts`.
   `setCursorPosition`, `uiX` / `uiY` (virtual in cursor mode, `mouseX/mouseY` otherwise), `elementUnderCursor()`.
   A caller that enters cursor mode must **not** also call `exitPointerLock()`.
 - `constants.ts`: `SOFT_CURSOR_SENSITIVITY`, `SOFT_CURSOR_SIZE`, `SOFT_CURSOR_DBLCLICK_MS`.
+- **Default-action emulation.** A synthesised event is untrusted, so the browser performs **no default action** for
+  it — a text field never takes the caret and a range slider never moves. `SoftCursor.press` therefore focuses the
+  nearest focusable ancestor (and blurs a text field when the click lands elsewhere), and a left-drag on an
+  `input[type=range]` is re-implemented (value from the client-x within the element's rect, `input` while dragging,
+  `change` on release). That covers every such control in the game (인벤토리 검색 · 분할 대화상자 슬라이더 ·
+  프리셋 이름 · 함선 코드); anything new of that kind gets it for free.
+- **Faked-lock detection.** Per spec a locked pointer holds `clientX/clientY` constant, so a `mousemove` that claims a
+  lock *and* moves the client coordinates can only be a faked one — which is exactly what every headless smoke does
+  (`Object.defineProperty(Document.prototype, 'pointerLockElement', …)` over the canvas). `Input` latches that as
+  `lockLooksReal = false`, and `Input.cursorOwnsInput` (cursor mode **and** a real lock) is what actually gates
+  synthesis: with a faked or absent lock the native device events already reach the DOM, so the cursor only
+  `mirror`s the real position and never doubles a click or fights a script's own drag. `requestPointerLock()`
+  re-arms it; `setCursorSynthetic(on)` is the test escape hatch. `mouseDX / mouseDY` stay gated on
+  `isPointerLocked` alone, because the camera-look smokes depend on a faked lock accumulating their deltas.
 - `events.ts`: `'input:cursorModeChanged' { active, owner }`.
 - The Esc **일시정지 메뉴 is deliberately excluded** and keeps the real OS cursor — it is the one screen that must work
   when the lock is already gone (after an alt-tab, or a re-lock Chrome refused).

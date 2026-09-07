@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import type { GameContext, GameSystem, HubLaunchSlot, HubRef, HubShipKind, Interactable, InteriorCollider, LobbyState, PeerId, RoomPurpose } from '@/shared';
-import { HUB_DOCKING_DURATION, HUB_LAUNCH_COUNTDOWN, Keys, NET_SLOT_COLORS, ROOM_PURPOSE_LABEL_KO } from '@/shared';
+import type { CrewCardWire, GameContext, GameSystem, HubLaunchSlot, HubRef, HubShipKind, Interactable, InteriorCollider, LoadoutSlot, LobbyState, PeerId, RoomPurpose } from '@/shared';
+import { CREW_CARD_MIN_INTERVAL_S, CREW_LOADOUT_COOLDOWN_S, HUB_DOCKING_DURATION, HUB_LAUNCH_COUNTDOWN, HUB_READY_BLOCKER, HUB_READY_CELLS, Keys, NET_SLOT_COLORS, ROOM_PURPOSE_LABEL_KO } from '@/shared';
 import { PersonalShip } from './interiors/PersonalShip';
 import { SharedShip } from './interiors/SharedShip';
 import type { StationDef } from './interiors/stations';
@@ -16,6 +16,7 @@ import { DockingCutscene, type DockDirection } from './DockingCutscene';
 import { HubMenu } from './ui/HubMenu';
 import { WorkbenchMenu } from './ui/WorkbenchMenu';
 import { HubStatus } from './ui/HubStatus';
+import { ReadyPanel, type ReadyCellInfo } from './ui/ReadyPanel';
 import { randomSeed } from './ui/dom';
 import './hub.css';
 
@@ -142,6 +143,17 @@ export class HubSystem implements GameSystem, HubRef {
   private menu!: HubMenu;
   private wbMenu!: WorkbenchMenu;
   private status!: HubStatus;
+  /** 발사 준비 패널 (Phase 10): 4 portrait cells + the 분대원 장비 popup. */
+  private ready!: ReadyPanel;
+
+  /* ── crew cards (Phase 10; hub sends, net/ receives) ───────────────────── */
+  /** `ctx.time` of the last `crew card` broadcast (debounced by `CREW_CARD_MIN_INTERVAL_S`). */
+  private lastCardAt = -Infinity;
+  /** A change arrived inside the debounce window — send once it expires. */
+  private cardDirty = false;
+  /** `ctx.time` we last answered each peer's `crewq loadout` (`CREW_LOADOUT_COOLDOWN_S`). */
+  private readonly loadoutAnsweredAt = new Map<PeerId, number>();
+  private crewUnsub: (() => void) | null = null;
 
   private boardedSlot = -1;
   private boardedAt = 0;
@@ -157,9 +169,10 @@ export class HubSystem implements GameSystem, HubRef {
    */
   private onPointerLockChange = (): void => {
     const ctx = this.ctx;
-    if (this.housingMode.manage) return;                    // 함선 관리 owns the free pointer
-    // any blocker (inventory / housing panels / the corp screen's 'corp' token) owns the lock loss
-    if (ctx.input.isPointerLocked || ctx.phase !== 'hub' || ctx.uiBlockers.size > 0 || this.corpMenuOpen()) return;
+    if (this.housingMode.manage) return;                    // 함선 관리 owns the cursor
+    // any blocker (inventory / housing panels / the corp screen's 'corp' token) owns the lock loss —
+    // except the READY panel's own token, which never released the lock in the first place (Phase 10)
+    if (ctx.input.isPointerLocked || ctx.phase !== 'hub' || this.uiBlocked() || this.corpMenuOpen()) return;
     if (performance.now() - ctx.input.lastLockRequest < LOCK_REQUEST_GRACE_MS) return;
     if (this.housingMode.active) { this.housingMode.exit(); this.relock(); }
   };
@@ -174,11 +187,22 @@ export class HubSystem implements GameSystem, HubRef {
       startTraining: () => this.startTraining(),
     });
     this.wbMenu = new WorkbenchMenu(ctx, { onClosed: () => this.relock() });
+    // ReadyPanel **before** HubStatus: `hub.css` lifts the status line off the panel with a sibling selector.
+    this.ready = new ReadyPanel(ctx);
     this.status = new HubStatus(ctx);
     this.housingMode = new HousingMode(ctx);
     const b = ctx.bus;
     this.unsubs.push(
       b.on('hub:enter', ({ ship }) => this.enter(ship)),
+      // crew cards: the shared ship announces us once and asks everyone else for theirs (Phase 10)
+      b.on('hub:entered', ({ ship }) => { if (ship === 'shared') this.announceCrew(); }),
+      b.on('progress:levelUp', () => this.crewCardChanged()),
+      b.on('implant:equipped', () => this.crewCardChanged()),
+      b.on('equip:changed', () => this.crewCardChanged()),
+      b.on('loadout:changed', () => this.crewCardChanged()),
+      b.on('inventory:loadoutSaved', () => this.crewCardChanged()),
+      // a peer's card arrived (net/ stores it) → repaint that READY cell
+      b.on('net:crewCard', () => { if (this.interior && this.active) this.syncPods(); }),
       b.on('housing:roomPurposeChanged', ({ room }) => this.refreshRoomSign(room)),
       b.on('housing:changed', () => this.refreshRoomSigns()),
       b.on('housing:loaded', () => this.refreshRoomSigns()),
@@ -194,18 +218,109 @@ export class HubSystem implements GameSystem, HubRef {
       b.on('meta:loaded', () => this.updateTerminalScreen()),
     );
     document.addEventListener('pointerlockchange', this.onPointerLockChange);
+    this.bindCrewRequests();
   }
 
   dispose(): void {
     this.teardown('menu');
     for (const u of this.unsubs) u();
     this.unsubs.length = 0;
+    this.crewUnsub?.(); this.crewUnsub = null;
     document.removeEventListener('pointerlockchange', this.onPointerLockChange);
     this.menu.dispose();
     this.wbMenu.dispose();
     this.status.dispose();
+    this.ready.dispose();
     this.housingMode.dispose();
     if (this.ctx?.hub === this) this.ctx.hub = null;
+  }
+
+  /* ── crew cards (Phase 10) ─────────────────────────────────────────────── */
+  /**
+   * Answer the two `crewq` requests. Receiving / storing cards is `net/`'s job (`getCrewCard`, `net:crewCard`,
+   * `net:crewLoadout`); the hub only **sends**. Registered once — `ctx.net` exists by our `init` (NetSystem is
+   * registered first) but the ref is optional in the contract, so a missing one is retried on `hub:entered`.
+   */
+  private bindCrewRequests(): void {
+    if (this.crewUnsub) return;
+    const net = this.ctx.net;
+    if (!net || typeof net.onMessage !== 'function') return;
+    this.crewUnsub = net.onMessage('crewq', (msg, from) => {
+      if (msg.ev === 'sync') this.sendCrewCard(true, from);
+      else if (msg.ev === 'loadout') this.sendCrewLoadout(from);
+    });
+  }
+
+  /** Our own card: level / ship implant / armor + the three weapon slots (no attachments). */
+  private crewCard(): CrewCardWire {
+    const ctx = this.ctx;
+    const inv = ctx.inventory;
+    const defId = (slot: LoadoutSlot): string | null => {
+      if (!inv || typeof inv.getEquipped !== 'function') return null;
+      try { return inv.getEquipped(slot)?.defId ?? null; } catch { return null; }
+    };
+    let level = 1;
+    try { const l = ctx.progression?.level; if (typeof l === 'number' && Number.isFinite(l)) level = Math.max(1, Math.round(l)); } catch { /* stub */ }
+    let implant: CrewCardWire['implant'] = null;
+    try { implant = ctx.implants?.equipped ?? null; } catch { /* stub */ }
+    return { level, implant, armor: defId('armor'), primary: defId('primary'), primary2: defId('primary2'), secondary: defId('secondary') };
+  }
+
+  /**
+   * A level / implant / equipment change: repaint our own READY cell, then broadcast (debounced). Only while the hub
+   * is up — mid-raid loadout churn is nobody's business, and a `crewq sync` re-reads the card on demand anyway.
+   */
+  private crewCardChanged(): void {
+    if (!this.interior || !this.active) return;
+    this.syncPods();
+    if (!this.ctx.net?.lobby) return;
+    this.sendCrewCard(false);
+  }
+
+  /** `to` omitted = broadcast to `others`; `force` skips the debounce (a direct `crewq sync` answer / arrival). */
+  private sendCrewCard(force: boolean, to?: PeerId): void {
+    const net = this.ctx.net;
+    if (!net?.lobby || typeof net.send !== 'function') { this.cardDirty = false; return; }
+    if (!force && this.ctx.time - this.lastCardAt < CREW_CARD_MIN_INTERVAL_S) { this.cardDirty = true; return; }
+    if (to === undefined) { this.lastCardAt = this.ctx.time; this.cardDirty = false; }
+    try { net.send({ t: 'crew', ev: 'card', card: this.crewCard() }, to ?? 'others'); } catch { /* offline */ }
+  }
+
+  /** `crewq loadout` answer: our card + `ctx.inventory.captureCrewLoadout()`, rate-limited per requester. */
+  private sendCrewLoadout(to: PeerId): void {
+    const ctx = this.ctx;
+    const net = ctx.net;
+    if (!net?.lobby || typeof net.send !== 'function') return;
+    const last = this.loadoutAnsweredAt.get(to) ?? -Infinity;
+    if (ctx.time - last < CREW_LOADOUT_COOLDOWN_S) return;
+    const inv = ctx.inventory;
+    if (!inv || typeof inv.captureCrewLoadout !== 'function') return;
+    let loadout: unknown = null;
+    try { loadout = inv.captureCrewLoadout(); } catch { return; }
+    if (loadout === null || loadout === undefined) return;
+    this.loadoutAnsweredAt.set(to, ctx.time);
+    try { net.send({ t: 'crew', ev: 'loadout', card: this.crewCard(), loadout }, to); } catch { /* offline */ }
+  }
+
+  /** Arriving in the shared ship: publish our card and ask the squad for theirs. */
+  private announceCrew(): void {
+    this.bindCrewRequests();
+    const net = this.ctx.net;
+    if (!net?.lobby || typeof net.send !== 'function') return;
+    this.loadoutAnsweredAt.clear();
+    this.sendCrewCard(true);
+    try { net.send({ t: 'crewq', ev: 'sync' }, 'others'); } catch { /* offline */ }
+  }
+
+  /**
+   * UI blockers that own the input, **ignoring the READY panel's own token**. The panel keeps the pointer lock and
+   * only draws a software cursor, so it must not stop the pod's Esc / E un-board or the lock-loss handler — exactly
+   * the shape of `HousingMode.blockedByPanel()`.
+   */
+  private uiBlocked(): boolean {
+    const b = this.ctx.uiBlockers;
+    if (b.size === 0) return false;
+    return !(b.size === 1 && b.has(HUB_READY_BLOCKER));
   }
 
   /* ── enter / build / teardown ──────────────────────────────────────────── */
@@ -423,6 +538,7 @@ export class HubSystem implements GameSystem, HubRef {
     this.menu.close(false);
     this.wbMenu.close(false);
     this.status.hide();
+    this.ready.hide();
     this.cutscene?.dispose(); this.cutscene = null;
     this.disposeInterior();
     this.countdown = -1; this.launched = false;
@@ -470,6 +586,7 @@ export class HubSystem implements GameSystem, HubRef {
     if (this.boardedSlot >= 0) this.leavePod(false, false);
     this.menu.close(false);
     this.wbMenu.close(false);
+    this.ready.hide();
     this.disposeInterior();          // the player keeps the old collider reference until the new ship is built
     ctx.setPhase('docking');
     ctx.bus.emit('hub:docking', { stage: 'start', direction });
@@ -496,6 +613,7 @@ export class HubSystem implements GameSystem, HubRef {
     if (this.boardedSlot >= 0) this.leavePod(false, false);
     this.menu.close(false);
     this.wbMenu.close(false);
+    this.ready.hide();
     this.disposeInterior();
     const spawn = this.build(target, target === 'shared');
     ctx.setPhase('hub');
@@ -623,30 +741,56 @@ export class HubSystem implements GameSystem, HubRef {
       return;   // leavePod re-runs syncPods
     }
 
+    // 발사 준비 패널 cells, filled while we walk the pods below (`null` = no member in that slot at all)
+    const cells: (ReadyCellInfo | null)[] = new Array(HUB_READY_CELLS).fill(null);
+
     for (let i = 0; i < this.pods.length; i++) {
       const pod = this.pods[i];
       const slot = pod.slot;
       let occupant: PeerId | null = null;
       let name = '빈 슬롯', state = '—', local = false;
+      let present = false, connected = true, peerId: PeerId | null = null;
       if (slot === localSlot && (!lobby || me)) {
-        local = true;
+        local = true; present = true; peerId = localId;
         name = net?.playerName ?? '스캐빈저';
         if (this.boardedSlot === slot) { occupant = localId; state = '탑승 완료'; }
         else state = training ? '훈련 진행 중' : net?.missionInProgress ? '임무 진행 중 — 재투입' : '대기 중';
       } else if (lobby) {
         const q = lobby.players.find((pl) => pl.slot === slot);
         if (q) {
-          name = q.name;
+          name = q.name; present = true; peerId = q.id; connected = q.connected;
           if (!q.connected) state = '연결 끊김';
           else if (training) state = q.inMission ? '훈련 중' : '대기 중';      // a training never closes a pod door
           else if (q.ready) { occupant = q.id; state = lobby.started ? '임무 중' : '탑승 완료'; }
           else state = '대기 중';
         }
       }
+      if (present && slot < HUB_READY_CELLS) {
+        cells[slot] = {
+          slot, peerId, name, ready: occupant !== null, local, connected, state,
+          ...this.crewLook(local, peerId),
+        };
+      }
       const changed = pod.setDisplay({ occupant, name, state, local, closed: occupant !== null });
       if (this.slots[i]) this.slots[i].occupant = occupant;
       if (changed) ctx.bus.emit('hub:slotChanged', { slot, peerId: occupant, local });
     }
+    // interactive (blocker + software cursor) only while WE are boarded — see `ui/ReadyPanel`
+    this.ready.sync(cells, this.boardedSlot >= 0 && ctx.phase === 'hub' && !this.cutscene);
+  }
+
+  /** Level / ship implant / armor of a READY cell: local reads the refs, a peer reads its `crew card`. */
+  private crewLook(local: boolean, peerId: PeerId | null): Pick<ReadyCellInfo, 'level' | 'implant' | 'armorId'> {
+    if (local) {
+      const c = this.crewCard();
+      return { level: c.level, implant: c.implant, armorId: c.armor };
+    }
+    const net = this.ctx.net;
+    if (!peerId || !net || typeof net.getCrewCard !== 'function') return { level: null, implant: null, armorId: null };
+    let card: CrewCardWire | null = null;
+    try { card = net.getCrewCard(peerId); } catch { card = null; }
+    if (!card) return { level: null, implant: null, armorId: null };
+    return { level: card.level, implant: card.implant, armorId: card.armor };
   }
 
   private updateTerminalScreen(): void {
@@ -747,6 +891,9 @@ export class HubSystem implements GameSystem, HubRef {
   update(dt: number, ctx: GameContext): void {
     this.menu.update();
     this.wbMenu.update();
+    this.ready.update(dt, ctx.time);
+    // a card change inside the debounce window goes out as soon as it expires
+    if (this.cardDirty) this.sendCrewCard(false);
     if (this.cutscene) {
       this.cutscene.update(dt);
       if (this.cutscene) this.status.set(this.cutscene.direction === 'dock' ? '도킹 절차 진행 중' : '도킹 해제 중', null);
@@ -777,10 +924,12 @@ export class HubSystem implements GameSystem, HubRef {
       else if (this.corpWasOpen) { ctx.input.consume(Keys.MENU); /* the corp screen's own Esc listener just closed it */ }
       else if (this.wbMenu.isOpen) { this.wbMenu.close(); ctx.input.consume(Keys.MENU); }
       else if (this.menu.isOpen) { this.menu.close(); ctx.input.consume(Keys.MENU); }
-      else if (ctx.uiBlockers.size === 0 && this.boardedSlot >= 0) { this.leavePod(true); ctx.input.consume(Keys.MENU); }
+      // 분대원 장비 popup before the pod: the READY panel is modeless over the pod view (Phase 10)
+      else if (this.ready.closePopup()) { ctx.input.consume(Keys.MENU); }
+      else if (!this.uiBlocked() && this.boardedSlot >= 0) { this.leavePod(true); ctx.input.consume(Keys.MENU); }
     }
     this.corpWasOpen = corpOpen;
-    if (this.boardedSlot >= 0 && ctx.uiBlockers.size === 0 && ctx.input.wasPressed(Keys.INTERACT) && ctx.time - this.boardedAt > UNBOARD_GRACE) {
+    if (this.boardedSlot >= 0 && !this.uiBlocked() && ctx.input.wasPressed(Keys.INTERACT) && ctx.time - this.boardedAt > UNBOARD_GRACE) {
       this.leavePod(true);
     }
     // M: 함선 관리 (housing's manage mode; the HUD draws the room list / furniture bar). Read `Keys.MAP` live.

@@ -185,8 +185,9 @@ export class HubMenu {
   open(): void {
     if (this._open) return;
     this._open = true;
-    this.ctx.uiBlockers.add('hub');            // before the lock exits (GameFlow / hub pointer-lock etiquette)
-    this.ctx.input.exitPointerLock();
+    this.ctx.uiBlockers.add('hub');            // before the cursor mode (GameFlow / hub UI etiquette)
+    // Phase 10: keep the pointer lock and drive the software cursor instead of handing the OS cursor back.
+    this.ctx.input.setCursorMode(true, 'hub');
     this.root.hidden = false;
     this.frame.style.animation = 'none';
     void this.frame.offsetWidth;
@@ -203,6 +204,7 @@ export class HubMenu {
     this.root.hidden = true;
     (document.activeElement as HTMLElement | null)?.blur?.();
     this.ctx.uiBlockers.delete('hub');
+    this.ctx.input.setCursorMode(false, 'hub');
     this.ctx.bus.emit('ui:hubMenuToggled', { open: false });
     if (relock) this.host.onClosed();
   }
@@ -355,6 +357,7 @@ export class HubMenu {
     for (const u of this.unsubs) u();
     this.unsubs.length = 0;
     this.ctx.uiBlockers.delete('hub');
+    this.ctx.input.setCursorMode(false, 'hub');
     this.root.remove();
   }
 }

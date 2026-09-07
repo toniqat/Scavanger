@@ -16,6 +16,9 @@ import { Hellpod, type HellpodEvents } from './Hellpod';
 import { PlayerGear } from './PlayerGear';
 /* appended (Phase 10): 부상자 들쳐메기 + 준비 패널 초상화 */
 import type { CarryEndReason, PortraitRef } from '@/shared';
+import { PLAYER_CARRY_DROP_S, PLAYER_CARRY_OFFSET, PLAYER_CARRY_PICKUP_S, PLAYER_CARRY_RANGE, PLAYER_CARRY_SPEED_MUL } from '@/shared';
+import type { CarryHost } from './Carry';
+import { createPortraits } from './Portraits';
 
 const EYE_STAND = 1.55;
 const EYE_CROUCH = 1.15;
@@ -180,6 +183,17 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   private slowTimer = 0;
   private slowFactor = 1;
   private attachedParent: THREE.Object3D | null = null;
+  /* ── Phase 10: 부상자 들쳐메기 ── */
+  /** Peer id on our right shoulder (null = nobody). */
+  private _carrying: string | null = null;
+  /** Another player's shoulder socket our own body hangs on (null = on our own feet). */
+  private carriedSocket: THREE.Object3D | null = null;
+  /** Damped 0..1 blend driving `SoldierPose.carry`. */
+  private carryBlend = 0;
+  /** Movement lock during the pick-up / put-down animation. */
+  private carryLock = 0;
+  /** Installed by `RemotePlayerSystem.init` (it owns the avatars / refs a carry needs). */
+  private carryHost: CarryHost | null = null;
   private shipBounds: ShipBounds = null;
   private _interior: InteriorCollider | null = null;
   private _inPod = false;
@@ -201,7 +215,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     moveBlend: 0, sprint: 0, stridePhase: 0, crouch: 0, aim: 0, aimPitch: 0, torsoTwist: 0, airborne: 0,
     verticalVel: 0, flinch: 0, hasWeapon: false, twoHanded: false, reloading: false, recoil: 0, dead: 0,
     prone: 0, throw: 0, holdItem: 0, roll: 0, rollPhase: 0, melee: 0, hover: 0, downed: 0,
-    meleeHeavy: 0, charging: 0, spraying: 0, heavyCarry: 0, cooking: 0,
+    meleeHeavy: 0, charging: 0, spraying: 0, heavyCarry: 0, cooking: 0, carry: 0,
   };
   private readonly rigInput: RigInput = {
     pivot: new THREE.Vector3(), aim: 0, sprint: 0, crouch: 0, prone: 0, dive: 0, moveBlend: 0, stridePhase: 0,
@@ -331,6 +345,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   roll(direction?: THREE.Vector3): boolean {
     const c = this.controller;
     if (!this.canAct() || !c.grounded || c.rolling || this.ctx.isHubPhase()) return false;
+    // Phase 10: a squadmate on the shoulder is put down first; the caller retries next frame
+    if (this._carrying) { this.dropCarried('action'); return false; }
     if (this.rollCooldown > 0) return false;
     if (this.shipBounds || this._interior) return false;
     if (this.gear.rollBlocked) {
@@ -373,6 +389,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
    */
   startMelee(kind: MeleeKind = 'light'): boolean {
     if (!this.canAct() || this.controller.rolling) return false;
+    if (this._carrying) { this.dropCarried('action'); return false; }
     if (this.meleeTimer > 0 || this.meleeCooldown > 0) return false;
     if (kind !== 'heavy') {
       if (this.stamina < MELEE_STAMINA_COST) {
@@ -582,7 +599,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   setInPod(inPod: boolean): void {
     if (inPod === this._inPod) return;
     this._inPod = inPod;
-    if (inPod) { this.setAiming(false); this.controller.velocity.set(0, 0, 0); this.controller.sprinting = false; }
+    if (inPod) { this.clearCarry('action'); this.setAiming(false); this.controller.velocity.set(0, 0, 0); this.controller.sprinting = false; }
     if (this.spawned && !this.scopeHidden) this.model.setVisible(!inPod);
   }
 
@@ -776,6 +793,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
 
   /* ─────────────────────────── PlayerWeaponHost ─────────────────────────── */
   getWeaponSocket(): THREE.Object3D { return this.model.weaponSocket; }
+  /** Phase 10: right-shoulder socket a carried squadmate's body is parented to. */
+  getShoulderSocket(): THREE.Object3D { return this.model.shoulderSocket; }
   getAimRay(origin: THREE.Vector3, direction: THREE.Vector3): void {
     origin.copy(this.aimOrigin);
     this.rig.getLookDir(direction);
@@ -862,8 +881,18 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   update(dt: number, ctx: GameContext): void {
     const input = ctx.input;
     const c = this.controller;
-    // ride along with a parent (extraction ship)
-    if (this.attachedParent) {
+    // Phase 10: hanging on a squadmate's shoulder — the same ride-along the extraction ship uses, but the local
+    // transform is pinned to PLAYER_CARRY_OFFSET instead of being derived from the controller.
+    if (this.carriedSocket) {
+      const root = this.model.root;
+      if (root.parent !== this.carriedSocket) this.carriedSocket.add(root);
+      root.position.set(PLAYER_CARRY_OFFSET[0], PLAYER_CARRY_OFFSET[1], PLAYER_CARRY_OFFSET[2]);
+      root.quaternion.identity();
+      root.updateWorldMatrix(true, false);
+      c.position.setFromMatrixPosition(root.matrixWorld);
+      c.velocity.set(0, 0, 0);
+    } else if (this.attachedParent) {
+      // ride along with a parent (extraction ship)
       this.model.root.updateWorldMatrix(true, false);
       c.position.setFromMatrixPosition(this.model.root.matrixWorld);
     }
@@ -875,7 +904,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     const downed = this._downed;
     const locked = input.isPointerLocked;
     const dropping = this.hellpod.isActive && this.hellpod.state !== 'exiting';
-    const moveFrozen = dropping || this._inPod;
+    // Phase 10: the pick-up / put-down animation and being carried both freeze movement (the camera keeps working)
+    const moveFrozen = dropping || this._inPod || this.carriedSocket !== null || this.carryLock > 0;
 
     // click-to-relock fallback (also in the hub)
     if (control && !locked && input.wasMousePressed(0)) input.requestPointerLock();
@@ -896,11 +926,15 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     if (this.rollCooldown > 0) this.rollCooldown -= dt;
     if (this.meleeCooldown > 0) this.meleeCooldown -= dt;
     if (this.meleeTimer > 0) this.meleeTimer = Math.max(0, this.meleeTimer - dt);
+    if (this.carryLock > 0) this.carryLock = Math.max(0, this.carryLock - dt);
     if (this.slowTimer > 0) { this.slowTimer -= dt; if (this.slowTimer <= 0) this.slowFactor = 1; }
+    // Phase 10: the body on the shoulder may have been revived / died / left while we walked
+    if (this._carrying) this.validateCarry();
     let speedMul = this.slowTimer > 0 ? THREE.MathUtils.clamp(this.slowFactor, 0.1, 1) : 1;
     if (this.standUpTimer > 0) speedMul *= 0.5;
     if (this.exhaustedSlow > 0) speedMul *= EXHAUSTED_SLOW;
     if (downed) speedMul *= PLAYER_DOWN_SPEED_MUL;   // crawl: prone speed × 0.6
+    if (this._carrying) speedMul *= PLAYER_CARRY_SPEED_MUL;
     speedMul *= this.speedModifierProduct();
     c.speedMultiplier = Math.max(0, speedMul);
     this.flinch = damp(this.flinch, 0, 9, dt);
@@ -908,7 +942,11 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
 
     // ── look & aim (aiming is cancelled during a roll / while downed; the quick-use wheel locks the look)
     if (active && locked && !this.lookLocked) this.rig.applyLook(input.mouseDX, input.mouseDY, this.aimBlend);
-    this.setAiming(active && locked && !downed && this.weaponState.hasWeapon && !this.altFireWeapon && input.isMouseDown(MouseButtons.AIM) && !c.rolling);
+    this.setAiming(active && locked && !downed && !this._carrying && this.weaponState.hasWeapon && !this.altFireWeapon && input.isMouseDown(MouseButtons.AIM) && !c.rolling);
+
+    // ── carry input (F tap): pick up / put down. Runs before the movement branches so the key is consumed
+    //    before WeaponSystem (which updates later) can read it as a melee swing.
+    this.updateCarryInput(active && !dropping && !this._inPod);
 
     // ── movement input
     const mi = this.moveInput;
@@ -919,6 +957,17 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
       mi.sprint = false; mi.jump = false; mi.aiming = false;
       if (this._stance !== 'prone') this.setStance('prone');
       this.standUpTimer = 0;
+    } else if (active && !moveFrozen && this._carrying) {
+      // carrying a squadmate: walking and sprinting only. Any other key puts the body down first and the owner
+      // of that action retries on the next frame (weapons / implants / gadgets do the same from their own paths).
+      mi.x = (input.isDown(Keys.RIGHT) ? 1 : 0) - (input.isDown(Keys.LEFT) ? 1 : 0);
+      mi.z = (input.isDown(Keys.FORWARD) ? 1 : 0) - (input.isDown(Keys.BACK) ? 1 : 0);
+      mi.sprint = input.isDown(Keys.SPRINT) && mi.z > 0.2 && !this.exhausted && this.stamina > 0 && !this.gear.overloaded;
+      mi.jump = false; mi.aiming = false;
+      if (this._stance !== 'stand') this.setStance('stand');
+      this.standUpTimer = 0;
+      if (input.wasPressed(Keys.CROUCH) || input.wasPressed(Keys.PRONE) || input.wasPressed(Keys.DIVE)
+        || input.wasPressed(Keys.JUMP) || input.wasPressed(Keys.INTERACT)) this.dropCarried('action');
     } else if (active && !moveFrozen) {
       mi.x = (input.isDown(Keys.RIGHT) ? 1 : 0) - (input.isDown(Keys.LEFT) ? 1 : 0);
       mi.z = (input.isDown(Keys.FORWARD) ? 1 : 0) - (input.isDown(Keys.BACK) ? 1 : 0);
@@ -996,8 +1045,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     // ── downed: bleed-out + give-up hold
     if (downed && !this.isDead) this.updateDowned(dt, active);
 
-    // ── interaction (a downed player cannot interact)
-    this.updateInteraction(dt, active && !downed);
+    // ── interaction (a downed player cannot interact; neither can one with a body on the shoulder)
+    this.updateInteraction(dt, active && !downed && !this._carrying);
 
     // ── death anim
     if (this.isDead) this.deadTimer += dt;
@@ -1021,6 +1070,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.chargeBlend = damp(this.chargeBlend, this.weaponState.charging ? 1 : 0, 10, dt);
     this.sprayBlend = damp(this.sprayBlend, this.weaponState.spraying ? 1 : 0, 12, dt);
     this.heavyBlend = damp(this.heavyBlend, this.weaponState.heavy ? 1 : 0, 8, dt);
+    this.carryBlend = damp(this.carryBlend, this._carrying ? 1 : 0, 8, dt);
     const eyeTarget = diving ? EYE_ROLL : this._stance === 'prone' ? EYE_PRONE : this._stance === 'crouch' ? EYE_CROUCH : EYE_STAND;
     this.eyePos.y = damp(this.eyePos.y, eyeTarget, 10, dt);
 
@@ -1059,13 +1109,17 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     p.spraying = this.sprayBlend;
     p.heavyCarry = this.heavyBlend;
     p.hover = this.hoverBlend;
+    p.carry = this.carryBlend;
     p.downed = 0;   // 전투불능 keeps the Phase 2 prone crawl
     p.dead = this.isDead ? Math.min(1, this.deadTimer / DEATH_ANIM) : 0;
     this.model.update(dt, ctx.time, p);
 
-    // ── write model transform (world → parent local when attached)
+    // ── write model transform (world → parent local when attached). While carried the transform is owned by the
+    //    carrier's shoulder socket (written at the top of `update`), so nothing is written here.
     const root = this.model.root;
-    if (this.attachedParent) {
+    if (this.carriedSocket) {
+      /* pinned to the socket */
+    } else if (this.attachedParent) {
       root.position.copy(c.position);
       this.attachedParent.worldToLocal(root.position);
       this.attachedParent.getWorldQuaternion(_q).invert();
@@ -1190,6 +1244,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   /** hp reached 0: 전투불능 instead of death — prone crawl, weapons off, `downHp` starts bleeding. */
   private enterDowned(): void {
     if (this._downed || this.isDead) return;
+    this.clearCarry('action');   // a downed carrier cannot hold anybody up
     this._downed = true;
     this._downHp = PLAYER_DOWN_HP;
     this.bleedAcc = 0; this.giveUpHold = 0;
@@ -1261,6 +1316,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.isDead = true;
     this.deadTimer = 0;
     this.healPool = 0;
+    this.clearCarry('died');
     this.clearDowned();
     this.setAiming(false);
     this.setHovering(false);
@@ -1281,6 +1337,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
    * armor survives a respawn.
    */
   private resetTactical(): void {
+    this.clearCarry('reset');
     this.controller.cancelRoll();
     this.controller.grappleTarget = null; this._grappling = false;
     this.controller.hovering = false;
@@ -1304,6 +1361,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   /** Common precondition for roll / melee. */
   private canAct(): boolean {
     return this.spawned && this.controlsEnabled && !this.isDead && !this._downed && !this._inPod
+      && this.carriedSocket === null
       && this.ctx.isControlActive()
       && !(this.hellpod.isActive && this.hellpod.state !== 'exiting');
   }
@@ -1571,18 +1629,152 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     if (this.lastPromptText !== null) { this.lastPromptText = null; this.lastHoldProgress = 0; this.ctx.bus.emit('interact:promptChanged', { text: null, holdProgress: 0 }); }
     this.rig.setOverride(null);
   }
-  /* ══ Phase 10 skeleton — 부상자 들쳐메기 + 준비 패널 초상화. Replace with the real implementation. ══ */
-  /** PeerId of the squadmate on our right shoulder, or null. */
-  get carrying(): string | null { return null; }
-  /** true while another player carries us. */
-  get isCarried(): boolean { return false; }
-  /** Shoulder a downed squadmate (F tap). */
-  carry(_id: string): boolean { return false; }
-  /** Put the carried squadmate down at our feet. */
-  dropCarried(_reason?: CarryEndReason): boolean { return false; }
-  /** Ride along on another player's shoulder socket; null detaches. */
-  setCarriedBy(_socket: THREE.Object3D | null): void { /* Phase 10 skeleton */ }
-  /** Build `cells` character portraits into `host` (own WebGL context). */
-  createPortraits(_host: HTMLElement, _cells: number): PortraitRef | null { return null; }
+  /* ══ Phase 10 — 부상자 들쳐메기 + 준비 패널 초상화 ══════════════════════════════════════════════════════ */
+  /**
+   * `RemotePlayerSystem` installs itself here in its own `init` (it owns the avatars / refs a carry needs).
+   * Without a host `carry()` always fails, so single-player and the headless tests are unaffected.
+   */
+  setCarryHost(host: CarryHost | null): void { this.carryHost = host; }
 
+  /** PeerId of the squadmate on our right shoulder, or null. */
+  get carrying(): string | null { return this._carrying; }
+  /** true while another player carries us (our body hangs on their shoulder socket). */
+  get isCarried(): boolean { return this.carriedSocket !== null; }
+
+  /**
+   * Shoulder a downed squadmate (the contextual F tap). Requires: a carry host, the target inside
+   * `PLAYER_CARRY_RANGE`, the target downed and alive and not already carried, and ourselves upright and free
+   * (not downed / dead / in a pod / mid-hellpod / already carrying / being carried). Locks movement for
+   * `PLAYER_CARRY_PICKUP_S`, cancels aim / sprint / roll / grapple / melee and drops us back to `stand`.
+   */
+  carry(id: string): boolean {
+    if (!id || this._carrying || this.carriedSocket) return false;
+    if (!this.canAct()) return false;
+    const host = this.carryHost;
+    if (!host) return false;
+    const target = host.targetOf(id);
+    if (!target) return false;
+    if (target.position.distanceTo(this.controller.position) > PLAYER_CARRY_RANGE) return false;
+    if (!host.attachCarried(id, this.model.shoulderSocket)) return false;
+    this._carrying = id;
+    this.carryLock = PLAYER_CARRY_PICKUP_S;
+    this.setAiming(false);
+    this.setHovering(false);
+    this.controller.cancelRoll();
+    this.setGrappleTarget(null);
+    this.meleeTimer = 0;
+    this.controller.sprinting = false;
+    if (this._stance !== 'stand') this.setStance('stand');
+    this.standUpTimer = 0;
+    this.cancelHold(); this.interactTarget = null;
+    const bus = this.ctx.bus;
+    bus.emit('player:carryStarted', { id, name: target.name || null });
+    bus.emit('audio:play', { id: 'interact', position: this.controller.position, volume: 0.8, pitch: 0.8 });
+    this.ctx.net?.send({ t: 'carry', ev: 'pick', target: id });
+    return true;
+  }
+
+  /**
+   * Put the carried squadmate down at our feet. Returns true when someone was actually dropped. A deliberate
+   * put-down (`'manual'`) plays the `PLAYER_CARRY_DROP_S` animation (movement locked for it); every other reason
+   * releases immediately so the action that caused it can retry on the next frame.
+   */
+  dropCarried(reason: CarryEndReason = 'manual'): boolean {
+    const id = this._carrying;
+    if (!id) return false;
+    this._carrying = null;
+    if (reason === 'manual') this.carryLock = Math.max(this.carryLock, PLAYER_CARRY_DROP_S);
+    const pos = this.controller.position;
+    this.carryHost?.detachCarried(id, pos);
+    this.ctx.net?.send({ t: 'carry', ev: 'drop', target: id, p: [pos.x, pos.y, pos.z] });
+    this.ctx.bus.emit('player:carryEnded', { id, reason });
+    return true;
+  }
+
+  /**
+   * Ride along on another player's shoulder socket (`null` detaches). Called on the **carried** side by
+   * `RemotePlayerSystem` once the wire says a peer is carrying us; the transform is then pinned to
+   * `PLAYER_CARRY_OFFSET` inside that socket and the controller position follows it (the `attachTo` pattern the
+   * extraction ship uses). Detaching lands the body on the ground under wherever the socket left it.
+   */
+  setCarriedBy(socket: THREE.Object3D | null): void {
+    if (socket === this.carriedSocket) return;
+    const root = this.model.root;
+    if (socket) {
+      if (this._carrying) this.dropCarried('action');   // cannot carry and be carried at once
+      if (this.attachedParent) this.attachTo(null);
+      this.carriedSocket = socket;
+      socket.add(root);
+      root.position.set(PLAYER_CARRY_OFFSET[0], PLAYER_CARRY_OFFSET[1], PLAYER_CARRY_OFFSET[2]);
+      root.quaternion.identity();
+      this.setAiming(false);
+      this.setHovering(false);
+      this.controller.velocity.set(0, 0, 0);
+      this.controller.sprinting = false;
+      return;
+    }
+    this.carriedSocket = null;
+    root.updateWorldMatrix(true, false);
+    _v.setFromMatrixPosition(root.matrixWorld);
+    this.ctx.scene.attach(root);
+    if (this._interior) _v.y = this._interior.getFloorAt(_v.x, _v.z);
+    else if (this.ctx.world?.ready) _v.y = this.ctx.world.getHeightAt(_v.x, _v.z);
+    const stance = this._stance;
+    this.controller.reset(_v);
+    this.controller.stance = stance;
+    root.position.copy(_v);
+    root.quaternion.setFromAxisAngle(_up, this.bodyYaw);
+    _v.y += this.eyePos.y;
+    this.rig.jumpTo(_v);
+  }
+
+  /** Build `cells` character portraits into `host` (its own WebGL context; null when one is unavailable). */
+  createPortraits(host: HTMLElement, cells: number): PortraitRef | null {
+    return createPortraits(this.ctx, host, cells);
+  }
+
+  /* ── carry internals ── */
+  /**
+   * F tap (`Keys.MELEE`, aliased as `Keys.CARRY`): put the body down while carrying, otherwise shoulder the
+   * nearest carriable squadmate. The key is **consumed** in both cases so `WeaponSystem` (which updates later)
+   * never reads the same tap as a melee swing; with nobody in range the tap falls through to the melee as usual.
+   */
+  private updateCarryInput(active: boolean): void {
+    const input = this.ctx.input;
+    if (this._carrying) {
+      if (active && this.carryLock <= 0 && input.wasPressed(Keys.MELEE)) {
+        input.consume(Keys.MELEE);
+        this.dropCarried('manual');
+      }
+      return;
+    }
+    if (!active || this.carriedSocket || this._downed || this.isDead) return;
+    const host = this.carryHost;
+    if (!host || !input.wasPressed(Keys.MELEE)) return;
+    const target = host.findCarriable(this.controller.position, PLAYER_CARRY_RANGE);
+    if (!target) return;
+    input.consume(Keys.MELEE);
+    this.carry(target.id);
+  }
+
+  /** The body on our shoulder may have been revived, bled out or left the session while we walked. */
+  private validateCarry(): void {
+    const id = this._carrying;
+    if (!id) return;
+    const status = this.carryHost?.carryStatus(id) ?? 'gone';
+    if (status === 'ok') return;
+    this.dropCarried(status === 'revived' ? 'revived' : status === 'died' ? 'died' : 'reset');
+  }
+
+  /** Release both sides of a carry without moving anybody (used by every reset path). */
+  private clearCarry(reason: CarryEndReason): void {
+    if (this._carrying) this.dropCarried(reason);
+    if (this.carriedSocket) {
+      this.carriedSocket = null;
+      this.model.root.removeFromParent();
+      this.ctx.scene.add(this.model.root);
+    }
+    this.carryLock = 0;
+    this.carryBlend = 0;
+  }
 }

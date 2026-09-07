@@ -47,7 +47,9 @@ interface MapPing { id: number; kind: PingKind; position: THREE.Vector3; expires
 /**
  * Tactical map (M). Static terrain layer (height shading + hillshade + contours) cached per
  * `world:ready`; dynamic layer (pads, nests, crates, pings, player, ship) redrawn every frame while open.
- * Wheel zooms around the cursor, left-drag pans. Adds `ctx.uiBlockers` token 'map'.
+ * Wheel zooms around the cursor, left-drag pans, **middle-click drops a ping** (Phase 10, `setPingPlacer`).
+ * Adds `ctx.uiBlockers` token 'map' and enters software-cursor mode with the same token — the pointer lock is kept
+ * (Phase 10 §2), so there is no `exitPointerLock()` and no relock microtask.
  */
 export class MapScreen {
   readonly root: HTMLElement;
@@ -75,6 +77,9 @@ export class MapScreen {
   private pings = new Map<number, MapPing>();
   /** When set (HudSystem → Pings.getPings) pings are drawn from here (carries owner name/colour); else from events. */
   private pingSource: (() => readonly PingView[]) | null = null;
+  /** Phase 10: middle-click on the map → this placer (HudSystem → `Pings.placeAtWorld`). */
+  private pingPlacer: ((position: THREE.Vector3, kind: PingKind) => void) | null = null;
+  private pingVec = new THREE.Vector3();
   private unsubs: Array<() => void> = [];
 
   private escHandler = (e: KeyboardEvent): void => {
@@ -92,7 +97,10 @@ export class MapScreen {
     this.zoomAround(this.zoom * factor, mx, my);
   };
   private onMouseDown = (e: MouseEvent): void => {
-    if (!this._open || e.button !== 0) return;
+    if (!this._open) return;
+    // Phase 10: middle-click drops a ping at that map point instead of starting a pan.
+    if (e.button === 1) { e.preventDefault(); this.pingAt(e.clientX, e.clientY); return; }
+    if (e.button !== 0) return;
     e.preventDefault();
     this.dragging = true;
     this.lastMx = e.clientX; this.lastMy = e.clientY;
@@ -154,7 +162,7 @@ export class MapScreen {
     this.zoomEl = el('span', { cls: 'ui-mono', text: '1.0×', parent: zoomRow });
     const reset = el('button', { cls: 'ui-btn small', text: '초기화', parent: foot });
     reset.addEventListener('click', (e) => { e.stopPropagation(); this.resetView(); this.ctx?.bus.emit('audio:play', { id: 'ui_click' }); });
-    el('div', { cls: 'map-hint', html: '<span class="keycap">M</span> / <span class="keycap">Esc</span> 닫기 · 휠 확대 · 드래그 이동', parent: foot });
+    el('div', { cls: 'map-hint', html: '<span class="keycap">M</span> / <span class="keycap">Esc</span> 닫기 · 휠 확대 · 드래그 이동 · 휠클릭 핑', parent: foot });
 
     const wrap = el('div', { cls: 'map-canvas-wrap', parent: frame });
     this.canvas = el('canvas', { cls: 'map-canvas', parent: wrap });
@@ -174,6 +182,25 @@ export class MapScreen {
 
   /** Draw pings from a live list (local + squad pings with owner colours) instead of the `ping:*` events. */
   setPingSource(source: (() => readonly PingView[]) | null): void { this.pingSource = source; }
+
+  /**
+   * Where a middle-click on the map goes (Phase 10). `HudSystem` wires this to `Pings.placeAtWorld`, which snaps the
+   * point onto a crate / pad / dropped item and shares it with the squad exactly like an in-world ping.
+   */
+  setPingPlacer(placer: ((position: THREE.Vector3, kind: PingKind) => void) | null): void { this.pingPlacer = placer; }
+
+  /** Client px → world point on the map, handed to the ping placer. Silently ignores clicks outside the canvas. */
+  private pingAt(clientX: number, clientY: number): void {
+    if (!this.pingPlacer) return;
+    const world = this.ctx?.world;
+    if (!world?.ready) return;
+    const r = this.canvas.getBoundingClientRect();
+    const mx = clientX - r.left, my = clientY - r.top;
+    if (mx < 0 || my < 0 || mx > this.side || my > this.side) return;
+    const x = this.fromX(mx), z = this.fromZ(my);
+    this.pingPlacer(this.pingVec.set(x, world.getHeightAt(x, z), z), 'ground');
+    this.ctx.bus.emit('audio:play', { id: 'ui_click' });
+  }
 
   bind(ctx: GameContext): void {
     this.ctx = ctx;
@@ -212,9 +239,10 @@ export class MapScreen {
     const ctx = this.ctx;
     if (!ctx.world?.ready) return;
     this._open = true;
-    // Blocker first, then exit lock, so GameFlow's pointerlockchange handler sees an intended exit.
+    // Phase 10 (§2): the pointer lock is KEPT and the software cursor drives the UI — no `exitPointerLock()` here, so
+    // the OS cursor never wanders onto another monitor. `setCursorMode` is ref-counted by the blocker token.
     ctx.uiBlockers.add(BLOCKER);
-    ctx.input.exitPointerLock();
+    ctx.input.setCursorMode(true, BLOCKER);
     this.root.hidden = false;
     this.fit();
     if (!this.staticCanvas || this.staticSeed !== ctx.world.seed) this.buildStatic(ctx);
@@ -223,7 +251,12 @@ export class MapScreen {
     ctx.bus.emit('ui:mapToggled', { open: true });
   }
 
+  /**
+   * `relock` is kept for the existing call sites but is a no-op since Phase 10 — the lock was never released, so
+   * there is nothing to re-request and no relock microtask.
+   */
   close(relock = true): void {
+    void relock;
     if (!this._open) return;
     const ctx = this.ctx;
     this._open = false;
@@ -231,18 +264,10 @@ export class MapScreen {
     this.canvas.classList.remove('grabbing');
     this.root.hidden = true;
     ctx.uiBlockers.delete(BLOCKER);
+    ctx.input.setCursorMode(false, BLOCKER);
     window.removeEventListener('mousemove', this.onMouseMove);
     window.removeEventListener('mouseup', this.onMouseUp);
     ctx.bus.emit('ui:mapToggled', { open: false });
-    // The key press that closed the map is a user activation → Chrome allows re-locking here.
-    // Deferred a microtask so a synchronous phase change right after the close is respected.
-    if (relock) {
-      queueMicrotask(() => {
-        if (this._open || !ctx.isGameplayPhase() || ctx.uiBlockers.size > 0) return;
-        if (ctx.player?.isDead ?? false) return;
-        ctx.input.requestPointerLock();
-      });
-    }
   }
 
   /* ── view ──────────────────────────────────────────────────────────────── */
@@ -297,6 +322,9 @@ export class MapScreen {
 
   private toX(x: number): number { return (x + this.size / 2) * this.scale() + this.ox; }
   private toY(z: number): number { return (z + this.size / 2) * this.scale() + this.oy; }
+  /** Inverse of `toX` / `toY`: canvas-local px → world metres (Phase 10, for the middle-click ping). */
+  private fromX(px: number): number { return (px - this.ox) / this.scale() - this.size / 2; }
+  private fromZ(py: number): number { return (py - this.oy) / this.scale() - this.size / 2; }
 
   /* ── static layer ──────────────────────────────────────────────────────── */
 
@@ -630,7 +658,7 @@ export class MapScreen {
     window.removeEventListener('resize', this.onResize);
     window.removeEventListener('mousemove', this.onMouseMove);
     window.removeEventListener('mouseup', this.onMouseUp);
-    if (this._open) { this._open = false; this.ctx?.uiBlockers.delete(BLOCKER); }
+    if (this._open) { this._open = false; this.ctx?.uiBlockers.delete(BLOCKER); this.ctx?.input.setCursorMode(false, BLOCKER); }
     this.staticCanvas = null;
     this.root.remove();
   }

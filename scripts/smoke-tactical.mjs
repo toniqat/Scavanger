@@ -314,7 +314,7 @@ try {
   });
   ok(enemyApi, 'EnemyManagerRef tactical-kit methods present');
 
-  /* ── barrier (Phase 9): raycastBarrier is a pure query, damageBarrier applies the hit ── */
+  /* ── barrier (Phase 10): a shield carried in hand; raycastBarrier stays a pure query, damageBarrier applies the hit ── */
   // equipping is ship-only: back to the ship, swap dash → barrier, drop into a fresh mission
   await page.evaluate(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
   await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub phase (barrier)');
@@ -324,19 +324,30 @@ try {
   await waitFor(page, () => window.__game.ctx.world?.ready === true && window.__game.ctx.isGameplayPhase() && window.__game.ctx.player?.isDropping === false, 'second mission (barrier)');
   await gameSleep(page, 1.0);
   const bar = await page.evaluate(() => {
-    const ctx = window.__game.ctx, im = ctx.implants, sys = window.__game.getSystem('implants');
+    const ctx = window.__game.ctx, im = ctx.implants;
     window.__barrierHits = [];
+    window.__carried = [];
     ctx.bus.on('implant:barrierHit', (e) => window.__barrierHits.push(e.damage));
-    im.activate();
+    ctx.bus.on('implant:barrierCarried', (e) => window.__carried.push(e.up));
+    im.activate();                                  // wielded mode: Q raises the shield
     const V = ctx.player.position.constructor;
     const fwd = new V(); ctx.player.getForward(fwd); fwd.y = 0; fwd.normalize();
-    const b = sys.barrier;
-    const origin = b.position.clone().addScaledVector(fwd, 5); origin.y = b.position.y + 1.2;
+    const pose = new V();
+    const yaw = im.getBarrierPose(pose)?.yaw ?? null;
+    const feet = ctx.player.position.clone();
+    // the panel plane sits in front of the body axis, its bottom edge above the feet
+    const ahead = new V().subVectors(pose, feet);
+    const front = ahead.x * fwd.x + ahead.z * fwd.z;
+    const side = Math.abs(ahead.x * -fwd.z + ahead.z * fwd.x);
+    const origin = pose.clone().addScaledVector(fwd, 5); origin.y = pose.y + 1.2;
     const dir = fwd.clone().negate();
     const hp0 = im.barrierHp;
     const friendly = im.raycastBarrier(origin, dir, 12, false);
     const q1 = im.raycastBarrier(origin, dir, 12, true);
     const q2 = im.raycastBarrier(origin, dir, 12, true);
+    // arc gate: a shot travelling with the carrier's forward comes from behind the shield and passes by
+    const behind = origin.clone().addScaledVector(fwd, -12); behind.y = origin.y;
+    const fromBack = im.raycastBarrier(behind, fwd, 20, true);
     const hp1 = im.barrierHp, hits1 = window.__barrierHits.length;
     if (q1) im.damageBarrier(q1.owner, q1.point);
     const hp2 = im.barrierHp;
@@ -344,15 +355,56 @@ try {
     const hp3 = im.barrierHp;
     im.damageBarrier('SOMEPEER', origin);   // a peer's barrier only sparks here
     const hp4 = im.barrierHp;
-    return { active: im.barrierActive, max: im.barrierMaxHp, hp0, friendly, q1: q1 && { owner: q1.owner, d: q1.point.distanceTo(b.position) }, q2: !!q2, hp1, hits1, hp2, hp3, hp4, hits: window.__barrierHits };
+    return {
+      active: im.barrierActive, carried: im.barrierCarried, wielded: im.wielded, blocks: im.blocksWeapons,
+      max: im.barrierMaxHp, hp0, yaw, playerYaw: ctx.player.yaw, front, side, lift: pose.y - feet.y,
+      friendly, q1: q1 && { owner: q1.owner, d: q1.point.distanceTo(pose) }, q2: !!q2, fromBack,
+      hp1, hits1, hp2, hp3, hp4, hits: window.__barrierHits, events: window.__carried.slice(),
+    };
   });
-  ok(bar.active && bar.hp0 > 0, `barrier deployed (${bar.hp0}/${bar.max} hp)`);
+  ok(bar.active && bar.carried && bar.hp0 > 0, `배리어 방패 raised in hand (${bar.hp0}/${bar.max} hp)`);
+  ok(bar.wielded && bar.blocks, 'the shield is a wielded implant: blocksWeapons holsters the gun');
+  ok(bar.events.length === 1 && bar.events[0] === true, 'implant:barrierCarried {up:true} emitted on raise');
+  ok(bar.yaw !== null && Math.abs(bar.yaw - bar.playerYaw) < 1e-3, 'getBarrierPose() reports the carrier facing');
+  ok(bar.front > 0.3 && bar.front < 1.5 && bar.side < 0.05 && bar.lift > 0.2, `the panel sits ${bar.front?.toFixed(2)} m in front of the feet, lifted ${bar.lift?.toFixed(2)} m`);
   ok(bar.friendly === null, 'raycastBarrier(fromEnemy = false) never blocks');
-  ok(bar.q1 && bar.q1.owner === 'local' && bar.q2, `raycastBarrier(fromEnemy = true) reports the local barrier (${bar.q1?.d?.toFixed(2)} m from its centre)`);
+  ok(bar.q1 && bar.q1.owner === 'local' && bar.q2, `raycastBarrier(fromEnemy = true) reports the local shield (${bar.q1?.d?.toFixed(2)} m from the panel centre)`);
+  ok(bar.fromBack === null, 'IMPLANT_BARRIER_CARRY_ARC: a shot from behind the carrier passes through');
   ok(bar.hp1 === bar.hp0 && bar.hits1 === 0, 'LOS queries leave barrierHp unchanged and emit no implant:barrierHit (pure query)');
   ok(bar.hp2 === bar.hp0 - 30 && bar.hits[0] === 30, `damageBarrier(owner, point) takes the block damage 30 (${bar.hp0} → ${bar.hp2}) + implant:barrierHit`);
   ok(bar.hp3 === bar.hp2 - 100 && bar.hits[1] === 100, 'damageBarrier(local, point, 100) applies the explicit amount');
   ok(bar.hp4 === bar.hp3 && bar.hits.length === 2, 'damageBarrier on a peer barrier does not touch the local hp');
+
+  // the panel is carried, so it moves with the player instead of standing where it was raised
+  const follow = await page.evaluate(() => {
+    const ctx = window.__game.ctx, im = ctx.implants;
+    const V = ctx.player.position.constructor;
+    const panel0 = new V(); im.getBarrierPose(panel0);
+    const feet0 = ctx.player.position.clone();
+    ctx.player.position.x += 4;                     // teleport (the dash writes the position the same way)
+    window.__followRef = { panel0: [panel0.x, panel0.z], feet0: [feet0.x, feet0.z] };
+    return true;
+  });
+  ok(follow === true, 'shield-follow probe armed');
+  await gameSleep(page, 0.2);
+  const follow2 = await page.evaluate(() => {
+    const ctx = window.__game.ctx, im = ctx.implants;
+    const V = ctx.player.position.constructor;
+    const ref = window.__followRef;
+    const panel = new V();
+    const pose = im.getBarrierPose(panel);
+    const feet = ctx.player.position;
+    const panelMoved = Math.hypot(panel.x - ref.panel0[0], panel.z - ref.panel0[1]);
+    const feetMoved = Math.hypot(feet.x - ref.feet0[0], feet.z - ref.feet0[1]);
+    const near = Math.hypot(panel.x - feet.x, panel.z - feet.z);
+    im.activate();                                  // Q again lowers it
+    const down = new V();
+    return { pose: !!pose, panelMoved, feetMoved, near, down: im.getBarrierPose(down), active: im.barrierActive, carried: im.barrierCarried, events: window.__carried.slice() };
+  });
+  ok(follow2.pose && follow2.feetMoved > 1 && Math.abs(follow2.panelMoved - follow2.feetMoved) < 0.5 && follow2.near < 1.5,
+    `the shield follows the carrier (feet +${follow2.feetMoved?.toFixed(2)} m, panel +${follow2.panelMoved?.toFixed(2)} m, still ${follow2.near?.toFixed(2)} m from the feet)`);
+  ok(follow2.active === false && follow2.carried === false && follow2.down === null, 'Q again lowers the shield (getBarrierPose → null)');
+  ok(follow2.events[follow2.events.length - 1] === false, 'implant:barrierCarried {up:false} emitted on lower');
 
   /* ── HUD widgets ──────────────────────────────────────────────────── */
   const hud = await page.evaluate(() => {

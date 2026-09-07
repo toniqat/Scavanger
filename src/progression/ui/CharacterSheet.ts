@@ -16,7 +16,9 @@ const BLOCKER = 'stats';
  *
  * Opened / closed by `ui:statsToggled` (the ship terminal / `P`) — see ProgressionSystem.
  * Carries the shared screen tabs (인벤토리 → closes the sheet and opens the inventory window · 캐릭터 · 기업 disabled). Adds the
- * `'stats'` UI blocker token **before** exiting pointer lock, and re-locks on close when nothing else blocks.
+ * `'stats'` UI blocker token and then turns on the **in-game cursor** (`input.setCursorMode(true, 'stats')` —
+ * Phase 10: the pointer lock is *kept* and a virtual cursor synthesises the DOM events, so `exitPointerLock()` and
+ * the microtask re-lock are both gone).
  */
 export class CharacterSheet {
   readonly root: HTMLElement;
@@ -62,9 +64,9 @@ export class CharacterSheet {
     if (this._open) return;
     this._open = true;
     this.body.disarmReset();
-    // Blocker first, then exit the lock, so GameFlow's pointerlockchange handler sees an intended exit.
+    // Blocker first, then the in-game cursor — the pointer lock is kept, so GameFlow never sees an exit at all.
     this.ctx.uiBlockers.add(BLOCKER);
-    this.ctx.input.exitPointerLock();
+    this.ctx.input.setCursorMode(true, BLOCKER);
     this.root.hidden = false;
     this.frame.style.animation = 'none';
     void this.frame.offsetWidth;
@@ -74,23 +76,16 @@ export class CharacterSheet {
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
   }
 
-  close(relock = true): void {
+  /** `relock` is kept for the call signature only — Phase 10 never dropped the lock, so there is nothing to re-lock. */
+  close(_relock = true): void {
     if (!this._open) return;
     this._open = false;
     this.body.disarmReset();
     this.root.hidden = true;
     (document.activeElement as HTMLElement | null)?.blur?.();
     this.ctx.uiBlockers.delete(BLOCKER);
+    this.ctx.input.setCursorMode(false, BLOCKER);
     this.ctx.bus.emit('ui:statsToggled', { open: false });
-    if (!relock) return;
-    // The key press / click that closed us is a user activation → Chrome allows re-locking here.
-    queueMicrotask(() => {
-      const ctx = this.ctx;
-      if (this._open || ctx.uiBlockers.size > 0) return;
-      if (!ctx.isGameplayPhase() && !ctx.isHubPhase()) return;
-      if (ctx.player?.isDead ?? false) return;
-      ctx.input.requestPointerLock();
-    });
   }
 
   /* ── rendering (delegated to the shared body, skipped while hidden) ────── */
@@ -101,6 +96,7 @@ export class CharacterSheet {
   dispose(): void {
     window.removeEventListener('keydown', this.escHandler, true);
     this.ctx.uiBlockers.delete(BLOCKER);
+    this.ctx.input.setCursorMode(false, BLOCKER);
     this._open = false;
     this.body.dispose();
     this.root.remove();

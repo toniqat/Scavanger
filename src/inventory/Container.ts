@@ -112,15 +112,36 @@ export class Container {
 }
 
 /**
+ * A take applied to a **local** copy from the shared state (`applyPending` / `applySync`) — the catch-up path, so it is
+ * always reported with `live: false`. `uid` is captured before the placement is removed.
+ */
+export interface StoreTakenInfo {
+  containerId: string;
+  idx: number;
+  uid: string | null;
+  qty: number;
+  /** Units of `idx` left in this copy afterwards. */
+  remaining: number;
+}
+
+/**
  * Cache of containers by id. First open of a crate rolls contents with a deterministic RNG
  * (`missionSeed ^ hash(containerId)`); first open of a caller-supplied container places the
  * given items. Both auto-place largest-first; later opens show what is left.
  * Phase 7: `pendingTaken` keeps confirmed takes for containers this client has not opened yet — they are applied on
  * the first open (host: also used to validate requests for containers it never rolled).
+ * Phase 10: `takeSeq` / `lastSeq` carry the per-container take counter of `cont taken` (host stamps, receiver drops a
+ * duplicate / out-of-order take) and `onTaken` reports a catch-up removal so the system can emit `container:itemTaken`.
  */
 export class ContainerStore {
   private containers = new Map<string, Container>();
   private pendingTaken = new Map<string, Map<number, number>>();
+  /** Host: next `cont taken.seq` per container id (works for a container it cannot roll, too). */
+  private takeSeq = new Map<string, number>();
+  /** Receiver: highest `seq` already applied per container id. */
+  private lastSeq = new Map<string, number>();
+  /** Set by `InventorySystem`: a take applied from the shared state (never a live one). */
+  onTaken: ((info: StoreTakenInfo) => void) | null = null;
 
   constructor(private readonly getDef: DefLookup) {}
 
@@ -164,7 +185,15 @@ export class ContainerStore {
     const pend = this.pendingTaken.get(c.id);
     if (!pend) return;
     this.pendingTaken.delete(c.id);
-    for (const [idx, qty] of pend) c.applyTaken(idx, qty);
+    for (const [idx, qty] of pend) this.applyTakenReported(c, idx, qty);
+  }
+
+  /** `Container.applyTaken` + the `onTaken` report (uid captured before the placement goes away). */
+  private applyTakenReported(c: Container, idx: number, qty: number): number {
+    const uid = c.uidAt(idx) ?? null;
+    const removed = c.applyTaken(idx, qty);
+    if (removed > 0) this.onTaken?.({ containerId: c.id, idx, uid, qty: removed, remaining: c.remainingAt(idx) });
+    return removed;
   }
 
   /** Record a confirmed take for a container that is not open / rolled here yet. */
@@ -204,12 +233,36 @@ export class ContainerStore {
       for (const [idx, qty] of w.t) {
         const delta = qty - (c.taken.get(idx) ?? 0);
         if (delta <= 0) continue;
-        if (c.applyTaken(idx, delta) > 0) touched = true;
+        if (this.applyTakenReported(c, idx, delta) > 0) touched = true;
       }
       if (touched) changed.push(c.id);
     }
     return changed;
   }
 
-  clear(): void { this.containers.clear(); this.pendingTaken.clear(); }
+  /* ── Phase 10: `cont taken.seq` ── */
+
+  /** Host: the `seq` to stamp on the next `cont taken` for `id` (1-based, monotonic per container). */
+  nextTakeSeq(id: string): number {
+    const next = (this.takeSeq.get(id) ?? 0) + 1;
+    this.takeSeq.set(id, next);
+    return next;
+  }
+
+  /**
+   * Receiver: is this `cont taken` the next one to apply? A missing `seq` (older host) is always accepted; a `seq`
+   * that is not higher than the last one applied is a duplicate / out-of-order message and is dropped.
+   */
+  acceptTakeSeq(id: string, seq: number | undefined): boolean {
+    if (typeof seq !== 'number' || !Number.isFinite(seq)) return true;
+    const last = this.lastSeq.get(id) ?? 0;
+    if (seq <= last) return false;
+    this.lastSeq.set(id, seq);
+    return true;
+  }
+
+  /** Forget the received sequence numbers (host migration: the new host counts from 1 again). */
+  resetTakeSeq(): void { this.lastSeq.clear(); }
+
+  clear(): void { this.containers.clear(); this.pendingTaken.clear(); this.takeSeq.clear(); this.lastSeq.clear(); }
 }

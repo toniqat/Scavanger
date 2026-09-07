@@ -1,5 +1,5 @@
 import type { GameContext } from '@/shared';
-import { CONTRACT_DEFS, QUEST_DEFS, SUSPENDED_LABEL_KO, WEIGHT_STATE_LABEL_KO } from '@/shared';
+import { CONTRACT_DEFS, QUEST_DEFS, SUSPENDED_LABEL_KO, WEIGHT_STATE_LABEL_KO, formatCredits } from '@/shared';
 import { el, escapeHtml, rarityColor } from '../dom';
 import { stratagemDef } from './stratagemGlyphs';
 
@@ -190,12 +190,12 @@ export class Notifications {
       b.on('meta:purchase', ({ defId, price, placed }) => {
         const def = ctx.loot?.getItemDef(defId);
         const where = placed === 'stash' ? ' <span style="color:var(--c-text-dim)">(창고)</span>' : '';
-        this.push(`구매: <b style="color:${rarityColor(def?.rarity ?? 'common')}">${escapeHtml(def?.name ?? defId)}</b> · −${price.toLocaleString('ko-KR')} 크레딧${where}`, 'info', '상점', 3);
+        this.push(`구매: <b style="color:${rarityColor(def?.rarity ?? 'common')}">${escapeHtml(def?.name ?? defId)}</b> · 크레딧 ${formatCredits(-price, { sign: true })}${where}`, 'info', '상점', 3);
       }),
       b.on('meta:sale', ({ defId, qty, credits }) => {
         const def = ctx.loot?.getItemDef(defId);
         const q = qty > 1 ? ` <span style="color:var(--c-text-dim)">×${qty}</span>` : '';
-        this.push(`판매: <b style="color:${rarityColor(def?.rarity ?? 'common')}">${escapeHtml(def?.name ?? defId)}</b>${q} · +${credits.toLocaleString('ko-KR')} 크레딧`, 'success', '상점', 3);
+        this.push(`판매: <b style="color:${rarityColor(def?.rarity ?? 'common')}">${escapeHtml(def?.name ?? defId)}</b>${q} · 크레딧 ${formatCredits(credits, { sign: true })}`, 'success', '상점', 3);
       }),
       b.on('game:abort', () => this.clear()),
     );

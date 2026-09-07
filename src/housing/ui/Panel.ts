@@ -13,10 +13,10 @@ type WirePage = 'room' | 'facility' | 'presets' | null;
 const wirePage = (p: HousingPage): WirePage => (p === 'grow' || p === 'bookshelf' ? null : p);
 
 /**
- * Shared shell of the housing panels (`.menu.housing-menu`): adds the `'housing'` blocker **before** exiting
- * pointer lock, closes on Esc through a capture-phase window listener (so Input never sees the key), emits
- * `ui:housingToggled`, and re-requests the lock one microtask after closing when no blocker is left and the phase is
- * still `hub` (hub pointer-lock etiquette).
+ * Shared shell of the housing panels (`.menu.housing-menu`): adds the `'housing'` blocker and then turns on the
+ * **in-game cursor** (`input.setCursorMode(true, 'housing')` — Phase 10: the pointer lock is *kept* and a virtual
+ * cursor synthesises the DOM events, so `exitPointerLock()` and the microtask re-lock are both gone), closes on Esc
+ * through a capture-phase window listener (so Input never sees the key) and emits `ui:housingToggled`.
  */
 export abstract class HousingPanel {
   readonly root: HTMLElement;
@@ -59,8 +59,8 @@ export abstract class HousingPanel {
   protected openPanel(): void {
     if (this._open) { this.refresh(); return; }
     this._open = true;
-    this.ctx.uiBlockers.add(BLOCKER);          // before the lock exits
-    this.ctx.input.exitPointerLock();
+    this.ctx.uiBlockers.add(BLOCKER);          // blocker first, then the in-game cursor (the lock is kept)
+    this.ctx.input.setCursorMode(true, BLOCKER);
     this.root.hidden = false;
     this.frame.style.animation = 'none';
     void this.frame.offsetWidth;
@@ -71,7 +71,8 @@ export abstract class HousingPanel {
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
   }
 
-  close(relock = true): void {
+  /** `relock` is kept for the call signature only — Phase 10 never dropped the lock, so there is nothing to re-lock. */
+  close(_relock = true): void {
     if (!this._open) return;
     this._open = false;
     window.removeEventListener('keydown', this.onKeyCapture, true);
@@ -79,16 +80,8 @@ export abstract class HousingPanel {
     this.msg.hidden = true;
     (document.activeElement as HTMLElement | null)?.blur?.();
     this.ctx.uiBlockers.delete(BLOCKER);
+    this.ctx.input.setCursorMode(false, BLOCKER);
     this.ctx.bus.emit('ui:housingToggled', { open: false, page: wirePage(this.page) });
-    if (relock) this.relock();
-  }
-
-  private relock(): void {
-    queueMicrotask(() => {
-      const ctx = this.ctx;
-      if (ctx.phase !== 'hub' || ctx.uiBlockers.size > 0) return;
-      ctx.input.requestPointerLock();
-    });
   }
 
   /** Append the message line to the frame (call after the content, before the footer). */

@@ -656,6 +656,16 @@ export class InventoryUI {
   /** Shake a tile from outside the drag flow (a host-denied take). */
   shakeItem(uid: string, loc: ItemLocation): void { this.shake(loc, uid); }
 
+  /**
+   * Phase 10: another member's take was confirmed — let the container tile animate out on the next `refresh()`
+   * instead of blinking away. Also cancels a drag of that very item (it is not ours any more).
+   */
+  vanishContainerItem(uid: string): void {
+    if (!this.root || this.root.hidden) return;
+    if (this.drag?.uid === uid) this.cancelDrag();
+    this.containerView.vanish(uid);
+  }
+
   /** An unsearched container item: no tooltip, drag, menu or double-click (Phase 7). */
   private locked(uid: string, loc: ItemLocation): boolean { return this.sys.isItemLocked(uid, loc); }
 

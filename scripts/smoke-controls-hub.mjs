@@ -344,9 +344,17 @@ try {
   });
   ok(term.sw <= term.cw && term.sh <= term.ch, `terminal frame has no scroll overflow (${term.sw}/${term.cw} × ${term.sh}/${term.ch})`);
   ok(term.tabs === 0 && term.panels === 0, 'terminal has no 임플란트 / 정비 tabs any more');
+  // Phase 10 cursor migration: the terminal takes the software cursor and KEEPS the pointer lock (no exitPointerLock).
+  const termCursor = await page.evaluate(() => ({
+    blocker: window.__game.ctx.uiBlockers.has('hub'),
+    cursor: window.__game.ctx.input.isCursorMode,
+  }));
+  ok(termCursor.blocker && termCursor.cursor === true, `terminal holds the 'hub' blocker and the software cursor (cursor ${termCursor.cursor})`);
   await shot('07-terminal');
   await tap('Escape');
   await waitFor(page, () => document.querySelector('.menu.hub-menu').hidden, 'terminal closed');
+  await waitSim(0.2);
+  ok((await page.evaluate(() => window.__game.ctx.input.isCursorMode)) === false, 'closing the terminal releases the software cursor');
 
   /* ── 5. mission A: 대전차포 wielded → weapon key stows it ─────────── */
   const startMission = async (seed) => {

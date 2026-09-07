@@ -180,6 +180,18 @@
 .inv-tile.is-new { animation: inv-pop 180ms var(--inv-ease) both; }
 @keyframes inv-pop { from { opacity: 0; scale: 0.92; } to { opacity: 1; scale: 1; } }
 
+/* Phase 10: another member took this item — the tile floats up and fades instead of blinking out.
+   Only the `translate:` / `scale:` / `opacity` channels: `transform` carries the tile's cell position. */
+.inv-tile.is-vanishing {
+  pointer-events: none;
+  z-index: 3;
+  animation: inv-vanish var(--vanish-t, 220ms) var(--inv-ease) forwards;
+}
+@keyframes inv-vanish {
+  from { translate: 0 0; opacity: 1; scale: 1; }
+  to { translate: 0 var(--vanish-rise, -14px); opacity: 0; scale: var(--vanish-scale, 0.9); }
+}
+
 .inv-tile.is-hover, .inv-tile:hover {
   border-color: color-mix(in srgb, var(--rc) 95%, white 10%);
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 6px 18px rgba(0, 0, 0, 0.45), 0 0 18px color-mix(in srgb, var(--rc) 45%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.12);
@@ -482,6 +494,23 @@ kbd {
 .inv-tt-socket .k { color: var(--inv-muted); letter-spacing: 0.06em; }
 .inv-tt-socket .v { color: rgba(233, 236, 239, 0.4); }
 .inv-tt-socket.is-filled .v { color: var(--inv-text); }
+
+/* Phase 10: 가치 as the card's bottom bar (label left, amount right; a stack adds `단가 × 수량`) */
+.inv-tt-value {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 10px -14px -12px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--inv-line);
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 11px;
+}
+.inv-tt-value .k { color: var(--inv-muted); letter-spacing: 0.16em; text-transform: uppercase; }
+.inv-tt-value-amount { display: flex; align-items: baseline; gap: 8px; font-variant-numeric: tabular-nums; }
+.inv-tt-value-unit { color: var(--inv-muted); font-size: 10px; }
+.inv-tt-value-total { color: var(--inv-accent); font-size: 13px; font-weight: 600; }
 
 /* ── partial (split) drag ───────────────────────────────────────────────── */
 .inv-tile.is-split-source { opacity: 0.85; }
@@ -1206,3 +1235,45 @@ kbd {
   opacity: 0.9; filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.6));
 }
 .tg-ghost.is-ok { outline: 2px solid var(--inv-ok, #4fd17e); outline-offset: 1px; }
+
+/* ── Phase 10: 분대원 장비 열람 (`ui/CrewLoadoutView.ts`) ─────────────────────
+   The view is embedded in a `hub/`-owned popup, i.e. OUTSIDE `.inv-root`, so it re-declares the palette tokens the
+   reused `.inv-slot` / `.inv-quick` / `.inv-tile` rules read. Read-only: no cursors, no hover lift. */
+.crew-loadout {
+  --inv-cell: 54px;
+  --inv-gap: 2px;
+  --inv-bg: rgba(9, 11, 15, 0.78);
+  --inv-bg-2: rgba(16, 19, 25, 0.82);
+  --inv-line: rgba(255, 255, 255, 0.12);
+  --inv-line-strong: rgba(255, 255, 255, 0.26);
+  --inv-text: #e9ecef;
+  --inv-muted: rgba(233, 236, 239, 0.55);
+  --inv-accent: #f0c46a;
+  --inv-ok: #4fd17e;
+  --inv-bad: #ff5c5c;
+  --inv-swap: #4aa3ff;
+  --inv-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --crew-slot: var(--inv-accent);
+
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  color: var(--inv-text);
+  font-family: -apple-system, "Segoe UI", "Pretendard", "Malgun Gothic", "Apple SD Gothic Neo", Roboto, sans-serif;
+  font-size: 13px;
+  line-height: 1.35;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.crew-head { display: flex; align-items: center; gap: 8px; }
+.crew-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--crew-slot); box-shadow: 0 0 10px var(--crew-slot); }
+.crew-name { font-size: 15px; font-weight: 600; letter-spacing: 0.02em; }
+.crew-blocks { display: flex; align-items: flex-start; gap: 20px; }
+.crew-block { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.crew-loadout .inv-eyebrow { font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase; font-weight: 700; color: var(--inv-muted); }
+.crew-loadout .inv-equip { padding: 0; border: 0; background: none; }
+.crew-loadout .inv-tile,
+.crew-loadout .inv-quick-cell,
+.crew-loadout .inv-slot-body { cursor: default; }
+.crew-loadout .inv-tile:hover { border-color: color-mix(in srgb, var(--rc) 60%, transparent); box-shadow: none; filter: none; }

@@ -1,5 +1,5 @@
 import type { EffectiveWeaponStats, ItemDef, ItemInstance } from '@/shared';
-import { SOCKET_SLOTS } from '@/shared';
+import { CONTAINER_TAKE_ANIM_S, CONTAINER_TAKE_END_SCALE, CONTAINER_TAKE_RISE_PX, SOCKET_SLOTS } from '@/shared';
 import type { Grid } from '../Grid';
 import type { GridId } from '../InventorySystem';
 import { DURABILITY_LOW, STEP, TEXT, tileSize } from './labels';
@@ -141,6 +141,10 @@ export class GridView {
   /** Phase 7: the container item being searched (`.inv-tile-scan` with `--p`) and takes awaiting the host. */
   private scan: { uid: string; progress: number } | null = null;
   private pendingUids = new Set<string>();
+  /** Phase 10: uids whose next removal animates out instead of being deleted on the spot (a live container take). */
+  private vanishUids = new Set<string>();
+  /** Tiles currently animating out → their removal timer. */
+  private vanishing = new Map<HTMLElement, number>();
 
   constructor(readonly id: GridId, private readonly getDef: DefLookup, private readonly getStats: StatsLookup, private readonly handlers: TileHandlers) {
     this.el = document.createElement('div');
@@ -218,8 +222,47 @@ export class GridView {
       el.style.transform = `translate(${p.x * STEP}px, ${p.y * STEP}px)`;
     }
     for (const [uid, el] of this.tiles) {
-      if (!seen.has(uid)) { el.remove(); this.tiles.delete(uid); }
+      if (seen.has(uid)) continue;
+      this.tiles.delete(uid);
+      // the item being searched left the grid (a remote take): drop the gauge state, it would otherwise linger
+      // on the container until the next `updateSearch` frame
+      if (this.scan?.uid === uid) this.scan = null;
+      this.clearScanOn(el);
+      if (this.vanishUids.delete(uid)) this.startVanish(el);
+      else el.remove();
     }
+  }
+
+  /* ── Phase 10: live container take (exit animation) ── */
+
+  /**
+   * Mark `uid` so the next `refresh()` that no longer finds it animates the tile out (`.is-vanishing`, removed after
+   * `CONTAINER_TAKE_ANIM_S`) instead of deleting it synchronously. Used when another member's take is confirmed.
+   */
+  vanish(uid: string): void {
+    if (this.tiles.has(uid)) this.vanishUids.add(uid);
+  }
+
+  private startVanish(el: HTMLElement): void {
+    el.classList.remove('is-hover', 'is-dragging', 'is-pending', 'is-scanning', 'is-split-source', 'is-socket-ok', 'is-socket-bad');
+    // the animation drives the `translate:` / `scale:` / `opacity` channels — `transform` is the tile's cell position
+    el.style.setProperty('--vanish-t', `${CONTAINER_TAKE_ANIM_S}s`);
+    el.style.setProperty('--vanish-rise', `${-CONTAINER_TAKE_RISE_PX}px`);
+    el.style.setProperty('--vanish-scale', String(CONTAINER_TAKE_END_SCALE));
+    el.classList.add('is-vanishing');
+    const timer = window.setTimeout(() => { this.vanishing.delete(el); el.remove(); }, Math.round(CONTAINER_TAKE_ANIM_S * 1000) + 60);
+    this.vanishing.set(el, timer);
+  }
+
+  private clearScanOn(el: HTMLElement): void {
+    el.querySelector('.inv-tile-scan')?.remove();
+    el.classList.remove('is-scanning');
+  }
+
+  private stopVanishing(): void {
+    for (const [el, timer] of this.vanishing) { clearTimeout(timer); el.remove(); }
+    this.vanishing.clear();
+    this.vanishUids.clear();
   }
 
   private bindTile(el: HTMLElement, uid: string): void {
@@ -294,6 +337,7 @@ export class GridView {
   }
 
   private clearTiles(): void {
+    this.stopVanishing();
     for (const el of this.tiles.values()) el.remove();
     this.tiles.clear();
     this.scan = null;

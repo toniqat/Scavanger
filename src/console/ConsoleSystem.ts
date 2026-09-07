@@ -19,9 +19,10 @@ interface Suggestion {
  * Exists only on a **dev client** (`isDevHost()`): otherwise no DOM is built, no key listener is installed and every
  * method is inert. ` (`Keys.CONSOLE`) toggles a one-line input at the bottom of the screen with the recent output above
  * it; while typing, commands starting with the text are listed above the input (↑/↓ cursor, Tab/Enter apply); with an
- * empty input ↑/↓ walk the localStorage history. Open = blocker `'console'` added **before** `exitPointerLock()`;
- * close = token removed, then a microtask re-locks when no blocker is left and control is active. Esc closes only the
- * console (capture-phase listener, swallowed before the pause logic sees it).
+ * empty input ↑/↓ walk the localStorage history. Open = blocker `'console'` added, then the **in-game cursor**
+ * (`input.setCursorMode(true, 'console')` — Phase 10: the pointer lock is *kept*, so there is no `exitPointerLock()`
+ * and no microtask re-lock any more); close = token removed and the cursor released. Esc closes only the console
+ * (capture-phase listener, swallowed before the pause logic sees it).
  *
  * Built-in commands live in `commands/`; any folder may add its own through `register()`.
  * `/movecheat 1` + Home: `update()` teleports the player along the camera forward at MOVE_CHEAT_SPEED.
@@ -94,7 +95,11 @@ export class ConsoleSystem implements GameSystem, ConsoleRef {
   dispose(): void {
     if (!this.enabled) return;
     window.removeEventListener('keydown', this.keyHandler, true);
-    if (this._open) { this._open = false; this.ctx?.uiBlockers.delete(BLOCKER); }
+    if (this._open) {
+      this._open = false;
+      this.ctx?.uiBlockers.delete(BLOCKER);
+      this.ctx?.input.setCursorMode(false, BLOCKER);
+    }
     this.root?.remove();
     this.root = this.log = this.suggestBox = null;
     this.input = null;
@@ -163,8 +168,8 @@ export class ConsoleSystem implements GameSystem, ConsoleRef {
     if (!this.enabled || this._open || !this.root || !this.input) return;
     const ctx = this.ctx;
     this._open = true;
-    ctx.uiBlockers.add(BLOCKER);        // before exiting the lock → GameFlow does not treat it as a pause
-    ctx.input.exitPointerLock();
+    ctx.uiBlockers.add(BLOCKER);        // blocker first → GameFlow does not treat the cursor as a pause
+    ctx.input.setCursorMode(true, BLOCKER);   // Phase 10: the pointer lock is kept, a virtual cursor drives the DOM
     this.root.hidden = false;
     this.input.value = '';
     this.resetHistoryBrowse();
@@ -182,12 +187,8 @@ export class ConsoleSystem implements GameSystem, ConsoleRef {
     this.input.blur();
     this.clearSuggestions();
     ctx.uiBlockers.delete(BLOCKER);
+    ctx.input.setCursorMode(false, BLOCKER);
     ctx.bus.emit('console:toggled', { open: false });
-    queueMicrotask(() => {
-      if (this._open || !ctx.isControlActive()) return;
-      if (ctx.player?.isDead ?? false) return;
-      ctx.input.requestPointerLock();
-    });
   }
 
   /* ── built-in host hooks ───────────────────────────────────────────────── */

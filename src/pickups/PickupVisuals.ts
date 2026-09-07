@@ -1,8 +1,33 @@
 import * as THREE from 'three';
-import { Layers, type ItemCategory, type ItemDef } from '@/shared';
+import { Layers, PICKUP_PILLAR_HEIGHT, PICKUP_PILLAR_OPACITY, type ItemCategory, type ItemDef } from '@/shared';
 
-/** Height of the additive locator beam above the item (readable from ~30 m). */
-export const BEAM_HEIGHT = 5.5;
+/**
+ * Height of the additive locator pillar above the item. Phase 10: shortened from a 5.5 m column to
+ * `PICKUP_PILLAR_HEIGHT` and faded to transparent upward (baked vertex colours). The old name is kept as an
+ * export — other code may read it.
+ */
+export const BEAM_HEIGHT = PICKUP_PILLAR_HEIGHT;
+/** Radii of the pillar: narrower at the top so it reads as a beam of light, not a fence post. */
+const PILLAR_RADIUS_BOTTOM = 0.15;
+const PILLAR_RADIUS_TOP = 0.045;
+/** Fade exponent: > 1 keeps the ground end solid and thins the upper half faster. */
+const PILLAR_FADE_POW = 1.35;
+
+/**
+ * Bake a vertical fade into a geometry's vertex colours: white at y = 0, black at y = `height`. With
+ * `AdditiveBlending` black **is** transparent, so the pillar dissolves upward with no custom shader — and the
+ * per-visual material tint still multiplies through (`material.color × vertexColor`).
+ */
+function bakeUpwardFade(geo: THREE.BufferGeometry, height: number): void {
+  const pos = geo.getAttribute('position');
+  const colors = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i++) {
+    const t = Math.min(1, Math.max(0, pos.getY(i) / height));
+    const k = Math.pow(1 - t, PILLAR_FADE_POW);
+    colors[i * 3] = k; colors[i * 3 + 1] = k; colors[i * 3 + 2] = k;
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+}
 /** Rest height of the body centre above the ground, per category (used by the physics too). */
 const REST_Y: Record<ItemCategory, number> = {
   primary: 0.08, secondary: 0.06, grenade: 0.09, stim: 0.06, ammo: 0.09, valuable: 0.16, material: 0.14, attachment: 0.07, bag: 0.18,
@@ -78,12 +103,14 @@ export class PickupVisualPool {
   private readonly bookCover = new THREE.BoxGeometry(0.24, 0.045, 0.32);
   private readonly bookPages = new THREE.BoxGeometry(0.215, 0.05, 0.3);
   private readonly bookSpine = new THREE.BoxGeometry(0.035, 0.055, 0.325);
-  private readonly beamGeo = new THREE.CylinderGeometry(0.05, 0.16, BEAM_HEIGHT, 10, 1, true);
+  private readonly beamGeo = new THREE.CylinderGeometry(PILLAR_RADIUS_TOP, PILLAR_RADIUS_BOTTOM, BEAM_HEIGHT, 10, 1, true);
   private readonly ringGeo = new THREE.RingGeometry(0.28, 0.36, 24);
 
   constructor() {
     this.group.name = 'Pickups';
     this.beamGeo.translate(0, BEAM_HEIGHT / 2, 0);
+    // Phase 10: one bake on the SHARED geometry — every pooled visual reuses it (no per-pickup attribute).
+    bakeUpwardFade(this.beamGeo, BEAM_HEIGHT);
     this.ringGeo.rotateX(-Math.PI / 2);
     this.geos.push(this.rifleBody, this.rifleBarrel, this.rifleGrip, this.rifleMag, this.pistolBody, this.pistolGrip,
       this.ammoBox, this.ammoStripe, this.stimBody, this.stimCap, this.grenadeBody, this.grenadeBand, this.gem, this.gemBase,
@@ -113,7 +140,8 @@ export class PickupVisualPool {
     const s = 0.5 + 0.5 * Math.sin(t * 3.2 + v.phase);
     v.bodyMat.emissiveIntensity = 0.18 + 0.42 * s;
     v.accentMat.emissiveIntensity = 0.4 + 0.8 * s;
-    v.beamMat.opacity = resting ? 0.16 + 0.1 * s : 0.05;
+    // Phase 10: breathe around PICKUP_PILLAR_OPACITY (the geometry's vertex fade owns the vertical falloff).
+    v.beamMat.opacity = resting ? PICKUP_PILLAR_OPACITY * (0.75 + 0.45 * s) : PICKUP_PILLAR_OPACITY * 0.25;
     v.ringMat.opacity = resting ? 0.35 + 0.35 * s : 0;
     v.beam.visible = true;
     v.ring.visible = resting;
@@ -136,7 +164,8 @@ export class PickupVisualPool {
   private create(cat: ItemCategory): PickupVisual {
     const bodyMat = new THREE.MeshStandardMaterial({ color: 0x888888, emissive: 0xffffff, emissiveIntensity: 0.3, metalness: 0.35, roughness: 0.5 });
     const accentMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.8, metalness: 0.2, roughness: 0.4 });
-    const beamMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.2, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false });
+    // Phase 10: `vertexColors` drives the upward fade baked into `beamGeo`; the tint still multiplies through.
+    const beamMat = new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true, transparent: true, opacity: PICKUP_PILLAR_OPACITY, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false });
     const ringMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false });
     const root = new THREE.Group();
     const body = new THREE.Group();

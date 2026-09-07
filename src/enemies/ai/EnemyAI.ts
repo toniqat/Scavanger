@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { GRAVITY, PLAYER_RADIUS, type WorldRef } from '@/shared';
+import { CORPSE_FALL_MAX_SPEED, GRAVITY, PLAYER_RADIUS, type WorldRef } from '@/shared';
 import type { Enemy, EnemyHost } from '../Enemy';
 import { BEHEMOTH_AI, CHARGER_CHARGE, HUNTER_LEAP, SPEWER_SPIT } from '../EnemyTypes';
 import type { CombatTarget } from '../Targets';
@@ -51,7 +51,7 @@ export function updateEnemyAI(e: Enemy, dt: number, host: EnemyHost): void {
   const t = e.target;
   const targetAlive = !!t && !t.isDeadOrDowned;
 
-  if (e.state === 'dead') { e.deathTimer += dt; return; }
+  if (e.state === 'dead') { e.deathTimer += dt; integrateDeathFall(e, dt, world); return; }
 
   if (e.state === 'flee') {
     e.fleeTimer += dt;
@@ -582,6 +582,26 @@ export function integrate(e: Enemy, dt: number, world: WorldRef, host: EnemyHost
 
   // slope conforming
   applySlope(e, world, dt);
+}
+
+/**
+ * Phase 10: a body that died in the air keeps falling until it reaches the terrain.
+ * Needed in **both** drivers: `updateEnemyAI` early-returns for `state === 'dead'` (so `integrate`'s ground snap is
+ * never reached) and the replica never calls `drive()` on a dead body — while a corpse leaves the host's snapshot
+ * 1.5 s after death, so the client has to run the same fall itself. Both agree because the fall is deterministic
+ * (`deathVy` seeded in `Enemy.kill`, `GRAVITY`, the same height field).
+ * A ground kill is already `deathLanded` in `kill()`, so this is a no-op for it.
+ */
+export function integrateDeathFall(e: Enemy, dt: number, world: WorldRef): void {
+  if (e.deathLanded || dt <= 0) return;
+  e.deathVy = Math.max(-CORPSE_FALL_MAX_SPEED, e.deathVy - GRAVITY * dt);
+  e.position.y += e.deathVy * dt;
+  const ground = world.getHeightAt(e.position.x, e.position.z);
+  if (e.position.y <= ground) {
+    e.position.y = ground;
+    e.deathVy = 0;
+    e.deathLanded = true;
+  }
 }
 
 /** Tilt the body with the terrain normal (shared with the replica driver). */

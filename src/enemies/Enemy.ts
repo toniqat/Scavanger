@@ -1,5 +1,8 @@
 import * as THREE from 'three';
-import { CORPSE_LIFETIME, ROGUE_GRENADE_COOLDOWN, ROGUE_MAG_ROUNDS, type DeployableRef, type EnemyFaction, type EnemyRef, type EnemyType, type GameContext, type Obstacle } from '@/shared';
+import {
+  CORPSE_FALL_MAX_SPEED, CORPSE_LIFETIME, DEATH_FALL_TIME, ENEMY_DEATH_DIRS, Random, ROGUE_GRENADE_COOLDOWN, ROGUE_MAG_ROUNDS,
+  type DeployableRef, type EnemyDeathDir, type EnemyFaction, type EnemyRef, type EnemyType, type GameContext, type Obstacle,
+} from '@/shared';
 import { ENEMY_STATS, ROGUE_AI, isRogueType, type BugType, type EnemyStats } from './EnemyTypes';
 import { createBugRig, createBugAnim, disposeBugRig, animateBug, type BugRig, type BugAnim } from './models/BugModel';
 import { animateRogue, createRogueRig, disposeRogueRig, type RogueRig, type RogueType } from './models/RogueModel';
@@ -232,6 +235,25 @@ export class Enemy implements EnemyRef {
   readonly popPos = new THREE.Vector3();
   hasPop = false;
 
+  /* ── appended: Phase 10 (사망 다각화 · 공중 사망 낙하 · 확률 루팅) ────────── */
+  /**
+   * Which way this body went down. Picked in `kill()` from an **independent** seeded stream (world seed × id) so host
+   * and replicas agree without a wire field; the wire (`ee kill.dd` / `ee corpse.dd`) still overrides it for authority.
+   * undefined while alive.
+   */
+  deathDir: EnemyDeathDir | undefined = undefined;
+  /** false when this corpse rolled un-searchable (`CORPSE_LOOT_CHANCE`, decided in `Corpses.rollCorpseLootable`). */
+  lootable: boolean | undefined = undefined;
+  /**
+   * Vertical speed of a dead body still falling to the terrain (m/s, negative = down, clamped to
+   * `CORPSE_FALL_MAX_SPEED`). Seeded from the live `vy` in `kill()` — a bug shot mid-leap keeps its arc.
+   */
+  deathVy = 0;
+  /** true once the dead body sits on the terrain (`ai/EnemyAI.integrateDeathFall`). A ground kill lands immediately. */
+  deathLanded = false;
+  /** Authority: the `corpse:<id>` interactable is waiting for the body to land (or `CORPSE_LAND_TIMEOUT`). */
+  corpsePending = false;
+
   constructor(type: EnemyType) {
     this.rig = isRogueType(type) ? createRogueRig(type as RogueType) : createBugRig(type as BugType);
     this.type = type;
@@ -296,11 +318,14 @@ export class Enemy implements EnemyRef {
     // Phase 7: full magazine, grenade cooldown staggered so a squad never volleys at once
     this.magRounds = ROGUE_MAG_ROUNDS; this.reloadTimer = 0;
     this.grenadeCd = ROGUE_GRENADE_COOLDOWN * (0.25 + Math.random() * 0.5); this.noLosHold = 0; this.throwTimer = 0;
+    // Phase 10
+    this.deathDir = undefined; this.lootable = undefined;
+    this.deathVy = 0; this.deathLanded = false; this.corpsePending = false;
     this.syncTarget();
     const a = this.anim;
     a.gait = Math.random() * Math.PI * 2; a.speed = 0; a.headYaw = 0; a.headPitch = 0; a.mandible = 0;
     a.flinch = 0; a.flinchX = 0; a.flinchZ = 0; a.hitFlash = 0; a.abdomen = 0; a.shake = 0; a.crouch = 0;
-    a.death = -1; a.rollSign = Math.random() < 0.5 ? -1 : 1; a.slopePitch = 0; a.slopeRoll = 0; a.time = Math.random() * 10;
+    a.death = -1; a.deathDir = 0; a.deathFall = 0; a.slopePitch = 0; a.slopeRoll = 0; a.time = Math.random() * 10;
     a.fade = 0; a.aim = 0; a.recoil = 0; a.writhe = 0; a.spark = 0; a.reload = 0; a.throwing = 0;
     this.rig.root.visible = true;
     this.rig.root.scale.setScalar(this.rig.baseScale);
@@ -502,14 +527,37 @@ export class Enemy implements EnemyRef {
     this.syncTarget();
   }
 
-  /** Transition to dead (death animation, corpse stays `corpseLife` seconds, then the system despawns). */
-  kill(countKill: boolean): void {
+  /**
+   * Which way this body falls. Phase 10: an **independent** seeded stream (world seed × id) so every client agrees —
+   * the old `BugAnim.rollSign` was rolled at spawn with unseeded `Math.random()` and host / replica never matched.
+   */
+  private rollDeathDir(): EnemyDeathDir {
+    const seed = this.host?.ctx.world?.seed ?? 0;
+    const rng = new Random(((seed ^ (this.id * 0x85ebca6b)) >>> 0) || 1);
+    return ENEMY_DEATH_DIRS[rng.int(0, ENEMY_DEATH_DIRS.length - 1)];
+  }
+
+  /**
+   * Transition to dead (death animation, corpse stays `corpseLife` seconds, then the system despawns).
+   * Phase 10: `dir` overrides the seeded fall direction (the host's `ee kill.dd` / `ee corpse.dd` wins on a replica),
+   * the live `vy` is carried into `deathVy` **before** `airborne` is cleared so a mid-leap kill keeps falling, and
+   * `deathLanded` is decided right here so a normal ground kill still registers its corpse in the same frame.
+   */
+  kill(countKill: boolean, dir?: EnemyDeathDir): void {
     if (!this.active || this.state === 'dead') return;
+    this.deathVy = this.airborne ? THREE.MathUtils.clamp(this.vy, -CORPSE_FALL_MAX_SPEED, CORPSE_FALL_MAX_SPEED) : 0;
     this.state = 'dead';
     this.stateTime = 0;
     this.deathTimer = 0;
     this.airborne = false;
     this.leaping = false;
+    this.deathDir = dir ?? this.rollDeathDir();
+    this.anim.deathDir = Math.max(0, ENEMY_DEATH_DIRS.indexOf(this.deathDir));
+    this.anim.deathFall = 0;
+    const world = this.host?.ctx.world ?? null;
+    const ground = world && world.ready ? world.getHeightAt(this.position.x, this.position.z) : this.position.y;
+    this.deathLanded = this.position.y <= ground + 0.05;
+    if (this.deathLanded) { this.position.y = ground; this.deathVy = 0; }
     this.chargePhase = 0;
     this.spitPhase = 0;
     this.roguePhase = 0;
@@ -557,6 +605,8 @@ export class Enemy implements EnemyRef {
     } else if (a.spark > 0) a.spark = Math.max(0, a.spark - dt * 8);
     if (this.state === 'dead') {
       a.death = Math.min(1, this.deathTimer / 4);
+      // Phase 10: the fall pose (left / right / back) blends in over DEATH_FALL_TIME; `death` still gates the eye fade
+      a.deathFall = THREE.MathUtils.clamp(this.deathTimer / DEATH_FALL_TIME, 0, 1);
       a.fade = THREE.MathUtils.clamp((this.deathTimer - (this.corpseLife - 3)) / 3, 0, 1);
       a.speed = Math.max(0, a.speed - dt * 6);
     }

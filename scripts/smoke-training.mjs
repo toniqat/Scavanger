@@ -78,7 +78,8 @@ try {
     const bus = window.__game.ctx.bus;
     for (const n of ['hub:entered', 'hub:left', 'game:newMission', 'world:ready', 'world:cleared', 'ui:objective', 'training:exitRequested',
       'weapon:hit', 'weapon:fired', 'ui:notify', 'housing:furniturePlaced', 'net:lobbyUpdated',
-      'training:modeChanged', 'training:scored', 'training:courseFinished', 'ui:catalogToggled']) {
+      'training:modeChanged', 'training:scored', 'training:courseFinished', 'ui:catalogToggled',
+      'hub:readyPanelToggled', 'hub:crewLoadoutToggled']) {
       window.__ev[n] = [];
       bus.on(n, (p) => { window.__ev[n].push(JSON.parse(JSON.stringify(p, (k, v) => (v && v.isVector3) ? [v.x, v.y, v.z] : v))); });
     }
@@ -474,6 +475,69 @@ try {
   ok(restored.count === 0 && !restored.item, `rack weapon gone after the exit restore (${restored.count})`);
   ok(restored.training === null, 'ctx.world.training null outside the arena');
 
+  /* ── 4b. 발사 준비 패널 (Phase 10, solo personal ship) ────────────────────
+     The panel appears as soon as a launch slot is filled, holds `HUB_READY_BLOCKER` + the software cursor **only**
+     while WE are boarded (never `exitPointerLock`), right-click opens the modeless 분대원 장비 popup, and Escape
+     closes the popup before it un-boards. The solo launch countdown is HUB_LAUNCH_COUNTDOWN (3 s), so this block
+     un-boards well inside it. */
+  console.log('발사 준비 패널');
+  const readyHidden = await P(() => ({
+    hidden: document.querySelector('.hub-ready')?.hidden ?? null,
+    blocker: window.__game.ctx.uiBlockers.has('ready'),
+  }));
+  ok(readyHidden.hidden === true && !readyHidden.blocker, 'READY panel hidden with every slot empty (no blocker)');
+  await P(() => window.__game.ctx.interactables.all().find((i) => i.id === 'hub_pod_0')?.interact());
+  await waitSim(0.15);
+  const boarded = await P(() => {
+    const root = document.querySelector('.hub-ready');
+    const c0 = root?.querySelector('.hr-cell[data-slot="0"]');
+    return {
+      hidden: root?.hidden ?? null, cells: root?.querySelectorAll('.hr-cell').length ?? 0,
+      ready: !!c0?.classList.contains('is-ready'), local: !!c0?.classList.contains('is-local'),
+      name: c0?.querySelector('.hr-name')?.textContent ?? '', lv: c0?.querySelector('.hr-lv')?.textContent ?? '',
+      state: c0?.querySelector('.hr-state')?.textContent ?? '',
+      blocker: window.__game.ctx.uiBlockers.has('ready'), cursor: window.__game.ctx.input.isCursorMode,
+      toggled: window.__ev['hub:readyPanelToggled'].slice(-1)[0] ?? null,
+      inPod: window.__game.ctx.player.isInPod,
+    };
+  });
+  ok(boarded.hidden === false && boarded.cells === 4, `boarding shows the 4-cell READY panel (${boarded.cells} cells)`);
+  ok(boarded.ready && boarded.local && boarded.name.length > 0, `cell 0 is our own ready cell (${boarded.name}, ${boarded.state})`);
+  ok(/^Lv\. \d+$/.test(boarded.lv), `cell 0 carries the level chip (${boarded.lv})`);
+  ok(boarded.blocker && boarded.cursor === true, `boarded panel holds the 'ready' blocker + the software cursor (cursor ${boarded.cursor})`);
+  ok(boarded.toggled?.open === true, 'hub:readyPanelToggled {open:true}');
+  const popup = await P(() => {
+    const c0 = document.querySelector('.hr-cell[data-slot="0"]');
+    c0?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    const p = document.querySelector('.hub-crew-loadout');
+    return {
+      open: p ? !p.hidden : null, name: p?.querySelector('.hcl-name')?.textContent ?? '',
+      ev: window.__ev['hub:crewLoadoutToggled'].slice(-1)[0] ?? null,
+      stash: !!p?.querySelector('.hcl-body .inv-stash'), credits: (p?.textContent ?? '').includes('CREDITS'),
+    };
+  });
+  ok(popup.open === true && popup.name.length > 0, `right-click opens the 분대원 장비 popup (${popup.name})`);
+  ok(popup.ev?.open === true, 'hub:crewLoadoutToggled {open:true}');
+  ok(!popup.stash && !popup.credits, 'popup shows no 함선 창고 column and no credits');
+  await tap('Escape');
+  await waitSim(0.15);
+  const afterEsc = await P(() => ({
+    open: !(document.querySelector('.hub-crew-loadout')?.hidden ?? true),
+    inPod: window.__game.ctx.player.isInPod,
+    ev: window.__ev['hub:crewLoadoutToggled'].slice(-1)[0] ?? null,
+  }));
+  ok(afterEsc.open === false && afterEsc.ev?.open === false, 'Escape closes the popup first');
+  ok(afterEsc.inPod === true, 'the same Escape did NOT un-board (the popup ate it)');
+  await tap('Escape');
+  await waitSim(0.2);
+  const off = await P(() => ({
+    inPod: window.__game.ctx.player.isInPod, hidden: document.querySelector('.hub-ready')?.hidden ?? null,
+    blocker: window.__game.ctx.uiBlockers.has('ready'), cursor: window.__game.ctx.input.isCursorMode,
+    phase: window.__game.ctx.phase,
+  }));
+  ok(off.inPod === false && off.phase === 'hub', 'the next Escape un-boards (the ready token does not block it)');
+  ok(off.hidden === true && !off.blocker && off.cursor === false, 'un-boarding hides the panel and releases the blocker + cursor');
+
   /* ── 5. shared ship terminal entry + pod lock (faked lobby, no relay) ───── */
   console.log('shared ship (faked lobby)');
   const fake = await P(() => {
@@ -532,6 +596,23 @@ try {
       net._lobby = { ...net._lobby, mode: 'raid', players: [{ ...net._lobby.players[0], ready: true }] };
       window.__game.ctx.bus.emit('net:lobbyUpdated', { lobby: net._lobby });
     });
+    await waitSim(0.2);
+    // Phase 10: a REMOTE member filling a slot shows the panel but must not steal our mouse look — the blocker and
+    // the software cursor are only taken while WE are boarded.
+    const remoteReady = await P(() => {
+      const root = document.querySelector('.hub-ready');
+      const c0 = root?.querySelector('.hr-cell[data-slot="0"]');
+      return {
+        hidden: root?.hidden ?? null, ready: !!c0?.classList.contains('is-ready'),
+        local: !!c0?.classList.contains('is-local'), name: c0?.querySelector('.hr-name')?.textContent ?? '',
+        interactive: !!root?.classList.contains('interactive'),
+        blocker: window.__game.ctx.uiBlockers.has('ready'), cursor: window.__game.ctx.input.isCursorMode,
+      };
+    });
+    ok(remoteReady.hidden === false && remoteReady.ready && !remoteReady.local && remoteReady.name === '동료',
+      `a ready squadmate fills their READY cell (${remoteReady.name})`);
+    ok(!remoteReady.interactive && !remoteReady.blocker && remoteReady.cursor === false,
+      'the panel stays non-interactive while we walk the ship (no blocker, no cursor)');
     await page.evaluate(() => window.__game.ctx.interactables.all().find((i) => i.id === 'hub_terminal').interact());
     await waitFor(page, () => !document.querySelector('.menu.hub-menu').hidden, 'terminal open (raid)');
     const m2 = await readMenu();

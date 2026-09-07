@@ -68,6 +68,43 @@ function buttonMask(button: number): number {
   return 1 << (button === 1 ? 2 : button === 2 ? 1 : button);
 }
 
+const FOCUSABLE = 'input, textarea, select, button, [contenteditable="true"], [tabindex], a[href]';
+const TEXTUAL = /^(input|textarea)$/i;
+
+function clamp01(v: number): number { return v < 0 ? 0 : v > 1 ? 1 : v; }
+
+/**
+ * A synthesised event is untrusted, so the browser performs **no default action** for it: a text field never takes the
+ * caret and a range slider never moves. Everything below re-implements the few defaults this game actually depends on.
+ */
+function emulateFocus(el: Element): void {
+  const target = el.closest?.(FOCUSABLE) as HTMLElement | null;
+  if (target && typeof target.focus === 'function') { target.focus(); return; }
+  const active = document.activeElement as HTMLElement | null;
+  if (active && TEXTUAL.test(active.tagName) && typeof active.blur === 'function') active.blur();
+}
+
+/** The `input[type=range]` under `el`, or null. */
+function rangeAt(el: Element | null): HTMLInputElement | null {
+  const input = el?.closest?.('input[type="range"]') as HTMLInputElement | null;
+  return input ?? null;
+}
+
+/** Move a range slider's thumb to the client-x position and fire `input` (the browser's own drag default). */
+function driveRange(input: HTMLInputElement, clientX: number): void {
+  const r = input.getBoundingClientRect();
+  if (r.width <= 0) return;
+  const min = Number(input.min || '0');
+  const max = Number(input.max || '100');
+  const step = Number(input.step || '1') || 1;
+  const raw = min + clamp01((clientX - r.left) / r.width) * (max - min);
+  const snapped = Math.min(max, Math.max(min, min + Math.round((raw - min) / step) * step));
+  const next = String(snapped);
+  if (input.value === next) return;
+  input.value = next;
+  input.dispatchEvent(mark(new Event('input', { bubbles: true })));
+}
+
 /**
  * Virtual cursor position + synthetic event dispatch. One instance lives on `Input` (`ctx.input.cursor`); systems talk
  * to it through `Input.setCursorMode / uiX / uiY / elementUnderCursor`, and `ui/hud/SoftCursor` draws the sprite.
@@ -84,6 +121,8 @@ export class SoftCursor {
   private hovered: Element | null = null;
   private pressedOn: Element | null = null;
   private lastClickEl: Element | null = null;
+  /** Range slider the left button is currently dragging (a synthesised event performs no slider default). */
+  private rangeDrag: HTMLInputElement | null = null;
   private lastClickAt = 0;
   /** Mouse buttons currently held, as a `MouseEvent.buttons` mask. */
   private buttons = 0;
@@ -109,6 +148,7 @@ export class SoftCursor {
     } else {
       this.syncHover(null);
       this.pressedOn = null;
+      this.rangeDrag = null;
       this.buttons = 0;
     }
     this.listener?.(has, this.owner);
@@ -120,6 +160,7 @@ export class SoftCursor {
     this.owners.clear();
     this.syncHover(null);
     this.pressedOn = null;
+    this.rangeDrag = null;
     this.buttons = 0;
     this.listener?.(false, null);
   }
@@ -146,6 +187,7 @@ export class SoftCursor {
     if (!this.active || (dx === 0 && dy === 0)) return;
     this.x = this.clampX(this.x + dx * this.sensitivity);
     this.y = this.clampY(this.y + dy * this.sensitivity);
+    if (this.rangeDrag) driveRange(this.rangeDrag, this.x);
     this.dispatch('pointermove', -1);
   }
 
@@ -162,11 +204,21 @@ export class SoftCursor {
     const el = this.dispatch('pointerdown', button);
     this.dispatch('mousedown', button, el);
     this.pressedOn = el;
+    if (el && button === 0) {
+      emulateFocus(el);
+      this.rangeDrag = rangeAt(el);
+      if (this.rangeDrag) driveRange(this.rangeDrag, this.x);
+    }
   }
 
   release(button: number): void {
     if (!this.active) return;
     this.buttons &= ~buttonMask(button);
+    if (this.rangeDrag && button === 0) {
+      driveRange(this.rangeDrag, this.x);
+      this.rangeDrag.dispatchEvent(mark(new Event('change', { bubbles: true })));
+      this.rangeDrag = null;
+    }
     const el = this.dispatch('pointerup', button);
     this.dispatch('mouseup', button, el);
     if (el && el === this.pressedOn) {

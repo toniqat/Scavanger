@@ -29,6 +29,20 @@ loadKeybinds();
 
 const engine = new Engine(canvas, uiRoot);
 
+// Phase 10: bridge the software cursor's mode changes onto the bus. `shared/Input` owns the cursor but has no bus, and
+// `ui/hud/SoftCursor` (the sprite) listens for `input:cursorModeChanged` — this is the only place that can join them.
+engine.ctx.input.cursor.onModeChange((active, owner) => {
+  engine.ctx.bus.emit('input:cursorModeChanged', { active, owner });
+  // Chrome drops the pointer lock on *every* Escape, and a cursor-mode screen never releases it itself — so a screen
+  // closed with Escape would leave the player unlocked. Re-request it once the last cursor owner is gone and no blocker
+  // is left; `requestPointerLock()` returns early when the lock survived, so this is idempotent. One place for every
+  // folder: the per-screen relock microtasks the Phase 10 lanes removed all funnel through here.
+  if (active) return;
+  queueMicrotask(() => {
+    if (!engine.ctx.input.isCursorMode && engine.ctx.uiBlockers.size === 0) engine.ctx.input.requestPointerLock();
+  });
+});
+
 // Registration order == update order (see CLAUDE.md "System lifecycle").
 // NetSystem goes first so incoming snapshots are applied before any system reads ctx.net this frame.
 engine.addSystem(new NetSystem());

@@ -351,6 +351,75 @@ try {
   ok(missionCorp.open && missionCorp.creditsHidden && missionCorp.tabsHidden, 'on a mission the screen tabs and the credits readout are hidden', JSON.stringify(missionCorp));
   await tap('Escape');
   await waitFor(page, () => !window.__game.ctx.inventory.isOpen, 'closed (mission)');
+
+  /* ── 8. Phase 10: 분대원 장비 열람 (captureCrewLoadout / createCrewLoadoutView) ── */
+  console.log('crew loadout view');
+  const doc = await page.evaluate(() => {
+    const sys = window.__game.getSystem('inventory');
+    const ctx = window.__game.ctx;
+    // a container-fresh item still carries `searched: false`; a crew card must not leak it
+    const hidden = ctx.loot.createItem('mat_alloy', 2);
+    hidden.searched = false;
+    sys.tryAddItem(hidden);
+    const d = sys.captureCrewLoadout();
+    const raid = sys.captureRaidState();
+    return {
+      doc: d, keys: Object.keys(d).sort().join(','),
+      searchedInCrew: JSON.stringify(d).includes('"searched"'), searchedInRaid: JSON.stringify(raid).includes('"searched"'),
+      slots: Object.keys(d.slots).sort().join(','), bag: d.bag.length, quick: d.quick.length,
+    };
+  });
+  ok(doc.doc && doc.doc.v === 1 && doc.keys === 'bag,quick,slots,v' && doc.bag >= 1 && doc.quick === 8,
+    'captureCrewLoadout: the loadout-save shape (v / slots / bag / quick)', JSON.stringify({ keys: doc.keys, bag: doc.bag, quick: doc.quick }));
+  ok(doc.searchedInCrew === false && doc.searchedInRaid === true,
+    'captureCrewLoadout drops the `searched` flags (captureRaidState still keeps them)', JSON.stringify({ crew: doc.searchedInCrew, raid: doc.searchedInRaid }));
+
+  const view = await page.evaluate((d) => {
+    const sys = window.__game.getSystem('inventory');
+    const ctx = window.__game.ctx;
+    const host = document.createElement('div');
+    host.id = 'crew-host';
+    document.body.appendChild(host);
+    const blockersBefore = [...ctx.uiBlockers];
+    const bad = [sys.createCrewLoadoutView(host, null), sys.createCrewLoadoutView(host, { v: 99 }), sys.createCrewLoadoutView(host, 'x')];
+    // an unknown def id is skipped instead of throwing
+    const withGhost = JSON.parse(JSON.stringify(d));
+    withGhost.bag = [...withGhost.bag, { defId: 'no_such_item', qty: 1, rotated: false, x: 4, y: 4 }];
+    const v = sys.createCrewLoadoutView(host, withGhost, { name: '대원 A', slot: 1 });
+    const root = host.querySelector('.crew-loadout');
+    const bagTiles = root ? root.querySelectorAll('.inv-grid-bag .inv-tile').length : -1;
+    const before = JSON.stringify(sys.getGrid('bag').items().map((p) => [p.item.defId, p.item.qty, p.x, p.y]));
+    // read-only: a press / context menu / double-click on a tile does nothing at all
+    const tile = root?.querySelector('.inv-grid-bag .inv-tile');
+    const r = tile?.getBoundingClientRect();
+    if (tile && r) {
+      tile.dispatchEvent(new PointerEvent('pointerdown', { button: 0, clientX: r.left + 4, clientY: r.top + 4, bubbles: true }));
+      window.dispatchEvent(new PointerEvent('pointermove', { clientX: r.left + 60, clientY: r.top + 60, bubbles: true }));
+      window.dispatchEvent(new PointerEvent('pointerup', { button: 0, clientX: r.left + 60, clientY: r.top + 60, bubbles: true }));
+      tile.dispatchEvent(new MouseEvent('contextmenu', { clientX: r.left + 4, clientY: r.top + 4, bubbles: true }));
+      tile.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    }
+    const out = {
+      bad: bad.map((b) => b === null), ok: !!v, root: !!root, name: root?.querySelector('.crew-name')?.textContent,
+      slots: root ? root.querySelectorAll('.inv-slot').length : -1, bagTiles, quickCells: root ? root.querySelectorAll('.inv-quick-cell').length : -1,
+      stash: root ? root.querySelectorAll('.inv-grid-stash, .inv-stash-scroll').length : -1, credits: root ? root.querySelectorAll('.inv-credits').length : -1,
+      unchanged: JSON.stringify(sys.getGrid('bag').items().map((p) => [p.item.defId, p.item.qty, p.x, p.y])) === before,
+      dragging: !!document.querySelector('.inv-ghost, .inv-root.is-dragging'), menu: !!document.querySelector('.inv-menu:not([hidden])'),
+      blockersSame: [...ctx.uiBlockers].join() === blockersBefore.join(), locked: ctx.input.isPointerLocked,
+    };
+    v.refresh();
+    v.dispose();
+    out.afterDispose = host.childElementCount;
+    host.remove();
+    return out;
+  }, doc.doc);
+  ok(view.bad.every(Boolean) && view.ok && view.root, 'createCrewLoadoutView: a non-loadout document → null, a captured one → a `.crew-loadout` view', JSON.stringify(view.bad));
+  ok(view.slots === 5 && view.bagTiles === doc.bag && view.quickCells === 8 && view.name === '대원 A',
+    'the view draws 장비 (5 slots) · 가방 (the document\'s stacks, unknown defs skipped) · 빠른 사용 (8 cells)', JSON.stringify({ slots: view.slots, tiles: view.bagTiles, expect: doc.bag, cells: view.quickCells }));
+  ok(view.stash === 0 && view.credits === 0, 'no 함선 창고 column and no 크레딧 pill in a crew view', JSON.stringify(view));
+  ok(view.unchanged && !view.dragging && !view.menu, 'read-only: press / drag / context menu / double-click change nothing', JSON.stringify(view));
+  ok(view.blockersSame && view.locked, 'EmbeddedView contract: no ui blocker, the pointer lock is untouched', JSON.stringify({ blockers: view.blockersSame, locked: view.locked }));
+  ok(view.afterDispose === 0, 'dispose() empties the host');
 } catch (e) {
   fail++;
   console.log(`  FAIL exception: ${e && e.stack ? e.stack : e}`);

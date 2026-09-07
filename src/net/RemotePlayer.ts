@@ -99,6 +99,22 @@ export class RemotePlayer implements RemotePlayerRef {
   armorId: string | null = null;
   get isCloaked(): boolean { return (this.flags & PlayerFlags.CLOAKED) !== 0; }
 
+  /* ── appended (Phase 10): 들쳐메기 · 배리어 방패 · crew card ── */
+  /** `PlayerSnapshot.cr` while CARRYING — the downed peer on this ref's shoulder. Also set optimistically by `carry pick`. */
+  carrying: PeerId | null = null;
+  /** Peer carrying THIS ref (derived by NetSystem from everyone's `carrying`), or null. */
+  carriedBy: PeerId | null = null;
+  /** `flags & CARRIED`: the body hangs on `carriedBy`'s shoulder socket — `position` must be ignored. */
+  get isCarried(): boolean { return (this.flags & PlayerFlags.CARRIED) !== 0; }
+  /** `flags & BARRIER`: the peer's energy shield is raised in hand (implants/ follows position + yaw with it). */
+  get isBarrierUp(): boolean { return (this.flags & PlayerFlags.BARRIER) !== 0; }
+  /** `PlayerSnapshot.bhp` of the newest snapshot while the shield is up; undefined otherwise. */
+  barrierHp: number | undefined = undefined;
+  /** `CrewCardWire.level` — the ship-side card, written by NetSystem when a `crew card` arrives. */
+  crewLevel: number | undefined = undefined;
+  /** Implant EQUIPPED on the ship (`CrewCardWire.implant`); distinct from `implantId` (wielded, always null in the hub). */
+  equippedImplant: ImplantId | null | undefined = undefined;
+
   /**
    * The peer's snapshot stream restarted (page reload / rejoin with the same stable PeerId → `seq` starts at 1
    * again). Forget the sequence guard and the interpolation history; the next `push` snaps to the new stream.
@@ -147,6 +163,9 @@ export class RemotePlayer implements RemotePlayerRef {
     this.heldItemId = typeof s.h === 'string' ? s.h : null;
     this.attachments = sameAttachments(this.attachments, s.att);
     this.downHp = (s.f & PlayerFlags.DOWNED) !== 0 && typeof s.dhp === 'number' && Number.isFinite(s.dhp) ? s.dhp : undefined;
+    /* Phase 10: the carried peer and the carried shield's durability ride on the snapshot (steady state). */
+    this.carrying = (s.f & PlayerFlags.CARRYING) !== 0 && typeof s.cr === 'string' && s.cr.length > 0 ? s.cr : null;
+    this.barrierHp = (s.f & PlayerFlags.BARRIER) !== 0 && typeof s.bhp === 'number' && Number.isFinite(s.bhp) ? s.bhp : undefined;
     if (!this.hasAny) {
       this.hasAny = true;
       this.position.set(s.p[0], s.p[1], s.p[2]);
@@ -177,7 +196,11 @@ export class RemotePlayer implements RemotePlayerRef {
     this.hp = g.hp;
     this.ghostDownHp = g.dhp;
     this.ghostState = g.st;
-    let f = this.flags & ~(PlayerFlags.DOWNED | PlayerFlags.DEAD | PlayerFlags.DROPPING | PlayerFlags.IN_HUB | PlayerFlags.IN_POD);
+    /* Phase 10: a ghost owns its pose — it carries nobody, is not on a shoulder and holds no shield. */
+    this.carrying = null;
+    this.barrierHp = undefined;
+    let f = this.flags & ~(PlayerFlags.DOWNED | PlayerFlags.DEAD | PlayerFlags.DROPPING | PlayerFlags.IN_HUB | PlayerFlags.IN_POD
+      | PlayerFlags.CARRYING | PlayerFlags.CARRIED | PlayerFlags.BARRIER);
     if (g.st === 1) f |= PlayerFlags.DOWNED;
     else if (g.st === 2) f |= PlayerFlags.DEAD;
     this.flags = f;

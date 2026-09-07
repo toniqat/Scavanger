@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import {
-  BEHEMOTH_KNOCKBACK, BURNOUT_DURATION, CORPSE_LIFETIME, ENEMY_STATUS_BITS, FLAME_AFTERBURN_DPS, FLAME_AFTERBURN_DURATION, GADGET_LURE_RADIUS, MAP_SIZE,
+  BEHEMOTH_KNOCKBACK, BURNOUT_DURATION, CORPSE_LAND_TIMEOUT, CORPSE_LIFETIME, ENEMY_DEATH_DIRS, ENEMY_STATUS_BITS, FLAME_AFTERBURN_DPS, FLAME_AFTERBURN_DURATION, GADGET_LURE_RADIUS, MAP_SIZE,
   NET_ENEMY_SNAPSHOT_HZ, PLAYER_HEIGHT, PLAYER_RADIUS, ROGUE_DAMAGE, ROGUE_GRENADE_DAMAGE, ROGUE_GRENADE_FUSE, ROGUE_GRENADE_RADIUS, ROGUE_MAG_ROUNDS, ROGUE_RANGE,
   SHELL_BLAST_RADIUS, SHELL_DAMAGE, SHELL_FLIGHT_TIME, SHOCK_SLOW_DURATION, SHOCK_SLOW_FACTOR, TOXIC_DAMAGE, TOXIC_RADIUS,
-  type DamageMessage, type EnemyEvent, type EnemyFaction, type EnemyHit, type EnemyManagerRef, type EnemyRef, type EnemySnapshot, type EnemyStatusKind, type EnemyType, type GameContext, type GameSystem,
+  type DamageMessage, type EnemyDeathDir, type EnemyEvent, type EnemyFaction, type EnemyHit, type EnemyManagerRef, type EnemyRef, type EnemySnapshot, type EnemyStatusKind, type EnemyType, type GameContext, type GameSystem,
   type HitRequest, type InterceptableRef, type PeerId, type WorldRef,
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
@@ -24,9 +24,14 @@ import { disposeBugAssets } from './models/BugModel';
 import { disposeRogueAssets } from './models/RogueModel';
 import { EnemyReplica, type ReplicaHost } from './net/Replica';
 import { animHint, encodeSnapshot, round, SnapshotCache, tuple } from './net/HostSync';
-import { CorpseManager } from './Corpses';
+import { CorpseManager, rollCorpseLootable, type CorpseWireOpts } from './Corpses';
 import { placeRogueGuards, type RogueSpawnHost } from './RogueGuards';
 import { raySphere, rayCapsule, rayStandingCapsule } from './RayTests';
+
+/** Wire index of a fall direction (`ee kill.dd` / `ee corpse.dd`); 0 (`'left'`) is the omitted default. */
+function deathDirIndex(dir: EnemyDeathDir | undefined): number {
+  return dir ? Math.max(0, ENEMY_DEATH_DIRS.indexOf(dir)) : 0;
+}
 
 const FLEE_DURATION = 2;
 const CORPSE_SLACK = 30;      // corpses allowed above the alive cap before being recycled
@@ -294,6 +299,8 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     for (let i = this.active.length - 1; i >= 0; i--) {
       const e = this.active[i];
       e.animate(dt);
+      // Phase 10: a mid-air kill registers its corpse once the body has come to rest (or after CORPSE_LAND_TIMEOUT)
+      if (e.corpsePending && this.authority && !this.resetting && (e.deathLanded || e.deathTimer >= CORPSE_LAND_TIMEOUT)) this.registerCorpse(e);
       if ((e.state === 'dead' && e.deathTimer >= e.corpseLife + slack) || (e.state === 'flee' && e.fleeTimer >= FLEE_DURATION)) this.despawn(e);
     }
     this.corpses.update(dt);
@@ -927,8 +934,16 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     this.ctx.bus.emit('enemy:toxicBurst', { id, position: p.clone(), radius: TOXIC_RADIUS });
   }
 
-  corpseSpawnedRemote(id: number, type: EnemyType, p: THREE.Vector3, weaponId: string | undefined): void {
-    this.corpses.add(id, type, p, weaponId, this.ctx.world?.seed ?? 0);
+  corpseSpawnedRemote(id: number, type: EnemyType, p: THREE.Vector3, weaponId: string | undefined, opts?: CorpseWireOpts): void {
+    // Phase 10: the host's `lt` / `dd` win over the local seeded roll (identical seeds agree anyway — this just makes
+    // the authority explicit) and the body's own fall direction is corrected to match.
+    const e = this.byId.get(id);
+    if (e) {
+      if (opts?.lootable !== undefined) e.lootable = opts.lootable;
+      if (opts?.deathDir) { e.deathDir = opts.deathDir; e.anim.deathDir = Math.max(0, ENEMY_DEATH_DIRS.indexOf(opts.deathDir)); }
+      e.corpsePending = false;
+    }
+    this.corpses.add(id, type, p, weaponId, this.ctx.world?.seed ?? 0, opts);
   }
 
   corpseGoneRemote(id: number): void { this.corpses.remove(id); }
@@ -1460,7 +1475,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     // only our own kills bump the local counters: a remote killer counts it on its own client (from the `kill` event /
     // a `hitc`), an AI kill is credited to nobody and never reaches the bus.
     if (countKill && localKill) ctx.stats.kills++;
-    if (countKill && by !== null) ctx.bus.emit('enemy:killed', { id: e.id, type: e.type, position: e.position, by });
+    if (countKill && by !== null) ctx.bus.emit('enemy:killed', { id: e.id, type: e.type, position: e.position, by, deathDir: e.deathDir });
     if (e.isRogue) this.playAudio('player_death', e.position, 0.8, e.type === 'rogue_boss' ? 0.7 : 1);
     else this.playAudio('bug_death', e.position, 1, e.type === 'behemoth' ? 0.35 : e.type === 'charger' ? 0.5 : e.type === 'scavenger' || e.type === 'toxic' ? 1.2 : 0.85);
     if (this.fx) {
@@ -1470,19 +1485,45 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     }
     if (e.type === 'spewer') this.acidBurst(e);
     if (e.type === 'toxic' && this.authority) this.toxicBurst(e);
-    // lootable corpse (authority registers; replicas mirror the `corpse` event)
+    // lootable corpse (authority registers; replicas mirror the `corpse` event).
+    // Phase 10: a body that died in the air registers **after it lands** — `GameContext.findBest` measures a 3-D
+    // distance, so a corpse pinned at the mid-air kill position was both floating and unreachable.
     if (this.authority && ctx.world) {
-      this.corpses.add(e.id, e.type, e.position, e.weaponId || undefined, ctx.world.seed);
-      if (this.hosting) {
-        const msg: Extract<EnemyEvent, { ev: 'corpse' }> = { t: 'ee', ev: 'corpse', id: e.id, ty: e.type, p: tuple(e.position, 2) };
-        if (e.weaponId) msg.w = e.weaponId;
-        ctx.net!.send(msg, 'others');
-      }
+      if (e.deathLanded) this.registerCorpse(e);
+      else e.corpsePending = true;
     }
     if (this.hosting) {
       const net = ctx.net!;
       const killer = localKill ? net.localId : e.lastDamager === 'ai' ? null : e.lastDamager;
-      net.send({ t: 'ee', ev: 'kill', id: e.id, ty: e.type, p: tuple(e.position, 2), killer }, 'others');
+      const msg: Extract<EnemyEvent, { ev: 'kill' }> = { t: 'ee', ev: 'kill', id: e.id, ty: e.type, p: tuple(e.position, 2), killer };
+      const dd = deathDirIndex(e.deathDir);
+      if (dd > 0) msg.dd = dd;
+      net.send(msg, 'others');
+    }
+  }
+
+  /**
+   * Authority: register the `corpse:<id>` interactable at the body's **resting** position and mirror it to the
+   * clients. Called from `onEnemyKilled` for a ground kill (same frame, as before) and from the update loop once a
+   * mid-air body lands or `CORPSE_LAND_TIMEOUT` runs out.
+   * Phase 10: the lootable roll (`CORPSE_LOOT_CHANCE`) happens here, on its own seeded stream — `rollCorpse` is only
+   * ever called afterwards, by `Corpse.interact()`, so its stream is untouched.
+   */
+  private registerCorpse(e: Enemy): void {
+    const ctx = this.ctx;
+    e.corpsePending = false;
+    if (!ctx.world) return;
+    const lootable = rollCorpseLootable(ctx.world.seed, e.id, e.type);
+    e.lootable = lootable;
+    const opts: CorpseWireOpts = { lootable, deathDir: e.deathDir };
+    this.corpses.add(e.id, e.type, e.position, e.weaponId || undefined, ctx.world.seed, opts);
+    if (this.hosting) {
+      const msg: Extract<EnemyEvent, { ev: 'corpse' }> = { t: 'ee', ev: 'corpse', id: e.id, ty: e.type, p: tuple(e.position, 2) };
+      if (e.weaponId) msg.w = e.weaponId;
+      const dd = deathDirIndex(e.deathDir);
+      if (dd > 0) msg.dd = dd;
+      if (!lootable) msg.lt = 0;
+      ctx.net!.send(msg, 'others');
     }
   }
 

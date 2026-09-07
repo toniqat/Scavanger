@@ -64,7 +64,8 @@ class Look implements GearLook {
 /**
  * Chest plate + back plate + two shoulder caps over the torso, tinted by the armor's CSS colour. Tier I..V adds
  * one accent rib per tier on the chest; tier 0 (unique) gets an emissive rim instead. Local coordinates are the
- * torso's (chest centre ≈ y 0.33, front = -Z), matching `SoldierModel`'s chest box (0.44 × 0.5 × 0.28).
+ * torso's (chest centre ≈ y 0.22, front = -Z), matching `SoldierModel`'s shirt box (0.40 × 0.36 × 0.24) and the
+ * arm pivots at ±0.24 / y 0.32 (Phase 10: the 3-heads-tall body is shorter, so every literal shrank with it).
  */
 export function buildArmorPlate(def: ArmorDef): GearLook {
   const look = new Look();
@@ -77,32 +78,33 @@ export function buildArmorPlate(def: ArmorDef): GearLook {
   const mRib = look.mat(_c.getHex(), 0.5, 0.4);
   _c.setHex(base).multiplyScalar(0.7);
   const mEdge = look.mat(_c.getHex(), 0.3, 0.6);
-  // chest plate: slightly wider / thicker than the steel plate underneath so it reads from the front
-  look.box(0.36, 0.34, 0.05, mPlate, 0, 0.34, -0.165);
-  look.box(0.4, 0.05, 0.06, mEdge, 0, 0.53, -0.16);            // collar edge
-  // back plate over the pack straps
-  look.box(0.3, 0.3, 0.04, mPlate, 0, 0.36, 0.145);
-  // shoulder caps on top of the pads
+  // chest plate: slightly wider / thicker than the shirt underneath so it reads from the front
+  look.box(0.34, 0.26, 0.045, mPlate, 0, 0.23, -0.145);
+  look.box(0.36, 0.045, 0.055, mEdge, 0, 0.375, -0.14);        // collar edge
+  // back plate
+  look.box(0.28, 0.24, 0.04, mPlate, 0, 0.24, 0.125);
+  // shoulder caps over the sleeves
   for (const s of [-1, 1]) {
-    const cap = look.sphere(0.145, mPlate, s * 0.27, 0.53, 0);
-    cap.scale.set(1.05, 0.55, 1.05);
-    look.box(0.08, 0.02, 0.18, mRib, s * 0.29, 0.61, 0);
+    const cap = look.sphere(0.105, mPlate, s * 0.235, 0.345, 0);
+    cap.scale.set(1.05, 0.6, 1.05);
+    look.box(0.07, 0.018, 0.15, mRib, s * 0.25, 0.4, 0);
   }
   // one rib per tier (I..V) — stacked on the chest plate like rank bars
   for (let i = 0; i < tier; i++) {
-    look.box(0.05, 0.16, 0.012, mRib, -0.12 + i * 0.06, 0.34, -0.195);
+    look.box(0.04, 0.13, 0.012, mRib, -0.1 + i * 0.05, 0.23, -0.172);
   }
   if (unique) {
     // uniques: a glowing rim strip along the plate edge
-    look.box(0.34, 0.012, 0.012, mRib, 0, 0.5, -0.195);
-    look.box(0.34, 0.012, 0.012, mRib, 0, 0.18, -0.195);
+    look.box(0.3, 0.012, 0.012, mRib, 0, 0.35, -0.172);
+    look.box(0.3, 0.012, 0.012, mRib, 0, 0.11, -0.172);
   }
   return look;
 }
 
 /**
  * Held consumable / gadget for the right hand. Item axis: -Z along the arm (weaponSocket convention), so the
- * cylinder / box stand along the forearm and the sphere sits just past the glove.
+ * cylinder / box stand along the forearm and the sphere sits just past the hand. Phase 10: sized up for the
+ * big hands of the 3-heads-tall body (~1.4× the old armoured trooper's props).
  */
 export function buildHeldItem(category: ItemCategory | null | undefined): GearLook {
   const look = new Look();
@@ -111,21 +113,21 @@ export function buildHeldItem(category: ItemCategory | null | undefined): GearLo
     const mBody = look.mat(0xd8e4ee, 0.3, 0.45);
     const mFluid = look.mat(0x3ad0ff, 0.1, 0.35, 0x3ad0ff, 0.8);
     const mTip = look.mat(0x8892a0, 0.6, 0.35);
-    const body = look.cyl(0.028, 0.028, 0.16, mBody, 0, 0, -0.02); body.rotation.x = Math.PI / 2;
-    const fluid = look.cyl(0.02, 0.02, 0.1, mFluid, 0, 0, -0.02); fluid.rotation.x = Math.PI / 2;
-    const tip = look.cyl(0.006, 0.012, 0.05, mTip, 0, 0, -0.125); tip.rotation.x = Math.PI / 2;
+    const body = look.cyl(0.04, 0.04, 0.21, mBody, 0, 0, -0.03); body.rotation.x = Math.PI / 2;
+    const fluid = look.cyl(0.029, 0.029, 0.13, mFluid, 0, 0, -0.03); fluid.rotation.x = Math.PI / 2;
+    const tip = look.cyl(0.009, 0.017, 0.06, mTip, 0, 0, -0.165); tip.rotation.x = Math.PI / 2;
   } else if (category === 'grenade') {
     const mShell = look.mat(0x4a5340, 0.35, 0.6);
     const mCap = look.mat(0x9aa4b0, 0.6, 0.35);
-    const shell = look.sphere(0.055, mShell, 0, 0, -0.05); shell.scale.set(1, 1.15, 1);
-    look.cyl(0.02, 0.02, 0.03, mCap, 0, 0.07, -0.05);
-    look.box(0.05, 0.02, 0.012, mCap, 0.03, 0.05, -0.05);    // spoon
+    const shell = look.sphere(0.075, mShell, 0, 0, -0.07); shell.scale.set(1, 1.15, 1);
+    look.cyl(0.027, 0.027, 0.04, mCap, 0, 0.095, -0.07);
+    look.box(0.07, 0.026, 0.016, mCap, 0.04, 0.07, -0.07);   // spoon
   } else {
     // gadget (and any other category): a boxy device with a status light
     const mCase = look.mat(0x2e3542, 0.4, 0.55);
     const mLight = look.mat(0x202020, 0.2, 0.5, 0xffb347, 1.0);
-    look.box(0.08, 0.05, 0.13, mCase, 0, 0, -0.04);
-    look.box(0.03, 0.012, 0.03, mLight, 0, 0.031, -0.06);
+    look.box(0.11, 0.07, 0.18, mCase, 0, 0, -0.055);
+    look.box(0.04, 0.016, 0.04, mLight, 0, 0.043, -0.085);
   }
   return look;
 }

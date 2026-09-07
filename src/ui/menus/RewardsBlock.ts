@@ -1,4 +1,5 @@
 import type { ContractSettlement, GameContext, MissionRewards } from '@/shared';
+import { formatCredits } from '@/shared';
 import { el, fmtInt, setText } from '../dom';
 
 const COUNT_DELAY = 0.35;   // seconds before the XP count-up starts (after the frame's entry animation)
@@ -29,7 +30,7 @@ export function contractOutcome(c: Pick<ContractSettlement, 'success' | 'outcome
 /**
  * XP settlement block shared by the two result screens (Phase 5): `획득 XP +n` counting up, `Lv. a → b`, an XP bar
  * `xp / xpToNext` filling from the pre-mission fraction, and the contract line keyed on `settlement.outcome` —
- * `계약 성공 · <name> · 신뢰도 +rep · 크레딧 +credits`, `계약 미완 · 계속 · <name> p / t`, or
+ * `계약 성공 · <name> · 신뢰도 +rep · 크레딧 +credits C`, `계약 미완 · 계속 · <name> p / t`, or
  * `계약 실패 · 진척 유지 안 됨 · <name> p / t`. `fill(undefined)` hides the block (older emitters / no progression).
  *
  * **Level-up moment** (Phase 7): the block owns the whole level-up presentation. The instant the count-up crosses the
@@ -108,7 +109,7 @@ export class RewardsBlock {
       const outcome = contractOutcome(c, mode === 'dead' ? 'failed' : 'incomplete');
       const head = CONTRACT_OUTCOME_TEXT[outcome];
       const text = outcome === 'success'
-        ? `${head} · ${c.name} · 신뢰도 +${fmtInt(c.rep)} · 크레딧 +${fmtInt(c.credits)}`
+        ? `${head} · ${c.name} · 신뢰도 +${fmtInt(c.rep)} · 크레딧 ${formatCredits(c.credits, { sign: true })}`
         : `${head} · ${c.name} ${fmtInt(c.progress)} / ${fmtInt(c.target)}`;
       this.contractEl.classList.add(CONTRACT_OUTCOME_CLASS[outcome]);
       setText(this.contractEl, text);

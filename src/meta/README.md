@@ -15,8 +15,8 @@ size (no more per-tab resizing) and every item requirement is a `buildItemChip` 
 | `Storage.ts` | `MetaSave` v1: `freshMetaSave()`, `sanitizeMetaSave()` (clamped credits, known corp / quest / contract ids only, only `accepted` / `complete` quest states kept), `MetaStorage` (load, 350 ms debounced `markDirty()`, `flush()` on `pagehide` / hub entry / dispose, every storage access in try/catch). Phase 7: `flush()` = `writeCache()` (localStorage) + `upload()` (`ctx.net.profile.set('meta', snapshot())`); `replace(doc)` adopts a server document without echoing it back. **Phase 9**: `upload()` dropped its `available` guard — the document is handed to `ProfileSync` offline too (stamped + queued, newest wins on the next connection) — and `MAX_PROGRESS` is exported so live hits clamp to the same ceiling as a load. |
 | `Rules.ts` | Pure functions, no ctx / DOM: `repInfoOf`, shop filter (`ruleMatches` / `corpSells` / `shopRarityCap` / `buildShop` sorted by category → rarity → price, `fits` → 공간 없음), `killGoalOf`, `contractBlockReason`, `contractHitDelta` (Phase 9: a non-finite `amount` is 0, not `NaN`), `settleContract` (fills `outcome`), `questStateOf`, `questBlockReason`, the 한국어 `REASON` strings. `rarityRank` / `RARITY_ORDER` come from `@/shared` (`labels.ts`) since Phase 7. |
 | `ui/CorpView.ts` | **(Phase 8)** The screen **body**, shared by both shells: header 기업 네트워크 + credit readout, 4 corp tabs (`CorpDef.color` accent, `Lv.n`), banner (slogan, description, rep bar `rep / next`), sub-tabs 상점 / 판매 / 계약 / 퀘스트, rows with 구매 / 판매 / 수락 / 포기 / 납품 buttons (disabled + tooltip from `blocked`), `귀중품 전부 판매`, `.form-msg` in a reserved slot. Renders into whatever host it is given and marks it `.corp-view` (`.is-embedded` for the inventory tab). Item thumbnails / 납품 requirements use `buildItemChip` / `renderItemCost` (`@/shared/itemChip`). Purchase messages come from `meta:purchase` (`구매 처리 중…` while a server transaction is pending) and refusals from `MetaSystem.onPurchaseFailure(fn)`. **No blocker, no pointer-lock, no window listener** — those belong to the shell. |
-| `ui/CorpMenu.ts` | The **standalone overlay shell** `.menu.corp-menu` (ship computer): builds a `CorpView` into its `.frame` and adds the hub pointer-lock etiquette (blocker `'corp'` first, `exitPointerLock`, capture-phase Esc, 닫기 button, microtask re-lock), `ui:corpToggled`. Re-exports `CorpPage`. |
-| `ui/dom.ts` | `el / setText / toggleClass / fmtNum` helpers (other folders' helpers are internal to them). |
+| `ui/CorpMenu.ts` | The **standalone overlay shell** `.menu.corp-menu` (ship computer): builds a `CorpView` into its `.frame` and adds the overlay etiquette (blocker `'corp'` first, then **`input.setCursorMode(true, 'corp')`** — Phase 10: the pointer lock is kept, so no `exitPointerLock` and no microtask re-lock — capture-phase Esc, 닫기 button), `ui:corpToggled`. Re-exports `CorpPage`. |
+| `ui/dom.ts` | `el / setText / toggleClass / fmtNum` helpers (other folders' helpers are internal to them). `fmtNum` is for **non-credit** numbers only (신뢰도, 목표 진척, 납품 수량) — every credit readout goes through `formatCredits` (`@/shared`). |
 | `meta.css` | Corp-screen styles on top of `.menu .frame .ui-btn .form-msg` (`ui/styles/base.css`) and `.hub-head .hub-foot` (`hub/hub.css`); `--cc` = selected corp colour, `--corp-page-h` = the **fixed** page height. `.item-chip*` itself is ui's (`base.css`). |
 | `index.ts` | Barrel. |
 
@@ -60,7 +60,7 @@ size (no more per-tab resizing) and every item requirement is a `buildItemChip` 
 - **Corp screen**: `openCorpMenu(corp?)` (refused while `isRaidActive()`), `closeCorpMenu`, `isMenuOpen`. Emits `ui:corpToggled {open, corp}` and
   `audio:play ui_click / ui_equip / ui_deny / ui_close`. No `ui:notify` from this folder — toasts belong to `ui/` and listen to the `meta:*` events.
 - **Embedded 기업 tab (Phase 8)**: `createCorpView(host)` builds the **same** `CorpView` body inside the inventory Tab screen's host and returns an
-  `EmbeddedView {refresh, dispose}`. It adds **no `'corp'` blocker, never calls `exitPointerLock()` and installs no window Escape listener** — the
+  `EmbeddedView {refresh, dispose}`. It adds **no `'corp'` blocker, never touches the cursor mode / pointer lock and installs no window Escape listener** — the
   inventory window owns all three; `dispose()` removes only the nodes / listeners the view added (never the host). Several views may live at once, so
   async purchase refusals are broadcast through `MetaSystem.onPurchaseFailure(fn)` (the legacy single-slot `onPurchaseFailed` still fires first).
 - **Fixed popup size (Phase 8)**: `.corp-page` has a constant `height` (`--corp-page-h`, only the viewport height changes it — no min/max band), the
@@ -161,3 +161,32 @@ pointer drag, so recreating them on every `inventory:changed` would drop a drag 
   the shared `ui/hud/ItemTip` card (no element carries a `title` that would race it). The right-hand 내 가방 /
   함선 창고 column stretches over the full page height, and its tiles get the same card through the `data-item-tip`
   hook. Staging, the credit delta and the 거래 성사 settlement are unchanged.
+
+## Phase 10 UI 개선 pass (2026-09-07)
+
+- **크레딧 표기 = `100 C`.** `@/shared`'s `formatCredits(n, {sign?, suffix?})` / `formatCreditAmount(n)` /
+  `itemCreditValue(def, qty?)` (`shared/meta.ts`) are now **the** credit formatter for the whole game, and this folder
+  routes every readout through them: the header credits pill (`.corp-credits .v`), the stock-cell and sale-chip prices
+  (the old `123 cr` suffix is gone), the 구매 / 판매 tray totals, the 거래 후 크레딧 value, the 거래 성사 summary line,
+  the contract and quest reward lines, and the `/credits` console answer. `ui/dom.ts`'s `fmtNum` stays for the
+  **non-credit** numbers (신뢰도 `rep / next`, 목표 `progress / target`, 납품 `have / qty`).
+  Display only — `buyPriceOf` / `sellPriceOf` / `ItemDef.value` and every rule in `Rules.ts` are untouched.
+  In sentences 크레딧 stays a **word** and only the number carries the unit (`크레딧 +1,200 C`); a line that already
+  says what it is drops the word entirely (`구매 · −1,200 C`, `거래 성사 · 구매 2점 · +340 C`).
+- **인게임 커서 (§2 of `docs/PHASE10-PLAN.md`).** `ui/CorpMenu.open()` now adds the `'corp'` blocker and then calls
+  `ctx.input.setCursorMode(true, 'corp')` **without** exiting the pointer lock; `close()` deletes the token and calls
+  `setCursorMode(false, 'corp')`, and the microtask re-lock is gone (nothing ever unlocked). `close(relock)`'s
+  parameter is kept for the call signature only. `setCursorMode` is ref-counted per blocker token, so the corp screen
+  layered under / over another panel never steals the cursor from it. Not one DOM handler changed: the software cursor
+  dispatches real bubbling `pointer*` / `mouse*` / `click` / `contextmenu` / `wheel` events at its virtual position, so
+  the two `document.elementFromPoint(ev.clientX, ev.clientY)` drag hit-tests in `ui/CorpView.ts` keep working as they
+  are (the synthetic event carries the virtual coordinates). The **embedded** 기업 tab is unchanged — it owns neither
+  the blocker nor the cursor.
+
+### Known follow-ups (Phase 10)
+- The header pill reads `크레딧  1,200 C`, so the unit is spelled twice in two forms. That is what the plan asks for
+  (`§3-9` puts `:231` in the `C` group); switch it to `formatCreditAmount` if the eyebrow ever becomes `CREDITS`.
+- `formatCredits` groups with `ko-KR` while `fmtNum` groups with `en-US`. Both render `1,200` today, so a page mixing
+  the two is consistent by accident, not by contract.
+- `CorpMenu.close(relock)` and `CorpView`'s two `elementFromPoint` calls are the only places that still mention the
+  old lock etiquette; nothing reads `relock` any more.

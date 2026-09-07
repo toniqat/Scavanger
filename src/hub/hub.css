@@ -101,6 +101,98 @@
 .wb-row .ui-btn { min-width: 0; height: 34px; padding: 0 16px; font-size: 11px; }
 .wb-empty { font-size: 12px; color: var(--c-text-faint); letter-spacing: 0.06em; padding: 18px 0; text-align: center; border: 1px dashed var(--c-border); }
 
+/* ── 발사 준비 패널 (Phase 10) ────────────────────────────────────────────────
+   Four horizontal cells along the bottom of the ship screen, shown while any launch slot is filled. One canvas
+   (`player/`'s `PortraitRef`, four scissored viewports) sits behind the row, so the cells are deliberately
+   semi-transparent — their gradient is the vignette over the bodies, not an opaque plate. The root only becomes
+   `.interactive` while the local player is boarded (see `ui/ReadyPanel`). */
+.hub-ready {
+  position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%);
+  width: min(1120px, calc(100vw - 40px));
+  height: 200px;
+  pointer-events: none;
+}
+.hub-ready .hr-portraits { position: absolute; inset: 0; pointer-events: none; }
+.hub-ready .hr-portraits canvas { display: block; width: 100%; height: 100%; }
+/* `ctx.player.createPortraits` returned null (no second WebGL context): name-only cells */
+.hub-ready.no-portraits .hr-portraits { display: none; }
+.hub-ready.no-portraits .hr-cell { background: linear-gradient(180deg, rgba(8, 10, 14, 0.86), rgba(8, 10, 14, 0.68)); }
+/* gap 0 and collapsed borders: each cell is exactly 1/4 of the row, so it lines up with its portrait viewport
+   (`HUB_READY_CELLS` = 4 — keep the column count in step with the constant). */
+.hub-ready .hr-row {
+  position: relative; height: 100%;
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0;
+}
+.hr-cell {
+  --sc: #ffffff;
+  position: relative; min-width: 0;
+  display: flex; flex-direction: column; justify-content: space-between;
+  padding: 10px 12px;
+  border: 1px solid var(--c-border);
+  background: linear-gradient(180deg, rgba(8, 10, 14, 0.72) 0%, rgba(8, 10, 14, 0.14) 44%, rgba(8, 10, 14, 0.66) 100%);
+  overflow: hidden;
+}
+.hr-cell + .hr-cell { border-left: 0; }
+/* slot-coloured top edge; a ready cell lights it up */
+.hr-cell .hr-edge { position: absolute; left: 0; right: 0; top: 0; height: 2px; background: var(--sc); opacity: 0.3; }
+.hr-cell.is-ready .hr-edge { opacity: 1; box-shadow: 0 0 12px color-mix(in srgb, var(--sc) 60%, transparent); }
+.hr-cell.is-ready { border-color: color-mix(in srgb, var(--sc) 45%, var(--c-border)); }
+.hr-cell.is-empty { border-style: dashed; background: linear-gradient(180deg, rgba(8, 10, 14, 0.5), rgba(8, 10, 14, 0.35)); }
+.hr-cell.is-empty .hr-name { color: var(--c-text-faint); font-weight: 400; }
+.hr-cell.is-off { opacity: 0.6; }
+.hr-cell.is-off .hr-state { color: var(--c-danger); }
+.hr-cell.is-local .hr-name::after { content: " (나)"; color: var(--c-text-dim); font-weight: 400; font-size: 10px; }
+
+.hr-top { display: flex; align-items: baseline; gap: 8px; min-width: 0; text-shadow: 0 0 8px rgba(0, 0, 0, 0.85); }
+.hr-name { font-size: 13px; font-weight: 600; letter-spacing: 0.04em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hr-lv { font-family: var(--ui-mono); font-size: 11px; letter-spacing: 0.08em; color: var(--c-accent); white-space: nowrap; }
+.hr-state { font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--c-text-dim); text-shadow: 0 0 8px rgba(0, 0, 0, 0.85); }
+
+/* equipped 전술 임플란트 on the cell's right-hand side (hub-owned DOM; the def comes from ctx.implants) */
+.hr-imp {
+  --ic: #5fd7ff;
+  position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 4px; width: 46px;
+}
+.hr-imp-glyph {
+  display: flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; font-size: 15px; line-height: 1;
+  color: var(--ic);
+  border: 1px solid color-mix(in srgb, var(--ic) 50%, transparent);
+  background: color-mix(in srgb, var(--ic) 12%, rgba(8, 10, 14, 0.8));
+}
+.hr-imp-name { font-size: 9px; letter-spacing: 0.02em; color: var(--c-text-dim); text-align: center; line-height: 1.15; text-shadow: 0 0 6px rgba(0, 0, 0, 0.9); }
+
+/* ── 분대원 장비 popup (right-click a cell) ──────────────────────────────── */
+.hub-crew-loadout {
+  position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  z-index: 72;
+  display: flex; flex-direction: column; gap: 12px;
+  padding: 16px 18px;
+  max-width: min(1180px, calc(100vw - 48px)); max-height: calc(100vh - 80px);
+  overflow: auto; scrollbar-width: thin;
+  background: linear-gradient(180deg, rgba(18, 21, 27, 0.97), rgba(10, 12, 17, 0.97));
+  border: 1px solid var(--c-border);
+  box-shadow: 0 26px 64px rgba(0, 0, 0, 0.62), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+.hcl-head { display: flex; align-items: center; gap: 12px; }
+.hcl-bar { width: 3px; align-self: stretch; min-height: 34px; background: #fff; }
+.hcl-titles { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.hcl-eyebrow { font-size: 9px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--c-text-faint); }
+.hcl-name { font-size: 16px; font-weight: 600; letter-spacing: 0.06em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hcl-close { min-width: 0; height: 32px; padding: 0 14px; font-size: 11px; }
+.hcl-status { font-size: 12px; letter-spacing: 0.06em; color: var(--c-text-dim); padding: 18px 0; text-align: center; border: 1px dashed var(--c-border); }
+.hcl-body { display: flex; min-width: 0; }
+
+/* the status line steps above the READY panel while it is up (DOM order: .hub-ready → .hub-status) */
+.hub-ready:not([hidden]) ~ .hub-status { bottom: 232px; }
+
+@media (max-width: 900px) {
+  .hub-ready { height: 150px; }
+  .hr-imp { display: none; }
+  .hub-ready:not([hidden]) ~ .hub-status { bottom: 182px; }
+}
+
 /* bottom-centre status / launch countdown (pointer-events: none, no blocker) */
 .hub-status {
   position: absolute; left: 50%; bottom: 14%; transform: translateX(-50%);

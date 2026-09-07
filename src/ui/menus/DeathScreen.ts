@@ -1,5 +1,5 @@
 import type { GameContext, MissionStats } from '@/shared';
-import { Keys, PLAYER_RESPAWN_DELAY, RAID_FAILED_AUTO_RETURN_S } from '@/shared';
+import { Keys, PLAYER_RESPAWN_DELAY, RAID_FAILED_AUTO_RETURN_S, formatCredits } from '@/shared';
 import { el, fmtTime, fmtInt, setText, toggleClass } from '../dom';
 import { MenuBase } from './MenuBase';
 import { RewardsBlock } from './RewardsBlock';
@@ -48,7 +48,7 @@ export class DeathScreen extends MenuBase {
     }
     const lost = el('div', { cls: 'stat wide', parent: stats });
     el('span', { cls: 'ui-label', text: '소실된 전리품 가치', parent: lost });
-    this.vals.loot = el('span', { cls: 'v', text: '0', parent: lost });
+    this.vals.loot = el('span', { cls: 'v', text: formatCredits(0), parent: lost });
     this.vals.loot.style.color = 'var(--c-danger)';
     this.rewards = new RewardsBlock(this.frame);
 
@@ -136,7 +136,7 @@ export class DeathScreen extends MenuBase {
     setText(this.vals.time, fmtTime(s.timeSeconds));
     setText(this.vals.crates, String(s.cratesOpened));
     setText(this.vals.damage, fmtInt(s.damageTaken));
-    setText(this.vals.loot, fmtInt(this.ctx.inventory?.getTotalValue() ?? s.lootValue));
+    setText(this.vals.loot, formatCredits(this.ctx.inventory?.getTotalValue() ?? s.lootValue));
     this.rewards.fill(s.rewards, 'dead');
   }
 

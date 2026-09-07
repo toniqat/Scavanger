@@ -18,9 +18,11 @@ import { InventoryUI } from './ui/InventoryUI';
 import { TradeGrids, type TradeGridsOptions } from './ui/TradeGrids';
 import { Stash } from './Stash';
 import { LOADOUT_SAVE_VERSION, LoadoutStore, isEmptyLoadoutSave, loadLoadoutSave, sanitizeLoadoutSave, type LoadoutSave } from './Loadout';
-import { reviveItem, savedCell, serializeExtras, serializePlacement } from './Serialize';
+import { reviveItem, savedCell, serializeExtras, serializePlacement, type SavedPlacement } from './Serialize';
 /* appended (Phase 10): 분대원 장비 열람 */
 import type { CrewLoadoutViewOptions } from '@/shared';
+import { HUB_READY_BLOCKER } from '@/shared';
+import { CrewLoadoutView } from './ui/CrewLoadoutView';
 
 /* ── UI ↔ system vocabulary ─────────────────────────────────────────────── */
 /** 'stash' = the ship stash (hub Tab screen only; persisted, see Stash.ts). */
@@ -192,6 +194,10 @@ export class InventorySystem implements GameSystem, InventoryRef {
         if ((cols !== this.stash.cols || rows !== this.stash.rows) && this.stash.resize(cols, rows)) this.withFreshSave(() => this.stash.flush());
       }
     }
+    // Phase 10: a take that arrives through the shared state (`cont sync`, or the pending map applied on the first
+    // open) is a catch-up, not something happening in front of the player → `live: false`, no animation.
+    this.containers.onTaken = (info) =>
+      this.emitItemTaken(info.containerId, info.idx, info.uid, info.qty, info.remaining, null, false);
     // Phase 5: the persisted loadout fills the bag + slots once, here; from now on the session state is the truth.
     this.loadoutStore = new LoadoutStore(() => this.captureLoadoutSave(), (reason, file) => {
       ctx.bus.emit('inventory:loadoutSaved', { reason });
@@ -245,8 +251,11 @@ export class InventorySystem implements GameSystem, InventoryRef {
   }
 
   update(dt: number, ctx: GameContext): void {
-    // Tab: bag window on a mission, the 3-column ship screen (창고 / 장비 / 가방) in the hub
-    if (ctx.input.wasPressed(Keys.INVENTORY) && (ctx.isGameplayPhase() || ctx.isHubPhase()) && (this._open || ctx.uiBlockers.size === 0)) {
+    // Tab: bag window on a mission, the 3-column ship screen (창고 / 장비 / 가방) in the hub.
+    // Phase 10: the launch-pod READY panel holds its own blocker, and Tab must still work while boarded (as before).
+    const onlyReadyBlocked = ctx.uiBlockers.size === 0
+      || (ctx.uiBlockers.size === 1 && ctx.uiBlockers.has(HUB_READY_BLOCKER));
+    if (ctx.input.wasPressed(Keys.INVENTORY) && (ctx.isGameplayPhase() || ctx.isHubPhase()) && (this._open || onlyReadyBlocked)) {
       this.toggleBag();
     }
     this.updateCraft(dt);
@@ -1514,7 +1523,12 @@ export class InventorySystem implements GameSystem, InventoryRef {
     return n;
   }
 
+  /**
+   * `relock` is kept for the callers that pass it (nothing to re-acquire since Phase 10 — the window never gave the
+   * pointer lock away, it only ran the software cursor).
+   */
   closeAll(relock = true): void {
+    void relock;
     if (!this._open) return;
     this.closeCatalog();
     this.closeBench();
@@ -1523,21 +1537,6 @@ export class InventorySystem implements GameSystem, InventoryRef {
     this.setOpen(false);
     this.ui?.hide();
     this.ctx.bus.emit('inventory:closed', {});
-    if (relock) this.relockLater();
-  }
-
-  /**
-   * Re-acquire the pointer when we return to gameplay / the ship. The Tab/Esc press (or click) that closed the
-   * window is the user activation Chrome requires for requestPointerLock(). Deferred a microtask so callers that
-   * close us right before leaving gameplay (GameFlow complete/abort → setPhase) are seen by the check.
-   */
-  private relockLater(): void {
-    const ctx = this.ctx;
-    queueMicrotask(() => {
-      if (this._open || !(ctx.isGameplayPhase() || ctx.isHubPhase()) || ctx.uiBlockers.size > 0) return;
-      if (ctx.player?.isDead ?? false) return;
-      ctx.input.requestPointerLock();
-    });
   }
 
   /** Back to the starter kit (also closes windows and forgets rolled containers). */
@@ -1656,15 +1655,23 @@ export class InventorySystem implements GameSystem, InventoryRef {
     return 'pending';
   }
 
-  /** Run a container take now; the multiplayer host records + broadcasts the units that left its copy. */
+  /**
+   * Run a container take now (host / single-player). The multiplayer host records + broadcasts the units that left its
+   * copy; every local take also reports `container:itemTaken {live: true, byLocal: true}` so the same consumers see
+   * my own loot and a squad mate's through one event.
+   */
   private trackTake(uid: string, from: ItemLocation, run: () => OpResult): OpResult {
     const c = this.activeContainer;
-    if (!c || !this.isNetAuthority() || !this.isContainerLoc(from)) return run();
+    if (!c || !this.isContainerLoc(from)) return run();
     const idx = c.indexOf(uid);
     const before = c.grid.get(uid)?.item.qty ?? 0;
     const r = run();
     const after = c.grid.get(uid)?.item.qty ?? 0;
-    if (idx >= 0 && before > after) this.announceTake(c, idx, before - after);
+    const removed = before - after;
+    if (idx < 0 || removed <= 0) return r;
+    if (this.isNetAuthority()) this.announceTake(c, idx, removed);
+    const me = this.ctx.isMultiplayer ? this.ctx.net?.localId ?? null : null;
+    this.emitItemTaken(c.id, idx, uid, removed, after, me, true);
     return r;
   }
 
@@ -1672,7 +1679,24 @@ export class InventorySystem implements GameSystem, InventoryRef {
     const net = this.ctx.net;
     if (!net || !net.localId) return;
     c.recordTaken(idx, qty);
-    net.send({ t: 'cont', ev: 'taken', id: c.id, idx, qty, by: net.localId }, 'others');
+    net.send({
+      t: 'cont', ev: 'taken', id: c.id, idx, qty, by: net.localId,
+      rem: c.remainingAt(idx), seq: this.containers.nextTakeSeq(c.id),
+    }, 'others');
+  }
+
+  /**
+   * Phase 10 — the one place `container:itemTaken` is emitted. `live` separates a real-time take (someone is looting
+   * this crate right now → animate) from a `cont sync` / pending catch-up (silent). A live take by **another** member
+   * also marks the tile so `GridView.refresh` animates it out instead of deleting it.
+   */
+  private emitItemTaken(containerId: string, idx: number, uid: string | null, qty: number, remaining: number,
+    by: NetPeerId | null, live: boolean): void {
+    const net = this.ctx.net;
+    const byLocal = by === null || (!!net?.localId && by === net.localId);
+    const byName = by && !byLocal ? net?.getLobbyPlayer?.(by)?.name ?? null : null;
+    if (live && !byLocal && uid && this.activeContainer?.id === containerId) this.ui?.vanishContainerItem(uid);
+    this.ctx.bus.emit('container:itemTaken', { containerId, idx, uid, qty, remaining, by, byName, byLocal, live });
   }
 
   /** Uids of container items whose take is waiting for the host (UI pulse). */
@@ -1698,8 +1722,11 @@ export class InventorySystem implements GameSystem, InventoryRef {
     const hostId = net.lobby?.hostId;
     if (hostId && from !== hostId) return;
     if (msg.ev === 'taken') {
+      // Phase 10: `seq` is the host's per-container take counter — a duplicate / out-of-order message is dropped
+      // (it would otherwise remove the same units twice and animate a tile that is already gone).
+      if (!this.containers.acceptTakeSeq(msg.id, msg.seq)) return;
       if (msg.by === net.localId) this.resolvePendingTake(msg.id, msg.idx, msg.qty);
-      else this.applyRemoteTaken(msg.id, msg.idx, msg.qty);
+      else this.applyRemoteTaken(msg.id, msg.idx, msg.qty, msg.by, msg.rem);
     } else if (msg.ev === 'denied') {
       const i = this.pendingTakes.findIndex((t) => t.containerId === msg.id && t.idx === msg.idx);
       if (i < 0) return;
@@ -1718,7 +1745,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
   /** My `contq take` was confirmed: replay the move (the item may sit in a container whose window closed meanwhile). */
   private resolvePendingTake(id: string, idx: number, qty: number): void {
     const i = this.pendingTakes.findIndex((t) => t.containerId === id && t.idx === idx);
-    if (i < 0) { this.applyRemoteTaken(id, idx, qty); return; }
+    if (i < 0) { this.applyRemoteTaken(id, idx, qty, this.ctx.net?.localId ?? null); return; }
     const [t] = this.pendingTakes.splice(i, 1);
     const c = this.containers.get(id);
     if (!c) { this.containers.recordPending(id, idx, qty); return; }
@@ -1736,18 +1763,30 @@ export class InventorySystem implements GameSystem, InventoryRef {
       c.taken.set(idx, (c.taken.get(idx) ?? 0) - (qty - removed)); // applyTaken recorded it again
     }
     if (r === 'ok') this.ctx.bus.emit('audio:play', { id: 'ui_pickup' });
+    this.emitItemTaken(id, idx, t.uid, qty, c.remainingAt(idx), this.ctx.net?.localId ?? null, true);
     this.checkLootedFor(c);
     this.ui?.refresh();
   }
 
-  /** Someone else's take was confirmed: remove it from my copy (or remember it for a container I have not opened). */
-  private applyRemoteTaken(id: string, idx: number, qty: number): void {
+  /**
+   * Someone else's take was confirmed: remove it from my copy (or remember it for a container I have not opened).
+   * Phase 10: the uid is read **before** `applyTaken` drops the placement and reported as a live take, so the tile
+   * animates out and the HUD can name the looter.
+   */
+  private applyRemoteTaken(id: string, idx: number, qty: number, by: NetPeerId | null, hostRemaining?: number): void {
     const c = this.containers.get(id);
     if (!c) { this.containers.recordPending(id, idx, qty); return; }
-    if (c.applyTaken(idx, qty) > 0) {
-      this.checkLootedFor(c);
-      if (this._open) this.ui?.refresh();
+    const uid = c.uidAt(idx) ?? null;
+    let removed = c.applyTaken(idx, qty);
+    // `cont taken.rem` (Phase 10) is the host's own remaining count: converge on it when this copy still holds more
+    if (typeof hostRemaining === 'number' && Number.isFinite(hostRemaining) && hostRemaining >= 0) {
+      const extra = c.remainingAt(idx) - Math.floor(hostRemaining);
+      if (extra > 0) removed += c.applyTaken(idx, extra);
     }
+    if (removed <= 0) return;
+    this.emitItemTaken(id, idx, uid, removed, c.remainingAt(idx), by, true);
+    this.checkLootedFor(c);
+    if (this._open) this.ui?.refresh();
   }
 
   /** Host: validate a peer's `contq take` against its own copy (rolled on demand for world crates) and broadcast. */
@@ -1762,13 +1801,18 @@ export class InventorySystem implements GameSystem, InventoryRef {
       : this.containers.pendingTakenOf(msg.id, msg.idx) === 0);
     if (!allowed) { net.send({ t: 'cont', ev: 'denied', id: msg.id, idx: msg.idx }, from); return; }
     if (c) {
-      c.applyTaken(msg.idx, qty);
+      const uid = c.uidAt(msg.idx) ?? null;
+      const removed = c.applyTaken(msg.idx, qty);
+      if (removed > 0) this.emitItemTaken(msg.id, msg.idx, uid, removed, c.remainingAt(msg.idx), from, true);
       this.checkLootedFor(c);
       if (this._open) this.ui?.refresh();
     } else {
       this.containers.recordPending(msg.id, msg.idx, qty);
     }
-    net.send({ t: 'cont', ev: 'taken', id: msg.id, idx: msg.idx, qty, by: from }, 'others');
+    net.send({
+      t: 'cont', ev: 'taken', id: msg.id, idx: msg.idx, qty, by: from,
+      ...(c ? { rem: c.remainingAt(msg.idx) } : {}), seq: this.containers.nextTakeSeq(msg.id),
+    }, 'others');
   }
 
   /** Host: a world crate it never opened can still be rolled (deterministic seed ^ id) to validate a request. */
@@ -1783,6 +1827,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
     const net = this.ctx.net;
     if (!net || !this.ctx.isMultiplayer || this.ctx.isAuthority) return;
     this.pendingTakes = [];
+    this.containers.resetTakeSeq(); // the new host counts its takes from 1 again
     net.send({ t: 'contq', ev: 'sync' }, 'host');
   }
 
@@ -2343,14 +2388,20 @@ export class InventorySystem implements GameSystem, InventoryRef {
 
   /* ── internals ─────────────────────────────────────────────────────────── */
 
+  /**
+   * Phase 10 (인게임 커서): the window keeps the **pointer lock** and drives the software cursor instead of handing
+   * the OS cursor back — `setCursorMode` is ref-counted by blocker token, so a modeless popup layered on top (which
+   * takes no token of its own) cannot steal it. No `exitPointerLock()`, and therefore no relock either.
+   */
   private setOpen(open: boolean): void {
     if (this._open === open) return;
     this._open = open;
     if (open) {
       this.ctx.uiBlockers.add(BLOCKER_TOKEN);
-      this.ctx.input.exitPointerLock();
+      this.ctx.input.setCursorMode(true, BLOCKER_TOKEN);
     } else {
       this.ctx.uiBlockers.delete(BLOCKER_TOKEN);
+      this.ctx.input.setCursorMode(false, BLOCKER_TOKEN);
     }
   }
 
@@ -2630,11 +2681,25 @@ export class InventorySystem implements GameSystem, InventoryRef {
     }
     return true;
   }
-  /* ══ Phase 10 skeleton — 분대원 장비 열람. Replace with the real implementation. ══ */
-  /** Serialize my bag + equip slots + quick slots for `CrewMessage.loadout`. */
-  captureCrewLoadout(): unknown { return null; }
-  /** Read-only 장비 / 가방 / 빠른 사용 view of another member's loadout document. */
-  createCrewLoadoutView(_host: HTMLElement, _loadout: unknown, _opts?: CrewLoadoutViewOptions): EmbeddedView | null { return null; }
+  /* ── Phase 10: 분대원 장비 열람 (발사 준비 패널 → 우클릭) ─────────────────── */
+
+  /**
+   * My bag + equip slots + quick slots for `CrewMessage.loadout` — the `captureLoadoutSave()` document without the
+   * per-container `searched` flags (a crew card is a public snapshot; `captureRaidState` is the one that keeps them).
+   */
+  captureCrewLoadout(): unknown {
+    const save = this.captureLoadoutSave();
+    return { ...save, bag: save.bag.map((sv) => { const { searched: _s, ...rest } = sv as SavedPlacement & { searched?: boolean }; return rest; }) };
+  }
+
+  /**
+   * Read-only 장비 / 가방 / 빠른 사용 view of another member's `captureCrewLoadout()` document (`ui/CrewLoadoutView.ts`):
+   * a throwaway grid, no drag / rotate / socket / drop, no 함선 창고 column and no 크레딧 pill. Null when the document
+   * is not a loadout. The popup frame belongs to the caller (`hub/`).
+   */
+  createCrewLoadoutView(host: HTMLElement, loadout: unknown, opts: CrewLoadoutViewOptions = {}): EmbeddedView | null {
+    return CrewLoadoutView.create(this, host, loadout, opts);
+  }
 
 }
 

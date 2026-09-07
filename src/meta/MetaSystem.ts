@@ -4,7 +4,8 @@ import type {
   RepInfo, ShopItem, SquadContractInfo,
 } from '@/shared';
 import {
-  CONTRACT_DEFS, CONTRACT_GOAL_LABEL_KO, CORP_DEFS, CORP_IDS, CREDITS_MAX, META_HIT_MAX, QUEST_DEFS, repLevelOf, sellPriceOf,
+  CONTRACT_DEFS, CONTRACT_GOAL_LABEL_KO, CORP_DEFS, CORP_IDS, CREDITS_MAX, META_HIT_MAX, QUEST_DEFS, formatCredits,
+  repLevelOf, sellPriceOf,
 } from '@/shared';
 import { MAX_PROGRESS, MetaStorage } from './Storage';
 import {
@@ -792,7 +793,7 @@ export class MetaSystem implements GameSystem, MetaRef {
 
   /**
    * Phase 8: the 기업 tab of the inventory Tab screen. Builds the same body as the standalone screen (`ui/CorpView.ts`)
-   * inside the caller's host — **no `'corp'` blocker, no `exitPointerLock`, no window Escape listener**; the inventory
+   * inside the caller's host — **no `'corp'` blocker, no cursor-mode / pointer-lock call, no window Escape listener**; the inventory
    * window already owns all three. `dispose()` removes only what the view added.
    */
   createCorpView(host: HTMLElement): EmbeddedView {
@@ -848,8 +849,8 @@ export class MetaSystem implements GameSystem, MetaRef {
         run: (args) => {
           const n = num(args[0]);
           if (Number.isNaN(n)) return { error: '사용법: /credits <±n>' };
-          if (!this.addCredits(n, 'console')) return { error: `크레딧 부족 (보유 ${this.credits})` };
-          return `크레딧 ${this.credits}`;
+          if (!this.addCredits(n, 'console')) return { error: `크레딧 부족 (보유 ${formatCredits(this.credits)})` };
+          return `크레딧 ${formatCredits(this.credits)}`;
         },
       },
       {

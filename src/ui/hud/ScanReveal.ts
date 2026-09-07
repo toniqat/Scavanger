@@ -1,32 +1,20 @@
 import * as THREE from 'three';
 import type { GameContext, ScanTarget } from '@/shared';
-import { DETECT_HIGHLIGHT_COLOR, DETECT_ENEMY_COLOR, IMPLANT_SCAN_REVEAL_TIME } from '@/shared';
+import {
+  DETECT_HIGHLIGHT_COLOR, DETECT_ENEMY_COLOR, IMPLANT_SCAN_REVEAL_TIME,
+  INTERACT_PILLAR_OPACITY, SCAN_PILLAR_HEIGHT,
+} from '@/shared';
+import { makePillarGeometry, makePillarMaterial } from './pillar';
 
 const MAX_REVEALS = 64;
-/** Shell radius (m) per revealed kind. */
+/**
+ * Pillar **height multiplier** per revealed kind (Phase 10 — it used to be the fresnel shell's radius in metres).
+ * The base height is `SCAN_PILLAR_HEIGHT`; scaling the mesh on Y scales the baked colour ramp with it, so a taller
+ * pillar still fades out at the same fraction of its own height.
+ */
 const KIND_SCALE: Record<ScanTarget['kind'], number> = {
-  enemy: 1.15, crate: 0.95, pickup: 0.55, gather: 0.6, objective: 1.6, deployable: 1.1,
+  enemy: 1.15, crate: 0.95, pickup: 0.7, gather: 0.75, objective: 1.4, deployable: 1,
 };
-
-const VERT = `
-varying vec3 vN;
-varying vec3 vV;
-void main() {
-  vec4 mv = modelViewMatrix * vec4(position, 1.0);
-  vN = normalize(normalMatrix * normal);
-  vV = normalize(-mv.xyz);
-  gl_Position = projectionMatrix * mv;
-}`;
-
-const FRAG = `
-uniform vec3 uColor;
-uniform float uOpacity;
-varying vec3 vN;
-varying vec3 vV;
-void main() {
-  float rim = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 1.6);
-  gl_FragColor = vec4(uColor, rim * uOpacity);
-}`;
 
 interface Reveal {
   key: string;
@@ -39,18 +27,20 @@ interface Reveal {
 /**
  * Through-wall outlines for scan results (`implant:scanned`) and any other `detect:reveal` command.
  *
- * Each revealed object gets a pooled fresnel shell drawn with `depthTest: false` (so it reads through
- * geometry) for the requested duration — 10 s for the 정찰 implant. Targets that came with an `object`
- * follow it, so revealed enemies keep their outline while they move. Pool: `MAX_REVEALS` meshes,
- * two shared materials (enemy red / everything else cyan); nothing is allocated per frame.
+ * Each revealed object gets a pooled **light pillar** drawn with `depthTest: false` (so it reads through geometry) for
+ * the requested duration — 10 s for the 정찰 implant. Phase 10 replaced the light-blue fresnel shell with the pillar
+ * from `hud/pillar.ts` (open cylinder from the ground up, baked vertex colours fading to black, additive), and
+ * `KIND_SCALE` became a **height** multiplier of `SCAN_PILLAR_HEIGHT` instead of a radius. Targets that came with an
+ * `object` follow it, so revealed enemies keep their marker while they move. Pool: `MAX_REVEALS` meshes, one shared
+ * geometry and two shared materials (enemy red / everything else cyan); nothing is allocated per frame.
  */
 export class ScanReveal {
   private ctx!: GameContext;
   private reveals: Reveal[] = [];
   private group: THREE.Group | null = null;
   private geo: THREE.BufferGeometry | null = null;
-  private matNeutral: THREE.ShaderMaterial | null = null;
-  private matEnemy: THREE.ShaderMaterial | null = null;
+  private matNeutral: THREE.MeshBasicMaterial | null = null;
+  private matEnemy: THREE.MeshBasicMaterial | null = null;
   private meshes: THREE.Mesh[] = [];
   private unsubs: Array<() => void> = [];
 
@@ -69,18 +59,8 @@ export class ScanReveal {
 
   private ensureScene(): void {
     if (this.group) return;
-    this.geo = new THREE.IcosahedronGeometry(1, 2);
-    const make = (hex: number): THREE.ShaderMaterial => new THREE.ShaderMaterial({
-      uniforms: { uColor: { value: new THREE.Color(hex) }, uOpacity: { value: 0.8 } },
-      vertexShader: VERT,
-      fragmentShader: FRAG,
-      transparent: true,
-      depthTest: false,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-      side: THREE.DoubleSide,
-      toneMapped: false,
-    });
+    this.geo = makePillarGeometry(SCAN_PILLAR_HEIGHT);
+    const make = (hex: number): THREE.MeshBasicMaterial => makePillarMaterial(hex, INTERACT_PILLAR_OPACITY, true);
     this.matNeutral = make(DETECT_HIGHLIGHT_COLOR);
     this.matEnemy = make(DETECT_ENEMY_COLOR);
     this.group = new THREE.Group();
@@ -142,9 +122,9 @@ export class ScanReveal {
     }
     if (this.reveals.length === 0) { this.clear(); return; }
     this.ensureScene();
-    const pulse = 0.55 + 0.3 * Math.sin(t * 4);
-    if (this.matNeutral) this.matNeutral.uniforms.uOpacity.value = pulse;
-    if (this.matEnemy) this.matEnemy.uniforms.uOpacity.value = pulse * 1.15;
+    const pulse = INTERACT_PILLAR_OPACITY * (0.9 + 0.35 * Math.sin(t * 4));
+    if (this.matNeutral) this.matNeutral.opacity = pulse;
+    if (this.matEnemy) this.matEnemy.opacity = pulse * 1.15;
 
     const n = Math.min(this.reveals.length, this.meshes.length);
     for (let i = 0; i < this.meshes.length; i++) {
@@ -152,10 +132,10 @@ export class ScanReveal {
       if (i >= n) { if (m.visible) m.visible = false; continue; }
       const r = this.reveals[i];
       if (r.object) r.object.getWorldPosition(r.position);
+      // The pillar's base is its origin, so it stands on the target — no vertical lift.
       m.position.copy(r.position);
-      m.position.y += 0.5;
-      const s = KIND_SCALE[r.kind] ?? 0.9;
-      m.scale.setScalar(s);
+      const s = KIND_SCALE[r.kind] ?? 1;
+      m.scale.set(1, s, 1);
       const mat = r.kind === 'enemy' ? this.matEnemy : this.matNeutral;
       if (mat && m.material !== mat) m.material = mat;
       if (!m.visible) m.visible = true;

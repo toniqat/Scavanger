@@ -14,7 +14,8 @@ import { ProfileSync } from './ProfileSync';
 import { RemotePlayer } from './RemotePlayer';
 import { Snapshotter } from './Snapshotter';
 /* appended (Phase 10): 발사 준비 패널 crew cards */
-import type { CrewCardWire } from '@/shared';
+import type { CrewCardWire, ImplantId } from '@/shared';
+import { IMPLANT_IDS } from '@/shared';
 
 const NAME_STORAGE_KEY = 'scav.playerName';
 const SNAPSHOT_INTERVAL = 1 / NET_PLAYER_SNAPSHOT_HZ;
@@ -34,6 +35,34 @@ function isVec3(v: unknown): v is Vec3Tuple {
 }
 function isNum(v: unknown): v is number { return typeof v === 'number' && Number.isFinite(v); }
 function vec(t: Vec3Tuple): THREE.Vector3 { return new THREE.Vector3(t[0], t[1], t[2]); }
+const IMPLANT_ID_SET: ReadonlySet<string> = new Set<string>(IMPLANT_IDS);
+/** A weapon / armor def id off the wire: a short plain string, or null. */
+function defIdOrNull(v: unknown): string | null {
+  return typeof v === 'string' && v.length > 0 && v.length <= 64 ? v : null;
+}
+/**
+ * Phase 10: validate a peer's `CrewCardWire` before it reaches the READY panel. Everything is clamped / nulled rather
+ * than rejected, so a card from an older or buggy peer still renders (a name + level 1 beats an empty cell).
+ */
+function sanitizeCrewCard(c: unknown): CrewCardWire | null {
+  if (typeof c !== 'object' || c === null) return null;
+  const w = c as Partial<CrewCardWire>;
+  const level = isNum(w.level) ? Math.max(1, Math.min(9999, Math.floor(w.level))) : 1;
+  const implant = typeof w.implant === 'string' && IMPLANT_ID_SET.has(w.implant) ? (w.implant as ImplantId) : null;
+  const card: CrewCardWire = { level, implant, armor: defIdOrNull(w.armor) };
+  const p1 = defIdOrNull(w.primary); if (p1 !== null) card.primary = p1;
+  const p2 = defIdOrNull(w.primary2); if (p2 !== null) card.primary2 = p2;
+  const sec = defIdOrNull(w.secondary); if (sec !== null) card.secondary = sec;
+  return card;
+}
+
+/** Field-wise equality: the local snoop in `send()` re-emits only when something actually changed. */
+function sameCard(a: CrewCardWire, b: CrewCardWire): boolean {
+  return a.level === b.level && a.implant === b.implant && a.armor === b.armor
+    && (a.primary ?? null) === (b.primary ?? null) && (a.primary2 ?? null) === (b.primary2 ?? null)
+    && (a.secondary ?? null) === (b.secondary ?? null);
+}
+
 function isGhostWire(g: unknown): g is GhostWire {
   if (typeof g !== 'object' || g === null) return false;
   const w = g as Partial<GhostWire>;
@@ -118,6 +147,15 @@ export class NetSystem implements GameSystem, NetRef {
   /* ── Phase 9 ── */
   /** `serverTime - performance.now()` from the last welcome / pong of ANY connection this session (null = never welcomed). */
   private serverOffset: number | null = null;
+
+  /* ── Phase 10 ── */
+  /**
+   * Last `crew card` per member, **including our own** (recorded from `send()` when hub/ broadcasts it, so the READY
+   * panel reads the local cell through the same accessor). Cleared with the lobby.
+   */
+  private readonly crewCards = new Map<PeerId, CrewCardWire>();
+  /** true while anybody (local or remote) is carrying someone: gates the per-frame `carriedBy` derivation. */
+  private carryActive = false;
 
   /* ── NetRef getters ─────────────────────────────────────────────────── */
   get status(): NetStatus { return this.client.status; }
@@ -229,6 +267,8 @@ export class NetSystem implements GameSystem, NetRef {
       if (reap) {
         for (const r of this.remoteList) if (!r.connected && now >= r.removeAt) this.removeRemote(r.id);
       }
+      // Phase 10: derive `carriedBy` from everyone's `carrying` (≤ 4 refs; skipped entirely while nobody carries).
+      this.refreshCarriedBy();
 
       // Broadcast our own snapshot: in a mission (gameplay phases + hellpod drop) or while walking the shared ship.
       // Timed on unscaled ctx.time (Engine passes dt = 0 while paused, but a multiplayer pause is non-freezing and
@@ -515,6 +555,18 @@ export class NetSystem implements GameSystem, NetRef {
 
   /* ── game messages ──────────────────────────────────────────────────── */
   send(msg: GameMessage, to: RelayTarget = 'others'): void {
+    // Phase 10: hub/ owns sending the crew card; record our own copy so `getCrewCard(localId)` answers for the local
+    // cell of the READY panel (and keeps answering while offline / single-player, where the relay drops the message).
+    if (msg.t === 'crew') {
+      const me = this.localId;
+      const own = sanitizeCrewCard(msg.card);
+      if (me !== null && own !== null) {
+        const prev = this.crewCards.get(me);
+        this.crewCards.set(me, own);
+        // Re-emit only on a real change — a hub/ handler that reacts by re-sending can never loop.
+        if (!prev || !sameCard(prev, own)) this.ctx.bus.emit('net:crewCard', { id: me, card: own });
+      }
+    }
     if (!this.client.connected || !this._lobby) return;
     this.client.send({ t: 'relay', to, d: msg });
   }
@@ -696,10 +748,18 @@ export class NetSystem implements GameSystem, NetRef {
       const susp = this._inSession && inM && !p.connected;
       if (r.suspended !== susp) {
         r.suspended = susp;
+        // Phase 10: a carrier whose socket went down drops the body it held — the host owns it as a ghost from now
+        // on, so the victim's `carriedBy` must not keep pointing at a suspended shoulder.
+        if (susp && r.carrying !== null) {
+          r.carrying = null;
+          bus.emit('net:remoteCarryChanged', { id: p.id, carrying: null });
+        }
         bus.emit('net:peerSuspended', { id: p.id, name: p.name, suspended: susp });
       }
     }
     for (const id of Array.from(this.membership.keys())) if (!seen.has(id)) this.membership.delete(id);
+    // Phase 10: forget the crew cards of members who are gone (our own card is kept — hub/ owns it).
+    for (const id of Array.from(this.crewCards.keys())) if (id !== me && !seen.has(id)) this.crewCards.delete(id);
   }
 
   private playerInMission(p: LobbyPlayer, lobby: LobbyState): boolean {
@@ -717,6 +777,8 @@ export class NetSystem implements GameSystem, NetRef {
     this._raidBlob = null;
     this.prevHostId = null;
     this.membership.clear();
+    this.crewCards.clear();   // Phase 10: cards belong to the party we just left (hub/ re-sends ours on `hub:entered`)
+    this.carryActive = false;
     this.clearRemotes();
     if (had) this.ctx.bus.emit('net:lobbyLeft', { reason });
   }
@@ -777,7 +839,10 @@ export class NetSystem implements GameSystem, NetRef {
         if (senderInHub === this._inSession) break;
         const r = this.getOrCreateRemote(from);
         const wasDowned = r.isDowned;
+        const wasCarrying = r.carrying;
         r.push(d, this.ctx.time);
+        // Phase 10: the carried peer changed → HUD markers / 분대 목록 (`carriedBy` is derived in `update`).
+        if (r.carrying !== wasCarrying) bus.emit('net:remoteCarryChanged', { id: from, carrying: r.carrying });
         // Phase 2: squadmate went down / got back up → HUD feed (derived from the DOWNED flag transition)
         if (r.isDowned !== wasDowned) {
           const name = r.name ?? this.getLobbyPlayer(from)?.name ?? '대원';
@@ -847,6 +912,36 @@ export class NetSystem implements GameSystem, NetRef {
           if (typeof d.id === 'string') this.remotes.get(d.id)?.clearGhost();
         }
         break;
+      /*
+       * Phase 10: a member's ship-side crew card (`crew card`) or its full answer to `crewq loadout`
+       * (`crew loadout`). Stored + mirrored onto the ref; the loadout document itself stays opaque (inventory/
+       * validates it before rendering). `crewq` needs no case — hub/ answers it through `onMessage('crewq')`.
+       */
+      case 'crew': {
+        const card = sanitizeCrewCard(d.card);
+        if (!card) break;
+        this.crewCards.set(from, card);
+        this.applyCrewCard(from, card);
+        bus.emit('net:crewCard', { id: from, card });
+        if (d.ev === 'loadout') bus.emit('net:crewLoadout', { id: from, card, loadout: d.loadout });
+        break;
+      }
+      /*
+       * Phase 10: 들쳐메기 one-shots. The steady state rides on `PlayerFlags.CARRYING` + `cr`, so these only buy
+       * instant feedback (before the next 20 Hz snapshot) and tell everyone where a dropped body landed.
+       */
+      case 'carry': {
+        if (typeof d.target !== 'string' || d.target.length === 0) break;
+        const r = this.remotes.get(from);
+        if (!r) break;
+        const next = d.ev === 'pick' ? d.target : null;
+        if (d.ev === 'drop' && r.carrying !== d.target) break; // a stale drop for someone else's body
+        if (r.carrying !== next) {
+          r.carrying = next;
+          bus.emit('net:remoteCarryChanged', { id: from, carrying: next });
+        }
+        break;
+      }
       /* Phase 7: the new host finished promoting itself → every system re-requests its sync (isLocalHost false). */
       case 'flow':
         if (d.ev === 'takeover' && this._inSession && from !== this.localId) {
@@ -888,6 +983,9 @@ export class NetSystem implements GameSystem, NetRef {
     }
     this.remotes.set(id, r);
     this.remoteList = Array.from(this.remotes.values());
+    // Phase 10: a card that arrived before the ref existed (hub → mission transition) is applied now.
+    const card = this.crewCards.get(id);
+    if (card) { r.crewLevel = card.level; r.equippedImplant = card.implant; }
     this.ctx.bus.emit('net:remotePlayerAdded', { id });
     if (r.suspended) this.ctx.bus.emit('net:peerSuspended', { id, name: r.name, suspended: true });
     return r;
@@ -906,10 +1004,57 @@ export class NetSystem implements GameSystem, NetRef {
     if (this.remotes.size === 0) return;
     for (const id of Array.from(this.remotes.keys())) this.removeRemote(id);
   }
-  /* ══ Phase 10 skeleton — 발사 준비 패널 crew cards. Replace with the real implementation. ══ */
-  /** Last `crew card` seen for `id` (the local player included); null when none arrived. */
-  getCrewCard(_id: PeerId): CrewCardWire | null { return null; }
-  /** Ask `id` for its full loadout (`crewq loadout`); the answer arrives as `net:crewLoadout`. */
-  requestCrewLoadout(_id: PeerId): void { /* Phase 10 skeleton */ }
+  /* ══ Phase 10 — 발사 준비 패널 crew cards ══════════════════════════════ */
+  /**
+   * Last `crew card` seen for `id`, the local player included: hub/ owns *sending* the card and we snoop our own
+   * broadcast in `send()`, so the READY panel reads every cell (ours and the squad's) through this one accessor.
+   */
+  getCrewCard(id: PeerId): CrewCardWire | null { return this.crewCards.get(id) ?? null; }
+
+  /**
+   * Ask `id` for its full loadout (`crewq loadout` addressed to that peer). The answer comes back as
+   * `crew loadout` → `net:crewLoadout {id, card, loadout}`; a peer may rate-limit it (`CREW_LOADOUT_COOLDOWN_S`),
+   * so the caller must tolerate no answer at all.
+   */
+  requestCrewLoadout(id: PeerId): void {
+    if (typeof id !== 'string' || id.length === 0 || id === this.localId) return;
+    this.send({ t: 'crewq', ev: 'loadout' }, id);
+  }
+
+  /** Mirror the ship-side card onto the member's ref (the wielded `implantId` stays snapshot-driven). */
+  private applyCrewCard(id: PeerId, card: CrewCardWire): void {
+    const r = this.remotes.get(id);
+    if (!r) return;
+    r.crewLevel = card.level;
+    r.equippedImplant = card.implant;
+  }
+
+  /**
+   * Phase 10: `RemotePlayerRef.carriedBy` is derived, not sent — every carrier advertises `carrying` and the carried
+   * side only sets `PlayerFlags.CARRIED`. Runs once per frame while anybody carries (≤ 4 refs, so the O(n²) scan is
+   * free) plus one trailing pass that clears the field when the last carry ends. A **suspended** carrier is ignored:
+   * its socket is down, the host owns that body as a ghost, so the victim is no longer on a shoulder.
+   */
+  private refreshCarriedBy(): void {
+    const localCarry = typeof this.ctx.player?.carrying === 'string' ? this.ctx.player.carrying : null;
+    let any = localCarry !== null;
+    if (!any) {
+      for (const r of this.remoteList) if (r.carrying !== null && !r.suspended) { any = true; break; }
+    }
+    if (!any && !this.carryActive) return;
+    for (const r of this.remoteList) {
+      // A suspended member's body is a host ghost, not a passenger — never point it at a shoulder.
+      if (r.suspended) { r.carriedBy = null; continue; }
+      let by: PeerId | null = null;
+      if (localCarry === r.id) by = this.localId;
+      else {
+        for (const o of this.remoteList) {
+          if (o !== r && !o.suspended && o.carrying === r.id) { by = o.id; break; }
+        }
+      }
+      r.carriedBy = by;
+    }
+    this.carryActive = any;
+  }
 
 }

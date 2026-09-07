@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import {
-  IMPLANT_AT_DAMAGE, IMPLANT_AT_RADIUS, IMPLANT_BARRIER_BREAK_LOCKOUT, IMPLANT_BARRIER_HP, IMPLANT_BARRIER_REGEN,
+  IMPLANT_AT_DAMAGE, IMPLANT_AT_RADIUS, IMPLANT_BARRIER_BLOCK_DAMAGE, IMPLANT_BARRIER_BREAK_LOCKOUT,
+  IMPLANT_BARRIER_CARRY_REGEN, IMPLANT_BARRIER_CARRY_REGEN_DELAY, IMPLANT_BARRIER_CARRY_SPEED_MUL,
+  IMPLANT_BARRIER_HP, IMPLANT_BARRIER_REGEN,
   IMPLANT_DASH_DISTANCE, IMPLANT_GRAPPLE_RANGE,
   IMPLANT_OVERCHARGE_ALLY_HEAL_PER_SEC, IMPLANT_OVERCHARGE_BUFF_HP_RATIO, IMPLANT_OVERCHARGE_ENERGY,
   IMPLANT_OVERCHARGE_RANGE, IMPLANT_OVERCHARGE_REGEN_TIME, IMPLANT_OVERCHARGE_SELF_HEAL_PER_SEC, IMPLANT_OVERCHARGE_SPEED_MUL,
@@ -22,12 +24,8 @@ import { RemoteImplants } from './RemoteImplants';
 
 type Host = PlayerRef & Partial<PlayerWeaponHost>;
 
-/** Shield hp removed by one blocked hostile projectile. */
-const BARRIER_BLOCK_DAMAGE = 30;
-/** The shield may be redeployed once it has regenerated this fraction of its hp. */
-const BARRIER_MIN_DEPLOY_RATIO = 0.1;
-/** Distance in front of the deployer the shield is planted. */
-const BARRIER_OFFSET = 2.2;
+/** Speed-modifier key of the raised shield (the contract with player/). */
+const SHIELD_SPEED_KEY = 'shield';
 /** Speed (m/s) of the grapple hook flying to its anchor. */
 const GRAPPLE_FLY_SPEED = 90;
 /** The pull auto-releases when the player gets this close to the anchor, or after this long. */
@@ -60,13 +58,13 @@ function tuple(v: THREE.Vector3): Vec3Tuple {
  *
  * One implant is equipped in the ship and carried into the raid. **Q** (`Keys.IMPLANT`) drives it in three ways
  * (`ImplantDef.mode`, reworked 2026-09-06):
- *   - `instant` (갈고리 / 대시 / 배리어): the press casts. The grapple fires at the crosshair anchor right away and
+ *   - `instant` (갈고리 / 대시): the press casts. The grapple fires at the crosshair anchor right away and
  *     a second press cuts the wire; the gun stays in hand throughout.
  *   - `hold` (정찰 / 오버차지): the effect runs while Q is held — scan pulses every second, the overcharge channel
  *     heals the caster slowly (and the ally under the crosshair faster) and drains an energy pool that refills
  *     while released. The gun stays in hand.
- *   - `wielded` (대전차포, the only one left): Q takes the launcher into the hands (weapons holster), LMB fires,
- *     Q — or any weapon key, handled by weapons/ via `stow()` — puts it away.
+ *   - `wielded` (대전차포 / **배리어** since Phase 10): Q takes it into the hands (weapons holster), LMB fires the
+ *     launcher / the shield just blocks, Q — or any weapon key, handled by weapons/ via `stow()` — puts it away.
  *
  * Everything is simulated locally and only *shown* to the other players (`imp` messages); friendly effects on
  * someone else's character travel as `buff`. Cooldowns are multiplied by `ctx.progression?.derived.implantCooldownMul`.
@@ -122,10 +120,12 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
   private energyEmitAcc = 0;
   private lastEnergyEmitted = -1;
 
-  /** Barrier. */
+  /** Barrier (Phase 10: a shield carried in hand). */
   private barrierLocked = false;
   private barrierSendAcc = 0;
   private barrierEmitAcc = 0;
+  /** Seconds since the raised shield last took a hit (gates `IMPLANT_BARRIER_CARRY_REGEN`). */
+  private barrierSinceHit = IMPLANT_BARRIER_CARRY_REGEN_DELAY;
 
   private profileApplied = false;
   private netHooked = false;
@@ -171,8 +171,12 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
   }
 
   /**
-   * Q pressed. Instant implants cast (grapple fires / releases, dash, barrier toggle); the wielded launcher toggles
-   * in / out of the hands. Hold implants are driven per frame from `update` (this is a no-op for them).
+   * Q pressed. Instant implants cast (grapple fires / releases, dash); a wielded implant — the launcher and, since
+   * Phase 10, the 배리어 shield — toggles in / out of the hands. Hold implants are driven per frame from `update`
+   * (this is a no-op for them).
+   *
+   * Carrying a downed squadmate takes precedence: the press only drops the body and does nothing else this frame
+   * (the player retries naturally on the next press).
    */
   activate(): void {
     const ctx = this.ctx;
@@ -181,13 +185,24 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
     const p = ctx.player;
     if (!p || p.isDead || p.isDowned) return;
     if (!ctx.isGameplayActive()) return;
+    if (this.dropCarriedFirst(p)) return;
     switch (def.id) {
       case 'grapple': this.castGrapple(); break;
       case 'dash': this.castDash(); break;
-      case 'barrier': this.toggleBarrier(); break;
+      case 'barrier':
       case 'atlauncher': if (this.wieldedFlag) this.stow(); else this.wield(); break;
       default: break;
     }
+  }
+
+  /**
+   * 들쳐메기 gate (Phase 10): while a downed squadmate is on our shoulder every action but running first drops
+   * them. `carrying` / `dropCarried` are probed defensively — player/ owns them and may register later.
+   */
+  private dropCarriedFirst(p: PlayerRef): boolean {
+    if ((p.carrying ?? null) === null) return false;
+    if (typeof p.dropCarried === 'function') p.dropCarried('action');
+    return true;
   }
 
   /** Force the wielded implant away and end any channel (weapon swap, death, phase change). */
@@ -197,6 +212,7 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
     this.setOvercharge(false);
     if (!this.wieldedFlag) return;
     const id = this.equippedId;
+    if (id === 'barrier') this.lowerShield();
     this.detachDevice();
     this.wieldedFlag = false;
     if (id) {
@@ -228,11 +244,11 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
   }
 
   /**
-   * A projectile really stopped at a barrier: the local shield takes `amount` (`BARRIER_BLOCK_DAMAGE` by default) +
+   * A projectile really stopped at a barrier: the local shield takes `amount` (`IMPLANT_BARRIER_BLOCK_DAMAGE` by default) +
    * `implant:barrierHit` (+ collapse / lockout / `imp barrier` sync), a peer's shield only sparks — its owner is
    * authoritative over its hp and broadcasts it.
    */
-  damageBarrier(owner: PeerId | 'local', point: THREE.Vector3, amount = BARRIER_BLOCK_DAMAGE): void {
+  damageBarrier(owner: PeerId | 'local', point: THREE.Vector3, amount = IMPLANT_BARRIER_BLOCK_DAMAGE): void {
     if (!this.ctx) return;
     if (owner === 'local') { if (this.barrier.active) this.onBarrierBlocked(point, amount); }
     else this.fx.spark(point, implantHex('barrier'), 0.3);
@@ -267,14 +283,11 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
       b.on('game:newMission', () => this.reset()),
       b.on('game:abort', () => this.reset()),
       b.on('hub:entered', () => this.reset()),
-      b.on('player:died', () => { this.stow(); this.dropBarrier(); }),
-      b.on('player:downed', () => { this.stow(); this.dropBarrier(); }),
+      b.on('player:died', () => this.stow()),
+      b.on('player:downed', () => this.stow()),
       b.on('net:remotePlayerRemoved', ({ id }) => this.remote.remove(id)),
       b.on('game:phaseChanged', ({ phase }) => {
-        if (phase !== 'playing' && phase !== 'extracting' && phase !== 'shipLanded' && phase !== 'liftoff') {
-          this.stow();
-          this.dropBarrier();
-        }
+        if (phase !== 'playing' && phase !== 'extracting' && phase !== 'shipLanded' && phase !== 'liftoff') this.stow();
       }),
     );
     this.ensureNetHooks();
@@ -297,10 +310,7 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
     const alive = !!p && !p.isDead && !p.isDowned;
     const active = ctx.isGameplayActive() && ctx.input.isPointerLocked && alive;
 
-    if (!ctx.isGameplayPhase() || !alive) {
-      this.stow();
-      if (this.barrier.active && !alive) this.dropBarrier();
-    }
+    if (!ctx.isGameplayPhase() || !alive) this.stow();
 
     this.tickCooldown(dt);
     this.tickBarrierRegen(dt, def);
@@ -322,6 +332,7 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
       case 'grapple': this.updateGrapple(dt, active); break;
       case 'scan': this.updateScan(dt, qDown, qPressed); break;
       case 'overcharge': this.updateOvercharge(dt, qDown, qPressed); break;
+      case 'barrier': if (this.wieldedFlag) this.updateShield(); break;
       case 'atlauncher': if (this.wieldedFlag) this.updateLauncher(active); break;
       default: break;
     }
@@ -390,18 +401,22 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
     this.ocEnergy = IMPLANT_OVERCHARGE_ENERGY;
     this.holdingFlag = false;
     this.barrierLocked = false;
-    if (this.barrier) { this.barrier.stow(); this.barrier.hp = IMPLANT_BARRIER_HP; }
+    this.barrierSinceHit = IMPLANT_BARRIER_CARRY_REGEN_DELAY;
+    if (this.barrier) { this.barrier.lower(); this.barrier.hp = IMPLANT_BARRIER_HP; }
+    this.clearShieldSpeed();
     this.setGrapplePull(null);
   }
 
   private wield(): void {
     const def = this.def();
     if (!def || def.mode !== 'wielded' || this.wieldedFlag) return;
+    if (def.id === 'barrier' && !this.canRaiseShield()) return;
     this.wieldedFlag = true;
     this.device?.dispose();
     this.device = new ImplantDevice(def.id);
     this.deviceAttached = false;
     this.attachDevice();
+    if (def.id === 'barrier') this.raiseShield();
     this.ctx.bus.emit('implant:wieldChanged', { id: def.id, wielded: true });
     this.ctx.bus.emit('audio:play', { id: 'implant_wield', volume: 0.6 });
     this.send({ t: 'imp', ev: 'wield', id: def.id, wielded: true });
@@ -598,55 +613,84 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
     this.send({ t: 'imp', ev: 'dash', o: tuple(_from), d: tuple(_p) });
   }
 
-  /* ═══════════════════════════ 배리어 ═══════════════════════════ */
-  private toggleBarrier(): void {
-    const ctx = this.ctx;
-    const p = ctx.player;
-    if (!p) return;
-    if (this.barrier.active) { this.dropBarrier(); return; }
+  /* ═══════════════════════════ 배리어 = 들고 다니는 방패 (Phase 10) ═══════════════════════════ */
+  /** Refused while the shield is recharging after a collapse (the lockout doubles as its cooldown). */
+  private canRaiseShield(): boolean {
     if (this.barrierLocked || this.cdRemaining > 0 || this.chargesLeft <= 0) {
-      ctx.bus.emit('ui:notify', { text: '배리어 재충전 중', kind: 'warning', duration: 1.2 });
+      this.ctx.bus.emit('ui:notify', { text: '배리어 재충전 중', kind: 'warning', duration: 1.2 });
       this.deny();
-      return;
+      return false;
     }
-    if (this.barrier.hp < this.barrier.maxHp * BARRIER_MIN_DEPLOY_RATIO) {
-      ctx.bus.emit('ui:notify', { text: '배리어 충전 중', kind: 'warning', duration: 1.2 });
-      this.deny();
-      return;
-    }
-    p.getForward(_d);
-    _d.y = 0;
-    if (_d.lengthSq() < 1e-6) _d.set(0, 0, -1);
-    _d.normalize();
-    _t.copy(p.position).addScaledVector(_d, BARRIER_OFFSET);
-    const world = ctx.world && ctx.world.ready ? ctx.world : null;
-    const interior = p.interior;
-    _t.y = interior ? interior.getFloorAt(_t.x, _t.z) : world ? world.getHeightAt(_t.x, _t.z) : p.position.y;
-    this.barrier.deploy(_t, p.yaw);
-    this.emitBarrier();
-    this.activated('barrier', _t);
-    ctx.bus.emit('audio:play', { id: 'barrier_deploy', position: _t, volume: 0.8 });
-    this.sendBarrier(true);
+    return true;
   }
 
-  /** Fold the shield away (Q again, death, phase change). */
-  private dropBarrier(): void {
-    if (!this.barrier || !this.barrier.active) return;
-    this.barrier.stow();
+  /** Q → shield up: the panel appears in front of the carrier and follows them from this frame on. */
+  private raiseShield(): void {
+    this.barrier.raise();
+    this.barrierSinceHit = 0;
+    this.barrierSendAcc = 0;
+    this.followShield();
+    this.applyShieldSpeed();
     this.emitBarrier();
+    this.ctx.bus.emit('implant:barrierCarried', { up: true });
+    this.activated('barrier', this.barrier.position);
+    this.ctx.bus.emit('audio:play', { id: 'barrier_deploy', volume: 0.8 });
+    this.sendShield(true);
+  }
+
+  /** Q again / weapon key / death / phase change → shield down. */
+  private lowerShield(): void {
+    if (!this.barrier?.active) return;
+    this.barrier.lower();
+    this.clearShieldSpeed();
+    this.emitBarrier();
+    this.ctx.bus.emit('implant:barrierCarried', { up: false });
     this.ctx.bus.emit('audio:play', { id: 'barrier_stow', volume: 0.5 });
-    this.sendBarrier(false);
+    this.sendShield(false);
+  }
+
+  /** Per frame while raised: keep the panel on the carrier and keep the movement penalty alive. */
+  private updateShield(): void {
+    if (!this.barrier.active) return;
+    this.followShield();
+    this.applyShieldSpeed();
+  }
+
+  /** Panel plane in front of the player's feet, facing where they face. */
+  private followShield(): void {
+    const p = this.ctx.player;
+    if (!p) return;
+    this.barrier.follow(p.position, p.yaw);
+  }
+
+  private applyShieldSpeed(): void {
+    const p = this.ctx.player;
+    if (p && typeof p.setSpeedModifier === 'function') p.setSpeedModifier(SHIELD_SPEED_KEY, IMPLANT_BARRIER_CARRY_SPEED_MUL);
+  }
+
+  private clearShieldSpeed(): void {
+    const p = this.ctx?.player;
+    if (p && typeof p.setSpeedModifier === 'function') p.setSpeedModifier(SHIELD_SPEED_KEY, 1);
   }
 
   /**
-   * Stowed shield regenerates `IMPLANT_BARRIER_REGEN`/s. After a collapse it is locked for
-   * `IMPLANT_BARRIER_BREAK_LOCKOUT` (× cooldown mul) and refills from 0 to full over exactly that window,
-   * so the HUD durability gauge doubles as the cooldown readout.
+   * Regeneration. Lowered: `IMPLANT_BARRIER_REGEN`/s. Raised (Phase 10): `IMPLANT_BARRIER_CARRY_REGEN`/s once
+   * `IMPLANT_BARRIER_CARRY_REGEN_DELAY` has passed without a block, so holding the shield up is no longer a
+   * one-way drain. After a collapse it is locked for `IMPLANT_BARRIER_BREAK_LOCKOUT` (× cooldown mul) and refills
+   * from 0 to full over exactly that window, so the HUD durability gauge doubles as the cooldown readout.
    */
   private tickBarrierRegen(dt: number, def: ImplantDef | undefined): void {
-    if (def?.id !== 'barrier' || this.barrier.active || this.barrier.hp >= this.barrier.maxHp) return;
-    if (this.barrierLocked && this.cdTotal > 0) this.barrier.regen(this.barrier.maxHp / this.cdTotal, dt);
-    else this.barrier.regen(IMPLANT_BARRIER_REGEN, dt);
+    if (def?.id !== 'barrier') return;
+    if (this.barrier.active) this.barrierSinceHit += dt;
+    if (this.barrier.hp >= this.barrier.maxHp) return;
+    if (this.barrier.active) {
+      if (this.barrierSinceHit < IMPLANT_BARRIER_CARRY_REGEN_DELAY) return;
+      this.barrier.regen(IMPLANT_BARRIER_CARRY_REGEN, dt);
+    } else if (this.barrierLocked && this.cdTotal > 0) {
+      this.barrier.regen(this.barrier.maxHp / this.cdTotal, dt);
+    } else {
+      this.barrier.regen(IMPLANT_BARRIER_REGEN, dt);
+    }
     this.barrierEmitAcc += dt;
     if (this.barrierEmitAcc >= HUD_EMIT_INTERVAL || this.barrier.hp >= this.barrier.maxHp) {
       this.barrierEmitAcc = 0;
@@ -655,6 +699,7 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
   }
 
   private onBarrierBlocked(point: THREE.Vector3, damage: number): void {
+    this.barrierSinceHit = 0;
     const collapsed = this.barrier.damage(damage);
     this.fx.spark(point, implantHex('barrier'), 0.45);
     this.ctx.bus.emit('implant:barrierHit', { point: point.clone(), damage });
@@ -667,18 +712,24 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
       this.fx.blast(point, 2.4, point.y);
       this.ctx.bus.emit('ui:notify', { text: '배리어 파괴됨', kind: 'danger', duration: 1.6 });
       this.ctx.bus.emit('audio:play', { id: 'barrier_break', position: point, volume: 0.9 });
-      this.sendBarrier(false);
+      // `damage()` already lowered the panel — put the (now useless) grip away and tell everyone
+      this.clearShieldSpeed();
+      this.ctx.bus.emit('implant:barrierCarried', { up: false });
+      this.sendShield(false);
+      this.stow();
       return;
     }
     this.barrierSendAcc += 1;
-    if (this.barrierSendAcc >= BARRIER_SEND_EVERY_HITS) { this.barrierSendAcc = 0; this.sendBarrier(true); }
+    if (this.barrierSendAcc >= BARRIER_SEND_EVERY_HITS) { this.barrierSendAcc = 0; this.sendShield(true); }
   }
 
-  private sendBarrier(active: boolean, to: RelayTarget = 'others'): void {
-    this.send({
-      t: 'imp', ev: 'barrier', active,
-      p: tuple(this.barrier.position), yaw: this.barrier.yaw, hp: Math.round(this.barrier.hp),
-    }, to);
+  /**
+   * Replicated shield state. The transform rides on our own `PlayerSnapshot` (`p`, `yaw`, `PlayerFlags.BARRIER`,
+   * `bhp`), so only "up" and the durability travel here: on raise / lower, every `BARRIER_SEND_EVERY_HITS` blocked
+   * hits, and unicast to a late joiner on `flow rejoined`.
+   */
+  private sendShield(up: boolean, to: RelayTarget = 'others'): void {
+    this.send({ t: 'imp', ev: 'shield', up, hp: Math.round(this.barrier.hp) }, to);
   }
 
   /* ═══════════════════════════ 갈고리 (instant) ═══════════════════════════ */
@@ -988,9 +1039,9 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
     this.unsubs.push(
       net.onMessage('imp', (m, from) => this.onImplantMessage(m, from)),
       net.onMessage('buff', (m, from) => this.onBuff(m, from)),
-      // Phase 9: a late joiner learns about our deployed barrier (the snapshot only carries the BARRIER flag)
+      // Phase 9 / 10: a late joiner learns our shield is raised (the snapshot only carries the BARRIER flag + bhp)
       net.onMessage('flow', (m, from) => {
-        if (m.ev === 'rejoined' && this.barrier?.active && from !== net.localId) this.sendBarrier(true, from);
+        if (m.ev === 'rejoined' && this.barrier?.active && from !== net.localId) this.sendShield(true, from);
       }),
     );
   }
@@ -1046,10 +1097,18 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
   private applyBoost(p: PlayerRef, mul: number, duration: number): void {
     if (typeof p.setSpeedModifier === 'function') p.setSpeedModifier('overcharge', mul, duration);
   }
-  /* ══ Phase 10 skeleton — 배리어 = 들고 다니는 방패. Replace with the real implementation. ══ */
-  /** true while the shield is in the hands. */
-  get barrierCarried(): boolean { return this.wielded && this.equipped === 'barrier'; }
-  /** Panel-bottom centre + facing of the raised shield; null while it is down. */
-  getBarrierPose(_outPosition: THREE.Vector3): { yaw: number } | null { return null; }
+  /* ══ Phase 10 — 배리어 = 들고 다니는 방패 ══ */
+  /** true while the shield is in the hands (mirrors `wielded` for the barrier implant). */
+  get barrierCarried(): boolean { return this.wieldedFlag && this.equippedId === 'barrier'; }
 
+  /**
+   * Local shield pose for renderers / tests: writes the **panel-bottom centre** into `outPosition` and returns its
+   * facing. null while the shield is down (`intersect` measures dy from that y, so the panel spans
+   * `y … y + IMPLANT_BARRIER_CARRY_HEIGHT`).
+   */
+  getBarrierPose(outPosition: THREE.Vector3): { yaw: number } | null {
+    if (!this.barrier?.active) return null;
+    outPosition.copy(this.barrier.position);
+    return { yaw: this.barrier.yaw };
+  }
 }

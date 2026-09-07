@@ -1,4 +1,5 @@
 import type { GameContext, MissionStats } from '@/shared';
+import { formatCredits } from '@/shared';
 import { el, fmtTime, fmtInt, setText } from '../dom';
 import { MenuBase } from './MenuBase';
 import { RewardsBlock } from './RewardsBlock';
@@ -30,7 +31,7 @@ export class MissionComplete extends MenuBase {
     const stats = el('div', { cls: 'stats', parent: this.frame });
     const loot = el('div', { cls: 'stat wide', parent: stats });
     el('span', { cls: 'ui-label', text: '전리품 가치', parent: loot });
-    this.vals.loot = el('span', { cls: 'v accent', text: '0', parent: loot });
+    this.vals.loot = el('span', { cls: 'v accent', text: formatCredits(0), parent: loot });
     for (const [k, label] of [['kills', '처치'], ['time', '임무 시간'], ['crates', '개봉한 상자'], ['damage', '받은 피해']] as const) {
       const s = el('div', { cls: 'stat', parent: stats });
       el('span', { cls: 'ui-label', text: label, parent: s });
@@ -64,7 +65,7 @@ export class MissionComplete extends MenuBase {
     this.lootShown = 0;
     this.countTimer = 0;
     this.counting = true;
-    setText(this.vals.loot, '0');
+    setText(this.vals.loot, formatCredits(0));
     this.rewards.fill(s.rewards, 'complete');
   }
 
@@ -83,7 +84,7 @@ export class MissionComplete extends MenuBase {
     if (t < 0) return;
     const eased = 1 - Math.pow(1 - t, 3);
     this.lootShown = this.lootTarget * eased;
-    const txt = fmtInt(this.lootShown);
+    const txt = formatCredits(this.lootShown);
     if (txt !== this.lastLootText) { this.lastLootText = txt; setText(this.vals.loot, txt); }
     if (t >= 1) {
       this.counting = false;

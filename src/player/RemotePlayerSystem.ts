@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import {
-  GHOST_BLEED_PER_SEC, NET_GHOST_PARK_S, NET_GHOST_STATE_HZ, PLAYER_DOWN_HP, PLAYER_MAX_HP, PLAYER_REVIVE_HOLD, PLAYER_REVIVE_HP,
-  PLAYER_REVIVE_RANGE, PlayerFlags,
+  GHOST_BLEED_PER_SEC, NET_GHOST_PARK_S, NET_GHOST_STATE_HZ, PLAYER_CARRY_OFFSET, PLAYER_DOWN_HP, PLAYER_MAX_HP,
+  PLAYER_REVIVE_HOLD, PLAYER_REVIVE_HP, PLAYER_REVIVE_RANGE, PlayerFlags,
   type GameContext, type GameSystem, type GhostState, type GhostWire, type ImplantId, type Interactable, type PeerId,
   type RemotePlayerRef, type Stance,
 } from '@/shared';
 import { RemoteAvatar } from './RemoteAvatar';
+import type { CarryHost, CarryStatus, CarryTarget } from './Carry';
 
 const EMPTY: readonly RemotePlayerRef[] = [];
 /** Max rate of `revive progress` relay messages while holding E on a downed teammate. */
@@ -42,9 +43,14 @@ export interface DebugRemoteRef {
   ghostDownHp?: number;
   /** The member's own down pool (`PlayerSnapshot.dhp` mirror) — a ghost created from a downed ref inherits it. */
   downHp?: number;
+  /* Phase 10: 들쳐메기 mirrors (`PlayerSnapshot.cr` / `flags & CARRIED`, derived `carriedBy`) */
+  carrying?: PeerId | null;
+  isCarried?: boolean;
+  carriedBy?: PeerId | null;
 }
 
-interface ReviveEntry { interactable: Interactable; lastSent: number }
+/** A revive prompt owns its own position vector so it can follow a carrier's shoulder socket (Phase 10). */
+interface ReviveEntry { interactable: Interactable; lastSent: number; position: THREE.Vector3 }
 
 /**
  * Phase 9: a ghost whose member left the mission without rejoining (page reload → `inMission` false, or a socket that
@@ -76,6 +82,7 @@ export interface Ghost {
 interface GhostApplicable { applyGhost?(g: GhostWire): void; clearGhost?(): void }
 
 const _kb = new THREE.Vector3();
+const _cw = new THREE.Vector3();
 
 /**
  * Renders every peer in `ctx.net.getRemotePlayers()` as a `RemoteAvatar`. Avatars are created on demand
@@ -98,7 +105,7 @@ const _kb = new THREE.Vector3();
  *
  * Runs right after PlayerSystem (see main.ts); NetSystem has already smoothed the refs this frame.
  */
-export class RemotePlayerSystem implements GameSystem {
+export class RemotePlayerSystem implements GameSystem, CarryHost {
   readonly name = 'remotePlayers';
 
   private ctx!: GameContext;
@@ -116,9 +123,15 @@ export class RemotePlayerSystem implements GameSystem {
   /** Phase 9: ghosts of members that left the mission without rejoining, kept for `NET_GHOST_PARK_S` (host only). */
   private readonly parked = new Map<PeerId, ParkedGhost>();
   private readonly unsubs: (() => void)[] = [];
+  /** Phase 10: peer ids whose avatar the LOCAL player carries (instant feedback before their `CARRIED` bit lands). */
+  private readonly localCarried = new Set<PeerId>();
+  /** Phase 10: peer id whose shoulder socket our own body currently hangs on (null = not carried). */
+  private myCarrier: PeerId | null = null;
 
   init(ctx: GameContext): void {
     this.ctx = ctx;
+    // the player owns the carry rules but not the avatars / refs — hand it this system as its carry host
+    (ctx.player as unknown as { setCarryHost?(h: CarryHost | null): void } | null)?.setCarryHost?.(this);
     ctx.bus.on('net:remotePlayerAdded', ({ id }) => {
       const ref = ctx.net?.getRemotePlayer(id);
       if (ref) this.ensure(ref);
@@ -169,11 +182,14 @@ export class RemotePlayerSystem implements GameSystem {
     if (this.avatars.size > refs.length + this.debugRefs.length) {
       for (const [id, av] of this.avatars) if (av.seenFrame !== this.frame) this.remove(id);
     }
+    // Phase 10: bodies riding on somebody's shoulder (including our own) — the avatars exist by now
+    this.updateCarries(refs, ctx);
     if (this.ghosts.size > 0 || this.parked.size > 0) this.updateGhosts(dt, ctx);
   }
 
   dispose(): void {
     this.clearAll();
+    (this.ctx?.player as unknown as { setCarryHost?(h: CarryHost | null): void } | null)?.setCarryHost?.(null);
     for (const u of this.unsubs) u();
     this.unsubs.length = 0;
   }
@@ -303,14 +319,29 @@ export class RemotePlayerSystem implements GameSystem {
     this.unregisterRevive(id);
     const av = this.avatars.get(id);
     if (!av) return;
+    // Phase 10: never take a carried body down with the carrier's avatar (`dispose` detaches the whole subtree)
+    this.evacuateShoulder(av);
+    if (this.localCarried.delete(id)) this.ctx.player?.dropCarried('reset');
+    if (this.myCarrier === id) { this.myCarrier = null; this.ctx.player?.setCarriedBy(null); }
     this.avatars.delete(id);
     av.dispose();
+  }
+
+  /** Move whatever hangs on `av`'s shoulder socket back into the scene before the avatar goes away. */
+  private evacuateShoulder(av: RemoteAvatar): void {
+    const kids = [...av.shoulderSocket.children];
+    for (const kid of kids) {
+      kid.updateWorldMatrix(true, false);
+      this.ctx.scene.attach(kid);
+    }
   }
 
   private clearAll(): void {
     for (const id of [...this.revives.keys()]) this.unregisterRevive(id);
     this.reviveSuppress.clear();
-    for (const av of this.avatars.values()) av.dispose();
+    if (this.myCarrier !== null) { this.myCarrier = null; this.ctx.player?.setCarriedBy(null); }
+    this.localCarried.clear();
+    for (const av of this.avatars.values()) { this.evacuateShoulder(av); av.carried = false; av.dispose(); }
     this.avatars.clear();
     this.ghosts.clear();
     this.lastGhost.clear();
@@ -327,19 +358,32 @@ export class RemotePlayerSystem implements GameSystem {
     if (want && !has) this.registerRevive(ref);
     else if (!want && has) this.unregisterRevive(ref.id);
     if (!suppressed && this.reviveSuppress.has(ref.id)) this.reviveSuppress.delete(ref.id);
+    // Phase 10: while the body is carried, `ref.position` is a stale snapshot — the prompt has to follow the
+    // carrier's shoulder socket, otherwise a shouldered squadmate can never be revived.
+    const entry = this.revives.get(ref.id);
+    if (entry) {
+      const av = this.avatars.get(ref.id);
+      if (av && (av.carried || ref.isCarried === true)) entry.position.copy(av.root.getWorldPosition(_cw));
+      else entry.position.copy(ref.position);
+    }
   }
 
   private registerRevive(ref: RemotePlayerRef): void {
     const ctx = this.ctx;
     const id = ref.id;
-    const entry: ReviveEntry = { interactable: null as unknown as Interactable, lastSent: -Infinity };
+    const entry: ReviveEntry = {
+      interactable: null as unknown as Interactable, lastSent: -Infinity,
+      position: ref.position.clone(),
+    };
     const send = (ev: 'progress' | 'cancel' | 'done', p?: number) => {
       if (ref.suspended) return;   // socket down: nothing to relay; the host applies the completed hold
       ctx.net?.send(p === undefined ? { t: 'revive', ev, target: id } : { t: 'revive', ev, target: id, p }, id);
     };
     entry.interactable = {
       id: `revive:${id}`,
-      position: ref.position,          // the ref's own Vector3 (stable instance, follows the interpolated peer)
+      // own Vector3, refreshed every frame in `syncRevive` from the interpolated ref — or from the carrier's
+      // shoulder socket while the body is being carried (Phase 10)
+      position: entry.position,
       radius: PLAYER_REVIVE_RANGE,
       holdTime: PLAYER_REVIVE_HOLD,
       getPrompt: () => `부활: ${ref.name}`,
@@ -377,6 +421,162 @@ export class RemotePlayerSystem implements GameSystem {
     if (!entry) return;
     this.revives.delete(id);
     this.ctx.interactables.unregister(entry.interactable.id);
+  }
+
+  /* ─────────────────────── Phase 10: 부상자 들쳐메기 (CarryHost) ─────────────────────── */
+  /** Every ref this client knows about (real peers first, then the console's fake ones). Reuses one array. */
+  private allRefs(): readonly RemotePlayerRef[] {
+    const real = this.ctx.net?.getRemotePlayers() ?? EMPTY;
+    if (this.debugRefs.length === 0) return real;
+    const out = this.refScratch;
+    out.length = 0;
+    for (const r of real) out.push(r);
+    for (const r of this.debugRefs) out.push(r as unknown as RemotePlayerRef);
+    return out;
+  }
+  private readonly refScratch: RemotePlayerRef[] = [];
+
+  /** A ref is present when its snapshots are live, or when the host's ghost drives its body. */
+  private static present(ref: RemotePlayerRef): boolean {
+    return ref.suspended === true || (ref.connected && !ref.stale);
+  }
+
+  /** Who is carrying `id`: the net-derived `carriedBy` if there is one, else whoever's `cr` points at it. */
+  private carrierIdOf(id: PeerId, refs: readonly RemotePlayerRef[]): PeerId | null {
+    for (const r of refs) {
+      if (r.id !== id) continue;
+      if (r.carriedBy) return r.carriedBy;
+      break;
+    }
+    for (const r of refs) if (r.carrying && r.carrying === id) return r.id;
+    return null;
+  }
+
+  /** Nearest carriable (downed, alive, present, nobody else's load) squadmate within `range`. */
+  findCarriable(from: THREE.Vector3, range: number): CarryTarget | null {
+    const refs = this.allRefs();
+    let best: CarryTarget | null = null;
+    let bestD = range * range;
+    for (const ref of refs) {
+      if (!this.carriableRef(ref, refs)) continue;
+      const d = ref.position.distanceToSquared(from);
+      if (d > bestD) continue;
+      bestD = d;
+      best = { id: ref.id, name: ref.name, position: ref.position };
+    }
+    return best;
+  }
+
+  targetOf(id: string): CarryTarget | null {
+    const refs = this.allRefs();
+    for (const ref of refs) {
+      if (ref.id !== id) continue;
+      return this.carriableRef(ref, refs) ? { id: ref.id, name: ref.name, position: ref.position } : null;
+    }
+    return null;
+  }
+
+  /** Why an in-progress carry has to end (`'ok'` = keep going). */
+  carryStatus(id: string): CarryStatus {
+    for (const ref of this.allRefs()) {
+      if (ref.id !== id) continue;
+      if (!RemotePlayerSystem.present(ref)) return 'gone';
+      if (ref.isDead) return 'died';
+      if (!ref.isDowned) return 'revived';
+      return 'ok';
+    }
+    return 'gone';
+  }
+
+  attachCarried(id: string, socket: THREE.Object3D): boolean {
+    const av = this.avatars.get(id);
+    if (!av) return false;
+    socket.add(av.root);
+    av.root.position.set(PLAYER_CARRY_OFFSET[0], PLAYER_CARRY_OFFSET[1], PLAYER_CARRY_OFFSET[2]);
+    av.root.quaternion.identity();
+    av.carried = true;
+    this.localCarried.add(id);
+    return true;
+  }
+
+  detachCarried(id: string, position: THREE.Vector3): void {
+    this.localCarried.delete(id);
+    const av = this.avatars.get(id);
+    if (!av) return;
+    av.carried = false;
+    av.root.updateWorldMatrix(true, false);
+    this.ctx.scene.attach(av.root);
+    av.root.position.copy(position);
+    // the peer's own snapshots take over again from here; this just avoids a one-frame pop at the old spot
+  }
+
+  /** true when this body may be shouldered right now. */
+  private carriableRef(ref: RemotePlayerRef, refs: readonly RemotePlayerRef[]): boolean {
+    if (!ref.isDowned || ref.isDead) return false;
+    if (!RemotePlayerSystem.present(ref)) return false;
+    if (ref.isCarried === true || this.localCarried.has(ref.id)) return false;
+    if (this.carrierIdOf(ref.id, refs)) return false;
+    return true;
+  }
+
+  /**
+   * Per frame: keep every carried body parented to its carrier's shoulder socket (ours is already parented by
+   * `attachCarried`), and hand / take back the LOCAL body when a peer picks us up or puts us down.
+   */
+  private updateCarries(refs: readonly RemotePlayerRef[], ctx: GameContext): void {
+    const localId = ctx.net?.localId ?? null;
+    const all = this.allRefs();
+    for (const av of this.avatars.values()) {
+      const id = av.ref.id;
+      if (this.localCarried.has(id)) { av.carried = true; continue; }
+      const by = this.carrierIdOf(id, all);
+      const carrier = by && by !== localId ? this.avatars.get(by) : undefined;
+      if (carrier && carrier !== av) {
+        if (av.root.parent !== carrier.shoulderSocket) {
+          carrier.shoulderSocket.add(av.root);
+          av.root.position.set(PLAYER_CARRY_OFFSET[0], PLAYER_CARRY_OFFSET[1], PLAYER_CARRY_OFFSET[2]);
+          av.root.quaternion.identity();
+        }
+        av.carried = true;
+        continue;
+      }
+      if (av.carried) {
+        av.carried = false;
+        if (av.root.parent !== ctx.scene) { av.root.updateWorldMatrix(true, false); ctx.scene.attach(av.root); }
+      }
+    }
+    // our own body: whoever's `cr` points at us owns it (the carried side of `attachTo`)
+    if (!localId) return;   // no session: only `debugCarryLocal` drives the local body
+    let mine: PeerId | null = null;
+    for (const r of refs) if (r.carrying === localId) { mine = r.id; break; }
+    if (!mine) for (const r of this.debugRefs) if (r.carrying === localId) { mine = r.id; break; }
+    if (mine === this.myCarrier) return;
+    this.myCarrier = mine;
+    const socket = mine ? this.avatars.get(mine)?.shoulderSocket ?? null : null;
+    ctx.player?.setCarriedBy(socket);
+    if (mine && !socket) this.myCarrier = null;   // no avatar yet: retry next frame
+  }
+
+  /**
+   * Smoke-test helper: pretend the debug peer `id` shouldered the local player (the wire path is
+   * `PlayerSnapshot.cr` → `RemotePlayerRef.carrying`, which a fake ref sets directly).
+   */
+  debugCarryLocal(id: PeerId, on: boolean): boolean {
+    const ref = this.debugRefs.find((r) => r.id === id);
+    if (!ref) return false;
+    if (on) {
+      const av = this.avatars.get(id);
+      if (!av) return false;
+      // Set the wire field AND wire the local body up right away, so the helper is synchronous whether or not a
+      // relay session exists (`updateCarries` then sees `mine === myCarrier` and leaves it alone).
+      ref.carrying = this.ctx.net?.localId ?? '__local__';
+      this.myCarrier = id;
+      this.ctx.player?.setCarriedBy(av.shoulderSocket);
+      return true;
+    }
+    ref.carrying = null;
+    if (this.myCarrier === id) { this.myCarrier = null; this.ctx.player?.setCarriedBy(null); }
+    return true;
   }
 
   /* ─────────────────────────── Phase 7: ghosts (host) ─────────────────────────── */

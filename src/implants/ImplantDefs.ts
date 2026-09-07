@@ -6,8 +6,9 @@ import {
 /**
  * The six tactical implants. Everyone owns all of them; exactly one may be equipped and only in the ship.
  *
- * Modes (reworked 2026-09-06): 갈고리 / 대시 / 배리어 are `instant` (Q casts, the gun stays in hand), 정찰 /
- * 오버차지 are `hold` (the effect runs while Q is held), and only 대전차포 is `wielded` (Q takes it into the hands).
+ * Modes (reworked 2026-09-06, revised Phase 10): 갈고리 / 대시 are `instant` (Q casts, the gun stays in hand),
+ * 정찰 / 오버차지 are `hold` (the effect runs while Q is held), and 대전차포 / **배리어** are `wielded` (Q takes
+ * them into the hands, the gun is holstered; Q or a weapon key puts them away).
  * `cooldown` 0 = no timer at all (barrier is limited by its shield hp, overcharge by its energy pool).
  * ImplantSystem stores the *effective* total of the running cooldown so a special case (barrier collapse
  * lockout) can use a different number without lying to the HUD.
@@ -36,8 +37,8 @@ export const IMPLANT_DEFS: readonly ImplantDef[] = [
   {
     id: 'barrier',
     name: '배리어',
-    description: '정면에 넓은 에너지 실드를 전개한다. 적의 발사체만 막으며, 접었을 때 내구도가 회복된다. 파괴되면 10초간 재충전한다.',
-    mode: 'instant',
+    description: '앞을 막는 에너지 방패를 든다. 적의 발사체만 막고, 들지 않은 동안 내구도가 회복된다. 파괴되면 10초간 재충전한다.',
+    mode: 'wielded',
     cooldown: 0,
     charges: 1,
     icon: '▤',

@@ -1,12 +1,16 @@
 import type { AmmoType, EffectiveWeaponStats, ItemDef, LoadoutSlot, WeaponDef, WeightState } from '@/shared';
-import { Keys, WEAPON_GRADE_ROMAN, WEIGHT_STATE_LABEL_KO, keyLabel } from '@/shared';
+import { Keys, WEAPON_GRADE_ROMAN, WEIGHT_STATE_LABEL_KO, formatCreditAmount, formatCredits, keyLabel } from '@/shared';
 import { AMMO_LABEL_KO, CATEGORY_LABEL_KO, RARITY_COLORS, RARITY_LABEL_KO, WEAPON_CLASS_LABEL_KO, getTierLabel, weaponClassOf } from '@/items';
 
 export const CELL = 54;   // px
 export const GAP = 2;     // px
 export const STEP = CELL + GAP;
 
-export const fmtValue = (n: number): string => `₩ ${Math.round(n).toLocaleString('ko-KR')}`;
+/**
+ * Credit value of an item / a grid (Phase 10): the one shared formatter, `1,200 C`. The old `₩` prefix is gone —
+ * credits are the game's only currency and their unit is `CREDIT_SUFFIX`.
+ */
+export const fmtValue = (n: number): string => formatCredits(n);
 export const categoryLabel = (def: ItemDef): string => CATEGORY_LABEL_KO[def.category];
 export const rarityLabel = (def: ItemDef): string => RARITY_LABEL_KO[def.rarity];
 export const rarityColor = (def: ItemDef): string => RARITY_COLORS[def.rarity];
@@ -78,7 +82,8 @@ export const TEXT = {
   },
   /* Phase 5: credits readout on the ship screen */
   /* Phase 8: the pill already carries the `CREDITS` eyebrow — the value is the bare number (`CREDITS 500`). */
-  credits: { eyebrow: 'CREDITS', value: (n: number): string => Math.max(0, Math.floor(n)).toLocaleString('ko-KR'), none: '—' },
+  /* Phase 10: the grouped number comes from the shared formatter (`formatCreditAmount` = `formatCredits` without the unit). */
+  credits: { eyebrow: 'CREDITS', value: (n: number): string => formatCreditAmount(Math.max(0, n)), none: '—' },
   quick: {
     title: '퀵슬롯',
     eyebrow: 'QUICK USE',

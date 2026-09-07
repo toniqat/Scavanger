@@ -11,3 +11,6 @@ export { Hellpod } from './Hellpod';
 export type { Ghost } from './RemotePlayerSystem';
 export { buildArmorPlate, buildHeldItem } from './GearLook';
 export type { GearLook } from './GearLook';
+/* appended (Phase 10): 들쳐메기 seam + 준비 패널 초상화 */
+export type { CarryHost, CarryStatus, CarryTarget } from './Carry';
+export { createPortraits } from './Portraits';

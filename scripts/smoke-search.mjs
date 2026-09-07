@@ -61,7 +61,7 @@ try {
   page.on('pageerror', (e) => errors.push(String(e)));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 
-  const EVENTS = ['container:searchProgress', 'container:itemRevealed', 'container:searchDone', 'inventory:itemAdded', 'inventory:full',
+  const EVENTS = ['container:searchProgress', 'container:itemRevealed', 'container:searchDone', 'container:itemTaken', 'inventory:itemAdded', 'inventory:full',
     'inventory:stashChanged', 'loadout:changed', 'inventory:bagChanged', 'inventory:quickSlotsChanged', 'inventory:loadoutSaved', 'crate:looted',
     'ui:notify', 'audio:play'];
   const boot = async () => {
@@ -355,11 +355,17 @@ try {
   // a searched item can be taken and is searched in the bag
   const taken = await page.evaluate((uid) => {
     const sys = window.__game.getSystem('inventory');
+    const idx = sys.getActiveContainer().indexOf(uid);
     const r = sys.quickMove(uid, { kind: 'grid', grid: 'container' });
     const inBag = sys.getGrid('bag').get(uid);
-    return { r, inBag: !!inBag, searched: inBag?.item.searched };
+    const ev = window.__ev['container:itemTaken'];
+    return { r, inBag: !!inBag, searched: inBag?.item.searched, idx, last: ev[ev.length - 1], count: ev.filter((e) => e.uid === uid).length };
   }, c1[0].uid);
   ok(taken.r === 'ok' && taken.inBag && taken.searched === true, 'a revealed item moves to the bag (searched: true)', JSON.stringify(taken));
+  // Phase 10: a local single-player take reports itself too, so the same consumers see my loot and a peer's
+  ok(taken.count === 1 && taken.last && taken.last.containerId === 'crate:smoke-1' && taken.last.idx === taken.idx && taken.last.uid === c1[0].uid
+    && taken.last.qty === c1[0].qty && taken.last.remaining === 0 && taken.last.live === true && taken.last.byLocal === true && taken.last.by === null && taken.last.byName === null,
+    'container:itemTaken for a local take: {live: true, byLocal: true, by: null} with idx / uid / qty / remaining', JSON.stringify(taken.last));
   await closeWindow();
 
   /* ── 4. take-all only takes searched items; close / reopen keeps progress ── */
@@ -570,18 +576,42 @@ try {
     const c = sys.getActiveContainer();
     const idx = c.indexOf(second.uid);
     const nb = window.__ev['inventory:itemAdded'].length;
-    window.__recv({ t: 'cont', ev: 'taken', id: 'crate:smoke-4', idx, qty: second.qty, by: 'PEER' }, 'HOST');
-    // a take for a container never opened here is remembered and applied on the first open
+    const nt = window.__ev['container:itemTaken'].length;
+    window.__recv({ t: 'cont', ev: 'taken', id: 'crate:smoke-4', idx, qty: second.qty, by: 'PEER', rem: 0, seq: 1 }, 'HOST');
+    // Phase 10: the tile animates out instead of blinking away, and a duplicate / out-of-order seq is dropped
+    const tileEl = document.querySelector(`.inv-grid-container .inv-tile[data-uid="${second.uid}"]`);
+    const vanishing = !!tileEl && tileEl.classList.contains('is-vanishing');
+    const liveEv = window.__ev['container:itemTaken'].slice(nt);
+    window.__recv({ t: 'cont', ev: 'taken', id: 'crate:smoke-4', idx, qty: second.qty, by: 'PEER', seq: 1 }, 'HOST');
+    const dupEv = window.__ev['container:itemTaken'].length - nt - liveEv.length;
+    return {
+      gone: !c.grid.get(second.uid), added: window.__ev['inventory:itemAdded'].length - nb, vanishing, dupEv, live: liveEv[0],
+    };
+  }, c4[1]);
+  ok(remote.gone && remote.added === 0, 'cont taken {by: someone else} removes the item from my copy (no itemAdded)', JSON.stringify({ gone: remote.gone, added: remote.added }));
+  ok(remote.live && remote.live.live === true && remote.live.byLocal === false && remote.live.by === 'PEER' && remote.live.uid === c4[1].uid && remote.live.remaining === 0,
+    'container:itemTaken for a peer take: {live: true, byLocal: false, by} with the uid captured before the removal', JSON.stringify(remote.live));
+  ok(remote.vanishing && remote.dupEv === 0, 'the tile animates out (`.is-vanishing`) and a duplicate `seq` is dropped (no second event)', JSON.stringify({ vanishing: remote.vanishing, dup: remote.dupEv }));
+  await sleep(500);
+  const vanished = await page.evaluate((uid) => !document.querySelector(`.inv-grid-container .inv-tile[data-uid="${uid}"]`), c4[1].uid);
+  ok(vanished, 'the vanishing tile is removed after CONTAINER_TAKE_ANIM_S');
+  const catchUp = await page.evaluate(() => {
+    const sys = window.__game.getSystem('inventory');
+    // a take for a container never opened here is remembered and applied on the first open (a catch-up, not live)
     window.__recv({ t: 'cont', ev: 'taken', id: 'crate:smoke-5', idx: 0, qty: 1, by: 'PEER' }, 'HOST');
     const ctx = window.__game.ctx;
-    const pos = ctx.player.position.clone();
-    ctx.bus.emit('crate:open', { crateId: 'crate:smoke-5', tier: 2, position: pos });
+    const np = window.__ev['container:itemTaken'].length;
+    ctx.bus.emit('crate:open', { crateId: 'crate:smoke-5', tier: 2, position: ctx.player.position.clone() });
     const c5 = sys.getActiveContainer();
     const first5 = c5.uidAt(0);
-    return { gone: !c.grid.get(second.uid), added: window.__ev['inventory:itemAdded'].length - nb, tile: !!document.querySelector(`.inv-grid-container .inv-tile[data-uid="${second.uid}"]`), c5id: c5.id, c5order: c5.order.length, c5firstGone: !c5.grid.get(first5) || c5.grid.get(first5).item.qty === 0 || c5.taken.get(0) === 1, c5taken: c5.taken.get(0) };
-  }, c4[1]);
-  ok(remote.gone && remote.added === 0 && !remote.tile, 'cont taken {by: someone else} removes the item from my copy (no itemAdded)', JSON.stringify(remote));
-  ok(remote.c5id === 'crate:smoke-5' && remote.c5order > 0 && remote.c5taken === 1 && remote.c5firstGone, 'a take recorded before the first open is applied when the crate is opened', JSON.stringify(remote));
+    return {
+      pending: window.__ev['container:itemTaken'].slice(np),
+      c5id: c5.id, c5order: c5.order.length, c5firstGone: !c5.grid.get(first5) || c5.grid.get(first5).item.qty === 0 || c5.taken.get(0) === 1, c5taken: c5.taken.get(0),
+    };
+  });
+  ok(catchUp.pending.length === 1 && catchUp.pending[0].live === false && catchUp.pending[0].containerId === 'crate:smoke-5' && catchUp.pending[0].idx === 0,
+    'a take applied on the first open is a catch-up: `container:itemTaken {live: false}`', JSON.stringify(catchUp.pending));
+  ok(catchUp.c5id === 'crate:smoke-5' && catchUp.c5order > 0 && catchUp.c5taken === 1 && catchUp.c5firstGone, 'a take recorded before the first open is applied when the crate is opened', JSON.stringify(catchUp));
   const synced = await page.evaluate(() => {
     const sys = window.__game.getSystem('inventory');
     const c5 = sys.getActiveContainer();
@@ -593,10 +623,16 @@ try {
     window.__game.ctx.bus.emit('net:hostChanged', { hostId: 'HOST2', prev: 'HOST', isLocalHost: false });
     const syncReq = window.__sent.find((s) => s.msg.t === 'contq' && s.msg.ev === 'sync');
     window.__mp.host = 'HOST2';
+    const nt = window.__ev['container:itemTaken'].length;
     window.__recv({ t: 'cont', ev: 'sync', items: [{ id: 'crate:smoke-5', t: [[0, 1], [idx1, qty1]] }, { id: 'crate:smoke-6', t: [[2, 1]] }] }, 'HOST2');
-    return { syncReq: syncReq && syncReq.to, idx1, uid1Gone: !c5.grid.get(uid1), taken1: c5.taken.get(idx1), qty1, pending6: sys.containers.pendingTakenOf('crate:smoke-6', 2) };
+    return {
+      syncReq: syncReq && syncReq.to, idx1, uid1Gone: !c5.grid.get(uid1), taken1: c5.taken.get(idx1), qty1,
+      pending6: sys.containers.pendingTakenOf('crate:smoke-6', 2), syncEv: window.__ev['container:itemTaken'].slice(nt),
+    };
   });
   ok(synced.syncReq === 'host' && synced.qty1 > 0 && synced.uid1Gone && synced.taken1 === synced.qty1 && synced.pending6 === 1, 'net:hostChanged (not me) → `contq sync`; `cont sync` catches up opened + unopened containers', JSON.stringify(synced));
+  ok(synced.syncEv.length === 1 && synced.syncEv[0].live === false && synced.syncEv[0].idx === synced.idx1 && synced.syncEv[0].qty === synced.qty1,
+    '`cont sync` removals report `container:itemTaken {live: false}` (silent catch-up, no animation)', JSON.stringify(synced.syncEv));
   await closeWindow();
   // host side: own takes broadcast, peer requests validated
   const host = await page.evaluate(() => {
@@ -630,8 +666,9 @@ try {
     window.__recv({ t: 'flow', ev: 'rejoined' }, 'PEER3');
     const rejoinSync = window.__sent[0];
     return {
-      r, own: own && { to: own.to, ev: own.msg.ev, id: own.msg.id, by: own.msg.by, qty: own.msg.qty, idx: own.msg.idx }, idx0: c.indexOf(items[0].uid), qty0: items[0].qty,
-      granted: granted && { to: granted.to, ev: granted.msg.ev, by: granted.msg.by, qty: granted.msg.qty }, item1Gone: !c.grid.get(items[1].uid),
+      r, own: own && { to: own.to, ev: own.msg.ev, id: own.msg.id, by: own.msg.by, qty: own.msg.qty, idx: own.msg.idx, rem: own.msg.rem, seq: own.msg.seq }, idx0: c.indexOf(items[0].uid), qty0: items[0].qty,
+      granted: granted && { to: granted.to, ev: granted.msg.ev, by: granted.msg.by, qty: granted.msg.qty, rem: granted.msg.rem, seq: granted.msg.seq }, item1Gone: !c.grid.get(items[1].uid),
+      grantedEv: window.__ev['container:itemTaken'][window.__ev['container:itemTaken'].length - 1],
       refused: refused && { to: refused.to, ev: refused.msg.ev, idx: refused.msg.idx },
       sync: sync && { to: sync.to, ev: sync.msg.ev, entry: sync.msg.items.find((i) => i.id === 'crate:smoke-7')?.t },
       unknownFirst: unknownFirst && unknownFirst.msg.ev, unknownSecond: unknownSecond && unknownSecond.msg.ev,
@@ -642,6 +679,11 @@ try {
     'host: its own take applies immediately and broadcasts `cont taken` to others', JSON.stringify({ r: host.r, own: host.own }));
   ok(host.granted && host.granted.to === 'others' && host.granted.ev === 'taken' && host.granted.by === 'PEER' && host.item1Gone && host.refused && host.refused.to === 'PEER2' && host.refused.ev === 'denied',
     'host: a valid `contq take` is applied to its copy + broadcast; a second take of the same item is denied to the requester', JSON.stringify({ granted: host.granted, refused: host.refused }));
+  // Phase 10: the host stamps `rem` (its own remaining count) and a monotonic per-container `seq`
+  ok(host.own && host.own.seq === 1 && host.own.rem === 0 && host.granted && host.granted.seq === 2 && host.granted.rem === 0,
+    'host: `cont taken` carries `rem` + a monotonic `seq` per container', JSON.stringify({ own: host.own, granted: host.granted }));
+  ok(host.grantedEv && host.grantedEv.live === true && host.grantedEv.byLocal === false && host.grantedEv.by === 'PEER',
+    'host: applying a peer request reports `container:itemTaken {live: true, by: peer}` on the host too', JSON.stringify(host.grantedEv));
   ok(host.sync && host.sync.to === 'PEER2' && host.sync.ev === 'sync' && Array.isArray(host.sync.entry) && host.sync.entry.length === 2, '`contq sync` → `cont sync` with the taken map to the requester', JSON.stringify(host.sync));
   ok(host.unknownFirst === 'taken' && host.unknownSecond === 'denied' && host.rejoinSync && host.rejoinSync.to === 'PEER3' && host.rejoinSync.ev === 'sync',
     'host: a container it never rolled grants the first take of an idx only; `flow rejoined` → `cont sync` to that peer', JSON.stringify({ first: host.unknownFirst, second: host.unknownSecond, rejoin: host.rejoinSync }));

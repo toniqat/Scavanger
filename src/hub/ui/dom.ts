@@ -32,11 +32,18 @@ export function randomSeed(): number {
   return (Math.random() * 0xffffffff) >>> 0;
 }
 
-/** Keep game keys (WASD / Esc / Tab) from reaching Input while typing; Escape blurs the field and calls `onEscape`. */
+/**
+ * Keep game keys (WASD / Esc / Tab) from reaching Input while typing; Escape blurs the field and calls `onEscape`.
+ *
+ * Phase 10: the field is also focused **explicitly** on pointerdown. The software cursor synthesises its clicks
+ * (`shared/cursor.ts`), and an untrusted `MouseEvent` performs no default action — so without this a click on the
+ * 승무원 이름 / 도킹 코드 field would never put the caret in it while the in-game cursor owns the mouse.
+ */
 export function isolateInput(input: HTMLInputElement, onEscape?: () => void): void {
   input.addEventListener('keydown', (e) => {
     e.stopPropagation();
     if (e.code === 'Escape') { e.preventDefault(); input.blur(); onEscape?.(); }
   });
   input.addEventListener('keyup', (e) => e.stopPropagation());
+  input.addEventListener('pointerdown', () => { if (document.activeElement !== input) input.focus(); });
 }

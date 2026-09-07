@@ -125,8 +125,9 @@ inventory / items 의 신규 API 가 아직 없으면 `typeof` 체크 + `try/cat
   (Phase 8: 인벤토리 Tab 화면은 이 오버레이 대신 아래 임베드 뷰를 쓴다. 함선 터미널의 캐릭터 버튼도 Phase 8 에서 제거됐다.)
 - 상단에 공용 화면 탭 `.scr-tabs` (인벤토리 · 캐릭터 · 기업 비활성; `ui/styles/base.css`) — **인벤토리** 탭은 시트를 닫고(`close(false)`) `ctx.inventory.toggleBag()` 을 부른다.
   게임플레이 / 함선 phase 에서 다른 blocker 가 없을 때만 열린다.
-- `ctx.uiBlockers` 에 `'stats'` 토큰을 **먼저** 넣고 `ctx.input.exitPointerLock()` 을 호출한다
-  (GameFlow 가 의도된 lock 해제로 인식하도록). 닫을 때는 토큰을 지우고, blocker 가 없으면 마이크로태스크에서 재잠금.
+- `ctx.uiBlockers` 에 `'stats'` 토큰을 **먼저** 넣고 `ctx.input.setCursorMode(true, 'stats')` 로 인게임 커서를 켠다
+  (**Phase 10**: 포인터 락은 그대로 유지한다 — `exitPointerLock()` 도, 닫을 때의 재잠금 마이크로태스크도 없다).
+  닫을 때는 토큰을 지우고 `setCursorMode(false, 'stats')`. `close(relock)` 의 인자는 호출 시그니처 유지용으로만 남아 있다.
 - Esc 는 capture-phase 리스너로 잡아 시트만 닫는다 (일시정지 메뉴로 새지 않는다).
 - 내용: 레벨 + XP 바, 스탯 5종(설명 · 값 · `＋` 버튼 — 레이드 중 비활성) + 잔여 포인트, 스킬 14종 진행도 바,
   파생 능력치 18개 readout, 2단계 확인식 **캐릭터 초기화** 버튼(함선에서만). 이 본문 전체는 `ui/SheetBody.ts` 하나가 그린다.
@@ -134,7 +135,7 @@ inventory / items 의 신규 API 가 아직 없으면 `typeof` 체크 + `try/cat
 ### 임베드 뷰 `createSheetView(host)` (Phase 8)
 인벤토리 Tab 화면의 **캐릭터 탭**이 부르는 진입점. 같은 `SheetBody` 를 `host` 안의 `.cs-embed` 래퍼에 만들고
 `EmbeddedView {refresh, dispose}` 를 돌려준다. 오버레이와 **렌더러가 하나**라 표시 내용이 갈라지지 않는다.
-- 임베드 뷰는 `'stats'` blocker 를 넣지 않고, `exitPointerLock()` 을 부르지 않으며, window Esc 리스너도 달지 않고,
+- 임베드 뷰는 `'stats'` blocker 를 넣지 않고, 커서 모드 · 포인터 락을 건드리지 않으며, window Esc 리스너도 달지 않고,
   `.scr-tabs` pill 도 그리지 않는다 — 전부 인벤토리 창의 몫 (`src/shared/types.ts` `EmbeddedView` 계약).
 - `ProgressionSystem` 은 넘겨준 뷰를 `views` 셋에 담아 스탯 · 스킬 · `derived` 가 바뀔 때마다 오버레이와 함께 갱신한다
   (`refreshSheets` / `refreshSheetSkill(id)` / `refreshSheetStat(id)`). `dispose()` 하면 셋에서 빠진다.
@@ -166,3 +167,15 @@ const implant = ctx.progression?.profile.implant ?? null;
   `SheetView` = 캐릭터 tab) get it, since they share `SheetBody`.
 - **CSS**: `.cs-implants(.is-empty) .h .hint`, `.cs-imp-key`, `.cs-imp-grid`,
   `.cs-imp-card(.is-equipped) .ico .body .line .nm .tag .desc .meta` in `ui/character.css`.
+
+## Phase 10 UI 개선 pass (2026-09-07)
+
+- **인게임 커서 (`docs/PHASE10-PLAN.md` §2).** `ui/CharacterSheet.open()` 은 `'stats'` blocker 를 넣은 뒤
+  `ctx.input.setCursorMode(true, 'stats')` 를 부른다 — **포인터 락을 풀지 않는다**. `close()` 는 토큰을 지우고
+  `setCursorMode(false, 'stats')` 를 부르며, 예전의 재잠금 마이크로태스크(`isGameplayPhase / isHubPhase / isDead`
+  가드 포함)는 삭제했다. `dispose()` 도 커서를 놓는다. `setCursorMode` 는 blocker 토큰 기준 ref-count 라서
+  인벤토리 창 위에 시트가 겹쳐도 시트가 닫힐 때 커서를 빼앗지 않는다.
+- **DOM 핸들러는 하나도 바꾸지 않았다.** 소프트 커서가 가상 좌표에서 실제로 버블링하는 `pointer*` / `mouse*` /
+  `click` / `wheel` 이벤트를 합성하므로 시트 · `SheetBody` · 임플란트 카드의 클릭 · 호버 배선이 그대로 동작한다.
+  이 폴더는 `input.mouseX / mouseY` 도 `document.elementFromPoint` 도 폴링하지 않으므로 그 외 이관 대상은 없다.
+- 임베드 뷰(`createSheetView`)는 변함없이 blocker · 커서 · Esc 를 건드리지 않는다.

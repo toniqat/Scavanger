@@ -73,6 +73,9 @@ type Gesture = 'plain' | 'attack' | 'caution' | 'ammo';
  * Emits `ping:placed` + `ping:placedV2 {owner}` / `ping:removed` (local **and** remote). Item/crate/attack/caution pings also post a chat line.
  * Multiplayer: local pings go out as `PingMessage {p, kind, label, enemyId}`; incoming pings are read through
  * `ctx.net.onMessage('ping')` (falls back to `net:remotePing` when no net module exists).
+ * Phase 10: `placeAtWorld(position, kind?)` (and the `ping:requestAt` event) ping a world point directly for surfaces
+ * with no aim ray — the tactical map's middle-click. It skips the pointer-lock / gameplay-active gate (the map holds a
+ * blocker) but keeps `MAX_PINGS`, the cooldown and the crate / pad / pickup snapping.
  */
 export class Pings {
   readonly root: HTMLElement;
@@ -123,6 +126,8 @@ export class Pings {
       ctx.bus.on('player:died', () => { this.clearLocal(); this.cancelHold(); }),
       ctx.bus.on('net:remotePlayerRemoved', ({ id }) => this.removeOwnedBy(id)),
       ctx.bus.on('weapon:equipped', ({ slot, name }) => { this.activeWeaponSlot = slot; this.activeWeaponName = name; }),
+      // Phase 10: a surface with no aim ray (the tactical map's middle-click) asks for a ping at a world point.
+      ctx.bus.on('ping:requestAt', ({ position, kind }) => this.placeAtWorld(position, kind)),
       ctx.bus.on('loadout:changed', ({ primary, secondary, primary2 }) => {
         if (this.activeWeaponSlot === 'primary2' && !primary2) { this.activeWeaponSlot = null; this.activeWeaponName = null; }
         if (this.activeWeaponSlot === 'primary' && !primary) { this.activeWeaponSlot = null; this.activeWeaponName = null; }
@@ -338,29 +343,70 @@ export class Pings {
     if (forced) {
       kind = forced;
     } else if (kind !== 'enemy') {
-      // snap to a dropped item / crate / extraction pad
-      const pickup = ctx.pickups?.findNear(pos, ITEM_SNAP) ?? null;
-      if (pickup) {
-        kind = 'item';
-        pos.copy(pickup.position);
-        const name = ctx.loot?.getItemDef(pickup.item.defId)?.name ?? pickup.item.defId;
-        label = pickup.item.qty > 1 ? `${name} ×${pickup.item.qty}` : name;
-      } else {
-        let bestD = CRATE_SNAP;
-        for (const c of world.getCrates()) {
-          const d = Math.hypot(c.position.x - pos.x, c.position.z - pos.z);
-          if (d < bestD) { bestD = d; kind = 'crate'; pos.copy(c.position); label = `보급 상자 (${c.tier}등급)`; }
-        }
-        if (kind !== 'crate') {
-          let padD = PAD_SNAP;
-          for (const e of world.getExtractionPoints()) {
-            const d = Math.hypot(e.position.x - pos.x, e.position.z - pos.z);
-            if (d < padD) { padD = d; kind = 'extraction'; pos.copy(e.position); }
-          }
-        }
+      const snapped = this.snap(ctx, pos);
+      kind = snapped.kind; label = snapped.label;
+    }
+
+    this.placeResolved(ctx, pos, kind, label, enemy);
+  }
+
+  /**
+   * Ping a world point from a surface that has no aim ray — the tactical map's middle-click (`ping:requestAt`).
+   * The pointer-lock / `isGameplayActive()` gate of the gesture path is deliberately **skipped** (the map holds a UI
+   * blocker by definition), but `MAX_PINGS` and the cooldown still apply, and a `ground` request reuses the same
+   * pickup / crate / pad snapping, so a map ping dropped on a crate still reads `보급 상자 (n등급)`.
+   */
+  placeAtWorld(position: THREE.Vector3, kind: PingKind = 'ground'): void {
+    const ctx = this.ctx;
+    const world = ctx?.world;
+    if (!ctx || !world?.ready) return;
+    if (ctx.time - this.lastPingTime < COOLDOWN) return;
+    this.lastPingTime = ctx.time;
+
+    const pos = position.clone();
+    const half = world.size / 2 - 1;
+    pos.x = THREE.MathUtils.clamp(pos.x, -half, half);
+    pos.z = THREE.MathUtils.clamp(pos.z, -half, half);
+    pos.y = world.getHeightAt(pos.x, pos.z);
+
+    let k = kind;
+    let label = '';
+    if (k === 'ground') { const snapped = this.snap(ctx, pos); k = snapped.kind; label = snapped.label; }
+    this.placeResolved(ctx, pos, k, label, null);
+  }
+
+  /** Snap a resolved point onto a dropped item / crate / extraction pad; mutates `pos` and returns kind + label. */
+  private snap(ctx: GameContext, pos: THREE.Vector3): { kind: PingKind; label: string } {
+    const world = ctx.world;
+    let kind: PingKind = 'ground';
+    let label = '';
+    const pickup = ctx.pickups?.findNear(pos, ITEM_SNAP) ?? null;
+    if (pickup) {
+      kind = 'item';
+      pos.copy(pickup.position);
+      const name = ctx.loot?.getItemDef(pickup.item.defId)?.name ?? pickup.item.defId;
+      label = pickup.item.qty > 1 ? `${name} ×${pickup.item.qty}` : name;
+      return { kind, label };
+    }
+    if (!world?.ready) return { kind, label };
+    let bestD = CRATE_SNAP;
+    for (const c of world.getCrates()) {
+      const d = Math.hypot(c.position.x - pos.x, c.position.z - pos.z);
+      if (d < bestD) { bestD = d; kind = 'crate'; pos.copy(c.position); label = `보급 상자 (${c.tier}등급)`; }
+    }
+    if (kind !== 'crate') {
+      let padD = PAD_SNAP;
+      for (const e of world.getExtractionPoints()) {
+        const d = Math.hypot(e.position.x - pos.x, e.position.z - pos.z);
+        if (d < padD) { padD = d; kind = 'extraction'; pos.copy(e.position); }
       }
     }
-    if (!label) label = PING_LABEL[kind];
+    return { kind, label };
+  }
+
+  /** Shared tail of every local ping: eviction → build → `ping:placed(V2)` → chat callout → relay. */
+  private placeResolved(ctx: GameContext, pos: THREE.Vector3, kind: PingKind, label: string, enemy: EnemyRef | null): void {
+    const text = label || PING_LABEL[kind];
 
     while (this.localCount() >= MAX_PINGS) {
       const idx = this.pings.findIndex((p) => !p.owner);
@@ -370,7 +416,7 @@ export class Pings {
 
     const id = this.nextId++;
     const expires = ctx.time + PING_LIFETIME;
-    const ping = this.build(id, kind, pos, expires, enemy, null, label);
+    const ping = this.build(id, kind, pos, expires, enemy, null, text);
     this.pings.push(ping);
     ctx.bus.emit('ping:placed', { id, position: ping.position, kind, expires });
     ctx.bus.emit('ping:placedV2', { id, position: ping.position, kind, expires, owner: null });
@@ -378,14 +424,14 @@ export class Pings {
     // chat line for callouts
     const player = ctx.player;
     const dist = player ? Math.round(Math.hypot(pos.x - player.position.x, pos.z - player.position.z)) : 0;
-    if (kind === 'item' || kind === 'crate') ctx.bus.emit('chat:post', { text: `아이템 발견: ${label} (${dist}m)`, kind: 'ping' });
+    if (kind === 'item' || kind === 'crate') ctx.bus.emit('chat:post', { text: `아이템 발견: ${text} (${dist}m)`, kind: 'ping' });
     else if (kind === 'attack') ctx.bus.emit('chat:post', { text: '돌격!', kind: 'ping' });
     else if (kind === 'caution') ctx.bus.emit('chat:post', { text: '주의!', kind: 'ping' });
 
     // squad: share it
     if (ctx.net && (ctx.isMultiplayer || ctx.net.lobby)) {
       const msg: PingMessage = { t: 'ping', p: [pos.x, pos.y, pos.z], kind };
-      if (kind === 'item' || kind === 'crate') msg.label = label;
+      if (kind === 'item' || kind === 'crate') msg.label = text;
       if (enemy) msg.enemyId = enemy.id;
       ctx.net.send(msg, 'others');
     }

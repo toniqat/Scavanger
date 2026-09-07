@@ -1,12 +1,40 @@
 import * as THREE from 'three';
-import { CORPSE_INTERACT_RADIUS, CORPSE_LIFETIME, Random, type EnemyType, type GameContext, type Interactable, type ItemInstance } from '@/shared';
+import {
+  CORPSE_INTERACT_RADIUS, CORPSE_LIFETIME, CORPSE_LOOT_CHANCE, Random,
+  type EnemyDeathDir, type EnemyType, type GameContext, type Interactable, type ItemInstance,
+} from '@/shared';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Lootable corpses (Phase 4). Every dead enemy registers an `Interactable` `corpse:<enemyId>` for CORPSE_LIFETIME
- * seconds; `interact()` rolls the loot once (`ctx.loot.rollCorpse`, seeded by world seed ^ enemy id so every client
- * rolls the same list) and opens the inventory's container window (`openContainerItems`). `crate:looted` with the
- * corpse id marks it searched (prompt `수색 완료`, no re-open). Corpse contents are per-client, like crates.
+ * Lootable corpses (Phase 4). A dead enemy whose corpse *rolled searchable* registers an `Interactable`
+ * `corpse:<enemyId>` for CORPSE_LIFETIME seconds; `interact()` rolls the loot once (`ctx.loot.rollCorpse`, seeded by
+ * world seed ^ enemy id so every client rolls the same list) and opens the inventory's container window
+ * (`openContainerItems`). `crate:looted` with the corpse id marks it searched (prompt `수색 완료`, no re-open).
+ * Corpse contents are per-client, like crates.
+ *
+ * Phase 10 — **probabilistic looting**: `CORPSE_LOOT_CHANCE[type]` (trash bug 0.1 / 상위 버그 0.35 / boss + rogue 1)
+ * decides whether a body can be searched at all. The roll runs on its own seeded stream (`rollCorpseLootable`), never
+ * on the `rng` that feeds `rollCorpse` — `src/inventory/__selftest__.ts` asserts exact `rollCorpse` output for
+ * `warrior` / `rogue` / `rogue_boss` at seeds 5 / 11 / 3, so any shift of that stream would break it. A body that
+ * fails the roll simply gets no interactable; the corpse mesh stays in the world as before.
  * ──────────────────────────────────────────────────────────────────────────── */
+
+/** Host authority for a corpse mirrored over `ee corpse` (`lt` → lootable, `dd` → fall direction). */
+export interface CorpseWireOpts {
+  /** undefined = decide locally from the seeded stream (same result); the wire value always wins when present. */
+  lootable?: boolean | undefined;
+  deathDir?: EnemyDeathDir | undefined;
+}
+
+/**
+ * Can this body be searched? Independent seeded stream (`worldSeed ^ (enemyId * 0x9e3779b1)`) so host and every
+ * replica agree without a wire field and the `rollCorpse` stream stays byte-identical to Phase 9.
+ */
+export function rollCorpseLootable(seed: number, enemyId: number, type: EnemyType): boolean {
+  const chance = CORPSE_LOOT_CHANCE[type] ?? 1;
+  if (chance >= 1) return true;
+  if (chance <= 0) return false;
+  return new Random(((seed ^ (enemyId * 0x9e3779b1)) >>> 0) || 1).chance(chance);
+}
 
 export class Corpse implements Interactable {
   readonly id: string;
@@ -58,16 +86,26 @@ export class CorpseManager {
   get(enemyId: number): Corpse | undefined { return this.corpses.get(enemyId); }
   all(): IterableIterator<Corpse> { return this.corpses.values(); }
 
-  /** Register (or refresh) the corpse of `enemyId`. Emits `corpse:spawned`. */
-  add(enemyId: number, type: EnemyType, position: THREE.Vector3, weaponId: string | undefined, seed: number): Corpse | null {
+  /**
+   * Register (or refresh) the corpse of `enemyId`. Emits `corpse:spawned` either way — Phase 10: a body that fails the
+   * `CORPSE_LOOT_CHANCE` roll gets **no interactable** and the event carries `lootable: false`, so a listener can tell
+   * "there is a body here" from "there is loot here". `opts` lets the host's `ee corpse` override the local roll.
+   */
+  add(enemyId: number, type: EnemyType, position: THREE.Vector3, weaponId: string | undefined, seed: number, opts?: CorpseWireOpts): Corpse | null {
     const ctx = this.ctx;
     if (!ctx) return null;
     const prev = this.corpses.get(enemyId);
     if (prev) this.remove(enemyId);
+    const lootable = opts?.lootable ?? rollCorpseLootable(seed, enemyId, type);
+    const deathDir = opts?.deathDir;
+    if (!lootable) {
+      ctx.bus.emit('corpse:spawned', { enemyId, type, position: position.clone(), lootable: false, deathDir });
+      return null;
+    }
     const c = new Corpse(ctx, enemyId, type, position, weaponId, seed);
     this.corpses.set(enemyId, c);
     ctx.interactables.register(c);
-    ctx.bus.emit('corpse:spawned', { enemyId, type, position: c.position });
+    ctx.bus.emit('corpse:spawned', { enemyId, type, position: c.position, lootable: true, deathDir });
     return c;
   }
 

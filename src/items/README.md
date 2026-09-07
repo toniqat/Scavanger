@@ -153,6 +153,7 @@ Rarity weights double as weapon-grade weights (grade ↔ rarity). `itemWeightMul
 | `rogue` | calibre rounds + **its weapon** (see below) | 30 % `stim`, 20 % `grenade_frag` |
 | `rogue_boss` | calibre rounds + **graded weapon** + one `att_*` (rarity ≤ epic, fitting the weapon when any does), `stim` ×1–2 | 20 % one **unique** (`wpn_u_*`, durability 50–80 %, random `ammoInMag`) + a 30–60 % stack of its calibre (Phase 6, rolled last) |
 
+Phase 10: **whether a corpse can be searched at all** is no longer this folder's call — `CORPSE_LOOT_CHANCE` (shared, per `EnemyType`: 잡버그 0.1 / 상위 버그 0.35 / behemoth · rogue · rogue_boss 1) is rolled by `src/enemies/Corpses.ts` on its own seeded stream, and `rollCorpse` is only ever called **after** that roll succeeded (`CORPSE_TABLES` and `rollCorpse` itself are unchanged, so `src/inventory/__selftest__.ts`'s exact-output assertions still hold).
 Phase 8: every **bug** row above also rolls `BUG_SEEDS` (4 % `seed_bloodroot`, 2 % `seed_ashleaf`, 0.6 % `seed_glowcap`, one each) — see *씨앗*. `rogue` / `rogue_boss` do not.
 Phase 9: `rogue` (3 %) and `rogue_boss` (20 %) roll one 서적 (`CorpseTable.book`, uniform over `BOOK_ITEM_DEFS`, rolled last) — see *서적*. Bugs do not.
 

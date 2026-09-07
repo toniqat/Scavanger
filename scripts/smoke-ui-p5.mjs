@@ -7,7 +7,9 @@
 // the 레이드 실패 death screen (`game:raidFailed`: no 부활, auto-return countdown, Space ignored), suspended nameplate /
 // squad rows + 훈련장 / 임무 중 / 함선 badges (`remotePlayers.debugSpawn` + `hud.debugRemotes`), host-change / suspended /
 // training chat + notification lines, the training objective. Phase 9: ghost bleed bar / 사망 tag on a suspended member's
-// nameplate + squad row from `ref.ghostState / ghostDownHp`. 97 checks. Needs the relay on 8787 too (the hub's
+// nameplate + squad row from `ref.ghostState / ghostDownHp`. Phase 10: the crosshair reload ring (`weapon:reloadStarted` /
+// `Cancelled` / `Finished`), the 회복약 2 s hold gauge (`heal:holdChanged`), the map's middle-click ping, the software
+// cursor sprite + cursor mode on the map (no `exitPointerLock`), and the item card's `100 C` credit bar. 132 checks. Needs the relay on 8787 too (the hub's
 // `ensureConnected` logs a console error otherwise), e.g. `npm run dev:all` or `npm run server` + a private vite.
 // Usage: node scripts/smoke-ui-p5.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
@@ -75,7 +77,7 @@ try {
     Object.defineProperty(Document.prototype, 'pointerLockElement', { get: () => canvas, configurable: true });
     window.__ev = {};
     const bus = window.__game.ctx.bus;
-    for (const n of ['audio:play', 'game:respawn']) {
+    for (const n of ['audio:play', 'game:respawn', 'ping:placed']) {
       window.__ev[n] = [];
       bus.on(n, (p) => { window.__ev[n].push(JSON.parse(JSON.stringify(p, (k, v) => (v && v.isVector3) ? [v.x, v.y, v.z] : v))); });
     }
@@ -117,6 +119,149 @@ try {
   }));
   ok(layers.panel && layers.afterObjective, 'contract panel lives in the gameplay layer after the objective', JSON.stringify(layers));
   ok(layers.toasts, 'meta toasts share the .progress-toasts column in the social layer');
+
+  /* -- Phase 10: crosshair reload ring + heal hold gauge -- */
+  console.log('crosshair gauges (Phase 10)');
+  // `stroke-dasharray` comes back as "<filled> <circumference>", with or without px units -> the filled fraction
+  const dashT = (d) => { const n = String(d).match(/[\d.]+/g); return n && n.length >= 2 ? Number(n[0]) / Number(n[1]) : NaN; };
+  const gaugeDom = await P(() => {
+    const r = document.querySelector('.hud.gameplay > .reload'), h = document.querySelector('.hud.gameplay > .heal');
+    const w = document.querySelector('.weapon');
+    // the ring must sit on the reticle: its own centre within a few px of the viewport centre
+    const box = r ? r.getBoundingClientRect() : null;
+    const off = box ? Math.max(Math.abs(box.left + box.width / 2 - window.innerWidth / 2), Math.abs(box.top + box.height / 2 - window.innerHeight / 2)) : 999;
+    return {
+      reload: !!r, heal: !!h,
+      arcGone: !w.querySelector('.arc'), pillGone: !w.querySelector('.reloading'),
+      off: Math.round(off), size: box ? Math.round(box.width) : 0,
+      rot: r ? getComputedStyle(r.querySelector('svg')).transform : '',
+      hidden: r ? !r.className.includes('show') : false,
+    };
+  });
+  ok(gaugeDom.reload && gaugeDom.heal, 'both new crosshair rings live in the gameplay layer (.reload / .heal)', JSON.stringify(gaugeDom));
+  ok(gaugeDom.arcGone && gaugeDom.pillGone, 'the weapon panel lost its .arc SVG and its 재장전 pill', JSON.stringify(gaugeDom));
+  ok(gaugeDom.off <= 2 && gaugeDom.size === 120 && /matrix\(0,\s*-1,\s*1,\s*0/.test(gaugeDom.rot), `reload ring is reticle-centred (SIZE 120, off ${gaugeDom.off}px) and rotated -90deg (fills from 12 o clock)`, JSON.stringify(gaugeDom));
+  ok(gaugeDom.hidden, 'reload ring starts hidden');
+  const reloadRing = () => P(() => { const e = document.querySelector('.reload'); const h = window.__game.getSystem('hud'); return { cls: e.className, dash: e.querySelector('.fill').style.strokeDasharray, lbl: e.querySelector('.lbl').textContent, on: h.isReloadGaugeOn, t: h.reloadProgress }; });
+  await emit('weapon:reloadStarted', { weaponId: 'ar23', duration: 2 });
+  let rg = await reloadRing();
+  ok(/\bshow\b/.test(rg.cls) && rg.on && dashT(rg.dash) < 0.02 && rg.lbl === '재장전 2.0 s', 'weapon:reloadStarted {duration:2} -> ring shown, empty, 재장전 2.0 s', JSON.stringify(rg));
+  await waitSim(0.9);
+  rg = await reloadRing();
+  ok(dashT(rg.dash) > 0.2 && dashT(rg.dash) < 0.9 && rg.t > 0.2, `ring fills on its own countdown (${rg.dash} · ${rg.lbl})`, JSON.stringify(rg));
+  await emit('weapon:reloadCancelled', { weaponId: 'ar23' });
+  rg = await reloadRing();
+  ok(!/\bshow\b/.test(rg.cls) && !rg.on && dashT(rg.dash) < 0.02, 'weapon:reloadCancelled hides the ring and resets it (a melee / swap cancel no longer leaves it filling)', JSON.stringify(rg));
+  await emit('weapon:reloadStarted', { weaponId: 'ar23', duration: 2 });
+  await emit('weapon:reloadFinished', { weaponId: 'ar23' });
+  rg = await reloadRing();
+  ok(!/\bshow\b/.test(rg.cls) && !rg.on, 'weapon:reloadFinished hides it too', JSON.stringify(rg));
+  await emit('weapon:reloadStarted', { weaponId: 'ar23', duration: 5 });
+  await emit('player:downed', { bleedout: 60 });
+  rg = await reloadRing();
+  ok(!rg.on, 'player:downed closes the ring mid-reload', JSON.stringify(rg));
+  await emit('player:revived', { hp: 100, byName: null });
+  // 회복약: LMB 2 s hold (HEAL_HOLD_S), a full circle rather than the cook gauge's 120 deg arc
+  const healRing = () => P(() => { const e = document.querySelector('.heal'); return { cls: e.className, dash: e.querySelector('.fill').style.strokeDasharray, lbl: e.querySelector('.lbl').textContent, on: window.__game.getSystem('hud').isHealGaugeOn, circle: !!e.querySelector('circle.fill') }; });
+  await emit('heal:holdChanged', { holding: true, t: 0 });
+  let hg = await healRing();
+  ok(/\bshow\b/.test(hg.cls) && hg.on && hg.circle, 'heal:holdChanged {holding} -> 회복약 ring shown, drawn as a full circle (not an arc path)', JSON.stringify(hg));
+  await emit('heal:holdChanged', { holding: true, t: 0.5 });
+  hg = await healRing();
+  ok(Math.abs(dashT(hg.dash) - 0.5) < 0.02 && hg.lbl === '회복약 1.0 s', 'half-held -> ring half full, 1.0 s left of HEAL_HOLD_S', JSON.stringify(hg));
+  await emit('heal:holdChanged', { holding: true, t: 1 });
+  hg = await healRing();
+  ok(/\bready\b/.test(hg.cls) && Math.abs(dashT(hg.dash) - 1) < 0.02, 't = 1 -> .ready, full ring', JSON.stringify(hg));
+  await emit('heal:holdChanged', { holding: false, t: -1 });
+  hg = await healRing();
+  ok(!/\bshow\b/.test(hg.cls) && !hg.on && dashT(hg.dash) < 0.02, 'releasing (holding false / t -1) hides and resets it', JSON.stringify(hg));
+  // the weapon panel's 회복약 hint follows the 2 s hold
+  const stimHint = await P(() => {
+    window.__game.ctx.bus.emit('quick:equipped', { item: { uid: 'smoke-stim', defId: 'stim', qty: 2, x: 0, y: 0, rot: 0 }, slot: 1 });
+    const w = document.querySelector('.weapon');
+    return { hint: w.querySelector('.cons .hint').textContent, cons: w.className.includes('consumable') };
+  });
+  ok(stimHint.cons && stimHint.hint === '좌클릭 2초 홀드', '회복약 in hand -> 좌클릭 2초 홀드 hint', JSON.stringify(stimHint));
+  await emit('quick:equipped', { item: null, slot: 1 });
+  // the 회복약 pill's key line is the live 빠른 사용 binding, never a hard-coded H
+  const pillKey = await P(() => { const k = document.querySelector('.vitals .pill .key'); return k ? k.textContent : null; });
+  ok(!!pillKey && !/H/.test(pillKey) && /빠른 사용$/.test(pillKey), `회복약 pill key line = keyLabel(Keys.QUICK) 빠른 사용 (${pillKey})`);
+
+  /* -- Phase 10: middle-click ping on the tactical map -- */
+  console.log('map middle-click ping (Phase 10)');
+  await P(() => { window.__ev['ping:placed'].length = 0; });
+  await page.evaluate(() => {
+    // Key taps must dispatch keydown + keyup in the same frame (CLAUDE.md): `Input.wasPressed` only fires on a fresh
+    // down, so a keydown left held makes every later tap of that key invisible.
+    window.tapKey = (code, key) => {
+      const init = { code, key: key ?? code.replace('Key', '').toLowerCase(), bubbles: true, cancelable: true };
+      document.body.dispatchEvent(new KeyboardEvent('keydown', init));
+      document.body.dispatchEvent(new KeyboardEvent('keyup', init));
+    };
+  });
+  await P(() => { tapKey('KeyM'); });
+  await waitFor(page, () => window.__game.getSystem('hud').isMapOpen, 'map open');
+  const mapPt = await P(() => {
+    const c = document.querySelector('.map-canvas');
+    const r = c.getBoundingClientRect();
+    return { hint: document.querySelector('.map-hint').textContent, x: Math.round(r.left + r.width * 0.4), y: Math.round(r.top + r.height * 0.6) };
+  });
+  ok(/휠클릭 핑/.test(mapPt.hint), `map footer hint mentions the middle-click ping (${mapPt.hint})`);
+  await P((pt) => {
+    document.querySelector('.map-canvas').dispatchEvent(new MouseEvent('mousedown', { button: 1, buttons: 4, clientX: pt.x, clientY: pt.y, bubbles: true, cancelable: true }));
+  }, mapPt);
+  const mapPing = await P(() => {
+    const placed = window.__ev['ping:placed'];
+    return { n: placed.length, last: placed[placed.length - 1] ?? null, open: window.__game.getSystem('hud').isMapOpen, markers: document.querySelectorAll('.pmarker').length };
+  });
+  ok(mapPing.n === 1 && !!mapPing.last, 'a middle-click on the map places exactly one ping (ping:placed)', JSON.stringify(mapPing));
+  ok(mapPing.open, 'the middle-click does not close the map or start a pan');
+  ok(mapPing.markers >= 1, 'the map ping got its own world marker', JSON.stringify(mapPing));
+  // the map keeps the pointer lock now (Phase 10 section 2): a cursor-mode owner instead of exitPointerLock
+  const mapCursor = await P(() => ({ mode: window.__game.ctx.input.isCursorMode, blocked: window.__game.ctx.uiBlockers.has('map'), sprite: window.__game.getSystem('hud').isSoftCursorOn, bodyCls: document.body.classList.contains('soft-cursor-on') }));
+  ok(mapCursor.mode && mapCursor.blocked, 'the open map is a cursor-mode owner with the map blocker (no exitPointerLock)', JSON.stringify(mapCursor));
+  ok(mapCursor.sprite && mapCursor.bodyCls, 'the software cursor sprite is drawn and the native cursor is hidden', JSON.stringify(mapCursor));
+  const sprite = await P(() => {
+    const s = document.querySelector('#ui-root > .soft-cursor');
+    window.__game.ctx.input.setCursorPosition(420, 260);
+    window.__game.frame(performance.now());
+    return { direct: !!s, hidden: s ? s.hidden : true, translate: s ? s.style.translate : '', pe: s ? getComputedStyle(s).pointerEvents : '' };
+  });
+  ok(sprite.direct && !sprite.hidden && sprite.pe === 'none', 'the sprite is a direct child of #ui-root and never takes pointer events', JSON.stringify(sprite));
+  ok(sprite.translate === '420px 260px', `it is positioned on the translate channel from input.cursorX/Y (${sprite.translate})`);
+  await P(() => { tapKey('KeyM'); });
+  await waitFor(page, () => !window.__game.getSystem('hud').isMapOpen, 'map closed');
+  const afterMap = await P(() => ({ mode: window.__game.ctx.input.isCursorMode, sprite: window.__game.getSystem('hud').isSoftCursorOn, bodyCls: document.body.classList.contains('soft-cursor-on') }));
+  ok(!afterMap.mode && !afterMap.sprite && !afterMap.bodyCls, 'closing the map releases cursor mode and hides the sprite', JSON.stringify(afterMap));
+
+  /* -- Phase 10: the item card's credit bar -- */
+  console.log('item tip credit bar (Phase 10)');
+  const tipBar = await P(() => {
+    const def = window.__game.ctx.loot.getItemDef('stim');
+    const chip = document.createElement('span');
+    chip.className = 'item-chip';
+    chip.dataset.defId = 'stim';
+    window.__game.ctx.uiRoot.appendChild(chip);
+    chip.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, clientX: 200, clientY: 200 }));
+    const tip = document.querySelector('#ui-root > .item-tip');
+    const bar = tip.querySelector('.it-value');
+    const res = {
+      value: def ? def.value : null,
+      hidden: tip.hidden,
+      bar: !!bar,
+      last: tip.lastElementChild === bar,
+      label: bar ? bar.querySelector('.k').textContent : '',
+      amount: bar ? bar.querySelector('.v').textContent : '',
+      align: bar ? getComputedStyle(bar).justifyContent : '',
+      rows: [...tip.querySelectorAll('.it-stats .k')].map((e) => e.textContent),
+    };
+    chip.remove();
+    return res;
+  });
+  ok(!tipBar.hidden && tipBar.bar && tipBar.last, 'the 가치 row became a bottom bar (.it-value, the card last child)', JSON.stringify(tipBar));
+  ok(tipBar.label === '가치' && tipBar.amount === `${tipBar.value.toLocaleString('ko-KR')} C`, `bar reads 가치 / ${tipBar.value} C via formatCredits (${tipBar.amount})`, JSON.stringify(tipBar));
+  ok(!tipBar.rows.includes('가치') && tipBar.align === 'space-between', '가치 is gone from the stats table and the amount is right-aligned', JSON.stringify(tipBar));
+  await P(() => document.querySelector('#ui-root > .item-tip').dispatchEvent(new PointerEvent('pointerout', { bubbles: true })));
 
   /* ── Phase 9 UI pass: 무게 표시 제거 · 분대 목록은 좌하단 · 우하단은 임플란트 → 빠른 사용 → 무기 슬롯 ── */
   const p9 = await P(() => {
@@ -188,14 +333,14 @@ try {
 
   console.log('meta toasts');
   const settledToast = await texts('.ptoast.contract');
-  ok(settledToast.length === 1 && settledToast[0].includes('계약 성공') && settledToast[0].includes('소탕 작전 I') && settledToast[0].includes('신뢰도 +60') && settledToast[0].includes('크레딧 +120'), 'meta:contractSettled success → big 계약 성공 toast with rep / credits', JSON.stringify(settledToast));
+  ok(settledToast.length === 1 && settledToast[0].includes('계약 성공') && settledToast[0].includes('소탕 작전 I') && settledToast[0].includes('신뢰도 +60') && settledToast[0].includes('크레딧 +120 C'), 'meta:contractSettled success → big 계약 성공 toast with rep / credits', JSON.stringify(settledToast));
   await emit('meta:creditsChanged', { credits: 620, delta: 120, reason: 'contract' });
   await emit('meta:creditsChanged', { credits: 650, delta: 30, reason: 'sale' });
   let chips = await texts('.ptoast.credits');
   ok(chips.length === 0, 'credit changes are coalesced (no chip yet)', JSON.stringify(chips));
   await waitSim(1.15);
   chips = await texts('.ptoast.credits');
-  ok(chips.length === 1 && chips[0] === '+150 크레딧', 'one +150 크레딧 chip after 1 s', JSON.stringify(chips));
+  ok(chips.length === 1 && chips[0] === '크레딧 +150 C', 'one 크레딧 +150 C chip after 1 s', JSON.stringify(chips));
   await emit('meta:creditsChanged', { credits: 650, delta: 0, reason: 'noop' });
   await waitSim(1.15);
   chips = await texts('.ptoast.credits');
@@ -203,7 +348,7 @@ try {
   await emit('meta:creditsChanged', { credits: 610, delta: -40, reason: 'buy' });
   await waitSim(1.15);
   let minus = await P(() => [...document.querySelectorAll('.ptoast.credits.minus')].map((e) => e.textContent));
-  ok(minus.length === 1 && minus[0] === '−40 크레딧', 'negative delta → −40 크레딧 (.minus)', JSON.stringify(minus));
+  ok(minus.length === 1 && minus[0] === '크레딧 −40 C', 'negative delta → 크레딧 −40 C (.minus)', JSON.stringify(minus));
   await emit('meta:repChanged', { corp: 'helix', rep: 100, level: 1, delta: 100, levelUp: true });
   let rep = await texts('.ptoast.rep');
   ok(rep.length === 1 && rep[0].includes('헬릭스 방산 신뢰도 Lv.1'), 'meta:repChanged levelUp → 헬릭스 방산 신뢰도 Lv.1', JSON.stringify(rep));
@@ -221,8 +366,8 @@ try {
   const ammoName = await P(() => { const d = window.__game.ctx.loot.getItemDef('ammo_light'); return d ? d.name : 'ammo_light'; });
   const gemName = await P(() => { const d = window.__game.ctx.loot.getItemDef('gem_amber'); return d ? d.name : 'gem_amber'; });
   ok(notifs.some((t) => t.includes('계약 수락 · 용병 제거 I')), 'meta:contractAccepted → 계약 수락 line', JSON.stringify(notifs));
-  ok(notifs.some((t) => t.includes(`구매: ${ammoName}`) && t.includes('−40 크레딧') && t.includes('(창고)')), 'meta:purchase → 구매 line with price and 창고', JSON.stringify(notifs));
-  ok(notifs.some((t) => t.includes(`판매: ${gemName}`) && t.includes('×2') && t.includes('+130 크레딧')), 'meta:sale → 판매 line with qty and credits', JSON.stringify(notifs));
+  ok(notifs.some((t) => t.includes(`구매: ${ammoName}`) && t.includes('크레딧 −40 C') && t.includes('(창고)')), 'meta:purchase → 구매 line with price and 창고', JSON.stringify(notifs));
+  ok(notifs.some((t) => t.includes(`판매: ${gemName}`) && t.includes('×2') && t.includes('크레딧 +130 C')), 'meta:sale → 판매 line with qty and credits', JSON.stringify(notifs));
   // Phase 7: wording keyed on settlement.outcome only — ctx.stats.extracted is deliberately set to the opposite.
   await P(() => { window.__game.ctx.stats.extracted = false; });
   await emit('meta:contractSettled', { id: 'nomad_1', corp: 'nomad', name: '회수 임무 I', success: false, outcome: 'incomplete', progress: 900, target: 1500, rep: 0, xp: 0, credits: 0 });
@@ -247,7 +392,7 @@ try {
   ok(!/\bhidden\b/.test(rw.menu) && !rw.hidden && rw.order, 'game:complete with rewards → .rewards block between stats and actions', `${rw.menu} hidden=${rw.hidden} order=${rw.order}`);
   ok(rw.lv === 'Lv. 2 → 3' && !rw.up && rw.badge && rw.counting, 'Lv. 2 → 3, no highlight before the count-up ends', JSON.stringify(rw));
   ok(rw.num === '40 / 300 XP', 'XP bar numbers 40 / 300 XP', rw.num);
-  ok(rw.contract === '계약 성공 · 소탕 작전 I · 신뢰도 +60 · 크레딧 +120' && /\bsuccess\b/.test(rw.ccls), 'contract success line (outcome wording)', `${rw.contract} ${rw.ccls}`);
+  ok(rw.contract === '계약 성공 · 소탕 작전 I · 신뢰도 +60 · 크레딧 +120 C' && /\bsuccess\b/.test(rw.ccls), 'contract success line (outcome wording)', `${rw.contract} ${rw.ccls}`);
   // The level-up moment fires when the count-up crosses the boundary (bar hits the old cap), not at the end.
   const cross = await waitFor(page, () => {
     const r = document.querySelector('.menu.complete .rewards');

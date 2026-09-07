@@ -93,7 +93,7 @@ try {
   const suggestions = () => page.evaluate(() => Array.from(document.querySelectorAll('.dev-console .dc-sug')).map((d) => ({ text: d.textContent, sel: d.classList.contains('sel') })));
   const lastLine = () => page.evaluate(() => { const l = document.querySelectorAll('.dev-console .dc-line'); const e = l[l.length - 1]; return e ? { text: e.textContent, kind: e.className.replace('dc-line ', '') } : null; });
   const run = (line) => page.evaluate((l) => window.__game.ctx.console.run(l), line);
-  const state = () => page.evaluate(() => ({ open: window.__game.ctx.console.isOpen, blocker: window.__game.ctx.uiBlockers.has('console'), hidden: document.querySelector('.dev-console').hidden, focused: document.activeElement === document.querySelector('.dev-console .dc-input'), phase: window.__game.ctx.phase }));
+  const state = () => page.evaluate(() => ({ open: window.__game.ctx.console.isOpen, blocker: window.__game.ctx.uiBlockers.has('console'), hidden: document.querySelector('.dev-console').hidden, focused: document.activeElement === document.querySelector('.dev-console .dc-input'), phase: window.__game.ctx.phase, cursor: window.__game.ctx.input.isCursorMode }));
   const pos = () => page.evaluate(() => { const p = window.__game.ctx.player.position; return [p.x, p.y, p.z]; });
 
   console.log('dev-host gating');
@@ -112,7 +112,8 @@ try {
   await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub phase');
   await tap('Backquote');
   let s = await state();
-  ok(s.open && s.blocker && !s.hidden && s.focused, '` opens: isOpen, blocker console, DOM shown, input focused', JSON.stringify(s));
+  // Phase 10: the console keeps the pointer lock and turns on the in-game cursor instead of exiting the lock
+  ok(s.open && s.blocker && !s.hidden && s.focused && s.cursor, '` opens: isOpen, blocker console, DOM shown, input focused, in-game cursor on', JSON.stringify(s));
   ok((await lastEv('console:toggled'))?.open === true, 'console:toggled {open:true}');
   ok((await inputValue()) === '', 'the ` character did not land in the input');
   await type('mo');
@@ -293,7 +294,7 @@ try {
   s = await state();
   ok(!s.open && s.phase === 'playing' && (await ev('game:paused')).length === pausedBefore, 'Esc closes only the console — game not paused', JSON.stringify(s));
   const relock = await page.evaluate(() => window.__game.ctx.uiBlockers.size);
-  ok(relock === 0, 'no blocker left after closing');
+  ok(relock === 0 && !s.cursor, 'no blocker and no in-game cursor left after closing');
   // keys dispatched while the console is open must not move the player
   await tap('Backquote');
   const k0 = await pos();

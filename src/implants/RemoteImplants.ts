@@ -19,7 +19,10 @@ interface PeerVis {
   wireActive: boolean;
   readonly wireFrom: THREE.Vector3;
   readonly wireTo: THREE.Vector3;
+  /** Phase 10: the peer's carried shield (follows their snapshot transform while `shieldUp`). */
   barrier: BarrierField | null;
+  shieldUp: boolean;
+  shieldHp: number;
   /* Phase 7: overcharge beam replication (`imp beam`) */
   beam: OverchargeBeam | null;
   beamOn: boolean;
@@ -40,7 +43,7 @@ const BEAM_TIMEOUT = 1.0;
 
 /**
  * Everything a *remote* caster's implants look like on this client: the device in their hands, their
- * grapple wire, their barrier (which also blocks hostile fire here — see `ImplantSystem.raycastBarrier`),
+ * grapple wire, their carried shield (which also blocks hostile fire here — see `ImplantSystem.raycastBarrier`),
  * their scan pulses and their rockets.
  *
  * Devices are driven by `PlayerSnapshot.imp` (via `RemotePlayerRef.implantId`) so a late joiner still
@@ -96,25 +99,16 @@ export class RemoteImplants {
         this.ctx.bus.emit('audio:play', { id: 'dash', position: _a, volume: 0.5 });
         break;
       }
-      case 'barrier': {
-        if (!msg.active) {
-          if (v.barrier?.active) {
-            this.ctx.bus.emit('audio:play', { id: 'barrier_stow', position: v.barrier.position, volume: 0.4 });
-            v.barrier.stow();
-          }
-          break;
-        }
-        if (!v.barrier) v.barrier = new BarrierField(this.ctx.scene, implantHex('barrier'), from);
-        _a.set(msg.p[0], msg.p[1], msg.p[2]);
-        if (v.barrier.active) {
-          // durability update for a shield that is already standing — do not replay the unfold
-          v.barrier.setHp(msg.hp);
-        } else {
-          v.barrier.deploy(_a, msg.yaw, msg.hp);
-          this.ctx.bus.emit('audio:play', { id: 'barrier_deploy', position: _a, volume: 0.6 });
-        }
+      // Phase 10: the shield is carried, so only up/hp travel — the transform comes from the peer's snapshot.
+      case 'shield':
+        v.shieldUp = msg.up;
+        v.shieldHp = msg.hp;
         break;
-      }
+      // legacy (Phase ≤ 9) deployed-wall message from an older peer: keep the state, ignore its p / yaw
+      case 'barrier':
+        v.shieldUp = msg.active;
+        v.shieldHp = msg.hp;
+        break;
       case 'scan': {
         _a.set(msg.p[0], msg.p[1], msg.p[2]);
         this.fx.pulse(_a, msg.radius, IMPLANT_SCAN_PULSE_INTERVAL * 1.4, implantHex('scan'), _a.y);
@@ -160,13 +154,14 @@ export class RemoteImplants {
 
   update(dt: number): void {
     const net = this.ctx.net;
-    // devices follow the snapshot field so they survive a missed `imp wield`
+    // devices follow the snapshot field so they survive a missed `imp wield` (the shield grip comes free with it)
     if (net) {
       for (const r of net.getRemotePlayers()) {
         const id = r.implantId;
         const wielded = id && getImplantDef(id)?.mode === 'wielded' ? id : null;
+        const up = r.isBarrierUp;
         const v = this.peers.get(r.id);
-        if (!wielded && !v) continue;
+        if (!wielded && up !== true && !v) continue;
         const vv = v ?? this.get(r.id);
         if (vv.deviceId !== wielded) this.setDevice(vv, wielded);
         // (re)attach once the avatar exists
@@ -175,6 +170,12 @@ export class RemoteImplants {
           if (socket) { socket.add(vv.device.root); vv.deviceAttached = true; }
         }
         vv.device?.update(dt, 1);
+        // Phase 10: the snapshot is authoritative for the shield (a late joiner needs no `imp shield`)
+        if (typeof up === 'boolean') {
+          vv.shieldUp = up;
+          if (typeof r.barrierHp === 'number') vv.shieldHp = r.barrierHp;
+        }
+        this.syncShield(vv, r.id, r.position, r.yaw);
       }
     }
     this.phase += dt;
@@ -216,12 +217,38 @@ export class RemoteImplants {
       v = {
         device: null, deviceId: null, deviceAttached: false,
         wire: null, wireActive: false, wireFrom: new THREE.Vector3(), wireTo: new THREE.Vector3(),
-        barrier: null,
+        barrier: null, shieldUp: false, shieldHp: 0,
         beam: null, beamOn: false, beamTarget: null, beamSelf: false, beamUntil: 0, glow: null, glowMat: null,
       };
       this.peers.set(id, v);
     }
     return v;
+  }
+
+  /**
+   * Phase 10: a peer's carried shield. It has no transform of its own — every frame it follows that peer's
+   * interpolated feet position and yaw, exactly like the local one follows the player. Replicated shields block
+   * hostile fire here too (`ImplantSystem.raycastBarrier` queries them through `getBarriers`).
+   */
+  private syncShield(v: PeerVis, id: PeerId, position: THREE.Vector3, yaw: number): void {
+    if (!v.shieldUp) {
+      if (v.barrier?.active) {
+        this.ctx.bus.emit('audio:play', { id: 'barrier_stow', position: v.barrier.position, volume: 0.4 });
+        v.barrier.lower();
+      }
+      return;
+    }
+    if (!v.barrier) v.barrier = new BarrierField(this.ctx.scene, implantHex('barrier'), id);
+    if (!v.barrier.active) {
+      v.barrier.raise(v.shieldHp > 0 ? v.shieldHp : v.barrier.maxHp);
+      v.barrier.follow(position, yaw);
+      this.ctx.bus.emit('audio:play', { id: 'barrier_deploy', position: v.barrier.position, volume: 0.6 });
+    } else if (v.shieldHp > 0) {
+      // a drop is a block (flash it), a rise is the owner's regen (apply silently — `bhp` arrives at 20 Hz)
+      if (v.shieldHp < v.barrier.hp - 1) v.barrier.setHp(v.shieldHp);
+      else if (v.shieldHp > v.barrier.hp + 1) v.barrier.hp = Math.min(v.barrier.maxHp, v.shieldHp);
+    }
+    v.barrier.follow(position, yaw);
   }
 
   /* ── Phase 7: overcharge beam / self glow of a remote caster ── */
@@ -300,6 +327,7 @@ export class RemoteImplants {
     if (v.glow) { v.glow.removeFromParent(); v.glowMat?.dispose(); }
     v.device = null; v.wire = null; v.barrier = null; v.beam = null; v.glow = null; v.glowMat = null;
     v.deviceId = null; v.deviceAttached = false; v.wireActive = false;
+    v.shieldUp = false; v.shieldHp = 0;
     v.beamOn = false; v.beamTarget = null; v.beamSelf = false;
   }
 }

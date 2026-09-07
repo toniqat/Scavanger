@@ -3,7 +3,7 @@ import type {
 } from '@/shared';
 import {
   CONTRACT_GOAL_LABEL_KO, CORP_DEFS, CORP_IDS, REP_TABLE, SHOP_UNLOCK_REP_LEVEL,
-  buildItemChip, renderItemCost,
+  buildItemChip, formatCredits, renderItemCost,
 } from '@/shared';
 import type { MetaSystem, PurchaseFailure } from '../MetaSystem';
 import { el, fmtNum, setText, toggleClass } from './dom';
@@ -176,7 +176,7 @@ export class CorpView {
       b.on('meta:contractAbandoned', refresh), b.on('meta:contractSettled', refresh), b.on('meta:questChanged', refresh),
       b.on('meta:purchase', ({ defId, price }) => {
         if (this.quietPurchases > 0) this.quietPurchases--;
-        else if (this.visible && !this.settling) this.showMsg(`${this.defName(defId)} 구매 · −${fmtNum(price)} 크레딧`, 'success');
+        else if (this.visible && !this.settling) this.showMsg(`${this.defName(defId)} 구매 · −${formatCredits(price)}`, 'success');
         refresh();
       }),
       b.on('meta:sale', refresh), b.on('meta:loaded', refresh),
@@ -228,7 +228,7 @@ export class CorpView {
   refresh(): void {
     if (this.disposed) return;
     const meta = this.meta;
-    setText(this.creditsEl, fmtNum(meta.credits));
+    setText(this.creditsEl, formatCredits(meta.credits));
     for (const id of CORP_IDS) {
       const r = meta.getRep(id);
       setText(this.corpLv.get(id)!, `Lv.${r.level}`);
@@ -348,13 +348,13 @@ export class CorpView {
       const chip = el('button', { cls: 'ct-chip ct-cell', parent: this.sellSlotsEl });
       chip.appendChild(buildItemChip(def, { size: 48, need: line.qty }));
       el('div', { cls: 'ct-cell-name', text: def?.name ?? '—', parent: chip });
-      el('div', { cls: 'ct-cell-price', text: `${fmtNum(this.meta.sellPriceOf(line.uid, line.qty) ?? 0)} cr`, parent: chip });
+      el('div', { cls: 'ct-cell-price', text: formatCredits(this.meta.sellPriceOf(line.uid, line.qty) ?? 0), parent: chip });
       chip.addEventListener('click', (e) => { e.stopPropagation(); this.unstageSell(line.uid); });
     }
-    setText(this.buyTotalEl, `−${fmtNum(cost)}`);
-    setText(this.sellTotalEl, `+${fmtNum(revenue)}`);
+    setText(this.buyTotalEl, `−${formatCredits(cost)}`);
+    setText(this.sellTotalEl, `+${formatCredits(revenue)}`);
     const net = revenue - cost;
-    setText(this.netEl, `${net > 0 ? '+' : net < 0 ? '−' : ''}${fmtNum(Math.abs(net))}`);
+    setText(this.netEl, `${net > 0 ? '+' : net < 0 ? '−' : ''}${formatCredits(Math.abs(net))}`);
     toggleClass(this.netEl, 'plus', net > 0);
     toggleClass(this.netEl, 'minus', net < 0);
     const blocked = this.tradeBlock(cost, revenue);
@@ -396,7 +396,7 @@ export class CorpView {
     const owned = this.meta.countAll(d.id);
     cell.appendChild(buildItemChip(d, { size: 48, ...(owned > 0 ? { have: owned } : {}) }));
     el('div', { cls: 'ct-cell-name', text: d.name, parent: cell }).style.color = d.color;
-    el('div', { cls: 'ct-cell-price', text: `${fmtNum(line.price)} cr`, parent: cell });
+    el('div', { cls: 'ct-cell-price', text: formatCredits(line.price), parent: cell });
     const staged = this.buyLines.find((b) => b.defId === d.id);
     if (staged) el('div', { cls: 'ct-staged', text: `×${staged.qty}`, parent: cell });
     toggleClass(cell, 'blocked', line.blocked !== null);
@@ -549,7 +549,7 @@ export class CorpView {
     const parts: string[] = [];
     if (bought > 0) parts.push(`구매 ${bought}점`);
     if (sold > 0) parts.push(`판매 ${sold}점`);
-    parts.push(`${net >= 0 ? '+' : '−'}${fmtNum(Math.abs(net))} 크레딧`);
+    parts.push(`${net >= 0 ? '+' : '−'}${formatCredits(Math.abs(net))}`);
     this.showMsg(failures.length ? `${parts.join(' · ')} · 실패: ${failures[0]}` : `거래 성사 · ${parts.join(' · ')}`,
       failures.length ? 'warning' : 'success');
     this.refresh();
@@ -605,7 +605,7 @@ export class CorpView {
     fill.style.transform = `scaleX(${frac.toFixed(3)})`;
     toggleClass(bar, 'done', c.active && c.progress >= d.target);
     el('div', { cls: 'goal-text', text: `${CONTRACT_GOAL_LABEL_KO[d.goal]} ${fmtNum(Math.floor(c.progress))} / ${fmtNum(d.target)}`, parent: mid });
-    el('div', { cls: 'reward', text: `신뢰도 +${d.repReward} · XP +${d.xpReward} · 크레딧 +${fmtNum(d.creditsReward)}`, parent: r });
+    el('div', { cls: 'reward', text: `신뢰도 +${d.repReward} · XP +${d.xpReward} · 크레딧 +${formatCredits(d.creditsReward)}`, parent: r });
     if (c.active) {
       this.button(r, '포기', () => {
         const ok = this.meta.abandonContract();
@@ -699,7 +699,7 @@ export class CorpView {
     const rw = d.rewards;
     const rewardCell = el('div', { cls: 'reward', parent: host });
     const parts = [`신뢰도 +${rw.rep}`, `XP +${rw.xp}`];
-    if (rw.credits) parts.push(`크레딧 +${fmtNum(rw.credits)}`);
+    if (rw.credits) parts.push(`크레딧 +${formatCredits(rw.credits)}`);
     el('div', { cls: 'rw-line', text: parts.join(' · '), parent: rewardCell });
     const items = rw.items ?? [];
     if (items.length > 0) {

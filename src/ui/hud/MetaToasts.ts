@@ -1,5 +1,5 @@
 import type { GameContext } from '@/shared';
-import { CORP_DEFS } from '@/shared';
+import { CORP_DEFS, formatCredits } from '@/shared';
 import { el, fmtInt, setText } from '../dom';
 import { CONTRACT_OUTCOME_TEXT, contractOutcome } from '../menus/RewardsBlock';
 
@@ -11,7 +11,8 @@ const MAX_TOASTS = 4;
 
 /**
  * Top-centre meta toasts (Phase 5), stacked in the same column as `ProgressToasts` (constructed with its root):
- *   `meta:creditsChanged`  → coalesced `+n 크레딧` / `−n 크레딧` chip (`CREDITS_FLUSH` s, signed net, 0 = no chip)
+ *   `meta:creditsChanged`  → coalesced `크레딧 +n C` / `크레딧 −n C` chip (`CREDITS_FLUSH` s, signed net, 0 = no chip;
+ *                             Phase 10: the amount goes through the shared `formatCredits`, the word stays the label)
  *   `meta:repChanged`      → `<기업> 신뢰도 Lv.n` toast on `levelUp` only
  *   `meta:contractSettled` → large `계약 성공` / `계약 미완 · 계속` / `계약 실패 · 진척 유지 안 됨` toast keyed on
  *                             `settlement.outcome` (Phase 7; never on `ctx.stats.extracted`, wording shared with `RewardsBlock`)
@@ -48,7 +49,7 @@ export class MetaToasts {
         el('span', { cls: 'k', text: CONTRACT_OUTCOME_TEXT[outcome], parent: t });
         el('span', { cls: 'v', text: s.name, parent: t });
         const sub = outcome === 'success'
-          ? `신뢰도 +${fmtInt(s.rep)} · 크레딧 +${fmtInt(s.credits)}`
+          ? `신뢰도 +${fmtInt(s.rep)} · 크레딧 ${formatCredits(s.credits, { sign: true })}`
           : `${fmtInt(s.progress)} / ${fmtInt(s.target)}`;
         el('span', { cls: 's', text: sub, parent: t });
       }),
@@ -76,7 +77,7 @@ export class MetaToasts {
         this.creditsPending = 0;
         if (n !== 0) {
           const t = this.push(n > 0 ? 'credits' : 'credits minus', CREDITS_TTL);
-          setText(t, `${n > 0 ? '+' : '−'}${fmtInt(Math.abs(n))} 크레딧`);
+          setText(t, `크레딧 ${formatCredits(n, { sign: true })}`);
         }
       }
     }

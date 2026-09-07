@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 import {
-  BURNOUT_DURATION, ENEMY_STATUS_BITS, NET_INTERP_DELAY, type EnemyEvent, type EnemySnapshot, type EnemyType, type EnemyWire, type EnemyWireState, type GameContext,
+  BURNOUT_DURATION, ENEMY_DEATH_DIRS, ENEMY_STATUS_BITS, NET_INTERP_DELAY, type EnemyEvent, type EnemySnapshot, type EnemyType, type EnemyWire, type EnemyWireState, type GameContext,
 } from '@/shared';
 import type { Enemy } from '../Enemy';
+import type { CorpseWireOpts } from '../Corpses';
 import type { CombatTarget, TargetList } from '../Targets';
-import { applySlope } from '../ai/EnemyAI';
+import { applySlope, integrateDeathFall } from '../ai/EnemyAI';
 import { lookAtTarget } from '../ai/Common';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -169,7 +170,8 @@ export interface ReplicaHost {
   shellLandedRemote(sid: number, p: THREE.Vector3): void;
   chargeVisual(id: number, target: THREE.Vector3): void;
   toxicVisual(id: number, p: THREE.Vector3): void;
-  corpseSpawnedRemote(id: number, type: EnemyType, p: THREE.Vector3, weaponId: string | undefined): void;
+  /** Phase 10: `opts` carries the host's authority for the lootable roll (`ee corpse.lt`) and the fall direction (`dd`). */
+  corpseSpawnedRemote(id: number, type: EnemyType, p: THREE.Vector3, weaponId: string | undefined, opts?: CorpseWireOpts): void;
   corpseGoneRemote(id: number): void;
   /* ── Phase 7 (rogue AI v2) ── */
   /** Visual rogue grenade from `ee grenade` (position / velocity / fuse as thrown on the host). */
@@ -278,7 +280,8 @@ export class EnemyReplica {
         const e = host.find(msg.id);
         if (e && e.active) {
           e.hp = 0;
-          e.kill(false);                       // death anim + gore + bug_death via host.onEnemyKilled
+          // Phase 10: the host's fall direction wins (the seeded fallback in `kill()` agrees anyway)
+          e.kill(false, msg.dd !== undefined ? ENEMY_DEATH_DIRS[msg.dd] : undefined);   // death anim + gore + bug_death via host.onEnemyKilled
         }
         const localId = ctx.net?.localId ?? null;
         if (msg.killer !== null && msg.killer === localId) {
@@ -372,7 +375,11 @@ export class EnemyReplica {
         _p.set(msg.p[0], msg.p[1], msg.p[2]);
         const e = host.find(msg.id);
         if (e && msg.w) e.weaponId = msg.w;
-        host.corpseSpawnedRemote(msg.id, msg.ty, _p, msg.w);
+        // Phase 10: `lt: 0` = this corpse rolled un-searchable (no interactable), `dd` = the fall direction
+        host.corpseSpawnedRemote(msg.id, msg.ty, _p, msg.w, {
+          lootable: msg.lt === undefined ? undefined : msg.lt !== 0,
+          deathDir: msg.dd !== undefined ? ENEMY_DEATH_DIRS[msg.dd] : undefined,
+        });
         return;
       }
       case 'corpseGone':
@@ -418,7 +425,9 @@ export class EnemyReplica {
     for (let i = 0; i < active.length; i++) {
       const e = active[i];
       if (!e.active) continue;
-      if (e.state === 'dead') { e.deathTimer += dt; continue; }
+      // Phase 10: a body killed in the air falls here too — the host stops sending it after 1.5 s, so the replica
+      // runs the same deterministic fall (`integrateDeathFall`) instead of freezing the corpse mid-air.
+      if (e.state === 'dead') { e.deathTimer += dt; integrateDeathFall(e, dt, world); continue; }
       const buf = e.netBuf;
       if (!buf) continue;
       const latest = buf.latest();

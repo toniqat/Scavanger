@@ -3,11 +3,13 @@
 `ImplantSystem` 이 `ctx.implants` (`ImplantsRef`) 를 발행한다. 6종 중 **하나만** 장착해서 레이드에 들고 가며,
 장착 변경은 함선에서만 가능하다 (`ctx.isRaidActive()` 면 `setEquipped` 가 `false` 를 돌려준다).
 
-**Q** (`Keys.IMPLANT`, 재할당 가능) 의 동작은 `ImplantDef.mode` 로 갈린다 (2026-09-06 개편):
-- `instant` — 갈고리 / 대시 / 배리어: 누르면 바로 시전. 갈고리는 조준점 앵커가 유효할 때 즉시 발사, 다시 누르면 와이어를 끊는다. 총은 손에 그대로.
+**Q** (`Keys.IMPLANT`, 재할당 가능) 의 동작은 `ImplantDef.mode` 로 갈린다 (2026-09-06 개편, Phase 10 수정):
+- `instant` — 갈고리 / 대시: 누르면 바로 시전. 갈고리는 조준점 앵커가 유효할 때 즉시 발사, 다시 누르면 와이어를 끊는다. 총은 손에 그대로.
 - `hold` — 정찰 / 오버차지: **누르고 있는 동안** 효과가 돈다 (정찰 파동 1초 간격, 오버차지 채널). 총은 손에 그대로, `holding === true`.
-- `wielded` — 대전차포 (유일): Q 로 손에 들고(`blocksWeapons === true`, weapons 가 홀스터) 좌클릭 발사. Q 또는 **무기 키(1/2/3/V)** 로 집어넣는다
-  (weapons 가 `stow()` 를 호출한 뒤 그 무기를 뽑는다 — 예전엔 장착형을 든 채로 무기 키가 먹지 않던 버그).
+- `wielded` — 대전차포 · **배리어**(Phase 10): Q 로 손에 들고(`blocksWeapons === true`, weapons 가 홀스터) 대전차포는 좌클릭 발사, 배리어는 그냥 막는다.
+  Q 또는 **무기 키(1/2/3/V)** 로 집어넣는다 (weapons 가 `stow()` 를 호출한 뒤 그 무기를 뽑는다 — 예전엔 장착형을 든 채로 무기 키가 먹지 않던 버그).
+
+들쳐메기 게이트 (Phase 10): 부상자를 어깨에 메고 있으면(`ctx.player.carrying !== null`) Q 는 `dropCarried('action')` 만 호출하고 그 프레임에는 아무것도 시전하지 않는다.
 
 멀티플레이 방침: **로컬 계산 + 시각 브로드캐스트**. 모든 판정은 시전자 클라이언트에서 하고, 남들에게는
 `imp` 메시지로 보여주기만 한다 (Phase 7 부터 오버차지 빔도 `imp beam` 으로 복제). 남의 캐릭터에 거는 우호 효과(회복/버프)만 `buff` 메시지로 보낸다.
@@ -17,11 +19,11 @@
 
 | 파일 | 역할 |
 |---|---|
-| `ImplantSystem.ts` | `GameSystem` + `ImplantsRef`. 입력(Q/좌/우클릭), 충전·쿨타임, 6종 동작, 이벤트 emit, `imp`/`buff` 송수신, `raycastBarrier`(순수 질의) + `damageBarrier`(실제 피격), `flow rejoined` 에 배리어 재전송, e2e 훅 `debugBeam` |
+| `ImplantSystem.ts` | `GameSystem` + `ImplantsRef`. 입력(Q/좌/우클릭), 충전·쿨타임, 6종 동작, 이벤트 emit, `imp`/`buff` 송수신, `raycastBarrier`(순수 질의) + `damageBarrier`(실제 피격), 방패 들기/내리기 + 추종 + `imp shield` 송신(`flow rejoined` 재전송), e2e 훅 `debugBeam` |
 | `ImplantDefs.ts` | `IMPLANT_DEFS` (한국어 이름/설명/아이콘/색), `getImplantDef`, `isImplantId`, `implantHex` |
-| `RemoteImplants.ts` | 원격 시전자 시각화: 손의 장치, 갈고리 와이어, 배리어(복제본도 적탄을 막는다), 스캔 파동, 로켓, **오버차지 빔 / 자기 발광** (Phase 7, `imp beam`) |
-| `devices/ImplantDevice.ts` | 손에 드는 절차적 장치 모델(갈고리 런처 / 오버차지 이미터 / 스캐너 / 대전차포). 무기 소켓에 붙으며 **-Z 가 총구 방향**, `muzzle` 이 끝점 |
-| `effects/Barrier.ts` | `BarrierField` — 헥사 CanvasTexture 실드 메시, 내구도, 선분 교차(`intersect`) |
+| `RemoteImplants.ts` | 원격 시전자 시각화: 손의 장치, 갈고리 와이어, **방패**(스냅샷 `isBarrierUp` / `barrierHp` + `imp shield`, 피어 위치·yaw 를 매 프레임 추종하며 복제본도 적탄을 막는다), 스캔 파동, 로켓, **오버차지 빔 / 자기 발광** (Phase 7, `imp beam`) |
+| `devices/ImplantDevice.ts` | 손에 드는 절차적 장치 모델(갈고리 런처 / 오버차지 이미터 / 스캐너 / 대전차포 / **방패 손잡이**). 무기 소켓에 붙으며 **-Z 가 총구 방향**, `muzzle` 이 끝점. 방패 분기는 손잡이·프레임만 만들고 막는 패널은 `BarrierField` 가 그린다 |
+| `effects/Barrier.ts` | `BarrierField` — 헥사 CanvasTexture 실드 메시, 내구도, 선분 교차(`intersect`, 정면 각도 게이트). Phase 10 부터 **추종형**: `raise()` / `lower()` + 매 프레임 `follow(feet, yaw)` |
 | `effects/Grapple.ts` | `GrappleWire` — 와이어 빔 + 작살 헤드 |
 | `effects/Overcharge.ts` | `OverchargeBeam` (2겹 빔 + 임팩트 디스크), `findAlly` / `allyPoint` (조준 원뿔 안의 아군 탐색) |
 | `effects/Scan.ts` | `collectScanTargets` — 반경 안의 적/상자/채집물/목표/픽업/설치물을 `ScanTarget[]` 으로 수집 |
@@ -34,7 +36,7 @@
 |---|---|---|---|---|
 | `grapple` | 갈고리 | instant | 장착 중 매 프레임 조준점 판정 → `implant:grappleTargetChanged` (Reticle 괄호). **Q** = 유효하면 즉시 발사 → 부착 시 `player.setGrappleTarget(point)` 로 견인; 도착(2.6 m)·5초·Q 재입력으로 해제. 와이어 원점은 무기 소켓(손) | `IMPLANT_GRAPPLE_COOLDOWN` |
 | `dash` | 대시 | instant | 전방 레이캐스트로 거리 산출 → 바닥 스냅 → `resolveCollision` → `ctx.player.position` 을 직접 갱신(순간이동). 충전 3 | `IMPLANT_DASH_COOLDOWN` (충전당) |
-| `barrier` | 배리어 | instant(토글) | 정면 2.2 m 지점에 실드 전개. **적 발사체만** 차단, 1발당 30 hp 소모. 접었을 때 `IMPLANT_BARRIER_REGEN`/s 회복. 파괴 시 `IMPLANT_BARRIER_BREAK_LOCKOUT` 10초 잠금 — 그 동안 내구도가 0 → 만충으로 정확히 차오르므로 HUD 내구도 게이지가 쿨타임 표시를 대신한다 (`barrierLockout`) | 0 (내구도가 자원) |
+| `barrier` | 배리어 | wielded | Q 로 **방패를 손에 든다**(총 홀스터, 이동속도 × `IMPLANT_BARRIER_CARRY_SPEED_MUL`). 패널은 발 위치 + 정면 `IMPLANT_BARRIER_CARRY_OFFSET` 에서 몸을 따라오고 크기는 `IMPLANT_BARRIER_CARRY_WIDTH × _HEIGHT`, 밑단은 `_BASE_Y`. **적 발사체만** · **정면 `_ARC` 안에서만** 차단, 1발당 `IMPLANT_BARRIER_BLOCK_DAMAGE` 30 소모. 든 상태에서도 `_REGEN_DELAY` 3초 무피격 후 `_REGEN` 40/s 회복, 내렸으면 `IMPLANT_BARRIER_REGEN` 120/s. 파괴 시 자동으로 손에서 내려가고 `IMPLANT_BARRIER_BREAK_LOCKOUT` 10초 잠금 — 그 동안 내구도가 0 → 만충으로 정확히 차오르므로 HUD 내구도 게이지가 쿨타임 표시를 대신한다 (`barrierLockout`), 잠긴 동안 Q 는 `배리어 재충전 중` 으로 거부 | 0 (내구도가 자원) |
 | `overcharge` | 오버차지 | hold | Q 를 누르고 있는 동안: 자신 `IMPLANT_OVERCHARGE_SELF_HEAL_PER_SEC`(10)/s 회복 + 조준 원뿔 안의 아군에게 `buff heal` `IMPLANT_OVERCHARGE_ALLY_HEAL_PER_SEC`(25)/s (빔은 아군에게만). 체력 ≥ 90 %(`IMPLANT_OVERCHARGE_BUFF_HP_RATIO`) 인 대상(자신 / 아군)에게만 이동·연사 버프(`setSpeedModifier('overcharge')`, 짝 스태미나 버프는 없음). **에너지** `IMPLANT_OVERCHARGE_ENERGY` 6 s 를 소모하고 놓으면 `IMPLANT_OVERCHARGE_REGEN_TIME` 12 s 에 만충; 0.75 s 미만이면 시작 거부. `implant:energyChanged` | 0 (에너지가 자원) |
 | `scan` | 정찰 | hold | Q 홀드 → 1초마다 파동, 반경 `pulse × IMPLANT_SCAN_RADIUS_STEP`, 최대 5회. 결과는 `implant:scanned` + `detect:reveal` (10초) | `IMPLANT_SCAN_COOLDOWN` (놓거나 5회 후 시작) |
 | `atlauncher` | 대전차포 | wielded | 좌클릭 로켓 발사(조준점을 향해 보정). 착탄 시 `IMPLANT_AT_RADIUS` 광역 `IMPLANT_AT_DAMAGE` | `IMPLANT_AT_COOLDOWN` |
@@ -57,7 +59,7 @@
 **쓰는 것 (emit)**
 `implant:equipped`, `implant:activated`, `implant:cooldownChanged`, `implant:wieldChanged`,
 `implant:grappleTargetChanged` / `grappleFired` / `grappleAttached` / `grappleReleased`,
-`implant:dashed`, `implant:barrierChanged` / `barrierHit`, `implant:scanned`, `implant:overcharge`,
+`implant:dashed`, `implant:barrierChanged` / `barrierHit` / **`barrierCarried`**, `implant:scanned`, `implant:overcharge`,
 `implant:rocketExploded`, `detect:reveal`, `camera:shake`, `audio:play`, `ui:notify`.
 
 **구독**: `progress:loaded`, `game:newMission`, `game:abort`, `hub:entered`, `game:phaseChanged`,
@@ -65,14 +67,15 @@
 
 **`raycastBarrier(origin, dir, maxDist, fromEnemy)`**
 - `fromEnemy === false` → **항상 `null`** (아군 실드는 아군 탄을 막지 않는다). weapons 가 자기 탄을 이 규약으로 판정한다.
-- `fromEnemy === true` → 로컬 배리어 + 복제된 원격 배리어 중 가장 가까운 교차점 `{ point, owner }`.
+- `fromEnemy === true` → 로컬 방패 + 복제된 원격 방패 중 가장 가까운 교차점 `{ point, owner }`. Phase 10 부터 **정면 게이트**가 붙어
+  (`IMPLANT_BARRIER_CARRY_ARC` 반각) 뒤·측후방에서 온 탄은 그냥 통과한다. 시그니처는 그대로다.
 - **순수 질의다 (Phase 9).** 더 이상 내구도를 깎거나 스파크를 튀기지 않는다 — 시선 판정 / 사선 검사처럼 매 틱 불러도 안전하다.
   (Phase 8 까지는 여기서 바로 30 을 깎았고, 그래서 "투기적 질의 금지" 경고가 붙어 있었다. 그 경고는 폐기.)
 
-**`damageBarrier(owner, point, amount = BARRIER_BLOCK_DAMAGE)`** (Phase 9)
+**`damageBarrier(owner, point, amount = IMPLANT_BARRIER_BLOCK_DAMAGE)`** (Phase 9)
 - 탄이 **실제로** 배리어에서 멈춘 지점에서 **한 번만** 부른다 (weapons 의 히트스캔 해석 · 투사체 세그먼트, enemies 의 로그 사격 / 곡사 / 산탄 착탄).
-- `owner === 'local'` → `onBarrierBlocked` (내구도 −`amount`, `implant:barrierHit`, 붕괴 시 `barrier_break` + 잠금, `imp barrier` 동기화).
-- 원격 소유자 → 스파크만. 그 배리어의 hp 는 소유자 클라이언트가 권위이고 `imp barrier` 로 방송한다.
+- `owner === 'local'` → `onBarrierBlocked` (내구도 −`amount`, `implant:barrierHit`, 붕괴 시 `barrier_break` + 잠금 + 자동 `stow()`, `imp shield` 동기화).
+- 원격 소유자 → 스파크만. 그 방패의 hp 는 소유자 클라이언트가 권위이고 스냅샷 `bhp` + `imp shield` 로 방송한다.
 
 **`buff` 수신은 종류마다 담당이 하나씩이다.** 오버차지의 `heal` / `boost` 는 여기서 로컬 플레이어에 적용하고,
 제세동기 `revive` 와 `cloak` 은 gadgets 가 처리한다 (Phase 9 에서 여기 있던 중복 `revive` 분기를 제거했다).
@@ -124,8 +127,45 @@ HUD 는 `ui/hud/ImplantWidget` 의 크로스헤어 좌측 세로 게이지 (대�
   `damageBarrier(owner, point)` 를 정확히 한 번 부른다.
 - **늦은 합류.** 스냅샷은 `PlayerFlags.BARRIER` 만 나르므로 나중에 합류한 클라이언트는 이미 세워진 배리어의 위치 / hp 를
   모른다. `flow rejoined` 를 받으면 배리어가 활성인 소유자가 그 피어에게만 `imp barrier {active:true, p, yaw, hp}` 를
-  유니캐스트한다 (`sendBarrier(active, to)`).
+  유니캐스트한다 (`sendBarrier(active, to)`). **Phase 10 에서 `sendShield(up, to)` + `imp shield` 로 대체됐다.**
 - **`buff revive` 중복 제거.** `ImplantSystem.onBuff` 의 `'revive'` 분기를 삭제 — 제세동기는 gadgets 소유다 (예전에는
   두 폴더가 같은 `buff` 를 각자 적용해 부활이 두 번 걸렸다).
 - **`debugBeam(peerId)`** → `{on, target, self, until} | null` (`RemoteImplants.debugBeam` 위임). `e2e:mp` 가 수신 측에서
   오버차지 빔이 실제로 그려지는지 확인하는 훅.
+
+## Phase 10 (2026-09-07): 배리어 = 들고 다니는 방패
+
+계약: `ImplantsRef.barrierCarried` / `getBarrierPose(out)` (`src/shared/implants.ts`),
+`IMPLANT_BARRIER_CARRY_WIDTH / _HEIGHT / _OFFSET / _BASE_Y / _SPEED_MUL / _ARC / _REGEN / _REGEN_DELAY` +
+`IMPLANT_BARRIER_BLOCK_DAMAGE` (`constants.ts`), `imp shield {up, hp}` + `PlayerSnapshot.bhp` +
+`RemotePlayerRef.isBarrierUp / barrierHp` (`net.ts`), `implant:barrierCarried {up}` (`events.ts`).
+
+지면에 세우는 7 × 3.2 m 벽이 **손에 드는 1.5 × 1.35 m 방패**로 바뀌었다.
+
+- **`ImplantDefs.barrier.mode = 'wielded'`.** Q 가 대전차포와 똑같은 흐름을 탄다: `wield()` 로 들면
+  `blocksWeapons === true` 라서 weapons 가 총을 홀스터하고, Q 또는 무기 키가 `stow()` 를 부르면 내려간다.
+  `toggleBarrier` / `dropBarrier` / `BARRIER_OFFSET` 지면 스냅은 삭제됐다.
+- **`BarrierField` 는 추종형.** `deploy(pos, yaw)` 1회 언폴드 대신 `raise()` / `lower()` + 매 프레임
+  `follow(feet, yaw)`. `position` 은 **패널 밑단 중심**(= 발 + 정면 `_OFFSET`, y = 발 + `_BASE_Y`) 이고
+  `intersect` 가 그 y 부터 dy 를 잰다. `intersect` 에 정면 각도 게이트(`_ARC`) 가 붙어 뒤에서 온 탄은 통과한다
+  (예전 벽은 양면이었다). 헥사 CanvasTexture 싱글턴의 `repeat` 는 새 치수 ÷ `HEX_TILE_M` 로 다시 구웠다 —
+  이제 모든 방패가 같은 크기라 재질별 repeat 가 필요 없다.
+- **회복 규칙.** 든 상태: `_REGEN_DELAY` 3초 무피격 후 `_REGEN` 40/s. 내린 상태: 기존 `IMPLANT_BARRIER_REGEN` 120/s.
+  파괴 잠금 중: 0 → 만충을 잠금 시간에 정확히 맞춰 채운다(HUD 게이지 = 쿨타임). 파괴되면 패널이 내려가는 것으로
+  끝내지 않고 `stow()` 까지 불러 손잡이도 집어넣는다 (안 그러면 총이 계속 홀스터된 채로 남는다).
+- **이동 페널티**: 든 동안 `player.setSpeedModifier('shield', IMPLANT_BARRIER_CARRY_SPEED_MUL)`, 내리면 `(…, 1)` 로 제거.
+- **`devices/ImplantDevice`** 에 `barrier` 분기 추가 — 예전엔 `default: buildScanner` 라서 스캐너 접시가 조용히
+  손에 붙었다. 손잡이 + 팔뚝 브레이스 + 프로젝터 헤드만 만들고 막는 패널은 `BarrierField` 몫이다.
+- **복제.** 손 장치는 `mode === 'wielded'` 판정으로 공짜로 따라온다. 상태는 스냅샷(`isBarrierUp` / `barrierHp`) 이
+  권위이고 `imp shield` 는 즉시 반영 + 늦은 합류(`flow rejoined` 유니캐스트) 용이다. 피어 방패는 매 프레임
+  `ref.position` / `ref.yaw` 로 `follow` 한다. 옛 `imp barrier` 는 `active` / `hp` 만 읽어 같은 경로로 흘린다
+  (`p` / `yaw` 무시) — 구버전 피어 호환.
+- **들쳐메기 게이트**: `activate()` 맨 앞에서 `ctx.player.carrying !== null` 이면 `dropCarried('action')` 만 하고 반환.
+- `raycastBarrier` / `damageBarrier` 시그니처는 그대로. `barrierActive` 의 의미는 "손에 들려 있음" 이 됐고
+  `barrierCarried` 는 그것 + `equipped === 'barrier'` 다. `getBarrierPose(out)` 은 패널 밑단 중심 + yaw.
+
+검증: `npm run typecheck` 0. `scripts/smoke-tactical.mjs` 의 배리어 검사군을 방패 기준으로 갱신했다
+(들기 → `barrierCarried` / `blocksWeapons` / 포즈 오프셋 / 정면 게이트 / 추종 / Q 로 내리기).
+**리드 확인 필요**: `smoke-weapons.mjs` (`:296-345`) 는 플레이어 자기 위치에서 정면으로 쏴서 자기 방패에 막히는 것을
+전제하므로 정면 게이트에 걸려 실패한다 (아래 리포트 참고). `smoke-enemy-delta.mjs` 는 `raycastBarrier` 를 스텁으로
+갈아끼우므로 영향 없다.

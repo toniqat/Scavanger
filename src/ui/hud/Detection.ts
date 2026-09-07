@@ -2,35 +2,16 @@ import * as THREE from 'three';
 import type { GameContext, EnemyRef } from '@/shared';
 import {
   DETECT_BASE_RADIUS, DETECT_ENEMY_BASE_RADIUS, DETECT_HIGHLIGHT_COLOR, DETECT_ENEMY_COLOR,
+  INTERACT_PILLAR_OPACITY,
 } from '@/shared';
 import { el } from '../dom';
+import { makePillarGeometry, makePillarMaterial } from './pillar';
 
-const MAX_SHELLS = 24;          // pooled fresnel shells (interactables in range)
+const MAX_SHELLS = 24;          // pooled light pillars (interactables in range)
 const MAX_ARROWS = 6;           // pooled off-screen enemy arrows
 const SCAN_INTERVAL = 0.15;     // seconds between candidate re-scans
-const SHELL_RADIUS = 0.85;      // meters
 const ARROW_RX = 0.34;          // arrow ring radii as a fraction of the viewport
 const ARROW_RY = 0.34;
-
-const VERT = `
-varying vec3 vN;
-varying vec3 vV;
-void main() {
-  vec4 mv = modelViewMatrix * vec4(position, 1.0);
-  vN = normalize(normalMatrix * normal);
-  vV = normalize(-mv.xyz);
-  gl_Position = projectionMatrix * mv;
-}`;
-
-const FRAG = `
-uniform vec3 uColor;
-uniform float uOpacity;
-varying vec3 vN;
-varying vec3 vV;
-void main() {
-  float f = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 2.2);
-  gl_FragColor = vec4(uColor, f * uOpacity);
-}`;
 
 interface Shell { mesh: THREE.Mesh; active: boolean }
 interface Arrow { el: HTMLElement; lastKey: string }
@@ -39,7 +20,9 @@ interface Arrow { el: HTMLElement; lastKey: string }
  * 감지 시스템 (perception).
  *
  * 1. Interactables (crates, gather nodes, pickups, deployables, switches) inside
- *    `ctx.progression.derived.detectRadius` get a pooled fresnel shell in the scene — depth-tested, so walls
+ *    `ctx.progression.derived.detectRadius` get a pooled **light pillar** in the scene (Phase 10 — it replaced the
+ *    light-blue fresnel sphere): an open cylinder rising from the ground with baked vertex colours that go black
+ *    toward the top, drawn additively so black reads as transparent (see `hud/pillar.ts`). Depth-tested, so walls
  *    still hide it (the through-wall version is `ScanReveal`).
  * 2. Enemies inside `derived.enemyDetectRadius` that are off-screen get a pooled red edge arrow.
  *
@@ -53,7 +36,7 @@ export class Detection {
   private arrows: Arrow[] = [];
   private group: THREE.Group | null = null;
   private geo: THREE.BufferGeometry | null = null;
-  private mat: THREE.ShaderMaterial | null = null;
+  private mat: THREE.MeshBasicMaterial | null = null;
   private scanTimer = 0;
   private visible = false;
   private targets: THREE.Vector3[] = [];
@@ -83,20 +66,8 @@ export class Detection {
 
   private ensureScene(): void {
     if (this.group) return;
-    this.geo = new THREE.IcosahedronGeometry(SHELL_RADIUS, 2);
-    this.mat = new THREE.ShaderMaterial({
-      uniforms: {
-        uColor: { value: new THREE.Color(DETECT_HIGHLIGHT_COLOR) },
-        uOpacity: { value: 0.6 },
-      },
-      vertexShader: VERT,
-      fragmentShader: FRAG,
-      transparent: true,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-      side: THREE.DoubleSide,
-      toneMapped: false,
-    });
+    this.geo = makePillarGeometry();
+    this.mat = makePillarMaterial(DETECT_HIGHLIGHT_COLOR, INTERACT_PILLAR_OPACITY);
     this.group = new THREE.Group();
     this.group.name = 'detect-highlights';
     for (let i = 0; i < MAX_SHELLS; i++) {
@@ -145,7 +116,8 @@ export class Detection {
     if (!active) { if (this.visible) this.hideAll(); return; }
     this.visible = true;
     this.ensureScene();
-    if (this.mat) this.mat.uniforms.uOpacity.value = 0.5 + 0.18 * Math.sin(ctx.time * 3);
+    // Breathing on the material's own opacity (the vertex-colour ramp owns the vertical fade).
+    if (this.mat) this.mat.opacity = INTERACT_PILLAR_OPACITY * (0.85 + 0.3 * Math.sin(ctx.time * 3));
 
     this.scanTimer -= dt;
     if (this.scanTimer <= 0) {
@@ -194,8 +166,8 @@ export class Detection {
     for (let i = 0; i < this.shells.length; i++) {
       const s = this.shells[i];
       if (i < n) {
+        // A pillar starts at ground level — no lift (the old fresnel sphere needed `+= 0.45` to sit on the object).
         s.mesh.position.copy(this.targets[i]);
-        s.mesh.position.y += 0.45;
         if (!s.mesh.visible) s.mesh.visible = true;
         s.active = true;
       } else if (s.active || s.mesh.visible) {

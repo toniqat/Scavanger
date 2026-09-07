@@ -19,6 +19,8 @@ import { SpectateOverlay } from './hud/SpectateOverlay';
 import { ChatLog } from './hud/ChatLog';
 import { QuickWheel } from './hud/QuickWheel';
 import { CookGauge } from './hud/CookGauge';
+import { HealGauge } from './hud/HealGauge';
+import { ReloadGauge } from './hud/ReloadGauge';
 import { StratagemWheel } from './hud/StratagemWheel';
 import { StratagemPanel } from './hud/StratagemPanel';
 import { ChargeGauge } from './hud/ChargeGauge';
@@ -37,6 +39,7 @@ import { StatusMarkers } from './hud/StatusMarkers';
 import { CheatTag } from './hud/CheatTag';
 import { HousingHint } from './hud/HousingHint';
 import { ItemTip } from './hud/ItemTip';
+import { SoftCursor } from './hud/SoftCursor';
 import { ShipManage } from './hud/ShipManage';
 import { ShipManageHint } from './hud/ShipManageHint';
 import { RoomLabel } from './hud/RoomLabel';
@@ -75,6 +78,11 @@ import type { RewardsBlock } from './menus/RewardsBlock';
  * Phase 8 (ship UX): `ShipManageHint` (bottom-right `함선 관리` + `Keys.MAP` keycap) in the social layer, `ShipManage`
  * (방 목록 + 가구 카드 바) in the `.hud.housing` layer, and the `SettingsMenu` overlay (키 설정 + 오디오) that the pause
  * menu's `설정` button opens; the pause menu itself gained 타이틀로 and hides 함선으로 귀환 in the ship.
+ * Phase 10: two more crosshair rings in the gameplay layer — `ReloadGauge` (the reload radial moved off the bottom-right
+ * weapon panel, and closes on the new `weapon:reloadCancelled`) and `HealGauge` (the 회복약's 2 s LMB hold); the
+ * `SoftCursor` sprite joins `ItemTip` as a direct child of `ctx.uiRoot` and is positioned every frame from
+ * `ctx.input.cursorX / cursorY`, even while a blocker is up; the tactical map gets a `setPingPlacer` wired to
+ * `Pings.placeAtWorld` so a middle-click on the map drops a squad ping.
  */
 export class HudSystem implements GameSystem {
   readonly name = 'hud';
@@ -95,6 +103,9 @@ export class HudSystem implements GameSystem {
   private chat!: ChatLog;
   private wheel!: QuickWheel;
   private cook!: CookGauge;
+  /* Phase 10: two more crosshair rings — the reload radial moved off the weapon panel, the 회복약 is a 2 s hold */
+  private reload!: ReloadGauge;
+  private heal!: HealGauge;
   private swheel!: StratagemWheel;
   private strat!: StratagemPanel;
   private charge!: ChargeGauge;
@@ -131,6 +142,8 @@ export class HudSystem implements GameSystem {
   private shipManage!: ShipManage;
   private shipHint!: ShipManageHint;
   private itemTip!: ItemTip;
+  /* Phase 10: the software-cursor sprite (a direct child of `ctx.uiRoot`, like `itemTip`) */
+  private softCursor!: SoftCursor;
   /* Phase 5 (corporations) */
   private contractPanel!: ContractPanel;
   /* Phase 9 (training modes) */
@@ -164,6 +177,8 @@ export class HudSystem implements GameSystem {
     this.offscreen = new OffscreenIndicators(this.hudRoot);
     this.reticle = new Reticle(this.hudRoot);
     this.cook = new CookGauge(this.hudRoot);
+    this.reload = new ReloadGauge(this.hudRoot);
+    this.heal = new HealGauge(this.hudRoot);
     this.charge = new ChargeGauge(this.hudRoot);
     this.wcharge = new WeaponChargeGauge(this.hudRoot);
     this.statusMarkers = new StatusMarkers(this.hudRoot);
@@ -216,10 +231,14 @@ export class HudSystem implements GameSystem {
     // 재료 요구 칩 hover card: a direct child of `#ui-root` so it floats over the inventory window, the 함선 관리
     // screen and every menu — it delegates on `.item-chip[data-def-id]` wherever a chip is rendered.
     this.itemTip = new ItemTip(ctx.uiRoot);
+    // 인게임 마우스 커서 sprite: same placement rationale as the item card — over every window, layer and menu.
+    this.softCursor = new SoftCursor(ctx.uiRoot);
 
     this.deploy = new DeployOverlay(ctx.uiRoot);
     this.map = new MapScreen(ctx.uiRoot);
     this.map.setPingSource(() => this.pings.getPings());
+    // Phase 10: middle-click on the tactical map drops a squad ping at that world point.
+    this.map.setPingPlacer((position, kind) => this.pings.placeAtWorld(position, kind));
 
     // Key-settings overlay sits above the title / pause / settings menus, which all open it.
     this.keybinds = new KeybindMenu(ctx.uiRoot);
@@ -235,6 +254,7 @@ export class HudSystem implements GameSystem {
     for (const c of [this.reticle, this.cook, this.wheel, this.swheel, this.strat, this.charge, this.targeting, this.offscreen, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.chat, this.map]) c.bind(ctx);
     for (const c of [this.implantWidget, this.implantChip, this.quickStrip, this.detection, this.scanReveal, this.deployables, this.progressToasts, this.actionFx]) c.bind(ctx);
     for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.housingHint, this.roomLabel, this.shipManage, this.shipHint, this.itemTip]) c.bind(ctx);
+    for (const c of [this.reload, this.heal, this.softCursor]) c.bind(ctx);
     for (const c of [this.contractPanel, this.trainingPanel, this.metaToasts]) c.bind(ctx);
     for (const m of [this.title, this.pause, this.death, this.complete]) m.bind(ctx);
 
@@ -268,12 +288,14 @@ export class HudSystem implements GameSystem {
 
   update(dt: number, ctx: GameContext): void {
     this.applyVisibility();
+    // The virtual cursor sprite must follow even while a blocker is up — that is the only time it is visible.
+    this.softCursor.update(ctx);
     // Map polls M and draws itself while open (also handles its own blocker token).
     this.map.update(ctx);
     if (this.hudVisible) {
       this.reticle.update(dt, ctx);
       this.vitals.update(dt, ctx);
-      this.weapon.update(dt);
+      this.reload.update(dt);
       this.strat.update(ctx);
       this.targeting.update(ctx);
       this.compass.update(ctx);
@@ -365,6 +387,11 @@ export class HudSystem implements GameSystem {
   get isTrainingPanelOn(): boolean { return this.trainingPanel.isShowing; }
   get isTrainingPulsing(): boolean { return this.trainingPanel.isPulsing; }
   get trainingPanelMode(): string { return this.trainingPanel.shownMode; }
+  /** Phase 10 crosshair rings + the software-cursor sprite (debug). */
+  get isReloadGaugeOn(): boolean { return this.reload.isShowing; }
+  get reloadProgress(): number { return this.reload.progress; }
+  get isHealGaugeOn(): boolean { return this.heal.isShowing; }
+  get isSoftCursorOn(): boolean { return this.softCursor.isShowing; }
   /** Whether the vitals' 포기 bar is up (debug, Phase 9). */
   get isGiveUpBarOn(): boolean { return this.vitals.isGiveUpShowing; }
   /** Live meta toasts (debug). */
@@ -423,6 +450,7 @@ export class HudSystem implements GameSystem {
     for (const c of [this.reticle, this.cook, this.wheel, this.swheel, this.strat, this.charge, this.targeting, this.offscreen, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.chat, this.missionInfo, this.deploy, this.map]) c.dispose();
     for (const c of [this.implantWidget, this.implantChip, this.quickStrip, this.detection, this.scanReveal, this.deployables, this.progressToasts, this.actionFx]) c.dispose();
     for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.housingHint, this.roomLabel, this.shipManage, this.shipHint, this.itemTip]) c.dispose();
+    for (const c of [this.reload, this.heal, this.softCursor]) c.dispose();
     for (const c of [this.contractPanel, this.trainingPanel, this.metaToasts]) c.dispose();
     for (const m of [this.title, this.pause, this.death, this.complete]) m.dispose();
     this.settings.dispose();

@@ -9,7 +9,8 @@ const DURABILITY_WORN = 0.3;
 
 /** Usage hint per consumable category (`.weapon.consumable .hint`). */
 const CONSUMABLE_HINT: Record<string, string> = {
-  stim: '좌클릭 사용',
+  // Phase 10: the 회복약 is a 2 s hold (`HEAL_HOLD_S`), shown as the crosshair ring `hud/HealGauge`.
+  stim: '좌클릭 2초 홀드',
   grenade: '좌클릭 홀드 · R 코킹 · 우클릭 언더핸드',
 };
 
@@ -25,7 +26,8 @@ const UNIQUE_MODES: Readonly<Record<UniqueWeaponKind, { l: string; r: string }>>
 
 /**
  * Bottom-right weapon readout: slot strip (1/2/3/F), slot tag + Korean slot label, weapon name, durability bar,
- * mag / reserve (bag rounds), class + calibre tag, reload arc, swap sweep, low / empty / broken states.
+ * mag / reserve (bag rounds), class tag, swap sweep, low / empty / broken states. The reload readout moved to the
+ * crosshair in Phase 10 (`hud/ReloadGauge`) — this panel no longer owns an arc or a `재장전` pill.
  * **Consumable mode** (`.weapon.consumable`, `quick:equipped {item}`): the gun rows are hidden and a `.cons` block shows
  * the item name + stack count (`quick:used.remaining` / `inventory:itemUpdated`) with a usage hint; back to gun mode on
  * `quick:equipped {item:null}` or the next `weapon:equipped`. Gun state keeps updating underneath, so the switch back is
@@ -39,13 +41,9 @@ export class WeaponPanel {
   private magEl: HTMLElement;
   private reserveEl: HTMLElement;
   private typeEl: HTMLElement;
-  private reloadingEl: HTMLElement;
   private duraEl: HTMLElement;
   private duraFill: HTMLElement;
   private swapEl: HTMLElement;
-  private arc: HTMLElement;
-  private arcProg: SVGCircleElement;
-  private readonly circ = 2 * Math.PI * 14;
 
   private modesEl: HTMLElement;
   private modeL: HTMLElement;
@@ -61,9 +59,6 @@ export class WeaponPanel {
   private weaponId = '';
   private weaponUid = '';
   private magSize = 1;
-  private reloadTotal = 0;
-  private reloadLeft = 0;
-  private lastDash = -1;
   private lastDura = -1;
   private unsubs: Array<() => void> = [];
 
@@ -80,25 +75,12 @@ export class WeaponPanel {
     this.swapEl = el('div', { cls: 'swap', parent: this.root });
     el('div', { cls: 'fill', parent: this.swapEl });
 
+    // Phase 10: the reload arc that used to sit left of this row is gone — `hud/ReloadGauge` draws it at the crosshair.
     const ammoRow = el('div', { cls: 'ammo-row', parent: this.root });
-    this.arc = el('div', { cls: 'arc', parent: ammoRow });
-    const svgNS = 'http://www.w3.org/2000/svg';
-    const svg = document.createElementNS(svgNS, 'svg');
-    svg.setAttribute('viewBox', '0 0 34 34');
-    const track = document.createElementNS(svgNS, 'circle');
-    track.setAttribute('class', 'track'); track.setAttribute('cx', '17'); track.setAttribute('cy', '17'); track.setAttribute('r', '14');
-    this.arcProg = document.createElementNS(svgNS, 'circle');
-    this.arcProg.setAttribute('class', 'prog'); this.arcProg.setAttribute('cx', '17'); this.arcProg.setAttribute('cy', '17'); this.arcProg.setAttribute('r', '14');
-    this.arcProg.style.strokeDasharray = `${this.circ}`;
-    this.arcProg.style.strokeDashoffset = `${this.circ}`;
-    svg.appendChild(track); svg.appendChild(this.arcProg);
-    this.arc.appendChild(svg);
-
     this.magEl = el('span', { cls: 'mag', text: '0', parent: ammoRow });
     this.reserveEl = el('span', { cls: 'reserve', text: '0', parent: ammoRow });
 
     const tagRow = el('div', { cls: 'name-row', parent: this.root });
-    this.reloadingEl = el('span', { cls: 'reloading', text: '재장전', parent: tagRow });
     this.typeEl = el('span', { cls: 'type', text: '—', parent: tagRow });
 
     // Unique-weapon fire modes (`.modes`, only for defs with `altFire` / `unique`): `좌: …` / `우: …`.
@@ -149,7 +131,6 @@ export class WeaponPanel {
         setText(this.typeEl, def ? WEAPON_CLASS_LABEL_KO[weaponClassOf(def)] : '—');
         this.setModes(def);
         this.setAmmo(p.ammoInMag, p.reserveRounds);
-        this.endReload();
         // Seed the durability bar from the equipped item instance (durabilityChanged only fires on change).
         const inst = ctx.inventory?.getLoadout()[p.slot] ?? null;
         this.weaponUid = inst?.uid ?? '';
@@ -170,13 +151,6 @@ export class WeaponPanel {
         this.setDurability(0, 1, true);
       }),
       b.on('weapon:swapStarted', ({ slot, duration }) => this.startSwap(slot, duration)),
-      b.on('weapon:reloadStarted', ({ duration }) => {
-        this.reloadTotal = Math.max(0.05, duration);
-        this.reloadLeft = this.reloadTotal;
-        this.arc.classList.add('show');
-        this.reloadingEl.classList.add('show');
-      }),
-      b.on('weapon:reloadFinished', () => this.endReload()),
       b.on('weapon:dryFire', () => {
         this.magEl.classList.remove('flash');
         void this.magEl.offsetWidth;
@@ -192,22 +166,10 @@ export class WeaponPanel {
           this.setAmmo(0, 0);
           this.setDurability(1, 1, false);
           this.endSwap();
+          /* reload state lives in `hud/ReloadGauge` now (it hides itself on death / reset / cancel) */
         }
       }),
     );
-  }
-
-  update(dt: number): void {
-    if (this.reloadLeft > 0) {
-      this.reloadLeft -= dt;
-      const t = 1 - Math.max(0, this.reloadLeft) / this.reloadTotal;
-      const dash = this.circ * (1 - t);
-      if (Math.abs(dash - this.lastDash) > 0.2) {
-        this.lastDash = dash;
-        this.arcProg.style.strokeDashoffset = dash.toFixed(2);
-      }
-      if (this.reloadLeft <= 0) this.endReload();
-    }
   }
 
   private enterConsumable(item: ItemInstance, ctx: GameContext): void {
@@ -291,14 +253,6 @@ export class WeaponPanel {
   }
 
   private endSwap(): void { this.swapEl.classList.remove('show'); }
-
-  private endReload(): void {
-    this.reloadLeft = 0;
-    this.arc.classList.remove('show');
-    this.reloadingEl.classList.remove('show');
-    this.arcProg.style.strokeDashoffset = `${this.circ}`;
-    this.lastDash = -1;
-  }
 
   dispose(): void { for (const u of this.unsubs) u(); this.slots.dispose(); this.root.remove(); }
 }

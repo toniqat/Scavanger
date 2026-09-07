@@ -37,6 +37,7 @@ export class ImplantDevice {
       case 'overcharge': this.buildOvercharge(shell, dark); break;
       case 'scan': this.buildScanner(shell, dark); break;
       case 'atlauncher': this.buildLauncher(shell, dark); break;
+      case 'barrier': this.buildShieldGrip(shell, dark); break;
       default: this.buildScanner(shell, dark); break;   // instant implants have no device; harmless fallback
     }
     this.root.add(this.muzzle);
@@ -101,6 +102,26 @@ export class ImplantDevice {
     this.add(this.geo(new THREE.TorusGeometry(0.1, 0.014, 6, 20)), this.accentMat, 0, 0.01, -0.2);
     this.addGlow(0.12, 0, 0.01, -0.21);
     this.muzzle.position.set(0, 0.01, -0.24);
+  }
+
+  /**
+   * 배리어 방패 (Phase 10): only the **hand hardware** — grip, forearm brace and the projector frame.
+   * The blocking surface itself is `effects/Barrier.BarrierField`, which follows the carrier in world space,
+   * so nothing here may pretend to be the panel.
+   */
+  private buildShieldGrip(shell: THREE.Material, dark: THREE.Material): void {
+    // grip in the fist + forearm brace running back along the arm
+    this.add(this.geo(new THREE.BoxGeometry(0.055, 0.15, 0.055)), dark, 0, -0.1, 0.02);
+    this.add(this.geo(new THREE.BoxGeometry(0.09, 0.06, 0.26)), shell, 0, -0.02, 0.05);
+    // projector head: a short block with an emitter bar the field springs from
+    this.add(this.geo(new THREE.BoxGeometry(0.16, 0.1, 0.1)), shell, 0, 0.02, -0.14);
+    this.add(this.geo(new THREE.BoxGeometry(0.3, 0.035, 0.035)), this.accentMat, 0, 0.06, -0.2);
+    // two stubby arms suggesting the frame the panel unfolds from
+    for (const sx of [-1, 1]) {
+      this.add(this.geo(new THREE.BoxGeometry(0.03, 0.03, 0.14)), shell, sx * 0.14, 0.04, -0.13);
+    }
+    this.addGlow(0.1, 0, 0.04, -0.22);
+    this.muzzle.position.set(0, 0.04, -0.24);
   }
 
   private buildLauncher(shell: THREE.Material, dark: THREE.Material): void {

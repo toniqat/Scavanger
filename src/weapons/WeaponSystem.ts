@@ -3,6 +3,7 @@ import {
   GameContext, Keys, MouseButtons, WEAPON_DURABILITY_PER_SHOT, WEAPON_SWAP_TIME_PRIMARY, WEAPON_SWAP_TIME_SECONDARY,
   IMPLANT_OVERCHARGE_FIRERATE_MUL,
   QUICK_SLOTS, QUICK_SLOT_UNLOCK_ORDER, QUICK_USABLE_CATEGORIES, isQuickSlotActive, QUICK_WHEEL_HOLD, QUICK_WHEEL_DRAG_PX, GRENADE_FUSE, GRENADE_COOK_MAX, GRENADE_UNDERHAND_SPEED_MUL,
+  HEAL_HOLD_S,
   type GameSystem, type WeaponDef, type ItemInstance, type ItemDef, type PlayerRef, type PlayerWeaponHost, type EnemyRef, type Vec3Tuple,
   type WeaponSlot, type EffectiveWeaponStats, type WeaponClass, type GadgetId, type WeaponRemoteState,
 } from '@/shared';
@@ -178,6 +179,10 @@ export class WeaponSystem implements GameSystem {
   private cooking = false;
   private cooked = 0;
   private underhand = false;
+  /** Phase 10 회복약: LMB held with a 회복약 in hand, seconds held so far, `ctx.time` of the last `heal:holdChanged`. */
+  private healHeld = false;
+  private healT = 0;
+  private healEmitAt = -Infinity;
 
   private readonly camHit = makeHit();
   private readonly gunHit = makeHit();
@@ -252,7 +257,11 @@ export class WeaponSystem implements GameSystem {
     // Ship hub: nothing in flight, weapon holstered (visibility is handled per frame from ctx.phase).
     ctx.bus.on('hub:entered', () => { this.dropQuick(); this.resetTransient(); this.loadoutWait = -1; });
     // Hellpod drop started → pre-compile every shader (hidden FX meshes included) before the first shot/throw.
-    ctx.bus.on('game:phaseChanged', ({ phase }) => { if (phase === 'deploying') this.warmupFrames = 2; });
+    ctx.bus.on('game:phaseChanged', ({ phase }) => { this.cancelHeal(); if (phase === 'deploying') this.warmupFrames = 2; });
+    // Phase 10: a 회복약 hold survives damage but never a death / knock-down. The `usable` gate catches the same
+    // frame; these keep the HUD gauge honest even when another path clears the hand state first.
+    ctx.bus.on('player:died', () => this.cancelHeal());
+    ctx.bus.on('player:downed', () => this.cancelHeal());
     this.ensureNet();
   }
 
@@ -314,16 +323,20 @@ export class WeaponSystem implements GameSystem {
     // the gun in hand (null while a consumable is held)
     const weapon = this.quick ? null : this.slots[this.active];
 
+    // ── Phase 10 들쳐메기: with a squadmate on our shoulder only running is allowed. Any weapon input puts the body
+    //    down first and does nothing else this frame — the next frame retries naturally once the player is free.
+    //    (The F *tap* never reaches us while carrying: player/ pre-empts it with `input.consume(Keys.MELEE)` for the
+    //    manual drop, and the unique F-hold reads `wasPressed` so it honours the same consumption.)
+    const carryBusy = this.carryGate(usable);
+
     // ── melee (F, tactical kit). The player owns stamina / cooldown / animation; we only resolve the hit.
-    if (armedAndFree && !this.implantHolstered && !this.wheelOpen && !this.holding && !weapon?.unique?.handlesMelee && input.wasPressed(Keys.MELEE)) {
+    if (armedAndFree && !carryBusy && !this.implantHolstered && !this.wheelOpen && !this.holding && !weapon?.unique?.handlesMelee && input.wasPressed(Keys.MELEE)) {
       if (this.melee.tryStart(host, weapon?.def ?? null)) {
         if (this.phase === 'reloading') this.cancelReload();
         this.firingTimer = FIRING_POSE_HOLD * 0.5;
       }
     }
     this.melee.update(dt, host);
-    // ── H: stim straight into the hand (tactical kit key layout)
-    if (usable && !this.wheelOpen && input.wasPressed(Keys.STIM)) this.quickStim(host);
 
     if (this.cooldown > 0) this.cooldown -= dt;
     if (this.quickCooldown > 0) this.quickCooldown -= dt;
@@ -331,18 +344,20 @@ export class WeaponSystem implements GameSystem {
     if (this.firingTimer > 0) this.firingTimer -= dt;
     this.updateBolt(dt, weapon);
 
-    // ── quick-use key (F): tap = last consumable into the hand, hold = wheel
-    this.updateQuickKey(dt, host, usable);
+    // ── quick-use key (T): tap = last consumable into the hand, hold = wheel
+    this.updateQuickKey(dt, host, usable && !carryBusy);
     // the wheel eats mouse buttons as well as the look delta
-    const inputFree = usable && !this.wheelOpen;
+    const inputFree = usable && !this.wheelOpen && !carryBusy;
 
     // ── swap (1 / 2 / 3 / V) — also the way back from a consumable to a gun
     if (inputFree) {
-      if (input.wasPressed(Keys.PRIMARY)) this.requestSwap('primary');
-      else if (input.wasPressed(Keys.PRIMARY2)) this.requestSwap('primary2');
-      else if (input.wasPressed(Keys.SECONDARY)) this.requestSwap('secondary');
-      else if (input.wasPressed(Keys.SWAP)) this.requestSwap(this.quickSwapTarget());
-    } else if (this.implantHolstered && armedAndFree && !this.wheelOpen) {
+      const want: WeaponSlot | null | undefined =
+        input.wasPressed(Keys.PRIMARY) ? 'primary'
+          : input.wasPressed(Keys.PRIMARY2) ? 'primary2'
+            : input.wasPressed(Keys.SECONDARY) ? 'secondary'
+              : input.wasPressed(Keys.SWAP) ? this.quickSwapTarget() : undefined;
+      if (want !== undefined) this.requestSwap(want);
+    } else if (this.implantHolstered && armedAndFree && !carryBusy && !this.wheelOpen) {
       // a wielded implant (대전차포) is in the hands: a weapon key stows it and draws that weapon
       const want: WeaponSlot | null | undefined =
         input.wasPressed(Keys.PRIMARY) ? 'primary'
@@ -851,9 +866,17 @@ export class WeaponSystem implements GameSystem {
     }
   }
 
+  /**
+   * Reload interrupted (swap, consumable in hand, melee, implant holster, loadout change). Phase 10: this used to be
+   * silent — the bottom-right panel only closed its arc because `weapon:equipped` followed. The crosshair reload
+   * gauge needs the explicit cancel, so `weapon:reloadCancelled` goes out whenever a reload was really in progress.
+   */
   private cancelReload(): void {
-    this.slots[this.active]?.model.setReload(-1);
+    const w = this.slots[this.active];
+    const was = this.phase === 'reloading';
+    w?.model.setReload(-1);
     this.phase = 'ready';
+    if (was) this.ctx.bus.emit('weapon:reloadCancelled', { weaponId: w?.stats.weaponId ?? '' });
   }
 
   /* ─────────────────────────── firing ─────────────────────────── */
@@ -1017,14 +1040,22 @@ export class WeaponSystem implements GameSystem {
     return Math.max(0.05, rate);
   }
 
-  /** H: the first stim in a quick slot goes into the hand; pressed again with the stim in hand → inject. */
-  private quickStim(host: Host): void {
-    if (this.quick?.kind === 'stim') { if (this.quickCooldown <= 0 && this.quickHolsterT <= 0) this.useStim(host, this.quick); return; }
-    for (const i of QUICK_SLOT_UNLOCK_ORDER) {
-      const s = this.quickSlotItem(i);
-      if (s && s.def.category === 'stim') { this.equipQuick(i); return; }
-    }
-    this.deny();
+  /**
+   * Phase 10 들쳐메기 gate. While `ctx.player.carrying` holds a squadmate, every weapon action (fire, melee, swap,
+   * throw, quick use, reload) puts the body down first and does nothing else this frame. Returns true when the frame
+   * was spent dropping. Duck-typed so a player build without the carry API can never break the trigger.
+   */
+  private carryGate(usable: boolean): boolean {
+    const p = this.ctx.player as (PlayerRef & { carrying?: string | null }) | null;
+    if (!usable || !p || typeof p.dropCarried !== 'function' || p.carrying == null) return false;
+    const input = this.ctx.input;
+    const acted = input.isMouseDown(MouseButtons.FIRE) || input.wasMousePressed(MouseButtons.FIRE)
+      || input.wasMousePressed(MouseButtons.AIM)
+      || input.wasPressed(Keys.RELOAD) || input.wasPressed(Keys.QUICK) || input.wasPressed(Keys.MELEE)
+      || input.wasPressed(Keys.PRIMARY) || input.wasPressed(Keys.PRIMARY2) || input.wasPressed(Keys.SECONDARY) || input.wasPressed(Keys.SWAP);
+    if (!acted) return false;
+    p.dropCarried('action');
+    return true;
   }
 
   /** LMB with a gadget in hand: `ctx.gadgets.use` consumes the item itself; RMB toggles over / under-hand. */
@@ -1250,6 +1281,7 @@ export class WeaponSystem implements GameSystem {
     this.quickKeyHeld = false;
     const host = this.getHost();
     if (host) this.closeWheel(host);
+    this.cancelHeal();
     if (!this.quick) return;
     this.endHold(true);
     this.quick = null;
@@ -1284,6 +1316,12 @@ export class WeaponSystem implements GameSystem {
       this.updateHold(dt, host, q);
       return;
     }
+    // Phase 10: 회복약 = 2 s LMB hold. Death / downed / menu / a wielded implant all clear `usable` → cancel.
+    if (this.healHeld) {
+      if (!usable) { this.cancelHeal(); if (this.quick && !this.quickSlotItem(q.index)) this.returnToGun(); return; }
+      this.updateHeal(dt, host, q);
+      return;
+    }
     if (!inputFree || this.quickCooldown > 0 || this.quickHolsterT > 0) return;
     if (q.kind === 'gadget' && input.wasMousePressed(MouseButtons.AIM)) {
       this.gadgetUnderhand = !this.gadgetUnderhand;
@@ -1292,21 +1330,59 @@ export class WeaponSystem implements GameSystem {
       return;
     }
     if (!input.wasMousePressed(MouseButtons.FIRE)) return;
-    if (q.kind === 'stim') this.useStim(host, q);
+    if (q.kind === 'stim') this.beginHeal(host);
     else if (q.kind === 'gadget') this.useGadget(host, q);
     else this.beginHold();
   }
 
-  /* ── stim ── */
-  private useStim(host: Host, q: QuickHand): void {
+  /* ── 회복약 (Phase 10): LMB held for `HEAL_HOLD_S`, gauge at the crosshair ── */
+  /**
+   * `heal:holdChanged` at ≤ 30 Hz. `t` = 0..1 of `HEAL_HOLD_S` while holding, `-1` on a cancel. `force` bypasses the
+   * throttle (start / finish / cancel must always land).
+   */
+  private emitHeal(t: number, force: boolean): void {
+    if (!force && this.ctx.time - this.healEmitAt < 1 / 30) return;
+    this.healEmitAt = this.ctx.time;
+    this.ctx.bus.emit('heal:holdChanged', { holding: this.healHeld, t });
+  }
+
+  /** LMB pressed with a 회복약 in hand. Refused at full hp (the old instant-use rule). */
+  private beginHeal(host: Host): void {
     if (host.hp >= host.maxHp) { this.deny(); return; }
+    this.healHeld = true;
+    this.healT = 0;
+    this.emitHeal(0, true);
+  }
+
+  /**
+   * Accumulate while LMB stays down; releasing cancels. Taking damage does **not** cancel
+   * (`HEAL_HOLD_CANCEL_ON_DAMAGE` is false — nothing here watches for damage on purpose).
+   */
+  private updateHeal(dt: number, host: Host, q: QuickHand): void {
+    if (!this.ctx.input.isMouseDown(MouseButtons.FIRE)) { this.cancelHeal(); return; }
+    this.healT += dt;
+    if (this.healT >= HEAL_HOLD_S) { this.finishHeal(host, q); return; }
+    this.emitHeal(Math.min(1, this.healT / HEAL_HOLD_S), false);
+  }
+
+  /** Hold completed: what the old instant `useStim` did. */
+  private finishHeal(host: Host, q: QuickHand): void {
     const remaining = this.consumeQuick(q);
+    this.healHeld = false; this.healT = 0;
+    this.emitHeal(remaining < 0 ? -1 : 1, true);
     if (remaining < 0) { this.deny(); return; }
     this.quickCooldown = QUICK_USE_COOLDOWN / this.useSpeedMul();
     this.firingTimer = FIRING_POSE_HOLD * 0.5;
     host.applyStim(q.def.healAmount ?? 50);
     this.ctx.bus.emit('quick:used', { index: q.index, item: q.item, remaining });
     if (remaining <= 0) this.returnToGun();
+  }
+
+  /** Button released, swap, implant wield, death / downed, phase change, world reset: the hold is thrown away. */
+  private cancelHeal(): void {
+    if (!this.healHeld) return;
+    this.healHeld = false; this.healT = 0;
+    this.emitHeal(-1, true);
   }
 
   /**
@@ -1403,6 +1479,7 @@ export class WeaponSystem implements GameSystem {
 
   /** Hold interrupted (swap / holster / death / abort / other item): no throw — unless the pin is pulled, then it drops at the feet. */
   private cancelHold(host: Host): void {
+    this.cancelHeal();   // Phase 10: the same interruptions throw away a 회복약 hold
     if (!this.holding) return;
     if (this.cooking && this.quick) this.throwHeld(host, this.quick, true);
     else this.endHold(true);
@@ -1442,6 +1519,7 @@ export class WeaponSystem implements GameSystem {
     this.boltTimer = 0; this.boltSoundTimer = 0;
     this.dryFlagged = false;
     this.endHold(false);
+    this.cancelHeal();
     this.slots[this.active]?.model.setReload(-1);
     this.slots[this.active]?.model.setBolt(-1);
     this.applyAimZoom(null);

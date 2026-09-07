@@ -54,9 +54,19 @@ export class Snapshotter {
     if (p.isDowned) m.dhp = Math.round(p.downHp ?? 0);
     else delete m.dhp;
 
+    /*
+     * Phase 10: a carrier has a downed squadmate on its shoulder and is therefore UNARMED — the no-gun path below is
+     * forced so remote avatars pose two-handed-under-the-body instead of holding a rifle through the victim.
+     * `carrying` is a plain string on `PlayerRef` (guarded: an older player impl may not have the member yet).
+     */
+    const carrying = typeof p.carrying === 'string' && p.carrying.length > 0 ? p.carrying : null;
+    if (carrying !== null) m.cr = carrying;
+    else delete m.cr;
+
     /* Phase 7: pose / held item / attachments from weapons' per-frame remote state (guarded: weapons may be absent). */
     const rs = ctx.weapons ? ctx.weapons.remoteState : undefined;
-    const holding = this.holdingItem && !inHub;
+    const holding = this.holdingItem && !inHub && carrying === null;
+    if (carrying !== null) m.w = null;
     m.h = holding && rs ? rs.heldItemId : null;
     if (!inHub && rs && rs.attachments && rs.attachments.length > 0 && m.w !== null) m.att = rs.attachments as string[];
     else delete m.att;
@@ -79,7 +89,15 @@ export class Snapshotter {
     if (p.isCloaked) f |= PlayerFlags.CLOAKED;
     if (p.isHovering) f |= PlayerFlags.HOVER;
     if (p.isOvercharged) f |= PlayerFlags.OVERCHARGED;
-    if (ctx.implants?.barrierActive) f |= PlayerFlags.BARRIER;
+    /*
+     * Phase 10: the 배리어 is a shield held in hand — `barrierActive` means "raised" and `bhp` rides along so remotes
+     * tint the panel and a late joiner needs no `imp shield`. Omitted whenever the shield is down.
+     */
+    if (ctx.implants?.barrierActive) {
+      f |= PlayerFlags.BARRIER;
+      const bhp = ctx.implants.barrierHp;
+      m.bhp = Number.isFinite(bhp) ? Math.round(bhp) : 0;
+    } else delete m.bhp;
     /* appended: Phase 7 */
     if (p.isMeleeHeavy) f |= PlayerFlags.MELEE_HEAVY;
     if (rs && !inHub) {
@@ -89,13 +107,20 @@ export class Snapshotter {
       if (rs.spraying) f |= PlayerFlags.SPRAYING;
       if (rs.heavy) f |= PlayerFlags.HEAVY;
     }
-    if (holding) {
-      // a consumable is in hand (Phase 2): no gun is advertised, remote avatars pose one-handed
-      f |= PlayerFlags.HOLDING_ITEM;
-      m.w = null;
-    } else if (m.w !== null) {
-      f |= PlayerFlags.HAS_WEAPON;
-      if (this.weaponSlot === 'primary' || this.weaponSlot === 'primary2') f |= PlayerFlags.TWO_HANDED;
+    /* appended: Phase 10 — 들쳐메기. CARRYING keeps the carrier unarmed; CARRIED marks the body on the shoulder. */
+    if (carrying !== null) f |= PlayerFlags.CARRYING;
+    if (p.isCarried === true) f |= PlayerFlags.CARRIED;
+    // A carrier holds the squadmate with both hands, so it advertises neither HOLDING_ITEM nor HAS_WEAPON (`m.w`
+    // was already nulled above) — remote avatars then pose unarmed instead of aiming a rifle through the victim.
+    if (carrying === null) {
+      if (holding) {
+        // a consumable is in hand (Phase 2): no gun is advertised, remote avatars pose one-handed
+        f |= PlayerFlags.HOLDING_ITEM;
+        m.w = null;
+      } else if (m.w !== null) {
+        f |= PlayerFlags.HAS_WEAPON;
+        if (this.weaponSlot === 'primary' || this.weaponSlot === 'primary2') f |= PlayerFlags.TWO_HANDED;
+      }
     }
     m.f = f;
     return m;

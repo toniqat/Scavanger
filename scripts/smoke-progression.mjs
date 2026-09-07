@@ -341,13 +341,15 @@ try {
     const rows = [...document.querySelectorAll('.cs-stat')];
     return {
       open: !!root && !root.hidden, blocker: window.__game.ctx.uiBlockers.has('stats'),
+      cursor: window.__game.ctx.input.isCursorMode,
       rows: rows.length, bars: document.querySelectorAll('.cs-stat .sp .bar i').length,
       xp: rows.map((r) => r.querySelector('.sp .xp')?.textContent ?? ''),
       fill: rows.map((r) => r.querySelector('.sp .bar i')?.style.transform ?? ''),
       bonusHidden: [...document.querySelectorAll('.cs-skill .bonus')].every((b) => b.hidden),
     };
   });
-  ok(dom.open && dom.blocker, 'character sheet opens (blocker stats)', JSON.stringify({ open: dom.open, blocker: dom.blocker }));
+  // Phase 10: the sheet keeps the pointer lock and turns on the in-game cursor instead of exiting the lock
+  ok(dom.open && dom.blocker && dom.cursor, 'character sheet opens (blocker stats + in-game cursor)', JSON.stringify({ open: dom.open, blocker: dom.blocker, cursor: dom.cursor }));
   ok(dom.rows === 5 && dom.bars === 5, '5 stat rows each carry a stat-XP bar', `${dom.rows}/${dom.bars}`);
   ok(dom.xp.every((t) => / \/ \d+ XP$/.test(t)), 'stat rows show `xp / next XP`', JSON.stringify(dom.xp));
   // strength progress is the migrated 0.999999 → floor(99.9999) = 99 / 100, bar scaleX(1.0000) after toFixed(4)
@@ -371,8 +373,11 @@ try {
   ok(/maxed/.test(maxed.cls) && maxed.xp === '최대' && /scaleX\(1/.test(maxed.fill), 'maxed stat shows 최대 with a full bar', JSON.stringify(maxed));
   await tap('Escape');
   await sleep(150);
-  const closed = await page.evaluate(() => ({ hidden: document.querySelector('.char-sheet').hidden, blocker: window.__game.ctx.uiBlockers.has('stats') }));
-  ok(closed.hidden && !closed.blocker, 'Esc closes the sheet and drops the blocker', JSON.stringify(closed));
+  const closed = await page.evaluate(() => ({
+    hidden: document.querySelector('.char-sheet').hidden, blocker: window.__game.ctx.uiBlockers.has('stats'),
+    cursor: window.__game.ctx.input.isCursorMode,
+  }));
+  ok(closed.hidden && !closed.blocker && !closed.cursor, 'Esc closes the sheet and drops the blocker + the cursor', JSON.stringify(closed));
   const toggled = await lastEv('ui:statsToggled');
   ok(toggled && toggled.open === false, 'ui:statsToggled {open:false}');
 

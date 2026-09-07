@@ -9,6 +9,9 @@
 // left the mission (`net:missionMembership {inMission:false}`) or whose socket came back without `flow rejoined`
 // keeps a non-simulated body for NET_GHOST_PARK_S (`getParkedGhosts`), restored by a rejoin inside the window, expired
 // after it (`debugExpireParked`), cleared by demotion / `game:abort`.
+// Phase 10: the 3등신 model's `shoulderSocket` (weaponSocket still at -PI/2, no cape, `SoldierPose.carry`) and
+// **부상자 들쳐메기** — `findCarriable` / `carry` / the revive prompt following the socket / the automatic drop when
+// the body is revived / `setCarriedBy` riding along on a carrier's shoulder (`debugCarryLocal`).
 // Usage: node scripts/smoke-ghost.mjs [http://localhost:5273]   (needs `npm run dev` or a private `npx vite --port 5303`)
 import puppeteer from 'puppeteer-core';
 import { existsSync } from 'node:fs';
@@ -75,7 +78,7 @@ try {
     window.__ev = {};
     const bus = window.__game.ctx.bus;
     for (const n of ['player:spawned', 'player:died', 'player:downed', 'player:downHpChanged', 'player:healthChanged', 'player:landed',
-      'player:launched', 'net:remoteHeldItem', 'net:ghostState', 'world:ready']) {
+      'player:launched', 'net:remoteHeldItem', 'net:ghostState', 'world:ready', 'player:carryStarted', 'player:carryEnded']) {
       window.__ev[n] = [];
       bus.on(n, (p) => { window.__ev[n].push(JSON.parse(JSON.stringify(p, (k, v) => (v && v.isVector3) ? [v.x, v.y, v.z] : v))); });
     }
@@ -409,6 +412,102 @@ try {
   });
   ok(k6.parkedBefore === 1 && k6.parked === 0 && k6.ghosts === 0, 'game:abort clears parked bodies', JSON.stringify(k6));
   await P(() => { window.__rp.debugClear(); });
+
+  console.log('Phase 10: 3등신 모델 소켓 · 부상자 들쳐메기');
+  await P(() => { const ctx = window.__game.ctx; ctx.rejoinPending = false; ctx.bus.emit('game:newMission', { seed: 21 }); });
+  await waitFor(page, () => !!window.__game.ctx.world && window.__game.ctx.world.ready, 'world ready (2)', 25000);
+  await P(() => { const ctx = window.__game.ctx; if (ctx.phase !== 'playing') ctx.setPhase('playing'); });
+  await waitFor(page, () => !window.__game.ctx.player.isDropping, 'hellpod exit (2)', 20000);
+  await waitSim(0.4);
+  const sock = await P(() => {
+    const ps = window.__ps; const m = ps.model; const p = window.__game.ctx.player;
+    return {
+      shoulder: !!m.shoulderSocket,
+      weaponRotX: +m.weaponSocket.rotation.x.toFixed(4),
+      hostSocket: typeof p.getShoulderSocket === 'function' && p.getShoulderSocket() === m.shoulderSocket,
+      poseCarry: Object.keys(ps.pose).includes('carry'),
+      carrying: p.carrying, isCarried: p.isCarried,
+      capeGone: !('capeSegs' in m),
+    };
+  });
+  ok(sock.shoulder && sock.hostSocket, 'SoldierModel.shoulderSocket exposed through getShoulderSocket()', JSON.stringify(sock));
+  ok(Math.abs(sock.weaponRotX + Math.PI / 2) < 1e-3, 'weaponSocket keeps the -PI/2 (weapon -Z) contract', String(sock.weaponRotX));
+  ok(sock.poseCarry && sock.capeGone, 'SoldierPose has `carry`; the cape segments are gone', JSON.stringify(sock));
+  ok(sock.carrying === null && sock.isCarried === false, 'nobody is carried at mission start', JSON.stringify(sock));
+
+  await P(() => {
+    const rp = window.__rp; const p = window.__game.ctx.player;
+    const ref = rp.debugSpawn({ id: 'dbg-e', slot: 1, isDowned: true });
+    ref.position.copy(p.position); ref.position.x += 1.2;
+    window.__refE = ref;
+  });
+  await waitSim(0.3);
+  const c1 = await P(() => {
+    const rp = window.__rp; const p = window.__game.ctx.player;
+    const found = rp.findCarriable(p.position, 2.2);
+    const far = rp.findCarriable(new window.__V(p.position.x + 40, p.position.y, p.position.z), 2.2);
+    const okCarry = p.carry('dbg-e');
+    const twice = p.carry('dbg-e');
+    const av = rp.getAvatar('dbg-e');
+    return {
+      found: found && found.id, far, okCarry, twice, carrying: p.carrying, carried: av.carried,
+      shoulder: av.root.parent === p.getShoulderSocket(),
+      started: window.__ev['player:carryStarted'].slice(-1)[0],
+    };
+  });
+  ok(c1.found === 'dbg-e' && c1.far === null, 'findCarriable finds the downed squadmate in range only', JSON.stringify(c1));
+  ok(c1.okCarry && !c1.twice && c1.carrying === 'dbg-e' && c1.carried && c1.shoulder, 'carry() parents the body into the shoulder socket (and never twice)', JSON.stringify(c1));
+  ok(c1.started && c1.started.id === 'dbg-e', 'player:carryStarted emitted', JSON.stringify(c1.started));
+  // `syncRevive` re-aims the prompt once per frame, so let a frame run before reading it back
+  await waitSim(0.2);
+  const c2 = await P(() => {
+    const rp = window.__rp; const entry = rp.revives.get('dbg-e');
+    const av = rp.getAvatar('dbg-e');
+    const wp = av.root.getWorldPosition(new window.__V());
+    return {
+      has: !!entry,
+      dSocket: entry ? entry.interactable.position.distanceTo(wp) : -1,
+      dRef: entry ? entry.interactable.position.distanceTo(window.__refE.position) : -1,
+      carried: av.carried,
+    };
+  });
+  ok(c2.has && c2.dSocket < 0.05, 'the revive prompt follows the shoulder socket while the body is carried', JSON.stringify(c2));
+  ok(c2.dRef > 0.4, 'the prompt no longer sits at the stale ref position', JSON.stringify(c2));
+  const c3 = await P(() => {
+    const p = window.__game.ctx.player;
+    window.__refE.isDowned = false;              // somebody else revived the body
+    return { carrying: p.carrying };
+  });
+  await waitSim(0.3);
+  const c4 = await P(() => {
+    const p = window.__game.ctx.player; const av = window.__rp.getAvatar('dbg-e');
+    return { carrying: p.carrying, carried: av.carried, inScene: av.root.parent === window.__game.ctx.scene, ended: window.__ev['player:carryEnded'].slice(-1)[0] };
+  });
+  ok(c3.carrying === 'dbg-e' && c4.carrying === null && !c4.carried && c4.inScene, 'a revived body is put down automatically', JSON.stringify(c4));
+  ok(c4.ended && c4.ended.reason === 'revived', "player:carryEnded reason 'revived'", JSON.stringify(c4.ended));
+
+  const c5 = await P(() => {
+    const rp = window.__rp; const p = window.__game.ctx.player;
+    const on = rp.debugCarryLocal('dbg-e', true);
+    return { on, isCarried: p.isCarried, shoulder: p.object.parent === rp.getAvatar('dbg-e').shoulderSocket, x: p.position.x };
+  });
+  ok(c5.on && c5.isCarried && c5.shoulder, 'setCarriedBy hangs the LOCAL body on the carrier socket', JSON.stringify(c5));
+  await P(() => { window.__refE.position.x += 5; });
+  await waitSim(0.3);
+  const c6b = await P((x0) => {
+    const p = window.__game.ctx.player; const av = window.__rp.getAvatar('dbg-e');
+    const wp = av.root.getWorldPosition(new window.__V());
+    return { moved: p.position.x - x0, d: Math.hypot(p.position.x - wp.x, p.position.z - wp.z), isCarried: p.isCarried };
+  }, c5.x);
+  ok(c6b.moved > 4 && c6b.d < 1.2, 'the carried body rides along with the carrier (controller position follows the socket)', JSON.stringify(c6b));
+  const c7 = await P(() => {
+    const rp = window.__rp; rp.debugCarryLocal('dbg-e', false);
+    const p = window.__game.ctx.player;
+    return { isCarried: p.isCarried, inScene: p.object.parent === window.__game.ctx.scene };
+  });
+  ok(!c7.isCarried && c7.inScene, 'setCarriedBy(null) puts the local body back into the scene', JSON.stringify(c7));
+  await P(() => { window.__rp.debugClear(); });
+  await waitSim(0.2);
 
   const gameErrors = errors.filter((e) => !/WebSocket/.test(e));
   ok(gameErrors.length === 0, `no console errors (${gameErrors.length}; ${errors.length - gameErrors.length} relay socket errors ignored)`, gameErrors.slice(0, 5).join(' | '));

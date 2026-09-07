@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { GameContext } from '@/shared';
-import { FURNITURE_DEF_MAP, HOUSING_CELL_SIZE, Keys, MouseButtons, ROOM_GRID_COLS, ROOM_GRID_ROWS, furnitureFootprint } from '@/shared';
+import { FURNITURE_DEF_MAP, HOUSING_CELL_SIZE, Keys, MouseButtons, ROOM_GRID_COLS, ROOM_GRID_ROWS, furnitureFootprint, isSoftCursorEvent } from '@/shared';
 import { GHOST_BAD, GHOST_OK, buildFurniture, type FurnitureLayer, type FurnitureModel } from './interiors/Furniture';
 import { ROOM_BOXES, roomCellToWorld, yawToRotation, type RoomBox } from './interiors/RoomLayout';
 import type { PersonalShip } from './interiors/PersonalShip';
@@ -13,13 +13,26 @@ const CURSOR_M_PER_PX = 0.012;
  */
 const CANCEL_KEY = 'KeyC';
 /**
- * UI blocker token held for the whole 함선 관리 session (Phase 8). The mode is driven with a **free** mouse (the
- * `ui/hud/ShipManage` 방 목록 / 가구 카드 바 are clickable DOM), so the pointer lock is released — and without a
- * token `ctx.isControlActive()` would stay true and `player/`'s click-to-relock fallback would grab the pointer
- * back on the first click. Its own token is ignored by this controller (see `blockedByPanel`).
+ * UI blocker token held for the whole 함선 관리 session (Phase 8). The mode is driven with a **cursor** (the
+ * `ui/hud/ShipManage` 방 목록 / 가구 카드 바 are clickable DOM), and without a token `ctx.isControlActive()` would
+ * stay true and `player/`'s click-to-relock fallback would fight for the pointer. Its own token is ignored by this
+ * controller (see `blockedByPanel`).
+ *
+ * **Phase 10**: the pointer lock is **kept** — `ctx.input.setCursorMode(true, MANAGE_BLOCKER)` drives the software
+ * cursor (`shared/cursor.ts`) from the raw locked deltas instead of handing the OS cursor back.
  */
 const MANAGE_BLOCKER = 'shipmanage';
-/** Camera over the room: how far toward the door from the room centre, and how high. */
+/**
+ * Camera over the room: how far **toward +X** from the room centre, and how high.
+ *
+ * Phase 10: the eye used to be `cx − rb.side · CAM_TOWARD_DOOR`, i.e. over each room's *own* door wall. `rb.side` is
+ * −1 for rooms 0–4 and +1 for rooms 5–9, so both halves of the ship were seen with their door at the bottom of the
+ * screen and therefore read 180° apart. The **port** convention is now used for every room (eye on the +X side of the
+ * room looking −X), so a starboard room is seen from the outer hull toward the corridor and its door sits at the
+ * **top** of the screen. The starboard eye (`cx + 2.2` = 6.0 for rooms 5–9) is inside the outer hull slab in XZ, but
+ * `CAM_HEIGHT` is well above `CEIL` (3.2) and the ceiling plane is back-face culled from above, so nothing occludes
+ * the floor.
+ */
 const CAM_TOWARD_DOOR = 2.2;
 const CAM_HEIGHT = 6.6;
 /** Exponential rate the camera glides to another room's goal while 시설 관리 is already open. Higher = snappier. */
@@ -37,9 +50,10 @@ const _ray = new THREE.Raycaster();
 
 /**
  * 3D side of housing mode (`housing:modeChanged {active:true, room}` → this; the rules live in `ctx.housing`).
- * Controls off, oblique top-down camera over the room from the door side (`setCameraOverride`, blended), the pointer
- * **stays locked** and its deltas move a floor cursor over the 8 × 8 grid. A ghost of `ctx.housing.selectedFurniture`
- * (or of a picked-up piece) follows the cursor, green / red by `canPlace`.
+ * Controls off, oblique top-down camera **on the room's +X side looking −X** (`setCameraOverride`, blended; one
+ * convention for every room since Phase 10 — see `CAM_TOWARD_DOOR`), the pointer **stays locked** and its deltas move
+ * a floor cursor over the 8 × 8 grid. A ghost of `ctx.housing.selectedFurniture` (or of a picked-up piece) follows the
+ * cursor, green / red by `canPlace`.
  *   LMB (`Keys.FIRE`)         place the selection · pick up the piece under the cursor · put a picked-up piece down (`move`)
  *   R   (`Keys.ROTATE_ITEM`)  rotate the selection / the carried piece
  *   X   (`Keys.DROP_ITEM`)    recover the piece under the cursor (→ furniture storage)
@@ -79,6 +93,23 @@ export class HousingMode {
   private readonly frame: THREE.Mesh;
   private readonly frameMat: THREE.MeshBasicMaterial;
 
+  /**
+   * Phase 10: mouse buttons / wheel notches the **software cursor** synthesised this frame. While cursor mode owns the
+   * input `Input` routes real presses into the cursor and never records them (`wasMousePressed` stays false), so the
+   * placement click and the selection wheel have to come off the DOM. Only events carrying the soft-cursor marker are
+   * collected here — a native press is still read through `Input`, exactly as before, so both paths stay live.
+   */
+  private readonly softPressed = new Set<number>();
+  private softWheel = 0;
+  private readonly onSoftPointerDown = (e: Event): void => {
+    if (!this.active || !isSoftCursorEvent(e)) return;
+    this.softPressed.add((e as MouseEvent).button);
+  };
+  private readonly onSoftWheel = (e: Event): void => {
+    if (!this.active || !isSoftCursorEvent(e)) return;
+    this.softWheel += Math.sign((e as WheelEvent).deltaY);
+  };
+
   constructor(private readonly ctx: GameContext) {
     this.frameMat = new THREE.MeshBasicMaterial({ color: 0x5fd7ff, transparent: true, opacity: 0.35, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
     this.frame = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), this.frameMat);
@@ -93,12 +124,14 @@ export class HousingMode {
         // (no player control, no 시설 관리 hint) — housing emits `modeChanged` before `shipManageChanged`.
         else this.deactivate();
       }),
-      // 함선 관리 (M): same camera, **unlocked** cursor, entered from anywhere; `setManageRoom` re-emits the room.
+      // 함선 관리 (M): same camera, software cursor, entered from anywhere; `setManageRoom` re-emits the room.
       ctx.bus.on('housing:shipManageChanged', ({ active, room }) => {
         if (active && room !== null) { this.enterManage(); this.activate(room); }
         else this.deactivate();
       }),
     );
+    window.addEventListener('pointerdown', this.onSoftPointerDown);
+    window.addEventListener('wheel', this.onSoftWheel, { passive: true });
   }
 
   /** The hub hands over the current personal ship (null in the shared ship / outside the hub). */
@@ -112,15 +145,16 @@ export class HousingMode {
 
   /* ── enter / leave ───────────────────────────────────────────────────── */
   /**
-   * 함선 관리: take the blocker token **before** leaving the pointer lock (the hub's UI etiquette) and stay
-   * unlocked for the whole session so the 방 목록 / 가구 카드 바 can be clicked. Idempotent — `setManageRoom`
-   * re-emits the event on every room change.
+   * 함선 관리: take the blocker token and switch to the **software cursor** for the whole session so the 방 목록 /
+   * 가구 카드 바 can be clicked. Phase 10: the pointer lock is deliberately **kept** (`setCursorMode`, never
+   * `exitPointerLock`) so the OS cursor cannot wander onto another monitor. Idempotent — `setManageRoom` re-emits the
+   * event on every room change.
    */
   private enterManage(): void {
     this.manage = true;
     if (this.ctx.uiBlockers.has(MANAGE_BLOCKER)) return;
     this.ctx.uiBlockers.add(MANAGE_BLOCKER);
-    this.ctx.input.exitPointerLock();
+    this.ctx.input.setCursorMode(true, MANAGE_BLOCKER);
   }
 
   /** Enter (or, when already active on another room, retarget to) `room`. The camera blend is the rig's. */
@@ -146,7 +180,9 @@ export class HousingMode {
       // in); switching rooms while the mode is already up **glides** there instead — `update()` walks
       // `camPos` / `camLook` toward the goal, so picking another room in the 시설 관리 list flies the camera over
       // the ship rather than cutting to it (Phase 9 UI pass).
-      this.camGoal.set(cx - rb.side * CAM_TOWARD_DOOR, CAM_HEIGHT, cz);
+      // Phase 10: the port convention for **every** room (eye on the +X side looking −X), so rooms 5–9 look from the
+      // outer hull toward the corridor and their door is at the top of the screen like rooms 0–4's.
+      this.camGoal.set(cx + CAM_TOWARD_DOOR, CAM_HEIGHT, cz);
       this.lookGoal.set(cx, 0.2, cz);
       if (!retarget) { this.camPos.copy(this.camGoal); this.lookPos.copy(this.lookGoal); }
       p.setCameraOverride(this.camPos, this.lookPos, false);
@@ -188,11 +224,17 @@ export class HousingMode {
     }
     if (wasManage || this.ctx.uiBlockers.has(MANAGE_BLOCKER)) {
       this.ctx.uiBlockers.delete(MANAGE_BLOCKER);
+      this.ctx.input.setCursorMode(false, MANAGE_BLOCKER);
       this.relock();
     }
   }
 
-  /** Back to the walking hub: re-lock the pointer the way the hub does — only in `hub` with no blocker left. */
+  /**
+   * Back to the walking hub. Phase 10 keeps the lock through the whole session, so this is only a **safety net**:
+   * Chrome always drops a pointer lock on Escape (and the headless smokes stub `requestPointerLock` away), and the
+   * software cursor silently falls back to mirroring the real one in that state. Re-requesting is a no-op while the
+   * lock is still held.
+   */
   private relock(): void {
     queueMicrotask(() => {
       const ctx = this.ctx;
@@ -220,22 +262,25 @@ export class HousingMode {
 
   /* ── frame ────────────────────────────────────────────────────────────── */
   update(dt = 0): void {
-    if (!this.active) return;
+    if (!this.active) { this.clearSoftInput(); return; }
     const ctx = this.ctx, input = ctx.input;
     const housing = ctx.housing;
-    if (ctx.phase !== 'hub' || !this.ship) { this.exit(); return; }
+    if (ctx.phase !== 'hub' || !this.ship) { this.clearSoftInput(); this.exit(); return; }
     this.glideCamera(dt);
-    if (this.blockedByPanel()) return;          // a DOM panel (console / housing menu) has the input
+    if (this.blockedByPanel()) { this.clearSoftInput(); return; }   // a DOM panel (console / housing menu) has the input
 
     const rb = ROOM_BOXES[this.room];
     if (this.manage) {
-      // 함선 관리: the pointer is free (the room list / furniture bar are clicked), so the floor cursor follows the
-      // real mouse — a camera ray onto the deck plane, clamped into the room.
+      // 함선 관리: there is a cursor (the room list / furniture bar are clicked), so the floor cursor follows it —
+      // a camera ray onto the deck plane, clamped into the room.
       this.raycastCursor(rb);
     } else if (input.mouseDX !== 0 || input.mouseDY !== 0) {
-      // room console: pointer-locked deltas → room floor (screen right = world ±Z, screen up = away from the door)
-      this.cursor.z += input.mouseDX * CURSOR_M_PER_PX * rb.side;
-      this.cursor.x -= input.mouseDY * CURSOR_M_PER_PX * rb.side;
+      // Room console: pointer-locked deltas → room floor. The camera is on the +X side of **every** room looking −X
+      // (Phase 10), so screen right = world −Z and screen down = world +X for every room — the mapping the port
+      // rooms always had. It used to be multiplied by `rb.side`, which mirrored the starboard rooms along with their
+      // mirrored camera; with one camera convention the factor is gone and both groups feel the same.
+      this.cursor.z -= input.mouseDX * CURSOR_M_PER_PX;
+      this.cursor.x += input.mouseDY * CURSOR_M_PER_PX;
       this.cursor.x = THREE.MathUtils.clamp(this.cursor.x, rb.minX, rb.maxX);
       this.cursor.z = THREE.MathUtils.clamp(this.cursor.z, rb.minZ, rb.maxZ);
     }
@@ -252,10 +297,13 @@ export class HousingMode {
     }
     // a wheel over the furniture bar scrolls that list — it must not cycle the selection as well
     const overUI = this.pointerOverUI();
+    // `input.wheelDelta` / `wasMousePressed` are empty while the software cursor owns the mouse (Phase 10), so both
+    // the native and the synthesised path are read here.
+    const wheel = input.wheelDelta !== 0 ? input.wheelDelta : this.softWheel;
     let dir = 0;
     if (!overUI) {
-      if (input.wheelDelta > 0 || input.wasPressed('BracketRight')) dir = 1;
-      else if (input.wheelDelta < 0 || input.wasPressed('BracketLeft')) dir = -1;
+      if (wheel > 0 || input.wasPressed('BracketRight')) dir = 1;
+      else if (wheel < 0 || input.wasPressed('BracketLeft')) dir = -1;
     }
     if (dir !== 0 && !this.carry) this.cycleSelection(dir);
 
@@ -263,7 +311,14 @@ export class HousingMode {
 
     if (input.wasPressed(Keys.DROP_ITEM)) this.recoverUnderCursor();
     // a click on the 방 목록 / 가구 카드 바 must not also drop a piece on the floor behind the panel
-    if (input.wasMousePressed(MouseButtons.FIRE) && !overUI) this.primary();
+    const fire = input.wasMousePressed(MouseButtons.FIRE) || this.softPressed.has(MouseButtons.FIRE);
+    if (fire && !overUI) this.primary();
+    this.clearSoftInput();
+  }
+
+  private clearSoftInput(): void {
+    if (this.softPressed.size) this.softPressed.clear();
+    this.softWheel = 0;
   }
 
   /** Any UI blocker except our own 함선 관리 token (the panels the hub / housing open own the input). */
@@ -273,22 +328,25 @@ export class HousingMode {
     return !(b.size === 1 && b.has(MANAGE_BLOCKER));
   }
 
-  /** True while the free mouse is over the HTML UI (`#ui-root`) — only possible in the unlocked 함선 관리 mode. */
+  /**
+   * True while the UI cursor is over the HTML UI (`#ui-root`) — only possible in 함선 관리, the one mode with a
+   * cursor. Phase 10: `input.elementUnderCursor()` reads the **software** cursor while it owns the input and the real
+   * one otherwise, so this works both with the lock held and after Chrome dropped it on Escape.
+   */
   private pointerOverUI(): boolean {
-    const input = this.ctx.input;
-    if (input.isPointerLocked) return false;
+    if (!this.manage) return false;
     try {
-      const e = document.elementFromPoint(input.mouseX, input.mouseY);
+      const e = this.ctx.input.elementUnderCursor();
       return !!e?.closest?.('#ui-root');
     } catch { return false; }
   }
 
-  /** 함선 관리 cursor: mouse → NDC on the canvas → camera ray → deck plane (y = 0), clamped into the room. */
+  /** 함선 관리 cursor: UI cursor → NDC on the canvas → camera ray → deck plane (y = 0), clamped into the room. */
   private raycastCursor(rb: RoomBox): void {
     const ctx = this.ctx;
     const rect = ctx.canvas.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return;
-    _ndc.set(((ctx.input.mouseX - rect.left) / rect.width) * 2 - 1, -((ctx.input.mouseY - rect.top) / rect.height) * 2 + 1);
+    _ndc.set(((ctx.input.uiX - rect.left) / rect.width) * 2 - 1, -((ctx.input.uiY - rect.top) / rect.height) * 2 + 1);
     _ray.setFromCamera(_ndc, ctx.camera);
     const o = _ray.ray.origin, d = _ray.ray.direction;
     if (Math.abs(d.y) < 1e-4) return;
@@ -461,6 +519,8 @@ export class HousingMode {
 
   dispose(): void {
     this.deactivate();
+    window.removeEventListener('pointerdown', this.onSoftPointerDown);
+    window.removeEventListener('wheel', this.onSoftWheel);
     for (const u of this.unsubs) u();
     this.unsubs.length = 0;
     this.frame.geometry.dispose();

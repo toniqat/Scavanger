@@ -25,6 +25,19 @@ export class Input {
    * (see `shared/cursor.ts`). Systems use `setCursorMode` / `uiX` / `uiY` / `elementUnderCursor` instead of touching it.
    */
   readonly cursor = new SoftCursor();
+  /**
+   * appended (Phase 10): does `document.pointerLockElement` describe a *real* lock?
+   *
+   * Per spec a locked pointer holds `clientX/clientY` constant, so a `mousemove` that both claims a lock and moves the
+   * client coordinates can only be a **faked** one — which is exactly what every headless smoke does
+   * (`Object.defineProperty(Document.prototype, 'pointerLockElement', …)` over the canvas). Under a faked lock the real
+   * device events already reach the DOM with true coordinates, so synthesising a second set at the virtual cursor would
+   * double every click and fight the script's own drags. Detected once and latched; `requestPointerLock()` re-arms it.
+   *
+   * `mouseDX / mouseDY` deliberately stay gated on `isPointerLocked` alone — the camera-look smokes depend on the
+   * faked lock accumulating their synthetic `movementX/Y`.
+   */
+  private lockLooksReal = true;
 
   bind(target: HTMLElement): void {
     if (this.bound) return;
@@ -47,7 +60,7 @@ export class Input {
       if (e.button === 1 && this.isPointerLocked) e.preventDefault();
       // Software cursor: the press belongs to the UI under the virtual cursor, not to gameplay. Only while the lock is
       // actually held — unlocked, the real cursor already delivers native events and a second set would double-click.
-      if (this.cursor.active && this.isPointerLocked) { this.cursor.press(e.button); return; }
+      if (this.cursorOwnsInput) { this.cursor.press(e.button); return; }
       if (!this.mouseDown.has(e.button)) this.mousePressed.add(e.button);
       this.mouseDown.add(e.button);
       // Rebindable actions may sit on a mouse button: mirror it as the synthetic key code `MouseN`.
@@ -57,7 +70,7 @@ export class Input {
     });
     window.addEventListener('mouseup', (e) => {
       if (isSoftCursorEvent(e)) return;
-      if (this.cursor.active && this.isPointerLocked) { this.cursor.release(e.button); this.mouseDown.delete(e.button); return; }
+      if (this.cursorOwnsInput) { this.cursor.release(e.button); this.mouseDown.delete(e.button); return; }
       this.mouseDown.delete(e.button);
       this.mouseReleased.add(e.button);
       const code = `Mouse${e.button}`;
@@ -66,9 +79,12 @@ export class Input {
     });
     window.addEventListener('mousemove', (e) => {
       if (isSoftCursorEvent(e)) return;
+      const prevX = this.mouseX, prevY = this.mouseY;
       this.mouseX = e.clientX; this.mouseY = e.clientY;
+      // A real lock freezes the client coordinates; movement here means the lock is faked (headless smokes).
+      if (this.isPointerLocked && (e.clientX !== prevX || e.clientY !== prevY)) this.lockLooksReal = false;
       if (this.cursor.active) {
-        if (this.isPointerLocked) this.cursor.moveBy(e.movementX || 0, e.movementY || 0);
+        if (this.cursorOwnsInput) this.cursor.moveBy(e.movementX || 0, e.movementY || 0);
         else this.cursor.mirror(e.clientX, e.clientY);   // no lock (Escape / headless): mirror, never synthesise
         return;
       }
@@ -76,7 +92,7 @@ export class Input {
     });
     window.addEventListener('wheel', (e) => {
       if (isSoftCursorEvent(e)) return;
-      if (this.cursor.active && this.isPointerLocked) { this.cursor.wheel(e.deltaY, e.deltaX); return; }
+      if (this.cursorOwnsInput) { this.cursor.wheel(e.deltaY, e.deltaX); return; }
       this.wheelDelta += Math.sign(e.deltaY);
     }, { passive: true });
     window.addEventListener('contextmenu', (e) => { if (this.isPointerLocked) e.preventDefault(); });
@@ -105,6 +121,7 @@ export class Input {
   requestPointerLock(): void {
     if (!this.lockTarget || this.isPointerLocked) return;
     this.lastLockRequest = performance.now();
+    this.lockLooksReal = true;   // re-arm the faked-lock detection (Phase 10)
     // Modern Chrome returns a Promise that rejects when the lock is denied (e.g. headless, no user gesture) —
     // swallow it so a denied re-lock never surfaces as an unhandled rejection.
     const swallow = (r: unknown): void => { if (r && typeof (r as Promise<void>).catch === 'function') (r as Promise<void>).catch(() => { /* denied */ }); };
@@ -116,6 +133,13 @@ export class Input {
   /* ── appended: Phase 10 — 인게임 마우스 커서 ────────────────────────────────── */
   /** true while the virtual cursor owns UI input (the pointer lock is kept and raw deltas drive `cursorX/Y`). */
   get isCursorMode(): boolean { return this.cursor.active; }
+  /**
+   * true while the software cursor must **synthesise** the DOM events itself: cursor mode is on and the pointer lock is
+   * real. With a faked / absent lock the native device events already reach the DOM, so the cursor only mirrors.
+   */
+  get cursorOwnsInput(): boolean { return this.cursor.active && this.isPointerLocked && this.lockLooksReal; }
+  /** Escape hatch for tests: force the synthesis path off (or back on) regardless of the auto-detection. */
+  setCursorSynthetic(on: boolean): void { this.lockLooksReal = on; }
   /** Virtual cursor position in client px (only meaningful while `isCursorMode`). */
   get cursorX(): number { return this.cursor.x; }
   get cursorY(): number { return this.cursor.y; }

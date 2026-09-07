@@ -1,5 +1,5 @@
 import type { ArmorDef, EffectiveWeaponStats, ItemDef, ItemInstance, SkillId, WeaponDef } from '@/shared';
-import { SOCKET_LABEL_KO, SOCKET_SLOTS } from '@/shared';
+import { SOCKET_LABEL_KO, SOCKET_SLOTS, itemCreditValue } from '@/shared';
 import { WEAPON_CLASS_LABEL_KO } from '@/items';
 import {
   DURABILITY_LOW, TEXT, ammoTypeLabel, categoryLabel, effectiveRange, fmtDeg, fmtMul, fmtValue, gradeLabel, rarityColor, rarityLabel,
@@ -118,7 +118,6 @@ export class Tooltip {
     if (def.healAmount) rows.push(['회복', `+${def.healAmount} HP`]);
     if (def.stackMax > 1) rows.push([TEXT.qty, `${item.qty} / ${def.stackMax}`]);
     rows.push([TEXT.size, `${def.width} × ${def.height}`]);
-    rows.push([TEXT.value, def.stackMax > 1 && item.qty > 1 ? `${fmtValue(def.value)} × ${item.qty}` : fmtValue(def.value * item.qty)]);
 
     const table = document.createElement('div');
     table.className = 'inv-tt-stats';
@@ -149,6 +148,33 @@ export class Tooltip {
       }
       this.el.appendChild(sockets);
     }
+
+    // Phase 10: 가치 is a bottom bar of the card (same shape as `ui/hud/ItemTip`'s): label left, amount right —
+    // a stack shows `단가 × 수량` next to the total.
+    const value = document.createElement('div');
+    value.className = 'inv-tt-value';
+    const vk = document.createElement('span');
+    vk.className = 'k';
+    vk.textContent = TEXT.value;
+    const amount = document.createElement('span');
+    amount.className = 'inv-tt-value-amount';
+    const qty = Math.max(1, item.qty);
+    if (def.stackMax > 1 && qty > 1) {
+      const unit = document.createElement('span');
+      unit.className = 'inv-tt-value-unit';
+      unit.textContent = `${fmtValue(def.value)} × ${qty}`;
+      const total = document.createElement('span');
+      total.className = 'inv-tt-value-total';
+      total.textContent = fmtValue(itemCreditValue(def, qty));
+      amount.append(unit, total);
+    } else {
+      const total = document.createElement('span');
+      total.className = 'inv-tt-value-total';
+      total.textContent = fmtValue(itemCreditValue(def, 1));
+      amount.appendChild(total);
+    }
+    value.append(vk, amount);
+    this.el.appendChild(value);
 
     this.el.hidden = false;
     this.visible = true;

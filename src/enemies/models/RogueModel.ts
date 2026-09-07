@@ -277,9 +277,18 @@ export function animateRogue(rig: RogueRig, a: BugAnim): void {
   let pitch = a.slopePitch + a.speed * 0.08 + crouch * 0.28 + a.flinch * a.flinchZ * 0.25 + wr * (0.25 + Math.sin(t * 7.3) * 0.2);
   let roll = a.slopeRoll + a.flinch * a.flinchX * 0.3 + shake + Math.sin(t * 9.1) * 0.3 * wr;
   if (dying) {
-    const fall = smooth(Math.min(1, a.death / 0.3));
-    pitch += -fall * 1.5 * (a.rollSign > 0 ? 1 : 0.55);     // fall backward (or mostly sideways)
-    roll += a.rollSign * fall * (a.rollSign > 0 ? 0.35 : 1.3);
+    // Phase 10: left / right / back are three real directions (`a.deathDir`) blended over DEATH_FALL_TIME.
+    // Before, `rollSign > 0` fell backward and `< 0` fell right — there was no way to drop to the left at all.
+    const fall = smooth(THREE.MathUtils.clamp(a.deathFall, 0, 1));
+    const settle = Math.sin(a.deathFall * Math.PI) * (1 - a.deathFall);
+    if (a.deathDir === 2) {
+      pitch += -fall * 1.55 - settle * 0.2;                 // straight onto the back
+      roll += Math.sin(t * 1.9) * 0.08 * fall;
+    } else {
+      const side = a.deathDir === 1 ? 1 : -1;               // 1 right, 0 left
+      pitch += -fall * 0.55;
+      roll += side * (fall * 1.35 + settle * 0.15);
+    }
     y = THREE.MathUtils.lerp(y, 0.3, fall) - smooth(a.fade) * 1.4;
   }
   rig.body.position.set(shake, y, 0);

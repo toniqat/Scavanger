@@ -1,5 +1,7 @@
 // Single-player smoke test for Phase 2: downed / bleed / give-up / respawn, quick-use wheel, stim in hand, grenade cooking.
 // Phase 9: `player:giveUpProgress` (rises during the Space hold, a single -1 on release / death).
+// Phase 10: the 회복약 (was 스팀) is used with a HEAL_HOLD_S (2 s) LMB hold — a tap only starts / cancels the gauge
+// (`heal:holdChanged`).
 // Usage: node scripts/smoke-phase2.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { existsSync } from 'node:fs';
@@ -69,7 +71,8 @@ try {
     const bus = window.__game.ctx.bus;
     for (const n of ['player:downed', 'player:downHpChanged', 'player:revived', 'player:died', 'player:respawn', 'player:spawned', 'player:landed',
       'game:respawnAvailable', 'game:phaseChanged', 'game:over', 'inventory:quickSlotsChanged', 'quick:wheelChanged', 'quick:equipped', 'quick:used',
-      'grenade:holdChanged', 'grenade:thrown', 'grenade:exploded', 'player:stimUsed', 'weapon:equipped', 'player:giveUpProgress']) {
+      'grenade:holdChanged', 'grenade:thrown', 'grenade:exploded', 'player:stimUsed', 'weapon:equipped', 'player:giveUpProgress',
+      'heal:holdChanged', 'player:carryStarted', 'player:carryEnded']) {
       window.__ev[n] = [];
       bus.on(n, (p) => { window.__ev[n].push(JSON.parse(JSON.stringify(p, (k, v) => (v && v.isVector3) ? [v.x, v.y, v.z] : v))); });
     }
@@ -129,11 +132,21 @@ try {
   ok(qe && qe.item && qe.item.defId === 'stim' && qe.index === 4, 'release equips the stim', JSON.stringify(qe));
   const hpBefore = await P(() => window.__game.ctx.player.hp);
   const stimBefore = await P(() => window.__game.ctx.inventory.countWhere((d) => d.id === 'stim'));
-  await mouseDown(0); await waitSim(0.1); await mouseUp(0);
+  // Phase 10: the 회복약 needs a HEAL_HOLD_S (2 s) LMB hold — a tap must NOT consume it
+  await mouseDown(0); await waitSim(0.4); await mouseUp(0);
+  await waitSim(0.6);
+  const tapped = await P(() => window.__game.ctx.inventory.countWhere((d) => d.id === 'stim'));
+  ok(tapped === stimBefore, 'a short LMB tap does not consume the 회복약 (2 s hold)', `${stimBefore} → ${tapped}`);
+  const cancelled = await lastEv('heal:holdChanged');
+  ok(cancelled && cancelled.holding === false, 'releasing early cancels heal:holdChanged', JSON.stringify(cancelled));
+  await mouseDown(0); await waitSim(0.8);
+  const holding = await lastEv('heal:holdChanged');
+  ok(holding && holding.holding === true && holding.t > 0.1 && holding.t < 1, 'heal:holdChanged rises while LMB is held', JSON.stringify(holding));
+  await waitSim(1.8); await mouseUp(0);
   await waitSim(2.0);
   const hpAfter = await P(() => window.__game.ctx.player.hp);
   const stimAfter = await P(() => window.__game.ctx.inventory.countWhere((d) => d.id === 'stim'));
-  ok(hpAfter > hpBefore, 'LMB uses the stim (hp up)', `${hpBefore} → ${hpAfter}`);
+  ok(hpAfter > hpBefore, 'a full 2 s LMB hold uses the 회복약 (hp up)', `${hpBefore} → ${hpAfter}`);
   ok(stimAfter === stimBefore - 1, 'stim stack −1', `${stimBefore} → ${stimAfter}`);
   ok((await ev('quick:used')).length >= 1, 'quick:used emitted');
 

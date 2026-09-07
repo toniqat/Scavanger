@@ -427,6 +427,7 @@ try {
     const subs = [...root.querySelectorAll('.corp-subtabs .scr-tab')].map((b) => ({ page: b.dataset.page, on: b.classList.contains('is-on') }));
     return {
       hidden: root.hidden, blocker: window.__game.ctx.uiBlockers.has('corp'), isOpen: window.__game.ctx.meta.isMenuOpen,
+      cursor: window.__game.ctx.input.isCursorMode,
       // Phase 9 UI pass: the `기업 네트워크` title + subtitle are gone — the corp list occupies the header's left slot
       title: root.querySelector('.hub-head .title')?.textContent ?? null,
       headTabs: root.querySelectorAll('.hub-head .corp-tabs .corp-tab').length,
@@ -437,9 +438,11 @@ try {
       tabs, subs, rows: root.querySelectorAll('.corp-page .corp-row, .corp-page .ct-cell, .corp-page .corp-empty').length,
     };
   });
-  ok(dom && !dom.hidden && dom.blocker && dom.isOpen, 'openCorpMenu(ceres) → visible, blocker corp, isMenuOpen', JSON.stringify(dom && { hidden: dom.hidden, blocker: dom.blocker }));
-  ok(dom && dom.title === null && dom.headTabs === 4 && dom.credits === snap.credits.toLocaleString('en-US'),
-    '헤더: 제목 없이 기업 목록 + 크레딧', JSON.stringify(dom && { title: dom.title, headTabs: dom.headTabs, credits: dom.credits }));
+  // Phase 10: the corp screen keeps the pointer lock and turns on the in-game cursor instead of exiting the lock
+  ok(dom && !dom.hidden && dom.blocker && dom.isOpen && dom.cursor, 'openCorpMenu(ceres) → visible, blocker corp, isMenuOpen, in-game cursor on', JSON.stringify(dom && { hidden: dom.hidden, blocker: dom.blocker, cursor: dom.cursor }));
+  // Phase 10: every credit readout is `formatCredits` → `1,200 C` (ko-KR grouping + the `C` unit, never `₩` / `cr`)
+  ok(dom && dom.title === null && dom.headTabs === 4 && dom.credits === `${snap.credits.toLocaleString('ko-KR')} C`,
+    '헤더: 제목 없이 기업 목록 + 크레딧 (100 C 표기)', JSON.stringify(dom && { title: dom.title, headTabs: dom.headTabs, credits: dom.credits }));
   ok(dom && dom.tabs.length === 4 && dom.tabs.find((t) => t.corp === 'ceres')?.on && dom.panel === '세레스 바이오' && !dom.motto,
     '4 corp tabs, ceres selected, 기업 패널 세레스 바이오 (no motto banner)', JSON.stringify(dom && dom.tabs));
   ok(dom && dom.subs.map((s) => s.page).join(',') === 'trade,contracts,quests' && dom.subs[0].on, 'sub-tabs 거래 / 계약 / 퀘스트 (거래 on)', JSON.stringify(dom && dom.subs));
@@ -469,6 +472,7 @@ try {
     // Phase 9 UI pass: the stock list is an **item grid** of `.ct-cell` thumbnails, not wide rows
     rows: document.querySelectorAll('.ct-shop-list .ct-cell.shop').length,
     tips: document.querySelectorAll('.ct-shop-list .ct-cell.shop .item-chip[data-def-id]').length,
+    prices: [...document.querySelectorAll('.ct-shop-list .ct-cell.shop .ct-cell-price')].map((e) => e.textContent),
     live: window.__game.ctx.meta.getShop('helix').length,
     buyBtn: !!document.querySelector('.ct-shop-list .ct-cell.shop .ui-btn'),   // 즉시 구매 buttons are gone (장바구니)
     grids: document.querySelectorAll('.ct-col.inv .trade-grids .tg-block').length,
@@ -480,6 +484,9 @@ try {
   ok(shopDom.rows === shopDom.live && shopDom.rows > shop1.length && !shopDom.buyBtn,
     `거래 tab: one stock cell per shop line (${shopDom.live}, more than the ${shop1.length} at Lv.1), no per-cell 구매 button`, JSON.stringify(shopDom));
   ok(shopDom.tips === shopDom.rows, `모든 재고 칸이 item-chip 썸네일 (호버 툴팁 대상, ${shopDom.tips}/${shopDom.rows})`);
+  // Phase 10: the old `123 cr` suffix is gone — every price is `formatCredits` (`1,200 C`)
+  ok(shopDom.prices.length === shopDom.rows && shopDom.prices.every((t) => /^[\d,]+ C$/.test(t ?? '')),
+    `재고 칸 가격이 100 C 표기 (${shopDom.prices[0]})`, JSON.stringify(shopDom.prices.slice(0, 3)));
   ok(shopDom.trays === 2 && shopDom.grids === 2 && shopDom.confirm === '거래 성사' && shopDom.confirmOff,
     '거래 tab: 구매 / 판매 trays, 가방 + 함선 창고 grids, 거래 성사 disabled on an empty basket', JSON.stringify(shopDom));
   // stage one purchase from the stock list and one sale from the bag, then settle the basket
@@ -499,8 +506,8 @@ try {
   ok(shopDom.stage, '귀중품 전부 담기 button visible on the 거래 tab');
   await tap('Escape');
   await sleep(30);
-  const closed = await P(() => ({ hidden: document.querySelector('.menu.corp-menu').hidden, blocker: window.__game.ctx.uiBlockers.has('corp'), isOpen: window.__game.ctx.meta.isMenuOpen }));
-  ok(closed.hidden && !closed.blocker && !closed.isOpen, 'Esc closes: hidden, blocker removed', JSON.stringify(closed));
+  const closed = await P(() => ({ hidden: document.querySelector('.menu.corp-menu').hidden, blocker: window.__game.ctx.uiBlockers.has('corp'), isOpen: window.__game.ctx.meta.isMenuOpen, cursor: window.__game.ctx.input.isCursorMode }));
+  ok(closed.hidden && !closed.blocker && !closed.isOpen && !closed.cursor, 'Esc closes: hidden, blocker + in-game cursor removed', JSON.stringify(closed));
   tg = await lastEv('ui:corpToggled');
   ok(tg && tg.open === false, 'ui:corpToggled {open:false}', JSON.stringify(tg));
 

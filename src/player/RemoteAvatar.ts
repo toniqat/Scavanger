@@ -8,9 +8,10 @@ import { damp, dampAngle, wrapAngle } from '@/core/util/MathUtil';
 import { SoldierModel, SOLDIER_DEFAULT_ACCENT, type SoldierPose } from './SoldierModel';
 import { buildHeldItem, type GearLook } from './GearLook';
 
-const HEAD_STAND = 1.7;
-const HEAD_CROUCH = 1.3;
-const HEAD_PRONE = 0.5;
+/* Nameplate anchors, matching the Phase 10 body (head centre 1.47 m, head top ≈ 1.76 m; the HUD adds +0.35 m). */
+const HEAD_STAND = 1.6;
+const HEAD_CROUCH = 1.34;
+const HEAD_PRONE = 0.55;
 const DEATH_ANIM = 0.9;
 /** Seconds between recoil pulses while the FIRING flag is set (≈ a 9 rps rifle). */
 const FIRE_PULSE_INTERVAL = 0.11;
@@ -18,8 +19,8 @@ const FIRE_PULSE_INTERVAL = 0.11;
 const MELEE_SWING_TIME = 0.45;
 /** Opacity of a cloaked remote (matches the local player's own shimmer). */
 const CLOAK_FADE = 0.4;
-/** Height of the "downed" beacon above the feet. */
-const DOWN_MARKER_Y = 0.95;
+/** Height of the "downed" beacon above the feet (clears the prone body's big head at ~0.55 m). */
+const DOWN_MARKER_Y = 0.9;
 /**
  * Flags that still mean something while a member is suspended (its last snapshot is frozen, the host's ghost
  * drives hp / downed / dead): everything animated (sprint, aim, fire, melee, …) is masked out.
@@ -28,6 +29,7 @@ const SUSPENDED_FLAG_MASK = PlayerFlags.HAS_WEAPON | PlayerFlags.TWO_HANDED | Pl
   | PlayerFlags.IN_POD | PlayerFlags.IN_HUB;
 
 const _up = new THREE.Vector3(0, 1, 0);
+const _wp = new THREE.Vector3();
 
 /** Duck-typed view of the Phase 7 snapshot fields net/ mirrors on its refs (`PlayerSnapshot.h`). */
 interface HeldItemSource { heldItemId?: string | null; heldItem?: string | null }
@@ -53,9 +55,17 @@ export class RemoteAvatar implements RemoteAvatarRef {
   readonly model: SoldierModel;
   readonly root: THREE.Group;
   readonly weaponSocket: THREE.Object3D;
+  /** Right-shoulder socket a carried squadmate hangs on (Phase 10, `RemoteAvatarRef.shoulderSocket`). */
+  readonly shoulderSocket: THREE.Object3D;
 
   /** Frame stamp used by RemotePlayerSystem to sweep avatars whose ref vanished without an event. */
   seenFrame = 0;
+  /**
+   * Phase 10: this body is riding on somebody's shoulder socket — its `root` transform is owned by that socket,
+   * so the per-frame `position` / `quaternion` writes are skipped. Set by `RemotePlayerSystem` for instant local
+   * feedback (the peer's own `flags & CARRIED` only arrives a round-trip later).
+   */
+  carried = false;
 
   private bodyYaw: number;
   private sprintBlend = 0;
@@ -88,6 +98,8 @@ export class RemoteAvatar implements RemoteAvatarRef {
   private chargeBlend = 0;
   private sprayBlend = 0;
   private heavyBlend = 0;
+  /** Phase 10: `PlayerFlags.CARRYING` → the fireman-carry arm pose (the load itself is another avatar). */
+  private carryBlend = 0;
   private heldLook: GearLook | null = null;
   private heldDefId: string | null = null;
   private armorLookId: string | null = null;
@@ -100,7 +112,7 @@ export class RemoteAvatar implements RemoteAvatarRef {
     moveBlend: 0, sprint: 0, stridePhase: 0, crouch: 0, aim: 0, aimPitch: 0, torsoTwist: 0, airborne: 0,
     verticalVel: 0, flinch: 0, hasWeapon: false, twoHanded: false, reloading: false, recoil: 0, dead: 0,
     prone: 0, throw: 0, holdItem: 0, roll: 0, rollPhase: 0, melee: 0, hover: 0, downed: 0,
-    meleeHeavy: 0, charging: 0, spraying: 0, heavyCarry: 0, cooking: 0,
+    meleeHeavy: 0, charging: 0, spraying: 0, heavyCarry: 0, cooking: 0, carry: 0,
   };
 
   constructor(readonly ref: RemotePlayerRef, parent: THREE.Object3D) {
@@ -109,6 +121,7 @@ export class RemoteAvatar implements RemoteAvatarRef {
     this.root = this.model.root;
     this.root.name = `RemoteSoldier:${ref.id}`;
     this.weaponSocket = this.model.weaponSocket;
+    this.shoulderSocket = this.model.shoulderSocket;
     this.bodyYaw = ref.yaw;
     this.wasDropping = (ref.flags & PlayerFlags.DROPPING) !== 0;
     this.wasDead = ref.isDead;
@@ -119,13 +132,18 @@ export class RemoteAvatar implements RemoteAvatarRef {
     parent.add(this.root);
   }
 
+  /** true while the body is parented into a carrier's shoulder socket (local flag or the wire's CARRIED bit). */
+  private get isRiding(): boolean { return this.carried || this.ref.isCarried === true; }
+
   /** World-space head position for the current (blended) stance. */
   getHeadPosition(out: THREE.Vector3): THREE.Vector3 {
     const lie = Math.min(1, this.proneBlend);
     let h = THREE.MathUtils.lerp(HEAD_STAND, HEAD_CROUCH, this.crouchBlend);
     h = THREE.MathUtils.lerp(h, HEAD_PRONE, lie);
     if (this.pose.dead > 0) h = THREE.MathUtils.lerp(h, HEAD_PRONE, this.pose.dead);
-    return out.copy(this.ref.position).setY(this.ref.position.y + h);
+    // while carried the ref's own position is stale — the body hangs wherever the carrier's socket is
+    const base = this.isRiding ? this.root.getWorldPosition(_wp) : this.ref.position;
+    return out.copy(base).setY(base.y + h);
   }
 
   /* ── Phase 7 queries (smoke tests / HUD) ── */
@@ -157,9 +175,11 @@ export class RemoteAvatar implements RemoteAvatarRef {
     }
     this.wasDropping = dropping;
 
+    const riding = this.isRiding;
     if (visible !== this.shown) { this.shown = visible; this.model.setVisible(visible); }
-    // keep the root where the ref is even while hidden (weapon sockets / pings may read it)
-    this.root.position.copy(ref.position);
+    // keep the root where the ref is even while hidden (weapon sockets / pings may read it) — unless the body is
+    // riding on a carrier's shoulder socket, which owns the transform (Phase 10)
+    if (!riding) this.root.position.copy(ref.position);
     if (!visible) {
       this.model.setSilhouette(false);
       if (this.downMarker) this.downMarker.visible = false;
@@ -252,6 +272,9 @@ export class RemoteAvatar implements RemoteAvatarRef {
     this.sprayBlend = damp(this.sprayBlend, spraying ? 1 : 0, 12, dt);
     this.heavyBlend = damp(this.heavyBlend, heavy ? 1 : 0, 8, dt);
     this.hoverBlend = damp(this.hoverBlend, hovering ? 1 : 0, 10, dt);
+    // Phase 10: carrying a squadmate (the load is that peer's own avatar in `shoulderSocket`)
+    const carrying = (flags & PlayerFlags.CARRYING) !== 0 && !downed && !ref.isDead;
+    this.carryBlend = damp(this.carryBlend, carrying ? 1 : 0, 8, dt);
     this.updateDownMarker(ctx, downed && !ref.isDead);
 
     // ── recoil pulses while firing
@@ -314,9 +337,10 @@ export class RemoteAvatar implements RemoteAvatarRef {
     p.hover = this.hoverBlend;
     p.downed = 0;   // 전투불능 keeps the Phase 2 prone crawl
     p.dead = ref.isDead ? Math.min(1, this.deadTimer / DEATH_ANIM) : 0;
+    p.carry = this.carryBlend;
     this.model.update(dt, ctx.time, p);
 
-    this.root.quaternion.setFromAxisAngle(_up, this.bodyYaw);
+    if (!riding) this.root.quaternion.setFromAxisAngle(_up, this.bodyYaw);
   }
 
   /* ─────────────────────────── Phase 7 gear looks ─────────────────────────── */

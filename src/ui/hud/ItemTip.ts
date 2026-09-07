@@ -1,5 +1,5 @@
 import type { GameContext, ItemDef } from '@/shared';
-import { CATEGORY_ICON, CATEGORY_LABEL_KO, RARITY_COLORS, RARITY_LABEL_KO } from '@/shared';
+import { CATEGORY_ICON, CATEGORY_LABEL_KO, RARITY_COLORS, RARITY_LABEL_KO, formatCredits, itemCreditValue } from '@/shared';
 import { el, setText } from '../dom';
 
 /**
@@ -15,6 +15,9 @@ import { el, setText } from '../dom';
  *
  * Only `ItemDef` data is shown (name · 분류 · 등급 · 설명 + the def's own numbers + 보유 from bag + stash): a chip has
  * no `ItemInstance`, so there is no durability / socket / loaded-ammo section like `inventory/ui/Tooltip` has.
+ *
+ * Phase 10: 가치 left the stats table for a **bottom bar** (`.it-value`, label left / amount right-aligned) rendered
+ * with the one credit formatter — `formatCredits(itemCreditValue(def))`, i.e. `1,200 C` (the old `cr` suffix is gone).
  */
 export class ItemTip {
   readonly root: HTMLElement;
@@ -22,6 +25,8 @@ export class ItemTip {
   private subEl: HTMLElement;
   private descEl: HTMLElement;
   private statsEl: HTMLElement;
+  private valueEl: HTMLElement;
+  private valueAmount: HTMLElement;
   private ctx: GameContext | null = null;
   private defId: string | null = null;
   private visible = false;
@@ -57,6 +62,10 @@ export class ItemTip {
     this.subEl = el('div', { cls: 'it-sub', parent: head });
     this.descEl = el('p', { cls: 'it-desc', parent: this.root });
     this.statsEl = el('div', { cls: 'it-stats', parent: this.root });
+    // Phase 10: 가치 left the stats table and became the card's bottom bar — label left, amount right-aligned, `100 C`.
+    this.valueEl = el('div', { cls: 'it-value', parent: this.root });
+    el('span', { cls: 'k', text: '가치', parent: this.valueEl });
+    this.valueAmount = el('span', { cls: 'v ui-mono', text: '', parent: this.valueEl });
   }
 
   bind(ctx: GameContext): void {
@@ -121,13 +130,13 @@ export class ItemTip {
     if (def.weight !== undefined) rows.push(['무게', `${def.weight.toFixed(1)} kg`]);
     if (def.stackMax > 1) rows.push(['최대 묶음', `${def.stackMax}`]);
     rows.push(['크기', `${def.width} × ${def.height}`]);
-    rows.push(['가치', `${def.value.toLocaleString('ko-KR')} cr`]);
 
     this.statsEl.replaceChildren();
     for (const [k, v] of rows) {
       el('span', { cls: 'k', text: k, parent: this.statsEl });
       el('span', { cls: 'v', text: v, parent: this.statsEl });
     }
+    setText(this.valueAmount, formatCredits(itemCreditValue(def)));
     this.root.hidden = false;
     this.visible = true;
   }

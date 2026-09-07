@@ -278,9 +278,15 @@ export interface BugAnim {
   shake: number;
   /** leap anticipation / crouch 0..1 */
   crouch: number;
-  /** -1 = alive, else death progress 0..1 */
+  /** -1 = alive, else death progress 0..1 (over 4 s — gates the "dying" branch and the eye fade) */
   death: number;
-  rollSign: number;
+  /**
+   * Phase 10: which way the body goes down — index into `ENEMY_DEATH_DIRS` (0 left / 1 right / 2 back).
+   * Replaced the old `rollSign`, which was rolled at spawn with unseeded `Math.random()` (host ≠ replica).
+   */
+  deathDir: number;
+  /** Phase 10: fall-pose blend 0..1 over `DEATH_FALL_TIME` (driven by `Enemy.animate` from `deathTimer`). */
+  deathFall: number;
   /** body pitch/roll from terrain slope (radians) */
   slopePitch: number;
   slopeRoll: number;
@@ -307,7 +313,7 @@ export interface BugAnim {
 export function createBugAnim(): BugAnim {
   return {
     gait: 0, speed: 0, headYaw: 0, headPitch: 0, mandible: 0, flinch: 0, flinchX: 0, flinchZ: 0, hitFlash: 0,
-    abdomen: 0, shake: 0, crouch: 0, death: -1, rollSign: 1, slopePitch: 0, slopeRoll: 0, time: 0,
+    abdomen: 0, shake: 0, crouch: 0, death: -1, deathDir: 0, deathFall: 0, slopePitch: 0, slopeRoll: 0, time: 0,
     fade: 0, aim: 0, recoil: 0, writhe: 0, spark: 0, reload: 0, throwing: 0,
   };
 }
@@ -461,12 +467,23 @@ export function animateBug(rig: BugRig, a: BugAnim): void {
     body.position.y -= p.thoraxY * 0.18 * wr;
   }
   if (dying) {
-    const d = a.death;
-    const fall = smooth(Math.min(1, d / 0.22));
-    roll += a.rollSign * fall * 1.35;
-    pitch += fall * 0.25;
-    yaw += fall * a.rollSign * 0.4;
-    curl = smooth(Math.min(1, d / 0.35));
+    // Phase 10: three real fall directions (`a.deathDir`) blended over DEATH_FALL_TIME instead of one canned roll.
+    const fall = smooth(THREE.MathUtils.clamp(a.deathFall, 0, 1));
+    const settle = Math.sin(a.deathFall * Math.PI) * (1 - a.deathFall);   // one small bounce as the body settles
+    if (a.deathDir === 2) {
+      // back: the bug rears over onto its abdomen — big pitch, legs up, almost no roll
+      pitch += -fall * 1.25 - settle * 0.18;
+      roll += Math.sin(t * 1.7) * 0.06 * fall;
+      yaw += fall * 0.12;
+      body.position.z -= fall * p.thorax[2] * 0.25;
+    } else {
+      const side = a.deathDir === 1 ? 1 : -1;   // 1 right, 0 left
+      roll += side * (fall * 1.42 + settle * 0.12);
+      pitch += fall * 0.22;
+      yaw += fall * side * 0.42;
+      body.position.x += side * fall * p.thorax[0] * 0.3;
+    }
+    curl = smooth(Math.min(1, a.deathFall / 1.55));
     // the corpse stays on the ground (lootable) and only sinks away during the final fade
     const sinkT = smooth(Math.min(1, Math.max(0, a.fade)));
     sink = sinkT * (p.thoraxY + p.thorax[1]) * 1.4;

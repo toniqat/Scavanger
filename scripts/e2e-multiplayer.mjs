@@ -140,6 +140,46 @@ try {
   ok(await A.evaluate(() => window.__game.ctx.net.inHubSession), 'A inHubSession');
   ok(await A.evaluate(() => { const el = document.querySelector('[class*="squad"]'); return !!el && el.textContent.includes('분대원'); }), 'A squad panel lists 분대원 in the hub');
 
+  console.log('crew cards (Phase 10: crew card / crewq loadout / crew loadout)');
+  const aIdCrew = await A.evaluate(() => window.__game.ctx.net.localId);
+  const bIdCrew = await B.evaluate(() => window.__game.ctx.net.localId);
+  await B.evaluate(() => {
+    window.__crewCards = []; window.__game.ctx.bus.on('net:crewCard', (e) => window.__crewCards.push({ id: e.id, level: e.card.level, implant: e.card.implant, armor: e.card.armor, primary: e.card.primary ?? null }));
+    window.__crewLoadouts = []; window.__game.ctx.bus.on('net:crewLoadout', (e) => window.__crewLoadouts.push({ id: e.id, level: e.card.level, loadout: e.loadout }));
+  });
+  await A.evaluate(() => {
+    window.__crewCards = []; window.__game.ctx.bus.on('net:crewCard', (e) => window.__crewCards.push({ id: e.id, level: e.card.level }));
+    window.__crewq = []; window.__game.ctx.net.onMessage('crewq', (m, from) => window.__crewq.push({ ev: m.ev, from }));
+    // hub/ owns *sending* the card; drive the wire directly so net's receive path is covered on its own.
+    window.__game.ctx.net.send({ t: 'crew', ev: 'card', card: { level: 7, implant: 'overcharge', armor: 'armor_2', primary: 'ar23', primary2: null, secondary: 'p9' } }, 'others');
+  });
+  ok(await A.evaluate((id) => { const c = window.__game.ctx.net.getCrewCard(id); return !!c && c.level === 7 && c.implant === 'overcharge'; }, aIdCrew), 'A getCrewCard(localId) returns its own broadcast card');
+  ok(await A.evaluate((id) => window.__crewCards.some((c) => c.id === id && c.level === 7), aIdCrew), 'A emitted net:crewCard for its own card');
+  const cardOnB = await waitFor(B, (id) => window.__crewCards.find((c) => c.id === id) ?? null, 'B net:crewCard from A', 6000, aIdCrew).catch(() => null);
+  ok(cardOnB && cardOnB.level === 7 && cardOnB.implant === 'overcharge' && cardOnB.armor === 'armor_2' && cardOnB.primary === 'ar23', `B received A's crew card ${JSON.stringify(cardOnB)}`);
+  ok(await B.evaluate((id) => { const c = window.__game.ctx.net.getCrewCard(id); return !!c && c.level === 7 && c.secondary === 'p9'; }, aIdCrew), 'B getCrewCard(A) mirrors the card');
+  ok(await B.evaluate((id) => { const r = window.__game.ctx.net.getRemotePlayer(id); return !!r && r.crewLevel === 7 && r.equippedImplant === 'overcharge'; }, aIdCrew),
+    'B remote ref mirrors crewLevel / equippedImplant (distinct from the wielded implantId)');
+  ok(await B.evaluate(() => window.__game.ctx.net.getCrewCard('nobody-at-all') === null), 'getCrewCard of an unknown peer is null');
+  // A card with junk fields must be clamped, never thrown away. hub/ also broadcasts genuine cards on its own
+  // (level up / implant / armor / loadout changes), so anchor on the count instead of first-or-last.
+  const cardsBefore = await B.evaluate(() => window.__crewCards.length);
+  await A.evaluate(() => window.__game.ctx.net.send({ t: 'crew', ev: 'card', card: { level: 'x', implant: 'not-an-implant', armor: 42 } }, 'others'));
+  const clamped = await waitFor(B, (arg) => window.__crewCards.slice(arg.n).find((c) => c.id === arg.id) ?? null,
+    'B second card', 6000, { n: cardsBefore, id: aIdCrew }).catch(() => null);
+  ok(clamped && clamped.level === 1 && clamped.implant === null && clamped.armor === null, `B clamped a malformed card ${JSON.stringify(clamped)}`);
+  // requestCrewLoadout → `crewq loadout` reaches A's onMessage subscriber (hub/ answers there); A answers by hand.
+  await B.evaluate((id) => window.__game.ctx.net.requestCrewLoadout(id), aIdCrew);
+  const req = await waitFor(A, (bid) => window.__crewq.find((m) => m.ev === 'loadout' && m.from === bid) ?? null, 'A onMessage(crewq loadout)', 6000, bIdCrew).catch(() => null);
+  ok(!!req, `B's requestCrewLoadout reached A's crewq subscriber ${JSON.stringify(req)}`);
+  ok(await B.evaluate((id) => { window.__game.ctx.net.requestCrewLoadout(window.__game.ctx.net.localId); return true; }, aIdCrew), 'requestCrewLoadout(localId) is a no-op (no self request)');
+  await A.evaluate(() => window.__game.ctx.net.send({ t: 'crew', ev: 'loadout', card: { level: 7, implant: 'overcharge', armor: 'armor_2' }, loadout: { probe: 'e2e', slots: 5 } }, 'others'));
+  const loadout = await waitFor(B, (id) => {
+    const hit = window.__crewLoadouts.filter((l) => l.id === id && l.loadout && l.loadout.probe === 'e2e').pop();
+    return hit ?? null;   // hub/ already answered the earlier `crewq loadout` with A's real document
+  }, 'B net:crewLoadout', 6000, aIdCrew).catch(() => null);
+  ok(loadout && loadout.level === 7 && loadout.loadout && loadout.loadout.probe === 'e2e', `B received A's loadout document verbatim ${JSON.stringify(loadout && loadout.loadout)}`);
+
   console.log('chat relay (hub)');
   await A.evaluate(() => { window.__chat = null; window.__game.ctx.bus.on('net:chat', (e) => { window.__chat = e; }); });
   await B.evaluate(() => window.__game.ctx.bus.emit('chat:post', { text: '안녕', kind: 'text' }));
@@ -192,6 +232,42 @@ try {
   const aNew = await A.evaluate(() => window.__game.ctx.player.position.x);
   const bx = await waitFor(B, (x) => { const bx = window.__game.ctx.net.getRemotePlayers()[0].position.x; return Math.abs(x - bx) < 1.5 ? bx : 0; }, 'interp', 5000, aNew).catch(() => NaN);
   ok(Math.abs(aNew - bx) < 1.5, `B interpolated to A's new x (Δ=${Math.abs(aNew - bx).toFixed(2)})`);
+
+  console.log('carry snapshot plumbing (Phase 10: CARRYING/CARRIED flags, cr, carriedBy)');
+  const CARRYING_BIT = 1 << 26, CARRIED_BIT = 1 << 27, HAS_WEAPON_BIT = 1 << 8;
+  const aIdCarry = await A.evaluate(() => window.__game.ctx.net.localId);
+  const bIdCarry = await B.evaluate(() => window.__game.ctx.net.localId);
+  ok(await B.evaluate((id) => { const r = window.__game.ctx.net.getRemotePlayer(id); return !!r && r.carrying === null && r.carriedBy === null && r.isCarried === false; }, aIdCarry),
+    'B ref of A starts with carrying / carriedBy null');
+  ok(await B.evaluate((id) => (window.__game.ctx.net.getRemotePlayer(id).flags & (1 << 8)) !== 0, aIdCarry), 'B ref of A advertises HAS_WEAPON in the mission');
+  await B.evaluate(() => { window.__carry = []; window.__game.ctx.bus.on('net:remoteCarryChanged', (e) => window.__carry.push({ id: e.id, carrying: e.carrying })); });
+  // The `carry pick` one-shot is instant feedback ahead of the next 20 Hz snapshot.
+  await A.evaluate((bid) => window.__game.ctx.net.send({ t: 'carry', ev: 'pick', target: bid }, 'others'), bIdCarry);
+  const pick = await waitFor(B, (arg) => window.__carry.find((c) => c.id === arg.a && c.carrying === arg.b) ?? null, 'B net:remoteCarryChanged (pick)', 6000, { a: aIdCarry, b: bIdCarry }).catch(() => null);
+  ok(!!pick, `B got net:remoteCarryChanged from the carry pick one-shot ${JSON.stringify(pick)}`);
+  await A.evaluate((bid) => window.__game.ctx.net.send({ t: 'carry', ev: 'drop', target: bid, p: [0, 0, 0] }, 'others'), bIdCarry);
+  ok(!!(await waitFor(B, (a) => window.__carry.find((c) => c.id === a && c.carrying === null) ?? null, 'B net:remoteCarryChanged (drop)', 6000, aIdCarry).catch(() => null)),
+    'B got net:remoteCarryChanged {carrying:null} from the carry drop one-shot');
+  // Steady state: force `ctx.player.carrying` on A (player/ owns the real `carry()`) and read it off the wire on B.
+  await A.evaluate((bid) => { Object.defineProperty(window.__game.ctx.player, 'carrying', { get: () => bid, configurable: true }); }, bIdCarry);
+  await B.evaluate((bid) => { Object.defineProperty(window.__game.ctx.player, 'isCarried', { get: () => true, configurable: true }); });
+  const carried = await waitFor(B, (arg) => {
+    const r = window.__game.ctx.net.getRemotePlayer(arg.a);
+    if (!r || r.carrying !== arg.b) return null;
+    return { carrying: r.carrying, flags: r.flags, weaponId: r.weaponId };
+  }, 'B sees A CARRYING', 6000, { a: aIdCarry, b: bIdCarry }).catch(() => null);
+  ok(carried && (carried.flags & CARRYING_BIT) !== 0, `B ref of A: CARRYING flag + cr = B ${JSON.stringify(carried && { carrying: carried.carrying, carrying_bit: (carried.flags & CARRYING_BIT) !== 0 })}`);
+  ok(carried && (carried.flags & HAS_WEAPON_BIT) === 0 && carried.weaponId === null, `a carrier is unarmed on the wire (no HAS_WEAPON, w null) ${JSON.stringify(carried && { w: carried.weaponId })}`);
+  const byA = await waitFor(A, (arg) => { const r = window.__game.ctx.net.getRemotePlayer(arg.b); return r && r.carriedBy === arg.a ? { carriedBy: r.carriedBy, isCarried: r.isCarried, flags: r.flags } : null; }, 'A derives carriedBy for B', 6000, { a: aIdCarry, b: bIdCarry }).catch(() => null);
+  ok(!!byA, `A derived carriedBy = A on its ref of B ${JSON.stringify(byA && { carriedBy: byA.carriedBy })}`);
+  ok(byA && byA.isCarried === true && (byA.flags & CARRIED_BIT) !== 0, 'A ref of B carries the CARRIED flag (isCarried true)');
+  await A.evaluate(() => { delete window.__game.ctx.player.carrying; });
+  await B.evaluate(() => { delete window.__game.ctx.player.isCarried; });
+  ok(!!(await waitFor(B, (a) => { const r = window.__game.ctx.net.getRemotePlayer(a); return r && r.carrying === null && (r.flags & (1 << 26)) === 0 ? 1 : 0; }, 'B ref of A stops carrying', 6000, aIdCarry).catch(() => 0)),
+    'the carry ends on the wire when `ctx.player.carrying` goes back to null');
+  ok(!!(await waitFor(A, (b) => { const r = window.__game.ctx.net.getRemotePlayer(b); return r && r.carriedBy === null && !r.isCarried ? 1 : 0; }, 'A clears carriedBy', 6000, bIdCarry).catch(() => 0)),
+    'A cleared the derived carriedBy after the last carry ended');
+  ok(await B.evaluate((a) => (window.__game.ctx.net.getRemotePlayer(a).flags & (1 << 8)) !== 0, aIdCarry), 'A is armed again on the wire once the carry ends');
 
   console.log('enemies replication');
   const aAlive = await waitFor(A, () => window.__game.ctx.enemies.getAliveCount() > 0 ? window.__game.ctx.enemies.getAliveCount() : 0, 'A enemies alive');

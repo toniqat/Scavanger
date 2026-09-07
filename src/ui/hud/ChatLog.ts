@@ -15,9 +15,10 @@ interface Line { el: HTMLElement; time: number; faded: boolean }
  * arrive unless the input is open (then the whole log shows and the panel scrolls with the wheel).
  *
  * Input: `Keys.CHAT` (Enter) while `ctx.isControlActive()` (gameplay OR hub) opens a text field — blocker token
- * `'chat'` is added BEFORE `exitPointerLock()`; Enter sends (`chat:post` kind 'text', ≤ 120 chars), Esc cancels;
- * closing removes the token and re-requests pointer lock one microtask later. A capture-phase keydown listener
- * with `stopImmediatePropagation` keeps Esc from pausing and letters from moving the player.
+ * `'chat'` plus `input.setCursorMode(true, 'chat')` (Phase 10 §2: the pointer lock is **kept**, the software cursor
+ * owns the UI, and there is no relock microtask on close). Enter sends (`chat:post` kind 'text', ≤ 120 chars), Esc
+ * cancels. A capture-phase keydown listener with `stopImmediatePropagation` keeps Esc from pausing and letters from
+ * moving the player.
  *
  * Feeds: `chat:post` (own line, sent as `ChatMessage` to 'others' while in a lobby), `net:chat`, and system lines for
  * `net:peerJoined/peerLeft`, `pickup:taken` (remote), `hub:slotChanged`, `hub:launchCountdown`, and (Phase 7)
@@ -171,8 +172,9 @@ export class ChatLog {
     if (this._open) return;
     const ctx = this.ctx;
     this._open = true;
-    ctx.uiBlockers.add(BLOCKER);        // before exiting the lock → GameFlow does not treat it as a pause
-    ctx.input.exitPointerLock();
+    ctx.uiBlockers.add(BLOCKER);
+    // Phase 10 (§2): keep the pointer lock and hand UI input to the software cursor (ref-counted by this token).
+    ctx.input.setCursorMode(true, BLOCKER);
     this.root.classList.add('interactive', 'open');
     for (const l of this.lines) if (l.faded) { l.faded = false; toggleClass(l.el, 'faded', false); }
     this.inputRow.hidden = false;
@@ -182,7 +184,9 @@ export class ChatLog {
     ctx.bus.emit('ui:chatToggled', { open: true });
   }
 
+  /** `relock` is kept for the existing call sites but is a no-op since Phase 10 — the lock was never released. */
   close(relock = true): void {
+    void relock;
     if (!this._open) return;
     const ctx = this.ctx;
     this._open = false;
@@ -190,18 +194,12 @@ export class ChatLog {
     this.input.blur();
     this.root.classList.remove('interactive', 'open');
     ctx.uiBlockers.delete(BLOCKER);
+    ctx.input.setCursorMode(false, BLOCKER);
     // restart the fade clock so the log does not vanish the moment the input closes
     const now = performance.now() / 1000;
     for (const l of this.lines) l.time = Math.max(l.time, now - LINE_FADE_AFTER + 3);
     this.acc = FADE_CHECK;
     ctx.bus.emit('ui:chatToggled', { open: false });
-    if (relock) {
-      queueMicrotask(() => {
-        if (this._open || !ctx.isControlActive()) return;
-        if (ctx.player?.isDead ?? false) return;
-        ctx.input.requestPointerLock();
-      });
-    }
   }
 
   private send(): void {
@@ -213,7 +211,7 @@ export class ChatLog {
   dispose(): void {
     for (const u of this.unsubs) u();
     window.removeEventListener('keydown', this.keyHandler, true);
-    if (this._open) { this._open = false; this.ctx?.uiBlockers.delete(BLOCKER); }
+    if (this._open) { this._open = false; this.ctx?.uiBlockers.delete(BLOCKER); this.ctx?.input.setCursorMode(false, BLOCKER); }
     this.root.remove();
   }
 }

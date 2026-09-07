@@ -228,12 +228,7 @@ input { font: inherit; color: inherit; }
 .weapon .slot { font-family: var(--ui-mono); font-size: 10px; color: var(--c-text-dim); border: 1px solid var(--c-border); padding: 1px 5px; }
 .weapon .name { font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase; font-weight: 600; }
 .weapon .ammo-row { display: flex; align-items: flex-end; gap: 10px; position: relative; }
-.weapon .arc { position: absolute; right: 100%; bottom: 8px; margin-right: 12px; width: 34px; height: 34px; opacity: 0; transition: opacity var(--t-fast) var(--ease); }
-.weapon .arc.show { opacity: 1; }
-.weapon .arc svg { width: 100%; height: 100%; transform: rotate(-90deg); }
-.weapon .arc circle { fill: none; stroke-width: 2.5; }
-.weapon .arc .track { stroke: rgba(255, 255, 255, 0.12); }
-.weapon .arc .prog { stroke: var(--c-accent); stroke-linecap: butt; }
+/* Phase 10: the reload radial left this panel for the crosshair — see `.reload` (hud/ReloadGauge). */
 .weapon .mag { font-family: var(--ui-mono); font-size: 40px; font-weight: 600; line-height: 1; letter-spacing: -0.03em; transition: color var(--t-fast) var(--ease); }
 .weapon .mag.low { color: var(--c-accent); }
 .weapon .mag.empty { color: var(--c-danger); }
@@ -241,8 +236,6 @@ input { font: inherit; color: inherit; }
 .weapon .reserve { font-family: var(--ui-mono); font-size: 14px; color: var(--c-text-dim); margin-bottom: 4px; }
 .weapon .reserve::before { content: "/ "; color: var(--c-text-faint); }
 .weapon .type { font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--c-text-faint); border: 1px solid var(--c-border); padding: 2px 6px; }
-.weapon .reloading { font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--c-accent); opacity: 0; transition: opacity var(--t-fast) var(--ease); }
-.weapon .reloading.show { opacity: 1; }
 @keyframes ammoFlash { 0% { color: #fff; } 30% { color: var(--c-danger); } 100% { color: var(--c-danger); } }
 /* weapon package: slot label, durability bar, swap sweep, broken state, slot strip */
 .weapon .slot-lbl { font-size: 9px; letter-spacing: 0.14em; color: var(--c-text-faint); margin-right: -4px; }
@@ -971,7 +964,7 @@ input { font: inherit; color: inherit; }
 .menu .ui-btn.respawn:disabled { opacity: 0.55; }
 
 /* dead-but-spectating: no wheel / cook gauge either */
-.hud.spectating .qwheel, .hud.spectating .cook { opacity: 0 !important; visibility: hidden; }
+.hud.spectating .qwheel, .hud.spectating .cook, .hud.spectating .reload, .hud.spectating .heal { opacity: 0 !important; visibility: hidden; }
 
 /* ── Phase 3: ship calls (stratagem wheel / panel / charge ring / targeting frame) · off-screen indicators ── */
 
@@ -1060,6 +1053,44 @@ input { font: inherit; color: inherit; }
   font-size: 11px; letter-spacing: 0.08em; color: var(--c-accent); white-space: nowrap;
 }
 .charge.ready .lbl { color: var(--c-danger); font-weight: 600; }
+
+/* Phase 10 — 재장전 링 (hud/ReloadGauge): the reload radial moved from the weapon panel to the crosshair */
+.reload {
+  position: absolute; left: 50%; top: 50%;
+  width: 120px; height: 120px; margin: -60px 0 0 -60px;
+  pointer-events: none;
+  opacity: 0; transition: opacity 80ms var(--ease);
+}
+.reload.show { opacity: 1; }
+.reload svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+.reload circle { fill: none; stroke-width: 3; stroke-linecap: butt; }
+.reload .track { stroke: rgba(255, 255, 255, 0.12); }
+.reload .fill { stroke: var(--c-accent); }
+.reload .lbl {
+  position: absolute; left: 50%; top: 100%; transform: translate(-50%, 4px);
+  font-size: 11px; letter-spacing: 0.1em; color: var(--c-accent); white-space: nowrap;
+}
+
+/* Phase 10 — 회복약 홀드 게이지 (hud/HealGauge): full circle, label bottom-left of the ring like the cook gauge */
+.heal {
+  position: absolute; left: 50%; top: 50%;
+  width: 120px; height: 120px; margin: -60px 0 0 -60px;
+  pointer-events: none;
+  opacity: 0; transition: opacity 80ms var(--ease);
+}
+.heal.show { opacity: 1; }
+.heal svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+.heal circle { fill: none; stroke-width: 3; stroke-linecap: butt; }
+.heal .track { stroke: rgba(255, 255, 255, 0.14); }
+.heal .fill { stroke: var(--c-text); transition: stroke var(--t-fast) var(--ease); }
+.heal.near .fill, .heal.ready .fill { stroke: var(--c-success); }
+.heal.ready .fill { animation: cookPulse 260ms ease-in-out infinite alternate; }
+.heal .text {
+  position: absolute; left: 50%; top: 50%; margin: 34px 0 0 34px;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+}
+.heal .lbl { font-family: var(--ui-mono); font-size: 11px; letter-spacing: 0.1em; color: var(--c-text); white-space: nowrap; }
+.heal.near .lbl, .heal.ready .lbl { color: var(--c-success); font-weight: 600; }
 
 /* Targeting frame (top view / ground ring): hides the reticle */
 .hud.targeting .reticle { opacity: 0 !important; }
@@ -1802,6 +1833,29 @@ button.item-chip[data-def-id] { cursor: pointer; }
 }
 .item-tip .it-stats .k { color: var(--c-text-faint); letter-spacing: 0.06em; }
 .item-tip .it-stats .v { text-align: right; color: var(--c-text); font-variant-numeric: tabular-nums; }
+/* Phase 10: 가치 as the card's bottom bar (label left, amount right-aligned, `100 C`) instead of a stats row */
+.item-tip .it-value {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  margin: 2px -14px -12px; padding: 8px 14px 10px;
+  border-top: 1px solid var(--c-border);
+  background: rgba(255, 179, 71, 0.06);
+}
+.item-tip .it-value .k { font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--c-text-faint); }
+.item-tip .it-value .v { font-size: 14px; font-weight: 700; color: var(--c-accent); font-variant-numeric: tabular-nums; }
+
+/* ── 인게임 마우스 커서 스프라이트 (hud/SoftCursor) ── */
+/* Hide the native cursor while the sprite is up: with the pointer lock there is none, but the unlocked fallback
+   (Escape, headless smokes) mirrors the real cursor and would otherwise read as two arrows. */
+body.soft-cursor-on, body.soft-cursor-on * { cursor: none !important; }
+.soft-cursor {
+  position: fixed; left: 0; top: 0;
+  z-index: 400;                       /* above every window, overlay and menu */
+  pointer-events: none;               /* it must never be the element under itself */
+  will-change: translate;
+}
+.soft-cursor svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.soft-cursor .edge { fill: none; stroke: rgba(0, 0, 0, 0.85); stroke-width: 3.4; stroke-linejoin: round; }
+.soft-cursor .body { fill: var(--c-text); }
 
 /* ── 설정 overlay (menus/SettingsMenu): keys + audio, above the pause menu, below the key-settings overlay ── */
 .menu.settings-menu { z-index: 56; background: rgba(3, 4, 6, 0.72); }

@@ -1,12 +1,13 @@
 import type { GameContext } from '@/shared';
-import { PLAYER_MAX_HP, PLAYER_MAX_STAMINA, PLAYER_DOWN_HP } from '@/shared';
+import { Keys, PLAYER_MAX_HP, PLAYER_MAX_STAMINA, PLAYER_DOWN_HP, keyLabel } from '@/shared';
 import { el, setText, toggleClass, damp } from '../dom';
 
 const SEGMENTS = 10;
 const STAMINA_PULSE = 0.9; // seconds the bar stays amber after depletion
 
 /**
- * Segmented health bar with damage ghost trail, HP number, stamina bar, stim/grenade pills.
+ * Segmented health bar with damage ghost trail, HP number, stamina bar, 회복약 / grenade pills (the 회복약 pill's key
+ * line is the live `keyLabel(Keys.QUICK)` binding, refreshed on `input:bindingsChanged` — the H shortcut is retired).
  * **Downed mode** (`.vitals.downed`, `player:downed` → `player:revived` / `player:spawned` / `player:died`): the bar
  * shows `downHp / PLAYER_DOWN_HP` in red (`player:downHpChanged`, also polled from `ctx.player.downHp`), the label reads
  * `전투불능 — 아군의 구조 대기 중` with `Space 길게: 포기` under it, and `player:reviveProgress` shows
@@ -28,6 +29,7 @@ export class Vitals {
   private giveUpFill: HTMLElement;
   private stimPill: HTMLElement;
   private stimVal: HTMLElement;
+  private stimKey: HTMLElement;
   private grenPill: HTMLElement;
   private grenVal: HTMLElement;
   private stamRoot: HTMLElement;
@@ -80,7 +82,8 @@ export class Vitals {
     this.stimPill = el('div', { cls: 'pill', parent: pills });
     el('i', { cls: 'ico stim', parent: this.stimPill });
     this.stimVal = el('span', { cls: 'val', text: '0', parent: this.stimPill });
-    el('span', { cls: 'key', text: 'H 스팀 · T 빠른 사용', parent: this.stimPill });
+    // Phase 10: the H shortcut is retired and the item is the 회복약 — the pill names the live 빠른 사용 binding only.
+    this.stimKey = el('span', { cls: 'key', text: `${keyLabel(Keys.QUICK)} 빠른 사용`, parent: this.stimPill });
     this.grenPill = el('div', { cls: 'pill', parent: pills });
     el('i', { cls: 'ico gren', parent: this.grenPill });
     this.grenVal = el('span', { cls: 'val', text: '0', parent: this.grenPill });
@@ -100,6 +103,8 @@ export class Vitals {
         this.hp = this.shown = this.ghost = ctx.player?.hp ?? PLAYER_MAX_HP;
       }),
       ctx.bus.on('stim:countChanged', ({ count }) => this.setCount(this.stimPill, this.stimVal, count)),
+      // Never cache a key label — it changes in the 키 설정 overlay.
+      ctx.bus.on('input:bindingsChanged', () => setText(this.stimKey, `${keyLabel(Keys.QUICK)} 빠른 사용`)),
       ctx.bus.on('grenade:countChanged', ({ count }) => this.setCount(this.grenPill, this.grenVal, count)),
       ctx.bus.on('player:staminaDepleted', () => {
         this.depletedTimer = STAMINA_PULSE;

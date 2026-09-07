@@ -426,13 +426,22 @@ try {
   const preDom = await H(() => {
     const root = document.querySelector('.menu.housing-menu.preset-menu');
     return { hidden: root.hidden, cards: root.querySelectorAll('.hs-preset').length, name: root.querySelector('.hs-preset[data-preset="1"] input').value,
-      applyDisabled: root.querySelector('.hs-preset[data-preset="0"] .ui-btn.primary').disabled };
+      applyDisabled: root.querySelector('.hs-preset[data-preset="0"] .ui-btn.primary').disabled,
+      blocker: window.__game.ctx.uiBlockers.has('housing'), cursor: window.__game.ctx.input.isCursorMode };
   });
   ok(!preDom.hidden && preDom.cards === 3 && preDom.name === '테스트' && preDom.applyDisabled, `preset menu: 3 cards, slot 2 named 테스트, empty slot cannot apply`);
+  // Phase 10: a housing panel keeps the pointer lock and turns on the in-game cursor instead of exiting the lock
+  ok(preDom.blocker && preDom.cursor, 'housing panel: blocker housing + in-game cursor (no exitPointerLock)', JSON.stringify({ blocker: preDom.blocker, cursor: preDom.cursor }));
   ok((await lastEv('ui:housingToggled'))?.page === 'presets', 'ui:housingToggled {presets}');
   await H(() => document.querySelector('.hs-preset[data-preset="1"] .actions .ui-btn.danger').click());
   await sleep(50);
   ok(await H(() => window.__game.ctx.housing.getPresets()[1] === null), '삭제 button clears the preset');
+  await H(() => window.__game.ctx.housing.closeMenus());
+  await sleep(60);
+  ok(await H(() => !window.__game.ctx.housing.isMenuOpen && !window.__game.ctx.uiBlockers.has('housing')
+    && !window.__game.ctx.input.isCursorMode), 'closing the panel releases the blocker and the in-game cursor');
+  await H(() => window.__game.ctx.housing.openPresetMenu());   // re-open it: the next check is that 시설 관리 closes it
+  await sleep(80);
   await H(() => window.__game.ctx.housing.openRoomMenu(5));
   await sleep(120);
   ok(await H(() => document.querySelector('.preset-menu').hidden && window.__game.ctx.housing.shipManageMode && !window.__game.ctx.uiBlockers.has('housing')), '시설 관리 closes the preset panel (single owner of the screen)');

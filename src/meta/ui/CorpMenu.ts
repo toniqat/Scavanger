@@ -15,8 +15,9 @@ const BLOCKER = 'corp';
  * Since Phase 8 this class is only the shell: the header, corp tabs, banner, sub-tabs, page and footer are built by
  * `CorpView`, which the embedded 기업 tab of the inventory Tab screen (`MetaRef.createCorpView`) uses as well — one set
  * of renderers, two shells. What stays here is the overlay etiquette the embedded variant must **not** have: the
- * `'corp'` blocker added **before** the pointer lock exits, a capture-phase Escape listener, a 닫기 footer button and
- * the microtask re-lock on close when nothing else blocks and the phase is still `hub`. Emits `ui:corpToggled`.
+ * `'corp'` blocker, the **in-game cursor** (`input.setCursorMode(true, 'corp')` — Phase 10: the pointer lock is
+ * *kept* and a virtual cursor drives the DOM, so `exitPointerLock()` and the microtask re-lock are both gone), a
+ * capture-phase Escape listener and a 닫기 footer button. Emits `ui:corpToggled`.
  */
 export class CorpMenu {
   readonly root: HTMLElement;
@@ -54,8 +55,8 @@ export class CorpMenu {
     if (corp && CORP_DEFS[corp]) this.view.setCorpSilent(corp);
     if (this._open) { this.view.refresh(); return; }
     this._open = true;
-    this.ctx.uiBlockers.add(BLOCKER);          // before the lock exits
-    this.ctx.input.exitPointerLock();
+    this.ctx.uiBlockers.add(BLOCKER);          // blocker first, then the in-game cursor (the lock is kept)
+    this.ctx.input.setCursorMode(true, BLOCKER);
     this.root.hidden = false;
     this.frame.style.animation = 'none';
     void this.frame.offsetWidth;
@@ -67,7 +68,8 @@ export class CorpMenu {
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
   }
 
-  close(relock = true): void {
+  /** `relock` is kept for the call signature only — Phase 10 never dropped the lock, so there is nothing to re-lock. */
+  close(_relock = true): void {
     if (!this._open) return;
     this._open = false;
     window.removeEventListener('keydown', this.onKeyCapture, true);
@@ -75,14 +77,8 @@ export class CorpMenu {
     this.view.hideMsg();
     (document.activeElement as HTMLElement | null)?.blur?.();
     this.ctx.uiBlockers.delete(BLOCKER);
+    this.ctx.input.setCursorMode(false, BLOCKER);
     this.ctx.bus.emit('ui:corpToggled', { open: false, corp: this.view.currentCorp });
-    if (relock) {
-      queueMicrotask(() => {
-        const ctx = this.ctx;
-        if (ctx.phase !== 'hub' || ctx.uiBlockers.size > 0) return;
-        ctx.input.requestPointerLock();
-      });
-    }
   }
 
   setCorp(corp: CorpId): void { this.view.setCorp(corp); }

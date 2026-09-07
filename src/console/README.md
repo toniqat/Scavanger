@@ -33,10 +33,11 @@ thrown errors become red lines. `console:executed { line, ok, output }` fires af
 
 ## Flow
 ```
-` (Keys.CONSOLE, capture listener) ── not open ──▶ open(): uiBlockers.add('console') → input.exitPointerLock() → root shown, input focused,
+` (Keys.CONSOLE, capture listener) ── not open ──▶ open(): uiBlockers.add('console') → input.setCursorMode(true, 'console')
+                                                      (Phase 10: the pointer lock is KEPT) → root shown, input focused,
                                                       console:toggled {open:true}
-                                   ── open ──────▶ close(): root hidden, blocker removed, console:toggled {open:false},
-                                                      queueMicrotask → requestPointerLock() when isControlActive() and not dead
+                                   ── open ──────▶ close(): root hidden, blocker removed, setCursorMode(false, 'console'),
+                                                      console:toggled {open:false}  (no re-lock — nothing unlocked)
 typing ──▶ 'input' event ──▶ suggestions: no space yet → commands whose name starts with the text (`/usage — description`);
            after `cmd ` → cmd.complete(args) filtered by the current token. Cursor −1 by default.
 ↑/↓ ──▶ input empty (or already browsing history, or no suggestions) → history (newest first, past the newest = the draft);
@@ -60,3 +61,17 @@ in the ship, `/seed 42 / random / 문구` (FNV matches), `/movecheat 1` + Home h
 command, `clear`, history in localStorage + ↑/↓ recall, Esc does not pause, W while open does not move — **63 checks, 0 console errors**
 (2026-09-06). Registered in `scripts/verify.mjs` (`smoke-console`). The script parks vite's `vite-hmr` WebSocket in CONNECTING so a
 save in another editor cannot full-reload the page mid-run.
+
+## Phase 10 UI 개선 pass (2026-09-07)
+
+**인게임 커서 (`docs/PHASE10-PLAN.md` §2).** `open()` adds the `'console'` blocker and then calls
+`ctx.input.setCursorMode(true, 'console')` **without** exiting the pointer lock; `close()` deletes the token and calls
+`setCursorMode(false, 'console')`, and the re-lock microtask (`isControlActive()` / `isDead` guarded) is gone —
+nothing ever unlocked, so there is nothing to restore. `dispose()` releases both when the console was open.
+`setCursorMode` is ref-counted per blocker token, so opening the console over another cursor surface (the inventory,
+the corp screen) and closing it again leaves that surface's cursor alone.
+
+No DOM handler changed: the software cursor dispatches real bubbling `pointer*` / `mouse*` / `click` / `wheel`
+events at its virtual position, so the suggestion list's mouse wiring and the input field keep working. The folder
+polls neither `input.mouseX / mouseY` nor `document.elementFromPoint`, so nothing else needed migrating. The console
+is still dev-client only (`isDevHost()`), so this path never runs for a player.

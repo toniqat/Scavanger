@@ -429,6 +429,32 @@ try {
     ok(!byC.manage && byC.blockers === 0 && byC.controls === true, 'C with an empty cursor leaves 시설 관리 as well');
   }
 
+  /* ── 7c. starboard rooms use the SAME camera + cursor convention (Phase 10) ──
+     `HousingMode` used to place the eye at `cx − rb.side · 2.2` (over each room's own door wall) and multiply the
+     locked cursor deltas by the same `rb.side`, so rooms 6–10 read 180° rotated. Both now use the port convention:
+     eye on the room's +X side looking −X, screen-right = world −Z. The port checks above only look at camera y / z
+     and only drive the cursor in room 0, so they pass either way — this block is the starboard half. */
+  console.log('starboard housing camera (rooms 6-10)');
+  await teleport(3.8, 2.5, 0);
+  await waitSim(0.3);
+  await page.evaluate(() => window.__game.ctx.bus.emit('housing:modeChanged', { active: true, room: 5 }));
+  await waitSim(1.6);
+  const sb = await page.evaluate(() => {
+    const h = window.__game.getSystem('hub').housing, c = window.__game.ctx.camera.position;
+    return { active: h.active, room: h.room, x: c.x, y: c.y, z: c.z, cell: { ...h.cell } };
+  });
+  ok(sb.active && sb.room === 5, `housing controller active for starboard room 5 (room ${sb.room})`);
+  // room 5 spans x 1.8..5.8 (centre 3.8), z 0.5..4.5 (centre 2.5) → eye (6.0, 6.6, 2.5), the outer-hull side
+  ok(sb.x > 4.8 && sb.y > 4.5 && Math.abs(sb.z - 2.5) < 1.0,
+    `starboard camera looks from the outer hull toward the corridor (x ${sb.x.toFixed(2)}, y ${sb.y.toFixed(2)}, z ${sb.z.toFixed(2)})`);
+  await mouseMove(-160, 0);
+  await waitSim(0.2);
+  const sbCur = await page.evaluate(() => ({ ...window.__game.getSystem('hub').housing.cell }));
+  ok(sbCur.y > sb.cell.y, `−160 px moves the starboard cursor toward +Z exactly like a port room — not mirrored (cell y ${sb.cell.y} → ${sbCur.y})`);
+  await tap('Escape');
+  await waitSim(0.4);
+  ok((await page.evaluate(() => window.__game.getSystem('hub').housing.active)) === false, 'Esc left the starboard housing session');
+
   /* ── 8. teardown + re-enter ─────────────────────────────────────────── */
   await page.evaluate(() => window.__game.ctx.bus.emit('game:abort', {}));
   await waitSim(0.2);

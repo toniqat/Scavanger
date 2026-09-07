@@ -223,9 +223,10 @@ try {
   console.log('corpses');
   const corpse = await P(() => {
     const sys = window.__sys; const ctx = window.__game.ctx; const p = ctx.player.position;
-    const s = sys.debugSpawn('scavenger', { x: p.x + 2, z: p.z + 2 }, false);
+    // Phase 10: `CORPSE_LOOT_CHANCE` makes a trash bug's corpse searchable only 10 % of the time — a rogue is always 1
+    const s = sys.debugSpawn('rogue', { x: p.x + 2, z: p.z + 2 }, false);
     if (!s) return null;
-    s.takeDamage(1000);
+    s.takeDamage(5000);
     const it = ctx.interactables.all().find((i) => i.id === `corpse:${s.id}`);
     const stub = { calls: [] };
     const inv = ctx.inventory;
@@ -249,6 +250,37 @@ try {
   const rem = await P(() => window.__ev['corpse:removed'].length);
   const bodies = await P(() => window.__sys.active.filter((e) => e.state === 'dead').length);
   ok(bodies > 0, `dead bodies stay in the scene (${bodies} corpses active, ${rem} removed so far)`);
+
+  console.log('phase 10: probabilistic corpse looting (CORPSE_LOOT_CHANCE)');
+  const chance = await P(() => {
+    const sys = window.__sys; const ctx = window.__game.ctx; const p = ctx.player.position;
+    const has = (id) => !!ctx.interactables.all().find((it) => it.id === `corpse:${id}`);
+    let bugs = 0, bugLootable = 0, mismatch = 0, undecided = 0;
+    for (let i = 0; i < 30; i++) {
+      const s = sys.debugSpawn('scavenger', { x: p.x + 18 + i * 0.7, z: p.z + 22 }, false);
+      if (!s) continue;
+      s.takeDamage(1000);
+      bugs++;
+      if (s.lootable === undefined) undecided++;
+      if (s.lootable) bugLootable++;
+      if (has(s.id) !== !!s.lootable) mismatch++;
+    }
+    let rogues = 0, rogueLootable = 0;
+    for (let i = 0; i < 3; i++) {
+      const r = sys.debugSpawn('rogue', { x: p.x - 18 - i * 0.9, z: p.z + 22 }, false);
+      if (!r) continue;
+      r.takeDamage(5000);
+      rogues++;
+      if (r.lootable && has(r.id)) rogueLootable++;
+    }
+    return { bugs, bugLootable, mismatch, undecided, rogues, rogueLootable };
+  });
+  ok(chance.bugs >= 20 && chance.undecided === 0 && chance.mismatch === 0,
+    `every corpse decides lootable at death and the interactable matches it (${chance.bugs} bugs, ${chance.mismatch} mismatches)`, JSON.stringify(chance));
+  ok(chance.bugs > 0 && chance.bugLootable < chance.bugs && chance.bugLootable <= Math.ceil(chance.bugs * 0.4),
+    `잡버그 (chance 0.1): only ${chance.bugLootable}/${chance.bugs} corpses are searchable`);
+  ok(chance.rogues > 0 && chance.rogueLootable === chance.rogues,
+    `rogue corpses (chance 1) are always searchable (${chance.rogueLootable}/${chance.rogues})`);
 
   console.log('snapshot hints / wire');
   const wire = await P(() => {

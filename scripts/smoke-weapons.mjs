@@ -264,6 +264,85 @@ try {
   await page.evaluate(() => { const p = window.__game.ctx.player; if (p.isDowned) p.revive(); p.heal(1000); });
   await waitSim(0.3);
 
+  console.log('회복약 2 s hold / H retired / reload cancel (Phase 10)');
+  await page.evaluate(() => {
+    const bus = window.__game.ctx.bus;
+    for (const n of ['heal:holdChanged', 'quick:used', 'quick:equipped', 'weapon:reloadStarted', 'weapon:reloadCancelled', 'player:stimUsed']) {
+      window.__ev[n] = [];
+      bus.on(n, (p) => { window.__ev[n].push(JSON.parse(JSON.stringify(p, (k, v) => (v && v.isVector3) ? [v.x, v.y, v.z] : v))); });
+    }
+  });
+  // H is retired (Keys.STIM has no reader left): nothing goes into the hand
+  await tap('KeyH');
+  await waitSim(0.3);
+  const hKey = await page.evaluate(() => ({ held: window.__game.ctx.weapons.remoteState.heldItemId, eq: window.__ev['quick:equipped'].length }));
+  ok(hKey.held === null && hKey.eq === 0, 'H does nothing any more (the Keys.STIM reader is gone)', JSON.stringify(hKey));
+  // 회복약 into the hand through the quick slot N + T tap, player damaged so the hold is allowed to start
+  const stimReady = await page.evaluate(() => {
+    const ctx = window.__game.ctx; const inv = ctx.inventory; const p = ctx.player;
+    p.heal(1000);
+    let stim = inv.getAllItems().find((i) => i.defId === 'stim');
+    if (!stim) { stim = ctx.loot.createItem('stim', 2); inv.tryAddItem(stim); }
+    const moved = inv.setQuickSlot(0, stim.uid);
+    p.takeDamage(35);
+    return { moved, hp: p.hp, max: p.maxHp, qty: stim.qty };
+  });
+  ok(stimReady.moved && stimReady.hp < stimReady.max, '회복약 in quick slot N, player below full hp', JSON.stringify(stimReady));
+  await tap('KeyT');
+  await waitSim(0.4);
+  ok((await rsNow()).held === 'stim', 'T tap → 회복약 in hand', JSON.stringify(await rsNow()));
+  // LMB held: the gauge rises and nothing is consumed before HEAL_HOLD_S (2 s)
+  await mDown(0);
+  await waitSim(0.6);
+  const h1 = await page.evaluate(() => ({ ev: window.__ev['heal:holdChanged'].slice(), used: window.__ev['quick:used'].length }));
+  const first = h1.ev[0], last1 = h1.ev[h1.ev.length - 1];
+  ok(!!first && first.holding === true && first.t === 0, 'LMB press → heal:holdChanged {holding:true, t:0}', JSON.stringify(first));
+  ok(!!last1 && last1.t > 0 && last1.t < 1, `gauge rising after 0.6 s (t=${last1 ? last1.t.toFixed(2) : 'none'})`);
+  ok(h1.used === 0, 'nothing is consumed before the 2 s hold completes');
+  await mUp(0);
+  await waitSim(0.2);
+  const cancelEv = await lastEv('heal:holdChanged');
+  ok(!!cancelEv && cancelEv.holding === false && cancelEv.t === -1, 'releasing LMB cancels the hold (t: -1)', JSON.stringify(cancelEv));
+  // full hold → consume + applyStim
+  const hpBefore = await page.evaluate(() => { window.__ev['quick:used'] = []; return window.__game.ctx.player.hp; });
+  await waitSim(0.5);   // quick-use cooldown
+  await mDown(0);
+  await waitSim(2.4);
+  const done = await page.evaluate(() => ({ used: window.__ev['quick:used'].slice(), stim: window.__ev['player:stimUsed'].length, hp: window.__game.ctx.player.hp, last: window.__ev['heal:holdChanged'].slice(-1)[0] }));
+  await mUp(0);
+  ok(done.used.length === 1, `2 s hold consumes the 회복약 exactly once (${done.used.length})`, JSON.stringify(done.used));
+  ok(done.stim >= 1 && done.hp > hpBefore, `applyStim ran (${hpBefore.toFixed(0)} → ${done.hp.toFixed(0)}, player:stimUsed ${done.stim})`);
+  ok(!!done.last && done.last.holding === false, 'the gauge closes when the hold completes', JSON.stringify(done.last));
+  // at full hp the hold is refused outright (the old instant-use rule)
+  await page.evaluate(() => { window.__ev['heal:holdChanged'] = []; window.__game.ctx.player.heal(1000); });
+  await waitSim(0.7);
+  await mDown(0);
+  await waitSim(0.4);
+  const denied = await ev('heal:holdChanged');
+  await mUp(0);
+  ok(denied.length === 0, 'full hp refuses to start the hold', JSON.stringify(denied));
+  // back to the gun, then a swap mid-reload → weapon:reloadCancelled (new in Phase 10)
+  await tap('Digit1');
+  await waitSim(0.8);
+  ok((await rsNow()).held === null, '1 → gun back in hand after the 회복약');
+  const relSet = await page.evaluate(() => {
+    const ctx = window.__game.ctx; const inv = ctx.inventory; const l = inv.getLoadout();
+    inv.updateItem(l.primary.uid, { ammoInMag: 10 });
+    let res = inv.countWhere((d) => d.category === 'ammo' && d.ammoType === 'medium');
+    if (res <= 0) { inv.tryAddItem(ctx.loot.createItem('ammo_medium', 30)); res = inv.countWhere((d) => d.category === 'ammo' && d.ammoType === 'medium'); }
+    return { mag: l.primary.ammoInMag, res };
+  });
+  await tap('KeyR');
+  await waitSim(0.2);
+  ok((await ev('weapon:reloadStarted')).length >= 1, 'R starts a reload', JSON.stringify(relSet));
+  await tap('Digit3');
+  await waitSim(0.4);
+  const rc = await lastEv('weapon:reloadCancelled');
+  ok(!!rc && rc.weaponId === 'ar23', 'a swap mid-reload emits weapon:reloadCancelled', JSON.stringify(rc));
+  await tap('Digit1');
+  await waitSim(0.8);
+  ok((await ev('weapon:reloadCancelled')).length === 1, 'no reloadCancelled when nothing was reloading', JSON.stringify(await ev('weapon:reloadCancelled')));
+
   console.log('unload / repair / broken');
   const un = await page.evaluate(() => {
     const ctx = window.__game.ctx; const inv = ctx.inventory; const l = inv.getLoadout();
@@ -294,24 +373,38 @@ try {
   ok(broken && broken.weaponId === 'ar23' && magB === 45, 'broken weapon does not fire (weapon:broken)', `mag=${magB}`);
   await page.evaluate(() => { const inv = window.__game.ctx.inventory; const l = inv.getLoadout(); inv.updateItem(l.primary.uid, { durability: 500 }); });
 
-  console.log('barrier / blockers (Phase 9)');
+  console.log('barrier shield / blockers (Phase 9 purity + Phase 10 carried shield)');
   await page.evaluate(() => { const ctx = window.__game.ctx; ctx.enemies.killAll(); ctx.enemies.setThreatLevel(0); const p = ctx.player; if (p.isDowned) p.revive(); p.heal(1000); });
-  const bar0 = await page.evaluate(() => { const imp = window.__game.ctx.implants; if (!imp) return null; if (!imp.barrierActive) imp.activate(); return { eq: imp.equipped, active: imp.barrierActive, hp: imp.barrierHp, max: imp.barrierMaxHp }; });
-  ok(bar0 && bar0.eq === 'barrier' && bar0.active && bar0.hp > 0 && bar0.hp === bar0.max, 'activate() deploys the 배리어 in front of the player at full hp', JSON.stringify(bar0));
+  const bar0 = await page.evaluate(() => { const imp = window.__game.ctx.implants; if (!imp) return null; if (!imp.barrierActive) imp.activate(); return { eq: imp.equipped, active: imp.barrierActive, carried: imp.barrierCarried, blocks: imp.blocksWeapons, hp: imp.barrierHp, max: imp.barrierMaxHp }; });
+  ok(bar0 && bar0.eq === 'barrier' && bar0.active && bar0.hp > 0 && bar0.hp === bar0.max, 'activate() raises the 배리어 방패 in hand at full hp', JSON.stringify(bar0));
+  ok(bar0 && bar0.carried && bar0.blocks, 'the raised shield is wielded: barrierCarried and blocksWeapons (the gun is holstered)', JSON.stringify(bar0));
   await waitSim(0.2);
-  // line-of-sight style queries (rogue LOS, unique-weapon cone tests) must be pure: no implant:barrierHit, no hp change
+  // Phase 10: the panel travels with the carrier, so probe it from IN FRONT, shooting inward — a shot from behind
+  // must pass through (IMPLANT_BARRIER_CARRY_ARC). line-of-sight style queries stay pure: no event, no hp change.
   const q = await page.evaluate(() => {
     const ctx = window.__game.ctx; const imp = ctx.implants; const p = ctx.player; const V = p.position.constructor;
-    const o = p.position.clone(); o.y += 1.2;
-    const d = p.getForward(new V()); d.y = 0; d.normalize();
+    const pose = new V(); const yaw = imp.getBarrierPose(pose);
+    const fwd = p.getForward(new V()); fwd.y = 0; fwd.normalize();
+    const o = pose.clone().addScaledVector(fwd, 5); o.y = pose.y + 0.6;   // 5 m in front of the panel, panel height
+    const d = fwd.clone().negate();                                        // inward, at the shield's face
     const before = window.__ev['implant:barrierHit'].length; const hp0 = imp.barrierHp;
     const r1 = imp.raycastBarrier(o, d, 10, true);
     const r2 = imp.raycastBarrier(o, d, 10, true);
     const r0 = imp.raycastBarrier(o, d, 10, false);
-    return { hit: !!r1 && r1.owner === 'local', hit2: !!r2, friendly: r0 === null, events: window.__ev['implant:barrierHit'].length - before, hpSame: imp.barrierHp === hp0, point: r1 ? [r1.point.x, r1.point.y, r1.point.z] : null };
+    // from behind: origin behind the carrier, shooting forward through their back
+    const ob = pose.clone().addScaledVector(fwd, -5); ob.y = o.y;
+    const rb = imp.raycastBarrier(ob, fwd, 12, true);
+    return {
+      pose: [pose.x, pose.y, pose.z], yaw: yaw ? yaw.yaw : null, playerYaw: p.yaw,
+      hit: !!r1 && r1.owner === 'local', hit2: !!r2, friendly: r0 === null, behind: rb === null,
+      events: window.__ev['implant:barrierHit'].length - before, hpSame: imp.barrierHp === hp0,
+      point: r1 ? [r1.point.x, r1.point.y, r1.point.z] : null,
+    };
   });
-  ok(q.hit && q.hit2 && q.point, 'raycastBarrier(fromEnemy=true) reports the local barrier on the forward ray', JSON.stringify(q));
+  ok(q.hit && q.hit2 && q.point, 'raycastBarrier(fromEnemy=true) reports the carried shield on an inbound frontal ray', JSON.stringify(q));
   ok(q.friendly, 'raycastBarrier(fromEnemy=false): an allied shot passes through (unchanged semantics)');
+  ok(q.behind, 'a hostile shot from behind the carrier passes through (IMPLANT_BARRIER_CARRY_ARC front gate)', JSON.stringify(q));
+  ok(q.yaw !== null && Math.abs(q.yaw - q.playerYaw) < 0.01, 'getBarrierPose() faces the carrier (yaw matches)', JSON.stringify(q));
   ok(q.events === 0 && q.hpSame, 'pure query: two LOS-style hits emit no implant:barrierHit and leave barrierHp unchanged', JSON.stringify(q));
   const dmgB = await page.evaluate((pt) => {
     const ctx = window.__game.ctx; const imp = ctx.implants; const V = ctx.player.position.constructor;
@@ -321,19 +414,28 @@ try {
     return { hp0, hp1: imp.barrierHp, events: evs.length, damage: evs[0]?.damage ?? null, active: imp.barrierActive };
   }, q.point);
   ok(dmgB.hp1 < dmgB.hp0 && dmgB.events === 1 && dmgB.damage > 0 && dmgB.hp0 - dmgB.hp1 === dmgB.damage, 'damageBarrier(local, point) lowers barrierHp by the block damage and emits implant:barrierHit once', JSON.stringify(dmgB));
-  // real shots: pretend our own barrier is hostile to us (raycastBarrier patched to fromEnemy=true) and spy damageBarrier —
-  // every resolved hitscan hit bills the barrier exactly once (the cam probe + muzzle ray + aim probes are pure)
+  const fold = await page.evaluate(() => {
+    const imp = window.__game.ctx.implants; const V = window.__game.ctx.player.position.constructor;
+    if (imp.barrierActive) imp.activate();
+    return { active: imp.barrierActive, carried: imp.barrierCarried, blocks: imp.blocksWeapons, pose: imp.getBarrierPose(new V()) };
+  });
+  ok(fold.active === false && fold.carried === false && fold.pose === null, 'activate() again lowers the shield (getBarrierPose null, weapons free)', JSON.stringify(fold));
+  await waitSim(0.8);   // let the gun come back out of the holster
+  // real shots: with the shield DOWN the gun is usable again, so stub raycastBarrier into a synthetic hit and spy
+  // damageBarrier — every resolved hitscan hit must bill the barrier exactly once (probes and aim rays stay pure).
   const shot0 = await page.evaluate(() => {
-    const ctx = window.__game.ctx; const imp = ctx.implants; const inv = ctx.inventory;
+    const ctx = window.__game.ctx; const imp = ctx.implants; const inv = ctx.inventory; const p = ctx.player;
+    const V = p.position.constructor;
     const origRay = imp.raycastBarrier.bind(imp); const origDmg = imp.damageBarrier.bind(imp);
-    imp.raycastBarrier = (o, d, m, _fe) => origRay(o, d, m, true);
+    const fwd = p.getForward(new V()); fwd.y = 0; fwd.normalize();
+    imp.raycastBarrier = (o, _d, _m, _fe) => ({ point: o.clone().addScaledVector(fwd, 3), owner: 'local' });
     window.__dmgCalls = [];
     imp.damageBarrier = (owner, point, amount) => { window.__dmgCalls.push([owner, +point.x.toFixed(2), +point.y.toFixed(2), +point.z.toFixed(2), amount ?? null]); };
     window.__restoreBarrier = () => { imp.raycastBarrier = origRay; imp.damageBarrier = origDmg; };
     window.__barrierEv = window.__ev['implant:barrierHit'].length;
-    return { mag: inv.getLoadout().primary.ammoInMag, active: imp.barrierActive };
+    return { mag: inv.getLoadout().primary.ammoInMag, blocks: imp.blocksWeapons };
   });
-  ok(shot0.active && shot0.mag === 45, 'AR loaded (45) with the barrier still up before the burst', JSON.stringify(shot0));
+  ok(shot0.blocks === false && shot0.mag === 45, 'AR loaded (45) and usable with the shield lowered before the burst', JSON.stringify(shot0));
   await mouseSim(0, 0.25);
   await waitSim(0.3);
   const shotR = await page.evaluate(() => {
@@ -343,11 +445,9 @@ try {
     return r;
   });
   const shots = shot0.mag - shotR.mag;
-  ok(shots >= 1, `burst fired ${shots} rounds into the barrier`);
+  ok(shots >= 1, `burst fired ${shots} rounds into the stubbed barrier`);
   ok(shotR.calls.length === shots && shotR.calls.every((c) => c[0] === 'local'), `each resolved hit calls damageBarrier('local', point) exactly once (${shots} shots → ${shotR.calls.length} calls)`, JSON.stringify(shotR.calls.slice(0, 3)));
   ok(shotR.losEvents === 0, 'the raycasts themselves emitted no implant:barrierHit (damage is routed explicitly)');
-  const fold = await page.evaluate(() => { const imp = window.__game.ctx.implants; if (imp.barrierActive) imp.activate(); return imp.barrierActive; });
-  ok(fold === false, 'activate() again folds the barrier away');
 
   console.log('status attacker (Phase 9)');
   const uniq = async (defId, type) => page.evaluate(([id, t]) => {
