@@ -31,6 +31,8 @@ async function waitFor(page, fn, label, timeout = 60000, arg) {
 
 /* ── contract mirrored here (src/shared/planets.ts + constants.ts) ─────────────────────────────────────────────── */
 const GATHER_NODES_PER_MISSION = 34;
+/* 폐금속 공급 (2026-09-08): 고철 더미 — `SALVAGE_NODES_PER_MISSION` 와 같이 유지한다 */
+const SALVAGE_NODES_PER_MISSION = 7;
 /** Ambient population cap before `pressure`: `12 + 24 × threat`. */
 const capBase = (threat) => 12 + 24 * threat;
 const PLANETS = [
@@ -105,13 +107,16 @@ try {
     window.__snap = () => {
       const ctx = window.__game.ctx;
       const w = ctx.world;
-      const nodes = w.getGatherNodes();
+      // 2026-09-08: 고철 더미(`kind: 'salvage'`)도 같은 목록에 있다 — 생태계 수치는 약초만 센다
+      const all = w.getGatherNodes();
+      const nodes = all.filter((n) => n.kind !== 'salvage');
       const herbs = {};
       for (const n of nodes) herbs[n.defId] = (herbs[n.defId] ?? 0) + 1;
       return {
         planet: w.planet, mode: w.mode, seed: w.seed,
         biome: window.__worldSys.getBiome() ? window.__worldSys.getBiome().id : null,
         nodes: nodes.length, herbs,
+        salvage: all.length - nodes.length,
         nodeSig: nodes.map((n) => `${n.id}:${n.defId}:${n.position.x.toFixed(3)},${n.position.z.toFixed(3)}`).join('|'),
         eco: window.__sys.debugEcology,
         guards: window.__sys.debugGuardCount(),
@@ -158,7 +163,9 @@ try {
   ok(base.planet === null && base.ready && base.ready.planet === null, `no planet → ctx.world.planet null and world:ready.planet null (${base.planet} / ${base.ready && base.ready.planet})`, JSON.stringify(base.ready));
   ok(base.biome !== null && PLANETS.some((p) => p.biome === base.biome), `the biome still comes from the seeded draw (${base.biome})`);
   ok(base.eco === null, 'no ecosystem is in force (debugEcology null)');
-  ok(base.nodes === GATHER_NODES_PER_MISSION, `gather node count is the plain GATHER_NODES_PER_MISSION (${base.nodes})`);
+  ok(base.nodes === GATHER_NODES_PER_MISSION, `herb node count is the plain GATHER_NODES_PER_MISSION (${base.nodes})`);
+  // 폐금속 공급 (2026-09-08): 고철 더미는 생태계와 무관하게 행성마다 같은 수로 깔린다
+  ok(base.salvage === SALVAGE_NODES_PER_MISSION, `고철 더미 count is SALVAGE_NODES_PER_MISSION (${base.salvage})`);
   const baseCap = await P(() => window.__caps(0.5));
   ok(baseCap.cap === Math.round(capBase(0.5)), `ambient cap is 12 + 24 × threat with no planet (${baseCap.cap} @ ${baseCap.threat})`);
   const baseComp = await P((n) => window.__compose(n), 24);
@@ -257,6 +264,7 @@ try {
   ok(train.mode === 'training' && train.planet === null && train.eco === null,
     `a training keeps planet null and no ecosystem (${train.mode} / ${train.planet})`, JSON.stringify(train.ready));
   ok(train.nodes === 0, 'the arena still has no gather nodes');
+  ok(train.salvage === 0, 'the arena has no 고철 더미 either');
   await P(() => window.__game.ctx.bus.emit('game:abort', {}));
   await waitSim(0.2);
 

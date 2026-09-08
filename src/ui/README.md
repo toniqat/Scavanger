@@ -665,6 +665,10 @@ Plan: `docs/DECISIONS.md` items 3 · 4 · 8 · 9 · 15 · 16 (agent F). Contract
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
+- **2026-09-08 (지도 · 고철 더미)** — `map/MapScreen` 이 `getGatherNodes()` 의 `kind: 'salvage'` 노드를
+  약초의 초록 십자 대신 **호박색 작은 사각**으로 그린다 (해체하면 똑같이 흐려진다). 폐금속을 찾아다닐 수 있게
+  하는 게 목적이라 채집물과 한눈에 구분되어야 했다.
+
 - **tactical kit** — `hud/ImplantWidget` (**vertical gauge left of the crosshair** since 2026-09-06: cooldown fill / dash 3 yellow segments / barrier hp + lockout / overcharge energy), `hud/WeightBar`, `hud/Detection`, `hud/ScanReveal`, `hud/Deployables`, `hud/ActionFeedback`, `hud/ProgressToasts`, grapple reticle bracket (equipped + hookable), durability / weight / craft / gadget toasts; every key hint reads `keyLabel(Keys.X)` and refreshes on `input:bindingsChanged`; **title controls diagram** `menus/ControlsPanel` (procedural keyboard + mouse, bound keys lit, function list) + **key settings** `menus/KeybindMenu` (title footer / pause menu `키 설정 변경`; capture next key, conflicts flagged, reset); shared screen tabs `.scr-tabs`
 
 - **Phase 6** — `hud/WeaponChargeGauge` (`weapon:chargeChanged` charge / spinup / slash arc), unique-weapon mode lines `좌 … / 우 …` in `WeaponPanel`, `hud/StatusMarkers` (🔥 전소 / ⚡), `hud/CheatTag` (MOVE CHEAT), `hud/HousingHint` (`.hud.housing` fourth root: selection / cursor / key line), `hud/RoomLabel` (`방 n · 용도`)

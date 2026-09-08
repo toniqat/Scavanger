@@ -47,6 +47,7 @@ When you add a smoke script: add it to `SMOKES` in `scripts/verify.mjs` with the
 in `CLAUDE.md`.
 
 ## History (what was actually tested)
+- 2026-09-08 폐금속 공급 (고철 더미 · 기계 부품 · 무기/방탄복 분해): `npm run verify:all` → **전부 통과, 5분 38초**, 첫 실행부터 red 없음. smoke-tactical 85 → **87**, smoke-inventory-p6 93 → **100**, smoke-ecology 83 → **85**. 자세히는 아래 [해당 절](#2026-09-08--폐금속-공급-고철-더미--기계-부품--고물-분해).
 - 2026-09-08 튜토리얼 UI/UX 수정 4건 (시작 카드에 커서가 없던 문제 · `generator` 단계 신설 · 잠긴 항목 숨김 · 포커싱 확대-축소): `npm run verify:all` → e2e-mp 153/154 외 전부 통과, **5 min 41 s**; 그 1건은 검증 도중 내가 소스를 편집해 vite HMR 이 두 클라이언트를 리로드시킨 자가 flake로, `--rerun-failed` **156/156**. smoke-tutorial 39 → **46**. 자세히는 아래 [해당 절](#2026-09-08--튜토리얼-uiux-수정-4건-커서--발전기-단계--숨김--포커싱-연출).
 - 2026-09-07 커서 편의성 3건 (ESC 재잠금 · 커서 가속 제거 · 드래그 고스트 중앙): `npm run verify:all` → typecheck ok, typecheck-server ok, net-selftest 278/278, build 2,033.71 kB JS / 200.61 kB CSS, **smoke-quickslots 46/46**, smoke-weapons 93/93, smoke-phase2 49/49, smoke-stratagems 70/70, smoke-phase3 32/32, smoke-phase4 49/49, smoke-tactical 64/64, smoke-ship-rooms 71/71, smoke-inventory-p6 63/63, **smoke-controls-hub 85/85**, smoke-housing 173/173, smoke-console 63/63, smoke-loadout 54/54, smoke-progression 68/68, smoke-search 59/59, smoke-ui-p6 68/68, smoke-ui-p5 132/132, smoke-meta 130/130, smoke-training 109/109, smoke-uniques 71/71, smoke-library 126/126, smoke-ghost 86/86, smoke-enemy-delta 52/52, smoke-rogue-v2 52/52, smoke-social 116/116, smoke-planets 76/76, smoke-raidflow 43/43, smoke-ecology 83/83, e2e-mp 156/156 — **4 min 59 s** on 4 GPU lanes, **all green**, no re-run. New checks: the drag ghost rides centred on the pointer (quickslots +1), the virtual cursor moves 1:1 slow and fast (controls +1), and a denied pointer-lock request arms the gesture retry / Escape never counts / any other key retries (controls +3).
   Diagnosis was done in a **real Chrome tab** first (the extension's window is `visibilityState: hidden`, so a genuine pointer lock is impossible there — the lock was faked over the canvas the way the smokes do, and `Input.lockLooksReal` reset by hand, to exercise the synthesising path). That measured the acceleration (a 14 px delta moved the cursor 27 px) and caught the ghost drift as a hard number: mid-drag the ghost's bounding-box centre sat at x 1122 while the cursor was at 1080. Both are 0 px / 1:1 after the fix.
@@ -253,6 +254,39 @@ in `CLAUDE.md`.
   최대 3번까지 던져 **실제로 닿은 첫 폭발**로 피해를 검증한다(빗나간 시도는 실패 메시지에 남는다). 고친 뒤
   단독 8연속 52/52 — 그중 한 번은 첫 투척이 6.09 m 로 빗나가 재시도 경로를 실제로 탔다.
 
+
+## 2026-09-08 — 폐금속 공급 (고철 더미 · 기계 부품 · 고물 분해)
+
+`npm run verify:all` (`src/shared/gear.ts` · `types.ts` · `events.ts` · `constants.ts` 를 건드렸으므로 전체)
+— **전부 통과, 5분 38초. 첫 실행부터 red 없음** (중간 `npm run verify` 에서 잡은 스모크 2건은 아래 참조).
+
+docs line: 2026-09-08: typecheck ok, typecheck-server ok, net-selftest 278/278, build 2,159.30 kB JS / 218.85 kB CSS,
+smoke-quickslots 46/46, smoke-phase2 53/53, smoke-weapons 137/137, smoke-stratagems 70/70, smoke-phase3 32/32,
+smoke-phase4 49/49, smoke-ship-rooms 72/72, smoke-controls-hub 121/121, smoke-tactical 87/87,
+smoke-inventory-p6 100/100, smoke-housing 200/200, smoke-console 63/63, smoke-progression 123/123,
+smoke-loadout 61/61, smoke-ui-p6 89/89, smoke-search 61/61, smoke-ui-p5 133/133, smoke-resume-gate 48/48,
+smoke-enemy-alert 42/42, smoke-uniques 71/71, smoke-meta 171/171, smoke-training 112/112, smoke-rogue-v2 52/52,
+smoke-library 126/126, smoke-ghost 86/86, smoke-enemy-delta 52/52, smoke-raidflow 48/48, smoke-planets 86/86,
+smoke-ecology 85/85, smoke-social 130/130, smoke-tutorial 52/52, e2e-mp 156/156.
+
+**새 검사 11건** (`smoke-inventory-p6` +7, `smoke-tactical` +2, `smoke-ecology` +2):
+기계 부품 분해가 결과물 칩을 **2개** 미리 보여주고 폐금속 3 + 전력 케이블 1 을 한 번에 낸다 ·
+똑같은 권총 두 정 중 **클릭한 쪽만** 갈리고 남은 한 정은 그대로다 · 소켓의 총구 제동기가 분해 전에 가방으로
+돌아온다 · `break_armor_1` 이 폐금속 3 · `station: 'field'` · 채집 노드가 약초와 고철 더미 두 갈래로 나뉘고
+고철은 `mat_scrap` 만 낸다 · 고철 더미 수가 행성과 무관하게 `SALVAGE_NODES_PER_MISSION` 이고 훈련장에는 없다.
+
+**중간 `npm run verify` 에서 red 였던 스모크 2건** — 둘 다 회귀가 아니라 **단언이 옛 세계를 보고 있던 것**이다.
+`getGatherNodes()` 가 이제 약초 + 고철 더미를 함께 내주므로 `smoke-ecology` 의 생태계 수치(노드 수 · 허브 id
+집합)와 `smoke-tactical` 의 "모든 채집물은 `herb_` 로 시작한다"가 `mat_scrap` 을 보고 넘어졌다. 두 스모크 모두
+`kind !== 'salvage'` 로 약초만 세도록 옮기고, 고철 쪽 단언을 따로 추가했다.
+
+새 스모크 블록을 짜다 만난 것 하나: 처음에는 돌격소총 두 정(4×2)을 넣으려고 가방을 통째로 비웠는데, 뒤쪽
+`takeFromCatalog on a mission` 이 시작 소지품의 수류탄 3개를 기준선으로 삼고 있어 그게 red 가 됐다.
+권총 두 정(2×1)으로 바꿔 시작 소지품을 건드리지 않는다 — 스모크는 앞 절이 남긴 가방 상태를 공유한다.
+
+**애드혹 시각 확인** (스크립트는 저장소에 넣지 않음): 레이드에서 고철 더미의 실루엣(찌그러진 화물통 + 휜 강판 +
+파이프, 호박색 절단 표식)이 40 m 에서 식물과 구분되는지, `폐금속 해체 (E)` 프롬프트와 3초 홀드,
+지도(M)의 호박색 사각 표식, 분해 다이얼로그의 결과물 칩 2개 배치.
 
 ## 2026-09-08 — 튜토리얼: 가구 제작 → 가구 창고 → 배치 (진행 불가 수정)
 

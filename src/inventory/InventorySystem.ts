@@ -526,7 +526,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
   /** Seconds one craft takes right now (recipe duration scaled by 제작 skill and 재주). */
   craftDuration(recipeId: string): number { return Craft.craftDuration(this, recipeId); }
 
-  craft(recipeId: string): Promise<ItemInstance | null> { return Craft.craft(this, recipeId); }
+  /** `targetUid` (2026-09-08): the exact stack a 분해 shreds — consumed before any other stack of the same def. */
+  craft(recipeId: string, targetUid?: string): Promise<ItemInstance | null> { return Craft.craft(this, recipeId, targetUid); }
 
   /** Abort the running craft (releasing the hold button, closing the panel, dying). */
   cancelCraft(): boolean { return Craft.cancelCraft(this); }

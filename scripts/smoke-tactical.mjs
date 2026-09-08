@@ -152,12 +152,22 @@ try {
   ok(locked.refused && locked.still === 'dash', 'implant swap refused during a raid');
 
   /* ── gather nodes ─────────────────────────────────────────────────── */
+  // 2026-09-08: the node list now also carries 고철 더미 (`kind: 'salvage'`, `mat_scrap`) — check both families
   const gather = await page.evaluate(() => {
     const n = window.__game.ctx.world.getGatherNodes();
-    return { n: n.length, defIds: [...new Set(n.map((g) => g.defId))] };
+    const herbs = n.filter((g) => g.kind !== 'salvage');
+    const salvage = n.filter((g) => g.kind === 'salvage');
+    return {
+      n: herbs.length,
+      defIds: [...new Set(herbs.map((g) => g.defId))],
+      salvage: salvage.length,
+      salvageDefIds: [...new Set(salvage.map((g) => g.defId))],
+    };
   });
-  ok(gather.n >= 30, `gather nodes spawned: ${gather.n}`);
+  ok(gather.n >= 30, `herb nodes spawned: ${gather.n}`);
   ok(gather.defIds.every((id) => id.startsWith('herb_')), `gather nodes yield herbs: ${gather.defIds.join(',')}`);
+  ok(gather.salvage >= 1, `고철 더미 spawned: ${gather.salvage}`);
+  ok(gather.salvageDefIds.every((id) => id === 'mat_scrap'), `고철 더미 yields 폐금속: ${gather.salvageDefIds.join(',')}`);
 
   /* ── weight + armor ──────────────────────────────────────────────── */
   const weight = await page.evaluate(() => {

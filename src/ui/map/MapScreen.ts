@@ -439,12 +439,18 @@ export class MapScreen {
           c.strokeRect(x - sz / 2 - 2, y - sz / 2 - 2, sz + 4, sz + 4);
         }
       }
-      // gather nodes (채집물): small crosses, dimmed once harvested
+      // gather nodes: 약초는 작은 십자, 고철 더미(2026-09-08)는 호박색 사각 — 둘 다 채집되면 흐려진다
       const nodes = world.getGatherNodes?.();
       if (nodes) {
         for (const g of nodes) {
           const x = this.toX(g.position.x), y = this.toY(g.position.z);
           if (!this.inView(x, y, 5)) continue;
+          if (g.kind === 'salvage') {
+            c.strokeStyle = g.harvested ? 'rgba(255,179,71,0.25)' : 'rgba(255,179,71,0.9)';
+            c.lineWidth = 1.2;
+            c.strokeRect(x - 2.5, y - 2.5, 5, 5);
+            continue;
+          }
           c.strokeStyle = g.harvested ? 'rgba(127,230,161,0.25)' : COL.gather;
           c.lineWidth = 1.2;
           c.beginPath();

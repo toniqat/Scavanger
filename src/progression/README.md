@@ -246,6 +246,10 @@ rules, the storage and the UI; items/ the defs and loot; meta/ (세레스 바이
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
+- **2026-09-08 (고철 해체 XP)** — `gather:collected` 가 `kind` 를 싣게 되면서 **고철 더미 해체는 원예가 아니라
+  제작 숙련**으로 간다 (`kind === 'salvage' ? 'crafting' : 'gardening'`, XP 량은 `GATHER_XP` 그대로).
+  고철에는 `derived.gatherYieldMul` 도 붙지 않는다 — 그건 world/ 쪽에서 거른다.
+
 - **Phase 6** — **stat XP** (`profile.statProgress`, `addStatXp` ± with point gain/loss between `STAT_MIN`..`STAT_MAX`, `statXpToNext` = `STAT_XP_BASE × v^STAT_XP_EXPONENT`, `progress:statXp`), `addSkillXpRaw` (signed, unscaled), `getSkillGainMul` (× `ctx.housing.getSkillGainMul` inside `addSkillXp`), stat bars + 시설 badge in the sheet
 
 - **Phase 7** — server `progression` document (`profile.set` on save, replace + `progress:*` re-emit on `net:profileLoaded`), 감정 XP from `container:itemRevealed`, training = `gun_*` skills only × `TRAINING_SKILL_GAIN_MUL`

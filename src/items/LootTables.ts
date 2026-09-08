@@ -66,6 +66,8 @@ export const LOOT_TABLES: readonly TierTable[] = [
     // Phase 8: 씨앗 are a modest category here (weight 4 of ~125) and the rarity weights keep tier 1 to 혈근초 씨앗 almost always
     itemWeightMul: {
       gad_turret: 0, gad_dome_shield: 0, ...uniqueAmmo(0), mat_cable: 0, mat_circuit: 0,
+      /* 폐금속 공급 (2026-09-08): 기계 부품은 로그의 것 — 보급 상자에는 없고 티어 2+ 에서만 */
+      mat_machine_parts: 0,
       /* 2026-09-07: 붕대 재료는 저티어에서 흔하게, 주사기 / 소독약은 나오지 않는다 (제작으로만) */
       mat_cloth: 2.5, mat_can: 1.5, mat_syringe: 0, mat_antiseptic: 0,
     },
@@ -80,7 +82,7 @@ export const LOOT_TABLES: readonly TierTable[] = [
     itemWeightMul: {
       wpn_smg: 1.3, wpn_sr: 0.35,
       armor_regen: 0, armor_ultralight: 0, armor_optical: 0,
-      ...uniqueAmmo(0), mat_cable: 1.2, mat_circuit: 0.3,
+      ...uniqueAmmo(0), mat_cable: 1.2, mat_circuit: 0.3, mat_machine_parts: 0.6,
       mat_cloth: 2, mat_can: 1.5, mat_syringe: 0.8, mat_antiseptic: 0,
       /* Phase 12: 망가진 임플란트 only — mostly I / II here, no legendaries */
       ...workingImplants(), ...brokenImplants({ common: 1, uncommon: 0.7, rare: 0.4, epic: 0.2, legendary: 0 }),
@@ -94,7 +96,7 @@ export const LOOT_TABLES: readonly TierTable[] = [
     guaranteed: [{ categories: ['valuable'], minRarity: 'rare' }],
     // uniques are tier 4+ / 5 / boss only (legendary weight 1 here would otherwise leak them)
     itemWeightMul: {
-      wpn_sr: 1.2, ...uniqueWeapons(0), ...uniqueAmmo(0), mat_circuit: 0.6,
+      wpn_sr: 1.2, ...uniqueWeapons(0), ...uniqueAmmo(0), mat_circuit: 0.6, mat_machine_parts: 0.8,
       mat_cloth: 1.2, mat_can: 1, mat_syringe: 1, mat_antiseptic: 0,
       /* Phase 12: 망가진 임플란트 up to IV, still no legendaries */
       ...workingImplants(), ...brokenImplants({ common: 1, uncommon: 1, rare: 0.7, epic: 0.4, legendary: 0 }),
@@ -130,6 +132,7 @@ export const LOOT_TABLES: readonly TierTable[] = [
     itemWeightMul: {
       ...gradedFamilies(0), ...uniqueWeapons(1), ...uniqueAmmo(0.3),
       mat_scrap: 0, mat_bio_sample: 0, mat_alloy: 0, mat_power_cell: 0, mat_gunpowder: 0, mat_cable: 0, mat_circuit: 1,
+      mat_machine_parts: 0,
       mat_cloth: 0, mat_can: 0, mat_syringe: 0, mat_antiseptic: 0,
     },
   },
@@ -237,14 +240,22 @@ export const CORPSE_TABLES: readonly CorpseTable[] = [
   },
   {
     type: 'rogue', ammoFraction: ROGUE_AMMO,
-    drops: [{ defId: 'heal_bandage', qty: [1, 1], chance: 0.3 }, { defId: 'grenade_frag', qty: [1, 1], chance: 0.2 }],
+    drops: [
+      { defId: 'heal_bandage', qty: [1, 1], chance: 0.3 }, { defId: 'grenade_frag', qty: [1, 1], chance: 0.2 },
+      /* 폐금속 공급 (2026-09-08): 로그 장비에서 뜯어낸 기계 부품 — `break_machine_parts` 로 폐금속 3 + 케이블 1 */
+      { defId: 'mat_machine_parts', qty: [1, 1], chance: 0.12 },
+    ],
     weapon: { durability: [0.05, 0.15] },
     book: { chance: 0.03 },
     implant: { chance: 0.06, weights: { common: 55, uncommon: 30, rare: 12, epic: 3 } },
   },
   {
     type: 'rogue_boss', ammoFraction: ROGUE_AMMO,
-    drops: [{ defId: 'heal_bandage', qty: [1, 2], chance: 1 }],
+    drops: [
+      { defId: 'heal_bandage', qty: [1, 2], chance: 1 },
+      /* 폐금속 공급 (2026-09-08): 보스는 기계 부품을 확실히, 때로 2개 */
+      { defId: 'mat_machine_parts', qty: [1, 2], chance: 0.6 },
+    ],
     weapon: { durability: [0.4, 0.7], grades: [3, 4], attachment: { maxRarity: 'epic' } },
     unique: { chance: 0.2, durability: [0.5, 0.8] },
     book: { chance: 0.2 },

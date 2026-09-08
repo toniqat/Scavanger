@@ -497,6 +497,76 @@ try {
   ok(cancel.last && cancel.last.t === 0 && cancel.last.done === false && !cancel.anyDone, 'cancel reports {t:0, done:false} and never done', JSON.stringify(cancel.last));
   await page.evaluate(() => window.__game.getSystem('inventory')['ui'].disassemblePanel.close());
 
+  /* ── 5b-2. 폐금속 공급 (2026-09-08): 고물 분해 ─────────────────────
+   * 화약은 넘치는데 폐금속만 말라 탄약을 못 만들던 문제의 세 갈래 중 하나. 기계 부품은 `extraOutputs` 로 두
+   * 재료를 한 번에 내고, 무기 / 방탄복 분해는 **클릭한 그 인스턴스**만 사라지며 부착물은 먼저 가방으로 돌아온다. */
+  console.log('고물 분해');
+  const partsSetup = await page.evaluate(() => {
+    const ctx = window.__game.ctx, i = ctx.inventory, sys = window.__game.getSystem('inventory');
+    for (const id of ['mat_scrap', 'mat_cable', 'mat_machine_parts']) i.consumeWhere((d) => d.id === id, 9999);
+    const parts = ctx.loot.createItem('mat_machine_parts', 1);
+    i.tryAddItem(parts);
+    const opened = i.openDisassemble(parts.uid);
+    const chips = document.querySelectorAll('.inv-dis-col:last-child .item-chip').length;
+    void sys.craft('break_machine_parts', parts.uid);
+    return { opened, chips, dur: sys.craftDuration('break_machine_parts'), uid: parts.uid };
+  });
+  ok(partsSetup.opened && partsSetup.chips === 2, `기계 부품 분해 dialog previews both products (${partsSetup.chips} chips)`);
+  await waitSim(partsSetup.dur * 1.4);
+  const partsOut = await page.evaluate((uid) => {
+    const i = window.__game.ctx.inventory;
+    return {
+      scrap: i.countWhere((d) => d.id === 'mat_scrap'), cable: i.countWhere((d) => d.id === 'mat_cable'),
+      parts: i.countWhere((d) => d.id === 'mat_machine_parts'), gone: !i.findItem(uid),
+    };
+  }, partsSetup.uid);
+  ok(partsOut.scrap === 3 && partsOut.cable === 1 && partsOut.parts === 0 && partsOut.gone,
+    `기계 부품 1 → 폐금속 ${partsOut.scrap} + 전력 케이블 ${partsOut.cable} (extraOutputs)`, JSON.stringify(partsOut));
+  await page.evaluate(() => window.__game.getSystem('inventory')['ui'].disassemblePanel.close());
+
+  // 무기 분해: 같은 돌격소총 두 정 중 클릭한 쪽만, 소켓의 부착물은 가방으로
+  const gunSetup = await page.evaluate(() => {
+    const ctx = window.__game.ctx, i = ctx.inventory, sys = window.__game.getSystem('inventory');
+    for (const id of ['mat_scrap', 'wpn_hg', 'att_brake']) i.consumeWhere((d) => d.id === id, 9999);
+    // 권총 2정(2×1)이면 시작 소지품을 건드리지 않고도 가방에 들어간다
+    const keep = ctx.loot.createItem('wpn_hg', 1);
+    const shred = ctx.loot.createItem('wpn_hg', 1);
+    const brake = ctx.loot.createItem('att_brake', 1);
+    const placed = [i.tryAddItem(keep), i.tryAddItem(shred), i.tryAddItem(brake)].every(Boolean);
+    const attached = i.attachToWeapon(shred.uid, brake.uid);
+    const recipe = sys.disassembleRecipeFor(shred.uid);
+    if (recipe) void sys.craft(recipe.id, shred.uid);
+    return {
+      placed, attached, recipeId: recipe?.id ?? null, out: recipe?.outputQty ?? 0,
+      dur: recipe ? sys.craftDuration(recipe.id) : 0, keep: keep.uid, shred: shred.uid, brake: brake.uid,
+    };
+  });
+  ok(gunSetup.placed, 'two 권총 + a 총구 제동기 fit in the bag');
+  ok(gunSetup.recipeId === 'break_wpn_hg' && gunSetup.out === 1, `권총 I 의 분해 레시피는 폐금속 ${gunSetup.out} (${gunSetup.recipeId})`);
+  await waitSim(gunSetup.dur * 1.4);
+  const gunOut = await page.evaluate((s) => {
+    const i = window.__game.ctx.inventory;
+    return {
+      scrap: i.countWhere((d) => d.id === 'mat_scrap'), guns: i.countWhere((d) => d.id === 'wpn_hg'),
+      keptSame: !!i.findItem(s.keep), shredGone: !i.findItem(s.shred), brakeBack: !!i.findItem(s.brake),
+    };
+  }, gunSetup);
+  ok(gunOut.scrap === 1 && gunOut.guns === 1 && gunOut.keptSame && gunOut.shredGone,
+    `무기 분해는 클릭한 그 한 정만 갈아 폐금속 ${gunOut.scrap} (남은 권총 ${gunOut.guns})`, JSON.stringify(gunOut));
+  ok(gunSetup.attached && gunOut.brakeBack, '소켓에 물려 있던 총구 제동기는 분해 전에 가방으로 돌아온다');
+
+  // 방탄복 분해
+  const armorOut = await page.evaluate(async () => {
+    const ctx = window.__game.ctx, i = ctx.inventory, sys = window.__game.getSystem('inventory');
+    i.consumeWhere((d) => d.id === 'mat_scrap', 9999);
+    const plate = ctx.loot.createItem('armor_1', 1);
+    i.tryAddItem(plate);
+    const recipe = sys.disassembleRecipeFor(plate.uid);
+    return { recipeId: recipe?.id ?? null, out: recipe?.outputQty ?? 0, station: recipe?.station ?? null };
+  });
+  ok(armorOut.recipeId === 'break_armor_1' && armorOut.out === 3 && armorOut.station === 'field',
+    `방탄복 I 도 현장에서 분해된다 → 폐금속 ${armorOut.out} (${armorOut.recipeId})`, JSON.stringify(armorOut));
+
   /* ── 5c. Phase 12: 회복 스프레이 수리 (ship) · gauge 0 stays an item ─ */
   console.log('회복 스프레이 수리');
   const spray = await page.evaluate(() => {

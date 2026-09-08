@@ -195,7 +195,11 @@ export function craftDuration(sys: InventorySystem, recipeId: string): number {
   return r.duration / speed;
   }
 
-export function craft(sys: InventorySystem, recipeId: string): Promise<ItemInstance | null> {
+/**
+ * `targetUid` (2026-09-08): the exact stack the 분해 dialog was opened on — consumed first so clicking a specific
+ * weapon shreds *that* one. Ordinary crafts pass nothing and keep the old `consumeDef` behaviour.
+ */
+export function craft(sys: InventorySystem, recipeId: string, targetUid?: string): Promise<ItemInstance | null> {
   const r = getRecipe(recipeId);
   if (!r) return Promise.resolve(null);
   sys.cancelCraft();
@@ -206,7 +210,7 @@ export function craft(sys: InventorySystem, recipeId: string): Promise<ItemInsta
   const duration = sys.craftDuration(recipeId);
   sys.ctx.bus.emit('craft:started', { recipeId, duration });
   return new Promise<ItemInstance | null>((resolve) => {
-    sys.craftJob = { recipe: r, remaining: duration, duration, resolve };
+    sys.craftJob = { recipe: r, remaining: duration, duration, resolve, targetUid };
   });
   }
 
@@ -228,6 +232,19 @@ export function craftProgress(sys: InventorySystem): { recipeId: string; progres
   return { recipeId: job.recipe.id, progress: 1 - Math.max(0, job.remaining) / Math.max(0.001, job.duration) };
   }
 
+/**
+ * Consume `qty` of `defId`, taking the 분해 target stack first when it matches (2026-09-08). Returns false when the
+ * bag could not cover the rest — the caller has already checked `canCraft`, so this is a safety net only.
+ */
+function consumeFor(sys: InventorySystem, defId: string, qty: number, targetUid?: string): boolean {
+  let left = Math.max(0, Math.floor(qty));
+  if (targetUid) {
+    const target = sys.findItem(targetUid);
+    if (target?.defId === defId) left -= sys.consumeItem(targetUid, left);
+  }
+  return left <= 0 || sys.consumeDef(defId, left);
+}
+
 export function updateCraft(sys: InventorySystem, dt: number): void {
   const job = sys.craftJob;
   if (!job || dt <= 0) return;
@@ -243,15 +260,22 @@ export function updateCraft(sys: InventorySystem, dt: number): void {
     return;
   }
   const product = sys.loot.createItem(r.outputDefId, Math.min(outDef.stackMax, r.outputQty));
-  if (!sys.bag.canAbsorb(product)) {
+  // 2026-09-08: `extraOutputs` (기계 부품 분해) must fit too — checked before anything is consumed
+  const extras = (r.extraOutputs ?? []).map((e) => ({ ...e, def: ITEM_DEF_MAP.get(e.defId) }));
+  const roomForExtras = extras.every((e) =>
+    !!e.def && sys.bag.canAbsorb(sys.loot.createItem(e.defId, Math.min(e.def.stackMax, e.qty))));
+  if (!sys.bag.canAbsorb(product) || !roomForExtras) {
     sys.ctx.bus.emit('craft:failed', { recipeId: r.id, reason: 'space' });
     sys.ctx.bus.emit('ui:notify', { text: '가방에 공간이 없습니다', kind: 'warning' });
     job.resolve(null);
     sys.ui?.refreshCraft();
     return;
   }
-  for (const i of sys.craftCost(r)) sys.consumeDef(i.defId, i.qty);
+  // 무기 분해 (2026-09-08): socketed attachments are worth more than the plate — they come back before the gun goes
+  if (job.targetUid && isDisassembleRecipe(r)) sys.detachAllSockets(job.targetUid);
+  for (const i of sys.craftCost(r)) consumeFor(sys, i.defId, i.qty, job.targetUid);
   const made = sys.addUnits(r.outputDefId, r.outputQty);
+  for (const e of extras) sys.addUnits(e.defId, e.qty);
   const first = made[0] ?? product;
   sys.ctx.bus.emit('inventory:itemAdded', { item: first, name: outDef.name, rarity: outDef.rarity });
   sys.ctx.bus.emit('craft:completed', { recipeId: r.id, item: first });

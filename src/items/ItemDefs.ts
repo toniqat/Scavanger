@@ -378,6 +378,9 @@ export const ITEM_DEFS: readonly ItemDef[] = [
     description: '피복이 벗겨진 전력 케이블 뭉치. 함선 시설과 작업대 설치에 쓰인다.' }),
   def({ id: 'mat_circuit', name: '회로 기판', category: 'material', rarity: 'rare', width: 1, height: 1, stackMax: 10, value: 120, icon: '▦', weight: 0.15,
     description: '멀쩡히 남은 제어 회로 기판. 함선 시설·작업대 업그레이드에 필수.' }),
+  /* 폐금속 공급 (2026-09-08): 로그가 떨구는 상위 재료 — 분해하면 폐금속 3 + 전력 케이블 1 */
+  def({ id: 'mat_machine_parts', name: '기계 부품', category: 'material', rarity: 'uncommon', width: 1, height: 1, stackMax: 10, value: 90, icon: '⚙', weight: 1.2,
+    description: '로그의 장비에서 뜯어낸 기계 부품 뭉치. 분해하면 폐금속과 전력 케이블이 나온다.' }),
 
   /* herbs (gathered from world plants) */
   def({ id: 'herb_bloodroot', name: '혈근초', category: 'herb', rarity: 'common', width: 1, height: 1, stackMax: 8, value: 25, icon: '❦', weight: 0.08,

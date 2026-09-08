@@ -627,6 +627,13 @@ Plan: `docs/DECISIONS.md`. Everything below is append-only; owners in brackets.
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
+- **2026-09-08 (폐금속 공급)** — 계약에는 **추가만** 했다.
+  `gear.ts` `CraftRecipe.extraOutputs?: CraftIngredient[]` (한 번의 제작이 내는 부가 산출물),
+  `types.ts` `GatherNodeDef.kind?: GatherNodeKind` (`'herb' | 'salvage'`) 와 `InventoryRef.craft(recipeId, targetUid?)`,
+  `events.ts` `gather:collected` 에 `kind?`,
+  `constants.ts` `SALVAGE_NODES_PER_MISSION` (7) · `SALVAGE_INTERACT_TIME` (3).
+  전부 선택 필드 / 선택 인자라 기존 호출부와 저장 데이터는 그대로 동작한다.
+
 - **Phase 6 (2026-09-06)** — `console.ts` (`ConsoleRef`, `isDevHost`), `housing.ts` (rooms / facilities / `FURNITURE_DEFS` / `HousingRef`), unique-weapon + stat-XP + housing constants — see the last section of `src/shared/README.md`
 
 - **Phase 7** — `profile.ts` (`ProfileRef` = `ctx.net.profile`, `ProfileRecord`, `RaidSessionBlob`), `labels.ts` (rarity / category labels + palette, re-exported by items), `MissionMode` / `ctx.missionMode` / `ctx.rejoinPending` / `isTraining()`, ghost · container · beam wire types, `PlayerFlags` pose bits, `DamageMessage.kb`, `ContractSettlement.outcome`, `furn_sim_hub`, `BEHEMOTH_SCALE` 3 — see the last section of `src/shared/README.md`

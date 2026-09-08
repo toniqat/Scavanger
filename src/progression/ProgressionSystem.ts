@@ -284,8 +284,8 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
       }),
       /* ── 인내 ── */
       b.on('player:gritSaved', () => this.addSkillXp('grit', GRIT_SAVE_XP)),
-      /* ── 원예 ── */
-      b.on('gather:collected', () => this.addSkillXp('gardening', GATHER_XP)),
+      /* ── 원예 (고철 해체는 2026-09-08 부터 제작 숙련으로) ── */
+      b.on('gather:collected', ({ kind }) => this.addSkillXp(kind === 'salvage' ? 'crafting' : 'gardening', GATHER_XP)),
       /* ── 제작 / 의학 ── */
       b.on('craft:completed', ({ recipeId }) => this.addSkillXp(this.recipeSkill(recipeId), CRAFT_XP)),
       /* ── 장비 관리 ── */

@@ -87,6 +87,13 @@ export interface CraftRecipe {
    */
   bench?: WorkbenchKind;
   benchLevel?: number;
+  /* appended (2026-09-08): 폐금속 공급 — 다중 산출물 */
+  /**
+   * Extra products beyond `outputDefId` / `outputQty`, produced in the same craft. Used by the 분해 recipes that
+   * break one salvage item into several materials (기계 부품 → 폐금속 + 전력 케이블). The main output stays the
+   * headline one (toasts / `craft:completed` report it); every entry here is added on top and needs bag space too.
+   */
+  extraOutputs?: CraftIngredient[];
 }
 
 /* ── Durability ────────────────────────────────────────────────────────────── */

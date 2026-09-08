@@ -203,7 +203,7 @@ Rogue weapon (`CorpseWeapon`): `rogueWeaponId` is the `WeaponDef` id the rogue c
 | File | Role |
 |---|---|
 | `ArmorDefs.ts` | 8 `ArmorDef`s (`ARMOR_DEFS`, `ARMOR_DEF_MAP`, `getArmorDef`), `armorItemSize(def)` grid footprint, `ARMOR_ICON` |
-| `Recipes.ts` | 40 `CraftRecipe`s (`CRAFT_RECIPES`, `CRAFT_RECIPE_MAP`, `getRecipe`) — ammo teardown → 화약, 화약 → ammo, herbs → medicine, and (Phase 6) the four 작업실 bench chains (`bench` / `benchLevel`); table in *Recipes* below |
+| `Recipes.ts` | 41 hand-written `CraftRecipe`s (`CRAFT_RECIPES`) — ammo teardown → 화약, 화약 → ammo, herbs → medicine, and (Phase 6) the four 작업실 bench chains (`bench` / `benchLevel`) — **plus the generated 고물 분해 recipes** (2026-09-08: `SALVAGE_RECIPES` = 기계 부품 + one `break_wpn_*` per non-unique weapon def + one `break_armor_*` per numbered plate). `ALL_CRAFT_RECIPES` = both, and is what `ctx.loot.getAllRecipes()` returns; `CRAFT_RECIPE_MAP` / `getRecipe` index it. Table in *Recipes* below |
 
 New categories: `armor` (`ItemDef.armorId` → `ArmorDef`, `durabilityMax`), `gadget` (`gadgetId`, behaviour in `src/gadgets`), `herb` (gathered from `WorldRef.getGatherNodes()`); `mat_gunpowder` for the ammo recipes; every def carries a `weight` (kg, `itemWeight(def, qty)`, default `DEFAULT_ITEM_WEIGHT`). The branch's `BackpackDef` catalogue was **not** merged — bags stay the weapon-package `bag_*` items (`BagDef`, `bag.tactical` = hover / faster swap perk). Starter kit adds `armor_2` + one `gad_smoke`. `LootRef` gained `getArmorDef` and `getAllRecipes`; loot tables roll `gadget` / `herb` / `armor` (heavy deployables never in tier 1).
 
@@ -296,11 +296,11 @@ All 14: **1×2**, `stackMax` 1 (never stack), `weight` 0.6 kg, icon `CATEGORY_IC
 (they carry `BUG_SEEDS` instead). The 세레스 corp shop stocks `{category:'book', minRepLevel:2}`. No `CraftRecipe`
 outputs a book.
 
-## Recipes (`getAllRecipes`) — 40
+## Recipes (`getAllRecipes`) — 41 + 생성된 고물 분해
 
 `station: 'field'` recipes also work on the ship. Phase 6: every `station: 'ship'` recipe names a `bench` (`WorkbenchKind`: gun 총기 / gear 장비 / gadget 가젯 / medical 의학) and a `benchLevel`; `inventory.getRecipes('ship', bench, level)` filters on both (`ctx.housing.getBenchLevel`). `outputQty` never exceeds the output's `stackMax` (`createItem` clamps). All ids are unique; every input / output id exists (checked live, see the verification note).
 
-**Field** (11)
+**Field** (12 + 생성된 `break_wpn_*` 30 · `break_armor_*` 5)
 
 | id | skill (req) | in → out |
 |---|---|---|
@@ -309,6 +309,9 @@ outputs a book.
 | `make_ammo_heavy` | crafting 20 | 화약 5 + 합금 판 1 → 중량탄 10 |
 | `make_smoke` | crafting 10 | 화약 4 + 생체 조직 2 → 연막탄 |
 | `make_incendiary` | crafting 15 | 화약 8 + 잿빛잎 2 → 소이 수류탄 |
+| `break_machine_parts` | crafting 0 | 기계 부품 1 → **폐금속 3 + 전력 케이블 1** (`extraOutputs`, 2026-09-08) |
+| `break_wpn_*` (생성, 유니크 제외) | crafting 0 | 무기 1정 → 폐금속 `(2 + 등급−1) × 총기 배수` — 권총 I 1 … 저격소총 V 8, 6 s |
+| `break_armor_1`…`_5` (생성) | crafting 0 | 방탄복 1벌 → 폐금속 `3 + (티어−1)×2` — I 3 … V 11, 5 s |
 | `make_bandage` | medicine 0 | 천조각 5 → 붕대 |
 | `make_bandage_herb` | medicine 0 | 천조각 5 + 혈근초 1 → 약초 붕대 |
 
@@ -416,6 +419,18 @@ the loot rules (corpse / crate counts over 400 / 300 rolls, no working implant, 
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-08 (폐금속 공급)** — 화약은 남는데 폐금속이 말라 탄약을 못 만들던 병목. 폐금속이 **상자의 `material`
+  롤에서만** 나왔고 (레이드당 기대 ≈ 3개) 화약은 그 위에 탄약 분해까지 얹혀 5배 빨리 쌓였다. items/ 쪽 세 가지:
+  ① **`mat_machine_parts` 「기계 부품」** (uncommon, 1×1, stack 10, 1.2 kg, ₩90) — 로그 시체 12 % / 보스 60 %(1–2),
+  상자는 티어 2 ×0.6 · 티어 3 ×0.8 · 티어 4 그대로, 티어 1 과 보급 투하는 0.
+  ② **`break_machine_parts`** — 기계 부품 1 → **폐금속 3 + 전력 케이블 1**. `CraftRecipe.extraOutputs` 를 쓰는
+  유일한 레시피다 (계약에 새로 추가된 선택 필드).
+  ③ **무기 · 방탄복 분해** (`SALVAGE_RECIPES`) — `WEAPON_DEFS` / `ARMOR_DEFS` 에서 생성한다. 무기는
+  `(2 + 등급−1) × 총기 배수`(권총 0.7 · SMG/AR/SG 1 · DMR/SR 1.3) → 권총 I 1 … 저격소총 V 8, 6초;
+  방탄복은 `3 + (티어−1)×2` → I 3 … V 11, 5초. 둘 다 `station: 'field'` 라 레이드 현장에서 된다.
+  **유니크 무기와 전설 방탄복은 제외** — 되돌릴 수 없는 유일품이라 실수로 갈 수 없다.
+  `break_*` 규약을 지키므로 제작 목록에는 안 뜨고 아이템 우클릭 → `분해` 로만 열린다.
 
 - **tactical kit** — `ArmorDefs.ts` (8 plates, `getArmorDef`), `Recipes.ts` (16 recipes, `getAllRecipes`), categories `armor` / `gadget` / `herb`, `weight` on every def, `mat_gunpowder`, starter `armor_2`
 

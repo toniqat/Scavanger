@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import {
   GATHER_INTERACT_TIME, GATHER_NODES_PER_MISSION, Layers,
-  type GameContext, type GatherNodeDef, type GatherWire, type HarvestMessage, type HarvestRequest,
+  SALVAGE_INTERACT_TIME, SALVAGE_NODES_PER_MISSION,
+  type GameContext, type GatherNodeDef, type GatherNodeKind, type GatherWire, type HarvestMessage, type HarvestRequest,
   type Interactable, type ItemInstance, type PeerId, type PlanetEcosystem, type Random,
 } from '@/shared';
 import { type BuildCtx, PLAY_LIMIT, composeMatrix, isSpotFree, merge, paint, paintGradient, xform } from './build';
@@ -21,7 +22,20 @@ const MIN_SPACING = 7;
  */
 const FALLBACK_HERB_IDS: readonly string[] = ['herb_bloodroot', 'herb_ashleaf', 'herb_glowcap'];
 
-const GLOW_COLORS: readonly number[] = [0xff5a6a, 0x7affc8, 0xffc24a];
+const GLOW_COLORS: readonly number[] = [0xff5a6a, 0x7affc8, 0xffc24a, 0xffb347];
+
+/* ── 고철 노드 (2026-09-08) ────────────────────────────────────────────────
+ * 폐금속이 상자의 `material` 롤에서만 나오던 병목을 푸는 세 갈래 중 하나. 약초와 **같은 노드 시스템**을 쓴다 —
+ * 배치 · 상호작용 · 호스트 권한 동기화(`harv` / `harvq`)가 전부 그대로 돌고, 다른 것은 변종 메시(난파 고철 더미),
+ * 프롬프트 동사(`해체`), 집는 시간, 그리고 채집 수율 대신 고정 수량이라는 점뿐이다. */
+/** `variants` index of the 고철 더미 mesh (0–2 are the plant shapes). */
+const SALVAGE_VARIANT = 3;
+/** What a 고철 더미 hands over. */
+const SALVAGE_DEF_ID = 'mat_scrap';
+/** Interaction radius of a 고철 더미 (a bit wider than a plant — it is a pile). */
+const SALVAGE_RADIUS = 2.6;
+/** Minimum distance from a 고철 더미 to any other node. */
+const SALVAGE_SPACING = 12;
 
 interface Variant {
   meshes: THREE.InstancedMesh[];
@@ -31,11 +45,12 @@ interface Variant {
 }
 
 /** One placed cluster member: where it stands, which of the 3 shapes it uses and which herb it hands over. */
-interface Spot { x: number; z: number; variant: number; defId: string }
+interface Spot { x: number; z: number; variant: number; defId: string; kind: GatherNodeKind }
 
 interface Node {
   def: GatherNodeDef;
   variant: number;
+  kind: GatherNodeKind;
   slot: number;
   x: number; y: number; z: number;
   yaw: number;
@@ -49,10 +64,12 @@ interface Node {
 }
 
 /**
- * Harvestable plants (채집물) scattered over the map.
+ * Harvestable nodes (채집물) scattered over the map — 약초 plants and, since 2026-09-08, 고철 더미.
  *
- * - `GATHER_NODES_PER_MISSION` procedural plants in 3 variants, drawn with one `InstancedMesh` per part
- *   (2 parts per variant → 6 draw calls total) so 34 nodes cost nothing.
+ * - `GATHER_NODES_PER_MISSION` procedural plants in 3 variants plus `SALVAGE_NODES_PER_MISSION` 고철 더미
+ *   (variant `SALVAGE_VARIANT`), drawn with one `InstancedMesh` per part (2 parts per variant → 8 draw calls
+ *   total) so the whole set costs nothing. `GatherNodeDef.kind` says which a node is; 고철 더미 hand over
+ *   `mat_scrap`, take `SALVAGE_INTERACT_TIME` to strip, ignore the 채집 수율 multiplier and grant 제작 XP.
  * - Each node registers an `Interactable` with `holdTime = GATHER_INTERACT_TIME` (the player scales holds by `derived.interactSpeedMul`).
  * - Harvesting emits `gather:collected` and then hands the herb to `ctx.inventory.tryAddItem`
  *   (quantity scaled by `derived.gatherYieldMul`).
@@ -99,17 +116,20 @@ export class Gather {
 
     this.bodyMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86, metalness: 0.0, side: THREE.DoubleSide });
 
-    for (let k = 0; k < 3; k++) {
+    // variants 0–2 are the plant shapes, variant 3 the 고철 더미 — each mesh is sized for its own node budget
+    const salvageTarget = SALVAGE_NODES_PER_MISSION;
+    const capacityOf = (k: number): number => (k === SALVAGE_VARIANT ? salvageTarget : target);
+    for (let k = 0; k <= SALVAGE_VARIANT; k++) {
       const glowMat = new THREE.MeshStandardMaterial({
         vertexColors: true, roughness: 0.35, metalness: 0.0,
         emissive: new THREE.Color(GLOW_COLORS[k]), emissiveIntensity: 1.1,
       });
       const geos = this.makeVariantGeometry(k, ctx, rng);
       const meshes: THREE.InstancedMesh[] = [];
-      const bodyIm = new THREE.InstancedMesh(geos[0], this.bodyMat, target);
-      const glowIm = new THREE.InstancedMesh(geos[1], glowMat, target);
+      const bodyIm = new THREE.InstancedMesh(geos[0], this.bodyMat, capacityOf(k));
+      const glowIm = new THREE.InstancedMesh(geos[1], glowMat, capacityOf(k));
       for (const im of [bodyIm, glowIm]) {
-        im.name = `gather_plant_${k}`;
+        im.name = k === SALVAGE_VARIANT ? 'gather_salvage' : `gather_plant_${k}`;
         im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
         im.castShadow = false;
         im.receiveShadow = false;
@@ -141,32 +161,64 @@ export class Gather {
       // shape is cosmetic, the herb comes from the planet's weights. With no planet the old `herbIds[variant]` pairing
       // is used verbatim so the rng stream (and therefore the whole layout) is byte-identical to before.
       const defId = weights ? this.pickHerb(weights, rng) : herbIds[variant % herbIds.length];
-      spots.push({ x, z, variant, defId });
+      spots.push({ x, z, variant, defId, kind: 'herb' });
       // small cluster of the same herb so gathering feels like finding a patch
       const extra = rng.chance(0.55) ? rng.int(1, 2) : 0;
       for (let c = 0; c < extra && spots.length < target; c++) {
         const ang = rng.range(0, Math.PI * 2), d = rng.range(2.2, 4.2);
         const cx = x + Math.cos(ang) * d, cz = z + Math.sin(ang) * d;
-        if (free(cx, cz, 1.6 * 1.6)) spots.push({ x: cx, z: cz, variant, defId });
+        if (free(cx, cz, 1.6 * 1.6)) spots.push({ x: cx, z: cz, variant, defId, kind: 'herb' });
       }
+    }
+
+    // ── 고철 더미 (2026-09-08): 구조물(POI) 주변에 먼저, 남는 만큼 개활지에 ──────
+    // 플랜트 배치가 끝난 **뒤에** 뽑으므로 같은 시드의 약초 레이아웃은 이전과 바이트 단위로 같다.
+    {
+      const salvageSpots: Spot[] = [];
+      const freeSalvage = (x: number, z: number): boolean => {
+        if (!isSpotFree(ctx, x, z, 1.1, { maxSlope: 0.32, padExtra: 4 })) return false;
+        const near = SALVAGE_SPACING * SALVAGE_SPACING;
+        for (const p of salvageSpots) if ((p.x - x) ** 2 + (p.z - z) ** 2 < near) return false;
+        for (const p of spots) if ((p.x - x) ** 2 + (p.z - z) ** 2 < 5 * 5) return false;
+        return true;
+      };
+      const push = (x: number, z: number): boolean => {
+        if (!freeSalvage(x, z)) return false;
+        salvageSpots.push({ x, z, variant: SALVAGE_VARIANT, defId: SALVAGE_DEF_ID, kind: 'salvage' });
+        return true;
+      };
+      for (const poi of ctx.layout.pois) {
+        if (salvageSpots.length >= salvageTarget) break;
+        for (let a = 0; a < 24; a++) {
+          const ang = rng.range(0, Math.PI * 2), d = rng.range(5, 14);
+          if (push(poi.x + Math.cos(ang) * d, poi.z + Math.sin(ang) * d)) break;
+        }
+      }
+      for (let a = 0; a < 3000 && salvageSpots.length < salvageTarget; a++) {
+        push(rng.range(-PLAY_LIMIT + 12, PLAY_LIMIT - 12), rng.range(-PLAY_LIMIT + 12, PLAY_LIMIT - 12));
+      }
+      spots.push(...salvageSpots);
     }
 
     let id = 0;
     for (const s of spots) {
       const v = this.variants[s.variant];
-      if (v.count >= target) continue;
+      if (v.count >= capacityOf(s.variant)) continue;
       const y = ctx.terrain.getHeightAt(s.x, s.z);
       const yaw = rng.range(0, Math.PI * 2);
-      const scale = rng.range(0.85, 1.3);
+      const salvage = s.kind === 'salvage';
+      const scale = salvage ? rng.range(0.9, 1.15) : rng.range(0.85, 1.3);
       const def: GatherNodeDef = {
-        id: `gather_${id++}`,
+        id: salvage ? `salvage_${id++}` : `gather_${id++}`,
         position: new THREE.Vector3(s.x, y, s.z),
         defId: s.defId,
-        qty: rng.chance(0.25) ? 2 : 1,
+        // 고철: 폐금속 1, 3할은 2 (레이드당 기대 ~10). 약초: 종전 그대로.
+        qty: salvage ? (rng.chance(0.3) ? 2 : 1) : (rng.chance(0.25) ? 2 : 1),
         harvested: false,
+        kind: s.kind,
       };
       const node: Node = {
-        def, variant: s.variant, slot: v.count,
+        def, variant: s.variant, kind: s.kind, slot: v.count,
         x: s.x, y, z: s.z, yaw, scale, anim: -1, pending: false, pendingAt: -Infinity,
         interactable: null as unknown as Interactable,
       };
@@ -245,16 +297,19 @@ export class Gather {
 
   private makeInteractable(node: Node): Interactable {
     const game = () => this.game;
+    // 2026-09-08: 고철 더미는 더 오래 걸리고 `해체` 라고 뜬다 — 나머지 규칙은 약초와 같다
+    const salvage = node.kind === 'salvage';
+    const verb = salvage ? '해체' : '채집';
     return {
       id: `gather:${node.def.id}`,
       position: node.def.position,
       // base hold; the player applies `derived.interactSpeedMul` to every hold (Phase 5)
-      holdTime: GATHER_INTERACT_TIME,
-      radius: NODE_RADIUS,
+      holdTime: salvage ? SALVAGE_INTERACT_TIME : GATHER_INTERACT_TIME,
+      radius: salvage ? SALVAGE_RADIUS : NODE_RADIUS,
       getPrompt: () => {
         if (node.def.harvested) return null;
-        const name = this.game?.loot?.getItemDef(node.def.defId)?.name ?? '약초';
-        return node.pending ? `${name} 채집 중…` : `${name} 채집 (E)`;
+        const name = this.game?.loot?.getItemDef(node.def.defId)?.name ?? (salvage ? '고철' : '약초');
+        return node.pending ? `${name} ${verb} 중…` : `${name} ${verb} (E)`;
       },
       canInteract: () => {
         const g = this.game;
@@ -289,9 +344,10 @@ export class Gather {
     ctx.interactables.unregister(node.interactable.id);
     if (!award) return;
 
-    const mul = ctx.progression?.derived.gatherYieldMul ?? 1;
+    // 채집 수율(원예)은 약초에만 붙는다 — 고철은 뜯어낸 만큼 그대로 나온다
+    const mul = node.kind === 'salvage' ? 1 : (ctx.progression?.derived.gatherYieldMul ?? 1);
     const qty = Math.max(1, Math.round(node.def.qty * (mul > 0 ? mul : 1)));
-    ctx.bus.emit('gather:collected', { nodeId: node.def.id, defId: node.def.defId, qty });
+    ctx.bus.emit('gather:collected', { nodeId: node.def.id, defId: node.def.defId, qty, kind: node.kind });
     ctx.bus.emit('audio:play', { id: 'gather', position: node.def.position, volume: 0.7 });
     const item = this.makeItem(node.def.defId, qty);
     if (item) ctx.inventory?.tryAddItem(item);
@@ -427,8 +483,9 @@ export class Gather {
     this.matrixDirty = true;
   }
 
-  /** [body, glow] geometry for plant variant `k`, tinted from the biome palette. */
+  /** [body, glow] geometry for variant `k` — 0–2 are plants tinted from the biome, 3 is the 고철 더미. */
   private makeVariantGeometry(k: number, ctx: BuildCtx, rng: Random): THREE.BufferGeometry[] {
+    if (k === SALVAGE_VARIANT) return this.makeSalvageGeometry(rng);
     const b = ctx.biome;
     const stemLow = b.trunk.clone().lerp(b.grass, 0.5).multiplyScalar(0.8);
     const stemHigh = b.grass.clone().lerp(b.grassTip, 0.4);
@@ -503,6 +560,64 @@ export class Gather {
         paint(berry, glowCol);
         glow.push(berry);
       }
+    }
+
+    return [merge(body), merge(glow)];
+  }
+
+  /**
+   * 고철 더미 (2026-09-08): 찌그러진 화물통 하나에 휜 강판 몇 장과 파이프를 기대 놓고, 잘라낼 자리마다 호박색
+   * 표식이 빛난다. 바이옴 색을 쓰지 않는다 — 금속은 어느 행성에서나 금속이라 멀리서도 식물과 구분된다.
+   */
+  private makeSalvageGeometry(rng: Random): THREE.BufferGeometry[] {
+    const steel = new THREE.Color(0x6b7078);
+    const steelDark = new THREE.Color(0x3a3e44);
+    const rust = new THREE.Color(0x8a5a3a);
+    const glowCol = new THREE.Color(GLOW_COLORS[SALVAGE_VARIANT]);
+    const body: THREE.BufferGeometry[] = [];
+    const glow: THREE.BufferGeometry[] = [];
+
+    // crushed cargo drum, tipped over
+    const drum = new THREE.CylinderGeometry(0.34, 0.38, 0.86, 8);
+    xform(drum, { x: 0, y: 0.34, z: 0 }, new THREE.Euler(Math.PI / 2, 0, rng.range(-0.25, 0.25)), { x: 1, y: 1, z: 0.78 });
+    paintGradient(drum, steelDark, steel);
+    body.push(drum);
+
+    // bent hull plates leaning on the drum
+    for (let i = 0; i < 3; i++) {
+      const ang = (i / 3) * Math.PI * 2 + rng.range(-0.35, 0.35);
+      const w = rng.range(0.34, 0.6), h = rng.range(0.5, 0.85);
+      const plate = new THREE.BoxGeometry(w, h, 0.045);
+      xform(plate, { x: 0, y: h * 0.5, z: 0 });
+      xform(plate, undefined, new THREE.Euler(rng.range(0.35, 0.7), 0, rng.range(-0.3, 0.3)));
+      xform(plate, { x: Math.cos(ang) * 0.42, y: 0, z: Math.sin(ang) * 0.42 }, new THREE.Euler(0, ang, 0));
+      paintGradient(plate, i === 1 ? rust : steel, steelDark);
+      body.push(plate);
+    }
+
+    // a couple of pipes poking out of the pile
+    for (let i = 0; i < 2; i++) {
+      const len = rng.range(0.7, 1.05);
+      const pipe = new THREE.CylinderGeometry(0.05, 0.05, len, 6);
+      const ang = rng.range(0, Math.PI * 2);
+      xform(pipe, { x: 0, y: len * 0.5, z: 0 });
+      xform(pipe, undefined, new THREE.Euler(0, 0, rng.range(0.7, 1.15)));
+      xform(pipe, { x: Math.cos(ang) * 0.2, y: 0.12, z: Math.sin(ang) * 0.2 }, new THREE.Euler(0, ang, 0));
+      paintGradient(pipe, steel, rust);
+      body.push(pipe);
+    }
+
+    // cut markers: a band around the drum and two studs, so the pile reads as harvestable from a distance
+    const band = new THREE.TorusGeometry(0.3, 0.028, 4, 10);
+    xform(band, { x: 0, y: 0.34, z: 0 }, new THREE.Euler(0, Math.PI / 2, 0));
+    paint(band, glowCol);
+    glow.push(band);
+    for (let i = 0; i < 2; i++) {
+      const stud = new THREE.IcosahedronGeometry(0.07, 0);
+      const ang = rng.range(0, Math.PI * 2);
+      xform(stud, { x: Math.cos(ang) * 0.34, y: rng.range(0.5, 0.78), z: Math.sin(ang) * 0.34 });
+      paint(stud, glowCol.clone().multiplyScalar(0.85));
+      glow.push(stud);
     }
 
     return [merge(body), merge(glow)];

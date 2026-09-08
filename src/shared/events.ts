@@ -2,6 +2,8 @@ import type * as THREE from 'three';
 import type { GamePhase, ItemInstance, MissionStats, EnemyType, Stance, HubShipKind, ChatKind, PingKind, WeaponSlot, SocketSlot, StratagemId } from './types';
 /* appended (Phase 10): varied enemy deaths / probabilistic corpse looting */
 import type { EnemyDeathDir } from './types';
+/* appended (2026-09-08): 폐금속 공급 — 고철 노드 */
+import type { GatherNodeKind } from './types';
 import type { LobbyErrorCode, LobbyState, PeerId } from './net';
 import type { EquipSlot, WeightState } from './gear';
 import type { ImplantId, ScanTarget } from './implants';
@@ -365,7 +367,8 @@ export interface GameEvents {
   'detect:clear': Record<string, never>;
 
   /* ── gathering & crafting (owner: world spawns, inventory crafts) ──────── */
-  'gather:collected': { nodeId: string; defId: string; qty: number };
+  /** `kind` appended (2026-09-08): 'salvage' = 고철 노드 (제작 XP), undefined / 'herb' = 약초 (원예 XP). */
+  'gather:collected': { nodeId: string; defId: string; qty: number; kind?: GatherNodeKind };
   'craft:started': { recipeId: string; duration: number };
   'craft:completed': { recipeId: string; item: ItemInstance };
   'craft:failed': { recipeId: string; reason: 'missing' | 'space' | 'cancelled' };

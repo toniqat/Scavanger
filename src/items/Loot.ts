@@ -5,7 +5,7 @@ import { ATTACHMENT_ITEM_DEFS, BOOK_ITEM_DEFS, ITEM_DEFS, ITEM_DEF_MAP, ammoItem
 import { WEAPON_DEF_MAP, isUniqueWeapon, weaponFamilyOf, weaponIdForGrade } from './WeaponDefs';
 import { canAttach as canAttachDef, computeWeaponStats, repairCost } from './WeaponStats';
 import { ARMOR_DEF_MAP } from './ArmorDefs';
-import { CRAFT_RECIPES } from './Recipes';
+import { ALL_CRAFT_RECIPES } from './Recipes';
 import { IMPLANT_BROKEN_DEFS } from './ImplantDefs';
 import { CORPSE_TABLE_MAP, DEFAULT_ROGUE_WEAPON_ID, getTierTable, type TierTable } from './LootTables';
 
@@ -24,7 +24,7 @@ export class LootService implements LootRef {
   getAllItemDefs(): ItemDef[] { return ITEM_DEFS.slice(); }
   /* appended: tactical kit */
   getArmorDef(armorId: string): ArmorDef | undefined { return ARMOR_DEF_MAP.get(armorId); }
-  getAllRecipes(): readonly CraftRecipe[] { return CRAFT_RECIPES; }
+  getAllRecipes(): readonly CraftRecipe[] { return ALL_CRAFT_RECIPES; }
 
   /**
    * Create an item instance. Weapons spawn at full durability with a full magazine

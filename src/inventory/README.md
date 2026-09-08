@@ -641,6 +641,16 @@ Data-driven off the frozen contract (`ItemCategory 'implant'`, `ItemDef.implant`
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
+- **2026-09-08 (폐금속 공급 · 분해 두 가지)** — items/ 가 늘린 고물 분해를 받기 위한 제작 쪽 변경 둘.
+  ① **다중 산출물** — `updateCraft` 가 `CraftRecipe.extraOutputs` 를 처리한다. **재료를 쓰기 전에** 주 산출물과
+  추가 산출물 전부의 자리를 확인하고(`bag.canAbsorb`), 모자라면 `craft:failed {reason:'space'}` 로 아무것도
+  소모하지 않고 끝낸다. 오늘 이걸 쓰는 레시피는 `break_machine_parts`(폐금속 3 + 전력 케이블 1) 하나다.
+  `DisassemblePanel` 은 결과물 칩을 나란히 그린다 (`.inv-dis-side` 에 `flex-wrap`).
+  ② **분해 대상 지정** — `craft(recipeId, targetUid?)` 와 `CraftJob.targetUid`. 분해 다이얼로그가 연 그 uid 를
+  넘기면 `updateCraft` 가 **그 인스턴스부터** 소모하고 모자란 만큼만 `consumeDef` 로 채운다. 예전에는 defId 로만
+  소모해서 똑같은 총 두 정 중 부착물이 달린 쪽이 갈릴 수 있었다. 분해 레시피일 때는 소모 직전
+  `detachAllSockets(targetUid)` 로 **부착물을 먼저 가방에 돌려준다** — 총보다 조준경이 비싸다.
+
 - **2026-09-08 (main 병합)** — 장착 슬롯이 아이템 발자국이 아니라 모두 같은 크기의 상자 + 카드(`GridView.buildSlotCardContent`)로 바뀌면서 `ui/model.SlotView` 의 `bodyW` · `bodyH` · `meta` 가 사라졌고 `ui/parts/SlotPanel` 이 그에 맞춰졌다. 퀵 사용 장미의 범례는 `ui/parts/QuickPanel` 에서 빠졌다(`quickHold` 도 함께). Escape 는 이제 **가장 안쪽 팝업만** 취소한다 — 새 `closePopups()` 가 그 몫이고 `closeOverlays()`(팝업 + 제작 열)는 내부 닫기 경로용으로 남는다. 창 자체는 Tab 으로 닫는다
 
 - **tactical kit** — **armor slot** (`LoadoutSlot` `armor`, `getEquipped(slot)`, `equip:changed`), **weight budget** (`getWeight()` → `WeightInfo`, `inventory:weightChanged`, readout in the bag panel), `consumeDef`, **field crafting** (`ui/CraftPanel` behind the 제작 button, `getRecipes/canCraft/craft/cancelCraft`, hold-to-craft), gear durability (`getDurability`, `damageDurability`, `repair`), `Gear.ts` helpers; **hub Tab ship screen** (2026-09-06): Tab in the hub opens the window in `is-hub` mode — screen tabs 인벤토리 / 캐릭터 / 기업(off), **함선 창고** (`Stash.ts`: 10×24 grid persisted in localStorage `scav.stash`, `GridId 'stash'`, `inventory:stashChanged`) · 장비 + **전술 임플란트 slot** (click → picker, click the equipped card = unequip) · 가방 (quick rose to its right ≥ 1600 px); right-click **수리** with the material cost on worn gear (`repairInfo`), 창고로 이동, no world drops in the ship (drops / overflow land in the stash)

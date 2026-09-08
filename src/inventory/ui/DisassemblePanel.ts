@@ -161,7 +161,11 @@ export class DisassemblePanel {
     if (this.uid && !this.sys.findItem(this.uid)) { this.close(); return; }
     const cost = this.sys.craftCost(r);
     const enough = renderItemCost(this.inputHost, cost, this.getDef, (id) => this.sys.countWhere((d) => d.id === id), { size: 46, withName: true });
-    this.outputHost.replaceChildren(buildItemChip(this.getDef(r.outputDefId), { need: r.outputQty, size: 46, withName: true }));
+    // 2026-09-08: 기계 부품처럼 여러 재료가 나오는 분해는 결과물 칩을 나란히 (`CraftRecipe.extraOutputs`)
+    this.outputHost.replaceChildren(
+      buildItemChip(this.getDef(r.outputDefId), { need: r.outputQty, size: 46, withName: true }),
+      ...(r.extraOutputs ?? []).map((e) => buildItemChip(this.getDef(e.defId), { need: e.qty, size: 46, withName: true })),
+    );
     this.hintEl.textContent = TEXT.disassemble.hint(this.sys.craftDuration(r.id));
     const job = this.sys.craftProgress();
     const active = job?.recipeId === r.id;
@@ -226,7 +230,7 @@ export class DisassemblePanel {
     this.running = true;
     this.lastEmitAt = -Infinity;
     this.reported = false;
-    void this.sys.craft(r.id).then((item) => {
+    void this.sys.craft(r.id, uid).then((item) => {
       this.running = false;
       if (item) {
         this.sys.sfx('ui_equip'); this.showMsg(TEXT.disassemble.done, 'ok');

@@ -423,7 +423,8 @@ export interface InventoryRef {
   /** true when every input of `recipeId` is in the bag. */
   canCraft(recipeId: string): boolean;
   /** Start a craft (hold time applies); resolves to the produced item or null. */
-  craft(recipeId: string): Promise<ItemInstance | null>;
+  /** `targetUid` appended (2026-09-08): the exact stack a 분해 consumes first (아이템 우클릭 → 분해). */
+  craft(recipeId: string, targetUid?: string): Promise<ItemInstance | null>;
   /** Apply wear to a gear item (armor per hit). Emits `durability:changed` / `durability:broken`. Weapons keep `updateItem`. */
   damageDurability(uid: string, amount: number): void;
   /** Durability of a gear item (weapon / armor), or null when it is not tracked. */
@@ -642,7 +643,10 @@ export interface WorldRef {
   /** Register a runtime obstacle (collision, raycast, enemy avoidance). Returns the remover. Cleared with the world. */
   addObstacle(obstacle: Obstacle): () => void;
   /* ── appended: tactical kit (owner: world) ── */
-  /** Harvestable plants scattered over the map. Consumed nodes stay in the list with `harvested: true`. */
+  /**
+   * Harvestable nodes scattered over the map — 약초 plants and (2026-09-08) 고철 더미, told apart by
+   * `GatherNodeDef.kind`. Consumed nodes stay in the list with `harvested: true`.
+   */
   getGatherNodes(): readonly GatherNodeDef[];
 }
 
@@ -650,12 +654,21 @@ export interface WorldRef {
 export interface GatherNodeDef {
   id: string;
   position: THREE.Vector3;
-  /** Item def id produced (an 'herb' category item). */
+  /** Item def id produced (an 'herb' category item, or `mat_scrap` for a `kind: 'salvage'` node). */
   defId: string;
   /** Units produced before the gardening multiplier. */
   qty: number;
   harvested: boolean;
+  /* appended (2026-09-08): 폐금속 공급 — 고철 노드 */
+  /**
+   * What the node is. undefined / 'herb' = the 약초 plant (원예 XP, 채집 prompt); 'salvage' = a 고철 더미 at a
+   * wreck, yielding `mat_scrap` with a 해체 prompt and 제작 XP. Both share the placement / net / interact code.
+   */
+  kind?: GatherNodeKind;
 }
+
+/** `GatherNodeDef.kind` (2026-09-08). */
+export type GatherNodeKind = 'herb' | 'salvage';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Weapons ref (Phase 3, owner: weapons/WeaponSystem publishes `ctx.weapons`)

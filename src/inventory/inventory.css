@@ -1298,7 +1298,8 @@ kbd {
   background: rgba(255, 255, 255, 0.03);
 }
 .inv-dis-col { display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: 0; flex: 1; }
-.inv-dis-side { display: flex; align-items: center; justify-content: center; gap: 10px; min-width: 0; }
+/* 2026-09-08: 결과물이 둘 이상인 분해(기계 부품)도 있어 항상 줄바꿈을 허용한다 */
+.inv-dis-side { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; min-width: 0; }
 .inv-dis-side.item-chips { flex-wrap: wrap; }
 .inv-dis-arrow { flex: none; font-size: 18px; color: var(--inv-muted); }
 .inv-dis-hint { font-size: 11px; letter-spacing: 0.04em; color: var(--inv-muted); text-align: center; }

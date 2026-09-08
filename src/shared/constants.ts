@@ -432,6 +432,11 @@ export const BROKEN_WEAPON_FIRERATE_MUL = 0.5;
 export const GATHER_NODES_PER_MISSION = 34;
 export const GATHER_INTERACT_TIME = 2;
 export const CRAFT_DEFAULT_TIME = 3;
+/* appended (2026-09-08): 폐금속 공급 — 고철 노드 (`GatherNodeDef.kind === 'salvage'`) */
+/** 고철 더미 nodes per mission, on top of `GATHER_NODES_PER_MISSION` plants. */
+export const SALVAGE_NODES_PER_MISSION = 7;
+/** Hold seconds to strip one 고철 더미 — longer than a plant (`GATHER_INTERACT_TIME`). */
+export const SALVAGE_INTERACT_TIME = 3;
 
 /* ── progression ── */
 export const STAT_BASE = 5;

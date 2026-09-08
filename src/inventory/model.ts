@@ -112,6 +112,13 @@ export interface CraftJob {
   remaining: number;
   duration: number;
   resolve(item: ItemInstance | null): void;
+  /* appended (2026-09-08): 폐금속 공급 — 분해 대상 지정 */
+  /**
+   * The exact bag stack the 분해 dialog was opened on. `updateCraft` consumes **this** instance first (and only then
+   * falls back to `consumeDef`), so two identical weapons never get mixed up and the one you clicked is the one that
+   * goes. undefined for an ordinary craft.
+   */
+  targetUid?: string;
 }
 
 /**
