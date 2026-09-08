@@ -152,7 +152,8 @@ node scripts/shots-pitch.mjs char-sheet corp-screen    # 골라서
 - **2026-09-08 (6)** **배포 경로를 정했다 — GitHub Pages (`main` / `/docs`), https://toniqat.github.io/Scavanger/.**
   위 [배포](#배포) 절이 절차다. 곁들여 붙인 것:
   - `scripts/pitch-webp.mjs` (`npm run pitch:webp`) — `assets/*.png` 옆에 같은 이름의 `.webp` 를 만든다.
-    **30 MB → 2.8 MB (-91 %)**, 페이지 하나 전송량 162 KB. 인코딩은 로컬 Chrome 캔버스라 새 의존성이 없다
+    **30 MB → 2.8 MB (-91 %)** — 제일 무거운 `00-intro`(히어로 + 레퍼런스 6장)가 10.6 MB → 1.0 MB 다.
+    인코딩은 로컬 Chrome 캔버스라 새 의존성이 없다
     (cwebp·ImageMagick·sharp 미설치, Windows 의 `convert` 는 ImageMagick 이 아니라 FAT 변환 도구다).
   - `app.js` 의 이미지 자동 교체를 `probeSrc()` 하나로 모으고 **`.webp` → `.png` 순서로 탐지**하게 했다.
     덕분에 **페이지 23개의 `data-src` 는 한 글자도 바뀌지 않았고**, `shots-pitch.mjs` 도 계속 PNG 를 쓴다.
