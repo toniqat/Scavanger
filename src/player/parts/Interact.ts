@@ -79,7 +79,17 @@ export function updateInteraction(sys: PlayerSystem, dt: number, active: boolean
 export function perform(sys: PlayerSystem, target: Interactable): void {
   sys.interactCooldown = 0.35;
   sys.interactTarget = null;
-  try { target.interact(); } catch (e) { console.error('[Player] interact threw', e); }
+  /*
+   * 2026-09-09: a throwing `interact()` used to be a console line and nothing else — the prompt stayed up, the key
+   * did nothing, and the player had no way to tell a bug from "the game ignores me" (that is exactly how a broken
+   * pod boarding was reported). The catch stays — one bad interactable must not kill the frame — but it says so.
+   */
+  try {
+    target.interact();
+  } catch (e) {
+    console.error('[Player] interact threw', e);
+    sys.ctx.bus.emit('ui:notify', { text: '상호작용에 실패했습니다', kind: 'warning' });
+  }
   sys.ctx.bus.emit('interact:performed', { id: target.id });
   sys.ctx.bus.emit('audio:play', { id: 'interact', position: target.position, volume: 0.7 });
   }

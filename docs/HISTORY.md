@@ -46,6 +46,23 @@ Phase 0 – 12 는 전부 구현 완료다 (2026-09-05 ~ 2026-09-08). 각 단계
 
 최신순. 새 항목은 이 섹션 맨 위에 추가한다.
 
+- 2026-09-09 (발사 슬롯이 조용히 죽던 세 갈래): 사용자 보고 — **멀티에서 행성을 고른 뒤 발사 슬롯을 몇 번 타고
+  내렸더니 더는 안 탄다.** 되묻고 좁힌 증상은 `발사 슬롯 탑승` 프롬프트는 **뜨는데** E 가 무반응, 분대원은 정상,
+  나 혼자만. 프롬프트가 떠 있다는 것은 `updateInteraction` 이 살아 있고 `podCanInteract` 가 true 라는 뜻이라
+  (`interact:promptChanged` 는 대상이 사라지면 곧바로 null 을 쏜다) 남는 경로는 셋뿐이었다. 릴레이 + 헤드리스
+  크롬 2대로 홀드/체류 시간을 흔들며 60여 회(격납고 왕복 · 출격 · 복귀 포함) 돌려도 재현되지 않아, 그 셋을
+  **전부 막았다**: ① `boardPod` 의 무음 반환 → 사유 토스트 + `ui_deny`, ② `getLaunchWarnings()` 예외 →
+  try/catch (`player/perform` 이 `interact()` 예외를 콘솔로만 삼켜 화면에는 무반응으로 보였다; 그 catch 도 이제
+  토스트를 띄운다), ③ 끊긴 소켓이 삼킨 `setReady(true)` → `syncPods` 의 에코 검사를 `net.connected` 로 막고
+  `net:statusChanged` 에서 재전송 (`HubSystem.resendReady`). 이게 세 번째다: `NetClient.send` 는 소켓이 OPEN 이
+  아니면 메시지를 버리는데 아무도 반환값을 안 봐서, 재접속 중 탑승하면 1.5초마다 포드에서 튕겨 나왔다.
+  덤으로 `REBOARD_GRACE`(0.5초) — 내리는 E 를 길게 누르면 그 누름이 새 탑승 홀드가 되어 곧바로 다시 타지던 것을
+  막는다 (`consume()` 은 `pressed` 만 지우므로 `isDown` 을 읽는 홀드에는 듣지 않는다).
+  검증: `typecheck` 통과. **브라우저 스모크는 이 트리에서 신뢰할 수 없었다** — 다른 세션이 `src/shared/data/*` ·
+  `src/items/*` 를 동시에 편집 중이라 vite 가 실행 중인 페이지를 계속 리로드했다 (`smoke-controls-hub` 101/107,
+  `smoke-hangar` 2/3 은 전부 그 리로드와 남은 로비 때문이고 이 변경과 무관). 트리가 조용해지면
+  `node scripts/verify.mjs --only smoke-controls-hub,smoke-hangar,e2e-mp` 를 다시 돌릴 것.
+
 - 2026-09-08 (제작 UI 정리 · 튜토리얼 장착 단계): 사용자 보고 — **무기 만드는 데 너무 오래 걸린다**,
   그리고 **장착 튜토리얼에서 주무기 칸만 밝아 가방에서 끌어올 수가 없다.** 다섯 덩어리로 고쳤다.
   ① **홀드 1초 통일** (`inventory/model.CRAFT_HOLD_TIME`). 레시피마다 2–12초였고 `제작` 숙련도로 나누기까지

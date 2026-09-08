@@ -279,6 +279,11 @@ credited to a peer that our client never sees (e.g. a DoT death out of range) is
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
+- **2026-09-09 (예외를 삼키는 E)** — `parts/Interact.perform` 의 `try { target.interact() } catch` 가 콘솔
+  한 줄만 남겨서, 상호작용이 예외로 죽으면 화면에는 **프롬프트가 그대로 뜬 채 아무 일도 안 일어나는** 것으로만
+  보였다 (발사 슬롯이 안 타진다는 보고의 후보 경로였다). catch 는 유지하고 — 잘못된 `Interactable` 하나가 프레임
+  전체를 죽이면 안 된다 — `ui:notify` 로 `상호작용에 실패했습니다` 를 띄운다.
+
 - **2026-09-08 (혼자면 바로 사망)** — `parts/Vitals.onLethal` 이 **1인 분대**(로비 없음, 또는 로비 인원 ≤ 1)
   에서는 `enterDowned()` 대신 `die()` 로 간다. 전투불능은 분대원이 일으켜 세울 시간을 주는 상태인데 혼자면 올 사람이
   없어서, 같은 사망 화면까지 기어다니는 시간만 남았다. 예외는 퍽 **재기동 회로**(`auto_revive`) — 아직 안 썼다면

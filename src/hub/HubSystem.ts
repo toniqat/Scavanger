@@ -209,6 +209,8 @@ export class HubSystem implements GameSystem, HubRef {
 
   boardedSlot = -1;
   boardedAt = 0;
+  /** `ctx.time` of the last un-board — the pod refuses a new boarding for `REBOARD_GRACE` after it. */
+  leftPodAt = -Infinity;
   readySentAt = -Infinity;
   countdown = -1;
   lastCountdownSecond = -1;
@@ -274,7 +276,7 @@ export class HubSystem implements GameSystem, HubRef {
       b.on('net:resumed', ({ inProgress }) => this.onResumed(inProgress)),
       b.on('net:peerJoined', ({ name }) => { if (this.active) b.emit('ui:notify', { text: `${name} 함선 합류`, kind: 'info' }); }),
       b.on('net:peerLeft', ({ name }) => { if (this.active) b.emit('ui:notify', { text: `${name} 함선 이탈`, kind: 'warning' }); }),
-      b.on('net:statusChanged', () => this.updateTerminalScreen()),
+      b.on('net:statusChanged', () => { this.resendReady(); this.updateTerminalScreen(); }),
       b.on('meta:creditsChanged', () => this.updateTerminalScreen()),
       b.on('meta:loaded', () => this.updateTerminalScreen()),
     );
@@ -452,6 +454,20 @@ export class HubSystem implements GameSystem, HubRef {
 
   /** Mirror lobby ready flags into pod occupancy / tags; emits `hub:slotChanged` on changes. */
   syncPods(): void { return Pods.syncPods(this); }
+
+  /**
+   * The socket came back while we sit in a pod: re-send the ready flag (2026-09-09).
+   *
+   * `NetClient.send` silently drops anything posted while the socket is not OPEN, so the `setReady(true)` from
+   * `boardPod` is lost across a reconnect and the squad would wait for a member the server never marked ready.
+   * `readySentAt` is pushed forward with it so `syncPods` gives the fresh echo its full `READY_ECHO_GRACE`.
+   */
+  resendReady(): void {
+    const net = this.ctx.net;
+    if (this.boardedSlot < 0 || !net?.lobby || !net.connected) return;
+    net.setReady(true);
+    this.readySentAt = this.ctx.time;
+  }
 
   /** Level / ship implant / armor of a READY cell: local reads the refs, a peer reads its `crew card`. */
   crewLook(local: boolean, peerId: PeerId | null): Pick<ReadyCellInfo, 'level' | 'implant' | 'armorId'> { return Interior.crewLook(this, local, peerId); }

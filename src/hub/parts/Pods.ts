@@ -8,7 +8,7 @@
 import * as THREE from 'three';
 import type { PlanetId } from '@/shared';
 import { getPlanet, isPlanetId, planetLabel, HUB_TRAVEL_DURATION, PLANET_NONE_LABEL, PLANET_STORAGE_KEY } from '@/shared';
-import type { CrewCardWire, GameContext, GameSystem, HubLaunchSlot, HubRef, HubShipKind, Interactable, InteriorCollider, LoadoutSlot, LobbyState, PeerId, RoomPurpose } from '@/shared';
+import type { CrewCardWire, GameContext, GameSystem, HubLaunchSlot, HubRef, HubShipKind, Interactable, InteriorCollider, LaunchWarning, LoadoutSlot, LobbyState, PeerId, RoomPurpose } from '@/shared';
 import { CREW_CARD_MIN_INTERVAL_S, CREW_LOADOUT_COOLDOWN_S, HUB_DOCKING_DURATION, HUB_LAUNCH_COUNTDOWN, HUB_READY_BLOCKER, HUB_READY_CELLS, Keys, NET_SLOT_COLORS, ROOM_PURPOSE_LABEL_KO } from '@/shared';
 import { PersonalShip } from '../interiors/PersonalShip';
 import { SharedShip } from '../interiors/SharedShip';
@@ -28,7 +28,7 @@ import { WorkbenchMenu } from '../ui/WorkbenchMenu';
 import { HubStatus } from '../ui/HubStatus';
 import { ReadyPanel, type ReadyCellInfo } from '../ui/ReadyPanel';
 import { randomSeed } from '../ui/dom';
-import { type DockTransition, LOCK_REQUEST_GRACE_MS, READY_ECHO_GRACE, UNBOARD_GRACE, _camLook, _camPos, _front } from '../model';
+import { type DockTransition, LOCK_REQUEST_GRACE_MS, READY_ECHO_GRACE, REBOARD_GRACE, UNBOARD_GRACE, _camLook, _camPos, _front } from '../model';
 /* 격납고 (2026-09-08): the visit status line lives with the rest of the hangar logic. */
 import * as Hangar from './Hangar';
 import type { HubSystem } from '../HubSystem';
@@ -52,6 +52,9 @@ export function podCanInteract(sys: HubSystem, slot: number): boolean {
   const ctx = sys.ctx;
   if (ctx.phase !== 'hub' || sys.cutscene || sys.travelling || sys.boardedSlot >= 0 || sys.menu.isOpen || sys.wbMenu.isOpen
     || sys.launchWarn.isOpen || sys.housingMode.active || sys.corpMenuOpen()) return false;
+  // 2026-09-09: the E that just un-boarded is still held — see `REBOARD_GRACE`. Without this the player steps out
+  // and the very same press walks them back in 0.4 s later, which reads as "the pod ignores me".
+  if (ctx.time - sys.leftPodAt < REBOARD_GRACE) return false;
   if (slot !== sys.localSlot()) return false;
   const pod = sys.pods[slot];
   return !!pod && pod.occupant === null;
@@ -73,7 +76,18 @@ export function podBlockReason(sys: HubSystem, slot: number): string | null {
 
 export function boardPod(sys: HubSystem, slot: number): void {
   const ctx = sys.ctx;
-  if (!sys.podCanInteract(slot)) return;
+  /*
+   * 2026-09-09: **never fail silently.** A player standing in front of an open pod, with `발사 슬롯 탑승` on the
+   * screen, pressing E and getting *nothing* — no toast, no sound, no reason — is unreportable and undebuggable
+   * (a user hit exactly that). `podCanInteract` is normally true here (the prompt would be gone otherwise), so
+   * reaching this branch means the state moved under us; say so instead of returning into the void.
+   */
+  if (!sys.podCanInteract(slot)) {
+    if (ctx.time - sys.leftPodAt < REBOARD_GRACE) return;   // the un-boarding press, still held — silence is correct
+    ctx.bus.emit('ui:notify', { text: '지금은 발사 슬롯에 탈 수 없습니다', kind: 'warning' });
+    ctx.bus.emit('audio:play', { id: 'ui_deny' });
+    return;
+  }
   const net = ctx.net;
   if (sys.trainingRunning()) {
     // pods stay closed while a training runs: the terminal's 시뮬레이션 훈련장 entry joins it
@@ -94,7 +108,10 @@ export function boardPod(sys: HubSystem, slot: number): void {
   }
   // 출격 준비 경고 (2026-09-08): 주무기 · 탄약 · 가방 · 방탄복 · 전술 임플란트 · 회복 아이템을 훑고, 걸리는 게
   // 있으면 이유를 전부 보여 준 뒤 확인을 받는다. 막지는 않는다 — 같은 조합을 한 번 넘겼으면 다시 묻지 않는다.
-  const warnings = ctx.inventory?.getLaunchWarnings?.() ?? [];
+  // 2026-09-09: a throw in the check must not eat the boarding. `player/perform` swallows an `interact()` exception
+  // into a console line, so an inventory hiccup here would look exactly like "E 를 눌러도 아무 일도 없다".
+  let warnings: readonly LaunchWarning[] = [];
+  try { warnings = ctx.inventory?.getLaunchWarnings?.() ?? []; } catch (e) { console.error('[hub] getLaunchWarnings threw', e); warnings = []; }
   const sig = LaunchWarnPanel.signatureOf(warnings);
   if (warnings.length === 0) sys.launchWarnAck = '';   // fully kitted out again → the next lapse asks afresh
   else if (sig !== sys.launchWarnAck) {
@@ -112,7 +129,16 @@ export function boardPod(sys: HubSystem, slot: number): void {
     pod.getCameraShot(_camPos, _camLook);
     p.setCameraOverride(_camPos, _camLook);
   }
-  if (net?.lobby) { net.setReady(true); sys.readySentAt = ctx.time; }
+  if (net?.lobby) {
+    net.setReady(true); sys.readySentAt = ctx.time;
+    /*
+     * 2026-09-09: `NetClient.send` **drops** a message while the socket is not OPEN and nobody looks at the return
+     * value, so a reconnect swallows the ready flag: the squad never sees us board and `syncPods` used to read the
+     * stale `ready:false` back as a lobby reset and eject us 1.5 s later, over and over. The flag is re-sent from
+     * `HubSystem`'s `net:statusChanged` when the socket comes back; until then, say what is going on.
+     */
+    if (!net.connected) ctx.bus.emit('ui:notify', { text: '연결이 끊겨 있습니다 — 복구되면 준비 상태를 다시 보냅니다', kind: 'warning' });
+  }
   ctx.bus.emit('audio:play', { id: 'ui_equip' });
   sys.syncPods();
   }
@@ -123,6 +149,7 @@ export function leavePod(sys: HubSystem, sendReady: boolean, placeOutside = true
   const ctx = sys.ctx;
   const pod = sys.pods[sys.boardedSlot];
   sys.boardedSlot = -1;
+  sys.leftPodAt = ctx.time;      // REBOARD_GRACE: the un-boarding press must not walk straight back in
   const p = ctx.player;
   if (p) {
     p.setInPod(false);
@@ -148,8 +175,14 @@ export function syncPods(sys: HubSystem): void {
   const me = lobby ? lobby.players.find((q) => q.id === localId) : undefined;
   const training = sys.trainingRunning();
 
-  // server dropped our ready flag (lobby reset / kick-back) while we sit in the pod → step out
-  if (sys.boardedSlot >= 0 && lobby && me && !me.ready && !lobby.started && ctx.time - sys.readySentAt > READY_ECHO_GRACE) {
+  /*
+   * Server dropped our ready flag (lobby reset / kick-back) while we sit in the pod → step out.
+   * 2026-09-09: only while the socket is actually up. `lobby` is the **last snapshot**, so a dropped connection
+   * freezes it at `ready:false` (our `setReady(true)` was never sent) and this used to eject the player from the
+   * pod every 1.5 s with no way to stay in it — the reconnect re-sends the flag instead.
+   */
+  if (sys.boardedSlot >= 0 && lobby && me && !me.ready && !lobby.started && (net?.connected ?? true)
+    && ctx.time - sys.readySentAt > READY_ECHO_GRACE) {
     sys.leavePod(false, true);
     ctx.bus.emit('ui:notify', { text: '발사 슬롯이 초기화되었습니다', kind: 'warning' });
     return;   // leavePod re-runs syncPods

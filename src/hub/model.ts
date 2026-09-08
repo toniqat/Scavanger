@@ -35,6 +35,15 @@ export const LOCK_REQUEST_GRACE_MS = 300;
 export const UNBOARD_GRACE = 0.6;
 /** Seconds after `setReady(true)` before a server-side `ready=false` is treated as a lobby reset. */
 export const READY_ECHO_GRACE = 1.5;
+/**
+ * Seconds after un-boarding before the same pod takes us again (2026-09-09).
+ *
+ * The E that un-boards is **not** consumed by `HubSystem` for `player/`'s sake — `Interactable.holdTime` reads
+ * `isDown`, not `wasPressed`, so a press that is still held when the pod re-appears simply starts a fresh boarding
+ * hold and puts the player straight back in. `consume()` cannot stop that (it only clears `pressed`), so the pod
+ * itself stays closed for a moment, exactly mirroring `UNBOARD_GRACE` on the way in.
+ */
+export const REBOARD_GRACE = 0.5;
 /** The two cutscene directions that swap the ship interior (`'travel'` keeps it — see `startTravel`). */
 export type DockTransition = Exclude<DockDirection, 'travel'>;
 
