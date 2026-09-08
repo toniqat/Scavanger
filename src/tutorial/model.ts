@@ -63,6 +63,12 @@ export interface StepDef {
   allow?: Partial<Record<TutorialGate, true | readonly string[]>>;
   /** 이 단계에서 화면에 뜨는 UI 중 밝힐 요소의 CSS 선택자 (앞에서부터 먼저 찾히는 것 하나). */
   spot?: readonly string[];
+  /**
+   * `spot` 을 "먼저 찾히는 하나"가 아니라 **전부의 합집합**으로 밝힌다 (2026-09-08).
+   * 두 패널에 걸친 드래그를 안내할 때 쓴다 — 하나만 밝히면 출발점이나 도착점이 어두운 판에 덮여 손이 묶인다.
+   * 구멍은 사각형 하나이므로 **서로 맞닿은 것들**을 넘겨야 이어진 도형으로 읽힌다.
+   */
+  spotUnion?: boolean;
   /** 스포트라이트 말풍선 문구 (없으면 `hint`). */
   spotText?: string;
   /** 걸어서 가야 하는 목표 — 안내선이 가리킬 `Interactable.id` (`bench` 는 런타임에 정해진다). */

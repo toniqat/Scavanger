@@ -114,7 +114,7 @@ try {
   ok(intro.panel, '좌측 상단 목표 패널이 함께 뜬다');
   // 2026-09-08: 함선에 들어서며 걸린 relock 이 카드에서 커서를 빼앗아 가면 안 된다 (버튼을 누를 수가 없다)
   ok(intro.cursorOn, '카드가 뜬 채로 마우스 커서가 살아 있다 (body.cursor-on)');
-  ok(intro.ev && intro.ev.active === true && intro.ev.step === 'intro' && intro.ev.count === 16, `tutorial:changed {intro, 1/16} (${JSON.stringify(intro.ev)})`);
+  ok(intro.ev && intro.ev.active === true && intro.ev.step === 'intro' && intro.ev.count === 17, `tutorial:changed {intro, 1/17} (${JSON.stringify(intro.ev)})`);
 
   /* ── 2. 게이트가 순서를 강제한다 ────────────────────────────────────── */
   console.log('게이트');
@@ -305,6 +305,53 @@ try {
     return !!ctx.scene.getObjectByName('TutorialGuide');
   });
   ok(!arrived, '목표에 도착하면 안내선이 걷힌다');
+
+  /* ── 4c. 제작 창 → 장착 순서 (2026-09-08) ────────────────────────────── */
+  // 제작 중에는 장비 칸이 숨으므로, 만든 무기는 **제작 창을 닫고** 장착한다 — `openBag` 단계가 그 순서를 안내하고
+  // `equipGun` 은 장비 열 + 가방을 **합집합**으로 밝힌다 (하나만 밝히면 드래그의 반대편이 어두운 판에 깔린다).
+  console.log('제작 창 닫기 → 장착');
+  await P(() => window.__game.ctx.inventory.openBenchCraft('gun', 1));
+  await sleep(300);
+  const crafting = await P(() => {
+    const css = (sel) => { const e = document.querySelector(sel); return e ? getComputedStyle(e).display : 'gone'; };
+    return {
+      isCraft: document.querySelector('.inv-root').classList.contains('is-craft'),
+      equip: css('.inv-equip'), quick: css('.inv-quick'), tabs: css('.inv-root .scr-tabs'),
+      foot: css('.inv-panel-bag > .inv-foot'), craftBtn: css('.inv-bag-craft'),
+      repairBtn: document.querySelector('.inv-repair-open') ? !document.querySelector('.inv-repair-open').hidden : null,
+    };
+  });
+  ok(crafting.isCraft && crafting.equip === 'none' && crafting.quick === 'none' && crafting.tabs === 'none'
+    && crafting.foot === 'none' && crafting.craftBtn === 'none',
+    '제작 중에는 장비 · 퀵슬롯 · 화면 탭 · 가방의 제작 버튼/가치가 숨는다', JSON.stringify(crafting));
+  ok(crafting.repairBtn === true, '총기 작업대 헤더에 `모두 수리` 버튼이 있다');
+
+  await P(() => window.__game.ctx.tutorial.goto('openBag'));
+  await sleep(400);
+  const closeSpot = await P(() => {
+    const btn = document.querySelector('.inv-craft-close').getBoundingClientRect();
+    const ring = document.querySelector('.tut-spot-ring').getBoundingClientRect();
+    return { tip: document.querySelector('.tut-spot-tip')?.textContent ?? '', dx: Math.round(Math.abs(ring.left - btn.left)), dy: Math.round(Math.abs(ring.top - btn.top)) };
+  });
+  ok(/닫기/.test(closeSpot.tip) && closeSpot.dx <= 12 && closeSpot.dy <= 12,
+    `openBag 단계는 제작 창의 닫기를 밝힌다 ("${closeSpot.tip}", ${closeSpot.dx}/${closeSpot.dy} px)`);
+  await P(() => document.querySelector('.inv-craft-close').click());
+  await sleep(400);
+  ok(await step() === 'equipGun', '제작 창을 닫으면 장착 단계로 넘어간다');
+  const union = await P(() => {
+    const eq = document.querySelector('.inv-equip').getBoundingClientRect();
+    const bag = document.querySelector('.inv-panel-bag').getBoundingClientRect();
+    const ring = document.querySelector('.tut-spot-ring').getBoundingClientRect();
+    return {
+      covers: ring.left <= Math.min(eq.left, bag.left) && ring.right >= Math.max(eq.right, bag.right)
+        && ring.top <= Math.min(eq.top, bag.top) && ring.bottom >= Math.max(eq.bottom, bag.bottom),
+      tip: document.querySelector('.tut-spot-tip')?.textContent ?? '',
+      w: Math.round(ring.width), eqW: Math.round(eq.width), bagW: Math.round(bag.width),
+    };
+  });
+  ok(union.covers, `equipGun 은 장비 열 + 가방을 한 구멍으로 밝힌다 (${union.w} px ⊇ ${union.eqW} + ${union.bagW})`, JSON.stringify(union));
+  await P(() => { window.__game.ctx.inventory.closeAll(); window.__game.ctx.tutorial.goto('craftGun'); });
+  await sleep(200);
 
   /* ── 5. 건너뛰기 확인 카드 ────────────────────────────────────────────── */
   console.log('건너뛰기');

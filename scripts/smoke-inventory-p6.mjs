@@ -352,8 +352,10 @@ try {
     return {
       open: i.isOpen, hidden: panel.hidden, blockers: [...ctx.uiBlockers], title: panel.querySelector('.inv-title').textContent,
       rows, expectOpen, expectLocked, lockTags: panel.querySelectorAll('.inv-craft-locktag').length,
-      repairShown: !panel.querySelector('.inv-craft-repair').hidden,
-      repairRows: [...panel.querySelectorAll('.inv-repair-row')].map((r) => ({ uid: r.dataset.uid, slot: r.querySelector('.inv-repair-slot').textContent, cost: r.querySelector('.inv-repair-cost').textContent, chips: r.querySelectorAll('.inv-repair-cost .item-chip').length, btn: !r.querySelector('.inv-repair-btn').disabled })),
+      // 2026-09-08: 수리 목록은 패널 아래가 아니라 헤더의 `모두 수리` 가 여는 모달 팝업이다
+      repairShown: !panel.querySelector('.inv-repair-open').hidden,
+      timeChips: panel.querySelectorAll('.inv-craft-chip.is-time').length,
+      hold: i.craftDuration(expectOpen[0] ?? 'make_wpn_ar'),
       anyGunRecipes: all.some((r) => r.bench === 'gun'),
     };
   });
@@ -364,10 +366,9 @@ try {
   ok(openIds.length === bench.expectOpen.length && bench.expectOpen.every((id) => openIds.includes(id)), `${openIds.length} craftable rows = getRecipes('ship','gun',2)`);
   ok(lockedIds.length === bench.expectLocked.length && bench.expectLocked.every((id) => lockedIds.includes(id)) && bench.lockTags === lockedIds.length, `${lockedIds.length} locked level-3 rows (${lockedIds.join(', ') || 'none defined yet'})`);
   ok(!openIds.some((id) => bench.expectLocked.includes(id)), 'no level-3 recipe is craftable at level 2');
-  ok(bench.repairShown && bench.repairRows.length >= 3, `repair list shows the owned weapons (${bench.repairRows.length})`);
-  const worn = bench.repairRows.find((r) => r.slot === '주무기 I');
-  // Phase 8: the cost is rendered as item chips (thumbnail + 보유/필요), not a text run
-  ok(worn && worn.chips > 0, `worn 주무기 I lists its material cost as chips (${worn?.chips})`);
+  ok(bench.repairShown, '총기 작업대 헤더에 `모두 수리` 버튼이 있다 (하단 수리 목록은 사라졌다)');
+  // 2026-09-08: 모든 레시피가 같은 1 초 홀드 — 시간 칩은 더 이상 그리지 않는다
+  ok(bench.hold === 1 && bench.timeChips === 0, `제작 홀드는 레시피와 무관하게 1 s (${bench.hold} s, 시간 칩 ${bench.timeChips}개)`);
   // cost multiplier: stub a workshop discount and check the chips + consumption
   const discount = await page.evaluate(() => {
     const ctx = window.__game.ctx, i = ctx.inventory;
@@ -385,35 +386,79 @@ try {
   });
   ok(JSON.stringify(discount.cost) === JSON.stringify(discount.expect), `craft cost ×0.8 ceil (${discount.id}: ${discount.cost.join('/')})`);
   ok(discount.chip === '작업실 할인 −20 %', `discount chip '${discount.chip}'`);
-  // repair through the list
-  const repaired = await page.evaluate(() => {
+  /* ── 5b. 수리 팝업 (2026-09-08) ───────────────────────────────── */
+  // `모두 수리` → 모달 팝업: 닳은 것만 · 가로로 긴 줄(내구도 막대) · 아래에 합계 재료 · × 로 제외
+  const dmg = await page.evaluate(() => {
     const ctx = window.__game.ctx, i = ctx.inventory;
-    i.tryAddItem(ctx.loot.createItem('mat_scrap', 10));
-    i.tryAddItem(ctx.loot.createItem('mat_alloy', 5));
-    window.__game.getSystem('inventory')['ui'].refreshCraft();
-    const row = [...document.querySelectorAll('.inv-repair-row')].find((r) => r.querySelector('.inv-repair-slot').textContent === '주무기 I');
-    const btn = row.querySelector('.inv-repair-btn');
-    const enabled = !btn.disabled;
-    btn.click();
-    const d = i.getDurability(i.getLoadout().primary.uid);
-    return { enabled, d, msg: document.querySelector('.inv-repair-msg')?.textContent };
+    i.tryAddItem(ctx.loot.createItem('mat_scrap', 40));
+    i.tryAddItem(ctx.loot.createItem('mat_alloy', 20));
+    const l = i.getLoadout();
+    if (l.primary2) i.updateItem(l.primary2.uid, { durability: 40 });
+    document.querySelector('.inv-repair-open').click();
+    return { p1: l.primary.uid, p2: l.primary2 ? l.primary2.uid : null };
   });
-  ok(repaired.enabled && repaired.d.durability === repaired.d.max, `수리 button repaired 주무기 I to ${repaired.d.durability}/${repaired.d.max} (${repaired.msg})`);
-  // gear bench lists armor + bags only, gadget bench has no repair list
+  void dmg;
+  await sleep(220);
+  const modal = await page.evaluate(() => {
+    const open = !document.querySelector('.inv-modeless-repair').hidden;
+    const rows = [...document.querySelectorAll('.inv-modeless-repair .inv-repair-row')].map((r) => ({
+      uid: r.dataset.uid, slot: r.querySelector('.inv-repair-slot').textContent,
+      dur: r.querySelector('.inv-repair-dur').textContent, bar: !!r.querySelector('.inv-repair-bar i'),
+      x: !!r.querySelector('.inv-repair-drop'),
+    }));
+    const full = window.__game.getSystem('inventory').benchRepairRows().length;
+    return {
+      open, rows, full, scrim: !document.querySelector('.inv-rep-scrim').hidden,
+      totals: document.querySelectorAll('.inv-rep-total-chips .item-chip').length,
+      btn: document.querySelector('.inv-modeless-repair .inv-repair-all').textContent,
+    };
+  });
+  ok(modal.open && modal.scrim, '`모두 수리` 가 모달 팝업을 연다 (뒤를 덮는 판 포함)');
+  ok(modal.rows.length > 0 && modal.rows.length < modal.full && modal.rows.every((r) => r.bar && r.x),
+    `닳은 장비만 줄로 뜬다 — 내구도 막대 + × (${modal.rows.length} / 보유 ${modal.full})`, JSON.stringify(modal.rows));
+  ok(modal.totals > 0 && /\(\d+\)/.test(modal.btn), `아래에 합계 재료 ${modal.totals}종 · 버튼 "${modal.btn}"`);
+  const excluded = await page.evaluate(() => {
+    const rows = [...document.querySelectorAll('.inv-modeless-repair .inv-repair-row')];
+    const before = document.querySelector('.inv-modeless-repair .inv-repair-all').textContent;
+    rows[0].querySelector('.inv-repair-drop').click();
+    const after = document.querySelector('.inv-modeless-repair .inv-repair-all').textContent;
+    const marked = document.querySelector('.inv-modeless-repair .inv-repair-row').classList.contains('is-excluded');
+    return { before, after, marked, uid: rows[0].dataset.uid };
+  });
+  ok(excluded.marked && excluded.before !== excluded.after,
+    `× 가 그 줄을 제외한다 ("${excluded.before}" → "${excluded.after}")`);
+  const ran = await page.evaluate((skipUid) => {
+    const i = window.__game.ctx.inventory;
+    document.querySelector('.inv-modeless-repair .inv-repair-all').click();
+    const d = i.getDurability(skipUid);
+    return { skipped: d ? d.durability / d.max : -1, msg: document.querySelector('.inv-modeless-repair .inv-repair-msg')?.textContent };
+  }, excluded.uid);
+  ok(ran.skipped < 1, `제외한 항목은 그대로 남는다 (${Math.round(ran.skipped * 100)} %, "${ran.msg}")`);
+  const reopened = await page.evaluate(() => {
+    const ui = window.__game.getSystem('inventory')['ui'];
+    ui.repair.close();
+    const closed = document.querySelector('.inv-modeless-repair').hidden && document.querySelector('.inv-rep-scrim').hidden;
+    document.querySelector('.inv-repair-open').click();
+    const excl = document.querySelectorAll('.inv-modeless-repair .inv-repair-row.is-excluded').length;
+    ui.repair.close();
+    return { closed, excl };
+  });
+  ok(reopened.closed && reopened.excl === 0, '닫으면 팝업 · 판 · 제외 표시가 모두 사라진다');
+  // gear bench repairs armor + bags only, gadget bench has no 수리 button at all
   const gear = await page.evaluate(() => {
     const i = window.__game.ctx.inventory;
     i.openBenchCraft('gear', 1);
     window.__game.getSystem('inventory')['ui'].refreshCraft();
     const t1 = document.querySelector('.inv-panel-craft .inv-title').textContent;
-    const rows = [...document.querySelectorAll('.inv-repair-row')].map((r) => r.querySelector('.inv-repair-name').textContent);
+    const rows = window.__game.getSystem('inventory').benchRepairRows().map((r) => r.def.name);
+    const gearBtn = !document.querySelector('.inv-repair-open').hidden;
     i.openBenchCraft('gadget', 1);
     window.__game.getSystem('inventory')['ui'].refreshCraft();
     const t2 = document.querySelector('.inv-panel-craft .inv-title').textContent;
-    const repairHidden = document.querySelector('.inv-craft-repair').hidden;
-    return { t1, rows, t2, repairHidden };
+    return { t1, rows, t2, gearBtn, gadgetBtn: !document.querySelector('.inv-repair-open').hidden };
   });
-  ok(gear.t1 === '장비 작업대 Lv.1' && !gear.rows.some((n) => /AR|SMG|P-2/.test(n)), `gear bench repair list has no weapons (${gear.rows.join(', ') || 'empty'})`);
-  ok(gear.t2 === '가젯 작업대 Lv.1' && gear.repairHidden, 'gadget bench has no repair list');
+  ok(gear.t1 === '장비 작업대 Lv.1' && gear.gearBtn && !gear.rows.some((n) => /AR|SMG|P-2/.test(n)), `gear bench repairs no weapons (${gear.rows.join(', ') || 'empty'})`);
+  ok(gear.t2 === '가젯 작업대 Lv.1' && !gear.gadgetBtn, 'gadget bench has no 수리 button');
   // 닫기 leaves bench mode, window stays; Esc closes the window
   await page.evaluate(() => document.querySelector('.inv-craft-close').click());
   await sleep(100);

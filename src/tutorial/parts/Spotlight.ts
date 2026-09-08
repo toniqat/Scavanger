@@ -11,6 +11,12 @@ import { RETARGET_INTERVAL } from '../model';
  * 대상은 CSS 선택자 목록으로 받아 **먼저 찾히는 것 하나**를 쓴다 (버튼 → 그 행 → 그 패널 순으로 넓혀 둔다:
  * 화면이 아직 안 그려졌거나 구조가 바뀌어도 최소한 패널은 밝힌다). 없으면 스스로 숨는다 — 어두운 화면만
  * 남기고 아무것도 누를 수 없게 되는 상황을 만들지 않는다.
+ *
+ * **2026-09-08 — 합집합 모드** (`union`). 한 곳이 아니라 **여러 패널에 걸친 동작**을 안내해야 할 때가 있다:
+ * 가방에서 집어 장비 칸에 놓는 드래그가 그렇다. 대상 하나만 밝히면 출발점이나 도착점 중 하나가 어두운 판 아래
+ * 깔려 **드래그를 시작할 수도, 놓을 수도 없다**. union 모드는 찾은 대상들의 사각형을 **하나로 합쳐** 뚫는다 —
+ * 네 판으로 만드는 구멍은 언제나 사각형 하나이므로, 서로 붙어 있는 패널들을 넘겨야 이어진 도형으로 읽힌다
+ * (장비 열과 가방은 실제로 맞닿아 있다: `.inv-layout:not(.is-craft)` 의 −24 px 이음매).
  * ──────────────────────────────────────────────────────────────────────────── */
 
 interface Rect { x: number; y: number; w: number; h: number }
@@ -33,6 +39,8 @@ export class Spotlight {
   private readonly tip: HTMLElement;
   private selectors: readonly string[] = [];
   private text = '';
+  /** 선택자를 "먼저 찾히는 하나"가 아니라 **전부의 합집합**으로 쓴다 (2026-09-08). */
+  private union = false;
   private timer = 0;
   private last: Rect | null = null;
   private shown = false;
@@ -59,12 +67,16 @@ export class Spotlight {
     parent.appendChild(this.root);
   }
 
-  /** 이 선택자들 중 먼저 찾히는 것을 밝힌다. 빈 목록 = 끄기. */
-  set(selectors: readonly string[] | undefined, text: string): void {
+  /**
+   * 이 선택자들 중 먼저 찾히는 것을 밝힌다. 빈 목록 = 끄기.
+   * `union` 이면 대신 **찾히는 것 전부**의 사각형을 합쳐 한 구멍으로 뚫는다.
+   */
+  set(selectors: readonly string[] | undefined, text: string, union = false): void {
     const next = selectors ?? [];
-    if (next === this.selectors && text === this.text) return;
+    if (next === this.selectors && text === this.text && union === this.union) return;
     this.selectors = next;
     this.text = text;
+    this.union = union;
     this.timer = 0;                       // 다음 update 에서 즉시 다시 찾는다
     if (next.length === 0) this.hide();
   }
@@ -76,11 +88,23 @@ export class Spotlight {
     if (this.timer > 0) return;
     this.timer = RETARGET_INTERVAL;
     if (this.yielding()) { this.hide(); return; }
-    const el = this.find();
-    if (!el) { this.hide(); return; }
-    const b = el.getBoundingClientRect();
-    if (b.width <= 0 || b.height <= 0) { this.hide(); return; }
+    const b = this.union ? this.unionRect() : this.find()?.getBoundingClientRect() ?? null;
+    if (!b || b.width <= 0 || b.height <= 0) { this.hide(); return; }
     this.place({ x: b.left - PAD, y: b.top - PAD, w: b.width + PAD * 2, h: b.height + PAD * 2 });
+  }
+
+  /** 찾히는 대상 전부를 감싸는 사각형 (하나도 없으면 null). */
+  private unionRect(): DOMRect | null {
+    let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
+    for (const sel of this.selectors) {
+      const el = document.querySelector<HTMLElement>(sel);
+      if (!el || el.getClientRects().length === 0 || getComputedStyle(el).visibility === 'hidden') continue;
+      const q = el.getBoundingClientRect();
+      if (q.width <= 0 || q.height <= 0) continue;
+      l = Math.min(l, q.left); t = Math.min(t, q.top);
+      r = Math.max(r, q.right); b = Math.max(b, q.bottom);
+    }
+    return l === Infinity ? null : new DOMRect(l, t, r - l, b - t);
   }
 
   /** 위에 확인 팝업 같은 것이 떠 있는가 (`YIELD_TO`). */

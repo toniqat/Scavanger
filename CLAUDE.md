@@ -102,7 +102,7 @@ start-server.bat relay   # 릴레이만 (npm run server, 0.0.0.0:8787) — 데�
 | 폴더 | 시스템 | `ctx` 게시 | 한 줄 책임 |
 |---|---|---|---|
 | [`src/items/`](src/items/README.md) | (데이터) | `ctx.loot` | 무기 6계열 × 등급 I–V · 탄약 · 부착물 · 가방 · 방어구 · 회복 소모품 · 씨앗 · 서적 · 임플란트 아이템 · 루팅 테이블 · 레시피(제작 · **고물 분해**) |
-| [`src/inventory/`](src/inventory/README.md) | `InventorySystem` | `ctx.inventory` | 디아블로2식 격자 모델 · 가방/장비/**임플란트 칸**/퀵슬롯 · 함선 창고 · 컨테이너 감정 · 소켓 · 제작/분해/수리 · 출격 준비 점검 · Tab 화면(인벤토리/캐릭터/기업/함선) |
+| [`src/inventory/`](src/inventory/README.md) | `InventorySystem` | `ctx.inventory` | 디아블로2식 격자 모델 · 가방/장비/**임플란트 칸**/퀵슬롯 · 함선 창고 · 컨테이너 감정 · 소켓 · 제작(**1초 홀드 · 제작 중에는 제작만 보인다**)/분해/**수리 팝업** · 출격 준비 점검 · Tab 화면(인벤토리/캐릭터/기업/함선) |
 | [`src/pickups/`](src/pickups/README.md) | `PickupSystem` | `ctx.pickups` | 월드에 떨어진 아이템 (투척 궤적 · 절차 메시 · 빛기둥 · 호스트 권한 동기화) |
 | [`src/meta/`](src/meta/README.md) | `MetaSystem` | `ctx.meta` | 기업 4곳 · 신뢰도(모자란 거래/계약 탭은 잠김) · 크레딧 · 상점/거래대 · 계약 · 퀘스트 · 임플란트 수리 데스크 |
 | [`src/progression/`](src/progression/README.md) | `ProgressionSystem` | `ctx.progression` | 레벨/XP · 능력치 5종 · 숙련도 14종 · 파생 수치(`derived`) · 임플란트 장착칸 규칙 · 캐릭터 시트(능력치 · 숙련도만 — 임플란트 UI 는 인벤토리) |
@@ -116,7 +116,7 @@ start-server.bat relay   # 릴레이만 (npm run server, 0.0.0.0:8787) — 데�
 | [`src/game/`](src/game/README.md) | `GameFlowSystem` | `ctx.phase` | 페이즈 상태 기계 · 사망/부활 · 레이드 실패 · **일시정지(ESC = 항상 열기, `escapePause`)** · 재접속 UX · 레이드 세션 저장/복귀 · 재개 게이트 |
 | [`src/ui/`](src/ui/README.md) | `HudSystem` | — | 모든 DOM UI — HUD 2계층 · 메뉴(설정 3분할, **ESC = 경고 팝업 뒤의 파티 떠나기 · 타이틀로 · 게임 종료**) · 지도 · 채팅 · 소셜(커뮤니티 패널 단일, **고정 크기**) · 아이템 툴팁 · 커서 아트 · 스타일시트 |
 | [`src/audio/`](src/audio/README.md) | `AudioSystem` | `ctx.audio` | 절차 WebAudio SFX 전량 + 앰비언트, 버스 이벤트에 반응, 볼륨 영속화 |
-| [`src/tutorial/`](src/tutorial/README.md) | `TutorialSystem` | `ctx.tutorial` | 새 캐릭터 안내 16단계 — 목표 패널 · UI 스포트라이트 · 바닥 안내선, 순서 강제 게이트(`blockReason`) + **잠긴 항목 숨김**(`hides`) |
+| [`src/tutorial/`](src/tutorial/README.md) | `TutorialSystem` | `ctx.tutorial` | 새 캐릭터 안내 17단계 — 목표 패널 · UI 스포트라이트(**합집합 포커싱**) · 바닥 안내선, 순서 강제 게이트(`blockReason`) + **잠긴 항목 숨김**(`hides`) |
 | [`src/console/`](src/console/README.md) | `ConsoleSystem` | `ctx.console` | 개발자 콘솔 + 치트 (**dev 호스트에서만** 존재 — 그 외에는 DOM 도 키도 없다) |
 
 ### 3.6 네트워크 · 배포

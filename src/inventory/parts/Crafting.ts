@@ -24,7 +24,7 @@ import { setStarterGrantState, starterGrantState } from '../Stash';
 import { LOADOUT_SAVE_VERSION, isEmptyLoadoutSave, loadLoadoutSave, sanitizeLoadoutSave, type LoadoutSave } from '../Loadout';
 import { reviveItem, savedCell, serializeExtras, serializePlacement, type SavedPlacement } from '../Serialize';
 import {
-  AUTO_CLOSE_DISTANCE, BLOCKER_TOKEN, CRAFT_MIN_SPEED, DROP_EYE_LOWER, DROP_FORWARD_OFFSET, DROP_FORWARD_SPEED, DROP_UP_SPEED,
+  AUTO_CLOSE_DISTANCE, BLOCKER_TOKEN, CRAFT_HOLD_TIME, CRAFT_MIN_SPEED, DROP_EYE_LOWER, DROP_FORWARD_OFFSET, DROP_FORWARD_SPEED, DROP_UP_SPEED,
   LOADOUT_SLOTS, MOD_CTRL, MOD_SHIFT, SEARCH_EMIT_INTERVAL, SPRAY_REFILL_COST, TAKE_REQUEST_TIMEOUT, WEAPON_SLOT_IDS,
   isArmorDef, isAttachmentDef, isBagDef, isDisassembleRecipe, isWeaponDef, sameProfileDoc, slotAccepts,
   type ActiveBench, type BagSize, type BenchRecipeRow, type BenchRepairRow, type DropPreview, type DropTarget,
@@ -82,8 +82,12 @@ export function getBenchRecipes(sys: InventorySystem): BenchRecipeRow[] {
   return [...open.map((recipe) => ({ recipe, locked: false })), ...locked.map((recipe) => ({ recipe, locked: true }))];
   }
 
-/** Gear the active bench repairs: gun → weapons (slots + bag), gear → armor + bags, others none. Items without durability are skipped. */
-export function benchRepairRows(sys: InventorySystem): BenchRepairRow[] {
+/**
+ * Gear the active bench repairs: gun → weapons (slots + bag), gear → armor + bags, others none. Items without
+ * durability are skipped. `wornOnly` (2026-09-08) also drops what is already at full durability — the 수리 팝업
+ * lists **what there is to repair**, not the whole kit.
+ */
+export function benchRepairRows(sys: InventorySystem, wornOnly = false): BenchRepairRow[] {
   const b = sys.bench;
   if (!b || (b.kind !== 'gun' && b.kind !== 'gear')) return [];
   const wants = (def: ItemDef): boolean => b.kind === 'gun' ? isWeaponItemDef(def) : (def.category === 'armor' || def.category === 'bag');
@@ -93,6 +97,7 @@ export function benchRepairRows(sys: InventorySystem): BenchRepairRow[] {
     if (!def || !wants(def)) return;
     const dur = sys.getDurability(item.uid);
     if (!dur || dur.max <= 0) return;
+    if (wornOnly && dur.durability >= dur.max) return;
     const cost = (sys.loot.getEffectiveStats(item) ? sys.loot.getRepairCost(item) : []).map((c) => ({
       ...c, name: ITEM_DEF_MAP.get(c.defId)?.name ?? c.defId, have: sys.countDef(c.defId),
     }));
@@ -103,11 +108,12 @@ export function benchRepairRows(sys: InventorySystem): BenchRepairRow[] {
   return rows;
   }
 
-/** `모두 수리`: every worn row in order while the materials last. */
-export function benchRepairAll(sys: InventorySystem): { done: number; skipped: number } {
+/** `모두 수리`: every worn row in order while the materials last. `skip` = uids the 팝업 crossed out with ×. */
+export function benchRepairAll(sys: InventorySystem, skip?: ReadonlySet<string>): { done: number; skipped: number } {
   let done = 0, skipped = 0;
   for (const row of sys.benchRepairRows()) {
     if (row.dur.durability >= row.dur.max) continue;
+    if (skip?.has(row.uid)) continue;
     if (row.short) { skipped++; continue; }
     if (sys.repair(row.uid)) done++; else skipped++;
   }
@@ -189,7 +195,7 @@ export function canCraft(sys: InventorySystem, recipeId: string): boolean {
 /**
  * 2026-09-08 — whether the bag could take `recipeId`'s output (**and** its `extraOutputs`) right now. This is
  * literally the test `updateCraft` runs when the hold ends; the 분해 dialog runs it up front so a shred that can
- * only fail is refused **before** the 2 s hold instead of after it. Deliberately conservative in the same way:
+ * only fail is refused **before** the hold instead of after it. Deliberately conservative in the same way:
  * the input stack is still in the bag, so a 분해 that would free its own cells can read as full. Unknown recipe /
  * output def → false.
  */
@@ -205,13 +211,16 @@ export function craftHasRoom(sys: InventorySystem, recipeId: string): boolean {
   return true;
   }
 
-/** Seconds one craft takes right now (recipe duration scaled by 제작 skill and 재주). */
+/**
+ * Seconds the 제작 / 분해 button must be held — **always `CRAFT_HOLD_TIME`** (2026-09-08).
+ *
+ * It used to be `recipe.duration` (2–12 s) scaled by 제작 skill and 재주, which read as a crafting *time* and made
+ * the tutorial's 돌격소총 a 6-second press. The hold is a **safety grace before the materials are consumed**, not a
+ * simulation of work, so every recipe now takes the same short press. `CraftRecipe.duration` stays in the data (it
+ * still describes how involved a recipe is) but nothing reads it for timing any more.
+ */
 export function craftDuration(sys: InventorySystem, recipeId: string): number {
-  const r = getRecipe(recipeId);
-  if (!r) return 0;
-  const mult = gearMultipliers(sys.ctx.progression?.derived);
-  const speed = Math.max(CRAFT_MIN_SPEED, mult.craftSpeedMul * mult.useSpeedMul);
-  return r.duration / speed;
+  return getRecipe(recipeId) ? CRAFT_HOLD_TIME : 0;
   }
 
 /**

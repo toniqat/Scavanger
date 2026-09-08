@@ -147,11 +147,18 @@ export function toggleCraft(sys: InventoryUI): void {
  * **2026-09-07**: the panel is a **column of the window** again instead of a modeless popup — `.inv-layout.is-craft`
  * puts the recipe list leftmost (where 함선 창고 sits otherwise) and stacks 가방 over 함선 창고 on the right, so the
  * materials a recipe needs are visible next to it. Still no blocker and no pointer-lock change: the window owns both.
+ *
+ * **2026-09-08**: `.is-craft` also lands on the **root**, and there it *hides* everything a recipe list has nothing
+ * to do with — 장착 장비 + 임플란트 열 · 퀵슬롯 로즈 · 가방 헤더의 `제작`/가치 · 상단 화면 탭. 제작 중에는 재료와
+ * 레시피만 남는다 (사용자 결정). 장비 칸이 사라지므로 만든 무기를 장착하려면 제작 창을 닫아야 한다 — 튜토리얼의
+ * `openBag` 단계가 그 순서를 그대로 안내한다.
  */
 export function setCraftOpen(sys: InventoryUI, open: boolean): void {
   sys.craftPanel.setOpen(open);
   if (open) sys.disassemble.close();
+  else sys.repair.close();          // 수리 팝업은 작업대에 붙어 있다 — 작업대를 떠나면 같이 닫힌다
   sys.layout?.classList.toggle('is-craft', open);
+  sys.root?.classList.toggle('is-craft', open);
   if (open) sys.craftPanel.refresh();
   }
 

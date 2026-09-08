@@ -964,7 +964,6 @@ kbd {
   font-variant-numeric: tabular-nums;
 }
 .inv-craft-chip.is-missing { color: color-mix(in srgb, var(--inv-bad) 80%, white 20%); border-color: color-mix(in srgb, var(--inv-bad) 45%, transparent); }
-.inv-craft-chip.is-time { color: var(--inv-muted); }
 .inv-craft-btn { position: relative; overflow: hidden; min-width: 96px; flex: none; }
 .inv-craft-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .inv-craft-btn span { position: relative; z-index: 1; }
@@ -1028,11 +1027,20 @@ kbd {
 .inv-layout.is-craft .inv-panel-catalog { order: -2; }
 /* the stash keeps its own scroller inside the stacked column, just shorter */
 .inv-layout.is-craft .inv-stash-scroll { max-height: min(290px, calc(100vh - 620px)); }
+
+/* 2026-09-08 — **제작 중에는 제작에 쓰는 것만.** 장착 장비 + 임플란트 열 · 퀵슬롯 로즈 · 가방 헤더의 `제작`/용량 ·
+   하단 가치 · 상단 화면 탭은 레시피와 아무 상관이 없다. 장비 칸이 사라지므로 만든 무기를 장착하려면 제작 창을
+   닫아야 하고, 튜토리얼 `openBag` 단계가 그 순서를 그대로 안내한다 (사용자 결정). */
+.inv-root.is-craft .scr-tabs { display: none; }
+.inv-layout.is-craft .inv-equip { display: none; }
+.inv-layout.is-craft .inv-quick { display: none; }
+/* 가방 헤더는 남기되(용량은 만든 것이 들어갈 자리가 있는지 알려 준다) `제작` 버튼과 하단 가치만 뺀다 */
+.inv-layout.is-craft .inv-bag-craft { display: none; }
+.inv-layout.is-craft .inv-panel-bag > .inv-foot { display: none; }
 .inv-panel-craft { width: 460px; max-height: calc(100vh - 140px); }
 .inv-panel-craft .inv-craft-list { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; padding-right: 4px; }
 .inv-panel-craft .inv-craft-list::-webkit-scrollbar { width: 6px; }
 .inv-panel-craft .inv-craft-list::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.22); border-radius: 3px; }
-.inv-panel-craft .inv-craft-repair { min-height: 0; }
 
 /* stash: fixed 10-wide grid, rows scroll */
 .inv-panel-stash { animation: inv-slide-in 200ms var(--inv-ease) both; }
@@ -1185,10 +1193,28 @@ kbd {
   border-radius: 2px;
 }
 
-/* ── repair list under the bench recipes ───────────────────────────────── */
-.inv-craft-repair { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; border-top: 1px solid var(--inv-line); }
-.inv-craft-repair-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.inv-repair-list { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto; padding-right: 4px; }
+/* ── 장비 수리 팝업 (2026-09-08) ───────────────────────────────────────────
+   수리는 작업대 패널 아래의 목록이 아니라 헤더의 `모두 수리` 가 여는 **모달 팝업**이다. 한 줄이 가로로 긴 패널이고
+   (슬롯 · 이름 + 내구도 막대 · 재료 칩 · ×), 그 아래에 제외를 뺀 재료 합계, 맨 아래에 실행 버튼이 온다. */
+.inv-rep-host { display: contents; }
+.inv-rep-scrim { position: fixed; inset: 0; background: rgba(4, 6, 10, 0.55); pointer-events: auto; animation: inv-tt-in 150ms var(--inv-ease) both; }
+.inv-modeless-repair { width: min(620px, calc(100vw - 64px)); max-height: calc(100vh - 120px); }
+.inv-repair-list { display: flex; flex-direction: column; gap: 6px; max-height: min(420px, calc(100vh - 380px)); overflow-y: auto; padding-right: 4px; }
+.inv-repair-list::-webkit-scrollbar { width: 6px; }
+.inv-repair-list::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.22); border-radius: 3px; }
+.inv-rep-total {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 10px 12px;
+  border: 1px solid var(--inv-line);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.inv-rep-total-chips { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.inv-rep-total-none { font-size: 11px; color: var(--inv-muted); }
+.inv-rep-hint { font-size: 10px; letter-spacing: 0.06em; color: var(--inv-muted); }
+.inv-repair-all { align-self: stretch; padding: 9px 12px; }
+.inv-repair-all:disabled { opacity: 0.4; cursor: not-allowed; }
+.inv-repair-open { padding: 6px 12px; }
 .inv-repair-row {
   display: grid;
   grid-template-columns: 62px 1fr auto auto;
@@ -1199,8 +1225,28 @@ kbd {
   border-radius: 5px;
   background: rgba(255, 255, 255, 0.03);
 }
-.inv-repair-row.is-full { opacity: 0.6; }
+/* 제외한 줄은 alpha 가 아니라 **색**으로 흐린다 (Phase 8 규칙: 알파는 뒤의 흐린 세계를 비쳐 읽을 수 없게 만든다) */
+.inv-repair-row.is-excluded {
+  background: rgba(10, 12, 16, 0.92);
+  border-color: rgba(255, 255, 255, 0.07);
+  color: var(--inv-muted);
+}
+.inv-repair-row.is-excluded .inv-repair-name { color: var(--inv-muted); text-decoration: line-through; }
+.inv-repair-row.is-excluded .item-chip-thumb { filter: saturate(0.4) brightness(0.7); }
 .inv-repair-row.is-broken { border-color: color-mix(in srgb, var(--inv-bad) 45%, transparent); }
+.inv-repair-drop {
+  width: 24px; height: 24px; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--inv-line);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--inv-muted);
+  font-size: 13px; line-height: 1;
+  cursor: pointer;
+  transition: color 120ms linear, border-color 120ms linear, background 120ms linear;
+}
+.inv-repair-drop:hover { color: color-mix(in srgb, var(--inv-bad) 80%, white 20%); border-color: color-mix(in srgb, var(--inv-bad) 45%, transparent); background: rgba(255, 255, 255, 0.08); }
+.inv-repair-row.is-excluded .inv-repair-drop:hover { color: var(--inv-ok); border-color: color-mix(in srgb, var(--inv-ok) 45%, transparent); }
 .inv-repair-slot { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--inv-muted); }
 .inv-repair-mid { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .inv-repair-name { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1214,8 +1260,6 @@ kbd {
 .inv-repair-cost { font-size: 10px; letter-spacing: 0.02em; color: var(--inv-text); white-space: nowrap; }
 .inv-repair-cost.item-chips { display: flex; align-items: center; gap: 6px; }
 .inv-repair-cost.is-short { color: color-mix(in srgb, var(--inv-bad) 80%, white 20%); }
-.inv-repair-btn { padding: 6px 10px; }
-.inv-repair-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .inv-repair-msg { font-size: 11px; letter-spacing: 0.04em; }
 .inv-repair-msg.is-ok { color: var(--inv-ok); }
 .inv-repair-msg.is-bad { color: color-mix(in srgb, var(--inv-bad) 80%, white 20%); }

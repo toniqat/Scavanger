@@ -25,6 +25,7 @@ export type TutorialStepId =
   | 'benchPlace'   // 가구 창고 → 작업대를 골라 작업실 바닥에 배치
   | 'manageDone'   // 함선 관리 종료
   | 'craftGun'     // 작업실로 걸어가 총기 작업대에서 무기 제작
+  | 'openBag'      // 제작 창을 닫고 가방 + 장착 장비를 연다 (제작 중에는 장비 칸이 숨어 있다)
   | 'equipGun'     // 만든 무기를 주무기 칸에 장착
   | 'craftAmmo'    // 그 무기의 탄약 제작
   | 'stowAmmo'     // 탄약을 가방에 넣기
@@ -36,7 +37,7 @@ export type TutorialStepId =
 
 export const TUTORIAL_STEPS: readonly TutorialStepId[] = [
   'intro', 'manage', 'generator', 'workshop', 'bench', 'benchPlace', 'manageDone',
-  'craftGun', 'equipGun', 'craftAmmo', 'stowAmmo',
+  'craftGun', 'openBag', 'equipGun', 'craftAmmo', 'stowAmmo',
   'terminal', 'planet', 'travel', 'board', 'raid',
 ];
 

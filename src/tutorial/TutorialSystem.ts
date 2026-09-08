@@ -48,6 +48,8 @@ export class TutorialSystem implements GameSystem, TutorialRef {
   private confirmingSkip = false;
   /** 총기 작업대가 배치 대기 상태로 커서에 들려 있다 (`benchPlace` 단계에서 스포트라이트를 접는 조건). */
   private benchArmed = false;
+  /** 제작 열이 열려 있다 (`ui:craftToggled`) — `openBag` 단계가 "닫혔다"를 판단하는 유일한 상태. */
+  private craftOpen = false;
 
   /* ── lifecycle ─────────────────────────────────────────────────────────── */
 
@@ -78,6 +80,10 @@ export class TutorialSystem implements GameSystem, TutorialRef {
       b.on('housing:furniturePlaced', ({ item }) => this.onFurniture(item.defId, item.uid)),
 
       b.on('craft:completed', ({ recipeId }) => this.onCrafted(recipeId)),
+      // 2026-09-08: 제작 창을 닫아야 장착 장비 칸이 돌아온다 — 그 한 번의 닫기가 `openBag` 단계다.
+      //   창을 통째로 닫아 버린 사람을 위해 `inventory:opened`(= Tab 으로 가방을 다시 연 것)도 같은 신호로 본다.
+      b.on('ui:craftToggled', ({ open }) => { this.craftOpen = open; if (!open) this.advanceIf('openBag'); }),
+      b.on('inventory:opened', () => this.onInventoryOpened()),
       b.on('loadout:changed', () => this.onLoadout()),
       b.on('inventory:changed', () => this.onInventory()),
       b.on('inventory:bagChanged', () => this.onInventory()),
@@ -225,6 +231,17 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     this.advanceIf('benchPlace');
   }
 
+  /**
+   * 가방 창이 열렸다. `openBag` 단계에서 **제작 열이 없는 채로** 열렸다면 그것으로 단계는 끝난 것이다
+   * (저장 복구 · 창을 통째로 닫았다가 Tab 으로 다시 연 경우). 한 프레임 미루는 이유: `openBenchCraft` 는
+   * `inventory:opened` 를 먼저 emit 하고 **그 다음에** `ui:craftToggled {open:true}` 를 보내므로,
+   * 지금 자리에서 읽으면 작업대를 여는 순간마다 이 단계가 잘못 넘어간다.
+   */
+  private onInventoryOpened(): void {
+    if (this.save.step !== 'openBag') return;
+    window.setTimeout(() => { if (!this.craftOpen) this.advanceIf('openBag'); }, 0);
+  }
+
   private onCrafted(recipeId: string): void {
     if (recipeId === TUTORIAL_GUN_RECIPE) this.advanceIf('craftGun');
     else if (recipeId === TUTORIAL_AMMO_RECIPE) this.advanceIf('craftAmmo');
@@ -344,7 +361,7 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     this.panel.show(placing ? { ...def, hint: '작업실 바닥을 클릭해 작업대를 내려놓습니다 (R 로 회전).' } : def,
       stepIndexOf(step), this.stepCount);
     // 시작 카드가 떠 있는 동안에는 스포트라이트를 겹치지 않는다
-    this.spotlight.set(this.popup.isOpen || placing ? [] : def.spot, def.spotText ?? def.hint);
+    this.spotlight.set(this.popup.isOpen || placing ? [] : def.spot, def.spotText ?? def.hint, !!def.spotUnion);
     this.guide.setTarget(this.guideTarget(def.guide));
   }
 

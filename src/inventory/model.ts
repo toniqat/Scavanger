@@ -107,6 +107,16 @@ export const isDisassembleRecipe = (r: CraftRecipe): boolean => r.id.startsWith(
 /** Minimum craft speed multiplier so a pathological derived value cannot make a craft instant. */
 export const CRAFT_MIN_SPEED = 0.2;
 
+/**
+ * **2026-09-08 — 모든 제작·분해의 누르고 있는 시간 (s).**
+ *
+ * 레시피마다 2–12 초였던 `CraftRecipe.duration` 은 더 이상 홀드 시간이 아니다 (사용자 결정).
+ * 이 홀드가 재는 것은 "만드는 데 걸리는 시간"이 아니라 **재료를 소모하기 전의 유예** — 잘못 누른 것을
+ * 떼기만 하면 아무 일도 일어나지 않게 하는 안전장치다. 그래서 모든 레시피가 같은 1 초를 쓰고,
+ * 제작 숙련도·재주로 줄이지도 않는다 (줄일 것이 없다 — 이미 제일 짧다).
+ */
+export const CRAFT_HOLD_TIME = 1.0;
+
 export interface CraftJob {
   recipe: CraftRecipe;
   remaining: number;

@@ -64,23 +64,35 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     id: 'craftGun', title: '작업대에서 돌격소총을 만드세요',
     hint: '작업실로 걸어가 총기 작업대를 사용하고 돌격소총 제작을 누릅니다.',
     allow: { craft: [TUTORIAL_GUN_RECIPE] },
-    spot: ['.inv-craft-row[data-recipe="make_wpn_ar"] .ui-btn', '.inv-craft-row[data-recipe="make_wpn_ar"]', '.inv-panel-craft'],
+    spot: ['.inv-craft-row[data-recipe="make_wpn_ar"] .inv-craft-btn', '.inv-craft-row[data-recipe="make_wpn_ar"]', '.inv-panel-craft'],
     spotText: '돌격소총 제작',
     guide: 'bench',
   },
+  openBag: {
+    id: 'openBag', title: '제작 창을 닫고 가방을 여세요',
+    // 2026-09-08: 제작 중에는 장착 장비 칸이 숨는다 (`.inv-root.is-craft`) — 만든 무기를 장착하려면 먼저 작업대를
+    //   닫아야 한다. 그 순서를 안내 없이 두면 "장비 칸이 어디 갔지"에서 막힌다.
+    hint: '작업대 우측 상단의 닫기를 누르면 장착 장비와 가방이 나타납니다.',
+    allow: { craft: [TUTORIAL_GUN_RECIPE] },
+    spot: ['.inv-craft-close', '.inv-panel-craft'],
+    spotText: '제작 창 닫기',
+  },
   equipGun: {
     id: 'equipGun', title: '만든 소총을 주무기로 장착하세요',
-    hint: 'Tab 을 눌러 가방을 열고 소총을 주무기 I 칸으로 옮깁니다.',
+    hint: '가방의 소총을 왼쪽 장착 장비의 주무기 I 칸으로 끌어다 놓습니다 (창이 닫혔으면 Tab).',
     // 직전 단계의 레시피는 그대로 열어 둔다 — 막힌 레시피는 목록에서 사라지므로 작업대가 통째로 비지 않게.
     allow: { craft: [TUTORIAL_GUN_RECIPE] },
-    spot: ['.inv-slot-primary', '.inv-equip'],
-    spotText: '소총을 주무기 I 칸으로',
+    // 2026-09-08: 주무기 칸 하나만 밝히면 **집을 곳(가방)이 어두운 판 아래** 깔려 드래그를 시작조차 못 했다.
+    //   장비 열과 가방은 맞닿아 있으므로(−24 px 이음매) 둘의 합집합이 이어진 도형 하나가 된다.
+    spot: ['.inv-equip', '.inv-panel-bag'],
+    spotUnion: true,
+    spotText: '가방의 소총 → 주무기 I 칸',
   },
   craftAmmo: {
     id: 'craftAmmo', title: '준중량탄을 만드세요',
     hint: '같은 작업대에서 준중량탄 대량 제작을 누릅니다.',
     allow: { craft: [TUTORIAL_AMMO_RECIPE] },
-    spot: ['.inv-craft-row[data-recipe="bulk_ammo_medium"] .ui-btn', '.inv-craft-row[data-recipe="bulk_ammo_medium"]', '.inv-panel-craft'],
+    spot: ['.inv-craft-row[data-recipe="bulk_ammo_medium"] .inv-craft-btn', '.inv-craft-row[data-recipe="bulk_ammo_medium"]', '.inv-panel-craft'],
     spotText: '준중량탄 대량 제작',
     guide: 'bench',
   },
@@ -88,7 +100,9 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     id: 'stowAmmo', title: '탄약을 가방에 넣으세요',
     hint: '함선 창고의 준중량탄을 가방 격자로 끌어다 놓습니다.',
     allow: { craft: [TUTORIAL_AMMO_RECIPE] },
-    spot: ['.inv-grid-bag', '.inv-panel-bag'],
+    // `equipGun` 과 같은 이유의 합집합 — 집을 곳(창고)과 놓을 곳(가방)이 둘 다 밝아야 드래그가 된다.
+    spot: ['.inv-panel-stash', '.inv-panel-bag'],
+    spotUnion: true,
     spotText: '준중량탄을 가방으로',
   },
   terminal: {

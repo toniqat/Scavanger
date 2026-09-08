@@ -52,7 +52,6 @@ export function slotKeyLabel(slot: LoadoutSlot): string {
 /* appended: tactical kit */
 export const fmtKg = (n: number): string => `${n.toFixed(1)} kg`;
 export const weightLabel = (state: WeightState): string => WEIGHT_STATE_LABEL_KO[state] ?? state;
-export const fmtSeconds = (n: number): string => `${n.toFixed(1)} s`;
 /** Wheel direction glyphs by quick-slot index (N, NE, E, SE, S, SW, W, NW). */
 export const QUICK_DIR_GLYPH: readonly string[] = ['▲', '◥', '►', '◢', '▼', '◣', '◄', '◤'];
 /** DOM order of the 3×3 compass rose (row-major, -1 = centre). */
@@ -212,6 +211,16 @@ export const TEXT = {
     discount: (pct: number): string => `작업실 할인 −${pct} %`,
     repairTitle: '수리',
     repairNone: '수리할 장비가 없습니다',
+    /* 2026-09-08 — 수리는 작업대 패널 아래가 아니라 헤더의 `모두 수리` → 모달 팝업이다 */
+    repairEyebrow: 'MAINTENANCE',
+    repairModal: '장비 수리',
+    repairTotal: '소모 재료',
+    repairTotalNone: '소모하는 재료가 없습니다',
+    repairDrop: '수리 목록에서 제외',
+    repairKeep: '다시 수리 목록에',
+    repairExcluded: '제외됨',
+    repairRun: (n: number): string => n > 0 ? `모두 수리 (${n})` : '모두 수리',
+    repairHint: '개별 수리는 아이템 우클릭 → 수리',
     repairDone: '정비 완료',
     repairAll: '모두 수리',
     repairShort: '재료 부족',

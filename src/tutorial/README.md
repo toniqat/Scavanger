@@ -19,7 +19,7 @@
 | `Steps.ts` | **단계 표** — 각 단계의 제목 · 부제 · `allow`(허용 게이트) · 스포트라이트 선택자 · 안내선 목표. 진행 조건은 여기 없다 (아래 참고). |
 | `parts/Gates.ts` | 게이트 판정 순수 함수. `allow` 에 없는 게이트는 전부 막고, 배열이면 그 id 만 허용한다. `hides(gate, id?)` 도 여기 — **막히는 것은 곧 감추는 것**이다. |
 | `parts/Guide.ts` | **바닥 안내선** — 흐르는 점선 띠(셰이더) + 목표 빛기둥 + 링. `Interactable.id` 하나로 목표를 잡는다. |
-| `parts/Spotlight.ts` | **UI 포커싱** — 화면을 덮는 네 판 + 링 + 말풍선. 판이 클릭을 먹고, 구멍은 그대로 통과시킨다. 링은 **천천히 확대-축소**하고(2026-09-08), 확인 팝업(`YIELD_TO`)이 뜨면 스스로 비켜선다. 대상은 사각형이 있고 `visibility` 가 살아 있는 것만 — 닫힌 `.ship-manage` 처럼 접혀도 사각형이 남는 화면을 밝히지 않는다. |
+| `parts/Spotlight.ts` | **UI 포커싱** — 화면을 덮는 네 판 + 링 + 말풍선. 판이 클릭을 먹고, 구멍은 그대로 통과시킨다. 링은 **천천히 확대-축소**하고(2026-09-08), 확인 팝업(`YIELD_TO`)이 뜨면 스스로 비켜선다. 대상은 사각형이 있고 `visibility` 가 살아 있는 것만 — 닫힌 `.ship-manage` 처럼 접혀도 사각형이 남는 화면을 밝히지 않는다. `set(selectors, text, union)` 의 **합집합 모드**(2026-09-08)는 먼저 찾히는 하나가 아니라 **찾히는 전부**를 감싸는 사각형을 뚫는다 — 두 패널에 걸친 드래그를 안내할 때 쓴다. |
 | `ui/Panel.ts` | 좌측 상단 목표 패널 (`튜토리얼 n / m` · 제목 · 부제 · 진행 바 · **건너뛰기** 버튼). 포커싱 중에는 `is-lifted` 로 어두운 판 위에 올라간다 — 딤 제외 + 건너뛰기는 언제나 눌린다. |
 | `ui/Popup.ts` | 시작 안내 카드와 건너뛰기 확인 카드 (같은 셸, 버튼만 다름). 모달리스. |
 | `tutorial.css` | 위 셋의 스타일. `.ui-btn` · `.ui-label` 은 `ui/styles/base.css` 것을 쓴다. |
@@ -33,7 +33,7 @@
 
 ---
 
-## 단계 (16)
+## 단계 (17)
 
 | # | id | 목표 | 다음으로 넘어가는 신호 |
 |---|---|---|---|
@@ -45,14 +45,24 @@
 | 6 | `benchPlace` | 가구 창고 → 작업실에 **배치** | `housing:furniturePlaced {defId:'furn_bench_gun'}` |
 | 7 | `manageDone` | 함선 관리 닫기 | `housing:shipManageChanged {active:false}` |
 | 8 | `craftGun` | 작업대에서 돌격소총 | `craft:completed {recipeId:'make_wpn_ar'}` |
-| 9 | `equipGun` | 주무기 칸에 장착 | `loadout:changed` + 주무기가 `wpn_ar` |
-| 10 | `craftAmmo` | 준중량탄 제작 | `craft:completed {recipeId:'bulk_ammo_medium'}` |
-| 11 | `stowAmmo` | 탄약을 가방에 | `inventory:changed` + 가방에 `ammo_medium` |
-| 12 | `terminal` | 조종석 터미널 | `hub:terminalToggled {open:true}` |
-| 13 | `planet` | 목표 행성 지정 | `hub:planetChanged` |
-| 14 | `travel` | 워프 대기 | `hub:travel {stage:'end'}` |
-| 15 | `board` | 발사 슬롯 탑승 | `hub:slotChanged` (로컬) 또는 `game:newMission` |
-| 16 | `raid` | 탈출 지점 확인 | `world:ready` 6초 뒤 자동 종료 |
+| 9 | `openBag` | 제작 창 닫기 (장비 칸이 돌아온다) | `ui:craftToggled {open:false}` · 또는 제작 열 없이 `inventory:opened` |
+| 10 | `equipGun` | 주무기 칸에 장착 | `loadout:changed` + 주무기가 `wpn_ar` |
+| 11 | `craftAmmo` | 준중량탄 제작 | `craft:completed {recipeId:'bulk_ammo_medium'}` |
+| 12 | `stowAmmo` | 탄약을 가방에 | `inventory:changed` + 가방에 `ammo_medium` |
+| 13 | `terminal` | 조종석 터미널 | `hub:terminalToggled {open:true}` |
+| 14 | `planet` | 목표 행성 지정 | `hub:planetChanged` |
+| 15 | `travel` | 워프 대기 | `hub:travel {stage:'end'}` |
+| 16 | `board` | 발사 슬롯 탑승 | `hub:slotChanged` (로컬) 또는 `game:newMission` |
+| 17 | `raid` | 탈출 지점 확인 | `world:ready` 6초 뒤 자동 종료 |
+
+> `openBag` 는 **제작 화면이 장착 장비 칸을 숨기게 된 뒤**(2026-09-08, `src/inventory`) 생겼다. 그 전에는
+> `equipGun` 이 곧바로 `.inv-slot-primary` 를 밝혔는데, 작업대가 열린 화면에는 그 칸이 아예 없었다.
+> 이제 ① 제작 창을 닫고 ② 가방 → 주무기 칸으로 끌어다 놓는 두 단계로 갈라져 있다.
+>
+> `equipGun` · `stowAmmo` 는 **합집합 포커싱**(`StepDef.spotUnion`)을 쓴다 — 드래그는 **두 패널에 걸친 동작**이라
+> 도착점 하나만 밝히면 집을 곳이 어두운 판 아래 깔려 손이 묶인다. 구멍은 언제나 사각형 하나이므로 맞닿은 것들만
+> 넘긴다: `equipGun` 은 `.inv-equip` + `.inv-panel-bag`(−24 px 이음매로 실제로 붙어 있다), `stowAmmo` 는
+> `.inv-panel-stash` + `.inv-panel-bag`.
 
 > `generator` 는 **시설 증축의 전제 조건**이다. 이 단계가 없던 동안에는 발전기 Lv.0 인 새 함선에서
 > 작업실 행이 바로 포커싱되고 발전기 게이트에 막혀 **진행 자체가 불가능**했다 (2026-09-08 수정).

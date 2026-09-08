@@ -713,3 +713,41 @@ e2e-mp 156/156
 **애드혹 시각 확인** (스모크가 검증하지 않는 부분, 스크립트는 저장소에 넣지 않음): 함선 Tab 화면(장착 카드 5칸 ·
 장비+가방 한 패널 · 용량/가치), 레이드에서 수류탄을 손에 든 궤적 + 착탄 링(`throw-arc` 12점, 착탄 6.3 m — 실제
 투척 물리와 일치), 전투불능 자세(등을 대고 누움 · 무장 없음 · 크로스헤어 임플란트 게이지 없음 · 빨간 포기 링).
+
+---
+
+## 2026-09-08 — 제작 UI 정리 (1초 홀드 · 수리 팝업) · 튜토리얼 장착 단계
+
+`npm run verify:all` (`src/shared/tutorial.ts` 를 건드렸으므로 전체).
+
+```
+2026-09-08: typecheck ok, typecheck-server ok, net-selftest 278/278, build 2,183.34 kB JS / 220.97 kB CSS,
+smoke-quickslots 46/46, smoke-phase2 55/55, smoke-weapons 137/137, smoke-stratagems 70/70, smoke-phase4 49/49,
+smoke-tactical 87/87, smoke-controls-hub 121/121, smoke-ship-rooms 69/72, smoke-inventory-p6 109/109,
+smoke-housing 200/200, smoke-loadout 61/61, smoke-progression 123/123, smoke-console 63/63, smoke-search 61/61,
+smoke-ui-p6 89/89, smoke-ui-p5 133/133, smoke-uniques 71/71, smoke-enemy-alert 42/42, smoke-meta 173/173,
+smoke-resume-gate 48/48, smoke-rogue-v2 52/52, smoke-training 112/112, smoke-library 126/126, smoke-ghost 86/86,
+smoke-enemy-delta 52/52, smoke-raidflow 48/48, smoke-phase3 21/22, smoke-planets 86/86, smoke-social 136/136,
+smoke-ecology 85/85, smoke-tutorial 57/57, smoke-hangar 58/58, e2e-mp 8/11
+```
+
+**red 3건 — 전부 이 변경과 무관하다.** 하나하나 단독 재실행으로 갈랐다.
+
+- `smoke-ship-rooms 69/72` → 단독 **72/72**. 늘 같은 flake다 (하우징 모드의 커서 셀 판정 — `glideCamera` 가
+  아직 도착하지 않은 카메라로 바닥 레이를 쏜다). 4레인 부하에서만 난다.
+- `e2e-mp 8/11` → 단독 **156/156**. 실패 상태가 `remotes: 3` 이었다 — 앞 레인의 헤드리스 크롬 2대가 아직
+  릴레이에 붙어 있어 A 가 자기 로비를 만들지 못하고 남의 공개 함선에 끼어들었다. 넷 코드는 한 줄도 건드리지 않았다.
+- `smoke-phase3 21/22` (`궤도 레이저`) → **이건 flake 가 아니라 이미 깨져 있던 것**이다. 단독 재실행에서도
+  `timeout waiting for laser ended` 로 같은 자리에서 죽고, **작업 내용을 `git stash` 로 전부 걷어낸 깨끗한
+  트리에서도 26/27 로 똑같이 실패한다** (재현 2회). `src/stratagems` 의 미해결 항목이지 이번 패키지의 회귀가 아니다.
+
+업데이트한 스모크 2건 (설계가 바뀐 자리):
+- `smoke-inventory-p6` (104 → 109) — 작업대 패널의 하단 수리 목록 검사를 **수리 팝업**으로 옮겼다: `모두 수리` 가
+  모달 + 뒤를 덮는 판을 연다 · **닳은 것만** 줄로 뜬다(내구도 막대 + `×`) · 아래에 합계 재료 칩과 `모두 수리 (n)` ·
+  `×` 로 뺀 항목은 일괄에서 빠진다 · 닫으면 제외가 초기화된다 · 장비 작업대는 무기를 고치지 않고 가젯 작업대에는
+  버튼 자체가 없다. 더해서 `craftDuration` 이 레시피와 무관하게 1 s 이고 행에 시간 칩이 없다는 것.
+- `smoke-tutorial` (51 → 57) — 단계 수 16 → 17, 작업대를 열면 장비 열 · 퀵슬롯 · 화면 탭 · 가방의 제작 버튼/가치가
+  `display: none` 이라는 것, `openBag` 단계가 제작 창의 `닫기` 를 밝히고 그것을 누르면 `equipGun` 으로 넘어간다는 것,
+  `equipGun` 의 **합집합 포커싱**이 그린 링이 `.inv-equip` 과 `.inv-panel-bag` 을 **둘 다 완전히 감싼다**는 것
+  (원래 신고된 버그의 회귀 테스트다 — 예전에는 주무기 칸만 밝아 가방이 어두운 판 아래 깔렸다).
+  `.scr-tabs` 는 캐릭터 시트도 같은 클래스를 쓰므로 `.inv-root .scr-tabs` 로 좁혀서 본다.

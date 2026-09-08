@@ -486,11 +486,14 @@ export class InventorySystem implements GameSystem, InventoryRef {
   /** Rows for the craft panel: available recipes, then (bench mode) the bench's recipes above its level as locked. */
   getBenchRecipes(): BenchRecipeRow[] { return Craft.getBenchRecipes(this); }
 
-  /** Gear the active bench repairs: gun → weapons (slots + bag), gear → armor + bags, others none. Items without durability are skipped. */
-  benchRepairRows(): BenchRepairRow[] { return Craft.benchRepairRows(this); }
+  /**
+   * Gear the active bench repairs: gun → weapons (slots + bag), gear → armor + bags, others none. Items without
+   * durability are skipped. `wornOnly` (2026-09-08, the 수리 팝업 default) drops the rows already at full durability.
+   */
+  benchRepairRows(wornOnly = false): BenchRepairRow[] { return Craft.benchRepairRows(this, wornOnly); }
 
-  /** `모두 수리`: every worn row in order while the materials last. */
-  benchRepairAll(): { done: number; skipped: number } { return Craft.benchRepairAll(this); }
+  /** `모두 수리`: every worn row in order while the materials last. `skip` = uids the 팝업 excluded with ×. */
+  benchRepairAll(skip?: ReadonlySet<string>): { done: number; skipped: number } { return Craft.benchRepairAll(this, skip); }
 
   /**
    * Recipes for a station given the current skills. Field: `station: 'field'` recipes only. Ship: field recipes
@@ -523,7 +526,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
 
   canCraft(recipeId: string): boolean { return Craft.canCraft(this, recipeId); }
 
-  /** Seconds one craft takes right now (recipe duration scaled by 제작 skill and 재주). */
+  /** Seconds the 제작 / 분해 button is held — the same `CRAFT_HOLD_TIME` for every recipe (2026-09-08). */
   craftDuration(recipeId: string): number { return Craft.craftDuration(this, recipeId); }
 
   /**

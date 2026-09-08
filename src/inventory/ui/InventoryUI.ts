@@ -7,6 +7,7 @@ import { LOADOUT_SLOTS, isArmorDef, isAttachmentDef, isBagDef, isWeaponDef, type
 import { CraftPanel } from './CraftPanel';
 import { CatalogView } from './CatalogView';
 import { DisassemblePanel } from './DisassemblePanel';
+import { RepairPanel } from './RepairPanel';
 import { ImplantPanel } from './ImplantPanel';
 import { filledSocketCount } from '../Sockets';
 import { isQuickUsable } from '../QuickSlots';
@@ -40,6 +41,8 @@ export class InventoryUI {
   /** Right-hand column wrapper (`display: contents` normally): while 제작 is open it stacks 가방 over 함선 창고. */
   private rightCol!: HTMLElement;
   disassemble!: DisassemblePanel;
+  /** 2026-09-08: 작업대 헤더의 `모두 수리` 가 여는 모달 팝업 (수리 목록은 더 이상 제작 패널 아래에 없다). */
+  repair!: RepairPanel;
   /** 2026-09-08: 전술 임플란트 + 임플란트 아이템, under 장착 장비 (moved here from the 캐릭터 시트). */
   implantPanel!: ImplantPanel;
   creditsEl!: HTMLElement;
@@ -201,7 +204,7 @@ export class InventoryUI {
     bActions.className = 'inv-head-actions';
     const craftBtn = document.createElement('button');
     craftBtn.type = 'button';
-    craftBtn.className = 'inv-btn';
+    craftBtn.className = 'inv-btn inv-bag-craft';
     craftBtn.textContent = TEXT.craft;
     craftBtn.addEventListener('click', () => this.toggleCraft());
     bActions.append(this.bagCapacity, craftBtn);
@@ -237,7 +240,7 @@ export class InventoryUI {
     wTrack.appendChild(this.weightFill);
     this.weightEl.append(wRow, wTrack);
     bPanel.append(bHead, bBody, this.weightEl, bFoot);
-    this.craftPanel = new CraftPanel(this.sys, getDef, () => this.closeCraft());
+    this.craftPanel = new CraftPanel(this.sys, getDef, () => this.closeCraft(), (anchor) => this.repair.open(anchor));
 
     /* equipment column */
     const eq = document.createElement('aside');
@@ -286,7 +289,8 @@ export class InventoryUI {
       // Phase 12: the 분해 게이지 reports its hold (≤ 30 Hz, once with done:true, {t:0} on a cancel)
       this.ctx.bus.emit('inventory:disassembleProgress', { uid, t, done });
     });
-    this.modelessLayer.append(this.disassemble.el);
+    this.repair = new RepairPanel(this.sys, getDef);
+    this.modelessLayer.append(this.disassemble.el, this.repair.el);
 
     /* hints (mission only; the ship screen has nothing to throw away and its keys are on the slots) */
     this.hintsEl = document.createElement('div');
@@ -385,8 +389,9 @@ export class InventoryUI {
     const a = this.dialog?.close() ?? false;
     const b = this.menu?.close() ?? false;
     const d = this.disassemble?.close() ?? false;
+    const r = this.repair?.close() ?? false;
     const f = this.implantPanel?.closePickers() ?? false;   // 2026-09-08: 임플란트 피커도 Escape 한 번을 먹는다
-    return a || b || d || f;
+    return a || b || d || f || r;
   }
 
   show(container: Container | null, hub = false): void {
@@ -452,6 +457,7 @@ export class InventoryUI {
     this.screenView = null;
     this.craftPanel?.dispose();
     this.disassemble?.dispose();
+    this.repair?.dispose();
     this.implantPanel?.dispose();   // the two pickers are `ctx.uiRoot` children — they must go with the window
     this.tooltip.dispose();
     this.root?.remove();
@@ -524,6 +530,7 @@ export class InventoryUI {
     this.implantPanel.refresh();
     this.craftPanel.refresh();
     if (this.disassemble.isOpen) this.disassemble.refresh();
+    if (this.repair.isOpen) this.repair.refresh();
     // Phase 8: an embedded 캐릭터 / 기업 / 함선 view repaints from its own state whenever the window does
     if (this.screenView) { try { this.screenView.refresh(); } catch (e) { console.warn('[inventory] screen refresh failed', e); } }
   }

@@ -1,7 +1,7 @@
-import type { CraftRecipe, ItemDef, LoadoutSlot } from '@/shared';
+import type { CraftRecipe, ItemDef } from '@/shared';
 import { WORKBENCH_LABEL_KO, renderItemCost } from '@/shared';
-import type { BenchRecipeRow, BenchRepairRow, InventorySystem } from '../InventorySystem';
-import { SLOT_LABEL, TEXT, fmtSeconds } from './labels';
+import type { BenchRecipeRow, InventorySystem } from '../InventorySystem';
+import { TEXT } from './labels';
 
 interface RowView {
   recipe: CraftRecipe;
@@ -25,11 +25,18 @@ interface RowView {
  *
  * Normal mode: recipes filtered by station (`field` on a mission, `ship` in the hub) and by the crafting /
  * medicine / gardening skill. **Bench mode** (Phase 6, `sys.getBench()` set): title `WORKBENCH_LABEL_KO[kind] Lv.n`,
- * recipes from `getRecipes('ship', kind, level)` plus **locked rows** for recipes of that bench above its level,
- * material costs scaled by the workshop discount (`sys.craftCost`), and a **repair list** underneath (gun bench:
- * weapons; gear bench: armor + bags) using `sys.repair(uid)` with the same cost readout as the ship workbench.
+ * recipes from `getRecipes('ship', kind, level)` plus **locked rows** for recipes of that bench above its level, and
+ * material costs scaled by the workshop discount (`sys.craftCost`).
  * Crafting is *hold to craft*: pressing the button starts `InventorySystem.craft()` and releasing before it
- * finishes cancels it, exactly like a world hold-interaction. The hold time already includes 제작 skill and 재주.
+ * finishes cancels it, exactly like a world hold-interaction.
+ *
+ * **2026-09-08 (제작 UI 정리)** — three cuts, all the same complaint: this panel is for *making things*.
+ *  - The hold is `CRAFT_HOLD_TIME` (1 s) for **every** recipe and the `2.0 s` 시간 칩 is gone. The press is a grace
+ *    period before the materials are spent, not a simulation of work — a 돌격소총 was a 6-second press before.
+ *  - The **수리 목록 underneath is gone**. `모두 수리` moved into the header (left of 닫기) and opens the modal
+ *    `RepairPanel`; a single item is repaired from its right-click menu.
+ *  - While the panel is open the window hides 장착 장비 · 퀵슬롯 · 화면 탭 · 가방 헤더의 제작/가치
+ *    (`.inv-root.is-craft`, see `parts/Screens.setCraftOpen`) — none of it has anything to do with a recipe list.
  *
  * **2026-09-08 (튜토리얼)**: a recipe `ctx.tutorial.hides('craft', id)` refuses is **left out of the list** rather
  * than drawn with a "튜토리얼에서는 ~" reason — during the guided steps the bench shows exactly the one recipe the
@@ -44,12 +51,8 @@ export class CraftPanel {
   private stationEl: HTMLElement;
   private discountEl: HTMLElement;
   private closeBtn: HTMLButtonElement;
-  private repairEl: HTMLElement;
-  private repairList: HTMLElement;
-  private repairEmpty: HTMLElement;
-  private repairAllBtn: HTMLButtonElement;
-  private repairMsg: HTMLElement;
-  private repairMsgTimer: number | null = null;
+  /** `ëª¨ë ìë¦¬` â ìë¦¬ë¥¼ íë ììë(íê¸° Â· ì¥ë¹)ììë§ ë³´ì¸ë¤. */
+  private repairBtn: HTMLButtonElement;
   private rows: RowView[] = [];
   private sig = '';
   private holding: string | null = null;
@@ -60,6 +63,8 @@ export class CraftPanel {
     private readonly getDef: (id: string) => ItemDef | undefined,
     /** Phase 8: the 닫기 button outside bench mode (the window closes the modeless popup). */
     private readonly onClose: () => void = () => {},
+    /** 2026-09-08: the header's `모두 수리` — the window opens the `RepairPanel` popup anchored on that button. */
+    private readonly onRepair: (anchor: HTMLElement) => void = () => {},
   ) {
     this.el = document.createElement('section');
     this.el.className = 'inv-panel inv-panel-craft';
@@ -80,6 +85,13 @@ export class CraftPanel {
     this.discountEl = document.createElement('div');
     this.discountEl.className = 'inv-capacity inv-craft-discount';
     this.discountEl.hidden = true;
+    // 2026-09-08: 수리는 패널 하단의 목록이 아니라 헤더의 이 버튼(닫기 왼쪽) → 모달 팝업
+    this.repairBtn = document.createElement('button');
+    this.repairBtn.type = 'button';
+    this.repairBtn.className = 'inv-btn inv-repair-open';
+    this.repairBtn.textContent = TEXT.bench.repairAll;
+    this.repairBtn.hidden = true;
+    this.repairBtn.addEventListener('click', () => this.onRepair(this.repairBtn));
     this.closeBtn = document.createElement('button');
     this.closeBtn.type = 'button';
     this.closeBtn.className = 'inv-btn inv-craft-close';
@@ -87,7 +99,7 @@ export class CraftPanel {
     this.closeBtn.addEventListener('click', () => {
       if (this.sys.getBench()) this.sys.closeBench(); else this.onClose();
     });
-    actions.append(this.discountEl, this.closeBtn);
+    actions.append(this.discountEl, this.repairBtn, this.closeBtn);
     head.append(titles, actions);
 
     this.listEl = document.createElement('div');
@@ -96,32 +108,7 @@ export class CraftPanel {
     this.emptyEl.className = 'inv-craft-empty';
     this.emptyEl.textContent = TEXT.craftNone;
 
-    /* repair list (bench mode only) */
-    this.repairEl = document.createElement('div');
-    this.repairEl.className = 'inv-craft-repair';
-    this.repairEl.hidden = true;
-    const rHead = document.createElement('div');
-    rHead.className = 'inv-craft-repair-head';
-    const rTitle = document.createElement('div');
-    rTitle.className = 'inv-eyebrow';
-    rTitle.textContent = TEXT.bench.repairTitle;
-    this.repairAllBtn = document.createElement('button');
-    this.repairAllBtn.type = 'button';
-    this.repairAllBtn.className = 'inv-btn inv-repair-all';
-    this.repairAllBtn.textContent = TEXT.bench.repairAll;
-    this.repairAllBtn.addEventListener('click', () => this.repairAll());
-    rHead.append(rTitle, this.repairAllBtn);
-    this.repairList = document.createElement('div');
-    this.repairList.className = 'inv-repair-list';
-    this.repairEmpty = document.createElement('div');
-    this.repairEmpty.className = 'inv-craft-empty';
-    this.repairEmpty.textContent = TEXT.bench.repairNone;
-    this.repairMsg = document.createElement('div');
-    this.repairMsg.className = 'inv-repair-msg';
-    this.repairMsg.hidden = true;
-    this.repairEl.append(rHead, this.repairList, this.repairEmpty, this.repairMsg);
-
-    this.el.append(head, this.listEl, this.emptyEl, this.repairEl);
+    this.el.append(head, this.listEl, this.emptyEl);
     this.el.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
@@ -130,7 +117,7 @@ export class CraftPanel {
   setOpen(open: boolean): void {
     if (this.el.hidden === !open) return;
     this.el.hidden = !open;
-    if (!open) { this.release(); this.hideMsg(); }
+    if (!open) this.release();
     else { this.sig = ''; this.refresh(); }
   }
 
@@ -160,8 +147,8 @@ export class CraftPanel {
     }
     this.emptyEl.hidden = recipes.length > 0;
     this.paint();
-    this.paintRepairs(bench ? this.sys.benchRepairRows() : []);
-    this.repairEl.hidden = !bench || (bench.kind !== 'gun' && bench.kind !== 'gear');
+    // `모두 수리` 버튼은 수리를 하는 작업대에서만 (가젯 · 의료 작업대는 고칠 게 없다)
+    this.repairBtn.hidden = !bench || (bench.kind !== 'gun' && bench.kind !== 'gear');
   }
 
   private build(recipes: readonly BenchRecipeRow[]): void {
@@ -228,11 +215,8 @@ export class CraftPanel {
 
       // Phase 8: thumbnail chips with 보유/필요 at the bottom right (dimmed + red 보유 when short)
       renderItemCost(row.costsEl, this.sys.craftCost(row.recipe), this.getDef, (id) => this.sys.countWhere((d) => d.id === id), { size: 30 });
-      row.inputsEl.querySelector('.inv-craft-chip.is-time')?.remove();
-      const time = document.createElement('span');
-      time.className = 'inv-craft-chip is-time';
-      time.textContent = fmtSeconds(this.sys.craftDuration(row.recipe.id));
-      row.inputsEl.appendChild(time);
+      // 2026-09-08: the `2.0 s` 시간 칩 is gone — every recipe holds for the same `CRAFT_HOLD_TIME` now, so there was
+      //   nothing left to tell apart. The button's own fill is the readout.
 
       const active = job?.recipeId === row.recipe.id;
       row.el.classList.toggle('is-crafting', active);
@@ -240,88 +224,6 @@ export class CraftPanel {
       const label = row.button.querySelector('span');
       if (label) label.textContent = active ? TEXT.craftMaking : TEXT.craftHold;
     }
-  }
-
-  /* ── repair list (bench mode) ─────────────────────────────────────────── */
-
-  private paintRepairs(rows: readonly BenchRepairRow[]): void {
-    this.repairList.replaceChildren();
-    this.repairEmpty.hidden = rows.length > 0;
-    let anyAffordable = false;
-    for (const r of rows) {
-      const max = Math.max(1, r.dur.max);
-      const cur = Math.max(0, Math.min(max, r.dur.durability));
-      const frac = cur / max;
-      const needs = cur < max;
-      const canPay = needs && !r.short;
-      anyAffordable ||= canPay;
-
-      const row = document.createElement('div');
-      row.className = `inv-repair-row${cur <= 0 ? ' is-broken' : ''}${!needs ? ' is-full' : ''}`;
-      row.dataset.uid = r.uid;
-      const where = document.createElement('div');
-      where.className = 'inv-repair-slot';
-      where.textContent = r.where ? SLOT_LABEL[r.where as LoadoutSlot] : TEXT.bag;
-      const mid = document.createElement('div');
-      mid.className = 'inv-repair-mid';
-      const name = document.createElement('div');
-      name.className = 'inv-repair-name';
-      name.textContent = cur <= 0 ? `${r.def.name} · ${TEXT.broken}` : r.def.name;
-      const bar = document.createElement('div');
-      bar.className = `inv-repair-bar ${frac > 0.5 ? 'ok' : frac > 0.2 ? 'warn' : 'low'}`;
-      const fill = document.createElement('i');
-      fill.style.width = `${Math.round(frac * 100)}%`;
-      bar.appendChild(fill);
-      const text = document.createElement('div');
-      text.className = 'inv-repair-dur';
-      text.textContent = `${Math.round(cur)} / ${Math.round(max)}`;
-      mid.append(name, bar, text);
-      const cost = document.createElement('div');
-      cost.className = `inv-repair-cost${r.short && needs ? ' is-short' : ''}`;
-      if (!needs) cost.textContent = TEXT.bench.repairDone;
-      else {
-        // Phase 8: the same item chips as the recipe rows (`have` comes straight off the row)
-        const have = new Map(r.cost.map((c) => [c.defId, c.have]));
-        renderItemCost(cost, r.cost, this.getDef, (id) => have.get(id) ?? 0, { size: 28 });
-      }
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'inv-btn inv-repair-btn';
-      btn.textContent = TEXT.bench.repairBtn;
-      btn.disabled = !canPay;
-      btn.title = !needs ? TEXT.bench.repairDone : canPay ? '' : TEXT.bench.repairShort;
-      btn.addEventListener('click', () => this.repairOne(r.uid));
-      row.append(where, mid, cost, btn);
-      this.repairList.appendChild(row);
-    }
-    this.repairAllBtn.disabled = !anyAffordable;
-  }
-
-  private repairOne(uid: string): void {
-    const ok = this.sys.repair(uid);
-    this.sys.sfx(ok ? 'ui_equip' : 'ui_error');
-    this.showMsg(ok ? TEXT.bench.repairOk : TEXT.bench.repairFail, ok ? 'ok' : 'bad');
-    this.refresh();
-  }
-
-  private repairAll(): void {
-    const { done, skipped } = this.sys.benchRepairAll();
-    this.sys.sfx(done > 0 ? 'ui_equip' : 'ui_error');
-    this.showMsg(TEXT.bench.repairAllResult(done, skipped), done > 0 ? 'ok' : 'bad');
-    this.refresh();
-  }
-
-  private showMsg(text: string, kind: 'ok' | 'bad'): void {
-    this.repairMsg.textContent = text;
-    this.repairMsg.className = `inv-repair-msg is-${kind}`;
-    this.repairMsg.hidden = false;
-    if (this.repairMsgTimer !== null) clearTimeout(this.repairMsgTimer);
-    this.repairMsgTimer = window.setTimeout(() => this.hideMsg(), 3000);
-  }
-
-  private hideMsg(): void {
-    if (this.repairMsgTimer !== null) { clearTimeout(this.repairMsgTimer); this.repairMsgTimer = null; }
-    this.repairMsg.hidden = true;
   }
 
   /* ── hold to craft ────────────────────────────────────────────────────── */
@@ -349,7 +251,6 @@ export class CraftPanel {
 
   dispose(): void {
     this.release();
-    this.hideMsg();
     this.el.remove();
   }
 }
