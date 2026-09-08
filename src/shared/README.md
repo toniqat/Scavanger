@@ -634,6 +634,14 @@ Plan: `docs/DECISIONS.md`. Everything below is append-only; owners in brackets.
   `constants.ts` `SALVAGE_NODES_PER_MISSION` (7) · `SALVAGE_INTERACT_TIME` (3).
   전부 선택 필드 / 선택 인자라 기존 호출부와 저장 데이터는 그대로 동작한다.
 
+- **2026-09-08 (커서 되찾기 경합)** — `Input.requestPointerLock()` 이 **우리가 방금 부른 `exitPointerLock()` 이 아직
+  착지하지 않은 사이**에 오면 그 요청을 들고 있다가 `pointerlockchange` 에서 다시 쏜다 (`relockPending`).
+  브라우저는 `pointerLockElement` 를 **task** 에서 지우는데 화면들의 재락은 **microtask** 라, 한 tick 안에서
+  화면이 떴다 사라지면(예: 훈련장 종료가 지나가는 `phase 'menu'` → 타이틀 메뉴가 커서를 잡았다 놓는다)
+  요청이 `isPointerLocked === true` 를 보고 조용히 사라졌다 — 함선에 돌아왔는데 카메라가 죽고 Escape(=일시정지)
+  말고는 할 수 있는 게 없던 상태의 원인. 판정은 `selfExit && isPointerLocked` 둘 다 볼 때만 미룬다 (동기적으로
+  지우는 엔진과 이벤트를 쏘지 않는 헤드리스 스텁은 예전 경로 그대로).
+
 - **Phase 6 (2026-09-06)** — `console.ts` (`ConsoleRef`, `isDevHost`), `housing.ts` (rooms / facilities / `FURNITURE_DEFS` / `HousingRef`), unique-weapon + stat-XP + housing constants — see the last section of `src/shared/README.md`
 
 - **Phase 7** — `profile.ts` (`ProfileRef` = `ctx.net.profile`, `ProfileRecord`, `RaidSessionBlob`), `labels.ts` (rarity / category labels + palette, re-exported by items), `MissionMode` / `ctx.missionMode` / `ctx.rejoinPending` / `isTraining()`, ghost · container · beam wire types, `PlayerFlags` pose bits, `DamageMessage.kb`, `ContractSettlement.outcome`, `furn_sim_hub`, `BEHEMOTH_SCALE` 3 — see the last section of `src/shared/README.md`

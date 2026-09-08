@@ -1,5 +1,5 @@
-import type { GameContext, ItemDef } from '@/shared';
-import { CATEGORY_ICON, CATEGORY_LABEL_KO, RARITY_COLORS, RARITY_LABEL_KO, formatCredits, itemCreditValue } from '@/shared';
+import type { GameContext, ItemDef, StatId } from '@/shared';
+import { CATEGORY_ICON, CATEGORY_LABEL_KO, PERK_DEFS, RARITY_COLORS, RARITY_LABEL_KO, formatCredits, itemCreditValue } from '@/shared';
 import { el, setText } from '../dom';
 
 /**
@@ -15,6 +15,9 @@ import { el, setText } from '../dom';
  *
  * Only `ItemDef` data is shown (name · 분류 · 등급 · 설명 + the def's own numbers + 보유 from bag + stash): a chip has
  * no `ItemInstance`, so there is no durability / socket / loaded-ammo section like `inventory/ui/Tooltip` has.
+ *
+ * 2026-09-08: an `implant` def also lists 장착칸 · 퍽 · 능력치 (· 상태 when broken) — the inventory's 임플란트 칸
+ * is a row of square thumbnails now, so this card is where an equipped implant's numbers are read.
  *
  * Phase 10: 가치 left the stats table for a **bottom bar** (`.it-value`, label left / amount right-aligned) rendered
  * with the one credit formatter — `formatCredits(itemCreditValue(def))`, i.e. `1,200 C` (the old `cr` suffix is gone).
@@ -127,6 +130,17 @@ export class ItemTip {
     if (def.seed) rows.push(['재배 시간', `${def.seed.growHours} 시간`]);
     if (def.healAmount) rows.push(['회복', `+${def.healAmount} HP`]);
     if (def.bag) rows.push(['가방', `${def.bag.cols} × ${def.bag.rows} · 퀵 ${def.bag.quickSlots}`]);
+    // 2026-09-08: 임플란트 — 인벤토리의 임플란트 칸이 세로 목록에서 정사각 썸네일 줄로 바뀌면서 (이름 · 퍽 ·
+    //   능력치가 카드에서 빠졌다) 그 정보가 사는 곳이 이 카드가 됐다.
+    const imp = def.implant;
+    if (imp) {
+      rows.push(['장착칸', `${imp.slots}`]);
+      const perk = imp.perk ? PERK_DEFS[imp.perk] : null;
+      if (perk) rows.push(['퍽', perk.name]);
+      const stats = this.statLine(imp.stats);
+      if (stats) rows.push(['능력치', stats]);
+      if (imp.broken) rows.push(['상태', '망가짐 — 세레스 바이오에서 수리']);
+    }
     if (def.weight !== undefined) rows.push(['무게', `${def.weight.toFixed(1)} kg`]);
     if (def.stackMax > 1) rows.push(['최대 묶음', `${def.stackMax}`]);
     rows.push(['크기', `${def.width} × ${def.height}`]);
@@ -139,6 +153,19 @@ export class ItemTip {
     setText(this.valueAmount, formatCredits(itemCreditValue(def)));
     this.root.hidden = false;
     this.visible = true;
+  }
+
+  /** `근력 +2 · 재주 +1` for an implant's stat bonuses (empty when it has none). */
+  private statLine(stats: Partial<Record<StatId, number>> | undefined): string {
+    if (!stats) return '';
+    const parts: string[] = [];
+    for (const [id, v] of Object.entries(stats) as Array<[StatId, number | undefined]>) {
+      if (typeof v !== 'number' || v === 0) continue;
+      let name: string = id;
+      try { name = this.ctx?.progression?.getStatDef(id)?.name ?? id; } catch { /* skeleton */ }
+      parts.push(`${name} ${v > 0 ? '+' : ''}${v}`);
+    }
+    return parts.join(' · ');
   }
 
   private move(x: number, y: number): void {

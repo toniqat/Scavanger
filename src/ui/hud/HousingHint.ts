@@ -7,7 +7,7 @@ import { el, setText, toggleClass } from '../dom';
  * is hidden. Shown on `housing:modeChanged {active:true}`, hidden on `active:false` / `game:newMission` / `game:abort`.
  *
  * Phase 9 UI pass — the bar carries **only the placement key hints** now:
- *   • `.housing-hint` (bottom centre) — `LMB 설치 · R 회전 · X 회수 · 휠 선택 · C 취소`, every label read live from the
+ *   • `.housing-hint` (bottom centre) — `LMB 설치 · R 회전 · X 회수 · 휠 선택 · C · Esc 취소`, every label read live from the
  *     bindings (`keyLabel`, refreshed on `input:bindingsChanged`; `C` is a fixed key owned by hub/HousingMode).
  *     The old 가구 / 셀 rows are gone: the selected piece is highlighted in the right-hand 시설 관리 panel and the
  *     ghost is already green / red under the cursor, so repeating both in text was noise.
@@ -58,7 +58,7 @@ export class HousingHint {
     // `C` is a fixed cancel key owned by hub/HousingMode (Phase 8) — not a rebindable action, so it is printed
     // literally while every other hint reads its live binding. Esc lives in the bottom-right 종료 chip.
     setText(this.keysEl,
-      `${keyLabel(Keys.FIRE)} 설치 · ${keyLabel(Keys.ROTATE_ITEM)} 회전 · ${keyLabel(Keys.DROP_ITEM)} 회수 · 휠 선택 · C 취소`);
+      `${keyLabel(Keys.FIRE)} 설치 · ${keyLabel(Keys.ROTATE_ITEM)} 회전 · ${keyLabel(Keys.DROP_ITEM)} 회수 · 휠 선택 · C · Esc 취소`);
     setText(this.exitKey, keyLabel(Keys.MAP));
   }
 

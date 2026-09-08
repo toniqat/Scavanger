@@ -25,6 +25,9 @@ interface MateRow {
  *     name and `p / t` with its own thin bar. The block hides itself when nobody else has one, so a solo raid looks
  *     exactly as it did before.
  *
+ * The panel is never shown in the **시뮬레이션 훈련장** (`ctx.missionMode === 'training'`, 2026-09-08) — the
+ * range is not a raid, so a contract accepted back at the ship has no business on that HUD.
+ *
  * The panel as a whole is hidden on settlement / abandon, `game:abort`, and every non-mission phase; the gameplay
  * layer itself hides it in the hub. Since the squad list moved to the bottom-left this is the only thing under the
  * objective, so the two no longer overlap.
@@ -45,6 +48,8 @@ export class ContractPanel {
   private lastFill = -1;
   /** A `meta:squadContract` arrived (or the mission changed) — repaint the rows on the next frame. */
   private mateDirty = true;
+  /** Bound in `bind` so `applyShow` can ask the mission mode without a parameter on every call path. */
+  private ctx: GameContext | null = null;
   private unsubs: Array<() => void> = [];
 
   constructor(parent: HTMLElement) {
@@ -67,9 +72,10 @@ export class ContractPanel {
   }
 
   bind(ctx: GameContext): void {
+    this.ctx = ctx;
     const b = ctx.bus;
     this.unsubs.push(
-      b.on('world:ready', () => { this.fromMeta(ctx); this.mateDirty = true; }),
+      b.on('world:ready', () => { this.fromMeta(ctx); this.mateDirty = true; this.applyShow(); }),
       b.on('meta:contractProgress', ({ id, goal, progress, target }) => {
         const def = CONTRACT_DEFS.find((d) => d.id === id);
         this.set(def?.name ?? id, goal, progress, target);
@@ -128,7 +134,10 @@ export class ContractPanel {
   }
 
   private applyShow(): void {
-    const show = this.mine || this.mateCount > 0;
+    // 2026-09-08: 시뮬레이션 훈련장에는 계약이 없다 — 함선 안에서 받아 둔 계약이 사격 연습 화면에 따라 붙던
+    //   것을 여기서 끊는다 (진행도 자체는 meta/ 가 훈련장에서 올리지 않는다; 이건 표시만).
+    const training = this.ctx?.missionMode === 'training';
+    const show = !training && (this.mine || this.mateCount > 0);
     if (show === this.showing) return;
     this.showing = show;
     toggleClass(this.root, 'show', show);

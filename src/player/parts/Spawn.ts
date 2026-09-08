@@ -105,10 +105,13 @@ export function restoreState(sys: PlayerSystem, state: PlayerRestoreState): void
   bus.emit('player:spawned', { position: sys.controller.position.clone() });
   }
 
-/** Re-drop at `position` like at mission start (hellpod, full hp, alive, not downed). `player:respawn` → here. */
+/**
+ * Re-drop at `position` like at mission start (hellpod, full hp, alive, not downed). `player:respawn` → here.
+ * 2026-09-08: **훈련장에서는 헬포드가 없다** — 시뮬레이션 방에 하늘이 없는 것은 진입이나 재시작이나 같다.
+ */
 export function respawn(sys: PlayerSystem, position: THREE.Vector3): void {
   sys.respawnAt(sys.resolveSpawn(position));
-  sys.startDrop();
+  if (sys.ctx.missionMode !== 'training') sys.startDrop();
   }
 
 /**

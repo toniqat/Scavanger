@@ -11,8 +11,11 @@ import type { InventorySystem } from '../InventorySystem';
  *
  *   • **전술 임플란트** — Q 로 쓰는 6종 중 하나. 슬롯 카드 하나를 누르면 모달리스 피커(`.inv-imp-pop`)가 뜨고
  *     카드를 고르면 `ctx.implants.setEquipped` 로 장착된다. 레이드 중에는 잠긴다.
- *   • **임플란트 아이템** — `ItemDef.implant` 를 가진 아이템. `임플란트 n / m칸` + 핍 줄, 장착한 것 한 줄씩
- *     (클릭 = 해제), `+ 장착` 이 두 번째 피커(`.inv-impi-pop`)를 띄운다. 가방 + 함선 창고를 훑어 후보를 만든다.
+ *   • **임플란트 아이템** — `ItemDef.implant` 를 가진 아이템. `임플란트 n / m칸` + 핍 줄, 그 아래에 장착한 것들이
+ *     **정사각 썸네일 가로 나열**(`.inv-impi-cell`, 클릭 = 해제)이고 줄 끝의 `＋` 셀이 두 번째
+ *     피커(`.inv-impi-pop`)를 띄운다. 가방 + 함선 창고를 훑어 후보를 만든다.
+ *     썸네일에는 글자가 없다 — 이름 · 장착칸 · 퍽 · 능력치는 `data-item-tip` 으로 `ui/hud/ItemTip` 의 hover
+ *     카드가 말한다 (2026-09-08: 세로 카드 목록이 인벤토리 한 칸에 문단 세 줄씩을 채우고 있었다).
  *
  * 두 피커는 **`ctx.uiRoot` 의 직속 자식**이다 — `.inv-root` 의 열림 애니메이션이 `scale:` 을 남기고, 그러면
  * `position: fixed` 팝업의 컨테이닝 블록이 되어 버린다 (캐릭터 시트에서 쓰던 이유와 같다).
@@ -56,9 +59,8 @@ const ITEM_TEXT = {
   label: '임플란트',
   slots: (used: number, total: number) => `${used} / ${total}칸`,
   slotCost: (n: number) => `장착칸 ${n}`,
-  add: '+ 장착',
+  add: '＋',
   pick: '임플란트 장착',
-  none: '장착한 임플란트가 없습니다.',
   nothingToPick: '가방과 함선 창고에 임플란트가 없습니다 — 레이드에서 망가진 임플란트를 찾아 세레스 바이오에서 수리하세요.',
   raidLocked: '레이드 중에는 교체할 수 없습니다',
   shipOnly: '함선에서만 교체할 수 있습니다',
@@ -68,7 +70,6 @@ const ITEM_TEXT = {
   equipped: '장착',
   unequipped: '해제',
   failed: '장착할 수 없습니다',
-  clickToRemove: '클릭해 해제',
 };
 
 const RARITY_ORDER: readonly string[] = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
@@ -159,7 +160,8 @@ export class ImplantPanel {
     this.itemList = el('div', { cls: 'inv-impi-list', parent: block });
     this.itemMsg = el('div', { cls: 'inv-impi-msg', text: '', parent: block });
     this.itemMsg.hidden = true;
-    this.itemAdd = el('button', { cls: 'inv-btn inv-impi-add', text: ITEM_TEXT.add, parent: block, attrs: { type: 'button' } });
+    // (the `＋` cell is appended to `itemList` below so it sits at the end of the thumbnail row)
+    this.itemAdd = el('button', { cls: 'inv-impi-cell inv-impi-add', text: ITEM_TEXT.add, parent: this.itemList, attrs: { type: 'button', 'aria-label': ITEM_TEXT.pick } });
     this.itemAdd.addEventListener('click', (e) => {
       e.stopPropagation();
       if (this.itemPickerOpen) { this.closeItemPicker(); return; }
@@ -241,7 +243,8 @@ export class ImplantPanel {
     const line = el('span', { cls: 'line', parent: body });
     el('span', { cls: 'nm', parent: line });
     el('span', { cls: 'tag', parent: line });
-    el('span', { cls: 'desc', parent: body });
+    // 2026-09-08: 설명은 여기 없다 — 교체 피커(`.inv-imp-card`)의 카드에만 적는다. 장착칸은 "무엇이 끼워져
+    //   있나"만 말하면 되고, 화면에 늘 떠 있는 문단 하나가 인벤토리에서 제일 시끄러운 줄이었다.
     slot.addEventListener('click', (e) => {
       e.stopPropagation();
       if (this.tacPickerOpen) { this.closeTacPicker(); return; }
@@ -318,7 +321,6 @@ export class ImplantPanel {
     const tag = slot.querySelector<HTMLElement>('.tag')!;
     tag.hidden = !def;
     setText(tag, def ? TAC_TEXT.mode[def.mode] : '');
-    setText(slot.querySelector<HTMLElement>('.desc')!, def?.description ?? TAC_TEXT.empty);
   }
 
   private pickTactical(id: ImplantId): void {
@@ -400,23 +402,24 @@ export class ImplantPanel {
 
     const blocked = this.swapBlockReason();
     const list = prog?.getEquippedImplants() ?? [];
-    this.itemList.replaceChildren();
-    if (list.length === 0) el('div', { cls: 'inv-impi-empty', text: ITEM_TEXT.none, parent: this.itemList });
+    /*
+     * 2026-09-08 — **정사각 썸네일 가로 나열**. This was a column of wide rows carrying the name, the slot cost,
+     * the perk and the stat line; three lines of prose per implant in a panel that is one column of the inventory
+     * window. The equipped implants are items, so they are drawn the way every other item is — a square cell with
+     * `buildItemChip` — and the words live in the hover card (`data-item-tip` → `ui/hud/ItemTip`, which grew
+     * 장착칸 · 퍽 · 능력치 rows for exactly this). The `＋` cell that opens the picker closes the row.
+     */
+    for (const el0 of [...this.itemList.children]) if (el0 !== this.itemAdd) el0.remove();
     for (const e of list) {
       const def = this.itemDef(e.defId);
-      const row = el('button', { cls: 'inv-impi-row', parent: this.itemList, attrs: { type: 'button', 'data-uid': e.uid, 'data-def-id': e.defId } });
+      const row = el('button', {
+        cls: 'inv-impi-cell', attrs: { type: 'button', 'data-uid': e.uid, 'data-def-id': e.defId, 'data-item-tip': '' },
+      });
+      this.itemList.insertBefore(row, this.itemAdd);
       row.style.setProperty('--rc', RARITY_COLORS[def?.rarity ?? 'common']);
-      row.appendChild(buildItemChip(def, { size: 30 }));
-      const info = el('span', { cls: 'info', parent: row });
-      const line = el('span', { cls: 'line', parent: info });
-      el('span', { cls: 'nm', text: def?.name ?? e.defId, parent: line });
-      el('span', { cls: 'tag', text: ITEM_TEXT.slotCost(def?.implant?.slots ?? 0), parent: line });
-      const perk = def?.implant?.perk ? PERK_DEFS[def.implant.perk] : null;
-      const statLine = implantStatLine(def, (id) => this.statName(id));
-      el('span', { cls: 'meta', text: perk ? `${perk.name}${statLine ? ` · ${statLine}` : ''}` : statLine, parent: info });
-      el('span', { cls: 'act', text: blocked ?? ITEM_TEXT.clickToRemove, parent: info });
+      row.appendChild(buildItemChip(def, { size: 38 }));
+      el('span', { cls: 'cost', text: `${def?.implant?.slots ?? 0}`, parent: row });
       row.classList.toggle('is-locked', !!blocked);
-      row.title = blocked ?? `${def?.name ?? e.defId} — ${ITEM_TEXT.clickToRemove}`;
       row.addEventListener('click', (ev) => {
         ev.stopPropagation();
         const why = this.swapBlockReason();

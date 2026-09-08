@@ -279,6 +279,10 @@ credited to a peer that our client never sees (e.g. a DoT death out of range) is
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
+- **2026-09-08 (훈련장 강하 없음)** — `world:ready` 와 `player:respawn` 이 `ctx.missionMode === 'training'` 이면
+  `startDrop()` 을 부르지 않는다. 시뮬레이션 방에는 떨어질 하늘이 없다 — 시작 지점에 선 채로 시작한다
+  (페이즈는 `game/` 이 곧장 `'playing'` 으로 넘긴다).
+
 - **tactical kit** — **Alt = 구르기** (`roll()`, replaces the dive; the DIVE wire flag now means rolling), **melee swing** (`startMelee`/`isMeleeing`, weapons resolves the hit), **cloak** (`setCloak`/`isCloaked`/`getStealthFactor`, optical armor = permanent), **speed-modifier stack** (`setSpeedModifier`), `applyImpulse`, grapple pull (`setGrappleTarget`), tactical-bag hover (`setHovering`, auto-catch before a fatal fall), `isOvercharged`, **armor** damage reduction + wear (`PlayerGear.ts` caches armor / bag / weight from the inventory), 인내 grit save (`derived.gritChance`), burning DoT (`setBurning`), `maxStamina` / regen from `ctx.progression.derived` and the weight state
 
 - **Phase 6** — `teleport(pos, yaw?, snap?)` (deck/terrain snap, no hellpod), `setViewWiden` (FOV × `SLASH_FOV_MUL`, `CameraRig.fovMul`), `consumeStamina`, `startMelee('heavy')` 용검 sweep pose, `setWeaponState({charging, spraying, heavy, altFire})` poses (`altFire` suppresses ADS entirely — unique RMB)

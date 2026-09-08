@@ -1442,7 +1442,7 @@ kbd {
   font-size: 9px; letter-spacing: 0.12em; color: var(--c-text-dim);
   border: 1px solid var(--c-border); padding: 1px 5px; white-space: nowrap;
 }
-.inv-imp-slot .desc { font-size: 11px; line-height: 1.45; color: var(--c-text-dim); }
+/* 2026-09-08: `.desc` 는 장착칸에서 빠졌다 — 설명은 교체 피커의 카드(.inv-imp-card .desc)에만 있다. */
 
 /* 전술 임플란트 피커 */
 .inv-imp-pop {
@@ -1502,9 +1502,31 @@ kbd {
   transition: background-color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
 }
 .inv-impi-pips i.on { background: #e39cff; border-color: #e39cff; box-shadow: 0 0 8px rgba(227, 156, 255, 0.5); }
-.inv-impi-list { display: flex; flex-direction: column; gap: 6px; }
+/* 2026-09-08: 장착한 임플란트는 **정사각 썸네일 가로 나열**이다 (세로 카드 목록이 아니라).
+   이름 · 퍽 · 능력치는 셀에 `data-item-tip` 을 찍어 `ui/hud/ItemTip` 의 hover 카드가 대신 말한다. */
+.inv-impi-list { display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-start; }
 .inv-impi-empty { font-size: 11px; line-height: 1.45; color: var(--c-text-faint); padding: 6px 2px; }
-.inv-impi-row, .inv-impi-opt {
+.inv-impi-cell {
+  --rc: #9aa3ad;
+  position: relative; appearance: none; font: inherit; color: var(--c-text);
+  display: grid; place-items: center;
+  width: 52px; height: 52px; padding: 0; cursor: pointer;
+  border: 1px solid var(--c-border);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rc) 34%, transparent);
+  background: rgba(255, 255, 255, 0.03);
+  transition: border-color var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease);
+}
+.inv-impi-cell:hover:not(:disabled) { border-color: var(--rc); background: color-mix(in srgb, var(--rc) 14%, transparent); }
+.inv-impi-cell .item-chip { pointer-events: none; }
+.inv-impi-cell .cost {
+  position: absolute; right: 3px; bottom: 1px; pointer-events: none;
+  font-family: var(--ui-mono); font-size: 9.5px; color: var(--c-text-dim);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+}
+.inv-impi-cell.is-locked { cursor: not-allowed; opacity: 0.6; }
+.inv-impi-add { box-shadow: none; border-style: dashed; color: var(--c-text-dim); font-size: 20px; line-height: 1; }
+.inv-impi-add:hover { border-style: solid; color: var(--c-text); }
+.inv-impi-opt {
   --rc: #9aa3ad;
   appearance: none; font: inherit; text-align: left; color: var(--c-text);
   display: flex; align-items: center; gap: 10px; width: 100%;
@@ -1513,25 +1535,21 @@ kbd {
   background: rgba(255, 255, 255, 0.03);
   transition: border-color var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease);
 }
-.inv-impi-row:hover:not(:disabled), .inv-impi-opt:hover:not(:disabled) { border-color: var(--c-border-strong); background: rgba(255, 255, 255, 0.07); }
-.inv-impi-row .item-chip, .inv-impi-opt .item-chip { flex: none; pointer-events: auto; }
-.inv-impi-row .info, .inv-impi-opt .info { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
-.inv-impi-row .line, .inv-impi-opt .line { display: flex; align-items: center; gap: 6px; min-width: 0; flex-wrap: wrap; }
-.inv-impi-row .nm, .inv-impi-opt .nm { font-size: 12.5px; font-weight: 700; color: var(--rc); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.inv-impi-row .tag, .inv-impi-opt .tag {
+.inv-impi-opt:hover:not(:disabled) { border-color: var(--c-border-strong); background: rgba(255, 255, 255, 0.07); }
+.inv-impi-opt .item-chip { flex: none; pointer-events: auto; }
+.inv-impi-opt .info { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.inv-impi-opt .line { display: flex; align-items: center; gap: 6px; min-width: 0; flex-wrap: wrap; }
+.inv-impi-opt .nm { font-size: 12.5px; font-weight: 700; color: var(--rc); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inv-impi-opt .tag {
   font-size: 9px; letter-spacing: 0.12em; color: var(--c-text-dim);
   border: 1px solid var(--c-border); padding: 1px 5px; white-space: nowrap;
 }
 .inv-impi-opt .tag.rar { color: var(--rc); border-color: color-mix(in srgb, var(--rc) 55%, transparent); }
-.inv-impi-row .meta, .inv-impi-opt .meta { font-size: 10.5px; line-height: 1.4; color: var(--c-text-dim); }
-.inv-impi-row .act { font-size: 9.5px; letter-spacing: 0.1em; color: var(--c-text-faint); }
-.inv-impi-row.is-locked { cursor: not-allowed; }
-.inv-impi-row.is-locked .act { color: var(--c-danger); }
+.inv-impi-opt .meta { font-size: 10.5px; line-height: 1.4; color: var(--c-text-dim); }
 .inv-impi-msg { font-size: 11px; line-height: 1.4; color: var(--c-success); padding: 2px 2px; }
 .inv-impi-msg.is-error { color: var(--c-danger); }
-.inv-impi-add { min-width: 0; height: 30px; padding: 0 14px; font-size: 11.5px; align-self: flex-start; }
-.inv-impi-add.is-open { border-color: var(--c-border-strong); background: rgba(255, 255, 255, 0.08); }
-.inv-impi-add.is-locked { opacity: 0.55; }
+.inv-impi-add.is-open { border-style: solid; border-color: var(--c-border-strong); background: rgba(255, 255, 255, 0.08); }
+.inv-impi-add.is-locked { opacity: 0.55; cursor: not-allowed; }
 
 /* 임플란트 아이템 피커 — `.inv-imp-pop` 과 같은 크롬 */
 .inv-impi-pop {

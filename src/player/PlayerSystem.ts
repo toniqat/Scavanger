@@ -476,7 +476,9 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
         return;
       }
       this.respawnAt(this.resolveSpawn(playerSpawn));
-      this.startDrop();
+      // 2026-09-08: 시뮬레이션 훈련장은 행성이 아니다 — 헬포드로 떨어질 하늘이 없으므로 시작 지점에 그냥
+      //   선 채로 시작한다. `game/`(onWorldReady) 도 같은 규칙으로 'deploying' 을 건너뛰고 바로 'playing' 이다.
+      if (ctx.missionMode !== 'training') this.startDrop();
     });
     ctx.bus.on('game:abort', () => this.resetAll());
     // game/GameFlowSystem: respawn countdown elapsed and the player asked for it

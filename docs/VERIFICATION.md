@@ -48,6 +48,7 @@ in `CLAUDE.md`.
 
 ## History (what was actually tested)
 - 2026-09-08 폐금속 공급 (고철 더미 · 기계 부품 · 무기/방탄복 분해): `npm run verify:all` → **전부 통과, 5분 38초**, 첫 실행부터 red 없음. smoke-tactical 85 → **87**, smoke-inventory-p6 93 → **100**, smoke-ecology 83 → **85**. 자세히는 아래 [해당 절](#2026-09-08--폐금속-공급-고철-더미--기계-부품--고물-분해).
+- 2026-09-08 UI/UX 정리 12건 (튜토리얼 시설 관리 포커싱 · 하우징 Esc · 일시정지 커서 · 임플란트 칸 · 안내 줄 삭제 · 기업 화면 재배치 · 폐쇄 100 % 환급 · 훈련장 3건 · 포인터 락 재락 경합): `npm run verify:all` → **전부 통과, 6분 0초**. smoke-housing 197 → **200**, smoke-ship-rooms 71 → **72**, smoke-training 110 → **112**, smoke-tutorial 51 → **52**. 자세히는 아래 [해당 절](#2026-09-08--uiux-정리-12건-커서--esc--임플란트--기업-화면--환급--훈련장).
 - 2026-09-08 튜토리얼 UI/UX 수정 4건 (시작 카드에 커서가 없던 문제 · `generator` 단계 신설 · 잠긴 항목 숨김 · 포커싱 확대-축소): `npm run verify:all` → e2e-mp 153/154 외 전부 통과, **5 min 41 s**; 그 1건은 검증 도중 내가 소스를 편집해 vite HMR 이 두 클라이언트를 리로드시킨 자가 flake로, `--rerun-failed` **156/156**. smoke-tutorial 39 → **46**. 자세히는 아래 [해당 절](#2026-09-08--튜토리얼-uiux-수정-4건-커서--발전기-단계--숨김--포커싱-연출).
 - 2026-09-07 커서 편의성 3건 (ESC 재잠금 · 커서 가속 제거 · 드래그 고스트 중앙): `npm run verify:all` → typecheck ok, typecheck-server ok, net-selftest 278/278, build 2,033.71 kB JS / 200.61 kB CSS, **smoke-quickslots 46/46**, smoke-weapons 93/93, smoke-phase2 49/49, smoke-stratagems 70/70, smoke-phase3 32/32, smoke-phase4 49/49, smoke-tactical 64/64, smoke-ship-rooms 71/71, smoke-inventory-p6 63/63, **smoke-controls-hub 85/85**, smoke-housing 173/173, smoke-console 63/63, smoke-loadout 54/54, smoke-progression 68/68, smoke-search 59/59, smoke-ui-p6 68/68, smoke-ui-p5 132/132, smoke-meta 130/130, smoke-training 109/109, smoke-uniques 71/71, smoke-library 126/126, smoke-ghost 86/86, smoke-enemy-delta 52/52, smoke-rogue-v2 52/52, smoke-social 116/116, smoke-planets 76/76, smoke-raidflow 43/43, smoke-ecology 83/83, e2e-mp 156/156 — **4 min 59 s** on 4 GPU lanes, **all green**, no re-run. New checks: the drag ghost rides centred on the pointer (quickslots +1), the virtual cursor moves 1:1 slow and fast (controls +1), and a denied pointer-lock request arms the gesture retry / Escape never counts / any other key retries (controls +3).
   Diagnosis was done in a **real Chrome tab** first (the extension's window is `visibilityState: hidden`, so a genuine pointer lock is impossible there — the lock was faked over the canvas the way the smokes do, and `Input.lockLooksReal` reset by hand, to exercise the synthesising path). That measured the acceleration (a 14 px delta moved the cursor 27 px) and caught the ghost drift as a hard number: mid-drag the ghost's bounding-box centre sat at x 1122 while the cursor was at 1080. Both are 0 px / 1:1 after the fix.
@@ -287,6 +288,45 @@ smoke-ecology 85/85, smoke-social 130/130, smoke-tutorial 52/52, e2e-mp 156/156.
 **애드혹 시각 확인** (스크립트는 저장소에 넣지 않음): 레이드에서 고철 더미의 실루엣(찌그러진 화물통 + 휜 강판 +
 파이프, 호박색 절단 표식)이 40 m 에서 식물과 구분되는지, `폐금속 해체 (E)` 프롬프트와 3초 홀드,
 지도(M)의 호박색 사각 표식, 분해 다이얼로그의 결과물 칩 2개 배치.
+
+## 2026-09-08 — UI/UX 정리 12건 (커서 · Esc · 임플란트 · 기업 화면 · 환급 · 훈련장)
+
+`npm run verify:all` (`src/shared/Input.ts` 를 건드렸으므로 전체) — **전부 통과, 6분 0초.**
+
+docs line: 2026-09-08: typecheck ok, typecheck-server ok, net-selftest 278/278, build 2,155.07 kB JS / 218.83 kB CSS,
+smoke-quickslots 46/46, smoke-phase2 53/53, smoke-weapons 137/137, smoke-stratagems 70/70, smoke-phase3 32/32,
+smoke-ship-rooms 72/72, smoke-phase4 49/49, smoke-tactical 85/85, smoke-controls-hub 121/121,
+smoke-inventory-p6 93/93, smoke-housing 200/200, smoke-console 63/63, smoke-progression 123/123,
+smoke-loadout 61/61, smoke-search 61/61, smoke-ui-p6 89/89, smoke-ui-p5 133/133, smoke-resume-gate 48/48,
+smoke-enemy-alert 42/42, smoke-uniques 71/71, smoke-meta 171/171, smoke-rogue-v2 52/52, smoke-training 112/112,
+smoke-library 126/126, smoke-enemy-delta 52/52, smoke-ghost 86/86, smoke-planets 86/86, smoke-social 130/130,
+smoke-raidflow 48/48, smoke-ecology 83/83, smoke-tutorial 52/52, e2e-mp 156/156.
+
+**첫 실행의 red 7건과 그 정체** — 6건은 스모크가 **바뀐 UI 를 옛 모습으로 단언**하고 있던 것이라 단언을 옮겼다
+(`/seed` 안내 줄 2건, 기업 화면 4건, 임플란트 세로 줄 3건, 일시정지 좌측 정렬 1건). 진짜 회귀는 둘이었다.
+
+- `smoke-controls-hub` 11건 — `Input` 의 재락 미루기 첫 판(`selfExit` 만 보던 것)이 **헤드리스 스텁**을 물었다.
+  스텁은 `exitPointerLock()` 에서 `pointerLockElement` 를 곧바로 비우고 `pointerlockchange` 를 **쏘지 않으므로**
+  `selfExit` 이 영영 true 로 남아 재락이 전부 보류됐고, 락이 없으니 Alt 커서 · Q 임플란트 검사가 줄줄이 red 였다.
+  판정을 `selfExit && isPointerLocked` 로 좁혀(= 요소가 아직 살아 있을 때만 미룬다) 실제 브라우저의 경합만 잡는다.
+- `smoke-training` 1건 — 강하를 없애 `'playing'` 이 `world:ready` 와 같은 tick 에 오게 되자 `HudSystem` 의
+  기본 목표 줄이 방금 쓴 훈련 카운터를 덮었다. 훈련장의 목표 줄은 `world/TrainingArena.announce()` 가 갖는 것이
+  맞으므로 `HudSystem` 은 훈련 ref 가 없는 월드에서만 채운다.
+
+재실행에서 `smoke-tutorial` 이 한 번 red 였던 것도 같은 부류의 **스모크 쪽 문제**다: `manage` 단계부터
+스포트라이트가 이미 떠 있으므로 "보이는가"로 기다리면 발전기로 옮겨 붙기 전에 통과해 버린다 — 말풍선 내용을
+보고 기다리도록 고쳤다.
+
+**새 검사 6건**: 빈 방으로 → 확인 팝업(환급 칩) → 방은 빈 방 · 폐금속/케이블/합금/회로가 증축 전 수량으로
+정확히 복귀 (smoke-housing 2) · Escape 가 시설 관리를 빠져나오고 일시정지 메뉴를 띄우지 않는다
+(smoke-ship-rooms 1) · 훈련장 진입이 강하 없이 `'playing'` 이고 계약 패널이 없다 (smoke-training 2) ·
+`manage` 포커싱이 `.ship-hint` 사각형에 붙는다 (smoke-tutorial 1). 바뀐 단언 6건: 터미널 `/seed` 줄 없음 ·
+`.seed-hint` 없음 · 기업 화면 상단/좌측 구조 + 54 px 칸 · 임플란트 정사각 셀 · 일시정지 버튼이 화면 중앙을 문다.
+
+**애드혹 시각 확인** (스크립트는 저장소에 넣지 않음): 기업 거래 · 퀘스트 화면(상단 기업 줄, 좌측 페이지 탭,
+중앙 납품/거래칸, 우측 인벤토리 크기 가방+창고), 인벤토리 임플란트 칸(설명 없는 전술 슬롯 + 정사각 썸네일 줄 +
+hover 카드의 장착칸 · 능력치 줄), 일시정지 메뉴(화면 한가운데 점이 `게임으로 돌아가기` 안, 중앙보다 오른쪽),
+시설 관리의 `빈 방으로` 확인 팝업(돌려받을 재료 칩 2개).
 
 ## 2026-09-08 — 튜토리얼: 가구 제작 → 가구 창고 → 배치 (진행 불가 수정)
 

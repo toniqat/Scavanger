@@ -382,6 +382,12 @@ over the 닫기 (Esc) / 타이틀로 footer.
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
+- **2026-09-08 (하우징 모드 취소 = Escape)** — `HousingMode` 가 `Keys.MENU` 를 **먼저 먹고 모드를 빠져나온다**
+  (들고 있는 가구 · 고른 가구가 있으면 C 처럼 그것부터 되돌린다). 전역 규칙은 "Escape = 일시정지"지만 예외가
+  "가장 안쪽이 먼저 먹는다"이고, 하우징 모드는 카메라와 조작을 통째로 가져간 **모드**라 그 위에 일시정지 메뉴가
+  쌓이면 어느 쪽을 닫는 건지 알 수 없었다. `HubSystem` 은 `GameFlowSystem` 보다 먼저 도므로 `input.consume` 이면
+  충분하다. 터미널에서 `자동 매칭은 …` · `임무 시드는 …` 안내 두 줄을 지웠다 (당연한 설명은 화면에 두지 않는다).
+
 - **tactical kit** — terminal is ship-only again (2026-09-06: the 임플란트 / 정비 tabs and their panels are gone — implants / repairs live on the Tab ship screen; frame `overflow: hidden`, no scrollbars) + 캐릭터 button (`ui:statsToggled`), hydroponics `GardenStation.ts`, implant bay interactable → `ctx.inventory.toggleBag()`, station geometry in `interiors/stations.ts`
 
 - **Phase 6** — personal ship rebuilt as **cockpit → corridor → 10 rooms → airlock** (`interiors/RoomLayout.ts` single source of coordinates, `roomAtWorld`, `roomCellToWorld`), `currentRoom` + `hub:roomEntered`, room consoles `hub_room_<i>` → `housing.openRoomMenu`, `hub_facility` → `openFacilityMenu`, `interiors/Furniture.ts` procedural furniture per `FurnitureModelKind` + `FurnitureLayer` (collider blockers, `Lv.n` signs, `hub_furn_<uid>` → `inventory.openBenchCraft` / `housing.openPresetMenu`), `HousingMode.ts` (top-down camera, pointer-locked cursor, ghost, LMB place / R rotate / X recover / wheel select / Esc), terminal seed field removed (`setMissionSeed` console-only), 10 constant lights

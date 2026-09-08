@@ -200,6 +200,23 @@ try {
   ok(obj && /시뮬레이션 훈련장/.test(obj.text) && /명중 0/.test(obj.subText ?? '') && /고정 표적/.test(obj.subText ?? ''), `ui:objective "${obj?.text}" / "${obj?.subText}"`);
   const wr = await lastEv('world:ready');
   ok(wr && wr.seed === w0.seed, 'world:ready emitted with the seed');
+  /* 2026-09-08 — **강하 시퀀스 없음**: the arena is a room on the ship, not a planet, so there is no hellpod and no
+     'deploying' phase (which would also never end here — `player:landed` only comes out of the pod). The player is
+     simply standing at the spawn and the phase is 'playing' the moment the world is ready. And a contract accepted
+     back at the ship does not follow them onto the range (`ui/hud/ContractPanel`). */
+  const drop = await P(() => {
+    const ctx = window.__game.ctx, p = ctx.player;
+    ctx.meta?.acceptContract?.(ctx.meta.getContracts('helix')?.[0]?.def?.id);
+    return {
+      phase: ctx.phase, dropping: p.isDropping, spawned: p.spawned, controls: p.controlsEnabled,
+      deployOverlay: !document.querySelector('.deploying')?.classList.contains('hidden'),
+    };
+  });
+  ok(drop.phase === 'playing' && !drop.dropping && drop.spawned && drop.controls && !drop.deployOverlay,
+    "훈련장 진입: 강하 없이 시작 지점에서 바로 'playing'", JSON.stringify(drop));
+  await waitSim(0.4);
+  ok(await P(() => !document.querySelector('.contract-panel')?.classList.contains('show')),
+    '훈련장에서는 계약 패널이 뜨지 않는다');
 
   // queries
   const q = await P(() => {

@@ -38,7 +38,7 @@
 | # | id | 목표 | 다음으로 넘어가는 신호 |
 |---|---|---|---|
 | 1 | `intro` | 시작 안내 카드 | 카드의 **시작** |
-| 2 | `manage` | M 으로 함선 관리 | `housing:shipManageChanged {active:true}` |
+| 2 | `manage` | M 으로 함선 관리 (포커싱: 우측 하단 `.ship-hint`) | `housing:shipManageChanged {active:true}` |
 | 3 | `generator` | 발전기 가동 (Lv.1) | `housing:facilityUpgraded {id:'generator', level>=1}` |
 | 4 | `workshop` | 빈 방 → 작업실 | `housing:roomPurposeChanged {purpose:'workshop'}` |
 | 5 | `bench` | 총기 작업대 **제작** | `housing:changed {reason:'craft'}` + 창고에 `furn_bench_gun` |
@@ -125,7 +125,7 @@ Lv.1 이 대량 탄약밖에 못 만들어 "작업대로 총을 만든다"는 �
 
 ## 스모크
 
-`scripts/smoke-tutorial.mjs` (51). **다른 스모크는 전부** `evaluateOnNewDocument` 에서
+`scripts/smoke-tutorial.mjs` (52). **다른 스모크는 전부** `evaluateOnNewDocument` 에서
 `scav.tutorial` 을 `done` 으로 심고 시작한다 — 튜토리얼은 새 프로필에서 자동으로 켜져 그 스크립트들이
 드라이브하는 행동을 순서대로 잠그기 때문이다.
 
@@ -134,6 +134,10 @@ Lv.1 이 대량 탄약밖에 못 만들어 "작업대로 총을 만든다"는 �
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-08 (함선 관리 단계 포커싱)** — `manage` 단계에 열린 화면이 없어 밝힐 것이 없었다. 우측 하단에 늘 떠
+  있는 `시설 관리` 키 힌트(`ui/hud/ShipManageHint`, `.ship-hint`)를 포커싱해 "어디를 봐야 하는지"부터 알려 준다.
+  같은 날 하우징 모드가 Escape 를 먹게 되어 `manageDone` 의 `Esc 또는 C` 안내는 다시 사실이 됐다.
 
 - **2026-09-08 (가구 제작 → 배치 재안내)** — `bench` 한 단계가 "제작 + 배치"를 함께 요구해 **진행이 막혔다**:
   제작한 가구는 가구 창고로 들어가는데 스포트라이트는 제작 카드에 붙어 있어 창고 탭이 어두운 판에 덮였고,

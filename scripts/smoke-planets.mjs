@@ -1,7 +1,7 @@
 // Smoke test for 행성 선택 (Phase 11 §3-3, hub folder, 2026-09-07) — **solo path only**; the lobby path
 // (host picks / guest mirrors / non-host refusal) is `npm run e2e:mp`'s.
 //
-// Covers: the full-screen terminal (three columns, the 승무원 이름 section gone, `.seed-hint` kept, `닫기 (Esc)`,
+// Covers: the full-screen terminal (three columns, the 승무원 이름 section and `.seed-hint` both gone, `닫기 (E)`,
 // `hub:terminalToggled`, Phase 10 cursor etiquette), the 행성 홀로그램 canvas + its ◀ ▶ / arrow / A-D stepping
 // (preview only — `ctx.hub.planet` does not move), 행성 이동 → `hub:travel start` → the warp cutscene →
 // `hub:travel end` + `hub:planetChanged`, the window planet re-tinted to the destination, `PLANET_STORAGE_KEY`
@@ -195,7 +195,8 @@ try {
   ok(term.trainIn === true, '시뮬레이션 훈련장 section in the right column');
   ok(term.planetIn === true, '행성 카드 in the centre column');
   ok(term.crewName === 0 && term.nameInput === 0, `the 승무원 이름 section is gone (${term.crewName} label / ${term.nameInput} input)`);
-  ok(/\/seed/.test(term.seedHint ?? ''), `.seed-hint kept ("${(term.seedHint ?? '').slice(0, 28)}…")`);
+  // 2026-09-08: `.seed-hint` 는 지웠다 — 시드는 여전히 개발자 콘솔 `/seed` 만 건드리지만, 화면에 적어 둘 이유가 없다.
+  ok(term.seedHint === null, `.seed-hint removed (${JSON.stringify(term.seedHint)})`);
   ok(term.closeBtn.includes('닫기 (E)') && term.closeBtn.includes('타이틀로'), `footer: ${term.closeBtn.join(' / ')}`);
   ok(term.blocker && term.cursor === true, `the 'hub' blocker + software cursor (Phase 10 etiquette, cursor ${term.cursor})`);
   ok(term.locked === true, 'the pointer lock is kept (no exitPointerLock)');

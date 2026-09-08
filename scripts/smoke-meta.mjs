@@ -445,11 +445,12 @@ try {
       corpBlocker: ctx.uiBlockers.has('corp'), blocker: ctx.uiBlockers.has('inventory'),
       isOpen: ctx.meta.isMenuOpen, tab: ctx.inventory.screenTab, invOpen: ctx.inventory.isOpen,
       cursor: ctx.input.isCursorMode,
-      // 상단은 창의 화면 탭, 좌측은 기업 목록 rail, 우측이 메인 패널
-      railTabs: root.querySelectorAll('.corp-shell > .corp-rail .corp-tabs .corp-tab').length,
+      // 2026-09-08: 상단 줄이 기업 목록 + 기업 패널, 그 아래가 페이지 탭 rail + 페이지
+      railTabs: root.querySelectorAll('.corp-shell > .corp-top > .corp-rail .corp-tabs .corp-tab').length,
+      topOrder: [...root.querySelectorAll('.corp-shell > .corp-top > *')].map((e) => e.className.split(' ')[0]),
       sideOrder: [...root.querySelectorAll('.corp-main > .corp-side > *')].map((e) => e.className.split(' ')[0]),
       credits: root.querySelector('.corp-credits .v')?.textContent,
-      panel: root.querySelector('.corp-side .corp-panel .name')?.textContent,
+      panel: root.querySelector('.corp-top .corp-panel .name')?.textContent,
       motto: !!root.querySelector('.corp-banner'), foot: !!root.querySelector('.hub-foot'),
       tabs, subs, rows: root.querySelectorAll('.corp-page .corp-row, .corp-page .ct-cell, .corp-page .corp-empty').length,
     };
@@ -460,9 +461,11 @@ try {
     JSON.stringify(dom && { oldOverlay: dom.oldOverlay, corpBlocker: dom.corpBlocker, blocker: dom.blocker, tab: dom.tab, cursor: dom.cursor }));
   // Phase 10: every credit readout is `formatCredits` → `1,200 C` (ko-KR grouping + the `C` unit, never `₩` / `cr`)
   ok(dom && dom.railTabs === 4 && dom.credits === `${snap.credits.toLocaleString('ko-KR')} C` && !dom.foot,
-    '좌측 rail 에 기업 목록 4개 + 크레딧 (100 C 표기), 푸터 없음', JSON.stringify(dom && { railTabs: dom.railTabs, credits: dom.credits, foot: dom.foot }));
-  ok(dom && dom.sideOrder[0] === 'corp-panel' && dom.sideOrder[1] === 'corp-subtabs',
-    '메인 패널 좌열: 기업 패널 위 · 거래/계약/퀘스트 아래', JSON.stringify(dom && dom.sideOrder));
+    '상단 줄에 기업 목록 4개 + 크레딧 (100 C 표기), 푸터 없음', JSON.stringify(dom && { railTabs: dom.railTabs, credits: dom.credits, foot: dom.foot }));
+  ok(dom && dom.topOrder.join(',') === 'corp-rail,corp-panel',
+    '상단: 기업 목록 · 그 오른쪽에 기업 패널', JSON.stringify(dom && dom.topOrder));
+  ok(dom && dom.sideOrder.join(',') === 'corp-subtabs',
+    '화면 좌측 열은 거래/계약/퀘스트 탭만 (기업 패널은 상단으로 갔다)', JSON.stringify(dom && dom.sideOrder));
   ok(dom && dom.tabs.length === 4 && dom.tabs.find((t) => t.corp === 'ceres')?.on && dom.panel === '세레스 바이오' && !dom.motto,
     '4 corp tabs, ceres selected, 기업 패널 세레스 바이오 (no motto banner)', JSON.stringify(dom && dom.tabs));
   ok(dom && dom.subs.map((s) => s.page).join(',') === 'trade,contracts,quests,implants', 'sub-tabs 거래 / 계약 / 퀘스트 / 임플란트 at ceres', JSON.stringify(dom && dom.subs));
@@ -538,7 +541,8 @@ try {
   // the price badge sits in the cell corner now, so it is the grouped number without the unit
   ok(shopDom.prices.length === shopDom.rows && shopDom.prices.every((t) => /^[\d,]+$/.test(t ?? '')),
     `재고 칸 가격 배지 (${shopDom.prices[0]})`, JSON.stringify(shopDom.prices.slice(0, 3)));
-  ok(shopDom.trayCols === 5 && shopDom.cellPx === '40px' && shopDom.bagCell === '40px',
+  // 2026-09-08: 칸 크기는 Tab 인벤토리와 같은 54px (`inventory/ui/labels.CELL`) — 가방 · 창고가 인벤토리처럼 보인다
+  ok(shopDom.trayCols === 5 && shopDom.cellPx === '54px' && shopDom.bagCell === '54px',
     `구매/판매 트레이가 5칸, 재고·가방·창고가 같은 칸 크기 (${shopDom.trayCols}칸 / ${shopDom.cellPx} / ${shopDom.bagCell})`);
   ok(shopDom.spans.every((v) => /^span \d$/.test(v ?? '')), `재고 칸이 아이템 발자국만큼 차지한다 (${shopDom.spans.slice(0, 3).join(', ')})`);
   ok(shopDom.trays === 2 && shopDom.grids === 2 && shopDom.confirm === '거래 성사' && shopDom.confirmOff,

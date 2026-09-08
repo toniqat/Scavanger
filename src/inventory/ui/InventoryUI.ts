@@ -183,10 +183,9 @@ export class InventoryUI {
     const sScroll = document.createElement('div');
     sScroll.className = 'inv-stash-scroll';
     sScroll.appendChild(this.stashView.el);
-    const sHint = document.createElement('div');
-    sHint.className = 'inv-stash-hint';
-    sHint.textContent = TEXT.stashHint;
-    sPanel.append(sHead, sScroll, sHint);
+    // 2026-09-08: 창고 하단의 '가방 ↔ 창고: 드래그 또는 우클릭…' 안내 줄은 없앴다 — 드래그와 우클릭은
+    //   가방 격자에서 이미 하는 동작이라 화면에 한 줄 더 적어 둘 이유가 없다 (사용자 결정: 당연한 설명은 지운다).
+    sPanel.append(sHead, sScroll);
     this.stashPanel = sPanel;
 
     /* bag panel */

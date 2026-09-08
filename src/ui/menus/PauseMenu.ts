@@ -3,6 +3,14 @@ import { el } from '../dom';
 import { MenuBase } from './MenuBase';
 
 /**
+ * How far right of `게임으로 돌아가기`'s middle the cursor should land, as a fraction of the button's width
+ * (0.5 would be its right edge). Keeps the arrow comfortably inside the button without hugging the label.
+ */
+const CURSOR_BIAS = 0.28;
+/** Smallest gap the parked frame keeps to the viewport edge, px. */
+const MARGIN = 16;
+
+/**
  * Escape menu: 게임으로 돌아가기 / 설정 / (임무 중에만) 함선으로 귀환 / 타이틀로. Driven by `game:paused`.
  *
  * Phase 8: the **ship** can be paused too (`game:paused {freeze:false}` from `game/GameFlowSystem` — Escape in the hub
@@ -22,14 +30,16 @@ import { MenuBase } from './MenuBase';
  */
 export class PauseMenu extends MenuBase {
   private returnBtn: HTMLButtonElement;
+  private resumeBtn: HTMLButtonElement;
   /** True while the pause was opened from the ship (no mission to abandon). */
   private inHub = false;
+  private readonly onResize = (): void => this.parkUnderCursor();
 
   constructor(parent: HTMLElement, private readonly onSettings: () => void) {
     super(parent, 'pause');
     el('div', { cls: 'title', text: '일시 정지', parent: this.frame });
     const actions = el('div', { cls: 'actions', parent: this.frame });
-    this.button(actions, '게임으로 돌아가기', () => this.ctx.bus.emit('game:paused', { paused: false }), 'primary');
+    this.resumeBtn = this.button(actions, '게임으로 돌아가기', () => this.ctx.bus.emit('game:paused', { paused: false }), 'primary');
     this.button(actions, '설정', () => this.onSettings());
     this.returnBtn = this.button(actions, '함선으로 귀환', () => this.returnToShip(), 'danger');
     this.button(actions, '타이틀로', () => this.toTitle(), 'danger');
@@ -53,6 +63,42 @@ export class PauseMenu extends MenuBase {
 
   /** Whether the hub variant is showing (debug). */
   get isHubVariant(): boolean { return this.inHub; }
+
+  protected override onShow(): void {
+    this.parkUnderCursor();
+    window.addEventListener('resize', this.onResize);
+  }
+
+  protected override onHide(): void {
+    window.removeEventListener('resize', this.onResize);
+  }
+
+  /**
+   * 2026-09-08 — **커서 자리에 버튼을 갖다 놓는다.**
+   *
+   * The page cannot move the OS cursor, so the menu moves instead. Escape releases the pointer lock and the browser
+   * puts the arrow back where it was captured, i.e. the middle of the canvas — so the frame is shifted until
+   * `게임으로 돌아가기` sits under the viewport centre, with the centre landing `CURSOR_BIAS` of the button's width
+   * **right of the button's middle**: the click needs no aiming, and the pointer is not sitting on the button's edge.
+   *
+   * Measured with `offset*` rather than `getBoundingClientRect`, because the frame carries both the entry animation
+   * and the offset itself as a `transform` — offsets are layout, so they read the same before and after. The result
+   * goes into `--menu-dx/dy` (see `.menu .frame` in `ui/styles/base.css`), which the keyframes carry too, so the
+   * menu animates in **at** its parked position instead of sliding there.
+   */
+  private parkUnderCursor(): void {
+    if (!this.visible) return;
+    const frame = this.frame, btn = this.resumeBtn;
+    if (!frame.offsetWidth || !btn.offsetWidth) return;
+    const bx = frame.offsetLeft + btn.offsetLeft + btn.offsetWidth / 2;
+    const by = frame.offsetTop + btn.offsetTop + btn.offsetHeight / 2;
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const clamp = (v: number, lo: number, hi: number): number => (lo > hi ? (lo + hi) / 2 : Math.min(Math.max(v, lo), hi));
+    const dx = clamp(vw / 2 - CURSOR_BIAS * btn.offsetWidth - bx, MARGIN - frame.offsetLeft, vw - MARGIN - frame.offsetWidth - frame.offsetLeft);
+    const dy = clamp(vh / 2 - by, MARGIN - frame.offsetTop, vh - MARGIN - frame.offsetHeight - frame.offsetTop);
+    frame.style.setProperty('--menu-dx', `${Math.round(dx)}px`);
+    frame.style.setProperty('--menu-dy', `${Math.round(dy)}px`);
+  }
 
   private returnToShip(): void {
     this.ctx.bus.emit('hub:enter', { ship: this.ctx.net?.lobby ? 'shared' : 'personal' });

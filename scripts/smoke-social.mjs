@@ -1,4 +1,5 @@
-// Phase 11 소셜 UI smoke (src/ui): the re-laid-out ESC screen (buttons left, ship-only social column right), the
+// Phase 11 소셜 UI smoke (src/ui): the ESC screen (2026-09-08: it parks itself so the viewport centre — where
+// Escape leaves the OS cursor — lands inside 게임으로 돌아가기, right of that button's middle), the
 // profile cards + right-click menu (같이 하기 gating, 귓속말하기, 친구 추가 / 친구 삭제 with its confirm card), the
 // 설정 side panel with a real ControlsPanel inside 키 설정, the ship-only 커뮤니티 thumbnail (online count inside its
 // bottom-right, red dot for a pending request) and its panel, the 분대 초대 stack with the P-hold gauge, the chat
@@ -146,10 +147,15 @@ try {
     const menu = document.querySelector('.menu.pause');
     const frame = menu.querySelector('.frame');
     const fr = frame.getBoundingClientRect();
+    const rb = [...frame.querySelectorAll('.actions .ui-btn')][0].getBoundingClientRect();
     return {
       shown: !menu.classList.contains('hidden'),
       justify: getComputedStyle(menu).justifyContent,
       frameLeft: Math.round(fr.left), frameRight: Math.round(fr.right),
+      // 2026-09-08: the menu parks itself so the viewport centre lands **inside** 게임으로 돌아가기, right of
+      // its middle — that is where Escape leaves the OS cursor, so the resume click needs no aiming.
+      resume: { l: Math.round(rb.left), r: Math.round(rb.right), t: Math.round(rb.top), b: Math.round(rb.bottom), cx: Math.round(rb.left + rb.width / 2) },
+      cx: Math.round(window.innerWidth / 2), cy: Math.round(window.innerHeight / 2),
       w: window.innerWidth,
       social: !!menu.querySelector('.community-panel'),
       title: frame.querySelector('.title')?.textContent ?? '',
@@ -159,8 +165,10 @@ try {
     };
   });
   ok(layout.shown, 'ESC opens the pause menu in the ship');
-  ok(layout.justify === 'flex-start', '.menu.pause left-aligns its frame (justify-content: flex-start)', layout.justify);
-  ok(layout.frameRight < layout.w / 2, 'the button column sits entirely in the left half', JSON.stringify([layout.frameRight, layout.w]));
+  const r = layout.resume;
+  ok(r.l <= layout.cx && layout.cx <= r.r && r.t <= layout.cy && layout.cy <= r.b,
+    '화면 한가운데(= Escape 가 커서를 돌려놓는 자리)가 게임으로 돌아가기 버튼 안에 있다', JSON.stringify([r, layout.cx, layout.cy]));
+  ok(layout.cx > r.cx, '그 점은 버튼 중앙보다 **오른쪽**이다 (클릭하기 여유롭게)', JSON.stringify([layout.cx, r.cx]));
   ok(!layout.social, '2026-09-08: no 소셜 열 on the ESC screen (social is the 커뮤니티 panel alone)');
   ok(layout.title === '일시 정지' && !layout.subtitle && !layout.mpNote && !layout.hint,
     'the ship variant is a bare 일시 정지 title + buttons (no 함선 · 일시 정지, no subtitle / note / hint)', JSON.stringify(layout));

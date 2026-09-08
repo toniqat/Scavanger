@@ -541,16 +541,19 @@ try {
   await sleep(250);
   const blk = await page.evaluate(() => {
     const b = document.querySelector('.inv-equip .inv-implants .inv-impitems');
-    const rows = [...b.querySelectorAll('.inv-impi-row')];
+    // 2026-09-08: 장착한 임플란트는 세로 카드 줄이 아니라 정사각 썸네일 셀(`.inv-impi-cell`)이고, 이름 · 퍽 ·
+    //   능력치는 셀의 `data-item-tip` 을 보고 `ui/hud/ItemTip` 이 띄운다 (셀 자체에는 글자가 없다).
+    const rows = [...b.querySelectorAll('.inv-impi-cell:not(.inv-impi-add)')];
     return {
       has: !!b, cnt: b.querySelector('.cnt')?.textContent, pips: b.querySelectorAll('.inv-impi-pips i').length, on: b.querySelectorAll('.inv-impi-pips i.on').length,
-      rows: rows.map((r) => ({ uid: r.dataset.uid, def: r.dataset.defId, nm: r.querySelector('.nm')?.textContent, tag: r.querySelector('.tag')?.textContent, meta: r.querySelector('.meta')?.textContent, chip: !!r.querySelector('.item-chip[data-def-id]') })),
+      rows: rows.map((r) => ({ uid: r.dataset.uid, def: r.dataset.defId, cost: r.querySelector('.cost')?.textContent, tip: r.hasAttribute('data-item-tip'), chip: !!r.querySelector('.item-chip[data-def-id]') })),
       add: !!b.querySelector('.inv-impi-add'),
       popHidden: document.querySelector('.inv-impi-pop')?.hidden,
     };
   });
   ok(blk.has && blk.cnt === '2 / 4칸' && blk.pips === 4 && blk.on === 2 && blk.add, '임플란트 block: `2 / 4칸`, 4 pips (2 lit), + 장착 button', JSON.stringify({ cnt: blk.cnt, pips: blk.pips, on: blk.on }));
-  ok(blk.rows.length === 1 && blk.rows[0].def === 'imp_perk_quick_heal' && blk.rows[0].nm === '가속 대사' && blk.rows[0].tag === '장착칸 2' && /재주 \+1/.test(blk.rows[0].meta) && blk.rows[0].chip, 'equipped row: shared item chip (data-def-id) + 가속 대사 · 장착칸 2 · 재주 +1', JSON.stringify(blk.rows));
+  ok(blk.rows.length === 1 && blk.rows[0].def === 'imp_perk_quick_heal' && blk.rows[0].cost === '2' && blk.rows[0].tip && blk.rows[0].chip,
+    'equipped cell: 정사각 썸네일 (shared item chip) + 장착칸 2 배지 + data-item-tip', JSON.stringify(blk.rows));
   ok(blk.popHidden === true, 'item picker exists as a uiRoot child (.inv-impi-pop) and starts hidden');
   await page.evaluate(() => document.querySelector('.inv-equip .inv-impi-add').click());
   await sleep(150);
@@ -571,17 +574,17 @@ try {
   await sleep(150);
   const picked = await page.evaluate(() => {
     const b = document.querySelector('.inv-equip .inv-implants'); const p = window.__game.ctx.progression;
-    return { used: p.implantSlotsUsed, cnt: b.querySelector('.inv-impitems .cnt').textContent, rows: b.querySelectorAll('.inv-impi-row').length, opts: document.querySelectorAll('.inv-impi-pop .inv-impi-opt').length, msg: b.querySelector('.inv-impi-msg').textContent };
+    return { used: p.implantSlotsUsed, cnt: b.querySelector('.inv-impitems .cnt').textContent, rows: b.querySelectorAll('.inv-impi-cell:not(.inv-impi-add)').length, opts: document.querySelectorAll('.inv-impi-pop .inv-impi-opt').length, msg: b.querySelector('.inv-impi-msg').textContent };
   });
-  ok(picked.used === 4 && picked.cnt === '4 / 4칸' && picked.rows === 2 && picked.opts === 2 && /장착/.test(picked.msg), 'clicking the option equips it: 4 / 4칸, 2 rows, picker re-lists 2, inline `장착` message', JSON.stringify(picked));
+  ok(picked.used === 4 && picked.cnt === '4 / 4칸' && picked.rows === 2 && picked.opts === 2 && /장착/.test(picked.msg), 'clicking the option equips it: 4 / 4칸, 2 cells, picker re-lists 2, inline `장착` message', JSON.stringify(picked));
   await tap('Escape');
   await sleep(120);
   const escd = await page.evaluate(() => ({ pop: document.querySelector('.inv-impi-pop').hidden, win: document.querySelector('.inv-root').hidden }));
   ok(escd.pop && !escd.win, 'Escape closes the item picker first (the window stays open)', JSON.stringify(escd));
-  await page.evaluate((uid) => document.querySelector(`.inv-equip .inv-impi-row[data-uid="${uid}"]`).click(), uS2);
+  await page.evaluate((uid) => document.querySelector(`.inv-equip .inv-impi-cell[data-uid="${uid}"]`).click(), uS2);
   await sleep(120);
-  const unRow = await page.evaluate(() => { const p = window.__game.ctx.progression; return { used: p.implantSlotsUsed, rows: document.querySelectorAll('.inv-equip .inv-impi-row').length }; });
-  ok(unRow.used === 2 && unRow.rows === 1, 'clicking an equipped row unequips it (2 / 4, 1 row)', JSON.stringify(unRow));
+  const unRow = await page.evaluate(() => { const p = window.__game.ctx.progression; return { used: p.implantSlotsUsed, rows: document.querySelectorAll('.inv-equip .inv-impi-cell:not(.inv-impi-add)').length }; });
+  ok(unRow.used === 2 && unRow.rows === 1, 'clicking an equipped thumbnail unequips it (2 / 4, 1 cell)', JSON.stringify(unRow));
   const raidUi = await page.evaluate(() => {
     const ctx = window.__game.ctx; const real = ctx.isRaidActive; ctx.isRaidActive = () => true;
     try {

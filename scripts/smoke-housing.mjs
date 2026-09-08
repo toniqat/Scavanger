@@ -440,6 +440,43 @@ try {
   ok(smEmpty.blocked >= 2, `작업실 / 사격장 are disabled there with a reason (${smEmpty.blocked})`);
   ok(smEmpty.costs > 0 && smEmpty.descs === 0 && smEmpty.tabsHidden,
     `용도 지정 rows carry 시설 증축 cost chips instead of a description (${smEmpty.costs} chips), 가구 탭 숨김`, JSON.stringify(smEmpty));
+  /* 빈 방으로 — 2026-09-08: the header button used to call the **free** `setRoomPurpose(i, 'empty')` path, which
+     housing only takes *after* `removeRoomFacility` has worked out a refund, so tearing a room down by mistake
+     burned the 시설 증축 price and the player could not rebuild it. It goes through `removeRoomFacility` now (with a
+     confirm popup showing the chips), and every material comes back. */
+  const MATS = ['mat_scrap', 'mat_cable', 'mat_alloy', 'mat_circuit'];
+  const spare = await H(() => {
+    const h = window.__game.ctx.housing;
+    for (let i = 0; i < 10; i++) if ((h.getRoom(i)?.purpose ?? 'empty') === 'empty') return i;
+    return -1;
+  });
+  const spareP = spare < 0 ? null : await H((i) => {
+    const h = window.__game.ctx.housing;
+    for (const p of ['gym', 'lounge', 'kitchen', 'library', 'greenhouse']) if (!h.purposeBlock(i, p)) return p;
+    return null;
+  }, spare);
+  const matsBefore = {};
+  for (const d of MATS) matsBefore[d] = await count(d);
+  const clrBuilt = spareP ? await H((a) => window.__game.ctx.housing.setRoomPurpose(a.i, a.p), { i: spare, p: spareP }) : false;
+  ok(clrBuilt, `빈 방으로 준비: 방 ${spare + 1} → ${spareP} 증축`, JSON.stringify({ spare, spareP }));
+  await H((i) => window.__game.ctx.housing.setManageRoom(i), spare);
+  await sleep(140);
+  await H(() => document.querySelector('.ship-manage .sm-clear').click());
+  await sleep(140);
+  const clrConf = await H(() => {
+    const c = document.querySelector('.ship-manage .sm-confirm');
+    return { open: !c.hidden, title: c.querySelector('.title').textContent, chips: c.querySelectorAll('.cost .item-chip').length };
+  });
+  ok(clrConf.open && /제거/.test(clrConf.title) && clrConf.chips > 0,
+    '빈 방으로 asks first and shows the materials it hands back', JSON.stringify(clrConf));
+  await H(() => document.querySelector('.ship-manage .sm-confirm .ui-btn.primary').click());
+  await sleep(180);
+  const matsAfter = {};
+  for (const d of MATS) matsAfter[d] = await count(d);
+  const clrPurpose = await H((i) => window.__game.ctx.housing.getRoom(i)?.purpose ?? null, spare);
+  ok(clrPurpose === 'empty' && JSON.stringify(matsAfter) === JSON.stringify(matsBefore),
+    '확인 → 방은 빈 방, 재료는 100% 함선 창고로 환급', JSON.stringify({ clrPurpose, matsBefore, matsAfter }));
+
   await H(() => window.__game.ctx.housing.openFacilityMenu());
   await sleep(120);
   ok(await H(() => window.__game.ctx.housing.shipManageMode === true), 'openFacilityMenu() also redirects to 시설 관리');

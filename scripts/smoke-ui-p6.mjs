@@ -180,7 +180,8 @@ try {
   });
   ok(/\bshow\b/.test(hh.cls) && hh.on, 'housing:modeChanged active → bar .show', hh.cls);
   ok(hh.rows === 1 && !hh.sel && !hh.cell, `the bar is the key line only (${hh.rows} row(s))`);
-  ok(hh.keys === 'LMB 설치 · R 회전 · X 회수 · 휠 선택 · C 취소', 'key hints from live bindings, no Esc', hh.keys);
+  // 2026-09-08: Esc 도 하우징 모드를 취소한다 (일시정지 메뉴가 그 위에 쌓이지 않는다) — 힌트 줄이 둘 다 적는다.
+  ok(hh.keys === 'LMB 설치 · R 회전 · X 회수 · 휠 선택 · C · Esc 취소', 'key hints from live bindings (C · Esc 취소)', hh.keys);
   // 2026-09-08: 함선 관리 leaves on M (the key that entered it), not Escape
   ok(/\bshow\b/.test(hh.exitCls) && /종료/.test(hh.exitText) && /M/.test(hh.exitText), '종료 (M) chip bottom-right', hh.exitText);
   await emit('housing:modeChanged', { active: false, room: null });

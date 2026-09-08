@@ -284,7 +284,13 @@ export class HudSystem implements GameSystem {
         this.deploy.setVisible(phase === 'deploying');
         switch (phase) {
           // Training arena (Phase 7): no extraction — the exit console ends it; world/ updates the subText counter.
-          case 'playing': this.setObjective(ctx.missionMode === 'training' ? OBJECTIVE_TEXT.training : OBJECTIVE_TEXT.find); break;
+          // 2026-09-08: 훈련장의 목표 줄은 `world/TrainingArena.announce()` 가 (모드 · 명중 · 격추 카운터까지
+          //   담아) 스스로 쓴다. 강하 시퀀스가 없어지면서 'playing' 이 `world:ready` 와 같은 tick 에 오게 되어,
+          //   여기서 덮으면 방금 쓴 카운터가 지워진다. 훈련 ref 가 아예 없는 월드(스켈레톤)만 여기서 채운다.
+          case 'playing':
+            if (ctx.missionMode !== 'training') this.setObjective(OBJECTIVE_TEXT.find);
+            else if (!ctx.world?.training) this.setObjective(OBJECTIVE_TEXT.training);
+            break;
           case 'extracting': this.setObjective(OBJECTIVE_TEXT.countdown); break;
           case 'shipLanded': this.setObjective(OBJECTIVE_TEXT.board); break;
           case 'liftoff': this.setObjective(OBJECTIVE_TEXT.liftoff); break;

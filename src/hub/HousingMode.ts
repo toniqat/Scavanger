@@ -60,6 +60,8 @@ const _ray = new THREE.Raycaster();
  *   wheel / [ ]               cycle the selection through the furniture storage (null = cursor only)
  *   C   (`CANCEL_KEY`)        cancel the current selection / put a carried piece back — and, with an empty
  *                             cursor, leave the mode just like Esc (Phase 8 UI pass)
+ *   Esc (`Keys.MENU`)         same as C (2026-09-08): the mode owns Escape, so cancelling 하우징 모드 no longer
+ *                             puts the 일시정지 메뉴 up on top of it
  *   M (`Keys.MAP`)            leave 함선 관리 (`closeShipManage`) or plain housing mode (2026-09-08: was Esc)
  * Emits `housing:cursorChanged {room, x, y, valid}` whenever the footprint cell or its validity changes.
  *
@@ -299,9 +301,20 @@ export class HousingMode {
 
     // keys
     // 2026-09-08: **M leaves the mode**, the same key that entered it (`HubSystem` reads `Keys.MAP` for 함선 관리).
-    // Escape is no longer touched here — it falls through to game/ and is the 일시정지 메뉴, which stacks over the
-    // mode and hands it back on 게임으로 돌아가기.
     if (input.wasPressed(Keys.MAP)) { input.consume(Keys.MAP); this.exit(); return; }
+    /*
+     * Escape **cancels the mode** (2026-09-08, second pass). The global rule is "Escape 는 일시정지 메뉴를 열기만
+     * 한다", with the documented carve-out that the innermost thing eats it first — and 함선 관리 is exactly that:
+     * it owns the camera and the controls, so a pause menu stacked on top of it left the player in two modes at
+     * once with no way to read which one Escape had meant. `HubSystem` (and therefore this) updates **before**
+     * `GameFlowSystem`, so consuming the key here is what keeps game/ from also opening the menu this frame.
+     * A carried piece / an armed selection is put back first (one Escape = one step back), exactly like C.
+     */
+    if (input.wasPressed(Keys.MENU)) {
+      input.consume(Keys.MENU);
+      if (!this.cancelSelection()) this.exit();
+      return;
+    }
     // C: cancel what the cursor holds; with an empty cursor it leaves the mode, exactly like Esc
     if (input.wasPressed(CANCEL_KEY) && !this.cancelSelection()) { this.exit(); return; }
     if (input.wasPressed(Keys.ROTATE_ITEM)) {

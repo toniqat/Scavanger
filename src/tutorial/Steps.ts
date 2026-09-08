@@ -18,7 +18,11 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
   },
   manage: {
     id: 'manage', title: '함선 관리를 여세요',
-    hint: 'M 을 눌러 함선 관리 화면을 엽니다.',
+    hint: '화면 우측 아래의 시설 관리 버튼이 알려 주는 키(M)를 누르면 함선 관리 화면이 열립니다.',
+    // 2026-09-08: 아무것도 안 열린 상태라 밝힐 화면이 없었다 — 우측 하단에 늘 떠 있는 `시설 관리` 키 힌트를
+    //   가리켜 "어디를 봐야 하는지"부터 알려 준다 (`ui/hud/ShipManageHint`).
+    spot: ['.ship-hint'],
+    spotText: '시설 관리 — M',
   },
   generator: {
     id: 'generator', title: '발전기를 가동하세요',

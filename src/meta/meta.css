@@ -6,24 +6,28 @@
  * (the standalone `.menu.corp-menu` overlay is gone; the ship computer opens this tab). Layout:
  *
  *   상단  the window's own screen tabs (owned by inventory/)
- *   좌측  `.corp-rail`  — the 기업 목록, vertical, with the 크레딧 readout under it
- *   우측  `.corp-main`  — `.corp-side` (기업 패널 over the vertical 거래 / 계약 / 퀘스트 tabs) + `.corp-page`
+ *   그 아래 `.corp-top`  — the 기업 목록 (horizontal chips) + the 기업 패널 beside it (2026-09-08)
+ *   그 아래 `.corp-main` — `.corp-side` (vertical 거래 / 계약 / 퀘스트 tabs) + `.corp-page`, full width
  *
  * `--corp-page-h` stays a **constant** page height (never a min/max band) and the message line keeps a reserved
  * slot, so switching 거래 / 계약 / 퀘스트 (or an empty ↔ full list) never resizes the frame.
  *
  * `--ct-cell` is the cell edge every item grid on this screen uses — 기업 재고, the 구매 / 판매 trays and the
- * embedded 가방 / 함선 창고 (`CT_CELL` in CorpView.ts passes the same number to `createTradeGrids`). It is picked so
- * that the 구매 / 판매 tray is exactly **5 cells wide** (the widest an item can be) at the deal column's width. */
-.corp-view { --corp-page-h: 560px; --ct-cell: 40px; --ct-gap: 2px; --ct-step: 42px; }
+ * embedded 가방 / 함선 창고 (`CT_CELL` in CorpView.ts passes the same number to `createTradeGrids`); the
+ * 구매 / 판매 tray is exactly **5 cells wide** (the widest an item can be). 2026-09-08: it is the Tab
+ * 인벤토리's own cell (`inventory/ui/labels.CELL` = 54) — the 가방 / 함선 창고 here are the same grids at the
+ * same size, not shrunken copies of them. The 기업 목록 / 기업 패널 moving to the top row paid for the width. */
+.corp-view { --corp-page-h: 680px; --ct-cell: 54px; --ct-gap: 2px; --ct-step: 56px; }
 .corp-view.is-embedded { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 
-/* 좌: 기업 목록 rail · 우: 메인 패널 */
-.corp-shell { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 14px; min-height: 0; flex: 1; }
+/* 상단: 기업 목록 + 기업 패널 · 아래: 페이지 탭 rail + 페이지 (2026-09-08) */
+.corp-shell { display: flex; flex-direction: column; gap: 12px; min-height: 0; flex: 1; }
+.corp-top { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 360px); gap: 14px; align-items: stretch; flex: none; }
 .corp-rail { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.corp-rail .corp-tabs { display: flex; flex-direction: column; gap: 6px; }
-.corp-rail .corp-credits { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--c-border); }
-.corp-main { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 14px; min-width: 0; min-height: 0; }
+.corp-rail .corp-tabs { display: flex; flex-direction: row; flex-wrap: wrap; gap: 6px; }
+.corp-rail .corp-tab { flex: 1 1 0; min-width: 120px; }
+.corp-rail .corp-credits { margin-top: auto; padding-top: 8px; border-top: 1px solid var(--c-border); }
+.corp-main { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 14px; min-width: 0; min-height: 0; flex: 1; }
 .corp-side { display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 0; }
 .corp-side .corp-subtabs { display: flex; flex-direction: column; gap: 4px; align-self: stretch; border-radius: 0; padding: 0; background: none; border: 0; }
 .corp-side .scr-tab { justify-content: flex-start; text-align: left; padding: 10px 14px; border-radius: 0; }
@@ -58,7 +62,7 @@
 .corp-tab.is-on .lv { color: var(--cc); }
 
 /* Phase 9 UI pass: the banner (motto + description paragraph) is a compact 기업 패널 — name + 신뢰도 only.
- * 2026-09-07: it is the **top of the main panel's left column**, stacked over the vertical page tabs. */
+ * 2026-09-08: it is the **right half of the top row**, next to the 기업 목록 chips. */
 .corp-panel {
   display: flex; flex-direction: column; justify-content: center; gap: 8px;
   padding: 10px 14px; min-width: 0;
@@ -128,13 +132,14 @@
 .corp-row .deliver { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
 
 /* fixed page height by viewport — a constant per screen, never per tab */
-@media (max-height: 940px) { .corp-view { --corp-page-h: 470px; } }
-@media (max-height: 820px) { .corp-view { --corp-page-h: 380px; } }
-@media (max-height: 720px) { .corp-view { --corp-page-h: 290px; } }
+@media (max-height: 940px) { .corp-view { --corp-page-h: 560px; } }
+@media (max-height: 820px) { .corp-view { --corp-page-h: 450px; } }
+@media (max-height: 720px) { .corp-view { --corp-page-h: 350px; } }
 
 @media (max-width: 900px) {
-  .corp-shell { grid-template-columns: minmax(0, 1fr); }
+  .corp-top { grid-template-columns: minmax(0, 1fr); }
   .corp-main { grid-template-columns: minmax(0, 1fr); }
+  .corp-side .corp-subtabs { flex-direction: row; flex-wrap: wrap; }
   .corp-row, .corp-row.contract, .corp-row.quest { grid-template-columns: minmax(0, 1fr) auto; }
   .corp-row .thumb, .corp-row .badge { display: none; }
   .corp-row .reward { grid-column: 1 / 2; text-align: left; max-width: none; }

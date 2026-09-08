@@ -651,6 +651,14 @@ Data-driven off the frozen contract (`ItemCategory 'implant'`, `ItemDef.implant`
   소모해서 똑같은 총 두 정 중 부착물이 달린 쪽이 갈릴 수 있었다. 분해 레시피일 때는 소모 직전
   `detachAllSockets(targetUid)` 로 **부착물을 먼저 가방에 돌려준다** — 총보다 조준경이 비싸다.
 
+- **2026-09-08 (임플란트 칸 · 창고 안내 줄)** — `ui/ImplantPanel` 정리 둘.
+  ① **전술 임플란트 장착칸에서 설명을 뺐다** — 설명은 교체 피커의 카드(`.inv-imp-card .desc`)에만 있다.
+  ② **장착한 임플란트 아이템은 정사각 썸네일 가로 나열**(`.inv-impi-cell`, 줄 끝의 `＋` 셀이 피커)이다.
+  셀에는 글자가 없고 이름 · 장착칸 · 퍽 · 능력치는 `data-item-tip` 으로 `ui/hud/ItemTip` 이 띄운다 —
+  인벤토리 한 칸에 임플란트마다 문단 세 줄이 쌓이던 것을 없앴다.
+  덤으로 `ui/InventoryUI` 함선 창고 아래의 `가방 ↔ 창고: 드래그 또는 우클릭…` 안내 줄을 지웠다
+  (사용자 결정: 당연한 설명은 화면에 남기지 않는다).
+
 - **2026-09-08 (main 병합)** — 장착 슬롯이 아이템 발자국이 아니라 모두 같은 크기의 상자 + 카드(`GridView.buildSlotCardContent`)로 바뀌면서 `ui/model.SlotView` 의 `bodyW` · `bodyH` · `meta` 가 사라졌고 `ui/parts/SlotPanel` 이 그에 맞춰졌다. 퀵 사용 장미의 범례는 `ui/parts/QuickPanel` 에서 빠졌다(`quickHold` 도 함께). Escape 는 이제 **가장 안쪽 팝업만** 취소한다 — 새 `closePopups()` 가 그 몫이고 `closeOverlays()`(팝업 + 제작 열)는 내부 닫기 경로용으로 남는다. 창 자체는 Tab 으로 닫는다
 
 - **tactical kit** — **armor slot** (`LoadoutSlot` `armor`, `getEquipped(slot)`, `equip:changed`), **weight budget** (`getWeight()` → `WeightInfo`, `inventory:weightChanged`, readout in the bag panel), `consumeDef`, **field crafting** (`ui/CraftPanel` behind the 제작 button, `getRecipes/canCraft/craft/cancelCraft`, hold-to-craft), gear durability (`getDurability`, `damageDurability`, `repair`), `Gear.ts` helpers; **hub Tab ship screen** (2026-09-06): Tab in the hub opens the window in `is-hub` mode — screen tabs 인벤토리 / 캐릭터 / 기업(off), **함선 창고** (`Stash.ts`: 10×24 grid persisted in localStorage `scav.stash`, `GridId 'stash'`, `inventory:stashChanged`) · 장비 + **전술 임플란트 slot** (click → picker, click the equipped card = unequip) · 가방 (quick rose to its right ≥ 1600 px); right-click **수리** with the material cost on worn gear (`repairInfo`), 창고로 이동, no world drops in the ship (drops / overflow land in the stash)

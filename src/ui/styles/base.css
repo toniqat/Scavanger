@@ -425,8 +425,15 @@ input { font: inherit; color: inherit; }
   background: var(--c-panel-strong);
   border: 1px solid var(--c-border);
   animation: menuIn 320ms var(--ease);
+  /* 2026-09-08: `--menu-dx/dy` nudge a menu off centre. Only the 일시정지 메뉴 sets them (it parks
+     `게임으로 돌아가기` under the mouse — see ui/menus/PauseMenu); everything else keeps the 0px default,
+     including the entry animation, which has to carry the same offset or it would slide back to centre. */
+  transform: translate(var(--menu-dx, 0px), var(--menu-dy, 0px));
 }
-@keyframes menuIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes menuIn {
+  from { opacity: 0; transform: translate(var(--menu-dx, 0px), calc(var(--menu-dy, 0px) + 10px)); }
+  to { opacity: 1; transform: translate(var(--menu-dx, 0px), var(--menu-dy, 0px)); }
+}
 .menu .frame::before, .menu .frame::after {
   content: ""; position: absolute; width: 14px; height: 14px; border: 1px solid var(--c-accent);
 }
@@ -2231,14 +2238,13 @@ button.item-chip[data-def-id] { cursor: pointer; }
  * Phase 11 — ESC 재배치 (버튼 좌측 · 소셜 우측) · 설정 사이드 패널 · 커뮤니티 · 분대 초대 · 귓속말 (2026-09-07)
  * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-/* ── ESC: the button column moves to the left edge, the social column takes the right (ship only) ── */
-.menu.pause { justify-content: flex-start; }
-.menu.pause .frame { margin-left: 72px; min-width: 340px; max-width: 380px; }
-/* 2026-09-08: the ship-only 소셜 열 (`.pause-social`) is gone — social is the 커뮤니티 panel / P alone, and the
-   ESC screen is a bare button column in the ship and in a raid alike. */
-@media (max-width: 1180px) {
-  .menu.pause .frame { margin-left: 40px; }
-}
+/* ── ESC: a narrow button column ──
+   2026-09-08: the Phase 11 **left edge** (`justify-content: flex-start` + `margin-left: 72px`) is gone. The menu
+   parks itself so `게임으로 돌아가기` sits under the mouse (`ui/menus/PauseMenu.parkUnderCursor` → `--menu-dx/dy`),
+   and Escape leaves the cursor in the middle of the screen — pinned to the left edge the arrow came back onto the
+   darkened world and every pause cost an aimed click. The ship-only 소셜 열 (`.pause-social`) is gone too: social
+   is the 커뮤니티 panel / P alone, in the ship and in a raid alike. */
+.menu.pause .frame { min-width: 340px; max-width: 380px; }
 
 /* ── 소셜 열 (menus/social/SocialColumn) — shared by the ESC screen and the 커뮤니티 panel ── */
 .social-col { display: flex; flex-direction: column; gap: 16px; min-height: 0; }

@@ -52,7 +52,8 @@ const ASSIGNABLE: readonly RoomPurpose[] = ROOM_PURPOSES.filter((p) => p !== 'em
  *           is crafted); clicking the row selects it for placement when one is already in storage.
  *           **가구 창고** — what `getStored()` holds: pieces this room accepts first (clickable → `selectFurniture`),
  *           every other stored piece under them, dimmed and disabled with the reason.
- *         A 빈 방으로 button in the header clears the room.
+ *         A 빈 방으로 button in the header clears the room — through a confirm popup and
+ *         `HousingRef.removeRoomFacility`, so every material the facility cost comes back (2026-09-08).
  *
  * Driven by `housing:shipManageChanged` (open / close / room change) and `housing:changed` (storage, purposes,
  * materials); `housing:selectionChanged` only re-marks the active card. Takes no blocker token — housing/ owns the
@@ -384,7 +385,16 @@ export class ShipManage {
     action?.();
   }
 
-  /** Header 빈 방으로: give the room back (housing recovers every placed piece into furniture storage first). */
+  /**
+   * Header 빈 방으로: give the room back. Placed pieces go to the 가구 창고 and **every material the facility ever
+   * cost comes back into the 함선 창고**.
+   *
+   * 2026-09-08: this used to call `setRoomPurpose(room, 'empty')` straight, which is the *free* path housing takes
+   * **after** it has already worked out a refund — so clearing a room from here silently burned the 시설 증축 price
+   * and the player could not rebuild what they had just torn down by mistake. It goes through
+   * `HousingRef.removeRoomFacility` now (the same call the Tab 함선 tab's 🗑 makes), and because the mistake is the
+   * whole story it asks first, showing the chips it is about to hand back.
+   */
   private clearRoom(): void {
     const housing = this.ctx.housing;
     const room = this.room;
@@ -395,8 +405,30 @@ export class ShipManage {
       this.ctx.bus.emit('ui:notify', { text: blocked, kind: 'warning' });
       return;
     }
-    housing.setRoomPurpose(room, 'empty');
+    const purpose = housing.getRoom(room)?.purpose ?? 'empty';
+    const placed = housing.getPlaced(room).length;
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
+    this.openConfirm(
+      `방 ${room + 1} — ${ROOM_PURPOSE_LABEL_KO[purpose]} 제거`,
+      `정말로 ${room + 1}번 방을 빈 방으로 되돌리겠습니까?${placed > 0 ? ` 놓인 가구 ${placed}개는 가구 창고로 돌아갑니다.` : ''} 들어간 재료는 전부 함선 창고로 돌려받습니다.`,
+      housing.facilityRefund(room),
+      null,
+      () => this.emptyRoom(room),
+    );
+  }
+
+  /** 확인 on 빈 방으로: `removeRoomFacility` refunds 100 % into the 함선 창고 (or refuses with a 한국어 reason). */
+  private emptyRoom(room: number): void {
+    const housing = this.ctx.housing;
+    if (!housing) return;
+    const reason = housing.removeRoomFacility(room);
+    if (reason) {
+      this.ctx.bus.emit('audio:play', { id: 'ui_deny' });
+      this.ctx.bus.emit('ui:notify', { text: reason, kind: 'warning' });
+    } else {
+      this.ctx.bus.emit('audio:play', { id: 'ui_equip' });
+      this.ctx.bus.emit('ui:notify', { text: `방 ${room + 1} — 시설을 제거하고 재료를 함선 창고로 돌려보냈습니다`, kind: 'success' });
+    }
     this.refresh();
   }
 

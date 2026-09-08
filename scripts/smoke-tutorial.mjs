@@ -158,6 +158,16 @@ try {
     title: document.querySelector('.tut-panel .tut-title')?.textContent,
   }));
   ok(afterIntro.popup && !afterIntro.blocker && /함선 관리/.test(afterIntro.title ?? ''), '카드가 닫히고 목표가 함선 관리로 바뀐다', JSON.stringify(afterIntro));
+  /* 2026-09-08: 이 단계에는 열린 화면이 없다 — 밝힐 것은 우측 하단에 늘 떠 있는 `시설 관리` 키 힌트
+     (`ui/hud/ShipManageHint`, `.ship-hint`) 다. 어디를 봐야 하는지부터 알려 준다. */
+  await waitFor(page, () => !document.querySelector('.tut-spot')?.hidden, 'spotlight (시설 관리 힌트)');
+  const manageSpot = await P(() => {
+    const r = document.querySelector('.tut-spot-ring').getBoundingClientRect();
+    const h = document.querySelector('.ship-hint').getBoundingClientRect();
+    return { tip: document.querySelector('.tut-spot-tip')?.textContent ?? '', dx: Math.round(Math.abs(r.left - h.left)), dy: Math.round(Math.abs(r.top - h.top)) };
+  });
+  ok(/시설 관리/.test(manageSpot.tip) && manageSpot.dx <= 10 && manageSpot.dy <= 10,
+    '포커싱이 우측 하단 시설 관리 버튼에 붙는다', JSON.stringify(manageSpot));
   /* ── 3b. 발전기 단계 (2026-09-08) ──────────────────────────────────── */
   await P(() => window.__game.ctx.housing.openShipManage(0));
   await waitStep('generator');
@@ -167,7 +177,12 @@ try {
     const give = (id, n) => { const max = ctx.loot.getItemDef(id).stackMax ?? 1; let a = 0; while (a < n) { const q = Math.min(max, n - a); if (!ctx.inventory.tryAddItem(ctx.loot.createItem(id, q))) break; a += q; } };
     give('mat_scrap', 40); give('mat_cable', 8); give('mat_alloy', 8);
   });
-  await waitFor(page, () => !document.querySelector('.tut-spot')?.hidden, 'spotlight (발전기)');
+  // 2026-09-08: `manage` 단계부터 스포트라이트가 이미 떠 있으므로 (우측 하단 시설 관리 힌트) "보이는가"로는
+  //   모자란다 — 대상이 발전기로 옮겨 붙을 때까지(`RETARGET_INTERVAL`) 말풍선을 보고 기다린다.
+  await waitFor(page, () => {
+    const r = document.querySelector('.tut-spot');
+    return r && !r.hidden && /발전기/.test(document.querySelector('.tut-spot-tip')?.textContent ?? '');
+  }, 'spotlight (발전기)');
   const genUi = await P(() => ({
     gen: !!document.querySelector('.sm-gen .sm-gen-btn'),
     purposes: [...document.querySelectorAll('.sm-purposes .sm-purpose')].map((b) => b.dataset.purpose),

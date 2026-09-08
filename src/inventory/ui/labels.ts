@@ -69,7 +69,6 @@ export const TEXT = {
   hintDrop: '버리기',
   /* hub screen (2026-09-06) */
   stash: '함선 창고',
-  stashHint: '가방 ↔ 창고: 드래그 또는 우클릭. 창고는 함선에 보관되어 임무·사망 후에도 유지됩니다.',
   tabs: {
     inventory: '인벤토리', character: '캐릭터', corp: '기업', ship: '함선',
     corpHint: '기업 네트워크: 상점 · 계약 · 퀘스트',

@@ -174,7 +174,9 @@ export function onNewMission(sys: GameFlowSystem, seed: number, mode: MissionMod
 /** World generated: deploy — or, on a rejoin, restore the raid blob and wait for the host's ghost. */
 export function onWorldReady(sys: GameFlowSystem): void {
   const ctx = sys.ctx;
-  sys.setPhase('deploying');
+  // 2026-09-08: 시뮬레이션 훈련장은 강하가 없다 (`player/`도 헬포드를 건너뛴다) — 'deploying' 을 거치면
+  //   `player:landed` 가 영영 오지 않아 화면이 강하 오버레이에 갇힌다. 바로 'playing' 으로 간다.
+  sys.setPhase(sys.isTraining() ? 'playing' : 'deploying');
   if (!sys.rejoining) return;
   sys.rejoining = false;
   const blob = sys.raidBlob;

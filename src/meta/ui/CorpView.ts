@@ -16,9 +16,16 @@ import { el, fmtNum, setText, toggleClass } from './dom';
  * listener) is gone; the ship computer's `E` calls `ctx.inventory.openScreen('corp')`, so there is exactly one
  * 기업 네트워크 screen in the game and the window owns the blocker, the cursor and Escape.
  *
- * Screen shape (2026-09-07): top = the window's own screen tabs · left = the **기업 목록 rail** (vertical) ·
- * right = the main panel, whose own left column carries the 기업 패널 (이름 · Lv · 신뢰도) over the vertical
- * 거래 / 계약 / 퀘스트 tabs. 가방 / 함선 창고 always take the panel's full height on the right.
+ * Screen shape (**2026-09-08**): the desk is a full-width table, not a pair of nested left rails —
+ *
+ *   상단   `.corp-top` — the **기업 목록** (horizontal chips) with the **기업 패널** (이름 · Lv · 신뢰도) beside it
+ *   좌     `.corp-side` — 거래 / 계약 / 퀘스트 / 임플란트, vertical
+ *   그 우측 the page's own columns: 목록 → 납품 / 거래칸 (centre) → **가방 + 함선 창고** on the right
+ *
+ * The two inventory grids run at the Tab window's own cell edge (`CT_CELL`) with their real column counts, so the
+ * stash on this screen looks like the stash in the inventory instead of a shrunken copy of it. Before this the
+ * 기업 목록 and the 기업 패널 ate two nested columns down the left and everything to their right had to fit in
+ * what was left.
  *
  * Phase 9 UI pass — rebuilt around a Tarkov-style trading desk:
  *   • the `기업 네트워크` title is gone: the **corp list** occupies the top-left slot with the credits readout on the
@@ -64,8 +71,13 @@ const QUEST_BADGE: Readonly<Record<QuestState, string>> = { locked: '잠김', av
  * `meta.css` is what makes the 기업 재고 / 가방 / 함선 창고 grids match them.
  */
 const CT_GRID_COLS = 5;
-/** Cell edge of every grid on this screen, in px. Mirrors `--ct-cell` in `meta.css` — keep the two in step. */
-const CT_CELL = 40;
+/**
+ * Cell edge of every grid on this screen, in px. Mirrors `--ct-cell` in `meta.css` — keep the two in step.
+ * 2026-09-08: raised 40 → 54, the Tab 인벤토리's own cell (`inventory/ui/labels.CELL`), so the 가방 / 함선 창고
+ * down the right read exactly like the inventory window's grids. The 기업 목록 / 기업 패널 moving to the top row
+ * is what freed the width for it.
+ */
+const CT_CELL = 54;
 /** Chip edge that fits inside a footprint cell (short edge of the footprint, minus the cell padding). */
 const cellChip = (def: ItemDef | undefined): number =>
   Math.min(2, Math.max(1, Math.min(def?.width ?? 1, def?.height ?? 1))) * CT_CELL - 14;
@@ -154,10 +166,11 @@ export class CorpView {
       return e;
     };
 
-    /* left: 기업 목록 rail · right: main panel (2026-09-07) */
+    /* top: 기업 목록 + 기업 패널 · below: 페이지 탭 rail + 페이지 (2026-09-08) */
     const shell = add(el('div', { cls: 'corp-shell', parent: host }));
+    const top = el('div', { cls: 'corp-top', parent: shell });
 
-    const rail = el('div', { cls: 'corp-rail', parent: shell });
+    const rail = el('div', { cls: 'corp-rail', parent: top });
     el('div', { cls: 'ct-title', text: '기업', parent: rail });
     const tabs = el('div', { cls: 'corp-tabs', parent: rail });
     for (const id of CORP_IDS) {
@@ -173,11 +186,8 @@ export class CorpView {
     el('span', { cls: 'k', text: '크레딧', parent: cr });
     this.creditsEl = el('span', { cls: 'v', text: '0', parent: cr });
 
-    const main = el('div', { cls: 'corp-main', parent: shell });
-
-    /* main panel's left column: 기업 패널 (top) + 거래 / 계약 / 퀘스트 (bottom, vertical) */
-    const side = el('div', { cls: 'corp-side', parent: main });
-    const panel = el('div', { cls: 'corp-panel', parent: side });
+    /* 기업 패널 — 상단 오른쪽, 기업 목록 옆 (2026-09-08: 예전에는 페이지 탭 위에 얹혀 있었다) */
+    const panel = el('div', { cls: 'corp-panel', parent: top });
     const pl = el('div', { cls: 'pl', parent: panel });
     const name = el('div', { cls: 'name', parent: pl });
     const lv = el('div', { cls: 'lv', text: 'Lv.0', parent: pl });
@@ -188,6 +198,9 @@ export class CorpView {
     const text = el('div', { cls: 'rep-text', parent: pr });
     this.panel = { name, lv, bar: fill, text };
 
+    const main = el('div', { cls: 'corp-main', parent: shell });
+    /* main panel's left column: 거래 / 계약 / 퀘스트 (vertical) */
+    const side = el('div', { cls: 'corp-side', parent: main });
     const sub = el('div', { cls: 'corp-subtabs', parent: side });
     for (const p of PAGES) {
       const b = el('button', { cls: 'scr-tab', text: p.label, parent: sub, attrs: { 'data-page': p.id } });

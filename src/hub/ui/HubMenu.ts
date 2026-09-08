@@ -36,7 +36,8 @@ const MSG_TTL = 4500;
  * - **centre**: the 행성 홀로그램 (`ui/PlanetHologram`, its own WebGL canvas) with the planet's name, 지형, a
  *   위협 badge and its one-line brief, `◀ ▶` (mouse, `←` / `→` and `A` / `D`) and the **행성 이동** button.
  *   Stepping left / right only *previews* — the ship flies when 행성 이동 is pressed (`HubRef.setPlanet`).
- * - **right, bottom**: `시뮬레이션 훈련장` + the `/seed` hint; the footer keeps 닫기 (E) / 타이틀로.
+ * - **right, bottom**: `시뮬레이션 훈련장`; the footer keeps 닫기 (E) / 타이틀로. (2026-09-08: the `/seed` 안내
+ *   줄과 신호 섹션의 `자동 매칭은 …` 안내 줄은 지웠다 — 화면에 당연한 설명을 남기지 않는다.)
  *   2026-09-08: the terminal closes on **E**, not Escape — Escape is the 일시정지 메뉴 everywhere now.
  *
  * The 승무원 이름 section is **gone** (Phase 11): the call sign is entered once on the title screen
@@ -57,7 +58,6 @@ export class HubMenu {
   private subtitle: HTMLElement;
   private pill: HTMLElement;
   private pillText: HTMLElement;
-  private seedHint: HTMLElement;
   // personal
   private secSignal: HTMLElement;
   private btnMatch: HTMLButtonElement;
@@ -126,7 +126,6 @@ export class HubMenu {
     this.codeInput.addEventListener('keydown', (e) => { if (e.code === 'Enter') this.join(); });
     this.btnJoin = this.button(codeRow, '코드로 도킹', () => this.join());
     this.btnCreate = this.button(this.secSignal, '신호 송출 (비공개 함선 생성)', () => this.connectThen((n) => n.createLobby()), 'wide');
-    el('div', { cls: 'hint', text: '자동 매칭은 공개 함선에 도킹합니다. 코드가 있으면 분대의 함선에 직접 도킹하세요.', parent: this.secSignal });
 
     // ── ship (shared) ──
     this.secShip = this.section(left, '공유 함선');
@@ -178,7 +177,6 @@ export class HubMenu {
     this.secTrain = this.section(right, '시뮬레이션 훈련장');
     this.btnTrain = this.button(this.secTrain, '시작', () => host.startTraining(), 'primary wide');
     el('div', { cls: 'hint', text: '개별 입장 · 카운트다운 없음. 탄약과 내구도는 소모되지 않습니다. 진행 중인 훈련에는 언제든 합류할 수 있습니다.', parent: this.secTrain });
-    this.seedHint = el('div', { cls: 'hint seed-hint', text: '임무 시드는 개발자 콘솔 /seed 로만 설정합니다.', parent: right });
 
     // ── message + footer ──
     this.msg = el('div', { cls: 'form-msg', parent: f });
@@ -335,9 +333,6 @@ export class HubMenu {
     this.pill.className = `status-pill ${status}`;
     setText(this.pillText, status === 'connected' ? `연결됨${net && net.rttMs > 0 ? ` · ${Math.round(net.rttMs)} ms` : ''}` : status === 'connecting' ? '연결 중' : status === 'error' ? '오류' : '오프라인');
 
-    // seed (read-only hint: the console owns it)
-    const seed = lobby ? lobby.seed : (ctx.hub?.missionSeed ?? null);
-    setText(this.seedHint, `임무 시드는 개발자 콘솔 /seed 로만 설정합니다. 현재: ${seed === null ? '무작위' : seed}${lobby && !isHost ? ' (호스트 설정)' : ''}`);
 
     // sections — 2026-09-08: 튜토리얼 동안에는 매치메이킹을 통째로 감춘다 (혼자 한 바퀴 돌게 한다)
     const hideNet = ctx.tutorial?.hides('matchmaking') ?? false;

@@ -232,6 +232,10 @@ over them and 게임으로 돌아가기 returns to what was open. `onFocusLost` 
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
+- **2026-09-08 (훈련장은 강하하지 않는다)** — `onWorldReady` 가 훈련이면 `'deploying'` 을 건너뛰고 바로
+  `'playing'` 이다. 훈련장은 함선 안의 방이지 행성이 아니라 `player/` 도 헬포드를 띄우지 않으므로,
+  `'deploying'` 에 들어가면 그 페이즈를 끝내는 `player:landed` 가 영영 오지 않는다.
+
 - **tactical kit** — mission-end XP (`awardMissionXp` → `ctx.progression.addXp`, raids / extractions counters), downed players never count as dead for the wipe check
 
 - **Phase 7** — **squad wipe = 레이드 실패** (`MISSION_FAILS_WHEN_ALL_DEAD` true; ghost-aware rule; solo death fails at once; `game:raidFailed` + `game:over`, auto `hub:enter` after `RAID_FAILED_AUTO_RETURN_S`; 30 s respawn kept until the wipe), raid session `saveRaid` every `RAID_SAVE_INTERVAL_S` + on loot, rejoin restore (`net:raidLoaded` blob → inventory / stats / time after `world:ready`, `net:ghostRestore` → `player.restoreState`, hellpod fallback after `NET_GHOST_RESTORE_TIMEOUT_S`), training flow (`ctx.missionMode`, loadout snapshot restored on `training:exitRequested`, no XP / settlement / threat, death = instant respawn), a promoted host takes over `flow` messages

@@ -88,6 +88,7 @@ export class Input {
       if (this.isPointerLocked) {
         this.disarmLockGestureRetry();
         this.selfExit = false;
+        this.relockPending = false;
         // 2026-09-08: a request that was already in flight when a screen took 커서 모드 lands *after* it — the
         // cursor would vanish under a popup the player is meant to click. Hand it straight back.
         if (this.cursor.active) this.exitPointerLock();
@@ -95,6 +96,14 @@ export class Input {
       }
       const self = this.selfExit;
       this.selfExit = false;
+      // 2026-09-08: a re-lock that was asked for **while this exit was still in flight** (see `requestPointerLock`)
+      // is issued here, now that `pointerLockElement` is really gone. Without it the request was silently dropped
+      // and the player was left with a free cursor and no way to ask for the lock again — which is what made
+      // 훈련장을 빠져나온 뒤 / 화면이 한 tick 떴다 사라진 뒤 카메라가 죽고 Escape 만 남던 상태였다.
+      if (this.relockPending) {
+        this.relockPending = false;
+        if (!this.cursor.active) { this.requestPointerLock(); return; }
+      }
       if (!self && this.wantLock) this.userUnlock?.();
     });
     // 전체화면에서 Escape 를 게임 키로 (see `syncKeyboardLock`).
@@ -134,12 +143,24 @@ export class Input {
   }
   /** performance.now() of the last pointer-lock request (Chrome throttles re-locks right after an Esc exit). */
   lastLockRequest = 0;
+  /**
+   * A `requestPointerLock()` that arrived while our own `exitPointerLock()` was still in flight (2026-09-08).
+   * `document.exitPointerLock()` clears `pointerLockElement` in a **task**, but the screens that release the cursor
+   * re-lock from a **microtask**, so the request used to see `isPointerLocked === true` and vanish. Deferred to
+   * `pointerlockchange` instead.
+   */
+  private relockPending = false;
   requestPointerLock(): void {
-    if (!this.lockTarget || this.isPointerLocked) return;
+    if (!this.lockTarget) return;
     // 2026-09-08: **never** take the mouse away from an open screen. Callers that fire a relock right after a phase
     // change (the hub entering the personal ship, say) would otherwise race a popup that opened in the same tick and
     // leave the player with a clickable card and no cursor. `main.ts` re-locks when the last owner leaves.
     if (this.cursor.active) return;
+    // Our own unlock is still in flight (`pointerLockElement` is cleared in a task, this is a microtask) — hold the
+    // request and re-issue it from `pointerlockchange`. Both halves are checked: an engine that clears the element
+    // synchronously (and the headless stubs, which never fire the event at all) take the plain path below.
+    if (this.selfExit && this.isPointerLocked) { this.relockPending = true; return; }
+    if (this.isPointerLocked) return;
     this.wantLock = true;
     this.lastLockRequest = performance.now();
     // Modern Chrome returns a Promise that rejects when the lock is denied (e.g. headless, no user gesture) —
@@ -155,6 +176,7 @@ export class Input {
   }
   exitPointerLock(): void {
     this.wantLock = false;
+    this.relockPending = false;
     this.disarmLockGestureRetry();
     if (this.isPointerLocked) { this.selfExit = true; document.exitPointerLock(); }
   }

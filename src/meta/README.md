@@ -272,6 +272,11 @@ Implants are **items** (`ItemDef.implant`, category `'implant'`, owner items/ �
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
+- **2026-09-08 (기업 화면 재배치)** — `ui/CorpView` 의 껍데기가 **위-아래**로 바뀌었다: 상단 `.corp-top` 에
+  기업 목록(가로 칩) + 기업 패널, 그 아래 `.corp-main` 이 좌측 페이지 탭 rail + 페이지 전폭. 예전에는 기업 목록과
+  기업 패널이 왼쪽에 열을 **두 겹** 차지해 오른쪽 가방 · 창고가 잘게 눌려 있었다. 그래서 `CT_CELL` 을 40 → **54**
+  (= Tab 인벤토리의 `labels.CELL`) 로 올려 가방 · 함선 창고가 인벤토리와 같은 칸 크기 · 같은 칸 수로 보인다.
+
 - **Phase 7** — labels from `@/shared`, purchase = `inventory.canFit` (`공간 없음` before the click) + server credits transaction when `ctx.net.profile.available` (optimistic debit → `addCredits` → item placed on `ok`, refund on failure, completion via `meta:purchase`; offline = local pre-checked path), every `addCredits` mirrored to the server balance, `meta` document + credits migration on `net:profileLoaded`, `ContractSettlement.outcome`, nothing settles / counts in a training
 
 - **Phase 8** — `createCorpView(host)` for the 기업 tab and a **fixed-height** `.corp-page` (the frame no longer resizes per tab), shop / sale / quest deliveries as item chips

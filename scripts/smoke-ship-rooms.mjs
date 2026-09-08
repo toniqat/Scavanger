@@ -157,7 +157,8 @@ try {
     hint: document.querySelector('.menu.hub-menu .seed-hint')?.textContent ?? '',
   }));
   ok(!term.labels.includes('임무 시드') && !term.seedInput, `terminal has no 임무 시드 section (${term.labels.join(' / ')})`);
-  ok(/\/seed/.test(term.hint), `seed hint points at the console: ${term.hint}`);
+  // 2026-09-08: the `/seed` hint line is gone (당연한 설명은 화면에서 지운다) — the console still owns the seed.
+  ok(term.hint === '', `no seed hint line in the terminal ("${term.hint}")`);
   const seedSet = await page.evaluate(() => ({ r: window.__game.ctx.hub.setMissionSeed(1234), v: window.__game.ctx.hub.missionSeed }));
   ok(seedSet.r === true && seedSet.v === 1234, 'setMissionSeed(1234) accepted solo');
   await page.evaluate(() => window.__game.ctx.hub.setMissionSeed(null));
@@ -432,6 +433,20 @@ try {
     await waitSim(0.5);
     const byC = await page.evaluate(() => ({ manage: window.__game.ctx.housing.shipManageMode, blockers: window.__game.ctx.uiBlockers.size, controls: window.__game.ctx.player.controlsEnabled }));
     ok(!byC.manage && byC.blockers === 0 && byC.controls === true, 'C with an empty cursor leaves 시설 관리 as well');
+    /* 2026-09-08: **Escape cancels the mode too** — the global "Esc = 일시정지" rule has the documented carve-out
+       that the innermost thing eats the key first, and 하우징 모드 owns the camera and the controls. Before this,
+       Escape stacked the 일시정지 메뉴 on top of a still-running 시설 관리. */
+    await tap('KeyM');
+    await waitSim(0.4);
+    await tap('Escape');
+    await waitSim(0.5);
+    const byEsc = await page.evaluate(() => ({
+      manage: window.__game.ctx.housing.shipManageMode, blockers: [...window.__game.ctx.uiBlockers],
+      controls: window.__game.ctx.player.controlsEnabled,
+      pause: !document.querySelector('.menu.pause')?.classList.contains('hidden'),
+    }));
+    ok(!byEsc.manage && byEsc.blockers.length === 0 && byEsc.controls === true && !byEsc.pause,
+      'Escape leaves 시설 관리 and does NOT open the 일시정지 메뉴', JSON.stringify(byEsc));
   }
 
   /* ── 7c. starboard rooms use the SAME camera + cursor convention (Phase 10) ──

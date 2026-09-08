@@ -203,7 +203,7 @@ export class WeaponSystem implements GameSystem {
     // Ship hub: nothing in flight, weapon holstered (visibility is handled per frame from ctx.phase).
     ctx.bus.on('hub:entered', () => { this.dropQuick(); this.resetTransient(); this.loadoutWait = -1; });
     // Hellpod drop started → pre-compile every shader (hidden FX meshes included) before the first shot/throw.
-    ctx.bus.on('game:phaseChanged', ({ phase }) => { this.cancelHeal(); if (phase === 'deploying') this.warmupFrames = 2; });
+    ctx.bus.on('game:phaseChanged', ({ phase }) => { this.cancelHeal(); if (phase === 'deploying' || (phase === 'playing' && ctx.missionMode === 'training')) this.warmupFrames = 2; });
     // Phase 10: a 회복약 hold survives damage but never a death / knock-down. The `usable` gate catches the same
     // frame; these keep the HUD gauge honest even when another path clears the hand state first.
     ctx.bus.on('player:died', () => this.cancelHeal());
