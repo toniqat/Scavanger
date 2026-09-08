@@ -210,7 +210,8 @@ try {
   // A real down (lethal damage → downed, not dead) so the vitals are in downed mode; the hold itself is player/'s, so it is synthesised.
   // 2026-09-08: the horizontal fill moved out of `.vitals .giveup` into the crosshair ring (`hud/HoldGauge`,
   // `.hold.is-giveup`) — the caption stays where it was, the progress is read off the ring.
-  await P(() => window.__game.ctx.player.takeDamage(500));
+  // 2026-09-08: solo lethal damage kills outright — the downed HUD is exercised from the state itself.
+  await P(() => window.__game.ctx.player.enterDowned());
   await waitSim(0.2);
   // NOTE: the ring's own `stroke: var(--hc)` is only re-resolved a frame later in headless Chrome, so the state
   // colour is asserted on `--hc` itself (which updates at once) rather than on the resolved stroke.

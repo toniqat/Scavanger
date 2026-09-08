@@ -279,6 +279,11 @@ credited to a peer that our client never sees (e.g. a DoT death out of range) is
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
+- **2026-09-08 (혼자면 바로 사망)** — `parts/Vitals.onLethal` 이 **1인 분대**(로비 없음, 또는 로비 인원 ≤ 1)
+  에서는 `enterDowned()` 대신 `die()` 로 간다. 전투불능은 분대원이 일으켜 세울 시간을 주는 상태인데 혼자면 올 사람이
+  없어서, 같은 사망 화면까지 기어다니는 시간만 남았다. 예외는 퍽 **재기동 회로**(`auto_revive`) — 아직 안 썼다면
+  전투불능 상태에서만 발동하므로 그때는 종전대로 쓰러진다.
+
 - **2026-09-08 (훈련장 강하 없음)** — `world:ready` 와 `player:respawn` 이 `ctx.missionMode === 'training'` 이면
   `startDrop()` 을 부르지 않는다. 시뮬레이션 방에는 떨어질 하늘이 없다 — 시작 지점에 선 채로 시작한다
   (페이즈는 `game/` 이 곧장 `'playing'` 으로 넘긴다).

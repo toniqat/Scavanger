@@ -135,7 +135,15 @@ export function applyDamage(sys: PlayerSystem, amount: number, from: THREE.Vecto
   if (sys.hp <= 0) sys.onLethal(dot);
   }
 
-/** hp hit 0: the 인내 skill may leave 1 hp (never on a DoT tick), otherwise the player goes 전투불능. */
+/**
+ * hp hit 0: the 인내 skill may leave 1 hp (never on a DoT tick), otherwise the player goes 전투불능.
+ *
+ * **2026-09-08 — 혼자면 바로 사망.** 전투불능 is a window for a squadmate to pick you up; alone (no lobby, or a
+ * one-player 분대) there is nobody to come, so the bleed-out was just `PLAYER_DOWN_HP / PLAYER_DOWN_BLEED_PER_SEC`
+ * seconds of crawling before the same death screen. Solo therefore skips straight to `die()`. The one exception is
+ * the Phase 12 perk **재기동 회로** (`auto_revive`), which revives *you* from downed: while it is still unspent the
+ * downed state is what makes it fire, so a solo player who bought it still goes down first.
+ */
 export function onLethal(sys: PlayerSystem, dot: boolean): void {
   if (!dot) {
     const chance = sys.ctx.progression?.derived.gritChance ?? 0;
@@ -147,7 +155,21 @@ export function onLethal(sys: PlayerSystem, dot: boolean): void {
       return;
     }
   }
+  if (isAloneInSquad(sys) && !canSelfRevive(sys)) { sys.hp = 0; sys.die(); return; }
   sys.enterDowned();
+  }
+
+/** No squad, or a 분대 of one: nobody can run over and revive us. */
+function isAloneInSquad(sys: PlayerSystem): boolean {
+  const ctx = sys.ctx;
+  if (!ctx.isMultiplayer) return true;
+  const players = ctx.net?.lobby?.players;
+  return !players || players.length <= 1;
+  }
+
+/** The 재기동 회로 perk is bought and still unspent this life — it only fires out of the downed state. */
+function canSelfRevive(sys: PlayerSystem): boolean {
+  return !sys.autoReviveUsed && !!sys.ctx.progression?.derived.perks?.auto_revive;
   }
 
 export function heal(sys: PlayerSystem, amount: number): void {

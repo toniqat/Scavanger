@@ -526,6 +526,12 @@ export class InventorySystem implements GameSystem, InventoryRef {
   /** Seconds one craft takes right now (recipe duration scaled by 제작 skill and 재주). */
   craftDuration(recipeId: string): number { return Craft.craftDuration(this, recipeId); }
 
+  /**
+   * 2026-09-08: can the bag take this recipe's output (+ `extraOutputs`) right now? The same check `updateCraft`
+   * makes when the hold ends — the 분해 dialog runs it **first** so an impossible shred never costs the hold.
+   */
+  craftHasRoom(recipeId: string): boolean { return Craft.craftHasRoom(this, recipeId); }
+
   /** `targetUid` (2026-09-08): the exact stack a 분해 shreds — consumed before any other stack of the same def. */
   craft(recipeId: string, targetUid?: string): Promise<ItemInstance | null> { return Craft.craft(this, recipeId, targetUid); }
 

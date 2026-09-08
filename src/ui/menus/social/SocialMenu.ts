@@ -25,14 +25,20 @@ export interface SocialMenuActions {
  * It takes no blocker token: it only ever opens on top of a surface that already owns one (`'menu'` for the ESC
  * screen, `COMMUNITY_BLOCKER` for the community panel). Escape closes just the menu (capture phase,
  * `stopImmediatePropagation`), so the first Escape never also closes the screen underneath.
+ *
+ * **2026-09-08**: the confirm card is no longer 친구 삭제's alone — `askConfirm(title, body, ok, run)` is the column's
+ * general 경고 팝업, and 분대 → **파티 떠나기** (`SocialColumn`) raises the same card.
  */
 export class SocialMenu {
   readonly root: HTMLElement;
   readonly confirm: HTMLElement;
   private items: HTMLElement;
+  private confirmTitle: HTMLElement;
   private confirmText: HTMLElement;
+  private confirmOk: HTMLButtonElement;
   private target: SocialPlayer | null = null;
-  private pending: SocialPlayer | null = null;
+  /** What the confirm card runs on 확인 (null = closed). */
+  private pending: (() => void) | null = null;
   private _open = false;
   private _confirmOpen = false;
 
@@ -57,17 +63,17 @@ export class SocialMenu {
     this.confirm = el('div', { cls: 'sc-confirm interactive', parent });
     this.confirm.hidden = true;
     const card = el('div', { cls: 'sc-confirm-card', parent: this.confirm });
-    el('div', { cls: 'sc-confirm-title', text: '친구 삭제', parent: card });
+    this.confirmTitle = el('div', { cls: 'sc-confirm-title', text: '', parent: card });
     this.confirmText = el('div', { cls: 'sc-confirm-body', text: '', parent: card });
     const foot = el('div', { cls: 'sc-confirm-foot', parent: card });
     const no = el('button', { cls: 'ui-btn small', text: '취소', parent: foot });
-    const yes = el('button', { cls: 'ui-btn small danger', text: '삭제', parent: foot });
+    this.confirmOk = el('button', { cls: 'ui-btn small danger', text: '확인', parent: foot }) as HTMLButtonElement;
     no.addEventListener('click', (e) => { e.stopPropagation(); this.closeConfirm(); });
-    yes.addEventListener('click', (e) => {
+    this.confirmOk.addEventListener('click', (e) => {
       e.stopPropagation();
-      const p = this.pending;
+      const run = this.pending;
       this.closeConfirm();
-      if (p) this.actions.onRemove(p.code);
+      run?.();
     });
     this.confirm.addEventListener('mousedown', (e) => e.stopPropagation());
     this.root.addEventListener('mousedown', (e) => e.stopPropagation());
@@ -125,11 +131,28 @@ export class SocialMenu {
     });
   }
 
-  private openConfirm(p: SocialPlayer): void {
-    this.pending = p;
+  /**
+   * The column's shared 경고 팝업 (2026-09-08). 친구 삭제 raises it, and so does 분대 → 파티 떠나기; it floats over
+   * whatever surface hosts the column and owns Escape while it is up (see `onKey`).
+   */
+  askConfirm(title: string, body: string, ok: string, run: () => void): void {
+    this.close();
+    this.pending = run;
     this._confirmOpen = true;
-    setText(this.confirmText, `${p.name || '이름 없음'} (${formatPlayerCode(p.code)}) 을(를) 친구 목록에서 제거합니다. 상대의 목록에서도 사라집니다.`);
+    setText(this.confirmTitle, title);
+    setText(this.confirmText, body);
+    setText(this.confirmOk, ok);
     this.confirm.hidden = false;
+    this.confirmOk.focus({ preventScroll: true });
+  }
+
+  private openConfirm(p: SocialPlayer): void {
+    this.askConfirm(
+      '친구 삭제',
+      `${p.name || '이름 없음'} (${formatPlayerCode(p.code)}) 을(를) 친구 목록에서 제거합니다. 상대의 목록에서도 사라집니다.`,
+      '삭제',
+      () => this.actions.onRemove(p.code),
+    );
   }
 
   private closeConfirm(): void {

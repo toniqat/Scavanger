@@ -196,7 +196,9 @@ try {
   ok(qe && qe.item === null && weq && weq.slot === 'secondary', '3 returns to the 권총', JSON.stringify({ qe, weq }));
 
   console.log('downed / revive');
-  await P(() => window.__game.ctx.player.takeDamage(500));
+  /* 2026-09-08 — 1인 분대에서는 치명타가 곧 사망이라(일으켜 줄 사람이 없다) 전투불능은 `enterDowned()` 로 직접
+     만든다. 즉사 규칙 자체는 이 스크립트 끝의 `1인 분대: 치명타 = 즉사` 절이 새 임무에서 확인한다. */
+  await P(() => window.__game.ctx.player.enterDowned());
   await waitSim(0.3);
   let st = await P(() => { const p = window.__game.ctx.player; return { downed: p.isDowned, dead: p.isDead, downHp: p.downHp, hp: p.hp, stance: p.stance, canUse: p.canUseWeapons() }; });
   ok(st.downed && !st.dead && st.downHp === 100 && st.hp === 0, 'lethal damage → downed (not dead), downHp 100', JSON.stringify(st));
@@ -230,7 +232,7 @@ try {
 
   console.log('give up → dead → 레이드 실패 (Phase 7: a solo death fails the raid; the 30 s respawn is squad-only)');
   await waitSim(2.5); // past any post-revive invulnerability
-  await P(() => window.__game.ctx.player.takeDamage(500));
+  await P(() => window.__game.ctx.player.enterDowned());
   await waitSim(0.3);
   const downedAgain = await P(() => window.__game.ctx.player.isDowned);
   ok(downedAgain, 'downed again after the revive');
@@ -267,6 +269,29 @@ try {
   ok(st.phase === 'hub', 'back in the ship after the failure', st.phase);
   // 2026-09-07: a failed raid loses the kit — the player re-equips from the 함선 창고 (기본 지급품 is there)
   ok(st.primary === undefined && st.stims === 0, '레이드 실패 후 장비를 잃는다 (창고에서 재장비)', JSON.stringify(st));
+
+  /* ── 1인 분대: 치명타 = 즉사 (2026-09-08) ───────────────────────────────────
+     전투불능은 분대원이 일으켜 세울 시간을 주는 상태다. 혼자라면 올 사람이 없어서 피 흘리며 기어다니는 시간만
+     남으므로 `player/parts/Vitals.onLethal` 이 바로 `die()` 로 간다 (퍽 `auto_revive` 만 예외).
+     이 임무는 죽는 것이 목적이라 스크립트 맨 끝에 둔다. */
+  console.log('1인 분대: 치명타 = 즉사');
+  await P(() => { window.__ev['player:downed'] = []; window.__ev['player:died'] = []; });
+  await P(() => window.__game.ctx.bus.emit('game:newMission', { seed: 12 }));
+  await waitFor(page, () => window.__game.ctx.phase === 'playing', 'playing (즉사 확인)', 25000);
+  await waitFor(page, () => !window.__game.ctx.player.isDropping, 'hellpod exit (즉사 확인)', 10000);
+  await waitSim(0.3);
+  const solo = await P(() => {
+    const p = window.__game.ctx.player, d = window.__game.ctx.progression?.derived;
+    if (d?.perks) d.perks.auto_revive = false;    // 재기동 회로가 있으면 혼자라도 쓰러진다 (그게 퍽의 전부다)
+    if (d) d.gritChance = 0;                      // 인내가 1 hp 를 남기면 치명타가 아니게 된다
+    p.takeDamage(9999);
+    return { downed: p.isDowned, dead: p.isDead, hp: p.hp, downedEv: window.__ev['player:downed'].length, diedEv: window.__ev['player:died'].length };
+  });
+  ok(!solo.downed && solo.dead, '1인 분대: 치명타는 전투불능 없이 바로 사망', JSON.stringify(solo));
+  ok(solo.downedEv === 0 && solo.diedEv === 1, 'player:downed 없이 player:died 하나만', JSON.stringify(solo));
+  await P(() => { window.__game.ctx.timeScale = 8; });
+  await waitFor(page, () => window.__game.ctx.phase === 'hub', 'auto return to the ship (즉사 확인)', 60000);
+  await P(() => { window.__game.ctx.timeScale = 1; });
 
   const gameErrors = errors.filter((e) => !/WebSocket/.test(e));   // no relay running: the net client's socket error is expected
   ok(gameErrors.length === 0, 'no console errors', gameErrors.slice(0, 5).join(' | '));

@@ -425,7 +425,8 @@ try {
   await page.evaluate((uid) => { const ctx = window.__game.ctx; ctx.inventory.updateItem(uid, { durability: 150 }); ctx.player.heal(1000); ctx.player.takeDamage(40); window.__ev['item:channelChanged'] = []; }, sprayReady.uid);
   await mDown(0);
   await waitSim(0.4);
-  await page.evaluate(() => { const d = window.__game.ctx.progression?.derived; if (d?.perks) d.perks.auto_revive = false; if (d) d.gritChance = 0; window.__game.ctx.player.takeDamage(10000); });
+  // 2026-09-08: solo lethal damage kills outright now, so the 전투불능 state is entered directly.
+  await page.evaluate(() => { const d = window.__game.ctx.progression?.derived; if (d?.perks) d.perks.auto_revive = false; if (d) d.gritChance = 0; window.__game.ctx.player.enterDowned(); });
   await waitSim(0.4);
   await mUp(0);
   const downCh = await page.evaluate((uid) => ({ ch: window.__ev['item:channelChanged'].slice(), downed: window.__game.ctx.player.isDowned, dur: window.__game.ctx.inventory.findItem(uid)?.durability ?? null }), sprayReady.uid);
@@ -772,7 +773,8 @@ try {
   ok(!rev.downed && rev.hp === 10 && rev.revived === 1, `auto_revive: stood up by itself within 1.5 s (hp ${rev.hp})`, JSON.stringify(rev));
   ok(rev.notes.includes('재기동 회로 작동'), '`재기동 회로 작동` toast', JSON.stringify(rev.notes));
   await waitSim(0.7);   // the revive's 0.5 s invulnerability
-  const down2 = await page.evaluate(() => { const p = window.__game.ctx.player; p.heal(1000); p.takeDamage(10000); return p.isDowned; });
+  // 2026-09-08: with the circuit spent a solo lethal hit kills outright, so the second knock-down is entered directly.
+  const down2 = await page.evaluate(() => { const p = window.__game.ctx.player; p.heal(1000); p.enterDowned(); return p.isDowned; });
   await waitSim(1.6);
   const rev2 = await page.evaluate(() => { const p = window.__game.ctx.player; const r = { downed: p.isDowned, revived: window.__ev['player:revived'].length }; return r; });
   ok(down2 && rev2.downed && rev2.revived === 1, 'the second knock-down of the raid stays down (once per raid)', JSON.stringify(rev2));

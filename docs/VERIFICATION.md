@@ -47,6 +47,7 @@ When you add a smoke script: add it to `SMOKES` in `scripts/verify.mjs` with the
 in `CLAUDE.md`.
 
 ## History (what was actually tested)
+- 2026-09-08 UI/UX 정리 2차 13건 (무기 교체 링 · 상자 빛기둥 · 저격 탄도 · 분해 3건 · 잠긴 거래 탭 · 커뮤니티 고정 크기 · 분대원 1×4 · 목록 고정 높이 · ESC 메뉴 4건 · 1인 분대 즉사): `npm run verify` (폴더 매핑) → **전부 통과, 5분 15초**; 첫 실행 8 red 는 전부 옛 규칙을 보던 단언이었다. smoke-phase2 53 → **55**, smoke-inventory-p6 100 → **104**, smoke-meta 171 → **173**, smoke-social 130 → **136**. 자세히는 아래 [해당 절](#2026-09-08--uiux-정리-2차-13건-교체-링--상자-빛기둥--저격-탄도--분해--커뮤니티--esc--즉사).
 - 2026-09-08 폐금속 공급 (고철 더미 · 기계 부품 · 무기/방탄복 분해): `npm run verify:all` → **전부 통과, 5분 38초**, 첫 실행부터 red 없음. smoke-tactical 85 → **87**, smoke-inventory-p6 93 → **100**, smoke-ecology 83 → **85**. 자세히는 아래 [해당 절](#2026-09-08--폐금속-공급-고철-더미--기계-부품--고물-분해).
 - 2026-09-08 UI/UX 정리 12건 (튜토리얼 시설 관리 포커싱 · 하우징 Esc · 일시정지 커서 · 임플란트 칸 · 안내 줄 삭제 · 기업 화면 재배치 · 폐쇄 100 % 환급 · 훈련장 3건 · 포인터 락 재락 경합): `npm run verify:all` → **전부 통과, 6분 0초**. smoke-housing 197 → **200**, smoke-ship-rooms 71 → **72**, smoke-training 110 → **112**, smoke-tutorial 51 → **52**. 자세히는 아래 [해당 절](#2026-09-08--uiux-정리-12건-커서--esc--임플란트--기업-화면--환급--훈련장).
 - 2026-09-08 튜토리얼 UI/UX 수정 4건 (시작 카드에 커서가 없던 문제 · `generator` 단계 신설 · 잠긴 항목 숨김 · 포커싱 확대-축소): `npm run verify:all` → e2e-mp 153/154 외 전부 통과, **5 min 41 s**; 그 1건은 검증 도중 내가 소스를 편집해 vite HMR 이 두 클라이언트를 리로드시킨 자가 flake로, `--rerun-failed` **156/156**. smoke-tutorial 39 → **46**. 자세히는 아래 [해당 절](#2026-09-08--튜토리얼-uiux-수정-4건-커서--발전기-단계--숨김--포커싱-연출).
@@ -255,6 +256,51 @@ in `CLAUDE.md`.
   최대 3번까지 던져 **실제로 닿은 첫 폭발**로 피해를 검증한다(빗나간 시도는 실패 메시지에 남는다). 고친 뒤
   단독 8연속 52/52 — 그중 한 번은 첫 투척이 6.09 m 로 빗나가 재시도 경로를 실제로 탔다.
 
+
+## 2026-09-08 — UI/UX 정리 2차 13건 (교체 링 · 상자 빛기둥 · 저격 탄도 · 분해 · 커뮤니티 · ESC · 즉사)
+
+`npm run verify` (`src/shared` 를 건드리지 않아 폴더 매핑으로 충분 — inventory · meta · player · ui · weapons · world)
+— **전부 통과, 5분 15초** (첫 실행은 8 red, 전부 아래의 스모크 갱신으로 해소).
+
+docs line: 2026-09-08: typecheck ok, typecheck-server ok, net-selftest 278/278, smoke-quickslots 46/46,
+smoke-phase2 55/55, smoke-weapons 137/137, smoke-phase3 32/32, smoke-stratagems 70/70, smoke-inventory-p6 104/104,
+smoke-phase4 49/49, smoke-tactical 87/87, smoke-controls-hub 121/121, smoke-console 63/63, smoke-housing 200/200,
+smoke-search 61/61, smoke-ui-p6 89/89, smoke-loadout 61/61, smoke-ui-p5 133/133, smoke-resume-gate 48/48,
+smoke-meta 173/173, smoke-enemy-alert 42/42, smoke-training 112/112, smoke-uniques 71/71, smoke-library 126/126,
+smoke-ghost 86/86, smoke-planets 86/86, smoke-social 136/136, smoke-raidflow 48/48, smoke-ecology 85/85,
+smoke-tutorial 52/52, e2e-mp 156/156.
+
+**새 검사 12건**: 분해 버튼이 곧 게이지이고 아래에 두 번째 바도 `1회 분해 · n s` 힌트도 없다 · 가방이 꽉 차면
+버튼이 **미리** 잠기고 라벨이 `가방에 공간이 없습니다` 로 바뀐다(칸이 생기면 되돌아온다) · 잠긴 거래 탭이
+`disabled` 가 아니라 클릭을 받고 필요한 신뢰도를 토스트로 낸다(페이지는 안 바뀐다) · 커뮤니티 프레임이 목록을
+비워도 크기가 그대로다 · 친구 3.5줄(196 px) / 최근 5.5줄(308 px) 고정 상자 · 분대원이 1×4 · 일시정지 메뉴가
+제목 없는 버튼 열이고 `게임으로 돌아가기 (Tab)` … `게임 종료` 6개 · 함선에서는 `함선으로 귀환` 과 `파티 떠나기`
+가 숨는다 · `타이틀로` 가 경고 팝업을 먼저 띄우고 취소는 아무것도 하지 않는다 · 1인 분대 치명타가 `player:downed`
+없이 `player:died` 하나만 낸다.
+
+**첫 실행의 red 8건** — 회귀가 아니라 **단언이 옛 규칙을 보고 있던 것**이고, 대부분 하나의 변경(1인 분대 즉사)에서
+갈라져 나왔다.
+- `smoke-phase2` / `smoke-weapons` / `smoke-ui-p6` / `smoke-raidflow`: `takeDamage(치명타) → 전투불능` 을 전제하던
+  검사 전부. 전투불능 상태 자체는 그대로 있으므로 `ctx.player.enterDowned()` 로 만든다 — 검사 대상(출혈 · 포기
+  홀드 · 다운 HUD · 재기동 회로)은 다운 **상태**이지 그 상태로 가는 경로가 아니다. 즉사 규칙 자체는
+  `smoke-phase2` 맨 끝에 새 임무를 하나 띄워 확인한다 (죽는 게 목적이라 다른 검사 뒤에 둬야 한다).
+- `smoke-phase3`: 스트라타젬 두 절의 `timeScale 4` 긴 대기(보급 투하 240 s · 레이저 300 s) 중에 플레이어가
+  적에게 죽으면 페이즈가 `dead` 로 가고 스트라타젬 업데이트가 멈춰 `stratagem:landed` / `ended` 가 영영 안 온다.
+  전에는 전투불능으로 100 초를 버텨 그 사이 대기가 끝났다. 적이 필요한 항공 폭탄 절 **다음**부터 필드를 비운다.
+- `smoke-meta`: 잠긴 탭의 `disabled` 단언.
+- `smoke-social`: 일시정지 메뉴의 제목 · 버튼 목록.
+- `smoke-inventory-p6`: 새로 쓴 "가방이 꽉 찼을 때" 검사가 **내 실수**였다 — ⓐ `mat_scrap` 을 1개씩 400번 넣어
+  스택 5칸만 먹었고, ⓑ 칸을 채워도 앞 절이 만든 **화약 부분 스택**이 남아 `bag.canAbsorb(화약)` 이 계속 true 였다.
+  스택 최대치로 채우고 화약을 먼저 비운다.
+
+두 자리는 **CSS 쪽 함정**이었다 (스모크가 잡아 줬다): `.sc-grid.fixed` 의 `height` 는 부모가
+`display:flex; min-height:0` 이면 그냥 줄어든다 — `flex: none` 이 있어야 고정이다. 그리고 `display:none` 인
+요소의 `getComputedStyle(...).gridTemplateColumns` 는 사용값이 아니라 `repeat(var(--cols), …)` 문자열이라
+칸 수를 세면 3이 나온다 — `--cols` 를 직접 읽는다.
+
+**애드혹 시각 확인** (스크립트는 저장소에 넣지 않음): 무기 교체 시 크로스헤어 링의 `무기 교체` 라벨과 색,
+레이드에서 4티어 상자를 연 뒤 빛기둥이 사라지는지, 스코프로 300 m 표적을 맞췄을 때 예광탄이 조준선 위를
+지나는지, 공유 함선에서 ESC → 파티 떠나기 → 개인 함선 복귀.
 
 ## 2026-09-08 — 폐금속 공급 (고철 더미 · 기계 부품 · 고물 분해)
 

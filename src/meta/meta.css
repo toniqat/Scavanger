@@ -31,7 +31,8 @@
 .corp-side { display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 0; }
 .corp-side .corp-subtabs { display: flex; flex-direction: column; gap: 4px; align-self: stretch; border-radius: 0; padding: 0; background: none; border: 0; }
 .corp-side .scr-tab { justify-content: flex-start; text-align: left; padding: 10px 14px; border-radius: 0; }
-/* 탭 잠금 (2026-09-08): 신뢰도가 모자란 거래 / 계약 탭은 자물쇠를 달고 눌리지 않는다 — 이유는 title 툴팁에 있다. */
+/* 탭 잠금 (2026-09-08): 신뢰도가 모자란 거래 / 계약 탭은 자물쇠를 달고 흐려진다. 버튼 자체는 살아 있어서 — `disabled`
+   였을 때는 클릭이 아예 안 먹어 이유를 볼 방법이 없었다 — 누르면 필요한 신뢰도를 토스트로 알려준다. */
 .corp-side .scr-tab.is-locked,
 .corp-subtabs .scr-tab.is-locked {
   opacity: 0.4;

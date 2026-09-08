@@ -109,7 +109,8 @@ try {
     await waitSim(0.3);
   };
   const giveUp = async () => {
-    await P(() => window.__game.ctx.player.takeDamage(500));
+    // 2026-09-08: solo lethal damage no longer goes through 전투불능, so the give-up state is entered directly.
+    await P(() => window.__game.ctx.player.enterDowned());
     await waitSim(0.3);
     await keyDown('Space'); await waitSim(2.2); await keyUp('Space');
     await waitSim(0.3);

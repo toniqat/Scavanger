@@ -154,6 +154,10 @@ export class Crates {
           radius: 2.8,
           getPrompt: () => (def.opened ? '상자 살펴보기 (E)' : '상자 열기 (E)'),
           canInteract: () => true,
+          // 2026-09-08: an opened crate keeps its E prompt (you can look inside again) but must stop advertising
+          // itself — the 감지 빛기둥 over a 귀중품 상자 stayed lit forever because `canInteract` never turns false.
+          // `Interactable.hidePillar` is read per frame by `ui/hud/Detection`, so a getter is enough.
+          get hidePillar(): boolean { return def.opened; },
           interact: () => this.onInteract(inst),
         },
       };

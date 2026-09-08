@@ -314,6 +314,14 @@ still runs at the item's own rate).
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
+- **2026-09-08 (스코프 탄도)** — `parts/Firing.fire` 가 **스코프 조준 중에는 조준선에서 쏜다**. 모든 사격은
+  모델 총구에서 나가 카메라 레이가 맞춘 점으로 수렴하는데, 3인칭 총구는 카메라보다 ~0.15 m **왼쪽** · ~1 m 앞이라
+  총구에서 본 각도로 ~8° 왼쪽이다 — 저격 거리에서 예광탄이 비행 내내 조준선 왼쪽을 지나고, 카메라 레이가 아무것도
+  못 맞힌 사격은 표적 왼쪽에 꽂혔다. `WeaponDef.scope` 무기를 조준 중이면 병사 모델이 어차피 숨겨져 있으므로
+  (`PlayerSystem.scopeHidden`) 발사점을 **조준 레이 위**로 옮긴다 — 총구를 그 레이에 정사영(전방 거리는 그대로).
+  머즐 플래시 · 발사음 · 원격 `fire` 메시지는 실제 총구를 그대로 쓴다(남들이 보는 건 그쪽이다). 허리 사격과
+  비스코프 ADS 는 손대지 않았다 (그쪽은 총이 화면에 있다).
+
 - **tactical kit** — **F melee** (`Melee.ts`, `MELEE_DAMAGE × meleeMul × derived.meleeDamageMul`, `melee` net message), **V** = previous weapon, weapon keys while a wielded implant is in hand → `ctx.implants.stow()` + swap (2026-09-06 fix), **H** = stim into the hand, **T** = quick use (tap / hold wheel), gadgets in the quick wheel (LMB → `ctx.gadgets.use`, RMB toggles over/under-hand), holster while `ctx.implants.blocksWeapons`, shots stop at barriers / dome hulls (`Blocking.ts`), 사격 skill recoil / reload multipliers, overcharge fire rate
 
 - **Phase 6** — `unique/` handlers (`createUniqueHandler` by `WeaponDef.unique`) — 화염방사기 cone / jet + per-enemy heat → `applyStatus('incinerated')`, 전격총 chain arc (`SHOCK_MAX_TARGETS`, shocked) + RMB charged bolt, 표창 1 / 3 stars + **F hold → 용검** (`consumeStamina` 50 %, `setViewWiden`, `startMelee('heavy')`, `player:slashed`), 컴포짓 보우 (only unique with ADS), 바주카 impact / air-burst rockets with self damage + knockback + rocket jump (`player:blastJump`), 미니건 spin-up (RMB pre-spin, `setSpeedModifier('minigun')`); `UniqueFx.ts` pooled cones / `LineSegments` arcs (no lights), `Projectile.ts` styles (shuriken / arrow / rocket, fuse, tag), six procedural models in `WeaponModel.ts`, `fire {m, c}` replication in `RemoteWeapons`

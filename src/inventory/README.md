@@ -35,7 +35,7 @@
 | `ui/CatalogView.ts` | **무한 상자** panel (Phase 6): category tabs (`CATALOG_TABS`, derived from `ItemCategory`: 전체 / 무기 / 탄약 / 부착물 / 가방 / 방탄복 / 가젯 / 소모품 / 재료 / 약초 / **씨앗** (Phase 8) / **서적** (Phase 9) / 가구 — a tab without defs is dropped), search box (Korean substring on the name, plus the id; key events stop at the field so the game's `Input` never sees them), one uniform 2×2 tile per `ItemDef` from `ctx.loot.getAllItemDefs()` with a caption, a scrolling grid, `닫기`. Tiles are built once and re-appended on filter; `CatalogHandlers` hand press / hover / close to the window. `tileEl(defId)`, `shake`, `setTab`, **`setTabForCategory(cat)`** (Phase 9: picks the built tab whose `categories` include `cat`, false when there is none), `setQuery`, `visibleCount` for tests |
 | `ui/CraftPanel.ts` | Hold-to-craft panel (`제작` button, or a 작업실 bench). **Bench mode** (Phase 6, `sys.getBench()`): eyebrow `WORKSHOP BENCH`, title `WORKBENCH_LABEL_KO[kind] Lv.n`, rows from `sys.getBenchRecipes()` (locked rows `is-bench-locked` with a `작업대 Lv.n 필요` tag and no button), material chips from `sys.craftCost` (workshop discount, `작업실 할인 −n %` chip), a `닫기` button (`sys.closeBench`) and the **repair list** (`sys.benchRepairRows`: slot / durability bar / cost text `폐금속 ×n · 합금 판 ×n` or `정비 완료` / `수리` button → `sys.repair`, `모두 수리` → `sys.benchRepairAll`, 3 s result line). Same cost readout as `hub/ui/WorkbenchMenu.ts` (copied, not imported). **Phase 8**: adopted into a `Modeless` frame (no longer a `.inv-layout` column), material costs are `renderItemCost` item chips from `@/shared` (recipe rows **and** the repair list), the `닫기` button is always shown (bench → `closeBench`, otherwise the window's `onClose`), and the `break_*` 분해 rows are gone from the list |
 | `ui/Modeless.ts` | **Phase 8** — shell of the **모달리스 팝업** (`.inv-modeless`, variant class `-implant` / `-craft` / `-disassemble`) shared by the implant picker, the craft panel and the 분해 dialog. `withHeader(eyebrow, title)` / `adopt(panel)` / `open(anchor?, centred?)` / `place()` / `close()` / `dispose()`. Adds **no** `ctx.uiBlockers` token and never touches the pointer lock — the window owns both; dismissed by the window's Escape chain (`closeOverlays`) or by a capture-phase `pointerdown` outside the panel *and* its anchor (so a click on the opener toggles). Anchored popups sit to the left of the anchor (clamped into the viewport), anchorless ones get `is-centred` (the craft popup is parked at the right edge by CSS). **Phase 8 UI pass**: `centred` keeps the anchor purely as the "this press is not outside" element while the frame stays in the middle of the screen — that is how the 전술 임플란트 panel is both centred *and* still toggled by a second click on its slot |
-| `ui/DisassemblePanel.ts` | **Phase 8** — the **아이템 분해** dialog: a `Modeless` showing the **expected result** (`재료` input chip with 보유/필요 → `결과물` output chip ×n, both `buildItemChip` from `@/shared`), the craft duration and a `분해` button that runs the item's `break_*` recipe through `InventorySystem.craft` (progress fill in the button, a second click cancels). `open(uid)` / `close()` / `refresh()` / `isOpen` / `itemUid`; emits `ui:disassembleToggled {open, uid}` on both edges and closes itself when the source stack is gone |
+| `ui/DisassemblePanel.ts` | **Phase 8** — the **아이템 분해** dialog: a `Modeless` showing the **expected result** (`재료` input chip with 보유/필요 → `결과물` output chip ×n, both `buildItemChip` from `@/shared`) and a `분해` button that runs the item's `break_*` recipe through `InventorySystem.craft` (a second click cancels). **2026-09-08**: the button **is** the progress bar (`.inv-craft-fill`) — the `1회 분해 · n s` hint line and the separate `.inv-dis-bar` under it are gone — and the bag is checked **before** the hold (`InventorySystem.craftHasRoom`), so a full bag disables the button up front with `가방에 공간이 없습니다` on it instead of failing after 2 s. `open(uid)` / `close()` / `refresh()` / `isOpen` / `itemUid` / `barEl` (now the button) / `progress`; emits `ui:disassembleToggled {open, uid}` on both edges and closes itself when the source stack is gone |
 | `ui/ImplantPanel.ts` | **임플란트 칸** (2026-09-08, 캐릭터 시트에서 이사). 장착 장비 격자(`.inv-equip-grid`) 바로 아래 `.inv-implants` 블록 두 개: **전술 임플란트** 슬롯 카드 + 모달리스 피커(`.inv-imp-pop`, 6종 카드, `ctx.implants.setEquipped`)와 **임플란트 아이템** (`임플란트 n / m칸` + 핍 줄, 장착한 것 한 줄씩(클릭 = 해제), `+ 장착` → `.inv-impi-pop` 이 가방 + 함선 창고의 후보를 나열; 망가짐 / 장착칸 부족은 사유와 함께 비활성). 두 피커 모두 **`ctx.uiRoot` 직속 자식**이다 (`.inv-root` 의 열림 애니메이션이 남기는 `scale:` 이 `position: fixed` 팝업의 컨테이닝 블록이 되므로). 능력치 임플란트는 `ctx.progression`, 전술 임플란트는 `ctx.implants` 로만 오간다 — 상태를 하나도 들고 있지 않다. `closePickers()` 가 `closeOverlays()` 사슬에 들어가 Escape 한 번을 먹는다. |
 | `ui/CrewLoadoutView.ts` | **Phase 10** — `createCrewLoadoutView(host, loadout, opts)`: a **read-only** 장비 / 가방 / 빠른 사용 view of another member's `captureCrewLoadout()` document (발사 준비 패널 → 우클릭). `sanitizeLoadoutSave` validates, `reviveItem` mints the items onto a throwaway `Grid`, `GridView` + `buildTileContent` draw them with no-op handlers. Blocks `['equip','bag','quick']` (no 함선 창고, no 크레딧), unknown def ids skipped, `EmbeddedView` (no blocker / pointer lock / Escape listener) — see the last section |
 | `ui/Tooltip.ts` | Hover card (name, category · rarity, description; weapons: 종류 / 등급 / 대미지 / 탄창 / 장전 / 연사 / 반동 / 정조준 시간 / 재장전 / 발사 모드 / 탄종 / 유효 사거리 / 배율 / 내구도 from `ctx.loot.getEffectiveStats` + the five sockets; attachments: socket, 호환, effects; bags: grid + 퀵슬롯; **서적 (Phase 9)**: 스킬 (한국어 name via the new `TooltipLookups.getSkillName` → `ctx.progression.getSkillDef`, the raw id as fallback) + 용도 `서재 책장에 꽂으면 해당 스킬 XP 증가`; qty, size, value) |
@@ -354,8 +354,10 @@ any `break_*` id) — `getRecipes()` and `craft()` still know them, so nothing e
   taken into the bag first, because the recipe consumes from the bag) and `hasMenu` counts it, so even a 1-round stack
   opens the menu instead of quick-moving.
 - The entry opens `DisassemblePanel`: `재료` (input chip, 보유/필요, dimmed + red when short) `→` `결과물` (output chip
-  `×n`), the craft duration, and a `분해` button. The button runs `sys.craft(recipe.id)` (progress fill, a second click
+  `×n`) and a `분해` button. The button runs `sys.craft(recipe.id)` (the button fills as the hold runs, a second click
   cancels, `분해 완료` / `분해할 수 없습니다` for 2.5 s) and the dialog closes itself when the source stack is gone.
+  **2026-09-08**: it refuses **before** the hold when the materials are short *or* the bag has no room for the output
+  (`craftHasRoom`, the same test `updateCraft` makes at the end) — the reason replaces the button label.
 - `ui:disassembleToggled {open, uid}` is emitted on both edges (`uid` is the item on close as well).
 
 ### 요구 아이템 칩 (`buildItemChip` / `renderItemCost` from `@/shared`)
@@ -579,11 +581,11 @@ Data-driven off the frozen contract (`ItemCategory 'implant'`, `ItemDef.implant`
 `inventory:disassembleProgress`); the implant defs themselves are items/ (`imp_<stat>_<1..4>`, `imp_perk_*`,
 `imp_broken_*`). Nothing in `src/shared` or another folder changed for this.
 
-- **분해 게이지** (`ui/DisassemblePanel.ts`): a horizontal `.inv-dis-bar` (+ `.inv-dis-bar-fill`) sits directly under the
-  `분해 중…` button, hidden while idle, **no CSS transition** — its width is written per frame by the new cheap `tick()`
-  (called from `InventoryUI.refreshCraft`, which `InventorySystem.updateCraft` already runs every frame the job advances;
-  `refresh()` still rebuilds the chips and ends in a `tick()`). The button's own `.inv-craft-fill` follows the same
-  number. The panel reports the hold through a fourth constructor callback → the window emits
+- **분해 게이지** (`ui/DisassemblePanel.ts`): the `분해 중…` **button itself** fills 0 → 100 % (`.inv-craft-fill`) — its width is
+  written per frame by the cheap `tick()` (called from `InventoryUI.refreshCraft`, which `InventorySystem.updateCraft` already
+  runs every frame the job advances; `refresh()` still rebuilds the chips and ends in a `tick()`). **2026-09-08**: the second
+  horizontal bar that used to sit under the button (`.inv-dis-bar`) is gone, and so is the `1회 분해 · n s` hint line above it —
+  the button is the only gauge, and `barEl` now returns it. The panel reports the hold through a fourth constructor callback → the window emits
   `inventory:disassembleProgress {uid, t, done}`: throttled to `PROGRESS_EMIT_MS` (≤ 30 Hz) while running, **exactly
   one** `{t:1, done:true}` when the recipe completes, and `{t:0, done:false}` when a cancel (second click / 닫기 / outside
   click / death) resets a hold that had already been reported. `barEl` / `progress` are exposed for the smokes.
@@ -640,6 +642,13 @@ Data-driven off the frozen contract (`ItemCategory 'implant'`, `ItemDef.implant`
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-08 (분해 UX)** — ① `InventorySystem.craftHasRoom(recipeId)` 추가 (`parts/Crafting`): `updateCraft`
+  가 홀드 끝에 하던 **가방 칸 검사**(출력물 + `extraOutputs`)를 그대로 앞으로 뺀 것. ② `ui/DisassemblePanel` 이
+  그 값으로 버튼을 **미리** 잠근다 — 라벨이 `가방에 공간이 없습니다` 로 바뀐다 (전에는 2 초를 쓰고 나서 실패했다).
+  ③ 미리보기 밑의 `1회 분해 · 2.0 s` 줄 삭제 (`TEXT.disassemble.hint` → `noRoom`). ④ 버튼 아래 가로
+  `.inv-dis-bar` 게이지 삭제 — **버튼 자체**(`.inv-craft-fill`)가 진행 바다. `inventory:disassembleProgress` 계약과
+  `panel.progress` 는 그대로이고, `panel.barEl` 은 이제 버튼을 가리킨다.
 
 - **2026-09-08 (폐금속 공급 · 분해 두 가지)** — items/ 가 늘린 고물 분해를 받기 위한 제작 쪽 변경 둘.
   ① **다중 산출물** — `updateCraft` 가 `CraftRecipe.extraOutputs` 를 처리한다. **재료를 쓰기 전에** 주 산출물과

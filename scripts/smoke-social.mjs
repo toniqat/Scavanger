@@ -170,11 +170,30 @@ try {
     '화면 한가운데(= Escape 가 커서를 돌려놓는 자리)가 게임으로 돌아가기 버튼 안에 있다', JSON.stringify([r, layout.cx, layout.cy]));
   ok(layout.cx > r.cx, '그 점은 버튼 중앙보다 **오른쪽**이다 (클릭하기 여유롭게)', JSON.stringify([layout.cx, r.cx]));
   ok(!layout.social, '2026-09-08: no 소셜 열 on the ESC screen (social is the 커뮤니티 panel alone)');
-  ok(layout.title === '일시 정지' && !layout.subtitle && !layout.mpNote && !layout.hint,
-    'the ship variant is a bare 일시 정지 title + buttons (no 함선 · 일시 정지, no subtitle / note / hint)', JSON.stringify(layout));
+  // 2026-09-08: the `일시 정지` heading is gone too — Escape does not actually freeze anything, so the word was a lie.
+  ok(layout.title === '' && !layout.subtitle && !layout.mpNote && !layout.hint,
+    'the ship variant is a bare button column (no title, no subtitle / note / hint)', JSON.stringify(layout));
   ok(layout.hubVariant, 'the pause menu is in its ship variant');
-  ok(layout.buttons.length === 4 && layout.buttons.map((b) => b.t).join('|') === '게임으로 돌아가기|설정|함선으로 귀환|타이틀로',
-    'button set / wording unchanged', JSON.stringify(layout.buttons.map((b) => b.t)));
+  ok(layout.buttons.map((b) => b.t).join('|') === '게임으로 돌아가기 (Tab)|설정|함선으로 귀환|파티 떠나기|타이틀로|게임 종료',
+    'buttons: 돌아가기 (Tab) / 설정 / 귀환 / 파티 떠나기 / 타이틀로 / 게임 종료', JSON.stringify(layout.buttons.map((b) => b.t)));
+  const hidden = layout.buttons.filter((b) => b.d === 'none').map((b) => b.t);
+  ok(hidden.join('|') === '함선으로 귀환|파티 떠나기',
+    '함선으로 귀환 (임무 없음) 과 파티 떠나기 (로비 없음) 는 함선에서 숨는다', JSON.stringify(hidden));
+
+  /* 타이틀로 / 게임 종료 는 경고 팝업을 거친다 — 한 번의 클릭으로 진행이 날아가면 안 된다. */
+  const ask = await P(() => {
+    const frame = document.querySelector('.menu.pause .frame');
+    const btn = [...frame.querySelectorAll('.actions .ui-btn')].find((b) => b.textContent === '타이틀로');
+    btn.click();
+    const card = document.querySelector('.menu.pause .pause-ask');
+    const open = !card.hidden;
+    const title = card.querySelector('.pause-ask-title')?.textContent ?? '';
+    const okLabel = card.querySelector('.pause-ask-foot .ui-btn.danger')?.textContent ?? '';
+    card.querySelector('.pause-ask-foot .ui-btn:not(.danger)').click();   // 취소
+    return { open, title, okLabel, closed: card.hidden, phase: window.__game.ctx.phase, askOpen: window.__game.getSystem('hud').isPauseAskOpen };
+  });
+  ok(ask.open && ask.title === '타이틀로' && ask.okLabel === '타이틀로', '타이틀로 는 경고 팝업을 먼저 띄운다', JSON.stringify(ask));
+  ok(ask.closed && ask.phase === 'hub', '취소 는 팝업만 닫고 아무것도 하지 않는다', JSON.stringify(ask));
   ok(layout.buttons[2].d === 'none', '함선으로 귀환 stays display:none in the ship', layout.buttons[2].d);
   // 2026-09-08: Escape never closes the pause menu — only 게임으로 돌아가기 does (that click is also the user
   // gesture Chrome demands before it hands the pointer lock back after an Escape exit).
@@ -233,6 +252,28 @@ try {
   ok(col.squadHidden, '분대원 is hidden with no lobby', String(col.squadHidden));
   ok(col.reqShown && col.reqCards === 1, 'the incoming friend request has its own card', JSON.stringify(col));
   ok(col.reqActs.join('|') === '수락|거절', 'a request card carries 수락 / 거절', JSON.stringify(col.reqActs));
+
+  /* 2026-09-08 — 고정 크기: the frame keeps its box, and the 친구 / 최근 grids keep theirs, whatever the lists hold. */
+  await P(() => {
+    window.__box = (sel) => {
+      const wrap = document.querySelector('.community-panel');
+      const r = wrap.querySelector(sel).getBoundingClientRect();
+      return { w: Math.round(r.width), h: Math.round(r.height) };
+    };
+    window.__boxes = () => ({ frame: window.__box('.cp-frame'), fg: window.__box('.sc-section.friends .sc-grid'), rg: window.__box('.sc-section.recent .sc-grid') });
+  });
+  const boxFull = await P(() => window.__boxes());
+  const squadCols = await P(() => Number(getComputedStyle(document.querySelector('.community-panel .sc-squad')).getPropertyValue('--cols').trim()));
+  await P(() => window.__setSocial({ ...window.__snap(), friends: [], recent: [], incoming: [] }));
+  await sleep(80);
+  const boxEmpty = await P(() => window.__box('.cp-frame'));
+  await P(() => window.__setSocial(window.__snap()));
+  await sleep(80);
+  ok(boxFull.frame.w === boxEmpty.w && boxFull.frame.h === boxEmpty.h,
+    `커뮤니티 패널 keeps its size when the lists empty (${boxFull.frame.w}×${boxFull.frame.h})`, JSON.stringify({ boxFull, boxEmpty }));
+  ok(boxFull.fg.h === Math.round(3.5 * 56) && boxFull.rg.h === Math.round(5.5 * 56),
+    `친구 3.5줄 / 최근 5.5줄 fixed boxes (${boxFull.fg.h} / ${boxFull.rg.h} px)`, JSON.stringify(boxFull));
+  ok(squadCols === 4, '분대원 is a 1×4 grid', String(squadCols));
 
   let card = await P(() => {
     const c = document.querySelector('.community-panel .sc-section.friends .sc-card');

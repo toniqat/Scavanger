@@ -186,6 +186,25 @@ export function canCraft(sys: InventorySystem, recipeId: string): boolean {
   return sys.craftCost(r).every((i) => sys.countDef(i.defId) >= i.qty);
   }
 
+/**
+ * 2026-09-08 — whether the bag could take `recipeId`'s output (**and** its `extraOutputs`) right now. This is
+ * literally the test `updateCraft` runs when the hold ends; the 분해 dialog runs it up front so a shred that can
+ * only fail is refused **before** the 2 s hold instead of after it. Deliberately conservative in the same way:
+ * the input stack is still in the bag, so a 분해 that would free its own cells can read as full. Unknown recipe /
+ * output def → false.
+ */
+export function craftHasRoom(sys: InventorySystem, recipeId: string): boolean {
+  const r = getRecipe(recipeId);
+  const outDef = r ? ITEM_DEF_MAP.get(r.outputDefId) : undefined;
+  if (!r || !outDef) return false;
+  if (!sys.bag.canAbsorb(sys.loot.createItem(r.outputDefId, Math.min(outDef.stackMax, r.outputQty)))) return false;
+  for (const e of r.extraOutputs ?? []) {
+    const def = ITEM_DEF_MAP.get(e.defId);
+    if (!def || !sys.bag.canAbsorb(sys.loot.createItem(e.defId, Math.min(def.stackMax, e.qty)))) return false;
+  }
+  return true;
+  }
+
 /** Seconds one craft takes right now (recipe duration scaled by 제작 skill and 재주). */
 export function craftDuration(sys: InventorySystem, recipeId: string): number {
   const r = getRecipe(recipeId);

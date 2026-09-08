@@ -171,6 +171,16 @@ try {
   ok((await ev('structure:destroyed')).length === 1 && (await ev('structure:damaged')).length >= 1, 'structure:damaged / destroyed emitted');
 
   console.log('supply drop');
+  /* 2026-09-08: a solo death is instant now (no 전투불능 bleed-out), and a dead player stops the world / stratagem
+     update — the two long `timeScale 4` waits below would then hang on `stratagem:landed` / `stratagem:ended`.
+     The airstrike section above is the one that needs live enemies; from here the field is quiet on purpose. */
+  await P(() => {
+    const ctx = window.__game.ctx, p = ctx.player;
+    ctx.enemies?.setThreatLevel?.(0);
+    ctx.enemies?.killAll?.();
+    if (p.isDowned) p.revive();
+    p.heal(1000);
+  });
   await P(() => { const s = window.__game.getSystem('stratagems'); s.debugCooldownReset?.(); });
   const sTarget = await P(() => { const ctx = window.__game.ctx; const p = ctx.player.position; const f = ctx.player.getForward(); const t = [p.x + f.x * 3, 0, p.z + f.z * 3]; t[1] = ctx.world.getHeightAt(t[0], t[2]); return t; });
   await P((t) => { const s = window.__game.getSystem('stratagems'); const V = window.__game.ctx.player.position.constructor; s.debugCall('supply_drop', new V(t[0], t[1], t[2])); }, sTarget);
@@ -184,7 +194,9 @@ try {
   const invOpen = await P(() => window.__game.ctx.inventory.isOpen);
   ok(invOpen, 'inventory loot window opened for the supply crate');
   if (invOpen) { await P(() => window.__game.ctx.inventory.closeAll()); await waitSim(0.3); }
-  ok(await P(() => window.__game.ctx.isGameplayActive()), 'gameplay active again after closing the loot window');
+  const afterLoot = await P(() => { const ctx = window.__game.ctx, p = ctx.player;
+    return { active: ctx.isGameplayActive(), phase: ctx.phase, dead: p.isDead, downed: p.isDowned, hp: Math.round(p.hp), blockers: [...ctx.uiBlockers] }; });
+  ok(afterLoot.active, 'gameplay active again after closing the loot window', JSON.stringify(afterLoot));
 
   console.log('laser');
   await P(() => { const s = window.__game.getSystem('stratagems'); s.debugCooldownReset?.(); });
@@ -193,7 +205,8 @@ try {
   await waitFor(page, () => window.__ev['stratagem:landed'].some((e) => e.kind === 'orbital_laser'), 'laser ignited', 240000);
   const laserActive = await P(() => window.__game.getSystem('stratagems').getCalls().some((c) => c.kind === 'orbital_laser' && c.stage === 'active'));
   ok(laserActive, 'laser call is active after landing');
-  await waitFor(page, () => window.__ev['stratagem:ended'].some((e) => e.kind === 'orbital_laser'), 'laser ended', 300000);
+  await waitFor(page, () => window.__ev['stratagem:ended'].some((e) => e.kind === 'orbital_laser'), 'laser ended', 60000)
+    .catch(async (e) => { console.log('  state:', JSON.stringify(await P(() => { const ctx = window.__game.ctx, p = ctx.player; return { phase: ctx.phase, dead: p.isDead, downed: p.isDowned, active: ctx.isGameplayActive(), calls: window.__game.getSystem('stratagems').getCalls().map((c) => `${c.kind}:${c.stage}`) }; }))); throw e; });
   await P(() => { window.__game.ctx.timeScale = 1; });
   ok(true, 'laser ends after its duration');
 

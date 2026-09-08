@@ -296,12 +296,20 @@ export class CorpView {
     return pages.find((p) => !this.pageLock(p)) ?? 'quests';
   }
 
+  /**
+   * 2026-09-08: a rep-locked sub-tab used to be `disabled`, so the click never landed and the dim was the whole
+   * explanation. The button stays enabled and only *looks* locked (`.is-locked`) — clicking it says why, as a
+   * **토스트** (`ui:notify`, the Tab screen's `'inventory'` blocker leaves the social HUD up) and, for the standalone
+   * 기업 overlay where the HUD is gone, in the panel's own reserved message slot.
+   */
   setPage(page: CorpPage): void {
     if (!pagesFor(this.corp).includes(page)) return;
     const lock = this.pageLock(page);
     if (lock) {
+      const label = PAGES.find((p) => p.id === page)?.label ?? '';
       this.ctx.bus.emit('audio:play', { id: 'ui_deny' });
-      this.showMsg(`${PAGES.find((p) => p.id === page)?.label ?? ''} · ${lock}`, 'danger');
+      this.ctx.bus.emit('ui:notify', { text: `${label} · ${lock}`, kind: 'warning', duration: 2.2 });
+      this.showMsg(`${label} · ${lock}`, 'danger');
       return;
     }
     if (this.current === page) return;
@@ -341,7 +349,8 @@ export class CorpView {
       const b = this.subTabs.get(p.id)!;
       b.hidden = !pages.includes(p.id);
       const lock = pages.includes(p.id) ? this.pageLock(p.id) : null;
-      b.disabled = lock !== null;
+      // never `disabled`: a locked tab must still take the click that explains itself (2026-09-08)
+      b.disabled = false;
       b.title = lock ?? '';
       toggleClass(b, 'is-locked', lock !== null);
       toggleClass(b, 'is-on', p.id === this.current);

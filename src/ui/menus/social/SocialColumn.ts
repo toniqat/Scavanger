@@ -1,7 +1,7 @@
 import type { GameContext, PlayerCode, SocialPlayer, SocialRef } from '@/shared';
 import {
-  NET_SLOT_COLORS_CSS, SOCIAL_CARDS_PER_ROW, SOCIAL_FRIEND_ROWS, SOCIAL_RECENT_ROWS, SOCIAL_RECENT_MAX,
-  SQUAD_VOICE_DEFAULT, formatPlayerCode,
+  NET_MAX_PLAYERS, NET_SLOT_COLORS_CSS, SOCIAL_CARDS_PER_ROW, SOCIAL_FRIEND_ROWS, SOCIAL_RECENT_ROWS,
+  SOCIAL_RECENT_MAX, SQUAD_VOICE_DEFAULT, formatPlayerCode,
 } from '@/shared';
 import { el, setText, toggleClass } from '../../dom';
 import { buildProfileCard } from './ProfileCard';
@@ -38,6 +38,12 @@ const VOICE_HINT = '보이스 채팅 준비 중';
  *
  * 분대원 rows carry a voice slider + mute toggle. They are **UI only** (`SQUAD_VOICE_DEFAULT`, kept in `voice` below,
  * never read by anyone) and say so in their hint — there is no voice chat in this build.
+ *
+ * **2026-09-08 — 분대원 1×4.** The squad used to be a stack of full-width rows that only filled the left of the panel;
+ * it is a **`NET_MAX_PLAYERS`-wide single row** now, one cell per lobby slot (`--sc` keeps the slot colour), each cell
+ * a compact profile with its voice control on the **right**. Slots nobody holds are drawn as `빈 자리` rather than
+ * collapsing, so the row's width never changes as squadmates come and go. The section header carries
+ * **파티 떠나기**, which asks first through the column's shared confirm card (`SocialMenu.askConfirm`).
  */
 export class SocialColumn {
   readonly root: HTMLElement;
@@ -45,6 +51,7 @@ export class SocialColumn {
   private body: HTMLElement;
   private squadSection: HTMLElement;
   private squadList: HTMLElement;
+  private leaveBtn: HTMLButtonElement;
   private reqSection: HTMLElement;
   private reqHead: HTMLElement;
   private reqGrid: HTMLElement;
@@ -74,7 +81,10 @@ export class SocialColumn {
     const sh = el('div', { cls: 'sc-head', parent: this.squadSection });
     el('span', { cls: 'ui-label', text: '분대원', parent: sh });
     el('span', { cls: 'sc-note', text: VOICE_HINT, parent: sh });
+    this.leaveBtn = el('button', { cls: 'sc-leave', text: '파티 떠나기', parent: sh }) as HTMLButtonElement;
+    this.leaveBtn.addEventListener('click', (e) => { e.stopPropagation(); this.askLeaveParty(); });
     this.squadList = el('div', { cls: 'sc-squad', parent: this.squadSection });
+    this.squadList.style.setProperty('--cols', String(NET_MAX_PLAYERS));
     this.squadSection.hidden = !opts.squad;
 
     /* ── 받은 친구 요청 ── */
@@ -87,19 +97,23 @@ export class SocialColumn {
     this.friendSection = el('div', { cls: 'sc-section friends', parent: this.body });
     const fh = el('div', { cls: 'sc-head', parent: this.friendSection });
     this.friendHead = el('span', { cls: 'ui-label', text: '친구', parent: fh });
-    this.friendGrid = this.grid(this.friendSection, SOCIAL_FRIEND_ROWS);
+    this.friendGrid = this.grid(this.friendSection, SOCIAL_FRIEND_ROWS, true);
     this.friendEmpty = el('div', { cls: 'sc-empty', text: '친구가 없습니다 — 최근 플레이어를 우클릭해 추가하세요', parent: this.friendSection });
 
     /* ── 최근 플레이어 ── */
     const recent = el('div', { cls: 'sc-section recent', parent: this.body });
     const ch = el('div', { cls: 'sc-head', parent: recent });
     this.recentHead = el('span', { cls: 'ui-label', text: '최근 플레이어', parent: ch });
-    this.recentGrid = this.grid(recent, SOCIAL_RECENT_ROWS);
+    this.recentGrid = this.grid(recent, SOCIAL_RECENT_ROWS, true);
     this.recentEmpty = el('div', { cls: 'sc-empty', text: '함께 출격한 기록이 없습니다', parent: recent });
   }
 
-  private grid(parent: HTMLElement, rows: number): HTMLElement {
-    const g = el('div', { cls: 'sc-grid', parent });
+  /**
+   * One card grid. `fixed` (2026-09-08) pins the box to exactly `rows` rows instead of letting it shrink to its
+   * content — the 친구 / 최근 플레이어 lists must not resize the panel around them; 받은 친구 요청 stays elastic.
+   */
+  private grid(parent: HTMLElement, rows: number, fixed = false): HTMLElement {
+    const g = el('div', { cls: `sc-grid${fixed ? ' fixed' : ''}`, parent });
     g.style.setProperty('--cols', String(SOCIAL_CARDS_PER_ROW));
     g.style.setProperty('--rows', rows.toFixed(2));
     // The wheel must scroll this grid only — never the housing selection / the map behind it.
@@ -128,6 +142,8 @@ export class SocialColumn {
   get contextMenu(): SocialMenu | null { return this.menu; }
   /** Whether a usable social mirror was found at the last refresh (debug). */
   get isAvailable(): boolean { return this.available; }
+  /** The 분대원 header's 파티 떠나기 button (debug / smoke). */
+  get leaveButton(): HTMLButtonElement { return this.leaveBtn; }
 
   /** Re-read the mirror and repaint whatever changed. `force` skips the change key (after a local mutation). */
   refresh(force = false): void {
@@ -172,15 +188,22 @@ export class SocialColumn {
       const players = ctx.net?.lobby?.players ?? [];
       this.squadSection.hidden = players.length === 0;
       if (players.length > 0) {
-        this.squadList.replaceChildren();
+        // One cell per lobby slot: a player sits in their own slot (that is what `--sc` colours), anyone the slot
+        // number cannot place falls into the first free cell, and what is left over is drawn as 빈 자리.
+        const cells: Array<HTMLElement | null> = new Array(NET_MAX_PLAYERS).fill(null);
+        const spill: HTMLElement[] = [];
         for (const p of players) {
           const local = p.id === ctx.net?.localId;
           /* Phase 11: the lobby wire carries the 아이디 / level itself now; the name match is only a fallback. */
           const known = local ? social.me : this.byName(social, p.name);
           const code = p.code ?? known?.code ?? null;
           const level = p.level ?? known?.level ?? 0;
-          this.squadList.appendChild(this.squadRow(p.id, p.slot, p.name, local, code, level));
+          const cell = this.squadRow(p.id, p.slot, p.name, local, code, level);
+          if (p.slot >= 0 && p.slot < NET_MAX_PLAYERS && !cells[p.slot]) cells[p.slot] = cell;
+          else spill.push(cell);
         }
+        for (let i = 0; i < NET_MAX_PLAYERS && spill.length > 0; i++) if (!cells[i]) cells[i] = spill.shift()!;
+        this.squadList.replaceChildren(...cells.map((c, i) => c ?? this.emptySquadCell(i)));
       }
     }
 
@@ -215,6 +238,31 @@ export class SocialColumn {
     const lists = [social.friends, social.incoming, social.outgoing, social.recent];
     for (const l of lists) { const hit = l.find((p) => p.name === name); if (hit) return hit; }
     return undefined;
+  }
+
+  /** 파티 떠나기 — `net.leaveLobby()`, the same call as the 함선 메뉴's 도킹 해제, behind the shared confirm card. */
+  private askLeaveParty(): void {
+    const ctx = this.ctx;
+    if (!ctx?.net?.lobby) return;
+    this.menu?.askConfirm(
+      '파티 떠나기',
+      '분대에서 나갑니다. 공유 함선에서는 개인 함선으로 돌아갑니다.',
+      '떠나기',
+      () => {
+        try { ctx.net?.leaveLobby(); } catch (e) { console.error('[ui] leaveLobby failed', e); }
+        ctx.bus.emit('ui:notify', { text: '분대에서 나왔습니다', kind: 'info', duration: 2 });
+        this.refresh(true);
+      },
+    );
+  }
+
+  /** A lobby slot nobody holds — drawn so the 1×4 row keeps its width (2026-09-08). */
+  private emptySquadCell(slot: number): HTMLElement {
+    const row = el('div', { cls: 'sc-srow empty' });
+    row.style.setProperty('--sc', NET_SLOT_COLORS_CSS[slot] ?? '#fff');
+    const left = el('div', { cls: 'sc-sleft', parent: row });
+    el('span', { cls: 'sc-name', text: '빈 자리', parent: left });
+    return row;
   }
 
   private squadRow(

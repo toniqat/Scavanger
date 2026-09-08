@@ -83,7 +83,7 @@ start-server.bat relay   # 릴레이만 (npm run server, 0.0.0.0:8787) — 데�
 
 | 폴더 | 시스템 | `ctx` 게시 | 한 줄 책임 |
 |---|---|---|---|
-| [`src/player/`](src/player/README.md) | `PlayerSystem` | `ctx.player` | 3인칭 컨트롤러 · 카메라 리그 · 절차 생성 병사 모델 · 체력/전투불능/스태미나 · 자세 · 상호작용 · 실내 충돌 · 원격 아바타 · 호스트 고스트 |
+| [`src/player/`](src/player/README.md) | `PlayerSystem` | `ctx.player` | 3인칭 컨트롤러 · 카메라 리그 · 절차 생성 병사 모델 · 체력/전투불능(**1인 분대는 즉사**)/스태미나 · 자세 · 상호작용 · 실내 충돌 · 원격 아바타 · 호스트 고스트 |
 | [`src/weapons/`](src/weapons/README.md) | `WeaponSystem` | — | 무기 3슬롯 · 실효 스탯 · 내구도 · 탄약 v2 · 히트스캔/발사체 · 빠른 사용 휠 · 수류탄 · 근접 · 유니크 무기 · 원격 재생 |
 | [`src/implants/`](src/implants/README.md) | `ImplantSystem` | `ctx.implants` | 전술 임플란트 6종 (갈고리 · 대시 · 배리어 방패 · 오버차지 · 정찰 스캔 · 대전차포), Q 키 구동, 배리어 충돌/흡수/실드 배쉬 |
 | [`src/gadgets/`](src/gadgets/README.md) | `GadgetSystem` | `ctx.gadgets` | 소모품 가젯 10종 (은폐 · 돔 실드 · 바리케이드 · 수류탄류 · 지뢰 · 포탑 · 제세동기 · 점프대), 호스트 권한 배치물 |
@@ -114,7 +114,7 @@ start-server.bat relay   # 릴레이만 (npm run server, 0.0.0.0:8787) — 데�
 |---|---|---|---|
 | [`src/hub/`](src/hub/README.md) | `HubSystem` | `ctx.hub` | 개인/공유 함선 내부 · 도킹 & 워프 컷씬 · 발사 포드(출격 준비 경고) · 전체화면 터미널 · 행성 선택 · 작업대 · 시설 관리 모드 |
 | [`src/game/`](src/game/README.md) | `GameFlowSystem` | `ctx.phase` | 페이즈 상태 기계 · 사망/부활 · 레이드 실패 · **일시정지(ESC = 항상 열기, `escapePause`)** · 재접속 UX · 레이드 세션 저장/복귀 · 재개 게이트 |
-| [`src/ui/`](src/ui/README.md) | `HudSystem` | — | 모든 DOM UI — HUD 2계층 · 메뉴(설정 3분할) · 지도 · 채팅 · 소셜(커뮤니티 패널 단일) · 아이템 툴팁 · 커서 아트 · 스타일시트 |
+| [`src/ui/`](src/ui/README.md) | `HudSystem` | — | 모든 DOM UI — HUD 2계층 · 메뉴(설정 3분할, **ESC = 경고 팝업 뒤의 파티 떠나기 · 타이틀로 · 게임 종료**) · 지도 · 채팅 · 소셜(커뮤니티 패널 단일, **고정 크기**) · 아이템 툴팁 · 커서 아트 · 스타일시트 |
 | [`src/audio/`](src/audio/README.md) | `AudioSystem` | `ctx.audio` | 절차 WebAudio SFX 전량 + 앰비언트, 버스 이벤트에 반응, 볼륨 영속화 |
 | [`src/tutorial/`](src/tutorial/README.md) | `TutorialSystem` | `ctx.tutorial` | 새 캐릭터 안내 16단계 — 목표 패널 · UI 스포트라이트 · 바닥 안내선, 순서 강제 게이트(`blockReason`) + **잠긴 항목 숨김**(`hides`) |
 | [`src/console/`](src/console/README.md) | `ConsoleSystem` | `ctx.console` | 개발자 콘솔 + 치트 (**dev 호스트에서만** 존재 — 그 외에는 DOM 도 키도 없다) |

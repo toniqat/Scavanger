@@ -262,12 +262,7 @@ input { font: inherit; color: inherit; }
 .weapon.broken .mag { color: var(--c-danger); }
 .weapon.broken-flash { animation: weaponBroken 700ms ease-out; }
 @keyframes weaponBroken { 0% { filter: brightness(2.2); transform: translateX(-2px); } 20% { transform: translateX(2px); } 40% { transform: translateX(-1px); } 60% { transform: translateX(0); } 100% { filter: brightness(1); } }
-.weapon .swap { width: 160px; height: 2px; margin-top: -4px; background: rgba(255, 255, 255, 0.08); position: relative; overflow: hidden; opacity: 0; --swap-d: 0.4s; }
-.weapon .swap .fill { position: absolute; left: 0; top: 0; width: 100%; height: 100%; background: var(--c-accent); transform-origin: left; transform: scaleX(0); }
-.weapon .swap.show { animation: swapShow var(--swap-d) linear forwards; }
-.weapon .swap.show .fill { animation: swapSweep var(--swap-d) linear forwards; }
-@keyframes swapShow { 0% { opacity: 1; } 90% { opacity: 1; } 100% { opacity: 0; } }
-@keyframes swapSweep { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+/* 2026-09-08: the 160 px 교체 hairline that used to sit here is gone — 무기 교체 is a crosshair ring now (`.reload.swap`). */
 .wslots { display: flex; gap: 4px; margin-bottom: 2px; }
 .wslot { display: flex; align-items: center; gap: 6px; padding: 2px 7px 2px 5px; border: 1px solid var(--c-border); background: rgba(0, 0, 0, 0.25); max-width: 110px; opacity: 0.55; transition: opacity var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease); }
 .wslot .k { font-family: var(--ui-mono); font-size: 9px; color: var(--c-text-dim); flex: none; }
@@ -469,6 +464,26 @@ input { font: inherit; color: inherit; }
  * tooltip / context menu / dialog layers ≤ 80), the map (40), the 커뮤니티 panel (46) and the hub popups (72); the dev
  * console (90) and the fixed popups (`.item-tip` 200, `.sc-menu` 300) stay above it. Its own overlays follow below. */
 .menu.pause { z-index: 85; }
+
+/* 경고 팝업 (2026-09-08) — 파티 떠나기 / 타이틀로 / 게임 종료 all ask first. Covers the whole pause layer (not just
+   the frame), so the darkened card is unmistakably modal over the button column it guards. */
+.pause-ask {
+  position: absolute; inset: 0; z-index: 2;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(3, 4, 6, 0.72);
+}
+.pause-ask[hidden] { display: none; }
+.pause-ask-card {
+  display: flex; flex-direction: column; gap: 12px;
+  width: min(420px, calc(100vw - 48px));
+  padding: 22px 24px 18px;
+  background: var(--c-panel-strong); border: 1px solid var(--c-border-strong);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  animation: menuIn 180ms var(--ease);
+}
+.pause-ask-title { font-size: 16px; font-weight: 700; letter-spacing: 0.16em; color: var(--c-danger); }
+.pause-ask-body { font-size: 12px; line-height: 1.7; letter-spacing: 0.02em; color: var(--c-text-dim); }
+.pause-ask-foot { display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px; }
 .menu.complete .frame { min-width: 520px; }
 .menu.complete .banner { display: flex; flex-direction: column; gap: 4px; }
 .menu.death .frame { border-color: rgba(255, 77, 77, 0.35); }
@@ -1089,6 +1104,9 @@ input { font: inherit; color: inherit; }
   position: absolute; left: 50%; top: 100%; transform: translate(-50%, 4px);
   font-size: 11px; letter-spacing: 0.1em; color: var(--c-accent); white-space: nowrap;
 }
+/* 2026-09-08 — 무기 교체 rides the same ring in a cooler tint so a glance tells the two apart. */
+.reload.swap .fill { stroke: var(--c-text); }
+.reload.swap .lbl { color: var(--c-text); }
 
 /* Phase 10 — 회복약 홀드 게이지 (hud/HealGauge): full circle, label bottom-left of the ring like the cook gauge */
 .heal {
@@ -2255,15 +2273,21 @@ button.item-chip[data-def-id] { cursor: pointer; }
 .sc-body { display: flex; flex-direction: column; gap: 16px; min-height: 0; }
 .sc-section { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
 .sc-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding-bottom: 5px; border-bottom: 1px solid var(--c-border); }
+.sc-head .sc-note { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
 .sc-head .ui-label { font-size: 10px; letter-spacing: 0.2em; }
 .sc-note { font-size: 9px; letter-spacing: 0.1em; color: var(--c-text-faint); }
 .sc-empty { font-size: 10px; letter-spacing: 0.04em; color: var(--c-text-faint); }
 .sc-grid {
   --cols: 2; --rows: 3.5;
-  display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); gap: 6px;
+  display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr));
+  gap: 6px; align-content: start;
   max-height: calc(var(--rows) * 56px); overflow-y: auto; overflow-x: hidden;
   scrollbar-width: thin; padding-right: 4px;
 }
+/* 2026-09-08: `.fixed` (친구 / 최근 플레이어) holds its 3.5 / 5.5 row box whether it carries two cards or forty, so
+   the 커뮤니티 패널 never changes size under the cursor. 받은 친구 요청 stays elastic — its cards are taller (they
+   carry 수락 / 거절) and the section only exists while there is something in it. */
+.sc-grid.fixed { height: calc(var(--rows) * 56px); flex: none; }
 .sc-grid::-webkit-scrollbar { width: 4px; }
 .sc-grid::-webkit-scrollbar-thumb { background: var(--c-border-strong); }
 .sc-grid.is-empty { display: none; }
@@ -2298,21 +2322,32 @@ button.item-chip[data-def-id] { cursor: pointer; }
 .sc-act:hover { color: var(--c-text); border-color: var(--c-border-strong); }
 .sc-act.ok { color: var(--c-success); border-color: rgba(79, 209, 126, 0.5); }
 
-/* 분대원 rows: simple profile left, the UI-only voice slider + mute right */
-.sc-squad { display: flex; flex-direction: column; gap: 5px; }
+/* 분대원 (2026-09-08): a single `NET_MAX_PLAYERS`-wide row of cells that spans the whole panel — one cell per lobby
+   slot, profile stacked on the left, the UI-only voice slider + mute on the right, unheld slots drawn as 빈 자리. */
+.sc-squad { display: grid; --cols: 4; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); gap: 6px; }
 .sc-srow {
   --sc: #fff;
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 5px 8px 5px 6px;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 6px 8px 6px 6px; min-width: 0;
   border-left: 2px solid var(--sc); background: rgba(255, 255, 255, 0.035);
 }
 .sc-srow.me { background: rgba(255, 179, 71, 0.08); }
-.sc-sleft { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
-.sc-sleft .sc-name { flex: 1; min-width: 0; }
-.sc-sright { display: flex; align-items: center; gap: 6px; flex: none; }
+.sc-srow.empty { border-left-color: var(--c-border); background: rgba(255, 255, 255, 0.015); }
+.sc-srow.empty .sc-name { color: var(--c-text-faint); }
+.sc-sleft { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; flex: 1; }
+.sc-sleft .sc-name { max-width: 100%; min-width: 0; }
+.sc-sright { display: flex; align-items: center; gap: 5px; flex: none; }
+/* 파티 떠나기 in the 분대원 header — quiet until it is hovered, like every other destructive affordance */
+.sc-leave {
+  flex: none; padding: 2px 8px;
+  border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.04);
+  font: inherit; font-size: 10px; letter-spacing: 0.08em; color: var(--c-text-dim); cursor: pointer;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.sc-leave:hover { color: var(--c-danger); border-color: rgba(255, 77, 77, 0.55); }
 .sc-vol {
   -webkit-appearance: none; appearance: none;
-  width: 96px; height: 3px; background: var(--c-fill); border: 1px solid var(--c-border);
+  width: 64px; height: 3px; background: var(--c-fill); border: 1px solid var(--c-border);
   outline: none; cursor: pointer;
 }
 .sc-vol::-webkit-slider-thumb {
@@ -2463,14 +2498,21 @@ button.item-chip[data-def-id] { cursor: pointer; }
   display: flex; align-items: center; justify-content: center;
   background: radial-gradient(ellipse at 50% 40%, rgba(8, 10, 14, 0.55), rgba(3, 4, 6, 0.88));
 }
+/* 2026-09-08 — **고정 크기**. The frame used to grow and shrink with the lists (and with the 받은 친구 요청 section,
+   which appears out of nowhere), so the 닫기 button moved under the cursor between two openings. Width and height
+   are fixed now (clamped to the viewport on small screens) and `.sc-body` scrolls if the content ever exceeds it;
+   the lists inside keep their own fixed 3.5 / 5.5 row boxes. Wide enough for the 분대원 1×4 row. */
 .cp-frame {
   position: relative;
-  width: min(680px, calc(100vw - 64px)); max-height: calc(100vh - 64px);
+  width: min(940px, calc(100vw - 64px));
+  height: min(760px, calc(100vh - 64px));
   display: flex; flex-direction: column; gap: 16px;
   padding: 26px 28px 22px;
   background: var(--c-panel-strong); border: 1px solid var(--c-border);
   animation: menuIn 260ms var(--ease);
 }
+.cp-frame .social-col { flex: 1; min-height: 0; }
+.cp-frame .sc-body { overflow-y: auto; scrollbar-width: thin; padding-right: 4px; }
 .cp-head { display: flex; align-items: baseline; gap: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--c-border); }
 .cp-title { font-size: 22px; font-weight: 700; letter-spacing: 0.2em; }
 .cp-code { flex: 1; min-width: 0; font-size: 11px; letter-spacing: 0.08em; color: var(--c-text-dim); }

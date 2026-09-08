@@ -40,7 +40,7 @@ const UNIQUE_MODES: Readonly<Record<UniqueWeaponKind, { l: string; r: string }>>
 
 /**
  * Bottom-right weapon readout: slot strip (1/2/3/F), durability bar, mag / reserve (bag rounds) with the weapon
- * **thumbnail** beside them, slot tag + class tag, swap sweep, low / empty / broken states. The reload readout moved
+ * **thumbnail** beside them, slot tag + class tag, low / empty / broken states. The reload readout moved
  * to the crosshair in Phase 10 (`hud/ReloadGauge`) — this panel no longer owns an arc or a `재장전` pill.
  *
  * 2026-09-07: the separate name line above the durability bar is gone. The name now lives in `.wthumb`, a
@@ -63,7 +63,6 @@ export class WeaponPanel {
   private thumbIcon: HTMLElement;
   private duraEl: HTMLElement;
   private duraFill: HTMLElement;
-  private swapEl: HTMLElement;
 
   private modesEl: HTMLElement;
   private modeL: HTMLElement;
@@ -88,9 +87,6 @@ export class WeaponPanel {
 
     this.duraEl = el('div', { cls: 'dura', parent: this.root });
     this.duraFill = el('div', { cls: 'fill', parent: this.duraEl });
-    this.swapEl = el('div', { cls: 'swap', parent: this.root });
-    el('div', { cls: 'fill', parent: this.swapEl });
-
     // Phase 10: the reload arc that used to sit left of this row is gone — `hud/ReloadGauge` draws it at the crosshair.
     const ammoRow = el('div', { cls: 'ammo-row', parent: this.root });
     const ammoNums = el('div', { cls: 'ammo-nums', parent: ammoRow });
@@ -175,7 +171,8 @@ export class WeaponPanel {
         if (!this.isActive(p.uid, p.weaponId)) return;
         this.setDurability(0, 1, true);
       }),
-      b.on('weapon:swapStarted', ({ slot, duration }) => this.startSwap(slot, duration)),
+      // 2026-09-08: the swap only highlights the slot strip now — its timer is the crosshair ring (`hud/ReloadGauge`).
+      b.on('weapon:swapStarted', ({ slot }) => this.setSlot(slot)),
       b.on('weapon:dryFire', () => {
         this.magEl.classList.remove('flash');
         void this.magEl.offsetWidth;
@@ -191,8 +188,7 @@ export class WeaponPanel {
           this.setModes(undefined);
           this.setAmmo(0, 0);
           this.setDurability(1, 1, false);
-          this.endSwap();
-          /* reload state lives in `hud/ReloadGauge` now (it hides itself on death / reset / cancel) */
+          /* reload + swap state live in `hud/ReloadGauge` now (it hides itself on death / reset / cancel) */
         }
       }),
     );
@@ -276,16 +272,6 @@ export class WeaponPanel {
       this.root.classList.add('broken-flash');
     }
   }
-
-  private startSwap(slot: WeaponSlot, duration: number): void {
-    this.setSlot(slot);
-    this.swapEl.style.setProperty('--swap-d', `${Math.max(0.05, duration).toFixed(2)}s`);
-    this.swapEl.classList.remove('show');
-    void this.swapEl.offsetWidth;
-    this.swapEl.classList.add('show');
-  }
-
-  private endSwap(): void { this.swapEl.classList.remove('show'); }
 
   dispose(): void { for (const u of this.unsubs) u(); this.slots.dispose(); this.root.remove(); }
 }

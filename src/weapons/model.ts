@@ -110,6 +110,11 @@ export const _muzzle = new THREE.Vector3(), _target = new THREE.Vector3(), _md =
 /** Phase 12: impact point handed to `ctx.enemies.reportShot` (scratch). */
 export const _rep = new THREE.Vector3();
 export const _netDir = new THREE.Vector3();
+/**
+ * 2026-09-08 (스코프 탄도) — where a scoped shot actually leaves from: the model muzzle projected onto the aim ray,
+ * so the bullet rides the crosshair line instead of converging onto it from the left. See `parts/Firing.fire`.
+ */
+export const _shotO = new THREE.Vector3();
 export const _mq = new THREE.Quaternion();
 export const _block = new THREE.Vector3();
 export const _blockInfo = makeBlockInfo();

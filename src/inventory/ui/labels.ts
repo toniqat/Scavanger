@@ -199,7 +199,8 @@ export const TEXT = {
     done: '분해 완료',
     fail: '분해할 수 없습니다',
     close: '닫기',
-    hint: (n: number): string => `1회 분해 · ${n.toFixed(1)} s`,
+    /** 2026-09-08: the bag is checked **before** the hold now, so this is a refusal, not a post-mortem. */
+    noRoom: '가방에 공간이 없습니다',
   },
   /** Shared close affordance of the modeless popups (임플란트 / 제작 / 분해). */
   modelessClose: '닫기',

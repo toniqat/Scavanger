@@ -1302,24 +1302,12 @@ kbd {
 .inv-dis-side { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; min-width: 0; }
 .inv-dis-side.item-chips { flex-wrap: wrap; }
 .inv-dis-arrow { flex: none; font-size: 18px; color: var(--inv-muted); }
-.inv-dis-hint { font-size: 11px; letter-spacing: 0.04em; color: var(--inv-muted); text-align: center; }
 .inv-dis-msg { font-size: 11px; letter-spacing: 0.04em; text-align: center; }
 .inv-dis-msg.is-ok { color: var(--inv-ok); }
 .inv-dis-msg.is-bad { color: color-mix(in srgb, var(--inv-bad) 80%, white 20%); }
+/* 2026-09-08: the 분해 button *is* the 게이지 (`.inv-craft-fill`) — the `1회 분해 · n s` hint line and the second
+   horizontal bar that used to live under it are gone. */
 .inv-dis-btn { width: 100%; min-width: 0; justify-content: center; }
-/* Phase 12: 분해 게이지 — a horizontal bar right under the button; NO transition, the fill is written per frame */
-.inv-dis-bar {
-  height: 6px; width: 100%; margin-top: -4px;
-  border: 1px solid var(--inv-line); border-radius: 3px;
-  background: rgba(0, 0, 0, 0.45);
-  overflow: hidden;
-}
-.inv-dis-bar-fill {
-  display: block; height: 100%; width: 0;
-  background: linear-gradient(90deg, color-mix(in srgb, var(--inv-accent) 70%, white 10%), var(--inv-accent));
-  box-shadow: 0 0 8px color-mix(in srgb, var(--inv-accent) 55%, transparent);
-  transition: none;
-}
 
 /* ── item chips in the craft rows / context menu ─────────────────────────── */
 .inv-craft-costs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }

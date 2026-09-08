@@ -2,7 +2,7 @@ import type { CraftRecipe, ItemDef } from '@/shared';
 import { buildItemChip, renderItemCost } from '@/shared';
 import type { InventorySystem } from '../InventorySystem';
 import { Modeless } from './Modeless';
-import { TEXT, fmtSeconds } from './labels';
+import { TEXT } from './labels';
 
 /**
  * Phase 8 — **아이템 분해** dialog.
@@ -16,13 +16,18 @@ import { TEXT, fmtSeconds } from './labels';
  * dismissed by Escape (through `InventoryUI.closeOverlays()`), by the 닫기 button or by a pointerdown outside it.
  * Emits `ui:disassembleToggled {open, uid}` on both edges.
  *
- * Phase 12 (2026-09-08) — **분해 게이지**: while the hold runs, a horizontal bar directly under the `분해 중…` button
- * fills 0 → 100 % in real time. It is driven per frame by `tick()` (called from `InventoryUI.refreshCraft`, which the
- * system calls from `updateCraft` every frame the job advances) and has **no CSS transition**, so the fill is the
- * job's progress and nothing else. The panel also reports the hold through `onProgress` → the window emits
+ * Phase 12 (2026-09-08) — **분해 게이지**: while the hold runs, the `분해 중…` **button itself** fills 0 → 100 % in real
+ * time (`.inv-craft-fill`). It is driven per frame by `tick()` (called from `InventoryUI.refreshCraft`, which the
+ * system calls from `updateCraft` every frame the job advances) — the width *is* the job's progress, carried only by
+ * the fill's own 80 ms smoothing. The panel also reports the hold through `onProgress` → the window emits
  * `inventory:disassembleProgress {uid, t, done}`: at most every `PROGRESS_EMIT_MS` while running, exactly once with
- * `done:true` when the recipe completes, and `{t:0, done:false}` when a cancel (button / close / death) resets the bar.
- * The bar is hidden while idle.
+ * `done:true` when the recipe completes, and `{t:0, done:false}` when a cancel (button / close / death) resets it.
+ *
+ * **2026-09-08 (분해 UX)**: three cuts, all of them the same complaint — the dialog told you things after the fact.
+ *  - The `1회 분해 · 2.0 s` line under the preview is gone; the duration is what the button fill shows.
+ *  - The second horizontal bar under the button is gone too — the button *is* the progress bar.
+ *  - **가방 공간을 먼저 본다** (`InventorySystem.craftHasRoom`). The bag used to be checked when the hold ended, so a
+ *    full bag cost you the 2 s and then said no; the button now refuses up front with the reason on it.
  */
 /** Minimum spacing of two `inventory:disassembleProgress` emits (≤ 30 Hz). */
 const PROGRESS_EMIT_MS = 1000 / 30;
@@ -43,13 +48,10 @@ export class DisassemblePanel {
   private readonly preview: HTMLElement;
   private readonly inputHost: HTMLElement;
   private readonly outputHost: HTMLElement;
-  private readonly hintEl: HTMLElement;
   private readonly msgEl: HTMLElement;
   private readonly button: HTMLButtonElement;
   private readonly fill: HTMLElement;
   private readonly buttonLabel: HTMLElement;
-  private readonly bar: HTMLElement;
-  private readonly barFill: HTMLElement;
   private uid: string | null = null;
   private recipe: CraftRecipe | null = null;
   private running = false;
@@ -84,8 +86,6 @@ export class DisassemblePanel {
       column(TEXT.disassemble.input, this.inputHost), arrow, column(TEXT.disassemble.output, this.outputHost),
     );
 
-    this.hintEl = document.createElement('div');
-    this.hintEl.className = 'inv-dis-hint';
     this.msgEl = document.createElement('div');
     this.msgEl.className = 'inv-dis-msg';
     this.msgEl.hidden = true;
@@ -100,23 +100,15 @@ export class DisassemblePanel {
     this.button.append(this.fill, this.buttonLabel);
     this.button.addEventListener('click', () => this.run());
 
-    // Phase 12: the horizontal 분해 게이지 directly under the button (hidden while idle, no transition)
-    this.bar = document.createElement('div');
-    this.bar.className = 'inv-dis-bar';
-    this.bar.hidden = true;
-    this.barFill = document.createElement('i');
-    this.barFill.className = 'inv-dis-bar-fill';
-    this.bar.appendChild(this.barFill);
-
-    this.shell.body.append(this.preview, this.hintEl, this.msgEl, this.button, this.bar);
+    this.shell.body.append(this.preview, this.msgEl, this.button);
   }
 
   get el(): HTMLElement { return this.shell.el; }
   get isOpen(): boolean { return this.shell.isOpen; }
   /** The item currently previewed (smoke tests). */
   get itemUid(): string | null { return this.uid; }
-  /** The 분해 게이지 element (smoke tests). */
-  get barEl(): HTMLElement { return this.bar; }
+  /** The 분해 게이지 element — the button itself since 2026-09-08 (smoke tests). */
+  get barEl(): HTMLElement { return this.button; }
   /** 0..1 fill of the 분해 게이지 (0 while idle). */
   get progress(): number { return this.lastT < 0 ? 0 : this.lastT; }
 
@@ -166,13 +158,15 @@ export class DisassemblePanel {
       buildItemChip(this.getDef(r.outputDefId), { need: r.outputQty, size: 46, withName: true }),
       ...(r.extraOutputs ?? []).map((e) => buildItemChip(this.getDef(e.defId), { need: e.qty, size: 46, withName: true })),
     );
-    this.hintEl.textContent = TEXT.disassemble.hint(this.sys.craftDuration(r.id));
     const job = this.sys.craftProgress();
     const active = job?.recipeId === r.id;
     this.running = active;
-    this.button.disabled = !active && !enough;
-    this.buttonLabel.textContent = active ? TEXT.disassemble.working : TEXT.disassemble.button;
-    this.button.title = enough ? '' : TEXT.disassemble.short;
+    // 2026-09-08: 칸부터 본다 — the bag check that used to run when the hold ended now gates the button.
+    const room = this.sys.craftHasRoom(r.id);
+    const block = !enough ? TEXT.disassemble.short : !room ? TEXT.disassemble.noRoom : '';
+    this.button.disabled = !active && !!block;
+    this.buttonLabel.textContent = active ? TEXT.disassemble.working : block || TEXT.disassemble.button;
+    this.button.title = block;
     this.tick();
   }
 
@@ -188,16 +182,13 @@ export class DisassemblePanel {
     const job = this.sys.craftProgress();
     if (job?.recipeId !== r.id) {
       // idle (or a different craft): nothing to show; `run()` / `resetBar` own the transitions out of a hold
-      if (!this.bar.hidden) this.clearBar();
+      if (this.lastT >= 0) this.clearBar();
       return;
     }
     const t = Math.max(0, Math.min(1, job.progress));
     this.running = true;
-    if (this.bar.hidden) this.bar.hidden = false;
     if (t !== this.lastT) {
-      const pct = `${(t * 100).toFixed(1)}%`;
-      this.barFill.style.width = pct;
-      this.fill.style.width = pct;
+      this.fill.style.width = `${(t * 100).toFixed(1)}%`;
       this.lastT = t;
     }
     const now = performance.now();
@@ -208,10 +199,8 @@ export class DisassemblePanel {
     }
   }
 
-  /** Hide the bar and zero both fills (no report). */
+  /** Zero the button fill (no report). */
   private clearBar(): void {
-    this.bar.hidden = true;
-    this.barFill.style.width = '0%';
     this.fill.style.width = '0%';
     this.lastT = -1;
   }
@@ -234,7 +223,7 @@ export class DisassemblePanel {
       this.running = false;
       if (item) {
         this.sys.sfx('ui_equip'); this.showMsg(TEXT.disassemble.done, 'ok');
-        // the one `done:true` of this hold; the bar then returns to its idle (hidden) state
+        // the one `done:true` of this hold; the fill then returns to its idle (empty) state
         this.clearBar();
         this.reported = false;
         this.onProgress(uid, 1, true);

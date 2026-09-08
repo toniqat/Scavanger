@@ -272,6 +272,10 @@ Implants are **items** (`ItemDef.implant`, category `'implant'`, owner items/ �
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
+- **2026-09-08 (잠긴 탭 안내)** — 신뢰도가 모자란 `거래` / `계약` 서브탭은 이제 `disabled` 가 아니다. 흐리게
+  (`.is-locked`) 두되 클릭은 받아서, `setPage` 가 필요한 신뢰도를 **토스트**(`ui:notify`)와 패널 자체 메시지 줄로
+  알려 준다. `disabled` 였을 때는 클릭 이벤트가 아예 발생하지 않아 왜 잠겼는지 볼 방법이 툴팁뿐이었다.
+
 - **2026-09-08 (기업 화면 재배치)** — `ui/CorpView` 의 껍데기가 **위-아래**로 바뀌었다: 상단 `.corp-top` 에
   기업 목록(가로 칩) + 기업 패널, 그 아래 `.corp-main` 이 좌측 페이지 탭 rail + 페이지 전폭. 예전에는 기업 목록과
   기업 패널이 왼쪽에 열을 **두 겹** 차지해 오른쪽 가방 · 창고가 잘게 눌려 있었다. 그래서 `CT_CELL` 을 40 → **54**

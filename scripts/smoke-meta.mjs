@@ -475,7 +475,16 @@ try {
   const subContracts = dom && dom.subs.find((s) => s.page === 'contracts');
   const subQuests = dom && dom.subs.find((s) => s.page === 'quests');
   ok(subQuests && subQuests.on && !subQuests.locked, '신뢰도가 모자라면 퀘스트 탭으로 열린다', JSON.stringify(subQuests));
-  ok(subTrade && subTrade.locked && subTrade.disabled && /신뢰도 Lv\.1 부터 거래 가능/.test(subTrade.why), '거래 탭이 잠긴다 (사유가 title 에)', JSON.stringify(subTrade));
+  // 2026-09-08: `disabled` 였을 때는 클릭 이벤트가 아예 안 나서 왜 잠겼는지 볼 방법이 툴팁뿐이었다.
+  ok(subTrade && subTrade.locked && !subTrade.disabled && /신뢰도 Lv\.1 부터 거래 가능/.test(subTrade.why), '거래 탭이 잠긴다 (흐려지되 클릭은 받는다)', JSON.stringify(subTrade));
+  const lockToast = await P(() => {
+    window.__ev['ui:notify'] = [];
+    const before = window.__game.getSystem('meta')?.corpView?.page ?? null;
+    document.querySelector('.corp-subtabs .scr-tab[data-page="trade"]').click();
+    return { notes: window.__ev['ui:notify'].map((n) => n.text), msg: document.querySelector('.corp-msg-slot .form-msg')?.textContent ?? '', page: document.querySelector('.corp-page')?.dataset.page ?? null, before };
+  });
+  ok(lockToast.notes.some((t) => /신뢰도 Lv\.1 부터 거래 가능/.test(t)), '잠긴 거래 탭을 누르면 필요한 신뢰도가 토스트로 뜬다', JSON.stringify(lockToast));
+  ok(lockToast.page !== 'trade', '그리고 페이지는 바뀌지 않는다', JSON.stringify(lockToast));
   ok(subContracts && !subContracts.locked && !subContracts.disabled, 'Lv.0 에서도 계약 탭은 열려 있다 (minRepLevel 0 계약이 있다)', JSON.stringify(subContracts));
   // 잠긴 탭은 눌러도 넘어가지 않고 사유만 뜬다
   const clickLocked = await P(() => {

@@ -442,26 +442,29 @@ try {
     i.tryAddItem(ammo);
     const opened = i.openDisassemble(ammo.uid);
     const panel = sys['ui'].disassemblePanel;
-    const bar = panel.barEl;
-    const hiddenIdle = bar.hidden && panel.progress === 0;
     const btn = document.querySelector('.inv-dis-btn');
-    const below = bar.compareDocumentPosition(btn) & Node.DOCUMENT_POSITION_PRECEDING; // the button precedes the bar
+    // 2026-09-08: the button *is* the gauge — no bar under it and no `1회 분해 · n s` hint line any more.
+    const idle = panel.progress === 0 && (parseFloat(btn.querySelector('.inv-craft-fill').style.width) || 0) === 0;
+    const stripped = !document.querySelector('.inv-dis-bar') && !document.querySelector('.inv-dis-hint');
+    const isBtn = panel.barEl === btn;
     btn.click();
-    return { opened, hiddenIdle, below: !!below, uid: ammo.uid, dur: sys.craftDuration('break_ammo_light'), running: !!sys.craftProgress(), label: btn.querySelector('span').textContent };
+    return { opened, idle, stripped, isBtn, uid: ammo.uid, dur: sys.craftDuration('break_ammo_light'), running: !!sys.craftProgress(), label: btn.querySelector('span').textContent };
   });
-  ok(dis.opened && dis.hiddenIdle && dis.below, 'openDisassemble: the gauge sits under the button and is hidden while idle', JSON.stringify(dis));
+  ok(dis.opened && dis.idle && dis.isBtn, 'openDisassemble: the 분해 button is the gauge and reads empty while idle', JSON.stringify(dis));
+  ok(dis.stripped, 'no separate 분해 게이지 bar and no `1회 분해 · n s` hint line');
   ok(dis.running && dis.label === '분해 중…', `분해 button starts the hold (${dis.dur.toFixed(2)} s)`);
   const samples = [];
   for (let k = 0; k < 4; k++) {
     await waitSim(dis.dur * 0.15);
     samples.push(await page.evaluate(() => {
-      const p = window.__game.getSystem('inventory')['ui'].disassemblePanel; const b = p.barEl; const f = b.firstElementChild;
-      return { hidden: b.hidden, w: parseFloat(f.style.width) || 0, t: p.progress, transition: getComputedStyle(f).transitionDuration, fill: parseFloat(document.querySelector('.inv-dis-btn .inv-craft-fill').style.width) || 0 };
+      const p = window.__game.getSystem('inventory')['ui'].disassemblePanel;
+      const f = document.querySelector('.inv-dis-btn .inv-craft-fill');
+      return { w: parseFloat(f.style.width) || 0, t: p.progress };
     }));
   }
   const widths = samples.map((s) => s.w);
-  ok(samples.every((s) => !s.hidden) && widths.every((w, k) => k === 0 || w > widths[k - 1]) && widths[0] > 0 && widths[3] < 100, `bar visible and growing across the hold (${widths.map((w) => w.toFixed(1)).join(' → ')} %)`, JSON.stringify(samples));
-  ok(samples.every((s) => s.transition === '0s' && Math.abs(s.w - s.t * 100) < 0.2 && Math.abs(s.fill - s.w) < 0.2), 'bar has no CSS transition; width = job progress = button fill', JSON.stringify(samples));
+  ok(widths.every((w, k) => k === 0 || w > widths[k - 1]) && widths[0] > 0 && widths[3] < 100, `button fill growing across the hold (${widths.map((w) => w.toFixed(1)).join(' → ')} %)`, JSON.stringify(samples));
+  ok(samples.every((s) => Math.abs(s.w - s.t * 100) < 0.2), 'fill width = job progress', JSON.stringify(samples));
   await waitFor(page, () => window.__ev['inventory:disassembleProgress'].some((e) => e.done), 'disassembleProgress done', 60000);
   await sleep(120);
   const disEv = await page.evaluate((uid) => {
@@ -473,28 +476,52 @@ try {
     return {
       n: evs.length, doneCount: evs.filter((e) => e.done).length, doneLast: doneIdx === evs.length - 1, doneT: evs[doneIdx]?.t,
       sameUid: evs.every((e) => e.uid === uid), monotone: before.every((e, k) => k === 0 || e.t >= before[k - 1].t), maxT: Math.max(...before.map((e) => e.t)),
-      rateOk: before.length <= Math.ceil(30 * 1.5) + 4, hiddenAfter: p.barEl.hidden, progressAfter: p.progress,
+      rateOk: before.length <= Math.ceil(30 * 1.5) + 4,
+      emptyAfter: (parseFloat(document.querySelector('.inv-dis-btn .inv-craft-fill').style.width) || 0) === 0, progressAfter: p.progress,
       ammo: i.countWhere((d) => d.id === 'ammo_light'), powder: i.countWhere((d) => d.id === 'mat_gunpowder'), msg: document.querySelector('.inv-dis-msg')?.textContent,
     };
   }, dis.uid);
   ok(disEv.doneCount === 1 && disEv.doneLast && disEv.doneT === 1 && disEv.sameUid, `inventory:disassembleProgress ends with exactly one {t:1, done:true} (${disEv.n} events)`, JSON.stringify(disEv));
   ok(disEv.n >= 3 && disEv.monotone && disEv.maxT > 0 && disEv.maxT < 1, `progress t rises monotonically before done (max ${disEv.maxT?.toFixed(2)})`);
   ok(disEv.rateOk, `emits throttled to ≤ 30 Hz (${disEv.n - 1} progress events for a ${dis.dur.toFixed(2)} s hold)`);
-  ok(disEv.hiddenAfter && disEv.progressAfter === 0 && disEv.ammo === 30 && disEv.powder === 4 && disEv.msg === '분해 완료', `gauge hidden again, 경량탄 60 → ${disEv.ammo}, 화약 ${disEv.powder} (${disEv.msg})`);
+  ok(disEv.emptyAfter && disEv.progressAfter === 0 && disEv.ammo === 30 && disEv.powder === 4 && disEv.msg === '분해 완료', `gauge back to empty, 경량탄 60 → ${disEv.ammo}, 화약 ${disEv.powder} (${disEv.msg})`);
   // cancel: a second click during the hold resets the bar and reports {t:0, done:false}
   await page.evaluate(() => { window.__ev['inventory:disassembleProgress'].length = 0; document.querySelector('.inv-dis-btn').click(); });
   await waitSim(dis.dur * 0.3);
   const cancel = await page.evaluate(() => {
     const sys = window.__game.getSystem('inventory'); const p = sys['ui'].disassemblePanel;
-    const mid = { hidden: p.barEl.hidden, t: p.progress, evs: window.__ev['inventory:disassembleProgress'].length };
+    const w = () => parseFloat(document.querySelector('.inv-dis-btn .inv-craft-fill').style.width) || 0;
+    const mid = { w: w(), t: p.progress, evs: window.__ev['inventory:disassembleProgress'].length };
     document.querySelector('.inv-dis-btn').click();
     const evs = window.__ev['inventory:disassembleProgress'];
     const last = evs[evs.length - 1];
-    return { mid, hidden: p.barEl.hidden, t: p.progress, job: sys.craftProgress(), last, anyDone: evs.some((e) => e.done), label: document.querySelector('.inv-dis-btn span').textContent, open: p.isOpen };
+    return { mid, w: w(), t: p.progress, job: sys.craftProgress(), last, anyDone: evs.some((e) => e.done), label: document.querySelector('.inv-dis-btn span').textContent, open: p.isOpen };
   });
-  ok(!cancel.mid.hidden && cancel.mid.t > 0 && cancel.mid.evs > 0, `second hold running (t ${cancel.mid.t.toFixed(2)})`, JSON.stringify(cancel.mid));
-  ok(cancel.hidden && cancel.t === 0 && cancel.job === null && cancel.label === '분해' && cancel.open, 'clicking again cancels: bar hidden, job gone, dialog still open');
+  ok(cancel.mid.w > 0 && cancel.mid.t > 0 && cancel.mid.evs > 0, `second hold running (t ${cancel.mid.t.toFixed(2)})`, JSON.stringify(cancel.mid));
+  ok(cancel.w === 0 && cancel.t === 0 && cancel.job === null && cancel.label === '분해' && cancel.open, 'clicking again cancels: fill emptied, job gone, dialog still open');
   ok(cancel.last && cancel.last.t === 0 && cancel.last.done === false && !cancel.anyDone, 'cancel reports {t:0, done:false} and never done', JSON.stringify(cancel.last));
+  /* 가방 칸을 먼저 본다 (2026-09-08): a bag with no room refuses the 분해 up front instead of after the hold. */
+  const noRoom = await page.evaluate(() => {
+    const ctx = window.__game.ctx, i = ctx.inventory, sys = window.__game.getSystem('inventory');
+    const p = sys['ui'].disassemblePanel;
+    const before = { room: i.craftHasRoom('break_ammo_light'), disabled: document.querySelector('.inv-dis-btn').disabled };
+    // fill every free cell, then repaint the dialog
+    // the 화약 stack this run already made would absorb the output on its own — clear it, then fill every free cell
+    i.consumeWhere((d) => d.id === 'mat_gunpowder', 9999);
+    const junk = [];
+    const stackMax = ctx.loot.getItemDef('mat_scrap')?.stackMax ?? 1;
+    for (let k = 0; k < 400; k++) { const it = ctx.loot.createItem('mat_scrap', stackMax); if (!i.tryAddItem(it)) break; junk.push({ uid: it.uid, qty: stackMax }); }
+    p.refresh();
+    const btn = document.querySelector('.inv-dis-btn');
+    const after = { room: i.craftHasRoom('break_ammo_light'), disabled: btn.disabled, label: btn.querySelector('span').textContent };
+    for (const j of junk) i.consumeItem(j.uid, j.qty);
+    p.refresh();
+    return { before, after, restored: document.querySelector('.inv-dis-btn').disabled };
+  });
+  ok(noRoom.before.room && !noRoom.before.disabled, '분해 button enabled while the bag has room', JSON.stringify(noRoom.before));
+  ok(!noRoom.after.room && noRoom.after.disabled && noRoom.after.label === '가방에 공간이 없습니다',
+    'a full bag disables the button up front with the reason on it', JSON.stringify(noRoom.after));
+  ok(!noRoom.restored, 'and it comes back once the bag has room again');
   await page.evaluate(() => window.__game.getSystem('inventory')['ui'].disassemblePanel.close());
 
   /* ── 5b-2. 폐금속 공급 (2026-09-08): 고물 분해 ─────────────────────

@@ -416,6 +416,8 @@ export class HudSystem implements GameSystem {
   get shipManageConfirmPurpose(): string | null { return this.shipManage.confirmPurpose; }
   /** Whether the pause menu is in its ship variant (debug). */
   get isPauseHubVariant(): boolean { return this.pause.isHubVariant; }
+  /** 2026-09-08: whether the 일시정지 메뉴's 경고 팝업 (파티 떠나기 / 타이틀로 / 게임 종료) is up (debug / smoke). */
+  get isPauseAskOpen(): boolean { return this.pause.isAskOpen; }
   /** Whether the contract panel is up / pulsing (debug). */
   get isContractPanelOn(): boolean { return this.contractPanel.isShowing; }
   get isContractPulsing(): boolean { return this.contractPanel.isPulsing; }

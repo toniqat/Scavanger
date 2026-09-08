@@ -28,7 +28,7 @@ import { RemoteWeapons } from '../RemoteWeapons';
 import { MeleeController } from '../Melee';
 import { raycastBlockers, damageBarrierAt, makeBlockInfo } from '../Blocking';
 import { createUniqueHandler, UniqueFx, type UniqueHandler, type UniqueInput, type UniqueServices, type UniqueShot, type UniqueWeapon } from '../unique';
-import { BLOOM_DECAY, BLOOM_PER_SHOT, BOLT_SOUND_DELAY, BROKEN_NOTIFY_INTERVAL, CHANNEL_EMIT_HZ, FIRING_POSE_HOLD, GRENADE_MIN_FUSE, GRENADE_THROW_LIFT, GRENADE_THROW_SPEED, GRENADE_UNDERHAND_LIFT, type HitInfo, type Host, LOADOUT_FALLBACK_DELAY, MOVING_SPREAD_MUL, QUICK_HOLSTER_TIME, QUICK_USE_COOLDOWN, type QuickHand, type QuickKind, SPRAY_SEND_INTERVAL, SPRINT_SPREAD_MUL, type WeaponInstance, _block, _blockInfo, _d, _md, _mq, _muzzle, _netDir, _o, _pd, _rep, _right, _tA, _tB, _target, _tmp, gaugeOf, makeHit, toTuple, useTimeOf } from '../model';
+import { BLOOM_DECAY, BLOOM_PER_SHOT, BOLT_SOUND_DELAY, BROKEN_NOTIFY_INTERVAL, CHANNEL_EMIT_HZ, FIRING_POSE_HOLD, GRENADE_MIN_FUSE, GRENADE_THROW_LIFT, GRENADE_THROW_SPEED, GRENADE_UNDERHAND_LIFT, type HitInfo, type Host, LOADOUT_FALLBACK_DELAY, MOVING_SPREAD_MUL, QUICK_HOLSTER_TIME, QUICK_USE_COOLDOWN, type QuickHand, type QuickKind, SPRAY_SEND_INTERVAL, SPRINT_SPREAD_MUL, type WeaponInstance, _block, _blockInfo, _d, _md, _mq, _muzzle, _netDir, _o, _pd, _rep, _right, _shotO, _tA, _tB, _target, _tmp, gaugeOf, makeHit, toTuple, useTimeOf } from '../model';
 import type { WeaponSystem } from '../WeaponSystem';
 
 /** Bolt-action cycle after each sniper shot: blocks firing, drives the model's bolt animation and the cycle sound. */
@@ -166,6 +166,22 @@ export function fire(sys: WeaponSystem, host: Host, w: WeaponInstance): void {
   // muzzle world position (model matrices are one frame old → refresh the chain)
   w.model.muzzle.updateWorldMatrix(true, false);
   _muzzle.setFromMatrixPosition(w.model.muzzle.matrixWorld);
+  /*
+   * 2026-09-08 — **스코프 조준 중에는 조준선에서 쏜다.**
+   *
+   * Every shot leaves the model muzzle and is aimed at whatever the *camera* ray hit, so it converges onto the
+   * crosshair line from wherever the gun happens to be. Over the shoulder the gun sits ~0.15 m **left** of the
+   * camera and ~1 m ahead of it, which is a ~8° offset at the muzzle: at sniper range the tracer visibly runs left
+   * of the reticle for most of its flight, and a shot into a target the camera ray missed lands left of the mark.
+   *
+   * While a `scope` weapon is aimed the soldier (and his gun) is hidden anyway — `PlayerSystem.scopeHidden` —, so
+   * the shot can simply start **on the aim ray**: the muzzle projected onto it, keeping the same forward distance so
+   * nothing near the barrel changes. Muzzle flash, the shot sound and the replicated `fire` message stay on the real
+   * muzzle, which is what other players see. Hip fire and non-scoped ADS are untouched (their gun is on screen).
+   */
+  const scopedShot = !!def.scope && host.isAiming;
+  _shotO.copy(_muzzle);
+  if (scopedShot) _shotO.copy(_o).addScaledVector(_d, Math.max(0.05, _tmp.subVectors(_muzzle, _o).dot(_d)));
   // don't accept camera-ray hits between camera and player (over-the-shoulder)
   _tmp.copy(host.position); _tmp.y += 1.5;
   const camToPlayer = _tmp.distanceTo(_o) + 0.4;
@@ -180,26 +196,26 @@ export function fire(sys: WeaponSystem, host: Host, w: WeaponInstance): void {
     sys.raycastAll(_o, _pd, def.range, sys.camHit);
     if (sys.camHit.valid && sys.camHit.distance < camToPlayer) sys.camHit.valid = false;
     if (sys.camHit.valid) _target.copy(sys.camHit.point); else _target.copy(_o).addScaledVector(_pd, def.range);
-    _md.subVectors(_target, _muzzle);
+    _md.subVectors(_target, _shotO);
     const mdist = _md.length();
     if (mdist < 1e-3) continue;
     _md.divideScalar(mdist);
     if (pellets === 1) _netDir.copy(_md);
 
     if (def.projectileSpeed) {
-      sys.projectiles.fire(_muzzle, _md, def.projectileSpeed, st.damage, def.range, def.tracerColor, st.weaponId, false, projectileOptsFor(def));
+      sys.projectiles.fire(_shotO, _md, def.projectileSpeed, st.damage, def.range, def.tracerColor, st.weaponId, false, projectileOptsFor(def));
       continue;
     }
-    sys.raycastAll(_muzzle, _md, mdist + 0.05, sys.gunHit);
+    sys.raycastAll(_shotO, _md, mdist + 0.05, sys.gunHit);
     const hit = sys.gunHit.valid ? sys.gunHit : (sys.camHit.valid ? sys.camHit : null);
     const end = hit ? hit.point : _target;
     const fx = FxManager.get();
     if (fx) {
-      const len = _muzzle.distanceTo(end);
-      fx.tracers.add(_muzzle, end, def.tracerColor, pellets > 1 ? 0.03 : 0.045, len / 420 + 0.045, 420);
+      const len = _shotO.distanceTo(end);
+      fx.tracers.add(_shotO, end, def.tracerColor, pellets > 1 ? 0.03 : 0.045, len / 420 + 0.045, 420);
     }
     if (hit) {
-      const dmg = st.damage * damageFalloff(def, _muzzle.distanceTo(hit.point));
+      const dmg = st.damage * damageFalloff(def, _shotO.distanceTo(hit.point));
       const r = sys.applyHit(hit, dmg, _md, pellets > 1, st.ammoType);
       anyHit = true;
       reportHit = _rep.copy(hit.point);
