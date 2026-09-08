@@ -576,6 +576,94 @@ try {
     `upgrade materials refunded into the 함선 창고 (${JSON.stringify(removed.stashBefore)} → ${JSON.stringify(removed.stashAfter)})`);
   ok(removed.rangeLevel === 0, '사격장 facility is gone with its room');
 
+  /* ── Phase 12: a FRESH ship builds its first facility from 시설 관리 with the 기본 지급품 ──
+     The reported bug ("재료가 충분해 보이는데 제작이 안 됨"): a new ship's generator is Lv.0 and every 시설 증축 sits
+     behind `ROOM_PURPOSE_BUILD_GENERATOR_LEVEL` 1, but the picker only said so in a tooltip on a disabled button and
+     the generator could not be raised from that screen. Now the picker leads with a 발전기 row, prints every block
+     reason inline, and confirms each build in a centred popup. */
+  console.log('fresh ship → 발전기 → 작업실 from 시설 관리 (Phase 12)');
+  // the run above left dirty ship / stash state that the debounced stores flush on pagehide — reload once so that
+  // flush lands, THEN clear the saves on the quiet page and reload again into a genuinely fresh profile
+  await page.reload({ waitUntil: 'load' });
+  await waitFor(page, () => !!window.__game && !!window.__game.ctx.housing, 'boot (flush)');
+  // `scav.loadout` too: the `give()` calls above put materials in the **bag**, and `countDefAll` counts bag + stash
+  await page.evaluate(() => { for (const k of ['scav.ship', 'scav.stash', 'scav.grant', 'scav.loadout']) localStorage.removeItem(k); });
+  await page.reload({ waitUntil: 'load' });
+  await setup();
+  await H(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
+  await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub phase (fresh)');
+  await waitSim(0.5);
+  const grant = await H(() => ({ scrap: window.__game.ctx.inventory.countDefAll('mat_scrap'), cable: window.__game.ctx.inventory.countDefAll('mat_cable'), alloy: window.__game.ctx.inventory.countDefAll('mat_alloy'),
+    gen: window.__game.ctx.housing.getFacility('generator').level, rooms: window.__game.ctx.housing.state.rooms.every((r) => r.purpose === 'empty') }));
+  ok(grant.scrap === 16 && grant.cable === 3 && grant.alloy === 2, `기본 지급품 in the 함선 창고: 폐금속 ${grant.scrap} · 케이블 ${grant.cable} · 합금 ${grant.alloy}`);
+  ok(grant.gen === 0 && grant.rooms, 'fresh ship: 발전기 Lv.0, ten empty rooms');
+  await H(() => window.__game.ctx.housing.openRoomMenu(3));
+  await sleep(150);
+  const hud = () => H(() => { const h = window.__game.getSystem('hud'); return { confirm: h.isShipManageConfirmOn, purpose: h.shipManageConfirmPurpose, manage: window.__game.ctx.housing.shipManageMode, pause: !document.querySelector('.menu.pause')?.classList.contains('hidden') }; });
+  const pick0 = await H(() => {
+    const root = document.querySelector('.ship-manage');
+    const gen = root.querySelector('.sm-purposes .sm-gen');
+    return { gen: !!gen, hint: gen?.classList.contains('is-hint'), first: root.querySelector('.sm-purposes').firstElementChild === gen,
+      genBtn: gen?.querySelector('.sm-gen-btn')?.textContent, genDisabled: gen?.querySelector('.sm-gen-btn')?.disabled, genChips: gen?.querySelectorAll('.sm-cost .item-chip').length,
+      genNote: gen?.querySelector('.sm-block')?.textContent ?? '',
+      purposes: root.querySelectorAll('.sm-purposes .sm-purpose').length, blocked: root.querySelectorAll('.sm-purposes .sm-purpose.is-blocked').length,
+      disabled: root.querySelectorAll('.sm-purposes .sm-purpose:disabled').length,
+      reasons: [...root.querySelectorAll('.sm-purposes .sm-purpose .sm-block')].map((e) => e.textContent),
+      workshopReason: root.querySelector('.sm-purpose[data-purpose="workshop"] .sm-block')?.textContent ?? '' };
+  });
+  ok(pick0.gen && pick0.first && pick0.hint, '용도 지정 picker leads with a highlighted 발전기 row (the gate is what blocks everything)');
+  ok(pick0.genBtn === '가동' && pick0.genDisabled === false && pick0.genChips === 1 && /발전기 Lv.1/.test(pick0.genNote), `발전기 row: 가동 button enabled, 1 cost chip, guidance text (${pick0.genNote})`);
+  ok(pick0.purposes === 9 && pick0.blocked === 9 && pick0.disabled === 0, `all 9 purposes blocked but none is a disabled button (${pick0.blocked} blocked, ${pick0.disabled} disabled)`);
+  ok(pick0.reasons.length === 9 && /발전기 레벨 1 필요 \(현재 0\)/.test(pick0.workshopReason), `each row prints its reason inline (${pick0.workshopReason})`);
+  // clicking a blocked purpose: no popup, the reason toasts
+  await H(() => document.querySelector('.ship-manage .sm-purpose[data-purpose="workshop"]').click());
+  await sleep(80);
+  const denied = await hud();
+  const deniedToast = await H(() => [...document.querySelectorAll('.notifs .notif')].some((n) => /발전기 레벨 1 필요/.test(n.textContent)));
+  ok(!denied.confirm && denied.manage && deniedToast, 'clicking a blocked purpose → no popup, the reason as a toast');
+  // 발전기 가동: confirm popup, Esc closes only the popup, 확인 raises the generator
+  await H(() => document.querySelector('.ship-manage .sm-gen-btn').click());
+  await sleep(80);
+  const genPop = await H(() => { const c = document.querySelector('.ship-manage .sm-confirm'); return { hidden: c.hidden, title: c.querySelector('.title').textContent, chips: c.querySelectorAll('.cost .item-chip').length, ok: c.querySelector('.ui-btn.primary')?.textContent }; });
+  ok(!genPop.hidden && /발전기 Lv\.0 → Lv\.1/.test(genPop.title) && genPop.chips === 1 && genPop.ok === '확인', `발전기 confirm popup (${genPop.title})`);
+  await tap('Escape');
+  await sleep(80);
+  const escd = await hud();
+  ok(!escd.confirm && escd.manage && !escd.pause, 'Esc closes the popup only — still in 시설 관리, no pause menu');
+  await H(() => document.querySelector('.ship-manage .sm-gen-btn').click());
+  await sleep(60);
+  await H(() => document.querySelector('.ship-manage .sm-confirm .ui-btn.primary').click());
+  await sleep(150);
+  const gen1 = await H(() => ({ level: window.__game.ctx.housing.getFacility('generator').level, scrap: window.__game.ctx.inventory.countDefAll('mat_scrap'),
+    hint: document.querySelector('.ship-manage .sm-gen')?.classList.contains('is-hint'), lv: document.querySelector('.ship-manage .sm-gen .lv')?.textContent,
+    workshopBlocked: document.querySelector('.ship-manage .sm-purpose[data-purpose="workshop"]')?.classList.contains('is-blocked'),
+    labReason: document.querySelector('.ship-manage .sm-purpose[data-purpose="lab"] .sm-block')?.textContent ?? '' }));
+  ok(gen1.level === 1 && gen1.scrap === 12, `확인 → 발전기 Lv.1, 폐금속 16 → ${gen1.scrap}`);
+  ok(gen1.hint === false && gen1.lv === 'Lv.1 / 5' && gen1.workshopBlocked === false, `picker refreshed: generator row plain (${gen1.lv}), 작업실 now buildable`);
+  ok(/온실/.test(gen1.labReason), `other reasons still print (연구실: ${gen1.labReason})`);
+  // 작업실: confirm text + chips, Esc, then 확인
+  await H(() => document.querySelector('.ship-manage .sm-purpose[data-purpose="workshop"]').click());
+  await sleep(80);
+  const wsPop = await H(() => { const c = document.querySelector('.ship-manage .sm-confirm'); return { hidden: c.hidden, title: c.querySelector('.title').textContent, body: c.querySelector('.body').textContent, chips: c.querySelectorAll('.cost .item-chip').length, purpose: window.__game.getSystem('hud').shipManageConfirmPurpose }; });
+  ok(!wsPop.hidden && wsPop.purpose === 'workshop' && /정말로 4번 방을 작업실 시설로 만들겠습니까\?/.test(wsPop.body) && wsPop.chips === 2, `작업실 confirm popup: "${wsPop.body.slice(0, 30)}…", 2 chips`);
+  await tap('Escape');
+  await sleep(80);
+  ok((await hud()).confirm === false && (await hud()).manage, 'Esc → popup closed, 시설 관리 kept');
+  await H(() => document.querySelector('.ship-manage .sm-purpose[data-purpose="workshop"]').click());
+  await sleep(60);
+  await H(() => document.querySelector('.ship-manage .sm-confirm .ui-btn.primary').click());
+  await sleep(150);
+  const built = await H(() => ({ purpose: window.__game.ctx.housing.getRoom(3).purpose, level: window.__game.ctx.housing.getRoom(3).level,
+    scrap: window.__game.ctx.inventory.countDefAll('mat_scrap'), cable: window.__game.ctx.inventory.countDefAll('mat_cable'),
+    head: document.querySelector('.ship-manage .sm-bar-head').textContent, cards: document.querySelectorAll('.ship-manage .sm-cards .fcard').length,
+    confirm: window.__game.getSystem('hud').isShipManageConfirmOn }));
+  ok(built.purpose === 'workshop' && built.level === 1 && !built.confirm, `확인 → 방 4 is a 작업실 Lv.1 (${built.purpose})`);
+  ok(built.scrap === 4 && built.cable === 1, `증축 consumed 폐금속 8 · 케이블 2 from the 창고 (left ${built.scrap} · ${built.cable})`);
+  ok(/작업실/.test(built.head) && built.cards === 13, `side panel switched to the 작업실 furniture list (${built.cards} cards)`);
+  ok((await lastEv('housing:roomPurposeChanged'))?.room === 3, 'housing:roomPurposeChanged {room:3}');
+  await H(() => window.__game.ctx.housing.closeShipManage());
+  await sleep(80);
+
   ok(errors.length === 0, 'no console errors', errors.slice(0, 5).join(' | '));
 } catch (e) {
   fail++;

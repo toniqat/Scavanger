@@ -4,6 +4,10 @@
 // Phase 7 (2026-09-06): `canFit` pre-check (공간 없음 before the click), server credits through a fake `ctx.net.profile`
 // (optimistic debit → `credits:tx` → `meta:purchase` on the answer, refusal reverts, sell / addCredits go through the
 // transaction, `profile.set('meta')` on save, `net:profileLoaded` replace + migrate), settlement `outcome`, training.
+// Phase 12 (2026-09-08): 세레스 바이오 임플란트 — common / uncommon stat implants + repair materials on the shelf (no other corp,
+// no rare+, no broken ones), a broken implant sells for a quarter, the 임플란트 desk tab (ceres only): grid of broken implants,
+// result + material chips + fee, 수리 swaps broken → working (materials + credits consumed, stash first), reasons 재료 부족 /
+// 크레딧 부족 gate the button, the ci1 → ci3 implant quest chain with its reward chip.
 // Usage: node scripts/smoke-meta.mjs [http://localhost:5273/]   (needs a vite dev server; no relay required)
 import puppeteer from 'puppeteer-core';
 import { existsSync } from 'node:fs';
@@ -65,7 +69,7 @@ try {
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 
   const EVENTS = ['meta:loaded', 'meta:creditsChanged', 'meta:repChanged', 'meta:contractAccepted', 'meta:contractAbandoned', 'meta:contractProgress',
-    'meta:contractSettled', 'meta:questChanged', 'meta:purchase', 'meta:sale', 'ui:corpToggled', 'enemy:killed'];
+    'meta:contractSettled', 'meta:questChanged', 'meta:purchase', 'meta:sale', 'ui:corpToggled', 'enemy:killed', 'ui:notify'];
   // Boot (or re-boot after a reload): frame driver for a hidden tab, fake pointer lock, bus recorder.
   const boot = async () => {
     await waitFor(page, () => !!window.__game && !!window.__game.ctx.meta && !!window.__game.ctx.inventory && !!window.__game.ctx.loot, 'boot');
@@ -425,7 +429,8 @@ try {
     const root = document.querySelector('.inv-screen.corp-view');
     if (!root) return null;
     const tabs = [...root.querySelectorAll('.corp-tab')].map((b) => ({ corp: b.dataset.corp, on: b.classList.contains('is-on') }));
-    const subs = [...root.querySelectorAll('.corp-subtabs .scr-tab')].map((b) => ({ page: b.dataset.page, on: b.classList.contains('is-on') }));
+    // Phase 12: the 임플란트 tab exists in the DOM for every corp but is `hidden` unless the corp is 세레스 바이오
+    const subs = [...root.querySelectorAll('.corp-subtabs .scr-tab:not([hidden])')].map((b) => ({ page: b.dataset.page, on: b.classList.contains('is-on') }));
     const ctx = window.__game.ctx;
     return {
       hidden: root.hidden, oldOverlay: !!document.querySelector('.menu.corp-menu'),
@@ -452,7 +457,7 @@ try {
     '메인 패널 좌열: 기업 패널 위 · 거래/계약/퀘스트 아래', JSON.stringify(dom && dom.sideOrder));
   ok(dom && dom.tabs.length === 4 && dom.tabs.find((t) => t.corp === 'ceres')?.on && dom.panel === '세레스 바이오' && !dom.motto,
     '4 corp tabs, ceres selected, 기업 패널 세레스 바이오 (no motto banner)', JSON.stringify(dom && dom.tabs));
-  ok(dom && dom.subs.map((s) => s.page).join(',') === 'trade,contracts,quests' && dom.subs[0].on, 'sub-tabs 거래 / 계약 / 퀘스트 (거래 on)', JSON.stringify(dom && dom.subs));
+  ok(dom && dom.subs.map((s) => s.page).join(',') === 'trade,contracts,quests,implants' && dom.subs[0].on, 'sub-tabs 거래 / 계약 / 퀘스트 / 임플란트 at ceres (거래 on)', JSON.stringify(dom && dom.subs));
   ok(dom && dom.rows >= 1, '거래 page shows the locked-shop notice (ceres Lv.0)', `${dom && dom.rows}`);
   // 거래 불가일 때도 그리드는 형태를 유지하고 사유를 가운데에 띄운다
   const lockedGrid = await P(() => {
@@ -538,6 +543,154 @@ try {
   ok(!closed.view && !closed.blocker && !closed.isOpen && !closed.cursor, 'Esc closes the window: view gone, blocker + in-game cursor removed', JSON.stringify(closed));
   tg = await lastEv('ui:corpToggled');
   ok(tg && tg.open === false, 'ui:corpToggled {open:false}', JSON.stringify(tg));
+
+  console.log('implants (Phase 12): 세레스 shop');
+  const implantDefs = await P(() => window.__game.ctx.loot.getAllItemDefs().filter((d) => d.category === 'implant').map((d) => ({ id: d.id, rarity: d.rarity, broken: !!d.implant?.broken, value: d.value, to: d.implant?.repairsTo ?? null, cost: d.implant?.repairCost ?? [] })));
+  ok(implantDefs.some((d) => d.id === 'imp_strength_1' && !d.broken) && implantDefs.some((d) => d.id === 'imp_broken_strength_1' && d.broken && d.to === 'imp_strength_1'),
+    `items/ knows imp_strength_1 + its broken twin (${implantDefs.length} implant defs)`, JSON.stringify(implantDefs.slice(0, 2)));
+  await P(() => { const m = window.__game.ctx.meta; for (const c of ['ceres', 'bastion', 'nomad']) if (m.getRep(c).level < 1) m.addRep(c, 100, 'smoke:implants'); });
+  const shops = await P(() => {
+    const m = window.__game.ctx.meta;
+    const pick = (c) => m.getShop(c).map((s) => ({ id: s.def.id, cat: s.def.category, rarity: s.def.rarity, broken: !!s.def.implant?.broken, price: s.price }));
+    return { ceres: pick('ceres'), helix: pick('helix'), bastion: pick('bastion'), nomad: pick('nomad'), lv: { ceres: m.getRep('ceres').level, helix: m.getRep('helix').level } };
+  });
+  const ceresImp = shops.ceres.filter((s) => s.cat === 'implant');
+  ok(ceresImp.some((s) => s.id === 'imp_strength_1') && ceresImp.some((s) => s.id === 'imp_strength_2'), `ceres Lv.${shops.lv.ceres} shelf lists imp_strength_1 + imp_strength_2`, ceresImp.map((s) => s.id).join(','));
+  ok(ceresImp.length > 0 && ceresImp.every((s) => (s.rarity === 'common' || s.rarity === 'uncommon') && !s.broken), 'only common / uncommon working implants on the shelf (no broken ones)', JSON.stringify(ceresImp.filter((s) => s.broken || (s.rarity !== 'common' && s.rarity !== 'uncommon'))));
+  ok(['helix', 'bastion', 'nomad'].every((c) => shops[c].length > 0 && shops[c].every((s) => s.cat !== 'implant')), `no other corp sells implants (helix Lv.${shops.lv.helix} / bastion / nomad Lv.1)`, JSON.stringify({ helix: shops.helix.filter((s) => s.cat === 'implant').length, bastion: shops.bastion.length, nomad: shops.nomad.length }));
+  const repairMats = [...new Set(implantDefs.flatMap((d) => d.cost.map((c) => c.defId)))];
+  const ceresMats = shops.ceres.filter((s) => s.cat === 'material').map((s) => s.id);
+  ok(repairMats.length > 0 && ceresMats.length > 0 && ceresMats.every((id) => repairMats.includes(id)) && ceresMats.includes('mat_cable'),
+    `ceres sells repair materials only (${ceresMats.join(',')} ⊆ ${repairMats.join(',')})`);
+  ok(!ceresMats.includes('mat_circuit') && !ceresMats.includes('mat_scrap'), 'rep rarity cap still applies to the materials (rare 회로 기판 hidden at Lv.1, 폐금속 never)', ceresMats.join(','));
+  await P(() => window.__game.ctx.meta.addRep('ceres', 200, 'smoke:implants'));   // → 300 = Lv.2
+  const ceresLv2 = await P(() => window.__game.ctx.meta.getShop('ceres').map((s) => s.def.id));
+  ok(ceresLv2.includes('mat_circuit') && !ceresLv2.some((id) => /^imp_.*_3$/.test(id)) && !ceresLv2.some((id) => /^imp_broken_/.test(id)), 'ceres Lv.2: 회로 기판 appears, rare implants still never (maxRarity uncommon)', ceresLv2.filter((id) => /^imp_|^mat_/.test(id)).join(','));
+  const impLine = ceresImp.find((s) => s.id === 'imp_strength_1');
+  const impPrice = await P(() => window.__game.ctx.meta.priceOf('ceres', 'imp_strength_1'));
+  ok(impPrice !== null && impPrice > 0, `priceOf(ceres, imp_strength_1) = ${impPrice} (Lv.1 price was ${impLine?.price})`);
+  // the basket settled above may have left less than the implant costs — top the balance up first
+  await P((price) => { const m = window.__game.ctx.meta; if (m.credits < price) m.addCredits(price - m.credits, 'smoke:topup'); }, impPrice);
+  const bought0 = await P(() => ({ n: window.__game.ctx.inventory.countDefAll('imp_strength_1'), credits: window.__game.ctx.meta.credits }));
+  ok(await P(() => window.__game.ctx.meta.buy('ceres', 'imp_strength_1')) === true, 'buy(ceres, imp_strength_1) → true');
+  const bought1 = await P(() => ({ n: window.__game.ctx.inventory.countDefAll('imp_strength_1'), credits: window.__game.ctx.meta.credits, pu: window.__ev['meta:purchase'][window.__ev['meta:purchase'].length - 1] }));
+  ok(bought1.n === bought0.n + 1 && bought1.credits === bought0.credits - impPrice && bought1.pu?.defId === 'imp_strength_1' && (bought1.pu.placed === 'bag' || bought1.pu.placed === 'stash'),
+    `bought implant landed in the ${bought1.pu?.placed} (bag first, else stash) and cost ${impPrice}`, JSON.stringify(bought1));
+  const sellCmp = await P(() => {
+    const c = window.__game.ctx;
+    const w = c.loot.createItem('imp_strength_1', 1), b = c.loot.createItem('imp_broken_strength_1', 1);
+    if (!c.inventory.tryAddToStash(w) || !c.inventory.tryAddToStash(b)) return null;
+    const out = { working: c.meta.sellPriceOf(w.uid), broken: c.meta.sellPriceOf(b.uid), sellable: c.meta.getSellable().some((i) => i.uid === b.uid) };
+    c.inventory.takeItem(w.uid); c.inventory.takeItem(b.uid);
+    return out;
+  });
+  ok(sellCmp && sellCmp.working > 0 && sellCmp.broken > 0 && sellCmp.broken * 3 < sellCmp.working && sellCmp.sellable,
+    `implants sell at the usual rule, a broken one for little (${sellCmp?.broken} vs ${sellCmp?.working})`, JSON.stringify(sellCmp));
+
+  console.log('implants (Phase 12): 수리 desk');
+  await P(() => window.__game.ctx.meta.openCorpMenu('ceres'));
+  await sleep(50);
+  const tabsCeres = await P(() => [...document.querySelectorAll('.corp-subtabs .scr-tab')].map((b) => ({ page: b.dataset.page, hidden: b.hidden })));
+  ok(tabsCeres.length === 4 && tabsCeres.find((t) => t.page === 'implants')?.hidden === false, '임플란트 tab visible at ceres', JSON.stringify(tabsCeres));
+  await P(() => document.querySelector('.corp-tab[data-corp="helix"]').click());
+  const tabsHelix = await P(() => ({ hidden: document.querySelector('.corp-subtabs .scr-tab[data-page="implants"]')?.hidden, page: document.querySelector('.corp-page')?.dataset.page }));
+  ok(tabsHelix.hidden === true && tabsHelix.page === 'trade', '임플란트 tab hidden at helix (page stays 거래)', JSON.stringify(tabsHelix));
+  await P(() => { document.querySelector('.corp-tab[data-corp="ceres"]').click(); document.querySelector('.corp-subtabs .scr-tab[data-page="implants"]').click(); });
+  const deskEmpty = await P(() => ({
+    page: document.querySelector('.corp-page')?.dataset.page, root: !!document.querySelector('.corp-page .ci'),
+    cells: document.querySelectorAll('.ci-list .ct-cell.broken').length, empty: document.querySelector('.ci-list .corp-empty')?.textContent ?? null,
+    grid: document.querySelector('.ci-list') ? getComputedStyle(document.querySelector('.ci-list')).display : null,
+    list: window.__game.getSystem('meta').getRepairableImplants().length,
+  }));
+  ok(deskEmpty.page === 'implants' && deskEmpty.root && deskEmpty.cells === 0 && deskEmpty.list === 0 && /망가진 임플란트가 없습니다/.test(deskEmpty.empty ?? '') && deskEmpty.grid === 'grid',
+    '임플란트 desk: empty grid with the 없습니다 notice (no broken implants yet)', JSON.stringify(deskEmpty));
+  // seed: one broken implant + exactly its materials + enough credits, all in the 함선 창고
+  const seeded = await P(() => {
+    const c = window.__game.ctx;
+    const b = c.loot.createItem('imp_broken_strength_1', 1);
+    if (!c.inventory.tryAddToStash(b)) return null;
+    const cost = c.loot.getItemDef('imp_broken_strength_1').implant.repairCost;
+    for (const line of cost) if (!c.inventory.tryAddToStash(c.loot.createItem(line.defId, line.qty))) return null;
+    if (c.meta.credits < 150) c.meta.addCredits(150 - c.meta.credits, 'smoke:fee');
+    return { uid: b.uid, cost, credits: c.meta.credits };
+  });
+  ok(!!seeded, 'imp_broken_strength_1 + repair materials seeded into the stash', JSON.stringify(seeded));
+  const info0 = await P((uid) => { const r = window.__game.getSystem('meta').getImplantRepair(uid); return r && { target: r.target?.id, fee: r.fee, blocked: r.blocked, cost: r.cost }; }, seeded.uid);
+  ok(info0 && info0.target === 'imp_strength_1' && info0.fee === 150 && info0.blocked === null && info0.cost.every((c) => c.have >= c.qty),
+    'getImplantRepair → imp_strength_1, fee 150 (150 × grade 1), ready', JSON.stringify(info0));
+  await P(() => window.__game.getSystem('meta').views.values().next().value.refresh());
+  const desk = await P((uid) => {
+    const cell = document.querySelector(`.ci-list .ct-cell.broken[data-uid="${uid}"]`);
+    const btn = document.querySelector('.ci-repair-btn');
+    return {
+      cell: !!cell, sel: cell?.classList.contains('is-sel'), chip: !!cell?.querySelector('.item-chip[data-def-id="imp_broken_strength_1"]'), badge: cell?.querySelector('.ct-cell-price')?.textContent,
+      to: !!document.querySelector('.ci-head .to .item-chip[data-def-id="imp_strength_1"]'),
+      costChips: document.querySelectorAll('.ci-cost .item-chip[data-def-id]').length, short: document.querySelectorAll('.ci-cost .item-chip.is-short').length,
+      fee: document.querySelector('.ci-fee .v')?.textContent, feeShort: document.querySelector('.ci-fee .v')?.classList.contains('short'),
+      btn: btn?.textContent, disabled: btn?.disabled, block: document.querySelector('.ci-block')?.textContent ?? null,
+    };
+  }, seeded.uid);
+  ok(desk.cell && desk.sel && desk.chip && desk.badge === '150', 'desk lists the broken implant as a selected footprint cell with a 150 fee badge', JSON.stringify(desk));
+  ok(desk.to && desk.costChips === seeded.cost.length && desk.short === 0 && desk.fee === '150 C' && !desk.feeShort, `detail: result chip imp_strength_1, ${seeded.cost.length} material chips none short, 수리비 150 C`, JSON.stringify(desk));
+  ok(desk.btn === '수리' && desk.disabled === false && desk.block === null, '수리 button enabled, no reason line', JSON.stringify({ btn: desk.btn, disabled: desk.disabled, block: desk.block }));
+  const beforeRepair = await P((cost) => { const c = window.__game.ctx; return { credits: c.meta.credits, working: c.inventory.countDefAll('imp_strength_1'), mats: cost.map((l) => c.inventory.countDefAll(l.defId)), notifies: window.__ev['ui:notify'].length }; }, seeded.cost);
+  await P(() => document.querySelector('.ci-repair-btn').click());
+  await sleep(30);
+  const afterRepair = await P(({ uid, cost }) => {
+    const c = window.__game.ctx;
+    const stashHas = c.inventory.getStashItems().some((i) => i.defId === 'imp_strength_1');
+    return {
+      credits: c.meta.credits, working: c.inventory.countDefAll('imp_strength_1'), mats: cost.map((l) => c.inventory.countDefAll(l.defId)),
+      broken: !!c.inventory.findItemAnywhere(uid), brokenCount: c.inventory.countDefAll('imp_broken_strength_1'), stashHas,
+      list: window.__game.getSystem('meta').getRepairableImplants().length, notify: window.__ev['ui:notify'].slice(-1)[0] ?? null,
+      cells: document.querySelectorAll('.ci-list .ct-cell.broken').length, msg: document.querySelector('.corp-msg-slot .form-msg')?.textContent ?? '',
+    };
+  }, seeded);
+  ok(!afterRepair.broken && afterRepair.brokenCount === 0 && afterRepair.working === beforeRepair.working + 1 && afterRepair.stashHas, '수리: broken implant gone, imp_strength_1 in the 함선 창고', JSON.stringify({ broken: afterRepair.broken, working: [beforeRepair.working, afterRepair.working], stash: afterRepair.stashHas }));
+  ok(afterRepair.mats.every((n, i) => n === beforeRepair.mats[i] - seeded.cost[i].qty), 'materials consumed exactly', JSON.stringify({ before: beforeRepair.mats, after: afterRepair.mats, cost: seeded.cost }));
+  ok(afterRepair.credits === beforeRepair.credits - 150, 'credits −150', `${beforeRepair.credits} → ${afterRepair.credits}`);
+  ok(afterRepair.notify && afterRepair.notify.kind === 'success' && afterRepair.notify.text === '임플란트 수리 완료 — 근력 임플란트 I', 'ui:notify 임플란트 수리 완료 — 근력 임플란트 I', JSON.stringify(afterRepair.notify));
+  ok(afterRepair.list === 0 && afterRepair.cells === 0 && /수리 완료/.test(afterRepair.msg), 'desk refreshed: no rows left, success message line', JSON.stringify({ list: afterRepair.list, cells: afterRepair.cells, msg: afterRepair.msg }));
+  // insufficient materials → disabled with the reason; credits are checked before materials
+  // (fee 300 for the uncommon twin — top the balance up so 재료 부족 is the *only* reason left)
+  const seeded2 = await P(() => { const c = window.__game.ctx; if (c.meta.credits < 300) c.meta.addCredits(300 - c.meta.credits, 'smoke:fee'); const b = c.loot.createItem('imp_broken_strength_2', 1); return c.inventory.tryAddToStash(b) ? { uid: b.uid, credits: c.meta.credits } : null; });
+  ok(!!seeded2, 'imp_broken_strength_2 seeded without its materials');
+  await P(() => window.__game.getSystem('meta').views.values().next().value.refresh());
+  const desk2 = await P((uid) => {
+    const r = window.__game.getSystem('meta').getImplantRepair(uid);
+    const cell = document.querySelector(`.ci-list .ct-cell.broken[data-uid="${uid}"]`);
+    return { fee: r?.fee, blocked: r?.blocked, sel: cell?.classList.contains('is-sel'), cellBlocked: cell?.classList.contains('blocked'), disabled: document.querySelector('.ci-repair-btn')?.disabled, block: document.querySelector('.ci-block')?.textContent ?? null, short: document.querySelectorAll('.ci-cost .item-chip.is-short').length, ret: window.__game.getSystem('meta').repairImplant(uid) };
+  }, seeded2.uid);
+  ok(desk2.fee === 300 && desk2.blocked === '재료 부족' && desk2.sel && desk2.cellBlocked && desk2.disabled === true && desk2.block === '재료 부족' && desk2.short > 0 && desk2.ret === false,
+    'uncommon twin: fee 300 (× grade 2), 재료 부족 → cell blocked, short chips dimmed red, 수리 disabled, repairImplant → false', JSON.stringify(desk2));
+  ok(await P((uid) => !!window.__game.ctx.inventory.findItemAnywhere(uid) && window.__game.ctx.meta.credits, seeded2.uid) === seeded2.credits, 'refused repair moved nothing (implant kept, credits unchanged)');
+  await P(() => { const m = window.__game.ctx.meta; m.addCredits(-m.credits, 'smoke:drain'); });
+  ok(await P((uid) => window.__game.getSystem('meta').getImplantRepair(uid)?.blocked, seeded2.uid) === '크레딧 부족', 'no credits → 크레딧 부족 wins over 재료 부족');
+  await P((credits) => { const c = window.__game.ctx; c.meta.addCredits(credits, 'smoke:restore'); for (const l of c.loot.getItemDef('imp_broken_strength_2').implant.repairCost) c.inventory.tryAddToStash(c.loot.createItem(l.defId, l.qty)); }, seeded2.credits);
+  ok(await P((uid) => window.__game.getSystem('meta').getImplantRepair(uid)?.blocked, seeded2.uid) === null, 'materials + credits back → ready again');
+  ok(await P(() => { const c = window.__game.ctx; const w = c.inventory.getStashItems().find((i) => i.defId === 'imp_strength_1'); return w ? window.__game.getSystem('meta').getImplantRepair(w.uid) : 'none'; }) === null, 'a working implant is not a repair candidate (getImplantRepair → null)');
+  await P((uid) => window.__game.ctx.inventory.takeItem(uid), seeded2.uid);   // leave the stash tidy for the quest checks
+
+  console.log('implants (Phase 12): ceres quest chain');
+  const chain = await P(() => window.__game.ctx.meta.getQuests('ceres').filter((q) => /^ci\d$/.test(q.def.id)).map((q) => ({ id: q.def.id, state: q.state, rep: q.def.requires.repLevel ?? 0, after: q.def.requires.quests ?? [], items: (q.def.rewards.items ?? []).map((i) => i.defId), deliver: q.def.deliver.map((d) => d.defId) })));
+  ok(chain.length === 3 && chain[0].id === 'ci1' && chain[0].state === 'available' && chain[0].rep === 1 && chain[0].items[0] === 'imp_perception_3',
+    'ci1 available at ceres Lv.2 (needs Lv.1), rewards imp_perception_3', JSON.stringify(chain[0]));
+  ok(chain[1].state === 'locked' && chain[1].after[0] === 'ci1' && chain[1].deliver.includes('imp_broken_intelligence_1') && chain[1].items[0] === 'imp_intelligence_3',
+    'ci2 locked behind ci1, delivers a broken implant + materials, rewards imp_intelligence_3', JSON.stringify(chain[1]));
+  ok(chain[2].state === 'locked' && chain[2].rep === 3 && chain[2].after[0] === 'ci2' && chain[2].items[0] === 'imp_perk_quick_heal', 'ci3 locked (ci2 + Lv.3), rewards imp_perk_quick_heal', JSON.stringify(chain[2]));
+  ok(await P((ids) => ids.every((id) => !!window.__game.ctx.loot.getItemDef(id)), chain.flatMap((q) => [...q.items, ...q.deliver])), 'every ci delivery / reward id resolves to an item def');
+  await P(() => document.querySelector('.corp-subtabs .scr-tab[data-page="quests"]').click());
+  await P(() => document.querySelector('.cq-list .corp-row.quest[data-id="ci1"]').click());
+  const questDom = await P(() => ({
+    badge: document.querySelector('.cq-list .corp-row.quest[data-id="ci1"] .badge')?.textContent, sel: document.querySelector('.cq-list .corp-row.quest[data-id="ci1"]')?.classList.contains('is-sel'),
+    name: document.querySelector('.cq-deliver .cq-name')?.textContent, lines: document.querySelectorAll('.cq-deliver .cq-line').length,
+    reward: !!document.querySelector('.cq-deliver .rw-items .item-chip[data-def-id="imp_perception_3"]'), accept: document.querySelector('.cq-acts .ui-btn')?.textContent,
+  }));
+  ok(questDom.badge === '가능' && questDom.sel && questDom.name === '신경 접합제' && questDom.lines === 3 && questDom.reward && questDom.accept === '수락',
+    '퀘스트 tab: ci1 가능 · 3 delivery lines · reward chip imp_perception_3 · 수락', JSON.stringify(questDom));
+  await tap('Escape');
+  await sleep(60);
+  ok(await P(() => !document.querySelector('.inv-screen.corp-view') && !window.__game.ctx.meta.isMenuOpen), 'Esc closes the desk window');
 
   console.log('persistence: corrupt save is sanitised');
   // the 거래 성사 above left a debounced save pending — let it land first, or the pagehide flush would

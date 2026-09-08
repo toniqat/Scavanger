@@ -61,7 +61,7 @@ statXpToNext(id) = round(STAT_XP_BASE × value^STAT_XP_EXPONENT)   // 5 → 1118
   레벨이 바뀌면 (내려가도) `progress:skillUp {id, level}`, 항상 `progress:skillProgress`. 치트 / 디버프 전용 — 정상 훈련은 `addSkillXp`.
 - `getSkillGainMul(id)`: `ctx.housing?.getSkillGainMul(id) ?? 1` (**사격장 × 서재** — `gun_*` × `1 + 0.1 × 사격장 level`, times the 서재 책장 bonus of every book of that skill, Phase 9; housing/ folds both into the one number). `addSkillXp` 가 **내부에서** 곱하므로 다른 폴더는
   이걸 다시 곱하지 않는다. housing 이 스켈레톤이거나 없으면 1. 시트의 스킬 행에 `시설 ×1.10` 배지로 표시 (1 이면 숨김).
-- 스모크: `node scripts/smoke-progression.mjs` (`verify.mjs` `SMOKES` 의 `smoke-progression`, `folders: ['progression']`) — **65 / 65** on 2026-09-06
+- 스모크: `node scripts/smoke-progression.mjs` (`verify.mjs` `SMOKES` 의 `smoke-progression`, `folders: ['progression']`) — **119 / 119** on 2026-09-08 (Phase 12 임플란트 아이템 +51; 65 / 65 on 2026-09-06)
   (Phase 7: 감정 XP `container:itemRevealed`, 훈련장 `gun_*` 전용, 가짜 `ctx.net.profile` 로 `profile.set('progression')` / `net:profileLoaded` 대체 + 이벤트 재발행;
   릴레이 소켓을 막아 8787 의 릴레이가 실행 중이어도 결과가 같다).
 
@@ -196,3 +196,46 @@ const implant = ctx.progression?.profile.implant ?? null;
   `refreshImplants` 가 목록이 비어 있고 `ctx.implants` 가 생겼으면 그때 만든다.
 - **CSS**: `.cs-body` 3열(1280 px 아래 2열 + 임플란트가 전체 폭), `.cs-imp-slot(.is-filled/.is-open)`,
   `.cs-imp-pop(.cs-imp-pop-embed/-overlay)`, `.cs-imp-close` 를 `ui/character.css` 에 추가.
+
+## 임플란트 아이템 (Phase 12, 2026-09-08)
+
+Distinct from the 전술 임플란트 above: **items** of category `'implant'` (defs in `src/items/ImplantDefs.ts`,
+`ItemDef.implant = {slots, stats, perk?, broken?, repairsTo?, repairCost?}`) slotted on the 캐릭터 tab. progression/ owns the
+rules, the storage and the UI; items/ the defs and loot; meta/ (세레스 바이오) sales and repairs; player/ + weapons/ the perk effects.
+
+- **Slots**: `implantSlots = min(IMPLANT_SLOTS_MAX 10, IMPLANT_SLOTS_BASE 4 + ⌊level / IMPLANT_SLOTS_PER_LEVELS 5⌋)` —
+  level 1–4 → 4, 5 → 5, 10 → 6, 15 → 7, 20 → 8, 25 → 9, 30+ → 10. `implantSlotsUsed` = Σ `implant.slots` of the equipped
+  (defs looked up through `ctx.loot`).
+- **Storage**: `profile.implants: EquippedImplant[]` (`{uid, defId, durability?}`) — the item **instance leaves the grids**
+  while equipped and lives in the profile, so it travels with the `progression` server document and comes back through
+  `net:profileLoaded` (which re-emits `progress:implantsChanged`). `Profile.sanitizeImplants` normalises the array on
+  load (missing → `[]`, non-objects / empty ids / duplicate uids dropped, cap 32); `PROFILE_VERSION` stays 1 — older saves
+  simply get `[]`. `ProgressionSystem.pruneImplants` (inside `recompute`, once `ctx.loot` exists) silently drops an entry
+  whose def id no longer resolves or is no longer an implant.
+- **`equipImplant(uid)`** — ship only (`ctx.phase === 'hub'` and `!ctx.isRaidActive()`): `inventory.findItemAnywhere(uid)`
+  → def must have `implant` and not `broken`, not already equipped, `slots` must fit → `inventory.takeItem(uid)` →
+  push `{uid, defId, durability}` → `recompute` + save + `progress:implantsChanged {equipped, slots, used}`. false and
+  nothing moves otherwise. **`unequipImplant(uid)`** — same gate: `loot.createItem(defId, 1, {durability})` with the
+  **same uid** restored → `inventory.tryAddToStash` then `tryAddItemAnywhere`; refuses (stays equipped) when neither has
+  room. `resetProfile` hands the equipped items back the same way (best effort) before wiping the character.
+- **Derived**: `derive.ts` takes an `ImplantContribution {bonus, perks}` (`computeDerived(profile, specialBackpack,
+  implants?)`); every stat formula reads `base + bonus` (`getStatWithImplants(id)` / `getImplantBonus(id)`), while
+  `getStat(id)` stays the **base** — stat XP, `spendStatPoint` and `statFactor` are unaffected by implants.
+  `derived.perks` has every `PerkId` (`emptyPerks()`), true when an equipped def carries it. `DEFAULT_DERIVED` = none.
+- **캐릭터 tab UI** (`ui/SheetBody`, both shells): a `.cs-impitems` block under the 전술 임플란트 slot — header
+  `임플란트 n / m칸` + a pip row (`.cs-impi-pips i.on` = used), one `.cs-impi-row[data-uid]` per equipped item (shared
+  `buildItemChip` thumbnail → `ui/hud/ItemTip` hover card, name, `장착칸 k`, stat line `근력 +2` / perk name; click =
+  unequip), an inline `.cs-impi-msg` line (`레이드 중에는 교체할 수 없습니다` / `함선에서만 교체할 수 있습니다` /
+  `보관할 공간이 없습니다` / `<name> 장착` …) and a `+ 장착` button that raises a **second modeless picker**
+  `.cs-impi-pop.cs-impi-pop-<variant>` (a `ctx.uiRoot` child like `.cs-imp-pop`, same anchoring) listing every implant
+  item in the bag + 함선 창고 (`inventory.getAllItems()` + `getStashItems()`, working first, rarity high → low) with the
+  chip, name, `장착칸 k`, rarity tag and stats / perk; rows that do not fit or are broken are dimmed + disabled with the
+  reason (`장착칸 부족` / `망가짐 — 세레스 바이오에서 수리`). Stat rows show **`base (+bonus)`** (`.cs-stat .v > .base + .ib`,
+  the bonus span empty when 0 so `.v` still reads the base). `closePicker()` / `isPickerOpen` now cover both pickers, and
+  the standalone `CharacterSheet`'s Escape closes a raised picker **first** and the sheet on the next press.
+  CSS: `.cs-impitems`, `.cs-impi-*`, `.cs-stat .v .ib` in `ui/character.css`.
+- Smoke: `scripts/smoke-progression.mjs` — **119 / 119** (was 68): slots at level 1 / 5 / 30, the 46 defs + repair costs
+  + spray gauge, loot rules, equip (bonus / derived / stash / event), overfill · broken · duplicate · unknown refusals,
+  unequip back to the stash, legendary → `derived.perks.quick_heal`, raid / non-hub locks, the sheet block + picker DOM
+  (dimmed rows, click-to-equip, Escape, raid line), reload round-trip, malformed-entry pruning, server document
+  round-trip through a fake `ctx.net.profile`.

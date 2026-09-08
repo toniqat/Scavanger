@@ -519,3 +519,76 @@ what shows the mouse, and the real OS cursor is restyled in place.
   one and nothing in the game can change that.
 - A canvas that refuses `toDataURL` (a hardened browser, an odd headless build) silently leaves the native cursor in
   place; `isGameCursorOn` reports false and nothing else changes.
+
+## 2026-09-08 — Phase 12 (감지 나침반 · 정찰 reveal · 채집/지속 사용 티커 · 컷씬 버튼 숨김 · 시설 관리 확인 팝업)
+
+Plan: `docs/PHASE12-PLAN.md` items 3 · 4 · 8 · 9 · 15 · 16 (agent F). Contract: `scan:cast`, `item:channelChanged`,
+`COMPASS_ENEMY_COLOR`, `IMPLANT_SCAN_REVEAL_TIME_V2` (`src/shared/README.md` § 2026-09-08).
+
+- **`hud/ScanTracker.ts` (new)** — the one owner of 정찰 reveals for the HUD: `scan:cast {targets, duration}` (mine or a
+  squadmate's; `implant:scanned` feeds it too) keeps every `kind:'enemy'` target for the cast's duration (15 s),
+  follows its `object` live, prunes expired / dead entries (one `getEnemies()` pass every 0.25 s, not per frame),
+  clears on `detect:clear` / abort / new mission / hub / death. `HudSystem` owns one instance and hands it to the compass
+  and the detection component so the bookkeeping runs once.
+- **`hud/Compass.ts`** — **감지 스탯 ticks**: every living enemy inside `derived.enemyDetectRadius` (polled through
+  `ctx.enemies.queryNear` at ≤ 10 Hz; bearings recomputed per frame from the cached refs) is a pooled red tick
+  (`.etick`, `COMPASS_ENEMY_COLOR`, 24 nodes created once) at its bearing, fading toward the edge of the radius; a
+  scan-revealed enemy gets a taller `.etick.scanned` for the reveal's duration **regardless of distance**. Only bearings
+  inside the visible ±80° arc are drawn (the edge arrows cover the rest); ticks clear outside gameplay. `enemyTickCount`.
+- **`hud/Detection.ts`** — the arrow loop became a **candidate** loop (detected refs + 정찰 reveals, pooled, no
+  allocation): off-screen → the existing edge arrow, **on screen → a small red chevron** (`.detect-mark`, 12 pooled)
+  floating `MARK_LIFT` above the body's `height`, from the same projection. `markCount`.
+- **`hud/ScanReveal.ts`** — also listens to `scan:cast` (merged by `kind:id`, so an implants build that still emits
+  `implant:scanned` / `detect:reveal` never doubles a pillar); pool **64 → 160** (one 70 m pulse can hand over every
+  gather node + crate + pickup + enemy in range for 15 s, and the old pool evicted valid reveals).
+- **`hud/Notifications.ts`** — the `gather:collected` toast is **gone**: the herb reaches the bag through
+  `inventory.tryAddItem`, whose `inventory:itemAdded` line is the one ticker a gather shows (the 채집 line doubled it;
+  the 온실 harvest path goes through `tryAddItemAnywhere` → the same line). **Channel line**: `item:channelChanged
+  {active:true, gauge}` creates ONE `.notif.channel` (`<이름> 사용 중 · n %`, `gauge` 0..1 — an absolute value ≥ 1 is
+  read against the def's `durabilityMax`), updated in place per tick, pinned outside the `MAX_VISIBLE` rotation,
+  dismissed on `active:false`; while it is live the `player:stimUsed` toast (`applyHeal` fires it 10×/s for a spray)
+  is muted. `channelText` / `liveCount` for the smokes.
+- **`hud/ProgressToasts.ts`** — the `+n XP` chip is **held** while a channel runs (`item:channelChanged`) and flushed
+  once when it ends, instead of one chip per `XP_FLUSH` for the 의학 XP of every spray tick.
+- **`hud/CutsceneWatch.ts` (new)** — `hub:docking` / `hub:travel` start → end, phase `'docking'`, `ctx.hub.travelling`
+  and the current `HubShipKind`, shared by the two corner widgets. **`hud/ShipManageHint.ts`** hides during a cutscene
+  and on the **shared ship** (no 시설 관리 there); **`hud/Community.ts`** hides during a cutscene (the phase check alone
+  missed the warp, whose phase stays `hub`) and closes its panel when one starts.
+- **`hud/ShipManage.ts`** — the 시설 증축 that "did nothing" (root cause in `src/housing/README.md`): the 용도 지정
+  picker now **leads with a 발전기 row** (`.sm-gen`: `Lv.n / max`, next-level cost chips, 가동 / 업그레이드 button →
+  confirm → `ctx.housing.upgrade('generator')`; `.is-hint` while the gate is what blocks the purposes, with a printed
+  `시설 증축에는 발전기 Lv.1 이 필요합니다 — 먼저 발전기를 가동하세요` line); every blocked purpose prints its 한국어
+  reason **inline** (`.sm-block`) and **stays clickable** (`aria-disabled`, click → the reason as a toast + a red
+  flash) instead of a `disabled` button with a tooltip; an allowed purpose opens the centred **modeless confirm popup**
+  (`.sm-confirm` inside the screen root: `정말로 N번 방을 <용도> 시설로 만들겠습니까?` + `renderItemCost` chips of
+  `purposeCost`, 확인 → re-check + `setRoomPurpose`, 취소 / backdrop / **Esc** → close). Escape is caught by a
+  capture-phase `window` listener and `Input.consume`d, so it closes the popup only — the hub's Esc (leave 시설 관리)
+  and game/'s pause never see it. `isConfirmOpen` / `confirmPurpose`.
+- **`HudSystem.ts`** — constructs / binds / disposes the two trackers, passes them to `Compass` / `Detection` /
+  `ShipManageHint` / `Community`; debug getters `compassEnemyTicks`, `detectMarkCount`, `scanRevealCount`,
+  `channelTickerText`, `notifCount`, `isShipManageConfirmOn`, `shipManageConfirmPurpose`.
+- **CSS** (`styles/base.css`, "Phase 12" block at the end): `.compass .eticks / .etick(.scanned)`, `.detect-mark`,
+  `.notif.channel`, `.sm-gen*`, `.sm-block`, `.sm-purpose.is-blocked` (clickable again) + `.flash`, `.sm-confirm*`.
+- **Smokes**: `smoke-ui-p6` 72 → **87** (ticks in / out of radius, chevron, `scan:cast` persist / follow / expire /
+  `detect:clear`, ScanReveal pillar, channel line, gather ticker), `smoke-housing` 176 → **194** (fresh ship with the
+  기본 지급품: 발전기 row hint → blocked rows clickable → 발전기 confirm → Esc → 확인 → 작업실 confirm text → Esc → 확인 →
+  materials consumed), `smoke-controls-hub` 99 → **106** (corner widgets across `hub:docking` / `hub:travel`, shared
+  ship), `smoke-ship-rooms` 71 and `smoke-ui-p5` 133 unchanged.
+
+### Known follow-ups (Phase 12, ui)
+- Compass ticks are drawn only for bearings inside the visible arc — an enemy behind the player has **no** tick (the
+  edge arrow is the only cue) and the arc mask fades ticks near its ends. The pool is 24 ticks + 6 arrows + 12
+  chevrons; a horde beyond that is truncated in enemy order, not by distance.
+- The channel line trusts `item:channelChanged` alone: if weapons stops emitting `active:false` (a death mid-spray,
+  a screen change) the line stays until `game:abort` / `game:newMission` clears it. The `player:stimUsed` mute is
+  keyed on the same flag, so a 붕대 finished *during* a spray channel also toasts nothing.
+- `ScanTracker` drops a reveal the moment the enemy dies; `ScanReveal`'s pillar keeps its own expiry (a corpse can keep
+  a pillar for the rest of the 15 s). The `crate` / `pickup` / `gather` targets of a `scan:cast` are pillars only —
+  no compass mark.
+- `CutsceneWatch` reads `hub:docking` / `hub:travel` **events**; a cutscene that started before `HudSystem.init` is
+  covered only by the phase / `travelling` fallbacks. The shared-ship gate uses `ctx.hub.ship`, so a hub build that
+  leaves `ship` null shows the hint.
+- The confirm popup lives inside `.ship-manage` (the `.hud.housing` layer), so it is gated with the screen and never
+  outranks a real menu; its Escape listener is capture-phase on `window` — any future component that also captures
+  Escape earlier will win. `.sm-gen` is a picker-only row: a room **with** a purpose still sends the player to the
+  Tab 함선 tab for the 발전기.

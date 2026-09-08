@@ -5,6 +5,7 @@ import {
 import { el, setText, toggleClass } from '../dom';
 import { SocialColumn } from '../menus/social/SocialColumn';
 import { SOCIAL_UNAVAILABLE_KO, socialOf } from '../menus/social/socialSource';
+import type { CutsceneWatch } from './CutsceneWatch';
 
 /**
  * 커뮤니티 icon + 분대 초대 stack (`.community`, social layer — the layer that stays visible in the ship), Phase 11.
@@ -24,6 +25,10 @@ import { SOCIAL_UNAVAILABLE_KO, socialOf } from '../menus/social/socialSource';
  * Counts, the red dot and the invite list are polled once per frame from the mirror and compared before any DOM is
  * written; with no relay the thumbnail still shows (count 0, no dot) and the panel carries the one
  * `소셜 기능을 사용할 수 없습니다` line.
+ *
+ * **Phase 12:** hidden for the length of a docking / warp cutscene (`CutsceneWatch` — `hub:docking` / `hub:travel`
+ * start → end, phase `'docking'`, `ctx.hub.travelling`); the phase check alone missed the warp, whose phase stays
+ * `'hub'`. The open panel closes when a cutscene starts.
  */
 export class Community {
   readonly root: HTMLElement;
@@ -52,7 +57,7 @@ export class Community {
     this.close();
   };
 
-  constructor(parent: HTMLElement) {
+  constructor(parent: HTMLElement, private cutscene: CutsceneWatch | null = null) {
     this.root = el('div', { cls: 'community', parent });
     this.btn = el('button', { cls: 'cm-btn interactive', parent: this.root });
     this.btn.title = '커뮤니티';
@@ -108,13 +113,14 @@ export class Community {
     // Visible in the ship whenever nothing else owns the screen — our own panel does not count.
     const blockers = ctx.uiBlockers;
     const free = blockers.size === 0 || (blockers.size === 1 && blockers.has(COMMUNITY_BLOCKER));
-    const on = ctx.isHubPhase() && free;
+    const cutscene = this.cutscene?.active ?? (ctx.phase === 'docking' || (ctx.hub?.travelling ?? false));
+    const on = ctx.isHubPhase() && free && !cutscene;
     if (on !== this.shown) {
       this.shown = on;
       toggleClass(this.root, 'show', on);
       if (!on) this.held = 0;
     }
-    if (this._open && !ctx.isHubPhase()) this.close();
+    if (this._open && (!ctx.isHubPhase() || cutscene)) this.close();
     if (!on && !this._open) return;
 
     const social = socialOf(ctx);

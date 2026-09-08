@@ -88,6 +88,11 @@ const DROP_FORWARD_SPEED = 3.5;
 const DROP_UP_SPEED = 2.0;
 const MOD_SHIFT = ['ShiftLeft', 'ShiftRight'] as const;
 const MOD_CTRL = ['ControlLeft', 'ControlRight'] as const;
+/**
+ * Phase 12: materials for one **full** 회복 스프레이 refill (ship 수리). Scaled down by the missing gauge fraction in
+ * `sprayRepairCost` (ceil, min 1 each). Existing material defs — 캔 / 소독약 (소독약 is craft-only, `items/Recipes`).
+ */
+const SPRAY_REFILL_COST: readonly CraftIngredient[] = [{ defId: 'mat_can', qty: 1 }, { defId: 'mat_antiseptic', qty: 1 }];
 
 /** Which item categories a loadout slot accepts. */
 export function slotAccepts(def: ItemDef, slot: LoadoutSlot): boolean {
@@ -618,7 +623,25 @@ export class InventorySystem implements GameSystem, InventoryRef {
     if (this._open) this.ui?.refresh();
   }
 
-  /** Ship workbench: weapons go through `repairWeapon` (materials), armor is restored to full for free. */
+  /**
+   * Phase 12: refill cost of a 회복 스프레이 (`ItemDef.heal.spray`, gauge = `durability` / `durabilityMax`) — one 캔 +
+   * one 소독약 per **full** refill, scaled by the missing fraction (ceil, never below 1 each). null for anything else
+   * or a full can. The materials come from the bag, exactly like a weapon repair.
+   */
+  sprayRepairCost(item: ItemInstance, def: ItemDef): CraftIngredient[] | null {
+    if (!def.heal?.spray) return null;
+    const max = def.durabilityMax;
+    if (max === undefined || max <= 0) return null;
+    const cur = Math.max(0, Math.min(max, item.durability ?? max));
+    if (cur >= max) return null;
+    const missing = (max - cur) / max;
+    return SPRAY_REFILL_COST.map((c) => ({ defId: c.defId, qty: Math.max(1, Math.ceil(c.qty * missing - 1e-9)) }));
+  }
+
+  /**
+   * Ship workbench: weapons go through `repairWeapon` (materials), a 회복 스프레이 is refilled for `sprayRepairCost`
+   * (Phase 12), armor is restored to full for free.
+   */
   repair(uid: string): boolean {
     if (this.ctx.isRaidActive()) return false;
     const item = this.findItem(uid);
@@ -632,7 +655,14 @@ export class InventorySystem implements GameSystem, InventoryRef {
     const max = def.durabilityMax;
     if (max === undefined || max <= 0) return false;
     if ((item.durability ?? max) >= max) return false;
+    const sprayCost = this.sprayRepairCost(item, def);
+    if (sprayCost) {
+      // all materials or nothing — the empty can stays a valid (0 / max) item until then
+      for (const c of sprayCost) if (this.countDef(c.defId) < c.qty) return false;
+      for (const c of sprayCost) this.consumeWhere((d) => d.id === c.defId, c.qty);
+    }
     item.durability = max;
+    this.ctx.bus.emit('inventory:itemUpdated', { item });
     this.ctx.bus.emit('durability:changed', { uid, defId: def.id, durability: max, max });
     this.ctx.bus.emit('repair:completed', { uid, name: def.name, durability: max });
     this.ctx.bus.emit('audio:play', { id: 'gear_repair' });
@@ -650,7 +680,9 @@ export class InventorySystem implements GameSystem, InventoryRef {
     if (!item || !def) return null;
     const dur = this.getDurability(uid);
     if (!dur || dur.max <= 0 || dur.durability >= dur.max) return null;
-    const cost = (this.loot.getEffectiveStats(item) ? this.loot.getRepairCost(item) : []).map((c) => ({
+    // weapons: the loot table's cost; 회복 스프레이 (Phase 12): 캔 + 소독약 scaled by the missing gauge; armor: free
+    const raw = this.loot.getEffectiveStats(item) ? this.loot.getRepairCost(item) : this.sprayRepairCost(item, def) ?? [];
+    const cost = raw.map((c) => ({
       ...c, name: ITEM_DEF_MAP.get(c.defId)?.name ?? c.defId, have: this.countDef(c.defId),
     }));
     return { cost, short: cost.some((c) => c.have < c.qty) };

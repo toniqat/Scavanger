@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 import {
-  BEHEMOTH_KNOCKBACK, BURNOUT_DURATION, CORPSE_LAND_TIMEOUT, CORPSE_LIFETIME, ENEMY_DEATH_DIRS, ENEMY_STATUS_BITS, FLAME_AFTERBURN_DPS, FLAME_AFTERBURN_DURATION, GADGET_LURE_RADIUS, MAP_SIZE,
+  BEHEMOTH_KNOCKBACK, BURNOUT_DURATION, CORPSE_LAND_TIMEOUT, CORPSE_LIFETIME, ENEMY_DEATH_DIRS, ENEMY_SHOT_ALERT_DIST, ENEMY_SHOT_IMPACT_DIST, ENEMY_STATUS_BITS, FLAME_AFTERBURN_DPS, FLAME_AFTERBURN_DURATION, GADGET_LURE_RADIUS, MAP_SIZE,
   NET_ENEMY_SNAPSHOT_HZ, PLAYER_HEIGHT, PLAYER_RADIUS, ROGUE_DAMAGE, ROGUE_GRENADE_DAMAGE, ROGUE_GRENADE_FUSE, ROGUE_GRENADE_RADIUS, ROGUE_MAG_ROUNDS, ROGUE_RANGE,
   SHELL_BLAST_RADIUS, SHELL_DAMAGE, SHELL_FLIGHT_TIME, SHOCK_SLOW_DURATION, SHOCK_SLOW_FACTOR, TOXIC_DAMAGE, TOXIC_RADIUS, getPlanet,
   type DamageMessage, type EnemyDeathDir, type EnemyEvent, type EnemyFaction, type EnemyHit, type EnemyManagerRef, type EnemyRef, type EnemySnapshot, type EnemyStatusKind, type EnemyType, type GameContext, type GameSystem,
-  type HitRequest, type InterceptableRef, type PeerId, type PlanetEcosystem, type WorldRef,
+  type HitRequest, type InterceptableRef, type PeerId, type PlanetEcosystem, type ShotReport, type Vec3Tuple, type WorldRef,
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
 import { Enemy, type EnemyHost, type HitPart } from './Enemy';
@@ -13,8 +13,10 @@ import { SpatialGrid } from './SpatialGrid';
 import { CombatTarget, TargetList, type TargetId } from './Targets';
 import { SUSPICION_TIME, updateEnemyAI } from './ai/EnemyAI';
 import { LureField } from './ai/Lures';
-import { becomeAlert } from './ai/Perception';
+import { becomeAlert, canPerceive } from './ai/Perception';
+import { beginInvestigation, endInvestigation } from './ai/Investigate';
 import { BloodFX } from './fx/BloodFX';
+import { EnemyXray } from './fx/Xray';
 import { AcidProjectiles, type AcidHost, type AcidSlow } from './fx/AcidProjectile';
 import { ShellProjectiles, type ShellHost } from './fx/ShellProjectile';
 import { RogueGrenades, type GrenadeHost } from './fx/RogueGrenade';
@@ -74,6 +76,17 @@ const GRENADE_NOISE = 60;
 const PROMOTE_ID_GAP = 100;
 /** Phase 9: a promoted host continues the snapshot `seq` this far past the last one it saw as a replica (never collides with the old host's counter). */
 const PROMOTE_SEQ_GAP = 1000;
+/* ── appended: Phase 12 (배리어 충돌 · 총알 추적, 2026-09-08) ── */
+/** Seconds a bumped enemy prefers the shield carrier as its target (`pickTarget`). */
+const BARRIER_RETARGET_S = 6;
+/** Minimum gap between two `implant:barrierBumped` for the same enemy (≤ 2 Hz). */
+const BARRIER_BUMP_INTERVAL = 0.5;
+/** Per-enemy throttle on the perception test a shot report runs (an SMG reports 10+ shots a second). */
+const SHOT_CHECK_INTERVAL = 0.2;
+/** A `shotq` claiming a longer range than this is dropped. */
+const MAX_SHOT_RANGE = 400;
+/** Height of the 배리어 panel centre used for the `ee barrierHit` / `implant:barrierBumped` contact point. */
+const SHIELD_CONTACT_Y = 1.0;
 
 const _v = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
@@ -88,7 +101,15 @@ const _to = new THREE.Vector3();
 const _zero = new THREE.Vector3();
 const _eye = new THREE.Vector3();
 const _kb = new THREE.Vector3();
+const _so = new THREE.Vector3();
+const _sd = new THREE.Vector3();
+const _sh = new THREE.Vector3();
 const killedBuf: Enemy[] = [];
+
+/** Finite 3-tuple guard for wire input. */
+function isVec3Tuple(v: unknown): v is Vec3Tuple {
+  return Array.isArray(v) && v.length === 3 && Number.isFinite(v[0]) && Number.isFinite(v[1]) && Number.isFinite(v[2]);
+}
 const queryBuf: Enemy[] = [];
 
 /**
@@ -105,10 +126,40 @@ const queryBuf: Enemy[] = [];
  */
 export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, SpawnHost, RogueSpawnHost, AcidHost, ShellHost, ReplicaHost, GrenadeHost {
   readonly name = 'enemies';
-  /* ── 2026-09-08 contract stubs (lead) — the enemies agent replaces these ── */
-  reportShot(_origin: THREE.Vector3, _dir: THREE.Vector3, _range: number, _hit: THREE.Vector3 | null): void { /* TODO(enemies agent) */ }
-  setXray(_ids: readonly number[], _seconds: number): void { /* TODO(enemies agent) */ }
   ctx!: GameContext;
+  /* ── Phase 12: 총알 추적 · 정찰 x-ray (EnemyManagerRef) ─────────────────── */
+  /**
+   * A local shot was fired (weapons calls this for every one). Authority: run the alert routine; a joined client
+   * forwards it to the host as `shotq` instead (replicas have no AI). No-op on the 훈련장.
+   */
+  reportShot(origin: THREE.Vector3, dir: THREE.Vector3, range: number, hit: THREE.Vector3 | null): void {
+    if (this.training || !this.ctx.world?.ready) return;
+    if (!this.authority) {
+      if (!this.multiplayer) return;
+      const msg: ShotReport = { t: 'shotq', o: tuple(origin, 2), d: tuple(dir, 3), r: round(range, 1) };
+      if (hit) msg.h = tuple(hit, 2);
+      this.ctx.net?.send(msg, 'host');
+      return;
+    }
+    this.alertShot(origin, dir, range, hit, 'local');
+  }
+
+  /**
+   * 정찰 x-ray: red through-wall silhouette for these enemies (simulated or replica) for `seconds`; a second call
+   * extends. Unknown ids are ignored; `seconds <= 0` hides the listed ones (`[]` + 0 is a no-op).
+   */
+  setXray(ids: readonly number[], seconds: number): void {
+    const until = this.ctx.time + seconds;
+    for (let i = 0; i < ids.length; i++) {
+      const e = this.byId.get(ids[i]);
+      if (!e || !e.active) continue;
+      if (!(seconds > 0)) { this.xray.remove(e); continue; }
+      if (e.state === 'dead') continue;
+      this.xray.show(e, until);
+    }
+  }
+  /** Phase 12: through-wall silhouettes (`setXray`). */
+  private readonly xray = new EnemyXray();
   readonly grid = new SpatialGrid<Enemy>(MAP_SIZE + 40, 8);
   readonly targets = new TargetList();
 
@@ -259,6 +310,8 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
         _c.set(msg.p[0], msg.p[1], msg.p[2]);
         this.shells.interceptById(msg.sid, _c, true);
       }),
+      // Phase 12: a client's bullet report — the host runs the same routine as for its own shots
+      net.onMessage('shotq', (msg, from) => this.onShotReport(msg, from)),
     );
   }
 
@@ -314,6 +367,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       if (e.corpsePending && this.authority && !this.resetting && (e.deathLanded || e.deathTimer >= CORPSE_LAND_TIMEOUT)) this.registerCorpse(e);
       if ((e.state === 'dead' && e.deathTimer >= e.corpseLife + slack) || (e.state === 'flee' && e.fleeTimer >= FLEE_DURATION)) this.despawn(e);
     }
+    this.xray.tick(ctx.time);
     this.corpses.update(dt);
     this.fx?.update(dt, world);
   }
@@ -662,6 +716,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       e.hasMoveTarget = false; e.hasFacePoint = false; e.hasCover = false;
       e.velocity.set(0, 0, 0);
       e.relentless = false;
+      e.investigating = false; e.shotPhase = 0; e.barrierOwner = null; e.barrierUntil = -Infinity;   // Phase 12
       e.lastDamager = 'ai';                               // whoever hurt it before belongs to the old host — no kill credit here
       e.netBuf?.clear();
       // status holds (0.35 s from the wire) become real durations
@@ -707,6 +762,35 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   }
 
   /**
+   * Phase 12 (실드 배쉬 knockback, requested by implants/): shove enemies away from `center`. Every alive enemy within
+   * `radius` gets a horizontal impulse of `speed` m/s (falling off linearly to 40 % at the rim) away from the centre —
+   * the same `velocity` nudge an explosion applies, so the existing steering / stumble rules absorb it (a charging
+   * behemoth is **not** shoved, exactly like an explosion). Returns how many were pushed.
+   *
+   * **Not** on `EnemyManagerRef` — that interface is frozen for Phase 12, so callers reach it as
+   * `(ctx.enemies as unknown as { pushBack?: … }).pushBack?.(…)`. Authority only: a replica's velocity is overwritten
+   * by the next snapshot, and the host already shoves its own copy, so this returns 0 there.
+   */
+  pushBack(center: THREE.Vector3, radius: number, speed: number, dir?: THREE.Vector3): number {
+    if (!this.authority || !(radius > 0) || !(speed > 0)) return 0;
+    let n = 0;
+    for (let i = 0; i < this.active.length; i++) {
+      const e = this.active[i];
+      if (!e.isCombatant || e.chargePhase === 2) continue;
+      _v.set(e.position.x - center.x, 0, e.position.z - center.z);
+      const d = _v.length();
+      const reach = radius + e.stats.radius;
+      if (d > reach) continue;
+      if (dir) _v.copy(dir).setY(0);
+      if (_v.lengthSq() < 1e-4) e.facing(_v).negate();
+      _v.normalize();
+      e.velocity.addScaledVector(_v, speed * THREE.MathUtils.clamp(1 - d / reach, 0.4, 1));
+      n++;
+    }
+    return n;
+  }
+
+  /**
    * Phase 9: other folders name the local player by its peer id (`ctx.net.localId ?? 'local'`); the kill-credit rules
    * key on `'local'`, so fold our own id back before it lands in `lastDamager` / `burnAttacker`.
    */
@@ -719,6 +803,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   reset(): void {
     this.resetting = true;
     this.lures.clear();
+    this.xray.clear();
     for (let i = this.active.length - 1; i >= 0; i--) this.despawn(this.active[i]);
     this.active.length = 0;
     this.byId.clear();
@@ -799,6 +884,15 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   debugAmbientGroup(threat: number): EnemyType[] { return ambientGroup(threat, this.eco).slice(); }
   /** Phase 11 (debug / smoke): one extraction-wave composition through the live ecosystem. Spawns nothing. */
   debugWaveGroup(index: number, count: number): EnemyType[] { return waveGroup(index, count, this.eco).slice(); }
+  /** Phase 12 (debug / smoke): x-ray overlay state of enemy `id` (built overlay count, visible now, expiry). */
+  debugXray(id: number): { overlays: number; visible: boolean; until: number } | null {
+    const e = this.byId.get(id);
+    return e ? this.xray.debugState(e) : null;
+  }
+  /** Phase 12 (debug / smoke): enemies currently drawn through walls. */
+  get xrayCount(): number { return this.xray.count; }
+  /** Phase 12 (debug / smoke): feed a `shotq` through the host path as if peer `from` sent it (authority needed, no session). */
+  debugShotReport(msg: ShotReport, from: PeerId): void { this.onShotReport(msg, from, true); }
   /** Phase 11 (debug / smoke): rogues placed as crate guards right now (boss included). */
   debugGuardCount(): { rogues: number; boss: boolean } {
     let rogues = 0; let boss = false;
@@ -999,6 +1093,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   grenadeHitRemote(p: THREE.Vector3): void { this.grenades?.explodeNear(p); }
 
   private despawn(e: Enemy): void {
+    this.xray.remove(e);
     if (this.hosting && !this.resetting && e.active) this.ctx.net!.send({ t: 'ee', ev: 'despawn', id: e.id }, 'others');
     if (!this.resetting && this.corpses.remove(e.id) && this.hosting) this.ctx.net!.send({ t: 'ee', ev: 'corpseGone', id: e.id }, 'others');
     const idx = this.active.indexOf(e);
@@ -1015,6 +1110,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   }
 
   private disposePools(): void {
+    this.xray.dispose();   // overlays are children of the pooled rigs — detach before the rigs go
     for (const pool of this.pools.values()) { for (const e of pool) e.dispose(); pool.length = 0; }
     this.pools.clear();
     disposeBugAssets();
@@ -1215,6 +1311,11 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
    * Rogues: the nearest alive player within ROGUE_RANGE; otherwise a bug within ROGUE_AI.bugRange, else the nearest player.
    */
   pickTarget(e: Enemy): CombatTarget | null {
+    // Phase 12: an enemy that bumped a raised 배리어 hunts the carrier for BARRIER_RETARGET_S
+    if (e.barrierOwner !== null && this.ctx.time < e.barrierUntil) {
+      const carrier = this.targets.get(e.barrierOwner);
+      if (carrier && carrier.present && !carrier.isDeadOrDowned) return carrier;
+    }
     const player = this.targets.nearestAlive(e.position);
     const pd = player ? player.dist2D(e.position) : Infinity;
     const range = e.isRogue ? ROGUE_AI.bugRange : e.stats.sightRadius;
@@ -1250,8 +1351,12 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
 
   hitTarget(e: Enemy, damage: number, shake = 0, target: CombatTarget | null = e.target): void {
     if (!target || target.isDeadOrDowned) return;
-    this.applyDamage(target, damage, e.position, e.id, e.type, null, shake, true);
-    this.playAudio('bug_attack', e.position, 1, e.type === 'behemoth' ? 0.4 : e.type === 'charger' ? 0.6 : e.type === 'warrior' ? 0.8 : 1.05);
+    this.applyDamage(target, damage, e.position, e.id, e.type, null, shake, true, null, 0, true);
+    this.playAudio('bug_attack', e.position, 1, this.bitePitch(e.type));
+  }
+
+  private bitePitch(type: EnemyType): number {
+    return type === 'behemoth' ? 0.4 : type === 'charger' ? 0.6 : type === 'warrior' ? 0.8 : 1.05;
   }
 
   /** Rogue hitscan shot (authority): occlusion, player capsules, enemy hitboxes, damage, FX, audio, events, wire. */
@@ -1377,7 +1482,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   chargeHit(e: Enemy, target: CombatTarget, damage: number, knockDir: THREE.Vector3): void {
     if (target.isDeadOrDowned) return;
     // local: applyKnockback; remote: `dmg.kb` (Phase 7); suspended: `ghost:damage.kb`
-    this.applyDamage(target, damage, e.position, e.id, e.type, null, 1.0, true, knockDir, BEHEMOTH_KNOCKBACK);
+    this.applyDamage(target, damage, e.position, e.id, e.type, null, 1.0, true, knockDir, BEHEMOTH_KNOCKBACK, true);
     this.playAudio('bug_attack', e.position, 1, 0.4);
   }
 
@@ -1425,8 +1530,12 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
    * Phase 7: `kbDir` / `kbSpeed` = knockback (behemoth charge, grenade blast): local → `applyKnockback`, remote →
    * `dmg.kb`; a **suspended** member (host-simulated ghost) gets `ghost:damage {id, amount, from, kb}` on the bus
    * instead of a `dmg` message.
+   * Phase 12: `melee` = a bite / leap / charge contact. Before it lands on a player the raised 배리어 of that player
+   * gets to absorb it (`ImplantsRef.absorbFrontalAttack`): the local carrier's shield is deducted by implants right
+   * there, a peer's carrier gets `ee barrierHit` (its own shield takes it) and no `dmg`. Ranged attacks (rifle,
+   * shell, acid, grenade) keep the `raycastBarrier` path of their callers.
    */
-  private applyDamage(target: CombatTarget, amount: number, from: THREE.Vector3, id: number, type: EnemyType, slow: AcidSlow | null, shake: number, announce: boolean, kbDir: THREE.Vector3 | null = null, kbSpeed = 0): void {
+  private applyDamage(target: CombatTarget, amount: number, from: THREE.Vector3, id: number, type: EnemyType, slow: AcidSlow | null, shake: number, announce: boolean, kbDir: THREE.Vector3 | null = null, kbSpeed = 0, melee = false): void {
     if (target.isDeadOrDowned) return; // downed players are never AI victims (Phase 2)
     const ctx = this.ctx;
     if (target.enemy) {
@@ -1438,6 +1547,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       this.noteClash(victim.position);
       return;
     }
+    if (melee && this.absorbedByShield(target, from, amount, id)) return;
     if (target.isLocal) {
       const player = ctx.player;
       if (!player || player.isDead || player.isDowned) return;
@@ -1464,6 +1574,129 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     if (kbDir && kbSpeed > 0) msg.kb = { d: tuple(kbDir, 2), s: round(kbSpeed, 1) };
     net.send(msg, target.id);
     if (announce) net.send({ t: 'ee', ev: 'attack', id, ty: type, target: target.id, damage: round(amount, 1), p: tuple(from, 2) }, 'others');
+  }
+
+  /**
+   * Phase 12: does the player target's raised shield face the attacker at `from` and take this melee hit? True = the
+   * caller applies nothing more. Local owner: implants deducted its shield inside `absorbFrontalAttack`. Peer owner:
+   * `ee barrierHit` to that peer alone (no `dmg`, no `ee attack` — the peer plays the bite on its shield itself).
+   * A suspended member's shield state is whatever the host last mirrored; if implants says it absorbed, it absorbed.
+   */
+  private absorbedByShield(target: CombatTarget, from: THREE.Vector3, amount: number, id: number): boolean {
+    const imp = this.ctx.implants;
+    if (!imp || typeof imp.absorbFrontalAttack !== 'function') return false;
+    const owner: PeerId | 'local' = target.isLocal ? 'local' : (target.id as PeerId);
+    if (!imp.absorbFrontalAttack(owner, from, amount)) return false;
+    if (!target.isLocal && !target.suspended && this.hosting) {
+      // contact point: just in front of the carrier's chest, toward the attacker
+      _c.set(from.x - target.position.x, 0, from.z - target.position.z);
+      if (_c.lengthSq() > 1e-4) _c.normalize(); else _c.set(0, 0, 1);
+      _c.multiplyScalar(0.7).add(target.position); _c.y = target.position.y + SHIELD_CONTACT_Y;
+      this.ctx.net!.send({ t: 'ee', ev: 'barrierHit', id, amount: round(amount, 1), p: tuple(_c, 2) }, target.id as PeerId);
+    }
+    return true;
+  }
+
+  /** Phase 12 (ReplicaHost): the host says enemy `id` bit **my** raised shield — the local shield takes it, bite FX at `p`. */
+  barrierHitRemote(id: number, p: THREE.Vector3, amount: number): void {
+    const imp = this.ctx.implants;
+    if (imp && typeof imp.damageBarrier === 'function') imp.damageBarrier('local', p, amount);
+    const e = this.byId.get(id);
+    this.playAudio('bug_attack', e ? e.position : p, 1, this.bitePitch(e?.type ?? 'scavenger'));
+  }
+
+  /* ── Phase 12: 배리어 충돌 (EnemyHost) ─────────────────────────────────── */
+  /**
+   * Called from `ai/EnemyAI.integrate` after every grounded enemy moved: `ImplantsRef.resolveBarrierCollision` pushes
+   * the body out of any raised shield and names the carrier. On contact the enemy hunts the carrier for
+   * BARRIER_RETARGET_S (`pickTarget` honours `barrierOwner`), wakes up if it was idle, and `implant:barrierBumped`
+   * fires at most every BARRIER_BUMP_INTERVAL per enemy (implants sparks / audio thuds from it).
+   */
+  resolveBarrier(e: Enemy): void {
+    const imp = this.ctx.implants;
+    if (!imp || typeof imp.resolveBarrierCollision !== 'function') return;
+    const owner = imp.resolveBarrierCollision(e.position, e.stats.radius);
+    if (!owner) return;
+    const now = this.ctx.time;
+    e.barrierOwner = owner;
+    e.barrierUntil = now + BARRIER_RETARGET_S;
+    const carrier = this.targets.get(owner);
+    if (carrier && carrier.present && !carrier.isDeadOrDowned) {
+      if (e.target !== carrier) { e.target = carrier; e.hasLOS = false; e.perceptionTimer = 0; e.distToTarget = carrier.dist2D(e.position); }
+      if (!e.aware) becomeAlert(e, this, false);
+      if (e.investigating) endInvestigation(e);
+    }
+    if (now - e.barrierBumpAt >= BARRIER_BUMP_INTERVAL) {
+      e.barrierBumpAt = now;
+      // contact point: the body's front at mid height, toward the carrier
+      _v.set(e.position.x, e.position.y + Math.min(e.stats.height * 0.5, SHIELD_CONTACT_Y), e.position.z);
+      if (carrier) {
+        _v2.set(carrier.position.x - e.position.x, 0, carrier.position.z - e.position.z);
+        if (_v2.lengthSq() > 1e-4) _v.addScaledVector(_v2.normalize(), e.stats.radius);
+      }
+      this.ctx.bus.emit('implant:barrierBumped', { owner, enemyId: e.id, point: _v.clone() });
+    }
+  }
+
+  /* ── Phase 12: 총알 추적 ───────────────────────────────────────────────── */
+  /**
+   * `shotq` from a client (host only): validate and run the shooter's report as if it were local, credited to `from`.
+   * `force` (debug / smoke) skips the session gate but keeps the authority one and the validation.
+   */
+  private onShotReport(msg: ShotReport, from: PeerId, force = false): void {
+    if (this.training || !this.authority || (!force && !this.hosting)) return;
+    if (!isVec3Tuple(msg.o) || !isVec3Tuple(msg.d) || !(msg.r > 0)) return;
+    _so.set(msg.o[0], msg.o[1], msg.o[2]);
+    _sd.set(msg.d[0], msg.d[1], msg.d[2]);
+    if (_sd.lengthSq() < 0.5) return;
+    _sd.normalize();
+    let hit: THREE.Vector3 | null = null;
+    if (msg.h !== undefined) {
+      if (!isVec3Tuple(msg.h)) return;
+      hit = _sh.set(msg.h[0], msg.h[1], msg.h[2]);
+    }
+    this.alertShot(_so, _sd, Math.min(msg.r, MAX_SHOT_RANGE), hit, this.normalizeAttacker(from));
+  }
+
+  /**
+   * The alert routine (authority). Every alive simulated enemy that has **no perceived target** (unaware, not
+   * incapacitated / staggered / fleeing / a wave bug) and sits within `ENEMY_SHOT_ALERT_DIST` of the bullet path
+   * (closest approach of its body centre to origin → origin + dir × range) or `ENEMY_SHOT_IMPACT_DIST` of the
+   * impact, and that could **not** perceive the shooter by the normal rule (`canPerceive`, no cone — it would spot the
+   * shooter on its own next tick anyway), starts investigating the origin (`ai/Investigate.ts`) → `enemy:shotAlerted`
+   * once. An enemy already investigating only refreshes its origin. The perception test is throttled per enemy.
+   */
+  private alertShot(origin: THREE.Vector3, dir: THREE.Vector3, range: number, hit: THREE.Vector3 | null, shooter: TargetId): void {
+    if (!this.ctx.isGameplayPhase()) return;
+    const now = this.ctx.time;
+    const sh = shooter === 'ai' ? undefined : this.targets.get(shooter);
+    const shooterUp = !!sh && sh.present && !sh.isDeadOrDowned;
+    for (let i = 0; i < this.active.length; i++) {
+      const e = this.active[i];
+      if (!e.isCombatant || e.aware || e.relentless || e.state === 'stagger') continue;
+      const r = e.stats.radius;
+      const cx = e.position.x, cy = e.position.y + e.stats.height * 0.5, cz = e.position.z;
+      let near = false;
+      if (hit) {
+        const dx = cx - hit.x, dy = cy - hit.y, dz = cz - hit.z;
+        const reach = ENEMY_SHOT_IMPACT_DIST + r;
+        near = dx * dx + dy * dy + dz * dz <= reach * reach;
+      }
+      if (!near) {
+        const ox = cx - origin.x, oy = cy - origin.y, oz = cz - origin.z;
+        const t = THREE.MathUtils.clamp(ox * dir.x + oy * dir.y + oz * dir.z, 0, range);
+        const px = ox - dir.x * t, py = oy - dir.y * t, pz = oz - dir.z * t;
+        const reach = ENEMY_SHOT_ALERT_DIST + r;
+        near = px * px + py * py + pz * pz <= reach * reach;
+      }
+      if (!near) continue;
+      if (e.investigating) { e.shotOrigin.copy(origin); continue; }
+      if (now - e.shotCheckAt < SHOT_CHECK_INTERVAL) continue;
+      e.shotCheckAt = now;
+      if (shooterUp && canPerceive(e, this, sh!, false)) continue;
+      if (!beginInvestigation(e, origin)) continue;
+      this.ctx.bus.emit('enemy:shotAlerted', { id: e.id, position: e.position.clone(), toward: origin.clone() });
+    }
   }
 
   /** First bug ↔ rogue engagement within CLASH_RADIUS of the local player (throttled) → `enemy:factionClash`. */
@@ -1641,7 +1874,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       if (dx * dx + dz * dz > r2) continue;
       e.state = 'flee'; e.stateTime = 0; e.fleeTimer = 0;
       e.fleeFrom.copy(position);
-      e.aware = false; e.airborne = false; e.chargePhase = 0; e.spitPhase = 0; e.roguePhase = 0; e.toxicPhase = 0;
+      e.aware = false; e.investigating = false; e.airborne = false; e.chargePhase = 0; e.spitPhase = 0; e.roguePhase = 0; e.toxicPhase = 0;
       e.anim.shake = 0; e.anim.abdomen = 0; e.anim.crouch = 0;
     }
   }

@@ -211,3 +211,37 @@ Unchanged here: `applyStim(healAmount)` and `player:stimUsed` keep their names a
 - `player:blastJump` is emitted by weapons (bazooka super jump via `applyImpulse`), not here.
 - Verified by the Phase 6 block of `scripts/smoke-phase4.mjs` (teleport onto the terrain + camera follow, `consumeStamina` refusal /
   spend, heavy melee `isMeleeing` window, `setViewWiden` FOV rise / fall) and by the weapons agent's `smoke-uniques`.
+
+## Phase 12 (2026-09-08) — 조준 원점 (정밀 사격 쏠림) · `auto_revive` · `kill_stamina`
+
+- **`CameraRig.predictPosition(out)`** and one line in `PlayerSystem.update`: `aimOrigin` is now where the rig **will**
+  put the camera this frame for the look just applied, instead of where it was last frame. Weapons fire in `update`,
+  the rig moves in `lateUpdate` — so a shot used to leave from the previous frame's camera with this frame's look
+  direction, i.e. a ray parallel to (and beside) the one the frame then rendered. Measured lateral error while
+  turning: 0.09 m at a 15 px/frame flick, 0.22 m at 30 px, **0.42 m at 60 px**, plus ~0.036 m during the ADS pull-in
+  (the shoulder slides 0.55 → 0.35). Because the ray is *shifted*, not rotated, the miss is the same in metres at
+  every range — which is why it reads as a small, constant drift on scoped weapons. Standing still there was no error
+  (measured 0.000 m at 30 m and 150 m before and after), and the reticle was already exactly on the projected centre
+  ray. `predictPosition` reuses the last smoothed pivot / shoulder / collision distance (they damp slowly) and
+  re-evaluates only the look basis; during a cutscene override it returns the real camera position, because the
+  override — not the rig — owns it. `lateUpdate` still overwrites `aimOrigin` with the actual position afterwards.
+- **Perk `auto_revive`** (재기동 회로, `derived.perks.auto_revive`): `enterDowned` arms a one-shot timer
+  (`AUTO_REVIVE_DELAY_S` = 1 s) that fires from `updateDowned` — `revive()` (hp `PLAYER_REVIVE_HP`, the usual
+  `player:revived` / `player:healthChanged` / SFX) plus `ui:notify` `재기동 회로 작동`. **Once per raid**:
+  `autoReviveUsed` is set on use and cleared on `world:ready`. The timer is disarmed by `clearDowned` / a manual
+  `revive()`, so a teammate's revive does not spend it. Nothing about the bleed / 포기 path changed — the perk simply
+  wins the race for the first second.
+- **Perk `kill_stamina`** (아드레날린 펌프): an `enemy:killed` whose `by` is `'local'` (the host credits our own hits
+  that way, and a replica's `hitc` kill marker does too — enemies/ folds our PeerId back to `'local'`) refills
+  `stamina` to `maxStamina` and clears the regen delay / exhausted state. Ignored while dead / not spawned.
+
+**Verification**: `smoke-weapons` 137/137 (SR ADS lands on the crosshair ray at ~30 m and ~140 m, auto_revive stands
+up once within 1.5 s and stays down on the second knock-down, kill_stamina refills only for a `'local'` kill and only
+with the perk on), `smoke-phase2` 53/53, `smoke-uniques` 71/71, `smoke-ghost` 86/86.
+
+**Known**: `predictPosition` predicts the *positional* damping the rig is about to do but not a collision that only
+this frame's ray-casts would find, so a camera that is being pushed out of a wall in the same frame can still leave a
+few cm of error (it damps away in one or two frames, and the world raycast from the camera clamps the shot anyway).
+`auto_revive` fires in a 훈련장 too (harmless — the respawn there is instant) and, being client-side, is invisible to
+the host's ghost logic: a suspended player's ghost never self-revives. `kill_stamina` reads the bus event, so a kill
+credited to a peer that our client never sees (e.g. a DoT death out of range) is simply missed.

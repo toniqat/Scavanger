@@ -1,6 +1,8 @@
 import * as THREE from 'three';
-import type { GameContext } from '@/shared';
+import type { EnemyRef, GameContext } from '@/shared';
+import { COMPASS_ENEMY_COLOR, DETECT_ENEMY_BASE_RADIUS } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
+import type { ScanTracker } from './ScanTracker';
 
 const STRIP_WIDTH = 440;
 const PX_PER_RAD = STRIP_WIDTH / (Math.PI * 0.9); // ~160° visible
@@ -8,6 +10,11 @@ const CARDINALS: Array<[number, string, boolean]> = [
   [0, 'N', true], [45, 'NE', false], [90, 'E', true], [135, 'SE', false],
   [180, 'S', true], [225, 'SW', false], [270, 'W', true], [315, 'NW', false],
 ];
+
+/** Pooled red enemy ticks (Phase 12 감지): plenty for the ambient cap inside one detect radius. */
+const MAX_ENEMY_TICKS = 24;
+/** Seconds between `queryNear` polls for the detect-radius ticks (≤ 10 Hz). */
+const ENEMY_POLL_INTERVAL = 0.1;
 
 interface CompassMarker {
   el: HTMLElement;
@@ -17,7 +24,20 @@ interface CompassMarker {
   lastDist: number;
 }
 
-/** Top-center heading strip with extraction / ship markers. */
+interface EnemyTick { el: HTMLElement; lastKey: string }
+
+/**
+ * Top-center heading strip with extraction / ship markers.
+ *
+ * **Phase 12 — 감지 스탯:** every living enemy inside `ctx.progression.derived.enemyDetectRadius` (grows with 인지력;
+ * `DETECT_ENEMY_BASE_RADIUS` without progression) appears as a red tick (`COMPASS_ENEMY_COLOR`) at its bearing,
+ * fading with distance. `ctx.enemies.queryNear` is polled at most every `ENEMY_POLL_INTERVAL` (10 Hz); the bearings
+ * themselves are recomputed per frame from the cached refs, so the ticks slide smoothly. Enemies revealed by a 정찰
+ * pulse (`scan:cast`, via the shared `ScanTracker`) get a tick for the reveal's duration **regardless of distance**
+ * (their position follows the enemy object live). Ticks are pooled (`MAX_ENEMY_TICKS` DOM nodes, created once) and
+ * only those whose bearing falls inside the visible ±80° arc are shown — the off-screen edge arrows of `hud/Detection`
+ * cover the rest.
+ */
 export class Compass {
   readonly root: HTMLElement;
   private strip: HTMLElement;
@@ -27,10 +47,23 @@ export class Compass {
   private lastYaw = NaN;
   private tmp = new THREE.Vector3();
   private unsubs: Array<() => void> = [];
+  private ticks: EnemyTick[] = [];
+  private tickLayer: HTMLElement;
+  private near: EnemyRef[] = [];
+  private nearIds = new Set<number>();
+  private nextPoll = 0;
+  private shownTicks = 0;
 
-  constructor(parent: HTMLElement) {
+  constructor(parent: HTMLElement, private scans: ScanTracker | null = null) {
     this.root = el('div', { cls: 'compass', parent });
     this.strip = el('div', { cls: 'strip', parent: this.root });
+    this.tickLayer = el('div', { cls: 'eticks', parent: this.root });
+    for (let i = 0; i < MAX_ENEMY_TICKS; i++) {
+      const t = el('div', { cls: 'etick', parent: this.tickLayer });
+      t.style.background = COMPASS_ENEMY_COLOR;
+      t.hidden = true;
+      this.ticks.push({ el: t, lastKey: '' });
+    }
     // Build 3 copies (−360°, 0°, +360°) so the strip wraps seamlessly.
     for (let rep = -1; rep <= 1; rep++) {
       for (let deg = 0; deg < 360; deg += 15) {
@@ -58,8 +91,12 @@ export class Compass {
       b.on('extraction:liftoff', () => this.removeShip()),
       // world:ready fires synchronously inside game:newMission (before our handler would) → rebuild there only.
       b.on('game:abort', () => this.clear()),
+      b.on('hub:entered', () => this.clearEnemies()),
     );
   }
+
+  /** Enemy ticks currently visible on the strip (debug). */
+  get enemyTickCount(): number { return this.shownTicks; }
 
   private rebuild(ctx: GameContext): void {
     this.clear();
@@ -97,6 +134,97 @@ export class Compass {
     this.markers.clear();
     this.activeId = null;
     this.shipPos = null;
+    this.clearEnemies();
+  }
+
+  private clearEnemies(): void {
+    this.near.length = 0;
+    this.nearIds.clear();
+    this.nextPoll = 0;
+    this.hideTicksFrom(0);
+    this.shownTicks = 0;
+  }
+
+  private hideTicksFrom(index: number): void {
+    for (let i = index; i < this.ticks.length; i++) {
+      const t = this.ticks[i];
+      if (!t.el.hidden) { t.el.hidden = true; t.lastKey = ''; }
+    }
+  }
+
+  private enemyRadius(ctx: GameContext): number {
+    const r = ctx.progression?.derived?.enemyDetectRadius;
+    return typeof r === 'number' && r > 0 ? r : DETECT_ENEMY_BASE_RADIUS;
+  }
+
+  /** Re-poll the enemies inside the detect radius (≤ 10 Hz); the bearings are recomputed per frame from these refs. */
+  private pollEnemies(ctx: GameContext, from: THREE.Vector3): void {
+    if (ctx.time < this.nextPoll) return;
+    this.nextPoll = ctx.time + ENEMY_POLL_INTERVAL;
+    this.near.length = 0;
+    this.nearIds.clear();
+    const em = ctx.enemies;
+    if (!em || typeof em.queryNear !== 'function') return;
+    for (const e of em.queryNear(from, this.enemyRadius(ctx))) {
+      if (e.isDead) continue;
+      this.near.push(e);
+      this.nearIds.add(e.id);
+      if (this.near.length >= MAX_ENEMY_TICKS) break;
+    }
+  }
+
+  /**
+   * Place the pooled tick `index` at `pos`'s bearing. Returns the next free index: unchanged when the bearing falls
+   * outside the visible arc (nothing drawn), −1 when the pool is exhausted.
+   */
+  private placeTick(index: number, pos: THREE.Vector3, from: THREE.Vector3, heading: number, half: number, radius: number, scanned: boolean): number {
+    if (index >= this.ticks.length) return -1;
+    this.tmp.subVectors(pos, from);
+    const dist = Math.hypot(this.tmp.x, this.tmp.z);
+    const bearing = Math.atan2(this.tmp.x, -this.tmp.z);
+    let rel = bearing - heading;
+    rel = Math.atan2(Math.sin(rel), Math.cos(rel));
+    const x = rel * PX_PER_RAD;
+    if (Math.abs(x) > half) return index; // behind / outside the visible arc: the detection arrows cover it
+    // detected: fade toward the edge of the radius; scanned: steady (distance is not what revealed it)
+    const alpha = scanned ? 0.95 : Math.max(0.35, 1 - (dist / Math.max(1, radius)) * 0.65);
+    const t = this.ticks[index];
+    const key = `${x.toFixed(0)}|${alpha.toFixed(2)}|${scanned ? 1 : 0}`;
+    if (t.el.hidden) t.el.hidden = false;
+    if (key !== t.lastKey) {
+      t.lastKey = key;
+      t.el.style.transform = `translateX(calc(-50% + ${x.toFixed(1)}px))`;
+      t.el.style.opacity = alpha.toFixed(2);
+      toggleClass(t.el, 'scanned', scanned);
+    }
+    return index + 1;
+  }
+
+  private updateEnemies(ctx: GameContext, from: THREE.Vector3, heading: number, half: number): void {
+    const gameplay = ctx.isGameplayPhase() && !(ctx.player?.isDead ?? true);
+    if (!gameplay) { if (this.near.length || this.shownTicks) this.clearEnemies(); return; }
+    this.pollEnemies(ctx, from);
+    const radius = this.enemyRadius(ctx);
+    let used = 0;
+    // (1) inside the detect radius
+    for (const e of this.near) {
+      if (e.isDead) continue;
+      const next = this.placeTick(used, e.position, from, heading, half, radius, false);
+      if (next < 0) break;
+      used = next;
+    }
+    // (2) 정찰 reveals still running, wherever they are (an enemy already drawn from (1) is not drawn twice)
+    const scanned = this.scans?.update(ctx);
+    if (scanned && used >= 0) {
+      for (const s of scanned) {
+        if (this.nearIds.has(s.id)) continue;
+        const next = this.placeTick(used, s.position, from, heading, half, radius, true);
+        if (next < 0) break;
+        used = next;
+      }
+    }
+    this.hideTicksFrom(used);
+    this.shownTicks = used;
   }
 
   update(ctx: GameContext): void {
@@ -127,6 +255,7 @@ export class Compass {
       const d = Math.round(dist);
       if (d !== m.lastDist) { m.lastDist = d; setText(m.dist, `${d}m`); }
     }
+    this.updateEnemies(ctx, player.position, heading, STRIP_WIDTH / 2 - 6);
     void yaw;
   }
 

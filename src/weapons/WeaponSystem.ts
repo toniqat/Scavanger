@@ -95,9 +95,13 @@ function gaugeOf(inst: ItemInstance, def: ItemDef): number {
 
 /** Seconds between the batched `buff heal` messages a 스프레이 sends to squadmates in range. */
 const SPRAY_SEND_INTERVAL = 0.5;
+/** Phase 12: `item:channelChanged` rate while a 스프레이 channel runs. */
+const CHANNEL_EMIT_HZ = 10;
 
 const _o = new THREE.Vector3(), _d = new THREE.Vector3(), _pd = new THREE.Vector3(), _tA = new THREE.Vector3(), _tB = new THREE.Vector3();
 const _muzzle = new THREE.Vector3(), _target = new THREE.Vector3(), _md = new THREE.Vector3(), _right = new THREE.Vector3(), _tmp = new THREE.Vector3();
+/** Phase 12: impact point handed to `ctx.enemies.reportShot` (scratch). */
+const _rep = new THREE.Vector3();
 const _netDir = new THREE.Vector3();
 const _mq = new THREE.Quaternion();
 const _block = new THREE.Vector3();
@@ -203,6 +207,10 @@ export class WeaponSystem implements GameSystem {
   private healEmitAt = -Infinity;
   private healSpray = false;
   private sprayAcc = 0;
+  /** Phase 12: the channelled item behind `item:channelChanged` (a 회복 스프레이 in hand) + its last emit time (≤ 10 Hz). */
+  private channel: { uid: string; defId: string; max: number } | null = null;
+  private channelEmitAt = -Infinity;
+  private sprayEmptyNotifyAt = -Infinity;
   /** 회복 스프레이: hp owed to each squadmate in range, flushed as a `buff heal` at most twice a second. */
   private sprayOwed = new Map<string, number>();
   private spraySendAcc = 0;
@@ -303,6 +311,10 @@ export class WeaponSystem implements GameSystem {
     this.remote.update(dt);
     // one frame after the drop scene rendered: compile shaders for the pooled/hidden FX meshes (async when possible)
     if (this.warmupFrames > 0 && --this.warmupFrames === 0) this.fx.warmUp(ctx.renderer, ctx.scene, ctx.camera);
+
+    // Phase 12: the 스프레이 ticker never outlives its channel — every end path funnels through `stopSpray`, and this
+    // is the backstop for any that clears the hold flags directly (`active:false` must always be the last event).
+    if (this.channel && !(this.healHeld && this.healSpray)) this.closeChannel();
 
     this.ensureNet();
     const host = this.getHost();
@@ -941,6 +953,7 @@ export class WeaponSystem implements GameSystem {
 
     const pellets = def.pellets && def.pellets > 1 ? def.pellets : 1;
     let anyHit = false, anyKill = false, anyEnemy = false, anyHead = false;
+    let reportHit: THREE.Vector3 | null = null;
     // direction replicated to other players: exact muzzle→target line for single shots, aim centre for pellets
     _netDir.copy(_d);
     for (let i = 0; i < pellets; i++) {
@@ -970,10 +983,16 @@ export class WeaponSystem implements GameSystem {
         const dmg = st.damage * damageFalloff(def, _muzzle.distanceTo(hit.point));
         const r = this.applyHit(hit, dmg, _md, pellets > 1, st.ammoType);
         anyHit = true;
+        reportHit = _rep.copy(hit.point);
         if (hit.enemy) { anyEnemy = true; if (hit.headshot) anyHead = true; }
         if (r) anyKill = true;
       }
     }
+
+    // Phase 12 (총알 추적): every local hitscan shot is reported once per trigger pull along the aim ray — an enemy
+    // near the bullet path / impact that could not see us turns toward the origin (enemies/). Projectile weapons are
+    // reported by the pool at launch and by `onProjectileHit` at the impact instead.
+    if (!def.projectileSpeed) ctx.enemies?.reportShot(_o, _d, def.range, reportHit);
 
     // ── FX & feedback
     this.fx.muzzleFlash(_muzzle, _md, def.tracerColor, pellets > 1 ? 1.6 : 1);
@@ -1128,6 +1147,8 @@ export class WeaponSystem implements GameSystem {
   }
 
   private onProjectileHit(h: ProjectileHit, damage: number, weaponId: string): void {
+    // Phase 12 총알 추적: the launch was reported by the pool with no hit; the impact completes the report
+    if (h.distance > 0.05) this.ctx.enemies?.reportShot(_rep.copy(h.point).addScaledVector(h.dir, -h.distance), h.dir, h.distance, h.point);
     this.gunHit.point.copy(h.point); this.gunHit.normal.copy(h.normal); this.gunHit.distance = h.distance;
     this.gunHit.enemy = h.enemy; this.gunHit.obstacle = h.obstacle; this.gunHit.obstacleRef = h.obstacleRef ?? null; this.gunHit.valid = true; this.gunHit.headshot = h.part === 'head';
     this.gunHit.armored = !!h.armored; this.gunHit.intercept = null; this.gunHit.barrierOwner = h.barrierOwner ?? null;
@@ -1358,6 +1379,42 @@ export class WeaponSystem implements GameSystem {
     this.ctx.bus.emit('heal:holdChanged', { holding: this.healHeld, t, dur, spray: this.healSpray });
   }
 
+  /**
+   * Phase 12 perk `quick_heal` (가속 대사): every hold-to-use time (회복 소모품 and the 제세동기's `DEFIB_USE_TIME_S`)
+   * is halved while the perk is active. The HUD ring reads the halved value from `heal:holdChanged.dur`.
+   */
+  private holdTimeOf(def: ItemDef): number {
+    const base = useTimeOf(def);
+    return this.ctx.progression?.derived.perks?.quick_heal ? base * 0.5 : base;
+  }
+
+  /**
+   * `item:channelChanged` for the 스프레이 channel: `active:true` when it starts, ≤ `CHANNEL_EMIT_HZ` while it runs
+   * (`gauge` 0..1), `active:false` when it stops for any reason. `force` bypasses the throttle (start / stop).
+   */
+  private emitChannel(active: boolean, gauge01: number, force: boolean): void {
+    const ch = this.channel;
+    if (!ch) return;
+    if (!force && this.ctx.time - this.channelEmitAt < 1 / CHANNEL_EMIT_HZ) return;
+    this.channelEmitAt = this.ctx.time;
+    this.ctx.bus.emit('item:channelChanged', { uid: ch.uid, defId: ch.defId, active, gauge: THREE.MathUtils.clamp(gauge01, 0, 1) });
+    if (!active) this.channel = null;
+  }
+
+  /** Close the ticker at the item's current gauge (`active:false`), whatever ended the channel. */
+  private closeChannel(): void {
+    const ch = this.channel;
+    if (!ch) return;
+    this.emitChannel(false, (this.ctx.inventory?.findItem(ch.uid)?.durability ?? 0) / ch.max, true);
+  }
+
+  /** `스프레이가 비었습니다` — throttled like the broken-weapon toast so a held button does not spam it. */
+  private notifySprayEmpty(): void {
+    if (this.ctx.time - this.sprayEmptyNotifyAt < BROKEN_NOTIFY_INTERVAL) return;
+    this.sprayEmptyNotifyAt = this.ctx.time;
+    this.ctx.bus.emit('ui:notify', { text: '스프레이가 비었습니다', kind: 'warning', duration: 1.4 });
+  }
+
   /** Movement penalty while a consumable is being used (`CONSUMABLE_SLOW_MUL`); `1` releases it. */
   private setConsumableSlow(on: boolean): void {
     this.ctx.player?.setSpeedModifier(CONSUMABLE_SLOW_KEY, on ? CONSUMABLE_SLOW_MUL : 1);
@@ -1370,11 +1427,16 @@ export class WeaponSystem implements GameSystem {
   private beginHeal(host: Host, q: QuickHand): void {
     const spray = q.def.heal?.spray;
     if (spray) {
-      if (gaugeOf(q.item, q.def) <= 0) { this.deny(); return; }
+      const max = Math.max(1, q.def.durabilityMax ?? 1);
+      const gauge = gaugeOf(q.item, q.def);
+      // Phase 12: an empty can stays in the slot at durability 0 (repaired in the ship) — the channel just refuses
+      if (gauge <= 0) { this.deny(); this.notifySprayEmpty(); return; }
       this.healSpray = true; this.sprayAcc = 0; this.spraySendAcc = 0; this.sprayOwed.clear();
       this.healHeld = true; this.healT = 0;
       this.setConsumableSlow(true);
-      this.emitHeal(gaugeOf(q.item, q.def) / Math.max(1, q.def.durabilityMax ?? 1), true, 0);
+      this.channel = { uid: q.uid, defId: q.defId, max };
+      this.emitChannel(true, gauge / max, true);
+      this.emitHeal(gauge / max, true, 0);
       return;
     }
     if (q.kind === 'stim' && host.hp >= host.maxHp) { this.deny(); return; }
@@ -1382,7 +1444,7 @@ export class WeaponSystem implements GameSystem {
     this.healHeld = true;
     this.healT = 0;
     this.setConsumableSlow(true);
-    this.emitHeal(0, true, useTimeOf(q.def));
+    this.emitHeal(0, true, this.holdTimeOf(q.def));
   }
 
   /**
@@ -1392,7 +1454,7 @@ export class WeaponSystem implements GameSystem {
   private updateHeal(dt: number, host: Host, q: QuickHand): void {
     if (!this.ctx.input.isMouseDown(MouseButtons.FIRE)) { this.cancelHeal(); return; }
     if (this.healSpray) { this.updateSpray(dt, host, q); return; }
-    const dur = useTimeOf(q.def);
+    const dur = this.holdTimeOf(q.def);
     this.healT += dt;
     if (this.healT >= dur) { this.finishHeal(host, q); return; }
     this.emitHeal(Math.min(1, this.healT / Math.max(0.01, dur)), false, dur);
@@ -1425,7 +1487,22 @@ export class WeaponSystem implements GameSystem {
     }
     if (this.spraySendAcc >= SPRAY_SEND_INTERVAL) { this.spraySendAcc = 0; this.flushSprayHeals(); }
     this.emitHeal(gauge / max, spent > 0, 0);
-    if (gauge <= 0) { this.finishHeal(host, q); return; }
+    if (gauge <= 0) { this.stopSpray(); this.notifySprayEmpty(); return; }
+    this.emitChannel(true, gauge / max, false);
+  }
+
+  /**
+   * Phase 12: the 스프레이 channel ends (gauge empty, button released, swap, death, screen). The can is **never**
+   * consumed — at 0 it stays in the slot with `durability` 0 until the ship repairs it. Closes both the HUD ring
+   * (`heal:holdChanged -1`) and the ticker (`item:channelChanged active:false`).
+   */
+  private stopSpray(): void {
+    if (!this.healHeld || !this.healSpray) return;
+    this.healHeld = false; this.healT = 0; this.healSpray = false;
+    this.setConsumableSlow(false);
+    this.flushSprayHeals();
+    this.emitHeal(-1, true, 0);
+    this.closeChannel();
   }
 
   /** Squadmates inside `radius` owe `hp` this tick (flushed as `buff heal` at `SPRAY_SEND_INTERVAL`). */
@@ -1456,17 +1533,17 @@ export class WeaponSystem implements GameSystem {
   /** Hold completed: consume the item and apply its effect (a 제세동기 hands off to the gadget path). */
   private finishHeal(host: Host, q: QuickHand): void {
     const spray = q.def.heal?.spray;
-    const wasSpray = this.healSpray;
+    // a 스프레이 never "finishes" into a consume (Phase 12): its only end is `stopSpray`
+    if (spray || this.healSpray) { this.stopSpray(); return; }
     this.healHeld = false; this.healT = 0; this.healSpray = false;
     this.setConsumableSlow(false);
-    if (wasSpray) this.flushSprayHeals();
     if (q.kind === 'gadget') {
-      this.emitHeal(1, true, useTimeOf(q.def));
+      this.emitHeal(1, true, this.holdTimeOf(q.def));
       this.useGadget(host, q);
       return;
     }
     const remaining = this.consumeQuick(q);
-    this.emitHeal(remaining < 0 ? -1 : 1, true, useTimeOf(q.def));
+    this.emitHeal(remaining < 0 ? -1 : 1, true, this.holdTimeOf(q.def));
     if (remaining < 0) { this.deny(); return; }
     this.quickCooldown = QUICK_USE_COOLDOWN / this.useSpeedMul();
     this.firingTimer = FIRING_POSE_HOLD * 0.5;
@@ -1484,10 +1561,9 @@ export class WeaponSystem implements GameSystem {
   /** Button released, swap, implant wield, death / downed, phase change, world reset: the hold is thrown away. */
   private cancelHeal(): void {
     if (!this.healHeld) return;
-    const wasSpray = this.healSpray;
+    if (this.healSpray) { this.stopSpray(); return; }
     this.healHeld = false; this.healT = 0; this.healSpray = false;
     this.setConsumableSlow(false);
-    if (wasSpray) this.flushSprayHeals();
     this.emitHeal(-1, true);
   }
 
@@ -1731,6 +1807,7 @@ export class WeaponSystem implements GameSystem {
         sys.raycastAll(_muzzle, _md, mdist + 0.05, sys.gunHit);
         const hit = sys.gunHit.valid ? sys.gunHit : (sys.camHit.valid ? sys.camHit : null);
         out.end.copy(hit ? hit.point : _target);
+        ctx.enemies?.reportShot(_o, _d, range, hit ? hit.point : null);   // Phase 12 총알 추적
         const fxm = FxManager.get();
         if (fxm) fxm.tracers.add(_muzzle, out.end, wi.def.tracerColor, tracerWidth, _muzzle.distanceTo(out.end) / 600 + 0.06, 600);
         if (!hit) return;

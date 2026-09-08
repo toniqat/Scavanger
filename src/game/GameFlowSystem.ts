@@ -10,6 +10,9 @@ import {
 } from '@/shared';
 /* appended (2026-09-07, 커서 rework): Alt 커서 blocker token */
 import { FREE_CURSOR_BLOCKER } from '@/shared';
+/* appended (Phase 12): 브라우저 재개 게이트 + 데스크톱 셸 커서 */
+import { RESUME_GATE_BLOCKER } from '@/shared';
+import { ResumeGate, installDesktopRelockHook, syncDesktopCursor } from './ResumeGate';
 /* appended (2026-09-07): 솔로 레이드 로컬 세션 저장 — the single-player counterpart of the relay's raid store */
 import { clearSoloRaid, loadSoloRaid, saveSoloRaid, soloRaidStatus, type SoloRaidSave } from './SoloRaid';
 
@@ -124,6 +127,8 @@ export class GameFlowSystem implements GameSystem {
    * missing lock as "the player left" is what made the game freeze every time the cursor appeared. Only losing the
    * *window* means the player really left — that still pauses, exactly like alt-tabbing out of any other game.
    */
+  /** Phase 12: `좌측 클릭으로 게임 재개` overlay (browser only; created in `init`). */
+  private resumeGate: ResumeGate | null = null;
   private onWindowBlur = (): void => this.onFocusLost();
   private onVisibilityChange = (): void => { if (document.visibilityState === 'hidden') this.onFocusLost(); };
   /** Tab closing mid-solo-raid: flush the session so the last seconds of the run are not lost (2026-09-07). */
@@ -199,6 +204,8 @@ export class GameFlowSystem implements GameSystem {
     window.addEventListener('blur', this.onWindowBlur);
     document.addEventListener('visibilitychange', this.onVisibilityChange);
     window.addEventListener('pagehide', this.onPageHide);
+    this.resumeGate = new ResumeGate(ctx);
+    this.unsubs.push(installDesktopRelockHook(ctx));
     /*
      * 2026-09-07: a solo raid interrupted by a closed tab / crash is resumable for `SOLO_RAID_GRACE_MS`. Read the
      * file here and act on it from the first `update()` — the other systems are registered but have not run a frame
@@ -236,6 +243,21 @@ export class GameFlowSystem implements GameSystem {
    */
   private inShip(): boolean {
     return this.ctx.phase === 'hub';
+  }
+
+  /**
+   * Phase 12: no UI blocker besides the 재개 게이트's own token. The gate is an overlay over a running game, not a
+   * screen — Escape on it must open the 일시정지 메뉴 and a window blur behind it must still pause.
+   */
+  private noScreenOpen(): boolean {
+    for (const t of this.ctx.uiBlockers) if (t !== RESUME_GATE_BLOCKER) return false;
+    return true;
+  }
+
+  /** Phase 12: a screen other than the 일시정지 메뉴 itself (and the gate) holds a blocker — the pause must yield. */
+  private otherScreenOpen(): boolean {
+    for (const t of this.ctx.uiBlockers) if (t !== 'menu' && t !== RESUME_GATE_BLOCKER) return true;
+    return false;
   }
 
   /* ── Multiplayer helpers ─────────────────────────────────────────────── */
@@ -412,7 +434,7 @@ export class GameFlowSystem implements GameSystem {
    */
   private onFocusLost(): void {
     const ctx = this.ctx;
-    if (this.paused || !ctx.isGameplayPhase() || ctx.uiBlockers.size > 0) return;
+    if (this.paused || !ctx.isGameplayPhase() || !this.noScreenOpen()) return;
     if (ctx.player?.isDead ?? false) return;
     ctx.bus.emit('input:pointerLockLost', {});
     this.setPaused(true);
@@ -743,13 +765,27 @@ export class GameFlowSystem implements GameSystem {
     // Escape: toggle pause (not while another UI blocker — inventory / map / terminal — is open; those
     // consume Escape in a capture-phase listener anyway). Phase 8: the ship pauses on Escape as well,
     // except while the housing / 함선 관리 mode owns the key (it cancels the placement instead).
+    /*
+     * Phase 12: the 일시정지 메뉴 never shares the screen with another cursor screen. It can only *open* while nothing
+     * else is up (below), but a screen can still open *over* it — a container window the interaction finished a frame
+     * late, a net-driven window — and the two then fought over Escape (the inventory's capture-phase listener won every
+     * press while its backdrop covered the menu's buttons: "둘 다 못 끄는 상태"). The pause has nothing to protect (it
+     * freezes nothing), so it yields to the newcomer at once and that screen's own Escape / close path is the only one
+     * in play. The gate's token is transparent here (it is not a screen).
+     */
+    if (this.paused && this.otherScreenOpen()) this.setPaused(false);
     if (ctx.input.wasPressed(Keys.MENU)) {
       if (this.paused) this.setPaused(false);
       // Alt 커서 is the innermost thing Escape can close (it holds a blocker, so the branch below would skip anyway).
       else if (ctx.uiBlockers.has(FREE_CURSOR_BLOCKER)) { this.toggleFreeCursor(false); ctx.input.consume(Keys.MENU); }
-      else if (ctx.uiBlockers.size === 0 && !(ctx.player?.isDead ?? false)
+      // Never while a screen owns the cursor (a screen that dropped its blocker this frame but kept cursor mode is
+      // still open); the 재개 게이트 is not a screen — Escape on it opens the menu normally.
+      else if (this.noScreenOpen() && !ctx.input.isCursorMode && !(ctx.player?.isDead ?? false)
         && (ctx.isGameplayPhase() || (this.inShip() && !(ctx.housing?.housingMode ?? false)))) this.setPaused(true);
     }
+    // Phase 12: '좌측 클릭으로 게임 재개' (browser) / hidden OS cursor while nothing needs it (Electron shell).
+    this.resumeGate?.update();
+    syncDesktopCursor(ctx);
     // Alt: free the mouse cursor in place (no screen, no pause). Pressed again — or Escape — gives it back.
     if (ctx.input.wasPressed(Keys.CURSOR)) this.toggleFreeCursor();
     // It is the only cursor owner with no window behind it, so nothing else would ever drop it: a phase change
@@ -908,5 +944,7 @@ export class GameFlowSystem implements GameSystem {
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
     window.removeEventListener('pagehide', this.onPageHide);
     window.removeEventListener('mousedown', this.onFreeCursorClick);
+    this.resumeGate?.dispose(); this.resumeGate = null;
+    document.body.classList.remove('desktop-nocursor');
   }
 }

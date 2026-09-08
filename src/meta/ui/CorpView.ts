@@ -5,7 +5,7 @@ import {
   CONTRACT_GOAL_LABEL_KO, CORP_DEFS, CORP_IDS, REP_TABLE, SHOP_UNLOCK_REP_LEVEL,
   buildItemChip, formatCreditAmount, formatCredits, renderItemCost,
 } from '@/shared';
-import type { MetaSystem, PurchaseFailure } from '../MetaSystem';
+import type { ImplantRepairInfo, ImplantRepairResult, MetaSystem, PurchaseFailure } from '../MetaSystem';
 import { el, fmtNum, setText, toggleClass } from './dom';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -31,17 +31,25 @@ import { el, fmtNum, setText, toggleClass } from './dom';
  *     cell / an inventory tile onto it) and the whole basket settles at once;
  *   • **계약** is the corp's contract list with the currently accepted one pinned on the right;
  *   • **퀘스트** is the quest list, the selected quest's delivery table in the middle and the same inventory grids
- *     on the right.
+ *     on the right;
+ *   • **임플란트** (Phase 12, 2026-09-08 — 세레스 바이오 only, the tab is hidden for every other corp): every broken
+ *     implant in the bag + stash as an item grid on the left, the selected one's repair on the right — result chip,
+ *     `renderItemCost` material chips (dimmed red when short), the credit fee and one **수리** button, gated by
+ *     `Rules.canRepairImplant` through `MetaSystem.getImplantRepair`.
  *
  * Page bodies are built **once** and swapped, not rebuilt per refresh — the embedded grids own bus subscriptions and
  * a pointer drag, so recreating them on every `inventory:changed` would drop a drag mid-flight.
  * ──────────────────────────────────────────────────────────────────────────── */
 
-export type CorpPage = 'trade' | 'contracts' | 'quests';
+export type CorpPage = 'trade' | 'contracts' | 'quests' | 'implants';
 
-const PAGES: readonly { id: CorpPage; label: string }[] = [
+const PAGES: readonly { id: CorpPage; label: string; corp?: CorpId }[] = [
   { id: 'trade', label: '거래' }, { id: 'contracts', label: '계약' }, { id: 'quests', label: '퀘스트' },
+  { id: 'implants', label: '임플란트', corp: 'ceres' },   // Phase 12: the 임플란트 수리 desk, 세레스 바이오 only
 ];
+
+/** Pages the corp actually has (the 임플란트 desk exists at 세레스 바이오 alone). */
+const pagesFor = (corp: CorpId): CorpPage[] => PAGES.filter((p) => !p.corp || p.corp === corp).map((p) => p.id);
 
 const QUEST_BADGE: Readonly<Record<QuestState, string>> = { locked: '잠김', available: '가능', accepted: '진행', complete: '완료' };
 
@@ -109,6 +117,12 @@ export class CorpView {
   private questDetailEl!: HTMLElement;
   private questGrids: EmbeddedView | null = null;
   private selectedQuest: string | null = null;
+
+  /* Phase 12: 임플란트 수리 desk */
+  private implantsEl: HTMLElement | null = null;
+  private implantListEl!: HTMLElement;
+  private implantDetailEl!: HTMLElement;
+  private selectedImplant: string | null = null;
 
   /* ── staged basket ── */
   private buyLines: BuyLine[] = [];
@@ -201,6 +215,13 @@ export class CorpView {
         this.showMsg(`${this.defName(f.defId)} 구매 실패 · ${f.reason}`, 'danger');
         this.refresh();
       }),
+      meta.onImplantRepaired((r: ImplantRepairResult) => {
+        if (!this.visible) return;
+        this.ctx.bus.emit('audio:play', { id: r.ok ? 'ui_equip' : 'ui_deny' });
+        this.showMsg(r.ok ? `${this.defName(r.brokenId)} → ${this.defName(r.targetId ?? r.brokenId)} 수리 완료 · −${formatCredits(r.fee)}`
+          : `${this.defName(r.brokenId)} 수리 실패 · ${r.reason ?? ''}`, r.ok ? 'success' : 'danger');
+        this.refresh();
+      }),
     );
   }
 
@@ -218,6 +239,8 @@ export class CorpView {
     this.corp = corp;
     this.clearBasket();              // a basket belongs to the corp it was assembled at
     this.selectedQuest = null;
+    this.selectedImplant = null;
+    if (!pagesFor(corp).includes(this.current)) this.current = 'trade';   // the 임플란트 desk is 세레스 only
     this.hideMsg();
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
     this.refresh();
@@ -229,7 +252,7 @@ export class CorpView {
   }
 
   setPage(page: CorpPage): void {
-    if (this.current === page) return;
+    if (this.current === page || !pagesFor(this.corp).includes(page)) return;
     this.current = page;
     this.hideMsg();
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
@@ -260,17 +283,25 @@ export class CorpView {
     this.panel.bar.style.transform = `scaleX(${frac.toFixed(3)})`;
     setText(this.panel.text, rep.next === null ? `${fmtNum(rep.rep)} · 최고 등급` : `${fmtNum(rep.rep)} / ${fmtNum(rep.next)}`);
 
-    for (const p of PAGES) toggleClass(this.subTabs.get(p.id)!, 'is-on', p.id === this.current);
+    const pages = pagesFor(this.corp);
+    if (!pages.includes(this.current)) this.current = 'trade';
+    for (const p of PAGES) {
+      const b = this.subTabs.get(p.id)!;
+      b.hidden = !pages.includes(p.id);
+      toggleClass(b, 'is-on', p.id === this.current);
+    }
 
     this.page.dataset.page = this.current;
     this.pruneBasket();
     const body = this.current === 'trade' ? this.buildTrade()
       : this.current === 'contracts' ? this.buildContracts()
-        : this.buildQuests();
+        : this.current === 'quests' ? this.buildQuests()
+          : this.buildImplants();
     if (this.page.firstElementChild !== body) this.page.replaceChildren(body);
     if (this.current === 'trade') this.renderTrade();
     else if (this.current === 'contracts') this.renderContracts();
-    else this.renderQuests();
+    else if (this.current === 'quests') this.renderQuests();
+    else this.renderImplants();
   }
 
   private itemDef(defId: string): ItemDef | undefined { return this.ctx.loot?.getItemDef(defId) ?? this.ctx.inventory?.getDef(defId); }
@@ -762,6 +793,88 @@ export class CorpView {
       const b = this.button(acts, q.state === 'complete' ? '완료' : '잠김', () => { /* nothing to do */ });
       b.disabled = true;
     }
+  }
+
+  /* ══ 임플란트 수리 (Phase 12, 세레스 바이오) ══════════════════════════════════════════════════════════════════ */
+
+  private buildImplants(): HTMLElement {
+    if (this.implantsEl) return this.implantsEl;
+    const root = el('div', { cls: 'ci' });
+    const list = el('div', { cls: 'ci-col list', parent: root });
+    el('div', { cls: 'ct-title', text: '망가진 임플란트 (가방 + 함선 창고)', parent: list });
+    this.implantListEl = el('div', { cls: 'ci-list ct-grid', parent: list });
+    const detail = el('div', { cls: 'ci-col detail', parent: root });
+    el('div', { cls: 'ct-title', text: '수리', parent: detail });
+    this.implantDetailEl = el('div', { cls: 'ci-repair', parent: detail });
+    this.implantsEl = root;
+    this.nodes.push(root);
+    return root;
+  }
+
+  private renderImplants(): void {
+    const list = this.meta.getRepairableImplants();
+    this.implantListEl.replaceChildren();
+    if (list.length === 0) this.empty(this.implantListEl, '망가진 임플란트가 없습니다 — 레이드에서 회수해 오세요');
+    if (!list.some((r) => r.inst.uid === this.selectedImplant)) {
+      this.selectedImplant = (list.find((r) => r.blocked === null) ?? list[0])?.inst.uid ?? null;
+    }
+    for (const r of list) this.implantCell(r);
+
+    this.implantDetailEl.replaceChildren();
+    const sel = list.find((r) => r.inst.uid === this.selectedImplant) ?? null;
+    if (!sel) this.empty(this.implantDetailEl, list.length === 0 ? '수리할 임플란트를 가져오세요' : '임플란트를 선택하세요');
+    else this.implantDetail(sel);
+  }
+
+  /** One broken implant as a footprint cell of the desk's grid (click selects it). */
+  private implantCell(r: ImplantRepairInfo): void {
+    const cell = this.gridCell(this.implantListEl, r.broken, 'broken');
+    cell.dataset.uid = r.inst.uid;
+    cell.dataset.def = r.broken.id;
+    cell.appendChild(buildItemChip(r.broken, { size: cellChip(r.broken) }));
+    el('div', { cls: 'ct-cell-price', text: formatCreditAmount(r.fee), parent: cell });
+    toggleClass(cell, 'is-sel', r.inst.uid === this.selectedImplant);
+    toggleClass(cell, 'blocked', r.blocked !== null);
+    cell.classList.add('ct-chip');
+    cell.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (this.selectedImplant === r.inst.uid) return;
+      this.selectedImplant = r.inst.uid;
+      this.ctx.bus.emit('audio:play', { id: 'ui_click' });
+      this.refresh();
+    });
+  }
+
+  /** The selected broken implant's repair: result chip · material chips · fee · 수리. */
+  private implantDetail(r: ImplantRepairInfo): void {
+    const host = this.implantDetailEl;
+    const head = el('div', { cls: 'ci-head', parent: host });
+    const from = el('div', { cls: 'ci-item from', parent: head });
+    from.appendChild(buildItemChip(r.broken, { size: 46, withName: true }));
+    el('div', { cls: 'ci-arrow', text: '→', parent: head });
+    const to = el('div', { cls: 'ci-item to', parent: head });
+    if (r.target) to.appendChild(buildItemChip(r.target, { size: 46, withName: true }));
+    else el('div', { cls: 'ci-unknown', text: '수리 결과를 알 수 없음', parent: to });
+    if (r.target?.description) el('div', { cls: 'ci-desc', text: r.target.description, parent: host });
+
+    el('div', { cls: 'ci-label', text: '필요 재료', parent: host });
+    const cost = el('div', { cls: 'ci-cost', parent: host });
+    renderItemCost(cost, r.cost.map((c) => ({ defId: c.defId, qty: c.qty })), (id) => this.itemDef(id), (id) => this.meta.countAll(id), { size: 34 });
+
+    const fee = el('div', { cls: 'ci-fee', parent: host });
+    el('span', { cls: 'k', text: '수리비', parent: fee });
+    const feeV = el('span', { cls: 'v', text: formatCredits(r.fee), parent: fee });
+    toggleClass(feeV, 'short', this.meta.credits < r.fee);
+
+    const acts = el('div', { cls: 'ci-acts', parent: host });
+    if (r.blocked) el('div', { cls: 'ci-block', text: r.blocked, parent: acts });
+    const btn = this.button(acts, '수리', () => {
+      const ok = this.meta.repairImplant(r.inst.uid);
+      // offline the result already arrived through `onImplantRepaired`; the server path reports later
+      if (!ok && !this.meta.isRepairPending(r.inst.uid)) this.refresh();
+    }, 'primary ci-repair-btn');
+    btn.disabled = r.blocked !== null;
+    btn.title = r.blocked ?? '';
   }
 
   /* ── misc ─────────────────────────────────────────────────────────────── */

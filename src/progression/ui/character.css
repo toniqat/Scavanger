@@ -225,3 +225,72 @@
   font-size: 9px; letter-spacing: 0.12em; color: var(--ic);
 }
 .cs-implants.is-empty .cs-imp-slot { display: none; }
+
+/* ── 임플란트 아이템 (Phase 12, 2026-09-08) ────────────────────────────────────
+   Under the 전술 임플란트 slot: `임플란트 n / m칸` + pips, one row per equipped item (shared `.item-chip` thumbnail →
+   hover card), an inline message line and the `+ 장착` button. The picker `.cs-impi-pop` is a `#ui-root` child like
+   `.cs-imp-pop` (same reason: the embedded tab's `scale:` would become a fixed popup's containing block). */
+.cs-impitems { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; padding-top: 10px; border-top: 1px solid var(--c-border); }
+.cs-impitems .h { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.cs-impitems .h .cnt { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; color: var(--c-text-dim); white-space: nowrap; }
+.cs-impi-pips { display: flex; flex-wrap: wrap; gap: 4px; }
+.cs-impi-pips i {
+  display: block; width: 16px; height: 8px;
+  border: 1px solid var(--c-border-strong); background: rgba(255, 255, 255, 0.04);
+  transition: background-color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.cs-impi-pips i.on { background: #e39cff; border-color: #e39cff; box-shadow: 0 0 8px rgba(227, 156, 255, 0.5); }
+.cs-impi-list { display: flex; flex-direction: column; gap: 6px; }
+.cs-impi-empty { font-size: 11px; line-height: 1.45; color: var(--c-text-faint); padding: 6px 2px; }
+.cs-impi-row, .cs-impi-opt {
+  --rc: #9aa3ad;
+  appearance: none; font: inherit; text-align: left; color: var(--c-text);
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 7px 9px; cursor: pointer;
+  border: 1px solid var(--c-border); border-left: 3px solid var(--rc);
+  background: rgba(255, 255, 255, 0.03);
+  transition: border-color var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease);
+}
+.cs-impi-row:hover:not(:disabled), .cs-impi-opt:hover:not(:disabled) { border-color: var(--c-border-strong); background: rgba(255, 255, 255, 0.07); }
+.cs-impi-row .item-chip, .cs-impi-opt .item-chip { flex: none; pointer-events: auto; }
+.cs-impi-row .info, .cs-impi-opt .info { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.cs-impi-row .line, .cs-impi-opt .line { display: flex; align-items: center; gap: 6px; min-width: 0; flex-wrap: wrap; }
+.cs-impi-row .nm, .cs-impi-opt .nm { font-size: 12.5px; font-weight: 700; color: var(--rc); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cs-impi-row .tag, .cs-impi-opt .tag {
+  font-size: 9px; letter-spacing: 0.12em; color: var(--c-text-dim);
+  border: 1px solid var(--c-border); padding: 1px 5px; white-space: nowrap;
+}
+.cs-impi-opt .tag.rar { color: var(--rc); border-color: color-mix(in srgb, var(--rc) 55%, transparent); }
+.cs-impi-row .meta, .cs-impi-opt .meta { font-size: 10.5px; line-height: 1.4; color: var(--c-text-dim); }
+.cs-impi-row .act { font-size: 9.5px; letter-spacing: 0.1em; color: var(--c-text-faint); }
+.cs-impi-row.is-locked { cursor: not-allowed; }
+.cs-impi-row.is-locked .act { color: var(--c-danger); }
+.cs-impi-msg { font-size: 11px; line-height: 1.4; color: var(--c-success); padding: 2px 2px; }
+.cs-impi-msg.is-error { color: var(--c-danger); }
+.cs-impi-add { min-width: 0; height: 30px; padding: 0 14px; font-size: 11.5px; align-self: flex-start; }
+.cs-impi-add.is-open { border-color: var(--c-border-strong); background: rgba(255, 255, 255, 0.08); }
+.cs-impi-add.is-locked { opacity: 0.55; }
+
+/* picker — same chrome as `.cs-imp-pop` */
+.cs-impi-pop {
+  position: fixed; left: 0; top: 0; z-index: 90;
+  display: flex; flex-direction: column; gap: 10px;
+  width: 400px; max-height: calc(100vh - 24px); overflow-y: auto; scrollbar-width: thin;
+  padding: 14px 16px;
+  border: 1px solid var(--c-border-strong);
+  background: linear-gradient(180deg, rgba(18, 21, 27, 0.98), rgba(10, 12, 17, 0.98));
+  box-shadow: 0 26px 64px rgba(0, 0, 0, 0.62), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+.cs-impi-pop[hidden] { display: none; }
+.cs-impi-pop .h { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.cs-impi-opts { display: flex; flex-direction: column; gap: 6px; }
+.cs-impi-opt:disabled { cursor: not-allowed; }
+.cs-impi-opt.is-dim { color: var(--c-text-faint); border-color: var(--c-border); background: rgba(255, 255, 255, 0.015); }
+.cs-impi-opt.is-dim .nm { color: var(--c-text-dim); }
+.cs-impi-opt.is-dim .item-chip { opacity: 0.55; }
+.cs-impi-opt .why { font-size: 10px; letter-spacing: 0.06em; color: var(--c-danger); }
+.cs-impi-opt.is-broken .why { color: #d6a24a; }
+
+/* stat value with an implant bonus: `4 (+2)` */
+.cs-stat .v .ib { font-size: 12px; font-weight: 600; color: #e39cff; }
+.cs-stat.has-bonus .v { min-width: 0; white-space: nowrap; }

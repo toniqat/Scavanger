@@ -516,3 +516,45 @@ their own; the window's ref-counted token covers them.
 - 오른쪽 열은 `max-height: calc(100vh - 140px)` 안에서 스크롤한다. 짧은 창에서는 함선 창고 격자가 먼저 줄어든다
   (`.inv-layout.is-craft .inv-stash-scroll`).
 - `GridView` 의 `cell` 은 생성 시점에 고정이다. 살아 있는 뷰의 칸 크기를 바꾸려면 뷰를 새로 만들어야 한다.
+
+## 2026-09-08 Phase 12 — 분해 게이지 · 회복 스프레이 수리 · 임플란트 아이템 (`docs/PHASE12-PLAN.md` #5 · #7 · #9)
+
+Data-driven off the frozen contract (`ItemCategory 'implant'`, `ItemDef.implant`, `PERK_DEFS`, `HEAL_SPRAY_GAUGE` 200,
+`inventory:disassembleProgress`); the implant defs themselves are items/ (`imp_<stat>_<1..4>`, `imp_perk_*`,
+`imp_broken_*`). Nothing in `src/shared` or another folder changed for this.
+
+- **분해 게이지** (`ui/DisassemblePanel.ts`): a horizontal `.inv-dis-bar` (+ `.inv-dis-bar-fill`) sits directly under the
+  `분해 중…` button, hidden while idle, **no CSS transition** — its width is written per frame by the new cheap `tick()`
+  (called from `InventoryUI.refreshCraft`, which `InventorySystem.updateCraft` already runs every frame the job advances;
+  `refresh()` still rebuilds the chips and ends in a `tick()`). The button's own `.inv-craft-fill` follows the same
+  number. The panel reports the hold through a fourth constructor callback → the window emits
+  `inventory:disassembleProgress {uid, t, done}`: throttled to `PROGRESS_EMIT_MS` (≤ 30 Hz) while running, **exactly
+  one** `{t:1, done:true}` when the recipe completes, and `{t:0, done:false}` when a cancel (second click / 닫기 / outside
+  click / death) resets a hold that had already been reported. `barEl` / `progress` are exposed for the smokes.
+- **회복 스프레이 수리** (`InventorySystem.repair` / `repairInfo`): in the ship the right-click **수리** entry (the same
+  `repairInfo` path armor uses) offers a spray whose `durability < durabilityMax` for **캔 1 + 소독약 1 per full refill**
+  (`SPRAY_REFILL_COST`, existing `mat_can` / `mat_antiseptic` defs), scaled by the missing fraction with ceil and a floor
+  of 1 each (`sprayRepairCost(item, def)` — so today it is always 1 + 1). Materials come from the **bag**, like a weapon
+  repair; all or nothing; the result is `durabilityMax` (200). A can at **0 is a valid item everywhere**: nothing here
+  removes it (`updateItem` / `reviveItem` / `serializeExtras` all keep an explicit 0 — `?? max` only fires on
+  `undefined`), the tooltip shows `게이지 0 / 200` (new row for `def.heal.spray`), and `GridView` now draws the same thin
+  durability bar under a spray tile (`appendDurabilityBar`, `is-broken` at 0) that weapons have.
+- **임플란트 아이템 표시** (`ui/Tooltip.ts`): `장착칸 n`, one `근력 +2` line per `implant.stats` entry (names from the new
+  `getStatName` lookup → `ctx.progression.getStatDef`), a `.inv-tt-perk` paragraph with the `PERK_DEFS` name +
+  description for legendaries, and for `broken` ones the red `.inv-tt-broken` line `망가짐 — 세레스 바이오에서 수리` plus
+  `repairCost` as `renderItemCost` chips (보유 = `countDefAll`, bag + 창고, through the new `countOwned` lookup). The 무한
+  상자 has an **임플란트** tab (`CATALOG_TABS`, label `CATEGORY_LABEL_KO.implant`), listed working + broken. Implants are
+  never quick-slottable (`QUICK_USABLE_CATEGORIES` has no `implant`) and fit no equipment slot (`slotAccepts` /
+  `equipTargetFor` are category checks) — verified, no code change needed.
+- **Grid ops for progression** — `tryAddToStash` / `tryAddItemAnywhere` / `findItemAnywhere` / `takeItem` all work on an
+  implant instance unchanged (stackMax 1, no special casing). `takeItem` returns the **count**, never the instance (the
+  `InventoryRef` signature is frozen), so progression must `findItemAnywhere(uid)` first, copy `{uid, defId,
+  durability}`, then `takeItem(uid)` — the captured object's `qty` drops to 0 afterwards.
+
+### Known limits (Phase 12)
+- Spray repair materials are **bag-only** (the weapon-repair convention), while the tooltip's 보유 count for a broken
+  implant's repair chips is bag + 창고 — two readouts, two conventions; a bag + 창고 repair would need `consumeDefAll`.
+- The 분해 게이지 is per **frame**, so on a stalled tab it stalls with the job; `inventory:disassembleProgress` is emitted
+  only while the dialog is open (a craft started any other way reports nothing).
+- Only the modeless 분해 dialog (and the ship 수리 entry) know about the new rules; the bench repair list
+  (`CraftPanel`, gear bench = armor + bags) does not list sprays.

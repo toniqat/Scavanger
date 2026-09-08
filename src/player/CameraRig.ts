@@ -197,6 +197,25 @@ export class CameraRig {
     return out.set(-Math.sin(y) * cp, Math.sin(p), -Math.cos(y) * cp);
   }
 
+  /**
+   * Where `update()` will put the camera **this** frame for the *current* yaw / pitch (2026-09-08, 정밀 사격 쏠림):
+   * the rig moves in `lateUpdate`, weapons fire in `update`, so a shot used to leave from the **previous** frame's
+   * camera position with this frame's look direction. Standing still that is exact, but while the camera is moving
+   * (turning orbits it by `dist × Δyaw`, the ADS blend slides the shoulder) the ray ran parallel to — and beside — the
+   * centre ray the frame then rendered. Reuses the last smoothed pivot / shoulder / collision distance (those damp
+   * slowly) and only re-evaluates the look basis, which is the term that jumps. During a cutscene override the actual
+   * camera position is returned (the override, not the rig, owns it).
+   */
+  predictPosition(out: THREE.Vector3): THREE.Vector3 {
+    if (this.overrideWeight > 0.001 || !this.pivotInit) return out.copy(this.camera.position);
+    const p = this.pitch + this.recoilPitch, y = this.yaw + this.recoilYaw;
+    const cp = Math.cos(p);
+    _fwd.set(-Math.sin(y) * cp, Math.sin(p), -Math.cos(y) * cp);
+    _right.set(Math.cos(y), 0, -Math.sin(y));
+    const dist = Math.min(this.distSpring.value, this.collisionDist);
+    return out.copy(this.pivot).addScaledVector(_right, this.shoulder).addScaledVector(_fwd, -dist);
+  }
+
   update(dt: number, inp: RigInput): void {
     const world = inp.world && inp.world.ready && !inp.interior ? inp.world : null;
 

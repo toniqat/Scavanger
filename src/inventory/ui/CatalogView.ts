@@ -13,7 +13,7 @@ export interface CatalogHandlers {
   onClose(): void;
 }
 
-export type CatalogTabId = 'all' | 'weapon' | 'ammo' | 'attachment' | 'bag' | 'armor' | 'gadget' | 'consumable' | 'material' | 'herb' | 'seed' | 'book' | 'furniture';
+export type CatalogTabId = 'all' | 'weapon' | 'ammo' | 'attachment' | 'bag' | 'armor' | 'implant' | 'gadget' | 'consumable' | 'material' | 'herb' | 'seed' | 'book' | 'furniture';
 
 interface CatalogTab {
   id: CatalogTabId;
@@ -30,6 +30,7 @@ export const CATALOG_TABS: readonly CatalogTab[] = [
   { id: 'attachment', label: TEXT.catalog.tabs.attachment, categories: ['attachment'] },
   { id: 'bag', label: TEXT.catalog.tabs.bag, categories: ['bag'] },
   { id: 'armor', label: TEXT.catalog.tabs.armor, categories: ['armor'] },
+  { id: 'implant', label: TEXT.catalog.tabs.implant, categories: ['implant'] },   // Phase 12: 임플란트 items (working + broken)
   { id: 'gadget', label: TEXT.catalog.tabs.gadget, categories: ['gadget'] },
   { id: 'consumable', label: TEXT.catalog.tabs.consumable, categories: ['grenade', 'stim'] },
   { id: 'material', label: TEXT.catalog.tabs.material, categories: ['material', 'valuable'] },

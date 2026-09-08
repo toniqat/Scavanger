@@ -229,3 +229,53 @@ nothing to conflict with); a cancelled hold loses all progress (no partial credi
 before `applyStim`, so a stim that `applyStim` refuses in the same frame (already healing) is still spent — exactly
 the pre-Phase-10 behaviour. The carry gate is a whole-frame veto rather than per-action, so pressing e.g. `2` and LMB
 in the same frame drops the body once and neither action runs.
+
+## Phase 12 (2026-09-08) — 정밀 사격 · `reportShot` · 회복 스프레이 채널 · `quick_heal`
+
+- **정밀 사격이 왼쪽으로 쏠리던 원인 = 카메라 시차 (aim-origin lag), fixed in `player/`.** Measured, not guessed:
+  standing still the shot already landed **0.000 m** from the crosshair ray at 30 m and 150 m (and the reticle sits
+  exactly on the projected centre ray — 480/270 of a 960×540 canvas — so the HUD was never off-centre). The error
+  only appeared while the camera was **moving**: weapons fire in `update`, the camera rig moves in `lateUpdate`, so
+  `host.getAimRay()` handed out the **previous** frame's camera position together with **this** frame's look
+  direction. The ray was therefore parallel-shifted sideways from the one the frame then rendered, by up to
+  **0.42 m** (60 px flick; 0.09 m at 15 px, 0.22 m at 30 px, ~0.036 m during the ADS pull-in as the shoulder slides
+  0.55 → 0.35) — a *constant* miss in metres at **every** range, which is exactly how a scope reads it (0.4 m at
+  150 m ≈ 24 px at the 4× scope's 17.5° FOV). `player/CameraRig.predictPosition()` + one line in `PlayerSystem`
+  converge the origin on the camera the frame will actually render; nothing here changed. The tracer still starts at
+  the muzzle (`_muzzle`) — only the damage ray is camera-converged, as before.
+- **`ctx.enemies.reportShot(origin, dir, range, hit)` after every local shot** (enemies/ does the AI reaction):
+  - hitscan `fire()` — **once per trigger pull** (a shotgun's 8 pellets are one report), after the pellet loop, with
+    the aim ray and the last pellet's impact point (`null` when nothing was hit within `def.range`);
+  - unique hitscan (`hitscan()` in the unique services) — once per shot, same shape;
+  - projectiles — `ProjectilePool.fire()` reports the launch (`hit: null`) and `onProjectileHit` reports the impact
+    (origin back-projected from the impact along the flight direction). `visualOnly` replicas report nothing.
+  - `RemoteWeapons` reports **nothing**: the shooter's own client owns its reports (no double-reporting).
+  - `ctx.enemies` is optional-chained everywhere (hub / training / an early frame have no manager).
+- **회복 스프레이: the can is never consumed.** At gauge 0 the instance stays in the quick slot / bag with
+  `durability` 0 (the ship repairs it — inventory/); the channel just refuses to start (`ui:notify`
+  `스프레이가 비었습니다`, throttled by `BROKEN_NOTIFY_INTERVAL`) or stops with the same toast. `finishHeal` now
+  bails to the new `stopSpray()` for a spray, so the `consumeQuick` path is unreachable for it.
+- **`item:channelChanged {uid, defId, active, gauge}`** (ui/ ticker): `active:true` when the channel starts,
+  ≤ `CHANNEL_EMIT_HZ` (10) while it runs, `active:false` on **every** end — release, empty, swap / holster, wielded
+  implant, death, 전투불능, phase change, a screen taking `usable` away, world reset. `gauge` is always 0..1 (the
+  instance's `durability / durabilityMax`, clamped). All those paths funnel through `cancelHeal → stopSpray`, and
+  `update()` carries a backstop that closes a ticker whose channel is no longer running, so `active:false` is always
+  the last event for a uid. `heal:holdChanged` is unchanged (the HUD ring still reads `{t, dur, spray}`).
+- **Perk `quick_heal`** (`derived.perks.quick_heal`): the new `holdTimeOf(def)` = `useTimeOf(def) × 0.5`, used by
+  every hold-to-use path (회복 소모품 and the 제세동기's `DEFIB_USE_TIME_S`), and the halved value is what goes out
+  as `heal:holdChanged.dur`, so the crosshair ring needs no change. The 스프레이 has no hold, so it is unaffected.
+
+**Verification**: `npm run typecheck` 0; `smoke-weapons` 137/137, `smoke-phase2` 53/53, `smoke-uniques` 71/71,
+`smoke-ghost` 86/86 (private vite on 5305). New assertions: SR ADS accuracy at ~30 m and ~140 m (impact within a few
+cm of the crosshair ray, lateral 0.000 m), one `reportShot` per SR shot whose hit equals `weapon:hit`, no report from
+a replayed remote shot, two reports per local projectile and none for a visual-only one, the spray gauge 200 /
+drained-to-0 can staying in the bag and the slot, the `item:channelChanged` true→false sequence (including a
+전투불능 mid-channel) with every gauge in 0..1, a refused restart on an empty can, and `quick_heal` halving the
+회복주사 hold to `dur = 1`.
+
+**Known**: `reportShot` for a shotgun is one report on the aim ray, so a pellet that flew wide is not reported
+separately; a hitscan shot that hits nothing reports `hit: null` with the full `def.range` (enemies/ decides what to
+do with the miss); a projectile that is still in flight when the mission ends never sends its impact report. The
+spray's empty toast is throttled per `BROKEN_NOTIFY_INTERVAL`, so holding LMB on an empty can toasts about twice a
+second at most but plays `ui_deny` every press. `quick_heal` halves the *hold*, not the heal-over-time (`overTime`
+still runs at the item's own rate).

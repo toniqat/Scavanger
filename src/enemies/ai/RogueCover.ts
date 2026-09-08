@@ -62,6 +62,24 @@ export function flankCost(target: CombatTarget, x: number, z: number): number {
  * the rogue steps out to it for the burst and back behind the rock afterwards.
  */
 export function pickCover(e: Enemy, host: EnemyHost, t: CombatTarget): void {
+  pickCoverImpl(e, host, t, false);
+}
+
+/**
+ * Phase 12 (총알 추적): cover for a rogue **advancing** on `t` — a proxy target standing at the shot origin. Same
+ * candidates and LOS validation as `pickCover`, but a rock only qualifies when it brings the rogue at least
+ * `APPROACH_GAIN` closer to the origin, the flank term is dropped (we want to close in, not to spread out) and the
+ * score favours progress toward the origin over a short walk. No candidate → `hasCover = false` (the rogue walks
+ * straight toward the origin for a while and looks again).
+ */
+export function pickApproachCover(e: Enemy, host: EnemyHost, t: CombatTarget): void {
+  pickCoverImpl(e, host, t, true);
+}
+
+/** A cover leg toward a shot origin must gain at least this many metres on it. */
+const APPROACH_GAIN = 3;
+
+function pickCoverImpl(e: Enemy, host: EnemyHost, t: CombatTarget, approach: boolean): void {
   const world = host.ctx.world!;
   const obstacles = world.getObstaclesNear(e.position.x, e.position.z, COVER_SEARCH_RADIUS);
   const tp = t.position;
@@ -89,13 +107,17 @@ export function pickCover(e: Enemy, host: EnemyHost, t: CombatTarget): void {
     if (!world.isInsideBounds(px, pz)) continue;
     const toTarget = Math.hypot(tp.x - px, tp.z - pz);
     if (toTarget < 4 || toTarget > ROGUE_AI.range * 0.9) continue;
+    if (approach && toTarget > dist - APPROACH_GAIN) continue;   // Phase 12: the leg must actually close in
     if (!e.escortOf && Math.hypot(px - e.guardPos.x, pz - e.guardPos.z) > e.leash) continue;
     // cheap terms first, the raycast last: skip candidates that cannot beat the current best anyway
-    let score = Math.hypot(px - e.position.x, pz - e.position.z);
-    if (score < 1.5) score += 6;                                  // prefer a different rock than the one we are at
+    const walk = Math.hypot(px - e.position.x, pz - e.position.z);
+    let score = approach ? toTarget + walk * 0.5 : walk;
+    if (walk < 1.5) score += 6;                                   // prefer a different rock than the one we are at
     if (hadCover && Math.hypot(px - prevX, pz - prevZ) < 2.5) score += 6;   // …or the one we just left
-    score += Math.max(0, toTarget - 35) * 0.5;
-    score += flankCost(t, px, pz);
+    if (!approach) {
+      score += Math.max(0, toTarget - 35) * 0.5;
+      score += flankCost(t, px, pz);
+    }
     if (score >= best) continue;
     const py = world.getHeightAt(px, pz);
     if (!coverBlocksLine(world, px, py, pz, _chest)) continue;    // the rock must actually hide us

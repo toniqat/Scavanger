@@ -460,6 +460,10 @@ input { font: inherit; color: inherit; }
 .menu .version { position: absolute; right: 24px; bottom: 18px; font-size: 10px; letter-spacing: 0.2em; color: var(--c-text-faint); }
 
 .menu.pause { background: rgba(3, 4, 6, 0.6); }
+/* Phase 12: the 일시정지 메뉴 is always the top screen — above the inventory / container window (`.inv-root` 50 and its
+ * tooltip / context menu / dialog layers ≤ 80), the map (40), the 커뮤니티 panel (46) and the hub popups (72); the dev
+ * console (90) and the fixed popups (`.item-tip` 200, `.sc-menu` 300) stay above it. Its own overlays follow below. */
+.menu.pause { z-index: 85; }
 .menu.complete .frame { min-width: 520px; }
 .menu.complete .banner { display: flex; flex-direction: column; gap: 4px; }
 .menu.death .frame { border-color: rgba(255, 77, 77, 0.35); }
@@ -1481,7 +1485,7 @@ input { font: inherit; color: inherit; }
 .ctl-fn .fn { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* key-settings overlay: above title (DOM order) and the pause menu, below nothing */
-.menu.keybind-menu { z-index: 58; background: rgba(3, 4, 6, 0.72); }
+.menu.keybind-menu { z-index: 88; background: rgba(3, 4, 6, 0.72); } /* Phase 12: above the pause (85) and the settings (86) */
 .menu.keybind-menu .frame {
   min-width: 560px; max-width: 760px; width: min(760px, calc(100vw - 40px));
   max-height: calc(100vh - 32px); overflow: hidden; gap: 14px; padding: 28px 32px 22px;
@@ -1865,7 +1869,7 @@ button.item-chip[data-def-id] { cursor: pointer; }
    `body.cursor-on` additionally marks "a UI surface owns the mouse right now" for anything that needs to know. */
 
 /* ── 설정 overlay (menus/SettingsMenu): keys + audio, above the pause menu, below the key-settings overlay ── */
-.menu.settings-menu { z-index: 56; background: rgba(3, 4, 6, 0.72); }
+.menu.settings-menu { z-index: 86; background: rgba(3, 4, 6, 0.72); } /* Phase 12: above the pause menu it opens from (85) */
 .menu.settings-menu .frame {
   min-width: 520px; max-width: 680px; width: min(680px, calc(100vw - 40px));
   max-height: calc(100vh - 32px); overflow: hidden; gap: 16px; padding: 28px 32px 22px;
@@ -2427,3 +2431,82 @@ button.item-chip[data-def-id] { cursor: pointer; }
 .chat-target .x:hover { color: var(--c-text); }
 .chat-line.whisper .txt, .chat-line.whisper .who { color: #d9a3ff; font-style: italic; }
 .hud-bl.whispering { bottom: 46%; }
+
+/* ══ Phase 12 (2026-09-08): 감지 · 정찰 · 지속 사용 티커 · 시설 관리 확인 팝업 ══════════════════════════════════════ */
+
+/* compass enemy ticks (hud/Compass) — red bars at the enemy's bearing, pooled; `.scanned` = 정찰 reveal */
+.compass .eticks { position: absolute; left: 50%; top: 0; width: 0; height: 100%; }
+.compass .etick {
+  position: absolute; left: 0; top: 24px; width: 3px; height: 8px;
+  background: var(--c-danger); border-radius: 1px;
+  box-shadow: 0 0 6px rgba(255, 77, 77, 0.7);
+  will-change: transform, opacity;
+}
+.compass .etick.scanned { top: 22px; height: 11px; width: 2px; box-shadow: 0 0 8px rgba(255, 77, 77, 0.95); }
+.compass .etick[hidden] { display: none; }
+
+/* on-screen detected-enemy chevron (hud/Detection): a small red ▼ floating above the body */
+.detect-mark { position: absolute; left: 0; top: 0; width: 0; height: 0; will-change: transform, opacity; }
+.detect-mark i {
+  position: absolute; left: -6px; top: -8px;
+  width: 0; height: 0;
+  border-left: 6px solid transparent; border-right: 6px solid transparent;
+  border-top: 8px solid var(--c-danger);
+  filter: drop-shadow(0 0 4px rgba(255, 77, 77, 0.7));
+}
+.detect-mark.scanned i { border-top-color: #ff8a8a; }
+.detect-mark[hidden] { display: none; }
+
+/* the one channel line (hud/Notifications): pinned, updated in place while a 회복 스프레이 is held */
+.notif.channel { border-left-color: var(--c-success); }
+.notif.channel .t .pct { font-family: var(--ui-mono); color: var(--c-success); }
+
+/* 시설 관리 — 발전기 row at the head of the 용도 지정 picker */
+.sm-gen {
+  display: flex; flex-direction: row; align-items: center; gap: 10px; flex: none;
+  padding: 8px 10px;
+  border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.05);
+}
+.sm-gen .sm-thumb { width: 34px; height: 34px; }
+.sm-gen .sm-thumb .g { font-size: 18px; }
+.sm-gen .bd { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.sm-gen .ln { display: flex; align-items: center; gap: 8px; }
+.sm-gen .nm { font-size: 13px; font-weight: 600; letter-spacing: 0.06em; }
+.sm-gen .lv { font-size: 10px; color: var(--c-text-dim); }
+.sm-gen.is-hint { border-color: var(--c-accent); background: rgba(255, 179, 71, 0.12); }
+.sm-gen.is-hint .nm { color: var(--c-accent); }
+.sm-gen.is-blocked .sm-gen-btn { color: var(--c-text-dim); border-style: dashed; }
+.sm-gen-btn {
+  flex: none; align-self: center; padding: 6px 10px;
+  border: 1px solid var(--c-accent); background: rgba(255, 179, 71, 0.1);
+  font: inherit; font-size: 10px; letter-spacing: 0.12em; color: var(--c-accent); cursor: pointer;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.sm-gen-btn:hover { background: rgba(255, 179, 71, 0.22); color: #ffd18a; }
+.sm-gen-btn:disabled { opacity: 0.45; cursor: default; }
+/* the printed block reason under a purpose / the generator (was a tooltip on a disabled button) */
+.sm-block { font-size: 10px; line-height: 1.45; letter-spacing: 0.03em; color: var(--c-danger); }
+/* a blocked purpose row stays clickable (it answers with the reason) — dashed, dimmed, no not-allowed cursor */
+.sm-purpose.is-blocked { cursor: pointer; }
+.sm-purpose.is-blocked:hover { background: rgba(255, 77, 77, 0.06); border-color: rgba(255, 77, 77, 0.45); }
+.sm-purpose.flash { animation: smFlash 0.5s var(--ease); }
+@keyframes smFlash { 0% { background: rgba(255, 77, 77, 0.35); } 100% { background: rgba(255, 255, 255, 0.03); } }
+
+/* centred modeless confirm popup of the 시설 관리 screen (purpose build / 발전기 upgrade) */
+.sm-confirm {
+  position: absolute; inset: 0; z-index: 5;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(4, 6, 9, 0.55);
+}
+.sm-confirm[hidden] { display: none; }
+.sm-confirm-card {
+  width: min(460px, 88vw); display: flex; flex-direction: column; gap: 12px; padding: 22px 24px;
+  background: rgba(14, 17, 21, 0.98); border: 1px solid color-mix(in srgb, var(--c-accent) 50%, transparent);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.7);
+  animation: menuIn var(--t-med) var(--ease);
+}
+.sm-confirm-card .title { font-size: 15px; font-weight: 700; letter-spacing: 0.14em; color: var(--c-accent); }
+.sm-confirm-card .body { font-size: 12px; line-height: 1.6; color: var(--c-text-dim); }
+.sm-confirm-card .cost { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 34px; }
+.sm-confirm-card .acts { display: flex; justify-content: flex-end; gap: 10px; padding-top: 4px; }
+.sm-confirm-card .acts .ui-btn { min-width: 92px; padding: 0 18px; }

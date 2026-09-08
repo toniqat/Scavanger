@@ -365,6 +365,53 @@ try {
   }, stashMove.defId);
   ok(persisted.n === stashMove.after + 1 && persisted.has, `stash survived a reload (${persisted.n} stacks, ${stashMove.defId} present)`);
 
+  /* ── 3b. Phase 12: corner widgets hide during cutscenes; 시설 관리 hint is personal-ship only ── */
+  await page.evaluate(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
+  await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub phase (3b)');
+  await page.evaluate(() => { const inv = window.__game.ctx.inventory; if (inv.isOpen) inv.toggleBag(); });
+  await waitSim(0.4);
+  const corner = () => page.evaluate(() => { const h = window.__game.getSystem('hud'); return { hint: h.isShipHintOn, community: h.isCommunityOn, ship: window.__game.ctx.hub?.ship, phase: window.__game.ctx.phase, blockers: [...window.__game.ctx.uiBlockers],
+    hintDom: document.querySelector('.ship-hint').classList.contains('show'), cmDom: document.querySelector('.community').classList.contains('show') }; });
+  let cw = await corner();
+  ok(cw.hint && cw.community && cw.hintDom && cw.cmDom && cw.ship === 'personal', `personal ship: 시설 관리 hint + 커뮤니티 shown (${JSON.stringify(cw)})`);
+  await page.evaluate(() => window.__game.ctx.bus.emit('hub:docking', { stage: 'start', direction: 'dock' }));
+  await waitSim(0.2);
+  cw = await corner();
+  ok(!cw.hint && !cw.community && !cw.hintDom && !cw.cmDom, 'hub:docking start → both corner buttons hidden for the cutscene');
+  await page.evaluate(() => window.__game.ctx.bus.emit('hub:docking', { stage: 'end', direction: 'dock' }));
+  await waitSim(0.2);
+  cw = await corner();
+  ok(cw.hint && cw.community, 'hub:docking end → both back');
+  await page.evaluate(() => window.__game.ctx.bus.emit('hub:travel', { stage: 'start', planet: 'amber' }));
+  await waitSim(0.2);
+  cw = await corner();
+  ok(!cw.hint && !cw.community, 'hub:travel start (warp, phase stays hub) → both hidden');
+  await page.evaluate(() => window.__game.ctx.bus.emit('hub:travel', { stage: 'end', planet: 'amber' }));
+  await waitSim(0.2);
+  cw = await corner();
+  ok(cw.hint && cw.community, 'hub:travel end → both back');
+  // shared ship (faked lobby, as smoke-training does): 커뮤니티 stays, the 시설 관리 hint does not exist there
+  const fakedShared = await page.evaluate(() => {
+    const net = window.__game.getSystem('net');
+    if (!net || !('_lobby' in net)) return false;
+    net._lobby = { code: 'HINT01', hostId: 'peer-a', isPublic: false, started: false, seed: null,
+      players: [{ id: 'peer-a', name: '동료', slot: 0, ready: false, isHost: true, connected: true }] };
+    window.__game.ctx.bus.emit('hub:enter', { ship: 'shared' });
+    return true;
+  });
+  if (!fakedShared) console.log('  note NetSystem has no _lobby field — shared-ship hint check skipped');
+  else {
+    await waitFor(page, () => window.__game.ctx.phase === 'hub' && window.__game.ctx.hub.ship === 'shared', 'shared ship (3b)');
+    await waitSim(0.4);
+    cw = await corner();
+    ok(cw.ship === 'shared' && !cw.hint && !cw.hintDom && cw.community, `shared ship: no 시설 관리 hint, 커뮤니티 shown (${JSON.stringify({ hint: cw.hint, community: cw.community, blockers: cw.blockers })})`);
+    await page.evaluate(() => { const net = window.__game.getSystem('net'); net._lobby = null; window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }); });
+    await waitFor(page, () => window.__game.ctx.phase === 'hub' && window.__game.ctx.hub.ship === 'personal', 'back to the personal ship (3b)');
+    await waitSim(0.4);
+    cw = await corner();
+    ok(cw.hint && cw.community, 'back on the personal ship: hint returns');
+  }
+
   /* ── 4. terminal: no scrollbars, no implant / repair tabs ─────────── */
   await page.evaluate(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
   await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub phase (2)');

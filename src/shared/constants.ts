@@ -735,8 +735,12 @@ export const TRAINING_BEST_STORAGE_KEY = 'scav.training';
 
 /* ── 배리어 = 들고 다니는 방패 (owner: implants; the 7 × 3.2 m deployed panel constants above stay for nothing —
  *    they are superseded by the CARRY_* pair, kept only so an older save / smoke that reads them still compiles) ── */
-/** Hand-shield panel size (m). Much smaller than the old deployed wall: it covers the carrier, not a lane. */
-export const IMPLANT_BARRIER_CARRY_WIDTH = 1.5;
+/**
+ * Hand-shield panel size (m). Phase 12 (2026-09-08): widened 1.5 → 3.2 so the shield covers the carrier **and** a
+ * squadmate at their shoulder, and doubles as a wall for bugs (`ImplantsRef.resolveBarrierCollision`); the 실드 배쉬
+ * strikes over this same width. Height unchanged.
+ */
+export const IMPLANT_BARRIER_CARRY_WIDTH = 3.2;
 export const IMPLANT_BARRIER_CARRY_HEIGHT = 1.35;
 /**
  * Metres in front of the player axis the panel plane sits. **Must stay > `PLAYER_RADIUS`** or enemy hitscan clamps to

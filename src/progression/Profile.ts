@@ -1,4 +1,4 @@
-import type { ImplantId, PlayerProfile, SkillId, StatId } from '@/shared';
+import type { EquippedImplant, ImplantId, PlayerProfile, SkillId, StatId } from '@/shared';
 import {
   IMPLANT_IDS, PROFILE_STORAGE_KEY, PROFILE_VERSION, SKILL_IDS, SKILL_LEVEL_MAX, STAT_BASE, STAT_IDS, STAT_MAX, STAT_MIN,
 } from '@/shared';
@@ -70,7 +70,34 @@ export function freshProfile(name = '스캐빈저'): PlayerProfile {
     raids: 0,
     extractions: 0,
     statProgress: zeroStatProgress(),
+    // Phase 12 (2026-09-08): equipped 임플란트 items live here while out of the grids
+    implants: [],
   };
+}
+
+/** Hard cap on stored equipped implants (IMPLANT_SLOTS_MAX is 10 and every implant costs >= 1 slot; this only bounds junk). */
+const IMPLANTS_STORE_MAX = 32;
+
+/**
+ * Sanitise the `implants` array of a stored profile (Phase 12): objects with a non-empty string `uid` + `defId` only,
+ * duplicates by uid dropped, `durability` kept when finite. Whether the def still exists is **not** checked here
+ * (Profile.ts imports nothing from items/) — `ProgressionSystem.pruneImplants` does that once `ctx.loot` is up.
+ */
+export function sanitizeImplants(raw: unknown): EquippedImplant[] {
+  if (!Array.isArray(raw)) return [];
+  const out: EquippedImplant[] = [];
+  const seen = new Set<string>();
+  for (const it of raw) {
+    if (out.length >= IMPLANTS_STORE_MAX) break;
+    if (!it || typeof it !== 'object') continue;
+    const { uid, defId, durability } = it as Record<string, unknown>;
+    if (typeof uid !== 'string' || !uid || typeof defId !== 'string' || !defId || seen.has(uid)) continue;
+    seen.add(uid);
+    const e: EquippedImplant = { uid: uid.slice(0, 64), defId: defId.slice(0, 64) };
+    if (typeof durability === 'number' && Number.isFinite(durability)) e.durability = Math.max(0, durability);
+    out.push(e);
+  }
+  return out;
 }
 
 function num(v: unknown, fallback: number, min: number, max: number): number {
@@ -121,6 +148,9 @@ export function migrate(raw: unknown): PlayerProfile | null {
   p.implant = typeof implant === 'string' && (IMPLANT_IDS as readonly string[]).includes(implant)
     ? (implant as ImplantId)
     : null;
+
+  // Phase 12: equipped implant items — missing on older saves → []
+  p.implants = sanitizeImplants(r.implants);
 
   p.version = PROFILE_VERSION;
   return p;

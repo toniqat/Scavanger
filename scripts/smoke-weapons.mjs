@@ -1,6 +1,8 @@
 // Single-player smoke test for the weapon package (grades / durability / ammo v2 / 3 slots / sockets / bags / repair)
 // + Phase 7 `ctx.weapons.remoteState` (held item / throwing / cooking / attachments) and remote-grenade damage
 // + Phase 9 barrier purity (`raycastBarrier` emits nothing, `damageBarrier` once per resolved hit) and status `attacker` from the uniques.
+// + Phase 12 (2026-09-08): 정밀 사격 (SR shot on the crosshair ray at 30 / 150 m), `ctx.enemies.reportShot` per local shot,
+//   회복 스프레이 gauge 200 / stays at 0 / `item:channelChanged`, perks quick_heal · auto_revive · kill_stamina (137 checks).
 // Usage: node scripts/smoke-weapons.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { existsSync } from 'node:fs';
@@ -358,8 +360,8 @@ try {
     p.takeDamage(60);
     return { added, moved, uid: can.uid, gauge: can.durability, max: ctx.loot.getItemDef('heal_spray').durabilityMax, hp: p.hp };
   });
-  ok(sprayReady.added && sprayReady.moved && sprayReady.gauge === sprayReady.max && sprayReady.max === 100,
-    '회복 스프레이 in quick slot N with a full 100 gauge', JSON.stringify(sprayReady));
+  ok(sprayReady.added && sprayReady.moved && sprayReady.gauge === sprayReady.max && sprayReady.max === 200,
+    '회복 스프레이 in quick slot N with a full 200 gauge (HEAL_SPRAY_GAUGE, Phase 12)', JSON.stringify(sprayReady));
   await tap('KeyT');
   await waitSim(0.5);
   ok((await rsNow()).held === 'heal_spray', 'T tap → 회복 스프레이 in hand');
@@ -373,13 +375,62 @@ try {
   }, sprayReady.uid);
   await mUp(0);
   await waitSim(0.3);
-  ok(sprayed.gauge > 0 && sprayed.gauge < 100, `holding LMB drains the gauge (${sprayed.gauge}/100 after 0.6 s)`);
+  ok(sprayed.gauge > 0 && sprayed.gauge < 200, `holding LMB drains the gauge (${sprayed.gauge}/200 after 0.6 s)`);
   ok(sprayed.hp > sprayReady.hp, `the spray heals the user while it runs (${sprayReady.hp.toFixed(0)} → ${sprayed.hp.toFixed(0)})`);
   ok(!!sprayed.last && sprayed.last.spray === true && sprayed.last.t > 0 && sprayed.last.t < 1,
     'heal:holdChanged carries {spray:true} and the remaining gauge as t', JSON.stringify(sprayed.last));
   ok(sprayed.speed !== null && sprayed.speed <= 0.55, `사용 중 이동 속도 50 % (speedMultiplier=${sprayed.speed})`);
   const sprayStopped = await page.evaluate(() => ({ last: window.__ev['heal:holdChanged'].slice(-1)[0], speed: window.__game.getSystem('player')?.controller?.speedMultiplier ?? null }));
   ok(sprayStopped.last && sprayStopped.last.holding === false && sprayStopped.speed > 0.9, '릴리스 → 채널 종료 + 감속 해제', JSON.stringify(sprayStopped));
+
+  /* ── Phase 12: the channel ticker + an empty can stays in the slot at 0 ── */
+  await page.evaluate((uid) => {
+    const ctx = window.__game.ctx;
+    for (const n of ['item:channelChanged', 'ui:notify']) { window.__ev[n] = []; ctx.bus.on(n, (p) => window.__ev[n].push(JSON.parse(JSON.stringify(p)))); }
+    ctx.inventory.updateItem(uid, { durability: 4 });   // 4 ticks left → empties in 0.4 s
+    ctx.player.takeDamage(30);
+  }, sprayReady.uid);
+  await mDown(0);
+  await waitSim(1.2);
+  await mUp(0);
+  await waitSim(0.3);
+  const empty = await page.evaluate((uid) => {
+    const ctx = window.__game.ctx; const it = ctx.inventory.findItem(uid);
+    const ch = window.__ev['item:channelChanged'];
+    return { present: !!it, dur: it?.durability ?? null, inBag: ctx.inventory.getAllItems().some((i) => i.uid === uid), held: ctx.weapons.remoteState.heldItemId,
+      ch, notes: window.__ev['ui:notify'].map((n) => n.text), quickUsed: window.__ev['quick:used'].length,
+      slot0: ctx.inventory.getQuickSlots()[0]?.uid ?? null };
+  }, sprayReady.uid);
+  ok(empty.present && empty.inBag && empty.dur === 0, `drained to 0: the can is still in the bag at durability 0 (not consumed)`, JSON.stringify({ present: empty.present, dur: empty.dur, inBag: empty.inBag }));
+  ok(empty.slot0 === sprayReady.uid && empty.held === 'heal_spray', 'the empty can stays in quick slot N and in the hand', JSON.stringify({ slot0: empty.slot0, held: empty.held }));
+  const chFirst = empty.ch[0], chLast = empty.ch[empty.ch.length - 1];
+  ok(!!chFirst && chFirst.active === true && chFirst.uid === sprayReady.uid && chFirst.defId === 'heal_spray' && chFirst.gauge > 0 && chFirst.gauge <= 0.03,
+    'item:channelChanged {active:true, gauge 4/200} when the channel starts', JSON.stringify(chFirst));
+  ok(!!chLast && chLast.active === false && chLast.gauge === 0, 'item:channelChanged {active:false, gauge 0} when the can empties', JSON.stringify(chLast));
+  ok(empty.ch.filter((c) => c.active === false).length === 1 && empty.ch.every((c, i) => i === empty.ch.length - 1 || c.active === true), 'exactly one active:false, at the end');
+  ok(empty.notes.includes('스프레이가 비었습니다'), '`스프레이가 비었습니다` toast on empty', JSON.stringify(empty.notes));
+  // pressing again on an empty can: refused, no new channel
+  const chCount = empty.ch.length;
+  await mDown(0);
+  await waitSim(0.4);
+  await mUp(0);
+  await waitSim(0.2);
+  const again = await page.evaluate((n) => ({ newEvents: window.__ev['item:channelChanged'].length - n, last: window.__ev['heal:holdChanged'].slice(-1)[0], speed: window.__game.getSystem('player')?.controller?.speedMultiplier ?? null }), chCount);
+  ok(again.newEvents === 0 && again.speed > 0.9, 'restarting an empty can is refused (no item:channelChanged, no slow)', JSON.stringify(again));
+  // every end path closes the ticker: 전투불능 while spraying (agent F asked for active:false on death / screens too)
+  await page.evaluate((uid) => { const ctx = window.__game.ctx; ctx.inventory.updateItem(uid, { durability: 150 }); ctx.player.heal(1000); ctx.player.takeDamage(40); window.__ev['item:channelChanged'] = []; }, sprayReady.uid);
+  await mDown(0);
+  await waitSim(0.4);
+  await page.evaluate(() => { const d = window.__game.ctx.progression?.derived; if (d?.perks) d.perks.auto_revive = false; if (d) d.gritChance = 0; window.__game.ctx.player.takeDamage(10000); });
+  await waitSim(0.4);
+  await mUp(0);
+  const downCh = await page.evaluate((uid) => ({ ch: window.__ev['item:channelChanged'].slice(), downed: window.__game.ctx.player.isDowned, dur: window.__game.ctx.inventory.findItem(uid)?.durability ?? null }), sprayReady.uid);
+  ok(downCh.downed && downCh.ch.length >= 2 && downCh.ch[0].active === true && downCh.ch[downCh.ch.length - 1].active === false,
+    '전투불능 mid-channel closes the ticker (item:channelChanged active:false)', JSON.stringify({ n: downCh.ch.length, last: downCh.ch[downCh.ch.length - 1] }));
+  ok(downCh.ch.every((c) => c.gauge >= 0 && c.gauge <= 1), 'every item:channelChanged gauge is 0..1', JSON.stringify(downCh.ch.slice(-2)));
+  ok(downCh.dur > 0, 'the can survives the knock-down with its remaining gauge', String(downCh.dur));
+  await page.evaluate(() => { const p = window.__game.ctx.player; if (p.isDowned) p.revive(); p.heal(1000); });
+  await waitSim(0.6);
   // put the can away again — the unique-weapon section below needs the bag space back
   await page.evaluate((uid) => window.__game.ctx.inventory.takeItem(uid), sprayReady.uid);
 
@@ -560,6 +611,188 @@ try {
   });
   ok(restored.back && restored.primary === 'wpn_ar', 'AR I back in 주무기 I, uniques dropped', JSON.stringify(restored));
   await waitSim(0.5);
+
+  console.log('정밀 사격 / reportShot (Phase 12)');
+  // 저격소총 I + 중량탄, zero spread: the shot must land on the crosshair ray (camera centre) at any distance
+  const srSet = await page.evaluate(() => {
+    const ctx = window.__game.ctx, inv = ctx.inventory;
+    ctx.enemies.killAll();
+    ctx.player.heal(1000);
+    const sr = ctx.loot.createItem('wpn_sr'); const added = inv.tryAddItem(sr); const eq = added && inv.equip(sr.uid, 'primary');
+    inv.tryAddItem(ctx.loot.createItem('ammo_heavy', 25));
+    window.__srUid = sr.uid;
+    window.__shots = { rep: [], hits: [] };
+    const em = ctx.enemies; const origRep = em.reportShot.bind(em); window.__origRep = origRep;
+    em.reportShot = (o, d, r, h) => { window.__shots.rep.push({ o: [o.x, o.y, o.z], d: [d.x, d.y, d.z], r, h: h ? [h.x, h.y, h.z] : null }); return origRep(o, d, r, h); };
+    ctx.bus.on('weapon:hit', (p) => {
+      // reference = the crosshair ray from the camera (standing still, the rig moved nothing this frame)
+      const cam = ctx.camera; const V = cam.position.constructor; const look = new V(); window.__game.getSystem('player').rig.getLookDir(look);
+      const x = ctx.world.raycast(cam.position, look, 900);
+      const right = new V(look.z, 0, -look.x).normalize();
+      const lateral = x ? new V().subVectors(p.point, x.point).dot(right) : null;
+      window.__shots.hits.push({ p: [p.point.x, p.point.y, p.point.z], x: x ? [x.point.x, x.point.y, x.point.z] : null, dist: x ? x.distance : null, lateral, off: x ? p.point.distanceTo(x.point) : null });
+    });
+    return { added, eq };
+  });
+  ok(srSet.added && srSet.eq, '저격소총 I equipped for the accuracy probe');
+  await tap('Digit1');
+  await waitSim(1.0);
+  await page.evaluate(() => { const w = window.__game.getSystem('weapons'); for (const k of ['primary', 'primary2', 'secondary']) { const sl = w.slots[k]; if (sl) { sl.stats.spread = 0; sl.stats.adsSpread = 0; } } });
+  // aim so the camera-centre ray meets the terrain ~30 m out (yaw scan + pitch bisection); the far probe is a
+  // 40 m tall cylinder obstacle dropped 150 m down the same line
+  const aimAt = (D) => page.evaluate((D) => {
+    const ctx = window.__game.ctx; const rig = window.__game.getSystem('player').rig; const cam = ctx.camera; const V = cam.position.constructor;
+    for (let yi = 0; yi < 24; yi++) {
+      const yaw = yi * Math.PI / 12;
+      let lo = -0.7, hi = 0.05;
+      for (let k = 0; k < 26; k++) {
+        const p = (lo + hi) / 2; const cp = Math.cos(p);
+        const r = ctx.world.raycast(cam.position, new V(-Math.sin(yaw) * cp, Math.sin(p), -Math.cos(yaw) * cp), 900);
+        if ((r ? r.distance : 1e9) < D) lo = p; else hi = p;
+      }
+      const p = (lo + hi) / 2; const cp = Math.cos(p);
+      const r = ctx.world.raycast(cam.position, new V(-Math.sin(yaw) * cp, Math.sin(p), -Math.cos(yaw) * cp), 900);
+      if (r && Math.abs(r.distance - D) < D * 0.1) { rig.yaw = yaw; rig.pitch = p; return { yaw, pitch: p, dist: r.distance }; }
+    }
+    return null;
+  }, D);
+  const aim30 = await aimAt(30);
+  ok(!!aim30, 'found a camera pitch that meets the terrain ~30 m out', JSON.stringify(aim30));
+  await mDown(2);            // ADS (scope)
+  await waitSim(1.5);
+  await page.evaluate(() => { window.__shots.rep.length = 0; window.__shots.hits.length = 0; });
+  await mDown(0); await waitSim(0.2); await mUp(0);
+  await waitSim(0.4);
+  const s30 = await page.evaluate(() => ({ rep: window.__shots.rep.slice(), hits: window.__shots.hits.slice(), aiming: window.__game.ctx.player.isAiming, fov: window.__game.ctx.camera.fov }));
+  ok(s30.aiming && s30.fov < 20, `scoped ADS active (fov ${s30.fov.toFixed(1)})`);
+  ok(s30.hits.length === 1 && s30.hits[0].lateral !== null && Math.abs(s30.hits[0].lateral) < 0.05 && s30.hits[0].off < 0.08,
+    `SR ADS @ ${s30.hits[0]?.dist?.toFixed(1)} m: hit ${s30.hits[0]?.off?.toFixed(3)} m from the crosshair ray (lateral ${s30.hits[0]?.lateral?.toFixed(3)} m)`, JSON.stringify(s30.hits));
+  ok(s30.rep.length === 1 && s30.rep[0].h !== null && s30.rep[0].r === 700, 'one reportShot per SR shot, with the impact point and the weapon range', JSON.stringify(s30.rep));
+  ok(s30.rep.length === 1 && s30.hits.length === 1 && Math.hypot(...s30.rep[0].h.map((v, i) => v - s30.hits[0].p[i])) < 1e-3, 'reportShot hit === weapon:hit point');
+  // 150 m: cylinder obstacle down the current look line, camera re-aimed level at its wall
+  const far = await page.evaluate(() => {
+    const ctx = window.__game.ctx; const rig = window.__game.getSystem('player').rig; const cam = ctx.camera; const V = cam.position.constructor;
+    // scan yaw × pitch for a look line the terrain leaves clear for 170 m (the map rolls; the spawn may face a hill),
+    // preferring the flattest pitch; park the cylinder 150 m out on that line, tall enough that the ray meets its
+    // wall wherever the pitch ended up. If no line is clear that far, use the longest one available (≥ 60 m).
+    const d = new V();
+    let best = null;
+    for (let yi = 0; yi < 36; yi++) {
+      const yaw = yi * Math.PI / 18;
+      for (let p = 0; p <= 0.5; p += 0.02) {
+        const cp = Math.cos(p); d.set(-Math.sin(yaw) * cp, Math.sin(p), -Math.cos(yaw) * cp);
+        const r = ctx.world.raycast(cam.position, d, 170);
+        const dist = r ? r.distance : 170;
+        if (!best || dist > best.dist + 1e-6 || (dist === best.dist && p < best.p)) best = { yaw, p, dist };
+        if (!r) break;
+      }
+      if (best && best.dist >= 170 && best.p === 0) break;
+    }
+    if (!best || best.dist < 60) return null;
+    // aim a touch to the side so the ray meets the curved wall off its silhouette (a stricter convergence test);
+    // keep the nudge only while the terrain stays clear on that line
+    for (const nudge of [0.012, -0.012, 0]) {
+      rig.yaw = best.yaw + nudge; rig.pitch = best.p;
+      rig.getLookDir(d);
+      const t = ctx.world.raycast(cam.position, d, 170);
+      if (!t || t.distance >= best.dist - 1) break;
+    }
+    rig.getLookDir(d);
+    const D = Math.min(150, best.dist * 0.85);
+    const c = cam.position.clone().addScaledVector(d, D); c.y = ctx.world.getHeightAt(c.x, c.z) - 5;
+    if (window.__farRemove) window.__farRemove();
+    window.__farRemove = ctx.world.addObstacle({ position: c, radius: 6, height: 400 });
+    const r = ctx.world.raycast(cam.position, d, 900);
+    return r ? { dist: r.distance, obstacle: !!r.obstacle, want: D } : null;
+  });
+  ok(!!far && far.obstacle && far.dist > 50 && far.dist < 160, `far probe: camera ray meets the obstacle wall at ${far?.dist?.toFixed(1)} m`, JSON.stringify(far));
+  await waitSim(1.5);
+  await page.evaluate(() => { window.__shots.rep.length = 0; window.__shots.hits.length = 0; });
+  await mDown(0); await waitSim(0.2); await mUp(0);
+  await waitSim(0.4);
+  const s150 = await page.evaluate(() => ({ rep: window.__shots.rep.slice(), hits: window.__shots.hits.slice() }));
+  ok(s150.hits.length === 1 && s150.hits[0].lateral !== null && Math.abs(s150.hits[0].lateral) < 0.1 && s150.hits[0].off < 0.15,
+    `SR ADS @ ${s150.hits[0]?.dist?.toFixed(1)} m: hit ${s150.hits[0]?.off?.toFixed(3)} m from the crosshair ray (lateral ${s150.hits[0]?.lateral?.toFixed(3)} m)`, JSON.stringify(s150.hits));
+  ok(s150.rep.length === 1 && s150.rep[0].h !== null, 'reportShot once with the far impact', JSON.stringify(s150.rep));
+  await mUp(2);
+  await waitSim(0.3);
+  // a remote player's replayed shot is never reported (the shooter's client does that)
+  const remoteRep = await page.evaluate(() => {
+    const ctx = window.__game.ctx; const V = ctx.player.position.constructor; const n0 = window.__shots.rep.length;
+    ctx.bus.emit('net:remoteFired', { id: 'peer-x', weaponId: 'ar', origin: new V(ctx.player.position.x + 2, ctx.player.position.y + 1.5, ctx.player.position.z), direction: new V(0, -0.2, -1).normalize() });
+    return window.__shots.rep.length - n0;
+  });
+  ok(remoteRep === 0, 'a replayed remote shot (net:remoteFired) adds no reportShot');
+  // projectiles: one report at launch (hit null), one at the impact (hit set)
+  await page.evaluate(() => { window.__shots.rep.length = 0; const ctx = window.__game.ctx; const V = ctx.player.position.constructor; const o = new V(ctx.player.position.x, ctx.player.position.y + 1.6, ctx.player.position.z); const d = new V(); ctx.player.getForward(d); d.y = -0.35; d.normalize(); window.__game.getSystem('weapons').projectiles.fire(o, d, 40, 5, 60, 0xffffff, 'ar', false); });
+  await waitSim(1.5);
+  const projRep = await page.evaluate(() => window.__shots.rep.slice());
+  ok(projRep.length === 2 && projRep[0].h === null && projRep[1].h !== null, 'local projectile: reportShot at launch (hit null) + at the impact (hit set)', JSON.stringify(projRep));
+  const visRep = await page.evaluate(() => { window.__shots.rep.length = 0; const ctx = window.__game.ctx; const V = ctx.player.position.constructor; const o = new V(ctx.player.position.x, ctx.player.position.y + 1.6, ctx.player.position.z); const d = new V(); ctx.player.getForward(d); d.y = -0.35; d.normalize(); window.__game.getSystem('weapons').projectiles.fire(o, d, 40, 5, 60, 0xffffff, 'ar', true); return 0; });
+  await waitSim(1.5);
+  ok((await page.evaluate(() => window.__shots.rep.length)) === 0, 'a visual-only projectile replica reports nothing');
+  await page.evaluate(() => { const ctx = window.__game.ctx; ctx.enemies.reportShot = window.__origRep; if (window.__farRemove) window.__farRemove(); const inv = ctx.inventory; if (window.__arUid) inv.equip(window.__arUid, 'primary'); if (window.__srUid) inv.dropItem(window.__srUid); });
+  await waitSim(0.5);
+
+  console.log('perks: quick_heal / auto_revive / kill_stamina (Phase 12)');
+  const perkOn = await page.evaluate((k) => { const d = window.__game.ctx.progression?.derived; if (!d || !d.perks) return null; d.perks[k] = true; return d.perks[k]; }, 'quick_heal');
+  ok(perkOn === true, 'derived.perks.quick_heal set on the live derived (test hook)');
+  const qh = await page.evaluate(() => {
+    const ctx = window.__game.ctx; const inv = ctx.inventory; const p = ctx.player;
+    p.heal(1000); p.takeDamage(35);
+    let stim = inv.getAllItems().find((i) => i.defId === 'heal_syringe');
+    if (!stim) { stim = ctx.loot.createItem('heal_syringe', 2); inv.tryAddItem(stim); }
+    window.__ev['heal:holdChanged'] = []; window.__ev['quick:used'] = [];
+    return { moved: inv.setQuickSlot(0, stim.uid), hp: p.hp };
+  });
+  ok(qh.moved, '회복주사 back in quick slot N, player damaged');
+  await tap('KeyT');
+  await waitSim(0.5);
+  await mDown(0);
+  await waitSim(1.25);   // 2 s × 0.5 = 1 s hold
+  const qhDone = await page.evaluate(() => ({ first: window.__ev['heal:holdChanged'][0], used: window.__ev['quick:used'].length }));
+  await mUp(0);
+  ok(!!qhDone.first && qhDone.first.dur === 1, 'quick_heal: heal:holdChanged.dur = 1 s (useTime 2 × 0.5)', JSON.stringify(qhDone.first));
+  ok(qhDone.used === 1, 'the halved hold completes within 1.25 s', `used=${qhDone.used}`);
+  await page.evaluate(() => { window.__game.ctx.progression.derived.perks.quick_heal = false; });
+  await tap('Digit1');
+  await waitSim(0.8);
+  // auto_revive: once per raid, ~1 s after going down
+  await page.evaluate(() => { const d = window.__game.ctx.progression.derived; d.perks.auto_revive = true; d.gritChance = 0; window.__ev['ui:notify'] = []; window.__ev['player:revived'] = []; window.__game.ctx.bus.on('player:revived', (p) => window.__ev['player:revived'].push(p)); });
+  const down1 = await page.evaluate(() => { const p = window.__game.ctx.player; p.heal(1000); p.takeDamage(10000); return { downed: p.isDowned, hp: p.hp }; });
+  ok(down1.downed && down1.hp === 0, 'lethal damage → 전투불능', JSON.stringify(down1));
+  await waitSim(0.5);
+  ok(await page.evaluate(() => window.__game.ctx.player.isDowned), 'still downed after 0.5 s (the circuit waits 1 s)');
+  await waitSim(1.0);
+  const rev = await page.evaluate(() => { const p = window.__game.ctx.player; return { downed: p.isDowned, hp: p.hp, revived: window.__ev['player:revived'].length, notes: window.__ev['ui:notify'].map((n) => n.text) }; });
+  ok(!rev.downed && rev.hp === 10 && rev.revived === 1, `auto_revive: stood up by itself within 1.5 s (hp ${rev.hp})`, JSON.stringify(rev));
+  ok(rev.notes.includes('재기동 회로 작동'), '`재기동 회로 작동` toast', JSON.stringify(rev.notes));
+  await waitSim(0.7);   // the revive's 0.5 s invulnerability
+  const down2 = await page.evaluate(() => { const p = window.__game.ctx.player; p.heal(1000); p.takeDamage(10000); return p.isDowned; });
+  await waitSim(1.6);
+  const rev2 = await page.evaluate(() => { const p = window.__game.ctx.player; const r = { downed: p.isDowned, revived: window.__ev['player:revived'].length }; return r; });
+  ok(down2 && rev2.downed && rev2.revived === 1, 'the second knock-down of the raid stays down (once per raid)', JSON.stringify(rev2));
+  await page.evaluate(() => { const p = window.__game.ctx.player; p.revive(); p.heal(1000); window.__game.ctx.progression.derived.perks.auto_revive = false; });
+  await waitSim(0.3);
+  // kill_stamina: a kill credited to us (`by:'local'`) refills the bar; another peer's kill does not
+  const ks = await page.evaluate(() => {
+    const ctx = window.__game.ctx; const p = ctx.player; const V = p.position.constructor;
+    ctx.progression.derived.perks.kill_stamina = true;
+    p.stamina = 5;
+    ctx.bus.emit('enemy:killed', { id: 99901, type: 'scavenger', position: new V(0, 0, 0), by: 'peer-x' });
+    const other = p.stamina;
+    ctx.bus.emit('enemy:killed', { id: 99902, type: 'scavenger', position: new V(0, 0, 0), by: 'local' });
+    const mine = p.stamina;
+    ctx.progression.derived.perks.kill_stamina = false;
+    p.stamina = 5;
+    ctx.bus.emit('enemy:killed', { id: 99903, type: 'scavenger', position: new V(0, 0, 0), by: 'local' });
+    const off = p.stamina;
+    p.stamina = p.maxStamina;   // leave the bar full for the HUD section below
+    return { other, mine, max: p.maxStamina, off };
+  });
+  ok(ks.other === 5, 'kill_stamina: another peer\'s kill leaves stamina alone', JSON.stringify(ks));
+  ok(ks.mine === ks.max, `kill_stamina: our kill refills stamina to max (${ks.max})`, JSON.stringify(ks));
+  ok(ks.off === 5, 'without the perk a kill refills nothing', JSON.stringify(ks));
 
   console.log('bags');
   const bag = await page.evaluate(() => {

@@ -2,6 +2,10 @@
 // double-click), stash size (housing 창고: setStashSize + reload persistence, shrink refusal), bag + stash materials
 // (countDefAll / consumeDefAll), loadout presets (captureLoadout / applyLoadout with a missing def), and the 작업실
 // bench craft panel (openBenchCraft: title, locked rows, discount, repair list).
+// Phase 12 (2026-09-08): the 분해 게이지 (bar under the button grows per frame, `inventory:disassembleProgress` ≤ 30 Hz →
+// one done:true, {t:0} on cancel), ship 수리 of a 회복 스프레이 (캔 1 + 소독약 1, a can at gauge 0 stays an item — tooltip
+// `게이지 0 / 200`, broken tile bar, `scav.loadout` round trip), 임플란트 tooltips (장착칸 · stat lines · perk · 망가짐 +
+// repair chips), the catalog's 임플란트 tab and the grid ops progression relies on (tryAddToStash / takeItem …).
 // Usage: node scripts/smoke-inventory-p6.mjs [http://localhost:5273/]   (needs `npm run dev`)
 //
 // Timing: Engine clamps dt to 50 ms and the frame rate depends on the machine, so every wait is on simulation time
@@ -133,6 +137,16 @@ try {
     return { n: shown.length, expected, allWeapons: shown.every((id) => { const c = loot.getItemDef(id).category; return c === 'primary' || c === 'secondary'; }) };
   });
   ok(weaponTab.n === weaponTab.expected && weaponTab.n > 0 && weaponTab.allWeapons, `무기 tab lists ${weaponTab.n} weapon defs only`);
+  // Phase 12: 임플란트 tab (label from the shared category table) lists exactly the implant defs — working + broken twins
+  ok(cat.tabs.includes('임플란트'), `catalog has an 임플란트 tab (${cat.tabs.join(' ')})`);
+  await page.evaluate(() => [...document.querySelectorAll('.inv-cat-tab')].find((b) => b.textContent === '임플란트')?.click());
+  const implantTab = await page.evaluate(() => {
+    const loot = window.__game.ctx.loot;
+    const shown = [...document.querySelectorAll('.inv-panel-catalog .inv-cat-item')].map((n) => n.dataset.def);
+    const expected = loot.getAllItemDefs().filter((d) => d.category === 'implant').length;
+    return { n: shown.length, expected, all: shown.every((id) => loot.getItemDef(id).category === 'implant'), broken: shown.filter((id) => loot.getItemDef(id).implant?.broken).length, on: document.querySelector('.inv-cat-tab.is-on')?.textContent };
+  });
+  ok(implantTab.on === '임플란트' && implantTab.n === implantTab.expected && implantTab.n > 0 && implantTab.all && implantTab.broken > 0, `임플란트 tab lists ${implantTab.n} implant defs (${implantTab.broken} broken)`, JSON.stringify(implantTab));
   // search: Korean substring on the name
   await page.evaluate(() => [...document.querySelectorAll('.inv-cat-tab')].find((b) => b.textContent === '전체').click());
   await page.focus('.inv-cat-search');
@@ -408,6 +422,168 @@ try {
   const benchMission = await page.evaluate(() => { const ctx = window.__game.ctx; const was = ctx.phase; ctx.phase = 'playing'; ctx.inventory.openBenchCraft('gun', 1); const r = { open: ctx.inventory.isOpen, bench: window.__game.getSystem('inventory').getBench() }; ctx.phase = was; return r; });
   ok(!benchMission.open && benchMission.bench === null, 'openBenchCraft is refused outside the hub');
 
+  /* ── 5b. Phase 12: 분해 게이지 ───────────────────────────────────── */
+  console.log('분해 게이지');
+  await page.evaluate(() => {
+    window.__ev['inventory:disassembleProgress'] = [];
+    window.__game.ctx.bus.on('inventory:disassembleProgress', (p) => window.__ev['inventory:disassembleProgress'].push({ ...p }));
+  });
+  await tap('Tab');
+  await waitFor(page, () => window.__game.ctx.inventory.isOpen, 'Tab opens the ship screen (분해)');
+  const dis = await page.evaluate(() => {
+    const ctx = window.__game.ctx, i = ctx.inventory, sys = window.__game.getSystem('inventory');
+    i.consumeWhere((d) => d.id === 'ammo_light', 9999);
+    i.consumeWhere((d) => d.id === 'mat_gunpowder', 9999);
+    const ammo = ctx.loot.createItem('ammo_light', 60);
+    i.tryAddItem(ammo);
+    const opened = i.openDisassemble(ammo.uid);
+    const panel = sys['ui'].disassemblePanel;
+    const bar = panel.barEl;
+    const hiddenIdle = bar.hidden && panel.progress === 0;
+    const btn = document.querySelector('.inv-dis-btn');
+    const below = bar.compareDocumentPosition(btn) & Node.DOCUMENT_POSITION_PRECEDING; // the button precedes the bar
+    btn.click();
+    return { opened, hiddenIdle, below: !!below, uid: ammo.uid, dur: sys.craftDuration('break_ammo_light'), running: !!sys.craftProgress(), label: btn.querySelector('span').textContent };
+  });
+  ok(dis.opened && dis.hiddenIdle && dis.below, 'openDisassemble: the gauge sits under the button and is hidden while idle', JSON.stringify(dis));
+  ok(dis.running && dis.label === '분해 중…', `분해 button starts the hold (${dis.dur.toFixed(2)} s)`);
+  const samples = [];
+  for (let k = 0; k < 4; k++) {
+    await waitSim(dis.dur * 0.15);
+    samples.push(await page.evaluate(() => {
+      const p = window.__game.getSystem('inventory')['ui'].disassemblePanel; const b = p.barEl; const f = b.firstElementChild;
+      return { hidden: b.hidden, w: parseFloat(f.style.width) || 0, t: p.progress, transition: getComputedStyle(f).transitionDuration, fill: parseFloat(document.querySelector('.inv-dis-btn .inv-craft-fill').style.width) || 0 };
+    }));
+  }
+  const widths = samples.map((s) => s.w);
+  ok(samples.every((s) => !s.hidden) && widths.every((w, k) => k === 0 || w > widths[k - 1]) && widths[0] > 0 && widths[3] < 100, `bar visible and growing across the hold (${widths.map((w) => w.toFixed(1)).join(' → ')} %)`, JSON.stringify(samples));
+  ok(samples.every((s) => s.transition === '0s' && Math.abs(s.w - s.t * 100) < 0.2 && Math.abs(s.fill - s.w) < 0.2), 'bar has no CSS transition; width = job progress = button fill', JSON.stringify(samples));
+  await waitFor(page, () => window.__ev['inventory:disassembleProgress'].some((e) => e.done), 'disassembleProgress done', 60000);
+  await sleep(120);
+  const disEv = await page.evaluate((uid) => {
+    const evs = window.__ev['inventory:disassembleProgress'];
+    const i = window.__game.ctx.inventory, sys = window.__game.getSystem('inventory');
+    const p = sys['ui'].disassemblePanel;
+    const doneIdx = evs.findIndex((e) => e.done);
+    const before = evs.slice(0, doneIdx);
+    return {
+      n: evs.length, doneCount: evs.filter((e) => e.done).length, doneLast: doneIdx === evs.length - 1, doneT: evs[doneIdx]?.t,
+      sameUid: evs.every((e) => e.uid === uid), monotone: before.every((e, k) => k === 0 || e.t >= before[k - 1].t), maxT: Math.max(...before.map((e) => e.t)),
+      rateOk: before.length <= Math.ceil(30 * 1.5) + 4, hiddenAfter: p.barEl.hidden, progressAfter: p.progress,
+      ammo: i.countWhere((d) => d.id === 'ammo_light'), powder: i.countWhere((d) => d.id === 'mat_gunpowder'), msg: document.querySelector('.inv-dis-msg')?.textContent,
+    };
+  }, dis.uid);
+  ok(disEv.doneCount === 1 && disEv.doneLast && disEv.doneT === 1 && disEv.sameUid, `inventory:disassembleProgress ends with exactly one {t:1, done:true} (${disEv.n} events)`, JSON.stringify(disEv));
+  ok(disEv.n >= 3 && disEv.monotone && disEv.maxT > 0 && disEv.maxT < 1, `progress t rises monotonically before done (max ${disEv.maxT?.toFixed(2)})`);
+  ok(disEv.rateOk, `emits throttled to ≤ 30 Hz (${disEv.n - 1} progress events for a ${dis.dur.toFixed(2)} s hold)`);
+  ok(disEv.hiddenAfter && disEv.progressAfter === 0 && disEv.ammo === 30 && disEv.powder === 4 && disEv.msg === '분해 완료', `gauge hidden again, 경량탄 60 → ${disEv.ammo}, 화약 ${disEv.powder} (${disEv.msg})`);
+  // cancel: a second click during the hold resets the bar and reports {t:0, done:false}
+  await page.evaluate(() => { window.__ev['inventory:disassembleProgress'].length = 0; document.querySelector('.inv-dis-btn').click(); });
+  await waitSim(dis.dur * 0.3);
+  const cancel = await page.evaluate(() => {
+    const sys = window.__game.getSystem('inventory'); const p = sys['ui'].disassemblePanel;
+    const mid = { hidden: p.barEl.hidden, t: p.progress, evs: window.__ev['inventory:disassembleProgress'].length };
+    document.querySelector('.inv-dis-btn').click();
+    const evs = window.__ev['inventory:disassembleProgress'];
+    const last = evs[evs.length - 1];
+    return { mid, hidden: p.barEl.hidden, t: p.progress, job: sys.craftProgress(), last, anyDone: evs.some((e) => e.done), label: document.querySelector('.inv-dis-btn span').textContent, open: p.isOpen };
+  });
+  ok(!cancel.mid.hidden && cancel.mid.t > 0 && cancel.mid.evs > 0, `second hold running (t ${cancel.mid.t.toFixed(2)})`, JSON.stringify(cancel.mid));
+  ok(cancel.hidden && cancel.t === 0 && cancel.job === null && cancel.label === '분해' && cancel.open, 'clicking again cancels: bar hidden, job gone, dialog still open');
+  ok(cancel.last && cancel.last.t === 0 && cancel.last.done === false && !cancel.anyDone, 'cancel reports {t:0, done:false} and never done', JSON.stringify(cancel.last));
+  await page.evaluate(() => window.__game.getSystem('inventory')['ui'].disassemblePanel.close());
+
+  /* ── 5c. Phase 12: 회복 스프레이 수리 (ship) · gauge 0 stays an item ─ */
+  console.log('회복 스프레이 수리');
+  const spray = await page.evaluate(() => {
+    const ctx = window.__game.ctx, i = ctx.inventory, sys = window.__game.getSystem('inventory');
+    const def = ctx.loot.getItemDef('heal_spray');
+    const max = def.durabilityMax;
+    i.consumeWhere((d) => d.id === 'mat_can' || d.id === 'mat_antiseptic', 9999);
+    const half = ctx.loot.createItem('heal_spray', 1, { durability: max / 2 });
+    i.tryAddItem(half);
+    const info0 = sys.repairInfo(half.uid);
+    const noMats = sys.repair(half.uid);
+    const durAfterFail = i.findItem(half.uid).durability;
+    i.tryAddItem(ctx.loot.createItem('mat_can', 3)); i.tryAddItem(ctx.loot.createItem('mat_antiseptic', 3));
+    const info1 = sys.repairInfo(half.uid);
+    const repaired = sys.repair(half.uid);
+    const durAfter = i.findItem(half.uid).durability;
+    const cans = i.countWhere((d) => d.id === 'mat_can'), anti = i.countWhere((d) => d.id === 'mat_antiseptic');
+    const full = sys.repairInfo(half.uid);
+    // an empty can stays a valid item everywhere: bag, tooltip (게이지 0 / max), tile (broken bar), repair readout
+    const empty = ctx.loot.createItem('heal_spray', 1, { durability: 0 });
+    i.tryAddItem(empty);
+    sys['ui'].refresh();
+    const still = i.findItem(empty.uid);
+    const infoEmpty = sys.repairInfo(empty.uid);
+    const tt = sys['ui']['tooltip'];
+    tt.show(still, def, 10, 10);
+    const rows = [...tt.el.querySelectorAll('.inv-tt-stats .k')].map((k) => `${k.textContent} ${k.nextElementSibling.textContent}`);
+    tt.hide();
+    const tile = document.querySelector(`.inv-grid-bag .inv-tile[data-uid="${empty.uid}"]`);
+    return {
+      max, info0: info0?.cost.map((c) => `${c.defId}×${c.qty}`), short0: info0?.short, noMats, durAfterFail, info1: info1?.cost.map((c) => `${c.defId}×${c.qty}/${c.have}`), short1: info1?.short,
+      repaired, durAfter, cans, anti, full, stillDur: still?.durability, stillQty: still?.qty, infoEmpty: infoEmpty?.cost.map((c) => `${c.defId}×${c.qty}`),
+      rows, tileBroken: !!tile?.classList.contains('is-broken'), tileBar: !!tile?.querySelector('.inv-tile-dur.is-broken'),
+    };
+  });
+  ok(spray.max === 200, `HEAL_SPRAY_GAUGE is 200 (durabilityMax ${spray.max})`);
+  ok(JSON.stringify(spray.info0) === JSON.stringify(['mat_can×1', 'mat_antiseptic×1']) && spray.short0 === true, `half-empty spray: 수리 cost 캔 1 + 소독약 1, short without materials (${spray.info0?.join(', ')})`, JSON.stringify(spray));
+  ok(spray.noMats === false && spray.durAfterFail === 100, 'repair refused without materials (durability untouched)');
+  ok(spray.short1 === false && spray.repaired === true && spray.durAfter === 200, `repair with materials → 200 (${spray.durAfter})`);
+  ok(spray.cans === 2 && spray.anti === 2 && spray.full === null, `materials consumed (캔 3 → ${spray.cans}, 소독약 3 → ${spray.anti}); a full can is not repairable`);
+  ok(spray.stillDur === 0 && spray.stillQty === 1 && JSON.stringify(spray.infoEmpty) === JSON.stringify(['mat_can×1', 'mat_antiseptic×1']), 'a spray at gauge 0 stays in the bag and is repairable (캔 1 + 소독약 1)', JSON.stringify(spray));
+  ok(spray.rows.includes('게이지 0 / 200'), `tooltip shows 게이지 0 / 200 (${spray.rows.join(' · ')})`);
+  ok(spray.tileBroken && spray.tileBar, 'tile carries the broken gauge bar');
+  await sleep(700); // debounced loadout save
+  const sprayFile = await page.evaluate(() => { const f = JSON.parse(localStorage.getItem('scav.loadout') ?? 'null'); const e = (f?.bag ?? []).filter((x) => x.defId === 'heal_spray'); return { n: e.length, durs: e.map((x) => x.durability) }; });
+  ok(sprayFile.n === 2 && sprayFile.durs.includes(0) && sprayFile.durs.includes(200), `scav.loadout keeps durability 0 (${JSON.stringify(sprayFile.durs)})`);
+
+  /* ── 5d. Phase 12: 임플란트 items — tooltip · grid ops · never quick / equip ── */
+  console.log('임플란트 아이템');
+  const imp = await page.evaluate(() => {
+    const ctx = window.__game.ctx, i = ctx.inventory, sys = window.__game.getSystem('inventory');
+    const tt = sys['ui']['tooltip'];
+    const card = (id) => {
+      const def = ctx.loot.getItemDef(id); if (!def) return null;
+      const it = ctx.loot.createItem(id);
+      tt.show(it, def, 10, 10);
+      const rows = [...tt.el.querySelectorAll('.inv-tt-stats .k')].map((k) => `${k.textContent} ${k.nextElementSibling.textContent}`);
+      const out = { rows, text: tt.el.textContent, chips: tt.el.querySelectorAll('.inv-tt-repair .item-chip').length, broken: tt.el.querySelector('.inv-tt-broken')?.textContent ?? null, perk: tt.el.querySelector('.inv-tt-perk')?.textContent ?? null, implant: def.implant, sub: tt.el.querySelector('.inv-tt-sub').textContent };
+      tt.hide();
+      return out;
+    };
+    const statName = (id) => ctx.progression.getStatDef(id).name;
+    const s2 = card('imp_strength_2'), br = card('imp_broken_strength_2'), pk = card('imp_perk_quick_heal');
+    const expectStats = (c) => Object.entries(c.implant.stats).map(([id, v]) => `${statName(id)} +${v}`);
+    // grid ops the 캐릭터 tab relies on: stash in → find → take out → back anywhere
+    const inst = ctx.loot.createItem('imp_strength_2');
+    const toStash = i.tryAddToStash(inst);
+    const found = i.findItemAnywhere(inst.uid)?.defId ?? null;
+    const inBag = i.findItem(inst.uid);
+    const taken = i.takeItem(inst.uid);
+    const gone = i.findItemAnywhere(inst.uid);
+    const back = ctx.loot.createItem('imp_strength_2');
+    const where = i.tryAddItemAnywhere(back);
+    const quick = i.setQuickSlot(0, back.uid);
+    const quickSlots = i.getQuickSlots().filter((q) => q && q.uid === back.uid).length;
+    const equipTarget = sys.equipTargetFor(ctx.loot.getItemDef('imp_strength_2'));
+    const equipTry = ['primary', 'primary2', 'secondary', 'bag', 'armor'].map((s) => i.equip(back.uid, s));
+    const stillInBag = !!i.findItem(back.uid);
+    const takenBack = i.takeItem(back.uid);
+    return { s2, br, pk, strength: statName('strength'), expectS2: expectStats(s2), expectPk: expectStats(pk), toStash, found, inBag, taken, gone, where, quick, quickSlots, equipTarget, equipTry, stillInBag, takenBack };
+  });
+  ok(imp.s2 && imp.s2.rows.includes('장착칸 2') && imp.s2.rows.includes(`${imp.strength} +2`) && imp.expectS2.every((r) => imp.s2.rows.includes(r)), `imp_strength_2 tooltip: 장착칸 2 · ${imp.expectS2.join(' · ')} (${imp.s2?.sub})`, JSON.stringify(imp.s2?.rows));
+  ok(imp.s2 && !imp.s2.broken && imp.s2.chips === 0 && !imp.s2.perk, 'working implant shows no 망가짐 / repair chips / perk');
+  ok(imp.br && imp.br.broken === '망가짐 — 세레스 바이오에서 수리' && imp.br.chips === imp.br.implant.repairCost.length && imp.br.chips > 0 && !imp.br.rows.some((r) => r.startsWith(imp.strength)), `broken implant tooltip: red 망가짐 line + ${imp.br?.chips} repair chips, no stat lines`, JSON.stringify(imp.br));
+  ok(imp.pk && imp.pk.perk && imp.pk.perk.includes('가속 대사') && imp.pk.perk.includes('절반') && imp.expectPk.every((r) => imp.pk.rows.includes(r)), `legendary perk tooltip names 가속 대사 + description (${imp.pk?.perk})`);
+  ok(imp.toStash === true && imp.found === 'imp_strength_2' && imp.inBag === null && imp.taken === 1 && imp.gone === null, 'tryAddToStash → findItemAnywhere → takeItem(1) → gone for an implant instance', JSON.stringify(imp));
+  ok(imp.where === 'bag' && imp.stillInBag && imp.takenBack === 1, `tryAddItemAnywhere puts an implant in the ${imp.where}`);
+  ok(imp.quick === false && imp.quickSlots === 0 && imp.equipTarget === null && imp.equipTry.every((r) => r === false), 'implants are never quick-slottable and fit no equipment slot');
+  await tap('Escape');
+  await waitFor(page, () => !window.__game.ctx.inventory.isOpen, 'closed (Phase 12)');
+
   /* ── 6. reload keeps the stash size; catalog on a mission ─────────── */
   console.log('reload / mission');
   await page.goto(BASE, { waitUntil: 'load' });
@@ -415,6 +591,9 @@ try {
   await install();
   const sizeAfter = await page.evaluate(() => window.__game.ctx.inventory.getStashSize());
   ok(sizeAfter.cols === 10 && sizeAfter.rows === 30, `stash size survived the reload (${sizeAfter.cols}×${sizeAfter.rows})`);
+  // Phase 12: the empty 회복 스프레이 (gauge 0) came back from `scav.loadout` as an item at 0 — not fresh, not dropped
+  const sprayKept = await page.evaluate(() => { const items = window.__game.ctx.inventory.getAllItems().filter((x) => x.defId === 'heal_spray'); return { n: items.length, durs: items.map((x) => x.durability).sort((a, b) => a - b) }; });
+  ok(sprayKept.n === 2 && sprayKept.durs[0] === 0 && sprayKept.durs[1] === 200, `spray at gauge 0 survived the reload as 0 / 200 (${JSON.stringify(sprayKept.durs)})`);
   await page.evaluate(() => window.__game.ctx.bus.emit('game:newMission', { seed: 7 }));
   await waitFor(page, () => window.__game.ctx.phase === 'playing', 'playing', 40000);
   await waitFor(page, () => !window.__game.ctx.player.isDropping, 'hellpod exit', 20000);

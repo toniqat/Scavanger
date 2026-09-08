@@ -358,6 +358,9 @@ export class InventoryUI {
     this.modelessLayer.className = 'inv-modeless-layer';
     this.disassemble = new DisassemblePanel(this.sys, getDef, (open, uid) => {
       this.ctx.bus.emit('ui:disassembleToggled', { open, uid });
+    }, (uid, t, done) => {
+      // Phase 12: the 분해 게이지 reports its hold (≤ 30 Hz, once with done:true, {t:0} on a cancel)
+      this.ctx.bus.emit('inventory:disassembleProgress', { uid, t, done });
     });
     this.modelessLayer.append(this.disassemble.el);
 
@@ -384,6 +387,9 @@ export class InventoryUI {
     this.tooltip = new Tooltip({
       getWeapon: getWeaponDef, getDef, getStats, getArmorDef: (id) => this.sys.getLoot().getArmorDef(id),
       getSkillName: (id) => { try { return this.ctx.progression?.getSkillDef(id)?.name ?? id; } catch { return id; } },
+      // Phase 12: 임플란트 tooltip — stat names from progression, owned counts (bag + 창고) for the repair chips
+      getStatName: (id) => { try { return this.ctx.progression?.getStatDef(id)?.name ?? id; } catch { return id; } },
+      countOwned: (defId) => this.sys.countDefAll(defId),
     });
     this.ghostLayer = document.createElement('div');
     this.ghostLayer.className = 'inv-ghost-layer';
@@ -738,6 +744,8 @@ export class InventoryUI {
   refreshCraft(): void {
     if (!this.root || this.root.hidden) return;
     this.craftPanel.refresh();
+    // Phase 12: the 분해 게이지 advances with the job every frame (cheap tick, not the chip rebuild of `refresh()`)
+    if (this.disassemble.isOpen) this.disassemble.tick();
   }
 
   /* ── Phase 6: 무한 상자 ─────────────────────────────────────────────── */

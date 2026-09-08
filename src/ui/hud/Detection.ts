@@ -6,15 +6,20 @@ import {
 } from '@/shared';
 import { el } from '../dom';
 import { makePillarGeometry, makePillarMaterial } from './pillar';
+import type { ScanTracker } from './ScanTracker';
 
 const MAX_SHELLS = 24;          // pooled light pillars (interactables in range)
 const MAX_ARROWS = 6;           // pooled off-screen enemy arrows
+const MAX_MARKS = 12;           // pooled on-screen enemy chevrons (Phase 12)
 const SCAN_INTERVAL = 0.15;     // seconds between candidate re-scans
 const ARROW_RX = 0.34;          // arrow ring radii as a fraction of the viewport
 const ARROW_RY = 0.34;
+const MARK_LIFT = 0.55;         // metres above the enemy's `height` the chevron floats
 
 interface Shell { mesh: THREE.Mesh; active: boolean }
 interface Arrow { el: HTMLElement; lastKey: string }
+/** One candidate for the arrows / chevrons: a live ref inside the radius, or a 정찰-revealed position. */
+interface Candidate { pos: THREE.Vector3; height: number; scanned: boolean }
 
 /**
  * 감지 시스템 (perception).
@@ -24,7 +29,12 @@ interface Arrow { el: HTMLElement; lastKey: string }
  *    light-blue fresnel sphere): an open cylinder rising from the ground with baked vertex colours that go black
  *    toward the top, drawn additively so black reads as transparent (see `hud/pillar.ts`). Depth-tested, so walls
  *    still hide it (the through-wall version is `ScanReveal`).
- * 2. Enemies inside `derived.enemyDetectRadius` that are off-screen get a pooled red edge arrow.
+ * 2. Enemies inside `derived.enemyDetectRadius` that are off-screen get a pooled red edge arrow; those **on screen**
+ *    get a small pooled red chevron floating above the body (Phase 12 — the same projection decides which of the two
+ *    a candidate takes, so the chevron costs nothing extra per enemy).
+ * 3. Enemies revealed by a 정찰 pulse (`scan:cast`, through the shared `ScanTracker`) join (2) for the reveal's
+ *    duration regardless of distance — their red through-wall silhouette is enemies/' `setXray`, their pillar is
+ *    `ScanReveal`; this adds the screen-space arrow / chevron only.
  *
  * Everything is pooled: no per-frame geometry/material/DOM allocation, and no runtime light changes.
  * Falls back to `DETECT_BASE_RADIUS` / `DETECT_ENEMY_BASE_RADIUS` while `ctx.progression` is missing.
@@ -34,6 +44,7 @@ export class Detection {
   private ctx!: GameContext;
   private shells: Shell[] = [];
   private arrows: Arrow[] = [];
+  private marks: Arrow[] = [];
   private group: THREE.Group | null = null;
   private geo: THREE.BufferGeometry | null = null;
   private mat: THREE.MeshBasicMaterial | null = null;
@@ -41,11 +52,15 @@ export class Detection {
   private visible = false;
   private targets: THREE.Vector3[] = [];
   private enemies: EnemyRef[] = [];
+  private enemyIds = new Set<number>();
+  private candidates: Candidate[] = [];
+  private candidatePool: Candidate[] = [];
+  private shownMarks = 0;
   private v = new THREE.Vector3();
   private tmp = new THREE.Vector3();
   private unsubs: Array<() => void> = [];
 
-  constructor(parent: HTMLElement) {
+  constructor(parent: HTMLElement, private scans: ScanTracker | null = null) {
     this.root = el('div', { cls: 'detect-arrows', parent });
     for (let i = 0; i < MAX_ARROWS; i++) {
       const a = el('div', { cls: 'detect-arrow', parent: this.root });
@@ -53,7 +68,17 @@ export class Detection {
       el('i', { parent: a });
       this.arrows.push({ el: a, lastKey: '' });
     }
+    for (let i = 0; i < MAX_MARKS; i++) {
+      const m = el('div', { cls: 'detect-mark', parent: this.root });
+      m.hidden = true;
+      el('i', { parent: m });
+      this.marks.push({ el: m, lastKey: '' });
+    }
+    for (let i = 0; i < MAX_ARROWS + MAX_MARKS + 8; i++) this.candidatePool.push({ pos: new THREE.Vector3(), height: 1, scanned: false });
   }
+
+  /** On-screen enemy chevrons currently shown (debug). */
+  get markCount(): number { return this.shownMarks; }
 
   bind(ctx: GameContext): void {
     this.ctx = ctx;
@@ -97,6 +122,8 @@ export class Detection {
   private hideAll(): void {
     for (const s of this.shells) { s.mesh.visible = false; s.active = false; }
     for (const a of this.arrows) { if (!a.el.hidden) { a.el.hidden = true; a.lastKey = ''; } }
+    for (const m of this.marks) { if (!m.el.hidden) { m.el.hidden = true; m.lastKey = ''; } }
+    this.shownMarks = 0;
     this.visible = false;
   }
 
@@ -142,6 +169,7 @@ export class Detection {
     }
 
     this.enemies.length = 0;
+    this.enemyIds.clear();
     const er = this.enemyRadius(ctx);
     const em = ctx.enemies;
     if (em) {
@@ -149,15 +177,39 @@ export class Detection {
       const qn = (em as { queryNear?: (p: THREE.Vector3, radius: number) => EnemyRef[] }).queryNear;
       const near = typeof qn === 'function' ? qn.call(em, from, er) : null;
       if (near) {
-        for (const e of near) { if (!e.isDead) this.enemies.push(e); }
+        for (const e of near) { if (!e.isDead) { this.enemies.push(e); this.enemyIds.add(e.id); } }
       } else {
         const er2 = er * er;
         for (const e of em.getEnemies()) {
           if (e.isDead) continue;
           const dx = e.position.x - from.x, dz = e.position.z - from.z;
-          if (dx * dx + dz * dz <= er2) this.enemies.push(e);
+          if (dx * dx + dz * dz <= er2) { this.enemies.push(e); this.enemyIds.add(e.id); }
         }
       }
+    }
+  }
+
+  /** Detected refs + 정찰 reveals into one pooled candidate list (no allocation once the pool is warm). */
+  private gatherCandidates(ctx: GameContext): void {
+    this.candidates.length = 0;
+    let n = 0;
+    const take = (): Candidate | null => {
+      if (n >= this.candidatePool.length) return null;
+      const c = this.candidatePool[n++];
+      this.candidates.push(c);
+      return c;
+    };
+    for (const e of this.enemies) {
+      if (e.isDead) continue;
+      const c = take(); if (!c) return;
+      c.pos.copy(e.position); c.height = e.height; c.scanned = false;
+    }
+    const scanned = this.scans?.update(ctx);
+    if (!scanned) return;
+    for (const s of scanned) {
+      if (this.enemyIds.has(s.id)) continue;
+      const c = take(); if (!c) return;
+      c.pos.copy(s.position); c.height = 1.2; c.scanned = true;
     }
   }
 
@@ -177,24 +229,46 @@ export class Detection {
   }
 
   private placeArrows(ctx: GameContext, from: THREE.Vector3): void {
+    this.gatherCandidates(ctx);
     const cam = ctx.camera;
     const w = ctx.uiRoot.clientWidth, h = ctx.uiRoot.clientHeight;
     const cx = w / 2, cy = h / 2;
     const rx = w * ARROW_RX, ry = h * ARROW_RY;
+    const radius = this.enemyRadius(ctx);
     let used = 0;
-    for (const e of this.enemies) {
-      if (used >= MAX_ARROWS) break;
-      this.v.copy(e.position); this.v.y += 0.8;
+    let marks = 0;
+    for (const c of this.candidates) {
+      if (used >= MAX_ARROWS && marks >= MAX_MARKS) break;
+      const dist = this.tmp.set(c.pos.x - from.x, 0, c.pos.z - from.z).length();
+      // a scanned enemy was not found by distance, so it does not fade with it
+      const alpha = c.scanned ? 0.95 : Math.max(0.25, 1 - dist / (radius * 1.15));
+      this.v.copy(c.pos); this.v.y += 0.8;
       this.v.project(cam);
       const behind = this.v.z > 1;
       if (behind) { this.v.x = -this.v.x; this.v.y = -this.v.y; }
       const off = behind || Math.abs(this.v.x) > 0.98 || Math.abs(this.v.y) > 0.98;
-      if (!off) continue;
+      if (!off) {
+        // on screen → chevron above the head (Phase 12), from the same projection at the body's top
+        if (marks >= MAX_MARKS) continue;
+        this.v.copy(c.pos); this.v.y += c.height + MARK_LIFT;
+        this.v.project(cam);
+        const px = (this.v.x * 0.5 + 0.5) * w;
+        const py = (-this.v.y * 0.5 + 0.5) * h;
+        const mark = this.marks[marks++];
+        const key = `${px.toFixed(0)}|${py.toFixed(0)}|${alpha.toFixed(2)}|${c.scanned ? 1 : 0}`;
+        if (mark.el.hidden) mark.el.hidden = false;
+        if (key !== mark.lastKey) {
+          mark.lastKey = key;
+          mark.el.style.transform = `translate(${px.toFixed(0)}px, ${py.toFixed(0)}px) translate(-50%, -100%)`;
+          mark.el.style.opacity = alpha.toFixed(2);
+          mark.el.classList.toggle('scanned', c.scanned);
+        }
+        continue;
+      }
+      if (used >= MAX_ARROWS) continue;
       const a = Math.atan2(this.v.y, this.v.x);
       const px = cx + Math.cos(a) * rx;
       const py = cy - Math.sin(a) * ry;
-      const dist = this.tmp.set(e.position.x - from.x, 0, e.position.z - from.z).length();
-      const alpha = Math.max(0.25, 1 - dist / (this.enemyRadius(ctx) * 1.15));
       const deg = (-a * 180) / Math.PI;
       const arrow = this.arrows[used++];
       const key = `${px.toFixed(0)}|${py.toFixed(0)}|${deg.toFixed(0)}|${alpha.toFixed(2)}`;
@@ -209,6 +283,11 @@ export class Detection {
       const a = this.arrows[i];
       if (!a.el.hidden) { a.el.hidden = true; a.lastKey = ''; }
     }
+    for (let i = marks; i < this.marks.length; i++) {
+      const m = this.marks[i];
+      if (!m.el.hidden) { m.el.hidden = true; m.lastKey = ''; }
+    }
+    this.shownMarks = marks;
   }
 
   dispose(): void {

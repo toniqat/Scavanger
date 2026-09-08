@@ -1,5 +1,8 @@
-import type { DerivedStats, GameContext, ImplantDef, ImplantId, ImplantMode, PlayerProfile, SkillDef, SkillId, StatDef, StatId } from '@/shared';
-import { Keys, SKILL_LEVEL_MAX, STAT_MAX, keyLabel } from '@/shared';
+import type {
+  DerivedStats, EquippedImplant, GameContext, ImplantDef, ImplantId, ImplantMode, ItemDef, ItemInstance, PlayerProfile,
+  SkillDef, SkillId, StatDef, StatId,
+} from '@/shared';
+import { Keys, PERK_DEFS, RARITY_COLORS, RARITY_LABEL_KO, SKILL_LEVEL_MAX, STAT_MAX, buildItemChip, keyLabel } from '@/shared';
 
 /** What the sheet needs from ProgressionSystem (kept structural so there is no circular import). */
 export interface CharacterSheetHost {
@@ -9,6 +12,13 @@ export interface CharacterSheetHost {
   readonly xp: number;
   readonly xpToNext: number;
   readonly statPoints: number;
+  /** Phase 12: 임플란트 items — slot budget, what is equipped, equip / unequip (ship only), per-stat bonus. */
+  readonly implantSlots: number;
+  readonly implantSlotsUsed: number;
+  getEquippedImplants(): readonly EquippedImplant[];
+  equipImplant(uid: string): boolean;
+  unequipImplant(uid: string): boolean;
+  getImplantBonus(id: StatId): number;
   getStat(id: StatId): number;
   getSkill(id: SkillId): number;
   getSkillProgress(id: SkillId): number;
@@ -42,7 +52,44 @@ const pct = (v: number): string => `${Math.round(v * 100)} %`;
 const mul = (v: number): string => `×${v.toFixed(2)}`;
 const dist = (v: number): string => `${v.toFixed(1)} m`;
 
-interface StatRow { root: HTMLElement; value: HTMLElement; plus: HTMLButtonElement; fill: HTMLElement; xp: HTMLElement }
+interface StatRow { root: HTMLElement; value: HTMLElement; base: HTMLElement; bonus: HTMLElement; plus: HTMLButtonElement; fill: HTMLElement; xp: HTMLElement }
+
+/* ── 임플란트 아이템 (Phase 12, 2026-09-08) ─────────────────────────────────
+ * The `.cs-impitems` block under the 전술 임플란트 slot: `임플란트 n / m칸` + a pip row, one row per equipped item (the
+ * shared `buildItemChip` thumbnail → hover card, name, `장착칸 k`, stat line / perk name; click = unequip) and a
+ * `+ 장착` button that raises a second modeless picker (`.cs-impi-pop`, a `uiRoot` child like `.cs-imp-pop`) listing
+ * every implant item in the bag + 함선 창고; rows that do not fit or are broken are dimmed + disabled with the reason.
+ * Everything routes through the host (`equipImplant` / `unequipImplant`) — the sheet holds no item state itself.
+ * ────────────────────────────────────────────────────────────────────────── */
+const IMPL_TEXT = {
+  label: '임플란트',
+  slots: (used: number, total: number) => `${used} / ${total}칸`,
+  slotCost: (n: number) => `장착칸 ${n}`,
+  add: '+ 장착',
+  pick: '임플란트 장착',
+  none: '장착한 임플란트가 없습니다.',
+  nothingToPick: '가방과 함선 창고에 임플란트가 없습니다 — 레이드에서 망가진 임플란트를 찾아 세레스 바이오에서 수리하세요.',
+  raidLocked: '레이드 중에는 교체할 수 없습니다',
+  shipOnly: '함선에서만 교체할 수 있습니다',
+  noRoom: '보관할 공간이 없습니다 — 가방이나 함선 창고를 비우세요',
+  broken: '망가짐 — 세레스 바이오에서 수리',
+  noFit: '장착칸 부족',
+  equipped: '장착',
+  unequipped: '해제',
+  failed: '장착할 수 없습니다',
+  clickToRemove: '클릭해 해제',
+};
+
+/** `근력 +2 · 재주 +1` for an implant def (empty string when it has no stat bonus). */
+function implantStatLine(def: ItemDef | undefined, statName: (id: StatId) => string): string {
+  const stats = def?.implant?.stats;
+  if (!stats) return '';
+  const parts: string[] = [];
+  for (const [id, v] of Object.entries(stats) as Array<[StatId, number | undefined]>) {
+    if (typeof v === 'number' && v !== 0) parts.push(`${statName(id)} ${v > 0 ? '+' : ''}${v}`);
+  }
+  return parts.join(' · ');
+}
 interface SkillRow { root: HTMLElement; level: HTMLElement; fill: HTMLElement; bonus: HTMLElement }
 
 /* ── 전술 임플란트 (Phase 9 UI pass; reshaped 2026-09-07) ───────────────────
@@ -126,6 +173,30 @@ export class SheetBody {
   private resetBtn: HTMLButtonElement;
   private resetArmed = false;
 
+  /* 임플란트 아이템 block (Phase 12) */
+  private implBlock!: HTMLElement;
+  private implCount!: HTMLElement;
+  private implPips!: HTMLElement;
+  private implList!: HTMLElement;
+  private implMsg!: HTMLElement;
+  private implAdd!: HTMLButtonElement;
+  private implPop!: HTMLElement;
+  private implOpts!: HTMLElement;
+  private implPickerOpen = false;
+  private implMsgTimer = 0;
+  private onImplOutside = (e: PointerEvent): void => {
+    const t = e.target as Node | null;
+    if (!t) return;
+    if (this.implPop.contains(t) || this.implAdd.contains(t)) return;
+    this.closeImplantPicker();
+  };
+  private onImplKey = (e: KeyboardEvent): void => {
+    if (!this.implPickerOpen || e.code !== 'Escape') return;
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    this.closeImplantPicker();
+  };
+
   constructor(
     private readonly ctx: GameContext,
     private readonly host: CharacterSheetHost,
@@ -177,6 +248,8 @@ export class SheetBody {
     this.implantGrid = el('div', { cls: 'cs-imp-grid', parent: this.implantPop });
     this.implantCol = imp;
     this.buildImplantCards();
+    /* Phase 12: 임플란트 items under the 전술 임플란트 slot (picker hangs off `ctx.uiRoot`, see `.cs-imp-pop`) */
+    this.buildImplantItems(imp, opts.variant ?? 'embed');
 
     /* ── derived ── */
     const der = this.own(el('div', { cls: 'cs-derived', parent }));
@@ -235,6 +308,7 @@ export class SheetBody {
     for (const row of this.derivedRows) setText(row.value, derivedText(row.key, d));
 
     this.refreshImplants();
+    this.refreshImplantItems();
 
     this.resetBtn.disabled = inRaid;
     setText(this.resetBtn, this.resetArmed ? '정말 초기화합니다' : '캐릭터 초기화');
@@ -262,7 +336,13 @@ export class SheetBody {
     const row = this.statRows.get(id);
     if (!row) return;
     const v = this.host.getStat(id);
-    setText(row.value, String(v));
+    // Phase 12: `base (+bonus)` while an 임플란트 adds to this stat; the bonus span stays empty otherwise so `.v` reads the base
+    setText(row.base, String(v));
+    const bonus = typeof this.host.getImplantBonus === 'function' ? this.host.getImplantBonus(id) : 0;
+    const hasBonus = Number.isFinite(bonus) && bonus !== 0;
+    row.bonus.hidden = !hasBonus;
+    setText(row.bonus, hasBonus ? ` (${bonus > 0 ? '+' : ''}${bonus})` : '');
+    row.root.classList.toggle('has-bonus', hasBonus);
     const maxed = v >= STAT_MAX;
     const need = Math.max(1, this.host.statXpToNext(id));
     const p = Math.min(1, Math.max(0, this.host.getStatProgress(id)));
@@ -282,7 +362,10 @@ export class SheetBody {
     const bar = el('div', { cls: 'bar', parent: prog });
     const fill = el('i', { parent: bar });
     const xp = el('div', { cls: 'xp ui-mono', text: '', parent: prog });
-    const value = el('div', { cls: 'v ui-mono', text: '0', parent: row });
+    const value = el('div', { cls: 'v ui-mono', parent: row });
+    const base = el('span', { cls: 'base', text: '0', parent: value });
+    const bonus = el('span', { cls: 'ib', text: '', parent: value });   // Phase 12: ` (+n)` from 임플란트 items
+    bonus.hidden = true;
     const plus = el('button', { cls: 'ui-btn plus', text: '＋', parent: row });
     plus.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -291,7 +374,7 @@ export class SheetBody {
         this.refresh();
       }
     });
-    this.statRows.set(def.id, { root: row, value, plus, fill, xp });
+    this.statRows.set(def.id, { root: row, value, base, bonus, plus, fill, xp });
   }
 
   /* ── 전술 임플란트 ─────────────────────────────────────────────────────── */
@@ -323,8 +406,8 @@ export class SheetBody {
 
   /* ── 모달리스 picker ─────────────────────────────────────────────────── */
 
-  /** true while the implant picker is up (smoke tests / the shell's Escape chain). */
-  get isPickerOpen(): boolean { return this.pickerOpen; }
+  /** true while either picker (전술 임플란트 or 임플란트 items) is up (smoke tests / the shell's Escape chain). */
+  get isPickerOpen(): boolean { return this.pickerOpen || this.implPickerOpen; }
 
   private openPicker(): void {
     if (this.pickerOpen || this.implantCards.size === 0) return;
@@ -339,9 +422,10 @@ export class SheetBody {
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
   }
 
-  /** Closes the picker; returns true when it was actually open (so a shell can consume that Escape). */
+  /** Closes both pickers; returns true when one was actually open (so a shell can consume that Escape). */
   closePicker(): boolean {
-    if (!this.pickerOpen) return false;
+    const closedItems = this.closeImplantPicker();
+    if (!this.pickerOpen) return closedItems;
     this.pickerOpen = false;
     this.implantPop.hidden = true;
     this.implantSlot.classList.remove('is-open');
@@ -450,6 +534,237 @@ export class SheetBody {
     this.refreshImplants();
   }
 
+  /* ── 임플란트 아이템 (Phase 12) ───────────────────────────────────────── */
+
+  private statName(id: StatId): string {
+    return this.host.getAllStatDefs().find((d) => d.id === id)?.name ?? id;
+  }
+
+  private itemDef(defId: string): ItemDef | undefined {
+    try { return this.ctx.loot?.getItemDef(defId); } catch { return undefined; }
+  }
+
+  /** The block itself (under the 전술 임플란트 slot) and its picker (a `uiRoot` child, like the 전술 임플란트 one). */
+  private buildImplantItems(parent: HTMLElement, variant: 'overlay' | 'embed'): void {
+    const block = this.implBlock = el('div', { cls: 'cs-impitems', parent });
+    const head = el('div', { cls: 'h', parent: block });
+    el('div', { cls: 'ui-label', text: IMPL_TEXT.label, parent: head });
+    this.implCount = el('div', { cls: 'cnt ui-mono', text: '', parent: head });
+    this.implPips = el('div', { cls: 'cs-impi-pips', parent: block });
+    this.implList = el('div', { cls: 'cs-impi-list', parent: block });
+    this.implMsg = el('div', { cls: 'cs-impi-msg', text: '', parent: block });
+    this.implMsg.hidden = true;
+    this.implAdd = el('button', { cls: 'ui-btn cs-impi-add', text: IMPL_TEXT.add, parent: block, attrs: { type: 'button' } });
+    this.implAdd.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (this.implPickerOpen) { this.closeImplantPicker(); return; }
+      const why = this.swapBlockReason();
+      if (why) { this.showImplMsg(why, true); return; }
+      this.openImplantPicker();
+    });
+
+    this.implPop = this.own(el('div', { cls: `cs-impi-pop cs-impi-pop-${variant} interactive`, parent: this.ctx.uiRoot }));
+    this.implPop.hidden = true;
+    const popHead = el('div', { cls: 'h', parent: this.implPop });
+    el('div', { cls: 'ui-label', text: IMPL_TEXT.pick, parent: popHead });
+    const close = el('button', { cls: 'ui-btn cs-imp-close', text: '닫기', parent: popHead, attrs: { type: 'button' } });
+    close.addEventListener('click', (e) => { e.stopPropagation(); this.closeImplantPicker(); });
+    this.implOpts = el('div', { cls: 'cs-impi-opts', parent: this.implPop });
+  }
+
+  /** Why a swap is refused right now (null = allowed): raid first, then anything that is not the ship. */
+  private swapBlockReason(): string | null {
+    let inRaid = false;
+    try { inRaid = this.ctx.isRaidActive(); } catch { inRaid = false; }
+    if (inRaid) return IMPL_TEXT.raidLocked;
+    if (this.ctx.phase !== 'hub') return IMPL_TEXT.shipOnly;
+    return null;
+  }
+
+  /** Inline one-line feedback under the list (replaces a toast — the block is small and the reason belongs next to it). */
+  private showImplMsg(text: string, error: boolean): void {
+    setText(this.implMsg, text);
+    this.implMsg.hidden = false;
+    this.implMsg.classList.toggle('is-error', error);
+    this.ctx.bus.emit('audio:play', { id: error ? 'ui_error' : 'ui_click' });
+    window.clearTimeout(this.implMsgTimer);
+    this.implMsgTimer = window.setTimeout(() => { this.implMsg.hidden = true; }, 2600);
+  }
+
+  /** Header count, pip row, equipped rows and the 장착 button state. */
+  private refreshImplantItems(): void {
+    if (!this.implBlock) return;
+    const host = this.host;
+    const total = Math.max(0, host.implantSlots | 0);
+    const used = Math.max(0, host.implantSlotsUsed | 0);
+    setText(this.implCount, IMPL_TEXT.slots(used, total));
+    // pips: one per slot, filled = used (rebuilt only when the count changes)
+    if (this.implPips.childElementCount !== total) {
+      this.implPips.replaceChildren();
+      for (let i = 0; i < total; i++) el('i', { parent: this.implPips });
+    }
+    const pips = this.implPips.children;
+    for (let i = 0; i < pips.length; i++) pips[i].classList.toggle('on', i < used);
+
+    const blocked = this.swapBlockReason();
+    const list = host.getEquippedImplants();
+    this.implList.replaceChildren();
+    if (list.length === 0) {
+      el('div', { cls: 'cs-impi-empty', text: IMPL_TEXT.none, parent: this.implList });
+    }
+    for (const e of list) {
+      const def = this.itemDef(e.defId);
+      const row = el('button', { cls: 'cs-impi-row', parent: this.implList, attrs: { type: 'button', 'data-uid': e.uid, 'data-def-id': e.defId } });
+      row.style.setProperty('--rc', RARITY_COLORS[def?.rarity ?? 'common']);
+      row.appendChild(buildItemChip(def, { size: 30 }));
+      const info = el('span', { cls: 'info', parent: row });
+      const line = el('span', { cls: 'line', parent: info });
+      el('span', { cls: 'nm', text: def?.name ?? e.defId, parent: line });
+      el('span', { cls: 'tag', text: IMPL_TEXT.slotCost(def?.implant?.slots ?? 0), parent: line });
+      const perk = def?.implant?.perk ? PERK_DEFS[def.implant.perk] : null;
+      const statLine = implantStatLine(def, (id) => this.statName(id));
+      el('span', { cls: 'meta', text: perk ? `${perk.name}${statLine ? ` · ${statLine}` : ''}` : statLine, parent: info });
+      el('span', { cls: 'act', text: blocked ?? IMPL_TEXT.clickToRemove, parent: info });
+      row.classList.toggle('is-locked', !!blocked);
+      row.title = blocked ?? `${def?.name ?? e.defId} — ${IMPL_TEXT.clickToRemove}`;
+      row.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const why = this.swapBlockReason();
+        if (why) { this.showImplMsg(why, true); return; }
+        if (host.unequipImplant(e.uid)) {
+          this.ctx.bus.emit('audio:play', { id: 'ui_equip' });
+          this.showImplMsg(`${def?.name ?? e.defId} ${IMPL_TEXT.unequipped}`, false);
+        } else {
+          this.showImplMsg(IMPL_TEXT.noRoom, true);
+        }
+        this.refreshImplantItems();
+        if (this.implPickerOpen) this.refreshImplantOptions();
+      });
+    }
+    this.implAdd.classList.toggle('is-locked', !!blocked);
+    this.implAdd.classList.toggle('is-open', this.implPickerOpen);
+    this.implAdd.title = blocked ?? IMPL_TEXT.pick;
+    if (blocked) this.closeImplantPicker();
+  }
+
+  /** Every implant item in the bag + 함선 창고 (read through the inventory ref; nothing is moved here). */
+  private implantCandidates(): ItemInstance[] {
+    const inv = this.ctx.inventory;
+    if (!inv) return [];
+    const out: ItemInstance[] = [];
+    const seen = new Set<string>();
+    const take = (items: ItemInstance[] | undefined): void => {
+      for (const it of items ?? []) {
+        if (seen.has(it.uid)) continue;
+        if (!this.itemDef(it.defId)?.implant) continue;
+        seen.add(it.uid);
+        out.push(it);
+      }
+    };
+    try { take(typeof inv.getAllItems === 'function' ? inv.getAllItems() : undefined); } catch { /* bag not ready */ }
+    try { take(typeof inv.getStashItems === 'function' ? inv.getStashItems() : undefined); } catch { /* stash not ready */ }
+    // working first, then by rarity (high → low), then name
+    const rank = (d: ItemDef | undefined): number => ['common', 'uncommon', 'rare', 'epic', 'legendary'].indexOf(d?.rarity ?? 'common');
+    out.sort((a, b) => {
+      const da = this.itemDef(a.defId), db = this.itemDef(b.defId);
+      const ba = da?.implant?.broken ? 1 : 0, bb = db?.implant?.broken ? 1 : 0;
+      if (ba !== bb) return ba - bb;
+      const r = rank(db) - rank(da);
+      if (r !== 0) return r;
+      return (da?.name ?? '').localeCompare(db?.name ?? '', 'ko');
+    });
+    return out;
+  }
+
+  private refreshImplantOptions(): void {
+    const host = this.host;
+    const free = Math.max(0, host.implantSlots - host.implantSlotsUsed);
+    const items = this.implantCandidates();
+    this.implOpts.replaceChildren();
+    if (items.length === 0) {
+      el('div', { cls: 'cs-impi-empty', text: IMPL_TEXT.nothingToPick, parent: this.implOpts });
+      return;
+    }
+    for (const it of items) {
+      const def = this.itemDef(it.defId);
+      const imp = def?.implant;
+      const broken = !!imp?.broken;
+      const slots = imp?.slots ?? 0;
+      const fits = !broken && slots <= free;
+      const opt = el('button', { cls: 'cs-impi-opt', parent: this.implOpts, attrs: { type: 'button', 'data-uid': it.uid, 'data-def-id': it.defId } });
+      opt.style.setProperty('--rc', RARITY_COLORS[def?.rarity ?? 'common']);
+      opt.appendChild(buildItemChip(def, { size: 30 }));
+      const info = el('span', { cls: 'info', parent: opt });
+      const line = el('span', { cls: 'line', parent: info });
+      el('span', { cls: 'nm', text: def?.name ?? it.defId, parent: line });
+      el('span', { cls: 'tag', text: IMPL_TEXT.slotCost(slots), parent: line });
+      el('span', { cls: 'tag rar', text: RARITY_LABEL_KO[def?.rarity ?? 'common'], parent: line });
+      const perk = imp?.perk ? PERK_DEFS[imp.perk] : null;
+      const statLine = implantStatLine(def, (id) => this.statName(id));
+      el('span', { cls: 'meta', text: perk ? `${perk.name} — ${perk.description}${statLine ? ` · ${statLine}` : ''}` : statLine, parent: info });
+      const why = broken ? IMPL_TEXT.broken : !fits ? IMPL_TEXT.noFit : '';
+      if (why) el('span', { cls: 'why', text: why, parent: info });
+      opt.classList.toggle('is-dim', !fits);
+      opt.classList.toggle('is-broken', broken);
+      opt.disabled = !fits;
+      opt.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const blocked = this.swapBlockReason();
+        if (blocked) { this.showImplMsg(blocked, true); this.closeImplantPicker(); return; }
+        if (host.equipImplant(it.uid)) {
+          this.ctx.bus.emit('audio:play', { id: 'ui_equip' });
+          this.showImplMsg(`${def?.name ?? it.defId} ${IMPL_TEXT.equipped}`, false);
+        } else {
+          this.showImplMsg(IMPL_TEXT.failed, true);
+        }
+        this.refreshImplantItems();
+        this.refreshImplantOptions();
+        this.placeImplantPicker();
+      });
+    }
+  }
+
+  /** true while the 임플란트 item picker is up. */
+  get isImplantPickerOpen(): boolean { return this.implPickerOpen; }
+
+  private openImplantPicker(): void {
+    if (this.implPickerOpen) return;
+    this.closePicker();                      // one popup at a time
+    this.implPickerOpen = true;
+    this.implPop.hidden = false;
+    this.implAdd.classList.add('is-open');
+    this.refreshImplantOptions();
+    this.placeImplantPicker();
+    requestAnimationFrame(() => this.placeImplantPicker());
+    document.addEventListener('pointerdown', this.onImplOutside, true);
+    window.addEventListener('keydown', this.onImplKey, true);
+    this.ctx.bus.emit('audio:play', { id: 'ui_click' });
+  }
+
+  /** Closes the 임플란트 item picker; true when it was open. */
+  closeImplantPicker(): boolean {
+    if (!this.implPickerOpen) return false;
+    this.implPickerOpen = false;
+    this.implPop.hidden = true;
+    this.implAdd?.classList.remove('is-open');
+    document.removeEventListener('pointerdown', this.onImplOutside, true);
+    window.removeEventListener('keydown', this.onImplKey, true);
+    return true;
+  }
+
+  /** Anchor the picker to the left of the 장착 button, clamped into the viewport (same rule as the 전술 임플란트 picker). */
+  private placeImplantPicker(): void {
+    if (!this.implPickerOpen) return;
+    const a = this.implAdd.getBoundingClientRect();
+    const r = this.implPop.getBoundingClientRect();
+    const m = 12;
+    let left = a.left - r.width - m;
+    if (left < m) left = Math.min(a.right + m, window.innerWidth - r.width - m);
+    const top = Math.min(Math.max(m, a.bottom - r.height), window.innerHeight - r.height - m);
+    this.implPop.style.left = `${Math.round(Math.max(m, left))}px`;
+    this.implPop.style.top = `${Math.round(Math.max(m, top))}px`;
+  }
+
   private buildSkillRow(parent: HTMLElement, def: SkillDef): void {
     const row = el('div', { cls: 'cs-skill', parent, attrs: { title: def.description } });
     const head = el('div', { cls: 'h', parent: row });
@@ -484,6 +799,8 @@ export class SheetBody {
 
   dispose(): void {
     this.closePicker();
+    this.closeImplantPicker();
+    window.clearTimeout(this.implMsgTimer);
     for (const e of this.created) e.remove();
     this.created = [];
     this.statRows.clear();

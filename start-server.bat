@@ -3,11 +3,11 @@ setlocal
 cd /d "%~dp0"
 title SCAVANGER - 서버
 
-rem  인자 없음  : 릴레이 + 웹 (개발용, start-game.bat 으로 브라우저 플레이)
+rem  인자 없음  : 릴레이 + 웹 (개발용, 브라우저로 http://localhost:5273 접속)
 rem  relay      : 릴레이만  (데스크톱 앱 SCAVANGER.exe 배포용)
 set "NPM_SCRIPT=dev:all"
 set "MODE_LABEL=릴레이 + 웹 (개발용)"
-set "WEB_LINE=  웹     : http://localhost:5273    start-game.bat"
+set "WEB_LINE=  웹     : http://localhost:5273    (브라우저로 열기)"
 if /i "%~1"=="relay" set "NPM_SCRIPT=server"
 if /i "%~1"=="relay" set "MODE_LABEL=릴레이만 (데스크톱 앱 배포용)"
 if /i "%~1"=="relay" set "WEB_LINE=  웹     : 없음 - 브라우저로 하려면 인자 없이 실행하세요"

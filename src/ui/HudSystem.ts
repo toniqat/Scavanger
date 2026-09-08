@@ -30,6 +30,8 @@ import { ImplantChip } from './hud/ImplantChip';
 import { QuickStrip } from './hud/QuickStrip';
 import { Detection } from './hud/Detection';
 import { ScanReveal } from './hud/ScanReveal';
+import { ScanTracker } from './hud/ScanTracker';
+import { CutsceneWatch } from './hud/CutsceneWatch';
 import { Deployables } from './hud/Deployables';
 import { ProgressToasts } from './hud/ProgressToasts';
 import { ActionFeedback } from './hud/ActionFeedback';
@@ -129,6 +131,10 @@ export class HudSystem implements GameSystem {
   private quickStrip!: QuickStrip;
   private detection!: Detection;
   private scanReveal!: ScanReveal;
+  /** Phase 12: 정찰 reveals shared by the compass ticks and the detection arrows / chevrons. */
+  private scanTracker = new ScanTracker();
+  /** Phase 12: docking / warp cutscene flag + ship kind for the ship-only corner widgets. */
+  private cutscene = new CutsceneWatch();
   private deployables!: Deployables;
   private progressToasts!: ProgressToasts;
   private actionFx!: ActionFeedback;
@@ -200,12 +206,12 @@ export class HudSystem implements GameSystem {
     // two new strips now occupy) — `.strat-panel.off` is `display:none`, so it costs no height while idle.
     this.strat = new StratagemPanel(this.weapon.root);
     this.weapon.root.prepend(this.strat.root, this.implantChip.root, this.quickStrip.root);
-    this.compass = new Compass(this.hudRoot);
+    this.compass = new Compass(this.hudRoot, this.scanTracker);
     this.objective = new Objective(this.hudRoot);
     this.contractPanel = new ContractPanel(this.hudRoot);
     this.trainingPanel = new TrainingPanel(this.hudRoot);
     this.spectate = new SpectateOverlay(this.hudRoot);
-    this.detection = new Detection(this.hudRoot);
+    this.detection = new Detection(this.hudRoot, this.scanTracker);
     this.deployables = new Deployables(this.hudRoot);
     this.implantWidget = new ImplantWidget(this.hudRoot);
     this.scanReveal = new ScanReveal();
@@ -223,9 +229,10 @@ export class HudSystem implements GameSystem {
     this.metaToasts = new MetaToasts(this.progressToasts.root);
     this.cheatTag = new CheatTag(this.socialRoot);
     this.roomLabel = new RoomLabel(this.socialRoot);
-    this.shipHint = new ShipManageHint(this.socialRoot);
+    // Phase 12: both corner widgets hide during a docking / warp cutscene; the hint is personal-ship only.
+    this.shipHint = new ShipManageHint(this.socialRoot, this.cutscene);
     // Phase 11: the 커뮤니티 thumbnail + 분대 초대 panels — ship only, self-gated on `ctx.isHubPhase()`.
-    this.community = new Community(this.socialRoot);
+    this.community = new Community(this.socialRoot, this.cutscene);
 
     // Housing-mode layer: its own `.hud.housing` root (always attached; the hint bar toggles `.show` itself) so the
     // placement hints are visible in the ship where the gameplay HUD is hidden.
@@ -258,6 +265,9 @@ export class HudSystem implements GameSystem {
     this.complete = new MissionComplete(ctx.uiRoot);
 
     for (const c of [this.reticle, this.cook, this.wheel, this.swheel, this.strat, this.charge, this.targeting, this.offscreen, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.chat, this.map]) c.bind(ctx);
+    // the shared trackers first: the components they feed read them from their own bind / first update
+    this.scanTracker.bind(ctx);
+    this.cutscene.bind(ctx);
     for (const c of [this.implantWidget, this.implantChip, this.quickStrip, this.detection, this.scanReveal, this.deployables, this.progressToasts, this.actionFx]) c.bind(ctx);
     for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.housingHint, this.roomLabel, this.shipManage, this.shipHint, this.itemTip]) c.bind(ctx);
     for (const c of [this.reload, this.heal, this.gameCursor]) c.bind(ctx);
@@ -385,6 +395,15 @@ export class HudSystem implements GameSystem {
   get itemTipDefId(): string | null { return this.itemTip.shownDefId; }
   /** Whether the 함선 관리(M) hint is showing (debug). */
   get isShipHintOn(): boolean { return this.shipHint.isShowing; }
+  /** Phase 12 debug: compass enemy ticks / on-screen enemy chevrons / live 정찰 reveals / the channel ticker text. */
+  get compassEnemyTicks(): number { return this.compass.enemyTickCount; }
+  get detectMarkCount(): number { return this.detection.markCount; }
+  get scanRevealCount(): number { return this.scanTracker.count; }
+  get channelTickerText(): string | null { return this.notifs.channelText; }
+  get notifCount(): number { return this.notifs.liveCount; }
+  /** Phase 12 debug: the 시설 관리 confirm popup (purpose or 발전기) and the pending purpose. */
+  get isShipManageConfirmOn(): boolean { return this.shipManage.isConfirmOpen; }
+  get shipManageConfirmPurpose(): string | null { return this.shipManage.confirmPurpose; }
   /** Whether the pause menu is in its ship variant (debug). */
   get isPauseHubVariant(): boolean { return this.pause.isHubVariant; }
   /** Whether the contract panel is up / pulsing (debug). */
@@ -479,6 +498,8 @@ export class HudSystem implements GameSystem {
     for (const u of this.unsubs) u();
     for (const c of [this.reticle, this.cook, this.wheel, this.swheel, this.strat, this.charge, this.targeting, this.offscreen, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.chat, this.deploy, this.map]) c.dispose();
     for (const c of [this.implantWidget, this.implantChip, this.quickStrip, this.detection, this.scanReveal, this.deployables, this.progressToasts, this.actionFx]) c.dispose();
+    this.scanTracker.dispose();
+    this.cutscene.dispose();
     for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.housingHint, this.roomLabel, this.shipManage, this.shipHint, this.itemTip]) c.dispose();
     for (const c of [this.reload, this.heal, this.gameCursor]) c.dispose();
     for (const c of [this.contractPanel, this.trainingPanel, this.metaToasts]) c.dispose();

@@ -19,6 +19,7 @@ export class ProgressToasts {
   private live: Array<{ el: HTMLElement; ttl: number }> = [];
   private xpPending = 0;
   private xpTimer = 0;
+  private channelling = false;
   private unsubs: Array<() => void> = [];
 
   constructor(parent: HTMLElement) {
@@ -38,6 +39,12 @@ export class ProgressToasts {
         if (amount <= 0) return;
         this.xpPending += amount;
         if (this.xpTimer <= 0) this.xpTimer = XP_FLUSH;
+      }),
+      // Phase 12: a channelled 회복 스프레이 raises 의학 XP ten times a second — hold the chip until the channel ends
+      // so the stack shows one `+n XP` for the whole use instead of one every `XP_FLUSH` seconds.
+      b.on('item:channelChanged', ({ active }) => {
+        this.channelling = active;
+        if (!active && this.xpPending > 0) this.xpTimer = 0.05;
       }),
       b.on('game:abort', () => this.clear()),
       b.on('game:newMission', () => this.clear()),
@@ -61,7 +68,7 @@ export class ProgressToasts {
   }
 
   update(dt: number): void {
-    if (this.xpTimer > 0) {
+    if (this.xpTimer > 0 && !this.channelling) {
       this.xpTimer -= dt;
       if (this.xpTimer <= 0 && this.xpPending > 0) {
         const t = this.push('xp', 1.6);
@@ -84,7 +91,7 @@ export class ProgressToasts {
   private clear(): void {
     for (const t of this.live) t.el.remove();
     this.live.length = 0;
-    this.xpPending = 0; this.xpTimer = 0;
+    this.xpPending = 0; this.xpTimer = 0; this.channelling = false;
   }
 
   dispose(): void {

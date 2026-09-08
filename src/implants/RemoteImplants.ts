@@ -1,15 +1,23 @@
 import * as THREE from 'three';
 import {
-  IMPLANT_AT_RADIUS, IMPLANT_SCAN_PULSE_INTERVAL, IMPLANT_OVERCHARGE_BUFF_HP_RATIO, Layers,
-  type GameContext, type ImplantId, type ImplantMessage, type PeerId,
+  IMPLANT_AT_RADIUS, IMPLANT_BARRIER_CARRY_OFFSET, IMPLANT_BARRIER_CARRY_WIDTH, IMPLANT_SCAN_PULSE_INTERVAL,
+  IMPLANT_SCAN_RADIUS, IMPLANT_SCAN_REVEAL_TIME_V2, IMPLANT_SHIELD_BASH_SWING_S, IMPLANT_OVERCHARGE_BUFF_HP_RATIO,
+  Layers, type GameContext, type ImplantId, type ImplantMessage, type PeerId,
 } from '@/shared';
 import { getImplantDef, implantHex, isImplantId } from './ImplantDefs';
 import { ImplantDevice } from './devices/ImplantDevice';
 import { BarrierField } from './effects/Barrier';
 import { GrappleWire } from './effects/Grapple';
 import { OverchargeBeam, allyPoint } from './effects/Overcharge';
+import { revealScan } from './effects/Scan';
 import type { RocketPool } from './effects/AtLauncher';
 import type { ImplantFx } from './fx/ImplantFx';
+
+/** Phase 12: `imp scanCast` values from a peer are clamped to sane ranges (the wire is untrusted). */
+const SCAN_RADIUS_MAX = IMPLANT_SCAN_RADIUS * 2;
+const SCAN_DUR_MAX = IMPLANT_SCAN_REVEAL_TIME_V2 * 2;
+/** Phase 12: 정찰 pulse shell duration (s), same as the local cast. */
+const SCAN_PULSE_FX_S = 1.6;
 
 interface PeerVis {
   device: ImplantDevice | null;
@@ -109,10 +117,34 @@ export class RemoteImplants {
         v.shieldUp = msg.active;
         v.shieldHp = msg.hp;
         break;
+      // legacy (Phase ≤ 11) hold-scan pulse from an older peer: FX only
       case 'scan': {
         _a.set(msg.p[0], msg.p[1], msg.p[2]);
         this.fx.pulse(_a, msg.radius, IMPLANT_SCAN_PULSE_INTERVAL * 1.4, implantHex('scan'), _a.y);
         this.ctx.bus.emit('audio:play', { id: 'scan_pulse', position: _a, volume: 0.4 });
+        break;
+      }
+      // Phase 12: a squadmate's one-shot 정찰 — reveal from OUR world around their pulse centre (targets never travel)
+      case 'scanCast': {
+        _a.set(msg.p[0], msg.p[1], msg.p[2]);
+        const radius = Number.isFinite(msg.radius) && msg.radius > 0 ? Math.min(SCAN_RADIUS_MAX, msg.radius) : IMPLANT_SCAN_RADIUS;
+        const dur = Number.isFinite(msg.dur) && msg.dur > 0 ? Math.min(SCAN_DUR_MAX, msg.dur) : IMPLANT_SCAN_REVEAL_TIME_V2;
+        revealScan(this.ctx, _a, radius, dur, false);
+        this.fx.pulse(_a, radius, SCAN_PULSE_FX_S, implantHex('scan'), _a.y - 1.1);
+        this.ctx.bus.emit('audio:play', { id: 'scan_pulse', position: _a, volume: 0.45, pitch: 0.9 });
+        break;
+      }
+      // Phase 12: 실드 배쉬 swing FX at the caster (the pose rides the snapshot's MELEE_HEAVY; damage is theirs)
+      case 'bash': {
+        _a.set(msg.p[0], msg.p[1], msg.p[2]);
+        const yaw = Number.isFinite(msg.yaw) ? msg.yaw : 0;
+        const nx = -Math.sin(yaw), nz = -Math.cos(yaw);
+        const rx = -nz, rz = nx;
+        const half = IMPLANT_BARRIER_CARRY_WIDTH / 2, ahead = IMPLANT_BARRIER_CARRY_OFFSET + 0.25;
+        _b.set(_a.x + nx * ahead + rx * half, _a.y + 1.1, _a.z + nz * ahead + rz * half);
+        _a.set(_a.x + nx * ahead - rx * half, _a.y + 1.1, _a.z + nz * ahead - rz * half);
+        this.fx.streak(_a, _b, implantHex('barrier'), IMPLANT_SHIELD_BASH_SWING_S, 0.5);
+        this.ctx.bus.emit('audio:play', { id: 'melee_swing', position: _a, volume: 0.6, pitch: 0.85 });
         break;
       }
       case 'rocket': {

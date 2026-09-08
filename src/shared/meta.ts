@@ -23,6 +23,18 @@ export interface ShopRule {
   ammoTypes?: readonly AmmoType[];
   tactical?: boolean;
   minRepLevel?: number;
+  /* appended (Phase 12, 2026-09-08 — meta): 임플란트 stock */
+  /**
+   * Highest rarity this rule sells, on top of `SHOP_RARITY_CAP_BY_REP`. 세레스 바이오 stocks common / uncommon stat
+   * implants only — rare and better come from quests and the 임플란트 수리 desk, never the shelf.
+   */
+  maxRarity?: Rarity;
+  /**
+   * `category: 'material'` only: sell every material that appears in some implant's `ItemDef.implant.repairCost`
+   * (resolved from the live item defs, so the shelf follows items/ without listing ids here). Broken implants
+   * themselves are never sold by any rule.
+   */
+  implantRepairMaterials?: boolean;
 }
 
 export interface CorpDef {
@@ -65,13 +77,17 @@ export const CORP_DEFS: Readonly<Record<CorpId, CorpDef>> = {
   },
   ceres: {
     id: 'ceres', name: '세레스 바이오', tagline: '몸이 먼저다.', color: '#6ee7a8',
-    description: '스팀·수류탄·가젯을 취급하는 생명공학 기업. 부착물은 신뢰도 2 부터.',
+    description: '회복 소모품·수류탄·가젯과 임플란트를 취급하는 생명공학 기업. 부착물은 신뢰도 2 부터, 망가진 임플란트 수리도 여기서.',
     stock: [
       { category: 'stim' },
       { category: 'grenade' },
       { category: 'gadget' },
       { category: 'attachment', minRepLevel: 2 },
       { category: 'book', minRepLevel: 2 },   // appended (Phase 9): 서적 — 서재 책장용
+      // appended (Phase 12): 임플란트 — common / uncommon stat implants only; rare+ come from quests / the repair desk
+      { category: 'implant', maxRarity: 'uncommon' },
+      // appended (Phase 12): every material some implant's `repairCost` asks for (the rep rarity cap still applies)
+      { category: 'material', implantRepairMaterials: true },
     ],
   },
 };
@@ -212,6 +228,17 @@ export const QUEST_DEFS: readonly QuestDef[] = [
     { rep: 260, xp: 450, credits: 300, items: [{ defId: 'gad_defib', qty: 1 }] }),
   quest('c3', 'ceres', '고대 성유물', '고대 성유물 1개를 납품한다.', { quests: ['c2'], repLevel: 2 }, [{ defId: 'alien_relic', qty: 1 }],
     { rep: 600, xp: 1500, credits: 1500, items: [{ defId: 'bag_epic_tac', qty: 1 }] }),
+  /* ceres 임플란트 chain (appended Phase 12, 2026-09-08): three steps, each rewarding an implant the shop never sells */
+  quest('ci1', 'ceres', '신경 접합제', '혈근초 6개, 잿빛잎 4개, 소독약 3개를 납품한다. 보상: 인지력 임플란트 III.',
+    { repLevel: 1 }, [{ defId: 'herb_bloodroot', qty: 6 }, { defId: 'herb_ashleaf', qty: 4 }, { defId: 'mat_antiseptic', qty: 3 }],
+    { rep: 200, xp: 300, credits: 200, items: [{ defId: 'imp_perception_3', qty: 1 }] }),
+  quest('ci2', 'ceres', '망가진 회로 분석', '망가진 지능 임플란트 1개, 회로 기판 2개, 생체 조직 6개를 납품한다. 보상: 지능 임플란트 III.',
+    { quests: ['ci1'] }, [{ defId: 'imp_broken_intelligence_1', qty: 1 }, { defId: 'mat_circuit', qty: 2 }, { defId: 'mat_bio_sample', qty: 6 }],
+    { rep: 260, xp: 450, credits: 300, items: [{ defId: 'imp_intelligence_3', qty: 1 }] }),
+  quest('ci3', 'ceres', '가속 대사 임상', '발광버섯 6개, 소독약 6개, 주사기 6개, 터미니드 분비선 4개, 회로 기판 4개를 납품한다. 보상: 가속 대사 (전설 임플란트).',
+    { quests: ['ci2'], repLevel: 3 },
+    [{ defId: 'herb_glowcap', qty: 6 }, { defId: 'mat_antiseptic', qty: 6 }, { defId: 'mat_syringe', qty: 6 }, { defId: 'terminid_gland', qty: 4 }, { defId: 'mat_circuit', qty: 4 }],
+    { rep: 600, xp: 1500, credits: 800, items: [{ defId: 'imp_perk_quick_heal', qty: 1 }] }),
 ];
 
 /* ── runtime shapes ── */

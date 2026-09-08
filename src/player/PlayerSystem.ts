@@ -17,6 +17,9 @@ import { PlayerGear } from './PlayerGear';
 /* appended (Phase 10): 부상자 들쳐메기 + 준비 패널 초상화 */
 import type { CarryEndReason, PortraitRef } from '@/shared';
 import { PLAYER_CARRY_DROP_S, PLAYER_CARRY_OFFSET, PLAYER_CARRY_PICKUP_S, PLAYER_CARRY_RANGE, PLAYER_CARRY_SPEED_MUL } from '@/shared';
+
+/** Phase 12 perk `auto_revive`: seconds between going down and the automatic stand-up. */
+const AUTO_REVIVE_DELAY_S = 1;
 import type { CarryHost } from './Carry';
 import { createPortraits } from './Portraits';
 
@@ -113,6 +116,13 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   /** Phase 9: last `player:giveUpProgress.t` emitted (-1 = idle) and when. */
   private giveUpSent = -1;
   private giveUpSentAt = -Infinity;
+  /**
+   * Phase 12 legendary perk `auto_revive` (재기동 회로): once per raid the downed player stands back up by himself
+   * after `AUTO_REVIVE_DELAY_S`. `autoReviveTimer` counts down while armed (−1 = not armed), `autoReviveUsed` is
+   * reset on `world:ready`.
+   */
+  private autoReviveUsed = false;
+  private autoReviveTimer = -1;
 
   // stamina
   // stamina (max comes from 지구력 via progression; PLAYER_MAX_STAMINA is the fallback)
@@ -481,6 +491,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   /** Teammate finished the revive hold (net → `ctx.player.revive()`): back up with PLAYER_REVIVE_HP, still prone. */
   revive(): void {
     if (!this._downed || this.isDead) return;
+    this.autoReviveTimer = -1;
     this._downed = false;
     this._downHp = 0;
     this.bleedAcc = 0; this.giveUpHold = 0;
@@ -856,7 +867,14 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.eyePos.set(0, EYE_STAND, 0);
     this.aimOrigin.copy(ctx.camera.position);
 
+    // Phase 12 perk `kill_stamina` (아드레날린 펌프): a kill credited to us refills the stamina bar. `by` is `'local'`
+    // on the host for our own hits and on a replica for a `hitc` kill marker (enemies/ folds our PeerId back to it).
+    ctx.bus.on('enemy:killed', ({ by }) => {
+      if (by !== 'local' || !this.spawned || this.isDead || !ctx.progression?.derived.perks?.kill_stamina) return;
+      this.stamina = this.maxStamina; this.regenDelay = 0; this.exhausted = false; this.exhaustedSlow = 0;
+    });
     ctx.bus.on('world:ready', ({ playerSpawn }) => {
+      this.autoReviveUsed = false; this.autoReviveTimer = -1;
       if (ctx.rejoinPending) {
         // rejoin (Phase 7): the body comes back through `restoreState` (or game/'s fallback `respawn`) — no hellpod.
         // Park the hidden, control-less player at the spawn so the camera has something to frame meanwhile.
@@ -953,6 +971,10 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
 
     // ── look & aim (aiming is cancelled during a roll / while downed; the quick-use wheel locks the look)
     if (active && locked && !this.lookLocked) this.rig.applyLook(input.mouseDX, input.mouseDY, this.aimBlend);
+    // 2026-09-08: the aim origin for this frame's shots is where the camera *will* be after `lateUpdate` for the look
+    // just applied — not where it was last frame (see `CameraRig.predictPosition`). `lateUpdate` overwrites it again
+    // with the real position once the rig has moved.
+    this.rig.predictPosition(this.aimOrigin);
     this.setAiming(active && locked && !downed && !this._carrying && this.weaponState.hasWeapon && !this.altFireWeapon && input.isMouseDown(MouseButtons.AIM) && !c.rolling);
 
     // ── carry input (F tap): pick up / put down. Runs before the movement branches so the key is consumed
@@ -1270,6 +1292,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.controller.sprinting = false;
     this.setStance('prone'); this.standUpTimer = 0;
     this.rig.addShake(0.7, 0.5);
+    // Phase 12 perk `auto_revive`: arm the one-shot self-revive (fires from `updateDowned`)
+    this.autoReviveTimer = !this.autoReviveUsed && this.ctx.progression?.derived.perks?.auto_revive ? AUTO_REVIVE_DELAY_S : -1;
     const bus = this.ctx.bus;
     bus.emit('player:downed', { position: this.controller.position.clone() });
     bus.emit('player:downHpChanged', { downHp: this._downHp, max: PLAYER_DOWN_HP });
@@ -1279,6 +1303,16 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
 
   /** Bleed PLAYER_DOWN_BLEED_PER_SEC (whole points → `player:downHpChanged`), Space held PLAYER_GIVE_UP_HOLD → die. */
   private updateDowned(dt: number, active: boolean): void {
+    if (this.autoReviveTimer >= 0) {
+      this.autoReviveTimer -= dt;
+      if (this.autoReviveTimer <= 0) {
+        this.autoReviveTimer = -1;
+        this.autoReviveUsed = true;
+        this.revive();
+        this.ctx.bus.emit('ui:notify', { text: '재기동 회로 작동', kind: 'success', duration: 1.8 });
+        return;
+      }
+    }
     this.bleedAcc += PLAYER_DOWN_BLEED_PER_SEC * dt;
     const whole = Math.floor(this.bleedAcc);
     if (whole >= 1) {
@@ -1316,6 +1350,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   }
 
   private clearDowned(): void {
+    this.autoReviveTimer = -1;
     this._downed = false;
     this._downHp = 0;
     this.bleedAcc = 0;

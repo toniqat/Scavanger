@@ -2,6 +2,9 @@
 // lower to STAT_MIN / carry-over, addSkillXpRaw down to level 0, profile migration + reload persistence, character sheet DOM.
 // Phase 7 (2026-09-06): 감정 XP from `container:itemRevealed` (not `inventory:itemAdded`), training = gun_* only,
 // server profile document (save → `profile.set('progression')`, `net:profileLoaded` replace + progress:* re-emit).
+// Phase 12 (2026-09-08): 임플란트 items — slots by level (4 / 5 / 10), the 46 defs + repair costs + HEAL_SPRAY_GAUGE, loot rules
+// (broken-only, boss legendaries, tier 4 only), equip / unequip / refusals / derived + perks, raid lock, 캐릭터 sheet block +
+// picker DOM, reload + server-document round-trip. 119 checks.
 // Usage: node scripts/smoke-progression.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { existsSync } from 'node:fs';
@@ -74,7 +77,7 @@ try {
       Object.defineProperty(Document.prototype, 'pointerLockElement', { get: () => canvas, configurable: true });
       window.__ev = {};
       const bus = window.__game.ctx.bus;
-      for (const n of ['progress:statXp', 'progress:statChanged', 'progress:skillUp', 'progress:skillProgress', 'ui:statsToggled', 'progress:loaded', 'progress:xpGained']) {
+      for (const n of ['progress:statXp', 'progress:statChanged', 'progress:skillUp', 'progress:skillProgress', 'ui:statsToggled', 'progress:loaded', 'progress:xpGained', 'progress:implantsChanged']) {
         window.__ev[n] = [];
         bus.on(n, (p) => { window.__ev[n].push(JSON.parse(JSON.stringify(p))); });
       }
@@ -380,6 +383,244 @@ try {
   ok(closed.hidden && !closed.blocker && !closed.cursor, 'Esc closes the sheet and drops the blocker + the cursor', JSON.stringify(closed));
   const toggled = await lastEv('ui:statsToggled');
   ok(toggled && toggled.open === false, 'ui:statsToggled {open:false}');
+
+  console.log('임플란트 items (Phase 12): slots by level');
+  const levelTo = (lv) => page.evaluate((target) => {
+    const p = window.__game.ctx.progression;
+    for (let i = 0; i < 200 && p.level < target; i++) p.addXp(Math.max(1, p.xpToNext - p.xp));
+    return { level: p.level, slots: p.implantSlots, used: p.implantSlotsUsed };
+  }, lv);
+  await page.evaluate(() => window.__game.ctx.progression.resetProfile());
+  let sl = await page.evaluate(() => { const p = window.__game.ctx.progression; return { level: p.level, slots: p.implantSlots, used: p.implantSlotsUsed, eq: p.getEquippedImplants().length }; });
+  ok(sl.level === 1 && sl.slots === 4 && sl.used === 0 && sl.eq === 0, 'fresh character: level 1 → 4 implant slots, 0 used, nothing equipped', JSON.stringify(sl));
+  sl = await levelTo(5);
+  ok(sl.level === 5 && sl.slots === 5, 'level 5 → 5 slots (IMPLANT_SLOTS_BASE 4 + 1 per 5 levels)', JSON.stringify(sl));
+  sl = await levelTo(30);
+  ok(sl.level === 30 && sl.slots === 10, 'level 30 → 10 slots (capped at IMPLANT_SLOTS_MAX)', JSON.stringify(sl));
+  await page.evaluate(() => window.__game.ctx.progression.resetProfile());
+
+  console.log('임플란트 items: defs');
+  const defs = await page.evaluate(() => {
+    const loot = window.__game.ctx.loot;
+    const all = loot.getAllItemDefs().filter((d) => d.category === 'implant');
+    const s2 = loot.getItemDef('imp_strength_2'), b2 = loot.getItemDef('imp_broken_strength_2'), qh = loot.getItemDef('imp_perk_quick_heal'), bqh = loot.getItemDef('imp_broken_perk_quick_heal');
+    return {
+      n: all.length, working: all.filter((d) => !d.implant.broken).length, broken: all.filter((d) => d.implant.broken).length,
+      s2: s2 && { name: s2.name, rarity: s2.rarity, slots: s2.implant.slots, stats: s2.implant.stats, w: s2.width, h: s2.height, stack: s2.stackMax },
+      b2: b2 && { name: b2.name, rarity: b2.rarity, slots: b2.implant.slots, broken: b2.implant.broken, to: b2.implant.repairsTo, cost: b2.implant.repairCost, stats: b2.implant.stats, value: b2.value, wv: s2.value },
+      qh: qh && { name: qh.name, rarity: qh.rarity, slots: qh.implant.slots, perk: qh.implant.perk, stats: qh.implant.stats },
+      bqh: bqh && { to: bqh.implant.repairsTo, cost: bqh.implant.repairCost.map((c) => `${c.defId}×${c.qty}`) },
+      costsKnown: all.every((d) => !d.implant.repairCost || d.implant.repairCost.every((c) => !!loot.getItemDef(c.defId))),
+      spray: loot.getItemDef('heal_spray').durabilityMax,
+    };
+  });
+  ok(defs.n === 46 && defs.working === 23 && defs.broken === 23, '46 implant defs: 23 working (5 stats × I–IV + 3 legendary perks) + 23 broken twins', JSON.stringify({ n: defs.n, w: defs.working, b: defs.broken }));
+  ok(defs.s2 && defs.s2.name === '근력 임플란트 II' && defs.s2.rarity === 'uncommon' && defs.s2.slots === 2 && defs.s2.stats.strength === 2 && defs.s2.w === 1 && defs.s2.h === 1 && defs.s2.stack === 1, 'imp_strength_2: 근력 임플란트 II, uncommon, 2 slots, 근력 +2, 1×1, no stacking', JSON.stringify(defs.s2));
+  ok(defs.b2 && defs.b2.name === '망가진 근력 임플란트 II' && defs.b2.rarity === 'uncommon' && defs.b2.broken === true && defs.b2.to === 'imp_strength_2' && Object.keys(defs.b2.stats).length === 0 && defs.b2.slots === 2 && defs.b2.value * 4 === defs.b2.wv, 'imp_broken_strength_2: 망가진 twin, same rarity / slots, no stats, repairsTo imp_strength_2, value ¼', JSON.stringify(defs.b2));
+  ok(defs.b2 && defs.b2.cost.length === 3 && defs.b2.cost.some((c) => c.defId === 'mat_circuit') && defs.b2.cost.some((c) => c.defId === 'mat_alloy'), 'grade II repair cost: 회로 기판 + 케이블 + 합금 판', JSON.stringify(defs.b2?.cost));
+  ok(defs.qh && defs.qh.name === '가속 대사' && defs.qh.rarity === 'legendary' && defs.qh.slots === 2 && defs.qh.perk === 'quick_heal' && defs.qh.stats.dexterity === 1, 'imp_perk_quick_heal: 가속 대사, legendary, 2 slots, perk quick_heal, 재주 +1', JSON.stringify(defs.qh));
+  ok(defs.bqh && defs.bqh.to === 'imp_perk_quick_heal' && defs.bqh.cost.length === 4 && defs.bqh.cost.includes('mat_circuit×3'), 'broken legendary repairs to the perk implant for 회로 기판 3 + 케이블 3 + 합금 판 2 + 소독약 1', JSON.stringify(defs.bqh));
+  ok(defs.costsKnown, 'every repairCost def id resolves');
+  ok(defs.spray === 200, 'heal_spray durabilityMax follows HEAL_SPRAY_GAUGE (200)', `${defs.spray}`);
+
+  console.log('임플란트 items: loot');
+  const loot = await page.evaluate(() => {
+    const ctx = window.__game.ctx;
+    const out = { rogue: 0, boss: 0, bossLegend: 0, working: 0, crateBroken: 0, crateWorking: 0, crateLegendT3: 0 };
+    for (let i = 0; i < 400; i++) {
+      for (const t of ['rogue', 'rogue_boss']) {
+        for (const it of ctx.loot.rollCorpse(t)) {
+          const d = ctx.loot.getItemDef(it.defId);
+          if (d?.category !== 'implant') continue;
+          if (!d.implant.broken) out.working++;
+          if (t === 'rogue') out.rogue++; else { out.boss++; if (d.rarity === 'legendary') out.bossLegend++; }
+        }
+      }
+    }
+    for (let tier = 2; tier <= 4; tier++) {
+      for (let i = 0; i < 300; i++) {
+        for (const it of ctx.loot.rollCrate(tier, undefined)) {
+          const d = ctx.loot.getItemDef(it.defId);
+          if (d?.category !== 'implant') continue;
+          if (d.implant.broken) out.crateBroken++; else out.crateWorking++;
+          if (tier < 4 && d.rarity === 'legendary') out.crateLegendT3++;
+        }
+      }
+    }
+    return out;
+  });
+  ok(loot.rogue > 0 && loot.boss > loot.rogue, `로그 / 보스 시체 drop broken implants (rogue ${loot.rogue} / boss ${loot.boss} of 400)`, JSON.stringify(loot));
+  ok(loot.bossLegend > 0, `boss corpses can carry a broken legendary (${loot.bossLegend})`, JSON.stringify(loot));
+  ok(loot.working === 0 && loot.crateWorking === 0, 'no working implant ever drops (corpses / crates)', JSON.stringify(loot));
+  ok(loot.crateBroken > 0 && loot.crateLegendT3 === 0, `tier 2–4 crates drop broken implants (${loot.crateBroken}), broken legendaries never below tier 4`, JSON.stringify(loot));
+
+  console.log('임플란트 items: equip / unequip in the hub');
+  ok(await page.evaluate(() => window.__game.ctx.phase === 'hub'), 'still in the hub');
+  const mk = (defId) => page.evaluate((id) => { const ctx = window.__game.ctx; const it = ctx.loot.createItem(id, 1); const okAdd = ctx.inventory.tryAddToStash(it); window.__impUids = window.__impUids ?? []; window.__impUids.push(it.uid); return okAdd ? it.uid : null; }, defId);
+  const uS2 = await mk('imp_strength_2');
+  const uE4 = await mk('imp_endurance_4');
+  const uB1 = await mk('imp_broken_strength_1');
+  const uQH = await mk('imp_perk_quick_heal');
+  ok(uS2 && uE4 && uB1 && uQH, 'created imp_strength_2 / imp_endurance_4 / imp_broken_strength_1 / imp_perk_quick_heal in the 함선 창고', JSON.stringify({ uS2, uE4, uB1, uQH }));
+  const before = await page.evaluate(() => { const p = window.__game.ctx.progression; return { str: p.getStat('strength'), eff: p.getStatWithImplants('strength'), carry: p.derived.carryCapacity, stash: window.__game.ctx.inventory.getStashItems().length }; });
+  const eq1 = await page.evaluate((uid) => {
+    const ctx = window.__game.ctx; const p = ctx.progression;
+    const okEq = p.equipImplant(uid);
+    return { okEq, used: p.implantSlotsUsed, slots: p.implantSlots, str: p.getStat('strength'), eff: p.getStatWithImplants('strength'), bonus: p.getImplantBonus('strength'), carry: p.derived.carryCapacity,
+      inStash: !!ctx.inventory.findItemAnywhere(uid), eq: p.getEquippedImplants().map((e) => e.defId), melee: p.derived.meleeDamageMul, profile: (p.profile.implants ?? []).length };
+  }, uS2);
+  ok(eq1.okEq && eq1.used === 2 && eq1.slots === 4, 'equipImplant(imp_strength_2) → true, 2 / 4 slots used', JSON.stringify(eq1));
+  ok(eq1.str === before.str && eq1.eff === before.str + 2 && eq1.bonus === 2, 'getStat unchanged (base), getStatWithImplants = base + 2, getImplantBonus 2', JSON.stringify({ before: before.str, eq1 }));
+  ok(near(eq1.carry, before.carry + 2.2 * 2, 1e-6) && eq1.melee > 1, 'derived recomputed from the effective stat (carryCapacity +4.4, meleeDamageMul > 1)', JSON.stringify({ before: before.carry, after: eq1.carry, melee: eq1.melee }));
+  ok(!eq1.inStash && eq1.eq.length === 1 && eq1.eq[0] === 'imp_strength_2' && eq1.profile === 1, 'the item left the 창고 and lives in profile.implants', JSON.stringify(eq1));
+  let ic = await lastEv('progress:implantsChanged');
+  ok(ic && ic.used === 2 && ic.slots === 4 && ic.equipped.length === 1 && ic.equipped[0].uid === uS2, 'progress:implantsChanged {equipped, slots 4, used 2}', JSON.stringify(ic));
+  const over = await page.evaluate((uid) => { const p = window.__game.ctx.progression; return { okEq: p.equipImplant(uid), used: p.implantSlotsUsed, still: !!window.__game.ctx.inventory.findItemAnywhere(uid) }; }, uE4);
+  ok(!over.okEq && over.used === 2 && over.still, 'overfill refused: imp_endurance_4 (3 slots) does not fit in the 2 left — item stays in the 창고', JSON.stringify(over));
+  const brk = await page.evaluate((uid) => { const p = window.__game.ctx.progression; return { okEq: p.equipImplant(uid), used: p.implantSlotsUsed, still: !!window.__game.ctx.inventory.findItemAnywhere(uid) }; }, uB1);
+  ok(!brk.okEq && brk.used === 2 && brk.still, 'broken implant refused (imp_broken_strength_1, 1 slot free would fit)', JSON.stringify(brk));
+  const dup = await page.evaluate((uid) => window.__game.ctx.progression.equipImplant(uid), uS2);
+  ok(dup === false, 'equipping an already-equipped uid is refused');
+  const unknown = await page.evaluate(() => window.__game.ctx.progression.equipImplant('nope-uid'));
+  ok(unknown === false, 'unknown uid refused');
+  const eqQ = await page.evaluate((uid) => { const p = window.__game.ctx.progression; return { okEq: p.equipImplant(uid), used: p.implantSlotsUsed, perks: p.derived.perks, dex: p.getImplantBonus('dexterity') }; }, uQH);
+  ok(eqQ.okEq && eqQ.used === 4 && eqQ.perks.quick_heal === true && eqQ.perks.auto_revive === false && eqQ.perks.kill_stamina === false && eqQ.dex === 1, 'legendary 가속 대사 equips (4 / 4) → derived.perks.quick_heal true, others false, 재주 +1', JSON.stringify(eqQ));
+  const un = await page.evaluate((uid) => {
+    const ctx = window.__game.ctx; const p = ctx.progression;
+    const okUn = p.unequipImplant(uid);
+    const back = ctx.inventory.getStashItems().find((i) => i.uid === uid);
+    return { okUn, used: p.implantSlotsUsed, back: !!back, backDef: back?.defId, eff: p.getStatWithImplants('strength'), str: p.getStat('strength'), carry: p.derived.carryCapacity, eq: p.getEquippedImplants().map((e) => e.defId) };
+  }, uS2);
+  ok(un.okUn && un.used === 2 && un.back && un.backDef === 'imp_strength_2', 'unequipImplant(imp_strength_2) → true, item back in the 창고 with the same uid, 2 / 4 used', JSON.stringify(un));
+  ok(un.eff === un.str && near(un.carry, before.carry, 1e-6) && un.eq.length === 1 && un.eq[0] === 'imp_perk_quick_heal', 'bonus gone after unequip (carry back to base), 가속 대사 still equipped', JSON.stringify(un));
+  ok((await page.evaluate(() => window.__game.ctx.progression.unequipImplant('nope-uid'))) === false, 'unequip of an unknown uid refused');
+  ic = await lastEv('progress:implantsChanged');
+  ok(ic && ic.used === 2 && ic.equipped.length === 1, 'progress:implantsChanged after unequip {used 2, 1 equipped}', JSON.stringify(ic));
+
+  console.log('임플란트 items: raid lock');
+  const raid = await page.evaluate((uid) => {
+    const ctx = window.__game.ctx; const p = ctx.progression;
+    const real = ctx.isRaidActive; ctx.isRaidActive = () => true;
+    try { return { eq: p.equipImplant(uid), un: p.unequipImplant(p.getEquippedImplants()[0].uid), used: p.implantSlotsUsed }; }
+    finally { ctx.isRaidActive = real; }
+  }, uS2);
+  ok(!raid.eq && !raid.un && raid.used === 2, 'equip / unequip refused while isRaidActive() (nothing moved)', JSON.stringify(raid));
+  const menuPhase = await page.evaluate((uid) => {
+    const ctx = window.__game.ctx; const p = ctx.progression;
+    const real = ctx.phase; ctx.setPhase('menu');
+    try { return { eq: p.equipImplant(uid), phase: ctx.phase }; } finally { ctx.setPhase(real); }
+  }, uS2);
+  ok(!menuPhase.eq && menuPhase.phase === 'menu', 'equip refused outside the hub phase', JSON.stringify(menuPhase));
+
+  console.log('임플란트 items: 캐릭터 sheet block + picker');
+  await page.evaluate(() => window.__game.ctx.bus.emit('ui:statsToggled', { open: true }));
+  await sleep(200);
+  const blk = await page.evaluate(() => {
+    const root = document.querySelector('.char-sheet');
+    const b = root.querySelector('.cs-impitems');
+    const rows = [...b.querySelectorAll('.cs-impi-row')];
+    const stat = root.querySelector('.cs-stat .v');
+    const dexRow = root.querySelectorAll('.cs-stat')[4];
+    return {
+      has: !!b, cnt: b.querySelector('.cnt')?.textContent, pips: b.querySelectorAll('.cs-impi-pips i').length, on: b.querySelectorAll('.cs-impi-pips i.on').length,
+      rows: rows.map((r) => ({ uid: r.dataset.uid, def: r.dataset.defId, nm: r.querySelector('.nm')?.textContent, tag: r.querySelector('.tag')?.textContent, meta: r.querySelector('.meta')?.textContent, chip: !!r.querySelector('.item-chip[data-def-id]') })),
+      add: !!b.querySelector('.cs-impi-add'), strV: stat?.textContent, dexV: dexRow?.querySelector('.v')?.textContent, dexBonus: dexRow?.querySelector('.ib')?.textContent,
+      popHidden: document.querySelector('.cs-impi-pop-overlay')?.hidden,
+    };
+  });
+  ok(blk.has && blk.cnt === '2 / 4칸' && blk.pips === 4 && blk.on === 2 && blk.add, '임플란트 block: `2 / 4칸`, 4 pips (2 lit), + 장착 button', JSON.stringify({ cnt: blk.cnt, pips: blk.pips, on: blk.on }));
+  ok(blk.rows.length === 1 && blk.rows[0].def === 'imp_perk_quick_heal' && blk.rows[0].nm === '가속 대사' && blk.rows[0].tag === '장착칸 2' && /재주 \+1/.test(blk.rows[0].meta) && blk.rows[0].chip, 'equipped row: shared item chip (data-def-id) + 가속 대사 · 장착칸 2 · 재주 +1', JSON.stringify(blk.rows));
+  ok(/\(\+1\)/.test(blk.dexV) && blk.dexBonus === ' (+1)' && !/\(/.test(blk.strV), '재주 row shows `base (+1)`, 근력 row shows the base only', JSON.stringify({ dex: blk.dexV, str: blk.strV }));
+  ok(blk.popHidden === true, 'item picker exists as a uiRoot child (.cs-impi-pop-overlay) and starts hidden');
+  await page.evaluate(() => document.querySelector('.char-sheet .cs-impi-add').click());
+  await sleep(150);
+  const pick = await page.evaluate(() => {
+    const pop = document.querySelector('.cs-impi-pop-overlay');
+    const opts = [...pop.querySelectorAll('.cs-impi-opt')];
+    return {
+      hidden: pop.hidden, parentIsRoot: pop.parentElement === window.__game.ctx.uiRoot, n: opts.length,
+      opts: opts.map((o) => ({ def: o.dataset.defId, dim: o.classList.contains('is-dim'), disabled: o.disabled, why: o.querySelector('.why')?.textContent ?? '', chip: !!o.querySelector('.item-chip[data-def-id]') })),
+    };
+  });
+  const optS2 = pick.opts.find((o) => o.def === 'imp_strength_2'), optE4 = pick.opts.find((o) => o.def === 'imp_endurance_4'), optB1 = pick.opts.find((o) => o.def === 'imp_broken_strength_1');
+  ok(!pick.hidden && pick.parentIsRoot && pick.n === 3, '+ 장착 opens the picker (uiRoot child) listing the 3 implant items in the 창고', JSON.stringify({ n: pick.n, opts: pick.opts.map((o) => o.def) }));
+  ok(optS2 && !optS2.dim && !optS2.disabled && optS2.chip, 'imp_strength_2 (2 slots, 2 free) listed enabled with the shared chip', JSON.stringify(optS2));
+  ok(optE4 && optE4.dim && optE4.disabled && optE4.why === '장착칸 부족', 'imp_endurance_4 (3 slots) dimmed + disabled: 장착칸 부족', JSON.stringify(optE4));
+  ok(optB1 && optB1.dim && optB1.disabled && optB1.why === '망가짐 — 세레스 바이오에서 수리', 'broken implant dimmed + disabled: 망가짐 — 세레스 바이오에서 수리', JSON.stringify(optB1));
+  await page.evaluate((uid) => document.querySelector(`.cs-impi-pop-overlay .cs-impi-opt[data-uid="${uid}"]`).click(), uS2);
+  await sleep(150);
+  const picked = await page.evaluate(() => {
+    const root = document.querySelector('.char-sheet'); const p = window.__game.ctx.progression;
+    return { used: p.implantSlotsUsed, cnt: root.querySelector('.cs-impitems .cnt').textContent, rows: root.querySelectorAll('.cs-impi-row').length, opts: document.querySelectorAll('.cs-impi-pop-overlay .cs-impi-opt').length, msg: root.querySelector('.cs-impi-msg').textContent, strV: root.querySelector('.cs-stat .v').textContent };
+  });
+  ok(picked.used === 4 && picked.cnt === '4 / 4칸' && picked.rows === 2 && picked.opts === 2 && /장착/.test(picked.msg), 'clicking the option equips it: 4 / 4칸, 2 rows, picker re-lists 2, inline `장착` message', JSON.stringify(picked));
+  ok(/\(\+2\)/.test(picked.strV), '근력 row now shows `base (+2)`', picked.strV);
+  await tap('Escape');
+  await sleep(120);
+  const escd = await page.evaluate(() => ({ pop: document.querySelector('.cs-impi-pop-overlay').hidden, sheet: document.querySelector('.char-sheet').hidden }));
+  ok(escd.pop && !escd.sheet, 'Escape closes the item picker first (sheet stays open)', JSON.stringify(escd));
+  await page.evaluate((uid) => document.querySelector(`.char-sheet .cs-impi-row[data-uid="${uid}"]`).click(), uS2);
+  await sleep(120);
+  const unRow = await page.evaluate(() => { const p = window.__game.ctx.progression; return { used: p.implantSlotsUsed, rows: document.querySelectorAll('.char-sheet .cs-impi-row').length }; });
+  ok(unRow.used === 2 && unRow.rows === 1, 'clicking an equipped row unequips it (2 / 4, 1 row)', JSON.stringify(unRow));
+  const raidUi = await page.evaluate(() => {
+    const ctx = window.__game.ctx; const real = ctx.isRaidActive; ctx.isRaidActive = () => true;
+    try {
+      document.querySelector('.char-sheet .cs-impi-add').click();
+      const root = document.querySelector('.char-sheet');
+      return { msg: root.querySelector('.cs-impi-msg').textContent, hidden: root.querySelector('.cs-impi-msg').hidden, pop: document.querySelector('.cs-impi-pop-overlay').hidden, used: ctx.progression.implantSlotsUsed };
+    } finally { ctx.isRaidActive = real; }
+  });
+  ok(raidUi.msg === '레이드 중에는 교체할 수 없습니다' && !raidUi.hidden && raidUi.pop && raidUi.used === 2, 'in a raid the + 장착 button shows the inline `레이드 중에는 교체할 수 없습니다` line instead of the picker', JSON.stringify(raidUi));
+  await tap('Escape');
+  await sleep(150);
+
+  console.log('임플란트 items: profile round-trip (reload)');
+  await page.evaluate(() => window.__game.ctx.progression.save());
+  await page.reload({ waitUntil: 'load' });
+  await boot();
+  const rt = await page.evaluate((uid) => {
+    const p = window.__game.ctx.progression;
+    return { eq: p.getEquippedImplants().map((e) => e.defId), uid: p.getEquippedImplants()[0]?.uid, used: p.implantSlotsUsed, perk: p.derived.perks.quick_heal, dex: p.getImplantBonus('dexterity'), raw: JSON.parse(localStorage.getItem('scav.profile') ?? 'null')?.implants?.length };
+  }, uQH);
+  ok(rt.eq.length === 1 && rt.eq[0] === 'imp_perk_quick_heal' && rt.uid === uQH && rt.used === 2 && rt.perk === true && rt.dex === 1 && rt.raw === 1, 'reload: 가속 대사 still equipped (same uid), perk + bonus re-derived, profile.implants saved', JSON.stringify(rt));
+  // an unknown def id in the saved array is dropped silently
+  await page.evaluate(() => { const raw = JSON.parse(localStorage.getItem('scav.profile')); raw.implants.push({ uid: 'ghost-1', defId: 'imp_removed_99' }, { bogus: true }, { uid: '', defId: 'imp_strength_1' }); localStorage.setItem('scav.profile', JSON.stringify(raw)); });
+  await page.reload({ waitUntil: 'load' });
+  await boot();
+  await sleep(100);
+  const pruned = await page.evaluate(() => { const p = window.__game.ctx.progression; return { eq: p.getEquippedImplants().map((e) => e.defId), used: p.implantSlotsUsed }; });
+  ok(pruned.eq.length === 1 && pruned.eq[0] === 'imp_perk_quick_heal' && pruned.used === 2, 'unknown / malformed entries in profile.implants are dropped on load', JSON.stringify(pruned));
+  // server document round-trip through the fake profile: the array travels with `progression`
+  const srvImp = await page.evaluate(() => {
+    const net = window.__game.ctx.net;
+    const fake = { available: true, credits: 0, docs: {}, sets: [], get(k) { return this.docs[k]; }, set(k, doc) { this.sets.push(k); this.docs[k] = JSON.parse(JSON.stringify(doc)); }, flush() {}, addCredits: async () => ({ ok: true, credits: 0 }) };
+    const desc = Object.getOwnPropertyDescriptor(net, 'profile') ?? null;
+    Object.defineProperty(net, 'profile', { value: fake, configurable: true, writable: true });
+    try {
+      const p = window.__game.ctx.progression;
+      p.save();
+      const uploaded = fake.docs.progression?.implants?.length;
+      const doc = JSON.parse(JSON.stringify(fake.docs.progression)); doc.implants = [];
+      fake.docs = { progression: doc };
+      window.__game.ctx.bus.emit('net:profileLoaded', { profile: { credits: 0, docs: fake.docs, updatedAt: 0 }, migrated: false });
+      const afterEmpty = { n: p.getEquippedImplants().length, perk: p.derived.perks.quick_heal, ev: window.__ev['progress:implantsChanged'].length };
+      doc.implants = [{ uid: 'srv-1', defId: 'imp_intelligence_3' }];
+      window.__game.ctx.bus.emit('net:profileLoaded', { profile: { credits: 0, docs: fake.docs, updatedAt: 0 }, migrated: false });
+      return { uploaded, afterEmpty, eq: p.getEquippedImplants().map((e) => e.defId), int: p.getImplantBonus('intelligence'), ev: window.__ev['progress:implantsChanged'].length };
+    } finally { if (desc) Object.defineProperty(net, 'profile', desc); else delete net.profile; }
+  });
+  ok(srvImp.uploaded === 1, "save → profile.set('progression') carries implants (1)", JSON.stringify(srvImp));
+  ok(srvImp.afterEmpty.n === 0 && srvImp.afterEmpty.perk === false && srvImp.eq.length === 1 && srvImp.eq[0] === 'imp_intelligence_3' && srvImp.int === 3 && srvImp.ev === srvImp.afterEmpty.ev + 1, 'net:profileLoaded replaces the equipped set (perks / bonus re-derived, progress:implantsChanged re-emitted)', JSON.stringify(srvImp));
+
+  // Clean up: return / remove every implant item this script created so the next script's 창고 is untouched.
+  await page.evaluate(() => {
+    const ctx = window.__game.ctx; const p = ctx.progression;
+    ctx.setPhase('hub');
+    for (const e of p.getEquippedImplants().slice()) p.unequipImplant(e.uid);
+    for (const it of [...ctx.inventory.getStashItems(), ...ctx.inventory.getAllItems()]) if (ctx.loot.getItemDef(it.defId)?.category === 'implant') ctx.inventory.takeItem(it.uid);
+  });
+  ok(await page.evaluate(() => window.__game.ctx.inventory.getStashItems().every((i) => window.__game.ctx.loot.getItemDef(i.defId)?.category !== 'implant')), 'cleanup: no implant items left in the 창고');
 
   // Clean up so the next script starts from a fresh character.
   await page.evaluate(() => window.__game.ctx.progression.resetProfile());

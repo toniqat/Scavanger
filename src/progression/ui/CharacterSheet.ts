@@ -30,6 +30,8 @@ export class CharacterSheet {
     if (e.code !== Keys.MENU || !this._open) return;
     e.preventDefault();
     e.stopPropagation();
+    // Phase 12: a raised picker (전술 임플란트 / 임플란트 items) swallows the first Escape; the sheet closes on the next
+    if (this.body.closePicker()) return;
     this.close();
   };
 

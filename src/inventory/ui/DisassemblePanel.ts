@@ -15,7 +15,18 @@ import { TEXT, fmtSeconds } from './labels';
  * Like every modeless popup it adds no blocker and never exits the pointer lock — the window owns both — and it is
  * dismissed by Escape (through `InventoryUI.closeOverlays()`), by the 닫기 button or by a pointerdown outside it.
  * Emits `ui:disassembleToggled {open, uid}` on both edges.
+ *
+ * Phase 12 (2026-09-08) — **분해 게이지**: while the hold runs, a horizontal bar directly under the `분해 중…` button
+ * fills 0 → 100 % in real time. It is driven per frame by `tick()` (called from `InventoryUI.refreshCraft`, which the
+ * system calls from `updateCraft` every frame the job advances) and has **no CSS transition**, so the fill is the
+ * job's progress and nothing else. The panel also reports the hold through `onProgress` → the window emits
+ * `inventory:disassembleProgress {uid, t, done}`: at most every `PROGRESS_EMIT_MS` while running, exactly once with
+ * `done:true` when the recipe completes, and `{t:0, done:false}` when a cancel (button / close / death) resets the bar.
+ * The bar is hidden while idle.
  */
+/** Minimum spacing of two `inventory:disassembleProgress` emits (≤ 30 Hz). */
+const PROGRESS_EMIT_MS = 1000 / 30;
+
 /** One captioned side of the 재료 → 결과물 preview. */
 function column(caption: string, host: HTMLElement): HTMLElement {
   const col = document.createElement('div');
@@ -37,15 +48,25 @@ export class DisassemblePanel {
   private readonly button: HTMLButtonElement;
   private readonly fill: HTMLElement;
   private readonly buttonLabel: HTMLElement;
+  private readonly bar: HTMLElement;
+  private readonly barFill: HTMLElement;
   private uid: string | null = null;
   private recipe: CraftRecipe | null = null;
   private running = false;
   private msgTimer: number | null = null;
+  /** `performance.now()` of the last progress emit (throttle). */
+  private lastEmitAt = -Infinity;
+  /** Last progress written to the bar (-1 = idle); skips a DOM write when nothing moved. */
+  private lastT = -1;
+  /** A progress report went out for the current hold (so a cancel owes the `{t:0}` reset). */
+  private reported = false;
 
   constructor(
     private readonly sys: InventorySystem,
     private readonly getDef: (id: string) => ItemDef | undefined,
     private readonly onToggled: (open: boolean, uid: string | null) => void,
+    /** Phase 12: `inventory:disassembleProgress` sink (the window owns the bus). */
+    private readonly onProgress: (uid: string, t: number, done: boolean) => void = () => {},
   ) {
     this.shell = new Modeless('disassemble', () => this.finishClose());
     this.shell.withHeader(TEXT.disassemble.eyebrow, TEXT.disassemble.title);
@@ -79,13 +100,25 @@ export class DisassemblePanel {
     this.button.append(this.fill, this.buttonLabel);
     this.button.addEventListener('click', () => this.run());
 
-    this.shell.body.append(this.preview, this.hintEl, this.msgEl, this.button);
+    // Phase 12: the horizontal 분해 게이지 directly under the button (hidden while idle, no transition)
+    this.bar = document.createElement('div');
+    this.bar.className = 'inv-dis-bar';
+    this.bar.hidden = true;
+    this.barFill = document.createElement('i');
+    this.barFill.className = 'inv-dis-bar-fill';
+    this.bar.appendChild(this.barFill);
+
+    this.shell.body.append(this.preview, this.hintEl, this.msgEl, this.button, this.bar);
   }
 
   get el(): HTMLElement { return this.shell.el; }
   get isOpen(): boolean { return this.shell.isOpen; }
   /** The item currently previewed (smoke tests). */
   get itemUid(): string | null { return this.uid; }
+  /** The 분해 게이지 element (smoke tests). */
+  get barEl(): HTMLElement { return this.bar; }
+  /** 0..1 fill of the 분해 게이지 (0 while idle). */
+  get progress(): number { return this.lastT < 0 ? 0 : this.lastT; }
 
   /** Open the dialog for `uid`; false when the item has no `break_*` recipe. */
   open(uid: string, anchor: HTMLElement | null = null): boolean {
@@ -113,6 +146,7 @@ export class DisassemblePanel {
   private finishClose(): void {
     const uid = this.uid;
     if (this.running) { this.sys.cancelCraft(); this.running = false; }
+    this.resetBar(uid);
     this.uid = null;
     this.recipe = null;
     this.hideMsg();
@@ -134,19 +168,76 @@ export class DisassemblePanel {
     this.running = active;
     this.button.disabled = !active && !enough;
     this.buttonLabel.textContent = active ? TEXT.disassemble.working : TEXT.disassemble.button;
-    this.fill.style.width = active ? `${Math.round(job!.progress * 100)}%` : '0%';
     this.button.title = enough ? '' : TEXT.disassemble.short;
+    this.tick();
+  }
+
+  /**
+   * Per-frame gauge update (Phase 12): the button fill and the horizontal bar follow the running job and the
+   * progress is reported (throttled). Cheap on purpose — `InventoryUI.refreshCraft` calls it every frame the job
+   * advances, unlike `refresh()` which rebuilds the chips.
+   */
+  tick(): void {
+    const r = this.recipe;
+    const uid = this.uid;
+    if (!r || !uid) return;
+    const job = this.sys.craftProgress();
+    if (job?.recipeId !== r.id) {
+      // idle (or a different craft): nothing to show; `run()` / `resetBar` own the transitions out of a hold
+      if (!this.bar.hidden) this.clearBar();
+      return;
+    }
+    const t = Math.max(0, Math.min(1, job.progress));
+    this.running = true;
+    if (this.bar.hidden) this.bar.hidden = false;
+    if (t !== this.lastT) {
+      const pct = `${(t * 100).toFixed(1)}%`;
+      this.barFill.style.width = pct;
+      this.fill.style.width = pct;
+      this.lastT = t;
+    }
+    const now = performance.now();
+    if (now - this.lastEmitAt >= PROGRESS_EMIT_MS) {
+      this.lastEmitAt = now;
+      this.reported = true;
+      this.onProgress(uid, t, false);
+    }
+  }
+
+  /** Hide the bar and zero both fills (no report). */
+  private clearBar(): void {
+    this.bar.hidden = true;
+    this.barFill.style.width = '0%';
+    this.fill.style.width = '0%';
+    this.lastT = -1;
+  }
+
+  /** `clearBar` plus — when this hold had already been reported — the `{t:0, done:false}` reset report. */
+  private resetBar(uid: string | null): void {
+    this.clearBar();
+    if (this.reported && uid) { this.reported = false; this.onProgress(uid, 0, false); }
   }
 
   private run(): void {
     const r = this.recipe;
-    if (!r) return;
-    if (this.running) { this.sys.cancelCraft(); this.running = false; this.refresh(); return; }
+    const uid = this.uid;
+    if (!r || !uid) return;
+    if (this.running) { this.sys.cancelCraft(); this.running = false; this.resetBar(uid); this.refresh(); return; }
     this.running = true;
+    this.lastEmitAt = -Infinity;
+    this.reported = false;
     void this.sys.craft(r.id).then((item) => {
       this.running = false;
-      if (item) { this.sys.sfx('ui_equip'); this.showMsg(TEXT.disassemble.done, 'ok'); }
-      else { this.sys.sfx('ui_error'); this.showMsg(TEXT.disassemble.fail, 'bad'); }
+      if (item) {
+        this.sys.sfx('ui_equip'); this.showMsg(TEXT.disassemble.done, 'ok');
+        // the one `done:true` of this hold; the bar then returns to its idle (hidden) state
+        this.clearBar();
+        this.reported = false;
+        this.onProgress(uid, 1, true);
+      } else {
+        this.sys.sfx('ui_error'); this.showMsg(TEXT.disassemble.fail, 'bad');
+        this.resetBar(uid);
+      }
       // the source stack may be gone now — `refresh` closes the dialog in that case
       this.refresh();
     });

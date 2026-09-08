@@ -58,6 +58,8 @@ Gameplay numbers live in `EnemyTypes.ts` (`ENEMY_STATS`, `HUNTER_LEAP`, `SPEWER_
 | `net/HostSync.ts` | Host encoding: `encodeSnapshot(active, time, cache, force?)` → `EnemySnapshot { seq, full, e: EnemyWire[], gone? }` with p 2 dp / yaw 3 dp / hp 1 dp, `a` hint (1 charger windup, 2 rush, 3 spewer windup, 4 hunter airborne, **5 rogue shooting, 6 rogue in cover, 7 rogue rushing, 8 artillery dug in, 9 toxic swelling, 10 behemoth windup, 11 behemoth rush**, Phase 7: **12 rogue reloading, 13 rogue throwing** — both outrank the cover phases, 전소 / stagger outrank them) and `w` (rogue rifle id), `sb` status bits (`statusBits`, Phase 6). Corpses leave the snapshot 1.5 s after death (replicas keep them from their own corpse timer). **Phase 9 — `es` is a delta stream**: `SnapshotCache` remembers the rounded fields last sent per id (plus `seenSeq`), holds the monotonic `seq` and the `forceFull` flag, and `reset(seqBase?)` clears it + forces the next keyframe (a promoted host passes the last seq it saw as a replica so its counter cannot be confused with the old host's). A **keyframe** — `force`, `cache.forceFull`, or every `KEYFRAME_EVERY` = `NET_ENEMY_KEYFRAME_S × NET_ENEMY_SNAPSHOT_HZ` snapshots — carries every field of every eligible enemy with `full: true` (`a` / `sb` omitted when 0, which a keyframe reads as 0). A **delta** carries only enemies whose rounded fields changed, and only those fields; an id the cache does not hold gets the full set (`ty` / `w` included) so a replica can build it, and `a` / `sb` falling back to 0 are written explicitly because an omitted delta field means "unchanged". `gone` lists ids the cache held that are no longer eligible. A keyframe is ~90 B per enemy as JSON; a delta over an idle swarm is a few bytes per moving enemy. |
 | `net/Replica.ts` | Client replica: `ReplicaBuffer` (8-sample ring per enemy) with lerp / shortest-arc yaw / ≤ 0.25 s extrapolation; `EnemyReplica.onSnapshot` (get-or-create by host id; ids missing from a `full` snapshot → release, **except dead bodies**), `onEvent` (`spawn`, `kill` + kill credit when `killer === localId`, `despawn`, `damaged`, `attack`, `acid`, `wave`; Phase 4: `shoot` → tracer/flash/audio + `enemy:shot`, `shell` → visual shell, `intercept` → pop, `shellHit` → landing FX (skipped when the local copy already landed), `charge` → `enemy:chargeStarted`, `toxic` → green burst FX + `enemy:toxicBurst`, `corpse` / `corpseGone` → `CorpseManager`; Phase 7: `grenade` → `ReplicaHost.grenadeVisual` (visual copy flown from the wire position / velocity / fuse), `grenadeHit` → `grenadeHitRemote` (pops the local copy in place, or just the FX)), `update` renders at `ctx.time − NET_INTERP_DELAY`, clamps y to terrain unless airborne, drives `BugAnim` (gait from displacement; shake/abdomen/crouch/aim/mandible from state + hint — hint 12 crouch + reload pose, 13 throw pose via the held `reloadTimer` / `throwTimer`; head tracking; slope) and mirrors `sb` into the status timers (`applyStatusBits`, Phase 6). Phase 7 host migration: `adopt(e, now)` seeds a demoted enemy's ring buffer with its current pose so it keeps rendering until the new host's first snapshot; `latestOf(e)` hands the promotion the newest wire sample. **Phase 9 delta intake**: `seq` comes from `msg.seq` (the host's counter, `lastSeq` feeds a promotion); `ReplicaBuffer.applyWire(now, w, keyframe)` lays a partial wire over the newest sample as a new sample (absent fields keep their value; in a keyframe an absent `a` / `sb` is 0) while `push` stays the seeding path for `ee spawn` / `adopt`; an enemy absent from a **delta** gets `hold(now)` (the newest sample repeated) so the interpolator sees it standing still instead of extrapolating past the stop; an unknown id **without** `ty` / `p` is ignored and counted in `ignoredUnknown` (`ee spawn` or the next keyframe brings it); the sweep that releases unseen replicas runs on **keyframes only**; `gone` releases at once except bodies whose newest sample is `dead` (the corpse timer owns those). **Phase 10**: a dead body runs `integrateDeathFall` here (the host drops corpses from `es` after 1.5 s, so the client must fall on its own), `ee kill.dd` / `ee corpse.dd` are handed to `Enemy.kill(false, dir)` / `corpseSpawnedRemote` so the host's fall direction and lootable roll win. |
 | `fx/RogueGrenade.ts` | Phase 7: 8 pooled rogue grenades (small dark spheres, ember emissive, `NO_RAYCAST`). `throw(owner, from, vel, fuse, authority)`; `launchVelocity(from, target, flight, out)` (ballistic solve, `GRAVITY`); `update` integrates gravity, spins, tests obstacles / terrain along each step (`world.raycast`, height field) — **one bounce** (normal × 0.3, tangent × 0.3) then a damped roll (× 0.5 per contact) to rest below 0.8 m/s, out-of-bounds rests too; fuse → `explode` → blast FX (fireball / sparks / ground blast / smoke / flash, no lights) + `GrenadeHost.onGrenadeExploded(p, authority, owner)`. `explodeNear(p)` (replica `grenadeHit`) pops the nearest still-flying local copy within 4 m or plays the FX alone; `setAuthorityAll` flips in-flight grenades on host migration; `findByOwner` / `count` for debugging. |
+| `ai/Investigate.ts` | **Phase 12 (총알 추적)**: the investigate state an enemy enters when `EnemySystem.reportShot` decides it noticed a bullet it cannot attribute to anyone. Rides on the shared machine as `state = 'alert'` with `aware = false` (`Enemy.investigating`), so the wire needs nothing new (a replica reads `alert` as the raised-rifle / crouched pose it already has). `beginInvestigation(e, origin)` starts it (false = already running, only the origin moved), `updateInvestigate` runs one tick instead of the state switch, `endInvestigation` restores the previous behaviour. Phases: **0 watch** — face the origin, stand still, `ENEMY_SHOT_ALERT_WATCH_S`; **1 advance** — bugs walk straight at it, rogues leg cover-to-cover (`pickApproachCover`, a `COVER_HOLD_MIN..MAX` crouched hold at each rock = wire hint 6, `OPEN_LEG_S` straight ahead when no rock qualifies, `COVER_LEG_TIMEOUT` per leg) until within `SHOT_ALERT_ARRIVE` (8 m) or past the rogue's leash; **2 arrived** — a last `ARRIVE_HOLD_S` look, then stand down. `ENEMY_SHOT_ALERT_GIVE_UP_S` ends it wherever it is. Perceiving anyone (the cone in `ai/Perception.ts`) flips `aware` and `EnemyAI` drops straight into the ordinary alert → chase (rogues open fire); a hit, a barrier bump, a stagger or `flee` cancels it. |
+| `fx/Xray.ts` | **Phase 12 (정찰 x-ray)**: `EnemyXray` — the red through-wall silhouette behind `EnemyManagerRef.setXray`. One overlay `THREE.Mesh` per body mesh under `Enemy.object`, **parented to that mesh** so it inherits the animated part transform for free (no per-frame matrix copy), all sharing ONE `MeshBasicMaterial` (`DETECT_ENEMY_COLOR`, `depthFunc: GreaterDepth`, `depthTest: true`, `depthWrite: false`, `DoubleSide`, `fog: false`, `toneMapped: false`, `NO_RAYCAST`) — the same trick as the player's occlusion silhouette. Opaque rather than translucent, and drawn at `XRAY_ORDER` 1 with the body lifted to `BODY_ORDER` 2: a transparent overlay sorts after the body and would paint the *visible* enemy red wherever a far leg lies behind the torso. Overlays are built lazily once per pooled `Enemy` and only toggled afterwards (`show` extends and never shortens; `remove` on death / despawn, `tick` expires, `clear` on mission reset, `dispose` detaches before the rigs are freed). No per-frame allocation. |
 | `models/BugParams.ts` | Per-type visual parameters for the six-legged rig (`BugType`), incl. Phase 4 `mortar` (artillery tube), `frontPlate` (behemoth), `sacSwell` (toxic); `behemoth` = warrior params scaled ×`BEHEMOTH_SCALE`. |
 | `models/BugModel.ts` | Shared per-type geometry/material assets, `createBugRig` (`kind: 'bug'`, `baseScale`, optional `mortar` group), `animateBug` (tripod gait, bob/lean/slope, head tracking, mandibles, hit flash, flinch, sac pulse/swell, wind-up shake, leap crouch, mortar recoil, death roll — the body **stays on the ground** and only sinks during `fade`). `BugAnim` adds `fade`, `aim`, `recoil`. **Phase 10**: the canned death roll became **three real directions** — `BugAnim.deathDir` (0 left / 1 right / 2 back, replacing the unseeded `rollSign`) and `deathFall` (blend over `DEATH_FALL_TIME` with one small settle bounce); left / right roll the thorax over and shift it sideways, back rears the bug over onto its abdomen with almost no roll. `curl` (leg fold) and `sink` are unchanged. |
 | `models/RogueModel.ts` | Procedural humanoid rig (`kind: 'rogue'`): pelvis/torso/head with emissive visor, arms + rifle block (`gun` group, `muzzle` marker), two legs, and (Phase 7) a small `grenade` sphere at the off hand (shared ember material, hidden unless throwing); boss = same geometry scaled by `ROGUE_BOSS_SCALE` (`baseScale`) with a pauldron and red visor. `animateRogue` from the shared `BugAnim`: walk cycle, cover crouch, low-ready ↔ aimed rifle (`aim`), recoil kick, look/aim from `headYaw/headPitch`, flinch, hit flash, fall + fade; Phase 7 `reload` (rifle tipped down and rolled in, hands jitter at the magazine) and `throwing` (rifle dropped to the hip, grenade rises above / behind the shoulder) blends, both driven by `Enemy.animate` from `reloadTimer` / `throwTimer`. **Phase 10**: the fall is three directions from `BugAnim.deathDir` blended over `DEATH_FALL_TIME` — before, `rollSign > 0` fell backward and `< 0` fell right, and **left did not exist**. |
@@ -289,7 +291,76 @@ Brief: `docs/PHASE11-PLAN.md` §3-5(B). Contract (read-only): `src/shared/planet
   client that never generated the world (impossible today) would have none.
 - Ambient / wave composition remains unseeded, so two hosts on the same seed compose different patrols — as before.
 
+## 배리어 충돌 · 정면 흡수 · 총알 추적 · 정찰 x-ray (Phase 12, 2026-09-08)
+
+Four contract items land here; `src/shared` was frozen for this lane, so everything below uses the committed signatures.
+
+**배리어 = a wall for enemies.** `ai/EnemyAI.integrate` calls `EnemyHost.resolveBarrier(e)` right after
+`world.resolveCollision`, for **every** grounded enemy (bugs and rogues alike — harmless for the latter).
+`EnemySystem.resolveBarrier` forwards to `ctx.implants.resolveBarrierCollision(e.position, e.stats.radius)`, which
+pushes the body out and names the carrier. On contact the enemy hunts that carrier for `BARRIER_RETARGET_S` (6 s) —
+`Enemy.barrierOwner` / `barrierUntil`, honoured at the top of `EnemySystem.pickTarget`, so the hysteresis in
+`acquireTarget` cannot pull it back to a nearer player — it wakes up (`becomeAlert`, quietly) and any 총알 추적 ends.
+`implant:barrierBumped {owner, enemyId, point}` fires at most every `BARRIER_BUMP_INTERVAL` (0.5 s) **per enemy**, with
+the contact point at the body's front toward the carrier. A charging behemoth keeps its own knockback: the shield reads
+as a rock, so the deviation test already in `integrate` stumbles it.
+
+**정면 근접공격 흡수.** `applyDamage(..., melee)` — set by `hitTarget` (bite / leap / melee) and `chargeHit`, and
+**not** by rifle / shell / acid / grenade damage, which keep their `raycastBarrier` path — consults
+`ctx.implants.absorbFrontalAttack(owner, from, amount)` before anything reaches a player. True ends it there: for the
+local owner implants already deducted the shield; for a **peer** owner the host sends
+`{t:'ee', ev:'barrierHit', id, amount, p}` to that peer alone (no `dmg`, no `ee attack`), and the receiver's
+`net/Replica` -> `ReplicaHost.barrierHitRemote` calls `ctx.implants.damageBarrier('local', p, amount)` plus the bite
+audio. A suspended member is absorbed on the host without a message (its ghost has no client to tell).
+
+**총알 추적** (`reportShot(origin, dir, range, hit)`, called by weapons for every local shot). A non-host forwards it
+as `{t:'shotq', o, d, r, h?}` to the host and does nothing locally (a replica has no AI); the host runs the same
+routine for its own shots and for a peer's `shotq` (validated: finite tuples, `r > 0` clamped to `MAX_SHOT_RANGE`, the
+direction normalised). The routine walks the simulated enemies and picks those that (a) are alive combatants, unaware,
+not `relentless` / staggered, (b) lie within `ENEMY_SHOT_ALERT_DIST` of the **bullet path** (closest approach of the
+body centre to `origin -> origin + dir x range`, plus the body radius) or `ENEMY_SHOT_IMPACT_DIST` of the impact, and
+(c) could **not** perceive the shooter by the normal rule (`Perception.canPerceive`, no cone — an enemy about to spot
+the shooter anyway needs no hint). Those enter `ai/Investigate.ts` and emit `enemy:shotAlerted` **once**; an enemy
+already investigating only refreshes its origin, and the perception test is throttled per enemy by
+`SHOT_CHECK_INTERVAL` (an SMG reports 10+ shots a second). No-op in a 훈련장.
+
+**The widened cone.** While investigating, `Perception.shotConeFactor` multiplies the acquisition range by
+`ENEMY_SHOT_ALERT_CONE_MUL` for targets inside about +-45 degrees of the shot origin, and by 1 outside it — a cone, not
+a sphere. It is applied **on top of** `detectionRange`, so the cloak (`target.stealth`) and smoke (`visionClarity`)
+factors still scale the widened range and a 은폐 player stays proportionally hard to see. Only the unaware branch of
+`updatePerception` uses it; tracking and target loss are untouched.
+
+**정찰 x-ray.** `setXray(ids, seconds)` shows `fx/Xray.ts` silhouettes for those enemies (simulated **or** replica — it
+only walks `byId`), extends on a second call, ignores unknown ids and dead bodies, and clears one with
+`seconds <= 0`. Expiry runs in the update loop; death, despawn and `reset()` drop a silhouette immediately, and
+`disposePools` detaches the overlays before the rigs are disposed.
+
+**실드 배쉬 knockback** (asked for by implants/ after the contract froze): `EnemySystem.pushBack(center, radius, speed,
+dir?)` shoves every alive enemy in range away from `center` (or along `dir`) with a linear falloff to 40 % at the rim,
+using the same `velocity` nudge an explosion applies — so the existing steering / stumble rules absorb it and a
+charging behemoth is skipped, exactly like an explosion. It is **not** on `EnemyManagerRef` (frozen this phase), so
+implants/ reaches it as `(ctx.enemies as unknown as { pushBack?: (c, r, s, d?) => number }).pushBack?.(...)`; promoting
+it to the interface is a one-line contract change for a later phase. Authority only (a replica's velocity is
+overwritten by the next snapshot, and the host already shoved its own copy).
+
+New `Enemy` fields: `investigating` / `shotOrigin` / `shotTimer` / `shotPhase` / `shotHold` / `shotCheckAt` and
+`barrierOwner` / `barrierUntil` / `barrierBumpAt`, all cleared in `reset()`, on promotion and by `flee`.
+
 ## Known gaps / follow-ups
+- Phase 12: an investigation is **host state only** — it rides on the `alert` wire state, so a replica shows the
+  raised-rifle / alert pose but no dedicated hint, and a mid-investigation host migration drops it (`promote()` clears
+  `investigating`). `reportShot` is per **local** shot: an enemy shot at by another enemy (faction warfare) is never
+  alerted this way. The alert routine is O(active enemies) per shot with only cheap maths per enemy and the
+  `canPerceive` raycast throttled to `SHOT_CHECK_INTERVAL` per enemy — a full-auto weapon on a 60-enemy map is fine,
+  but a future shotgun that reported one call per pellet should report once per trigger pull instead. A `shotq` is
+  trusted apart from its shape (a client can make host enemies investigate any point, which is harmless: it wakes
+  nobody and deals no damage). The widened cone points **at the origin**, so a shooter who moves 90 degrees off the
+  firing line while the enemy walks in is seen no better than before. `resolveBarrierCollision` is called once per
+  grounded enemy per frame — the implants side must keep it cheap (it is a no-op when nobody carries a raised shield).
+  The frontal absorb runs on the host only, so a peer's shield hp there is whatever `absorbFrontalAttack` says, and
+  `ee barrierHit` is fire-and-forget (a peer that never receives it simply keeps its shield hp). The x-ray overlays are
+  built on first reveal per pooled enemy and then kept for the life of the pool (about 17 hidden meshes per body), so a
+  long mission that revealed many enemies keeps those meshes around until `disposePools`.
 - Phase 10: a **replica** has no real `vy` (it only mirrors the `airborne` hint), so a body that dies mid-leap starts
   its fall from rest on the client and lands a fraction of a second later than on the host — the resting spot is the
   same. A body killed in the air while the gameplay phase is paused does not fall until it resumes (the AI / replica
@@ -343,6 +414,29 @@ guard placement exactly. Regressions on the same build: `smoke-rogue-v2` **52/52
 `smoke-phase4` **49/49**, `smoke-tactical` 63/64 (the miss is the relay socket, not the kit), `smoke-training`
 101/109 — those 8 failures are the **hub lane's new launch-pod 목표 행성 gate** (the smoke boards `hub_pod_0` with no
 planet selected), not this lane's.
+
+## Verification (Phase 12, 2026-09-08)
+`npm run typecheck` 0 errors (whole tree). New `scripts/smoke-enemy-alert.mjs` (single-player, seed 21, headless Chrome
+on the real GPU, sim-time waits, HMR socket parked; `ctx.implants.resolveBarrierCollision` / `absorbFrontalAttack` are
+monkeypatched because implants/ owns the real ones) — **42/42**, 0 console errors, on a private `npx vite --port 5302`.
+Covered: a rogue 66 m from the shot origin and 142 m from the player (out of every perception range) gets exactly one
+`enemy:shotAlerted` from a bullet passing 3 m beside it, turns to the origin inside 1.2 s, does not move for the watch
+with the rifle raised, refreshes its origin from a second shot without a second event, advances 3+ m after
+`ENEMY_SHOT_ALERT_WATCH_S` while still `alert` / unaware on the wire, and stands down at
+`ENEMY_SHOT_ALERT_GIVE_UP_S`; a shot fired from 90 m — outside the rogue's 60 m sight, inside the x2 cone — ends the
+investigation into a normal chase with `target 'local'`; a shot far from everyone alerts nobody; a bug alerted by an
+impact inside `ENEMY_SHOT_IMPACT_DIST` faces the origin, walks straight at it (30.0 -> 25.8 m) and stops at the ~8 m
+arrival; a replica forwards `shotq {o, d, r, h}` to the host and alerts nobody locally, and the host rejects a `shotq`
+with `r <= 0` or a malformed `h` while acting on a valid one. Barrier: a scavenger charging a plane 4 m in front of the
+player is held there (184 push-outs, 0 bites, hp untouched), `implant:barrierBumped {owner:'local', enemyId}` fires and
+stays under 2 Hz (7 in 3.5 s), and the bug retargets the carrier for 6 s; `absorbFrontalAttack('local', from, 8)` is
+consulted before the bite and true suppresses both `enemy:attacked` and the damage while false lets the same bite land;
+`ee barrierHit` -> `damageBarrier('local', p, 25)`. X-ray: `setXray` builds 17 overlays on a warrior (one per body mesh,
+`DETECT_ENEMY_COLOR`, `GreaterDepth`, `depthTest` on, no depth write, bodies lifted to render order 2), a second call
+extends and never shortens the reveal, expiry and death both drop it. `reportShot` is a no-op in a 훈련장. Regression on
+the same build: `smoke-rogue-v2` **52/52**, `smoke-enemy-delta` **52/52**.
+Not covered here (needs a second client): the real `ee barrierHit` round trip and a peer's `shotq` over the relay —
+`e2e:mp` territory.
 
 ## Fix (2026-09-05): initial population survived only by accident
 `WorldSystem` (registered earlier) generates synchronously inside its own `game:newMission` handler and emits `world:ready` **before** `EnemySystem`'s `game:newMission` handler runs, so the old `game:newMission → reset()` wiped the bugs that `initialPopulate` had just spawned. The handler now resets only when `ctx.world` is not ready for that seed. Verified in headless Chrome: 18–20 bugs alive right after deploy (host and client replicas agree on ids/counts).

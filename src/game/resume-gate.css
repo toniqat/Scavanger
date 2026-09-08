@@ -1,0 +1,34 @@
+/* ── 브라우저 재개 게이트 (Phase 12, owner: game/ResumeGate) ──────────────────────────────────────────────────────
+ * Shown when the last cursor screen closed with Escape and Chrome refused the re-lock (Escape grants no user
+ * activation): the world keeps running behind a blur, and the one click that dismisses it is the gesture Chrome wants.
+ * Sits under every real screen (the 일시정지 메뉴 at 85, the inventory at 50 — a screen opening over it hides it anyway).
+ */
+.resume-gate {
+  position: absolute; inset: 0;
+  z-index: 30;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  background: rgba(3, 4, 6, 0.42);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  cursor: pointer;
+  user-select: none;
+  transition: opacity 120ms ease;
+}
+.resume-gate.hidden { display: none; }
+.resume-gate .rg-title {
+  font-size: 22px; font-weight: 600; letter-spacing: 0.12em;
+  color: var(--c-text, #e8ecf1);
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.7);
+}
+.resume-gate .rg-sub {
+  font-size: 11px; letter-spacing: 0.14em;
+  color: var(--c-text-faint, rgba(232, 236, 241, 0.55));
+}
+.resume-gate .rg-sub .keycap { margin-right: 4px; }
+
+/* ── 데스크톱 셸: 커서가 필요 없을 때는 숨김 (Phase 12) ───────────────────────────────────────────────────────────
+ * `ui/hud/GameCursor` paints its art with `body.cursor-ui *` at the same specificity from a runtime <style>, which
+ * would win by source order — the extra class here is what makes this rule beat it.
+ */
+body.desktop-nocursor, body.desktop-nocursor *,
+body.cursor-ui.desktop-nocursor, body.cursor-ui.desktop-nocursor * { cursor: none !important; }

@@ -6,7 +6,12 @@ import {
 } from '@/shared';
 import { makePillarGeometry, makePillarMaterial } from './pillar';
 
-const MAX_REVEALS = 64;
+/**
+ * Pool size. Phase 12's 정찰 is one wide `IMPLANT_SCAN_RADIUS` (70 m) pulse that reveals every interactable **and**
+ * enemy in range for 15 s — a busy map can hand over ~34 gather nodes + crates + pickups + the ambient enemy cap in
+ * one event, so 64 starved (the oldest reveals were evicted while still valid). 160 meshes of one shared geometry.
+ */
+const MAX_REVEALS = 160;
 /**
  * Pillar **height multiplier** per revealed kind (Phase 10 — it used to be the fresnel shell's radius in metres).
  * The base height is `SCAN_PILLAR_HEIGHT`; scaling the mesh on Y scales the baked colour ramp with it, so a taller
@@ -28,7 +33,7 @@ interface Reveal {
  * Through-wall outlines for scan results (`implant:scanned`) and any other `detect:reveal` command.
  *
  * Each revealed object gets a pooled **light pillar** drawn with `depthTest: false` (so it reads through geometry) for
- * the requested duration — 10 s for the 정찰 implant. Phase 10 replaced the light-blue fresnel shell with the pillar
+ * the requested duration — 15 s for the Phase 12 정찰 pulse (`scan:cast`, `IMPLANT_SCAN_REVEAL_TIME_V2`). Phase 10 replaced the light-blue fresnel shell with the pillar
  * from `hud/pillar.ts` (open cylinder from the ground up, baked vertex colours fading to black, additive), and
  * `KIND_SCALE` became a **height** multiplier of `SCAN_PILLAR_HEIGHT` instead of a radius. Targets that came with an
  * `object` follow it, so revealed enemies keep their marker while they move. Pool: `MAX_REVEALS` meshes, one shared
@@ -50,6 +55,9 @@ export class ScanReveal {
     this.unsubs.push(
       b.on('detect:reveal', ({ targets, duration }) => this.add(targets, duration)),
       b.on('implant:scanned', ({ targets, duration }) => this.add(targets, duration)),
+      // Phase 12: the wide 정찰 pulse (mine or a squadmate's). `add` merges by `kind:id`, so an implants build that
+      // still emits `implant:scanned` / `detect:reveal` alongside it never doubles a pillar.
+      b.on('scan:cast', ({ targets, duration }) => this.add(targets, duration)),
       b.on('detect:clear', () => this.clear()),
       b.on('game:abort', () => this.teardown()),
       b.on('game:newMission', () => this.teardown()),

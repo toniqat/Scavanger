@@ -33,7 +33,7 @@ vite 프록시와 완전히 같은 그림이 되고, `src/` 는 손대지 않아
 
 | 파일 | 역할 |
 |---|---|
-| `main.ts` | 앱 수명주기. 옵션 파싱 → 릴레이(또는 프록시) 기동 → `BrowserWindow`. 단일 인스턴스 락, 메뉴 제거, **F11 전체화면**, 창 상태 추적, `pointerLock` / `fullscreen` 만 허용하는 권한 핸들러, 외부 링크는 기본 브라우저로, `dist/` 가 없으면 안내 다이얼로그. |
+| `main.ts` | 앱 수명주기. 옵션 파싱 → 릴레이(또는 프록시) 기동 → `BrowserWindow`. 단일 인스턴스 락, 메뉴 제거, **F11 전체화면**, **Escape 가로채기 + 재잠금**(아래 "Escape"), 창 상태 추적, `pointerLock` / `fullscreen` 만 허용하는 권한 핸들러, 외부 링크는 기본 브라우저로, `dist/` 가 없으면 안내 다이얼로그. |
 | `static.ts` | `attachStatic(server, root)` — 기존 http 서버의 `request` 리스너를 가로채 정적 파일을 먼저 서빙하고, 못 찾으면 원래 핸들러(릴레이의 `/health` + 404)로 넘긴다. 경로 이탈(`..`) 차단, `cache-control: no-cache`. |
 | `wsProxy.ts` | `--relay=<url>` 전용. `/ws` 업그레이드를 원격 릴레이로 **raw 소켓 파이프**. 세션 쿼리(`?t=&n=`)까지 그대로 통과. |
 | `windowState.ts` | `<userData>/window-state.json` 에 크기 · 위치 · 최대화 · 전체화면 저장/복원. 저장된 모니터가 사라졌으면 위치를 버린다. |
@@ -83,7 +83,8 @@ npm run typecheck:app
 | `--devtools` | `SCAV_DEVTOOLS=1` | DevTools 활성화 (기본 비활성) |
 
 같이 하려면 — 서버를 켜는 사람이 저장소 루트의 `start-server.bat` (릴레이만 원하면 `start-server.bat relay`),
-나머지는 그냥 `SCAVANGER.exe`. 배너에 찍힌 `ws://<IP>:8787/ws` 가 `default-relay.txt` / `relay.txt` 에 적을 값이다.
+나머지는 그냥 `SCAVANGER.exe`. (게임을 여는 `start-game.bat` 은 **2026-09-08 에 삭제**했다: 배포본은 exe 로,
+개발은 `npm run dev` 로 연다. `start-server.bat` 은 서버 전용으로 남는다.) 배너에 찍힌 `ws://<IP>:8787/ws` 가 `default-relay.txt` / `relay.txt` 에 적을 값이다.
 저장소가 없는 PC 라면 `SCAVANGER.exe --lan` 이 그 자리를 대신한다.
 
 ## 알아둘 것
@@ -116,3 +117,44 @@ npm run typecheck:app
 - 개발 실행(`npm run app`)과 **패키징된 portable exe** 양쪽을 CDP 로 붙어 확인: `http://127.0.0.1:<port>/` 로드,
   WebGL 이 실제 GPU(ANGLE D3D11, RTX 4070 SUPER), `window.__game.ctx` 존재, 타이틀 → `함선 탑승` → phase `hub`,
   릴레이 `/health` 의 `clients: 1` · `profiles: 1`, 페이지/콘솔 에러 0.
+
+
+## Escape (Phase 12, 2026-09-08)
+
+브라우저에서는 Escape 로 화면을 닫으면 포인터 락이 **바로 돌아오지 않는다** — Chrome 이 Escape 에 사용자 활성화를
+주지 않아 재잠금 요청이 거부되고, 게임은 `src/game/ResumeGate.ts` 의 `좌측 클릭으로 게임 재개` 게이트로 답한다.
+셸은 **메인 프로세스가 페이지에 활성화를 줄 수 있으므로** 더 잘할 수 있다. `main.ts` 의 `handleEscape` 가
+`before-input-event` 에서 Escape **key-up** 을 보면 `executeJavaScript(SHELL_RELOCK, true)` 를 실행한다 — 두 번째
+인자가 "사용자 제스처로 실행"이고, 그것이 `requestPointerLock()` 이 요구하는 활성화다. 페이지 쪽 훅
+(`window.__scavShellRelock`, `src/game/ResumeGate.ts`)은 두 프레임 기다렸다가(그 Escape 로 닫힌 화면이 커서 모드를
+놓을 시간) 커서 소유자가 없을 때만 락을 요청한다.
+
+**키 자체는 건드리지 않는다** — `preventDefault` 도, 합성 Escape 전달도 없다. 처음에는 둘 다 넣었다가 측정 후
+뺐다(아래). `--raw-escape` / `SCAV_RAW_ESCAPE=1` 이면 훅까지 끈다(진단용, Phase 12 이전 동작).
+
+### 실측 (2026-09-08) — 무엇이 확인됐고 무엇이 확인 안 됐는지
+
+`npm run app:build` 결과물을 `--remote-debugging-port=9333` 으로 띄우고 CDP 로 구동해
+`--raw-escape` 와 기본값을 같은 시나리오(아무 것도 안 열린 상태의 Escape / 페이지가 Escape 를 삼키는 경우 /
+Tab → Escape / Tab → Tab)로 비교했다.
+
+**확인된 것**
+- **합성 Escape 전달은 해롭다**: 처음 구현(`preventDefault` + 페이지에 합성 Escape 던지기)에서는 한 번 누를 때마다
+  페이지가 Escape 를 **두 번** 받았다(`keydown` 카운터 2). Electron 의 `before-input-event` `preventDefault` 가
+  CDP 로 주입된 키의 페이지 전달을 막지 못했기 때문이다. 화면 두 개가 한 번에 닫힐 수 있으므로 전달을 걷어냈고,
+  지금은 두 변종 모두 한 번 누르면 정확히 한 번 도착한다.
+- **커서 규칙**은 실제 셸에서 그대로 동작한다: 함선에서 락 보유 → `body.desktop-nocursor` 있음, Escape 로 일시정지가
+  뜨면 없음, 닫으면 다시 있음, Tab 인벤토리에서 없음, 닫으면 있음. **재개 게이트는 한 번도 뜨지 않았다.**
+- 훅 자체(`window.__scavShellRelock`)는 설치되어 있고 커서 소유자가 없을 때만 락을 다시 잡는다 —
+  `scripts/smoke-resume-gate.mjs` §8 이 브라우저에서 이 함수를 직접 호출해 검증한다.
+
+**확인 안 된 것 (자동화의 한계)**
+- CDP 로 주입한 Escape 는 Chromium 의 exclusive-access 경로를 **타지 않는다**: 락을 유지한 채 페이지에 그대로
+  전달되고, 재잠금도 활성화가 있는 것처럼 곧바로 성공한다(그래서 `--raw-escape` 와 기본값의 결과가 같다).
+- 반대로 진짜 키(PowerShell `SendKeys '{ESC}'`)는 이 환경에서 앱 창에 들어가지 않았다(페이지의 Escape 카운터가
+  두 변종 모두 0). 따라서 **"진짜 Escape 를 눌렀을 때 셸이 브라우저보다 빨리 락을 되찾는다"는 것은 자동화로
+  증명하지 못했다.** 훅은 활성화가 필요한 정확한 자리에 있고 부작용이 없다는 것까지가 측정된 범위다.
+
+셸에서는 또 **커서가 필요 없을 때 항상 숨는다**: 게임플레이 / 함선 페이즈이고 커서 소유자가 없으면
+`<body class="desktop-nocursor">` → `cursor: none !important` (락 보유 여부와 무관). Alt 커서도 소유자이므로 그때는
+보인다. 재개 게이트는 셸에서 **절대** 뜨지 않는다(`isDesktopShell()`).

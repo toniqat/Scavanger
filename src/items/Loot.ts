@@ -6,6 +6,7 @@ import { WEAPON_DEF_MAP, isUniqueWeapon, weaponFamilyOf, weaponIdForGrade } from
 import { canAttach as canAttachDef, computeWeaponStats, repairCost } from './WeaponStats';
 import { ARMOR_DEF_MAP } from './ArmorDefs';
 import { CRAFT_RECIPES } from './Recipes';
+import { IMPLANT_BROKEN_DEFS } from './ImplantDefs';
 import { CORPSE_TABLE_MAP, DEFAULT_ROGUE_WEAPON_ID, getTierTable, type TierTable } from './LootTables';
 
 let uidCounter = 0;
@@ -211,6 +212,13 @@ export class LootService implements LootRef {
     // Phase 9: a reading raider — one 서적, uniform over the 14 books (rolled after the unique so earlier draws are unchanged)
     if (table.book && BOOK_ITEM_DEFS.length > 0 && rng.chance(table.book.chance)) {
       out.push(this.createItem(rng.pick(BOOK_ITEM_DEFS).id, 1));
+    }
+
+    // Phase 12: a fried implant — one 망가진 임플란트 weighted by rarity (rolled last, so every earlier draw is unchanged)
+    if (table.implant && rng.chance(table.implant.chance)) {
+      const w = table.implant.weights;
+      const pool = IMPLANT_BROKEN_DEFS.filter((d) => (w[d.rarity] ?? 0) > 0);
+      if (pool.length > 0) out.push(this.createItem(rng.weighted(pool, (d) => w[d.rarity] ?? 0).id, 1));
     }
 
     out.sort((a, b) => this.area(b) - this.area(a));

@@ -173,8 +173,18 @@ export const TEXT = {
     tabs: {
       all: '전체', weapon: '무기', ammo: '탄약', attachment: '부착물', bag: '가방', armor: '방탄복',
       gadget: '가젯', consumable: '소모품', material: '재료', herb: '약초', seed: '씨앗', book: '서적', furniture: '가구',
+      /** Phase 12: 임플란트 items (label from the shared category table, the one source of the word). */
+      implant: CATEGORY_LABEL_KO.implant,
     },
   },
+  /* Phase 12: 임플란트 item tooltip (`ItemDef.implant`) */
+  implantStats: {
+    slots: '장착칸',
+    perk: '특성',
+    broken: '망가짐 — 세레스 바이오에서 수리',
+  },
+  /** Phase 12: 회복 스프레이 gauge row (`durability` / `durabilityMax`). */
+  gauge: '게이지',
   /* Phase 8: 아이템 분해 (right-click → modeless dialog with the expected result) */
   disassemble: {
     eyebrow: 'DISASSEMBLE',

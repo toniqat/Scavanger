@@ -97,20 +97,29 @@ export function buildTileContent(el: HTMLElement, item: ItemInstance, def: ItemD
     }
     el.appendChild(pips);
 
-    const max = Math.max(1, stats.maxDurability);
-    const cur = Math.max(0, Math.min(max, item.durability ?? max));
-    const ratio = cur / max;
-    const bar = document.createElement('div');
-    bar.className = 'inv-tile-dur';
-    bar.style.setProperty('--p', `${Math.round(ratio * 100)}%`);
-    if (cur <= 0) { bar.classList.add('is-broken'); el.classList.add('is-broken'); }
-    else if (ratio < DURABILITY_LOW) bar.classList.add('is-low');
-    el.appendChild(bar);
+    appendDurabilityBar(el, item, stats.maxDurability);
+  } else if (def.durabilityMax !== undefined && def.durabilityMax > 0 && def.heal?.spray) {
+    // Phase 12: a channelled consumable (회복 스프레이) wears its 게이지 like a durability bar — an empty can (0) stays
+    // a tile, marked broken, until the ship repairs it
+    appendDurabilityBar(el, item, def.durabilityMax);
   }
 
   const glow = document.createElement('div');
   glow.className = 'inv-tile-glow';
   el.appendChild(glow);
+}
+
+/** Thin durability bar under the tile (amber < 30 %, red + `is-broken` on the tile at 0). */
+function appendDurabilityBar(el: HTMLElement, item: ItemInstance, maxDurability: number): void {
+  const max = Math.max(1, maxDurability);
+  const cur = Math.max(0, Math.min(max, item.durability ?? max));
+  const ratio = cur / max;
+  const bar = document.createElement('div');
+  bar.className = 'inv-tile-dur';
+  bar.style.setProperty('--p', `${Math.round(ratio * 100)}%`);
+  if (cur <= 0) { bar.classList.add('is-broken'); el.classList.add('is-broken'); }
+  else if (ratio < DURABILITY_LOW) bar.classList.add('is-low');
+  el.appendChild(bar);
 }
 
 /** Small wheel-direction badge (top-left) on a bag tile that sits in a quick-use slot. */

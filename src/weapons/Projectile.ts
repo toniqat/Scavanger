@@ -169,6 +169,9 @@ export class ProjectilePool {
   fire(origin: THREE.Vector3, dir: THREE.Vector3, speed: number, damage: number, range: number, color: number, weaponId: string, visualOnly = false, opts?: ProjectileOptions): void {
     let s = this.pool.find((x) => !x.active);
     if (!s) s = this.pool[0];
+    // Phase 12 총알 추적: a local launch is reported along its initial line with no impact yet (the impact follows
+    // from `WeaponSystem.onProjectileHit`); visual-only replicas of other players' shots are the shooter's to report.
+    if (!visualOnly) this.ctx.enemies?.reportShot(origin, dir, range, null);
     s.active = true;
     s.pos.copy(origin); s.prev.copy(origin);
     s.vel.copy(dir).multiplyScalar(speed);

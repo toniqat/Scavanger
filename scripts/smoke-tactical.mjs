@@ -1,5 +1,7 @@
 // Single-client smoke test for the tactical kit: boots the game, walks it into a mission and exercises
-// implants, gadgets, gear/weight, melee, roll, gathering, field crafting and progression.
+// implants, gadgets, gear/weight, melee, roll, gathering, field crafting and progression (85 checks; Phase 12 added the
+// 3.2 m shield width, `resolveBarrierCollision` / `absorbFrontalAttack`, the 실드 배쉬 via a synthetic LMB and the
+// one-shot 정찰 in a third mission).
 // Usage: node scripts/smoke-tactical.mjs [http://localhost:5273/]
 // Requires `npm run dev` (or `npm run dev:all`) to be running.
 //
@@ -386,6 +388,85 @@ try {
   ok(bar.hp3 === bar.hp2 - 100 && bar.hits[1] === 100, 'damageBarrier(local, point, 100) applies the explicit amount');
   ok(bar.hp4 === bar.hp3 && bar.hits.length === 2, 'damageBarrier on a peer barrier does not touch the local hp');
 
+  /* ── Phase 12: wide shield (3.2 m), bug collision push-out, frontal melee absorption ── */
+  const wide = await page.evaluate(() => {
+    const ctx = window.__game.ctx, im = ctx.implants;
+    const V = ctx.player.position.constructor;
+    const fwd = new V(); ctx.player.getForward(fwd); fwd.y = 0; fwd.normalize();
+    const right = new V(-fwd.z, 0, fwd.x);
+    const pose = new V(); im.getBarrierPose(pose);
+    const dir = fwd.clone().negate();
+    const feet = ctx.player.position.clone();
+    const shot = (lat) => { const o = pose.clone().addScaledVector(right, lat).addScaledVector(fwd, 4); o.y = pose.y + 0.7; return im.raycastBarrier(o, dir, 10, true); };
+    const hp0 = im.barrierHp;
+    // collision: a bug (radius 0.5) whose centre is 0.3 m ahead of the panel plane → pushed out along the normal only;
+    // one 3 m to the side or one behind the carrier is not touched
+    const bug = pose.clone().addScaledVector(fwd, 0.3); bug.y = feet.y;
+    const bug0 = bug.clone();
+    const owner = im.resolveBarrierCollision(bug, 0.5);
+    const push = new V().subVectors(bug, bug0);
+    const along = push.x * fwd.x + push.z * fwd.z, lat = push.x * right.x + push.z * right.z;
+    const side = pose.clone().addScaledVector(right, 3.0).addScaledVector(fwd, 0.3); side.y = feet.y;
+    const side0 = side.clone();
+    const sideOwner = im.resolveBarrierCollision(side, 0.5);
+    const back = feet.clone().addScaledVector(fwd, -1.2);
+    const back0 = back.clone();
+    const backOwner = im.resolveBarrierCollision(back, 0.5);
+    // frontal absorption: a melee attack from 1.5 m ahead lands on the shield (hp − amount, implant:barrierHit); from behind it does not
+    const hits0 = window.__barrierHits.length;
+    const absorbed = im.absorbFrontalAttack('local', feet.clone().addScaledVector(fwd, 1.5), 40);
+    const hpA = im.barrierHp;
+    const notAbsorbed = im.absorbFrontalAttack('local', feet.clone().addScaledVector(fwd, -1.5), 40);
+    const hpB = im.barrierHp;
+    const peer = im.absorbFrontalAttack('NOPEER', feet.clone().addScaledVector(fwd, 1.5), 40);
+    return {
+      in14: !!shot(1.4), inNeg14: !!shot(-1.4), out19: shot(1.9),
+      hp0, owner, along, lat, sideOwner, sideMoved: side.distanceTo(side0), backOwner, backMoved: back.distanceTo(back0),
+      absorbed, hpA, notAbsorbed, hpB, peer, hits: window.__barrierHits.length - hits0, stillUp: im.barrierActive && im.barrierCarried,
+    };
+  });
+  ok(wide.in14 && wide.inNeg14 && wide.out19 === null, 'IMPLANT_BARRIER_CARRY_WIDTH 3.2: shots 1.4 m off-centre are blocked, 1.9 m passes');
+  ok(wide.owner === 'local' && wide.along > 0.4 && wide.along < 0.5 && Math.abs(wide.lat) < 1e-6, `resolveBarrierCollision pushes an overlapping bug out to the front face (${wide.along?.toFixed(2)} m along the normal, ${wide.lat?.toFixed(3)} lateral)`);
+  ok(wide.sideOwner === null && wide.sideMoved === 0 && wide.backOwner === null && wide.backMoved === 0, 'resolveBarrierCollision ignores a bug beside the panel or behind the carrier');
+  ok(wide.absorbed === true && wide.hpA === wide.hp0 - 40 && wide.hits === 1, `absorbFrontalAttack from the front: shield takes the hit (${wide.hp0} → ${wide.hpA}) + implant:barrierHit`);
+  ok(wide.notAbsorbed === false && wide.hpB === wide.hpA, 'absorbFrontalAttack from behind: not absorbed, hp unchanged');
+  ok(wide.peer === false, 'absorbFrontalAttack for an unknown peer owner → false');
+  ok(wide.stillUp, 'the shield is still raised after the absorbed hit');
+
+  /* ── Phase 12: 실드 배쉬 — LMB while the shield is raised ── */
+  const bashArm = await page.evaluate(() => {
+    const ctx = window.__game.ctx;
+    // gameplay mouse input is gated on the pointer lock: fake it (see the requestPointerLock stub above)
+    const canvas = document.getElementById('game-canvas');
+    Object.defineProperty(Document.prototype, 'pointerLockElement', { get: () => canvas, configurable: true });
+    window.__bashed = [];
+    ctx.bus.on('implant:bashed', (e) => window.__bashed.push(e.hits));
+    const V = ctx.player.position.constructor;
+    const fwd = new V(); ctx.player.getForward(fwd); fwd.y = 0; fwd.normalize();
+    const at = ctx.player.position.clone().addScaledVector(fwd, 0.7 + 1.0);   // 1 m past the panel plane
+    const en = window.__game.getSystem('enemies').debugSpawn('scavenger', { x: at.x, z: at.z }, false);
+    if (!en) return null;
+    window.__bashTarget = en.id;
+    return { hp: en.hp, stamina: ctx.player.stamina, locked: ctx.input.isPointerLocked, active: ctx.isGameplayActive(), bashing: ctx.implants.bashing };
+  });
+  ok(bashArm && bashArm.locked && bashArm.active && bashArm.bashing === false, `bash probe armed: bug 1 m in front (hp ${bashArm?.hp}), stamina ${bashArm?.stamina?.toFixed(0)}, lock faked`);
+  await gameSleep(page, 0.15);
+  await page.evaluate(() => window.dispatchEvent(new MouseEvent('mousedown', { button: 0 })));
+  await gameSleep(page, 0.12);
+  const bash = await page.evaluate(() => {
+    const ctx = window.__game.ctx, im = ctx.implants;
+    window.dispatchEvent(new MouseEvent('mouseup', { button: 0 }));
+    const en = ctx.enemies.getEnemies().find((e) => e.id === window.__bashTarget);
+    return { bashing: im.bashing, stamina: ctx.player.stamina, hp: en?.hp ?? null, dead: en?.isDead ?? null, events: window.__bashed.slice(), up: im.barrierActive && im.barrierCarried, meleeing: ctx.player.isMeleeing };
+  });
+  ok(bash.bashing === true && bash.events.length === 1, `LMB with the shield raised → bashing (implant:bashed hits=${bash.events[0]})`);
+  ok(bash.stamina < bashArm.stamina - 10, `bash spent stamina (${bashArm.stamina?.toFixed(0)} → ${bash.stamina?.toFixed(0)})`);
+  ok(bash.events[0] >= 1 && (bash.dead === true || (bash.hp !== null && bash.hp < bashArm.hp)), `the bug in front took bash damage (hp ${bashArm.hp} → ${bash.hp}${bash.dead ? ', dead' : ''})`);
+  ok(bash.up && bash.meleeing, 'the shield stays raised through the bash and the heavy swing pose plays');
+  await gameSleep(page, 0.4);
+  const bashEnd = await page.evaluate(() => window.__game.ctx.implants.bashing);
+  ok(bashEnd === false, 'bashing clears after IMPLANT_SHIELD_BASH_SWING_S');
+
   // the panel is carried, so it moves with the player instead of standing where it was raised
   const follow = await page.evaluate(() => {
     const ctx = window.__game.ctx, im = ctx.implants;
@@ -417,6 +498,58 @@ try {
   ok(follow2.active === false && follow2.carried === false && follow2.down === null, 'Q again lowers the shield (getBarrierPose → null)');
   ok(follow2.events[follow2.events.length - 1] === false, 'implant:barrierCarried {up:false} emitted on lower');
 
+  /* ── 정찰 (Phase 12): instant, one wide pulse, revealed to us + the squad ── */
+  await page.evaluate(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
+  await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub phase (scan)');
+  const eqScan = await page.evaluate(() => {
+    const im = window.__game.ctx.implants;
+    return { set: im.setEquipped('scan') && im.equipped === 'scan', mode: im.getDef('scan').mode, cd: im.getDef('scan').cooldown };
+  });
+  ok(eqScan.set && eqScan.mode === 'instant' && eqScan.cd === 30, `정찰 equipped in the ship; mode ${eqScan.mode}, cooldown ${eqScan.cd} s (Phase 12 one-shot)`);
+  await page.evaluate(() => window.__game.ctx.bus.emit('game:newMission', { seed: 44 }));
+  await waitFor(page, () => window.__game.ctx.world?.ready === true && window.__game.ctx.isGameplayPhase() && window.__game.ctx.player?.isDropping === false, 'third mission (scan)');
+  await gameSleep(page, 1.0);
+  const scanArm = await page.evaluate(() => {
+    const ctx = window.__game.ctx;
+    window.__scan = { casts: [], reveals: [], activated: [], scanned: [] };
+    ctx.bus.on('scan:cast', (e) => window.__scan.casts.push({ radius: e.radius, duration: e.duration, byLocal: e.byLocal, n: e.targets.length, kinds: [...new Set(e.targets.map((t) => t.kind))], ids: e.targets.filter((t) => t.kind === 'enemy').map((t) => t.id) }));
+    ctx.bus.on('detect:reveal', (e) => window.__scan.reveals.push({ duration: e.duration, n: e.targets.length }));
+    ctx.bus.on('implant:activated', (e) => window.__scan.activated.push(e.id));
+    ctx.bus.on('implant:scanned', (e) => window.__scan.scanned.push(e.pulse));
+    const feet = ctx.player.position;
+    // a bug 25 m away in the first direction that stays inside the map (it becomes `active` on its first tick)
+    let en = null;
+    for (let k = 0; k < 8 && !en; k++) {
+      const a = (k / 8) * Math.PI * 2;
+      const x = feet.x + Math.cos(a) * 25, z = feet.z + Math.sin(a) * 25;
+      if (!ctx.world.isInsideBounds(x, z)) continue;
+      en = window.__game.getSystem('enemies').debugSpawn('warrior', { x, z }, false);
+    }
+    return { spawned: !!en, enemyId: en ? String(en.id) : null };
+  });
+  ok(scanArm.spawned, 'scan probe: a bug spawned 25 m away');
+  await gameSleep(page, 0.15);
+  const scan = await page.evaluate(() => {
+    const ctx = window.__game.ctx, im = ctx.implants;
+    const feet = ctx.player.position;
+    const interactables = ctx.interactables.all().filter((i) => i.position.distanceTo(feet) <= 70 && i.canInteract()).length;
+    const charges0 = im.charges;
+    im.activate();
+    const after = { cd: im.cooldownRemaining, total: im.cooldownTotal, holding: im.holding, charges: im.charges };
+    im.activate();   // on cooldown: denied, no second cast
+    return { ...window.__scan, interactables, charges0, after, mul: ctx.progression?.derived?.implantCooldownMul ?? 1 };
+  });
+  scan.enemyId = scanArm.enemyId;
+  ok(scan.casts.length === 1 && scan.casts[0].byLocal === true && scan.casts[0].radius === 70 && scan.casts[0].duration === 15,
+    `one scan:cast {byLocal, radius 70, duration 15} per Q (${scan.casts.length} cast(s), second press on cooldown denied)`);
+  ok(scan.casts[0]?.ids.includes(scan.enemyId) && scan.casts[0]?.kinds.includes('enemy'), `the bug is in the reveal (enemy ids ${scan.casts[0]?.ids.join(',')})`);
+  ok(scan.casts[0] && scan.casts[0].n - scan.casts[0].ids.length === Math.min(scan.interactables, 120 - scan.casts[0].ids.length),
+    `every usable interactable inside 70 m is revealed (${scan.casts[0]?.n - scan.casts[0]?.ids.length} of ${scan.interactables}; kinds ${scan.casts[0]?.kinds.join(',')})`);
+  ok(scan.reveals.length === 1 && scan.reveals[0].duration === 15 && scan.reveals[0].n === scan.casts[0]?.n, 'detect:reveal carries the same targets for 15 s');
+  ok(scan.activated.length === 1 && scan.activated[0] === 'scan' && scan.scanned.length === 1 && scan.scanned[0] === 1, 'implant:activated (skill XP hook) + implant:scanned fire exactly once per cast');
+  ok(scan.charges0 === 1 && scan.after.charges === 0 && scan.after.holding === false && scan.after.cd > 20 && Math.abs(scan.after.total - 30 * scan.mul) < 1e-6,
+    `instant cast: no hold, charge spent, cooldown ${scan.after.total.toFixed(1)} s running (${scan.after.cd.toFixed(1)} s left)`);
+
   /* ── HUD widgets ──────────────────────────────────────────────────── */
   const hud = await page.evaluate(() => {
     const all = [...document.querySelectorAll('[class]')].map((n) => n.className).join(' ');
@@ -428,7 +561,9 @@ try {
 
   /* ── shader programs must not keep growing (the old grenade hitch) ─ */
   const programs1 = await page.evaluate(() => window.__game.ctx.renderer.info.programs?.length ?? -1);
-  ok(programs1 - programs0 < 70, `shader programs ${programs0} → ${programs1} after every tactical FX fired`);
+  // Phase 12 raised the bound 70 → 95: the script now runs three missions and spawns two bug types (scavenger, warrior)
+  // whose materials compile on first sight (~71 measured). The check still catches unbounded growth (the old grenade hitch).
+  ok(programs1 - programs0 < 95, `shader programs ${programs0} → ${programs1} after every tactical FX fired`);
 
   ok(errors.length === 0, 'no console errors', errors.slice(0, 6).join(' | '));
 } catch (e) {

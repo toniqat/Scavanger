@@ -5,10 +5,11 @@ Pure data + the `LootRef` implementation. No DOM, no Three.js scene objects. Wea
 | File | Purpose |
 |---|---|
 | `WeaponDefs.ts` | 6 weapon **families** (one per class, 2026-09-07) × 5 grades = 30 `WeaponDef`s built by `buildGrade` **+ 6 legendary uniques** (`UNIQUE_WEAPON_DEFS`, `UNIQUE_WEAPON_DEF_MAP`, `isUniqueWeapon(def)`, `isUniqueWeaponId`, `UNIQUE_WEAPON_DURABILITY`, `UNIQUE_WEAPON_MAG`) — all in `WEAPON_DEFS`, `WEAPON_DEF_MAP`, `getWeaponDef`; `WEAPON_FAMILIES` (graded families only), `WEAPON_GRADES`, `weaponGradesOf(family)`, `weaponIdForGrade(family, grade)`; `WEAPON_CLASS_LABEL_KO`, `WEAPON_CLASS_SHORT` (`SMG/AR/SG/SR/DMR/HG`), `WEAPON_BASE_DURABILITY` (per class), `weaponClassOf(def)`, `weaponFamilyOf(def)`, `gradeOf(def)`, `damageFalloff(def, distance)` |
-| `ItemDefs.ts` | 105 `ItemDef`s (`ITEM_DEFS`, `ITEM_DEF_MAP`, `getItemDef`, `itemDefsByCategory`, `isWeaponItemDef`) — 46 weapon items generated from `WEAPON_DEFS` (`WEAPON_ITEM_DEFS`; uniques use `UNIQUE_WEAPON_META`), `AMMO_ITEM_DEFS` (10), `ATTACHMENT_ITEM_DEFS`, `BAG_ITEM_DEFS`, `SEED_ITEM_DEFS` (3, Phase 8), `BOOK_ITEM_DEFS` (14, Phase 9 — `bookItemIdFor`, `BOOK_DEF_BY_SKILL`), consumables, valuables, materials; rarity palette `RARITY_COLORS`, `RARITY_ORDER`, `rarityRank`, `rarityForGrade` / `gradeForRarity`; Korean labels (`RARITY_LABEL_KO`, `CATEGORY_LABEL_KO`, `AMMO_LABEL_KO`); `AMMO_TYPES_V2` (10), `UNIQUE_AMMO_TYPES`, `AMMO_ROUND_WEIGHT`, `ammoItemIdFor(type)`, `itemIdForWeapon(weaponId)`, `WEAPON_GRADE_VALUE_STEP`; `STARTER_LOADOUT` + `StarterLoadout` type |
+| `ImplantDefs.ts` | **Phase 12** (2026-09-08): 46 `ItemDef`s of category `'implant'` — `IMPLANT_WORKING_DEFS` (23: 5 stats × grades I–IV `imp_<stat>_<g>` + 3 legendary perk implants `imp_perk_<perk>`) and `IMPLANT_BROKEN_DEFS` (23 `imp_broken_*` twins: `망가진 …`, `implant.broken`, `repairsTo` / `repairCost`), together `IMPLANT_ITEM_DEFS`; `PERK_IMPLANT_DEFS`, `IMPLANT_GRADES`, `IMPLANT_SLOTS_BY_GRADE`, `IMPLANT_VALUE_BY_RARITY`, `IMPLANT_REPAIR_COST`, `IMPLANT_STAT_NAME_KO`, `implantItemIdFor(stat, grade)`, `perkImplantItemIdFor(perk)`, `brokenImplantIdOf(id)`, `isImplantItemDef`, `isBrokenImplantDef`. See *임플란트 아이템* below. |
+| `ItemDefs.ts` | 151 `ItemDef`s (`ITEM_DEFS`, `ITEM_DEF_MAP`, `getItemDef`, `itemDefsByCategory`, `isWeaponItemDef`) — 46 weapon items generated from `WEAPON_DEFS` (`WEAPON_ITEM_DEFS`; uniques use `UNIQUE_WEAPON_META`), `AMMO_ITEM_DEFS` (10), `ATTACHMENT_ITEM_DEFS`, `BAG_ITEM_DEFS`, `SEED_ITEM_DEFS` (3, Phase 8), `BOOK_ITEM_DEFS` (14, Phase 9 — `bookItemIdFor`, `BOOK_DEF_BY_SKILL`), `IMPLANT_ITEM_DEFS` (46, Phase 12 — spread in after the books), consumables, valuables, materials; rarity palette `RARITY_COLORS`, `RARITY_ORDER`, `rarityRank`, `rarityForGrade` / `gradeForRarity`; Korean labels (`RARITY_LABEL_KO`, `CATEGORY_LABEL_KO`, `AMMO_LABEL_KO`); `AMMO_TYPES_V2` (10), `UNIQUE_AMMO_TYPES`, `AMMO_ROUND_WEIGHT`, `ammoItemIdFor(type)`, `itemIdForWeapon(weaponId)`, `WEAPON_GRADE_VALUE_STEP`; `STARTER_LOADOUT` + `StarterLoadout` type |
 | `WeaponStats.ts` | `computeWeaponStats(def, inst?)` → `EffectiveWeaponStats` (grade already in the def + slot timings + socketed attachments; **uniques return the def numbers untouched**), `baseWeaponStats`, `applyAttachmentEffects`, `socketedAttachments`, `repairCost(def, inst)` (uniques = legendary), `canAttach(weaponDef, attachmentDef)` (false for uniques), `gradeRoman`, `clampGrade`, `RECOIL_H_RATIO` (0.7), `SECONDARY_ADS_TIME_MUL` (0.5) |
-| `LootTables.ts` | Per-tier `TierTable`s (`LOOT_TABLES`, `getTierTable`, `getTierLabel`): item count, rarity weights (= weapon grade weights), category weights incl. `attachment` / `bag`, weapon chance, `ammoFraction`, guaranteed picks, `itemWeightMul` (family-wide for weapons; Phase 6 helpers `uniqueWeapons / uniqueAmmo / gradedFamilies`; Phase 8 `seed` weights at tiers 1–3; Phase 9 `book` weights at tiers 2–4). Phase 4: per-`EnemyType` `CorpseTable`s (`CORPSE_TABLES`, `CORPSE_TABLE_MAP`, `CorpseDrop`, `CorpseWeapon`, `CorpseUnique`, `DEFAULT_ROGUE_WEAPON_ID`; Phase 8 `BUG_SEEDS` on every bug type; Phase 9 `CorpseBook` on 로그 / 보스) |
-| `Loot.ts` | `LootService implements LootRef` — `rollCrate(tier, rng?)` (a rolled unique brings one stack of its calibre), `rollCorpse(type, rng?, rogueWeaponId?)` (boss unique roll last), `createItem(defId, qty?, extras?)`, `getEffectiveStats`, `getRepairCost`, `canAttach`, def lookups (`getAllItemDefs` includes uniques / unique ammo / new materials — the cheat catalog lists everything); `nextUid()` |
+| `LootTables.ts` | Per-tier `TierTable`s (`LOOT_TABLES`, `getTierTable`, `getTierLabel`): item count, rarity weights (= weapon grade weights), category weights incl. `attachment` / `bag`, weapon chance, `ammoFraction`, guaranteed picks, `itemWeightMul` (family-wide for weapons; Phase 6 helpers `uniqueWeapons / uniqueAmmo / gradedFamilies`; Phase 8 `seed` weights at tiers 1–3; Phase 9 `book` weights at tiers 2–4; **Phase 12** `implant` weights at tiers 2–4 with `workingImplants()` zeroed and `brokenImplants({byRarity})` tapering — broken legendaries tier 4 only). Phase 4: per-`EnemyType` `CorpseTable`s (`CORPSE_TABLES`, `CORPSE_TABLE_MAP`, `CorpseDrop`, `CorpseWeapon`, `CorpseUnique`, `DEFAULT_ROGUE_WEAPON_ID`; Phase 8 `BUG_SEEDS` on every bug type; Phase 9 `CorpseBook` on 로그 / 보스; **Phase 12** `CorpseImplant {chance, weights}` on 로그 6 % / 보스 45 %) |
+| `Loot.ts` | `LootService implements LootRef` — `rollCrate(tier, rng?)` (a rolled unique brings one stack of its calibre), `rollCorpse(type, rng?, rogueWeaponId?)` (boss unique roll, then the Phase 9 book, then the **Phase 12 broken-implant roll last** — earlier draws never shift), `createItem(defId, qty?, extras?)`, `getEffectiveStats`, `getRepairCost`, `canAttach`, def lookups (`getAllItemDefs` includes uniques / unique ammo / new materials — the cheat catalog lists everything); `nextUid()` |
 | `index.ts` | Barrel — import via `@/items` |
 
 ## Weapon families & grades
@@ -370,3 +371,42 @@ No `station: 'ship'` recipe is left without a bench, so the legacy `hub_workbenc
 `STARTER_LOADOUT = { primary: null, secondary: 'wpn_hg', bag: 'bag_common', armor: 'armor_1', items: [ammo_light×80, heal_bandage×2, grenade_frag×3] }` — the minimum kit only; see *Starter loadout & 기본 지급품*.
 
 Ammo recipes were rewritten for ammo v2 (`qty` = rounds): 경량탄 30 ↔ 화약 4, 준중량탄 30 ↔ 화약 6, 중량탄 10 ↔ 화약 5 (+ 합금 판, 제작 20), 산탄 8 ↔ 화약 5.
+
+## 임플란트 아이템 (Phase 12, 2026-09-08 — `ImplantDefs.ts`)
+
+Hollow-Knight-charm style equippables of category **`'implant'`** (`ItemDef.implant: ImplantItemDef`), distinct from the
+six 전술 임플란트 (Q key). progression/ owns the rules (4 slots + 1 per 5 levels, max 10; equip / unequip on the 캐릭터 tab,
+ship only) — items/ only supplies the defs and the loot. 1×1, `stackMax` 1, 0.2 kg, icon `⬡`, colour `CATEGORY_COLOR.implant`
+(legendaries use the legendary rarity colour, broken ones a grey-violet `#8c7a99`).
+
+| grade | rarity | slots | bonus | id | name |
+|---|---|---|---|---|---|
+| I | common | 1 | +1 | `imp_<stat>_1` | `근력 임플란트 I` … |
+| II | uncommon | 2 | +2 | `imp_<stat>_2` | `… II` |
+| III | rare | 2 | +3 | `imp_<stat>_3` | `… III` |
+| IV | epic | 3 | +4 | `imp_<stat>_4` | `… IV` |
+
+`<stat>` ∈ `strength` 근력 · `endurance` 지구력 · `perception` 인지력 · `intelligence` 지능 · `dexterity` 재주 (20 defs).
+Three **legendary perk implants** (`implant.perk`, effects read from `derived.perks` by player/ and weapons/; names /
+descriptions from `PERK_DEFS` in shared): `imp_perk_auto_revive` 재기동 회로 (slots 3, +1 지구력), `imp_perk_quick_heal`
+가속 대사 (slots 2, +1 재주), `imp_perk_kill_stamina` 아드레날린 펌프 (slots 3, +1 근력).
+
+Every one of the 23 has a **broken twin** `imp_broken_<same suffix>` — `망가진 <name>`, same rarity and slot cost,
+`implant.broken: true`, `stats: {}`, `repairsTo` = the working id, `repairCost` by rarity (`IMPLANT_REPAIR_COST`):
+I 회로 기판 1 + 전력 케이블 1 · II + 합금 판 1 · III 회로 기판 2 + 케이블 2 + 합금 판 1 · IV + 소독약 1 · legendary 회로 기판 3 +
+케이블 3 + 합금 판 2 + 소독약 1. `value` by rarity 400 / 900 / 1800 / 3600 / 7500 (`IMPLANT_VALUE_BY_RARITY`), a broken one
+¼ of that (`BROKEN_IMPLANT_VALUE_DIV`).
+
+**Loot** — only broken implants ever drop; working ones are 세레스 바이오's (shop + repair desk, meta/) and nothing is craftable:
+- `LOOT_TABLES`: category `implant` weight 2 / 3 / 4 at tiers 2 / 3 / 4 (none at 1 / 5). `itemWeightMul` zeroes every
+  working def (`workingImplants()`) and scales the broken ones per rarity (`brokenImplants({...})`) — tiers 2–3 taper
+  higher grades (0.7 / 0.4 / 0.2 and 1 / 0.7 / 0.4) and forbid legendaries; **tier 4 is the only container tier with a
+  broken legendary** (×0.5 on the tier's legendary weight 10).
+- `CORPSE_TABLES`: new `CorpseTable.implant: CorpseImplant {chance, weights}` — rogue 6 % (common 55 / uncommon 30 /
+  rare 12 / epic 3), rogue_boss 45 % (10 / 25 / 30 / 25 / **legendary 10**). `rollCorpse` rolls it **last**, after the
+  book, so every earlier draw (ammo, weapon, attachment, unique, book) is unchanged for a given rng — the
+  `smoke-phase4` / `smoke-library` corpse checks needed no update.
+- `heal_spray` confirmed: `durabilityMax: HEAL_SPRAY_GAUGE` (200 since Phase 12) — never hard-coded.
+
+Smoke: `scripts/smoke-progression.mjs` covers the def table (46 / 23 / 23, names, slots, stats, repair costs, value ¼),
+the loot rules (corpse / crate counts over 400 / 300 rolls, no working implant, no legendary below tier 4) and the spray gauge.

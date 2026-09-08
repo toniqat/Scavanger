@@ -2,9 +2,18 @@ import type { EnemyType, ItemCategory, Rarity, WeaponGrade } from '@/shared';
 import { UNIQUE_WEAPON_IDS } from '@/shared';
 import { WEAPON_FAMILIES } from './WeaponDefs';
 import { UNIQUE_AMMO_TYPES, ammoItemIdFor, itemIdForWeapon } from './ItemDefs';
+import { IMPLANT_BROKEN_DEFS, IMPLANT_WORKING_DEFS } from './ImplantDefs';
 
 /* ── Phase 6 helpers: weight records for the six uniques / their ammo / graded families ── */
 const record = (ids: readonly string[], mul: number): Record<string, number> => Object.fromEntries(ids.map((id) => [id, mul]));
+/*
+ * Phase 12 (2026-09-08): 임플란트 in containers. Only **broken** ones ever drop (working implants are 세레스 바이오's), so
+ * every working def is zeroed wherever the category has weight; broken legendaries (the perk implants) are tier 4 / boss
+ * only. `byRarity` scales the broken ones on top of the tier's `rarityWeights` so a higher grade stays the rarer find.
+ */
+const workingImplants = (): Record<string, number> => record(IMPLANT_WORKING_DEFS.map((d) => d.id), 0);
+const brokenImplants = (byRarity: Partial<Record<Rarity, number>>): Record<string, number> =>
+  Object.fromEntries(IMPLANT_BROKEN_DEFS.map((d) => [d.id, byRarity[d.rarity] ?? 1]));
 /** `wpn_u_*` → mul (exact item ids; a unique is its own family). */
 const uniqueWeapons = (mul: number): Record<string, number> => record(UNIQUE_WEAPON_IDS.map(itemIdForWeapon), mul);
 /** `ammo_fuel` … `ammo_belt` → mul. */
@@ -64,7 +73,7 @@ export const LOOT_TABLES: readonly TierTable[] = [
   {
     tier: 2, label: '군수 상자', count: [3, 4],
     rarityWeights: { common: 45, uncommon: 38, rare: 15, epic: 2, legendary: 0 },
-    categoryWeights: { ammo: 20, stim: 14, grenade: 12, material: 16, valuable: 38, attachment: 10, bag: 3, gadget: 9, herb: 5, armor: 4, seed: 4, book: 3 },
+    categoryWeights: { ammo: 20, stim: 14, grenade: 12, material: 16, valuable: 38, attachment: 10, bag: 3, gadget: 9, herb: 5, armor: 4, seed: 4, book: 3, implant: 2 },
     weaponChance: 0.35, maxStackQty: 4, ammoFraction: [0.35, 0.7],
     guaranteed: [{ categories: ['valuable'], minRarity: 'uncommon' }],
     // SMGs are field-common; snipers rarely in supply crates; legendary gear is tier 3+ only; 전력 케이블 / 회로 기판 from here (circuit scarce)
@@ -73,24 +82,28 @@ export const LOOT_TABLES: readonly TierTable[] = [
       armor_regen: 0, armor_ultralight: 0, armor_optical: 0,
       ...uniqueAmmo(0), mat_cable: 1.2, mat_circuit: 0.3,
       mat_cloth: 2, mat_can: 1.5, mat_syringe: 0.8, mat_antiseptic: 0,
+      /* Phase 12: 망가진 임플란트 only — mostly I / II here, no legendaries */
+      ...workingImplants(), ...brokenImplants({ common: 1, uncommon: 0.7, rare: 0.4, epic: 0.2, legendary: 0 }),
     },
   },
   {
     tier: 3, label: '귀중품 금고', count: [4, 5],
     rarityWeights: { common: 15, uncommon: 30, rare: 40, epic: 14, legendary: 1 },
-    categoryWeights: { ammo: 12, stim: 12, grenade: 8, material: 14, valuable: 54, attachment: 12, bag: 6, gadget: 11, herb: 3, armor: 4, seed: 3, book: 3 },
+    categoryWeights: { ammo: 12, stim: 12, grenade: 8, material: 14, valuable: 54, attachment: 12, bag: 6, gadget: 11, herb: 3, armor: 4, seed: 3, book: 3, implant: 3 },
     weaponChance: 0.55, maxStackQty: 5, ammoFraction: [0.5, 0.85],
     guaranteed: [{ categories: ['valuable'], minRarity: 'rare' }],
     // uniques are tier 4+ / 5 / boss only (legendary weight 1 here would otherwise leak them)
     itemWeightMul: {
       wpn_sr: 1.2, ...uniqueWeapons(0), ...uniqueAmmo(0), mat_circuit: 0.6,
       mat_cloth: 1.2, mat_can: 1, mat_syringe: 1, mat_antiseptic: 0,
+      /* Phase 12: 망가진 임플란트 up to IV, still no legendaries */
+      ...workingImplants(), ...brokenImplants({ common: 1, uncommon: 1, rare: 0.7, epic: 0.4, legendary: 0 }),
     },
   },
   {
     tier: 4, label: '희귀 캐시', count: [5, 6],
     rarityWeights: { common: 5, uncommon: 15, rare: 40, epic: 30, legendary: 10 },
-    categoryWeights: { ammo: 10, stim: 12, grenade: 8, material: 10, valuable: 60, attachment: 12, bag: 8, gadget: 12, herb: 2, armor: 7, book: 2 },
+    categoryWeights: { ammo: 10, stim: 12, grenade: 8, material: 10, valuable: 60, attachment: 12, bag: 8, gadget: 12, herb: 2, armor: 7, book: 2, implant: 4 },
     weaponChance: 1, maxStackQty: 6, ammoFraction: [0.6, 1],
     guaranteed: [
       { categories: ['valuable'], minRarity: 'epic' },
@@ -100,7 +113,8 @@ export const LOOT_TABLES: readonly TierTable[] = [
     // Uniques: 6 × (10 × 0.25) = 15 of the ~97 legendary weapon weight (≈ 15 % of legendary weapon rolls, ≈ 2 % of all
     // tier-4 weapons). Their ammo: rare (40) × 0.025 = 1 each vs 4 × 5 for the standard calibres (≈ 23 % of ammo picks);
     // a rolled unique always brings one stack of its calibre on top (`rollCrate`).
-    itemWeightMul: { wpn_sr: 1.5, wpn_smg: 0.7, ...uniqueWeapons(0.25), ...uniqueAmmo(0.025) },
+    // Phase 12: the only container tier where a broken **legendary** (perk) implant can turn up
+    itemWeightMul: { wpn_sr: 1.5, wpn_smg: 0.7, ...uniqueWeapons(0.25), ...uniqueAmmo(0.025), ...workingImplants(), ...brokenImplants({ legendary: 0.5 }) },
   },
   /*
    * Phase 3: ship-call supply drop (`SUPPLY_CRATE_TIER`) — consumables only, no valuables.
@@ -164,11 +178,22 @@ export interface CorpseBook {
   chance: number;
 }
 
+/**
+ * Phase 12: chance of one **망가진 임플란트** (`IMPLANT_BROKEN_DEFS`, picked by `weights[rarity]`; 0 / missing = never) on a
+ * rogue corpse — raiders wear implants and a kill shot fries them. Rolled last in `rollCorpse` so earlier draws never move.
+ */
+export interface CorpseImplant {
+  chance: number;
+  weights: Readonly<Partial<Record<Rarity, number>>>;
+}
+
 export interface CorpseTable {
   type: EnemyType;
   drops: readonly CorpseDrop[];
   /** Phase 9: 서적 roll (rogues only; bugs never carry books). */
   book?: CorpseBook;
+  /** Phase 12: 망가진 임플란트 roll (rogues only; legendaries from the boss). */
+  implant?: CorpseImplant;
   /** Rounds of the weapon's calibre as a fraction of `AMMO_STACK_ROUNDS`, one stack (rogues only). */
   ammoFraction?: readonly [number, number];
   weapon?: CorpseWeapon;
@@ -215,6 +240,7 @@ export const CORPSE_TABLES: readonly CorpseTable[] = [
     drops: [{ defId: 'heal_bandage', qty: [1, 1], chance: 0.3 }, { defId: 'grenade_frag', qty: [1, 1], chance: 0.2 }],
     weapon: { durability: [0.05, 0.15] },
     book: { chance: 0.03 },
+    implant: { chance: 0.06, weights: { common: 55, uncommon: 30, rare: 12, epic: 3 } },
   },
   {
     type: 'rogue_boss', ammoFraction: ROGUE_AMMO,
@@ -222,6 +248,7 @@ export const CORPSE_TABLES: readonly CorpseTable[] = [
     weapon: { durability: [0.4, 0.7], grades: [3, 4], attachment: { maxRarity: 'epic' } },
     unique: { chance: 0.2, durability: [0.5, 0.8] },
     book: { chance: 0.2 },
+    implant: { chance: 0.45, weights: { common: 10, uncommon: 25, rare: 30, epic: 25, legendary: 10 } },
   },
 ];
 

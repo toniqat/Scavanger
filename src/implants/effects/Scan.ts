@@ -2,15 +2,39 @@ import * as THREE from 'three';
 import type { EnemyRef, GameContext, ScanTarget } from '@/shared';
 
 /** Hard cap so a huge pulse never floods the reveal list / the HUD outline pool. */
-const MAX_TARGETS = 80;
+const MAX_TARGETS = 120;
 
 /**
- * Gather everything a 정찰 pulse of `radius` around `center` reveals. Every source is optional and
- * probed defensively — enemies / pickups / gadgets / gather nodes are owned by other folders and may not
- * exist yet (or may not implement the newest contract members).
+ * Interactable id prefix → `ScanTarget.kind` (Phase 12). Every world thing a player can walk up to is registered in
+ * `ctx.interactables` under a prefixed id (crates `crate_`, gather nodes `gather:` / `gather_`, dropped items
+ * `pickup:`, corpses `corpse:`, deployables `gadget:`, extraction consoles `extract_`, downed squadmates `revive:`),
+ * so the registry is the single source for "things to reveal". Anything unlisted (arena consoles, ship stations) is
+ * an `'objective'`.
+ */
+const PREFIX_KINDS: ReadonlyArray<readonly [string, ScanTarget['kind'], string]> = [
+  ['crate', 'crate', '보급 상자'],
+  ['corpse', 'crate', '시체'],
+  ['gather', 'gather', '채집물'],
+  ['pickup', 'pickup', '아이템'],
+  ['gadget', 'deployable', '설치물'],
+  ['extract', 'objective', '탈출 지점'],
+  ['revive', 'objective', '아군'],
+];
+
+function kindOf(id: string): readonly [ScanTarget['kind'], string] {
+  for (const [prefix, kind, label] of PREFIX_KINDS) {
+    if (id.startsWith(prefix)) return [kind, label];
+  }
+  return ['objective', '목표'];
+}
+
+/**
+ * Gather everything a 정찰 pulse of `radius` around `center` reveals: every registered interactable inside the radius
+ * (kind by id prefix) plus every alive enemy (`queryNear`, else the full list). Each source is probed defensively —
+ * enemies are owned by another folder and may not implement the newest contract members.
  *
- * The returned `position` fields are the owners' live Vector3 instances where possible, so the UI can
- * track a moving enemy for the whole reveal window.
+ * The returned `position` fields are the owners' live Vector3 instances, so the UI can track a moving enemy for the
+ * whole reveal window. Enemies come first so the cap never drops them in favour of crates.
  */
 export function collectScanTargets(ctx: GameContext, center: THREE.Vector3, radius: number): ScanTarget[] {
   const out: ScanTarget[] = [];
@@ -34,55 +58,47 @@ export function collectScanTargets(ctx: GameContext, center: THREE.Vector3, radi
     }
   }
 
-  // ── crates
-  const world = ctx.world;
-  if (world && world.ready) {
-    for (const c of world.getCrates()) {
-      if (c.opened || !near(c.position)) continue;
-      out.push({ kind: 'crate', id: c.id, position: c.position, label: '보급 상자' });
-      if (out.length >= MAX_TARGETS) return out;
-    }
-    // ── gather nodes (world may predate the tactical-kit contract)
-    const gn = (world as { getGatherNodes?: unknown }).getGatherNodes;
-    if (typeof gn === 'function') {
-      try {
-        for (const n of world.getGatherNodes()) {
-          if (n.harvested || !near(n.position)) continue;
-          out.push({ kind: 'gather', id: n.id, position: n.position, label: '채집물' });
-          if (out.length >= MAX_TARGETS) return out;
-        }
-      } catch { /* world without gather nodes */ }
-    }
-    // ── objectives
-    for (const p of world.getExtractionPoints()) {
-      if (!near(p.position)) continue;
-      out.push({ kind: 'objective', id: p.id, position: p.position, label: '탈출 지점' });
-      if (out.length >= MAX_TARGETS) return out;
-    }
-  }
-
-  // ── dropped items
-  const pickups = ctx.pickups;
-  if (pickups) {
-    for (const p of pickups.getPickups()) {
-      if (!near(p.position)) continue;
-      const name = ctx.loot?.getItemDef(p.item.defId)?.name;
-      out.push({ kind: 'pickup', id: p.id, position: p.position, object: p.object, label: name ?? '아이템' });
-      if (out.length >= MAX_TARGETS) return out;
-    }
-  }
-
-  // ── deployables (gadgets)
-  const gadgets = ctx.gadgets;
-  if (gadgets) {
-    try {
-      for (const d of gadgets.getDeployables()) {
-        if (!near(d.position)) continue;
-        out.push({ kind: 'deployable', id: d.id, position: d.position, object: d.object, label: '설치물' });
-        if (out.length >= MAX_TARGETS) return out;
-      }
-    } catch { /* gadgets not ready */ }
+  // ── interactables (crates, corpses, gather nodes, pickups, deployables, consoles …)
+  for (const it of ctx.interactables.all()) {
+    if (!near(it.position)) continue;
+    let usable = true;
+    try { usable = it.canInteract(); } catch { usable = false; }
+    if (!usable) continue;
+    const [kind, label] = kindOf(it.id);
+    out.push({ kind, id: it.id, position: it.position, label });
+    if (out.length >= MAX_TARGETS) return out;
   }
 
   return out;
+}
+
+/** Enemy ids (numbers) of a target list, for `EnemyManagerRef.setXray`. */
+export function enemyIdsOf(targets: readonly ScanTarget[], out: number[]): number[] {
+  out.length = 0;
+  for (const t of targets) {
+    if (t.kind !== 'enemy') continue;
+    const n = Number(t.id);
+    if (Number.isFinite(n)) out.push(n);
+  }
+  return out;
+}
+
+const _ids: number[] = [];
+
+/**
+ * Phase 12: the one-shot 정찰 reveal on **this** client — used both for the local cast and for a peer's `imp scanCast`
+ * (every receiver reveals from its own world, so nothing but `p / radius / dur` travels). Collects the targets, emits
+ * `detect:reveal` (ScanReveal draws the through-wall pillars) and `scan:cast` (compass marks / indicators), and asks
+ * enemies/ for the red silhouettes (`setXray`, probed — the enemies folder may predate it). Returns the targets.
+ */
+export function revealScan(ctx: GameContext, center: THREE.Vector3, radius: number, duration: number, byLocal: boolean): ScanTarget[] {
+  const targets = collectScanTargets(ctx, center, radius);
+  ctx.bus.emit('detect:reveal', { targets, duration });
+  ctx.bus.emit('scan:cast', { position: center.clone(), radius, duration, targets, byLocal });
+  const enemies = ctx.enemies;
+  if (enemies && typeof (enemies as { setXray?: unknown }).setXray === 'function') {
+    enemyIdsOf(targets, _ids);
+    if (_ids.length) { try { enemies.setXray(_ids, duration); } catch { /* enemies without xray */ } }
+  }
+  return targets;
 }

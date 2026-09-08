@@ -1,7 +1,7 @@
-import type { FurnitureDef, FurnitureModelKind, GameContext, ItemDef, RoomPurpose } from '@/shared';
+import type { CraftIngredient, FurnitureDef, FurnitureModelKind, GameContext, ItemDef, RoomPurpose } from '@/shared';
 import {
-  renderItemCost, ROOM_PURPOSES, ROOM_PURPOSES_ACTIVE, ROOM_PURPOSE_COLOR, ROOM_PURPOSE_GLYPH,
-  ROOM_PURPOSE_LABEL_KO, SHIP_ROOM_COUNT,
+  FACILITY_COLOR, FACILITY_GLYPH, Keys, renderItemCost, ROOM_PURPOSES, ROOM_PURPOSES_ACTIVE, ROOM_PURPOSE_COLOR,
+  ROOM_PURPOSE_GLYPH, ROOM_PURPOSE_LABEL_KO, SHIP_ROOM_COUNT,
 } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 
@@ -57,6 +57,17 @@ const ASSIGNABLE: readonly RoomPurpose[] = ROOM_PURPOSES.filter((p) => p !== 'em
  * Driven by `housing:shipManageChanged` (open / close / room change) and `housing:changed` (storage, purposes,
  * materials); `housing:selectionChanged` only re-marks the active card. Takes no blocker token — housing/ owns the
  * mode and hub/ owns the camera and the placement keys.
+ *
+ * **Phase 12 (시설 증축 that "did nothing"):** on a fresh ship every purpose is refused by the 발전기 gate
+ * (`ROOM_PURPOSE_BUILD_GENERATOR_LEVEL` 1 vs a generator at level 0) while the cost chips read as affordable — the
+ * reason only lived in a `title` tooltip on a `disabled` button, and the generator itself could only be raised from
+ * the Tab 함선 tab. Now: the picker is headed by a **발전기 row** (`.sm-gen`: level, next-level cost chips,
+ * 업그레이드 → the confirm popup → `ctx.housing.upgrade('generator')`) that is highlighted while it is what blocks
+ * the purposes; a purpose row stays **clickable** when blocked and prints its 한국어 reason inline (`.sm-block`) —
+ * clicking it repeats the reason as a toast; and an allowed purpose opens a centred **modeless confirm popup**
+ * (`.sm-confirm`: `정말로 N번 방을 <용도> 시설로 만들겠습니까?` + `renderItemCost` chips of `purposeCost`, 확인 →
+ * `setRoomPurpose`, 취소 / Esc → close). Escape is caught in the capture phase and `Input.consume`d, so it closes
+ * the popup only — the hub's own Esc (leave 시설 관리) and game/'s pause never see it.
  */
 export class ShipManage {
   readonly root: HTMLElement;
@@ -80,6 +91,24 @@ export class ShipManage {
   private selected: string | null = null;
   private ctx!: GameContext;
   private unsubs: Array<() => void> = [];
+  /* Phase 12: confirm popup */
+  private confirmEl: HTMLElement;
+  private confirmTitle: HTMLElement;
+  private confirmBody: HTMLElement;
+  private confirmCost: HTMLElement;
+  private confirmOk: HTMLButtonElement;
+  private confirmAction: (() => void) | null = null;
+  private pendingPurpose: RoomPurpose | null = null;
+
+  private onKey = (e: KeyboardEvent): void => {
+    if (!this.isConfirmOpen || e.code !== Keys.MENU) return;
+    // Capture phase on `window`: `Input`'s bubble listener never records this Escape, so neither the hub (leave
+    // 시설 관리) nor game/ (pause) polls it. `consume` covers the case where Input already saw it this frame.
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    this.ctx?.input.consume(Keys.MENU);
+    this.closeConfirm();
+  };
 
   constructor(parent: HTMLElement) {
     this.root = el('div', { cls: 'ship-manage', parent });
@@ -126,12 +155,29 @@ export class ShipManage {
         scroller.scrollTop += e.deltaY;
       }, { passive: false });
     }
+    /* Phase 12: centred modeless confirm popup (purpose build / 발전기 upgrade). A child of the screen root, so it is
+       gated with it; `.interactive` because the `.hud.housing` layer itself is pointer-events: none. */
+    this.confirmEl = el('div', { cls: 'sm-confirm interactive', parent: this.root });
+    this.confirmEl.hidden = true;
+    const card = el('div', { cls: 'sm-confirm-card', parent: this.confirmEl });
+    this.confirmTitle = el('div', { cls: 'title', text: '시설 증축', parent: card });
+    this.confirmBody = el('div', { cls: 'body', parent: card });
+    this.confirmCost = el('div', { cls: 'cost', parent: card });
+    const acts = el('div', { cls: 'acts', parent: card });
+    const cancel = el('button', { cls: 'ui-btn', text: '취소', parent: acts });
+    this.confirmOk = el('button', { cls: 'ui-btn primary', text: '확인', parent: acts });
+    cancel.addEventListener('click', (e) => { e.stopPropagation(); this.closeConfirm(true); });
+    this.confirmOk.addEventListener('click', (e) => { e.stopPropagation(); this.runConfirm(); });
+    // a click on the dimmed backdrop cancels, like the 함선 tab's popups
+    this.confirmEl.addEventListener('mousedown', (e) => { if (e.target === this.confirmEl) this.closeConfirm(true); });
+
     this.root.addEventListener('mousedown', (e) => e.stopPropagation());
     this.root.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
   bind(ctx: GameContext): void {
     this.ctx = ctx;
+    window.addEventListener('keydown', this.onKey, true);
     const b = ctx.bus;
     this.unsubs.push(
       b.on('housing:shipManageChanged', ({ active, room }) => this.setActive(active, room)),
@@ -154,12 +200,16 @@ export class ShipManage {
   get purposeCount(): number { return this.purposesEl.hidden ? 0 : this.purposesEl.childElementCount; }
   /** Which furniture tab is showing (debug). */
   get furnitureTab(): FurnTab { return this.tab; }
+  /** Phase 12: the confirm popup (purpose build or 발전기 upgrade) and the purpose it is asking about (debug). */
+  get isConfirmOpen(): boolean { return !this.confirmEl.hidden; }
+  get confirmPurpose(): RoomPurpose | null { return this.pendingPurpose; }
 
   private setActive(active: boolean, room: number | null): void {
     const changed = active !== this.active || room !== this.room;
     this.active = active;
     this.room = active ? room : null;
     toggleClass(this.root, 'show', active);
+    if (changed && this.isConfirmOpen) this.closeConfirm();
     if (!active) {
       this.selected = null;
       this.cardsKey = '';
@@ -214,6 +264,10 @@ export class ShipManage {
     housing.selectFurniture(this.selected === defId ? null : defId);
   }
 
+  /**
+   * A 용도 row was pressed. Blocked → the reason (already printed under the row) is repeated as a toast and the row
+   * flashes; allowed → the confirm popup. Nothing is built from the row itself any more (Phase 12).
+   */
   private pickPurpose(purpose: RoomPurpose): void {
     const housing = this.ctx.housing;
     const room = this.room;
@@ -222,14 +276,93 @@ export class ShipManage {
     if (blocked) {
       this.ctx.bus.emit('audio:play', { id: 'ui_deny' });
       this.ctx.bus.emit('ui:notify', { text: blocked, kind: 'warning' });
+      const row = this.purposesEl.querySelector<HTMLElement>(`.sm-purpose[data-purpose="${purpose}"]`);
+      if (row) { row.classList.remove('flash'); void row.offsetWidth; row.classList.add('flash'); }
       return;
     }
-    if (housing.setRoomPurpose(room, purpose)) {
+    this.ctx.bus.emit('audio:play', { id: 'ui_click' });
+    this.openConfirm(
+      `방 ${room + 1} — ${ROOM_PURPOSE_LABEL_KO[purpose]} 증축`,
+      `정말로 ${room + 1}번 방을 ${ROOM_PURPOSE_LABEL_KO[purpose]} 시설로 만들겠습니까? 재료는 가방과 함선 창고에서 함께 빠져나갑니다.`,
+      housing.purposeCost(purpose),
+      purpose,
+      () => this.buildPurpose(room, purpose),
+    );
+  }
+
+  /** 확인 on a purpose: re-check the rules (materials may have moved while the popup was up), then build. */
+  private buildPurpose(room: number, purpose: RoomPurpose): void {
+    const housing = this.ctx.housing;
+    if (!housing) return;
+    const blocked = housing.purposeBlock(room, purpose);
+    if (blocked) {
+      this.ctx.bus.emit('audio:play', { id: 'ui_deny' });
+      this.ctx.bus.emit('ui:notify', { text: blocked, kind: 'warning' });
+    } else if (housing.setRoomPurpose(room, purpose)) {
       this.ctx.bus.emit('audio:play', { id: 'ui_equip' });
-      this.ctx.bus.emit('ui:notify', { text: `방 ${room + 1} → ${ROOM_PURPOSE_LABEL_KO[purpose]}`, kind: 'success' });
+      this.ctx.bus.emit('ui:notify', { text: `방 ${room + 1} → ${ROOM_PURPOSE_LABEL_KO[purpose]} 증축 완료`, kind: 'success' });
       this.tab = 'craft';
-    } else this.ctx.bus.emit('audio:play', { id: 'ui_deny' });
+    } else {
+      this.ctx.bus.emit('audio:play', { id: 'ui_deny' });
+      this.ctx.bus.emit('ui:notify', { text: '증축에 실패했습니다', kind: 'danger' });
+    }
     this.refresh();
+  }
+
+  /** The 발전기 row's 업그레이드 button: blocked → reason toast, else the confirm popup → `housing.upgrade`. */
+  private pickGenerator(): void {
+    const housing = this.ctx.housing;
+    if (!housing) return;
+    const info = housing.getFacility('generator');
+    if (info.blocked || !info.nextCost) {
+      this.ctx.bus.emit('audio:play', { id: 'ui_deny' });
+      this.ctx.bus.emit('ui:notify', { text: info.blocked ?? '업그레이드할 수 없습니다', kind: 'warning' });
+      return;
+    }
+    this.ctx.bus.emit('audio:play', { id: 'ui_click' });
+    this.openConfirm(
+      `발전기 Lv.${info.level} → Lv.${info.level + 1}`,
+      info.level === 0
+        ? '발전기를 가동하겠습니까? 발전기 Lv.1 부터 시설을 증축하고 업그레이드할 수 있습니다. 재료는 가방과 함선 창고에서 함께 빠져나갑니다.'
+        : `발전기를 Lv.${info.level + 1} 로 업그레이드하겠습니까? 재료는 가방과 함선 창고에서 함께 빠져나갑니다.`,
+      info.nextCost,
+      null,
+      () => {
+        const ok = housing.upgrade('generator');
+        this.ctx.bus.emit('audio:play', { id: ok ? 'ui_equip' : 'ui_deny' });
+        this.ctx.bus.emit('ui:notify', ok
+          ? { text: `발전기 Lv.${housing.getFacility('generator').level}`, kind: 'success' }
+          : { text: housing.getFacility('generator').blocked ?? '업그레이드에 실패했습니다', kind: 'warning' });
+        this.refresh();
+      },
+    );
+  }
+
+  /* ── Phase 12: confirm popup ─────────────────────────────────────────── */
+  private openConfirm(title: string, body: string, cost: readonly CraftIngredient[], purpose: RoomPurpose | null, action: () => void): void {
+    setText(this.confirmTitle, title);
+    setText(this.confirmBody, body);
+    this.confirmCost.replaceChildren();
+    if (cost.length) renderItemCost(this.confirmCost, cost, (id) => this.itemDef(id), (id) => this.owned(id), { size: 34 });
+    else el('span', { cls: 'item-chip-free', text: '재료 없음', parent: this.confirmCost });
+    this.confirmAction = action;
+    this.pendingPurpose = purpose;
+    this.confirmEl.hidden = false;
+    this.confirmOk.focus({ preventScroll: true });
+  }
+
+  private closeConfirm(sound = false): void {
+    if (this.confirmEl.hidden) return;
+    this.confirmEl.hidden = true;
+    this.confirmAction = null;
+    this.pendingPurpose = null;
+    if (sound) this.ctx?.bus.emit('audio:play', { id: 'ui_close' });
+  }
+
+  private runConfirm(): void {
+    const action = this.confirmAction;
+    this.closeConfirm();
+    action?.();
   }
 
   /** Header 빈 방으로: give the room back (housing recovers every placed piece into furniture storage first). */
@@ -326,12 +459,40 @@ export class ShipManage {
       return { p, blocked, rank: this.purposeRank(room, p, blocked), cost: housing.purposeCost(p) };
     });
     entries.sort((a, b) => a.rank - b.rank || ASSIGNABLE.indexOf(a.p) - ASSIGNABLE.indexOf(b.p));
-    const key = `${room}|${entries.map((e) => `${e.p}${e.rank}${this.costKeyOf(e.cost)}`).join(',')}`;
+    const gen = housing.getFacility('generator');
+    // the gate is what stops everything when the generator is the only reason left on an otherwise buildable room
+    const gateBlocks = entries.some((e) => !!e.blocked && /발전기/.test(e.blocked));
+    const key = `${room}|g${gen.level}/${gen.maxLevel}|${gen.blocked ?? ''}|${this.costKeyOf(gen.nextCost)}|${gateBlocks ? 1 : 0}|`
+      + entries.map((e) => `${e.p}${e.rank}${e.blocked ?? ''}${this.costKeyOf(e.cost)}`).join(',');
     if (key === this.purposeKey) return;
     this.purposeKey = key;
     this.purposesEl.replaceChildren();
+
+    /* Phase 12: the 발전기 row leads the picker — it is the prerequisite of every purpose below. */
+    const g = el('div', { cls: `sm-gen${gateBlocks ? ' is-hint' : ''}${gen.blocked && gen.nextCost ? ' is-blocked' : ''}`, parent: this.purposesEl });
+    const gthumb = el('div', { cls: 'sm-thumb', parent: g });
+    gthumb.style.setProperty('--pc', FACILITY_COLOR.generator);
+    el('span', { cls: 'g', text: FACILITY_GLYPH.generator, parent: gthumb });
+    const gbody = el('div', { cls: 'bd', parent: g });
+    const gline = el('div', { cls: 'ln', parent: gbody });
+    el('span', { cls: 'nm', text: '발전기', parent: gline });
+    el('span', { cls: 'lv ui-mono', text: `Lv.${gen.level} / ${gen.maxLevel}`, parent: gline });
+    if (gen.nextCost) {
+      const gcost = el('div', { cls: 'sm-cost', parent: gbody });
+      renderItemCost(gcost, gen.nextCost, (id) => this.itemDef(id), (id) => this.owned(id), { size: 24 });
+    }
+    const genNote = gateBlocks
+      ? `시설 증축에는 발전기 Lv.1 이 필요합니다 — 먼저 발전기를 가동하세요${gen.blocked && gen.nextCost ? ` (${gen.blocked})` : ''}`
+      : gen.blocked && gen.nextCost ? gen.blocked : gen.nextCost ? '' : '최대 레벨';
+    if (genNote) el('div', { cls: 'sm-block', text: genNote, parent: gbody });
+    const gbtn = el('button', { cls: 'sm-gen-btn', text: gen.nextCost ? (gen.level === 0 ? '가동' : '업그레이드') : '최대', parent: g });
+    gbtn.disabled = !gen.nextCost;
+    gbtn.title = gen.blocked ?? (gen.level === 0 ? '발전기 가동' : `발전기 Lv.${gen.level + 1}`);
+    gbtn.addEventListener('click', (e) => { e.stopPropagation(); this.pickGenerator(); });
+
     for (const { p, blocked, rank, cost } of entries) {
       const b = el('button', { cls: `sm-purpose rank-${rank}`, parent: this.purposesEl });
+      b.dataset.purpose = p;
       const thumb = el('div', { cls: 'sm-thumb', parent: b });
       thumb.style.setProperty('--pc', ROOM_PURPOSE_COLOR[p]);
       el('span', { cls: 'g', text: ROOM_PURPOSE_GLYPH[p], parent: thumb });
@@ -342,8 +503,10 @@ export class ShipManage {
       else if (!ROOM_PURPOSES_ACTIVE.includes(p)) el('span', { cls: 'badge', text: '다음 업데이트', parent: line });
       const costEl = el('div', { cls: 'sm-cost', parent: body });
       renderItemCost(costEl, cost, (id) => this.itemDef(id), (id) => this.owned(id), { size: 24 });
+      // Phase 12: the reason is printed, not tucked into a tooltip, and the row stays clickable (→ toast + flash)
+      if (blocked) el('div', { cls: 'sm-block', text: blocked, parent: body });
       toggleClass(b, 'is-blocked', !!blocked);
-      b.disabled = !!blocked;
+      b.setAttribute('aria-disabled', blocked ? 'true' : 'false');
       b.title = blocked ?? `${ROOM_PURPOSE_LABEL_KO[p]} 증축`;
       b.addEventListener('click', (e) => { e.stopPropagation(); this.pickPurpose(p); });
     }
@@ -460,5 +623,9 @@ export class ShipManage {
     for (const c of this.cards) toggleClass(c.root, 'is-sel', c.defId === defId);
   }
 
-  dispose(): void { for (const u of this.unsubs) u(); this.root.remove(); }
+  dispose(): void {
+    for (const u of this.unsubs) u();
+    window.removeEventListener('keydown', this.onKey, true);
+    this.root.remove();
+  }
 }

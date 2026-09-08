@@ -5,6 +5,7 @@ import {
 } from '@/shared';
 import { WEAPON_DEFS, gradeOf, isUniqueWeapon, weaponFamilyOf } from './WeaponDefs';
 import { ARMOR_DEFS, ARMOR_ICON, armorItemSize } from './ArmorDefs';
+import { IMPLANT_ITEM_DEFS } from './ImplantDefs';
 
 /* ── palette / labels ─────────────────────────────────────────────────────── */
 /* Phase 7 (2026-09-06): the rarity / category labels, colours, icons and order live in `src/shared/labels.ts` now so
@@ -392,6 +393,9 @@ export const ITEM_DEFS: readonly ItemDef[] = [
   /* books (Phase 9: 서재 책장에 꽂는다) */
   ...BOOK_ITEM_DEFS,
 
+  /* 임플란트 (Phase 12: 캐릭터 탭에 장착; 망가진 것만 루팅, 세레스 바이오가 수리 · 판매 — `ImplantDefs.ts`) */
+  ...IMPLANT_ITEM_DEFS,
+
   /* gadgets (behaviour lives in src/gadgets; here they are just consumables) */
   def({ id: 'gad_cloak_veil', name: '은폐 장막', category: 'gadget', rarity: 'rare', width: 1, height: 2, stackMax: 2, value: 620, icon: '◌',
     gadgetId: 'cloakVeil', weight: 1.1, quickUsable: true,
@@ -492,10 +496,13 @@ export const STARTER_STASH: readonly { id: string; qty: number; stacks?: number 
   /* 여분 가방 · 방탄복 (장착분은 STARTER_LOADOUT) */
   { id: 'bag_common', qty: 1, stacks: 3 },
   { id: 'armor_1', qty: 1, stacks: 3 },
-  /* 작업실 시설 재료 + 총기 작업대 제작 재료 (`ROOM_PURPOSE_BUILD_COST.workshop` + `furn_bench_gun.craft`) */
-  { id: 'mat_scrap', qty: 8, stacks: 2 },
-  { id: 'mat_cable', qty: 3 },
-  { id: 'mat_alloy', qty: 2 },
+  /* 첫 시설 체인 전부: 발전기 Lv.1 (`GENERATOR_UPGRADE_COST[0]` 폐금속 4) + 작업실 증축
+     (`ROOM_PURPOSE_BUILD_COST.workshop` 폐금속 8 · 케이블 2) + 총기 작업대 제작 (`furn_bench_gun.craft`
+     폐금속 8 · 합금 2 · 케이블 1) = 폐금속 20 · 케이블 3 · 합금 2. 2026-09-08: 폐금속이 16 이라 마지막
+     작업대를 만들 수 없었다 — 여유를 두고 24 · 4 · 3 으로 올린다. */
+  { id: 'mat_scrap', qty: 8, stacks: 3 },
+  { id: 'mat_cable', qty: 4 },
+  { id: 'mat_alloy', qty: 3 },
   /* 소모품 */
   { id: 'gad_defib', qty: 2, stacks: 2 },
   { id: 'grenade_frag', qty: 3, stacks: 3 },

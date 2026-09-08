@@ -1,5 +1,5 @@
-import type { ArmorDef, EffectiveWeaponStats, ItemDef, ItemInstance, SkillId, WeaponDef } from '@/shared';
-import { SOCKET_LABEL_KO, SOCKET_SLOTS, itemCreditValue } from '@/shared';
+import type { ArmorDef, EffectiveWeaponStats, ItemDef, ItemInstance, SkillId, StatId, WeaponDef } from '@/shared';
+import { PERK_DEFS, SOCKET_LABEL_KO, SOCKET_SLOTS, itemCreditValue, renderItemCost } from '@/shared';
 import { WEAPON_CLASS_LABEL_KO } from '@/items';
 import {
   DURABILITY_LOW, TEXT, ammoTypeLabel, categoryLabel, effectiveRange, fmtDeg, fmtMul, fmtValue, gradeLabel, rarityColor, rarityLabel,
@@ -15,11 +15,18 @@ export interface TooltipLookups {
   getArmorDef(armorId: string): ArmorDef | undefined;
   /** appended (Phase 9): Korean skill name for a 서적 (`ItemDef.book.skill`); the id when progression is not around. */
   getSkillName?(id: SkillId): string;
+  /** appended (Phase 12): Korean stat name for an 임플란트 bonus line (`ItemDef.implant.stats`); the id as a fallback. */
+  getStatName?(id: StatId): string;
+  /** appended (Phase 12): units of `defId` the player owns (bag + 창고) — the 보유/필요 split of the repair-cost chips. */
+  countOwned?(defId: string): number;
 }
 
 /**
  * Hover card: name, category · rarity, description, value, size and — for weapons — the effective stats
  * (grade / sockets folded in), durability and the five sockets; attachments list their effects, bags their grid.
+ * Phase 12: 임플란트 (`ItemDef.implant`) show 장착칸 / one line per stat bonus / the legendary perk, and a broken one
+ * a red 망가짐 line with its 세레스 바이오 repair cost as item chips; a 회복 스프레이 shows its 게이지 (`durability` /
+ * `durabilityMax`, `0 / 200` included — an empty can is still an item).
  */
 export class Tooltip {
   readonly el: HTMLElement;
@@ -109,10 +116,30 @@ export class Tooltip {
         if (a.perk !== 'none') rows.push([t.perk, a.description]);
       }
     }
+    // Phase 12: a channelled consumable's 게이지 (회복 스프레이) — `0 / 200` is a valid, repairable state
+    if (def.heal?.spray && def.durabilityMax !== undefined && def.durabilityMax > 0) {
+      const max = def.durabilityMax;
+      const cur = Math.round(Math.max(0, Math.min(max, item.durability ?? max)));
+      const cls = cur <= 0 ? 'is-broken' : cur / max < DURABILITY_LOW ? 'is-low' : undefined;
+      rows.push([TEXT.gauge, `${cur} / ${max}`, cls]);
+    }
     if (def.book) {
       const t = TEXT.bookStats;
       rows.push([t.skill, this.lookups.getSkillName?.(def.book.skill) ?? def.book.skill]);
       rows.push([t.use, t.shelf]);
+    }
+    // Phase 12: 임플란트 — slot cost + one line per stat bonus (`근력 +2`); a broken one has no bonuses to list
+    const imp = def.implant;
+    if (imp) {
+      const t = TEXT.implantStats;
+      rows.push([t.slots, `${imp.slots}`]);
+      if (!imp.broken) {
+        for (const [id, v] of Object.entries(imp.stats) as Array<[StatId, number | undefined]>) {
+          if (!v) continue;
+          const label = this.lookups.getStatName?.(id) ?? id;
+          rows.push([label, `${v > 0 ? '+' : '−'}${Math.abs(v)}`, v > 0 ? 'is-bonus' : 'is-broken']);
+        }
+      }
     }
     if (def.weight !== undefined) rows.push([TEXT.weight, `${(def.weight * Math.max(1, item.qty)).toFixed(1)} kg`]);
     if (def.healAmount) rows.push(['회복', `+${def.healAmount} HP`]);
@@ -127,6 +154,32 @@ export class Tooltip {
       table.append(kEl, vEl);
     }
     this.el.appendChild(table);
+
+    if (imp) {
+      const t = TEXT.implantStats;
+      // legendary perk: name + description from the shared table
+      const perk = imp.perk ? PERK_DEFS[imp.perk] : undefined;
+      if (perk && !imp.broken) {
+        const p = document.createElement('p');
+        p.className = 'inv-tt-perk';
+        const k = document.createElement('span'); k.className = 'k'; k.textContent = t.perk;
+        const n = document.createElement('span'); n.className = 'n'; n.textContent = perk.name;
+        p.append(k, n, document.createTextNode(` — ${perk.description}`));
+        this.el.appendChild(p);
+      }
+      if (imp.broken) {
+        const b = document.createElement('div');
+        b.className = 'inv-tt-broken';
+        b.textContent = t.broken;
+        this.el.appendChild(b);
+        if (imp.repairCost && imp.repairCost.length > 0) {
+          const host = document.createElement('div');
+          host.className = 'inv-tt-repair';
+          renderItemCost(host, imp.repairCost, (id) => this.lookups.getDef(id), (id) => this.lookups.countOwned?.(id) ?? 0, { size: 28 });
+          this.el.appendChild(host);
+        }
+      }
+    }
 
     if (weapon) {
       const sockets = document.createElement('div');

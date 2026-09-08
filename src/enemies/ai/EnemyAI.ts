@@ -8,6 +8,7 @@ import { acquireTarget, updatePerception } from './Perception';
 import { attackResult, lookAtTarget, startMelee, stumble, type AttackResult } from './Common';
 import { updateRogue } from './RogueAI';
 import { attackBehemoth, attackToxic, chaseArtillery, chaseBehemoth, chaseToxic } from './GimmickAI';
+import { endInvestigation, updateInvestigate } from './Investigate';
 
 export { lookAtTarget } from './Common';
 import { biteStructure, refreshStructureTarget } from './Structures';
@@ -72,6 +73,13 @@ export function updateEnemyAI(e: Enemy, dt: number, host: EnemyHost): void {
 
   updatePerception(e, dt, host);
   refreshStructureTarget(e, dt, host, t);
+
+  // Phase 12 (총알 추적): an unaware enemy investigating a shot runs its own watch → advance tick instead of the state
+  // switch; the moment it perceives anyone (or a barrier bump / hit made it aware) the ordinary alert → chase runs.
+  if (e.investigating) {
+    if (e.aware) endInvestigation(e);
+    else if (e.state !== 'stagger') { updateInvestigate(e, dt, host); return; }
+  }
 
   // A lure (유인 수류탄 / 소음) drags a patrolling or idle bug toward the noise.
   if (e.hasLure && e.lureWeight >= 0.35 && (e.state === 'idle' || e.state === 'wander')
@@ -537,6 +545,9 @@ export function integrate(e: Enemy, dt: number, world: WorldRef, host: EnemyHost
   pos.x += e.velocity.x * dt;
   pos.z += e.velocity.z * dt;
   world.resolveCollision(pos, s.radius);
+  // Phase 12: a raised 배리어 is a wall for every grounded enemy (pushed out here; a charge that hits it stumbles below
+  // exactly like one that hit a rock). The host retargets a bumping enemy onto the carrier.
+  host.resolveBarrier(e);
   if (charging) {
     // hitting a rock / wall or leaving the map interrupts the charge
     const intendedX = _prev.x + e.velocity.x * dt, intendedZ = _prev.z + e.velocity.z * dt;

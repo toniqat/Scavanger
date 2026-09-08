@@ -27,6 +27,10 @@ export const REASON = {
   missing: '납품 아이템 부족',
   locked: '잠김',
   done: '완료됨',
+  /* Phase 12: 임플란트 수리 desk */
+  notBroken: '수리할 수 없는 아이템',
+  noTarget: '수리 결과를 알 수 없음',
+  materials: '재료 부족',
 } as const;
 
 /* ── reputation ── */
@@ -46,10 +50,29 @@ export function shopRarityCap(level: number, def: ItemDef): number {
   return cap;
 }
 
-/** Does `rule` (at `level`) cover `def`? Uniques never, weapons by class, ammo by calibre, bags by `tactical`. */
-export function ruleMatches(rule: ShopRule, def: ItemDef, level: number, getWeaponDef: WeaponDefLookup): boolean {
+/**
+ * Phase 12: the material ids some implant's `ItemDef.implant.repairCost` asks for — what a
+ * `ShopRule.implantRepairMaterials` rule sells. Computed from the live item defs (items/ owns the implants).
+ */
+export function implantRepairMaterialIds(defs: readonly ItemDef[]): ReadonlySet<string> {
+  const out = new Set<string>();
+  for (const d of defs) for (const c of d.implant?.repairCost ?? []) out.add(c.defId);
+  return out;
+}
+
+/**
+ * Does `rule` (at `level`) cover `def`? Uniques never, weapons by class, ammo by calibre, bags by `tactical`.
+ * Phase 12: broken implants never (only the repair desk wants them), `maxRarity` caps a rule on top of the rep cap,
+ * and an `implantRepairMaterials` rule sells exactly the ids in `repairMats` (see `implantRepairMaterialIds`).
+ */
+export function ruleMatches(
+  rule: ShopRule, def: ItemDef, level: number, getWeaponDef: WeaponDefLookup, repairMats?: ReadonlySet<string>,
+): boolean {
   if (rule.category !== def.category) return false;
   if ((rule.minRepLevel ?? 0) > level) return false;
+  if (rule.maxRarity !== undefined && rarityRank(def.rarity) > rarityRank(rule.maxRarity)) return false;
+  if (def.category === 'implant' && def.implant?.broken) return false;
+  if (rule.implantRepairMaterials && !(repairMats?.has(def.id) ?? false)) return false;
   if (def.category === 'primary' || def.category === 'secondary') {
     const w = def.weaponId ? getWeaponDef(def.weaponId) : undefined;
     if (!w || w.unique) return false;
@@ -60,17 +83,20 @@ export function ruleMatches(rule: ShopRule, def: ItemDef, level: number, getWeap
   return true;
 }
 
-/** Is `def` on `corp`'s shelf at reputation `level`? */
-export function corpSells(corp: CorpDef, def: ItemDef, level: number, getWeaponDef: WeaponDefLookup): boolean {
+/** Is `def` on `corp`'s shelf at reputation `level`? (`repairMats`: Phase 12, see `ruleMatches`.) */
+export function corpSells(
+  corp: CorpDef, def: ItemDef, level: number, getWeaponDef: WeaponDefLookup, repairMats?: ReadonlySet<string>,
+): boolean {
   if (level < SHOP_UNLOCK_REP_LEVEL) return false;
   if (!(def.value > 0)) return false;
   if (rarityRank(def.rarity) > shopRarityCap(level, def)) return false;
-  for (const rule of corp.stock) if (ruleMatches(rule, def, level, getWeaponDef)) return true;
+  for (const rule of corp.stock) if (ruleMatches(rule, def, level, getWeaponDef, repairMats)) return true;
   return false;
 }
 
 const CATEGORY_SORT: readonly ItemDef['category'][] = [
-  'primary', 'secondary', 'ammo', 'attachment', 'bag', 'armor', 'stim', 'grenade', 'gadget', 'material', 'herb', 'valuable', 'furniture',
+  'primary', 'secondary', 'ammo', 'attachment', 'bag', 'armor', 'implant', 'stim', 'grenade', 'gadget', 'material', 'herb', 'seed', 'book',
+  'valuable', 'furniture',
 ];
 
 /** Would one unit of `defId` fit in the bag / stash right now? (`InventoryRef.canFit`, Phase 7). */
@@ -85,8 +111,9 @@ export function buildShop(
   fits: FitLookup = () => true,
 ): ShopItem[] {
   const out: ShopItem[] = [];
+  const repairMats = implantRepairMaterialIds(defs);
   for (const def of defs) {
-    if (!corpSells(corp, def, level, getWeaponDef)) continue;
+    if (!corpSells(corp, def, level, getWeaponDef, repairMats)) continue;
     const price = buyPriceOf(def.value, level);
     let blocked: string | null = null;
     if (!inShip) blocked = REASON.shipOnly;
@@ -103,6 +130,60 @@ export function buildShop(
     return a.def.name.localeCompare(b.def.name, 'ko');
   });
   return out;
+}
+
+/* ── 임플란트 수리 (Phase 12, 2026-09-08) ─────────────────────────────────────
+ * 세레스 바이오 turns a broken implant (`ItemDef.implant.broken`) into `repairsTo` for `repairCost` materials plus a
+ * credit fee of `IMPLANT_REPAIR_FEE × grade` (grade = rarity of the **repaired** implant, 1 common … 5 legendary).
+ * Everything below is pure; `MetaSystem.repairImplant` feeds it the live numbers and the desk prints `canRepairImplant`.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/** Credit fee per implant grade (× grade). Local to meta/ — shared/ is frozen for this batch. */
+export const IMPLANT_REPAIR_FEE = 150;
+
+/** 1 common … 5 legendary (an implant's grade *is* its rarity — `imp_<stat>_3` is rare). */
+export function implantGrade(def: Pick<ItemDef, 'rarity'>): number {
+  return Math.max(1, rarityRank(def.rarity) + 1);
+}
+
+/** Fee for repairing into `target` (the working implant). */
+export function implantRepairFee(target: Pick<ItemDef, 'rarity'>): number {
+  return IMPLANT_REPAIR_FEE * implantGrade(target);
+}
+
+/** Is `def` a broken implant the desk can take? (broken, with a `repairsTo`). */
+export function isRepairableImplantDef(def: ItemDef | undefined | null): def is ItemDef & { implant: NonNullable<ItemDef['implant']> } {
+  return !!def && def.category === 'implant' && !!def.implant && def.implant.broken === true && typeof def.implant.repairsTo === 'string';
+}
+
+/** Repaired-side materials, `[]` when the def declares none (the fee is still charged). */
+export function implantRepairCost(broken: ItemDef): readonly { defId: string; qty: number }[] {
+  return (broken.implant?.repairCost ?? []).filter((c) => c && typeof c.defId === 'string' && c.qty > 0);
+}
+
+export interface ImplantRepairCheck {
+  /** The broken implant's def (null = the uid did not resolve to one). */
+  broken: ItemDef | null;
+  /** `repairsTo` resolved (null = unknown id). */
+  target: ItemDef | null;
+  credits: number;
+  fee: number;
+  inShip: boolean;
+  /** Bag + stash units per material id. */
+  have: (defId: string) => number;
+  /** Would one `target` fit in the bag / stash after the broken one leaves? */
+  fits: boolean;
+}
+
+/** 한국어 reason the repair cannot run now; null = go ahead. Order: 아이템 → 함선 → 크레딧 → 재료 → 공간. */
+export function canRepairImplant(c: ImplantRepairCheck): string | null {
+  if (!isRepairableImplantDef(c.broken)) return REASON.notBroken;
+  if (!c.target) return REASON.noTarget;
+  if (!c.inShip) return REASON.shipOnly;
+  if (c.credits < c.fee) return REASON.credits;
+  for (const line of implantRepairCost(c.broken)) if (c.have(line.defId) < line.qty) return REASON.materials;
+  if (!c.fits) return REASON.space;
+  return null;
 }
 
 /* ── contracts ── */

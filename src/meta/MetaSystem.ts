@@ -1,7 +1,7 @@
 import type {
   ConsoleCommand, ContractDef, ContractGoalKind, ContractInfo, ContractSettlement, CorpId, CreditsTxResult, EmbeddedView,
-  GameContext, GameMessageOf, GameSystem, ItemInstance, MetaRef, MetaRequest, MissionStats, PeerId, ProfileRef, QuestInfo, QuestState,
-  RepInfo, ShopItem, SquadContractInfo,
+  GameContext, GameMessageOf, GameSystem, ItemDef, ItemInstance, MetaRef, MetaRequest, MissionStats, PeerId, ProfileRef, QuestInfo,
+  QuestState, RepInfo, ShopItem, SquadContractInfo,
 } from '@/shared';
 import {
   CONTRACT_DEFS, CONTRACT_GOAL_LABEL_KO, CORP_DEFS, CORP_IDS, CREDITS_MAX, META_HIT_MAX, QUEST_DEFS, formatCredits,
@@ -9,8 +9,8 @@ import {
 } from '@/shared';
 import { MAX_PROGRESS, MetaStorage } from './Storage';
 import {
-  REASON, buildShop, contractBlockReason, contractHitDelta, corpSells, killGoalOf, questBlockReason, questStateOf, repInfoOf,
-  settleContract,
+  REASON, buildShop, canRepairImplant, contractBlockReason, contractHitDelta, corpSells, implantRepairCost, implantRepairFee,
+  implantRepairMaterialIds, isRepairableImplantDef, killGoalOf, questBlockReason, questStateOf, repInfoOf, settleContract,
 } from './Rules';
 import { CorpView } from './ui/CorpView';
 import './meta.css';
@@ -48,6 +48,27 @@ function isValidHit(goal: unknown, amount: unknown, max: number): goal is Contra
 /** Why the last `buy()` / async purchase did not go through (corp screen message; folder-internal, not in `MetaRef`). */
 export interface PurchaseFailure { corp: CorpId; defId: string; price: number; reason: string; }
 
+/**
+ * Phase 12 (2026-09-08): one broken implant as the 세레스 바이오 repair desk lists it (folder-internal — `MetaRef` is
+ * frozen for this batch; `ui/CorpView` and the smoke read it through the `MetaSystem` instance).
+ */
+export interface ImplantRepairInfo {
+  /** The broken implant in the bag / stash. */
+  inst: ItemInstance;
+  broken: ItemDef;
+  /** `repairsTo` def (null when items/ does not know the id — the row is listed but blocked). */
+  target: ItemDef | null;
+  /** Materials with what the player holds (bag + stash). */
+  cost: readonly { defId: string; qty: number; have: number }[];
+  /** Credit fee (`IMPLANT_REPAIR_FEE × grade`). */
+  fee: number;
+  /** 한국어 reason `repairImplant` would refuse now, null = ready. */
+  blocked: string | null;
+}
+
+/** Outcome of a finished (possibly async) repair, for the desk's message line. */
+export interface ImplantRepairResult { uid: string; brokenId: string; targetId: string | null; fee: number; ok: boolean; reason: string | null; }
+
 export class MetaSystem implements GameSystem, MetaRef {
   readonly name = 'meta';
   private ctx!: GameContext;
@@ -67,6 +88,10 @@ export class MetaSystem implements GameSystem, MetaRef {
    */
   onPurchaseFailed: ((f: PurchaseFailure) => void) | null = null;
   private readonly purchaseFailListeners = new Set<(f: PurchaseFailure) => void>();
+  /** Phase 12: repair desk listeners (`onImplantRepaired`) — the async server path finishes after the click returns. */
+  private readonly repairListeners = new Set<(r: ImplantRepairResult) => void>();
+  /** Broken implants whose server fee transaction is still in flight (the desk greys them out). */
+  private readonly repairPending = new Set<string>();
   /** Server transactions still in flight (purchase buttons stay enabled; the optimistic balance already covers them). */
   private pendingTx = 0;
   /** Progress the active contract had when the current mission started (death rule). */
@@ -153,6 +178,7 @@ export class MetaSystem implements GameSystem, MetaRef {
     for (const v of [...this.views]) v.dispose();
     this.views.clear();
     this.purchaseFailListeners.clear();
+    this.repairListeners.clear();
     this.store.dispose();
     if (this.ctx?.meta === this) this.ctx.meta = null;
   }
@@ -494,8 +520,11 @@ export class MetaSystem implements GameSystem, MetaRef {
     const def = loot?.getItemDef(defId);
     if (!loot || !cdef || !def) return null;
     const level = this.level(corp);
-    if (!corpSells(cdef, def, level, (id) => loot.getWeaponDef(id))) return null;
-    return buildShop(cdef, [def], level, this.credits, true, (id) => loot.getWeaponDef(id))[0]?.price ?? null;
+    // Phase 12: an `implantRepairMaterials` rule needs the whole catalogue to know which materials it covers
+    const all = loot.getAllItemDefs();
+    if (!corpSells(cdef, def, level, (id) => loot.getWeaponDef(id), implantRepairMaterialIds(all))) return null;
+    return buildShop(cdef, all.filter((d) => d.id === def.id || d.category === 'implant'), level, this.credits, true, (id) => loot.getWeaponDef(id))
+      .find((l) => l.def.id === def.id)?.price ?? null;
   }
 
   /**
@@ -611,6 +640,164 @@ export class MetaSystem implements GameSystem, MetaRef {
     for (const inst of inv.getAllItems()) consider(inst);
     if (typeof inv.getStashItems === 'function') for (const inst of inv.getStashItems()) consider(inst);
     return out;
+  }
+
+  /* ── 임플란트 수리 desk (Phase 12, 2026-09-08; folder-internal, 세레스 바이오 only) ─────────────────────────
+   * A broken implant (`ItemDef.implant.broken`, raid loot) in the bag or the stash becomes its `repairsTo` for the
+   * def's `repairCost` materials (bag + stash, `consumeDefAll`) plus a credit fee (`Rules.implantRepairFee`). The fee
+   * goes through the **purchase path**: offline it is a local debit; with a server profile it is an optimistic debit
+   * + `credits:tx`, and the item swap runs only on `ok` (a refusal reverts the credits and leaves the broken implant
+   * where it was). The repaired implant lands in the 함선 창고 first, then anywhere; when nothing can hold it the
+   * broken implant and every material are put back and the fee refunded. `ui:notify` toasts the completion.
+   * ──────────────────────────────────────────────────────────────────────── */
+
+  /** Every broken implant in the bag + stash (equipped implants live in progression, so they never show up). */
+  getRepairableImplants(): ImplantRepairInfo[] {
+    const inv = this.ctx.inventory;
+    if (!inv) return [];
+    const out: ImplantRepairInfo[] = [];
+    const seen = new Set<string>();
+    const consider = (inst: ItemInstance): void => {
+      if (seen.has(inst.uid)) return;
+      const def = this.itemDef(inst.defId);
+      if (!isRepairableImplantDef(def)) return;
+      seen.add(inst.uid);
+      out.push(this.repairInfo(inst, def));
+    };
+    for (const inst of inv.getAllItems()) consider(inst);
+    if (typeof inv.getStashItems === 'function') for (const inst of inv.getStashItems()) consider(inst);
+    out.sort((a, b) => {
+      const ra = a.target ? -implantRepairFee(a.target) : 0, rb = b.target ? -implantRepairFee(b.target) : 0;   // best first
+      if (ra !== rb) return ra - rb;
+      return a.broken.name.localeCompare(b.broken.name, 'ko');
+    });
+    return out;
+  }
+
+  /** The desk's view of one broken implant, or null when `uid` is not a broken implant in the bag / stash. */
+  getImplantRepair(uid: string): ImplantRepairInfo | null {
+    const inst = this.findAnywhere(uid);
+    const def = inst ? this.itemDef(inst.defId) : undefined;
+    if (!inst || !isRepairableImplantDef(def)) return null;
+    return this.repairInfo(inst, def);
+  }
+
+  private repairInfo(inst: ItemInstance, broken: ItemDef): ImplantRepairInfo {
+    const targetId = broken.implant?.repairsTo;
+    const target = targetId ? this.itemDef(targetId) ?? null : null;
+    const cost = implantRepairCost(broken).map((c) => ({ defId: c.defId, qty: c.qty, have: this.countAll(c.defId) }));
+    const fee = target ? implantRepairFee(target) : 0;
+    let blocked = canRepairImplant({
+      broken, target, credits: this.credits, fee, inShip: this.inShip,
+      have: (id) => this.countAll(id),
+      // the broken one leaves before the repaired one arrives, so a same-footprint swap always fits
+      fits: !target || target.width * target.height <= broken.width * broken.height || this.fits(target.id),
+    });
+    if (!blocked && this.repairPending.has(inst.uid)) blocked = '수리 진행 중';
+    return { inst, broken, target, cost, fee, blocked };
+  }
+
+  /** Subscribe to finished repairs (the server path completes after `repairImplant` returned). */
+  onImplantRepaired(fn: (r: ImplantRepairResult) => void): () => void {
+    this.repairListeners.add(fn);
+    return () => { this.repairListeners.delete(fn); };
+  }
+
+  /** Is the fee transaction for `uid` still in flight? */
+  isRepairPending(uid: string): boolean { return this.repairPending.has(uid); }
+
+  /**
+   * Repair the broken implant `uid`. Synchronous answer = the request was accepted (offline: the swap already
+   * happened; server: the fee is debited optimistically and the swap follows the `credits:tx` answer). Completion
+   * (either way) is reported through `onImplantRepaired` + a `ui:notify` toast.
+   */
+  repairImplant(uid: string): boolean {
+    const info = this.getImplantRepair(uid);
+    if (!info) return false;
+    if (info.blocked) { this.finishRepair({ uid, brokenId: info.broken.id, targetId: info.target?.id ?? null, fee: info.fee, ok: false, reason: info.blocked }); return false; }
+    const target = info.target!;
+    const reason = `repair:${info.broken.id}`;
+    if (!this.applyCreditsLocal(-info.fee, reason)) {
+      this.finishRepair({ uid, brokenId: info.broken.id, targetId: target.id, fee: info.fee, ok: false, reason: REASON.credits });
+      return false;
+    }
+    if (!this.serverCredits) {
+      const res = this.performRepair(uid, info.broken, target);
+      if (!res.ok) this.applyCreditsLocal(info.fee, `refund:${reason}`);
+      else { this.store.data.stats.creditsSpent += info.fee; this.store.markDirty(); }
+      this.finishRepair({ uid, brokenId: info.broken.id, targetId: target.id, fee: info.fee, ...res });
+      return res.ok;
+    }
+    // server-owned credits: optimistic debit → transaction → swap only on `ok` (mirrors `buy`)
+    this.repairPending.add(uid);
+    void this.serverTx(-info.fee, reason).then((tx) => {
+      this.repairPending.delete(uid);
+      if (tx && !tx.ok) {                                  // refused: serverTx already reverted the local debit
+        this.finishRepair({ uid, brokenId: info.broken.id, targetId: target.id, fee: info.fee, ok: false, reason: tx.reason || REASON.credits });
+        return;
+      }
+      // `null` = socket gone mid-transaction: the local debit stands (offline fallback) and the repair is delivered
+      const res = this.performRepair(uid, info.broken, target);
+      if (!res.ok) {
+        this.applyCreditsLocal(info.fee, `refund:${reason}`);
+        if (tx) void this.serverTx(info.fee, `refund:${reason}`, false);
+      } else { this.store.data.stats.creditsSpent += info.fee; this.store.markDirty(); }
+      this.finishRepair({ uid, brokenId: info.broken.id, targetId: target.id, fee: info.fee, ...res });
+    });
+    return true;
+  }
+
+  /**
+   * The item half of a repair: re-validate (the broken implant / materials may have moved since the click), take the
+   * broken implant, consume the materials, create the repaired one (stash first, then anywhere). Any failure puts
+   * everything taken so far back — the caller refunds the fee.
+   */
+  private performRepair(uid: string, broken: ItemDef, target: ItemDef): { ok: boolean; reason: string | null } {
+    const inv = this.ctx.inventory;
+    const loot = this.ctx.loot;
+    if (!inv || !loot || typeof inv.takeItem !== 'function') return { ok: false, reason: REASON.notBroken };
+    const inst = this.findAnywhere(uid);
+    if (!inst || inst.defId !== broken.id) return { ok: false, reason: REASON.notBroken };
+    const cost = implantRepairCost(broken);
+    for (const c of cost) if (this.countAll(c.defId) < c.qty) return { ok: false, reason: REASON.materials };
+    if (this.takeBack(uid, 1) <= 0) return { ok: false, reason: REASON.notBroken };
+    const consumed: { defId: string; qty: number }[] = [];
+    const undo = (): void => {
+      for (const c of consumed) this.giveBack(c.defId, c.qty);
+      this.giveBack(broken.id, 1);
+    };
+    for (const c of cost) {
+      const ok = typeof inv.consumeDefAll === 'function' ? inv.consumeDefAll(c.defId, c.qty) : inv.consumeWhere((x) => x.id === c.defId, c.qty) >= c.qty;
+      if (!ok) { undo(); return { ok: false, reason: REASON.materials }; }
+      consumed.push({ defId: c.defId, qty: c.qty });
+    }
+    let item: ItemInstance;
+    try { item = loot.createItem(target.id, 1); } catch { undo(); return { ok: false, reason: REASON.noTarget }; }
+    const placed = (typeof inv.tryAddToStash === 'function' && inv.tryAddToStash(item)) || !!this.addAnywhere(item);
+    if (!placed) { undo(); return { ok: false, reason: REASON.space }; }
+    return { ok: true, reason: null };
+  }
+
+  /** Re-create `qty` of `defId` into the bag / stash (undo of a consumed material or a taken broken implant). */
+  private giveBack(defId: string, qty: number): void {
+    const loot = this.ctx.loot;
+    const def = this.itemDef(defId);
+    if (!loot || !def) return;
+    const per = Math.max(1, def.stackMax);
+    let left = Math.max(0, Math.floor(qty));
+    while (left > 0) {
+      const n = Math.min(per, left);
+      try { if (!this.addAnywhere(loot.createItem(defId, n))) console.warn(`[meta] repair undo: ${defId} ×${n} found no home`); } catch { /* def gone */ }
+      left -= n;
+    }
+  }
+
+  private finishRepair(r: ImplantRepairResult): void {
+    if (r.ok) {
+      const name = r.targetId ? this.itemDef(r.targetId)?.name ?? r.targetId : r.brokenId;
+      this.ctx.bus.emit('ui:notify', { text: `임플란트 수리 완료 — ${name}`, kind: 'success' });
+    }
+    for (const fn of [...this.repairListeners]) { try { fn(r); } catch { /* ui */ } }
   }
 
   /* ── MetaRef: contracts ─────────────────────────────────────────────────── */
@@ -930,6 +1117,30 @@ export class MetaSystem implements GameSystem, MetaRef {
           if (args.length <= 1) return ['list', 'accept', 'abandon', 'hit'].filter((s) => s.startsWith((args[0] ?? '').toLowerCase()));
           if (args[0] === 'accept' && args.length === 2) return CONTRACT_DEFS.map((d) => d.id).filter((s) => s.startsWith(args[1] ?? ''));
           if (args[0] === 'hit' && args.length === 2) return GOAL_IDS.filter((s) => s.startsWith(args[1] ?? ''));
+          return [];
+        },
+      },
+      {
+        name: 'implant', usage: 'implant list|repair <uid|first>', description: '망가진 임플란트 목록 / 세레스 수리 (재료 · 크레딧은 그대로 요구)',
+        run: (args, _ctx, print) => {
+          const sub = (args[0] ?? 'list').toLowerCase();
+          const list = this.getRepairableImplants();
+          if (sub === 'list') {
+            for (const r of list) print(`  ${r.inst.uid}  ${r.broken.name} → ${r.target?.name ?? '?'} · ${formatCredits(r.fee)} · ${r.cost.map((c) => `${c.defId} ${c.have}/${c.qty}`).join(', ')}${r.blocked ? ` · ${r.blocked}` : ''}`, r.blocked ? 'info' : 'success');
+            return `${list.length}개`;
+          }
+          if (sub === 'repair') {
+            const key = args[1];
+            const r = !key || key === 'first' ? list[0] : list.find((x) => x.inst.uid === key);
+            if (!r) return { error: key && key !== 'first' ? `망가진 임플란트가 아닙니다: ${key}` : '망가진 임플란트 없음' };
+            if (r.blocked) return { error: `수리 불가: ${r.blocked}` };
+            return this.repairImplant(r.inst.uid) ? `수리: ${r.broken.name} → ${r.target?.name ?? '?'} (−${formatCredits(r.fee)})` : { error: '수리 실패' };
+          }
+          return { error: '사용법: /implant list|repair <uid|first>' };
+        },
+        complete: (args) => {
+          if (args.length <= 1) return ['list', 'repair'].filter((s) => s.startsWith((args[0] ?? '').toLowerCase()));
+          if (args[0] === 'repair' && args.length === 2) return ['first', ...this.getRepairableImplants().map((r) => r.inst.uid)].filter((s) => s.startsWith(args[1] ?? ''));
           return [];
         },
       },

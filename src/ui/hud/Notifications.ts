@@ -22,6 +22,8 @@ export class Notifications {
   private cooldownWasRunning = false;
   /** uid → warning tier already shown (1 = ≤25 %, 2 = ≤10 %). */
   private durWarned = new Map<string, number>();
+  /** The one live channel line (Phase 12 회복 스프레이), null while no continuous-use item is held. */
+  private channel: { el: HTMLElement; text: HTMLElement; defId: string; pct: number } | null = null;
 
   constructor(parent: HTMLElement) {
     this.root = el('div', { cls: 'notifs', parent });
@@ -46,7 +48,9 @@ export class Notifications {
       b.on('extraction:boarded', () => this.push('탑승 확인. 내부 스위치를 작동하세요.', 'success', '탈출', 4)),
       b.on('extraction:liftoff', () => this.push('이륙 시퀀스 개시.', 'success', '탈출', 4)),
       b.on('crate:looted', () => this.push('상자를 모두 비웠습니다.', 'info', '보급', 2.5)),
-      b.on('player:stimUsed', () => this.push('회복제 사용', 'success', '생명력', 2)),
+      // Phase 12: the 회복 스프레이 calls `applyHeal` (→ `player:stimUsed`) ten times a second while it is held; the
+      // channel line below stands in for all of them, so this toast is muted while a channel is active.
+      b.on('player:stimUsed', () => { if (!this.channel) this.push('회복제 사용', 'success', '생명력', 2); }),
       // down / revive / respawn (Phase 2)
       b.on('player:revived', ({ hp }) => this.push(`부활 — 체력 <b>${Math.ceil(hp)}</b>`, 'success', '생명력', 3)),
       b.on('game:respawnAvailable', ({ seconds }) => { if (seconds <= 0) this.push('부활 준비 완료', 'success', '부활', 3); }),
@@ -155,10 +159,10 @@ export class Notifications {
         else if (state === 'heavy') this.push(`<b>${escapeHtml(label)}</b> — 구르기 불가, 이동 속도 감소`, 'warning', '무게', 3.5);
         else if (state === 'light') this.push(`${escapeHtml(label)} — 스태미나 회복 감소`, 'info', '무게', 2.5);
       }),
-      b.on('gather:collected', ({ defId, qty }) => {
-        const name = ctx.loot?.getItemDef(defId)?.name ?? defId;
-        this.push(`채집: <b>${escapeHtml(name)}</b>${qty > 1 ? ` <span style="color:var(--c-text-dim)">×${qty}</span>` : ''}`, 'info', '채집', 2.5);
-      }),
+      // Phase 12: no `gather:collected` toast any more — the herb lands in the bag through `tryAddItem`, whose
+      // `inventory:itemAdded` line above is the one ticker a gather shows (the 채집 line doubled it).
+      /* ── Phase 12: continuous-use item (회복 스프레이) — ONE line for the whole channel, updated in place ── */
+      b.on('item:channelChanged', ({ defId, active, gauge }) => this.setChannel(ctx, defId, active, gauge)),
       b.on('craft:completed', ({ item }) => {
         const def = ctx.loot?.getItemDef(item.defId);
         const qty = item.qty > 1 ? ` <span style="color:var(--c-text-dim)">×${item.qty}</span>` : '';
@@ -228,9 +232,51 @@ export class Notifications {
     window.setTimeout(() => n.remove(), 300);
   }
 
+  /**
+   * Phase 12: the channel line. `active:true` creates it once (or updates the percentage in place — no new node per
+   * tick), `active:false` dismisses it. It is pinned outside the `MAX_VISIBLE` rotation so a burst of other toasts
+   * cannot push it out mid-channel. `gauge` is the remaining gauge 0..1 per the contract (an absolute value ≥ 1 is
+   * still read as a fraction of the item's `durabilityMax`, so an older weapons build renders sensibly).
+   */
+  private setChannel(ctx: GameContext, defId: string, active: boolean, gauge: number): void {
+    if (!active) {
+      if (this.channel) {
+        const n = this.channel.el;
+        this.channel = null;
+        n.classList.remove('in'); n.classList.add('out');
+        window.setTimeout(() => n.remove(), 300);
+      }
+      return;
+    }
+    const def = ctx.loot?.getItemDef(defId);
+    const max = def?.durabilityMax ?? 0;
+    const frac = gauge > 1 && max > 0 ? gauge / max : Math.min(1, Math.max(0, gauge));
+    const pct = Math.round(frac * 100);
+    const name = def?.name ?? defId;
+    if (this.channel && this.channel.defId !== defId) this.setChannel(ctx, this.channel.defId, false, 0);
+    if (!this.channel) {
+      const n = el('div', { cls: 'notif info channel' });
+      el('span', { cls: 'k', text: '사용 중', parent: n });
+      const text = el('span', { cls: 't', parent: n });
+      this.root.appendChild(n);
+      requestAnimationFrame(() => n.classList.add('in'));
+      this.channel = { el: n, text, defId, pct: -1 };
+    }
+    if (pct !== this.channel.pct) {
+      this.channel.pct = pct;
+      this.channel.text.innerHTML = `<b>${escapeHtml(name)}</b> 사용 중 · <span class="pct">${pct} %</span>`;
+    }
+  }
+
+  /** Text of the live channel line (debug), null when none. */
+  get channelText(): string | null { return this.channel ? this.channel.el.textContent : null; }
+  /** Live toast nodes, the channel line excluded (debug). */
+  get liveCount(): number { return this.live.length; }
+
   private clear(): void {
     for (const n of this.live) n.remove();
     this.live.length = 0;
+    if (this.channel) { this.channel.el.remove(); this.channel = null; }
   }
 
   dispose(): void { for (const u of this.unsubs) u(); this.root.remove(); }

@@ -2,7 +2,10 @@
 // MOVE CHEAT tag, housing hint bar, room label. Enters a solo mission, then feeds synthetic bus events from `page.evaluate`
 // and asserts the DOM. Phase 9 additions: the downed 포기 hold bar (`player:giveUpProgress` after a real `takeDamage`
 // down) and the 훈련장 panel (`ctx.missionMode = 'training'` + a `TrainingRef` stub on the world instance, then
-// `training:modeChanged / scored / courseFinished` + the polled course clock + the completion toast). 72 checks.
+// `training:modeChanged / scored / courseFinished` + the polled course clock + the completion toast). Phase 12 additions:
+// 감지 compass ticks (`queryNear` radius → red tick / on-screen chevron, gone beyond the radius, `scan:cast` reveal
+// persists regardless of distance and expires), the 회복 스프레이 channel ticker (`item:channelChanged` — one line,
+// updated in place, mutes `player:stimUsed`) and the gather ticker (no 채집 toast, one 획득 line). 87 checks.
 // Usage: node scripts/smoke-ui-p6.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { existsSync } from 'node:fs';
@@ -283,6 +286,107 @@ try {
   ok(tnotifs.some((t) => t.startsWith('시간 초과')), 'toast 시간 초과', JSON.stringify(tnotifs.slice(-3)));
   // back to a raid for the reset section (the panel stays up so the abort below has something to hide)
   await P(() => { const ctx = window.__game.ctx; ctx.missionMode = 'raid'; delete ctx.world.training; delete window.__tr; });
+
+  /* ── Phase 12: 감지 compass ticks · on-screen chevrons · 정찰 reveal (scan:cast) ── */
+  console.log('compass enemy ticks (감지)');
+  const hudP12 = () => P(() => { const h = window.__game.getSystem('hud'); return { ticks: h.compassEnemyTicks, marks: h.detectMarkCount, scans: h.scanRevealCount,
+    dom: [...document.querySelectorAll('.compass .etick')].filter((e) => !e.hidden).length, scannedDom: [...document.querySelectorAll('.compass .etick.scanned')].filter((e) => !e.hidden).length,
+    color: (() => { const e = [...document.querySelectorAll('.compass .etick')].find((x) => !x.hidden); return e ? getComputedStyle(e).backgroundColor : ''; })() }; });
+  const radius = await P(() => window.__game.ctx.progression.derived.enemyDetectRadius);
+  ok(typeof radius === 'number' && radius >= 26, `derived.enemyDetectRadius is ${radius} (≥ 26 base)`);
+  await waitSim(0.3);
+  const t0 = await hudP12();
+  // spawn one warrior 10 m straight ahead (inside the radius, inside the visible arc, on screen)
+  const spawned = await P(() => {
+    const ctx = window.__game.ctx; const p = ctx.player; const f = p.getForward();
+    const e = window.__game.getSystem('enemies').debugSpawn('warrior', { x: p.position.x + f.x * 10, z: p.position.z + f.z * 10 }, false);
+    if (!e) return null;
+    window.__p12enemy = e;
+    return { id: e.id, dist: Math.hypot(e.position.x - p.position.x, e.position.z - p.position.z) };
+  });
+  ok(!!spawned && spawned.dist < 12, `warrior spawned ~10 m ahead (${spawned && spawned.dist.toFixed(1)} m)`);
+  await waitSim(0.35);
+  let t1 = await hudP12();
+  ok(t1.ticks >= t0.ticks + 1 && t1.dom === t1.ticks, `a red tick appeared on the compass (${t0.ticks} → ${t1.ticks}, dom ${t1.dom})`, JSON.stringify(t1));
+  ok(/rgb\(255,\s*77,\s*77\)/.test(t1.color), `tick colour is COMPASS_ENEMY_COLOR #ff4d4d (${t1.color})`);
+  ok(t1.marks >= 1, `an on-screen chevron floats above the detected enemy (${t1.marks})`);
+  // push it far beyond the radius (still dead ahead): tick gone
+  const moveEnemy = (d) => P((dist) => { const ctx = window.__game.ctx; const p = ctx.player; const f = p.getForward(); const e = window.__p12enemy;
+    // `Enemy.position` is the simulated position (the rig follows it each frame); set both so the very next frame agrees
+    e.position.set(p.position.x + f.x * dist, e.position.y, p.position.z + f.z * dist); e.object.position.copy(e.position); return Math.hypot(e.position.x - p.position.x, e.position.z - p.position.z); }, d);
+  const far = await moveEnemy(radius + 40);
+  await waitSim(0.35);
+  t1 = await hudP12();
+  ok(far > radius && t1.ticks === t0.ticks, `moved to ${far.toFixed(0)} m (> ${radius}) → tick gone (${t1.ticks})`, JSON.stringify(t1));
+  // 정찰 reveal: the same enemy, still out of range, shows for the cast's duration regardless of distance
+  await P(() => { const ctx = window.__game.ctx; const e = window.__p12enemy;
+    ctx.bus.emit('scan:cast', { position: ctx.player.position.clone(), radius: 70, duration: 15, byLocal: true,
+      targets: [{ kind: 'enemy', id: String(e.id), position: e.position.clone(), object: e.object }] }); });
+  await waitSim(0.25);
+  t1 = await hudP12();
+  ok(t1.scans === 1 && t1.ticks === t0.ticks + 1 && t1.scannedDom >= 1, `scan:cast → one 정찰 tick (.scanned) although the enemy is ${far.toFixed(0)} m away`, JSON.stringify(t1));
+  ok(await P(() => { const g = window.__game.ctx.scene.getObjectByName('scan-reveals'); return !!g && g.children.some((m) => m.visible); }), 'ScanReveal raised a through-wall pillar for the scan:cast target');
+  await waitSim(2.5);
+  t1 = await hudP12();
+  ok(t1.scans === 1 && t1.ticks === t0.ticks + 1, 'the reveal persists (2.5 s later, still tracked)', JSON.stringify(t1));
+  // the tick follows the enemy object live
+  await moveEnemy(radius + 55);
+  await waitSim(0.25);
+  const followX = await P(() => { const e = [...document.querySelectorAll('.compass .etick.scanned')].find((x) => !x.hidden); return e ? e.style.transform : ''; });
+  ok(followX.length > 0, `scanned tick still placed after the enemy moved (${followX})`);
+  // a second, short cast expires on its own; detect:clear drops everything
+  await P(() => { const ctx = window.__game.ctx; const e = window.__p12enemy;
+    ctx.bus.emit('detect:clear', {});
+    ctx.bus.emit('scan:cast', { position: ctx.player.position.clone(), radius: 70, duration: 0.6, byLocal: false,
+      targets: [{ kind: 'enemy', id: String(e.id), position: e.position.clone(), object: e.object }, { kind: 'crate', id: 'c1', position: e.position.clone() }] }); });
+  await waitSim(0.15);
+  t1 = await hudP12();
+  ok(t1.scans === 1 && t1.ticks === t0.ticks + 1, 'detect:clear + a 0.6 s squadmate cast → tracked again (crate targets ignored by the compass)', JSON.stringify(t1));
+  await waitSim(0.8);
+  t1 = await hudP12();
+  ok(t1.scans === 0 && t1.ticks === t0.ticks, 'the short reveal expired → tick gone', JSON.stringify(t1));
+  await P(() => { const e = window.__p12enemy; if (e && !e.isDead) e.kill?.(); delete window.__p12enemy; });
+
+  /* ── Phase 12: 지속 사용 아이템 티커 (item:channelChanged) ── */
+  console.log('channel ticker');
+  const chan = () => P(() => ({ n: document.querySelectorAll('.notifs .notif.channel').length, text: window.__game.getSystem('hud').channelTickerText,
+    stim: [...document.querySelectorAll('.notifs .notif')].filter((e) => /회복제 사용/.test(e.textContent)).length }));
+  const sprayDef = await P(() => !!window.__game.ctx.loot.getItemDef('heal_spray'));
+  await emit('item:channelChanged', { uid: 'sp1', defId: 'heal_spray', active: true, gauge: 0.8 });
+  await sleep(80);
+  let c = await chan();
+  ok(c.n === 1 && /사용 중/.test(c.text ?? '') && /80 %/.test(c.text ?? '') && (!sprayDef || /회복 스프레이/.test(c.text)), `channel start → one 사용 중 line at 80 % (${c.text})`);
+  await emit('item:channelChanged', { uid: 'sp1', defId: 'heal_spray', active: true, gauge: 0.5 });
+  await emit('item:channelChanged', { uid: 'sp1', defId: 'heal_spray', active: true, gauge: 0.45 });
+  await emit('player:stimUsed', { hp: 50 });
+  await sleep(80);
+  c = await chan();
+  ok(c.n === 1 && /45 %/.test(c.text ?? ''), `ticks update the same line in place (${c.text})`);
+  ok(c.stim === 0, 'player:stimUsed is muted while the channel runs (no 회복제 사용 toast)');
+  await emit('item:channelChanged', { uid: 'sp1', defId: 'heal_spray', active: false, gauge: 0.45 });
+  await sleep(450);
+  c = await chan();
+  ok(c.n === 0 && c.text === null, 'channel end → the line is gone');
+  await emit('player:stimUsed', { hp: 60 });
+  await sleep(80);
+  c = await chan();
+  ok(c.stim === 1, 'after the channel a plain heal toasts again');
+
+  /* ── Phase 12: 채집 = one item ticker, no 채집 toast ── */
+  console.log('gather ticker');
+  const gathered = await P(() => {
+    const ctx = window.__game.ctx;
+    const def = ctx.loot.getAllItemDefs().find((d) => d.category === 'herb');
+    if (!def) return null;
+    const before = document.querySelectorAll('.notifs .notif').length;
+    ctx.bus.emit('gather:collected', { nodeId: 'g1', defId: def.id, qty: 1 });
+    const added = ctx.inventory.tryAddItem(ctx.loot.createItem(def.id, 1));
+    const notifs = [...document.querySelectorAll('.notifs .notif')];
+    return { added, before, after: notifs.length, gatherLabel: notifs.filter((n) => n.querySelector('.k')?.textContent === '채집').length,
+      acquired: notifs.filter((n) => /획득:/.test(n.textContent) && n.textContent.includes(def.name)).length, name: def.name };
+  });
+  ok(!!gathered && gathered.added, `herb ${gathered && gathered.name} added to the bag`);
+  ok(gathered && gathered.gatherLabel === 0 && gathered.acquired === 1 && gathered.after === gathered.before + 1, `exactly one 획득 ticker, no 채집 toast (${gathered && `${gathered.before} → ${gathered.after}`})`, JSON.stringify(gathered));
 
   console.log('mission reset');
   s = await spot();

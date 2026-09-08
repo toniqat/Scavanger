@@ -1,15 +1,18 @@
 import * as THREE from 'three';
 import {
   IMPLANT_AT_DAMAGE, IMPLANT_AT_RADIUS, IMPLANT_BARRIER_BLOCK_DAMAGE, IMPLANT_BARRIER_BREAK_LOCKOUT,
-  IMPLANT_BARRIER_CARRY_REGEN, IMPLANT_BARRIER_CARRY_REGEN_DELAY, IMPLANT_BARRIER_CARRY_SPEED_MUL,
+  IMPLANT_BARRIER_CARRY_OFFSET, IMPLANT_BARRIER_CARRY_REGEN,
+  IMPLANT_BARRIER_CARRY_REGEN_DELAY, IMPLANT_BARRIER_CARRY_SPEED_MUL, IMPLANT_BARRIER_CARRY_WIDTH,
   IMPLANT_BARRIER_HP, IMPLANT_BARRIER_REGEN,
   IMPLANT_DASH_DISTANCE, IMPLANT_GRAPPLE_RANGE,
   IMPLANT_OVERCHARGE_ALLY_HEAL_PER_SEC, IMPLANT_OVERCHARGE_BUFF_HP_RATIO, IMPLANT_OVERCHARGE_ENERGY,
   IMPLANT_OVERCHARGE_RANGE, IMPLANT_OVERCHARGE_REGEN_TIME, IMPLANT_OVERCHARGE_SELF_HEAL_PER_SEC, IMPLANT_OVERCHARGE_SPEED_MUL,
-  IMPLANT_SCAN_MAX_PULSES, IMPLANT_SCAN_PULSE_INTERVAL, IMPLANT_SCAN_RADIUS_STEP, IMPLANT_SCAN_REVEAL_TIME,
+  IMPLANT_SCAN_RADIUS, IMPLANT_SCAN_REVEAL_TIME_V2,
+  IMPLANT_SHIELD_BASH_COOLDOWN, IMPLANT_SHIELD_BASH_DAMAGE, IMPLANT_SHIELD_BASH_KNOCKBACK, IMPLANT_SHIELD_BASH_RANGE, IMPLANT_SHIELD_BASH_STAMINA,
+  IMPLANT_SHIELD_BASH_SWING_S,
   Keys, MouseButtons, PLAYER_RADIUS,
-  type BuffMessage, type GameContext, type GameSystem, type ImplantDef, type ImplantId, type ImplantMessage,
-  type ImplantsRef, type PeerId, type PlayerRef, type PlayerWeaponHost, type RelayTarget,
+  type BuffMessage, type EnemyRef, type GameContext, type GameSystem, type ImplantDef, type ImplantId,
+  type ImplantMessage, type ImplantsRef, type PeerId, type PlayerRef, type PlayerWeaponHost, type RelayTarget,
   type Vec3Tuple,
 } from '@/shared';
 import { IMPLANT_DEFS, getImplantDef, implantHex, isImplantId } from './ImplantDefs';
@@ -18,7 +21,7 @@ import { BarrierField } from './effects/Barrier';
 import { GrappleWire } from './effects/Grapple';
 import { RocketPool, type RocketImpact } from './effects/AtLauncher';
 import { OverchargeBeam, allyPoint, findAlly } from './effects/Overcharge';
-import { collectScanTargets } from './effects/Scan';
+import { revealScan } from './effects/Scan';
 import { ImplantFx } from './fx/ImplantFx';
 import { RemoteImplants } from './RemoteImplants';
 
@@ -44,10 +47,19 @@ const OVERCHARGE_MIN_START = 0.75;
 const BEAM_SEND_INTERVAL = 0.25;
 /** Blocked hits between two replicated shield-durability updates. */
 const BARRIER_SEND_EVERY_HITS = 4;
+/** Phase 12: a melee attack from farther than this (m, from the carrier) is never "frontal" for `absorbFrontalAttack`. */
+const ABSORB_RANGE = 3;
+/** Phase 12: `implant:barrierBumped` sparks are throttled to one per this many seconds (enemies/ emits per bug per tick). */
+const BUMP_FX_INTERVAL = 0.12;
+/** Phase 12: how long the 정찰 pulse shell takes to reach `IMPLANT_SCAN_RADIUS` (s). */
+const SCAN_PULSE_FX_S = 1.6;
+/** Phase 12: 실드 배쉬 swing FX — streak height above the feet and how far past the panel width it sweeps. */
+const BASH_FX_Y = 1.1;
 
 const _o = new THREE.Vector3(), _d = new THREE.Vector3(), _p = new THREE.Vector3(), _t = new THREE.Vector3();
 const _from = new THREE.Vector3(), _muzzle = new THREE.Vector3(), _hitPt = new THREE.Vector3();
 const _bp = new THREE.Vector3(), _tmp = new THREE.Vector3();
+const _n = new THREE.Vector3(), _r = new THREE.Vector3(), _hp = new THREE.Vector3();
 
 function tuple(v: THREE.Vector3): Vec3Tuple {
   return [Math.round(v.x * 1000) / 1000, Math.round(v.y * 1000) / 1000, Math.round(v.z * 1000) / 1000];
@@ -58,23 +70,24 @@ function tuple(v: THREE.Vector3): Vec3Tuple {
  *
  * One implant is equipped in the ship and carried into the raid. **Q** (`Keys.IMPLANT`) drives it in three ways
  * (`ImplantDef.mode`, reworked 2026-09-06):
- *   - `instant` (갈고리 / 대시): the press casts. The grapple fires at the crosshair anchor right away and
- *     a second press cuts the wire; the gun stays in hand throughout.
- *   - `hold` (정찰 / 오버차지): the effect runs while Q is held — scan pulses every second, the overcharge channel
- *     heals the caster slowly (and the ally under the crosshair faster) and drains an energy pool that refills
- *     while released. The gun stays in hand.
+ *   - `instant` (갈고리 / 대시 / **정찰** since Phase 12): the press casts. The grapple fires at the crosshair anchor
+ *     right away and a second press cuts the wire; the 정찰 pulse is one wide reveal shared with the squad; the gun
+ *     stays in hand throughout.
+ *   - `hold` (오버차지): the effect runs while Q is held — the overcharge channel heals the caster slowly (and the
+ *     ally under the crosshair faster) and drains an energy pool that refills while released. The gun stays in hand.
  *   - `wielded` (대전차포 / **배리어** since Phase 10): Q takes it into the hands (weapons holster), LMB fires the
- *     launcher / the shield just blocks, Q — or any weapon key, handled by weapons/ via `stow()` — puts it away.
+ *     launcher / LMB or the melee key **bashes** with the shield (Phase 12), Q — or any weapon key, handled by
+ *     weapons/ via `stow()` — puts it away.
+ *
+ * Phase 12 (2026-09-08): the raised shield is also a **wall for bugs** (`resolveBarrierCollision`, called by enemies/
+ * per simulated bug) and takes a frontal melee attack instead of the carrier (`absorbFrontalAttack`, called by the
+ * host's enemies/ before enemy melee damage).
  *
  * Everything is simulated locally and only *shown* to the other players (`imp` messages); friendly effects on
  * someone else's character travel as `buff`. Cooldowns are multiplied by `ctx.progression?.derived.implantCooldownMul`.
  */
 export class ImplantSystem implements GameSystem, ImplantsRef {
   readonly name = 'implants';
-  /* ── 2026-09-08 contract stubs (lead) — the implants agent replaces these ── */
-  resolveBarrierCollision(_pos: THREE.Vector3, _radius: number): PeerId | 'local' | null { return null; /* TODO(implants agent) */ }
-  absorbFrontalAttack(_owner: PeerId | 'local', _fromPos: THREE.Vector3, _amount: number): boolean { return false; /* TODO(implants agent) */ }
-  get bashing(): boolean { return false; /* TODO(implants agent) */ }
 
   private ctx!: GameContext;
   private fx!: ImplantFx;
@@ -104,10 +117,11 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
   private grappleTargetValid = false;
   private grappleTargetDist = 0;
 
-  /** Scan. */
-  private scanning = false;
-  private scanTimer = 0;
-  private scanPulses = 0;
+  /** 실드 배쉬 (Phase 12): seconds left of the swing pose / FX, and of the re-bash cooldown. */
+  private bashTimer = 0;
+  private bashCd = 0;
+  /** Throttle for the `implant:barrierBumped` spark FX. */
+  private bumpFxAcc = BUMP_FX_INTERVAL;
 
   /** Overcharge. */
   private ocEnergy = IMPLANT_OVERCHARGE_ENERGY;
@@ -193,6 +207,7 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
     switch (def.id) {
       case 'grapple': this.castGrapple(); break;
       case 'dash': this.castDash(); break;
+      case 'scan': this.castScan(); break;
       case 'barrier':
       case 'atlauncher': if (this.wieldedFlag) this.stow(); else this.wield(); break;
       default: break;
@@ -212,7 +227,6 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
   /** Force the wielded implant away and end any channel (weapon swap, death, phase change). */
   stow(): void {
     this.releaseGrapple(true);
-    this.stopScan();
     this.setOvercharge(false);
     if (!this.wieldedFlag) return;
     const id = this.equippedId;
@@ -290,6 +304,8 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
       b.on('player:died', () => this.stow()),
       b.on('player:downed', () => this.stow()),
       b.on('net:remotePlayerRemoved', ({ id }) => this.remote.remove(id)),
+      // Phase 12: enemies/ resolved a bug against a raised shield — spark the panel (throttled; it fires per bug per tick)
+      b.on('implant:barrierBumped', ({ point }) => this.onBarrierBumped(point)),
       b.on('game:phaseChanged', ({ phase }) => {
         if (phase !== 'playing' && phase !== 'extracting' && phase !== 'shipLanded' && phase !== 'liftoff') this.stow();
       }),
@@ -319,6 +335,9 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
     this.tickCooldown(dt);
     this.tickBarrierRegen(dt, def);
     this.tickEnergy(dt, def);
+    if (this.bashTimer > 0) this.bashTimer = Math.max(0, this.bashTimer - dt);
+    if (this.bashCd > 0) this.bashCd = Math.max(0, this.bashCd - dt);
+    this.bumpFxAcc += dt;
 
     // ── Q: press = cast / toggle; hold implants read the key state below
     const qPressed = active && ctx.input.wasPressed(Keys.IMPLANT);
@@ -334,9 +353,8 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
     if (!def) return;
     switch (def.id) {
       case 'grapple': this.updateGrapple(dt, active); break;
-      case 'scan': this.updateScan(dt, qDown, qPressed); break;
       case 'overcharge': this.updateOvercharge(dt, qDown, qPressed); break;
-      case 'barrier': if (this.wieldedFlag) this.updateShield(); break;
+      case 'barrier': if (this.wieldedFlag) this.updateShield(active); break;
       case 'atlauncher': if (this.wieldedFlag) this.updateLauncher(active); break;
       default: break;
     }
@@ -395,8 +413,8 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
     this.grappleFlown = 0;
     this.grappleTimer = 0;
     this.grappleTargetValid = false;
-    this.scanning = false;
-    this.scanPulses = 0;
+    this.bashTimer = 0;
+    this.bashCd = 0;
     this.wire?.hide();
     this.beam?.hide();
     this.ocActive = false;
@@ -653,11 +671,143 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
     this.sendShield(false);
   }
 
-  /** Per frame while raised: keep the panel on the carrier and keep the movement penalty alive. */
-  private updateShield(): void {
+  /**
+   * Per frame while raised: keep the panel on the carrier, keep the movement penalty alive, and (Phase 12) read the
+   * 실드 배쉬 input — LMB (`Keys.FIRE`) or the melee key. The melee press is consumed afterwards so weapons/ (which
+   * runs later in the frame and already holsters while `blocksWeapons`) can never swing its own melee on the same F.
+   */
+  private updateShield(active: boolean): void {
     if (!this.barrier.active) return;
     this.followShield();
     this.applyShieldSpeed();
+    if (!active) return;
+    const input = this.ctx.input;
+    const meleeKey = input.wasPressed(Keys.MELEE);
+    if (meleeKey || input.wasMousePressed(MouseButtons.FIRE)) {
+      this.tryBash();
+      if (meleeKey) input.consume(Keys.MELEE);
+    }
+  }
+
+  /* ═══════════════════════════ Phase 12: 실드 배쉬 · 충돌 · 정면 흡수 ═══════════════════════════ */
+  /** 실드 배쉬 swing in progress (pose + FX). Enemies in the box were already hit when this went true. */
+  get bashing(): boolean { return this.bashTimer > 0; }
+
+  /**
+   * 실드 배쉬: costs `IMPLANT_SHIELD_BASH_STAMINA`, then strikes every alive enemy inside the box in front of the
+   * carrier — the shield's own width (± enemy radius) by `IMPLANT_SHIELD_BASH_RANGE` (+ radius) past the panel
+   * plane — for `IMPLANT_SHIELD_BASH_DAMAGE × derived.meleeDamageMul` (no weapon / 개머리판 bonus). The pose is the
+   * player's existing heavy swing (`startMelee('heavy')` → MELEE_HEAVY on the wire, so replicas pose for free);
+   * the shield itself stays raised. Replica enemies forward the `hit` to the host themselves (`takeDamage`).
+   */
+  private tryBash(): void {
+    const ctx = this.ctx;
+    const p = ctx.player;
+    if (!p || !this.barrier.active) return;
+    if (this.bashCd > 0 || this.bashTimer > 0) return;
+    if (typeof p.consumeStamina !== 'function' || !p.consumeStamina(IMPLANT_SHIELD_BASH_STAMINA)) {
+      this.deny();
+      ctx.bus.emit('ui:notify', { text: '스태미나 부족', kind: 'warning', duration: 0.8 });
+      return;
+    }
+    this.bashCd = IMPLANT_SHIELD_BASH_COOLDOWN;
+    this.bashTimer = IMPLANT_SHIELD_BASH_SWING_S;
+    if (typeof p.startMelee === 'function') p.startMelee('heavy');
+
+    // box in front of the carrier, in panel space: n = forward (panel normal), r = right
+    const yaw = p.yaw;
+    _n.set(-Math.sin(yaw), 0, -Math.cos(yaw));
+    _r.set(-_n.z, 0, _n.x);
+    _from.copy(p.position);
+    const halfW = IMPLANT_BARRIER_CARRY_WIDTH / 2;
+    const reach = IMPLANT_BARRIER_CARRY_OFFSET + IMPLANT_SHIELD_BASH_RANGE;
+    const mul = ctx.progression?.derived?.meleeDamageMul ?? 1;
+    const dmg = IMPLANT_SHIELD_BASH_DAMAGE * (Number.isFinite(mul) && mul > 0 ? mul : 1);
+    let hits = 0;
+    const enemies = ctx.enemies;
+    if (enemies) {
+      let list: readonly EnemyRef[] = [];
+      _p.copy(_from); _p.y += 0.9;
+      if (typeof (enemies as { queryNear?: unknown }).queryNear === 'function') {
+        try { list = enemies.queryNear(_p, reach + halfW + 3); } catch { list = enemies.getEnemies(); }
+      } else {
+        list = enemies.getEnemies();
+      }
+      for (const e of list) {
+        if (e.isDead) continue;
+        const dx = e.position.x - _from.x, dz = e.position.z - _from.z;
+        const fwd = dx * _n.x + dz * _n.z;
+        if (fwd <= 0 || fwd > reach + e.radius) continue;
+        if (Math.abs(dx * _r.x + dz * _r.z) > halfW + e.radius) continue;
+        _hp.copy(e.position); _hp.y += e.height * 0.5;
+        e.takeDamage(dmg, _hp, _n);
+        this.fx.spark(_hp, implantHex('barrier'), 0.4);
+        hits++;
+      }
+    }
+
+    // knockback: `pushBack` is an EnemySystem method, not part of the frozen `EnemyManagerRef` (2026-09-08).
+    if (hits > 0 && enemies) {
+      _t.copy(_from).addScaledVector(_n, IMPLANT_BARRIER_CARRY_OFFSET + IMPLANT_SHIELD_BASH_RANGE * 0.5); _t.y += 0.9;
+      const push = (enemies as unknown as { pushBack?: (c: THREE.Vector3, r: number, s: number, d?: THREE.Vector3) => number }).pushBack;
+      if (typeof push === 'function') {
+        try { push.call(enemies, _t, IMPLANT_SHIELD_BASH_RANGE + IMPLANT_BARRIER_CARRY_WIDTH / 2, IMPLANT_SHIELD_BASH_KNOCKBACK, _n); } catch { /* host-only helper */ }
+      }
+    }
+    // swing FX: a horizontal streak sweeping the panel's front edge, chest high
+    _t.copy(_from).addScaledVector(_n, IMPLANT_BARRIER_CARRY_OFFSET + 0.25); _t.y += BASH_FX_Y;
+    _tmp.copy(_t).addScaledVector(_r, -halfW);
+    _p.copy(_t).addScaledVector(_r, halfW);
+    this.fx.streak(_tmp, _p, implantHex('barrier'), IMPLANT_SHIELD_BASH_SWING_S, 0.5);
+    ctx.bus.emit('camera:shake', { intensity: hits > 0 ? 0.28 : 0.14, duration: 0.14 });
+    ctx.bus.emit('audio:play', { id: 'melee_swing', volume: 0.8, pitch: 0.85 });
+    if (hits > 0) ctx.bus.emit('audio:play', { id: 'barrier_hit', position: _t, volume: 0.7 });
+    ctx.bus.emit('implant:bashed', { position: _from.clone(), yaw, hits });
+    this.send({ t: 'imp', ev: 'bash', p: tuple(_from), yaw: Math.round(yaw * 1000) / 1000 });
+  }
+
+  /**
+   * Enemy movement vs every raised shield (local + peers' replicas). The first shield overlapping the mover pushes
+   * `pos` out to its front face and names its carrier (enemies/ retargets the bug onto them). Pure apart from `pos`;
+   * no allocations — called per simulated bug per tick.
+   */
+  resolveBarrierCollision(pos: THREE.Vector3, radius: number): PeerId | 'local' | null {
+    if (!this.ctx) return null;
+    if (this.barrier.active && this.barrier.pushOut(pos, radius)) return 'local';
+    for (const b of this.remote.getBarriers(this.remoteBarriers)) {
+      if (b.pushOut(pos, radius)) return b.owner;
+    }
+    return null;
+  }
+
+  /**
+   * A melee attack of `amount` from `fromPos` is about to land on `owner`. True when that carrier's raised shield
+   * faces the attacker (inside `IMPLANT_BARRIER_CARRY_ARC`, within `ABSORB_RANGE`) and took it instead: the local
+   * shield loses `amount` through the normal block path (`implant:barrierHit`, collapse → lockout + `stow()`); a
+   * peer's shield only sparks here — the caller sends `ee barrierHit` to that peer, whose `damageBarrier('local', …)`
+   * deducts it.
+   */
+  absorbFrontalAttack(owner: PeerId | 'local', fromPos: THREE.Vector3, amount: number): boolean {
+    if (!this.ctx) return false;
+    const b = this.barrierOf(owner);
+    if (!b || !b.active || !b.facing(fromPos, ABSORB_RANGE)) return false;
+    b.contactPoint(fromPos, _hitPt);
+    if (owner === 'local') this.onBarrierBlocked(_hitPt, amount);
+    else this.fx.spark(_hitPt, implantHex('barrier'), 0.35);
+    return true;
+  }
+
+  private barrierOf(owner: PeerId | 'local'): BarrierField | null {
+    if (owner === 'local') return this.barrier;
+    for (const b of this.remote.getBarriers(this.remoteBarriers)) if (b.owner === owner) return b;
+    return null;
+  }
+
+  /** `implant:barrierBumped` from enemies/: a bug pressed against a shield — spark the contact point (throttled). */
+  private onBarrierBumped(point: THREE.Vector3): void {
+    if (this.bumpFxAcc < BUMP_FX_INTERVAL) return;
+    this.bumpFxAcc = 0;
+    this.fx.spark(point, implantHex('barrier'), 0.22);
   }
 
   /** Panel plane in front of the player's feet, facing where they face. */
@@ -831,47 +981,27 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
     if (p && typeof p.setGrappleTarget === 'function') p.setGrappleTarget(point);
   }
 
-  /* ═══════════════════════════ 정찰 (hold Q) ═══════════════════════════ */
-  private updateScan(dt: number, qDown: boolean, qPressed: boolean): void {
-    if (!this.scanning) {
-      if (qPressed) {
-        if (!this.useCharge(false)) return;
-        this.scanning = true;
-        this.holdingFlag = true;
-        this.scanPulses = 0;
-        this.scanTimer = 0;
-        this.doScanPulse();
-      }
-      return;
-    }
-    this.scanTimer -= dt;
-    if (this.scanTimer <= 0) this.doScanPulse();
-    if (!qDown || this.scanPulses >= IMPLANT_SCAN_MAX_PULSES) this.stopScan();
-  }
-
-  private doScanPulse(): void {
+  /* ═══════════════════════════ 정찰 (instant, Phase 12) ═══════════════════════════ */
+  /**
+   * Q: one wide pulse (`IMPLANT_SCAN_RADIUS`) around the caster, usable while moving — no hold, no energy. Every
+   * interactable + alive enemy inside is revealed for `IMPLANT_SCAN_REVEAL_TIME_V2` to us (`detect:reveal` pillars,
+   * `scan:cast` compass marks, `setXray` red silhouettes — all in `revealScan`) and to the squad: `imp scanCast`
+   * carries only `p / radius / dur`, each receiver reveals from its own world. `implant:scanned` (pulse 1) stays for
+   * the audio hook; `implant:activated` fires once per cast (the implant skill XP hook).
+   */
+  private castScan(): void {
     const ctx = this.ctx;
     const p = ctx.player;
     if (!p) return;
-    this.scanPulses++;
-    this.scanTimer = IMPLANT_SCAN_PULSE_INTERVAL;
-    const radius = this.scanPulses * IMPLANT_SCAN_RADIUS_STEP;
+    if (!this.useCharge()) return;
+    const radius = IMPLANT_SCAN_RADIUS, duration = IMPLANT_SCAN_REVEAL_TIME_V2;
     _p.copy(p.position); _p.y += 1.1;
-    const targets = collectScanTargets(ctx, _p, radius);
-    this.fx.pulse(_p, radius, IMPLANT_SCAN_PULSE_INTERVAL * 1.4, implantHex('scan'), p.position.y);
-    ctx.bus.emit('implant:scanned', { pulse: this.scanPulses, radius, duration: IMPLANT_SCAN_REVEAL_TIME, targets });
-    ctx.bus.emit('detect:reveal', { targets, duration: IMPLANT_SCAN_REVEAL_TIME });
-    ctx.bus.emit('audio:play', { id: 'scan_pulse', volume: 0.6, pitch: 1 + this.scanPulses * 0.06 });
+    const targets = revealScan(ctx, _p, radius, duration, true);
+    this.fx.pulse(_p, radius, SCAN_PULSE_FX_S, implantHex('scan'), p.position.y);
+    ctx.bus.emit('implant:scanned', { pulse: 1, radius, duration, targets });
+    ctx.bus.emit('audio:play', { id: 'scan_pulse', volume: 0.7, pitch: 0.9 });
     this.activated('scan', _p);
-    this.send({ t: 'imp', ev: 'scan', p: tuple(_p), radius });
-  }
-
-  private stopScan(): void {
-    if (!this.scanning) return;
-    this.scanning = false;
-    this.holdingFlag = false;
-    this.scanTimer = 0;
-    this.startCooldown();
+    this.send({ t: 'imp', ev: 'scanCast', p: tuple(_p), radius, dur: duration });
   }
 
   /* ═══════════════════════════ 오버차지 (hold Q, energy) ═══════════════════════════ */

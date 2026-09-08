@@ -485,6 +485,17 @@ kbd {
 .inv-tt-stats .v { text-align: right; font-variant-numeric: tabular-nums; color: var(--inv-text); }
 .inv-tt-stats .v.is-low { color: var(--inv-accent); }
 .inv-tt-stats .v.is-broken { color: var(--inv-bad); font-weight: 600; }
+.inv-tt-stats .v.is-bonus { color: var(--inv-ok); font-weight: 600; }
+/* Phase 12: 임플란트 tooltip — perk description, 망가짐 line + repair-cost chips */
+.inv-tt-perk { margin: 8px 0 0; padding-top: 8px; border-top: 1px solid var(--inv-line); font-size: 11px; line-height: 1.45; color: rgba(233, 236, 239, 0.8); }
+.inv-tt-perk .k { display: block; margin-bottom: 2px; font-size: 10px; letter-spacing: 0.08em; color: var(--inv-muted); }
+.inv-tt-perk .n { color: var(--inv-accent); font-weight: 600; }
+.inv-tt-broken {
+  margin: 8px 0 0; padding-top: 8px; border-top: 1px solid var(--inv-line);
+  font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
+  color: color-mix(in srgb, var(--inv-bad) 85%, white 15%);
+}
+.inv-tt-repair { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
 .inv-tt-sockets {
   display: flex;
   flex-direction: column;
@@ -1243,6 +1254,19 @@ kbd {
 .inv-dis-msg.is-ok { color: var(--inv-ok); }
 .inv-dis-msg.is-bad { color: color-mix(in srgb, var(--inv-bad) 80%, white 20%); }
 .inv-dis-btn { width: 100%; min-width: 0; justify-content: center; }
+/* Phase 12: 분해 게이지 — a horizontal bar right under the button; NO transition, the fill is written per frame */
+.inv-dis-bar {
+  height: 6px; width: 100%; margin-top: -4px;
+  border: 1px solid var(--inv-line); border-radius: 3px;
+  background: rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+.inv-dis-bar-fill {
+  display: block; height: 100%; width: 0;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--inv-accent) 70%, white 10%), var(--inv-accent));
+  box-shadow: 0 0 8px color-mix(in srgb, var(--inv-accent) 55%, transparent);
+  transition: none;
+}
 
 /* ── item chips in the craft rows / context menu ─────────────────────────── */
 .inv-craft-costs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }

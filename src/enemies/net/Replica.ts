@@ -178,6 +178,9 @@ export interface ReplicaHost {
   grenadeVisual(id: number, p: THREE.Vector3, v: THREE.Vector3, fuse: number): void;
   /** Host's `grenadeHit`: pop the local copy (or just the FX) at `p`. */
   grenadeHitRemote(p: THREE.Vector3): void;
+  /* ── Phase 12 (배리어 정면 흡수) ── */
+  /** Host says enemy `id`'s melee landed on **my** raised shield at `p`: deduct `amount` from it + the bite FX. */
+  barrierHitRemote(id: number, p: THREE.Vector3, amount: number): void;
 }
 
 const _pose: Pose = { x: 0, y: 0, z: 0, yaw: 0 };
@@ -395,6 +398,11 @@ export class EnemyReplica {
       case 'grenadeHit':
         _p.set(msg.p[0], msg.p[1], msg.p[2]);
         host.grenadeHitRemote(_p);
+        return;
+      /* ── Phase 12 ── */
+      case 'barrierHit':
+        _p.set(msg.p[0], msg.p[1], msg.p[2]);
+        host.barrierHitRemote(msg.id, _p, msg.amount);
         return;
     }
   }

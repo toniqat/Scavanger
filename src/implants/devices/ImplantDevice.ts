@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Layers, type ImplantId } from '@/shared';
+import { IMPLANT_BARRIER_CARRY_WIDTH, Layers, type ImplantId } from '@/shared';
 import { implantHex } from '../ImplantDefs';
 
 /**
@@ -113,12 +113,14 @@ export class ImplantDevice {
     // grip in the fist + forearm brace running back along the arm
     this.add(this.geo(new THREE.BoxGeometry(0.055, 0.15, 0.055)), dark, 0, -0.1, 0.02);
     this.add(this.geo(new THREE.BoxGeometry(0.09, 0.06, 0.26)), shell, 0, -0.02, 0.05);
-    // projector head: a short block with an emitter bar the field springs from
+    // projector head: a short block with an emitter bar the field springs from. Phase 12: the bar and the frame arms
+    // scale with the carry width (1.5 m → 0.3 m bar; 3.2 m → ~0.45 m) so the wide panel visibly comes out of it.
+    const bar = Math.min(0.6, IMPLANT_BARRIER_CARRY_WIDTH * 0.14);
     this.add(this.geo(new THREE.BoxGeometry(0.16, 0.1, 0.1)), shell, 0, 0.02, -0.14);
-    this.add(this.geo(new THREE.BoxGeometry(0.3, 0.035, 0.035)), this.accentMat, 0, 0.06, -0.2);
+    this.add(this.geo(new THREE.BoxGeometry(bar, 0.035, 0.035)), this.accentMat, 0, 0.06, -0.2);
     // two stubby arms suggesting the frame the panel unfolds from
     for (const sx of [-1, 1]) {
-      this.add(this.geo(new THREE.BoxGeometry(0.03, 0.03, 0.14)), shell, sx * 0.14, 0.04, -0.13);
+      this.add(this.geo(new THREE.BoxGeometry(0.03, 0.03, 0.14)), shell, sx * (bar / 2 - 0.01), 0.04, -0.13);
     }
     this.addGlow(0.1, 0, 0.04, -0.22);
     this.muzzle.position.set(0, 0.04, -0.24);

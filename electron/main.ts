@@ -44,6 +44,8 @@ const wantPort = Number(value('port', 'SCAV_PORT') ?? NET_DEFAULT_PORT) || NET_D
 const lan = flag('lan', 'SCAV_LAN');
 const devtools = flag('devtools', 'SCAV_DEVTOOLS');
 const local = flag('local', 'SCAV_LOCAL');
+/** Diagnostics: leave Escape to Chromium (no forward, no re-lock) — the behaviour before Phase 12. */
+const rawEscape = flag('raw-escape', 'SCAV_RAW_ESCAPE');
 
 /* ── which relay do we talk to? ───────────────────────────────────────── */
 
@@ -169,6 +171,32 @@ async function startProxied(target: URL): Promise<number> {
   }));
 }
 
+/* ── Escape (Phase 12) ─────────────────────────────────────────────────
+ *
+ * A page cannot re-take the pointer lock right after an Escape: Chrome grants Escape no user activation (it is
+ * reserved for leaving fullscreen / pointer lock), so the re-lock the game asks for when its last screen closes is
+ * refused and the player is left with a visible cursor until their next click or key. In the browser the game answers
+ * with the '좌측 클릭으로 게임 재개' gate (`src/game/ResumeGate.ts`). The shell can do better, because the **main**
+ * process is allowed to hand the page an activation:
+ *
+ *   `executeJavaScript(code, true)` runs `code` *with a user gesture*, which is exactly what `requestPointerLock()`
+ *   wants. On every Escape **key-up** we run the page's `window.__scavShellRelock` hook that way; it waits two frames
+ *   (so the screen this Escape closed has released cursor mode) and re-locks only if nothing owns the cursor.
+ *
+ * The key itself is deliberately **left alone** — no `preventDefault`, no synthetic forward. Measured 2026-09-08 on
+ * the built app: while the lock is held Chromium's exclusive-access handler consumes Escape *before*
+ * `before-input-event`, so a `preventDefault` here keeps neither the lock nor the key; and while a screen is open
+ * there is no lock, so the real Escape reaches the page by itself. Forwarding a synthetic copy on top of that
+ * delivered the key **twice** (observed under CDP), which closed two screens on one press. `--raw-escape` skips even
+ * the hook (the pre-Phase-12 behaviour), for diagnostics.
+ */
+const SHELL_RELOCK = '(() => { const f = window.__scavShellRelock; if (typeof f === "function") f(); })()';
+
+function handleEscape(_event: Electron.Event, input: Electron.Input): void {
+  if (input.type !== 'keyUp') return;
+  void win?.webContents.executeJavaScript(SHELL_RELOCK, true).catch(() => { /* page reloading */ });
+}
+
 /* ── window ───────────────────────────────────────────────────────────── */
 function createWindow(port: number): void {
   const state = loadWindowState();
@@ -199,8 +227,9 @@ function createWindow(port: number): void {
     win?.show();
   });
 
-  // F11 = fullscreen. Everything else (Esc, Tab, `) belongs to the game.
+  // F11 = fullscreen. Everything else (Tab, `) belongs to the game — Escape included, but through `handleEscape`.
   win.webContents.on('before-input-event', (event, input) => {
+    if (input.code === 'Escape' && !rawEscape) { handleEscape(event, input); return; }
     if (input.type !== 'keyDown') return;
     if (input.code === 'F11' && !input.control && !input.alt) {
       event.preventDefault();

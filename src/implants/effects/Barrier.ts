@@ -8,9 +8,11 @@ import {
  * The 배리어 방패 (Phase 10): an energy shield **carried in the hand**, no longer a wall planted on the ground.
  * Owned by the local player or replicated from a peer (`imp shield` + that peer's snapshot transform).
  *
- * It is purely a projectile blocker — no physics collider, so players and bugs walk through it; only
- * `intersect()` (via `ImplantsRef.raycastBarrier`) stops hostile fire, and only inside the
- * `IMPLANT_BARRIER_CARRY_ARC` half-angle around the carrier's forward (a shot from behind passes by).
+ * `intersect()` (via `ImplantsRef.raycastBarrier`) stops hostile fire, only inside the `IMPLANT_BARRIER_CARRY_ARC`
+ * half-angle around the carrier's forward (a shot from behind passes by). Phase 12 (2026-09-08): it is also a **wall
+ * for bugs** — `pushOut()` (via `ImplantsRef.resolveBarrierCollision`) shoves a mover out to the front face, and
+ * `facing()` (via `absorbFrontalAttack`) decides whether a melee attack from `fromPos` lands on the shield instead of
+ * the carrier. Players still walk through it (no player collision — squadmates must be able to step behind it).
  *
  * `position` is the **panel-bottom centre** in world space (`intersect` measures dy from `position.y`), i.e.
  * `feet + forward * IMPLANT_BARRIER_CARRY_OFFSET` lifted by `IMPLANT_BARRIER_CARRY_BASE_Y`; `follow()` writes it
@@ -60,6 +62,10 @@ function hexTexture(): THREE.CanvasTexture {
 const _n = new THREE.Vector3(), _r = new THREE.Vector3(), _c = new THREE.Vector3(), _p = new THREE.Vector3();
 /** cos of the blocking half-angle: a shot must travel into the front face within this cone. */
 const ARC_COS = Math.cos(Math.max(0, IMPLANT_BARRIER_CARRY_ARC));
+/** Phase 12: thickness (m) of the slab a mover collides with (`pushOut`) — the panel itself is a plane. */
+export const BARRIER_COLLIDE_THICKNESS = 0.5;
+/** Phase 12: default height (m) of a colliding mover when the caller gives none (a bug body on the ground). */
+const MOVER_HEIGHT = 1.0;
 
 export class BarrierField {
   /** Panel-bottom centre in world space (the panel rises `IMPLANT_BARRIER_CARRY_HEIGHT` from here). */
@@ -213,6 +219,69 @@ export class BarrierField {
     const dy = out.y - this.position.y;
     if (dy < 0 || dy > IMPLANT_BARRIER_CARRY_HEIGHT) return false;
     return true;
+  }
+
+  /* ══ Phase 12 (2026-09-08): the shield as a wall for bugs + frontal melee absorption ══ */
+
+  /** Panel normal (= the carrier's forward) into `out`. */
+  private normal(out: THREE.Vector3): THREE.Vector3 {
+    return out.set(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
+  }
+
+  /**
+   * Movement collision: the panel is treated as an XZ slab `IMPLANT_BARRIER_CARRY_WIDTH` wide and
+   * `BARRIER_COLLIDE_THICKNESS` thick, spanning the panel's height. A circle (`pos`, `radius`) whose vertical extent
+   * (`pos.y … pos.y + moverHeight`) overlaps the panel and which overlaps the slab is pushed **out to the front face**
+   * along the normal. Returns true when `pos` was moved. A mover whose centre is already behind the slab's back face
+   * is left alone (it is past the shield — the carrier's own body collision handles it). No allocations.
+   */
+  pushOut(pos: THREE.Vector3, radius: number, moverHeight = MOVER_HEIGHT): boolean {
+    if (!this.active) return false;
+    // vertical overlap with the panel (panel spans position.y … position.y + height)
+    const top = this.position.y + IMPLANT_BARRIER_CARRY_HEIGHT;
+    if (pos.y >= top || pos.y + moverHeight <= this.position.y) return false;
+    this.normal(_n);
+    _r.set(-_n.z, 0, _n.x);           // panel right
+    const dx = pos.x - this.position.x, dz = pos.z - this.position.z;
+    const lateral = dx * _r.x + dz * _r.z;
+    if (Math.abs(lateral) > IMPLANT_BARRIER_CARRY_WIDTH / 2 + radius) return false;
+    const along = dx * _n.x + dz * _n.z;
+    const half = BARRIER_COLLIDE_THICKNESS / 2;
+    if (along < -half) return false;                 // centre behind the back face: already through
+    if (along - radius >= half) return false;        // clear in front
+    const push = half + radius - along;
+    pos.x += _n.x * push;
+    pos.z += _n.z * push;
+    return true;
+  }
+
+  /**
+   * True when `fromPos` lies inside `IMPLANT_BARRIER_CARRY_ARC` of the carrier's forward and within `maxDist` of the
+   * carrier (feet = panel centre pulled back by `IMPLANT_BARRIER_CARRY_OFFSET`). Height is ignored — a melee attack
+   * that reaches the carrier is at body height by definition.
+   */
+  facing(fromPos: THREE.Vector3, maxDist: number): boolean {
+    if (!this.active) return false;
+    this.normal(_n);
+    _c.copy(this.position).addScaledVector(_n, -IMPLANT_BARRIER_CARRY_OFFSET);   // carrier feet
+    const dx = fromPos.x - _c.x, dz = fromPos.z - _c.z;
+    const d2 = dx * dx + dz * dz;
+    if (d2 > maxDist * maxDist) return false;
+    if (d2 < 1e-6) return true;                       // standing inside the carrier: count it as frontal
+    const cos = (dx * _n.x + dz * _n.z) / Math.sqrt(d2);
+    return cos > ARC_COS;
+  }
+
+  /** Point on the panel face nearest to `fromPos` (mid-height, lateral clamped to the panel) into `out`. */
+  contactPoint(fromPos: THREE.Vector3, out: THREE.Vector3): THREE.Vector3 {
+    this.normal(_n);
+    _r.set(-_n.z, 0, _n.x);
+    const dx = fromPos.x - this.position.x, dz = fromPos.z - this.position.z;
+    const w = IMPLANT_BARRIER_CARRY_WIDTH / 2;
+    const lateral = Math.max(-w, Math.min(w, dx * _r.x + dz * _r.z));
+    out.copy(this.position).addScaledVector(_r, lateral);
+    out.y += IMPLANT_BARRIER_CARRY_HEIGHT * 0.5;
+    return out;
   }
 
   dispose(): void {

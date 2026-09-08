@@ -254,6 +254,31 @@
 .cq-acts .ui-btn { min-width: 120px; justify-content: center; }
 .cq-col.inv .trade-grids { flex: 1; min-height: 0; }
 
+/* ── 임플란트 수리 (Phase 12, 세레스 바이오): 망가진 임플란트 그리드 | 수리 카드 ── */
+.ci { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(300px, 0.9fr); gap: 14px; min-height: 0; }
+.ci-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; }
+.ci-list { flex: 1; min-height: 0; align-content: start; }
+.ci-list .ct-cell.is-sel { border-color: var(--cc); background: color-mix(in srgb, var(--cc) 12%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cc) 60%, transparent); }
+.ci-repair {
+  flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin;
+  display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid var(--c-border); background: rgba(0, 0, 0, 0.24);
+}
+.ci-head { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 10px; align-items: center; }
+.ci-item { display: flex; justify-content: center; min-width: 0; }
+.ci-item .item-chip { max-width: 100%; }
+.ci-arrow { font-size: 22px; color: var(--cc); text-align: center; }
+.ci-unknown { font-size: 11px; color: var(--c-danger); text-align: center; }
+.ci-desc { font-size: 11px; line-height: 1.5; color: var(--c-text-dim); }
+.ci-label { font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--c-text-dim); margin-top: 4px; }
+.ci-cost { display: flex; flex-wrap: wrap; gap: 6px; }
+.ci-fee { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding-top: 8px; border-top: 1px solid var(--c-border); }
+.ci-fee .k { font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--c-text-dim); }
+.ci-fee .v { font-family: var(--ui-mono); font-size: 18px; font-weight: 600; color: var(--c-text); }
+.ci-fee .v.short { color: var(--c-danger); }
+.ci-acts { display: flex; flex-direction: column; align-items: stretch; gap: 6px; margin-top: auto; padding-top: 8px; }
+.ci-block { font-size: 11px; color: var(--c-danger); text-align: right; }
+.ci-repair-btn { width: 100%; min-width: 0; height: 42px; justify-content: center; font-size: 13px; letter-spacing: 0.2em; }
+
 @media (max-width: 1240px) {
   .ct { grid-template-columns: minmax(0, 1fr) minmax(240px, 0.9fr); }
   .ct-col.inv { display: none; }

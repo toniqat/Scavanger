@@ -1,8 +1,9 @@
-import type { EquippedImplant,
+import type { EquippedImplant, ImplantItemDef,
   DerivedStats, EmbeddedView, GameContext, GameSystem, PlayerProfile, ProfileRef, ProgressionRef,
   SkillDef, SkillId, StatDef, StatId, WeaponClass,
 } from '@/shared';
 import {
+  IMPLANT_SLOTS_BASE, IMPLANT_SLOTS_MAX, IMPLANT_SLOTS_PER_LEVELS,
   SKILL_IDS, SKILL_LEVEL_MAX, STAT_BASE, STAT_IDS, STAT_MAX, STAT_MIN, STAT_POINTS_PER_LEVEL,
   STAT_XP_BASE, STAT_XP_EXPONENT, TRAINING_SKILL_GAIN_MUL,
 } from '@/shared';
@@ -10,7 +11,7 @@ import {
   APPRAISE_XP_BY_RARITY, CARRY_XP_PER_METER, CRAFT_XP, CRATE_OPEN_XP, CRYPTO_XP, GATHER_XP, GRIT_SAVE_XP,
   GUN_HIT_XP, IMPLANT_XP, REPAIR_XP, SKILL_DEF_MAP, SKILL_DEFS, STAT_DEF_MAP, STAT_DEFS, WEAPON_CLASS_SKILL,
 } from './defs';
-import { computeDerived, DEFAULT_DERIVED, SPECIAL_BACKPACK_CD_MUL, xpForLevel } from './derive';
+import { computeDerived, DEFAULT_DERIVED, SPECIAL_BACKPACK_CD_MUL, emptyPerks, xpForLevel, type ImplantContribution } from './derive';
 import { clearStoredProfile, freshProfile, loadProfile, migrate, saveProfile, zeroStatProgress } from './Profile';
 import { CharacterSheet } from './ui/CharacterSheet';
 import { SheetView } from './ui/SheetView';
@@ -49,14 +50,164 @@ export function statXpFor(value: number): number {
  */
 export class ProgressionSystem implements GameSystem, ProgressionRef {
   readonly name = 'progression';
-  /* ── 2026-09-08 contract stubs (lead) — the progression agent replaces these ── */
-  get implantSlots(): number { return 4; /* TODO(progression agent) */ }
-  get implantSlotsUsed(): number { return 0; }
-  getEquippedImplants(): readonly EquippedImplant[] { return []; }
-  equipImplant(_uid: string): boolean { return false; }
-  unequipImplant(_uid: string): boolean { return false; }
-  getStatWithImplants(id: StatId): number { return this.getStat(id); }
-  getImplantBonus(_id: StatId): number { return 0; }
+
+  /* ── 임플란트 아이템 (Phase 12, 2026-09-08) ─────────────────────────────────
+   * Hollow-Knight-charm style: the character has `implantSlots` (4 + 1 per 5 levels, ≤ 10), each equipped item
+   * (`ItemDef.implant`) costs `slots` and adds `stats`; a legendary one flips a `derived.perks` flag. The item
+   * **instance** leaves the grids while equipped and lives in `profile.implants` (uid / defId / durability), so it
+   * round-trips with the profile document. Equip / unequip only in the ship (phase `hub`, no raid).
+   * ────────────────────────────────────────────────────────────────────────── */
+
+  get implantSlots(): number {
+    const lv = Math.max(1, Math.floor(this._profile.level));
+    return Math.min(IMPLANT_SLOTS_MAX, IMPLANT_SLOTS_BASE + Math.floor(lv / IMPLANT_SLOTS_PER_LEVELS));
+  }
+
+  get implantSlotsUsed(): number {
+    let used = 0;
+    for (const e of this.equippedList()) used += this.implantDefOf(e.defId)?.slots ?? 0;
+    return used;
+  }
+
+  getEquippedImplants(): readonly EquippedImplant[] { return this.equippedList(); }
+
+  /** Base stat + equipped implant bonuses — what `derived` is computed from. */
+  getStatWithImplants(id: StatId): number { return this.getStat(id) + this.getImplantBonus(id); }
+
+  /** Sum of `implant.stats[id]` over the equipped implants (0 when none / items not up yet). */
+  getImplantBonus(id: StatId): number {
+    let sum = 0;
+    for (const e of this.equippedList()) {
+      const b = this.implantDefOf(e.defId)?.stats[id];
+      if (typeof b === 'number' && Number.isFinite(b)) sum += b;
+    }
+    return sum;
+  }
+
+  /**
+   * Ship only. Takes bag / stash item `uid` out of the inventory and equips it. false — and nothing changes — during a
+   * raid or outside the hub, for a non-implant / broken item, an unknown uid, or when `slots` would not fit.
+   */
+  equipImplant(uid: string): boolean {
+    const ctx = this.ctx;
+    if (!ctx || !this.canSwapImplants()) return false;
+    const inv = ctx.inventory;
+    const loot = ctx.loot;
+    if (!inv || !loot || typeof inv.findItemAnywhere !== 'function' || typeof inv.takeItem !== 'function') return false;
+    if (typeof uid !== 'string' || !uid) return false;
+    if (this.equippedList().some((e) => e.uid === uid)) return false;
+    const item = inv.findItemAnywhere(uid);
+    if (!item) return false;
+    const imp = loot.getItemDef(item.defId)?.implant;
+    if (!imp || imp.broken) return false;
+    const slots = Math.max(1, Math.floor(imp.slots));
+    if (this.implantSlotsUsed + slots > this.implantSlots) return false;
+    if (inv.takeItem(uid) < 1) return false;
+    const entry: EquippedImplant = { uid, defId: item.defId };
+    if (typeof item.durability === 'number' && Number.isFinite(item.durability)) entry.durability = item.durability;
+    this.equippedList().push(entry);
+    this.afterImplantsChanged();
+    return true;
+  }
+
+  /**
+   * Ship only. Rebuilds the item instance (same uid / durability) and puts it in the 함선 창고, else the bag. false —
+   * still equipped — when neither has room, outside the hub, or for an unknown uid.
+   */
+  unequipImplant(uid: string): boolean {
+    const ctx = this.ctx;
+    if (!ctx || !this.canSwapImplants()) return false;
+    const list = this.equippedList();
+    const idx = list.findIndex((e) => e.uid === uid);
+    if (idx < 0) return false;
+    if (!this.returnImplant(list[idx])) return false;
+    list.splice(idx, 1);
+    this.afterImplantsChanged();
+    return true;
+  }
+
+  /* ── implant internals ── */
+  private equippedList(): EquippedImplant[] {
+    const p = this._profile;
+    if (!Array.isArray(p.implants)) p.implants = [];
+    return p.implants;
+  }
+
+  private implantDefOf(defId: string): ImplantItemDef | undefined {
+    try { return this.ctx?.loot?.getItemDef(defId)?.implant; } catch { return undefined; }
+  }
+
+  /** Equip / unequip are allowed only in the ship: phase `hub` and no raid in progress. */
+  private canSwapImplants(): boolean {
+    const ctx = this.ctx;
+    if (!ctx) return false;
+    if (ctx.phase !== 'hub') return false;
+    try { if (ctx.isRaidActive()) return false; } catch { /* treat as not in a raid */ }
+    return true;
+  }
+
+  /** The equipped implants' contribution to `derived` (flat stat bonuses + perks). */
+  private implantContribution(): ImplantContribution {
+    const bonus: Partial<Record<StatId, number>> = {};
+    const perks = emptyPerks();
+    for (const e of this.equippedList()) {
+      const imp = this.implantDefOf(e.defId);
+      if (!imp || imp.broken) continue;
+      for (const id of STAT_IDS) {
+        const b = imp.stats[id];
+        if (typeof b === 'number' && Number.isFinite(b) && b !== 0) bonus[id] = (bonus[id] ?? 0) + b;
+      }
+      if (imp.perk && imp.perk in perks) perks[imp.perk] = true;
+    }
+    return { bonus, perks };
+  }
+
+  /**
+   * Drop equipped entries whose def no longer exists / is no longer an implant (a removed item id in an old save).
+   * Only once `ctx.loot` is up — before that nothing can be judged. Returns true when something was dropped.
+   */
+  private pruneImplants(): boolean {
+    const loot = this.ctx?.loot;
+    if (!loot || typeof loot.getItemDef !== 'function') return false;
+    const list = this.equippedList();
+    let dropped = false;
+    for (let i = list.length - 1; i >= 0; i--) {
+      let ok = false;
+      try { ok = !!loot.getItemDef(list[i].defId)?.implant; } catch { ok = false; }
+      if (!ok) { list.splice(i, 1); dropped = true; }
+    }
+    return dropped;
+  }
+
+  /** Rebuild an equipped implant as an item instance and hand it to the stash (then the bag). */
+  private returnImplant(e: EquippedImplant): boolean {
+    const ctx = this.ctx;
+    const inv = ctx?.inventory;
+    const loot = ctx?.loot;
+    if (!inv || !loot) return false;
+    try {
+      if (!loot.getItemDef(e.defId)) return false;
+      const inst = loot.createItem(e.defId, 1, e.durability !== undefined ? { durability: e.durability } : undefined);
+      inst.uid = e.uid;                                     // keep the identity the save knows
+      if (typeof inv.tryAddToStash === 'function' && inv.tryAddToStash(inst)) return true;
+      return typeof inv.tryAddItemAnywhere === 'function' && inv.tryAddItemAnywhere(inst) !== null;
+    } catch {
+      return false;
+    }
+  }
+
+  private afterImplantsChanged(): void {
+    this.recompute();
+    this.markDirty(true);
+    this.emitImplantsChanged();
+    this.refreshSheets();
+  }
+
+  private emitImplantsChanged(): void {
+    this.ctx?.bus.emit('progress:implantsChanged', {
+      equipped: this.equippedList().map((e) => ({ ...e })), slots: this.implantSlots, used: this.implantSlotsUsed,
+    });
+  }
 
   private ctx!: GameContext;
   private _profile: PlayerProfile = freshProfile();
@@ -488,6 +639,7 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
       this.lastEmitted[id] = progress;
       bus.emit('progress:skillProgress', { id, level: this.getSkill(id), progress });
     }
+    this.emitImplantsChanged();                 // Phase 12: the equipped 임플란트 items came with the document
     this.refreshSheets();
   }
 
@@ -503,6 +655,9 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
 
   resetProfile(): void {
     const name = this._profile.name;
+    // Phase 12: the equipped 임플란트 items are inventory, not character — hand them back to the stash / bag first
+    // (best effort; whatever does not fit is lost with the character).
+    for (const e of this.equippedList()) this.returnImplant(e);
     clearStoredProfile();
     this._profile = freshProfile(name);
     this.lastEmitted = {};
@@ -510,13 +665,15 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     this.markDirty(true);
     this.flush();
     this.ctx?.bus.emit('progress:loaded', { profile: this._profile });
+    this.emitImplantsChanged();
     this.refreshSheets();
   }
 
   /* ── internals ─────────────────────────────────────────────────────────── */
-  /** Recompute `derived`; folds in the 특수 가방 perk (implant cooldown −50 %). */
+  /** Recompute `derived`; folds in the 특수 가방 perk (implant cooldown −50 %) and the equipped 임플란트 items (Phase 12). */
   private recompute(): void {
-    this._derived = computeDerived(this._profile, this.hasSpecialBackpack());
+    if (this.pruneImplants()) this.markDirty(false);     // a removed def id in an old save — drop it silently
+    this._derived = computeDerived(this._profile, this.hasSpecialBackpack(), this.implantContribution());
     this.refreshSheets();
   }
 

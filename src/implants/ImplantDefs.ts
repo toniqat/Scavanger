@@ -1,14 +1,14 @@
 import {
-  IMPLANT_AT_COOLDOWN, IMPLANT_DASH_CHARGES, IMPLANT_DASH_COOLDOWN, IMPLANT_GRAPPLE_COOLDOWN, IMPLANT_SCAN_COOLDOWN,
+  IMPLANT_AT_COOLDOWN, IMPLANT_DASH_CHARGES, IMPLANT_DASH_COOLDOWN, IMPLANT_GRAPPLE_COOLDOWN, IMPLANT_SCAN_COOLDOWN_V2,
   IMPLANT_IDS, type ImplantDef, type ImplantId,
 } from '@/shared';
 
 /**
  * The six tactical implants. Everyone owns all of them; exactly one may be equipped and only in the ship.
  *
- * Modes (reworked 2026-09-06, revised Phase 10): 갈고리 / 대시 are `instant` (Q casts, the gun stays in hand),
- * 정찰 / 오버차지 are `hold` (the effect runs while Q is held), and 대전차포 / **배리어** are `wielded` (Q takes
- * them into the hands, the gun is holstered; Q or a weapon key puts them away).
+ * Modes (reworked 2026-09-06, revised Phase 10 / Phase 12): 갈고리 / 대시 / **정찰** are `instant` (Q casts, the gun
+ * stays in hand — 정찰 became one wide pulse on 2026-09-08), 오버차지 is `hold` (the effect runs while Q is held), and
+ * 대전차포 / **배리어** are `wielded` (Q takes them into the hands, the gun is holstered; Q or a weapon key puts them away).
  * `cooldown` 0 = no timer at all (barrier is limited by its shield hp, overcharge by its energy pool).
  * ImplantSystem stores the *effective* total of the running cooldown so a special case (barrier collapse
  * lockout) can use a different number without lying to the HUD.
@@ -37,7 +37,7 @@ export const IMPLANT_DEFS: readonly ImplantDef[] = [
   {
     id: 'barrier',
     name: '배리어',
-    description: '앞을 막는 에너지 방패를 든다. 적의 발사체만 막고, 들지 않은 동안 내구도가 회복된다. 파괴되면 10초간 재충전한다.',
+    description: '앞을 넓게 막는 에너지 방패를 든다. 적의 발사체와 정면 근접공격을 대신 맞고, 벌레는 방패를 뚫고 지나가지 못한다. 든 채로 좌클릭·근접키 = 실드 배쉬(스태미나 소모). 파괴되면 10초간 재충전한다.',
     mode: 'wielded',
     cooldown: 0,
     charges: 1,
@@ -57,9 +57,9 @@ export const IMPLANT_DEFS: readonly ImplantDef[] = [
   {
     id: 'scan',
     name: '정찰',
-    description: 'Q를 누르고 있으면 1초마다 파동이 퍼진다. 파동마다 범위가 넓어지며, 감지한 대상은 벽 너머로 10초간 표시된다.',
-    mode: 'hold',
-    cooldown: IMPLANT_SCAN_COOLDOWN,
+    description: 'Q를 누르면 이동 중에도 즉시 넓은 정찰 파동이 한 번 퍼진다. 반경 70 m 안의 상호작용물과 적이 15초 동안 나와 아군 모두에게 벽 너머로 표시되고, 적은 나침반에 붉게 뜬다.',
+    mode: 'instant',
+    cooldown: IMPLANT_SCAN_COOLDOWN_V2,
     charges: 1,
     icon: '◎',
     color: '#7cf07a',

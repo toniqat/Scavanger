@@ -59,6 +59,12 @@ export interface EnemyHost {
    * Returns false when nothing was thrown (launch path blocked by a rock in the face, pool full).
    */
   throwGrenade(e: Enemy, target: THREE.Vector3): boolean;
+  /* ── appended: Phase 12 (배리어 충돌, 2026-09-08) ── */
+  /**
+   * After a grounded enemy integrated its movement: push it out of any raised 배리어 (`ImplantsRef.resolveBarrierCollision`)
+   * and, on contact, retarget it onto the carrier + throttled `implant:barrierBumped`.
+   */
+  resolveBarrier(e: Enemy): void;
 }
 
 const _v = new THREE.Vector3();
@@ -254,6 +260,28 @@ export class Enemy implements EnemyRef {
   /** Authority: the `corpse:<id>` interactable is waiting for the body to land (or `CORPSE_LAND_TIMEOUT`). */
   corpsePending = false;
 
+  /* ── appended: Phase 12 (총알 추적 · 배리어 충돌, 2026-09-08) ─────────────── */
+  /**
+   * 총알 추적: this (unaware) enemy is investigating a shot it could not attribute to anyone (`ai/Investigate.ts`).
+   * Rides on the `alert` wire state with `aware` false; perceiving any target ends it and drops into the normal cycle.
+   */
+  investigating = false;
+  /** Where the bullet came from (refreshed by a later shot while investigating). */
+  readonly shotOrigin = new THREE.Vector3();
+  /** Seconds since the investigation started (give-up at `ENEMY_SHOT_ALERT_GIVE_UP_S`). */
+  shotTimer = 0;
+  /** 0 watching the origin, 1 advancing toward it, 2 arrived / stopped — holding a last look before standing down. */
+  shotPhase: 0 | 1 | 2 = 0;
+  /** Seconds in phase 2 (or, for a rogue in phase 1, since the current cover leg started). */
+  shotHold = 0;
+  /** ctx.time of the last per-shot perception test (`reportShot` throttle). */
+  shotCheckAt = -Infinity;
+  /** 배리어 충돌: prefer the shield carrier as the target until this ctx.time (`pickTarget`). */
+  barrierUntil = -Infinity;
+  barrierOwner: TargetId | null = null;
+  /** ctx.time of the last `implant:barrierBumped` for this enemy (≤ 2 Hz). */
+  barrierBumpAt = -Infinity;
+
   constructor(type: EnemyType) {
     this.rig = isRogueType(type) ? createRogueRig(type as RogueType) : createBugRig(type as BugType);
     this.type = type;
@@ -321,6 +349,9 @@ export class Enemy implements EnemyRef {
     // Phase 10
     this.deathDir = undefined; this.lootable = undefined;
     this.deathVy = 0; this.deathLanded = false; this.corpsePending = false;
+    // Phase 12
+    this.investigating = false; this.shotTimer = 0; this.shotPhase = 0; this.shotHold = 0; this.shotCheckAt = -Infinity;
+    this.barrierUntil = -Infinity; this.barrierOwner = null; this.barrierBumpAt = -Infinity;
     this.syncTarget();
     const a = this.anim;
     a.gait = Math.random() * Math.PI * 2; a.speed = 0; a.headYaw = 0; a.headPitch = 0; a.mandible = 0;
@@ -503,6 +534,7 @@ export class Enemy implements EnemyRef {
     this.roguePhase = 0;
     this.burstLeft = 0;
     this.throwTimer = 0;      // a stagger drops the wind-up (the cooldown was not spent)
+    this.investigating = false;   // Phase 12: a hit ends a 총알 추적 (the damage made us aware anyway)
     this.anim.shake = 0;
     this.anim.abdomen = 0;
     this.hasMoveTarget = false;

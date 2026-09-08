@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CLOAK_REVEAL_DISTANCE } from '@/shared';
+import { CLOAK_REVEAL_DISTANCE, ENEMY_SHOT_ALERT_CONE_MUL } from '@/shared';
 import type { Enemy, EnemyHost } from '../Enemy';
 import type { CombatTarget } from '../Targets';
 
@@ -9,6 +9,11 @@ const _d = new THREE.Vector3();
 
 /** Below this vision factor the target counts as hidden (smoke) even with a clear geometric line. */
 const SMOKE_BLIND = 0.4;
+/**
+ * Phase 12 (총알 추적): half-angle of the widened perception cone toward the shot origin, as a cosine (≈ 45°). Inside
+ * it the detection range is × `ENEMY_SHOT_ALERT_CONE_MUL`; outside it the enemy is as blind as before.
+ */
+const SHOT_CONE_COS = 0.7;
 
 /** Bug eye position (used for LOS and smoke tests). */
 function eyeOf(e: Enemy, out: THREE.Vector3): THREE.Vector3 {
@@ -50,6 +55,36 @@ export function detectionRange(e: Enemy, host: EnemyHost, target: CombatTarget, 
   const stealth = target.stealth > 0 && target.stealth <= 1 ? target.stealth : 1;
   const range = e.stats.sightRadius * stealth * clarity;
   return e.aware ? Math.max(range, CLOAK_REVEAL_DISTANCE) : range;
+}
+
+/**
+ * Phase 12 (총알 추적): range multiplier for `target` while `e` investigates a shot — `ENEMY_SHOT_ALERT_CONE_MUL` when
+ * the target lies inside the cone toward `e.shotOrigin`, 1 otherwise. Applied **on top of** `detectionRange`, so the
+ * cloak / smoke factors still scale the widened range (a cloaked sniper stays hard to spot, just less so).
+ */
+export function shotConeFactor(e: Enemy, targetPos: THREE.Vector3): number {
+  if (!e.investigating) return 1;
+  const ox = e.shotOrigin.x - e.position.x, oz = e.shotOrigin.z - e.position.z;
+  const tx = targetPos.x - e.position.x, tz = targetPos.z - e.position.z;
+  const lo = Math.hypot(ox, oz), lt = Math.hypot(tx, tz);
+  if (lo < 1e-3 || lt < 1e-3) return ENEMY_SHOT_ALERT_CONE_MUL;
+  const cos = (ox * tx + oz * tz) / (lo * lt);
+  return cos >= SHOT_CONE_COS ? ENEMY_SHOT_ALERT_CONE_MUL : 1;
+}
+
+/**
+ * Would an **unaware** `e` notice `target` on its next perception tick? The acquisition rule of `updatePerception`
+ * (range with cloak / smoke, the 5 m proximity shortcut that a smoke wall still blocks, else a clear line of sight) as
+ * a pure query — `EnemySystem.reportShot` uses it to skip enemies that are about to spot the shooter anyway.
+ * `widen` = apply the 총알 추적 cone (the perception tick does; the shot report does not).
+ */
+export function canPerceive(e: Enemy, host: EnemyHost, target: CombatTarget, widen: boolean): boolean {
+  const dist = target.dist2D(e.position);
+  const clarity = visionClarity(e, host, target);
+  let range = detectionRange(e, host, target, clarity);
+  if (widen) range *= shotConeFactor(e, target.position);
+  if (dist >= range) return false;
+  return (dist < Math.min(5, range) && clarity > SMOKE_BLIND) || hasLineOfSight(e, host, target);
 }
 
 /**
@@ -125,9 +160,11 @@ export function updatePerception(e: Enemy, dt: number, host: EnemyHost): void {
   const range = detectionRange(e, host, t, clarity);
 
   if (!e.aware) {
-    if (dist < range) {
+    // Phase 12: an investigating enemy looks harder toward the shot origin (cone × ENEMY_SHOT_ALERT_CONE_MUL)
+    const acquire = e.investigating ? range * shotConeFactor(e, t.position) : range;
+    if (dist < acquire) {
       // very close bugs notice you regardless of LOS (but not through a smoke wall)
-      const seen = (dist < Math.min(5, range) && clarity > SMOKE_BLIND) || hasLineOfSight(e, host, t);
+      const seen = (dist < Math.min(5, acquire) && clarity > SMOKE_BLIND) || hasLineOfSight(e, host, t);
       e.hasLOS = seen;
       if (seen) becomeAlert(e, host, true);
     } else e.hasLOS = false;

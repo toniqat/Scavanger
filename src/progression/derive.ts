@@ -1,7 +1,7 @@
-import type { DerivedStats, PlayerProfile, SkillId, StatId, WeaponClass } from '@/shared';
+import type { DerivedStats, PerkId, PlayerProfile, SkillId, StatId, WeaponClass } from '@/shared';
 import {
   DETECT_BASE_RADIUS, DETECT_ENEMY_BASE_RADIUS, DETECT_ENEMY_PER_PERCEPTION, DETECT_PER_PERCEPTION,
-  PLAYER_MAX_STAMINA, SKILL_LEVEL_MAX, STAT_BASE, WEIGHT_BASE_CAPACITY, WEIGHT_PER_STRENGTH,
+  PERK_IDS, PLAYER_MAX_STAMINA, SKILL_LEVEL_MAX, STAT_BASE, WEIGHT_BASE_CAPACITY, WEIGHT_PER_STRENGTH,
   XP_BASE, XP_EXPONENT,
 } from '@/shared';
 import { WEAPON_CLASS_SKILL } from './defs';
@@ -41,19 +41,40 @@ const CRAFT_SPEED_AT_MAX = 1;       // ×2 craft speed
 /** 특수 가방 (legendary) perk: implant cooldowns halved, stacked multiplicatively on the skill. */
 export const SPECIAL_BACKPACK_CD_MUL = 0.5;
 
+/**
+ * Phase 12 (2026-09-08): what the equipped 임플란트 items contribute — flat stat bonuses (added to the base stats before
+ * any formula runs) and the legendary perks. `ProgressionSystem` sums these from `profile.implants` × `ItemDef.implant`;
+ * derive.ts never looks the items up itself.
+ */
+export interface ImplantContribution {
+  bonus: Partial<Record<StatId, number>>;
+  perks: Record<PerkId, boolean>;
+}
+
+/** Every perk off — the neutral `DerivedStats.perks`. */
+export function emptyPerks(): Record<PerkId, boolean> {
+  const out = {} as Record<PerkId, boolean>;
+  for (const id of PERK_IDS) out[id] = false;
+  return out;
+}
+
+const NO_IMPLANTS: ImplantContribution = { bonus: {}, perks: emptyPerks() };
+
 /** Fraction of a skill's range that has been trained (0..1). */
 function frac(profile: PlayerProfile, id: SkillId): number {
   const lv = profile.skills[id] ?? 0;
   return Math.min(1, Math.max(0, lv / SKILL_LEVEL_MAX));
 }
 
-function stat(profile: PlayerProfile, id: StatId): number {
-  return profile.stats[id] ?? STAT_BASE;
+/** Effective stat: base + equipped implant bonus (the base alone is `ProgressionRef.getStat`). */
+function stat(profile: PlayerProfile, id: StatId, imp: ImplantContribution): number {
+  const bonus = imp.bonus[id];
+  return (profile.stats[id] ?? STAT_BASE) + (typeof bonus === 'number' && Number.isFinite(bonus) ? bonus : 0);
 }
 
-/** Points spent above the starting value; drives every stat-derived multiplier. */
-function over(profile: PlayerProfile, id: StatId): number {
-  return stat(profile, id) - STAT_BASE;
+/** Points above the starting value (implants included); drives every stat-derived multiplier. */
+function over(profile: PlayerProfile, id: StatId, imp: ImplantContribution): number {
+  return stat(profile, id, imp) - STAT_BASE;
 }
 
 /** XP required to go from `level` to `level + 1`. */
@@ -64,10 +85,12 @@ export function xpForLevel(level: number): number {
 /**
  * Recompute every derived number.
  * @param specialBackpack true when the equipped backpack has the 특수 가방 perk (implant cooldown −50 %).
+ * @param implants Phase 12: stat bonuses + perks of the equipped 임플란트 items (omit = none).
  */
-export function computeDerived(profile: PlayerProfile, specialBackpack: boolean): DerivedStats {
-  const str = stat(profile, 'strength');
-  const perc = stat(profile, 'perception');
+export function computeDerived(profile: PlayerProfile, specialBackpack: boolean, implants: ImplantContribution = NO_IMPLANTS): DerivedStats {
+  const imp = implants;
+  const str = stat(profile, 'strength', imp);
+  const perc = stat(profile, 'perception', imp);
 
   const recoilMul = {} as Record<WeaponClass, number>;
   const reloadSpeedMul = {} as Record<WeaponClass, number>;
@@ -82,20 +105,20 @@ export function computeDerived(profile: PlayerProfile, specialBackpack: boolean)
   return {
     /* 근력 */
     carryCapacity: WEIGHT_BASE_CAPACITY + WEIGHT_PER_STRENGTH * str,
-    meleeDamageMul: 1 + MELEE_PER_STR * over(profile, 'strength'),
-    jumpHeightMul: 1 + JUMP_PER_STR * over(profile, 'strength'),
-    throwRangeMul: 1 + THROW_PER_STR * over(profile, 'strength'),
+    meleeDamageMul: 1 + MELEE_PER_STR * over(profile, 'strength', imp),
+    jumpHeightMul: 1 + JUMP_PER_STR * over(profile, 'strength', imp),
+    throwRangeMul: 1 + THROW_PER_STR * over(profile, 'strength', imp),
     /* 지구력 */
-    maxStamina: PLAYER_MAX_STAMINA + STAMINA_PER_END * over(profile, 'endurance'),
-    staminaRegenMul: 1 + STAMINA_REGEN_PER_END * over(profile, 'endurance'),
+    maxStamina: PLAYER_MAX_STAMINA + STAMINA_PER_END * over(profile, 'endurance', imp),
+    staminaRegenMul: 1 + STAMINA_REGEN_PER_END * over(profile, 'endurance', imp),
     /* 인지력 */
     detectRadius: DETECT_BASE_RADIUS + DETECT_PER_PERCEPTION * perc,
     enemyDetectRadius: DETECT_ENEMY_BASE_RADIUS + DETECT_ENEMY_PER_PERCEPTION * perc,
     /* 지능 */
-    skillGainMul: 1 + SKILL_GAIN_PER_INT * over(profile, 'intelligence'),
+    skillGainMul: 1 + SKILL_GAIN_PER_INT * over(profile, 'intelligence', imp),
     /* 재주 */
-    useSpeedMul: 1 + USE_SPEED_PER_DEX * over(profile, 'dexterity'),
-    interactSpeedMul: 1 + INTERACT_SPEED_PER_DEX * over(profile, 'dexterity'),
+    useSpeedMul: 1 + USE_SPEED_PER_DEX * over(profile, 'dexterity', imp),
+    interactSpeedMul: 1 + INTERACT_SPEED_PER_DEX * over(profile, 'dexterity', imp),
     /* skills */
     carryReliefFactor: CARRY_RELIEF_AT_MAX * frac(profile, 'carry'),
     searchSpeedMul: 1 + SEARCH_SPEED_AT_MAX * frac(profile, 'appraisal'),
@@ -108,8 +131,8 @@ export function computeDerived(profile: PlayerProfile, specialBackpack: boolean)
     durabilityLossMul: 1 - DURABILITY_AT_MAX * frac(profile, 'equipment'),
     gatherYieldMul: 1 + GATHER_YIELD_AT_MAX * frac(profile, 'gardening'),
     craftSpeedMul: 1 + CRAFT_SPEED_AT_MAX * frac(profile, 'crafting'),
-    /* 2026-09-08 stub (lead) — the progression agent derives these from the equipped legendary implants */
-    perks: { auto_revive: false, quick_heal: false, kill_stamina: false },
+    /* Phase 12: legendary perks of the equipped 임플란트 items (every PerkId present) */
+    perks: { ...emptyPerks(), ...imp.perks },
   };
 }
 
@@ -126,7 +149,7 @@ export const DEFAULT_DERIVED: DerivedStats = computeDerived(
       carry: 0, appraisal: 0, grit: 0, gardening: 0, crafting: 0, medicine: 0, cryptography: 0,
       implant: 0, gun_AR: 0, gun_SMG: 0, gun_SR: 0, gun_DMR: 0, gun_SG: 0, equipment: 0,
     },
-    implant: null, raids: 0, extractions: 0,
+    implant: null, raids: 0, extractions: 0, implants: [],
   },
   false,
 );

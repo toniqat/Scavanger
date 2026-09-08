@@ -149,3 +149,34 @@ Registered in `scripts/verify.mjs` (`smoke-housing`, folders housing / hub / inv
   placement cursor lives in `hub/HousingMode`, not here), so there was nothing else to migrate.
 - **크레딧 없음.** Material requirements keep rendering through `shared/itemChip.ts` (`renderItemCost`) — they are
   item counts, not credits, so the new `formatCredits` rollout does not touch this folder.
+
+## Phase 12 (2026-09-08) — "재료가 충분해 보이는데 증축이 안 됨" (plan item 16)
+
+**Root cause (reproduced headless on a fresh ship with the 기본 지급품, `smoke-housing` "fresh ship → 발전기 → 작업실").**
+Nothing in this folder was wrong in the sense of a broken rule — the rules were *invisible*:
+
+1. `ShipState.freshState()` starts the ship at **`generatorLevel: 0`** (deliberate since the 2026-09-07 기본 작업실 폐지),
+   and `Rules.purposeBuildBlockReason` refuses **every** 시설 증축 behind `generatorGateReason(state,
+   ROOM_PURPOSE_BUILD_GENERATOR_LEVEL)` (= 1) **before** it looks at the materials. So on a brand-new ship all nine
+   purposes answer `발전기 레벨 1 필요 (현재 0)` even though the `ROOM_PURPOSE_BUILD_COST` chips render as fully
+   affordable (폐금속 16 · 케이블 3 · 합금 2 in the 창고 vs 작업실 8 + 2).
+2. The 시설 관리 picker (`ui/hud/ShipManage`) surfaced that reason only as the `title` tooltip of a **`disabled`**
+   button — so a click did literally nothing, and with the pointer-lock cursor there is rarely a hover to read it.
+3. The only place the generator could be raised was Tab → 함선 tab (`ui/FacilityRows`); the screen that refused the
+   build never pointed there.
+
+Not the cause (checked): `countDefAll` / `consumeDefAll` agree (bag + stash both sides), `setRoomPurpose` returns false
+only when `purposeBlock` is set or `consume` fails, and the click handler reads the live `this.room`.
+
+**Fix.** The rules are unchanged (the gate is the design, and the 함선 tab already obeys it). The presentation moved to
+the screen that refused: `ui/hud/ShipManage` now leads the 용도 지정 picker with a **발전기 row** (`getFacility('generator')`
+→ level, `nextCost` chips, 가동 / 업그레이드 → confirm popup → `upgrade('generator')`), prints every `purposeBlock`
+reason inline under its row, keeps blocked rows clickable (→ the reason as a toast) and confirms a build in a centred
+modeless popup (`정말로 N번 방을 <용도> 시설로 만들겠습니까?` + `purposeCost` chips; Esc closes the popup only). This
+folder only supplies what it already did — `getFacility`, `upgrade`, `purposeBlock`, `purposeCost`, `setRoomPurpose`.
+
+**Follow-up for items/ (not this folder):** the 기본 지급품 is 폐금속 16 · 케이블 3 · 합금 2. 발전기 Lv.1 (폐금속 4) +
+작업실 증축 (폐금속 8 · 케이블 2) fits, leaving 폐금속 4 · 케이블 1 · 합금 2 — the 총기 작업대 (`furn_bench_gun.craft` =
+폐금속 8 · 합금 2 · 케이블 1) is then **4 폐금속 short**. `STARTER_STASH`'s comment says it covers 작업실 + 작업대, but
+it was sized before the generator gate applied to a fresh ship; +4 폐금속 (or a 3rd stack) would make the intended
+first-session chain complete.

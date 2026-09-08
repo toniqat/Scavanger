@@ -3,10 +3,10 @@
 `ImplantSystem` 이 `ctx.implants` (`ImplantsRef`) 를 발행한다. 6종 중 **하나만** 장착해서 레이드에 들고 가며,
 장착 변경은 함선에서만 가능하다 (`ctx.isRaidActive()` 면 `setEquipped` 가 `false` 를 돌려준다).
 
-**Q** (`Keys.IMPLANT`, 재할당 가능) 의 동작은 `ImplantDef.mode` 로 갈린다 (2026-09-06 개편, Phase 10 수정):
-- `instant` — 갈고리 / 대시: 누르면 바로 시전. 갈고리는 조준점 앵커가 유효할 때 즉시 발사, 다시 누르면 와이어를 끊는다. 총은 손에 그대로.
-- `hold` — 정찰 / 오버차지: **누르고 있는 동안** 효과가 돈다 (정찰 파동 1초 간격, 오버차지 채널). 총은 손에 그대로, `holding === true`.
-- `wielded` — 대전차포 · **배리어**(Phase 10): Q 로 손에 들고(`blocksWeapons === true`, weapons 가 홀스터) 대전차포는 좌클릭 발사, 배리어는 그냥 막는다.
+**Q** (`Keys.IMPLANT`, 재할당 가능) 의 동작은 `ImplantDef.mode` 로 갈린다 (2026-09-06 개편, Phase 10 · Phase 12 수정):
+- `instant` — 갈고리 / 대시 / **정찰**(Phase 12): 누르면 바로 시전. 갈고리는 조준점 앵커가 유효할 때 즉시 발사, 다시 누르면 와이어를 끊는다. 정찰은 이동 중에도 한 번에 넓은 파동 하나. 총은 손에 그대로.
+- `hold` — 오버차지: **누르고 있는 동안** 효과가 돈다 (오버차지 채널). 총은 손에 그대로, `holding === true`.
+- `wielded` — 대전차포 · **배리어**(Phase 10): Q 로 손에 들고(`blocksWeapons === true`, weapons 가 홀스터) 대전차포는 좌클릭 발사, 배리어는 막으면서 **좌클릭 / 근접키로 실드 배쉬**(Phase 12).
   Q 또는 **무기 키(1/2/3/V)** 로 집어넣는다 (weapons 가 `stow()` 를 호출한 뒤 그 무기를 뽑는다 — 예전엔 장착형을 든 채로 무기 키가 먹지 않던 버그).
 
 들쳐메기 게이트 (Phase 10): 부상자를 어깨에 메고 있으면(`ctx.player.carrying !== null`) Q 는 `dropCarried('action')` 만 호출하고 그 프레임에는 아무것도 시전하지 않는다.
@@ -19,14 +19,14 @@
 
 | 파일 | 역할 |
 |---|---|
-| `ImplantSystem.ts` | `GameSystem` + `ImplantsRef`. 입력(Q/좌/우클릭), 충전·쿨타임, 6종 동작, 이벤트 emit, `imp`/`buff` 송수신, `raycastBarrier`(순수 질의) + `damageBarrier`(실제 피격), 방패 들기/내리기 + 추종 + `imp shield` 송신(`flow rejoined` 재전송), e2e 훅 `debugBeam` |
+| `ImplantSystem.ts` | `GameSystem` + `ImplantsRef`. 입력(Q/좌/우클릭/근접키), 충전·쿨타임, 6종 동작, 이벤트 emit, `imp`/`buff` 송수신, `raycastBarrier`(순수 질의) + `damageBarrier`(실제 피격), 방패 들기/내리기 + 추종 + `imp shield` 송신(`flow rejoined` 재전송), **Phase 12**: `resolveBarrierCollision` / `absorbFrontalAttack` / `bashing` + `tryBash`(실드 배쉬, `imp bash`), `castScan`(one-shot 정찰, `imp scanCast`), `implant:barrierBumped` 스파크, e2e 훅 `debugBeam` |
 | `ImplantDefs.ts` | `IMPLANT_DEFS` (한국어 이름/설명/아이콘/색), `getImplantDef`, `isImplantId`, `implantHex` |
-| `RemoteImplants.ts` | 원격 시전자 시각화: 손의 장치, 갈고리 와이어, **방패**(스냅샷 `isBarrierUp` / `barrierHp` + `imp shield`, 피어 위치·yaw 를 매 프레임 추종하며 복제본도 적탄을 막는다), 스캔 파동, 로켓, **오버차지 빔 / 자기 발광** (Phase 7, `imp beam`) |
-| `devices/ImplantDevice.ts` | 손에 드는 절차적 장치 모델(갈고리 런처 / 오버차지 이미터 / 스캐너 / 대전차포 / **방패 손잡이**). 무기 소켓에 붙으며 **-Z 가 총구 방향**, `muzzle` 이 끝점. 방패 분기는 손잡이·프레임만 만들고 막는 패널은 `BarrierField` 가 그린다 |
-| `effects/Barrier.ts` | `BarrierField` — 헥사 CanvasTexture 실드 메시, 내구도, 선분 교차(`intersect`, 정면 각도 게이트). Phase 10 부터 **추종형**: `raise()` / `lower()` + 매 프레임 `follow(feet, yaw)` |
+| `RemoteImplants.ts` | 원격 시전자 시각화: 손의 장치, 갈고리 와이어, **방패**(스냅샷 `isBarrierUp` / `barrierHp` + `imp shield`, 피어 위치·yaw 를 매 프레임 추종하며 복제본도 적탄을 막고 **벌레를 밀어낸다**), 스캔 파동(구버전 `imp scan` 은 FX 만), **`imp scanCast`** → 내 월드에서 `revealScan` (Phase 12), **`imp bash`** 스윙 스트릭 (Phase 12), 로켓, **오버차지 빔 / 자기 발광** (Phase 7, `imp beam`) |
+| `devices/ImplantDevice.ts` | 손에 드는 절차적 장치 모델(갈고리 런처 / 오버차지 이미터 / 스캐너 / 대전차포 / **방패 손잡이**). 무기 소켓에 붙으며 **-Z 가 총구 방향**, `muzzle` 이 끝점. 방패 분기는 손잡이·프레임만 만들고(이미터 바 · 프레임 팔 폭은 `IMPLANT_BARRIER_CARRY_WIDTH × 0.14`) 막는 패널은 `BarrierField` 가 그린다 |
+| `effects/Barrier.ts` | `BarrierField` — 헥사 CanvasTexture 실드 메시, 내구도, 선분 교차(`intersect`, 정면 각도 게이트). Phase 10 부터 **추종형**: `raise()` / `lower()` + 매 프레임 `follow(feet, yaw)`. **Phase 12**: `pushOut(pos, radius, height?)` (두께 `BARRIER_COLLIDE_THICKNESS` 0.5 m 슬랩 밖 정면으로 밀어냄), `facing(fromPos, maxDist)` (정면 `_ARC` 판정), `contactPoint(fromPos, out)` |
 | `effects/Grapple.ts` | `GrappleWire` — 와이어 빔 + 작살 헤드 |
 | `effects/Overcharge.ts` | `OverchargeBeam` (2겹 빔 + 임팩트 디스크), `findAlly` / `allyPoint` (조준 원뿔 안의 아군 탐색) |
-| `effects/Scan.ts` | `collectScanTargets` — 반경 안의 적/상자/채집물/목표/픽업/설치물을 `ScanTarget[]` 으로 수집 |
+| `effects/Scan.ts` | `collectScanTargets` — 반경 안의 **적(`queryNear`) + `ctx.interactables.all()` 전부**를 `ScanTarget[]` 으로 (kind 는 id 접두어: `crate` / `corpse` → crate, `gather`, `pickup`, `gadget` → deployable, `extract` · `revive` · 그 외 → objective; `canInteract()` 가 false 면 제외, 상한 120). `revealScan(ctx, center, radius, dur, byLocal)` — 수집 + `detect:reveal` + `scan:cast` + `enemies.setXray` 를 한 번에 (로컬 시전과 `imp scanCast` 수신이 공유) |
 | `effects/AtLauncher.ts` | `RocketPool` — 풀링된 로켓, 스텝마다 스윕 레이캐스트(월드/인테리어 + 적) |
 | `fx/ImplantFx.ts` | 풀링 FX: `BeamMesh`, 확장 셸(스캔), 폭발, 스트릭(대시/로켓 궤적), 스파크. **라이트 없음** |
 
@@ -36,9 +36,9 @@
 |---|---|---|---|---|
 | `grapple` | 갈고리 | instant | 장착 중 매 프레임 조준점 판정 → `implant:grappleTargetChanged` (Reticle 괄호). **Q** = 유효하면 즉시 발사 → 부착 시 `player.setGrappleTarget(point)` 로 견인; 도착(2.6 m)·5초·Q 재입력으로 해제. 와이어 원점은 무기 소켓(손) | `IMPLANT_GRAPPLE_COOLDOWN` |
 | `dash` | 대시 | instant | 전방 레이캐스트로 거리 산출 → 바닥 스냅 → `resolveCollision` → `ctx.player.position` 을 직접 갱신(순간이동). 충전 3 | `IMPLANT_DASH_COOLDOWN` (충전당) |
-| `barrier` | 배리어 | wielded | Q 로 **방패를 손에 든다**(총 홀스터, 이동속도 × `IMPLANT_BARRIER_CARRY_SPEED_MUL`). 패널은 발 위치 + 정면 `IMPLANT_BARRIER_CARRY_OFFSET` 에서 몸을 따라오고 크기는 `IMPLANT_BARRIER_CARRY_WIDTH × _HEIGHT`, 밑단은 `_BASE_Y`. **적 발사체만** · **정면 `_ARC` 안에서만** 차단, 1발당 `IMPLANT_BARRIER_BLOCK_DAMAGE` 30 소모. 든 상태에서도 `_REGEN_DELAY` 3초 무피격 후 `_REGEN` 40/s 회복, 내렸으면 `IMPLANT_BARRIER_REGEN` 120/s. 파괴 시 자동으로 손에서 내려가고 `IMPLANT_BARRIER_BREAK_LOCKOUT` 10초 잠금 — 그 동안 내구도가 0 → 만충으로 정확히 차오르므로 HUD 내구도 게이지가 쿨타임 표시를 대신한다 (`barrierLockout`), 잠긴 동안 Q 는 `배리어 재충전 중` 으로 거부 | 0 (내구도가 자원) |
+| `barrier` | 배리어 | wielded | Q 로 **방패를 손에 든다**(총 홀스터, 이동속도 × `IMPLANT_BARRIER_CARRY_SPEED_MUL`). 패널은 발 위치 + 정면 `IMPLANT_BARRIER_CARRY_OFFSET` 에서 몸을 따라오고 크기는 `IMPLANT_BARRIER_CARRY_WIDTH`(Phase 12: **3.2 m**) `× _HEIGHT`, 밑단은 `_BASE_Y`. **적 발사체만** · **정면 `_ARC` 안에서만** 차단, 1발당 `IMPLANT_BARRIER_BLOCK_DAMAGE` 30 소모. **Phase 12**: 벌레가 통과하지 못하고(`resolveBarrierCollision`), 정면 근접공격은 방패가 대신 맞으며(`absorbFrontalAttack`), 든 채로 **좌클릭 / 근접키 = 실드 배쉬**(스태미나 `IMPLANT_SHIELD_BASH_STAMINA`, 방패 폭 × `_RANGE` 상자 안의 적에게 `_DAMAGE × meleeDamageMul`, `_COOLDOWN`, 포즈는 `player.startMelee('heavy')`). 든 상태에서도 `_REGEN_DELAY` 3초 무피격 후 `_REGEN` 40/s 회복, 내렸으면 `IMPLANT_BARRIER_REGEN` 120/s. 파괴 시 자동으로 손에서 내려가고 `IMPLANT_BARRIER_BREAK_LOCKOUT` 10초 잠금 — 그 동안 내구도가 0 → 만충으로 정확히 차오르므로 HUD 내구도 게이지가 쿨타임 표시를 대신한다 (`barrierLockout`), 잠긴 동안 Q 는 `배리어 재충전 중` 으로 거부 | 0 (내구도가 자원) |
 | `overcharge` | 오버차지 | hold | Q 를 누르고 있는 동안: 자신 `IMPLANT_OVERCHARGE_SELF_HEAL_PER_SEC`(10)/s 회복 + 조준 원뿔 안의 아군에게 `buff heal` `IMPLANT_OVERCHARGE_ALLY_HEAL_PER_SEC`(25)/s (빔은 아군에게만). 체력 ≥ 90 %(`IMPLANT_OVERCHARGE_BUFF_HP_RATIO`) 인 대상(자신 / 아군)에게만 이동·연사 버프(`setSpeedModifier('overcharge')`, 짝 스태미나 버프는 없음). **에너지** `IMPLANT_OVERCHARGE_ENERGY` 6 s 를 소모하고 놓으면 `IMPLANT_OVERCHARGE_REGEN_TIME` 12 s 에 만충; 0.75 s 미만이면 시작 거부. `implant:energyChanged` | 0 (에너지가 자원) |
-| `scan` | 정찰 | hold | Q 홀드 → 1초마다 파동, 반경 `pulse × IMPLANT_SCAN_RADIUS_STEP`, 최대 5회. 결과는 `implant:scanned` + `detect:reveal` (10초) | `IMPLANT_SCAN_COOLDOWN` (놓거나 5회 후 시작) |
+| `scan` | 정찰 | instant | Q → 이동 중에도 **한 번에** 반경 `IMPLANT_SCAN_RADIUS` 70 m 파동 (Phase 12). 반경 안의 모든 상호작용물 + 살아 있는 적을 `IMPLANT_SCAN_REVEAL_TIME_V2` 15초 동안 `detect:reveal`(벽 너머 기둥) + `scan:cast`(나침반 · 인디케이터) + `enemies.setXray`(적색 실루엣) 로 드러내고, `imp scanCast {p, radius, dur}` 로 분대에도 같은 파동을 건다 (수신자는 **자기 월드에서** 다시 수집). `implant:scanned {pulse:1}` 은 오디오용으로 유지 | `IMPLANT_SCAN_COOLDOWN_V2` 30 |
 | `atlauncher` | 대전차포 | wielded | 좌클릭 로켓 발사(조준점을 향해 보정). 착탄 시 `IMPLANT_AT_RADIUS` 광역 `IMPLANT_AT_DAMAGE` | `IMPLANT_AT_COOLDOWN` |
 
 쿨타임에는 항상 `ctx.progression?.derived.implantCooldownMul` 를 곱한다 (특수 가방 50 % 퍼크가 이미 그 안에 있다).
@@ -60,10 +60,10 @@
 `implant:equipped`, `implant:activated`, `implant:cooldownChanged`, `implant:wieldChanged`,
 `implant:grappleTargetChanged` / `grappleFired` / `grappleAttached` / `grappleReleased`,
 `implant:dashed`, `implant:barrierChanged` / `barrierHit` / **`barrierCarried`**, `implant:scanned`, `implant:overcharge`,
-`implant:rocketExploded`, `detect:reveal`, `camera:shake`, `audio:play`, `ui:notify`.
+`implant:rocketExploded`, `detect:reveal`, `camera:shake`, `audio:play`, `ui:notify`, **Phase 12**: `implant:bashed`, `scan:cast`.
 
 **구독**: `progress:loaded`, `game:newMission`, `game:abort`, `hub:entered`, `game:phaseChanged`,
-`player:died`, `player:downed`, `net:remotePlayerRemoved`.
+`player:died`, `player:downed`, `net:remotePlayerRemoved`, **Phase 12**: `implant:barrierBumped` (enemies 가 emit — 스파크만).
 
 **`raycastBarrier(origin, dir, maxDist, fromEnemy)`**
 - `fromEnemy === false` → **항상 `null`** (아군 실드는 아군 탄을 막지 않는다). weapons 가 자기 탄을 이 규약으로 판정한다.
@@ -169,3 +169,45 @@ HUD 는 `ui/hud/ImplantWidget` 의 크로스헤어 좌측 세로 게이지 (대�
 **리드 확인 필요**: `smoke-weapons.mjs` (`:296-345`) 는 플레이어 자기 위치에서 정면으로 쏴서 자기 방패에 막히는 것을
 전제하므로 정면 게이트에 걸려 실패한다 (아래 리포트 참고). `smoke-enemy-delta.mjs` 는 `raycastBarrier` 를 스텁으로
 갈아끼우므로 영향 없다.
+
+## Phase 12 (2026-09-08): 넓은 방패 · 벌레 충돌 · 정면 흡수 · 실드 배쉬 · one-shot 정찰
+
+계약: `ImplantsRef.resolveBarrierCollision(pos, radius)` / `absorbFrontalAttack(owner, fromPos, amount)` / `bashing`
+(`src/shared/implants.ts` 마지막 절), `imp bash {p, yaw}` · `imp scanCast {p, radius, dur}` · `ee barrierHit` (`net.ts`),
+`implant:bashed` · `implant:barrierBumped` · `scan:cast` (`events.ts`), `IMPLANT_SHIELD_BASH_*` · `IMPLANT_SCAN_RADIUS` ·
+`IMPLANT_SCAN_REVEAL_TIME_V2` · `IMPLANT_SCAN_COOLDOWN_V2` (`constants.ts`). 이 폴더가 바꾼 계약 값은 하나 —
+**`IMPLANT_BARRIER_CARRY_WIDTH` 1.5 → 3.2** (높이 · 오프셋 · 아크는 그대로, `_OFFSET` 0.7 > `PLAYER_RADIUS` 0.45 유지).
+
+- **넓은 방패.** 폭은 상수 하나에서 나오므로 패널 지오메트리 · 헥사 텍스처 repeat · `intersect` · `pushOut` · 배쉬 상자 ·
+  원격 복제본이 모두 따라온다. 손 장치의 이미터 바 / 프레임 팔만 `× 0.14` 로 폭을 반영한다.
+- **`resolveBarrierCollision(pos, radius)`** — enemies/ 가 시뮬레이션하는 벌레마다 매 틱 부른다. 로컬 방패 → 피어 방패 순으로
+  `BarrierField.pushOut`: 패널을 폭 `_CARRY_WIDTH` × 두께 `BARRIER_COLLIDE_THICKNESS` 0.5 m 의 XZ 슬랩으로 보고, 세로 범위
+  (`pos.y … pos.y + 1`) 가 패널과 겹치고 원이 슬랩과 겹치면 **정면 노멀 방향으로** 밖으로 민 뒤 소유자(`'local'` / PeerId)를
+  돌려준다. 중심이 뒷면 뒤에 있는 몸(이미 지나간 것)은 건드리지 않는다. 할당 0, `pos` 만 쓴다. 플레이어는 여전히 통과한다
+  (아군이 뒤로 들어와야 한다). enemies 가 emit 하는 `implant:barrierBumped` 는 여기서 `BUMP_FX_INTERVAL` 0.12 s 로 죄어 스파크만.
+- **`absorbFrontalAttack(owner, fromPos, amount)`** — 호스트의 enemies/ 가 근접 피해를 넣기 **전에** 부른다. 그 소유자의 방패가
+  올라가 있고 `fromPos` 가 시전자 정면 `_ARC` 안 · `ABSORB_RANGE` 3 m 안이면 true. 로컬이면 `onBarrierBlocked(contactPoint,
+  amount)` — 기존 차단 경로 그대로(`implant:barrierHit`, 붕괴 → 잠금 + `stow()`, `imp shield` 동기화). 피어 소유자면 스파크만
+  내고 true — enemies 가 `ee barrierHit` 을 그 피어에게 보내고, 그 피어의 enemies 가 `damageBarrier('local', p, amount)` 를
+  부른다 (`damageBarrier('local')` 은 Phase 10 부터 들고 있는 방패에 그대로 먹는다).
+- **실드 배쉬.** 방패를 든 채 **좌클릭(`Keys.FIRE`) 또는 근접키(`Keys.MELEE`)** → `tryBash`: `IMPLANT_SHIELD_BASH_COOLDOWN` 0.8 s
+  지났고 `player.consumeStamina(_STAMINA 25)` 가 성공하면 `bashing` = true (`_SWING_S` 0.35 s), 포즈는 `player.startMelee('heavy')`
+  (용검 스윕 — 와이어의 MELEE_HEAVY 로 복제본 포즈는 공짜), `queryNear` 의 살아 있는 적 중 시전자 기준 정면 `0 < fwd ≤
+  _OFFSET + _RANGE + 반경`, `|측면| ≤ 폭/2 + 반경` 인 것에 `takeDamage(_DAMAGE 55 × derived.meleeDamageMul, 가슴점, 정면)`.
+  무기 · 개머리판 보너스 없음. 리플리카는 스스로 `hit` 을 호스트에 보낸다. `implant:bashed {position, yaw, hits}` +
+  `imp bash` 송신, 정면 가로 스트릭 FX, `melee_swing` / `barrier_hit` SFX. 방패는 내려가지 않는다. 근접키는 처리 뒤
+  `input.consume(Keys.MELEE)` — weapons 는 `blocksWeapons` 동안 홀스터라 원래 스윙하지 않지만 이중 안전장치다.
+  **적 넉백은 없다**: `EnemyRef` 에 임펄스 API 가 없다 (`IMPLANT_SHIELD_BASH_KNOCKBACK` 미사용, follow-up).
+- **정찰 rework.** `mode: 'instant'`, 쿨타임 `IMPLANT_SCAN_COOLDOWN_V2` 30 s. Q → `castScan`: `useCharge()` → 발 + 1.1 m 중심으로
+  `revealScan(ctx, center, 70, 15, true)` (= `collectScanTargets` + `detect:reveal` + `scan:cast` + `enemies.setXray(ids, 15)`) →
+  파동 FX(`SCAN_PULSE_FX_S` 1.6 s 에 70 m) → `implant:scanned {pulse:1}`(오디오) → `implant:activated`(임플란트 숙련 XP, 시전당 1회)
+  → `imp scanCast {p, radius, dur}`. 수신(`RemoteImplants`)은 값을 클램프한 뒤 **자기 월드**에서 `revealScan(…, false)` —
+  타겟은 와이어를 타지 않는다. 옛 홀드 상태(`scanning` / `scanTimer` / `scanPulses`, `stopScan`)는 삭제, 옛 상수는 미사용으로 남는다.
+  `collectScanTargets` 는 이제 적 + **`ctx.interactables.all()`** 이 전부다 (상자 / 시체 / 채집물 / 픽업 / 설치물 / 탈출 콘솔 /
+  구조 대상은 모두 등록된 상호작용물이므로 폴더별 getter 를 더듬지 않는다).
+
+검증: `npm run typecheck` 0 (implants). `scripts/smoke-tactical.mjs` **85 checks** (+21): 폭 3.2 (1.4 m 옆은 막고 1.9 m 는
+통과), `resolveBarrierCollision` 정면 밀어내기 / 옆 · 뒤 무시, `absorbFrontalAttack` 정면 −40 · 후방 무시 · 미지 피어 false,
+합성 LMB 실드 배쉬(`bashing`, 스태미나, 1 m 앞 벌레 피해, 방패 유지, 0.35 s 뒤 해제), 세 번째 임무에서 one-shot 정찰
+(`scan:cast` 1회 · 25 m 벌레 포함 · 상호작용물 전부 · `detect:reveal` 15 s · XP 훅 1회 · 쿨타임 30 × mul · 재입력 거부).
+`smoke-controls-hub` 99/99 무변경.
