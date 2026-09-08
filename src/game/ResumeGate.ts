@@ -50,14 +50,24 @@ export class ResumeGate {
 
   get shown(): boolean { return this._shown; }
 
+  /**
+   * The gate only ever makes sense for a session that **had** the lock and lost it (the Escape case). A session that
+   * never got one — a browser that refuses pointer lock outright, a headless harness that stubs the request without
+   * ever locking — would otherwise sit behind an overlay whose only exit is a request that browser keeps refusing.
+   * Same rule the old lost-lock watchdog used before the 2026-09-07 커서 rework removed it.
+   */
+  private everLocked = false;
+
   /** Once per frame from GameFlow. */
   update(): void {
     const ctx = this.ctx;
     const input = ctx.input;
+    if (input.isPointerLocked) this.everLocked = true;
     if (this._shown) {
       if (input.isPointerLocked || input.isCursorMode || !this.phaseOk()) this.hide();
       return;
     }
+    if (!this.everLocked) return;
     if (isDesktopShell()) return;
     if (!this.phaseOk() || input.isCursorMode || input.isPointerLocked) return;
     if (!input.awaitingLockGesture) return;

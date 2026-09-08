@@ -595,7 +595,7 @@ try {
   await waitSim(0.5);
   const grant = await H(() => ({ scrap: window.__game.ctx.inventory.countDefAll('mat_scrap'), cable: window.__game.ctx.inventory.countDefAll('mat_cable'), alloy: window.__game.ctx.inventory.countDefAll('mat_alloy'),
     gen: window.__game.ctx.housing.getFacility('generator').level, rooms: window.__game.ctx.housing.state.rooms.every((r) => r.purpose === 'empty') }));
-  ok(grant.scrap === 16 && grant.cable === 3 && grant.alloy === 2, `기본 지급품 in the 함선 창고: 폐금속 ${grant.scrap} · 케이블 ${grant.cable} · 합금 ${grant.alloy}`);
+  ok(grant.scrap === 24 && grant.cable === 4 && grant.alloy === 3, `기본 지급품 in the 함선 창고: 폐금속 ${grant.scrap} · 케이블 ${grant.cable} · 합금 ${grant.alloy}`);
   ok(grant.gen === 0 && grant.rooms, 'fresh ship: 발전기 Lv.0, ten empty rooms');
   await H(() => window.__game.ctx.housing.openRoomMenu(3));
   await sleep(150);
@@ -638,7 +638,7 @@ try {
     hint: document.querySelector('.ship-manage .sm-gen')?.classList.contains('is-hint'), lv: document.querySelector('.ship-manage .sm-gen .lv')?.textContent,
     workshopBlocked: document.querySelector('.ship-manage .sm-purpose[data-purpose="workshop"]')?.classList.contains('is-blocked'),
     labReason: document.querySelector('.ship-manage .sm-purpose[data-purpose="lab"] .sm-block')?.textContent ?? '' }));
-  ok(gen1.level === 1 && gen1.scrap === 12, `확인 → 발전기 Lv.1, 폐금속 16 → ${gen1.scrap}`);
+  ok(gen1.level === 1 && gen1.scrap === 20, `확인 → 발전기 Lv.1, 폐금속 24 → ${gen1.scrap}`);
   ok(gen1.hint === false && gen1.lv === 'Lv.1 / 5' && gen1.workshopBlocked === false, `picker refreshed: generator row plain (${gen1.lv}), 작업실 now buildable`);
   ok(/온실/.test(gen1.labReason), `other reasons still print (연구실: ${gen1.labReason})`);
   // 작업실: confirm text + chips, Esc, then 확인
@@ -658,7 +658,7 @@ try {
     head: document.querySelector('.ship-manage .sm-bar-head').textContent, cards: document.querySelectorAll('.ship-manage .sm-cards .fcard').length,
     confirm: window.__game.getSystem('hud').isShipManageConfirmOn }));
   ok(built.purpose === 'workshop' && built.level === 1 && !built.confirm, `확인 → 방 4 is a 작업실 Lv.1 (${built.purpose})`);
-  ok(built.scrap === 4 && built.cable === 1, `증축 consumed 폐금속 8 · 케이블 2 from the 창고 (left ${built.scrap} · ${built.cable})`);
+  ok(built.scrap === 12 && built.cable === 2, `증축 consumed 폐금속 8 · 케이블 2 from the 창고 (left ${built.scrap} · ${built.cable})`);
   ok(/작업실/.test(built.head) && built.cards === 13, `side panel switched to the 작업실 furniture list (${built.cards} cards)`);
   ok((await lastEv('housing:roomPurposeChanged'))?.room === 3, 'housing:roomPurposeChanged {room:3}');
   await H(() => window.__game.ctx.housing.closeShipManage());
