@@ -1,0 +1,22 @@
+# 기업 계약. id · corp · goal 은 코드가 찾는 값이므로 바꾸지 않는다.
+# goal: kill_bugs | kill_rogues | open_crates | loot_corpses | extract_with_value | use_stratagems.
+# target = 목표 수치, minRepLevel = 받을 수 있는 신뢰도 레벨.
+id,corp,minRepLevel,goal,target,repReward,xpReward,creditsReward,name,desc
+helix_1,helix,0,kill_bugs,25,60,150,120,소탕 작전 I,터미니드 25마리를 처치한다.
+helix_2,helix,1,kill_bugs,60,120,320,260,소탕 작전 II,터미니드 60마리를 처치한다.
+helix_3,helix,2,kill_bugs,120,220,600,500,소탕 작전 III,터미니드 120마리를 처치한다.
+helix_4,helix,3,kill_bugs,200,380,1000,900,소탕 작전 IV,터미니드 200마리를 처치한다.
+helix_calls,helix,1,use_stratagems,4,90,200,180,화력 시연,함선 호출을 4회 사용한다.
+bastion_1,bastion,0,kill_rogues,5,70,180,150,용병 제거 I,로그 5명을 처치한다.
+bastion_2,bastion,1,kill_rogues,12,140,380,320,용병 제거 II,로그 12명을 처치한다.
+bastion_3,bastion,2,kill_rogues,25,260,700,600,용병 제거 III,로그 25명을 처치한다.
+bastion_4,bastion,3,kill_rogues,40,420,1100,1000,용병 제거 IV,로그 40명을 처치한다.
+nomad_1,nomad,0,extract_with_value,1500,60,150,100,회수 임무 I,"가방에 1,500 이상의 전리품을 담고 탈출한다."
+nomad_2,nomad,1,extract_with_value,4000,130,340,240,회수 임무 II,"가방에 4,000 이상의 전리품을 담고 탈출한다."
+nomad_3,nomad,2,extract_with_value,9000,240,640,480,회수 임무 III,"가방에 9,000 이상의 전리품을 담고 탈출한다."
+nomad_4,nomad,3,extract_with_value,20000,400,1050,900,회수 임무 IV,"가방에 20,000 이상의 전리품을 담고 탈출한다."
+nomad_crates,nomad,0,open_crates,8,70,160,120,보급 조사,상자 8개를 연다.
+ceres_1,ceres,0,loot_corpses,6,60,150,110,검체 채취 I,시체 6구를 수색한다.
+ceres_2,ceres,1,loot_corpses,15,130,330,250,검체 채취 II,시체 15구를 수색한다.
+ceres_3,ceres,2,loot_corpses,30,240,620,480,검체 채취 III,시체 30구를 수색한다.
+ceres_4,ceres,3,loot_corpses,50,400,1000,850,검체 채취 IV,시체 50구를 수색한다.

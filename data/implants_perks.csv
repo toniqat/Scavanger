@@ -1,0 +1,6 @@
+# 전설 퍽 임플란트 3종. perk 는 코드가 찾는 값이므로 바꾸지 않는다 (효과는 shared/progression 의 PERK_DEFS).
+# slots = 장착칸 소모, stat = 덤으로 붙는 능력치 (+1).
+perk,slots,stat
+auto_revive,3,endurance
+quick_heal,2,dexterity
+kill_stamina,3,strength

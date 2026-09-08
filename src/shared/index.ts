@@ -1,3 +1,5 @@
+/* appended (2026-09-09): 수치 원본은 data/*.csv — csv 로더/조회기를 계약으로 공개한다 */
+export * from './data/tables';
 export * from './constants';
 export * from './types';
 export * from './events';
@@ -26,6 +28,8 @@ export * from './itemChip';
 export * from './cursor';
 /* appended (2026-09-07): Phase 11 — 행성 선택 · 소셜 */
 export * from './planets';
+/* appended (2026-09-09): 행성 표는 csv 를 읽으므로 서버가 실행하는 planets.ts 와 갈라져 있다 */
+export * from './planetDefs';
 export * from './social';
 /* appended (2026-09-08): 튜토리얼 계약 */
 export * from './tutorial';

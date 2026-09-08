@@ -1,4 +1,12 @@
 import type { AmmoType, EmbeddedView, ItemCategory, ItemDef, ItemInstance, MissionStats, Rarity, WeaponClass } from './types';
+import { csvGroups, csvRows, keyTable, numberList, stringList } from './data/tables';
+
+/*
+ * 메타 수치의 원본은 `data/` 의 csv 다 — 기업(`corps.csv` · `corp_stock.csv`), 계약(`contracts.csv`),
+ * 퀘스트(`quests.csv`), 신뢰도 표와 등급 상한(`tables.csv`), 크레딧 · 가격 계수(`tuning.csv`).
+ * 이 파일에는 표가 없고 계약 타입과 그 줄들을 옮기는 코드만 있다.
+ */
+const T = /* data/tuning.csv */ keyTable('tuning.csv');
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Phase 5-c — corporations, reputation, contracts, quests, credits and the corp shop.
@@ -47,60 +55,34 @@ export interface CorpDef {
   stock: readonly ShopRule[];
 }
 
-export const CORP_DEFS: Readonly<Record<CorpId, CorpDef>> = {
-  helix: {
-    id: 'helix', name: '헬릭스 방산', tagline: '수량이 곧 화력.', color: '#ff8a5c',
-    description: '돌격소총·기관단총·권총과 경량/준중량탄을 대량으로 취급하는 군수 기업.',
-    stock: [
-      { category: 'primary', weaponClasses: ['AR', 'SMG'] },
-      { category: 'secondary', weaponClasses: ['PISTOL'] },
-      { category: 'ammo', ammoTypes: ['light', 'medium'] },
-    ],
-  },
-  bastion: {
-    id: 'bastion', name: '바스티온 중공업', tagline: '한 발의 무게.', color: '#7fb4ff',
-    description: '저격소총·지정사수소총·산탄총과 중량탄·산탄을 만드는 중공업 그룹.',
-    stock: [
-      { category: 'primary', weaponClasses: ['SR', 'DMR', 'SG'] },
-      { category: 'ammo', ammoTypes: ['heavy', 'shell'] },
-      { category: 'armor', minRepLevel: 2 },
-    ],
-  },
-  nomad: {
-    id: 'nomad', name: '노마드 장비', tagline: '짊어진 만큼 살아 돌아온다.', color: '#d9b96a',
-    description: '가방과 방탄복을 파는 원정 장비 상사. 전술 가방은 신뢰도 3 부터.',
-    stock: [
-      { category: 'bag', tactical: false },
-      { category: 'bag', tactical: true, minRepLevel: 3 },
-      { category: 'armor' },
-    ],
-  },
-  ceres: {
-    id: 'ceres', name: '세레스 바이오', tagline: '몸이 먼저다.', color: '#6ee7a8',
-    description: '회복 소모품·수류탄·가젯과 임플란트를 취급하는 생명공학 기업. 부착물은 신뢰도 2 부터, 망가진 임플란트 수리도 여기서.',
-    stock: [
-      { category: 'stim' },
-      { category: 'grenade' },
-      { category: 'gadget' },
-      { category: 'attachment', minRepLevel: 2 },
-      { category: 'book', minRepLevel: 2 },   // appended (Phase 9): 서적 — 서재 책장용
-      // appended (Phase 12): 임플란트 — common / uncommon stat implants only; rare+ come from quests / the repair desk
-      { category: 'implant', maxRarity: 'uncommon' },
-      // appended (Phase 12): every material some implant's `repairCost` asks for (the rep rarity cap still applies)
-      { category: 'material', implantRepairMaterials: true },
-    ],
-  },
-};
+const CORP_STOCK_BY_ID = csvGroups('corp_stock.csv', 'corp');
+
+export const CORP_DEFS: Readonly<Record<CorpId, CorpDef>> = Object.fromEntries(csvRows('corps.csv').map((r) => {
+  const id = r.str('id') as CorpId;
+  const stock: ShopRule[] = (CORP_STOCK_BY_ID.get(id) ?? []).map((k) => ({
+    category: k.str('category') as ItemCategory,
+    ...(k.has('weaponClasses') ? { weaponClasses: k.list('weaponClasses') as WeaponClass[] } : {}),
+    ...(k.has('ammoTypes') ? { ammoTypes: k.list('ammoTypes') as AmmoType[] } : {}),
+    ...(k.has('tactical') ? { tactical: k.bool('tactical') } : {}),
+    ...(k.has('minRepLevel') ? { minRepLevel: k.int('minRepLevel', { min: 0 }) } : {}),
+    ...(k.has('maxRarity') ? { maxRarity: k.str('maxRarity') as Rarity } : {}),
+    ...(k.has('implantRepairMaterials') ? { implantRepairMaterials: k.bool('implantRepairMaterials') } : {}),
+  }));
+  return [id, {
+    id, name: r.str('name'), tagline: r.str('tagline'), description: r.str('description'),
+    color: r.str('color'), stock,
+  }];
+})) as unknown as Record<CorpId, CorpDef>;
 
 /* ── reputation ── */
 /** Cumulative reputation needed to reach level L (index = level). Level 0..REP_LEVEL_MAX. */
-export const REP_TABLE: readonly number[] = [0, 100, 300, 700, 1500, 3000];
+export const REP_TABLE: readonly number[] = numberList('tables.csv', 'REP_TABLE');
 export const REP_LEVEL_MAX = REP_TABLE.length - 1;
 /** Reputation level at which a corp's shop opens. */
-export const SHOP_UNLOCK_REP_LEVEL = 1;
+export const SHOP_UNLOCK_REP_LEVEL = T.num('SHOP_UNLOCK_REP_LEVEL');
 /** Highest rarity sold at each reputation level (index = level). Bags get one extra step (`SHOP_BAG_RARITY_BONUS`). */
-export const SHOP_RARITY_CAP_BY_REP: readonly Rarity[] = ['common', 'uncommon', 'rare', 'epic', 'legendary', 'legendary'];
-export const SHOP_BAG_RARITY_BONUS = 1;
+export const SHOP_RARITY_CAP_BY_REP: readonly Rarity[] = stringList('tables.csv', 'SHOP_RARITY_CAP_BY_REP') as Rarity[];
+export const SHOP_BAG_RARITY_BONUS = T.num('SHOP_BAG_RARITY_BONUS');
 /** Reputation level from cumulative `rep`. */
 export function repLevelOf(rep: number): number {
   let lv = 0;
@@ -109,14 +91,14 @@ export function repLevelOf(rep: number): number {
 }
 
 /* ── credits / prices ── */
-export const CREDITS_INITIAL = 500;
-export const CREDITS_MAX = 9_999_999;
+export const CREDITS_INITIAL = T.num('CREDITS_INITIAL');
+export const CREDITS_MAX = T.num('CREDITS_MAX');
 /** Buy price = value × max(SHOP_PRICE_MIN_MUL, SHOP_PRICE_BASE_MUL − SHOP_PRICE_DISCOUNT_PER_REP × repLevel). */
-export const SHOP_PRICE_BASE_MUL = 1.6;
-export const SHOP_PRICE_DISCOUNT_PER_REP = 0.15;
-export const SHOP_PRICE_MIN_MUL = 0.9;
+export const SHOP_PRICE_BASE_MUL = T.num('SHOP_PRICE_BASE_MUL');
+export const SHOP_PRICE_DISCOUNT_PER_REP = T.num('SHOP_PRICE_DISCOUNT_PER_REP');
+export const SHOP_PRICE_MIN_MUL = T.num('SHOP_PRICE_MIN_MUL');
 /** Sell price = value × SELL_PRICE_MUL (any corp, any item with a value). */
-export const SELL_PRICE_MUL = 0.5;
+export const SELL_PRICE_MUL = T.num('SELL_PRICE_MUL');
 export function buyPriceOf(value: number, repLevel: number): number {
   const mul = Math.max(SHOP_PRICE_MIN_MUL, SHOP_PRICE_BASE_MUL - SHOP_PRICE_DISCOUNT_PER_REP * Math.max(0, repLevel));
   return Math.max(1, Math.round(value * mul));
@@ -147,39 +129,22 @@ export interface ContractDef {
 }
 
 /** Progress a squadmate's contract action is worth to us when we run a contract of the same corp. */
-export const CONTRACT_SQUAD_SHARE = 0.25;
+export const CONTRACT_SQUAD_SHARE = T.num('CONTRACT_SQUAD_SHARE');
 /** Contracts active at once. */
-export const CONTRACT_MAX_ACTIVE = 1;
+export const CONTRACT_MAX_ACTIVE = T.num('CONTRACT_MAX_ACTIVE');
 
-const contract = (
-  id: string, corp: CorpId, minRepLevel: number, goal: ContractGoalKind, target: number,
-  repReward: number, xpReward: number, creditsReward: number, name: string, desc: string,
-): ContractDef => ({ id, corp, minRepLevel, goal, target, repReward, xpReward, creditsReward, name, desc });
-
-export const CONTRACT_DEFS: readonly ContractDef[] = [
-  /* helix — bugs */
-  contract('helix_1', 'helix', 0, 'kill_bugs', 25, 60, 150, 120, '소탕 작전 I', '터미니드 25마리를 처치한다.'),
-  contract('helix_2', 'helix', 1, 'kill_bugs', 60, 120, 320, 260, '소탕 작전 II', '터미니드 60마리를 처치한다.'),
-  contract('helix_3', 'helix', 2, 'kill_bugs', 120, 220, 600, 500, '소탕 작전 III', '터미니드 120마리를 처치한다.'),
-  contract('helix_4', 'helix', 3, 'kill_bugs', 200, 380, 1000, 900, '소탕 작전 IV', '터미니드 200마리를 처치한다.'),
-  contract('helix_calls', 'helix', 1, 'use_stratagems', 4, 90, 200, 180, '화력 시연', '함선 호출을 4회 사용한다.'),
-  /* bastion — rogues */
-  contract('bastion_1', 'bastion', 0, 'kill_rogues', 5, 70, 180, 150, '용병 제거 I', '로그 5명을 처치한다.'),
-  contract('bastion_2', 'bastion', 1, 'kill_rogues', 12, 140, 380, 320, '용병 제거 II', '로그 12명을 처치한다.'),
-  contract('bastion_3', 'bastion', 2, 'kill_rogues', 25, 260, 700, 600, '용병 제거 III', '로그 25명을 처치한다.'),
-  contract('bastion_4', 'bastion', 3, 'kill_rogues', 40, 420, 1100, 1000, '용병 제거 IV', '로그 40명을 처치한다.'),
-  /* nomad — value */
-  contract('nomad_1', 'nomad', 0, 'extract_with_value', 1500, 60, 150, 100, '회수 임무 I', '가방에 1,500 이상의 전리품을 담고 탈출한다.'),
-  contract('nomad_2', 'nomad', 1, 'extract_with_value', 4000, 130, 340, 240, '회수 임무 II', '가방에 4,000 이상의 전리품을 담고 탈출한다.'),
-  contract('nomad_3', 'nomad', 2, 'extract_with_value', 9000, 240, 640, 480, '회수 임무 III', '가방에 9,000 이상의 전리품을 담고 탈출한다.'),
-  contract('nomad_4', 'nomad', 3, 'extract_with_value', 20000, 400, 1050, 900, '회수 임무 IV', '가방에 20,000 이상의 전리품을 담고 탈출한다.'),
-  contract('nomad_crates', 'nomad', 0, 'open_crates', 8, 70, 160, 120, '보급 조사', '상자 8개를 연다.'),
-  /* ceres — corpses */
-  contract('ceres_1', 'ceres', 0, 'loot_corpses', 6, 60, 150, 110, '검체 채취 I', '시체 6구를 수색한다.'),
-  contract('ceres_2', 'ceres', 1, 'loot_corpses', 15, 130, 330, 250, '검체 채취 II', '시체 15구를 수색한다.'),
-  contract('ceres_3', 'ceres', 2, 'loot_corpses', 30, 240, 620, 480, '검체 채취 III', '시체 30구를 수색한다.'),
-  contract('ceres_4', 'ceres', 3, 'loot_corpses', 50, 400, 1000, 850, '검체 채취 IV', '시체 50구를 수색한다.'),
-];
+export const CONTRACT_DEFS: readonly ContractDef[] = csvRows('contracts.csv').map((r) => ({
+  id: r.str('id'),
+  corp: r.str('corp') as CorpId,
+  minRepLevel: r.int('minRepLevel', { min: 0 }),
+  goal: r.enum('goal', ['kill_bugs', 'kill_rogues', 'open_crates', 'loot_corpses', 'extract_with_value', 'use_stratagems'] as const),
+  target: r.int('target', { min: 1 }),
+  repReward: r.int('repReward', { min: 0 }),
+  xpReward: r.int('xpReward', { min: 0 }),
+  creditsReward: r.int('creditsReward', { min: 0 }),
+  name: r.str('name'),
+  desc: r.str('desc'),
+}));
 
 /* ── quests ── */
 export type QuestState = 'locked' | 'available' | 'accepted' | 'complete';
@@ -194,52 +159,23 @@ export interface QuestDef {
   rewards: { rep: number; xp: number; credits?: number; items?: readonly { defId: string; qty: number }[] };
 }
 
-const quest = (
-  id: string, corp: CorpId, name: string, desc: string, requires: QuestDef['requires'],
-  deliver: QuestDef['deliver'], rewards: QuestDef['rewards'],
-): QuestDef => ({ id, corp, name, desc, requires, deliver, rewards });
-
-export const QUEST_DEFS: readonly QuestDef[] = [
-  /* helix chain */
-  quest('h1', 'helix', '고철 납품', '폐금속 10개를 납품한다.', {}, [{ defId: 'mat_scrap', qty: 10 }],
-    { rep: 150, xp: 200, credits: 150 }),
-  quest('h2', 'helix', '합금 납품', '합금 판 6개를 납품한다.', { quests: ['h1'] }, [{ defId: 'mat_alloy', qty: 6 }],
-    { rep: 220, xp: 350, credits: 250, items: [{ defId: 'att_brake', qty: 1 }] }),
-  quest('h3', 'helix', '전력 조달', '파워 셀 4개를 납품한다.', { quests: ['h2'], repLevel: 2 }, [{ defId: 'mat_power_cell', qty: 4 }],
-    { rep: 320, xp: 600, credits: 400, items: [{ defId: 'wpn_smg_g3', qty: 1 }] }),
-  quest('h4', 'helix', '기밀 회수', '데이터 코어 1개를 납품한다.', { quests: ['h3'], repLevel: 3 }, [{ defId: 'data_core', qty: 1 }],
-    { rep: 600, xp: 1500, credits: 900, items: [{ defId: 'wpn_ar_g4', qty: 1 }] }),
-  /* bastion chain */
-  quest('b1', 'bastion', '분비선 샘플', '터미니드 분비선 3개를 납품한다.', {}, [{ defId: 'terminid_gland', qty: 3 }],
-    { rep: 180, xp: 250, credits: 200 }),
-  quest('b2', 'bastion', '정제 샘플', '정제 샘플 캐니스터 1개를 납품한다.', { quests: ['b1'] }, [{ defId: 'sample_canister_pure', qty: 1 }],
-    { rep: 300, xp: 550, credits: 400, items: [{ defId: 'att_scope4', qty: 1 }] }),
-  quest('b3', 'bastion', '외계 유물', '외계 유물 1개를 납품한다.', { quests: ['b2'], repLevel: 3 }, [{ defId: 'alien_artifact', qty: 1 }],
-    { rep: 600, xp: 1500, credits: 1200, items: [{ defId: 'wpn_sr_g4', qty: 1 }] }),
-  /* nomad chain */
-  quest('n1', 'nomad', '크레딧 칩 수거', '크레딧 칩 5개를 납품한다.', {}, [{ defId: 'cred_chip', qty: 5 }],
-    { rep: 150, xp: 200, credits: 300 }),
-  quest('n2', 'nomad', '전자장비 회수', '회수 전자장비 3개를 납품한다.', { quests: ['n1'] }, [{ defId: 'salvage_electronics', qty: 3 }],
-    { rep: 280, xp: 500, credits: 350, items: [{ defId: 'bag_rare', qty: 1 }] }),
-  /* ceres chain */
-  quest('c1', 'ceres', '생체 조직', '생체 조직 12개를 납품한다.', {}, [{ defId: 'mat_bio_sample', qty: 12 }],
-    { rep: 150, xp: 200, credits: 150, items: [{ defId: 'heal_syringe', qty: 2 }] }),
-  quest('c2', 'ceres', '분비선 연구', '터미니드 분비선 5개를 납품한다.', { quests: ['c1'] }, [{ defId: 'terminid_gland', qty: 5 }],
-    { rep: 260, xp: 450, credits: 300, items: [{ defId: 'gad_defib', qty: 1 }] }),
-  quest('c3', 'ceres', '고대 성유물', '고대 성유물 1개를 납품한다.', { quests: ['c2'], repLevel: 2 }, [{ defId: 'alien_relic', qty: 1 }],
-    { rep: 600, xp: 1500, credits: 1500, items: [{ defId: 'bag_epic_tac', qty: 1 }] }),
-  /* ceres 임플란트 chain (appended Phase 12, 2026-09-08): three steps, each rewarding an implant the shop never sells */
-  quest('ci1', 'ceres', '신경 접합제', '혈근초 6개, 잿빛잎 4개, 소독약 3개를 납품한다. 보상: 인지력 임플란트 III.',
-    { repLevel: 1 }, [{ defId: 'herb_bloodroot', qty: 6 }, { defId: 'herb_ashleaf', qty: 4 }, { defId: 'mat_antiseptic', qty: 3 }],
-    { rep: 200, xp: 300, credits: 200, items: [{ defId: 'imp_perception_3', qty: 1 }] }),
-  quest('ci2', 'ceres', '망가진 회로 분석', '망가진 지능 임플란트 1개, 회로 기판 2개, 생체 조직 6개를 납품한다. 보상: 지능 임플란트 III.',
-    { quests: ['ci1'] }, [{ defId: 'imp_broken_intelligence_1', qty: 1 }, { defId: 'mat_circuit', qty: 2 }, { defId: 'mat_bio_sample', qty: 6 }],
-    { rep: 260, xp: 450, credits: 300, items: [{ defId: 'imp_intelligence_3', qty: 1 }] }),
-  quest('ci3', 'ceres', '가속 대사 임상', '발광버섯 6개, 소독약 6개, 주사기 6개, 터미니드 분비선 4개, 회로 기판 4개를 납품한다. 보상: 가속 대사 (전설 임플란트).',
-    { quests: ['ci2'], repLevel: 3 },
-    [{ defId: 'herb_glowcap', qty: 6 }, { defId: 'mat_antiseptic', qty: 6 }, { defId: 'mat_syringe', qty: 6 }, { defId: 'terminid_gland', qty: 4 }, { defId: 'mat_circuit', qty: 4 }],
-    { rep: 600, xp: 1500, credits: 800, items: [{ defId: 'imp_perk_quick_heal', qty: 1 }] }),
-];
+export const QUEST_DEFS: readonly QuestDef[] = csvRows('quests.csv').map((r) => ({
+  id: r.str('id'),
+  corp: r.str('corp') as CorpId,
+  name: r.str('name'),
+  desc: r.str('desc'),
+  requires: {
+    ...(r.has('reqRepLevel') ? { repLevel: r.int('reqRepLevel', { min: 0 }) } : {}),
+    ...(r.has('reqQuests') ? { quests: r.list('reqQuests') } : {}),
+  },
+  deliver: r.costList('deliver'),
+  rewards: {
+    rep: r.int('rewardRep', { min: 0 }),
+    xp: r.int('rewardXp', { min: 0 }),
+    ...(r.has('rewardCredits') ? { credits: r.int('rewardCredits', { min: 0 }) } : {}),
+    ...(r.has('rewardItems') ? { items: r.costList('rewardItems') } : {}),
+  },
+}));
 
 /* ── runtime shapes ── */
 export interface RepInfo {

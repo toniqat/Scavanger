@@ -1,0 +1,19 @@
+# 기업 퀘스트 (납품). id · corp 는 코드가 찾는 값이므로 바꾸지 않는다.
+# reqQuests = 먼저 끝내야 하는 퀘스트 id (| 로 여러 개), reqRepLevel = 필요한 신뢰도 레벨.
+# deliver / rewardItems 는 "아이템id:수량" 을 | 로 이어 쓴다.
+id,corp,name,reqRepLevel,reqQuests,deliver,rewardRep,rewardXp,rewardCredits,rewardItems,desc
+h1,helix,고철 납품,,,mat_scrap:10,150,200,150,,폐금속 10개를 납품한다.
+h2,helix,합금 납품,,h1,mat_alloy:6,220,350,250,att_brake:1,합금 판 6개를 납품한다.
+h3,helix,전력 조달,2,h2,mat_power_cell:4,320,600,400,wpn_smg_g3:1,파워 셀 4개를 납품한다.
+h4,helix,기밀 회수,3,h3,data_core:1,600,1500,900,wpn_ar_g4:1,데이터 코어 1개를 납품한다.
+b1,bastion,분비선 샘플,,,terminid_gland:3,180,250,200,,터미니드 분비선 3개를 납품한다.
+b2,bastion,정제 샘플,,b1,sample_canister_pure:1,300,550,400,att_scope4:1,정제 샘플 캐니스터 1개를 납품한다.
+b3,bastion,외계 유물,3,b2,alien_artifact:1,600,1500,1200,wpn_sr_g4:1,외계 유물 1개를 납품한다.
+n1,nomad,크레딧 칩 수거,,,cred_chip:5,150,200,300,,크레딧 칩 5개를 납품한다.
+n2,nomad,전자장비 회수,,n1,salvage_electronics:3,280,500,350,bag_rare:1,회수 전자장비 3개를 납품한다.
+c1,ceres,생체 조직,,,mat_bio_sample:12,150,200,150,heal_syringe:2,생체 조직 12개를 납품한다.
+c2,ceres,분비선 연구,,c1,terminid_gland:5,260,450,300,gad_defib:1,터미니드 분비선 5개를 납품한다.
+c3,ceres,고대 성유물,2,c2,alien_relic:1,600,1500,1500,bag_epic_tac:1,고대 성유물 1개를 납품한다.
+ci1,ceres,신경 접합제,1,,herb_bloodroot:6|herb_ashleaf:4|mat_antiseptic:3,200,300,200,imp_perception_3:1,"혈근초 6개, 잿빛잎 4개, 소독약 3개를 납품한다. 보상: 인지력 임플란트 III."
+ci2,ceres,망가진 회로 분석,,ci1,imp_broken_intelligence_1:1|mat_circuit:2|mat_bio_sample:6,260,450,300,imp_intelligence_3:1,"망가진 지능 임플란트 1개, 회로 기판 2개, 생체 조직 6개를 납품한다. 보상: 지능 임플란트 III."
+ci3,ceres,가속 대사 임상,3,ci2,herb_glowcap:6|mat_antiseptic:6|mat_syringe:6|terminid_gland:4|mat_circuit:4,600,1500,800,imp_perk_quick_heal:1,"발광버섯 6개, 소독약 6개, 주사기 6개, 터미니드 분비선 4개, 회로 기판 4개를 납품한다. 보상: 가속 대사 (전설 임플란트)."

@@ -1,0 +1,8 @@
+# 시체에서 아이템 말고 따로 굴리는 것들 (로그가 들고 있던 총 · 서적 · 망가진 임플란트 · 유니크).
+# ammoFrac* = 그 총의 탄종을 한 스택 × 이 비율만큼. weaponDur* = 총의 내구도(최대치 대비 비율).
+# weaponGrades 를 적으면 같은 계열의 그 등급들 중 하나로 다시 매겨진다 (보스). weaponAttachMaxRarity 는 부착물 1개.
+# implantWeights 는 "등급:가중치" 를 | 로 이어 쓴다 — 적지 않은 등급은 안 나온다.
+# 칸을 비우면 그 굴림은 없다.
+type,ammoFracMin,ammoFracMax,weaponDurMin,weaponDurMax,weaponGrades,weaponAttachMaxRarity,uniqueChance,uniqueDurMin,uniqueDurMax,bookChance,implantChance,implantWeights
+rogue,0.3,0.6,0.05,0.15,,,,,,0.03,0.06,common:55|uncommon:30|rare:12|epic:3
+rogue_boss,0.3,0.6,0.4,0.7,3|4,epic,0.2,0.5,0.8,0.2,0.45,common:10|uncommon:25|rare:30|epic:25|legendary:10

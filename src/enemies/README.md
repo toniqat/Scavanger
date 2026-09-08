@@ -516,6 +516,13 @@ Perception rework (`ai/Perception.ts`, merged with the Phase 4 artillery / rogue
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
+- **2026-09-09 (수치 csv 이관)** — `EnemyTypes.ts` 에 표가 없다. 적 10종의 기본 스탯은 `data/enemies.csv`,
+  특수 능력 블록(`HUNTER_LEAP` · `SPEWER_SPIT` · `CHARGER_CHARGE` · `ROGUE_AI` · `ARTILLERY_AI` · `TOXIC_AI` ·
+  `BEHEMOTH_AI`)은 `data/enemy_abilities.csv` 의 `block` 단위 표다. 로그가 드는 무기 목록만 문자열이라
+  `ROGUE_AI_TEXT` 블록으로 갈라져 있다 (한 블록은 전부 숫자거나 전부 문자열이어야 한다).
+  보스 · 베헤모스처럼 상수에서 파생되던 칸은 `=140*ROGUE_BOSS_HP_MUL` 같은 식으로 남아 `constants.csv` 를 따라간다.
+  `ENEMY_STATS` · `ROGUE_AI` 등의 export 이름과 모양은 그대로라 읽는 쪽은 바뀌지 않았다
+
 - **2026-09-08 (main 병합)** — `ai/RogueCover.ts` 의 엄폐/사격 지점 오프셋과 크기 필터가 `shotRadius` / `shotHeight`(총알이 멈추는 원기둥, `blockRadius` · `blockHeight`)를 읽는다. 바위 엄폐 수정으로 이동 콜라이더와 갈라진 뒤로 `findPopSpot` 이 양쪽 측면을 모두 '아직 가려짐' 으로 판정해 로그가 엄폐를 아예 잡지 않던 것을 고쳤다
 
 - **tactical kit** — perception scaled by cloak × smoke (`ai/Perception.ts`), lures (`ai/Lures.ts`, `addDistraction`, gunfire noise), deployable targeting (`ai/Structures.ts`), burning / slow status (`applyStatus`), `queryNear`, `applyAreaDamage`

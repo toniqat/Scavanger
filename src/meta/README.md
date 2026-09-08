@@ -272,6 +272,11 @@ Implants are **items** (`ItemDef.implant`, category `'implant'`, owner items/ �
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
+- **2026-09-09 (수치 csv 이관)** — 기업 · 계약 · 퀘스트 표가 `shared/meta.ts` 에서 csv 로 나갔다:
+  `data/corps.csv`(4곳) · `data/corp_stock.csv`(판매 규칙 한 줄씩) · `data/contracts.csv` · `data/quests.csv`,
+  신뢰도 표와 등급 상한은 `data/tables.csv`(`REP_TABLE` · `SHOP_RARITY_CAP_BY_REP`), 크레딧 · 가격 계수 ·
+  계약 규칙 스칼라와 `IMPLANT_REPAIR_FEE` 는 `data/tuning.csv` 다. `Rules.ts` 의 판정 로직은 그대로
+
 - **2026-09-08 (잠긴 탭 안내)** — 신뢰도가 모자란 `거래` / `계약` 서브탭은 이제 `disabled` 가 아니다. 흐리게
   (`.is-locked`) 두되 클릭은 받아서, `setPage` 가 필요한 신뢰도를 **토스트**(`ui:notify`)와 패널 자체 메시지 줄로
   알려 준다. `disabled` 였을 때는 클릭 이벤트가 아예 발생하지 않아 왜 잠겼는지 볼 방법이 툴팁뿐이었다.

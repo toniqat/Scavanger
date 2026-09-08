@@ -1,0 +1,11 @@
+# 가구 강화 비용. level = 그 레벨에서 다음 레벨로 올리는 비용 (레벨 1 → 2 가 level 1).
+# furniture.csv 의 maxLevel 보다 한 줄 적게 있어야 한다.
+id,level,cost
+furn_bench_gun,1,mat_alloy:6|mat_circuit:1
+furn_bench_gun,2,mat_alloy:10|mat_circuit:3|mat_power_cell:1
+furn_bench_gear,1,mat_alloy:6|mat_circuit:1
+furn_bench_gear,2,mat_alloy:10|mat_circuit:3|mat_power_cell:1
+furn_bench_gadget,1,mat_alloy:6|mat_circuit:1
+furn_bench_gadget,2,mat_alloy:10|mat_circuit:3|mat_power_cell:1
+furn_bench_medical,1,mat_alloy:4|mat_bio_sample:6|mat_circuit:1
+furn_bench_medical,2,mat_alloy:8|mat_bio_sample:10|mat_circuit:3

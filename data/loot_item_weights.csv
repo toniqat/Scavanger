@@ -1,0 +1,86 @@
+# 티어별 개별 아이템 가중치 배수. 0 = 그 티어에서 절대 안 나옴, 1 보다 크면 더 흔해진다.
+# target 이 무기 계열 id (`sr`) 면 그 계열의 모든 등급에, 아이템 id (`mat_cable`) 면 그 아이템에만 걸린다.
+# @ 로 시작하면 묶음이다:
+#   @unique_weapons   유니크 무기 6종 · @unique_ammo 유니크 탄종 6종 · @graded_families 등급 무기 6계열
+#   @working_implants 정상 임플란트 전부 (상자에서는 안 나오게 0 으로 둔다)
+#   @broken_implants.<등급>  그 등급의 망가진 임플란트
+tier,target,mul
+# 티어 1 — 보급 상자
+1,@unique_ammo,0
+1,gad_turret,0
+1,gad_dome_shield,0
+1,mat_cable,0
+1,mat_circuit,0
+1,mat_machine_parts,0
+1,mat_cloth,2.5
+1,mat_can,1.5
+1,mat_syringe,0
+1,mat_antiseptic,0
+
+# 티어 2 — 군수 상자
+2,@unique_ammo,0
+2,@working_implants,0
+2,@broken_implants.common,1
+2,@broken_implants.uncommon,0.7
+2,@broken_implants.rare,0.4
+2,@broken_implants.epic,0.2
+2,@broken_implants.legendary,0
+2,wpn_smg,1.3
+2,wpn_sr,0.35
+2,armor_regen,0
+2,armor_ultralight,0
+2,armor_optical,0
+2,mat_cable,1.2
+2,mat_circuit,0.3
+2,mat_machine_parts,0.6
+2,mat_cloth,2
+2,mat_can,1.5
+2,mat_syringe,0.8
+2,mat_antiseptic,0
+
+# 티어 3 — 귀중품 금고
+3,@unique_weapons,0
+3,@unique_ammo,0
+3,@working_implants,0
+3,@broken_implants.common,1
+3,@broken_implants.uncommon,1
+3,@broken_implants.rare,0.7
+3,@broken_implants.epic,0.4
+3,@broken_implants.legendary,0
+3,wpn_sr,1.2
+3,mat_circuit,0.6
+3,mat_machine_parts,0.8
+3,mat_cloth,1.2
+3,mat_can,1
+3,mat_syringe,1
+3,mat_antiseptic,0
+
+# 티어 4 — 희귀 캐시
+4,@unique_weapons,0.25
+4,@unique_ammo,0.025
+4,@working_implants,0
+4,@broken_implants.common,1
+4,@broken_implants.uncommon,1
+4,@broken_implants.rare,1
+4,@broken_implants.epic,1
+4,@broken_implants.legendary,0.5
+4,wpn_sr,1.5
+4,wpn_smg,0.7
+
+# 티어 5 — 보급 투하 상자
+5,@unique_weapons,1
+5,@unique_ammo,0.3
+5,@graded_families,0
+5,mat_scrap,0
+5,mat_bio_sample,0
+5,mat_alloy,0
+5,mat_power_cell,0
+5,mat_gunpowder,0
+5,mat_cable,0
+5,mat_circuit,1
+5,mat_machine_parts,0
+5,mat_cloth,0
+5,mat_can,0
+5,mat_syringe,0
+5,mat_antiseptic,0
+

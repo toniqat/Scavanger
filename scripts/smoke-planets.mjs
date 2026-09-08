@@ -366,6 +366,9 @@ try {
   ok(confirmed.hidden && confirmed.boarded === 0 && !confirmed.blocker && confirmed.after < 0,
     '그래도 출격 → 카드가 닫히고 그대로 탑승한다', JSON.stringify(confirmed));
   ok(confirmed.ack === warnIds.join(','), `같은 조합을 기억한다 (${confirmed.ack})`);
+  // 방금 내렸으므로 REBOARD_GRACE(0.5 s 시뮬레이션 시간) 가 지나야 다시 탈 수 있다 — 내린 프레임에 바로
+  // 다시 타려 하면 `podCanInteract` 가 조용히 거절한다 (E 를 누른 채로 내리는 상황과 구분되지 않기 때문).
+  await waitSim(0.6);
   const second = await P(() => {
     const ctx = window.__game.ctx, hub = window.__game.getSystem('hub');
     ctx.interactables.all().find((i) => i.id === 'hub_pod_0').interact();

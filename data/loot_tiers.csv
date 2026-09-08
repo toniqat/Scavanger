@@ -1,0 +1,11 @@
+# 상자 티어별 굴림 규칙. tier 는 코드가 찾는 값이므로 바꾸지 않는다 (5 = 함선 보급 투하).
+# countMin/countMax = 한 상자에서 나오는 총 개수 (확정 픽 포함).
+# common..legendary = 등급 가중치. 무기 등급이 등급과 1:1 이라 이 값이 무기 등급 분포이기도 하다.
+# weaponChance = 무작위 픽 하나가 무기로 바뀔 확률, maxStackQty = 겹치는 아이템의 한 번 최대 수량,
+# ammoFracMin/Max = 탄약은 한 스택 × 이 구간에서 뽑은 비율만큼 나온다.
+tier,label,countMin,countMax,common,uncommon,rare,epic,legendary,weaponChance,maxStackQty,ammoFracMin,ammoFracMax
+1,보급 상자,2,3,80,18,2,0,0,0,3,0.25,0.5
+2,군수 상자,3,4,45,38,15,2,0,0.35,4,0.35,0.7
+3,귀중품 금고,4,5,15,30,40,14,1,0.55,5,0.5,0.85
+4,희귀 캐시,5,6,5,15,40,30,10,1,6,0.6,1
+5,보급 투하 상자,4,6,60,35,5,0,1,0.03,6,0.6,1

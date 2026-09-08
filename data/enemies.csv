@@ -1,0 +1,18 @@
+# 적 10종의 기본 스탯. type · faction 은 코드가 찾는 값이므로 바꾸지 않는다.
+# speed/wanderSpeed 는 m/s, radius/height/headRadius/attackRange/sightRadius/hearRadius 는 m,
+# attackCooldown/attackWindup 은 초, turnRate 는 rad/s, accel 은 m/s².
+# headMul/rearMul/frontMul 은 부위별 피해 배수, mass 는 서로 밀어내는 무게, staggerFraction 은
+# 한 방에 최대체력의 이 비율 이상을 맞으면 경직에 걸린다는 뜻이다.
+# attackDamage 0 = 근접 공격이 없는 종류 (원거리/자폭은 enemy_abilities.csv 가 맡는다).
+# `=0.8*BEHEMOTH_SCALE` 처럼 = 로 시작하면 data/constants.csv 의 상수를 쓴 식이다.
+type,faction,hp,speed,wanderSpeed,radius,height,headRadius,attackDamage,attackCooldown,attackRange,attackWindup,turnRate,accel,sightRadius,hearRadius,headMul,rearMul,frontMul,mass,stepSound,staggerFraction
+scavenger,bug,60,5.5,1.6,0.45,0.9,0.2,8,0.8,1.6,0.18,8,22,40,55,2,1,1,1,false,0.25
+hunter,bug,180,7.5,2.2,0.6,1.25,0.27,14,1,2,0.22,7,26,40,55,2,1,1,2,false,0.25
+warrior,bug,320,4.5,1.6,0.8,1.6,0.36,25,1.2,2.2,0.35,4,14,40,55,2,1,1,4,true,0.25
+spewer,bug,260,3.2,1.2,0.9,1.7,0.32,12,1.5,2.3,0.35,3,10,40,55,2,1,1,4,false,0.25
+charger,bug,900,4,1.5,1.3,2.3,0.55,30,2,2.9,0.4,2.2,9,45,60,1,2.5,0.5,10,true,0.25
+rogue,rogue,140,4.4,1.4,0.4,1.8,0.16,0,1,0,0,7,24,60,70,2,1,1,2,false,0.35
+rogue_boss,rogue,=140*ROGUE_BOSS_HP_MUL,3.8,1.2,=0.4*ROGUE_BOSS_SCALE,=1.8*ROGUE_BOSS_SCALE,=0.16*ROGUE_BOSS_SCALE,0,1,0,0,5,18,65,75,2,1,1,6,true,0.5
+artillery,bug,420,3.4,1,0.95,1.5,0.3,0,2,0,0,2.5,9,130,90,2,1.5,1,5,true,0.3
+toxic,bug,70,7.2,1.8,0.45,1,0.17,0,1,0,0,9,30,45,60,2,1,1,1,false,1.1
+behemoth,bug,1400,3.6,1.2,=0.8*BEHEMOTH_SCALE,=1.6*BEHEMOTH_SCALE,=0.36*BEHEMOTH_SCALE,45,2.2,=2.2*BEHEMOTH_SCALE,0.55,1.8,8,60,70,1,2,0.35,30,true,0.3

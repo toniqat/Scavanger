@@ -246,6 +246,11 @@ rules, the storage and the UI; items/ the defs and loot; meta/ (세레스 바이
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
+- **2026-09-09 (수치 csv 이관)** — `defs.ts` 에 표가 없다. 능력치 5종은 `data/stats.csv`, 숙련도 14종은
+  `data/skills.csv`(사격 숙련만 `weaponClass` 칸을 쓴다), 무기→숙련 대응 · 적중당 경험치 · 등급별 감정 경험치는
+  `data/tables.csv`(`WEAPON_CLASS_SKILL` · `GUN_HIT_XP` · `APPRAISE_XP_BY_RARITY`), 행동당 경험치 스칼라는
+  `data/tuning.csv` 다. 레벨 곡선 · 능력치 상한 · 임플란트 칸 규칙은 계속 `data/constants.csv` 의 상수
+
 - **2026-09-08 (고철 해체 XP)** — `gather:collected` 가 `kind` 를 싣게 되면서 **고철 더미 해체는 원예가 아니라
   제작 숙련**으로 간다 (`kind === 'salvage' ? 'crafting' : 'gardening'`, XP 량은 `GATHER_XP` 그대로).
   고철에는 `derived.gatherYieldMul` 도 붙지 않는다 — 그건 world/ 쪽에서 거른다.

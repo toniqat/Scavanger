@@ -420,6 +420,19 @@ the loot rules (corpse / crate counts over 400 / 300 rolls, no working implant, 
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
+- **2026-09-09 (수치 csv 이관)** — 아이템 데이터의 원본이 `data/*.csv` 로 나갔다. `ItemDefs.ts` · `WeaponDefs.ts` ·
+  `ArmorDefs.ts` · `ImplantDefs.ts` · `LootTables.ts` · `Recipes.ts` · `WeaponStats.ts` 에 **표가 하나도 없다** —
+  csv 줄을 `ItemDef` / `WeaponDef` 로 옮기는 코드와 등급 계단 · 분해 산출량 같은 계산식만 남았다.
+  담당 파일: `weapons.csv`(계열 6종, 등급 I) · `weapons_unique.csv`(유니크 6종) · `items.csv`(수류탄 · 회복 · 귀중품 ·
+  재료 · 약초 · 가젯) · `ammo.csv` · `attachments.csv` · `bags.csv` · `seeds.csv` · `books.csv` · `armor.csv` ·
+  `implants_repair.csv` · `implants_perks.csv` · `loot_*.csv` · `recipes.csv`, 그리고 `tuning.csv` 의 items 절.
+  무기의 **아이템 표현(칸 크기 · 아이콘 · 가격 · 무게 · 설명)이 무기 수치와 같은 줄**에 들어가, `WeaponDefs` 가
+  `WEAPON_FAMILY_ITEM_META` / `UNIQUE_WEAPON_ITEM_META` 로 내주고 `ItemDefs` 가 그것을 읽는다 (예전 `WEAPON_FAMILY_META`
+  / `UNIQUE_WEAPON_META` 는 사라졌다). 유니크 무기는 `=FLAME_DPS` 처럼 `constants.csv` 를 가리켜 발사 코드와
+  수치가 갈라지지 않는다. `ITEM_DEFS` 조립 순서는 그대로다 — `itemGroup(category)` 가 `items.csv` 에서
+  그 카테고리만 파일 순서대로 뽑는다. 루팅의 `@unique_weapons` · `@broken_implants.<등급>` 같은 묶음 토큰이
+  예전 `uniqueWeapons(0)` / `brokenImplants({…})` 헬퍼를 대신한다
+
 - **2026-09-08 (폐금속 공급)** — 화약은 남는데 폐금속이 말라 탄약을 못 만들던 병목. 폐금속이 **상자의 `material`
   롤에서만** 나왔고 (레이드당 기대 ≈ 3개) 화약은 그 위에 탄약 분해까지 얹혀 5배 빨리 쌓였다. items/ 쪽 세 가지:
   ① **`mat_machine_parts` 「기계 부품」** (uncommon, 1×1, stack 10, 1.2 kg, ₩90) — 로그 시체 12 % / 보스 60 %(1–2),

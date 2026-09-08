@@ -1,0 +1,52 @@
+# 일반 아이템 (수류탄 · 회복 소모품 · 귀중품 · 재료 · 약초 · 가젯).
+# 무기 · 탄약 · 부착물 · 가방 · 씨앗 · 서적 · 방탄복 · 임플란트는 각자 자기 csv 를 가진다.
+# id · category · gadgetId 는 코드가 찾는 값이므로 바꾸지 않는다. 목록 순서가 게임 안 표시 순서다.
+# stackMax 1 = 겹치지 않음. weight 는 kg, value 는 판매 기준가.
+# heal* 칸은 회복 소모품만: healUseTime = 좌클릭 홀드 시간(초), healAmount/healOverTime = 회복량과 그 시간.
+# spray* 칸은 회복 스프레이 하나만 쓴다 (sprayTick 초마다 게이지 sprayGauge 를 써서 반경 sprayRadius 안을 sprayHeal 회복).
+id,name,category,rarity,width,height,stackMax,value,weight,icon,quickUsable,gadgetId,durabilityMax,healAmount,healUseTime,healHp,healOverTime,sprayTick,sprayGauge,sprayHeal,sprayRadius,description
+grenade_frag,G-12 고폭 수류탄,grenade,common,1,1,3,40,0.45,●,true,,,,,,,,,,,파편 수류탄. 반경 6 m 광역 피해.
+grenade_incendiary,G-10 소이 수류탄,grenade,uncommon,1,1,3,70,0.5,◉,true,,,,,,,,,,,소이 수류탄. 넓은 반경에 화염 피해.
+heal_bandage,붕대,stim,common,1,1,5,45,0.15,▭,true,,,20,5,20,5,,,,,"천을 감아 지혈한다. 사용 5초, 5초에 걸쳐 체력 20 회복. 사용 중 이동 속도 50 %."
+heal_bandage_herb,약초 붕대,stim,uncommon,1,1,5,130,0.18,▤,true,,,50,5,50,5,,,,,"혈근초를 덧댄 붕대. 사용 5초, 5초에 걸쳐 체력 50 회복. 사용 중 이동 속도 50 %."
+heal_syringe,회복주사,stim,rare,1,1,3,260,0.2,✚,true,,,50,2,50,1,,,,,"가압 주사기. 사용 2초, 1초 만에 체력 50 회복. 사용 중 이동 속도 50 %."
+heal_spray,회복 스프레이,stim,epic,1,2,1,780,0.9,⌁,true,,=HEAL_SPRAY_GAUGE,,0,0,0,0.1,1,1,=HEAL_SPRAY_RADIUS,재생 촉진제 분무기. 좌클릭을 누르고 있으면 0.1초마다 게이지 1을 써서 반경 8 m 안의 자신과 아군을 체력 1씩 회복. 게이지 200. 사용 중 이동 속도 50 %.
+gem_quartz,석영 결정,valuable,common,1,1,1,120,0.6,◇,,,,,,,,,,,,흔한 광물 결정. 소량의 가치.
+gem_amber,호박석,valuable,uncommon,1,1,1,260,0.35,◆,,,,,,,,,,,,외계 수액이 굳어 생긴 호박. 수집가들이 찾는 물건.
+gem_sapphire,청옥,valuable,rare,1,1,1,620,0.4,◆,,,,,,,,,,,,순도 높은 청색 보석.
+gem_void,공허석,valuable,epic,1,1,1,1400,1.9,✦,,,,,,,,,,,,빛을 흡수하는 검은 결정. 손바닥만 한데 벽돌처럼 무겁다.
+cred_chip,크레딧 칩,valuable,common,1,1,5,90,0.02,▣,,,,,,,,,,,,슈퍼 크레딧이 저장된 데이터 칩.
+salvage_electronics,회수 전자장비,valuable,common,2,1,1,180,3.2,▤▥,,,,,,,,,,,,추락한 장비에서 뜯어낸 회로 기판. 방열판째로 뜯어와서 꽤 무겁다.
+data_core,데이터 코어,valuable,rare,2,1,1,900,1.2,▦▦,,,,,,,,,,,,전초기지 기록이 담긴 저장 코어.
+data_core_encrypted,암호화 데이터 코어,valuable,epic,2,1,1,2100,1.4,▩▩,,,,,,,,,,,,군 등급 암호화가 걸린 코어. 정보부가 고가에 매입.
+sample_canister,샘플 캐니스터,valuable,uncommon,3,1,1,480,2.6,▭▭▭,,,,,,,,,,,,터미니드 조직 샘플이 봉인된 용기.
+sample_canister_pure,정제 샘플 캐니스터,valuable,rare,3,1,1,1100,2.8,▭▭▭,,,,,,,,,,,,고순도 외계 생체 샘플. 연구부의 최우선 회수 대상.
+terminid_gland,터미니드 분비선,valuable,uncommon,1,1,1,300,0.9,❂,,,,,,,,,,,,페로몬을 분비하는 기관. 생화학 연구용.
+alien_artifact,외계 유물,valuable,epic,2,2,1,3200,6.5,⬡,,,,,,,,,,,,알 수 없는 문자가 새겨진 금속 조각. 미약하게 진동한다.
+alien_relic,고대 성유물,valuable,legendary,2,2,1,7500,9,✧,,,,,,,,,,,,선행 문명의 유물. 측정 불가한 에너지를 방출한다. 들고 뛰기엔 너무 무겁다.
+super_earth_medal,슈퍼 지구 훈장,valuable,legendary,1,1,1,4800,0.15,★,,,,,,,,,,,,전사한 헬다이버의 훈장. 깃털처럼 가볍고 값은 어마어마하다.
+mat_scrap,폐금속,material,common,1,1,10,15,0.5,▫,,,,,,,,,,,,재활용 가능한 금속 조각. 무기 수리에 사용.
+mat_bio_sample,생체 조직,material,common,1,1,10,20,0.2,⁂,,,,,,,,,,,,터미니드 사체에서 채취한 조직.
+mat_alloy,합금 판,material,uncommon,1,1,10,40,0.8,▪,,,,,,,,,,,,경량 고강도 합금. 고등급 무기 수리에 사용.
+mat_power_cell,파워 셀,material,rare,1,1,10,85,1.1,⚡,,,,,,,,,,,,충전된 소형 전력 셀.
+mat_gunpowder,화약,material,common,1,1,20,12,0.05,⋆,,,,,,,,,,,,탄약을 분해해 얻는 추진제. 원하는 탄종으로 다시 만들 수 있다.
+mat_cloth,천조각,material,common,1,1,20,8,0.05,▬,,,,,,,,,,,,찢어낸 천 조각. 붕대의 기본 재료.
+mat_can,캔,material,common,1,1,10,12,0.1,⌸,,,,,,,,,,,,빈 압력 캔. 소독약과 스프레이 용기로 쓴다.
+mat_syringe,주사기,material,uncommon,1,1,10,50,0.05,⚲,,,,,,,,,,,,멸균 포장된 일회용 주사기.
+mat_antiseptic,소독약,material,uncommon,1,1,10,80,0.15,⚗,,,,,,,,,,,,약초를 졸여 만든 소독약. 회복주사와 회복 스프레이의 재료.
+mat_cable,전력 케이블,material,common,1,1,10,25,0.3,∿,,,,,,,,,,,,피복이 벗겨진 전력 케이블 뭉치. 함선 시설과 작업대 설치에 쓰인다.
+mat_circuit,회로 기판,material,rare,1,1,10,120,0.15,▦,,,,,,,,,,,,멀쩡히 남은 제어 회로 기판. 함선 시설·작업대 업그레이드에 필수.
+mat_machine_parts,기계 부품,material,uncommon,1,1,10,90,1.2,⚙,,,,,,,,,,,,로그의 장비에서 뜯어낸 기계 부품 뭉치. 분해하면 폐금속과 전력 케이블이 나온다.
+herb_bloodroot,혈근초,herb,common,1,1,8,25,0.08,❦,,,,,,,,,,,,붉은 뿌리를 가진 지혈 식물. 스팀 조제의 기본 재료.
+herb_ashleaf,잿빛잎,herb,uncommon,1,1,8,55,0.06,❧,,,,,,,,,,,,화산재 지대에서 자라는 잎. 인화성이 강해 소이 제조에도 쓰인다.
+herb_glowcap,발광버섯,herb,rare,1,1,6,140,0.12,✿,,,,,,,,,,,,스스로 빛나는 균류. 강력한 재생 촉진제.
+gad_cloak_veil,은폐 장막,gadget,rare,1,2,2,620,1.1,◌,true,cloakVeil,,,,,,,,,,주변 아군까지 함께 은폐시키는 광학 장막. 12초.
+gad_dome_shield,돔 실드,gadget,epic,2,2,1,1350,5.8,⌓,true,domeShield,,,,,,,,,,던진 자리에 돔형 방어막을 전개한다. 내구도 1000.
+gad_barricade,바리케이드,gadget,rare,2,2,1,700,7.2,▥,true,barricade,,,,,,,,,,정면에 거대한 차폐물을 세운다. 누구나 3초 만에 회수할 수 있다.
+gad_lure,유인 수류탄,gadget,uncommon,1,1,3,180,0.5,☄,true,lureGrenade,,,,,,,,,,요란한 소음으로 벌레 떼의 시선을 끈다.
+gad_smoke,연막탄,gadget,common,1,1,3,110,0.55,☁,true,smokeGrenade,,,,,,,,,,시야를 가리는 연막. 안에서 쏘면 대충 그 방향으로 응사당한다.
+gad_mine,지뢰,gadget,uncommon,1,1,4,240,1.1,◎,true,mine,,,,,,,,,,3초 후 활성화. 피아를 가리지 않는다. 작지만 묵직하다.
+gad_turret,포탑 설치,gadget,epic,2,2,1,1600,9.5,⚙,true,turret,,,,,,,,,,자동 조준 포탑. 사이에 낀 아군도 맞는다. 회수 가능.
+gad_incendiary,화염수류탄,gadget,uncommon,1,1,3,210,0.6,♨,true,incendiary,,,,,,,,,,착탄점에 10초간 화염지대를 만든다. 피아 구분 없음.
+gad_defib,제세동기,gadget,rare,2,1,2,780,2.4,⚡,true,defib,,,,,,,,,,사용 1초. 쓰러진 아군을 즉시 만피로 일으켜 세운다.
+gad_jumppad,점프대,gadget,rare,2,2,1,640,6.4,⌃,true,jumpPad,,,,,,,,,,밟으면 튀어오른다. 달리면서 밟으면 전방으로 크게 도약. 회수 가능.

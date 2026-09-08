@@ -4,13 +4,17 @@ Everything every feature folder depends on. Append-only: add new events/fields, 
 
 | File | Purpose |
 |---|---|
-| `constants.ts` | Map size, extraction countdown, player tuning, `Layers`, `Keys` bindings |
+| `constants.ts` | Map size, extraction countdown, player tuning, `Layers`, `Keys` bindings. **숫자는 여기에 없다** — 이름 · 주석 · 타입만 있고 값은 `data/constants.csv` 에서 읽는다 (`K.num('MAP_SIZE')`) |
+| `data/csv.ts` | csv 파서 + 셀 접근자 (`num` · `int` · `bool` · `enum` · `list` · `costList`), `=상수` 식 계산기, 문제 수집(`dataIssues`). **아무것도 import 하지 않는다** — `constants.ts` 가 이것을 쓰므로 무엇을 가져와도 순환이 된다 |
+| `data/tables.ts` | `import.meta.glob(..., '?raw')` 로 `data/*.csv` 를 번들에 넣고 표 단위로 꺼내 준다: `csvRows` · `csvGroups` · `keyTable` · `numberMap` · `numberList` · `stringMap` · `stringList` · `costLevels`. `=` 식이 constants → tuning → `표.키` 순으로 이름을 찾도록 해석기를 꽂는다 |
+| `planetDefs.ts` | 행성 정의표 (`PLANET_DEFS`, `getPlanet`, `planetIndex`, `planetLabel`, `PLANET_THREAT_LABELS`) — `data/planets.csv` 를 읽으므로 **브라우저 전용**. 릴레이 서버가 Node 에서 직접 실행하는 `planets.ts` 와 갈라 두었다 |
 | `types.ts` | `GamePhase`, `MissionStats`, item/weapon defs, `*Ref` interfaces (World, Player, EnemyManager, Inventory, Loot), `Interactable`, `GameSystem` |
 | `events.ts` | `GameEvents` map: every bus event name → payload type, grouped by owning module |
 | `EventBus.ts` | Typed synchronous emitter (`on/once/off/emit`) |
 | `Input.ts` | Keyboard/mouse state with per-frame pressed/released sets, pointer lock helpers. `endFrame()` called by Engine |
 | `GameContext.ts` | Shared context: bus, input, interactables registry, scene/camera/renderer, module refs, phase, stats, `uiBlockers`, `isGameplayActive()` |
 | `Random.ts` | Seeded RNG (mulberry32) with `range/int/pick/weighted/shuffle/fork` |
+| `planets.ts` | 행성 **계약만** (`PlanetId`, `PLANET_IDS`, `isPlanetId`, `PLANET_NONE_LABEL`, `PLANET_STORAGE_KEY`). 서버가 Node 에서 그대로 실행하므로 csv 를 읽지 않는다 — 표는 `planetDefs.ts` |
 | `net.ts` | Multiplayer contract: lobby types, client↔server wire protocol (`ClientToServer`/`ServerToClient`), relayed `GameMessage` union (player/enemy snapshots, hit/explode requests, extraction/flow messages), `NetRef` (`ctx.net`), `RemotePlayerRef`/`RemoteAvatarRef`, `PlayerFlags`, tuning constants, slot colours, lobby-code helpers. Shared with the Node server (`server/`) — no runtime deps beyond plain constants |
 | `index.ts` | Barrel export — import via `@/shared` |
 
@@ -714,3 +718,29 @@ Plan: `docs/DECISIONS.md`. Everything below is append-only; owners in brackets.
   써야 한다: 보내는 쪽(`hub/parts/Hangar.shipStateWire`)은 프레임이 릴레이의 `MAX_MESSAGE_BYTES`(64 kB)를 넘지 않도록,
   받는 쪽(`net/model.sanitizeShipVisit`)은 이상한 문서가 콜라이더를 수천 개 만들지 못하도록 자른다. 넘는 프레임은
   서버가 **에러 없이 버리고** 보낸 쪽은 디바운스를 이미 올려 놓아 재전송되지 않는다.
+
+## Appended contract (2026-09-09, 수치의 csv 이관)
+
+**게임 수치의 단일 원본이 `data/*.csv` 로 옮겨졌다** ([data/README.md](../../data/README.md)). 이 폴더가 달라진 점:
+
+- `data/csv.ts` · `data/tables.ts` 가 새로 생겼고 `index.ts` 가 `./data/tables` 를 배럴로 내보낸다 —
+  기능 폴더는 `import { csvRows, keyTable, numberMap } from '@/shared'` 로 자기 표를 읽는다.
+- `constants.ts` 의 스칼라 375개가 `K.num('NAME')` / `K.bool('NAME')` 로 바뀌었다. **이름 · 주석 · 타입 ·
+  export 는 그대로**라서 읽는 쪽 코드는 한 줄도 바뀌지 않았다. 값만 `data/constants.csv` 로 갔다.
+  저장 형식 버전(`PROFILE_VERSION`, `SHIP_STATE_VERSION`)은 리터럴로 남겼다 — csv 오타가 세이브를 깨면 안 된다.
+- `constants.ts` 의 표들도 csv 로: `AMMO_STACK_ROUNDS` · `SEARCH_TIME_BY_RARITY` · `SEED_GROW_HOURS_BY_RARITY` ·
+  `BOOK_RARITY_MUL` · `ARMOR_DR_BY_TIER` · `STASH_ROWS_BY_STORAGE_LEVEL` · `PRESETS_BY_RANGE_LEVEL` ·
+  `QUICK_SLOT_UNLOCK_ORDER` · `PLAYER_CARRY_OFFSET` · `ARMOR_IMMUNE_AMMO` → `data/tables.csv`,
+  `STRATAGEM_DEFS` → `data/stratagems.csv`, `*_UPGRADE_COST` 4종 → `data/facility_upgrades.csv`.
+- `meta.ts` (`CORP_DEFS` · `CONTRACT_DEFS` · `QUEST_DEFS` · `REP_TABLE` · 가격 계수) 와
+  `housing.ts` (`FURNITURE_DEFS` · `ROOM_PURPOSE_BUILD_COST`) 도 csv 를 읽는다.
+- **`planets.ts` 가 둘로 갈라졌다.** 서버(`server/RelayServer.ts`)가 `isPlanetId` 하나 때문에 이 파일을 Node 에서
+  직접 실행하는데, csv 로더는 Vite 안에서만 산다. 계약(`PlanetId` · `PLANET_IDS` · `isPlanetId`)은 `planets.ts` 에
+  남고 표는 `planetDefs.ts` 로 갔다. 배럴이 둘 다 내보내므로 `@/shared` 쓰는 쪽에서는 차이가 없다.
+- 같은 이유로 `data/csv.ts` · `data/tables.ts` 는 **`erasableSyntaxOnly` 를 지킨다** (생성자 파라미터 프로퍼티 금지,
+  `import.meta.glob` 은 지역 타입으로 좁혀 씀) — 서버 tsconfig 가 이 파일들까지 훑기 때문이다.
+- 가젯 정의표에 리터럴로 박혀 있던 여섯 값이 상수가 되었다: `GADGET_BARRICADE_RADIUS` · `GADGET_LURE_HP` ·
+  `GADGET_MINE_HP` · `GADGET_DEFIB_RANGE` · `GADGET_JUMPPAD_HP` · `GADGET_JUMPPAD_RADIUS`.
+
+**규칙:** 새 수치는 csv 에 줄을 만들고 여기에는 이름만 낸다. 잘못된 칸은 던지지 않고 기본값으로 굴러가며
+(`dataIssues()` 에 쌓인다), `npm run data:check` 가 그 목록을 보고 실패한다.

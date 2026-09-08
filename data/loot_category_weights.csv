@@ -1,0 +1,65 @@
+# 티어별 카테고리 가중치. 줄을 지우면 그 티어에서 그 카테고리는 절대 안 나온다.
+# category 는 코드가 찾는 값이므로 바꾸지 않는다.
+tier,category,weight
+# 티어 1 — 보급 상자
+1,ammo,30
+1,stim,18
+1,grenade,16
+1,material,20
+1,valuable,16
+1,attachment,6
+1,gadget,6
+1,herb,8
+1,armor,1
+1,seed,4
+
+# 티어 2 — 군수 상자
+2,ammo,20
+2,stim,14
+2,grenade,12
+2,material,16
+2,valuable,38
+2,attachment,10
+2,bag,3
+2,gadget,9
+2,herb,5
+2,armor,4
+2,seed,4
+2,book,3
+2,implant,2
+
+# 티어 3 — 귀중품 금고
+3,ammo,12
+3,stim,12
+3,grenade,8
+3,material,14
+3,valuable,54
+3,attachment,12
+3,bag,6
+3,gadget,11
+3,herb,3
+3,armor,4
+3,seed,3
+3,book,3
+3,implant,3
+
+# 티어 4 — 희귀 캐시
+4,ammo,10
+4,stim,12
+4,grenade,8
+4,material,10
+4,valuable,60
+4,attachment,12
+4,bag,8
+4,gadget,12
+4,herb,2
+4,armor,7
+4,book,2
+4,implant,4
+
+# 티어 5 — 보급 투하 상자
+5,ammo,45
+5,stim,30
+5,grenade,25
+5,material,4
+

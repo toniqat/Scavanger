@@ -1,0 +1,70 @@
+# 적 시체에서 나오는 아이템. chance 1 = 항상, 수량은 qtyMin..qtyMax 에서 뽑는다.
+# type 은 data/enemies.csv 의 적 종류와 같아야 한다. 줄을 지우면 그 드랍이 사라진다.
+type,defId,qtyMin,qtyMax,chance
+# scavenger
+scavenger,mat_bio_sample,1,3,1
+scavenger,terminid_gland,1,1,0.25
+scavenger,seed_bloodroot,1,1,0.04
+scavenger,seed_ashleaf,1,1,0.02
+scavenger,seed_glowcap,1,1,0.006
+
+# hunter
+hunter,mat_bio_sample,1,3,1
+hunter,terminid_gland,1,1,0.25
+hunter,seed_bloodroot,1,1,0.04
+hunter,seed_ashleaf,1,1,0.02
+hunter,seed_glowcap,1,1,0.006
+
+# warrior
+warrior,mat_bio_sample,1,3,1
+warrior,terminid_gland,1,1,0.25
+warrior,seed_bloodroot,1,1,0.04
+warrior,seed_ashleaf,1,1,0.02
+warrior,seed_glowcap,1,1,0.006
+
+# spewer
+spewer,mat_bio_sample,1,3,1
+spewer,terminid_gland,1,1,0.6
+spewer,seed_bloodroot,1,1,0.04
+spewer,seed_ashleaf,1,1,0.02
+spewer,seed_glowcap,1,1,0.006
+
+# charger
+charger,mat_bio_sample,1,3,1
+charger,terminid_gland,1,1,0.25
+charger,seed_bloodroot,1,1,0.04
+charger,seed_ashleaf,1,1,0.02
+charger,seed_glowcap,1,1,0.006
+charger,mat_alloy,1,2,0.4
+
+# toxic
+toxic,mat_bio_sample,1,2,1
+toxic,terminid_gland,1,1,0.35
+toxic,seed_bloodroot,1,1,0.04
+toxic,seed_ashleaf,1,1,0.02
+toxic,seed_glowcap,1,1,0.006
+
+# artillery
+artillery,mat_bio_sample,2,3,1
+artillery,mat_power_cell,1,1,0.5
+artillery,seed_bloodroot,1,1,0.04
+artillery,seed_ashleaf,1,1,0.02
+artillery,seed_glowcap,1,1,0.006
+
+# behemoth
+behemoth,mat_alloy,2,4,1
+behemoth,terminid_gland,1,2,1
+behemoth,alien_artifact,1,1,0.3
+behemoth,seed_bloodroot,1,1,0.04
+behemoth,seed_ashleaf,1,1,0.02
+behemoth,seed_glowcap,1,1,0.006
+
+# rogue
+rogue,heal_bandage,1,1,0.3
+rogue,grenade_frag,1,1,0.2
+rogue,mat_machine_parts,1,1,0.12
+
+# rogue_boss
+rogue_boss,heal_bandage,1,2,1
+rogue_boss,mat_machine_parts,1,2,0.6
+

@@ -1,5 +1,10 @@
 import type { ItemDef, PerkId, Rarity, StatId } from '@/shared';
-import { CATEGORY_COLOR, CATEGORY_ICON, PERK_DEFS, RARITY_COLORS, STAT_IDS } from '@/shared';
+import { CATEGORY_COLOR, CATEGORY_ICON, PERK_DEFS, RARITY_COLORS, STAT_IDS, csvRows, keyTable, numberMap } from '@/shared';
+
+/* 수치의 원본: 등급별 장착칸 = `data/tables.csv` 의 IMPLANT_SLOTS_BY_GRADE,
+ * 등급별 가격 · 수리 재료 = `data/implants_repair.csv`, 퍽 임플란트 = `data/implants_perks.csv`,
+ * 무게 · 망가진 것의 가격 배수 = `data/tuning.csv`. 이름과 설명문은 여기서 만들어진다. */
+const T = /* data/tuning.csv */ keyTable('tuning.csv');
 
 /* ────────────────────────────────────────────────────────────────────────────
  * 임플란트 아이템 (Phase 12, 2026-09-08 — `docs/DECISIONS.md` Phase 12).
@@ -32,7 +37,8 @@ export const IMPLANT_GRADES: readonly ImplantGrade[] = [1, 2, 3, 4];
 const ROMAN: Readonly<Record<ImplantGrade, string>> = { 1: 'I', 2: 'II', 3: 'III', 4: 'IV' };
 const GRADE_RARITY: Readonly<Record<ImplantGrade, Rarity>> = { 1: 'common', 2: 'uncommon', 3: 'rare', 4: 'epic' };
 /** Slot cost per grade (I 1 · II 2 · III 2 · IV 3); legendaries set theirs individually. */
-export const IMPLANT_SLOTS_BY_GRADE: Readonly<Record<ImplantGrade, number>> = { 1: 1, 2: 2, 3: 2, 4: 3 };
+export const IMPLANT_SLOTS_BY_GRADE: Readonly<Record<ImplantGrade, number>> =
+  numberMap<`${ImplantGrade}`>('tables.csv', 'IMPLANT_SLOTS_BY_GRADE') as unknown as Readonly<Record<ImplantGrade, number>>;
 
 /** 한국어 stat names (progression/defs.ts owns the full StatDef table; items only needs the label for the item name). */
 export const IMPLANT_STAT_NAME_KO: Readonly<Record<StatId, string>> = {
@@ -46,22 +52,19 @@ const STAT_FLAVOR_KO: Readonly<Record<StatId, string>> = {
   dexterity: '소근육 반응 지연을 줄이는 운동 피질 보조기',
 };
 
-/** Sale value by rarity (세레스 바이오 prices off `value`); a broken one is worth a quarter. */
-export const IMPLANT_VALUE_BY_RARITY: Readonly<Record<Rarity, number>> = {
-  common: 400, uncommon: 900, rare: 1800, epic: 3600, legendary: 7500,
-};
-export const BROKEN_IMPLANT_VALUE_DIV = 4;
+/** `data/implants_repair.csv` — 등급별 가격과 수리 재료. */
+const IMPLANT_REPAIR_ROWS = csvRows('implants_repair.csv');
 
-/** Repair materials at 세레스 바이오, growing with grade; legendaries use the `legendary` row. Existing material ids only. */
-export const IMPLANT_REPAIR_COST: Readonly<Record<Rarity, ReadonlyArray<{ defId: string; qty: number }>>> = {
-  common: [{ defId: 'mat_circuit', qty: 1 }, { defId: 'mat_cable', qty: 1 }],
-  uncommon: [{ defId: 'mat_circuit', qty: 1 }, { defId: 'mat_cable', qty: 1 }, { defId: 'mat_alloy', qty: 1 }],
-  rare: [{ defId: 'mat_circuit', qty: 2 }, { defId: 'mat_cable', qty: 2 }, { defId: 'mat_alloy', qty: 1 }],
-  epic: [{ defId: 'mat_circuit', qty: 2 }, { defId: 'mat_cable', qty: 2 }, { defId: 'mat_alloy', qty: 1 }, { defId: 'mat_antiseptic', qty: 1 }],
-  legendary: [{ defId: 'mat_circuit', qty: 3 }, { defId: 'mat_cable', qty: 3 }, { defId: 'mat_alloy', qty: 2 }, { defId: 'mat_antiseptic', qty: 1 }],
-};
+/** Sale value by rarity (세레스 바이오 prices off `value`); a broken one is worth `1 / BROKEN_IMPLANT_VALUE_DIV`. */
+export const IMPLANT_VALUE_BY_RARITY: Readonly<Record<Rarity, number>> =
+  Object.fromEntries(IMPLANT_REPAIR_ROWS.map((r) => [r.str('rarity'), r.int('value', { min: 1 })])) as Record<Rarity, number>;
+export const BROKEN_IMPLANT_VALUE_DIV = T.num('BROKEN_IMPLANT_VALUE_DIV');
 
-const IMPLANT_WEIGHT = 0.2;
+/** Repair materials at 세레스 바이오, growing with grade; legendaries use the `legendary` row. */
+export const IMPLANT_REPAIR_COST: Readonly<Record<Rarity, ReadonlyArray<{ defId: string; qty: number }>>> =
+  Object.fromEntries(IMPLANT_REPAIR_ROWS.map((r) => [r.str('rarity'), r.costList('repairCost')])) as Record<Rarity, { defId: string; qty: number }[]>;
+
+const IMPLANT_WEIGHT = T.num('IMPLANT_WEIGHT');
 const IMPLANT_ICON = CATEGORY_ICON.implant;
 const IMPLANT_COLOR = CATEGORY_COLOR.implant;
 /** A broken implant reads grey-violet so it is never mistaken for a working one on a tile. */
@@ -117,11 +120,11 @@ function statImplant(stat: StatId, grade: ImplantGrade): ItemDef {
 }
 
 interface PerkSpec { perk: PerkId; slots: number; stat: StatId }
-const PERK_SPECS: readonly PerkSpec[] = [
-  { perk: 'auto_revive', slots: 3, stat: 'endurance' },
-  { perk: 'quick_heal', slots: 2, stat: 'dexterity' },
-  { perk: 'kill_stamina', slots: 3, stat: 'strength' },
-];
+const PERK_SPECS: readonly PerkSpec[] = csvRows('implants_perks.csv').map((r) => ({
+  perk: r.str('perk') as PerkId,
+  slots: r.int('slots', { min: 1 }),
+  stat: r.str('stat') as StatId,
+}));
 
 function perkImplant(spec: PerkSpec): ItemDef {
   const def = PERK_DEFS[spec.perk];

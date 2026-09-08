@@ -1,25 +1,44 @@
 import type { EnemyType, ItemCategory, Rarity, WeaponGrade } from '@/shared';
-import { UNIQUE_WEAPON_IDS } from '@/shared';
+import { UNIQUE_WEAPON_IDS, csvGroups, csvRows } from '@/shared';
+
+/*
+ * 루팅 수치의 원본은 `data/loot_*.csv` 다 — 티어 굴림 규칙(`loot_tiers.csv`), 카테고리 가중치,
+ * 확정 픽, 아이템별 배수, 그리고 시체 드랍(`loot_corpses.csv` · `loot_corpse_rolls.csv`).
+ * 이 파일에는 표가 없고 그 줄들을 타입 있는 표로 옮기는 코드만 있다.
+ */
 import { WEAPON_FAMILIES } from './WeaponDefs';
 import { UNIQUE_AMMO_TYPES, ammoItemIdFor, itemIdForWeapon } from './ItemDefs';
 import { IMPLANT_BROKEN_DEFS, IMPLANT_WORKING_DEFS } from './ImplantDefs';
 
-/* ── Phase 6 helpers: weight records for the six uniques / their ammo / graded families ── */
+/* ── 묶음 토큰 ─────────────────────────────────────────────────────────────
+ * `loot_item_weights.csv` 의 `target` 은 아이템 id 하나이거나 `@` 로 시작하는 묶음이다.
+ * 묶음은 "이 티어에서는 유니크 전부 0" 같은 규칙을 한 줄로 적기 위한 것이다. */
 const record = (ids: readonly string[], mul: number): Record<string, number> => Object.fromEntries(ids.map((id) => [id, mul]));
-/*
- * Phase 12 (2026-09-08): 임플란트 in containers. Only **broken** ones ever drop (working implants are 세레스 바이오's), so
- * every working def is zeroed wherever the category has weight; broken legendaries (the perk implants) are tier 4 / boss
- * only. `byRarity` scales the broken ones on top of the tier's `rarityWeights` so a higher grade stays the rarer find.
- */
-const workingImplants = (): Record<string, number> => record(IMPLANT_WORKING_DEFS.map((d) => d.id), 0);
-const brokenImplants = (byRarity: Partial<Record<Rarity, number>>): Record<string, number> =>
-  Object.fromEntries(IMPLANT_BROKEN_DEFS.map((d) => [d.id, byRarity[d.rarity] ?? 1]));
-/** `wpn_u_*` → mul (exact item ids; a unique is its own family). */
-const uniqueWeapons = (mul: number): Record<string, number> => record(UNIQUE_WEAPON_IDS.map(itemIdForWeapon), mul);
-/** `ammo_fuel` … `ammo_belt` → mul. */
-const uniqueAmmo = (mul: number): Record<string, number> => record(UNIQUE_AMMO_TYPES.map(ammoItemIdFor), mul);
-/** Every graded family (`ar` … `hg`, all grades) → mul. */
-const gradedFamilies = (mul: number): Record<string, number> => record(WEAPON_FAMILIES, mul);
+
+/** `@토큰` → 그 토큰이 가리키는 아이템 id 목록. */
+const WEIGHT_GROUPS: Readonly<Record<string, () => readonly string[]>> = {
+  /** `wpn_u_*` (유니크는 자기 자신이 계열이다). */
+  '@unique_weapons': () => UNIQUE_WEAPON_IDS.map(itemIdForWeapon),
+  /** `ammo_fuel` … `ammo_belt`. */
+  '@unique_ammo': () => UNIQUE_AMMO_TYPES.map(ammoItemIdFor),
+  /** 등급 무기 6계열 (`ar` … `hg`, 모든 등급). */
+  '@graded_families': () => WEAPON_FAMILIES,
+  /** 정상 임플란트 전부 — 상자에서는 절대 안 나오므로 대개 0 이다. */
+  '@working_implants': () => IMPLANT_WORKING_DEFS.map((d) => d.id),
+};
+/** `@broken_implants.<rarity>` — 그 등급의 망가진 임플란트. */
+const BROKEN_IMPLANT_PREFIX = '@broken_implants.';
+
+function expandWeightTarget(target: string): readonly string[] {
+  if (!target.startsWith('@')) return [target];
+  const group = WEIGHT_GROUPS[target];
+  if (group) return group();
+  if (target.startsWith(BROKEN_IMPLANT_PREFIX)) {
+    const rarity = target.slice(BROKEN_IMPLANT_PREFIX.length);
+    return IMPLANT_BROKEN_DEFS.filter((d) => d.rarity === rarity).map((d) => d.id);
+  }
+  return [];
+}
 
 /**
  * Per-tier crate tables. Rolling picks a category by `categoryWeights`, then an
@@ -56,87 +75,47 @@ export interface TierTable {
   itemWeightMul?: Readonly<Record<string, number>>;
 }
 
-export const LOOT_TABLES: readonly TierTable[] = [
-  {
-    tier: 1, label: '보급 상자', count: [2, 3],
-    rarityWeights: { common: 80, uncommon: 18, rare: 2, epic: 0, legendary: 0 },
-    categoryWeights: { ammo: 30, stim: 18, grenade: 16, material: 20, valuable: 16, attachment: 6, gadget: 6, herb: 8, armor: 1, seed: 4 },
-    weaponChance: 0, maxStackQty: 3, ammoFraction: [0.25, 0.5], guaranteed: [],
-    // heavy deployables never in a supply crate; unique ammo / housing materials start at tier 2+
-    // Phase 8: 씨앗 are a modest category here (weight 4 of ~125) and the rarity weights keep tier 1 to 혈근초 씨앗 almost always
-    itemWeightMul: {
-      gad_turret: 0, gad_dome_shield: 0, ...uniqueAmmo(0), mat_cable: 0, mat_circuit: 0,
-      /* 폐금속 공급 (2026-09-08): 기계 부품은 로그의 것 — 보급 상자에는 없고 티어 2+ 에서만 */
-      mat_machine_parts: 0,
-      /* 2026-09-07: 붕대 재료는 저티어에서 흔하게, 주사기 / 소독약은 나오지 않는다 (제작으로만) */
-      mat_cloth: 2.5, mat_can: 1.5, mat_syringe: 0, mat_antiseptic: 0,
-    },
-  },
-  {
-    tier: 2, label: '군수 상자', count: [3, 4],
-    rarityWeights: { common: 45, uncommon: 38, rare: 15, epic: 2, legendary: 0 },
-    categoryWeights: { ammo: 20, stim: 14, grenade: 12, material: 16, valuable: 38, attachment: 10, bag: 3, gadget: 9, herb: 5, armor: 4, seed: 4, book: 3, implant: 2 },
-    weaponChance: 0.35, maxStackQty: 4, ammoFraction: [0.35, 0.7],
-    guaranteed: [{ categories: ['valuable'], minRarity: 'uncommon' }],
-    // SMGs are field-common; snipers rarely in supply crates; legendary gear is tier 3+ only; 전력 케이블 / 회로 기판 from here (circuit scarce)
-    itemWeightMul: {
-      wpn_smg: 1.3, wpn_sr: 0.35,
-      armor_regen: 0, armor_ultralight: 0, armor_optical: 0,
-      ...uniqueAmmo(0), mat_cable: 1.2, mat_circuit: 0.3, mat_machine_parts: 0.6,
-      mat_cloth: 2, mat_can: 1.5, mat_syringe: 0.8, mat_antiseptic: 0,
-      /* Phase 12: 망가진 임플란트 only — mostly I / II here, no legendaries */
-      ...workingImplants(), ...brokenImplants({ common: 1, uncommon: 0.7, rare: 0.4, epic: 0.2, legendary: 0 }),
-    },
-  },
-  {
-    tier: 3, label: '귀중품 금고', count: [4, 5],
-    rarityWeights: { common: 15, uncommon: 30, rare: 40, epic: 14, legendary: 1 },
-    categoryWeights: { ammo: 12, stim: 12, grenade: 8, material: 14, valuable: 54, attachment: 12, bag: 6, gadget: 11, herb: 3, armor: 4, seed: 3, book: 3, implant: 3 },
-    weaponChance: 0.55, maxStackQty: 5, ammoFraction: [0.5, 0.85],
-    guaranteed: [{ categories: ['valuable'], minRarity: 'rare' }],
-    // uniques are tier 4+ / 5 / boss only (legendary weight 1 here would otherwise leak them)
-    itemWeightMul: {
-      wpn_sr: 1.2, ...uniqueWeapons(0), ...uniqueAmmo(0), mat_circuit: 0.6, mat_machine_parts: 0.8,
-      mat_cloth: 1.2, mat_can: 1, mat_syringe: 1, mat_antiseptic: 0,
-      /* Phase 12: 망가진 임플란트 up to IV, still no legendaries */
-      ...workingImplants(), ...brokenImplants({ common: 1, uncommon: 1, rare: 0.7, epic: 0.4, legendary: 0 }),
-    },
-  },
-  {
-    tier: 4, label: '희귀 캐시', count: [5, 6],
-    rarityWeights: { common: 5, uncommon: 15, rare: 40, epic: 30, legendary: 10 },
-    categoryWeights: { ammo: 10, stim: 12, grenade: 8, material: 10, valuable: 60, attachment: 12, bag: 8, gadget: 12, herb: 2, armor: 7, book: 2, implant: 4 },
-    weaponChance: 1, maxStackQty: 6, ammoFraction: [0.6, 1],
-    guaranteed: [
-      { categories: ['valuable'], minRarity: 'epic' },
-      { categories: ['primary', 'secondary'], minRarity: 'common' },
-      { categories: ['armor', 'bag', 'gadget'], minRarity: 'rare' },
-    ],
-    // Uniques: 6 × (10 × 0.25) = 15 of the ~97 legendary weapon weight (≈ 15 % of legendary weapon rolls, ≈ 2 % of all
-    // tier-4 weapons). Their ammo: rare (40) × 0.025 = 1 each vs 4 × 5 for the standard calibres (≈ 23 % of ammo picks);
-    // a rolled unique always brings one stack of its calibre on top (`rollCrate`).
-    // Phase 12: the only container tier where a broken **legendary** (perk) implant can turn up
-    itemWeightMul: { wpn_sr: 1.5, wpn_smg: 0.7, ...uniqueWeapons(0.25), ...uniqueAmmo(0.025), ...workingImplants(), ...brokenImplants({ legendary: 0.5 }) },
-  },
-  /*
-   * Phase 3: ship-call supply drop (`SUPPLY_CRATE_TIER`) — consumables only, no valuables.
-   * Phase 6: 3 % of drops carry a unique (the only weapons allowed here — every graded family is zeroed),
-   * a little unique ammo, and 회로 기판 as the only material.
-   */
-  {
-    tier: 5, label: '보급 투하 상자', count: [4, 6],
-    rarityWeights: { common: 60, uncommon: 35, rare: 5, epic: 0, legendary: 1 },
-    categoryWeights: { ammo: 45, stim: 30, grenade: 25, material: 4 },
-    weaponChance: 0.03, maxStackQty: 6, ammoFraction: [0.6, 1],
-    guaranteed: [{ categories: ['stim'], minRarity: 'common' }, { categories: ['ammo'], minRarity: 'common' }],
-    itemWeightMul: {
-      ...gradedFamilies(0), ...uniqueWeapons(1), ...uniqueAmmo(0.3),
-      mat_scrap: 0, mat_bio_sample: 0, mat_alloy: 0, mat_power_cell: 0, mat_gunpowder: 0, mat_cable: 0, mat_circuit: 1,
-      mat_machine_parts: 0,
-      mat_cloth: 0, mat_can: 0, mat_syringe: 0, mat_antiseptic: 0,
-    },
-  },
-];
+const RARITY_ORDER_5: readonly Rarity[] = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
+
+/** 티어별 카테고리 가중치 / 확정 픽 / 아이템 배수를 티어 번호로 모아 둔다. */
+const CATEGORY_WEIGHTS_BY_TIER = csvGroups('loot_category_weights.csv', 'tier');
+const GUARANTEED_BY_TIER = csvGroups('loot_guaranteed.csv', 'tier');
+const ITEM_WEIGHTS_BY_TIER = csvGroups('loot_item_weights.csv', 'tier');
+
+export const LOOT_TABLES: readonly TierTable[] = csvRows('loot_tiers.csv').map((r) => {
+  const tier = r.int('tier', { min: 1 });
+  const key = String(tier);
+
+  const categoryWeights: Partial<Record<ItemCategory, number>> = {};
+  for (const c of CATEGORY_WEIGHTS_BY_TIER.get(key) ?? []) {
+    categoryWeights[c.str('category') as ItemCategory] = c.num('weight', { min: 0 });
+  }
+
+  const itemWeightMul: Record<string, number> = {};
+  for (const w of ITEM_WEIGHTS_BY_TIER.get(key) ?? []) {
+    const target = w.str('target');
+    const mul = w.num('mul', { min: 0 });
+    const ids = expandWeightTarget(target);
+    if (!ids.length) w.report('target', `'${target}' 이 가리키는 아이템이 없다`);
+    Object.assign(itemWeightMul, record(ids, mul));
+  }
+
+  return {
+    tier,
+    label: r.str('label'),
+    count: [r.int('countMin', { min: 0 }), r.int('countMax', { min: 0 })] as const,
+    rarityWeights: Object.fromEntries(RARITY_ORDER_5.map((q) => [q, r.num(q, { min: 0 })])) as Record<Rarity, number>,
+    categoryWeights,
+    weaponChance: r.num('weaponChance', { min: 0, max: 1 }),
+    maxStackQty: r.int('maxStackQty', { min: 1 }),
+    ammoFraction: [r.num('ammoFracMin', { min: 0 }), r.num('ammoFracMax', { min: 0 })] as const,
+    guaranteed: (GUARANTEED_BY_TIER.get(key) ?? []).map((g) => ({
+      categories: g.list('categories') as ItemCategory[],
+      minRarity: g.str('minRarity') as Rarity,
+    })),
+    itemWeightMul,
+  };
+});
 
 export const LOOT_TABLE_MAP: ReadonlyMap<number, TierTable> = new Map(LOOT_TABLES.map((t) => [t.tier, t]));
 
@@ -190,6 +169,8 @@ export interface CorpseImplant {
   weights: Readonly<Partial<Record<Rarity, number>>>;
 }
 
+const CORPSE_ROLLS = new Map(csvRows('loot_corpse_rolls.csv').map((r) => [r.str('type'), r]));
+
 export interface CorpseTable {
   type: EnemyType;
   drops: readonly CorpseDrop[];
@@ -204,64 +185,49 @@ export interface CorpseTable {
 }
 
 /**
- * Phase 8: bugs graze on the local flora, so an undigested 씨앗 turns up in a bug corpse now and then
- * (≈ 6.5 % of bug corpses carry one). Rogues never do — 씨앗 are otherwise loot (tier 1–3) or 기업 상점 only.
- * Phase 9: 서적 go the other way — rogue 3 % / boss 20 % (`CorpseTable.book`), never on a bug; tiers 2–4 carry `book: 3 / 3 / 2`.
+ * 시체 드랍 — `data/loot_corpses.csv` (아이템) + `data/loot_corpse_rolls.csv` (총 · 서적 · 임플란트 · 유니크).
+ * Phase 8: bugs graze on the local flora, so an undigested 씨앗 turns up in a bug corpse now and then.
+ * Phase 9: 서적 go the other way — rogues only (`CorpseTable.book`), never on a bug.
  */
-const BUG_SEEDS: readonly CorpseDrop[] = [
-  { defId: 'seed_bloodroot', qty: [1, 1], chance: 0.04 },
-  { defId: 'seed_ashleaf', qty: [1, 1], chance: 0.02 },
-  { defId: 'seed_glowcap', qty: [1, 1], chance: 0.006 },
-];
+const CORPSE_DROPS_BY_TYPE = csvGroups('loot_corpses.csv', 'type');
 
-const BUG_BASE: readonly CorpseDrop[] = [
-  { defId: 'mat_bio_sample', qty: [1, 3], chance: 1 },
-  { defId: 'terminid_gland', qty: [1, 1], chance: 0.25 },
-  ...BUG_SEEDS,
-];
-const ROGUE_AMMO: readonly [number, number] = [0.3, 0.6];
-
-export const CORPSE_TABLES: readonly CorpseTable[] = [
-  { type: 'scavenger', drops: BUG_BASE },
-  { type: 'hunter', drops: BUG_BASE },
-  { type: 'warrior', drops: BUG_BASE },
-  { type: 'spewer', drops: [{ defId: 'mat_bio_sample', qty: [1, 3], chance: 1 }, { defId: 'terminid_gland', qty: [1, 1], chance: 0.6 }, ...BUG_SEEDS] },
-  { type: 'charger', drops: [...BUG_BASE, { defId: 'mat_alloy', qty: [1, 2], chance: 0.4 }] },
-  { type: 'toxic', drops: [{ defId: 'mat_bio_sample', qty: [1, 2], chance: 1 }, { defId: 'terminid_gland', qty: [1, 1], chance: 0.35 }, ...BUG_SEEDS] },
-  { type: 'artillery', drops: [{ defId: 'mat_bio_sample', qty: [2, 3], chance: 1 }, { defId: 'mat_power_cell', qty: [1, 1], chance: 0.5 }, ...BUG_SEEDS] },
-  {
-    type: 'behemoth',
-    drops: [
-      { defId: 'mat_alloy', qty: [2, 4], chance: 1 },
-      { defId: 'terminid_gland', qty: [1, 2], chance: 1 },
-      { defId: 'alien_artifact', qty: [1, 1], chance: 0.3 },
-      ...BUG_SEEDS,
-    ],
-  },
-  {
-    type: 'rogue', ammoFraction: ROGUE_AMMO,
-    drops: [
-      { defId: 'heal_bandage', qty: [1, 1], chance: 0.3 }, { defId: 'grenade_frag', qty: [1, 1], chance: 0.2 },
-      /* 폐금속 공급 (2026-09-08): 로그 장비에서 뜯어낸 기계 부품 — `break_machine_parts` 로 폐금속 3 + 케이블 1 */
-      { defId: 'mat_machine_parts', qty: [1, 1], chance: 0.12 },
-    ],
-    weapon: { durability: [0.05, 0.15] },
-    book: { chance: 0.03 },
-    implant: { chance: 0.06, weights: { common: 55, uncommon: 30, rare: 12, epic: 3 } },
-  },
-  {
-    type: 'rogue_boss', ammoFraction: ROGUE_AMMO,
-    drops: [
-      { defId: 'heal_bandage', qty: [1, 2], chance: 1 },
-      /* 폐금속 공급 (2026-09-08): 보스는 기계 부품을 확실히, 때로 2개 */
-      { defId: 'mat_machine_parts', qty: [1, 2], chance: 0.6 },
-    ],
-    weapon: { durability: [0.4, 0.7], grades: [3, 4], attachment: { maxRarity: 'epic' } },
-    unique: { chance: 0.2, durability: [0.5, 0.8] },
-    book: { chance: 0.2 },
-    implant: { chance: 0.45, weights: { common: 10, uncommon: 25, rare: 30, epic: 25, legendary: 10 } },
-  },
-];
+export const CORPSE_TABLES: readonly CorpseTable[] = [...CORPSE_DROPS_BY_TYPE.keys()]
+  .filter((type) => !!type)
+  .map((type) => {
+    const drops: CorpseDrop[] = (CORPSE_DROPS_BY_TYPE.get(type) ?? []).map((d) => ({
+      defId: d.str('defId'),
+      qty: [d.int('qtyMin', { min: 0 }), d.int('qtyMax', { min: 0 })] as const,
+      chance: d.num('chance', { min: 0, max: 1 }),
+    }));
+    const roll = CORPSE_ROLLS.get(type);
+    return {
+      type: type as EnemyType,
+      drops,
+      ...(roll?.has('ammoFracMin') ? {
+        ammoFraction: [roll.num('ammoFracMin', { min: 0 }), roll.num('ammoFracMax', { min: 0 })] as const,
+      } : {}),
+      ...(roll?.has('weaponDurMin') ? {
+        weapon: {
+          durability: [roll.num('weaponDurMin', { min: 0, max: 1 }), roll.num('weaponDurMax', { min: 0, max: 1 })] as const,
+          ...(roll.has('weaponGrades') ? { grades: roll.list('weaponGrades').map(Number) as WeaponGrade[] } : {}),
+          ...(roll.has('weaponAttachMaxRarity') ? { attachment: { maxRarity: roll.str('weaponAttachMaxRarity') as Rarity } } : {}),
+        },
+      } : {}),
+      ...(roll?.has('uniqueChance') ? {
+        unique: {
+          chance: roll.num('uniqueChance', { min: 0, max: 1 }),
+          durability: [roll.num('uniqueDurMin', { min: 0, max: 1 }), roll.num('uniqueDurMax', { min: 0, max: 1 })] as const,
+        },
+      } : {}),
+      ...(roll?.has('bookChance') ? { book: { chance: roll.num('bookChance', { min: 0, max: 1 }) } } : {}),
+      ...(roll?.has('implantChance') ? {
+        implant: {
+          chance: roll.num('implantChance', { min: 0, max: 1 }),
+          weights: Object.fromEntries(roll.costList('implantWeights').map((c) => [c.defId, c.qty])) as Partial<Record<Rarity, number>>,
+        },
+      } : {}),
+    };
+  });
 
 export const CORPSE_TABLE_MAP: ReadonlyMap<EnemyType, CorpseTable> = new Map(CORPSE_TABLES.map((t) => [t.type, t]));
 

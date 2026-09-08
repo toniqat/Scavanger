@@ -1,0 +1,12 @@
+# 전설 유니크 무기 6종. 등급이 없고 부착물도 안 받는 고정 수치다.
+# id · kind 는 코드가 찾는 값이므로 바꾸지 않는다 (kind 가 src/weapons/unique 의 동작을 고른다).
+# 이름은 「nickname」 + kind 라벨로 만들어진다.
+# `=상수` 는 data/constants.csv 의 값을 그대로 쓴다는 뜻 — 실제 동작 코드도 같은 상수를 보므로 여기서 숫자를 베끼지 않는다.
+# 연속 무기(화염·전격)의 damage 는 초당 피해, ammoPerSec 는 초당 탄약 소모다.
+id,nickname,kind,class,slot,ammoType,altFire,damage,altDamage,ammoPerSec,chargeTime,fireRate,magSize,reserveMags,reloadTime,spreadDeg,adsSpreadDeg,range,automatic,projectileSpeed,recoilDeg,tracerColor,falloffStart,falloffEnd,falloffMin,adsZoom,meleeMul,maxDurability,width,height,weight,value,icon,description
+u_flame,인페르노,flamethrower,AR,primary,fuel,true,=FLAME_DPS,=FLAME_ALT_DPS,=FLAME_FUEL_PER_SEC,,10,120,2,3.2,=FLAME_CONE_DEG/2,=FLAME_ALT_CONE_DEG/2,=FLAME_RANGE,true,,0.05,0xff7a2a,,,,,1.3,1500,5,2,9.5,6800,⌐♨,연료를 태워 불길을 뿜는 화염방사기. 좌클릭: 넓은 화염 분사 (지속 피해 + 잔불). 우클릭: 길고 가는 화염 제트. 열이 쌓인 적은 전소되어 몸부림친다. 정조준 없음.
+u_shock,테슬라 코일,shockgun,DMR,primary,cell,true,=SHOCK_DPS,=SHOCK_CHARGE_DAMAGE,=SHOCK_CELL_PER_SEC,=SHOCK_CHARGE_TIME,=1/SHOCK_CHARGE_TIME,48,2,2.8,=SHOCK_CONE_DEG/2,0.1,=SHOCK_RANGE,true,,0.4,0x9fe8ff,14,200,0.7,,1.2,1200,4,2,6.2,7200,⌐⚡,테슬라 코일 전격총. 좌클릭: 시야 안 최대 4마리에게 동시에 전격 (감전·둔화). 우클릭: 충전 후 놓으면 고위력 전격탄. 정조준 없음.
+u_shuriken,카게,shuriken,SMG,primary,shuriken,true,=SHURIKEN_DAMAGE,,,,=SHURIKEN_FIRE_RATE,10,3,1.6,0.6,=SHURIKEN_TRIPLE_SPREAD_DEG,70,false,=SHURIKEN_SPEED,0.15,0xd8dde6,30,70,0.6,,1.8,900,3,2,2.4,5400,⌐✧,팔 보호구형 표창 발사기. 좌클릭: 표창 1개. 우클릭: 부채꼴로 3개. 근접(F) 홀드 후 놓으면 스태미나 절반을 써서 넓은 용검 베기. 정조준 없음.
+u_bow,롱혼,bow,DMR,primary,arrow,false,=BOW_DAMAGE,,,,=BOW_FIRE_RATE,12,2,2.2,1,0.08,=BOW_RANGE,false,=BOW_PROJECTILE_SPEED,0.5,0xc9a86a,80,150,0.75,1.6,1.1,700,5,2,3.6,5900,⌐),컴포짓 보우. 좌클릭: 직선으로 날아가는 화살 (낙차 없음). 우클릭: 정조준 (유니크 중 유일). 저격소총보다 짧지만 지정사수소총 연사.
+u_bazooka,해머헤드,bazooka,SR,primary,rocket,true,=BAZOOKA_DAMAGE,=BAZOOKA_ALT_DAMAGE,,,=BAZOOKA_FIRE_RATE,1,3,3,1.2,0.5,160,false,=BAZOOKA_SPEED,2.5,0xffc060,,,,,1.5,320,5,2,11.8,8400,⌐═▶,해머헤드 바주카. 좌클릭: 착탄 폭발 로켓 (구조물 파괴). 우클릭: 짧은 신관으로 공중 폭발. 폭발 반경 안에 있으면 자신도 피해와 넉백을 받는다 — 공중에서 발밑을 쏘면 로켓 점프. 정조준 없음.
+u_minigun,사이클론,minigun,AR,primary,belt,true,=MINIGUN_DAMAGE,,,=MINIGUN_SPINUP_TIME,=MINIGUN_FIRE_RATE,150,1,5,=MINIGUN_SPREAD_DEG,=MINIGUN_SPREAD_DEG,180,true,,0.2,0xffd27a,60,180,0.55,,1.6,3000,5,2,14.5,7600,⌐≣,"6총열 미니건. 좌클릭 홀드: 1.2초 예열 후 초당 24발 연사, 회전 중 이동 속도 55 %. 우클릭: 예열 유지. 정조준 없음."

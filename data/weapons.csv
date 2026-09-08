@@ -1,0 +1,13 @@
+# 무기 계열 6종의 등급 I 수치. 등급 II–V 는 constants.csv 의 WEAPON_GRADE_* 계단으로 코드가 만든다.
+# id · class · slot 은 코드가 찾는 값이므로 바꾸지 않는다. 이름(돌격소총 III …)은 class 라벨에서 만들어진다.
+# 각도는 도(°) 단위 — 코드가 라디안으로 바꾼다. tracerColor 는 0xRRGGBB.
+# falloff: 총구~피격점 거리가 falloffStart 까지는 ×1, falloffEnd 에서 falloffMin 까지 직선으로 준다.
+# pellets 는 산탄만 (빈 칸 = 1발). adsZoom/scope 는 배율 조준경이 붙는 계열만.
+# baseDurability = 등급 I 최대 내구도(발). width/height 는 인벤토리 칸, weight 는 kg, value 는 등급 I 판매가.
+id,class,slot,damage,pellets,fireRate,magSize,reserveMags,reloadTime,spreadDeg,adsSpreadDeg,range,automatic,recoilDeg,tracerColor,falloffStart,falloffEnd,falloffMin,adsZoom,scope,meleeMul,baseDurability,width,height,weight,value,icon,description
+ar,AR,primary,60,,10,45,6,2.4,1.4,0.3,220,true,0.35,0xffd27a,60,220,0.6,,,1.35,500,4,2,4.2,350,⌐╦,균형 잡힌 연사와 안정적인 반동의 표준 돌격소총. 준중량탄.
+smg,SMG,primary,32,,14,40,5,1.9,1.9,0.55,120,true,0.24,0xffe3a0,15,45,0.4,,,1.15,550,3,2,3.1,480,⌐╪,경량 기관단총. 근거리 연사에 특화되었으나 거리가 멀어질수록 위력이 급감. 경량탄.
+sg,SG,primary,22,8,1.3,8,4,3,5,3.5,42,false,1.4,0xffb070,8,30,0.25,,,1.5,200,3,2,4.6,520,⌐═,펌프액션 산탄총. 근거리에서 압도적인 제압력. 산탄.
+dmr,DMR,primary,120,,3,15,5,2.6,1.2,0.08,420,false,0.9,0xa8e6ff,120,400,0.75,1.6,,1.4,250,4,1,4.4,780,⌐──,반자동 지정사수소총. 원거리 정밀 사격에 최적화. 중량탄.
+sr,SR,primary,330,,0.9,5,4,3.4,4,0.03,700,false,2.2,0xd8f4ff,300,700,0.85,4,true,1.6,120,5,1,6.8,950,⌐───,볼트액션 저격소총. 4배율 조준경. 한 발로 대부분의 벌레를 무력화하지만 장전이 느리다. 중량탄.
+hg,PISTOL,secondary,45,,6,15,5,1.6,1.3,0.4,120,false,0.6,0xffe3a0,20,70,0.5,,,,350,2,1,1.1,140,⌐,신뢰할 수 있는 반자동 사이드암. 경량탄.

@@ -1,4 +1,9 @@
-import { BEHEMOTH_SCALE, ROGUE_BOSS_HP_MUL, ROGUE_BOSS_SCALE, type EnemyFaction, type EnemyType } from '@/shared';
+import { addDataIssue, csvRows, numberMap, stringMap, type EnemyFaction, type EnemyType } from '@/shared';
+
+/*
+ * 적 수치의 원본은 `data/enemies.csv` (종류별 기본 스탯) 과 `data/enemy_abilities.csv` (특수 능력) 이다.
+ * 이 파일에는 표가 없고 그 두 csv 를 타입 있는 객체로 옮기는 코드만 있다.
+ */
 
 /** Static gameplay tuning per enemy type. Visual/rig parameters live in models/BugParams.ts (bugs) / models/RogueModel.ts (rogues). */
 export interface EnemyStats {
@@ -42,90 +47,70 @@ export interface EnemyStats {
   staggerFraction: number;
 }
 
-export const ENEMY_STATS: Record<EnemyType, EnemyStats> = {
-  scavenger: {
-    type: 'scavenger', faction: 'bug', hp: 60, speed: 5.5, wanderSpeed: 1.6, radius: 0.45, height: 0.9, headRadius: 0.2,
-    attackDamage: 8, attackCooldown: 0.8, attackRange: 1.6, attackWindup: 0.18, turnRate: 8, accel: 22,
-    sightRadius: 40, hearRadius: 55, headMul: 2, rearMul: 1, frontMul: 1, mass: 1, stepSound: false, staggerFraction: 0.25,
-  },
-  hunter: {
-    type: 'hunter', faction: 'bug', hp: 180, speed: 7.5, wanderSpeed: 2.2, radius: 0.6, height: 1.25, headRadius: 0.27,
-    attackDamage: 14, attackCooldown: 1.0, attackRange: 2.0, attackWindup: 0.22, turnRate: 7, accel: 26,
-    sightRadius: 40, hearRadius: 55, headMul: 2, rearMul: 1, frontMul: 1, mass: 2, stepSound: false, staggerFraction: 0.25,
-  },
-  warrior: {
-    type: 'warrior', faction: 'bug', hp: 320, speed: 4.5, wanderSpeed: 1.6, radius: 0.8, height: 1.6, headRadius: 0.36,
-    attackDamage: 25, attackCooldown: 1.2, attackRange: 2.2, attackWindup: 0.35, turnRate: 4, accel: 14,
-    sightRadius: 40, hearRadius: 55, headMul: 2, rearMul: 1, frontMul: 1, mass: 4, stepSound: true, staggerFraction: 0.25,
-  },
-  spewer: {
-    type: 'spewer', faction: 'bug', hp: 260, speed: 3.2, wanderSpeed: 1.2, radius: 0.9, height: 1.7, headRadius: 0.32,
-    attackDamage: 12, attackCooldown: 1.5, attackRange: 2.3, attackWindup: 0.35, turnRate: 3, accel: 10,
-    sightRadius: 40, hearRadius: 55, headMul: 2, rearMul: 1, frontMul: 1, mass: 4, stepSound: false, staggerFraction: 0.25,
-  },
-  charger: {
-    type: 'charger', faction: 'bug', hp: 900, speed: 4, wanderSpeed: 1.5, radius: 1.3, height: 2.3, headRadius: 0.55,
-    attackDamage: 30, attackCooldown: 2.0, attackRange: 2.9, attackWindup: 0.4, turnRate: 2.2, accel: 9,
-    sightRadius: 45, hearRadius: 60, headMul: 1, rearMul: 2.5, frontMul: 0.5, mass: 10, stepSound: true, staggerFraction: 0.25,
-  },
-  /* ── Phase 4 ── */
-  rogue: {
-    type: 'rogue', faction: 'rogue', hp: 140, speed: 4.4, wanderSpeed: 1.4, radius: 0.4, height: 1.8, headRadius: 0.16,
-    attackDamage: 0, attackCooldown: 1, attackRange: 0, attackWindup: 0, turnRate: 7, accel: 24,
-    sightRadius: 60, hearRadius: 70, headMul: 2, rearMul: 1, frontMul: 1, mass: 2, stepSound: false, staggerFraction: 0.35,
-  },
-  rogue_boss: {
-    type: 'rogue_boss', faction: 'rogue', hp: 140 * ROGUE_BOSS_HP_MUL, speed: 3.8, wanderSpeed: 1.2,
-    radius: 0.4 * ROGUE_BOSS_SCALE, height: 1.8 * ROGUE_BOSS_SCALE, headRadius: 0.16 * ROGUE_BOSS_SCALE,
-    attackDamage: 0, attackCooldown: 1, attackRange: 0, attackWindup: 0, turnRate: 5, accel: 18,
-    sightRadius: 65, hearRadius: 75, headMul: 2, rearMul: 1, frontMul: 1, mass: 6, stepSound: true, staggerFraction: 0.5,
-  },
-  artillery: {
-    type: 'artillery', faction: 'bug', hp: 420, speed: 3.4, wanderSpeed: 1.0, radius: 0.95, height: 1.5, headRadius: 0.3,
-    attackDamage: 0, attackCooldown: 2, attackRange: 0, attackWindup: 0, turnRate: 2.5, accel: 9,
-    sightRadius: 130, hearRadius: 90, headMul: 2, rearMul: 1.5, frontMul: 1, mass: 5, stepSound: true, staggerFraction: 0.3,
-  },
-  toxic: {
-    type: 'toxic', faction: 'bug', hp: 70, speed: 7.2, wanderSpeed: 1.8, radius: 0.45, height: 1.0, headRadius: 0.17,
-    attackDamage: 0, attackCooldown: 1, attackRange: 0, attackWindup: 0, turnRate: 9, accel: 30,
-    sightRadius: 45, hearRadius: 60, headMul: 2, rearMul: 1, frontMul: 1, mass: 1, stepSound: false, staggerFraction: 1.1,
-  },
-  behemoth: {
-    type: 'behemoth', faction: 'bug', hp: 1400, speed: 3.6, wanderSpeed: 1.2,
-    radius: 0.8 * BEHEMOTH_SCALE, height: 1.6 * BEHEMOTH_SCALE, headRadius: 0.36 * BEHEMOTH_SCALE,
-    attackDamage: 45, attackCooldown: 2.2, attackRange: 2.2 * BEHEMOTH_SCALE, attackWindup: 0.55, turnRate: 1.8, accel: 8,
-    sightRadius: 60, hearRadius: 70, headMul: 1, rearMul: 2, frontMul: 0.35, mass: 30, stepSound: true, staggerFraction: 0.3,
-  },
-};
+/** 적 종류를 csv `type` 칸이 받는 순서 — `ALL_ENEMY_TYPES` 와 같은 목록이다. */
+const ENEMY_TYPE_VALUES: readonly EnemyType[] = ['scavenger', 'hunter', 'warrior', 'spewer', 'charger', 'rogue', 'rogue_boss', 'artillery', 'toxic', 'behemoth'];
+const ENEMY_FACTIONS: readonly EnemyFaction[] = ['bug', 'rogue'];
 
-/* Type-specific ability tuning */
-export const HUNTER_LEAP = { minDist: 5, maxDist: 9, damage: 22, cooldown: 4, flightTime: 0.62, hitRadius: 2.4 };
-export const SPEWER_SPIT = { minDist: 8, maxDist: 22, damage: 18, splashDamage: 10, slowDuration: 2, cooldown: 3.0, windup: 0.55, deathBurstRadius: 4, deathBurstDamage: 20 };
-export const CHARGER_CHARGE = { minDist: 7, maxDist: 30, windup: 0.8, speed: 14, damage: 45, maxDuration: 3.5, stumble: 1.5, cooldown: 3.0 };
+export const ENEMY_STATS: Record<EnemyType, EnemyStats> = (() => {
+  const out = {} as Record<EnemyType, EnemyStats>;
+  for (const r of csvRows('enemies.csv')) {
+    const type = r.enum('type', ENEMY_TYPE_VALUES);
+    out[type] = {
+      type,
+      faction: r.enum('faction', ENEMY_FACTIONS),
+      hp: r.num('hp', { min: 1 }),
+      speed: r.num('speed', { min: 0 }),
+      wanderSpeed: r.num('wanderSpeed', { min: 0 }),
+      radius: r.num('radius', { min: 0 }),
+      height: r.num('height', { min: 0 }),
+      headRadius: r.num('headRadius', { min: 0 }),
+      attackDamage: r.num('attackDamage', { min: 0 }),
+      attackCooldown: r.num('attackCooldown', { min: 0 }),
+      attackRange: r.num('attackRange', { min: 0 }),
+      attackWindup: r.num('attackWindup', { min: 0 }),
+      turnRate: r.num('turnRate', { min: 0 }),
+      accel: r.num('accel', { min: 0 }),
+      sightRadius: r.num('sightRadius', { min: 0 }),
+      hearRadius: r.num('hearRadius', { min: 0 }),
+      headMul: r.num('headMul', { min: 0 }),
+      rearMul: r.num('rearMul', { min: 0 }),
+      frontMul: r.num('frontMul', { min: 0 }),
+      mass: r.num('mass', { min: 0 }),
+      stepSound: r.bool('stepSound'),
+      staggerFraction: r.num('staggerFraction', { min: 0 }),
+    };
+  }
+  for (const t of ENEMY_TYPE_VALUES) {
+    if (!out[t]) addDataIssue({ file: 'enemies.csv', line: 0, column: t, message: `'${t}' 줄이 없다` });
+  }
+  return out;
+})();
+
+/* Type-specific ability tuning — data/enemy_abilities.csv */
+const ability = <K extends string>(block: string): Record<K, number> => numberMap<K>('enemy_abilities.csv', block, 'block');
+
+export const HUNTER_LEAP = ability<'minDist' | 'maxDist' | 'damage' | 'cooldown' | 'flightTime' | 'hitRadius'>('HUNTER_LEAP');
+export const SPEWER_SPIT = ability<'minDist' | 'maxDist' | 'damage' | 'splashDamage' | 'slowDuration' | 'cooldown' | 'windup' | 'deathBurstRadius' | 'deathBurstDamage'>('SPEWER_SPIT');
+export const CHARGER_CHARGE = ability<'minDist' | 'maxDist' | 'windup' | 'speed' | 'damage' | 'maxDuration' | 'stumble' | 'cooldown'>('CHARGER_CHARGE');
 
 /* Phase 4 ability tuning (world constants live in @/shared/constants: ROGUE_*, ARTILLERY_RANGE, SHELL_*, TOXIC_*, BEHEMOTH_*) */
+const ROGUE_AI_TEXT = stringMap<'weapons' | 'bossWeapon'>('enemy_abilities.csv', 'ROGUE_AI_TEXT', 'block');
+/**
+ * 숫자는 `ROGUE_AI` 블록, 무기 목록은 `ROGUE_AI_TEXT` 블록이다 (한 블록은 전부 숫자거나 전부 문자열이어야 한다).
+ * coverMin/coverMax = 엄폐 유지 시간(s), shotGap = 점사 간격(s), rushMax = 돌격 지속(s), rushDist = 돌격 정지 거리(m),
+ * settleTime = 정지 후 조준이 가라앉는 시간(s), leash/escortLeash = 상자·보스로부터의 리시(m),
+ * bugRange = 플레이어가 있어도 이 거리 안의 벌레는 쏜다(m), hitCrouch = 피격 후 웅크림(s),
+ * bossRounds/bossDamageMul = 보스 연사 수·피해 배수, range = 히트스캔 사거리(m).
+ */
 export const ROGUE_AI = {
-  /** cover hold time range (s), pop-out burst spacing (s), rush duration cap (s), rush stand-off (m) */
-  coverMin: 2, coverMax: 4, shotGap: 0.12, rushMax: 6, rushDist: 8,
-  /** seconds standing still until the aim error settles */
-  settleTime: 1.2,
-  /** guard leash from the crate / boss (m) */
-  leash: 45, escortLeash: 18,
-  /** bugs closer than this are shot even when a player is in range */
-  bugRange: 25,
-  /** a rogue that took a hit crouches (hint 6) for this long before continuing its cycle */
-  hitCrouch: 0.5,
-  /** boss burst */
-  bossRounds: 6, bossDamageMul: 1.6,
+  ...ability<'coverMin' | 'coverMax' | 'shotGap' | 'rushMax' | 'rushDist' | 'settleTime' | 'leash' | 'escortLeash' | 'bugRange' | 'hitCrouch' | 'bossRounds' | 'bossDamageMul' | 'range'>('ROGUE_AI'),
   /** rifles handed to guards / the boss (item def ids of items/WeaponDefs) */
-  weapons: ['ar', 'smg', 'sg', 'dmr'] as readonly string[],
-  bossWeapon: 'dmr',
-  /** hitscan range (m) */
-  range: 90,
+  weapons: ROGUE_AI_TEXT.weapons.split('|').map((w) => w.trim()).filter(Boolean) as readonly string[],
+  bossWeapon: ROGUE_AI_TEXT.bossWeapon,
 };
-export const ARTILLERY_AI = { retreatDist: 60, approachDist: 125, fireMin: 6, fireMax: 9, digTime: 1.2, maxRange: 140 };
-export const TOXIC_AI = { swell: 0.6 };
-export const BEHEMOTH_AI = { engageDist: 18, chargeCooldown: 4, overshoot: 6, maxDuration: 3.2, enemyDamage: 160, enemyShove: 9, stumble: 1.6 };
+export const ARTILLERY_AI = ability<'retreatDist' | 'approachDist' | 'fireMin' | 'fireMax' | 'digTime' | 'maxRange'>('ARTILLERY_AI');
+export const TOXIC_AI = ability<'swell'>('TOXIC_AI');
+export const BEHEMOTH_AI = ability<'engageDist' | 'chargeCooldown' | 'overshoot' | 'maxDuration' | 'enemyDamage' | 'enemyShove' | 'stumble'>('BEHEMOTH_AI');
 
 export const ALL_ENEMY_TYPES: readonly EnemyType[] = ['scavenger', 'hunter', 'warrior', 'spewer', 'charger', 'rogue', 'rogue_boss', 'artillery', 'toxic', 'behemoth'];
 /** Types rendered with the six-legged bug rig (everything but the humanoid rogues). */

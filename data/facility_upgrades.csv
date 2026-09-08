@@ -1,0 +1,28 @@
+# 함선 시설 강화 비용. level = 그 레벨에 "도달"하는 비용 (방 용도를 정하면 레벨 1 은 공짜).
+# cost 는 "아이템id:수량" 을 | 로 이어 쓴다 — mat_scrap:8|mat_cable:2
+# 레벨은 1 부터 빠짐없이 이어져야 한다. 줄을 지우면 최대 레벨이 줄어든다.
+facility,level,cost
+# generator — 레벨 n 으로 올리는 데 드는 재료
+generator,1,mat_scrap:4
+generator,2,mat_scrap:8|mat_cable:2
+generator,3,mat_alloy:6|mat_cable:4|mat_power_cell:1
+generator,4,mat_alloy:10|mat_circuit:3|mat_power_cell:2
+generator,5,mat_alloy:14|mat_circuit:6|mat_power_cell:4
+
+# storage — 레벨 n 으로 올리는 데 드는 재료
+storage,1,mat_scrap:6
+storage,2,mat_scrap:10|mat_alloy:2
+storage,3,mat_alloy:6|mat_cable:2
+storage,4,mat_alloy:10|mat_circuit:2
+storage,5,mat_alloy:16|mat_circuit:4|mat_power_cell:2
+
+# workshop — 레벨 n 으로 올리는 데 드는 재료
+workshop,1,mat_scrap:10|mat_cable:2
+workshop,2,mat_alloy:8|mat_circuit:3
+
+# range — 레벨 n 으로 올리는 데 드는 재료
+range,1,mat_scrap:8
+range,2,mat_scrap:12|mat_cable:2
+range,3,mat_alloy:6|mat_circuit:2
+range,4,mat_alloy:12|mat_circuit:4|mat_power_cell:2
+

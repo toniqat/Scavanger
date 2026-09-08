@@ -14,7 +14,7 @@
  *          --keep-relay (do not restart a relay already listening on 8787) · --url http://host:port/ · --timeout <min>
  *
  * What it does:
- *   1. typecheck (client + server) and net:selftest in parallel — seconds.
+ *   1. typecheck (client + server), net:selftest and data:check (data/*.csv 스키마) in parallel — seconds.
  *   2. Starts vite (5273) and the relay (8787) if they are not up. When e2e-mp is in the set the relay is always
  *      restarted first: public lobbies left by an interrupted run live for the 5-min grace and hijack quick match.
  *   3. Runs the selected smoke scripts concurrently (each owns its own headless Chrome on the real GPU via ANGLE D3D11,
@@ -260,7 +260,9 @@ try {
     fast.push(runCapture(npx, ['tsc', '--noEmit'], 'typecheck', { shell: isWin }).then((r) => summarize('typecheck', r)));
     fast.push(runCapture(npx, ['tsc', '--noEmit', '-p', 'server/tsconfig.json'], 'typecheck-server', { shell: isWin }).then((r) => summarize('typecheck-server', r)));
   }
-  fast.push(runCapture(process.execPath, ['--experimental-strip-types', '--disable-warning=ExperimentalWarning', 'server/selftest.ts'], 'net-selftest').then((r) => summarize('net-selftest', r)));
+  fast.push(runCapture(process.execPath, ['--experimental-strip-types', '--disable-warning=ExperimentalWarning', 'server/selftest.ts'], 'net-selftest').then((r) => summarize('net-selftest', r)));
+  // data/*.csv 는 수치의 단일 원본이다 — 오타는 게임을 죽이지 않고 조용히 기본값으로 굴러가므로 여기서 잡는다.
+  fast.push(runCapture(process.execPath, ['scripts/data-check.mjs'], 'data-check').then((r) => summarize('data-check', r)));
   if (opts.build) fast.push(runCapture(npx, ['vite', 'build'], 'build', { shell: isWin }).then((r) => {
     const s = summarize('build', r);
     const js = r.out.match(/index-[\w-]+\.js\s+([\d.,]+ kB)/)?.[1]; const css = r.out.match(/index-[\w-]+\.css\s+([\d.,]+ kB)/)?.[1];

@@ -1,0 +1,13 @@
+# 방탄복. tier 1–5 는 번호 방탄복, tier 0 은 전설 유니크 3벌이다.
+# damageReduction 은 0–1 피해 감소율 (번호 방탄복은 tables.csv 의 ARMOR_DR_BY_TIER 를 그대로 쓴다).
+# perk: none | regen | ultralight | optical. perkValue 는 그 퍽의 수치 (재생 = 초당 회복량 등).
+# durabilityMax 는 판이 버티는 흡수량, weight 는 kg, 가격은 tuning.csv 의 ARMOR_VALUE_* 로 계산된다.
+id,name,tier,rarity,damageReduction,weight,durabilityMax,perk,perkValue,color,icon,description
+armor_1,방탄복 I,1,common,=ARMOR_DR_BY_TIER.1,3,200,none,,#8e9299,⛊,경량 케블라 조끼. 파편을 겨우 막아준다.
+armor_2,방탄복 II,2,common,=ARMOR_DR_BY_TIER.2,4.6,280,none,,#93a08c,⛊,표준 지급 방탄복. 전면에 세라믹 플레이트 한 장.
+armor_3,방탄복 III,3,uncommon,=ARMOR_DR_BY_TIER.3,6.6,380,none,,#6f9d72,🛡,전면·측면 플레이트 캐리어. 기동성과 방호의 절충안.
+armor_4,방탄복 IV,4,rare,=ARMOR_DR_BY_TIER.4,9.2,480,none,,#5b8fd6,🛡,중장갑 캐리어. 목·사타구니 보호대 포함.
+armor_5,방탄복 V,5,epic,=ARMOR_DR_BY_TIER.5,12.4,600,none,,#a877e8,🛡,외골격 보조 중장갑. 무겁지만 대부분의 물기 공격을 견딘다.
+armor_regen,재생 방탄복,0,legendary,0.27,10.6,520,regen,1,#ff9f6b,✚,나노 섬유가 상처를 봉합한다. 스태미나가 가득할 때 초당 체력 1 회복.
+armor_ultralight,초경량 방탄복,0,legendary,0.1,1.9,300,ultralight,0.18,#ffe08a,❖,에어로젤 직물. 방호는 최소지만 스태미나 회복과 이동속도가 크게 오른다.
+armor_optical,광학미채 방탄복,0,legendary,0.08,3.4,260,optical,,#8fe8ff,◊,적응형 광학 위장막. 상시 은폐 상태를 유지하지만 방호력은 형편없다.

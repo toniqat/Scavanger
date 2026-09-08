@@ -1,0 +1,13 @@
+# 방 용도별 증축 비용. purpose 는 코드가 찾는 값이므로 바꾸지 않는다 (empty 는 비용 없음).
+# cost 는 "아이템id:수량" 을 | 로 이어 쓴다.
+purpose,cost
+empty,
+workshop,mat_scrap:8|mat_cable:2
+range,mat_scrap:10|mat_cable:2
+gym,mat_scrap:8
+library,mat_scrap:10|mat_alloy:2
+greenhouse,mat_scrap:12|mat_alloy:2
+lab,mat_alloy:6|mat_circuit:2
+kitchen,mat_scrap:8|mat_alloy:2
+mining,mat_alloy:6|mat_circuit:3
+lounge,mat_scrap:6|mat_cable:1

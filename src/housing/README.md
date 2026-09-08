@@ -211,6 +211,11 @@ first-session chain complete.
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
+- **2026-09-09 (수치 csv 이관)** — 가구 표가 `shared/housing.ts` 에서 `data/furniture.csv` +
+  `data/furniture_upgrades.csv`(레벨별 강화 비용) 로, 방 용도 증축 비용이 `data/room_purposes.csv` 로 나갔다.
+  시설(발전기 · 창고 · 작업실 · 사격장) 강화 비용은 `data/facility_upgrades.csv`, 시설 레벨 상한 · 보관함 행 수 ·
+  프리셋 수 · 서재/온실 계수는 `data/constants.csv` 와 `data/tables.csv` 에 있다
+
 - **Phase 7** — server `ship` document (`profile.set` on save, replace + `housing:loaded` on `net:profileLoaded`), `furn_sim_hub` in the 사격장 catalogue
 
 - **Phase 8** — 온실 active — stackable 재배층 (`FurnitureDef.stackLimit` 4, `PlacedFurniture.layer`, top-layer-only recover) with real-time 재배 (`getPlots / plantSeed / harvestPlot / harvestAll / getOwnedSeeds / openGrowMenu`, `ui/GrowMenu`, epoch stamps from `ctx.net.serverNow()`), **함선 관리** (`shipManageMode / openShipManage / setManageRoom / closeShipManage`, `housing:shipManageChanged`), `createShipView(host)` for the 함선 tab, `lockCrewName()`, ship state **v2** (+ a free `furn_repair_bench`), costs via `renderItemCost`

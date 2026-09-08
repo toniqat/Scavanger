@@ -1,0 +1,14 @@
+# 탄종별 탄약 아이템. type 은 코드가 찾는 값이므로 바꾸지 않는다 (아이템 id 는 ammo_<type>).
+# 한 스택 발수는 data/tables.csv 의 AMMO_STACK_ROUNDS 가 정한다.
+# roundWeight = 1발 무게(kg), value = 1발 가격.
+type,name,rarity,value,roundWeight,icon,description
+light,경량탄,common,1,0.012,▪,기관단총·권총용 경량 탄약. 수량은 발수.
+medium,준중량탄,common,2,0.02,▮,돌격소총용 준중량 탄약. 수량은 발수.
+heavy,중량탄,common,3,0.04,▬,저격소총·지정사수소총용 중량 탄약. 수량은 발수.
+shell,산탄,common,3,0.05,◘,산탄총용 셸. 수량은 발수.
+fuel,연료통,rare,1,0.02,⛽,「인페르노」 화염방사기용 연료. 수량은 연료 단위 (초당 12 소모).
+cell,전지,rare,4,0.06,▯,「테슬라 코일」 전격총용 전지. 수량은 전지 단위.
+shuriken,표창,rare,5,0.07,✧,「카게」 표창 발사기용 강철 표창. 수량은 개수.
+arrow,화살,rare,4,0.05,➶,「롱혼」 컴포짓 보우용 카본 화살. 수량은 개수.
+rocket,로켓,rare,60,1.2,▶,「해머헤드」 바주카용 로켓. 수량은 발수. 한 발이 1.2 kg.
+belt,탄띠,rare,1,0.015,≣,「사이클론」 미니건용 연결 탄띠. 수량은 발수.

@@ -6,6 +6,8 @@ import {
   CONTRACT_MAX_ACTIVE, CONTRACT_SQUAD_SHARE, RARITY_ORDER, REP_LEVEL_MAX, REP_TABLE, SHOP_BAG_RARITY_BONUS, SHOP_RARITY_CAP_BY_REP,
   SHOP_UNLOCK_REP_LEVEL, buyPriceOf, repLevelOf, rarityRank as sharedRarityRank,
 } from '@/shared';
+/* 임플란트 수리 수수료는 `data/tuning.csv` 에 있다. */
+import { keyTable } from '@/shared';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Pure rules (no ctx, no DOM): shop filter + prices, reputation, contract acceptance / settlement, quest availability.
@@ -139,7 +141,7 @@ export function buildShop(
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /** Credit fee per implant grade (× grade). Local to meta/ — shared/ is frozen for this batch. */
-export const IMPLANT_REPAIR_FEE = 150;
+export const IMPLANT_REPAIR_FEE = keyTable('tuning.csv').num('IMPLANT_REPAIR_FEE');
 
 /** 1 common … 5 legendary (an implant's grade *is* its rarity — `imp_<stat>_3` is rare). */
 export function implantGrade(def: Pick<ItemDef, 'rarity'>): number {

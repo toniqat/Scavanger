@@ -1,4 +1,9 @@
 import type { CraftIngredient } from './gear';
+import { costLevels, csvRows, keyTable } from './data/tables';
+
+/* 함선 꾸미기 수치의 원본: 가구는 `data/furniture.csv` + `data/furniture_upgrades.csv`,
+ * 방 용도 증축 비용은 `data/room_purposes.csv`, 발전기 요구 레벨은 `data/tuning.csv` 다. */
+const T = /* data/tuning.csv */ keyTable('tuning.csv');
 import type { ImplantId } from './implants';
 import type { SkillId } from './progression';
 import type { EmbeddedView } from './types';
@@ -68,21 +73,11 @@ export const ROOM_PURPOSE_COLOR: Readonly<Record<RoomPurpose, string>> = {
  * nothing, and 시설 제거 refunds this table plus every upgrade (`Rules.facilityRefundCost`). Building anything also
  * needs 발전기 Lv.1, exactly like every other upgrade — see `Rules.purposeBuildBlockReason`.
  */
-export const ROOM_PURPOSE_BUILD_COST: Readonly<Record<RoomPurpose, readonly { defId: string; qty: number }[]>> = {
-  empty: [],
-  workshop: [{ defId: 'mat_scrap', qty: 8 }, { defId: 'mat_cable', qty: 2 }],
-  range: [{ defId: 'mat_scrap', qty: 10 }, { defId: 'mat_cable', qty: 2 }],
-  gym: [{ defId: 'mat_scrap', qty: 8 }],
-  library: [{ defId: 'mat_scrap', qty: 10 }, { defId: 'mat_alloy', qty: 2 }],
-  greenhouse: [{ defId: 'mat_scrap', qty: 12 }, { defId: 'mat_alloy', qty: 2 }],
-  lab: [{ defId: 'mat_alloy', qty: 6 }, { defId: 'mat_circuit', qty: 2 }],
-  kitchen: [{ defId: 'mat_scrap', qty: 8 }, { defId: 'mat_alloy', qty: 2 }],
-  mining: [{ defId: 'mat_alloy', qty: 6 }, { defId: 'mat_circuit', qty: 3 }],
-  lounge: [{ defId: 'mat_scrap', qty: 6 }, { defId: 'mat_cable', qty: 1 }],
-};
+export const ROOM_PURPOSE_BUILD_COST: Readonly<Record<RoomPurpose, readonly { defId: string; qty: number }[]>> =
+  Object.fromEntries(csvRows('room_purposes.csv').map((r) => [r.str('purpose'), r.costList('cost')])) as Record<RoomPurpose, { defId: string; qty: number }[]>;
 
 /** Generator level a 시설 증축 needs (the same gate every facility upgrade sits behind). */
-export const ROOM_PURPOSE_BUILD_GENERATOR_LEVEL = 1;
+export const ROOM_PURPOSE_BUILD_GENERATOR_LEVEL = T.num('ROOM_PURPOSE_BUILD_GENERATOR_LEVEL');
 
 /** Purposes with mechanics in this build; the rest are decoration-only. (Phase 8 appended `greenhouse`.) */
 export const ROOM_PURPOSES_ACTIVE: readonly RoomPurpose[] = ['empty', 'workshop', 'range', 'greenhouse', 'library'];   // Phase 9 appended `library`
@@ -479,58 +474,26 @@ export interface HousingRef {
  * ──────────────────────────────────────────────────────────────────────────── */
 const c = (defId: string, qty: number): CraftIngredient => ({ defId, qty });
 
-export const FURNITURE_DEFS: readonly FurnitureDef[] = [
-  /* 작업실 benches — upgradeable, each unlocks recipes (`CraftRecipe.bench` / `benchLevel`) and repairs its gear class */
-  { id: 'furn_bench_gun', name: '총기 작업대', description: '총기 · 부착물 · 탄약을 제작하고 총기를 수리합니다.', room: 'workshop', cols: 4, rows: 2, height: 1.0,
-    model: 'bench_gun', interaction: 'workbench_gun', craft: [c('mat_scrap', 8), c('mat_alloy', 2), c('mat_cable', 1)], maxLevel: 3,
-    upgradeCost: [[c('mat_alloy', 6), c('mat_circuit', 1)], [c('mat_alloy', 10), c('mat_circuit', 3), c('mat_power_cell', 1)]], color: '#ffd27a' },
-  { id: 'furn_bench_gear', name: '장비 작업대', description: '방탄복과 가방을 제작하고 수리합니다.', room: 'workshop', cols: 4, rows: 2, height: 1.0,
-    model: 'bench_gear', interaction: 'workbench_gear', craft: [c('mat_scrap', 8), c('mat_alloy', 2), c('mat_cable', 1)], maxLevel: 3,
-    upgradeCost: [[c('mat_alloy', 6), c('mat_circuit', 1)], [c('mat_alloy', 10), c('mat_circuit', 3), c('mat_power_cell', 1)]], color: '#9fb4ff' },
-  { id: 'furn_bench_gadget', name: '가젯 작업대', description: '수류탄과 가젯을 제작합니다.', room: 'workshop', cols: 4, rows: 2, height: 1.0,
-    model: 'bench_gadget', interaction: 'workbench_gadget', craft: [c('mat_scrap', 8), c('mat_alloy', 2), c('mat_cable', 1)], maxLevel: 3,
-    upgradeCost: [[c('mat_alloy', 6), c('mat_circuit', 1)], [c('mat_alloy', 10), c('mat_circuit', 3), c('mat_power_cell', 1)]], color: '#8fe8ff' },
-  { id: 'furn_bench_medical', name: '의학 작업대', description: '스팀과 회복 아이템을 조제합니다.', room: 'workshop', cols: 4, rows: 2, height: 1.0,
-    model: 'bench_medical', interaction: 'workbench_medical', craft: [c('mat_scrap', 6), c('mat_alloy', 2), c('mat_bio_sample', 3)], maxLevel: 3,
-    upgradeCost: [[c('mat_alloy', 4), c('mat_bio_sample', 6), c('mat_circuit', 1)], [c('mat_alloy', 8), c('mat_bio_sample', 10), c('mat_circuit', 3)]], color: '#6ee7a8' },
-  /* 사격장 */
-  /* Phase 8 UI pass: renamed 사격장 콘솔 → 관물대 — the only way to reach the loadout presets now that the
-     시설 메뉴 (and its 프리셋 button) is gone. Build the 사격장, place a 관물대, set your loadouts on it. */
-  { id: 'furn_range_console', name: '관물대', description: '로드아웃 프리셋을 저장하고 즉시 무장합니다. 사격장에 설치하세요.', room: 'range', cols: 2, rows: 1, height: 2.0,
-    model: 'locker', interaction: 'range_console', craft: [c('mat_scrap', 6), c('mat_cable', 2), c('mat_circuit', 1)], maxLevel: 1, upgradeCost: [], color: '#7fd2ff' },
-  { id: 'furn_target_lane', name: '표적 레인', description: '시뮬레이터 표적 레인 (장식).', room: 'range', cols: 2, rows: 6, height: 1.8,
-    model: 'target_lane', interaction: 'none', craft: [c('mat_scrap', 6), c('mat_alloy', 1)], maxLevel: 1, upgradeCost: [], color: '#c8ccd2' },
-  /* appended (Phase 7): 시뮬레이션 훈련장 entry */
-  { id: 'furn_sim_hub', name: '시뮬레이션 허브', description: '시뮬레이션 훈련장에 입장합니다. 탄약과 내구도는 소모되지 않습니다.', room: 'range', cols: 2, rows: 2, height: 1.5,
-    model: 'sim_hub', interaction: 'sim_hub', craft: [c('mat_scrap', 8), c('mat_cable', 2), c('mat_circuit', 2)], maxLevel: 1, upgradeCost: [], color: '#9fe8ff' },
-  /* appended (Phase 8): the 정비 벤치 is no longer built into the cockpit — place it in the 작업실 */
-  { id: 'furn_repair_bench', name: '정비 벤치', description: '무기 내구도를 재료로 수리합니다. 조종석에서 작업실로 옮겨졌습니다.', room: 'workshop', cols: 4, rows: 2, height: 1.0,
-    model: 'repair_bench', interaction: 'repair_bench', craft: [c('mat_scrap', 6), c('mat_alloy', 1)], maxLevel: 1, upgradeCost: [], color: '#d7c39a' },
-  /* appended (Phase 8): 온실 — up to GROW_RACK_STACK_LIMIT racks share one footprint, each its own 층 */
-  { id: 'furn_grow_rack', name: '재배층', description: '씨앗을 심어 현실 시간에 맞춰 약초를 키웁니다. 같은 자리에 4층까지 쌓을 수 있습니다.', room: 'greenhouse', cols: 4, rows: 2, height: 0.8,
-    model: 'grow_rack', interaction: 'grow_rack', craft: [c('mat_scrap', 5), c('mat_cable', 1), c('mat_bio_sample', 2)], maxLevel: 1, upgradeCost: [], color: '#7ee08a',
-    stackLimit: 4 },
-  /* appended (Phase 9): 서재 — books from raids go on the shelves, each raising its skill's XP gain */
-  { id: 'furn_bookshelf', name: '책장', description: '레이드에서 주운 책을 꽂습니다. 꽂힌 책은 그 숙련의 상승량을 올리고 도감에 기록됩니다 (6권).', room: 'library', cols: 2, rows: 1, height: 2.0,
-    model: 'bookshelf', interaction: 'bookshelf', craft: [c('mat_scrap', 6), c('mat_alloy', 1)], maxLevel: 1, upgradeCost: [], color: '#c9a77a' },
-  /* 공용 장식 */
-  { id: 'furn_locker', name: '사물함', description: '강철 사물함.', room: 'any', cols: 1, rows: 2, height: 2.0,
-    model: 'locker', interaction: 'none', craft: [c('mat_scrap', 4)], maxLevel: 1, upgradeCost: [], color: '#b0b8c4' },
-  { id: 'furn_table', name: '작업 테이블', description: '넓은 강철 테이블.', room: 'any', cols: 3, rows: 2, height: 0.85,
-    model: 'table', interaction: 'none', craft: [c('mat_scrap', 5)], maxLevel: 1, upgradeCost: [], color: '#b0a58c' },
-  { id: 'furn_shelf', name: '선반', description: '벽 선반.', room: 'any', cols: 2, rows: 1, height: 1.6,
-    model: 'shelf', interaction: 'none', craft: [c('mat_scrap', 3)], maxLevel: 1, upgradeCost: [], color: '#b0a58c' },
-  { id: 'furn_crate', name: '보급 상자', description: '장식용 보급 상자.', room: 'any', cols: 1, rows: 1, height: 0.7,
-    model: 'crate', interaction: 'none', craft: [c('mat_scrap', 2)], maxLevel: 1, upgradeCost: [], color: '#d9b98a' },
-  { id: 'furn_lamp', name: '스탠드 조명', description: '따뜻한 빛의 스탠드 (발광 재질, 조명 아님).', room: 'any', cols: 1, rows: 1, height: 1.7,
-    model: 'lamp', interaction: 'none', craft: [c('mat_scrap', 2), c('mat_cable', 1)], maxLevel: 1, upgradeCost: [], color: '#ffe3a0' },
-  { id: 'furn_plant', name: '화분', description: '작은 관엽 식물.', room: 'any', cols: 1, rows: 1, height: 1.1,
-    model: 'plant', interaction: 'none', craft: [c('mat_scrap', 1), c('herb_bloodroot', 1)], maxLevel: 1, upgradeCost: [], color: '#7ee08a' },
-  { id: 'furn_chair', name: '의자', description: '강철 의자.', room: 'any', cols: 1, rows: 1, height: 0.9,
-    model: 'chair', interaction: 'none', craft: [c('mat_scrap', 2)], maxLevel: 1, upgradeCost: [], color: '#b0b8c4' },
-  { id: 'furn_bunk', name: '침상', description: '2단 침상.', room: 'any', cols: 2, rows: 3, height: 1.6,
-    model: 'bunk', interaction: 'none', craft: [c('mat_scrap', 6), c('mat_alloy', 1)], maxLevel: 1, upgradeCost: [], color: '#9fb4ff' },
-];
+export const FURNITURE_DEFS: readonly FurnitureDef[] = csvRows('furniture.csv').map((r) => {
+  const craft = r.costList('craft');
+  const maxLevel = r.int('maxLevel', { min: 1 });
+  return {
+    id: r.str('id'),
+    name: r.str('name'),
+    description: r.str('description'),
+    room: r.str('room') as FurnitureDef['room'],
+    cols: r.int('cols', { min: 1 }),
+    rows: r.int('rows', { min: 1 }),
+    height: r.num('height', { min: 0 }),
+    model: r.str('model') as FurnitureModelKind,
+    interaction: r.str('interaction') as FurnitureInteraction,
+    craft: craft.length ? craft : null,
+    maxLevel,
+    upgradeCost: maxLevel > 1 ? costLevels('furniture_upgrades.csv', 'id', r.str('id')) : [],
+    color: r.str('color'),
+    ...(r.has('stackLimit') ? { stackLimit: r.int('stackLimit', { min: 1 }) } : {}),
+  };
+});
 
 export const FURNITURE_DEF_MAP: ReadonlyMap<string, FurnitureDef> = new Map(FURNITURE_DEFS.map((d) => [d.id, d]));
 

@@ -1,0 +1,8 @@
+# 함선 호출 (G 휠). id 는 코드가 찾는 값이므로 바꾸지 않는다.
+# targeting: topview = LMB 충전 후 상단 시점 조준 · ground = 조준선 지점.
+# cooldown/delay 초, radius 미터.
+id,name,cooldown,delay,targeting,radius,hint
+orbital_laser,궤도 폭격,90,5,topview,4,10초간 레이저 — 피아 무구분
+airstrike,항공 폭탄,90,5,topview,14,대형 폭발 — 피아 무구분
+supply_drop,보급품 투하,60,3,ground,2.5,소모품 상자 — 낙하 충돌 피해
+structure_drop,구조물 투하,60,3,ground,7,엄폐물 5개 — 낙하 충돌 피해

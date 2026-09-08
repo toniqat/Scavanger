@@ -1,0 +1,10 @@
+# 티어별 확정 픽. 무작위 굴림보다 먼저 뽑히고 countMin/Max 에 포함된다.
+# categories 는 | 로 여러 개, minRarity 는 그 이상 등급만 뽑는다는 뜻이다.
+tier,categories,minRarity
+2,valuable,uncommon
+3,valuable,rare
+4,valuable,epic
+4,primary|secondary,common
+4,armor|bag|gadget,rare
+5,stim,common
+5,ammo,common

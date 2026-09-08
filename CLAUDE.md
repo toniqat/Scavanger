@@ -15,6 +15,7 @@ Arc Raiders-style minimalist UI, Diablo 2-style grid inventory, procedural maps,
 
 | 찾는 것 | 볼 곳 |
 |---|---|
+| **수치(밸런스)를 조정하고 싶다** | [data/README.md](data/README.md) — csv 만 고치면 된다. 코드는 안 건드린다 |
 | **어떤 폴더를 고쳐야 하나** | 아래 [3. 폴더 지도](#3-폴더-지도) |
 | **그 폴더가 어떻게 생겼나 · 왜 이렇게 됐나** | 각 폴더의 `README.md` (구조 + 하단 `변경 이력`) |
 | 시스템 등록 순서 · 미션 플로우 · UI blocker / 커서 규약 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
@@ -37,6 +38,7 @@ npm run dev        # http://localhost:5273 (싱글 플레이는 서버 없이 �
 npm run server     # WebSocket 릴레이 (ws://localhost:8787/ws, GET /health)
 npm run dev:all    # 릴레이 + vite 동시 (vite 가 /ws → 8787 프록시)
 npm run typecheck  # tsc --noEmit — 끝내기 전에 반드시 통과 (서버는 typecheck:server)
+npm run data:check # data/*.csv 스키마 검사 (오타 · 빠진 칸 · 범위 · 모르는 이름) — verify 가 자동으로 돌린다
 npm run build
 
 npm run app:build  # 데스크톱(Electron) 빌드: vite dist/ + 메인 프로세스 dist-electron/
@@ -75,7 +77,8 @@ start-server.bat relay   # 릴레이만 (npm run server, 0.0.0.0:8787) — 데�
 
 | 폴더 | 시스템 | `ctx` 게시 | 한 줄 책임 |
 |---|---|---|---|
-| [`src/shared/`](src/shared/README.md) | — | `GameContext`, `EventBus`, `Input`, `Random` | **계약. 제일 먼저 읽는다.** 타입 · 이벤트 · 상수 · 키바인드 · 각 시스템의 `*Ref` 인터페이스 |
+| [`data/`](data/README.md) | — | — | **게임 수치의 단일 원본 (csv 35개).** 데미지 · 체력 · 가격 · 확률 · 쿨다운 — `src/` 에는 같은 숫자가 없다 |
+| [`src/shared/`](src/shared/README.md) | — | `GameContext`, `EventBus`, `Input`, `Random` | **계약. 제일 먼저 읽는다.** 타입 · 이벤트 · 상수(값은 `data/constants.csv`) · 키바인드 · csv 로더(`data/`) · 각 시스템의 `*Ref` 인터페이스 |
 | [`src/core/`](src/core/README.md) | `Engine` | scene / camera / renderer | 렌더러 · 조명 · 하늘 · 포그 · 포스트프로세스 · 메인 루프 · 리사이즈 · 시스템 레지스트리 |
 | [`src/main.ts`](src/main.ts) | — | — | Engine 부트스트랩 + 시스템 등록 순서, 커서 모드 ↔ 버스 브리지, 포인터 락 재요청의 **유일한** 지점 |
 
@@ -132,6 +135,9 @@ start-server.bat relay   # 릴레이만 (npm run server, 0.0.0.0:8787) — 데�
 ## 4. 스택 & 규약
 
 - Three.js 0.185, TypeScript strict, ES modules, 경로 별칭 `@/` → `src/`.
+- **수치는 코드에 적지 않는다.** 데미지 · 체력 · 가격 · 확률 · 쿨다운 · 무게는 전부 `data/*.csv` 에 있고 TS 는
+  그 표를 읽어 자기 타입으로 옮기기만 한다 ([data/README.md](data/README.md)). 새 수치를 넣을 때도 csv 에 줄을
+  먼저 만든다. csv 는 `import.meta.glob(..., '?raw')` 로 **빌드 시점에** 번들에 인라인된다 — 런타임 fetch 없음.
 - **외부 에셋 파일 금지.** 모든 모델(플레이어 · 벌레 · 상자 · 함선 · 소품)은 Three.js 지오메트리로 코드에서 절차 생성한다.
   GLTF 도 디스크 텍스처도 없다. 필요하면 절차 CanvasTexture / 셰이더를 쓴다.
 - 모든 HTML UI 는 `ctx.uiRoot` (`#ui-root`) 아래 DOM 이고 스타일은 `src/ui/styles/`. **React 없음.**
@@ -163,7 +169,7 @@ start-server.bat relay   # 릴레이만 (npm run server, 0.0.0.0:8787) — 데�
 
 ## 6. 검증 (자세히는 [docs/VERIFICATION.md](docs/VERIFICATION.md))
 
-- **매 편집 후**: `npm run typecheck` (수 초).
+- **매 편집 후**: `npm run typecheck` (수 초). `data/*.csv` 를 만졌으면 `npm run data:check` 도 (수 초).
 - **기능 하나 끝낸 뒤**: `npm run verify` — 건드린 폴더에 매핑된 스모크만 GPU 4레인 병렬, vite/릴레이는 러너가 띄운다.
 - **머지 전, 또는 `src/shared` · `src/core` · `main.ts` 를 건드렸으면**: `npm run verify:all` (+ build + `e2e:mp`).
   스모크를 손으로 하나씩 돌리지 않는다 — 그게 1시간짜리 검증이었다.

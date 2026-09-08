@@ -1,0 +1,8 @@
+# 능력치 5종. id 는 코드가 찾는 값이므로 바꾸지 않는다 (순서가 캐릭터 시트 표시 순서다).
+# 실제 효과 수치는 progression/derive.ts 가 data/constants.csv 의 상수로 계산한다.
+id,name,description
+strength,근력,"적재량, 근접 피해, 도약력, 투척 거리를 올린다."
+endurance,지구력,최대 스태미나와 스태미나 회복 속도를 올린다.
+perception,인지력,주변 상호작용물과 화면 밖 적을 감지하는 거리를 넓힌다.
+intelligence,지능,모든 숙련도의 상승 속도를 올린다.
+dexterity,재주,소모품 사용 속도와 상호작용(홀드) 속도를 올린다.

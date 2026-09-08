@@ -1,0 +1,72 @@
+# 적 종류별 특수 능력 수치. block 이 능력 묶음 이름, key 가 그 안의 항목이다.
+# block · key 는 코드가 찾는 이름이므로 바꾸지 않는다.
+# ROGUE_AI_TEXT 만 문자열이고 (| 로 여러 개), 나머지는 전부 숫자다.
+block,key,value
+# HUNTER_LEAP — 헌터 도약 (거리 m · 피해 · 쿨다운 s · 체공 s · 명중 반경 m)
+HUNTER_LEAP,minDist,5
+HUNTER_LEAP,maxDist,9
+HUNTER_LEAP,damage,22
+HUNTER_LEAP,cooldown,4
+HUNTER_LEAP,flightTime,0.62
+HUNTER_LEAP,hitRadius,2.4
+
+# SPEWER_SPIT — 스퓨어 산성 침 (거리 m · 피해 · 둔화 s · 사망 폭발)
+SPEWER_SPIT,minDist,8
+SPEWER_SPIT,maxDist,22
+SPEWER_SPIT,damage,18
+SPEWER_SPIT,splashDamage,10
+SPEWER_SPIT,slowDuration,2
+SPEWER_SPIT,cooldown,3
+SPEWER_SPIT,windup,0.55
+SPEWER_SPIT,deathBurstRadius,4
+SPEWER_SPIT,deathBurstDamage,20
+
+# CHARGER_CHARGE — 차저 돌진 (거리 m · 예비동작 s · 속도 m/s · 피해 · 최대 지속 s)
+CHARGER_CHARGE,minDist,7
+CHARGER_CHARGE,maxDist,30
+CHARGER_CHARGE,windup,0.8
+CHARGER_CHARGE,speed,14
+CHARGER_CHARGE,damage,45
+CHARGER_CHARGE,maxDuration,3.5
+CHARGER_CHARGE,stumble,1.5
+CHARGER_CHARGE,cooldown,3
+
+# ROGUE_AI — 로그 전투 AI (엄폐 s · 사격 간격 s · 리시 m · 보스 연사)
+ROGUE_AI,coverMin,2
+ROGUE_AI,coverMax,4
+ROGUE_AI,shotGap,0.12
+ROGUE_AI,rushMax,6
+ROGUE_AI,rushDist,8
+ROGUE_AI,settleTime,1.2
+ROGUE_AI,leash,45
+ROGUE_AI,escortLeash,18
+ROGUE_AI,bugRange,25
+ROGUE_AI,hitCrouch,0.5
+ROGUE_AI,bossRounds,6
+ROGUE_AI,bossDamageMul,1.6
+ROGUE_AI,range,90
+
+# ROGUE_AI_TEXT — 로그가 드는 무기 (items/WeaponDefs 의 계열 id)
+ROGUE_AI_TEXT,weapons,ar|smg|sg|dmr
+ROGUE_AI_TEXT,bossWeapon,dmr
+
+# ARTILLERY_AI — 포병 벌레 (후퇴/접근 거리 m · 발사 간격 s · 굴착 s · 최대 사거리 m)
+ARTILLERY_AI,retreatDist,60
+ARTILLERY_AI,approachDist,125
+ARTILLERY_AI,fireMin,6
+ARTILLERY_AI,fireMax,9
+ARTILLERY_AI,digTime,1.2
+ARTILLERY_AI,maxRange,140
+
+# TOXIC_AI — 독성 벌레 (자폭 직전 부풀기 s)
+TOXIC_AI,swell,0.6
+
+# BEHEMOTH_AI — 베헤모스 (교전 거리 m · 돌진 쿨다운 s · 관통 m · 적에게 주는 피해/밀침)
+BEHEMOTH_AI,engageDist,18
+BEHEMOTH_AI,chargeCooldown,4
+BEHEMOTH_AI,overshoot,6
+BEHEMOTH_AI,maxDuration,3.2
+BEHEMOTH_AI,enemyDamage,160
+BEHEMOTH_AI,enemyShove,9
+BEHEMOTH_AI,stumble,1.6
+

@@ -1,0 +1,480 @@
+# 전역 수치 상수 — src/shared/constants.ts 가 이 표를 읽는다 (K.num / K.bool).
+# key 는 코드가 찾는 이름이므로 바꾸지 않는다. 고치는 것은 value 뿐이다.
+key,value,note
+
+# ── 기본 ──
+MAP_SIZE,640,"world is a square [-MAP_SIZE/2, MAP_SIZE/2] on X and Z (meters)"
+EXTRACTION_COUNTDOWN,120,seconds from switch press to ship arrival
+PLAYER_MAX_HP,100,
+PLAYER_RADIUS,0.45,
+PLAYER_HEIGHT,1.8,
+PLAYER_WALK_SPEED,4.2,
+PLAYER_SPRINT_SPEED,7.2,
+PLAYER_INTERACT_RANGE,3.0,
+INVENTORY_COLS,10,
+INVENTORY_ROWS,6,
+GRAVITY,24,
+PLAYER_MAX_STAMINA,100,
+PLAYER_CROUCH_SPEED,2.4,
+PLAYER_PRONE_SPEED,1.3,
+PING_LIFETIME,25,Seconds a ping marker stays on screen / map.
+
+# ── appended: pings v2 / chat / pickups / hub ──
+PING_DRAG_THRESHOLD_PX,45,"Middle-mouse drag distance (px, pointer-locked movement) that turns a click into a directional ping."
+PING_HOLD_MAX,1.2,Max seconds the middle button may be held before the gesture is treated as a plain ping.
+CHAT_MAX_LINES,60,Chat log lines kept.
+PICKUP_LIFETIME,0,Seconds a dropped item pickup stays in the world (0 = forever).
+PICKUP_MAX,96,Max simultaneous pickups per mission (oldest removed).
+HUB_LAUNCH_COUNTDOWN,3,"Seconds between ""everyone boarded"" and mission launch in the hub."
+HUB_DOCKING_DURATION,6,Docking cutscene length (s).
+
+# ── appended: weapon package (2026-09-05) ──
+WEAPON_DURABILITY_PER_SHOT,1,Durability lost per trigger pull (shotgun pellets count once).
+WEAPON_DEFAULT_DURABILITY,400,Fallback `WeaponDef.maxDurability`.
+WEAPON_SWAP_TIME_PRIMARY,0.4,Holster + draw time when swapping to a primary / secondary (s).
+WEAPON_SWAP_TIME_SECONDARY,0.1,
+WEAPON_ADS_TIME,0.25,Aim-in time (s) for primaries; secondaries use half. Stocks multiply it.
+WEAPON_GRADE_DAMAGE_STEP,0.12,"Per grade above I: damage +12 %, max durability +25 %."
+WEAPON_GRADE_DURABILITY_STEP,0.25,
+BAG_DEFAULT_COLS,5,Bag grid with no backpack equipped (half of a common bag). `INVENTORY_COLS × INVENTORY_ROWS` is the legendary bag.
+BAG_DEFAULT_ROWS,3,
+BAG_DEFAULT_QUICK_SLOTS,1,
+REPAIR_SCRAP_PER,100,Repair: 1 폐금속 per REPAIR_SCRAP_PER durability missing (rounded up); grade ≥ III also needs 1 합금 판 per REPAIR_ALLOY_PER.
+REPAIR_ALLOY_PER,250,
+
+# ── appended: Phase 2 — down / revive / respawn ──
+PLAYER_DOWN_HP,100,Separate health pool while 전투불능.
+PLAYER_DOWN_BLEED_PER_SEC,1,Bleed per second while downed.
+PLAYER_DOWN_SPEED_MUL,0.6,Crawl speed multiplier on top of PLAYER_PRONE_SPEED while downed.
+PLAYER_REVIVE_HOLD,10,Teammate hold (s) and range (m) to revive; hp after a revive.
+PLAYER_REVIVE_RANGE,3,
+PLAYER_REVIVE_HP,10,
+PLAYER_RESPAWN_DELAY,30,Seconds after death until the respawn (hellpod at the mission start point) is allowed.
+PLAYER_GIVE_UP_HOLD,1.5,Holding Space this long while downed gives up (immediate death → respawn timer).
+
+# ── appended: Phase 2 — quick-use wheel / grenade cooking ──
+QUICK_SLOTS,8,
+QUICK_WHEEL_HOLD,0.22,F held longer than this opens the wheel; shorter = re-equip the last quick item.
+QUICK_WHEEL_DRAG_PX,30,Pointer-locked mouse travel (px) needed before a wheel direction counts.
+GRENADE_FUSE,3,Fuse after the pin is pulled; a grenade cooked this long explodes in the hand.
+GRENADE_COOK_MAX,3,
+GRENADE_UNDERHAND_SPEED_MUL,0.45,Underhand toss speed multiplier.
+
+# ── appended: Phase 3 — ship calls / stratagems ──
+STRATAGEM_WHEEL_HOLD,0.22,G held longer than this opens the wheel; a tap re-arms the last call.
+STRATAGEM_CHARGE_TIME,3,LMB hold (s) before an orbital call switches to the top view.
+TOPVIEW_HEIGHT,90,Top view: camera height above the player (m) and max cursor distance from the player (m).
+TOPVIEW_RANGE,120,
+TOPVIEW_CURSOR_SPEED,0.12,Pointer-locked mouse pixels → metres of cursor travel in the top view.
+GROUND_TARGET_RANGE,60,Ground targeting (drops): max distance of the aim-ray hit from the player (m).
+LASER_DURATION,10,"Orbital laser: beam duration (s), damage radius (m), damage per second."
+LASER_RADIUS,4,
+LASER_DPS,240,
+AIRSTRIKE_RADIUS,14,Airstrike: explosion radius (m) and damage at the centre (linear falloff).
+AIRSTRIKE_DAMAGE,480,
+SUPPLY_FALL_TIME,2.2,"Supply crate: fall time (s), impact damage radius (m) / damage, loot tier (see items LOOT_TABLES), lifetime after landing (s)."
+SUPPLY_IMPACT_RADIUS,2.5,
+SUPPLY_IMPACT_DAMAGE,400,
+SUPPLY_CRATE_TIER,5,
+STRUCTURE_COUNT,5,"Structures: count, hp, scatter radius around the target (m), impact damage radius / damage, fall time (s)."
+STRUCTURE_HP,2000,
+STRUCTURE_SCATTER,7,
+STRUCTURE_IMPACT_RADIUS,2.2,
+STRUCTURE_IMPACT_DAMAGE,800,
+STRUCTURE_FALL_TIME,2.0,
+OFFSCREEN_PING_SECONDS,5,Off-screen indicators: squadmate pings show an edge arrow for this many seconds after placement.
+
+# ── appended: Phase 4 — rogues / enemy gimmicks / corpses ──
+CORPSE_LIFETIME,45,Seconds a lootable corpse (and its interactable) stays in the world.
+CORPSE_INTERACT_RADIUS,2.4,Corpse interaction radius (m).
+ROGUE_REACTION,0.9,"Rogue gunner: reaction delay before the first shot (s), aim error (radians) at hip / after settling, damage per hit, rounds per burst."
+ROGUE_AIM_ERROR,0.09,
+ROGUE_AIM_ERROR_SETTLED,0.045,
+ROGUE_DAMAGE,9,
+ROGUE_BURST,4,
+ROGUE_RANGE,55,"Rogue engagement range (m) and the ""rush the player"" impulse chance per cover cycle."
+ROGUE_RUSH_CHANCE,0.2,
+ROGUE_BOSS_SCALE,1.5,Boss rogue multipliers and escort count.
+ROGUE_BOSS_HP_MUL,5,
+ROGUE_BOSS_ESCORTS,3,
+ARTILLERY_RANGE,90,"Artillery bug: preferred stand-off range (m), shell flight time (s), blast radius (m) / damage, shell hit radius for interception (m)."
+SHELL_FLIGHT_TIME,4.5,
+SHELL_BLAST_RADIUS,5,
+SHELL_DAMAGE,55,
+SHELL_RADIUS,0.6,
+TOXIC_RADIUS,5,"Toxic bug: burst radius (m), damage (players and enemies alike), trigger distance (m)."
+TOXIC_DAMAGE,70,
+TOXIC_TRIGGER_DIST,2.2,
+BEHEMOTH_SCALE,3,Phase 7: 4 → 3 (the 6.4 m body stumbled on most obstacles while charging)
+BEHEMOTH_CHARGE_SPEED,16,
+BEHEMOTH_CHARGE_DAMAGE,60,
+BEHEMOTH_KNOCKBACK,12,
+BEHEMOTH_WINDUP,1.4,
+
+# ── melee ──
+MELEE_DAMAGE,45,
+MELEE_RANGE,2.4,
+MELEE_STAMINA_COST,12,
+MELEE_COOLDOWN,0.75,
+MELEE_STOCK_MUL_DEFAULT,1,Weapons whose stock adds melee damage list a multiplier; this is the default for everything else.
+
+# ── roll (구르기, replaced the dive; on V since the 2026-09-07 커서 rework moved Alt to the cursor) ──
+ROLL_DURATION,0.55,
+ROLL_DISTANCE,4.2,
+ROLL_STAMINA_COST,22,
+ROLL_COOLDOWN,0.6,
+ROLL_DAMAGE_MUL,0.6,Damage taken during the roll is multiplied by this (small i-frame substitute).
+
+# ── weight ──
+WEIGHT_BASE_CAPACITY,28,kg at strength 0
+WEIGHT_PER_STRENGTH,2.2,kg per 근력 point
+WEIGHT_LIGHT_RATIO,0.7,조금 무거움
+WEIGHT_HEAVY_RATIO,0.9,무거움
+WEIGHT_OVER_RATIO,1.0,과적
+WEIGHT_LIGHT_STAMINA_MUL,0.7,-30 % stamina regen
+WEIGHT_HEAVY_STAMINA_MUL,0.5,-50 % stamina regen
+WEIGHT_HEAVY_MOVE_MUL,0.88,
+
+# ── detection (감지 시스템) ──
+DETECT_BASE_RADIUS,14,interactable highlight radius at 인지력 0
+DETECT_PER_PERCEPTION,1.6,+ meters per 인지력 point
+DETECT_ENEMY_BASE_RADIUS,26,off-screen enemy arrow radius
+DETECT_ENEMY_PER_PERCEPTION,2.4,
+DETECT_HIGHLIGHT_COLOR,0x8fe8ff,Fresnel highlight colour for interactables / revealed objects.
+DETECT_ENEMY_COLOR,0xff4d4d,
+
+# ── tactical implants ──
+IMPLANT_GRAPPLE_RANGE,45,
+IMPLANT_GRAPPLE_SPEED,26,pull speed (m/s)
+IMPLANT_GRAPPLE_COOLDOWN,6,
+IMPLANT_DASH_CHARGES,3,
+IMPLANT_DASH_DISTANCE,7.5,
+IMPLANT_DASH_COOLDOWN,5,per charge
+IMPLANT_BARRIER_HP,2000,
+IMPLANT_BARRIER_WIDTH,7,
+IMPLANT_BARRIER_HEIGHT,3.2,
+IMPLANT_BARRIER_REGEN,120,Shield hp regenerated per second while it is stowed.
+IMPLANT_BARRIER_BREAK_LOCKOUT,10,After the shield collapses it is locked for this long; its hp regenerates from 0 to full over exactly this window (HUD gauge).
+IMPLANT_OVERCHARGE_RANGE,22,
+IMPLANT_OVERCHARGE_HEAL_PER_SEC,45,@deprecated legacy beam rate; the hold-to-channel overcharge uses SELF / ALLY rates below.
+IMPLANT_OVERCHARGE_SELF_HEAL_PER_SEC,10,"Overcharge (hold Q): slow self heal, faster heal on the ally under the crosshair."
+IMPLANT_OVERCHARGE_ALLY_HEAL_PER_SEC,25,
+IMPLANT_OVERCHARGE_ENERGY,6,Energy = seconds of continuous channelling; refills from empty in IMPLANT_OVERCHARGE_REGEN_TIME while released.
+IMPLANT_OVERCHARGE_REGEN_TIME,12,
+IMPLANT_OVERCHARGE_BUFF_HP_RATIO,0.9,Speed / fire-rate buff applies while channelling only when the target's hp is at least this ratio.
+IMPLANT_OVERCHARGE_SPEED_MUL,1.28,
+IMPLANT_OVERCHARGE_FIRERATE_MUL,1.3,
+IMPLANT_OVERCHARGE_DURATION,4,buff lingers this long after the beam breaks
+IMPLANT_SCAN_PULSE_INTERVAL,1,
+IMPLANT_SCAN_MAX_PULSES,5,
+IMPLANT_SCAN_RADIUS_STEP,18,radius grows by this per pulse
+IMPLANT_SCAN_REVEAL_TIME,10,
+IMPLANT_SCAN_COOLDOWN,14,
+IMPLANT_AT_DAMAGE,420,
+IMPLANT_AT_RADIUS,7.5,
+IMPLANT_AT_SPEED,48,
+IMPLANT_AT_COOLDOWN,12,
+
+# ── gadgets ──
+GADGET_CLOAK_DURATION,12,
+GADGET_CLOAK_SHARE_RADIUS,8,
+GADGET_DOME_HP,1000,
+GADGET_DOME_RADIUS,5,
+GADGET_BARRICADE_HP,1800,
+GADGET_BARRICADE_RECOVER_TIME,3,
+GADGET_LURE_DURATION,12,
+GADGET_LURE_RADIUS,40,
+GADGET_SMOKE_DURATION,16,
+GADGET_SMOKE_RADIUS,7,
+GADGET_MINE_ARM_TIME,3,
+GADGET_MINE_RADIUS,6.5,
+GADGET_MINE_DAMAGE,220,
+GADGET_TURRET_HP,600,
+GADGET_TURRET_RANGE,32,
+GADGET_TURRET_DPS,60,
+GADGET_TURRET_DURATION,90,
+GADGET_INCENDIARY_DURATION,10,
+GADGET_INCENDIARY_RADIUS,5,
+GADGET_INCENDIARY_DPS,45,
+GADGET_JUMPPAD_IMPULSE,13,
+GADGET_JUMPPAD_FORWARD,9,
+GADGET_DEFUSE_TIME,3,"Hold time (s) to defuse a mine / recover a turret, jump pad or barricade."
+
+# ── stealth / cloak ──
+CLOAK_DETECT_MUL,0.18,Enemy detection range is multiplied by this while the target is cloaked and behaving.
+CLOAK_BREAK_TIME,3,Cloak breaks for this long after firing / sprinting near an alerted enemy.
+CLOAK_REVEAL_DISTANCE,4,Distance (m) at which an alerted enemy sees a cloaked target regardless.
+
+# ── armor / durability ──
+ARMOR_DURABILITY_PER_DAMAGE,0.35,Armor durability lost per point of damage absorbed.
+BROKEN_WEAPON_FIRERATE_MUL,0.5,Fire-rate multiplier once a weapon is broken (durability 0) — unused while broken weapons refuse to fire.
+
+# ── gathering / crafting ──
+GATHER_NODES_PER_MISSION,34,
+GATHER_INTERACT_TIME,2,
+CRAFT_DEFAULT_TIME,3,
+SALVAGE_NODES_PER_MISSION,7,"고철 더미 nodes per mission, on top of `GATHER_NODES_PER_MISSION` plants."
+SALVAGE_INTERACT_TIME,3,Hold seconds to strip one 고철 더미 — longer than a plant (`GATHER_INTERACT_TIME`).
+
+# ── progression ──
+STAT_BASE,5,
+STAT_MAX,20,
+STAT_POINTS_PER_LEVEL,1,Phase 5 (2026-09-06): was 2
+SKILL_LEVEL_MAX,100,
+XP_BASE,120,Phase 5 (2026-09-06): was 240 (plan: 120 × n^1.35)
+XP_EXPONENT,1.35,
+
+# ── appended: key rebinding + ship stash (2026-09-06) ──
+STASH_COLS,10,
+STASH_ROWS,24,
+
+# ── dev console (owner: console/) ──
+CONSOLE_HISTORY_MAX,50,
+CONSOLE_MAX_LINES,200,Output lines kept in the console log.
+CONSOLE_SUGGESTIONS_MAX,8,Suggestions shown above the input while typing.
+MOVE_CHEAT_SPEED,45,`/movecheat 1` + Home: metres per second along the camera forward.
+
+# ── unique weapons (owner: items data, weapons behaviour) ──
+FLAME_RANGE,12,
+FLAME_CONE_DEG,32,
+FLAME_DPS,95,
+FLAME_ALT_RANGE,26,
+FLAME_ALT_CONE_DEG,7,
+FLAME_ALT_DPS,75,
+FLAME_FUEL_PER_SEC,12,Fuel units (ammo `qty`) burnt per second while spraying.
+BURNOUT_THRESHOLD,240,Heat an enemy accumulates from flame damage before it is set 전소 (`applyStatus 'incinerated'`).
+BURNOUT_DECAY_PER_SEC,60,Heat lost per second when not being burnt.
+BURNOUT_DURATION,4,
+FLAME_AFTERBURN_DPS,12,"Residual burning applied on every flame tick (dps, seconds)."
+FLAME_AFTERBURN_DURATION,3,
+SHOCK_RANGE,14,
+SHOCK_CONE_DEG,50,
+SHOCK_MAX_TARGETS,4,
+SHOCK_DPS,72,
+SHOCK_CELL_PER_SEC,8,Cell units per second while the arc is on.
+SHOCK_CHARGE_TIME,1.1,
+SHOCK_CHARGE_DAMAGE,150,Damage of a fully charged bolt; a partial charge scales linearly from SHOCK_CHARGE_MIN_RATIO.
+SHOCK_CHARGE_MIN_RATIO,0.35,
+SHOCK_CHARGE_RANGE,200,
+SHOCK_CHARGE_CELLS,6,Cells per charged bolt.
+SHOCK_SLOW_FACTOR,0.55,'shocked' status: slow factor and duration applied by the arc.
+SHOCK_SLOW_DURATION,1.2,
+SHURIKEN_DAMAGE,58,
+SHURIKEN_SPEED,65,
+SHURIKEN_FIRE_RATE,3.2,
+SHURIKEN_TRIPLE_SPREAD_DEG,7,
+SHURIKEN_TRIPLE_COOLDOWN,0.9,
+SLASH_HOLD_TIME,0.45,
+SLASH_STAMINA_RATIO,0.5,Fraction of max stamina the big slash costs (refused below it).
+SLASH_DAMAGE,280,
+SLASH_RANGE,3.8,
+SLASH_ARC_DEG,160,
+SLASH_FOV_MUL,1.28,Camera FOV multiplier while `PlayerRef.setViewWiden(true)` (the slash wind-up / swing).
+SLASH_DURATION,0.6,
+BOW_DAMAGE,150,
+BOW_RANGE,150,
+BOW_FIRE_RATE,2.4,
+BOW_PROJECTILE_SPEED,115,
+BAZOOKA_DAMAGE,420,
+BAZOOKA_RADIUS,5.5,
+BAZOOKA_SPEED,48,
+BAZOOKA_ALT_FUSE,0.4,Seconds after launch when the RMB rocket detonates on its own.
+BAZOOKA_ALT_DAMAGE,260,
+BAZOOKA_ALT_RADIUS,4.5,
+BAZOOKA_SELF_DAMAGE,22,"Self damage taken inside the blast (flat, ignores armor DR) and the knockback speed away from the blast."
+BAZOOKA_KNOCKBACK,15,
+BAZOOKA_SUPER_JUMP,17,Extra vertical impulse when the blast is below the player's feet while airborne (rocket jump).
+BAZOOKA_FIRE_RATE,0.8,
+MINIGUN_SPINUP_TIME,1.2,
+MINIGUN_SPINDOWN_TIME,0.8,
+MINIGUN_DAMAGE,24,
+MINIGUN_FIRE_RATE,24,
+MINIGUN_SPREAD_DEG,2.6,
+MINIGUN_MOVE_MUL,0.55,"Move speed multiplier while spinning (`setSpeedModifier('minigun', …)`)."
+
+# ── stat XP (owner: progression) ──
+STAT_XP_BASE,100,"Raw XP for the next stat point at stat value v: STAT_XP_BASE × v^STAT_XP_EXPONENT (5 → 1118, 10 → 3162)."
+STAT_XP_EXPONENT,1.5,
+STAT_MIN,1,Stats never drop below this (cheat / debuff floor).
+
+# ── ship housing (owner: housing/ rules, hub/ geometry) ──
+SHIP_ROOM_COUNT,10,
+ROOM_GRID_COLS,8,Room floor grid (cells) and cell size (m): 8 × 8 × 0.5 = a 4 × 4 m room.
+ROOM_GRID_ROWS,8,
+HOUSING_CELL_SIZE,0.5,
+GENERATOR_MAX_LEVEL,5,
+STORAGE_MAX_LEVEL,5,
+WORKSHOP_MAX_LEVEL,3,
+RANGE_MAX_LEVEL,5,
+BENCH_MAX_LEVEL,3,
+RANGE_SKILL_GAIN_PER_LEVEL,0.1,Gun-skill XP multiplier bonus per range level (level 3 → ×1.3).
+WORKSHOP_COST_DISCOUNT_PER_LEVEL,0.1,Craft material discount per workshop level above 1 (level 3 → ×0.8).
+
+# ── appended: Phase 7 — known follow-ups (2026-09-06) ──
+RAID_FAILED_AUTO_RETURN_S,12,Result screen after a raid failure returns everyone to the ship by itself after this many seconds.
+SEARCH_MAX_DISTANCE,4,Searching only runs while the container window is open and the player is within this many metres of it.
+TRAINING_ARENA_SIZE,64,"Arena side (m), flat, walled; the player spawns at the south end facing the lanes."
+TRAINING_TARGET_COUNT,12,"Pop-up targets: count, hp, seconds to pop back up after a knock-down."
+TRAINING_TARGET_HP,60,
+TRAINING_TARGET_RESPAWN_S,3,
+TRAINING_SKILL_GAIN_MUL,1,"Skill XP in a training: only `gun_*` skills rise, scaled by this on top of the 사격장 bonus."
+ROGUE_MAG_ROUNDS,12,"Rounds per magazine (3 bursts of ROGUE_BURST) and the reload pause (no shots, anim hint 12)."
+ROGUE_RELOAD_TIME,2.0,
+ROGUE_COVER_FLANK_WEIGHT,10,Cover must actually block the line of sight; candidates are scored by `distance + ROGUE_COVER_FLANK_WEIGHT × (1 − |sin(angle to the target's facing)|)`.
+ROGUE_GRENADE_HOLD_S,3,Grenade toss when the target has been behind cover (no LOS) for this long; cooldown per rogue; fuse / damage / radius.
+ROGUE_GRENADE_COOLDOWN,12,
+ROGUE_GRENADE_FUSE,2.5,
+ROGUE_GRENADE_DAMAGE,45,
+ROGUE_GRENADE_RADIUS,4.5,
+ROGUE_GRENADE_RANGE,28,
+ROGUE_GRENADE_WINDUP,0.6,Seconds the throw pose plays before release (anim hint 13).
+GHOST_BLEED_PER_SEC,1,"Bleed rate of a downed ghost (same as a live player: PLAYER_DOWN_BLEED_PER_SEC), kept here for the host loop."
+
+# ── 온실 재배 (owner: housing rules, hub geometry, items seed data) ──
+GROW_PLOTS_PER_RACK,4,Plots in one 재배층.
+GROW_RACK_STACK_LIMIT,4,How many 재배층 may share one floor footprint (each on its own `PlacedFurniture.layer`).
+GROW_RACK_LAYER_HEIGHT,0.8,Vertical spacing (m) between stacked 재배층 layers.
+GROW_SKILL_SPEEDUP,0.35,Applied once when the seed goes in; `GrowPlot.readyAt` is then fixed so a later skill change never moves the timer.
+
+# ── audio settings (owner: audio) ──
+AUDIO_DEFAULT_MASTER,0.8,
+AUDIO_DEFAULT_SFX,1,
+
+# ── ship doors + room lighting (owner: hub) ──
+DOOR_OPEN_DISTANCE,3.2,A room / cockpit door slides open when the player is within this many metres of its threshold.
+DOOR_SLIDE_SPEED,3.0,Door slide speed (fraction of full travel per second).
+ROOM_LIGHT_POOL,3,"the pool is created once and re-anchored to the nearest non-empty rooms, with `intensity` ramped instead."
+ROOM_LIGHT_INTENSITY,11,Point-light intensity / distance of a lit (non-empty) room.
+ROOM_LIGHT_DISTANCE,7,
+ROOM_STRIP_DIM,0.15,`emissiveIntensity` of a room's wall strips when the room is empty vs. assigned a purpose.
+ROOM_STRIP_LIT,2.2,
+
+# ── jump pad (owner: gadgets) ──
+JUMP_PAD_RETRIGGER_S,2.5,A player who was just launched by a pad cannot be launched by the same pad again for this long (was a 0.7 s per-pad literal).
+
+# ── 서재 책장 (owner: housing rules, hub geometry, items book data) ──
+BOOKS_PER_SHELF,6,Book slots per 책장.
+BOOK_XP_PER_BOOK,0.05,"Skill-XP multiplier bonus per shelved book, weighted by `BOOK_RARITY_MUL[rarity]`: mul = 1 + BOOK_XP_PER_BOOK × Σ weight."
+BOOK_GAIN_MAX,2.0,Cap of the 서재 multiplier for one skill.
+
+# ── 시뮬레이션 훈련장 target modes (owner: world) ──
+TRAINING_MOVING_SPAN,3.2,"이동 표적: sweep half-width (m, keeps the target inside its lane), speed (m/s) and the pause at each end."
+TRAINING_MOVING_SPEED,2.2,
+TRAINING_MOVING_PAUSE_S,0.5,
+TRAINING_COURSE_TARGETS,10,"타임 코스: knock-downs needed, seconds allowed, cooldown before the next course can start."
+TRAINING_COURSE_TIME_S,60,
+TRAINING_COURSE_COOLDOWN_S,3,
+
+# ── appended: Phase 10 — UI 개선 pass (2026-09-07) ──
+IMPLANT_BARRIER_CARRY_WIDTH,3.2,strikes over this same width. Height unchanged.
+IMPLANT_BARRIER_CARRY_HEIGHT,1.35,
+IMPLANT_BARRIER_CARRY_OFFSET,0.7,the player capsule before the barrier query runs (`enemies/EnemySystem.fireGun`) and the shield never blocks.
+IMPLANT_BARRIER_CARRY_BASE_Y,0.55,Height of the panel's bottom edge above the feet (`BarrierField.intersect` measures dy from `position.y`).
+IMPLANT_BARRIER_CARRY_SPEED_MUL,0.78,"Movement multiplier while the shield is up (`player.setSpeedModifier('shield', …)`)."
+IMPLANT_BARRIER_BLOCK_DAMAGE,30,Shield hp removed per blocked hostile projectile (was the module-local `BARRIER_BLOCK_DAMAGE`).
+IMPLANT_BARRIER_CARRY_REGEN,40,"Regen per second while the shield is raised, after `IMPLANT_BARRIER_CARRY_REGEN_DELAY` without a hit."
+IMPLANT_BARRIER_CARRY_REGEN_DELAY,3,
+
+# ── 다각화된 적 사망 + 확률 루팅 (owner: enemies; the chance table is `CORPSE_LOOT_CHANCE` in types.ts) ──
+DEATH_FALL_TIME,0.9,Seconds of `Enemy.deathTimer` over which the fall pose blends in (bugs and rogues).
+CORPSE_FALL_MAX_SPEED,22,Terminal speed (m/s) of a body that died in the air and is still falling to the terrain.
+CORPSE_LAND_TIMEOUT,2.5,"A mid-air kill registers its `corpse:<id>` interactable only once the body lands, or after this long."
+
+# ── 컨테이너 실시간 동기화 연출 (owner: inventory grid view) ──
+CONTAINER_TAKE_ANIM_S,0.22,"Length of the ""float up + fade out"" a container tile plays when someone else takes it (seconds)."
+CONTAINER_TAKE_RISE_PX,14,"How far the vanishing tile floats up, in grid px, and the scale it ends at."
+CONTAINER_TAKE_END_SCALE,0.9,
+
+# ── 루팅 표시 = 빛기둥 (replaces the light-blue fresnel sphere of Detection / ScanReveal) ──
+INTERACT_PILLAR_HEIGHT,2.6,"In-range interactable pillar: height (m), bottom / top radius (m), peak opacity at the base."
+INTERACT_PILLAR_RADIUS_BOTTOM,0.3,
+INTERACT_PILLAR_RADIUS_TOP,0.1,
+INTERACT_PILLAR_OPACITY,0.28,
+INTERACT_PILLAR_FADE,0.85,Vertical fraction at which the pillar has faded to nothing (1 = fades exactly at the top).
+SCAN_PILLAR_HEIGHT,3.6,The scan-reveal (through-wall) pillar is taller so it still reads behind geometry.
+PICKUP_PILLAR_HEIGHT,3.2,Per-pickup pillar (replaces the 5.5 m `PickupVisuals.BEAM_HEIGHT` beam).
+PICKUP_PILLAR_OPACITY,0.22,
+
+# ── 부상자 들쳐메기 (owner: player) ──
+PLAYER_CARRY_RANGE,2.2,Max distance (m) at which an F tap can shoulder a downed squadmate.
+PLAYER_CARRY_PICKUP_S,0.7,Pick-up / put-down animation length (s); the carrier's controls are locked for it.
+PLAYER_CARRY_DROP_S,0.5,
+PLAYER_CARRY_SPEED_MUL,0.75,Speed multiplier while carrying. Walking and sprinting are allowed; every other action drops the body first.
+
+# ── 회복약 (was 스팀; the `stim` def id / `ItemCategory 'stim'` / `applyStim` are unchanged) ──
+HEAL_HOLD_S,2,own `ItemDef.heal.useTime` (붕대 5 s · 약초 붕대 5 s · 회복주사 2 s) and the HUD reads the duration off the event.
+HEAL_HOLD_CANCEL_ON_DAMAGE,false,Taking damage does not cancel the hold (moving never did). Kept as a constant so the HUD mirrors the rule.
+
+# ── appended: 소모품 사용 (2026-09-07) ──
+CONSUMABLE_SLOW_MUL,0.5,Movement speed multiplier while a consumable is being used / channelled (`PlayerRef.setSpeedModifier`).
+DEFIB_USE_TIME_S,1,Seconds LMB must be held with a 제세동기 in hand before the revive fires.
+HEAL_SPRAY_GAUGE,200,2026-09-08: 100 → 200; an empty can stays at 0 (repairable in the ship) instead of vanishing
+HEAL_SPRAY_RADIUS,8,
+
+# ── 발사 준비 패널 (owner: hub, portraits from player/) ──
+HUB_READY_CELLS,4,Cells in the READY panel. Kept separate from the lobby size so the panel never resizes.
+CREW_CARD_MIN_INTERVAL_S,1,Debounce for re-broadcasting my own `crew card` (seconds).
+CREW_LOADOUT_COOLDOWN_S,2,Don't answer `crewq loadout` from the same peer more often than this (seconds).
+
+# ── 마우스 커서 (owner: shared/cursor.ts + Input; the art is ui/hud/GameCursor) ──
+GAME_CURSOR_SIZE,22,Side of the drawn cursor image in CSS px (a 2× copy is generated for HiDPI through `image-set`).
+LOCK_GESTURE_RETRY_MS,10000,How long a denied pointer-lock request keeps waiting for the next real user gesture to retry (ms).
+
+# ── 행성 이동 (owner: hub; the cutscene is `DockingCutscene` reused as a warp) ──
+HUB_TRAVEL_DURATION,4.5,"Seconds of the 행성 이동 cutscene. Shorter than `HUB_DOCKING_DURATION` — it is a hop, not an arrival."
+HUB_TRAVEL_WARP_FRACTION,0.55,Fraction of the cutscene spent in the streaked-star warp before the destination sphere resolves.
+HUB_TRAVEL_WARP_STRETCH,22,How far the warp stretches a star (multiplier on its own length while `HUB_TRAVEL_WARP_FRACTION` runs).
+
+# ── 터미널 (owner: hub/ui/HubMenu — full-screen since Phase 11) ──
+PLANET_HOLOGRAM_PX,360,Side of the square WebGL canvas the planet hologram renders into (device px are scaled by the DPR cap).
+PLANET_HOLOGRAM_SPIN,0.24,Idle spin of the hologram sphere (rad/s) and the tilt it is seen at (rad).
+PLANET_HOLOGRAM_TILT,0.28,
+PLANET_SWAP_TIME,0.35,Seconds the hologram takes to swap planets when the player steps left / right.
+
+# ── 소셜 UI (owner: ui) ──
+SOCIAL_CARDS_PER_ROW,2,Profile cards per row in the 친구 / 최근 플레이어 lists (the spec's 가로 2개씩).
+SOCIAL_FRIEND_ROWS,3.5,Rows the 친구 list and the 최근 플레이어 list show before they scroll (2 × 3.5 and 2 × 5.5 in the spec).
+SOCIAL_RECENT_ROWS,5.5,
+SQUAD_VOICE_DEFAULT,1,Squad voice sliders are UI-only in Phase 11 (no voice chat yet); this is their stored default.
+
+# ── 임플란트(능력치 장착 아이템) 칸 (owner: progression) ──
+IMPLANT_SLOTS_BASE,4,
+IMPLANT_SLOTS_PER_LEVELS,5,+1 slot per this many character levels.
+IMPLANT_SLOTS_MAX,10,
+
+# ── 실드 배쉬 (owner: implants) ──
+IMPLANT_SHIELD_BASH_STAMINA,25,Stamina spent per bash (same units as `PlayerRef.consumeStamina`).
+IMPLANT_SHIELD_BASH_DAMAGE,55,Base damage per enemy in the arc (× `derived.meleeDamageMul` only — no weapon / 개머리판 bonus).
+IMPLANT_SHIELD_BASH_RANGE,1.6,"Reach in front of the shield plane, metres. Width = the shield's own carry width."
+IMPLANT_SHIELD_BASH_COOLDOWN,0.8,
+IMPLANT_SHIELD_BASH_KNOCKBACK,6,Knockback impulse applied to each struck enemy (m/s along the shield forward).
+IMPLANT_SHIELD_BASH_SWING_S,0.35,Seconds the bash pose / FX play.
+
+# ── 정찰 rework (owner: implants) — one wide instant pulse ──
+IMPLANT_SCAN_RADIUS,70,"Radius of the single pulse, metres."
+IMPLANT_SCAN_REVEAL_TIME_V2,15,Seconds the reveal lasts (self + squad). Replaces `IMPLANT_SCAN_REVEAL_TIME` (10) for the new implant.
+IMPLANT_SCAN_COOLDOWN_V2,30,
+
+# ── 총알 추적 (owner: enemies) ──
+ENEMY_SHOT_ALERT_DIST,6,"An enemy this close to the bullet path (metres, closest approach) reacts even without perceiving the shooter."
+ENEMY_SHOT_IMPACT_DIST,10,… or this close to the impact point.
+ENEMY_SHOT_ALERT_WATCH_S,3,Seconds the enemy faces the origin with a widened perception cone before it starts advancing.
+ENEMY_SHOT_ALERT_CONE_MUL,2,Perception range multiplier toward the shot origin during the watch (and while advancing).
+ENEMY_SHOT_ALERT_GIVE_UP_S,20,Give up the investigation after this many seconds without finding anyone (returns to the previous behaviour).
+
+# ── ESC = 항상 일시정지 (2026-09-08) ──
+COMMUNITY_TAP_MAX_S,0.3,"invite on screen there is nothing to hold for, so any release toggles."
+
+# ── 공용 함선 격납고 (2026-09-08, owner: hub) ──
+SHIP_VISIT_MIN_INTERVAL_S,4,"and costs a few kB, so it is slower than `CREW_CARD_MIN_INTERVAL_S` on purpose."
+SHIP_VISIT_COOLDOWN_S,3,Don't answer `shipq state` from the same peer more often than this (seconds).
+SHIP_VISIT_WAIT_S,5,Seconds a bay waits for a peer's `ship state` before the visit is refused with a toast.
+SHIP_VISIT_MAX_FURNITURE,400,receiver truncates so a hostile document cannot make a visitor build thousands of colliders.
+
+# ── 가젯 배치물의 나머지 수치 (2026-09-09: TS 리터럴에서 옮겨 왔다) ──
+GADGET_BARRICADE_RADIUS,2.4,바리케이드가 차지하는 반경(m)
+GADGET_LURE_HP,140,유인 수류탄 비콘 내구도
+GADGET_MINE_HP,60,지뢰 내구도 (쏘면 터진다)
+GADGET_DEFIB_RANGE,5,제세동기가 닿는 거리(m)
+GADGET_JUMPPAD_HP,150,점프대 내구도
+GADGET_JUMPPAD_RADIUS,1.7,점프대 발동 반경(m)

@@ -1,15 +1,18 @@
 import type { AttachmentDef, AttachmentEffects, EffectiveWeaponStats, ItemInstance, WeaponDef, WeaponGrade } from '@/shared';
 import {
   REPAIR_ALLOY_PER, REPAIR_SCRAP_PER, SOCKET_SLOTS, WEAPON_ADS_TIME, WEAPON_DEFAULT_DURABILITY, WEAPON_GRADE_ROMAN,
-  WEAPON_SWAP_TIME_PRIMARY, WEAPON_SWAP_TIME_SECONDARY,
+  WEAPON_SWAP_TIME_PRIMARY, WEAPON_SWAP_TIME_SECONDARY, keyTable,
 } from '@/shared';
+
+/** `data/tuning.csv` — items/ 안에서만 쓰는 스칼라 (반동 · 조준 계수). */
+const T = keyTable('tuning.csv');
 import { ITEM_DEF_MAP } from './ItemDefs';
 import { gradeOf, isUniqueWeapon, weaponClassOf } from './WeaponDefs';
 
 /** Horizontal recoil as a fraction of the def's (vertical) recoil. */
-export const RECOIL_H_RATIO = 0.7;
+export const RECOIL_H_RATIO = T.num('RECOIL_H_RATIO');
 /** Secondaries aim in twice as fast. */
-export const SECONDARY_ADS_TIME_MUL = 0.5;
+export const SECONDARY_ADS_TIME_MUL = T.num('SECONDARY_ADS_TIME_MUL');
 
 /** Roman numeral for a grade (`3` → `III`; out-of-range → the number). */
 export function gradeRoman(grade: number): string {

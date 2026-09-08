@@ -1,0 +1,30 @@
+# 기업별 판매 목록. 한 줄이 규칙 하나이고, 아이템은 규칙 하나라도 맞으면 그 기업이 판다.
+# weaponClasses / ammoTypes 를 적으면 그 종류만 (| 로 여러 개), 비우면 그 카테고리 전부.
+# tactical 은 가방 전용 (true = 전술 가방만, false = 일반 가방만).
+# minRepLevel 미만이면 그 줄 자체가 안 보인다. maxRarity 는 신뢰도 상한 위에 더 씌우는 등급 제한이다.
+# implantRepairMaterials true = 임플란트 수리에 쓰이는 재료를 전부 판다 (material 줄 전용).
+corp,category,weaponClasses,ammoTypes,tactical,minRepLevel,maxRarity,implantRepairMaterials
+# helix — 헬릭스 방산
+helix,primary,AR|SMG,,,,,
+helix,secondary,PISTOL,,,,,
+helix,ammo,,light|medium,,,,
+
+# bastion — 바스티온 중공업
+bastion,primary,SR|DMR|SG,,,,,
+bastion,ammo,,heavy|shell,,,,
+bastion,armor,,,,2,,
+
+# nomad — 노마드 장비
+nomad,bag,,,false,,,
+nomad,bag,,,true,3,,
+nomad,armor,,,,,,
+
+# ceres — 세레스 바이오
+ceres,stim,,,,,,
+ceres,grenade,,,,,,
+ceres,gadget,,,,,,
+ceres,attachment,,,,2,,
+ceres,book,,,,2,,
+ceres,implant,,,,,uncommon,
+ceres,material,,,,,,true
+

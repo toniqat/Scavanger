@@ -1,0 +1,9 @@
+# 임플란트 아이템의 등급별 가격과 세레스 바이오 수리 재료.
+# rarity 는 코드가 찾는 값이므로 바꾸지 않는다. 망가진 것의 가격은 value ÷ BROKEN_IMPLANT_VALUE_DIV (tuning.csv).
+# 등급별 장착칸 수는 data/tables.csv 의 IMPLANT_SLOTS_BY_GRADE 에 있다.
+rarity,value,repairCost
+common,400,mat_circuit:1|mat_cable:1
+uncommon,900,mat_circuit:1|mat_cable:1|mat_alloy:1
+rare,1800,mat_circuit:2|mat_cable:2|mat_alloy:1
+epic,3600,mat_circuit:2|mat_cable:2|mat_alloy:1|mat_antiseptic:1
+legendary,7500,mat_circuit:3|mat_cable:3|mat_alloy:2|mat_antiseptic:1

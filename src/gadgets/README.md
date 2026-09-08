@@ -181,4 +181,10 @@ host 는 `flow rejoined` 에도 gad sync 로 답한다
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
+- **2026-09-09 (수치 csv 이관)** — `GadgetDefs.ts` 의 표는 **TS 에 남는다**: 설명문이 `GADGET_*` 상수를 그대로
+  찍기 때문에 csv 로 옮기면 설명문의 숫자가 수치와 따로 놀게 된다. 대신 표 안에 리터럴로 박혀 있던 여섯 값이
+  상수가 되어 `data/constants.csv` 로 갔다 — `GADGET_BARRICADE_RADIUS`(2.4) · `GADGET_LURE_HP`(140) ·
+  `GADGET_MINE_HP`(60) · `GADGET_DEFIB_RANGE`(5) · `GADGET_JUMPPAD_HP`(150) · `GADGET_JUMPPAD_RADIUS`(1.7).
+  이제 이 폴더의 수치는 전부 csv 한 곳에서 조정된다
+
 - **Phase 9** — a jump pad re-launches the **same player** only after `JUMP_PAD_RETRIGGER_S` (`Deployable.padNext` per peer), the fire zone credits its owner (`applyStatus(..., d.owner)`), `gadq sync` re-requested on `net:hostChanged`
