@@ -142,25 +142,39 @@ window.addEventListener('scroll', () => {
 /* ── 이미지 자동 교체 ──────────────────────────────────────────────────
    ../assets/ 에 파일을 넣으면 플레이스홀더가 실제 이미지로 바뀐다.
    ────────────────────────────────────────────────────────────────────── */
+/* 배포용은 같은 이름의 .webp 를 먼저 찾고, 없으면 data-src 에 적힌 원본(.png)으로 떨어진다.
+   .webp 는 `node scripts/pitch-webp.mjs` 가 .png 옆에 만든다 (30 MB → 2.8 MB).
+   페이지 23개의 data-src 는 .png 그대로다 — 고칠 곳이 여기 하나뿐이라는 뜻이다. */
+function probeSrc(src, hit) {
+  const cand = [src.replace(/\.png$/i, '.webp'), src].filter((v, i, a) => a.indexOf(v) === i);
+  (function next(i) {
+    if (i >= cand.length) return;               /* 둘 다 없으면 플레이스홀더가 남는다 — 정상 동작 */
+    const probe = new Image();
+    probe.onload = () => hit(cand[i]);
+    probe.onerror = () => next(i + 1);
+    probe.src = cand[i];
+  })(0);
+}
+
 $$('figure.shot[data-src]').forEach((fig) => {
-  const src = fig.dataset.src, probe = new Image();
-  probe.onload = () => {
+  probeSrc(fig.dataset.src, (src) => {
     const ph = $('.ph', fig); if (!ph) return;
+    /* 제목은 .ph 안에 있다 — 갈아끼우기 *전에* 뽑아 둔다 */
+    const ttl = ($('.ttl', fig) || {}).textContent || '';
     const img = document.createElement('img');
-    img.src = src; img.alt = ($('.ttl', fig) || {}).textContent || '';
+    img.src = src; img.alt = ttl;
     ph.replaceWith(img);
     if (!$('figcaption', fig)) {
       const cap = document.createElement('figcaption');
-      cap.textContent = ($('.ttl', fig) || {}).textContent || '';
+      cap.textContent = ttl;
       fig.appendChild(cap);
     }
-  };
-  probe.src = src;
+  });
 });
 $$('.person[data-src]').forEach((p) => {
-  const src = p.dataset.src, probe = new Image();
-  probe.onload = () => { const av = $('.av', p); if (av) av.innerHTML = '<img src="' + src + '" alt="">'; };
-  probe.src = src;
+  probeSrc(p.dataset.src, (src) => {
+    const av = $('.av', p); if (av) av.innerHTML = '<img src="' + src + '" alt="">';
+  });
 });
 
 /* ── 진입 시 앵커 ──────────────────────────────────────────────────────
@@ -196,7 +210,7 @@ if (location.hash) {
     const cap = fig ? $('figcaption', fig) : null;
     $('img', box).src = img.currentSrc || img.src;
     $('img', box).alt = img.alt || '';
-    $('.cap', box).textContent = cap ? cap.textContent : (img.alt || '');
+    $('.cap', box).textContent = (cap && cap.textContent.trim()) || img.alt || '';
     clearTimeout(hideTimer);
     box.style.display = 'flex';
     document.body.style.overflow = 'hidden';
