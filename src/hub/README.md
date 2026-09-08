@@ -391,3 +391,9 @@ over the 닫기 (Esc) / 타이틀로 footer.
 - **2026-09-07 (안정화)** — 복도 징두리 트림을 **문마다 끊어서** 그린다(허리 높이 노란 선이 방 문을 가로지르던 문제), `HousingMode` 의 커서가 방 밖을 가리키면 셀 프레임 · 고스트 · 설치/회수를 모두 끈다(`cursorInRoom`), `onResumed` 가 진행 중인 **레이드에 자동 재투입**한다(`rejoinMission()`)
 
 - **2026-09-08 (UI/UX)** — **출격 준비 경고** (`ui/LaunchWarnPanel.ts`): 발사 슬롯에 타기 직전 주무기 · 탄약(구경별 한 세트) · 가방 · 방탄복 · 전술 임플란트 · 회복 아이템을 훑어 걸리는 것을 **전부** 보여주고 확인을 받는다. 판정은 `ctx.inventory.getLaunchWarnings()`(inventory 소유)가 하고 여기서는 그리기만 한다. 경고일 뿐 탑승을 막지 않으며, 한 번 넘긴 조합은 `HubSystem.launchWarnAck` 에 남아 다시 묻지 않는다
+
+- **2026-09-08 (튜토리얼 게이트)** — `parts/Pods.podBlockReason`(탑승) · `parts/Interior`(터미널 `canInteract`) ·
+  `parts/Planet.travelBlockReason`(행성)이 `ctx.tutorial?.blockReason()` 을 본다. `travelBlockReason` 은 이제
+  **행성 인자를 선택적으로** 받는다 (`travelBlockReason(planet?)`) — 튜토리얼이 첫 번째 행성만 허용하므로
+  어느 행성인지 알아야 한다. `ui/HubMenu` 는 미리보기 중인 행성을 넘기고(`travelBlock(d.id)`),
+  `ctx.tutorial.hides('matchmaking')` 이면 **신호 · 공유 함선 섹션을 통째로 감춘다**

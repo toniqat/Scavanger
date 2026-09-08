@@ -81,7 +81,7 @@ export class HubSystem implements GameSystem, HubRef {
   setPlanet(planet: PlanetId): boolean { return Planet.setPlanet(this, planet); }
 
   /** Korean reason 행성 이동 is refused right now, or null when it is allowed (the terminal renders it). */
-  travelBlockReason(): string | null { return Planet.travelBlockReason(this); }
+  travelBlockReason(planet?: PlanetId): string | null { return Planet.travelBlockReason(this, planet); }
 
   /** Restore the solo pick (`PLANET_STORAGE_KEY`); an unknown / absent value stays null (목표 미지정). */
   private loadPlanet(): void { return Planet.loadPlanet(this); }
@@ -190,7 +190,7 @@ export class HubSystem implements GameSystem, HubRef {
       onClosed: () => this.relock(),
       startTraining: () => this.startTraining(),
       planet: () => this.planet,
-      travelBlock: () => this.travelBlockReason(),
+      travelBlock: (planet) => this.travelBlockReason(planet),
       travelTo: (p) => { this.setPlanet(p); },
     });
     this.wbMenu = new WorkbenchMenu(ctx, { onClosed: () => this.relock() });

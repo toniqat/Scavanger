@@ -253,6 +253,35 @@ in `CLAUDE.md`.
   단독 8연속 52/52 — 그중 한 번은 첫 투척이 6.09 m 로 빗나가 재시도 경로를 실제로 탔다.
 
 
+## 2026-09-08 — 튜토리얼 (새 캐릭터 안내 14단계)
+
+`npm run verify:all` **all passed in 5 min 39 s**.
+
+docs line: 2026-09-08: typecheck ok, typecheck-server ok, net-selftest 278/278, build 2,141.81 kB JS / 215.65 kB CSS,
+smoke-quickslots 46/46, smoke-phase2 53/53, smoke-weapons 137/137, smoke-stratagems 70/70, smoke-phase3 32/32,
+smoke-phase4 49/49, smoke-ship-rooms 71/71, smoke-tactical 85/85, smoke-controls-hub 111/111, smoke-inventory-p6 93/93,
+smoke-console 63/63, smoke-housing 197/197, smoke-progression 123/123, smoke-loadout 61/61, smoke-ui-p6 87/87,
+smoke-search 61/61, smoke-ui-p5 133/133, smoke-resume-gate 47/47, smoke-enemy-alert 42/42, smoke-uniques 71/71,
+smoke-meta 170/170, smoke-training 110/110, smoke-library 126/126, smoke-rogue-v2 52/52, smoke-ghost 86/86,
+smoke-enemy-delta 52/52, smoke-planets 86/86, smoke-ecology 83/83, smoke-raidflow 48/48, smoke-social 116/116,
+**smoke-tutorial 39/39 (신규)**, e2e-mp 156/156.
+
+신규 스모크 1개: `smoke-tutorial` (39) — 자동 시작이 **새 프로필에서만** 걸리는 것 · 시작 카드와 블로커/커서 ·
+목표 패널 · 게이트 전부(용도 · 가구 · 레시피 · 터미널 · 행성 · 탑승 · 화면 탭) · 커뮤니티/매치메이킹 숨김 ·
+스포트라이트(네 판 + 링 + 말풍선) · 바닥 안내선(그려지고, 도착하면 걷힌다) · 재료 1회 지급 ·
+새로고침을 견디는 단계 · 건너뛰기 확인 카드 · 건너뛴 뒤 모든 게이트 해제. `scripts/verify.mjs` 에 등록했다.
+
+**다른 모든 스모크에 한 줄씩 추가했다** — `evaluateOnNewDocument` 에서 `scav.tutorial` 을 `{done:true}` 로 심는다.
+튜토리얼은 새 프로필에서 자동으로 켜져 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 심지 않으면
+`smoke-housing` · `smoke-planets` · `smoke-training` · `e2e-mp` 등이 전부 자기 시나리오 앞에서 막힌다.
+
+**한 번 걸린 것**: 스모크가 `waitStep('workshop')` 직후 스포트라이트를 바로 읽어 12번에 2번쯤 실패했다.
+스포트라이트는 대상을 프레임 단위(`RETARGET_INTERVAL` 0.25 s)로 다시 찾으므로 아직 자리를 못 잡은 상태였다.
+검사를 `waitFor` 로 바꿨다(3연속 39/39). 같은 과정에서 실제 버그도 하나 잡았다 — 대상이 보이는지를
+`offsetParent` 로 판정하면 `position: fixed` 조상 아래의 HUD 조각이 언제나 null 이라 스포트라이트가 뜨지 않는다.
+`getClientRects().length` 로 바꿨다.
+
+
 ## 2026-09-08 — UI/UX 개선 6건 (기업 탭 잠금 · 감정 지연 · 임플란트 이사 · 레드닷 · 출격 경고)
 
 `npm run verify:all` **all passed in 5 min 39 s**.

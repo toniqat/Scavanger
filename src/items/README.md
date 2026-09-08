@@ -432,3 +432,8 @@ the loot rules (corpse / crate counts over 400 / 300 rolls, no working implant, 
 - **2026-09-07** — 스팀 / 고급 스팀 삭제 → **회복 소모품 4종**(`heal_bandage` 붕대 · `heal_bandage_herb` 약초 붕대 · `heal_syringe` 회복주사 · `heal_spray` 회복 스프레이 — `ItemDef.heal`, 스프레이는 `durabilityMax` 100 게이지), 재료 `mat_cloth` / `mat_can` / `mat_syringe` / `mat_antiseptic`(소독약은 제작 전용), 수류탄 스택 3 · 재세동기 스택 2, 탄약 스택 = 한 세트, 의약 레시피 6종, `STARTER_LOADOUT` 은 최소 킷(권총 I · 가방 I · 방탄복 I)이고 새 **`STARTER_STASH`** 가 기본 지급품
 
 - **Phase 12 (2026-09-08)** — `ImplantDefs.ts` — 46개 category `implant` 정의(5능력치 × I–IV + 전설 퍽 3종, 각각 `imp_broken_*` 쌍둥이가 `repairsTo` / `repairCost` 를 갖는다), 루팅은 **망가진 것만**(티어 2–4 가중치, 로그 시체 6 % · 보스 45 %, 전설은 티어 4 / 보스, `rollCorpse` 의 마지막 추첨이라 기존 벡터 불변); `STARTER_STASH` 의 폐금속 24 · 케이블 4 · 합금 3 (발전기 Lv.1 → 작업실 → 총기 작업대 전 과정을 덮는다)
+
+- **2026-09-08** — `Recipes.ts` 에 **`make_wpn_ar`(돌격소총 제작)** — 총기 작업대 Lv.1, 폐금속 6 + 합금 판 1 →
+  `wpn_ar`(등급 I), 8초. 그 전에는 작업대 Lv.1 이 대량 탄약밖에 못 만들어 "작업대에서 총을 만든다"는 동작이
+  아예 없었다 (기본 지급품에 같은 총이 들어 있으므로 성능을 여는 것이 아니라 동작을 여는 레시피다).
+  튜토리얼의 `craftGun` 단계가 이것을 쓴다

@@ -61,6 +61,9 @@ export function podCanInteract(sys: HubSystem, slot: number): boolean {
  */
 export function podBlockReason(sys: HubSystem, slot: number): string | null {
   void slot;
+  // 2026-09-08: 튜토리얼이 아직 출격 단계에 오지 않았으면 지금 해야 할 일을 프롬프트에 그대로 띄운다
+  const tut = sys.ctx.tutorial?.blockReason('board') ?? null;
+  if (tut) return tut;
   if (sys.trainingRunning()) return '훈련 진행 중 — 터미널에서 합류';
   if (sys.planet === null) return '목표 행성 미지정 — 터미널에서 지정';
   return null;

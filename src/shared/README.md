@@ -626,3 +626,9 @@ Plan: `docs/DECISIONS.md`. Everything below is append-only; owners in brackets.
 - **Phase 12 (2026-09-08)** — `ItemCategory 'implant'` + `ItemDef.implant` (`ImplantItemDef` — `slots` · `stats` · `perk?` · `broken?` / `repairsTo` / `repairCost`), `EnemyManagerRef.reportShot` / `setXray`, `ImplantsRef.resolveBarrierCollision` / `absorbFrontalAttack` / `bashing`, progression 의 `PerkId` 3종 + `PERK_DEFS` · `EquippedImplant` · `PlayerProfile.implants` · `DerivedStats.perks` · `implantSlots` 계열, net 의 `shotq` / `ee barrierHit` / `imp bash` / `imp scanCast`, events 의 `progress:implantsChanged` · `implant:bashed` · `implant:barrierBumped` · `enemy:shotAlerted` · `scan:cast` · `ui:resumeGate` · `inventory:disassembleProgress` · `item:channelChanged`, constants 의 `IMPLANT_SLOTS_*` · `IMPLANT_SHIELD_BASH_*` · `IMPLANT_SCAN_RADIUS`/`_V2` · `ENEMY_SHOT_ALERT_*` · `COMPASS_ENEMY_COLOR` · `RESUME_GATE_BLOCKER` · **`HEAL_SPRAY_GAUGE` 200** · `IMPLANT_BARRIER_CARRY_WIDTH` 3.2, `labels.ts` 임플란트, `cursor.ts` 의 `isDesktopShell()`, `meta.ts` 의 `ShopRule.maxRarity` / `implantRepairMaterials`
 
 - **2026-09-08 (UI/UX)** — append-only 추가 둘: `types.ts` 의 `LaunchWarningId` / `LaunchWarning` + `InventoryRef.getLaunchWarnings()` (발사 슬롯 탑승 전 점검 — 판정은 inventory, 표시는 hub), `housing.ts` 의 `LoadoutPreset.implantItems?: readonly string[]` (임플란트 **아이템** def id 배열; `undefined` = 지금 장착을 건드리지 않음, `[]` = 전부 해제). 둘 다 선택 필드/추가 메서드라 옛 세이브와 옛 호출부는 그대로 동작한다
+
+- **2026-09-08 (튜토리얼)** — 새 파일 `tutorial.ts`: `TutorialStepId` 14단계 + `TUTORIAL_STEPS`, `TutorialGate`
+  9종, `TutorialSave`, `TutorialRef` (`ctx.tutorial`, `GameContext` 에 필드 추가). 이벤트 둘
+  (`tutorial:changed` · `tutorial:finished`). **계약이 하는 일은 게이트 하나**다 — 각 폴더가 자기 거절 사유
+  함수에서 `ctx.tutorial?.blockReason(gate, id)` 를 한 번 부르고, 숨겨야 할 셸 요소는 `hides(gate)` 로 묻는다.
+  튜토리얼이 꺼져 있으면 둘 다 `null` / `false` 라 평소 동작이 바뀌지 않는다

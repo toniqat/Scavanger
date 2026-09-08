@@ -187,6 +187,18 @@ export const CRAFT_RECIPES: readonly CraftRecipe[] = [
     description: '화약 13 + 폐금속 5 → 산탄 24발. 총기 작업대.',
   },
 
+  /* ── 6-a-2. 총기 작업대 Lv.1: 기본 총기 (2026-09-08) ──────────────────────
+   * 작업대 Lv.1 이 만들 수 있는 것이 대량 탄약뿐이라, 갓 지은 작업대 앞에서 **총 한 자루** 만드는 경험이
+   * 없었다 (튜토리얼의 `총기 제작` 단계도 여기 걸린다). 등급 I 돌격소총 한 자루 — 기본 지급품에 이미 같은
+   * 총이 들어 있으므로 성능을 여는 것이 아니라 "작업대로 무기를 만든다"는 동작을 여는 레시피다. */
+  {
+    id: 'make_wpn_ar', name: '돌격소총 제작', station: 'ship', bench: 'gun', benchLevel: 1,
+    inputs: [{ defId: 'mat_scrap', qty: 6 }, { defId: 'mat_alloy', qty: 1 }],
+    outputDefId: 'wpn_ar', outputQty: 1,
+    duration: 8, skill: 'crafting', skillRequired: 0,
+    description: '폐금속 6 + 합금 판 1 → 돌격소총 (등급 I). 총기 작업대.',
+  },
+
   /* ── 6-b. 총기 작업대 Lv.2: attachments ── */
   {
     id: 'make_att_brake', name: '총구 제동기 제작', station: 'ship', bench: 'gun', benchLevel: 2,

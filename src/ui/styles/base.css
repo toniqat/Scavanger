@@ -1540,6 +1540,11 @@ input { font: inherit; color: inherit; }
 .scr-tab.is-on { color: #1a1408; background: var(--c-text); border-color: var(--c-text); }
 .scr-tab.is-disabled { opacity: 0.4; cursor: default; }
 .scr-tab.is-disabled:hover { color: var(--c-text-dim); background: none; }
+/* 튜토리얼 잠금 (2026-09-08) — 안내가 도는 동안 인벤토리 외 탭은 잠긴다 (사유는 title 툴팁). */
+.scr-tab.is-locked { opacity: 0.4; cursor: not-allowed; color: var(--c-text-faint); }
+.scr-tab.is-locked::before { content: '🔒'; margin-right: 5px; font-size: 10px; }
+.scr-tab.is-locked:hover { color: var(--c-text-faint); background: none; }
+
 /* 레드닷 (2026-09-08) — 쓰지 않은 능력치 포인트가 있는 캐릭터 탭. `data-alert` 가 남은 포인트 수. */
 .scr-tab.has-alert { position: relative; }
 .scr-tab.has-alert::after {

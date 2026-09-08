@@ -48,6 +48,8 @@ export function showScreenTab(sys: InventoryUI, tab: ScreenTab): boolean {
 export function setTab(sys: InventoryUI, tab: ScreenTab): void {
   if (!sys.root) return;
   if (tab !== 'inventory' && !sys.hub) tab = 'inventory'; // the embedded screens are ship-only
+  // 2026-09-08: 튜토리얼 중에는 인벤토리 탭만 — 나머지는 잠긴 채로 그려지고 클릭도 되돌려진다
+  if (tab !== 'inventory' && sys.ctx.tutorial?.blockReason('screenTab', tab)) tab = 'inventory';
   if (tab === sys.activeTab && (tab === 'inventory' || sys.screenView)) return;
   // leaving a screen: dispose its view, close the popups that belong to the grid
   sys.screenView?.dispose();
@@ -109,6 +111,10 @@ export function markTab(sys: InventoryUI): void {
   try { statPoints = sys.ctx.progression?.statPoints ?? 0; } catch { statPoints = 0; }
   for (const [id, b] of sys.tabButtons) {
     b.classList.toggle('is-on', id === sys.activeTab);
+    // 2026-09-08: 튜토리얼이 잠근 탭은 자물쇠 + 사유 툴팁 (기업 탭의 신뢰도 잠금과 같은 표현)
+    const tutLock = id === 'inventory' ? null : (sys.ctx.tutorial?.blockReason('screenTab', id) ?? null);
+    b.classList.toggle('is-locked', !!tutLock);
+    b.title = tutLock ?? (SCREEN_TABS.find((t) => t.id === id)?.title ?? '');
     if (id === 'character') {
       const alert = statPoints > 0;
       b.classList.toggle('has-alert', alert);

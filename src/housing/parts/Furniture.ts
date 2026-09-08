@@ -164,6 +164,7 @@ export function canPlace(sys: HousingSystem, room: number, defId: string, x: num
   }
 
 export function place(sys: HousingSystem, room: number, defId: string, x: number, y: number, yaw: 0 | 1 | 2 | 3): PlacedFurniture | null {
+  if (sys.ctx.tutorial?.blockReason('furniture', defId)) return null;   // 2026-09-08: 튜토리얼 순서 강제
   const entry = sys.storageEntry(defId);
   const def = FURNITURE_DEF_MAP.get(defId);
   if (!def || !entry || !sys.canPlace(room, defId, x, y, yaw)) return null;
@@ -228,6 +229,8 @@ export function recover(sys: HousingSystem, uid: string): boolean {
 export function canCraftFurniture(sys: HousingSystem, defId: string): { ok: boolean; missing: CraftIngredient[] } {
   const def = FURNITURE_DEF_MAP.get(defId);
   if (!def || !def.craft) return { ok: false, missing: [] };
+  // 2026-09-08: 튜토리얼 중에는 그 단계가 허락한 가구만 (사유는 `furnitureBlock` 이 돌려준다)
+  if (sys.ctx.tutorial?.blockReason('furniture', defId)) return { ok: false, missing: [] };
   const missing = missingIngredients(def.craft, sys.countDef);
   return { ok: missing.length === 0, missing };
   }

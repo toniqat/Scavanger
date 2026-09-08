@@ -531,6 +531,7 @@ export class ShipManage {
       const owned = stored.get(def.id) ?? 0;
       const can = housing.canCraftFurniture(def.id);
       const card = el('button', { cls: 'fcard', parent: this.cardsEl });
+      card.dataset.defId = def.id;      // 2026-09-08: 튜토리얼 스포트라이트 · 스모크가 카드를 집는 손잡이
       card.style.setProperty('--fc', def.color);
       card.title = `${def.name}\n${def.description}`;
       const thumb = el('div', { cls: 'fcard-thumb', parent: card });

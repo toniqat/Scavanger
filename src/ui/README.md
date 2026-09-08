@@ -626,3 +626,8 @@ Plan: `docs/DECISIONS.md` items 3 · 4 · 8 · 9 · 15 · 16 (agent F). Contract
 - **Phase 12 (2026-09-08)** — 새 `hud/ScanTracker` · `hud/CutsceneWatch`; `hud/Compass` 가 감지 반경 안의 적을 빨간 눈금으로(`queryNear` ≤10 Hz, `COMPASS_ENEMY_COLOR`) 그리고 `scan:cast` 로 드러난 적은 거리와 무관하게 15초 유지, `hud/Detection` 화면 내 붉은 인디케이터 + 스캔 대상 포함, `ScanReveal` 풀 160 + `scan:cast`, `Notifications` 에서 채집 토스트 삭제 · `item:channelChanged` 단일 라인(그 동안 `player:stimUsed` 음소거), `ShipManageHint` / `Community` 는 도킹 · 워프 컷씬 동안 숨고 시설관리 힌트는 개인 함선 전용, `hud/ShipManage` 에 발전기 행 + 인라인 차단 사유 + 중앙 모달리스 확인 팝업(Esc 소비); 일시정지 z-index 85(설정 86 · 키설정 88)
 
 - **2026-09-08 (UI/UX)** — `styles/base.css` 에 `.scr-tab.has-alert::after` **레드닷** (Tab 화면 탭 위 빨간 점, 1.6 s 맥박, `prefers-reduced-motion` 이면 정지). 오늘의 유일한 사용처는 인벤토리 창의 **캐릭터** 탭 — 쓰지 않은 능력치 포인트가 있을 때 `inventory/ui/parts/Screens.markTab` 이 붙인다
+
+- **2026-09-08 (튜토리얼)** — `hud/Community` 가 `ctx.tutorial?.hides('community')` 면 버튼을 숨기고 열려 있던
+  패널을 닫는다. `hud/ShipManage` 의 가구 카드에 `data-def-id` 를 붙였다(튜토리얼 스포트라이트 · 스모크가
+  카드를 집는 손잡이). `styles/base.css` 에 `.scr-tab.is-locked` (자물쇠 + 흐리게) 추가 — 튜토리얼이 잠근
+  화면 탭용이다. 튜토리얼의 목표 패널 · 스포트라이트 · 안내 카드는 `src/tutorial/` 이 직접 그린다

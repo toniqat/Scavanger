@@ -26,7 +26,7 @@ Arc Raiders-style minimalist UI, Diablo 2-style grid inventory, procedural maps,
 | **앞으로 해야 할 작업** | [docs/TODO.md](docs/TODO.md) — 다음 페이즈 후보 묶음 + 항목별 코드 근거 |
 | 완료된 단계 목록 | [docs/HISTORY.md](docs/HISTORY.md) 의 `완료된 단계` |
 | Phase 5–12 에서 무엇을 결정했나 | [docs/DECISIONS.md](docs/DECISIONS.md) |
-| **투자자 · 퍼블리셔용 소개 문서** (위키형 HTML, 브라우저로 바로 열림 · 빌드 없음) | [docs/pitch/README.md](docs/pitch/README.md) → `docs/pitch/index.html` (페이지 원본은 `docs/pitch/pages/00-intro.html` … `22-controls.html` 23개) |
+| **투자자 · 퍼블리셔용 소개 문서** (위키형 HTML, 빌드 없음 · 공개본 **https://toniqat.github.io/Scavanger/**) | [docs/pitch/README.md](docs/pitch/README.md) → `docs/pitch/index.html` (페이지 원본은 `docs/pitch/pages/00-intro.html` … `22-controls.html` 23개) |
 
 ---
 
@@ -47,6 +47,8 @@ npm run verify     # 기능 하나 끝낸 뒤: typecheck + selftest + 건드린 
 npm run verify:all # 머지 전: 전부 + build + e2e:mp (~10 분)
 npm run net:selftest   # 서버 프로토콜 셀프테스트 (브라우저 불필요)
 npm run e2e:mp         # 헤드리스 크롬 2대로 릴레이+vite 관통 테스트
+
+npm run pitch:webp # 피칭 문서 배포본 이미지: docs/pitch/assets/*.png → 같은 이름의 .webp (30MB → 2.8MB)
 ```
 
 개별 스모크 스크립트 30종의 목록과 각각이 검사하는 내용은 **[scripts/README.md](scripts/README.md)** 에 있다.
@@ -114,6 +116,7 @@ start-server.bat relay   # 릴레이만 (npm run server, 0.0.0.0:8787) — 데�
 | [`src/game/`](src/game/README.md) | `GameFlowSystem` | `ctx.phase` | 페이즈 상태 기계 · 사망/부활 · 레이드 실패 · 일시정지 · 재접속 UX · 레이드 세션 저장/복귀 · 재개 게이트 |
 | [`src/ui/`](src/ui/README.md) | `HudSystem` | — | 모든 DOM UI — HUD 2계층 · 메뉴 · 지도 · 채팅 · 소셜 · 아이템 툴팁 · 커서 아트 · 스타일시트 |
 | [`src/audio/`](src/audio/README.md) | `AudioSystem` | `ctx.audio` | 절차 WebAudio SFX 전량 + 앰비언트, 버스 이벤트에 반응, 볼륨 영속화 |
+| [`src/tutorial/`](src/tutorial/README.md) | `TutorialSystem` | `ctx.tutorial` | 새 캐릭터 안내 14단계 — 목표 패널 · UI 스포트라이트 · 바닥 안내선, 순서 강제 게이트(`blockReason`) |
 | [`src/console/`](src/console/README.md) | `ConsoleSystem` | `ctx.console` | 개발자 콘솔 + 치트 (**dev 호스트에서만** 존재 — 그 외에는 DOM 도 키도 없다) |
 
 ### 3.6 네트워크 · 배포

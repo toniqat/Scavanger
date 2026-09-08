@@ -44,7 +44,9 @@ export function build(sys: HubSystem, ship: HubShipKind, viaAirlock: boolean): T
   }));
   sys.slots = interior.pods.map((d) => ({ slot: d.slot, position: d.position.clone(), yaw: d.yaw, occupant: null }));
   const canUseConsole = (): boolean => sys.stationUsable();
-  sys.terminal = new Terminal(ctx, interior.terminal, () => sys.menu.open(), canUseConsole);
+  // 2026-09-08: 튜토리얼이 아직 터미널 단계에 오지 않았으면 터미널만 잠근다 (작업대 · 컴퓨터는 그대로)
+  const canUseTerminal = (): boolean => sys.stationUsable() && !ctx.tutorial?.blockReason('terminal');
+  sys.terminal = new Terminal(ctx, interior.terminal, () => sys.menu.open(), canUseTerminal);
   // the personal ship has no built-in bench since Phase 8 (a placed `furn_repair_bench` opens the same menu)
   sys.workbench = interior.workbench ? new Workbench(ctx, interior.workbench, () => sys.wbMenu.open(), canUseConsole) : null;
   sys.computer = new Computer(ctx, interior.computer, () => sys.openCorpMenu(), canUseConsole);

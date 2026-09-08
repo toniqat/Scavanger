@@ -1,0 +1,91 @@
+/* ============================================================================
+ * SCAVANGER — 튜토리얼 (2026-09-08, owner: tutorial/). `.ui-btn` · `.ui-label` 은 ui/styles/base.css 것을 쓴다.
+ *
+ * 세 덩어리: 좌측 상단 **목표 패널**, 화면을 덮는 **스포트라이트**, 가운데 뜨는 **안내 / 확인 카드**.
+ * 안내선(바닥 점선 + 빛기둥)은 3D 라 여기 없다 — `parts/Guide.ts`.
+ * ========================================================================== */
+
+/* ── 목표 패널 (좌측 상단, 레이드의 계약 패널과 같은 자리) ─────────────────── */
+.tut-panel {
+  position: absolute; left: 22px; top: 22px;
+  z-index: 24;                       /* HUD 위, 화면(50+) 아래 */
+  display: flex; flex-direction: column; gap: 6px;
+  width: 288px; padding: 12px 14px 12px;
+  border: 1px solid var(--c-border); border-left: 3px solid var(--c-accent);
+  background: linear-gradient(180deg, rgba(12, 15, 20, 0.86), rgba(8, 10, 14, 0.86));
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+  pointer-events: none;              /* 버튼만 클릭을 받는다 */
+  animation: tut-in 220ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.tut-panel[hidden] { display: none !important; }
+.tut-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.tut-head .ui-label { color: var(--c-accent); }
+.tut-title { font-size: 14px; font-weight: 700; letter-spacing: 0.02em; color: var(--c-text); line-height: 1.35; }
+.tut-hint { font-size: 11.5px; line-height: 1.5; color: var(--c-text-dim); }
+.tut-bar { position: relative; height: 3px; margin-top: 4px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
+.tut-bar i {
+  position: absolute; inset: 0;
+  transform-origin: left center; transform: scaleX(0);
+  background: var(--c-accent);
+  transition: transform 260ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.tut-skip {
+  align-self: flex-start; margin-top: 8px;
+  min-width: 0; height: 26px; padding: 0 12px; font-size: 10.5px; letter-spacing: 0.08em;
+  pointer-events: auto;
+}
+@keyframes tut-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+
+/* ── 스포트라이트 (네 판이 구멍을 만들고 클릭을 먹는다) ─────────────────────── */
+.tut-spot { position: absolute; inset: 0; z-index: 78; }   /* 인벤토리(50) · 함선 관리 위, 일시정지(85) 아래 */
+.tut-spot[hidden] { display: none !important; }
+.tut-spot-pane {
+  position: absolute;
+  background: rgba(4, 6, 9, 0.62);
+  pointer-events: auto; cursor: not-allowed;
+  transition: background-color 160ms ease;
+}
+.tut-spot-ring {
+  position: absolute; pointer-events: none;
+  border: 2px solid var(--c-accent);
+  box-shadow: 0 0 0 2px rgba(4, 6, 9, 0.55), 0 0 22px color-mix(in srgb, var(--c-accent) 65%, transparent);
+  animation: tut-ring 1.5s ease-in-out infinite;
+}
+@keyframes tut-ring {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(4, 6, 9, 0.55), 0 0 22px color-mix(in srgb, var(--c-accent) 65%, transparent); }
+  50% { box-shadow: 0 0 0 2px rgba(4, 6, 9, 0.55), 0 0 34px color-mix(in srgb, var(--c-accent) 90%, transparent); }
+}
+.tut-spot-tip {
+  position: absolute; pointer-events: none; max-width: 300px;
+  padding: 7px 11px;
+  font-size: 11.5px; line-height: 1.45; letter-spacing: 0.02em; color: var(--c-text);
+  border: 1px solid var(--c-accent);
+  background: rgba(10, 13, 18, 0.95);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.5);
+}
+.tut-spot-tip[hidden] { display: none !important; }
+@media (prefers-reduced-motion: reduce) { .tut-spot-ring { animation: none; } .tut-panel { animation: none; } }
+
+/* ── 안내 / 건너뛰기 확인 카드 (모달리스 — 뒤 화면은 계속 돈다) ──────────────── */
+.tut-popup {
+  position: absolute; inset: 0; z-index: 80;
+  display: grid; place-items: center;
+  pointer-events: none;              /* 카드 밖은 통과 — 모달리스 */
+}
+.tut-popup[hidden] { display: none !important; }
+.tut-popup-card {
+  pointer-events: auto;
+  display: flex; flex-direction: column; gap: 12px;
+  width: min(460px, calc(100vw - 48px)); padding: 22px 24px 18px;
+  border: 1px solid var(--c-border-strong); border-top: 2px solid var(--c-accent);
+  background: linear-gradient(180deg, rgba(18, 21, 27, 0.98), rgba(10, 12, 17, 0.98));
+  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.66), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  animation: tut-pop 200ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.tut-popup-card .title { font-size: 19px; font-weight: 600; letter-spacing: 0.1em; color: var(--c-accent); }
+.tut-popup-card .body { display: flex; flex-direction: column; gap: 7px; }
+.tut-popup-card .body p { margin: 0; font-size: 12.5px; line-height: 1.6; color: var(--c-text-dim); }
+.tut-popup-card .acts { display: flex; justify-content: flex-end; gap: 10px; padding-top: 4px; }
+.tut-popup-card .acts .ui-btn { min-width: 0; padding: 0 20px; }
+@keyframes tut-pop { from { opacity: 0; transform: translateY(10px) scale(0.98); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .tut-popup-card { animation: none; } }

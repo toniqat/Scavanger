@@ -21,7 +21,7 @@ export interface HubMenuHost {
    * Why 행성 이동 is refused right now (Korean, shown on the disabled button), or null when it is allowed.
    * The rules live in `HubSystem.travelBlockReason` — the menu only renders them.
    */
-  travelBlock(): string | null;
+  travelBlock(planet?: PlanetId): string | null;
   /** Commit the previewed planet: `HubRef.setPlanet` (starts the travel cutscene). */
   travelTo(planet: PlanetId): void;
 }
@@ -251,7 +251,7 @@ export class HubMenu {
 
   private travel(): void {
     const d = this.def();
-    const blocked = this.host.travelBlock();
+    const blocked = this.host.travelBlock(d.id);
     if (blocked) { this.showMsg(blocked, 'warning'); this.ctx.bus.emit('audio:play', { id: 'ui_deny' }); return; }
     if (this.host.planet() === d.id) return;
     this.host.travelTo(d.id);
@@ -324,9 +324,10 @@ export class HubMenu {
     const seed = lobby ? lobby.seed : (ctx.hub?.missionSeed ?? null);
     setText(this.seedHint, `임무 시드는 개발자 콘솔 /seed 로만 설정합니다. 현재: ${seed === null ? '무작위' : seed}${lobby && !isHost ? ' (호스트 설정)' : ''}`);
 
-    // sections
-    this.secSignal.hidden = !!lobby;
-    this.secShip.hidden = !lobby;
+    // sections — 2026-09-08: 튜토리얼 동안에는 매치메이킹을 통째로 감춘다 (혼자 한 바퀴 돌게 한다)
+    const hideNet = ctx.tutorial?.hides('matchmaking') ?? false;
+    this.secSignal.hidden = hideNet || !!lobby;
+    this.secShip.hidden = hideNet || !lobby;
     const canNet = !!net && !this.busy;
     this.btnMatch.disabled = !canNet;
     this.btnJoin.disabled = !canNet;

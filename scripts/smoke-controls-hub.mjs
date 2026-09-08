@@ -56,6 +56,10 @@ try {
   // 2026-09-07 (커서 rework): the fake is a *realistic* lock — cursor screens really do release it now and the
   // relock is `main.ts`'s job, so a stub that stayed locked forever would hide both halves of the mechanism.
   await page.evaluateOnNewDocument(() => {
+    // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
+    // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
+    // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
+    try { localStorage.setItem('scav.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
     window.__lockCalls = { req: 0, exit: 0 };
     window.__lockEl = null;
     Element.prototype.requestPointerLock = function () {

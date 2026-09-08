@@ -639,3 +639,8 @@ Data-driven off the frozen contract (`ItemCategory 'implant'`, `ItemDef.implant`
 - **2026-09-08 (UI/UX)** — `parts/LaunchCheck.ts` + `InventoryRef.getLaunchWarnings()` — 발사 슬롯 탑승 전 점검 6종. 판정은 가방 · 장비 · 탄약 스택 · 회복 아이템을 아는 이 폴더가 하고, 팝업은 `hub/ui/LaunchWarnPanel` 이 그린다
 
 - **2026-09-08 (UI/UX)** — Tab 화면의 **캐릭터 탭에 레드닷** — `ui/parts/Screens.markTab` 이 `ctx.progression.statPoints > 0` 이면 `.has-alert` + `data-alert`(남은 포인트 수)를 붙이고, `progress:levelUp` / `progress:statChanged` / `progress:loaded` 에 다시 그린다 (점 자체는 `ui/styles/base.css` 의 `.scr-tab.has-alert::after`)
+
+- **2026-09-08 (튜토리얼 게이트)** — `parts/Crafting.canCraft` 가 `ctx.tutorial?.blockReason('craft', recipeId)` 를
+  보고(따라서 `craft` 도 함께 막힌다), `ui/parts/Screens.setTab` 은 튜토리얼 중 인벤토리 외 탭을 되돌리며
+  `markTab` 이 그 탭에 자물쇠 + 사유 툴팁(`.scr-tab.is-locked`)을 붙인다. `ui/CraftPanel` 의 행에는
+  `data-recipe` 가 이미 있었고, 튜토리얼 스포트라이트가 그것으로 대상을 집는다

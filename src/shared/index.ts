@@ -27,3 +27,5 @@ export * from './cursor';
 /* appended (2026-09-07): Phase 11 — 행성 선택 · 소셜 */
 export * from './planets';
 export * from './social';
+/* appended (2026-09-08): 튜토리얼 계약 */
+export * from './tutorial';

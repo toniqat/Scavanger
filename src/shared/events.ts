@@ -10,6 +10,8 @@ import type { PlayerProfile, SkillId, StatId } from './progression';
 import type { EquippedImplant } from './progression';
 /* appended (2026-09-06): ship housing payloads */
 import type { FacilityId, PlacedFurniture, RoomPurpose, ShipState } from './housing';
+/* appended (2026-09-08): 튜토리얼 */
+import type { TutorialStepId } from './tutorial';
 
 /**
  * Every cross-module message goes through the typed EventBus with these payloads.
@@ -721,5 +723,14 @@ export interface GameEvents {
    * length of the channel instead of one per tick. `gauge` = remaining gauge 0..1.
    */
   'item:channelChanged': { uid: string; defId: string; active: boolean; gauge: number };
+
+  /* ── appended (2026-09-08): 튜토리얼 (owner: tutorial) ── */
+  /**
+   * The tutorial started, advanced or ended. `step` is null when it is over; `index` / `count` are 1-based progress
+   * for a readout. Every folder that hides or gates something during the tutorial re-reads `ctx.tutorial` here.
+   */
+  'tutorial:changed': { active: boolean; step: TutorialStepId | null; index: number; count: number };
+  /** The tutorial is over — completed (`skipped: false`) or waved off from the 건너뛰기 button / console. */
+  'tutorial:finished': { skipped: boolean };
 
 }

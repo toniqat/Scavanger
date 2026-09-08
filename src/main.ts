@@ -18,6 +18,7 @@ import { AudioSystem } from '@/audio/AudioSystem';
 import { GameFlowSystem } from '@/game/GameFlowSystem';
 import { HousingSystem } from '@/housing/HousingSystem';
 import { ConsoleSystem } from '@/console/ConsoleSystem';
+import { TutorialSystem } from '@/tutorial/TutorialSystem';
 import { MetaSystem } from '@/meta/MetaSystem';
 import { loadKeybinds } from '@/shared';
 
@@ -78,6 +79,9 @@ engine.addSystem(new HudSystem());
 engine.addSystem(new AudioSystem());
 engine.addSystem(new GameFlowSystem());
 // Developer console last: it reads every other ref and must see the frame's final state (dev clients only).
+// 튜토리얼은 자기가 지켜보는 시스템들 **뒤에** 등록한다 — init 에서 `ctx.console` 에 명령을 붙이므로
+// 콘솔보다는 앞이다 (콘솔은 dev 호스트에서만 존재하고, 없으면 명령 등록만 조용히 건너뛴다).
+engine.addSystem(new TutorialSystem());
 engine.addSystem(new ConsoleSystem());
 
 engine.start();

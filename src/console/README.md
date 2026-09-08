@@ -75,3 +75,6 @@ No DOM handler changed: the software cursor dispatches real bubbling `pointer*` 
 events at its virtual position, so the suggestion list's mouse wiring and the input field keep working. The folder
 polls neither `input.mouseX / mouseY` nor `document.elementFromPoint`, so nothing else needed migrating. The console
 is still dev-client only (`isDevHost()`), so this path never runs for a player.
+
+- **2026-09-08** — 명령 `tutorial [start|skip|step <id>|status]` 가 붙었다. 등록은 `tutorial/TutorialSystem.init`
+  이 `ctx.console.register` 로 하고(콘솔이 없는 호스트에서는 조용히 건너뛴다), 이 폴더는 아무것도 모른다

@@ -181,6 +181,8 @@ export function craftCost(sys: InventorySystem, recipe: CraftRecipe): CraftIngre
 export function canCraft(sys: InventorySystem, recipeId: string): boolean {
   const r = getRecipe(recipeId);
   if (!r) return false;
+  // 2026-09-08: 튜토리얼이 순서를 강제하는 동안에는 그 단계의 레시피만 (꺼져 있으면 언제나 null)
+  if (sys.ctx.tutorial?.blockReason('craft', recipeId)) return false;
   return sys.craftCost(r).every((i) => sys.countDef(i.defId) >= i.qty);
   }
 

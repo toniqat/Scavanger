@@ -19,7 +19,7 @@ interface GameSystem { name; init(ctx); update(dt, ctx); lateUpdate?(dt, ctx); d
 NetSystem → ProgressionSystem → HousingSystem → WorldSystem → HubSystem → PlayerSystem →
 RemotePlayerSystem → ImplantSystem → WeaponSystem → EnemySystem → InventorySystem → MetaSystem →
 GadgetSystem → PickupSystem → StratagemSystem → ExtractionSystem → HudSystem → AudioSystem →
-GameFlowSystem → ConsoleSystem
+GameFlowSystem → TutorialSystem → ConsoleSystem
 ```
 
 이 순서에는 이유가 있다:
@@ -31,6 +31,7 @@ GameFlowSystem → ConsoleSystem
 | `HousingSystem` → 허브 · 인벤토리보다 앞 | 허브가 함선 상태로 내부를 짓고, 인벤토리가 창고 크기를 읽는다 |
 | `ImplantSystem` → `WeaponSystem` 앞 | 같은 프레임의 `blocksWeapons` 가 최신이어야 총이 홀스터된다 |
 | `GadgetSystem` → `InventorySystem` 뒤 | `use()` 가 아이템을 소모할 수 있어야 한다 |
+| `TutorialSystem` → 지켜보는 시스템들 뒤, 콘솔 앞 | 진행을 이벤트로만 판단하므로 순서에 민감하지 않지만, `init` 에서 `ctx.console` 에 `tutorial` 명령을 붙인다 |
 | `ConsoleSystem` 마지막 | 치트가 그 프레임의 최종 상태를 본다. dev 호스트가 아니면 아예 동작하지 않는다 |
 
 > **주의**: `WorldSystem` 은 자기 `game:newMission` 핸들러 **안에서 동기적으로** 월드를 생성하므로,

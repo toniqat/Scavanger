@@ -59,6 +59,9 @@ export function getRoom(sys: HousingSystem, index: number): RoomState { return s
  * recovers every piece, so it is also refused while a 책장 in the room cannot hand its books to the stash.
  */
 export function purposeBlock(sys: HousingSystem, index: number, purpose: RoomPurpose): string | null {
+  // 2026-09-08: 튜토리얼이 순서를 강제하는 동안에는 그 단계가 허락한 용도만 지을 수 있다 (튜토리얼이 꺼져 있으면 null)
+  const tut = sys.ctx.tutorial?.blockReason('roomPurpose', purpose) ?? null;
+  if (tut) return tut;
   // Phase 9 UI pass: 시설 증축 costs materials and sits behind the 발전기 gate, so the block reason covers those too.
   return purposeBuildBlockReason(sys.state, index, purpose, sys.countDef, sys.nameOf)
     ?? (purpose === 'empty' ? sys.emptyRoomBlock(index) : null);

@@ -16,6 +16,8 @@ import type { ConsoleRef } from './console';
 import type { AudioRef } from './types';
 import type { HousingRef } from './housing';
 import type { MetaRef } from './meta';
+/* appended (2026-09-08): 튜토리얼 */
+import type { TutorialRef } from './tutorial';
 
 class InteractableRegistryImpl implements InteractableRegistry {
   private items = new Map<string, Interactable>();
@@ -90,6 +92,10 @@ export class GameContext {
   /* ── appended: Phase 5 (2026-09-06) ── */
   /** Corporations / credits / contracts / quests. Published by meta/MetaSystem. */
   meta: MetaRef | null = null;
+
+  /* appended (2026-09-08) */
+  /** 튜토리얼 (새 프로필 안내). Published by tutorial/TutorialSystem; null while it is not registered. */
+  tutorial: TutorialRef | null = null;
   /* ── appended: Phase 7 (2026-09-06) ── */
   /** Mode of the running / last mission (`game/` sets it from `game:newMission.mode` before the world generates). */
   missionMode: MissionMode = 'raid';

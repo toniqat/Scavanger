@@ -39,7 +39,7 @@ import type { HubSystem } from '../HubSystem';
 export function setPlanet(sys: HubSystem, planet: PlanetId): boolean {
   const ctx = sys.ctx;
   if (!isPlanetId(planet)) return false;
-  if (sys.travelBlockReason() !== null) return false;
+  if (sys.travelBlockReason(planet) !== null) return false;
   if (sys.planet === planet) return false;
   const net = ctx.net;
   if (net?.lobby) {
@@ -55,9 +55,12 @@ export function setPlanet(sys: HubSystem, planet: PlanetId): boolean {
   }
 
 /** Korean reason 행성 이동 is refused right now, or null when it is allowed (the terminal renders it). */
-export function travelBlockReason(sys: HubSystem): string | null {
+export function travelBlockReason(sys: HubSystem, planet?: PlanetId): string | null {
   const ctx = sys.ctx;
   const net = ctx?.net;
+  // 2026-09-08: 튜토리얼은 첫 번째 행성만 허용한다. `planet` 없이 부르면 "지금 행성을 정할 수 있나"만 묻는 것.
+  const tut = ctx?.tutorial?.blockReason('planet', planet) ?? null;
+  if (tut) return tut;
   if (net?.lobby && !net.isHost) return '호스트만 지정할 수 있습니다';
   if (sys.travelling || sys.cutscene) return '이동 중';
   if (sys.countdown >= 0) return '발사 카운트다운 중';

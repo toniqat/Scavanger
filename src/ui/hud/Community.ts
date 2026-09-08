@@ -114,7 +114,10 @@ export class Community {
     const blockers = ctx.uiBlockers;
     const free = blockers.size === 0 || (blockers.size === 1 && blockers.has(COMMUNITY_BLOCKER));
     const cutscene = this.cutscene?.active ?? (ctx.phase === 'docking' || (ctx.hub?.travelling ?? false));
-    const on = ctx.isHubPhase() && free && !cutscene;
+    // 2026-09-08: 튜토리얼이 도는 동안에는 우측 상단 커뮤니티 버튼을 감춘다 (안내 밖으로 새지 않게)
+    const tutorial = ctx.tutorial?.hides('community') ?? false;
+    const on = ctx.isHubPhase() && free && !cutscene && !tutorial;
+    if (tutorial && this._open) this.close();
     if (on !== this.shown) {
       this.shown = on;
       toggleClass(this.root, 'show', on);
