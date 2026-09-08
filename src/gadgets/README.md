@@ -13,6 +13,11 @@ engine.addSystem(new GadgetSystem());
 | File | Purpose |
 |---|---|
 | `GadgetSystem.ts` | The system + `GadgetsRef` impl. Use paths, host-authoritative deployable lifecycle, `gad`/`gadq` protocol, recover/defuse `Interactable`s, turret / mine / fire / lure simulation, jump pad launches, query API. |
+| `model.ts` | 폴더 공용 어휘 — `GadgetSystem` 에서 떼어낸 상수 · 타입 · 스크래치. 클래스를 참조하지 않으므로 `parts/*` 가 순환 import 없이 쓴다. `GadgetSystem.ts` 가 재수출하므로 기존 import 경로는 그대로다 |
+| `parts/Deploy.ts` | **가젯을 놓고 회수하기**. 배치물은 **호스트 권한**이다: 클라이언트는 `gadq` 로 요청하고 호스트가 `gad` 로 확정한다. 설치 위치 판정, 회수 / 해체 홀드, 되돌려주는 아이템까지가 이 파일의 범위다. |
+| `parts/Simulate.ts` | **배치물이 매 프레임 하는 일**. 지뢰 · 포탑 · 화염지대 · 유인탄 · 점프대의 동작. 화염지대는 **피아를 구분하지 않고**(설계대로) 자기 주인에게 킬 크레딧을 준다. 점프대는 같은 사람을 `JUMP_PAD_RETRIGGER_S` 안에 다시 쏘지 않는다. |
+| `parts/Queries.ts` | **다른 폴더가 배치물에게 묻는 것**. 적 AI(`findEnemyTarget` / `findDistraction` / `visionFactor`), 무기(`blocksProjectile` — 돔 실드와 바리케이드가 탄을 멈춘다), 플레이어(`fireDamageAt` / `jumpPadAt`). 전부 **순수 질의**이고 상태를 바꾸지 않는다. |
+| `parts/Wire.ts` | **`gad` / `gadq` / `buff` 네트워크 경로**. 호스트가 배치물 목록의 진실이고, 늦게 합류한 클라이언트와 호스트 이관 뒤에는 전체를 다시 보낸다. |
 | `GadgetDefs.ts` | `GADGET_DEFS` (10 gadgets, 한국어 이름/설명), `gadgetDef(id)`, `gadgetForKind(kind)`, `RECOVERABLE_KINDS` / `isRecoverable`, `ENEMY_TARGET_KINDS`, `SOLID_KINDS`. |
 | `Deployable.ts` | `Deployable implements DeployableRef` — hp/armed/expires/yaw + per-kind runtime state (`fireTimer`, `targetId`, `headYaw`, `tickTimer`, `padCooldown` = 같은 프레임 가드, `padNext` = 플레이어별 재발동 시각(Phase 9), `netCooldown`) and `takeDamage()` (routes to the authority). Also the physical sizes: `BARRICADE_HALF`, `MINE_TRIGGER_RADIUS`, `JUMPPAD_TRIGGER_RADIUS`, `DOME_UNFOLD_TIME`. |
 | `GadgetVisuals.ts` | `GadgetVisualPool`: pooled procedural meshes per `DeployableKind` + a 12-slot expanding ring-pulse FX pool. Shared geometry, per-visual materials, recoloured on reuse. **No lights anywhere** (constant scene light count → no shader recompiles). `warm()` pre-builds one visual per kind. |
@@ -151,3 +156,29 @@ host 는 `flow rejoined` 에도 gad sync 로 답한다
 
 브라우저 실제 플레이 검증은 아직 못 했다 (동시 작업 중인 다른 폴더 때문에 전체 빌드가 아직 통과하지 않는다).
 특히 시각(돔/연막/화염 셰이딩, 포탑 실루엣)과 지형 경사에서의 설치 판정은 실기 확인이 필요하다.
+
+
+## 파일 분할 규약 (`model.ts` + `parts/`, 2026-09-08)
+
+`GadgetSystem.ts` 는 한 파일에 다 있기에는 너무 커져서 **동작을 바꾸지 않고** 갈랐다. 규칙은 세 줄이다.
+
+1. **`model.ts`** — 폴더 공용 어휘(타입 · 상수 · 스크래치 객체, 상태 없는 보조 클래스).
+   `GadgetSystem.ts` 이 `export * from './model'` 로 재수출하므로 **기존 import 경로는 전부 그대로 동작한다.**
+2. **`parts/*.ts`** — 클래스에서 떼어낸 메서드 묶음. 각 함수는 인스턴스를 첫 인자 `sys` 로 받는다:
+   ```ts
+   export function foo(sys: GadgetSystem, …) { … }   // 예전의 this → sys
+   ```
+   클래스에는 같은 이름의 **한 줄 위임 메서드**가 남아 있으므로 호출부는 하나도 바뀌지 않았다.
+3. `parts/` 가 닿는 클래스 멤버는 `private` 이 벗겨져 있다. **폴더 밖에서 쓰라는 뜻이 아니다** —
+   외부와의 계약은 `@/shared` 의 `*Ref` 인터페이스가 전부다.
+
+새 `parts/` 파일은 맨 위 doc 주석에 **그 파일이 답하는 질문 한 줄**을 적고 위 표에 행을 추가한다.
+순환 import 를 만들지 않으려면 `parts/` 는 `GadgetSystem.ts` 에서 **타입만** 가져와야 한다 — 값은 `model.ts` 로.
+
+---
+
+## 변경 이력
+
+프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **Phase 9** — a jump pad re-launches the **same player** only after `JUMP_PAD_RETRIGGER_S` (`Deployable.padNext` per peer), the fire zone credits its owner (`applyStatus(..., d.owner)`), `gadq sync` re-requested on `net:hostChanged`

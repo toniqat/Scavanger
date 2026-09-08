@@ -25,130 +25,78 @@ import { revealScan } from './effects/Scan';
 import { ImplantFx } from './fx/ImplantFx';
 import { RemoteImplants } from './RemoteImplants';
 
-type Host = PlayerRef & Partial<PlayerWeaponHost>;
+import { ABSORB_RANGE, BARRIER_SEND_EVERY_HITS, BASH_FX_Y, BEAM_SEND_INTERVAL, BOOST_LINGER, BOOST_SEND_INTERVAL, BUMP_FX_INTERVAL, GRAPPLE_ARRIVE_DIST, GRAPPLE_FLY_SPEED, GRAPPLE_MAX_TIME, HEAL_SEND_INTERVAL, HUD_EMIT_INTERVAL, type Host, OVERCHARGE_MIN_START, SCAN_PULSE_FX_S, SHIELD_SPEED_KEY, _bp, _d, _from, _hitPt, _hp, _muzzle, _n, _o, _p, _r, _t, _tmp, tuple } from './model';
+/** 폴더 공용 어휘(상수 · 타입 · 스크래치)는 `model.ts` 가 갖는다 — 기존 import 경로를 위해 재수출한다. */
+export * from './model';
+import * as Barrier from './parts/Barrier';
+import * as Dev from './parts/Devices';
+import * as Charge from './parts/Charges';
+import * as Wield from './parts/Wield';
+import * as Wire from './parts/Wire';
 
-/** Speed-modifier key of the raised shield (the contract with player/). */
-const SHIELD_SPEED_KEY = 'shield';
-/** Speed (m/s) of the grapple hook flying to its anchor. */
-const GRAPPLE_FLY_SPEED = 90;
-/** The pull auto-releases when the player gets this close to the anchor, or after this long. */
-const GRAPPLE_ARRIVE_DIST = 2.6;
-const GRAPPLE_MAX_TIME = 5;
-/** Cooldown / barrier / energy readouts are pushed to the HUD at most this often (plus every discrete change). */
-const HUD_EMIT_INTERVAL = 0.1;
-/** Overcharge network throttles. */
-const HEAL_SEND_INTERVAL = 0.2;
-const BOOST_SEND_INTERVAL = 0.5;
-/** The buff is refreshed every frame while channelling and lingers this long after the channel ends. */
-const BOOST_LINGER = 0.6;
-/** Channelling may start only with this much energy (seconds) left. */
-const OVERCHARGE_MIN_START = 0.75;
-/** Phase 7: `imp beam` refresh period while the overcharge beam is on (on / target change / off go out at once). */
-const BEAM_SEND_INTERVAL = 0.25;
-/** Blocked hits between two replicated shield-durability updates. */
-const BARRIER_SEND_EVERY_HITS = 4;
-/** Phase 12: a melee attack from farther than this (m, from the carrier) is never "frontal" for `absorbFrontalAttack`. */
-const ABSORB_RANGE = 3;
-/** Phase 12: `implant:barrierBumped` sparks are throttled to one per this many seconds (enemies/ emits per bug per tick). */
-const BUMP_FX_INTERVAL = 0.12;
-/** Phase 12: how long the 정찰 pulse shell takes to reach `IMPLANT_SCAN_RADIUS` (s). */
-const SCAN_PULSE_FX_S = 1.6;
-/** Phase 12: 실드 배쉬 swing FX — streak height above the feet and how far past the panel width it sweeps. */
-const BASH_FX_Y = 1.1;
-
-const _o = new THREE.Vector3(), _d = new THREE.Vector3(), _p = new THREE.Vector3(), _t = new THREE.Vector3();
-const _from = new THREE.Vector3(), _muzzle = new THREE.Vector3(), _hitPt = new THREE.Vector3();
-const _bp = new THREE.Vector3(), _tmp = new THREE.Vector3();
-const _n = new THREE.Vector3(), _r = new THREE.Vector3(), _hp = new THREE.Vector3();
-
-function tuple(v: THREE.Vector3): Vec3Tuple {
-  return [Math.round(v.x * 1000) / 1000, Math.round(v.y * 1000) / 1000, Math.round(v.z * 1000) / 1000];
-}
-
-/**
- * Tactical implants (전술 임플란트). Publishes `ctx.implants`.
- *
- * One implant is equipped in the ship and carried into the raid. **Q** (`Keys.IMPLANT`) drives it in three ways
- * (`ImplantDef.mode`, reworked 2026-09-06):
- *   - `instant` (갈고리 / 대시 / **정찰** since Phase 12): the press casts. The grapple fires at the crosshair anchor
- *     right away and a second press cuts the wire; the 정찰 pulse is one wide reveal shared with the squad; the gun
- *     stays in hand throughout.
- *   - `hold` (오버차지): the effect runs while Q is held — the overcharge channel heals the caster slowly (and the
- *     ally under the crosshair faster) and drains an energy pool that refills while released. The gun stays in hand.
- *   - `wielded` (대전차포 / **배리어** since Phase 10): Q takes it into the hands (weapons holster), LMB fires the
- *     launcher / LMB or the melee key **bashes** with the shield (Phase 12), Q — or any weapon key, handled by
- *     weapons/ via `stow()` — puts it away.
- *
- * Phase 12 (2026-09-08): the raised shield is also a **wall for bugs** (`resolveBarrierCollision`, called by enemies/
- * per simulated bug) and takes a frontal melee attack instead of the carrier (`absorbFrontalAttack`, called by the
- * host's enemies/ before enemy melee damage).
- *
- * Everything is simulated locally and only *shown* to the other players (`imp` messages); friendly effects on
- * someone else's character travel as `buff`. Cooldowns are multiplied by `ctx.progression?.derived.implantCooldownMul`.
- */
 export class ImplantSystem implements GameSystem, ImplantsRef {
   readonly name = 'implants';
 
-  private ctx!: GameContext;
-  private fx!: ImplantFx;
-  private rockets!: RocketPool;
-  private remote!: RemoteImplants;
-  private barrier!: BarrierField;
-  private wire!: GrappleWire;
-  private beam!: OverchargeBeam;
+  ctx!: GameContext;
+  fx!: ImplantFx;
+  rockets!: RocketPool;
+  remote!: RemoteImplants;
+  barrier!: BarrierField;
+  wire!: GrappleWire;
+  beam!: OverchargeBeam;
 
-  private equippedId: ImplantId | null = null;
-  private device: ImplantDevice | null = null;
-  private deviceAttached = false;
-  private wieldedFlag = false;
-  private holdingFlag = false;
+  equippedId: ImplantId | null = null;
+  device: ImplantDevice | null = null;
+  deviceAttached = false;
+  wieldedFlag = false;
+  holdingFlag = false;
 
-  private chargesLeft = 1;
-  private cdRemaining = 0;
-  private cdTotal = 0;
-  private hudAcc = 0;
+  chargesLeft = 1;
+  cdRemaining = 0;
+  cdTotal = 0;
+  hudAcc = 0;
 
   /** Grapple. */
-  private grappleState: 'idle' | 'flying' | 'attached' = 'idle';
-  private readonly grapplePoint = new THREE.Vector3();
-  private readonly grappleTip = new THREE.Vector3();
-  private grappleFlown = 0;
-  private grappleTimer = 0;
-  private grappleTargetValid = false;
-  private grappleTargetDist = 0;
+  grappleState: 'idle' | 'flying' | 'attached' = 'idle';
+  readonly grapplePoint = new THREE.Vector3();
+  readonly grappleTip = new THREE.Vector3();
+  grappleFlown = 0;
+  grappleTimer = 0;
+  grappleTargetValid = false;
+  grappleTargetDist = 0;
 
   /** 실드 배쉬 (Phase 12): seconds left of the swing pose / FX, and of the re-bash cooldown. */
-  private bashTimer = 0;
-  private bashCd = 0;
+  bashTimer = 0;
+  bashCd = 0;
   /** Throttle for the `implant:barrierBumped` spark FX. */
-  private bumpFxAcc = BUMP_FX_INTERVAL;
+  bumpFxAcc = BUMP_FX_INTERVAL;
 
   /** Overcharge. */
-  private ocEnergy = IMPLANT_OVERCHARGE_ENERGY;
-  private ocActive = false;
-  private ocTarget: PeerId | null = null;
-  private ocHealAcc = 0;
-  private ocSendAcc = 0;
-  private ocBoostAcc = 0;
+  ocEnergy = IMPLANT_OVERCHARGE_ENERGY;
+  ocActive = false;
+  ocTarget: PeerId | null = null;
+  ocHealAcc = 0;
+  ocSendAcc = 0;
+  ocBoostAcc = 0;
   /** Phase 7: last `imp beam` state sent to the squad (on / target / self) + seconds since. */
-  private beamNetOn = false;
-  private beamNetTarget: PeerId | null = null;
-  private beamNetSelf = false;
-  private beamNetAcc = 0;
-  private energyEmitAcc = 0;
-  private lastEnergyEmitted = -1;
+  beamNetOn = false;
+  beamNetTarget: PeerId | null = null;
+  beamNetSelf = false;
+  beamNetAcc = 0;
+  energyEmitAcc = 0;
+  lastEnergyEmitted = -1;
 
   /** Barrier (Phase 10: a shield carried in hand). */
-  private barrierLocked = false;
-  private barrierSendAcc = 0;
-  private barrierEmitAcc = 0;
+  barrierLocked = false;
+  barrierSendAcc = 0;
+  barrierEmitAcc = 0;
   /** Seconds since the raised shield last took a hit (gates `IMPLANT_BARRIER_CARRY_REGEN`). */
-  private barrierSinceHit = IMPLANT_BARRIER_CARRY_REGEN_DELAY;
+  barrierSinceHit = IMPLANT_BARRIER_CARRY_REGEN_DELAY;
 
-  private profileApplied = false;
-  private netHooked = false;
-  private readonly unsubs: Array<() => void> = [];
-  private readonly remoteBarriers: BarrierField[] = [];
+  profileApplied = false;
+  netHooked = false;
+  readonly unsubs: Array<() => void> = [];
+  readonly remoteBarriers: BarrierField[] = [];
 
   /* ═══════════════════════════ ImplantsRef ═══════════════════════════ */
   get equipped(): ImplantId | null { return this.equippedId; }
@@ -218,26 +166,10 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
    * 들쳐메기 gate (Phase 10): while a downed squadmate is on our shoulder every action but running first drops
    * them. `carrying` / `dropCarried` are probed defensively — player/ owns them and may register later.
    */
-  private dropCarriedFirst(p: PlayerRef): boolean {
-    if ((p.carrying ?? null) === null) return false;
-    if (typeof p.dropCarried === 'function') p.dropCarried('action');
-    return true;
-  }
+  private dropCarriedFirst(p: PlayerRef): boolean { return Wield.dropCarriedFirst(this, p); }
 
   /** Force the wielded implant away and end any channel (weapon swap, death, phase change). */
-  stow(): void {
-    this.releaseGrapple(true);
-    this.setOvercharge(false);
-    if (!this.wieldedFlag) return;
-    const id = this.equippedId;
-    if (id === 'barrier') this.lowerShield();
-    this.detachDevice();
-    this.wieldedFlag = false;
-    if (id) {
-      this.ctx?.bus.emit('implant:wieldChanged', { id, wielded: false });
-      this.send({ t: 'imp', ev: 'wield', id, wielded: false });
-    }
-  }
+  stow(): void { return Wield.stow(this); }
 
   /**
    * Hostile-projectile blocking for the local barrier and every replicated peer barrier.
@@ -245,32 +177,14 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
    * **Pure query** (Phase 9): safe for per-tick line-of-sight tests. A caller whose shot really stopped here calls
    * `damageBarrier(owner, point)` once — that is where the local shield loses durability and sparks fly.
    */
-  raycastBarrier(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number, fromEnemy: boolean): { point: THREE.Vector3; owner: PeerId | 'local' } | null {
-    if (!fromEnemy || !this.ctx) return null;
-    let best: BarrierField | null = null;
-    let bestDist = Infinity;
-    if (this.barrier.active && this.barrier.intersect(origin, dir, maxDist, _hitPt)) {
-      best = this.barrier; bestDist = _hitPt.distanceToSquared(origin); _bp.copy(_hitPt);
-    }
-    for (const b of this.remote.getBarriers(this.remoteBarriers)) {
-      if (!b.intersect(origin, dir, maxDist, _hitPt)) continue;
-      const d = _hitPt.distanceToSquared(origin);
-      if (d < bestDist) { bestDist = d; best = b; _bp.copy(_hitPt); }
-    }
-    if (!best) return null;
-    return { point: _bp.clone(), owner: best.owner };
-  }
+  raycastBarrier(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number, fromEnemy: boolean): { point: THREE.Vector3; owner: PeerId | 'local' } | null { return Barrier.raycastBarrier(this, origin, dir, maxDist, fromEnemy); }
 
   /**
    * A projectile really stopped at a barrier: the local shield takes `amount` (`IMPLANT_BARRIER_BLOCK_DAMAGE` by default) +
    * `implant:barrierHit` (+ collapse / lockout / `imp barrier` sync), a peer's shield only sparks — its owner is
    * authoritative over its hp and broadcasts it.
    */
-  damageBarrier(owner: PeerId | 'local', point: THREE.Vector3, amount = IMPLANT_BARRIER_BLOCK_DAMAGE): void {
-    if (!this.ctx) return;
-    if (owner === 'local') { if (this.barrier.active) this.onBarrierBlocked(point, amount); }
-    else this.fx.spark(point, implantHex('barrier'), 0.3);
-  }
+  damageBarrier(owner: PeerId | 'local', point: THREE.Vector3, amount = IMPLANT_BARRIER_BLOCK_DAMAGE): void { return Barrier.damageBarrier(this, owner, point, amount); }
 
   /** Back to a fresh raid state (mission start / abort / hub). */
   reset(): void {
@@ -375,319 +289,80 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
   }
 
   /* ═══════════════════════════ equip / wield ═══════════════════════════ */
-  private def(): ImplantDef | undefined {
+  def(): ImplantDef | undefined {
     return this.equippedId ? getImplantDef(this.equippedId) : undefined;
   }
 
-  private applyProfile(id: ImplantId | null): void {
-    this.profileApplied = true;
-    if (id !== null && !isImplantId(id)) id = null;
-    if (id === this.equippedId) return;
-    this.stow();
-    this.equippedId = id;
-    this.resetRuntime();
-    this.emitCooldown(true);
-    this.emitBarrier();
-    this.emitEnergy(true);
-  }
+  applyProfile(id: ImplantId | null): void { return Wield.applyProfile(this, id); }
 
   /** progression/ may register after us; pick up its saved implant as soon as it exists. */
-  private applyProfileLazily(): void {
-    if (this.profileApplied) return;
-    const prog = this.ctx.progression;
-    if (prog) { this.applyProfile(prog.profile.implant); return; }
-    if (this.equippedId === null) {
-      // offline / no profile yet: everyone owns all six, so hand out the first one instead of nothing
-      this.equippedId = IMPLANT_DEFS[0].id;
-      this.resetRuntime();
-      this.emitCooldown(true);
-    }
-  }
+  private applyProfileLazily(): void { return Wield.applyProfileLazily(this); }
 
-  private resetRuntime(): void {
-    const def = this.def();
-    this.chargesLeft = def?.charges ?? 0;
-    this.cdRemaining = 0;
-    this.cdTotal = this.effectiveCooldown();
-    this.grappleState = 'idle';
-    this.grappleFlown = 0;
-    this.grappleTimer = 0;
-    this.grappleTargetValid = false;
-    this.bashTimer = 0;
-    this.bashCd = 0;
-    this.wire?.hide();
-    this.beam?.hide();
-    this.ocActive = false;
-    this.ocTarget = null;
-    this.ocHealAcc = 0;
-    this.ocEnergy = IMPLANT_OVERCHARGE_ENERGY;
-    this.holdingFlag = false;
-    this.barrierLocked = false;
-    this.barrierSinceHit = IMPLANT_BARRIER_CARRY_REGEN_DELAY;
-    if (this.barrier) { this.barrier.lower(); this.barrier.hp = IMPLANT_BARRIER_HP; }
-    this.clearShieldSpeed();
-    this.setGrapplePull(null);
-  }
+  resetRuntime(): void { return Wield.resetRuntime(this); }
 
-  private wield(): void {
-    const def = this.def();
-    if (!def || def.mode !== 'wielded' || this.wieldedFlag) return;
-    if (def.id === 'barrier' && !this.canRaiseShield()) return;
-    this.wieldedFlag = true;
-    this.device?.dispose();
-    this.device = new ImplantDevice(def.id);
-    this.deviceAttached = false;
-    this.attachDevice();
-    if (def.id === 'barrier') this.raiseShield();
-    this.ctx.bus.emit('implant:wieldChanged', { id: def.id, wielded: true });
-    this.ctx.bus.emit('audio:play', { id: 'implant_wield', volume: 0.6 });
-    this.send({ t: 'imp', ev: 'wield', id: def.id, wielded: true });
-  }
+  private wield(): void { return Wield.wield(this); }
 
-  private attachDevice(): void {
-    if (!this.device || this.deviceAttached) return;
-    const socket = this.weaponSocket();
-    if (!socket) return;
-    socket.add(this.device.root);
-    this.deviceAttached = true;
-  }
+  attachDevice(): void { return Wield.attachDevice(this); }
 
-  private detachDevice(): void {
-    if (!this.device) return;
-    this.device.dispose();
-    this.device = null;
-    this.deviceAttached = false;
-  }
+  detachDevice(): void { return Wield.detachDevice(this); }
 
-  private weaponSocket(): THREE.Object3D | null {
-    const p = this.ctx.player as Host | null;
-    if (!p || typeof p.getWeaponSocket !== 'function') return null;
-    try { return p.getWeaponSocket(); } catch { return null; }
-  }
+  weaponSocket(): THREE.Object3D | null { return Wield.weaponSocket(this); }
 
   /** Aim ray from the reticle; falls back to eye + horizontal forward when the host has no camera ray. */
-  private aimRay(origin: THREE.Vector3, dir: THREE.Vector3): boolean {
-    const p = this.ctx.player as Host | null;
-    if (!p) return false;
-    if (typeof p.getAimRay === 'function') { p.getAimRay(origin, dir); return true; }
-    p.getEyePosition(origin);
-    p.getForward(dir);
-    return true;
-  }
+  aimRay(origin: THREE.Vector3, dir: THREE.Vector3): boolean { return Wield.aimRay(this, origin, dir); }
 
   /**
    * World position an effect leaves from: the wielded device's muzzle, else the hand (weapon socket) so the
    * grapple wire and the overcharge beam start at the gun, else the eye.
    */
-  private muzzle(out: THREE.Vector3, dir: THREE.Vector3): THREE.Vector3 {
-    if (this.device && this.deviceAttached) {
-      this.device.muzzle.updateWorldMatrix(true, false);
-      out.setFromMatrixPosition(this.device.muzzle.matrixWorld);
-      return out;
-    }
-    const socket = this.weaponSocket();
-    if (socket) {
-      socket.updateWorldMatrix(true, false);
-      out.setFromMatrixPosition(socket.matrixWorld);
-      return out.addScaledVector(dir, 0.35);
-    }
-    const p = this.ctx.player;
-    if (p) { p.getEyePosition(out); out.addScaledVector(dir, 0.45); return out; }
-    return out.set(0, 0, 0);
-  }
+  muzzle(out: THREE.Vector3, dir: THREE.Vector3): THREE.Vector3 { return Wield.muzzle(this, out, dir); }
 
   /* ═══════════════════════════ charges & cooldown ═══════════════════════════ */
-  private cooldownMul(): number {
-    const mul = this.ctx?.progression?.derived?.implantCooldownMul ?? 1;
-    return Number.isFinite(mul) && mul > 0 ? mul : 1;
-  }
+  cooldownMul(): number { return Charge.cooldownMul(this); }
 
-  private effectiveCooldown(): number {
-    const def = this.def();
-    if (!def) return 0;
-    return def.cooldown * this.cooldownMul();
-  }
+  effectiveCooldown(): number { return Charge.effectiveCooldown(this); }
 
-  private get ready(): boolean { return this.chargesLeft > 0 && this.cdRemainingBlocking() <= 0; }
+  get ready(): boolean { return this.chargesLeft > 0 && this.cdRemainingBlocking() <= 0; }
 
   /** Charge-based implants may fire while a refill is running; single-charge ones may not. */
-  private cdRemainingBlocking(): number {
-    const def = this.def();
-    if (!def) return 1;
-    return def.charges > 1 ? 0 : this.cdRemaining;
-  }
+  private cdRemainingBlocking(): number { return Charge.cdRemainingBlocking(this); }
 
   /** Spend one charge. `startCooldown` false = the caller starts it later (scan starts it when the train ends). */
-  private useCharge(startCooldown = true): boolean {
-    if (!this.ready) { this.deny(); return false; }
-    this.chargesLeft--;
-    if (startCooldown) this.startCooldown();
-    this.emitCooldown(true);
-    return true;
-  }
+  useCharge(startCooldown = true): boolean { return Charge.useCharge(this, startCooldown); }
 
-  private startCooldown(seconds?: number): void {
-    const t = seconds ?? this.effectiveCooldown();
-    if (t <= 0) return;
-    this.cdRemaining = t;
-    this.cdTotal = t;
-    this.emitCooldown(true);
-  }
+  startCooldown(seconds?: number): void { return Charge.startCooldown(this, seconds); }
 
-  private tickCooldown(dt: number): void {
-    if (dt <= 0) return;
-    this.hudAcc += dt;
-    if (this.cdRemaining <= 0) return;
-    this.cdRemaining = Math.max(0, this.cdRemaining - dt);
-    if (this.cdRemaining === 0) {
-      const def = this.def();
-      const max = def?.charges ?? 1;
-      if (this.chargesLeft < max) {
-        this.chargesLeft++;
-        if (this.chargesLeft < max) { this.startCooldown(); return; }
-      }
-      if (this.barrierLocked) { this.barrierLocked = false; this.barrier.hp = this.barrier.maxHp; this.emitBarrier(); }
-      this.emitCooldown(true);
-      this.ctx.bus.emit('audio:play', { id: 'implant_ready', volume: 0.4 });
-      return;
-    }
-    if (this.hudAcc >= HUD_EMIT_INTERVAL) this.emitCooldown(false);
-  }
+  private tickCooldown(dt: number): void { return Charge.tickCooldown(this, dt); }
 
-  private emitCooldown(force: boolean): void {
-    const def = this.def();
-    if (!def || !this.ctx) return;
-    if (!force && this.hudAcc < HUD_EMIT_INTERVAL) return;
-    this.hudAcc = 0;
-    this.ctx.bus.emit('implant:cooldownChanged', {
-      id: def.id,
-      remaining: this.cdRemaining,
-      total: this.cdTotal || this.effectiveCooldown(),
-      charges: this.chargesLeft,
-      maxCharges: def.charges,
-    });
-  }
+  emitCooldown(force: boolean): void { return Charge.emitCooldown(this, force); }
 
-  private emitBarrier(): void {
-    if (!this.ctx || !this.barrier) return;
-    this.ctx.bus.emit('implant:barrierChanged', {
-      hp: this.barrier.hp, maxHp: this.barrier.maxHp, active: this.barrier.active,
-    });
-  }
+  emitBarrier(): void { return Barrier.emitBarrier(this); }
 
-  private emitEnergy(force: boolean): void {
-    if (!this.ctx || this.equippedId !== 'overcharge') return;
-    const e = Math.round(this.ocEnergy * 20) / 20;
-    if (!force && e === this.lastEnergyEmitted) return;
-    this.lastEnergyEmitted = e;
-    this.ctx.bus.emit('implant:energyChanged', { energy: this.ocEnergy, max: IMPLANT_OVERCHARGE_ENERGY });
-  }
+  emitEnergy(force: boolean): void { return Charge.emitEnergy(this, force); }
 
-  private deny(): void {
-    this.ctx?.bus.emit('audio:play', { id: 'ui_deny', volume: 0.45 });
-  }
+  deny(): void { return Charge.deny(this); }
 
-  private activated(id: ImplantId, position: THREE.Vector3): void {
-    this.ctx.bus.emit('implant:activated', { id, position: position.clone() });
-  }
+  activated(id: ImplantId, position: THREE.Vector3): void { return Charge.activated(this, id, position); }
 
   /* ═══════════════════════════ 대시 ═══════════════════════════ */
-  private castDash(): void {
-    const ctx = this.ctx;
-    const p = ctx.player;
-    if (!p) return;
-    if (!this.useCharge()) return;
-
-    p.getForward(_d);
-    _d.y = 0;
-    if (_d.lengthSq() < 1e-6) _d.set(0, 0, -1);
-    _d.normalize();
-    _from.copy(p.position);
-
-    let dist = IMPLANT_DASH_DISTANCE;
-    _o.copy(p.position); _o.y += 1.0;
-    const interior = p.interior;
-    const world = ctx.world && ctx.world.ready ? ctx.world : null;
-    const hit = interior ? interior.raycast(_o, _d, dist + PLAYER_RADIUS)
-      : world ? world.raycast(_o, _d, dist + PLAYER_RADIUS) : null;
-    if (hit) dist = Math.max(0, hit.distance - PLAYER_RADIUS - 0.15);
-
-    _t.copy(p.position).addScaledVector(_d, dist);
-    const floor = interior ? interior.getFloorAt(_t.x, _t.z) : world ? world.getHeightAt(_t.x, _t.z) : _t.y;
-    if (_t.y < floor) _t.y = floor;
-    if (interior) interior.resolveCollision(_t, PLAYER_RADIUS);
-    else if (world) {
-      world.resolveCollision(_t, PLAYER_RADIUS);
-      if (!world.isInsideBounds(_t.x, _t.z)) _t.copy(_from);
-    }
-    // PlayerRef.position is a stable Vector3 instance — teleport by writing into it.
-    p.position.copy(_t);
-
-    _tmp.copy(_from); _tmp.y += 0.9;
-    _p.copy(_t); _p.y += 0.9;
-    this.fx.streak(_tmp, _p, implantHex('dash'), 0.28, 0.45);
-    this.fx.spark(_p, implantHex('dash'), 0.5);
-    ctx.bus.emit('camera:shake', { intensity: 0.18, duration: 0.12 });
-    ctx.bus.emit('audio:play', { id: 'dash', volume: 0.7 });
-    ctx.bus.emit('implant:dashed', { position: _t.clone(), direction: _d.clone() });
-    this.activated('dash', _t);
-    _p.subVectors(_t, _from);
-    this.send({ t: 'imp', ev: 'dash', o: tuple(_from), d: tuple(_p) });
-  }
+  private castDash(): void { return Dev.castDash(this); }
 
   /* ═══════════════════════════ 배리어 = 들고 다니는 방패 (Phase 10) ═══════════════════════════ */
   /** Refused while the shield is recharging after a collapse (the lockout doubles as its cooldown). */
-  private canRaiseShield(): boolean {
-    if (this.barrierLocked || this.cdRemaining > 0 || this.chargesLeft <= 0) {
-      this.ctx.bus.emit('ui:notify', { text: '배리어 재충전 중', kind: 'warning', duration: 1.2 });
-      this.deny();
-      return false;
-    }
-    return true;
-  }
+  canRaiseShield(): boolean { return Barrier.canRaiseShield(this); }
 
   /** Q → shield up: the panel appears in front of the carrier and follows them from this frame on. */
-  private raiseShield(): void {
-    this.barrier.raise();
-    this.barrierSinceHit = 0;
-    this.barrierSendAcc = 0;
-    this.followShield();
-    this.applyShieldSpeed();
-    this.emitBarrier();
-    this.ctx.bus.emit('implant:barrierCarried', { up: true });
-    this.activated('barrier', this.barrier.position);
-    this.ctx.bus.emit('audio:play', { id: 'barrier_deploy', volume: 0.8 });
-    this.sendShield(true);
-  }
+  raiseShield(): void { return Barrier.raiseShield(this); }
 
   /** Q again / weapon key / death / phase change → shield down. */
-  private lowerShield(): void {
-    if (!this.barrier?.active) return;
-    this.barrier.lower();
-    this.clearShieldSpeed();
-    this.emitBarrier();
-    this.ctx.bus.emit('implant:barrierCarried', { up: false });
-    this.ctx.bus.emit('audio:play', { id: 'barrier_stow', volume: 0.5 });
-    this.sendShield(false);
-  }
+  lowerShield(): void { return Barrier.lowerShield(this); }
 
   /**
    * Per frame while raised: keep the panel on the carrier, keep the movement penalty alive, and (Phase 12) read the
    * 실드 배쉬 input — LMB (`Keys.FIRE`) or the melee key. The melee press is consumed afterwards so weapons/ (which
    * runs later in the frame and already holsters while `blocksWeapons`) can never swing its own melee on the same F.
    */
-  private updateShield(active: boolean): void {
-    if (!this.barrier.active) return;
-    this.followShield();
-    this.applyShieldSpeed();
-    if (!active) return;
-    const input = this.ctx.input;
-    const meleeKey = input.wasPressed(Keys.MELEE);
-    if (meleeKey || input.wasMousePressed(MouseButtons.FIRE)) {
-      this.tryBash();
-      if (meleeKey) input.consume(Keys.MELEE);
-    }
-  }
+  private updateShield(active: boolean): void { return Barrier.updateShield(this, active); }
 
   /* ═══════════════════════════ Phase 12: 실드 배쉬 · 충돌 · 정면 흡수 ═══════════════════════════ */
   /** 실드 배쉬 swing in progress (pose + FX). Enemies in the box were already hit when this went true. */
@@ -700,85 +375,14 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
    * player's existing heavy swing (`startMelee('heavy')` → MELEE_HEAVY on the wire, so replicas pose for free);
    * the shield itself stays raised. Replica enemies forward the `hit` to the host themselves (`takeDamage`).
    */
-  private tryBash(): void {
-    const ctx = this.ctx;
-    const p = ctx.player;
-    if (!p || !this.barrier.active) return;
-    if (this.bashCd > 0 || this.bashTimer > 0) return;
-    if (typeof p.consumeStamina !== 'function' || !p.consumeStamina(IMPLANT_SHIELD_BASH_STAMINA)) {
-      this.deny();
-      ctx.bus.emit('ui:notify', { text: '스태미나 부족', kind: 'warning', duration: 0.8 });
-      return;
-    }
-    this.bashCd = IMPLANT_SHIELD_BASH_COOLDOWN;
-    this.bashTimer = IMPLANT_SHIELD_BASH_SWING_S;
-    if (typeof p.startMelee === 'function') p.startMelee('heavy');
-
-    // box in front of the carrier, in panel space: n = forward (panel normal), r = right
-    const yaw = p.yaw;
-    _n.set(-Math.sin(yaw), 0, -Math.cos(yaw));
-    _r.set(-_n.z, 0, _n.x);
-    _from.copy(p.position);
-    const halfW = IMPLANT_BARRIER_CARRY_WIDTH / 2;
-    const reach = IMPLANT_BARRIER_CARRY_OFFSET + IMPLANT_SHIELD_BASH_RANGE;
-    const mul = ctx.progression?.derived?.meleeDamageMul ?? 1;
-    const dmg = IMPLANT_SHIELD_BASH_DAMAGE * (Number.isFinite(mul) && mul > 0 ? mul : 1);
-    let hits = 0;
-    const enemies = ctx.enemies;
-    if (enemies) {
-      let list: readonly EnemyRef[] = [];
-      _p.copy(_from); _p.y += 0.9;
-      if (typeof (enemies as { queryNear?: unknown }).queryNear === 'function') {
-        try { list = enemies.queryNear(_p, reach + halfW + 3); } catch { list = enemies.getEnemies(); }
-      } else {
-        list = enemies.getEnemies();
-      }
-      for (const e of list) {
-        if (e.isDead) continue;
-        const dx = e.position.x - _from.x, dz = e.position.z - _from.z;
-        const fwd = dx * _n.x + dz * _n.z;
-        if (fwd <= 0 || fwd > reach + e.radius) continue;
-        if (Math.abs(dx * _r.x + dz * _r.z) > halfW + e.radius) continue;
-        _hp.copy(e.position); _hp.y += e.height * 0.5;
-        e.takeDamage(dmg, _hp, _n);
-        this.fx.spark(_hp, implantHex('barrier'), 0.4);
-        hits++;
-      }
-    }
-
-    // knockback: `pushBack` is an EnemySystem method, not part of the frozen `EnemyManagerRef` (2026-09-08).
-    if (hits > 0 && enemies) {
-      _t.copy(_from).addScaledVector(_n, IMPLANT_BARRIER_CARRY_OFFSET + IMPLANT_SHIELD_BASH_RANGE * 0.5); _t.y += 0.9;
-      const push = (enemies as unknown as { pushBack?: (c: THREE.Vector3, r: number, s: number, d?: THREE.Vector3) => number }).pushBack;
-      if (typeof push === 'function') {
-        try { push.call(enemies, _t, IMPLANT_SHIELD_BASH_RANGE + IMPLANT_BARRIER_CARRY_WIDTH / 2, IMPLANT_SHIELD_BASH_KNOCKBACK, _n); } catch { /* host-only helper */ }
-      }
-    }
-    // swing FX: a horizontal streak sweeping the panel's front edge, chest high
-    _t.copy(_from).addScaledVector(_n, IMPLANT_BARRIER_CARRY_OFFSET + 0.25); _t.y += BASH_FX_Y;
-    _tmp.copy(_t).addScaledVector(_r, -halfW);
-    _p.copy(_t).addScaledVector(_r, halfW);
-    this.fx.streak(_tmp, _p, implantHex('barrier'), IMPLANT_SHIELD_BASH_SWING_S, 0.5);
-    ctx.bus.emit('camera:shake', { intensity: hits > 0 ? 0.28 : 0.14, duration: 0.14 });
-    ctx.bus.emit('audio:play', { id: 'melee_swing', volume: 0.8, pitch: 0.85 });
-    if (hits > 0) ctx.bus.emit('audio:play', { id: 'barrier_hit', position: _t, volume: 0.7 });
-    ctx.bus.emit('implant:bashed', { position: _from.clone(), yaw, hits });
-    this.send({ t: 'imp', ev: 'bash', p: tuple(_from), yaw: Math.round(yaw * 1000) / 1000 });
-  }
+  tryBash(): void { return Barrier.tryBash(this); }
 
   /**
    * Enemy movement vs every raised shield (local + peers' replicas). The first shield overlapping the mover pushes
    * `pos` out to its front face and names its carrier (enemies/ retargets the bug onto them). Pure apart from `pos`;
    * no allocations — called per simulated bug per tick.
    */
-  resolveBarrierCollision(pos: THREE.Vector3, radius: number): PeerId | 'local' | null {
-    if (!this.ctx) return null;
-    if (this.barrier.active && this.barrier.pushOut(pos, radius)) return 'local';
-    for (const b of this.remote.getBarriers(this.remoteBarriers)) {
-      if (b.pushOut(pos, radius)) return b.owner;
-    }
-    return null;
-  }
+  resolveBarrierCollision(pos: THREE.Vector3, radius: number): PeerId | 'local' | null { return Barrier.resolveBarrierCollision(this, pos, radius); }
 
   /**
    * A melee attack of `amount` from `fromPos` is about to land on `owner`. True when that carrier's raised shield
@@ -787,45 +391,19 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
    * peer's shield only sparks here — the caller sends `ee barrierHit` to that peer, whose `damageBarrier('local', …)`
    * deducts it.
    */
-  absorbFrontalAttack(owner: PeerId | 'local', fromPos: THREE.Vector3, amount: number): boolean {
-    if (!this.ctx) return false;
-    const b = this.barrierOf(owner);
-    if (!b || !b.active || !b.facing(fromPos, ABSORB_RANGE)) return false;
-    b.contactPoint(fromPos, _hitPt);
-    if (owner === 'local') this.onBarrierBlocked(_hitPt, amount);
-    else this.fx.spark(_hitPt, implantHex('barrier'), 0.35);
-    return true;
-  }
+  absorbFrontalAttack(owner: PeerId | 'local', fromPos: THREE.Vector3, amount: number): boolean { return Barrier.absorbFrontalAttack(this, owner, fromPos, amount); }
 
-  private barrierOf(owner: PeerId | 'local'): BarrierField | null {
-    if (owner === 'local') return this.barrier;
-    for (const b of this.remote.getBarriers(this.remoteBarriers)) if (b.owner === owner) return b;
-    return null;
-  }
+  barrierOf(owner: PeerId | 'local'): BarrierField | null { return Barrier.barrierOf(this, owner); }
 
   /** `implant:barrierBumped` from enemies/: a bug pressed against a shield — spark the contact point (throttled). */
-  private onBarrierBumped(point: THREE.Vector3): void {
-    if (this.bumpFxAcc < BUMP_FX_INTERVAL) return;
-    this.bumpFxAcc = 0;
-    this.fx.spark(point, implantHex('barrier'), 0.22);
-  }
+  private onBarrierBumped(point: THREE.Vector3): void { return Barrier.onBarrierBumped(this, point); }
 
   /** Panel plane in front of the player's feet, facing where they face. */
-  private followShield(): void {
-    const p = this.ctx.player;
-    if (!p) return;
-    this.barrier.follow(p.position, p.yaw);
-  }
+  followShield(): void { return Barrier.followShield(this); }
 
-  private applyShieldSpeed(): void {
-    const p = this.ctx.player;
-    if (p && typeof p.setSpeedModifier === 'function') p.setSpeedModifier(SHIELD_SPEED_KEY, IMPLANT_BARRIER_CARRY_SPEED_MUL);
-  }
+  applyShieldSpeed(): void { return Barrier.applyShieldSpeed(this); }
 
-  private clearShieldSpeed(): void {
-    const p = this.ctx?.player;
-    if (p && typeof p.setSpeedModifier === 'function') p.setSpeedModifier(SHIELD_SPEED_KEY, 1);
-  }
+  clearShieldSpeed(): void { return Barrier.clearShieldSpeed(this); }
 
   /**
    * Regeneration. Lowered: `IMPLANT_BARRIER_REGEN`/s. Raised (Phase 10): `IMPLANT_BARRIER_CARRY_REGEN`/s once
@@ -833,153 +411,30 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
    * one-way drain. After a collapse it is locked for `IMPLANT_BARRIER_BREAK_LOCKOUT` (× cooldown mul) and refills
    * from 0 to full over exactly that window, so the HUD durability gauge doubles as the cooldown readout.
    */
-  private tickBarrierRegen(dt: number, def: ImplantDef | undefined): void {
-    if (def?.id !== 'barrier') return;
-    if (this.barrier.active) this.barrierSinceHit += dt;
-    if (this.barrier.hp >= this.barrier.maxHp) return;
-    if (this.barrier.active) {
-      if (this.barrierSinceHit < IMPLANT_BARRIER_CARRY_REGEN_DELAY) return;
-      this.barrier.regen(IMPLANT_BARRIER_CARRY_REGEN, dt);
-    } else if (this.barrierLocked && this.cdTotal > 0) {
-      this.barrier.regen(this.barrier.maxHp / this.cdTotal, dt);
-    } else {
-      this.barrier.regen(IMPLANT_BARRIER_REGEN, dt);
-    }
-    this.barrierEmitAcc += dt;
-    if (this.barrierEmitAcc >= HUD_EMIT_INTERVAL || this.barrier.hp >= this.barrier.maxHp) {
-      this.barrierEmitAcc = 0;
-      this.emitBarrier();
-    }
-  }
+  private tickBarrierRegen(dt: number, def: ImplantDef | undefined): void { return Barrier.tickBarrierRegen(this, dt, def); }
 
-  private onBarrierBlocked(point: THREE.Vector3, damage: number): void {
-    this.barrierSinceHit = 0;
-    const collapsed = this.barrier.damage(damage);
-    this.fx.spark(point, implantHex('barrier'), 0.45);
-    this.ctx.bus.emit('implant:barrierHit', { point: point.clone(), damage });
-    this.ctx.bus.emit('audio:play', { id: 'barrier_hit', position: point, volume: 0.5 });
-    this.emitBarrier();
-    if (collapsed) {
-      this.chargesLeft = 0;
-      this.barrierLocked = true;
-      this.startCooldown(IMPLANT_BARRIER_BREAK_LOCKOUT * this.cooldownMul());
-      this.fx.blast(point, 2.4, point.y);
-      this.ctx.bus.emit('ui:notify', { text: '배리어 파괴됨', kind: 'danger', duration: 1.6 });
-      this.ctx.bus.emit('audio:play', { id: 'barrier_break', position: point, volume: 0.9 });
-      // `damage()` already lowered the panel — put the (now useless) grip away and tell everyone
-      this.clearShieldSpeed();
-      this.ctx.bus.emit('implant:barrierCarried', { up: false });
-      this.sendShield(false);
-      this.stow();
-      return;
-    }
-    this.barrierSendAcc += 1;
-    if (this.barrierSendAcc >= BARRIER_SEND_EVERY_HITS) { this.barrierSendAcc = 0; this.sendShield(true); }
-  }
+  onBarrierBlocked(point: THREE.Vector3, damage: number): void { return Barrier.onBarrierBlocked(this, point, damage); }
 
   /**
    * Replicated shield state. The transform rides on our own `PlayerSnapshot` (`p`, `yaw`, `PlayerFlags.BARRIER`,
    * `bhp`), so only "up" and the durability travel here: on raise / lower, every `BARRIER_SEND_EVERY_HITS` blocked
    * hits, and unicast to a late joiner on `flow rejoined`.
    */
-  private sendShield(up: boolean, to: RelayTarget = 'others'): void {
-    this.send({ t: 'imp', ev: 'shield', up, hp: Math.round(this.barrier.hp) }, to);
-  }
+  sendShield(up: boolean, to: RelayTarget = 'others'): void { return Barrier.sendShield(this, up, to); }
 
   /* ═══════════════════════════ 갈고리 (instant) ═══════════════════════════ */
   /** Q: fire at the anchor under the crosshair when it is hookable; while flying / attached Q cuts the wire. */
-  private castGrapple(): void {
-    if (this.grappleState !== 'idle') { this.releaseGrapple(false); return; }
-    if (!this.grappleTargetValid) { this.deny(); return; }
-    this.fireGrapple();
-  }
+  private castGrapple(): void { return Dev.castGrapple(this); }
 
-  private updateGrapple(dt: number, active: boolean): void {
-    const ctx = this.ctx;
-    const p = ctx.player;
-    if (!p) return;
+  private updateGrapple(dt: number, active: boolean): void { return Dev.updateGrapple(this, dt, active); }
 
-    if (this.grappleState === 'idle') {
-      // crosshair validity (HUD reticle) — evaluated whenever the grapple is equipped, the gun stays in hand
-      let valid = false, distance = 0;
-      if (active && this.ready) {
-        this.aimRay(_o, _d);
-        const interior = p.interior;
-        const world = ctx.world && ctx.world.ready ? ctx.world : null;
-        const hit = interior ? interior.raycast(_o, _d, IMPLANT_GRAPPLE_RANGE)
-          : world ? world.raycast(_o, _d, IMPLANT_GRAPPLE_RANGE) : null;
-        if (hit) { valid = true; distance = hit.distance; this.grapplePoint.copy(hit.point); }
-      }
-      if (valid !== this.grappleTargetValid || Math.abs(distance - this.grappleTargetDist) > 0.75) {
-        this.grappleTargetValid = valid;
-        this.grappleTargetDist = distance;
-        ctx.bus.emit('implant:grappleTargetChanged', { valid, distance });
-      }
-      return;
-    }
-
-    this.grappleTimer += dt;
-    this.aimRay(_o, _d);
-    this.muzzle(_muzzle, _d);
-    if (this.grappleState === 'flying') {
-      this.grappleFlown += GRAPPLE_FLY_SPEED * dt;
-      const total = _muzzle.distanceTo(this.grapplePoint);
-      if (this.grappleFlown >= total) {
-        this.grappleState = 'attached';
-        this.grappleTip.copy(this.grapplePoint);
-        this.setGrapplePull(this.grapplePoint);
-        ctx.bus.emit('implant:grappleAttached', { point: this.grapplePoint.clone() });
-        ctx.bus.emit('audio:play', { id: 'grapple_attach', position: this.grapplePoint, volume: 0.8 });
-        this.fx.spark(this.grapplePoint, implantHex('grapple'), 0.4);
-        this.send({ t: 'imp', ev: 'grapple', o: tuple(_muzzle), p: tuple(this.grapplePoint) });
-      } else {
-        this.grappleTip.copy(this.grapplePoint).sub(_muzzle).normalize().multiplyScalar(this.grappleFlown).add(_muzzle);
-      }
-    }
-    this.wire.set(_muzzle, this.grappleTip, this.grappleState === 'attached');
-
-    if (this.grappleState === 'attached') {
-      const arrived = p.position.distanceTo(this.grapplePoint) < GRAPPLE_ARRIVE_DIST;
-      if (arrived || this.grappleTimer > GRAPPLE_MAX_TIME || !active) this.releaseGrapple(false);
-    }
-  }
-
-  private fireGrapple(): void {
-    if (!this.useCharge()) return;
-    const ctx = this.ctx;
-    this.aimRay(_o, _d);
-    this.muzzle(_muzzle, _d);
-    this.grappleState = 'flying';
-    this.grappleFlown = 0;
-    this.grappleTimer = 0;
-    this.grappleTip.copy(_muzzle);
-    ctx.bus.emit('implant:grappleFired', { origin: _muzzle.clone(), direction: _d.clone() });
-    ctx.bus.emit('audio:play', { id: 'grapple_fire', volume: 0.8 });
-    this.activated('grapple', this.grapplePoint);
-    this.grappleTargetValid = false;
-    ctx.bus.emit('implant:grappleTargetChanged', { valid: false, distance: 0 });
-  }
+  fireGrapple(): void { return Dev.fireGrapple(this); }
 
   /** `silent` = the wire was cut by something else (stow / death), so no release sting is played. */
-  private releaseGrapple(silent: boolean): void {
-    if (this.grappleState === 'idle') return;
-    this.grappleState = 'idle';
-    this.grappleFlown = 0;
-    this.grappleTimer = 0;
-    this.wire.hide();
-    this.setGrapplePull(null);
-    this.ctx.bus.emit('implant:grappleReleased', {});
-    if (!silent) this.ctx.bus.emit('audio:play', { id: 'grapple_release', volume: 0.5 });
-    this.aimRay(_o, _d);
-    this.muzzle(_muzzle, _d);
-    this.send({ t: 'imp', ev: 'grapple', o: tuple(_muzzle), p: null });
-  }
+  releaseGrapple(silent: boolean): void { return Dev.releaseGrapple(this, silent); }
 
   /** `PlayerRef.setGrappleTarget` is part of the tactical-kit contract; player/ may not have it yet. */
-  private setGrapplePull(point: THREE.Vector3 | null): void {
-    const p = this.ctx?.player;
-    if (p && typeof p.setGrappleTarget === 'function') p.setGrappleTarget(point);
-  }
+  setGrapplePull(point: THREE.Vector3 | null): void { return Dev.setGrapplePull(this, point); }
 
   /* ═══════════════════════════ 정찰 (instant, Phase 12) ═══════════════════════════ */
   /**
@@ -989,248 +444,57 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
    * carries only `p / radius / dur`, each receiver reveals from its own world. `implant:scanned` (pulse 1) stays for
    * the audio hook; `implant:activated` fires once per cast (the implant skill XP hook).
    */
-  private castScan(): void {
-    const ctx = this.ctx;
-    const p = ctx.player;
-    if (!p) return;
-    if (!this.useCharge()) return;
-    const radius = IMPLANT_SCAN_RADIUS, duration = IMPLANT_SCAN_REVEAL_TIME_V2;
-    _p.copy(p.position); _p.y += 1.1;
-    const targets = revealScan(ctx, _p, radius, duration, true);
-    this.fx.pulse(_p, radius, SCAN_PULSE_FX_S, implantHex('scan'), p.position.y);
-    ctx.bus.emit('implant:scanned', { pulse: 1, radius, duration, targets });
-    ctx.bus.emit('audio:play', { id: 'scan_pulse', volume: 0.7, pitch: 0.9 });
-    this.activated('scan', _p);
-    this.send({ t: 'imp', ev: 'scanCast', p: tuple(_p), radius, dur: duration });
-  }
+  private castScan(): void { return Dev.castScan(this); }
 
   /* ═══════════════════════════ 오버차지 (hold Q, energy) ═══════════════════════════ */
   /** Energy drains while channelling and refills from empty in IMPLANT_OVERCHARGE_REGEN_TIME while released. */
-  private tickEnergy(dt: number, def: ImplantDef | undefined): void {
-    if (def?.id !== 'overcharge' || dt <= 0) return;
-    if (this.ocActive) return;                       // drained inside updateOvercharge
-    if (this.ocEnergy >= IMPLANT_OVERCHARGE_ENERGY) return;
-    this.ocEnergy = Math.min(IMPLANT_OVERCHARGE_ENERGY, this.ocEnergy + dt * IMPLANT_OVERCHARGE_ENERGY / IMPLANT_OVERCHARGE_REGEN_TIME);
-    this.energyEmitAcc += dt;
-    if (this.energyEmitAcc >= HUD_EMIT_INTERVAL || this.ocEnergy >= IMPLANT_OVERCHARGE_ENERGY) {
-      this.energyEmitAcc = 0;
-      this.emitEnergy(false);
-      if (this.ocEnergy >= IMPLANT_OVERCHARGE_ENERGY) this.ctx.bus.emit('audio:play', { id: 'implant_ready', volume: 0.3 });
-    }
-  }
+  private tickEnergy(dt: number, def: ImplantDef | undefined): void { return Charge.tickEnergy(this, dt, def); }
 
-  private updateOvercharge(dt: number, qDown: boolean, qPressed: boolean): void {
-    const ctx = this.ctx;
-    const p = ctx.player;
-    if (!p) { this.setOvercharge(false); return; }
+  private updateOvercharge(dt: number, qDown: boolean, qPressed: boolean): void { return Dev.updateOvercharge(this, dt, qDown, qPressed); }
 
-    if (!this.ocActive) {
-      if (!qPressed) return;
-      if (this.ocEnergy < OVERCHARGE_MIN_START) { this.deny(); ctx.bus.emit('ui:notify', { text: '오버차지 충전 중', kind: 'warning', duration: 1 }); return; }
-      this.setOvercharge(true);
-    }
-    if (!qDown || this.ocEnergy <= 0) { this.setOvercharge(false); return; }
-
-    this.ocEnergy = Math.max(0, this.ocEnergy - dt);
-    this.energyEmitAcc += dt;
-    if (this.energyEmitAcc >= HUD_EMIT_INTERVAL) { this.energyEmitAcc = 0; this.emitEnergy(false); }
-
-    // ── self: slow heal + the buff while healthy
-    if (p.hp < p.maxHp) p.heal(IMPLANT_OVERCHARGE_SELF_HEAL_PER_SEC * dt);
-    const selfHealthy = p.hp >= p.maxHp * IMPLANT_OVERCHARGE_BUFF_HP_RATIO;
-    if (selfHealthy) this.applyBoost(p, IMPLANT_OVERCHARGE_SPEED_MUL, BOOST_LINGER);
-
-    // ── ally under the crosshair: faster heal (+ buff while healthy), beam locks on
-    this.aimRay(_o, _d);
-    const ally = findAlly(ctx, _o, _d, IMPLANT_OVERCHARGE_RANGE);
-    const targetId = ally ? ally.id : null;
-    this.syncBeamNet(dt, targetId, !ally);
-    if (targetId !== this.ocTarget) {
-      this.ocTarget = targetId;
-      this.ocHealAcc = 0;
-      this.ocSendAcc = HEAL_SEND_INTERVAL;      // first tick sends immediately
-      this.ocBoostAcc = BOOST_SEND_INTERVAL;
-      ctx.bus.emit('implant:overcharge', { mode: 'heal', target: targetId, active: true });
-    }
-    if (ally) {
-      allyPoint(ally, _t);
-      this.muzzle(_muzzle, _d);
-      const allyHealthy = ally.maxHp > 0 && ally.hp >= ally.maxHp * IMPLANT_OVERCHARGE_BUFF_HP_RATIO;
-      this.beam.set(_muzzle, _t, allyHealthy ? 'boost' : 'heal', ctx.camera);
-      this.ocSendAcc += dt;
-      this.ocBoostAcc += dt;
-      this.ocHealAcc += IMPLANT_OVERCHARGE_ALLY_HEAL_PER_SEC * dt;
-      if (this.ocSendAcc >= HEAL_SEND_INTERVAL && this.ocHealAcc > 0) {
-        this.ocSendAcc = 0;
-        this.sendBuff({ t: 'buff', kind: 'heal', amount: Math.round(this.ocHealAcc * 10) / 10, duration: 0, by: this.localName() }, ally.id);
-        this.ocHealAcc = 0;
-      }
-      if (allyHealthy && this.ocBoostAcc >= BOOST_SEND_INTERVAL) {
-        this.ocBoostAcc = 0;
-        this.sendBuff({ t: 'buff', kind: 'boost', amount: IMPLANT_OVERCHARGE_SPEED_MUL, duration: BOOST_SEND_INTERVAL + BOOST_LINGER, by: this.localName() }, ally.id);
-      }
-    } else {
-      this.beam.hide();
-    }
-  }
-
-  private setOvercharge(on: boolean): void {
-    if (on === this.ocActive) return;
-    if (this.ocActive) this.ctx.bus.emit('implant:overcharge', { mode: 'heal', target: this.ocTarget, active: false });
-    this.ocActive = on;
-    this.holdingFlag = on;
-    this.ocTarget = null;
-    this.ocHealAcc = 0;
-    this.ocSendAcc = HEAL_SEND_INTERVAL;
-    this.ocBoostAcc = BOOST_SEND_INTERVAL;
-    if (on) {
-      this.ctx.bus.emit('implant:overcharge', { mode: 'heal', target: null, active: true });
-      this.ctx.bus.emit('audio:play', { id: 'overcharge_beam', volume: 0.5 });
-      const p = this.ctx.player;
-      if (p) this.activated('overcharge', p.position);
-    } else {
-      this.beam.hide();
-      this.sendBeamOff();
-    }
-    this.emitEnergy(true);
-  }
+  setOvercharge(on: boolean): void { return Dev.setOvercharge(this, on); }
 
   /**
    * Phase 7: overcharge beam replication. `imp beam {target, self}` goes out when the channel starts, whenever the
    * locked ally changes, and as a refresh at most every `BEAM_SEND_INTERVAL` while on (a late joiner sees the beam on
    * the next refresh); `sendBeamOff` sends `{target: null, self: false}` immediately when the channel ends.
    */
-  private syncBeamNet(dt: number, target: PeerId | null, self: boolean): void {
-    this.beamNetAcc += dt;
-    const changed = !this.beamNetOn || target !== this.beamNetTarget || self !== this.beamNetSelf;
-    if (!changed && this.beamNetAcc < BEAM_SEND_INTERVAL) return;
-    this.beamNetOn = true; this.beamNetTarget = target; this.beamNetSelf = self; this.beamNetAcc = 0;
-    this.send({ t: 'imp', ev: 'beam', target, self });
-  }
+  syncBeamNet(dt: number, target: PeerId | null, self: boolean): void { return Dev.syncBeamNet(this, dt, target, self); }
 
-  private sendBeamOff(): void {
-    if (!this.beamNetOn) return;
-    this.beamNetOn = false; this.beamNetTarget = null; this.beamNetSelf = false; this.beamNetAcc = 0;
-    this.send({ t: 'imp', ev: 'beam', target: null, self: false });
-  }
+  sendBeamOff(): void { return Dev.sendBeamOff(this); }
 
-  private localName(): string {
-    return this.ctx.net?.playerName ?? '스캐빈저';
-  }
+  localName(): string { return Wield.localName(this); }
 
   /* ═══════════════════════════ 대전차포 (wielded) ═══════════════════════════ */
-  private updateLauncher(active: boolean): void {
-    if (!active) return;
-    if (!this.ctx.input.wasMousePressed(MouseButtons.FIRE)) return;
-    if (!this.useCharge()) return;
-    const ctx = this.ctx;
-    this.aimRay(_o, _d);
-    this.muzzle(_muzzle, _d);
-    // aim the rocket at what the reticle is looking at, not straight out of the tube
-    const interior = ctx.player?.interior ?? null;
-    const world = ctx.world && ctx.world.ready ? ctx.world : null;
-    const hit = interior ? interior.raycast(_o, _d, 400) : world ? world.raycast(_o, _d, 400) : null;
-    if (hit && hit.distance > 3) _t.copy(hit.point).sub(_muzzle).normalize();
-    else _t.copy(_d);
-    this.rockets.fire(_muzzle, _t, false);
-    const p = ctx.player as Host | null;
-    if (p && typeof p.addRecoil === 'function') p.addRecoil(0.075, (Math.random() - 0.5) * 0.03);
-    ctx.bus.emit('camera:shake', { intensity: 0.4, duration: 0.2 });
-    ctx.bus.emit('audio:play', { id: 'rocket_fire', volume: 1 });
-    this.activated('atlauncher', _muzzle);
-    this.send({ t: 'imp', ev: 'rocket', o: tuple(_muzzle), d: tuple(_t) });
-  }
+  private updateLauncher(active: boolean): void { return Dev.updateLauncher(this, active); }
 
-  private onRocketImpact(h: RocketImpact): void {
-    const ctx = this.ctx;
-    _hitPt.copy(h.point);
-    const world = ctx.world && ctx.world.ready ? ctx.world : null;
-    const groundY = world ? world.getHeightAt(_hitPt.x, _hitPt.z) : _hitPt.y;
-    this.fx.blast(_hitPt, IMPLANT_AT_RADIUS, groundY);
-    ctx.bus.emit('camera:shake', { intensity: 0.65, duration: 0.35 });
-    ctx.bus.emit('audio:play', { id: 'rocket_explode', position: _hitPt, volume: 1 });
-    ctx.bus.emit('implant:rocketExploded', { position: _hitPt.clone(), radius: IMPLANT_AT_RADIUS, damage: IMPLANT_AT_DAMAGE });
-
-    const enemies = ctx.enemies;
-    if (ctx.isAuthority) {
-      if (enemies) {
-        const area = (enemies as { applyAreaDamage?: unknown }).applyAreaDamage;
-        if (typeof area === 'function') enemies.applyAreaDamage(_hitPt, IMPLANT_AT_RADIUS, IMPLANT_AT_DAMAGE, ctx.net?.localId ?? 'local');
-        else enemies.applyExplosion(_hitPt, IMPLANT_AT_RADIUS, IMPLANT_AT_DAMAGE);
-      }
-    } else if (ctx.net) {
-      // client: the host owns enemy damage (it answers with `ee damaged` / `ee kill`)
-      ctx.net.send({ t: 'explode', p: tuple(_hitPt), r: IMPLANT_AT_RADIUS, dmg: IMPLANT_AT_DAMAGE }, 'host');
-    }
-    this.send({ t: 'imp', ev: 'rocketHit', p: tuple(_hitPt) });
-  }
+  private onRocketImpact(h: RocketImpact): void { return Dev.onRocketImpact(this, h); }
 
   /* ═══════════════════════════ networking ═══════════════════════════ */
-  private ensureNetHooks(): void {
-    const net = this.ctx?.net;
-    if (!net || this.netHooked) return;
-    this.netHooked = true;
-    this.unsubs.push(
-      net.onMessage('imp', (m, from) => this.onImplantMessage(m, from)),
-      net.onMessage('buff', (m, from) => this.onBuff(m, from)),
-      // Phase 9 / 10: a late joiner learns our shield is raised (the snapshot only carries the BARRIER flag + bhp)
-      net.onMessage('flow', (m, from) => {
-        if (m.ev === 'rejoined' && this.barrier?.active && from !== net.localId) this.sendShield(true, from);
-      }),
-    );
-  }
+  private ensureNetHooks(): void { return Wire.ensureNetHooks(this); }
 
   /** e2e hook: the replicated overcharge beam state of `peerId` as this client sees it (null = unknown peer). */
-  debugBeam(peerId: PeerId): { on: boolean; target: PeerId | null; self: boolean; until: number } | null {
-    return this.remote?.debugBeam(peerId) ?? null;
-  }
+  debugBeam(peerId: PeerId): { on: boolean; target: PeerId | null; self: boolean; until: number } | null { return Dev.debugBeam(this, peerId); }
 
-  private send(msg: ImplantMessage, to: RelayTarget = 'others'): void {
-    const ctx = this.ctx;
-    if (!ctx?.isMultiplayer || !ctx.net) return;
-    ctx.net.send(msg, to);
-  }
+  send(msg: ImplantMessage, to: RelayTarget = 'others'): void { return Wire.send(this, msg, to); }
 
-  private sendBuff(msg: BuffMessage, to: PeerId): void {
-    const ctx = this.ctx;
-    if (!ctx?.isMultiplayer || !ctx.net) return;
-    ctx.net.send(msg, to);
-  }
+  sendBuff(msg: BuffMessage, to: PeerId): void { return Wire.sendBuff(this, msg, to); }
 
-  private onImplantMessage(m: ImplantMessage, from: PeerId): void {
-    if (from === this.ctx.net?.localId) return;
-    this.remote.handle(m, from);
-  }
+  onImplantMessage(m: ImplantMessage, from: PeerId): void { return Wire.onImplantMessage(this, m, from); }
 
   /**
    * Friendly effects aimed at *us* by someone else. Each `buff` kind has exactly one receiver: implants/ applies
    * the overcharge `heal` / `boost`; `revive` (defibrillator) and `cloak` belong to gadgets/ (Phase 9: the duplicate
    * `revive` branch here is gone).
    */
-  private onBuff(m: BuffMessage, _from: PeerId): void {
-    const p = this.ctx.player;
-    if (!p) return;
-    switch (m.kind) {
-      case 'heal':
-        if (p.isDead || p.isDowned) return;
-        p.heal(m.amount);
-        break;
-      case 'boost':
-        this.applyBoost(p, m.amount > 0 ? m.amount : IMPLANT_OVERCHARGE_SPEED_MUL, m.duration || BOOST_SEND_INTERVAL + BOOST_LINGER);
-        break;
-      default:
-        break;
-    }
-  }
+  onBuff(m: BuffMessage, _from: PeerId): void { return Wire.onBuff(this, m, _from); }
 
   /**
    * Overcharge buff on a player. The `'overcharge'` modifier key is the contract with player/: while it is
    * live the player runs faster and reports `isOvercharged` (weapons reads that for the fire-rate bonus).
    * `setSpeedModifier` is part of the tactical-kit contract, so it is probed defensively.
    */
-  private applyBoost(p: PlayerRef, mul: number, duration: number): void {
-    if (typeof p.setSpeedModifier === 'function') p.setSpeedModifier('overcharge', mul, duration);
-  }
+  applyBoost(p: PlayerRef, mul: number, duration: number): void { return Wire.applyBoost(this, p, mul, duration); }
   /* ══ Phase 10 — 배리어 = 들고 다니는 방패 ══ */
   /** true while the shield is in the hands (mirrors `wielded` for the barrier implant). */
   get barrierCarried(): boolean { return this.wieldedFlag && this.equippedId === 'barrier'; }
@@ -1240,9 +504,5 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
    * facing. null while the shield is down (`intersect` measures dy from that y, so the panel spans
    * `y … y + IMPLANT_BARRIER_CARRY_HEIGHT`).
    */
-  getBarrierPose(outPosition: THREE.Vector3): { yaw: number } | null {
-    if (!this.barrier?.active) return null;
-    outPosition.copy(this.barrier.position);
-    return { yaw: this.barrier.yaw };
-  }
+  getBarrierPose(outPosition: THREE.Vector3): { yaw: number } | null { return Barrier.getBarrierPose(this, outPosition); }
 }

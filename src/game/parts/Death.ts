@@ -1,0 +1,217 @@
+/**
+ * src/game/parts/Death.ts — **사망 · 부활 · 분대 전멸**.
+ *
+ * 죽으면 30초 뒤 부활할 수 있지만, **분대 전원이 나가떨어지면 레이드가 실패**한다
+ * (솔로는 죽는 즉시). 끊긴 대원의 고스트도 살아 있는 것으로 세므로 판정이 단순하지 않다.
+ */
+import * as THREE from 'three';
+import type {
+  GameContext, GameSystem, GamePhase, FlowMessage, PeerId, MissionMode, RaidSessionBlob, PlayerRestoreState, RemotePlayerRef,
+} from '@/shared';
+import type { PlanetId } from '@/shared';
+import {
+  GameContext as Ctx, Keys, PlayerFlags, PLAYER_RESPAWN_DELAY, RAID_FAILED_AUTO_RETURN_S, RAID_SAVE_INTERVAL_S,
+  NET_GHOST_RESTORE_TIMEOUT_S,
+} from '@/shared';
+import { FREE_CURSOR_BLOCKER } from '@/shared';
+import { RESUME_GATE_BLOCKER } from '@/shared';
+import { ResumeGate, installDesktopRelockHook, syncDesktopCursor } from '../ResumeGate';
+import { clearSoloRaid, loadSoloRaid, saveSoloRaid, soloRaidStatus, type SoloRaidSave } from '../SoloRaid';
+import { ALL_DEAD_CHECK_INTERVAL, DEATH_TO_SCREEN, DISCONNECT_ABORT_DELAY, LIFTOFF_TO_COMPLETE, MISSION_FAILS_WHEN_ALL_DEAD, THREAT_MAX, THREAT_MIN, THREAT_RAMP_SECONDS, XP_DEATH_MUL, XP_EXTRACT_BONUS, XP_PER_KILL, XP_PER_LOOT_VALUE, XP_PER_MINUTE, XP_TIME_CAP } from '../model';
+import type { GameFlowSystem } from '../GameFlowSystem';
+
+export function onLocalDied(sys: GameFlowSystem): void {
+  const ctx = sys.ctx;
+  if (!sys.inLiveMission()) return;
+  sys.boarded = false;
+  // 훈련장: no failure, no respawn timer — straight back onto the arena spawn.
+  if (sys.isTraining()) {
+    sys.setPaused(false);
+    sys.respawnTimer = -1; sys.respawnLastSec = -1;
+    const spawn = ctx.world?.getPlayerSpawn();
+    if (spawn) {
+      ctx.bus.emit('ui:notify', { text: '시뮬레이션 재시작', kind: 'info', duration: 2 });
+      ctx.bus.emit('player:respawn', { position: spawn.clone() });
+    }
+    return;
+  }
+  if (!ctx.isMultiplayer) {
+    // Solo: the raid is lost the moment the player dies (Phase 7) — the death screen (레이드 실패) follows the usual delay.
+    if (sys.deathTimer >= 0) return;
+    sys.respawnTimer = -1; sys.respawnLastSec = -1;
+    sys.deathTimer = DEATH_TO_SCREEN;
+    sys.setPaused(false);
+    return;
+  }
+  // Multiplayer: the phase stays — the squad (and the host simulation) keeps going. The UI shows a spectate overlay;
+  // a respawn (hellpod at the mission spawn) unlocks after PLAYER_RESPAWN_DELAY unless the squad is wiped first.
+  sys.respawnTimer = PLAYER_RESPAWN_DELAY;
+  sys.respawnLastSec = -1;
+  sys.tickRespawn();
+  sys.setPaused(false);
+  ctx.bus.emit('ui:notify', { text: `전사 — ${PLAYER_RESPAWN_DELAY}초 후 부활 가능`, kind: 'danger', duration: 4 });
+  if (MISSION_FAILS_WHEN_ALL_DEAD) {
+    sys.allDeadCheckTimer = ALL_DEAD_CHECK_INTERVAL;
+    sys.checkAllDead();
+  }
+  }
+
+/** Emits `game:respawnAvailable` once per whole second while the respawn timer runs (and once at 0). */
+export function tickRespawn(sys: GameFlowSystem): void {
+  const sec = Math.max(0, Math.ceil(sys.respawnTimer));
+  if (sec === sys.respawnLastSec) return;
+  sys.respawnLastSec = sec;
+  sys.ctx.bus.emit('game:respawnAvailable', { seconds: sec });
+  }
+
+/** `game:respawn` (UI): honoured only while dead, after the delay and while the raid is still running (never on 레이드 실패). */
+export function onRespawnRequest(sys: GameFlowSystem): void {
+  const ctx = sys.ctx;
+  if (!(ctx.player?.isDead ?? false)) return;
+  if (sys.respawnTimer !== 0) return;
+  if (!sys.inLiveMission()) return;
+  const spawn = ctx.world?.getPlayerSpawn();
+  if (!spawn) return;
+  sys.deathTimer = -1; sys.respawnTimer = -1; sys.respawnLastSec = -1;
+  ctx.bus.emit('player:respawn', { position: spawn.clone() });
+  }
+
+/** Downed (tactical kit hook): the mission keeps running — a squadmate or a defibrillator can still bring the player back. */
+export function onLocalDowned(sys: GameFlowSystem): void {
+  if (!sys.inLiveMission()) return;
+  sys.setPaused(false);
+  // The all-dead check treats a downed player as alive, but a squadmate may be dead already: re-run it
+  // so a wipe that happens while we bleed out is still noticed.
+  sys.allDeadCheckTimer = ALL_DEAD_CHECK_INTERVAL;
+  }
+
+export function onLocalRevived(sys: GameFlowSystem): void {
+  if (!(sys.ctx.player?.isDead ?? false)) sys.allDeadCheckTimer = -1;
+  }
+
+/** True when a player is out of the fight for good — downed players are still revivable. */
+export function isLocalOut(sys: GameFlowSystem): boolean {
+  const p = sys.ctx.player;
+  if (!p) return false;
+  return p.isDead && !(p.isDowned ?? false);
+  }
+
+/**
+ * Is this remote member still "in the fight"? Ghost-aware (Phase 7):
+ *   - not part of the mission (`inMission` false / IN_HUB / left) → ignored (returns false);
+ *   - suspended (socket down, host simulates a ghost) → alive unless the ghost is dead (`state` 2);
+ *   - otherwise alive unless dead-and-not-downed (a downed peer can still be revived).
+ */
+export function isRemoteAlive(sys: GameFlowSystem, r: RemotePlayerRef): boolean {
+  if (!r.connected || !r.inMission || (r.flags & PlayerFlags.IN_HUB) !== 0) return false;
+  const downed = (r.isDowned ?? false) || (r.flags & PlayerFlags.DOWNED) !== 0;
+  if (r.suspended) {
+    // Phase 9: the host ghost's state sits on the ref (net's `applyGhost` / the host's own `applyToRef`)
+    if (r.ghostState !== undefined) return r.ghostState !== 2;
+    return !r.isDead || downed;
+  }
+  return !r.isDead || downed;
+  }
+
+/** Host only: nobody left alive / downed / alive-as-a-ghost → `flow over` to the squad and 레이드 실패 locally. */
+export function checkAllDead(sys: GameFlowSystem): void {
+  const ctx = sys.ctx;
+  const net = ctx.net;
+  if (!MISSION_FAILS_WHEN_ALL_DEAD) return;
+  if (!net || !ctx.isMultiplayer || !net.isHost) return;
+  if (sys.isTraining()) return;
+  if (!sys.inLiveMission()) return;
+  if (!sys.isLocalOut()) return;
+  for (const r of net.getRemotePlayers()) if (sys.isRemoteAlive(r)) return;
+  sys.allDeadCheckTimer = -1;
+  net.send({ t: 'flow', ev: 'over' }, 'others');
+  sys.gameOver();
+  }
+
+export function complete(sys: GameFlowSystem): void {
+  const ctx = sys.ctx;
+  if (ctx.phase === 'complete' || ctx.phase === 'dead' || ctx.phase === 'menu') return;
+  // Multiplayer: a dead, downed or left-behind player still sees the result screen, but did not extract.
+  const outOfAction = (ctx.player?.isDead ?? false) || (ctx.player?.isDowned ?? false);
+  ctx.stats.extracted = ctx.isMultiplayer ? (sys.boarded && !outOfAction) : true;
+  ctx.stats.lootValue = ctx.inventory?.getTotalValue() ?? 0;
+  ctx.stats.timeSeconds = ctx.missionTime;
+  ctx.stats.mode = ctx.missionMode;
+  ctx.uiBlockers.delete('inventory');
+  ctx.inventory?.closeAll();
+  sys.completeTimer = -1;
+  sys.allDeadCheckTimer = -1;
+  sys.raidSaveTimer = -1;
+  clearSoloRaid();          // the run is over — nothing left to resume
+  sys.awardMissionXp();
+  // Host: make sure every client (even one that missed the liftoff message) reaches the result screen.
+  if (ctx.isMultiplayer && ctx.net?.isHost) ctx.net.send({ t: 'flow', ev: 'complete' }, 'others');
+  sys.setPhase('complete');
+  ctx.bus.emit('game:complete', { stats: { ...ctx.stats } });
+  }
+
+/** 레이드 실패: solo death (after DEATH_TO_SCREEN) or a squad wipe (host decision, mirrored by `flow over`). */
+export function gameOver(sys: GameFlowSystem): void {
+  const ctx = sys.ctx;
+  if (ctx.phase === 'complete' || ctx.phase === 'dead' || ctx.phase === 'menu') return;
+  if (sys.isTraining()) return;
+  ctx.stats.extracted = false;
+  ctx.stats.lootValue = ctx.inventory?.getTotalValue() ?? 0;
+  ctx.stats.timeSeconds = ctx.missionTime;
+  ctx.stats.mode = ctx.missionMode;
+  ctx.uiBlockers.delete('inventory');
+  ctx.inventory?.closeAll();
+  sys.deathTimer = -1; sys.respawnTimer = -1; sys.respawnLastSec = -1;
+  sys.allDeadCheckTimer = -1;
+  sys.raidSaveTimer = -1;
+  sys.restoreTimer = -1;
+  clearSoloRaid();          // 레이드 실패 — the stored session must not resurrect the run
+  ctx.rejoinPending = false;
+  sys.awardMissionXp();
+  const stats = { ...ctx.stats };
+  ctx.bus.emit('game:raidFailed', { stats });
+  sys.setPhase('dead');
+  ctx.bus.emit('game:over', { stats });
+  sys.autoReturnTimer = RAID_FAILED_AUTO_RETURN_S;
+  }
+
+/**
+ * Bank the mission result into the persistent profile (progression/). Runs once per mission, before the
+ * result screen appears, so `game:complete` / `game:over` listeners already see the new level.
+ * Loot XP is only paid on a successful extraction — dying leaves the bag on the ground.
+ * A 훈련장 never pays out (and never settles a contract).
+ */
+export function awardMissionXp(sys: GameFlowSystem): void {
+  if (sys.rewarded) return;
+  sys.rewarded = true;
+  if (sys.isTraining()) return;
+  const ctx = sys.ctx;
+  const prog = ctx.progression;
+  if (!prog) return;
+  try {
+    const s = ctx.stats;
+    const extracted = s.extracted;
+    let xp = Math.max(0, s.kills) * XP_PER_KILL * (extracted ? 1 : XP_DEATH_MUL);
+    xp += Math.min(XP_TIME_CAP, (Math.max(0, s.timeSeconds) / 60) * XP_PER_MINUTE);
+    if (extracted) xp += XP_EXTRACT_BONUS + Math.max(0, s.lootValue) * XP_PER_LOOT_VALUE;
+    xp = Math.round(xp);
+
+    // `raids` / `extractions` are plain profile counters; ProgressionRef has no setter, so bump + save.
+    prog.profile.raids += 1;
+    if (extracted) prog.profile.extractions += 1;
+    const levelBefore = prog.level;
+    // Phase 5: settle the active corp contract first — its XP reward is paid through `addXp` below.
+    let contract = null;
+    const meta = ctx.meta;
+    if (meta && typeof meta.settleMission === 'function') {
+      try { contract = meta.settleMission(s); } catch (e) { console.error('[gameflow] contract settlement failed', e); }
+    }
+    if (contract?.success && contract.xp > 0) xp += contract.xp;
+    if (xp > 0) prog.addXp(xp);
+    prog.save();
+    // Result screens (ui) read the rewards from the `game:complete` / `game:over` stats payload.
+    s.rewards = { xpEarned: xp, levelBefore, levelAfter: prog.level, xp: prog.xp, xpToNext: prog.xpToNext, contract };
+  } catch (e) {
+    console.error('[gameflow] mission XP award failed', e);
+  }
+  }

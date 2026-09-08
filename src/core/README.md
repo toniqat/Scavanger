@@ -18,3 +18,11 @@ Owner: `Engine`. Publishes `ctx.scene / ctx.camera / ctx.renderer` (via `GameCon
 Notes
 - `three/addons/postprocessing/*` is used for bloom. Everything else is procedural.
 - Only `src/player` and `src/weapons` import `@/core/fx` and `@/core/util` (same author); other folders should stay on `@/shared`.
+
+---
+
+## 변경 이력
+
+프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **Phase 11** — `Atmosphere.applyPlanet(def)` — 행성이 `SkyPalette` 를 **이름으로** 고르고(시드 추첨과의 암묵적 인덱스 짝짓기 폐기) `fogDensity × fogMul` 을 적용하며, `fog:false` 행성은 포그 0 + 배경을 하늘 `horizon` 색으로. `Engine` 은 `world:ready.planet` 이 있으면 `applyPlanet`, 없으면 기존 `applySeed`

@@ -20,6 +20,12 @@
 | 파일 | 역할 |
 |---|---|
 | `ImplantSystem.ts` | `GameSystem` + `ImplantsRef`. 입력(Q/좌/우클릭/근접키), 충전·쿨타임, 6종 동작, 이벤트 emit, `imp`/`buff` 송수신, `raycastBarrier`(순수 질의) + `damageBarrier`(실제 피격), 방패 들기/내리기 + 추종 + `imp shield` 송신(`flow rejoined` 재전송), **Phase 12**: `resolveBarrierCollision` / `absorbFrontalAttack` / `bashing` + `tryBash`(실드 배쉬, `imp bash`), `castScan`(one-shot 정찰, `imp scanCast`), `implant:barrierBumped` 스파크, e2e 훅 `debugBeam` |
+| `model.ts` | 폴더 공용 어휘 — `ImplantSystem` 에서 떼어낸 상수 · 타입 · 스크래치. 클래스를 참조하지 않으므로 `parts/*` 가 순환 import 없이 쓴다. `ImplantSystem.ts` 가 재수출하므로 기존 import 경로는 그대로다 |
+| `parts/Barrier.ts` | **배리어 방패** (Phase 10 손에 드는 형태 → Phase 12 벽 + 실드 배쉬). 방패는 세 가지를 동시에 한다: 적 발사체를 **막고**(`onBarrierBlocked`), 지상 적이 통과하지 못하는 **벽**이며(`resolveBarrierCollision` — 부딪힌 적은 잠시 방패를 든 사람을 노린다), 정면 근접을 플레이어 대신 **받는다**(`absorbFrontalAttack`). 들고 좌클릭하면 **실드 배쉬**(`tryBash`). `IMPLANT_BARRIER_CARRY_OFFSET` 은 `PLAYER_RADIUS` 보다 커야 한다 — 그보다 작으면 적 히트스캔이 방패보다 먼저 플레이어 캡슐에 닿아 방패가 조용히 동작하지 않는다. |
+| `parts/Devices.ts` | **갈고리 · 대시 · 정찰 · 오버차지 · 대전차포**. 배리어를 뺀 나머지 임플란트 다섯 종의 실제 동작. 각각 `instant` / `hold` / `wielded` 중 하나의 사용 방식을 갖고 Q 하나로 구동된다. 정찰은 Phase 12 에서 홀드 채널이 아니라 **한 번 누르는 광역 스캔**이 되어 이동 중에도 쓸 수 있다. |
+| `parts/Charges.ts` | **쿨다운 · 충전 · 에너지 풀**. 임플란트를 쓸 수 있는지, 얼마나 남았는지 하나로 관리한다: 대시의 3충전, 오버차지의 에너지 풀, 배리어 붕괴 후의 잠금, 그리고 `derived.implantCooldownMul` 이 곱해지는 지점. 크로스헤어 왼쪽 세로 게이지가 읽는 이벤트(`implant:cooldown` / `energyChanged`)도 여기서 나간다. |
+| `parts/Wield.ts` | **손에 드는 임플란트**와 프로필 연동. 대전차포와 방패는 손에 들리므로 총을 홀스터해야 하고(`blocksWeapons`), 무기 키를 누르면 집어넣어야 한다(`stow`). 어떤 임플란트를 장착했는지는 진행도 프로필이 갖고 있으므로 그 적용도 여기서 한다. |
+| `parts/Wire.ts` | **임플란트의 네트워크 경로** (`imp` / `buff`). 방패 상태 · 오버차지 빔 · 실드 배쉬 · 정찰 스캔을 분대에 알리고, 남이 보낸 것을 우리 월드에 적용한다. 정찰은 결과가 아니라 **시전 사실**만 보내고(`imp scanCast`) 각 피어가 자기 월드에서 드러낸다. |
 | `ImplantDefs.ts` | `IMPLANT_DEFS` (한국어 이름/설명/아이콘/색), `getImplantDef`, `isImplantId`, `implantHex` |
 | `RemoteImplants.ts` | 원격 시전자 시각화: 손의 장치, 갈고리 와이어, **방패**(스냅샷 `isBarrierUp` / `barrierHp` + `imp shield`, 피어 위치·yaw 를 매 프레임 추종하며 복제본도 적탄을 막고 **벌레를 밀어낸다**), 스캔 파동(구버전 `imp scan` 은 FX 만), **`imp scanCast`** → 내 월드에서 `revealScan` (Phase 12), **`imp bash`** 스윙 스트릭 (Phase 12), 로켓, **오버차지 빔 / 자기 발광** (Phase 7, `imp beam`) |
 | `devices/ImplantDevice.ts` | 손에 드는 절차적 장치 모델(갈고리 런처 / 오버차지 이미터 / 스캐너 / 대전차포 / **방패 손잡이**). 무기 소켓에 붙으며 **-Z 가 총구 방향**, `muzzle` 이 끝점. 방패 분기는 손잡이·프레임만 만들고(이미터 바 · 프레임 팔 폭은 `IMPLANT_BARRIER_CARRY_WIDTH × 0.14`) 막는 패널은 `BarrierField` 가 그린다 |
@@ -211,3 +217,35 @@ HUD 는 `ui/hud/ImplantWidget` 의 크로스헤어 좌측 세로 게이지 (대�
 합성 LMB 실드 배쉬(`bashing`, 스태미나, 1 m 앞 벌레 피해, 방패 유지, 0.35 s 뒤 해제), 세 번째 임무에서 one-shot 정찰
 (`scan:cast` 1회 · 25 m 벌레 포함 · 상호작용물 전부 · `detect:reveal` 15 s · XP 훅 1회 · 쿨타임 30 × mul · 재입력 거부).
 `smoke-controls-hub` 99/99 무변경.
+
+
+## 파일 분할 규약 (`model.ts` + `parts/`, 2026-09-08)
+
+`ImplantSystem.ts` 는 한 파일에 다 있기에는 너무 커져서 **동작을 바꾸지 않고** 갈랐다. 규칙은 세 줄이다.
+
+1. **`model.ts`** — 폴더 공용 어휘(타입 · 상수 · 스크래치 객체, 상태 없는 보조 클래스).
+   `ImplantSystem.ts` 이 `export * from './model'` 로 재수출하므로 **기존 import 경로는 전부 그대로 동작한다.**
+2. **`parts/*.ts`** — 클래스에서 떼어낸 메서드 묶음. 각 함수는 인스턴스를 첫 인자 `sys` 로 받는다:
+   ```ts
+   export function foo(sys: ImplantSystem, …) { … }   // 예전의 this → sys
+   ```
+   클래스에는 같은 이름의 **한 줄 위임 메서드**가 남아 있으므로 호출부는 하나도 바뀌지 않았다.
+3. `parts/` 가 닿는 클래스 멤버는 `private` 이 벗겨져 있다. **폴더 밖에서 쓰라는 뜻이 아니다** —
+   외부와의 계약은 `@/shared` 의 `*Ref` 인터페이스가 전부다.
+
+새 `parts/` 파일은 맨 위 doc 주석에 **그 파일이 답하는 질문 한 줄**을 적고 위 표에 행을 추가한다.
+순환 import 를 만들지 않으려면 `parts/` 는 `ImplantSystem.ts` 에서 **타입만** 가져와야 한다 — 값은 `model.ts` 로.
+
+---
+
+## 변경 이력
+
+프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **Phase 7** — overcharge beam replicated over `imp beam {target, self}` (≤ 4 Hz, immediate off) and drawn by `RemoteImplants` (caster socket → target chest, self glow)
+
+- **Phase 9** — `raycastBarrier` is a **pure** query and `damageBarrier(owner, point, amount?)` is the single damage entry point (a per-tick line-of-sight test no longer chews the shield), the owner re-sends `imp barrier` on `flow rejoined` so a late joiner sees a standing shield, the duplicate `'revive'` buff branch moved out (gadgets own it), `debugBeam(peerId)` for the tests
+
+- **Phase 10** — the 배리어 is a **shield carried in hand** (`mode: 'wielded'`, so Q takes it out, `blocksWeapons` holsters the gun and Q or a weapon key puts it away — the 대전차포 flow, and remote hand-device replication comes free from `PlayerSnapshot.imp`). `BarrierField` follows the carrier (`raise` / `lower` / `follow`, `IMPLANT_BARRIER_CARRY_*` sizing, panel plane at `IMPLANT_BARRIER_CARRY_OFFSET` — which **must** stay > `PLAYER_RADIUS` or enemy hitscan clamps to the capsule first), `intersect` gained an `IMPLANT_BARRIER_CARRY_ARC` front gate (it was double-sided), a raised shield regenerates after `IMPLANT_BARRIER_CARRY_REGEN_DELAY`, `ImplantDevice` finally has a real `barrier` branch (it was falling through to the scanner dish), `imp shield {up, hp}` replaces `imp barrier`, and `barrierCarried` / `getBarrierPose` are published
+
+- **Phase 12 (2026-09-08)** — 방패 **3.2 m 폭**(`IMPLANT_BARRIER_CARRY_WIDTH`), `resolveBarrierCollision`(버그를 로컬 · 피어 방패의 앞면으로 밀어내고 소유자를 돌려준다), `absorbFrontalAttack`(`_ARC` 안 3 m 이내의 정면 근접은 방패가 받는다 — 로컬은 여기서 hp 차감, 피어는 `ee barrierHit`), **실드 배쉬**(`bashing`; 방패를 든 채 LMB / `Keys.MELEE` → `consumeStamina` 25, `startMelee('heavy')` 포즈, 방패 폭 상자 안 모든 적에게 `55 × meleeDamageMul`, `EnemySystem.pushBack` 넉백, `implant:bashed` + `imp bash`), **정찰 = 즉발 1회**(이동 중 사용, 70 m, 15초, 쿨 30; `revealScan` = `detect:reveal` + `scan:cast` + `enemies.setXray`, `imp scanCast` 로 각 피어가 자기 월드에서 드러낸다)

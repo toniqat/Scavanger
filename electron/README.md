@@ -158,3 +158,11 @@ Tab → Escape / Tab → Tab)로 비교했다.
 셸에서는 또 **커서가 필요 없을 때 항상 숨는다**: 게임플레이 / 함선 페이즈이고 커서 소유자가 없으면
 `<body class="desktop-nocursor">` → `cursor: none !important` (락 보유 여부와 무관). Alt 커서도 소유자이므로 그때는
 보인다. 재개 게이트는 셸에서 **절대** 뜨지 않는다(`isDesktopShell()`).
+
+---
+
+## 변경 이력
+
+프로젝트 전체 이력은 [docs/HISTORY.md](../docs/HISTORY.md) 에 있다.
+
+- **Phase 12 (2026-09-08)** — `handleEscape` 가 Escape **key-up** 에서 `executeJavaScript(SHELL_RELOCK, true)`(사용자 제스처 실행)로 페이지의 `__scavShellRelock` 을 불러 셸에서 재잠금을 시도한다 — 키 자체는 건드리지 않는다(`preventDefault` + 합성 Escape 전달은 페이지가 키를 **두 번** 받게 만드는 것이 측정으로 확인되어 걷어냈다), `--raw-escape` / `SCAV_RAW_ESCAPE` 로 끌 수 있다; `start-game.bat` 삭제(실행은 `SCAVANGER.exe` 또는 `npm run dev`)

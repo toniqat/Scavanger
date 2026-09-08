@@ -15,70 +15,25 @@ import {
 import { CorpView } from './ui/CorpView';
 import './meta.css';
 
-/* ────────────────────────────────────────────────────────────────────────────
- * MetaSystem (Phase 5-c, 2026-09-06): corporations · reputation · credits · contracts · quests · corp shop.
- * Publishes `ctx.meta` (`MetaRef`), persists `MetaSave` v1 in localStorage (`Storage.ts`), applies the pure rules of
- * `Rules.ts`, owns the corp screen DOM (`ui/CorpView.ts`, the Tab window's 기업 tab) and the `credits / rep / contract / quest`
- * console commands. Contract goals rise from bus events during a mission; local hits are shared with the squad over
- * the relay-opaque `meta contractHit` message. Toasts are the ui folder's job: this system only emits `meta:*`.
- *
- * Phase 7 (server profile): when `ctx.net.profile.available`, credits are **server-owned** — every `addCredits` is an
- * optimistic local apply followed by a `credits:tx` whose answer overwrites the balance (or reverts it when refused);
- * `buy` is `canFit` → server debit → item creation, `meta:purchase` announces the (possibly async) completion. The
- * save also mirrors into the `meta` profile document; `net:profileLoaded` replaces it with the server copy.
- *
- * Phase 9 (late-join catch-up + relay validation): a client that rejoins a running raid (`net:gameStarting {rejoin}`)
- * asks the squad for the contract hits it missed (`metaq sync` to others on `world:ready`); every peer answers ONCE per
- * requester per mission with the hits it broadcast so far (`sentHits` → `meta sync {corp, hits}` unicast), and the
- * requester feeds them through `reportContractHit(goal, n, false)` like live relayed hits. Relayed messages are
- * validated (`GOAL_IDS` / `CORP_IDS` whitelists, finite `1..META_HIT_MAX` — a sync entry is capped by the contract
- * target instead) and the progress is clamped to `MAX_PROGRESS`. The profile upload no longer needs the server
- * (`ProfileSync` queues + stamps an offline `set`).
- * ──────────────────────────────────────────────────────────────────────────── */
-
-const CORP_ALIASES: Readonly<Record<string, CorpId>> = { helix: 'helix', bastion: 'bastion', nomad: 'nomad', ceres: 'ceres' };
-const GOAL_IDS: readonly ContractGoalKind[] = ['kill_bugs', 'kill_rogues', 'open_crates', 'loot_corpses', 'extract_with_value', 'use_stratagems'];
-
-/** Phase 9 relay validation: a whitelisted goal with a finite amount in `1..max`. */
-function isValidHit(goal: unknown, amount: unknown, max: number): goal is ContractGoalKind {
-  return typeof goal === 'string' && GOAL_IDS.includes(goal as ContractGoalKind)
-    && typeof amount === 'number' && Number.isFinite(amount) && amount >= 1 && amount <= max;
-}
-
-/** Why the last `buy()` / async purchase did not go through (corp screen message; folder-internal, not in `MetaRef`). */
-export interface PurchaseFailure { corp: CorpId; defId: string; price: number; reason: string; }
-
-/**
- * Phase 12 (2026-09-08): one broken implant as the 세레스 바이오 repair desk lists it (folder-internal — `MetaRef` is
- * frozen for this batch; `ui/CorpView` and the smoke read it through the `MetaSystem` instance).
- */
-export interface ImplantRepairInfo {
-  /** The broken implant in the bag / stash. */
-  inst: ItemInstance;
-  broken: ItemDef;
-  /** `repairsTo` def (null when items/ does not know the id — the row is listed but blocked). */
-  target: ItemDef | null;
-  /** Materials with what the player holds (bag + stash). */
-  cost: readonly { defId: string; qty: number; have: number }[];
-  /** Credit fee (`IMPLANT_REPAIR_FEE × grade`). */
-  fee: number;
-  /** 한국어 reason `repairImplant` would refuse now, null = ready. */
-  blocked: string | null;
-}
-
-/** Outcome of a finished (possibly async) repair, for the desk's message line. */
-export interface ImplantRepairResult { uid: string; brokenId: string; targetId: string | null; fee: number; ok: boolean; reason: string | null; }
+import { CORP_ALIASES, GOAL_IDS, type ImplantRepairInfo, type ImplantRepairResult, type PurchaseFailure, isValidHit } from './model';
+/** 폴더 공용 어휘(상수 · 타입 · 스크래치)는 `model.ts` 가 갖는다 — 기존 import 경로를 위해 재수출한다. */
+export * from './model';
+import * as Trade from './parts/Trade';
+import * as Contract from './parts/Contracts';
+import * as Credits from './parts/Credits';
+import * as Desk from './parts/ImplantDesk';
+import * as Cmd from './parts/Console';
 
 export class MetaSystem implements GameSystem, MetaRef {
   readonly name = 'meta';
-  private ctx!: GameContext;
-  private store!: MetaStorage;
+  ctx!: GameContext;
+  store!: MetaStorage;
   /** Embedded 기업 tabs handed out by `createCorpView` (their message timers tick with the system). */
   private readonly views = new Set<CorpView>();
   /** Corp the next 기업 tab opens on (`openCorpMenu(corp)`); the tab builds a fresh `CorpView` every time. */
   private preferredCorp: CorpId | null = null;
-  private unsubs: Array<() => void> = [];
-  private unsubNet: (() => void) | null = null;
+  unsubs: Array<() => void> = [];
+  unsubNet: (() => void) | null = null;
   private consoleRegistered = false;
   /** Last refused purchase (sync or async) — the corp screen reads it for its message line. */
   lastPurchaseFailure: PurchaseFailure | null = null;
@@ -87,32 +42,32 @@ export class MetaSystem implements GameSystem, MetaRef {
    * subscribes through `onPurchaseFailure()` instead, so the standalone screen and an embedded 기업 tab can coexist.
    */
   onPurchaseFailed: ((f: PurchaseFailure) => void) | null = null;
-  private readonly purchaseFailListeners = new Set<(f: PurchaseFailure) => void>();
+  readonly purchaseFailListeners = new Set<(f: PurchaseFailure) => void>();
   /** Phase 12: repair desk listeners (`onImplantRepaired`) — the async server path finishes after the click returns. */
-  private readonly repairListeners = new Set<(r: ImplantRepairResult) => void>();
+  readonly repairListeners = new Set<(r: ImplantRepairResult) => void>();
   /** Broken implants whose server fee transaction is still in flight (the desk greys them out). */
-  private readonly repairPending = new Set<string>();
+  readonly repairPending = new Set<string>();
   /** Server transactions still in flight (purchase buttons stay enabled; the optimistic balance already covers them). */
-  private pendingTx = 0;
+  pendingTx = 0;
   /** Progress the active contract had when the current mission started (death rule). */
-  private progressAtStart = 0;
+  progressAtStart = 0;
   /** Corpse containers counted this mission (dedupes the `crate:looted` fallback against `inventory:containerOpened`). */
   private readonly corpsesCounted = new Set<string>();
   private containerOpenedSeen = false;
   /** Last `completeQuest` failure reason per quest id (shown as `QuestInfo.blocked`). */
-  private readonly questBlocked = new Map<string, string>();
+  readonly questBlocked = new Map<string, string>();
   /* Phase 9: late-join catch-up */
   /** Contract hits this client broadcast this mission, per goal (what a late joiner is handed on `metaq sync`). */
-  private readonly sentHits = new Map<ContractGoalKind, number>();
+  readonly sentHits = new Map<ContractGoalKind, number>();
   /** Requesters already answered this mission (one `meta sync` per peer per mission, answered or not). */
-  private readonly syncAnswered = new Set<PeerId>();
+  readonly syncAnswered = new Set<PeerId>();
   /** A rejoin is under way: ask the squad for its hits once the world is ready. */
   private syncRequestPending = false;
   /* Phase 9 UI pass: the squad's contracts, so the HUD can draw a row per member (`meta contract`). */
   /** Last `meta contract` broadcast per peer; an `id: null` broadcast removes the entry. Never holds the local peer. */
-  private readonly squadContracts = new Map<PeerId, { id: string; progress: number }>();
+  readonly squadContracts = new Map<PeerId, { id: string; progress: number }>();
   /** Last `{id}|{progress}` we broadcast, so an unchanged contract never re-sends. */
-  private lastContractSent = '';
+  lastContractSent = '';
 
   init(ctx: GameContext): void {
     this.ctx = ctx;
@@ -183,59 +138,17 @@ export class MetaSystem implements GameSystem, MetaRef {
     if (this.ctx?.meta === this) this.ctx.meta = null;
   }
 
-  private subscribeNet(): void {
-    const net = this.ctx.net;
-    if (!net || typeof net.onMessage !== 'function') return;
-    const offMeta = net.onMessage('meta', (msg, from) => this.onMetaMessage(msg, from));
-    const offReq = net.onMessage('metaq', (msg, from) => this.onMetaRequest(msg, from));
-    this.unsubNet = () => { offMeta(); offReq(); };
-  }
+  private subscribeNet(): void { return Credits.subscribeNet(this); }
 
   /**
    * Relayed contract traffic (`meta contractHit` live, `meta sync` catch-up). Both are validated before they touch the
    * contract: corp / goal whitelists, a finite amount within `1..max` (`META_HIT_MAX` for a live hit — a real hit is 1 —
    * and the contract target for a sync entry); a message for another corp's contract is ignored.
    */
-  private onMetaMessage(msg: GameMessageOf<'meta'>, from: PeerId): void {
-    if (!this.ctx.isGameplayPhase() || this.inTraining()) return;
-    // `contract` describes the *sender's* contract, so it is never filtered by ours
-    if (msg.ev === 'contract') {
-      if (typeof from === 'string' && from !== this.ctx.net?.localId) this.applySquadContract(from, msg.id, msg.progress);
-      return;
-    }
-    const def = this.activeDef();
-    if (!def || !CORP_IDS.includes(msg.corp) || def.corp !== msg.corp) return;
-    if (msg.ev === 'contractHit') {
-      if (!isValidHit(msg.goal, msg.amount, META_HIT_MAX)) return;
-      this.reportContractHit(msg.goal, msg.amount, false);
-    } else if (msg.ev === 'sync') {
-      if (!Array.isArray(msg.hits)) return;
-      for (const entry of msg.hits) {
-        if (!Array.isArray(entry) || entry.length < 2) continue;
-        const [goal, n] = entry;
-        if (!isValidHit(goal, n, def.target)) continue;
-        this.reportContractHit(goal, n, false);
-      }
-    }
-  }
+  onMetaMessage(msg: GameMessageOf<'meta'>, from: PeerId): void { return Credits.onMetaMessage(this, msg, from); }
 
   /** `metaq sync`: answer a rejoining peer once per mission with the hits broadcast so far (only with an active contract). */
-  private onMetaRequest(msg: MetaRequest, from: PeerId): void {
-    if (msg.ev !== 'sync' || typeof from !== 'string' || this.syncAnswered.has(from)) return;
-    this.syncAnswered.add(from);
-    if (!this.ctx.isGameplayPhase() || this.inTraining()) return;
-    this.broadcastContract(from);        // a late joiner also wants the contract row, not just the missed hits
-    const def = this.activeDef();
-    const net = this.ctx.net;
-    if (!def || !net || typeof net.send !== 'function') return;
-    const hits: [ContractGoalKind, number][] = [];
-    for (const [goal, n] of this.sentHits) {
-      const v = Math.min(def.target, Math.floor(n));
-      if (v >= 1) hits.push([goal, v]);
-    }
-    if (hits.length === 0) return;
-    net.send({ t: 'meta', ev: 'sync', corp: def.corp, hits }, from);
-  }
+  onMetaRequest(msg: MetaRequest, from: PeerId): void { return Credits.onMetaRequest(this, msg, from); }
 
   /** `world:ready` after a rejoin: ask every other member for the hits this client missed. */
   private onWorldReady(): void {
@@ -249,71 +162,29 @@ export class MetaSystem implements GameSystem, MetaRef {
   }
 
   /* ── helpers ─────────────────────────────────────────────────────────────── */
-  private get inShip(): boolean { return this.ctx.isHubPhase() && !this.ctx.isRaidActive(); }
+  get inShip(): boolean { return this.ctx.isHubPhase() && !this.ctx.isRaidActive(); }
   /** `ctx.net.profile` when net published one (always present since Phase 7, `available` false offline). */
-  private profileRef(): ProfileRef | null {
-    const p = this.ctx?.net?.profile;
-    return p && typeof p === 'object' ? p : null;
-  }
+  profileRef(): ProfileRef | null { return Credits.profileRef(this); }
   /** Server-owned credits in effect (relay answered with a profile). */
-  private get serverCredits(): boolean {
+  get serverCredits(): boolean {
     const p = this.profileRef();
     return !!p && p.available === true && typeof p.addCredits === 'function';
   }
-  private inTraining(): boolean {
+  inTraining(): boolean {
     const ctx = this.ctx;
     return typeof ctx.isTraining === 'function' ? ctx.isTraining() : ctx.missionMode === 'training';
   }
   /** Bag / stash pre-check (`InventoryRef.canFit`); a missing helper counts as "fits" (inventory/ built in parallel). */
-  private fits(defId: string, qty = 1): boolean {
-    const inv = this.ctx.inventory;
-    if (!inv || typeof inv.canFit !== 'function') return true;
-    try { return inv.canFit(defId, qty) !== null; } catch { return true; }
-  }
+  fits(defId: string, qty = 1): boolean { return Trade.fits(this, defId, qty); }
   /** Overwrite the balance with the server's answer (no delta bookkeeping — the server is the truth). */
-  private adoptServerCredits(credits: number, reason: string): void {
-    const next = Math.max(0, Math.min(CREDITS_MAX, Math.round(Number(credits))));
-    if (!Number.isFinite(next)) return;
-    const cur = this.store.data.credits;
-    if (next === cur) return;
-    this.store.data.credits = next;
-    this.store.markDirty();
-    this.ctx.bus.emit('meta:creditsChanged', { credits: next, delta: next - cur, reason });
-  }
+  adoptServerCredits(credits: number, reason: string): void { return Credits.adoptServerCredits(this, credits, reason); }
   /** Local, synchronous credit move (the offline path and the optimistic half of a server transaction). */
-  private applyCreditsLocal(delta: number, reason: string): boolean {
-    const d = Math.round(Number(delta) || 0);
-    const cur = this.store.data.credits;
-    if (cur + d < 0) return false;
-    const next = Math.min(CREDITS_MAX, cur + d);
-    if (next === cur && d !== 0 && cur >= CREDITS_MAX) return true;
-    if (next === cur) return true;
-    this.store.data.credits = next;
-    this.store.markDirty();
-    this.ctx.bus.emit('meta:creditsChanged', { credits: next, delta: next - cur, reason });
-    return true;
-  }
+  applyCreditsLocal(delta: number, reason: string): boolean { return Credits.applyCreditsLocal(this, delta, reason); }
   /**
    * Server transaction after the optimistic local apply: the answer overwrites the balance; a refusal reverts the
    * local delta; a dead socket keeps the local value (offline fallback — resynced on the next `net:profileLoaded`).
    */
-  private serverTx(delta: number, reason: string, revertOnRefuse = true): Promise<CreditsTxResult | null> {
-    const p = this.profileRef();
-    if (!p || !this.serverCredits) return Promise.resolve(null);
-    this.pendingTx++;
-    let promise: Promise<CreditsTxResult>;
-    try { promise = p.addCredits(delta, reason); } catch { this.pendingTx--; return Promise.resolve(null); }
-    return promise.then((res) => {
-      this.pendingTx--;
-      if (!res || typeof res !== 'object') return null;
-      if (res.ok) this.adoptServerCredits(res.credits, `server:${reason}`);
-      else {
-        if (revertOnRefuse) this.applyCreditsLocal(-delta, `revert:${reason}`);
-        if (Number.isFinite(res.credits)) this.adoptServerCredits(res.credits, `server:${reason}`);
-      }
-      return res;
-    }, () => { this.pendingTx--; return null; });
-  }
+  serverTx(delta: number, reason: string, revertOnRefuse = true): Promise<CreditsTxResult | null> { return Credits.serverTx(this, delta, reason, revertOnRefuse); }
   get hasPendingTx(): boolean { return this.pendingTx > 0; }
 
   /**
@@ -321,80 +192,29 @@ export class MetaSystem implements GameSystem, MetaRef {
    * `migrated` = the server had no balance yet → the local one is uploaded as the initial balance (`reason 'migrate'`).
    * No document on the server → our local save is uploaded so the next client sees it.
    */
-  private onProfileLoaded(migrated: boolean): void {
-    const p = this.profileRef();
-    if (!p || !p.available) return;
-    const localCredits = this.store.data.credits;
-    const before = { credits: localCredits, rep: CORP_IDS.map((c) => this.store.corp(c).rep) };
-    let doc: unknown;
-    try { doc = p.get('meta'); } catch { doc = undefined; }
-    if (doc && typeof doc === 'object') this.store.replace(doc);
-    else this.store.upload();
-    const b = this.ctx.bus;
-    if (typeof p.credits === 'number' && Number.isFinite(p.credits)) {
-      this.store.data.credits = Math.max(0, Math.min(CREDITS_MAX, Math.round(p.credits)));
-    } else if (migrated || p.credits === null) {
-      // first contact: the local balance becomes the server balance
-      this.store.data.credits = localCredits;
-      void this.serverTx(localCredits, 'migrate', false);
-    }
-    this.store.writeCache();                     // the cache carries the server balance, not the document's stale one
-    this.progressAtStart = this.store.data.activeContract?.progress ?? 0;
-    this.questBlocked.clear();
-    b.emit('meta:loaded', { credits: this.store.data.credits });
-    if (this.store.data.credits !== before.credits) {
-      b.emit('meta:creditsChanged', { credits: this.store.data.credits, delta: this.store.data.credits - before.credits, reason: 'profile' });
-    }
-    CORP_IDS.forEach((c, i) => {
-      const rep = this.store.corp(c).rep;
-      if (rep !== before.rep[i]) b.emit('meta:repChanged', { corp: c, rep, level: repLevelOf(rep), delta: rep - before.rep[i], levelUp: repLevelOf(rep) > repLevelOf(before.rep[i]) });
-    });
-  }
-  private activeDef(): ContractDef | null {
+  private onProfileLoaded(migrated: boolean): void { return Credits.onProfileLoaded(this, migrated); }
+  activeDef(): ContractDef | null {
     const ac = this.store.data.activeContract;
     if (!ac) return null;
     const def = CONTRACT_DEFS.find((d) => d.id === ac.id);
     if (!def) { this.store.data.activeContract = null; this.store.markDirty(); return null; }
     return def;
   }
-  private level(corp: CorpId): number { return repLevelOf(this.store.corp(corp).rep); }
-  private itemDef(defId: string) { return this.ctx.loot?.getItemDef(defId) ?? this.ctx.inventory?.getDef(defId); }
-  private equippedUids(): Set<string> {
+  level(corp: CorpId): number { return repLevelOf(this.store.corp(corp).rep); }
+  itemDef(defId: string) { return this.ctx.loot?.getItemDef(defId) ?? this.ctx.inventory?.getDef(defId); }
+  equippedUids(): Set<string> {
     const out = new Set<string>();
     const lo = this.ctx.inventory?.getLoadout();
     if (!lo) return out;
     for (const inst of [lo.primary, lo.primary2, lo.secondary, lo.bag, lo.armor ?? null]) if (inst) out.add(inst.uid);
     return out;
   }
-  private findAnywhere(uid: string): ItemInstance | null {
-    const inv = this.ctx.inventory;
-    if (!inv) return null;
-    if (typeof inv.findItemAnywhere === 'function') { const i = inv.findItemAnywhere(uid); if (i) return i; }
-    return inv.findItem(uid) ?? null;
-  }
+  findAnywhere(uid: string): ItemInstance | null { return Trade.findAnywhere(this, uid); }
   /** Bag + stash units of a def (corp views render 보유/필요 chips from it). */
-  countAll(defId: string): number {
-    const inv = this.ctx.inventory;
-    if (!inv) return 0;
-    if (typeof inv.countDefAll === 'function') return inv.countDefAll(defId);
-    return inv.countWhere((d) => d.id === defId);
-  }
+  countAll(defId: string): number { return Trade.countAll(this, defId); }
   /** Bag first, then the stash; falls back to the bag-only `tryAddItem` while inventory's helper is a stub. */
-  private addAnywhere(item: ItemInstance): 'bag' | 'stash' | null {
-    const inv = this.ctx.inventory;
-    if (!inv) return null;
-    if (typeof inv.tryAddItemAnywhere === 'function') {
-      const where = inv.tryAddItemAnywhere(item);
-      if (where) return where;
-      return null;
-    }
-    return inv.tryAddItem(item) ? 'bag' : null;
-  }
-  private takeBack(uid: string, qty?: number): number {
-    const inv = this.ctx.inventory;
-    if (!inv || typeof inv.takeItem !== 'function') return 0;
-    try { return inv.takeItem(uid, qty); } catch { return 0; }
-  }
+  addAnywhere(item: ItemInstance): 'bag' | 'stash' | null { return Trade.addAnywhere(this, item); }
+  takeBack(uid: string, qty?: number): number { return Trade.takeBack(this, uid, qty); }
 
   private onNewMission(): void {
     this.progressAtStart = this.store.data.activeContract?.progress ?? 0;
@@ -412,120 +232,41 @@ export class MetaSystem implements GameSystem, MetaRef {
    * ──────────────────────────────────────────────────────────────────────── */
 
   /** `MetaRef.getSquadContracts` — other members only, in peer order. */
-  getSquadContracts(): readonly SquadContractInfo[] {
-    const out: SquadContractInfo[] = [];
-    for (const [peer, v] of this.squadContracts) out.push({ peer, id: v.id, progress: v.progress });
-    return out;
-  }
+  getSquadContracts(): readonly SquadContractInfo[] { return Contract.getSquadContracts(this); }
 
-  private clearSquadContracts(): void {
-    if (this.squadContracts.size === 0) return;
-    const peers = [...this.squadContracts.keys()];
-    this.squadContracts.clear();
-    for (const peer of peers) this.ctx.bus.emit('meta:squadContract', { peer, id: null, progress: 0 });
-  }
+  private clearSquadContracts(): void { return Contract.clearSquadContracts(this); }
 
   /** Store a relayed `meta contract`; `id` null (or an unknown def) drops the member's row. */
-  private applySquadContract(peer: PeerId, id: string | null, progress: number): void {
-    const known = typeof id === 'string' && CONTRACT_DEFS.some((d) => d.id === id) ? id : null;
-    if (!known) {
-      if (!this.squadContracts.delete(peer)) return;
-      this.ctx.bus.emit('meta:squadContract', { peer, id: null, progress: 0 });
-      return;
-    }
-    const def = CONTRACT_DEFS.find((d) => d.id === known)!;
-    const p = Math.min(def.target, Math.max(0, Number.isFinite(progress) ? progress : 0));
-    const prev = this.squadContracts.get(peer);
-    if (prev && prev.id === known && prev.progress === p) return;
-    this.squadContracts.set(peer, { id: known, progress: p });
-    this.ctx.bus.emit('meta:squadContract', { peer, id: known, progress: p });
-  }
+  applySquadContract(peer: PeerId, id: string | null, progress: number): void { return Contract.applySquadContract(this, peer, id, progress); }
 
   /**
    * Tell the squad what we are working on. `to` defaults to every other member; a `metaq sync` answer targets one.
    * Silent outside a real multiplayer raid, and a no-op when nothing changed since the last broadcast.
    */
-  private broadcastContract(to: PeerId | 'others' = 'others', force = false): void {
-    const net = this.ctx.net;
-    if (!this.ctx.isMultiplayer || !net || typeof net.send !== 'function' || this.inTraining()) return;
-    const ac = this.activeDef() ? this.store.data.activeContract : null;
-    const id = ac?.id ?? null;
-    const progress = ac ? Math.floor(ac.progress) : 0;
-    const key = `${id ?? '-'}|${progress}`;
-    if (to === 'others') {
-      if (!force && key === this.lastContractSent) return;
-      this.lastContractSent = key;
-    }
-    net.send({ t: 'meta', ev: 'contract', id, progress }, to);
-  }
+  broadcastContract(to: PeerId | 'others' = 'others', force = false): void { return Contract.broadcastContract(this, to, force); }
 
-  private localHit(goal: ContractGoalKind, amount: number): void {
-    this.reportContractHit(goal, amount, true);
-  }
+  private localHit(goal: ContractGoalKind, amount: number): void { return Contract.localHit(this, goal, amount); }
 
-  private trackLootValue(totalValue: number): void {
-    if (!this.ctx.isGameplayPhase() || this.inTraining()) return;
-    const def = this.activeDef();
-    const ac = this.store.data.activeContract;
-    if (!def || !ac || def.goal !== 'extract_with_value') return;
-    const v = Math.min(MAX_PROGRESS, Math.max(0, Math.round(totalValue)));
-    if (v === ac.progress) return;
-    const delta = v - ac.progress;
-    ac.progress = v;
-    this.ctx.bus.emit('meta:contractProgress', { id: def.id, corp: def.corp, goal: def.goal, progress: v, target: def.target, delta });
-    this.broadcastContract();
-  }
+  private trackLootValue(totalValue: number): void { return Contract.trackLootValue(this, totalValue); }
 
   /* ── MetaRef: credits / rep ─────────────────────────────────────────────── */
   get credits(): number { return this.store.data.credits; }
 
-  getRep(corp: CorpId): RepInfo { return repInfoOf(this.store.corp(corp).rep); }
+  getRep(corp: CorpId): RepInfo { return Credits.getRep(this, corp); }
 
   /**
    * Credits move: refused synchronously below 0 (local pre-check). Offline that is the whole story; with a server
    * profile the local apply is optimistic and a `credits:tx` follows — its answer overwrites the balance, a refusal
    * reverts the delta (`meta:creditsChanged` with `revert:<reason>`).
    */
-  addCredits(delta: number, reason: string): boolean {
-    const d = Math.round(Number(delta) || 0);
-    if (!this.applyCreditsLocal(d, reason)) return false;
-    if (d !== 0 && this.serverCredits) void this.serverTx(d, reason);
-    return true;
-  }
+  addCredits(delta: number, reason: string): boolean { return Credits.addCredits(this, delta, reason); }
 
-  addRep(corp: CorpId, delta: number, reason: string): void {
-    const c = this.store.corp(corp);
-    const before = c.rep;
-    const after = Math.max(0, Math.round(before + (Number(delta) || 0)));
-    if (after === before) return;
-    c.rep = after;
-    const level = repLevelOf(after);
-    const levelUp = level > repLevelOf(before);
-    this.store.markDirty();
-    void reason;
-    this.ctx.bus.emit('meta:repChanged', { corp, rep: after, level, delta: after - before, levelUp });
-  }
+  addRep(corp: CorpId, delta: number, reason: string): void { return Credits.addRep(this, corp, delta, reason); }
 
   /* ── MetaRef: shop ──────────────────────────────────────────────────────── */
-  getShop(corp: CorpId): ShopItem[] {
-    const loot = this.ctx.loot;
-    const def = CORP_DEFS[corp];
-    if (!loot || !def) return [];
-    return buildShop(def, loot.getAllItemDefs(), this.level(corp), this.credits, this.inShip, (id) => loot.getWeaponDef(id), (id) => this.fits(id));
-  }
+  getShop(corp: CorpId): ShopItem[] { return Trade.getShop(this, corp); }
 
-  priceOf(corp: CorpId, defId: string): number | null {
-    const loot = this.ctx.loot;
-    const cdef = CORP_DEFS[corp];
-    const def = loot?.getItemDef(defId);
-    if (!loot || !cdef || !def) return null;
-    const level = this.level(corp);
-    // Phase 12: an `implantRepairMaterials` rule needs the whole catalogue to know which materials it covers
-    const all = loot.getAllItemDefs();
-    if (!corpSells(cdef, def, level, (id) => loot.getWeaponDef(id), implantRepairMaterialIds(all))) return null;
-    return buildShop(cdef, all.filter((d) => d.id === def.id || d.category === 'implant'), level, this.credits, true, (id) => loot.getWeaponDef(id))
-      .find((l) => l.def.id === def.id)?.price ?? null;
-  }
+  priceOf(corp: CorpId, defId: string): number | null { return Trade.priceOf(this, corp, defId); }
 
   /**
    * Purchase. Synchronous answer = was the request accepted (ship, on the shelf, `canFit`, credits). Offline the item
@@ -534,67 +275,14 @@ export class MetaSystem implements GameSystem, MetaRef {
    * an `ok` answer creates + places the item (a placement failure refunds through the server); either way completion
    * is announced by `meta:purchase` and a failure by `onPurchaseFailed` / `lastPurchaseFailure`.
    */
-  buy(corp: CorpId, defId: string): boolean {
-    const fail = (reason: string, price = 0): false => {
-      this.lastPurchaseFailure = { corp, defId, price, reason };
-      return false;
-    };
-    if (!this.inShip) return fail(REASON.shipOnly);
-    const loot = this.ctx.loot;
-    const price = this.priceOf(corp, defId);
-    if (!loot || price === null) return fail('판매하지 않는 품목');
-    if (!this.fits(defId)) return fail(REASON.space, price);
-    if (this.credits < price) return fail(REASON.credits, price);
-    this.lastPurchaseFailure = null;
-    const reason = `buy:${defId}`;
+  buy(corp: CorpId, defId: string): boolean { return Trade.buy(this, corp, defId); }
 
-    if (!this.serverCredits) {
-      if (!this.applyCreditsLocal(-price, reason)) return fail(REASON.credits, price);
-      let placed: 'bag' | 'stash' | null = null;
-      try { placed = this.addAnywhere(loot.createItem(defId, 1)); } catch { placed = null; }
-      if (!placed) { this.applyCreditsLocal(price, `refund:${defId}`); return fail(REASON.space, price); }
-      this.completePurchase(corp, defId, price, placed);
-      return true;
-    }
+  completePurchase(corp: CorpId, defId: string, price: number, placed: 'bag' | 'stash'): void { return Trade.completePurchase(this, corp, defId, price, placed); }
 
-    // server-owned credits: optimistic debit → transaction → item only on `ok`
-    if (!this.applyCreditsLocal(-price, reason)) return fail(REASON.credits, price);
-    void this.serverTx(-price, reason).then((res) => {
-      if (res && !res.ok) {                                   // refused (balance already reverted by serverTx)
-        this.failPurchase({ corp, defId, price, reason: res.reason || REASON.credits });
-        return;
-      }
-      // `null` = socket gone mid-transaction: the local debit stands (offline fallback) and the item is delivered
-      let placed: 'bag' | 'stash' | null = null;
-      try { placed = this.addAnywhere(loot.createItem(defId, 1)); } catch { placed = null; }
-      if (!placed) {
-        this.applyCreditsLocal(price, `refund:${defId}`);
-        if (res) void this.serverTx(price, `refund:${defId}`, false);
-        this.failPurchase({ corp, defId, price, reason: REASON.space });
-        return;
-      }
-      this.completePurchase(corp, defId, price, placed);
-    });
-    return true;
-  }
-
-  private completePurchase(corp: CorpId, defId: string, price: number, placed: 'bag' | 'stash'): void {
-    this.store.data.stats.creditsSpent += price;
-    this.store.markDirty();
-    this.ctx.bus.emit('meta:purchase', { corp, defId, price, placed });
-  }
-
-  private failPurchase(f: PurchaseFailure): void {
-    this.lastPurchaseFailure = f;
-    try { this.onPurchaseFailed?.(f); } catch { /* ui */ }
-    for (const fn of [...this.purchaseFailListeners]) { try { fn(f); } catch { /* ui */ } }
-  }
+  failPurchase(f: PurchaseFailure): void { return Trade.failPurchase(this, f); }
 
   /** Subscribe to async purchase refusals (folder-internal; the standalone screen and every embedded 기업 tab use it). */
-  onPurchaseFailure(fn: (f: PurchaseFailure) => void): () => void {
-    this.purchaseFailListeners.add(fn);
-    return () => { this.purchaseFailListeners.delete(fn); };
-  }
+  onPurchaseFailure(fn: (f: PurchaseFailure) => void): () => void { return Trade.onPurchaseFailure(this, fn); }
 
   sellPriceOf(uid: string, qty?: number): number | null {
     const inst = this.findAnywhere(uid);
@@ -605,42 +293,9 @@ export class MetaSystem implements GameSystem, MetaRef {
     return sellPriceOf(def.value, n);
   }
 
-  sell(uid: string, qty?: number): boolean {
-    if (!this.inShip) return false;
-    const inv = this.ctx.inventory;
-    if (!inv || typeof inv.takeItem !== 'function') return false;
-    const inst = this.findAnywhere(uid);
-    if (!inst || this.equippedUids().has(uid)) return false;
-    const def = this.itemDef(inst.defId);
-    if (!def || !(def.value > 0)) return false;
-    const want = Math.max(1, Math.min(inst.qty, Math.floor(qty ?? inst.qty)));
-    const removed = this.takeBack(uid, want);
-    if (removed <= 0) return false;
-    const credits = sellPriceOf(def.value, removed);
-    this.addCredits(credits, `sell:${def.id}`);
-    this.store.data.stats.creditsEarned += credits;
-    this.store.markDirty();
-    this.ctx.bus.emit('meta:sale', { defId: def.id, qty: removed, credits });
-    return true;
-  }
+  sell(uid: string, qty?: number): boolean { return Trade.sell(this, uid, qty); }
 
-  getSellable(): readonly ItemInstance[] {
-    const inv = this.ctx.inventory;
-    if (!inv) return [];
-    const equipped = this.equippedUids();
-    const out: ItemInstance[] = [];
-    const seen = new Set<string>();
-    const consider = (inst: ItemInstance): void => {
-      if (seen.has(inst.uid) || equipped.has(inst.uid)) return;
-      const def = this.itemDef(inst.defId);
-      if (!def || !(def.value > 0)) return;
-      seen.add(inst.uid);
-      out.push(inst);
-    };
-    for (const inst of inv.getAllItems()) consider(inst);
-    if (typeof inv.getStashItems === 'function') for (const inst of inv.getStashItems()) consider(inst);
-    return out;
-  }
+  getSellable(): readonly ItemInstance[] { return Trade.getSellable(this); }
 
   /* ── 임플란트 수리 desk (Phase 12, 2026-09-08; folder-internal, 세레스 바이오 only) ─────────────────────────
    * A broken implant (`ItemDef.implant.broken`, raid loot) in the bag or the stash becomes its `repairsTo` for the
@@ -652,169 +307,40 @@ export class MetaSystem implements GameSystem, MetaRef {
    * ──────────────────────────────────────────────────────────────────────── */
 
   /** Every broken implant in the bag + stash (equipped implants live in progression, so they never show up). */
-  getRepairableImplants(): ImplantRepairInfo[] {
-    const inv = this.ctx.inventory;
-    if (!inv) return [];
-    const out: ImplantRepairInfo[] = [];
-    const seen = new Set<string>();
-    const consider = (inst: ItemInstance): void => {
-      if (seen.has(inst.uid)) return;
-      const def = this.itemDef(inst.defId);
-      if (!isRepairableImplantDef(def)) return;
-      seen.add(inst.uid);
-      out.push(this.repairInfo(inst, def));
-    };
-    for (const inst of inv.getAllItems()) consider(inst);
-    if (typeof inv.getStashItems === 'function') for (const inst of inv.getStashItems()) consider(inst);
-    out.sort((a, b) => {
-      const ra = a.target ? -implantRepairFee(a.target) : 0, rb = b.target ? -implantRepairFee(b.target) : 0;   // best first
-      if (ra !== rb) return ra - rb;
-      return a.broken.name.localeCompare(b.broken.name, 'ko');
-    });
-    return out;
-  }
+  getRepairableImplants(): ImplantRepairInfo[] { return Desk.getRepairableImplants(this); }
 
   /** The desk's view of one broken implant, or null when `uid` is not a broken implant in the bag / stash. */
-  getImplantRepair(uid: string): ImplantRepairInfo | null {
-    const inst = this.findAnywhere(uid);
-    const def = inst ? this.itemDef(inst.defId) : undefined;
-    if (!inst || !isRepairableImplantDef(def)) return null;
-    return this.repairInfo(inst, def);
-  }
+  getImplantRepair(uid: string): ImplantRepairInfo | null { return Desk.getImplantRepair(this, uid); }
 
-  private repairInfo(inst: ItemInstance, broken: ItemDef): ImplantRepairInfo {
-    const targetId = broken.implant?.repairsTo;
-    const target = targetId ? this.itemDef(targetId) ?? null : null;
-    const cost = implantRepairCost(broken).map((c) => ({ defId: c.defId, qty: c.qty, have: this.countAll(c.defId) }));
-    const fee = target ? implantRepairFee(target) : 0;
-    let blocked = canRepairImplant({
-      broken, target, credits: this.credits, fee, inShip: this.inShip,
-      have: (id) => this.countAll(id),
-      // the broken one leaves before the repaired one arrives, so a same-footprint swap always fits
-      fits: !target || target.width * target.height <= broken.width * broken.height || this.fits(target.id),
-    });
-    if (!blocked && this.repairPending.has(inst.uid)) blocked = '수리 진행 중';
-    return { inst, broken, target, cost, fee, blocked };
-  }
+  repairInfo(inst: ItemInstance, broken: ItemDef): ImplantRepairInfo { return Desk.repairInfo(this, inst, broken); }
 
   /** Subscribe to finished repairs (the server path completes after `repairImplant` returned). */
-  onImplantRepaired(fn: (r: ImplantRepairResult) => void): () => void {
-    this.repairListeners.add(fn);
-    return () => { this.repairListeners.delete(fn); };
-  }
+  onImplantRepaired(fn: (r: ImplantRepairResult) => void): () => void { return Desk.onImplantRepaired(this, fn); }
 
   /** Is the fee transaction for `uid` still in flight? */
-  isRepairPending(uid: string): boolean { return this.repairPending.has(uid); }
+  isRepairPending(uid: string): boolean { return Desk.isRepairPending(this, uid); }
 
   /**
    * Repair the broken implant `uid`. Synchronous answer = the request was accepted (offline: the swap already
    * happened; server: the fee is debited optimistically and the swap follows the `credits:tx` answer). Completion
    * (either way) is reported through `onImplantRepaired` + a `ui:notify` toast.
    */
-  repairImplant(uid: string): boolean {
-    const info = this.getImplantRepair(uid);
-    if (!info) return false;
-    if (info.blocked) { this.finishRepair({ uid, brokenId: info.broken.id, targetId: info.target?.id ?? null, fee: info.fee, ok: false, reason: info.blocked }); return false; }
-    const target = info.target!;
-    const reason = `repair:${info.broken.id}`;
-    if (!this.applyCreditsLocal(-info.fee, reason)) {
-      this.finishRepair({ uid, brokenId: info.broken.id, targetId: target.id, fee: info.fee, ok: false, reason: REASON.credits });
-      return false;
-    }
-    if (!this.serverCredits) {
-      const res = this.performRepair(uid, info.broken, target);
-      if (!res.ok) this.applyCreditsLocal(info.fee, `refund:${reason}`);
-      else { this.store.data.stats.creditsSpent += info.fee; this.store.markDirty(); }
-      this.finishRepair({ uid, brokenId: info.broken.id, targetId: target.id, fee: info.fee, ...res });
-      return res.ok;
-    }
-    // server-owned credits: optimistic debit → transaction → swap only on `ok` (mirrors `buy`)
-    this.repairPending.add(uid);
-    void this.serverTx(-info.fee, reason).then((tx) => {
-      this.repairPending.delete(uid);
-      if (tx && !tx.ok) {                                  // refused: serverTx already reverted the local debit
-        this.finishRepair({ uid, brokenId: info.broken.id, targetId: target.id, fee: info.fee, ok: false, reason: tx.reason || REASON.credits });
-        return;
-      }
-      // `null` = socket gone mid-transaction: the local debit stands (offline fallback) and the repair is delivered
-      const res = this.performRepair(uid, info.broken, target);
-      if (!res.ok) {
-        this.applyCreditsLocal(info.fee, `refund:${reason}`);
-        if (tx) void this.serverTx(info.fee, `refund:${reason}`, false);
-      } else { this.store.data.stats.creditsSpent += info.fee; this.store.markDirty(); }
-      this.finishRepair({ uid, brokenId: info.broken.id, targetId: target.id, fee: info.fee, ...res });
-    });
-    return true;
-  }
+  repairImplant(uid: string): boolean { return Desk.repairImplant(this, uid); }
 
   /**
    * The item half of a repair: re-validate (the broken implant / materials may have moved since the click), take the
    * broken implant, consume the materials, create the repaired one (stash first, then anywhere). Any failure puts
    * everything taken so far back — the caller refunds the fee.
    */
-  private performRepair(uid: string, broken: ItemDef, target: ItemDef): { ok: boolean; reason: string | null } {
-    const inv = this.ctx.inventory;
-    const loot = this.ctx.loot;
-    if (!inv || !loot || typeof inv.takeItem !== 'function') return { ok: false, reason: REASON.notBroken };
-    const inst = this.findAnywhere(uid);
-    if (!inst || inst.defId !== broken.id) return { ok: false, reason: REASON.notBroken };
-    const cost = implantRepairCost(broken);
-    for (const c of cost) if (this.countAll(c.defId) < c.qty) return { ok: false, reason: REASON.materials };
-    if (this.takeBack(uid, 1) <= 0) return { ok: false, reason: REASON.notBroken };
-    const consumed: { defId: string; qty: number }[] = [];
-    const undo = (): void => {
-      for (const c of consumed) this.giveBack(c.defId, c.qty);
-      this.giveBack(broken.id, 1);
-    };
-    for (const c of cost) {
-      const ok = typeof inv.consumeDefAll === 'function' ? inv.consumeDefAll(c.defId, c.qty) : inv.consumeWhere((x) => x.id === c.defId, c.qty) >= c.qty;
-      if (!ok) { undo(); return { ok: false, reason: REASON.materials }; }
-      consumed.push({ defId: c.defId, qty: c.qty });
-    }
-    let item: ItemInstance;
-    try { item = loot.createItem(target.id, 1); } catch { undo(); return { ok: false, reason: REASON.noTarget }; }
-    const placed = (typeof inv.tryAddToStash === 'function' && inv.tryAddToStash(item)) || !!this.addAnywhere(item);
-    if (!placed) { undo(); return { ok: false, reason: REASON.space }; }
-    return { ok: true, reason: null };
-  }
+  performRepair(uid: string, broken: ItemDef, target: ItemDef): { ok: boolean; reason: string | null } { return Desk.performRepair(this, uid, broken, target); }
 
   /** Re-create `qty` of `defId` into the bag / stash (undo of a consumed material or a taken broken implant). */
-  private giveBack(defId: string, qty: number): void {
-    const loot = this.ctx.loot;
-    const def = this.itemDef(defId);
-    if (!loot || !def) return;
-    const per = Math.max(1, def.stackMax);
-    let left = Math.max(0, Math.floor(qty));
-    while (left > 0) {
-      const n = Math.min(per, left);
-      try { if (!this.addAnywhere(loot.createItem(defId, n))) console.warn(`[meta] repair undo: ${defId} ×${n} found no home`); } catch { /* def gone */ }
-      left -= n;
-    }
-  }
+  giveBack(defId: string, qty: number): void { return Desk.giveBack(this, defId, qty); }
 
-  private finishRepair(r: ImplantRepairResult): void {
-    if (r.ok) {
-      const name = r.targetId ? this.itemDef(r.targetId)?.name ?? r.targetId : r.brokenId;
-      this.ctx.bus.emit('ui:notify', { text: `임플란트 수리 완료 — ${name}`, kind: 'success' });
-    }
-    for (const fn of [...this.repairListeners]) { try { fn(r); } catch { /* ui */ } }
-  }
+  finishRepair(r: ImplantRepairResult): void { return Desk.finishRepair(this, r); }
 
   /* ── MetaRef: contracts ─────────────────────────────────────────────────── */
-  getContracts(corp: CorpId): ContractInfo[] {
-    const ac = this.store.data.activeContract;
-    const activeCount = ac ? 1 : 0;
-    const level = this.level(corp);
-    return CONTRACT_DEFS.filter((d) => d.corp === corp).map((def) => {
-      const active = ac?.id === def.id;
-      return {
-        def,
-        progress: active ? ac!.progress : 0,
-        active,
-        blocked: active ? REASON.active : contractBlockReason(def, level, activeCount, this.inShip),
-      };
-    });
-  }
+  getContracts(corp: CorpId): ContractInfo[] { return Contract.getContracts(this, corp); }
 
   get activeContract(): ContractInfo | null {
     const def = this.activeDef();
@@ -823,149 +349,24 @@ export class MetaSystem implements GameSystem, MetaRef {
     return { def, progress: ac.progress, active: true, blocked: REASON.active };
   }
 
-  acceptContract(id: string): boolean {
-    const def = CONTRACT_DEFS.find((d) => d.id === id);
-    if (!def) return false;
-    if (contractBlockReason(def, this.level(def.corp), this.store.data.activeContract ? 1 : 0, this.inShip)) return false;
-    this.store.data.activeContract = { id: def.id, progress: 0 };
-    this.progressAtStart = 0;
-    this.store.markDirty();
-    this.ctx.bus.emit('meta:contractAccepted', { id: def.id, corp: def.corp });
-    this.broadcastContract();
-    return true;
-  }
+  acceptContract(id: string): boolean { return Contract.acceptContract(this, id); }
 
-  abandonContract(): boolean {
-    const def = this.activeDef();
-    if (!def) return false;
-    this.store.data.activeContract = null;
-    this.progressAtStart = 0;
-    this.store.markDirty();
-    this.ctx.bus.emit('meta:contractAbandoned', { id: def.id, corp: def.corp });
-    this.broadcastContract();
-    return true;
-  }
+  abandonContract(): boolean { return Contract.abandonContract(this); }
 
-  reportContractHit(goal: ContractGoalKind, amount: number, local: boolean): void {
-    const def = this.activeDef();
-    const ac = this.store.data.activeContract;
-    if (!def || !ac || def.goal !== goal || !Number.isFinite(amount)) return;
-    const delta = contractHitDelta(amount, local);
-    if (delta <= 0) return;
-    const before = ac.progress;
-    ac.progress = Math.min(MAX_PROGRESS, before + delta);
-    this.store.markDirty();
-    this.ctx.bus.emit('meta:contractProgress', { id: def.id, corp: def.corp, goal, progress: ac.progress, target: def.target, delta: ac.progress - before });
-    if (local && this.ctx.isMultiplayer && this.ctx.net && typeof this.ctx.net.send === 'function') {
-      // a receiver drops anything above META_HIT_MAX (a real hit is 1) — send the capped figure and remember it for `metaq sync`
-      const sent = Math.min(META_HIT_MAX, Math.max(0, amount));
-      if (sent >= 1) {
-        this.sentHits.set(goal, (this.sentHits.get(goal) ?? 0) + sent);
-        this.ctx.net.send({ t: 'meta', ev: 'contractHit', corp: def.corp, goal, amount: sent }, 'others');
-      }
-    }
-    // the squad's HUD rows follow our own progress (deduped on `{id}|{floor(progress)}`)
-    if (local) this.broadcastContract();
-  }
+  reportContractHit(goal: ContractGoalKind, amount: number, local: boolean): void { return Contract.reportContractHit(this, goal, amount, local); }
 
-  settleMission(stats: MissionStats): ContractSettlement | null {
-    if (!stats || stats.mode === 'training') return null;   // the 시뮬레이션 훈련장 settles nothing
-    const def = this.activeDef();
-    const ac = this.store.data.activeContract;
-    if (!def || !ac) return null;
-    const { settlement, keepProgress } = settleContract(def, ac.progress, this.progressAtStart, stats);
-    if (settlement.success) {
-      this.store.data.activeContract = null;
-      this.store.data.stats.contractsDone += 1;
-      if (settlement.rep > 0) this.addRep(def.corp, settlement.rep, `contract:${def.id}`);
-      if (settlement.credits > 0) {
-        this.addCredits(settlement.credits, `contract:${def.id}`);
-        this.store.data.stats.creditsEarned += settlement.credits;
-      }
-    } else {
-      ac.progress = keepProgress ?? 0;
-    }
-    this.progressAtStart = this.store.data.activeContract?.progress ?? 0;
-    this.store.markDirty();
-    this.ctx.bus.emit('meta:contractSettled', settlement);
-    return settlement;
-  }
+  settleMission(stats: MissionStats): ContractSettlement | null { return Contract.settleMission(this, stats); }
 
   /* ── MetaRef: quests ────────────────────────────────────────────────────── */
-  getQuestState(id: string): QuestState {
-    const def = QUEST_DEFS.find((d) => d.id === id);
-    if (!def) return 'locked';
-    return questStateOf(def, this.store.corp(def.corp).quests[id], this.level(def.corp), (q) => this.getQuestState(q));
-  }
+  getQuestState(id: string): QuestState { return Contract.getQuestState(this, id); }
 
-  private questInfo(def: typeof QUEST_DEFS[number]): QuestInfo {
-    const state = this.getQuestState(def.id);
-    const deliver = def.deliver.map((d) => ({ defId: d.defId, qty: d.qty, have: this.countAll(d.defId) }));
-    const blocked = questBlockReason(state, deliver, this.inShip) ?? this.questBlocked.get(def.id) ?? null;
-    return { def, state, deliver, blocked };
-  }
+  questInfo(def: typeof QUEST_DEFS[number]): QuestInfo { return Contract.questInfo(this, def); }
 
-  getQuests(corp: CorpId): QuestInfo[] {
-    return QUEST_DEFS.filter((d) => d.corp === corp).map((d) => this.questInfo(d));
-  }
+  getQuests(corp: CorpId): QuestInfo[] { return Contract.getQuests(this, corp); }
 
-  acceptQuest(id: string): boolean {
-    const def = QUEST_DEFS.find((d) => d.id === id);
-    if (!def || !this.inShip) return false;
-    if (this.getQuestState(id) !== 'available') return false;
-    this.store.corp(def.corp).quests[id] = 'accepted';
-    this.store.markDirty();
-    this.ctx.bus.emit('meta:questChanged', { id, corp: def.corp, state: 'accepted' });
-    return true;
-  }
+  acceptQuest(id: string): boolean { return Contract.acceptQuest(this, id); }
 
-  completeQuest(id: string): boolean {
-    const def = QUEST_DEFS.find((d) => d.id === id);
-    if (!def || !this.inShip) return false;
-    if (this.getQuestState(id) !== 'accepted') return false;
-    const inv = this.ctx.inventory;
-    const loot = this.ctx.loot;
-    if (!inv || !loot) return false;
-    for (const d of def.deliver) if (this.countAll(d.defId) < d.qty) { this.questBlocked.set(id, REASON.missing); return false; }
-
-    // rewards first: nothing is consumed unless every reward item found a home (bag, else stash)
-    const placed: ItemInstance[] = [];
-    for (const r of def.rewards.items ?? []) {
-      const remaining = Math.max(1, Math.floor(r.qty));
-      const rdef = loot.getItemDef(r.defId);
-      if (!rdef) continue;   // unknown reward id: skip rather than block the chain
-      const per = Math.max(1, rdef.stackMax);
-      let left = remaining;
-      while (left > 0) {
-        const n = Math.min(per, left);
-        const item = loot.createItem(r.defId, n);
-        if (!this.addAnywhere(item)) {
-          for (const p of placed) this.takeBack(p.uid);
-          this.questBlocked.set(id, REASON.space);
-          return false;
-        }
-        placed.push(item);
-        left -= n;
-      }
-    }
-    for (const d of def.deliver) {
-      const ok = typeof inv.consumeDefAll === 'function' ? inv.consumeDefAll(d.defId, d.qty) : inv.consumeWhere((x) => x.id === d.defId, d.qty) >= d.qty;
-      if (!ok) console.warn(`[meta] quest ${id}: delivery of ${d.defId} ×${d.qty} could not be consumed fully`);
-    }
-    this.questBlocked.delete(id);
-    this.store.corp(def.corp).quests[id] = 'complete';
-    this.store.data.stats.questsDone += 1;
-    if (def.rewards.credits) {
-      this.addCredits(def.rewards.credits, `quest:${id}`);
-      this.store.data.stats.creditsEarned += def.rewards.credits;
-    }
-    if (def.rewards.rep) this.addRep(def.corp, def.rewards.rep, `quest:${id}`);
-    const prog = this.ctx.progression;
-    if (def.rewards.xp > 0 && prog && typeof prog.addXp === 'function') { try { prog.addXp(def.rewards.xp); } catch { /* progression not ready */ } }
-    this.store.markDirty();
-    this.ctx.bus.emit('meta:questChanged', { id, corp: def.corp, state: 'complete' });
-    return true;
-  }
+  completeQuest(id: string): boolean { return Contract.completeQuest(this, id); }
 
   /* ── MetaRef: corp screen ───────────────────────────────────────────────── */
   /**
@@ -1036,7 +437,7 @@ export class MetaSystem implements GameSystem, MetaRef {
   get lifetime(): Readonly<MetaStorage['data']['stats']> { return this.store.data.stats; }
 
   /* ── console commands ───────────────────────────────────────────────────── */
-  private resolveCorp(raw: string | undefined): CorpId | null {
+  resolveCorp(raw: string | undefined): CorpId | null {
     if (!raw) return null;
     const s = raw.trim();
     const lower = s.toLowerCase();
@@ -1045,134 +446,5 @@ export class MetaSystem implements GameSystem, MetaRef {
     return null;
   }
 
-  private registerConsole(): void {
-    const con = this.ctx.console;
-    if (!con) return;
-    const num = (raw: string | undefined): number => {
-      if (raw === undefined) return NaN;
-      const s = raw.trim().replace(/^\+/, '');
-      return /^-?\d+(\.\d+)?$/.test(s) ? Number(s) : NaN;
-    };
-    const corpNames = (): string[] => [...CORP_IDS, ...CORP_IDS.map((c) => CORP_DEFS[c].name)];
-    const cmds: ConsoleCommand[] = [
-      {
-        name: 'credits', usage: 'credits <±n>', description: '크레딧을 더하거나 뺍니다',
-        run: (args) => {
-          const n = num(args[0]);
-          if (Number.isNaN(n)) return { error: '사용법: /credits <±n>' };
-          if (!this.addCredits(n, 'console')) return { error: `크레딧 부족 (보유 ${formatCredits(this.credits)})` };
-          return `크레딧 ${formatCredits(this.credits)}`;
-        },
-      },
-      {
-        name: 'rep', usage: 'rep <helix|bastion|nomad|ceres|한국어> <±n>', description: '기업 신뢰도를 더하거나 뺍니다',
-        run: (args) => {
-          if (args.length < 2) return { error: '사용법: /rep <기업> <±n>' };
-          const corp = this.resolveCorp(args.slice(0, -1).join(' '));
-          const n = num(args[args.length - 1]);
-          if (!corp) return { error: `알 수 없는 기업: ${args.slice(0, -1).join(' ')} (${CORP_IDS.join('/')})` };
-          if (Number.isNaN(n)) return { error: '신뢰도가 숫자가 아닙니다' };
-          this.addRep(corp, n, 'console');
-          const r = this.getRep(corp);
-          return `${CORP_DEFS[corp].name} 신뢰도 ${r.rep} (Lv.${r.level}${r.next !== null ? ` · 다음 ${r.next}` : ''})`;
-        },
-        complete: (args) => (args.length > 1 ? [] : corpNames().filter((n) => n.toLowerCase().startsWith((args[0] ?? '').toLowerCase()))),
-      },
-      {
-        name: 'contract', usage: 'contract list|accept <id>|abandon|hit <goal> <n>', description: '계약 목록 / 수락 / 포기 / 진척 치트',
-        run: (args, _ctx, print) => {
-          const sub = (args[0] ?? 'list').toLowerCase();
-          if (sub === 'list') {
-            const ac = this.store.data.activeContract;
-            for (const d of CONTRACT_DEFS) {
-              const active = ac?.id === d.id;
-              print(`${active ? '▶ ' : '  '}${d.id}  ${CORP_DEFS[d.corp].name} · ${d.name} · ${CONTRACT_GOAL_LABEL_KO[d.goal]} ${active ? `${ac!.progress}/` : ''}${d.target} · 신뢰도 Lv.${d.minRepLevel}`, active ? 'success' : 'info');
-            }
-            return ac ? `진행 중: ${ac.id}` : '진행 중인 계약 없음';
-          }
-          if (sub === 'accept') {
-            const id = args[1];
-            if (!id) return { error: '사용법: /contract accept <id>' };
-            const def = CONTRACT_DEFS.find((d) => d.id === id);
-            if (!def) return { error: `알 수 없는 계약: ${id}` };
-            if (!this.acceptContract(id)) return { error: `수락 실패: ${contractBlockReason(def, this.level(def.corp), this.store.data.activeContract ? 1 : 0, this.inShip) ?? '알 수 없음'}` };
-            return `계약 수락: ${def.name}`;
-          }
-          if (sub === 'abandon') return this.abandonContract() ? '계약 포기' : { error: '진행 중인 계약 없음' };
-          if (sub === 'hit') {
-            const goal = args[1] as ContractGoalKind | undefined;
-            const n = num(args[2] ?? '1');
-            if (!goal || !GOAL_IDS.includes(goal)) return { error: `사용법: /contract hit <${GOAL_IDS.join('|')}> <n>` };
-            if (Number.isNaN(n)) return { error: '수량이 숫자가 아닙니다' };
-            const before = this.store.data.activeContract?.progress ?? 0;
-            this.reportContractHit(goal, n, true);
-            const ac = this.activeContract;
-            if (!ac) return { error: '진행 중인 계약 없음' };
-            if (ac.progress === before) return { error: `목표 불일치 (${CONTRACT_GOAL_LABEL_KO[ac.def.goal]})` };
-            return `${ac.def.name} ${ac.progress} / ${ac.def.target}`;
-          }
-          return { error: '사용법: /contract list|accept <id>|abandon|hit <goal> <n>' };
-        },
-        complete: (args) => {
-          if (args.length <= 1) return ['list', 'accept', 'abandon', 'hit'].filter((s) => s.startsWith((args[0] ?? '').toLowerCase()));
-          if (args[0] === 'accept' && args.length === 2) return CONTRACT_DEFS.map((d) => d.id).filter((s) => s.startsWith(args[1] ?? ''));
-          if (args[0] === 'hit' && args.length === 2) return GOAL_IDS.filter((s) => s.startsWith(args[1] ?? ''));
-          return [];
-        },
-      },
-      {
-        name: 'implant', usage: 'implant list|repair <uid|first>', description: '망가진 임플란트 목록 / 세레스 수리 (재료 · 크레딧은 그대로 요구)',
-        run: (args, _ctx, print) => {
-          const sub = (args[0] ?? 'list').toLowerCase();
-          const list = this.getRepairableImplants();
-          if (sub === 'list') {
-            for (const r of list) print(`  ${r.inst.uid}  ${r.broken.name} → ${r.target?.name ?? '?'} · ${formatCredits(r.fee)} · ${r.cost.map((c) => `${c.defId} ${c.have}/${c.qty}`).join(', ')}${r.blocked ? ` · ${r.blocked}` : ''}`, r.blocked ? 'info' : 'success');
-            return `${list.length}개`;
-          }
-          if (sub === 'repair') {
-            const key = args[1];
-            const r = !key || key === 'first' ? list[0] : list.find((x) => x.inst.uid === key);
-            if (!r) return { error: key && key !== 'first' ? `망가진 임플란트가 아닙니다: ${key}` : '망가진 임플란트 없음' };
-            if (r.blocked) return { error: `수리 불가: ${r.blocked}` };
-            return this.repairImplant(r.inst.uid) ? `수리: ${r.broken.name} → ${r.target?.name ?? '?'} (−${formatCredits(r.fee)})` : { error: '수리 실패' };
-          }
-          return { error: '사용법: /implant list|repair <uid|first>' };
-        },
-        complete: (args) => {
-          if (args.length <= 1) return ['list', 'repair'].filter((s) => s.startsWith((args[0] ?? '').toLowerCase()));
-          if (args[0] === 'repair' && args.length === 2) return ['first', ...this.getRepairableImplants().map((r) => r.inst.uid)].filter((s) => s.startsWith(args[1] ?? ''));
-          return [];
-        },
-      },
-      {
-        name: 'quest', usage: 'quest list|accept <id>|complete <id>', description: '퀘스트 목록 / 수락 / 납품',
-        run: (args, _ctx, print) => {
-          const sub = (args[0] ?? 'list').toLowerCase();
-          if (sub === 'list') {
-            for (const d of QUEST_DEFS) {
-              const st = this.getQuestState(d.id);
-              print(`  ${d.id}  ${CORP_DEFS[d.corp].name} · ${d.name} · ${st} · ${d.deliver.map((x) => `${x.defId}×${x.qty}`).join(', ')}`, st === 'complete' ? 'success' : 'info');
-            }
-            return `${QUEST_DEFS.length}개`;
-          }
-          const id = args[1];
-          if (!id) return { error: `사용법: /quest ${sub} <id>` };
-          const def = QUEST_DEFS.find((d) => d.id === id);
-          if (!def) return { error: `알 수 없는 퀘스트: ${id}` };
-          if (sub === 'accept') return this.acceptQuest(id) ? `퀘스트 수락: ${def.name}` : { error: `수락 실패 (${this.getQuestState(id)})` };
-          if (sub === 'complete') {
-            if (this.completeQuest(id)) return `퀘스트 완료: ${def.name}`;
-            return { error: `납품 실패: ${this.questInfo(def).blocked ?? '알 수 없음'}` };
-          }
-          return { error: '사용법: /quest list|accept <id>|complete <id>' };
-        },
-        complete: (args) => {
-          if (args.length <= 1) return ['list', 'accept', 'complete'].filter((s) => s.startsWith((args[0] ?? '').toLowerCase()));
-          if (args.length === 2) return QUEST_DEFS.map((d) => d.id).filter((s) => s.startsWith(args[1] ?? ''));
-          return [];
-        },
-      },
-    ];
-    for (const c of cmds) this.unsubs.push(con.register(c));
-  }
+  private registerConsole(): void { return Cmd.registerConsole(this); }
 }

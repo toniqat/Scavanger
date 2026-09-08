@@ -12,6 +12,12 @@ size (no more per-tab resizing) and every item requirement is a `buildItemChip` 
 | File | Purpose |
 |---|---|
 | `MetaSystem.ts` | `GameSystem` (`name: 'meta'`) + `MetaRef`. Bus subscriptions for contract goals, `meta` net message (squad share), `settleMission`, shop buy / sell, quests, corp-screen open / close, console commands, save on `hub:entered` and after every change. Phase 7: server credits (`addCredits` = optimistic local apply + `credits:tx`, `serverTx` adopts / reverts), `buy` = `canFit` → debit → item (async completion → `meta:purchase`, failure → `lastPurchaseFailure` / `onPurchaseFailed`), `net:profileLoaded` (replace / migrate), training gating. Phase 8: `createCorpView(host)` (embedded 기업 tab, tracked in a `views` set whose message timers tick with `update()`), `onPurchaseFailure(fn)` fan-out, public `countAll(defId)`. **Phase 12** (2026-09-08): the 임플란트 수리 desk API — `getRepairableImplants()` / `getImplantRepair(uid)` (`ImplantRepairInfo`: inst · broken · target · cost with `have` · fee · `blocked`), `repairImplant(uid)` (fee through the purchase path: local debit offline, optimistic debit + `credits:tx` then the swap only on `ok`; `performRepair` re-validates, takes the broken implant, `consumeDefAll` each material, `createItem(repairsTo)` → `tryAddToStash` then anywhere, full undo + refund on any failure), `onImplantRepaired(fn)` / `isRepairPending(uid)`, `ui:notify` `임플란트 수리 완료 — <name>`, console `implant list|repair <uid|first>`. `priceOf` / `getShop` hand `implantRepairMaterialIds` to the shop rules. Folder-internal — `MetaRef` is frozen for the batch. |
+| `model.ts` | 폴더 공용 어휘 — `MetaSystem` 에서 떼어낸 상수 · 타입 · 스크래치. 클래스를 참조하지 않으므로 `parts/*` 가 순환 import 없이 쓴다. `MetaSystem.ts` 가 재수출하므로 기존 import 경로는 그대로다 |
+| `parts/Trade.ts` | **기업 상점: 구매 · 판매 · 가격**. 신뢰도가 무엇을 팔지 정하고(`getShop`), 크레딧은 릴레이가 있으면 **서버 트랜잭션**이다: 낙관적으로 차감 → `credits:tx` → `ok` 에서 아이템 지급, 실패하면 전액 되돌림. 오프라인이면 같은 검사를 로컬에서 미리 하고 끝낸다. |
+| `parts/Contracts.ts` | **계약 · 퀘스트**. 계약은 하나만 활성이고 목표 카운터가 버스 이벤트(`enemy:killed` / `crate:open` / …)에서 오른다. 분대원의 진척은 `meta contractHit` 로 공유되고, 레이드가 끝나면 `settleMission` 이 `outcome` 에 따라 정산한다. 퀘스트는 가방 + 창고에서 납품받는 사슬이다. **훈련장에서는 아무것도 세지 않는다.** |
+| `parts/Credits.ts` | **크레딧 · 신뢰도 · 서버 프로필**. 크레딧 잔액의 유일한 소유자. 릴레이가 있으면 서버가 진실이고(`serverTx`), 없으면 localStorage 다. `net:profileLoaded` 에서 서버 값을 받아들이는 규칙(`adoptServerCredits`)도 여기 있다. |
+| `parts/ImplantDesk.ts` | **세레스 바이오 임플란트 수리 데스크** (Phase 12). 레이드에서는 **망가진 임플란트만** 나온다. 여기서 재료 + 수수료를 내고 고치면 쓸 수 있는 물건이 된다. 크레딧 경로는 구매와 완전히 같고(서버 트랜잭션 / 오프라인 분기), 실패하면 재료까지 전액 되돌린다. |
+| `parts/Console.ts` | 개발자 콘솔 명령 `credits` / `rep` / `contract` / `quest` / `implant`. dev 클라이언트에서만 등록된다(`src/console` 참고). 게임 규칙은 하나도 갖지 않고 위의 API 만 부른다. |
 | `Storage.ts` | `MetaSave` v1: `freshMetaSave()`, `sanitizeMetaSave()` (clamped credits, known corp / quest / contract ids only, only `accepted` / `complete` quest states kept), `MetaStorage` (load, 350 ms debounced `markDirty()`, `flush()` on `pagehide` / hub entry / dispose, every storage access in try/catch). Phase 7: `flush()` = `writeCache()` (localStorage) + `upload()` (`ctx.net.profile.set('meta', snapshot())`); `replace(doc)` adopts a server document without echoing it back. **Phase 9**: `upload()` dropped its `available` guard — the document is handed to `ProfileSync` offline too (stamped + queued, newest wins on the next connection) — and `MAX_PROGRESS` is exported so live hits clamp to the same ceiling as a load. |
 | `Rules.ts` | Pure functions, no ctx / DOM: `repInfoOf`, shop filter (`ruleMatches` / `corpSells` / `shopRarityCap` / `buildShop` sorted by category → rarity → price, `fits` → 공간 없음), `killGoalOf`, `contractBlockReason`, `contractHitDelta` (Phase 9: a non-finite `amount` is 0, not `NaN`), `settleContract` (fills `outcome`), `questStateOf`, `questBlockReason`, the 한국어 `REASON` strings. `rarityRank` / `RARITY_ORDER` come from `@/shared` (`labels.ts`) since Phase 7. **Phase 12**: `ruleMatches` honours `ShopRule.maxRarity`, never sells a broken implant, and resolves an `implantRepairMaterials` rule against `implantRepairMaterialIds(defs)`; `CATEGORY_SORT` gained `implant / seed / book`; pure repair rules `IMPLANT_REPAIR_FEE` (150 × grade, grade = rarity rank + 1 of the **repaired** def), `implantGrade` / `implantRepairFee` / `isRepairableImplantDef` / `implantRepairCost` / `canRepairImplant(ImplantRepairCheck)` (reason order 아이템 → 함선 → 크레딧 → 재료 → 공간), `REASON.notBroken / noTarget / materials`. |
 | `ui/CorpView.ts` | **(Phase 8)** The screen **body**, shared by both shells: header 기업 네트워크 + credit readout, 4 corp tabs (`CorpDef.color` accent, `Lv.n`), banner (slogan, description, rep bar `rep / next`), sub-tabs 상점 / 판매 / 계약 / 퀘스트, rows with 구매 / 판매 / 수락 / 포기 / 납품 buttons (disabled + tooltip from `blocked`), `귀중품 전부 판매`, `.form-msg` in a reserved slot. Renders into whatever host it is given and marks it `.corp-view` (`.is-embedded` for the inventory tab). Item thumbnails / 납품 requirements use `buildItemChip` / `renderItemCost` (`@/shared/itemChip`). Purchase messages come from `meta:purchase` (`구매 처리 중…` while a server transaction is pending) and refusals from `MetaSystem.onPurchaseFailure(fn)`. **No blocker, no pointer-lock, no window listener** — those belong to the shell. **Phase 12**: a fourth vertical page **임플란트** (`CorpPage 'implants'`, `PAGES[].corp = 'ceres'` → `pagesFor(corp)`; the button is `hidden` for every other corp and `setCorp` falls back to 거래): left `.ci-list` grid of broken implants (`.ct-cell.broken[data-uid]`, fee badge, `.is-sel`), right `.ci-repair` card — broken → result chips, `renderItemCost` material chips, `.ci-fee`, `.ci-block` reason + `.ci-repair-btn` 수리; results arrive through `meta.onImplantRepaired`. |
@@ -241,3 +247,41 @@ Implants are **items** (`ItemDef.implant`, category `'implant'`, owner items/ �
   not per frame.
 - The desk shows only broken implants in the **bag + stash**; an equipped implant lives in progression and cannot be
   broken anyway. There is no bulk 모두 수리.
+
+
+## 파일 분할 규약 (`model.ts` + `parts/`, 2026-09-08)
+
+`MetaSystem.ts` 는 한 파일에 다 있기에는 너무 커져서 **동작을 바꾸지 않고** 갈랐다. 규칙은 세 줄이다.
+
+1. **`model.ts`** — 폴더 공용 어휘(타입 · 상수 · 스크래치 객체, 상태 없는 보조 클래스).
+   `MetaSystem.ts` 이 `export * from './model'` 로 재수출하므로 **기존 import 경로는 전부 그대로 동작한다.**
+2. **`parts/*.ts`** — 클래스에서 떼어낸 메서드 묶음. 각 함수는 인스턴스를 첫 인자 `sys` 로 받는다:
+   ```ts
+   export function foo(sys: MetaSystem, …) { … }   // 예전의 this → sys
+   ```
+   클래스에는 같은 이름의 **한 줄 위임 메서드**가 남아 있으므로 호출부는 하나도 바뀌지 않았다.
+3. `parts/` 가 닿는 클래스 멤버는 `private` 이 벗겨져 있다. **폴더 밖에서 쓰라는 뜻이 아니다** —
+   외부와의 계약은 `@/shared` 의 `*Ref` 인터페이스가 전부다.
+
+새 `parts/` 파일은 맨 위 doc 주석에 **그 파일이 답하는 질문 한 줄**을 적고 위 표에 행을 추가한다.
+순환 import 를 만들지 않으려면 `parts/` 는 `MetaSystem.ts` 에서 **타입만** 가져와야 한다 — 값은 `model.ts` 로.
+
+---
+
+## 변경 이력
+
+프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **Phase 7** — labels from `@/shared`, purchase = `inventory.canFit` (`공간 없음` before the click) + server credits transaction when `ctx.net.profile.available` (optimistic debit → `addCredits` → item placed on `ok`, refund on failure, completion via `meta:purchase`; offline = local pre-checked path), every `addCredits` mirrored to the server balance, `meta` document + credits migration on `net:profileLoaded`, `ContractSettlement.outcome`, nothing settles / counts in a training
+
+- **Phase 8** — `createCorpView(host)` for the 기업 tab and a **fixed-height** `.corp-page` (the frame no longer resizes per tab), shop / sale / quest deliveries as item chips
+
+- **Phase 9** — a rejoining client asks the squad for the contract hits it missed (`metaq sync` → each peer answers once per requester per mission with `meta sync {corp, hits}`) and every relayed hit is validated (goal / corp whitelists, finite `1..META_HIT_MAX`, progress clamped)
+
+- **Phase 9 UI/UX 개선** — **분대 계약 동기화** (`meta contract` 브로드캐스트 → `getSquadContracts()` + `meta:squadContract`, 임무 단위로 초기화), 기업 화면에서 제목 · 부제를 없애고 **기업 목록을 좌측 상단**으로, 패널 폭 1760 px, 거래 재고 · 구매/판매 칸을 **아이템 그리드**(`.ct-cell` + `buildItemChip` → 공용 호버 툴팁)로, 가방/창고 열은 전체 높이. **Phase 9 UI pass**: `CorpView` 재작성 — 좌측 상단 **기업 패널**(이름 + 신뢰도, 모토 · 설명 제거), 상점 + 판매를 하나의 **거래** 탭으로 통합(좌 재고 · 중앙 구매/판매 거래칸 + 크레딧 차액 + **거래 성사** 일괄 정산 · 우 실제 가방/함선 창고 격자), 계약은 목록 + 진행 중 계약, 퀘스트는 목록 + 납품 테이블 + 격자; 즉시 구매/판매 버튼은 사라지고 footer 는 **귀중품 전부 담기**
+
+- **Phase 10** — every credit readout goes through `formatCredits` / `formatCreditAmount` from shared (`100 C`; the `cr` suffix and the currency prefix are gone, 크레딧 stays a word in sentences), and `ui/CorpMenu` migrated to cursor mode. `buyPriceOf` / `sellPriceOf` / `ItemDef.value` are unchanged — display only
+
+- **2026-09-07 UI/UX pass** — **`ui/CorpMenu.ts` 삭제** — 기업 화면은 Tab 창의 기업 탭 하나뿐이고 `openCorpMenu` 는 `ctx.inventory.openScreen('corp')`, `isMenuOpen` 은 창이 그 탭인지, `closeCorpMenu` 는 창을 닫는다 (`'corp'` blocker · 전용 Esc · 커서 소유 모두 사라졌다). 화면은 **좌 `.corp-rail`(세로 기업 목록 + 크레딧) · 우 `.corp-main`**(좌열 = 기업 패널 위 · 거래/계약/퀘스트 세로 탭 아래)이 되고 푸터는 없앴다. 거래는 전부 **아이템 그리드**다 — 구매/판매 트레이가 위아래로 쌓여 각각 가로 5칸, 기업 재고 · 가방 · 함선 창고가 같은 칸 크기(`--ct-cell` 40 px = `createTradeGrids({cell})`), 칸은 발자국만큼 span 하고 이름은 공용 호버 카드가 맡으며, 거래 불가 재고도 그리드 형태로 `신뢰도 Lv.1 부터 거래 가능` 을 가운데 띄운다. **귀중품 전부 담기**는 판매 트레이 하단으로
+
+- **Phase 12 (2026-09-08)** — 세레스 바이오 임플란트 — 상점 규칙 `{implant, maxRarity uncommon}` + `{material, implantRepairMaterials}`(append-only `ShopRule` 필드), 퀘스트 사슬 `ci1→ci3`(보상 `imp_perception_3` / `imp_intelligence_3` / `imp_perk_quick_heal`), 기업 탭 4번째 세로 페이지 **임플란트** = 수리 데스크(`Rules.canRepairImplant`, 수수료 `IMPLANT_REPAIR_FEE` 150 × 등급, `getRepairableImplants` / `getImplantRepair` / `repairImplant` 가 구매와 같은 크레딧 경로를 쓰고 창고 우선 배치, 실패 시 전액 되돌림), 콘솔 `implant`

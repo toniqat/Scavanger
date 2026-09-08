@@ -8,6 +8,11 @@ Import via `@/game` → `GameFlowSystem`.
 | File | Purpose |
 |---|---|
 | `GameFlowSystem.ts` | `GameSystem` (`name: 'gameflow'`). Phases: `menu → deploying → playing → extracting → shipLanded → liftoff → complete` or `dead`. The ship hub phases `hub` / `docking` are owned by `hub/HubSystem` (see below). |
+| `model.ts` | 폴더 공용 어휘 — `GameFlowSystem` 에서 떼어낸 상수 · 타입 · 스크래치. 클래스를 참조하지 않으므로 `parts/*` 가 순환 import 없이 쓴다. `GameFlowSystem.ts` 가 재수출하므로 기존 import 경로는 그대로다 |
+| `parts/Death.ts` | **사망 · 부활 · 분대 전멸**. 죽으면 30초 뒤 부활할 수 있지만, **분대 전원이 나가떨어지면 레이드가 실패**한다 (솔로는 죽는 즉시). 끊긴 대원의 고스트도 살아 있는 것으로 세므로 판정이 단순하지 않다. |
+| `parts/Session.ts` | **레이드 세션 저장과 복귀**. 솔로 레이드는 localStorage 에 5분짜리 스냅샷을 남기고(`SoloRaid.ts`), 멀티는 릴레이의 레이드 저장소를 쓴다. 복귀는 `world:ready` 뒤에 인벤토리 · 스탯 · 시계를 되돌리고, 호스트가 보관하던 몸이 있으면 그 자리에서 일어난다(없으면 헬포드로 떨어진다). |
+| `parts/Phases.ts` | **페이즈 전환과 일시정지**. menu → hub → deploying → playing → extracting → complete / dead → hub. 일시정지는 **월드를 멈추지 않고**(2026-09-07) 창 포커스를 잃었을 때만 뜬다. 일시정지 메뉴는 항상 단 하나의 화면이라 다른 창이 열려 있으면 즉시 양보한다(Phase 12 — 겹쳐서 둘 다 못 끄던 상태의 수정). |
+| `parts/Wire.ts` | **`flow` 메시지**와 호스트 이관 · 로비 이탈의 흐름 처리. |
 | `ResumeGate.ts` | **Phase 12**: the browser-only `좌측 클릭으로 게임 재개` overlay (`ResumeGate`), the desktop-shell cursor rule (`syncDesktopCursor`) and the shell's Escape re-lock hook (`installDesktopRelockHook` → `window.__scavShellRelock`). Owns `resume-gate.css`. |
 | `resume-gate.css` | The gate's own styles + `body.desktop-nocursor` (the Electron cursor-hiding class). Imported from `ResumeGate.ts`. |
 | `SoloRaid.ts` | 솔로 레이드 세션 저장 (2026-09-07): localStorage `scav.soloraid` (`SOLO_RAID_STORAGE_KEY`), `SoloRaidSave` / `SoloRaidPose`, `loadSoloRaid` / `saveSoloRaid` / `clearSoloRaid` / `soloRaidStatus`, `SOLO_RAID_GRACE_MS` (5 min). Pure storage — no context, no listeners. |
@@ -195,3 +200,49 @@ event) — without the `leaveLobby()` first, `onAbort` would regroup us in the s
   여기 있는 `window.__scavShellRelock` 이 두 프레임 뒤(닫힌 화면이 커서 모드를 놓을 시간) 커서 소유자가 없을 때만
   락을 다시 요청할 수 있다. 키 자체는 건드리지 않는다(합성 전달을 넣었다가 페이지가 Escape 를 두 번 받는 것을
   측정하고 걷어냈다 — `electron/README.md` 의 실측 절).
+
+
+## 파일 분할 규약 (`model.ts` + `parts/`, 2026-09-08)
+
+`GameFlowSystem.ts` 는 한 파일에 다 있기에는 너무 커져서 **동작을 바꾸지 않고** 갈랐다. 규칙은 세 줄이다.
+
+1. **`model.ts`** — 폴더 공용 어휘(타입 · 상수 · 스크래치 객체, 상태 없는 보조 클래스).
+   `GameFlowSystem.ts` 이 `export * from './model'` 로 재수출하므로 **기존 import 경로는 전부 그대로 동작한다.**
+2. **`parts/*.ts`** — 클래스에서 떼어낸 메서드 묶음. 각 함수는 인스턴스를 첫 인자 `sys` 로 받는다:
+   ```ts
+   export function foo(sys: GameFlowSystem, …) { … }   // 예전의 this → sys
+   ```
+   클래스에는 같은 이름의 **한 줄 위임 메서드**가 남아 있으므로 호출부는 하나도 바뀌지 않았다.
+3. `parts/` 가 닿는 클래스 멤버는 `private` 이 벗겨져 있다. **폴더 밖에서 쓰라는 뜻이 아니다** —
+   외부와의 계약은 `@/shared` 의 `*Ref` 인터페이스가 전부다.
+
+새 `parts/` 파일은 맨 위 doc 주석에 **그 파일이 답하는 질문 한 줄**을 적고 위 표에 행을 추가한다.
+순환 import 를 만들지 않으려면 `parts/` 는 `GameFlowSystem.ts` 에서 **타입만** 가져와야 한다 — 값은 `model.ts` 로.
+
+---
+
+## 변경 이력
+
+프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **tactical kit** — mission-end XP (`awardMissionXp` → `ctx.progression.addXp`, raids / extractions counters), downed players never count as dead for the wipe check
+
+- **Phase 7** — **squad wipe = 레이드 실패** (`MISSION_FAILS_WHEN_ALL_DEAD` true; ghost-aware rule; solo death fails at once; `game:raidFailed` + `game:over`, auto `hub:enter` after `RAID_FAILED_AUTO_RETURN_S`; 30 s respawn kept until the wipe), raid session `saveRaid` every `RAID_SAVE_INTERVAL_S` + on loot, rejoin restore (`net:raidLoaded` blob → inventory / stats / time after `world:ready`, `net:ghostRestore` → `player.restoreState`, hellpod fallback after `NET_GHOST_RESTORE_TIMEOUT_S`), training flow (`ctx.missionMode`, loadout snapshot restored on `training:exitRequested`, no XP / settlement / threat, death = instant respawn), a promoted host takes over `flow` messages
+
+- **Phase 8** — the **ship pauses on Esc** as well (`freeze` stays false there, no `game:abort` / stats side effects), skipped while housing / 함선 관리 owns the key
+
+- **Phase 9** — the wipe check reads `RemotePlayerRef.ghostState` instead of its own `net:ghostState` map
+
+- **Phase 9 UI/UX 개선** — `net:resumed` 는 훈련장을 `분대가 다른 임무` 로 보고하지 않는다
+
+- **Phase 11** — `game:newMission.planet` 으로 `ctx.missionPlanet` 을 확정한다(훈련장은 null, 필드 없는 emit 은 마지막 목적지 유지 — 같은 시드 재배치가 행성을 몰래 바꾸지 않게)
+
+- **2026-09-07 (안정화)** — 일시정지가 **더는 월드를 멈추지 않는다**(`freeze` 는 항상 false — 싱글 레이드 포함), `checkLockLost` 워치독이 포인터 락이 `LOCK_LOST_GRACE_S` 넘게 없으면 **블로커와 무관하게** ESC 화면을 띄우고(락을 한 번이라도 잡은 세션에서만 — **2026-09-07 커서 rework 로 삭제**), 새 `SoloRaid.ts` 가 솔로 레이드를 localStorage `scav.soloraid` 에 저장해 5분 안에 다시 열면 이어서 진행(그 뒤면 레이드 실패)
+
+- **2026-09-07 (커서 편의성)** — `relock()` 의 조건이 `uiBlockers.size > 0` → **`uiBlockers.has('menu')`** (Phase 10 이후 락을 놓는 화면은 일시정지 메뉴뿐인데, 예전 조건 때문에 인벤토리 · 터미널 위에 뜬 메뉴를 닫으면 재잠금이 통째로 생략됐다), 워치독은 `ctx.input.awaitingLockGesture` 동안 대기한다(거부된 요청은 잃어버린 락이 아니다)
+
+- **2026-09-07 (마우스 커서 rework)** — **락 상실은 더 이상 일시정지가 아니다** — `checkLockLost` 워치독과 `pointerlockchange` → pause 를 걷어내고 일시정지는 **창 포커스 상실(`blur` / `visibilitychange`)** 에서만 뜬다, `setPaused` 는 포인터 락을 아예 건드리지 않으며(메뉴는 `MenuBase` 의 `'menu'` 커서 토큰, 재잠금은 `main.ts` 하나), 새 **Alt 커서**(`Keys.CURSOR` → `toggleFreeCursor`, `FREE_CURSOR_BLOCKER` + 커서 모드, Escape 로도 닫힘, `ui:freeCursorToggled`)가 화면 없이 마우스만 풀어 준다
+
+- **2026-09-07 (좌클릭 카메라 복귀)** — Alt 커서는 **캔버스 좌클릭으로도 닫힌다**(`onFreeCursorClick`) — 뒤에 창이 없는 유일한 커서 소유자라 월드 클릭은 카메라 복귀로만 읽히고, 클릭은 Chrome 이 락을 돌려주기 전에 요구하는 진짜 제스처다(HUD 요소가 대상인 클릭은 건드리지 않는다)
+
+- **Phase 12 (2026-09-08)** — 일시정지 메뉴가 **항상 단 하나의 화면** — `otherScreenOpen()` 이면 즉시 양보하고 Escape 로 여는 조건이 `noScreenOpen() && !isCursorMode` 라 아이템 창과 겹쳐 둘 다 못 끄는 상태가 사라졌다(z-index 85 는 `ui/styles/base.css`); 새 `ResumeGate.ts` — 브라우저에서 커서 화면을 Escape 로 닫아 재잠금이 거부되면(`awaitingLockGesture`) 블러 오버레이 `좌측 클릭으로 게임 재개` + `RESUME_GATE_BLOCKER` + `ui:resumeGate`, 좌클릭 한 번에 복귀하고 다른 제스처(WASD)로 락이 와도 사라진다(Tab 으로 닫으면 애초에 안 뜬다); `syncDesktopCursor` 가 셸에서 커서 소유자가 없을 때 `body.desktop-nocursor` 로 OS 커서를 숨기고 `installDesktopRelockHook` 이 `window.__scavShellRelock` 을 건다

@@ -6,6 +6,10 @@ Registered in `src/main.ts` after `PickupSystem`, before `ExtractionSystem`.
 | File | Role |
 |---|---|
 | `StratagemSystem.ts` | Input state machine (G tap / wheel, LMB charge → top view, ground ring), calls + shared cooldown, effects (laser / airstrike / supply crate / cover structures), destructible obstacles, net sync, cleanup, debug hooks |
+| `model.ts` | 폴더 공용 어휘 — `StratagemSystem` 에서 떼어낸 상수 · 타입 · 스크래치. 클래스를 참조하지 않으므로 `parts/*` 가 순환 import 없이 쓴다. `StratagemSystem.ts` 가 재수출하므로 기존 import 경로는 그대로다 |
+| `parts/Targeting.ts` | **G 휠과 조준**. G 를 탭하면 바로, 홀드하면 4방향 휠에서 고른다. 고른 뒤에는 지면 링으로 조준하거나 좌클릭 3초 충전으로 **상단 시점**에 들어가 지면 커서를 놓는다. 우클릭 / Esc 로 취소. |
+| `parts/Calls.ts` | **호출된 함선 지원이 실제로 하는 일**. 궤도 레이저(10초 지속 피해) · 항공 폭탄 · 보급품 상자(티어 5) · 파괴 가능 엄폐 구조물. 시각 효과는 전부 절차 생성이고 조명은 쓰지 않는다. |
+| `parts/Wire.ts` | **`strat` / `stratq` 네트워크 경로**. 늦게 합류한 클라이언트는 진행 중인 호출 목록을 받아 재구성한다(`applySync`). 이미 떨어졌어야 할 호출은 조용히 **빨리감기**해서(`fastForward`) 장애물과 보급 상자가 바로 존재하게 한다. 쿨다운은 공유하지 않는다 — 개인 값이다. |
 | `Visuals.ts` | Procedural visuals, **no lights, no assets**: `SharedGeo` (one geometry set per system), `TargetRing`, `CallMarker` (beacon + flashing ring), `Burst` (`THREE.Points` dust / sparks), `LaserBeam`, `Fireball`, `SupplyCrateMesh`, `BarricadeMesh`, `makeRubble` |
 | `index.ts` | exports `StratagemSystem` |
 
@@ -88,3 +92,29 @@ registers the system at runtime if `main.ts` has not).
 `landsAt` / structure `landAt` are `ctx.time` stamps (unscaled clock, so the HUD can compute ETAs). `updateCalls` tracks the wall time between
 updates and, whenever it is called with `dt === 0` (single-player pause), pushes every pending stamp forward by that amount — a call never
 lands, ticks or ends while the game is frozen. (`ctx.timeScale ≠ 1` is debug-only and not compensated.)
+
+
+## 파일 분할 규약 (`model.ts` + `parts/`, 2026-09-08)
+
+`StratagemSystem.ts` 는 한 파일에 다 있기에는 너무 커져서 **동작을 바꾸지 않고** 갈랐다. 규칙은 세 줄이다.
+
+1. **`model.ts`** — 폴더 공용 어휘(타입 · 상수 · 스크래치 객체, 상태 없는 보조 클래스).
+   `StratagemSystem.ts` 이 `export * from './model'` 로 재수출하므로 **기존 import 경로는 전부 그대로 동작한다.**
+2. **`parts/*.ts`** — 클래스에서 떼어낸 메서드 묶음. 각 함수는 인스턴스를 첫 인자 `sys` 로 받는다:
+   ```ts
+   export function foo(sys: StratagemSystem, …) { … }   // 예전의 this → sys
+   ```
+   클래스에는 같은 이름의 **한 줄 위임 메서드**가 남아 있으므로 호출부는 하나도 바뀌지 않았다.
+3. `parts/` 가 닿는 클래스 멤버는 `private` 이 벗겨져 있다. **폴더 밖에서 쓰라는 뜻이 아니다** —
+   외부와의 계약은 `@/shared` 의 `*Ref` 인터페이스가 전부다.
+
+새 `parts/` 파일은 맨 위 doc 주석에 **그 파일이 답하는 질문 한 줄**을 적고 위 표에 행을 추가한다.
+순환 import 를 만들지 않으려면 `parts/` 는 `StratagemSystem.ts` 에서 **타입만** 가져와야 한다 — 값은 `model.ts` 로.
+
+---
+
+## 변경 이력
+
+프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **Phase 9** — **late-join sync** — a non-host asks `stratq sync` on `world:ready` and the host answers `strat sync {calls}` (also unprompted on `flow rejoined`) with every live call: relative `eta` (≤ 0 fast-forwards the landing so obstacles / the supply crate exist at once), damaged structures only, `looted`; the cooldown stays personal

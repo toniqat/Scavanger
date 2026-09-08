@@ -47,3 +47,6 @@ stubs `requestPointerLock` (a real lock would trap the OS cursor in the hidden w
 `pointerLockElement`, waits on **simulation time** (`ctx.time`) and dispatches key taps as keydown+keyup in one frame on
 `document.body`. `waitFor` defaults to 60 s so four scripts can share the machine. Checks build on each other, so the unit of
 re-run is the whole script.
+
+**여러 에이전트가 동시에 편집 중일 때는** vite 의 full-reload 가 스모크를 죽인다 — 전용 인스턴스
+(`npx vite --port 5299`, HMR 없음)를 띄우고 그 URL 을 인자로 넘기거나, 편집이 멈춘 창에서 돌린다.

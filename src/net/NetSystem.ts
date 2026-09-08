@@ -4,7 +4,6 @@ import type {
   NetRef, NetStatus, PeerId, PingKind, RelayTarget, RemotePlayerRef, ServerToClient, Vec3Tuple,
 } from '@/shared';
 import type { ClientToServer, MissionMode, ProfileRef, RaidSessionBlob } from '@/shared';
-/* appended (Phase 11): 행성 선택 · 소셜 */
 import type { PlanetId, SocialRef } from '@/shared';
 import { isPlanetId } from '@/shared';
 import {
@@ -17,153 +16,81 @@ import { ProfileSync } from './ProfileSync';
 import { SocialSync } from './SocialSync';
 import { RemotePlayer } from './RemotePlayer';
 import { Snapshotter } from './Snapshotter';
-/* appended (Phase 10): 발사 준비 패널 crew cards */
 import type { CrewCardWire, ImplantId } from '@/shared';
 import { IMPLANT_IDS } from '@/shared';
 
-const NAME_STORAGE_KEY = 'scav.playerName';
-const SNAPSHOT_INTERVAL = 1 / NET_PLAYER_SNAPSHOT_HZ;
-/** Seconds a departed peer's RemotePlayer lingers (connected=false) before removal. */
-const PEER_LINGER = 1.0;
-/** Auto-reconnect attempts made when we are NOT a lobby member (with a suspended lobby we retry forever). */
-const MAX_LOBBYLESS_ATTEMPTS = NET_RECONNECT_BACKOFF_MS.length;
-const TOKEN_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
-const TOKEN_RE = /^[A-Za-z0-9_-]+$/;
-const PING_KINDS: ReadonlySet<string> = new Set<PingKind>(['ground', 'enemy', 'crate', 'extraction', 'item', 'attack', 'caution']);
-const CHAT_KINDS: ReadonlySet<string> = new Set<ChatKind>(['text', 'ping', 'request', 'system']);
+import { CHAT_KINDS, type Handler, IMPLANT_ID_SET, MAX_LOBBYLESS_ATTEMPTS, NAME_STORAGE_KEY, PEER_LINGER, PING_KINDS, SNAPSHOT_INTERVAL, TOKEN_ALPHABET, TOKEN_RE, defIdOrNull, isGhostWire, isNum, isVec3, loadOrCreateSessionToken, sameCard, sanitizeCrewCard, vec } from './model';
+/** 폴더 공용 어휘(상수 · 타입 · 스크래치)는 `model.ts` 가 갖는다 — 기존 import 경로를 위해 재수출한다. */
+export * from './model';
+import * as Sock from './parts/Socket';
+import * as Lobby from './parts/Lobby';
+import * as Remotes from './parts/Remotes';
+import * as Msg from './parts/Messages';
 
-type Handler = (msg: GameMessage, from: PeerId) => void;
-
-function isVec3(v: unknown): v is Vec3Tuple {
-  return Array.isArray(v) && v.length === 3 && Number.isFinite(v[0]) && Number.isFinite(v[1]) && Number.isFinite(v[2]);
-}
-function isNum(v: unknown): v is number { return typeof v === 'number' && Number.isFinite(v); }
-function vec(t: Vec3Tuple): THREE.Vector3 { return new THREE.Vector3(t[0], t[1], t[2]); }
-const IMPLANT_ID_SET: ReadonlySet<string> = new Set<string>(IMPLANT_IDS);
-/** A weapon / armor def id off the wire: a short plain string, or null. */
-function defIdOrNull(v: unknown): string | null {
-  return typeof v === 'string' && v.length > 0 && v.length <= 64 ? v : null;
-}
-/**
- * Phase 10: validate a peer's `CrewCardWire` before it reaches the READY panel. Everything is clamped / nulled rather
- * than rejected, so a card from an older or buggy peer still renders (a name + level 1 beats an empty cell).
- */
-function sanitizeCrewCard(c: unknown): CrewCardWire | null {
-  if (typeof c !== 'object' || c === null) return null;
-  const w = c as Partial<CrewCardWire>;
-  const level = isNum(w.level) ? Math.max(1, Math.min(9999, Math.floor(w.level))) : 1;
-  const implant = typeof w.implant === 'string' && IMPLANT_ID_SET.has(w.implant) ? (w.implant as ImplantId) : null;
-  const card: CrewCardWire = { level, implant, armor: defIdOrNull(w.armor) };
-  const p1 = defIdOrNull(w.primary); if (p1 !== null) card.primary = p1;
-  const p2 = defIdOrNull(w.primary2); if (p2 !== null) card.primary2 = p2;
-  const sec = defIdOrNull(w.secondary); if (sec !== null) card.secondary = sec;
-  return card;
-}
-
-/** Field-wise equality: the local snoop in `send()` re-emits only when something actually changed. */
-function sameCard(a: CrewCardWire, b: CrewCardWire): boolean {
-  return a.level === b.level && a.implant === b.implant && a.armor === b.armor
-    && (a.primary ?? null) === (b.primary ?? null) && (a.primary2 ?? null) === (b.primary2 ?? null)
-    && (a.secondary ?? null) === (b.secondary ?? null);
-}
-
-function isGhostWire(g: unknown): g is GhostWire {
-  if (typeof g !== 'object' || g === null) return false;
-  const w = g as Partial<GhostWire>;
-  return typeof w.id === 'string' && isVec3(w.p) && isNum(w.yaw) && isNum(w.hp) && isNum(w.dhp) && (w.st === 0 || w.st === 1 || w.st === 2);
-}
-
-/** Persistent per-browser session token (NET_TOKEN_LENGTH url-safe chars) — the server derives a stable PeerId from it. */
-function loadOrCreateSessionToken(): string {
-  try {
-    const stored = localStorage.getItem(NET_TOKEN_STORAGE_KEY);
-    if (stored && stored.length === NET_TOKEN_LENGTH && TOKEN_RE.test(stored)) return stored;
-  } catch { /* storage unavailable */ }
-  const bytes = new Uint8Array(NET_TOKEN_LENGTH);
-  try { crypto.getRandomValues(bytes); } catch { for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256); }
-  let token = '';
-  for (let i = 0; i < NET_TOKEN_LENGTH; i++) token += TOKEN_ALPHABET[bytes[i] & 63];
-  try { localStorage.setItem(NET_TOKEN_STORAGE_KEY, token); } catch { /* storage unavailable → token lives for this page only */ }
-  return token;
-}
-
-/**
- * Multiplayer client. Owns the relay connection, the lobby mirror, local snapshot broadcasting and the
- * interpolated RemotePlayerRefs. Publishes itself as `ctx.net`. Registered first in main.ts so inbound
- * state is applied before any other system reads it in the same frame.
- *
- * Reconnection: the session token makes our PeerId stable, so after an unexpected socket drop we keep the lobby
- * (suspended), retry with NET_RECONNECT_BACKOFF_MS and resume into the same party when `welcome.lobby` comes back
- * (`net:resumed`). Snapshots are also exchanged in the shared ship hub (`inHubSession`).
- *
- * Phase 7: server profile (`profile`), raid session blobs, training missions (any member starts, the rest join from
- * the terminal), suspended members whose body the host keeps as a ghost, and mid-mission host migration
- * (`net:hostChanged` / `flow takeover`).
- */
 export class NetSystem implements GameSystem, NetRef {
   readonly name = 'net';
 
-  private ctx!: GameContext;
-  private readonly client = new NetClient();
-  private readonly snapshotter = new Snapshotter();
-  private readonly handlers = new Map<GameMessageType, Set<Handler>>();
-  private readonly remotes = new Map<PeerId, RemotePlayer>();
-  private remoteList: RemotePlayer[] = [];
-  private lastSnapshotAt = -Infinity;
+  ctx!: GameContext;
+  readonly client = new NetClient();
+  readonly snapshotter = new Snapshotter();
+  readonly handlers = new Map<GameMessageType, Set<Handler>>();
+  readonly remotes = new Map<PeerId, RemotePlayer>();
+  remoteList: RemotePlayer[] = [];
+  lastSnapshotAt = -Infinity;
 
-  private _playerName = sanitizePlayerName('');
-  private readonly _sessionToken = loadOrCreateSessionToken();
-  private _lobby: LobbyState | null = null;
-  private _inSession = false;
+  _playerName = sanitizePlayerName('');
+  readonly _sessionToken = loadOrCreateSessionToken();
+  _lobby: LobbyState | null = null;
+  _inSession = false;
   private _inviteCode: string | null = null;
   /** Seed of the mission we are (or were, before a drop) in. */
-  private missionSeed: number | null = null;
+  missionSeed: number | null = null;
   /** Last id the server gave us; kept through a drop so `isHost`/`isAuthority` do not flip while reconnecting. */
-  private lastLocalId: PeerId | null = null;
-  private pendingQuickMatch = false;
+  lastLocalId: PeerId | null = null;
+  pendingQuickMatch = false;
 
   /* ── reconnect state machine ── */
   private lastStatus: NetStatus = 'offline';
   /** `disconnect()` was called: the coming close is intentional. */
-  private intentionalClose = false;
+  intentionalClose = false;
   /** The server closed us with `duplicate` (same token from another tab): never auto-reconnect after that. */
-  private duplicateKicked = false;
-  private _reconnecting = false;
-  private reconnectAttempt = 0;
-  private reconnectStartedAt = 0;
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  duplicateKicked = false;
+  _reconnecting = false;
+  reconnectAttempt = 0;
+  reconnectStartedAt = 0;
+  reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   /** Lobby kept alive locally while the socket is down. */
-  private lobbySuspended = false;
+  lobbySuspended = false;
   /** We were inside a running mission when the socket dropped (seamless-resume candidate). */
-  private wasInSessionAtDrop = false;
+  wasInSessionAtDrop = false;
 
   /* ── Phase 7 ── */
-  private readonly profileSync = new ProfileSync();
-  private _raidBlob: RaidSessionBlob | null = null;
+  readonly profileSync = new ProfileSync();
+  _raidBlob: RaidSessionBlob | null = null;
   /** Mode of the session we are in (valid while `_inSession`). */
-  private sessionMode: MissionMode = 'raid';
-  private _tookOver = false;
+  sessionMode: MissionMode = 'raid';
+  _tookOver = false;
   /** Host id before the last change (for `flow takeover` events that arrive after the lobby state). */
-  private prevHostId: PeerId | null = null;
+  prevHostId: PeerId | null = null;
   /** Last `inMission` we reported per member (`net:missionMembership` diffs). */
-  private readonly membership = new Map<PeerId, boolean>();
-  private raidTooLargeWarned = false;
+  readonly membership = new Map<PeerId, boolean>();
+  raidTooLargeWarned = false;
   /* ── Phase 9 ── */
   /** `serverTime - performance.now()` from the last welcome / pong of ANY connection this session (null = never welcomed). */
-  private serverOffset: number | null = null;
+  serverOffset: number | null = null;
 
   /* ── Phase 10 ── */
   /**
    * Last `crew card` per member, **including our own** (recorded from `send()` when hub/ broadcasts it, so the READY
    * panel reads the local cell through the same accessor). Cleared with the lobby.
    */
-  private readonly crewCards = new Map<PeerId, CrewCardWire>();
+  readonly crewCards = new Map<PeerId, CrewCardWire>();
   /** true while anybody (local or remote) is carrying someone: gates the per-frame `carriedBy` derivation. */
-  private carryActive = false;
+  carryActive = false;
 
   /* ── Phase 11 ── */
   /** `ctx.net.social`: the relay's social state (friends / requests / recent / whispers / squad invites). */
-  private readonly socialSync = new SocialSync();
+  readonly socialSync = new SocialSync();
 
   /* ── NetRef getters ─────────────────────────────────────────────────── */
   get status(): NetStatus { return this.client.status; }
@@ -197,16 +124,7 @@ export class NetSystem implements GameSystem, NetRef {
    * the host's own terminal reacts without a round trip; the server's `lobby:state` confirms it for everyone else.
    * There is no travel message — each client starts the cutscene off its own copy of `lobby.planet`.
    */
-  setLobbyPlanet(planet: PlanetId): void {
-    if (!isPlanetId(planet)) return;
-    const lobby = this._lobby;
-    if (!lobby || !this.isHost || lobby.started) return;
-    if (lobby.planet === planet) return;
-    lobby.planet = planet;   // optimistic mirror; the broadcast confirms it
-    // No event: hub/ drives its own terminal / cutscene from `setPlanet` and reacts to a *squadmate's* change through
-    // the server's `net:lobbyUpdated`. Emitting here would make the host's own pick look like a remote one.
-    this.client.send({ t: 'lobby:planet', planet });
-  }
+  setLobbyPlanet(planet: PlanetId): void { return Lobby.setLobbyPlanet(this, planet); }
   /** 친구 · 요청 · 최근 플레이어 · 귓속말 · 분대 초대 (always present; `available` is false offline). */
   get social(): SocialRef { return this.socialSync; }
   /* ── Phase 8 ── */
@@ -216,13 +134,7 @@ export class NetSystem implements GameSystem, NetRef {
    * offset is **kept through a disconnect** (profile stamps written offline stay on the server's clock); only a
    * session that never saw a welcome falls back to `Date.now()` (single-player keeps working on the local clock).
    */
-  serverNow(): number {
-    const c = this.client;
-    if (c.connected && c.hasServerTime) this.serverOffset = c.serverTimeOffset;
-    if (this.serverOffset === null) return Date.now();
-    const t = performance.now() + this.serverOffset;
-    return Number.isFinite(t) ? t : Date.now();
-  }
+  serverNow(): number { return Sock.serverNow(this); }
 
   /* ── GameSystem ─────────────────────────────────────────────────────── */
   init(ctx: GameContext): void {
@@ -293,10 +205,7 @@ export class NetSystem implements GameSystem, NetRef {
   }
 
   /** `social:me` with the current character level; a no-op without a progression system (headless tests / stubs). */
-  private pushLevel(): void {
-    const level = this.ctx.progression?.level;
-    if (typeof level === 'number') this.socialSync.setLevel(level);
-  }
+  pushLevel(): void { return Remotes.pushLevel(this); }
 
   update(dt: number, ctx: GameContext): void {
     try {
@@ -344,31 +253,11 @@ export class NetSystem implements GameSystem, NetRef {
   }
 
   /* ── connection ─────────────────────────────────────────────────────── */
-  connect(url?: string): Promise<void> {
-    if (this.client.connected) return Promise.resolve();
-    this.intentionalClose = false;
-    this.duplicateKicked = false;
-    // An explicit connect while the backoff timer is pending: attempt right now instead.
-    if (this.reconnectTimer !== null) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
-    const p = this.client.connect(this.withSession(url ?? this.defaultUrl()));
-    // Keep the reconnect loop alive if this manual attempt fails (attemptReconnect's own catch may already have rescheduled).
-    if (this._reconnecting) p.catch(() => { if (this._reconnecting && this.reconnectTimer === null) this.scheduleReconnect(); });
-    return p;
-  }
+  connect(url?: string): Promise<void> { return Sock.connect(this, url); }
 
-  async ensureConnected(): Promise<boolean> {
-    if (this.client.connected) return true;
-    try { await this.connect(); return true; } catch { return false; }
-  }
+  async ensureConnected(): Promise<boolean> { return Sock.ensureConnected(this); }
 
-  disconnect(): void {
-    this.stopReconnect();
-    this.intentionalClose = true;
-    this.profileSync.flush();
-    if (this._lobby || this._inSession) this.dropLobby('left');
-    this.lastLocalId = null;
-    this.client.close();
-  }
+  disconnect(): void { return Sock.disconnect(this); }
 
   setPlayerName(name: string): void {
     this._playerName = sanitizePlayerName(name);
@@ -377,259 +266,59 @@ export class NetSystem implements GameSystem, NetRef {
     if (this.client.connected && this._lobby) this.client.send({ t: 'lobby:name', name: this._playerName });
   }
 
-  private defaultUrl(): string {
-    const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env;
-    const fromEnv = env?.VITE_WS_URL;
-    if (fromEnv) return fromEnv;
-    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    return `${proto}://${location.host}${NET_WS_PATH}`;
-  }
+  defaultUrl(): string { return Sock.defaultUrl(this); }
 
   /** Append `?t=<token>&n=<name>` (NET_TOKEN_PARAM / NET_NAME_PARAM) to a relay URL. */
-  private withSession(url: string): string {
-    const sep = url.includes('?') ? '&' : '?';
-    return `${url}${sep}${NET_TOKEN_PARAM}=${encodeURIComponent(this._sessionToken)}&${NET_NAME_PARAM}=${encodeURIComponent(this._playerName)}`;
-  }
+  withSession(url: string): string { return Sock.withSession(this, url); }
 
   /* ── reconnect ──────────────────────────────────────────────────────── */
   /** Socket went offline/error. `wasConnected` = an established (welcomed) connection dropped, not a failed attempt. */
-  private onSocketDown(wasConnected: boolean): void {
-    if (this.intentionalClose) return;
-    if (this.duplicateKicked) {
-      // Another tab took over this session: hand the lobby over to it and stay offline.
-      this.stopReconnect();
-      if (this._lobby || this._inSession) this.dropLobby('kicked');
-      return;
-    }
-    if (this._reconnecting) return;           // a retry failed; attemptReconnect() schedules the next one
-    if (!wasConnected) return;                // an initial connect() failed → the caller decides (offline hub)
-    this.beginReconnect();
-  }
+  private onSocketDown(wasConnected: boolean): void { return Sock.onSocketDown(this, wasConnected); }
 
-  private beginReconnect(): void {
-    this._reconnecting = true;
-    this.reconnectAttempt = 0;
-    this.reconnectStartedAt = performance.now();
-    this.lobbySuspended = this._lobby !== null;
-    this.wasInSessionAtDrop = this._inSession;
-    // Remotes stay (seamless resume keeps them; they go `stale` meanwhile and refresh with the next snapshots).
-    this.scheduleReconnect();
-  }
+  beginReconnect(): void { return Sock.beginReconnect(this); }
 
-  private scheduleReconnect(): void {
-    if (!this._reconnecting) return;
-    const attempt = ++this.reconnectAttempt;
-    const elapsed = performance.now() - this.reconnectStartedAt;
-    if (this.lobbySuspended && elapsed >= NET_MISSION_RESUME_TIMEOUT_MS) {
-      // Waited long enough for the party: give the lobby up locally. If the server still has our slot when we do
-      // get back, `welcome.lobby` re-enters it via `net:resumed` (fresh-load semantics).
-      this.lobbySuspended = false;
-      this.dropLobby('disconnected');
-    }
-    if (!this.lobbySuspended && attempt > MAX_LOBBYLESS_ATTEMPTS) {
-      this.stopReconnect();
-      return;
-    }
-    const delay = NET_RECONNECT_BACKOFF_MS[Math.min(attempt - 1, NET_RECONNECT_BACKOFF_MS.length - 1)];
-    this.ctx.bus.emit('net:reconnecting', { attempt, nextInMs: delay });
-    this.reconnectTimer = setTimeout(() => { this.reconnectTimer = null; void this.attemptReconnect(); }, delay);
-  }
+  scheduleReconnect(): void { return Sock.scheduleReconnect(this); }
 
-  private async attemptReconnect(): Promise<void> {
-    if (!this._reconnecting) return;
-    try {
-      await this.client.connect(this.withSession(this.defaultUrl()));
-      // Success path continues in handleServerMessage('welcome').
-    } catch {
-      if (this._reconnecting) this.scheduleReconnect();
-    }
-  }
+  async attemptReconnect(): Promise<void> { return Sock.attemptReconnect(this); }
 
-  private stopReconnect(): void {
-    if (this.reconnectTimer !== null) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
-    this._reconnecting = false;
-    this.reconnectAttempt = 0;
-  }
+  stopReconnect(): void { return Sock.stopReconnect(this); }
 
   /** `welcome` arrived (first connect, reconnect or fresh page load). */
-  private onWelcome(msg: Extract<ServerToClient, { t: 'welcome' }>): void {
-    const bus = this.ctx.bus;
-    const resumedAfterDrop = this._reconnecting;
-    this.stopReconnect();
-    this.lastLocalId = msg.id;
-    if (this.client.hasServerTime) this.serverOffset = this.client.serverTimeOffset;
-    const lobby = msg.lobby ?? null;
-
-    // Seamless: we were inside the mission this lobby is still running → keep inSession + remotes, nothing rebuilt.
-    const seamless = lobby !== null && resumedAfterDrop && this.wasInSessionAtDrop && this._inSession
-      && lobby.started && this.missionSeed !== null && lobby.seed === this.missionSeed;
-
-    // Profile first: persisting folders replace their local state from it before any lobby / mission event. During a
-    // seamless resume the documents cannot have changed (only this client writes them) — refresh availability only.
-    this.profileSync.onWelcome(msg.profile, !seamless);
-    // Phase 11: the social snapshot belongs to the connection, not the session — refresh it on every welcome, then
-    // (re-)publish my level, which the relay forgets when nothing reported it yet.
-    this.socialSync.onWelcome(msg.social);
-    this.pushLevel();
-
-    if (lobby) {
-      if (!seamless) {
-        this._inSession = false;
-        this._tookOver = false;
-        this.clearRemotes();
-        this.snapshotter.reset();
-        this._raidBlob = msg.raid ?? null;
-      } else {
-        // Peers may have restarted their snapshot streams while we were away.
-        for (const r of this.remoteList) r.resetStream();
-      }
-      this.lobbySuspended = false;
-      this.applyLobby(lobby);
-      this.lastSnapshotAt = -Infinity;
-      // Phase 9: coming back into a running mission WITHOUT our session state (page reload, or a drop we gave up on)
-      // means we left it — tell the server so the host parks our ghost and the authority never waits on us. A pod /
-      // the terminal re-enters with `rejoinMission()` (which flips `inMission` back).
-      if (lobby.started && !seamless && !this._inSession) {
-        const me = this.getLobbyPlayer(msg.id);
-        if (me && me.inMission) {
-          me.inMission = false; // optimistic mirror; the broadcast confirms it
-          this.client.send({ t: 'lobby:mission', inMission: false });
-        }
-      }
-      bus.emit('net:resumed', { lobby, inProgress: lobby.started && !this._inSession, seamless });
-      if (!seamless && this._raidBlob) bus.emit('net:raidLoaded', { blob: this._raidBlob });
-      // Back inside the running mission: the host may hold our body as a ghost — ask for it back (`ghost restore`)
-      // and let every system re-sync us. A host that kept its role through the blip has nothing to ask for.
-      if (seamless && !this.isHost) this.send({ t: 'flow', ev: 'rejoined' }, 'all');
-    } else if (this._lobby || this._inSession) {
-      // We kept a suspended lobby but the server no longer knows us (grace expired / server restarted).
-      this.lobbySuspended = false;
-      this.dropLobby('disconnected');
-    }
-    this.wasInSessionAtDrop = false;
-  }
+  onWelcome(msg: Extract<ServerToClient, { t: 'welcome' }>): void { return Sock.onWelcome(this, msg); }
 
   /* ── lobby ops ──────────────────────────────────────────────────────── */
-  createLobby(): void { this.pendingQuickMatch = false; this.client.send({ t: 'lobby:create', name: this._playerName }); }
-  joinLobby(code: string): void {
-    const norm = normalizeLobbyCode(code);
-    if (!isValidLobbyCode(norm)) {
-      this.ctx.bus.emit('net:error', { code: 'invalid', message: '잘못된 로비 코드입니다. 6자리 코드를 입력하세요.' });
-      return;
-    }
-    this.pendingQuickMatch = false;
-    this.client.send({ t: 'lobby:join', code: norm, name: this._playerName });
-  }
-  leaveLobby(): void {
-    this.pendingQuickMatch = false;
-    if (this.client.connected) { this.client.send({ t: 'lobby:leave' }); return; }
-    // Offline with a suspended lobby: leaving is local (the server drops our slot when the grace expires).
-    this.stopReconnect();
-    if (this._lobby || this._inSession) this.dropLobby('left');
-  }
-  setReady(ready: boolean): void { this.client.send({ t: 'lobby:ready', ready }); }
+  createLobby(): void { return Lobby.createLobby(this); }
+  joinLobby(code: string): void { return Lobby.joinLobby(this, code); }
+  leaveLobby(): void { return Lobby.leaveLobby(this); }
+  setReady(ready: boolean): void { return Lobby.setReady(this, ready); }
   /**
    * Raid (default): host only, everyone ready. Training: any member; only the caller enters (`inMission`).
    * Phase 11: `planet` is the raid's 목표 행성 (the server refuses a raid without one — `no_planet`); a training
    * ignores it, and an unknown id is dropped here rather than sent. Falls back to `lobby.planet` when omitted.
    */
-  startGame(seed: number, mode?: MissionMode, planet?: PlanetId): void {
-    const s = Math.floor(seed) >>> 0;
-    const training = mode === 'training';
-    const p = training ? undefined : (isPlanetId(planet) ? planet : (this._lobby?.planet ?? undefined));
-    const msg: Extract<ClientToServer, { t: 'lobby:start' }> = { t: 'lobby:start', seed: s };
-    if (mode) msg.mode = mode;
-    if (p !== undefined) msg.planet = p;
-    this.client.send(msg);
-  }
+  startGame(seed: number, mode?: MissionMode, planet?: PlanetId): void { return Lobby.startGame(this, seed, mode, planet); }
 
-  quickMatch(): void {
-    if (!this.client.connected) {
-      this.ctx.bus.emit('net:error', { code: 'server', message: '서버에 연결되어 있지 않습니다.' });
-      return;
-    }
-    this.pendingQuickMatch = true;
-    this.client.send({ t: 'lobby:quickmatch', name: this._playerName });
-  }
-  setPublic(isPublic: boolean): void { this.client.send({ t: 'lobby:setPublic', isPublic }); }
-  setLobbySeed(seed: number): void {
-    const s = Math.floor(seed) >>> 0;
-    if (this._lobby) this._lobby.seed = s; // optimistic mirror; the broadcast confirms it
-    this.client.send({ t: 'lobby:seed', seed: s });
-  }
+  quickMatch(): void { return Lobby.quickMatch(this); }
+  setPublic(isPublic: boolean): void { return Lobby.setPublic(this, isPublic); }
+  setLobbySeed(seed: number): void { return Lobby.setLobbySeed(this, seed); }
 
   /**
    * Re-enter the running mission (raid after a resume, or join a running training from the terminal): tells the
    * server (`lobby:mission true`), starts the session with the lobby's mode and announces `flow rejoined` so the host
    * re-syncs us (extraction / pickups / containers / ghosts — our own body comes back with `ghost restore`).
    */
-  rejoinMission(): void {
-    const lobby = this._lobby;
-    if (!lobby || !this.missionInProgress || lobby.seed === null) return;
-    const seed = lobby.seed;
-    const mode: MissionMode = lobby.mode ?? 'raid';
-    this.client.send({ t: 'lobby:mission', inMission: true });
-    const me = this.localId ? this.getLobbyPlayer(this.localId) : undefined;
-    if (me) me.inMission = true; // optimistic; the broadcast confirms it
-    // Phase 11: a rejoin takes the 목표 행성 from the lobby (the mission is already running on it).
-    const planet = mode === 'training' ? null : (isPlanetId(lobby.planet) ? lobby.planet : null);
-    this.beginSession(seed, lobby, mode, true, planet);
-    this.send({ t: 'flow', ev: 'rejoined' }, 'all');
-  }
+  rejoinMission(): void { return Lobby.rejoinMission(this); }
 
   /** Leave the running mission but stay in the lobby (training exit, raid abort by a client). */
-  leaveMission(): void {
-    const lobby = this._lobby;
-    const wasIn = this._inSession;
-    this._inSession = false;
-    this.missionSeed = null;
-    this._tookOver = false;
-    this._raidBlob = null;
-    this.clearRemotes();
-    this.snapshotter.reset();
-    this.lastSnapshotAt = -Infinity;
-    if (!lobby) return;
-    const me = this.localId ? this.getLobbyPlayer(this.localId) : undefined;
-    if (me) me.inMission = false;
-    if (this.client.connected) this.client.send({ t: 'lobby:mission', inMission: false });
-    if (wasIn || me) this.ctx.bus.emit('net:lobbyUpdated', { lobby });
-  }
+  leaveMission(): void { return Lobby.leaveMission(this); }
 
   /** Upload my mid-raid state (game/ calls it periodically and on loot). Only inside a raid session. */
-  saveRaid(blob: RaidSessionBlob): void {
-    if (!this._inSession || this.sessionMode !== 'raid' || !this._lobby || !this.client.connected) return;
-    if (blob.seed !== this.missionSeed) return;
-    let text: string;
-    try { text = JSON.stringify(blob); } catch { return; }
-    if (text.length * 3 > RAID_BLOB_MAX_BYTES && new TextEncoder().encode(text).byteLength > RAID_BLOB_MAX_BYTES) {
-      if (!this.raidTooLargeWarned) { this.raidTooLargeWarned = true; console.warn(`[net] raid blob exceeds ${RAID_BLOB_MAX_BYTES} bytes; not uploaded`); }
-      return;
-    }
-    this.client.send({ t: 'raid:save', blob });
-  }
+  saveRaid(blob: RaidSessionBlob): void { return Lobby.saveRaid(this, blob); }
 
-  getInviteUrl(): string | null {
-    if (!this._lobby) return null;
-    return `${location.origin}${location.pathname}?${NET_INVITE_PARAM}=${this._lobby.code}`;
-  }
+  getInviteUrl(): string | null { return Lobby.getInviteUrl(this); }
 
   /* ── game messages ──────────────────────────────────────────────────── */
-  send(msg: GameMessage, to: RelayTarget = 'others'): void {
-    // Phase 10: hub/ owns sending the crew card; record our own copy so `getCrewCard(localId)` answers for the local
-    // cell of the READY panel (and keeps answering while offline / single-player, where the relay drops the message).
-    if (msg.t === 'crew') {
-      const me = this.localId;
-      const own = sanitizeCrewCard(msg.card);
-      if (me !== null && own !== null) {
-        const prev = this.crewCards.get(me);
-        this.crewCards.set(me, own);
-        // Re-emit only on a real change — a hub/ handler that reacts by re-sending can never loop.
-        if (!prev || !sameCard(prev, own)) this.ctx.bus.emit('net:crewCard', { id: me, card: own });
-      }
-    }
-    if (!this.client.connected || !this._lobby) return;
-    this.client.send({ t: 'relay', to, d: msg });
-  }
+  send(msg: GameMessage, to: RelayTarget = 'others'): void { return Msg.send(this, msg, to); }
 
   onMessage<T extends GameMessageType>(type: T, handler: (msg: GameMessageOf<T>, from: PeerId) => void): () => void {
     let set = this.handlers.get(type);
@@ -639,245 +328,41 @@ export class NetSystem implements GameSystem, NetRef {
     return () => { this.handlers.get(type)?.delete(h); };
   }
 
-  getRemotePlayers(): readonly RemotePlayerRef[] { return this.remoteList; }
-  getRemotePlayer(id: PeerId): RemotePlayerRef | undefined { return this.remotes.get(id); }
-  getLobbyPlayer(id: PeerId): LobbyPlayer | undefined {
-    const lobby = this._lobby;
-    if (!lobby) return undefined;
-    for (let i = 0; i < lobby.players.length; i++) if (lobby.players[i].id === id) return lobby.players[i];
-    return undefined;
-  }
+  getRemotePlayers(): readonly RemotePlayerRef[] { return Remotes.getRemotePlayers(this); }
+  getRemotePlayer(id: PeerId): RemotePlayerRef | undefined { return Remotes.getRemotePlayer(this, id); }
+  getLobbyPlayer(id: PeerId): LobbyPlayer | undefined { return Lobby.getLobbyPlayer(this, id); }
 
   /* ── inbound: server ────────────────────────────────────────────────── */
-  private handleServerMessage(msg: ServerToClient): void {
-    const bus = this.ctx.bus;
-    switch (msg.t) {
-      case 'welcome':
-        this.onWelcome(msg);
-        return;
-      case 'pong':
-        if (this.client.hasServerTime) this.serverOffset = this.client.serverTimeOffset;
-        return;
-
-      case 'lobby:state': {
-        const matched = this.pendingQuickMatch && (!this._lobby || this._lobby.code !== msg.lobby.code);
-        this.applyLobby(msg.lobby);
-        if (matched) {
-          this.pendingQuickMatch = false;
-          bus.emit('net:matched', { lobby: msg.lobby, created: msg.lobby.players.length === 1 });
-        }
-        return;
-      }
-
-      case 'lobby:error':
-        if (msg.code === 'duplicate') this.duplicateKicked = true;
-        this.profileSync.onError(msg.code);
-        this.pendingQuickMatch = false;
-        bus.emit('net:error', { code: msg.code, message: msg.message });
-        return;
-
-      case 'lobby:left':
-        this.dropLobby('left');
-        return;
-
-      case 'game:start': {
-        const mode: MissionMode = msg.mode ?? 'raid';
-        const me = this.localId ? msg.lobby.players.find((p) => p.id === this.localId) : undefined;
-        // A training reaches every member, but only those the server marked `inMission` (the starter) enter it;
-        // the rest just see the lobby running (`missionInProgress`) and may join from the terminal.
-        const enters = me ? (me.inMission ?? true) : true;
-        if (this._inSession || (mode === 'training' && !enters)) { this.applyLobby(msg.lobby); return; }
-        // Phase 11: the raid's 목표 행성 — the server echoes it, `lobby.planet` is the fallback for an older relay.
-        const planet = mode === 'training' ? null : (isPlanetId(msg.planet) ? msg.planet : (isPlanetId(msg.lobby.planet) ? msg.lobby.planet : null));
-        this.beginSession(msg.seed, msg.lobby, mode, false, planet);
-        return;
-      }
-
-      case 'peer:left': {
-        const prev = this._lobby;
-        const gone = prev ? prev.players.find((p) => p.id === msg.id) : undefined;
-        this._lobby = msg.lobby;
-        if (prev && prev.code === msg.lobby.code && prev.hostId !== msg.lobby.hostId) this.onHostChanged(prev.hostId, msg.lobby.hostId);
-        this.syncRemoteIdentities();
-        bus.emit('net:lobbyUpdated', { lobby: msg.lobby });
-        bus.emit('net:peerLeft', { id: msg.id, name: gone?.name ?? '대원' });
-        const r = this.remotes.get(msg.id);
-        if (r && r.connected) {
-          r.connected = false;
-          r.removeAt = this.ctx.time + PEER_LINGER;
-        }
-        return;
-      }
-
-      case 'relay':
-        this.handleRelay(msg.from, msg.d);
-        return;
-
-      /* Phase 7 */
-      case 'profile:docs':
-        this.profileSync.onDocs(msg.profile);
-        return;
-      case 'credits:result':
-        this.profileSync.onCreditsResult(msg);
-        return;
-
-      /* Phase 11: 소셜 — SocialSync validates every frame before it reaches the UI. */
-      case 'social:state':
-        this.socialSync.onState(msg.social);
-        return;
-      case 'social:invited':
-        this.socialSync.onInvited(msg.invite);
-        return;
-      case 'social:whisper':
-        this.socialSync.onWhisper(msg);
-        return;
-      case 'social:play':
-        this.socialSync.onPlay(msg);
-        return;
-      case 'social:error':
-        this.socialSync.onError(msg);
-        return;
-    }
-  }
+  private handleServerMessage(msg: ServerToClient): void { return Msg.handleServerMessage(this, msg); }
 
   /**
    * Enter the mission of `lobby` with `seed` (server `game:start`, or `rejoinMission()`).
    * Phase 11: `planet` is the raid's 목표 행성 (null for a training / an older relay with nothing picked).
    */
-  private beginSession(seed: number, lobby: LobbyState, mode: MissionMode, rejoin: boolean, planet: PlanetId | null): void {
-    const bus = this.ctx.bus;
-    this.applyLobby(lobby);
-    this._inSession = true;
-    this.sessionMode = mode;
-    this.missionSeed = seed;
-    this._tookOver = false;
-    this.snapshotter.reset();
-    this.lastSnapshotAt = -Infinity;
-    this.clearRemotes(); // hub avatars are re-created from the first mission snapshots
-    // Contract: whoever emits `game:newMission` sets `ctx.missionMode` **and** `ctx.missionPlanet` first — world/ and
-    // core/ read them inside their synchronous handlers (the world generates during the emit).
-    this.ctx.missionMode = mode;
-    this.ctx.missionPlanet = mode === 'training' ? null : planet;
-    const p = this.ctx.missionPlanet;
-    bus.emit('net:gameStarting', p !== null ? { seed, lobby, rejoin, mode, planet: p } : { seed, lobby, rejoin, mode });
-    bus.emit('game:newMission', p !== null ? { seed, mode, planet: p } : { seed, mode });
-  }
+  beginSession(seed: number, lobby: LobbyState, mode: MissionMode, rejoin: boolean, planet: PlanetId | null): void { return Lobby.beginSession(this, seed, lobby, mode, rejoin, planet); }
 
-  private applyLobby(next: LobbyState): void {
-    const prev = this._lobby;
-    this._lobby = next;
-    const bus = this.ctx.bus;
-    if (prev && prev.code === next.code) {
-      const me = this.localId;
-      for (const p of next.players) {
-        if (p.id === me) continue;
-        const was = prev.players.find((q) => q.id === p.id);
-        if (!was) bus.emit('net:peerJoined', { id: p.id, name: p.name, slot: p.slot });
-        else if (!was.connected && p.connected) this.remotes.get(p.id)?.resetStream(); // came back → fresh seq
-      }
-      for (const q of prev.players) {
-        if (q.id === me) continue;
-        if (!next.players.some((p) => p.id === q.id)) {
-          bus.emit('net:peerLeft', { id: q.id, name: q.name });
-          const r = this.remotes.get(q.id);
-          if (r && r.connected) { r.connected = false; r.removeAt = this.ctx.time + PEER_LINGER; }
-        }
-      }
-      if (prev.hostId !== next.hostId) this.onHostChanged(prev.hostId, next.hostId);
-    } else {
-      this.membership.clear();
-      this.prevHostId = null;
-    }
-    this.syncRemoteIdentities();
-    bus.emit('net:lobbyUpdated', { lobby: next });
-  }
+  applyLobby(next: LobbyState): void { return Lobby.applyLobby(this, next); }
 
   /**
    * `lobby.hostId` changed while the lobby runs a mission. Inside the session this is a migration: promote / demote
    * systems, announce a takeover. Phase 9: the event goes out even when we are NOT in the session (hub member of a
    * running lobby — every system is a no-op outside a live mission), but `tookOver` / `flow takeover` stay session-only.
    */
-  private onHostChanged(prev: PeerId, next: PeerId): void {
-    this.prevHostId = prev;
-    if (!this._lobby || !this._lobby.started) return;
-    const isLocalHost = next === this.localId;
-    if (isLocalHost && this._inSession) this._tookOver = true;
-    this.ctx.bus.emit('net:hostChanged', { hostId: next, prev, isLocalHost });
-    // After every local system promoted itself: tell the others so they re-request their syncs from us.
-    if (isLocalHost && this._inSession) this.send({ t: 'flow', ev: 'takeover' }, 'others');
-  }
+  onHostChanged(prev: PeerId, next: PeerId): void { return Lobby.onHostChanged(this, prev, next); }
 
   /**
    * Mirror lobby facts onto the remote refs (name / slot; Phase 7: `inMission`, `suspended`) and report membership
    * changes for every member (`net:missionMembership`), suspension changes for refs (`net:peerSuspended`).
    */
-  private syncRemoteIdentities(): void {
-    const lobby = this._lobby;
-    if (!lobby) return;
-    const bus = this.ctx.bus;
-    const me = this.localId;
-    const seen = new Set<PeerId>();
-    for (const p of lobby.players) {
-      seen.add(p.id);
-      const inM = this.playerInMission(p, lobby);
-      if (this.membership.get(p.id) !== inM) {
-        this.membership.set(p.id, inM);
-        if (p.id !== me) bus.emit('net:missionMembership', { id: p.id, inMission: inM });
-      }
-      const r = this.remotes.get(p.id);
-      if (!r) continue;
-      r.name = p.name;
-      r.slot = p.slot;
-      r.inMission = inM;
-      // Suspended = socket down while part of the running mission we are in (the host keeps their body as a ghost).
-      const susp = this._inSession && inM && !p.connected;
-      if (r.suspended !== susp) {
-        r.suspended = susp;
-        // Phase 10: a carrier whose socket went down drops the body it held — the host owns it as a ghost from now
-        // on, so the victim's `carriedBy` must not keep pointing at a suspended shoulder.
-        if (susp && r.carrying !== null) {
-          r.carrying = null;
-          bus.emit('net:remoteCarryChanged', { id: p.id, carrying: null });
-        }
-        bus.emit('net:peerSuspended', { id: p.id, name: p.name, suspended: susp });
-      }
-    }
-    for (const id of Array.from(this.membership.keys())) if (!seen.has(id)) this.membership.delete(id);
-    // Phase 10: forget the crew cards of members who are gone (our own card is kept — hub/ owns it).
-    for (const id of Array.from(this.crewCards.keys())) if (id !== me && !seen.has(id)) this.crewCards.delete(id);
-  }
+  syncRemoteIdentities(): void { return Remotes.syncRemoteIdentities(this); }
 
-  private playerInMission(p: LobbyPlayer, lobby: LobbyState): boolean {
-    return p.inMission ?? (lobby.started && p.connected);
-  }
+  playerInMission(p: LobbyPlayer, lobby: LobbyState): boolean { return Lobby.playerInMission(this, p, lobby); }
 
-  private dropLobby(reason: 'left' | 'disconnected' | 'kicked' | 'hostLeft'): void {
-    const had = this._lobby !== null;
-    this._lobby = null;
-    this._inSession = false;
-    this.missionSeed = null;
-    this.lobbySuspended = false;
-    this.pendingQuickMatch = false;
-    this._tookOver = false;
-    this._raidBlob = null;
-    this.prevHostId = null;
-    this.membership.clear();
-    this.crewCards.clear();   // Phase 10: cards belong to the party we just left (hub/ re-sends ours on `hub:entered`)
-    this.carryActive = false;
-    this.clearRemotes();
-    if (had) this.ctx.bus.emit('net:lobbyLeft', { reason });
-  }
+  dropLobby(reason: 'left' | 'disconnected' | 'kicked' | 'hostLeft'): void { return Lobby.dropLobby(this, reason); }
 
-  private endSessionPending = false;
+  endSessionPending = false;
   /** Deferred session end: runs after every synchronous handler of the triggering bus event has finished. */
-  private scheduleEndSession(): void {
-    if (!this._inSession || this.endSessionPending) return;
-    this.endSessionPending = true;
-    queueMicrotask(() => {
-      this.endSessionPending = false;
-      this.endSession();
-    });
-  }
+  private scheduleEndSession(): void { return Lobby.scheduleEndSession(this); }
 
   /**
    * Mission ended for us (complete / over / abort). Leaves the lobby intact — we return to the shared ship. Raid: the
@@ -885,234 +370,36 @@ export class NetSystem implements GameSystem, NetRef {
    * `missionInProgress` until the host resets. Training: everyone reports `lobby:mission false`; the server closes the
    * training once the last member left (never `lobby:reset`, other members may still be training).
    */
-  private endSession(): void {
-    if (!this._inSession) return;
-    this._inSession = false;
-    this.missionSeed = null;
-    const wasHost = this.isHost;
-    const mode = this.sessionMode;
-    this._tookOver = false;
-    this._raidBlob = null;
-    this.clearRemotes();
-    this.profileSync.flush();
-    if (this.client.connected && this._lobby) {
-      if (mode === 'raid' && wasHost) this.client.send({ t: 'lobby:reset' });
-      else {
-        const me = this.localId ? this.getLobbyPlayer(this.localId) : undefined;
-        if (me) me.inMission = false;
-        this.client.send({ t: 'lobby:mission', inMission: false });
-      }
-    }
-  }
+  endSession(): void { return Lobby.endSession(this); }
 
   /* ── inbound: relayed game messages ─────────────────────────────────── */
-  private handleRelay(from: PeerId, d: GameMessage): void {
-    if (typeof d !== 'object' || d === null || typeof (d as { t?: unknown }).t !== 'string') {
-      console.warn('[net] malformed relay payload dropped', d);
-      return;
-    }
-    const bus = this.ctx.bus;
-    switch (d.t) {
-      case 'ps': {
-        if (!isNum(d.seq) || !isVec3(d.p) || !isVec3(d.v) || !isNum(d.yaw) || !isNum(d.pitch) || !isNum(d.hp) || !isNum(d.f)) {
-          console.warn('[net] malformed snapshot dropped', from);
-          return;
-        }
-        // Only peers sharing our space become remote refs: hub snapshots (IN_HUB) while we are in a mission — or
-        // mission snapshots while we walk the ship — belong to a different 3D scene. An existing ref simply goes stale.
-        const senderInHub = (d.f & PlayerFlags.IN_HUB) !== 0;
-        if (senderInHub === this._inSession) break;
-        const r = this.getOrCreateRemote(from);
-        const wasDowned = r.isDowned;
-        const wasCarrying = r.carrying;
-        r.push(d, this.ctx.time);
-        // Phase 10: the carried peer changed → HUD markers / 분대 목록 (`carriedBy` is derived in `update`).
-        if (r.carrying !== wasCarrying) bus.emit('net:remoteCarryChanged', { id: from, carrying: r.carrying });
-        // Phase 2: squadmate went down / got back up → HUD feed (derived from the DOWNED flag transition)
-        if (r.isDowned !== wasDowned) {
-          const name = r.name ?? this.getLobbyPlayer(from)?.name ?? '대원';
-          if (r.isDowned) bus.emit('net:remoteDowned', { id: from, name, position: r.position.clone() });
-          else if (!r.isDead) bus.emit('net:remoteRevived', { id: from, name });
-        }
-        break;
-      }
-      case 'fire':
-        if (typeof d.w === 'string' && isVec3(d.o) && isVec3(d.d)) {
-          bus.emit('net:remoteFired', { id: from, weaponId: d.w, origin: vec(d.o), direction: vec(d.d) });
-        }
-        break;
-      case 'reload':
-        if (typeof d.w === 'string') bus.emit('net:remoteReloaded', { id: from, weaponId: d.w });
-        break;
-      case 'grenade':
-        if (isVec3(d.p) && isVec3(d.v)) bus.emit('net:remoteGrenade', { id: from, position: vec(d.p), velocity: vec(d.v), fuse: typeof d.fuse === 'number' ? d.fuse : undefined });
-        break;
-      case 'revive': {
-        // reviver → us (Phase 2): progress feeds the HUD, done stands us back up
-        if (d.target !== this.localId) break;
-        const byName = this.getLobbyPlayer(from)?.name ?? this.remotes.get(from)?.name ?? '대원';
-        if (d.ev === 'done') { this.ctx.player?.revive(); bus.emit('player:reviveProgress', { t: -1, by: from, byName }); }
-        else if (d.ev === 'progress') bus.emit('player:reviveProgress', { t: typeof d.p === 'number' ? Math.max(0, Math.min(1, d.p)) : 0, by: from, byName });
-        else if (d.ev === 'cancel') bus.emit('player:reviveProgress', { t: -1, by: from, byName });
-        break;
-      }
-      case 'died': {
-        const r = this.remotes.get(from);
-        if (r) r.markDead();
-        const name = r?.name ?? this.getLobbyPlayer(from)?.name ?? '대원';
-        bus.emit('net:remoteDied', { id: from, name, position: isVec3(d.p) ? vec(d.p) : (r ? r.position.clone() : new THREE.Vector3()) });
-        break;
-      }
-      case 'ping':
-        if (isVec3(d.p)) {
-          const kind: PingKind = typeof d.kind === 'string' && PING_KINDS.has(d.kind) ? d.kind : 'ground';
-          bus.emit('net:remotePing', { id: from, position: vec(d.p), kind });
-        }
-        break;
-      case 'chat':
-        if (typeof d.text === 'string') {
-          const name = this.getLobbyPlayer(from)?.name ?? this.remotes.get(from)?.name ?? '대원';
-          const kind: ChatKind = typeof d.kind === 'string' && CHAT_KINDS.has(d.kind) ? d.kind : 'text';
-          bus.emit('net:chat', { id: from, name, text: d.text.slice(0, 200), kind });
-        }
-        break;
-      case 'dmg':
-        if (isNum(d.amount) && this.ctx.player && this._inSession) {
-          this.ctx.player.takeDamage(d.amount, isVec3(d.from) ? vec(d.from) : undefined);
-          if (d.slow && isNum(d.slow.duration) && isNum(d.slow.factor)) bus.emit('player:applySlow', { duration: d.slow.duration, factor: d.slow.factor });
-          // Phase 7: knockback rides along (behemoth charge, blasts); the player ignores it while downed.
-          if (d.kb && isVec3(d.kb.d) && isNum(d.kb.s) && d.kb.s > 0) this.ctx.player.applyKnockback(vec(d.kb.d), d.kb.s);
-        }
-        break;
-      /* Phase 7: the host's ghost of a suspended member overrides that ref's pose / vitals. */
-      case 'ghost':
-        if (!this._inSession) break;
-        if (d.ev === 'state') { if (isGhostWire(d.g)) this.applyGhost(d.g); }
-        else if (d.ev === 'sync') { if (Array.isArray(d.ghosts)) for (const g of d.ghosts) if (isGhostWire(g)) this.applyGhost(g); }
-        else if (d.ev === 'restore') {
-          if (isGhostWire(d.g) && d.g.id === this.localId) {
-            bus.emit('net:ghostRestore', { state: { position: vec(d.g.p), yaw: d.g.yaw, hp: d.g.hp, downHp: d.g.dhp, state: d.g.st } });
-          }
-        } else if (d.ev === 'gone') {
-          if (typeof d.id === 'string') this.remotes.get(d.id)?.clearGhost();
-        }
-        break;
-      /*
-       * Phase 10: a member's ship-side crew card (`crew card`) or its full answer to `crewq loadout`
-       * (`crew loadout`). Stored + mirrored onto the ref; the loadout document itself stays opaque (inventory/
-       * validates it before rendering). `crewq` needs no case — hub/ answers it through `onMessage('crewq')`.
-       */
-      case 'crew': {
-        const card = sanitizeCrewCard(d.card);
-        if (!card) break;
-        this.crewCards.set(from, card);
-        this.applyCrewCard(from, card);
-        bus.emit('net:crewCard', { id: from, card });
-        if (d.ev === 'loadout') bus.emit('net:crewLoadout', { id: from, card, loadout: d.loadout });
-        break;
-      }
-      /*
-       * Phase 10: 들쳐메기 one-shots. The steady state rides on `PlayerFlags.CARRYING` + `cr`, so these only buy
-       * instant feedback (before the next 20 Hz snapshot) and tell everyone where a dropped body landed.
-       */
-      case 'carry': {
-        if (typeof d.target !== 'string' || d.target.length === 0) break;
-        const r = this.remotes.get(from);
-        if (!r) break;
-        const next = d.ev === 'pick' ? d.target : null;
-        if (d.ev === 'drop' && r.carrying !== d.target) break; // a stale drop for someone else's body
-        if (r.carrying !== next) {
-          r.carrying = next;
-          bus.emit('net:remoteCarryChanged', { id: from, carrying: next });
-        }
-        break;
-      }
-      /* Phase 7: the new host finished promoting itself → every system re-requests its sync (isLocalHost false). */
-      case 'flow':
-        if (d.ev === 'takeover' && this._inSession && from !== this.localId) {
-          const cur = this._lobby?.hostId ?? from;
-          const prev = cur === from ? this.prevHostId : cur;
-          bus.emit('net:hostChanged', { hostId: from, prev: prev === from ? null : prev, isLocalHost: false });
-        }
-        break;
-      default:
-        // hit / explode / hitc / es / ee / ex / exq / crate / item / itemq / cont / contq / ghostq …: subscribers only.
-        break;
-    }
-
-    const set = this.handlers.get(d.t);
-    if (set && set.size) {
-      for (const h of Array.from(set)) {
-        try { h(d, from); } catch (e) { console.error(`[net] onMessage handler for '${d.t}' threw`, e); }
-      }
-    }
-  }
+  handleRelay(from: PeerId, d: GameMessage): void { return Msg.handleRelay(this, from, d); }
 
   /** `ghost state` / `sync` entry for a lobby member (never ourselves): the ref is created when missing. */
-  private applyGhost(g: GhostWire): void {
-    if (g.id === this.localId || !this.getLobbyPlayer(g.id)) return;
-    const r = this.getOrCreateRemote(g.id);
-    r.applyGhost(g);
-    this.ctx.bus.emit('net:ghostState', { id: g.id, hp: g.hp, downHp: g.dhp, state: g.st });
-  }
+  applyGhost(g: GhostWire): void { return Remotes.applyGhost(this, g); }
 
   /* ── remote players ─────────────────────────────────────────────────── */
-  private getOrCreateRemote(id: PeerId): RemotePlayer {
-    let r = this.remotes.get(id);
-    if (r) return r;
-    const lp = this.getLobbyPlayer(id);
-    r = new RemotePlayer(id, lp?.name ?? '대원', lp?.slot ?? 0, this.ctx.time);
-    if (lp && this._lobby) {
-      r.inMission = this.playerInMission(lp, this._lobby);
-      r.suspended = this._inSession && r.inMission && !lp.connected;
-    }
-    this.remotes.set(id, r);
-    this.remoteList = Array.from(this.remotes.values());
-    // Phase 10: a card that arrived before the ref existed (hub → mission transition) is applied now.
-    const card = this.crewCards.get(id);
-    if (card) { r.crewLevel = card.level; r.equippedImplant = card.implant; }
-    this.ctx.bus.emit('net:remotePlayerAdded', { id });
-    if (r.suspended) this.ctx.bus.emit('net:peerSuspended', { id, name: r.name, suspended: true });
-    return r;
-  }
+  getOrCreateRemote(id: PeerId): RemotePlayer { return Remotes.getOrCreateRemote(this, id); }
 
-  private removeRemote(id: PeerId): void {
-    const r = this.remotes.get(id);
-    if (!r) return;
-    this.remotes.delete(id);
-    this.remoteList = Array.from(this.remotes.values());
-    this.ctx.bus.emit('net:remotePlayerRemoved', { id });
-    r.dispose();
-  }
+  removeRemote(id: PeerId): void { return Remotes.removeRemote(this, id); }
 
-  private clearRemotes(): void {
-    if (this.remotes.size === 0) return;
-    for (const id of Array.from(this.remotes.keys())) this.removeRemote(id);
-  }
+  clearRemotes(): void { return Remotes.clearRemotes(this); }
   /* ══ Phase 10 — 발사 준비 패널 crew cards ══════════════════════════════ */
   /**
    * Last `crew card` seen for `id`, the local player included: hub/ owns *sending* the card and we snoop our own
    * broadcast in `send()`, so the READY panel reads every cell (ours and the squad's) through this one accessor.
    */
-  getCrewCard(id: PeerId): CrewCardWire | null { return this.crewCards.get(id) ?? null; }
+  getCrewCard(id: PeerId): CrewCardWire | null { return Remotes.getCrewCard(this, id); }
 
   /**
    * Ask `id` for its full loadout (`crewq loadout` addressed to that peer). The answer comes back as
    * `crew loadout` → `net:crewLoadout {id, card, loadout}`; a peer may rate-limit it (`CREW_LOADOUT_COOLDOWN_S`),
    * so the caller must tolerate no answer at all.
    */
-  requestCrewLoadout(id: PeerId): void {
-    if (typeof id !== 'string' || id.length === 0 || id === this.localId) return;
-    this.send({ t: 'crewq', ev: 'loadout' }, id);
-  }
+  requestCrewLoadout(id: PeerId): void { return Remotes.requestCrewLoadout(this, id); }
 
   /** Mirror the ship-side card onto the member's ref (the wielded `implantId` stays snapshot-driven). */
-  private applyCrewCard(id: PeerId, card: CrewCardWire): void {
-    const r = this.remotes.get(id);
-    if (!r) return;
-    r.crewLevel = card.level;
-    r.equippedImplant = card.implant;
-  }
+  applyCrewCard(id: PeerId, card: CrewCardWire): void { return Remotes.applyCrewCard(this, id, card); }
 
   /**
    * Phase 10: `RemotePlayerRef.carriedBy` is derived, not sent — every carrier advertises `carrying` and the carried
@@ -1120,26 +407,6 @@ export class NetSystem implements GameSystem, NetRef {
    * free) plus one trailing pass that clears the field when the last carry ends. A **suspended** carrier is ignored:
    * its socket is down, the host owns that body as a ghost, so the victim is no longer on a shoulder.
    */
-  private refreshCarriedBy(): void {
-    const localCarry = typeof this.ctx.player?.carrying === 'string' ? this.ctx.player.carrying : null;
-    let any = localCarry !== null;
-    if (!any) {
-      for (const r of this.remoteList) if (r.carrying !== null && !r.suspended) { any = true; break; }
-    }
-    if (!any && !this.carryActive) return;
-    for (const r of this.remoteList) {
-      // A suspended member's body is a host ghost, not a passenger — never point it at a shoulder.
-      if (r.suspended) { r.carriedBy = null; continue; }
-      let by: PeerId | null = null;
-      if (localCarry === r.id) by = this.localId;
-      else {
-        for (const o of this.remoteList) {
-          if (o !== r && !o.suspended && o.carrying === r.id) { by = o.id; break; }
-        }
-      }
-      r.carriedBy = by;
-    }
-    this.carryActive = any;
-  }
+  private refreshCarriedBy(): void { return Remotes.refreshCarriedBy(this); }
 
 }

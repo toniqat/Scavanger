@@ -162,3 +162,17 @@ Errors are `lobby:error {code, message}` with Korean `message`. Player names pas
   The Vite dev server proxies `/ws` to `ws://localhost:8787`, so the browser uses same-origin `/ws`.
 - Production: serve `dist/` from anywhere and point the client at the relay with `VITE_WS_URL=wss://host:port/ws`
   at build time, or put both behind one reverse proxy that forwards `/ws`.
+
+---
+
+## 변경 이력
+
+프로젝트 전체 이력은 [docs/HISTORY.md](../docs/HISTORY.md) 에 있다.
+
+- **Phase 7** — `Store.ts` profile store (`profiles.json` under `server/data/`, git-ignored; `dataDir:null` = memory), `welcome.profile / raid`, `profile:get / set`, `credits:tx` → `credits:result`, `raid:save` per running raid, `lobby:start {mode:'training'}` by any member, `lobby:mission` + `LobbyPlayer.inMission` (a training resets itself when its last member leaves), host migration `NET_HOST_MIGRATE_DELAY_MS` after the host drops mid-mission (prefers connected in-mission members), `/health.profiles`
+
+- **Phase 9** — per-document stamps (`ProfileRecord.docsAt`, `profile:set {at, fresh}`, newest wins, clamped to the server clock + `PROFILE_CLOCK_SKEW_MS`), while a raid is started the host role migrates **only** to a connected in-mission member (nobody inside → the role is parked until one returns; the last one leaving resets the mission), and a duplicate socket (page reload) clears `inMission`
+
+- **Phase 11** — `ProfileRecord.social` 저장소(아이디 발급 + 충돌 salt + 코드→PeerId 인덱스 + 정화 · 캡), 프리즌스(`clients` / `lobbyOf` / `inMission` 접기, 그레이스는 `offline`), 로비 **밖** push 채널(친구 watcher 인덱스 — 접속 · 해제 · 로비 이동 · `lobby:mission` · start · `lobby:planet` 마다 팬아웃), `social:*` 7 핸들러(3분기 `social:play`, 최근 만난 플레이어 자동 기록), `lobby:planet` (호스트 · 미시작) · 레이드 `no_planet` 게이트 · `game:start.planet` · `lobby:reset` 후에도 목적지 유지, `lobbyState()` 가 모든 `LobbyState` 에 아이디 · 레벨을 실어 보낸다
+
+- **2026-09-07** — `armGrace` — 진행 중인 **레이드** 안에 있던 멤버는 (다른 접속 멤버가 아직 안에 있는 한) 슬롯을 레이드가 끝날 때까지 유지한다(훈련장 제외, 호스트 역할은 예전처럼 첫 만료에 이관)

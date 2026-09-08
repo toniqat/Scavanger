@@ -584,3 +584,43 @@ Plan: `docs/PHASE12-PLAN.md`. Everything below is append-only; owners in bracket
   durability 0 and is repaired in the ship instead of vanishing).
 - `labels.ts`: `implant` → `임플란트` / `#e39cff` / `⬡`.
 - `cursor.ts`: `isDesktopShell()` — Electron user agent (or `window.__scavDesktop` for tests).
+
+---
+
+## 변경 이력
+
+프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **Phase 6 (2026-09-06)** — `console.ts` (`ConsoleRef`, `isDevHost`), `housing.ts` (rooms / facilities / `FURNITURE_DEFS` / `HousingRef`), unique-weapon + stat-XP + housing constants — see the last section of `src/shared/README.md`
+
+- **Phase 7** — `profile.ts` (`ProfileRef` = `ctx.net.profile`, `ProfileRecord`, `RaidSessionBlob`), `labels.ts` (rarity / category labels + palette, re-exported by items), `MissionMode` / `ctx.missionMode` / `ctx.rejoinPending` / `isTraining()`, ghost · container · beam wire types, `PlayerFlags` pose bits, `DamageMessage.kb`, `ContractSettlement.outcome`, `furn_sim_hub`, `BEHEMOTH_SCALE` 3 — see the last section of `src/shared/README.md`
+
+- **Phase 8** — `itemChip.ts` (`buildItemChip` / `renderItemCost` — the one 재료 요구 칩 renderer, the only DOM in shared), `EmbeddedView`, `AudioRef` / `AudioSettings` (`ctx.audio`), `ItemCategory 'seed'` + `ItemDef.seed`, `FurnitureDef.stackLimit` / `PlacedFurniture.layer` / `GrowPlot` / 함선 관리 + 재배 members on `HousingRef`, `NetRef.serverNow()`, **`Input.consume(code)`**, `SHIP_STATE_VERSION` 2
+
+- **Phase 8 UI pass** — `itemChip` stamps `data-def-id` (hook for the shared hover card), `WORKSHOP_ROOM_INDEX` 0 (방 1 = 작업실 forever), `HousingRef.purposeBlock`, `openRoomMenu / openFacilityMenu` redirect to 시설 관리, `furn_range_console` renamed **관물대**
+
+- **Phase 9** — `ProfileRecord.docsAt` + `profile:set {at, fresh}` + `ProfileRef.set(key, doc, {fresh?})` (offline sets are queued, never dropped), `PlayerSnapshot.dhp`, delta `EnemyWire` / `EnemySnapshot {seq, gone}` + `NET_ENEMY_KEYFRAME_S`, `NET_GHOST_PARK_S`, `META_HIT_MAX`, `strat sync` / `stratq sync`, `meta sync` / `metaq sync`, `RemotePlayerRef.ghostState / ghostDownHp / downHp`, `ItemCategory 'book'` + `ItemDef.book`, `TrainingMode` / `TrainingRef` (`ctx.world.training`), `ImplantsRef.damageBarrier`, `EnemyManagerRef.applyStatus(..., attacker)`, `enemy:killed.by`, `player:giveUpProgress`, `housing:booksChanged`, 서재 (`furn_bookshelf`, `PlacedBook`, `ShipState.books / bookDex`, book members on `HousingRef`)
+
+- **Phase 9 UI pass** — `ROOM_PURPOSE_GLYPH / ROOM_PURPOSE_COLOR` + `FACILITY_GLYPH / FACILITY_COLOR` (the one icon per facility, drawn everywhere a facility is listed), `HousingRef.facilityRefund / removeRoomFacility` (시설 제거 = 가구 → 가구 창고, 업그레이드 재료 → 함선 창고), `InventoryRef.createTradeGrids` + `TradeGridsViewOptions` (real 가방 / 창고 격자를 다른 폴더 화면에 embed)
+
+- **Phase 9 UI/UX 개선** — `ROOM_PURPOSE_BUILD_COST` + `ROOM_PURPOSE_BUILD_GENERATOR_LEVEL` + `HousingRef.purposeCost` (시설 증축 비용), `SquadContractInfo` + `MetaRef.getSquadContracts()`, `meta contract` 메시지, `meta:squadContract` 이벤트
+
+- **Phase 10 (2026-09-07)** — new `cursor.ts` (`SoftCursor` — the in-game mouse cursor: keeps the pointer lock and **synthesises** the DOM pointer/mouse events at a virtual position, so no UI surface changed; `isSoftCursorEvent`, faked-lock detection, default-action emulation for text fields / range sliders), `Input.cursor / isCursorMode / cursorOwnsInput / setCursorMode(active, owner) / cursorX·Y / uiX·uiY / elementUnderCursor / setCursorSynthetic`, `EnemyDeathDir` + `ENEMY_DEATH_DIRS` + `CORPSE_LOOT_CHANCE`, `CarryEndReason` + `PlayerRef.carry / dropCarried / setCarriedBy / carrying / isCarried`, `PortraitRef` + `PlayerRef.createPortraits`, `CrewLoadoutViewOptions` + `InventoryRef.captureCrewLoadout / createCrewLoadoutView`, `ImplantsRef.barrierCarried / getBarrierPose`, `PlayerFlags.CARRYING / CARRIED`, `PlayerSnapshot.cr / bhp`, `CarryMessage`, `CrewCardWire` / `CrewMessage` / `CrewRequest` + `NetRef.getCrewCard / requestCrewLoadout`, `imp shield`, `cont taken.rem / seq`, `ee kill.dd` / `ee corpse.dd / lt`, `formatCredits / formatCreditAmount / itemCreditValue / CREDIT_SUFFIX`, `HEAL_HOLD_S`, `PLAYER_CARRY_*`, `IMPLANT_BARRIER_CARRY_*`, `INTERACT_PILLAR_*`, `HUB_READY_*`, `SOFT_CURSOR_*`, the `STIM` key action **retired** and `KEY_ALIASES.CARRY = 'MELEE'`
+
+- **Phase 11 (2026-09-07)** — `planets.ts` (`PlanetId` 5종 + `PLANET_DEFS` — 바이옴 · 하늘 팔레트 · 포그 on/off + `fogMul` · 홀로그램 색 · `PlanetEcosystem`, `getPlanet` / `planetLabel` / `PLANET_STORAGE_KEY`), `social.ts` (`PlayerCode` + `playerCodeFrom` / `formatPlayerCode`, `PresenceState`, `SocialSnapshot` / `SocialPlayer` / `SquadInvite` / `WhisperLine`, `playBlockReason` + `PLAY_BLOCK_LABELS`, `SocialErrorCode`, 캡 상수, 서버 소유 `SocialRecord`, `SocialRef`), `LobbyState.planet` · `LobbyPlayer.code / level` · `lobby:planet` · `no_planet` · `welcome.social` · `social:*` 12종, `NetRef.social / lobbyPlanet / setLobbyPlanet`, `HubRef.planet / setPlanet / travelling`, `WorldRef.planet`, **`ctx.missionPlanet`**, `ChatKind 'whisper'`, `hub:planetChanged / travel / terminalToggled`, `social:*` 이벤트, `ui:communityToggled`, `chat:whisperTo`, `HUB_TRAVEL_*` / `PLANET_HOLOGRAM_*` / `COMMUNITY_BLOCKER` / `SOCIAL_*`, **`Keys.INVITE` = P** (progression 의 문서화되지 않은 P 캐릭터 시트 토글은 폐기)
+
+- **2026-09-07 (총기 이름 · 회복 소모품 · 기본 지급품)** — `ItemDef.heal` + `HealDef` / `SprayDef`, `PlayerRef.applyHeal(amount, seconds, quiet?)`, `CONSUMABLE_SLOW_MUL` / `CONSUMABLE_SLOW_KEY` / `DEFIB_USE_TIME_S` / `HEAL_SPRAY_GAUGE` / `HEAL_SPRAY_RADIUS`, `heal:holdChanged` 에 `dur` · `spray` 추가, **`AMMO_STACK_ROUNDS` 변경**(경 80 · 준중 50 · 중 25 · 산탄 25 = 한 세트), `meta.ts` 퀘스트 보상 무기 id 재지정
+
+- **2026-09-07 UI/UX pass** — `InventoryScreenTab` + `InventoryRef.openScreen(tab)` / `screenTab` (함선 컴퓨터가 Tab 창의 기업 탭을 연다), `TradeGridsViewOptions.cell` (뷰별 그리드 칸 크기)
+
+- **2026-09-07 (안정화 pass)** — `cursor.ts` 의 `SoftCursor.onMove(listener)` (스프라이트가 게임 프레임이 아니라 **입력 이벤트**에 붙는다), `NET_GHOST_PARK_S` 120 → 3600 (레이드가 끝날 때까지)
+
+- **2026-09-07 (커서 편의성)** — `moveBy` 가 다시 **완전 선형**(같은 날 넣었던 `SOFT_CURSOR_ACCEL` / `_MAX` 삭제 — 14 px 손동작이 27 px 를 가서 조준한 곳에 서지 않았다), `Input.requestPointerLock()` 이 **거부된 요청을 기억**해 다음 진짜 제스처(클릭 · Escape 가 아닌 키)에서 재시도하고 `Input.awaitingLockGesture` / `LOCK_GESTURE_RETRY_MS` 를 노출한다
+
+- **2026-09-07 (마우스 커서 rework)** — `cursor.ts` 가 `SoftCursor` → **`CursorMode`** 로 축소되어(토큰 ref-count + 모드 리스너뿐, 이벤트 합성 · 가상 좌표 · 기본동작 에뮬레이션 · `SOFT_CURSOR_FLAG` / `isSoftCursorEvent` 전부 삭제) **커서 모드 = 포인터 락 해제**가 되고, `Input.setCursorMode` 가 락을 놓으며 커서 모드 동안 게임플레이 마우스 입력을 기록하지 않는다, `uiX/uiY/cursorX/cursorY` 는 실제 커서 좌표, `cursorOwnsInput` / `setCursorSynthetic` 삭제, 전체화면이면 `navigator.keyboard.lock(['Escape'])` 로 Escape 가 락을 깨지 않게 하고(`Input.keyboardLocked`), `SOFT_CURSOR_*` 상수 → **`GAME_CURSOR_SIZE`** + **`FREE_CURSOR_BLOCKER`**, **`Keys.DIVE` = V · 새 `Keys.CURSOR` = Alt · `Keys.SWAP`(이전 무기) 삭제**, `events.ts` 에 `ui:freeCursorToggled`
+
+- **2026-09-07 (기본 지급품 · 작업실)** — `WORKSHOP_ROOM_INDEX` 는 **deprecated** — 방 1 = 작업실 규칙이 사라졌고 아무도 읽지 않는다(계약은 append-only 라 export 는 유지) — see the last section of `src/shared/README.md`
+
+- **2026-09-07 (좌클릭 카메라 복귀)** — `Input` 의 `mousedown` 이 커서 모드 분기 바로 뒤에서 `takeLockOnClick(e)` 를 본다 — 락이 없고(`wantLock`) 대상이 **캔버스**인 **좌클릭**이면 포인터 락을 즉시 다시 요청하고 그 누름을 **삼킨다**(게임 입력으로 기록하지 않으므로 카메라를 되찾는 클릭이 총을 쏘지 않는다). Escape 로 화면을 닫았을 때 창 모드 Chrome 이 남기는 상태가 바로 이것이고, 클릭이 Chrome 이 기다리던 제스처다
+
+- **Phase 12 (2026-09-08)** — `ItemCategory 'implant'` + `ItemDef.implant` (`ImplantItemDef` — `slots` · `stats` · `perk?` · `broken?` / `repairsTo` / `repairCost`), `EnemyManagerRef.reportShot` / `setXray`, `ImplantsRef.resolveBarrierCollision` / `absorbFrontalAttack` / `bashing`, progression 의 `PerkId` 3종 + `PERK_DEFS` · `EquippedImplant` · `PlayerProfile.implants` · `DerivedStats.perks` · `implantSlots` 계열, net 의 `shotq` / `ee barrierHit` / `imp bash` / `imp scanCast`, events 의 `progress:implantsChanged` · `implant:bashed` · `implant:barrierBumped` · `enemy:shotAlerted` · `scan:cast` · `ui:resumeGate` · `inventory:disassembleProgress` · `item:channelChanged`, constants 의 `IMPLANT_SLOTS_*` · `IMPLANT_SHIELD_BASH_*` · `IMPLANT_SCAN_RADIUS`/`_V2` · `ENEMY_SHOT_ALERT_*` · `COMPASS_ENEMY_COLOR` · `RESUME_GATE_BLOCKER` · **`HEAL_SPRAY_GAUGE` 200** · `IMPLANT_BARRIER_CARRY_WIDTH` 3.2, `labels.ts` 임플란트, `cursor.ts` 의 `isDesktopShell()`, `meta.ts` 의 `ShopRule.maxRarity` / `implantRepairMaterials`

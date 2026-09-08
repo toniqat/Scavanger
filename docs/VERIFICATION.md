@@ -277,3 +277,28 @@ smoke-ghost 86/86, smoke-planets 76/76, smoke-social 116/116, smoke-ecology 83/8
   문제가 아니다 — 포인터 락을 아예 거부하는 브라우저에서는 나갈 방법이 없는 오버레이가 된다. 그래서 게이트를
   **이번 세션에서 락을 한 번이라도 잡은 경우**로 좁혔다(2026-09-07 이전의 lost-lock 워치독과 같은 규칙).
   고친 뒤 smoke-tactical 85/85, smoke-resume-gate 47/47.
+
+## 2026-09-08 — 문서 재구성 + 거대 파일 분할 (동작 무변경)
+
+`verify:all` **전부 통과**, 5분 38초 (31 스모크 · e2e 156/156 · net-selftest 278/278 · build).
+
+docs line: 2026-09-08: typecheck ok, typecheck-server ok, net-selftest 278/278, build 2,114.08 kB JS / 210.51 kB CSS,
+smoke-quickslots 46/46, smoke-phase2 53/53, smoke-stratagems 70/70, smoke-weapons 137/137, smoke-phase3 32/32,
+smoke-phase4 49/49, smoke-ship-rooms 71/71, smoke-controls-hub 106/106, smoke-inventory-p6 93/93, smoke-tactical 85/85,
+smoke-console 63/63, smoke-housing 194/194, smoke-loadout 61/61, smoke-progression 119/119, smoke-search 59/59,
+smoke-ui-p6 87/87, smoke-ui-p5 133/133, smoke-resume-gate 47/47, smoke-enemy-alert 42/42, smoke-uniques 71/71,
+smoke-meta 166/166, smoke-rogue-v2 52/52, smoke-training 110/110, smoke-library 126/126, smoke-enemy-delta 52/52,
+smoke-ghost 86/86, smoke-planets 76/76, smoke-social 116/116, smoke-ecology 83/83, smoke-raidflow 48/48, e2e-mp 156/156
+
+이 변경은 **13개 시스템 파일을 `model.ts` + `parts/` 로 가르는 순수 재배치**였으므로(위임 메서드가 남아 호출부
+무변경) 스모크 전체가 그대로 통과하는 것이 성공 기준이었다. 실제로 통과했고, 도중 두 번 나온 red 는 둘 다
+분할과 무관한 **기존 플레이크**였다:
+
+- **smoke-ship-rooms 68/71** — 병렬 4레인 부하에서만 나온다(방 좌표 · 가구 픽업 3건). 단독 재실행 71/71.
+  이 스크립트가 함선 상태를 심는 시점이 서버 프로필 로드와 경합하는, 이미 알려진 성질이다.
+- **smoke-enemy-delta 51/52** — `a turn below the 1 cm step sends only yaw`. **HEAD 에서도 12번에 1번 실패**하는
+  것을 격리 워크트리로 확인했다(분할 코드 2/13, HEAD 1/20 — 같은 비율). 원인은 테스트 쪽이다: 위치는
+  `round(v, 2)` 로 양자화되는데 검사가 적을 1 mm 밀고 "1 cm 미만이니 `p` 는 안 나간다"를 기대한다. 스폰 x 가
+  센티미터의 상위 10 %에 떨어지면 1 mm 도 경계를 넘는다(350.4249 → 350.42, +0.001 → 350.43).
+  넛지 전에 x 를 센티미터 격자에 스냅하도록 고쳤다 — 반올림값이 같으므로 캐시 비교에는 영향이 없고,
+  격자점에서 0.001 은 다른 값으로 반올림될 수 없다. 고친 뒤 **12/12**.

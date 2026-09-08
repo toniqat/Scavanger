@@ -239,3 +239,21 @@ rules, the storage and the UI; items/ the defs and loot; meta/ (세레스 바이
   unequip back to the stash, legendary → `derived.perks.quick_heal`, raid / non-hub locks, the sheet block + picker DOM
   (dimmed rows, click-to-equip, Escape, raid line), reload round-trip, malformed-entry pruning, server document
   round-trip through a fake `ctx.net.profile`.
+
+---
+
+## 변경 이력
+
+프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **Phase 6** — **stat XP** (`profile.statProgress`, `addStatXp` ± with point gain/loss between `STAT_MIN`..`STAT_MAX`, `statXpToNext` = `STAT_XP_BASE × v^STAT_XP_EXPONENT`, `progress:statXp`), `addSkillXpRaw` (signed, unscaled), `getSkillGainMul` (× `ctx.housing.getSkillGainMul` inside `addSkillXp`), stat bars + 시설 badge in the sheet
+
+- **Phase 7** — server `progression` document (`profile.set` on save, replace + `progress:*` re-emit on `net:profileLoaded`), 감정 XP from `container:itemRevealed`, training = `gun_*` skills only × `TRAINING_SKILL_GAIN_MUL`
+
+- **Phase 8** — `createSheetView(host)` for the 캐릭터 tab (`ui/SheetBody` shared with the overlay) and the sheet's permanent scrollbars fixed
+
+- **Phase 9** — the profile upload is no longer gated on a live connection (ProfileSync queues it) and `getSkillGainMul` is now 사격장 × **서재** (`ctx.housing.getBookBonus`)
+
+- **Phase 9 UI/UX 개선** — `ui/SheetBody` 가 **전술 임플란트 카드**(`.cs-imp-card`, 장착 / 해제, 레이드 중 잠금)를 갖는다 — 인벤토리 장비 칸의 슬롯을 대체
+
+- **2026-09-07 UI/UX pass** — 본문이 **능력치

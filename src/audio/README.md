@@ -110,3 +110,15 @@ Appended (tactical kit):
   `repair:completed`→repair_done · `durability:broken`→durability_break · `inventory:overloaded` (heavy/over)→ui_deny · `quickbar:used`→ui_click · `equip:changed`→ui_equip.
 - Progression: `progress:skillUp`→skill_up. `level_up` is no longer auto-played on `progress:levelUp` (Phase 7) — the result screen's `RewardsBlock` emits `audio:play {id:'level_up'}` when its XP bar crosses the level, so the fanfare plays exactly once at the visible moment.
 `turret_shot` is provided for `gadgets/` to send via `audio:play` (turret fire is not auto-hooked — there is no per-shot event).
+
+---
+
+## 변경 이력
+
+프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **tactical kit** — 36 tactical-kit SFX (grapple, dash, barrier, overcharge, scan, rocket, melee, roll, jump pad, turret, mine, fire, defib, gather, craft, gear break, level up)
+
+- **Phase 7** — the roll no longer double-plays (`dive` one-shot removed), `level_up` is played only by the result screen
+
+- **Phase 8** — publishes `ctx.audio` (`AudioRef`) — 전체 / 효과음 volumes on the master + sfx gains, persisted in `AUDIO_STORAGE_KEY`, `preview()`, `audio:volumeChanged`, pause duck composes instead of overwriting

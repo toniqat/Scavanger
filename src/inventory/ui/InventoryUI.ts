@@ -15,101 +15,32 @@ import { ContextMenu, type MenuEntry } from './ContextMenu';
 import { SplitDialog } from './SplitDialog';
 import { QUICK_DIR_GLYPH, QUICK_ROSE_ORDER, SLOT_LABEL, STEP, TEXT, fmtValue, slotKeyLabel, tierTitle, tileSize, fmtKg, weightLabel } from './labels';
 
-const DRAG_THRESHOLD = 4; // px before a press becomes a drag
-/** The dragged ghost's size lift. Lives here, not in CSS — see `positionGhost`. */
-const GHOST_SCALE = 1.04;
-const MIDDLE_BUTTON = 1;
-/** Two presses on the same catalog tile within this window = 가방에 넣기. */
-const CATALOG_DBL_MS = 400;
-const BAG_LOC: ItemLocation = { kind: 'grid', grid: 'bag' };
-const LOCK_SVG = '<svg viewBox="0 0 12 14" aria-hidden="true"><rect x="1.5" y="6" width="9" height="7" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M3.5 6V4a2.5 2.5 0 0 1 5 0v2" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>';
+import { BAG_LOC, CATALOG_DBL_MS, DRAG_THRESHOLD, type DragState, GHOST_SCALE, LOCK_SVG, MIDDLE_BUTTON, type QuickCell, SCREEN_TABS, type ScreenTab, type SlotView } from './model';
+/** 폴더 공용 어휘(상수 · 타입 · 스크래치)는 `model.ts` 가 갖는다 — 기존 import 경로를 위해 재수출한다. */
+export * from './model';
+import * as Drag from './parts/Drag';
+import * as Menu from './parts/ContextMenu';
+import * as QuickUI from './parts/QuickPanel';
+import * as SlotUI from './parts/SlotPanel';
+import * as Screens from './parts/Screens';
 
-/**
- * Screen tabs above the window (Arc Raiders style), hub mode only.
- *
- * **Phase 8**: the tabs no longer close the window and open a separate full-screen popup. Selecting one swaps the
- * `.inv-layout` content for a `.inv-screen` host and builds the owning folder's **embedded view** into it —
- * `ctx.progression.createSheetView` / `ctx.meta.createCorpView` / `ctx.housing.createShipView`, each an
- * `EmbeddedView` we `refresh()` on show and `dispose()` on leave. The window keeps its single `inventory` blocker
- * and its blurred `.inv-root` backdrop is the 배경 블러 the design asks for.
- */
-export type ScreenTab = 'inventory' | 'character' | 'corp' | 'ship';
-const SCREEN_TABS: readonly { id: ScreenTab; label: string; title?: string }[] = [
-  { id: 'inventory', label: TEXT.tabs.inventory },
-  { id: 'character', label: TEXT.tabs.character, title: TEXT.tabs.characterHint },
-  { id: 'corp', label: TEXT.tabs.corp, title: TEXT.tabs.corpHint },
-  { id: 'ship', label: TEXT.tabs.ship, title: TEXT.tabs.shipHint },
-];
-
-interface DragState {
-  uid: string;
-  item: ItemInstance;
-  def: ItemDef;
-  from: ItemLocation;
-  /** Wheel cell the drag started from (its tile is a bag item); releasing anywhere but another cell clears that slot. */
-  quickFrom: number | null;
-  /** Units carried by a Shift (half) / Ctrl (one) drag; null = the whole item. */
-  qty: number | null;
-  /** Phase 6: the item is a fresh catalog instance (lives in no grid; `from` is a placeholder). */
-  catalog: boolean;
-  rotated: boolean;
-  started: boolean;
-  startX: number;
-  startY: number;
-  grabX: number;
-  grabY: number;
-  ghost: HTMLElement | null;
-  target: DropTarget | null;
-  lastX: number;
-  lastY: number;
-}
-
-interface SlotView {
-  slot: SlotId;
-  el: HTMLElement;
-  body: HTMLElement;
-  bodyW: number;
-  bodyH: number;
-  meta: HTMLElement;
-  key: HTMLElement | null;
-  tile: HTMLElement | null;
-  uid: string | null;
-}
-
-/** One cell of the quick-use compass rose. */
-interface QuickCell {
-  index: number;
-  el: HTMLElement;
-  tile: HTMLElement | null;
-  uid: string | null;
-}
-
-/**
- * Arc Raiders-styled DOM for the Diablo grid.
- *   - Mission (Tab / crate): container panel (left), bag (center, quick-use rose underneath), equipment column (right).
- *   - Ship (`hub` = true, 2026-09-06): screen tabs (인벤토리 / 캐릭터 / 기업) on top, then **함선 창고** (scrollable stash
- *     grid, left) · **장착 장비** (5 slots; the 전술 임플란트 moved to the 캐릭터 tab in the Phase 9 UI pass) · **가방** with the
- *     quick-use rose to its right (≥ 1600 px wide; under the grid on narrower windows). Right-click on worn gear
- *     offers 수리 there; a "drop" (X / backdrop release) lands in the stash because the ship has no ground.
- * Owns drag & drop, rotation, tooltips, context menus.
- */
 export class InventoryUI {
-  private root: HTMLElement | null = null;
-  private layout!: HTMLElement;
+  root: HTMLElement | null = null;
+  layout!: HTMLElement;
   private tabsEl!: HTMLElement;
   /** Phase 8: tab buttons by id, and the host the embedded 캐릭터 / 기업 / 함선 views are built into. */
-  private tabButtons = new Map<ScreenTab, HTMLButtonElement>();
-  private screenHost!: HTMLElement;
-  private screenNote!: HTMLElement;
-  private activeTab: ScreenTab = 'inventory';
-  private screenView: EmbeddedView | null = null;
+  tabButtons = new Map<ScreenTab, HTMLButtonElement>();
+  screenHost!: HTMLElement;
+  screenNote!: HTMLElement;
+  activeTab: ScreenTab = 'inventory';
+  screenView: EmbeddedView | null = null;
   /** Layer that holds the modeless popups (임플란트 picker / 제작 / 분해) above `.inv-layout`. */
   private modelessLayer!: HTMLElement;
   /** Right-hand column wrapper (`display: contents` normally): while 제작 is open it stacks 가방 over 함선 창고. */
   private rightCol!: HTMLElement;
-  private disassemble!: DisassemblePanel;
-  private creditsEl!: HTMLElement;
-  private creditsValue!: HTMLElement;
+  disassemble!: DisassemblePanel;
+  creditsEl!: HTMLElement;
+  creditsValue!: HTMLElement;
   private containerPanel!: HTMLElement;
   private containerTitle!: HTMLElement;
   private containerTier!: HTMLElement;
@@ -119,41 +50,41 @@ export class InventoryUI {
   private stashCount!: HTMLElement;
   private bagCapacity!: HTMLElement;
   private valueEl!: HTMLElement;
-  private containerView!: GridView;
-  private stashView!: GridView;
-  private bagView!: GridView;
-  private slots = new Map<SlotId, SlotView>();
+  containerView!: GridView;
+  stashView!: GridView;
+  bagView!: GridView;
+  slots = new Map<SlotId, SlotView>();
   /* appended: tactical kit */
-  private craftPanel!: CraftPanel;
+  craftPanel!: CraftPanel;
   /* Phase 6: 무한 상자 */
-  private catalogView!: CatalogView;
+  catalogView!: CatalogView;
   private weightEl!: HTMLElement;
   private weightValue!: HTMLElement;
   private weightState!: HTMLElement;
   private weightFill!: HTMLElement;
-  private quickCells: QuickCell[] = [];
-  private quickCount!: HTMLElement;
-  private quickKey!: HTMLElement;
-  private quickHold!: HTMLElement;
+  quickCells: QuickCell[] = [];
+  quickCount!: HTMLElement;
+  quickKey!: HTMLElement;
+  quickHold!: HTMLElement;
   private hintsEl!: HTMLElement;
-  private tooltip!: Tooltip;
-  private ghostLayer!: HTMLElement;
-  private dropZone!: HTMLElement;
-  private menu!: ContextMenu;
-  private dialog!: SplitDialog;
-  private drag: DragState | null = null;
-  private hovered: { uid: string; loc: ItemLocation } | null = null;
+  tooltip!: Tooltip;
+  ghostLayer!: HTMLElement;
+  dropZone!: HTMLElement;
+  menu!: ContextMenu;
+  dialog!: SplitDialog;
+  drag: DragState | null = null;
+  hovered: { uid: string; loc: ItemLocation } | null = null;
   /** Weapon tile currently lit as a socket target (attachment drag). */
-  private socketTarget: { uid: string; loc: ItemLocation } | null = null;
+  socketTarget: { uid: string; loc: ItemLocation } | null = null;
   private container: Container | null = null;
-  private hub = false;
+  hub = false;
   private visible = false;
   private closeTimer: number | null = null;
 
-  private onWindowMove = (e: PointerEvent): void => this.handlePointerMove(e);
-  private onWindowUp = (e: PointerEvent): void => this.handlePointerUp(e);
+  onWindowMove = (e: PointerEvent): void => this.handlePointerMove(e);
+  onWindowUp = (e: PointerEvent): void => this.handlePointerUp(e);
 
-  constructor(private readonly sys: InventorySystem, private readonly ctx: GameContext) {}
+  constructor(public readonly sys: InventorySystem, public readonly ctx: GameContext) {}
 
   /* ── mount / visibility ────────────────────────────────────────────────── */
 
@@ -521,11 +452,7 @@ export class InventoryUI {
 
   /* ── screen tabs ───────────────────────────────────────────────────────── */
 
-  private onTab(tab: ScreenTab): void {
-    if (tab === this.activeTab) return;
-    this.setTab(tab);
-    this.sys.sfx(this.activeTab === tab ? 'ui_pickup' : 'ui_error');
-  }
+  private onTab(tab: ScreenTab): void { return Screens.onTab(this, tab); }
 
   /** The tab currently shown (smoke tests). */
   get screenTab(): ScreenTab { return this.activeTab; }
@@ -535,91 +462,22 @@ export class InventoryUI {
    * true when that tab is what the window ends up showing — `setTab` falls back to 인벤토리 outside the hub or when
    * the owning folder has no view.
    */
-  showScreenTab(tab: ScreenTab): boolean {
-    this.setTab(tab);
-    this.markTab();
-    return this.activeTab === tab;
-  }
+  showScreenTab(tab: ScreenTab): boolean { return Screens.showScreenTab(this, tab); }
 
   /**
    * Swap the window content. `inventory` shows `.inv-layout`; every other tab hides it, shows the `.inv-screen`
    * host and builds that folder's `EmbeddedView` into it. The old view is always disposed first, so exactly one
    * view exists at a time and nothing survives a window close.
    */
-  private setTab(tab: ScreenTab): void {
-    if (!this.root) return;
-    if (tab !== 'inventory' && !this.hub) tab = 'inventory'; // the embedded screens are ship-only
-    if (tab === this.activeTab && (tab === 'inventory' || this.screenView)) return;
-    // leaving a screen: dispose its view, close the popups that belong to the grid
-    this.screenView?.dispose();
-    this.screenView = null;
-    this.screenHost.replaceChildren();
-    this.screenNote.hidden = true;
-    if (tab !== 'inventory') { this.closeCraft(); this.disassemble?.close(); }
-
-    if (tab === 'inventory') {
-      this.activeTab = 'inventory';
-      this.layout.hidden = false;
-      this.screenHost.hidden = true;
-      this.markTab();
-      return;
-    }
-    const view = this.buildScreenView(tab);
-    if (!view) {
-      // the owning folder is unavailable (no ctx.progression / meta / housing): stay on the grid with a note
-      this.activeTab = 'inventory';
-      this.layout.hidden = false;
-      this.screenHost.hidden = true;
-      this.screenNote.hidden = false;
-      this.screenNote.textContent = TEXT.tabs.unavailable(SCREEN_TABS.find((t) => t.id === tab)?.label ?? '');
-      this.markTab();
-      this.sys.sfx('ui_error');
-      return;
-    }
-    this.activeTab = tab;
-    this.screenView = view;
-    this.layout.hidden = true;
-    this.screenHost.hidden = false;
-    view.refresh();
-    this.markTab();
-  }
+  setTab(tab: ScreenTab): void { return Screens.setTab(this, tab); }
 
   /** `createSheetView` / `createCorpView` / `createShipView`; null when that system is not present. */
-  private buildScreenView(tab: ScreenTab): EmbeddedView | null {
-    try {
-      if (tab === 'character') {
-        const p = this.ctx.progression;
-        return p && typeof p.createSheetView === 'function' ? p.createSheetView(this.screenHost) : null;
-      }
-      if (tab === 'corp') {
-        const m = this.ctx.meta;
-        return m && typeof m.createCorpView === 'function' ? m.createCorpView(this.screenHost) : null;
-      }
-      const h = this.ctx.housing;
-      return h && typeof h.createShipView === 'function' ? h.createShipView(this.screenHost) : null;
-    } catch (e) {
-      console.warn('[inventory] embedded screen failed', tab, e);
-      this.screenHost.replaceChildren();
-      return null;
-    }
-  }
+  buildScreenView(tab: ScreenTab): EmbeddedView | null { return Screens.buildScreenView(this, tab); }
 
-  private markTab(): void {
-    for (const [id, b] of this.tabButtons) {
-      b.classList.toggle('is-on', id === this.activeTab);
-      // 함선 needs the housing system; hide the tab entirely when there is none
-      if (id === 'ship') b.hidden = !this.ctx.housing;
-    }
-  }
+  markTab(): void { return Screens.markTab(this); }
 
   /** `크레딧 n` readout on the ship screen (`ctx.meta.credits`; refreshed on `meta:creditsChanged`). */
-  refreshCredits(): void {
-    if (!this.root) return;
-    const meta = this.ctx.meta;
-    const credits = meta && typeof meta.credits === 'number' ? meta.credits : null;
-    this.creditsValue.textContent = credits === null ? TEXT.credits.none : TEXT.credits.value(credits);
-    this.creditsEl.classList.toggle('is-unavailable', credits === null);
-  }
+  refreshCredits(): void { return Screens.refreshCredits(this); }
 
   /* ── refresh ───────────────────────────────────────────────────────────── */
 
@@ -698,7 +556,7 @@ export class InventoryUI {
   }
 
   /** An unsearched container item: no tooltip, drag, menu or double-click (Phase 7). */
-  private locked(uid: string, loc: ItemLocation): boolean { return this.sys.isItemLocked(uid, loc); }
+  locked(uid: string, loc: ItemLocation): boolean { return this.sys.isItemLocked(uid, loc); }
 
   /* ── appended: tactical kit — weight / crafting ────────────────────────── */
 
@@ -712,12 +570,7 @@ export class InventoryUI {
     this.weightEl.classList.toggle('is-over', w.state === 'over');
   }
 
-  toggleCraft(): void {
-    const open = !this.craftPanel.isOpen;
-    if (!open && this.sys.getBench()) this.sys.closeBench(); // bench mode: closing the panel leaves the bench
-    else this.setCraftOpen(open);
-    this.sys.sfx('ui_pickup');
-  }
+  toggleCraft(): void { return Screens.toggleCraft(this); }
 
   /**
    * System-driven craft panel visibility (`openBenchCraft` / `closeBench`).
@@ -726,84 +579,34 @@ export class InventoryUI {
    * puts the recipe list leftmost (where 함선 창고 sits otherwise) and stacks 가방 over 함선 창고 on the right, so the
    * materials a recipe needs are visible next to it. Still no blocker and no pointer-lock change: the window owns both.
    */
-  setCraftOpen(open: boolean): void {
-    this.craftPanel.setOpen(open);
-    if (open) this.disassemble.close();
-    this.layout?.classList.toggle('is-craft', open);
-    if (open) this.craftPanel.refresh();
-  }
+  setCraftOpen(open: boolean): void { return Screens.setCraftOpen(this, open); }
 
   /** The panel's 닫기 button / Escape / an outside click: leave the bench too when one is active. */
-  private closeCraft(): void {
-    if (!this.craftPanel.isOpen) return;
-    if (this.sys.getBench()) this.sys.closeBench(); // → setCraftOpen(false) through the system
-    else this.setCraftOpen(false);
-  }
+  closeCraft(): void { return Screens.closeCraft(this); }
 
   /** Repaint the craft rows (progress / counts) without rebuilding the rest of the window. */
-  refreshCraft(): void {
-    if (!this.root || this.root.hidden) return;
-    this.craftPanel.refresh();
-    // Phase 12: the 분해 게이지 advances with the job every frame (cheap tick, not the chip rebuild of `refresh()`)
-    if (this.disassemble.isOpen) this.disassemble.tick();
-  }
+  refreshCraft(): void { return Screens.refreshCraft(this); }
 
   /* ── Phase 6: 무한 상자 ─────────────────────────────────────────────── */
 
   /** Show / hide the catalog panel (system state lives in `InventorySystem.isCatalogOpen`). */
-  setCatalog(open: boolean): void {
-    this.catalogView.setOpen(open);
-    if (!open && this.drag?.catalog) this.cancelDrag();
-    if (!open) this.tooltip.hide();
-  }
+  setCatalog(open: boolean): void { return Screens.setCatalog(this, open); }
 
   /** Catalog panel (smoke tests / tab & search control). */
   get catalog(): CatalogView { return this.catalogView; }
 
   /** Double-press on a catalog tile: a fresh instance straight into the bag. */
-  private catalogTake(def: ItemDef): void {
-    const r = this.sys.takeFromCatalog(def.id);
-    if (r === 'ok') this.sys.sfx('ui_pickup');
-    else { this.sys.sfx('ui_error'); this.catalogView.shake(def.id); this.ctx.bus.emit('ui:notify', { text: TEXT.catalog.bagFull, kind: 'warning', duration: 1.6 }); }
-  }
+  catalogTake(def: ItemDef): void { return Screens.catalogTake(this, def); }
 
   /** Last catalog press (double-press detection: a second press on the same tile within `CATALOG_DBL_MS` = 가방에 넣기). */
-  private lastCatalogPress: { defId: string; t: number } | null = null;
+  lastCatalogPress: { defId: string; t: number } | null = null;
 
   /**
    * Press on a catalog tile: mint a fresh instance and drag it like any other item (the tile stays). A second press
    * on the same tile within `CATALOG_DBL_MS` counts as the double-click (`takeFromCatalog`) — detected here because
    * the cancelled pointerdown keeps Chrome from synthesising `dblclick` reliably.
    */
-  private beginCatalogPress(def: ItemDef, sample: ItemInstance, e: PointerEvent, tileEl: HTMLElement): void {
-    if (this.drag || this.dialog.isOpen) return;
-    if (e.button !== 0) return;
-    e.preventDefault();
-    this.menu.close();
-    const now = performance.now();
-    const last = this.lastCatalogPress;
-    if (last && last.defId === def.id && now - last.t < CATALOG_DBL_MS) {
-      this.lastCatalogPress = null;
-      this.catalogTake(def);
-      return;
-    }
-    this.lastCatalogPress = { defId: def.id, t: now };
-    const item = this.sys.getLoot().createItem(def.id, sample.qty);
-    // the ghost is centred on the cursor and uses the item's real footprint (the catalog tile is a uniform 2×2)
-    const { width, height } = tileSize(def.width, def.height);
-    this.drag = {
-      uid: item.uid, item, def, from: BAG_LOC, quickFrom: null, qty: null, catalog: true,
-      rotated: false,
-      started: false,
-      startX: e.clientX, startY: e.clientY,
-      grabX: width * 0.5, grabY: height * 0.5,       // the ghost rides the cursor centred (2026-09-07)
-      ghost: null, target: null,
-      lastX: e.clientX, lastY: e.clientY,
-    };
-    window.addEventListener('pointermove', this.onWindowMove);
-    window.addEventListener('pointerup', this.onWindowUp);
-    window.addEventListener('pointercancel', this.onWindowUp);
-  }
+  private beginCatalogPress(def: ItemDef, sample: ItemInstance, e: PointerEvent, tileEl: HTMLElement): void { return Screens.beginCatalogPress(this, def, sample, e, tileEl); }
 
   /**
    * Grid cell a ghost of `w × h` at (left, top) would land on, resolved **strictly first**: a grid that actually
@@ -812,281 +615,40 @@ export class InventoryUI {
    * edge rows — `activeViews()` is ordered 창고 → 가방, so the padded box of the stash used to swallow drops the
    * player aimed at the bag's last row.
    */
-  private resolveGridTarget(views: GridView[], left: number, top: number, w: number, h: number, px: number, py: number):
-    { view: GridView; x: number; y: number } | null {
-    for (const view of views) {
-      if (!view.hitTest(px, py, 0)) continue;
-      const cell = view.cellForGhost(left, top, w, h, px, py, 0);
-      if (cell) return { view, x: cell.x, y: cell.y };
-    }
-    for (const view of views) {
-      const cell = view.cellForGhost(left, top, w, h, px, py);
-      if (cell) return { view, x: cell.x, y: cell.y };
-    }
-    return null;
-  }
+  resolveGridTarget(views: GridView[], left: number, top: number, w: number, h: number, px: number, py: number): { view: GridView; x: number; y: number } | null { return Drag.resolveGridTarget(this, views, left, top, w, h, px, py); }
 
   /** Drag targets of a catalog instance: equipment slots, then the active grids (never the wheel / sockets / world). */
-  private updateCatalogTarget(d: DragState, px: number, py: number): void {
-    for (const sv of this.slots.values()) {
-      const r = sv.body.getBoundingClientRect();
-      if (px >= r.left && px <= r.right && py >= r.top && py <= r.bottom) {
-        d.target = { kind: 'slot', slot: sv.slot };
-        const pv = this.sys.previewCatalog(d.item, d.target);
-        sv.el.classList.add(pv === 'bad' ? 'is-target-bad' : 'is-target-ok');
-        return;
-      }
-    }
-    const { w, h } = this.footprint(d);
-    const left = px - d.grabX, top = py - d.grabY;
-    const hit = this.resolveGridTarget(this.activeViews(), left, top, w, h, px, py);
-    if (hit) {
-      const view = hit.view;
-      d.target = { kind: 'grid', grid: view.id, x: hit.x, y: hit.y, rotated: d.rotated };
-      const pv = this.sys.previewCatalog(d.item, d.target);
-      view.showHighlight(hit.x, hit.y, w, h, pv === 'bad' ? 'bad' : pv === 'swap' ? 'swap' : pv === 'merge' ? 'merge' : 'ok');
-    }
-  }
+  updateCatalogTarget(d: DragState, px: number, py: number): void { return Screens.updateCatalogTarget(this, d, px, py); }
 
   /* ── quick-use wheel panel ─────────────────────────────────────────────── */
 
   /** 3×3 compass rose (N top, clockwise) + a legend column; cells the bag has not unlocked (`isQuickSlotActive`) are locked. */
-  private buildQuickPanel(): HTMLElement {
-    const section = document.createElement('div');
-    section.className = 'inv-quick';
-    const rose = document.createElement('div');
-    rose.className = 'inv-quick-rose';
-    for (const index of QUICK_ROSE_ORDER) {
-      if (index < 0) {
-        const centre = document.createElement('div');
-        centre.className = 'inv-quick-centre';
-        this.quickKey = document.createElement('kbd');
-        this.quickKey.textContent = keyLabel(Keys.QUICK);
-        this.quickCount = document.createElement('span');
-        this.quickCount.className = 'inv-quick-count';
-        centre.append(this.quickKey, this.quickCount);
-        rose.appendChild(centre);
-        continue;
-      }
-      const el = document.createElement('div');
-      el.className = 'inv-quick-cell';
-      el.dataset.index = String(index);
-      el.style.setProperty('--dir-x', String([0, 1, 1, 1, 0, -1, -1, -1][index]));
-      el.style.setProperty('--dir-y', String([-1, -1, 0, 1, 1, 1, 0, -1][index]));
-      const dir = document.createElement('div');
-      dir.className = 'inv-quick-dir';
-      dir.textContent = QUICK_DIR_GLYPH[index];
-      const lock = document.createElement('div');
-      lock.className = 'inv-quick-lock';
-      lock.innerHTML = LOCK_SVG;
-      const body = document.createElement('div');
-      body.className = 'inv-quick-body';
-      el.append(dir, lock, body);
-      el.addEventListener('contextmenu', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        this.onQuickContextMenu(index, e);
-      });
-      rose.appendChild(el);
-      this.quickCells[index] = { index, el, tile: null, uid: null }; // indexed by wheel slot, not DOM order
-    }
-    const legend = document.createElement('div');
-    legend.className = 'inv-quick-legend';
-    const eyebrow = document.createElement('div');
-    eyebrow.className = 'inv-eyebrow';
-    eyebrow.textContent = TEXT.quick.eyebrow;
-    const title = document.createElement('div');
-    title.className = 'inv-quick-title';
-    title.textContent = TEXT.quick.title;
-    const hint = document.createElement('div');
-    hint.className = 'inv-quick-hint';
-    hint.textContent = TEXT.quick.hint;
-    this.quickHold = document.createElement('div');
-    this.quickHold.className = 'inv-quick-hint';
-    this.quickHold.textContent = TEXT.quick.holdHint(keyLabel(Keys.QUICK));
-    legend.append(eyebrow, title, hint, this.quickHold);
-    section.append(rose, legend);
-    return section;
-  }
+  private buildQuickPanel(): HTMLElement { return QuickUI.buildQuickPanel(this); }
 
-  private refreshQuick(): void {
-    const slots = this.sys.getQuickSlots();
-    const active = this.sys.getQuickSlotCount();
-    this.quickCount.textContent = `${active}/${QUICK_SLOTS}`;
-    const badges = new Map<string, string>();
-    for (const cell of this.quickCells) {
-      const item = slots[cell.index] ?? null;
-      const def = item ? ITEM_DEF_MAP.get(item.defId) : undefined;
-      const locked = !isQuickSlotActive(cell.index, active); // unlock order N, S, E, W, then diagonals
-      cell.el.classList.toggle('is-locked', locked);
-      cell.el.title = locked ? TEXT.quick.locked : `${QUICK_SLOT_LABEL_KO[cell.index]} · ${def?.name ?? TEXT.quick.empty}`;
-      const body = cell.el.querySelector<HTMLElement>('.inv-quick-body')!;
-      if (item && def) {
-        badges.set(item.uid, QUICK_DIR_GLYPH[cell.index]);
-        if (!cell.tile) {
-          cell.tile = document.createElement('div');
-          this.bindQuickTile(cell.tile, cell);
-          body.innerHTML = '';
-          body.appendChild(cell.tile);
-        }
-        const wasDragging = cell.tile.classList.contains('is-dragging');
-        buildTileContent(cell.tile, item, def, 1, 1);
-        if (wasDragging) cell.tile.classList.add('is-dragging');
-        cell.tile.dataset.uid = item.uid;
-        cell.uid = item.uid;
-        cell.el.classList.add('has-item');
-        cell.el.style.setProperty('--rc', def.color);
-      } else {
-        cell.tile = null;
-        cell.uid = null;
-        body.innerHTML = '';
-        cell.el.classList.remove('has-item');
-        cell.el.style.removeProperty('--rc');
-      }
-    }
-    this.bagView.setQuickBadges(badges);
-  }
+  private refreshQuick(): void { return QuickUI.refreshQuick(this); }
 
-  private bindQuickTile(el: HTMLElement, cell: QuickCell): void {
-    el.addEventListener('pointerdown', (e) => { if (cell.uid) this.beginPress(cell.uid, BAG_LOC, e, el, cell.index); });
-    el.addEventListener('pointerenter', (e) => { if (cell.uid) this.hoverEnter(cell.uid, BAG_LOC, e); });
-    el.addEventListener('pointermove', (e) => this.tooltip.move(e.clientX, e.clientY));
-    el.addEventListener('pointerleave', () => this.hoverLeave());
-    el.addEventListener('dblclick', (e) => {
-      e.preventDefault();
-      if (this.drag?.started) return;
-      this.result(this.sys.setQuickSlot(cell.index, null) ? 'ok' : 'fail', 'ui_drop', BAG_LOC, cell.uid ?? '');
-    });
-  }
+  bindQuickTile(el: HTMLElement, cell: QuickCell): void { return QuickUI.bindQuickTile(this, el, cell); }
 
   /** Right-click on a wheel cell: `빠른 슬롯 해제` (assigned cells only). */
-  private onQuickContextMenu(index: number, e: MouseEvent): void {
-    if (this.drag?.started || this.dialog.isOpen) return;
-    this.menu.close();
-    const cell = this.quickCells[index];
-    const uid = cell?.uid;
-    if (!uid) return;
-    this.tooltip.hide();
-    const entries: MenuEntry[] = [
-      { label: TEXT.menu.quickClear, run: () => this.result(this.sys.setQuickSlot(index, null) ? 'ok' : 'fail', 'ui_drop', BAG_LOC, uid) },
-      { label: TEXT.menu.request, hint: '휠클릭', separator: true, run: () => { this.sys.requestItem(uid, BAG_LOC); } },
-    ];
-    this.menu.open(e.clientX, e.clientY, entries);
-  }
+  onQuickContextMenu(index: number, e: MouseEvent): void { return Menu.onQuickContextMenu(this, index, e); }
 
   /** Wheel cell under the pointer (null when not over the rose). */
-  private quickCellAt(x: number, y: number): QuickCell | null {
-    const el = document.elementFromPoint(x, y);
-    const cellEl = el && (el as Element).closest<HTMLElement>('.inv-quick-cell');
-    if (!cellEl) return null;
-    const index = Number(cellEl.dataset.index);
-    return this.quickCells[index] ?? null;
-  }
+  quickCellAt(x: number, y: number): QuickCell | null { return QuickUI.quickCellAt(this, x, y); }
 
-  private refreshSlots(): void {
-    const loadout = this.sys.getLoadout();
-    for (const sv of this.slots.values()) {
-      const item = loadout[sv.slot];
-      const def = item ? ITEM_DEF_MAP.get(item.defId) : undefined;
-      if (item && def) {
-        if (!sv.tile) {
-          sv.tile = document.createElement('div');
-          this.bindSlotTile(sv.tile, sv);
-          sv.body.innerHTML = '';
-          sv.body.appendChild(sv.tile);
-        }
-        sv.uid = item.uid;
-        const stats = this.sys.getStats(item);
-        buildTileContent(sv.tile, item, def, def.width, def.height, stats);
-        sv.tile.dataset.uid = item.uid;
-        // oversized tiles (SR 5×1) shrink to the slot body
-        const { width, height } = tileSize(def.width, def.height);
-        const scale = Math.min(1, sv.bodyW / width, sv.bodyH / height);
-        sv.tile.style.transform = scale < 1 ? `scale(${scale.toFixed(3)})` : '';
-        if (stats) {
-          const max = stats.maxDurability;
-          const cur = Math.max(0, Math.min(max, item.durability ?? max));
-          sv.meta.textContent = `${def.name} · ${item.ammoInMag ?? 0}/${stats.magSize}발 · ${TEXT.weaponStats.durability} ${cur}/${max}`;
-          sv.el.classList.toggle('is-worn', cur < max);
-        } else if (def.bag) {
-          sv.meta.textContent = `${def.name} · ${def.bag.cols}×${def.bag.rows} · ${TEXT.quickSlots} ${def.bag.quickSlots}`;
-          sv.el.classList.remove('is-worn');
-        } else if (def.armorId) {
-          const a = this.sys.getLoot().getArmorDef(def.armorId);
-          const max = def.durabilityMax ?? 0;
-          const cur = Math.max(0, Math.min(max, item.durability ?? max));
-          sv.meta.textContent = a
-            ? `${def.name} · ${TEXT.armorStats.dr} ${Math.round(a.damageReduction * 100)}% · ${TEXT.armorStats.durability} ${Math.round(cur)}/${max}`
-            : def.name;
-          sv.el.classList.toggle('is-worn', max > 0 && cur < max);
-        } else {
-          sv.meta.textContent = def.name;
-          sv.el.classList.remove('is-worn');
-        }
-        sv.el.classList.add('has-item');
-        sv.el.style.setProperty('--rc', def.color);
-      } else {
-        sv.tile = null;
-        sv.uid = null;
-        sv.body.innerHTML = '';
-        const empty = document.createElement('div');
-        empty.className = 'inv-slot-empty';
-        empty.innerHTML = `<svg viewBox="0 0 64 24" aria-hidden="true"><path d="M2 12h40l6-4h8l4 4v4H46l-4 4H30l-2 3h-6l1-3H2z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg><span>${TEXT.emptySlot}</span>`;
-        sv.body.appendChild(empty);
-        sv.meta.textContent = '';
-        sv.el.classList.remove('has-item', 'is-worn');
-        sv.el.style.removeProperty('--rc');
-      }
-    }
-  }
+  private refreshSlots(): void { return SlotUI.refreshSlots(this); }
 
-  private buildSlot(slot: SlotId, label: string): SlotView {
-    const el = document.createElement('div');
-    el.className = `inv-slot inv-slot-${slot}`;
-    el.dataset.slot = slot;
-    const head = document.createElement('div');
-    head.className = 'inv-slot-label';
-    head.textContent = label;
-    let key: HTMLElement | null = null;
-    if (slotKeyLabel(slot)) {
-      key = document.createElement('kbd');
-      key.textContent = slotKeyLabel(slot);
-      head.appendChild(key);
-    }
-    const body = document.createElement('div');
-    body.className = 'inv-slot-body';
-    const { width, height } = slot === 'bag' ? tileSize(2, 2) : slot === 'armor' ? tileSize(2, 3) : tileSize(4, 2);
-    body.style.width = `${width}px`;
-    body.style.height = `${height}px`;
-    const meta = document.createElement('div');
-    meta.className = 'inv-slot-meta';
-    el.append(head, body, meta);
-    el.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-      const sv = this.slots.get(slot);
-      if (sv?.uid) this.onContextMenu(sv.uid, { kind: 'slot', slot }, e);
-    });
-    const sv: SlotView = { slot, el, body, bodyW: width, bodyH: height, meta, key, tile: null, uid: null };
-    this.slots.set(slot, sv);
-    return sv;
-  }
+  private buildSlot(slot: SlotId, label: string): SlotView { return SlotUI.buildSlot(this, slot, label); }
 
-  private bindSlotTile(el: HTMLElement, sv: SlotView): void {
-    const loc = (): ItemLocation => ({ kind: 'slot', slot: sv.slot });
-    el.addEventListener('pointerdown', (e) => { if (sv.uid) this.beginPress(sv.uid, loc(), e, el); });
-    el.addEventListener('pointerenter', (e) => { if (sv.uid) this.hoverEnter(sv.uid, loc(), e); });
-    el.addEventListener('pointermove', (e) => this.tooltip.move(e.clientX, e.clientY));
-    el.addEventListener('pointerleave', () => this.hoverLeave());
-  }
+  bindSlotTile(el: HTMLElement, sv: SlotView): void { return SlotUI.bindSlotTile(this, el, sv); }
 
   /* ── grid routing ──────────────────────────────────────────────────────── */
 
-  private viewOf(grid: GridId): GridView {
+  viewOf(grid: GridId): GridView {
     return grid === 'bag' ? this.bagView : grid === 'stash' ? this.stashView : this.containerView;
   }
 
   /** Grids that accept drops right now (crate + bag on a mission, stash + bag in the ship). */
-  private activeViews(): GridView[] {
+  activeViews(): GridView[] {
     const out: GridView[] = [];
     if (this.container) out.push(this.containerView);
     if (this.hub) out.push(this.stashView);
@@ -1126,7 +688,7 @@ export class InventoryUI {
     };
   }
 
-  private hoverEnter(uid: string, loc: ItemLocation, e: PointerEvent): void {
+  hoverEnter(uid: string, loc: ItemLocation, e: PointerEvent): void {
     if (this.drag?.started) return;
     if (this.locked(uid, loc)) { this.hovered = null; this.tooltip.hide(); return; }
     this.hovered = { uid, loc };
@@ -1135,18 +697,18 @@ export class InventoryUI {
     if (item && def) this.tooltip.show(item, def, e.clientX, e.clientY);
   }
 
-  private hoverLeave(): void {
+  hoverLeave(): void {
     this.hovered = null;
     this.tooltip.hide();
   }
 
   /** Result → sound + shake. `okSfx` is what plays on success; `pending` (host-confirmed take) stays silent until the answer. */
-  private result(r: 'ok' | 'noop' | 'fail' | 'pending', okSfx: 'ui_drop' | 'ui_equip' | 'ui_pickup' | 'ui_rotate', from: ItemLocation, uid: string): void {
+  result(r: 'ok' | 'noop' | 'fail' | 'pending', okSfx: 'ui_drop' | 'ui_equip' | 'ui_pickup' | 'ui_rotate', from: ItemLocation, uid: string): void {
     if (r === 'ok') this.sys.sfx(okSfx);
     else if (r === 'fail') { this.sys.sfx('ui_error'); this.shake(from, uid); }
   }
 
-  private shake(loc: ItemLocation, uid: string): void {
+  shake(loc: ItemLocation, uid: string): void {
     if (loc.kind === 'grid') {
       this.viewOf(loc.grid).shake(uid);
     } else {
@@ -1167,533 +729,73 @@ export class InventoryUI {
    * anything else it performs the quick action directly (container / stash ↔ bag / slot → bag). Shift+right-click
    * always opens the menu.
    */
-  private onContextMenu(uid: string, from: ItemLocation, e: MouseEvent): void {
-    if (this.drag?.started || this.dialog.isOpen) return;
-    this.menu.close();
-    if (this.locked(uid, from)) return;
-    const item = this.sys.findItem(uid, from);
-    const def = item && ITEM_DEF_MAP.get(item.defId);
-    if (!item || !def) return;
-    const isStack = def.stackMax > 1 && item.qty >= 2;
-    const quickable = isQuickUsable(def) && from.kind === 'grid' && from.grid === 'bag';
-    const repairable = this.hub && !!this.sys.repairInfo(uid);
-    const breakable = this.canDisassemble(uid, from);
-    const hasMenu = isStack || isWeaponDef(def) || isBagDef(def) || isArmorDef(def) || quickable || repairable || breakable;
-    if (!hasMenu && !e.shiftKey) {
-      this.result(this.sys.quickMove(uid, from), 'ui_drop', from, uid);
-      return;
-    }
-    this.tooltip.hide();
-    this.menu.open(e.clientX, e.clientY, this.menuEntries(uid, from, item, def));
-  }
+  onContextMenu(uid: string, from: ItemLocation, e: MouseEvent): void { return Menu.onContextMenu(this, uid, from, e); }
 
   /**
    * Weapons: quick action (장착 / 주무기 II로 장착 / 가방으로 이동 / 상자로 이동 / 창고로 이동) · 수리 (ship, worn gear) ·
    * 장전된 탄약 모두 탈착 (ammo loaded) · 무기 소켓 모두 탈착 (any socket filled) · 탄약 요청 · 버리기 (mission only).
    * Bags / armor: 장착 / 가방으로 이동 · 요청 · 버리기. Attachments are socketed by drag only (no 장착 entry). Stacks add the split entries.
    */
-  private menuEntries(uid: string, from: ItemLocation, item: ItemInstance, def: ItemDef): MenuEntry[] {
-    const entries: MenuEntry[] = [];
-    const isWeapon = isWeaponDef(def);
-    const isStack = def.stackMax > 1 && item.qty >= 2;
-    const hasContainer = !!this.sys.getActiveContainer();
-    const quick = () => this.result(this.sys.quickMove(uid, from), 'ui_drop', from, uid);
-    const owned = from.kind === 'slot' || from.grid === 'bag';
-
-    // 1. quick action (what a plain right-click / double-click does)
-    if (from.kind === 'slot') {
-      entries.push({ label: TEXT.menu.toBag, run: quick });
-      if (this.hub) entries.push({ label: TEXT.menu.toStash, run: () => this.result(this.sys.moveToStash(uid, from), 'ui_drop', from, uid) });
-    } else {
-      const target = this.sys.equipTargetFor(def);
-      if (target) {
-        const label = target === 'primary2' ? TEXT.menu.equipPrimary2 : TEXT.menu.equip;
-        entries.push({ label, run: () => this.result(this.sys.activate(uid, from), 'ui_equip', from, uid) });
-        if (def.category === 'primary' && target !== 'primary2') {
-          entries.push({ label: TEXT.menu.equipPrimary2, run: () => this.result(this.sys.equip(uid, 'primary2') ? 'ok' : 'fail', 'ui_equip', from, uid) });
-        }
-      }
-      if (from.grid === 'container') entries.push({ label: TEXT.menu.toBag, run: quick });
-      else if (from.grid === 'stash') entries.push({ label: TEXT.menu.toBag, run: quick });
-      else if (hasContainer && !isBagDef(def)) entries.push({ label: TEXT.menu.toContainer, run: quick });
-      else if (this.hub && !isBagDef(def)) entries.push({ label: TEXT.menu.toStash, run: quick });
-    }
-
-    // 1a. repair (ship only, worn weapon / armor the player owns)
-    if (this.hub && owned) {
-      const info = this.sys.repairInfo(uid);
-      if (info) {
-        // Phase 8: the material requirement is item chips (thumbnail + 보유/필요), not a text run
-        const costs = document.createElement('div');
-        const have = new Map(info.cost.map((c) => [c.defId, c.have]));
-        renderItemCost(costs, info.cost, (id) => ITEM_DEF_MAP.get(id), (id) => have.get(id) ?? 0, { size: 28 });
-        entries.push({
-          label: TEXT.menu.repair,
-          hint: info.short ? TEXT.menu.repairShort : undefined,
-          costs,
-          separator: entries.length > 0,
-          run: () => {
-            const ok = this.sys.repair(uid);
-            this.result(ok ? 'ok' : 'fail', 'ui_equip', from, uid);
-            if (!ok) this.ctx.bus.emit('ui:notify', { text: info.short ? TEXT.menu.repairShortMsg : TEXT.menu.repairFail, kind: 'warning', duration: 2 });
-          },
-        });
-      }
-    }
-
-    // 1b. weapon maintenance (player-owned weapons only)
-    if (isWeapon && owned) {
-      if ((item.ammoInMag ?? 0) > 0) {
-        entries.push({ label: TEXT.menu.unload, separator: entries.length > 0, run: () => this.result(this.sys.unloadWeapon(uid) ? 'ok' : 'fail', 'ui_drop', from, uid) });
-      }
-      if (filledSocketCount(item) > 0) {
-        entries.push({ label: TEXT.menu.detachAll, run: () => this.result(this.sys.detachAllSockets(uid) ? 'ok' : 'fail', 'ui_drop', from, uid) });
-      }
-    }
-
-    // 1c. quick-use wheel (bag stims / grenades)
-    if (isQuickUsable(def) && from.kind === 'grid' && from.grid === 'bag') {
-      const idx = this.sys.quickIndexOf(uid);
-      if (idx >= 0) {
-        entries.push({ label: `${TEXT.menu.quickClear} (${QUICK_DIR_GLYPH[idx]})`, separator: entries.length > 0, run: () => this.result(this.sys.setQuickSlot(idx, null) ? 'ok' : 'fail', 'ui_drop', from, uid) });
-      } else {
-        entries.push({ label: TEXT.menu.quickAssign, hint: '더블클릭', separator: entries.length > 0, run: () => this.result(this.sys.registerQuick(uid), 'ui_equip', from, uid) });
-      }
-    }
-
-    // 1d. 분해 (Phase 8): any item with a matching `break_*` recipe — the ammo packs today
-    if (this.canDisassemble(uid, from)) {
-      entries.push({
-        label: TEXT.disassemble.menu,
-        separator: entries.length > 0,
-        run: () => this.openDisassemble(uid),
-      });
-    }
-
-    // 2. split
-    if (isStack && from.kind === 'grid') {
-      const half = Math.max(1, Math.floor(item.qty / 2));
-      entries.push({ label: TEXT.menu.splitHalf, hint: 'Shift', separator: entries.length > 0, run: () => this.split(uid, from, half) });
-      if (item.qty > 2) entries.push({ label: TEXT.menu.splitOne, hint: 'Ctrl', run: () => this.split(uid, from, 1) });
-      entries.push({ label: TEXT.menu.splitCustom, run: () => this.openSplitDialog(uid, from) });
-    }
-
-    // 3. quick chat request
-    entries.push({
-      label: isWeapon ? TEXT.menu.requestAmmo : TEXT.menu.request,
-      hint: '휠클릭',
-      separator: entries.length > 0,
-      run: () => { this.sys.requestItem(uid, from); },
-    });
-
-    // 4. drop (not in the ship — there is no ground to drop onto)
-    if (!this.hub) {
-      const dropKey = keyLabel(Keys.DROP_ITEM);
-      entries.push({ label: TEXT.menu.drop, hint: dropKey, danger: true, separator: true, run: () => this.dropToWorld(uid, from, undefined) });
-      if (isStack) entries.push({ label: TEXT.menu.dropOne, hint: `Shift+${dropKey}`, danger: true, run: () => this.dropToWorld(uid, from, 1) });
-    }
-    return entries;
-  }
+  menuEntries(uid: string, from: ItemLocation, item: ItemInstance, def: ItemDef): MenuEntry[] { return Menu.menuEntries(this, uid, from, item, def); }
 
   /**
    * Phase 8 — 분해 is offered on player-owned items (bag / equipment slots) that have a `break_*` recipe; a
    * container stack must be taken first, because the recipe consumes from the bag.
    */
-  private canDisassemble(uid: string, from: ItemLocation): boolean {
-    // the recipe consumes from the bag, so a crate / 창고 stack has to be taken into the bag first
-    if (from.kind === 'grid' && from.grid !== 'bag') return false;
-    return !!this.sys.disassembleRecipeFor(uid);
-  }
+  canDisassemble(uid: string, from: ItemLocation): boolean { return Menu.canDisassemble(this, uid, from); }
 
   /** Open the modeless 분해 dialog for `uid` (expected result + a 분해 button). False when the item has no recipe. */
-  openDisassemble(uid: string): boolean {
-    this.menu.close();
-    this.tooltip.hide();
-    if (this.disassemble.isOpen) this.disassemble.close();
-    const ok = this.disassemble.open(uid, null);
-    this.sys.sfx(ok ? 'ui_pickup' : 'ui_error');
-    return ok;
-  }
+  openDisassemble(uid: string): boolean { return Menu.openDisassemble(this, uid); }
 
   /** The 분해 dialog (smoke tests). */
   get disassemblePanel(): DisassemblePanel { return this.disassemble; }
 
-  private split(uid: string, from: ItemLocation, qty: number): void {
-    const ok = this.sys.splitItem(uid, qty);
-    this.result(ok ? 'ok' : 'fail', 'ui_pickup', from, uid);
-  }
+  split(uid: string, from: ItemLocation, qty: number): void { return Menu.split(this, uid, from, qty); }
 
-  private openSplitDialog(uid: string, from: ItemLocation): void {
-    const item = this.sys.findItem(uid, from);
-    const def = item && ITEM_DEF_MAP.get(item.defId);
-    if (!item || !def) return;
-    this.tooltip.hide();
-    this.dialog.open(item, def, (qty) => this.split(uid, from, qty));
-  }
+  openSplitDialog(uid: string, from: ItemLocation): void { return Menu.openSplitDialog(this, uid, from); }
 
-  private dropToWorld(uid: string, from: ItemLocation, qty: number | undefined): void {
-    const ok = this.sys.dropItem(uid, qty);
-    if (ok) this.sys.sfx('ui_drop');
-    else { this.sys.sfx('ui_error'); this.shake(from, uid); }
-    if (this.hovered?.uid === uid) { this.hovered = null; this.tooltip.hide(); }
-  }
+  dropToWorld(uid: string, from: ItemLocation, qty: number | undefined): void { return Menu.dropToWorld(this, uid, from, qty); }
 
   /* ── drop key (X) ──────────────────────────────────────────────────────── */
 
   /** X drops the dragged or hovered item; Shift+X one unit, Ctrl+X half the stack. In the ship the item lands in the stash. */
-  onDropKey(shift: boolean, ctrl: boolean): void {
-    if (this.dialog.isOpen) return;
-    this.menu.close();
-    const d = this.drag;
-    if (d?.catalog) { this.cancelDrag(); return; } // a catalog instance has nothing to throw away
-    let uid: string, from: ItemLocation;
-    if (d?.started) { uid = d.uid; from = d.from; }
-    else if (this.hovered) { uid = this.hovered.uid; from = this.hovered.loc; }
-    else return;
-    const item = this.sys.findItem(uid, from);
-    const def = item && ITEM_DEF_MAP.get(item.defId);
-    if (!item || !def) return;
-    let qty: number | undefined;
-    if (d?.started && d.qty !== null) qty = d.qty;
-    else if (def.stackMax > 1 && item.qty >= 2) {
-      if (shift) qty = 1;
-      else if (ctrl) qty = Math.max(1, Math.floor(item.qty / 2));
-    }
-    if (d) this.cancelDrag();
-    this.dropToWorld(uid, from, qty);
-  }
+  onDropKey(shift: boolean, ctrl: boolean): void { return Drag.onDropKey(this, shift, ctrl); }
 
   /* ── rotation (R) ──────────────────────────────────────────────────────── */
 
-  onRotateKey(): void {
-    if (this.dialog.isOpen) return;
-    if (this.drag?.started) {
-      const d = this.drag;
-      const def = d.def;
-      if (def.width === def.height) return;
-      d.rotated = !d.rotated;
-      this.rebuildGhost(d);
-      this.sys.sfx('ui_rotate');
-      this.updateDragTarget(d.lastX, d.lastY);
-      return;
-    }
-    const h = this.hovered;
-    if (!h || h.loc.kind !== 'grid') return;
-    const r = this.sys.rotateItem(h.uid, h.loc.grid);
-    this.result(r, 'ui_rotate', h.loc, h.uid);
-  }
+  onRotateKey(): void { return Drag.onRotateKey(this); }
 
   /* ── drag & drop ───────────────────────────────────────────────────────── */
 
-  private beginPress(uid: string, from: ItemLocation, e: PointerEvent, tileEl: HTMLElement, quickFrom: number | null = null): void {
-    if (this.drag || this.dialog.isOpen) return;
-    if (e.button === MIDDLE_BUTTON) {
-      // quick chat request (also stops the browser's middle-click autoscroll)
-      e.preventDefault();
-      this.menu.close();
-      if (!this.locked(uid, from)) this.sys.requestItem(uid, from);
-      return;
-    }
-    if (e.button !== 0) return;
-    if (this.locked(uid, from)) return;
-    const item = this.sys.findItem(uid, from);
-    const def = item && ITEM_DEF_MAP.get(item.defId);
-    if (!item || !def) return;
-    e.preventDefault();
-    this.menu.close();
-    // Shift → half the stack, Ctrl → one unit (grid stacks only; falls back to a whole-item drag)
-    let qty: number | null = null;
-    if (from.kind === 'grid' && quickFrom === null) {
-      if (e.shiftKey) qty = this.sys.partialQtyFor(item, 'half');
-      else if (e.ctrlKey) qty = this.sys.partialQtyFor(item, 'one');
-    }
-    // 2026-09-07: the ghost is **centred on the cursor** rather than anchored where the tile was grabbed, so the
-    // item the cursor points at is the item that lands. `rebuildGhost` re-centres after a rotation.
-    const fp = item.rotated ? { w: def.height, h: def.width } : { w: def.width, h: def.height };
-    const size = tileSize(fp.w, fp.h);
-    this.drag = {
-      uid, item, def, from, quickFrom, qty, catalog: false,
-      rotated: item.rotated,
-      started: false,
-      startX: e.clientX, startY: e.clientY,
-      grabX: size.width * 0.5, grabY: size.height * 0.5,
-      ghost: null, target: null,
-      lastX: e.clientX, lastY: e.clientY,
-    };
-    window.addEventListener('pointermove', this.onWindowMove);
-    window.addEventListener('pointerup', this.onWindowUp);
-    window.addEventListener('pointercancel', this.onWindowUp);
-  }
+  beginPress(uid: string, from: ItemLocation, e: PointerEvent, tileEl: HTMLElement, quickFrom: number | null = null): void { return Drag.beginPress(this, uid, from, e, tileEl, quickFrom); }
 
-  private startDrag(d: DragState): void {
-    d.started = true;
-    this.tooltip.hide();
-    this.root?.classList.add('is-dragging');
-    if (d.catalog) {
-      // catalog: the source tile stays as it is (infinite stock); no world drop, no wheel targets
-      this.root?.classList.add('is-catalog-drag');
-      this.rebuildGhost(d);
-      this.sys.sfx('ui_pickup');
-      return;
-    }
-    // a stim / grenade from the bag (or a wheel cell): light the usable cells as targets
-    if (isQuickUsable(d.def) && d.from.kind === 'grid' && d.from.grid === 'bag' && d.qty === null) this.root?.classList.add('is-quick-drag');
-    if (d.quickFrom !== null) {
-      this.quickCells[d.quickFrom]?.tile?.classList.add('is-dragging');
-      this.root?.classList.add('is-quick-source');
-    } else if (d.from.kind === 'grid') {
-      const view = this.viewOf(d.from.grid);
-      if (d.qty !== null) view.markSplitSource(d.uid, d.item.qty - d.qty);
-      else view.setDragging(d.uid);
-    } else {
-      this.slots.get(d.from.slot)?.tile?.classList.add('is-dragging');
-    }
-    this.rebuildGhost(d);
-    this.sys.sfx('ui_pickup');
-  }
+  startDrag(d: DragState): void { return Drag.startDrag(this, d); }
 
-  private footprint(d: DragState): { w: number; h: number } {
-    return d.rotated ? { w: d.def.height, h: d.def.width } : { w: d.def.width, h: d.def.height };
-  }
+  footprint(d: DragState): { w: number; h: number } { return Drag.footprint(this, d); }
 
-  private rebuildGhost(d: DragState): void {
-    const { w, h } = this.footprint(d);
-    if (!d.ghost) {
-      d.ghost = document.createElement('div');
-      this.ghostLayer.appendChild(d.ghost);
-    }
-    const ghostItem: ItemInstance = { ...d.item, rotated: d.rotated, qty: d.qty ?? d.item.qty };
-    buildTileContent(d.ghost, ghostItem, d.def, w, h);
-    d.ghost.classList.add('inv-ghost');
-    d.ghost.classList.toggle('is-partial', d.qty !== null);
-    const { width, height } = tileSize(w, h);
-    // keep the ghost centred under the cursor (a rotation changes the footprint, so this runs again)
-    d.grabX = width * 0.5;
-    d.grabY = height * 0.5;
-    this.positionGhost(d, d.lastX, d.lastY);
-  }
+  rebuildGhost(d: DragState): void { return Drag.rebuildGhost(this, d); }
 
-  private positionGhost(d: DragState, x: number, y: number): void {
-    if (!d.ghost) return;
-    // The lift must be part of *this* transform (see `.inv-ghost` in inventory.css): as a standalone `scale:` it is
-    // applied before the `transform` property and scales the translate, which pushed the ghost away from the cursor.
-    d.ghost.style.transform = `translate(${Math.round(x - d.grabX)}px, ${Math.round(y - d.grabY)}px) scale(${GHOST_SCALE})`;
-  }
+  positionGhost(d: DragState, x: number, y: number): void { return Drag.positionGhost(this, d, x, y); }
 
-  private handlePointerMove(e: PointerEvent): void {
-    const d = this.drag;
-    if (!d) return;
-    d.lastX = e.clientX; d.lastY = e.clientY;
-    if (!d.started) {
-      if (Math.hypot(e.clientX - d.startX, e.clientY - d.startY) < DRAG_THRESHOLD) return;
-      this.startDrag(d);
-    }
-    this.positionGhost(d, e.clientX, e.clientY);
-    this.updateDragTarget(e.clientX, e.clientY);
-  }
+  private handlePointerMove(e: PointerEvent): void { return Drag.handlePointerMove(this, e); }
 
-  private updateDragTarget(px: number, py: number): void {
-    const d = this.drag;
-    if (!d || !d.started) return;
-    this.bagView.hideHighlight();
-    this.containerView.hideHighlight();
-    this.stashView.hideHighlight();
-    for (const sv of this.slots.values()) sv.el.classList.remove('is-target-ok', 'is-target-bad');
-    d.target = null;
-    this.dropZone.classList.remove('is-hot');
-    this.clearSocketTarget();
-    for (const c of this.quickCells) c.el.classList.remove('is-target-ok', 'is-target-bad', 'is-target-swap');
+  updateDragTarget(px: number, py: number): void { return Drag.updateDragTarget(this, px, py); }
 
-    if (d.catalog) { this.updateCatalogTarget(d, px, py); return; }
-
-    // quick-use wheel cells (any drag: non-usable items light red)
-    const cell = this.quickCellAt(px, py);
-    if (cell) {
-      d.target = { kind: 'quick', index: cell.index };
-      const pv = this.preview(d, d.target);
-      cell.el.classList.add(pv === 'bad' ? 'is-target-bad' : pv === 'swap' ? 'is-target-swap' : 'is-target-ok');
-      return;
-    }
-    // a wheel-cell drag released anywhere else clears the slot; no other target applies
-    if (d.quickFrom !== null) return;
-
-    // attachments: a weapon tile under the pointer (bag or equipment slot) is a socket target
-    if (isAttachmentDef(d.def)) {
-      const w = this.weaponTileAt(px, py, d.uid);
-      if (w) {
-        d.target = { kind: 'weapon', uid: w.uid, loc: w.loc };
-        const pv = this.preview(d, d.target);
-        this.setSocketTarget(w, pv === 'bad' ? 'bad' : 'ok');
-        return;
-      }
-    }
-
-    // equipment slots first
-    for (const sv of this.slots.values()) {
-      const r = sv.body.getBoundingClientRect();
-      if (px >= r.left && px <= r.right && py >= r.top && py <= r.bottom) {
-        d.target = { kind: 'slot', slot: sv.slot };
-        const pv = this.preview(d, d.target);
-        sv.el.classList.add(pv === 'bad' ? 'is-target-bad' : 'is-target-ok');
-        return;
-      }
-    }
-
-    const { w, h } = this.footprint(d);
-    const left = px - d.grabX, top = py - d.grabY;
-    const hit = this.resolveGridTarget(this.activeViews(), left, top, w, h, px, py);
-    if (hit) {
-      d.target = { kind: 'grid', grid: hit.view.id, x: hit.x, y: hit.y, rotated: d.rotated };
-      let pv = this.preview(d, d.target);
-      /*
-       * 2026-09-07: an **equipment slot → grid** drag that lands on an occupied cell used to be refused outright —
-       * the weapon snapped back into its slot and shook even with half the bag free. Retarget the drop (and the
-       * highlight, so the player sees where it goes) to the nearest free footprint instead. Grid → grid keeps the
-       * strict Diablo rule: the cell you point at is the cell you get.
-       */
-      if (pv === 'bad' && d.from.kind === 'slot' && d.from.slot !== 'bag' && d.qty === null) {
-        const spot = this.sys.nearestFreeSpot(d.uid, d.from, hit.view.id, hit.x, hit.y, d.rotated);
-        if (spot) {
-          const retarget: DropTarget = { kind: 'grid', grid: hit.view.id, x: spot.x, y: spot.y, rotated: spot.rotated };
-          if (this.sys.previewDrop(d.uid, d.from, retarget) === 'ok') {
-            d.target = retarget;
-            pv = 'ok';
-            const fp = spot.rotated ? { w: d.def.height, h: d.def.width } : { w: d.def.width, h: d.def.height };
-            hit.view.showHighlight(spot.x, spot.y, fp.w, fp.h, 'ok');
-            return;
-          }
-        }
-      }
-      const state: HighlightState = pv === 'bad' ? 'bad' : pv === 'swap' ? 'swap' : pv === 'merge' ? 'merge' : 'ok';
-      hit.view.showHighlight(hit.x, hit.y, w, h, state);
-      return;
-    }
-
-    // outside every grid/slot: over the backdrop → world drop (the zone lights up when hovered directly; hidden in the ship)
-    if (!this.hub && !this.isOverPanel(px, py)) {
-      const r = this.dropZone.getBoundingClientRect();
-      if (px >= r.left && px <= r.right && py >= r.top && py <= r.bottom) this.dropZone.classList.add('is-hot');
-    }
-  }
-
-  private preview(d: DragState, target: DropTarget) {
-    if (d.catalog) return this.sys.previewCatalog(d.item, target);
-    return d.qty !== null ? this.sys.previewPartial(d.uid, d.from, d.qty, target) : this.sys.previewDrop(d.uid, d.from, target);
-  }
+  preview(d: DragState, target: DropTarget) { return Drag.preview(this, d, target); }
 
   /** Weapon tile under the pointer (the ghost layer ignores pointer events), excluding the dragged item itself. */
-  private weaponTileAt(x: number, y: number, exceptUid: string): { uid: string; loc: ItemLocation } | null {
-    const el = document.elementFromPoint(x, y);
-    const tile = el && (el as Element).closest<HTMLElement>('.inv-tile.is-weapon');
-    const uid = tile?.dataset.uid;
-    if (!tile || !uid || uid === exceptUid) return null;
-    const slotEl = tile.closest<HTMLElement>('.inv-slot');
-    if (slotEl?.dataset.slot) return { uid, loc: { kind: 'slot', slot: slotEl.dataset.slot as SlotId } };
-    if (tile.closest('.inv-grid-bag')) return { uid, loc: { kind: 'grid', grid: 'bag' } };
-    if (tile.closest('.inv-grid-container')) return { uid, loc: { kind: 'grid', grid: 'container' } };
-    if (tile.closest('.inv-grid-stash')) return { uid, loc: { kind: 'grid', grid: 'stash' } };
-    return null;
-  }
+  weaponTileAt(x: number, y: number, exceptUid: string): { uid: string; loc: ItemLocation } | null { return Drag.weaponTileAt(this, x, y, exceptUid); }
 
-  private setSocketTarget(w: { uid: string; loc: ItemLocation }, state: 'ok' | 'bad'): void {
-    this.socketTarget = w;
-    if (w.loc.kind === 'grid') {
-      this.viewOf(w.loc.grid).setSocketTarget(w.uid, state);
-    } else {
-      const tile = this.slots.get(w.loc.slot)?.tile;
-      tile?.classList.toggle('is-socket-ok', state === 'ok');
-      tile?.classList.toggle('is-socket-bad', state === 'bad');
-    }
-  }
+  setSocketTarget(w: { uid: string; loc: ItemLocation }, state: 'ok' | 'bad'): void { return Drag.setSocketTarget(this, w, state); }
 
-  private clearSocketTarget(): void {
-    if (!this.socketTarget) return;
-    this.socketTarget = null;
-    this.bagView.setSocketTarget(null, null);
-    this.containerView.setSocketTarget(null, null);
-    this.stashView.setSocketTarget(null, null);
-    for (const sv of this.slots.values()) sv.tile?.classList.remove('is-socket-ok', 'is-socket-bad');
-  }
+  clearSocketTarget(): void { return Drag.clearSocketTarget(this); }
 
   /** True when the point lies on a panel / equipment column (a miss there snaps back instead of dropping). */
-  private isOverPanel(x: number, y: number): boolean {
-    const el = document.elementFromPoint(x, y);
-    return !!el && !!(el as Element).closest('.inv-panel, .inv-equip, .inv-menu, .inv-dialog, .scr-tabs, .inv-modeless, .inv-screen');
-  }
+  isOverPanel(x: number, y: number): boolean { return Drag.isOverPanel(this, x, y); }
 
-  private handlePointerUp(e: PointerEvent): void {
-    const d = this.drag;
-    if (!d) return;
-    if (e.button !== 0 && e.type === 'pointerup') return;
-    window.removeEventListener('pointermove', this.onWindowMove);
-    window.removeEventListener('pointerup', this.onWindowUp);
-    window.removeEventListener('pointercancel', this.onWindowUp);
-    this.drag = null;
+  private handlePointerUp(e: PointerEvent): void { return Drag.handlePointerUp(this, e); }
 
-    if (!d.started) return; // plain click
-    this.endDragVisuals(d);
+  endDragVisuals(d: DragState): void { return Drag.endDragVisuals(this, d); }
 
-    // catalog instance: only a grid cell / slot takes it; anywhere else simply discards the fresh instance
-    if (d.catalog) {
-      if (!d.target) { this.sys.sfx('ui_error'); return; }
-      const r = this.sys.dropFromCatalog(d.item, d.target);
-      if (r === 'ok') this.sys.sfx(d.target.kind === 'grid' ? 'ui_drop' : 'ui_equip');
-      else if (r === 'fail') { this.sys.sfx('ui_error'); this.catalogView.shake(d.def.id); }
-      return;
-    }
-
-    // dragged out of a wheel cell: another cell moves the assignment, anywhere else clears it (the item stays in the bag)
-    if (d.quickFrom !== null && d.target?.kind !== 'quick') {
-      this.result(this.sys.setQuickSlot(d.quickFrom, null) ? 'ok' : 'fail', 'ui_drop', d.from, d.uid);
-      return;
-    }
-
-    if (!d.target) {
-      if (this.isOverPanel(e.clientX, e.clientY)) {
-        // missed a cell but still on a panel: snap back
-        this.shake(d.from, d.uid);
-        this.sys.sfx('ui_error');
-        return;
-      }
-      // released over the backdrop / drop zone: throw it into the world (ship: into the stash)
-      this.dropToWorld(d.uid, d.from, d.qty ?? undefined);
-      return;
-    }
-    const r = d.qty !== null ? this.sys.dropPartial(d.uid, d.from, d.qty, d.target) : this.sys.drop(d.uid, d.from, d.target);
-    if (r === 'ok') this.sys.sfx(d.target.kind === 'grid' ? 'ui_drop' : 'ui_equip');
-    else if (r === 'fail') { this.sys.sfx('ui_error'); this.shake(d.from, d.uid); }
-  }
-
-  private endDragVisuals(d: DragState): void {
-    d.ghost?.remove();
-    d.ghost = null;
-    this.root?.classList.remove('is-dragging', 'is-quick-drag', 'is-quick-source', 'is-catalog-drag');
-    this.dropZone.classList.remove('is-hot');
-    for (const c of this.quickCells) {
-      c.el.classList.remove('is-target-ok', 'is-target-bad', 'is-target-swap');
-      c.tile?.classList.remove('is-dragging');
-    }
-    this.bagView.setDragging(null);
-    this.containerView.setDragging(null);
-    this.stashView.setDragging(null);
-    if (d.qty !== null && d.from.kind === 'grid') this.viewOf(d.from.grid).markSplitSource(d.uid, null);
-    this.bagView.hideHighlight();
-    this.containerView.hideHighlight();
-    this.stashView.hideHighlight();
-    this.clearSocketTarget();
-    for (const sv of this.slots.values()) {
-      sv.el.classList.remove('is-target-ok', 'is-target-bad');
-      sv.tile?.classList.remove('is-dragging');
-    }
-  }
-
-  private cancelDrag(): void {
-    const d = this.drag;
-    if (!d) return;
-    window.removeEventListener('pointermove', this.onWindowMove);
-    window.removeEventListener('pointerup', this.onWindowUp);
-    window.removeEventListener('pointercancel', this.onWindowUp);
-    this.drag = null;
-    if (d.started) this.endDragVisuals(d);
-  }
+  cancelDrag(): void { return Drag.cancelDrag(this); }
 }

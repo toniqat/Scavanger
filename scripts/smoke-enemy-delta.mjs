@@ -115,7 +115,13 @@ try {
     a.position.x += 3;
     const s2 = sys.debugSnapshot();
     r.moved = { full: s2.full, seq: s2.seq, n: s2.e.length, wire: s2.e[0] ?? null, fields: s2.e[0] ? fields(s2.e[0]) : '' };
-    // rotate + move below the rounding step → yaw only
+    // rotate + move below the rounding step → yaw only.
+    // `p` is quantised with `round(v, 2)`, so a 1 mm nudge still crosses a boundary whenever the
+    // spawn happened to land in the top 10 % of a centimetre (350.4249 → 350.42, +0.001 → 350.43)
+    // — that made this check fail about one run in ten. Snapping x onto the centimetre grid first
+    // does not change its *rounded* value (so the cache still matches), and 0.001 from a grid point
+    // cannot round anywhere else.
+    b.position.x = Math.round(b.position.x * 100) / 100;
     b.yaw += 0.5; b.position.x += 0.001;
     const s3 = sys.debugSnapshot();
     r.yawed = { n: s3.e.length, wire: s3.e[0] ?? null, fields: s3.e[0] ? fields(s3.e[0]) : '' };

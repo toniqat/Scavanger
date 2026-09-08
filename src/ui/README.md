@@ -592,3 +592,35 @@ Plan: `docs/PHASE12-PLAN.md` items 3 · 4 · 8 · 9 · 15 · 16 (agent F). Contr
   outranks a real menu; its Escape listener is capture-phase on `window` — any future component that also captures
   Escape earlier will win. `.sm-gen` is a picker-only row: a room **with** a purpose still sends the player to the
   Tab 함선 tab for the 발전기.
+
+---
+
+## 변경 이력
+
+프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **tactical kit** — `hud/ImplantWidget` (**vertical gauge left of the crosshair** since 2026-09-06: cooldown fill / dash 3 yellow segments / barrier hp + lockout / overcharge energy), `hud/WeightBar`, `hud/Detection`, `hud/ScanReveal`, `hud/Deployables`, `hud/ActionFeedback`, `hud/ProgressToasts`, grapple reticle bracket (equipped + hookable), durability / weight / craft / gadget toasts; every key hint reads `keyLabel(Keys.X)` and refreshes on `input:bindingsChanged`; **title controls diagram** `menus/ControlsPanel` (procedural keyboard + mouse, bound keys lit, function list) + **key settings** `menus/KeybindMenu` (title footer / pause menu `키 설정 변경`; capture next key, conflicts flagged, reset); shared screen tabs `.scr-tabs`
+
+- **Phase 6** — `hud/WeaponChargeGauge` (`weapon:chargeChanged` charge / spinup / slash arc), unique-weapon mode lines `좌 … / 우 …` in `WeaponPanel`, `hud/StatusMarkers` (🔥 전소 / ⚡), `hud/CheatTag` (MOVE CHEAT), `hud/HousingHint` (`.hud.housing` fourth root: selection / cursor / key line), `hud/RoomLabel` (`방 n · 용도`)
+
+- **Phase 5** — `menus/RewardsBlock` (result-screen XP count-up, `Lv. a → b`, XP bar, contract line from `stats.rewards`), `hud/ContractPanel` (active contract `p / t` under the objective, `달성`), `hud/MetaToasts` (credits chip, rep level, contract settlement) + quest / purchase / sale lines in `Notifications`, title `Lv. n` chip
+
+- **Phase 7** — `RewardsBlock` owns the level-up moment (badge + light burst + the only `level_up` chime when the bar crosses the level; `ProgressToasts` no longer toasts it), contract wording from `settlement.outcome`, `DeathScreen` 레이드 실패 mode (`game:raidFailed`: no 부활, auto-return countdown), `Nameplates` / `Squad` / `MapScreen` show `연결 끊김` + grey for suspended members and 훈련장 / 임무 중 / 함선 badges, host-change / suspend / training chat + notification lines, training objective text, `hud.debugRemotes` for smokes
+
+- **Phase 8** — `menus/SettingsMenu` (키 설정 + 오디오 전체·효과음), pause menu 게임으로 돌아가기 / 설정 / 타이틀로 (+ 함선으로 귀환 on a mission only) and it now opens **in the ship** too, `hud/ShipManageHint` (bottom-right **시설 관리** + M) and `hud/ShipManage` (방 목록 + a **vertical right-hand** 가구 목록 that becomes a 용도 지정 picker for an empty room), `.item-chip*` CSS implementing the `src/shared/itemChip.ts` contract, **`hud/ItemTip`** (Phase 8 UI pass: the one hover card for every `.item-chip[data-def-id]`, a direct child of `#ui-root`)
+
+- **Phase 9** — the downed 포기 hold has a progress bar (`player:giveUpProgress` → `hud/Vitals` `.giveup`), `hud/TrainingPanel` (표적 모드 · 격추 · 남은 시간 · 최고 기록, training only), and a suspended teammate's ghost bleed shows on `Nameplates` / `Squad` (`ghostState` 1 → red `ghostDownHp` bar, 2 → `사망`)
+
+- **Phase 9 UI/UX 개선** — `hud/WeightBar` 삭제 (무게는 인벤토리에서만), 채팅 + 분대 목록을 좌하단 `.hud-bl` 열로 (체력바 위), `hud/ContractPanel` 에 **분대 계약** 행 추가, 새 `hud/QuickStrip` (빠른 사용 썸네일) · `hud/ImplantChip` (임플란트 썸네일) 과 `hud/StratagemPanel` 을 무기 패널 열에 prepend (고정 `bottom` 좌표가 겹치던 문제 해결), `hud/WeaponPanel` 에서 주무기 / 탄약 표기 제거, 스태미나 불투명 흰색, `hud/ShipManage` 에 가구 제작 / 가구 창고 탭 + 용도 지정 재료 칩, `hud/ItemTip` 이 `[data-item-tip]` 도 인식. **Phase 9 UI pass**: `hud/HousingHint` is the placement **key line only** + a bottom-right `.housing-exit` 종료 (Esc) chip, `hud/ShipManage` rows / 용도 지정 entries carry the shared facility thumbnail (`.sm-thumb`) and the picker is sorted 제작 가능 → 제작 불가 → 이미 제작 (`purposeRank`)
+
+- **Phase 10** — the reload radial moved from the weapon panel to the **crosshair** (`hud/ReloadGauge.ts`, closed by the new `weapon:reloadCancelled`), new `hud/HealGauge.ts` (full-circle 회복약 hold ring), **middle-click pings on the tactical map** (`MapScreen.fromX/fromZ` + `setPingPlacer` → the new public `Pings.placeAtWorld`, which keeps the crate / pad / pickup snapping and also serves `ping:requestAt`), the item tooltip gained a **bottom credit bar** and every ui credit readout uses `formatCredits`, `hud/SoftCursor.ts` drew the in-game cursor sprite (`input:cursorModeChanged`, `translate:` channel, `body.soft-cursor-on`) — **2026-09-07 커서 rework 로 삭제**, `hud/GameCursor.ts` 가 절차 생성 커서 아트를 CSS `cursor:` 이미지로 주입한다, and the light-blue fresnel spheres in `hud/Detection.ts` / `hud/ScanReveal.ts` became **upward-fading light pillars** (shared `hud/pillar.ts`, baked vertex colours, still pooled and light-free). `menus/MenuBase` (the Esc pause menu) deliberately keeps the real OS cursor
+
+- **Phase 11 (2026-09-07)** — ESC 는 버튼 열이 **화면 좌측**으로 가고 **함선에서만** 우측 `.pause-social` 열이 붙는다(분대원 — 아이디 · 레벨 + 보이스 슬라이더/음소거는 **UI 전용** · 받은 친구 요청 · 친구 · 최근 플레이어), 새 `menus/social/` (`SocialColumn` 은 ESC 와 커뮤니티 패널이 **공유**, `ProfileCard`, `SocialMenu` 우클릭 4항목은 `SocialRef.playBlock` → `PLAY_BLOCK_LABELS` 로 게이팅, `socialSource` 가 유일한 읽기 지점), `menus/SettingsMenu` 는 **좌측 중앙 측면 패널**(오디오 + 키 설정 안에 실제 `ControlsPanel`), `hud/Community.ts` (함선 전용 우상단 썸네일 — 내부 우하단 접속 친구 수 · 우상단 레드닷, `COMMUNITY_BLOCKER` 패널, 아래로 쌓이는 분대 초대 + `Keys.INVITE` 홀드 게이지), `hud/ChatLog` 귓속말 모드(`→ 이름` 칩 · `.chat-line.whisper` · `.hud-bl.whispering`), `MissionComplete` 다시 배치가 `ctx.missionPlanet` 을 싣고 결과 화면에 `행성 · <이름>` 줄
+
+- **2026-09-07 (인게임 HUD 정리)** — `hud/MissionInfo` **삭제**(우상단 처치수 제거, 임무 시간은 `hud/Objective` 의 `임무 목표` 라벨 옆 `.clock`), `hud/Vitals` 의 회복약 · 수류탄 알약 제거(좌하단은 체력 + 스태미나만), `hud/QuickStrip` 은 **마지막으로 선택된 슬롯 1칸**을 2배(60 px) 썸네일로, `hud/WeaponPanel` 은 이름 줄 대신 탄약 우측에 **고정 크기 무기 썸네일 상자**(`.wthumb` = `buildItemChip` + 명칭), `hud/SoftCursor` 는 `SoftCursor.onMove` 로 입력 이벤트마다 즉시 그린다 (**2026-09-07 커서 rework 로 삭제** → `hud/GameCursor`)
+
+- **2026-09-07 (회복 소모품)** — `hud/HealGauge` 가 `heal:holdChanged.dur` 로 아이템별 사용 시간을 세고 `spray` 면 남은 게이지를 `스프레이 n %` 로 보여주며, `hud/WeaponPanel` 의 소모품 힌트가 아이템별 홀드 시간 + `이동 50 %` 를 적는다
+
+- **2026-09-07 (새 캐릭터)** — `menus/TitleMenu` 에 **새 캐릭터로 시작** 버튼 + `.newchar-confirm` 확인 카드, 새 `menus/newCharacter.ts` (`resetCharacterSaves()` — `scav.` 접두 키를 전부 지우되 키 설정 · 오디오 · 콘솔 기록은 남기고 **세션 토큰까지** 버려 서버 프로필도 새로 발급받는다; 확인 뒤 페이지를 리로드)
+
+- **Phase 12 (2026-09-08)** — 새 `hud/ScanTracker` · `hud/CutsceneWatch`; `hud/Compass` 가 감지 반경 안의 적을 빨간 눈금으로(`queryNear` ≤10 Hz, `COMPASS_ENEMY_COLOR`) 그리고 `scan:cast` 로 드러난 적은 거리와 무관하게 15초 유지, `hud/Detection` 화면 내 붉은 인디케이터 + 스캔 대상 포함, `ScanReveal` 풀 160 + `scan:cast`, `Notifications` 에서 채집 토스트 삭제 · `item:channelChanged` 단일 라인(그 동안 `player:stimUsed` 음소거), `ShipManageHint` / `Community` 는 도킹 · 워프 컷씬 동안 숨고 시설관리 힌트는 개인 함선 전용, `hud/ShipManage` 에 발전기 행 + 인라인 차단 사유 + 중앙 모달리스 확인 팝업(Esc 소비); 일시정지 z-index 85(설정 86 · 키설정 88)

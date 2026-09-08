@@ -68,3 +68,13 @@ Audio: emits `audio:play {id:'pickup'}` on a local take — the audio module nee
 - `PickupWire.ex` (`ItemInstanceExtras`: `durability` / `ammoInMag` / `sockets`) is filled by `wireOf()` for every drop / echo / sync and
   restored on the receiving side through `ctx.loot.createItem(defId, qty, ex)`, so a dropped weapon keeps its wear, loaded rounds and attachments
   across the network. Items without those fields send no `ex`.
+
+---
+
+## 변경 이력
+
+프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **Phase 9** — `itemq sync` is re-requested on `net:hostChanged` (a takeover no longer loses the world's dropped items)
+
+- **Phase 10** — the 5.5 m beam became a shorter `PICKUP_PILLAR_HEIGHT` pillar that **fades to transparent upward** via baked vertex colours on the shared geometry (additive blending makes black transparent, so no new shader); `BEAM_HEIGHT` is still exported. The only sphere here is the grenade-body silhouette — the light-blue lootable sphere was never in this folder

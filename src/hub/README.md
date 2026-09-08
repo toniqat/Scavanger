@@ -11,6 +11,12 @@ Everything is procedural Three.js geometry — no asset files. Import via `@/hub
 | File | Purpose |
 |---|---|
 | `HubSystem.ts` | `GameSystem` (`name: 'hub'`) + `HubRef`. Enter / build / teardown, docking transitions, pod boarding, lobby → pod sync, launch countdown, Esc / E handling, pointer-lock etiquette (see below). **함선 꾸미기** (2026-09-06): `setMissionSeed` (console `/seed` only; lobby host pushes `setLobbySeed`, non-host refused), `currentRoom` + `hub:roomEntered` (player XZ vs the room boxes, every frame), door-sign refresh on `housing:roomPurposeChanged / changed / loaded`, owns the `FurnitureLayer` and the `HousingMode` controller (debug getters `.housing`, `.furnitureLayer`). **Phase 8**: Esc never opens the terminal any more (game/ owns the hub 일시정지 메뉴) and neither does a lost pointer lock; `Keys.MAP` (M, read live, no blocker / not boarded / personal ship) calls `openShipManage()` → `ctx.housing.openShipManage(currentRoom)` (the HUD calls it **시설 관리**); **Phase 8 UI pass**: the room door consoles (`hub_room_<i>`) and the cockpit facility console (`hub_facility`) are gone, geometry included — rooms / purposes / facilities are managed from the Tab 함선 tab and from 시설 관리; `refreshRoomSign` also drives 방 조명 (`PersonalShip.setRoomLit`); `updateNear` runs the 자동문 + room-light pool every frame; the built-in workbench is optional (shared ship only) and `furn_repair_bench` / `furn_grow_rack` furniture route to `WorkbenchMenu.open()` / `ctx.housing.openGrowMenu(uid)`. |
+| `model.ts` | 폴더 공용 어휘 — `HubSystem` 에서 떼어낸 상수 · 타입 · 스크래치. 클래스를 참조하지 않으므로 `parts/*` 가 순환 import 없이 쓴다. `HubSystem.ts` 가 재수출하므로 기존 import 경로는 그대로다 |
+| `parts/Planet.ts` | **목표 행성 선택과 워프 이동** (Phase 11). 임무는 여전히 무작위 시드로 생성되지만 **어느 행성인지**는 플레이어가 고른다. 로비에서는 **호스트만** 정하고 나머지는 `lobby:state` 로 같은 컷씬을 본다. 이동은 함선 내부를 재생성하지 않는다 — 창밖만 바뀐다. 목표 행성이 없으면 발사 슬롯에 탑승할 수 없다. |
+| `parts/Pods.ts` | **발사 포드 · 카운트다운 · 출격**. 포드에 타면 준비 완료가 되고, 접속한 전원이 준비되면 3초 카운트다운 뒤 호스트가 `startGame` 한다. 임무가 진행 중이면 포드는 재합류 입구가 된다. 탑승을 막는 이유(`podBlockReason`)는 프롬프트로 보여 준다 — `canInteract:false` 로 막으면 프롬프트 자체가 사라져 이유를 알 수 없다. |
+| `parts/Interior.ts` | **함선 내부 짓기 · 허물기**. 개인 함선(조종석 → 복도 → 방 10개 → 에어락)과 공유 함선의 지오메트리, 스테이션 배치, 가구 배치(`buildHousing`), 방 추적과 표지판. 모든 클라이언트가 같은 지오메트리를 만들어야 공유 함선의 위치 스냅샷이 맞는다. |
+| `parts/Transitions.ts` | **함선을 드나드는 전환**. 타이틀 → 개인 함선, 도킹 → 공유 함선, 임무 종료 → 함선, 재접속 복귀. 컷씬을 태울지 바로 바꿔치울지(`swapDirect`)와, 진행 중인 레이드로 자동 재투입할지를 정한다. |
+| `parts/Crew.ts` | **크루 카드** (Phase 10) 와 훈련장 입장. 허브에서는 `PlayerSnapshot` 의 무기 · 임플란트가 null 이고 `LobbyPlayer` 에는 레벨이 없다. 그래서 발사 준비 패널이 쓸 정보(이름 · 레벨 · 장착 임플란트 · 방어구)를 별도 `crew` 메시지로 주고받는다. 요청이 오면 그 대원의 장비 문서도 보낸다. |
 | `HousingMode.ts` | 3D side of housing mode (rules live in `ctx.housing`): reacts to `housing:modeChanged` **and `housing:shipManageChanged`** (함선 관리, Phase 8), controls off + oblique top-down camera over the room, pointer-locked cursor, ghost + footprint frame, LMB / R / X / C / wheel / `[ ]` / Esc, `housing:cursorChanged`. See **Housing mode** below. |
 | `LaunchPod.ts` | Pod mesh (open cylinder + sliding door with a window, slot-coloured floor ring / rear strip / lamp, CanvasTexture name tag that billboards), `Interactable` `hub_pod_<slot>` (`holdTime` 0.4) in front of the door, toggles the pod-door collider blocker while a *remote* occupant closes the door. `getCameraShot()` = boarded over-shoulder framing. |
 | `Terminal.ts` | `Interactable` `hub_terminal` (instant, `함선 터미널`) → opens `HubMenu`; `setScreen()` writes status lines to the console's CanvasTexture. |
@@ -334,3 +340,51 @@ over the 닫기 (Esc) / 타이틀로 footer.
   `'inventory'` 하나다. 예전의 `corpWasOpen` 한 프레임 스왈로우 규칙은 삭제했다.
 - `stationUsable()` / `onPointerLockChange` 는 이미 `ctx.inventory.isOpen` · `uiBlocked()` 로 같은 상태를 보고
   있어 그대로 둔다.
+
+
+## 파일 분할 규약 (`model.ts` + `parts/`, 2026-09-08)
+
+`HubSystem.ts` 는 한 파일에 다 있기에는 너무 커져서 **동작을 바꾸지 않고** 갈랐다. 규칙은 세 줄이다.
+
+1. **`model.ts`** — 폴더 공용 어휘(타입 · 상수 · 스크래치 객체, 상태 없는 보조 클래스).
+   `HubSystem.ts` 이 `export * from './model'` 로 재수출하므로 **기존 import 경로는 전부 그대로 동작한다.**
+2. **`parts/*.ts`** — 클래스에서 떼어낸 메서드 묶음. 각 함수는 인스턴스를 첫 인자 `sys` 로 받는다:
+   ```ts
+   export function foo(sys: HubSystem, …) { … }   // 예전의 this → sys
+   ```
+   클래스에는 같은 이름의 **한 줄 위임 메서드**가 남아 있으므로 호출부는 하나도 바뀌지 않았다.
+3. `parts/` 가 닿는 클래스 멤버는 `private` 이 벗겨져 있다. **폴더 밖에서 쓰라는 뜻이 아니다** —
+   외부와의 계약은 `@/shared` 의 `*Ref` 인터페이스가 전부다.
+
+새 `parts/` 파일은 맨 위 doc 주석에 **그 파일이 답하는 질문 한 줄**을 적고 위 표에 행을 추가한다.
+순환 import 를 만들지 않으려면 `parts/` 는 `HubSystem.ts` 에서 **타입만** 가져와야 한다 — 값은 `model.ts` 로.
+
+---
+
+## 변경 이력
+
+프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **tactical kit** — terminal is ship-only again (2026-09-06: the 임플란트 / 정비 tabs and their panels are gone — implants / repairs live on the Tab ship screen; frame `overflow: hidden`, no scrollbars) + 캐릭터 button (`ui:statsToggled`), hydroponics `GardenStation.ts`, implant bay interactable → `ctx.inventory.toggleBag()`, station geometry in `interiors/stations.ts`
+
+- **Phase 6** — personal ship rebuilt as **cockpit → corridor → 10 rooms → airlock** (`interiors/RoomLayout.ts` single source of coordinates, `roomAtWorld`, `roomCellToWorld`), `currentRoom` + `hub:roomEntered`, room consoles `hub_room_<i>` → `housing.openRoomMenu`, `hub_facility` → `openFacilityMenu`, `interiors/Furniture.ts` procedural furniture per `FurnitureModelKind` + `FurnitureLayer` (collider blockers, `Lv.n` signs, `hub_furn_<uid>` → `inventory.openBenchCraft` / `housing.openPresetMenu`), `HousingMode.ts` (top-down camera, pointer-locked cursor, ghost, LMB place / R rotate / X recover / wheel select / Esc), terminal seed field removed (`setMissionSeed` console-only), 10 constant lights
+
+- **Phase 5** — `Computer.ts` — ship computer desk (`stations.shipComputer`, both ships) with `Interactable` `hub_computer` `기업 네트워크` → `ctx.meta.openCorpMenu()`, stations locked while the corp screen is open, terminal screen `크레딧 n` line
+
+- **Phase 7** — `sim_hub` furniture model (holo pedestal + spinning rings) → `startTraining()` (solo `game:newMission {mode:'training'}`, lobby `net.startGame(seed, 'training')` by any member, join a running training via `rejoinMission`), shared-ship terminal 시뮬레이션 훈련장 section (시작 / 합류 n명 / 임무 진행 중), pods locked with `훈련 진행 중 — 터미널에서 합류`, return from a training without a docking cutscene
+
+- **Phase 8** — terminal moved to the **cockpit centre** (no 캐릭터 button, one-time 승무원 이름), the cockpit 정비 벤치 and 수경 재배 rack are gone (`furn_repair_bench` / `furn_grow_rack` furniture instead), `interiors/Doors.ts` **자동문** (`DOOR_OPEN_DISTANCE` / `DOOR_SLIDE_SPEED`, no colliders), per-room strip materials + a constant `ROOM_LIGHT_POOL` that re-anchors to non-empty rooms (empty rooms stay dark), **M** → `ctx.housing.openShipManage()`, housing mode runs **unlocked** in 함선 관리 (blocker `shipmanage`, camera-ray floor cursor, `#ui-root` clicks swallowed, **C** cancels), Esc no longer opens the terminal and consumes itself
+
+- **Phase 8 UI pass** — the room door consoles (`hub_room_<i>`) and the cockpit 함선 시설 console (`hub_facility`) are removed, geometry included, `HousingMode` releases its `shipmanage` blocker on **every** exit path (the Esc bug: camera back but no controls / no hint) and **C** with an empty cursor leaves the mode like Esc
+
+- **Phase 9** — `bookshelf` furniture model (shelves + one spine per shelved book, colour by rarity, rebuilt on `housing:booksChanged`) and the `onBookshelf` callback → `ctx.housing.openBookshelfMenu(uid)`
+
+- **Phase 9 UI/UX 개선** — `net:resumed` 는 훈련장을 임무로 보고하지 않는다 (재접속 시 `분대가 임무 중` 대신 터미널 합류 안내). **Phase 9 UI pass**: 조종석 정리 — the console-pedestal terminal is gone (the dashboard's centre monitor **is** `terminal.screen`; 항법 / 통신 readouts dropped), the **함선 컴퓨터** moved from the +X wall (pod-prompt clash) to the port rear wall replacing the lockers that overlapped the bunk, the stash cabinet moved starboard, door frames stand clear of the wall slab and `Parts.walls` splits the waist-high wainscot band around every doorway; `HousingMode` **glides** the camera between rooms (`glideCamera`, `update(dt)`)
+
+- **Phase 10** — **발사 준비 패널** (`ui/ReadyPanel.ts` — four horizontal cells shown as soon as a launch slot fills, each drawing that member's character from one `ctx.player.createPortraits` canvas through four viewports at `HUB_READY_PORTRAIT_YAW`; an un-ready member's cell draws no character; name + `Lv. n` top-left, equipped implant on the right; right-click → `ui/CrewLoadoutPanel.ts`, a hub-owned modeless frame hosting `inventory.createCrewLoadoutView` — `HUB_READY_BLOCKER` + cursor mode, and the Esc / E un-board paths plus `onPointerLockChange` now ignore that one token), **crew-card sending** (`crew card` to `others` on `hub:entered` in the shared ship and on level / implant / armor / loadout changes, debounced by `CREW_CARD_MIN_INTERVAL_S`; `crewq sync` on arrival; `crewq loadout` answered with `crew loadout` per `CREW_LOADOUT_COOLDOWN_S`), and the **housing camera fix** — rooms 6–10 no longer flip (the `rb.side` factor is gone from both `camGoal` and the locked-cursor mapping, so every room reads with its door at the top)
+
+- **Phase 11 (2026-09-07)** — the terminal is **full-screen** (`.fullscreen` · 좌 매치메이킹 / 중앙 행성 카드 / 우 훈련장 + 닫기 (Esc), 승무원 이름 섹션 삭제 — 호출명은 타이틀 화면 전용, `hub:terminalToggled`), `ui/PlanetHologram.ts` (자체 `WebGLRenderer` · `Starfield.Planet` 재사용 + 절차적 와이어 케이지 · 링 · 스캔라인, `PLANET_SWAP_TIME` 크로스 슬라이드, 닫히면 렌더 정지), `HubRef.planet / setPlanet / travelling` (로비면 `net.lobbyPlanet`, 솔로면 `PLANET_STORAGE_KEY`; 호스트 전용), `startTravel` → `DockingCutscene` `'travel'` + `interiors/WarpStreaks.ts` (**내부를 재생성하지 않는다** — 창밖만 바뀐다) → `hub:travel` / `hub:planetChanged`, 비호스트는 `net:lobbyUpdated` 로 미러, 발사 슬롯은 `podBlockReason` 으로 `목표 행성 미지정 — 터미널에서 지정` (`canInteract:false` 로 막으면 `findBest` 가 프롬프트 자체를 숨긴다), `launch()` 가 행성을 실어 보낸다
+
+- **2026-09-07 UI/UX pass** — `hub_computer` 의 `E` 는 여전히 `ctx.meta.openCorpMenu()` 지만 그 화면은 이제 Tab 창의 기업 탭이라 `'corp'` blocker 가 없고, 기업 화면이 떠 있는 동안 hub 는 **Escape 를 건드리지 않는다** (`corpWasOpen` 한 프레임 스왈로우 삭제)
+
+- **2026-09-07 (안정화)** — 복도 징두리 트림을 **문마다 끊어서** 그린다(허리 높이 노란 선이 방 문을 가로지르던 문제), `HousingMode` 의 커서가 방 밖을 가리키면 셀 프레임 · 고스트 · 설치/회수를 모두 끈다(`cursorInRoom`), `onResumed` 가 진행 중인 **레이드에 자동 재투입**한다(`rejoinMission()`)

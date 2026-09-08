@@ -1,0 +1,603 @@
+/**
+ * src/inventory/parts/DropResolver.ts — **드래그 앤 드롭 판정**.
+ *
+ * UI 가 묻는 두 가지 질문에만 답한다 — *여기 놓으면 어떻게 되나* (`preview*`, 타일 하이라이트 색)와
+ * *실제로 놓아라* (`drop` / `quickMove` / `activate` / `rotateItem` / `attachFrom`). 스왑 · 병합 · 장비칸 ·
+ * 퀵슬롯 · 소켓 · 부분 수량(Shift/Ctrl 드래그)이 전부 이 파일의 규칙이고, DOM 은 하나도 없다.
+ */
+import * as THREE from 'three';
+import type {
+  ContainerMessage, ContainerRequest, CraftIngredient, CraftRecipe, CraftStation, DurabilityInfo, GameContext, ItemCategory, ItemDef,
+  ItemInstance, Loadout, LoadoutSlot, PeerId as NetPeerId, ProfileRecord, SocketSlot, WeaponSlot, WeightInfo, LoadoutPreset, WorkbenchKind, EmbeddedView,
+} from '@/shared';
+import { BAG_DEFAULT_COLS, BAG_DEFAULT_QUICK_SLOTS, BAG_DEFAULT_ROWS, Keys, QUICK_SLOTS, SEARCH_MAX_DISTANCE, SOCKET_SLOTS, isQuickSlotActive } from '@/shared';
+import { AMMO_LABEL_KO, ITEM_DEF_MAP, STARTER_LOADOUT, STARTER_STASH, ammoItemIdFor, getRecipe, isWeaponItemDef, itemWeight } from '@/items';
+import { durabilityInfo, gearMultipliers, makeWeightInfo, searchTimeFor, sumWeight } from '../Gear';
+import { Grid, OOB, type Placement, type PriorityPlacement } from '../Grid';
+import { Container, ContainerStore } from '../Container';
+import { attachedItems, clearSocket, findSocketed, setSocket } from '../Sockets';
+import {
+  assignQuickSlot, autoAssignQuickSlots, createQuickSlots, firstFreeQuickSlot, isQuickIndex, isQuickUsable, pruneQuickSlots,
+  quickSlotOf, quickSlotsSignature, relinkQuickSlot, type QuickSlotUids,
+} from '../QuickSlots';
+import { setStarterGrantState, starterGrantState } from '../Stash';
+import { LOADOUT_SAVE_VERSION, isEmptyLoadoutSave, loadLoadoutSave, sanitizeLoadoutSave, type LoadoutSave } from '../Loadout';
+import { reviveItem, savedCell, serializeExtras, serializePlacement, type SavedPlacement } from '../Serialize';
+import {
+  AUTO_CLOSE_DISTANCE, BLOCKER_TOKEN, CRAFT_MIN_SPEED, DROP_EYE_LOWER, DROP_FORWARD_OFFSET, DROP_FORWARD_SPEED, DROP_UP_SPEED,
+  LOADOUT_SLOTS, MOD_CTRL, MOD_SHIFT, SEARCH_EMIT_INTERVAL, SPRAY_REFILL_COST, TAKE_REQUEST_TIMEOUT, WEAPON_SLOT_IDS,
+  isArmorDef, isAttachmentDef, isBagDef, isDisassembleRecipe, isWeaponDef, sameProfileDoc, slotAccepts,
+  type ActiveBench, type BagSize, type BenchRecipeRow, type BenchRepairRow, type DropPreview, type DropTarget,
+  type GridId, type ItemLocation, type OpResult, type PendingTake, type RaidInventoryState, type SlotId,
+} from '../model';
+import type { InventorySystem } from '../InventorySystem';
+
+/** Slot a double-click / `장착` sends a weapon to: first empty primary slot, else 주무기 I (swap). Armor / bags → their slot. */
+export function equipTargetFor(sys: InventorySystem, def: ItemDef): LoadoutSlot | null {
+  if (def.category === 'bag') return 'bag';
+  if (def.category === 'armor') return 'armor';
+  if (def.category === 'secondary') return 'secondary';
+  if (def.category !== 'primary') return null;
+  if (!sys.loadout.primary) return 'primary';
+  if (!sys.loadout.primary2) return 'primary2';
+  return 'primary';
+  }
+
+/** Split size a Shift (half) / Ctrl (one) drag would carry, or null when the item cannot be split. */
+export function partialQtyFor(sys: InventorySystem, item: ItemInstance, mode: 'half' | 'one'): number | null {
+  const def = ITEM_DEF_MAP.get(item.defId);
+  if (!def || def.stackMax <= 1 || item.qty < 2) return null;
+  return mode === 'one' ? 1 : Math.max(1, Math.floor(item.qty / 2));
+  }
+
+/** Non-mutating classification of a partial-stack drag (`qty` units of `uid`) onto `target`. */
+export function previewPartial(sys: InventorySystem, uid: string, from: ItemLocation, qty: number, target: DropTarget): DropPreview {
+  const v = sys.validatePartial(uid, from, qty, target);
+  if (!v) return 'bad';
+  const { item, def, grid, blockers } = v;
+  if (blockers.length === 0) return 'ok';
+  if (blockers.length !== 1 || blockers[0] === OOB) return 'bad';
+  if (blockers[0] === uid) return 'noop';
+  const other = grid.get(blockers[0]);
+  return other && other.item.defId === item.defId && other.item.qty < def.stackMax ? 'merge' : 'bad';
+  }
+
+/**
+ * Execute a partial-stack drag: onto a free cell → new stack of `qty` there; onto a same-def stack → merge
+ * (capped by `stackMax`); onto the source or anything else → nothing.
+ */
+export function dropPartial(sys: InventorySystem, uid: string, from: ItemLocation, qty: number, target: DropTarget): OpResult {
+  const takes = sys.isContainerLoc(from) && !(target.kind === 'grid' && target.grid === 'container');
+  if (takes) return sys.guardedTake(uid, from, Math.floor(qty), () => sys.dropPartialImpl(uid, from, qty, target));
+  return sys.dropPartialImpl(uid, from, qty, target);
+  }
+
+export function dropPartialImpl(sys: InventorySystem, uid: string, from: ItemLocation, qty: number, target: DropTarget): OpResult {
+  const v = sys.validatePartial(uid, from, qty, target);
+  if (!v || target.kind !== 'grid' || from.kind !== 'grid') return 'fail';
+  const { item, def, grid, blockers } = v;
+  const to: ItemLocation = { kind: 'grid', grid: target.grid };
+  const srcGrid = sys.getGrid(from.grid);
+  if (!srcGrid) return 'fail';
+
+  if (blockers.length === 0) {
+    const created = sys.loot.createItem(item.defId, qty);
+    if (!grid.place(created, target.x, target.y, target.rotated)) return 'fail';
+    item.qty -= qty;
+    srcGrid.version++;
+    if (sys.locKind(from) !== sys.locKind(to)) sys.emitTransfer(created, def, from, to);
+    sys.ctx.bus.emit('inventory:itemSplit', { source: item, created });
+    sys.afterChange();
+    return 'ok';
+  }
+  if (blockers.length !== 1 || blockers[0] === OOB) return 'fail';
+  if (blockers[0] === uid) return 'noop';
+  const other = grid.get(blockers[0]);
+  if (!other || other.item.defId !== item.defId || other.item.searched === false) return 'fail';
+  const moved = Math.min(def.stackMax - other.item.qty, qty);
+  if (moved <= 0) return 'fail';
+  other.item.qty += moved;
+  item.qty -= moved;
+  grid.version++;
+  srcGrid.version++;
+  if (sys.locKind(from) !== sys.locKind(to)) sys.emitTransfer({ ...item, qty: moved }, def, from, to);
+  sys.afterChange();
+  return 'ok';
+  }
+
+export function validatePartial(sys: InventorySystem, uid: string, from: ItemLocation, qty: number, target: DropTarget): { item: ItemInstance; def: ItemDef; grid: Grid; blockers: string[] } | null {
+  if (from.kind !== 'grid' || target.kind !== 'grid') return null;
+  if (sys.isItemLocked(uid, from) || sys.refusesIntoContainer(from, target)) return null;
+  if (sys.ctx.isMultiplayer && from.grid === 'container' && target.grid === 'container') return null; // no local splits of shared contents
+  const item = sys.findItem(uid, from);
+  const def = item && ITEM_DEF_MAP.get(item.defId);
+  if (!item || !def || def.stackMax <= 1) return null;
+  const n = Math.floor(qty);
+  if (!Number.isFinite(n) || n < 1 || n >= item.qty) return null;
+  const grid = sys.getGrid(target.grid);
+  if (!grid) return null;
+  const probe: ItemInstance = { uid: '__split__', defId: item.defId, qty: n, rotated: target.rotated };
+  return { item, def, grid, blockers: grid.blockersAt(probe, target.x, target.y, target.rotated, probe.uid) };
+  }
+
+/** Non-mutating classification used for the drag highlight. */
+export function previewDrop(sys: InventorySystem, uid: string, from: ItemLocation, target: DropTarget): DropPreview {
+  const item = sys.findItem(uid, from);
+  const def = item && ITEM_DEF_MAP.get(item.defId);
+  if (!item || !def) return 'bad';
+  if (sys.isItemLocked(uid, from) || sys.refusesIntoContainer(from, target)) return 'bad';
+
+  if (target.kind === 'weapon') return sys.previewAttach(uid, from, target.uid, target.loc);
+
+  if (target.kind === 'quick') {
+    if (from.kind !== 'grid' || from.grid !== 'bag' || !isQuickUsable(def)) return 'bad';
+    if (!isQuickIndex(target.index) || !isQuickSlotActive(target.index, sys.getQuickSlotCount())) return 'bad';
+    return sys.quickSlots[target.index] === uid ? 'noop' : sys.quickSlots[target.index] ? 'swap' : 'ok';
+  }
+
+  if (target.kind === 'slot') {
+    if (!slotAccepts(def, target.slot)) return 'bad';
+    const current = sys.loadout[target.slot];
+    if (from.kind === 'slot') {
+      if (from.slot === target.slot) return 'noop';
+      if (target.slot === 'bag' || from.slot === 'bag') return 'bad';
+      return current ? 'swap' : 'ok';
+    }
+    if (!current) return 'ok';
+    if (target.slot === 'bag') return 'swap'; // the displaced bag is placed first in the resized grid
+    return sys.canPlaceDisplaced(current, from, uid) ? 'swap' : 'bad';
+  }
+
+  const grid = sys.getGrid(target.grid);
+  if (!grid) return 'bad';
+  if (from.kind === 'grid' && from.grid === target.grid) {
+    const p = grid.get(uid);
+    if (p && p.x === target.x && p.y === target.y && item.rotated === target.rotated) return 'noop';
+  }
+  const blockers = grid.blockersAt(item, target.x, target.y, target.rotated, uid);
+  if (from.kind === 'slot' && from.slot === 'bag' && target.grid !== 'bag') return 'bad';
+  if (blockers.length === 0) return 'ok';
+  if (blockers.length !== 1 || blockers[0] === OOB) return 'bad';
+  const other = grid.get(blockers[0]);
+  if (!other) return 'bad';
+  if (target.grid === 'container' && other.item.searched === false) return 'bad'; // never touch an unsearched item
+  if (other.item.defId === item.defId && def.stackMax > 1 && other.item.qty < def.stackMax) return 'merge';
+  if (from.kind === 'slot') {
+    const od = ITEM_DEF_MAP.get(other.item.defId);
+    return od && slotAccepts(od, from.slot) ? 'swap' : 'bad';
+  }
+  // multiplayer: a swap would put my item into the container (not shared) — refused
+  if (sys.ctx.isMultiplayer && (from.grid === 'container') !== (target.grid === 'container')) return 'bad';
+  return sys.canSwap(item, from.grid, other.item, grid) ? 'swap' : 'bad';
+  }
+
+/**
+ * Free footprint **closest to (x, y)** for `uid` (living at `from`) inside `gridId`, preferring `rotated`.
+ * Null when the item does not fit anywhere.
+ *
+ * The drag UI uses this for an **equipment slot → grid** drag only: aiming a 4×2 weapon at a grid that has a
+ * single small item under the cursor used to refuse the drop outright (red highlight, snap back to the slot and
+ * shake), even with half the bag empty. The highlight now retargets to the spot the item really lands on.
+ */
+export function nearestFreeSpot(sys: InventorySystem, uid: string, from: ItemLocation, gridId: GridId, x: number, y: number, rotated: boolean): { x: number; y: number; rotated: boolean } | null {
+  const item = sys.findItem(uid, from);
+  const def = item && ITEM_DEF_MAP.get(item.defId);
+  const grid = sys.getGrid(gridId);
+  if (!item || !def || !grid) return null;
+  const orientations = def.width !== def.height ? [rotated, !rotated] : [rotated];
+  let best: { x: number; y: number; rotated: boolean } | null = null;
+  let bestD = Infinity;
+  for (const rot of orientations) {
+    const { w, h } = grid.footprintOf(item, rot);
+    for (let gy = 0; gy + h <= grid.rows; gy++) {
+      for (let gx = 0; gx + w <= grid.cols; gx++) {
+        if (!grid.canPlace(item, gx, gy, rot, uid)) continue;
+        // slight bias to the requested orientation so a fitting rotation is not preferred over an equal-distance one
+        const d = (gx - x) * (gx - x) + (gy - y) * (gy - y) + (rot === rotated ? 0 : 0.5);
+        if (d < bestD) { bestD = d; best = { x: gx, y: gy, rotated: rot }; }
+      }
+    }
+  }
+  return best;
+  }
+
+/** Execute a drag-and-drop. Container → player moves go through `guardedTake` (Phase 7). */
+export function drop(sys: InventorySystem, uid: string, from: ItemLocation, target: DropTarget): OpResult {
+  if (sys.refusesIntoContainer(from, target)) return 'fail';
+  const takes = sys.isContainerLoc(from) && !(target.kind === 'grid' && target.grid === 'container') && target.kind !== 'quick';
+  if (takes) return sys.guardedTake(uid, from, null, () => sys.dropImpl(uid, from, target));
+  if (sys.isItemLocked(uid, from)) return 'fail';
+  return sys.dropImpl(uid, from, target);
+  }
+
+export function dropImpl(sys: InventorySystem, uid: string, from: ItemLocation, target: DropTarget): OpResult {
+  const item = sys.findItem(uid, from);
+  const def = item && ITEM_DEF_MAP.get(item.defId);
+  if (!item || !def) return 'fail';
+  if (target.kind === 'weapon') return sys.attachFromImpl(uid, from, target.uid, target.loc);
+  if (target.kind === 'quick') {
+    const pv = sys.previewDrop(uid, from, target);
+    if (pv === 'bad') return 'fail';
+    if (pv === 'noop') return 'noop';
+    return sys.setQuickSlot(target.index, uid) ? 'ok' : 'fail';
+  }
+  if (target.kind === 'slot') return sys.dropOnSlot(item, def, from, target.slot);
+
+  const grid = sys.getGrid(target.grid);
+  if (!grid) return 'fail';
+  const to: ItemLocation = { kind: 'grid', grid: target.grid };
+
+  if (from.kind === 'grid' && from.grid === target.grid) {
+    const p = grid.get(uid);
+    if (p && p.x === target.x && p.y === target.y && item.rotated === target.rotated) return 'noop';
+  }
+
+  const blockers = grid.blockersAt(item, target.x, target.y, target.rotated, uid);
+  if (blockers.includes(OOB)) return 'fail';
+
+  // the equipped bag dragged into the grid: unequip (grid shrinks, bag lands at the target cell if it still exists)
+  if (from.kind === 'slot' && from.slot === 'bag') {
+    if (target.grid !== 'bag') return 'fail';
+    if (blockers.length === 0) return sys.changeBag(null, null, 'grid', { x: target.x, y: target.y });
+    if (blockers.length !== 1) return 'fail';
+    const other = grid.get(blockers[0]);
+    const od = other && ITEM_DEF_MAP.get(other.item.defId);
+    if (!other || !od || od.category !== 'bag') return 'fail';
+    return sys.changeBag(other.item, to, 'grid', { x: other.x, y: other.y });
+  }
+
+  if (blockers.length === 0) {
+    if (from.kind === 'grid' && from.grid === target.grid) {
+      if (!grid.moveTo(uid, target.x, target.y, target.rotated)) return 'fail';
+      sys.afterChange();
+      return 'ok';
+    }
+    sys.detach(item, from);
+    grid.place(item, target.x, target.y, target.rotated);
+    sys.afterMove(item, from, to);
+    return 'ok';
+  }
+
+  if (blockers.length !== 1) return 'fail';
+  const other = grid.get(blockers[0]);
+  if (!other) return 'fail';
+  if (target.grid === 'container' && other.item.searched === false) return 'fail';
+
+  // stack merge
+  if (other.item.defId === item.defId && def.stackMax > 1 && other.item.qty < def.stackMax) {
+    const moved = grid.mergeInto(item, other.item.uid);
+    if (moved <= 0) return 'fail';
+    if (item.qty <= 0) {
+      // the whole stack merged away: its wheel slot follows the surviving stack
+      if (target.grid === 'bag') relinkQuickSlot(sys.quickSlots, item.uid, other.item.uid);
+      sys.detach(item, from);
+      sys.afterMove(item, from, to, moved);
+    } else {
+      // partial merge: item stays where it was (qty reduced)
+      if (from.kind === 'grid') { const g = sys.getGrid(from.grid); if (g) g.version++; }
+      if (sys.locKind(from) !== sys.locKind(to)) sys.emitTransfer({ ...item, qty: moved }, def, from, to);
+      sys.afterChange();
+    }
+    return 'ok';
+  }
+
+  // swap with the single blocking item
+  if (from.kind === 'slot') {
+    const od = ITEM_DEF_MAP.get(other.item.defId);
+    if (!od || !slotAccepts(od, from.slot)) return 'fail';
+    grid.remove(other.item.uid);
+    sys.loadout[from.slot] = other.item;
+    grid.place(item, target.x, target.y, target.rotated);
+    sys.emitTransfer(other.item, od, to, from);
+    sys.emitTransfer(item, def, from, to);
+    sys.emitLoadout();
+    sys.afterChange();
+    return 'ok';
+  }
+  const srcGrid = sys.getGrid(from.grid);
+  if (!srcGrid) return 'fail';
+  if (sys.ctx.isMultiplayer && (from.grid === 'container') !== (target.grid === 'container')) return 'fail';
+  if (!sys.performSwap(item, srcGrid, other.item, grid, target.x, target.y, target.rotated)) return 'fail';
+  if (from.grid !== target.grid) {
+    const od = ITEM_DEF_MAP.get(other.item.defId);
+    if (from.grid === 'container') item.searched = true;
+    sys.emitTransfer(item, def, from, to);
+    if (od) sys.emitTransfer(other.item, od, to, from);
+  }
+  sys.afterChange();
+  return 'ok';
+  }
+
+/** Right-click quick action: container ↔ bag auto-place; slot → bag (the bag slot shrinks the grid first). */
+export function quickMove(sys: InventorySystem, uid: string, from: ItemLocation): OpResult {
+  if (sys.isContainerLoc(from)) return sys.guardedTake(uid, from, null, () => sys.quickMoveImpl(uid, from));
+  return sys.quickMoveImpl(uid, from);
+  }
+
+export function quickMoveImpl(sys: InventorySystem, uid: string, from: ItemLocation): OpResult {
+  const item = sys.findItem(uid, from);
+  const def = item && ITEM_DEF_MAP.get(item.defId);
+  if (!item || !def) return 'fail';
+  if (from.kind === 'slot' && from.slot === 'bag') return sys.changeBag(null, null, 'grid');
+  let dest: GridId;
+  if (from.kind === 'slot') dest = 'bag';
+  else if (from.grid === 'container' || from.grid === 'stash') dest = 'bag';
+  else if (sys.activeContainer) dest = 'container';
+  else if (sys.hubMode) dest = 'stash';
+  else return 'fail';
+  if (dest === 'container' && sys.ctx.isMultiplayer) return 'fail'; // Phase 7: nothing goes into a shared container
+  const grid = sys.getGrid(dest);
+  if (!grid) return 'fail';
+  if (!grid.canAbsorb(item)) {
+    if (dest === 'bag') sys.ctx.bus.emit('inventory:full', { item, name: def.name });
+    return 'fail';
+  }
+  sys.detach(item, from);
+  grid.autoPlace(item);
+  sys.afterMove(item, from, { kind: 'grid', grid: dest });
+  return 'ok';
+  }
+
+/** Double-click: weapons / bags equip (`equipTargetFor`), anything else quick-moves. */
+export function activate(sys: InventorySystem, uid: string, from: ItemLocation): OpResult {
+  if (sys.isContainerLoc(from)) return sys.guardedTake(uid, from, null, () => sys.activateImpl(uid, from));
+  return sys.activateImpl(uid, from);
+  }
+
+export function activateImpl(sys: InventorySystem, uid: string, from: ItemLocation): OpResult {
+  const item = sys.findItem(uid, from);
+  const def = item && ITEM_DEF_MAP.get(item.defId);
+  if (!item || !def) return 'fail';
+  const slot = sys.equipTargetFor(def);
+  if (slot) {
+    if (from.kind === 'slot') return 'noop';
+    return sys.dropOnSlot(item, def, from, slot);
+  }
+  return sys.quickMoveImpl(uid, from);
+  }
+
+export function rotateItem(sys: InventorySystem, uid: string, gridId: GridId): OpResult {
+  const grid = sys.getGrid(gridId);
+  const p = grid?.get(uid);
+  if (!grid || !p) return 'fail';
+  if (gridId === 'container' && p.item.searched === false) return 'fail';
+  const def = ITEM_DEF_MAP.get(p.item.defId);
+  if (!def || def.width === def.height) return 'noop';
+  if (!grid.rotate(uid)) return 'fail';
+  sys.ctx.bus.emit('inventory:itemRotated', { item: p.item });
+  sys.afterChange();
+  return 'ok';
+  }
+
+/**
+ * "모두 가져가기": move every **searched** container item into the bag that fits (largest first). Returns the moved
+ * count — on a multiplayer client the number of takes requested (each lands on its `cont taken`).
+ */
+export function takeAll(sys: InventorySystem): number {
+  const c = sys.activeContainer;
+  if (!c) return 0;
+  const from: ItemLocation = { kind: 'grid', grid: 'container' };
+  const items = c.grid.items().map((p) => p.item).filter((it) => it.searched !== false).sort((a, b) => sys.area(b) - sys.area(a));
+  let moved = 0;
+  let fullReported = false;
+  for (const item of items) {
+    const def = ITEM_DEF_MAP.get(item.defId);
+    if (!def) continue;
+    if (!sys.bag.canAbsorb(item)) {
+      if (!fullReported) { fullReported = true; sys.ctx.bus.emit('inventory:full', { item, name: def.name }); }
+      continue;
+    }
+    const r = sys.guardedTake(item.uid, from, null, () => sys.takeOne(item.uid));
+    if (r === 'ok' || r === 'pending') moved++;
+  }
+  return moved;
+  }
+
+/** One container item into the bag (auto-place, `inventory:itemAdded`). */
+export function takeOne(sys: InventorySystem, uid: string): OpResult {
+  const c = sys.activeContainer;
+  const p = c?.grid.get(uid);
+  const def = p && ITEM_DEF_MAP.get(p.item.defId);
+  if (!c || !p || !def) return 'fail';
+  if (!sys.bag.canAbsorb(p.item)) { sys.ctx.bus.emit('inventory:full', { item: p.item, name: def.name }); return 'fail'; }
+  c.grid.remove(uid);
+  p.item.searched = true;
+  sys.bag.autoPlace(p.item);
+  sys.ctx.bus.emit('inventory:itemAdded', { item: p.item, name: def.name, rarity: def.rarity });
+  sys.afterChange();
+  return 'ok';
+  }
+
+/** Can attachment `uid` (at `from`) be socketed into weapon `weaponUid` (at `loc`)? */
+export function previewAttach(sys: InventorySystem, uid: string, from: ItemLocation, weaponUid: string, loc: ItemLocation): DropPreview {
+  if (sys.isItemLocked(uid, from)) return 'bad';
+  const att = sys.findItem(uid, from);
+  const attDef = att && ITEM_DEF_MAP.get(att.defId);
+  const weapon = sys.findItem(weaponUid, loc);
+  if (!att || !attDef?.attachment || !weapon || from.kind !== 'grid') return 'bad';
+  if (sys.locKind(loc) !== 'player' || !isWeaponItemDef(ITEM_DEF_MAP.get(weapon.defId))) return 'bad';
+  if (!sys.loot.canAttach(weapon, att)) return 'bad';
+  return weapon.sockets?.[attDef.attachment.socket] ? 'swap' : 'ok';
+  }
+
+/**
+ * Socket attachment `uid` into weapon `weaponUid`. The previous attachment in that socket returns to the bag
+ * (or drops to the ground when nothing fits). Emits `inventory:socketChanged`, `inventory:itemUpdated`.
+ */
+export function attachFrom(sys: InventorySystem, uid: string, from: ItemLocation, weaponUid: string, loc: ItemLocation): OpResult {
+  if (sys.isContainerLoc(from)) return sys.guardedTake(uid, from, 1, () => sys.attachFromImpl(uid, from, weaponUid, loc));
+  return sys.attachFromImpl(uid, from, weaponUid, loc);
+  }
+
+export function attachFromImpl(sys: InventorySystem, uid: string, from: ItemLocation, weaponUid: string, loc: ItemLocation): OpResult {
+  if (sys.previewAttach(uid, from, weaponUid, loc) === 'bad' || from.kind !== 'grid') return 'fail';
+  const att = sys.findItem(uid, from)!;
+  const attDef = ITEM_DEF_MAP.get(att.defId)!;
+  const weapon = sys.findItem(weaponUid, loc)!;
+  const socket: SocketSlot = attDef.attachment!.socket;
+  const grid = sys.getGrid(from.grid);
+  if (!grid) return 'fail';
+  grid.remove(att.uid);
+  if (from.grid === 'container') att.searched = true;
+  const prev = setSocket(weapon, socket, att);
+  if (from.grid === 'container') sys.ctx.bus.emit('inventory:itemAdded', { item: att, name: attDef.name, rarity: attDef.rarity });
+  if (prev && !sys.bag.autoPlace(prev)) sys.throwToWorld(prev, true);
+  if (sys.bag.has(weapon.uid)) sys.bag.version++;
+  sys.ctx.bus.emit('inventory:socketChanged', { weapon, socket, attachment: att });
+  sys.afterSocketChange(weapon);
+  sys.afterChange();
+  return 'ok';
+  }
+
+/** After a socket change: a smaller magazine spills its excess rounds into the bag; weapons re-read the instance. */
+export function afterSocketChange(sys: InventorySystem, weapon: ItemInstance): void {
+  const stats = sys.loot.getEffectiveStats(weapon);
+  if (stats && weapon.ammoInMag !== undefined && weapon.ammoInMag > stats.magSize) {
+    const excess = weapon.ammoInMag - stats.magSize;
+    weapon.ammoInMag = stats.magSize;
+    sys.returnRounds(stats.ammoType, excess);
+  }
+  sys.ctx.bus.emit('inventory:itemUpdated', { item: weapon });
+  }
+
+/**
+ * Equip `next` (null = unequip) as the bag. The grid is resized to the new bag; the displaced bag is placed
+ * first (at `hint`, else the new bag's former cells, else the first free slot), everything else is relocated
+ * around it and whatever no longer fits is dropped into the world (`inventory:bagChanged.dropped`).
+ * Refused (nothing changes) only when the displaced bag itself cannot fit the new grid at all.
+ * `from` null with a `next` = a detached instance (catalog drag) that lives in no grid yet.
+ */
+export function changeBag(sys: InventorySystem, next: ItemInstance | null, from: ItemLocation | null, oldTo: 'grid' | 'world', hint?: { x: number; y: number }): OpResult {
+  const old = sys.loadout.bag;
+  if (!next && !old) return 'noop';
+  if (next && old && next.uid === old.uid) return 'noop';
+  const nextDef = next ? ITEM_DEF_MAP.get(next.defId) : undefined;
+  if (next && !nextDef?.bag) return 'fail';
+
+  const snap = sys.bag.snapshot();
+  const srcGrid = from?.kind === 'grid' ? sys.getGrid(from.grid) : null;
+  let srcPos: Placement | undefined;
+  if (next && from) {
+    if (from.kind !== 'grid' || !srcGrid) return 'fail';
+    srcPos = srcGrid.get(next.uid);
+    if (!srcPos) return 'fail';
+    srcGrid.remove(next.uid);
+  }
+  const size = sys.bagSizeOf(next);
+  const priority: PriorityPlacement[] = [];
+  if (old && oldTo === 'grid') {
+    const h = hint ?? (from?.kind === 'grid' && from.grid === 'bag' && srcPos ? { x: srcPos.x, y: srcPos.y } : undefined);
+    priority.push({ item: old, x: h?.x, y: h?.y });
+  }
+  const overflow = sys.bag.resize(size.cols, size.rows, priority);
+  if (old && oldTo === 'grid' && overflow.includes(old)) {
+    sys.bag.restore(snap);
+    if (next && srcGrid && srcPos) srcGrid.place(next, srcPos.x, srcPos.y, next.rotated);
+    return 'fail';
+  }
+  sys.loadout.bag = next;
+  if (next && nextDef && from) sys.emitTransfer(next, nextDef, from, { kind: 'slot', slot: 'bag' });
+  for (const it of overflow) sys.throwToWorld(it, true);
+  if (old && oldTo === 'world') sys.throwToWorld(old, true);
+  if (overflow.length > 0) {
+    sys.ctx.bus.emit('ui:notify', { text: `가방 공간 부족: 아이템 ${overflow.length}개를 바닥에 떨어뜨렸습니다`, kind: 'warning' });
+  }
+  sys.ctx.bus.emit('inventory:bagChanged', { ...size, dropped: overflow });
+  sys.emitLoadout();
+  sys.afterChange();
+  return 'ok';
+  }
+
+/** Can `current` (being displaced from a weapon slot) be placed where the dragged item came from, or anywhere sensible? */
+export function canPlaceDisplaced(sys: InventorySystem, current: ItemInstance, from: ItemLocation, draggedUid: string): boolean {
+  if (from.kind !== 'grid') return false;
+  const srcGrid = sys.getGrid(from.grid);
+  const src = srcGrid?.get(draggedUid);
+  if (!srcGrid || !src) return false;
+  const ignore = [draggedUid, current.uid];
+  // multiplayer: the displaced gear may not land in a shared container — only the bag can take it
+  if (sys.ctx.isMultiplayer && from.grid === 'container') return sys.bag.findFreeSlot(current) !== null;
+  if (srcGrid.canPlace(current, src.x, src.y, current.rotated, ignore)) return true;
+  if (srcGrid.canPlace(current, src.x, src.y, !current.rotated, ignore)) return true;
+  if (srcGrid.findFreeSlot(current, current.rotated, ignore)) return true;
+  return from.grid === 'container' && sys.bag.findFreeSlot(current) !== null;
+  }
+
+export function dropOnSlot(sys: InventorySystem, item: ItemInstance, def: ItemDef, from: ItemLocation, slot: SlotId): OpResult {
+  if (!slotAccepts(def, slot)) return 'fail';
+  if (from.kind === 'slot') {
+    if (from.slot === slot) return 'noop';
+    if (slot === 'bag' || from.slot === 'bag' || slot === 'armor' || from.slot === 'armor') return 'fail';
+    // 주무기 I ↔ 주무기 II (both slots accept the same category, so the swap is always valid)
+    const cur = sys.loadout[slot];
+    if (cur && !slotAccepts(ITEM_DEF_MAP.get(cur.defId)!, from.slot)) return 'fail';
+    sys.loadout[slot] = item;
+    sys.loadout[from.slot] = cur ?? null;
+    sys.emitLoadout();
+    sys.afterChange();
+    return 'ok';
+  }
+  if (slot === 'bag') return sys.changeBag(item, from, 'grid');
+  const srcGrid = sys.getGrid(from.grid);
+  const src = srcGrid?.get(item.uid);
+  if (!srcGrid || !src) return 'fail';
+  const current = sys.loadout[slot];
+  const sx = src.x, sy = src.y, srot = item.rotated;
+  srcGrid.remove(item.uid);
+  if (from.grid === 'container') item.searched = true;
+  if (current) {
+    const intoShared = sys.ctx.isMultiplayer && from.grid === 'container';
+    const placed = intoShared
+      ? sys.bag.autoPlace(current)
+      : srcGrid.place(current, sx, sy, current.rotated) ||
+        srcGrid.place(current, sx, sy, !current.rotated) ||
+        srcGrid.autoPlace(current) ||
+        (from.grid === 'container' && sys.bag.autoPlace(current));
+    if (!placed) { srcGrid.place(item, sx, sy, srot); return 'fail'; }
+    if (from.grid === 'container' && srcGrid.has(current.uid)) {
+      const cd = ITEM_DEF_MAP.get(current.defId);
+      if (cd) sys.emitTransfer(current, cd, { kind: 'slot', slot }, from);
+    }
+  }
+  sys.loadout[slot] = item;
+  sys.emitTransfer(item, def, from, { kind: 'slot', slot });
+  sys.emitLoadout();
+  sys.afterChange();
+  return 'ok';
+  }
+
+export function canSwap(sys: InventorySystem, item: ItemInstance, fromGrid: GridId, other: ItemInstance, targetGrid: Grid): boolean {
+  const srcGrid = sys.getGrid(fromGrid);
+  const src = srcGrid?.get(item.uid);
+  if (!srcGrid || !src) return false;
+  const ignore = [item.uid, other.uid];
+  if (srcGrid.canPlace(other, src.x, src.y, other.rotated, ignore)) return true;
+  if (srcGrid.canPlace(other, src.x, src.y, !other.rotated, ignore)) return true;
+  // same-grid: anything free after both are lifted; cross-grid: any free slot in source grid
+  const probe = srcGrid === targetGrid ? ignore : [item.uid];
+  return srcGrid.findFreeSlot(other, other.rotated, probe) !== null;
+  }
+
+export function performSwap(sys: InventorySystem, item: ItemInstance, srcGrid: Grid, other: ItemInstance, dstGrid: Grid, x: number, y: number, rotated: boolean): boolean {
+  const src = srcGrid.get(item.uid);
+  const dst = dstGrid.get(other.uid);
+  if (!src || !dst) return false;
+  const sx = src.x, sy = src.y, srot = item.rotated;
+  const ox = dst.x, oy = dst.y, orot = other.rotated;
+  srcGrid.remove(item.uid);
+  dstGrid.remove(other.uid);
+  if (!dstGrid.place(item, x, y, rotated)) {
+    srcGrid.place(item, sx, sy, srot); dstGrid.place(other, ox, oy, orot); return false;
+  }
+  const placed =
+    srcGrid.place(other, sx, sy, orot) ||
+    srcGrid.place(other, sx, sy, !orot) ||
+    srcGrid.autoPlace(other);
+  if (!placed) {
+    dstGrid.remove(item.uid);
+    srcGrid.place(item, sx, sy, srot);
+    dstGrid.place(other, ox, oy, orot);
+    return false;
+  }
+  return true;
+  }

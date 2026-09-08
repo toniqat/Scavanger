@@ -410,3 +410,25 @@ I 회로 기판 1 + 전력 케이블 1 · II + 합금 판 1 · III 회로 기판
 
 Smoke: `scripts/smoke-progression.mjs` covers the def table (46 / 23 / 23, names, slots, stats, repair costs, value ¼),
 the loot rules (corpse / crate counts over 400 / 300 rolls, no working implant, no legendary below tier 4) and the spray gauge.
+
+---
+
+## 변경 이력
+
+프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **tactical kit** — `ArmorDefs.ts` (8 plates, `getArmorDef`), `Recipes.ts` (16 recipes, `getAllRecipes`), categories `armor` / `gadget` / `herb`, `weight` on every def, `mat_gunpowder`, starter `armor_2`
+
+- **Phase 6** — six legendary **unique weapons** `u_flame / u_shock / u_shuriken / u_bow / u_bazooka / u_minigun` (`UNIQUE_WEAPON_DEFS`, `WeaponDef.unique / altFire`, no grades / sockets, `isUniqueWeapon`), dedicated ammo `ammo_fuel/cell/shuriken/arrow/rocket/belt`, materials `mat_cable` / `mat_circuit`, uniques in tier 4 / 5 and `rogue_boss` corpse tables, 40 recipes with `CraftRecipe.bench / benchLevel` (gun / gear / gadget / medical)
+
+- **Phase 7** — rarity / category labels, colours, icons and order now live in `src/shared/labels.ts` (re-exported here)
+
+- **Phase 8** — three 씨앗 (`seed_bloodroot / seed_ashleaf / seed_glowcap`, category `seed`, `ItemDef.seed` = 1 / 2.5 / 6 real hours) from tier 1–3 containers and bug corpses — never craftable
+
+- **Phase 9** — 14 **서적** (`book_<skill>`, category `book`, `ItemDef.book.skill`, one per skill, `BOOK_ITEM_DEFS` / `BOOK_DEF_BY_SKILL`) from tier 2–4 containers and rogue corpses (never craftable)
+
+- **Phase 10** — unchanged — whether a corpse can be searched at all is decided by `CORPSE_LOOT_CHANCE` (shared) **before** `rollCorpse` is ever called; `CORPSE_TABLES` / `rollCorpse` keep their exact vectors
+
+- **2026-09-07** — 스팀 / 고급 스팀 삭제 → **회복 소모품 4종**(`heal_bandage` 붕대 · `heal_bandage_herb` 약초 붕대 · `heal_syringe` 회복주사 · `heal_spray` 회복 스프레이 — `ItemDef.heal`, 스프레이는 `durabilityMax` 100 게이지), 재료 `mat_cloth` / `mat_can` / `mat_syringe` / `mat_antiseptic`(소독약은 제작 전용), 수류탄 스택 3 · 재세동기 스택 2, 탄약 스택 = 한 세트, 의약 레시피 6종, `STARTER_LOADOUT` 은 최소 킷(권총 I · 가방 I · 방탄복 I)이고 새 **`STARTER_STASH`** 가 기본 지급품
+
+- **Phase 12 (2026-09-08)** — `ImplantDefs.ts` — 46개 category `implant` 정의(5능력치 × I–IV + 전설 퍽 3종, 각각 `imp_broken_*` 쌍둥이가 `repairsTo` / `repairCost` 를 갖는다), 루팅은 **망가진 것만**(티어 2–4 가중치, 로그 시체 6 % · 보스 45 %, 전설은 티어 4 / 보스, `rollCorpse` 의 마지막 추첨이라 기존 벡터 불변); `STARTER_STASH` 의 폐금속 24 · 케이블 4 · 합금 3 (발전기 Lv.1 → 작업실 → 총기 작업대 전 과정을 덮는다)
