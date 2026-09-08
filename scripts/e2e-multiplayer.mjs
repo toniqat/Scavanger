@@ -93,6 +93,9 @@ const boardPod = (page) => page.evaluate(() => {
   const pod = ctx.interactables.all().find((i) => i.id === `hub_pod_${slot}`);
   if (!pod || !pod.canInteract()) return `pod ${slot} unavailable (${ctx.interactables.all().map((i) => i.id).join(',')})`;
   pod.interact();
+  // 2026-09-08: 출격 준비 경고 (주무기 · 탄약 · 가방 · 방탄복 · 임플란트 · 회복 아이템). 막지는 않으므로 확인하고 탄다.
+  const warn = document.querySelector('.launch-warn');
+  if (warn && !warn.hidden) [...warn.querySelectorAll('.hub-foot .ui-btn')].find((b) => b.textContent === '그래도 출격').click();
   return 'ok';
 });
 

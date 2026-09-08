@@ -6,8 +6,10 @@ import { clear, el, isolateInput, setText } from './dom';
 const IMPLANT_LABEL: Readonly<Record<ImplantId, string>> = {
   grapple: '갈고리', dash: '대시', barrier: '배리어', overcharge: '오버차지', scan: '정찰', atlauncher: '대전차포',
 };
+/** Rows of a preset card. `implantItems` (2026-09-08) is a list, so `slotText` joins it. */
 const SLOT_LABEL: ReadonlyArray<[keyof LoadoutPreset, string]> = [
-  ['primary', '주무기 I'], ['primary2', '주무기 II'], ['secondary', '보조무기'], ['bag', '가방'], ['armor', '방탄복'], ['implant', '임플란트'],
+  ['primary', '주무기 I'], ['primary2', '주무기 II'], ['secondary', '보조무기'], ['bag', '가방'], ['armor', '방탄복'],
+  ['implant', '전술 임플란트'], ['implantItems', '임플란트'],
 ];
 
 /**
@@ -54,8 +56,9 @@ export class PresetMenu extends HousingPanel {
   private slotText(preset: LoadoutPreset, key: keyof LoadoutPreset): string {
     const v = preset[key];
     if (!v) return '—';
-    if (key === 'implant') return IMPLANT_LABEL[v as ImplantId] ?? v;
-    return this.housing.nameOf(v);
+    if (Array.isArray(v)) return v.length ? v.map((d) => this.housing.nameOf(d)).join(', ') : '없음';
+    if (key === 'implant') return IMPLANT_LABEL[v as ImplantId] ?? String(v);
+    return this.housing.nameOf(v as string);
   }
 
   private save(index: number, name: string): void {

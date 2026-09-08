@@ -17,6 +17,7 @@ import { Computer } from './Computer';
 import { DockingCutscene, type DockDirection } from './DockingCutscene';
 import { HubMenu } from './ui/HubMenu';
 import { WorkbenchMenu } from './ui/WorkbenchMenu';
+import { LaunchWarnPanel } from './ui/LaunchWarnPanel';
 import { HubStatus } from './ui/HubStatus';
 import { ReadyPanel, type ReadyCellInfo } from './ui/ReadyPanel';
 import { randomSeed } from './ui/dom';
@@ -140,6 +141,10 @@ export class HubSystem implements GameSystem, HubRef {
   cutscene: DockingCutscene | null = null;
   menu!: HubMenu;
   wbMenu!: WorkbenchMenu;
+  /** 출격 준비 경고 (2026-09-08): raised by `boardPod` when the launch check has something to say. */
+  launchWarn!: LaunchWarnPanel;
+  /** Warning signature the player already waved through — the same set never asks twice. Cleared on a real change. */
+  launchWarnAck = '';
   status!: HubStatus;
   /** 발사 준비 패널 (Phase 10): 4 portrait cells + the 분대원 장비 popup. */
   ready!: ReadyPanel;
@@ -189,6 +194,7 @@ export class HubSystem implements GameSystem, HubRef {
       travelTo: (p) => { this.setPlanet(p); },
     });
     this.wbMenu = new WorkbenchMenu(ctx, { onClosed: () => this.relock() });
+    this.launchWarn = new LaunchWarnPanel(ctx, { onClosed: () => this.relock() });
     // ReadyPanel **before** HubStatus: `hub.css` lifts the status line off the panel with a sibling selector.
     this.ready = new ReadyPanel(ctx);
     this.status = new HubStatus(ctx);
@@ -231,6 +237,7 @@ export class HubSystem implements GameSystem, HubRef {
     document.removeEventListener('pointerlockchange', this.onPointerLockChange);
     this.menu.dispose();
     this.wbMenu.dispose();
+    this.launchWarn.dispose();
     this.status.dispose();
     this.ready.dispose();
     this.housingMode.dispose();
@@ -461,7 +468,8 @@ export class HubSystem implements GameSystem, HubRef {
     if (ctx.input.wasPressed(Keys.MENU) && !this.corpMenuOpen()) {
       // Whatever we handle here must be swallowed: game/ polls the same Escape later in the frame and would
       // otherwise open the 일시정지 메뉴 the instant a hub panel released its blocker (Phase 8).
-      if (this.wbMenu.isOpen) { this.wbMenu.close(); ctx.input.consume(Keys.MENU); }
+      if (this.launchWarn.isOpen) { this.launchWarn.close(); ctx.input.consume(Keys.MENU); }
+      else if (this.wbMenu.isOpen) { this.wbMenu.close(); ctx.input.consume(Keys.MENU); }
       else if (this.menu.isOpen) { this.menu.close(); ctx.input.consume(Keys.MENU); }
       // 분대원 장비 popup before the pod: the READY panel is modeless over the pod view (Phase 10)
       else if (this.ready.closePopup()) { ctx.input.consume(Keys.MENU); }

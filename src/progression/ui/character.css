@@ -57,7 +57,8 @@
 
 /* ── body ────────────────────────────────────────────────────────────────── */
 /* 2026-09-07: three columns — 능력치 | 숙련도 | 전술 임플란트 (파생 능력치 keeps the full width underneath). */
-.cs-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) minmax(200px, 0.62fr); gap: 26px; }
+/* 2026-09-08: 임플란트 열이 인벤토리로 빠져 능력치 | 숙련도 두 열이 되었다. */
+.cs-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 26px; }
 .cs-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .cs-col > .ui-label { display: flex; align-items: center; gap: 10px; }
 .cs-col > .ui-label::after { content: ""; flex: 1; height: 1px; background: var(--c-border); }
@@ -129,167 +130,11 @@
 .cs-foot .ui-btn.armed { border-color: var(--c-danger); color: var(--c-danger); background: rgba(255, 77, 77, 0.1); }
 .cs-foot .ui-btn:disabled { opacity: 0.35; pointer-events: none; }
 
-@media (max-width: 1280px) { .cs-body { grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); } .cs-implants { grid-column: 1 / -1; } }
 @media (max-width: 900px) {
   .menu.char-sheet .frame { min-width: 0; padding: 24px 20px; }
   .cs-body { grid-template-columns: 1fr; gap: 18px; }
   .cs-skills { grid-template-columns: 1fr; }
 }
-
-/* ── 전술 임플란트 (Phase 9 UI pass) ──────────────────────────────────────────
-   Moved out of the inventory 장착 장비 column: the implant is a character choice, so it is a section of the sheet.
-   Every implant is a card; the equipped one is lit and a click on it unequips. Disabled during a raid. */
-.cs-implants { display: flex; flex-direction: column; gap: 8px; }
-.cs-implants .h { display: flex; align-items: center; gap: 8px; }
-.cs-imp-key {
-  font-family: var(--ui-mono); font-size: 10px; color: var(--c-text-dim);
-  border: 1px solid var(--c-border); padding: 1px 6px;
-}
-.cs-implants .hint { font-size: 11px; color: var(--c-text-dim); }
-
-/* 2026-09-07: the column shows one **slot card** for what is equipped; the full list moved into the picker below. */
-.cs-imp-slot {
-  --ic: rgba(255, 255, 255, 0.35);
-  appearance: none; font: inherit; text-align: left; color: var(--c-text);
-  display: flex; align-items: flex-start; gap: 10px;
-  padding: 12px 12px; cursor: pointer; width: 100%;
-  border: 1px solid var(--c-border); border-left: 3px solid var(--ic);
-  background: rgba(255, 255, 255, 0.03);
-  transition: border-color var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease);
-}
-.cs-imp-slot:hover:not(:disabled), .cs-imp-slot.is-open { border-color: var(--c-border-strong); background: rgba(255, 255, 255, 0.08); }
-.cs-imp-slot:disabled { cursor: not-allowed; opacity: 0.5; }
-.cs-imp-slot.is-filled { border-color: color-mix(in srgb, var(--ic) 55%, transparent); background: color-mix(in srgb, var(--ic) 12%, transparent); }
-.cs-imp-slot .ico {
-  flex: none; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;
-  font-size: 20px; line-height: 1; color: var(--ic);
-  border: 1px solid color-mix(in srgb, var(--ic) 50%, transparent);
-  background: color-mix(in srgb, var(--ic) 10%, transparent);
-}
-.cs-imp-slot.is-filled .ico { box-shadow: 0 0 14px color-mix(in srgb, var(--ic) 45%, transparent); }
-.cs-imp-slot .body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.cs-imp-slot .line { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.cs-imp-slot .nm { font-size: 14px; font-weight: 700; letter-spacing: 0.04em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cs-imp-slot.is-filled .nm { color: var(--ic); }
-.cs-imp-slot .tag {
-  font-size: 9px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--c-text-dim);
-  border: 1px solid var(--c-border); padding: 1px 5px; white-space: nowrap;
-}
-.cs-imp-slot .desc { font-size: 11px; line-height: 1.45; color: var(--c-text-dim); }
-
-/* 모달리스 picker — a direct child of `#ui-root` (the embedded tab's host carries a `scale:`, which would become the
-   containing block of a fixed popup). Above `.inv-root` (z-index 50) and below the software cursor sprite (400). */
-.cs-imp-pop {
-  position: fixed; left: 0; top: 0; z-index: 90;
-  display: flex; flex-direction: column; gap: 10px;
-  width: 360px; max-height: calc(100vh - 24px); overflow-y: auto; scrollbar-width: thin;
-  padding: 14px 16px;
-  border: 1px solid var(--c-border-strong);
-  background: linear-gradient(180deg, rgba(18, 21, 27, 0.98), rgba(10, 12, 17, 0.98));
-  box-shadow: 0 26px 64px rgba(0, 0, 0, 0.62), inset 0 1px 0 rgba(255, 255, 255, 0.06);
-}
-.cs-imp-pop[hidden] { display: none; }
-.cs-imp-pop .h { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-.cs-imp-close { min-width: 0; height: 28px; padding: 0 12px; font-size: 11px; }
-.cs-imp-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
-.cs-imp-card {
-  --ic: #9fb6c8;
-  appearance: none; font: inherit; text-align: left; color: var(--c-text);
-  display: flex; align-items: flex-start; gap: 10px;
-  padding: 9px 11px; cursor: pointer;
-  border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03);
-  transition: border-color var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease);
-}
-.cs-imp-card:hover:not(:disabled) { border-color: var(--c-border-strong); background: rgba(255, 255, 255, 0.07); }
-.cs-imp-card:disabled { cursor: not-allowed; }
-.cs-imp-card.is-equipped { border-color: var(--ic); background: color-mix(in srgb, var(--ic) 14%, transparent); }
-.cs-imp-card .ico {
-  flex: none; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
-  font-size: 16px; line-height: 1; color: var(--ic);
-  border: 1px solid color-mix(in srgb, var(--ic) 50%, transparent);
-  background: color-mix(in srgb, var(--ic) 10%, transparent);
-}
-.cs-imp-card.is-equipped .ico { box-shadow: 0 0 12px color-mix(in srgb, var(--ic) 45%, transparent); }
-.cs-imp-card .body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.cs-imp-card .line { display: flex; align-items: center; gap: 8px; }
-.cs-imp-card .nm { font-size: 13px; font-weight: 600; }
-.cs-imp-card.is-equipped .nm { color: var(--ic); }
-.cs-imp-card .tag {
-  font-size: 9px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--c-text-dim);
-  border: 1px solid var(--c-border); padding: 1px 5px;
-}
-.cs-imp-card .desc { font-size: 11px; line-height: 1.45; color: var(--c-text-dim); }
-.cs-imp-card .meta { font-size: 10px; letter-spacing: 0.08em; color: var(--c-text-faint); }
-.cs-imp-card.is-equipped .body::after {
-  content: "장착 중 · 클릭해 해제";
-  font-size: 9px; letter-spacing: 0.12em; color: var(--ic);
-}
-.cs-implants.is-empty .cs-imp-slot { display: none; }
-
-/* ── 임플란트 아이템 (Phase 12, 2026-09-08) ────────────────────────────────────
-   Under the 전술 임플란트 slot: `임플란트 n / m칸` + pips, one row per equipped item (shared `.item-chip` thumbnail →
-   hover card), an inline message line and the `+ 장착` button. The picker `.cs-impi-pop` is a `#ui-root` child like
-   `.cs-imp-pop` (same reason: the embedded tab's `scale:` would become a fixed popup's containing block). */
-.cs-impitems { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; padding-top: 10px; border-top: 1px solid var(--c-border); }
-.cs-impitems .h { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.cs-impitems .h .cnt { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; color: var(--c-text-dim); white-space: nowrap; }
-.cs-impi-pips { display: flex; flex-wrap: wrap; gap: 4px; }
-.cs-impi-pips i {
-  display: block; width: 16px; height: 8px;
-  border: 1px solid var(--c-border-strong); background: rgba(255, 255, 255, 0.04);
-  transition: background-color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
-}
-.cs-impi-pips i.on { background: #e39cff; border-color: #e39cff; box-shadow: 0 0 8px rgba(227, 156, 255, 0.5); }
-.cs-impi-list { display: flex; flex-direction: column; gap: 6px; }
-.cs-impi-empty { font-size: 11px; line-height: 1.45; color: var(--c-text-faint); padding: 6px 2px; }
-.cs-impi-row, .cs-impi-opt {
-  --rc: #9aa3ad;
-  appearance: none; font: inherit; text-align: left; color: var(--c-text);
-  display: flex; align-items: center; gap: 10px; width: 100%;
-  padding: 7px 9px; cursor: pointer;
-  border: 1px solid var(--c-border); border-left: 3px solid var(--rc);
-  background: rgba(255, 255, 255, 0.03);
-  transition: border-color var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease);
-}
-.cs-impi-row:hover:not(:disabled), .cs-impi-opt:hover:not(:disabled) { border-color: var(--c-border-strong); background: rgba(255, 255, 255, 0.07); }
-.cs-impi-row .item-chip, .cs-impi-opt .item-chip { flex: none; pointer-events: auto; }
-.cs-impi-row .info, .cs-impi-opt .info { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
-.cs-impi-row .line, .cs-impi-opt .line { display: flex; align-items: center; gap: 6px; min-width: 0; flex-wrap: wrap; }
-.cs-impi-row .nm, .cs-impi-opt .nm { font-size: 12.5px; font-weight: 700; color: var(--rc); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cs-impi-row .tag, .cs-impi-opt .tag {
-  font-size: 9px; letter-spacing: 0.12em; color: var(--c-text-dim);
-  border: 1px solid var(--c-border); padding: 1px 5px; white-space: nowrap;
-}
-.cs-impi-opt .tag.rar { color: var(--rc); border-color: color-mix(in srgb, var(--rc) 55%, transparent); }
-.cs-impi-row .meta, .cs-impi-opt .meta { font-size: 10.5px; line-height: 1.4; color: var(--c-text-dim); }
-.cs-impi-row .act { font-size: 9.5px; letter-spacing: 0.1em; color: var(--c-text-faint); }
-.cs-impi-row.is-locked { cursor: not-allowed; }
-.cs-impi-row.is-locked .act { color: var(--c-danger); }
-.cs-impi-msg { font-size: 11px; line-height: 1.4; color: var(--c-success); padding: 2px 2px; }
-.cs-impi-msg.is-error { color: var(--c-danger); }
-.cs-impi-add { min-width: 0; height: 30px; padding: 0 14px; font-size: 11.5px; align-self: flex-start; }
-.cs-impi-add.is-open { border-color: var(--c-border-strong); background: rgba(255, 255, 255, 0.08); }
-.cs-impi-add.is-locked { opacity: 0.55; }
-
-/* picker — same chrome as `.cs-imp-pop` */
-.cs-impi-pop {
-  position: fixed; left: 0; top: 0; z-index: 90;
-  display: flex; flex-direction: column; gap: 10px;
-  width: 400px; max-height: calc(100vh - 24px); overflow-y: auto; scrollbar-width: thin;
-  padding: 14px 16px;
-  border: 1px solid var(--c-border-strong);
-  background: linear-gradient(180deg, rgba(18, 21, 27, 0.98), rgba(10, 12, 17, 0.98));
-  box-shadow: 0 26px 64px rgba(0, 0, 0, 0.62), inset 0 1px 0 rgba(255, 255, 255, 0.06);
-}
-.cs-impi-pop[hidden] { display: none; }
-.cs-impi-pop .h { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-.cs-impi-opts { display: flex; flex-direction: column; gap: 6px; }
-.cs-impi-opt:disabled { cursor: not-allowed; }
-.cs-impi-opt.is-dim { color: var(--c-text-faint); border-color: var(--c-border); background: rgba(255, 255, 255, 0.015); }
-.cs-impi-opt.is-dim .nm { color: var(--c-text-dim); }
-.cs-impi-opt.is-dim .item-chip { opacity: 0.55; }
-.cs-impi-opt .why { font-size: 10px; letter-spacing: 0.06em; color: var(--c-danger); }
-.cs-impi-opt.is-broken .why { color: #d6a24a; }
 
 /* stat value with an implant bonus: `4 (+2)` */
 .cs-stat .v .ib { font-size: 12px; font-weight: 600; color: #e39cff; }

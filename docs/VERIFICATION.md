@@ -253,6 +253,38 @@ in `CLAUDE.md`.
   단독 8연속 52/52 — 그중 한 번은 첫 투척이 6.09 m 로 빗나가 재시도 경로를 실제로 탔다.
 
 
+## 2026-09-08 — UI/UX 개선 6건 (기업 탭 잠금 · 감정 지연 · 임플란트 이사 · 레드닷 · 출격 경고)
+
+`npm run verify:all` **all passed in 5 min 39 s**.
+
+docs line: 2026-09-08: typecheck ok, typecheck-server ok, net-selftest 278/278, build 2,120.37 kB JS / 212.17 kB CSS,
+smoke-quickslots 46/46, smoke-phase2 53/53, smoke-weapons 137/137, smoke-stratagems 70/70, smoke-phase3 32/32,
+smoke-phase4 49/49, smoke-ship-rooms 71/71, smoke-inventory-p6 93/93, smoke-controls-hub 111/111, smoke-tactical 85/85,
+smoke-console 63/63, smoke-housing 197/197, smoke-progression 123/123, smoke-loadout 61/61, smoke-ui-p6 87/87,
+smoke-search 61/61, smoke-ui-p5 133/133, smoke-resume-gate 47/47, smoke-enemy-alert 42/42, smoke-uniques 71/71,
+smoke-meta 170/170, smoke-training 110/110, smoke-library 126/126, smoke-rogue-v2 52/52, smoke-ghost 86/86,
+smoke-enemy-delta 52/52, smoke-planets 86/86, smoke-raidflow 48/48, smoke-ecology 83/83, smoke-social 116/116,
+e2e-mp 156/156.
+
+새 스크립트는 없다. 기존 스모크에 검사를 더했다 (+22): `smoke-meta` 170 (기업 탭 잠금 · 퀘스트 탭으로 열림 ·
+잠긴 탭 클릭 무시 · Lv.1 에서 해제), `smoke-search` 61 (감정이 상자를 연 뒤 0.1 s 지나 시작), `smoke-housing` 197
+(프리셋의 `implantItems` 저장 · 리로드 · 손상 세이브 정화), `smoke-progression` 123 (캐릭터 시트에 임플란트 UI 가
+없다 · 인벤토리 칸에서의 장착/해제/피커 · 프리셋 왕복), `smoke-controls-hub` 111 (캐릭터 탭 2열 · 인벤토리
+임플란트 칸 · 레드닷), `smoke-planets` 86 (출격 경고 표시 · 취소 · 그래도 출격 · 재차 묻지 않음).
+
+**세 번 걸린 것** (첫 `verify:all` 은 3개 실패):
+
+1. `smoke-quickslots` 33/42 — 임플란트 칸을 `.inv-equip` 에 넣자 그 열이 **262 → 814 px** 로 벌어져 가방 격자가
+   1280 px 뷰포트 **밖으로** 밀려났고, 실제 마우스 드래그가 전부 허공을 짚었다. 원인은 `.inv-panel, .inv-equip
+   { flex: none }` — 열 폭이 **max-content** 라 임플란트 설명 한 줄이 그대로 폭이 된다. `.inv-implants` 를
+   `width: 0; min-width: 100%` 로 두어 (퍼센트 min-width 는 고유 크기 계산에서 0) 폭은 예전처럼 장비 슬롯이 정하고
+   블록은 거기 맞춰 줄바꿈하게 했다. 헤드리스로 실제 사각형을 재서 확인했다.
+2. `smoke-training` 101/110 · `e2e-mp` 59/60 — 포드 탑승 경로에 출격 경고가 새로 끼어들어 두 스모크가 그대로
+   멈췄다(기본 지급품에는 주무기가 없어 항상 걸린다). 두 스크립트의 탑승 헬퍼가 경고 카드를 확인하고 지나가도록 고쳤다.
+3. `smoke-planets` 80/82 — 리로드 뒤 세션이 새로 시작하면 `launchWarnAck` 이 비므로 경고가 다시 뜬다. 이건 의도한
+   동작이라 발사 검사 쪽을 고쳤다(리로드 뒤 경고가 다시 뜨는 것 자체를 검사로 만들었다).
+
+
 ## 2026-09-08 — Phase 12 (임플란트 아이템 · 배리어 rework · 정찰 rework · 총알 추적 · UX 정리)
 
 `npm run verify:all` **all passed in 9 min 8 s** (계약 커밋 `e215d36`, 구현 `bb1b4c6` + 통합 수정).

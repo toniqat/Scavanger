@@ -103,6 +103,7 @@ try {
   const openCrate = (id, tier) => page.evaluate(([cid, t]) => {
     const ctx = window.__game.ctx;
     const pos = ctx.player.position.clone();
+    window.__openT = ctx.time;   // 2026-09-08: 감정 시작 지연을 재려고 여는 순간의 sim time 을 남긴다
     ctx.bus.emit('crate:open', { crateId: cid, tier: t, position: pos });
     const c = window.__game.getSystem('inventory').getActiveContainer();
     return c.grid.items().sort((a, b) => a.y - b.y || a.x - b.x).map((p) => ({ uid: p.item.uid, defId: p.item.defId, qty: p.item.qty, searched: p.item.searched, x: p.x, y: p.y }));
@@ -285,6 +286,16 @@ try {
   ok(tiles0.count === c1.length && tiles0.hidden === c1.length && tiles0.leak === 0 && tiles0.icons.join() === '?' && tiles0.names.every((n) => n === '???'),
     'unsearched tiles show only the footprint (`.is-hidden-item`, `?` / `???`, no rarity class / pips / bar)', JSON.stringify(tiles0));
   ok(!tiles0.statusHidden && /감정 중/.test(tiles0.status ?? ''), 'container header shows 감정 중 · n개 남음', JSON.stringify(tiles0.status));
+
+  // 2026-09-08 UI/UX: 감정은 창이 열린 **뒤** SEARCH_START_DELAY(0.1 s) 지나서 시작한다 — 열리는 애니메이션이
+  // 끝나기도 전에 첫 아이템 게이지가 차 있던 걸 고친 것. 첫 진행 이벤트까지의 sim time 으로 잰다.
+  await waitFor(page, () => window.__ev['container:searchProgress'].length >= 1, 'first searchProgress');
+  const startDelay = await page.evaluate(() => {
+    const ev = window.__ev['container:searchProgress'];
+    return { dt: ev[0].t - window.__openT, first: ev[0].progress, uid: ev[0].uid };
+  });
+  ok(startDelay.dt >= 0.1 && startDelay.dt < 0.6, `감정은 상자를 연 뒤 0.1 s 지나서 시작한다 (${startDelay.dt.toFixed(3)} s)`, JSON.stringify(startDelay));
+  ok(startDelay.uid === c1[0].uid && startDelay.first < 0.5, '지연이 끝나면 그리드 첫 아이템부터 0 에서 시작한다', JSON.stringify(startDelay));
   // unsearched items refuse every operation
   const refused = await page.evaluate((uid) => {
     const sys = window.__game.getSystem('inventory');

@@ -37,6 +37,11 @@ import { el, fmtNum, setText, toggleClass } from './dom';
  *     `renderItemCost` material chips (dimmed red when short), the credit fee and one **수리** button, gated by
  *     `Rules.canRepairImplant` through `MetaSystem.getImplantRepair`.
  *
+ * **탭 잠금 (2026-09-08)**: a page the current 신뢰도 cannot use is not merely empty any more — its sub-tab is
+ * `disabled` with the reason in its tooltip (`pageLock`), and the view opens on **퀘스트** instead (`resolvePage`),
+ * the one page that is never rep-gated. 거래 needs `SHOP_UNLOCK_REP_LEVEL`; 계약 needs the lowest `minRepLevel`
+ * among that corp's contracts (so a corp with a Lv.0 contract never locks). 퀘스트 · 임플란트 수리 never lock.
+ *
  * Page bodies are built **once** and swapped, not rebuilt per refresh — the embedded grids own bus subscriptions and
  * a pointer drag, so recreating them on every `inventory:changed` would drop a drag mid-flight.
  * ──────────────────────────────────────────────────────────────────────────── */
@@ -240,7 +245,8 @@ export class CorpView {
     this.clearBasket();              // a basket belongs to the corp it was assembled at
     this.selectedQuest = null;
     this.selectedImplant = null;
-    if (!pagesFor(corp).includes(this.current)) this.current = 'trade';   // the 임플란트 desk is 세레스 only
+    // the 임플란트 desk is 세레스 only, and the new corp's 신뢰도 may lock 거래 / 계약 (2026-09-08)
+    this.current = this.resolvePage(this.current);
     this.hideMsg();
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
     this.refresh();
@@ -251,8 +257,41 @@ export class CorpView {
     if (CORP_DEFS[corp]) this.corp = corp;
   }
 
+  /**
+   * Why `page` is locked at the current corp / 신뢰도 (Korean), or null when it is open. 거래 opens at
+   * `SHOP_UNLOCK_REP_LEVEL`; 계약 opens as soon as **one** of the corp's contracts is within reach. 퀘스트 and the
+   * 임플란트 수리 desk are never rep-gated — they are how a Lv.0 player earns the reputation in the first place.
+   */
+  pageLock(page: CorpPage): string | null {
+    const level = this.meta.getRep(this.corp).level;
+    if (page === 'trade') return level < SHOP_UNLOCK_REP_LEVEL ? `신뢰도 Lv.${SHOP_UNLOCK_REP_LEVEL} 부터 거래 가능` : null;
+    if (page === 'contracts') {
+      const list = this.meta.getContracts(this.corp);
+      if (list.length === 0) return null;            // no contracts at all — the page says so itself
+      let need = Number.POSITIVE_INFINITY;
+      for (const c of list) need = Math.min(need, c.def.minRepLevel);
+      return level < need ? `신뢰도 Lv.${need} 부터 계약 가능` : null;
+    }
+    return null;
+  }
+
+  /** `want` when this corp has it and it is unlocked, else 퀘스트, else the first page that is open. */
+  private resolvePage(want: CorpPage): CorpPage {
+    const pages = pagesFor(this.corp);
+    if (pages.includes(want) && !this.pageLock(want)) return want;
+    if (pages.includes('quests') && !this.pageLock('quests')) return 'quests';
+    return pages.find((p) => !this.pageLock(p)) ?? 'quests';
+  }
+
   setPage(page: CorpPage): void {
-    if (this.current === page || !pagesFor(this.corp).includes(page)) return;
+    if (!pagesFor(this.corp).includes(page)) return;
+    const lock = this.pageLock(page);
+    if (lock) {
+      this.ctx.bus.emit('audio:play', { id: 'ui_deny' });
+      this.showMsg(`${PAGES.find((p) => p.id === page)?.label ?? ''} · ${lock}`, 'danger');
+      return;
+    }
+    if (this.current === page) return;
     this.current = page;
     this.hideMsg();
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
@@ -284,10 +323,14 @@ export class CorpView {
     setText(this.panel.text, rep.next === null ? `${fmtNum(rep.rep)} · 최고 등급` : `${fmtNum(rep.rep)} / ${fmtNum(rep.next)}`);
 
     const pages = pagesFor(this.corp);
-    if (!pages.includes(this.current)) this.current = 'trade';
+    this.current = this.resolvePage(this.current);
     for (const p of PAGES) {
       const b = this.subTabs.get(p.id)!;
       b.hidden = !pages.includes(p.id);
+      const lock = pages.includes(p.id) ? this.pageLock(p.id) : null;
+      b.disabled = lock !== null;
+      b.title = lock ?? '';
+      toggleClass(b, 'is-locked', lock !== null);
       toggleClass(b, 'is-on', p.id === this.current);
     }
 

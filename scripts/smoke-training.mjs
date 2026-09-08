@@ -506,7 +506,12 @@ try {
     blocker: window.__game.ctx.uiBlockers.has('ready'),
   }));
   ok(readyHidden.hidden === true && !readyHidden.blocker, 'READY panel hidden with every slot empty (no blocker)');
-  await P(() => window.__game.ctx.interactables.all().find((i) => i.id === 'hub_pod_0')?.interact());
+  // 2026-09-08: 출격 준비 경고가 먼저 뜬다 (기본 지급품에는 주무기가 없다) — 확인하고 그대로 탑승한다
+  await P(() => {
+    window.__game.ctx.interactables.all().find((i) => i.id === 'hub_pod_0')?.interact();
+    const warn = document.querySelector('.launch-warn');
+    if (warn && !warn.hidden) [...warn.querySelectorAll('.hub-foot .ui-btn')].find((b) => b.textContent === '그래도 출격').click();
+  });
   await waitSim(0.15);
   const boarded = await P(() => {
     const root = document.querySelector('.hub-ready');

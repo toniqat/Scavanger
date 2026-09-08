@@ -430,7 +430,11 @@ try {
     if (!root) return null;
     const tabs = [...root.querySelectorAll('.corp-tab')].map((b) => ({ corp: b.dataset.corp, on: b.classList.contains('is-on') }));
     // Phase 12: the 임플란트 tab exists in the DOM for every corp but is `hidden` unless the corp is 세레스 바이오
-    const subs = [...root.querySelectorAll('.corp-subtabs .scr-tab:not([hidden])')].map((b) => ({ page: b.dataset.page, on: b.classList.contains('is-on') }));
+    const subs = [...root.querySelectorAll('.corp-subtabs .scr-tab:not([hidden])')].map((b) => ({
+      page: b.dataset.page, on: b.classList.contains('is-on'),
+      // 2026-09-08: 신뢰도가 모자란 페이지는 탭 자체가 잠긴다 (사유는 title)
+      locked: b.classList.contains('is-locked'), disabled: b.disabled, why: b.title,
+    }));
     const ctx = window.__game.ctx;
     return {
       hidden: root.hidden, oldOverlay: !!document.querySelector('.menu.corp-menu'),
@@ -457,15 +461,32 @@ try {
     '메인 패널 좌열: 기업 패널 위 · 거래/계약/퀘스트 아래', JSON.stringify(dom && dom.sideOrder));
   ok(dom && dom.tabs.length === 4 && dom.tabs.find((t) => t.corp === 'ceres')?.on && dom.panel === '세레스 바이오' && !dom.motto,
     '4 corp tabs, ceres selected, 기업 패널 세레스 바이오 (no motto banner)', JSON.stringify(dom && dom.tabs));
-  ok(dom && dom.subs.map((s) => s.page).join(',') === 'trade,contracts,quests,implants' && dom.subs[0].on, 'sub-tabs 거래 / 계약 / 퀘스트 / 임플란트 at ceres (거래 on)', JSON.stringify(dom && dom.subs));
-  ok(dom && dom.rows >= 1, '거래 page shows the locked-shop notice (ceres Lv.0)', `${dom && dom.rows}`);
-  // 거래 불가일 때도 그리드는 형태를 유지하고 사유를 가운데에 띄운다
-  const lockedGrid = await P(() => {
-    const g = document.querySelector('.ct-shop-list');
-    return { note: g?.querySelector('.corp-empty')?.textContent ?? null, display: g ? getComputedStyle(g).display : null };
+  ok(dom && dom.subs.map((s) => s.page).join(',') === 'trade,contracts,quests,implants', 'sub-tabs 거래 / 계약 / 퀘스트 / 임플란트 at ceres', JSON.stringify(dom && dom.subs));
+  // 2026-09-08 UI/UX: 신뢰도 Lv.0 → 거래 탭은 잠기고, 화면은 잠기지 않는 퀘스트 탭으로 열린다.
+  // 계약은 세레스에 minRepLevel 0 짜리가 있으므로 잠기지 않는다 (요구사항: Lv.0 에서도 계약은 가능).
+  const subTrade = dom && dom.subs.find((s) => s.page === 'trade');
+  const subContracts = dom && dom.subs.find((s) => s.page === 'contracts');
+  const subQuests = dom && dom.subs.find((s) => s.page === 'quests');
+  ok(subQuests && subQuests.on && !subQuests.locked, '신뢰도가 모자라면 퀘스트 탭으로 열린다', JSON.stringify(subQuests));
+  ok(subTrade && subTrade.locked && subTrade.disabled && /신뢰도 Lv\.1 부터 거래 가능/.test(subTrade.why), '거래 탭이 잠긴다 (사유가 title 에)', JSON.stringify(subTrade));
+  ok(subContracts && !subContracts.locked && !subContracts.disabled, 'Lv.0 에서도 계약 탭은 열려 있다 (minRepLevel 0 계약이 있다)', JSON.stringify(subContracts));
+  // 잠긴 탭은 눌러도 넘어가지 않고 사유만 뜬다
+  const clickLocked = await P(() => {
+    document.querySelector('.corp-subtabs .scr-tab[data-page="trade"]').click();
+    const on = document.querySelector('.corp-subtabs .scr-tab.is-on');
+    return { on: on?.dataset.page, msg: document.querySelector('.corp-view .form-msg')?.textContent ?? '' };
   });
-  ok(lockedGrid.display === 'grid' && /신뢰도 Lv\.1 부터 거래 가능/.test(lockedGrid.note ?? ''),
-    `거래 불가 재고도 그리드 형태 + 중앙 라벨 ('${lockedGrid.note}')`);
+  ok(clickLocked.on === 'quests', '잠긴 거래 탭을 눌러도 퀘스트 탭에 머문다', JSON.stringify(clickLocked));
+  // 신뢰도를 Lv.1 로 올리면 거래 탭이 풀린다
+  const unlocked = await P(() => {
+    window.__game.ctx.meta.addRep('ceres', 100, 'smoke');
+    const b = document.querySelector('.corp-subtabs .scr-tab[data-page="trade"]');
+    return { locked: b.classList.contains('is-locked'), disabled: b.disabled, lv: window.__game.ctx.meta.getRep('ceres').level };
+  });
+  ok(unlocked.lv === 1 && !unlocked.locked && !unlocked.disabled, '신뢰도 Lv.1 이 되면 거래 탭이 풀린다', JSON.stringify(unlocked));
+  await P(() => { document.querySelector('.corp-subtabs .scr-tab[data-page="trade"]').click(); });
+  await sleep(60);
+  ok(await P(() => document.querySelector('.corp-subtabs .scr-tab.is-on')?.dataset.page === 'trade'), '풀린 거래 탭으로 전환된다');
   let tg = await lastEv('ui:corpToggled');
   ok(tg && tg.open === true && tg.corp === 'ceres', 'ui:corpToggled {open:true, ceres}', JSON.stringify(tg));
   await P(() => document.querySelector('.corp-subtabs .scr-tab[data-page="contracts"]').click());

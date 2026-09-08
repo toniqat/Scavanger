@@ -45,6 +45,9 @@ export function savePreset(sys: HousingSystem, index: number, preset: LoadoutPre
     name: (preset.name || `프리셋 ${index + 1}`).slice(0, PRESET_NAME_MAX),
     primary: preset.primary ?? null, primary2: preset.primary2 ?? null, secondary: preset.secondary ?? null,
     bag: preset.bag ?? null, armor: preset.armor ?? null, implant,
+    // appended (2026-09-08): 임플란트 아이템. Omitted entirely when the caller had none to say, so an old preset
+    // re-saved by an old path never silently gains an empty list (which would mean "unequip everything").
+    ...(preset.implantItems ? { implantItems: preset.implantItems.filter((d) => typeof d === 'string' && !!d).slice(0, 16) } : {}),
   };
   while (sys.state.presets.length <= index) sys.state.presets.push(null);
   sys.state.presets[index] = copy;

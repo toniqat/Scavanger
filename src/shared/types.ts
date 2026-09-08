@@ -1387,7 +1387,7 @@ export interface InventoryRef {
 }
 
 /* ══ appended: 2026-09-08 — 임플란트(능력치 장착 아이템) · 배리어 충돌 · 총알 추적 · 스캔 실루엣 ═══════════════════
- * Contract for the 2026-09-08 batch (see `src/shared/README.md`, last section, and `docs/PHASE12-PLAN.md`).
+ * Contract for the 2026-09-08 batch (see `src/shared/README.md`, last section, and `docs/DECISIONS.md`).
  * Append-only, as always. Owners are named per member.
  * ────────────────────────────────────────────────────────────────────────────────────────────────────────────── */
 
@@ -1434,4 +1434,35 @@ export interface EnemyManagerRef {
    * occlusion silhouette) for these enemies for `seconds`; a second call extends. Replicas included. `[]` + 0 clears.
    */
   setXray(ids: readonly number[], seconds: number): void;
+}
+
+/* ══ appended: 출격 준비 점검 (2026-09-08, owner: inventory) ═══════════════════════════════════════════════════════
+ * 발사 슬롯에 타기 전에 "이대로 나가면 곤란한" 것들을 한 번에 훑는다. 판정은 전부 인벤토리가 한다 — 가방 · 장착
+ * 장비 · 탄약 스택 · 회복 아이템을 아는 건 거기뿐이고, `hub/` 는 결과 목록을 그리기만 한다.
+ * 여섯 가지 모두 **경고**일 뿐 탑승을 막지 않는다: 확인을 누르면 그대로 출격한다.
+ * ────────────────────────────────────────────────────────────────────────────────────────────────────────────── */
+
+export type LaunchWarningId =
+  | 'noPrimary'    // 주무기(주무기 I · II)를 하나도 안 들었다
+  | 'lowAmmo'      // 들고 있는 무기의 구경 탄약이 한 세트(= 한 칸, `AMMO_STACK_ROUNDS`) 미만이다
+  | 'noBag'        // 가방 미장착
+  | 'noArmor'      // 방탄복 미장착
+  | 'noImplant'    // 전술 임플란트 미장착 (`ctx.implants.equipped`)
+  | 'noHeal';      // 회복 아이템(category 'stim')이 가방에 없다
+
+/** One reason the launch check raised. Both strings are 한국어 and ready to render. */
+export interface LaunchWarning {
+  id: LaunchWarningId;
+  /** Headline (`주무기가 없습니다`). */
+  text: string;
+  /** One line of detail — which weapon, how many rounds short … Empty when the headline says it all. */
+  detail: string;
+}
+
+export interface InventoryRef {
+  /**
+   * 출격 준비 점검. Empty array = nothing to warn about. Order is fixed (the `LaunchWarningId` order above) so the
+   * popup reads the same every time. Reads only — nothing is equipped, moved or consumed.
+   */
+  getLaunchWarnings(): LaunchWarning[];
 }

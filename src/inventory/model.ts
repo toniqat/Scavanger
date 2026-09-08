@@ -48,6 +48,13 @@ export type BenchRepairRow = {
 export const AUTO_CLOSE_DISTANCE = 6;
 /** `container:searchProgress` rate cap (s). */
 export const SEARCH_EMIT_INTERVAL = 1 / 20;
+/**
+ * appended (2026-09-08): grace period after a container window opens before 감정 starts ticking (s, sim time).
+ * Opening a crate used to start the first item's timer on the very frame the window appeared — the bar was already
+ * moving before the panel had finished its open animation. The delay is per **open**, not per container, so a close /
+ * reopen pays it again; `Container.searchProgress` still keeps the seconds already banked.
+ */
+export const SEARCH_START_DELAY = 0.1;
 /** A take request the host never answered is dropped after this (s, sim time) so the tile stops pulsing. */
 export const TAKE_REQUEST_TIMEOUT = 8;
 

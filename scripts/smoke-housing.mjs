@@ -303,6 +303,18 @@ try {
   ok(saved === true, 'savePreset(1)');
   ok(await H(() => window.__game.ctx.housing.savePreset(3, { name: 'x', primary: null, primary2: null, secondary: null, bag: null, armor: null, implant: null }) === false), 'savePreset(3) refused (only 3 slots)');
   ok(await H(() => window.__game.ctx.housing.getPresets()[1]?.name === '테스트'), 'preset 1 stored with its name');
+  // 2026-09-08: 임플란트 아이템도 로드아웃의 일부 — captureLoadout 이 def id 배열을 함께 들고 온다
+  ok(cap === null || Array.isArray(cap.implantItems), 'captureLoadout carries implantItems (임플란트 아이템 def ids)', JSON.stringify(cap && cap.implantItems));
+  const impPreset = await H(() => {
+    const h = window.__game.ctx.housing;
+    h.savePreset(2, { name: '임플란트', primary: null, primary2: null, secondary: null, bag: null, armor: null, implant: null, implantItems: ['imp_strength_1', 5, '', 'imp_endurance_1'] });
+    return h.getPresets()[2];
+  });
+  ok(Array.isArray(impPreset?.implantItems) && impPreset.implantItems.join(',') === 'imp_strength_1,imp_endurance_1',
+    'savePreset keeps implantItems and drops non-string entries', JSON.stringify(impPreset?.implantItems));
+  ok(await H(() => window.__game.ctx.housing.getPresets()[1]?.implantItems === undefined || Array.isArray(window.__game.ctx.housing.getPresets()[1].implantItems)),
+    'a preset saved without implantItems keeps the field absent (older saves are left alone)');
+  await H(() => window.__game.ctx.housing.deletePreset(2));
   const applied = await H(() => window.__game.ctx.housing.applyPreset(1));
   const canApply = await H(() => typeof window.__game.ctx.inventory.applyLoadout === 'function');
   if (canApply) {
@@ -509,7 +521,7 @@ try {
   await H(() => window.__game.ctx.housing.setRoomPurpose(8, 'empty'));
 
   console.log('persistence');
-  await H(() => window.__game.ctx.housing.savePreset(0, { name: '리로드', primary: null, primary2: null, secondary: null, bag: null, armor: null, implant: 'scan' }));
+  await H(() => window.__game.ctx.housing.savePreset(0, { name: '리로드', primary: null, primary2: null, secondary: null, bag: null, armor: null, implant: 'scan', implantItems: ['imp_strength_1'] }));
   await H(() => window.__game.ctx.housing.save());
   const before = await H(() => JSON.parse(JSON.stringify(window.__game.ctx.housing.state)));
   await page.reload({ waitUntil: 'load' });
@@ -519,20 +531,21 @@ try {
   ok(after.generatorLevel === before.generatorLevel && after.storageLevel === 1 && after.rooms[0].level === before.rooms[0].level, `facility levels persisted (gen ${after.generatorLevel}, storage ${after.storageLevel})`);
   ok(after.furniture.length === before.furniture.length && after.furniture.some((f) => f.uid === 'f-4' && f.defId === 'furn_bench_gun') && after.furniture.some((f) => f.defId === 'furn_sim_hub' && f.room === 5), `furniture persisted incl. the sim hub (${after.furniture.length})`);
   ok(JSON.stringify(after.furnitureStorage) === JSON.stringify(before.furnitureStorage), 'furniture storage persisted');
-  ok(after.presets[0]?.name === '리로드' && after.presets[0].implant === 'scan', 'preset persisted');
+  ok(after.presets[0]?.name === '리로드' && after.presets[0].implant === 'scan' && (after.presets[0].implantItems ?? []).join(',') === 'imp_strength_1',
+    'preset persisted (전술 임플란트 + 임플란트 아이템 목록)', JSON.stringify(after.presets[0]));
   ok(await H(() => window.__game.ctx.housing.getStashSize().rows === 30), 'stash size 30 rows after reload');
   await give('mat_scrap', 20); await give('mat_cable', 4);   // the bag is not persisted — only the stash is
   const next = await H(() => { window.__game.ctx.housing.setRoomPurpose(6, 'lounge'); const h = window.__game.ctx.housing; h.craftFurniture('furn_crate'); return h.place(6, 'furn_crate', 7, 7, 0); });
   ok(next && next.uid === 'f-8', `uid counter continues after the highest persisted uid (${next?.uid})`);
   // corrupt save → sanitised, not a crash (flush first so the unload flush does not overwrite the corrupt file)
   await H(() => window.__game.ctx.housing.save());
-  await H(() => localStorage.setItem('scav.ship', JSON.stringify({ version: 1, rooms: [{ purpose: 'lab', level: 9 }], generatorLevel: 99, furniture: [{ uid: 'x', defId: 'nope', room: 0 }, { uid: 'f-3', defId: 'furn_crate', room: 30, x: 99, y: -1, yaw: 7, level: 5 }, { uid: 'f-3', defId: 'furn_bench_gun', room: 1, x: 0, y: 0, yaw: 0, level: 1 }, { uid: 'f-3', defId: 'furn_crate', room: 1, x: 7, y: 7, yaw: 0, level: 1 }, { uid: 'bad', defId: 'furn_crate', room: 1, x: 7, y: 7, yaw: 0, level: 1 }], furnitureStorage: [{ defId: 'furn_locker', qty: 'a' }], presets: [{ name: 1, implant: 'bogus' }] })));
+  await H(() => localStorage.setItem('scav.ship', JSON.stringify({ version: 1, rooms: [{ purpose: 'lab', level: 9 }], generatorLevel: 99, furniture: [{ uid: 'x', defId: 'nope', room: 0 }, { uid: 'f-3', defId: 'furn_crate', room: 30, x: 99, y: -1, yaw: 7, level: 5 }, { uid: 'f-3', defId: 'furn_bench_gun', room: 1, x: 0, y: 0, yaw: 0, level: 1 }, { uid: 'f-3', defId: 'furn_crate', room: 1, x: 7, y: 7, yaw: 0, level: 1 }, { uid: 'bad', defId: 'furn_crate', room: 1, x: 7, y: 7, yaw: 0, level: 1 }], furnitureStorage: [{ defId: 'furn_locker', qty: 'a' }], presets: [{ name: 1, implant: 'bogus', implantItems: ['imp_strength_1', 7, null] }] })));
   await page.reload({ waitUntil: 'load' });
   await setup();
   const san = await H(() => JSON.parse(JSON.stringify(window.__game.ctx.housing.state)));
   const sanStore = san.furnitureStorage.map((e) => e.defId).sort().join(',');
   // 2026-09-07: no room-1 invariant any more — the corrupt save's room 1 = 연구실 falls back to 빈 방 (no 온실)
-  ok(san.rooms.length === 10 && san.rooms[0].purpose === 'empty' && san.generatorLevel === 5 && san.furniture.length === 1 && san.furniture[0].uid === 'f-3' && san.furniture[0].defId === 'furn_crate' && san.presets[0].name === '프리셋' && san.presets[0].implant === null, `corrupt save sanitised: lab→빈 방 (온실 없음), gen clamped, bad rooms / purpose / overlap dropped (${JSON.stringify({ r0: san.rooms[0], g: san.generatorLevel, f: san.furniture, p: san.presets[0] })})`);
+  ok(san.rooms.length === 10 && san.rooms[0].purpose === 'empty' && san.generatorLevel === 5 && san.furniture.length === 1 && san.furniture[0].uid === 'f-3' && san.furniture[0].defId === 'furn_crate' && san.presets[0].name === '프리셋' && san.presets[0].implant === null && (san.presets[0].implantItems ?? []).join(',') === 'imp_strength_1', `corrupt save sanitised: lab→빈 방 (온실 없음), gen clamped, bad rooms / purpose / overlap dropped (${JSON.stringify({ r0: san.rooms[0], g: san.generatorLevel, f: san.furniture, p: san.presets[0] })})`);
   ok(sanStore === 'furn_bench_gun,furn_repair_bench', `furniture that no longer fits its room went to storage, not the bin (${sanStore})`);
 
   /* ── 시설 제거 (Phase 9 UI pass): refund every upgrade material into the stash and empty the room ── */

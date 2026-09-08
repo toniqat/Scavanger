@@ -18,6 +18,7 @@ import { FurnitureLayer } from '../interiors/Furniture';
 import { roomAtWorld } from '../interiors/RoomLayout';
 import { HousingMode } from '../HousingMode';
 import { LaunchPod } from '../LaunchPod';
+import { LaunchWarnPanel } from '../ui/LaunchWarnPanel';
 import { Terminal } from '../Terminal';
 import { Workbench } from '../Workbench';
 import { Computer } from '../Computer';
@@ -47,7 +48,8 @@ export function podPrompt(sys: HubSystem, slot: number): string | null {
  */
 export function podCanInteract(sys: HubSystem, slot: number): boolean {
   const ctx = sys.ctx;
-  if (ctx.phase !== 'hub' || sys.cutscene || sys.travelling || sys.boardedSlot >= 0 || sys.menu.isOpen || sys.wbMenu.isOpen || sys.housingMode.active || sys.corpMenuOpen()) return false;
+  if (ctx.phase !== 'hub' || sys.cutscene || sys.travelling || sys.boardedSlot >= 0 || sys.menu.isOpen || sys.wbMenu.isOpen
+    || sys.launchWarn.isOpen || sys.housingMode.active || sys.corpMenuOpen()) return false;
   if (slot !== sys.localSlot()) return false;
   const pod = sys.pods[slot];
   return !!pod && pod.occupant === null;
@@ -83,6 +85,15 @@ export function boardPod(sys: HubSystem, slot: number): void {
   if (net?.lobby && net.missionInProgress) {
     ctx.bus.emit('ui:notify', { text: '임무에 재투입합니다', kind: 'warning' });
     net.rejoinMission();          // → net:gameStarting + game:newMission → teardown('mission')
+    return;
+  }
+  // 출격 준비 경고 (2026-09-08): 주무기 · 탄약 · 가방 · 방탄복 · 전술 임플란트 · 회복 아이템을 훑고, 걸리는 게
+  // 있으면 이유를 전부 보여 준 뒤 확인을 받는다. 막지는 않는다 — 같은 조합을 한 번 넘겼으면 다시 묻지 않는다.
+  const warnings = ctx.inventory?.getLaunchWarnings?.() ?? [];
+  const sig = LaunchWarnPanel.signatureOf(warnings);
+  if (warnings.length === 0) sys.launchWarnAck = '';   // fully kitted out again → the next lapse asks afresh
+  else if (sig !== sys.launchWarnAck) {
+    sys.launchWarn.open(warnings, () => { sys.launchWarnAck = sig; sys.boardPod(slot); });
     return;
   }
   const pod = sys.pods[slot];

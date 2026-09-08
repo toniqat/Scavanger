@@ -78,6 +78,8 @@ export function captureLoadout(sys: InventorySystem): LoadoutPreset {
     name: '프리셋', primary: l.primary?.defId ?? null, primary2: l.primary2?.defId ?? null, secondary: l.secondary?.defId ?? null,
     bag: l.bag?.defId ?? null, armor: l.armor?.defId ?? null,
     implant: sys.ctx.progression?.profile.implant ?? sys.ctx.implants?.equipped ?? null,
+    // 2026-09-08: 임플란트 아이템도 로드아웃의 일부다 (인벤토리 장착 장비 칸으로 옮겨온 뒤)
+    implantItems: (sys.ctx.progression?.getEquippedImplants() ?? []).map((e) => e.defId),
   };
   }
 
@@ -111,8 +113,33 @@ export function applyLoadout(sys: InventorySystem, preset: LoadoutPreset): { equ
     else if (imp && typeof imp.setEquipped === 'function' && imp.setEquipped(preset.implant)) equipped++;
     else missing.push(preset.implant);
   }
+  if (preset.implantItems) {
+    const r = applyImplantItems(sys, preset.implantItems);
+    equipped += r.equipped;
+    for (const m of r.missing) missing.push(m);
+  }
   sys.emitLoadout();
   sys.afterChange();
+  return { equipped, missing };
+  }
+
+/**
+ * 임플란트 아이템 part of a preset (2026-09-08). Everything currently slotted comes **off** first (an implant the
+ * preset also wants is re-equipped below — the round trip costs nothing and keeps the slot budget honest), then each
+ * wanted def is equipped from the bag / 함선 창고 in the preset's order. A def that is nowhere, broken, or no longer
+ * fits the slot budget lands in `missing`. `[]` therefore means "take everything off".
+ */
+function applyImplantItems(sys: InventorySystem, want: readonly string[]): { equipped: number; missing: string[] } {
+  const prog = sys.ctx.progression;
+  if (!prog || typeof prog.equipImplant !== 'function') return { equipped: 0, missing: want.slice() };
+  for (const e of [...prog.getEquippedImplants()]) prog.unequipImplant(e.uid);
+  let equipped = 0;
+  const missing: string[] = [];
+  for (const defId of want) {
+    const found = sys.findStoredByDef(defId);
+    if (found && prog.equipImplant(found.item.uid)) equipped++;
+    else missing.push(defId);
+  }
   return { equipped, missing };
   }
 

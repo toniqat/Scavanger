@@ -1341,3 +1341,162 @@ kbd {
 .crew-loadout .inv-quick-cell,
 .crew-loadout .inv-slot-body { cursor: default; }
 .crew-loadout .inv-tile:hover { border-color: color-mix(in srgb, var(--rc) 60%, transparent); box-shadow: none; filter: none; }
+
+/* ══ 임플란트 칸 (2026-09-08, owner: inventory/ui/ImplantPanel) ═══════════════════════════════════════════════════
+   캐릭터 시트(`progression/ui/character.css`)에서 그대로 옮겨온 두 블록. 임플란트는 레이드에 들고 나가는 장비이고
+   로드아웃 프리셋에 함께 저장되므로 장착 장비 칸(`.inv-equip`) 아래에 산다.
+   두 피커(`.inv-imp-pop` · `.inv-impi-pop`)는 `#ui-root` 직속 자식이다 — `.inv-root` 의 열림 애니메이션이 남기는
+   `scale:` 이 `position: fixed` 팝업의 컨테이닝 블록이 되어 버리기 때문이다. */
+/* `width: 0` + `min-width: 100%`: 장착 장비 칸은 `flex: none` 이라 **max-content** 로 넓어진다. 임플란트 설명 줄이
+   그 계산에 들어가면 칸이 800 px 까지 벌어져 가방 격자를 화면 밖으로 밀어낸다. 퍼센트 min-width 는 고유 크기
+   계산에서 0 으로 취급되므로, 칸의 폭은 예전처럼 장비 슬롯이 정하고 이 블록은 거기에 맞춰 줄바꿈한다. */
+.inv-implants {
+  display: flex; flex-direction: column; gap: 8px;
+  width: 0; min-width: 100%;
+  margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--c-border);
+}
+.inv-implants > .h { display: flex; align-items: center; gap: 8px; }
+.inv-imp-key {
+  font-family: var(--ui-mono); font-size: 10px; color: var(--c-text-dim);
+  border: 1px solid var(--c-border); padding: 1px 6px;
+}
+.inv-implants .hint { font-size: 11px; color: var(--c-text-dim); }
+
+/* 전술 임플란트: 장착한 것 하나만 슬롯 카드로 보여주고, 목록은 피커에 있다. */
+.inv-imp-slot {
+  --ic: rgba(255, 255, 255, 0.35);
+  appearance: none; font: inherit; text-align: left; color: var(--c-text);
+  display: flex; align-items: flex-start; gap: 12px; width: 100%;
+  padding: 12px; cursor: pointer;
+  border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03);
+  transition: border-color var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease);
+}
+.inv-imp-slot:hover:not(:disabled), .inv-imp-slot.is-open { border-color: var(--c-border-strong); background: rgba(255, 255, 255, 0.08); }
+.inv-imp-slot:disabled { cursor: not-allowed; opacity: 0.5; }
+.inv-imp-slot.is-filled { border-color: color-mix(in srgb, var(--ic) 55%, transparent); background: color-mix(in srgb, var(--ic) 12%, transparent); }
+.inv-imp-slot .ico {
+  flex: none; display: grid; place-items: center;
+  width: 34px; height: 34px; font-size: 17px;
+  border: 1px solid color-mix(in srgb, var(--ic) 60%, transparent); color: var(--ic);
+  background: color-mix(in srgb, var(--ic) 10%, transparent);
+}
+.inv-imp-slot.is-filled .ico { box-shadow: 0 0 14px color-mix(in srgb, var(--ic) 45%, transparent); }
+.inv-imp-slot .body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.inv-imp-slot .line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.inv-imp-slot .nm { font-size: 14px; font-weight: 700; letter-spacing: 0.04em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inv-imp-slot.is-filled .nm { color: var(--ic); }
+.inv-imp-slot .tag {
+  font-size: 9px; letter-spacing: 0.12em; color: var(--c-text-dim);
+  border: 1px solid var(--c-border); padding: 1px 5px; white-space: nowrap;
+}
+.inv-imp-slot .desc { font-size: 11px; line-height: 1.45; color: var(--c-text-dim); }
+
+/* 전술 임플란트 피커 */
+.inv-imp-pop {
+  position: fixed; left: 0; top: 0; z-index: 90;
+  display: flex; flex-direction: column; gap: 10px;
+  width: 360px; max-height: calc(100vh - 24px); overflow-y: auto; scrollbar-width: thin;
+  padding: 14px 16px;
+  border: 1px solid var(--c-border-strong);
+  background: linear-gradient(180deg, rgba(18, 21, 27, 0.98), rgba(10, 12, 17, 0.98));
+  box-shadow: 0 26px 64px rgba(0, 0, 0, 0.62), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+.inv-imp-pop[hidden], .inv-impi-pop[hidden] { display: none; }
+.inv-imp-pop .h, .inv-impi-pop .h { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.inv-imp-close { min-width: 0; height: 28px; padding: 0 12px; font-size: 11px; }
+.inv-imp-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.inv-imp-card {
+  --ic: #9aa3ad;
+  appearance: none; font: inherit; text-align: left; color: var(--c-text);
+  display: flex; align-items: flex-start; gap: 10px; width: 100%;
+  padding: 9px 10px; cursor: pointer;
+  border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03);
+  transition: border-color var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease);
+}
+.inv-imp-card:hover:not(:disabled) { border-color: var(--c-border-strong); background: rgba(255, 255, 255, 0.07); }
+.inv-imp-card:disabled { cursor: not-allowed; }
+.inv-imp-card.is-equipped { border-color: var(--ic); background: color-mix(in srgb, var(--ic) 14%, transparent); }
+.inv-imp-card .ico {
+  flex: none; display: grid; place-items: center;
+  width: 28px; height: 28px; font-size: 14px;
+  border: 1px solid color-mix(in srgb, var(--ic) 60%, transparent); color: var(--ic);
+  background: color-mix(in srgb, var(--ic) 10%, transparent);
+}
+.inv-imp-card.is-equipped .ico { box-shadow: 0 0 12px color-mix(in srgb, var(--ic) 45%, transparent); }
+.inv-imp-card .body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.inv-imp-card .line { display: flex; align-items: center; gap: 8px; }
+.inv-imp-card .nm { font-size: 13px; font-weight: 600; }
+.inv-imp-card.is-equipped .nm { color: var(--ic); }
+.inv-imp-card .tag {
+  font-size: 9px; letter-spacing: 0.12em; color: var(--c-text-dim);
+  border: 1px solid var(--c-border); padding: 1px 5px; white-space: nowrap;
+}
+.inv-imp-card .desc { font-size: 11px; line-height: 1.45; color: var(--c-text-dim); }
+.inv-imp-card .meta { font-size: 10px; letter-spacing: 0.08em; color: var(--c-text-faint); }
+.inv-imp-card.is-equipped .body::after {
+  content: "장착 중"; font-size: 9px; letter-spacing: 0.16em; color: var(--ic);
+}
+.inv-implants.is-empty .inv-imp-slot { display: none; }
+
+/* 임플란트 아이템: `임플란트 n / m칸` + 핍 줄, 장착한 것 한 줄씩, `+ 장착` 이 피커를 띄운다. */
+.inv-impitems { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; padding-top: 10px; border-top: 1px solid var(--c-border); }
+.inv-impitems .h { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.inv-impitems .h .cnt { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; color: var(--c-text-dim); white-space: nowrap; }
+.inv-impi-pips { display: flex; flex-wrap: wrap; gap: 4px; }
+.inv-impi-pips i {
+  display: block; width: 16px; height: 8px;
+  border: 1px solid var(--c-border-strong); background: rgba(255, 255, 255, 0.04);
+  transition: background-color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.inv-impi-pips i.on { background: #e39cff; border-color: #e39cff; box-shadow: 0 0 8px rgba(227, 156, 255, 0.5); }
+.inv-impi-list { display: flex; flex-direction: column; gap: 6px; }
+.inv-impi-empty { font-size: 11px; line-height: 1.45; color: var(--c-text-faint); padding: 6px 2px; }
+.inv-impi-row, .inv-impi-opt {
+  --rc: #9aa3ad;
+  appearance: none; font: inherit; text-align: left; color: var(--c-text);
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 7px 9px; cursor: pointer;
+  border: 1px solid var(--c-border); border-left: 3px solid var(--rc);
+  background: rgba(255, 255, 255, 0.03);
+  transition: border-color var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease);
+}
+.inv-impi-row:hover:not(:disabled), .inv-impi-opt:hover:not(:disabled) { border-color: var(--c-border-strong); background: rgba(255, 255, 255, 0.07); }
+.inv-impi-row .item-chip, .inv-impi-opt .item-chip { flex: none; pointer-events: auto; }
+.inv-impi-row .info, .inv-impi-opt .info { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.inv-impi-row .line, .inv-impi-opt .line { display: flex; align-items: center; gap: 6px; min-width: 0; flex-wrap: wrap; }
+.inv-impi-row .nm, .inv-impi-opt .nm { font-size: 12.5px; font-weight: 700; color: var(--rc); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inv-impi-row .tag, .inv-impi-opt .tag {
+  font-size: 9px; letter-spacing: 0.12em; color: var(--c-text-dim);
+  border: 1px solid var(--c-border); padding: 1px 5px; white-space: nowrap;
+}
+.inv-impi-opt .tag.rar { color: var(--rc); border-color: color-mix(in srgb, var(--rc) 55%, transparent); }
+.inv-impi-row .meta, .inv-impi-opt .meta { font-size: 10.5px; line-height: 1.4; color: var(--c-text-dim); }
+.inv-impi-row .act { font-size: 9.5px; letter-spacing: 0.1em; color: var(--c-text-faint); }
+.inv-impi-row.is-locked { cursor: not-allowed; }
+.inv-impi-row.is-locked .act { color: var(--c-danger); }
+.inv-impi-msg { font-size: 11px; line-height: 1.4; color: var(--c-success); padding: 2px 2px; }
+.inv-impi-msg.is-error { color: var(--c-danger); }
+.inv-impi-add { min-width: 0; height: 30px; padding: 0 14px; font-size: 11.5px; align-self: flex-start; }
+.inv-impi-add.is-open { border-color: var(--c-border-strong); background: rgba(255, 255, 255, 0.08); }
+.inv-impi-add.is-locked { opacity: 0.55; }
+
+/* 임플란트 아이템 피커 — `.inv-imp-pop` 과 같은 크롬 */
+.inv-impi-pop {
+  position: fixed; left: 0; top: 0; z-index: 90;
+  display: flex; flex-direction: column; gap: 10px;
+  width: 400px; max-height: calc(100vh - 24px); overflow-y: auto; scrollbar-width: thin;
+  padding: 14px 16px;
+  border: 1px solid var(--c-border-strong);
+  background: linear-gradient(180deg, rgba(18, 21, 27, 0.98), rgba(10, 12, 17, 0.98));
+  box-shadow: 0 26px 64px rgba(0, 0, 0, 0.62), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+.inv-impi-opts { display: flex; flex-direction: column; gap: 6px; }
+.inv-impi-opt:disabled { cursor: not-allowed; }
+.inv-impi-opt.is-dim { color: var(--c-text-faint); border-color: var(--c-border); background: rgba(255, 255, 255, 0.015); }
+.inv-impi-opt.is-dim .nm { color: var(--c-text-dim); }
+.inv-impi-opt.is-dim .item-chip { opacity: 0.55; }
+.inv-impi-opt .why { font-size: 10px; letter-spacing: 0.06em; color: var(--c-danger); }
+.inv-impi-opt.is-broken .why { color: #d6a24a; }
+
+/* 승무원 로드아웃 카드는 읽기 전용 미리보기라 임플란트 칸을 쓰지 않는다. */
+.crew-loadout .inv-implants { display: none; }

@@ -104,8 +104,16 @@ export function buildScreenView(sys: InventoryUI, tab: ScreenTab): EmbeddedView 
   }
 
 export function markTab(sys: InventoryUI): void {
+  // 2026-09-08: 캐릭터 tab wears a red dot while there are unspent 능력치 포인트 (level-ups are easy to miss)
+  let statPoints = 0;
+  try { statPoints = sys.ctx.progression?.statPoints ?? 0; } catch { statPoints = 0; }
   for (const [id, b] of sys.tabButtons) {
     b.classList.toggle('is-on', id === sys.activeTab);
+    if (id === 'character') {
+      const alert = statPoints > 0;
+      b.classList.toggle('has-alert', alert);
+      b.dataset.alert = alert ? String(statPoints) : '';
+    }
     // 함선 needs the housing system; hide the tab entirely when there is none
     if (id === 'ship') b.hidden = !sys.ctx.housing;
   }

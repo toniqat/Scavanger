@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type {
   ContainerMessage, ContainerRequest, CraftIngredient, CraftRecipe, CraftStation, DurabilityInfo, EffectiveWeaponStats, GameContext, GameSystem, InventoryRef,
-  ItemCategory, ItemDef, ItemInstance, Loadout, LoadoutSlot, PeerId as NetPeerId, ProfileRecord, SocketSlot, WeaponSlot, WeightInfo, LoadoutPreset, WorkbenchKind,
+  ItemCategory, ItemDef, ItemInstance, LaunchWarning, Loadout, LoadoutSlot, PeerId as NetPeerId, ProfileRecord, SocketSlot, WeaponSlot, WeightInfo, LoadoutPreset, WorkbenchKind,
   EmbeddedView, TradeGridsViewOptions,
 } from '@/shared';
 import { BAG_DEFAULT_COLS, BAG_DEFAULT_QUICK_SLOTS, BAG_DEFAULT_ROWS, Keys, QUICK_SLOTS, SEARCH_MAX_DISTANCE, SOCKET_SLOTS, isQuickSlotActive } from '@/shared';
@@ -27,7 +27,7 @@ import { CrewLoadoutView } from './ui/CrewLoadoutView';
 
 import {
   AUTO_CLOSE_DISTANCE, BLOCKER_TOKEN, CRAFT_MIN_SPEED, DROP_EYE_LOWER, DROP_FORWARD_OFFSET, DROP_FORWARD_SPEED, DROP_UP_SPEED,
-  LOADOUT_SLOTS, MOD_CTRL, MOD_SHIFT, SEARCH_EMIT_INTERVAL, SPRAY_REFILL_COST, TAKE_REQUEST_TIMEOUT, WEAPON_SLOT_IDS,
+  LOADOUT_SLOTS, MOD_CTRL, MOD_SHIFT, SEARCH_EMIT_INTERVAL, SEARCH_START_DELAY, SPRAY_REFILL_COST, TAKE_REQUEST_TIMEOUT, WEAPON_SLOT_IDS,
   isArmorDef, isAttachmentDef, isBagDef, isDisassembleRecipe, isWeaponDef, sameProfileDoc, slotAccepts,
   type ActiveBench, type BagSize, type BenchRecipeRow, type BenchRepairRow, type CraftJob, type DropPreview, type DropTarget,
   type GridId, type ItemLocation, type MissionOutcome, type OpResult, type PendingTake, type RaidInventoryState, type SlotId, type UiSfx,
@@ -44,6 +44,7 @@ import * as Cat from './parts/Catalog';
 import * as StashOps from './parts/StashOps';
 import * as Drop from './parts/DropResolver';
 import * as Dur from './parts/Durability';
+import * as Launch from './parts/LaunchCheck';
 export class InventorySystem implements GameSystem, InventoryRef {
   readonly name = 'inventory';
 
@@ -79,6 +80,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
   private openedIds = new Set<string>();
   pendingTakes: PendingTake[] = [];
   private lastSearchEmit = -1;
+  /** Seconds left of the `SEARCH_START_DELAY` grace after the container window opened (0 = 감정 ticking). */
+  private searchDelay = 0;
   /**
    * Phase 9: no inventory-side offline queue any more — every save goes to `profile.set` (`ProfileSync` stamps it and
    * keeps the newest doc per key while offline). `freshSave` marks the saves made inside `withFreshSave` as defaults
@@ -164,6 +167,12 @@ export class InventorySystem implements GameSystem, InventoryRef {
       }),
       bus.on('game:phaseChanged', () => { if (!ctx.isGameplayPhase() && !ctx.isHubPhase()) this.closeAll(); }),
       bus.on('implant:equipped', () => { if (this._open) this.ui?.refresh(); }),
+      // 2026-09-08: the 캐릭터 tab's 능력치 포인트 red dot follows the level-ups / spends that happen behind it
+      bus.on('progress:levelUp', () => { if (this._open) this.ui?.markTab(); }),
+      bus.on('progress:statChanged', () => { if (this._open) this.ui?.markTab(); }),
+      bus.on('progress:loaded', () => { if (this._open) this.ui?.markTab(); }),
+      // 2026-09-08: 임플란트 칸이 인벤토리로 옮겨왔으므로 밖에서 바뀐 장착(프리셋 적용 · 수리)도 여기서 다시 그린다
+      bus.on('progress:implantsChanged', () => { if (this._open) this.ui?.refresh(); }),
     );
     // Phase 7: host-authoritative container contents (`cont` / `contq`, sync on rejoin)
     const net = ctx.net;
@@ -433,6 +442,9 @@ export class InventorySystem implements GameSystem, InventoryRef {
   /* ── Phase 6: loadout presets (사격장) ───────────────────────────────── */
 
   captureLoadout(): LoadoutPreset { return StashOps.captureLoadout(this); }
+
+  /** 출격 준비 점검 (2026-09-08): 발사 슬롯 탑승 전 경고 목록. 읽기 전용 — 자세한 규칙은 `parts/LaunchCheck`. */
+  getLaunchWarnings(): LaunchWarning[] { return Launch.getLaunchWarnings(this); }
 
   /**
    * Equip a preset from the bag (first) and the stash: a slot whose def is found gets the first matching instance
@@ -797,6 +809,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
 
   private showContainer(c: Container): void {
     this.activeContainer = c;
+    this.searchDelay = SEARCH_START_DELAY;   // 2026-09-08: 감정 waits out the window's open animation
     this.hubMode = false;
     this.setOpen(true);
     this.ui?.show(c, false);
@@ -911,6 +924,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
     this.openedIds.clear();
     this.pendingTakes = [];
     this.lastSearchEmit = -1;
+    this.searchDelay = 0;
   }
 
   /* ── Phase 7 (2026-09-06): container search (감정) ──────────────────────── */
@@ -933,6 +947,12 @@ export class InventorySystem implements GameSystem, InventoryRef {
         this.ctx.bus.emit('container:searchDone', { containerId: c.id });
         this.ui?.refreshSearchStatus();
       }
+      return;
+    }
+    if (this.searchDelay > 0) {
+      // the window only just opened — hold the first item's timer for a beat (`SEARCH_START_DELAY`)
+      this.searchDelay = Math.max(0, this.searchDelay - Math.max(0, dt));
+      this.ui?.setSearchProgress(next.item.uid, 0, true);
       return;
     }
     const item = next.item;

@@ -30,8 +30,6 @@ export class CharacterSheet {
     if (e.code !== Keys.MENU || !this._open) return;
     e.preventDefault();
     e.stopPropagation();
-    // Phase 12: a raised picker (전술 임플란트 / 임플란트 items) swallows the first Escape; the sheet closes on the next
-    if (this.body.closePicker()) return;
     this.close();
   };
 
@@ -83,7 +81,6 @@ export class CharacterSheet {
     if (!this._open) return;
     this._open = false;
     this.body.disarmReset();
-    this.body.closePicker();      // the 전술 임플란트 picker is a `uiRoot` child, not a child of the frame
     this.root.hidden = true;
     (document.activeElement as HTMLElement | null)?.blur?.();
     this.ctx.uiBlockers.delete(BLOCKER);

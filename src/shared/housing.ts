@@ -239,6 +239,12 @@ export interface LoadoutPreset {
   bag: string | null;
   armor: string | null;
   implant: ImplantId | null;
+  /**
+   * appended (2026-09-08): 임플란트 **아이템** def ids, in the order they should be equipped. Optional so a v3 save
+   * and an older client keep working — `undefined` leaves the equipped implants exactly as they are, `[]` clears
+   * them. The tactical implant above (`implant`) is the Q one and is unrelated.
+   */
+  implantItems?: readonly string[];
 }
 
 /** Persisted in localStorage (SHIP_STORAGE_KEY). Bump `version` when the shape changes. */

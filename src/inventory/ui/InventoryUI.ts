@@ -7,6 +7,7 @@ import { LOADOUT_SLOTS, isArmorDef, isAttachmentDef, isBagDef, isWeaponDef, type
 import { CraftPanel } from './CraftPanel';
 import { CatalogView } from './CatalogView';
 import { DisassemblePanel } from './DisassemblePanel';
+import { ImplantPanel } from './ImplantPanel';
 import { filledSocketCount } from '../Sockets';
 import { isQuickUsable } from '../QuickSlots';
 import { GridView, buildTileContent, type HighlightState } from './GridView';
@@ -39,6 +40,8 @@ export class InventoryUI {
   /** Right-hand column wrapper (`display: contents` normally): while 제작 is open it stacks 가방 over 함선 창고. */
   private rightCol!: HTMLElement;
   disassemble!: DisassemblePanel;
+  /** 2026-09-08: 전술 임플란트 + 임플란트 아이템, under 장착 장비 (moved here from the 캐릭터 시트). */
+  implantPanel!: ImplantPanel;
   creditsEl!: HTMLElement;
   creditsValue!: HTMLElement;
   private containerPanel!: HTMLElement;
@@ -256,6 +259,9 @@ export class InventoryUI {
     eqGrid.className = 'inv-equip-grid';
     for (const slot of LOADOUT_SLOTS) eqGrid.appendChild(this.buildSlot(slot, SLOT_LABEL[slot]).el);
     eq.appendChild(eqGrid);
+    // 2026-09-08: 임플란트는 캐릭터 스탯이 아니라 들고 나가는 장비 — 장착 장비 칸 바로 아래가 제자리다
+    this.implantPanel = new ImplantPanel(this.sys, this.ctx);
+    eq.appendChild(this.implantPanel.root);
 
     /* 무한 상자 (Phase 6): leftmost panel, shown only while the catalog is open */
     this.catalogView = new CatalogView(this.sys, getDef, {
@@ -379,7 +385,8 @@ export class InventoryUI {
     const b = this.menu?.close() ?? false;
     const d = this.disassemble?.close() ?? false;
     const e = this.craftPanel?.isOpen ? (this.closeCraft(), true) : false;
-    return a || b || d || e;
+    const f = this.implantPanel?.closePickers() ?? false;   // 2026-09-08: 임플란트 피커도 Escape 한 번을 먹는다
+    return a || b || d || e || f;
   }
 
   show(container: Container | null, hub = false): void {
@@ -445,6 +452,7 @@ export class InventoryUI {
     this.screenView = null;
     this.craftPanel?.dispose();
     this.disassemble?.dispose();
+    this.implantPanel?.dispose();   // the two pickers are `ctx.uiRoot` children — they must go with the window
     this.tooltip.dispose();
     this.root?.remove();
     this.root = null;
@@ -512,6 +520,7 @@ export class InventoryUI {
     this.refreshSlots();
     this.refreshQuick();
     this.refreshWeight();
+    this.implantPanel.refresh();
     this.craftPanel.refresh();
     if (this.disassemble.isOpen) this.disassemble.refresh();
     // Phase 8: an embedded 캐릭터 / 기업 / 함선 view repaints from its own state whenever the window does

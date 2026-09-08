@@ -43,18 +43,18 @@ try {
   await page.evaluate(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
   await sleep(1200);
 
-  /* 1. 캐릭터 탭 3열 + 임플란트 picker */
+  /* 1. 인벤토리 임플란트 칸 + 캐릭터 탭 2열 (2026-09-08: 임플란트가 인벤토리로 이사) */
   await page.evaluate(() => window.__game.ctx.inventory.toggleBag());
   await sleep(400);
   await shot('01-ship-inventory');
-  await tab('캐릭터');
-  await sleep(400);
-  await shot('02-character-3col');
-  await page.evaluate(() => document.querySelector('.inv-screen .cs-imp-slot')?.click());
+  await page.evaluate(() => document.querySelector('.inv-equip .inv-implants .inv-imp-slot')?.click());
   await sleep(300);
   await shot('03-implant-picker');
-  await page.evaluate(() => document.querySelector('.cs-imp-pop-embed .cs-imp-card[data-id="dash"]')?.click());
+  await page.evaluate(() => document.querySelector('.inv-imp-pop .inv-imp-card[data-id="dash"]')?.click());
   await sleep(200);
+  await tab('캐릭터');
+  await sleep(400);
+  await shot('02-character-2col');
 
   /* 2. 기업 탭 */
   await tab('기업');

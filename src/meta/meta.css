@@ -27,6 +27,15 @@
 .corp-side { display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 0; }
 .corp-side .corp-subtabs { display: flex; flex-direction: column; gap: 4px; align-self: stretch; border-radius: 0; padding: 0; background: none; border: 0; }
 .corp-side .scr-tab { justify-content: flex-start; text-align: left; padding: 10px 14px; border-radius: 0; }
+/* 탭 잠금 (2026-09-08): 신뢰도가 모자란 거래 / 계약 탭은 자물쇠를 달고 눌리지 않는다 — 이유는 title 툴팁에 있다. */
+.corp-side .scr-tab.is-locked,
+.corp-subtabs .scr-tab.is-locked {
+  opacity: 0.4;
+  cursor: not-allowed;
+  color: var(--c-text-faint);
+}
+.corp-subtabs .scr-tab.is-locked::after { content: '🔒'; margin-left: 6px; font-size: 10px; opacity: 0.85; }
+.corp-subtabs .scr-tab.is-locked:hover { background: none; }
 
 .corp-credits { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; white-space: nowrap; }
 .corp-credits .k { font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--c-text-dim); }

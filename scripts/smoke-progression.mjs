@@ -512,31 +512,46 @@ try {
   }, uS2);
   ok(!menuPhase.eq && menuPhase.phase === 'menu', 'equip refused outside the hub phase', JSON.stringify(menuPhase));
 
-  console.log('임플란트 items: 캐릭터 sheet block + picker');
+  console.log('임플란트 items: 캐릭터 시트는 능력치 표시만 남는다 (2026-09-08)');
   await page.evaluate(() => window.__game.ctx.bus.emit('ui:statsToggled', { open: true }));
   await sleep(200);
-  const blk = await page.evaluate(() => {
+  const sheet = await page.evaluate(() => {
     const root = document.querySelector('.char-sheet');
-    const b = root.querySelector('.cs-impitems');
-    const rows = [...b.querySelectorAll('.cs-impi-row')];
     const stat = root.querySelector('.cs-stat .v');
     const dexRow = root.querySelectorAll('.cs-stat')[4];
     return {
-      has: !!b, cnt: b.querySelector('.cnt')?.textContent, pips: b.querySelectorAll('.cs-impi-pips i').length, on: b.querySelectorAll('.cs-impi-pips i.on').length,
+      stray: root.querySelectorAll('.cs-impitems, .cs-implants, .cs-imp-slot').length,
+      strayPop: document.querySelectorAll('.cs-impi-pop-overlay, .cs-imp-pop-overlay').length,
+      cols: root.querySelectorAll('.cs-body > .cs-col').length,
+      strV: stat?.textContent, dexV: dexRow?.querySelector('.v')?.textContent, dexBonus: dexRow?.querySelector('.ib')?.textContent,
+    };
+  });
+  ok(sheet.stray === 0 && sheet.strayPop === 0 && sheet.cols === 2, '캐릭터 시트에서 임플란트 UI 가 사라지고 2열만 남았다', JSON.stringify(sheet));
+  ok(/\(\+1\)/.test(sheet.dexV) && sheet.dexBonus === ' (+1)' && !/\(/.test(sheet.strV), '재주 row shows `base (+1)`, 근력 row shows the base only', JSON.stringify({ dex: sheet.dexV, str: sheet.strV }));
+  await tap('Escape');
+  await sleep(150);
+
+  console.log('임플란트 items: 인벤토리 장착 장비 칸의 블록 + picker');
+  await page.evaluate(() => window.__game.ctx.inventory.toggleBag());
+  await sleep(250);
+  const blk = await page.evaluate(() => {
+    const b = document.querySelector('.inv-equip .inv-implants .inv-impitems');
+    const rows = [...b.querySelectorAll('.inv-impi-row')];
+    return {
+      has: !!b, cnt: b.querySelector('.cnt')?.textContent, pips: b.querySelectorAll('.inv-impi-pips i').length, on: b.querySelectorAll('.inv-impi-pips i.on').length,
       rows: rows.map((r) => ({ uid: r.dataset.uid, def: r.dataset.defId, nm: r.querySelector('.nm')?.textContent, tag: r.querySelector('.tag')?.textContent, meta: r.querySelector('.meta')?.textContent, chip: !!r.querySelector('.item-chip[data-def-id]') })),
-      add: !!b.querySelector('.cs-impi-add'), strV: stat?.textContent, dexV: dexRow?.querySelector('.v')?.textContent, dexBonus: dexRow?.querySelector('.ib')?.textContent,
-      popHidden: document.querySelector('.cs-impi-pop-overlay')?.hidden,
+      add: !!b.querySelector('.inv-impi-add'),
+      popHidden: document.querySelector('.inv-impi-pop')?.hidden,
     };
   });
   ok(blk.has && blk.cnt === '2 / 4칸' && blk.pips === 4 && blk.on === 2 && blk.add, '임플란트 block: `2 / 4칸`, 4 pips (2 lit), + 장착 button', JSON.stringify({ cnt: blk.cnt, pips: blk.pips, on: blk.on }));
   ok(blk.rows.length === 1 && blk.rows[0].def === 'imp_perk_quick_heal' && blk.rows[0].nm === '가속 대사' && blk.rows[0].tag === '장착칸 2' && /재주 \+1/.test(blk.rows[0].meta) && blk.rows[0].chip, 'equipped row: shared item chip (data-def-id) + 가속 대사 · 장착칸 2 · 재주 +1', JSON.stringify(blk.rows));
-  ok(/\(\+1\)/.test(blk.dexV) && blk.dexBonus === ' (+1)' && !/\(/.test(blk.strV), '재주 row shows `base (+1)`, 근력 row shows the base only', JSON.stringify({ dex: blk.dexV, str: blk.strV }));
-  ok(blk.popHidden === true, 'item picker exists as a uiRoot child (.cs-impi-pop-overlay) and starts hidden');
-  await page.evaluate(() => document.querySelector('.char-sheet .cs-impi-add').click());
+  ok(blk.popHidden === true, 'item picker exists as a uiRoot child (.inv-impi-pop) and starts hidden');
+  await page.evaluate(() => document.querySelector('.inv-equip .inv-impi-add').click());
   await sleep(150);
   const pick = await page.evaluate(() => {
-    const pop = document.querySelector('.cs-impi-pop-overlay');
-    const opts = [...pop.querySelectorAll('.cs-impi-opt')];
+    const pop = document.querySelector('.inv-impi-pop');
+    const opts = [...pop.querySelectorAll('.inv-impi-opt')];
     return {
       hidden: pop.hidden, parentIsRoot: pop.parentElement === window.__game.ctx.uiRoot, n: opts.length,
       opts: opts.map((o) => ({ def: o.dataset.defId, dim: o.classList.contains('is-dim'), disabled: o.disabled, why: o.querySelector('.why')?.textContent ?? '', chip: !!o.querySelector('.item-chip[data-def-id]') })),
@@ -547,33 +562,60 @@ try {
   ok(optS2 && !optS2.dim && !optS2.disabled && optS2.chip, 'imp_strength_2 (2 slots, 2 free) listed enabled with the shared chip', JSON.stringify(optS2));
   ok(optE4 && optE4.dim && optE4.disabled && optE4.why === '장착칸 부족', 'imp_endurance_4 (3 slots) dimmed + disabled: 장착칸 부족', JSON.stringify(optE4));
   ok(optB1 && optB1.dim && optB1.disabled && optB1.why === '망가짐 — 세레스 바이오에서 수리', 'broken implant dimmed + disabled: 망가짐 — 세레스 바이오에서 수리', JSON.stringify(optB1));
-  await page.evaluate((uid) => document.querySelector(`.cs-impi-pop-overlay .cs-impi-opt[data-uid="${uid}"]`).click(), uS2);
+  await page.evaluate((uid) => document.querySelector(`.inv-impi-pop .inv-impi-opt[data-uid="${uid}"]`).click(), uS2);
   await sleep(150);
   const picked = await page.evaluate(() => {
-    const root = document.querySelector('.char-sheet'); const p = window.__game.ctx.progression;
-    return { used: p.implantSlotsUsed, cnt: root.querySelector('.cs-impitems .cnt').textContent, rows: root.querySelectorAll('.cs-impi-row').length, opts: document.querySelectorAll('.cs-impi-pop-overlay .cs-impi-opt').length, msg: root.querySelector('.cs-impi-msg').textContent, strV: root.querySelector('.cs-stat .v').textContent };
+    const b = document.querySelector('.inv-equip .inv-implants'); const p = window.__game.ctx.progression;
+    return { used: p.implantSlotsUsed, cnt: b.querySelector('.inv-impitems .cnt').textContent, rows: b.querySelectorAll('.inv-impi-row').length, opts: document.querySelectorAll('.inv-impi-pop .inv-impi-opt').length, msg: b.querySelector('.inv-impi-msg').textContent };
   });
   ok(picked.used === 4 && picked.cnt === '4 / 4칸' && picked.rows === 2 && picked.opts === 2 && /장착/.test(picked.msg), 'clicking the option equips it: 4 / 4칸, 2 rows, picker re-lists 2, inline `장착` message', JSON.stringify(picked));
-  ok(/\(\+2\)/.test(picked.strV), '근력 row now shows `base (+2)`', picked.strV);
   await tap('Escape');
   await sleep(120);
-  const escd = await page.evaluate(() => ({ pop: document.querySelector('.cs-impi-pop-overlay').hidden, sheet: document.querySelector('.char-sheet').hidden }));
-  ok(escd.pop && !escd.sheet, 'Escape closes the item picker first (sheet stays open)', JSON.stringify(escd));
-  await page.evaluate((uid) => document.querySelector(`.char-sheet .cs-impi-row[data-uid="${uid}"]`).click(), uS2);
+  const escd = await page.evaluate(() => ({ pop: document.querySelector('.inv-impi-pop').hidden, win: document.querySelector('.inv-root').hidden }));
+  ok(escd.pop && !escd.win, 'Escape closes the item picker first (the window stays open)', JSON.stringify(escd));
+  await page.evaluate((uid) => document.querySelector(`.inv-equip .inv-impi-row[data-uid="${uid}"]`).click(), uS2);
   await sleep(120);
-  const unRow = await page.evaluate(() => { const p = window.__game.ctx.progression; return { used: p.implantSlotsUsed, rows: document.querySelectorAll('.char-sheet .cs-impi-row').length }; });
+  const unRow = await page.evaluate(() => { const p = window.__game.ctx.progression; return { used: p.implantSlotsUsed, rows: document.querySelectorAll('.inv-equip .inv-impi-row').length }; });
   ok(unRow.used === 2 && unRow.rows === 1, 'clicking an equipped row unequips it (2 / 4, 1 row)', JSON.stringify(unRow));
   const raidUi = await page.evaluate(() => {
     const ctx = window.__game.ctx; const real = ctx.isRaidActive; ctx.isRaidActive = () => true;
     try {
-      document.querySelector('.char-sheet .cs-impi-add').click();
-      const root = document.querySelector('.char-sheet');
-      return { msg: root.querySelector('.cs-impi-msg').textContent, hidden: root.querySelector('.cs-impi-msg').hidden, pop: document.querySelector('.cs-impi-pop-overlay').hidden, used: ctx.progression.implantSlotsUsed };
+      document.querySelector('.inv-equip .inv-impi-add').click();
+      const b = document.querySelector('.inv-equip .inv-implants');
+      return { msg: b.querySelector('.inv-impi-msg').textContent, hidden: b.querySelector('.inv-impi-msg').hidden, pop: document.querySelector('.inv-impi-pop').hidden, used: ctx.progression.implantSlotsUsed };
     } finally { ctx.isRaidActive = real; }
   });
   ok(raidUi.msg === '레이드 중에는 교체할 수 없습니다' && !raidUi.hidden && raidUi.pop && raidUi.used === 2, 'in a raid the + 장착 button shows the inline `레이드 중에는 교체할 수 없습니다` line instead of the picker', JSON.stringify(raidUi));
   await tap('Escape');
   await sleep(150);
+
+  console.log('임플란트 items: 로드아웃 프리셋 왕복 (2026-09-08)');
+  const presetRt = await page.evaluate(() => {
+    const ctx = window.__game.ctx, inv = ctx.inventory, p = ctx.progression;
+    const cap = inv.captureLoadout();
+    const before = p.getEquippedImplants().map((e) => e.defId);
+    for (const e of [...p.getEquippedImplants()]) p.unequipImplant(e.uid);
+    const cleared = p.getEquippedImplants().length;
+    inv.applyLoadout(cap);
+    return { capItems: cap.implantItems, before, cleared, after: p.getEquippedImplants().map((e) => e.defId), used: p.implantSlotsUsed };
+  });
+  ok(Array.isArray(presetRt.capItems) && presetRt.capItems.join(',') === presetRt.before.join(','),
+    'captureLoadout()가 장착한 임플란트 아이템 def id 를 담는다', JSON.stringify(presetRt.capItems));
+  ok(presetRt.cleared === 0 && presetRt.after.join(',') === presetRt.before.join(',') && presetRt.used === 2,
+    'applyLoadout 이 해제된 임플란트를 프리셋대로 다시 장착한다', JSON.stringify(presetRt));
+  const presetClear = await page.evaluate(() => {
+    const ctx = window.__game.ctx, inv = ctx.inventory, p = ctx.progression;
+    const empty = { ...inv.captureLoadout(), implantItems: [] };
+    inv.applyLoadout(empty);
+    const cleared = p.getEquippedImplants().length;
+    inv.applyLoadout({ ...inv.captureLoadout(), implantItems: undefined });
+    return { cleared, afterUndefined: p.getEquippedImplants().length };
+  });
+  ok(presetClear.cleared === 0 && presetClear.afterUndefined === 0,
+    'implantItems: [] 는 전부 해제, undefined 는 지금 장착을 건드리지 않는다', JSON.stringify(presetClear));
+  // 다시 장착해 두고 다음 단계(프로필 왕복)로 넘어간다
+  await page.evaluate((uid) => window.__game.ctx.progression.equipImplant(uid), uQH);
+  ok(await page.evaluate(() => window.__game.ctx.progression.implantSlotsUsed === 2), '가속 대사 재장착 (2 / 4칸)');
 
   console.log('임플란트 items: profile round-trip (reload)');
   await page.evaluate(() => window.__game.ctx.progression.save());

@@ -202,6 +202,11 @@ export function sanitize(raw: unknown): ShipState {
       primary: strOrNull(p.primary), primary2: strOrNull(p.primary2), secondary: strOrNull(p.secondary),
       bag: strOrNull(p.bag), armor: strOrNull(p.armor),
       implant: implant && (IMPLANT_IDS as readonly string[]).includes(implant) ? (implant as LoadoutPreset['implant']) : null,
+      // appended (2026-09-08): 임플란트 아이템 def ids. Absent in an older save → left undefined, which `applyLoadout`
+      // reads as "leave the equipped implants alone" (an empty array means "take everything off").
+      ...(Array.isArray(p.implantItems)
+        ? { implantItems: (p.implantItems as unknown[]).filter((d): d is string => typeof d === 'string' && !!d).slice(0, 16) }
+        : {}),
     });
   }
 

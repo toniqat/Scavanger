@@ -275,3 +275,31 @@
   .wb-row .ui-btn { grid-column: 2 / 3; justify-self: end; }
   .hub-code .code { font-size: 30px; }
 }
+
+/* ── 출격 준비 경고 (2026-09-08, owner: hub/ui/LaunchWarnPanel) ────────────────
+   발사 슬롯 탑승 직전에 뜨는 확인 카드. 막지 않는 경고이므로 위험색은 표식과 표제까지만 쓰고
+   버튼은 평소의 [취소] / [그래도 출격] 두 개다. */
+.menu.hub-menu.launch-warn .frame { min-width: 460px; max-width: 560px; width: min(560px, calc(100vw - 48px)); }
+.menu.hub-menu.launch-warn .hub-head .title { color: var(--c-accent); }
+.lw-list { display: flex; flex-direction: column; gap: 8px; max-height: min(52vh, 420px); overflow-y: auto; scrollbar-width: thin; }
+.lw-row {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 9px 11px;
+  border: 1px solid var(--c-border); border-left: 3px solid var(--c-accent);
+  background: rgba(255, 255, 255, 0.03);
+}
+.lw-row .mark {
+  flex: none; display: grid; place-items: center;
+  width: 20px; height: 20px; margin-top: 1px;
+  font-family: var(--ui-mono); font-size: 12px; font-weight: 700; line-height: 1;
+  color: var(--c-accent); border: 1px solid color-mix(in srgb, var(--c-accent) 60%, transparent);
+  background: color-mix(in srgb, var(--c-accent) 12%, transparent);
+}
+.lw-row .body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.lw-row .nm { font-size: 13px; font-weight: 700; letter-spacing: 0.03em; color: var(--c-text); }
+.lw-row .sub { font-size: 11px; line-height: 1.45; color: var(--c-text-dim); }
+.menu.hub-menu.launch-warn .hub-foot .ui-btn { min-width: 0; padding: 0 20px; }
+
+@media (max-width: 720px) {
+  .menu.hub-menu.launch-warn .frame { min-width: 0; }
+}

@@ -224,3 +224,5 @@ first-session chain complete.
 - **2026-09-07 (기본 작업실 폐지)** — `freshState()` 가 **빈 방 10개 · 가구 0**이 되고(무료 작업실 + 총기 작업대 + 정비 벤치 삭제), 작업실은 아무 방에나 지을 수 있는 보통 용도가 되었다 — `Rules.purposeChangeReason` 의 방 1 분기 삭제, `sanitize` 는 "시설 방은 종류당 하나"만 유지, `ui/ShipView` 의 잠금 표시(`is-locked` · `기본` 태그) 제거
 
 - **Phase 12 (2026-09-08)** — 규칙 무변경 — "재료가 충분해 보이는데 증축이 안 됨"의 원인은 새 함선의 발전기 Lv.0 게이트가 **비활성 버튼의 tooltip 으로만** 표시된 것이었고(포인터 락 아래에서는 보이지 않는다), 수정은 `ui/hud/ShipManage`(발전기 행 + 확인 팝업) 쪽이다 — README 에 근본 원인을 적어 두었다
+
+- **2026-09-08 (UI/UX)** — `LoadoutPreset.implantItems` (append-only, 임플란트 **아이템** def id 배열)를 프리셋이 함께 나른다: `parts/Presets.savePreset` 이 문자열만 남겨 최대 16개까지 복사하고(필드가 없으면 아예 넣지 않는다 — 빈 배열은 "전부 해제"라는 뜻이라 옛 경로가 실수로 만들면 안 된다), `ShipState.sanitize` 가 로드할 때 같은 규칙으로 걸러내며, `ui/PresetMenu` 가 카드에 `임플란트` 줄로 이름을 이어 붙인다. 전술 임플란트 줄은 `전술 임플란트` 로 이름이 바뀌었다. 실제 장착/해제는 `inventory.applyLoadout` 이 한다

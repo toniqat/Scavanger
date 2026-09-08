@@ -318,6 +318,59 @@ try {
   ok((await screenText()).includes(`목표 ${PLANETS[2].name}`), `terminal screen reads 목표 ${PLANETS[2].name}`);
   ok(t2.podPrompt === '발사 슬롯 탑승' && t2.podCan === true, `the launch slot opened up ("${t2.podPrompt}")`);
 
+  /* ── 4b. 출격 준비 경고 (2026-09-08) ──────────────────────────────────────
+   * 기본 지급품에는 주무기가 없으므로 슬롯에 타려 하면 경고 카드가 먼저 뜬다. 막지는 않는다 —
+   * 확인하면 그대로 타고, 같은 조합에 대해서는 두 번 묻지 않는다.
+   * 솔로에서는 탑승만으로 발사 카운트다운이 시작되므로 탑승 검사는 전부 **한 evaluate 안에서** 끝내고
+   * 곧바로 내린다 (프레임이 사이에 돌지 않는다). */
+  console.log('출격 준비 경고');
+  const warnIds = await P(() => window.__game.ctx.inventory.getLaunchWarnings().map((w) => w.id));
+  ok(warnIds.includes('noPrimary'), `기본 지급품에는 주무기가 없어 경고가 잡힌다 (${warnIds.join(',')})`);
+  const popped = await P(() => {
+    const ctx = window.__game.ctx, hub = window.__game.getSystem('hub');
+    ctx.interactables.all().find((i) => i.id === 'hub_pod_0').interact();
+    const root = document.querySelector('.menu.hub-menu.launch-warn');
+    return {
+      hidden: root?.hidden, rows: [...root.querySelectorAll('.lw-row')].map((r) => r.dataset.id),
+      texts: [...root.querySelectorAll('.lw-row .nm')].map((e) => e.textContent),
+      details: [...root.querySelectorAll('.lw-row .sub')].length,
+      boarded: hub.boardedSlot, blocker: ctx.uiBlockers.has('hub'), cursor: ctx.input.isCursorMode,
+    };
+  });
+  ok(popped.hidden === false && popped.boarded < 0, '탑승 시도 → 경고 카드가 뜨고 아직 타지 않는다', JSON.stringify({ hidden: popped.hidden, boarded: popped.boarded }));
+  ok(popped.rows.join(',') === warnIds.join(',') && popped.details === popped.rows.length,
+    `사유가 하나씩 전부 표시된다 (${popped.rows.join(',')})`, JSON.stringify(popped.texts));
+  ok(popped.blocker && popped.cursor, '경고 카드가 hub 블로커 + 소프트 커서를 잡는다', JSON.stringify({ blocker: popped.blocker, cursor: popped.cursor }));
+  const cancelled = await P(() => {
+    const hub = window.__game.getSystem('hub');
+    [...document.querySelectorAll('.launch-warn .hub-foot .ui-btn')].find((b) => b.textContent === '취소').click();
+    return { hidden: document.querySelector('.launch-warn').hidden, boarded: hub.boardedSlot, ack: hub.launchWarnAck, blocker: window.__game.ctx.uiBlockers.has('hub') };
+  });
+  ok(cancelled.hidden && cancelled.boarded < 0 && cancelled.ack === '' && !cancelled.blocker, '취소하면 닫히고 타지 않으며 아무것도 기억하지 않는다', JSON.stringify(cancelled));
+  const confirmed = await P(() => {
+    const ctx = window.__game.ctx, hub = window.__game.getSystem('hub');
+    ctx.interactables.all().find((i) => i.id === 'hub_pod_0').interact();
+    const reopened = document.querySelector('.launch-warn').hidden === false;
+    [...document.querySelectorAll('.launch-warn .hub-foot .ui-btn')].find((b) => b.textContent === '그래도 출격').click();
+    const out = { reopened, hidden: document.querySelector('.launch-warn').hidden, boarded: hub.boardedSlot, ack: hub.launchWarnAck, blocker: ctx.uiBlockers.has('hub') };
+    hub.leavePod(true);   // 솔로에서는 탑승 = 발사 준비 — 프레임이 돌기 전에 내린다
+    out.after = hub.boardedSlot;
+    return out;
+  });
+  ok(confirmed.reopened, '취소한 뒤 다시 타려 하면 경고가 또 뜬다');
+  ok(confirmed.hidden && confirmed.boarded === 0 && !confirmed.blocker && confirmed.after < 0,
+    '그래도 출격 → 카드가 닫히고 그대로 탑승한다', JSON.stringify(confirmed));
+  ok(confirmed.ack === warnIds.join(','), `같은 조합을 기억한다 (${confirmed.ack})`);
+  const second = await P(() => {
+    const ctx = window.__game.ctx, hub = window.__game.getSystem('hub');
+    ctx.interactables.all().find((i) => i.id === 'hub_pod_0').interact();
+    const out = { hidden: document.querySelector('.launch-warn').hidden, boarded: hub.boardedSlot };
+    hub.leavePod(true);
+    out.after = hub.boardedSlot;
+    return out;
+  });
+  ok(second.hidden && second.boarded === 0 && second.after < 0, '한 번 넘긴 조합은 다시 묻지 않고 바로 탑승한다', JSON.stringify(second));
+
   /* ── 5. refusals + the terminal on a chosen planet ───────────────────── */
   console.log('거부 규칙');
   const ref2 = await P(() => ({
@@ -363,7 +416,15 @@ try {
 
   /* ── 7. launch: game:newMission carries the planet ───────────────────── */
   console.log('발사');
-  await P(() => window.__game.ctx.interactables.all().find((i) => i.id === 'hub_pod_0').interact());
+  // 2026-09-08: 리로드로 세션이 새로 시작됐으므로 출격 준비 경고가 다시 뜬다 — 확인하고 그대로 탑승한다
+  const boardedNow = await P(() => {
+    window.__game.ctx.interactables.all().find((i) => i.id === 'hub_pod_0').interact();
+    const warn = document.querySelector('.launch-warn');
+    const warned = warn && !warn.hidden;
+    if (warned) [...warn.querySelectorAll('.hub-foot .ui-btn')].find((b) => b.textContent === '그래도 출격').click();
+    return { warned, boarded: window.__game.getSystem('hub').boardedSlot };
+  });
+  ok(boardedNow.warned && boardedNow.boarded === 0, '리로드 뒤에는 경고가 다시 뜨고, 확인하면 탑승한다', JSON.stringify(boardedNow));
   await waitSim(0.2);
   ok(await P(() => window.__game.ctx.player.isInPod), 'boarded the launch slot');
   await waitFor(page, () => window.__ev['game:newMission'].length > 0, 'launch', 60000);

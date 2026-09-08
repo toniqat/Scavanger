@@ -1540,6 +1540,17 @@ input { font: inherit; color: inherit; }
 .scr-tab.is-on { color: #1a1408; background: var(--c-text); border-color: var(--c-text); }
 .scr-tab.is-disabled { opacity: 0.4; cursor: default; }
 .scr-tab.is-disabled:hover { color: var(--c-text-dim); background: none; }
+/* 레드닷 (2026-09-08) — 쓰지 않은 능력치 포인트가 있는 캐릭터 탭. `data-alert` 가 남은 포인트 수. */
+.scr-tab.has-alert { position: relative; }
+.scr-tab.has-alert::after {
+  content: ''; position: absolute; top: 3px; right: 5px;
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--c-danger, #e0484a);
+  box-shadow: 0 0 0 2px rgba(8, 9, 11, 0.85), 0 0 8px rgba(224, 72, 74, 0.9);
+  animation: scr-tab-dot 1.6s ease-in-out infinite;
+}
+@keyframes scr-tab-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+@media (prefers-reduced-motion: reduce) { .scr-tab.has-alert::after { animation: none; } }
 
 /* ═══ Phase 6: unique-weapon charge arc · 전소/감전 markers · MOVE CHEAT tag · housing hint bar · room label (2026-09-06) ═══ */
 /* Weapon charge gauge — 120° arc right of the reticle (CookGauge silhouette), colour per kind */

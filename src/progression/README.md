@@ -257,3 +257,5 @@ rules, the storage and the UI; items/ the defs and loot; meta/ (세레스 바이
 - **Phase 9 UI/UX 개선** — `ui/SheetBody` 가 **전술 임플란트 카드**(`.cs-imp-card`, 장착 / 해제, 레이드 중 잠금)를 갖는다 — 인벤토리 장비 칸의 슬롯을 대체
 
 - **2026-09-07 UI/UX pass** — 본문이 **능력치
+
+- **2026-09-08 (UI/UX)** — **임플란트 UI 가 전부 빠졌다** — 전술 임플란트 열(`.cs-implants` · `.cs-imp-slot` · `.cs-imp-pop` · 카드)과 임플란트 아이템 블록(`.cs-impitems` · `.cs-impi-pop`)이 `inventory/ui/ImplantPanel.ts` 로 옮겨갔다. 본문은 **능력치 | 숙련도** 두 열이 되었고, `CharacterSheetHost` 에서 `implantSlots` / `implantSlotsUsed` / `getEquippedImplants` / `equipImplant` / `unequipImplant` 가 사라졌다 (`ProgressionRef` 는 그대로 — 이제 인벤토리가 부른다). 시트에 남은 임플란트 흔적은 능력치 줄의 `4 (+2)` 표시(`getImplantBonus`) 하나뿐이고, `SheetBody.closePicker` / `isPickerOpen` 도 함께 사라져 `ui/CharacterSheet` 의 Escape 사슬이 한 단 짧아졌다
