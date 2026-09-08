@@ -46,6 +46,8 @@ export class TutorialSystem implements GameSystem, TutorialRef {
   private benchInteractable: string | null = null;
   /** true while the 건너뛰기 확인 카드 is up (the intro card uses the same popup). */
   private confirmingSkip = false;
+  /** 총기 작업대가 배치 대기 상태로 커서에 들려 있다 (`benchPlace` 단계에서 스포트라이트를 접는 조건). */
+  private benchArmed = false;
 
   /* ── lifecycle ─────────────────────────────────────────────────────────── */
 
@@ -70,6 +72,9 @@ export class TutorialSystem implements GameSystem, TutorialRef {
       b.on('housing:modeChanged', ({ active }) => { if (active) this.advanceIf('manage'); }),
       b.on('housing:facilityUpgraded', ({ id, level }) => { if (id === 'generator' && level >= 1) this.advanceIf('generator'); }),
       b.on('housing:roomPurposeChanged', ({ room, purpose }) => this.onPurpose(room, purpose)),
+      // 가구 제작에는 전용 이벤트가 없다 — `housing:changed {reason:'craft'}` 뒤에 창고를 한 번 들여다본다
+      b.on('housing:changed', ({ reason }) => { if (reason === 'craft') this.onFurnitureCrafted(); }),
+      b.on('housing:selectionChanged', ({ defId }) => this.onSelection(defId)),
       b.on('housing:furniturePlaced', ({ item }) => this.onFurniture(item.defId, item.uid)),
 
       b.on('craft:completed', ({ recipeId }) => this.onCrafted(recipeId)),
@@ -143,6 +148,7 @@ export class TutorialSystem implements GameSystem, TutorialRef {
   /** 새 프로필이 개인 함선에 처음 들어왔다 → 자동 시작. 이미 진행 중이면 화면만 되살린다. */
   private onHubEntered(ship: string): void {
     if (ship !== 'personal') { this.refreshVisuals(); return; }
+    if (this.save.step === 'bench' && this.benchStored()) { this.advance(); return; }   // 이미 만들어 둔 함선
     if (!this.save.done && this.save.step === null) {
       // 저장이 없다는 것만으로는 "새 캐릭터"가 아니다 — 튜토리얼이 없던 시절부터 하던 프로필도 같은 모양이다.
       // 이미 함선을 꾸며 놓았거나 레벨이 올라 있으면 조용히 끝난 것으로 표시하고 다시는 켜지 않는다.
@@ -185,11 +191,38 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     try { return (this.ctx.housing?.getFacility('generator').level ?? 0) >= 1; } catch { return false; }
   }
 
+  /** 가구 창고에 총기 작업대가 들어왔는가 — `bench`(제작) 는 여기서 끝나고 배치 단계로 넘어간다. */
+  private onFurnitureCrafted(): void {
+    if (this.save.step !== 'bench' || !this.benchStored()) return;
+    this.advance();
+  }
+
+  private benchStored(): boolean {
+    try {
+      for (const s of this.ctx.housing?.getStored() ?? []) if (s.defId === TUTORIAL_BENCH_DEF && s.qty > 0) return true;
+    } catch { /* housing not ready */ }
+    return false;
+  }
+
+  /**
+   * 배치할 가구를 집었다(= 커서에 들려 있다). 그 동안에는 **스포트라이트를 접는다** — 어두운 판이 화면 전체를
+   * 덮고 있으면 정작 내려놓을 바닥을 클릭할 수 없다 (2026-09-08 진행 불가 버그).
+   */
+  private onSelection(defId: string | null): void {
+    const armed = defId === TUTORIAL_BENCH_DEF;
+    if (armed === this.benchArmed) return;
+    this.benchArmed = armed;
+    if (this.save.step === 'benchPlace') this.refreshVisuals();
+  }
+
   private onFurniture(defId: string, uid: string): void {
     if (defId !== TUTORIAL_BENCH_DEF) return;
     this.save.benchUid = uid;
     this.benchInteractable = `hub_furn_${uid}`;
-    this.advanceIf('bench');
+    this.benchArmed = false;
+    // 제작 이벤트를 놓쳤거나(저장 복구 · 콘솔) 곧바로 놓았다면 두 단계를 한 번에 지나간다
+    if (this.save.step === 'bench') this.setStep('benchPlace');
+    this.advanceIf('benchPlace');
   }
 
   private onCrafted(recipeId: string): void {
@@ -244,8 +277,9 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     this.refreshVisuals();
     this.ctx.bus.emit('tutorial:changed', { active: true, step, index: stepIndexOf(step), count: this.stepCount });
     if (step === 'intro') this.showIntro();
-    // 이미 돌고 있는 발전기 앞에서 "가동하세요"를 띄우지 않는다 (dev 콘솔 `tutorial step`, 저장 복구 등)
+    // 이미 돌고 있는 발전기 · 이미 만들어 둔 작업대 앞에서 "만드세요"를 띄우지 않는다 (콘솔 `tutorial step`, 저장 복구)
     if (step === 'generator' && this.generatorReady()) this.advance();
+    else if (step === 'bench' && this.benchStored()) this.advance();
   }
 
   private finish(skipped: boolean): void {
@@ -305,9 +339,12 @@ export class TutorialSystem implements GameSystem, TutorialRef {
       this.guide.setTarget(null);
       return;
     }
-    this.panel.show(def, stepIndexOf(step), this.stepCount);
+    // 가구를 집은 뒤에는 밝힐 UI 가 없다 — 남은 일은 3D 바닥을 클릭하는 것뿐이다
+    const placing = step === 'benchPlace' && this.benchArmed;
+    this.panel.show(placing ? { ...def, hint: '작업실 바닥을 클릭해 작업대를 내려놓습니다 (R 로 회전).' } : def,
+      stepIndexOf(step), this.stepCount);
     // 시작 카드가 떠 있는 동안에는 스포트라이트를 겹치지 않는다
-    this.spotlight.set(this.popup.isOpen ? [] : def.spot, def.spotText ?? def.hint);
+    this.spotlight.set(this.popup.isOpen || placing ? [] : def.spot, def.spotText ?? def.hint);
     this.guide.setTarget(this.guideTarget(def.guide));
   }
 

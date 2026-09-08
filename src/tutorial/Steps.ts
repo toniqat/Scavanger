@@ -36,11 +36,19 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     spotText: '빈 방의 시설 증축 → 작업실',
   },
   bench: {
-    id: 'bench', title: '총기 작업대를 만들어 놓으세요',
-    hint: '가구 카드 바에서 총기 작업대를 제작하고 작업실 바닥에 배치합니다.',
+    id: 'bench', title: '총기 작업대를 만드세요',
+    hint: '가구 제작 탭에서 총기 작업대의 제작을 누릅니다. 만든 가구는 가구 창고로 들어갑니다.',
     allow: { furniture: [TUTORIAL_BENCH_DEF] },
     spot: ['.sm-cards .fcard[data-def-id="furn_bench_gun"]', '.sm-cards', '.sm-side'],
-    spotText: '총기 작업대 제작 → 작업실에 배치',
+    spotText: '총기 작업대 제작',
+  },
+  benchPlace: {
+    id: 'benchPlace', title: '만든 작업대를 배치하세요',
+    hint: '가구 창고 탭에서 총기 작업대를 고른 다음, 작업실 바닥을 클릭해 내려놓습니다.',
+    allow: { furniture: [TUTORIAL_BENCH_DEF] },
+    // 창고 탭이 아직 열려 있지 않으면 그 탭 버튼을 밝힌다 — 탭 자체가 어두운 판에 덮여 못 눌리던 자리다.
+    spot: ['.sm-store .fcard[data-def-id="furn_bench_gun"]', '.sm-tabs .sm-tab[data-tab="store"]', '.sm-side'],
+    spotText: '가구 창고 → 총기 작업대',
   },
   manageDone: {
     id: 'manageDone', title: '함선 관리를 닫으세요',

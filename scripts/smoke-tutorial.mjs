@@ -114,7 +114,7 @@ try {
   ok(intro.panel, '좌측 상단 목표 패널이 함께 뜬다');
   // 2026-09-08: 함선에 들어서며 걸린 relock 이 카드에서 커서를 빼앗아 가면 안 된다 (버튼을 누를 수가 없다)
   ok(intro.cursorOn, '카드가 뜬 채로 마우스 커서가 살아 있다 (body.cursor-on)');
-  ok(intro.ev && intro.ev.active === true && intro.ev.step === 'intro' && intro.ev.count === 15, `tutorial:changed {intro, 1/15} (${JSON.stringify(intro.ev)})`);
+  ok(intro.ev && intro.ev.active === true && intro.ev.step === 'intro' && intro.ev.count === 16, `tutorial:changed {intro, 1/16} (${JSON.stringify(intro.ev)})`);
 
   /* ── 2. 게이트가 순서를 강제한다 ────────────────────────────────────── */
   console.log('게이트');
@@ -210,6 +210,40 @@ try {
     return { locker: h.craftFurniture('furn_locker'), bench: h.craftFurniture('furn_bench_gun') };
   });
   ok(wrongFurn.locker === false && wrongFurn.bench === true, '총기 작업대만 제작할 수 있다', JSON.stringify(wrongFurn));
+
+  /* ── 3c. 제작 → 가구 창고 → 배치 (2026-09-08) ───────────────────────── */
+  // 제작은 가구를 **창고**에 넣을 뿐이다 — 배치는 따로 안내한다 (그 전에는 창고 탭이 어두운 판에 덮여 막혔다)
+  await waitStep('benchPlace');
+  const stashed = await P(() => ({
+    stored: (window.__game.ctx.housing.getStored() ?? []).filter((s) => s.defId === 'furn_bench_gun').reduce((n, s) => n + s.qty, 0),
+    placed: window.__game.ctx.housing.getPlaced().length,
+  }));
+  ok(stashed.stored >= 1 && stashed.placed === 0, '제작한 작업대는 가구 창고에 있고 아직 놓이지 않았다', JSON.stringify(stashed));
+  await P(() => window.__game.ctx.housing.setManageRoom(1));
+  await waitFor(page, () => {
+    const r = document.querySelector('.tut-spot');
+    return r && !r.hidden && /가구 창고/.test(document.querySelector('.tut-spot-tip')?.textContent ?? '');
+  }, 'spotlight (가구 창고)');
+  const storeTab = await P(() => {
+    const b = document.querySelector('.sm-tabs .sm-tab[data-tab="store"]');
+    if (!b) return null;
+    b.click();
+    return true;
+  });
+  ok(storeTab === true, "스포트라이트가 집을 수 있는 '가구 창고' 탭 버튼이 있다");
+  await sleep(150);
+  const storeCard = await P(() => !!document.querySelector('.sm-store .fcard[data-def-id="furn_bench_gun"]'));
+  ok(storeCard, '가구 창고 탭에 작업대 카드가 있다');
+  await P(() => document.querySelector('.sm-store .fcard[data-def-id="furn_bench_gun"]').click());
+  await sleep(150);
+  const armed = await P(() => ({
+    sel: window.__game.getSystem('housing').selectedFurniture,
+    spot: document.querySelector('.tut-spot')?.hidden ?? null,
+    hint: document.querySelector('.tut-panel .tut-hint')?.textContent ?? '',
+  }));
+  ok(armed.sel === 'furn_bench_gun' && armed.spot === true,
+    '가구를 집으면 스포트라이트가 접힌다 (바닥을 클릭할 수 있어야 한다)', JSON.stringify(armed));
+  ok(/바닥/.test(armed.hint), `목표 부제가 "바닥에 내려놓기"로 바뀐다 ("${armed.hint}")`);
   const placed = await P(() => window.__game.ctx.housing.place(1, 'furn_bench_gun', 0, 0, 0));
   ok(!!placed, '작업대를 방에 놓는다');
   await waitStep('manageDone');

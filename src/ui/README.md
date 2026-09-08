@@ -698,6 +698,10 @@ Plan: `docs/DECISIONS.md` items 3 · 4 · 8 · 9 · 15 · 16 (agent F). Contract
   카드를 집는 손잡이). `styles/base.css` 에 `.scr-tab.is-locked` (자물쇠 + 흐리게) 추가 — 튜토리얼이 잠근
   화면 탭용이다. 튜토리얼의 목표 패널 · 스포트라이트 · 안내 카드는 `src/tutorial/` 이 직접 그린다
 
+- **2026-09-08 (튜토리얼이 집을 손잡이)** — `hud/ShipManage` 의 가구 탭 버튼에 `data-tab`(`craft` · `store`),
+  가구 창고 카드에 `data-def-id`(가구 제작 카드와 같은 이름)를 달았다. 튜토리얼 스포트라이트가 '가구 창고'
+  탭과 그 안의 작업대를 차례로 밝히기 위한 것으로, 동작에는 영향이 없다 (`src/tutorial/README.md`)
+
 - **2026-09-08 (튜토리얼: 잠그지 않고 감춘다)** — `hud/ShipManage` 가 `ctx.tutorial.hides('roomPurpose'|'furniture', id)`
   로 **용도 행 · 가구 카드를 목록에서 뺀다** (안내 중에는 발전기 행 + 작업실 한 줄만 남는다). 두 목록의
   캐시 키에 현재 단계를 섞고 `tutorial:changed` 를 구독하므로 건너뛰거나 끝나면 그 자리에서 전부 돌아온다.

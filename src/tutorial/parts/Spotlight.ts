@@ -95,11 +95,15 @@ export class Spotlight {
   /**
    * `offsetParent` 로 보이는지 판정하면 안 된다 — HUD 조각들은 `position: fixed` 조상 아래에 있어서 멀쩡히
    * 보이는데도 null 이 나온다. 실제로 그려진 사각형이 있는지(`getClientRects`)로 본다.
+   *
+   * 2026-09-08 — 사각형만으로는 모자란다: 닫힌 화면 중에는 `display:none` 이 아니라 **`visibility:hidden`**
+   * 으로 접히는 것이 있어(`.ship-manage`) 사각형이 그대로 남는다. 그 자리를 밝히면 아무것도 없는 허공에
+   * 링이 뜨므로 `visibility` 도 함께 본다 (0.25 초에 한 번이라 비용은 무시할 만하다).
    */
   private find(): HTMLElement | null {
     for (const sel of this.selectors) {
       const el = document.querySelector<HTMLElement>(sel);
-      if (el && el.getClientRects().length > 0) return el;
+      if (el && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden') return el;
     }
     return null;
   }

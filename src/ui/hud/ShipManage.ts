@@ -141,6 +141,7 @@ export class ShipManage {
     this.tabsEl = el('div', { cls: 'sm-tabs', parent: side });
     for (const [id, label] of [['craft', '가구 제작'], ['store', '가구 창고']] as ReadonlyArray<readonly [FurnTab, string]>) {
       const b = el('button', { cls: 'sm-tab', text: label, parent: this.tabsEl });
+      b.dataset.tab = id;               // 2026-09-08: 튜토리얼 스포트라이트가 '가구 창고' 탭을 집는 손잡이
       b.addEventListener('click', (e) => { e.stopPropagation(); this.pickTab(id); });
       this.tabBtns.set(id, b);
     }
@@ -596,6 +597,7 @@ export class ShipManage {
     if (entries.length === 0) setText(this.emptyEl, '가구 창고가 비어 있습니다 — 가구 제작 탭에서 만드세요');
     for (const { defId, qty, def, fits } of entries) {
       const card = el('button', { cls: `fcard store${fits ? '' : ' is-blocked'}`, parent: this.storeEl });
+      card.dataset.defId = defId;       // 가구 제작 카드와 같은 손잡이 — 튜토리얼 스포트라이트 · 스모크가 집는다
       card.style.setProperty('--fc', def.color);
       card.title = fits ? `${def.name}\n${def.description}` : `${def.name} — 이 방에 설치할 수 없습니다`;
       const thumb = el('div', { cls: 'fcard-thumb', parent: card });

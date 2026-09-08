@@ -19,7 +19,7 @@
 | `Steps.ts` | **단계 표** — 각 단계의 제목 · 부제 · `allow`(허용 게이트) · 스포트라이트 선택자 · 안내선 목표. 진행 조건은 여기 없다 (아래 참고). |
 | `parts/Gates.ts` | 게이트 판정 순수 함수. `allow` 에 없는 게이트는 전부 막고, 배열이면 그 id 만 허용한다. `hides(gate, id?)` 도 여기 — **막히는 것은 곧 감추는 것**이다. |
 | `parts/Guide.ts` | **바닥 안내선** — 흐르는 점선 띠(셰이더) + 목표 빛기둥 + 링. `Interactable.id` 하나로 목표를 잡는다. |
-| `parts/Spotlight.ts` | **UI 포커싱** — 화면을 덮는 네 판 + 링 + 말풍선. 판이 클릭을 먹고, 구멍은 그대로 통과시킨다. 링은 **천천히 확대-축소**하고(2026-09-08), 확인 팝업(`YIELD_TO`)이 뜨면 스스로 비켜선다. |
+| `parts/Spotlight.ts` | **UI 포커싱** — 화면을 덮는 네 판 + 링 + 말풍선. 판이 클릭을 먹고, 구멍은 그대로 통과시킨다. 링은 **천천히 확대-축소**하고(2026-09-08), 확인 팝업(`YIELD_TO`)이 뜨면 스스로 비켜선다. 대상은 사각형이 있고 `visibility` 가 살아 있는 것만 — 닫힌 `.ship-manage` 처럼 접혀도 사각형이 남는 화면을 밝히지 않는다. |
 | `ui/Panel.ts` | 좌측 상단 목표 패널 (`튜토리얼 n / m` · 제목 · 부제 · 진행 바 · **건너뛰기** 버튼). 포커싱 중에는 `is-lifted` 로 어두운 판 위에 올라간다 — 딤 제외 + 건너뛰기는 언제나 눌린다. |
 | `ui/Popup.ts` | 시작 안내 카드와 건너뛰기 확인 카드 (같은 셸, 버튼만 다름). 모달리스. |
 | `tutorial.css` | 위 셋의 스타일. `.ui-btn` · `.ui-label` 은 `ui/styles/base.css` 것을 쓴다. |
@@ -33,7 +33,7 @@
 
 ---
 
-## 단계 (15)
+## 단계 (16)
 
 | # | id | 목표 | 다음으로 넘어가는 신호 |
 |---|---|---|---|
@@ -41,21 +41,28 @@
 | 2 | `manage` | M 으로 함선 관리 | `housing:shipManageChanged {active:true}` |
 | 3 | `generator` | 발전기 가동 (Lv.1) | `housing:facilityUpgraded {id:'generator', level>=1}` |
 | 4 | `workshop` | 빈 방 → 작업실 | `housing:roomPurposeChanged {purpose:'workshop'}` |
-| 5 | `bench` | 총기 작업대 제작 + 배치 | `housing:furniturePlaced {defId:'furn_bench_gun'}` |
-| 6 | `manageDone` | 함선 관리 닫기 | `housing:shipManageChanged {active:false}` |
-| 7 | `craftGun` | 작업대에서 돌격소총 | `craft:completed {recipeId:'make_wpn_ar'}` |
-| 8 | `equipGun` | 주무기 칸에 장착 | `loadout:changed` + 주무기가 `wpn_ar` |
-| 9 | `craftAmmo` | 준중량탄 제작 | `craft:completed {recipeId:'bulk_ammo_medium'}` |
-| 10 | `stowAmmo` | 탄약을 가방에 | `inventory:changed` + 가방에 `ammo_medium` |
-| 11 | `terminal` | 조종석 터미널 | `hub:terminalToggled {open:true}` |
-| 12 | `planet` | 목표 행성 지정 | `hub:planetChanged` |
-| 13 | `travel` | 워프 대기 | `hub:travel {stage:'end'}` |
-| 14 | `board` | 발사 슬롯 탑승 | `hub:slotChanged` (로컬) 또는 `game:newMission` |
-| 15 | `raid` | 탈출 지점 확인 | `world:ready` 6초 뒤 자동 종료 |
+| 5 | `bench` | 총기 작업대 **제작** | `housing:changed {reason:'craft'}` + 창고에 `furn_bench_gun` |
+| 6 | `benchPlace` | 가구 창고 → 작업실에 **배치** | `housing:furniturePlaced {defId:'furn_bench_gun'}` |
+| 7 | `manageDone` | 함선 관리 닫기 | `housing:shipManageChanged {active:false}` |
+| 8 | `craftGun` | 작업대에서 돌격소총 | `craft:completed {recipeId:'make_wpn_ar'}` |
+| 9 | `equipGun` | 주무기 칸에 장착 | `loadout:changed` + 주무기가 `wpn_ar` |
+| 10 | `craftAmmo` | 준중량탄 제작 | `craft:completed {recipeId:'bulk_ammo_medium'}` |
+| 11 | `stowAmmo` | 탄약을 가방에 | `inventory:changed` + 가방에 `ammo_medium` |
+| 12 | `terminal` | 조종석 터미널 | `hub:terminalToggled {open:true}` |
+| 13 | `planet` | 목표 행성 지정 | `hub:planetChanged` |
+| 14 | `travel` | 워프 대기 | `hub:travel {stage:'end'}` |
+| 15 | `board` | 발사 슬롯 탑승 | `hub:slotChanged` (로컬) 또는 `game:newMission` |
+| 16 | `raid` | 탈출 지점 확인 | `world:ready` 6초 뒤 자동 종료 |
 
 > `generator` 는 **시설 증축의 전제 조건**이다. 이 단계가 없던 동안에는 발전기 Lv.0 인 새 함선에서
 > 작업실 행이 바로 포커싱되고 발전기 게이트에 막혀 **진행 자체가 불가능**했다 (2026-09-08 수정).
 > 발전기가 이미 Lv.1 이상인 함선이면 `setStep` 이 이 단계를 조용히 지나친다.
+
+> `bench` 와 `benchPlace` 가 갈라진 것도 같은 이유다 (2026-09-08). 가구는 **제작하면 가구 창고로 들어가고**
+> 배치는 창고 탭에서 다시 골라야 하는데, 한 단계로 묶여 있던 동안에는 스포트라이트가 제작 카드에 붙은 채
+> **가구 창고 탭도 · 내려놓을 바닥도 어두운 판에 덮여** 아무것도 누를 수 없었다. 지금은 ① 제작 ② 창고에서
+> 집기 ③ 바닥에 놓기가 각각 자기 안내를 갖고, **가구를 집는 순간 스포트라이트가 스스로 접힌다**
+> (`onSelection` — 남은 일이 3D 바닥 클릭뿐이라 밝힐 UI 가 없다. 목표 부제만 바닥 안내로 바뀐다).
 
 ---
 
@@ -118,7 +125,7 @@ Lv.1 이 대량 탄약밖에 못 만들어 "작업대로 총을 만든다"는 �
 
 ## 스모크
 
-`scripts/smoke-tutorial.mjs` (46). **다른 스모크는 전부** `evaluateOnNewDocument` 에서
+`scripts/smoke-tutorial.mjs` (51). **다른 스모크는 전부** `evaluateOnNewDocument` 에서
 `scav.tutorial` 을 `done` 으로 심고 시작한다 — 튜토리얼은 새 프로필에서 자동으로 켜져 그 스크립트들이
 드라이브하는 행동을 순서대로 잠그기 때문이다.
 
@@ -127,6 +134,13 @@ Lv.1 이 대량 탄약밖에 못 만들어 "작업대로 총을 만든다"는 �
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-08 (가구 제작 → 배치 재안내)** — `bench` 한 단계가 "제작 + 배치"를 함께 요구해 **진행이 막혔다**:
+  제작한 가구는 가구 창고로 들어가는데 스포트라이트는 제작 카드에 붙어 있어 창고 탭이 어두운 판에 덮였고,
+  설령 집었더라도 내려놓을 바닥까지 판이 먹었다. `benchPlace` 단계를 새로 만들어 셋으로 나누고(제작 → 창고에서
+  집기 → 바닥에 놓기), 가구가 커서에 들리면(`housing:selectionChanged`) 스포트라이트를 접는다.
+  `ui/hud/ShipManage` 의 탭 버튼에 `data-tab`, 가구 창고 카드에 `data-def-id` 를 달아 포커싱이 집을 수 있게 했고,
+  `Spotlight.find` 는 `visibility:hidden` 조상(닫힌 `.ship-manage`) 아래의 요소를 더 이상 밝히지 않는다.
 
 - **2026-09-08 (UI/UX 수정 4건)** —
   ① 시작 카드가 떠도 커서가 없어 아무것도 누를 수 없었다: `hub/parts/Transitions.enter` 가 `hub:entered` 를

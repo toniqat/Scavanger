@@ -669,6 +669,10 @@ Plan: `docs/DECISIONS.md`. Everything below is append-only; owners in brackets.
   함수에서 `ctx.tutorial?.blockReason(gate, id)` 를 한 번 부르고, 숨겨야 할 셸 요소는 `hides(gate)` 로 묻는다.
   튜토리얼이 꺼져 있으면 둘 다 `null` / `false` 라 평소 동작이 바뀌지 않는다
 
+- **2026-09-08 (가구 배치 재안내)** — `tutorial.ts` 에 단계 `'benchPlace'` **추가** (`bench` 와 `manageDone`
+  사이, `TUTORIAL_STEPS` 15 → **16**). 가구는 제작하면 가구 창고로 들어가는데 `bench` 한 단계가 제작과 배치를
+  함께 요구해 진행이 막혔다 — 제작 · 창고에서 집기 · 바닥에 놓기를 각각 안내한다. 타입 · 게이트 · 저장 모양은
+  그대로다 (단계 id 하나만 늘었다)
 - **2026-09-08 (튜토리얼 UI/UX 수정)** — `tutorial.ts` 에 **append-only** 둘: 단계 `'generator'`(발전기 가동,
   `manage` 와 `workshop` 사이 — 새 함선은 발전기 Lv.0 이라 그 전에는 작업실 증축이 규칙에 막혀 진행이
   불가능했다. `TUTORIAL_STEPS` 14 → **15**), 그리고 `TutorialRef.hides(gate, **id?**)` — 선택 인자라 옛

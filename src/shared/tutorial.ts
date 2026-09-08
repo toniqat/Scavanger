@@ -21,7 +21,8 @@ export type TutorialStepId =
   | 'manage'       // M 으로 함선 관리 열기
   | 'generator'    // 발전기 가동 (Lv.1) — 시설 증축의 전제 조건
   | 'workshop'     // 빈 방 하나를 작업실로 증축
-  | 'bench'        // 총기 작업대 제작 + 작업실에 배치
+  | 'bench'        // 총기 작업대 제작 (가구 창고로 들어간다)
+  | 'benchPlace'   // 가구 창고 → 작업대를 골라 작업실 바닥에 배치
   | 'manageDone'   // 함선 관리 종료
   | 'craftGun'     // 작업실로 걸어가 총기 작업대에서 무기 제작
   | 'equipGun'     // 만든 무기를 주무기 칸에 장착
@@ -34,7 +35,7 @@ export type TutorialStepId =
   | 'raid';        // 레이드 시작 — 탈출구 인디케이터를 강조하고 끝난다
 
 export const TUTORIAL_STEPS: readonly TutorialStepId[] = [
-  'intro', 'manage', 'generator', 'workshop', 'bench', 'manageDone',
+  'intro', 'manage', 'generator', 'workshop', 'bench', 'benchPlace', 'manageDone',
   'craftGun', 'equipGun', 'craftAmmo', 'stowAmmo',
   'terminal', 'planet', 'travel', 'board', 'raid',
 ];

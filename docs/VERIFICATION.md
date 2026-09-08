@@ -254,6 +254,29 @@ in `CLAUDE.md`.
   단독 8연속 52/52 — 그중 한 번은 첫 투척이 6.09 m 로 빗나가 재시도 경로를 실제로 탔다.
 
 
+## 2026-09-08 — 튜토리얼: 가구 제작 → 가구 창고 → 배치 (진행 불가 수정)
+
+`npm run verify` (`src/shared/tutorial.ts` 를 건드렸으므로 러너가 전체를 골랐다) — **red 1건**(smoke-ui-p6,
+4레인 병렬 부하 flake) 외 전부 통과, 5분 36초. `smoke-ui-p6` 단독 재실행 **89/89**.
+
+docs line: 2026-09-08: typecheck ok, typecheck-server ok, net-selftest 278/278, smoke-quickslots 46/46,
+smoke-phase2 53/53, smoke-weapons 137/137, smoke-stratagems 70/70, smoke-phase3 32/32, smoke-phase4 49/49,
+smoke-ship-rooms 71/71, smoke-tactical 85/85, smoke-controls-hub 121/121, smoke-inventory-p6 93/93,
+smoke-console 63/63, smoke-housing 197/197, smoke-progression 123/123, smoke-loadout 61/61, smoke-search 61/61,
+smoke-ui-p6 0/1 → **89/89 단독**, smoke-ui-p5 133/133, smoke-resume-gate 48/48, smoke-enemy-alert 42/42,
+smoke-uniques 71/71, smoke-meta 170/170, smoke-rogue-v2 52/52, smoke-training 110/110, smoke-library 126/126,
+smoke-enemy-delta 52/52, smoke-ghost 86/86, smoke-planets 86/86, smoke-ecology 83/83, smoke-raidflow 48/48,
+smoke-social 130/130, **smoke-tutorial 51/51** (46 → 51), e2e-mp 156/156.
+
+`smoke-ui-p6` 의 실패는 `timeout waiting for playing` 한 줄뿐이다 — 미션 시작을 기다리다 끊긴 것으로,
+이 변경이 닿지 않는 자리(튜토리얼은 `smoke-ui-p6` 에서 `done` 으로 심어 놓고 시작한다)이고 단독 실행은 89/89 다.
+`smoke-ship-rooms` 에서 이미 기록된 것과 같은 부류의 4레인 부하 flake로 본다.
+
+새 검사 5건 (`smoke-tutorial` 46 → 51): 제작만으로는 배치가 끝나지 않는다(창고에 1, 놓인 것 0) ·
+`data-tab="store"` 탭 버튼을 집을 수 있다 · 그 탭에 `data-def-id` 작업대 카드가 있다 ·
+카드를 클릭하면 `selectedFurniture` 가 서고 **스포트라이트가 접힌다**(바닥을 클릭할 수 있어야 한다) ·
+목표 부제가 "바닥에 내려놓기"로 바뀐다.
+
 ## 2026-09-08 — 튜토리얼 UI/UX 수정 4건 (커서 · 발전기 단계 · 숨김 · 포커싱 연출)
 
 `npm run verify:all` — **red 1건**(e2e-mp 153/154, 자가 유발 flake) 외 전부 통과, 5분 41초.
