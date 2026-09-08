@@ -69,7 +69,7 @@ Known gaps (gathering):
   fallen board, the exit console with its screen.
 
 ## Phase 11 (2026-09-07): 행성 지형 · 채집 생태계
-Brief: `docs/PHASE11-PLAN.md` §3-5(A). Contract (read-only): `src/shared/planets.ts` (`PlanetId`, `PLANET_DEFS`,
+Brief: `docs/DECISIONS.md` Phase 11. Contract (read-only): `src/shared/planets.ts` (`PlanetId`, `PLANET_DEFS`,
 `getPlanet` / `isPlanetId`, `PlanetEcosystem.herbs` / `.gatherDensity`), `WorldRef.planet`, `game:newMission.planet?`,
 `world:ready.planet?`, `GameContext.missionPlanet`.
 

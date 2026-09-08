@@ -201,7 +201,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   /** Alt rolls (replaces the dive); the wire keeps the DIVE flag via `isDiving`. */
   get isRolling(): boolean { return this.controller.rolling; }
   get isMeleeing(): boolean { return this.meleeTimer > 0; }
-  /* ── Phase 7 (docs/PHASE7-PLAN.md §4) ── */
+  /* ── Phase 7 (docs/DECISIONS.md Phase 7) ── */
   /** true while the 용검 heavy slash pose plays (`startMelee('heavy')`); net puts MELEE_HEAVY on the wire from it. */
   get isMeleeHeavy(): boolean { return this.meleeTimer > 0 && this.meleeKind === 'heavy'; }
 

@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>레이드 흐름 — PROJECT SCAVANGER</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-page="p-raid-flow">
+<div class="shell">
+
+<aside class="side">
+  <div class="brand">
+    <a href="00-intro.html"><h1>PROJECT <em>SCAVANGER</em></h1></a>
+    <p>PITCH DOCUMENT · v0.1</p>
+  </div>
+  <nav class="tree" id="tree"></nav>
+</aside>
+
+<main class="main" id="main">
+
+<article id="p-raid-flow">
+  <div class="crumb">레이드 / 흐름</div>
+  <h1>레이드 흐름</h1>
+  <div class="shotrow">
+    <figure class="shot" data-src="../assets/hub-terminal.png">
+      <div class="ph"><span class="tag">스크린샷</span><span class="ttl">공유 함선 터미널 — 행성 선택</span>
+      <span class="desc">홀로그램 행성 5개와 위협 등급 배지</span>
+      <span class="meta">assets/hub-terminal.png</span></div>
+    </figure>
+    <figure class="shot" data-src="../assets/hub-warp.png">
+      <div class="ph"><span class="tag">스크린샷</span><span class="ttl">목표 행성으로 워프</span>
+      <span class="desc">행성을 고르면 함선이 그리로 항행한다</span>
+      <span class="meta">assets/hub-warp.png</span></div>
+    </figure>
+  </div>
+  <figure class="shot" data-src="../assets/hub-pod.png">
+    <div class="ph"><span class="tag">스크린샷</span><span class="ttl">발사 포드 탑승 — 4인 준비 패널</span>
+    <span class="desc">포드에 오른 분대원 4명의 슬롯이 차오르고, 각자의 로드아웃과 전술 임플란트가 카드로 보이는 화면.</span>
+    <span class="meta">권장 1920×1080 · assets/hub-pod.png</span></div>
+  </figure>
+
+  <p class="lede">인게임 세션. 혼자 가거나 <strong>최대 4인</strong>까지 파티를 꾸린다. 랜덤 매칭도 지원한다. 출격 절차 자체가 헬다이버즈 2식 <b>연출된 로비</b>다.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th style="width:6%" class="num">#</th><th style="width:24%">단계</th><th>내용</th></tr></thead>
+    <tbody>
+      <tr><td class="num">1</td><td class="k">개인 함선</td><td>걸어 다닐 수 있는 내 함선. 장비를 챙기고 <a class="wl" href="14-facility.html">시설</a>을 돌린다.</td></tr>
+      <tr><td class="num">2</td><td class="k">도킹 · 워프</td><td>매칭이 잡히면 내 함선이 <b>공유 함선에 도킹</b>한다. 컷씬으로 이어진다.</td></tr>
+      <tr><td class="num">3</td><td class="k">공유 함선 · 터미널</td><td>전체화면 터미널의 홀로그램에서 <a class="wl" href="09-planets.html">목표 행성</a>을 고른다.</td></tr>
+      <tr><td class="num">4</td><td class="k">발사 포드 탑승</td><td>포드에 올라타면 "준비 완료". 전원이 타면 강하.</td></tr>
+      <tr><td class="num">5</td><td class="k">레이드</td><td>절차 생성된 지형에서 파밍 · 교전 · <a class="wl" href="16-corp.html">계약</a> 수행.</td></tr>
+      <tr><td class="num">6</td><td class="k">탈출</td><td><a class="wl" href="11-extraction.html">탈출 콘솔</a>을 누르고 120초를 버틴다.</td></tr>
+      <tr><td class="num">7</td><td class="k">정산</td><td>가져온 전리품이 창고로. 계약 정산 · 신뢰도 · 경험치.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2 id="s-death"><span class="hn">4.1</span>죽음과 부활</h2>
+  <p>체력이 0이 되면 곧바로 죽지 않고 <strong>전투불능</strong>이 된다. 포복만 가능하고 무기를 못 쓰며, 다운 체력이 1초에 1씩 깎인다. 적 AI는 다운된 플레이어를 노리지 않으므로 <b>구조하러 갈 시간</b>이 생긴다.</p>
+  <ul>
+    <li>아군이 3 m 안에서 <span class="key">E</span>를 10초 홀드하면 부활. <a class="wl" href="06-gadget.html">제세동기</a>는 즉시.</li>
+    <li>완전 사망해도 <b>임무 실패가 아니다</b> — 30초 뒤 헬포드로 재강하한다.</li>
+    <li>단, 가방에 든 전리품은 잃는다. <b>죽음의 비용은 시간이 아니라 물건</b>이다.</li>
+  </ul>
+
+  <div class="note gr"><b>재접속 유예.</b> 연결이 끊겨도 5분 안에 돌아오면 <b>진행 중인 레이드로 복귀</b>한다. 서버가 레이드 세션을 들고 있어서 가능한 구조 — 캐주얼 대상 게임에서 필수적인 안전장치다.</div>
+
+  <div class="nextnav">
+    <a href="07-stratagem.html"><span>이전</span>← 함선 호출</a>
+    <a class="n" href="09-planets.html"><span>다음</span>행성 →</a>
+  </div>
+</article>
+
+</main>
+
+<aside class="toc">
+  <h4>이 페이지</h4>
+  <div id="toc"></div>
+</aside>
+</div>
+
+<script src="../app.js"></script>
+</body>
+</html>

@@ -69,4 +69,4 @@ screen via GameFlow). If a flow is already active locally only the countdown / n
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
-- **Phase 7** — `required` excludes suspended members (a ghost cannot board → 미추출), no consoles when the world has no extraction points (training), a promoted host continues the countdown / ship / boarding from its mirrored state (unchanged in Phase 9)
+- **Phase 7** — `required` excludes suspended members (a ghost cannot board → 미탈출), no consoles when the world has no extraction points (training), a promoted host continues the countdown / ship / boarding from its mirrored state (unchanged in Phase 9)

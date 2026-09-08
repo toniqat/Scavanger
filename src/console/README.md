@@ -64,7 +64,7 @@ save in another editor cannot full-reload the page mid-run.
 
 ## Phase 10 UI 개선 pass (2026-09-07)
 
-**인게임 커서 (`docs/PHASE10-PLAN.md` §2).** `open()` adds the `'console'` blocker and then calls
+**인게임 커서 (`docs/DECISIONS.md` Phase 10).** `open()` adds the `'console'` blocker and then calls
 `ctx.input.setCursorMode(true, 'console')` **without** exiting the pointer lock; `close()` deletes the token and calls
 `setCursorMode(false, 'console')`, and the re-lock microtask (`isControlActive()` / `isDead` guarded) is gone —
 nothing ever unlocked, so there is nothing to restore. `dispose()` releases both when the console was open.

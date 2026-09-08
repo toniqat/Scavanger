@@ -2,7 +2,7 @@ import type { ItemDef, PerkId, Rarity, StatId } from '@/shared';
 import { CATEGORY_COLOR, CATEGORY_ICON, PERK_DEFS, RARITY_COLORS, STAT_IDS } from '@/shared';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 임플란트 아이템 (Phase 12, 2026-09-08 — `docs/PHASE12-PLAN.md` #5).
+ * 임플란트 아이템 (Phase 12, 2026-09-08 — `docs/DECISIONS.md` Phase 12).
  *
  * Distinct from the six 전술 임플란트 (Q key, `ImplantId`): these are **items** of category `'implant'` that the
  * character slots on the 캐릭터 tab (progression/ owns the rules — `IMPLANT_SLOTS_BASE` 4 + 1 per 5 levels, max 10).

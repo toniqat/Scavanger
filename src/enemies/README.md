@@ -156,7 +156,7 @@ closed) and a bit that rises with an idle local timer emits `enemy:incinerated` 
 for an incapacitated rogue so the replica shows the writhe rather than the cover crouch.
 
 ## Rogue AI v2 · behemoth knockback · ghost targets · live authority · training (Phase 7, 2026-09-06)
-Brief: `docs/PHASE7-PLAN.md` §6. Everything below is inside `src/enemies/`; the contract (`ROGUE_MAG_ROUNDS / ROGUE_RELOAD_TIME /
+Brief: `docs/DECISIONS.md` Phase 7. Everything below is inside `src/enemies/`; the contract (`ROGUE_MAG_ROUNDS / ROGUE_RELOAD_TIME /
 ROGUE_COVER_FLANK_WEIGHT / ROGUE_GRENADE_*`, `BEHEMOTH_SCALE` 3, `EnemyWire.a` 12 / 13, `ee grenade / grenadeHit`, `DamageMessage.kb`,
 `ghost:damage`, `net:hostChanged`, `RemotePlayerRef.suspended`, `EnemyManagerRef.setAuthority`, `WorldRef.mode`, `ctx.isTraining`) was pre-written.
 
@@ -206,7 +206,7 @@ ROGUE_COVER_FLANK_WEIGHT / ROGUE_GRENADE_*`, `BEHEMOTH_SCALE` 3, `EnemyWire.a` 1
   hint), `isAuthority`, `isTrainingWorld`.
 
 ## Delta snapshots · burn credit · enemy fire vs 배리어 (Phase 9, 2026-09-06)
-Brief: `docs/PHASE9-PLAN.md` §6. Contract: `EnemyWire` pose fields optional, `EnemySnapshot.seq / gone?`,
+Brief: `docs/DECISIONS.md` Phase 9. Contract: `EnemyWire` pose fields optional, `EnemySnapshot.seq / gone?`,
 `NET_ENEMY_KEYFRAME_S`, `EnemyManagerRef.applyStatus(..., attacker?)`, `enemy:killed.by?`.
 
 - **`es` is a delta stream.** `SnapshotCache` (in `net/HostSync.ts`) keeps the rounded fields the host last sent per id;
@@ -228,7 +228,7 @@ Brief: `docs/PHASE9-PLAN.md` §6. Contract: `EnemyWire` pose fields optional, `E
   (one raycast per hit, never per tick; `barrierBlocks` is the shared helper).
 
 ## 공중 사망 낙하 · 사망 방향 · 확률 루팅 (Phase 10, 2026-09-07)
-Brief: `docs/PHASE10-PLAN.md` §3-3. Contract (read-only): `EnemyDeathDir` / `ENEMY_DEATH_DIRS` / `CORPSE_LOOT_CHANCE`,
+Brief: `docs/DECISIONS.md` Phase 10. Contract (read-only): `EnemyDeathDir` / `ENEMY_DEATH_DIRS` / `CORPSE_LOOT_CHANCE`,
 `EnemyRef.deathDir? / lootable?`, `DEATH_FALL_TIME` / `CORPSE_FALL_MAX_SPEED` / `CORPSE_LAND_TIMEOUT`,
 `ee kill.dd?` + `ee corpse.dd? / lt?`, `enemy:killed.deathDir?`, `corpse:spawned.lootable? / deathDir?`.
 
@@ -256,7 +256,7 @@ Brief: `docs/PHASE10-PLAN.md` §3-3. Contract (read-only): `EnemyDeathDir` / `EN
   `lootable: false`. `rollCorpse` and `CORPSE_TABLES` (items/) are untouched.
 
 ## 행성 생태계 (Phase 11, 2026-09-07)
-Brief: `docs/PHASE11-PLAN.md` §3-5(B). Contract (read-only): `src/shared/planets.ts` (`PlanetEcosystem.bugs` /
+Brief: `docs/DECISIONS.md` Phase 11. Contract (read-only): `src/shared/planets.ts` (`PlanetEcosystem.bugs` /
 `pressure` / `rogues` / `boss` / `maxArtillery` / `maxBehemoth`), `world:ready.planet?`, `WorldRef.planet`.
 
 - **Where it enters.** `EnemySystem`'s `world:ready` handler resolves `getPlanet(planet ?? ctx.world.planet ??

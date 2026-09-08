@@ -532,7 +532,7 @@ their own; the window's ref-counted token covers them.
   (`.inv-layout.is-craft .inv-stash-scroll`).
 - `GridView` 의 `cell` 은 생성 시점에 고정이다. 살아 있는 뷰의 칸 크기를 바꾸려면 뷰를 새로 만들어야 한다.
 
-## 2026-09-08 Phase 12 — 분해 게이지 · 회복 스프레이 수리 · 임플란트 아이템 (`docs/PHASE12-PLAN.md` #5 · #7 · #9)
+## 2026-09-08 Phase 12 — 분해 게이지 · 회복 스프레이 수리 · 임플란트 아이템 (`docs/DECISIONS.md` Phase 12 · #7 · #9)
 
 Data-driven off the frozen contract (`ItemCategory 'implant'`, `ItemDef.implant`, `PERK_DEFS`, `HEAL_SPRAY_GAUGE` 200,
 `inventory:disassembleProgress`); the implant defs themselves are items/ (`imp_<stat>_<1..4>`, `imp_perk_*`,

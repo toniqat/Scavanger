@@ -170,7 +170,7 @@ const implant = ctx.progression?.profile.implant ?? null;
 
 ## Phase 10 UI 개선 pass (2026-09-07)
 
-- **인게임 커서 (`docs/PHASE10-PLAN.md` §2).** `ui/CharacterSheet.open()` 은 `'stats'` blocker 를 넣은 뒤
+- **인게임 커서 (`docs/DECISIONS.md` Phase 10).** `ui/CharacterSheet.open()` 은 `'stats'` blocker 를 넣은 뒤
   `ctx.input.setCursorMode(true, 'stats')` 를 부른다 — **포인터 락을 풀지 않는다**. `close()` 는 토큰을 지우고
   `setCursorMode(false, 'stats')` 를 부르며, 예전의 재잠금 마이크로태스크(`isGameplayPhase / isHubPhase / isDead`
   가드 포함)는 삭제했다. `dispose()` 도 커서를 놓는다. `setCursorMode` 는 blocker 토큰 기준 ref-count 라서

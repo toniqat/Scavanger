@@ -143,7 +143,7 @@ Registered in `scripts/verify.mjs` (`smoke-housing`, folders housing / hub / inv
 
 ## Phase 10 UI 개선 pass (2026-09-07)
 
-- **인게임 커서 (§2 of `docs/PHASE10-PLAN.md`).** `ui/Panel.ts` — the shell every housing panel (프리셋 / 재배 /
+- **인게임 커서 (§2 of `docs/DECISIONS.md`).** `ui/Panel.ts` — the shell every housing panel (프리셋 / 재배 /
   책장 / 도감) inherits — now adds the `'housing'` blocker and then calls `ctx.input.setCursorMode(true, 'housing')`
   **without** exiting the pointer lock; `close()` deletes the token and calls `setCursorMode(false, 'housing')`, and
   the `relock()` microtask is gone (nothing ever unlocked). `close(relock)`'s parameter survives for the call

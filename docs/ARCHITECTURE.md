@@ -37,13 +37,19 @@ GameFlowSystem → ConsoleSystem
 > `world:ready` 는 뒤에 등록된 시스템들의 `game:newMission` 핸들러보다 **먼저** 발생한다.
 > 그래서 `world:ready` 에서 무조건 `reset()` 하면 안 된다 — `ctx.world.seed` 를 확인한다.
 
-## 2. 미션 플로우 (이벤트)
+## 2. 게임 루프 (플레이어 관점, 목표)
+
+게임 시작 → 개인 함선 → 컴퓨터(기업 접촉 · 계약 · 퀘스트) → 공유 함선 호출(큐) → 매칭 → 목표 행성 설정 →
+로드아웃 → 준비 → 행성 도착 → 레이드 → 탈출구에서 함선 호출 → 120 초 디펜스 → 탈출 →
+정산(경험치 · 계약) → 공유 함선 → 컴퓨터(퀘스트 완료).
+
+## 3. 미션 플로우 (이벤트)
 
 1. `GameFlowSystem` 이 `game:newMission {seed}` 발행 → `WorldSystem` 이 **동기 생성** 후 `world:ready {seed, playerSpawn}`.
 2. `world:ready` 에서: 플레이어가 스폰 지점에 강하, 적 리셋 + 앰비언트 스폰 시작,
    인벤토리가 (아무 것도 없을 때만) 최소 킷을 주고 `loadout:changed`,
-   추출 시스템이 `ctx.world.getExtractionPoints()` 에 콘솔을 세운다.
-3. 플레이어가 패드 스위치를 누름 → `extraction:activated` → 적의 추출 웨이브 시작, HUD 카운트다운, 매 프레임 `extraction:tick`.
+   탈출 시스템이 `ctx.world.getExtractionPoints()` 에 콘솔을 세운다.
+3. 플레이어가 패드 스위치를 누름 → `extraction:activated` → 적의 탈출 웨이브 시작, HUD 카운트다운, 매 프레임 `extraction:tick`.
 4. 카운트다운 종료 → `extraction:shipIncoming` → 착륙 → `extraction:shipLanded`; 탑승하면 `extraction:boarded`.
 5. 함선 스위치 → `extraction:liftoff` → 문이 닫히고 상승 → `game:complete {stats}`.
 6. `player:died` → `game:over {stats}`. 결과 화면이 `hub:enter {ship}` 발행 →
@@ -51,7 +57,7 @@ GameFlowSystem → ConsoleSystem
    `player.setInterior(collider)` + `spawnStanding`, `setPhase('hub')`, `hub:entered`.
    `game:newMission` 은 허브를 허문다 (`hub:left`). **허브에서는 `ctx.world` 가 null 이다.**
 
-## 3. 입력 게이트 · UI blocker · 커서 규약
+## 4. 입력 게이트 · UI blocker · 커서 규약
 
 - `ctx.isGameplayActive()` — 무기 · 핑 · 지도 · 수류탄의 게이트.
 - `ctx.isControlActive()` — 이동 · 자세 · 상호작용 · 카메라의 게이트 (게임플레이 **또는** `hub` 페이즈, blocker 없음).
@@ -74,7 +80,7 @@ UI 화면은 자기 토큰을 추가하고 `ctx.input.setCursorMode(true, TOKEN)
 
 키 레이아웃과 커서의 자세한 사정은 [CONTROLS.md](CONTROLS.md).
 
-## 4. `src/main.ts` — 부트스트랩
+## 5. `src/main.ts` — 부트스트랩
 
 Engine 을 띄우고 시스템을 위 순서대로 등록한다. 그 외에 두 가지 일을 더 한다:
 

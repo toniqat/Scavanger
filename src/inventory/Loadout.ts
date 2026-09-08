@@ -5,7 +5,7 @@ import { readSaveFile, writeSaveFile, type SavedExtras, type SavedPlacement } fr
 /* ────────────────────────────────────────────────────────────────────────────
  * Loadout persistence (Phase 5, 2026-09-06): the equipment slots, the bag contents (positions / rotation /
  * durability / rounds / sockets) and the quick-use wheel live in localStorage `scav.loadout` so the bag the player
- * prepared in the ship survives a reload. Policy (docs/PHASE5-PLAN.md §5 / §8-2):
+ * prepared in the ship survives a reload. Policy (docs/DECISIONS.md Phase 5):
  *   - loaded ONCE at `InventorySystem.init` → from then on the session state is the truth;
  *   - saved (debounced) after every change in the hub phase, on `game:complete` and on pagehide;
  *   - every starter reset (`applyStarter`) saves the starter immediately so a reload cannot resurrect a bag that

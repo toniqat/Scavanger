@@ -103,7 +103,7 @@ Headless Chrome (puppeteer-core + swiftshader) driving the system pipeline direc
 ## Phase 4 (2026-09-06)
 - `applyKnockback(direction, speed)`: `direction × speed` (normalised, y allowed) through the controller's `applyImpulse` path + a small shake. **Phase 7 fix**: ignored while dead / downed / not spawned / inside the hellpod, cancels an in-flight roll (and the hover), and always carries at least `KNOCKBACK_MIN_LIFT` (1.5 m/s) upward so the feet leave the ground (`grounded` cleared) and the shove is not eaten by ground friction. Emits nothing (`player:launched` stays the jump-pad / rocket-jump event). Used by the behemoth charge and `dmg.kb`.
 
-## Phase 10 — 부상자 들쳐메기 · 준비 패널 초상화 (2026-09-07, `docs/PHASE10-PLAN.md` §3-1)
+## Phase 10 — 부상자 들쳐메기 · 준비 패널 초상화 (2026-09-07, `docs/DECISIONS.md` Phase 10)
 
 ### Character model — **rolled back** (2026-09-07)
 Phase 10 replaced the armoured trooper with a Splatoon-style 3등신 character; the look was rejected and
@@ -162,7 +162,7 @@ returns the local model's shoulder socket.
 Unchanged here: `applyStim(healAmount)` and `player:stimUsed` keep their names and behaviour. The 2 s LMB hold, the
 `heal:holdChanged` event and the retired H key are `weapons/`'.
 
-## Phase 7 — rejoin restore · ghosts · remote poses (2026-09-06, `docs/PHASE7-PLAN.md` §4)
+## Phase 7 — rejoin restore · ghosts · remote poses (2026-09-06, `docs/DECISIONS.md` Phase 7)
 - **`isMeleeHeavy`**: true while `startMelee('heavy')`'s sweep plays (`meleeTimer > 0 && meleeKind === 'heavy'`); net puts `MELEE_HEAVY` on the wire from it.
 - **`restoreState({position, yaw, hp, downHp, state})`** (game/ calls it on `net:ghostRestore` after a rejoin's `world:ready`): resets like `respawnAt` (interior / ship box / pod / hellpod cleared, controller reset at `position` — clamped onto the terrain, off-map positions fall back to the slot spawn — camera snapped behind at `yaw`, 0.5 s invulnerability) but **no hellpod**. `state 0` → alive with `hp` (clamped 1..max), `player:healthChanged` + `player:spawned`. `state 1` → 전투불능: hp 0, `isDowned`, `downHp` (1..`PLAYER_DOWN_HP`), stance prone, prone camera; emits `player:spawned`, `player:downed`, `player:downHpChanged`, `player:healthChanged` — bleed / give-up / revive continue as usual. `state 2` → dead: `isDead`, hp 0, controls off, death pose already settled (`deadTimer = DEATH_ANIM`), body visible; **no `player:died`** (and no `player:spawned`) — game/ runs its own respawn / raid-failure flow from the restore.
 - **`world:ready` while `ctx.rejoinPending`**: no `respawnAt` / hellpod. `holdForRestore(spawn)` = the `game:abort` reset (model hidden, `spawned` false, controls off, interior cleared) with the feet + camera parked at the slot spawn, so `restoreState` (or game/'s fallback `player.respawn(spawn)` after `NET_GHOST_RESTORE_TIMEOUT_S`) is the first thing that shows the body.

@@ -1,11 +1,11 @@
 # src/meta — 기업 · 신뢰도 · 계약 · 퀘스트 · 크레딧 · 상점 (`MetaSystem`)
 
-Phase 5-c (2026-09-06, brief `docs/PHASE5-PLAN.md` §8-1). Publishes `ctx.meta` (`MetaRef`, contract in `src/shared/meta.ts`),
+Phase 5-c (2026-09-06, brief `docs/DECISIONS.md` Phase 5). Publishes `ctx.meta` (`MetaRef`, contract in `src/shared/meta.ts`),
 persists everything in localStorage `META_STORAGE_KEY` (`scav.meta`), owns the **기업 네트워크** screen (ship computer,
 blocker token `'corp'`) and the `credits / rep / contract / quest` developer-console commands. Character XP stays with
 `progression/` (`ctx.progression.addXp`), the bag / stash with `inventory/`; this folder only asks them through `ctx.*Ref`.
 Registered in `main.ts` right after `InventorySystem` (buy / sell / deliveries need the bag + stash) — see the root `CLAUDE.md`.
-**Phase 8** (2026-09-06, brief `docs/PHASE8-PLAN.md` §2.6): the screen body moved to `ui/CorpView.ts` so the standalone overlay and the
+**Phase 8** (2026-09-06, brief `docs/DECISIONS.md` Phase 8): the screen body moved to `ui/CorpView.ts` so the standalone overlay and the
 **embedded 기업 tab** of the inventory Tab screen (`createCorpView(host)` → `EmbeddedView`) share one set of renderers; the popup has a fixed
 size (no more per-tab resizing) and every item requirement is a `buildItemChip` / `renderItemCost` thumbnail.
 
@@ -179,7 +179,7 @@ pointer drag, so recreating them on every `inventory:changed` would drop a drag 
   Display only — `buyPriceOf` / `sellPriceOf` / `ItemDef.value` and every rule in `Rules.ts` are untouched.
   In sentences 크레딧 stays a **word** and only the number carries the unit (`크레딧 +1,200 C`); a line that already
   says what it is drops the word entirely (`구매 · −1,200 C`, `거래 성사 · 구매 2점 · +340 C`).
-- **인게임 커서 (§2 of `docs/PHASE10-PLAN.md`).** `ui/CorpMenu.open()` now adds the `'corp'` blocker and then calls
+- **인게임 커서 (§2 of `docs/DECISIONS.md`).** `ui/CorpMenu.open()` now adds the `'corp'` blocker and then calls
   `ctx.input.setCursorMode(true, 'corp')` **without** exiting the pointer lock; `close()` deletes the token and calls
   `setCursorMode(false, 'corp')`, and the microtask re-lock is gone (nothing ever unlocked). `close(relock)`'s
   parameter is kept for the call signature only. `setCursorMode` is ref-counted per blocker token, so the corp screen
@@ -221,7 +221,7 @@ pointer drag, so recreating them on every `inventory:changed` would drop a drag 
 - 데스크는 여전히 넓다: 1240 px 아래에서는 우측 가방 / 창고 열이 숨는다(기존 미디어 쿼리 그대로).
 - 기업 탭에서 Esc 는 창 전체를 닫는다(`hub/` 가 Escape 를 삼키지 않고 `inventory/` 가 처리한다).
 
-## Phase 12 — 세레스 바이오 임플란트 (2026-09-08, `docs/PHASE12-PLAN.md` #5)
+## Phase 12 — 세레스 바이오 임플란트 (2026-09-08, `docs/DECISIONS.md` Phase 12)
 
 Implants are **items** (`ItemDef.implant`, category `'implant'`, owner items/ — `src/items/ImplantDefs.ts`: `imp_<stat>_<1..4>`,
 `imp_perk_*`, broken twins `imp_broken_*`). meta/ owns three things about them, all driven off `def.implant` rather than ids:

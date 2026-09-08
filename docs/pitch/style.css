@@ -1,0 +1,248 @@
+/* ══════════════════════════════════════════════════════════════════════════
+   PROJECT SCAVANGER · 피칭 위키
+   단일 파일 SPA. 좌측 트리 / 중앙 본문 / 우측 목차.
+   이미지는 assets/ 에 넣으면 플레이스홀더가 자동으로 교체된다.
+   ══════════════════════════════════════════════════════════════════════════ */
+:root{
+  --bg:#0d0f12; --bg2:#121519; --panel:#15181d; --panel2:#1b1f25;
+  --line:#252b33; --line2:#323945;
+  --tx:#dbe1e9; --tx2:#98a2ae; --tx3:#6c757f;
+  --am:#ffb347; --cy:#5fd7ff; --gr:#7ee08a; --rd:#ff7a6b; --vi:#c8a2ff;
+  --radius:10px;
+  --mono:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+  --sans:"Pretendard","Noto Sans KR",-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg); color:var(--tx); font-family:var(--sans);
+  font-size:15px; line-height:1.75; -webkit-font-smoothing:antialiased;
+}
+::selection{background:rgba(255,179,71,.28)}
+
+/* ── 레이아웃 ─────────────────────────────────────────────────────────── */
+.shell{display:grid; grid-template-columns:266px minmax(0,1fr) 232px; min-height:100vh}
+.side{border-right:1px solid var(--line); background:var(--bg2); position:sticky; top:0; height:100vh; overflow-y:auto}
+.main{min-width:0; padding:0 46px 140px}
+.toc{border-left:1px solid var(--line); position:sticky; top:0; height:100vh; overflow-y:auto; padding:26px 18px}
+@media(max-width:1180px){ .shell{grid-template-columns:240px minmax(0,1fr)} .toc{display:none} }
+@media(max-width:820px){ .shell{grid-template-columns:1fr} .side{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line)} .main{padding:0 20px 90px} }
+
+/* ── 사이드바 ─────────────────────────────────────────────────────────── */
+.brand{padding:22px 20px 16px; border-bottom:1px solid var(--line)}
+.brand a{text-decoration:none; color:inherit; display:block}
+.brand h1{margin:0; font-size:16px; letter-spacing:.14em; font-weight:800; color:var(--tx)}
+.brand h1 em{font-style:normal; color:var(--am)}
+.brand p{margin:5px 0 0; font-size:11.5px; color:var(--tx3); letter-spacing:.05em}
+nav.tree{padding:14px 10px 40px}
+nav.tree ul{list-style:none; margin:0; padding:0}
+nav.tree > ul > li{margin-bottom:2px}
+nav.tree .sec{
+  display:flex; align-items:center; gap:7px; width:100%; text-align:left; cursor:pointer;
+  background:none; border:0; color:var(--tx2); font:inherit; font-size:13px; font-weight:700;
+  padding:7px 10px; border-radius:7px; letter-spacing:.02em;
+}
+nav.tree .sec:hover{background:var(--panel); color:var(--tx)}
+nav.tree .sec .caret{font-size:9px; color:var(--tx3); transition:transform .15s; width:9px}
+nav.tree li.open > .sec .caret{transform:rotate(90deg)}
+nav.tree li.open > .sec{color:var(--tx)}
+nav.tree .sec .num{font-family:var(--mono); font-size:10.5px; color:var(--tx3); min-width:13px}
+nav.tree ul ul{display:none; margin:1px 0 6px 21px; border-left:1px solid var(--line); padding-left:9px}
+nav.tree li.open > ul{display:block}
+nav.tree a{
+  display:block; padding:5px 9px; border-radius:6px; color:var(--tx2);
+  text-decoration:none; font-size:12.5px; line-height:1.5;
+}
+nav.tree a:hover{background:var(--panel); color:var(--tx)}
+nav.tree a.active{background:rgba(255,179,71,.11); color:var(--am); font-weight:600; box-shadow:inset 2px 0 0 var(--am)}
+
+/* ── 우측 목차 ───────────────────────────────────────────────────────── */
+.toc h4{margin:0 0 12px; font-size:10.5px; letter-spacing:.16em; color:var(--tx3); font-weight:700}
+.toc a{display:block; padding:4px 0 4px 11px; color:var(--tx3); text-decoration:none; font-size:12px; border-left:2px solid var(--line); line-height:1.45}
+.toc a:hover{color:var(--tx)}
+.toc a.h3{padding-left:22px; font-size:11.5px}
+.toc a.on{color:var(--am); border-left-color:var(--am)}
+
+/* ── 본문 ────────────────────────────────────────────────────────────── */
+article{max-width:840px; padding-top:34px; animation:fade .22s ease}
+@keyframes fade{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+.crumb{font-size:11px; color:var(--tx3); letter-spacing:.1em; margin-bottom:9px; font-family:var(--mono)}
+article > h1{margin:0 0 8px; font-size:30px; font-weight:800; letter-spacing:-.01em; line-height:1.25}
+.lede{color:var(--tx2); font-size:15.5px; margin:0 0 4px; line-height:1.7}
+h2{
+  margin:52px 0 14px; font-size:19.5px; font-weight:750; letter-spacing:-.005em;
+  padding-bottom:9px; border-bottom:1px solid var(--line); scroll-margin-top:20px;
+}
+h2 .hn{font-family:var(--mono); font-size:12.5px; color:var(--am); margin-right:9px; font-weight:600}
+h3{margin:30px 0 10px; font-size:15.5px; font-weight:700; color:var(--tx); scroll-margin-top:20px}
+h3::before{content:"▸"; color:var(--am); margin-right:7px; font-size:11px; vertical-align:1px}
+p{margin:0 0 13px}
+ul,ol{margin:0 0 14px; padding-left:20px}
+li{margin-bottom:5px}
+li::marker{color:var(--tx3)}
+strong{color:#fff; font-weight:650}
+code{font-family:var(--mono); font-size:12.5px; background:var(--panel2); padding:1.5px 5px; border-radius:4px; color:var(--cy)}
+hr{border:0; border-top:1px solid var(--line); margin:38px 0}
+
+/* 위키 링크 */
+a.wl{color:var(--cy); text-decoration:none; border-bottom:1px dotted rgba(95,215,255,.4); cursor:pointer}
+a.wl:hover{border-bottom-style:solid; background:rgba(95,215,255,.08)}
+
+/* ── 표 ──────────────────────────────────────────────────────────────── */
+.tw{overflow-x:auto; margin:0 0 18px; border:1px solid var(--line); border-radius:var(--radius); background:var(--panel)}
+table{border-collapse:collapse; width:100%; font-size:13.2px; min-width:480px}
+th{
+  text-align:left; padding:10px 13px; background:var(--panel2); color:var(--tx2);
+  font-weight:700; font-size:11.5px; letter-spacing:.06em; border-bottom:1px solid var(--line2); white-space:nowrap;
+}
+td{padding:9px 13px; border-bottom:1px solid var(--line); vertical-align:top; line-height:1.6}
+tbody tr:last-child td{border-bottom:0}
+tbody tr:hover{background:rgba(255,255,255,.017)}
+td.num,th.num{text-align:right; font-family:var(--mono); font-size:12.5px; white-space:nowrap}
+td.k{color:#fff; font-weight:600; white-space:nowrap}
+.gl{font-size:15px; margin-right:7px; vertical-align:-1px}
+
+/* ── 배지 · 칩 ───────────────────────────────────────────────────────── */
+.badge{
+  display:inline-block; font-size:10px; font-weight:700; letter-spacing:.06em;
+  padding:2px 7px; border-radius:20px; vertical-align:2px; white-space:nowrap;
+}
+.badge.ok{background:rgba(126,224,138,.14); color:var(--gr); border:1px solid rgba(126,224,138,.3)}
+.badge.wip{background:rgba(255,179,71,.13); color:var(--am); border:1px solid rgba(255,179,71,.3)}
+.badge.plan{background:rgba(140,150,165,.13); color:var(--tx2); border:1px solid var(--line2)}
+.chip{display:inline-block; font-size:11px; font-family:var(--mono); padding:1px 7px; border-radius:5px; background:var(--panel2); border:1px solid var(--line); color:var(--tx2)}
+.key{display:inline-block; font-family:var(--mono); font-size:11px; min-width:20px; text-align:center; padding:1px 6px; border-radius:5px; background:#20252c; border:1px solid var(--line2); border-bottom-width:2px; color:#fff}
+
+/* ── 카드 그리드 ─────────────────────────────────────────────────────── */
+.cards{display:grid; grid-template-columns:repeat(auto-fit,minmax(215px,1fr)); gap:12px; margin:0 0 20px}
+.card{background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:15px 16px}
+.card h5{margin:0 0 6px; font-size:13.5px; font-weight:700; color:#fff; display:flex; align-items:center; gap:7px}
+.card p{margin:0; font-size:12.5px; color:var(--tx2); line-height:1.65}
+.card .dot{width:7px;height:7px;border-radius:50%;flex:0 0 auto}
+
+/* ── 콜아웃 ──────────────────────────────────────────────────────────── */
+.note{border-left:3px solid var(--cy); background:rgba(95,215,255,.05); padding:12px 16px; border-radius:0 8px 8px 0; margin:0 0 18px; font-size:13.5px; color:var(--tx2)}
+.note.am{border-left-color:var(--am); background:rgba(255,179,71,.055)}
+.note.gr{border-left-color:var(--gr); background:rgba(126,224,138,.05)}
+.note b{color:#fff}
+
+/* ── 접이식 상세 ─────────────────────────────────────────────────────── */
+details{border:1px solid var(--line); border-radius:var(--radius); background:var(--panel); margin:0 0 18px; overflow:hidden}
+details summary{
+  cursor:pointer; padding:10px 15px; font-size:12.5px; font-weight:650; color:var(--tx2);
+  list-style:none; display:flex; align-items:center; gap:8px; user-select:none;
+}
+details summary::-webkit-details-marker{display:none}
+details summary::before{content:"＋"; color:var(--am); font-family:var(--mono); font-size:12px}
+details[open] summary::before{content:"－"}
+details summary:hover{color:var(--tx); background:var(--panel2)}
+details .dbody{padding:4px 15px 14px; border-top:1px solid var(--line); font-size:13px; color:var(--tx2)}
+details .dbody .tw{margin-top:12px}
+
+/* ── 스크린샷 플레이스홀더 ───────────────────────────────────────────── */
+figure.shot{margin:0 0 22px}
+figure.shot .ph{
+  border:1px dashed var(--line2); border-radius:var(--radius); background:
+    repeating-linear-gradient(45deg,rgba(255,255,255,.012) 0 10px,transparent 10px 20px), var(--panel);
+  min-height:190px; display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:6px; padding:26px 20px; text-align:center;
+}
+figure.shot.ref .ph{border-color:rgba(200,162,255,.35); background:
+    repeating-linear-gradient(45deg,rgba(200,162,255,.03) 0 10px,transparent 10px 20px), var(--panel)}
+figure.shot .tag{
+  font-size:9.5px; letter-spacing:.16em; font-weight:800; color:var(--am);
+  border:1px solid rgba(255,179,71,.35); border-radius:20px; padding:2px 9px; background:rgba(255,179,71,.07);
+}
+figure.shot.ref .tag{color:var(--vi); border-color:rgba(200,162,255,.35); background:rgba(200,162,255,.07)}
+figure.shot .ttl{font-size:14px; font-weight:700; color:var(--tx)}
+figure.shot .desc{font-size:12.5px; color:var(--tx2); max-width:480px; line-height:1.6}
+figure.shot .meta{font-family:var(--mono); font-size:10.5px; color:var(--tx3); margin-top:3px}
+figure.shot img{width:100%; border-radius:var(--radius); border:1px solid var(--line); display:block}
+figure.shot figcaption{font-size:12px; color:var(--tx3); margin-top:8px; padding-left:2px; line-height:1.6}
+.shotrow{display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:22px}
+.shotrow figure.shot{margin:0}
+.shotrow figure.shot .ph{min-height:150px}
+.shotrow.c3{grid-template-columns:repeat(3,1fr)}
+.shotrow.c3 figure.shot .ph{min-height:118px}
+.shotrow.c3 figure.shot .desc{font-size:11.5px}
+@media(max-width:960px){.shotrow.c3{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:760px){.shotrow,.shotrow.c3{grid-template-columns:1fr}}
+
+/* ── 인물 썸네일 + 툴팁 ──────────────────────────────────────────────── */
+.people{display:flex; flex-wrap:wrap; gap:11px; margin:0 0 20px}
+.person{position:relative; width:82px; text-align:center; cursor:help}
+.person .av{
+  width:82px;height:82px;border-radius:10px; border:1px solid var(--line2); background:var(--panel2);
+  display:flex;align-items:center;justify-content:center; font-size:24px; font-weight:800; color:var(--tx3);
+  letter-spacing:-.02em; overflow:hidden;
+}
+.person .av img{width:100%;height:100%;object-fit:cover;display:block}
+.person .nm{font-size:11.5px; margin-top:5px; color:var(--tx2); font-weight:600; line-height:1.35}
+.person .rl{font-size:10px; color:var(--tx3); line-height:1.3}
+.person:hover .av{border-color:var(--am)}
+.person .tip{
+  position:absolute; left:50%; bottom:calc(100% + 9px); transform:translateX(-50%) translateY(4px);
+  width:262px; background:#0a0c0f; border:1px solid var(--line2); border-radius:9px; padding:11px 13px;
+  font-size:12px; line-height:1.6; color:var(--tx2); text-align:left; z-index:40;
+  opacity:0; pointer-events:none; transition:opacity .15s, transform .15s; box-shadow:0 12px 34px rgba(0,0,0,.6);
+}
+.person:hover .tip{opacity:1; transform:translateX(-50%)}
+.person .tip b{display:block; color:#fff; font-size:12.5px; margin-bottom:2px}
+.person .tip .aff{font-size:10.5px; letter-spacing:.05em; margin-bottom:6px; font-weight:700}
+
+/* ── 진행 바 ─────────────────────────────────────────────────────────── */
+.bar{height:6px;border-radius:4px;background:var(--panel2);overflow:hidden;min-width:78px}
+.bar i{display:block;height:100%;border-radius:4px}
+
+/* ── 히어로 ──────────────────────────────────────────────────────────── */
+.hero{
+  border:1px solid var(--line); border-radius:14px; padding:30px 32px; margin:6px 0 30px;
+  background:radial-gradient(900px 300px at 12% -30%, rgba(255,179,71,.12), transparent 62%),
+             radial-gradient(700px 280px at 92% 120%, rgba(95,215,255,.10), transparent 60%), var(--panel);
+}
+.hero h1{margin:0 0 10px; font-size:36px; font-weight:850; letter-spacing:-.02em; line-height:1.15}
+.hero .sub{color:var(--tx2); font-size:16px; margin:0 0 20px; line-height:1.65}
+.facts{display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:1px; background:var(--line); border:1px solid var(--line); border-radius:9px; overflow:hidden}
+.facts div{background:var(--panel2); padding:12px 14px}
+.facts dt{font-size:10px; letter-spacing:.13em; color:var(--tx3); font-weight:700; margin-bottom:3px}
+.facts dd{margin:0; font-size:13.5px; color:#fff; font-weight:650; line-height:1.5}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--tx2);background:var(--panel2);border:1px solid var(--line);border-radius:20px;padding:3px 11px;margin:0 5px 6px 0}
+
+/* 다음 페이지 */
+.nextnav{display:flex;justify-content:space-between;gap:12px;margin-top:60px;padding-top:22px;border-top:1px solid var(--line)}
+.nextnav a{
+  display:block; flex:1; padding:12px 16px; border:1px solid var(--line); border-radius:var(--radius);
+  background:var(--panel); text-decoration:none; color:var(--tx2); font-size:13px; max-width:49%;
+}
+.nextnav a:hover{border-color:var(--am); color:var(--tx)}
+.nextnav a span{display:block; font-size:10px; letter-spacing:.12em; color:var(--tx3); margin-bottom:2px}
+.nextnav a.n{text-align:right; margin-left:auto}
+
+/* ── 이미지 크게 보기 (라이트박스) ────────────────────────────────────
+   figure.shot 안의 실제 <img> 를 누르면 열리고, 다시 누르면 닫힌다.
+   플레이스홀더(.ph)는 이미지가 아니므로 대상이 아니다. app.js 가 붙인다.
+   ────────────────────────────────────────────────────────────────────── */
+figure.shot img{cursor:zoom-in}
+figure.shot img:hover{border-color:var(--line2)}
+.lb{
+  position:fixed; inset:0; z-index:200; display:flex; align-items:center; justify-content:center;
+  padding:44px 44px 60px; background:rgba(6,8,10,.95); cursor:zoom-out;
+  opacity:0; transition:opacity .14s ease;
+}
+.lb.on{opacity:1}
+.lb img{
+  max-width:100%; max-height:100%; object-fit:contain; display:block;
+  border-radius:var(--radius); border:1px solid var(--line2); box-shadow:0 26px 90px rgba(0,0,0,.7);
+}
+.lb .cap{
+  position:absolute; left:0; right:0; bottom:20px; text-align:center; padding:0 44px;
+  font-size:12.5px; color:var(--tx2); line-height:1.5;
+}
+.lb .cap b{color:var(--tx); font-weight:650}
+.lb .x{
+  position:absolute; top:14px; right:20px; font-size:13px; font-family:var(--mono);
+  color:var(--tx3); letter-spacing:.08em; border:1px solid var(--line); border-radius:6px;
+  padding:4px 10px; background:var(--panel);
+}
+.lb .x:hover{color:var(--tx); border-color:var(--line2)}
+@media(max-width:760px){ .lb{padding:20px 14px 54px} .lb .cap{padding:0 14px} }

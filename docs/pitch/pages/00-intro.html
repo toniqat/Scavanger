@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>프로젝트 개요 — PROJECT SCAVANGER</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-page="p-intro">
+<div class="shell">
+
+<aside class="side">
+  <div class="brand">
+    <a href="00-intro.html"><h1>PROJECT <em>SCAVANGER</em></h1></a>
+    <p>PITCH DOCUMENT · v0.1</p>
+  </div>
+  <nav class="tree" id="tree"></nav>
+</aside>
+
+<main class="main" id="main">
+
+<article id="p-intro">
+  <div class="hero">
+    <h1>PROJECT SCAVANGER</h1>
+    <p class="sub">우주 협동 PvE 익스트랙션 + 다양한 캐릭터 성장 요소 + 나만의 함선 꾸미기</p>
+    <dl class="facts">
+      <div><dt>장르</dt><dd>PvE 멀티 협동<br>익스트랙션 슈팅</dd></div>
+      <div><dt>시점</dt><dd>3인칭 슈터</dd></div>
+      <div><dt>플랫폼</dt><dd>PC · 콘솔</dd></div>
+      <div><dt>스타일</dt><dd>캐주얼 <br>(스플래툰, 팝 유 컴)</dd></div>
+      <div><dt>인원</dt><dd>1 ~ 4인<br>(사전 매칭, 랜덤 매칭)</dd></div>
+    </dl>
+  </div>
+
+  <p class="lede">플레이어는 기업들과 계약한 <strong>스캐빈저</strong>다. <br>개인 소유의 함선에서 출격해 외계 행성을 뒤지고, 벌레와 다른 약탈자를 헤치며 전리품을 챙기고, 120초 카운트다운이 끝나기 전에 탈출선에 오른다. <br>살아 돌아오면 전리품은 <b>내 것</b>이고, 죽으면 <b>전부 잃는다</b>.</p>
+
+  <figure class="shot" data-src="../assets/hero-raid.png">
+    <div class="ph">
+      <span class="tag">스크린샷</span>
+      <span class="ttl">키 비주얼 — 레이드 전투</span>
+      <span class="desc">벌레 무리를 상대하는 4인 스쿼드. 포그 · 궤도 폭격 광선 · 피격 이펙트가 한 프레임에 들어간 컷.</span>
+      <span class="meta">권장 1920×1080 · assets/hero-raid.png</span>
+    </div>
+    <figcaption>프로토타입은 Three.js 기반 브라우저 빌드로 동작 중. 모든 모델은 외부 에셋 없이 코드로 생성된다.</figcaption>
+  </figure>
+
+  <h2 id="s-loop"><span class="hn">1.1</span>핵심 루프</h2>
+
+  <div class="cards">
+    <div class="card">
+      <h5><span class="dot" style="background:var(--rd)"></span>레이드 (15~25분)</h5>
+      <p><a class="wl" href="09-planets.html">행성</a>에 강하 → 상자·시체·채집물을 턴다 → <a class="wl" href="10-enemies.html">적</a>과 교전 → <a class="wl" href="11-extraction.html">추출 콘솔</a>을 눌러 120초를 버틴다.</p>
+    </div>
+    <div class="card">
+      <h5><span class="dot" style="background:var(--am)"></span>함선 (5~10분)</h5>
+      <p>가져온 재료로 <a class="wl" href="14-facility.html">시설을 증축</a>하고, <a class="wl" href="16-corp.html">기업</a>에 팔고 사고, <a class="wl" href="03-implant-item.html">임플란트</a>를 갈아끼우고 다음 출격을 준비한다.</p>
+    </div>
+    <div class="card">
+      <h5><span class="dot" style="background:var(--cy)"></span>육성 (수십 시간)</h5>
+      <p><a class="wl" href="01-stats.html">스탯</a>·<a class="wl" href="02-skills.html">숙련도</a>가 오르고, 기업 <a class="wl" href="17-rep.html">신뢰도</a>가 상점과 퀘스트를 연다. 함선이 커지고 캐릭터는 슈퍼 솔져가 된다.</p>
+    </div>
+  </div>
+
+  <div class="note am"><b>PvE에 초점을 맞춘 성장 곡선</b> <br>PvP 밸런스를 신경 쓸 필요가 없으므로, 성장 체감이 <b>확 느껴지는 속도</b>로 설계. 100시간 뒤의 캐릭터는 1시간짜리 캐릭터와 다른 경험.</div>
+
+  <h2 id="s-diff"><span class="hn">1.2</span>차별점</h2>
+
+  <h3>헬다이버즈2 · 아크레이더스에 없던 RPG 경험</h3>
+  <div class="tw"><table>
+    <thead><tr><th style="width:30%">요소</th><th>설명</th></tr></thead>
+    <tbody>
+      <tr><td class="k">위험한 퀘스트</td><td>기업 인물이 메신저로 접근해 위험한 일을 시킨다. 보상은 상점에 없는 물건. <a class="wl" href="18-quest.html">퀘스트 →</a></td></tr>
+      <tr><td class="k">던전 레이드 <span class="badge plan">기획</span></td><td>퀘스트로 해금되는 <b>선형 · 고난도</b> 던전. 타르코프의 연구소 · 쇄빙선 포지션. <a class="wl" href="12-dungeon.html">던전 →</a></td></tr>
+      <tr><td class="k">PC 육성 요소</td><td>스탯 · 숙련도 · 임플란트 · 은신처(함선)까지, 타르코프의 육성 축을 그대로 가져온다.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>타르코프에 없던 협동 경험과 캐주얼함</h3>
+  <div class="tw"><table>
+    <thead><tr><th style="width:30%">요소</th><th>설명</th></tr></thead>
+    <tbody>
+      <tr><td class="k">아군 오사 방지</td><td>총알로는 아군을 못 죽인다. <br>단 <b>화염병 · 지뢰 · 궤도 폭격</b> 등 광역은 여전히 피아 무구분 — 트롤링의 여지를 남겨 긴장을 유지한다.</td></tr>
+      <tr><td class="k">역할 분담</td><td><a class="wl" href="04-tactical.html">전술 임플란트</a> 1개로 역할이 갈린다. <br>갈고리로 고지 점령, 정찰로 색적, 배리어로 선두 지휘, 대시+SMG로 적진 교란.</td></tr>
+      <tr><td class="k">랜덤 매치메이킹</td><td>친구가 없어도 <a class="wl" href="08-raid-flow.html">공유 함선</a>에 도킹해 4인 스쿼드를 이룬다.</td></tr>
+      <tr><td class="k">소통 수단</td><td>핑 · 음성 · 텍스트 채팅 · 분대 HUD. 하드코어 슈터의 "말 안 통하면 끝" 문제를 없앤다.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>레퍼런스 좌표</h3>
+  <div class="shotrow">
+    <figure class="shot ref" data-src="../assets/ref-helldivers.png">
+      <div class="ph"><span class="tag">레퍼런스</span><span class="ttl">헬다이버즈 2</span>
+      <span class="desc">우주 협동 · 함선 호출 · 발사 포드 출격 흐름</span>
+      <span class="meta">assets/ref-helldivers.png</span></div>
+    </figure>
+    <figure class="shot ref" data-src="../assets/ref-tarkov.png">
+      <div class="ph"><span class="tag">레퍼런스</span><span class="ttl">이스케이프 프롬 타르코프</span>
+      <span class="desc">익스트랙션 · 격자 인벤토리 · 은신처 · 스킬</span>
+      <span class="meta">assets/ref-tarkov.png</span></div>
+    </figure>
+    <figure class="shot ref" data-src="../assets/ref-arcraiders.png">
+      <div class="ph"><span class="tag">레퍼런스</span><span class="ttl">아크 레이더스</span>
+      <span class="desc">미니멀 HUD · 3인칭 익스트랙션 감각</span>
+      <span class="meta">assets/ref-arcraiders.png</span></div>
+    </figure>
+    <figure class="shot ref" data-src="../assets/ref-splatoon.png">
+      <div class="ph"><span class="tag">레퍼런스</span><span class="ttl">스플래툰 / 팝 유 컴</span>
+      <span class="desc">캐주얼 아트 톤 — 하드코어 장르의 진입장벽을 낮춘다</span>
+      <span class="meta">assets/ref-splatoon.png</span></div>
+    </figure>
+  </div>
+
+  <h2 id="s-special"><span class="hn">1.3</span>특별한 경험</h2>
+
+  <h3>나만의 함선을 꾸미기</h3>
+  <p>기본 지급 함선에는 <b>빈 방 10개</b>가 있다. 레이드에서 주워 온 폐금속과 합금으로 방을 원하는 시설로 증축하고, 시설이 돌아가도록 <b>발전기</b>를 올린다. 돈을 모으면 방이 더 많은 함선을 살 수 있다. <a class="wl" href="13-ship.html">함선 →</a></p>
+
+  <h3>길드 함선</h3>
+  <p>친구들과 길드를 만들면 <b>공용 길드 함선</b>이 생긴다. 길드원만 탑승할 수 있고, 파티를 맺으면 자동으로 길드 함선에 모인다. 레이드 중에는 길드 함선이 <a class="wl" href="07-stratagem.html">궤도 폭격</a> 같은 지원을 쏴 준다. <span class="badge plan">기획</span></p>
+
+  <div class="note gr"><b>왜 이게 붙는가.</b> 익스트랙션 슈터의 최대 이탈 요인은 "죽으면 아무것도 안 남는다"는 감각이다. 함선은 <b>죽어도 남는 자산</b>이라 매 레이드가 손실이 아니라 투자가 된다. 길드 함선은 그 자산을 <b>사회적 자산</b>으로 확장한다.</div>
+
+  <div class="nextnav">
+    <a class="n" href="01-stats.html"><span>다음</span>캐릭터 · 스탯 →</a>
+  </div>
+</article>
+
+</main>
+
+<aside class="toc">
+  <h4>이 페이지</h4>
+  <div id="toc"></div>
+</aside>
+</div>
+
+<script src="../app.js"></script>
+</body>
+</html>

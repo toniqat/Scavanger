@@ -23,9 +23,10 @@ Arc Raiders-style minimalist UI, Diablo 2-style grid inventory, procedural maps,
 | 검증 절차 · 소요 시간 · 테스트 기록 | [docs/VERIFICATION.md](docs/VERIFICATION.md) |
 | 스크립트 하나하나가 무엇을 검사하나 | [scripts/README.md](scripts/README.md) |
 | 날짜별 작업 기록 · 알려진 한계(미해결 항목) | [docs/HISTORY.md](docs/HISTORY.md) |
-| 앞으로 할 것 | [docs/ROADMAP.md](docs/ROADMAP.md) |
-| Phase 별 기획서 | `docs/PHASE5-PLAN.md` … `docs/PHASE12-PLAN.md` |
-| 전술 킷 원본 브리프 | [docs/TACTICAL_KIT.md](docs/TACTICAL_KIT.md) (이 파일과 충돌하면 이 파일이 이긴다) |
+| **앞으로 해야 할 작업** | [docs/TODO.md](docs/TODO.md) — 다음 페이즈 후보 묶음 + 항목별 코드 근거 |
+| 완료된 단계 목록 | [docs/HISTORY.md](docs/HISTORY.md) 의 `완료된 단계` |
+| Phase 5–12 에서 무엇을 결정했나 | [docs/DECISIONS.md](docs/DECISIONS.md) |
+| **투자자 · 퍼블리셔용 소개 문서** (위키형 HTML, 브라우저로 바로 열림 · 빌드 없음) | [docs/pitch/README.md](docs/pitch/README.md) → `docs/pitch/index.html` (페이지 원본은 `docs/pitch/pages/00-intro.html` … `22-controls.html` 23개) |
 
 ---
 

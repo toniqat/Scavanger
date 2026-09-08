@@ -127,7 +127,7 @@ Everything every feature folder depends on. Append-only: add new events/fields, 
   real key events targeting the focused element; test scripts dispatch on `document.body`.
 
 ## Appended contract (2026-09-06, Phase 6: dev console · unique weapons · stat XP · ship housing)
-Brief for the implementing agents: `docs/PHASE6-PLAN.md`.
+Brief for the implementing agents: `docs/DECISIONS.md`.
 - `console.ts` (new): `ConsoleRef` (`ctx.console`: `enabled` = dev client, `isOpen`, `moveCheat`, `register(cmd)`, `getCommands`, `run(line)`, `print`, `open/close`),
   `ConsoleCommand` (`name/usage/description/run(args, ctx, print)/complete?`), `DEV_HOSTS`, `isDevHost(hostname?)` — the console exists only when the page host is localhost.
 - `housing.ts` (new): `RoomPurpose` (10, `ROOM_PURPOSES_ACTIVE` = empty/workshop/range this build) + labels, `FacilityId`, `WorkbenchKind` (gun/gear/gadget/medical),
@@ -152,7 +152,7 @@ Brief for the implementing agents: `docs/PHASE6-PLAN.md`.
   `weapons/` unique behaviour · `enemies/` 전소/감전 · `player/` teleport / widen / heavy melee · `inventory/` catalog / stash size / presets / bench craft · `progression/` stat XP · `ui/` gauges + hints.
 
 ## Appended contract (2026-09-06, Phase 5: corporations · credits · contracts · quests · loadout persistence)
-Brief for the implementing agents: `docs/PHASE5-PLAN.md` §8.
+Brief for the implementing agents: `docs/DECISIONS.md` Phase 5.
 - `meta.ts` (new): `CorpId` / `CORP_IDS` / `CorpDef` + **`CORP_DEFS`** (4 corps with `ShopRule[]` stock), `REP_TABLE` / `REP_LEVEL_MAX` / `repLevelOf`,
   `SHOP_UNLOCK_REP_LEVEL` 1, `SHOP_RARITY_CAP_BY_REP` (+ `SHOP_BAG_RARITY_BONUS`), `CREDITS_INITIAL` 500 / `CREDITS_MAX`, `buyPriceOf(value, repLevel)` =
   value × max(0.9, 1.6 − 0.15 × level), `sellPriceOf(value, qty)` = value × 0.5, `ContractGoalKind` + `CONTRACT_GOAL_LABEL_KO`, `ContractDef` + **`CONTRACT_DEFS`**
@@ -176,7 +176,7 @@ Brief for the implementing agents: `docs/PHASE5-PLAN.md` §8.
   `ui/` result-screen XP / contract lines, HUD contract panel, title level chip, meta toasts · `game/` (lead) settlement hook.
 
 ## Appended contract (2026-09-06, Phase 7: known follow-ups — server profile · raid session · ghosts · host migration · training · container authority · search)
-Brief for the implementing agents: `docs/PHASE7-PLAN.md`.
+Brief for the implementing agents: `docs/DECISIONS.md`.
 - `profile.ts` (new): `ProfileDocKey` / `PROFILE_DOC_KEYS`, `ProfileRecord {credits|null, docs, updatedAt}`, `RaidSessionBlob {seed, missionTime, stats, inventory, savedAt}`,
   `CreditsTxResult`, **`ProfileRef`** (`ctx.net.profile`: `available`, `credits`, `get / set / flush`, `addCredits(delta, reason)` → server transaction), `PROFILE_SYNC_DEBOUNCE_MS`,
   `PROFILE_DOC_MAX_BYTES`, `RAID_SAVE_INTERVAL_S`, `RAID_BLOB_MAX_BYTES`. The relay server stores these per session token (`server/Store.ts`).
@@ -221,7 +221,7 @@ Brief for the implementing agents: `docs/PHASE7-PLAN.md`.
     so existing saves keep their piece.
 
 ## Appended contract (2026-09-06, Phase 9: known follow-ups II — profile timestamps · ghost fields · late-join sync · delta enemy snapshots · 서재 · training modes)
-Brief for the implementing agents: `docs/PHASE9-PLAN.md`.
+Brief for the implementing agents: `docs/DECISIONS.md`.
 - `profile.ts`: `ProfileRecord.docsAt?` (per-document stamp the server holds), `PROFILE_CLOCK_SKEW_MS`, `ProfileRef.set(key, doc, {fresh?})` — a `set` is **never dropped** any more
   (offline → pending map, stamped `at = serverNow()`, flushed on the next connection; a pending doc older than the server's `docsAt` loses). `fresh` = a default / starter save that is
   accepted only while the server has no document for that key.
@@ -531,7 +531,7 @@ reversed. **락 = 시점 조작 / 언락 = 진짜 커서.** The public API did n
 
 ## appended: 2026-09-08 — 임플란트 아이템 · 배리어 rework · 정찰 rework · 총알 추적 · UX 정리 (Phase 12)
 
-Plan: `docs/PHASE12-PLAN.md`. Everything below is append-only; owners in brackets.
+Plan: `docs/DECISIONS.md`. Everything below is append-only; owners in brackets.
 
 ### `types.ts`
 - `ItemCategory` gains **`'implant'`** [items]. `ItemDef.implant?: ImplantItemDef` — `slots` (1..4 of the character's

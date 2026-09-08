@@ -257,7 +257,7 @@ Dropped from the branch: `hud/QuickBar` (the Phase 2 quick wheel + `hud/SlotStri
   `smoke-phase2` **44/44**.
 
 ## 2026-09-06 — Phase 7 HUD (level-up moment · 레이드 실패 · suspended members · training)
-Brief: `docs/PHASE7-PLAN.md` §10. Only `src/ui/` (+ `scripts/smoke-ui-p5.mjs`) changed; the container-search DOM stays inventory's.
+Brief: `docs/DECISIONS.md` Phase 7. Only `src/ui/` (+ `scripts/smoke-ui-p5.mjs`) changed; the container-search DOM stays inventory's.
 - **Result screen** (`menus/RewardsBlock`): the level-up moment fires when the count-up crosses the boundary (badge pop, level / bar flash,
   `.up-burst` radial light burst, single `audio:play level_up`) — `ProgressToasts` dropped its `progress:levelUp` toast, audio/ its automatic chime.
   Contract wording unified on `settlement.outcome` through the exported `contractOutcome()` / `CONTRACT_OUTCOME_TEXT` / `CONTRACT_OUTCOME_CLASS`
@@ -279,7 +279,7 @@ Brief: `docs/PHASE7-PLAN.md` §10. Only `src/ui/` (+ `scripts/smoke-ui-p5.mjs`) 
   `scripts/smoke-ui-p6.mjs` **48/48** regression on the same vite.
 
 ## 2026-09-06 — Phase 8 UI (함선 ESC 일시정지 · 설정 · 함선 관리 · item chips)
-Brief: `docs/PHASE8-PLAN.md` §2.7. Only `src/ui/` + `src/game/` changed here.
+Brief: `docs/DECISIONS.md` Phase 8. Only `src/ui/` + `src/game/` changed here.
 - **Pause in the ship**: `game/GameFlowSystem` now allows a `hub` pause (`freeze:false`), so `menus/PauseMenu` grew a
   ship variant and a new button set — 게임으로 돌아가기 / 설정 / (임무 중에만) 함선으로 귀환 / 타이틀로. The old
   `키 설정 변경` button is gone; rebinding lives in the new 설정 overlay.
@@ -433,7 +433,7 @@ Contract consumed: `player:giveUpProgress`, `training:modeChanged / scored / cou
 
 ## 2026-09-07 — Phase 11 (ESC 재배치 · 소셜 열 · 설정 사이드 패널 · 커뮤니티 · 귓속말 · 행성)
 
-Brief: `docs/PHASE11-PLAN.md` §3-4. Only `src/ui/` changed here (+ the new `scripts/smoke-social.mjs`, and one selector in
+Brief: `docs/DECISIONS.md` Phase 11. Only `src/ui/` changed here (+ the new `scripts/smoke-social.mjs`, and one selector in
 `scripts/smoke-controls-hub.mjs`). Identity in every one of these surfaces is the **`PlayerCode`** (`formatPlayerCode`);
 no PeerId is ever shown or sent.
 
@@ -522,7 +522,7 @@ what shows the mouse, and the real OS cursor is restyled in place.
 
 ## 2026-09-08 — Phase 12 (감지 나침반 · 정찰 reveal · 채집/지속 사용 티커 · 컷씬 버튼 숨김 · 시설 관리 확인 팝업)
 
-Plan: `docs/PHASE12-PLAN.md` items 3 · 4 · 8 · 9 · 15 · 16 (agent F). Contract: `scan:cast`, `item:channelChanged`,
+Plan: `docs/DECISIONS.md` items 3 · 4 · 8 · 9 · 15 · 16 (agent F). Contract: `scan:cast`, `item:channelChanged`,
 `COMPASS_ENEMY_COLOR`, `IMPLANT_SCAN_REVEAL_TIME_V2` (`src/shared/README.md` § 2026-09-08).
 
 - **`hud/ScanTracker.ts` (new)** — the one owner of 정찰 reveals for the HUD: `scan:cast {targets, duration}` (mine or a
