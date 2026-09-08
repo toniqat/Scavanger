@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { GameContext, PingKind } from '@/shared';
-import { Keys, NET_SLOT_COLORS_CSS, PlayerFlags, SUSPENDED_LABEL_KO } from '@/shared';
+import { Keys, MENU_BLOCKER, NET_SLOT_COLORS_CSS, PlayerFlags, SUSPENDED_LABEL_KO } from '@/shared';
 import { el, setText } from '../dom';
 import type { PingView } from '../hud/Pings';
 import { PING_LABEL } from '../hud/Pings';
@@ -82,12 +82,10 @@ export class MapScreen {
   private pingVec = new THREE.Vector3();
   private unsubs: Array<() => void> = [];
 
-  private escHandler = (e: KeyboardEvent): void => {
-    if (e.code !== Keys.MENU || !this._open) return;
-    e.preventDefault();
-    e.stopImmediatePropagation();
-    this.close();
-  };
+  /*
+   * 2026-09-08: Escape does not close the map any more — it is the 일시정지 메뉴 everywhere, and the map closes on
+   * `Keys.MAP`, the key that opened it (polled in `update`). Nothing is captured here at all now.
+   */
   private onWheel = (e: WheelEvent): void => {
     if (!this._open) return;
     e.preventDefault();
@@ -221,14 +219,13 @@ export class MapScreen {
       b.on('player:died', () => this.close(false)),
       b.on('game:abort', () => { this.close(false); this.staticCanvas = null; this.pings.clear(); this.shipPos = null; this.activePadId = null; }),
     );
-    window.addEventListener('keydown', this.escHandler, true);
     window.addEventListener('resize', this.onResize);
   }
 
   /** Poll the M key; call every frame. */
   update(ctx: GameContext): void {
     if (ctx.input.wasPressed(Keys.MAP) && ctx.isGameplayPhase() && !(ctx.player?.isDead ?? false)
-      && (this._open || ctx.uiBlockers.size === 0)) {
+      && !ctx.uiBlockers.has(MENU_BLOCKER) && (this._open || ctx.uiBlockers.size === 0)) {
       if (this._open) this.close(); else this.open();
     }
     if (this._open) this.draw(ctx);
@@ -654,7 +651,6 @@ export class MapScreen {
 
   dispose(): void {
     for (const u of this.unsubs) u();
-    window.removeEventListener('keydown', this.escHandler, true);
     window.removeEventListener('resize', this.onResize);
     window.removeEventListener('mousemove', this.onMouseMove);
     window.removeEventListener('mouseup', this.onMouseUp);

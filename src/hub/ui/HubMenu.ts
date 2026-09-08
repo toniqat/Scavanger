@@ -10,7 +10,7 @@ import { createPlanetHologram, type PlanetHologram } from './PlanetHologram';
 export interface HubMenuHost {
   /** "타이틀로": tear the hub down and return to the title. */
   toTitle(): void;
-  /** Called after the menu closed itself (Esc / 닫기) so the hub re-locks the pointer. */
+  /** Called after the menu closed itself (E / 닫기) so the hub re-locks the pointer. */
   onClosed(): void;
   /** 시뮬레이션 훈련장 (Phase 7, shared ship): start a training or join the one already running. */
   startTraining(): void;
@@ -36,7 +36,8 @@ const MSG_TTL = 4500;
  * - **centre**: the 행성 홀로그램 (`ui/PlanetHologram`, its own WebGL canvas) with the planet's name, 지형, a
  *   위협 badge and its one-line brief, `◀ ▶` (mouse, `←` / `→` and `A` / `D`) and the **행성 이동** button.
  *   Stepping left / right only *previews* — the ship flies when 행성 이동 is pressed (`HubRef.setPlanet`).
- * - **right, bottom**: `시뮬레이션 훈련장` + the `/seed` hint; the footer keeps 닫기 (Esc) / 타이틀로.
+ * - **right, bottom**: `시뮬레이션 훈련장` + the `/seed` hint; the footer keeps 닫기 (E) / 타이틀로.
+ *   2026-09-08: the terminal closes on **E**, not Escape — Escape is the 일시정지 메뉴 everywhere now.
  *
  * The 승무원 이름 section is **gone** (Phase 11): the call sign is entered once on the title screen
  * (`ui/menus/TitleMenu` → `net.setPlayerName`), so the terminal no longer renames anyone.
@@ -119,7 +120,7 @@ export class HubMenu {
     this.btnMatch = this.button(this.secSignal, '신호 찾기 (자동 매칭)', () => this.connectThen((n) => n.quickMatch()), 'primary wide');
     const codeRow = el('div', { cls: 'row', parent: this.secSignal });
     this.codeInput = el('input', { cls: 'ui-input code-input', attrs: { type: 'text', maxlength: '8', placeholder: '함선 코드', spellcheck: 'false', autocomplete: 'off' }, parent: codeRow });
-    isolateInput(this.codeInput, () => this.close());
+    isolateInput(this.codeInput);    // 2026-09-08: Escape only blurs the field; the terminal closes on E
     this.codeInput.addEventListener('input', () => { this.codeInput.value = normalizeLobbyCode(this.codeInput.value); });
     this.codeInput.addEventListener('keydown', (e) => { if (e.code === 'Enter') this.join(); });
     this.btnJoin = this.button(codeRow, '코드로 도킹', () => this.join());
@@ -183,7 +184,7 @@ export class HubMenu {
     this.msg.hidden = true;
     const foot = el('div', { cls: 'hub-foot', parent: f });
     const footRight = el('div', { cls: 'right', parent: foot });
-    this.button(footRight, '닫기 (Esc)', () => this.close());
+    this.button(footRight, '닫기 (E)', () => this.close());
     this.button(footRight, '타이틀로', () => { this.close(false); host.toTitle(); }, 'danger');
 
     // keep clicks inside from reaching the canvas' click-to-lock fallback

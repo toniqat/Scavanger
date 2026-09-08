@@ -923,3 +923,17 @@ export const COMPASS_ENEMY_COLOR = '#ff4d4d';
 /* ── 브라우저 재개 게이트 (owner: game) ── */
 /** `ctx.uiBlockers` token the '좌측 클릭으로 게임 재개' gate holds (browser only, never in the Electron shell). */
 export const RESUME_GATE_BLOCKER = 'resumegate';
+/* ── ESC = 항상 일시정지 (2026-09-08) ── */
+/**
+ * `ctx.uiBlockers` token every full-screen menu (`ui/menus/MenuBase`) holds — the 일시정지 메뉴 above all. Screens
+ * whose own key doubles as their close key (Tab / M / P / E) test for it so that key does not reach through the
+ * pause menu stacked on top of them.
+ */
+export const MENU_BLOCKER = 'menu';
+
+/**
+ * 커뮤니티 패널 (2026-09-08): `Keys.INVITE` (P) is **tap = open / close the panel, hold = 분대 초대 수락**. A press
+ * released within this long counts as the tap; anything longer was an aborted invite hold and does nothing. With no
+ * invite on screen there is nothing to hold for, so any release toggles.
+ */
+export const COMMUNITY_TAP_MAX_S = 0.3;

@@ -21,6 +21,20 @@ interface ScatterOpts {
 }
 
 /**
+ * Drawn half-extents of a finished variant geometry, in the units the instance matrix scales: `xz` is the mean of the
+ * X and Z half-widths (the mesh is randomly yawed, so neither axis alone is the silhouette a bullet meets) and `y` is
+ * the taller of the two vertical halves. Used for `Obstacle.shotRadius / shotHeight` — see `WorldSystem.rayCylinder`.
+ */
+function hullOf(geo: THREE.BufferGeometry): { xz: number; y: number } {
+  geo.computeBoundingBox();
+  const bb = geo.boundingBox;
+  if (!bb) return { xz: 1, y: 1 };
+  const hx = Math.max(Math.abs(bb.min.x), Math.abs(bb.max.x));
+  const hz = Math.max(Math.abs(bb.min.z), Math.abs(bb.max.z));
+  return { xz: (hx + hz) / 2, y: Math.max(Math.abs(bb.min.y), Math.abs(bb.max.y)) };
+}
+
+/**
  * Scattered instanced props: boulders, spires, trees, crystals, grass, debris.
  * Collidable props register obstacles in the spatial hash.
  */
@@ -62,14 +76,24 @@ export class Props {
       return g;
     });
     const boulderVar = boulders.map((g) => this.variant([{ geo: g, mat: rockMat, castShadow: true, receiveShadow: true }], 700, 'boulder'));
+    // 2026-09-08 (엄폐): the drawn half-extents of each displaced variant, measured once. The collider below stays
+    // where it was (0.82 × s — a rock you can hug without an invisible wall), but bullets are stopped by these:
+    // the old ray cylinder was ~30 % narrower and ~0.5 m taller than the rock, so shots went through the visible
+    // sides and stopped in the air above it. XZ takes the mean of the two axes because the mesh is randomly yawed.
+    const boulderHull = boulders.map((g) => hullOf(g));
     this.scatter(ctx, rng, { count: Math.round(1000 * b.boulderDensity), limit: HALF + 70, clusterFreq: 0.012, clusterBias: 0.15 }, (x, z) => {
       const outside = Math.abs(x) > HALF - 6 || Math.abs(z) > HALF - 6;
       const s = outside ? rng.range(2.5, 7.5) : (rng.chance(0.12) ? rng.range(3.2, 5.5) : rng.range(1.0, 2.8));
       if (!isSpotFree(ctx, x, z, s * 0.9, { maxSlope: outside ? 0.85 : 0.5, limit: HALF + 80, padExtra: 3 })) return;
       const y = ctx.terrain.getHeightAt(x, z) - s * 0.28;
-      const v = boulderVar[rng.int(0, boulderVar.length - 1)];
-      this.place(v, composeMatrix(x, y, z, rng.range(0, Math.PI * 2), rng.range(-0.25, 0.25), rng.range(-0.25, 0.25), s, s * rng.range(0.8, 1.15), s), rng.range(0.85, 1.1));
-      if (!outside || Math.abs(x) < HALF + 6 && Math.abs(z) < HALF + 6) ctx.hash.add(new THREE.Vector3(x, y, z), s * 0.82, s * 1.3, 'rock');
+      const vi = rng.int(0, boulderVar.length - 1);
+      const v = boulderVar[vi];
+      const sy = s * rng.range(0.8, 1.15);
+      this.place(v, composeMatrix(x, y, z, rng.range(0, Math.PI * 2), rng.range(-0.25, 0.25), rng.range(-0.25, 0.25), s, sy, s), rng.range(0.85, 1.1));
+      if (!outside || Math.abs(x) < HALF + 6 && Math.abs(z) < HALF + 6) {
+        const hull = boulderHull[vi];
+        ctx.hash.add(new THREE.Vector3(x, y, z), s * 0.82, s * 1.3, 'rock', { radius: hull.xz * s, height: hull.y * sy });
+      }
     });
 
     /* Rock spires — tall jagged pillars */
@@ -86,8 +110,12 @@ export class Props {
       if (!isSpotFree(ctx, x, z, s * 0.95, { maxSlope: 0.45, padExtra: 6 })) return;
       const y = ctx.terrain.getHeightAt(x, z) - 0.4 * s;
       const v = spireVar[rng.int(0, spireVar.length - 1)];
-      this.place(v, composeMatrix(x, y, z, rng.range(0, Math.PI * 2), rng.range(-0.12, 0.12), rng.range(-0.12, 0.12), s, s * rng.range(0.9, 1.5), s), rng.range(0.85, 1.05));
-      ctx.hash.add(new THREE.Vector3(x, y, z), s * 0.8, s * 4.2, 'rock');
+      const sy = s * rng.range(0.9, 1.5);
+      this.place(v, composeMatrix(x, y, z, rng.range(0, Math.PI * 2), rng.range(-0.12, 0.12), rng.range(-0.12, 0.12), s, sy, s), rng.range(0.85, 1.05));
+      // a tall instance (`sy` up to 1.5 × s) drew ~2 m of spire above a 4.2 × s collider — bullets flew straight
+      // through the top third. The shot cylinder takes the instance's real height; the base radius is close enough
+      // to the cone's lower half, which is the part anyone actually hides behind.
+      ctx.hash.add(new THREE.Vector3(x, y, z), s * 0.8, s * 4.2, 'rock', { radius: s * 0.8, height: sy * 4.2 });
     });
 
     /* Trees */

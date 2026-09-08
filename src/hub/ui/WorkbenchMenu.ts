@@ -4,7 +4,7 @@ import { el, setText, toggleClass } from './dom';
 
 /** What the menu needs from HubSystem. */
 export interface WorkbenchMenuHost {
-  /** Called after the menu closed itself (Esc / 닫기) so the hub re-locks the pointer. */
+  /** Called after the menu closed itself (E / 닫기) so the hub re-locks the pointer. */
   onClosed(): void;
 }
 

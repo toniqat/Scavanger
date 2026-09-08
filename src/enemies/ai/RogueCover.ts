@@ -21,8 +21,31 @@ export const COVER_SEARCH_RADIUS = 16;
 const COVER_EYE = 0.9;
 /** Standing eye height for the pop-out spot (must see the target). */
 const STAND_EYE = 1.45;
-/** How far past the obstacle's collider the rogue stands. */
+/** How far past the obstacle's blocking cylinder the rogue stands. */
 const COVER_STANDOFF = 0.7;
+
+/**
+ * The radius the rogue must clear when it steps behind or beside a prop.
+ *
+ * 2026-09-08: this is **not** `o.radius`. Since the 바위 엄폐 fix a prop can declare `shotRadius` — the cylinder
+ * *bullets* stop at, sized to the visible silhouette — while `radius` stays the deliberately narrower movement
+ * collider. Offsetting by the collider alone put the pop-out spot inside the rock as far as every raycast was
+ * concerned, so `findPopSpot` saw both flanks as "still hidden" and rejected every candidate: the rogue took no
+ * cover at all near rocks with a wide `shotRadius`.
+ */
+function blockRadius(o: { radius: number; shotRadius?: number }): number {
+  return o.shotRadius !== undefined && o.shotRadius > o.radius ? o.shotRadius : o.radius;
+}
+
+/**
+ * The height a ray actually stops at — `shotHeight` when the prop declares one, else the collider's. The same fix
+ * made shot cylinders **shorter** as well as wider (the collider used to stand ~0.4 m above the real rock), so a
+ * prop that passes the old `height ≥ 0.8` filter can now be ducked under by the crouched-eye LOS test. Filtering on
+ * this instead keeps such a rock out of the candidate list rather than letting it lose the raycast later.
+ */
+function blockHeight(o: { height: number; shotHeight?: number }): number {
+  return o.shotHeight !== undefined && o.shotHeight > 0 ? o.shotHeight : o.height;
+}
 
 const _d = new THREE.Vector3();
 const _c = new THREE.Vector3();
@@ -94,7 +117,7 @@ function pickCoverImpl(e: Enemy, host: EnemyHost, t: CombatTarget, approach: boo
   e.hasPop = false;
   for (let i = 0; i < obstacles.length; i++) {
     const o = obstacles[i];
-    if (o.radius < 0.5 || o.height < 0.8) continue;
+    if (blockRadius(o) < 0.5 || blockHeight(o) < 0.8) continue;
     const ox = o.position.x - e.position.x, oz = o.position.z - e.position.z;
     const along = ox * _d.x + oz * _d.z;
     if (along < -2) continue;                                    // behind us
@@ -103,7 +126,8 @@ function pickCoverImpl(e: Enemy, host: EnemyHost, t: CombatTarget, approach: boo
     const l = _c.length();
     if (l < 1e-3) continue;
     _c.multiplyScalar(1 / l);
-    const px = o.position.x + _c.x * (o.radius + COVER_STANDOFF), pz = o.position.z + _c.z * (o.radius + COVER_STANDOFF);
+    const br = blockRadius(o);
+    const px = o.position.x + _c.x * (br + COVER_STANDOFF), pz = o.position.z + _c.z * (br + COVER_STANDOFF);
     if (!world.isInsideBounds(px, pz)) continue;
     const toTarget = Math.hypot(tp.x - px, tp.z - pz);
     if (toTarget < 4 || toTarget > ROGUE_AI.range * 0.9) continue;
@@ -136,16 +160,17 @@ function pickCoverImpl(e: Enemy, host: EnemyHost, t: CombatTarget, approach: boo
  * little back toward the cover side), the nearer one from which a standing eye sees `chest`. Writes `out`; false when
  * neither flank has a line.
  */
-function findPopSpot(world: WorldRef, o: { position: THREE.Vector3; radius: number }, tp: THREE.Vector3, from: THREE.Vector3, chest: THREE.Vector3, out: THREE.Vector3): boolean {
+function findPopSpot(world: WorldRef, o: { position: THREE.Vector3; radius: number; shotRadius?: number }, tp: THREE.Vector3, from: THREE.Vector3, chest: THREE.Vector3, out: THREE.Vector3): boolean {
   _c.set(o.position.x - tp.x, 0, o.position.z - tp.z);
   const l = _c.length();
   if (l < 1e-3) return false;
   _c.multiplyScalar(1 / l);
-  const reach = o.radius + COVER_STANDOFF + 0.2;
+  const br = blockRadius(o);
+  const reach = br + COVER_STANDOFF + 0.2;
   let bestD = Infinity;
   for (let side = -1; side <= 1; side += 2) {
-    const px = o.position.x + (-_c.z * side) * reach + _c.x * o.radius * 0.35;
-    const pz = o.position.z + (_c.x * side) * reach + _c.z * o.radius * 0.35;
+    const px = o.position.x + (-_c.z * side) * reach + _c.x * br * 0.35;
+    const pz = o.position.z + (_c.x * side) * reach + _c.z * br * 0.35;
     if (!world.isInsideBounds(px, pz)) continue;
     const py = world.getHeightAt(px, pz);
     if (coverBlocksLine(world, px, py, pz, chest, STAND_EYE)) continue;   // still hidden: useless as a firing spot

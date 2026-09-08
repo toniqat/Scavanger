@@ -83,7 +83,13 @@ export class Input {
     }, { passive: true });
     window.addEventListener('contextmenu', (e) => { if (this.isPointerLocked) e.preventDefault(); });
     // The lock arrived (from a request of ours or a click on the canvas) — stop waiting for a gesture.
-    document.addEventListener('pointerlockchange', () => { if (this.isPointerLocked) this.disarmLockGestureRetry(); });
+    // The lock *left* without us asking → the player pressed Escape (see `onUserUnlock`).
+    document.addEventListener('pointerlockchange', () => {
+      if (this.isPointerLocked) { this.disarmLockGestureRetry(); this.selfExit = false; return; }
+      const self = this.selfExit;
+      this.selfExit = false;
+      if (!self && this.wantLock) this.userUnlock?.();
+    });
     // 전체화면에서 Escape 를 게임 키로 (see `syncKeyboardLock`).
     document.addEventListener('fullscreenchange', this.syncKeyboardLock);
     this.syncKeyboardLock();
@@ -139,8 +145,27 @@ export class Input {
   exitPointerLock(): void {
     this.wantLock = false;
     this.disarmLockGestureRetry();
-    if (this.isPointerLocked) document.exitPointerLock();
+    if (this.isPointerLocked) { this.selfExit = true; document.exitPointerLock(); }
   }
+
+  /* ── 2026-09-08: Escape while locked is a *lock exit*, never a keydown ─────────────────────────────────────
+   *
+   * The browser reserves Escape for leaving the pointer lock and **swallows the key** — the page is never told.
+   * That is why the 일시정지 메뉴 used to need two presses: the first Escape only freed the cursor. Every browser
+   * FPS solves this the same way, by treating the *unlock itself* as the menu key: `pointerlockchange` is the only
+   * signal there is (`web.dev/articles/pointerlock-intro`).
+   *
+   * `exitPointerLock()` above marks our own releases (a screen taking 커서 모드), so what reaches the listener is a
+   * lock the player took away while the camera still wanted it — Escape, or a focus loss, which pauses anyway.
+   *
+   * Re-locking from here would be pointless: after the default unlock gesture the spec requires a fresh engagement
+   * gesture before `requestPointerLock` succeeds, and repeated Escapes let the UA demand more still. The pause
+   * menu's `게임으로 돌아가기` click **is** that gesture, which is why Escape must not close the menu.
+   */
+  private selfExit = false;
+  private userUnlock: (() => void) | null = null;
+  /** One listener (`main.ts`), mirrored onto the bus as `input:pointerLockLost`. */
+  onUserUnlock(listener: (() => void) | null): void { this.userUnlock = listener; }
 
   /* ── 2026-09-07: a denied lock request waits for the next real user gesture ──────────────────────────────────
    *

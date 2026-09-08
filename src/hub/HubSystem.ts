@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { PlanetId } from '@/shared';
 import { getPlanet, isPlanetId, planetLabel, HUB_TRAVEL_DURATION, PLANET_NONE_LABEL, PLANET_STORAGE_KEY } from '@/shared';
 import type { CrewCardWire, GameContext, GameSystem, HubLaunchSlot, HubRef, HubShipKind, Interactable, InteriorCollider, LoadoutSlot, LobbyState, PeerId, RoomPurpose } from '@/shared';
-import { CREW_CARD_MIN_INTERVAL_S, CREW_LOADOUT_COOLDOWN_S, HUB_DOCKING_DURATION, HUB_LAUNCH_COUNTDOWN, HUB_READY_BLOCKER, HUB_READY_CELLS, Keys, NET_SLOT_COLORS, ROOM_PURPOSE_LABEL_KO } from '@/shared';
+import { CREW_CARD_MIN_INTERVAL_S, CREW_LOADOUT_COOLDOWN_S, HUB_DOCKING_DURATION, HUB_LAUNCH_COUNTDOWN, HUB_READY_BLOCKER, HUB_READY_CELLS, Keys, MENU_BLOCKER, NET_SLOT_COLORS, ROOM_PURPOSE_LABEL_KO } from '@/shared';
 import { PersonalShip } from './interiors/PersonalShip';
 import { SharedShip } from './interiors/SharedShip';
 import type { StationDef } from './interiors/stations';
@@ -458,25 +458,30 @@ export class HubSystem implements GameSystem, HubRef {
     for (const pod of this.pods) pod.update(dt, ctx.time);
     this.trackRoom();
 
-    // housing mode owns the input (cursor / place / rotate / recover / C / Esc) while active
+    // housing mode owns the input (cursor / place / rotate / recover / C / M) while active
     if (this.housingMode.active) { this.housingMode.update(dt); this.tickCountdown(dt); return; }
 
-    // Esc: the hub menus / un-board. It must **not** open the terminal any more — an Esc that reaches nothing here
-    // is the 일시정지 메뉴 (owned by game/, Phase 8). E while boarded: un-board.
-    // 2026-09-07: the 기업 screen is a **tab of the inventory window**, so an Escape while it is up belongs to
-    // inventory/ — the hub must not swallow it here (it is polled later in the frame).
-    if (ctx.input.wasPressed(Keys.MENU) && !this.corpMenuOpen()) {
-      // Whatever we handle here must be swallowed: game/ polls the same Escape later in the frame and would
-      // otherwise open the 일시정지 메뉴 the instant a hub panel released its blocker (Phase 8).
-      if (this.launchWarn.isOpen) { this.launchWarn.close(); ctx.input.consume(Keys.MENU); }
-      else if (this.wbMenu.isOpen) { this.wbMenu.close(); ctx.input.consume(Keys.MENU); }
-      else if (this.menu.isOpen) { this.menu.close(); ctx.input.consume(Keys.MENU); }
-      // 분대원 장비 popup before the pod: the READY panel is modeless over the pod view (Phase 10)
-      else if (this.ready.closePopup()) { ctx.input.consume(Keys.MENU); }
-      else if (!this.uiBlocked() && this.boardedSlot >= 0) { this.leavePod(true); ctx.input.consume(Keys.MENU); }
-    }
-    if (this.boardedSlot >= 0 && !this.uiBlocked() && ctx.input.wasPressed(Keys.INTERACT) && ctx.time - this.boardedAt > UNBOARD_GRACE) {
-      this.leavePod(true);
+    /*
+     * 2026-09-08 (ESC = 항상 일시정지): the hub does not read Escape any more. Every screen here closes on the key
+     * that opened it — the 터미널 and the 정비 벤치 on **E** (both hang off an `Interactable`), the 분대원 장비
+     * popup on another right-click or its 닫기 button — and Escape falls straight through to game/, which puts the
+     * 일시정지 메뉴 over whatever is open.
+     *
+     * `HubSystem` updates **before** `PlayerSystem`, so the E that opens one of these panels is polled here while the
+     * panel is still closed: one tap can never open and close it in the same frame. Typing in the terminal's fields
+     * never reaches `Input` at all (`hub/ui/dom.isolateInput` stops the event at the field).
+     */
+    if (ctx.input.wasPressed(Keys.INTERACT) && !ctx.uiBlockers.has(MENU_BLOCKER)) {
+      // 출격 준비 경고 (2026-09-08): opened by the pod itself, not by a key — E is its keyboard 취소.
+      if (this.launchWarn.isOpen) { this.launchWarn.close(); ctx.input.consume(Keys.INTERACT); }
+      else if (this.wbMenu.isOpen) { this.wbMenu.close(); ctx.input.consume(Keys.INTERACT); }
+      else if (this.menu.isOpen) { this.menu.close(); ctx.input.consume(Keys.INTERACT); }
+      // 분대원 장비 popup before the pod: it is modeless over the pod view and holds no blocker of its own, so
+      // without this step the same E would un-board out from under it (Phase 10 ordering, on the new key).
+      else if (this.ready.closePopup()) { ctx.input.consume(Keys.INTERACT); }
+      else if (this.boardedSlot >= 0 && !this.uiBlocked() && ctx.time - this.boardedAt > UNBOARD_GRACE) {
+        this.leavePod(true);
+      }
     }
     // M: 함선 관리 (housing's manage mode; the HUD draws the room list / furniture bar). Read `Keys.MAP` live.
     if (ctx.uiBlockers.size === 0 && this.boardedSlot < 0 && ctx.input.wasPressed(Keys.MAP)) this.openShipManage();

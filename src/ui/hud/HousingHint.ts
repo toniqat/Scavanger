@@ -29,7 +29,7 @@ export class HousingHint {
 
     this.exit = el('div', { cls: 'housing-exit', parent });
     el('span', { cls: 't', text: '종료', parent: this.exit });
-    this.exitKey = el('span', { cls: 'keycap', text: keyLabel(Keys.MENU), parent: this.exit });
+    this.exitKey = el('span', { cls: 'keycap', text: keyLabel(Keys.MAP), parent: this.exit });
 
     this.refreshKeys();
   }
@@ -59,7 +59,7 @@ export class HousingHint {
     // literally while every other hint reads its live binding. Esc lives in the bottom-right 종료 chip.
     setText(this.keysEl,
       `${keyLabel(Keys.FIRE)} 설치 · ${keyLabel(Keys.ROTATE_ITEM)} 회전 · ${keyLabel(Keys.DROP_ITEM)} 회수 · 휠 선택 · C 취소`);
-    setText(this.exitKey, keyLabel(Keys.MENU));
+    setText(this.exitKey, keyLabel(Keys.MAP));
   }
 
   dispose(): void {

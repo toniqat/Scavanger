@@ -10,7 +10,7 @@ import { DisassemblePanel } from './DisassemblePanel';
 import { ImplantPanel } from './ImplantPanel';
 import { filledSocketCount } from '../Sockets';
 import { isQuickUsable } from '../QuickSlots';
-import { GridView, buildTileContent, type HighlightState } from './GridView';
+import { GridView, buildSlotCardContent, buildTileContent, type HighlightState } from './GridView';
 import { Tooltip } from './Tooltip';
 import { ContextMenu, type MenuEntry } from './ContextMenu';
 import { SplitDialog } from './SplitDialog';
@@ -68,7 +68,6 @@ export class InventoryUI {
   quickCells: QuickCell[] = [];
   quickCount!: HTMLElement;
   quickKey!: HTMLElement;
-  quickHold!: HTMLElement;
   private hintsEl!: HTMLElement;
   tooltip!: Tooltip;
   ghostLayer!: HTMLElement;
@@ -193,17 +192,10 @@ export class InventoryUI {
     /* bag panel */
     const bPanel = document.createElement('section');
     bPanel.className = 'inv-panel inv-panel-bag';
+    // 2026-09-08: no `INVENTORY` eyebrow and no `가방` title — the grid under it is unmistakable, and the equipment
+    //   column is joined to this panel now, so two stacked headings only pushed the two grids apart.
     const bHead = document.createElement('header');
-    bHead.className = 'inv-head';
-    const bTitleWrap = document.createElement('div');
-    bTitleWrap.className = 'inv-head-titles';
-    const bEyebrow = document.createElement('div');
-    bEyebrow.className = 'inv-eyebrow';
-    bEyebrow.textContent = 'INVENTORY';
-    const bTitle = document.createElement('h2');
-    bTitle.className = 'inv-title';
-    bTitle.textContent = TEXT.bag;
-    bTitleWrap.append(bEyebrow, bTitle);
+    bHead.className = 'inv-head is-bare';
     this.bagCapacity = document.createElement('div');
     this.bagCapacity.className = 'inv-capacity';
     const bActions = document.createElement('div');
@@ -214,7 +206,7 @@ export class InventoryUI {
     craftBtn.textContent = TEXT.craft;
     craftBtn.addEventListener('click', () => this.toggleCraft());
     bActions.append(this.bagCapacity, craftBtn);
-    bHead.append(bTitleWrap, bActions);
+    bHead.append(bActions);
     this.bagView = new GridView('bag', getDef, getStats, this.tileHandlers());
     const bBody = document.createElement('div');
     bBody.className = 'inv-bag-body';
@@ -251,10 +243,6 @@ export class InventoryUI {
     /* equipment column */
     const eq = document.createElement('aside');
     eq.className = 'inv-equip';
-    const eqEyebrow = document.createElement('div');
-    eqEyebrow.className = 'inv-eyebrow';
-    eqEyebrow.textContent = TEXT.equipment;
-    eq.appendChild(eqEyebrow);
     const eqGrid = document.createElement('div');
     eqGrid.className = 'inv-equip-grid';
     for (const slot of LOADOUT_SLOTS) eqGrid.appendChild(this.buildSlot(slot, SLOT_LABEL[slot]).el);
@@ -370,7 +358,6 @@ export class InventoryUI {
     this.buildHints();
     for (const sv of this.slots.values()) if (sv.key) sv.key.textContent = slotKeyLabel(sv.slot);
     this.quickKey.textContent = keyLabel(Keys.QUICK);
-    this.quickHold.textContent = TEXT.quick.holdHint(keyLabel(Keys.QUICK));
     const dz = this.dropZone.querySelector<HTMLElement>('.inv-key-drop');
     if (dz) dz.textContent = keyLabel(Keys.DROP_ITEM);
   }
@@ -381,12 +368,24 @@ export class InventoryUI {
    * the 필드 제작 panel and the 분해 dialog all sit in this chain — none of them owns a blocker of its own).
    */
   closeOverlays(): boolean {
+    const c = this.closePopups();
+    const e = this.craftPanel?.isOpen ? (this.closeCraft(), true) : false;
+    return c || e;
+  }
+
+  /**
+   * The **popups only** — split dialog, right-click context menu, 분해 dialog — without the 제작 column.
+   *
+   * 2026-09-08 (ESC = 항상 일시정지): Escape no longer closes the window, it cancels the innermost popup and
+   * otherwise falls through to the 일시정지 메뉴. The 제작 column is a column of the window (its own 제작 button
+   * toggles it), not a popup, so it deliberately stays open under the menu.
+   */
+  closePopups(): boolean {
     const a = this.dialog?.close() ?? false;
     const b = this.menu?.close() ?? false;
     const d = this.disassemble?.close() ?? false;
-    const e = this.craftPanel?.isOpen ? (this.closeCraft(), true) : false;
     const f = this.implantPanel?.closePickers() ?? false;   // 2026-09-08: 임플란트 피커도 Escape 한 번을 먹는다
-    return a || b || d || e || f;
+    return a || b || d || f;
   }
 
   show(container: Container | null, hub = false): void {
@@ -495,9 +494,10 @@ export class InventoryUI {
     if (bag) {
       if (this.bagView.current !== bag) this.bagView.setGrid(bag);
       else this.bagView.refresh();
-      const size = this.sys.getBagSize();
-      this.bagCapacity.textContent = `${bag.cols}×${bag.rows} · ${bag.usedCells()} / ${bag.cols * bag.rows} · ${TEXT.quickSlots} ${size.quickSlots}`;
-      this.valueEl.textContent = fmtValue(bag.totalValue());
+      // 2026-09-08: used / total cells only. The `5×3` grid size and the `퀵슬롯 n` count both restate what the
+      //   grid and the rose right below already draw.
+      this.bagCapacity.textContent = `${bag.usedCells()} / ${bag.cols * bag.rows}`;
+      this.valueEl.textContent = fmtValue(bag.totalValue() + this.equippedValue());
     }
     const c = this.sys.getActiveContainer();
     if (c !== this.container) {
@@ -643,6 +643,22 @@ export class InventoryUI {
 
   /** Wheel cell under the pointer (null when not over the rose). */
   quickCellAt(x: number, y: number): QuickCell | null { return QuickUI.quickCellAt(this, x, y); }
+
+  /**
+   * Credit value of everything in the equipment slots (2026-09-08). The 가치 readout under the bag used to count
+   * only what was *in* the bag, so equipping a rifle made the number you are carrying out of the raid drop.
+   */
+  equippedValue(): number {
+    const loadout = this.sys.getLoadout();
+    let v = 0;
+    for (const slot of LOADOUT_SLOTS) {
+      const item = loadout[slot];
+      if (!item) continue;
+      const def = ITEM_DEF_MAP.get(item.defId);
+      if (def) v += def.value * Math.max(1, item.qty);
+    }
+    return v;
+  }
 
   private refreshSlots(): void { return SlotUI.refreshSlots(this); }
 

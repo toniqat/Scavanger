@@ -91,7 +91,7 @@ export class PresetMenu extends HousingPanel {
       el('span', { cls: 'idx', text: String(i + 1), parent: top });
       const name = el('input', { cls: 'ui-input name', attrs: { type: 'text', maxlength: '24', placeholder: `프리셋 ${i + 1}`, spellcheck: 'false' }, parent: top });
       name.value = preset?.name ?? '';
-      isolateInput(name, () => this.close());
+      isolateInput(name);            // 2026-09-08: Escape only blurs the field; the panel closes on E
       name.addEventListener('change', () => { if (preset && h.savePreset(i, { ...preset, name: name.value.trim() || preset.name })) this.showMsg('이름 변경', 'info'); });
       const slots = el('div', { cls: 'slots', parent: card });
       for (const [key, label] of SLOT_LABEL) {

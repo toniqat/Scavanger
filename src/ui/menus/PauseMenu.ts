@@ -1,89 +1,50 @@
 import type { GameContext } from '@/shared';
-import { el, setText } from '../dom';
+import { el } from '../dom';
 import { MenuBase } from './MenuBase';
-import { SocialColumn } from './social/SocialColumn';
 
 /**
  * Escape menu: 게임으로 돌아가기 / 설정 / (임무 중에만) 함선으로 귀환 / 타이틀로. Driven by `game:paused`.
  *
  * Phase 8: the **ship** can be paused too (`game:paused {freeze:false}` from `game/GameFlowSystem` — Escape in the hub
- * no longer opens the terminal). The hub variant re-words the title / subtitle and hides `함선으로 귀환`, which only
- * makes sense while a mission is running.
+ * no longer opens the terminal). The hub variant only hides `함선으로 귀환`, which needs a running mission.
  *
  * - `설정` opens the shared `SettingsMenu` overlay on top of this menu (`onSettings`, owned by HudSystem); the key
  *   rebinding lives inside it, so this menu no longer carries its own `키 설정 변경` button.
  * - `함선으로 귀환` emits `hub:enter {ship}` (shared ship while in a lobby, else personal); the hub aborts the mission.
  * - `타이틀로` leaves the lobby first (so `game:abort` does not regroup us in the shared ship) and then aborts, which
  *   sends GameFlow to `menu` and tears the hub down → the title screen.
- * Multiplayer / the ship: the simulation keeps running (`freeze:false`), so the subtitle says so.
  *
- * **Phase 11 layout**: the button column moved to the **left** of the screen (`.menu.pause` left-aligns its frame) and
- * a 소셜 열 (`.pause-social`, the shared `menus/social/SocialColumn`) appears on the **right — in the ship only**. In a
- * raid Escape is still nothing but the button column. The button set, the wording and the whole `game:paused` flow —
- * including the ship-vs-mission `display` handling of `returnBtn` — are unchanged.
+ * **2026-09-08 (ESC = 항상 일시정지)**: the menu is a bare button column — the `함선 · 일시 정지` variant title, the
+ * subtitles (`함선 시스템은 계속 작동합니다` / `시뮬레이션은 계속됩니다`), the multiplayer note and the footer hint
+ * are all gone, and so is the ship-only 소셜 열: social is the 커뮤니티 button / `Keys.INVITE` now, one entry point
+ * instead of two. **Escape does not close this menu** — `게임으로 돌아가기` does, and that click is also the user
+ * gesture the browser demands before it will hand the pointer lock back after an Escape exit (see `escapePause`).
  */
 export class PauseMenu extends MenuBase {
-  private titleEl: HTMLElement;
-  private subtitle: HTMLElement;
-  private mpNote: HTMLElement;
   private returnBtn: HTMLButtonElement;
-  private hint: HTMLElement;
-  /** Phase 11: the ship-only social column on the right (친구 / 최근 / 분대원). */
-  private socialWrap: HTMLElement;
-  private social: SocialColumn;
   /** True while the pause was opened from the ship (no mission to abandon). */
   private inHub = false;
 
   constructor(parent: HTMLElement, private readonly onSettings: () => void) {
     super(parent, 'pause');
-    const head = el('div', { parent: this.frame });
-    this.titleEl = el('div', { cls: 'title', text: '일시 정지', parent: head });
-    this.subtitle = el('div', { cls: 'subtitle', text: '임무 진행이 정지되었습니다', parent: head });
-    this.mpNote = el('div', { cls: 'mp-note', text: '멀티플레이: 일시 정지 중에도 임무는 계속 진행됩니다', parent: this.frame });
-    this.mpNote.hidden = true;
+    el('div', { cls: 'title', text: '일시 정지', parent: this.frame });
     const actions = el('div', { cls: 'actions', parent: this.frame });
     this.button(actions, '게임으로 돌아가기', () => this.ctx.bus.emit('game:paused', { paused: false }), 'primary');
     this.button(actions, '설정', () => this.onSettings());
     this.returnBtn = this.button(actions, '함선으로 귀환', () => this.returnToShip(), 'danger');
     this.button(actions, '타이틀로', () => this.toTitle(), 'danger');
-    this.hint = el('div', { cls: 'hint', text: 'Esc — 계속 · 귀환 시 임무를 포기합니다', parent: this.frame });
-
-    // Right-hand social column — a sibling of `.frame` (which is left-aligned by `.menu.pause`), ship only.
-    this.socialWrap = el('div', { cls: 'pause-social', parent: this.root });
-    this.socialWrap.hidden = true;
-    this.social = new SocialColumn(this.socialWrap, {
-      squad: true,
-      // The chat input cannot focus while the `'menu'` blocker is up, so close the pause first, then aim the whisper.
-      onWhisper: (code, name) => {
-        this.ctx.bus.emit('game:paused', { paused: false });
-        this.ctx.bus.emit('chat:whisperTo', { code, name });
-      },
-    });
   }
 
   override bind(ctx: GameContext): void {
     super.bind(ctx);
-    this.social.bind(ctx);
     this.unsubs.push(
-      ctx.bus.on('game:paused', ({ paused, freeze }) => {
+      ctx.bus.on('game:paused', ({ paused }) => {
         if (!paused) { this.hide(); return; }
-        // The ship pause (Phase 8) is menu-only: nothing to abandon, so no 함선으로 귀환 and no squad note.
+        // The ship pause (Phase 8) is menu-only: nothing to abandon, so no 함선으로 귀환.
         const hub = ctx.isHubPhase();
         this.inHub = hub;
-        const mp = !hub && (ctx.isMultiplayer || freeze === false);
-        this.mpNote.hidden = !mp;
         // `.ui-btn` sets `display`, so the `hidden` attribute would not hide it — drive `display` directly.
         this.returnBtn.style.display = hub ? 'none' : '';
-        setText(this.titleEl, hub ? '함선 · 일시 정지' : '일시 정지');
-        setText(this.subtitle, hub
-          ? '함선 시스템은 계속 작동합니다'
-          : mp ? '분대 임무 — 시뮬레이션은 계속됩니다' : '임무 진행이 정지되었습니다');
-        setText(this.hint, hub
-          ? 'Esc — 계속 · 타이틀로 이동 시 함선에서 내립니다'
-          : 'Esc — 계속 · 귀환 시 임무를 포기합니다');
-        // Ship only (decision): a raid's Escape stays a bare button column.
-        this.socialWrap.hidden = !hub;
-        if (hub) { ctx.net?.social.refresh(); this.social.refresh(true); }
         this.show();
       }),
       ctx.bus.on('game:phaseChanged', () => this.hide()),
@@ -92,10 +53,6 @@ export class PauseMenu extends MenuBase {
 
   /** Whether the hub variant is showing (debug). */
   get isHubVariant(): boolean { return this.inHub; }
-  /** The ship-only social column (debug). */
-  get socialColumn(): SocialColumn { return this.social; }
-
-  protected override onHide(): void { this.social.contextMenu?.close(); }
 
   private returnToShip(): void {
     this.ctx.bus.emit('hub:enter', { ship: this.ctx.net?.lobby ? 'shared' : 'personal' });
@@ -113,6 +70,4 @@ export class PauseMenu extends MenuBase {
     // HubSystem tears the ship down on the same event, so the title screen is what remains.
     ctx.bus.emit('game:abort', {});
   }
-
-  override dispose(): void { this.social.dispose(); super.dispose(); }
 }

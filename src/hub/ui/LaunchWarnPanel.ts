@@ -18,7 +18,8 @@ export interface LaunchWarnHost {
  * 하나라도 고치거나 다른 항목이 걸리면 서명이 달라지므로 그때는 새로 뜬다. 취소는 아무것도 기억하지 않는다.
  *
  * 커서 예절은 다른 함선 패널과 같다: `'hub'` blocker 를 먼저 넣고 소프트 커서를 켠다 — 포인터 락은 유지한다
- * (`exitPointerLock()` 은 부르지 않는다). Escape 는 `HubSystem.update` 의 Esc 사슬이 먼저 잡아 취소로 처리한다.
+ * (`exitPointerLock()` 은 부르지 않는다). 2026-09-08 ESC 규칙 변경 이후 Escape 는 일시정지 메뉴로 빠지므로,
+ * 키보드 취소는 `HubSystem.update` 의 **E** 사슬이 첫 분기로 잡는다 (`launchWarn.isOpen → close()`).
  */
 export class LaunchWarnPanel {
   readonly root: HTMLElement;

@@ -192,19 +192,25 @@ try {
   const seen = await P(() => {
     const ctx = window.__game.ctx; const sys = window.__sys; const V = window.__V; const world = ctx.world;
     const e = sys.find(window.__R);
-    // move the player to 90 m from the rogue with a clear line (inside the 120 m widened cone, outside the 60 m sight)
+    // Move the player past the 60 m sight but inside the 120 m widened cone, on a line the rogue can see along.
+    // 2026-09-08: sweep 64 headings × three radii. Since the 바위 엄폐 fix `world.raycast` uses each prop's
+    // `shotRadius` / `shotHeight` — the *visible* rock, wider and taller than the movement cylinder — so a coarse
+    // 16-heading sweep at a single 90 m radius can come up empty on a dense seed and strand the whole scenario.
     const pp = ctx.player.position;
     let placed = null;
-    for (let k = 0; k < 16 && !placed; k++) {
-      const ang = k * Math.PI / 8;
-      const x = e.position.x + Math.cos(ang) * 90, z = e.position.z + Math.sin(ang) * 90;
-      if (!world.isInsideBounds(x, z)) continue;
-      const y = world.getHeightAt(x, z);
-      const o = new V(e.position.x, e.position.y + 1.44, e.position.z);
-      const d = new V(x - o.x, (y + 1.17) - o.y, z - o.z); const l = d.length(); d.multiplyScalar(1 / l);
-      if (world.raycast(o, d, l - 0.5)) continue;
-      ctx.player.spawnStanding(new V(x, y, z), 0);
-      placed = { x, z, k };
+    for (const dist of [90, 80, 100]) {
+      for (let k = 0; k < 64 && !placed; k++) {
+        const ang = k * Math.PI / 32;
+        const x = e.position.x + Math.cos(ang) * dist, z = e.position.z + Math.sin(ang) * dist;
+        if (!world.isInsideBounds(x, z)) continue;
+        const y = world.getHeightAt(x, z);
+        const o = new V(e.position.x, e.position.y + 1.44, e.position.z);
+        const d = new V(x - o.x, (y + 1.17) - o.y, z - o.z); const l = d.length(); d.multiplyScalar(1 / l);
+        if (world.raycast(o, d, l - 0.5)) continue;
+        ctx.player.spawnStanding(new V(x, y, z), 0);
+        placed = { x, z, k, dist };
+      }
+      if (placed) break;
     }
     if (!placed) return null;
     ctx.player.hp = ctx.player.maxHp;

@@ -62,22 +62,10 @@ export function buildQuickPanel(sys: InventoryUI): HTMLElement {
     rose.appendChild(el);
     sys.quickCells[index] = { index, el, tile: null, uid: null }; // indexed by wheel slot, not DOM order
   }
-  const legend = document.createElement('div');
-  legend.className = 'inv-quick-legend';
-  const eyebrow = document.createElement('div');
-  eyebrow.className = 'inv-eyebrow';
-  eyebrow.textContent = TEXT.quick.eyebrow;
-  const title = document.createElement('div');
-  title.className = 'inv-quick-title';
-  title.textContent = TEXT.quick.title;
-  const hint = document.createElement('div');
-  hint.className = 'inv-quick-hint';
-  hint.textContent = TEXT.quick.hint;
-  sys.quickHold = document.createElement('div');
-  sys.quickHold.className = 'inv-quick-hint';
-  sys.quickHold.textContent = TEXT.quick.holdHint(keyLabel(Keys.QUICK));
-  legend.append(eyebrow, title, hint, sys.quickHold);
-  section.append(rose, legend);
+  // 2026-09-08: the rose stands on its own — no `QUICK USE` / `빠른 사용` heading and no "끌어다 놓기" sentence.
+  //   The compass glyphs, the centre key cap and the lock icons already say what it is, and the panel sits
+  //   directly under the bag grid it is filled from.
+  section.append(rose);
   return section;
   }
 

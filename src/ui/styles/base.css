@@ -365,9 +365,7 @@ input { font: inherit; color: inherit; }
 .prompt.hidden { opacity: 0; visibility: hidden; transform: translate(-50%, 6px); }
 .prompt .row { display: flex; align-items: center; gap: 10px; padding: 8px 14px 8px 10px; }
 .prompt .txt { font-size: 13px; letter-spacing: 0.04em; }
-.prompt .bar { width: 160px; height: 2px; background: rgba(255, 255, 255, 0.15); overflow: hidden; opacity: 0; transition: opacity var(--t-fast) var(--ease); }
-.prompt .bar.show { opacity: 1; }
-.prompt .bar i { display: block; height: 100%; width: 100%; background: var(--c-accent); transform-origin: left; transform: scaleX(0); will-change: transform; }
+/* 2026-09-08: the hold bar under the prompt is gone — `hud/HoldGauge` draws it at the crosshair (`.hold`). */
 
 /* Notifications (right-center) */
 .notifs {
@@ -978,7 +976,7 @@ input { font: inherit; color: inherit; }
 .menu .ui-btn.respawn:disabled { opacity: 0.55; }
 
 /* dead-but-spectating: no wheel / cook gauge either */
-.hud.spectating .qwheel, .hud.spectating .cook, .hud.spectating .reload, .hud.spectating .heal { opacity: 0 !important; visibility: hidden; }
+.hud.spectating .qwheel, .hud.spectating .cook, .hud.spectating .reload, .hud.spectating .heal, .hud.spectating .hold { opacity: 0 !important; visibility: hidden; }
 
 /* ── Phase 3: ship calls (stratagem wheel / panel / charge ring / targeting frame) · off-screen indicators ── */
 
@@ -1105,6 +1103,28 @@ input { font: inherit; color: inherit; }
 }
 .heal .lbl { font-family: var(--ui-mono); font-size: 11px; letter-spacing: 0.1em; color: var(--c-text); white-space: nowrap; }
 .heal.near .lbl, .heal.ready .lbl { color: var(--c-success); font-weight: 600; }
+
+/* 2026-09-08 — 홀드 링 (hud/HoldGauge): 상호작용 홀드 + 전투불능 포기. Replaces the bottom prompt's progress bar
+   and the vitals 포기 bar, so every hold in the game fills the same ring at the crosshair. */
+.hold {
+  --hc: var(--c-accent);
+  position: absolute; left: 50%; top: 50%;
+  width: 120px; height: 120px; margin: -60px 0 0 -60px;
+  pointer-events: none;
+  opacity: 0; transition: opacity 80ms var(--ease);
+}
+.hold.show { opacity: 1; }
+.hold svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+.hold circle { fill: none; stroke-width: 3; stroke-linecap: butt; }
+.hold .track { stroke: rgba(255, 255, 255, 0.12); }
+/* The state colour rides an inherited custom property (the `hud/WeaponChargeGauge` `--wc` pattern) rather than a
+   descendant selector, so toggling `is-giveup` on the root re-resolves the circle without re-matching it. */
+.hold .fill { stroke: var(--hc); }
+.hold.is-giveup { --hc: var(--c-danger); }
+.hold .lbl {
+  position: absolute; left: 50%; top: 100%; transform: translate(-50%, 4px);
+  font-size: 11px; font-weight: 600; letter-spacing: 0.14em; color: var(--hc); white-space: nowrap;
+}
 
 /* Targeting frame (top view / ground ring): hides the reticle */
 .hud.targeting .reticle { opacity: 0 !important; }
@@ -1890,16 +1910,10 @@ button.item-chip[data-def-id] { cursor: pointer; }
   min-width: 520px; max-width: 680px; width: min(680px, calc(100vw - 40px));
   max-height: calc(100vh - 32px); overflow: hidden; gap: 16px; padding: 28px 32px 22px;
 }
-.set-head { display: flex; flex-direction: column; gap: 6px; }
-.set-head .title { font-size: 26px; letter-spacing: 0.18em; }
-.set-head .subtitle { margin-top: 0; }
+/* 2026-09-08: the head block is gone — the frame carries a bare `.title` above the two columns. */
+.menu.settings-menu .frame > .title { font-size: 26px; letter-spacing: 0.18em; }
 .set-body { display: flex; flex-direction: column; gap: 18px; overflow-y: auto; overflow-x: hidden; min-height: 0; padding-right: 4px; scrollbar-width: thin; }
-.set-section { display: flex; flex-direction: column; gap: 10px; }
-.set-section-title {
-  font-size: 10px; letter-spacing: 0.24em; text-transform: uppercase; font-weight: 700;
-  color: var(--c-accent);
-  padding-bottom: 6px; border-bottom: 1px solid var(--c-border);
-}
+
 .set-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 38px; }
 .set-row-left { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .set-row-label { font-size: 13px; letter-spacing: 0.06em; color: var(--c-text); }
@@ -2080,8 +2094,7 @@ button.item-chip[data-def-id] { cursor: pointer; }
 .vitals .giveup { display: none; }
 .vitals .giveup.show { display: flex; flex-direction: column; gap: 4px; width: 300px; }
 .vitals .giveup .txt { font-size: 11px; font-weight: 600; letter-spacing: 0.14em; color: var(--c-danger); }
-.vitals .giveup .bar { height: 3px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
-.vitals .giveup .bar .fill { width: 100%; height: 100%; background: var(--c-danger); transform-origin: left; transform: scaleX(0); transition: transform 90ms linear; }
+/* 2026-09-08: the progress bar moved to the crosshair ring (`.hold.is-giveup`); only the caption stays here. */
 
 /* 훈련장 panel under the objective (gameplay layer, hud/TrainingPanel; same slot as the contract panel, which never shows in a training) */
 .training-panel {
@@ -2224,18 +2237,10 @@ button.item-chip[data-def-id] { cursor: pointer; }
 /* ── ESC: the button column moves to the left edge, the social column takes the right (ship only) ── */
 .menu.pause { justify-content: flex-start; }
 .menu.pause .frame { margin-left: 72px; min-width: 340px; max-width: 380px; }
-.pause-social {
-  position: absolute; right: 56px; top: 50%; transform: translateY(-50%);
-  width: 520px; max-width: calc(100vw - 480px);
-  max-height: calc(100vh - 64px);
-  padding: 20px 22px;
-  background: var(--c-panel-strong); border: 1px solid var(--c-border);
-  pointer-events: auto;
-  animation: menuIn 320ms var(--ease);
-}
+/* 2026-09-08: the ship-only 소셜 열 (`.pause-social`) is gone — social is the 커뮤니티 panel / P alone, and the
+   ESC screen is a bare button column in the ship and in a raid alike. */
 @media (max-width: 1180px) {
   .menu.pause .frame { margin-left: 40px; }
-  .pause-social { right: 24px; width: 420px; padding: 16px 18px; }
 }
 
 /* ── 소셜 열 (menus/social/SocialColumn) — shared by the ESC screen and the 커뮤니티 panel ── */
@@ -2350,17 +2355,49 @@ button.item-chip[data-def-id] { cursor: pointer; }
 .sc-confirm-body { font-size: 12px; line-height: 1.5; color: var(--c-text-dim); }
 .sc-confirm-foot { display: flex; justify-content: flex-end; gap: 8px; }
 
-/* ── 설정: left-centre side panel with the controls diagram inside 키 설정 ── */
+/* ── 설정: left-centre side panel — nav rail + a fixed-size scrolling pane (2026-09-08) ── */
 .menu.settings-menu.side { justify-content: flex-start; background: rgba(3, 4, 6, 0.6); }
 .menu.settings-menu.side .frame {
   margin-left: 72px;
-  min-width: 560px; max-width: 720px; width: min(720px, calc(100vw - 120px));
+  min-width: 760px; max-width: 900px; width: min(900px, calc(100vw - 120px));
   max-height: calc(100vh - 48px); overflow: hidden;
 }
-.menu.settings-menu .set-section.keys .controls-panel { gap: 10px; }
-.menu.settings-menu .set-section.keys .ctl-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-@media (max-width: 900px) {
+/* The pane's height is fixed so switching sections never resizes the panel; only the pane scrolls. */
+.set-cols { display: grid; grid-template-columns: 176px minmax(0, 1fr); gap: 20px; min-height: 0; }
+.set-nav { display: flex; flex-direction: column; gap: 4px; padding-right: 18px; border-right: 1px solid var(--c-border); }
+.set-nav-btn {
+  appearance: none; text-align: left; cursor: pointer;
+  padding: 11px 12px; border: 1px solid transparent; background: transparent;
+  font-family: inherit; font-size: 12px; letter-spacing: 0.1em; color: var(--c-text-dim);
+  transition: color var(--t-fast) var(--ease), background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.set-nav-btn:hover { color: var(--c-text); background: rgba(255, 255, 255, 0.04); }
+.set-nav-btn.is-on {
+  color: var(--c-accent); border-color: var(--c-border-strong);
+  background: rgba(255, 179, 71, 0.08); border-left: 2px solid var(--c-accent);
+}
+.set-pane { height: calc(100vh - 220px); max-height: 560px; min-height: 320px; overflow: hidden; }
+.set-pane .set-body { height: 100%; padding-right: 8px; }
+.menu.settings-menu .set-body.keys .controls-panel { gap: 10px; }
+.menu.settings-menu .set-body.keys .ctl-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+/* on/off pill + 해상도 배율 segments (화면 설정) */
+.set-toggle, .set-seg {
+  appearance: none; cursor: pointer; font-family: inherit;
+  min-width: 58px; height: 30px; padding: 0 12px;
+  border: 1px solid var(--c-border-strong); background: var(--c-fill);
+  font-size: 11px; letter-spacing: 0.12em; color: var(--c-text-dim);
+  transition: color var(--t-fast) var(--ease), background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.set-seg { min-width: 54px; }
+.set-toggle:hover, .set-seg:hover { color: var(--c-text); border-color: var(--c-accent); }
+.set-toggle.is-on, .set-seg.is-on {
+  color: #1a1408; background: var(--c-accent); border-color: var(--c-accent);
+  box-shadow: 0 0 8px rgba(255, 179, 71, 0.35);
+}
+@media (max-width: 980px) {
   .menu.settings-menu.side .frame { margin-left: 24px; min-width: 0; width: calc(100vw - 48px); }
+  .set-cols { grid-template-columns: 132px minmax(0, 1fr); gap: 14px; }
+  .set-nav { padding-right: 12px; }
 }
 
 /* ── 커뮤니티 icon + thumbnail + 분대 초대 stack (hud/Community, social layer, ship only) ── */

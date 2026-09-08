@@ -191,7 +191,6 @@ export function enterTopview(sys: StratagemSystem, host: Host): void {
   if (sys.topview || !sys._armed) return;
   sys.topview = true;
   sys.needRelease = true;
-  sys.escRequested = false;
   host.setControlsEnabled(false);
   host.setLookLocked(true);
   const pos = host.position.clone(); pos.y += TOPVIEW_HEIGHT; pos.z += 0.001;
@@ -201,7 +200,6 @@ export function enterTopview(sys: StratagemSystem, host: Host): void {
   if (world) sys.cursor.y = world.getHeightAt(sys.cursor.x, sys.cursor.z);
   sys.ring.show(true);
   sys.ring.animate(sys.cursor, sys.ctx.time);
-  window.addEventListener('keydown', sys.escHandler, true);
   sys.lastEmitted.set(NaN, NaN, NaN);
   sys.emitTargeting();
   sys.audio('ui_open', undefined, 0.5);
@@ -227,7 +225,7 @@ export function updateTopview(sys: StratagemSystem, _dt: number, host: Host): vo
   sys.emitTargeting();
 
   if (!input.isMouseDown(MouseButtons.FIRE)) sys.needRelease = false;
-  if (sys.escRequested || input.wasMousePressed(MouseButtons.AIM)) { sys.escRequested = false; sys.cancelTargeting(); return; }
+  if (input.wasMousePressed(MouseButtons.AIM)) { sys.cancelTargeting(); return; }
   if (!sys.needRelease && input.wasMousePressed(MouseButtons.FIRE) && sys._armed) sys.confirm(defOf(sys._armed));
   }
 
@@ -239,8 +237,6 @@ export function cancelTargeting(sys: StratagemSystem): void {
   else if (sys.wheelOpen) { sys.wheelOpen = false; sys.wheelHover = null; sys.ctx.bus.emit('stratagem:wheelChanged', { open: false, hover: null }); }
   if (!sys.topview) return;
   sys.topview = false;
-  sys.escRequested = false;
-  window.removeEventListener('keydown', sys.escHandler, true);
   if (host) {
     host.setCameraOverride(null);
     host.setControlsEnabled(true);

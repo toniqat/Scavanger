@@ -14,7 +14,7 @@ import { CatalogView } from '../CatalogView';
 import { DisassemblePanel } from '../DisassemblePanel';
 import { filledSocketCount } from '../../Sockets';
 import { isQuickUsable } from '../../QuickSlots';
-import { GridView, buildTileContent, type HighlightState } from '../GridView';
+import { GridView, buildSlotCardContent, buildTileContent, type HighlightState } from '../GridView';
 import { Tooltip } from '../Tooltip';
 import { ContextMenu, type MenuEntry } from '../ContextMenu';
 import { SplitDialog } from '../SplitDialog';
@@ -35,33 +35,8 @@ export function refreshSlots(sys: InventoryUI): void {
         sv.body.appendChild(sv.tile);
       }
       sv.uid = item.uid;
-      const stats = sys.sys.getStats(item);
-      buildTileContent(sv.tile, item, def, def.width, def.height, stats);
+      sv.el.classList.toggle('is-worn', buildSlotCardContent(sv.tile, item, def, sys.sys.getStats(item)));
       sv.tile.dataset.uid = item.uid;
-      // oversized tiles (SR 5×1) shrink to the slot body
-      const { width, height } = tileSize(def.width, def.height);
-      const scale = Math.min(1, sv.bodyW / width, sv.bodyH / height);
-      sv.tile.style.transform = scale < 1 ? `scale(${scale.toFixed(3)})` : '';
-      if (stats) {
-        const max = stats.maxDurability;
-        const cur = Math.max(0, Math.min(max, item.durability ?? max));
-        sv.meta.textContent = `${def.name} · ${item.ammoInMag ?? 0}/${stats.magSize}발 · ${TEXT.weaponStats.durability} ${cur}/${max}`;
-        sv.el.classList.toggle('is-worn', cur < max);
-      } else if (def.bag) {
-        sv.meta.textContent = `${def.name} · ${def.bag.cols}×${def.bag.rows} · ${TEXT.quickSlots} ${def.bag.quickSlots}`;
-        sv.el.classList.remove('is-worn');
-      } else if (def.armorId) {
-        const a = sys.sys.getLoot().getArmorDef(def.armorId);
-        const max = def.durabilityMax ?? 0;
-        const cur = Math.max(0, Math.min(max, item.durability ?? max));
-        sv.meta.textContent = a
-          ? `${def.name} · ${TEXT.armorStats.dr} ${Math.round(a.damageReduction * 100)}% · ${TEXT.armorStats.durability} ${Math.round(cur)}/${max}`
-          : def.name;
-        sv.el.classList.toggle('is-worn', max > 0 && cur < max);
-      } else {
-        sv.meta.textContent = def.name;
-        sv.el.classList.remove('is-worn');
-      }
       sv.el.classList.add('has-item');
       sv.el.style.setProperty('--rc', def.color);
     } else {
@@ -72,7 +47,6 @@ export function refreshSlots(sys: InventoryUI): void {
       empty.className = 'inv-slot-empty';
       empty.innerHTML = `<svg viewBox="0 0 64 24" aria-hidden="true"><path d="M2 12h40l6-4h8l4 4v4H46l-4 4H30l-2 3h-6l1-3H2z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg><span>${TEXT.emptySlot}</span>`;
       sv.body.appendChild(empty);
-      sv.meta.textContent = '';
       sv.el.classList.remove('has-item', 'is-worn');
       sv.el.style.removeProperty('--rc');
     }
@@ -94,18 +68,19 @@ export function buildSlot(sys: InventoryUI, slot: SlotId, label: string): SlotVi
   }
   const body = document.createElement('div');
   body.className = 'inv-slot-body';
-  const { width, height } = slot === 'bag' ? tileSize(2, 2) : slot === 'armor' ? tileSize(2, 3) : tileSize(4, 2);
-  body.style.width = `${width}px`;
-  body.style.height = `${height}px`;
-  const meta = document.createElement('div');
-  meta.className = 'inv-slot-meta';
-  el.append(head, body, meta);
+  /*
+   * 2026-09-08: **every** slot is the same box. It used to be the item's own footprint (weapon 4×2, 방탄복 2×3,
+   * 가방 2×2) with the tile scaled to fit, which made a 5×1 저격소총 draw much smaller than a 4×2 돌격소총 — the
+   * grid footprint is a bag-packing property and says nothing about the gun. The box is the equipped item's
+   * card now; the footprint only shows up in the drag ghost, where it is what the player actually needs.
+   */
+  el.append(head, body);
   el.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     const sv = sys.slots.get(slot);
     if (sv?.uid) sys.onContextMenu(sv.uid, { kind: 'slot', slot }, e);
   });
-  const sv: SlotView = { slot, el, body, bodyW: width, bodyH: height, meta, key, tile: null, uid: null };
+  const sv: SlotView = { slot, el, body, key, tile: null, uid: null };
   sys.slots.set(slot, sv);
   return sv;
   }

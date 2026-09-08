@@ -93,7 +93,7 @@ start-server.bat relay   # 릴레이만 (npm run server, 0.0.0.0:8787) — 데�
 
 | 폴더 | 시스템 | `ctx` 게시 | 한 줄 책임 |
 |---|---|---|---|
-| [`src/world/`](src/world/README.md) | `WorldSystem` | `ctx.world` | 절차 지형 · 바이옴 · 소품/장애물 · 상자 · 탈출 패드 · 채집 노드 · 시뮬레이션 훈련장 · 충돌/레이캐스트 질의 |
+| [`src/world/`](src/world/README.md) | `WorldSystem` | `ctx.world` | 절차 지형 · 바이옴 · 소품/장애물(총알은 `shotRadius`/`shotHeight`, 이동은 콜라이더) · 상자 · 탈출 패드 · 채집 노드 · 시뮬레이션 훈련장 · 충돌/레이캐스트 질의 |
 | [`src/enemies/`](src/enemies/README.md) | `EnemySystem` | `ctx.enemies` | 버그 5종 + 휴머노이드 로그 AI · 포병 · 베헤모스 · 팩션 · 시체 루팅 · 상태이상 · 총알 추적 · 호스트/리플리카 동기화 |
 | [`src/extraction/`](src/extraction/README.md) | `ExtractionSystem` | — | 탈출 콘솔 · 120초 카운트다운 · 함선 착륙/탑승/이륙, 호스트 권한 |
 
@@ -113,8 +113,8 @@ start-server.bat relay   # 릴레이만 (npm run server, 0.0.0.0:8787) — 데�
 | 폴더 | 시스템 | `ctx` 게시 | 한 줄 책임 |
 |---|---|---|---|
 | [`src/hub/`](src/hub/README.md) | `HubSystem` | `ctx.hub` | 개인/공유 함선 내부 · 도킹 & 워프 컷씬 · 발사 포드(출격 준비 경고) · 전체화면 터미널 · 행성 선택 · 작업대 · 시설 관리 모드 |
-| [`src/game/`](src/game/README.md) | `GameFlowSystem` | `ctx.phase` | 페이즈 상태 기계 · 사망/부활 · 레이드 실패 · 일시정지 · 재접속 UX · 레이드 세션 저장/복귀 · 재개 게이트 |
-| [`src/ui/`](src/ui/README.md) | `HudSystem` | — | 모든 DOM UI — HUD 2계층 · 메뉴 · 지도 · 채팅 · 소셜 · 아이템 툴팁 · 커서 아트 · 스타일시트 |
+| [`src/game/`](src/game/README.md) | `GameFlowSystem` | `ctx.phase` | 페이즈 상태 기계 · 사망/부활 · 레이드 실패 · **일시정지(ESC = 항상 열기, `escapePause`)** · 재접속 UX · 레이드 세션 저장/복귀 · 재개 게이트 |
+| [`src/ui/`](src/ui/README.md) | `HudSystem` | — | 모든 DOM UI — HUD 2계층 · 메뉴(설정 3분할) · 지도 · 채팅 · 소셜(커뮤니티 패널 단일) · 아이템 툴팁 · 커서 아트 · 스타일시트 |
 | [`src/audio/`](src/audio/README.md) | `AudioSystem` | `ctx.audio` | 절차 WebAudio SFX 전량 + 앰비언트, 버스 이벤트에 반응, 볼륨 영속화 |
 | [`src/tutorial/`](src/tutorial/README.md) | `TutorialSystem` | `ctx.tutorial` | 새 캐릭터 안내 14단계 — 목표 패널 · UI 스포트라이트 · 바닥 안내선, 순서 강제 게이트(`blockReason`) |
 | [`src/console/`](src/console/README.md) | `ConsoleSystem` | `ctx.console` | 개발자 콘솔 + 치트 (**dev 호스트에서만** 존재 — 그 외에는 DOM 도 키도 없다) |
@@ -149,6 +149,8 @@ start-server.bat relay   # 릴레이만 (npm run server, 0.0.0.0:8787) — 데�
 - `THREE.Vector3` 스크래치 객체를 재사용하고 핫 패스에서 프레임당 할당을 피한다.
 - 미션 리셋(`game:abort`, `game:newMission`) 때 직접 만든 지오메트리/머티리얼을 dispose 한다.
 - 키는 **사용 시점에 `Keys.X` 를 읽는다** — 모듈 상수로 캐시하지 않는다 ([docs/CONTROLS.md](docs/CONTROLS.md)).
+- **Escape 는 일시정지 메뉴를 열기만 한다** (2026-09-08). 화면은 각자 자기를 연 키로 닫고(Tab · M · P · E),
+  메뉴는 그 위에 쌓인다 — 닫는 것은 `게임으로 돌아가기` 클릭뿐이다. 가장 안쪽 팝업만 Escape 를 먼저 먹는다.
 
 ## 5. 품질 기준
 

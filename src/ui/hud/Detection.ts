@@ -164,6 +164,8 @@ export class Detection {
       const dx = it.position.x - from.x, dy = it.position.y - from.y, dz = it.position.z - from.z;
       if (dx * dx + dy * dy + dz * dz > r2) continue;
       if (!it.canInteract()) continue;
+      // 2026-09-08: an interactable this client has already dealt with (a searched corpse) hides its own pillar.
+      if (it.hidePillar) continue;
       this.targets.push(it.position);
       if (this.targets.length >= MAX_SHELLS) break;
     }

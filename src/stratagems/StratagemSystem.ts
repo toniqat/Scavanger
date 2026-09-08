@@ -55,7 +55,6 @@ export class StratagemSystem implements GameSystem, StratagemsRef {
   charge = -1;
   topview = false;
   needRelease = false;
-  escRequested = false;
   readonly cursor = new THREE.Vector3();
   /* ground */
   groundTargeting = false;
@@ -210,12 +209,11 @@ export class StratagemSystem implements GameSystem, StratagemsRef {
   emitTargeting(): void { return Aim.emitTargeting(this); }
 
   /* ─────────────────────────── top view ─────────────────────────── */
-  readonly escHandler = (e: KeyboardEvent): void => {
-    if (e.code !== Keys.MENU || !this.topview) return;
-    e.preventDefault();
-    e.stopImmediatePropagation();
-    this.escRequested = true;
-  };
+  /*
+   * 2026-09-08: Escape no longer cancels the top view. It could never actually reach us — the browser eats the key
+   * to free the pointer lock — and that unlock is now the 일시정지 메뉴, whose `'menu'` blocker fails `baseActive()`
+   * and cancels the targeting through the normal path above. RMB is the cancel that works while aiming.
+   */
 
   enterTopview(host: Host): void { return Aim.enterTopview(this, host); }
 

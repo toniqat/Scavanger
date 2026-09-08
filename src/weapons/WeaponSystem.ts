@@ -16,6 +16,7 @@ import { WeaponModel, type WeaponAttachmentVisuals } from './WeaponModel';
 import { attachmentVisualsFor, attachmentIdsOf, sameIds } from './Attachments';
 import { WeaponFx } from './fx/WeaponFx';
 import { GrenadeManager } from './Grenade';
+import { ThrowArc } from './fx/ThrowArc';
 import { ProjectilePool, projectileOptsFor, type ProjectileHit } from './Projectile';
 import { RemoteWeapons } from './RemoteWeapons';
 import { MeleeController } from './Melee';
@@ -38,6 +39,8 @@ export class WeaponSystem implements GameSystem {
   ctx!: GameContext;
   fx!: WeaponFx;
   grenades!: GrenadeManager;
+  /** 투척 궤적 미리보기 (2026-09-08) — shown whenever a grenade / throwable gadget is in the hand. */
+  throwArc!: ThrowArc;
   projectiles!: ProjectilePool;
   /** Multiplayer: remote players' weapon models + replicated fire/reload/grenade FX (inert offline). */
   private remote!: RemoteWeapons;
@@ -145,6 +148,7 @@ export class WeaponSystem implements GameSystem {
     this.ctx = ctx;
     this.fx = new WeaponFx(ctx.scene);
     this.grenades = new GrenadeManager(ctx, this.fx);
+    this.throwArc = new ThrowArc(ctx);
     // Phase 3: live grenade positions for the HUD's off-screen indicators
     ctx.weapons = {
       getGrenades: () => this.grenades.getViews(),
@@ -231,13 +235,17 @@ export class WeaponSystem implements GameSystem {
 
     this.ensureNet();
     const host = this.getHost();
-    if (!host) { this.melee.cancel(); return; }
+    if (!host) { this.melee.cancel(); this.throwArc.hide(); return; }
 
     // ── holster outside gameplay (hub / docking / menu) or while a wielded implant is in the hands (tactical kit):
     //    model hidden, unarmed pose, neutral zoom. The implant case must NOT wipe grenades / projectiles.
     const phaseHolster = ctx.phase === 'hub' || ctx.phase === 'docking' || ctx.phase === 'menu';
     const implantHolster = !phaseHolster && ctx.implants?.blocksWeapons === true;
-    const holster = phaseHolster || implantHolster;
+    // 2026-09-08: 전투불능 puts the gun away too. `canUseWeapons()` already refused every action while downed, but
+    //   nothing hid the model — the soldier lay there still holding a rifle. Same branch as the implant holster
+    //   (drop the item in hand, cancel a reload, neutral zoom) so grenades / projectiles in flight are untouched.
+    const downHolster = !phaseHolster && ctx.player?.isDowned === true;
+    const holster = phaseHolster || implantHolster || downHolster;
     if (holster !== this.holstered) {
       this.holstered = holster;
       if (holster) {
@@ -372,6 +380,53 @@ export class WeaponSystem implements GameSystem {
     if (up?.firing) ws.firing = true;
     host.setWeaponState(ws);
     this.updateRemoteState(armed ? weapon : null);
+    this.updateThrowArc(host);
+  }
+
+  /**
+   * 투척 궤적 (2026-09-08). While a grenade or a throwable gadget is in the hand, re-simulate the throw that LMB
+   * would make right now and draw it. The release maths is duplicated from `throwHeld` / `GadgetSystem.throwGadget`
+   * on purpose: the preview has to use the numbers those two use, 근력 (`derived.throwRangeMul`) included, and the
+   * two apply it differently (a grenade's range goes with speed², so it takes the square root; a gadget scales the
+   * speed straight). Anything else — the over/under-hand toggle, the player's own momentum, terrain, a rock in the
+   * way — falls out of `ThrowArc.show` re-integrating the real flight.
+   */
+  private updateThrowArc(host: Host): void {
+    const q = this.quick;
+    const ctx = this.ctx;
+    const gadgetThrow = !!q && q.kind === 'gadget' && this.isThrowGadget(q.def);
+    const show = !!q && !this.holstered && !this.healHeld && ctx.isGameplayActive()
+      && host.canUseWeapons() && (q.kind === 'grenade' || gadgetThrow);
+    if (!show) { this.throwArc.hide(); return; }
+    const mul = ctx.progression?.derived.throwRangeMul ?? 1;
+    host.getAimRay(_o, _d);
+    if (gadgetThrow) {
+      const range = Number.isFinite(mul) && mul > 0 ? mul : 1;
+      const under = this.gadgetUnderhand;
+      _tmp.copy(_o).addScaledVector(_d, 0.6);
+      _md.copy(_d).multiplyScalar((under ? 8 : 17) * range).addScaledVector(host.velocity, 0.5);
+      _md.y += under ? 2.4 : 3.5;
+    } else {
+      const throwMul = Math.sqrt(Math.max(0.25, mul));
+      this.handPosition(host, _tmp);
+      if (this.underhand) {
+        _md.copy(_d).multiplyScalar(GRENADE_THROW_SPEED * GRENADE_UNDERHAND_SPEED_MUL * throwMul).addScaledVector(host.velocity, 0.5);
+        _md.y = Math.max(_md.y * 0.5, 0) + GRENADE_UNDERHAND_LIFT;
+      } else {
+        _md.copy(_d).multiplyScalar(GRENADE_THROW_SPEED * throwMul).addScaledVector(host.velocity, 0.5);
+        _md.y += GRENADE_THROW_LIFT;
+      }
+    }
+    this.throwArc.show(_tmp, _md);
+  }
+
+  /** True for a gadget that is lobbed (`use: 'throw'`) rather than placed / used on self / used on an ally. */
+  private isThrowGadget(def: ItemDef): boolean {
+    const id = def.gadgetId;                    // `ItemDef.gadgetId` is a plain string; the registry validates it
+    if (!id) return false;
+    const g = this.ctx.gadgets;
+    if (!g) return false;
+    return g.getDefs().find((d) => d.id === id)?.use === 'throw';
   }
 
   /**
@@ -406,7 +461,7 @@ export class WeaponSystem implements GameSystem {
     for (const u of this.netUnsub) u();
     this.netUnsub.length = 0;
     for (const s of WEAPON_SLOTS) this.setSlot(s, null);
-    this.remote.dispose(); this.fx.dispose(); this.ufx.dispose(); this.grenades.dispose(); this.projectiles.dispose();
+    this.remote.dispose(); this.fx.dispose(); this.ufx.dispose(); this.grenades.dispose(); this.projectiles.dispose(); this.throwArc.dispose();
   }
 
   /* ─────────────────────────── loadout ─────────────────────────── */
@@ -696,6 +751,7 @@ export class WeaponSystem implements GameSystem {
 
   private resetTransient(): void {
     this.melee.cancel();
+    this.throwArc.hide();
     for (const s of WEAPON_SLOTS) this.slots[s]?.unique?.reset();
     this.grenades.clear();
     this.projectiles.clear();

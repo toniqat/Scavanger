@@ -253,6 +253,39 @@ in `CLAUDE.md`.
   단독 8연속 52/52 — 그중 한 번은 첫 투척이 6.09 m 로 빗나가 재시도 경로를 실제로 탔다.
 
 
+## 2026-09-08 — main 병합 (ESC 규칙 통일 · 바위 엄폐 ↔ 로그 엄폐)
+
+`npm run verify:all` — **전부 통과, 7분 7초**. 병합 전 첫 회차는 red 5건이었고, 그 5건이 무엇이었는지가 이
+병합에서 볼 만한 내용이다.
+
+docs line: 2026-09-08: typecheck ok, typecheck-server ok, net-selftest 278/278, build 2,150.55 kB JS / 217.83 kB CSS,
+smoke-quickslots 46/46, smoke-phase2 53/53, smoke-weapons 137/137, smoke-stratagems 70/70, smoke-phase3 32/32,
+smoke-phase4 49/49, smoke-ship-rooms 71/71, smoke-controls-hub 121/121, smoke-tactical 85/85, smoke-inventory-p6 93/93,
+smoke-console 63/63, smoke-housing 197/197, smoke-progression 123/123, smoke-loadout 61/61, smoke-ui-p6 89/89,
+smoke-search 61/61, smoke-ui-p5 133/133, smoke-resume-gate 48/48, smoke-enemy-alert 42/42, smoke-uniques 71/71,
+smoke-meta 170/170, smoke-rogue-v2 52/52, smoke-training 110/110, smoke-library 126/126, smoke-enemy-delta 52/52,
+smoke-social 130/130, smoke-ghost 86/86, smoke-raidflow 48/48, smoke-planets 86/86, smoke-tutorial 39/39,
+smoke-ecology 83/83, e2e-mp 156/156.
+
+**red 5건 중 4건은 스모크가 옛 ESC 규칙을 검사한 것**이었다 — 채택한 규칙이 `main` 쪽("Escape 는 열기만 한다")
+이므로 검사도 그쪽으로 옮겼다:
+
+- `smoke-raidflow` (4건) — "창이 일시정지 위에 열리면 일시정지가 물러난다"는 없어진 규칙. 이제 **쌓인다**:
+  두 blocker 가 함께 서고, `게임으로 돌아가기` 가 아래 창으로 돌려보내고, Tab 이 그 창을 닫는다.
+- `smoke-resume-gate` (crash) — 게이트의 방아쇠가 "Escape 로 닫힌 화면" 이었는데 Escape 가 화면을 닫지 않는다.
+  방아쇠를 **제 키(Tab)로 닫은 화면 + 거부된 재잠금** 으로 옮겼다. 게이트 자체는 그대로 살아 있다.
+- `smoke-meta` / `smoke-inventory-p6` (각 1건) — 기업 데스크와 인벤토리 창을 Esc 로 닫던 자리를 Tab 으로.
+
+**나머지 1건은 제품 버그였다** (`smoke-enemy-alert` 2건 + 뒤이어 `smoke-rogue-v2` 2건). `main` 이 총알 원기둥을
+실제 바위 외형에 맞춰 **넓히고 낮췄는데**(`shotRadius` / `shotHeight`), 두 곳이 여전히 이동 콜라이더를 쟀다:
+
+- `smoke-enemy-alert` — 90 m 떨어진 시야가 뚫린 자리를 16각도 · 단일 반경으로만 찾아 자리를 못 잡고 시나리오가
+  통째로 죽었다. 64각도 · 3반경으로 넓혔다 (스모크 쪽 문제).
+- `enemy/ai/RogueCover` — 엄폐 지점과 사격 지점이 `o.radius + 0.7` 로 물러서서 **총알 원기둥 안**에 들어갔고,
+  `findPopSpot` 이 양쪽 측면을 "아직 가려짐" 으로 읽어 후보를 전부 버렸다. 넓은 바위 근처의 로그가 엄폐를 하나도
+  잡지 않는다. 3회 중 2회 재현 → `blockRadius` / `blockHeight` 로 고쳤고, 이후 4회 연속 52/52
+  (스모크의 바위 군집 추첨도 최대 3회 재시도로 바꿨다 — 무작위 군집 하나에 결과가 걸리지 않도록).
+
 ## 2026-09-08 — 튜토리얼 (새 캐릭터 안내 14단계)
 
 `npm run verify:all` **all passed in 5 min 39 s**.
@@ -363,3 +396,69 @@ smoke-ghost 86/86, smoke-planets 76/76, smoke-social 116/116, smoke-ecology 83/8
   센티미터의 상위 10 %에 떨어지면 1 mm 도 경계를 넘는다(350.4249 → 350.42, +0.001 → 350.43).
   넛지 전에 x 를 센티미터 격자에 스냅하도록 고쳤다 — 반올림값이 같으므로 캐시 비교에는 영향이 없고,
   격자점에서 0.001 은 다른 값으로 반올림될 수 없다. 고친 뒤 **12/12**.
+
+## 2026-09-08 — ESC = 항상 일시정지 · 설정 3분할 · 소셜 일원화
+
+`verify:all` **전부 통과**, 5분 0초 —
+typecheck ok, typecheck-server ok, net-selftest 278/278, build 2,041.76 kB JS / 201.28 kB CSS,
+smoke-quickslots 46/46, smoke-weapons 103/103, smoke-phase2 53/53, smoke-stratagems 70/70, smoke-phase3 32/32,
+smoke-phase4 49/49, smoke-tactical 64/64, smoke-ship-rooms 71/71, smoke-inventory-p6 63/63,
+smoke-controls-hub 109/109, smoke-housing 176/176, smoke-progression 68/68, smoke-console 63/63,
+smoke-loadout 61/61, smoke-ui-p6 68/68, smoke-search 59/59, smoke-ui-p5 133/133, smoke-meta 130/130,
+smoke-training 110/110, smoke-uniques 71/71, smoke-library 126/126, smoke-ghost 86/86, smoke-enemy-delta 52/52,
+smoke-planets 76/76, smoke-raidflow 42/42, smoke-social 130/130, smoke-rogue-v2 52/52, smoke-ecology 83/83,
+e2e-mp 156/156. 새 검사 24개(smoke-controls-hub 99 → 109, smoke-social 116 → 130).
+
+**애드혹 실물 확인 (12/12)** — 이 변경의 핵심은 헤드리스 스모크가 검증할 수 없다. 스크립트들은 Windows 에서
+진짜 포인터 락이 `ClipCursor` 로 OS 커서를 숨겨진 창에 가두기 때문에 `requestPointerLock` 을 **스텁**하고,
+그래서 "브라우저가 Escape 키다운을 삼킨다"는 이 작업의 전제 자체가 재현되지 않는다. 그래서 스텁 없이
+헤드리스 Chrome 을 띄우고 캔버스를 **진짜로 클릭해 실제 락을 잡은 뒤** 확인했다(스크립트는 저장소에 넣지
+않았다 — 커서 트랩 위험 때문에 `verify.mjs` 에 들어가면 안 된다):
+  - 캔버스 클릭으로 실제 포인터 락 획득 (`document.pointerLockElement === #game-canvas`)
+  - **Escape 한 번**에 일시정지 메뉴 (`menu` blocker, 제목 `일시 정지`) — 락은 사라진 상태
+  - **두 번째 Escape 는 메뉴를 닫지 않는다**
+  - `게임으로 돌아가기` 클릭 → 메뉴가 닫히고 **포인터 락이 즉시 복귀** (그 클릭이 브라우저가 요구하는
+    engagement gesture 였다)
+  - Tab → 가방이 열리고 락이 풀린다(커서 모드) → Escape → 메뉴가 **가방 위에 쌓이고** 가방은 열린 채 남는다
+  - 페이지 에러 0
+참고로 이 헤드리스 빌드는 락 중에도 Escape 키다운을 페이지에 전달했다(headed Chrome 은 삼킨다). 두 경로가
+모두 `escapePause()` 로 모이고 `paused` 면 즉시 반환하므로, 어느 쪽이든 **한 번**이면 충분하다.
+
+두 번째 `verify:all` 에서 `e2e-mp` 가 11/12 로 한 번 떨어졌는데 이 변경과 무관한 **릴레이 드롭 flake** 였다:
+두 클라이언트가 도킹 컷씬까지 간 뒤 **동시에** `net: 'offline'` · `phase: 'menu'` 로 떨어졌고(`ctx.time` 도 두
+쪽이 소수점 12자리까지 같은 값에서 멈췄다) 이는 소켓이 사라져 `net:lobbyLeft` → `game:abort` 를 탄 모양이다.
+단독 재실행 156/156.
+
+## 2026-09-08 — 투척 궤적 · 전투불능 연출 · 홀드 링 · 바위 엄폐 · 장착 슬롯 카드
+
+`npm run verify:all` — **4분 55초**, red 1건:
+
+```
+2026-09-08: typecheck ok, typecheck-server ok, net-selftest 278/278, build 2,047.48 kB JS / 202.58 kB CSS,
+smoke-quickslots 46/46, smoke-weapons 103/103, smoke-phase2 53/53, smoke-stratagems 70/70, smoke-phase3 32/32,
+smoke-phase4 49/49, smoke-tactical 64/64, smoke-ship-rooms 68/71, smoke-inventory-p6 63/63,
+smoke-controls-hub 109/109, smoke-housing 176/176, smoke-progression 68/68, smoke-console 63/63,
+smoke-loadout 61/61, smoke-ui-p6 70/70, smoke-search 59/59, smoke-ui-p5 133/133, smoke-meta 130/130,
+smoke-training 110/110, smoke-uniques 71/71, smoke-library 126/126, smoke-ghost 86/86, smoke-enemy-delta 52/52,
+smoke-rogue-v2 52/52, smoke-planets 76/76, smoke-raidflow 42/42, smoke-social 130/130, smoke-ecology 83/83,
+e2e-mp 156/156
+```
+
+**smoke-ship-rooms 68/71 은 flake.** 실패한 3건은 전부 하우징 모드의 커서 셀 판정
+(`cell → world centre` · `cursor over the bench is a valid pick-up target (2,4; was 4,3)` · `X recovered the bench`)
+이고, 커서가 한 칸 옆을 가리켰다 — 방을 고를 때 카메라가 `glideCamera` 로 **스르륵** 움직이므로 4레인 병렬 부하
+에서 프레임이 밀리면 아직 도착하지 않은 카메라로 바닥 레이를 쏜다. 이번 변경은 hub / housing 을 건드리지 않았고,
+단독 재실행 **3연속 71/71**.
+
+업데이트한 스모크 2건 (설계가 바뀐 자리):
+- `smoke-ui-p6` — 포기 홀드가 `.vitals .giveup` 의 가로 바에서 크로스헤어 링(`.hold.is-giveup`)으로 옮겨졌으므로
+  캡션(`.giveup.show` + `포기`)과 링(`isHoldGaugeOn` / `holdGaugeProgress` / `isHoldGaugeGiveUp`)을 따로 본다.
+  색은 해석된 `stroke` 가 아니라 **`--hc` 커스텀 속성**으로 검사한다 — 헤드리스 Chrome 은 `var()` 에 의존하는
+  속성을 클래스 토글 **다음 프레임**에야 다시 해석해서, 같은 태스크 안에서 `getComputedStyle(...).stroke` 를 읽으면
+  이전 색이 나온다(인라인 `stroke: red` 조차 무시된다). `--hc` 자체는 즉시 갱신되고, 실제 렌더는 정상이다.
+- `smoke-controls-hub` — 장착 슬롯의 `.inv-slot-meta` 문장이 없어졌으므로 카드 안의 이름 · 발수 · 내구도
+  (`.inv-slot-name` / `.inv-slot-ammo` / `.inv-slot-durnum`)를 본다.
+
+**애드혹 시각 확인** (스모크가 검증하지 않는 부분, 스크립트는 저장소에 넣지 않음): 함선 Tab 화면(장착 카드 5칸 ·
+장비+가방 한 패널 · 용량/가치), 레이드에서 수류탄을 손에 든 궤적 + 착탄 링(`throw-arc` 12점, 착탄 6.3 m — 실제
+투척 물리와 일치), 전투불능 자세(등을 대고 누움 · 무장 없음 · 크로스헤어 임플란트 게이지 없음 · 빨간 포기 링).

@@ -54,12 +54,6 @@ export function noScreenOpen(sys: GameFlowSystem): boolean {
   return true;
   }
 
-/** Phase 12: a screen other than the 일시정지 메뉴 itself (and the gate) holds a blocker — the pause must yield. */
-export function otherScreenOpen(sys: GameFlowSystem): boolean {
-  for (const t of sys.ctx.uiBlockers) if (t !== 'menu' && t !== RESUME_GATE_BLOCKER) return true;
-  return false;
-  }
-
 /* ── Pause / focus ───────────────────────────────────────────────────── */
 /**
  * The player left the window (alt-tab, another app, a hidden tab). This is the **only** pause trigger besides
@@ -70,7 +64,31 @@ export function onFocusLost(sys: GameFlowSystem): void {
   const ctx = sys.ctx;
   if (sys.paused || !ctx.isGameplayPhase() || !sys.noScreenOpen()) return;
   if (ctx.player?.isDead ?? false) return;
-  ctx.bus.emit('input:pointerLockLost', {});
+  ctx.bus.emit('input:pointerLockLost', {});   // → escapePause() does the pausing
+  }
+
+/* ── Escape (2026-09-08) ────────────────────────────────────────────
+ *
+ * **Escape always opens the 일시정지 메뉴, and never closes it.** Two entry points reach here because the browser
+ * splits the key in two: while the pointer is locked Escape never becomes a keydown (it only frees the cursor, and
+ * `Input.onUserUnlock` reports that as `input:pointerLockLost`), while a screen that already freed the cursor
+ * delivers a real `Keys.MENU` press. Both mean the same thing, so both land in this one function.
+ *
+ * The menu deliberately has no Escape-to-close: the browser refuses a re-lock until it sees a fresh engagement
+ * gesture after an Escape exit, so `게임으로 돌아가기` (a click) is what gives the camera back. It also means the
+ * key can be mashed with no effect at all, instead of walking into the UA's repeated-Escape throttle.
+ *
+ * Screens no longer close on Escape either — each closes on the key that opened it (Tab / M / P / E) — so the menu
+ * simply stacks on top of whatever is open and `게임으로 돌아가기` returns to it. The Phase 12 재개 게이트 stays
+ * underneath as the last resort: it only shows once the menu is gone too and the lock still could not be retaken.
+ */
+export function escapePause(sys: GameFlowSystem): void {
+  const ctx = sys.ctx;
+  if (sys.paused) return;
+  if (!(ctx.isGameplayPhase() || inShip(sys))) return;
+  if (ctx.player?.isDead ?? false) return;
+  // The Alt 커서 has no window behind it, so leaving it up under the menu would strand the player without a camera.
+  if (ctx.uiBlockers.has(FREE_CURSOR_BLOCKER)) toggleFreeCursor(sys, false);
   sys.setPaused(true);
   }
 

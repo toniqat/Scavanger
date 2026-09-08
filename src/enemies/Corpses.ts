@@ -42,6 +42,12 @@ export class Corpse implements Interactable {
   readonly radius = CORPSE_INTERACT_RADIUS;
   readonly holdTime = 0.6;
   looted = false;
+  /**
+   * 2026-09-08: this client has opened the body at least once → `ui/hud/Detection` stops drawing its 빛기둥 while the
+   * corpse stays searchable (there may be loot left). Deliberately **not** synced: another player looting the same
+   * body leaves our pillar up, and ours never clears theirs.
+   */
+  hidePillar = false;
   life = CORPSE_LIFETIME;
   private items: ItemInstance[] | null = null;
 
@@ -71,6 +77,7 @@ export class Corpse implements Interactable {
       const rng = new Random(((this.seed ^ (this.enemyId * 2654435761)) >>> 0) || 1);
       this.items = ctx.loot && typeof ctx.loot.rollCorpse === 'function' ? ctx.loot.rollCorpse(this.type, rng, this.weaponId) : [];
     }
+    this.hidePillar = true;
     inv.openContainerItems(this.id, this.items, this.position, '시체');
     if (this.items.length === 0) this.looted = true;   // nothing to take: searched
   }

@@ -27,10 +27,14 @@ export class SpatialHash {
 
   insert(o: ObstacleEntry): void {
     this.all.push(o);
-    if (o.radius > this.maxRadius) this.maxRadius = o.radius;
+    // 2026-09-08: bucket by the **larger** of the movement and shot cylinders. `query` still filters on `o.radius`,
+    // so a wider bucketing changes nothing there — it only keeps `walkSegment` from missing a prop whose shot
+    // cylinder reaches into a cell its collider does not.
+    const rr = o.shotRadius !== undefined && o.shotRadius > o.radius ? o.shotRadius : o.radius;
+    if (rr > this.maxRadius) this.maxRadius = rr;
     const s = this.cellSize;
-    const x0 = Math.floor((o.position.x - o.radius) / s), x1 = Math.floor((o.position.x + o.radius) / s);
-    const z0 = Math.floor((o.position.z - o.radius) / s), z1 = Math.floor((o.position.z + o.radius) / s);
+    const x0 = Math.floor((o.position.x - rr) / s), x1 = Math.floor((o.position.x + rr) / s);
+    const z0 = Math.floor((o.position.z - rr) / s), z1 = Math.floor((o.position.z + rr) / s);
     for (let cx = x0; cx <= x1; cx++) for (let cz = z0; cz <= z1; cz++) {
       const k = this.key(cx, cz);
       let arr = this.cells.get(k);
@@ -44,8 +48,9 @@ export class SpatialHash {
     const i = this.all.indexOf(o);
     if (i >= 0) this.all.splice(i, 1);
     const s = this.cellSize;
-    const x0 = Math.floor((o.position.x - o.radius) / s), x1 = Math.floor((o.position.x + o.radius) / s);
-    const z0 = Math.floor((o.position.z - o.radius) / s), z1 = Math.floor((o.position.z + o.radius) / s);
+    const rr = o.shotRadius !== undefined && o.shotRadius > o.radius ? o.shotRadius : o.radius;
+    const x0 = Math.floor((o.position.x - rr) / s), x1 = Math.floor((o.position.x + rr) / s);
+    const z0 = Math.floor((o.position.z - rr) / s), z1 = Math.floor((o.position.z + rr) / s);
     for (let cx = x0; cx <= x1; cx++) for (let cz = z0; cz <= z1; cz++) {
       const arr = this.cells.get(this.key(cx, cz));
       if (!arr) continue;
@@ -54,8 +59,14 @@ export class SpatialHash {
     }
   }
 
-  add(position: THREE.Vector3, radius: number, height: number, kind: string): ObstacleEntry {
+  /**
+   * @param shot optional `{ radius, height }` of the cylinder **bullets** stop at (`Obstacle.shotRadius/shotHeight`).
+   *   Pass it whenever the collider is deliberately smaller or taller than what the prop looks like, so 엄폐 lines up
+   *   with the silhouette; omit it and the ray uses the collider, as before.
+   */
+  add(position: THREE.Vector3, radius: number, height: number, kind: string, shot?: { radius: number; height: number }): ObstacleEntry {
     const e: ObstacleEntry = { position, radius, height, stamp: 0, kind };
+    if (shot) { e.shotRadius = shot.radius; e.shotHeight = shot.height; }
     this.insert(e);
     return e;
   }

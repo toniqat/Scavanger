@@ -346,48 +346,61 @@ export class WorldSystem implements GameSystem, WorldRef {
     return hit;
   }
 
-  /** Ray vs finite vertical cylinder (side + top cap). Returns t or -1; writes hit normal to hitN*. */
+  /**
+   * Ray vs the finite vertical cylinder an obstacle blocks shots with. Returns `t` or −1; writes the hit normal to
+   * `hitN*`.
+   *
+   * 2026-09-08: two changes, both about 엄폐 that did not work.
+   *  - It shoots at `shotRadius` / `shotHeight` when the prop declares them. The movement cylinder is deliberately
+   *    narrower than a lumpy rock so nobody walks into an invisible wall — which also let bullets through the
+   *    visible sides of a boulder — and, for a boulder, ~0.4 s **taller** than the rock, which stopped bullets in
+   *    plain air above it. `src/world/Props.ts` measures the real silhouette and passes it in.
+   *  - The slab clip is complete. It used to test only the entry point of the infinite cylinder and, failing that,
+   *    the top cap, so a ray that entered the footprint below the base and crossed the body further along (shooting
+   *    uphill at a rock on a rise) reported a miss.
+   */
   private rayCylinder(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, o: Obstacle, maxT: number): number {
-    const cx = o.position.x, cz = o.position.z, base = o.position.y - 0.5, top = o.position.y + o.height;
-    const r = o.radius;
+    const r = o.shotRadius !== undefined && o.shotRadius > 0 ? o.shotRadius : o.radius;
+    const height = o.shotHeight !== undefined && o.shotHeight > 0 ? o.shotHeight : o.height;
+    const cx = o.position.x, cz = o.position.z, base = o.position.y - 0.5, top = o.position.y + height;
+    if (top <= base) return -1;
     const fx = ox - cx, fz = oz - cz;
     const a = dx * dx + dz * dz;
-    const b = 2 * (fx * dx + fz * dz);
     const c = fx * fx + fz * fz - r * r;
+    // horizontal span of the infinite cylinder
+    let t0: number, t1: number;
     if (a < 1e-8) {
-      // vertical ray
-      if (c > 0) return -1;
-      if (oy > top && dy < 0) {
-        const t = (top - oy) / dy;
-        if (t <= maxT) { this.hitNx = 0; this.hitNy = 1; this.hitNz = 0; return t; }
-      }
-      return -1;
+      if (c > 0) return -1;              // vertical ray outside the footprint
+      t0 = -Infinity; t1 = Infinity;
+    } else {
+      const b = 2 * (fx * dx + fz * dz);
+      const disc = b * b - 4 * a * c;
+      if (disc < 0) return -1;
+      const sq = Math.sqrt(disc);
+      t0 = (-b - sq) / (2 * a); t1 = (-b + sq) / (2 * a);
     }
-    const disc = b * b - 4 * a * c;
-    if (disc < 0) return -1;
-    const sq = Math.sqrt(disc);
-    const t0 = (-b - sq) / (2 * a), t1 = (-b + sq) / (2 * a);
-    if (t1 < 0 || t0 > maxT) return -1;
-    if (t0 >= 0) {
-      const y = oy + dy * t0;
-      if (y >= base && y <= top) {
-        const px = ox + dx * t0 - cx, pz = oz + dz * t0 - cz;
-        const inv = 1 / (r || 1);
-        this.hitNx = px * inv; this.hitNy = 0; this.hitNz = pz * inv;
-        return t0;
-      }
-      if (y > top && dy < 0) {
-        const tc = (top - oy) / dy;
-        if (tc >= t0 && tc <= t1 && tc <= maxT) { this.hitNx = 0; this.hitNy = 1; this.hitNz = 0; return tc; }
-      }
-      return -1;
+    // vertical span of the slab
+    let ty0: number, ty1: number;
+    if (Math.abs(dy) < 1e-8) {
+      if (oy < base || oy > top) return -1;
+      ty0 = -Infinity; ty1 = Infinity;
+    } else {
+      ty0 = (base - oy) / dy; ty1 = (top - oy) / dy;
+      if (ty0 > ty1) { const t = ty0; ty0 = ty1; ty1 = t; }
     }
-    // origin inside the infinite cylinder footprint
-    if (oy > top && dy < 0) {
-      const tc = (top - oy) / dy;
-      if (tc <= t1 && tc <= maxT) { this.hitNx = 0; this.hitNy = 1; this.hitNz = 0; return tc; }
+    const enter = Math.max(t0, ty0);
+    const exit = Math.min(t1, ty1);
+    // `enter < 0` = the origin is already inside the prop: a muzzle buried in a rock does not hit its own shell
+    if (enter > exit || enter < 0 || enter > maxT) return -1;
+    if (t0 >= ty0) {
+      // entered through the side
+      const px = ox + dx * enter - cx, pz = oz + dz * enter - cz;
+      const inv = 1 / (r || 1);
+      this.hitNx = px * inv; this.hitNy = 0; this.hitNz = pz * inv;
+    } else {
+      this.hitNx = 0; this.hitNy = dy < 0 ? 1 : -1; this.hitNz = 0;
     }
-    return -1;
+    return enter;
   }
 
   /* ── WorldRef: data ────────────────────────────────────────────────── */

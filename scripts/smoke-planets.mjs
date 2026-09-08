@@ -196,7 +196,7 @@ try {
   ok(term.planetIn === true, '행성 카드 in the centre column');
   ok(term.crewName === 0 && term.nameInput === 0, `the 승무원 이름 section is gone (${term.crewName} label / ${term.nameInput} input)`);
   ok(/\/seed/.test(term.seedHint ?? ''), `.seed-hint kept ("${(term.seedHint ?? '').slice(0, 28)}…")`);
-  ok(term.closeBtn.includes('닫기 (Esc)') && term.closeBtn.includes('타이틀로'), `footer: ${term.closeBtn.join(' / ')}`);
+  ok(term.closeBtn.includes('닫기 (E)') && term.closeBtn.includes('타이틀로'), `footer: ${term.closeBtn.join(' / ')}`);
   ok(term.blocker && term.cursor === true, `the 'hub' blocker + software cursor (Phase 10 etiquette, cursor ${term.cursor})`);
   ok(term.locked === true, 'the pointer lock is kept (no exitPointerLock)');
   const tog = await lastEv('hub:terminalToggled');
@@ -388,14 +388,14 @@ try {
   const c2 = await planetCard();
   ok(c2.name === PLANETS[2].name && c2.travel === '현재 목표' && c2.travelOff === true, `reopening previews the ship's planet, button "${c2.travel}" disabled`);
   ok(c2.current === false && c2.dots[2].includes('!'), `the 현재 목표 tag and the dot marker point at ${PLANETS[2].name}`);
-  await tap('Escape');
+  await tap('KeyE');   // 2026-09-08: the terminal closes on E (Escape is the 일시정지 메뉴)
   await waitFor(page, () => document.querySelector('.menu.hub-menu').hidden, 'terminal closed');
   await waitSim(0.2);
   const closed = await P(() => ({
     tog: window.__ev['hub:terminalToggled'].slice(-1)[0] ?? null,
     cursor: window.__game.ctx.input.isCursorMode, blocker: window.__game.ctx.uiBlockers.has('hub'),
   }));
-  ok(closed.tog && closed.tog.open === false, 'hub:terminalToggled {open:false} on Esc');
+  ok(closed.tog && closed.tog.open === false, 'hub:terminalToggled {open:false} on E');
   ok(closed.cursor === false && !closed.blocker, 'closing releases the software cursor and the blocker');
 
   /* ── 6. persistence across a reload ──────────────────────────────────── */

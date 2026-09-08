@@ -270,36 +270,46 @@ try {
   ok(await P(() => !window.__game.ctx.player.isDead && window.__game.ctx.player.hp > 0), 'fallback: player alive after the hellpod drop');
   ok((await P(() => window.__spy.saveRaid.length)) === 0, 'saveRaid never called outside a multiplayer raid session');
 
-  /* Phase 12: the 일시정지 메뉴 never shares the screen with another one — the user-reported deadlock was a container
-     window and the pause both up, each swallowing Escape for the other. The pause yields to any screen that opens over
-     it, and a screen owning the cursor stops the pause from opening at all. (The gate itself is smoke-resume-gate.) */
-  console.log('Phase 12: 일시정지 ↔ 아이템 창 (deadlock regression)');
+  /* 2026-09-08 (ESC = 항상 일시정지): Escape opens the 일시정지 메뉴 from anywhere and never closes anything —
+     the menu **stacks** over an open container window and 게임으로 돌아가기 is the only way out of it. This replaces
+     the Phase 12 "the pause yields to any screen that opens over it" rule the same block used to assert. */
+  console.log('2026-09-08: 일시정지 ↔ 아이템 창 (메뉴가 위에 쌓인다)');
   const screens = () => P(() => {
     const ctx = window.__game.ctx;
     const vis = (e) => !!e && !e.hidden && !e.classList.contains('hidden') && getComputedStyle(e).visibility !== 'hidden' && getComputedStyle(e).display !== 'none';
-    return { blockers: [...ctx.uiBlockers], invOpen: ctx.inventory.isOpen, menu: vis(document.querySelector('.menu.pause')), cursor: ctx.input.isCursorMode };
+    return { blockers: [...ctx.uiBlockers].sort(), invOpen: ctx.inventory.isOpen, menu: vis(document.querySelector('.menu.pause')), cursor: ctx.input.isCursorMode };
   });
   const escTap = async () => { await keyDown('Escape'); await keyUp('Escape'); await waitSim(0.2); };
+  const resumeClick = async () => {
+    await P(() => { [...document.querySelector('.menu.pause').querySelectorAll('.actions .ui-btn')][0].click(); });
+    await waitSim(0.2);
+  };
   await startMission(31);
   await escTap();
   let sc = await screens();
   ok(sc.menu && sc.blockers.join() === 'menu', 'Escape in a raid opens the 일시정지 메뉴', JSON.stringify(sc));
+  await escTap();
+  sc = await screens();
+  ok(sc.menu, 'a second Escape is inert — the menu never closes on the key', JSON.stringify(sc));
+  await resumeClick();
+  sc = await screens();
+  ok(!sc.menu && sc.blockers.length === 0, '게임으로 돌아가기 is what closes it', JSON.stringify(sc));
+
   await P(() => { const ctx = window.__game.ctx; ctx.inventory.openContainerItems('flow:1', [ctx.loot.createItem('ammo_light', 10)], ctx.player.position.clone(), '테스트 상자'); });
   await waitSim(0.3);
-  sc = await screens();
-  ok(sc.invOpen && !sc.menu && sc.blockers.join() === 'inventory', 'a window opening over the pause dismisses it — never both', JSON.stringify(sc));
   await escTap();
   sc = await screens();
-  ok(!sc.invOpen && !sc.menu && sc.blockers.length === 0 && !sc.cursor, 'Escape closes that window and nothing else opens', JSON.stringify(sc));
-  await P(() => { const ctx = window.__game.ctx; ctx.inventory.openContainerItems('flow:2', [ctx.loot.createItem('ammo_light', 10)], ctx.player.position.clone(), '테스트 상자'); });
-  await waitSim(0.3);
-  await escTap();
+  ok(sc.invOpen && sc.menu && sc.blockers.join() === 'inventory,menu',
+     'Escape over an open container stacks the menu on top — both blockers held', JSON.stringify(sc));
+  await resumeClick();
   sc = await screens();
-  ok(!sc.invOpen && !sc.menu, 'the reverse order too: the window closes, the pause does not take its place', JSON.stringify(sc));
-  await escTap();
-  ok((await screens()).menu, 'and the next Escape opens the pause normally');
-  await escTap();
-  ok(!(await screens()).menu, 'Escape closes the pause again');
+  ok(sc.invOpen && !sc.menu && sc.blockers.join() === 'inventory',
+     '돌아가기 returns to the container it was opened over', JSON.stringify(sc));
+  await P(() => window.__game.ctx.inventory.toggleBag());
+  await waitSim(0.2);
+  sc = await screens();
+  ok(!sc.invOpen && !sc.menu && sc.blockers.length === 0 && !sc.cursor, 'closing the container leaves nothing behind', JSON.stringify(sc));
+
   await P(() => window.__game.ctx.bus.emit('game:abort', {}));
   await waitFor(page, () => window.__game.ctx.phase === 'menu', 'abort (phase 12 block)', 20000);
 

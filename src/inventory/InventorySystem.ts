@@ -22,7 +22,7 @@ import { LOADOUT_SAVE_VERSION, LoadoutStore, isEmptyLoadoutSave, loadLoadoutSave
 import { reviveItem, savedCell, serializeExtras, serializePlacement, type SavedPlacement } from './Serialize';
 /* appended (Phase 10): 분대원 장비 열람 */
 import type { CrewLoadoutViewOptions } from '@/shared';
-import { HUB_READY_BLOCKER } from '@/shared';
+import { HUB_READY_BLOCKER, MENU_BLOCKER } from '@/shared';
 import { CrewLoadoutView } from './ui/CrewLoadoutView';
 
 import {
@@ -93,13 +93,17 @@ export class InventorySystem implements GameSystem, InventoryRef {
   firstRunGrant = false;
   ui: InventoryUI | null = null;
   private offs: Array<() => void> = [];
+  /**
+   * 2026-09-08: **Escape no longer closes the window** — it is the 일시정지 메뉴 everywhere, and this window (bag,
+   * container, 캐릭터 / 기업 / 함선 tabs alike) closes on the key that opened it, `Keys.INVENTORY`. What Escape still
+   * does is cancel the innermost popup: a context menu, a split dialog, a confirm card. Those swallow the key, so
+   * a mistyped Escape never throws away a drag or a typed amount; with nothing open it falls through to `game/`.
+   */
   private escHandler = (e: KeyboardEvent): void => {
     if (e.code !== Keys.MENU || !this._open) return;
+    if (!this.ui?.closePopups()) return;
     e.preventDefault();
     e.stopPropagation();
-    // A context menu / split dialog swallows the first Escape; the window closes on the next one.
-    if (this.ui?.closeOverlays()) return;
-    this.closeAll();
   };
 
   /* ── lifecycle ─────────────────────────────────────────────────────────── */
@@ -194,7 +198,9 @@ export class InventorySystem implements GameSystem, InventoryRef {
     // Phase 10: the launch-pod READY panel holds its own blocker, and Tab must still work while boarded (as before).
     const onlyReadyBlocked = ctx.uiBlockers.size === 0
       || (ctx.uiBlockers.size === 1 && ctx.uiBlockers.has(HUB_READY_BLOCKER));
-    if (ctx.input.wasPressed(Keys.INVENTORY) && (ctx.isGameplayPhase() || ctx.isHubPhase()) && (this._open || onlyReadyBlocked)) {
+    // 2026-09-08: Tab is now also the *close* key, so it must not reach through the 일시정지 메뉴 stacked on top.
+    if (ctx.input.wasPressed(Keys.INVENTORY) && !ctx.uiBlockers.has(MENU_BLOCKER)
+      && (ctx.isGameplayPhase() || ctx.isHubPhase()) && (this._open || onlyReadyBlocked)) {
       this.toggleBag();
     }
     this.updateCraft(dt);

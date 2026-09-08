@@ -56,7 +56,7 @@ export function restoreState(sys: PlayerSystem, state: PlayerRestoreState): void
   sys.stamina = sys.maxStamina; sys.regenDelay = 0; sys.exhausted = false; sys.exhaustedSlow = 0;
   sys.setStance('stand'); sys.standUpTimer = 0;
   sys.resetTactical();
-  sys.setAiming(false); sys.aimBlend = 0; sys.crouchBlend = 0; sys.proneBlend = 0; sys.sprintBlend = 0;
+  sys.setAiming(false); sys.aimBlend = 0; sys.crouchBlend = 0; sys.proneBlend = 0; sys.sprintBlend = 0; sys.downedBlend = 0;
   sys.bodyYaw = yaw;
   sys.spawned = true;
   sys.controlsEnabled = true;
@@ -90,6 +90,7 @@ export function restoreState(sys: PlayerSystem, state: PlayerRestoreState): void
     sys.bleedAcc = 0; sys.giveUpHold = 0;
     sys.setStance('prone'); sys.standUpTimer = 0;
     sys.proneBlend = 1;
+    sys.downedBlend = 1;
     sys.eyePos.set(0, EYE_PRONE, 0);
     _v.copy(sys.controller.position); _v.y += EYE_PRONE;
     sys.rig.snapTo(_v, yaw);
@@ -134,7 +135,7 @@ export function spawnStanding(sys: PlayerSystem, position: THREE.Vector3, yaw: n
   sys.stamina = sys.maxStamina; sys.regenDelay = 0; sys.exhausted = false; sys.exhaustedSlow = 0;
   sys.setStance('stand'); sys.standUpTimer = 0;
   sys.resetTactical();
-  sys.setAiming(false); sys.aimBlend = 0; sys.crouchBlend = 0; sys.proneBlend = 0; sys.sprintBlend = 0;
+  sys.setAiming(false); sys.aimBlend = 0; sys.crouchBlend = 0; sys.proneBlend = 0; sys.sprintBlend = 0; sys.downedBlend = 0;
   sys.bodyYaw = yaw;
   sys.spawned = true;
   sys.controlsEnabled = true;
@@ -201,7 +202,7 @@ export function respawnAt(sys: PlayerSystem, position: THREE.Vector3, yaw?: numb
   sys.stamina = sys.maxStamina; sys.regenDelay = 0; sys.exhausted = false; sys.exhaustedSlow = 0;
   sys.setStance('stand'); sys.standUpTimer = 0;
   sys.resetTactical();
-  sys.isAiming = false; sys.aimBlend = 0; sys.crouchBlend = 0; sys.proneBlend = 0; sys.sprintBlend = 0;
+  sys.isAiming = false; sys.aimBlend = 0; sys.crouchBlend = 0; sys.proneBlend = 0; sys.sprintBlend = 0; sys.downedBlend = 0;
   sys.bodyYaw = y;
   sys.spawned = true;
   sys.controlsEnabled = true;
@@ -334,7 +335,7 @@ export function resetAll(sys: PlayerSystem): void {
   sys.setStance('stand'); sys.standUpTimer = 0;
   sys.stamina = sys.maxStamina; sys.regenDelay = 0; sys.exhausted = false; sys.exhaustedSlow = 0;
   sys.resetTactical();
-  sys.crouchBlend = 0; sys.proneBlend = 0;
+  sys.crouchBlend = 0; sys.proneBlend = 0; sys.downedBlend = 0;
   sys.cancelHold(); sys.interactTarget = null;
   if (sys.lastPromptText !== null) { sys.lastPromptText = null; sys.lastHoldProgress = 0; sys.ctx.bus.emit('interact:promptChanged', { text: null, holdProgress: 0 }); }
   sys.rig.setOverride(null);

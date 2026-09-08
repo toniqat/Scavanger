@@ -118,6 +118,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   scopeHidden = false;
   crouchBlend = 0;
   proneBlend = 0;
+  /** 전투불능 fall progress 0..1 — drives `SoldierModel.poseDowned` (the backward fall), 2026-09-08. */
+  downedBlend = 0;
   sprintBlend = 0;
   throwBlend = 0;
   holdItemBlend = 0;
@@ -685,6 +687,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     if (scopeHide !== this.scopeHidden) { this.scopeHidden = scopeHide; this.model.setVisible(!scopeHide && !this._inPod); }
     this.crouchBlend = damp(this.crouchBlend, this._stance === 'crouch' && !diving ? 1 : 0, 10, dt);
     this.proneBlend = damp(this.proneBlend, this._stance === 'prone' && !diving ? 1 : 0, 8, dt);
+    this.downedBlend = damp(this.downedBlend, this._downed && !this.isDead ? 1 : 0, 7, dt);
     this.rollBlend = damp(this.rollBlend, diving ? 1 : 0, 18, dt);
     if (diving) this.rollPhase = c.rollProgress;
     else if (this.rollBlend < 0.01) { this.rollBlend = 0; this.rollPhase = 0; }
@@ -736,7 +739,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     p.heavyCarry = this.heavyBlend;
     p.hover = this.hoverBlend;
     p.carry = this.carryBlend;
-    p.downed = 0;   // 전투불능 keeps the Phase 2 prone crawl
+    p.downed = this.downedBlend;   // 2026-09-08: 전투불능 is its own backward-fall pose (SoldierModel.poseDowned)
     p.dead = this.isDead ? Math.min(1, this.deadTimer / DEATH_ANIM) : 0;
     this.model.update(dt, ctx.time, p);
 

@@ -57,7 +57,11 @@ export function cdRemainingBlocking(sys: ImplantSystem): number {
 export function useCharge(sys: ImplantSystem, startCooldown = true): boolean {
   if (!sys.ready) { sys.deny(); return false; }
   sys.chargesLeft--;
-  if (startCooldown) sys.startCooldown();
+  // 2026-09-08: a refill already in flight is **never restarted**. A charge-based implant (대시, 3 charges) may
+  //   fire while its refill timer runs (`cdRemainingBlocking` lets it), and the old unconditional `startCooldown()`
+  //   reset that timer to full — so spending a charge also threw away the progress of the one that was recharging.
+  //   A single-charge implant can never reach here with `cdRemaining > 0` (`ready` gates it).
+  if (startCooldown && sys.cdRemaining <= 0) sys.startCooldown();
   sys.emitCooldown(true);
   return true;
   }

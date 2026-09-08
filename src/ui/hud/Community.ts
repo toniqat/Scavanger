@@ -1,6 +1,6 @@
 import type { GameContext, SquadInvite } from '@/shared';
 import {
-  COMMUNITY_BLOCKER, Keys, SQUAD_INVITE_HOLD_S, SQUAD_INVITE_MAX, formatPlayerCode, keyLabel,
+  COMMUNITY_BLOCKER, COMMUNITY_TAP_MAX_S, Keys, SQUAD_INVITE_HOLD_S, SQUAD_INVITE_MAX, formatPlayerCode, keyLabel,
 } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 import { SocialColumn } from '../menus/social/SocialColumn';
@@ -15,9 +15,10 @@ import type { CutsceneWatch } from './CutsceneWatch';
  * `top` shifts down in the hub so the two cannot overlap):
  *   - the **thumbnail** with the number of connected friends (`SocialRef.onlineFriends`) **inside its bottom-right**
  *     corner and a red dot at its **top-right** while a friend request is waiting (`SocialRef.hasNews`);
- *   - clicking it opens the 커뮤니티 panel, which reuses the **same `SocialColumn`** as the ESC screen (blocker
- *     `COMMUNITY_BLOCKER` + `setCursorMode(true, COMMUNITY_BLOCKER)` per the Phase 10 cursor rules — never
- *     `exitPointerLock`), emits `ui:communityToggled` and closes on Escape;
+ *   - clicking it — or a **tap of `Keys.INVITE` (P)** — opens the 커뮤니티 panel, and the same tap closes it. Since
+ *     2026-09-08 this is the game's **only** social surface (the ESC screen's column is gone) and Escape belongs to
+ *     the 일시정지 메뉴, so P is both the open and the close key. It holds `COMMUNITY_BLOCKER` +
+ *     `setCursorMode(true, COMMUNITY_BLOCKER)` and emits `ui:communityToggled`;
  *   - **분대 초대 panels** stack *under* the thumbnail (at most `SQUAD_INVITE_MAX`, newest on top) with a
  *     `Keys.INVITE` (P) hold gauge — `SQUAD_INVITE_HOLD_S` of holding the key in the ship with no other blocker up
  *     calls `social.acceptInvite(from)`. Expiry / acceptance simply removes the invite from `SocialRef.invites`.
@@ -50,12 +51,10 @@ export class Community {
   private held = 0;
   private lastHeldShown = -1;
 
-  private onKey = (e: KeyboardEvent): void => {
-    if (!this._open || e.code !== Keys.MENU) return;
-    e.preventDefault();
-    e.stopImmediatePropagation();
-    this.close();
-  };
+  /** 2026-09-08: P tap = panel, P hold = invite. `pHeld` is the whole press; `pAccepted` blocks the tap after one. */
+  private pAccepted = false;
+  private pHeld = 0;
+  private closeBtn: HTMLElement | null = null;
 
   constructor(parent: HTMLElement, private cutscene: CutsceneWatch | null = null) {
     this.root = el('div', { cls: 'community', parent });
@@ -79,8 +78,9 @@ export class Community {
     const head = el('div', { cls: 'cp-head', parent: frame });
     el('div', { cls: 'cp-title', text: '커뮤니티', parent: head });
     this.panelCode = el('div', { cls: 'cp-code ui-mono', text: '', parent: head });
-    const close = el('button', { cls: 'ui-btn small cp-close', text: '닫기 (Esc)', parent: head });
+    const close = el('button', { cls: 'ui-btn small cp-close', text: `닫기 (${keyLabel(Keys.INVITE)})`, parent: head });
     close.addEventListener('click', (e) => { e.stopPropagation(); this.close(); });
+    this.closeBtn = close;
     this.column = new SocialColumn(frame, {
       squad: true,
       onWhisper: (code, name) => { this.close(); ctx.bus.emit('chat:whisperTo', { code, name }); },
@@ -93,11 +93,11 @@ export class Community {
       ctx.bus.on('social:updated', () => { this.inviteKey = ''; }),
       ctx.bus.on('social:invited', () => { this.inviteKey = ''; }),
       ctx.bus.on('social:inviteClosed', () => { this.inviteKey = ''; this.held = 0; }),
-      ctx.bus.on('input:bindingsChanged', () => { this.inviteKey = ''; }),
+      // The 닫기 label and the invite hint both name the live `Keys.INVITE` — never cache a key label.
+      ctx.bus.on('input:bindingsChanged', () => { this.inviteKey = ''; this.refreshKeyLabels(); }),
       ctx.bus.on('game:phaseChanged', () => { if (this._open && !ctx.isHubPhase()) this.close(); }),
       ctx.bus.on('game:newMission', () => { if (this._open) this.close(); }),
     );
-    window.addEventListener('keydown', this.onKey, true);
   }
 
   /** Whether the thumbnail is showing / the panel is open / how many invite panels are stacked (debug). */
@@ -136,17 +136,38 @@ export class Community {
     const key = invites.map((v) => `${v.from}|${v.name}`).join(',');
     if (key !== this.inviteKey) { this.inviteKey = key; this.rebuildInvites(invites); }
 
-    /* P hold on the newest invite (rendered first, right under the thumbnail). */
-    if (this.cards.length === 0) { this.held = 0; this.applyHold(); return; }
-    const holding = this.shown && blockers.size === 0 && ctx.input.isDown(Keys.INVITE);
-    this.held = holding ? this.held + dt : 0;
+    /*
+     * P (`Keys.INVITE`) — **tap = 커뮤니티 패널, hold = 분대 초대 수락** (2026-09-08).
+     *
+     * The panel used to close on Escape; Escape is the 일시정지 메뉴 now, so P became both the open and the close
+     * key. The invite hold it already carried keeps priority: the toggle fires on *release*, and only when the press
+     * stayed inside `COMMUNITY_TAP_MAX_S` — a longer press was an invite hold the player abandoned, and must not
+     * open a panel as a consolation prize. With no invite on screen there is nothing to hold for, so any release
+     * toggles and the key stays forgiving.
+     */
+    if (ctx.input.wasPressed(Keys.INVITE)) { this.pHeld = 0; this.pAccepted = false; }
+    const down = ctx.input.isDown(Keys.INVITE);
+    if (down) this.pHeld += dt;                       // the whole press, whether or not it can accept anything
+    const canHold = this.shown && blockers.size === 0 && this.cards.length > 0;
+    const holding = canHold && down;
+    this.held = holding ? this.held + dt : 0;         // the gauge, which only runs while an invite can be accepted
     if (holding && this.held >= SQUAD_INVITE_HOLD_S) {
       const from = this.cards[0].from;
       this.held = 0;
+      this.pAccepted = true;
       social?.acceptInvite(from);
       this.inviteKey = '';
     }
+    // `free` above already ignores our own blocker, so the panel can close itself; a 일시정지 메뉴 / 인벤토리 on
+    // top of it clears `free` and P goes quiet. A press held past the tap window was aimed at an invite, so an
+    // abandoned hold must not also open the panel.
+    if (ctx.input.wasReleased(Keys.INVITE) && !this.pAccepted && free && (this.shown || this._open)
+      && (this.cards.length === 0 || this.pHeld <= COMMUNITY_TAP_MAX_S)) this.toggle();
     this.applyHold();
+  }
+
+  private refreshKeyLabels(): void {
+    if (this.closeBtn) setText(this.closeBtn, `닫기 (${keyLabel(Keys.INVITE)})`);
   }
 
   private applyHold(): void {
@@ -215,7 +236,6 @@ export class Community {
   dispose(): void {
     for (const u of this.unsubs) u();
     this.unsubs = [];
-    window.removeEventListener('keydown', this.onKey, true);
     if (this._open) {
       this._open = false;
       this.ctx?.uiBlockers.delete(COMMUNITY_BLOCKER);

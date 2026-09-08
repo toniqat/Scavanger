@@ -733,4 +733,11 @@ export interface GameEvents {
   /** The tutorial is over — completed (`skipped: false`) or waved off from the 건너뛰기 button / console. */
   'tutorial:finished': { skipped: boolean };
 
+  /* ── 화면 설정 (2026-09-08, owner: ui/menus/SettingsMenu) ── */
+  /**
+   * The 화면 설정 section changed (or was restored at startup). Applied by **`main.ts`**, the one place that holds the
+   * `Engine`: bloom → `setPostProcessing`, shadows → `setShadows`, scale → `setResolutionScale`. `fullscreen` is
+   * already applied by the panel itself (only a user gesture may request it) and is reported here for completeness.
+   */
+  'ui:displayChanged': { fullscreen: boolean; bloom: boolean; shadows: boolean; scale: number };
 }

@@ -129,18 +129,29 @@ try {
 
   /* ── cover selection: every chosen cover blocks LOS ────────────────────── */
   console.log('rogue cover (LOS-validated, flank scored)');
-  const setup = await P(() => {
+  /*
+   * The cluster is picked at random, so a single draw can land on rocks the rogue genuinely cannot use (too far
+   * apart for a 16 m search, outside its leash, no flank with a line to the player). 2026-09-08: try up to three
+   * clusters and keep the first that produces a pick — a broken cover cycle still fails all three, so the assertion
+   * below is as strong as it was, it just no longer depends on one lucky draw.
+   */
+  const placeCluster = () => P(() => {
     const ctx = window.__game.ctx; const sys = window.__sys; const world = ctx.world; const V = window.__V;
     const pp = ctx.player.position;
-    // find a rock cluster: an obstacle with ≥ 2 other usable obstacles within 14 m, at least 60 m from the spawn
+    // find a rock cluster: an obstacle with >= 2 other usable obstacles within 14 m, at least 60 m from the spawn
     let best = null;
     for (let k = 0; k < 400 && !best; k++) {
       const x = (Math.random() - 0.5) * 300, z = (Math.random() - 0.5) * 300;
       if (!world.isInsideBounds(x, z) || Math.hypot(x - pp.x, z - pp.z) < 60) continue;
-      const obs = world.getObstaclesNear(x, z, 14).filter((o) => o.radius >= 0.5 && o.height >= 0.8);
+      // 2026-09-08: measure the cylinder rays stop at (`shotRadius` / `shotHeight` since the 바위 엄폐 fix),
+      // the same one `RogueCover` filters on — the movement collider is narrower and taller than the rock.
+      const br = (o) => (o.shotRadius !== undefined && o.shotRadius > o.radius ? o.shotRadius : o.radius);
+      const bh = (o) => (o.shotHeight !== undefined && o.shotHeight > 0 ? o.shotHeight : o.height);
+      const obs = world.getObstaclesNear(x, z, 14).filter((o) => br(o) >= 0.5 && bh(o) >= 1.2);
       if (obs.length >= 3) best = { x, z, n: obs.length };
     }
     if (!best) return null;
+    for (const e of sys.active) if (e.active && e.kind === 'rogue' && e.state !== 'dead') e.kill(false);
     // player on the cluster's edge, rogue 12 m across it
     const py = world.getHeightAt(best.x + 9, best.z);
     ctx.player.spawnStanding(new V(best.x + 9, py, best.z), Math.PI / 2);
@@ -151,9 +162,12 @@ try {
     for (const e of sys.active) if (e !== r && e.active && e.state !== 'dead') { e.aware = false; }
     return { id: r.id, cluster: best };
   });
-  ok(!!setup, 'rogue + player placed across a rock cluster', JSON.stringify(setup));
+
+  let setup = null;
   const covers = [];
-  {
+  for (let attempt = 0; attempt < 3 && covers.length === 0; attempt++) {
+    setup = await placeCluster();
+    if (!setup) break;
     const seen = new Set();
     const t0 = await P(() => window.__game.ctx.time);
     for (;;) {
@@ -166,9 +180,9 @@ try {
         // awareness behind the rocks drops to 'alert' / 'wander' and picks no cover at all for the rest of the window.
         e.aware = true;
         if (e.state !== 'chase' && e.state !== 'attack' && e.state !== 'stagger' && e.state !== 'dead') { e.state = 'chase'; e.stateTime = 0; }
-        if (e.coverTimer > 0.6 && e.roguePhase === 2) e.coverTimer = 0.6;   // shorter holds → more cover picks
+        if (e.coverTimer > 0.6 && e.roguePhase === 2) e.coverTimer = 0.6;   // shorter holds -> more cover picks
         return { has: e.hasCover, x: e.coverPos.x, y: e.coverPos.y, z: e.coverPos.z, phase: e.roguePhase, state: e.state, los: e.hasLOS, t: ctx.time, target: e.target ? e.target.id : null };
-      }, setup?.id);
+      }, setup.id);
       if (!s) break;
       const key = `${s.x.toFixed(2)},${s.z.toFixed(2)}`;
       if (s.has && !seen.has(key)) {
@@ -180,7 +194,7 @@ try {
           const eye = new V(c.x, c.y + 0.9, c.z);
           const d = chest.clone().sub(eye); const l = d.length(); d.multiplyScalar(1 / l);
           const hit = world.raycast(eye, d, l - 0.3);
-          // flank angle: |sin θ| between the player's forward and player → cover
+          // flank angle: |sin theta| between the player's forward and player -> cover
           const fwd = ctx.player.getForward(new V());
           const dx = c.x - pp.x, dz = c.z - pp.z; const n = Math.hypot(dx, dz);
           const sin = Math.abs(fwd.x * (dz / n) - fwd.z * (dx / n));
@@ -188,10 +202,11 @@ try {
         }, s);
         covers.push({ ...s, ...check });
       }
-      if (covers.length >= 3 || s.t - t0 > 40) break;
+      if (covers.length >= 3 || s.t - t0 > 20) break;
       await sleep(80);
     }
   }
+  ok(!!setup, 'rogue + player placed across a rock cluster', JSON.stringify(setup));
   ok(covers.length >= 1, `rogue picked ${covers.length} cover point(s) in ≤ 40 s sim`, JSON.stringify(covers.map((c) => ({ phase: c.phase, state: c.state, los: c.los, target: c.target }))));
   ok(covers.length >= 1 && covers.every((c) => c.blocked), 'every chosen cover blocks the line to the player\'s chest (crouched eye → chest raycast hits)', JSON.stringify(covers.map((c) => ({ blocked: c.blocked, d: +c.dist.toFixed(1), sin: +c.sin.toFixed(2) }))));
   ok(covers.every((c) => c.toPlayer >= 4 - 0.05), 'cover keeps ≥ 4 m from the target (Phase 4 filter kept)');

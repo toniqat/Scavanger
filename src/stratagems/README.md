@@ -94,6 +94,13 @@ updates and, whenever it is called with `dt === 0` (single-player pause), pushes
 lands, ticks or ends while the game is frozen. (`ctx.timeScale ≠ 1` is debug-only and not compensated.)
 
 
+## 2026-09-08 — 상단 시점 취소는 RMB
+
+The top view's capture-phase Escape listener (and `escRequested`) is **removed**. It could never fire in practice:
+while the pointer is locked the browser eats Escape to free the cursor, so the key never reached the page. That
+unlock is now the 일시정지 메뉴, whose `'menu'` blocker fails `baseActive()` and cancels the targeting through the
+existing path. **RMB** is the cancel that works while aiming, and the HUD hints say so (`좌클 확정 · 우클 취소`).
+
 ## 파일 분할 규약 (`model.ts` + `parts/`, 2026-09-08)
 
 `StratagemSystem.ts` 는 한 파일에 다 있기에는 너무 커져서 **동작을 바꾸지 않고** 갈랐다. 규칙은 세 줄이다.

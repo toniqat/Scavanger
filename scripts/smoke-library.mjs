@@ -432,9 +432,10 @@ try {
   const afterClick = await H((u) => ({ filled: window.__game.ctx.housing.getBooks(u).filter((s) => s.defId).length, msg: document.querySelector('.menu.bookshelf-menu .hs-msg')?.textContent ?? '' }), shelfA);
   ok(afterClick.filled === 2, `꽂기 button shelves the picked book (${afterClick.filled})`);
   ok(/꽂기 완료/.test(afterClick.msg), `the panel confirms in 한국어 (${afterClick.msg})`);
-  await tap('Escape');
+  // 2026-09-08: a housing panel closes on E, the key that opened it from the furniture
+  await tap('KeyE');
   await sleep(140);
-  ok(await H(() => document.querySelector('.menu.bookshelf-menu').hidden && !window.__game.ctx.uiBlockers.has('housing')), 'Esc closes the panel and releases the blocker');
+  ok(await H(() => document.querySelector('.menu.bookshelf-menu').hidden && !window.__game.ctx.uiBlockers.has('housing')), 'E closes the panel and releases the blocker');
   ok((await lastEv('ui:bookshelfToggled'))?.open === false, 'ui:bookshelfToggled {open:false} on close');
   const notShelfMenu = await H(() => { const n = window.__ev['ui:notify'].length; window.__game.ctx.housing.openBookshelfMenu('f-999'); return { opened: !document.querySelector('.menu.bookshelf-menu').hidden, notified: window.__ev['ui:notify'].length > n }; });
   ok(!notShelfMenu.opened && notShelfMenu.notified, 'openBookshelfMenu on a missing 책장 warns instead of opening');

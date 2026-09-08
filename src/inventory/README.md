@@ -202,7 +202,7 @@ locked with a toast during a raid) · **가방** with the quick-use rose to its 
 ## Phase 6 (2026-09-06): 무한 상자 · 창고 크기 · 프리셋 · 작업대 제작
 
 ### 무한 상자 (`/items` cheat catalog)
-`openCatalog(opts?)` (console `/items`; Phase 9 `opts.category` preselects the tab that holds that category — the 훈련장 무기 거치대 passes `'primary'`, and on an already-open catalog it just switches the tab) shows the `CatalogView` as the leftmost panel of the inventory window — the ship screen in the hub, the bag window on a mission (refused with a toast in menus). It opens the window itself when needed (blocker `'inventory'`, `inventory:opened {containerId: null}`) and emits `ui:catalogToggled {open}`; `closeCatalog()` hides only the panel (the `닫기` button), Esc / Tab close the whole window through `closeAll()` (which also closes the catalog). `isCatalogOpen` is the state.
+`openCatalog(opts?)` (console `/items`; Phase 9 `opts.category` preselects the tab that holds that category — the 훈련장 무기 거치대 passes `'primary'`, and on an already-open catalog it just switches the tab) shows the `CatalogView` as the leftmost panel of the inventory window — the ship screen in the hub, the bag window on a mission (refused with a toast in menus). It opens the window itself when needed (blocker `'inventory'`, `inventory:opened {containerId: null}`) and emits `ui:catalogToggled {open}`; `closeCatalog()` hides only the panel (the `닫기` button); **Tab** closes the whole window through `closeAll()` (which also closes the catalog) — since 2026-09-08 Escape does not, it only cancels a popup and otherwise opens the 일시정지 메뉴 over the window. `isCatalogOpen` is the state.
 - One tile per `ItemDef` (every weapon grade is its own def; 124 tiles today), category tabs and a search box (Korean substring of the name; typing never reaches the game). Tooltips reuse `ui/Tooltip.ts` with a sample instance (`uid` `cat:<defId>`, qty = `catalogQty(def)` = `stackMax` for stackables, else 1).
 - **Drag** a tile → the press mints `ctx.loot.createItem(defId, catalogQty)` (weapons loaded, full durability) and the normal drag runs with `DragState.catalog = true`: targets are the equipment slots and the active grids (bag; stash in the ship; the crate panel if one is open) — `previewCatalog` (free cell `ok` / same-def stack `merge` / slot `ok` or `swap`) and `dropFromCatalog` (grid place or `mergeInto`; slot equip with the displaced gear stowed bag → stash (ship) → refused; the bag slot goes through `changeBag(item, null, 'grid')`, i.e. a *detached* `next`). Wheel cells, weapon sockets and the world drop are not targets; releasing anywhere else just discards the fresh instance (`ui_error`). The tile never disappears. R rotates the ghost; X cancels the drag.
 - **Double press** on a tile (two presses within 400 ms — detected in `beginCatalogPress`, because a cancelled pointerdown keeps Chrome from synthesising `dblclick`) → `takeFromCatalog(defId)`: `bag.autoPlace` (merge first), `inventory:itemAdded`, or `inventory:full` + shake + toast.
@@ -431,6 +431,32 @@ stack), and there is no tooltip inside these grids.
 - **`ui/TradeGrids.ts`** stamps `data-item-tip` + `data-def-id` on every tile it renders, so the shared
   `ui/hud/ItemTip` hover card describes a 기업 거래 tile — this view still owns no tooltip of its own.
 
+## 2026-09-08 UI pass — 장착 슬롯 카드 · 패널 합치기
+
+- **장착 슬롯은 한 크기의 카드다.** The slot box used to be the item's own grid footprint (무기 4×2, 방탄복 2×3,
+  가방 2×2) with the tile scaled down to fit, so a 5×1 저격소총 drew visibly *smaller* than a 4×2 돌격소총 — the
+  footprint is a bag-packing property and says nothing about the gun. Every slot is now the same box
+  (`3 × --inv-cell` wide) and the item fills it as a card: **이름 좌상단 · 소켓 우상단 · 발수 좌하단 · 내구도
+  우하단**(한 단계 작게) over the green durability bar along the bottom edge. The footprint still shows up where it
+  matters — in the drag ghost.
+- **`.inv-slot-meta` 삭제.** The sentence under each slot (`돌격소총 I · 45/45발 · 내구도 500/500`,
+  `방탄복 III · 피해감소 24% · 내구도 228/380`, `희귀 가방 · 8×6 · 퀵슬롯 4`) is gone; the card carries all of it,
+  and 방탄복 / 가방 get the same bar + bottom-right reading a gun gets. A 가방 has no `durabilityMax` today, so its
+  card simply draws no bar — it will the moment bags get durability.
+- **`GridView.buildSlotCardContent(el, item, def, stats)`** is that renderer, shared with the read-only 분대원 장비
+  view (`ui/CrewLoadoutView`) so the two can never drift apart. It keeps the `.inv-tile` (+ `.is-weapon`) +
+  `data-uid` contract the drag / socket-drop / tooltip code matches on, and returns whether the item is worn so the
+  caller can flag `.inv-slot.is-worn`.
+- **장비 + 가방 = 하나의 패널.** They are already neighbours in the flex order, so the 24 px gap between them is
+  cancelled and the two touching edges are squared off (`.inv-layout:not(.is-craft)` — the 제작 layout stacks 가방
+  over 함선 창고 in a real column, where the join would mean nothing). The headings that separated them are gone:
+  the 장비 eyebrow, the bag panel's `INVENTORY` eyebrow + `가방` title, and the quick rose's whole legend
+  (`QUICK USE` / `빠른 사용` / the "끌어다 놓기" hint). The grids, the compass glyphs and the centre key cap say it.
+- **읽어야 할 숫자만.** The capacity readout left of 제작 is `used / total` — the `5×3` grid size and the
+  `퀵슬롯 n` count both restated what the grid and the rose draw right below it. And the 가치 readout now counts the
+  **equipped** gear too (`equippedValue()`), so equipping a rifle no longer drops the number you are carrying out of
+  the raid.
+
 ## Phase 10 UI 개선 pass (2026-09-07)
 
 ### 컨테이너 실시간 루팅 (`container:itemTaken`)
@@ -534,6 +560,19 @@ their own; the window's ref-counted token covers them.
   (`.inv-layout.is-craft .inv-stash-scroll`).
 - `GridView` 의 `cell` 은 생성 시점에 고정이다. 살아 있는 뷰의 칸 크기를 바꾸려면 뷰를 새로 만들어야 한다.
 
+
+## 2026-09-08 — Tab 으로 닫는다
+
+The window (bag, container, and the 캐릭터 / 기업 / 함선 tabs alike) **no longer closes on Escape**. `Keys.INVENTORY`
+(Tab) is both the open and the close key; the Tab poll additionally ignores the press while `MENU_BLOCKER` is up, so
+it cannot reach through the 일시정지 메뉴 stacked on top.
+
+Escape still cancels the **innermost popup**: the capture-phase handler calls the new `InventoryUI.closePopups()`
+(split dialog · right-click context menu · 분해 dialog) and swallows the key **only** when one of them was open;
+otherwise it falls through to `game/` and the menu opens over the window. `closeOverlays()` keeps its old meaning
+(popups **+** the 제작 column) for the internal close path — the 제작 column is a column of the window, not a popup,
+so it deliberately stays open under the menu.
+
 ## 2026-09-08 Phase 12 — 분해 게이지 · 회복 스프레이 수리 · 임플란트 아이템 (`docs/DECISIONS.md` Phase 12 · #7 · #9)
 
 Data-driven off the frozen contract (`ItemCategory 'implant'`, `ItemDef.implant`, `PERK_DEFS`, `HEAL_SPRAY_GAUGE` 200,
@@ -601,6 +640,8 @@ Data-driven off the frozen contract (`ItemCategory 'implant'`, `ItemDef.implant`
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-08 (main 병합)** — 장착 슬롯이 아이템 발자국이 아니라 모두 같은 크기의 상자 + 카드(`GridView.buildSlotCardContent`)로 바뀌면서 `ui/model.SlotView` 의 `bodyW` · `bodyH` · `meta` 가 사라졌고 `ui/parts/SlotPanel` 이 그에 맞춰졌다. 퀵 사용 장미의 범례는 `ui/parts/QuickPanel` 에서 빠졌다(`quickHold` 도 함께). Escape 는 이제 **가장 안쪽 팝업만** 취소한다 — 새 `closePopups()` 가 그 몫이고 `closeOverlays()`(팝업 + 제작 열)는 내부 닫기 경로용으로 남는다. 창 자체는 Tab 으로 닫는다
 
 - **tactical kit** — **armor slot** (`LoadoutSlot` `armor`, `getEquipped(slot)`, `equip:changed`), **weight budget** (`getWeight()` → `WeightInfo`, `inventory:weightChanged`, readout in the bag panel), `consumeDef`, **field crafting** (`ui/CraftPanel` behind the 제작 button, `getRecipes/canCraft/craft/cancelCraft`, hold-to-craft), gear durability (`getDurability`, `damageDurability`, `repair`), `Gear.ts` helpers; **hub Tab ship screen** (2026-09-06): Tab in the hub opens the window in `is-hub` mode — screen tabs 인벤토리 / 캐릭터 / 기업(off), **함선 창고** (`Stash.ts`: 10×24 grid persisted in localStorage `scav.stash`, `GridId 'stash'`, `inventory:stashChanged`) · 장비 + **전술 임플란트 slot** (click → picker, click the equipped card = unequip) · 가방 (quick rose to its right ≥ 1600 px); right-click **수리** with the material cost on worn gear (`repairInfo`), 창고로 이동, no world drops in the ship (drops / overflow land in the stash)
 

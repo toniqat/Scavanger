@@ -578,6 +578,15 @@ export interface Obstacle {
   height: number;            // for projectiles / visuals
   /* appended (Phase 3): dynamic obstacles (dropped cover structures) can take damage. Weapons call `onDamage` on a hit. */
   destructible?: DestructibleRef;
+  /**
+   * appended (2026-09-08): the cylinder `WorldRef.raycast` shoots at, when it differs from the movement cylinder
+   * above. `radius` / `height` are tuned so a body never bumps an invisible wall, which for a lumpy prop means they
+   * sit **inside** its silhouette — bullets and line-of-sight then pass through rock that is plainly in the way.
+   * These two match the prop's drawn extent instead, so 엄폐 works where it looks like it should. Undefined = use
+   * `radius` / `height` (every consumer other than the ray keeps reading those two, unchanged).
+   */
+  shotRadius?: number;
+  shotHeight?: number;
 }
 
 /** Damageable world object (Phase 3 cover structures). Owner: whoever added the obstacle (stratagems). */
@@ -936,6 +945,13 @@ export interface Interactable {
   /* appended (Phase 2, revive): the player calls these while the hold is running / when it is released early. */
   onHoldProgress?(t: number): void;
   onHoldCancel?(): void;
+  /**
+   * appended (2026-09-08): true = `ui/hud/Detection` draws **no** 빛기둥 for this interactable, even though it is in
+   * range and still interactable. Purely local presentation — a corpse this client has already searched sets it, and
+   * nothing about it is replicated (another player looting the same body never clears our pillar, and ours never
+   * clears theirs). Leave undefined for the normal "in range → pillar" behaviour.
+   */
+  hidePillar?: boolean;
 }
 
 export interface InteractableRegistry {

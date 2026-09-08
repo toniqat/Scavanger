@@ -8,8 +8,8 @@ import { LOADOUT_SLOTS } from '../InventorySystem';
 import { sanitizeLoadoutSave, type LoadoutSave } from '../Loadout';
 import { reviveItem, savedCell } from '../Serialize';
 import { Grid } from '../Grid';
-import { GridView, buildTileContent } from './GridView';
-import { QUICK_DIR_GLYPH, QUICK_ROSE_ORDER, SLOT_LABEL, TEXT, tileSize } from './labels';
+import { GridView, buildSlotCardContent, buildTileContent } from './GridView';
+import { QUICK_DIR_GLYPH, QUICK_ROSE_ORDER, SLOT_LABEL, TEXT } from './labels';
 
 /** Blocks a crew view can draw, left to right. There is deliberately **no** 함선 창고 and no 크레딧. */
 export type CrewBlock = 'equip' | 'bag' | 'quick';
@@ -136,28 +136,21 @@ export class CrewLoadoutView implements EmbeddedView {
     const head = document.createElement('div');
     head.className = 'inv-slot-label';
     head.textContent = SLOT_LABEL[slot];
+    // 2026-09-08: same one-size box + card as the player's own Tab window (`buildSlotCardContent`), so a squadmate's
+    //   gear is read exactly the way your own is.
     const body = document.createElement('div');
     body.className = 'inv-slot-body';
-    const { width, height } = slot === 'bag' ? tileSize(2, 2) : slot === 'armor' ? tileSize(2, 3) : tileSize(4, 2);
-    body.style.width = `${width}px`;
-    body.style.height = `${height}px`;
-    const meta = document.createElement('div');
-    meta.className = 'inv-slot-meta';
     const item = this.slots[slot];
     const def = item ? this.inv.getDef(item.defId) : undefined;
     if (item && def) {
       const tile = document.createElement('div');
-      const stats = this.inv.getStats(item);
-      buildTileContent(tile, item, def, def.width, def.height, stats);
-      const size = tileSize(def.width, def.height);
-      const scale = Math.min(1, width / size.width, height / size.height);
-      if (scale < 1) tile.style.transform = `scale(${scale.toFixed(3)})`;
+      const worn = buildSlotCardContent(tile, item, def, this.inv.getStats(item));
       tile.dataset.uid = item.uid;
       tile.dataset.itemTip = '';
       tile.dataset.defId = item.defId;
       body.appendChild(tile);
-      meta.textContent = def.name;
       el.classList.add('has-item');
+      el.classList.toggle('is-worn', worn);
       el.style.setProperty('--rc', def.color);
     } else {
       const empty = document.createElement('div');
@@ -167,7 +160,7 @@ export class CrewLoadoutView implements EmbeddedView {
       empty.appendChild(label);
       body.appendChild(empty);
     }
-    el.append(head, body, meta);
+    el.append(head, body);
     return el;
   }
 

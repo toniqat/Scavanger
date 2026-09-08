@@ -453,6 +453,9 @@ export class SoldierModel {
     this.updateGlow(dt, time);
     const dead = p.dead;
     if (dead > 0) { this.poseDead(dt, p); return; }
+    // 2026-09-08: 전투불능 is its own pose, not "prone with a tilt" — the body falls **backwards** and lies on its
+    //   back. It takes over the whole skeleton the way death does, so no crawl / aim / weapon blend leaks into it.
+    if (p.downed > 0.001) { this.poseDowned(dt, time, p); return; }
     if (dt <= 0) return;
 
     const phi = p.stridePhase;
@@ -744,8 +747,46 @@ export class SoldierModel {
       this.bodyGroup.position.y = damp(this.bodyGroup.position.y, 0, 12, dt);
       this.bodyGroup.position.z = damp(this.bodyGroup.position.z, 0, 12, dt);
     }
-    // downed: roll onto the side
-    this.bodyGroup.rotation.z = damp(this.bodyGroup.rotation.z, 0.45 * dwn, 8, dt);
+    // 전투불능 never reaches here any more (`poseDowned` takes the frame), so the body only ever unwinds toward 0.
+    this.bodyGroup.rotation.z = damp(this.bodyGroup.rotation.z, 0, 8, dt);
+  }
+
+  /**
+   * 전투불능 (downed, 2026-09-08). Reads like the death fall — the soldier goes over **backwards** — but settles into a
+   * living pose instead of a limp one: knees drawn up, one arm clutching the chest, the other flung out, head lolled
+   * to the side, and a shallow breathing rise so it never looks like a corpse. Empty-handed by design (weapons
+   * holsters the gun while downed), so no weapon-carry angles are applied.
+   *
+   * `p.downed` doubles as the fall progress: `PlayerSystem` / `RemoteAvatar` ramp it in, and the same eased curve as
+   * `poseDead` (easeOutCubic) drives the tip-over so the two read as one family of animations.
+   */
+  private poseDowned(dt: number, time: number, p: SoldierPose): void {
+    const d = THREE.MathUtils.clamp(p.downed, 0, 1);
+    const e = 1 - (1 - d) * (1 - d) * (1 - d);
+    const L = 8;
+    // fall backwards onto the back, hips low; the slight z tilt keeps the silhouette from reading perfectly flat
+    this.bodyGroup.rotation.x = damp(this.bodyGroup.rotation.x, -e * 1.5, L, dt);
+    this.bodyGroup.rotation.z = damp(this.bodyGroup.rotation.z, e * 0.18, L, dt);
+    this.bodyGroup.position.y = damp(this.bodyGroup.position.y, e * 0.1, L, dt);
+    this.bodyGroup.position.z = damp(this.bodyGroup.position.z, 0, L, dt);
+    this.hips.position.y = damp(this.hips.position.y, THREE.MathUtils.lerp(this.hipsBaseY, 0.5, e), L, dt);
+    this.hips.rotation.x = damp(this.hips.rotation.x, 0, L, dt);
+    // shallow, laboured breathing (visible only once the fall has landed)
+    const breath = Math.sin(time * 2.4) * 0.05 * e;
+    this.j(this.torso, 0.18 * e + breath, 0, -0.1 * e, dt, L);
+    this.j(this.headPivot, 0.34 * e - breath, 0.38 * e, 0.16 * e, dt, L);
+    // right arm clutches the chest, left arm flung out to the side
+    this.j(this.armR.upper, -0.5 * e, 0.2 * e, -0.95 * e, dt, L);
+    this.j(this.armR.lower, -1.15 * e + breath * 2, 0, 0, dt, L);
+    this.j(this.armL.upper, 0.35 * e, 0, 1.25 * e, dt, L);
+    this.j(this.armL.lower, -0.35 * e, 0, 0, dt, L);
+    // one knee drawn up, the other leg almost straight — collapsed but alive, not the limp sprawl of `poseDead`
+    this.j(this.legR.upper, -0.62 * e, 0, -0.2 * e, dt, L);
+    this.j(this.legR.lower, 0.9 * e, 0, 0, dt, L);
+    this.j(this.legL.upper, -0.22 * e, 0, 0.18 * e, dt, L);
+    this.j(this.legL.lower, 0.4 * e, 0, 0, dt, L);
+    for (const seg of this.capeSegs) seg.rotation.x = damp(seg.rotation.x, -0.25 * e, 6, dt);
+    this.visorMat.emissiveIntensity = 0.9 - 0.5 * e;
   }
 
   private poseDead(dt: number, p: SoldierPose): void {

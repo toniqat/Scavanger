@@ -67,11 +67,13 @@ export class GameFlowSystem implements GameSystem {
   /** Inventory as it was when the 훈련장 was entered (ammo / durability are refunded on exit). */
   trainingSnapshot: unknown = null;
   /**
-   * 2026-09-07 (커서 rework): **a lost pointer lock is no longer a pause.**
+   * 2026-09-07 (커서 rework): a lost pointer lock is not, by itself, a pause. Releasing the lock is how every screen
+   * shows the mouse, so treating a missing lock as "the player left" made the game freeze whenever the cursor
+   * appeared. Losing the *window* means the player really left — that still pauses.
    *
-   * Releasing the lock is now how every screen shows the mouse, and Chrome drops it on any Escape, so treating the
-   * missing lock as "the player left" is what made the game freeze every time the cursor appeared. Only losing the
-   * *window* means the player really left — that still pauses, exactly like alt-tabbing out of any other game.
+   * 2026-09-08: a lock the player took away **while the camera still wanted it** is a different thing — it is the
+   * Escape key, which the browser swallowed. `Input.onUserUnlock` reports exactly that case (our own releases are
+   * marked and skipped) and it opens the 일시정지 메뉴 through the same `input:pointerLockLost` event.
    */
   /** Phase 12: `좌측 클릭으로 게임 재개` overlay (browser only; created in `init`). */
   private resumeGate: ResumeGate | null = null;
@@ -146,6 +148,9 @@ export class GameFlowSystem implements GameSystem {
       b.on('training:exitRequested', () => this.exitTraining()),
       b.on('inventory:itemAdded', () => this.saveRaid()),
       b.on('crate:looted', () => this.saveRaid()),
+      // The browser ate an Escape to free the cursor (`main.ts` ← `Input.onUserUnlock`) — that press was the
+      // 일시정지 메뉴. Also fired by `onFocusLost` below, where the pause is the same outcome.
+      b.on('input:pointerLockLost', () => this.escapePause()),
     );
     window.addEventListener('blur', this.onWindowBlur);
     document.addEventListener('visibilitychange', this.onVisibilityChange);
@@ -189,7 +194,6 @@ export class GameFlowSystem implements GameSystem {
   noScreenOpen(): boolean { return Phases.noScreenOpen(this); }
 
   /** Phase 12: a screen other than the 일시정지 메뉴 itself (and the gate) holds a blocker — the pause must yield. */
-  private otherScreenOpen(): boolean { return Phases.otherScreenOpen(this); }
 
   /* ── Multiplayer helpers ─────────────────────────────────────────────── */
   /** Subscribe to host `flow` messages once `ctx.net` exists (NetSystem publishes it before this system inits, but stay lazy). */
@@ -242,11 +246,15 @@ export class GameFlowSystem implements GameSystem {
    */
   private onFocusLost(): void { return Phases.onFocusLost(this); }
 
+  /** Escape (or a pointer lock the player took away) → the 일시정지 메뉴. See `parts/Phases.escapePause`. */
+  escapePause(): void { return Phases.escapePause(this); }
+
   /**
    * Alt (`Keys.CURSOR`): hand the mouse over without opening anything, and take it back on the next press.
    *
    * It is a plain cursor-mode owner with its own blocker token, so gameplay input is gated exactly the way an open
-   * panel gates it (no firing, no camera) and `main.ts` re-locks when it is released. Escape closes it too.
+   * panel gates it (no firing, no camera) and `main.ts` re-locks when it is released. 2026-09-08: Escape drops it
+   * as well, but only on the way to the 일시정지 메뉴 (`escapePause`) — it is not a plain close any more.
    *
    * 2026-09-07: **좌클릭도 닫는다.** This is the one cursor owner with no window behind it, so a click on the 3D
    * canvas can only mean "give me the camera back" — and a click is the real user gesture Chrome wants before it
@@ -312,31 +320,15 @@ export class GameFlowSystem implements GameSystem {
     if (this.soloPending || this.soloExpired) this.consumeStoredSoloRaid();
     if (this.inLiveMission()) this.wasMultiplayerHost = ctx.isMultiplayer && (ctx.net?.isHost ?? false);
 
-    // Escape: toggle pause (not while another UI blocker — inventory / map / terminal — is open; those
-    // consume Escape in a capture-phase listener anyway). Phase 8: the ship pauses on Escape as well,
-    // except while the housing / 함선 관리 mode owns the key (it cancels the placement instead).
-    /*
-     * Phase 12: the 일시정지 메뉴 never shares the screen with another cursor screen. It can only *open* while nothing
-     * else is up (below), but a screen can still open *over* it — a container window the interaction finished a frame
-     * late, a net-driven window — and the two then fought over Escape (the inventory's capture-phase listener won every
-     * press while its backdrop covered the menu's buttons: "둘 다 못 끄는 상태"). The pause has nothing to protect (it
-     * freezes nothing), so it yields to the newcomer at once and that screen's own Escape / close path is the only one
-     * in play. The gate's token is transparent here (it is not a screen).
-     */
-    if (this.paused && this.otherScreenOpen()) this.setPaused(false);
-    if (ctx.input.wasPressed(Keys.MENU)) {
-      if (this.paused) this.setPaused(false);
-      // Alt 커서 is the innermost thing Escape can close (it holds a blocker, so the branch below would skip anyway).
-      else if (ctx.uiBlockers.has(FREE_CURSOR_BLOCKER)) { this.toggleFreeCursor(false); ctx.input.consume(Keys.MENU); }
-      // Never while a screen owns the cursor (a screen that dropped its blocker this frame but kept cursor mode is
-      // still open); the 재개 게이트 is not a screen — Escape on it opens the menu normally.
-      else if (this.noScreenOpen() && !ctx.input.isCursorMode && !(ctx.player?.isDead ?? false)
-        && (ctx.isGameplayPhase() || (this.inShip() && !(ctx.housing?.housingMode ?? false)))) this.setPaused(true);
-    }
-    // Phase 12: '좌측 클릭으로 게임 재개' (browser) / hidden OS cursor while nothing needs it (Electron shell).
+    // Escape **always** means the 일시정지 메뉴 (2026-09-08) — see `escapePause`. Reached only while the pointer is
+    // already free (a screen is open); the locked case arrives as `input:pointerLockLost` instead.
+    if (ctx.input.wasPressed(Keys.MENU)) { ctx.input.consume(Keys.MENU); this.escapePause(); }
+    // Phase 12: '좌측 클릭으로 게임 재개' (browser) / hidden OS cursor while nothing needs it (Electron shell). The
+    // gate only ever shows once every screen **and** the 일시정지 메뉴 are gone and the lock could not be retaken.
     this.resumeGate?.update();
     syncDesktopCursor(ctx);
-    // Alt: free the mouse cursor in place (no screen, no pause). Pressed again — or Escape — gives it back.
+    // Alt: free the mouse cursor in place (no screen, no pause). Pressed again gives it back; Escape drops it and
+    // opens the 일시정지 메뉴 instead (2026-09-08).
     if (ctx.input.wasPressed(Keys.CURSOR)) this.toggleFreeCursor();
     // It is the only cursor owner with no window behind it, so nothing else would ever drop it: a phase change
     // (mission end, abort, docking) or a death has to.

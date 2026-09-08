@@ -127,9 +127,9 @@ try {
   const wb = await lastEv('hub:workbenchToggled');
   ok(wb && wb.open === true, 'workbench menu opens (hub:workbenchToggled)');
   ok(await page.evaluate(() => window.__game.ctx.uiBlockers.has('hub')), 'workbench takes the hub blocker');
-  await key('Escape');
+  await key('KeyE');   // 2026-09-08: the 정비 벤치 menu closes on E (Escape is the 일시정지 메뉴)
   await sleep(200);
-  ok((await lastEv('hub:workbenchToggled')).open === false, 'Esc closes the workbench');
+  ok((await lastEv('hub:workbenchToggled')).open === false, 'E closes the workbench');
   // Phase 9: the 배리어 implant is chosen on the ship (setEquipped is hub-only) and deployed in the mission below
   const eqBar = await page.evaluate(() => { const imp = window.__game.ctx.implants; return imp ? { ok: imp.setEquipped('barrier'), eq: imp.equipped } : null; });
   ok(eqBar && eqBar.ok && eqBar.eq === 'barrier', 'hub: 배리어 implant equipped (setEquipped)', JSON.stringify(eqBar));

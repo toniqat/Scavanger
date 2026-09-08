@@ -195,6 +195,44 @@ try {
       equipMid: (() => { const s = root.querySelector('.inv-panel-stash').getBoundingClientRect(); const e = root.querySelector('.inv-equip').getBoundingClientRect(); const b = root.querySelector('.inv-panel-bag').getBoundingClientRect(); return s.right <= e.left + 4 && e.right <= b.left + 4; })(),
     };
   });
+  /* ── 2026-09-08: ESC = 항상 일시정지 · 화면은 자기 키로 닫는다 ──────────
+     Escape used to close whatever screen was open. It now **stacks** the 일시정지 메뉴 over it, and the screen's own
+     key (Tab here) is what closes it — so a mistyped Escape can never lose an open bag, and the menu is reachable
+     from anywhere in one press. */
+  const escOverInv = await page.evaluate(async () => {
+    const key = (code, type) => document.body.dispatchEvent(new KeyboardEvent(type, { code, bubbles: true }));
+    key('Escape', 'keydown'); key('Escape', 'keyup');
+    await new Promise((r) => setTimeout(r, 120));
+    window.__game.frame(performance.now());
+    const menu = document.querySelector('.menu.pause');
+    return {
+      paused: !!menu && !menu.classList.contains('hidden'),
+      inv: window.__game.ctx.inventory.isOpen,
+      blockers: [...window.__game.ctx.uiBlockers].sort(),
+    };
+  });
+  ok(escOverInv.paused, 'Escape over the open bag opens the 일시정지 메뉴');
+  ok(escOverInv.inv, 'and leaves the bag open underneath', JSON.stringify(escOverInv));
+  ok(escOverInv.blockers.join(',') === 'inventory,menu', 'both blockers are held at once', JSON.stringify(escOverInv.blockers));
+  // Tab must not reach through the menu, and the menu only closes on its own button.
+  await tap('Tab');
+  await waitSim(0.1);
+  ok(await page.evaluate(() => window.__game.ctx.inventory.isOpen), 'Tab does not reach the bag through the menu');
+  const backToInv = await page.evaluate(async () => {
+    const menu = document.querySelector('.menu.pause');
+    [...menu.querySelectorAll('.actions .ui-btn')][0].click();
+    await new Promise((r) => setTimeout(r, 120));
+    window.__game.frame(performance.now());
+    return { paused: !menu.classList.contains('hidden'), inv: window.__game.ctx.inventory.isOpen, blockers: [...window.__game.ctx.uiBlockers] };
+  });
+  ok(!backToInv.paused && backToInv.inv, '게임으로 돌아가기 returns to the bag it was opened over', JSON.stringify(backToInv));
+  ok(backToInv.blockers.join(',') === 'inventory', 'the menu blocker is gone, the bag keeps its own', JSON.stringify(backToInv.blockers));
+  await tap('Tab');
+  await waitFor(page, () => !window.__game.ctx.inventory.isOpen, 'Tab closes the bag');
+  ok(true, 'Tab closes the bag once the menu is out of the way');
+  await tap('Tab');
+  await waitFor(page, () => window.__game.ctx.inventory.isOpen, 'bag re-opened for the checks below');
+
   ok(hubScreen.hub && hubScreen.stash, 'hub Tab shows the ship screen with the stash');
   ok(hubScreen.stashCells === 240, `stash grid is 10×24 (${hubScreen.stashCells} cells)`);
   // Phase 8: 함선 joined the strip (시설 업그레이드 inside the Tab screen)
@@ -312,10 +350,13 @@ try {
     inv.updateItem(w.uid, { durability: 100 });
     inv.tryAddItem(ctx.loot.createItem('mat_scrap', 10));
     const sys = window.__game.getSystem('inventory');
-    return { uid: w.uid, info: sys.repairInfo(w.uid), meta: document.querySelector('.inv-slot-primary .inv-slot-meta').textContent };
+    // 2026-09-08: the `.inv-slot-meta` sentence is gone — the numbers live inside the slot card
+    const card = document.querySelector('.inv-slot-primary .inv-slot-card');
+    return { uid: w.uid, info: sys.repairInfo(w.uid), name: card.querySelector('.inv-slot-name').textContent, dur: card.querySelector('.inv-slot-durnum').textContent, ammo: card.querySelector('.inv-slot-ammo').textContent };
   });
   ok(repairPrep.info && repairPrep.info.cost.length > 0 && !repairPrep.info.short, `repair cost listed: ${repairPrep.info?.cost.map((c) => `${c.name}×${c.qty}`).join(',')}`);
-  ok(/내구도 100\//.test(repairPrep.meta), `slot meta shows durability (${repairPrep.meta})`);
+  ok(/^100\/\d+$/.test(repairPrep.dur) && !!repairPrep.name && /^\d+\/\d+$/.test(repairPrep.ammo),
+    `slot card shows name / rounds / durability (${repairPrep.name} · ${repairPrep.ammo} · ${repairPrep.dur})`);
   const slotTile = await page.$('.inv-slot-primary .inv-tile');
   await slotTile.click({ button: 'right' });
   const menuItems = await page.evaluate(() => [...document.querySelectorAll('.inv-menu .inv-menu-item')].map((n) => n.textContent));
@@ -384,7 +425,7 @@ try {
   await page.evaluate(() => [...document.querySelectorAll('.inv-root .scr-tab')].find((b) => b.textContent === '인벤토리').click());
   await waitFor(page, () => document.querySelector('.inv-root .inv-screen').hidden && !document.querySelector('.inv-root .inv-layout').hidden && window.__game.ctx.inventory.isOpen, 'back to the bag view');
   ok(true, '인벤토리 tab returns to the bag / stash view');
-  await keyDown('Escape'); await keyUp('Escape');
+  await keyDown('Tab'); await keyUp('Tab');   // 2026-09-08: Tab closes the window (Escape = 일시정지 메뉴)
   await waitFor(page, () => !window.__game.ctx.inventory.isOpen, 'inventory closed');
 
   // reload: stash persists, bag resets (policy unchanged)
@@ -494,7 +535,7 @@ try {
   });
   ok(clickGate === false, 'a click while a screen owns the cursor never reaches gameplay input');
   await shot('07-terminal');
-  await tap('Escape');
+  await tap('KeyE');   // 2026-09-08: the terminal closes on E
   await waitFor(page, () => document.querySelector('.menu.hub-menu').hidden, 'terminal closed');
   await waitSim(0.2);
   const afterTerm = await page.evaluate(() => ({
@@ -521,6 +562,8 @@ try {
   });
   ok(alt.cursor && alt.blocker && !alt.locked, 'Alt frees the mouse in place (cursor mode + its own blocker, lock released)', JSON.stringify(alt));
   ok(!alt.paused, 'Alt does not pause the game');
+  /* 2026-09-08: Escape is the 일시정지 메뉴 everywhere, so it no longer *just* closes the Alt 커서 — it drops the
+     free cursor (which has no window behind it and would strand the player) and puts the menu up in its place. */
   const altOff = await page.evaluate(async () => {
     const key = (code, type) => document.body.dispatchEvent(new KeyboardEvent(type, { code, bubbles: true }));
     key('Escape', 'keydown'); key('Escape', 'keyup');
@@ -528,12 +571,27 @@ try {
     window.__game.frame(performance.now());
     const menu = document.querySelector('.menu.pause');
     return {
-      cursor: window.__game.ctx.input.isCursorMode, blocker: window.__game.ctx.uiBlockers.has('cursor'),
-      locked: window.__game.ctx.input.isPointerLocked, paused: !!menu && !menu.classList.contains('hidden'),
+      blocker: window.__game.ctx.uiBlockers.has('cursor'), menuBlocker: window.__game.ctx.uiBlockers.has('menu'),
+      paused: !!menu && !menu.classList.contains('hidden'),
     };
   });
-  ok(!altOff.cursor && !altOff.blocker && altOff.locked, 'Escape gives the mouse straight back to the camera', JSON.stringify(altOff));
-  ok(!altOff.paused, 'that Escape closes the Alt cursor instead of opening the 일시정지 메뉴');
+  ok(!altOff.blocker, 'Escape drops the Alt 커서 blocker', JSON.stringify(altOff));
+  ok(altOff.paused && altOff.menuBlocker, 'and the same Escape opens the 일시정지 메뉴 in its place', JSON.stringify(altOff));
+  // The menu only closes on 게임으로 돌아가기 — Escape is deliberately inert on it.
+  const pauseEsc = await page.evaluate(async () => {
+    const key = (code, type) => document.body.dispatchEvent(new KeyboardEvent(type, { code, bubbles: true }));
+    key('Escape', 'keydown'); key('Escape', 'keyup');
+    await new Promise((r) => setTimeout(r, 120));
+    window.__game.frame(performance.now());
+    const menu = document.querySelector('.menu.pause');
+    const still = !!menu && !menu.classList.contains('hidden');
+    [...menu.querySelectorAll('.actions .ui-btn')][0].click();
+    await new Promise((r) => setTimeout(r, 120));
+    window.__game.frame(performance.now());
+    return { still, closed: menu.classList.contains('hidden'), blocker: window.__game.ctx.uiBlockers.has('menu') };
+  });
+  ok(pauseEsc.still, 'a second Escape does NOT close the 일시정지 메뉴');
+  ok(pauseEsc.closed && !pauseEsc.blocker, '게임으로 돌아가기 is what closes it', JSON.stringify(pauseEsc));
 
   /* 2026-09-07: the Alt 커서 also closes on a left click on the world — it is the one cursor owner with no window
      behind it, and a click is the user gesture Chrome wants before it grants the lock back. */
@@ -553,18 +611,44 @@ try {
   ok(altClick.on, 'Alt opens the free cursor again');
   ok(!altClick.cursor && !altClick.blocker && altClick.locked, '좌클릭으로도 Alt 커서가 닫히고 카메라가 돌아온다', JSON.stringify(altClick));
 
-  /* A lost pointer lock is no longer a pause: it just means the mouse is a cursor for a moment. */
+  /* 2026-09-08: an unlock we did not ask for **is** the Escape key — the browser eats the keydown to free the
+     cursor, so `pointerlockchange` is the only evidence the player pressed it. `Input.onUserUnlock` → `main.ts` →
+     `input:pointerLockLost` → the 일시정지 메뉴, in one press. A release *we* made (a screen taking 커서 모드) is
+     marked and must stay silent. */
   const lost = await page.evaluate(async () => {
+    const ctx = window.__game.ctx;
+    ctx.input.requestPointerLock();
+    window.__lockEl = document.getElementById('game-canvas');
+    document.dispatchEvent(new Event('pointerlockchange'));
+    // our own release: exitPointerLock() marks it, so no menu
+    ctx.input.exitPointerLock();
+    document.dispatchEvent(new Event('pointerlockchange'));
+    for (let i = 0; i < 4; i++) window.__game.frame(performance.now() + i * 20);
+    const menu = document.querySelector('.menu.pause');
+    const afterSelf = !!menu && !menu.classList.contains('hidden');
+    // the player's Escape: the lock simply disappears while the camera still wants it
+    ctx.input.requestPointerLock();
+    window.__lockEl = document.getElementById('game-canvas');
+    document.dispatchEvent(new Event('pointerlockchange'));
     window.__lockEl = null;
     document.dispatchEvent(new Event('pointerlockchange'));
-    for (let i = 0; i < 30; i++) window.__game.frame(performance.now() + i * 60);
-    await new Promise((r) => setTimeout(r, 900));
-    for (let i = 0; i < 30; i++) window.__game.frame(performance.now() + 2000 + i * 60);
-    const menu = document.querySelector('.menu.pause');
-    return { paused: !!menu && !menu.classList.contains('hidden'), phase: window.__game.ctx.phase };
+    await new Promise((r) => setTimeout(r, 120));
+    window.__game.frame(performance.now());
+    return {
+      afterSelf, paused: !!menu && !menu.classList.contains('hidden'),
+      blocker: ctx.uiBlockers.has('menu'), phase: ctx.phase,
+    };
   });
-  ok(!lost.paused, 'a pointer lock lost for a second does not force the 일시정지 메뉴 any more', JSON.stringify(lost));
-  await page.evaluate(() => { window.__game.ctx.input.requestPointerLock(); });
+  ok(!lost.afterSelf, 'a release the game itself made (커서 모드) never opens the menu', JSON.stringify(lost));
+  ok(lost.paused && lost.blocker, 'a lock the player took away opens the 일시정지 메뉴 in one press', JSON.stringify(lost));
+  await page.evaluate(async () => {
+    const menu = document.querySelector('.menu.pause');
+    [...menu.querySelectorAll('.actions .ui-btn')][0].click();
+    await new Promise((r) => setTimeout(r, 120));
+    window.__game.frame(performance.now());
+    window.__lockEl = document.getElementById('game-canvas');
+    window.__game.ctx.input.requestPointerLock();
+  });
 
   /* 2026-09-07: a denied pointer-lock request waits for the next real user gesture. Chrome grants no user activation
      for Escape and refuses a re-lock right after one, so closing the 일시정지 메뉴 with Escape used to leave the

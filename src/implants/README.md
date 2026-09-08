@@ -42,6 +42,7 @@
 |---|---|---|---|---|
 | `grapple` | 갈고리 | instant | 장착 중 매 프레임 조준점 판정 → `implant:grappleTargetChanged` (Reticle 괄호). **Q** = 유효하면 즉시 발사 → 부착 시 `player.setGrappleTarget(point)` 로 견인; 도착(2.6 m)·5초·Q 재입력으로 해제. 와이어 원점은 무기 소켓(손) | `IMPLANT_GRAPPLE_COOLDOWN` |
 | `dash` | 대시 | instant | 전방 레이캐스트로 거리 산출 → 바닥 스냅 → `resolveCollision` → `ctx.player.position` 을 직접 갱신(순간이동). 충전 3 | `IMPLANT_DASH_COOLDOWN` (충전당) |
+
 | `barrier` | 배리어 | wielded | Q 로 **방패를 손에 든다**(총 홀스터, 이동속도 × `IMPLANT_BARRIER_CARRY_SPEED_MUL`). 패널은 발 위치 + 정면 `IMPLANT_BARRIER_CARRY_OFFSET` 에서 몸을 따라오고 크기는 `IMPLANT_BARRIER_CARRY_WIDTH`(Phase 12: **3.2 m**) `× _HEIGHT`, 밑단은 `_BASE_Y`. **적 발사체만** · **정면 `_ARC` 안에서만** 차단, 1발당 `IMPLANT_BARRIER_BLOCK_DAMAGE` 30 소모. **Phase 12**: 벌레가 통과하지 못하고(`resolveBarrierCollision`), 정면 근접공격은 방패가 대신 맞으며(`absorbFrontalAttack`), 든 채로 **좌클릭 / 근접키 = 실드 배쉬**(스태미나 `IMPLANT_SHIELD_BASH_STAMINA`, 방패 폭 × `_RANGE` 상자 안의 적에게 `_DAMAGE × meleeDamageMul`, `_COOLDOWN`, 포즈는 `player.startMelee('heavy')`). 든 상태에서도 `_REGEN_DELAY` 3초 무피격 후 `_REGEN` 40/s 회복, 내렸으면 `IMPLANT_BARRIER_REGEN` 120/s. 파괴 시 자동으로 손에서 내려가고 `IMPLANT_BARRIER_BREAK_LOCKOUT` 10초 잠금 — 그 동안 내구도가 0 → 만충으로 정확히 차오르므로 HUD 내구도 게이지가 쿨타임 표시를 대신한다 (`barrierLockout`), 잠긴 동안 Q 는 `배리어 재충전 중` 으로 거부 | 0 (내구도가 자원) |
 | `overcharge` | 오버차지 | hold | Q 를 누르고 있는 동안: 자신 `IMPLANT_OVERCHARGE_SELF_HEAL_PER_SEC`(10)/s 회복 + 조준 원뿔 안의 아군에게 `buff heal` `IMPLANT_OVERCHARGE_ALLY_HEAL_PER_SEC`(25)/s (빔은 아군에게만). 체력 ≥ 90 %(`IMPLANT_OVERCHARGE_BUFF_HP_RATIO`) 인 대상(자신 / 아군)에게만 이동·연사 버프(`setSpeedModifier('overcharge')`, 짝 스태미나 버프는 없음). **에너지** `IMPLANT_OVERCHARGE_ENERGY` 6 s 를 소모하고 놓으면 `IMPLANT_OVERCHARGE_REGEN_TIME` 12 s 에 만충; 0.75 s 미만이면 시작 거부. `implant:energyChanged` | 0 (에너지가 자원) |
 | `scan` | 정찰 | instant | Q → 이동 중에도 **한 번에** 반경 `IMPLANT_SCAN_RADIUS` 70 m 파동 (Phase 12). 반경 안의 모든 상호작용물 + 살아 있는 적을 `IMPLANT_SCAN_REVEAL_TIME_V2` 15초 동안 `detect:reveal`(벽 너머 기둥) + `scan:cast`(나침반 · 인디케이터) + `enemies.setXray`(적색 실루엣) 로 드러내고, `imp scanCast {p, radius, dur}` 로 분대에도 같은 파동을 건다 (수신자는 **자기 월드에서** 다시 수집). `implant:scanned {pulse:1}` 은 오디오용으로 유지 | `IMPLANT_SCAN_COOLDOWN_V2` 30 |
@@ -50,6 +51,11 @@
 쿨타임에는 항상 `ctx.progression?.derived.implantCooldownMul` 를 곱한다 (특수 가방 50 % 퍼크가 이미 그 안에 있다).
 `progression` 이 아직 없으면 배율 1 로 동작하고, 프로필이 없으면 첫 임플란트(`grapple`)를 임시로 장착한다.
 `progress:loaded` 가 오면 프로필 값으로 교체한다.
+
+**충전 재보급 (2026-09-08 수정).** 충전형 임플란트는 재충전이 도는 중에도 남은 충전을 쓸 수 있는데(`cdRemainingBlocking`),
+`useCharge()` 가 조건 없이 `startCooldown()` 을 불러 **진행 중이던 재충전 타이머를 매번 처음으로 되돌렸다** — 한 칸을 쓰면서
+충전 중이던 칸의 진척까지 같이 버린 것이다. 이제 `cdRemaining <= 0` 일 때만 새로 시작한다(단일 충전 임플란트는 `ready` 가
+이미 `cdRemaining > 0` 을 막으므로 동작이 바뀌지 않는다).
 
 ## 다른 폴더와의 계약
 

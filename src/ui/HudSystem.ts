@@ -19,6 +19,7 @@ import { ChatLog } from './hud/ChatLog';
 import { QuickWheel } from './hud/QuickWheel';
 import { CookGauge } from './hud/CookGauge';
 import { HealGauge } from './hud/HealGauge';
+import { HoldGauge } from './hud/HoldGauge';
 import { ReloadGauge } from './hud/ReloadGauge';
 import { StratagemWheel } from './hud/StratagemWheel';
 import { StratagemPanel } from './hud/StratagemPanel';
@@ -112,6 +113,7 @@ export class HudSystem implements GameSystem {
   /* Phase 10: two more crosshair rings — the reload radial moved off the weapon panel, the 회복약 is a 2 s hold */
   private reload!: ReloadGauge;
   private heal!: HealGauge;
+  private hold!: HoldGauge;
   private swheel!: StratagemWheel;
   private strat!: StratagemPanel;
   private charge!: ChargeGauge;
@@ -190,6 +192,7 @@ export class HudSystem implements GameSystem {
     this.cook = new CookGauge(this.hudRoot);
     this.reload = new ReloadGauge(this.hudRoot);
     this.heal = new HealGauge(this.hudRoot);
+    this.hold = new HoldGauge(this.hudRoot);
     this.charge = new ChargeGauge(this.hudRoot);
     this.wcharge = new WeaponChargeGauge(this.hudRoot);
     this.statusMarkers = new StatusMarkers(this.hudRoot);
@@ -270,7 +273,7 @@ export class HudSystem implements GameSystem {
     this.cutscene.bind(ctx);
     for (const c of [this.implantWidget, this.implantChip, this.quickStrip, this.detection, this.scanReveal, this.deployables, this.progressToasts, this.actionFx]) c.bind(ctx);
     for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.housingHint, this.roomLabel, this.shipManage, this.shipHint, this.itemTip]) c.bind(ctx);
-    for (const c of [this.reload, this.heal, this.gameCursor]) c.bind(ctx);
+    for (const c of [this.reload, this.heal, this.hold, this.gameCursor]) c.bind(ctx);
     for (const c of [this.contractPanel, this.trainingPanel, this.metaToasts]) c.bind(ctx);
     this.community.bind(ctx);
     for (const m of [this.title, this.pause, this.death, this.complete]) m.bind(ctx);
@@ -385,8 +388,9 @@ export class HudSystem implements GameSystem {
   get isHousingHintOn(): boolean { return this.housingHint.isActive; }
   /** Whether the room label is up (debug). */
   get isRoomLabelOn(): boolean { return this.roomLabel.isShowing; }
-  /** Whether the 설정 overlay is open (debug). */
+  /** Whether the 설정 overlay is open / which of its three sections the right pane shows (debug). */
   get isSettingsOpen(): boolean { return this.settings.isOpen; }
+  get settingsSection(): string { return this.settings.activeSection; }
   /** Whether the 함선 관리 screen is showing / which room it edits / how many furniture cards it renders (debug). */
   get isShipManageOn(): boolean { return this.shipManage.isShowing; }
   get shipManageRoom(): number | null { return this.shipManage.activeRoom; }
@@ -417,6 +421,10 @@ export class HudSystem implements GameSystem {
   get isReloadGaugeOn(): boolean { return this.reload.isShowing; }
   get reloadProgress(): number { return this.reload.progress; }
   get isHealGaugeOn(): boolean { return this.heal.isShowing; }
+  /** 2026-09-08 홀드 링 (상호작용 / 포기) — smoke hooks. */
+  get isHoldGaugeOn(): boolean { return this.hold.isShowing; }
+  get holdGaugeProgress(): number { return this.hold.progress; }
+  get isHoldGaugeGiveUp(): boolean { return this.hold.isGiveUp; }
   get isGameCursorOn(): boolean { return this.gameCursor.isShowing; }
   /** Whether the vitals' 포기 bar is up (debug, Phase 9). */
   get isGiveUpBarOn(): boolean { return this.vitals.isGiveUpShowing; }
@@ -439,14 +447,16 @@ export class HudSystem implements GameSystem {
 
   /**
    * Smoke-test hook (Phase 11): install a synthetic `SocialSnapshot` (+ live squad invites) as `ctx.net.social` for
-   * every ui component that reads the social mirror — the ESC column, the community thumbnail / panel and the invite
-   * stack. Same shape as `debugRemotes`: `debugSocial(null)` hands the UI back to the real `ctx.net.social`, and
+   * every ui component that reads the social mirror — the community thumbnail / panel and the invite stack. Same
+   * shape as `debugRemotes`: `debugSocial(null)` hands the UI back to the real `ctx.net.social`, and
    * `debugSocial('offline')` forces the unavailable state even when a relay is connected.
    * `mySquad` is the member count of *my* lobby, which `playBlockReason` needs to judge 같이 하기.
+   *
+   * 2026-09-08: the ESC screen no longer carries a social column (social is the 커뮤니티 panel alone), so the
+   * community panel is the only consumer left.
    */
   debugSocial(snapshot: SocialSnapshot | 'offline' | null, invites: readonly SquadInvite[] = [], mySquad = 1): void {
     setDebugSocial(snapshot, invites, mySquad);
-    this.pause.socialColumn.refresh(true);
     this.community.socialColumn.refresh(true);
   }
 
@@ -501,7 +511,7 @@ export class HudSystem implements GameSystem {
     this.scanTracker.dispose();
     this.cutscene.dispose();
     for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.housingHint, this.roomLabel, this.shipManage, this.shipHint, this.itemTip]) c.dispose();
-    for (const c of [this.reload, this.heal, this.gameCursor]) c.dispose();
+    for (const c of [this.reload, this.heal, this.hold, this.gameCursor]) c.dispose();
     for (const c of [this.contractPanel, this.trainingPanel, this.metaToasts]) c.dispose();
     this.community.dispose();
     for (const m of [this.title, this.pause, this.death, this.complete]) m.dispose();

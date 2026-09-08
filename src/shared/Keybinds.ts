@@ -59,13 +59,17 @@ export const KEY_ACTION_DEFS: readonly KeyActionDef[] = [
   { id: 'PING', label: '핑 (홀드+드래그: 방향 핑)', group: '상호작용', scope: 'game', mouseOnly: true },
   { id: 'CHAT', label: '채팅', group: '상호작용', scope: 'game' },
 
-  { id: 'INVENTORY', label: '인벤토리', group: '인터페이스', scope: 'global' },
-  { id: 'MAP', label: '지도', group: '인터페이스', scope: 'game' },
-  { id: 'MENU', label: '일시 정지 · 닫기', group: '인터페이스', scope: 'global' },
+  /*
+   * 2026-09-08 (ESC = 항상 일시정지): every screen is closed by the key that **opened** it, and Escape is nothing
+   * but the 일시정지 메뉴 — so these labels name both jobs of each key.
+   */
+  { id: 'INVENTORY', label: '인벤토리 · 캐릭터 · 기업 · 함선 (열기 / 닫기)', group: '인터페이스', scope: 'global' },
+  { id: 'MAP', label: '지도 · 함선 관리 (열기 / 닫기)', group: '인터페이스', scope: 'game' },
+  { id: 'MENU', label: '일시 정지 (메뉴는 게임으로 돌아가기로 닫기)', group: '인터페이스', scope: 'global' },
   /* appended (2026-09-07, 커서 rework): frees the mouse cursor without opening a screen; press again to give it back. */
   { id: 'CURSOR', label: '마우스 커서 표시 / 숨기기', group: '인터페이스', scope: 'global' },
-  /* appended (Phase 11): only listened to in the ship, and only while an invite panel is up. */
-  { id: 'INVITE', label: '분대 초대 수락 (함선에서 길게)', group: '인터페이스', scope: 'global' },
+  /* appended (Phase 11); 2026-09-08: a tap is the 커뮤니티 panel, a hold still accepts a 분대 초대. */
+  { id: 'INVITE', label: '커뮤니티 (길게: 분대 초대 수락)', group: '인터페이스', scope: 'global' },
 
   /* dev console (only active on a dev client; listed so the key can be moved off a layout that lacks `) */
   { id: 'CONSOLE', label: '개발자 콘솔 (서버 PC 전용)', group: '인터페이스', scope: 'global', menuOnly: true },

@@ -351,7 +351,7 @@ try {
   ok(corpClick.embedded, '기업 view mounted in the Tab screen host', JSON.stringify(corpClick));
   await page.evaluate(() => [...document.querySelectorAll('.inv-root .scr-tab')].find((b) => b.textContent === '인벤토리').click());
   await sleep(80);
-  await tap('Escape');
+  await tap('Tab');          // 2026-09-08: Tab closes the window (Esc = 일시정지 메뉴)
   await waitFor(page, () => !window.__game.ctx.inventory.isOpen, 'closed');
   // the ship-only guard: the corp tab on a mission warns instead of opening
   await startMission(12);
@@ -364,7 +364,7 @@ try {
   const missionCorp = await page.evaluate((nb) => ({ open: window.__game.ctx.inventory.isOpen, creditsHidden: document.querySelector('.inv-credits').hidden, tabsHidden: !!document.querySelector('.inv-root .scr-tabs')?.hidden }), nb2);
   // Phase 8: the screen tabs only exist in the ship, so on a mission there is nothing to click and no credits readout
   ok(missionCorp.open && missionCorp.creditsHidden && missionCorp.tabsHidden, 'on a mission the screen tabs and the credits readout are hidden', JSON.stringify(missionCorp));
-  await tap('Escape');
+  await tap('Tab');
   await waitFor(page, () => !window.__game.ctx.inventory.isOpen, 'closed (mission)');
 
   /* ── 8. Phase 10: 분대원 장비 열람 (captureCrewLoadout / createCrewLoadoutView) ── */
@@ -457,6 +457,7 @@ try {
   const shown = await page.evaluate(() => {
     localStorage.setItem('scav.audio', '{"master":0.5}');
     localStorage.setItem('scav.keybinds', '{}');
+    localStorage.setItem('scav.display', '{"bloom":false}');   // 2026-09-08: 화면 설정 is a client setting too
     localStorage.setItem('scav.meta', '{"credits":1234}');
     const btn = [...document.querySelectorAll('.menu.title .ui-btn')].find((b) => b.textContent === '새 캐릭터로 시작');
     if (!btn) return { btn: false };
@@ -472,10 +473,12 @@ try {
   const afterReset = await page.evaluate(() => ({
     meta: localStorage.getItem('scav.meta'), token: localStorage.getItem('scav.sessionToken'),
     audio: localStorage.getItem('scav.audio'), keybinds: localStorage.getItem('scav.keybinds'),
+    display: localStorage.getItem('scav.display'),
     stash: window.__game.getSystem('inventory').getStashItems().length,
   }));
   ok(!(afterReset.meta ?? '').includes('1234') && afterReset.token !== shown.token, `초기화가 캐릭터 저장과 세션 토큰을 버린다 (meta ${afterReset.meta}, 새 토큰 ${afterReset.token !== shown.token})`);
-  ok(afterReset.audio === '{"master":0.5}' && afterReset.keybinds === '{}', '오디오 · 키 설정은 캐릭터가 아니므로 남는다');
+  ok(afterReset.audio === '{"master":0.5}' && afterReset.keybinds === '{}' && afterReset.display === '{"bloom":false}',
+    '오디오 · 키 설정 · 화면 설정은 캐릭터가 아니므로 남는다', JSON.stringify(afterReset));
   ok(afterReset.stash > 0, `새 캐릭터의 함선 창고에 기본 지급품이 들어 있다 (${afterReset.stash} 아이템)`);
 } catch (e) {
   fail++;

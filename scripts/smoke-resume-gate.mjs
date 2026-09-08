@@ -1,5 +1,9 @@
-// Phase 12 game/ smoke: the 브라우저 재개 게이트 ('좌측 클릭으로 게임 재개'), the desktop-shell cursor rules and the
-// 일시정지 메뉴 ↔ 인벤토리 Escape regression (the pause is the top screen and never shares it with another one).
+// game/ smoke: the 브라우저 재개 게이트 ('좌측 클릭으로 게임 재개'), the desktop-shell cursor rules and the way the
+// 일시정지 메뉴 stacks over an open screen (2026-09-08: ESC = 항상 일시정지).
+//
+// 2026-09-08: the gate's trigger is a screen closed by **its own key** (Tab / M / E) whose re-lock the browser then
+// refuses — Escape does not close screens any more, it opens the 일시정지 메뉴, and that menu's 게임으로 돌아가기
+// click is normally the gesture Chrome wants. The gate is what is left for every path where no click arrives.
 //
 // The pointer lock is stubbed *realistically*: `window.__lockGrant` decides whether `requestPointerLock` resolves (and
 // sets `pointerLockElement`) or rejects — a rejection is exactly what Chrome does after an Escape (no user activation),
@@ -130,18 +134,18 @@ try {
   ok(!!(await P(() => document.querySelector('.resume-gate'))) && (await P(() => document.querySelector('.resume-gate').parentElement === window.__game.ctx.uiRoot)), 'gate DOM exists under ctx.uiRoot (hidden)');
 
   /* ── 1. container → Escape → refused re-lock → gate ─────────────────────── */
-  console.log('1. Escape closes the container window; the refused re-lock shows the gate');
+  console.log('1. Tab closes the container window; the refused re-lock shows the gate');
   await openContainer('test:1');
   await waitSim(0.15);
   s = await state();
   ok(s.invVis && s.cursor && !s.locked && s.blockers.join() === 'inventory' && !s.gateVis, 'container window: cursor mode, lock released, gate hidden', JSON.stringify(s));
   await grant(false);
   const gateN0 = (await gateEvents()).length;
-  await tap('Escape');
-  await waitState('(s) => s.gateVis', 'gate shown after Escape', 5000);
+  await tap('Tab');
+  await waitState('(s) => s.gateVis', 'gate shown after Tab', 5000);
   s = await state();
   // `InventoryUI.hide()` keeps the root in the DOM for a 180 ms close transition, so `isOpen` is the immediate signal.
-  ok(!s.invOpen, 'Escape closed the inventory (its capture-phase listener)', JSON.stringify(s));
+  ok(!s.invOpen, 'Tab closed the container window (the key that opens it)', JSON.stringify(s));
   await waitState('(s) => !s.invVis', 'inventory root gone after its close transition', 3000);
   ok(!s.menuVis, 'and did NOT open the 일시정지 메뉴 in the same frame', JSON.stringify(s));
   ok(s.awaiting && !s.locked && !s.cursor, 'lock refused → Input.awaitingLockGesture, no cursor owner', JSON.stringify(s));
@@ -156,7 +160,7 @@ try {
   ok((await state()).gateVis, 'gate persists while nothing re-locks');
 
   /* ── 2. Escape on the gate = pause menu on top; closing it with Escape brings the gate back ── */
-  console.log('2. Escape on the gate opens the 일시정지 메뉴; Escape again → gate again');
+  console.log('2. Escape on the gate opens the 일시정지 메뉴; 게임으로 돌아가기 → gate again (lock still refused)');
   await tap('Escape');
   await waitState('(s) => s.menuVis && !s.gateVis', 'pause over the gate', 5000);
   s = await state();
@@ -168,9 +172,12 @@ try {
   const z = await P(() => ({ settings: getComputedStyle(document.querySelector('.menu.settings-menu')).zIndex, keybind: getComputedStyle(document.querySelector('.menu.keybind-menu')).zIndex }));
   ok(Number(z.settings) > 85 && Number(z.keybind) > Number(z.settings), 'settings (86) and keybind (88) menus stay above the pause', JSON.stringify(z));
   await tap('Escape');
-  await waitState('(s) => s.gateVis && !s.menuVis', 'gate back after the pause closed with Escape', 5000);
+  await waitSim(0.2);
+  ok((await state()).menuVis, 'a second Escape is inert — the menu never closes on the key', JSON.stringify(await state()));
+  await P(() => [...document.querySelectorAll('.menu.pause button')].find((b) => b.textContent.includes('게임으로 돌아가기')).click());
+  await waitState('(s) => s.gateVis && !s.menuVis', 'gate back after 게임으로 돌아가기', 5000);
   s = await state();
-  ok(s.gateVis && !s.menuVis && !s.locked, 'Escape closes the pause; the refused re-lock shows the gate again', JSON.stringify(s));
+  ok(s.gateVis && !s.menuVis && !s.locked, '돌아가기 closes the pause; the still-refused re-lock shows the gate again', JSON.stringify(s));
   ok((await ev('game:paused')).slice(-2).map((e) => e.paused).join() === 'true,false', 'game:paused true → false');
 
   /* ── 3. left click on the gate = the gesture → lock → gate gone ─────────── */
@@ -189,8 +196,8 @@ try {
   await grant(false);
   await tap('Tab'); await waitSim(0.15);
   ok((await state()).invVis, 'Tab opens the bag');
-  await tap('Escape');
-  await waitState('(s) => s.gateVis', 'gate after Escape (bag)', 5000);
+  await tap('Tab');
+  await waitState('(s) => s.gateVis', 'gate after Tab (bag)', 5000);
   await grant(true);
   await P(() => { window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW', key: 'w', bubbles: true })); window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW', key: 'w', bubbles: true })); });
   await waitState('(s) => s.locked && !s.gateVis', 'gate hidden after the W retry', 5000);
@@ -210,7 +217,7 @@ try {
   /* ── 6. window blur behind the gate still pauses (the gate is not a screen) ── */
   console.log('6. window blur behind the gate pauses');
   await grant(false);
-  await tap('Tab'); await waitSim(0.15); await tap('Escape');
+  await tap('Tab'); await waitSim(0.15); await tap('Tab');
   await waitState('(s) => s.gateVis', 'gate (6)', 5000);
   await P(() => window.dispatchEvent(new Event('blur')));
   await waitState('(s) => s.menuVis', 'pause on blur', 5000);
@@ -220,30 +227,33 @@ try {
   await P(() => window.__game.ctx.bus.emit('game:paused', { paused: false }));
   await waitState('(s) => s.locked && !s.menuVis', 'unpaused + locked (6)', 5000);
 
-  /* ── 7. the deadlock regression: pause + container never coexist ───────── */
-  console.log('7. 일시정지 메뉴 ↔ 컨테이너 창: exactly one screen, both close paths work');
+  /* ── 7. the menu stacks over a container window (2026-09-08) ───────────── */
+  console.log('7. 일시정지 메뉴 ↔ 컨테이너 창: the menu stacks, 돌아가기 returns to the window');
   await tap('Escape');
   await waitState('(s) => s.menuVis', 'paused (7)', 5000);
   await openContainer('test:7');
-  await waitState('(s) => s.invVis && !s.menuVis', 'pause yielded to the container window', 5000);
+  await waitState('(s) => s.invVis', 'container opened under the menu', 5000);
   s = await state();
-  ok(s.invVis && !s.menuVis && s.blockers.join() === 'inventory', 'a window opening over the pause dismisses the pause (one screen left)', JSON.stringify(s));
-  ok((await ev('game:paused')).slice(-1)[0].paused === false, 'game:paused false was emitted for the yield');
-  await tap('Escape');
+  ok(s.invVis && s.menuVis && [...s.blockers].sort().join() === 'inventory,menu',
+     'a window opening under the pause leaves both up — the menu no longer yields', JSON.stringify(s));
+  await P(() => [...document.querySelectorAll('.menu.pause button')].find((b) => b.textContent.includes('게임으로 돌아가기')).click());
+  await waitState('(s) => !s.menuVis && s.invVis', '돌아가기 → back to the container (7)', 5000);
+  s = await state();
+  ok(s.invVis && !s.menuVis && s.blockers.join() === 'inventory', '돌아가기 returns to the container it stacked over', JSON.stringify(s));
+  await tap('Tab');
   await waitState('(s) => !s.invVis && s.locked', 'container closed + locked (7)', 5000);
   s = await state();
-  ok(!s.invVis && !s.menuVis && s.locked && s.blockers.length === 0, 'Escape closes the container window; nothing else opens; locked', JSON.stringify(s));
-  // reverse order: container first, then a pause can not open at all
+  ok(!s.invVis && !s.menuVis && s.locked && s.blockers.length === 0, 'Tab closes the container window; nothing else opens; locked', JSON.stringify(s));
+  // a screen that owns the cursor still suppresses the focus-loss pause
   await openContainer('test:7b'); await waitSim(0.1);
-  await P(() => { const ctx = window.__game.ctx; ctx.input.consume('Escape'); });
   const pausedN = (await ev('game:paused')).length;
   await P(() => window.dispatchEvent(new Event('blur')));
   await waitSim(0.3);
   s = await state();
   ok(s.invVis && !s.menuVis && (await ev('game:paused')).length === pausedN, 'blur while a container is open does not pause (screen owns the cursor)', JSON.stringify(s));
-  await tap('Escape');
+  await tap('Tab');
   await waitState('(s) => !s.invVis && s.locked', 'container closed (7b)', 5000);
-  // 게임으로 돌아가기 button path
+  // 게임으로 돌아가기 button path from a plain pause
   await tap('Escape');
   await waitState('(s) => s.menuVis', 'paused (7c)', 5000);
   await P(() => [...document.querySelectorAll('.menu.pause button')].find((b) => b.textContent.includes('게임으로 돌아가기')).click());
@@ -262,7 +272,7 @@ try {
   ok(s.invVis && !s.nocursor, 'a screen taking cursor mode shows the cursor again (class off)', JSON.stringify(s));
   await grant(false);
   const gateN8 = (await gateEvents()).length;
-  await tap('Escape');
+  await tap('Tab');
   await waitState('(s) => !s.invVis && s.awaiting', 'bag closed, lock refused (desktop)', 5000);
   await waitSim(0.4);
   s = await state();
@@ -278,7 +288,7 @@ try {
   await tap('AltLeft'); await waitSim(0.15);
   s = await state();
   ok(s.blockers.includes('cursor') && !s.nocursor, 'Alt 커서 (a cursor owner) shows the OS cursor in the shell', JSON.stringify(s));
-  await tap('Escape'); await waitState('(s) => s.locked && s.nocursor', 'Alt cursor closed (desktop)', 5000);
+  await tap('AltLeft'); await waitState('(s) => s.locked && s.nocursor', 'Alt cursor closed (desktop)', 5000);
   await P(() => { window.__scavDesktop = false; });
   await waitState('(s) => !s.nocursor', 'desktop off', 5000);
   ok(!(await state()).nocursor, 'browser again: class removed');
@@ -291,9 +301,9 @@ try {
   await grant(false);
   await tap('Tab'); await waitSim(0.15);
   ok((await state()).invVis, 'hub Tab screen opens');
-  await tap('Escape');
+  await tap('Tab');
   await waitState('(s) => s.gateVis', 'gate in the hub', 5000);
-  ok((await state()).gateVis && (await state()).phase === 'hub', 'gate shows in the ship after an Escape-closed screen');
+  ok((await state()).gateVis && (await state()).phase === 'hub', 'gate shows in the ship after a Tab-closed screen');
   await grant(true);
   await clickGate();
   await waitState('(s) => s.locked && !s.gateVis', 'hub gate click', 5000);

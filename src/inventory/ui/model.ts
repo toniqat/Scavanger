@@ -75,9 +75,6 @@ export interface SlotView {
   slot: SlotId;
   el: HTMLElement;
   body: HTMLElement;
-  bodyW: number;
-  bodyH: number;
-  meta: HTMLElement;
   key: HTMLElement | null;
   tile: HTMLElement | null;
   uid: string | null;

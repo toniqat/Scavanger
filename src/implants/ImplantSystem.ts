@@ -327,7 +327,10 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
   /** Charge-based implants may fire while a refill is running; single-charge ones may not. */
   private cdRemainingBlocking(): number { return Charge.cdRemainingBlocking(this); }
 
-  /** Spend one charge. `startCooldown` false = the caller starts it later (scan starts it when the train ends). */
+  /**
+   * Spend one charge. `startCooldown` false = the caller starts it later (scan starts it when the train ends).
+   * A refill already in flight is never restarted — see `parts/Charges.useCharge`.
+   */
   useCharge(startCooldown = true): boolean { return Charge.useCharge(this, startCooldown); }
 
   startCooldown(seconds?: number): void { return Charge.startCooldown(this, seconds); }

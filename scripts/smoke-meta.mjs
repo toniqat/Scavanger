@@ -558,7 +558,7 @@ try {
   });
   ok(settled.after < settled.before && settled.buy === 0, `거래 성사 settles the basket and empties the trays (${settled.before} → ${settled.after})`, JSON.stringify(settled));
   ok(shopDom.stage, '귀중품 전부 담기 button sits under the 판매 tray');
-  await tap('Escape');
+  await tap('Tab');
   await sleep(60);
   const closed = await P(() => ({
     view: !!document.querySelector('.inv-screen.corp-view'),
@@ -713,9 +713,11 @@ try {
   }));
   ok(questDom.badge === '가능' && questDom.sel && questDom.name === '신경 접합제' && questDom.lines === 3 && questDom.reward && questDom.accept === '수락',
     '퀘스트 tab: ci1 가능 · 3 delivery lines · reward chip imp_perception_3 · 수락', JSON.stringify(questDom));
-  await tap('Escape');
+  // 2026-09-08 (ESC = 항상 일시정지): the 기업 desk is a tab of the inventory window, so **Tab** closes it —
+  // Escape now only opens the 일시정지 메뉴 on top of it.
+  await tap('Tab');
   await sleep(60);
-  ok(await P(() => !document.querySelector('.inv-screen.corp-view') && !window.__game.ctx.meta.isMenuOpen), 'Esc closes the desk window');
+  ok(await P(() => !document.querySelector('.inv-screen.corp-view') && !window.__game.ctx.meta.isMenuOpen), 'Tab closes the desk window');
 
   console.log('persistence: corrupt save is sanitised');
   // the 거래 성사 above left a debounced save pending — let it land first, or the pagehide flush would

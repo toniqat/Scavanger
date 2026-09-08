@@ -241,7 +241,9 @@ try {
   const cat = await page.evaluate(() => ({ open: window.__game.ctx.inventory.isCatalogOpen, consoleOpen: window.__game.ctx.console.isOpen }));
   ok(itemsEv.ok && /카탈로그/.test(itemsEv.output) && cat.consoleOpen === false, '/items prints and closes the console first', JSON.stringify({ itemsEv, cat }));
   ok(cat.open === true && (await lastEv('ui:catalogToggled'))?.open === true, '/items → inventory catalog open (isCatalogOpen + ui:catalogToggled)');
-  await page.evaluate(() => { const inv = window.__game.ctx.inventory; if (inv.isCatalogOpen) inv.closeCatalog(); });
+  // 2026-09-08: closing the catalog panel leaves the window (and its blocker) up — Escape no longer closes it,
+  // Tab does. Shut the whole thing so the checks below see a clean screen.
+  await page.evaluate(() => { const inv = window.__game.ctx.inventory; if (inv.isCatalogOpen) inv.closeCatalog(); if (inv.isOpen) inv.closeAll(); });
   await tap('Backquote');
   const statBefore = await page.evaluate(() => window.__game.ctx.progression.getStat('strength'));
   await run('/stat str 100000');
@@ -297,8 +299,8 @@ try {
   await tap('Escape');
   s = await state();
   ok(!s.open && s.phase === 'playing' && (await ev('game:paused')).length === pausedBefore, 'Esc closes only the console — game not paused', JSON.stringify(s));
-  const relock = await page.evaluate(() => window.__game.ctx.uiBlockers.size);
-  ok(relock === 0 && !s.cursor, 'no blocker and no in-game cursor left after closing');
+  const relock = await page.evaluate(() => [...window.__game.ctx.uiBlockers]);
+  ok(relock.length === 0 && !s.cursor, 'no blocker and no in-game cursor left after closing', JSON.stringify({ relock, cursor: s.cursor }));
   // keys dispatched while the console is open must not move the player
   await tap('Backquote');
   const k0 = await pos();
