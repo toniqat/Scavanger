@@ -53,6 +53,29 @@ npm run typecheck:app
 ```
 `npm run dev` / `npm run dev:all` 브라우저 흐름은 그대로다 — 스모크 · e2e 는 전부 vite 를 본다.
 
+### `electronDist` 는 지우지 않는다
+
+`package.json` 의 `build.electronDist = "node_modules/electron/dist"` 는 **필수 설정이다.**
+없으면 electron-builder 가 electron 을 새로 내려받아 `release/win-unpacked.tmp` 에 320 MB 를 푼 직후
+`win-unpacked` 로 폴더 이름을 바꾸는데, 이 rename 이 EDR(SentinelOne) 의 정적 스캐너가 갓 풀린
+246 MB `electron.exe` 를 붙잡고 있는 사이에 걸려 **매번** 터진다:
+
+```
+⨯ EPERM: operation not permitted, rename '…\release\win-unpacked.tmp' -> '…\release\win-unpacked'
+```
+
+권한 문제가 아니다 — 같은 자리의 다른 폴더도, 그 폴더 **안의** 파일도 전부 이름이 바뀐다.
+잠기는 것은 최상위 `.tmp` 폴더 하나뿐이고, 몇 분 뒤 스캔이 끝나면 풀린다(재시도로는 못 넘긴다).
+
+`electronDist` 를 주면 electron-builder 가 다운로드 · 압축 해제 · rename 경로를 통째로 건너뛰고
+`node_modules/electron/dist`(npm 이 이미 풀어둔, 이미 스캔이 끝난 것과 같은 버전)를 **복사만** 한다
+(`app-builder-lib` 의 `ElectronFramework` → `unpack()` 의 "custom unpacked Electron distribution" 분기).
+경합할 창이 사라지고 빌드도 빨라진다.
+
+대가는 그 분기가 `shouldCleanup = false` 라서 정리 단계를 건너뛴다는 것 — 산출물에
+`resources/default_app.asar`(111 KB)과 `version`(6 바이트)이 남는다. `app.asar` 이 우선하므로 동작에는
+영향이 없고 exe 는 +115 KB 다. `LICENSE → LICENSE.electron.txt` 이름 변경은 그대로 수행된다.
+
 ## 릴레이 주소
 
 **어느 릴레이에 붙을지**는 아래 순서로 정해진다. 먼저 걸리는 것이 이긴다.
@@ -165,4 +188,7 @@ Tab → Escape / Tab → Tab)로 비교했다.
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../docs/HISTORY.md) 에 있다.
 
+- **2026-09-08** — `package.json` 에 `build.electronDist = "node_modules/electron/dist"` 추가.
+  electron-builder 의 다운로드 → 압축 해제 → `win-unpacked.tmp` rename 경로가 EDR 파일 잠금과 경합해
+  `npm run app:dist` 가 매번 `EPERM … rename` 으로 죽던 것을 복사 경로로 우회한다 (위 `electronDist` 절).
 - **Phase 12 (2026-09-08)** — `handleEscape` 가 Escape **key-up** 에서 `executeJavaScript(SHELL_RELOCK, true)`(사용자 제스처 실행)로 페이지의 `__scavShellRelock` 을 불러 셸에서 재잠금을 시도한다 — 키 자체는 건드리지 않는다(`preventDefault` + 합성 Escape 전달은 페이지가 키를 **두 번** 받게 만드는 것이 측정으로 확인되어 걷어냈다), `--raw-escape` / `SCAV_RAW_ESCAPE` 로 끌 수 있다; `start-game.bat` 삭제(실행은 `SCAVANGER.exe` 또는 `npm run dev`)

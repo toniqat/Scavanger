@@ -41,6 +41,7 @@
   "build": {
     "appId": "com.scavanger.game",
     "productName": "SCAVANGER",
+    "electronDist": "node_modules/electron/dist",
     "directories": {
       "output": "release",
       "buildResources": "electron/resources"

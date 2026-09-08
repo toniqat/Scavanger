@@ -46,6 +46,23 @@ Phase 0 – 12 는 전부 구현 완료다 (2026-09-05 ~ 2026-09-08). 각 단계
 
 최신순. 새 항목은 이 섹션 맨 위에 추가한다.
 
+- 2026-09-08 (데스크톱 빌드 — EDR 파일 잠금 우회): `npm run app:dist` 가
+  `EPERM: operation not permitted, rename 'release\win-unpacked.tmp' -> 'release\win-unpacked'` 로 죽었다.
+  권한 문제가 아니었다 — 부모 폴더 ACL 정상, 같은 자리에 만든 대조군 폴더는 rename 성공, 잠긴 폴더 **안의**
+  `electron.exe` · `version` · `locales/` 도 전부 rename 성공, 파일 잠금 0건. 오직 최상위 `win-unpacked.tmp`
+  폴더 하나에만 핸들이 걸려 있었다. 이 PC 는 Windows Defender 가 꺼져 있고(`RealTimeProtectionEnabled: False`)
+  **SentinelOne** 이 대신 돌고 있는데(`SentinelStaticEngineScanner` ×2), electron 44.2.0 을 새로 받아 246 MB
+  `electron.exe` 를 포함한 320 MB 를 갓 풀어놓자 정적 스캐너가 그 폴더를 잡았고 electron-builder 가 곧바로 시도한
+  폴더 rename 이 거기 걸렸다. 몇 분 뒤에는 풀리지만(그때 `.tmp` 삭제는 정상 동작) **재시도로는 못 넘긴다** —
+  압축 해제 직후 즉시 잠기므로 매 빌드 재현된다.
+
+  `package.json` 의 `build` 에 `"electronDist": "node_modules/electron/dist"` 한 줄로 고쳤다. electron-builder 가
+  다운로드 · 압축 해제 · `.tmp` rename 경로를 통째로 건너뛰고 npm 이 이미 풀어둔 같은 버전(44.2.0 확인)을 **복사만**
+  한다 — 경합할 창 자체가 없어지고 다운로드 단계도 사라진다. 대가는 그 분기가 `shouldCleanup = false` 라
+  `resources/default_app.asar`(111 KB)과 `version`(6 바이트)이 남는 것뿐이다(`app.asar` 우선이므로 무해, exe +115 KB).
+  `npm run app:dist` 관통 확인 후 portable exe 를 실행해 `SCAVANGER` 창이 뜨는 것까지 봤다. 배경은
+  [electron/README.md](../electron/README.md) 의 `electronDist 는 지우지 않는다` 절에 있다.
+
 - 2026-09-08 (main 병합 — ESC 규칙 통일 · 바위 엄폐 ↔ 로그 엄폐): `main` 과 `feature/implant-system-barrier-scan-ux`
   가 같은 날 서로 갈라져 **충돌 22파일**로 만났다. `main` 쪽에는 투척 궤적 · 전투불능 연출 · 홀드 링 · 바위 엄폐 ·
   장착 슬롯 카드 · **ESC = 항상 일시정지**가, 이 브랜치 쪽에는 Phase 12 임플란트 · 튜토리얼 · 문서 재구성 ·
