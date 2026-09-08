@@ -669,4 +669,14 @@ Plan: `docs/DECISIONS.md`. Everything below is append-only; owners in brackets.
   함수에서 `ctx.tutorial?.blockReason(gate, id)` 를 한 번 부르고, 숨겨야 할 셸 요소는 `hides(gate)` 로 묻는다.
   튜토리얼이 꺼져 있으면 둘 다 `null` / `false` 라 평소 동작이 바뀌지 않는다
 
+- **2026-09-08 (튜토리얼 UI/UX 수정)** — `tutorial.ts` 에 **append-only** 둘: 단계 `'generator'`(발전기 가동,
+  `manage` 와 `workshop` 사이 — 새 함선은 발전기 Lv.0 이라 그 전에는 작업실 증축이 규칙에 막혀 진행이
+  불가능했다. `TUTORIAL_STEPS` 14 → **15**), 그리고 `TutorialRef.hides(gate, **id?**)` — 선택 인자라 옛
+  호출부(`hides('community')`)는 그대로다. 의미는 "막히는 것은 곧 감춘다": id 를 주면 그 항목 하나를,
+  안 주면 "이 게이트가 완전히 열려 있나"를 묻는다.
+- **2026-09-08 (커서를 빼앗기지 않는다)** — `Input.requestPointerLock()` 이 **커서 주인이 있으면 요청 자체를
+  하지 않고**, 이미 날아간 요청이 화면이 열린 뒤 도착하면 `pointerlockchange` 에서 즉시 락을 놓는다.
+  화면을 여는 것과 같은 tick 에 relock 을 부르던 호출부(`hub/parts/Transitions.enter`)가 튜토리얼 시작 카드에서
+  마우스를 도로 빼앗아 **카드를 클릭할 수 없던** 버그의 근본 수정이다. 커서 소유권 모델(`cursor.ts`)은 그대로다
+
 - **2026-09-08 (ESC = 항상 일시정지 · 병합 정리)** — `RESUME_GATE_BLOCKER` 는 그대로 남는다. Escape 가 늘 일시정지 메뉴를 열게 된 뒤에도, 메뉴까지 닫힌 뒤 락을 되찾지 못한 마지막 경우(`awaitingLockGesture`)는 여전히 재개 게이트가 받는다 — `game/parts/Phases` 의 `noScreenOpen()` 계열이 이 토큰을 투명하게 취급하는 것도 그대로다

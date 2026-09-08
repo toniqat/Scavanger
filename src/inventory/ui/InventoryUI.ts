@@ -335,6 +335,8 @@ export class InventoryUI {
     this.ctx.uiRoot.appendChild(root);
     // key labels follow the live bindings
     this.ctx.bus.on('input:bindingsChanged', () => this.refreshKeyLabels());
+    // 2026-09-08: 튜토리얼이 감춘 화면 탭 · 레시피는 단계가 넘어가거나 건너뛰어지는 즉시 돌아온다
+    this.ctx.bus.on('tutorial:changed', () => { this.markTab(); this.refresh(); });
   }
 
   /** Bottom hint bar (mission): rotation / drop keys read the live bindings. */

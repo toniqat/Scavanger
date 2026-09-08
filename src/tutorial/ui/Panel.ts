@@ -9,6 +9,10 @@ import type { StepDef } from '../model';
  * 구성: `튜토리얼 n / m` 라벨 · 제목 · 부제 · 진행 바 · 그 아래 **건너뛰기** 버튼. 버튼만 클릭을 받으므로
  * 패널 자체는 `pointer-events: none` 이고 버튼에만 `.interactive` 를 준다 (커서 모드가 아닐 때도 눌리도록
  * `ui-root` 의 규약을 따른다).
+ *
+ * **2026-09-08 — 스포트라이트가 이 패널을 덮지 않는다.** 포커싱이 켜지면 `setLifted(true)` 로 패널을
+ * 어두운 판(`.tut-spot`, z 78) 위로 올린다. 그래야 지금 무엇을 해야 하는지가 계속 읽히고, 무엇보다
+ * **건너뛰기 버튼을 언제든 누를 수 있다** — 포커싱이 어딘가에 잘못 걸려도 튜토리얼에서 빠져나갈 수 있다.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 export class TutorialPanel {
@@ -19,6 +23,7 @@ export class TutorialPanel {
   private readonly fill: HTMLElement;
   private readonly skipBtn: HTMLButtonElement;
   private _visible = false;
+  private _lifted = false;
 
   constructor(parent: HTMLElement, onSkip: () => void) {
     const root = this.root = document.createElement('div');
@@ -53,6 +58,12 @@ export class TutorialPanel {
   }
 
   get visible(): boolean { return this._visible; }
+  /** 스포트라이트가 떠 있는 동안 패널을 그 위로 올린다 (딤 제외 + 건너뛰기 클릭 가능). */
+  setLifted(on: boolean): void {
+    if (on === this._lifted) return;
+    this._lifted = on;
+    this.root.classList.toggle('is-lifted', on);
+  }
 
   show(def: StepDef, index: number, count: number): void {
     this.label.textContent = `튜토리얼 ${index} / ${count}`;
@@ -64,6 +75,7 @@ export class TutorialPanel {
   }
 
   hide(): void {
+    this.setLifted(false);
     if (!this._visible) return;
     this._visible = false;
     this.root.hidden = true;

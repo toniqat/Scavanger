@@ -1561,9 +1561,6 @@ input { font: inherit; color: inherit; }
 .scr-tab.is-disabled { opacity: 0.4; cursor: default; }
 .scr-tab.is-disabled:hover { color: var(--c-text-dim); background: none; }
 /* 튜토리얼 잠금 (2026-09-08) — 안내가 도는 동안 인벤토리 외 탭은 잠긴다 (사유는 title 툴팁). */
-.scr-tab.is-locked { opacity: 0.4; cursor: not-allowed; color: var(--c-text-faint); }
-.scr-tab.is-locked::before { content: '🔒'; margin-right: 5px; font-size: 10px; }
-.scr-tab.is-locked:hover { color: var(--c-text-faint); background: none; }
 
 /* 레드닷 (2026-09-08) — 쓰지 않은 능력치 포인트가 있는 캐릭터 탭. `data-alert` 가 남은 포인트 수. */
 .scr-tab.has-alert { position: relative; }
@@ -2545,9 +2542,11 @@ button.item-chip[data-def-id] { cursor: pointer; }
 .sm-purpose.flash { animation: smFlash 0.5s var(--ease); }
 @keyframes smFlash { 0% { background: rgba(255, 77, 77, 0.35); } 100% { background: rgba(255, 255, 255, 0.03); } }
 
-/* centred modeless confirm popup of the 시설 관리 screen (purpose build / 발전기 upgrade) */
+/* centred modeless confirm popup of the 시설 관리 screen (purpose build / 발전기 upgrade).
+   z 79: above the 튜토리얼 스포트라이트 (`.tut-spot`, 78) — the popup opens from a button the spotlight is
+   highlighting, so the dark panes must never end up on top of it. Still below the 일시정지 메뉴 (85). */
 .sm-confirm {
-  position: absolute; inset: 0; z-index: 5;
+  position: absolute; inset: 0; z-index: 79;
   display: flex; align-items: center; justify-content: center;
   background: rgba(4, 6, 9, 0.55);
 }

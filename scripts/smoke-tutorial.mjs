@@ -3,6 +3,8 @@
 // (room purpose / furniture / craft / terminal / planet / pod / screen tabs), the community + matchmaking hiding,
 // the spotlight (dark panes + ring on the step's target), the 3D floor guide, the one-time material grant,
 // step persistence across a reload, the 건너뛰기 confirm card and the console command.
+// 2026-09-08: + the 발전기 step, "잠그지 않고 감춘다" (`hides(gate, id)` → 용도 · 화면 탭이 목록에서 빠진다),
+// the objective panel staying above the spotlight (`.tut-panel.is-lifted`) and the cursor showing under the card.
 // Usage: node scripts/smoke-tutorial.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { existsSync } from 'node:fs';
@@ -104,12 +106,15 @@ try {
     blocker: window.__game.ctx.uiBlockers.has('tutorial'),
     cursor: window.__game.ctx.input.isCursorMode,
     panel: !document.querySelector('.tut-panel')?.hidden,
+    cursorOn: document.body.classList.contains('cursor-on'),
     ev: window.__ev['tutorial:changed'].slice(-1)[0],
   }));
   ok(intro.popup && intro.title === '튜토리얼' && intro.acts.join(',') === '건너뛰기,시작', '새 프로필로 함선에 들어오면 시작 카드가 뜬다', JSON.stringify(intro.acts));
   ok(intro.blocker && intro.cursor, '시작 카드가 tutorial 블로커 + 소프트 커서를 잡는다', JSON.stringify({ b: intro.blocker, c: intro.cursor }));
   ok(intro.panel, '좌측 상단 목표 패널이 함께 뜬다');
-  ok(intro.ev && intro.ev.active === true && intro.ev.step === 'intro' && intro.ev.count === 14, `tutorial:changed {intro, 1/14} (${JSON.stringify(intro.ev)})`);
+  // 2026-09-08: 함선에 들어서며 걸린 relock 이 카드에서 커서를 빼앗아 가면 안 된다 (버튼을 누를 수가 없다)
+  ok(intro.cursorOn, '카드가 뜬 채로 마우스 커서가 살아 있다 (body.cursor-on)');
+  ok(intro.ev && intro.ev.active === true && intro.ev.step === 'intro' && intro.ev.count === 15, `tutorial:changed {intro, 1/15} (${JSON.stringify(intro.ev)})`);
 
   /* ── 2. 게이트가 순서를 강제한다 ────────────────────────────────────── */
   console.log('게이트');
@@ -120,11 +125,16 @@ try {
       board: t.blockReason('board'), terminal: t.blockReason('terminal'),
       inv: t.blockReason('screenTab', 'inventory'), corp: t.blockReason('screenTab', 'corp'),
       hidesCommunity: t.hides('community'), hidesNet: t.hides('matchmaking'),
+      hidesLounge: t.hides('roomPurpose', 'lounge'), hidesWorkshop: t.hides('roomPurpose', 'workshop'),
+      hidesCorp: t.hides('screenTab', 'corp'), hidesInv: t.hides('screenTab', 'inventory'),
+      hidesPlanet: t.hides('planet'),
     };
   });
   ok(!!gated.lounge && !!gated.workshop && !!gated.board && !!gated.terminal, 'intro 단계에서는 아무것도 못 한다', JSON.stringify(gated));
   ok(gated.inv === null && !!gated.corp, '인벤토리 탭은 언제나 열려 있고 나머지 탭은 잠긴다', JSON.stringify({ inv: gated.inv, corp: gated.corp }));
   ok(gated.hidesCommunity && gated.hidesNet, '커뮤니티 버튼과 매치메이킹은 숨긴다');
+  ok(gated.hidesLounge && gated.hidesCorp && !gated.hidesInv && gated.hidesPlanet,
+    '막힌 항목은 숨김 대상이기도 하다 (인벤토리 탭만 예외)', JSON.stringify(gated));
   const podBlocked = await P(() => {
     const it = window.__game.ctx.interactables.all().find((i) => i.id === 'hub_pod_0');
     return { prompt: it?.getPrompt() ?? null, boarded: window.__game.getSystem('hub').boardedSlot };
@@ -148,17 +158,42 @@ try {
     title: document.querySelector('.tut-panel .tut-title')?.textContent,
   }));
   ok(afterIntro.popup && !afterIntro.blocker && /함선 관리/.test(afterIntro.title ?? ''), '카드가 닫히고 목표가 함선 관리로 바뀐다', JSON.stringify(afterIntro));
-  // 다른 용도는 여전히 거부된다 (엄격 강제)
+  /* ── 3b. 발전기 단계 (2026-09-08) ──────────────────────────────────── */
   await P(() => window.__game.ctx.housing.openShipManage(0));
+  await waitStep('generator');
+  // 재료를 채운다 — 발전기 가동과 작업실 증축에 필요하다
+  await P(() => {
+    const ctx = window.__game.ctx;
+    const give = (id, n) => { const max = ctx.loot.getItemDef(id).stackMax ?? 1; let a = 0; while (a < n) { const q = Math.min(max, n - a); if (!ctx.inventory.tryAddItem(ctx.loot.createItem(id, q))) break; a += q; } };
+    give('mat_scrap', 40); give('mat_cable', 8); give('mat_alloy', 8);
+  });
+  await waitFor(page, () => !document.querySelector('.tut-spot')?.hidden, 'spotlight (발전기)');
+  const genUi = await P(() => ({
+    gen: !!document.querySelector('.sm-gen .sm-gen-btn'),
+    purposes: [...document.querySelectorAll('.sm-purposes .sm-purpose')].map((b) => b.dataset.purpose),
+    tip: document.querySelector('.tut-spot-tip')?.textContent ?? '',
+    lifted: document.querySelector('.tut-panel')?.classList.contains('is-lifted') ?? false,
+  }));
+  ok(genUi.gen, '용도 목록 맨 위에 발전기 행이 있다');
+  ok(genUi.purposes.length === 1 && genUi.purposes[0] === 'workshop',
+    '작업실 외의 용도는 사유가 아니라 아예 목록에서 빠진다', JSON.stringify(genUi.purposes));
+  ok(/발전기/.test(genUi.tip), `말풍선이 발전기를 가리킨다 ("${genUi.tip}")`);
+  ok(genUi.lifted, '포커싱 중에도 목표 패널은 어두운 판 위에 있다 (건너뛰기 클릭 가능)');
+  ok(await P(() => window.__game.ctx.housing.upgrade('generator')), '발전기를 가동한다');
   await waitStep('workshop');
+
+  // 다른 용도는 여전히 거부된다 (엄격 강제)
   const wrongPurpose = await P(() => {
     const h = window.__game.ctx.housing;
     return { lounge: h.setRoomPurpose(1, 'lounge'), block: h.purposeBlock(1, 'lounge'), purpose: h.getRoom(1).purpose };
   });
   ok(wrongPurpose.lounge === false && /작업실/.test(wrongPurpose.block ?? '') && wrongPurpose.purpose === 'empty',
     '작업실이 아닌 용도는 거부된다 (사유에 작업실이 나온다)', JSON.stringify(wrongPurpose));
-  // 스포트라이트는 다음 프레임에 대상을 찾아 자리를 잡는다 (`RETARGET_INTERVAL`) — 뜰 때까지 기다린다
-  await waitFor(page, () => !document.querySelector('.tut-spot')?.hidden, 'spotlight');
+  // 스포트라이트는 다음 프레임에 대상을 찾아 자리를 잡는다 (`RETARGET_INTERVAL`) — 말풍선이 바뀔 때까지 기다린다
+  await waitFor(page, () => {
+    const r = document.querySelector('.tut-spot');
+    return r && !r.hidden && /작업실/.test(document.querySelector('.tut-spot-tip')?.textContent ?? '');
+  }, 'spotlight (작업실)');
   const spot = await P(() => {
     const r = document.querySelector('.tut-spot');
     return {
@@ -168,13 +203,6 @@ try {
   });
   ok(spot.shown && spot.panes === 4 && spot.ring, '스포트라이트가 네 판 + 링으로 떠 있다', JSON.stringify(spot));
   ok(/작업실/.test(spot.tip), `말풍선이 할 일을 적는다 ("${spot.tip}")`);
-  // 실제로 작업실을 짓는다 (발전기 + 재료는 스모크가 채운다)
-  await P(() => {
-    const ctx = window.__game.ctx, h = ctx.housing;
-    const give = (id, n) => { const max = ctx.loot.getItemDef(id).stackMax ?? 1; let a = 0; while (a < n) { const q = Math.min(max, n - a); if (!ctx.inventory.tryAddItem(ctx.loot.createItem(id, q))) break; a += q; } };
-    give('mat_scrap', 40); give('mat_cable', 8); give('mat_alloy', 8);
-    h.upgrade('generator');
-  });
   ok(await P(() => window.__game.ctx.housing.setRoomPurpose(1, 'workshop')), '작업실 증축은 허용된다');
   await waitStep('bench');
   const wrongFurn = await P(() => {

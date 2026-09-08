@@ -68,6 +68,7 @@ export class TutorialSystem implements GameSystem, TutorialRef {
 
       b.on('housing:shipManageChanged', ({ active }) => this.onManage(active)),
       b.on('housing:modeChanged', ({ active }) => { if (active) this.advanceIf('manage'); }),
+      b.on('housing:facilityUpgraded', ({ id, level }) => { if (id === 'generator' && level >= 1) this.advanceIf('generator'); }),
       b.on('housing:roomPurposeChanged', ({ room, purpose }) => this.onPurpose(room, purpose)),
       b.on('housing:furniturePlaced', ({ item }) => this.onFurniture(item.defId, item.uid)),
 
@@ -91,6 +92,8 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     if (!this.active) return;
     this.guide.update(dt);
     this.spotlight.update(dt);
+    // 포커싱이 켜져 있는 동안 목표 패널은 어두운 판 위로 — 딤 제외 + 건너뛰기 버튼은 언제나 눌린다
+    this.panel.setLifted(this.spotlight.visible);
   }
 
   dispose(): void {
@@ -114,7 +117,7 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     return Gates.blockReason(this.save.step, gate, id);
   }
 
-  hides(gate: TutorialGate): boolean { return Gates.hides(this.save.step, gate); }
+  hides(gate: TutorialGate, id?: string): boolean { return Gates.hides(this.save.step, gate, id); }
 
   start(): boolean {
     if (this.active) return false;
@@ -172,7 +175,14 @@ export class TutorialSystem implements GameSystem, TutorialRef {
   private onPurpose(room: number, purpose: string): void {
     if (purpose !== TUTORIAL_ROOM_PURPOSE) return;
     this.save.room = room;
+    // 발전기 단계에서 곧바로 작업실이 세워졌다면(발전기가 이미 돌고 있던 함선) 그 단계는 지나간 것이다
+    if (this.save.step === 'generator') this.setStep('workshop');
     this.advanceIf('workshop');
+  }
+
+  /** 발전기가 이미 Lv.1 이상인가 — `generator` 단계에 할 일이 남아 있는지의 판단. */
+  private generatorReady(): boolean {
+    try { return (this.ctx.housing?.getFacility('generator').level ?? 0) >= 1; } catch { return false; }
   }
 
   private onFurniture(defId: string, uid: string): void {
@@ -234,6 +244,8 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     this.refreshVisuals();
     this.ctx.bus.emit('tutorial:changed', { active: true, step, index: stepIndexOf(step), count: this.stepCount });
     if (step === 'intro') this.showIntro();
+    // 이미 돌고 있는 발전기 앞에서 "가동하세요"를 띄우지 않는다 (dev 콘솔 `tutorial step`, 저장 복구 등)
+    if (step === 'generator' && this.generatorReady()) this.advance();
   }
 
   private finish(skipped: boolean): void {
@@ -283,6 +295,7 @@ export class TutorialSystem implements GameSystem, TutorialRef {
       this.guide.setTarget(null);
       return;
     }
+    this.panel.setLifted(false);        // 다음 update 가 스포트라이트 상태를 보고 다시 정한다
     const step = this.save.step!;
     const def = stepDef(step);
     const showable = this.ctx.isHubPhase() || this.ctx.isGameplayPhase();

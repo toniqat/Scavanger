@@ -8,8 +8,9 @@
  *   1. **게이트** — 튜토리얼은 순서를 엄격하게 강제한다. 각 폴더는 자기 거절 사유 함수 안에서
  *      `ctx.tutorial?.blockReason(gate, id)` 를 한 번 부르고, null 이 아니면 그 한국어 사유를 그대로 쓴다.
  *      튜토리얼이 꺼져 있으면 언제나 null 이므로 평소 동작은 한 글자도 바뀌지 않는다.
- *   2. **숨김** — 튜토리얼 동안 아예 보이면 안 되는 셸 요소(커뮤니티 버튼 · 매치메이킹 섹션)는
- *      `hides(gate)` 로 묻는다.
+ *   2. **숨김** — 튜토리얼 동안 보이면 안 되는 것은 `hides(gate, id?)` 로 묻고 **아예 그리지 않는다**.
+ *      (2026-09-08) 잠긴 항목을 "튜토리얼에서는 ~" 사유와 함께 남겨 두는 것보다, 지금 할 수 있는 것만
+ *      보여 주는 편이 훨씬 덜 헷갈린다 — 방 용도 · 가구 카드 · 레시피 · 화면 탭 · 행성 넘김이 이 규칙을 쓴다.
  *
  * 목표 패널 · 스포트라이트 · 바닥 안내선은 전부 `tutorial/` 이 스스로 그린다 — 다른 폴더는 모른다.
  * ──────────────────────────────────────────────────────────────────────────── */
@@ -18,6 +19,7 @@
 export type TutorialStepId =
   | 'intro'        // 시작 팝업 — 확인을 누르면 다음으로
   | 'manage'       // M 으로 함선 관리 열기
+  | 'generator'    // 발전기 가동 (Lv.1) — 시설 증축의 전제 조건
   | 'workshop'     // 빈 방 하나를 작업실로 증축
   | 'bench'        // 총기 작업대 제작 + 작업실에 배치
   | 'manageDone'   // 함선 관리 종료
@@ -32,7 +34,7 @@ export type TutorialStepId =
   | 'raid';        // 레이드 시작 — 탈출구 인디케이터를 강조하고 끝난다
 
 export const TUTORIAL_STEPS: readonly TutorialStepId[] = [
-  'intro', 'manage', 'workshop', 'bench', 'manageDone',
+  'intro', 'manage', 'generator', 'workshop', 'bench', 'manageDone',
   'craftGun', 'equipGun', 'craftAmmo', 'stowAmmo',
   'terminal', 'planet', 'travel', 'board', 'raid',
 ];
@@ -79,8 +81,14 @@ export interface TutorialRef {
    * 튜토리얼이 꺼져 있으면 항상 null 이므로 호출부는 `?? 평소 규칙` 으로 이어 쓰면 된다.
    */
   blockReason(gate: TutorialGate, id?: string): string | null;
-  /** 그 요소를 지금 숨겨야 하는가 (커뮤니티 버튼 · 매치메이킹 섹션). */
-  hides(gate: TutorialGate): boolean;
+  /**
+   * 그 요소를 지금 **그리지 말아야** 하는가.
+   *   • `id` 를 주면 그 항목 하나를 묻는다 — `blockReason` 이 막는 것은 전부 숨긴다
+   *     (방 용도 · 가구 def · 레시피 · 화면 탭 …).
+   *   • `id` 없이 부르면 "이 게이트가 **완전히** 열려 있나"를 묻는다. 열려 있지 않으면 그 UI 를 좁힌다
+   *     (커뮤니티 버튼 · 매치메이킹 섹션 · 행성 넘김 화살표).
+   */
+  hides(gate: TutorialGate, id?: string): boolean;
 
   /** 처음부터 시작 (이미 돌고 있으면 아무 일도 없다). */
   start(): boolean;

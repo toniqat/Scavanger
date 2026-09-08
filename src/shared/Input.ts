@@ -85,7 +85,14 @@ export class Input {
     // The lock arrived (from a request of ours or a click on the canvas) — stop waiting for a gesture.
     // The lock *left* without us asking → the player pressed Escape (see `onUserUnlock`).
     document.addEventListener('pointerlockchange', () => {
-      if (this.isPointerLocked) { this.disarmLockGestureRetry(); this.selfExit = false; return; }
+      if (this.isPointerLocked) {
+        this.disarmLockGestureRetry();
+        this.selfExit = false;
+        // 2026-09-08: a request that was already in flight when a screen took 커서 모드 lands *after* it — the
+        // cursor would vanish under a popup the player is meant to click. Hand it straight back.
+        if (this.cursor.active) this.exitPointerLock();
+        return;
+      }
       const self = this.selfExit;
       this.selfExit = false;
       if (!self && this.wantLock) this.userUnlock?.();
@@ -129,6 +136,10 @@ export class Input {
   lastLockRequest = 0;
   requestPointerLock(): void {
     if (!this.lockTarget || this.isPointerLocked) return;
+    // 2026-09-08: **never** take the mouse away from an open screen. Callers that fire a relock right after a phase
+    // change (the hub entering the personal ship, say) would otherwise race a popup that opened in the same tick and
+    // leave the player with a clickable card and no cursor. `main.ts` re-locks when the last owner leaves.
+    if (this.cursor.active) return;
     this.wantLock = true;
     this.lastLockRequest = performance.now();
     // Modern Chrome returns a Promise that rejects when the lock is denied (e.g. headless, no user gesture) —

@@ -18,6 +18,14 @@ interface Rect { x: number; y: number; w: number; h: number }
 /** 구멍 둘레 여백 (px). */
 const PAD = 6;
 
+/**
+ * 2026-09-08 — **비켜서야 하는 것들**. 스포트라이트가 밝히는 버튼을 누르면 그 위에 확인 팝업이 뜨는 화면이
+ * 있다 (시설 증축 · 발전기 가동의 `.sm-confirm`). 어두운 판은 화면 전체를 덮으므로 그 팝업까지 덮어 클릭을
+ * 먹어 버린다 — 안내를 따랐는데 다음 버튼을 못 누르는, 튜토리얼에서 제일 나쁜 상태다.
+ * 이 선택자 중 하나라도 화면에 있으면 스포트라이트는 스스로 접힌다 (팝업이 닫히면 다시 켜진다).
+ */
+const YIELD_TO: readonly string[] = ['.sm-confirm', '.tut-popup'];
+
 export class Spotlight {
   private readonly root: HTMLElement;
   private readonly panes: HTMLElement[] = [];
@@ -67,11 +75,21 @@ export class Spotlight {
     this.timer -= dt;
     if (this.timer > 0) return;
     this.timer = RETARGET_INTERVAL;
+    if (this.yielding()) { this.hide(); return; }
     const el = this.find();
     if (!el) { this.hide(); return; }
     const b = el.getBoundingClientRect();
     if (b.width <= 0 || b.height <= 0) { this.hide(); return; }
     this.place({ x: b.left - PAD, y: b.top - PAD, w: b.width + PAD * 2, h: b.height + PAD * 2 });
+  }
+
+  /** 위에 확인 팝업 같은 것이 떠 있는가 (`YIELD_TO`). */
+  private yielding(): boolean {
+    for (const sel of YIELD_TO) {
+      const el = document.querySelector<HTMLElement>(sel);
+      if (el && el.getClientRects().length > 0) return true;
+    }
+    return false;
   }
 
   /**

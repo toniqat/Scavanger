@@ -116,7 +116,7 @@ start-server.bat relay   # 릴레이만 (npm run server, 0.0.0.0:8787) — 데�
 | [`src/game/`](src/game/README.md) | `GameFlowSystem` | `ctx.phase` | 페이즈 상태 기계 · 사망/부활 · 레이드 실패 · **일시정지(ESC = 항상 열기, `escapePause`)** · 재접속 UX · 레이드 세션 저장/복귀 · 재개 게이트 |
 | [`src/ui/`](src/ui/README.md) | `HudSystem` | — | 모든 DOM UI — HUD 2계층 · 메뉴(설정 3분할) · 지도 · 채팅 · 소셜(커뮤니티 패널 단일) · 아이템 툴팁 · 커서 아트 · 스타일시트 |
 | [`src/audio/`](src/audio/README.md) | `AudioSystem` | `ctx.audio` | 절차 WebAudio SFX 전량 + 앰비언트, 버스 이벤트에 반응, 볼륨 영속화 |
-| [`src/tutorial/`](src/tutorial/README.md) | `TutorialSystem` | `ctx.tutorial` | 새 캐릭터 안내 14단계 — 목표 패널 · UI 스포트라이트 · 바닥 안내선, 순서 강제 게이트(`blockReason`) |
+| [`src/tutorial/`](src/tutorial/README.md) | `TutorialSystem` | `ctx.tutorial` | 새 캐릭터 안내 15단계 — 목표 패널 · UI 스포트라이트 · 바닥 안내선, 순서 강제 게이트(`blockReason`) + **잠긴 항목 숨김**(`hides`) |
 | [`src/console/`](src/console/README.md) | `ConsoleSystem` | `ctx.console` | 개발자 콘솔 + 치트 (**dev 호스트에서만** 존재 — 그 외에는 DOM 도 키도 없다) |
 
 ### 3.6 네트워크 · 배포

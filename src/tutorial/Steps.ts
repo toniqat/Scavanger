@@ -20,9 +20,17 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     id: 'manage', title: '함선 관리를 여세요',
     hint: 'M 을 눌러 함선 관리 화면을 엽니다.',
   },
+  generator: {
+    id: 'generator', title: '발전기를 가동하세요',
+    hint: '시설 증축에는 발전기 Lv.1 이 필요합니다. 용도 지정 목록 맨 위의 발전기를 가동하세요.',
+    // 작업실도 함께 열어 둔다 — 발전기가 켜지는 순간 바로 다음 단계로 넘어가므로 목록이 흔들리지 않는다.
+    allow: { roomPurpose: [TUTORIAL_ROOM_PURPOSE] },
+    spot: ['.sm-gen .sm-gen-btn', '.sm-gen', '.sm-side'],
+    spotText: '발전기 가동',
+  },
   workshop: {
     id: 'workshop', title: '빈 방을 작업실로 증축하세요',
-    hint: '방 목록에서 빈 방의 시설 증축을 누르고 작업실을 고릅니다.',
+    hint: '방 목록에서 빈 방을 고르고 작업실 증축을 누릅니다.',
     allow: { roomPurpose: [TUTORIAL_ROOM_PURPOSE] },
     spot: ['.sm-purposes .sm-purpose[data-purpose="workshop"]', '.sm-purposes', '.sm-side'],
     spotText: '빈 방의 시설 증축 → 작업실',
@@ -37,7 +45,8 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
   manageDone: {
     id: 'manageDone', title: '함선 관리를 닫으세요',
     hint: 'Esc 또는 C 로 관리 모드를 빠져나옵니다.',
-    allow: { manageExit: true },
+    // 작업대는 계속 허용해 둔다 — 막힌 것은 목록에서 사라지므로, 방금까지 보던 카드가 통째로 비지 않도록.
+    allow: { manageExit: true, furniture: [TUTORIAL_BENCH_DEF] },
   },
   craftGun: {
     id: 'craftGun', title: '작업대에서 돌격소총을 만드세요',
@@ -50,6 +59,8 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
   equipGun: {
     id: 'equipGun', title: '만든 소총을 주무기로 장착하세요',
     hint: 'Tab 을 눌러 가방을 열고 소총을 주무기 I 칸으로 옮깁니다.',
+    // 직전 단계의 레시피는 그대로 열어 둔다 — 막힌 레시피는 목록에서 사라지므로 작업대가 통째로 비지 않게.
+    allow: { craft: [TUTORIAL_GUN_RECIPE] },
     spot: ['.inv-slot-primary', '.inv-equip'],
     spotText: '소총을 주무기 I 칸으로',
   },
@@ -64,6 +75,7 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
   stowAmmo: {
     id: 'stowAmmo', title: '탄약을 가방에 넣으세요',
     hint: '함선 창고의 준중량탄을 가방 격자로 끌어다 놓습니다.',
+    allow: { craft: [TUTORIAL_AMMO_RECIPE] },
     spot: ['.inv-grid-bag', '.inv-panel-bag'],
     spotText: '준중량탄을 가방으로',
   },
@@ -94,8 +106,11 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
   raid: {
     id: 'raid', title: '탈출 지점을 확인하세요',
     hint: '나침반과 화면의 마커가 탈출 지점을 가리킵니다. 안내는 여기까지입니다.',
-    // 레이드는 그대로 진행된다 — 이 단계에서는 아무것도 막지 않는다.
-    allow: { roomPurpose: true, furniture: true, manageExit: true, craft: true, terminal: true, planet: true, board: true },
+    // 레이드는 그대로 진행된다 — 이 단계에서는 아무것도 막지 않고 아무것도 감추지 않는다.
+    allow: {
+      roomPurpose: true, furniture: true, manageExit: true, craft: true,
+      terminal: true, planet: true, board: true, screenTab: true,
+    },
   },
 };
 

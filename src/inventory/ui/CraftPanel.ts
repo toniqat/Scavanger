@@ -30,6 +30,11 @@ interface RowView {
  * weapons; gear bench: armor + bags) using `sys.repair(uid)` with the same cost readout as the ship workbench.
  * Crafting is *hold to craft*: pressing the button starts `InventorySystem.craft()` and releasing before it
  * finishes cancels it, exactly like a world hold-interaction. The hold time already includes 제작 skill and 재주.
+ *
+ * **2026-09-08 (튜토리얼)**: a recipe `ctx.tutorial.hides('craft', id)` refuses is **left out of the list** rather
+ * than drawn with a "튜토리얼에서는 ~" reason — during the guided steps the bench shows exactly the one recipe the
+ * step is asking for. The 단계 is part of the rebuild signature, so finishing or skipping the tutorial brings the
+ * rest straight back.
  */
 export class CraftPanel {
   readonly el: HTMLElement;
@@ -145,8 +150,10 @@ export class CraftPanel {
     this.discountEl.hidden = mul >= 1;
     if (mul < 1) this.discountEl.textContent = TEXT.bench.discount(Math.round((1 - mul) * 100));
 
-    const recipes = this.sys.getBenchRecipes();
-    const sig = `${bench ? `${bench.kind}:${bench.level}` : '-'}|${mul}|${recipes.map((r) => `${r.recipe.id}${r.locked ? '!' : ''}`).join('|')}`;
+    const tut = this.sys.ctx.tutorial;
+    const recipes = this.sys.getBenchRecipes().filter((r) => !(tut?.hides('craft', r.recipe.id) ?? false));
+    const sig = `${bench ? `${bench.kind}:${bench.level}` : '-'}|${mul}|t${tut?.step ?? '-'}`
+      + `|${recipes.map((r) => `${r.recipe.id}${r.locked ? '!' : ''}`).join('|')}`;
     if (sig !== this.sig) {
       this.sig = sig;
       this.build(recipes);

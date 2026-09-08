@@ -111,17 +111,17 @@ export function markTab(sys: InventoryUI): void {
   try { statPoints = sys.ctx.progression?.statPoints ?? 0; } catch { statPoints = 0; }
   for (const [id, b] of sys.tabButtons) {
     b.classList.toggle('is-on', id === sys.activeTab);
-    // 2026-09-08: 튜토리얼이 잠근 탭은 자물쇠 + 사유 툴팁 (기업 탭의 신뢰도 잠금과 같은 표현)
-    const tutLock = id === 'inventory' ? null : (sys.ctx.tutorial?.blockReason('screenTab', id) ?? null);
-    b.classList.toggle('is-locked', !!tutLock);
-    b.title = tutLock ?? (SCREEN_TABS.find((t) => t.id === id)?.title ?? '');
+    // 2026-09-08: 튜토리얼이 막는 탭은 **아예 감춘다** — 자물쇠 + "튜토리얼에서는 ~" 툴팁을 남겨 두는 것보다
+    // 지금 쓸 수 있는 탭만 보이는 편이 낫다. 끝나거나 건너뛰면 `tutorial:changed` 로 다시 나타난다.
+    const tutHidden = id !== 'inventory' && (sys.ctx.tutorial?.hides('screenTab', id) ?? false);
+    b.title = SCREEN_TABS.find((t) => t.id === id)?.title ?? '';
     if (id === 'character') {
       const alert = statPoints > 0;
       b.classList.toggle('has-alert', alert);
       b.dataset.alert = alert ? String(statPoints) : '';
     }
     // 함선 needs the housing system; hide the tab entirely when there is none
-    if (id === 'ship') b.hidden = !sys.ctx.housing;
+    b.hidden = tutHidden || (id === 'ship' && !sys.ctx.housing);
   }
   }
 

@@ -68,6 +68,11 @@ const ASSIGNABLE: readonly RoomPurpose[] = ROOM_PURPOSES.filter((p) => p !== 'em
  * (`.sm-confirm`: `정말로 N번 방을 <용도> 시설로 만들겠습니까?` + `renderItemCost` chips of `purposeCost`, 확인 →
  * `setRoomPurpose`, 취소 / Esc → close). Escape is caught in the capture phase and `Input.consume`d, so it closes
  * the popup only — the hub's own Esc (leave 시설 관리) and game/'s pause never see it.
+ *
+ * **2026-09-08 (튜토리얼은 잠그지 않고 감춘다):** `ctx.tutorial.hides('roomPurpose' | 'furniture', id)` 가 참인
+ * 항목은 목록에서 **빠진다** — "튜토리얼에서는 ~" 사유를 단 줄을 남겨 두는 대신, 지금 지을 수 있는 것만
+ * 보여 준다 (안내 단계에서는 발전기 행 + 작업실 한 줄). 단계가 넘어가거나 튜토리얼을 건너뛰면
+ * `tutorial:changed` 로 목록을 다시 그려 감춰 둔 것이 전부 돌아온다.
  */
 export class ShipManage {
   readonly root: HTMLElement;
@@ -187,6 +192,8 @@ export class ShipManage {
       b.on('inventory:stashChanged', () => { if (this.active) this.refresh(); }),
       b.on('game:newMission', () => this.setActive(false, null)),
       b.on('game:abort', () => this.setActive(false, null)),
+      // 2026-09-08: 튜토리얼이 단계를 넘기거나 건너뛰어지면 숨겨 뒀던 용도 · 가구가 다시 나타난다
+      b.on('tutorial:changed', () => { if (this.active) this.refresh(); }),
     );
   }
 
@@ -203,6 +210,17 @@ export class ShipManage {
   /** Phase 12: the confirm popup (purpose build or 발전기 upgrade) and the purpose it is asking about (debug). */
   get isConfirmOpen(): boolean { return !this.confirmEl.hidden; }
   get confirmPurpose(): RoomPurpose | null { return this.pendingPurpose; }
+
+  /**
+   * 2026-09-08 — 튜토리얼이 막는 항목은 사유를 달아 두지 않고 **아예 그리지 않는다**. 목록에 지금 할 수
+   * 있는 것만 남으므로 "왜 안 되지"가 생기지 않는다 (튜토리얼이 꺼져 있으면 언제나 false).
+   */
+  private tutHides(gate: 'roomPurpose' | 'furniture', id: string): boolean {
+    return this.ctx?.tutorial?.hides(gate, id) ?? false;
+  }
+
+  /** 목록 캐시 키에 섞는 튜토리얼 단계 — 단계가 바뀌면 숨김 집합도 바뀐다. */
+  private get tutKey(): string { return this.ctx?.tutorial?.step ?? '-'; }
 
   private setActive(active: boolean, room: number | null): void {
     const changed = active !== this.active || room !== this.room;
@@ -454,7 +472,7 @@ export class ShipManage {
   private refreshPurposes(room: number): void {
     const housing = this.ctx.housing;
     if (!housing) return;
-    const entries = ASSIGNABLE.map((p) => {
+    const entries = ASSIGNABLE.filter((p) => !this.tutHides('roomPurpose', p)).map((p) => {
       const blocked = housing.purposeBlock(room, p);
       return { p, blocked, rank: this.purposeRank(room, p, blocked), cost: housing.purposeCost(p) };
     });
@@ -462,7 +480,7 @@ export class ShipManage {
     const gen = housing.getFacility('generator');
     // the gate is what stops everything when the generator is the only reason left on an otherwise buildable room
     const gateBlocks = entries.some((e) => !!e.blocked && /발전기/.test(e.blocked));
-    const key = `${room}|g${gen.level}/${gen.maxLevel}|${gen.blocked ?? ''}|${this.costKeyOf(gen.nextCost)}|${gateBlocks ? 1 : 0}|`
+    const key = `${room}|t${this.tutKey}|g${gen.level}/${gen.maxLevel}|${gen.blocked ?? ''}|${this.costKeyOf(gen.nextCost)}|${gateBlocks ? 1 : 0}|`
       + entries.map((e) => `${e.p}${e.rank}${e.blocked ?? ''}${this.costKeyOf(e.cost)}`).join(',');
     if (key === this.purposeKey) return;
     this.purposeKey = key;
@@ -516,11 +534,11 @@ export class ShipManage {
   private refreshCards(room: number | null, purpose: RoomPurpose): void {
     const housing = this.ctx.housing;
     if (!housing) return;
-    const defs = housing.getFurnitureFor(purpose);
+    const defs = housing.getFurnitureFor(purpose).filter((d) => !this.tutHides('furniture', d.id));
     const stored = this.storedCounts();
 
-    // Rebuild only when the visible content actually changed (room / def list / storage / material counts).
-    const key = `craft|${room}|${purpose}|${defs.map((d) => `${d.id}:${stored.get(d.id) ?? 0}:${this.costKey(d)}`).join(',')}`;
+    // Rebuild only when the visible content actually changed (room / def list / storage / material counts / 튜토리얼 단계).
+    const key = `craft|${room}|${purpose}|t${this.tutKey}|${defs.map((d) => `${d.id}:${stored.get(d.id) ?? 0}:${this.costKey(d)}`).join(',')}`;
     if (key === this.cardsKey) { this.markSelection(this.selected); return; }
     this.cardsKey = key;
 

@@ -47,6 +47,7 @@ When you add a smoke script: add it to `SMOKES` in `scripts/verify.mjs` with the
 in `CLAUDE.md`.
 
 ## History (what was actually tested)
+- 2026-09-08 튜토리얼 UI/UX 수정 4건 (시작 카드에 커서가 없던 문제 · `generator` 단계 신설 · 잠긴 항목 숨김 · 포커싱 확대-축소): `npm run verify:all` → e2e-mp 153/154 외 전부 통과, **5 min 41 s**; 그 1건은 검증 도중 내가 소스를 편집해 vite HMR 이 두 클라이언트를 리로드시킨 자가 flake로, `--rerun-failed` **156/156**. smoke-tutorial 39 → **46**. 자세히는 아래 [해당 절](#2026-09-08--튜토리얼-uiux-수정-4건-커서--발전기-단계--숨김--포커싱-연출).
 - 2026-09-07 커서 편의성 3건 (ESC 재잠금 · 커서 가속 제거 · 드래그 고스트 중앙): `npm run verify:all` → typecheck ok, typecheck-server ok, net-selftest 278/278, build 2,033.71 kB JS / 200.61 kB CSS, **smoke-quickslots 46/46**, smoke-weapons 93/93, smoke-phase2 49/49, smoke-stratagems 70/70, smoke-phase3 32/32, smoke-phase4 49/49, smoke-tactical 64/64, smoke-ship-rooms 71/71, smoke-inventory-p6 63/63, **smoke-controls-hub 85/85**, smoke-housing 173/173, smoke-console 63/63, smoke-loadout 54/54, smoke-progression 68/68, smoke-search 59/59, smoke-ui-p6 68/68, smoke-ui-p5 132/132, smoke-meta 130/130, smoke-training 109/109, smoke-uniques 71/71, smoke-library 126/126, smoke-ghost 86/86, smoke-enemy-delta 52/52, smoke-rogue-v2 52/52, smoke-social 116/116, smoke-planets 76/76, smoke-raidflow 43/43, smoke-ecology 83/83, e2e-mp 156/156 — **4 min 59 s** on 4 GPU lanes, **all green**, no re-run. New checks: the drag ghost rides centred on the pointer (quickslots +1), the virtual cursor moves 1:1 slow and fast (controls +1), and a denied pointer-lock request arms the gesture retry / Escape never counts / any other key retries (controls +3).
   Diagnosis was done in a **real Chrome tab** first (the extension's window is `visibilityState: hidden`, so a genuine pointer lock is impossible there — the lock was faked over the canvas the way the smokes do, and `Input.lockLooksReal` reset by hand, to exercise the synthesising path). That measured the acceleration (a 14 px delta moved the cursor 27 px) and caught the ghost drift as a hard number: mid-drag the ghost's bounding-box centre sat at x 1122 while the cursor was at 1080. Both are 0 px / 1:1 after the fix.
 - Phase 11 — 행성 선택 · 소셜 (전체화면 터미널 · 행성 5종 + 생태계 · 아이디/친구/최근 플레이어 · 귓속말 · 분대 초대, `docs/DECISIONS.md`, 2026-09-07): `npm run verify:all` → **all passed in 5 min 0 s**. typecheck ok, typecheck-server ok, **net-selftest 276/276**, build 2,025.13 kB JS / 196.46 kB CSS, smoke-quickslots 45/45, smoke-weapons 93/93, smoke-phase2 49/49, smoke-stratagems 70/70, smoke-phase3 32/32, smoke-phase4 49/49, smoke-tactical 64/64, smoke-inventory-p6 63/63, smoke-ship-rooms 71/71, smoke-controls-hub 77/77, smoke-housing 173/173, smoke-progression 68/68, smoke-console 63/63, smoke-loadout 54/54, smoke-ui-p6 68/68, smoke-search 59/59, smoke-ui-p5 132/132, smoke-meta 126/126, smoke-uniques 71/71, smoke-training 109/109, smoke-library 126/126, smoke-ghost 86/86, smoke-enemy-delta 52/52, **smoke-social 116/116**, smoke-rogue-v2 52/52, smoke-raidflow 43/43, **smoke-planets 76/76**, **smoke-ecology 83/83**, **e2e-mp 156/156**. 5 parallel folder agents (server / net / hub / ui / world+enemies) against the committed contract `e13f785`; core · game · verify.mjs · 문서는 리드 소유.
@@ -252,6 +253,44 @@ in `CLAUDE.md`.
   최대 3번까지 던져 **실제로 닿은 첫 폭발**로 피해를 검증한다(빗나간 시도는 실패 메시지에 남는다). 고친 뒤
   단독 8연속 52/52 — 그중 한 번은 첫 투척이 6.09 m 로 빗나가 재시도 경로를 실제로 탔다.
 
+
+## 2026-09-08 — 튜토리얼 UI/UX 수정 4건 (커서 · 발전기 단계 · 숨김 · 포커싱 연출)
+
+`npm run verify:all` — **red 1건**(e2e-mp 153/154, 자가 유발 flake) 외 전부 통과, 5분 41초.
+`src/shared/Input.ts` 를 건드렸으므로 전체를 돌렸다.
+
+```
+docs line: 2026-09-08: typecheck ok, typecheck-server ok, net-selftest 278/278,
+build 2,152.37 kB JS / 218.12 kB CSS, smoke-quickslots 46/46, smoke-phase2 53/53, smoke-weapons 137/137,
+smoke-stratagems 70/70, smoke-phase3 32/32, smoke-phase4 49/49, smoke-ship-rooms 71/71,
+smoke-inventory-p6 93/93, smoke-controls-hub 121/121, smoke-tactical 85/85, smoke-console 63/63,
+smoke-housing 197/197, smoke-progression 123/123, smoke-loadout 61/61, smoke-ui-p6 89/89,
+smoke-search 61/61, smoke-ui-p5 133/133, smoke-resume-gate 48/48, smoke-enemy-alert 42/42,
+smoke-uniques 71/71, smoke-meta 170/170, smoke-rogue-v2 52/52, smoke-library 126/126,
+smoke-training 110/110, smoke-enemy-delta 52/52, smoke-ghost 86/86, smoke-planets 86/86,
+smoke-social 130/130, smoke-tutorial 46/46, smoke-ecology 83/83, smoke-raidflow 48/48,
+e2e-mp 153/154 → 재실행 156/156
+```
+
+**e2e-mp 153/154 는 내가 만든 flake다.** `timeout waiting for B back in personal ship` 이 떴을 때 두 클라이언트의
+상태 덤프가 `phase: 'menu'` · `time: 9.7 s` · `net: 'offline'` 로 **똑같이** 찍혀 있었다 — 테스트 중간에 두 페이지가
+함께 처음부터 다시 뜬 것이다. 원인은 코드가 아니라 러너를 돌리는 방식이었다: `verify` 가 이미 떠 있던 내 dev
+서버를 재사용했고(`vite already up`), 그 e2e 가 도는 동안 내가 `src/tutorial/parts/Spotlight.ts` 의 주석 위치를
+고쳤다. **vite HMR 이 두 클라이언트를 통째로 리로드했다.** `--rerun-failed` 로 편집 없이 다시 돌리니 **156/156**.
+교훈은 하나 — 검증이 도는 동안에는 `src/` 를 건드리지 않는다 (러너가 자기 vite 를 띄우지 않고 재사용할 때는 특히).
+
+**`smoke-tutorial` 39 → 46 (+7)**: 시작 카드가 뜬 채 커서가 살아 있는가(`body.cursor-on`), 단계 수 15,
+`hides(gate, id)` 의 항목별 판정, 발전기 행 존재, **용도 목록에 작업실 한 줄만 남는가**, 말풍선이 발전기를
+가리키는가, 포커싱 중 목표 패널이 딤 위로 올라가는가(`.tut-panel.is-lifted`). 스포트라이트가 대상을 다시
+잡는 데 `RETARGET_INTERVAL`(0.25 s)이 걸리므로 단계 전환 뒤에는 **말풍선 문구가 바뀔 때까지** 기다린다 —
+`.tut-spot` 이 안 숨겨졌다는 것만으로 기다리면 직전 단계의 말풍선을 읽는다 (처음 작성했을 때 실제로 틀렸다).
+
+**스모크가 보지 않는 것 (눈으로 확인함, 헤드리스 스크린샷 3장)**: 포커싱 링의 **확대-축소 + 에코 링** 움직임
+(정지 이미지로는 크기만 보인다), 시설 증축 확인 팝업이 뜨는 순간 스포트라이트가 비켜서는 것,
+목표 패널이 딤 위에서 실제로 밝게 읽히는 것. 세 장 다 예상대로였다 (`발전기를 가동하세요 3 / 15` · 용도
+목록에 발전기 행 + 작업실 한 줄 · 확인 팝업 전체가 밝고 클릭 가능).
+
+---
 
 ## 2026-09-08 — main 병합 (ESC 규칙 통일 · 바위 엄폐 ↔ 로그 엄폐)
 

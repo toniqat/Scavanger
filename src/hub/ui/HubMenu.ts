@@ -85,6 +85,7 @@ export class HubMenu {
   private pThreat: HTMLElement;
   private pBrief: HTMLElement;
   private pDots: HTMLElement[] = [];
+  private pDotsEl: HTMLElement;
   private btnPrev: HTMLButtonElement;
   private btnNext: HTMLButtonElement;
   private btnTravel: HTMLButtonElement;
@@ -160,7 +161,7 @@ export class HubMenu {
     this.btnNext = this.button(stage, '▶', () => this.step(1), 'hp-arrow next');
     this.pCurrent = el('div', { cls: 'hp-current', text: '현재 목표', parent: this.holoHost });
     this.pCurrent.hidden = true;
-    const dots = el('div', { cls: 'hp-dots', parent: planet });
+    const dots = this.pDotsEl = el('div', { cls: 'hp-dots', parent: planet });
     for (let i = 0; i < PLANET_IDS.length; i++) {
       const d = el('i', { parent: dots });
       d.dataset.planet = PLANET_IDS[i];
@@ -207,6 +208,8 @@ export class HubMenu {
       // 목표 행성: a squad-mate's pick (or our own, once the cutscene landed) re-syncs the preview
       b.on('hub:planetChanged', ({ planet: p }) => { this.cursor = planetIndex(p); this.syncPlanet(0); this.refresh(); }),
       b.on('hub:travel', () => this.refresh()),
+      // 2026-09-08: 튜토리얼이 감춘 매치메이킹 섹션 · 행성 넘김은 단계가 넘어가거나 건너뛰어지면 돌아온다
+      b.on('tutorial:changed', () => { if (this._open) this.refresh(); }),
     );
     window.addEventListener('keydown', this.onKeyDown);
   }
@@ -223,7 +226,11 @@ export class HubMenu {
 
   private def(): PlanetDef { return PLANET_DEFS[this.cursor] ?? PLANET_DEFS[0]; }
 
+  /** 튜토리얼이 행성을 하나로 좁혀 놓았는가 (꺼져 있으면 언제나 false). */
+  private get planetLocked(): boolean { return this.ctx.tutorial?.hides('planet') ?? false; }
+
   private step(dir: number): void {
+    if (this.planetLocked) return;      // 튜토리얼: 고를 수 있는 행성이 하나뿐이라 넘김 자체를 막는다
     const n = PLANET_IDS.length;
     const next = ((this.cursor + dir) % n + n) % n;
     if (next === this.cursor) return;
@@ -268,6 +275,12 @@ export class HubMenu {
     else if (blocked) { setText(this.btnTravel, blocked); this.btnTravel.disabled = true; }
     else { setText(this.btnTravel, `${d.name}(으)로 이동`); this.btnTravel.disabled = false; }
     const lock = !!blocked;
+    // 2026-09-08: 튜토리얼이 첫 번째 행성만 허용하는 동안에는 넘김 화살표와 점을 **감춘다** — 다른 행성을
+    // 보여 주고 "튜토리얼에서는 ~" 로 거절하느니, 고를 수 있는 하나만 보여 준다.
+    const narrow = this.planetLocked;
+    this.btnPrev.hidden = narrow;
+    this.btnNext.hidden = narrow;
+    this.pDotsEl.hidden = narrow;
     this.btnPrev.disabled = false;      // stepping is a preview — never locked
     this.btnNext.disabled = false;
     toggleClass(this.btnTravel, 'locked', lock);
@@ -286,7 +299,8 @@ export class HubMenu {
     this.frame.style.animation = 'none';
     void this.frame.offsetWidth;
     this.frame.style.animation = '';
-    this.cursor = planetIndex(this.host.planet());
+    // 튜토리얼이 첫 번째 행성만 허용하는 동안에는 그 행성을 보여 준 채로 연다 (넘김은 감춰진다)
+    this.cursor = this.planetLocked ? 0 : planetIndex(this.host.planet());
     this.syncPlanet(0);
     this.holo?.setVisible(true);
     this.refresh();

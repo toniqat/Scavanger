@@ -697,3 +697,10 @@ Plan: `docs/DECISIONS.md` items 3 · 4 · 8 · 9 · 15 · 16 (agent F). Contract
   패널을 닫는다. `hud/ShipManage` 의 가구 카드에 `data-def-id` 를 붙였다(튜토리얼 스포트라이트 · 스모크가
   카드를 집는 손잡이). `styles/base.css` 에 `.scr-tab.is-locked` (자물쇠 + 흐리게) 추가 — 튜토리얼이 잠근
   화면 탭용이다. 튜토리얼의 목표 패널 · 스포트라이트 · 안내 카드는 `src/tutorial/` 이 직접 그린다
+
+- **2026-09-08 (튜토리얼: 잠그지 않고 감춘다)** — `hud/ShipManage` 가 `ctx.tutorial.hides('roomPurpose'|'furniture', id)`
+  로 **용도 행 · 가구 카드를 목록에서 뺀다** (안내 중에는 발전기 행 + 작업실 한 줄만 남는다). 두 목록의
+  캐시 키에 현재 단계를 섞고 `tutorial:changed` 를 구독하므로 건너뛰거나 끝나면 그 자리에서 전부 돌아온다.
+  `styles/base.css`: 시설 증축 확인 팝업 `.sm-confirm` 의 z-index 5 → **79** — 스포트라이트(`.tut-spot`, 78)가
+  그 위를 덮어 **확인을 누를 수 없던** 버그. `.scr-tab.is-locked` 는 삭제했다 (탭은 이제 잠기지 않고 숨는다)
+

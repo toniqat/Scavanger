@@ -43,7 +43,9 @@ export function enter(sys: HubSystem, requested: HubShipKind): void {
   const spawn = sys.build(ship, false);
   ctx.setPhase('hub');
   ctx.bus.emit('hub:entered', { ship, spawn: spawn.clone() });
-  ctx.input.requestPointerLock();
+  // 2026-09-08: through `relock`, not a bare `requestPointerLock` — a listener of `hub:entered` (the 튜토리얼 시작
+  // 카드) may have just taken 커서 모드, and the camera must not steal the mouse back from it.
+  sys.relock();
   if (ship === 'personal') sys.tryResume();
   }
 

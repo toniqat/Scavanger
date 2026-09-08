@@ -41,9 +41,18 @@ export function blockReason(step: TutorialStepId | null, gate: TutorialGate, id?
   return WRONG_ID[gate] ?? blockedBy(def.title);
 }
 
-/** 지금 그 요소를 숨겨야 하는가. */
-export function hides(step: TutorialStepId | null, gate: TutorialGate): boolean {
+/**
+ * 지금 그 요소를 **그리지 말아야** 하는가 (2026-09-08).
+ *
+ * 사용자 결정: 잠긴 항목을 "튜토리얼에서는 ~" 사유와 함께 남겨 두지 않고 **아예 숨긴다**. 그래서
+ *   • `id` 를 준 호출 = 항목 하나 — `blockReason` 이 막는 것은 곧 숨기는 것이다.
+ *   • `id` 없는 호출 = "이 게이트가 **완전히** 열려 있나" — 열려 있지 않으면 그 UI 자체를 좁힌다
+ *     (행성 넘김 화살표처럼 "고를 수 있는 것이 하나뿐"인 자리).
+ * 튜토리얼이 끝나거나 건너뛰어지면 `step` 이 null 이라 전부 false 로 돌아간다 — 잠금과 숨김이 함께 풀린다.
+ */
+export function hides(step: TutorialStepId | null, gate: TutorialGate, id?: string): boolean {
   if (!step) return false;
   if (ALWAYS_HIDDEN.includes(gate)) return true;
-  return false;
+  if (id !== undefined) return blockReason(step, gate, id) !== null;
+  return stepDef(step).allow?.[gate] !== true;
 }

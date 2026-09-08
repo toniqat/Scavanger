@@ -415,3 +415,11 @@ over the 닫기 (Esc) / 타이틀로 footer.
   `ctx.tutorial.hides('matchmaking')` 이면 **신호 · 공유 함선 섹션을 통째로 감춘다**
 
 - **2026-09-08 (ESC = 항상 일시정지)** — 허브는 Escape 를 아예 읽지 않는다. E 가 정비 벤치 → 터미널 → 분대원 장비 popup → 포드 하차를 한 단계씩 되짚고(출격 준비 경고도 E 로 취소), 함선 관리는 M 으로 나간다. Escape 는 `game/` 으로 흘러가 일시정지 메뉴가 그 위에 쌓인다
+
+- **2026-09-08 (커서 · 튜토리얼 숨김)** — `parts/Transitions.enter` 가 `hub:entered` 직후 부르던
+  `ctx.input.requestPointerLock()` 을 **`sys.relock()`** 으로 바꿨다: 그 이벤트를 듣고 방금 커서를 잡은 화면
+  (튜토리얼 시작 카드)에서 마우스를 도로 빼앗아 **카드를 클릭할 수 없었다**. `relock` 은 blocker 가 있으면
+  요청하지 않는다 (`Input` 쪽에도 같은 가드가 생겼다 — `src/shared/README.md`).
+  `ui/HubMenu`: `ctx.tutorial.hides('planet')` 이면 행성 **넘김 화살표 · 점을 감추고** 첫 번째 행성을 보여 준
+  채로 연다 (`step()` 도 막는다). `tutorial:changed` 로 다시 그린다
+

@@ -18,6 +18,8 @@
   animation: tut-in 220ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 .tut-panel[hidden] { display: none !important; }
+/* 포커싱 중에는 어두운 판(.tut-spot, z 78) 위로 — 목표는 계속 읽히고 건너뛰기는 언제나 눌린다 */
+.tut-panel.is-lifted { z-index: 79; }
 .tut-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .tut-head .ui-label { color: var(--c-accent); }
 .tut-title { font-size: 14px; font-weight: 700; letter-spacing: 0.02em; color: var(--c-text); line-height: 1.35; }
@@ -45,15 +47,39 @@
   pointer-events: auto; cursor: not-allowed;
   transition: background-color 160ms ease;
 }
+/*
+ * 2026-09-08 — 밝기만 오가는 펄스는 너무 희미해서 눈에 안 띄었다. 이제 **천천히 확대-축소**한다:
+ * 링 자체가 1 → 1.045 로 숨을 쉬고, `::after` 의 에코 링이 1 → 1.16 으로 퍼지며 사라진다 (같은 2.0s 박자).
+ * 움직임이 시선을 끄는 몫이라 글로우는 오히려 조금 낮췄다.
+ */
 .tut-spot-ring {
   position: absolute; pointer-events: none;
   border: 2px solid var(--c-accent);
   box-shadow: 0 0 0 2px rgba(4, 6, 9, 0.55), 0 0 22px color-mix(in srgb, var(--c-accent) 65%, transparent);
-  animation: tut-ring 1.5s ease-in-out infinite;
+  transform-origin: 50% 50%;
+  will-change: transform;
+  animation: tut-ring 2s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+.tut-spot-ring::after {
+  content: ''; position: absolute; inset: -3px;
+  border: 2px solid var(--c-accent);
+  transform-origin: 50% 50%;
+  animation: tut-ring-echo 2s cubic-bezier(0.3, 0, 0.4, 1) infinite;
 }
 @keyframes tut-ring {
-  0%, 100% { box-shadow: 0 0 0 2px rgba(4, 6, 9, 0.55), 0 0 22px color-mix(in srgb, var(--c-accent) 65%, transparent); }
-  50% { box-shadow: 0 0 0 2px rgba(4, 6, 9, 0.55), 0 0 34px color-mix(in srgb, var(--c-accent) 90%, transparent); }
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 2px rgba(4, 6, 9, 0.55), 0 0 18px color-mix(in srgb, var(--c-accent) 55%, transparent);
+  }
+  50% {
+    transform: scale(1.045);
+    box-shadow: 0 0 0 2px rgba(4, 6, 9, 0.55), 0 0 38px color-mix(in srgb, var(--c-accent) 95%, transparent);
+  }
+}
+@keyframes tut-ring-echo {
+  0% { transform: scale(1); opacity: 0.55; }
+  70% { transform: scale(1.16); opacity: 0; }
+  100% { transform: scale(1.16); opacity: 0; }
 }
 .tut-spot-tip {
   position: absolute; pointer-events: none; max-width: 300px;
@@ -64,7 +90,11 @@
   box-shadow: 0 10px 26px rgba(0, 0, 0, 0.5);
 }
 .tut-spot-tip[hidden] { display: none !important; }
-@media (prefers-reduced-motion: reduce) { .tut-spot-ring { animation: none; } .tut-panel { animation: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .tut-spot-ring, .tut-spot-ring::after { animation: none; }
+  .tut-spot-ring::after { opacity: 0; }
+  .tut-panel { animation: none; }
+}
 
 /* ── 안내 / 건너뛰기 확인 카드 (모달리스 — 뒤 화면은 계속 돈다) ──────────────── */
 .tut-popup {

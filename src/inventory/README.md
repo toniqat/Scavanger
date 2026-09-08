@@ -685,3 +685,9 @@ Data-driven off the frozen contract (`ItemCategory 'implant'`, `ItemDef.implant`
   보고(따라서 `craft` 도 함께 막힌다), `ui/parts/Screens.setTab` 은 튜토리얼 중 인벤토리 외 탭을 되돌리며
   `markTab` 이 그 탭에 자물쇠 + 사유 툴팁(`.scr-tab.is-locked`)을 붙인다. `ui/CraftPanel` 의 행에는
   `data-recipe` 가 이미 있었고, 튜토리얼 스포트라이트가 그것으로 대상을 집는다
+
+- **2026-09-08 (튜토리얼: 잠그지 않고 감춘다)** — `ui/parts/Screens.markTab` 이 튜토리얼이 막는 화면 탭을
+  자물쇠가 아니라 `hidden` 으로 처리하고, `ui/CraftPanel.refresh` 가 `ctx.tutorial.hides('craft', id)` 인
+  레시피를 목록에서 뺀다 (재구축 서명에 현재 단계가 들어간다). `ui/InventoryUI` 가 `tutorial:changed` 를
+  구독해 `markTab()` + `refresh()` 하므로, 건너뛰거나 끝나면 감춰 둔 탭 · 레시피가 즉시 돌아온다
+
