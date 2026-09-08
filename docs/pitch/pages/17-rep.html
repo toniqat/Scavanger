@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>신뢰도 · 계약 — PROJECT SCAVANGER</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-page="p-rep">
+<div class="shell">
+
+<aside class="side">
+  <div class="brand">
+    <a href="00-intro.html"><h1>PROJECT <em>SCAVANGER</em></h1></a>
+    <p>PITCH DOCUMENT · v0.1</p>
+  </div>
+  <nav class="tree" id="tree"></nav>
+</aside>
+
+<main class="main" id="main">
+
+<article id="p-rep">
+  <div class="crumb">기업 / 신뢰도 · 계약</div>
+  <h1>신뢰도 · 계약</h1>
+  <figure class="shot" data-src="../assets/corp-screen.png">
+    <div class="ph"><span class="tag">스크린샷</span><span class="ttl">기업 네트워크 화면</span>
+    <span class="desc">좌측 기업 4곳 탭, 신뢰도 게이지, 상점 목록과 가격, 하단에 계약 카드. <span class="key">Tab</span> → 기업 탭.</span>
+    <span class="meta">권장 1920×1080 · assets/corp-screen.png</span></div>
+  </figure>
+
+  <p class="lede">레이드에 나갈 때 기업 하나와 <strong>계약</strong>을 맺는다. 계약 목표를 달성하고 <b>살아서 돌아오면</b> 그 기업의 신뢰도가 오른다. 신뢰도가 오르면 상점이 열리고 물건이 늘어난다.</p>
+
+  <h2 id="s-rep-table"><span class="hn">6.2</span>신뢰도 등급</h2>
+  <div class="tw"><table>
+    <thead><tr><th class="num">레벨</th><th class="num">누적 신뢰도</th><th>해금</th></tr></thead>
+    <tbody>
+      <tr><td class="num">0</td><td class="num">0</td><td>계약만 가능. 상점은 닫혀 있다.</td></tr>
+      <tr><td class="num">1</td><td class="num">100</td><td><b>상점 개방</b> · 일반~고급 등급 판매 · 가격 15% 할인</td></tr>
+      <tr><td class="num">2</td><td class="num">300</td><td>희귀 등급 · 부착물 · 서적 · 방탄복 해금</td></tr>
+      <tr><td class="num">3</td><td class="num">700</td><td>서사 등급 · <b>전술 가방</b> 해금</td></tr>
+      <tr><td class="num">4</td><td class="num">1,500</td><td>전설 등급 해금</td></tr>
+      <tr><td class="num">5</td><td class="num">3,000</td><td>최대 할인(정가의 90%) · 최종 퀘스트 체인</td></tr>
+    </tbody>
+  </table></div>
+  <p style="color:var(--tx2);font-size:13.5px">구매가 = 아이템 가치 × (1.6 − 0.15 × 신뢰도 레벨), 최저 0.9배. 판매가는 가치의 0.5배 — <b>사는 것보다 파는 게 늘 손해</b>라 레이드로 직접 구해 오는 편이 이득이다.</p>
+
+  <h2 id="s-contract"><span class="hn">6.3</span>계약</h2>
+  <p>동시에 <b>1개만</b> 진행한다. 목표 유형은 6가지다.</p>
+  <div class="tw"><table>
+    <thead><tr><th style="width:24%">목표</th><th style="width:20%">기업</th><th>예시 (I → IV 단계)</th></tr></thead>
+    <tbody>
+      <tr><td class="k">터미니드 처치</td><td style="color:#ff8a5c">헬릭스</td><td>25 → 60 → 120 → 200 마리</td></tr>
+      <tr><td class="k">로그 처치</td><td style="color:#7fb4ff">바스티온</td><td>5 → 12 → 25 → 40 명</td></tr>
+      <tr><td class="k">전리품 가치와 함께 탈출</td><td style="color:#d9b96a">노마드</td><td>1,500 → 4,000 → 9,000 → 20,000 C</td></tr>
+      <tr><td class="k">시체 수색</td><td style="color:#6ee7a8">세레스</td><td>6 → 15 → 30 → 50 구</td></tr>
+      <tr><td class="k">상자 개봉</td><td style="color:#d9b96a">노마드</td><td>8개</td></tr>
+      <tr><td class="k">함선 호출 사용</td><td style="color:#ff8a5c">헬릭스</td><td>4회</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="note"><b>계약은 죽으면 날아간다.</b> 목표를 채웠어도 <b>탈출해야</b> 보상이 나온다. 중간에 나가면 진행도는 남지만 보상은 없고, 죽으면 그 레이드에서 쌓은 진행도까지 되돌아간다. 파밍과 생존 사이의 저울이 여기서도 작동한다.</div>
+
+  <div class="note gr"><b>분대 공유.</b> 같은 기업의 계약을 든 분대원의 행동이 내 진행도에도 <b>25%</b> 반영된다. 파티가 계약을 맞춰 오는 이유가 생긴다.</div>
+
+  <div class="nextnav">
+    <a href="16-corp.html"><span>이전</span>← 기업</a>
+    <a class="n" href="18-quest.html"><span>다음</span>퀘스트 →</a>
+  </div>
+</article>
+
+</main>
+
+<aside class="toc">
+  <h4>이 페이지</h4>
+  <div id="toc"></div>
+</aside>
+</div>
+
+<script src="../app.js"></script>
+</body>
+</html>
