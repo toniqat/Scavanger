@@ -2,6 +2,7 @@ import type * as THREE from 'three';
 import type { HubShipKind } from '@/shared';
 import type { BoxInteriorCollider } from './InteriorCollider';
 import type { ShipStations, StationDef } from './stations';
+import type { HangarBayDef } from './Hangar';
 import type { TextPlane } from '../Labels';
 
 /** Where a launch pod stands. `door` = unit XZ direction from the pod centre out through its door. */
@@ -72,6 +73,18 @@ export interface ShipInterior {
    * never rebuilt for a planet change, only the view outside it.
    */
   setPlanetLook?(color: number, atmo: number): void;
+  /**
+   * 자동문 · 방 조명 (2026-09-08): per-frame animation that follows the player. Optional — an interior without
+   * sliding doors simply omits it. `PersonalShip` moves its room-light pool here too.
+   */
+  updateNear?(dt: number, px: number, pz: number): void;
+  /**
+   * 공용 함선 격납고 (2026-09-08, shared ship only): the four 개인 함선 bays behind the aft 자동문, in slot order.
+   * Empty / absent everywhere else.
+   */
+  readonly bays?: readonly HangarBayDef[];
+  /** Park the squad's ships in the bays: `names[i]` = crew name in bay `i`, null = empty. Shared ship only. */
+  setBayOccupants?(names: readonly (string | null)[]): void;
   update(dt: number, time: number): void;
   dispose(): void;
 }

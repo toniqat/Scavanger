@@ -44,6 +44,13 @@ export class Snapshotter {
     m.stance = p.stance ?? 'stand';
     m.hp = Math.round(p.hp);
     const inHub = ctx.isHubPhase();
+    /*
+     * 격납고 (2026-09-08): which ship interior we are standing in. `null` on the shared deck (공유 함선 + 격납고),
+     * the owner's PeerId inside a 개인 함선 — remote avatars whose `hs` differs from the receiver's are hidden, so
+     * a member touring somebody's ship is only visible to the people in that ship.
+     */
+    const site = inHub ? (ctx.hub?.hubSite ?? null) : null;
+    if (site !== null && site.length > 0) m.hs = site; else delete m.hs;
     // No weapons in the hub: never advertise one so remote avatars are drawn unarmed there.
     m.w = inHub ? null : this.weaponId;
     m.stride = round3(p.stridePhase ?? 0);

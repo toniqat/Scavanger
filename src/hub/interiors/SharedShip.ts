@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { NET_MAX_PLAYERS, NET_SLOT_COLORS, type HubShipKind } from '@/shared';
 import { GeoBatch, HUB_MATS as M, disposeMeshes, yawFromForward } from './GeoBatch';
 import { BoxInteriorCollider } from './InteriorCollider';
+import { ShipDoors } from './Doors';
+import { Hangar, type HangarBayDef } from './Hangar';
 import { Parts, fixture } from './parts';
 import { Starfield, Planet } from './Starfield';
 import { implantBay, repairBench, shipComputer, type ShipStations, type StationDef } from './stations';
@@ -14,11 +16,20 @@ const WALL = 0.35;
 /** Pod centres along the −Z wall. */
 const POD_X = [-6, -2, 2, 6];
 const POD_Z = ROOM.minZ + 1.15;
+/** 격납고 자동문 (2026-09-08): half-width of the aft opening in the +Z wall, and the leaves' height. */
+const HANGAR_DOOR_HALF = 2.0;
+const HANGAR_DOOR_HEIGHT = 3.2;
 
 /**
- * Shared ship: 26×14 m hangar deck. Bridge + terminal and a wide viewport at −X, four launch pods in a row on the
- * −Z wall (slot-coloured rings by LaunchPod), armoury / lockers / crates along +Z, central holo table, airlock at +X
+ * Shared ship: 26×14 m main deck. Bridge + terminal and a wide viewport at −X, four launch pods in a row on the −Z
+ * wall (slot-coloured rings by LaunchPod), armoury / lockers / crates along +Z, central holo table, airlock at +X
  * where docking arrivals spawn. Six constant point lights.
+ *
+ * **격납고 (2026-09-08)**: the middle of the +Z (aft) wall is a 4 m 자동문 that opens on approach onto the
+ * `Hangar` deck — 44 × 30 m, four marked bays with the squad's 개인 함선 parked in them. The hangar is part of *this*
+ * interior (same `GeoBatch`, same collider, one walkable union), so the doorway is an open shared edge and remote
+ * avatars simply walk through it. The armoury moved aside for the doorway: racks and the 정비 bench keep the port
+ * half, lockers and crates the starboard half.
  */
 export class SharedShip implements ShipInterior {
   readonly kind: HubShipKind = 'shared';
@@ -33,6 +44,10 @@ export class SharedShip implements ShipInterior {
   readonly workbench: WorkbenchDef;
   readonly computer: StationDef;
   readonly stations: ShipStations;
+  /** 격납고 (2026-09-08): the aft deck and its four 개인 함선 bays. */
+  readonly hangar: Hangar;
+  /** 자동문 on the aft doorway (own meshes, never merged, no collider — the doorway is always walkable). */
+  readonly doors = new ShipDoors(this.root);
 
   private meshes: THREE.Mesh[] = [];
   private lights: THREE.PointLight[] = [];
@@ -55,12 +70,16 @@ export class SharedShip implements ShipInterior {
     P.walls(ROOM, WALL, {
       w: { lo: -5.2, hi: 5.2, y0: 1.0, y1: 3.4 },            // bridge viewport (−X)
       e: { lo: -1.3, hi: 1.3, y0: 0, y1: 3.0 },              // airlock opening (+X) — closed by the door below
+      // 격납고 자동문 (+Z): a real opening. The leaves below slide, they never block — the hangar deck is part of
+      // the same walkable union, so this doorway is an open shared edge exactly like a personal-ship room door.
+      s: { lo: -HANGAR_DOOR_HALF, hi: HANGAR_DOOR_HALF, y0: 0, y1: HANGAR_DOOR_HEIGHT },
     });
     P.glass(r, 10.4, 2.4, ROOM.minX - WALL / 2, 2.2, 0, Math.PI / 2, this.meshes);
 
-    // structure
+    // structure (the aft rib at x 0 is skipped — it would stand inside the 격납고 doorway)
     for (const x of [-9, -4.5, 0, 4.5, 9]) {
-      P.rib(x, ROOM.minZ + 0.18); P.rib(x, ROOM.maxZ - 0.18);
+      P.rib(x, ROOM.minZ + 0.18);
+      if (Math.abs(x) > HANGAR_DOOR_HALF) P.rib(x, ROOM.maxZ - 0.18);
       P.beam(ROOM.maxZ - ROOM.minZ, x, 0, Math.PI / 2);
     }
     for (const z of [-4, 0, 4]) { P.rib(ROOM.minX + 0.18, z); P.rib(ROOM.maxX - 0.18, z); }
@@ -132,7 +151,11 @@ export class SharedShip implements ShipInterior {
       }
     }
 
-    // ── armoury (+Z wall) ──
+    /*
+     * ── armoury (+Z wall) ──
+     * 2026-09-08: the middle of this wall is the 격납고 doorway now (x −2 … 2), so the row moved outward — racks and
+     * the 정비 bench to port, lockers and crates to starboard. Nothing stands within a metre of the opening.
+     */
     // weapon racks
     for (const x of [-9.5, -6.5]) {
       b.boxB(2.4, 2.2, 0.35, x, 0, ROOM.maxZ - 0.35, M.gunmetal);
@@ -140,9 +163,9 @@ export class SharedShip implements ShipInterior {
       b.box(2.4, 0.05, 0.05, x, 2.15, ROOM.maxZ - 0.55, M.stripCyan);
       col.addBox(x, 0, ROOM.maxZ - 0.4, 2.4, 2.2, 0.6);
     }
-    P.lockers(-2.5, ROOM.maxZ - 0.27, 5, 0);
+    P.lockers(4.2, ROOM.maxZ - 0.27, 5, 0);
     // workbench (weapon repair), facing −Z into the deck
-    const wb = P.workbench(2.5, ROOM.maxZ - 0.62, 0);
+    const wb = P.workbench(-3.7, ROOM.maxZ - 0.62, 0);
     this.workbench = { position: wb.position, yaw: wb.yaw };
     const wbSign = new TextPlane(0.9, 0.3, 256);
     wbSign.mesh.position.copy(wb.signPos);
@@ -150,15 +173,15 @@ export class SharedShip implements ShipInterior {
     wbSign.set(['정비'], '#9be8ff', 'rgba(6,8,10,0.85)');
     r.add(wbSign.mesh);
     this.screens.push(wbSign);
-    P.crates(6.5, ROOM.maxZ - 0.55, 4, 0);
-    P.crates(10.0, ROOM.maxZ - 0.55, 2, 0);
+    P.crates(7.8, ROOM.maxZ - 0.55, 4, 0);
+    P.crates(10.8, ROOM.maxZ - 0.55, 2, 0);
     P.crates(ROOM.maxX - 0.6, -4.5, 3, Math.PI / 2);
 
     // ── 함선 시설 (tactical kit) — merged into the same GeoBatch, no extra draw calls ──
     // 정비대: the existing workbench (board only); 임플란트 시술대: +X wall, +Z half.
     // (Phase 8: the hydroponics rack is gone — 재배 lives in the personal ship's 온실.)
     this.stations = {
-      bench: repairBench(b, col, 2.5, ROOM.maxZ - 0.7, 0, false),
+      bench: repairBench(b, col, -3.7, ROOM.maxZ - 0.7, 0, false),
       implantBay: implantBay(b, col, ROOM.maxX - 1.0, 3.6, yawFromForward(-1, 0)),
     };
 
@@ -174,6 +197,27 @@ export class SharedShip implements ShipInterior {
     b.box(0.12, 0.1, 2.8, ROOM.maxX, 3.1, 0, M.stripRed);
     b.box(0.6, 0.04, 2.6, ROOM.maxX - 0.6, 0.015, 0, M.stripAmber);                // threshold strip
     P.signStrip(ROOM.maxX - WALL / 2 - 0.03, 3.6, 0, 3.0, M.stripAmber, Math.PI / 2);
+
+    /*
+     * ── 격납고 (2026-09-08) ──
+     * Built into the **same** `GeoBatch` and collider, so the whole aft deck costs no extra draw calls and its floor
+     * joins the ship's walkable union at the +Z wall's outer face. `Hangar` owns its own lights, bay signs and the
+     * parked ship models; only the doorway trim and the sliding leaves belong here.
+     */
+    this.hangar = new Hangar(b, col, { wallZ: ROOM.maxZ + WALL, halfWidth: ROOM.maxX + WALL, ceil: CEIL }, HANGAR_DOOR_HALF);
+    r.add(this.hangar.root);
+    // doorway trim on the deck side + a threshold strip, so the opening reads as a door and not a hole
+    for (const sx of [-1, 1]) b.box(0.12, HANGAR_DOOR_HEIGHT, 0.36, sx * (HANGAR_DOOR_HALF + 0.06), HANGAR_DOOR_HEIGHT / 2, ROOM.maxZ + WALL / 2, M.trim);
+    b.box(HANGAR_DOOR_HALF * 2 + 0.24, 0.1, 0.36, 0, HANGAR_DOOR_HEIGHT + 0.05, ROOM.maxZ + WALL / 2, M.trim);
+    b.box(HANGAR_DOOR_HALF * 2, 0.03, 0.5, 0, 0.014, ROOM.maxZ + WALL / 2, M.stripAmber);
+    const hangarSign = new TextPlane(1.6, 0.44, 320);
+    hangarSign.mesh.position.set(0, HANGAR_DOOR_HEIGHT + 0.42, ROOM.maxZ - 0.02);
+    hangarSign.mesh.rotation.y = Math.PI;                                    // reads from inside the ship
+    hangarSign.set(['격납고'], '#ffc98a', 'rgba(6,8,10,0.85)');
+    r.add(hangarSign.mesh);
+    this.screens.push(hangarSign);
+    // the sliding leaves sit inside the wall slab; like every other 자동문 they animate and never block
+    this.doors.add(0, ROOM.maxZ + WALL / 2, HANGAR_DOOR_HALF * 2, HANGAR_DOOR_HEIGHT - 0.05, 0.14, 'x');
 
     b.build(r, this.meshes);
 
@@ -204,14 +248,28 @@ export class SharedShip implements ShipInterior {
     this.planet.setColors(color, atmo);
   }
 
+  /** 격납고 bays, in slot order (the hub hangs the boarding interactables off these). */
+  get bays(): readonly HangarBayDef[] { return this.hangar.bays; }
+
+  /** Park the squad's ships: `names[i]` = crew name in bay `i`, null = empty bay. */
+  setBayOccupants(names: readonly (string | null)[]): void { this.hangar.setOccupants(names); }
+
+  /** 자동문 + hangar animation follow the player (called by the hub, same contract as `PersonalShip.updateNear`). */
+  updateNear(dt: number, px: number, pz: number): void {
+    this.doors.update(dt, px, pz);
+  }
+
   update(dt: number, time: number): void {
     this.stars.update(dt);
     this.planet.update(dt);
     this.holo.rotation.y += dt * 0.6;
     this.holoMat.opacity = 0.28 + 0.1 * Math.sin(time * 2.3);
+    this.hangar.update(dt, time);
   }
 
   dispose(): void {
+    this.hangar.dispose();
+    this.doors.dispose();
     disposeMeshes(this.meshes);
     for (const l of this.lights) l.removeFromParent();
     this.lights.length = 0;

@@ -11,6 +11,8 @@ import type {
 } from '@/shared';
 import type { ClientToServer, MissionMode, ProfileRef, RaidSessionBlob } from '@/shared';
 import type { PlanetId, SocialRef } from '@/shared';
+/* appended (2026-09-08): 공용 함선 격납고 */
+import type { ShipVisitWire } from '@/shared';
 import { isPlanetId } from '@/shared';
 import {
   NET_INVITE_PARAM, NET_MISSION_RESUME_TIMEOUT_MS, NET_NAME_PARAM, NET_PLAYER_SNAPSHOT_HZ, NET_RECONNECT_BACKOFF_MS,
@@ -75,6 +77,8 @@ export function syncRemoteIdentities(sys: NetSystem): void {
   for (const id of Array.from(sys.membership.keys())) if (!seen.has(id)) sys.membership.delete(id);
   // Phase 10: forget the crew cards of members who are gone (our own card is kept — hub/ owns it).
   for (const id of Array.from(sys.crewCards.keys())) if (id !== me && !seen.has(id)) sys.crewCards.delete(id);
+  // 2026-09-08: and their ship layouts, so a 격납고 bay never renders a member who left (ours is kept — hub/ owns it).
+  for (const id of Array.from(sys.shipVisits.keys())) if (id !== me && !seen.has(id)) sys.shipVisits.delete(id);
   }
 
 /** `ghost state` / `sync` entry for a lobby member (never ourselves): the ref is created when missing. */
@@ -134,6 +138,16 @@ export function getCrewCard(sys: NetSystem, id: PeerId): CrewCardWire | null { r
 export function requestCrewLoadout(sys: NetSystem, id: PeerId): void {
   if (typeof id !== 'string' || id.length === 0 || id === sys.localId) return;
   sys.send({ t: 'crewq', ev: 'loadout' }, id);
+  }
+
+/* ── 공용 함선 격납고 (2026-09-08) ─────────────────────────────────────── */
+/** Last `ship state` seen for `id` (our own included), or null. */
+export function getShipVisit(sys: NetSystem, id: PeerId): ShipVisitWire | null { return sys.shipVisits.get(id) ?? null; }
+
+/** Ask `id` for its ship layout (`shipq state`). Never sent to ourselves — our own copy is snooped in `send()`. */
+export function requestShipVisit(sys: NetSystem, id: PeerId): void {
+  if (typeof id !== 'string' || id.length === 0 || id === sys.localId) return;
+  sys.send({ t: 'shipq', ev: 'state' }, id);
   }
 
 /** Mirror the ship-side card onto the member's ref (the wielded `implantId` stays snapshot-driven). */

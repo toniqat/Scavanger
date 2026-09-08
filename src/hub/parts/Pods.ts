@@ -29,6 +29,8 @@ import { HubStatus } from '../ui/HubStatus';
 import { ReadyPanel, type ReadyCellInfo } from '../ui/ReadyPanel';
 import { randomSeed } from '../ui/dom';
 import { type DockTransition, LOCK_REQUEST_GRACE_MS, READY_ECHO_GRACE, UNBOARD_GRACE, _camLook, _camPos, _front } from '../model';
+/* 격납고 (2026-09-08): the visit status line lives with the rest of the hangar logic. */
+import * as Hangar from './Hangar';
 import type { HubSystem } from '../HubSystem';
 
 export function getLaunchSlots(sys: HubSystem): readonly HubLaunchSlot[] { return sys.slots; }
@@ -256,6 +258,7 @@ export function tickCountdown(sys: HubSystem, dt: number): void {
   }
 
   // status line
+  const visit = Hangar.visitStatus(sys);
   if (boarded) {
     if (sys.countdown >= 0) sys.status.set(String(Math.max(0, Math.ceil(sys.countdown))), '발사 준비 완료', { count: true, progress: 1 - sys.countdown / HUB_LAUNCH_COUNTDOWN });
     else if (lobby) sys.status.set(`탑승 대기 중 (${ready}/${total})`, '슬롯에서 내리기', { keycap: 'E' });
@@ -263,6 +266,9 @@ export function tickCountdown(sys: HubSystem, dt: number): void {
   } else if (lobby && net?.missionInProgress) {
     if (sys.trainingRunning()) sys.status.set(`훈련 진행 중 (${sys.trainingCount()}명)`, '터미널에서 합류할 수 있습니다');
     else sys.status.set('임무 진행 중', '발사 슬롯에 탑승하면 재투입됩니다');
+  } else if (visit) {
+    // 격납고 (2026-09-08): inside a bay's ship — the only reminder of how to get back out (and that it is read-only)
+    sys.status.set(visit.main, visit.sub);
   } else {
     sys.status.hide();
   }

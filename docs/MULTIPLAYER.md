@@ -30,6 +30,8 @@
 
 - **Phase 11 (2026-09-07)**: `LobbyState.planet` 은 **호스트만** 정하고(`lobby:planet`), 모든 멤버가 자기 `lobby:state` 를 보고 워프 컷씬을 돈다 — 별도 이동 메시지는 없다. 목표 행성 없이 레이드를 시작하면 서버가 `no_planet` 으로 거부하고(훈련장은 무관), `lobby:reset` 후에도 목적지는 남는다. **소셜은 로비 밖에서도 오간다**: 릴레이가 친구 watcher 인덱스로 `social:state` 를 밀어 주고 귓속말 · 분대 초대를 아이디로 라우팅한다. 모든 `LobbyState` 에 각 멤버의 아이디 · 레벨이 실린다.
 
+- **2026-09-08 (공용 함선 격납고)**: 공유 함선 뒤 격납고에는 분대원 개개인의 **개인 함선**이 정박해 있고, 그 사람의 함선 안으로 걸어 들어갈 수 있다. 남의 함선 내부를 그리려면 배치 정보가 필요해서 `ship state` (`ShipVisitWire` — 방 용도 · 시설 레벨 · 배치 가구 · 꽂힌 책)가 새로 생겼다. 동작은 **크루 카드와 같다**: 공유 함선 도착 시 `others` 로 한 번 뿌리고 나머지에게 `shipq state` 를 요청, 내 함선이 바뀌면 디바운스 재방송, 요청에는 쿨다운을 두고 즉답. 서버는 여전히 내용을 보지 않는다(불투명 릴레이). 창고 · 프리셋 · 도감은 보내지 않는다 — **방문은 둘러보기 전용**이라 그릴 것만 있으면 된다. 함선을 드나드는 것은 **로비 상태를 전혀 바꾸지 않는다**(도킹도 아니고 임무도 아니다). 인테리어가 전부 월드 원점에 지어지므로 "지금 어느 함선 안인가"를 `PlayerSnapshot.hs` 로 알려서(`null` = 공유 데크) 값이 다른 아바타는 그리지 않는다 — 같은 함선을 구경 중인 둘은 서로 보인다.
+
 ## 3. 아직 동기화되지 않은 것
 
 - **Not synced yet**: pickup lifetime expiry is per-client (`PICKUP_LIFETIME` is 0); a host promoted mid-mission does not inherit the old host's guard anchors / lures and takes its wave index from the `ee wave` events it saw; a corpse the host never opened validates only the first take per index; `ee grenadeHit` matches replica grenades by proximity.

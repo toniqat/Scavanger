@@ -25,7 +25,7 @@ import { RemotePlayer } from '../RemotePlayer';
 import { Snapshotter } from '../Snapshotter';
 import type { CrewCardWire, ImplantId } from '@/shared';
 import { IMPLANT_IDS } from '@/shared';
-import { CHAT_KINDS, type Handler, IMPLANT_ID_SET, MAX_LOBBYLESS_ATTEMPTS, NAME_STORAGE_KEY, PEER_LINGER, PING_KINDS, SNAPSHOT_INTERVAL, TOKEN_ALPHABET, TOKEN_RE, defIdOrNull, isGhostWire, isNum, isVec3, loadOrCreateSessionToken, sameCard, sanitizeCrewCard, vec } from '../model';
+import { CHAT_KINDS, type Handler, IMPLANT_ID_SET, MAX_LOBBYLESS_ATTEMPTS, NAME_STORAGE_KEY, PEER_LINGER, PING_KINDS, SNAPSHOT_INTERVAL, TOKEN_ALPHABET, TOKEN_RE, defIdOrNull, isGhostWire, isNum, isVec3, loadOrCreateSessionToken, sameCard, sanitizeCrewCard, sanitizeShipVisit, vec } from '../model';
 import type { NetSystem } from '../NetSystem';
 
 /* ── game messages ──────────────────────────────────────────────────── */
@@ -40,6 +40,19 @@ export function send(sys: NetSystem, msg: GameMessage, to: RelayTarget = 'others
       sys.crewCards.set(me, own);
       // Re-emit only on a real change — a hub/ handler that reacts by re-sending can never loop.
       if (!prev || !sameCard(prev, own)) sys.ctx.bus.emit('net:crewCard', { id: me, card: own });
+    }
+  }
+  /*
+   * 공용 함선 격납고 (2026-09-08): the same snoop for `ship state`. hub/ broadcasts our own ship layout; keeping our
+   * copy here means our **own** hangar bay renders from exactly the wire the squad sees — one code path, and it
+   * still works offline / single-player where the relay drops the message.
+   */
+  if (msg.t === 'ship' && msg.ev === 'state') {
+    const me = sys.localId;
+    const own = sanitizeShipVisit(msg.ship);
+    if (me !== null && own !== null) {
+      sys.shipVisits.set(me, own);
+      sys.ctx.bus.emit('net:shipVisit', { id: me });
     }
   }
   if (!sys.client.connected || !sys._lobby) return;
@@ -242,6 +255,18 @@ export function handleRelay(sys: NetSystem, from: PeerId, d: GameMessage): void 
       sys.applyCrewCard(from, card);
       bus.emit('net:crewCard', { id: from, card });
       if (d.ev === 'loadout') bus.emit('net:crewLoadout', { id: from, card, loadout: d.loadout });
+      break;
+    }
+    /*
+     * 공용 함선 격납고 (2026-09-08): a member's ship layout (`ship state`), sent on arrival in the shared ship, on a
+     * debounced housing change and as the answer to `shipq state`. Stored for hub/ to render a hangar bay from.
+     * `shipq` needs no case — hub/ answers it through `onMessage('shipq')`, exactly like `crewq`.
+     */
+    case 'ship': {
+      const ship = sanitizeShipVisit(d.ship);
+      if (!ship) break;
+      sys.shipVisits.set(from, ship);
+      bus.emit('net:shipVisit', { id: from });
       break;
     }
     /*

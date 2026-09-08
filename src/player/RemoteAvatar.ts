@@ -166,8 +166,15 @@ export class RemoteAvatar implements RemoteAvatarRef {
     const flags = suspended ? rawFlags & SUSPENDED_FLAG_MASK : rawFlags;
     const dropping = (flags & PlayerFlags.DROPPING) !== 0;
     const inPod = (flags & PlayerFlags.IN_POD) !== 0;   // boarded in a hub launch pod: pod shown closed, body hidden
+    /*
+     * 공용 함선 격납고 (2026-09-08): every ship interior is built at the world origin, so two members standing in
+     * *different* ships occupy the same coordinates. `hubSite` (`PlayerSnapshot.hs`) says which one each of us is in
+     * — null = the shared deck (공유 함선 + 격납고) — and a peer somewhere else is simply not drawn. Two people
+     * touring the same 개인 함선 do see each other, which is the whole point.
+     */
+    const elsewhere = (ref.hubSite ?? null) !== (ctx.hub?.hubSite ?? null);
     // Phase 7: a suspended member stays visible even though its snapshots are stale (the host's ghost owns the body)
-    const visible = !dropping && !inPod && (suspended || (!ref.stale && ref.connected));
+    const visible = !dropping && !inPod && !elsewhere && (suspended || (!ref.stale && ref.connected));
 
     // ── landing burst: first frame out of the hellpod
     if (this.wasDropping && !dropping && ref.connected) {

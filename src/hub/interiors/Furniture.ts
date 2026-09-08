@@ -349,6 +349,17 @@ export interface FurnitureCallbacks {
   onBookshelf(uid: string): void;
 }
 
+/**
+ * 개인 함선 방문 (2026-09-08): where the layer reads its pieces from. Default = `ctx.housing` (our own ship). A
+ * **visited** ship passes a frozen source built from that member's `ShipVisitWire` instead — it never changes, so
+ * the layer also skips its `housing:*` subscriptions and registers no interactables (둘러보기 전용).
+ */
+export interface FurnitureSource {
+  getPlaced(room: number): readonly PlacedFurniture[];
+  /** Shelved book rarities of a 책장 by slot (null = empty slot). */
+  getBooks(uid: string): readonly (Rarity | null)[];
+}
+
 interface Piece {
   item: PlacedFurniture;
   model: FurnitureModel;
@@ -381,18 +392,24 @@ export class FurnitureLayer {
   private pieces = new Map<string, Piece>();
   private unsubs: Array<() => void> = [];
 
-  constructor(private readonly ctx: GameContext, private readonly rooms: readonly RoomDef[], private readonly collider: BoxInteriorCollider, private readonly cb: FurnitureCallbacks) {
+  /**
+   * `source` (2026-09-08) overrides `ctx.housing` — a visited member's ship. A sourced layer is **read-only**: it
+   * subscribes to nothing (the wire never changes under it) and registers no interactables at all.
+   */
+  constructor(private readonly ctx: GameContext, private readonly rooms: readonly RoomDef[], private readonly collider: BoxInteriorCollider, private readonly cb: FurnitureCallbacks, private readonly source: FurnitureSource | null = null) {
     const b = ctx.bus;
-    this.unsubs.push(
-      b.on('housing:furniturePlaced', ({ item }) => this.rebuildRoom(item.room)),
-      b.on('housing:furnitureMoved', ({ item }) => this.rebuildRoom(item.room)),
-      b.on('housing:furnitureUpgraded', ({ item }) => this.rebuildRoom(item.room)),
-      b.on('housing:furnitureRecovered', ({ room }) => this.rebuildRoom(room)),
-      b.on('housing:changed', ({ reason }) => { if (!COVERED_CHANGE_REASONS.has(reason)) this.rebuildAll(); }),
-      b.on('housing:loaded', () => this.rebuildAll()),
-      // Phase 9: a book went on / off a 책장 → redraw that piece's room (the shelf model carries the spines)
-      b.on('housing:booksChanged', ({ uid }) => { const p = this.pieces.get(uid); if (p) this.rebuildRoom(p.item.room); }),
-    );
+    if (source === null) {
+      this.unsubs.push(
+        b.on('housing:furniturePlaced', ({ item }) => this.rebuildRoom(item.room)),
+        b.on('housing:furnitureMoved', ({ item }) => this.rebuildRoom(item.room)),
+        b.on('housing:furnitureUpgraded', ({ item }) => this.rebuildRoom(item.room)),
+        b.on('housing:furnitureRecovered', ({ room }) => this.rebuildRoom(room)),
+        b.on('housing:changed', ({ reason }) => { if (!COVERED_CHANGE_REASONS.has(reason)) this.rebuildAll(); }),
+        b.on('housing:loaded', () => this.rebuildAll()),
+        // Phase 9: a book went on / off a 책장 → redraw that piece's room (the shelf model carries the spines)
+        b.on('housing:booksChanged', ({ uid }) => { const p = this.pieces.get(uid); if (p) this.rebuildRoom(p.item.room); }),
+      );
+    }
     this.rebuildAll();
   }
 
@@ -432,10 +449,14 @@ export class FurnitureLayer {
     const def = this.rooms[room];
     if (!def) return;
     for (const [uid, p] of this.pieces) if (p.item.room === room) { this.removePiece(p); this.pieces.delete(uid); }
-    const housing = this.ctx.housing;
-    if (!housing || typeof housing.getPlaced !== 'function') return;
     let placed: readonly PlacedFurniture[] = [];
-    try { placed = housing.getPlaced(room); } catch { placed = []; }
+    if (this.source) {
+      try { placed = this.source.getPlaced(room); } catch { placed = []; }
+    } else {
+      const housing = this.ctx.housing;
+      if (!housing || typeof housing.getPlaced !== 'function') return;
+      try { placed = housing.getPlaced(room); } catch { placed = []; }
+    }
     for (const item of placed) this.addPiece(def, item);
   }
 
@@ -463,8 +484,9 @@ export class FurnitureLayer {
       roomDef.furnitureGroup.add(sign.mesh);
     }
 
+    // a visited ship is 둘러보기 전용: the pieces are drawn and collide, but nothing answers to E
     let interactable: Interactable | null = null;
-    if (def.interaction !== 'none') {
+    if (def.interaction !== 'none' && this.source === null) {
       const bench = benchKindOf(def.interaction);
       const kind = def.interaction;
       const stack = Math.max(1, def.stackLimit ?? 1);
@@ -503,9 +525,16 @@ export class FurnitureLayer {
     this.pieces.set(item.uid, { item, model, blocker, sign, interactable });
   }
 
-  /** Shelved books of a 책장 by slot (rarity or null), from `ctx.housing.getBooks(uid)`; empty with the skeleton. */
+  /** Shelved books of a 책장 by slot (rarity or null), from the source or `ctx.housing.getBooks(uid)`. */
   private shelfBooks(uid: string): (Rarity | null)[] {
     const out: (Rarity | null)[] = new Array(BOOKS_PER_SHELF).fill(null);
+    if (this.source) {
+      try {
+        const src = this.source.getBooks(uid);
+        for (let i = 0; i < out.length && i < src.length; i++) out[i] = src[i] ?? null;
+      } catch { /* malformed wire */ }
+      return out;
+    }
     const h = this.ctx.housing;
     if (!h || typeof h.getBooks !== 'function') return out;
     try {

@@ -115,6 +115,14 @@ export class RemotePlayer implements RemotePlayerRef {
   /** Implant EQUIPPED on the ship (`CrewCardWire.implant`); distinct from `implantId` (wielded, always null in the hub). */
   equippedImplant: ImplantId | null | undefined = undefined;
 
+  /* ── appended (2026-09-08): 공용 함선 격납고 ── */
+  /**
+   * `PlayerSnapshot.hs` — the 개인 함선 this peer is standing in, or null on the shared deck (공유 함선 + 격납고).
+   * `player/RemoteAvatar` hides the body whenever it differs from ours, so a tour of somebody's ship is private to
+   * the people actually in it.
+   */
+  hubSite: PeerId | null = null;
+
   /**
    * The peer's snapshot stream restarted (page reload / rejoin with the same stable PeerId → `seq` starts at 1
    * again). Forget the sequence guard and the interpolation history; the next `push` snaps to the new stream.
@@ -166,6 +174,8 @@ export class RemotePlayer implements RemotePlayerRef {
     /* Phase 10: the carried peer and the carried shield's durability ride on the snapshot (steady state). */
     this.carrying = (s.f & PlayerFlags.CARRYING) !== 0 && typeof s.cr === 'string' && s.cr.length > 0 ? s.cr : null;
     this.barrierHp = (s.f & PlayerFlags.BARRIER) !== 0 && typeof s.bhp === 'number' && Number.isFinite(s.bhp) ? s.bhp : undefined;
+    /* 격납고 (2026-09-08): which ship interior the sender is standing in (null = the shared deck). */
+    this.hubSite = typeof s.hs === 'string' && s.hs.length > 0 ? s.hs : null;
     if (!this.hasAny) {
       this.hasAny = true;
       this.position.set(s.p[0], s.p[1], s.p[2]);

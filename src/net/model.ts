@@ -24,6 +24,9 @@ import { SocialSync } from './SocialSync';
 import { RemotePlayer } from './RemotePlayer';
 import { Snapshotter } from './Snapshotter';
 import type { CrewCardWire, ImplantId } from '@/shared';
+/* appended (2026-09-08): 공용 함선 격납고 — a visited member's ship layout */
+import type { PlacedBook, PlacedFurniture, RoomPurpose, ShipVisitWire } from '@/shared';
+import { ROOM_PURPOSES, SHIP_ROOM_COUNT } from '@/shared';
 import { IMPLANT_IDS } from '@/shared';
 /* appended (Phase 11): 행성 선택 · 소셜 */
 /* appended (Phase 10): 발사 준비 패널 crew cards */
@@ -72,6 +75,73 @@ export function sameCard(a: CrewCardWire, b: CrewCardWire): boolean {
   return a.level === b.level && a.implant === b.implant && a.armor === b.armor
     && (a.primary ?? null) === (b.primary ?? null) && (a.primary2 ?? null) === (b.primary2 ?? null)
     && (a.secondary ?? null) === (b.secondary ?? null);
+}
+
+/*
+ * 공용 함선 격납고 (2026-09-08): a peer's ship layout off the wire. Like `sanitizeCrewCard` this **never rejects the
+ * whole document** — a room with a bad purpose falls back to `'empty'` and a malformed piece is dropped, so a ship
+ * from an older or buggy peer still walks. Caps mirror what the personal ship can physically hold.
+ */
+const ROOM_PURPOSE_SET: ReadonlySet<string> = new Set<RoomPurpose>(ROOM_PURPOSES);
+/** Hard cap on placed pieces / books accepted from a peer (the ship's own limits are far lower). */
+const SHIP_VISIT_MAX_FURNITURE = 400;
+const SHIP_VISIT_MAX_BOOKS = 400;
+
+export function sanitizeShipVisit(v: unknown): ShipVisitWire | null {
+  if (typeof v !== 'object' || v === null) return null;
+  const w = v as Partial<ShipVisitWire>;
+  const rooms: { purpose: RoomPurpose; level: number }[] = [];
+  const src = Array.isArray(w.rooms) ? w.rooms : [];
+  for (let i = 0; i < SHIP_ROOM_COUNT; i++) {
+    const r = src[i] as Partial<{ purpose: RoomPurpose; level: number }> | undefined;
+    const purpose = typeof r?.purpose === 'string' && ROOM_PURPOSE_SET.has(r.purpose) ? r.purpose : 'empty';
+    const level = isNum(r?.level) ? Math.max(0, Math.min(99, Math.floor(r.level))) : 0;
+    rooms.push({ purpose, level });
+  }
+  const furniture: PlacedFurniture[] = [];
+  if (Array.isArray(w.furniture)) {
+    for (const f of w.furniture.slice(0, SHIP_VISIT_MAX_FURNITURE)) {
+      const piece = sanitizePlaced(f);
+      if (piece) furniture.push(piece);
+    }
+  }
+  const out: ShipVisitWire = {
+    rooms,
+    generatorLevel: isNum(w.generatorLevel) ? Math.max(0, Math.min(99, Math.floor(w.generatorLevel))) : 0,
+    storageLevel: isNum(w.storageLevel) ? Math.max(0, Math.min(99, Math.floor(w.storageLevel))) : 0,
+    furniture,
+  };
+  if (Array.isArray(w.books)) {
+    const books: PlacedBook[] = [];
+    for (const b of w.books.slice(0, SHIP_VISIT_MAX_BOOKS)) {
+      const e = b as Partial<PlacedBook>;
+      const uid = defIdOrNull(e?.uid), defId = defIdOrNull(e?.defId);
+      if (uid === null || defId === null || !isNum(e?.slot)) continue;
+      books.push({ uid, defId, slot: Math.max(0, Math.min(99, Math.floor(e.slot as number))) });
+    }
+    if (books.length > 0) out.books = books;
+  }
+  return out;
+}
+
+function sanitizePlaced(f: unknown): PlacedFurniture | null {
+  if (typeof f !== 'object' || f === null) return null;
+  const w = f as Partial<PlacedFurniture>;
+  const uid = defIdOrNull(w.uid), defId = defIdOrNull(w.defId);
+  if (uid === null || defId === null) return null;
+  if (!isNum(w.room) || !isNum(w.x) || !isNum(w.y)) return null;
+  const room = Math.floor(w.room);
+  if (room < 0 || room >= SHIP_ROOM_COUNT) return null;
+  const yaw = w.yaw === 1 || w.yaw === 2 || w.yaw === 3 ? w.yaw : 0;
+  const piece: PlacedFurniture = {
+    uid, defId, room,
+    x: Math.max(0, Math.min(63, Math.floor(w.x))),
+    y: Math.max(0, Math.min(63, Math.floor(w.y))),
+    yaw,
+    level: isNum(w.level) ? Math.max(1, Math.min(99, Math.floor(w.level))) : 1,
+  };
+  if (isNum(w.layer) && w.layer > 0) piece.layer = Math.max(0, Math.min(15, Math.floor(w.layer)));
+  return piece;
 }
 
 export function isGhostWire(g: unknown): g is GhostWire {

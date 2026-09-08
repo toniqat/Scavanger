@@ -5,6 +5,8 @@ import type {
 } from '@/shared';
 import type { ClientToServer, MissionMode, ProfileRef, RaidSessionBlob } from '@/shared';
 import type { PlanetId, SocialRef } from '@/shared';
+/* appended (2026-09-08): 공용 함선 격납고 */
+import type { ShipVisitWire } from '@/shared';
 import { isPlanetId } from '@/shared';
 import {
   NET_INVITE_PARAM, NET_MISSION_RESUME_TIMEOUT_MS, NET_NAME_PARAM, NET_PLAYER_SNAPSHOT_HZ, NET_RECONNECT_BACKOFF_MS,
@@ -85,6 +87,11 @@ export class NetSystem implements GameSystem, NetRef {
    * panel reads the local cell through the same accessor). Cleared with the lobby.
    */
   readonly crewCards = new Map<PeerId, CrewCardWire>();
+  /**
+   * 공용 함선 격납고 (2026-09-08): last `ship state` seen per peer (our own included — `send()` snoops it exactly
+   * like a crew card). hub/ renders a hangar bay's ship straight out of this map.
+   */
+  readonly shipVisits = new Map<PeerId, ShipVisitWire>();
   /** true while anybody (local or remote) is carrying someone: gates the per-frame `carriedBy` derivation. */
   carryActive = false;
 
@@ -400,6 +407,19 @@ export class NetSystem implements GameSystem, NetRef {
 
   /** Mirror the ship-side card onto the member's ref (the wielded `implantId` stays snapshot-driven). */
   applyCrewCard(id: PeerId, card: CrewCardWire): void { return Remotes.applyCrewCard(this, id, card); }
+
+  /* ══ 공용 함선 격납고 (2026-09-08) ═════════════════════════════════════ */
+  /**
+   * Last `ship state` seen for `id` (our own broadcast is snooped in `send()`, so our own id answers too). The hangar
+   * bay reads this to build the parked member's interior; null means nothing has arrived yet and the bay asks.
+   */
+  getShipVisit(id: PeerId): ShipVisitWire | null { return Remotes.getShipVisit(this, id); }
+
+  /**
+   * Ask `id` for its ship layout (`shipq state` addressed to that peer). The answer comes back as `ship state` →
+   * `net:shipVisit {id}`; a peer may rate-limit it (`SHIP_VISIT_COOLDOWN_S`), so the caller must tolerate silence.
+   */
+  requestShipVisit(id: PeerId): void { return Remotes.requestShipVisit(this, id); }
 
   /**
    * Phase 10: `RemotePlayerRef.carriedBy` is derived, not sent — every carrier advertises `carrying` and the carried

@@ -27,12 +27,16 @@ import { HubStatus } from '../ui/HubStatus';
 import { ReadyPanel, type ReadyCellInfo } from '../ui/ReadyPanel';
 import { randomSeed } from '../ui/dom';
 import { type DockTransition, LOCK_REQUEST_GRACE_MS, READY_ECHO_GRACE, UNBOARD_GRACE, _camLook, _camPos, _front } from '../model';
+/* 공용 함선 격납고 (2026-09-08) */
+import * as Hangar from './Hangar';
 import type { HubSystem } from '../HubSystem';
 
 /* ── enter / build / teardown ──────────────────────────────────────────── */
 export function enter(sys: HubSystem, requested: HubShipKind): void {
   const ctx = sys.ctx;
   // 'shared' needs a lobby; conversely, while a lobby exists the squad lives in the shared ship.
+  // (`hub:enter` always lands on the shared deck — a 격납고 visit is left behind; `boardShip` owns that state.)
+  sys.visit = null; sys.visitShip = null; sys.pendingBay = null;
   const ship: HubShipKind = ctx.net?.lobby ? 'shared' : 'personal';
   if (requested !== ship) console.info(`[hub] hub:enter ${requested} → ${ship} (lobby ${ctx.net?.lobby ? 'present' : 'absent'})`);
   const phase = ctx.phase;
@@ -89,6 +93,7 @@ export function startTransition(sys: HubSystem, direction: DockTransition): void
     sys.cutscene.dispose(); sys.cutscene = null; sys.travelling = false;
   }
   if (sys.boardedSlot >= 0) sys.leavePod(false, false);
+  sys.visit = null; sys.visitShip = null; sys.pendingBay = null;   // 격납고: a docking transition always leaves a visit
   sys.menu.close(false);
   sys.wbMenu.close(false);
   sys.ready.hide();
@@ -116,6 +121,7 @@ export function swapDirect(sys: HubSystem, target: HubShipKind): void {
   const ctx = sys.ctx;
   sys.cutscene?.dispose(); sys.cutscene = null; sys.travelling = false;
   if (sys.boardedSlot >= 0) sys.leavePod(false, false);
+  sys.visit = null; sys.visitShip = null; sys.pendingBay = null;   // 격납고: a direct swap always leaves a visit
   sys.menu.close(false);
   sys.wbMenu.close(false);
   sys.ready.hide();
@@ -125,14 +131,87 @@ export function swapDirect(sys: HubSystem, target: HubShipKind): void {
   ctx.bus.emit('hub:entered', { ship: target, spawn: spawn.clone() });
   }
 
+/* ── 격납고: 개인 함선 드나들기 (2026-09-08) ───────────────────────────── */
+/**
+ * Swap the interior to the 개인 함선 parked in bay `slot`. `peerId` null = **our own** ship (everything works as
+ * usual); a peer's id = a visit, built from their `ship state` and 둘러보기 전용.
+ *
+ * There is no cutscene and **no lobby change** — the squad ship is one door away and we stay a member of it. Only
+ * the interior is replaced, exactly like `swapDirect`, and `hub:entered` re-avatars everyone from their next
+ * snapshot (whose `hs` now says who else is standing in here).
+ */
+export function boardShip(sys: HubSystem, peerId: PeerId | null, slot: number): void {
+  const ctx = sys.ctx;
+  const net = ctx.net;
+  const wire = peerId !== null && net && typeof net.getShipVisit === 'function' ? net.getShipVisit(peerId) : null;
+  if (peerId !== null && !wire) {
+    ctx.bus.emit('ui:notify', { text: '함선 정보를 받지 못했습니다', kind: 'warning' });
+    return;
+  }
+  sys.cutscene?.dispose(); sys.cutscene = null; sys.travelling = false;
+  sys.pendingBay = null;
+  if (sys.boardedSlot >= 0) sys.leavePod(false, false);
+  sys.menu.close(false);
+  sys.wbMenu.close(false);
+  sys.ready.hide();
+  sys.disposeInterior();
+  sys.visit = { peerId, slot, readOnly: peerId !== null };
+  sys.visitShip = wire;
+  const spawn = sys.build('personal', false);
+  ctx.setPhase('hub');
+  ctx.bus.emit('hub:entered', { ship: 'personal', spawn: spawn.clone() });
+  ctx.bus.emit('hub:shipVisit', { peerId: sys.hubSite, readOnly: sys.visitReadOnly });
+  ctx.bus.emit('audio:play', { id: 'ui_open' });
+  sys.relock();
+  }
+
+/** Walk back out of a bay's ship: rebuild the shared ship and put the player in front of the bay they came from. */
+export function leaveShip(sys: HubSystem): void {
+  const ctx = sys.ctx;
+  const visit = sys.visit;
+  if (!visit) return;
+  sys.cutscene?.dispose(); sys.cutscene = null; sys.travelling = false;
+  sys.menu.close(false);
+  sys.wbMenu.close(false);
+  sys.ready.hide();
+  sys.disposeInterior();
+  const slot = visit.slot;
+  sys.visit = null; sys.visitShip = null; sys.pendingBay = null;
+  const spawn = sys.build('shared', false, slot);
+  ctx.setPhase('hub');
+  ctx.bus.emit('hub:entered', { ship: 'shared', spawn: spawn.clone() });
+  ctx.bus.emit('hub:shipVisit', { peerId: null, readOnly: false });
+  sys.relock();
+  }
+
 /* ── net events ────────────────────────────────────────────────────────── */
 export function onLobbyUpdated(sys: HubSystem, lobby: LobbyState): void {
   if (!sys.active) return;
+  /*
+   * 격납고 (2026-09-08): standing inside a bay's ship is **not** "the squad has not docked yet" — we are already in
+   * the lobby, one door away. A lobby update must never fire a docking cutscene from in there. A visit ends on its
+   * own terms (the airlock), when the raid starts, or when the member we are visiting leaves the squad.
+   */
+  if (sys.visit) {
+    const peer = sys.visit.peerId;
+    if (lobby.started && sys.raidRunning()) sys.leaveShip();
+    else if (peer !== null && !lobby.players.some((p) => p.id === peer)) {
+      sys.ctx.bus.emit('ui:notify', { text: '함선 주인이 분대를 떠났습니다 — 격납고로 돌아갑니다', kind: 'warning' });
+      sys.leaveShip();
+    } else sys.updateTerminalScreen();
+    /*
+     * 목표 행성 is deliberately **not** mirrored from in here: the warp cutscene belongs to whoever is on the deck,
+     * and `build('shared', …)` re-reads `lobbyPlanet` into `knownLobbyPlanet` on the way out — so the value is
+     * already correct when we step back into the hangar and no stale cutscene fires afterwards.
+     */
+    return;
+  }
   if (sys.ship === 'personal' && sys.ctx.phase === 'hub' && !sys.cutscene) {
     if (lobby.started) sys.swapDirect('shared');     // resumed into a running mission: no cutscene
     else sys.startTransition('dock');
     return;
   }
+  Hangar.refreshBays(sys);
   // 목표 행성 (Phase 11): the host's pick reaches everyone as `lobby:state` — there is no travel message on the
   // wire, each member plays the cutscene off its own copy. Arriving in the lobby only fills the value (see `build`).
   const lp = lobby.planet ?? null;
@@ -150,6 +229,9 @@ export function onLobbyUpdated(sys: HubSystem, lobby: LobbyState): void {
 
 export function onLobbyLeft(sys: HubSystem): void {
   if (!sys.active) return;
+  // 격납고 (2026-09-08): the lobby is gone, so the hangar (and any visit inside it) is too — undock from wherever we
+  // stand. `startTransition` tears the interior down and rebuilds the solo personal ship.
+  if (sys.visit) { sys.visit = null; sys.visitShip = null; sys.pendingBay = null; sys.startTransition('undock'); return; }
   if (sys.ship === 'shared' || (sys.cutscene && sys.cutscene.direction === 'dock')) sys.startTransition('undock');
   else { sys.syncPods(); sys.updateTerminalScreen(); }
   }

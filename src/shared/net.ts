@@ -7,6 +7,8 @@ import type { ProfileDocKey, ProfileRecord, ProfileRef, RaidSessionBlob } from '
 import type { MissionMode } from './types';
 /* appended (Phase 11, 2026-09-07): 행성 선택 + 소셜 */
 import type { PlanetId } from './planets';
+/* appended (2026-09-08): 공용 함선 격납고 — a visited member's ship layout rides on `ship state` */
+import type { PlacedBook, PlacedFurniture, RoomPurpose } from './housing';
 import type {
   PlayOutcome, PlayerCode, SocialErrorCode, SocialRef, SocialSnapshot, SquadInvite,
 } from './social';
@@ -607,7 +609,10 @@ export type GameMessage =
   | CrewMessage
   | CrewRequest
   /* appended (2026-09-08): client → host bullet report (owner: enemies) */
-  | ShotReport;
+  | ShotReport
+  /* appended (2026-09-08): 공용 함선 격납고 — 개인 함선 방문 (owner: hub) */
+  | ShipVisitMessage
+  | ShipVisitRequest;
   /* append new message types above this line (keep `t` unique; prefix by owning folder if in doubt) */
 
 export type GameMessageType = GameMessage['t'];
@@ -1048,3 +1053,52 @@ export type ImplantMessageAppended2026_09_08 =
   | { t: 'imp'; ev: 'bash'; p: Vec3Tuple; yaw: number }
   /** Any → others: the one-shot 정찰 pulse. Receivers reveal interactables + enemies inside `radius` of `p` for `dur` s. */
   | { t: 'imp'; ev: 'scanCast'; p: Vec3Tuple; radius: number; dur: number };
+
+/* ══ appended: 2026-09-08 — 공용 함선 격납고 (owner: hub) ═══════════════════════════════════════════════════════
+ * The shared ship's aft door opens onto a **격납고** where every squad member's 개인 함선 stands in its own bay.
+ * Boarding one swaps the hub interior to that member's personal ship — read-only for someone else's.
+ *
+ * Rendering a peer's ship needs their housing layout, which nothing else on the wire carries. `ship state` is that
+ * payload and behaves exactly like a `crew card`: broadcast to `others` on arrival in the shared ship and whenever
+ * the sender's ship changes (debounced by `SHIP_VISIT_MIN_INTERVAL_S`), and answered on demand to `shipq state`.
+ * ────────────────────────────────────────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * What a visitor needs to **draw** a member's personal ship. Private data (창고 · 로드아웃 프리셋 · 도감 · 재배
+ * 타이머) is deliberately absent — a visit is 둘러보기 only, so nothing here can be acted on.
+ */
+export interface ShipVisitWire {
+  /** `SHIP_ROOM_COUNT` entries in room order — the door signs and 방 조명 of the visited ship. */
+  rooms: { purpose: RoomPurpose; level: number }[];
+  generatorLevel: number;
+  storageLevel: number;
+  /** Every placed piece (all rooms). The visitor's `FurnitureLayer` renders these instead of reading `ctx.housing`. */
+  furniture: PlacedFurniture[];
+  /** Books on 책장 shelves so the spines read right. Omitted when the ship has none. */
+  books?: PlacedBook[];
+}
+export type ShipVisitMessage = { t: 'ship'; ev: 'state'; ship: ShipVisitWire };
+export type ShipVisitRequest = { t: 'shipq'; ev: 'state' };
+
+export interface PlayerSnapshot {
+  /**
+   * 격납고 (2026-09-08): the PeerId whose 개인 함선 I am standing inside (my own id while in my own ship). Omitted
+   * or null = 공유 함선 + 격납고, i.e. the deck everybody shares. Remote avatars are hidden for anyone whose `hs`
+   * differs from ours, so two members touring the same ship see each other and nobody else.
+   */
+  hs?: PeerId | null;
+}
+
+export interface RemotePlayerRef {
+  /* appended (2026-09-08): 격납고 */
+  /** `PlayerSnapshot.hs` — the personal ship this peer is inside, or null on the shared deck. */
+  readonly hubSite?: PeerId | null;
+}
+
+export interface NetRef {
+  /* ── appended (2026-09-08): 공용 함선 격납고 ── */
+  /** Last `ship state` seen for `id` (including our own), or null when none arrived yet. */
+  getShipVisit(id: PeerId): ShipVisitWire | null;
+  /** Ask `id` for its ship layout (`shipq state`); the answer lands as `net:shipVisit`. */
+  requestShipVisit(id: PeerId): void;
+}

@@ -942,3 +942,14 @@ export const MENU_BLOCKER = 'menu';
  * invite on screen there is nothing to hold for, so any release toggles.
  */
 export const COMMUNITY_TAP_MAX_S = 0.3;
+
+/* ── 공용 함선 격납고 (2026-09-08, owner: hub) ─────────────────────────────── */
+/**
+ * Debounce for re-broadcasting my own `ship state` (seconds). A ship layout changes far less often than a crew card
+ * and costs a few kB, so it is slower than `CREW_CARD_MIN_INTERVAL_S` on purpose.
+ */
+export const SHIP_VISIT_MIN_INTERVAL_S = 4;
+/** Don't answer `shipq state` from the same peer more often than this (seconds). */
+export const SHIP_VISIT_COOLDOWN_S = 3;
+/** Seconds a bay waits for a peer's `ship state` before the visit is refused with a toast. */
+export const SHIP_VISIT_WAIT_S = 5;

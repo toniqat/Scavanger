@@ -243,6 +243,7 @@ export function dropLobby(sys: NetSystem, reason: 'left' | 'disconnected' | 'kic
   sys.prevHostId = null;
   sys.membership.clear();
   sys.crewCards.clear();   // Phase 10: cards belong to the party we just left (hub/ re-sends ours on `hub:entered`)
+  sys.shipVisits.clear();  // 2026-09-08: so do the ship layouts behind the 격납고 bays
   sys.carryActive = false;
   sys.clearRemotes();
   if (had) sys.ctx.bus.emit('net:lobbyLeft', { reason });

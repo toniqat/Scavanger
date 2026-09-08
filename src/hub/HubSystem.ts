@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { PlanetId } from '@/shared';
 import { getPlanet, isPlanetId, planetLabel, HUB_TRAVEL_DURATION, PLANET_NONE_LABEL, PLANET_STORAGE_KEY } from '@/shared';
-import type { CrewCardWire, GameContext, GameSystem, HubLaunchSlot, HubRef, HubShipKind, Interactable, InteriorCollider, LoadoutSlot, LobbyState, PeerId, RoomPurpose } from '@/shared';
+import type { CrewCardWire, GameContext, GameSystem, HubLaunchSlot, HubRef, HubShipBay, HubShipKind, Interactable, InteriorCollider, LoadoutSlot, LobbyState, PeerId, RoomPurpose, ShipVisitWire } from '@/shared';
 import { CREW_CARD_MIN_INTERVAL_S, CREW_LOADOUT_COOLDOWN_S, HUB_DOCKING_DURATION, HUB_LAUNCH_COUNTDOWN, HUB_READY_BLOCKER, HUB_READY_CELLS, Keys, MENU_BLOCKER, NET_SLOT_COLORS, ROOM_PURPOSE_LABEL_KO } from '@/shared';
 import { PersonalShip } from './interiors/PersonalShip';
 import { SharedShip } from './interiors/SharedShip';
@@ -31,6 +31,8 @@ import * as Pods from './parts/Pods';
 import * as Interior from './parts/Interior';
 import * as Trans from './parts/Transitions';
 import * as Crew from './parts/Crew';
+/* 공용 함선 격납고 (2026-09-08) */
+import * as Hangar from './parts/Hangar';
 
 export class HubSystem implements GameSystem, HubRef {
   readonly name = 'hub';
@@ -158,6 +160,53 @@ export class HubSystem implements GameSystem, HubRef {
   readonly loadoutAnsweredAt = new Map<PeerId, number>();
   crewUnsub: (() => void) | null = null;
 
+  /* ── 공용 함선 격납고 (2026-09-08; hub sends `ship state`, net/ receives) ── */
+  /**
+   * The 개인 함선 we walked into from a hangar bay, or null on the shared deck / in the ordinary solo personal ship.
+   * `peerId` null = **our own** ship (full functionality); a peer's id = a visit (`readOnly`).
+   */
+  visit: { peerId: PeerId | null; slot: number; readOnly: boolean } | null = null;
+  /** Layout the visited ship was built from (a peer's `ship state`); null in our own ship. */
+  visitShip: ShipVisitWire | null = null;
+  /** A bay we boarded before that member's layout had arrived — `Hangar.tickPendingVisit` finishes or gives up. */
+  pendingBay: { slot: number; peerId: PeerId; until: number } | null = null;
+  /** Interactable ids of the four bays (shared ship only). */
+  bayIds: string[] = [];
+  /** `ctx.time` of the last `ship state` broadcast (debounced by `SHIP_VISIT_MIN_INTERVAL_S`). */
+  lastShipStateAt = -Infinity;
+  /** A ship change arrived inside the debounce window — send once it expires. */
+  shipStateDirty = false;
+  /** `ctx.time` we last answered each peer's `shipq state` (`SHIP_VISIT_COOLDOWN_S`). */
+  readonly shipAnsweredAt = new Map<PeerId, number>();
+  shipUnsub: (() => void) | null = null;
+
+  /**
+   * Which ship interior we stand in, as a PeerId — null on the shared deck (공유 함선 + 격납고), our own id in our
+   * own ship, the owner's in a visited one. `net/Snapshotter` puts it on the wire as `PlayerSnapshot.hs` and remote
+   * avatars whose value differs are hidden, so a tour of somebody's ship is private to the people inside it.
+   */
+  get hubSite(): PeerId | null {
+    const v = this.visit;
+    if (!v) return null;
+    return v.peerId ?? (this.ctx.net?.localId ?? 'local');
+  }
+  /** PeerId of the ship being **visited** (someone else's), or null in our own ship / on the shared deck. */
+  get visitingPeer(): PeerId | null { return this.visit?.peerId ?? null; }
+  /** Inside someone else's ship: every console, bench, furniture piece and 시설 관리 is refused (둘러보기 전용). */
+  get visitReadOnly(): boolean { return this.visit?.readOnly === true; }
+  /** The hangar's four 개인 함선 bays with their occupants (empty outside the shared ship). */
+  getShipBays(): readonly HubShipBay[] { return Hangar.getShipBays(this); }
+  /** Board the 개인 함선 parked in `slot` (ours or a squadmate's). See `parts/Hangar.enterShipBay`. */
+  enterShipBay(slot: number): boolean { return Hangar.enterShipBay(this, slot); }
+  /** Walk back out of a bay's ship into the hangar. */
+  returnToHangar(): boolean { return Hangar.returnToHangar(this); }
+  /** Swap the interior to `peerId`'s personal ship (null = ours), remembering the bay we came from. */
+  boardShip(peerId: PeerId | null, slot: number): void { return Trans.boardShip(this, peerId, slot); }
+  /** Swap back to the shared ship and put the player in front of the bay. */
+  leaveShip(): void { return Trans.leaveShip(this); }
+  /** Answer `shipq state`; also called on `hub:entered` when `ctx.net` was missing at init. */
+  bindShipRequests(): void { return Hangar.bindShipRequests(this); }
+
   boardedSlot = -1;
   boardedAt = 0;
   readySentAt = -Infinity;
@@ -203,7 +252,11 @@ export class HubSystem implements GameSystem, HubRef {
     this.unsubs.push(
       b.on('hub:enter', ({ ship }) => this.enter(ship)),
       // crew cards: the shared ship announces us once and asks everyone else for theirs (Phase 10)
-      b.on('hub:entered', ({ ship }) => { if (ship === 'shared') this.announceCrew(); }),
+      b.on('hub:entered', ({ ship }) => { if (ship === 'shared') { this.announceCrew(); Hangar.announceShip(this); } }),
+      // 격납고 (2026-09-08): our own ship layout is what a squadmate's bay renders — re-publish it when it changes
+      b.on('housing:changed', () => Hangar.shipStateChanged(this)),
+      b.on('housing:loaded', () => Hangar.shipStateChanged(this)),
+      b.on('housing:booksChanged', () => Hangar.shipStateChanged(this)),
       b.on('progress:levelUp', () => this.crewCardChanged()),
       b.on('implant:equipped', () => this.crewCardChanged()),
       b.on('equip:changed', () => this.crewCardChanged()),
@@ -227,6 +280,7 @@ export class HubSystem implements GameSystem, HubRef {
     );
     document.addEventListener('pointerlockchange', this.onPointerLockChange);
     this.bindCrewRequests();
+    this.bindShipRequests();
   }
 
   dispose(): void {
@@ -234,6 +288,7 @@ export class HubSystem implements GameSystem, HubRef {
     for (const u of this.unsubs) u();
     this.unsubs.length = 0;
     this.crewUnsub?.(); this.crewUnsub = null;
+    this.shipUnsub?.(); this.shipUnsub = null;
     document.removeEventListener('pointerlockchange', this.onPointerLockChange);
     this.menu.dispose();
     this.wbMenu.dispose();
@@ -287,7 +342,7 @@ export class HubSystem implements GameSystem, HubRef {
   /** Personal ship: connect in the background; a lobby on `welcome` (resume) moves us straight to the shared ship. */
   tryResume(): void { return Trans.tryResume(this); }
 
-  build(ship: HubShipKind, viaAirlock: boolean): THREE.Vector3 { return Interior.build(this, ship, viaAirlock); }
+  build(ship: HubShipKind, viaAirlock: boolean, fromBay?: number): THREE.Vector3 { return Interior.build(this, ship, viaAirlock, fromBay); }
 
   /**
    * 함선 시설: the implant bay, which opens the Tab ship screen (inventory window: 창고 / 장비 + 임플란트 슬롯 /
@@ -438,6 +493,8 @@ export class HubSystem implements GameSystem, HubRef {
     this.ready.update(dt, ctx.time);
     // a card change inside the debounce window goes out as soon as it expires
     if (this.cardDirty) this.sendCrewCard(false);
+    // 격납고 (2026-09-08): the same trailing flush for our ship layout
+    if (this.shipStateDirty) Hangar.sendShipState(this, false);
     if (this.cutscene) {
       this.cutscene.update(dt);
       if (this.cutscene) {
@@ -449,14 +506,16 @@ export class HubSystem implements GameSystem, HubRef {
     if (ctx.phase !== 'hub' || !this.interior) return;
 
     this.interior.update(dt, ctx.time);
-    // 자동문 + 방 조명 follow the player (personal ship only)
-    if (this.interior instanceof PersonalShip) {
+    // 자동문 + 방 조명 follow the player — both interiors have sliding doors since the 격납고 (2026-09-08)
+    if (this.interior.updateNear) {
       const pp = ctx.player?.position;
       this.interior.updateNear(dt, pp?.x ?? 0, pp?.z ?? 0);
     }
     this.furniture?.update(ctx.time);
     for (const pod of this.pods) pod.update(dt, ctx.time);
     this.trackRoom();
+    // 격납고: a bay boarded before its layout arrived finishes (or gives up) here
+    Hangar.tickPendingVisit(this);
 
     // housing mode owns the input (cursor / place / rotate / recover / C / M) while active
     if (this.housingMode.active) { this.housingMode.update(dt); this.tickCountdown(dt); return; }
@@ -496,6 +555,11 @@ export class HubSystem implements GameSystem, HubRef {
   openShipManage(): boolean {
     const ctx = this.ctx;
     if (ctx.phase !== 'hub' || this.cutscene || this.housingMode.active) return false;
+    // 격납고 (2026-09-08): a visited ship is 둘러보기 전용 — 시설 관리 belongs to its owner alone
+    if (this.visitReadOnly) {
+      ctx.bus.emit('ui:notify', { text: '방문 중에는 함선을 관리할 수 없습니다', kind: 'warning' });
+      return false;
+    }
     if (!(this.interior instanceof PersonalShip)) {
       ctx.bus.emit('ui:notify', { text: '개인 함선에서만 관리할 수 있습니다', kind: 'warning' });
       return false;

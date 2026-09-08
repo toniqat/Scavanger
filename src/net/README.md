@@ -320,3 +320,16 @@ mission peer, `rejoinMission` → `net:gameStarting` + `flow rejoined` at the ho
 - **Phase 10** — **crew cards** (`crew` / `crewq` received, clamped and stored per peer, `net:crewCard` / `net:crewLoadout`, `getCrewCard` / `requestCrewLoadout`, `crewLevel` / `equippedImplant` mirrored onto the ref — needed because `PlayerSnapshot.imp` and `.w` are **nulled in the hub** and `LobbyPlayer` carries no level), **carry plumbing** (`Snapshotter` sets `CARRYING` + `cr` and forces the unarmed path, `CARRIED` on the carried side, `carriedBy` derived per frame from every ref's `cr` including the local player, `net:remoteCarryChanged`, the `carry` one-shots applied optimistically, a suspended carrier's `carrying` cleared), and the shield's `bhp` → `isBarrierUp` / `barrierHp`
 
 - **Phase 11** — `SocialSync.ts` (`ctx.net.social` — 스냅샷 미러, 초대 TTL / `SQUAD_INVITE_MAX`, 귓속말 in/out, `setLevel` debounce, `playBlock`; 인바운드는 필드 단위 정화, **아이디만** 노출), `lobbyPlanet` / `setLobbyPlanet` / `startGame(seed, mode?, planet?)`, `game:start` · `beginSession` · `rejoinMission` 에서 `ctx.missionPlanet` 을 `game:newMission` **emit 전에** 세팅
+
+- **2026-09-08 (공용 함선 격납고)** — `ship state` / `shipq state`. 격납고의 정박 구역은 그 대원의 **개인 함선을
+  실제로 그려야** 하는데 어떤 메시지도 배치 정보를 나르지 않았다. `ShipVisitWire`(방 용도 · 시설 레벨 · 배치
+  가구 · 꽂힌 책 — 창고 · 프리셋 · 도감처럼 그릴 필요 없는 것은 **보내지 않는다**)가 그 짐을 지고, 처리 경로는
+  크루 카드와 **한 글자도 다르지 않다**: `sanitizeShipVisit` 로 필드 단위 정화(방 하나가 깨지면 `'empty'`,
+  가구 하나가 깨지면 그것만 버린다 — 문서째로 거절하지 않는다) → `shipVisits` 맵 → `net:shipVisit {id}`,
+  `getShipVisit(id)` / `requestShipVisit(id)`, 보내는 쪽은 `hub/parts/Hangar` 소유. `send()` 가 자기 방송을
+  스누핑하므로 **내 정박 구역도 남들이 보는 것과 똑같은 와이어로** 그려진다. 로비를 떠나면 `crewCards` 와 함께
+  비우고, 사라진 멤버의 것은 `lobby:state` 스윕에서 지운다.
+
+- **2026-09-08 (같은 함선끼리만 보인다)** — `PlayerSnapshot.hs` (append-only, 없으면 공유 데크). 모든 인테리어가
+  원점에 지어지므로 서로 다른 함선 안의 두 사람은 좌표가 겹친다. `Snapshotter` 가 `ctx.hub.hubSite` 를 실어
+  보내고 `RemotePlayer.push` 가 `RemotePlayerRef.hubSite` 로 받는다. 숨기는 판단은 `player/RemoteAvatar` 가 한다.

@@ -257,6 +257,45 @@ in `CLAUDE.md`.
   단독 8연속 52/52 — 그중 한 번은 첫 투척이 6.09 m 로 빗나가 재시도 경로를 실제로 탔다.
 
 
+## 2026-09-08 — 공용 함선 격납고 (개인 함선 정박 · 방문 · 동석)
+
+`npm run verify:all` (`src/shared` 를 건드렸으므로 전체) — **전부 통과, 6분 22초.**
+
+docs line: 2026-09-08: typecheck ok, typecheck-server ok, net-selftest 278/278, build 2,180.07 kB JS / 219.41 kB CSS,
+smoke-quickslots 46/46, smoke-phase2 55/55, smoke-weapons 137/137, smoke-stratagems 70/70, smoke-phase3 32/32,
+smoke-ship-rooms 72/72, smoke-phase4 49/49, smoke-tactical 87/87, smoke-controls-hub 121/121,
+smoke-inventory-p6 104/104, smoke-housing 200/200, smoke-console 63/63, smoke-progression 123/123,
+smoke-loadout 61/61, smoke-search 61/61, smoke-ui-p6 89/89, smoke-ui-p5 133/133, smoke-resume-gate 48/48,
+smoke-enemy-alert 42/42, smoke-uniques 71/71, smoke-meta 173/173, smoke-training 112/112, smoke-library 126/126,
+smoke-ghost 86/86, smoke-enemy-delta 52/52, smoke-raidflow 48/48, smoke-rogue-v2 52/52, smoke-ecology 85/85,
+smoke-social 136/136, smoke-planets 86/86, smoke-tutorial 52/52, **smoke-hangar 55/55**, e2e-mp 156/156
+
+**새 스모크** `scripts/smoke-hangar.mjs` (클라이언트 2대 + 릴레이, 55개). 이 기능은 혼자서는 검증이 안 된다 —
+"남의 개인 함선"도 "같은 함선끼리만 보인다"도 상대가 있어야 성립하므로 `e2e-multiplayer.mjs` 의 2브라우저 골격을
+그대로 빌렸다. 검사하는 것: 자동문(멀면 닫히고 다가가면 열린다 · 문턱에 blocker 가 없다) · 격납고 데크가 걸어
+다닐 수 있고 콜라이더 bounds 가 커졌다 · 외부 게이트는 막혀 있다 · 정박 구역 4개 중 참여 인원만큼만 함선이
+선다 · 프롬프트 3종 · `ship state` 가 요청 없이 도착하고 내 방송도 스누핑된다 · 방문(로비 유지 · 가구 1개가
+와이어에서 그려지되 상호작용 0 · 콘솔 0 · 포드 0 · 시설 관리 거절 · 에어락 출구) · `hs` 동석 규칙(공유 데크에
+있으면 함선 안 아바타가 안 보이고, 같은 함선에 들어가면 다시 보인다) · 들어간 구역 앞으로 복귀 · 함선 안에서
+파티를 떠나면 솔로 개인 함선으로 도킹 해제.
+
+**비공개 로비를 코드로 잡는다.** 처음엔 `quickMatch()` 를 썼는데, 릴레이가 재접속 유예 동안 들고 있던 **이전
+실행의 공개 로비**에 두 클라이언트가 끌려 들어가 인원이 3–4명이 되고 정박 구역 수 단언이 전부 어긋났다.
+`createLobby()` + `joinLobby(code)` 로 바꾸고 끝에서 로비를 떠난다.
+
+**스모크가 잡은 실제 누락 1건** — 방문 중인 함선에 `hub_terminal` · `hub_computer` 가 여전히 등록돼 있었다.
+`stationUsable()` 이 false 라 프롬프트도 안 뜨고 눌리지도 않았으므로 기능상으로는 이미 읽기 전용이었지만,
+쓸 수 없는 상호작용이 레지스트리에 남아 `findBest` 와 다투는 것은 그냥 쓰레기다 — 방문이면 아예 만들지 않는다.
+
+**시각 확인** (스크립트는 저장소에 넣지 않음). 첫 판의 격납고는 **까맸다**: 8.2 m 천장에 포인트 라이트 6개
+(intensity 90)는 공유 함선 데크의 1/3 밝기를 3.6배 넓은 바닥에 뿌리는 것이었다 — `PointLight` 는 거리 제곱으로
+감쇠하므로 높이가 곧 밝기다. 5.6 m 갠트리 높이에 9개(130 / distance 30)로 옮겨서야 정비고처럼 읽혔다.
+같이 고친 것: 40 m 짜리 통 `stripAmber` 바닥선과 18 × 7 m 게이트 외곽선이 블룸을 먹고 화면을 호박색 판으로
+만들던 것(점선 + **비발광** 금색 `trim` 으로 교체 — 발광은 짧은 악센트에만), 정박 구역 표지판이 거꾸로 읽히던
+것(`TextPlane` 은 +Z 를 보므로 통로 쪽인 −Z 로 돌렸다), 개인 함선이 바닥 위 1.45 m 에 떠 있던 것(착륙 다리 3개 +
+뒤쪽 램프), 그리고 격납고 앞벽이 공유 함선 뒷벽과 **같은 평면에서 z-fighting** 하던 것(앞벽은 함선 폭만큼
+비우고 그 위 4.2 → 9 m 띠만 그린다).
+
 ## 2026-09-08 — UI/UX 정리 2차 13건 (교체 링 · 상자 빛기둥 · 저격 탄도 · 분해 · 커뮤니티 · ESC · 즉사)
 
 `npm run verify` (`src/shared` 를 건드리지 않아 폴더 매핑으로 충분 — inventory · meta · player · ui · weapons · world)

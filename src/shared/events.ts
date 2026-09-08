@@ -743,4 +743,16 @@ export interface GameEvents {
    * already applied by the panel itself (only a user gesture may request it) and is reported here for completeness.
    */
   'ui:displayChanged': { fullscreen: boolean; bloom: boolean; shadows: boolean; scale: number };
+
+  /* ── 공용 함선 격납고 (2026-09-08) ── */
+  /**
+   * Fact (net): a member's `ship state` arrived and `ctx.net.getShipVisit(id)` now answers. hub/ waits for this
+   * when a bay was entered before the layout was known.
+   */
+  'net:shipVisit': { id: PeerId };
+  /**
+   * Fact (hub): the player entered or left a 개인 함선 through a hangar bay. `peerId` = the ship's owner (our own id
+   * for our own ship), null when we are back on the shared deck; `readOnly` marks someone else's ship.
+   */
+  'hub:shipVisit': { peerId: PeerId | null; readOnly: boolean };
 }

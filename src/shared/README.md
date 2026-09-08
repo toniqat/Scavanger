@@ -699,3 +699,13 @@ Plan: `docs/DECISIONS.md`. Everything below is append-only; owners in brackets.
   마우스를 도로 빼앗아 **카드를 클릭할 수 없던** 버그의 근본 수정이다. 커서 소유권 모델(`cursor.ts`)은 그대로다
 
 - **2026-09-08 (ESC = 항상 일시정지 · 병합 정리)** — `RESUME_GATE_BLOCKER` 는 그대로 남는다. Escape 가 늘 일시정지 메뉴를 열게 된 뒤에도, 메뉴까지 닫힌 뒤 락을 되찾지 못한 마지막 경우(`awaitingLockGesture`)는 여전히 재개 게이트가 받는다 — `game/parts/Phases` 의 `noScreenOpen()` 계열이 이 토큰을 투명하게 취급하는 것도 그대로다
+
+- **2026-09-08 (공용 함선 격납고)** — 전부 **추가만** 했다. `net.ts`: `ShipVisitWire` + `ShipVisitMessage`
+  (`ship state`) / `ShipVisitRequest` (`shipq state`)가 `GameMessage` 에 붙고, `PlayerSnapshot.hs` ·
+  `RemotePlayerRef.hubSite` · `NetRef.getShipVisit / requestShipVisit` 가 선언 병합으로 붙는다
+  (`housing.ts` 의 `PlacedFurniture` / `PlacedBook` / `RoomPurpose` 를 **타입으로만** 가져오므로 Node 서버 쪽은
+  그대로다). `types.ts`: `HubShipBay` 와 `HubRef` 의 `hubSite` · `visitingPeer` · `visitReadOnly` ·
+  `getShipBays()` · `enterShipBay(slot)` · `returnToHangar()` — `types.ts` 는 `net.ts` 에 **import 되는 쪽**이라
+  PeerId 를 못 쓴다, 그래서 `HubLaunchSlot.occupant` 와 같이 평범한 `string` 이다.
+  `events.ts`: `net:shipVisit` · `hub:shipVisit`. `constants.ts`: `SHIP_VISIT_MIN_INTERVAL_S` ·
+  `SHIP_VISIT_COOLDOWN_S` · `SHIP_VISIT_WAIT_S`.

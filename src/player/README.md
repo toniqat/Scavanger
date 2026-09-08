@@ -299,3 +299,9 @@ credited to a peer that our client never sees (e.g. a DoT death out of range) is
 - **Phase 10** — the Splatoon-style 3-heads-tall `SoldierModel` rewrite was **rolled back on 2026-09-07** — `SoldierModel.ts` / `GearLook.ts` are the pre-Phase-10 armoured trooper again (helmet · visor · shoulder pads · backpack · canisters · chest plates · 4-segment cape, hips 0.98 m, long arms), with only the Phase 10 additions ported onto it: `shoulderSocket` + `SoldierPose.carry`, **부상자 들쳐메기** (`Carry.ts` seam, F tap within `PLAYER_CARRY_RANGE` pre-empts melee with `input.consume(Keys.MELEE)`, walk / sprint only at `PLAYER_CARRY_SPEED_MUL`, every other action drops first, the carried side rides the carrier socket through the `attachTo` path, `RemotePlayerSystem.syncRevive` re-aims the revive interactable at the socket every frame so a shouldered squadmate stays revivable), **`applyHeal(amount, seconds, quiet?)`** (2026-09-07: `applyStim` 은 이제 `applyHeal(n, 1.5)`, `quiet` 는 스프레이용 — SFX 와 "이미 회복 중" 거부를 건너뛴다), and `Portraits.ts` (`createPortraits` — its own `THREE.WebGLRenderer` + scene + lights drawn through scissored viewports, because `core/Engine` renders through the composer and offers no post-render hook)
 
 - **Phase 12 (2026-09-08)** — `CameraRig.predictPosition()` 로 `aimOrigin` 이 **이번 프레임에 렌더될 카메라 위치**가 되어(예전에는 직전 프레임 위치 + 이번 프레임 시선 = 회전 중 최대 0.42 m 평행 이동한 사격선) 정밀 사격 쏠림이 사라졌다, 퍽 `auto_revive`(전투불능 1초 뒤 자동 기상, 레이드당 1회) · `kill_stamina`(로컬 처치 → 스태미나 전량)
+
+- **2026-09-08 (공용 함선 격납고)** — `RemoteAvatar.update` 의 `visible` 에 조건이 하나 늘었다: 상대의
+  `RemotePlayerRef.hubSite` 가 우리 `ctx.hub.hubSite` 와 다르면 그리지 않는다. 함선 인테리어는 모두 월드 원점에
+  지어지므로 서로 다른 함선 안의 두 사람은 **좌표가 겹친다** — 격납고에서 남의 개인 함선에 들어가면 공유 데크에
+  있는 분대원이 발밑에 겹쳐 서 있게 된다. 같은 함선을 구경 중인 둘은 서로 보인다(그게 이 기능의 요점이다).
+  값이 양쪽 다 null 인 평소(임무 · 공유 데크)에는 아무것도 달라지지 않는다.

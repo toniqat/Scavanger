@@ -1495,3 +1495,51 @@ export interface InventoryRef {
    */
   getLaunchWarnings(): LaunchWarning[];
 }
+
+/* ══ appended: 공용 함선 격납고 (2026-09-08, owner: hub) ═══════════════════════════════════════════════════════════
+ * 공유 함선 뒤쪽 자동문 너머가 **격납고**다. 분대원 4명의 개인 함선이 바닥에 표시된 구역마다 한 대씩 서 있고,
+ * 함선 뒷문(입구)에 상호작용하면 그 사람의 개인 함선 안으로 들어간다 — 남의 함선은 **둘러보기 전용**.
+ *
+ * 인테리어는 여전히 한 번에 하나만 존재한다: 격납고는 `'shared'` 인테리어의 일부이고, 베이에 들어가면
+ * 인테리어가 `'personal'` 로 교체된다(로비는 그대로 유지된다). 어느 함선 안에 있는지는 `hubSite` 가 말한다.
+ * ────────────────────────────────────────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * One 개인 함선 bay on the hangar deck. `slot` = the lobby slot the bay belongs to. `occupant` is a plain `string`
+ * (a `PeerId`) for the same reason `HubLaunchSlot.occupant` is: `types.ts` is imported *by* `net.ts`.
+ */
+export interface HubShipBay {
+  slot: number;
+  /** Centre of the floor marking. */
+  position: THREE.Vector3;
+  /** Interaction anchor at the parked ship's rear ramp (deck level). */
+  entrance: THREE.Vector3;
+  /** Player yaw looking at the ship from the ramp. */
+  yaw: number;
+  /** Peer parked here (null = the bay is empty / no lobby). */
+  occupant: string | null;
+}
+
+export interface HubRef {
+  /* ── appended (2026-09-08): 공용 함선 격납고 ── */
+  /**
+   * The personal ship the player is standing inside, as a PeerId — our own id (or `'local'` offline) in our own
+   * ship, the owner's id in a visited one — and **null on the shared deck (공유 함선 + 격납고)**. This is what
+   * `PlayerSnapshot.hs` carries, so remote avatars can be hidden for anyone standing somewhere else.
+   */
+  readonly hubSite: string | null;
+  /** PeerId of the ship being **visited** (someone else's), or null in our own ship / on the shared deck. */
+  readonly visitingPeer: string | null;
+  /** True while inside someone else's ship: every station, bench and 시설 관리 is refused (둘러보기 전용). */
+  readonly visitReadOnly: boolean;
+  /** The hangar's four bays (empty array outside the shared ship). */
+  getShipBays(): readonly HubShipBay[];
+  /**
+   * Board the 개인 함선 parked in `slot`. Ours enters straight away; a peer's needs their `ship state` (requested on
+   * the spot when it has not arrived yet, up to `SHIP_VISIT_WAIT_S`). Returns false when the bay is empty or the hub
+   * is busy (cutscene / countdown / not in the hangar).
+   */
+  enterShipBay(slot: number): boolean;
+  /** Walk back out through the airlock into the hangar. Returns false when we are not inside a bay's ship. */
+  returnToHangar(): boolean;
+}
