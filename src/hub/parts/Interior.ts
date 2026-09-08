@@ -82,8 +82,9 @@ export function build(sys: HubSystem, ship: HubShipKind, viaAirlock: boolean, fr
   const enterViaAirlock = viaAirlock || viaBay;
   const yaw = bay ? bay.yaw : enterViaAirlock ? interior.airlockYaw : interior.spawnYaw;
   let spawn = bay ? bay.entrance : enterViaAirlock ? interior.airlock : interior.spawn;
-  // Walking in from a bay: a step forward off the airlock plate, so `hub_hangar_exit` is not already prompting.
-  if (viaBay) spawn = spawn.clone().addScaledVector(new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw)), 1.9);
+  // Walking in from a bay: far enough off the airlock plate to clear `hub_hangar_exit`'s radius (2.2 m below), so
+  // 격납고로 나가기 is not already on screen the instant you step inside.
+  if (viaBay) spawn = spawn.clone().addScaledVector(new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw)), 3.0);
   const p = ctx.player;
   if (p) {
     p.setInPod(false);
@@ -185,7 +186,7 @@ export function buildHangarExit(sys: HubSystem, interior: ShipInterior): void {
   ctx.interactables.register({
     id,
     position: anchor,
-    radius: 2.6,
+    radius: 2.2,
     getPrompt: () => (sys.visit && !sys.cutscene && sys.boardedSlot < 0 && !sys.housingMode.active ? '격납고로 나가기' : null),
     canInteract: () => sys.visit !== null && !sys.cutscene,
     interact: () => { sys.returnToHangar(); },

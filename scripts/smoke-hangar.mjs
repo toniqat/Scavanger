@@ -77,6 +77,19 @@ const teleport = (page, x, z, yaw = 0) => page.evaluate(([x, z, yaw]) => {
   const v = p.position.clone(); v.set(x, 0, z);
   p.spawnStanding(v, yaw);
 }, [x, z, yaw]);
+/**
+ * **Walk** `steps` × 0.1 m along +Z through `resolveCollision`, the way the player actually moves. Teleporting
+ * hides the one failure this whole deck can have: two rooms that do not share an edge are not walkable between,
+ * and `resolveCollision` then pins the player at `room.maxZ − radius` forever — which is exactly what the first
+ * version of the hangar did (its room started at the wall's far face, 0.35 m past the ship's).
+ */
+const walkNorth = (page, steps) => page.evaluate((n) => {
+  const ctx = window.__game.ctx;
+  const p = ctx.player, col = p.interior;
+  const v = p.position.clone();
+  for (let i = 0; i < n; i++) { v.z += 0.1; col.resolveCollision(v, 0.45); }
+  return [v.x, v.z];
+}, steps);
 const bayOf = (page, slot) => page.evaluate((s) => {
   const it = window.__game.ctx.interactables.all().find((i) => i.id === `hub_ship_bay_${s}`);
   return it ? { pos: [it.position.x, it.position.z], radius: it.radius, prompt: it.getPrompt(), can: it.canInteract() } : null;
@@ -149,13 +162,32 @@ try {
   ok(deck.bayGroups === 4, `4 bay groups (${deck.bayGroups})`);
   ok(deck.bounds[0] > 10 && deck.bounds[1] > 20, `the collider bounds grew to cover the hangar (centre z ${deck.bounds[0].toFixed(1)}, half ${deck.bounds[1].toFixed(1)})`);
 
-  /* ── 3. the 자동문 opens on approach ────────────────────────────────── */
+  /* ── 3. the 자동문 opens on approach, and the deck is reachable ON FOOT ── */
   const doorShut = await A.evaluate(() => window.__game.getSystem('hub').interior.doors.openAmount(0));
   ok(doorShut < 0.05, `aft 자동문 closed while nobody is near it (${doorShut.toFixed(2)})`);
   await teleport(A, 0, 6.0);
   await waitSim(A, 1.2);
   const doorOpen = await A.evaluate(() => window.__game.getSystem('hub').interior.doors.openAmount(0));
   ok(doorOpen > 0.9, `aft 자동문 opens when the player walks up to it (${doorOpen.toFixed(2)})`);
+  // the whole point: walk from the deck into the hangar through `resolveCollision`, 0.1 m at a time
+  await teleport(A, 0, 4.0);
+  const walkedIn = await walkNorth(A, 120);
+  ok(walkedIn[1] > 14, `walked from the deck into the hangar on foot (z ${walkedIn[1].toFixed(2)}, not stuck at the wall)`);
+  // …and the doorway is the ONLY way through: the same walk off to the side hits the aft wall
+  await teleport(A, -8.0, 4.0);
+  const walkedWall = await walkNorth(A, 120);
+  ok(walkedWall[1] < 7.0, `the aft wall still stops a walk beside the doorway (z ${walkedWall[1].toFixed(2)})`);
+  // walking back out lands on the deck again
+  await teleport(A, 0, 12.0);
+  const walkedOut = await A.evaluate(() => {
+    const ctx = window.__game.ctx;
+    const p = ctx.player, col = p.interior;
+    const v = p.position.clone();
+    for (let i = 0; i < 120; i++) { v.z -= 0.1; col.resolveCollision(v, 0.45); }
+    return [v.x, v.z];
+  });
+  // stops at the central holo table (collider box to z 2.6) — well past the doorway, which is the point
+  ok(walkedOut[1] < 6, `and back out onto the deck (z ${walkedOut[1].toFixed(2)})`);
 
   /* ── 4. bays: one per lobby slot, parked ships, prompts ─────────────── */
   console.log('bays');

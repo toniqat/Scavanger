@@ -953,3 +953,9 @@ export const SHIP_VISIT_MIN_INTERVAL_S = 4;
 export const SHIP_VISIT_COOLDOWN_S = 3;
 /** Seconds a bay waits for a peer's `ship state` before the visit is refused with a toast. */
 export const SHIP_VISIT_WAIT_S = 5;
+/**
+ * Placed pieces a `ship state` may carry. Enforced on **both** sides: the sender truncates so the frame stays under
+ * the relay's `MAX_MESSAGE_BYTES` (a frame over it is dropped with no error and would never be retried), and the
+ * receiver truncates so a hostile document cannot make a visitor build thousands of colliders.
+ */
+export const SHIP_VISIT_MAX_FURNITURE = 400;

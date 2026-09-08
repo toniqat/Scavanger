@@ -46,7 +46,7 @@ Everything is procedural Three.js geometry — no asset files. Import via `@/hub
 | `interiors/SharedShip.ts` | 26×14×4.2 m hangar deck: bridge dash + 4 readouts + viewport (−X) + terminal (faces +X), **ship computer** in the bridge's forward-port corner against the −Z wall at (−11, −6.65) facing +Z (anchor (−11, 0, −5.18)), **4 pod sockets in a row on the −Z wall** at x −6/−2/2/6 (doors face +Z, slot-numbered signs, separators), armoury (weapon racks, 5 lockers, **workbench** at (2.5, 0, 6.38) facing −Z — anchor (2.5, 0, 5.43), `정비` sign — crate stacks), central holo table, airlock door on +X. Docking arrivals spawn at (11, 0, 0) facing −X; direct enter spawns at (3, 0, 0.5) facing the pods. 6 point lights. **Phase 8**: its hydroponics rack is gone (`ShipStations.garden` removed); it keeps the built-in `hub_workbench`. **2026-09-08 (격납고)**: the middle of the +Z wall is a 4 m opening with a two-leaf **자동문** (`ShipDoors`, `updateNear`) onto the `Hangar` deck, which is built into the **same** batch / collider; the armoury moved aside for it (racks + the 정비 bench to port at x −3.7, lockers at 4.2 and the crate stacks at 7.8 / 10.8 to starboard) and the aft rib at x 0 is skipped. `bays` / `setBayOccupants(names)` expose the four 정박 구역. |
 | `interiors/Starfield.ts` | `Starfield` (deterministic `Points` sphere, no size attenuation, slow spin) and `Planet` (lit sphere + additive atmosphere shell, group named `HubPlanet` / body `HubPlanetBody`). **Phase 11**: `Planet` takes a `spin` and a shell opacity, and gained `setColors(color, atmo)` (the window planet follows the 목표 행성 in place — no rebuild) and `setOpacity(0..1)` (the terminal hologram's `PLANET_SWAP_TIME` cross-fade). |
 | `interiors/WarpStreaks.ts` | **행성 이동 워프** (Phase 11): one `LineSegments` with two vertices per streak in a cylinder shell around the −Z travel axis. `setStretch(k)` pushes the tail vertex back (a `PointsMaterial` cannot be stretched, which is why this is not `Starfield`) and **quantises** the buffer write by `STRETCH_STEP`, so a 4.5 s cutscene uploads a couple of dozen times instead of once per frame; `setOpacity` fades the layer in only while the warp runs, `update` drifts it past the camera. Deterministic RNG, additive, `frustumCulled = false`. |
-| `interiors/Hangar.ts` | **격납고 데크** (2026-09-08). 44 × 30 m, 천장 9 m. 호출자(`SharedShip`)의 `GeoBatch` 와 `BoxInteriorCollider` 에 **그대로 섞여 들어간다** — 드로우콜이 늘지 않고 바닥이 함선의 walkable union 에 맞닿아 출입구가 열린 공유 모서리가 된다. 갠트리 4틀 · 양옆 캣워크 · 닫힌 외부 게이트 · 슬롯 색 정박 구역 4개(점선 윤곽 + 위험 해칭 + 기둥 + 이름 표지판) + **9개 고정 포인트 라이트**(5.6 m 갠트리 높이, 130/30 — 첫 판은 8.2 m 에 6개였고 데크가 새까맸다). `setOccupants(names)` 가 개인 함선 모델 · 착륙 다리 · 램프(`buildGear`)를 켜고 끈다. |
+| `interiors/Hangar.ts` | **격납고 데크** (2026-09-08). 44 × 30 m, 천장 9 m. 호출자(`SharedShip`)의 `GeoBatch` 와 `BoxInteriorCollider` 에 **그대로 섞여 들어간다** — 드로우콜이 늘지 않고, walkable room 이 **벽을 뚫고 함선 바닥면(`ship.deckZ`)까지 닿아** 출입구가 열린 공유 모서리가 된다(개인 함선의 방이 복도 면까지 닿는 것과 같은 규약). 갠트리 4틀 · 양옆 캣워크 · 닫힌 외부 게이트 · 슬롯 색 정박 구역 4개(점선 윤곽 + 위험 해칭 + 기둥 + 이름 표지판) + **9개 고정 포인트 라이트**(5.6 m 갠트리 높이, 130/30 — 첫 판은 8.2 m 에 6개였고 데크가 새까맸다). `setOccupants(names)` 가 개인 함선 모델 · 착륙 다리 · 램프(`buildGear`)를 켜고 끈다. |
 | `interiors/ExteriorShips.ts` | Low-poly exterior models for the cutscene: `buildPersonalExterior()` (~9 m wedge, nacelles, additive engine discs) and `buildSharedExterior()` (~80 m spine, bridge tower, side hangar with an emissive-lined bay mouth at local (16, 0, 4), 4 engines, bay point light). `setThrust()` drives engine glow. |
 | `index.ts` | Barrel. |
 
@@ -456,3 +456,25 @@ over the 닫기 (Esc) / 타이틀로 footer.
     `player/RemoteAvatar` 가 값이 다른 아바타를 숨긴다. 같은 함선을 구경 중인 둘은 서로 보인다.
   - 검증: `scripts/smoke-hangar.mjs` (클라이언트 2대, 55개). `npm run verify` 의 hub · net · housing · player
     매핑에 들어 있다.
+
+- **2026-09-08 (격납고 리뷰 수정 5건)** — `/code-review` 가 잡은 것들. 첫 번째는 **기능 자체가 죽어 있었다**.
+  - **격납고에 걸어 들어갈 수 없었다.** `Hangar` 의 walkable room 이 벽 **바깥쪽 면**(`ROOM.maxZ + WALL` = 7.35)에서
+    시작해 함선 방(z ≤ 7.0)과 0.35 m 떨어져 있었다. `BoxInteriorCollider.resolveCollision` 은 두 방이 **공유하는**
+    모서리만 넘게 해 주므로, 문 앞에서 `z = ROOM.maxZ − radius = 6.55` 에 영원히 붙잡혔다. 이 폴더의 다른 인테리어는
+    전부 **정확히 맞닿게** 짓는다(`COCKPIT.maxZ === CORRIDOR.minZ`, 방은 복도 면까지 뻗는다) — 격납고 room 과 바닥이
+    `ship.deckZ` 까지 닿도록 고쳤다(벽 슬래브의 blocker 가 문간 말고는 그 띠를 여전히 다 막는다).
+    스모크가 놓친 이유: 전부 `teleport()` 로 위치를 옮겼고 "열린 모서리" 단언도 이미 7.35 에 선 원이 안 밀린다는
+    것만 봤다 — **blocker 가 없다는 증명이지 union 이 이어졌다는 증명이 아니다.** 이제 0.1 m 씩 `resolveCollision`
+    을 통과해 **걸어서** 들어가고 나오고, 문 옆으로는 벽에 막히는 것까지 본다.
+  - **`announceShip` 이 베이를 드나들 때마다 분대에 재방송을 시켰다.** `hub:entered {ship:'shared'}` 는
+    `leaveShip` 에서도 나오므로, 함선을 한 번 들락거릴 때마다 분대원 셋이 각자 수 kB 를 다시 보냈다. 게다가
+    `shipAnsweredAt.clear()` 가 그 홍수를 막으라고 있는 쿨다운을 매번 지웠다. **없는 것만** 요청하고, 우리 문서를
+    아무도 못 받았을 때만 방송하게 바꿨다(쿨다운은 이제 지우지 않는다 — 크루 카드에서 베껴 온 습관이었다).
+  - **셀 좌표를 0…63 으로 클램프하고 있었다.** 방 격자는 8 × 8 이고 `roomCellToWorld` 는 외삽하므로, 이상한 문서
+    하나가 방문자 함선 **어디에나** 메시와 **단단한 콜라이더**를 놓을 수 있었다 — 방문의 유일한 출구인 에어락
+    위에도. `ROOM_GRID_COLS/ROWS − 1` 로 조인다.
+  - **64 kB 를 넘는 `ship state` 는 릴레이가 조용히 버린다**(에러 프레임도 없다). 보내는 쪽에서 이미 디바운스를
+    올려 놓은 뒤라 영영 재전송되지 않고, 그 정박 구역 방문자는 계속 `함선 정보를 받지 못했습니다` 를 본다.
+    `SHIP_VISIT_MAX_FURNITURE` 를 `shared/constants.ts` 로 올려 **보내는 쪽과 받는 쪽이 같은 수**를 쓴다.
+  - 방문 입장 위치가 출구 상호작용 반경(2.6 m)보다 **가까워서**(1.9 m) 들어서자마자 `격납고로 나가기` 가 떠 있었다.
+    3.0 m 로 들어가고 반경은 2.2 m.

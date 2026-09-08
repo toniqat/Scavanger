@@ -204,7 +204,7 @@ export class SharedShip implements ShipInterior {
      * joins the ship's walkable union at the +Z wall's outer face. `Hangar` owns its own lights, bay signs and the
      * parked ship models; only the doorway trim and the sliding leaves belong here.
      */
-    this.hangar = new Hangar(b, col, { wallZ: ROOM.maxZ + WALL, halfWidth: ROOM.maxX + WALL, ceil: CEIL }, HANGAR_DOOR_HALF);
+    this.hangar = new Hangar(b, col, { wallZ: ROOM.maxZ + WALL, deckZ: ROOM.maxZ, halfWidth: ROOM.maxX + WALL, ceil: CEIL }, HANGAR_DOOR_HALF);
     r.add(this.hangar.root);
     // doorway trim on the deck side + a threshold strip, so the opening reads as a door and not a hole
     for (const sx of [-1, 1]) b.box(0.12, HANGAR_DOOR_HEIGHT, 0.36, sx * (HANGAR_DOOR_HALF + 0.06), HANGAR_DOOR_HEIGHT / 2, ROOM.maxZ + WALL / 2, M.trim);

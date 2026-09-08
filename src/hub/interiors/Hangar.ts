@@ -91,10 +91,10 @@ export class Hangar {
 
   /**
    * Build the hangar into `b` / `col` — the shared ship's own batch and collider, so the deck costs no extra draw
-   * calls. `wallZ` is the outer face of the ship's +Z wall (the hangar starts there) and `doorHalfWidth` matches the
-   * opening the caller left in it.
+   * calls. `wallZ` is the outer face of the ship's +Z wall (where the hangar's structure starts), `deckZ` the inner
+   * face (where its **walkable room** starts, see below) and `doorHalfWidth` matches the opening left in that wall.
    */
-  constructor(b: GeoBatch, col: BoxInteriorCollider, ship: { wallZ: number; halfWidth: number; ceil: number }, doorHalfWidth: number) {
+  constructor(b: GeoBatch, col: BoxInteriorCollider, ship: { wallZ: number; deckZ: number; halfWidth: number; ceil: number }, doorHalfWidth: number) {
     this.root.name = 'Hangar';
     const minZ = ship.wallZ;
     const maxZ = minZ + HANGAR.depth;
@@ -102,12 +102,21 @@ export class Hangar {
     const H = HANGAR_CEIL;
     const P = new Parts(b, col, H);
 
-    // walkable deck — it touches the ship's room at `wallZ`, so the doorway is an open shared edge
-    col.addRoom(HANGAR.minX, HANGAR.maxX, minZ, maxZ, 0, H);
+    /*
+     * Walkable deck. It **reaches through the wall** to the ship's own deck face (`deckZ`), exactly like a
+     * personal-ship room reaches to the corridor face — `BoxInteriorCollider` only lets a circle cross an edge that
+     * two rooms *share*, so a room starting at the wall's far side (`wallZ`) would leave a 0.35 m no-man's-land and
+     * `resolveCollision` would pin the player at `ROOM.maxZ − radius` forever. The wall slab's own blockers still
+     * fill that strip everywhere except the doorway, so nothing else opens up.
+     */
+    col.addRoom(HANGAR.minX, HANGAR.maxX, ship.deckZ, maxZ, 0, H);
 
     // floor + ceiling. Not `Parts.deck`: that draws a centre grate and ceiling channels sized for a corridor.
-    const cz = (minZ + maxZ) / 2, w = HANGAR.maxX - HANGAR.minX, d = maxZ - minZ;
-    b.plane(w, d, 0, 0, cz, M.floor);
+    // The floor reaches to `deckZ` with the room, so the doorway has deck plate under it instead of a hole.
+    const w = HANGAR.maxX - HANGAR.minX;
+    const fd = maxZ - ship.deckZ, fcz = (ship.deckZ + maxZ) / 2;
+    const cz = (minZ + maxZ) / 2, d = maxZ - minZ;
+    b.plane(w, fd, 0, 0, fcz, M.floor);
     b.plane(w, d, 0, H, cz, M.hullDark, Math.PI / 2);
     /*
      * The forward (−Z) wall is the **ship's own aft wall**, which already stands in this plane with the 자동문 hole

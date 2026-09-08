@@ -14,8 +14,8 @@ import type {
   GameContext, HubShipBay, PeerId, PlacedBook, PlacedFurniture, Rarity, RoomPurpose, ShipVisitWire,
 } from '@/shared';
 import {
-  BOOKS_PER_SHELF, NET_MAX_PLAYERS, SHIP_ROOM_COUNT, SHIP_VISIT_COOLDOWN_S, SHIP_VISIT_MIN_INTERVAL_S,
-  SHIP_VISIT_WAIT_S,
+  BOOKS_PER_SHELF, NET_MAX_PLAYERS, SHIP_ROOM_COUNT, SHIP_VISIT_COOLDOWN_S, SHIP_VISIT_MAX_FURNITURE,
+  SHIP_VISIT_MIN_INTERVAL_S, SHIP_VISIT_WAIT_S,
 } from '@/shared';
 import type { FurnitureSource } from '../interiors/Furniture';
 import type { HubSystem } from '../HubSystem';
@@ -37,7 +37,14 @@ export function bindShipRequests(sys: HubSystem): void {
   });
   }
 
-/** Our own ship as the wire sees it: rooms, facility levels, every placed piece and the shelved books. */
+/**
+ * Our own ship as the wire sees it: rooms, facility levels, placed pieces and the shelved books.
+ *
+ * The piece list is capped at `SHIP_VISIT_MAX_FURNITURE` — the **same** number the receiver enforces. A relayed
+ * frame over `MAX_MESSAGE_BYTES` (64 kB) is dropped by the server with no error, and `sendShipState` has already
+ * advanced its debounce by then, so an over-large layout would simply never arrive and every visitor to that bay
+ * would time out forever. Capping here keeps the document inside the frame instead of relying on luck.
+ */
 export function shipStateWire(sys: HubSystem): ShipVisitWire | null {
   const h = sys.ctx.housing;
   if (!h) return null;
@@ -48,7 +55,7 @@ export function shipStateWire(sys: HubSystem): ShipVisitWire | null {
     rooms.push({ purpose, level });
   }
   let furniture: PlacedFurniture[] = [];
-  try { furniture = [...h.getPlaced()]; } catch { furniture = []; }
+  try { furniture = [...h.getPlaced()].slice(0, SHIP_VISIT_MAX_FURNITURE); } catch { furniture = []; }
   const wire: ShipVisitWire = {
     rooms,
     generatorLevel: h.state?.generatorLevel ?? 0,
@@ -97,15 +104,25 @@ export function shipStateChanged(sys: HubSystem): void {
   sendShipState(sys, false);
   }
 
-/** Arriving in the shared ship: publish our layout and ask the squad for theirs (the bays render from the answers). */
+/**
+ * Arriving in the shared ship: publish our layout and ask the squad for theirs (the bays render from the answers).
+ *
+ * **Only when something is actually missing.** `hub:entered {ship:'shared'}` also fires every time the player walks
+ * back out of a bay (`leaveShip`), and a full announce there would make all three squadmates re-send their multi-kB
+ * layout on every in-and-out — so this asks for the documents it does not have and force-broadcasts ours only when
+ * the squad has not seen it yet. `shipAnsweredAt` (our per-peer answer cooldown, the actual anti-flood) is **never**
+ * cleared here: that was copied from the crew card, where the payload is a few dozen bytes.
+ */
 export function announceShip(sys: HubSystem): void {
   bindShipRequests(sys);
   const net = sys.ctx.net;
   if (!net?.lobby || typeof net.send !== 'function') return;
-  sys.shipAnsweredAt.clear();
-  sendShipState(sys, true);
+  const me = net.localId;
+  const known = typeof net.getShipVisit === 'function' ? net.getShipVisit(me ?? '') : null;
+  if (!known) sendShipState(sys, true);          // first arrival in this squad — nobody has our layout
   for (const p of net.lobby.players) {
-    if (p.id !== net.localId && typeof net.requestShipVisit === 'function') net.requestShipVisit(p.id);
+    if (p.id === me || typeof net.requestShipVisit !== 'function') continue;
+    if (!net.getShipVisit(p.id)) net.requestShipVisit(p.id);
   }
   }
 

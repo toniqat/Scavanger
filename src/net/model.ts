@@ -26,7 +26,7 @@ import { Snapshotter } from './Snapshotter';
 import type { CrewCardWire, ImplantId } from '@/shared';
 /* appended (2026-09-08): 공용 함선 격납고 — a visited member's ship layout */
 import type { PlacedBook, PlacedFurniture, RoomPurpose, ShipVisitWire } from '@/shared';
-import { ROOM_PURPOSES, SHIP_ROOM_COUNT } from '@/shared';
+import { ROOM_GRID_COLS, ROOM_GRID_ROWS, ROOM_PURPOSES, SHIP_ROOM_COUNT, SHIP_VISIT_MAX_FURNITURE } from '@/shared';
 import { IMPLANT_IDS } from '@/shared';
 /* appended (Phase 11): 행성 선택 · 소셜 */
 /* appended (Phase 10): 발사 준비 패널 crew cards */
@@ -83,8 +83,7 @@ export function sameCard(a: CrewCardWire, b: CrewCardWire): boolean {
  * from an older or buggy peer still walks. Caps mirror what the personal ship can physically hold.
  */
 const ROOM_PURPOSE_SET: ReadonlySet<string> = new Set<RoomPurpose>(ROOM_PURPOSES);
-/** Hard cap on placed pieces / books accepted from a peer (the ship's own limits are far lower). */
-const SHIP_VISIT_MAX_FURNITURE = 400;
+/** Hard cap on books accepted from a peer (the ship's own limit is far lower). Pieces use `SHIP_VISIT_MAX_FURNITURE`. */
 const SHIP_VISIT_MAX_BOOKS = 400;
 
 export function sanitizeShipVisit(v: unknown): ShipVisitWire | null {
@@ -133,10 +132,16 @@ function sanitizePlaced(f: unknown): PlacedFurniture | null {
   const room = Math.floor(w.room);
   if (room < 0 || room >= SHIP_ROOM_COUNT) return null;
   const yaw = w.yaw === 1 || w.yaw === 2 || w.yaw === 3 ? w.yaw : 0;
+  /*
+   * Clamp to the **room grid**, not to some large round number: `hub/interiors/Furniture` feeds these straight into
+   * `roomCellToWorld`, which extrapolates happily — a cell of 63 would put the mesh *and its solid collider blocker*
+   * ~31 m outside the room, anywhere in the visitor's own interior, including on top of the airlock anchor that is
+   * the only way out of a visit.
+   */
   const piece: PlacedFurniture = {
     uid, defId, room,
-    x: Math.max(0, Math.min(63, Math.floor(w.x))),
-    y: Math.max(0, Math.min(63, Math.floor(w.y))),
+    x: Math.max(0, Math.min(ROOM_GRID_COLS - 1, Math.floor(w.x))),
+    y: Math.max(0, Math.min(ROOM_GRID_ROWS - 1, Math.floor(w.y))),
     yaw,
     level: isNum(w.level) ? Math.max(1, Math.min(99, Math.floor(w.level))) : 1,
   };

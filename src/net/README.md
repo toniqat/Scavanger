@@ -333,3 +333,8 @@ mission peer, `rejoinMission` → `net:gameStarting` + `flow rejoined` at the ho
 - **2026-09-08 (같은 함선끼리만 보인다)** — `PlayerSnapshot.hs` (append-only, 없으면 공유 데크). 모든 인테리어가
   원점에 지어지므로 서로 다른 함선 안의 두 사람은 좌표가 겹친다. `Snapshotter` 가 `ctx.hub.hubSite` 를 실어
   보내고 `RemotePlayer.push` 가 `RemotePlayerRef.hubSite` 로 받는다. 숨기는 판단은 `player/RemoteAvatar` 가 한다.
+
+- **2026-09-08 (격납고 리뷰 수정)** — `sanitizeShipVisit` 의 셀 클램프를 0…63 에서 **방 격자**(`ROOM_GRID_COLS/ROWS − 1`)
+  로 조였다. `hub/interiors/Furniture` 가 이 값을 `roomCellToWorld` 에 그대로 넣고 그 함수는 외삽하므로, 63 은 메시와
+  **단단한 콜라이더 blocker** 를 방 밖 ~31 m 지점 — 방문자 함선 어디에나, 방문의 유일한 출구인 에어락 위에도 —
+  놓을 수 있었다. 가구 개수 상한은 `SHIP_VISIT_MAX_FURNITURE` 로 `shared/constants.ts` 에 올려 보내는 쪽과 공유한다.

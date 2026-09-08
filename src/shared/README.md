@@ -709,3 +709,8 @@ Plan: `docs/DECISIONS.md`. Everything below is append-only; owners in brackets.
   PeerId 를 못 쓴다, 그래서 `HubLaunchSlot.occupant` 와 같이 평범한 `string` 이다.
   `events.ts`: `net:shipVisit` · `hub:shipVisit`. `constants.ts`: `SHIP_VISIT_MIN_INTERVAL_S` ·
   `SHIP_VISIT_COOLDOWN_S` · `SHIP_VISIT_WAIT_S`.
+
+- **2026-09-08 (격납고 리뷰 수정)** — `SHIP_VISIT_MAX_FURNITURE` 가 `constants.ts` 에 추가됐다. 양쪽이 **같은 수**를
+  써야 한다: 보내는 쪽(`hub/parts/Hangar.shipStateWire`)은 프레임이 릴레이의 `MAX_MESSAGE_BYTES`(64 kB)를 넘지 않도록,
+  받는 쪽(`net/model.sanitizeShipVisit`)은 이상한 문서가 콜라이더를 수천 개 만들지 못하도록 자른다. 넘는 프레임은
+  서버가 **에러 없이 버리고** 보낸 쪽은 디바운스를 이미 올려 놓아 재전송되지 않는다.
