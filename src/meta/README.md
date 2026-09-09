@@ -275,6 +275,10 @@ Implants are **items** (`ItemDef.implant`, category `'implant'`, owner items/ �
 
 ## 변경 이력
 
+- **2026-09-10 (보조무기 제거)** — 상점 카테고리 순서(`Rules`)에서 `secondary` 가 빠졌고 헬릭스의
+  `secondary,PISTOL` 판매 규칙 줄(`data/corp_stock.csv`)도 사라졌다. `ruleMatches` 의 `primary || secondary`
+  가지는 그대로 뒀다 — 옛 세이브의 정의를 막지 않기 위해서다.
+
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
 - **2026-09-09 (기업 화면: 한 열은 기업, 나머지는 전부 페이지 · 보상은 재화 칩)** — `ui/CorpView.ts` + `meta.css`

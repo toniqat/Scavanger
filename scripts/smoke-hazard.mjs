@@ -18,7 +18,9 @@ const GL_ARGS = process.env.SMOKE_GL === 'swiftshader' ? ['--use-angle=swiftshad
 
 // 계약 값 (data/constants.csv · data/planets.csv) — 브라우저 안에서 상수를 import 할 수 없으니 옮겨 적는다
 const START_MIN = 360, START_MAX = 480, START_STEP = 30;
-const WARN_S = 30, DPS = 1, TICK_S = 1, FULL_S = 420, EDGE_M = 12, FOG_MUL = 7;
+const WARN_S = 30, DPS = 1, TICK_S = 1, FULL_S = 420, EDGE_M = 12;
+// 2026-09-10: 시야 제한의 세기는 재해마다 다르다 (data/hazards.csv 의 fogMul) — 폭풍의 눈만 훨씬 짙다
+const FOG_MUL = { sandstorm: 7, blizzard: 7, storm_eye: 24, spores: 7 };
 const EYE_START = 300, EYE_END = 60;
 const SPORE_START = 360, SPORE_INTERVAL = 50, SPORE_MIN = 3, SPORE_MAX = 6;
 const MAP = 640;
@@ -263,8 +265,9 @@ try {
     `들어가면 hazard:insideChanged {inside:true} (${JSON.stringify(insideEv)})`, JSON.stringify(hzDbg));
   const atmo = await P(() => window.__ev['atmo:override']);
   const last = atmo[atmo.length - 1];
-  ok(!!last && last.blend > 0 && last.fogMul > 1 && last.fogMul <= FOG_MUL + 1e-6 && last.color !== null,
-    `atmo:override 로만 시야를 좁힌다 (${JSON.stringify(last)})`);
+  const fogCap = FOG_MUL[h0.kind] ?? 7;
+  ok(!!last && last.blend > 0 && last.fogMul > 1 && last.fogMul <= fogCap + 1e-6 && last.color !== null,
+    `atmo:override 로만 시야를 좁힌다 (${h0.kind} 상한 ${fogCap}, ${JSON.stringify(last)})`);
   ok(atmo.length <= 40, `atmo:override 를 프레임마다 쏘지 않는다 (0.6초에 ${atmo.length}회)`);
   await waitSim(3.4);
   const dmg = await P(() => ({ hp: window.__game.ctx.player.hp, hp0: window.__hp0 }));

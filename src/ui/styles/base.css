@@ -144,9 +144,15 @@ input { font: inherit; color: inherit; }
    interactable (`interact:promptChanged.hold` — 발사 포드 탑승), any future popup. Drawn with two borders of a rotated
    square (crisp at any HUD size, no glyph font dependency), glowing in the accent colour and nodding 2 px so the eye
    catches it; the cap itself gets an accent border so the pair reads as one unit. Containers that hold one make room
-   above with `:has()` (the chevron overhangs the cap by ~9 px). */
-.keycap.hold { position: relative; border-color: var(--c-accent); box-shadow: 0 0 0 1px rgba(255, 179, 71, 0.25) inset; }
-.keycap.hold::before {
+   above with `:has()` (the chevron overhangs the cap by ~9 px).
+
+   2026-09-10 — the modifier class is `kc-hold`, **not** `hold`. `.hold` was already taken by the hold ring at the
+   crosshair (`hud/HoldGauge`, further down this file: `position:absolute; width:120px; height:120px; margin:-60px;
+   opacity:0`). That bare class selector ties `.keycap` on specificity and wins on order, so `class="keycap hold"`
+   turned the cap into a **120x120 fully transparent box**: the E prompt lost its keycap altogether and the panel
+   only grew taller (the `:has()` padding still applied). Never name a keycap modifier after an existing widget class. */
+.keycap.kc-hold { position: relative; border-color: var(--c-accent); box-shadow: 0 0 0 1px rgba(255, 179, 71, 0.25) inset; }
+.keycap.kc-hold::before {
   content: ''; position: absolute; left: 50%; top: -10px;
   width: 8px; height: 8px;
   border-right: 3px solid var(--c-accent); border-bottom: 3px solid var(--c-accent);
@@ -156,7 +162,7 @@ input { font: inherit; color: inherit; }
   pointer-events: none;
 }
 @keyframes holdChevron { from { transform: translate(-50%, -2px) rotate(45deg); } to { transform: translate(-50%, 1px) rotate(45deg); } }
-.key-guide:has(.keycap.hold), .prompt .row:has(.keycap.hold) { padding-top: 16px; }
+.key-guide:has(.keycap.kc-hold), .prompt .row:has(.keycap.kc-hold) { padding-top: 16px; }
 
 /* ── HUD layer ─────────────────────────────────────────────────────────── */
 .hud {

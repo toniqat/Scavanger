@@ -16,14 +16,15 @@
  */
 import * as THREE from 'three';
 import {
-  Layers, TRAM_DOCK_S, TRAM_SPEED, TRAM_START_HOLD_S, TRAM_STATES,
+  Layers, TRAM_ACCEL_S, TRAM_DOCK_S, TRAM_SPEED, TRAM_START_DELAY_S, TRAM_START_HOLD_S, TRAM_STATES,
   type GameContext, type PeerId, type RailLineDef, type RailPlatformDef, type Random,
   type TramDef, type TramMessage, type TramRequest, type TramState, type TramWire,
 } from '@/shared';
 import { type BuildCtx, merge, paint, paintGradient, xform } from './build';
 import type { ObstacleEntry, SpatialHash } from './SpatialHash';
 import {
-  DOCK_WINDOW, GAUGE_HALF, PIER_STEP, PLATFORM_OFFSET, RAIL_DECK_Y, TIE_STEP,
+  DOCK_WINDOW, GAUGE_HALF, PIER_STEP, PLATFORM_OFFSET, RAIL_DECK_HALF_W, RAIL_DECK_STEP, RAIL_DECK_T,
+  RAIL_DECK_Y, RAIL_MAX_GRADE, TIE_STEP,
   TRAM_NET_INTERVAL, TRAM_SNAP_M, type RailPath, deltaS, makePath, nearestS, sampleAt, wrapS,
 } from './rails/model';
 import { ContainerSet, type ContainerSpec } from './structures/parts/Containers';
@@ -56,6 +57,12 @@ interface TramInst {
   vel: THREE.Vector3;
   containers: { spec: ContainerSpec; ox: number; oz: number; oy: number }[];
   dockTimer: number;
+  /**
+   * 2026-09-10 — 이번 주행을 시작한 뒤 흐른 시간(초). 시동 알림이 뜬 순간 `-TRAM_START_DELAY_S` 로 놓이므로
+   * **음수인 동안은 서 있고**, 0 을 넘으면 `TRAM_ACCEL_S` 에 걸쳐 cubic ease-in 으로 `TRAM_SPEED` 까지 오른다.
+   * 클라이언트도 같은 값을 굴린다 — 위치는 호스트의 `s` 로 보정되지만 발판 속도(`vel`)는 스스로 계산한다.
+   */
+  runT: number;
   lastDock: string | null;
   /** 클라이언트가 맞춰 갈 호스트의 `s` (호스트에서는 쓰지 않는다). */
   targetS: number;
@@ -130,6 +137,37 @@ export class Rails {
       }
     }
     for (const p of pts) p.y += RAIL_DECK_Y;
+
+    /* ── 2026-09-10: **선로가 땅에 파묻히지 않게 들어 올린다** ────────────────────────────────────
+     * 위의 평활화는 표본점의 높이만 다듬는다. 표본 간격이 20 m 를 넘으므로 언덕을 가로지르는 구간에서는
+     * 중심선이 두 점 사이의 지형 **아래**로 내려가고, 거기서 침목이 흙에 잠겼다 (교각도 `max(0.4, …)` 로
+     * 눌려 안 보였다). 여기서 점마다 **자기 좌우 구간의 지형 최고점**을 실제로 재서 그보다
+     * `RAIL_DECK_Y` 위로 끌어올린다. **내리지는 않는다** — 내리면 다시 파묻힌다. */
+    {
+      const groundMax = (i: number, j: number): number => {
+        const a = pts[i], b = pts[j];
+        let g = -Infinity;
+        for (let k = 0; k <= 6; k++) {
+          const t = k / 6;
+          g = Math.max(g, ctx.terrain.getHeightAt(a.x + (b.x - a.x) * t, a.z + (b.z - a.z) * t));
+        }
+        return g;
+      };
+      const prevOf = (i: number): number => (loop ? (i - 1 + n) % n : Math.max(0, i - 1));
+      const nextOf = (i: number): number => (loop ? (i + 1) % n : Math.min(n - 1, i + 1));
+      const need = new Array<number>(n);
+      for (let i = 0; i < n; i++) need[i] = Math.max(groundMax(prevOf(i), i), groundMax(i, nextOf(i))) + RAIL_DECK_Y;
+      for (let i = 0; i < n; i++) pts[i].y = Math.max(pts[i].y, need[i]);
+      /* 들어 올리면 이웃과 단차가 생긴다 — **올리기만 하는** 평활화로 경사를 제한한다. */
+      let per = 0;
+      const segs = loop ? n : n - 1;
+      for (let i = 0; i < segs; i++) { const a = pts[i], b = pts[(i + 1) % n]; per += Math.hypot(b.x - a.x, b.z - a.z); }
+      const maxStep = Math.max(0.2, (per / Math.max(1, segs)) * RAIL_MAX_GRADE);
+      for (let pass = 0; pass < 6; pass++) {
+        for (let i = 0; i < n; i++) pts[i].y = Math.max(pts[i].y, pts[prevOf(i)].y - maxStep, pts[nextOf(i)].y - maxStep);
+      }
+    }
+
     const path = makePath(pts, loop);
     this.path = path;
 
@@ -227,6 +265,18 @@ export class Rails {
       paint(cap, STEEL_DARK, 0.05, rng);
       parts.push(cap);
       ctx.hash.addBox(new THREE.Vector3(pos.x, ground, pos.z), 0.3, 0.3, yaw, h, 'pier');
+    }
+    /* 2026-09-10 — **걸어 다니는 발판.** 예전에는 교각만 콜라이더였다: 선로는 그림일 뿐이고 침목 사이로
+     * 그대로 빠졌다. 이제 `RAIL_DECK_STEP` 마다 얇은 상자를 이어 붙여 윗면이 레일 상면과 같게 만든다 —
+     * `getSurfaceY` 가 그 윗면을 잡으므로 땅에서 `RAIL_DECK_Y`(0.75 m, `PROP_STEP_UP_MAX` 안) 만큼
+     * 올라서서 선로 위를 걸어 다닌다. 침목마다 걸지 않는 이유는 `rails/model` 의 주석에 있다. */
+    for (let s = 0; s < path.total; s += RAIL_DECK_STEP) {
+      sampleAt(path, s + RAIL_DECK_STEP / 2, pos, tan);
+      const yaw = Math.atan2(tan.z, tan.x);
+      ctx.hash.addBox(
+        new THREE.Vector3(pos.x, pos.y - RAIL_DECK_T, pos.z),
+        RAIL_DECK_STEP / 2 + 0.15, RAIL_DECK_HALF_W, yaw, RAIL_DECK_T, 'rail',
+      );
     }
     const geo = merge(parts);
     this.geos.push(geo);
@@ -412,7 +462,7 @@ export class Rails {
       position: new THREE.Vector3(), yaw: 0, state: 'idle', s: startS, dir: 1,
     };
     const inst: TramInst = {
-      def, root, parts: [], vel, containers: [], dockTimer: 0,
+      def, root, parts: [], vel, containers: [], dockTimer: 0, runT: 0,
       lastDock: this.platformS.length > 0 ? 'plat_0' : null, targetS: startS,
     };
 
@@ -485,8 +535,9 @@ export class Rails {
 
     let speed = 0;
     if (inst.def.state === 'moving') {
-      speed = TRAM_SPEED;
-      inst.def.s = wrapS(path, inst.def.s + TRAM_SPEED * inst.def.dir * dt);
+      inst.runT += dt;
+      speed = this.tramSpeed(inst);
+      inst.def.s = wrapS(path, inst.def.s + speed * inst.def.dir * dt);
       // 왕복 선로는 끝에서 되돌아온다. **끝으로 달려들 때만** 뒤집는다 — 조건을 `s <= 0` 로만 두면
       // 방향이 매 프레임 뒤집혀 전차가 그 자리에서 떤다.
       if (!path.loop) {
@@ -497,6 +548,7 @@ export class Rails {
       inst.dockTimer -= dt;
       if (host && inst.dockTimer <= 0) {
         inst.def.state = 'moving';
+        this.beginRun(inst);
         ctx?.bus.emit('rail:tramDocked', { tramId: inst.def.id, platformId: inst.lastDock, docked: false });
         this.broadcastState();
       }
@@ -516,6 +568,27 @@ export class Rails {
       this.netTimer -= dt;
       if (this.netTimer <= 0) { this.netTimer = TRAM_NET_INTERVAL; this.broadcastState(); }
     }
+  }
+
+  /**
+   * 2026-09-10 — **출발은 알림 → 1초 대기 → 3초에 걸친 가속**이다 (사용자 결정). 예전에는 시동을 건
+   * 프레임에 곧바로 `TRAM_SPEED` 로 튀어 나가서, 데크에 올라탄 사람이 그대로 떨어졌다.
+   * 여기서는 `runT` 만 되감고 알림 한 줄을 띄운다 — 실제 감속/가속 곡선은 `tramSpeed` 다.
+   * 호스트 · 클라이언트가 모두 부른다 (클라이언트는 `applyWire` 에서).
+   */
+  private beginRun(inst: TramInst): void {
+    inst.runT = -TRAM_START_DELAY_S;
+    this.game?.bus.emit('ui:notify', { text: '전차가 곧 출발합니다', kind: 'info' });
+  }
+
+  /**
+   * 지금 속도(m/s). `runT` 가 음수면 아직 서 있고(출발 알림 대기), 그 뒤 `TRAM_ACCEL_S` 동안
+   * **cubic ease-in**(t³)으로 `TRAM_SPEED` 까지 오른다 — 선형이 아니라 점점 빨라진다.
+   */
+  private tramSpeed(inst: TramInst): number {
+    if (inst.runT <= 0) return 0;
+    const t = Math.min(1, inst.runT / Math.max(0.001, TRAM_ACCEL_S));
+    return TRAM_SPEED * t * t * t;
   }
 
   private checkDock(inst: TramInst, path: RailPath): void {
@@ -556,6 +629,7 @@ export class Rails {
     if (!ctx || !inst || inst.def.state === 'moving') return;
     inst.def.state = 'moving';
     inst.dockTimer = 0;
+    this.beginRun(inst);
     ctx.bus.emit('rail:tramStarted', { lineId: inst.def.lineId, tramId: inst.def.id, by });
     ctx.bus.emit('audio:play', { id: 'tram_start', position: inst.def.position });
     this.broadcastState();
@@ -587,6 +661,8 @@ export class Rails {
       this.game?.bus.emit('audio:play', { id: 'tram_dock', position: inst.def.position });
     }
     if (prev !== 'moving' && inst.def.state === 'moving') {
+      // 클라이언트도 같은 대기 · 가속 곡선을 굴린다 (알림 한 줄 + `vel` 이 맞아야 데크가 사람을 실어 간다)
+      this.beginRun(inst);
       this.game?.bus.emit('audio:play', { id: 'tram_start', position: inst.def.position });
     }
   }

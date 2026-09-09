@@ -673,19 +673,29 @@ export class InventorySystem implements GameSystem, InventoryRef {
       return true;
     }
 
-    const p = this.bag.get(uid);
-    const item = p?.item;
-    if (!p || !item || !isQuickUsable(ITEM_DEF_MAP.get(item.defId))) return false;
+    // 2026-09-10: the incoming stack may live in **any** grid — 가방 · 열어 둔 상자 · 함선 창고. It used to be
+    // `this.bag.get(uid)` only, so 상자에서 곧장 휠에 올리는 길이 없었다. A container source is host-gated by the
+    // caller (`drop`/`registerQuick` → `guardedTake`); an unsearched container stack is refused here as everywhere.
+    const found = this.locateInGrids(uid);
+    const item = found?.item;
+    const def = item && ITEM_DEF_MAP.get(item.defId);
+    if (!found || !item || !def || !isQuickUsable(def)) return false;
+    if (found.gridId === 'container' && item.searched === false) return false;
+    const p = found.grid.get(uid);
+    if (!p) return false;
     // the occupant may need the cells the incoming stack is about to free, so take the incoming one out first
-    const cell = { x: p.x, y: p.y };
-    this.bag.remove(uid);
+    const cell = { x: p.x, y: p.y, rotated: item.rotated };
+    found.grid.remove(uid);
     if (occupant && !this.returnQuickToBag(occupant)) {
       // put it back exactly where it was and refuse
-      if (!this.bag.place(item, cell.x, cell.y)) this.bag.autoPlace(item);
+      if (!found.grid.place(item, cell.x, cell.y, cell.rotated)) found.grid.autoPlace(item);
       return false;
     }
+    if (found.gridId === 'container') item.searched = true;
     this.quickSlots[index] = item;
     this.afterQuickChange();
+    // 상자/창고 → 휠 is a location change, so it announces itself like a container → bag take does
+    if (found.gridId !== 'bag') this.emitTransfer(item, def, { kind: 'grid', grid: found.gridId }, { kind: 'quick', index });
     return true;
   }
 
@@ -708,11 +718,19 @@ export class InventorySystem implements GameSystem, InventoryRef {
   /** Slot index holding stack `uid`, or -1 (UI badges / menu state). */
   quickIndexOf(uid: string): number { return quickSlotOf(this.quickSlots, uid); }
 
-  /** Context menu: move the stack into the first free usable slot. 'noop' when it is already on the wheel. */
+  /**
+   * Context menu: move the stack into the first free usable slot. 'noop' when it is already on the wheel.
+   * 2026-09-10: the stack may sit in the open 상자 — that path is a take, so it goes through `guardedTake`
+   * (host-confirmed in multiplayer) exactly like 상자 → 가방.
+   */
   registerQuick(uid: string): OpResult {
     if (this.quickIndexOf(uid) >= 0) return 'noop';
     const index = firstFreeQuickSlot(this.quickSlots, this.getQuickSlotCount());
     if (index < 0) return 'fail';
+    const found = this.locate(uid);
+    if (found && this.isContainerLoc(found.from)) {
+      return this.guardedTake(uid, found.from, null, () => (this.setQuickSlot(index, uid) ? 'ok' : 'fail'));
+    }
     return this.setQuickSlot(index, uid) ? 'ok' : 'fail';
   }
 

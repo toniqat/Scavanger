@@ -1090,10 +1090,14 @@ export const STRUCTURE_INTERACT_RANGE = K.num('STRUCTURE_INTERACT_RANGE');
 /* ── 선로 · 전차 (owner: world/Rails) ── */
 /** 구역에 선로가 놓일 확률 (0 = 언제나 없음). */
 export const RAIL_CHANCE = K.num('RAIL_CHANCE');
-/** 전차 주행 속도(m/s). */
+/** 전차 **최고** 주행 속도(m/s). 2026-09-10: 출발 직후가 아니라 `TRAM_ACCEL_S` 에 걸쳐 여기까지 오른다. */
 export const TRAM_SPEED = K.num('TRAM_SPEED');
 /** 플랫폼 콘솔에서 전차에 시동을 거는 홀드 시간(초). */
 export const TRAM_START_HOLD_S = K.num('TRAM_START_HOLD_S');
+/** 2026-09-10 — 시동 알림이 뜬 뒤 전차가 실제로 움직이기 시작할 때까지의 시간(초). */
+export const TRAM_START_DELAY_S = K.num('TRAM_START_DELAY_S');
+/** 2026-09-10 — 움직이기 시작한 뒤 `TRAM_SPEED` 에 닿을 때까지의 시간(초). 가속 곡선은 cubic ease-in. */
+export const TRAM_ACCEL_S = K.num('TRAM_ACCEL_S');
 /** 전차가 플랫폼에 정차해 있는 시간(초). */
 export const TRAM_DOCK_S = K.num('TRAM_DOCK_S');
 
@@ -1110,6 +1114,12 @@ export const ROGUE_DROP_COUNT_MIN = numberList('tables.csv', 'ROGUE_DROP_COUNT_M
 export const ROGUE_DROP_COUNT_MAX = numberList('tables.csv', 'ROGUE_DROP_COUNT_MAX');
 /** 그 강하에 **로그 분대장**이 섞일 확률 (같은 색인 규칙: 1명 0 · 2명 0.5 · 3명 이상 1). */
 export const ROGUE_DROP_BOSS_CHANCE = numberList('tables.csv', 'ROGUE_DROP_BOSS_CHANCE');
+/**
+ * 2026-09-10 — 탈출 웨이브 규모 배수 (index 0 = 분대 1명 … 3 = 분대 4명).
+ * 웨이브 표는 4인 분대 기준이라 1인 분대가 세 번째 웨이브에서 점프 사냥꾼 두 마리를 한꺼번에 받았다.
+ * 로그 강하(`ROGUE_DROP_*`)가 이미 쓰던 것과 같은 "분대 인원별 표" 규약이다.
+ */
+export const WAVE_SQUAD_SCALE = numberList('tables.csv', 'WAVE_SQUAD_SCALE');
 
 /* ── 환경 재해 (owner: world/Hazard) ── */
 /** 재해 시작 시각의 하한(초, 레이드 시작 기준). */

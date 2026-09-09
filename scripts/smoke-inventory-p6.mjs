@@ -132,13 +132,13 @@ try {
   ok(cat.weaponGrades >= 5, `every weapon grade is its own tile (돌격소총 ×${cat.weaponGrades})`);
   ok(cat.hub && cat.leftOfStash, 'catalog sits left of the stash in the ship screen');
 
-  // tabs: 무기 shows only primary / secondary defs
+  // tabs: 무기 shows only primary defs (2026-09-10: 보조무기 카테고리 제거)
   await page.evaluate(() => [...document.querySelectorAll('.inv-cat-tab')].find((b) => b.textContent === '무기').click());
   const weaponTab = await page.evaluate(() => {
     const loot = window.__game.ctx.loot;
     const shown = [...document.querySelectorAll('.inv-panel-catalog .inv-cat-item')].map((n) => n.dataset.def);
-    const expected = loot.getAllItemDefs().filter((d) => d.category === 'primary' || d.category === 'secondary').length;
-    return { n: shown.length, expected, allWeapons: shown.every((id) => { const c = loot.getItemDef(id).category; return c === 'primary' || c === 'secondary'; }) };
+    const expected = loot.getAllItemDefs().filter((d) => d.category === 'primary').length;
+    return { n: shown.length, expected, allWeapons: shown.every((id) => loot.getItemDef(id).category === 'primary') };
   });
   ok(weaponTab.n === weaponTab.expected && weaponTab.n > 0 && weaponTab.allWeapons, `무기 tab lists ${weaponTab.n} weapon defs only`);
   // Phase 12: 임플란트 tab (label from the shared category table) lists exactly the implant defs — working + broken twins
@@ -302,8 +302,8 @@ try {
     const cap = i.captureLoadout();
     return { cap, armor: armorDef?.id ?? null, smg: !!ctx.loot.getItemDef('wpn_smg') };
   });
-  // 2026-09-07: the starter equips no 주무기 I — the AR III dragged onto 주무기 II above is the captured primary2
-  ok(preset.cap && preset.cap.primary === null && preset.cap.primary2 === 'wpn_ar_g3' && preset.cap.secondary === 'wpn_hg' && preset.cap.bag === 'bag_common', `captureLoadout reflects the current kit (${JSON.stringify(preset.cap)})`);
+  // 2026-09-10: 보조무기가 사라져 starter 는 주무기 I 에 기관단총을 준다; AR III 는 위에서 주무기 II 로 끌어다 놓았다
+  ok(preset.cap && preset.cap.primary === 'wpn_smg' && preset.cap.primary2 === 'wpn_ar_g3' && preset.cap.secondary === null && preset.cap.bag === 'bag_common', `captureLoadout reflects the current kit (${JSON.stringify(preset.cap)})`);
   const applied = await page.evaluate((p) => {
     const ctx = window.__game.ctx, i = ctx.inventory;
     const r = i.applyLoadout({ name: 't', primary: 'wpn_smg', primary2: 'wpn_does_not_exist', secondary: null, bag: null, armor: p.armor, implant: 'dash' });
@@ -314,7 +314,7 @@ try {
   }, preset);
   ok(applied.primary === 'wpn_smg', `preset equipped the stash SMG as 주무기 I (${applied.primary})`);
   ok(applied.primary2 === null && applied.r.missing.includes('wpn_does_not_exist'), `missing def empties 주무기 II and is reported (${JSON.stringify(applied.r.missing)})`);
-  ok(applied.secondary === 'wpn_hg', 'null entry leaves 보조무기 untouched');
+  ok(applied.secondary === undefined, '보조무기 칸은 더 이상 채워지지 않는다 (2026-09-10)');
   ok(!preset.armor || applied.armor === preset.armor, `armor equipped from the stash (${applied.armor})`);
   ok(applied.implant === 'dash', `implant applied through ctx.implants (${applied.implant})`);
   ok(applied.arSomewhere && (applied.bagHasAr3 || applied.stashHasAr3), 'displaced weapons landed in the bag / stash');
@@ -611,10 +611,10 @@ try {
   // 무기 분해: 같은 돌격소총 두 정 중 클릭한 쪽만, 소켓의 부착물은 가방으로
   const gunSetup = await page.evaluate(() => {
     const ctx = window.__game.ctx, i = ctx.inventory, sys = window.__game.getSystem('inventory');
-    for (const id of ['mat_scrap', 'wpn_hg', 'att_brake']) i.consumeWhere((d) => d.id === id, 9999);
-    // 권총 2정(2×1)이면 시작 소지품을 건드리지 않고도 가방에 들어간다
-    const keep = ctx.loot.createItem('wpn_hg', 1);
-    const shred = ctx.loot.createItem('wpn_hg', 1);
+    for (const id of ['mat_scrap', 'wpn_dmr', 'att_brake']) i.consumeWhere((d) => d.id === id, 9999);
+    // 2026-09-10: 권총(보조무기)이 사라져 지정사수소총 2정(4×1)으로 검사한다 — 시작 소지품을 건드리지 않고 가방에 들어간다
+    const keep = ctx.loot.createItem('wpn_dmr', 1);
+    const shred = ctx.loot.createItem('wpn_dmr', 1);
     const brake = ctx.loot.createItem('att_brake', 1);
     const placed = [i.tryAddItem(keep), i.tryAddItem(shred), i.tryAddItem(brake)].every(Boolean);
     const attached = i.attachToWeapon(shred.uid, brake.uid);
@@ -625,18 +625,18 @@ try {
       dur: recipe ? sys.craftDuration(recipe.id) : 0, keep: keep.uid, shred: shred.uid, brake: brake.uid,
     };
   });
-  ok(gunSetup.placed, 'two 권총 + a 총구 제동기 fit in the bag');
-  ok(gunSetup.recipeId === 'break_wpn_hg' && gunSetup.out === 1, `권총 I 의 분해 레시피는 폐금속 ${gunSetup.out} (${gunSetup.recipeId})`);
+  ok(gunSetup.placed, 'two 지정사수소총 + a 총구 제동기 fit in the bag');
+  ok(gunSetup.recipeId === 'break_wpn_dmr' && gunSetup.out >= 1, `지정사수소총 I 의 분해 레시피는 폐금속 ${gunSetup.out} (${gunSetup.recipeId})`);
   await waitSim(gunSetup.dur * 1.4);
   const gunOut = await page.evaluate((s) => {
     const i = window.__game.ctx.inventory;
     return {
-      scrap: i.countWhere((d) => d.id === 'mat_scrap'), guns: i.countWhere((d) => d.id === 'wpn_hg'),
+      scrap: i.countWhere((d) => d.id === 'mat_scrap'), guns: i.countWhere((d) => d.id === 'wpn_dmr'),
       keptSame: !!i.findItem(s.keep), shredGone: !i.findItem(s.shred), brakeBack: !!i.findItem(s.brake),
     };
   }, gunSetup);
-  ok(gunOut.scrap === 1 && gunOut.guns === 1 && gunOut.keptSame && gunOut.shredGone,
-    `무기 분해는 클릭한 그 한 정만 갈아 폐금속 ${gunOut.scrap} (남은 권총 ${gunOut.guns})`, JSON.stringify(gunOut));
+  ok(gunOut.scrap === gunSetup.out && gunOut.guns === 1 && gunOut.keptSame && gunOut.shredGone,
+    `무기 분해는 클릭한 그 한 정만 갈아 폐금속 ${gunOut.scrap} (남은 총 ${gunOut.guns})`, JSON.stringify(gunOut));
   ok(gunSetup.attached && gunOut.brakeBack, '소켓에 물려 있던 총구 제동기는 분해 전에 가방으로 돌아온다');
 
   // 방탄복 분해
@@ -727,7 +727,7 @@ try {
     const quick = i.setQuickSlot(0, back.uid);
     const quickSlots = i.getQuickSlots().filter((q) => q && q.uid === back.uid).length;
     const equipTarget = sys.equipTargetFor(ctx.loot.getItemDef('imp_strength_2'));
-    const equipTry = ['primary', 'primary2', 'secondary', 'bag', 'armor'].map((s) => i.equip(back.uid, s));
+    const equipTry = ['primary', 'primary2', 'bag', 'armor'].map((s) => i.equip(back.uid, s));
     const stillInBag = !!i.findItem(back.uid);
     const takenBack = i.takeItem(back.uid);
     return { s2, br, pk, strength: statName('strength'), expectS2: expectStats(s2), expectPk: expectStats(pk), toStash, found, inBag, taken, gone, where, quick, quickSlots, equipTarget, equipTry, stillInBag, takenBack };

@@ -8,7 +8,7 @@ const IMPLANT_LABEL: Readonly<Record<ImplantId, string>> = {
 };
 /** Rows of a preset card. `implantItems` (2026-09-08) is a list, so `slotText` joins it. */
 const SLOT_LABEL: ReadonlyArray<[keyof LoadoutPreset, string]> = [
-  ['primary', '주무기 I'], ['primary2', '주무기 II'], ['secondary', '보조무기'], ['bag', '가방'], ['armor', '방탄복'],
+  ['primary', '주무기 I'], ['primary2', '주무기 II'], ['bag', '가방'], ['armor', '방탄복'],   // 2026-09-10: 보조무기 제거
   ['implant', '전술 임플란트'], ['implantItems', '임플란트'],
 ];
 

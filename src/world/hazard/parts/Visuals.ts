@@ -19,6 +19,15 @@ import { isFrontKind } from '../model';
 /** `front` 커튼을 몇 장 겹쳐 세우나 (앞뒤 두께를 만든다). */
 const CURTAIN_LAYERS = 3;
 
+/**
+ * 2026-09-10 — 폭풍의 눈 벽만 **원통 3겹**이다. 안쪽 벽 하나로는 짙은 안개(fogMul 24) 속에서 실루엣이
+ * 뭉개져 "안전지대가 저기" 로 읽히지 않았다. 반지름을 조금씩 키워 겹치면 두꺼운 커튼이 되고, 안에서
+ * 보면 벽이 확실히 서 있는 것이 보인다.
+ */
+const EYE_WALL_LAYERS = 3;
+/** 겹 사이의 반지름 간격 = 반지름의 이 비율. */
+const EYE_WALL_STEP = 0.015;
+
 /** 세로로 흐르는 줄무늬 — 커튼이 "휘몰아친다" 로 읽히게 하는 유일한 텍스처다. */
 function makeCurtainTexture(size = 256): THREE.Texture {
   const canvas = document.createElement('canvas');
@@ -127,6 +136,8 @@ export class HazardVisuals {
   private readonly camPos = new THREE.Vector3();
   private windX = 1;
   private windZ = 0;
+  /** 폭풍의 눈인가 — 벽이 포그를 받지 않고 `EYE_WALL_LAYERS` 겹으로 선다 (2026-09-10). */
+  private eye = false;
 
   constructor() { this.group.name = 'Hazard'; }
 
@@ -161,9 +172,13 @@ export class HazardVisuals {
 
     // ── 벽 ──────────────────────────────────────────────────────────────
     this.curtainTex = makeCurtainTexture(256);
+    // 2026-09-10: 폭풍의 눈 벽만 **포그를 받지 않는다**. 그 재해는 구역 안 시야가 15 m 남짓이라(fogMul 24)
+    // 포그를 먹이면 벽이 통째로 사라져, 안전지대가 어느 쪽인지 알 방법이 하나도 없어진다. 다른 재해는
+    // 벽이 거리감을 가져야 하므로 그대로 포그를 받는다.
+    this.eye = plan.kind === 'storm_eye';
     this.curtainMat = new THREE.MeshBasicMaterial({
       map: this.curtainTex, color: new THREE.Color(row.wallColor),
-      transparent: true, opacity: row.wallOpacity, depthWrite: false, side: THREE.DoubleSide, fog: true,
+      transparent: true, opacity: row.wallOpacity, depthWrite: false, side: THREE.DoubleSide, fog: !this.eye,
     });
     if (isFrontKind(plan.kind)) {
       // 전선은 맵을 가로지르는 무한 벽이다 — 대각선으로 잘리지 않게 맵 대각선 길이만큼 넓게
@@ -265,6 +280,19 @@ export class HazardVisuals {
       }
       return;
     }
+    // 폭풍의 눈: 도형은 하나뿐이고 원통 `EYE_WALL_LAYERS` 겹이 그 하나를 조금씩 다른 반지름으로 두른다
+    if (this.eye) {
+      const z = active ? zones[0] : undefined;
+      for (let i = 0; i < this.rings.length; i++) {
+        const m = this.rings[i];
+        if (!z || z.shape !== 'circle' || z.radius <= 0.5) { m.visible = false; continue; }
+        m.visible = true;
+        const r = z.radius * (1 + i * EYE_WALL_STEP);
+        m.position.set(z.center.x, baseY + row.wallHeight * 0.5, z.center.z);
+        m.scale.set(r, row.wallHeight, r);
+      }
+      return;
+    }
     for (let i = 0; i < this.rings.length; i++) {
       const m = this.rings[i];
       const z = active ? zones[i] : undefined;
@@ -275,10 +303,11 @@ export class HazardVisuals {
     }
   }
 
-  /** 도형 개수가 늘어날 수 있는 재해(포자)에서 필요한 원통 수. */
+  /** 도형 개수가 늘어날 수 있는 재해(포자)에서 필요한 원통 수. 폭풍의 눈은 도형 하나를 겹으로 두른다. */
   static ringsFor(plan: HazardPlan): number {
     if (isFrontKind(plan.kind)) return 0;
-    return plan.kind === 'spores' ? Math.max(1, plan.sources.length) : 1;
+    if (plan.kind === 'storm_eye') return EYE_WALL_LAYERS;
+    return Math.max(1, plan.sources.length);
   }
 
   dispose(): void {
@@ -297,5 +326,6 @@ export class HazardVisuals {
     this.offsets = null;
     this.phases = null;
     this.row = null;
+    this.eye = false;
   }
 }

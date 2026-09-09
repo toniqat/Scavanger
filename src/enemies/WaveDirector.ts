@@ -1,13 +1,23 @@
 import * as THREE from 'three';
-import type { EnemyType, PlanetEcosystem } from '@/shared';
+import { WAVE_SQUAD_SCALE, type EnemyType, type PlanetEcosystem } from '@/shared';
 import { findSpawnCenter, maxBehemothOf, spawnGroup, waveGroup, type SpawnHost } from './Spawner';
 
 export const WAVE_ALIVE_CAP = 60;
+
+/** 분대 정원 — `WAVE_SQUAD_SCALE` 표의 길이이자 로그 강하가 쓰는 것과 같은 값. */
+const MAX_SQUAD = 4;
+/** 어떤 분대든 웨이브 하나에 최소 이만큼은 온다 (배수를 곱해도 0 이 되지 않는다). */
+const MIN_WAVE = 2;
 
 /**
  * Extraction pressure: escalating waves every 14 s → 9 s until stopped.
  * Bugs spawn 45–90 m from the extraction target, out of every player's view, and hunt relentlessly.
  * Runs only on the authority (host / single-player); waves pause while no player is alive.
+ *
+ * **2026-09-10 — 규모는 분대 인원이 정한다.** 웨이브 표(`waveSize`)는 4인 분대 기준이고, 실제 마릿수는
+ * `WAVE_SQUAD_SCALE[분대 인원 − 1]` 을 곱한 값이다 (`data/tables.csv`). 1인 분대가 세 번째 웨이브에서
+ * 점프 사냥꾼 **두 마리**를 한꺼번에 받던 것이 한 마리가 된다 — `waveGroup` 의 슬롯이 남은 마릿수로
+ * 잘리므로 구성은 저절로 따라온다. 로그 강하(`RogueDrop`)가 이미 쓰던 것과 같은 규약이다.
  */
 export class WaveDirector {
   active = false;
@@ -47,7 +57,23 @@ export class WaveDirector {
   prime(index: number): void { this.primed = Math.max(0, index); }
 
   private interval(): number { return Math.max(9, 14 - this.index * 0.8); }
-  private waveSize(): number { return Math.min(22, 6 + this.index * 2); }
+  /** 4인 분대 기준의 웨이브 크기 (표 그대로). */
+  private fullWaveSize(): number { return Math.min(22, 6 + this.index * 2); }
+
+  /** 분대 인원 (1..4). 싱글은 1. `RogueDrop.squadSize` 와 같은 계산. */
+  private squadSize(host: SpawnHost): number {
+    const net = host.ctx.net;
+    let n = 1;
+    if (net) for (const r of net.getRemotePlayers()) if (r.connected) n++;
+    return Math.max(1, Math.min(MAX_SQUAD, n));
+  }
+
+  /** 이번 웨이브가 실제로 데려올 마릿수 = 표 × 분대 인원 배수. */
+  private waveSize(host: SpawnHost): number {
+    const idx = this.squadSize(host) - 1;
+    const scale = WAVE_SQUAD_SCALE[idx] ?? 1;
+    return Math.max(MIN_WAVE, Math.round(this.fullWaveSize() * scale));
+  }
 
   update(dt: number, host: SpawnHost): void {
     if (!this.active) return;
@@ -57,7 +83,7 @@ export class WaveDirector {
     if (this.timer > 0) return;
     this.timer = this.interval();
 
-    const size = this.waveSize();
+    const size = this.waveSize(host);
     const allowed = host.ensureCapacity(size, WAVE_ALIVE_CAP);
     if (allowed <= 0) { this.timer = 3; return; }   // try again soon
     const rolled = waveGroup(this.index, Math.min(size, allowed), this.eco);

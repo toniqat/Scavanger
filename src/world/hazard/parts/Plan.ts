@@ -21,6 +21,15 @@ const GROVE_PAD_CLEAR = 34;
 const GROVE_MIN_GAP = 130;
 
 /**
+ * 2026-09-10 — **눈 덮인 지형에는 모래 폭풍이 오지 않는다** (사용자 결정). 같은 `front` 재해인 눈보라로
+ * 갈아 끼운다: 도형 · 시작 시각 · 진행 방향은 그대로이고 그림(`data/hazards.csv`)만 바뀐다.
+ * 추첨을 다시 하지 않으므로 **같은 시드는 여전히 같은 계획**이다.
+ * (오늘의 `data/planets.csv` 는 툰드라 행성에 눈보라만 적어 두므로 이 규칙은 아직 발동하지 않는다 —
+ *  csv 를 고치거나 새 눈 지형이 생겨도 규칙이 지켜지도록 코드에 못을 박아 둔 것이다.)
+ */
+const SNOWY_BIOMES: ReadonlySet<string> = new Set(['tundra']);
+
+/**
  * **거대 버섯 군락 자리**. `spores` 가 후보에 있는 행성이면 이번 레이드에 어떤 재해가 걸렸든 지형에 선다 —
  * 군락은 그 행성의 생태이지 재해의 부속이 아니다. 그래서 **전용 fork** 를 쓴다: 종류 추첨이 이 자리를
  * 밀지 않는다.
@@ -38,9 +47,12 @@ export function planGroveSpots(bctx: BuildCtx, rng: Random): Array<{ x: number; 
  */
 export function planHazard(
   rng: Random, candidates: readonly HazardKind[], groveSpots: ReadonlyArray<{ x: number; z: number }>,
+  biomeId: string | null = null,
 ): HazardPlan | null {
   if (candidates.length === 0) return null;
-  const kind = candidates.length === 1 ? candidates[0] : rng.pick(candidates);
+  const drawn = candidates.length === 1 ? candidates[0] : rng.pick(candidates);
+  // 눈 지형의 모래 폭풍 → 눈보라 (위 `SNOWY_BIOMES`). 추첨 뒤의 치환이라 시드 재현성은 그대로다.
+  const kind: HazardKind = drawn === 'sandstorm' && biomeId !== null && SNOWY_BIOMES.has(biomeId) ? 'blizzard' : drawn;
 
   // 독성 포자만 시작 시각이 고정이다 (사용자 요구: 6분). 나머지는 30초 단위로 6~8분 사이.
   const startsAt = kind === 'spores' ? SPORE_START_S : pickStartSeconds(rng.next());

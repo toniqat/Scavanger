@@ -209,6 +209,10 @@ first-session chain complete.
 
 ## 변경 이력
 
+- **2026-09-10 (보조무기 제거)** — 프리셋 메뉴(`ui/PresetMenu`)의 행이 `주무기 I · 주무기 II · 가방 · 방탄복`
+  넷이다. `LoadoutPreset.secondary` 필드와 `ShipState` 직렬화는 **그대로** 둔다 — 저장된 프리셋을 깨지 않는다
+  (읽을 때 그 칸은 언제나 null 이 된다).
+
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
 - **2026-09-09 (키 가이드 · Tab 닫기)** — 계약 `ui:keyGuide` (`src/shared/events.ts`) 채택. ① `ui/Panel.ts` 의 capture

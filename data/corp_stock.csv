@@ -6,7 +6,6 @@
 corp,category,weaponClasses,ammoTypes,tactical,minRepLevel,maxRarity,implantRepairMaterials
 # helix — 헬릭스 방산
 helix,primary,AR|SMG,,,,,
-helix,secondary,PISTOL,,,,,
 helix,ammo,,light|medium,,,,
 
 # bastion — 바스티온 중공업

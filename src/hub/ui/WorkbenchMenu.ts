@@ -123,7 +123,7 @@ export class WorkbenchMenu {
     const rows: WeaponRow[] = [];
     const seen = new Set<string>();
     const lo = inv.getLoadout();
-    const slots: Array<Exclude<LoadoutSlot, 'bag' | 'armor'>> = ['primary', 'primary2', 'secondary'];
+    const slots: Array<Exclude<LoadoutSlot, 'bag' | 'armor'>> = ['primary', 'primary2'];   // 2026-09-10: 보조무기 제거
     for (const s of slots) {
       const inst = lo[s];
       if (this.isWeapon(inst) && !seen.has(inst.uid)) { seen.add(inst.uid); rows.push({ uid: inst.uid, inst, slotLabel: SLOT_LABEL[s] }); }

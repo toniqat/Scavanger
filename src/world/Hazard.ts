@@ -84,7 +84,8 @@ export class Hazard implements HazardRef {
       this.groves.build(ctx, ctx.rng.fork('hazardGroveMesh'), this.groveSpots);
     }
 
-    const plan = planHazard(ctx.rng.fork('hazard'), candidates, this.groveSpots);
+    // 2026-09-10: 지형(biome)을 함께 넘긴다 — 눈 덮인 지형이면 모래 폭풍이 눈보라로 바뀐다 (`Plan.SNOWY_BIOMES`).
+    const plan = planHazard(ctx.rng.fork('hazard'), candidates, this.groveSpots, ctx.biome?.id ?? null);
     if (!plan) return false;
     this.plan = plan;
     this.row = hazardRow(plan.kind) ?? null;
@@ -240,8 +241,12 @@ export class Hazard implements HazardRef {
     const blend = raw <= 0 ? 0 : raw >= 1 ? 1 : raw;
     if (Math.abs(blend - this.lastBlend) > ATMO_EPS || (blend === 0 && this.lastBlend !== 0)) {
       this.lastBlend = blend;
+      // 2026-09-10: 시야 제한의 세기는 **재해마다 다르다** (`data/hazards.csv` 의 fogMul). 폭풍의 눈은
+      // 폭풍 안에서 PC 주변만 보이도록 훨씬 크다 — 그래야 "저기 벽 안쪽이 안전지대" 가 읽힌다.
+      // `HAZARD_FOG_MUL` 은 줄을 못 찾았을 때의 기본값으로만 남았다.
+      const fogMul = this.row ? this.row.fogMul : HAZARD_FOG_MUL;
       ctx.bus.emit('atmo:override', {
-        fogMul: 1 + (HAZARD_FOG_MUL - 1) * blend,
+        fogMul: 1 + (fogMul - 1) * blend,
         color: blend > 0 && this.row ? this.row.fogColor : null,
         blend,
       });

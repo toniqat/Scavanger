@@ -23,7 +23,11 @@ import { QUICK_DIR_GLYPH, QUICK_ROSE_ORDER, SLOT_LABEL, STEP, TEXT, fmtValue, sl
 import { BAG_LOC, CATALOG_DBL_MS, DRAG_THRESHOLD, type DragState, GHOST_SCALE, LOCK_SVG, MIDDLE_BUTTON, type QuickCell, SCREEN_TABS, type ScreenTab, type SlotView } from '../model';
 import type { InventoryUI } from '../InventoryUI';
 
-/** Right-click on a wheel cell: `빠른 슬롯 해제` (assigned cells only). */
+/**
+ * Right-click on a wheel cell: `빠른 슬롯 해제` (assigned cells only).
+ * 2026-09-10: 상자를 열어 둔 채라면 `상자로 이동` 도 함께 — 퀵슬롯에서 곧장 상자로 넣는 두 번째 길
+ * (첫 번째는 휠 칸을 상자 격자로 끌어다 놓는 것).
+ */
 export function onQuickContextMenu(sys: InventoryUI, index: number, e: MouseEvent): void {
   if (sys.drag?.started || sys.dialog.isOpen) return;
   sys.menu.close();
@@ -31,10 +35,14 @@ export function onQuickContextMenu(sys: InventoryUI, index: number, e: MouseEven
   const uid = cell?.uid;
   if (!uid) return;
   sys.tooltip.hide();
+  const from: ItemLocation = { kind: 'quick', index };
   const entries: MenuEntry[] = [
     { label: TEXT.menu.quickClear, run: () => sys.result(sys.sys.setQuickSlot(index, null) ? 'ok' : 'fail', 'ui_drop', BAG_LOC, uid) },
-    { label: TEXT.menu.request, hint: '휠클릭', separator: true, run: () => { sys.sys.requestItem(uid, BAG_LOC); } },
   ];
+  if (sys.sys.getActiveContainer()) {
+    entries.push({ label: TEXT.menu.toContainer, run: () => sys.result(sys.sys.quickMove(uid, from), 'ui_drop', from, uid) });
+  }
+  entries.push({ label: TEXT.menu.request, hint: '휠클릭', separator: true, run: () => { sys.sys.requestItem(uid, BAG_LOC); } });
   sys.menu.open(e.clientX, e.clientY, entries);
   }
 
@@ -128,8 +136,8 @@ export function menuEntries(sys: InventoryUI, uid: string, from: ItemLocation, i
     }
   }
 
-  // 1c. quick-use wheel (bag stims / grenades)
-  if (isQuickUsable(def) && from.kind === 'grid' && from.grid === 'bag') {
+  // 1c. quick-use wheel (stims / grenades). 2026-09-10: from **any** grid — 가방 · 열어 둔 상자 · 함선 창고.
+  if (isQuickUsable(def) && from.kind === 'grid') {
     const idx = sys.sys.quickIndexOf(uid);
     if (idx >= 0) {
       entries.push({ label: `${TEXT.menu.quickClear} (${QUICK_DIR_GLYPH[idx]})`, separator: entries.length > 0, run: () => sys.result(sys.sys.setQuickSlot(idx, null) ? 'ok' : 'fail', 'ui_drop', from, uid) });

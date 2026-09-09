@@ -47,6 +47,7 @@ When you add a smoke script: add it to `SMOKES` in `scripts/verify.mjs` with the
 in `CLAUDE.md`.
 
 ## History (what was actually tested)
+- 2026-09-10 플레이 피드백 11건 (홀드 키캡 · 퀵슬롯 · **보조무기 제거** · 웨이브 · 재해 · 지도 · 지하실 · 상자 배치 · 선로 · 전차 — `src/shared` 를 건드려 전체): `npm run verify:all` → 4 red (`smoke-phase2` · `smoke-weapons` · `smoke-loadout` · `smoke-tutorial`, 전부 **보조무기 제거로 기대값이 바뀐 단언**) → 스모크를 고치고 `--rerun-failed` 2회 만에 **전부 통과, 6분 34초**. 자세히는 아래 [해당 절](#2026-09-10--플레이-피드백-11건-홀드-키캡--퀵슬롯--보조무기-제거--웨이브--재해--지도--지하실--상자-배치--선로--전차).
 - 2026-09-09 UI/UX 정리 7차 (캐릭터 생성 · 튜토리얼 · **퀵슬롯 컨테이너** · 함선 크로스헤어 · 포병 — 에이전트 6개 중 5개가 API 한도로 중도 종료된 뒤 리드가 인수): `npm run verify:all` → typecheck ok, typecheck-server ok, net-selftest 295/295, data-check ok, build 2,362.05 kB JS / 247.66 kB CSS, **smoke-quickslots 73/73**, **smoke-phase2 57/57**, smoke-weapons 137/137, smoke-stratagems 72/72, smoke-phase3 33/33, smoke-ship-rooms 72/72, smoke-phase4 49/49, smoke-tactical 87/87, **smoke-controls-hub 129/129**, smoke-housing 206/206, smoke-inventory-p6 124/124, smoke-console 63/63, smoke-progression 123/123, smoke-search 61/61, **smoke-loadout 69/69**, smoke-ui-p6 88/88, smoke-ui-p5 134/134, smoke-resume-gate 59/59, smoke-enemy-alert 42/42, smoke-uniques 72/72, smoke-rogue-v2 52/52, smoke-meta 172/172, smoke-library 126/126, smoke-training 112/112, smoke-enemy-delta 52/52, smoke-ghost 86/86, smoke-planets 86/86, smoke-raidflow 49/49, smoke-social 138/138, smoke-ecology 85/85, smoke-props-collision 20/20, **smoke-tutorial 83/83**, smoke-hangar 58/58, e2e-mp 156/156 — **전부 통과, 6분 30초**. 자세히는 아래 [해당 절](#2026-09-09--uiux-정리-7차-퀵슬롯-컨테이너--스포트라이트-반-박자--포병).
 - 2026-09-09 ESC 닫기 (`src/shared/escape.ts` 신규 — 계약이라 전체): `npm run verify:all` → typecheck ok, typecheck-server ok, net-selftest 295/295, data-check ok, build 2,343.01 kB JS / 243.14 kB CSS, smoke-quickslots 46/46, smoke-phase2 55/55, smoke-weapons 137/137, smoke-stratagems 72/72, smoke-phase3 33/33, smoke-phase4 49/49, smoke-ship-rooms 72/72, smoke-tactical 87/87, **smoke-controls-hub 127/127** (가방 위 ESC 는 가방을 닫고 메뉴를 열지 않는다 · Alt 커서 ESC 는 카메라만 돌려준다 — 옛 규칙 단언 4개를 새 규칙으로 바꾸고 2개 추가), smoke-inventory-p6 124/124, smoke-housing 203/203, smoke-console 63/63, smoke-loadout 62/62, smoke-progression 123/123, smoke-search 61/61, **smoke-ui-p6 88/88** (키 가이드 `닫기` 항목의 keycap 이 `Tab` · `Esc` 둘이라는 단언 1개 추가), smoke-ui-p5 134/134, **smoke-resume-gate 57/57** (§8 ESC 닫기 · LIFO · 게이트, §9 셸에서 메뉴 닫기 — 단언 9개 추가), smoke-enemy-alert 42/42, smoke-uniques 72/72, smoke-rogue-v2 52/52, smoke-meta 172/172, smoke-library 126/126, smoke-training 112/112, smoke-enemy-delta 52/52, smoke-ghost 86/86, smoke-planets 86/86, smoke-ecology 85/85, **smoke-raidflow 49/49** (ESC 는 컨테이너를 닫고, 메뉴 쌓기는 `game:paused` 로 확인), **smoke-social 120/137 → `--rerun-failed` 138/138** (커뮤니티 패널 위 ESC 가 패널을 닫으므로 그 뒤 흐름을 고쳤다 — 옛 단언 2개 교체 + 1개 추가), smoke-props-collision 20/20, smoke-tutorial 67/67, smoke-hangar 58/58, e2e-mp 156/156 — **6분 31초** (+ 재실행 41초).
   - red 였던 `smoke-social` 은 2026-09-08 규칙(`ESC 는 커뮤니티 패널 위에 일시정지 메뉴를 쌓는다`)을 그대로 단언하고 있었고, 그 뒤 흐름이 "패널이 열려 있다" 를 전제로 P 탭을 하고 있어 12건이 연쇄로 넘어졌다. 새 규칙(ESC → 패널 닫기 → 한 번 더 → 메뉴)으로 고치니 전부 green.
@@ -827,6 +828,47 @@ smoke-tutorial 67/67, smoke-hangar 58/58, e2e-mp 156/156
   기업 패널이 없다는 것, 퀘스트 보상이 목록 아래(`.cq-rewards`)에 **재화 칩(`rep:ceres`) + 아이템 칩** 한 줄로
   선다는 것.
 - `smoke-planets` (86) — 단말기 푸터에 `닫기 (E)` 만 있고 `타이틀로` 가 **없다**는 것.
+
+---
+
+## 2026-09-10 — 플레이 피드백 11건 (홀드 키캡 · 퀵슬롯 · 보조무기 제거 · 웨이브 · 재해 · 지도 · 지하실 · 상자 배치 · 선로 · 전차)
+
+`src/shared` (`Keybinds` · `constants`)를 건드렸으므로 처음부터 `npm run verify:all`.
+
+```
+2026-09-09: typecheck ok, typecheck-server ok, net-selftest 295/295, data-check ok,
+smoke-quickslots 73/73, smoke-phase2 57/57, smoke-weapons 135/135, smoke-stratagems 72/72,
+smoke-phase3 33/33, smoke-ship-rooms 72/72, smoke-phase4 49/49, smoke-tactical 87/87,
+smoke-controls-hub 131/131, smoke-inventory-p6 124/124, smoke-housing 206/206,
+smoke-progression 123/123, smoke-loadout 69/69, smoke-console 63/63, smoke-search 61/61,
+smoke-ui-p6 88/88, smoke-ui-p5 134/134, smoke-uniques 72/72, smoke-rogue-drop 29/29,
+smoke-enemy-alert 42/42, smoke-resume-gate 62/62, smoke-rogue-v2 52/52, smoke-meta 172/172,
+smoke-library 126/126, smoke-training 112/112, smoke-enemy-delta 52/52, smoke-planets 86/86,
+smoke-ghost 86/86, smoke-social 138/138, smoke-raidflow 49/49, smoke-ecology 90/90,
+smoke-props-collision 20/20, smoke-structures 25/25, smoke-tutorial 83/83, smoke-hazard 43/43,
+smoke-hangar 58/58, e2e-mp 156/156
+```
+
+**첫 실행의 red 4건은 전부 "기대값이 바뀐 단언" 이었고 제품 결함이 아니었다.**
+
+- `smoke-phase2` · `smoke-loadout` — `inv.getLoadout().secondary.uid` 로 **장착된 무기**를 집던 두 곳이
+  null 참조로 죽었다 (보조무기 칸이 사라졌으니 그 칸은 언제나 null 이다). `primary` 로 바꿨다.
+- `smoke-loadout` — 크루 로드아웃 뷰의 장비 칸이 5 → **4** (`LOADOUT_SLOTS`).
+- `smoke-tutorial` — "주무기 II 칸에 장착해도 장착 단계가 끝난다" 가 `primary === null` 까지 요구했는데,
+  최소 지급품이 이제 **주무기 I 에 기관단총**을 준다. 단언에서 그 조건만 뺐다.
+- `smoke-weapons` — ① `Digit3` 으로 교체하던 두 절(재장전 취소 · 파손 무기)이 아무 일도 안 하게 됐다 →
+  `Digit2`(주무기 II). ② 유니크 무기 절에서 `가방 가득`. 원인은 **자리가 아니라 조각남**이었다: 시작
+  지급품의 기관단총이 주무기를 갈아 끼울 때마다 가방에 밀려 들어와 배치가 어긋나, 빈 칸이 13개인데도
+  4×2 가 들어갈 **이어진** 자리가 없었다 (실패 시 가방 내용을 찍어 확인). 함선에서 돌격소총으로 갈아
+  끼운 직후 그 기관단총을 치우고, 유니크를 넣기 전 부착물 찌꺼기를 비우는 재시도를 넣었다.
+
+**새로 넣은 단언** — `smoke-structures` 의 선로 두 건: 중심선 12곳에서 ⓐ `getSurfaceY` 가 레일 상면을
+돌려준다(= 발판 콜라이더가 걸렸다) ⓑ 레일이 지형보다 0.4 m 넘게 떠 있다(= 파묻히지 않았다).
+`smoke-hazard` 의 시야 배수 상한은 상수 하나에서 **재해별 표**(`storm_eye` 24, 나머지 7)로 바뀌었다.
+
+**홀드 키캡은 스모크가 아니라 격리 페이지로 잡았다.** `base.css` 만 불러오는 정적 HTML 에 프롬프트 마크업을
+그려 `getComputedStyle` 로 실측하니 키캡이 `120×120`, `opacity 0` 이었다 — `.hold`(크로스헤어 홀드 링)와의
+클래스 충돌이 원인이라는 직접 증거다. 이 종류는 렌더 결과를 재야만 보이므로 스모크 단언으로 옮기지 않았다.
 
 ---
 

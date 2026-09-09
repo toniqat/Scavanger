@@ -127,10 +127,11 @@ export function previewDrop(sys: InventorySystem, uid: string, from: ItemLocatio
   if (target.kind === 'weapon') return sys.previewAttach(uid, from, target.uid, target.loc);
 
   if (target.kind === 'quick') {
-    // 2026-09-09: the wheel is its own container — a bag stack **moves** in, and a stack already on the wheel
+    // 2026-09-09: the wheel is its own container — a grid stack **moves** in, and a stack already on the wheel
     // may be re-ordered between slots (that one never touches the bag).
-    const fromBag = from.kind === 'grid' && from.grid === 'bag';
-    if ((!fromBag && from.kind !== 'quick') || !isQuickUsable(def)) return 'bad';
+    // 2026-09-10: the source grid is **any** grid, not just the bag — 상자(컨테이너) · 함선 창고에서 곧장 휠에 올린다.
+    // A container source is a take like any other, so `drop` sends it through `guardedTake` (see there).
+    if ((from.kind !== 'grid' && from.kind !== 'quick') || !isQuickUsable(def)) return 'bad';
     if (!isQuickIndex(target.index) || !isQuickSlotActive(target.index, sys.getQuickSlotCount())) return 'bad';
     const occupant = sys.quickSlots[target.index];
     if (occupant?.uid === uid) return 'noop';
@@ -210,7 +211,9 @@ export function nearestFreeSpot(sys: InventorySystem, uid: string, from: ItemLoc
 /** Execute a drag-and-drop. Container → player moves go through `guardedTake` (Phase 7). */
 export function drop(sys: InventorySystem, uid: string, from: ItemLocation, target: DropTarget): OpResult {
   if (sys.refusesIntoContainer(from, target)) return 'fail';
-  const takes = sys.isContainerLoc(from) && !(target.kind === 'grid' && target.grid === 'container') && target.kind !== 'quick';
+  // 2026-09-10: a **wheel** target is a take too (상자 → 퀵슬롯). Before that the wheel could only be fed from the
+  // bag, so it was excluded here; leaving it excluded now would move a shared container stack without telling the host.
+  const takes = sys.isContainerLoc(from) && !(target.kind === 'grid' && target.grid === 'container');
   if (takes) return sys.guardedTake(uid, from, null, () => sys.dropImpl(uid, from, target));
   if (sys.isItemLocked(uid, from)) return 'fail';
   return sys.dropImpl(uid, from, target);
@@ -327,7 +330,8 @@ export function quickMoveImpl(sys: InventorySystem, uid: string, from: ItemLocat
   if (from.kind === 'slot' && from.slot === 'bag') return sys.changeBag(null, null, 'grid');
   let dest: GridId;
   if (from.kind === 'slot') dest = 'bag';
-  else if (from.kind === 'quick') dest = 'bag';   // 2026-09-09: 우클릭 = 가방으로 되돌리기
+  // 2026-09-09: 우클릭 = 가방으로 되돌리기. 2026-09-10: 상자를 열어 둔 채라면 그 상자로 곧장 간다 (가방과 같은 규칙).
+  else if (from.kind === 'quick') dest = sys.activeContainer ? 'container' : 'bag';
   else if (from.grid === 'container' || from.grid === 'stash') dest = 'bag';
   else if (sys.activeContainer) dest = 'container';
   else if (sys.hubMode) dest = 'stash';

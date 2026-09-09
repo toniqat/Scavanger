@@ -19,7 +19,7 @@ textures are procedural.
 | `Nests.ts` | Bug nests on nest pads: displaced organic mounds, glowing rim/holes (pulsing emissive), spikes, egg sacs, goo discs. Mounds are obstacles; `getHolePositions()` feeds `getNestPositions()`. |
 | `Pads.ts` | Extraction platforms (concrete disc, seams, yellow/black hazard ring, H marker, 20 blinking edge lights, 4 light poles just outside the 14 m clear zone, one warm PointLight) and the spawn marker (scorch ring + green beacons). `PLATFORM_HEIGHT/RADIUS`. **2026-09-09**: 조명 기둥의 콜라이더가 `0.45 × 5.4` 한 덩어리였다 — 그려진 기둥은 반지름 0.2→0.12 뿐이라 기둥 옆이 보이지 않는 벽이고 총알도 먹었다. 이제 받침(`0.7 × 0.35`)과 기둥(`0.22 × 5.05`) 두 실린더다. |
 | `Outposts.ts` | POI ruins: slab, broken wall segments, pillars, antenna mast with dish + blinking red beacon, rubble, barrels. Walls/pillars/mast are obstacles. **2026-09-09**: 안테나 마스트가 `0.8 × mastH`(8~11 m) 한 덩어리였다 — 그려진 기둥(반지름 0.1~0.22)의 네 배라, 마스트 옆을 못 지나가고 그 앞의 약탈자에게 쏜 총알이 허공에서 멈췄다. 이제 밑동 받침(`0.7 × 0.8`)과 기둥(`0.24 × mastH−0.8`) 두 실린더다. |
-| `Crates.ts` | 30–40 loot crates: tiered body/lid geometry (beveled frame, stripes), blinking light, tier-4 beacon beam. Registers an `Interactable` per crate (radius 2.8, Korean prompts), lid tween (0.6 s), dust puff, `crate:open`, `audio:play crate_open`, `stats.cratesOpened`. Placement: tier 2 near POIs, tier 3 outside nest rings, tier 4 caches far from spawn, tier 1 in the open. Crates are obstacles (r 0.9). |
+| `Crates.ts` | 20–40 loot crates: tiered body/lid geometry (beveled frame, stripes), blinking light, tier-4 beacon beam. Registers an `Interactable` per crate (radius 2.8, Korean prompts), lid tween (0.6 s), dust puff, `crate:open`, `audio:play crate_open`, `stats.cratesOpened`. **Placement (2026-09-10): 랜드마크 둘레에만** — 폐허 전초(POI)에 2티어 1 + 1티어 2, 버려진 구조물 벽 바깥에 3티어 1 + 2티어 1–2, 둥지 바깥 고리에 3티어 1. **허허벌판에는 하나도 없고 4티어는 이 파일이 놓지 않는다** (지하실 · 불시착 함선 안에만). Crates are obstacles (r 0.9). |
 | `Gather.ts` | **채집물 (harvestable nodes)** — 약초 plants **and (2026-09-08) 고철 더미**, `GatherNodeDef.kind` telling them apart. `GATHER_NODES_PER_MISSION` (34) procedural herbs in 3 variants, placed in small clusters on gentle, unoccupied ground (`isSpotFree`, ≥ 7 m between clusters, 1.6 m inside one). Two `InstancedMesh` per variant (body + emissive glow part) → 6 draw calls total; the glow material pulses in `update`. Each node registers an `Interactable` (radius 2.2, `holdTime = GATHER_INTERACT_TIME / derived.interactSpeedMul` via a live getter, Korean prompt from the item def name). Harvest → node marked `harvested`, 0.42 s shrink-and-sink instance animation, `gather:collected {nodeId, defId, qty}` (qty × `derived.gatherYieldMul`), `audio:play gather`, then `ctx.inventory.tryAddItem`. Herb def ids are discovered from `ctx.loot.getAllItemDefs()` (`category === 'herb'`); a `FALLBACK_HERB_IDS` list keeps the plants in the world while `items/` has none. **Phase 11**: `build(ctx, game, eco)` takes the planet's ecosystem — the plant **shape** (`variant`) and the **herb it drops** (`defId`) are separate draws now (they used to be bound by `herbIds[variant % len]`), the herb is a weighted draw over `eco.herbs` per cluster (an id `items/` never registered is ignored) and the node count is `GATHER_NODES_PER_MISSION × eco.gatherDensity`; with no planet the old shape-bound pairing is used verbatim and no extra rng is consumed, so the layout is unchanged. **Multiplayer is host-authoritative** (same shape as pickups): clients send `harvq take` / `harvq sync`, the host answers `harv taken {id, by}` / `harv sync {nodes}` and also pushes a sync on `flow rejoined`. Only harvested ids travel — positions are seed-deterministic. A client's pending take expires after 3 s so a lost message never bricks a node. **Phase 9**: a non-host also re-requests the taken set on `net:hostChanged {isLocalHost:false}` (a promoted host never saw the old host's `harv taken` broadcasts as authority). **2026-09-08 — 고철 더미**: `SALVAGE_NODES_PER_MISSION` (7) more nodes of `kind: 'salvage'` in a 4th variant (`SALVAGE_VARIANT`, a crushed drum + bent plates + pipes in metal / rust with amber cut markers — biome colours are deliberately **not** used so a pile reads as metal on any planet). They are drawn **after** the plants from the same `gather` rng fork, so the herb layout for a seed is byte-identical to before; one is tried near each `ctx.layout.pois` (ring 5–14 m) and the rest go in the open, ≥ 12 m apart and ≥ 5 m from any plant. Each yields `mat_scrap` (qty 1, 30 % 2 — ≈ 9 per mission if every pile is stripped), holds for `SALVAGE_INTERACT_TIME` (3 s) inside radius 2.6, prompts `폐금속 해체 (E)`, **ignores `derived.gatherYieldMul`** (that is a 원예 stat) and carries `kind` in `gather:collected` so `progression/` grants 제작 XP instead of 원예. Placement, interaction, the shrink animation and the whole `harv` / `harvq` host authority are the plants' code unchanged. **2026-09-09 — 거대 버섯 군락의 채집 버섯**: `build(ctx, game, eco, groves)` 의 네 번째 인자가 `Hazard.getGroveSpots()` 다. 군락마다 `GROVE_PICKS_MIN`~`MAX` 개의 포자균 갓(변종 1)을 `GROVE_PICK_RING_MIN`~`MAX` 고리에 심는다 — 종류는 약초 무리와 같은 규칙으로 군락당 하나이고, **약초 · 고철 배치가 전부 끝난 뒤에** 뽑으므로 앞의 rng 스트림이 밀리지 않는다 (고철 더미가 쓴 수법 그대로). 변종 1 의 `InstancedMesh` 용량만 `groves.length × GROVE_PICKS_MAX` 만큼 늘어난다. |
 | `TrainingArena.ts` | **시뮬레이션 훈련장** (Phase 7): the world built for `game:newMission {mode:'training'}` instead of the planet. Flat `TRAINING_ARENA_SIZE` (64 m) deck with a procedural CanvasTexture grid, four walls with ribs + corner pillars, a ceiling at `ARENA_CEILING` 7 m with 15 emissive light panels, cyan wall bands / lane edges, an amber firing line at z +20 and amber distance marks, spawn ring at (0, 0, 26) ("south", the player faces −Z). 3 lanes (x −10 / 0 / +10) × `TRAINING_TARGET_COUNT` / 3 rows of **pop-up targets**: post + hinged board (silhouette + rings CanvasTexture, resting emissive so they read at 40 m), each an `ObstacleEntry {kind:'target', radius 0.42, height 2.1}` in the world hash with a `DestructibleRef` (`training_target_<i>`, hp `TRAINING_TARGET_HP`) — weapons hit them through the ordinary `raycast → obstacle.destructible.onDamage` path (Phase 3 cover). A hit flashes the board + a small additive ring; at 0 hp the board hinges to the floor (0.28 s, the entry leaves the hash so shots pass), `hit_metal` low, and it rises again `TRAINING_TARGET_RESPAWN_S` later (hp reset, entry re-inserted). Counters `hits` / `knockdowns` → `ui:objective {text:'시뮬레이션 훈련장 · 출구 콘솔로 종료', subText:'명중 n · 격추 m'}` on every change. **Three consoles** along the south wall, one pedestal each (`buildConsole(name, x, lines, accent)`: pedestal + tilted emissive screen + floor halo, obstacle r 0.6): **출구** at x −8 (`Interactable 'training_exit'`, prompt `훈련 종료`, one `training:exitRequested` per second), **모드 콘솔** at x +8 (`'training_mode'`, prompt `표적 모드: <라벨>` → cycles 고정 → 이동 → 타임 코스; in 타임 코스 the next E reads `타임 코스 시작` and starts a run, `타임 코스 진행 중 · n초` while one runs; its screen is repainted in place with `redrawScreen`) and the **무기 거치대** at x +14 (`'training_rack'`, prompt `무기 거치대` → `ctx.inventory.openCatalog({category:'primary'})` — the 무한 상자 on its 주무기 tab; game/'s training exit restores the old loadout afterwards) with a merged wall rack of four silhouetted guns behind it as dressing. **Target modes (Phase 9, `TrainingRef`)**: `mode / setMode / score / hits / remaining / bestTime / startCourse / resetScore`, published as `ctx.world.training`. `static` 고정 = the Phase 7 behaviour; `moving` 이동 sweeps each target **±`TRAINING_MOVING_SPAN`** (a **half**-width, 3.2 m either side of the lane centre — 3.2 + the 0.42 m target radius stays inside `LANE_HALF_W` 4) at `TRAINING_MOVING_SPEED` with a `TRAINING_MOVING_PAUSE_S` pause at each end (`setTargetX` moves the mesh **and** the hash entry, re-bucketing only when the entry's cells change, so shots keep hitting the board where it is drawn); `timed` 타임 코스 = knock `TRAINING_COURSE_TARGETS` targets down inside `TRAINING_COURSE_TIME_S` (every knock-down emits `training:scored {score, hits, index}`; finishing or timing out emits `training:courseFinished {time, score, completed, best}`, arms a `TRAINING_COURSE_COOLDOWN_S` cooldown and, on a completion, saves a new best to localStorage `TRAINING_BEST_STORAGE_KEY`). `setMode` is refused while a course runs, emits `training:modeChanged`, resets the score and parks the targets back on their `baseX`. The objective sub-text now reads `<모드> [· n/m · 남은 n초 | · 최고 n.n초] · 명중 n · 격추 m`. Everything here is **client-local** — no wire messages. Queries: `raycastShell` (floor / ceiling / 4 wall planes, writes the normal), `clampInside` (hard wall clamp), `isInside`. No lights: the arena is shown in the atmosphere's **space mode** (black background, no fog, cool key light) plus a little emissive on the deck / hull. `dispose()` unregisters the console, empties the hash entries and disposes every geometry / material / texture. |
 | `Ambience.ts` | 900 additive spore points drifting in a box around the camera (wrapping) with a custom `ShaderMaterial` (perspective size clamped to 1–6 px, fade-in 1.5–6 m from camera, far fade, fog-aware, twinkle); 14 slow dust sprites. |
@@ -33,10 +33,10 @@ textures are procedural.
 | `obb.ts` | **사각(OBB) 콜라이더** 수학 (2026-09-09, `Obstacle.box`). `boxRadius` (버킷팅용 외접원) · `boxContainsXZ` (윗면 판정) · `boxPushOut` (원 vs 상자 밀어내기, 중심이 안이면 가장 얕은 면으로) · `rayBox` (슬래브 셋 + `boxHitNormal`) · `BOX_HEADROOM`. **`o.box` 가 있을 때만 불린다** — 원기둥 경로는 그대로다. 회전 규약: `box.yaw` 는 수학 규약(로컬 +X → 월드 `(cos, sin)`)이고 같은 상자를 그리는 메시의 Euler 는 `-yaw` 다 (three 의 Y 회전이 반대 손). |
 | `Structures.ts` | **버려진 구조물** — 전진기지 · 연구실 · 불시착 함선. 건물 세우기, 컴퓨터(행성 스캔) · 지하실 해치 상호작용, 컨테이너 배치, `struct`/`structq` 호스트 권위, `getDefs` / `structureAt`. 지하실 해치는 **잠긴 동안 계단 구멍을 막는 상자 콜라이더**이고 열리면 hash 에서 빠지며 옆으로 미끄러진다. 로그 강하의 "구역당 1회" 기록(`roguedZones`)도 여기 있다. |
 | `structures/model.ts` | 구조물 · 선로가 공유하는 어휘. **`data/structures.csv` 를 읽는 유일한 자리** (개수 · 크기 · 컨테이너 수 · 지하실 확률/깊이 · 상자 티어 가중치) + 건물 치수 상수(`WALL_T` · `DOOR_W` · `STAIR_HALF` · `SLAB_T` · `PIT_BLEND` · `CONTAINER_RADIUS`) + `pickTier`. THREE 를 **값으로 쓰지 않는다** — `layout.ts` 와 `scripts/data-check.mjs` 가 아주 이르게 읽는다. |
-| `structures/parts/Build.ts` | 건물 지오메트리 + 콜라이더. `buildBuilding` (벽 · 문틀 · 격벽 · **무너진 지붕** · 구덩이 라이닝 · 천장 슬래브 · 계단 · 해치 자리 · 컨테이너/콘솔 자리), `buildWreck` (동체 옆판 · 후미 램프 · 기수 · 날개 · 나셀). 벽 하나 = 상자 하나이고 그린 `BoxGeometry` 와 **같은 수**를 콜라이더에 쓴다. |
+| `structures/parts/Build.ts` | 건물 지오메트리 + 콜라이더. `buildBuilding` (벽 · 문틀 · 격벽 · **무너진 지붕** · **계단 구멍을 도려낸 지상층 바닥 네 조각** · 구덩이 라이닝 · 천장 슬래브 · 계단 · 해치 자리 · 컨테이너/콘솔 자리), `buildWreck` (동체 옆판 · 후미 램프 · 기수 · 날개 · 나셀). 벽 하나 = 상자 하나이고 그린 `BoxGeometry` 와 **같은 수**를 콜라이더에 쓴다. 바닥 조각들은 콜라이더가 없다 — 걷는 바닥은 지형이고 지하실을 덮는 것은 천장 슬래브다. |
 | `structures/parts/Containers.ts` | 구조물 · 플랫폼 · 전차 안의 **상호작용 컨테이너** (`ContainerSet`). 새 루팅 경로를 만들지 않는다 — 열면 `crate:open {crateId, tier, position}` 을 쏘고 `inventory/` 의 상자 코드가 티어 롤 · 캐시 · 동기화 · 감정 XP · 계약 카운터를 전부 한다. 더하는 것은 실루엣 3종과 두 규칙뿐: 구역에서 **처음** 열면 `structure:investigated`, `bonusDefId`(지하실 키카드)가 있으면 `openContainerItems` 로 먼저 채우고 그 다음 `crate:open`. `dynamic` 스펙은 콜라이더 없이 매 프레임 따라 움직인다 (전차 객실). |
-| `Rails.ts` | **선로 · 플랫폼 · 전차**. 중심선(지형 높이 평활화 + `RAIL_DECK_Y`) · 침목/레일/교각 · 플랫폼(데크 · 계단 · 난간 · 컨테이너 · 콘솔) · 전차(차체 OBB + `velocity` 발판 + 객실 컨테이너) · 도킹 · `tram`/`tramq` 호스트 권위 · `getLines` / `getTrams`. **선로는 지형을 평탄화하지 않는다** — 교각이 높이를 맞춘다. |
-| `rails/model.ts` | 선로 경로 수학과 상수. `RailPath` (`makePath` · `wrapS` · `sampleAt` · `nearestS` · `deltaS`) + `RAIL_DECK_Y` · `TIE_STEP` · `PIER_STEP` · `GAUGE_HALF` · `DOCK_WINDOW` · `TRAM_NET_INTERVAL` · `TRAM_SNAP_M` · `PLATFORM_OFFSET`. |
+| `Rails.ts` | **선로 · 플랫폼 · 전차**. 중심선(지형 높이 평활화 + `RAIL_DECK_Y` + **지형 최고점 실측 부양**) · 침목/레일/교각 · **선로 발판 콜라이더(`RAIL_DECK_STEP` 마다 — 선로 위를 걸어 다닌다)** · 플랫폼(데크 · 계단 · 난간 · 컨테이너 · 콘솔) · 전차(차체 OBB + `velocity` 발판 + 객실 컨테이너 + **`runT` 출발 대기 · cubic 가속**) · 도킹 · `tram`/`tramq` 호스트 권위 · `getLines` / `getTrams`. **선로는 지형을 평탄화하지 않는다** — 교각이 높이를 맞춘다. |
+| `rails/model.ts` | 선로 경로 수학과 상수. `RailPath` (`makePath` · `wrapS` · `sampleAt` · `nearestS` · `deltaS`) + `RAIL_DECK_Y`(0.75) · `TIE_STEP`(1.8) · `PIER_STEP`(9) · `GAUGE_HALF` · `RAIL_DECK_STEP` · `RAIL_DECK_T` · `RAIL_DECK_HALF_W` · `RAIL_MAX_GRADE` · `DOCK_WINDOW` · `TRAM_NET_INTERVAL` · `TRAM_SNAP_M` · `PLATFORM_OFFSET`. |
 | `index.ts` | Barrel. |
 
 ## 2026-09-09: 지형지물 위 걷기 · 안개 · 스폰 여유 (`WorldRef` 추가분)
@@ -118,7 +118,9 @@ structures → rails → props → crates → gather`). 벽 · 데크 · 컨테�
 ### 지하실 · 키카드
 `layout` 이 건물 밑에 회전한 사각 **구덩이**(벽에서 2.2 m 안쪽, 깊이 `basementDepth`)를 예약하고
 `Terrain` 이 pad 평탄화 다음에 그것을 판다. 그 위를 덮는 것이 **천장 슬래브** — 밑면 `y0 − SLAB_T`,
-윗면이 정확히 지상층 바닥인 뜬 상자 콜라이더들이고 계단 구멍만 빼고 깐다. 구덩이보다 `PIT_BLEND` 넓게
+윗면이 정확히 지상층 바닥인 뜬 상자 콜라이더들이고 계단 구멍만 빼고 깐다 (**2026-09-10: 그려지는 지상층
+바닥도 같은 구멍을 갖는다** — 예전에는 발자국 전체를 덮는 판 하나라 해치를 열어도 눈에는 막혀 보였다).
+구덩이보다 `PIT_BLEND` 넓게
 덮는다 (지형이 그 폭에 걸쳐 내려가므로 딱 맞게 덮으면 둘레에 도랑이 남아 실내를 걷다 빠진다).
 구덩이 옆벽은 **콘크리트 라이닝 + OBB 콜라이더**다 — 지형만 믿으면 지하실 안에서 흙 경사를 타고 올라가
 천장에 끼인다.
@@ -150,8 +152,12 @@ structures → rails → props → crates → gather`). 벽 · 데크 · 컨테�
 
 ### 선로 · 전차
 `RAIL_CHANCE` 로 이번 맵에 선로가 있는지 정하고 `loop`(구역 외곽 순환) / `line`(가로 · 세로 왕복) 중 하나를
-시드로 뽑는다. **선로는 지형을 평탄화하지 않는다** — 지형 높이를 4번 평활화한 뒤 `RAIL_DECK_Y` 만큼 띄우고
-`PIER_STEP` 마다 교각으로 받친다 (평탄화하면 맵 한복판에 1 km 짜리 활주로가 생긴다). 평탄화하는 것은
+시드로 뽑는다. **선로는 지형을 평탄화하지 않는다** — 지형 높이를 4번 평활화한 뒤 `RAIL_DECK_Y`(0.75 m) 만큼
+띄우고 `PIER_STEP`(9 m) 마다 교각으로 받친다 (평탄화하면 맵 한복판에 1 km 짜리 활주로가 생긴다).
+2026-09-10 부터 그 뒤에 **부양 패스**가 하나 더 온다: 점마다 좌우 구간의 **지형 최고점을 실측해** 그보다
+`RAIL_DECK_Y` 위로 끌어올리고(내리지 않는다), 이어 **올리기만 하는** 평활화가 `RAIL_MAX_GRADE` 로 경사를
+제한한다 — 표본 간격이 20 m 를 넘어 언덕을 가로지르는 구간에서 침목이 흙에 잠기던 문제였다. 그리고
+`RAIL_DECK_STEP`(5 m) 마다 얇은 **발판 상자 콜라이더**가 이어져 있어 선로 위를 걸어 다닌다. 평탄화하는 것은
 플랫폼 패드뿐이고 그것은 `layout` 이 잡는다.
 
 플랫폼은 데크(땅에서 올라오는 OBB) + 4단 계단 + 난간 + 컨테이너 4개 + 콘솔이다. 데크 윗면은 **전차 바닥과
@@ -380,6 +386,29 @@ without a 목표 행성; the arena / target-mode half is green), `smoke-rogue-v2
 ---
 
 ## 변경 이력
+
+- **2026-09-10 (지하실 바닥 · 상자 배치 · 선로 · 전차 · 재해)** —
+  ① **지하실 입구가 눈에 보인다.** `structures/parts/Build` 의 지상층 바닥은 발자국 전체를 덮는 판 하나였다 —
+  콜라이더가 없어 걸어 내려갈 수는 있었지만 **해치를 열어도 바닥이 그대로 깔려 있어 막힌 것처럼 보였다**.
+  이제 천장 슬래브(`slab`)와 똑같이 **계단 구멍을 도려낸 네 조각**이고, 그래서 이 블록이 `openX/openZ` 가
+  정해진 뒤로 내려왔다 (rng 소비 순서가 바뀌므로 같은 시드의 건물 잡음이 예전과 다르다).
+  ② **허허벌판에는 상자가 없다** (사용자 결정). `Crates` 의 "1티어 30~40개 흩뿌리기" 와 "아무 데나 4티어 은닉처
+  1~2개" 가 사라졌다. 상자는 **폐허 전초(POI) 둘레 · 버려진 구조물 벽 바깥 · 둥지 바깥 고리**에만 선다
+  (총 20~40개). **4티어는 이 파일이 더 이상 놓지 않는다** — 지하실 · 불시착 함선 안에만 있다.
+  ③ **선로 위를 걸어 다닌다.** `RAIL_DECK_Y` 1.7 → **0.75** (`PROP_STEP_UP_MAX` 0.9 안 = 땅에서 그냥 올라선다;
+  더 높으면 올라설 수도 밑으로 지날 수도 없는 담이 된다), 침목 간격 3.2 → 1.8, 교각 간격 13 → 9,
+  그리고 `RAIL_DECK_STEP`(5 m)마다 얇은 **발판 상자 콜라이더**를 이어 붙였다 (예전에는 교각만 콜라이더라
+  선로가 그림이었다). 중심선은 평활화 뒤 **자기 좌우 구간의 지형 최고점**을 실측해 그보다 `RAIL_DECK_Y` 위로
+  끌어올린다 (내리지 않는다) — 언덕을 가로지르며 침목이 묻히던 문제. 이어 **올리기만 하는** 평활화가
+  `RAIL_MAX_GRADE` 로 경사를 제한한다.
+  ④ **전차 출발이 부드럽다.** 시동 → `ui:notify` 한 줄 + `TRAM_START_DELAY_S`(1초) 정지 → `TRAM_ACCEL_S`(3초)
+  동안 **cubic ease-in**(t³)으로 `TRAM_SPEED`(14 → 11.2, 예전의 0.8배)까지. 상태는 `TramInst.runT` 하나이고
+  호스트 · 클라이언트가 같은 곡선을 굴린다 (`vel` 이 맞아야 데크가 사람을 실어 간다). 계약 · 와이어는 그대로다.
+  ⑤ **폭풍의 눈이 눈에 띈다.** 시야 제한의 세기가 재해마다 다르다 — `data/hazards.csv` 에 `fogMul` 칸이 생겼고
+  폭풍의 눈만 24 다 (나머지는 예전 `HAZARD_FOG_MUL` 그대로 7). 그 안에서는 15 m 남짓밖에 안 보이므로 눈의 벽은
+  **포그를 받지 않고**(`fog: false`) 원통 **3겹**으로 서고, csv 의 높이 · 불투명도 · 입자 수도 올렸다.
+  ⑥ **눈 지형에는 모래 폭풍이 오지 않는다.** `hazard/parts/Plan` 이 추첨 **뒤에** `sandstorm` → `blizzard` 로
+  갈아 끼운다 (`SNOWY_BIOMES`, 지금은 `tundra`). 추첨 자체는 그대로라 같은 시드는 여전히 같은 계획이다.
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 

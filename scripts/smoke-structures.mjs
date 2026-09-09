@@ -228,13 +228,33 @@ try {
       ok(Math.abs(rail.deckDelta) < 0.2, `platform deck top is standable at its own height (Δ ${rail.deckDelta.toFixed(2)} m)`);
       ok(rail.tram !== null && rail.tram.state === 'idle', 'the tram waits until a console starts it');
 
+      /* 2026-09-10 — 선로 자체가 **발판**이고 지형 위로 떠 있어야 한다.
+       * `getSurfaceY`(발 높이 제한 없이)가 중심선 위에서 레일 상면을 돌려주면 콜라이더가 걸린 것이고,
+       * 그 높이가 지형보다 확실히 위면 파묻히지 않은 것이다. */
+      const deck = await page.evaluate(() => {
+        const w = window.__game.ctx.world;
+        const line = w.getRailLines()[0];
+        const step = Math.max(1, Math.floor(line.points.length / 12));
+        const out = [];
+        for (let i = 0; i < line.points.length; i += step) {
+          const p = line.points[i];
+          const ground = w.getHeightAt(p.x, p.z);
+          out.push({ deck: +(w.getSurfaceY(p.x, p.z) - ground).toFixed(2), clear: +(p.y - ground).toFixed(2) });
+        }
+        return out;
+      });
+      ok(deck.every((d) => d.deck >= d.clear - 0.35), `선로 위에 발판 콜라이더가 있다 (표본 ${deck.length}곳)`, JSON.stringify(deck));
+      ok(deck.every((d) => d.clear > 0.4), '선로가 지형에 파묻히지 않는다', JSON.stringify(deck.map((d) => d.clear)));
+
       // 시동을 걸고 달리는 동안 데크가 발판 속도를 들고 있는지
       await page.evaluate(() => {
         const w = window.__game.ctx.world;
         const id = w.getRailLines()[0].platforms[0].id;
         window.__game.ctx.interactables.all().find((i) => i.id === `rail:${id}:console`)?.interact();
       });
-      await waitSim(page, 2);
+      // 2026-09-10: 출발은 알림 뒤 `TRAM_START_DELAY_S`(1초) 대기 + `TRAM_ACCEL_S`(3초) cubic 가속이다 —
+      // 예전처럼 2초만 기다리면 아직 1 m/s 도 안 나온다. 최고 속도까지 간 뒤에 잰다.
+      await waitSim(page, 5.5);
       const riding = await page.evaluate(() => {
         const w = window.__game.ctx.world;
         const t = w.getTrams()[0];

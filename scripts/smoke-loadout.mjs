@@ -128,9 +128,10 @@ try {
   ok(!beforeHub.slots.primary && beforeHub.bag.length === 0, 'no save: bag + slots empty before the first hub entry', JSON.stringify(beforeHub.slots));
   await enterHub();
   let snap = await snapshot();
-  // 2026-09-07: the starter is the minimum kit (권총 I · 가방 I · 방탄복 I); every other weapon starts in the 창고
-  ok(snap.slots.primary === null && snap.slots.secondary?.defId === 'wpn_hg' && snap.slots.bag?.defId === 'bag_common' && snap.slots.armor?.defId === 'armor_1' && snap.slots.primary2 === null,
-    'first hub entry hands out the starter loadout (권총 I / 가방 I / 방탄복 I)', JSON.stringify(snap.slots));
+  // 2026-09-07: the starter is the minimum kit; every other weapon starts in the 창고
+  // 2026-09-10: 보조무기가 사라져 최소 지급품은 기관단총 I (예전에는 권총 I)
+  ok(snap.slots.primary?.defId === 'wpn_smg' && snap.slots.secondary === null && snap.slots.bag?.defId === 'bag_common' && snap.slots.armor?.defId === 'armor_1' && snap.slots.primary2 === null,
+    'first hub entry hands out the starter loadout (기관단총 I / 가방 I / 방탄복 I)', JSON.stringify(snap.slots));
   const granted = await page.evaluate(() => {
     const items = window.__game.getSystem('inventory').getStashItems();
     const ids = new Set(items.map((i) => i.defId));
@@ -158,7 +159,7 @@ try {
   let saved = await lastEv('inventory:loadoutSaved');
   ok(saved && saved.reason === 'starter', 'applyStarter saved the starter (inventory:loadoutSaved {reason: starter})', JSON.stringify(saved));
   let file = await saveFile();
-  ok(file && file.v === 2 && file.slots.secondary?.defId === 'wpn_hg' && Array.isArray(file.bag) && file.bag.length === snap.bag.length
+  ok(file && file.v === 2 && file.slots.primary?.defId === 'wpn_smg' && Array.isArray(file.bag) && file.bag.length === snap.bag.length
     && Array.isArray(file.quick) && file.quick.length === 8
     && file.quick.every((q) => q === null || (typeof q === 'object' && typeof q.defId === 'string'))
     && file.quick[0]?.defId === 'grenade_frag' && file.quick[4]?.defId === 'heal_bandage',
@@ -217,7 +218,7 @@ try {
   ok(file && !file.slots.primary2 && !file.bag.some((e) => e.defId === 'gem_amber'), 'the starter overwrote the save immediately', JSON.stringify(file && Object.keys(file.slots)));
   await reload();
   snap = await snapshot();
-  ok(snap.slots.secondary?.defId === 'wpn_hg' && snap.slots.primary2 === null && !snap.bag.some((i) => i.defId === 'gem_amber'), 'reload after the respawn: starter kept, lost bag not resurrected', JSON.stringify(snap.slots));
+  ok(snap.slots.primary?.defId === 'wpn_smg' && snap.slots.primary2 === null && !snap.bag.some((i) => i.defId === 'gem_amber'), 'reload after the respawn: starter kept, lost bag not resurrected', JSON.stringify(snap.slots));
   // mission loot is saved on game:complete
   await startMission(6);
   since = await evCount('inventory:loadoutSaved');
@@ -281,7 +282,7 @@ try {
     const stashScrap = inv.getStashItems().find((i) => i.defId === 'mat_bio_sample');
     const fromStash = stashScrap ? inv.takeItem(stashScrap.uid, 2) : -1;
     const stashAfter = stashScrap ? inv.findItemAnywhere(stashScrap.uid)?.qty ?? 0 : 0;
-    const equipped = inv.takeItem(inv.getLoadout().secondary.uid);
+    const equipped = inv.takeItem(inv.getLoadout().primary.uid);   // 2026-09-10: 보조무기 칸 제거
     const unknown = inv.takeItem('no-such-uid');
     const zero = ammo ? inv.takeItem(ammo.uid, 0) : -1;
     const stashGem = inv.takeItem(stashUid);
@@ -323,9 +324,9 @@ try {
   const foundAll = await page.evaluate(() => {
     const inv = window.__game.ctx.inventory;
     const l = inv.getLoadout();
-    return { eq: inv.findItemAnywhere(l.secondary.uid)?.defId, bag: inv.findItemAnywhere(inv.getAllItems()[0].uid)?.defId, none: inv.findItemAnywhere('nope') };
+    return { eq: inv.findItemAnywhere(l.primary.uid)?.defId, bag: inv.findItemAnywhere(inv.getAllItems()[0].uid)?.defId, none: inv.findItemAnywhere('nope') };
   });
-  ok(foundAll.eq === 'wpn_hg' && !!foundAll.bag && foundAll.none === null, 'findItemAnywhere: equipped / bag / unknown', JSON.stringify(foundAll));
+  ok(foundAll.eq === 'wpn_smg' && !!foundAll.bag && foundAll.none === null, 'findItemAnywhere: equipped / bag / unknown', JSON.stringify(foundAll));
 
   /* ── 4. inventory:containerOpened {first} ──────────────────────────── */
   console.log('containerOpened');
@@ -472,8 +473,9 @@ try {
     return out;
   }, doc.doc);
   ok(view.bad.every(Boolean) && view.ok && view.root, 'createCrewLoadoutView: a non-loadout document → null, a captured one → a `.crew-loadout` view', JSON.stringify(view.bad));
-  ok(view.slots === 5 && view.bagTiles === doc.bag && view.quickCells === 8 && view.name === '대원 A',
-    'the view draws 장비 (5 slots) · 가방 (the document\'s stacks, unknown defs skipped) · 빠른 사용 (8 cells)', JSON.stringify({ slots: view.slots, tiles: view.bagTiles, expect: doc.bag, cells: view.quickCells }));
+  // 2026-09-10: 보조무기 칸이 사라져 장비 칸은 넷이다 (주무기 I · II · 가방 · 방탄복 = `LOADOUT_SLOTS`)
+  ok(view.slots === 4 && view.bagTiles === doc.bag && view.quickCells === 8 && view.name === '대원 A',
+    'the view draws 장비 (4 slots) · 가방 (the document\'s stacks, unknown defs skipped) · 빠른 사용 (8 cells)', JSON.stringify({ slots: view.slots, tiles: view.bagTiles, expect: doc.bag, cells: view.quickCells }));
   ok(view.stash === 0 && view.credits === 0, 'no 함선 창고 column and no 크레딧 pill in a crew view', JSON.stringify(view));
   ok(view.unchanged && !view.dragging && !view.menu, 'read-only: press / drag / context menu / double-click change nothing', JSON.stringify(view));
   ok(view.blockersSame && view.locked, 'EmbeddedView contract: no ui blocker, the pointer lock is untouched', JSON.stringify({ blockers: view.blockersSame, locked: view.locked }));
@@ -494,7 +496,7 @@ try {
     localStorage.removeItem('scav.s1.sessionToken');   // a new relay identity: no server loadout doc to win
     localStorage.setItem('scav.s1.loadout', JSON.stringify({
       v: 1,
-      slots: { secondary: { defId: 'wpn_hg', qty: 1 }, bag: { defId: 'bag_common', qty: 1 }, armor: { defId: 'armor_1', qty: 1 } },
+      slots: { primary: { defId: 'wpn_smg', qty: 1 }, bag: { defId: 'bag_common', qty: 1 }, armor: { defId: 'armor_1', qty: 1 } },
       bag: [
         { defId: 'grenade_frag', qty: 3, rotated: false, x: 0, y: 0 },   // quick[0] (and the duplicate quick[1]) point here
         { defId: 'mat_scrap', qty: 5, rotated: false, x: 1, y: 0 },      // no wheel slot → stays in the grid, keeps its cell
@@ -511,13 +513,13 @@ try {
       quick: inv.getQuickSlots().map((i) => i && { defId: i.defId, qty: i.qty }),
       bag: inv.getGrid('bag').items().map((p) => ({ defId: p.item.defId, qty: p.item.qty, x: p.x, y: p.y })),
       grenades: inv.countDef('grenade_frag'), stims: inv.countDef('heal_bandage'), scrap: inv.countDef('mat_scrap'),
-      secondary: inv.getLoadout().secondary?.defId ?? null,
+      primary: inv.getLoadout().primary?.defId ?? null,
       recapture: sys.captureLoadoutSave(),
     };
   });
   ok(migrated.quick[0]?.defId === 'grenade_frag' && migrated.quick[0].qty === 3
     && migrated.quick[4]?.defId === 'heal_bandage' && migrated.quick[4].qty === 2
-    && migrated.quick[1] === null && migrated.quick[6] === null && migrated.secondary === 'wpn_hg',
+    && migrated.quick[1] === null && migrated.quick[6] === null && migrated.primary === 'wpn_smg',
     'v1 file: the stacks the quick indices pointed at are lifted onto the wheel (N 수류탄 ×3 / S 붕대 ×2; duplicate + out-of-range index ignored)', JSON.stringify(migrated.quick));
   ok(migrated.bag.length === 1 && migrated.bag[0].defId === 'mat_scrap' && migrated.bag[0].qty === 5 && migrated.bag[0].x === 1 && migrated.bag[0].y === 0,
     'v1 file: the lifted stacks left the bag grid; the entry with no wheel slot keeps its cell', JSON.stringify(migrated.bag));

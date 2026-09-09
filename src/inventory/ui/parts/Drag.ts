@@ -137,8 +137,8 @@ export function startDrag(sys: InventoryUI, d: DragState): void {
     sys.sys.sfx('ui_pickup');
     return;
   }
-  // a stim / grenade from the bag (or a wheel cell): light the usable cells as targets
-  if (isQuickUsable(d.def) && d.from.kind === 'grid' && d.from.grid === 'bag' && d.qty === null) sys.root?.classList.add('is-quick-drag');
+  // a stim / grenade from any grid — 가방 · 상자 · 창고 (2026-09-10) — or a wheel cell: light the usable cells
+  if (isQuickUsable(d.def) && d.from.kind === 'grid' && d.qty === null) sys.root?.classList.add('is-quick-drag');
   if (d.quickFrom !== null) {
     sys.quickCells[d.quickFrom]?.tile?.classList.add('is-dragging');
     sys.root?.classList.add('is-quick-source');
@@ -217,8 +217,8 @@ export function updateDragTarget(sys: InventoryUI, px: number, py: number): void
     cell.el.classList.add(pv === 'bad' ? 'is-target-bad' : pv === 'swap' ? 'is-target-swap' : 'is-target-ok');
     return;
   }
-  // a wheel-cell drag released anywhere else clears the slot; no other target applies
-  if (d.quickFrom !== null) return;
+  // 2026-09-10: a wheel-cell drag may also aim at a grid (가방 · 상자 · 창고) or an equipment slot — 퀵슬롯에서
+  // 곧장 상자로. Only when it lands on **no** target at all does the release clear the slot (see `finishDrag`).
 
   // attachments: a weapon tile under the pointer (bag or equipment slot) is a socket target
   if (isAttachmentDef(d.def)) {
@@ -347,8 +347,10 @@ export function handlePointerUp(sys: InventoryUI, e: PointerEvent): void {
     return;
   }
 
-  // dragged out of a wheel cell: another cell moves the assignment, anywhere else clears it (the item stays in the bag)
-  if (d.quickFrom !== null && d.target?.kind !== 'quick') {
+  // dragged out of a wheel cell onto nothing: clear the slot (the stack returns to the bag).
+  // 2026-09-10: a wheel drag that *does* have a target falls through to the normal drop below — another cell
+  // re-orders the wheel, a grid cell moves the stack there (상자 · 창고 포함).
+  if (d.quickFrom !== null && !d.target) {
     sys.result(sys.sys.setQuickSlot(d.quickFrom, null) ? 'ok' : 'fail', 'ui_drop', d.from, d.uid);
     return;
   }

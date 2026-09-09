@@ -108,7 +108,7 @@ try {
     ctx.progression.addXp(9000);
     /* 가방과 창고를 볼거리 있게 채운다 */
     const give = (id, n = 1) => { for (let i = 0; i < n; i++) { const it = ctx.loot.createItem(id); if (it) ctx.inventory.tryAddItemAnywhere(it); } };
-    ['wpn_ar_g4', 'wpn_sr_g3', 'wpn_sg_g2', 'wpn_hg_g3'].forEach((id) => give(id));
+    ['wpn_ar_g4', 'wpn_sr_g3', 'wpn_sg_g2', 'wpn_smg_g3'].forEach((id) => give(id));
     ['ammo_medium', 'ammo_heavy', 'ammo_shell', 'ammo_light'].forEach((id) => give(id, 3));
     ['heal_syringe', 'heal_bandage', 'grenade_frag', 'gad_turret', 'gad_barricade', 'gad_defib'].forEach((id) => give(id, 2));
     /* 시설 증축 · 가구 제작에 쓸 재료는 넉넉히 (한 번에 20개짜리 묶음 × 5) */

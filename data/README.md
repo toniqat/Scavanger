@@ -137,6 +137,18 @@ csv 는 Vite 의 `import.meta.glob(..., { query: '?raw', eager: true })` 로 **�
 그 설명문이 `constants.csv` 의 상수를 그대로 찍기 때문이다 (csv 로 옮기면 설명문의 숫자가 수치와 따로 논다).
 그 표들의 수치 자체는 전부 `constants.csv` 의 `GADGET_*` / `IMPLANT_*` 다.
 
+### 2026-09-10 — 보조무기 제거 · 분대 인원별 웨이브 · 전차 가속
+
+- **`weapons.csv`**: 권총 줄(`hg`)이 사라져 무기 계열은 5종이다. 딸려서 `corp_stock.csv` 의
+  `helix,secondary,PISTOL` 줄과 `loot_guaranteed.csv` 의 `4,primary|secondary` → `4,primary` 도 바뀌었다.
+  게임에 보조무기 칸 자체가 없어졌기 때문이다 (타입은 남아 있다 — `src/shared/README.md` 참고).
+- **`tables.csv`**: `WAVE_SQUAD_SCALE` (신규, key 0 = 분대 1명 … 3 = 4명). 탈출 웨이브 규모 표는 4인 분대
+  기준이라 1인 분대가 세 번째 웨이브에서 점프 사냥꾼 두 마리를 한꺼번에 받았다 — 인원수만큼 깎는 배수다
+  (`ROGUE_DROP_*` 와 같은 "분대 인원별 표" 규약).
+- **`constants.csv`**: `TRAM_SPEED` 14 → **11.2**(예전의 0.8배), `TRAM_START_DELAY_S`(1) ·
+  `TRAM_ACCEL_S`(3) 신규 — 전차가 시동 즉시 최고 속도로 튀어 나가 데크에 탄 사람이 떨어지던 문제.
+- **`hazards.csv`**: `fogMul` 칸 신규 (아래 그 절에 자세히).
+
 ### 2026-09-09 — `currencies.csv` (신규)
 
 재화(크레딧 · 경험치 · 기업 신뢰도) 정의표. `src/shared/currency.ts` 가 읽는다. **신뢰도(`rep`)는 템플릿
@@ -183,11 +195,17 @@ csv 는 Vite 의 `import.meta.glob(..., { query: '?raw', eager: true })` 로 **�
 - `particleColor` / `particleCount` / `particleSize` / `particleBox` — 카메라를 따라다니는 입자 구름.
   개수를 줄이면 그대로 성능이 붙고, `particleBox` 를 키우면 같은 개수가 넓게 퍼져 옅어진다.
 - `driftMps` / `riseMps` — 입자가 옆으로 흐르는 · 위로 뜨는 속도(m/s). 눈보라만 `riseMps` 가 음수다(내린다).
+- `fogMul` — **2026-09-10 신규.** 구역 한복판에서 포그 농도에 곱하는 배수 = **시야 제한의 세기**
+  (경계에서 1 → 이 값으로 오른다). 7 이면 대략 50 m, 24 면 15 m 남짓이다. 예전에는 재해 넷이
+  `constants.csv` 의 `HAZARD_FOG_MUL` 하나를 같이 썼는데, **폭풍의 눈**은 "안이 안 보여야 눈이 눈에 띈다"
+  라 훨씬 커야 했다 (지금 24, 나머지는 7). `HAZARD_FOG_MUL` 은 줄을 못 찾았을 때의 기본값으로만 남았다.
 - `wallColor` / `wallOpacity` / `wallHeight` / `frontBandM` — 경계에 서는 벽. `sandstorm` · `blizzard` 는
   전선을 따라 `frontBandM` 두께로 겹친 커튼, `storm_eye` · `spores` 는 열린 원통이다.
+  ⚠ **폭풍의 눈 벽만 포그를 받지 않고 원통 3겹으로 선다** (2026-09-10, `hazard/parts/Visuals`) — `fogMul` 24
+  안에서 포그를 먹이면 벽이 통째로 사라져 안전지대가 어느 쪽인지 알 방법이 없어진다.
 
 **규칙 수치는 여기 없다.** 시작 시각(`HAZARD_START_MIN_S` · `MAX` · `STEP_S`) · 예고(`HAZARD_WARN_S`) ·
-피해(`HAZARD_DPS` · `HAZARD_TICK_S`) · 봉쇄 시간(`HAZARD_FULL_S`) · 시야 배수(`HAZARD_FOG_MUL`) ·
+피해(`HAZARD_DPS` · `HAZARD_TICK_S`) · 봉쇄 시간(`HAZARD_FULL_S`) · 기본 시야 배수(`HAZARD_FOG_MUL`) ·
 경계 폭(`HAZARD_EDGE_M`) · 폭풍의 눈 반경(`STORM_EYE_*`) · 포자(`SPORE_*`) 는 전부 `constants.csv` 이고,
 **어느 행성에 어떤 재해가 오는지**는 `planets.csv` 의 `hazards` 열이다 (칸을 비우면 재해 없는 행성).
 

@@ -92,14 +92,6 @@ export function buildBuilding(ctx: BuildCtx, plan: BuildingPlan, rng: Random, la
     emit(s, to);
   };
 
-  /* ── 바닥 ─────────────────────────────────────────────────────────────── */
-  {
-    const floor = new THREE.BoxGeometry(halfW * 2 + 0.6, 0.24, halfD * 2 + 0.6);
-    xform(floor, { x: cx, y: y0 - 0.1, z: cz }, new THREE.Euler(0, -yaw, 0));
-    paint(floor, CONCRETE_DARK, 0.07, rng);
-    parts.push(floor);
-  }
-
   /* ── 바깥 벽 (남쪽에 정문, 다른 한 면에 무너진 틈) ──────────────────────── */
   const doorX = rng.range(-halfW * 0.45, halfW * 0.45);
   const breachSide = rng.int(0, 2);          // 0 = 북, 1 = 서, 2 = 동
@@ -136,6 +128,36 @@ export function buildBuilding(ctx: BuildCtx, plan: BuildingPlan, rng: Random, la
   /** 로컬 좌표가 계단 구멍 위(여유 `pad`)인가. */
   const overHole = (lx: number, lz: number, pad = 0): boolean =>
     !!pit && Math.abs(lx - openX) < STAIR_HALF + pad && Math.abs(lz - openZ) < runHalf + pad;
+
+  /* ── 지상층 바닥 ───────────────────────────────────────────────────────
+   * 2026-09-10 — **계단 구멍을 도려낸 네 조각**이다. 예전에는 발자국 전체를 덮는 판 하나였다:
+   * 콜라이더가 없으니 걸어 내려갈 수는 있었지만 **눈에는 지하실 입구가 통째로 막혀 보였다** —
+   * 해치를 열어도 바닥이 그대로 깔려 있으니 "열린 게 맞나?" 가 됐다 (전진기지 · 연구실 공통).
+   * 그래서 천장 슬래브(`slab`)와 **똑같이** 구멍 둘레만 남긴다. 이 조각들은 예전처럼 콜라이더가 없다 —
+   * 걸어 다니는 바닥은 지형이고, 지하실 위를 덮는 것은 아래의 슬래브 상자다.
+   * (그래서 이 블록은 구멍 자리 `openX/openZ` 가 정해진 **뒤**로 내려왔다.) */
+  {
+    const fx = halfW + 0.3, fz = halfD + 0.3;
+    const floorPiece = (lx0: number, lx1: number, lz0: number, lz1: number): void => {
+      if (lx1 - lx0 < 0.3 || lz1 - lz0 < 0.3) return;
+      const hx = (lx1 - lx0) / 2, hz = (lz1 - lz0) / 2;
+      const [wx, wz] = rot((lx0 + lx1) / 2, (lz0 + lz1) / 2);
+      const g = new THREE.BoxGeometry(hx * 2, 0.24, hz * 2);
+      xform(g, { x: wx, y: y0 - 0.1, z: wz }, new THREE.Euler(0, -yaw, 0));
+      paint(g, CONCRETE_DARK, 0.07, rng);
+      parts.push(g);
+    };
+    if (!pit) {
+      floorPiece(-fx, fx, -fz, fz);
+    } else {
+      const hx0 = openX - STAIR_HALF, hx1 = openX + STAIR_HALF;
+      const hz0 = openZ - runHalf, hz1 = openZ + runHalf;
+      floorPiece(-fx, fx, -fz, hz0);
+      floorPiece(-fx, fx, hz1, fz);
+      floorPiece(-fx, hx0, hz0, hz1);
+      floorPiece(hx1, fx, hz0, hz1);
+    }
+  }
 
   /* ── 무너진 지붕: 서까래 · 처마 · 난간 (콜라이더 없음) ──────────────────── */
   {

@@ -2,8 +2,11 @@ import type { GameContext, ItemInstance, WeaponSlot } from '@/shared';
 import { Keys, keyLabel } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 
-/** Slot order = key order: 1 주무기 I, 2 주무기 II, 3 보조무기. */
-export const WEAPON_SLOTS: readonly WeaponSlot[] = ['primary', 'primary2', 'secondary'];
+/**
+ * Slot order = key order: 1 주무기 I, 2 주무기 II.
+ * 2026-09-10: 보조무기(3번) 칸이 없어졌다 — `WeaponSlot` 에는 남아 있지만 이 목록에 없으므로 칸도 그려지지 않는다.
+ */
+export const WEAPON_SLOTS: readonly WeaponSlot[] = ['primary', 'primary2'];
 /** Live key labels of the weapon slots (rebindable — read at use time). */
 export function weaponSlotKey(slot: WeaponSlot): string {
   return keyLabel(slot === 'primary' ? Keys.PRIMARY : slot === 'primary2' ? Keys.PRIMARY2 : Keys.SECONDARY);
@@ -29,7 +32,8 @@ export function weaponShortName(name: string): string {
  */
 export class SlotStrip {
   readonly root: HTMLElement;
-  private cells: Record<WeaponSlot, { root: HTMLElement; name: HTMLElement; k: HTMLElement }>;
+  /** Partial: only the slots in `WEAPON_SLOTS` get a cell (보조무기는 없다, 2026-09-10). */
+  private cells: Partial<Record<WeaponSlot, { root: HTMLElement; name: HTMLElement; k: HTMLElement }>>;
   private quickCell: { root: HTMLElement; name: HTMLElement; k: HTMLElement };
   private quickUid = '';
   private quickActive = false;
@@ -45,7 +49,8 @@ export class SlotStrip {
       const name = el('span', { cls: 'n', text: '—', parent: root });
       return { root, name, k };
     };
-    this.cells = { primary: make('primary', weaponSlotKey('primary')), primary2: make('primary2', weaponSlotKey('primary2')), secondary: make('secondary', weaponSlotKey('secondary')) };
+    this.cells = {};
+    for (const slot of WEAPON_SLOTS) this.cells[slot] = make(slot, weaponSlotKey(slot));
     this.quickCell = make('quick', keyLabel(Keys.QUICK));
     this.setActive('primary');
   }
@@ -55,7 +60,7 @@ export class SlotStrip {
     const b = ctx.bus;
     this.unsubs.push(
       b.on('input:bindingsChanged', () => {
-        for (const slot of WEAPON_SLOTS) setText(this.cells[slot].k, weaponSlotKey(slot));
+        for (const slot of WEAPON_SLOTS) { const c = this.cells[slot]; if (c) setText(c.k, weaponSlotKey(slot)); }
         setText(this.quickCell.k, keyLabel(Keys.QUICK));
       }),
       b.on('loadout:changed', (lo) => {
@@ -96,14 +101,14 @@ export class SlotStrip {
 
   private setActive(slot: WeaponSlot): void {
     this.active = slot;
-    for (const s of WEAPON_SLOTS) toggleClass(this.cells[s].root, 'active', s === slot && !this.quickActive);
+    for (const s of WEAPON_SLOTS) { const c = this.cells[s]; if (c) toggleClass(c.root, 'active', s === slot && !this.quickActive); }
   }
 
   /** Highlight the `F` cell (consumable in hand) instead of the weapon cell, or hand the highlight back. */
   private setQuickActive(on: boolean): void {
     this.quickActive = on;
     toggleClass(this.quickCell.root, 'active', on);
-    for (const s of WEAPON_SLOTS) toggleClass(this.cells[s].root, 'active', s === this.active && !on);
+    for (const s of WEAPON_SLOTS) { const c = this.cells[s]; if (c) toggleClass(c.root, 'active', s === this.active && !on); }
   }
 
   private setQuickCell(inst: ItemInstance | null): void {
@@ -123,6 +128,7 @@ export class SlotStrip {
 
   private setCell(slot: WeaponSlot, inst: ItemInstance | null): void {
     const cell = this.cells[slot];
+    if (!cell) return;   // 보조무기처럼 칸이 없는 슬롯
     if (!inst) {
       setText(cell.name, '—');
       cell.root.classList.add('empty');

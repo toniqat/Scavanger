@@ -143,7 +143,7 @@ export function runInventorySelfTest(): boolean {
   check(loot.rollCorpse('nope' as never, new Random(1)).length === 1, 'unknown corpse type → single bio sample');
 
   // starter ids exist (weapon package shape: primary / primary2 / secondary / bag / items[{id, qty}])
-  check(!!getDef(STARTER_LOADOUT.secondary), 'starter weapon def exists');
+  check(!!getDef(STARTER_LOADOUT.primary), 'starter weapon def exists');   // 2026-09-10: 보조무기 제거 → 주무기
   check(!!getDef(STARTER_LOADOUT.bag) && !!getDef(STARTER_LOADOUT.bag)!.bag, 'starter bag def exists and is a bag');
   for (const e of STARTER_LOADOUT.items) {
     const d = getDef(e.id);

@@ -811,6 +811,15 @@ try {
     await waitSim(0.3);
   };
   await page.evaluate(() => window.__game.ctx.implants.setEquipped('atlauncher'));
+  // 2026-09-10: 보조무기(3번)가 사라졌으므로 "무기 키가 임플란트를 집어넣는다" 는 주무기 II 로 검사한다.
+  // 창고의 돌격소총을 주무기 II 에 올려 두 자루를 만든다 (starter 는 주무기 I 에 기관단총만 준다).
+  const secondGun = await page.evaluate(() => {
+    const inv = window.__game.ctx.inventory, sys = window.__game.getSystem('inventory');
+    const it = sys.getStashItems().find((x) => x.defId === 'wpn_ar') ?? sys.getStashItems().find((x) => x.defId === 'wpn_sg');
+    if (it) inv.equip(it.uid, 'primary2');
+    return inv.getLoadout().primary2?.defId ?? null;
+  });
+  ok(!!secondGun, `주무기 II 에 두 번째 총을 올렸다 (${secondGun})`);
   await startMission(42);
   ok(await page.evaluate(() => !!document.querySelector('.implant-gauge') && !document.querySelector('.implant-gauge').hidden && document.querySelector('.implant-gauge').dataset.implant === 'atlauncher'), 'implant gauge shown for 대전차포');
   const gaugePos = await page.evaluate(() => { const r = document.querySelector('.implant-gauge').getBoundingClientRect(); return { right: r.right, cx: innerWidth / 2, cy: innerHeight / 2, top: r.top, bottom: r.bottom }; });
@@ -818,11 +827,11 @@ try {
   await tap('KeyQ');
   await waitSim(0.2);
   ok(await page.evaluate(() => window.__game.ctx.implants.wielded && window.__game.ctx.implants.blocksWeapons), 'Q wields the launcher (weapons holstered)');
-  await tap('Digit3');
+  await tap('Digit2');
   await waitSim(0.3);
   const stowed = await page.evaluate(() => ({ wielded: window.__game.ctx.implants.wielded, swaps: window.__ev['weapon:swapStarted'].length }));
-  ok(!stowed.wielded, 'pressing 3 stowed the launcher (the old bug: keys were ignored while wielded)');
-  ok(stowed.swaps >= 1 && (await ev('weapon:swapStarted')).some((s) => s.slot === 'secondary'), 'and drew the secondary');
+  ok(!stowed.wielded, 'pressing 2 stowed the launcher (the old bug: keys were ignored while wielded)');
+  ok(stowed.swaps >= 1 && (await ev('weapon:swapStarted')).some((s) => s.slot === 'primary2'), 'and drew 주무기 II');
   await shot('08-gauge-launcher');
 
   /* ── 6. mission B: 오버차지 = hold Q, energy drains / refills ───────── */

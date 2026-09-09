@@ -4,8 +4,11 @@ import { weaponClassOf, damageFalloff } from '@/items';
 
 export { weaponClassOf, damageFalloff };
 
-/** The three weapon slots in key order (1 / 2 / 3). */
-export const WEAPON_SLOTS: readonly WeaponSlot[] = ['primary', 'primary2', 'secondary'];
+/**
+ * The weapon slots in key order (1 / 2). 2026-09-10: 보조무기(3번)가 없어져 둘뿐이다 — `WeaponSlot` 의
+ * `'secondary'` 는 계약이라 남아 있지만 이 목록에는 없고, 따라서 아무도 그 칸을 채우지 않는다.
+ */
+export const WEAPON_SLOTS: readonly WeaponSlot[] = ['primary', 'primary2'];
 
 /** Built-in fallbacks used when `ctx.loot` is unavailable or a weaponId cannot be resolved (v2 calibres). */
 export const DEFAULT_RIFLE: WeaponDef = {

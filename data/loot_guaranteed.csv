@@ -4,7 +4,7 @@ tier,categories,minRarity
 2,valuable,uncommon
 3,valuable,rare
 4,valuable,epic
-4,primary|secondary,common
+4,primary,common
 4,armor|bag|gadget,rare
 5,stim,common
 5,ammo,common

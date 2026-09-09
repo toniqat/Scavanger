@@ -137,10 +137,11 @@ try {
     });
   });
   const ids1 = shop1.map((s) => s.id);
-  ok(shop1.length > 0 && ['wpn_ar', 'wpn_smg', 'wpn_hg', 'ammo_light', 'ammo_medium'].every((id) => ids1.includes(id)), 'Lv.1 shop lists AR I / SMG I / P-2 / 경량탄 / 준중량탄', ids1.join(','));
+  ok(shop1.length > 0 && ['wpn_ar', 'wpn_smg', 'ammo_light', 'ammo_medium'].every((id) => ids1.includes(id)), 'Lv.1 shop lists AR I / SMG I / 경량탄 / 준중량탄', ids1.join(','));
   ok(shop1.every((s) => s.rarity === 'common' || s.rarity === 'uncommon'), 'no rarity above the Lv.1 cap (uncommon)', shop1.filter((s) => s.rarity !== 'common' && s.rarity !== 'uncommon').map((s) => s.id).join(','));
   ok(shop1.every((s) => !s.unique), 'no unique weapons on the shelf');
-  ok(shop1.every((s) => (s.cat === 'primary' && (s.cls === 'AR' || s.cls === 'SMG')) || (s.cat === 'secondary' && s.cls === 'PISTOL') || (s.cat === 'ammo' && (s.ammo === 'light' || s.ammo === 'medium'))), 'only helix stock rules match (AR/SMG, PISTOL, light/medium ammo)', JSON.stringify(shop1.filter((s) => !((s.cat === 'primary' && (s.cls === 'AR' || s.cls === 'SMG')) || (s.cat === 'secondary' && s.cls === 'PISTOL') || (s.cat === 'ammo' && (s.ammo === 'light' || s.ammo === 'medium')))).map((s) => s.id)));
+  const helixRule = (s) => (s.cat === 'primary' && (s.cls === 'AR' || s.cls === 'SMG')) || (s.cat === 'ammo' && (s.ammo === 'light' || s.ammo === 'medium'));
+  ok(shop1.every(helixRule), 'only helix stock rules match (AR/SMG, light/medium ammo)', JSON.stringify(shop1.filter((s) => !helixRule(s)).map((s) => s.id)));
   ok(shop1.every((s) => s.price === Math.max(1, Math.round(s.value * 1.45))), 'price = round(value × (1.6 − 0.15)) at Lv.1', JSON.stringify(shop1.slice(0, 3)));
   ok(shop1.every((s) => s.blocked === null || s.blocked === '크레딧 부족'), 'blocked reasons are null or 크레딧 부족 in the ship', JSON.stringify(shop1.map((s) => s.blocked)));
 

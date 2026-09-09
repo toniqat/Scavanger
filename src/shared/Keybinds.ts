@@ -47,7 +47,8 @@ export const KEY_ACTION_DEFS: readonly KeyActionDef[] = [
   { id: 'RELOAD', label: '재장전 / (수류탄을 들고 있을 때) 코킹', group: '전투', scope: 'game' },
   { id: 'PRIMARY', label: '주무기 I', group: '전투', scope: 'game' },
   { id: 'PRIMARY2', label: '주무기 II', group: '전투', scope: 'game' },
-  { id: 'SECONDARY', label: '보조무기', group: '전투', scope: 'game' },
+  // 2026-09-10: 보조무기 칸이 사라져 `SECONDARY` 줄은 이 목록에서 빠졌다 (설정 화면에도 안 뜬다).
+  // `Keys.SECONDARY` · `DEFAULT_KEYS.SECONDARY` 자체는 계약이라 그대로 있다 — 아무도 읽지 않을 뿐이다.
   { id: 'MELEE', label: '근접 공격 · (전투불능 아군 근처) 들쳐메기 / 내려놓기', group: '전투', scope: 'game' },
 
   { id: 'IMPLANT', label: '전술 임플란트', group: '장비', scope: 'game' },

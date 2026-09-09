@@ -110,7 +110,7 @@ try {
   const setRes = await P(() => {
     const inv = window.__game.ctx.inventory;
     const stim = inv.getQuickSlots()[4]?.uid ?? null;   // 시작 키트가 S 에 올려 둔 붕대
-    const gun = inv.getLoadout().secondary;
+    const gun = inv.getLoadout().primary;   // 2026-09-10: 보조무기 칸 제거 → 주무기로 검사
     const inBag = inv.getAllItems().some((i) => i.defId === 'heal_bandage' || i.defId === 'grenade_frag');
     const bagBefore = inv.getAllItems().length;
     const lockedRefused = !inv.setQuickSlot(2, stim);
@@ -203,11 +203,11 @@ try {
   ok(gAfter === gBefore - 1, 'grenade stack −1', `${gBefore} → ${gAfter}`);
   await waitSim(2.5);
   ok((await ev('grenade:exploded')).length >= 1, 'cooked grenade explodes within its shortened fuse');
-  // 2026-09-07: the starter kit carries no 주무기 — 3 goes back to the 권총 (the only weapon in the kit)
-  await key('Digit3', 0.08); await waitSim(0.6);
+  // 2026-09-10: 보조무기가 사라져 starter 는 주무기 I 에 기관단총을 준다 — 1 이 총으로 돌아가는 키다
+  await key('Digit1', 0.08); await waitSim(0.6);
   qe = await lastEv('quick:equipped');
   const weq = await lastEv('weapon:equipped');
-  ok(qe && qe.item === null && weq && weq.slot === 'secondary', '3 returns to the 권총', JSON.stringify({ qe, weq }));
+  ok(qe && qe.item === null && weq && weq.slot === 'primary', '1 returns to the 주무기', JSON.stringify({ qe, weq }));
 
   console.log('downed / revive');
   /* 2026-09-08 — 1인 분대에서는 치명타가 곧 사망이라(일으켜 줄 사람이 없다) 전투불능은 `enterDowned()` 로 직접

@@ -546,8 +546,10 @@ STRUCTURE_INTERACT_RANGE,2.8,구조물 문 · 컴퓨터 상호작용 거리(m).
 
 # ── 2026-09-09: 선로 · 전차 (owner: world/Rails) ──
 RAIL_CHANCE,0.7,구역에 선로가 놓일 확률 (0 = 언제나 없음).
-TRAM_SPEED,14,전차 주행 속도(m/s).
+TRAM_SPEED,11.2,전차 최고 주행 속도(m/s). 2026-09-10: 14 → 11.2 (예전의 0.8배).
 TRAM_START_HOLD_S,1.5,플랫폼 콘솔에서 전차에 시동을 거는 홀드 시간(초).
+TRAM_START_DELAY_S,1,시동 알림이 뜬 뒤 전차가 실제로 움직이기 시작할 때까지의 시간(초).
+TRAM_ACCEL_S,3,움직이기 시작한 뒤 최고 속도(TRAM_SPEED)에 닿을 때까지의 시간(초). 가속은 cubic ease-in 이다.
 TRAM_DOCK_S,8,전차가 플랫폼에 정차해 있는 시간(초).
 
 # ── 2026-09-09: 로그 강하 (owner: enemies/RogueDrop) ──

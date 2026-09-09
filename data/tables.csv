@@ -168,3 +168,10 @@ ROGUE_DROP_BOSS_CHANCE,0,0
 ROGUE_DROP_BOSS_CHANCE,1,0.5
 ROGUE_DROP_BOSS_CHANCE,2,1
 ROGUE_DROP_BOSS_CHANCE,3,1
+# WAVE_SQUAD_SCALE — 탈출 웨이브 규모 배수 (key 0 = 분대 1명 … 3 = 분대 4명).
+# 웨이브 표(6 + 웨이브×2, 최대 22)는 4인 분대 기준이고 여기서 인원수만큼 깎는다.
+# 1인 분대가 3번째 웨이브에서 점프 사냥꾼 두 마리를 동시에 받던 것을 한 마리로 만드는 값이다.
+WAVE_SQUAD_SCALE,0,0.45
+WAVE_SQUAD_SCALE,1,0.65
+WAVE_SQUAD_SCALE,2,0.85
+WAVE_SQUAD_SCALE,3,1

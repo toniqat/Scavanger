@@ -1202,11 +1202,11 @@ kbd {
   .inv-root:not(.is-hub) .inv-equip-grid {
     display: grid; gap: 12px 18px; align-items: start;
     grid-template-columns: auto auto;
-    grid-template-areas: "primary armor" "primary2 armor" "secondary bag";
+    /* 2026-09-10: 보조무기 칸이 없어져 3행 → 2행. 방탄복이 첫 줄, 가방이 둘째 줄 오른쪽. */
+    grid-template-areas: "primary armor" "primary2 bag";
   }
   .inv-root:not(.is-hub) .inv-slot-primary { grid-area: primary; }
   .inv-root:not(.is-hub) .inv-slot-primary2 { grid-area: primary2; }
-  .inv-root:not(.is-hub) .inv-slot-secondary { grid-area: secondary; }
   .inv-root:not(.is-hub) .inv-slot-armor { grid-area: armor; }
   .inv-root:not(.is-hub) .inv-slot-bag { grid-area: bag; }
   .inv-root:not(.is-hub) .inv-bag-body { flex-direction: row; align-items: flex-start; gap: 18px; }
@@ -1221,11 +1221,11 @@ kbd {
   .inv-root.is-hub .inv-equip-grid {
     display: grid; gap: 12px 18px; align-items: start;
     grid-template-columns: auto auto;
-    grid-template-areas: "primary armor" "primary2 armor" "secondary bag";
+    /* 2026-09-10: 보조무기 칸이 없어져 3행 → 2행 (미션 화면과 같은 배치). */
+    grid-template-areas: "primary armor" "primary2 bag";
   }
   .inv-root.is-hub .inv-slot-primary { grid-area: primary; }
   .inv-root.is-hub .inv-slot-primary2 { grid-area: primary2; }
-  .inv-root.is-hub .inv-slot-secondary { grid-area: secondary; }
   .inv-root.is-hub .inv-slot-armor { grid-area: armor; }
   .inv-root.is-hub .inv-slot-bag { grid-area: bag; }
   .inv-root.is-hub .inv-bag-body { flex-direction: row; align-items: flex-start; gap: 18px; }

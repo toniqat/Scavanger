@@ -97,7 +97,7 @@ export function corpSells(
 }
 
 const CATEGORY_SORT: readonly ItemDef['category'][] = [
-  'primary', 'secondary', 'ammo', 'attachment', 'bag', 'armor', 'implant', 'stim', 'grenade', 'gadget', 'material', 'herb', 'seed', 'book',
+  'primary', 'ammo', 'attachment', 'bag', 'armor', 'implant', 'stim', 'grenade', 'gadget', 'material', 'herb', 'seed', 'book',
   'valuable', 'furniture',
 ];
 

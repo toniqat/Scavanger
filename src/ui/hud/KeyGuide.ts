@@ -17,9 +17,10 @@ interface Owner { owner: string; keys: ReadonlyArray<KeyGuideEntry> }
  * That last item also carries the class `kg-close` (2026-09-09) so it can be pointed at on its own — the tutorial's
  * 함선 관리 닫기 step spotlights `.key-guide .kg-close`.
  *
- * **꾹 누르기 (2026-09-09):** an entry with `hold: true` renders its keycap as `.keycap.hold` — the shared stylesheet
- * rule draws a bold accent **⌄ chevron above the keycap** (`.keycap.hold::before`, the same one `hud/InteractionPrompt`
- * uses for a hold interactable), so 탑승 · 1초 홀드 keys read as "hold" at HUD size without a word of text.
+ * **꾹 누르기 (2026-09-09):** an entry with `hold: true` renders its keycap as `.keycap.kc-hold` — the shared
+ * stylesheet rule draws a bold accent **⌄ chevron above the keycap** (`.keycap.kc-hold::before`, the same one
+ * `hud/InteractionPrompt` uses for a hold interactable), so 탑승 · 1초 홀드 keys read as "hold" at HUD size without a
+ * word of text. (2026-09-10: the modifier was renamed from `.hold`, which collided with the 홀드 링 widget class.)
  *
  * DOM: `.key-guide(.show)` > `.kg-item` (`.keycap` + `.kg-label`) separated by `.kg-sep` (`·`). A direct child of
  * `ctx.uiRoot` (z 84) so it floats over the inventory window, the hub terminal, the 시설 관리 panel and the map in
@@ -93,8 +94,8 @@ export class KeyGuide {
         // key — the tutorial's 함선 관리 닫기 step spotlights `.key-guide .kg-close`.
         const close = i === entries.length - 1;
         const item = el('span', { cls: close ? 'kg-item kg-close' : 'kg-item', parent: this.root });
-        // 2026-09-09: `hold: true` → `.keycap.hold` (the ⌄ chevron above the cap lives in the stylesheet, once).
-        el('span', { cls: e.hold ? 'keycap hold' : 'keycap', text: e.key, parent: item });
+        // 2026-09-09: `hold: true` → `.keycap.kc-hold` (the ⌄ chevron above the cap lives in the stylesheet, once).
+        el('span', { cls: e.hold ? 'keycap kc-hold' : 'keycap', text: e.key, parent: item });
         // 2026-09-09: **ESC 도 화면을 닫는다** (`game/escapeKey` — 열린 순서의 역순으로 맨 위 하나), so the 닫기
         // item carries a second keycap. Tab stays the first one: it is the key every screen has always closed on,
         // and the tutorial / smokes read that first `.keycap`.

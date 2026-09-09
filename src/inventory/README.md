@@ -52,8 +52,11 @@
 |---|---|---|---|
 | `primary` 주무기 I | 1 | category `primary` | |
 | `primary2` 주무기 II | 2 | category `primary` | drag a slot weapon onto the other primary slot to swap them |
-| `secondary` 보조무기 | 3 | category `secondary` | |
 | `bag` 가방 | — | category `bag` | sets the bag grid size (see below) |
+
+**2026-09-10 — `secondary` 보조무기 칸은 없다** (사용자 결정). `LOADOUT_SLOTS` 에서 빠졌고 `slotAccepts` 는 그 칸에
+언제나 false 를 돌려준다. 타입(`LoadoutSlot` · `Loadout.secondary` · `WeaponSlot`)은 계약이라 남아 있고 값은 늘
+null 이다 — 저장된 프리셋 · 크루 카드 · 로드아웃 세이브가 그 이름을 쓴다.
 
 `slotAccepts(def, slot)` is the single rule. Double-click / `장착` on a primary uses `equipTargetFor`: first empty primary slot, else swap with 주무기 I (the displaced weapon lands in the source cells / auto-place / the bag when the source was a container; refused + shake when nothing fits). `InventoryRef.equip(uid | null, slot)` = the same `dropOnSlot` path (`null` unequips via `quickMove`). Equipped items live in `Loadout`, not in grid cells. Every change emits `loadout:changed {primary, secondary, primary2, bag}`.
 
@@ -117,9 +120,9 @@ re-equips from.
 - **Consistency**: `afterChange()` runs `syncQuickSlots()` — prune uids that are no longer in the bag (drop, move to a container, bag-shrink overflow, consumed) and emit when the signature (uids + quantities + active count) changed. So the HUD also gets an event when a slot's stack count changes or the bag swap changes `active`. When a stack **merges away** entirely (drag onto a same-def stack in the bag) or is **consumed to 0**, its slot is handed to the surviving / a sibling stack of the same def that has no slot of its own (`relinkQuickSlot`); otherwise the slot clears. Splits keep the slot on the source stack.
 - **Starter policy** (`autoAssignQuickSlots`, on every starter reset incl. `player:respawn`): biggest grenade stack → slot 0 (N); biggest stim stack → slot 4 (S) — the first two unlocks, so both are usable with the common starter bag (2 slots). A locked / taken preferred slot falls back to `firstFreeQuickSlot` (first empty slot in unlock order; with no bag = 1 slot only the grenade is assigned). `world:ready` re-emits `inventory:quickSlotsChanged` even without a reset.
 - **UI**: the bag panel shows a 3×3 compass rose under the grid (DOM order NW N NE / W centre E / SW S SE; the centre shows `F` + `active/8`). Cells carry their glyph (`QUICK_DIR_GLYPH`) hugging the edge of their direction; locked cells are dimmed with a padlock and `title="가방 등급이 낮아 잠김"`. Assigned bag tiles get a top-left direction badge (`.inv-tile-quick`).
-  - Drag a stim / grenade from the bag onto a cell → `setQuickSlot` (usable cells glow amber during such a drag; hovering one lights green / blue = replaces / red = refused — locked cell, non-usable item, container item).
-  - Drag a cell tile onto another cell → move; release it anywhere else (bag grid, backdrop, panel) → the slot clears and the item stays in the bag (never a world drop; the 버리기 zone stays hidden for cell drags).
-  - Right-click a cell → `빠른 슬롯 해제` (+ `요청`); double-click a cell tile also clears. Right-click a stim / grenade in the bag now always opens the menu: `빠른 슬롯에 등록` (first free usable slot, `registerQuick`) or `빠른 슬롯 해제 (glyph)` when assigned. Double-click a bag stim / grenade with no crate open = 등록.
+  - Drag a stim / grenade from **any grid** — 가방 · 열어 둔 상자 · 함선 창고 (2026-09-10; 예전에는 가방뿐) — onto a cell → `setQuickSlot` (usable cells glow amber during such a drag; hovering one lights green / blue = replaces / red = refused — locked cell, non-usable item, unsearched container item). 상자에서 오는 것은 `guardedTake` 를 지나므로 멀티에서 호스트가 확인한다.
+  - Drag a cell tile onto another cell → move; onto a **grid** (가방 · 상자 · 창고) → 그 칸으로 옮긴다 (2026-09-10); 아무 목표도 없는 곳에서 놓으면 예전처럼 슬롯이 비고 스택은 가방으로 돌아간다 (never a world drop; the 버리기 zone stays hidden for cell drags).
+  - Right-click a cell → `빠른 슬롯 해제` (+ 상자가 열려 있으면 `상자로 이동`, + `요청`); double-click a cell tile also clears. Right-click a stim / grenade in **any grid** now always opens the menu: `빠른 슬롯에 등록` (first free usable slot, `registerQuick`) or `빠른 슬롯 해제 (glyph)` when assigned. Double-click a bag stim / grenade with no crate open = 등록.
   - The panel refreshes with every `InventoryUI.refresh()` (system `afterChange` / `setQuickSlot`), covering `inventory:quickSlotsChanged` and `inventory:bagChanged`.
 
 ## Sockets
@@ -642,6 +645,22 @@ Data-driven off the frozen contract (`ItemCategory 'implant'`, `ItemDef.implant`
 ---
 
 ## 변경 이력
+
+- **2026-09-10 (상자 ↔ 퀵슬롯 · 보조무기 칸 제거)** —
+  ① **상자에서 곧장 퀵슬롯으로, 퀵슬롯에서 곧장 상자로.** 예전에는 휠에 올릴 수 있는 출처가 **가방 격자뿐**이었고
+  (`previewDrop` 의 `fromBag`), 휠 칸을 끌면 다른 휠 칸 말고는 전부 "해제" 였다. 지금은 ⓐ `previewDrop` 의 휠
+  분기가 **모든 격자**(가방 · 열어 둔 상자 · 함선 창고)를 받고, ⓑ `setQuickSlot` 이 `locateInGrids` 로 출처를
+  찾아 그 격자에서 꺼내며(감정 안 된 상자 아이템은 거절, 컨테이너에서 나오면 `searched = true`, 위치가 바뀌었으니
+  `emitTransfer`), ⓒ `drop` 의 `takes` 에서 `target.kind !== 'quick'` 예외가 빠져 **상자 → 휠도 `guardedTake`**
+  를 지난다 (멀티에서 호스트 확인). `registerQuick`(우클릭 · `빠른 슬롯에 등록`)도 상자 출처면 같은 관문을 탄다.
+  UI 는 `ui/parts/Drag` 가 휠 드래그에도 격자 · 장비 칸을 겨냥하게 하고(목표가 **하나도 없을 때만** 해제),
+  `ui/parts/ContextMenu` 가 상자 · 창고 아이템에도 `빠른 슬롯에 등록` 을, 휠 칸 메뉴에는 상자가 열려 있을 때
+  `상자로 이동` 을 붙인다. `quickMoveImpl` 의 휠 → 목적지도 상자가 열려 있으면 상자다 (없으면 예전대로 가방).
+  ② **보조무기 칸이 사라졌다** (사용자 결정). `LOADOUT_SLOTS` = 주무기 I · II · 가방 · 방탄복, `WEAPON_SLOT_IDS`
+  = 주무기 둘, `slotAccepts('secondary')` 는 언제나 false. `Loadout.secondary` · `LoadoutSlot` 의 `'secondary'`
+  **자체는 지우지 않았다** — `src/shared` 는 추가만 하는 계약이고 저장된 프리셋 · 크루 카드가 그 이름을 쓴다
+  (`airstrike` 와 같은 처리). 장비 열은 3행 → **2행**이 됐다 (`inventory.css`: `"primary armor" "primary2 bag"`),
+  무한 상자의 `무기` 탭도 `primary` 만 본다.
 
 - **2026-09-09 (아이템 툴팁 재설계 · `탄약 필요`)** — `ui/Tooltip.ts` + `inventory.css` (`.inv-tooltip` 폭 264 → 312 px).
   ① **무기 카드의 숫자 표를 게이지로 바꿨다.** 종류 · 등급 · 대미지 · 탄창 · 연사 · 반동 · 정조준 시간 · 재장전 · 탄종 ·

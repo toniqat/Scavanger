@@ -7,9 +7,12 @@ import { el, setText, setVisible, toggleClass } from '../dom';
  *
  * 2026-09-08: the hold progress bar under it is gone — every hold in the game fills the crosshair ring
  * (`hud/HoldGauge`) instead, so the prompt is a caption again.
- * 2026-09-09: a **hold** interactable (`interact:promptChanged.hold`, e.g. the 발사 포드 탑승 0.4 s) puts `.hold` on the
- * keycap — the shared `.keycap.hold::before` chevron (same one the 키 가이드 draws) says "꾹 누르기" before the player
- * taps and wonders why nothing happened.
+ * 2026-09-09: a **hold** interactable (`interact:promptChanged.hold`, e.g. the 발사 포드 탑승 0.4 s) puts `.kc-hold` on
+ * the keycap — the shared `.keycap.kc-hold::before` chevron (same one the 키 가이드 draws) says "꾹 누르기" before the
+ * player taps and wonders why nothing happened.
+ *
+ * 2026-09-10: that modifier used to be plain `.hold`, which collided with the 홀드 링 (`hud/HoldGauge`) rule of the
+ * same name — the keycap became a 120×120 투명 상자 and vanished while the row kept the `:has()` 여백. `kc-` prefix.
  */
 export class InteractionPrompt {
   readonly root: HTMLElement;
@@ -29,7 +32,7 @@ export class InteractionPrompt {
       ctx.bus.on('interact:promptChanged', ({ text, hold }) => {
         if (!text) { setVisible(this.root, false); return; }
         setText(this.txt, text);
-        toggleClass(this.keyEl, 'hold', hold === true);
+        toggleClass(this.keyEl, 'kc-hold', hold === true);
         setVisible(this.root, true);
       }),
       ctx.bus.on('input:bindingsChanged', () => setText(this.keyEl, keyLabel(Keys.INTERACT))),

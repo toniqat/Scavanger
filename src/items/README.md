@@ -485,6 +485,12 @@ P(V) < 5 % · 4번 5~6 % · 5번 < 20 %)와 대조한다. **수치를 고칠 때
 
 ## 변경 이력
 
+- **2026-09-10 (권총 제거 · 최소 지급품)** — `data/weapons.csv` 의 `hg`(권총) 줄이 사라져 무기 계열은 5종이다.
+  덩달아 `wpn_hg` 아이템 · `break_wpn_hg` 분해 레시피 · 헬릭스 상점의 `secondary,PISTOL` 줄 ·
+  `loot_guaranteed` 의 `primary|secondary` 가 함께 없어졌다. `STARTER_LOADOUT` 은 이제 **주무기 I 에 기관단총**을
+  준다 (예전에는 보조무기 칸의 권총 I). `isWeaponItemDef` 는 `secondary` 카테고리도 계속 받아 준다 — 옛 세이브에
+  남아 있을 수 있는 정의를 막지 않기 위해서다.
+
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
 - **2026-09-09 (행성별 무기 등급 · 지하실 키카드)** — 새 csv **`data/planet_loot.csv`** (행성 난이도 순번

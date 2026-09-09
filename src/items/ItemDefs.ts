@@ -306,9 +306,10 @@ export function isQuickUsable(def: ItemDef): boolean {
  * the stash are empty, so a player who lost everything is never stuck with no way to raid.
  */
 export const STARTER_LOADOUT = {
-  primary: null,
+  // 2026-09-10: 보조무기가 사라져 최소 지급품도 주무기 한 정이다 (예전에는 `secondary: 'wpn_hg'` 권총이었다).
+  primary: 'wpn_smg',
   primary2: null,
-  secondary: 'wpn_hg',
+  secondary: null,
   bag: 'bag_common',
   /* appended: tactical kit */
   armor: 'armor_1',

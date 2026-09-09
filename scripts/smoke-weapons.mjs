@@ -140,6 +140,9 @@ try {
     const ctx = window.__game.ctx, inv = ctx.inventory;
     const ar = ctx.loot.createItem('wpn_ar');
     const added = inv.tryAddItem(ar) && inv.equip(ar.uid, 'primary');
+    // 2026-09-10: 보조무기 칸이 사라져 시작 지급품이 주무기 I 에 기관단총을 준다 — 돌격소총으로 갈아 끼우면
+    // 그 기관단총이 가방으로 밀려 내려온다. 이 스크립트는 돌격소총만 쓰므로 바로 치워 가방을 비워 둔다.
+    for (const it of inv.getAllItems()) if (it.defId === 'wpn_smg') inv.takeItem(it.uid);
     for (const q of [50, 40]) inv.tryAddItem(ctx.loot.createItem('ammo_medium', q));
     return { added, primary: inv.getLoadout().primary?.defId, medium: inv.countWhere((d) => d.category === 'ammo' && d.ammoType === 'medium') };
   });
@@ -155,18 +158,17 @@ try {
     return { p: l.primary?.defId, p2: l.primary2?.defId ?? null, s: l.secondary?.defId, bag: l.bag?.defId, size: window.__game.ctx.inventory.getBagSize(),
       dur: l.primary?.durability, mag: l.primary?.ammoInMag };
   });
-  ok(lo.p === 'wpn_ar' && lo.s === 'wpn_hg' && lo.p2 === null, 'raid loadout kept from the ship: 돌격소총 I / — / 권총 I', JSON.stringify(lo));
+  ok(lo.p === 'wpn_ar' && !lo.s && lo.p2 === null, 'raid loadout kept from the ship: 돌격소총 I (보조무기 칸은 2026-09-10 에 사라졌다)', JSON.stringify(lo));
   ok(lo.bag === 'bag_common' && lo.size.cols === 5 && lo.size.rows === 6, 'starter bag_common → 5×6 grid', JSON.stringify(lo.size));
   ok(lo.dur === 500 && lo.mag === 45, 'AR starts at 500 durability, 45 in mag', `dur=${lo.dur} mag=${lo.mag}`);
   const stats = await page.evaluate(() => {
     const loot = window.__game.ctx.loot;
     const l = window.__game.ctx.inventory.getLoadout();
-    return { ar: loot.getEffectiveStats(l.primary), g3: loot.getEffectiveStats('ar_g3'), p2: loot.getEffectiveStats(l.secondary), name3: loot.getWeaponDef('ar_g3')?.name };
+    return { ar: loot.getEffectiveStats(l.primary), g3: loot.getEffectiveStats('ar_g3'), name3: loot.getWeaponDef('ar_g3')?.name };
   });
   ok(stats.ar && stats.ar.damage === 60 && stats.ar.maxDurability === 500 && stats.ar.ammoType === 'medium', 'AR I stats (60 dmg, 500 dur, medium)', JSON.stringify(stats.ar));
   ok(stats.g3 && stats.g3.damage === 74 && stats.g3.grade === 3 && stats.name3 === '돌격소총 III', 'AR III: +24 % damage, class name + roman numeral', `${stats.g3?.damage} ${stats.name3}`);
-  ok(stats.p2 && Math.abs(stats.p2.adsTime - stats.ar.adsTime / 2) < 1e-6 && stats.p2.swapTime < stats.ar.swapTime, 'secondary: half ADS time, faster swap');
-  await key('Digit1');   // 2026-09-07: the raid starts on the 권총 (the only starter weapon) — take the AR out
+  await key('Digit1');   // 주무기 I 를 손에 든다
   await waitSim(0.8);
   const eq = await lastEv('weapon:equipped');
   ok(eq && eq.slot === 'primary' && eq.reserveRounds === 90, 'weapon:equipped primary, reserve = 90 medium rounds in bag', JSON.stringify(eq));
@@ -186,28 +188,25 @@ try {
   ok(afterReload.bag === 90 - (45 - afterFire.mag), 'reload consumes bag rounds', `bag=${afterReload.bag}`);
 
   console.log('slots');
+  // 2026-09-10: 무기 칸은 주무기 I · II 둘뿐이다 (보조무기 · 3번 키 제거).
   await key('Digit3');
   await waitSim(0.5);
-  const eq3 = await lastEv('weapon:equipped');
-  ok(eq3 && eq3.slot === 'secondary' && eq3.weaponId === 'hg', '3 → secondary (권총 I)', JSON.stringify(eq3));
-  const sw = await lastEv('weapon:swapStarted');
-  ok(sw && sw.slot === 'secondary' && sw.duration <= 0.11, 'secondary swap ≤ 0.1 s', JSON.stringify(sw));
+  ok((await lastEv('weapon:equipped')).slot === 'primary', '3 은 이제 아무 칸도 가리키지 않는다 (주무기 I 그대로)');
   await key('Digit2');
   await waitSim(0.3);
-  ok((await lastEv('weapon:equipped')).slot === 'secondary', '2 with empty 주무기 II is refused');
+  ok((await lastEv('weapon:equipped')).slot === 'primary', '2 with empty 주무기 II is refused');
   const p2added = await page.evaluate(() => { const ctx = window.__game.ctx; const it = ctx.loot.createItem('wpn_smg_g2'); const okAdd = ctx.inventory.tryAddItem(it); return okAdd && ctx.inventory.equip(it.uid, 'primary2'); });
   ok(p2added, 'equip SMG II into primary2 via InventoryRef.equip');
   await key('Digit2');
   await waitSim(0.8);
   const eq2 = await lastEv('weapon:equipped');
   ok(eq2 && eq2.slot === 'primary2' && eq2.weaponId === 'smg_g2', '2 → 주무기 II (SMG II)', JSON.stringify(eq2));
-  // 2026-09-07 (커서 rework): the 이전 무기 key is retired — V is 구르기 now, so a weapon swap is 1 / 2 / 3 only.
+  const sw = await lastEv('weapon:swapStarted');
+  ok(sw && sw.slot === 'primary2' && sw.duration > 0, 'weapon:swapStarted for 주무기 II', JSON.stringify(sw));
+  // 2026-09-07 (커서 rework): the 이전 무기 key is retired — V is 구르기 now, so a weapon swap is 1 / 2 only.
   await key('KeyV');
   await waitSim(0.8);
   ok((await lastEv('weapon:equipped')).slot === 'primary2', 'V no longer swaps weapons (it rolls)');
-  await key('Digit3');
-  await waitSim(0.8);
-  ok((await lastEv('weapon:equipped')).slot === 'secondary', '3 → 보조무기');
   await key('Digit1');
   await waitSim(0.8);
   ok((await lastEv('weapon:equipped')).slot === 'primary', '1 → primary');
@@ -460,7 +459,7 @@ try {
   await tap('KeyR');
   await waitSim(0.2);
   ok((await ev('weapon:reloadStarted')).length >= 1, 'R starts a reload', JSON.stringify(relSet));
-  await tap('Digit3');
+  await tap('Digit2');   // 2026-09-10: 보조무기(3번) 칸이 사라져 주무기 II 로 교체한다
   await waitSim(0.4);
   const rc = await lastEv('weapon:reloadCancelled');
   ok(!!rc && rc.weaponId === 'ar', 'a swap mid-reload emits weapon:reloadCancelled', JSON.stringify(rc));
@@ -580,7 +579,19 @@ try {
     ctx.enemies.killAll();
     if (!window.__arUid) window.__arUid = inv.getLoadout().primary?.uid ?? null;
     const item = loot.createItem(id, 1);
-    if (!inv.tryAddItem(item)) return { ok: false, why: 'bag full' };
+    /* 2026-09-10: 유니크는 4×2 라 **이어진** 자리가 필요하다. 이 절에 오기까지 남은 부착물 조각들이
+     * 가방을 조각내면 빈 칸이 넉넉해도 안 들어간다 — 여기서 쓰지 않는 부착물부터 치우고 다시 시도한다. */
+    if (!inv.tryAddItem(item)) {
+      for (const it of inv.getAllItems()) {
+        if (loot.getItemDef(it.defId)?.category !== 'attachment') continue;
+        inv.takeItem(it.uid);
+      }
+      if (!inv.tryAddItem(item)) {
+        const d = loot.getItemDef(id);
+        return { ok: false, why: 'bag full', want: d ? `${d.width}x${d.height}` : '?',
+          bag: inv.getAllItems().map((i) => { const dd = loot.getItemDef(i.defId); return `${i.defId}${dd ? ` ${dd.width}x${dd.height}` : ''}`; }) };
+      }
+    }
     if (!inv.equip(item.uid, 'primary')) return { ok: false, why: 'equip refused' };
     (window.__uniqUids ??= []).push(item.uid);
     if (!window.__origApply) {

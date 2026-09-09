@@ -634,6 +634,15 @@ Plan: `docs/DECISIONS.md`. Everything below is append-only; owners in brackets.
 
 ## 변경 이력
 
+- **2026-09-10 (보조무기 정책 · 새 수치 넷)** —
+  ① **보조무기는 "목록에서만" 뺐다.** `LoadoutSlot` · `WeaponSlot` · `Loadout.secondary` · `Keys.SECONDARY` ·
+  `DEFAULT_KEYS.SECONDARY` 는 **그대로 있다** (`src/shared` 는 추가만 한다 — 저장된 프리셋 · 크루 카드 ·
+  로드아웃 세이브가 그 이름을 쓴다). 지운 것은 `Keybinds` 의 `SECONDARY` 줄 하나 — 설정 화면의 조작 목록에서
+  사라졌다. 칸을 실제로 없앤 곳은 `inventory/model` 의 `LOADOUT_SLOTS` · `WEAPON_SLOT_IDS`,
+  `weapons/WeaponDefaults` 의 `WEAPON_SLOTS`, `ui/hud/SlotStrip` 이다.
+  ② 새 수치: `WAVE_SQUAD_SCALE`(`tables.csv`, 분대 인원별 탈출 웨이브 규모 배수) ·
+  `TRAM_START_DELAY_S` · `TRAM_ACCEL_S`(`constants.csv`), 그리고 `TRAM_SPEED` 가 14 → 11.2 로 내려갔다.
+
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
 - **2026-09-08 (폐금속 공급)** — 계약에는 **추가만** 했다.

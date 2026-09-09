@@ -12,10 +12,18 @@ import type { LoadoutSave } from './Loadout';
 /* ── UI ↔ system vocabulary ─────────────────────────────────────────────── */
 /** 'stash' = the ship stash (hub Tab screen only; persisted, see Stash.ts). */
 export type GridId = 'bag' | 'container' | 'stash';
-/** Equipment slots = the shared `LoadoutSlot` (주무기 I / 주무기 II / 보조무기 / 가방 / 방탄복). */
+/**
+ * Equipment slots = the shared `LoadoutSlot` (주무기 I / 주무기 II / 가방 / 방탄복).
+ *
+ * 2026-09-10 — **보조무기가 사라졌다** (사용자 결정). 무기 칸은 주무기 둘뿐이고 `Loadout.secondary` 는 항상 null 이다.
+ * `LoadoutSlot` · `Loadout.secondary` · `WeaponSlot` 의 `'secondary'` 자체는 **지우지 않았다** — `src/shared` 는
+ * 추가만 하는 계약이고, 저장된 프로필 · 프리셋 · 크루 카드가 그 이름으로 적혀 있기 때문이다 (`airstrike` 와 같은 처리).
+ * 지운 것은 **목록 · 아이템 · 데이터**다: 아래 두 배열, `slotAccepts`, `weapons/WEAPON_SLOTS`,
+ * `ui/hud/SlotStrip`, 카탈로그 · 상점 · 정비/프리셋 메뉴, 그리고 `data/weapons.csv` 의 권총 줄.
+ */
 export type SlotId = LoadoutSlot;
-export const LOADOUT_SLOTS: readonly LoadoutSlot[] = ['primary', 'primary2', 'secondary', 'bag', 'armor'];
-export const WEAPON_SLOT_IDS: readonly WeaponSlot[] = ['primary', 'primary2', 'secondary'];
+export const LOADOUT_SLOTS: readonly LoadoutSlot[] = ['primary', 'primary2', 'bag', 'armor'];
+export const WEAPON_SLOT_IDS: readonly WeaponSlot[] = ['primary', 'primary2'];
 /**
  * Where an item lives. `quick` (2026-09-09): a stack sitting **in** wheel slot `index` — the wheel is its own container
  * since that date, so an item there is in no grid (`locKind` = 'player', like the equipment slots).
@@ -89,11 +97,11 @@ export const MOD_CTRL = ['ControlLeft', 'ControlRight'] as const;
  */
 export const SPRAY_REFILL_COST: readonly CraftIngredient[] = [{ defId: 'mat_can', qty: 1 }, { defId: 'mat_antiseptic', qty: 1 }];
 
-/** Which item categories a loadout slot accepts. */
+/** Which item categories a loadout slot accepts. 2026-09-10: 보조무기 칸은 더 이상 아무것도 받지 않는다. */
 export function slotAccepts(def: ItemDef, slot: LoadoutSlot): boolean {
   if (slot === 'bag') return def.category === 'bag';
   if (slot === 'armor') return def.category === 'armor';
-  if (slot === 'secondary') return def.category === 'secondary';
+  if (slot === 'secondary') return false;
   return def.category === 'primary';
 }
 

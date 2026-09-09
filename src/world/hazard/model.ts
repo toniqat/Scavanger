@@ -18,6 +18,11 @@ export interface HazardRow {
   kind: HazardKind;
   /** 구역 안에서 포그 · 하늘에 섞어 넣을 색 (`atmo:override.color`). */
   fogColor: number;
+  /**
+   * 2026-09-10 — 구역 한복판에서 포그 농도에 곱하는 배수 = **시야 제한의 세기**. 예전에는 재해 넷이
+   * `HAZARD_FOG_MUL` 하나를 같이 썼는데, 폭풍의 눈은 "안이 안 보여야 눈이 눈에 띈다" 라 훨씬 커야 했다.
+   */
+  fogMul: number;
   particleColor: number;
   particleCount: number;
   particleSize: number;
@@ -41,6 +46,7 @@ export const HAZARD_ROWS: readonly HazardRow[] = csvRows('hazards.csv').map((r) 
   return {
     kind,
     fogColor: r.num('fogColor', { min: 0 }),
+    fogMul: r.num('fogMul', { min: 1, max: 60 }),
     particleColor: r.num('particleColor', { min: 0 }),
     particleCount: r.int('particleCount', { min: 0, max: 4000 }),
     particleSize: r.num('particleSize', { min: 0 }),

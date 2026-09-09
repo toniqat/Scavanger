@@ -41,9 +41,26 @@ const COL = {
   tram: '#ffd27f',
   grove: '#b98cff',
 };
-/** 재해 구역 채움 · 경계선. 안개 위에 얹는 얇은 붉은 층이라 지형이 그대로 비쳐야 한다. */
-const HAZARD_FILL = 'rgba(255, 77, 77, 0.16)';
-const HAZARD_LINE = 'rgba(255, 106, 61, 0.85)';
+/**
+ * 재해 구역 채움 · 경계선. 안개 위에 얹는 붉은 층이라 지형이 비쳐야 하지만, 2026-09-09 의 값
+ * (채움 0.16 · 선 2 px)은 컬러 지형 위에서 **모래 폭풍 · 눈보라가 있는지조차 안 보였다**.
+ * 2026-09-10: 채움을 올리고 그 위에 **빗금**(`hazardHatch`)을 한 겹 더 깐다 — 지형은 여전히 비치는데
+ * "이쪽은 위험" 은 한눈에 읽힌다. 경계선도 굵어지고 어두운 밑선을 깔아 밝은 지형 위에서도 버틴다.
+ */
+const HAZARD_FILL = 'rgba(255, 77, 77, 0.26)';
+const HAZARD_LINE = 'rgba(255, 122, 70, 0.95)';
+const HAZARD_LINE_UNDER = 'rgba(20, 6, 4, 0.75)';
+/** 빗금 무늬의 타일 한 변(px)과 선 색. */
+const HATCH_TILE = 9;
+const HATCH_LINE = 'rgba(255, 90, 60, 0.34)';
+
+/**
+ * 안개 경계선 (2026-09-10) — 밝혀진 칸과 아직 아닌 칸이 맞닿는 변. 컬러 레이어의 가장자리는 업스케일
+ * 스무딩으로 부드럽게 번져 "여기까지 봤다" 가 읽히지 않았다. 격자 변을 그대로 이어 **또렷한 선**을 긋는다:
+ * 밝은 선 밑에 어두운 선을 깔아 어떤 지형색 위에서도 보인다.
+ */
+const FOG_EDGE_LINE = 'rgba(232, 230, 225, 0.72)';
+const FOG_EDGE_UNDER = 'rgba(6, 8, 10, 0.85)';
 /** Phase 7: icon / label colour of a suspended squad member (socket down, ghost body kept). */
 const COL_SUSPENDED = '#8a8f99';
 const PING_CSS: Record<PingKind, string> = {
@@ -84,6 +101,14 @@ export class MapScreen {
   private fogLayer: HTMLCanvasElement | null = null;
   private fogDirty = true;
   private fogRevision = -1;
+  /**
+   * 안개 경계선의 선분들 (2026-09-10). 월드 좌표 m 로 `[x0, z0, x1, z1, …]`. `fog.revision` 이 바뀔 때만
+   * 다시 만들고 (마스크 격자 하나를 훑는다), 매 프레임에는 이 배열을 그대로 긋기만 한다.
+   */
+  private fogEdges: Float32Array | null = null;
+  private fogEdgeRevision = -1;
+  /** 재해 위험 구역에 까는 빗금 무늬. 캔버스 컨텍스트가 생긴 뒤 한 번만 만든다. */
+  private hazardHatch: CanvasPattern | null = null;
   private exploredEl: HTMLElement;
   private staticSeed = NaN;
 
@@ -242,7 +267,7 @@ export class MapScreen {
       b.on('world:ready', ({ seed }) => {
         this.activePadId = null; this.shipPos = null; this.pings.clear();
         this.staticCanvas = null; this.outlineCanvas = null; this.staticSeed = seed;
-        this.fogLayer = null; this.fogDirty = true; this.fogRevision = -1;
+        this.fogLayer = null; this.fogDirty = true; this.fogRevision = -1; this.fogEdges = null; this.fogEdgeRevision = -1;
         setText(this.seedEl, `SEED ${seed}`);
         setText(this.exploredEl, '—');
         this.resetView();
@@ -261,7 +286,7 @@ export class MapScreen {
       b.on('player:died', () => this.close(false)),
       b.on('game:abort', () => {
         this.close(false);
-        this.staticCanvas = null; this.outlineCanvas = null; this.fogLayer = null;
+        this.staticCanvas = null; this.outlineCanvas = null; this.fogLayer = null; this.fogEdges = null; this.fogEdgeRevision = -1;
         this.fogDirty = true; this.fogRevision = -1;
         this.pings.clear(); this.shipPos = null; this.activePadId = null;
       }),
@@ -460,7 +485,7 @@ export class MapScreen {
     }
     this.staticCanvas = this.upscale(img, n, true);
     this.outlineCanvas = this.upscale(outImg, n, false);
-    this.fogLayer = null;
+    this.fogLayer = null; this.fogEdges = null; this.fogEdgeRevision = -1;
     this.fogDirty = true;
   }
 
@@ -494,6 +519,7 @@ export class MapScreen {
    */
   private buildFogLayer(fog: FogRef | null): void {
     this.fogDirty = false;
+    this.buildFogEdges(fog);
     if (!fog || !this.staticCanvas) { this.fogLayer = null; return; }
     this.fogRevision = fog.revision;
     const n = fog.cells;
@@ -524,6 +550,69 @@ export class MapScreen {
     c.globalCompositeOperation = 'source-over';
   }
 
+  /**
+   * 안개 **경계선**의 선분 목록을 다시 만든다 (2026-09-10). 밝혀진 칸이 밝혀지지 않은 이웃과 맞닿는
+   * 변마다 선분 하나다. 맵 밖 이웃은 세지 않는다 — 지도 테두리가 이미 그 자리를 긋고 있다.
+   * `cells²`(80² = 6400) 를 한 번 훑을 뿐이고, `fog.revision` 이 바뀔 때만 돈다.
+   */
+  private buildFogEdges(fog: FogRef | null): void {
+    if (!fog) { this.fogEdges = null; this.fogEdgeRevision = -1; return; }
+    this.fogEdgeRevision = fog.revision;
+    const n = fog.cells;
+    const cs = fog.cellSize;
+    const half = (n * cs) / 2;
+    const m = fog.mask;
+    const out: number[] = [];
+    for (let cz = 0; cz < n; cz++) {
+      for (let cx = 0; cx < n; cx++) {
+        if (m[cz * n + cx] === 0) continue;
+        const x0 = -half + cx * cs, z0 = -half + cz * cs;
+        const x1 = x0 + cs, z1 = z0 + cs;
+        if (cx + 1 < n && m[cz * n + cx + 1] === 0) out.push(x1, z0, x1, z1);
+        if (cx > 0 && m[cz * n + cx - 1] === 0) out.push(x0, z0, x0, z1);
+        if (cz + 1 < n && m[(cz + 1) * n + cx] === 0) out.push(x0, z1, x1, z1);
+        if (cz > 0 && m[(cz - 1) * n + cx] === 0) out.push(x0, z0, x1, z0);
+      }
+    }
+    this.fogEdges = out.length ? Float32Array.from(out) : null;
+  }
+
+  /** 안개 경계선을 긋는다 (어두운 밑선 + 밝은 선). 컬러 레이어 바로 위, 격자 밑이다. */
+  private drawFogEdges(): void {
+    const e = this.fogEdges;
+    if (!e || e.length === 0) return;
+    const c = this.c2d;
+    const path = new Path2D();
+    for (let i = 0; i < e.length; i += 4) {
+      path.moveTo(this.toX(e[i]), this.toY(e[i + 1]));
+      path.lineTo(this.toX(e[i + 2]), this.toY(e[i + 3]));
+    }
+    c.save();
+    c.lineCap = 'square';
+    c.strokeStyle = FOG_EDGE_UNDER; c.lineWidth = 3;
+    c.stroke(path);
+    c.strokeStyle = FOG_EDGE_LINE; c.lineWidth = 1.4;
+    c.stroke(path);
+    c.restore();
+  }
+
+  /** 빗금 무늬 타일 (한 번만 만든다). 컨텍스트가 없으면 null 이고 그때는 채움만 쓴다. */
+  private hatch(): CanvasPattern | null {
+    if (this.hazardHatch) return this.hazardHatch;
+    const t = document.createElement('canvas');
+    t.width = HATCH_TILE; t.height = HATCH_TILE;
+    const tc = t.getContext('2d');
+    if (!tc) return null;
+    tc.strokeStyle = HATCH_LINE;
+    tc.lineWidth = 2;
+    tc.beginPath();
+    tc.moveTo(-HATCH_TILE, HATCH_TILE); tc.lineTo(HATCH_TILE, -HATCH_TILE);
+    tc.moveTo(0, HATCH_TILE * 2); tc.lineTo(HATCH_TILE * 2, 0);
+    tc.stroke();
+    this.hazardHatch = this.c2d.createPattern(t, 'repeat');
+    return this.hazardHatch;
+  }
+
   /** 안개 게이트: 아직 밝혀지지 않은 자리의 오브젝트는 지도에 그리지 않는다. 안개가 없으면 전부 보인다. */
   private discovered(pos: THREE.Vector3): boolean {
     const fog = this.ctx?.world?.fog;
@@ -544,8 +633,11 @@ export class MapScreen {
     const fog = ctx.world?.fog ?? null;
     if (fog) {
       if (this.fogDirty || this.fogRevision !== fog.revision) this.buildFogLayer(fog);
+      else if (this.fogEdgeRevision !== fog.revision) this.buildFogEdges(fog);
       if (this.outlineCanvas) c.drawImage(this.outlineCanvas, this.ox, this.oy, extent, extent);
       if (this.fogLayer) c.drawImage(this.fogLayer, this.ox, this.oy, extent, extent);
+      // 2026-09-09 의 컬러 레이어는 가장자리가 스무딩으로 번져 "여기까지 봤다" 가 안 읽혔다 (2026-09-10)
+      this.drawFogEdges();
     } else if (this.staticCanvas) {
       c.drawImage(this.staticCanvas, this.ox, this.oy, extent, extent);
     }
@@ -825,6 +917,19 @@ export class MapScreen {
     const s = this.scale();
     const L = this.size * 2;   // 반평면을 캔버스 밖까지 확실히 덮는 길이(m)
 
+    // 2026-09-10: 채움 한 겹 + **빗금** 한 겹. 같은 길을 두 번 채우므로 `fill` 뒤에도 경로를 그대로 쓴다.
+    const hatch = this.hatch();
+    const paint = (rule?: CanvasFillRule): void => {
+      c.fillStyle = HAZARD_FILL;
+      if (rule) c.fill(rule); else c.fill();
+      if (hatch) { c.fillStyle = hatch; if (rule) c.fill(rule); else c.fill(); }
+    };
+    /** 경계선: 어두운 밑선 위에 밝은 선 — 밝은 지형 위에서도 살아남는다. */
+    const edge = (draw: () => void): void => {
+      c.strokeStyle = HAZARD_LINE_UNDER; c.lineWidth = 4.5; c.beginPath(); draw(); c.stroke();
+      c.strokeStyle = HAZARD_LINE; c.lineWidth = 2.2; c.beginPath(); draw(); c.stroke();
+    };
+
     c.save();
     c.beginPath(); c.rect(0, 0, C, C); c.clip();
     for (const z of hz.getZones()) {
@@ -836,20 +941,18 @@ export class MapScreen {
           [z.center.x - px * L - z.dirX * L, z.center.z - pz * L - z.dirZ * L],
           [z.center.x + px * L - z.dirX * L, z.center.z + pz * L - z.dirZ * L],
         ];
-        c.fillStyle = HAZARD_FILL;
         c.beginPath();
         pts.forEach(([wx, wz], i) => { const X = this.toX(wx), Y = this.toY(wz); if (i) c.lineTo(X, Y); else c.moveTo(X, Y); });
-        c.closePath(); c.fill();
-        c.strokeStyle = HAZARD_LINE; c.lineWidth = 2;
-        c.beginPath();
-        c.moveTo(this.toX(pts[0][0]), this.toY(pts[0][1]));
-        c.lineTo(this.toX(pts[1][0]), this.toY(pts[1][1]));
-        c.stroke();
+        c.closePath();
+        paint();
+        edge(() => {
+          c.moveTo(this.toX(pts[0][0]), this.toY(pts[0][1]));
+          c.lineTo(this.toX(pts[1][0]), this.toY(pts[1][1]));
+        });
         continue;
       }
       const cx = this.toX(z.center.x), cy = this.toY(z.center.z);
       const rr = Math.max(1, z.radius * s);
-      c.fillStyle = HAZARD_FILL;
       c.beginPath();
       if (z.safeInside) {
         // 원 밖이 위험: 캔버스 사각형에서 원을 도려낸다 (even-odd).
@@ -857,13 +960,12 @@ export class MapScreen {
         c.rect(0, 0, C, C);
         c.moveTo(cx + rr, cy);
         c.arc(cx, cy, rr, 0, Math.PI * 2);
-        c.fill('evenodd');
+        paint('evenodd');
       } else {
         c.arc(cx, cy, rr, 0, Math.PI * 2);
-        c.fill();
+        paint();
       }
-      c.strokeStyle = HAZARD_LINE; c.lineWidth = 2;
-      c.beginPath(); c.arc(cx, cy, rr, 0, Math.PI * 2); c.stroke();
+      edge(() => c.arc(cx, cy, rr, 0, Math.PI * 2));
     }
     c.restore();
 
@@ -974,7 +1076,7 @@ export class MapScreen {
     }
     this.staticCanvas = null;
     this.outlineCanvas = null;
-    this.fogLayer = null;
+    this.fogLayer = null; this.fogEdges = null; this.fogEdgeRevision = -1; this.hazardHatch = null;
     this.root.remove();
   }
 }

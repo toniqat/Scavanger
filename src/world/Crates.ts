@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { Layers, type CrateDef, type GameContext, type Interactable, type Random } from '@/shared';
 import { type BuildCtx, isSpotFree, makeSoftParticleTexture, merge, paint, paintGradient, xform } from './build';
-import { PLAY_LIMIT } from './build';
 
 const CRATE_W = 1.25, CRATE_H = 0.85, CRATE_D = 0.8;
 const OPEN_ANGLE = -1.95;       // radians, lid hinges up/back
@@ -82,29 +81,28 @@ export class Crates {
       return placed;
     };
 
-    // tier 2 near POIs (2 each), tier 3 near nests (1 each, ring outside the mounds)
-    for (const poi of ctx.layout.pois) ring(poi.x, poi.z, 2.5, 8.5, 2, 2, 40, true);
+    /* 2026-09-10 — **허허벌판에는 상자를 두지 않는다** (사용자 결정).
+     *
+     * 예전 배치는 1티어 상자 30~40개를 맵 전체에 흩뿌리고 3~4티어까지 아무 자리에나 놓았다. 그래서
+     * 걷다 우연히 밟는 상자가 대부분이었고 "3~4등급이 필드에 널려 있다" 가 됐다. 이제 상자는 **사람이
+     * 있던 자리**에만 선다 — 폐허 전초(POI) · 버려진 구조물 둘레 · 둥지. 구조물 **안**의 컨테이너는
+     * 여전히 `world/structures` 가, 플랫폼 위의 것은 `world/Rails` 가 따로 놓는다.
+     * **4티어는 이 파일이 더 이상 놓지 않는다** — 지하실 · 불시착 함선 안에만 있다 (`data/structures.csv`).
+     * 총량은 예전(30~40)과 비슷한 20~40개이고 전부 랜드마크 둘레에 모여 있다. */
+
+    // 폐허 전초(POI) 5~8곳 — 이 맵의 주된 야외 루팅 지점. 2티어 하나 + 1티어 둘.
+    for (const poi of ctx.layout.pois) {
+      ring(poi.x, poi.z, 2.5, 9, 2, 1, 40, true);
+      ring(poi.x, poi.z, 3, 13, 1, 2, 70, true);
+    }
+    // 버려진 구조물(전진기지 · 연구실 · 불시착 함선) 둘레 — 벽 **바깥**에 3티어 하나 + 2티어 한둘.
+    for (const st of ctx.layout.structures) {
+      const reach = Math.hypot(st.halfW, st.halfD) + 4;      // = 그 구조물 pad 의 반지름
+      ring(st.pad.x, st.pad.z, reach + 2, reach + 10, 3, 1, 60, true);
+      ring(st.pad.x, st.pad.z, reach + 2, reach + 15, 2, 1 + rng.int(0, 1), 80, true);
+    }
+    // 둥지 4~6 — 언덕 바깥 고리에 3티어 하나 (지키는 벌레가 값을 한다).
     for (const nest of ctx.layout.nests) ring(nest.x, nest.z, 15, 21, 3, 1, 40, true);
-    // 1–2 tier-4 caches far from spawn
-    {
-      const want = rng.int(1, 2);
-      let placed = 0;
-      const sp = ctx.layout.spawn;
-      for (let a = 0; a < 400 && placed < want; a++) {
-        const x = rng.range(-PLAY_LIMIT + 20, PLAY_LIMIT - 20), z = rng.range(-PLAY_LIMIT + 20, PLAY_LIMIT - 20);
-        if (Math.hypot(x - sp.x, z - sp.z) < 200) continue;
-        if (tryPlace(x, z, 4, 6)) placed++;
-      }
-    }
-    // tier 1 in the open until we reach 28–40 total (bias slightly toward the spawn half being sparse)
-    {
-      const total = rng.int(30, 40);
-      for (let a = 0; a < 3000 && placements.length < total; a++) {
-        const x = rng.range(-PLAY_LIMIT + 10, PLAY_LIMIT - 10), z = rng.range(-PLAY_LIMIT + 10, PLAY_LIMIT - 10);
-        // a few tier-1s allowed on the fringe of extraction pads (outside the 14 m clear zone)
-        tryPlace(x, z, 1, 3);
-      }
-    }
 
     // ── build instances ───────────────────────────────────────────────
     let id = 0;

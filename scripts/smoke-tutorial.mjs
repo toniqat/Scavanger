@@ -576,7 +576,8 @@ try {
     const l = window.__game.ctx.inventory.getLoadout();
     return { step: window.__game.ctx.tutorial.step, primary: l.primary?.defId ?? null, primary2: l.primary2?.defId ?? null };
   });
-  ok(equipped.primary2 === 'wpn_ar' && equipped.primary === null && ['stowAmmo', 'terminal'].includes(equipped.step),
+  // 2026-09-10: 보조무기 칸이 사라져 시작 지급품이 **주무기 I** 에 기관단총을 준다 — 예전처럼 I 칸이 비어 있지 않다.
+  ok(equipped.primary2 === 'wpn_ar' && ['stowAmmo', 'terminal'].includes(equipped.step),
     '주무기 II 칸에 장착해도 장착 단계가 끝난다', JSON.stringify(equipped));
 
   /* 2026-09-09: 창고에는 튜토리얼이 쓰는 것만 보인다 (`stashItem` 게이트 — 데이터는 그대로, 그리지 않을 뿐) */

@@ -25,7 +25,7 @@ interface CatalogTab {
 /** Category tabs of the 무한 상자, derived from `ItemCategory` (weapons / consumables / materials fold two categories each). */
 export const CATALOG_TABS: readonly CatalogTab[] = [
   { id: 'all', label: TEXT.catalog.tabs.all, categories: null },
-  { id: 'weapon', label: TEXT.catalog.tabs.weapon, categories: ['primary', 'secondary'] },
+  { id: 'weapon', label: TEXT.catalog.tabs.weapon, categories: ['primary'] },   // 2026-09-10: 보조무기 제거
   { id: 'ammo', label: TEXT.catalog.tabs.ammo, categories: ['ammo'] },
   { id: 'attachment', label: TEXT.catalog.tabs.attachment, categories: ['attachment'] },
   { id: 'bag', label: TEXT.catalog.tabs.bag, categories: ['bag'] },

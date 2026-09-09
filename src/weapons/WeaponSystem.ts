@@ -259,11 +259,12 @@ export class WeaponSystem implements GameSystem {
     // fallback loadout if no inventory ever speaks
     if (this.loadoutWait > 0) {
       this.loadoutWait -= dt;
-      if (this.loadoutWait <= 0 && !this.slots.primary && !this.slots.primary2 && !this.slots.secondary) {
+      // 2026-09-10: 보조무기가 없어져 대비책도 주무기 하나뿐이다 (`WEAPON_SLOTS`).
+      if (this.loadoutWait <= 0 && !this.slots.primary && !this.slots.primary2) {
         this.onLoadout({
           primary: { uid: 'default-primary', defId: defaultFor('primary').id, qty: 1, rotated: false },
           primary2: null,
-          secondary: { uid: 'default-secondary', defId: defaultFor('secondary').id, qty: 1, rotated: false },
+          secondary: null,
         });
       }
     }
@@ -303,20 +304,20 @@ export class WeaponSystem implements GameSystem {
     // the wheel eats mouse buttons as well as the look delta
     const inputFree = usable && !this.wheelOpen && !carryBusy;
 
-    // ── swap (1 / 2 / 3) — also the way back from a consumable to a gun.
+    // ── swap (1 / 2) — also the way back from a consumable to a gun.
     // 2026-09-07: the 이전 무기 key (V) is retired — V is 구르기 now, and Alt frees the cursor.
+    // 2026-09-10: 보조무기(3번)가 사라져 `Keys.SECONDARY` 는 아무 칸도 가리키지 않는다 — 바인딩은 계약이라 남기고
+    //             여기서만 읽지 않는다 (`WEAPON_SLOTS` 가 두 칸이므로 눌러도 뽑을 무기가 없다).
     if (inputFree) {
       const want: WeaponSlot | null | undefined =
         input.wasPressed(Keys.PRIMARY) ? 'primary'
-          : input.wasPressed(Keys.PRIMARY2) ? 'primary2'
-            : input.wasPressed(Keys.SECONDARY) ? 'secondary' : undefined;
+          : input.wasPressed(Keys.PRIMARY2) ? 'primary2' : undefined;
       if (want !== undefined) this.requestSwap(want);
     } else if (this.implantHolstered && armedAndFree && !carryBusy && !this.wheelOpen) {
       // a wielded implant (대전차포) is in the hands: a weapon key stows it and draws that weapon
       const want: WeaponSlot | null | undefined =
         input.wasPressed(Keys.PRIMARY) ? 'primary'
-          : input.wasPressed(Keys.PRIMARY2) ? 'primary2'
-            : input.wasPressed(Keys.SECONDARY) ? 'secondary' : undefined;
+          : input.wasPressed(Keys.PRIMARY2) ? 'primary2' : undefined;
       if (want !== undefined) {
         ctx.implants?.stow();
         if (want && this.slots[want] && want !== this.active) this.requestSwap(want);
