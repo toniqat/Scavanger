@@ -46,6 +46,38 @@ Phase 0 – 12 는 전부 구현 완료다 (2026-09-05 ~ 2026-09-08). 각 단계
 
 최신순. 새 항목은 이 섹션 맨 위에 추가한다.
 
+- 2026-09-10 (데스크톱 앱: ESC 로 화면을 닫으면 조작이 죽던 문제):
+  사용자 보고 — **exe 에서 Tab 화면 · 여러 화면을 ESC 로 닫으면 바로 조작이 안 되고 좌클릭을 한 번 해야
+  된다.** 코드에 적혀 있던 진단("Escape 에는 user activation 이 없어서 재잠금이 거부된다")이 **틀렸다는
+  것**이 이 작업의 내용이다.
+  - **계측.** Electron 44 로 최소 페이지를 띄우고 `webContents.sendInputEvent` 로 진짜 Escape 를 넣어
+    `requestPointerLock` 의 거부 사유를 직접 읽었다. ① 화면이 열려 있는 동안에는 락이 없고, ESC 로 화면이
+    닫히면 `main.ts` 가 **그 Escape 를 처리하는 중에** 락을 요청해 Chromium 이 **허가한다** — 그리고 아직
+    진행 중이던 그 Escape 가 방금 생긴 락을 도로 가져간다(브라우저 눈에는 *사용자가 Escape 로 푼 것*).
+    ② 그 뒤 **~1.25초 동안 모든 재요청이 거부된다**("Pointer lock cannot be acquired immediately after the
+    user has exited the lock"). ③ 이 쿨다운은 **시간에만** 반응한다 — 사용자 해제 200 ms · 400 ms 뒤 거부,
+    그 사이에 진짜 키를 넣어도 거부, 1500 ms 뒤 허가. 즉 좌클릭이 카메라를 살린 것은 클릭에 힘이 있어서가
+    아니라 클릭할 즈음이면 1.25초가 지나 있어서였다. ④ Escape 를 **뗀 뒤** 요청하면 activation 없이도 성공한다.
+    ⑤ 따라서 `electron/main.ts` 가 `executeJavaScript(..., true)` 로 건네던 activation 은 원인을 잘못 짚은
+    것이었다(같은 실측에서 activation 을 달고도 쿨다운 안이면 그대로 거부).
+  - **고친 것** (`src/shared/Input.ts` 한 파일 + 상수 3개) — 재잠금 요청을 **보낼 시각을 `Input` 이 고른다**:
+    Escape 를 누르고 있는 동안 + 뗀 뒤 `LOCK_ESCAPE_DEFER_MS`(180 ms), 사용자 해제 뒤
+    `LOCK_USER_EXIT_COOLDOWN_MS`(1350 ms) 안에 들어온 요청은 브라우저에 보내지 않고 의사만 남겼다가
+    (`deferredRelock`) `endFrame` 이 풀리는 첫 프레임에 **한 번만** 보낸다. Escape 시각은 window **capture**
+    리스너로 재서 팝업이 키를 삼켜도 놓치지 않는다. 결과가 오기 전에는 새 요청을 보내지 않아
+    (`lockInFlight`) 같은 클릭 · 같은 tick 에 겹치던 중복 요청이 사라졌고, 타이밍 때문에 거부되면
+    (`too many …` / `immediately after the user has exited` / `pointer lock pending`)
+    `LOCK_RELOCK_RETRIES`(3) 회까지 스스로 다시 보낸다 — 그 밖의 거부(`"A user gesture is required"`)만
+    예전처럼 제스처 재시도 · `좌측 클릭으로 게임 재개` 게이트로 간다(`Input.relockScheduled` 가 켜져 있는
+    동안 게이트는 뜨지 않는다 — 안 그러면 1초쯤 떴다 사라진다). 튕김 판정(`LOCK_BOUNCE_GRACE_MS`)의 기준은
+    **요청 시각 → 획득 시각**(`lockAcquiredAt`)으로 옮겼다(재잠금이 미뤄져 요청·획득 간격이 벌어졌기 때문).
+  - **검증.** 실제 게임을 Electron 창에 띄우고 진짜 키를 넣어 측정: ESC 로 인벤토리 · 지도를 닫으면 카메라가
+    **+245 ms** 에 스스로 돌아온다(고치기 전에는 클릭 전까지 영영), 자기 키(Tab · M)로 닫으면 **+0–5 ms**,
+    스로틀에 걸린 경우도 클릭 없이 1.35초 뒤 복구. `npm run verify:all`.
+  - 문서: [src/shared/README.md](../src/shared/README.md) 2026-09-10 절(실측 · 규칙),
+    [src/game/README.md](../src/game/README.md) · [electron/README.md](../electron/README.md) 에 **정정** 표시,
+    [CLAUDE.md](../CLAUDE.md) 규약 한 줄.
+
 - 2026-09-09 (레이드 콘텐츠 — 구조물 · 선로/전차 · 환경 재해 · 로그 강하 · 의사소통 휠 · 행성별 등급 드롭):
   사용자 요청 7건을 한 묶음으로 받았다. 결정은 AskUserQuestion 8문항 — ① 드롭률의 기준은 **상자 1개당**,
   ② 행성 순번은 **`data/planets.csv` 의 줄 순서 = 난이도 순**(1 아켈론 II … 5 카민 I), ③ 구조물은

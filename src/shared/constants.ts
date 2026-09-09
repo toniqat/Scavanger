@@ -865,6 +865,12 @@ export const FREE_CURSOR_BLOCKER = 'cursor';
 /** How long a denied pointer-lock request keeps waiting for the next real user gesture to retry (ms). */
 export const LOCK_GESTURE_RETRY_MS = K.num('LOCK_GESTURE_RETRY_MS');
 export const LOCK_BOUNCE_GRACE_MS = K.num('LOCK_BOUNCE_GRACE_MS');
+/** Escape 를 뗀 뒤 포인터 락을 다시 요청하기까지 기다리는 시간 (ms) — `Input` 의 재잠금 지연. */
+export const LOCK_ESCAPE_DEFER_MS = K.num('LOCK_ESCAPE_DEFER_MS');
+/** 사용자가 Escape 로 락을 푼 뒤 Chromium 이 재요청을 거부하는 쿨다운 (ms). */
+export const LOCK_USER_EXIT_COOLDOWN_MS = K.num('LOCK_USER_EXIT_COOLDOWN_MS');
+/** 타이밍 때문에 거부된 포인터 락 요청을 스스로 다시 보내는 최대 횟수. */
+export const LOCK_RELOCK_RETRIES = K.num('LOCK_RELOCK_RETRIES');
 
 /* ══ appended: Phase 11 — 행성 선택 · 소셜 (2026-09-07) ═════════════════════════════════════════════════════ */
 

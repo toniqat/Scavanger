@@ -1010,3 +1010,56 @@ smoke-tutorial 83/83, smoke-hazard 43/43, smoke-hangar 58/58, e2e-mp 156/156
 - **같은 시드의 소품 · 상자 · 채집물 배치가 이 배치 전과 다르다.** 구조물 · 선로 · 버섯 군락이 `SpatialHash`
   에 먼저 들어가 `isSpotFree` 가 그 자리를 피하기 때문이다 (2026-09-09 앞 배치의 소품 콜라이더 확대와 같은
   성격). **멀티 결정성은 그대로다** — 모든 클라이언트가 같은 시드로 같은 코드를 돈다.
+
+## 2026-09-10 — 데스크톱 앱: ESC 로 화면을 닫으면 조작이 죽던 문제
+
+`typecheck ok, typecheck-server ok, net-selftest 295/295, data-check ok, smoke-controls-hub 130/130,
+smoke-resume-gate 62/62` (두 스모크는 각각 단독으로 clean, 각 1분 이내).
+그 전에 돌린 `verify:all` 은 **6분 46초에 1 failed** — 아래 4건이고, 전부 이 변경으로 계약이 바뀐 스모크
+쪽이라 스모크를 고쳤다(코드가 아니라).
+
+### 브라우저를 계측해서 잡았다 (스모크가 아니라)
+
+스모크의 포인터 락은 **스텁**이라 이 버그를 볼 수 없다 — Chromium 이 락을 주고 빼앗는 규칙 자체가 원인이기
+때문이다. 그래서 두 단계로 쟀다.
+
+1. **최소 Electron 페이지** (`app.whenReady` → 캔버스 하나) + `webContents.sendInputEvent` 로 **진짜 Escape**.
+   `requestPointerLock()` 의 거부 사유를 그대로 읽었다:
+   - Escape 처리 **중**에 요청 → 허가됐다가 같은 Escape 로 회수(= 사용자 해제).
+   - 그 뒤 200 ms · 400 ms 뒤 요청 → `"Pointer lock cannot be acquired immediately after the user has exited
+     the lock."` 사이에 **진짜 키 입력을 넣어도** 같은 거부. 1500 ms 뒤 → 허가.
+     → 쿨다운은 **시간에만** 반응한다(≈1.25초). 좌클릭이 듣는 것처럼 보인 이유가 이것이다.
+   - Escape 를 **뗀 뒤** 요청 → user activation 없이도 허가, 그대로 유지.
+     → `executeJavaScript(..., true)` 의 activation 은 이 문제와 무관했다.
+   - 같은 ms 에 두 번 요청 → 두 번째가 `"Pointer lock pending"`, 짧은 구간에 여러 번 → `"Too many pointer
+     lock requests in a short window of time"`.
+2. **실제 게임을 Electron 창에 띄우고** 같은 방식으로 진짜 키를 넣어(`Tab` · `m` · `Escape`) 카메라가 돌아오는
+   시각을 쟀다: **ESC 로 인벤토리 · 지도 닫기 → +245 ms 에 스스로 복귀**(고치기 전에는 클릭 전까지 영영),
+   **자기 키(Tab · M)로 닫기 → +0–5 ms**, 스로틀에 걸린 경우도 **클릭 없이 1.35초 뒤** 복구.
+   호출부 추적(`new Error().stack`)으로 요청 주체가 `flushDeferredRelock` 하나인 것도 확인했다 —
+   고치기 전에는 한 클릭에 `takeLockOnClick` 과 `onLockGesture` 가 같은 ms 에 두 번 요청하고 있었다.
+
+### 스모크 쪽에서 고친 4건 (`smoke-controls-hub`, 전부 계약 변경)
+
+`a denied pointer-lock request arms the gesture retry` 계열 3건과 `좌클릭이 … 다시 요청한다` 1건이
+red 였다. **코드가 틀린 게 아니라 검사가 옛 계약을 보고 있었다**:
+
+- 앞 절이 "플레이어가 뺏은 락"을 만들어 두고 곧바로 요청했다 → 이제 그 요청은 쿨다운 동안 **미뤄지므로**
+  스텁에 닿지도 않고, 따라서 거부되지도 · 제스처 재시도가 걸리지도 않는다. → 1.5초 기다렸다가 검사한다.
+- Escape 를 누른 **직후** 다른 키로 재시도를 확인했다 → 그 요청도 `LOCK_ESCAPE_DEFER_MS` 만큼 미뤄진다
+  (그게 이 수정의 요점이다). → 250 ms 뒤에 키를 눌러 검사한다.
+- 좌클릭 검사는 **60 ms 전 요청의 결과가 오기 전**이라 이제 요청이 합쳐진다 → 클릭이 낸 의사는 남고
+  `endFrame` 이 250 ms 뒤에 보낸다. → 400 ms 뒤에 `lastLockRequest` 를 본다.
+
+새 검사 2종: `Escape 직후의 재요청은 미뤄진다`(`smoke-controls-hub`), 그리고 `smoke-resume-gate` **8b** —
+ESC 로 화면을 닫으면 재잠금 요청이 **정확히 한 번**, **Escape 키보다 150 ms 이상 뒤에** 나가고, 게이트는
+뜨지 않으며 카메라가 클릭 없이 돌아온다.
+
+### 주의: 마지막 `verify:all` 은 신뢰할 수 없다
+
+이 작업 마지막에 돌린 전체 스위트는 **7 failed** 였지만 전부 환경 문제다 — 같은 저장소를 다른 쪽에서
+동시에 편집하고 있어(`src/inventory/*` · `src/weapons/*` · `src/meta/*` · `src/ui/*` 등 30여 파일)
+**돌아가는 도중 vite HMR page reload 가 21번** 일어났다. 실패 문구도 그것이다:
+`Execution context was destroyed, most likely because of a navigation` · `timeout waiting for playing`.
+같은 이유로 이 배치의 스모크 정리는 `smoke-controls-hub` · `smoke-resume-gate` **단독 실행 결과**를 근거로
+삼았다. 편집이 멎은 뒤 `npm run verify:all` 을 한 번 다시 돌려야 한다.

@@ -51,12 +51,16 @@ try {
     // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
     try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
     // Realistic lock stub: grant = lock taken (async `pointerlockchange`, like the real thing); refuse = rejected promise.
-    window.__lockCalls = { req: 0, exit: 0, refused: 0 };
+    window.__lockCalls = { req: 0, exit: 0, refused: 0, lastReqAt: 0 };
+    // 2026-09-10: Escape 가 페이지에 닿은 시각 — 재잠금 요청이 그 키를 피해 갔는지 재는 기준.
+    window.__escAt = 0;
+    window.addEventListener('keydown', (e) => { if (e.code === 'Escape') window.__escAt = performance.now(); }, true);
     window.__lockEl = null;
     window.__lockGrant = true;
     const plc = () => setTimeout(() => document.dispatchEvent(new Event('pointerlockchange')), 0);
     Element.prototype.requestPointerLock = function () {
       window.__lockCalls.req++;
+      window.__lockCalls.lastReqAt = performance.now();
       if (!window.__lockGrant) { window.__lockCalls.refused++; return Promise.reject(new DOMException('The user has exited the lock before this request was completed.', 'SecurityError')); }
       window.__lockEl = document.getElementById('game-canvas');
       plc();
@@ -113,6 +117,7 @@ try {
       menuVis: vis(menu), gateVis: vis(gate), gateBlur: gate ? (getComputedStyle(gate).backdropFilter || getComputedStyle(gate).webkitBackdropFilter || '') : '',
       gateZ: gate ? getComputedStyle(gate).zIndex : null, menuZ: menu ? getComputedStyle(menu).zIndex : null, invZ: inv ? getComputedStyle(inv).zIndex : null,
       nocursor: document.body.classList.contains('desktop-nocursor'), lock: { ...window.__lockCalls }, time: ctx.time,
+      scheduled: ctx.input.relockScheduled, escAt: window.__escAt,
     };`));
   /**
    * Wait until a predicate over the snapshot below holds. `pred` is **source text** (`'(s) => s.gateVis'`): puppeteer
@@ -281,6 +286,26 @@ try {
   await grant(true);
   await P(() => [...document.querySelectorAll('.menu.pause button')].find((b) => b.textContent.includes('게임으로 돌아가기')).click());
   await waitState('(s) => !s.menuVis && s.locked', 'resumed (8)', 5000);
+
+  /* ── 8b. ESC 로 닫은 뒤의 재잠금은 그 키를 피해서 나간다 (2026-09-10) ─────────
+   * exe 에서 ESC 로 화면을 닫으면 조작이 죽고 좌클릭을 해야 살아나던 문제. Escape 를 처리하는 중에 락을
+   * 요청하면 Chromium 이 허가했다가 같은 Escape 로 도로 가져가고(= 사용자 해제) 그 뒤 ~1.25초 동안 모든
+   * 재요청을 거부한다 — 어떤 제스처로도 앞당겨지지 않는다. 그래서 `Input` 은 Escape 를 뗀 뒤
+   * `LOCK_ESCAPE_DEFER_MS` 가 지나서야 요청을 **한 번** 보낸다. */
+  console.log('8b. ESC 로 화면을 닫으면 재잠금 요청이 Escape 를 피해 나가고, 클릭 없이 카메라가 돌아온다');
+  await openContainer('test:8b');
+  await waitState('(s) => s.invVis && s.cursor', 'container for the deferred-relock test', 5000);
+  const req8b = (await state()).lock.req;
+  const gateN8b = (await gateEvents()).length;
+  await tap('Escape');
+  await waitState('(s) => !s.cursor', 'ESC released the cursor', 5000);
+  await waitState('(s) => s.locked', 'the camera came back with no click at all', 5000);
+  s = await state();
+  ok(s.lock.req === req8b + 1, 'ESC 닫기가 낸 재잠금 요청은 정확히 한 번이다', `${s.lock.req} vs ${req8b}`);
+  ok(s.lock.lastReqAt - s.escAt >= 150,
+    'and it waited out the Escape (≥150 ms after the key) instead of asking during it',
+    `${Math.round(s.lock.lastReqAt - s.escAt)} ms`);
+  ok((await gateEvents()).length === gateN8b, '재개 게이트는 뜨지도 않았다 (요청이 거부되지 않았으므로)');
   // LIFO: 두 겹으로 열려 있으면 ESC 한 번은 **나중에 열린 것** 하나만 닫는다 (`shared/escape`).
   await P(() => {
     const e = window.__game.ctx.escape;

@@ -159,8 +159,19 @@ start-server.bat relay   # 릴레이만 (npm run server, 0.0.0.0:8787) — 데�
   요청하는데, 전체화면 Chrome 과 데스크톱 셸은 그 락을 넘겨줬다가 곧바로 도로 가져갈 때가 있다. 그것을
   `onUserUnlock` 으로 흘려 보내면 `game/` 이 플레이어의 Escape 로 읽어 **일시정지 메뉴를 혼자 띄운다** —
   하우징 모드를 Tab 으로 닫으면 ESC 메뉴가 뜨던 문제이고, 닫으면서 락을 되찾는 화면 전부가 같은 뿌리였다.
-  `shared/Input` 이 우리 요청(`lastLockRequest`) 뒤 `LOCK_BOUNCE_GRACE_MS` 안의 락 상실을 걸러 내고
+  `shared/Input` 이 락을 **잡은 직후**(`lockAcquiredAt`) `LOCK_BOUNCE_GRACE_MS` 안의 락 상실을 걸러 내고
   제스처 재시도만 건다. 이 창 안에서 진짜 Escape 를 놓쳐도 락 없는 Escape 는 진짜 keydown 으로 들어온다.
+- **Escape 직후에는 포인터 락을 요청하지 않는다** (2026-09-10). 데스크톱 앱에서 ESC 로 화면을 닫으면 조작이
+  죽고 좌클릭을 해야 살아나던 문제의 뿌리다. Escape 를 처리하는 중에 락을 요청하면 Chromium 이 그것을
+  **허가했다가 같은 Escape 로 도로 가져가고**(= 사용자 해제), 그 뒤 **약 1.25초 동안 모든 재요청을 거부한다**
+  ("Pointer lock cannot be acquired immediately after the user has exited the lock"). 이 쿨다운은 시간에만
+  반응한다 — 클릭도 키도, `electron/main.ts` 가 건네는 user activation 도 앞당기지 못한다(그래서 좌클릭이
+  듣는 것처럼 보였다: 클릭할 즈음이면 1.25초가 지나 있었을 뿐이다). 그래서 `shared/Input` 이 요청을 보낼
+  시각을 스스로 고른다 — Escape 를 누르고 있는 동안 + 뗀 뒤 `LOCK_ESCAPE_DEFER_MS`, 사용자 해제 뒤
+  `LOCK_USER_EXIT_COOLDOWN_MS` 안에 들어온 요청은 **브라우저에 보내지 않고** 의사만 적어 뒀다가
+  (`deferredRelock`) `endFrame` 이 풀리는 첫 프레임에 한 번만 보낸다. 겹친 요청은 하나로 합쳐지고
+  (`lockInFlight`), 타이밍 때문에 거부되면 `LOCK_RELOCK_RETRIES` 회까지 스스로 다시 보낸다. 새 코드에서
+  **락을 다시 잡는 지점은 여전히 `main.ts` 하나**이고, 미루는 일은 전부 `Input` 안에서 끝난다.
 - **Escape 는 열려 있는 화면 중 맨 위 하나를 닫는다** (2026-09-09, 2026-09-08 규칙 개정). 닫을 화면이 없을 때만
   일시정지 메뉴가 열린다. 순서는 **열린 순서의 역순**이고 그것을 아는 곳은 `shared/escape` 의 `ctx.escape`
   하나다 — 화면은 `uiBlockers.add` **옆에서** `escape.push(token, () => this.close())`, `delete` 옆에서

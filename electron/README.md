@@ -171,7 +171,16 @@ npm run typecheck:app
   릴레이 `/health` 의 `clients: 1` · `profiles: 1`, 페이지/콘솔 에러 0.
 
 
-## Escape (Phase 12, 2026-09-08)
+## Escape (Phase 12, 2026-09-08 · 2026-09-10 정정)
+
+> **2026-09-10 정정.** 아래 절의 전제("Chrome 이 Escape 에 user activation 을 주지 않는 것이 문제이고, 메인
+> 프로세스가 activation 을 건네면 풀린다")는 **틀렸다.** Electron 44 를 계측해 보면 Chromium 이 거부하는 진짜
+> 이유는 *플레이어가 Escape 로 포인터 락을 푼 직후 약 1.25초* 라는 시간 규칙이고("Pointer lock cannot be
+> acquired immediately after the user has exited the lock"), 이 쿨다운은 activation 을 달아도 · 클릭 · 키를
+> 넣어도 앞당겨지지 않는다. 반대로 Escape 를 뗀 뒤라면 activation 없이도 그냥 성공한다. 실제 해결은
+> `src/shared/Input.ts` 가 그 시간대에는 요청을 **보내지 않고 미루는** 것이다 (`src/shared/README.md` 의
+> 2026-09-10 절). 아래 훅은 그대로 두었다 — 이제 `Input` 의 같은 게이트를 통과하므로 해가 없고, key-up 마다
+> 한 번 더 자극을 주는 여벌이다.
 
 브라우저에서는 Escape 로 화면을 닫으면 포인터 락이 **바로 돌아오지 않는다** — Chrome 이 Escape 에 사용자 활성화를
 주지 않아 재잠금 요청이 거부되고, 게임은 `src/game/ResumeGate.ts` 의 `좌측 클릭으로 게임 재개` 게이트로 답한다.

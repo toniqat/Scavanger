@@ -70,6 +70,9 @@ export class ResumeGate {
     if (!this.everLocked) return;
     if (isDesktopShell()) return;
     if (!this.phaseOk() || input.isCursorMode || input.isPointerLocked) return;
+    // 2026-09-10: 타이밍 때문에 거부된 요청은 `Input` 이 스스로 다시 보낸다 — 그 사이에 게이트를 띄우면
+    // 1초쯤 떴다가 저절로 사라진다. 클릭이 정말 필요한 거부(제스처 요구)만 여기로 온다.
+    if (input.relockScheduled) return;
     if (!input.awaitingLockGesture) return;
     this.show();
   }

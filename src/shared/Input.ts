@@ -1,4 +1,6 @@
-import { LOCK_BOUNCE_GRACE_MS, LOCK_GESTURE_RETRY_MS } from './constants';
+import {
+  LOCK_BOUNCE_GRACE_MS, LOCK_ESCAPE_DEFER_MS, LOCK_GESTURE_RETRY_MS, LOCK_RELOCK_RETRIES, LOCK_USER_EXIT_COOLDOWN_MS,
+} from './constants';
 import { CursorMode } from './cursor';
 
 /** How long after a lock request we check whether it actually took (engines that return no promise). */
@@ -44,7 +46,20 @@ export class Input {
       this.down.delete(e.code);
       this.released.add(e.code);
     });
-    window.addEventListener('blur', () => { this.down.clear(); this.mouseDown.clear(); });
+    /*
+     * 2026-09-10 — Escape 의 시각만 재는 capture 리스너 (`escapeHeld` · `escapeUpAt`, see `relockBlockedFor`).
+     * 가장 안쪽 팝업(설정 · 콘솔 · 수량 지정 · 채팅)은 Escape 를 자기 capture 핸들러에서 삼켜 위의 keydown 이
+     * 그것을 **보지 못한다** — 그런데 그 팝업이 닫히면서 커서를 놓으면 `main.ts` 가 재잠금을 요청하므로, 키를
+     * 놓친 채로 요청하면 이 파일이 막으려는 바로 그 사고가 난다. 그래서 시각 기록만 window 의 capture 단계에서
+     * 따로 한다 — 키를 '눌린 것'으로 기록하지는 않으므로 팝업의 삼킴은 그대로다.
+     */
+    window.addEventListener('keydown', (e) => { if (e.code === 'Escape') this.escapeHeld = true; }, true);
+    window.addEventListener('keyup', (e) => { if (e.code === 'Escape') { this.escapeHeld = false; this.escapeUpAt = performance.now(); } }, true);
+    window.addEventListener('blur', () => {
+      this.down.clear(); this.mouseDown.clear();
+      // Escape 를 누른 채 창을 떠나면 keyup 이 오지 않는다 — 그 프레임을 Escape 창의 끝으로 친다.
+      if (this.escapeHeld) { this.escapeHeld = false; this.escapeUpAt = performance.now(); }
+    });
     window.addEventListener('mousedown', (e) => {
       // middle button = ping; stop browser auto-scroll while locked
       if (e.button === 1 && this.isPointerLocked) e.preventDefault();
@@ -89,6 +104,11 @@ export class Input {
         this.disarmLockGestureRetry();
         this.selfExit = false;
         this.relockPending = false;
+        this.deferredRelock = false;
+        this.lockInFlight = false;
+        this.blockedUntil = 0;
+        this.relockRetries = LOCK_RELOCK_RETRIES;
+        this.lockAcquiredAt = performance.now();
         // 2026-09-08: a request that was already in flight when a screen took 커서 모드 lands *after* it — the
         // cursor would vanish under a popup the player is meant to click. Hand it straight back.
         if (this.cursor.active) this.exitPointerLock();
@@ -114,12 +134,29 @@ export class Input {
        * **일시정지 메뉴를 혼자 띄운다** — 하우징 모드를 Tab 으로 닫으면 ESC 메뉴가 뜨던 문제가 바로 이것이고,
        * 인벤토리 · 지도 · 터미널처럼 닫으면서 락을 되찾는 화면 전부가 같은 뿌리를 공유한다.
        *
-       * 그래서 우리 요청(`lastLockRequest`) 직후 `LOCK_BOUNCE_GRACE_MS` 안에 사라진 락은 플레이어의 것이 아니라고
-       * 보고 메뉴를 띄우지 않는다. 대신 이미 있는 제스처 재시도를 걸어 두면 다음 키 · 클릭에서 카메라가 돌아온다.
+       * 그래서 락을 **잡은 직후**(`lockAcquiredAt`) `LOCK_BOUNCE_GRACE_MS` 안에 사라진 락은 플레이어의 것이
+       * 아니라고 보고 메뉴를 띄우지 않는다 (2026-09-10 에 기준을 요청 시각에서 획득 시각으로 옮겼다 — 아래).
        * 진짜 Escape 를 이 창에서 놓치더라도 손해가 없다: 락이 없는 상태의 Escape 는 진짜 keydown 으로 들어와
        * `GameFlowSystem.update` 가 그대로 메뉴를 연다.
        */
-      if (performance.now() - this.lastLockRequest < LOCK_BOUNCE_GRACE_MS) { this.armLockGestureRetry(); return; }
+      /*
+       * 2026-09-10 — 여기서 잃은 락은 **플레이어가 Escape 로 푼 것**이고, Chromium 은 그 뒤
+       * `LOCK_USER_EXIT_COOLDOWN_MS`(실측 ~1.25초) 동안 재요청을 전부 거부한다 ("Pointer lock cannot be
+       * acquired immediately after the user has exited the lock"). 제스처로는 앞당겨지지 않으므로 —
+       * 클릭도 키도 소용없다 — 시각을 적어 두고 `requestPointerLock` 이 그만큼 미루게 한다.
+       */
+      this.userExitAt = performance.now();
+      /*
+       * 튕겨 나온 락(잡자마자 사라진 것)은 Escape 가 아니다: 메뉴를 띄우지 말고 쿨다운 뒤 다시 잡는다.
+       * 2026-09-10 — 기준을 **요청 시각에서 획득 시각으로** 옮겼다. 재잠금이 이제 Escape 를 뗀 뒤로 미뤄지므로
+       * (`relockBlockedFor`) 요청과 획득 사이가 수백 ms 씩 벌어지고, 요청 기준으로 재면 그 지연만큼 창이 길어져
+       * 화면을 닫자마자 누른 **진짜** Escape 까지 삼켰다. 튕김은 언제나 획득 직후에 일어난다.
+       */
+      if (performance.now() - this.lockAcquiredAt < LOCK_BOUNCE_GRACE_MS) {
+        if (this.wantLock && !this.cursor.active) this.deferredRelock = true;
+        this.armLockGestureRetry();
+        return;
+      }
       this.userUnlock?.();
     });
     // 전체화면에서 Escape 를 게임 키로 (see `syncKeyboardLock`).
@@ -159,6 +196,8 @@ export class Input {
   }
   /** performance.now() of the last pointer-lock request (Chrome throttles re-locks right after an Esc exit). */
   lastLockRequest = 0;
+  /** performance.now() when the lock was last granted — the anchor for the bounce test below. */
+  private lockAcquiredAt = 0;
   /**
    * A `requestPointerLock()` that arrived while our own `exitPointerLock()` was still in flight (2026-09-08).
    * `document.exitPointerLock()` clears `pointerLockElement` in a **task**, but the screens that release the cursor
@@ -166,6 +205,49 @@ export class Input {
    * `pointerlockchange` instead.
    */
   private relockPending = false;
+
+  /* ── 2026-09-10: Escape 직후의 재잠금은 **미룬다** (exe 에서 ESC 로 화면을 닫으면 조작이 죽던 문제) ────────────
+   *
+   * Electron 44 / Chromium 실측 (`docs/HISTORY.md` 2026-09-10):
+   *   ① 화면이 열려 있는 동안에는 락이 없다. Escape 로 화면이 닫히면 `main.ts` 가 **같은 프레임에** 락을
+   *      요청하고 Chromium 은 그것을 **허가한다** — 그런데 아직 처리 중이던 그 Escape 가 방금 생긴 락을
+   *      곧바로 도로 가져간다. 브라우저 눈에는 *플레이어가 Escape 로 락을 푼 것*이다.
+   *   ② 그 뒤 `LOCK_USER_EXIT_COOLDOWN_MS`(~1.25초) 동안 **모든** 재요청이 거부된다:
+   *      "Pointer lock cannot be acquired immediately after the user has exited the lock".
+   *      클릭도 키 입력도 이 쿨다운을 앞당기지 못한다 (제스처의 문제가 아니다).
+   *   ③ 그래서 카메라가 죽어 있다가 **좌클릭 한 번**에 살아났다 — 그 클릭이 마침 1.25초 뒤였을 뿐이다.
+   *      (`takeLockOnClick` · 제스처 재시도가 그때 다시 요청해 성공한다.)
+   *   ④ Escape 를 뗀 뒤에 요청하면 활성화(user activation) 없이도 그냥 성공한다 — 즉 필요한 것은
+   *      제스처가 아니라 **타이밍**이다. `electron/main.ts` 의 `__scavShellRelock` 이 건네던 activation 은
+   *      원인을 잘못 짚은 것이었고, 이제는 이 게이트를 함께 통과한다.
+   *
+   * 그래서 요청이 막힌 시간대(= Escape 를 누르고 있는 동안 + 뗀 뒤 `LOCK_ESCAPE_DEFER_MS`, 그리고 진짜
+   * 사용자 해제 뒤 `LOCK_USER_EXIT_COOLDOWN_MS`)에 들어온 요청은 **브라우저에 보내지 않고** 의사만
+   * 적어 둔다(`deferredRelock`). `endFrame()` 이 매 프레임 그 시각을 다시 재서 통과하는 순간 한 번만 보낸다 —
+   * 여러 곳(main.ts 의 마이크로태스크 · 셸 훅 · 제스처 재시도)에서 겹쳐 들어와도 요청은 하나로 합쳐지므로
+   * Chromium 의 "Too many pointer lock requests in a short window of time" 스로틀에도 걸리지 않는다.
+   */
+  private escapeHeld = false;
+  private escapeUpAt = 0;
+  private userExitAt = 0;
+  /** Chromium's own rate limit / cooldown told us to wait — do not ask again before this (ms, `performance.now`). */
+  private blockedUntil = 0;
+  /** How many timed retries a single "the camera wants the lock" episode may still spend (reset on lock / release). */
+  private relockRetries = LOCK_RELOCK_RETRIES;
+  /** A request that arrived inside the blocked window — `endFrame` re-issues it once the window passes. */
+  private deferredRelock = false;
+
+  /** ms to wait before the browser will accept a pointer-lock request (0 = ask now). */
+  private relockBlockedFor(): number {
+    const now = performance.now();
+    let until = 0;
+    if (this.escapeHeld) until = now + LOCK_ESCAPE_DEFER_MS;                       // 아직 누르고 있다 — 매 프레임 다시 잰다
+    else if (this.escapeUpAt) until = Math.max(until, this.escapeUpAt + LOCK_ESCAPE_DEFER_MS);
+    if (this.userExitAt) until = Math.max(until, this.userExitAt + LOCK_USER_EXIT_COOLDOWN_MS);
+    if (this.blockedUntil) until = Math.max(until, this.blockedUntil);
+    return Math.max(0, until - now);
+  }
+
   requestPointerLock(): void {
     if (!this.lockTarget) return;
     // 2026-09-08: **never** take the mouse away from an open screen. Callers that fire a relock right after a phase
@@ -178,21 +260,37 @@ export class Input {
     if (this.selfExit && this.isPointerLocked) { this.relockPending = true; return; }
     if (this.isPointerLocked) return;
     this.wantLock = true;
+    // Escape 창 · 사용자 해제 쿨다운 안이면 보내지 않는다 (위 블록) — `endFrame` 이 풀리는 프레임에 다시 부른다.
+    if (this.relockBlockedFor() > 0) { this.deferredRelock = true; return; }
+    /*
+     * 2026-09-10 — 요청은 한 번에 하나만. 같은 클릭에 `takeLockOnClick` 과 `onLockGesture` 가, 부팅 때는
+     * `main.ts` 와 `hub/Transitions` 가 같은 ms 에 겹쳐 들어와 두 번째가 "Pointer lock pending" 으로 거부되고
+     * 있었다 — 그 헛요청까지 Chromium 의 "Too many pointer lock requests in a short window of time" 카운터에
+     * 들어간다. 결과(허가 · 거부 · 아래 250 ms 확인)가 올 때까지는 새 요청을 보내지 않는다.
+     */
+    // 의사는 남긴다 — 앞선 요청이 조용히 실패해도 `endFlush` 가 250 ms 뒤에 이 요청을 대신 보낸다.
+    if (this.lockInFlight && performance.now() - this.lastLockRequest < LOCK_RESULT_CHECK_MS) { this.deferredRelock = true; return; }
+    this.deferredRelock = false;
+    this.lockInFlight = true;
     this.lastLockRequest = performance.now();
     // Modern Chrome returns a Promise that rejects when the lock is denied (e.g. headless, no user gesture) —
     // swallow it so a denied re-lock never surfaces as an unhandled rejection, and wait for a gesture instead.
-    const denied = (): void => this.armLockGestureRetry();
+    const denied = (e?: unknown): void => this.onLockDenied(e);
     const swallow = (r: unknown): void => {
       if (r && typeof (r as Promise<void>).catch === 'function') (r as Promise<void>).catch(denied);
     };
     try { swallow((this.lockTarget as any).requestPointerLock?.({ unadjustedMovement: true }) ?? this.lockTarget.requestPointerLock()); }
-    catch { try { swallow(this.lockTarget.requestPointerLock()); } catch { denied(); } }
+    catch (e) { try { swallow(this.lockTarget.requestPointerLock()); } catch { denied(e); } }
     // Older engines return nothing at all, so also check the outcome once the event loop has settled.
-    window.setTimeout(denied, LOCK_RESULT_CHECK_MS);
+    window.setTimeout(() => denied(), LOCK_RESULT_CHECK_MS);
   }
   exitPointerLock(): void {
     this.wantLock = false;
     this.relockPending = false;
+    this.deferredRelock = false;
+    this.lockInFlight = false;
+    this.blockedUntil = 0;
+    this.relockRetries = LOCK_RELOCK_RETRIES;
     this.disarmLockGestureRetry();
     if (this.isPointerLocked) { this.selfExit = true; document.exitPointerLock(); }
   }
@@ -233,6 +331,33 @@ export class Input {
 
   /** true while a denied lock request is still waiting for a user gesture to retry from. */
   get awaitingLockGesture(): boolean { return this.lockRetryBound && performance.now() < this.lockRetryUntil; }
+  /** true while a refused request is going to be re-sent by itself (`game/ResumeGate` stays out of the way). */
+  get relockScheduled(): boolean { return this.deferredRelock; }
+
+  /** A request of ours has not been answered yet (granted / refused / the 250 ms check below). */
+  private lockInFlight = false;
+  /**
+   * Chromium refuses a pointer-lock request for two reasons that **no gesture can fix**, both purely about timing
+   * (Electron 44 실측, 2026-09-10): the ~1.25 s cooldown after the player left the lock with Escape, and the rate
+   * limit on requests in a short window. Those we simply ask again for, a moment later. Everything else — above all
+   * "A user gesture is required to request Pointer Lock" — is the case the 좌측 클릭 게이트 / gesture retry exists
+   * for, and is left to it.
+   */
+  private static readonly TIMING_DENIAL = /too many pointer lock requests|immediately after the user has exited|pointer lock pending/i;
+
+  private onLockDenied(err?: unknown): void {
+    this.lockInFlight = false;
+    if (this.deferredRelock) return;                                  // already scheduled — one retry is enough
+    if (!this.wantLock || this.isPointerLocked || this.cursor.active) return;
+    const msg = err instanceof Error ? err.message : '';
+    if (msg && Input.TIMING_DENIAL.test(msg) && this.relockRetries > 0) {
+      this.relockRetries--;
+      this.blockedUntil = performance.now() + LOCK_USER_EXIT_COOLDOWN_MS;
+      this.deferredRelock = true;
+      return;
+    }
+    this.armLockGestureRetry();
+  }
 
   private armLockGestureRetry(): void {
     if (!this.wantLock || this.isPointerLocked || !this.lockTarget) return;
@@ -320,8 +445,20 @@ export class Input {
 
   /** Called by Engine at the end of every frame. */
   endFrame(): void {
+    this.flushDeferredRelock();
     this.pressed.clear(); this.released.clear();
     this.mousePressed.clear(); this.mouseReleased.clear();
     this.mouseDX = 0; this.mouseDY = 0; this.wheelDelta = 0;
+  }
+
+  /** 미뤄 둔 재잠금(위 `requestPointerLock` 의 게이트)을 조건이 풀리는 첫 프레임에 한 번만 보낸다. */
+  private flushDeferredRelock(): void {
+    if (!this.deferredRelock) return;
+    // 그 사이에 화면이 열렸거나(커서 주인) 락이 이미 돌아왔으면 의사 자체가 사라진다.
+    if (!this.wantLock || this.cursor.active || this.isPointerLocked) { this.deferredRelock = false; return; }
+    if (this.relockBlockedFor() > 0) return;
+    if (this.lockInFlight && performance.now() - this.lastLockRequest < LOCK_RESULT_CHECK_MS) return;
+    this.deferredRelock = false;
+    this.requestPointerLock();
   }
 }

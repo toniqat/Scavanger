@@ -426,6 +426,9 @@ CREW_LOADOUT_COOLDOWN_S,2,Don't answer `crewq loadout` from the same peer more o
 GAME_CURSOR_SIZE,22,Side of the drawn cursor image in CSS px (a 2× copy is generated for HiDPI through `image-set`).
 LOCK_GESTURE_RETRY_MS,10000,How long a denied pointer-lock request keeps waiting for the next real user gesture to retry (ms).
 LOCK_BOUNCE_GRACE_MS,400,"A pointer lock that disappears within this long after our own request is the browser / desktop shell bouncing it back, not the player pressing Escape — no 일시정지 메뉴, wait for the next gesture instead (ms)."
+LOCK_ESCAPE_DEFER_MS,180,"Escape 를 뗀 뒤 이만큼은 포인터 락을 다시 요청하지 않는다. 그 전에 요청하면 Chromium 이 락을 줬다가 같은 Escape 로 도로 가져가고(= 사용자 해제) 아래 쿨다운을 건다 (ms)."
+LOCK_RELOCK_RETRIES,3,"타이밍 때문에 거부된(쿨다운 · 요청 과다) 포인터 락 요청을 스스로 다시 보내는 최대 횟수. 락을 잡거나 화면이 커서를 가져가면 다시 채워진다."
+LOCK_USER_EXIT_COOLDOWN_MS,1350,"사용자가 Escape 로 포인터 락을 푼 뒤 Chromium 이 모든 재요청을 거부하는 시간(Electron 44 실측 ~1.25초). 이만큼 기다렸다가 다시 요청한다 — 클릭 · 키 같은 제스처로는 앞당겨지지 않는다 (ms)."
 
 # ── 행성 이동 (owner: hub; the cutscene is `DockingCutscene` reused as a warp) ──
 HUB_TRAVEL_DURATION,6,"Seconds of the 행성 이동 warp (2026-09-09: watched through the ship's viewports, no cutscene; ramp up → cruise → ramp down)."

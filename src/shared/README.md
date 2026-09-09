@@ -833,3 +833,56 @@ Chrome 과 Electron 셸은 그 락을 넘겨줬다가 곧바로 도로 가져갈
 (`game/ResumeGate`)가 그 한 클릭을 받는다. 순서가 `shared` 로 온 이유는 하나다: Tab 공용 닫기는 화면마다 자기
 `update()` 에서 키를 읽으므로 **시스템 등록 순서**(`main.ts`)가 닫히는 순서를 정하는데, ESC 는 "맨 위 하나만"
 이므로 열린 순서를 아는 곳이 필요하다. 정책은 `game/parts/Phases.escapeKey` 한 곳이다.
+
+### 2026-09-10 — Escape 뒤의 재잠금은 **제스처가 아니라 타이밍** 문제였다 (`Input`)
+
+사용자 보고: **데스크톱 앱(exe)에서 Tab 화면 · 여러 화면을 ESC 로 닫으면 조작이 죽고, 좌클릭을 한 번 해야
+살아난다.** Electron 44 / Chromium 을 실제로 계측해(`app.whenReady` 로 띄운 최소 페이지 + `sendInputEvent` 로
+진짜 Escape 를 넣고 `requestPointerLock` 의 거부 사유를 읽었다) 원인을 이렇게 잡았다.
+
+1. 화면이 열려 있는 동안에는 락이 없다. Escape 로 화면이 닫히면 `main.ts` 가 **그 Escape 를 처리하는 중에**
+   락을 요청하고 Chromium 은 그것을 **허가한다**. 그런데 아직 진행 중이던 그 Escape 가 방금 생긴 락을 곧바로
+   도로 가져간다 — 브라우저 눈에는 *플레이어가 Escape 로 락을 푼 것*이다 (지금까지 `LOCK_BOUNCE_GRACE_MS` 로
+   덮고 있던 "튕김"의 정체가 이것이다).
+2. 그 뒤 **약 1.25초 동안 모든 재요청이 거부된다**:
+   `"Pointer lock cannot be acquired immediately after the user has exited the lock."`
+   이 쿨다운은 **시간에만** 반응한다 — 클릭도, 키 입력도 앞당기지 못한다(실측: 사용자 해제 200 ms · 400 ms 뒤
+   거부, 그 사이에 진짜 키를 넣어도 거부, 1500 ms 뒤 허가).
+3. 그래서 카메라가 죽어 있다가 **좌클릭 한 번에 살아난 것**이다 — 그 클릭에 무슨 힘이 있어서가 아니라,
+   사람이 "안 되네" 하고 클릭할 즈음이면 1.25초가 지나 있어서다(그때 `takeLockOnClick` · 제스처 재시도가
+   다시 요청해 성공한다).
+4. Escape 를 **뗀 뒤** 요청하면 user activation 없이도 그냥 성공한다. 즉 필요한 것은 제스처가 아니라 타이밍이고,
+   `electron/main.ts` 가 `executeJavaScript(..., true)` 로 건네던 activation 은 원인을 잘못 짚은 것이었다
+   (같은 실측에서 그 activation 을 달고도 쿨다운 안이면 그대로 거부됐다).
+
+**고친 것 — `Input` 이 요청을 보낼 시각을 스스로 고른다.**
+
+- `escapeHeld` / `escapeUpAt`: Escape 의 시각만 재는 **window capture** 리스너 한 쌍. capture 인 이유는 가장 안쪽
+  팝업(설정 · 콘솔 · 수량 지정 · 채팅)이 Escape 를 자기 capture 핸들러에서 삼켜 기존 keydown 리스너가 보지
+  못하기 때문이다. 키를 '눌린 것'으로 기록하지는 않으므로 그 삼킴 규약은 그대로다.
+- `userExitAt`: `pointerlockchange` 가 우리 것이 아닌 해제를 알려 온 시각(= 위 2번의 쿨다운 시작점).
+- `relockBlockedFor()`: `Escape 를 누르고 있는 동안 + 뗀 뒤 LOCK_ESCAPE_DEFER_MS`, `userExitAt +
+  LOCK_USER_EXIT_COOLDOWN_MS`, 그리고 브라우저가 직접 거부하며 알려 준 `blockedUntil` 중 가장 늦은 시각까지.
+- `requestPointerLock()` 은 그 창 안이면 **브라우저에 보내지 않고** 의사만 남긴다(`deferredRelock`).
+  `endFrame()` 의 `flushDeferredRelock()` 이 매 프레임 다시 재서 풀리는 첫 프레임에 **한 번만** 보낸다 —
+  겹쳐 들어온 요청(main.ts 의 마이크로태스크 · 셸 훅 · 제스처 재시도)이 하나로 합쳐지므로 Chromium 의
+  `"Too many pointer lock requests in a short window of time"` 스로틀도 덜 건드린다. 그 사이에 화면이 열리면
+  (`cursor.active`) 의사 자체가 사라진다.
+- `lockInFlight`: 결과가 오기 전(250 ms)에는 새 요청을 보내지 않는다. 같은 클릭에 `takeLockOnClick` 과
+  `onLockGesture` 가, 부팅 때는 `main.ts` 와 `hub/Transitions` 가 같은 ms 에 요청해 두 번째가
+  `"Pointer lock pending"` 으로 버려지고 있었다 — 그 헛요청도 위 스로틀 카운터에 들어간다.
+- `onLockDenied(err)`: 거부 사유를 읽어 **타이밍 거부**(`too many …` / `immediately after the user has exited` /
+  `pointer lock pending`)면 `LOCK_RELOCK_RETRIES`(3회)까지 스스로 다시 보내고, 그 밖의 거부(무엇보다
+  `"A user gesture is required"`)는 예전 그대로 제스처 재시도 → `좌측 클릭으로 게임 재개` 게이트에 맡긴다.
+  `Input.relockScheduled` 로 "곧 알아서 다시 보낸다"를 알리고, `game/ResumeGate` 는 그동안 뜨지 않는다
+  (안 그러면 1초쯤 떴다가 저절로 사라진다).
+- 튕김 판정(`LOCK_BOUNCE_GRACE_MS`)의 기준을 **요청 시각 → 획득 시각**(`lockAcquiredAt`)으로 옮겼다. 재잠금이
+  이제 Escape 를 뗀 뒤로 미뤄져 요청과 획득 사이가 수백 ms 벌어지므로, 요청 기준으로 재면 창이 그만큼 길어져
+  화면을 닫자마자 누른 **진짜** Escape 까지 삼킨다. 튕김은 언제나 획득 직후에 일어난다.
+
+새 상수(`data/constants.csv`): `LOCK_ESCAPE_DEFER_MS` 180 · `LOCK_USER_EXIT_COOLDOWN_MS` 1350 ·
+`LOCK_RELOCK_RETRIES` 3.
+
+**실측 결과** (실제 게임을 Electron 창에 띄우고 `sendInputEvent` 로 진짜 키를 넣어 측정):
+ESC 로 인벤토리 · 지도를 닫으면 카메라가 **+245 ms** 에 스스로 돌아온다(고치기 전에는 클릭 전까지 영영).
+자기 키(Tab · M)로 닫으면 예전처럼 **+0–5 ms**. 스로틀에 걸린 경우도 클릭 없이 **1.35초 뒤** 스스로 복구된다.

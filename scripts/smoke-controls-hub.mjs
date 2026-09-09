@@ -735,6 +735,10 @@ try {
     // this script fakes `pointerLockElement` over the canvas — drop it for the length of the check
     const faked = Object.getOwnPropertyDescriptor(Document.prototype, 'pointerLockElement');
     Object.defineProperty(Document.prototype, 'pointerLockElement', { get: () => null, configurable: true });
+    // 2026-09-10: the block above ended with locks the player "took away", and `Input` now holds every request for
+    // `LOCK_USER_EXIT_COOLDOWN_MS` after such an exit (Chromium refuses them anyway). Wait it out so the request
+    // below really reaches the stub and is really denied — which is what this check is about.
+    await new Promise((r) => setTimeout(r, 1500));
     input.exitPointerLock();
     input.requestPointerLock();
     await new Promise((r) => setTimeout(r, 400));
@@ -742,16 +746,29 @@ try {
     key('Escape', 'keydown'); key('Escape', 'keyup'); input.consume('Escape');
     const afterEsc = input.awaitingLockGesture;
     const at = input.lastLockRequest;
+    // 2026-09-10: …and a request within `LOCK_ESCAPE_DEFER_MS` of an Escape is held too, so the retry the next key
+    // triggers lands a moment later instead of in the same tick (the whole point: asking *during* the Escape is
+    // what made Chromium hand the lock over and take it straight back).
+    await new Promise((r) => setTimeout(r, 250));
     key('KeyJ', 'keydown'); key('KeyJ', 'keyup'); input.consume('KeyJ');
+    await new Promise((r) => setTimeout(r, 120));
     const retried = input.lastLockRequest !== at;
     input.exitPointerLock();
-    const out = { armed, afterEsc, retried, disarmed: input.awaitingLockGesture };
+    /* 2026-09-10: 그리고 Escape 를 처리하는 동안의 요청은 **브라우저에 나가지 않는다**. */
+    input.exitPointerLock();
+    key('Escape', 'keydown');
+    const atEsc = input.lastLockRequest;
+    input.requestPointerLock();
+    const deferredByEsc = input.lastLockRequest === atEsc && input.relockScheduled;
+    key('Escape', 'keyup'); input.consume('Escape');
+    const out = { armed, afterEsc, retried, deferredByEsc, disarmed: input.awaitingLockGesture };
     Object.defineProperty(Document.prototype, 'pointerLockElement', faked);
     return out;
   });
   ok(relock.armed, 'a denied pointer-lock request arms the gesture retry');
   ok(relock.afterEsc, 'Escape never counts as the gesture (Chrome grants it no user activation)');
   ok(relock.retried && !relock.disarmed, 'any other key retries the lock and disarms the wait', JSON.stringify(relock));
+  ok(relock.deferredByEsc, 'Escape 직후의 재요청은 미뤄진다 (Chromium 이 그 락을 곧바로 도로 가져간다)', JSON.stringify(relock));
 
   /* 2026-09-07: 좌클릭으로 카메라 되찾기 — a click on the 3D canvas while the camera wants the lock but does not
      have it re-requests it **and is swallowed**, so the recapture click never fires the weapon. */
@@ -765,13 +782,19 @@ try {
     const at = input.lastLockRequest;
     const canvas = document.getElementById('game-canvas');
     canvas.dispatchEvent(new MouseEvent('mousedown', { button: 0, bubbles: true }));
-    const out = { retried: input.lastLockRequest !== at, swallowed: !input.isMouseDown(0) && !input.wasMousePressed(0) };
+    const swallowed = !input.isMouseDown(0) && !input.wasMousePressed(0);
+    // 2026-09-10: the click still asks for the lock, but `Input` sends **one** request at a time — the one from
+    // 60 ms ago has not been answered yet, so this one is held and goes out from `endFrame` as soon as that
+    // window (`LOCK_RESULT_CHECK_MS`) passes. Duplicate requests in the same breath are what Chromium's
+    // "Too many pointer lock requests in a short window of time" counts.
+    await new Promise((r) => setTimeout(r, 400));
+    const out = { retried: input.lastLockRequest !== at, swallowed };
     canvas.dispatchEvent(new MouseEvent('mouseup', { button: 0, bubbles: true }));
     input.exitPointerLock();
     Object.defineProperty(Document.prototype, 'pointerLockElement', faked);
     return out;
   });
-  ok(clickBack.retried, '좌클릭이 잃어버린 포인터 락을 즉시 다시 요청한다', JSON.stringify(clickBack));
+  ok(clickBack.retried, '좌클릭이 잃어버린 포인터 락을 다시 요청한다 (한 번에 하나씩)', JSON.stringify(clickBack));
   ok(clickBack.swallowed, 'and that recapture click is swallowed (no shot behind it)', JSON.stringify(clickBack));
 
   /* ── 5. mission A: 대전차포 wielded → weapon key stows it ─────────── */

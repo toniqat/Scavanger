@@ -186,16 +186,22 @@ event) — without the `leaveLobby()` first, `onAbort` would regroup us in the s
 `{shown:false}`. **다른 제스처**(WASD 재시도, 캔버스 클릭)로 락이 돌아와도 같은 프레임에 사라지므로 절대 남지
 않는다. 자기 키(Tab)로 닫은 화면은 진짜 키 입력이라 즉시 재잠금되고 게이트는 뜨지 않는다.
 `isDesktopShell()` 이면 **절대** 뜨지 않는다.
+2026-09-10: `Input.relockScheduled` 가 켜져 있는 동안 — 타이밍 때문에 거부된 요청을 `Input` 이 스스로 다시
+보내기로 예약해 둔 동안 — 도 뜨지 않는다. 그때 띄우면 1초쯤 떴다가 저절로 사라진다. 게이트가 받는 것은
+클릭이 정말 필요한 거부(`"A user gesture is required"`)뿐이다.
 
 ### 데스크톱 셸 (`syncDesktopCursor` / `installDesktopRelockHook`)
 - **커서 숨김**: 셸에서 게임플레이 / 함선 페이즈이고 커서 소유자가 없으면(Alt 커서도 소유자다) `<body>` 에
   `desktop-nocursor` 를 걸어 `cursor: none !important` — 락이 있든 없든. `ui/hud/GameCursor` 가 런타임
   `<style>` 로 같은 명시도의 규칙을 넣으므로 클래스를 하나 더 얹어 순서를 이긴다.
 - **Escape 재잠금 훅**: `electron/main.ts` 가 Escape **key-up** 에서
-  `webContents.executeJavaScript(SHELL_RELOCK, true)` 를 실행한다 — 두 번째 인자가 "사용자 제스처로 실행"이라
-  여기 있는 `window.__scavShellRelock` 이 두 프레임 뒤(닫힌 화면이 커서 모드를 놓을 시간) 커서 소유자가 없을 때만
-  락을 다시 요청할 수 있다. 키 자체는 건드리지 않는다(합성 전달을 넣었다가 페이지가 Escape 를 두 번 받는 것을
-  측정하고 걷어냈다 — `electron/README.md` 의 실측 절).
+  `webContents.executeJavaScript(SHELL_RELOCK, true)` 를 실행하고, 여기 있는 `window.__scavShellRelock` 이 두 프레임
+  뒤(닫힌 화면이 커서 모드를 놓을 시간) 커서 소유자가 없을 때만 락을 다시 요청한다. 키 자체는 건드리지 않는다
+  (합성 전달을 넣었다가 페이지가 Escape 를 두 번 받는 것을 측정하고 걷어냈다 — `electron/README.md` 의 실측 절).
+  **2026-09-10 정정**: 두 번째 인자(user activation)는 이 문제의 답이 아니었다. Chromium 이 거부한 이유는
+  activation 이 없어서가 아니라 *플레이어가 Escape 로 락을 푼 직후 ~1.25초* 라는 시간 규칙이고, 그 쿨다운은 어떤
+  제스처로도 앞당겨지지 않는다 (실측은 `src/shared/README.md` 의 2026-09-10 절). 실제 해결은 `Input` 이 그
+  시간대에 요청을 **미루는** 것이고(`deferredRelock`), 이 훅은 같은 게이트를 함께 통과하는 여벌로 남았다.
 
 
 ## 2026-09-08 — ESC = 항상 일시정지
