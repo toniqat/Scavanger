@@ -1,5 +1,5 @@
 import type { ItemInstance, LootRef } from '@/shared';
-import { STASH_COLS, STASH_ROWS, STASH_STORAGE_KEY } from '@/shared';
+import { STASH_COLS, STASH_ROWS, STASH_STORAGE_KEY, slotKey } from '@/shared';
 import { Grid, type DefLookup } from './Grid';
 import { readSaveFile, reviveItem, savedCell, serializePlacement, writeSaveFile, type SavedPlacement } from './Serialize';
 
@@ -32,13 +32,13 @@ export type StarterGrantState = 'none' | 'pending' | 'done';
 
 export function starterGrantState(): StarterGrantState {
   try {
-    const v = window.localStorage.getItem(STARTER_GRANT_KEY);
+    const v = window.localStorage.getItem(slotKey(STARTER_GRANT_KEY));
     return v === 'done' ? 'done' : v === 'pending' ? 'pending' : 'none';
   } catch { return 'none'; }
 }
 
 export function setStarterGrantState(state: StarterGrantState): void {
-  try { window.localStorage.setItem(STARTER_GRANT_KEY, state); } catch { /* storage unavailable */ }
+  try { window.localStorage.setItem(slotKey(STARTER_GRANT_KEY), state); } catch { /* storage unavailable */ }
 }
 /** Guard against a corrupt / hostile save inflating the DOM. */
 const MAX_COLS = 40;

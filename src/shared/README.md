@@ -16,6 +16,10 @@ Everything every feature folder depends on. Append-only: add new events/fields, 
 | `Random.ts` | Seeded RNG (mulberry32) with `range/int/pick/weighted/shuffle/fork` |
 | `planets.ts` | 행성 **계약만** (`PlanetId`, `PLANET_IDS`, `isPlanetId`, `PLANET_NONE_LABEL`, `PLANET_STORAGE_KEY`). 서버가 Node 에서 그대로 실행하므로 csv 를 읽지 않는다 — 표는 `planetDefs.ts` |
 | `net.ts` | Multiplayer contract: lobby types, client↔server wire protocol (`ClientToServer`/`ServerToClient`), relayed `GameMessage` union (player/enemy snapshots, hit/explode requests, extraction/flow messages), `NetRef` (`ctx.net`), `RemotePlayerRef`/`RemoteAvatarRef`, `PlayerFlags`, tuning constants, slot colours, lobby-code helpers. Shared with the Node server (`server/`) — no runtime deps beyond plain constants |
+| `itemChip.ts` | 재료 요구 칩 렌더러 (`buildItemChip` · `renderItemCost`). shared 의 DOM 둘 중 하나 |
+| `currency.ts` | **재화** (2026-09-09) — 크레딧 · 경험치 · 기업별 신뢰도의 정의(`CURRENCY_DEFS`, `data/currencies.csv`)와 칩 렌더러 (`buildCurrencyChip` · `appendCurrencyRewards`). 아이템이 아닌 보상을 아이템 칩과 같은 자리 · 같은 크기로, 다른 틀(육각)로 그린다. 호버 카드는 `ui/hud/ItemTip` 의 `.is-currency` |
+| `saveSlot.ts` | **캐릭터 세이브 슬롯** (2026-09-09) — `slotKey('scav.profile')` → `scav.s2.profile`. `activeSlot` · `setActiveSlot` · `ensureMigrated`(옛 단일 키 → 슬롯 1) · `readSlotCards` · `deleteSlot` · `markAutoStart`/`takeAutoStart`. 공용 저장(`SHARED_KEYS`: 키 바인딩 · 오디오 · 화면 · 콘솔 기록)은 접두사를 받지 않는다 |
+| `character.ts` | **캐릭터 생성 규칙** (2026-09-09) — 능력치 하한 1 · 상한 5 · 합 15(`CREATE_STAT_*`), 배분 검사(`canAdjustStat`) · 주사위(`rollCreateStats` · `rollCallsign`) · 악센트 팔레트 · `makeCharacterProfile` / `createCharacterInSlot` |
 | `index.ts` | Barrel export — import via `@/shared` |
 
 ## Appended contract (2026-09, stance / weapon classes / ping / map)
@@ -753,3 +757,17 @@ Plan: `docs/DECISIONS.md`. Everything below is append-only; owners in brackets.
   창문 워프로 바뀌어 매 프레임 진행도를 낸다(조작은 그대로). `constants.ts`: `HUB_WARP_RAMP_S` · `HUB_WARP_SHAKE_PEAK` ·
   `HUB_WARP_SHAKE_INTERVAL_S` (csv 에 줄 추가), `HUB_TRAVEL_DURATION` 4.5 → 6. `types.ts` 의 `HubRef.setPlanet` /
   `travelling` 주석과 `tutorial.ts` 의 `travel` 단계 주석에서 「컷씬」을 지웠다.
+
+- **2026-09-09 (캐릭터 슬롯 · 재화)** — 전부 **추가만** 했다.
+  - `saveSlot.ts` (신규): 세이브 키에 슬롯 접두사를 붙인다. 캐릭터가 셋이 되면서 `scav.profile` 하나로는
+    안 되기 때문이다. **`scav.sessionToken` 도 슬롯별**이다 — 릴레이는 토큰으로 서버 프로필을 찾으므로,
+    나누지 않으면 슬롯 2로 접속한 순간 슬롯 1의 크레딧 · 창고를 그대로 내려받는다. 세이브를 쓰는 11개
+    파일이 `slotKey(...)` 를 통과하도록 바뀌었고(`inventory/Serialize` 의 `readSaveFile`/`writeSaveFile`
+    두 함수가 창고 · 로드아웃을 한꺼번에 덮는다), `main.ts` 가 맨 앞에서 `ensureMigrated()` 를 부른다.
+  - `character.ts` (신규): 생성창 규칙. **기존 세이브는 손대지 않는다** — `STAT_BASE`(5)는 생성창을 거치지
+    않는 프로필의 기본값으로 그대로 남고, 생성창을 거친 캐릭터만 1~5 · 합 15 를 따른다.
+  - `currency.ts` (신규) + `data/currencies.csv`: 계약 · 퀘스트 보상의 신뢰도 · XP · 크레딧을 **재화**로
+    정의했다. 신뢰도는 `data/corps.csv` 의 기업마다 `rep:<기업id>` 한 벌씩 자동으로 생기고 기업 색을 쓴다.
+  - `progression.ts` 의 `PlayerProfile` 에 `accent` · `createdAt` · `playedAt` 추가 (전부 옵션).
+  - `constants.ts`: `CHARACTER_SLOTS` · `CHAR_STAT_MIN` · `CHAR_STAT_MAX` · `CHAR_STAT_TOTAL` ·
+    `CHAR_NAME_RANDOM_MAX` · `UI_HOLD_CONFIRM_S`. `HUB_WARP_SHAKE_PEAK` 0.28 → **0.14** (워프가 너무 흔들렸다).

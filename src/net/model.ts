@@ -16,7 +16,7 @@ import { isPlanetId } from '@/shared';
 import {
   NET_INVITE_PARAM, NET_MISSION_RESUME_TIMEOUT_MS, NET_NAME_PARAM, NET_PLAYER_SNAPSHOT_HZ, NET_RECONNECT_BACKOFF_MS,
   NET_TOKEN_LENGTH, NET_TOKEN_PARAM, NET_TOKEN_STORAGE_KEY, NET_WS_PATH, PlayerFlags, RAID_BLOB_MAX_BYTES,
-  isValidLobbyCode, normalizeLobbyCode, sanitizePlayerName,
+  isValidLobbyCode, normalizeLobbyCode, sanitizePlayerName, slotKey,
 } from '@/shared';
 import { NetClient } from './NetClient';
 import { ProfileSync } from './ProfileSync';
@@ -158,14 +158,14 @@ export function isGhostWire(g: unknown): g is GhostWire {
 /** Persistent per-browser session token (NET_TOKEN_LENGTH url-safe chars) — the server derives a stable PeerId from it. */
 export function loadOrCreateSessionToken(): string {
   try {
-    const stored = localStorage.getItem(NET_TOKEN_STORAGE_KEY);
+    const stored = localStorage.getItem(slotKey(NET_TOKEN_STORAGE_KEY));
     if (stored && stored.length === NET_TOKEN_LENGTH && TOKEN_RE.test(stored)) return stored;
   } catch { /* storage unavailable */ }
   const bytes = new Uint8Array(NET_TOKEN_LENGTH);
   try { crypto.getRandomValues(bytes); } catch { for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256); }
   let token = '';
   for (let i = 0; i < NET_TOKEN_LENGTH; i++) token += TOKEN_ALPHABET[bytes[i] & 63];
-  try { localStorage.setItem(NET_TOKEN_STORAGE_KEY, token); } catch { /* storage unavailable → token lives for this page only */ }
+  try { localStorage.setItem(slotKey(NET_TOKEN_STORAGE_KEY), token); } catch { /* storage unavailable → token lives for this page only */ }
   return token;
 }
 

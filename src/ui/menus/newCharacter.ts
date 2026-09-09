@@ -1,3 +1,4 @@
+import { activeSlot, deleteSlot } from '@/shared';
 /**
  * 새 캐릭터로 시작 (2026-09-07): throw away every **character** save so the next boot starts from nothing.
  *
@@ -13,21 +14,15 @@
  * (credits, stash / loadout / ship / progression documents, 소셜 아이디 · 친구) is a new one as well. Without that,
  * the old server profile would simply be downloaded again on the next connection.
  */
-const KEEP = new Set(['scav.keybinds', 'scav.audio', 'scav.display', 'scav.console.history']);
+/**
+ * 2026-09-09 (세이브 슬롯): 캐릭터가 셋이 되면서 이 함수는 **활성 슬롯 하나만** 지운다. 접두사 훑기는
+ * `shared/saveSlot.deleteSlot` 으로 옮겨 갔고(같은 이유 — 나중에 추가된 세이브도 따라온다), 공용 설정
+ * (키 바인딩 · 오디오 · 화면 · 콘솔 기록)은 그쪽 `SHARED_KEYS` 가 지킨다.
+ */
 
-/** Clears the character saves. Returns the keys removed (empty when localStorage is unavailable). */
+/** Clears the active slot's character saves. Returns the keys removed (empty when localStorage is unavailable). */
 export function resetCharacterSaves(): string[] {
-  const removed: string[] = [];
-  try {
-    const s = window.localStorage;
-    const keys: string[] = [];
-    for (let i = 0; i < s.length; i++) {
-      const k = s.key(i);
-      if (k && k.startsWith('scav.') && !KEEP.has(k)) keys.push(k);
-    }
-    for (const k of keys) { s.removeItem(k); removed.push(k); }
-  } catch { /* storage unavailable — nothing to clear */ }
-  return removed;
+  return deleteSlot(activeSlot());
 }
 
 export const NEW_CHARACTER_LABEL = '새 캐릭터로 시작';

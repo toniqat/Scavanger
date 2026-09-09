@@ -1,5 +1,5 @@
 import type { ItemInstance, LootRef, SocketSlot } from '@/shared';
-import { SOCKET_SLOTS } from '@/shared';
+import { SOCKET_SLOTS, slotKey } from '@/shared';
 import type { DefLookup, Placement } from './Grid';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -39,16 +39,19 @@ export function readSaveFile<T>(key: string): T | null {
   const s = safeStorage();
   if (!s) return null;
   try {
-    const raw = s.getItem(key);
+    const raw = s.getItem(slotKey(key));
     return raw ? (JSON.parse(raw) as T) : null;
   } catch { return null; }
 }
 
-/** Write `file` as JSON under `key`; false when storage is blocked / full. */
+/**
+ * Write `file` as JSON under `key`; false when storage is blocked / full.
+ * 2026-09-09: the key goes through `slotKey` — every save here belongs to the **active character slot**.
+ */
 export function writeSaveFile(key: string, file: unknown): boolean {
   const s = safeStorage();
   if (!s) return false;
-  try { s.setItem(key, JSON.stringify(file)); return true; } catch { return false; }
+  try { s.setItem(slotKey(key), JSON.stringify(file)); return true; } catch { return false; }
 }
 
 export function serializeExtras(item: ItemInstance): SavedExtras {

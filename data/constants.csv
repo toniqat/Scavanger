@@ -424,7 +424,7 @@ LOCK_GESTURE_RETRY_MS,10000,How long a denied pointer-lock request keeps waiting
 HUB_TRAVEL_DURATION,6,"Seconds of the 행성 이동 warp (2026-09-09: watched through the ship's viewports, no cutscene; ramp up → cruise → ramp down)."
 HUB_TRAVEL_WARP_STRETCH,22,How far the warp stretches a star (multiplier on its own length at full `speed`).
 HUB_WARP_RAMP_S,1.6,Seconds the warp takes to ramp up at the start and down at the end (`hub:warpProgress.speed`).
-HUB_WARP_SHAKE_PEAK,0.28,`camera:shake` intensity at full warp speed (pulsed every HUB_WARP_SHAKE_INTERVAL_S and scaled by `speed`).
+HUB_WARP_SHAKE_PEAK,0.14,`camera:shake` intensity at full warp speed (pulsed every HUB_WARP_SHAKE_INTERVAL_S and scaled by `speed`).
 HUB_WARP_SHAKE_INTERVAL_S,0.18,Seconds between hull-shake pulses while the warp runs.
 
 # ── 터미널 (owner: hub/ui/HubMenu — full-screen since Phase 11) ──
@@ -480,3 +480,13 @@ GADGET_MINE_HP,60,지뢰 내구도 (쏘면 터진다)
 GADGET_DEFIB_RANGE,5,제세동기가 닿는 거리(m)
 GADGET_JUMPPAD_HP,150,점프대 내구도
 GADGET_JUMPPAD_RADIUS,1.7,점프대 발동 반경(m)
+
+# ── 캐릭터 슬롯 · 생성 (2026-09-09, owner: shared/saveSlot · shared/character) ──
+CHARACTER_SLOTS,3,타이틀 캐릭터 선택창의 칸 수. 슬롯마다 세이브가 완전히 분리된다 (`scav.s<n>.*`).
+CHAR_STAT_MIN,1,캐릭터 생성창에서 한 능력치가 가질 수 있는 최소값.
+CHAR_STAT_MAX,5,캐릭터 생성창에서 한 능력치가 가질 수 있는 최대값 (성장 상한 STAT_MAX 와는 별개).
+CHAR_STAT_TOTAL,15,캐릭터 생성창에서 다섯 능력치의 합. 전부 CHAR_STAT_MIN 에서 시작하므로 남는 배분 점수는 이 값 − 5 × CHAR_STAT_MIN.
+CHAR_NAME_RANDOM_MAX,9999,이름 주사위가 붙이는 숫자의 상한 (스캐빈저1234).
+
+# ── 위험한 버튼의 홀드 확정 (2026-09-09, owner: ui) ──
+UI_HOLD_CONFIRM_S,1,파티 떠나기 · 타이틀로 · 게임 종료 확정 버튼을 눌러 두어야 하는 시간(초).

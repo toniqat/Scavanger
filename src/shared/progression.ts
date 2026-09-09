@@ -252,3 +252,16 @@ export interface ProgressionRef {
   /** Sum of implant bonuses for `id` (0 when none). */
   getImplantBonus(id: StatId): number;
 }
+
+/* appended (2026-09-09): 캐릭터 생성 · 슬롯 카드 */
+export interface PlayerProfile {
+  /**
+   * 병사 모델 악센트 색 (`#rrggbb`). 캐릭터 생성창에서 고른다. 없으면 `SOLDIER_DEFAULT_ACCENT`.
+   * 3D 프리뷰 · 함선의 내 아바타 · 분대 레이드의 내 병사가 전부 이 색을 쓴다.
+   */
+  accent?: string;
+  /** 캐릭터를 만든 시각 (epoch ms). 슬롯 카드가 정렬 · 표시에 쓴다. 옛 세이브에는 없다. */
+  createdAt?: number;
+  /** 마지막으로 이 캐릭터로 플레이한 시각 (epoch ms). */
+  playedAt?: number;
+}

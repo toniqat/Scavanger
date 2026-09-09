@@ -15,7 +15,7 @@ import * as THREE from 'three';
 import type { PlanetId } from '@/shared';
 import {
   getPlanet, isPlanetId, planetLabel, HUB_TRAVEL_DURATION, HUB_WARP_RAMP_S, HUB_WARP_SHAKE_INTERVAL_S, HUB_WARP_SHAKE_PEAK,
-  PLANET_NONE_LABEL, PLANET_STORAGE_KEY,
+  PLANET_NONE_LABEL, PLANET_STORAGE_KEY, slotKey,
 } from '@/shared';
 import type { CrewCardWire, GameContext, GameSystem, HubLaunchSlot, HubRef, HubShipKind, Interactable, InteriorCollider, LoadoutSlot, LobbyState, PeerId, RoomPurpose } from '@/shared';
 import { CREW_CARD_MIN_INTERVAL_S, CREW_LOADOUT_COOLDOWN_S, HUB_DOCKING_DURATION, HUB_LAUNCH_COUNTDOWN, HUB_READY_BLOCKER, HUB_READY_CELLS, Keys, NET_SLOT_COLORS, ROOM_PURPOSE_LABEL_KO } from '@/shared';
@@ -80,15 +80,15 @@ export function travelBlockReason(sys: HubSystem, planet?: PlanetId): string | n
 /** Restore the solo pick (`PLANET_STORAGE_KEY`); an unknown / absent value stays null (목표 미지정). */
 export function loadPlanet(sys: HubSystem): void {
   try {
-    const raw = localStorage.getItem(PLANET_STORAGE_KEY);
+    const raw = localStorage.getItem(slotKey(PLANET_STORAGE_KEY));
     if (isPlanetId(raw)) sys.localPlanet = raw;
   } catch { /* private mode */ }
   }
 
 export function savePlanet(sys: HubSystem): void {
   try {
-    if (sys.localPlanet) localStorage.setItem(PLANET_STORAGE_KEY, sys.localPlanet);
-    else localStorage.removeItem(PLANET_STORAGE_KEY);
+    if (sys.localPlanet) localStorage.setItem(slotKey(PLANET_STORAGE_KEY), sys.localPlanet);
+    else localStorage.removeItem(slotKey(PLANET_STORAGE_KEY));
   } catch { /* private mode */ }
   }
 

@@ -1,6 +1,6 @@
 import './tutorial.css';
 import type { GameContext, GameSystem, TutorialGate, TutorialRef, TutorialSave, TutorialStepId } from '@/shared';
-import { SHIP_ROOM_COUNT, TUTORIAL_STEPS } from '@/shared';
+import { SHIP_ROOM_COUNT, TUTORIAL_STEPS, slotKey } from '@/shared';
 import {
   SKIP_HOLD_TIME, TUTORIAL_AMMO_DEF, TUTORIAL_AMMO_RECIPE, TUTORIAL_BENCH_DEF, TUTORIAL_CRAFT_GRANT,
   TUTORIAL_GUN_DEF, TUTORIAL_GUN_RECIPE, TUTORIAL_ROOM_PURPOSE, TUTORIAL_SAVE_VERSION, TUTORIAL_STORAGE_KEY,
@@ -466,7 +466,7 @@ export class TutorialSystem implements GameSystem, TutorialRef {
 
   private load(): SaveV1 {
     try {
-      const raw = window.localStorage.getItem(TUTORIAL_STORAGE_KEY);
+      const raw = window.localStorage.getItem(slotKey(TUTORIAL_STORAGE_KEY));
       if (!raw) return freshSave();
       const doc = JSON.parse(raw) as Partial<SaveV1>;
       const step = typeof doc.step === 'string' && TUTORIAL_STEPS.includes(doc.step as TutorialStepId)
@@ -486,7 +486,7 @@ export class TutorialSystem implements GameSystem, TutorialRef {
   }
 
   private persist(): void {
-    try { window.localStorage.setItem(TUTORIAL_STORAGE_KEY, JSON.stringify(this.save)); } catch { /* storage off */ }
+    try { window.localStorage.setItem(slotKey(TUTORIAL_STORAGE_KEY), JSON.stringify(this.save)); } catch { /* storage off */ }
   }
 
   /* ── dev 콘솔 ──────────────────────────────────────────────────────────── */

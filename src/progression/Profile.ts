@@ -1,6 +1,7 @@
 import type { EquippedImplant, ImplantId, PlayerProfile, SkillId, StatId } from '@/shared';
 import {
   IMPLANT_IDS, PROFILE_STORAGE_KEY, PROFILE_VERSION, SKILL_IDS, SKILL_LEVEL_MAX, STAT_BASE, STAT_IDS, STAT_MAX, STAT_MIN,
+  slotKey,
 } from '@/shared';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -161,7 +162,7 @@ export function loadProfile(): LoadResult {
   if (!s) return { profile: freshProfile(), outcome: 'fresh', foundVersion: -1 };
   let raw: string | null = null;
   try {
-    raw = s.getItem(PROFILE_STORAGE_KEY);
+    raw = s.getItem(slotKey(PROFILE_STORAGE_KEY));
   } catch {
     return { profile: freshProfile(), outcome: 'fresh', foundVersion: -1 };
   }
@@ -190,7 +191,7 @@ export function saveProfile(profile: PlayerProfile): boolean {
   const s = storage();
   if (!s) return false;
   try {
-    s.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profile));
+    s.setItem(slotKey(PROFILE_STORAGE_KEY), JSON.stringify(profile));
     return true;
   } catch {
     return false;
@@ -201,7 +202,7 @@ export function clearStoredProfile(): void {
   const s = storage();
   if (!s) return;
   try {
-    s.removeItem(PROFILE_STORAGE_KEY);
+    s.removeItem(slotKey(PROFILE_STORAGE_KEY));
   } catch {
     /* ignore */
   }

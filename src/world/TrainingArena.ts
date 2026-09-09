@@ -3,7 +3,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import {
   Layers, Random, TRAINING_ARENA_SIZE, TRAINING_TARGET_COUNT, TRAINING_TARGET_HP, TRAINING_TARGET_RESPAWN_S,
   TRAINING_MOVING_SPAN, TRAINING_MOVING_SPEED, TRAINING_MOVING_PAUSE_S,
-  TRAINING_COURSE_TARGETS, TRAINING_COURSE_TIME_S, TRAINING_COURSE_COOLDOWN_S, TRAINING_BEST_STORAGE_KEY,
+  TRAINING_COURSE_TARGETS, TRAINING_COURSE_TIME_S, TRAINING_COURSE_COOLDOWN_S, TRAINING_BEST_STORAGE_KEY, slotKey,
   TRAINING_MODES, TRAINING_MODE_LABEL_KO,
   type DestructibleRef, type GameContext, type Interactable, type TrainingMode, type TrainingRef,
 } from '@/shared';
@@ -77,7 +77,7 @@ interface BestRecord { best: number }
 
 function loadBest(): number | null {
   try {
-    const raw = localStorage.getItem(TRAINING_BEST_STORAGE_KEY);
+    const raw = localStorage.getItem(slotKey(TRAINING_BEST_STORAGE_KEY));
     if (!raw) return null;
     const rec = JSON.parse(raw) as Partial<BestRecord>;
     return typeof rec.best === 'number' && Number.isFinite(rec.best) && rec.best > 0 ? rec.best : null;
@@ -85,7 +85,7 @@ function loadBest(): number | null {
 }
 
 function saveBest(best: number): void {
-  try { localStorage.setItem(TRAINING_BEST_STORAGE_KEY, JSON.stringify({ best } satisfies BestRecord)); } catch { /* storage unavailable */ }
+  try { localStorage.setItem(slotKey(TRAINING_BEST_STORAGE_KEY), JSON.stringify({ best } satisfies BestRecord)); } catch { /* storage unavailable */ }
 }
 
 interface Fx { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; life: number; ttl: number; grow: number }

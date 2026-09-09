@@ -1,6 +1,7 @@
 import type { GrowPlot, LoadoutPreset, PlacedBook, PlacedFurniture, ProfileRef, RoomState, ShipState, StoredFurniture } from '@/shared';
 import {
   BOOKS_PER_SHELF, FURNITURE_DEF_MAP, GROW_PLOTS_PER_RACK, IMPLANT_IDS, SHIP_ROOM_COUNT, SHIP_STATE_VERSION, SHIP_STORAGE_KEY,
+  slotKey,
 } from '@/shared';
 import {
   canPlaceAt, facilityMaxLevel, facilityPurposeOf, furnitureAllowedIn, furnitureMaxLevel, isRoomPurpose, nextFreeLayer,
@@ -262,7 +263,7 @@ export function loadState(): { state: ShipState; fresh: boolean } {
   if (!s) return { state: freshState(), fresh: true };
   let raw: unknown = null;
   try {
-    const text = s.getItem(SHIP_STORAGE_KEY);
+    const text = s.getItem(slotKey(SHIP_STORAGE_KEY));
     if (text) raw = JSON.parse(text);
   } catch { raw = null; }
   if (!raw || typeof raw !== 'object') return { state: freshState(), fresh: true };
@@ -272,7 +273,7 @@ export function loadState(): { state: ShipState; fresh: boolean } {
 export function writeState(state: ShipState): boolean {
   const s = storage();
   if (!s) return false;
-  try { s.setItem(SHIP_STORAGE_KEY, JSON.stringify(state)); return true; } catch { return false; }
+  try { s.setItem(slotKey(SHIP_STORAGE_KEY), JSON.stringify(state)); return true; } catch { return false; }
 }
 
 /** Debounced writer with a pagehide / beforeunload flush; `profile` = the server mirror (read lazily, may be offline). */

@@ -11,7 +11,7 @@ import { isPlanetId } from '@/shared';
 import {
   NET_INVITE_PARAM, NET_MISSION_RESUME_TIMEOUT_MS, NET_NAME_PARAM, NET_PLAYER_SNAPSHOT_HZ, NET_RECONNECT_BACKOFF_MS,
   NET_TOKEN_LENGTH, NET_TOKEN_PARAM, NET_TOKEN_STORAGE_KEY, NET_WS_PATH, PlayerFlags, RAID_BLOB_MAX_BYTES,
-  isValidLobbyCode, normalizeLobbyCode, sanitizePlayerName,
+  isValidLobbyCode, normalizeLobbyCode, sanitizePlayerName, slotKey,
 } from '@/shared';
 import { NetClient } from './NetClient';
 import { ProfileSync } from './ProfileSync';
@@ -158,7 +158,7 @@ export class NetSystem implements GameSystem, NetRef {
     this.socialSync.squadSize = () => this._lobby?.players.length ?? 0;
 
     try {
-      const stored = localStorage.getItem(NAME_STORAGE_KEY);
+      const stored = localStorage.getItem(slotKey(NAME_STORAGE_KEY));
       if (stored) this._playerName = sanitizePlayerName(stored);
     } catch { /* storage unavailable */ }
 
@@ -268,7 +268,7 @@ export class NetSystem implements GameSystem, NetRef {
 
   setPlayerName(name: string): void {
     this._playerName = sanitizePlayerName(name);
-    try { localStorage.setItem(NAME_STORAGE_KEY, this._playerName); } catch { /* storage unavailable */ }
+    try { localStorage.setItem(slotKey(NAME_STORAGE_KEY), this._playerName); } catch { /* storage unavailable */ }
     // Already in a lobby → rename there too (server sanitizes + broadcasts).
     if (this.client.connected && this._lobby) this.client.send({ t: 'lobby:name', name: this._playerName });
   }

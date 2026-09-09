@@ -33,3 +33,7 @@ export * from './planetDefs';
 export * from './social';
 /* appended (2026-09-08): 튜토리얼 계약 */
 export * from './tutorial';
+/* appended (2026-09-09): 캐릭터 세이브 슬롯 · 캐릭터 생성 · 재화(보상) 칩 */
+export * from './saveSlot';
+export * from './character';
+export * from './currency';

@@ -20,10 +20,17 @@ import { HousingSystem } from '@/housing/HousingSystem';
 import { ConsoleSystem } from '@/console/ConsoleSystem';
 import { TutorialSystem } from '@/tutorial/TutorialSystem';
 import { MetaSystem } from '@/meta/MetaSystem';
-import { loadKeybinds } from '@/shared';
+import { ensureMigrated, loadKeybinds } from '@/shared';
 
 const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
 const uiRoot = document.getElementById('ui-root') as HTMLElement;
+
+/*
+ * 캐릭터 세이브 슬롯 (2026-09-09) — **모든 것보다 먼저**. 슬롯이 없던 시절의 `scav.*` 세이브를 슬롯 1 로
+ * 옮기고 활성 슬롯을 확정한다. 시스템은 저장소를 생성자에서 한 번 읽으므로, 이 줄 뒤에 오는 `slotKey`
+ * 호출은 전부 같은 슬롯을 가리켜야 한다 (`shared/saveSlot`).
+ */
+ensureMigrated();
 
 // Player key bindings (localStorage) must be in `Keys` before any system caches a label.
 loadKeybinds();

@@ -1,4 +1,5 @@
 import type { MissionStats, PlanetId } from '@/shared';
+import { slotKey } from '@/shared';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * 솔로 레이드 세션 저장 (2026-09-07).
@@ -72,7 +73,7 @@ export function loadSoloRaid(): SoloRaidSave | null {
   if (!s) return null;
   let file: unknown;
   try {
-    const raw = s.getItem(SOLO_RAID_STORAGE_KEY);
+    const raw = s.getItem(slotKey(SOLO_RAID_STORAGE_KEY));
     if (!raw) return null;
     file = JSON.parse(raw);
   } catch { return null; }
@@ -108,12 +109,12 @@ export function soloRaidStatus(save: SoloRaidSave | null, now: number = Date.now
 export function saveSoloRaid(save: SoloRaidSave): void {
   const s = storage();
   if (!s) return;
-  try { s.setItem(SOLO_RAID_STORAGE_KEY, JSON.stringify(save)); } catch { /* quota / blocked */ }
+  try { s.setItem(slotKey(SOLO_RAID_STORAGE_KEY), JSON.stringify(save)); } catch { /* quota / blocked */ }
 }
 
 /** Drop the stored raid (extraction, failure, abort, resume consumed). */
 export function clearSoloRaid(): void {
   const s = storage();
   if (!s) return;
-  try { s.removeItem(SOLO_RAID_STORAGE_KEY); } catch { /* blocked */ }
+  try { s.removeItem(slotKey(SOLO_RAID_STORAGE_KEY)); } catch { /* blocked */ }
 }

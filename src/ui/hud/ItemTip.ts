@@ -1,5 +1,7 @@
-import type { GameContext, ItemDef, StatId } from '@/shared';
-import { CATEGORY_ICON, CATEGORY_LABEL_KO, PERK_DEFS, RARITY_COLORS, RARITY_LABEL_KO, formatCredits, itemCreditValue } from '@/shared';
+import type { CurrencyDef, GameContext, ItemDef, StatId } from '@/shared';
+import {
+  CATEGORY_ICON, CATEGORY_LABEL_KO, PERK_DEFS, RARITY_COLORS, RARITY_LABEL_KO, currencyDef, formatCredits, itemCreditValue,
+} from '@/shared';
 import { el, setText } from '../dom';
 
 /**
@@ -21,6 +23,11 @@ import { el, setText } from '../dom';
  *
  * Phase 10: 가치 left the stats table for a **bottom bar** (`.it-value`, label left / amount right-aligned) rendered
  * with the one credit formatter — `formatCredits(itemCreditValue(def))`, i.e. `1,200 C` (the old `cr` suffix is gone).
+ *
+ * **재화 (2026-09-09)**: 계약 · 퀘스트 보상의 크레딧 · 경험치 · 기업별 신뢰도는 아이템이 아니지만 같은 자리에
+ * 같은 크기의 칩(`shared/currency.buildCurrencyChip`)으로 선다. 그 칩은 `data-def-id` 대신
+ * **`data-currency-id`** 를 달고, 이 카드는 그것도 받아 `.is-currency` 로 그린다 — 헤더에 `재화` 배지가 붙고
+ * 아이템의 분류 · 등급 · 무게 · 가치 줄은 나오지 않는다. 아이템과 구분되는 틀이 필요하다는 요구가 여기서 끝난다.
  */
 export class ItemTip {
   readonly root: HTMLElement;
@@ -32,22 +39,21 @@ export class ItemTip {
   private valueAmount: HTMLElement;
   private ctx: GameContext | null = null;
   private defId: string | null = null;
+  /** 지금 카드가 재화를 그리고 있다면 그 재화 id (아이템일 때 null). */
+  private currencyId: string | null = null;
   private visible = false;
   private unsubs: Array<() => void> = [];
 
   private onOver = (e: PointerEvent): void => {
     const chip = this.chipAt(e.target);
-    const id = chip?.dataset.defId ?? null;
-    if (!id) { this.hide(); return; }
-    if (id !== this.defId) this.render(id);
+    if (!chip || !this.show(chip)) { this.hide(); return; }
     this.move(e.clientX, e.clientY);
   };
   private onMove = (e: PointerEvent): void => {
     const chip = this.chipAt(e.target);
     if (!chip) { this.hide(); return; }
     // also re-show after something hid the card (a room change, a rebuilt panel) while the cursor never left the chip
-    const id = chip.dataset.defId ?? null;
-    if (id && (!this.visible || id !== this.defId)) this.render(id);
+    this.show(chip);
     if (this.visible) this.move(e.clientX, e.clientY);
   };
   private onOut = (e: PointerEvent): void => {
@@ -90,15 +96,36 @@ export class ItemTip {
 
   /** Whether the card is showing (debug / smoke). */
   get isShowing(): boolean { return this.visible; }
-  /** Def id the card is describing (debug / smoke). */
+  /** Def id the card is describing (debug / smoke). Null while it is showing a 재화. */
   get shownDefId(): string | null { return this.visible ? this.defId : null; }
+  /** 재화 id the card is describing (debug / smoke). Null while it is showing an item. */
+  get shownCurrencyId(): string | null { return this.visible ? this.currencyId : null; }
+
+  /**
+   * Draw whichever of the two the hovered chip is. Returns false when the chip carries neither hook, so the
+   * caller hides the card instead of leaving a stale one up.
+   */
+  private show(chip: HTMLElement): boolean {
+    const cy = chip.dataset.currencyId ?? null;
+    if (cy) {
+      if (!this.visible || cy !== this.currencyId) this.renderCurrency(cy);
+      return this.visible;
+    }
+    const id = chip.dataset.defId ?? null;
+    if (!id) return false;
+    if (!this.visible || id !== this.defId) this.render(id);
+    return this.visible;
+  }
 
   private chipAt(target: EventTarget | null): HTMLElement | null {
     const node = target as Element | null;
     if (!node || typeof node.closest !== 'function') return null;
     // `.item-chip` is the shared cost chip; `[data-item-tip]` lets another folder opt a plain element in
     // (inventory/ui/TradeGrids stamps it on the 기업 거래 grids' tiles, which are not chips).
-    return node.closest('.item-chip[data-def-id], [data-item-tip][data-def-id]') as HTMLElement | null;
+    // `[data-currency-id]` is the 재화 칩 (2026-09-09) — same card, a different body.
+    return node.closest(
+      '.item-chip[data-def-id], [data-item-tip][data-def-id], [data-currency-id]',
+    ) as HTMLElement | null;
   }
 
   private defOf(defId: string): ItemDef | undefined {
@@ -118,6 +145,9 @@ export class ItemTip {
     const def = this.defOf(defId);
     if (!def) { this.hide(); return; }
     this.defId = defId;
+    this.currencyId = null;
+    this.root.classList.remove('is-currency');
+    this.valueEl.hidden = false;
     this.root.style.setProperty('--rc', RARITY_COLORS[def.rarity] ?? RARITY_COLORS.common);
     this.root.style.setProperty('--ic', def.color);
     setText(this.nameEl, `${def.icon || CATEGORY_ICON[def.category] || '?'} ${def.name}`);
@@ -155,6 +185,27 @@ export class ItemTip {
     this.visible = true;
   }
 
+  /**
+   * 재화 카드. 아이템 카드와 같은 상자 · 같은 자리에 뜨지만 분류/등급 줄이 `재화` 배지로 바뀌고 가치 바가
+   * 사라진다 — 재화에는 등급도 판매가도 없다. 신뢰도는 기업 색을 그대로 쓰므로 카드도 기업 색으로 물든다.
+   */
+  private renderCurrency(id: string): void {
+    const def: CurrencyDef | undefined = currencyDef(id);
+    if (!def) { this.hide(); return; }
+    this.currencyId = id;
+    this.defId = null;
+    this.root.classList.add('is-currency');
+    this.root.style.setProperty('--rc', def.color);
+    this.root.style.setProperty('--ic', def.color);
+    setText(this.nameEl, `${def.icon} ${def.name}`);
+    setText(this.subEl, '재화');
+    setText(this.descEl, def.description);
+    this.statsEl.replaceChildren();
+    this.valueEl.hidden = true;
+    this.root.hidden = false;
+    this.visible = true;
+  }
+
   /** `근력 +2 · 재주 +1` for an implant's stat bonuses (empty when it has none). */
   private statLine(stats: Partial<Record<StatId, number>> | undefined): string {
     if (!stats) return '';
@@ -181,6 +232,7 @@ export class ItemTip {
     if (!this.visible) return;
     this.visible = false;
     this.defId = null;
+    this.currencyId = null;
     this.root.hidden = true;
   }
 

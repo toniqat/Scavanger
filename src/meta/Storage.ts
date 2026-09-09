@@ -1,5 +1,5 @@
 import type { CorpId, MetaSave, ProfileRef, QuestState } from '@/shared';
-import { CONTRACT_DEFS, CORP_IDS, CREDITS_INITIAL, CREDITS_MAX, META_STORAGE_KEY, QUEST_DEFS } from '@/shared';
+import { CONTRACT_DEFS, CORP_IDS, CREDITS_INITIAL, CREDITS_MAX, META_STORAGE_KEY, QUEST_DEFS, slotKey } from '@/shared';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * MetaSave v1 in localStorage `META_STORAGE_KEY` (`scav.meta`), same pattern as `inventory/Stash.ts`:
@@ -101,7 +101,7 @@ export class MetaStorage {
     const s = storage();
     if (!s) return freshMetaSave();
     try {
-      const raw = s.getItem(META_STORAGE_KEY);
+      const raw = s.getItem(slotKey(META_STORAGE_KEY));
       if (!raw) return freshMetaSave();
       return sanitizeMetaSave(JSON.parse(raw));
     } catch { return freshMetaSave(); }
@@ -130,7 +130,7 @@ export class MetaStorage {
   writeCache(): void {
     const s = storage();
     if (!s) return;
-    try { s.setItem(META_STORAGE_KEY, JSON.stringify({ ...this.data, v: META_SAVE_VERSION })); } catch { /* quota / private mode */ }
+    try { s.setItem(slotKey(META_STORAGE_KEY), JSON.stringify({ ...this.data, v: META_SAVE_VERSION })); } catch { /* quota / private mode */ }
   }
 
   /** Queue the save into the server profile (`profile:set meta`). Phase 9: offline too — `ProfileSync` stamps + queues it. */
