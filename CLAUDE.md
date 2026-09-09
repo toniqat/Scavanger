@@ -96,8 +96,8 @@ start-server.bat relay   # 릴레이만 (npm run server, 0.0.0.0:8787) — 데�
 
 | 폴더 | 시스템 | `ctx` 게시 | 한 줄 책임 |
 |---|---|---|---|
-| [`src/world/`](src/world/README.md) | `WorldSystem` | `ctx.world` | 절차 지형 · 바이옴 · 소품/장애물(**콜라이더 = 보이는 실루엣**, 낮은 것은 `getSurfaceY` 로 **올라선다**) · 상자 · 탈출 패드 · 채집 노드(약초 · **고철 더미**) · **전장의 안개(`ctx.world.fog`)** · 시뮬레이션 훈련장 · 충돌/레이캐스트 질의 |
-| [`src/enemies/`](src/enemies/README.md) | `EnemySystem` | `ctx.enemies` | 버그 5종 + 휴머노이드 로그 AI · 포병(**사거리 −30 % · 비행 −50 % · 리본 궤적**) · 베헤모스 · 팩션 · 시체 루팅 · 상태이상 · 총알 추적 · **지형지물 접지(`getSurfaceY`) · 대형 적 스폰 여유** · 호스트/리플리카 동기화 |
+| [`src/world/`](src/world/README.md) | `WorldSystem` | `ctx.world` | 절차 지형 · 바이옴 · 소품/장애물(**콜라이더 = 보이는 실루엣**, 낮은 것은 `getSurfaceY` 로 **올라선다**) · 상자 · 탈출 패드 · 채집 노드(약초 · **고철 더미**) · **전장의 안개(`ctx.world.fog`)** · **버려진 구조물(전진기지 · 연구실 · 불시착 함선 — 들어간다 · 지하실은 잠겨 있고 키카드가 그 안에 있다 · 컴퓨터로 행성 스캔)** · **선로 · 플랫폼 · 전차(콘솔 시동 → 자동 주행, 데크에 서면 함께 실려 간다)** · 시뮬레이션 훈련장 · 충돌/레이캐스트 질의(**사각 OBB 콜라이더 `Obstacle.box`**) |
+| [`src/enemies/`](src/enemies/README.md) | `EnemySystem` | `ctx.enemies` | 버그 5종 + 휴머노이드 로그 AI · 포병(**사거리 −30 % · 비행 −50 % · 리본 궤적**) · 베헤모스 · 팩션 · 시체 루팅 · 상태이상 · 총알 추적 · **지형지물 접지(`getSurfaceY`) · 대형 적 스폰 여유** · **로그 강하(구조물 조사 → 구역당 1회 · 분대 인원 비례 · 구조물로 진격)** · 호스트/리플리카 동기화 |
 | [`src/extraction/`](src/extraction/README.md) | `ExtractionSystem` | — | 탈출 콘솔(**평상시 빛기둥 없음 — 활성화 뒤에만 켜진다**) · **60초** 카운트다운(`EXTRACTION_COUNTDOWN`) · 함선 착륙/탑승/이륙, 호스트 권한 |
 
 ### 3.4 아이템 · 인벤토리 · 메타

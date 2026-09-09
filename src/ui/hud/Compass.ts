@@ -29,6 +29,11 @@ interface EnemyTick { el: HTMLElement; lastKey: string }
 /**
  * Top-center heading strip with extraction / ship markers.
  *
+ * **2026-09-09 (레이드 플레이 개선):** 구조물 · 선로 · 거대 버섯 군락 마커가 `fog:discovered` 로 하나씩 붙는다
+ * (`.marker.structure` / `.rail` / `.grove`). 발견 전에는 존재하지 않고, 발견 뒤에는 아래의 `isDiscovered`
+ * 게이트를 자동으로 통과한다. 환경 재해는 여기 오지 않는다 — 랜드마크가 아니라 함선이 관측하는 현상이라
+ * 안개 규칙이 다르고, 안전 방향 화살표는 `hud/HazardHud` 가 자기 블록 안에서 그린다.
+ *
  * **Phase 12 — 감지 스탯:** every living enemy inside `ctx.progression.derived.enemyDetectRadius` (grows with 인지력;
  * `DETECT_ENEMY_BASE_RADIUS` without progression) appears as a red tick (`COMPASS_ENEMY_COLOR`) at its bearing,
  * fading with distance. `ctx.enemies.queryNear` is polled at most every `ENEMY_POLL_INTERVAL` (10 Hz); the bearings
@@ -92,6 +97,17 @@ export class Compass {
       // world:ready fires synchronously inside game:newMission (before our handler would) → rebuild there only.
       b.on('game:abort', () => this.clear()),
       b.on('hub:entered', () => this.clearEnemies()),
+      /*
+       * 2026-09-09 (레이드 플레이 개선): 구조물 · 선로 · 거대 버섯 군락도 나침반에 뜬다. 탈출 신호소와 달리
+       * `world:ready` 에 미리 만들지 않고 **발견하는 순간** (`fog:discovered`) 하나씩 붙인다 — 개수가 맵마다
+       * 다르고, 안개 게이트를 통과한 뒤에만 존재해야 하기 때문이다. 아래 `update` 의 `isDiscovered` 게이트는
+       * 그대로 걸리므로 (이미 참) 이중으로 안전하다.
+       */
+      b.on('fog:discovered', ({ kind, id, position }) => {
+        if (kind !== 'structure' && kind !== 'rail' && kind !== 'grove') return;
+        if (this.markers.has(id)) return;
+        this.addMarker(id, position.clone(), `marker ${kind}`);
+      }),
     );
   }
 

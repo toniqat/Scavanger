@@ -4,9 +4,10 @@ import type {
 } from '@/shared';
 import {
   MouseButtons, PING_LIFETIME, PING_DRAG_THRESHOLD_PX, PING_HOLD_MAX, PING_MAX_PER_PLAYER, PING_AIM_ASSIST_PX,
-  NET_SLOT_COLORS, NET_SLOT_COLORS_CSS,
+  NET_SLOT_COLORS, NET_SLOT_COLORS_CSS, PING_HOLD_KINDS,
 } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
+import { PingWheel, type PingSide } from './PingWheel';
 
 /** Re-exported from the shared contract (`ground|enemy|crate|extraction|item|attack|caution`). */
 export type PingKind = SharedPingKind;
@@ -89,7 +90,12 @@ interface Ping extends PingView {
   ackMats: THREE.MeshBasicMaterial[];
 }
 
-type Gesture = 'plain' | 'attack' | 'caution' | 'ammo';
+/**
+ * Gesture the current drag would fire on release. `left` / `right` are the two wheel sectors — what they *mean*
+ * depends on the local player's state (`PING_HOLD_KINDS`: 여기 조심해 / 저쪽으로 가자, or 살려줘 / 나를 버려 while
+ * downed), so the gesture no longer names a `PingKind` directly the way v2's `attack` / `caution` did.
+ */
+type Gesture = 'plain' | 'left' | 'right' | 'ammo';
 
 /** Aim-assist candidate. `pri` 1 = squad ping (→ ack), 2 enemy, 3 pickup, 4 crate, 5 pad; lower wins, then screen distance. */
 interface AimCandidate { pri: number; px: number; kind: PingKind; pos: THREE.Vector3; enemy: EnemyRef | null; ping: Ping | null; label: string }
@@ -145,7 +151,8 @@ interface AimCandidate { pri: number; px: number; kind: PingKind; pos: THREE.Vec
  */
 export class Pings {
   readonly root: HTMLElement;
-  private hint: HTMLElement;
+  /** 2026-09-09: the one-line `.ping-hint` became a visible left/right wheel (`hud/PingWheel`). */
+  private wheel: PingWheel;
   private ctx!: GameContext;
   private pings: Ping[] = [];
   private nextId = 1;
@@ -162,8 +169,10 @@ export class Pings {
   private holdStart = 0;
   private dragX = 0;
   private dragY = 0;
-  private hintShown = false;
+  private wheelShown = false;
   private hintDir: Gesture = 'plain';
+  /** Layout the wheel is drawn with while a hold runs — frozen at press so it cannot flip mid-drag. */
+  private holdDowned = false;
   private pressOrigin = new THREE.Vector3();
   private pressDir = new THREE.Vector3();
 
@@ -182,12 +191,7 @@ export class Pings {
 
   constructor(parent: HTMLElement) {
     this.root = el('div', { cls: 'ping-markers', parent });
-    this.hint = el('div', { cls: 'ping-hint', parent });
-    el('span', { cls: 'l', text: '◄ 주의', parent: this.hint });
-    el('span', { cls: 'sep', text: '·', parent: this.hint });
-    el('span', { cls: 'r', text: '돌격 ►', parent: this.hint });
-    el('span', { cls: 'sep', text: '·', parent: this.hint });
-    el('span', { cls: 'd', text: '▼ 탄약', parent: this.hint });
+    this.wheel = new PingWheel(parent);
   }
 
   bind(ctx: GameContext): void {
@@ -222,6 +226,10 @@ export class Pings {
 
   /** Live pings (read-only view) for other HUD parts (map). */
   getPings(): readonly PingView[] { return this.pings; }
+
+  /** 2026-09-09: whether the 좌/우 hold wheel is showing, and which layout it draws (debug / smoke). */
+  get isHoldWheelOpen(): boolean { return this.wheel.isOpen; }
+  get isHoldWheelDowned(): boolean { return this.wheel.isDowned; }
 
   update(dt: number, ctx: GameContext): void {
     void dt;
@@ -287,6 +295,8 @@ export class Pings {
       this.holdStart = ctx.time;
       this.dragX = 0; this.dragY = 0;
       this.hintDir = 'plain';
+      // The two sides mean something else while downed — frozen at press so a revive mid-drag cannot swap them.
+      this.holdDowned = ctx.player?.isDowned ?? false;
       ctx.camera.getWorldPosition(this.pressOrigin);
       ctx.camera.getWorldDirection(this.pressDir);
       // fall through: a press and release inside the same frame (quick click at low fps) must still ping
@@ -299,21 +309,27 @@ export class Pings {
     if (!locked) { this.dragX += input.mouseDX; this.dragY += input.mouseDY; }
 
     const gesture = locked ? 'plain' : this.classify();
+    const showWheel = held >= HINT_DELAY && !locked;
+    if (showWheel !== this.wheelShown) {
+      this.wheelShown = showWheel;
+      this.wheel.setOpen(showWheel, this.holdDowned);
+      ctx.bus.emit('ping:wheelChanged', { open: showWheel, downed: this.holdDowned, hover: showWheel ? this.sideOf(gesture) : null });
+    }
     if (gesture !== this.hintDir) {
       this.hintDir = gesture;
-      toggleClass(this.hint, 'caution', gesture === 'caution');
-      toggleClass(this.hint, 'attack', gesture === 'attack');
-      toggleClass(this.hint, 'ammo', gesture === 'ammo');
+      this.wheel.setHover(showWheel ? (gesture === 'ammo' ? 'ammo' : this.sideOf(gesture)) : null);
+      if (showWheel) ctx.bus.emit('ping:wheelChanged', { open: true, downed: this.holdDowned, hover: this.sideOf(gesture) });
     }
-    const showHint = held >= HINT_DELAY && !locked;
-    if (showHint !== this.hintShown) { this.hintShown = showHint; toggleClass(this.hint, 'show', showHint); }
 
     if (input.wasMouseReleased(MouseButtons.PING)) {
-      this.endHold();
+      this.endHold(ctx);
       this.lastPingTime = ctx.time;
       switch (gesture) {
-        case 'attack': this.place(ctx, 'attack', this.pressOrigin, this.pressDir); break;
-        case 'caution': this.place(ctx, 'caution', this.pressOrigin, this.pressDir); break;
+        case 'left':
+        case 'right':
+          this.place(ctx, PING_HOLD_KINDS[this.holdDowned ? 'downed' : 'alive'][gesture], this.pressOrigin, this.pressDir);
+          break;
+        // 2026-09-09: 전투불능이면 아래 드래그가 탄약 요청이 아니다 (총을 못 쏘니 부탁할 이유가 없다) — 평범한 핑.
         case 'ammo': this.requestAmmo(ctx); break;
         default: {
           ctx.camera.getWorldPosition(this.origin);
@@ -327,17 +343,26 @@ export class Pings {
     }
   }
 
+  /** Wheel side a gesture points at (`plain` / `ammo` point at neither). */
+  private sideOf(gesture: Gesture): PingSide | null {
+    return gesture === 'left' || gesture === 'right' ? gesture : null;
+  }
+
   private classify(): Gesture {
     const T = PING_DRAG_THRESHOLD_PX;
     const ax = Math.abs(this.dragX);
-    if (this.dragY >= T && this.dragY > ax) return 'ammo';
-    if (ax >= T) return this.dragX > 0 ? 'attack' : 'caution';
+    // downed: no ammo request — the downward drag falls through to a plain ping (marks where I am)
+    if (!this.holdDowned && this.dragY >= T && this.dragY > ax) return 'ammo';
+    if (ax >= T) return this.dragX > 0 ? 'right' : 'left';
     return 'plain';
   }
 
-  private endHold(): void {
+  private endHold(ctx?: GameContext): void {
     this.holding = false;
-    if (this.hintShown) { this.hintShown = false; toggleClass(this.hint, 'show', false); }
+    if (!this.wheelShown) return;
+    this.wheelShown = false;
+    this.wheel.setOpen(false, this.holdDowned);
+    (ctx ?? this.ctx)?.bus.emit('ping:wheelChanged', { open: false, downed: this.holdDowned, hover: null });
   }
 
   private cancelHold(): void { if (this.holding) this.endHold(); }
@@ -416,8 +441,11 @@ export class Pings {
     return ctx.isHubPhase() || ctx.hub?.active === true;
   }
 
-  /** `forced` = attack / caution (directional gesture); null → aim assist, then classify by what the ray hit. */
-  private place(ctx: GameContext, forced: 'attack' | 'caution' | null, origin: THREE.Vector3, dir: THREE.Vector3): void {
+  /**
+   * `forced` = the directional gesture's kind (`PING_HOLD_KINDS`: 여기 조심해 / 저쪽으로 가자, or 살려줘 /
+   * 나를 버려 while downed); null → aim assist, then classify by what the ray hit.
+   */
+  private place(ctx: GameContext, forced: PingKind | null, origin: THREE.Vector3, dir: THREE.Vector3): void {
     const ship = this.inShip(ctx);
     const world = ctx.world;
     const interior = ship ? (ctx.hub?.collider ?? null) : null;
@@ -599,8 +627,13 @@ export class Pings {
   private chatLine(kind: PingKind, text: string, dist: number): string {
     const d = `(${dist}m)`;
     switch (kind) {
-      case 'attack': return '돌격!';
-      case 'caution': return '주의!';
+      /*
+       * 2026-09-09: the four hold-gesture kinds all read as their own label plus the distance. v2 wrote `돌격!` /
+       * `주의!` here, but the labels themselves changed hands (`PING_LABEL` — 저쪽으로 가자 · 여기 조심해, and the
+       * two downed ones) and a squadmate needs to know *where* 살려줘 came from, so they follow the v3 rule that
+       * every ping line carries its distance.
+       */
+      case 'attack': case 'caution': case 'help': case 'abandon': return `${PING_LABEL[kind]} ${d}`;
       case 'enemy': return `적 발견 ${d}`;
       case 'crate': return `${text} 여기 ${d}`;
       case 'extraction': return `탈출 지점 ${d}`;
@@ -840,6 +873,6 @@ export class Pings {
     for (const u of this.unsubs) u();
     this.clear(true);
     this.root.remove();
-    this.hint.remove();
+    this.wheel.dispose();
   }
 }

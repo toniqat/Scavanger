@@ -1,0 +1,98 @@
+/*
+ * src/ui/styles/wheels.css — 2026-09-09 에 생긴 두 방사형 휠.
+ *
+ *   `.cwheel`  의사소통 휠 (`hud/CommsWheel`, H 홀드; 서 있으면 4칸 · 전투불능이면 2칸)
+ *   `.pwheel`  지역 핑 홀드 휠 (`hud/PingWheel`, 휠 버튼 홀드; 좌/우 2칸 + 아래 탄약 다리)
+ *
+ * 둘 다 `.qwheel` / `.swheel` 과 같은 성격이다 — 게임플레이 레이어의 `pointer-events:none` 오버레이이고
+ * blocker · 포인터 락 · ESC 스택 어디에도 손대지 않는다. 색 · 여백 · 트랜지션 변수는 전부 `base.css` 의
+ * `:root` 것을 쓰고 여기서 새로 정의하지 않는다 (`title.css` · `rescuePicker.css` 와 같은 규약).
+ */
+
+/* ── 의사소통 휠 (H 홀드) ─────────────────────────────────────────────────── */
+.cwheel {
+  position: absolute; left: 50%; top: 50%;
+  width: 280px; height: 280px; margin: -140px 0 0 -140px;
+  pointer-events: none;
+  opacity: 0; transform: scale(0.92);
+  transition: opacity 100ms var(--ease), transform 100ms var(--ease);
+}
+.cwheel.show { opacity: 1; transform: scale(1); }
+.cwheel .ring { position: absolute; inset: 0; width: 100%; height: 100%; }
+.cwheel .carc {
+  fill: rgba(10, 12, 14, 0.62); stroke: var(--c-border); stroke-width: 1;
+  transition: fill var(--t-fast) var(--ease), stroke var(--t-fast) var(--ease);
+}
+.cwheel .carc.hover { fill: rgba(255, 179, 71, 0.22); stroke: var(--c-accent); }
+.cwheel.cooling .carc { fill: rgba(10, 12, 14, 0.4); stroke: rgba(255, 255, 255, 0.08); }
+.cwheel.cooling .carc.hover { fill: rgba(255, 255, 255, 0.06); stroke: var(--c-border-strong); }
+.cwheel .items { position: absolute; inset: 0; }
+
+.csector {
+  position: absolute; width: 92px; height: 44px; margin: -22px 0 0 -46px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  transition: opacity var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
+}
+.csector .nm {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.04em; white-space: nowrap;
+  color: var(--cc, var(--c-text)); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
+}
+.csector .dir { font-size: 8px; letter-spacing: 0.14em; color: var(--c-text-faint); }
+.csector.hover { transform: scale(1.12); }
+.csector.hover .dir { color: var(--c-accent); }
+.cwheel.cooling .csector { opacity: 0.4; }
+
+.cwheel .centre {
+  position: absolute; left: 50%; top: 50%; width: 128px; margin-left: -64px; transform: translateY(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 3px; text-align: center;
+}
+.cwheel .centre .ui-label { font-size: 8px; letter-spacing: 0.22em; }
+.cwheel .cname { font-size: 12px; font-weight: 700; letter-spacing: 0.04em; line-height: 1.25; color: var(--c-text); min-height: 15px; }
+.cwheel .cname.dim { color: var(--c-text-dim); font-weight: 500; }
+.cwheel .ccd { font-size: 11px; font-weight: 700; color: var(--c-accent); letter-spacing: 0.06em; min-height: 0; }
+.cwheel .csub { font-size: 8px; letter-spacing: 0.1em; color: var(--c-text-faint); }
+
+/* ── 지역 핑 홀드 휠 (휠 버튼 홀드) ───────────────────────────────────────── */
+.pwheel {
+  position: absolute; left: 50%; top: 50%;
+  width: 240px; height: 240px; margin: -120px 0 0 -120px;
+  pointer-events: none;
+  opacity: 0; transform: scale(0.94);
+  transition: opacity 140ms var(--ease), transform 140ms var(--ease);
+}
+.pwheel.show { opacity: 1; transform: scale(1); }
+.pwheel .ring { position: absolute; inset: 0; width: 100%; height: 100%; }
+.pwheel .parc {
+  fill: rgba(10, 12, 14, 0.55); stroke: var(--c-border); stroke-width: 1;
+  transition: fill var(--t-fast) var(--ease), stroke var(--t-fast) var(--ease);
+}
+.pwheel .parc.hover { fill: color-mix(in srgb, var(--pc, #7fb7e6) 22%, transparent); stroke: var(--pc, #7fb7e6); }
+.pwheel .items { position: absolute; inset: 0; }
+
+.psector {
+  position: absolute; width: 96px; height: 40px; margin: -20px 0 0 -48px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+  transition: transform var(--t-fast) var(--ease);
+}
+.psector .ar { font-size: 11px; line-height: 1; color: var(--c-text-faint); }
+.psector .nm {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.03em; white-space: nowrap;
+  color: var(--c-text-dim); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
+  transition: color var(--t-fast) var(--ease), text-shadow var(--t-fast) var(--ease);
+}
+.psector.hover { transform: scale(1.1); }
+.psector.hover .ar { color: var(--pc, #7fb7e6); }
+.psector.hover .nm { color: var(--pc, #7fb7e6); text-shadow: 0 0 8px var(--pc, #7fb7e6), 0 1px 3px rgba(0, 0, 0, 0.85); }
+
+/* 아래로 드래그 = 탄약 요청. 전투불능이면 `hidden` (총을 못 쏘는 사람이 탄약을 부를 이유가 없다). */
+.pwheel .ammo-leg {
+  position: absolute; left: 50%; top: 100%; transform: translate(-50%, 4px);
+  display: flex; align-items: center; gap: 5px;
+  font-size: 10px; letter-spacing: 0.12em; color: var(--c-text-faint);
+  white-space: nowrap;
+  transition: color var(--t-fast) var(--ease), text-shadow var(--t-fast) var(--ease);
+}
+.pwheel .ammo-leg.hover { color: var(--c-accent); text-shadow: 0 0 8px rgba(255, 179, 71, 0.6); }
+
+/* 관전 중에는 개인 위젯과 함께 사라진다 (`base.css` 의 `.hud.spectating` 규칙과 같은 취급) */
+.hud.spectating .cwheel, .hud.spectating .pwheel { opacity: 0 !important; visibility: hidden; }

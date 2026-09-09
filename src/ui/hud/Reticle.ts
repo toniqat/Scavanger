@@ -51,6 +51,8 @@ export class Reticle {
   private scope = false;
   private wheelOpen = false;
   private stratOpen = false;
+  /** 2026-09-09: 의사소통 휠(H 홀드)이 열려 있다 — 형제 휠들과 같은 25 % 로 흐린다. */
+  private commsOpen = false;
   private hitTimer = 0;
   private lastGap = -1;
   private ctx: GameContext | null = null;
@@ -85,6 +87,8 @@ export class Reticle {
       b.on('weapon:scopeChanged', ({ scope }) => { this.scope = scope; }),
       b.on('quick:wheelChanged', ({ open }) => { this.wheelOpen = open; }),
       b.on('stratagem:wheelChanged', ({ open }) => { this.stratOpen = open; }),
+      // 2026-09-09: 의사소통 휠(H)도 형제 휠들과 같이 조준점을 흐린다 — 지금은 조준이 아니라 말하는 중이다.
+      b.on('comms:wheelChanged', ({ open }) => { this.commsOpen = open; }),
       b.on('ui:hitmarker', ({ kill, headshot }) => {
         this.hitmarker.classList.remove('show', 'kill', 'head');
         // force restart of transition
@@ -200,7 +204,7 @@ export class Reticle {
 
     const scoped = this.scope && this.aiming;
     // Hidden behind blockers / the scope; dimmed while the quick-use wheel is open.
-    const opacity = ctx.uiBlockers.size > 0 || scoped ? '0' : (this.wheelOpen || this.stratOpen) ? '0.25' : '1';
+    const opacity = ctx.uiBlockers.size > 0 || scoped ? '0' : (this.wheelOpen || this.stratOpen || this.commsOpen) ? '0.25' : '1';
     if (this.root.style.opacity !== opacity) this.root.style.opacity = opacity;
   }
 

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import type { FogRef, GameContext, PingKind } from '@/shared';
-import { Keys, MENU_BLOCKER, NET_SLOT_COLORS_CSS, PlayerFlags, SUSPENDED_LABEL_KO, keyLabel } from '@/shared';
+import type { FogRef, GameContext, HazardRef, PingKind } from '@/shared';
+import { HAZARD_LABEL_KO, Keys, MENU_BLOCKER, NET_SLOT_COLORS_CSS, PlayerFlags, SUSPENDED_LABEL_KO, keyLabel } from '@/shared';
 import { el, setText } from '../dom';
 import type { PingView } from '../hud/Pings';
 import { PING_LABEL } from '../hud/Pings';
@@ -35,7 +35,15 @@ const COL = {
   /* appended: tactical kit */
   gather: '#7fe6a1',
   deploy: '#8fe8ff',
+  /* appended (2026-09-09): 레이드 플레이 개선 — 구조물 · 선로 · 전차 · 환경 재해 */
+  structure: '#d8c48a',
+  rail: '#9fb4c7',
+  tram: '#ffd27f',
+  grove: '#b98cff',
 };
+/** 재해 구역 채움 · 경계선. 안개 위에 얹는 얇은 붉은 층이라 지형이 그대로 비쳐야 한다. */
+const HAZARD_FILL = 'rgba(255, 77, 77, 0.16)';
+const HAZARD_LINE = 'rgba(255, 106, 61, 0.85)';
 /** Phase 7: icon / label colour of a suspended squad member (socket down, ghost body kept). */
 const COL_SUSPENDED = '#8a8f99';
 const PING_CSS: Record<PingKind, string> = {
@@ -164,6 +172,12 @@ export class MapScreen {
       ['gather', COL.gather, '채집물'],
       ['deploy', COL.deploy, '설치물'],
       ['mine', COL.danger, '지뢰 (피아 구분 없음)'],
+      /* appended (2026-09-09): 레이드 플레이 개선 */
+      ['structure', COL.structure, '버려진 구조물'],
+      ['rail', COL.rail, '선로 · 플랫폼'],
+      ['tram', COL.tram, '전차'],
+      ['grove', COL.grove, '거대 버섯 군락'],
+      ['hazard', COL.danger, '위험 구역'],
     ];
     for (const [cls, color, label] of entries) {
       const row = el('div', { cls: 'map-legend-row', parent: legend });
@@ -538,9 +552,47 @@ export class MapScreen {
 
     this.drawGrid(c);
 
+    /*
+     * 2026-09-09 — 환경 재해는 **안개 레이어 위**에 그린다. 함선이 궤도에서 관측해 알려 주는 현상이라
+     * 걸어서 밝힌 구역과 상관이 없다 (사용자 명시 요구). 그래서 `discovered()` 게이트도 걸지 않는다.
+     */
+    this.drawHazard(ctx);
+
     const world = ctx.world;
     const t = ctx.time;
     if (world?.ready) {
+      // 선로 · 플랫폼 · 전차 (2026-09-09): 지형지물이므로 발견한 것만. 전차는 매 프레임 움직인다.
+      this.drawRails(ctx);
+      // 버려진 구조물 (2026-09-09)
+      for (const st of world.getStructures()) {
+        if (!this.discovered(st.position)) continue;
+        const x = this.toX(st.position.x), y = this.toY(st.position.z);
+        const rr = Math.max(5, st.radius * s);
+        if (!this.inView(x, y, rr + 12)) continue;
+        c.strokeStyle = COL.structure; c.lineWidth = 1.3;
+        c.fillStyle = 'rgba(216,196,138,0.12)';
+        c.beginPath(); c.arc(x, y, rr, 0, Math.PI * 2); c.fill(); c.stroke();
+        c.fillStyle = COL.structure;
+        c.fillRect(x - 3.5, y - 3.5, 7, 7);
+        // 지하실이 있고 아직 잠겨 있으면 호박색 자물쇠 점을 하나 더 찍는다 (키카드가 안에 있다는 신호)
+        if (st.hasBasement && !st.unlocked) {
+          c.fillStyle = COL.accent;
+          c.beginPath(); c.arc(x + 6, y - 6, 2, 0, Math.PI * 2); c.fill();
+        }
+        c.fillStyle = COL.dim;
+        c.font = FONT_LABEL;
+        c.textAlign = 'center'; c.textBaseline = 'top';
+        c.fillText('구조물', x, y + rr + 2);
+      }
+      // 거대 버섯 군락 (독성 포자 발생지) — 발견한 것만
+      for (const src of ctx.world?.hazard?.getSources() ?? []) {
+        if (!src.discovered) continue;
+        const x = this.toX(src.position.x), y = this.toY(src.position.z);
+        if (!this.inView(x, y, 10)) continue;
+        c.strokeStyle = COL.grove; c.lineWidth = 1.3;
+        c.beginPath(); c.arc(x, y - 1.5, 4, Math.PI, 0); c.stroke();
+        c.beginPath(); c.moveTo(x, y - 1.5); c.lineTo(x, y + 3.5); c.stroke();
+      }
       // nests
       for (const p of world.getNestPositions()) {
         if (!this.discovered(p)) continue;
@@ -674,6 +726,17 @@ export class MapScreen {
           this.triangle(c, x, y, 6, col, 'rgba(255,194,58,0.35)');
           c.fillStyle = col; c.fillRect(x - 0.75, y - 2, 1.5, 3.5); c.fillRect(x - 0.75, y + 2.5, 1.5, 1.5);
           break;
+        /* 2026-09-09: 전투불능 좌/우 핑 — 오프스크린 화살표의 ✚ / ✖ 과 같은 모양으로 맞춘다. */
+        case 'help':
+          c.strokeStyle = col; c.lineWidth = 2;
+          c.beginPath(); c.moveTo(x - 5, y); c.lineTo(x + 5, y); c.moveTo(x, y - 5); c.lineTo(x, y + 5); c.stroke();
+          break;
+        case 'abandon':
+          c.strokeStyle = col; c.lineWidth = 1.8;
+          c.beginPath(); c.moveTo(x - 4, y - 4); c.lineTo(x + 4, y + 4); c.moveTo(x + 4, y - 4); c.lineTo(x - 4, y + 4); c.stroke();
+          break;
+        case 'structure': c.strokeStyle = col; c.lineWidth = 1.5; c.strokeRect(x - 4, y - 4, 8, 8); break;
+        case 'rail': c.strokeStyle = col; c.lineWidth = 2; c.beginPath(); c.moveTo(x - 5, y); c.lineTo(x + 5, y); c.stroke(); break;
         default: c.fillStyle = col; c.beginPath(); c.arc(x, y, 3, 0, Math.PI * 2); c.fill(); break;
       }
       c.fillStyle = col;
@@ -738,6 +801,118 @@ export class MapScreen {
       c.restore();
     }
     c.globalAlpha = 1;
+  }
+
+  /* ── 2026-09-09: 환경 재해 · 선로 ───────────────────────────────────────── */
+
+  /**
+   * `HazardRef.getZones()` 의 도형을 안개 위에 얹는다. `world/` 가 재해를 아직 만들지 않으면 `hazard` 가 null
+   * 이라 통째로 건너뛴다.
+   *
+   *   - `front` = **반평면**. 전선은 `center` 를 지나고 법선이 `(dirX, dirZ)` — 진행 방향이다. 그래서 **법선의
+   *     반대편**(이미 지나온 쪽)이 위험이고, 그쪽을 붉게 채운 뒤 전선 자체를 굵게 긋는다.
+   *   - `circle` = 원. `safeInside` 면 원 **바깥**이 위험이라 캔버스 전체에서 원을 도려내 채우고(even-odd),
+   *     아니면 원 **안**을 채운다.
+   *
+   * 도형이 하나도 없어도 재해가 진행 중이면 이름표를 좌상단에 하나 남긴다 — 지도를 연 사람이 "지금 뭐가
+   * 오고 있나" 를 여기서 읽는다.
+   */
+  private drawHazard(ctx: GameContext): void {
+    const hz: HazardRef | null = ctx.world?.hazard ?? null;
+    if (!hz || !hz.active) return;
+    const c = this.c2d;
+    const C = this.side;
+    const s = this.scale();
+    const L = this.size * 2;   // 반평면을 캔버스 밖까지 확실히 덮는 길이(m)
+
+    c.save();
+    c.beginPath(); c.rect(0, 0, C, C); c.clip();
+    for (const z of hz.getZones()) {
+      if (z.shape === 'front') {
+        const px = -z.dirZ, pz = z.dirX;                       // 전선 방향 (법선에 수직)
+        const pts: Array<[number, number]> = [
+          [z.center.x + px * L, z.center.z + pz * L],
+          [z.center.x - px * L, z.center.z - pz * L],
+          [z.center.x - px * L - z.dirX * L, z.center.z - pz * L - z.dirZ * L],
+          [z.center.x + px * L - z.dirX * L, z.center.z + pz * L - z.dirZ * L],
+        ];
+        c.fillStyle = HAZARD_FILL;
+        c.beginPath();
+        pts.forEach(([wx, wz], i) => { const X = this.toX(wx), Y = this.toY(wz); if (i) c.lineTo(X, Y); else c.moveTo(X, Y); });
+        c.closePath(); c.fill();
+        c.strokeStyle = HAZARD_LINE; c.lineWidth = 2;
+        c.beginPath();
+        c.moveTo(this.toX(pts[0][0]), this.toY(pts[0][1]));
+        c.lineTo(this.toX(pts[1][0]), this.toY(pts[1][1]));
+        c.stroke();
+        continue;
+      }
+      const cx = this.toX(z.center.x), cy = this.toY(z.center.z);
+      const rr = Math.max(1, z.radius * s);
+      c.fillStyle = HAZARD_FILL;
+      c.beginPath();
+      if (z.safeInside) {
+        // 원 밖이 위험: 캔버스 사각형에서 원을 도려낸다 (even-odd).
+        // `rect` 뒤에는 현재 점이 사각형 시작점이라, `moveTo` 없이 `arc` 를 부르면 그 점에서 선이 하나 그어진다.
+        c.rect(0, 0, C, C);
+        c.moveTo(cx + rr, cy);
+        c.arc(cx, cy, rr, 0, Math.PI * 2);
+        c.fill('evenodd');
+      } else {
+        c.arc(cx, cy, rr, 0, Math.PI * 2);
+        c.fill();
+      }
+      c.strokeStyle = HAZARD_LINE; c.lineWidth = 2;
+      c.beginPath(); c.arc(cx, cy, rr, 0, Math.PI * 2); c.stroke();
+    }
+    c.restore();
+
+    if (hz.kind) {
+      c.fillStyle = COL.danger;
+      c.font = FONT_LABEL;
+      c.textAlign = 'left'; c.textBaseline = 'top';
+      c.fillText(`${HAZARD_LABEL_KO[hz.kind]} · 안전지대 ${Math.max(0, Math.round((1 - hz.progress) * 100))}%`, 8, C - 16);
+    }
+  }
+
+  /** 선로 중심선 + 플랫폼 + 전차. 발견한 것만 (전차는 자기 현재 위치로 판정하므로 지도에서 움직인다). */
+  private drawRails(ctx: GameContext): void {
+    const world = ctx.world;
+    if (!world) return;
+    const c = this.c2d;
+    for (const line of world.getRailLines()) {
+      const pts = line.points;
+      if (pts.length < 2) continue;
+      if (!pts.some((p) => this.discovered(p))) continue;
+      c.strokeStyle = COL.rail; c.lineWidth = 1.4;
+      c.setLineDash([5, 3]);
+      c.beginPath();
+      for (let i = 0; i < pts.length; i++) {
+        const X = this.toX(pts[i].x), Y = this.toY(pts[i].z);
+        if (i) c.lineTo(X, Y); else c.moveTo(X, Y);
+      }
+      if (line.kind === 'loop') c.closePath();
+      c.stroke();
+      c.setLineDash([]);
+      for (const p of line.platforms) {
+        if (!this.discovered(p.position)) continue;
+        const X = this.toX(p.position.x), Y = this.toY(p.position.z);
+        if (!this.inView(X, Y, 8)) continue;
+        c.strokeStyle = COL.rail; c.lineWidth = 1.4;
+        c.strokeRect(X - 4, Y - 2.5, 8, 5);
+      }
+    }
+    for (const tram of world.getTrams()) {
+      if (!this.discovered(tram.position)) continue;
+      const X = this.toX(tram.position.x), Y = this.toY(tram.position.z);
+      if (!this.inView(X, Y, 10)) continue;
+      c.save();
+      c.translate(X, Y); c.rotate(-tram.yaw);
+      c.fillStyle = tram.state === 'moving' ? COL.tram : 'rgba(255,210,127,0.5)';
+      c.strokeStyle = 'rgba(0,0,0,0.7)'; c.lineWidth = 1;
+      c.beginPath(); c.rect(-6, -3, 12, 6); c.fill(); c.stroke();
+      c.restore();
+    }
   }
 
   private drawGrid(c: CanvasRenderingContext2D): void {

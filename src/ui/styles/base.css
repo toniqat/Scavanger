@@ -731,6 +731,31 @@ input { font: inherit; color: inherit; }
   animation: cautionBlink 1s steps(1) infinite;
 }
 .pmarker.caution .ico::after { content: "!"; position: absolute; left: -8px; top: 3px; width: 16px; inset: auto; background: none; border-radius: 0; text-align: center; font-size: 9px; font-weight: 800; line-height: 1; color: #1a1206; }
+/* 2026-09-09 (레이드 플레이 개선): 전투불능 좌/우 핑 + 구조물 · 선로. 색은 `hud/Pings` 의 `PING_COLOR` 와 같은 값.
+   살려줘 = 십자(오프스크린 화살표의 ✚ 와 같은 뜻), 나를 버려 = X, 구조물 = 사각, 선로 = 가로 막대. */
+.pmarker.help { --pc: #ff4d4d; }
+.pmarker.abandon { --pc: #8a929c; }
+.pmarker.structure { --pc: #d8c48a; }
+.pmarker.rail { --pc: #9fb4c7; }
+.pmarker.help .ico { border: none; background: none; border-radius: 0; }
+.pmarker.help .ico::after {
+  content: ""; inset: auto; left: -7px; top: -7px; width: 14px; height: 14px; border-radius: 0;
+  background:
+    linear-gradient(var(--pc), var(--pc)) center/4px 14px no-repeat,
+    linear-gradient(var(--pc), var(--pc)) center/14px 4px no-repeat;
+}
+.pmarker.help .ico { animation: cautionBlink 0.7s var(--ease) infinite; }
+.pmarker.abandon .ico { border: none; background: none; border-radius: 0; }
+.pmarker.abandon .ico::after {
+  content: ""; inset: auto; left: -7px; top: -7px; width: 14px; height: 14px; border-radius: 0;
+  background:
+    linear-gradient(45deg, transparent 42%, var(--pc) 42% 58%, transparent 58%),
+    linear-gradient(-45deg, transparent 42%, var(--pc) 42% 58%, transparent 58%);
+}
+.pmarker.structure .ico { border-radius: 1px; }
+.pmarker.structure .ico::after { border-radius: 0; inset: 3px; }
+.pmarker.rail .ico { border-radius: 0; height: 6px; }
+.pmarker.rail .ico::after { border-radius: 0; inset: 1px; }
 .pmarker.lost { filter: saturate(0.6); }
 .pmarker.lost .ico { animation: none; border-style: dashed; opacity: 0.8; }
 .pmarker.lost .lbl { color: var(--c-text-dim); }
@@ -745,25 +770,8 @@ input { font: inherit; color: inherit; }
 @keyframes attackBob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
 @keyframes cautionBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
 
-/* hold + drag gesture hint (near the reticle, fades in after ~150 ms of holding) */
-.ping-hint {
-  position: absolute; left: 50%; top: 50%;
-  transform: translate(-50%, 38px);
-  display: flex; align-items: center; gap: 8px;
-  padding: 5px 12px;
-  background: var(--c-panel); border: 1px solid var(--c-border);
-  font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--c-text-dim);
-  white-space: nowrap;
-  opacity: 0; visibility: hidden;
-  transition: opacity 140ms var(--ease), visibility 140ms var(--ease), transform 140ms var(--ease);
-  pointer-events: none;
-}
-.ping-hint.show { opacity: 1; visibility: visible; transform: translate(-50%, 34px); }
-.ping-hint .sep { color: var(--c-text-faint); }
-.ping-hint .l, .ping-hint .r, .ping-hint .d { transition: color var(--t-fast) var(--ease), text-shadow var(--t-fast) var(--ease); }
-.ping-hint.caution .l { color: #ffc23a; text-shadow: 0 0 8px rgba(255, 194, 58, 0.6); }
-.ping-hint.attack .r { color: #ff6a3d; text-shadow: 0 0 8px rgba(255, 106, 61, 0.6); }
-.ping-hint.ammo .d { color: var(--c-accent); text-shadow: 0 0 8px rgba(255, 179, 71, 0.6); }
+/* 2026-09-09: the one-line hold+drag hint (`.ping-hint`) became a visible left/right wheel —
+   `hud/PingWheel` + `styles/wheels.css`. Nothing here any more. */
 
 /* ── Tactical map (M) ──────────────────────────────────────────────────── */
 .map-screen {
@@ -1600,6 +1608,18 @@ input { font: inherit; color: inherit; }
 .map-legend-row .sw.mine { width: 10px; height: 10px; background:
   linear-gradient(45deg, transparent 44%, var(--sw) 44% 56%, transparent 56%),
   linear-gradient(-45deg, transparent 44%, var(--sw) 44% 56%, transparent 56%); }
+
+/* 2026-09-09 (레이드 플레이 개선): 구조물 · 선로 · 전차 · 거대 버섯 군락 · 위험 구역 */
+.map-legend-row .sw.structure { width: 9px; height: 9px; background: var(--sw); box-shadow: 0 0 0 2px rgba(216, 196, 138, 0.28); }
+.map-legend-row .sw.rail { width: 12px; height: 0; border-top: 2px dashed var(--sw); }
+.map-legend-row .sw.tram { width: 12px; height: 6px; background: var(--sw); }
+.map-legend-row .sw.grove { width: 10px; height: 10px; border-radius: 50% 50% 0 0; border: 1.5px solid var(--sw); border-bottom: none; }
+.map-legend-row .sw.hazard { width: 12px; height: 8px; background: rgba(255, 77, 77, 0.2); border: 1px solid rgba(255, 106, 61, 0.85); }
+
+/* 2026-09-09: 나침반의 새 랜드마크 마커 — 구조물(사각) · 선로(가로줄) · 군락(버섯 갓) */
+.compass .marker.structure .ico { transform: none; border-color: #d8c48a; background: rgba(216, 196, 138, 0.28); }
+.compass .marker.rail .ico { width: 12px; height: 0; border: none; border-top: 2px solid #9fb4c7; transform: none; background: none; }
+.compass .marker.grove .ico { border-radius: 50% 50% 0 0; border-color: #b98cff; border-bottom: none; transform: none; background: rgba(185, 140, 255, 0.2); }
 
 /* dead-but-spectating: hide the personal tactical widgets too */
 .hud.spectating .implant, .hud.spectating .quickbar { opacity: 0 !important; visibility: hidden; }

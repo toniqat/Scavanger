@@ -234,7 +234,7 @@ export function onContainerRequest(sys: InventorySystem, msg: ContainerRequest, 
 export function materializeCrate(sys: InventorySystem, id: string): Container | null {
   const crate = sys.ctx.world?.getCrates().find((k) => k.id === id);
   if (!crate) return null;
-  return sys.containers.getOrCreate(id, crate.tier, crate.position, sys.loot, sys.missionSeed);
+  return sys.containers.getOrCreate(id, crate.tier, crate.position, sys.loot, sys.missionSeed, sys.ctx.missionPlanet);
   }
 
 /** Ask the (new) host for every taken map (host migration, rejoin fallback). */

@@ -9,6 +9,7 @@ import {
   type StructureDef, type RailLineDef, type TramDef, type HazardRef,
 } from '@/shared';
 import { Ambience } from './Ambience';
+import { BOX_HEADROOM, boxContainsXZ, boxHitNormal, boxPushOut, rayBox } from './obb';
 import { Fog } from './Fog';
 import { type Biome, biomeById, pickBiome } from './biomes';
 import { type BuildCtx, PLAY_LIMIT } from './build';
@@ -20,6 +21,8 @@ import { Noise } from './noise';
 import { Outposts } from './Outposts';
 import { PLATFORM_HEIGHT, PLATFORM_RADIUS, Pads } from './Pads';
 import { Props } from './Props';
+import { Rails } from './Rails';
+import { Structures } from './Structures';
 import { type ObstacleEntry, SpatialHash } from './SpatialHash';
 import { HALF, Terrain } from './Terrain';
 import { TrainingArena } from './TrainingArena';
@@ -40,7 +43,7 @@ function circleOverlap(d: number, r1: number, r2: number): number {
 const NONE_CRATES: readonly CrateDef[] = [];
 const NONE_VEC: readonly THREE.Vector3[] = [];
 const NONE_GATHER: readonly GatherNodeDef[] = [];
-/* appended (2026-09-09): 아직 구현 전인 계약의 빈 답 (world/ 담당이 채우면 사라진다) */
+/* appended (2026-09-09): 훈련장의 빈 답 */
 const NONE_STRUCTURES: readonly StructureDef[] = [];
 const NONE_RAILS: readonly RailLineDef[] = [];
 const NONE_TRAMS: readonly TramDef[] = [];
@@ -74,6 +77,8 @@ export class WorldSystem implements GameSystem, WorldRef {
   private readonly pads = new Pads();
   private readonly outposts = new Outposts();
   private readonly crates = new Crates();
+  private readonly structures = new Structures();
+  private readonly rails = new Rails();
   private readonly gather = new Gather();
   private readonly ambience = new Ambience();
   private readonly arena = new TrainingArena();
@@ -110,6 +115,8 @@ export class WorldSystem implements GameSystem, WorldRef {
     ctx.world = this;
     ctx.scene.add(this.root);
     this.gather.attach(ctx);
+    this.structures.attach(ctx);
+    this.rails.attach(ctx);
     this.unsubs.push(
       // `mode` / `planet` travel on the event; a rejoin without them falls back to `ctx.missionMode` / `ctx.missionPlanet`
       // (the emitter sets both before emitting, per the contract, because generation runs inside this emit)
@@ -134,6 +141,8 @@ export class WorldSystem implements GameSystem, WorldRef {
     this.pads.update(t);
     this.outposts.update(t);
     this.crates.update(dt, t);
+    this.structures.update(dt, t);
+    this.rails.update(dt, t);
     this.gather.update(dt, t);
     this.ambience.update(dt, ctx.camera);
     this.fogMask?.update(dt);
@@ -142,6 +151,8 @@ export class WorldSystem implements GameSystem, WorldRef {
   dispose(): void {
     this.clear();
     this.gather.detach();
+    this.structures.detach();
+    this.rails.detach();
     for (const u of this.unsubs) u();
     this.unsubs.length = 0;
     this.root.removeFromParent();
@@ -182,6 +193,11 @@ export class WorldSystem implements GameSystem, WorldRef {
     this.nests.build(bctx);
     this.pads.build(bctx);
     this.outposts.build(bctx);
+    /* 2026-09-09 — 구조물 · 선로는 **소품 · 상자 앞**에 세운다: 벽 · 데크 · 컨테이너가 먼저 hash 에 들어가야
+     * `isSpotFree` 가 그 자리를 피해 바위와 상자를 놓는다 (방 안에 바위가 서지 않는다). 부지 자체는 이미
+     * `layout` 이 잡아 뒀고 `Terrain` 이 평탄화 · 지하실 굴착까지 끝냈다. */
+    this.structures.build(bctx, ctx);
+    this.rails.build(bctx, ctx);
     this.props.build(bctx);
     this.crates.build(bctx, ctx);
     this.gather.build(bctx, ctx, def?.eco ?? null);
@@ -203,7 +219,7 @@ export class WorldSystem implements GameSystem, WorldRef {
     this.generated = true;
     this.ready = true;
     const ms = performance.now() - t0;
-    console.info(`[World] seed ${this.seed} · planet ${def ? `${this.planet} (${def.name})` : '—'} · biome ${this.biome.id} (${this.biome.name}) · ${this.hash.getAll().length} obstacles · ${this.crates.getDefs().length} crates · ${this.gather.getNodes().length} herbs · ${ms.toFixed(0)} ms`);
+    console.info(`[World] seed ${this.seed} · planet ${def ? `${this.planet} (${def.name})` : '—'} · biome ${this.biome.id} (${this.biome.name}) · ${this.hash.getAll().length} obstacles · ${this.crates.getDefs().length} crates · ${this.gather.getNodes().length} herbs · ${this.structures.getDefs().length} structures · ${this.rails.getLines().length ? this.rails.getLines()[0].kind : 'no'} rail · ${ms.toFixed(0)} ms`);
     ctx.bus.emit('world:ready', { seed: this.seed, playerSpawn: this.spawnPos.clone(), planet: this.planet });
   }
 
@@ -260,6 +276,8 @@ export class WorldSystem implements GameSystem, WorldRef {
     }
     this.ambience.dispose();
     this.gather.dispose();
+    this.rails.dispose();
+    this.structures.dispose();
     this.crates.dispose();
     this.props.dispose();
     this.outposts.dispose();
@@ -320,6 +338,8 @@ export class WorldSystem implements GameSystem, WorldRef {
       const o = out[i];
       const top = o.position.y + o.height;
       if (top <= best || top > ceiling) continue;
+      // 2026-09-09: 사각 콜라이더는 외접원이 아니라 **상자 단면**이 발판이다 (벽 모서리 바깥 허공에 서지 않게)
+      if (o.box && !boxContainsXZ(o, x, z)) continue;
       best = top;
     }
     out.length = 0;
@@ -341,6 +361,7 @@ export class WorldSystem implements GameSystem, WorldRef {
       const o = out[i];
       const top = o.position.y + o.height;
       if (feetY < top - PROP_TOP_MARGIN || feetY > top + PROP_TOP_MARGIN) continue;
+      if (o.box && !boxContainsXZ(o, x, z)) continue;
       if (top <= bestTop) continue;
       bestTop = top;
       best = o;
@@ -425,6 +446,13 @@ export class WorldSystem implements GameSystem, WorldRef {
       // 2026-09-09: 윗면에 서 있으면 밀어내지 않는다. 여유는 `getStandingObstacle` 과 같은 `PROP_TOP_MARGIN`
       // 이라 두 판정이 어긋나 가장자리에서 튕겨 나가지 않는다 (예전엔 0.05 로 훨씬 빡빡했다).
       if (position.y >= o.position.y + o.height - PROP_TOP_MARGIN) continue;   // above the obstacle
+      if (o.box) {
+        // 2026-09-09 — 사각 콜라이더. 상자는 **떠 있을 수 있어서**(지하실 천장 슬래브 · 전차 데크) 머리 위로
+        // 지나가는 판은 밀어내지 않는다. 원기둥은 전부 땅에서 올라오므로 이 가지에 오지 않는다.
+        if (position.y + BOX_HEADROOM <= o.position.y) continue;
+        boxPushOut(o, position, radius);
+        continue;
+      }
       let dx = position.x - o.position.x, dz = position.z - o.position.z;
       let d = Math.sqrt(dx * dx + dz * dz);
       const min = radius + o.radius;
@@ -464,12 +492,14 @@ export class WorldSystem implements GameSystem, WorldRef {
     // obstacles along the segment
     const ex = ox + dx * limitT, ez = oz + dz * limitT;
     this.hash.walkSegment(ox, oz, ex, ez, this.hash.maxRadius, (o) => {
-      const t = this.rayCylinder(ox, oy, oz, dx, dy, dz, o, bestT > 0 ? bestT : maxDist);
+      const limit = bestT > 0 ? bestT : maxDist;
+      // 2026-09-09: 사각 콜라이더는 슬래브 셋으로 맞힌다 (`obb.rayBox`), 원기둥은 예전 그대로.
+      const t = o.box ? rayBox(ox, oy, oz, dx, dy, dz, o, limit) : this.rayCylinder(ox, oy, oz, dx, dy, dz, o, limit);
       if (t >= 0 && (bestT < 0 || t < bestT)) {
         bestT = t;
         bestObs = o;
-        // capture normal computed by rayCylinder (stored in hitN*)
-        this.tmpN.set(this.hitNx, this.hitNy, this.hitNz);
+        if (o.box) this.tmpN.set(boxHitNormal.x, boxHitNormal.y, boxHitNormal.z);
+        else this.tmpN.set(this.hitNx, this.hitNy, this.hitNz);   // rayCylinder wrote hitN*
       }
       return false;
     });
@@ -566,15 +596,17 @@ export class WorldSystem implements GameSystem, WorldRef {
   /** Harvestable plants (consumed nodes stay in the list with `harvested: true`). */
   getGatherNodes(): readonly GatherNodeDef[] { return this.mode === 'training' ? NONE_GATHER : this.gather.getNodes(); }
 
-  /* ── appended (2026-09-09): 레이드 플레이 개선 — 계약 자리만 잡아 둔 stub. world/ 담당이 채운다. ── */
-  /** 버려진 구조물 (전진기지 · 연구실 · 불시착 함선). */
-  getStructures(): readonly StructureDef[] { return NONE_STRUCTURES; }
+  /* ── appended (2026-09-09): 레이드 플레이 개선 ── */
+  /** 버려진 구조물 (전진기지 · 연구실 · 불시착 함선). 훈련장은 빈 배열. */
+  getStructures(): readonly StructureDef[] { return this.mode === 'training' ? NONE_STRUCTURES : this.structures.getDefs(); }
   /** `(x, z)` 를 품는 구조물, 없으면 null. */
-  structureAt(_x: number, _z: number): StructureDef | null { return null; }
+  structureAt(x: number, z: number): StructureDef | null {
+    return this.mode === 'training' ? null : this.structures.structureAt(x, z);
+  }
   /** 선로 (구역마다 있을 수도, 없을 수도 있다). */
-  getRailLines(): readonly RailLineDef[] { return NONE_RAILS; }
+  getRailLines(): readonly RailLineDef[] { return this.mode === 'training' ? NONE_RAILS : this.rails.getLines(); }
   /** 선로 위의 전차. */
-  getTrams(): readonly TramDef[] { return NONE_TRAMS; }
+  getTrams(): readonly TramDef[] { return this.mode === 'training' ? NONE_TRAMS : this.rails.getTrams(); }
   /** 이번 레이드의 환경 재해. */
   get hazard(): HazardRef | null { return null; }
 

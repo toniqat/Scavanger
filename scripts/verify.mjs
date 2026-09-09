@@ -60,6 +60,7 @@ const SMOKES = {
   'smoke-uniques':      { file: 'scripts/smoke-uniques.mjs',      folders: ['weapons', 'items', 'enemies', 'player', 'ui'] },
   'smoke-rogue-v2':     { file: 'scripts/smoke-rogue-v2.mjs',     folders: ['enemies'] },
   'smoke-enemy-alert':  { file: 'scripts/smoke-enemy-alert.mjs',  folders: ['enemies', 'implants', 'weapons'] },
+  'smoke-rogue-drop':   { file: 'scripts/smoke-rogue-drop.mjs',   folders: ['enemies', 'world'] },
   'smoke-resume-gate':  { file: 'scripts/smoke-resume-gate.mjs',  folders: ['game', 'ui'] },
   'smoke-meta':         { file: 'scripts/smoke-meta.mjs',         folders: ['meta', 'inventory', 'hub', 'ui', 'game'] },
   'smoke-training':     { file: 'scripts/smoke-training.mjs',     folders: ['world', 'hub', 'housing', 'game'] },
@@ -74,6 +75,9 @@ const SMOKES = {
   /* 2026-09-09: 소품 콜라이더가 그려진 실루엣보다 큰지 **숫자로** 잰다. `Props.hullOf` 가 바운딩 박스로
      콜라이더를 만들기 때문에 지오메트리 쪽 사고(→ `noise3` 의 lerp 인자 순서)가 곧 보이지 않는 벽이 된다. */
   'smoke-props-collision': { file: 'scripts/smoke-props-collision.mjs', folders: ['world'] },
+  /* 2026-09-09: 버려진 구조물 · 선로 · 전차. 같은 취지로 **사각(OBB) 콜라이더**가 그려진 실루엣 안에 있는지
+     재고, 실내 이동 · 지하실 해치 · 플랫폼 데크 · 전차 발판 속도까지 본다. */
+  'smoke-structures':   { file: 'scripts/smoke-structures.mjs',   folders: ['world', 'items', 'inventory'] },
   /* 2026-09-08: 튜토리얼 — 게이트가 housing / hub / inventory / meta 의 거절 사유 함수에 들어가 있으므로
      그 폴더를 건드리면 함께 돈다. 다른 스모크는 전부 `scav.s1.tutorial` 을 done 으로 심고 시작한다. */
   'smoke-tutorial':     { file: 'scripts/smoke-tutorial.mjs',     folders: ['tutorial', 'hub', 'housing', 'inventory', 'ui', 'items'] },

@@ -11,6 +11,7 @@ export {
   MAX_ARTILLERY, MAX_BEHEMOTH, ambientCap, ecoAllows, maxArtilleryOf, maxBehemothOf, type SpawnHost,
 } from './Spawner';
 export { placeRogueGuards, guardCap, ECO_BOSS_CHANCE, MAX_GUARDS, type RogueSpawnHost, type GuardPlacement } from './RogueGuards';
+export { RogueDropDirector, disposeRogueDropAssets, type RogueDropHost } from './RogueDrop';
 export { Corpse, CorpseManager } from './Corpses';
 export { raySphere, rayCapsule, rayStandingCapsule } from './RayTests';
 export { WaveDirector, WAVE_ALIVE_CAP } from './WaveDirector';

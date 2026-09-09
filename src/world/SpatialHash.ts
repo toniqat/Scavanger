@@ -71,6 +71,45 @@ export class SpatialHash {
     return e;
   }
 
+  /**
+   * 2026-09-09 — **사각(OBB) 콜라이더** (`Obstacle.box`): 건물 벽 · 전차 차체처럼 원기둥이 거짓말이 되는 것들.
+   * `radius` 는 계약대로 외접원(`boxRadius`)으로 채워 두므로 버킷팅 · `overlaps` · `query` 는 예전 그대로
+   * 돌아가고, 정확한 판정은 `WorldSystem` 의 밀어내기 · 레이 · 윗면 세 곳에서만 갈린다.
+   * `position.y` 는 상자 **밑면**이고 `height` 만큼 위로 선다 (뜬 슬래브도 그대로 표현된다).
+   */
+  addBox(position: THREE.Vector3, halfX: number, halfZ: number, yaw: number, height: number, kind: string): ObstacleEntry {
+    const e: ObstacleEntry = {
+      position, radius: Math.hypot(halfX, halfZ), height, stamp: 0, kind,
+      box: { halfX, halfZ, yaw },
+    };
+    this.insert(e);
+    return e;
+  }
+
+  /**
+   * 움직이는 장애물(전차)을 옮긴다. 덮는 셀 범위가 바뀔 때만 다시 버킷팅한다 — `TrainingArena.setTargetX`
+   * 와 같은 수법이다. `position` 객체는 그대로 재사용하므로 이 항목을 참조하는 쪽(플레이어의 발판 질의 ·
+   * 메시)은 아무것도 다시 잡을 필요가 없다.
+   */
+  move(o: ObstacleEntry, x: number, y: number, z: number, yaw?: number): void {
+    const s = this.cellSize;
+    const rr = o.shotRadius !== undefined && o.shotRadius > o.radius ? o.shotRadius : o.radius;
+    const same =
+      Math.floor((o.position.x - rr) / s) === Math.floor((x - rr) / s) &&
+      Math.floor((o.position.x + rr) / s) === Math.floor((x + rr) / s) &&
+      Math.floor((o.position.z - rr) / s) === Math.floor((z - rr) / s) &&
+      Math.floor((o.position.z + rr) / s) === Math.floor((z + rr) / s);
+    if (same) {
+      o.position.set(x, y, z);
+      if (yaw !== undefined && o.box) o.box.yaw = yaw;
+      return;
+    }
+    this.remove(o);
+    o.position.set(x, y, z);
+    if (yaw !== undefined && o.box) o.box.yaw = yaw;
+    this.insert(o);
+  }
+
   getAll(): readonly ObstacleEntry[] { return this.all; }
 
   /**

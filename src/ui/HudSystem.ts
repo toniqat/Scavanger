@@ -23,6 +23,9 @@ import { HealGauge } from './hud/HealGauge';
 import { HoldGauge } from './hud/HoldGauge';
 import { ReloadGauge } from './hud/ReloadGauge';
 import { StratagemWheel } from './hud/StratagemWheel';
+import { CommsWheel } from './hud/CommsWheel';
+import { HazardHud } from './hud/HazardHud';
+import { RaidAlerts } from './hud/RaidAlerts';
 import { StratagemPanel } from './hud/StratagemPanel';
 import { RescuePicker } from './hud/RescuePicker';
 import { ChargeGauge } from './hud/ChargeGauge';
@@ -132,6 +135,12 @@ export class HudSystem implements GameSystem {
   /** 포탄 HUD 마커 (2026-09-09): artillery shells inside the 인지력 radius. */
   private shells!: ShellMarkers;
   private swheel!: StratagemWheel;
+  /** 2026-09-09: H 홀드 의사소통 휠 — 이 휠만 입력까지 스스로 본다 (소유 시스템 폴더가 없다). */
+  private comms!: CommsWheel;
+  /** 2026-09-09: 환경 재해 경고 (배너 · 안전지대 게이지 · 화면 가장자리). */
+  private hazard!: HazardHud;
+  /** 2026-09-09: 새 랜드마크 발견 · 로그 강하 예고 토스트 (DOM 없음 — `ui:notify` 로만 나간다). */
+  private raidAlerts = new RaidAlerts();
   private strat!: StratagemPanel;
   /** 2026-09-09: 구조선 대상 선택 화면 (자기 스스로 `ctx.stratagems` 를 보고 뜬다). */
   private rescuePick!: RescuePicker;
@@ -218,6 +227,10 @@ export class HudSystem implements GameSystem {
     this.targeting = new TargetingHud(this.hudRoot, (active) => toggleClass(this.hudRoot, 'targeting', active));
     this.wheel = new QuickWheel(this.hudRoot);
     this.swheel = new StratagemWheel(this.hudRoot);
+    // 2026-09-09: 세 번째 휠. 형제들과 같은 레이어 · 같은 성격 (`pointer-events:none`, blocker 없음).
+    this.comms = new CommsWheel(this.hudRoot);
+    // 환경 재해: 배너 · 게이지는 게임플레이 레이어, 가장자리 맥동은 비네트와 같은 오버레이 레이어.
+    this.hazard = new HazardHud(this.hudRoot, this.overlayRoot);
     this.vitals = new Vitals(this.hudRoot);
     this.weapon = new WeaponPanel(this.hudRoot);
     // Both strips live **inside** the weapon panel so they stack on top of its slot strip and inherit its
@@ -309,6 +322,8 @@ export class HudSystem implements GameSystem {
     for (const c of [this.contractPanel, this.trainingPanel, this.metaToasts]) c.bind(ctx);
     this.community.bind(ctx);
     this.rescuePick.bind(ctx);
+    // 2026-09-09 (레이드 플레이 개선): 의사소통 휠 · 재해 HUD · 레이드 알림
+    for (const c of [this.comms, this.hazard, this.raidAlerts]) c.bind(ctx);
     for (const m of [this.title, this.pause, this.death, this.complete]) m.bind(ctx);
 
     const b = ctx.bus;
@@ -378,6 +393,11 @@ export class HudSystem implements GameSystem {
     this.community.update(dt, ctx);
     // 구조선 대상 선택: self-gating on `ctx.stratagems.armed === 'rescue_drop' && rescueTarget === null`.
     this.rescuePick.update(dt, ctx);
+    // 2026-09-09: 의사소통 휠은 자기 키(H)를 스스로 폴링하므로 레이어 가시성과 무관하게 매 프레임 돈다 —
+    // 게이트(`isGameplayActive` + 포인터 락)는 스스로 걸고, 못 쓰게 되면 열린 휠을 아무것도 보내지 않고 접는다.
+    this.comms.update(dt, ctx);
+    // 환경 재해: `ctx.world.hazard` 가 null 이면 즉시 돌아온다 (world/ 가 아직 만들지 않은 동안).
+    this.hazard.update(ctx);
     // 키 가이드: hides under the 일시정지 메뉴 (one blocker lookup per frame).
     this.keyGuide.update();
     this.contractPanel.update(ctx);
@@ -418,6 +438,17 @@ export class HudSystem implements GameSystem {
   get isConsumableMode(): boolean { return this.weapon.isConsumable; }
   /** Whether the ship-call wheel is showing (debug). */
   get isStratagemWheelOpen(): boolean { return this.swheel.isOpen; }
+  /** 2026-09-09 의사소통 휠 (H 홀드): 떠 있나 · 가리키는 칸 · 칸 수(4 = 서 있을 때, 2 = 전투불능) (debug / smoke). */
+  get isCommsWheelOpen(): boolean { return this.comms.isOpen; }
+  get commsWheelHover(): number | null { return this.comms.hoverIndex; }
+  get commsWheelSlots(): number { return this.comms.slotCount; }
+  /** 2026-09-09 지역 핑 홀드 휠: 떠 있나 · 전투불능 배치인가 (debug / smoke). */
+  get isPingWheelOpen(): boolean { return this.pings.isHoldWheelOpen; }
+  get isPingWheelDowned(): boolean { return this.pings.isHoldWheelDowned; }
+  /** 2026-09-09 환경 재해 HUD: 경고 배너 · 위험 구역 안 · 남은 안전지대 0…1 (debug / smoke). */
+  get isHazardBannerOn(): boolean { return this.hazard.isBannerOn; }
+  get isInHazard(): boolean { return this.hazard.isInside; }
+  get hazardSafeShare(): number { return this.hazard.safeShare; }
   /** Whether the targeting frame is up (debug). */
   get isTargeting(): boolean { return this.targeting.isActive; }
   /** Whether the key-settings overlay is open (debug). */
@@ -581,6 +612,7 @@ export class HudSystem implements GameSystem {
     for (const c of [this.contractPanel, this.trainingPanel, this.metaToasts]) c.dispose();
     this.community.dispose();
     this.rescuePick.dispose();
+    for (const c of [this.comms, this.hazard, this.raidAlerts]) c.dispose();
     for (const m of [this.title, this.pause, this.death, this.complete]) m.dispose();
     this.settings.dispose();
     this.keybinds.dispose();

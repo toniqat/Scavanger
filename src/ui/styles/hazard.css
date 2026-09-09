@@ -1,0 +1,96 @@
+/*
+ * src/ui/styles/hazard.css — 환경 재해 HUD (`hud/HazardHud`, 2026-09-09).
+ *
+ *   `.hz-hud`     게임플레이 레이어의 상단 중앙 블록 (나침반 22px · 탈출 카운트다운 64px **아래**)
+ *     `.hz-banner`  예고 / 시작 배너
+ *     `.hz-prog`    남은 안전지대 게이지 + `.hz-arrow` 안전 방향
+ *     `.hz-inside`  위험 구역 안에 있는 동안의 상시 한 줄
+ *   `.hz-edge`    오버레이 레이어의 화면 가장자리 붉은 맥동 (`.vignette` · `.edge-flash` 와 같은 자리)
+ *
+ * 색 · 트랜지션 변수는 `base.css` 의 `:root` 것을 쓴다.
+ */
+
+.hz-hud {
+  position: absolute; left: 50%; top: 104px; transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  pointer-events: none;
+}
+
+/* ── 예고 / 시작 배너 ─────────────────────────────────────────────────────── */
+.hz-banner {
+  display: none; align-items: center; gap: 8px;
+  padding: 5px 14px;
+  background: var(--c-panel); border: 1px solid var(--c-danger);
+  box-shadow: 0 0 18px rgba(255, 77, 77, 0.28);
+  white-space: nowrap;
+  animation: hzPulse 1.1s var(--ease) infinite;
+}
+.hz-banner.show { display: flex; }
+.hz-banner .warn {
+  width: 0; height: 0; flex: none;
+  border-left: 6px solid transparent; border-right: 6px solid transparent; border-bottom: 11px solid var(--c-danger);
+}
+.hz-banner .txt {
+  font-size: 13px; font-weight: 700; letter-spacing: 0.06em; color: var(--c-danger);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
+}
+@keyframes hzPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.62; } }
+
+/* ── 안전지대 게이지 ──────────────────────────────────────────────────────── */
+.hz-prog {
+  display: none; flex-direction: column; gap: 3px;
+  width: 200px;
+  padding: 5px 10px;
+  background: var(--c-panel); border: 1px solid var(--c-border);
+}
+.hz-prog.show { display: flex; }
+.hz-prog .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.hz-prog .row .ui-label { font-size: 8px; letter-spacing: 0.22em; }
+.hz-prog .num { font-size: 11px; font-weight: 700; color: var(--c-text); }
+.hz-prog.critical .num { color: var(--c-danger); }
+.hz-prog .bar { height: 3px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
+.hz-prog .fill {
+  height: 100%; width: 100%; transform-origin: left center; transform: scaleX(1);
+  background: var(--c-success);
+  transition: transform 240ms var(--ease), background var(--t-med) var(--ease);
+}
+.hz-prog.critical .fill { background: var(--c-danger); }
+
+/* 안전 방향 화살표: `--rot` 은 카메라 정면 기준 상대 각(도) */
+.hz-arrow {
+  display: none; align-items: center; gap: 6px;
+  font-size: 9px; letter-spacing: 0.12em; color: var(--c-text-dim);
+}
+.hz-arrow.show { display: flex; }
+.hz-arrow i {
+  width: 0; height: 0; flex: none;
+  border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 10px solid var(--c-success);
+  transform: rotate(var(--rot, 0deg));
+  transition: transform 120ms var(--ease);
+}
+
+/* ── 위험 구역 안에 있는 동안 ─────────────────────────────────────────────── */
+.hz-inside {
+  display: none;
+  padding: 4px 12px;
+  background: rgba(255, 77, 77, 0.16); border: 1px solid var(--c-danger);
+  font-size: 12px; font-weight: 700; letter-spacing: 0.06em; color: var(--c-danger);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
+  white-space: nowrap;
+  animation: hzPulse 0.9s var(--ease) infinite;
+}
+.hz-inside.show { display: block; }
+
+/* ── 화면 가장자리 (오버레이 레이어) ──────────────────────────────────────── */
+.hz-edge {
+  position: absolute; inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(ellipse at center, transparent 42%, rgba(255, 60, 40, 0.42) 100%);
+  transition: opacity 400ms var(--ease);
+}
+.hz-edge.show { opacity: 1; animation: hzEdge 2.4s var(--ease) infinite; }
+@keyframes hzEdge { 0%, 100% { opacity: 0.7; } 50% { opacity: 1; } }
+
+/* 관전 중에는 개인 경고가 의미 없다 */
+.hud.spectating .hz-hud { opacity: 0 !important; visibility: hidden; }

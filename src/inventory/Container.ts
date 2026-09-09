@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { Random } from '@/shared';
-import type { ContainerTakenWire, ItemInstance, LootRef } from '@/shared';
+import type { ContainerTakenWire, ItemInstance, LootRef, PlanetId } from '@/shared';
 import { Grid, type DefLookup, type Placement } from './Grid';
 
 export const CONTAINER_COLS = 6;
@@ -153,7 +153,8 @@ export class ContainerStore {
   get(id: string): Container | undefined { return this.containers.get(id); }
   all(): Container[] { return [...this.containers.values()]; }
 
-  getOrCreate(id: string, tier: number, position: THREE.Vector3, loot: LootRef, missionSeed: number): Container {
+  /** `planet` (2026-09-09): 이 레이드의 목표 행성 — 무기 등급 곡선(`rollCrateOn`). null = 예전 동작. */
+  getOrCreate(id: string, tier: number, position: THREE.Vector3, loot: LootRef, missionSeed: number, planet: PlanetId | null = null): Container {
     let c = this.containers.get(id);
     if (c) {
       c.position.copy(position);
@@ -161,7 +162,7 @@ export class ContainerStore {
     }
     c = new Container(id, tier, position, this.getDef);
     const rng = new Random(((missionSeed >>> 0) ^ Random.hash(id)) >>> 0);
-    c.fill(loot.rollCrate(tier, rng));
+    c.fill(loot.rollCrateOn(tier, rng, planet));
     this.containers.set(id, c);
     this.applyPending(c);
     return c;

@@ -8,8 +8,8 @@ Pure data + the `LootRef` implementation. No DOM, no Three.js scene objects. Wea
 | `ImplantDefs.ts` | **Phase 12** (2026-09-08): 46 `ItemDef`s of category `'implant'` — `IMPLANT_WORKING_DEFS` (23: 5 stats × grades I–IV `imp_<stat>_<g>` + 3 legendary perk implants `imp_perk_<perk>`) and `IMPLANT_BROKEN_DEFS` (23 `imp_broken_*` twins: `망가진 …`, `implant.broken`, `repairsTo` / `repairCost`), together `IMPLANT_ITEM_DEFS`; `PERK_IMPLANT_DEFS`, `IMPLANT_GRADES`, `IMPLANT_SLOTS_BY_GRADE`, `IMPLANT_VALUE_BY_RARITY`, `IMPLANT_REPAIR_COST`, `IMPLANT_STAT_NAME_KO`, `implantItemIdFor(stat, grade)`, `perkImplantItemIdFor(perk)`, `brokenImplantIdOf(id)`, `isImplantItemDef`, `isBrokenImplantDef`. See *임플란트 아이템* below. |
 | `ItemDefs.ts` | 151 `ItemDef`s (`ITEM_DEFS`, `ITEM_DEF_MAP`, `getItemDef`, `itemDefsByCategory`, `isWeaponItemDef`) — 46 weapon items generated from `WEAPON_DEFS` (`WEAPON_ITEM_DEFS`; uniques use `UNIQUE_WEAPON_META`), `AMMO_ITEM_DEFS` (10), `ATTACHMENT_ITEM_DEFS`, `BAG_ITEM_DEFS`, `SEED_ITEM_DEFS` (3, Phase 8), `BOOK_ITEM_DEFS` (14, Phase 9 — `bookItemIdFor`, `BOOK_DEF_BY_SKILL`), `IMPLANT_ITEM_DEFS` (46, Phase 12 — spread in after the books), consumables, valuables, materials; rarity palette `RARITY_COLORS`, `RARITY_ORDER`, `rarityRank`, `rarityForGrade` / `gradeForRarity`; Korean labels (`RARITY_LABEL_KO`, `CATEGORY_LABEL_KO`, `AMMO_LABEL_KO`); `AMMO_TYPES_V2` (10), `UNIQUE_AMMO_TYPES`, `AMMO_ROUND_WEIGHT`, `ammoItemIdFor(type)`, `itemIdForWeapon(weaponId)`, `WEAPON_GRADE_VALUE_STEP`; `STARTER_LOADOUT` + `StarterLoadout` type |
 | `WeaponStats.ts` | `computeWeaponStats(def, inst?)` → `EffectiveWeaponStats` (grade already in the def + slot timings + socketed attachments; **uniques return the def numbers untouched**), `baseWeaponStats`, `applyAttachmentEffects`, `socketedAttachments`, `repairCost(def, inst)` (uniques = legendary), `canAttach(weaponDef, attachmentDef)` (false for uniques), `gradeRoman`, `clampGrade`, `RECOIL_H_RATIO` (0.7), `SECONDARY_ADS_TIME_MUL` (0.5) |
-| `LootTables.ts` | Per-tier `TierTable`s (`LOOT_TABLES`, `getTierTable`, `getTierLabel`): item count, rarity weights (= weapon grade weights), category weights incl. `attachment` / `bag`, weapon chance, `ammoFraction`, guaranteed picks, `itemWeightMul` (family-wide for weapons; Phase 6 helpers `uniqueWeapons / uniqueAmmo / gradedFamilies`; Phase 8 `seed` weights at tiers 1–3; Phase 9 `book` weights at tiers 2–4; **Phase 12** `implant` weights at tiers 2–4 with `workingImplants()` zeroed and `brokenImplants({byRarity})` tapering — broken legendaries tier 4 only). Phase 4: per-`EnemyType` `CorpseTable`s (`CORPSE_TABLES`, `CORPSE_TABLE_MAP`, `CorpseDrop`, `CorpseWeapon`, `CorpseUnique`, `DEFAULT_ROGUE_WEAPON_ID`; Phase 8 `BUG_SEEDS` on every bug type; Phase 9 `CorpseBook` on 로그 / 보스; **Phase 12** `CorpseImplant {chance, weights}` on 로그 6 % / 보스 45 %) |
-| `Loot.ts` | `LootService implements LootRef` — `rollCrate(tier, rng?)` (a rolled unique brings one stack of its calibre), `rollCorpse(type, rng?, rogueWeaponId?)` (boss unique roll, then the Phase 9 book, then the **Phase 12 broken-implant roll last** — earlier draws never shift), `createItem(defId, qty?, extras?)`, `getEffectiveStats`, `getRepairCost`, `canAttach`, def lookups (`getAllItemDefs` includes uniques / unique ammo / new materials — the cheat catalog lists everything); `nextUid()` |
+| `LootTables.ts` | **2026-09-09** `PLANET_GRADE_CURVES` / `getPlanetGradeCurve(rank)` (`data/planet_loot.csv`) — 행성 난이도 순번 1..5 별 무기 등급 곡선(`grades` · `weightOf` · `maxGrade`). Per-tier `TierTable`s (`LOOT_TABLES`, `getTierTable`, `getTierLabel`): item count, rarity weights (= weapon grade weights), category weights incl. `attachment` / `bag`, weapon chance, `ammoFraction`, guaranteed picks, `itemWeightMul` (family-wide for weapons; Phase 6 helpers `uniqueWeapons / uniqueAmmo / gradedFamilies`; Phase 8 `seed` weights at tiers 1–3; Phase 9 `book` weights at tiers 2–4; **Phase 12** `implant` weights at tiers 2–4 with `workingImplants()` zeroed and `brokenImplants({byRarity})` tapering — broken legendaries tier 4 only). Phase 4: per-`EnemyType` `CorpseTable`s (`CORPSE_TABLES`, `CORPSE_TABLE_MAP`, `CorpseDrop`, `CorpseWeapon`, `CorpseUnique`, `DEFAULT_ROGUE_WEAPON_ID`; Phase 8 `BUG_SEEDS` on every bug type; Phase 9 `CorpseBook` on 로그 / 보스; **Phase 12** `CorpseImplant {chance, weights}` on 로그 6 % / 보스 45 %) |
+| `Loot.ts` | `LootService implements LootRef` — **2026-09-09** `rollCrateOn(tier, rng, planet)` / `rollCorpseOn(type, rng, rogueWeaponId, planet)` (행성별 무기 등급, 아래 *행성별 무기 등급*), `rollCrate(tier, rng?)` (a rolled unique brings one stack of its calibre), `rollCorpse(type, rng?, rogueWeaponId?)` (boss unique roll, then the Phase 9 book, then the **Phase 12 broken-implant roll last** — earlier draws never shift), `createItem(defId, qty?, extras?)`, `getEffectiveStats`, `getRepairCost`, `canAttach`, def lookups (`getAllItemDefs` includes uniques / unique ammo / new materials — the cheat catalog lists everything); `nextUid()` |
 | `index.ts` | Barrel — import via `@/items` |
 
 ## Weapon families & grades
@@ -414,11 +414,91 @@ I 회로 기판 1 + 전력 케이블 1 · II + 합금 판 1 · III 회로 기판
 Smoke: `scripts/smoke-progression.mjs` covers the def table (46 / 23 / 23, names, slots, stats, repair costs, value ¼),
 the loot rules (corpse / crate counts over 400 / 300 rolls, no working implant, no legendary below tier 4) and the spray gauge.
 
+## 행성별 무기 등급 (2026-09-09 — `data/planet_loot.csv`)
+
+앞쪽 행성에서는 좋은 총이 안 나온다. 수치의 원본은 `data/planet_loot.csv` 이고 `rank` 는
+`shared/planetDefs` 의 `planetTier()` 가 주는 **난이도 순번 1..5** (= `data/planets.csv` 의 줄 순서)다.
+
+- `rollCrateOn(tier, rng, planet)` — 상자에 무기가 들어가는 것이 정해진 **뒤에** 그 무기의 **등급만**
+  행성 곡선으로 다시 뽑는다 (`LootService.regrade`). 계열 추첨(`돌격소총`이냐 `저격소총`이냐)은 그대로다.
+  가중치 0 인 등급은 그 행성에서 아예 안 나온다.
+- **유니크(전설) 무기는 등급이 없어 곡선을 못 탄다** — 대신 `uniqueMul` 이 등장 확률에 곱해진다.
+  `uniqueMul = 0` 이면 `pickDef` 의 후보에서 아예 빠지고 (가중치만 0 으로 두면 티어 5 처럼 등급 무기가
+  전부 0 인 표에서 `relaxRarity` 폴백이 도로 집어 온다), 0 과 1 사이면 `regrade` 의 확률 게이트 한 곳에서
+  걸러 **평범한 총 한 자루로 바뀐다**. 한 곳에서만 걸어야 티어 4 상자 · 티어 5 투하 · 보스 시체가 같은
+  배수로 움직인다 (가중치로 걸면 후보가 유니크뿐인 티어 5 에서 배수가 상쇄된다).
+- **유니크 전용 탄약**(`ammo_fuel` … `ammo_belt`)도 같은 배수로 막힌다 — `data/ammo.csv` 기준 그 여섯 구경은
+  유니크 총 전용이라(등급 6계열은 light / medium / heavy / shell 만 쓴다) 쓸 총이 없는 행성에서 나오면
+  가방 칸만 먹는 죽은 무게다. 탈락하면 평범한 구경 한 종으로 바뀐다. **유니크 총이 실제로 나와서 딸려 나오는
+  한 스택은 예외** — 그 경로(`rollCrateWithCurve` 의 Phase 6 패스)는 `regrade` 뒤라 게이트를 안 탄다.
+- `rollCorpseOn(type, rng, rogueWeaponId, planet)` — 시체(로그 · 보스)의 무기는 곡선으로 다시 뽑지 않고
+  그 행성의 **최대 등급(`maxGrade`)으로 상한**만 받는다. 보스 표의 III/IV 추첨은 그대로라 rng 소모가 같다.
+  보스의 유니크 굴림은 `table.unique.chance × uniqueMul` 이다 — `rng.chance` 는 배수와 무관하게
+  draw 를 하나 쓰므로 `planet` 이 null 인 경로의 rng 소비가 그대로다.
+- **`rollCrate` / `rollCorpse` 는 그대로 남는다.** 내부적으로 `curve = null` / `maxGrade = null` 로 위임하고
+  그 경로에서는 rng 를 한 번도 더 쓰지 않으므로 `src/inventory/__selftest__.ts` 의 고정 벡터가 그대로 맞는다.
+  `planet` 이 null (훈련장 · 구형 세이브)이면 예전과 완전히 같다.
+- **다른 아이템의 희귀도는 안 건드린다** — `loot_tiers.csv` 의 `common..legendary` 열은 계속 부착물 ·
+  방어구 · 임플란트 · 귀중품의 등급을 정한다. 총만 짜게 하려고 티어 표를 내리면 총이 아닌 물건까지 짜진다.
+- 상자 티어는 **무기가 얼마나 자주 나오나**(`weaponChance` 0 / 0.35 / 0.55 / 1), 행성은 **얼마나 좋은가** 를
+  맡는다. 그래서 티어 1 상자에서는 어느 행성에서도 총이 안 나온다.
+
+곡선 (csv 그대로) 과 그 결과 — **상자 1개당** 확률은 실제 맵의 상자 티어 분포(티어 1 46.9 % · 2 35.1 % ·
+3 13.7 % · 4 4.3 %, 근거는 `scripts/check-planet-loot.mjs` 상단 주석)로 가중 평균한 값이다.
+무기가 하나라도 든 상자는 어느 행성에서나 **24.1 %** 다:
+
+| 순번 · 행성 | 가중치 I·II·III·IV·V | P(I) | P(II) | P(III) | P(IV) | P(V) | uniqueMul |
+|---|---|---|---|---|---|---|---|
+| 1 아켈론 II | 55 · 30 · 15 · 0 · 0 | 13.2 % | 7.0 % | **3.7 %** | — | — | **0** |
+| 2 보레아스 IX | 40 · 29 · 31 · 0 · 0 | 9.7 % | 6.8 % | **7.5 %** | — | — | **0** |
+| 3 베르단트 III | 26 · 24 · 30 · 10 · 10 | 6.3 % | 5.7 % | 7.0 % | 2.4 % | **2.5 %** | 0.4 |
+| 4 피로스 VII | 15 · 18 · 26 · 18 · 23 | 3.6 % | 4.4 % | 6.2 % | 4.2 % | **5.6 %** | 0.7 |
+| 5 카민 I | 14 · 14 · 14 · 13 · 45 | 3.4 % | 3.4 % | 3.4 % | 3.1 % | **10.8 %** | 1 |
+
+유니크(전설) 무기 등장률 — 티어 4 상자 / 티어 5 보급 투하 / 보스 시체 1구당 (`uniqueMul` 배수 그대로):
+
+| 순번 | 티어 4 상자 | 티어 5 투하 | 보스 시체 |
+|---|---|---|---|
+| 1 · 2 | **0 %** | **0 %** | **0 %** |
+| 3 | 0.97 % | 1.21 % | 8.2 % |
+| 4 | 1.73 % | 2.01 % | 14.4 % |
+| 5 | 2.39 % | 2.94 % | 20.5 % |
+
+`node scripts/check-planet-loot.mjs` 가 이 표를 다시 뽑고 목표(1번 P(III) < 5 % · 2번 < 10 % · 3번
+P(V) < 5 % · 4번 5~6 % · 5번 < 20 %)와 대조한다. **수치를 고칠 때는 코드가 아니라 csv 를 고친다.**
+
+호출부 (다른 폴더, 한 줄씩): `src/inventory/Container.ts` `ContainerStore.getOrCreate(…, planet = null)` →
+`rollCrateOn`, 그 두 호출부 `src/inventory/InventorySystem.ts` · `src/inventory/parts/ContainerNet.ts` 가
+`ctx.missionPlanet` 을 넘긴다. `src/enemies/Corpses.ts` 의 `Corpse.interact()` 가 `rollCorpseOn` 을 쓴다.
+함선 보급 투하(스트라타젬)도 `crate:open` → `getOrCreate` 로 같은 길을 지난다.
+
+## 지하실 키카드 (2026-09-09)
+
+`key_basement` **버려진 구조물의 지하실 키카드** — 카테고리 `valuable`, uncommon, 1×1, 스택 1, ₩0, 0.05 kg,
+아이콘 `▨`. 정의는 `data/items.csv` 한 줄뿐이고 **무작위 루팅에는 절대 안 나온다**:
+`data/loot_item_weights.csv` 의 티어 1~5 전부에 `key_basement,0` 이 걸려 있어 `pickDef` 의 가중치가 0 이 된다
+(확정 픽의 `relaxRarity` 폴백은 양수 후보가 하나도 없을 때만 도는데 `valuable` 은 늘 여럿이라 걸리지 않는다).
+시체 표는 아이템 id 를 직접 적으므로 애초에 후보가 아니고, 기업 상점에는 `valuable` 을 파는 줄이 없다.
+**구조물이 자기 컨테이너에 직접 넣는다** — 그 배치는 `src/world` 담당이고 items/ 는 정의만 갖는다.
+
 ---
 
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-09 (행성별 무기 등급 · 지하실 키카드)** — 새 csv **`data/planet_loot.csv`** (행성 난이도 순번
+  1..5 × 등급 I..V 가중치, 0 = 봉인) 를 `LootTables.PLANET_GRADE_CURVES` / `getPlanetGradeCurve` 가 읽고,
+  계약 stub 이던 **`rollCrateOn` / `rollCorpseOn` 을 실제로 구현**했다. 상자는 무기가 들어간 뒤 **등급만**
+  다시 뽑고(계열 · 유니크 불변), 시체는 그 행성의 **최대 등급으로 상한**만 받는다. `rollCrate` / `rollCorpse`
+  는 `curve = null` 로 위임할 뿐이라 rng 벡터가 그대로다 (`inventory/__selftest__` 의 고정 벡터 유지).
+  호출부는 `inventory/Container.getOrCreate` 에 `planet` 인자 하나(+ 두 호출부)와 `enemies/Corpses.interact`
+  한 줄. 결과는 위 *행성별 무기 등급* 표이고 `scripts/check-planet-loot.mjs` 가 매번 다시 검증한다.
+  **유니크(전설) 무기**는 등급이 없어 곡선을 못 타므로 csv 의 `uniqueMul` 열(1·2번 0 · 3번 0.4 · 4번 0.7 ·
+  5번 1)이 등장 확률에 곱해진다 — 0 이면 픽 후보에서 빠지고, 그 사이 값은 `regrade` 의 확률 게이트 한 곳에서
+  걸러 평범한 총으로 바뀐다 (티어 4 상자 · 티어 5 투하 · 보스 시체가 같은 배수로 움직인다).
+  같이 들어간 아이템: **`key_basement` 지하실 키카드** — `loot_item_weights.csv` 의 티어 1~5 전부 `mul 0`
+  이라 무작위 루팅에 절대 안 나온다.
 
 - **2026-09-09 (산탄 이름)** — `data/ammo.csv` 의 `shell` 이름이 `산탄` → **`산탄총 탄약`**, `data/recipes.csv` 의 세 레시피
   이름(`산탄 분해 · 산탄 제작 · 산탄 대량 제작`)도 `산탄총 탄약 …` 으로. id 는 그대로라 코드 무변경.

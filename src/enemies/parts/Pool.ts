@@ -35,6 +35,7 @@ import { EnemyReplica, type ReplicaHost } from '../net/Replica';
 import { animHint, encodeSnapshot, round, SnapshotCache, tuple } from '../net/HostSync';
 import { CorpseManager, rollCorpseLootable, type CorpseWireOpts } from '../Corpses';
 import { placeRogueGuards, type RogueSpawnHost } from '../RogueGuards';
+import { disposeRogueDropAssets } from '../RogueDrop';
 import { raySphere, rayCapsule, rayStandingCapsule } from '../RayTests';
 import { BARRIER_BUMP_INTERVAL, BARRIER_RETARGET_S, BURN_TICK, CLASH_RADIUS, CLASH_THROTTLE, CORPSE_SLACK, EMBER_INTERVAL, FLEE_DURATION, GRENADE_KNOCKBACK, GRENADE_LOB_SPEED, GRENADE_NOISE, GUNFIRE_LURE_DURATION, GUNFIRE_LURE_WEIGHT, INCAP_EMBER_INTERVAL, MAX_REQUEST_DAMAGE, MAX_REQUEST_RADIUS, MAX_SHOT_RANGE, MAX_STATUS_DURATION, PROMOTE_ID_GAP, PROMOTE_SEQ_GAP, RECYCLE_DISTANCE, SHIELD_CONTACT_Y, SHOCK_SPARK_TIME, SHOT_CHECK_INTERVAL, SPARK_INTERVAL, STATUS_REQUEST_INTERVAL, SUSPICION_RADIUS, SUSPICION_REFRESH, _aim, _c, _dir, _eye, _hc, _hd, _hp, _kb, _m, _sd, _sh, _so, _to, _v, _v2, _zero, deathDirIndex, isVec3Tuple, killedBuf, queryBuf } from '../model';
 import type { EnemySystem } from '../EnemySystem';
@@ -58,6 +59,7 @@ export function reset(sys: EnemySystem): void {
   sys.replicaMgr.clear();
   sys.targets.clear();
   sys.corpses.clear();
+  sys.rogueDrops.reset();     // 2026-09-09: 굴림 기록(구역당 1회)도 레이드마다 새로 시작한다
   sys.fx?.clear();
   sys.acid?.clear();
   sys.shells?.clear();
@@ -179,6 +181,8 @@ export function disposePools(sys: EnemySystem): void {
   sys.xray.dispose();   // overlays are children of the pooled rigs — detach before the rigs go
   for (const pool of sys.pools.values()) { for (const e of pool) e.dispose(); pool.length = 0; }
   sys.pools.clear();
+  sys.rogueDrops.dispose(sys.ctx.scene);   // 2026-09-09: 강하 포드도 같은 리셋에서 씬에서 빠진다
   disposeBugAssets();
   disposeRogueAssets();
+  disposeRogueDropAssets();
   }

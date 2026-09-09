@@ -75,7 +75,8 @@ export class Corpse implements Interactable {
     if (this.looted || !inv || typeof inv.openContainerItems !== 'function') return;
     if (!this.items) {
       const rng = new Random(((this.seed ^ (this.enemyId * 2654435761)) >>> 0) || 1);
-      this.items = ctx.loot && typeof ctx.loot.rollCorpse === 'function' ? ctx.loot.rollCorpse(this.type, rng, this.weaponId) : [];
+      // 2026-09-09: 행성의 등급 상한을 적용한다 (`rollCorpseOn`; 행성이 null 이면 `rollCorpse` 와 완전히 같다).
+      this.items = ctx.loot && typeof ctx.loot.rollCorpseOn === 'function' ? ctx.loot.rollCorpseOn(this.type, rng, this.weaponId, ctx.missionPlanet) : [];
     }
     this.hidePillar = true;
     inv.openContainerItems(this.id, this.items, this.position, '시체');

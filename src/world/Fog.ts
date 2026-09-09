@@ -19,10 +19,14 @@ import {
   type FogRef, type GameContext, type PeerId,
 } from '@/shared';
 
-/** `fog:discovered.kind` — 지도 마커 종류와 같은 이름. */
-type DiscoverKind = 'extraction' | 'nest' | 'crate' | 'outpost' | 'gather';
+/** `fog:discovered.kind` — 지도 마커 종류와 같은 이름. 2026-09-09 에 `structure` · `rail` 이 붙었다. */
+type DiscoverKind = 'extraction' | 'nest' | 'crate' | 'outpost' | 'gather' | 'structure' | 'rail';
 
-/** 발견 토스트를 띄우는 종류와 문구 (상자 · 채집물은 너무 잦아 토스트 없이 이벤트만 나간다). */
+/**
+ * 발견 토스트를 띄우는 종류와 문구 (상자 · 채집물은 너무 잦아 토스트 없이 이벤트만 나간다).
+ * ⚠ **`structure` · `rail` 은 일부러 여기 없다** — 그 둘의 토스트는 `ui/hud/RaidAlerts` 가 소유한다
+ * (2026-09-09). 여기에도 올리면 같은 발견이 두 번 뜬다. world/ 는 이벤트만 발행한다.
+ */
 const TOAST: Partial<Record<DiscoverKind, string>> = {
   extraction: '탈출 신호소 발견',
   nest: '벌레 둥지 발견',
@@ -184,6 +188,11 @@ export class Fog implements FogRef {
     for (const c of world.getCrates()) this.discover('crate', c.id, c.position);
     const nodes = world.getGatherNodes?.();
     if (nodes) for (const g of nodes) this.discover('gather', g.id, g.position);
+    // 2026-09-09: 버려진 구조물과 선로 · 플랫폼. 토스트는 ui/ 가 띄운다 (위 `TOAST` 주석 참고).
+    for (const st of world.getStructures()) this.discover('structure', st.id, st.position);
+    for (const line of world.getRailLines()) {
+      for (const p of line.platforms) this.discover('rail', p.id, p.position);
+    }
   }
 
   private discover(kind: DiscoverKind, id: string, position: THREE.Vector3): void {

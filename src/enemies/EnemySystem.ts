@@ -8,8 +8,6 @@ import {
   /* appended (2026-09-09): 로그 강하 계약 */
   type RogueDropView,
 } from '@/shared';
-/* appended (2026-09-09): 아직 구현 전인 계약의 빈 답 (enemies/ 담당이 채우면 사라진다) */
-const NONE_ROGUE_DROPS: readonly RogueDropView[] = [];
 import { FxManager, ParticleBurst } from '@/core/fx';
 import { Enemy, type EnemyHost, type HitPart } from './Enemy';
 import { ROGUE_AI, SPEWER_SPIT } from './EnemyTypes';
@@ -32,6 +30,7 @@ import { EnemyReplica, type ReplicaHost } from './net/Replica';
 import { animHint, encodeSnapshot, round, SnapshotCache, tuple } from './net/HostSync';
 import { CorpseManager, rollCorpseLootable, type CorpseWireOpts } from './Corpses';
 import { placeRogueGuards, type RogueSpawnHost } from './RogueGuards';
+import { RogueDropDirector, type RogueDropHost } from './RogueDrop';
 import { raySphere, rayCapsule, rayStandingCapsule } from './RayTests';
 
 import { BARRIER_BUMP_INTERVAL, BARRIER_RETARGET_S, BURN_TICK, CLASH_RADIUS, CLASH_THROTTLE, CORPSE_SLACK, EMBER_INTERVAL, FLEE_DURATION, GRENADE_KNOCKBACK, GRENADE_LOB_SPEED, GRENADE_NOISE, GUNFIRE_LURE_DURATION, GUNFIRE_LURE_WEIGHT, INCAP_EMBER_INTERVAL, MAX_REQUEST_DAMAGE, MAX_REQUEST_RADIUS, MAX_SHOT_RANGE, MAX_STATUS_DURATION, PROMOTE_ID_GAP, PROMOTE_SEQ_GAP, RECYCLE_DISTANCE, SHIELD_CONTACT_Y, SHOCK_SPARK_TIME, SHOT_CHECK_INTERVAL, SPARK_INTERVAL, STATUS_REQUEST_INTERVAL, SUSPICION_RADIUS, SUSPICION_REFRESH, _aim, _c, _dir, _eye, _hc, _hd, _hp, _kb, _m, _sd, _sh, _so, _to, _v, _v2, _zero, deathDirIndex, isVec3Tuple, killedBuf, queryBuf } from './model';
@@ -44,7 +43,7 @@ import * as Status from './parts/Status';
 import * as Pool from './parts/Pool';
 import * as RFx from './parts/RemoteFx';
 
-export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, SpawnHost, RogueSpawnHost, AcidHost, ShellHost, ReplicaHost, GrenadeHost {
+export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, SpawnHost, RogueSpawnHost, RogueDropHost, AcidHost, ShellHost, ReplicaHost, GrenadeHost {
   readonly name = 'enemies';
   ctx!: GameContext;
   /* ── Phase 12: 총알 추적 · 정찰 x-ray (EnemyManagerRef) ─────────────────── */
@@ -59,11 +58,16 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
    * extends. Unknown ids are ignored; `seconds <= 0` hides the listed ones (`[]` + 0 is a no-op).
    */
   setXray(ids: readonly number[], seconds: number): void { return Status.setXray(this, ids, seconds); }
-  /* ── appended (2026-09-09): 로그 강하 — 계약 자리만 잡아 둔 stub. enemies/ 담당이 채운다. ── */
-  /** **호스트 전용**: 로그 분대를 강하시킨다. 인원 · 보스 여부는 분대 인원에서 정해진다. */
-  callRogueDrop(_dropId: string, _position: THREE.Vector3): boolean { return false; }
+  /* ── appended (2026-09-09): 로그 강하 (`RogueDrop.ts` 가 전부 갖는다) ── */
+  /**
+   * **호스트 전용**: 로그 분대를 강하시킨다 (예고 → `ROGUE_DROP_ETA_S` 뒤 착지 → 구조물로 진격).
+   * 인원 · 보스 여부는 **분대 인원**이 정한다. 같은 `dropId` 가 진행 중이거나 호스트가 아니면 false.
+   */
+  callRogueDrop(dropId: string, position: THREE.Vector3): boolean { return this.rogueDrops.call(dropId, position); }
   /** 진행 중인 강하 (HUD 경고 · 오프스크린 화살표용). */
-  getRogueDrops(): readonly RogueDropView[] { return NONE_ROGUE_DROPS; }
+  getRogueDrops(): readonly RogueDropView[] { return this.rogueDrops.views(); }
+  /** 로그 강하 — 굴림 기록 · 포드 연출 · 착지 스폰 (호스트 권한, 훈련장에서는 아무 것도 하지 않는다). */
+  readonly rogueDrops = new RogueDropDirector();
   /** Phase 12: through-wall silhouettes (`setXray`). */
   readonly xray = new EnemyXray();
   readonly grid = new SpatialGrid<Enemy>(MAP_SIZE + 40, 8);
@@ -131,6 +135,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     this.grenades = new RogueGrenades(ctx.scene);
     this.grenades.bind(this);
     this.corpses.bind(ctx);
+    this.rogueDrops.bind(this);
 
     const bus = ctx.bus;
     this.unsub.push(
@@ -180,6 +185,8 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
         if (this.hosting) this.ctx.net!.send({ t: 'ee', ev: 'wave', index, count }, 'others');
       }),
       bus.on('crate:looted', ({ crateId }) => this.corpses.markLooted(crateId)),
+      // 2026-09-09: 로그 강하 — world/ 가 구조물 · 플랫폼 컨테이너를 처음 조사할 때 낸다. 호스트만 굴린다 (구역당 1회).
+      bus.on('structure:investigated', ({ zoneId, position }) => this.rogueDrops.onInvestigated(zoneId, position)),
       // Phase 7: mid-mission host migration — the only place authority changes while a mission runs
       bus.on('net:hostChanged', ({ isLocalHost }) => this.setAuthority(isLocalHost)),
     );
@@ -218,6 +225,11 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       }),
       // Phase 12: a client's bullet report — the host runs the same routine as for its own shots
       net.onMessage('shotq', (msg, from) => this.onShotReport(msg, from)),
+      // 2026-09-09: 로그 강하 — 비호스트는 예고 · 착지를 받아 같은 이벤트를 내고 포드만 그린다 (적은 `es` / `ee`)
+      net.onMessage('rdrop', (msg) => {
+        if (msg.ev === 'incoming') this.rogueDrops.onIncomingWire(msg.dropId, msg.p, msg.eta, msg.count, msg.boss);
+        else this.rogueDrops.onLandedWire(msg.dropId);
+      }),
     );
   }
 
@@ -238,6 +250,8 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     this.lures.prune(ctx.time);
     // status effects tick on every client (embers are visual); only the authority applies the damage
     if (ctx.isGameplayPhase()) this.updateStatuses(dt);
+    // 로그 강하: 포드 낙하 연출은 어디서나, 착지 스폰은 호스트에서만 (안쪽에서 갈린다)
+    if (!this.training) this.rogueDrops.update(dt);
 
     if (this.authority) {
       if (ctx.isGameplayPhase()) {
@@ -605,6 +619,15 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   get xrayCount(): number { return this.xray.count; }
   /** Phase 12 (debug / smoke): feed a `shotq` through the host path as if peer `from` sent it (authority needed, no session). */
   debugShotReport(msg: ShotReport, from: PeerId): void { this.onShotReport(msg, from, true); }
+  /**
+   * 2026-09-09 (debug / smoke): 로그 강하 상태 — 진행 중인 강하, 이번 레이드에 굴린 횟수 / 실제로 부른 횟수.
+   * `rolls` 는 `structure:investigated` 로 굴린 구역 수(실패 포함)이고 `calls` 는 성공해서 부른 강하 수다.
+   */
+  get debugRogueDrops(): { pending: RogueDropView[]; rolls: number; calls: number } {
+    return { pending: this.rogueDrops.views().slice(), rolls: this.rogueDrops.rolls, calls: this.rogueDrops.calls };
+  }
+  /** 2026-09-09 (debug / smoke): `structure:investigated` 없이 굴림 경로를 그대로 태운다 (구역당 1회 규칙 포함). */
+  debugInvestigate(zoneId: string, position: THREE.Vector3): void { this.rogueDrops.onInvestigated(zoneId, position); }
   /** Phase 11 (debug / smoke): rogues placed as crate guards right now (boss included). */
   debugGuardCount(): { rogues: number; boss: boolean } {
     let rogues = 0; let boss = false;

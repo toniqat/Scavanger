@@ -951,7 +951,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
   openContainer(containerId: string, tier: number, position: THREE.Vector3): void {
     const first = !this.openedIds.has(containerId);
     this.openedIds.add(containerId);
-    const c = this.containers.getOrCreate(containerId, tier, position, this.loot, this.missionSeed);
+    const c = this.containers.getOrCreate(containerId, tier, position, this.loot, this.missionSeed, this.ctx.missionPlanet);
     this.showContainer(c);
     this.ctx.bus.emit('inventory:containerOpened', { containerId, first });
   }

@@ -54,6 +54,7 @@ Gameplay numbers live in `EnemyTypes.ts` (`ENEMY_STATS`, `HUNTER_LEAP`, `SPEWER_
 | `Spawner.ts` | `AmbientSpawner` (threat 0..1 → cap `12 + 24·threat`, patrol every 12–25 s from nests 60–140 m around a random alive player — or a random present body via `randomPresent` when everyone is downed — initial population on `world:ready`; from threat 0.5 `maybeArtillery` digs one in 80–120 m out, ≤ `MAX_ARTILLERY` alive), spawn helpers `findSpawnCenter`, `isVisibleToAnyPlayer`, `spawnGroup`, compositions `ambientGroup` (toxics from threat 0.4) / `waveGroup` (toxics from wave 2, a behemoth from wave 3), and the `SpawnHost` interface (`targets`, `countAlive`). Phase 7: `resume()` restarts the trickle mid-mission after a host promotion with a normal-length gap. **Phase 11**: `AmbientSpawner.eco` (the 목표 행성's `PlanetEcosystem`) — `cap` is `ambientCap` (`× eco.pressure`), the artillery ceiling is `maxArtilleryOf` and a planet whose `eco.bugs` has no artillery digs none in; `ambientGroup(threat, eco)` / `waveGroup(index, count, eco)` keep the whole ladder (same rolls, same probabilities, same gates in `AMBIENT_GATE` / `WAVE_GATE`) and only draw each slot's silhouette from `eco.bugs` inside its power tier (`TIER_FILLER` / `MEDIUM` / `HEAVY` / `RUNNER`). `eco === null` → every helper returns the pre-Phase-11 answer verbatim. **2026-09-09**: `needsSpawnClearance(type)` / `spawnBlocked(world, type, x, z)` (exported) + the private `placeMember` — a body of radius ≥ `ENEMY_BIG_RADIUS` re-rolls its offset (up to `ENEMY_SPAWN_RETRIES`, widening the ring each try) while `world.obstacleCoverage(x, z, radius × ENEMY_SPAWN_CLEARANCE_MUL)` exceeds `ENEMY_SPAWN_BLOCK_RATIO`, and is **skipped entirely** if none works (never downgraded to a smaller type). `spawnGroup` is the single funnel for ambient / wave / nest groups; `maybeArtillery` repeats the check because it calls `host.spawn` directly. |
 | `RogueGuards.ts` | `placeRogueGuards(host, seed)` on `world:ready` (authority): squads of 2–4 rogues 6–12 m around every tier-3/4 crate and 30 % of tier-2 crates (> 45 m from the player spawn), ≤ `MAX_GUARDS` (16) in total; one random tier-3/4 crate gets the `rogue_boss` + `ROGUE_BOSS_ESCORTS` escorts (leash to the boss). Seeded by the world seed; rifles from `ROGUE_AI.weapons` (boss `ROGUE_AI.bossWeapon`). `RogueSpawnHost.spawnRogue`. Guards are not waves and are never recycled by `ensureCapacity`. **Phase 11**: `placeRogueGuards(host, seed, eco)` — `guardCap` = `MAX_GUARDS × eco.rogues` (0 = a planet with no raiders, placed without touching the rng), the tier-2 share is `0.3 × eco.rogues`, and on an `eco.boss === false` planet the boss squad only appears when the seed rolls `ECO_BOSS_CHANCE`. Still fully seeded: same seed + same planet = same placement. |
 | `WaveDirector.ts` | Extraction waves: first wave 3 s after activation, then every 14 s → 9 s; size 6, 8, 10 … (≤ 22), split into 1–3 groups spawned 45–90 m from the target, facing the nearest alive player; pauses while nobody is alive. A behemoth over the cap becomes a warrior (**Phase 11**: the cap is `maxBehemothOf(eco)` — 0 on a planet with none — and the count now includes behemoths rolled earlier in the same wave; `WaveDirector.eco` also feeds `waveGroup`). Emits `enemy:waveStarted`. Alive cap 60. Authority only. Phase 7: `prime(index)` — the next `start` (re-requested by extraction/ after a host promotion) continues the escalation from that wave index with a ≤ 6 s gap instead of restarting at wave 0. |
+| `RogueDrop.ts` | **로그 강하** (2026-09-09). `RogueDropDirector` — `structure:investigated` 를 받아 **호스트만** 구역당 1회 `ROGUE_DROP_CHANCE` 를 굴리고(`worldSeed ^ hash(zoneId)` 시드 스트림이라 호스트가 바뀌어도 같은 답), 성공하면 `callRogueDrop(dropId, position)` 이 분대 인원표(`ROGUE_DROP_COUNT_MIN/MAX` · `ROGUE_DROP_BOSS_CHANCE`, index 0 = 1명)로 인원 · 보스를 뽑아 `world.scatterPoints(position, ROGUE_DROP_RADIUS, count, 4.5, seed)` 에 포드를 떨어뜨린다. 예고 → `ROGUE_DROP_ETA_S` → 착지: `rogueDrop:incoming` / `landed` + `rdrop incoming` / `landed` + `wave_alarm` · `hellpod_fall` · `hellpod_impact`. 착지에서 `host.spawnRogue` 로 `rogue` / `rogue_boss` 를 세우고(`guardPos` = 트리거 지점, `ee spawn` 은 기존 스폰 경로가 낸다) `beginInvestigation(e, 트리거 지점)` 으로 **구조물까지 진격**시킨다 — 도착하면 그 자리를 지키는 기존 가드 순찰로 넘어간다. 구역당 1회 기록은 자체 `used` 집합(리플리카가 받은 `rdrop incoming` 도 넣으므로 승격된 호스트가 다시 굴리지 않는다) ∪ `WorldRef.getStructures()` 의 `StructureDef.rogueDropUsed`; `Pool.reset` 이 레이드마다 비운다. 비호스트는 `rdrop` 을 받아 같은 이벤트를 내고 **포드 연출만** 그린다(적은 기존 `es` / `ee` 리플리카 경로). 포드는 외부 에셋 없이 여기서 절차 생성한 붉은 육각 캡슐(공유 지오메트리 · 머티리얼, `disposeRogueDropAssets`), 낙하 연기 · 착지 `groundBlast` / `dust` / `sparks` 는 `@/core/fx`. `ctx.isTraining()` 훈련장에서는 전부 no-op. |
 | `Corpses.ts` | `Corpse` (`Interactable` `corpse:<enemyId>`, `CORPSE_INTERACT_RADIUS`, `holdTime` 0.6, prompt `시체 수색` → `수색 완료`; `canInteract` = `ctx.isGameplayActive()` && player alive & not downed && `ctx.inventory.openContainerItems` exists; `interact()` rolls once via `ctx.loot.rollCorpse(type, new Random(seed ^ id·φ), weaponId)` and calls `ctx.inventory.openContainerItems(id, items, position, '시체')`; an empty roll counts as searched; **2026-09-08** the first `interact()` also sets the appended `Interactable.hidePillar`, so `ui/hud/Detection` stops drawing this body's 빛기둥 while it stays searchable — deliberately **not** synced, another player looting the same corpse leaves our pillar up and ours never clears theirs) and `CorpseManager` (`add` → `corpse:spawned`, `remove` → `corpse:removed`, `markLooted(containerId)` from `crate:looted`, own `CORPSE_LIFETIME` safety timer, `clear`). Contents are per-client like crates. **Phase 10**: `rollCorpseLootable(seed, enemyId, type)` decides whether a body can be searched at all from `CORPSE_LOOT_CHANCE` on an **independent** seeded stream (`worldSeed ^ (enemyId · 0x9e3779b1)`) — never on the `rng` that feeds `rollCorpse`, whose exact output `src/inventory/__selftest__.ts` pins for `warrior` / `rogue` / `rogue_boss` at seeds 5 / 11 / 3. `add(…, opts?: CorpseWireOpts)` takes the host's `lootable` / `deathDir` (`ee corpse.lt / .dd`) over the local roll, **returns null and registers no interactable** when the roll fails, and emits `corpse:spawned { lootable, deathDir }` either way (so a listener can tell "a body is here" from "loot is here"). |
 | `ai/EnemyAI.ts` | State machine per bug: `idle` → `wander` → `alert` → `chase` → `attack` → `stagger`, plus `dead`/`flee`. Everything target-relative reads `e.target` (`acquireTarget` each tick). Rogues branch to `RogueAI.updateRogue` after perception; artillery / toxic / behemoth chase & attack dispatch to `GimmickAI`. Charger rush contact and hunter leap landing hit the nearest alive (not downed) player in range; melee / spit fire only while `!e.target.isDeadOrDowned`. `integrate()` (exported) handles steering, separation, obstacle avoidance (a charging body that deviates → `stumble` with the type's cooldown; behemoth shakes the camera), terrain snapping, gait, footsteps, yaw, slope. **Phase 10**: `integrateDeathFall(e, dt, world)` (exported, called from the `state === 'dead'` early-return here **and** from `net/Replica.update`) integrates `deathVy` under `GRAVITY` and snaps to `world.getHeightAt` → `deathLanded`, so a body killed mid-leap falls instead of freezing in the air. |
 | `ai/RogueAI.ts` | Humanoid gunner: guards idle / patrol 6–12 m around `guardPos` (escorts 3–6 m around the boss, `guardPos` follows it), `alert` = `ROGUE_REACTION` delay with the rifle raised, then the **cover cycle** in `chase` via `roguePhase`: 0 pick cover (`ai/RogueCover.ts`, Phase 7: LOS-validated + flank scored, also yields the **pop-out spot** `popPos`) → 1 move there (snap shots while relocating) → 2 crouch-hold 2–4 s (hint 6; boss ×0.6; target < 6 m pops out early; a running reload extends the hold) → 3 **step out to `popPos`** (≤ 2.5 s, no LOS penalty while stepping), stand and fire `ROGUE_BURST` rounds 0.12 s apart (hint 5) with aim error `ROGUE_AIM_ERROR` → `ROGUE_AIM_ERROR_SETTLED` over 1.2 s standing; no LOS for 1.2 s → new cover; after the burst `ROGUE_RUSH_CHANCE` → 4 **rush** to ~8 m firing from the hip every 0.28 s (hint 7, error ×1.6, ≤ 6 s) else back to 0. Leash: never farther than `leash` (45 m; escorts 18 m) from `guardPos` unless rushing or the target is visible within 30 m. Every shot goes through `shoot()` → `host.fireGun` and spends one of `ROGUE_MAG_ROUNDS` (`Enemy.magRounds`); an empty magazine starts a `ROGUE_RELOAD_TIME` **reload** in any phase (`reloadTimer`: crouched, rifle down, no shots, `reload` audio at the rogue, hint 12; a burst caught mid-reload ducks back to phase 2; `popOut` never loads more rounds than the mag holds). **Grenade** (`maybeStartThrow`, not while rushing): target hidden (`noLosHold` ≥ `ROGUE_GRENADE_HOLD_S`), `ROGUE_GRENADE_RADIUS + 1.5` < distance ≤ `ROGUE_GRENADE_RANGE`, `grenadeCd` ≤ 0, no reload → walk to `popPos` (≤ 2 s) then `ROGUE_GRENADE_WINDUP` throw pose (hint 13, sphere in the off hand) → `host.throwGrenade(e, grenadeTarget)`; success arms `ROGUE_GRENADE_COOLDOWN` (boss ×0.7, ±10 %), a refused launch (rock in the face) retries in 2 s; then back to phase 0. The boss and its escorts throw too. Stagger drops a wind-up (cooldown unspent). |
@@ -510,11 +511,93 @@ Perception rework (`ai/Perception.ts`, merged with the Phase 4 artillery / rogue
 위 표에 행을 추가한다. 순환 import 를 만들지 않으려면 `parts/` 는 `EnemySystem.ts` 에서 **타입만**
 가져와야 한다(`import type { EnemySystem }`) — 값이 필요하면 `model.ts` 로 옮긴다.
 
+## 로그 강하 (2026-09-09)
+
+버려진 **전진기지 · 연구실 · 선로 플랫폼**의 컨테이너를 처음 조사하면 로그 분대가 강하할 수 있다.
+구현은 전부 `RogueDrop.ts` 안에 있고, 계약은 `EnemyManagerRef.callRogueDrop` / `getRogueDrops` ·
+`rogueDrop:incoming` / `landed` · `rdrop` · `ROGUE_DROP_*` 다.
+
+### 흐름
+```
+world/  structure:investigated {zoneId, kind, position}
+  → (호스트만) 구역당 1회 ROGUE_DROP_CHANCE 굴림
+  → callRogueDrop(zoneId, position)
+      rogueDrop:incoming + rdrop incoming + wave_alarm       ← 예고
+      ROGUE_DROP_ETA_S 초 동안 포드가 하늘에서 내려온다        ← 모든 클라이언트
+      rogueDrop:landed + rdrop landed + spawnRogue × count    ← 착지 (스폰은 호스트만)
+      beginInvestigation(e, position)                        ← 구조물로 진격
+```
+
+### 규모 = 분대 인원
+`data/tables.csv` 의 배열 표를 **index 0 = 분대 1명**으로 읽는다: 1명 2–3 · 2명 4–5 · 3명 5–6 · 4명 6–8,
+보스(`rogue_boss`) 확률 0 / 0.5 / 1 / 1. 인원은 `ctx.net.getRemotePlayers()` 중 `connected` 수 + 1 에서 세고
+1..4 로 클램프한다 (싱글은 1). **호출자는 인원을 정하지 않는다** — 계약이 그렇게 되어 있다.
+자리가 모자라 `scatterPoints` 가 요청보다 적게 돌려주면 그만큼만 내려온다.
+
+### 호스트 권한 · 구역당 1회 · 호스트 이관
+굴리는 것은 호스트뿐이고, 굴림 자체는 `worldSeed ^ hash(zoneId)` 시드 스트림이라 **누가 호스트여도 같은 답**이
+나온다. "이 구역은 이미 썼다"는 기록은 두 곳의 합집합이다:
+
+1. `RogueDropDirector.used` — 이 클라이언트가 본 모든 `dropId`. 호스트가 굴린 구역(**실패한 굴림 포함** —
+   사용자 규칙이 "구역당 1회만 발생"이다)과, **리플리카가 받은 `rdrop incoming`** 이 함께 들어간다.
+   그래서 호스트 이관으로 승격된 사람도 이미 쓴 구역을 다시 굴리지 않는다.
+2. `WorldRef.getStructures()` 의 `StructureDef.rogueDropUsed` — world/ 가 `struct sync` 로 채워 주는
+   구조물별 플래그. 레이드 도중 합류해 `rdrop` 을 한 번도 못 본 사람이 호스트가 되는 경우를 덮는다.
+   enemies/ 는 이 값을 **읽기만** 한다 (구조물 상태의 주인은 world/ 다).
+
+`dropId` 는 `structure:investigated.zoneId` 를 그대로 쓴다 — 두 기록이 같은 열쇠를 써야 하기 때문이다.
+`used` 는 `Pool.reset` 에서(= `world:ready` / `game:newMission` / `game:abort`) 레이드마다 비워진다.
+
+**남은 구멍**: 호스트가 굴려서 **실패**한 구역은 와이어에 아무 것도 나가지 않으므로, 그 뒤 승격된 새 호스트는
+그 구역을 모른다. 실제로는 world/ 가 `structure:investigated` 를 **구역의 첫 조사에만** 내므로 재굴림의 계기
+자체가 없고, world/ 가 `rogueDropUsed` 를 조사 시점에 세워 주면 이 구멍도 사라진다.
+
+### 상시 개체수 상한 (`AmbientSpawner.cap`)
+강하 병력은 **`ensureCapacity` 를 거치지 않는다** — `host.spawnRogue` 를 직접 부른다. 근거: 상한은 *상시
+순찰의 압력 조절* 장치이고, 예고한 8명이 상한에 눌려 2명으로 줄면 연출도 인원 규칙도 무너진다 (포병이
+`maybeArtillery` 에서 `cap + 2` 로 스폰하는 것과 같은 성격의 예외다).
+반대로 **조용히 회수되지도 않는다**: `ensureCapacity` 의 재활용 패스는 `e.isRogue` 를 건너뛰므로 로그는
+애초에 회수 대상이 아니다 (로그 가드가 그렇게 유지되던 규칙 그대로다).
+다만 `aliveCount()` 에는 그대로 잡히므로 **강하가 살아 있는 동안 벌레 순찰이 그만큼 덜 나온다** — 의도한
+것이다. 로그 분대와 벌레 압박이 같은 자리에서 겹치면 감당이 안 되고, 강하 병력이 정리되면 저절로 원래
+압박으로 돌아온다.
+
+### 비호스트 클라이언트
+`rdrop incoming` / `landed` 를 받아 같은 버스 이벤트를 내고 **포드 연출만** 그린다. 적 자체는 손대지 않는다 —
+기존 `ee spawn` / `es` 리플리카 경로가 처리한다. 착지 지점은 호스트와 같은 시드 · 같은 인자로
+`scatterPoints` 를 다시 뽑으므로 포드가 실제로 로그가 서는 자리에 꽂힌다. 예고를 못 본 `rdrop landed` 는
+무시한다 (적은 어차피 리플리카 경로로 보인다).
+
+### 진격
+새 AI 를 만들지 않았다. Phase 12 의 `ai/Investigate.ts` 를 그대로 쓴다 — 착지한 로그마다
+`beginInvestigation(e, 트리거 지점)` 을 걸면 `ENEMY_SHOT_ALERT_WATCH_S` 주시 → 엄폐 이동 전진 →
+`SHOT_ALERT_ARRIVE`(8 m) 도착의 기존 사이클이 그대로 돈다. 도중에 누군가를 인지하면 평소의 교전으로
+넘어가고, `guardPos` 를 트리거 지점으로 잡아 두었으므로 도착 뒤에는 **기존 로그 가드 순찰**(guardPos 주위
+6–12 m)이 이어받아 구조물을 지킨다.
+
+### 포드
+외부 에셋 없이 `RogueDrop.ts` 안에서 절차 생성한 붉은 육각 캡슐이다 — `player/Hellpod` 와 `stratagems` 의
+구조 포드를 **참고만** 했고 import 하지 않는다 (아군 헬포드와 실루엣이 달라야 한다). 지오메트리 · 머티리얼은
+모듈 단위로 공유하고 포드 인스턴스는 풀링하며, `disposeRogueDropAssets()` 가 `Pool.disposePools` 에서 정리한다.
+낙하 중 연기 · 착지 `groundBlast` / `dust` / `sparks` · 카메라 흔들림은 전부 `@/core/fx` 의 기존 도구다.
+착지한 포드는 30 초 뒤 씬에서 빠진다.
+
 ---
 
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-09 (로그 강하)** — `RogueDrop.ts` 신규. 버려진 전진기지 · 연구실 · 선로 플랫폼의 컨테이너를 처음
+  조사하면(`structure:investigated`) **호스트가** 그 구역에 대해 딱 한 번 `ROGUE_DROP_CHANCE` 를 굴리고, 성공하면
+  로그 분대가 하늘에서 내려온다: 예고(`rogueDrop:incoming` + `rdrop incoming` + `wave_alarm`) → `ROGUE_DROP_ETA_S`
+  초 낙하 → 착지(`rogueDrop:landed` + `rdrop landed`) → 스폰 → **트리거 지점으로 진격**.
+  인원 · 보스는 **분대 인원**이 정한다 (`ROGUE_DROP_COUNT_MIN/MAX` · `ROGUE_DROP_BOSS_CHANCE`, index 0 = 1명).
+  구역당 1회는 두 기록의 합집합이다 — 자체 `used` 집합(호스트의 굴림 + **리플리카가 받은 `rdrop incoming`**, 그래서
+  승격된 새 호스트도 안다)과 world/ 가 `struct sync` 로 채워 주는 `StructureDef.rogueDropUsed`.
+  진격은 새 코드가 아니라 Phase 12 의 `ai/Investigate.ts` 를 그대로 쓴다(`beginInvestigation`), 도착하면
+  `guardPos` = 구조물이라 기존 로그 가드 순찰로 자연스럽게 넘어간다. `EnemyManagerRef.callRogueDrop` /
+  `getRogueDrops` stub 이 채워졌고, 디버그 훅 `debugRogueDrops` / `debugInvestigate` 가 붙었다
 
 - **2026-09-09 (지형지물 위 걷기 · 큰 적의 스폰 자리 · 헤드샷)** — 세 가지.
   ① **접지가 `WorldRef.getSurfaceY` 로 옮겨졌다.** `ai/EnemyAI.integrate` 는 XZ 를 옮긴 **직후** 표면을 잡고

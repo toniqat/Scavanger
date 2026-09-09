@@ -3,6 +3,7 @@ import { Layers, MAP_SIZE, Random } from '@/shared';
 import type { Biome } from './biomes';
 import type { WorldLayout } from './layout';
 import { Noise, clamp, lerp, smoothstep } from './noise';
+import { PIT_BLEND } from './structures/model';
 
 /* Grid constants ─────────────────────────────────────────────────────────── */
 export const HALF = MAP_SIZE / 2;
@@ -45,6 +46,15 @@ export class Terrain {
 
     const pads = layout.pads;
     const H = this.heights;
+    /* 2026-09-09 — 지하실 구덩이. 패드 평탄화 **다음에** 판다 (같은 자리를 패드가 되메우면 안 된다).
+     * 회전한 사각 구덩이라 미리 sin/cos 을 떠 둔다; 벽은 `PIT_BLEND` 한 칸 만에 서므로 사실상 수직이고,
+     * 그 흙벽은 `Structures` 가 콘크리트 벽으로 덮는다. */
+    const pits = layout.structures
+      .filter((s) => s.pit !== null)
+      .map((s) => ({
+        x: s.pad.x, z: s.pad.z, c: Math.cos(s.pad.yaw), s: Math.sin(s.pad.yaw),
+        hx: s.pit!.halfX, hz: s.pit!.halfZ, floor: s.pad.height - s.pit!.depth,
+      }));
     for (let j = 0; j < VERTS; j++) {
       const z = -EXTENT + j * CELL;
       for (let i = 0; i < VERTS; i++) {
@@ -59,6 +69,17 @@ export class Terrain {
           const d = Math.sqrt(dx * dx + dz * dz);
           const t = smoothstep(p.radius, p.radius + p.blend, d);
           h = lerp(p.height, h, t);
+        }
+        // basement pits (rotated rectangles), carved into the already flattened pad
+        for (let k = 0; k < pits.length; k++) {
+          const p = pits[k];
+          const dx = x - p.x, dz = z - p.z;
+          const lx = Math.abs(dx * p.c + dz * p.s) - p.hx;
+          const lz = Math.abs(-dx * p.s + dz * p.c) - p.hz;
+          const outside = Math.max(lx, lz);
+          if (outside >= PIT_BLEND) continue;
+          const t = smoothstep(0, PIT_BLEND, Math.max(0, outside));
+          h = lerp(p.floor, h, t);
         }
         H[j * VERTS + i] = h;
       }

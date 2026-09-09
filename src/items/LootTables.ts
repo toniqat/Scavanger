@@ -6,7 +6,7 @@ import { UNIQUE_WEAPON_IDS, csvGroups, csvRows } from '@/shared';
  * 확정 픽, 아이템별 배수, 그리고 시체 드랍(`loot_corpses.csv` · `loot_corpse_rolls.csv`).
  * 이 파일에는 표가 없고 그 줄들을 타입 있는 표로 옮기는 코드만 있다.
  */
-import { WEAPON_FAMILIES } from './WeaponDefs';
+import { WEAPON_FAMILIES, WEAPON_GRADES } from './WeaponDefs';
 import { UNIQUE_AMMO_TYPES, ammoItemIdFor, itemIdForWeapon } from './ItemDefs';
 import { IMPLANT_BROKEN_DEFS, IMPLANT_WORKING_DEFS } from './ImplantDefs';
 
@@ -126,6 +126,61 @@ export function getTierTable(tier: number): TierTable {
 
 export function getTierLabel(tier: number): string {
   return getTierTable(tier).label;
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * 2026-09-09: 행성 진행도별 **무기 등급** 곡선 (`data/planet_loot.csv`)
+ *
+ * 상자 티어의 `rarityWeights` 는 계속 다른 카테고리(부착물 · 방어구 · 임플란트 …)의 희귀도를 정하고,
+ * **무기 등급만** 이 표가 다시 정한다 — 앞쪽 행성에서 III 이상이 거의 안 나오게 하려면 티어 표를
+ * 건드릴 수밖에 없는데 그러면 총이 아닌 물건까지 같이 짜지기 때문이다.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/** 행성 하나의 무기 등급 곡선. `rank` 는 `planetTier()` 가 주는 난이도 순번 1..5 다. */
+export interface PlanetGradeCurve {
+  rank: number;
+  /** 사람이 읽으라고 둔 이름 (csv 의 `name` 칸). 코드는 비교에 쓰지 않는다. */
+  name: string;
+  /** 가중치가 양수인 등급만 — 이 배열이 곧 그 행성에서 나올 수 있는 등급 전부다. */
+  grades: readonly WeaponGrade[];
+  /** 등급 → 가중치 (0 인 등급은 `grades` 에 없다). */
+  weightOf: Readonly<Partial<Record<WeaponGrade, number>>>;
+  /** 그 행성의 **최대 등급** = `grades` 의 마지막. 시체 무기는 이 값으로 상한만 받는다. */
+  maxGrade: WeaponGrade;
+  /**
+   * 전설 **유니크 무기** 등장 확률에 곱하는 배수 (0 = 그 행성에서 유니크 없음).
+   * 유니크는 등급이 없어 `grades` 곡선을 안 타므로 따로 막는다 — 등급 V 가 봉인된 행성에서
+   * 그보다 윗급이 나오면 앞뒤가 안 맞기 때문이다. 상자 픽 가중치와 보스 시체 유니크 굴림 양쪽에 걸린다.
+   */
+  uniqueMul: number;
+}
+
+export const PLANET_GRADE_CURVES: readonly PlanetGradeCurve[] = csvRows('planet_loot.csv').map((r) => {
+  const weightOf: Partial<Record<WeaponGrade, number>> = {};
+  for (const g of WEAPON_GRADES) {
+    const w = r.num(`g${g}`, { min: 0 });
+    if (w > 0) weightOf[g] = w;
+  }
+  const grades = WEAPON_GRADES.filter((g) => (weightOf[g] ?? 0) > 0);
+  if (grades.length === 0) r.report('g1', '등급 가중치가 전부 0 이다 — 이 행성에서는 무기가 아예 안 나온다');
+  return {
+    rank: r.int('rank', { min: 1 }),
+    name: r.str('name'),
+    grades,
+    weightOf,
+    maxGrade: (grades[grades.length - 1] ?? 1) as WeaponGrade,
+    uniqueMul: r.num('uniqueMul', { min: 0 }),
+  };
+});
+
+const PLANET_GRADE_CURVE_MAP: ReadonlyMap<number, PlanetGradeCurve> = new Map(PLANET_GRADE_CURVES.map((c) => [c.rank, c]));
+
+/**
+ * 난이도 순번(`planetTier()`, 1..5)의 곡선. 표에 없는 순번이면 `null` — 그때는 예전처럼
+ * 상자 티어의 희귀도 가중치가 무기 등급을 정한다 (행성을 안 고른 훈련장 · 구형 세이브).
+ */
+export function getPlanetGradeCurve(rank: number): PlanetGradeCurve | null {
+  return PLANET_GRADE_CURVE_MAP.get(Math.round(rank)) ?? null;
 }
 
 /* ────────────────────────────────────────────────────────────────────────────

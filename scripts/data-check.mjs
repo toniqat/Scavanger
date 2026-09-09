@@ -31,6 +31,7 @@ const DATA_OWNERS = [
   '/src/enemies/EnemyTypes.ts',  // enemies · enemy_abilities
   '/src/progression/defs.ts',    // stats · skills
   '/src/meta/Rules.ts',          // tuning (임플란트 수리 수수료)
+  '/src/world/structures/model.ts', // structures (버려진 구조물 · 선로 플랫폼 · 전차)
 ];
 
 const server = await createServer({

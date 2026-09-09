@@ -11,7 +11,7 @@ const MARGIN = 0.06;
 const EDGE_PAD = 44;
 const PING_FADE = 1.5;
 
-type Cat = 'grenade' | 'ping' | 'call';
+type Cat = 'grenade' | 'ping' | 'call' | 'drop';
 
 interface Target {
   cat: Cat;
@@ -48,7 +48,11 @@ function cssColor(n: number): string { return `#${n.toString(16).padStart(6, '0'
  *       contract constant but is no longer read here), dropped on `ping:removed`; icon/colour by kind, `이름`-less kind
  *       label; fades over the last 1.5 s. The arrow only shows while the ping is off-screen — on screen the marker does,
  *   (c) ship calls (`stratagem:called` → until `stratagem:landed` for airstrike / supply / structure, until
- *       `stratagem:ended` for the laser; glyph + colour by kind, label `n초` until landing, then the call name).
+ *       `stratagem:ended` for the laser; glyph + colour by kind, label `n초` until landing, then the call name),
+ *   (d) **로그 강하** (2026-09-09, `.oarrow.drop(.boss)`): `ctx.enemies.getRogueDrops()` polled every `lateUpdate` —
+ *       a drop is a live target from its 예고 to its landing, so the manager's own list beats a cached event; ⬇ in
+ *       amber (red with a 로그 분대장), label `n초` until touchdown, then `로그 n` / `로그 분대장`. The toast + alarm
+ *       that go with it live in `hud/RaidAlerts`.
  * Each `lateUpdate` projects the target through `ctx.camera`: on-screen (inside the viewport minus a 6 % margin, in
  * front of the camera) → arrow hidden; otherwise the projected direction from the screen centre is clamped to a rect
  * `EDGE_PAD` px inside the viewport and the arrow rotates to point at it. Behind the camera → the direction is mirrored
@@ -128,6 +132,16 @@ export class OffscreenIndicators {
         const left = p.until - t;
         const alpha = left < PING_FADE ? Math.max(0.15, left / PING_FADE) : 1;
         out.push({ cat: 'ping', pos: p.pos, icon: PING_ICON[p.kind] ?? '◆', color: cssColor(PING_COLOR[p.kind] ?? 0x7fb7e6), label: PING_LABEL[p.kind] ?? '핑', alpha, sub: p.kind });
+      }
+    }
+    // (d) 로그 강하 (2026-09-09): 예고 → 착지까지 살아 있는 목표라 이벤트 목록이 아니라 매니저에게 직접 묻는다.
+    //     `getRogueDrops()` 는 계약(`EnemyManagerRef`)이고 enemies/ 가 아직 구현하지 않았으면 빈 배열이다.
+    const drops = ctx.enemies?.getRogueDrops?.();
+    if (drops) {
+      for (const d of drops) {
+        const eta = d.landsAt - t;
+        const label = eta > 0 ? `${Math.ceil(eta)}초` : d.boss ? '로그 분대장' : `로그 ${d.count}`;
+        out.push({ cat: 'drop', pos: d.position, icon: '⬇', color: d.boss ? '#ff4d4d' : '#ff8a3d', label, alpha: 1, sub: d.boss ? 'boss' : '' });
       }
     }
     // (c) ship calls
