@@ -35,12 +35,13 @@ const GATHER_NODES_PER_MISSION = 34;
 const SALVAGE_NODES_PER_MISSION = 7;
 /** Ambient population cap before `pressure`: `12 + 24 × threat`. */
 const capBase = (threat) => 12 + 24 * threat;
+/* 2026-09-09: `hazards` 도 planets.csv 를 그대로 옮긴 것이다 — 독성 포자가 후보인 행성에만 거대 버섯 군락이 선다. */
 const PLANETS = [
-  { id: 'amber', biome: 'amber', bugs: { scavenger: 4, hunter: 2, warrior: 1, artillery: 1 }, pressure: 0.85, rogues: 1.4, boss: true, maxArtillery: 1, maxBehemoth: 0, herbs: { herb_ashleaf: 3, herb_bloodroot: 1, herb_glowcap: 0.5 }, gatherDensity: 0.7 },
-  { id: 'tundra', biome: 'tundra', bugs: { scavenger: 3, hunter: 4, charger: 2, warrior: 2 }, pressure: 1, rogues: 0.8, boss: false, maxArtillery: 1, maxBehemoth: 1, herbs: { herb_bloodroot: 2, herb_ashleaf: 2, herb_glowcap: 1 }, gatherDensity: 0.9 },
-  { id: 'mossy', biome: 'mossy', bugs: { scavenger: 4, spewer: 3, toxic: 3, warrior: 2, hunter: 1 }, pressure: 1.15, rogues: 0.6, boss: false, maxArtillery: 1, maxBehemoth: 1, herbs: { herb_bloodroot: 3, herb_glowcap: 3, herb_ashleaf: 1 }, gatherDensity: 1.5 },
-  { id: 'ashen', biome: 'ashen', bugs: { scavenger: 3, warrior: 3, charger: 3, behemoth: 1, artillery: 2 }, pressure: 1.2, rogues: 1, boss: true, maxArtillery: 3, maxBehemoth: 2, herbs: { herb_ashleaf: 3, herb_glowcap: 1 }, gatherDensity: 0.6 },
-  { id: 'crimson', biome: 'crimson', bugs: { scavenger: 2, hunter: 3, spewer: 2, warrior: 2, artillery: 2 }, pressure: 0.9, rogues: 1.6, boss: true, maxArtillery: 2, maxBehemoth: 1, herbs: { herb_glowcap: 4, herb_bloodroot: 2 }, gatherDensity: 1 },
+  { id: 'amber', biome: 'amber', bugs: { scavenger: 4, hunter: 2, warrior: 1, artillery: 1 }, pressure: 0.85, rogues: 1.4, boss: true, maxArtillery: 1, maxBehemoth: 0, herbs: { herb_ashleaf: 3, herb_bloodroot: 1, herb_glowcap: 0.5 }, gatherDensity: 0.7, hazards: ['sandstorm','storm_eye'] },
+  { id: 'tundra', biome: 'tundra', bugs: { scavenger: 3, hunter: 4, charger: 2, warrior: 2 }, pressure: 1, rogues: 0.8, boss: false, maxArtillery: 1, maxBehemoth: 1, herbs: { herb_bloodroot: 2, herb_ashleaf: 2, herb_glowcap: 1 }, gatherDensity: 0.9, hazards: ['blizzard','storm_eye'] },
+  { id: 'mossy', biome: 'mossy', bugs: { scavenger: 4, spewer: 3, toxic: 3, warrior: 2, hunter: 1 }, pressure: 1.15, rogues: 0.6, boss: false, maxArtillery: 1, maxBehemoth: 1, herbs: { herb_bloodroot: 3, herb_glowcap: 3, herb_ashleaf: 1 }, gatherDensity: 1.5, hazards: ['spores','storm_eye'] },
+  { id: 'ashen', biome: 'ashen', bugs: { scavenger: 3, warrior: 3, charger: 3, behemoth: 1, artillery: 2 }, pressure: 1.2, rogues: 1, boss: true, maxArtillery: 3, maxBehemoth: 2, herbs: { herb_ashleaf: 3, herb_glowcap: 1 }, gatherDensity: 0.6, hazards: ['sandstorm','storm_eye'] },
+  { id: 'crimson', biome: 'crimson', bugs: { scavenger: 2, hunter: 3, spewer: 2, warrior: 2, artillery: 2 }, pressure: 0.9, rogues: 1.6, boss: true, maxArtillery: 2, maxBehemoth: 1, herbs: { herb_glowcap: 4, herb_bloodroot: 2 }, gatherDensity: 1, hazards: ['spores','sandstorm'] },
 ];
 /** Types a patrol / wave can be composed of (artillery digs in alone, rogues are guards). */
 const GROUP_TYPES = ['scavenger', 'hunter', 'warrior', 'spewer', 'charger', 'toxic', 'behemoth'];
@@ -109,14 +110,17 @@ try {
       const w = ctx.world;
       // 2026-09-08: 고철 더미(`kind: 'salvage'`)도 같은 목록에 있다 — 생태계 수치는 약초만 센다
       const all = w.getGatherNodes();
-      const nodes = all.filter((n) => n.kind !== 'salvage');
+      // 2026-09-09: 거대 버섯 군락에 딸린 채집 버섯(`grove_*`)은 재해가 심는 것이라 생태계 밀도와 무관하다.
+      const nodes = all.filter((n) => n.kind !== 'salvage' && !n.id.startsWith('grove_'));
+      const groveNodes = all.filter((n) => n.id.startsWith('grove_')).length;
       const herbs = {};
       for (const n of nodes) herbs[n.defId] = (herbs[n.defId] ?? 0) + 1;
       return {
         planet: w.planet, mode: w.mode, seed: w.seed,
         biome: window.__worldSys.getBiome() ? window.__worldSys.getBiome().id : null,
-        nodes: nodes.length, herbs,
-        salvage: all.length - nodes.length,
+        nodes: nodes.length, herbs, groveNodes,
+        // 고철만 센다 — `all.length - nodes.length` 로 빼면 군락 버섯까지 고철로 잡힌다 (2026-09-09)
+        salvage: all.filter((n) => n.kind === 'salvage').length,
         nodeSig: nodes.map((n) => `${n.id}:${n.defId}:${n.position.x.toFixed(3)},${n.position.z.toFixed(3)}`).join('|'),
         eco: window.__sys.debugEcology,
         guards: window.__sys.debugGuardCount(),
@@ -186,6 +190,11 @@ try {
     ok(s.biome === def.biome, `${def.id}: biome is the one PlanetDef names (${s.biome})`);
     const want = Math.max(1, Math.round(GATHER_NODES_PER_MISSION * def.gatherDensity));
     ok(s.nodes === want, `${def.id}: ${want} herb nodes from gatherDensity ${def.gatherDensity} (got ${s.nodes})`);
+    /* 2026-09-09: 독성 포자가 후보인 행성에는 거대 버섯 군락이 서고 그 주위에 채집 버섯이 심긴다.
+       군락 버섯은 생태계 밀도(위 단언)와 무관한 별도 노드이고 id 가 `grove_` 로 시작한다. */
+    const wantsGroves = (def.hazards ?? []).includes('spores');
+    ok(wantsGroves ? s.groveNodes > 0 : s.groveNodes === 0,
+      `${def.id}: 군락 버섯 ${wantsGroves ? '있음' : '없음'} (${s.groveNodes})`);
     const allowedHerbs = Object.keys(def.herbs).filter((k) => def.herbs[k] > 0);
     const gotHerbs = Object.keys(s.herbs);
     const topHerb = allowedHerbs.slice().sort((a, b) => def.herbs[b] - def.herbs[a])[0];

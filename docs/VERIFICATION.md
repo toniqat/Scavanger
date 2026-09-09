@@ -953,3 +953,60 @@ smoke-hangar 58/58, e2e-mp 156/156
   이 스크립트의 오래된 flake다 (2026-09-09 기록에 클린 워크트리 4회 3승 1패로 확인해 둔 그것).
 - 검증용 릴레이가 죽은 포트를 "already up" 으로 잡는 환경 flake가 한 번 있었다. `smoke-weapons` 만
   `no console errors` 에서 WebSocket 잡음을 안 걸러 내므로 그때 red 로 보인다 — 릴레이가 살아 있으면 통과한다.
+
+---
+
+## 2026-09-09 — 레이드 콘텐츠 (구조물 · 선로/전차 · 재해 · 로그 강하 · 의사소통 휠 · 등급 드롭)
+
+`npm run verify:all` **전부 통과** (6분 40초, 37 스모크 + `e2e-mp` + build).
+
+```
+2026-09-09: typecheck ok, typecheck-server ok, net-selftest 295/295, data-check ok,
+build 2,465.64 kB JS / 254.64 kB CSS, smoke-quickslots 73/73, smoke-phase2 57/57, smoke-weapons 137/137,
+smoke-stratagems 72/72, smoke-phase3 33/33, smoke-ship-rooms 72/72, smoke-phase4 49/49,
+smoke-controls-hub 129/129, smoke-tactical 87/87, smoke-housing 206/206, smoke-inventory-p6 124/124,
+smoke-loadout 69/69, smoke-progression 123/123, smoke-console 63/63, smoke-search 61/61, smoke-ui-p6 88/88,
+smoke-ui-p5 134/134, smoke-uniques 72/72, smoke-rogue-drop 29/29, smoke-enemy-alert 42/42,
+smoke-resume-gate 59/59, smoke-meta 172/172, smoke-training 112/112, smoke-library 126/126,
+smoke-rogue-v2 52/52, smoke-enemy-delta 52/52, smoke-ghost 86/86, smoke-planets 86/86, smoke-raidflow 49/49,
+smoke-ecology 90/90, smoke-social 138/138, smoke-props-collision 20/20, smoke-structures 25/25,
+smoke-tutorial 83/83, smoke-hazard 43/43, smoke-hangar 58/58, e2e-mp 156/156
+```
+
+새 스모크 3종: `smoke-structures`(25) · `smoke-hazard`(43) · `smoke-rogue-drop`(29),
+새 검사기 `scripts/check-planet-loot.mjs`(행성별 등급 · 유니크 등장률 표본).
+
+### 첫 실행에서 red 였던 3건 — 전부 **스모크 쪽** 문제였다
+
+- **`smoke-phase4` 45/49 — "오래된 flake" 가 flake 가 아니었다.** 실패 4건이 전부
+  `{"dead":true,"hp":0}` 를 달고 나왔고, 이 파일에 그동안 *"언제나 같은 신호로 나오는 오래된 flake"* 로
+  적혀 있던 그것이다. 실제로는 **플레이어가 죽은 채로 플레이어 훅을 검사**하고 있었다 — 스모크는
+  `if (pl.isDowned) pl.revive()` 만 했는데, 2026-09-09 에 **완전 사망의 자동 부활을 없앤** 뒤로 죽은 몸은
+  그대로 남고 `canAct()` 가 막아 `startMelee` · `applyKnockback` 이 전부 거절된다.
+  `if (pl.isDead) pl.respawnAt(...)` 를 더하고, 사망 화면 · 관전 오버레이가 닫히며 `uiBlockers` 가 비는 데
+  몇 프레임 걸리므로 정착 시간을 0.6 → 1.2 s 로 늘렸다. 이번 배치의 월드 콘텐츠가 적 배치를 바꿔 죽는
+  빈도가 올라가면서 **매번** 걸리게 된 것이고, 원인은 그 전부터 있었다.
+  덧붙여 순간이동 단언이 `getHeightAt`(지형만)을 보고 있어 전차 데크(2.05 m)·구조물 슬래브 위에 내리면
+  "떠 있다" 로 잡혔다 → 걷는 바닥의 표준인 `getSurfaceY` 로 바꿨다.
+- **`smoke-ecology` 83/85 → 90/90.** 생태계 밀도 단언이 **거대 버섯 군락에 딸린 채집 버섯까지** 세고 있었다
+  (mossy 51 → 67, crimson 34 → 48 — 정확히 독성 포자가 후보인 두 행성). 군락 버섯은 재해가 심는 것이라
+  `PlanetEcosystem.gatherDensity` 와 무관하다. `Gather` 가 그 노드의 id 를 `grove_` 로 매기게 하고(군락 자리는
+  `spots` 의 맨 뒤라 **기존 약초 · 고철의 id 는 한 글자도 안 바뀐다**) 스모크가 걸러 세도록 고쳤다.
+  ⚠ 첫 시도에서 `variant === GROVE_PICK_VARIANT` 로 갈랐다가 **더 크게 깨졌다** — 그 변종 번호는 평범한 약초도
+  쓰는 모양이라 그 모양의 약초가 전부 군락 버섯으로 잡혔다(모든 행성에서 군락 11–13개, 약초 수 반토막).
+  **심는 쪽이 `Spot.grove` 로 표시**하는 것이 맞다.
+- **`smoke-hazard` 9/10 → 43/43.** 두 갈래였다. ① `WARN_S` · `FULL_S` · `SPORE_INTERVAL` 같은 **Node 스코프
+  상수를 `page.evaluate` 콜백 안에서** 참조했다 — 콜백은 브라우저에서 돌아 그 스코프를 못 본다(인자로 넘겨야
+  한다). 하나를 고칠 때마다 다음 것이 드러나 네 번에 걸쳐 나왔다. ② 피해 · 시야 절이 아무 이벤트도 못 받았다:
+  진단을 찍어 보니 `isInside` 는 **true** 인데 `hazard:insideChanged` 가 빈 배열이었다 — 앞 절이 이미
+  `startsAt + FULL_S + 5` 까지 감아 둬서 플레이어가 **이미 구역 안**이었고, `__clear()` 는 기록만 지우지
+  Hazard 의 "안에 있었다" 는 내부 에지 상태와 마지막 `atmo:override` 값은 그대로라 **변화가 없어 아무것도
+  안 나갔다.** 재해 시작 전으로 한 번 되감아 밖 상태로 가라앉힌 뒤 들어가도록 고쳤다.
+  세 번째로, 눈 밖으로 밀어내는 좌표가 맵 밖으로 나갈 수 있어(`center + radius + 90`) `respawnAt` 이
+  스폰 지점으로 되돌리는 경우가 있었다 → 맵 안으로 클램프.
+
+### 알아 둘 것
+
+- **같은 시드의 소품 · 상자 · 채집물 배치가 이 배치 전과 다르다.** 구조물 · 선로 · 버섯 군락이 `SpatialHash`
+  에 먼저 들어가 `isSpotFree` 가 그 자리를 피하기 때문이다 (2026-09-09 앞 배치의 소품 콜라이더 확대와 같은
+  성격). **멀티 결정성은 그대로다** — 모든 클라이언트가 같은 시드로 같은 코드를 돈다.

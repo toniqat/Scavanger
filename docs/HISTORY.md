@@ -46,6 +46,60 @@ Phase 0 – 12 는 전부 구현 완료다 (2026-09-05 ~ 2026-09-08). 각 단계
 
 최신순. 새 항목은 이 섹션 맨 위에 추가한다.
 
+- 2026-09-09 (레이드 콘텐츠 — 구조물 · 선로/전차 · 환경 재해 · 로그 강하 · 의사소통 휠 · 행성별 등급 드롭):
+  사용자 요청 7건을 한 묶음으로 받았다. 결정은 AskUserQuestion 8문항 — ① 드롭률의 기준은 **상자 1개당**,
+  ② 행성 순번은 **`data/planets.csv` 의 줄 순서 = 난이도 순**(1 아켈론 II … 5 카민 I), ③ 구조물은
+  **진입 가능한 지상 건물 + 지하실 1층**, ④ 전차는 **콘솔 시동 → 자동 주행, 탑승/하차 자유**,
+  ⑤ 재해는 **행성별 후보 중 레이드마다 무작위**, ⑥ 끝까지 진행하면 **맵 전체를 덮어 사실상 강제 탈출**,
+  ⑦ 로그 강하는 **분대 인원 비례**(1명 2–3 · 2명 4–5 · 4명 6–8, 보스는 2명 50 % · 3명↑ 확정),
+  ⑧ **한 사이클에 전부**. 자세한 갈림길은 [DECISIONS.md](DECISIONS.md) 의 같은 날짜 절.
+  - **계약 선작업 (`src/shared` · `data/*.csv`, 커밋 `9ea3fc0`)** — `Obstacle.box`(사각 OBB 콜라이더) ·
+    `Obstacle.velocity`(함께 움직이는 발판), `StructureDef`/`StructureKind`, `RailLineDef`/`RailPlatformDef`/
+    `TramDef`/`TramState`, `HazardKind`/`HazardZone`/`HazardSource`/`HazardRef`,
+    `WorldRef.getStructures / structureAt / getRailLines / getTrams / hazard`,
+    `LootRef.rollCrateOn / rollCorpseOn`, `EnemyManagerRef.callRogueDrop / getRogueDrops`,
+    `PingKind += help|abandon|structure|rail`, 새 파일 `shared/comms.ts`(의사소통 휠 배치 · 문구),
+    이벤트 `comms:*` · `ping:wheelChanged` · `structure:*` · `rail:*` · `rogueDrop:*` · `hazard:*` ·
+    `atmo:override`, 와이어 `comm` · `struct`/`structq` · `tram`/`tramq` · `hz`/`hzq` · `rdrop`,
+    `Keys.COMMS = H`(은퇴한 `STIM` 이 비워 둔 자리), `planets.csv` 에 `hazards` 열 + `planetTier(1..5)`.
+    각 소유 폴더에는 계약을 만족하는 **최소 stub** 만 넣어 계약 커밋 자체를 초록으로 유지했다.
+  - **행성별 무기 등급 드롭** (`items/` · `data/`) — 새 `data/planet_loot.csv` 가 행성 순번 1..5 별 등급 I–V
+    가중치와 `uniqueMul` 을 갖는다. 상자 픽 과정은 그대로 두고 **뽑힌 무기의 등급만 다시 뽑는다**(계열 추첨
+    무변경, 유니크 제외) — 그래서 행성이 없는 경로(훈련장 · 구버전 세이브 · 직접 `rollCrate` 호출)는 **난수
+    소비까지 예전과 완전히 같다**. 시체(로그 · 보스)의 무기는 그 행성의 최대 등급으로 클램프.
+    표본 2만 회 × (행성 × 티어)로 잰 상자 1개당 확률: P(III) 1번 **3.7 %** · 2번 **7.5 %**,
+    P(V) 3번 **2.5 %** · 4번 **5.6 %** · 5번 **10.8 %**. 유니크 총과 유니크 전용 탄약 6종은 1·2번 행성에서
+    **완전 봉인**(보스 시체 유니크 3번 8.2 % → 5번 20.5 %). 검사기 `scripts/check-planet-loot.mjs` 신설.
+    키카드 아이템 `key_basement` 추가 + 무작위 루팅 가중치 0(10만 회 상자 · 2만 회 시체에서 0회 확인).
+  - **버려진 구조물** (`world/Structures.ts` + `structures/`) — 전진기지 1–2 · 연구실 1–2 · 불시착 함선 0–1.
+    벽은 새 `Obstacle.box` 이고 `SpatialHash.addBox` 가 **외접원을 `radius` 로 채워** 버킷팅 · `overlaps` ·
+    `query` 코드가 한 줄도 안 바뀐다. `resolveCollision`/`raycast`/`getSurfaceY`/`getStandingObstacle` 은
+    `if (o.box)` 가지에서만 새 수학으로 가므로 **원기둥 소품 동작은 그대로**다. 지붕은 무너뜨렸다(서까래 ·
+    처마 · 난간만, 콜라이더 없음) — 카메라 특례 코드가 0줄이고 "버려진 건물" 설정과도 맞는다.
+    지하실은 `layout` 이 구덩이를 예약 → `Terrain` 이 pad 평탄화 뒤 판다 → 지상층 슬래브가 천장(뜬 상자
+    콜라이더)이고, 해치는 잠긴 동안 구멍을 막는 발판이다. 키카드는 **지상층 컨테이너 정확히 하나**에
+    시드 결정적으로 들어간다(지하실 안에는 절대 안 넣는다). 컴퓨터는 `STRUCTURE_SCAN_RADIUS` 만큼 안개를 걷는다.
+  - **선로 · 플랫폼 · 전차** (`world/Rails.ts`) — 순환/왕복 선로, 플랫폼 컨테이너, 콘솔 시동. 전차 상태는
+    **선로 위 거리 `s` 하나**(경로는 시드 결정적)라 0.25 s 방송 + 클라이언트 자체 주행 + 8 m 스냅이면 충분하다.
+    데크 콜라이더의 `velocity` 를 `PlayerController` 가 적분 직전에 읽어 **플레이어가 실려 간다**.
+  - **환경 재해** (`world/Hazard.ts` + `hazard/`) — 모래 폭풍 · 눈보라(직선 잠식) · 폭풍의 눈(고정 중심으로
+    수축) · 독성 포자(거대 버섯 군락에서 하나씩 확산). 종류 · 시작 시각(6–8분, 30초 단위; 포자만 6분 고정) ·
+    도형이 **전부 미션 시드와 `missionTime` 의 함수**라 평상시 와이어가 **0** 이고, 늦게 합류한 사람만
+    `hzq sync` 를 받는다. 시야 제한은 `atmo:override` 한 경로로만 간다.
+  - **로그 강하** (`enemies/RogueDrop.ts`) — 구조물 · 플랫폼을 **처음 조사**할 때 굴리고 **구역당 1회**(실패도
+    소진). 상시 개체수 상한(`ensureCapacity`)을 거치지 않는다 — 예고한 인원이 상한에 눌리면 연출도 규칙도
+    무너진다. 구역 소진 기록은 자체 집합 ∪ `StructureDef.rogueDropUsed`(world/ 가 `struct sync` 로 채운다)라
+    호스트가 바뀌어도 남는다.
+  - **의사소통 · 핑 휠** (`ui/hud/CommsWheel.ts` · `PingWheel.ts`) — H 를 꾹 눌러 4칸(회복 필요 · 탈출 ·
+    내 계약 · 앞장서라), 전투불능이면 2칸(살려줘 · 나를 버려)으로 바뀐다. **휠이 열린 채 쓰러지면 그 자리에서
+    배치가 바뀐다.** 지역 핑 홀드는 기존 좌/우 제스처 판정을 그대로 두고 보이는 휠만 얹었고(좌 여기 조심해 ·
+    우 저쪽으로 가자), 전투불능이면 살려줘 / 나를 버려가 된다 — **배치는 누른 순간에 고정**되어 드래그 도중
+    되살아나도 의미가 뒤집히지 않는다.
+  - **리드 몫** — `core/Atmosphere.setOverride` + `Engine` 의 `atmo:override` 구독, `PlayerController` 의
+    움직이는 발판 탑승, 절차 SFX 9종(`comms_*` · `keycard_*` · `tram_*` · `hazard_*` · `rogue_drop_alarm`).
+  - **검증**: `verify:all` 전부 통과 (37 스모크 + `e2e-mp` 156/156 + build). 첫 실행에서 3건이 red 였고
+    **전부 스모크 쪽 문제**였다 — 자세한 것은 [VERIFICATION.md](VERIFICATION.md).
+
 - 2026-09-09 (UI/UX 정리 7차 — 캐릭터 생성 · 튜토리얼 · 퀵슬롯 컨테이너 · 함선 크로스헤어 · 포병): 사용자 요청 15건을
   한 묶음으로 받았다. 결정은 AskUserQuestion 4문항 — ① **투척 거리**는 "기본 1.5배"가 그대로는 성립하지 않아
   (지금은 근력 5 = 1.0배, 근력 20 = 1.45배) 사용자가 직접 고쳐 말했다: **근력 1 이 예전 근력 5 의 값**,

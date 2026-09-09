@@ -39,12 +39,14 @@
 
 ## 묶음 2 — 행성 기믹
 
-Phase 5 때부터 "별도 세션"(월드 대공사)으로 미뤄 둔 것. 5행성이 지금은 바이옴 재조합뿐이라, 행성마다 고유한 것이 생긴다.
+Phase 5 때부터 "별도 세션"(월드 대공사)으로 미뤄 둔 것.
 소유 폴더: `world` (지형 · 콜라이더 · 인터랙터블) · `net` (호스트 권위 동기화) · `ui`.
+
+**2026-09-09 에 이 묶음의 대부분이 들어갔다** — 버려진 구조물 3종(지하실 · 키카드 · 행성 스캔), 선로 · 플랫폼 ·
+전차(A-1), 환경 재해 4종, 로그 강하, 행성별 무기 등급 곡선. 남은 것은 아래 한 줄과 그 아래 이월 항목이다.
 
 | ID | 항목 | 근거 |
 |---|---|---|
-| A-1 | **기차 · 레일** — 맵 외곽 레일, 재료 투입으로 작동, 전/후진, 탑승 이동 | `grep -riE "기차\|레일카\|railcar\|freight" src/` → 0 hit · DEC Phase 5 ("월드 대공사, 별도 세션") |
 | A-2 | **버려진 화물차** — 행성당 1대, 탈출구 지정 시 이동, 도착 시 6배 크기 상자 개방 | `grep -riE "화물차\|cargo ?truck" src/` → 0 hit |
 
 ## 묶음 3 — 소셜 · 멀티 마무리
@@ -108,6 +110,11 @@ Phase 11 이 뼈대만 놓고 끝난 부분 + 호스트 검증이 비어 있는 
 | C-9 | **`Keys.SWAP` 제거의 후폭풍** — `이전 무기` 를 리바인딩했던 플레이어는 통보 없이 그 바인딩을 잃는다 | HISTORY 2026-09-07(마우스 커서 rework) |
 | C-10 | **`meta/ui/dom.ts` 의 `fmtNum` 은 `en-US`, `formatCredits` 는 `ko-KR`** — 오늘 값이 같은 건 우연이다 | `src/meta/ui/dom.ts:24` vs `src/shared/meta.ts:410` |
 | C-11 | **`WorldRef` 에 전초기지 접근자가 없다**. `fog:discovered.kind` 는 `'outpost'` 를 받는데 위치를 물을 길이 없어 지도가 전초기지를 아예 그리지 못한다 (안개 이전에도 안 그렸다) | `src/shared/events.ts` `fog:discovered`, `src/world/Outposts.ts` |
+| C-14 | **재해가 적 · 시체에는 피해를 주지 않는다**. `world/Hazard` 는 로컬 플레이어만 `takeDamage` 한다 — 적도 태우려면 호스트 권위가 필요하다 | `src/world/Hazard.ts` (피해 틱), HISTORY 2026-09-09 |
+| C-15 | **폭풍의 눈만 끝까지 가도 60 m 안전지대가 남는다** (맵의 2.8 %). `STORM_EYE_RADIUS_END` 가 계약 상수라 무시하지 않았다 — "맵 전체를 덮는다" 를 글자대로 지키려면 그 상수를 0 으로 두거나 마지막 구간만 따로 처리해야 한다 | `data/constants.csv` `STORM_EYE_RADIUS_END`, HISTORY 2026-09-09 |
+| C-16 | **키카드 컨테이너가 첫 개봉에 `inventory:containerOpened` 를 두 번 낸다** (두 번째는 `first:false`) — 키카드를 넣느라 컨테이너를 먼저 열기 때문이다 | `src/world/structures/parts/Containers.ts` |
+| C-17 | **구조물 컨테이너의 문 애니메이션은 동기화하지 않는다** (내용물은 inventory/ 가 이미 동기화한다) | `src/world/structures/parts/Containers.ts` |
+| C-18 | **적이 움직이는 발판에 실려 가지 않는다**. `Obstacle.velocity` 를 읽는 것은 `PlayerController` 뿐이다 — 매 프레임 적마다 해시 질의가 하나 늘고, 전차 데크(2.05 m)는 `PROP_STEP_UP_MAX`(0.9 m)로 오를 수 없어 지금은 도달 불가라 넣지 않았다 (2026-09-09 판단) | `src/enemies/ai/EnemyAI.ts` `integrate` |
 | C-13 | **`scripts/smoke-ui-p5.mjs` 의 정규식이 백스페이스 문자다** — 소스에 `\bready\b` 대신 **제어문자 0x08 두 개**가 박혀 있어 (`!/<BS>ready<BS>/.test(hg.cls)`) 그 단언이 **늘 통과한다**. 커밋된 지 오래된 별개 버그이고, 고치면 단언이 실제로 검사를 시작하므로 그때 red 가 날 수 있다 | `scripts/smoke-ui-p5.mjs:203` |
 | C-12 | **`ProgressionRef` 에 레이드 중 임플란트 회수 수단이 없다**. `unequipImplant` 가 함선 전용 게이트라 `stripForCorpse` 가 임플란트를 시체로 옮기지 못한다. 지금은 **유지가 의도된 설계**지만(2026-09-09 사용자 결정), 뒤집으려면 `stripImplants()` 가 먼저 필요하다 | `src/progression/ProgressionSystem.ts:117`, `src/shared/types.ts` `stripForCorpse` |
 

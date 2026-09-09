@@ -335,19 +335,33 @@ try {
   const rec = await P((id) => { const b = window.__sys.active.find((e) => e.id === id); return b ? { incap: b.isIncapacitated, state: b.state, combatant: b.isCombatant, writhe: b.anim.writhe, dead: b.isDead } : null; }, shk.id);
   ok(rec && !rec.incap && rec.state !== 'stagger' && rec.combatant && rec.writhe < 0.2, `전소 over → back to ${rec?.state}, combatant again (writhe ${rec?.writhe?.toFixed(2)})`, JSON.stringify(rec));
   // player hooks: the rogues have been shooting at the player for minutes — clear the field and get back on our feet first
-  const state = await P(() => { const ctx = window.__game.ctx; const pl = ctx.player; window.__sys.killAll(); const was = { downed: pl.isDowned, dead: pl.isDead, hp: pl.hp }; if (pl.isDowned) pl.revive(); return was; });
-  await waitSim(0.6);
+  /* 2026-09-09: 전투불능은 `revive()` 로 일어나지만 **완전 사망에는 자동 부활이 없다** — 구조선뿐이고 솔로에는
+     그마저 없다. 월드에 구조물 · 선로가 들어오면서 적 배치가 바뀌어 이 구간에서 실제로 맞아 죽었고, 죽은 몸으로는
+     아래 훅(스태미나 · 근접 · 넉백)이 전부 거절된다. 훅을 검사하려면 먼저 산 몸이어야 하므로 그 자리에서 되살린다. */
+  const state = await P(() => {
+    const ctx = window.__game.ctx; const pl = ctx.player;
+    window.__sys.killAll();
+    const was = { downed: pl.isDowned, dead: pl.isDead, hp: pl.hp };
+    if (pl.isDowned) pl.revive();
+    if (pl.isDead) pl.respawnAt(pl.position.clone(), pl.yaw);
+    return was;
+  });
+  /* 사망 → `respawnAt` 은 즉시지만 사망 화면 · 관전 오버레이가 닫히며 `uiBlockers` 가 비는 데 몇 프레임 걸린다.
+     `canAct()` 가 `ctx.isControlActive()` 를 보므로 그 전에 `startMelee` 를 부르면 조용히 거절된다 (2026-09-09). */
+  await waitSim(1.2);
   const tp = await P(() => {
     const ctx = window.__game.ctx; const pl = ctx.player; const V = pl.position.constructor;
     const from = pl.position.clone();
     const tx = from.x + 25, tz = from.z - 18;
     const pitch0 = pl.pitch;
     pl.teleport(new V(tx, 400, tz));
-    const ground = ctx.world.getHeightAt(tx, tz);
+    /* 2026-09-09: 걷는 바닥은 지형 높이가 아니라 `getSurfaceY` 다 — 순간이동 지점에 전차 데크(2.05 m)나
+       구조물 슬래브가 있으면 발은 그 윗면에 놓인다. 지형만 보면 그때마다 "떠 있다" 로 잘못 잡는다. */
+    const ground = ctx.world.getSurfaceY(tx, tz);
     return { tx, tz, dx: pl.position.x - tx, dz: pl.position.z - tz, dy: pl.position.y - ground, vel: pl.velocity.length(), pitchKept: Math.abs(pl.pitch - pitch0) < 1e-6, was: null };
   });
   await waitSim(0.15);
-  const tp2 = await P((t) => { const ctx = window.__game.ctx; const cam = ctx.camera.position; const pl = ctx.player; return { camDist: Math.hypot(cam.x - t.tx, cam.z - t.tz), dx: pl.position.x - t.tx, dz: pl.position.z - t.tz, dy: pl.position.y - ctx.world.getHeightAt(t.tx, t.tz) }; }, tp);
+  const tp2 = await P((t) => { const ctx = window.__game.ctx; const cam = ctx.camera.position; const pl = ctx.player; return { camDist: Math.hypot(cam.x - t.tx, cam.z - t.tz), dx: pl.position.x - t.tx, dz: pl.position.z - t.tz, dy: pl.position.y - ctx.world.getSurfaceY(t.tx, t.tz) }; }, tp);
   ok(tp && Math.abs(tp.dx) < 1e-6 && Math.abs(tp.dz) < 1e-6 && Math.abs(tp.dy) < 1e-3 && tp.vel === 0 && tp.pitchKept && tp2.camDist < 8 && Math.abs(tp2.dy) < 0.05,
     `teleport → feet on the terrain (dy ${tp?.dy?.toFixed(3)}), velocity 0, pitch kept, camera followed (${tp2?.camDist?.toFixed(1)} m), still there a frame later (dy ${tp2?.dy?.toFixed(3)})`, JSON.stringify({ tp, tp2, state }));
   const st = await P(() => {
@@ -359,7 +373,13 @@ try {
     return { a, s1, b, s2 };
   });
   ok(st && st.a === false && st.s1 === 10 && st.b === true && st.s2 === 5, `consumeStamina: 50 of 10 refused (stays ${st?.s1}), 5 of 10 → ${st?.s2}`, JSON.stringify(st));
-  const hv = await P(() => { const pl = window.__game.ctx.player; const started = pl.startMelee('heavy'); return { started, meleeing: pl.isMeleeing, fov0: window.__game.ctx.camera.fov }; });
+  const hv = await P(() => {
+    const ctx = window.__game.ctx; const pl = ctx.player;
+    // 거절되면 왜인지 함께 찍는다 — `canAct()` 는 여러 게이트의 AND 라 실패 메시지만으로는 원인을 못 좁힌다
+    const gate = { dead: pl.isDead, downed: pl.isDowned, phase: ctx.phase, blockers: [...ctx.uiBlockers], control: ctx.isControlActive() };
+    const started = pl.startMelee('heavy');
+    return { started, meleeing: pl.isMeleeing, fov0: ctx.camera.fov, gate };
+  });
   await waitSim(0.3);
   const hv2 = await P(() => ({ meleeing: window.__game.ctx.player.isMeleeing }));
   await waitSim(0.5);

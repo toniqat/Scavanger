@@ -48,7 +48,15 @@ interface Variant {
 }
 
 /** One placed cluster member: where it stands, which of the 3 shapes it uses and which herb it hands over. */
-interface Spot { x: number; z: number; variant: number; defId: string; kind: GatherNodeKind }
+interface Spot {
+  x: number; z: number; variant: number; defId: string; kind: GatherNodeKind;
+  /**
+   * 2026-09-09: 거대 버섯 군락에 딸려 심긴 채집 버섯. **`variant` 로는 가릴 수 없다** —
+   * `GROVE_PICK_VARIANT` 는 평범한 약초도 쓰는 모양 번호라, 그걸로 판정하면 그 모양의 약초가 전부
+   * 군락 버섯으로 잡힌다 (생태계 밀도 단언이 그 자리에서 깨진다). 심는 쪽이 표시한다.
+   */
+  grove?: boolean;
+}
 
 interface Node {
   def: GatherNodeDef;
@@ -232,7 +240,7 @@ export class Gather {
           const d = rng.range(GROVE_PICK_RING_MIN, GROVE_PICK_RING_MAX);
           const x = g.x + Math.cos(ang) * d, z = g.z + Math.sin(ang) * d;
           if (!clear(x, z)) continue;
-          groveSpots.push({ x, z, variant: GROVE_PICK_VARIANT, defId, kind: 'herb' });
+          groveSpots.push({ x, z, variant: GROVE_PICK_VARIANT, defId, kind: 'herb', grove: true });
           placed++;
         }
       }
@@ -248,7 +256,10 @@ export class Gather {
       const salvage = s.kind === 'salvage';
       const scale = salvage ? rng.range(0.9, 1.15) : rng.range(0.85, 1.3);
       const def: GatherNodeDef = {
-        id: salvage ? `salvage_${id++}` : `gather_${id++}`,
+        /* 2026-09-09: 군락 버섯은 `grove_` 로 구분한다 — 종류(kind)는 약초 그대로(원예 XP)지만 "생태계 밀도"
+           를 세는 쪽(지도 · 스모크)은 이 둘을 갈라야 한다. 군락 자리는 spots 의 **맨 뒤**라 기존 약초 · 고철의
+           id 는 한 글자도 바뀌지 않는다. */
+        id: salvage ? `salvage_${id++}` : s.grove ? `grove_${id++}` : `gather_${id++}`,
         position: new THREE.Vector3(s.x, y, s.z),
         defId: s.defId,
         // 고철: 폐금속 1, 3할은 2 (레이드당 기대 ~10). 약초: 종전 그대로.

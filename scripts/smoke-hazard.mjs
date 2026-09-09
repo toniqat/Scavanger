@@ -152,7 +152,8 @@ try {
 
   /* ── 3. 예고 → 시작 → 진행도 ───────────────────────────────────────────── */
   console.log('예고 → 시작 → 진행도');
-  await P((a) => { window.__clear(); window.__seek(a - WARN_S + 2); }, h0.startsAt);
+  // `WARN_S` 는 Node 쪽 상수다 — page.evaluate 콜백은 브라우저에서 돌아 그 스코프를 못 본다. 인자로 넘긴다.
+  await P((a) => { window.__clear(); window.__seek(a.at - a.warn + 2); }, { at: h0.startsAt, warn: WARN_S });
   await waitSim(0.4);
   const ann = await P(() => window.__ev['hazard:announced']);
   ok(ann.length === 1 && ann[0].kind === h0.kind, `hazard:announced 이 한 번 (${ann.length})`);
@@ -171,7 +172,7 @@ try {
 
   /* ── 4. 도형 규약 ──────────────────────────────────────────────────────── */
   console.log('도형 규약');
-  const mid = await P((a) => { window.__seek(a + FULL_S * 0.5); return null; }, h0.startsAt) ?? await P(() => window.__zones());
+  const mid = await P((a) => { window.__seek(a.at + a.full * 0.5); return null; }, { at: h0.startsAt, full: FULL_S }) ?? await P(() => window.__zones());
   await waitSim(0.3);
   const zs = await P(() => window.__zones());
   if (h0.kind === 'storm_eye') {
@@ -198,7 +199,7 @@ try {
 
   /* ── 5. 끝까지 = 안전지대 없음 ────────────────────────────────────────── */
   console.log('끝까지 진행');
-  await P((a) => window.__seek(a + FULL_S + 5), h0.startsAt);
+  await P((a) => window.__seek(a.at + a.full + 5), { at: h0.startsAt, full: FULL_S });
   await waitSim(0.4);
   const hzFull = await P(() => window.__hz());
   ok(Math.abs(hzFull.progress - 1) < 1e-6, `progress 가 1 에서 멈춘다 (${hzFull.progress})`);
@@ -215,25 +216,51 @@ try {
 
   /* ── 6. 피해 · 시야 ────────────────────────────────────────────────────── */
   console.log('피해 · 시야 (구역 안으로 이동)');
+  /* 앞 절(5)이 이미 `startsAt + FULL_S + 5` 까지 감아 둬서 플레이어는 **이미 구역 안**이다. `__clear()` 는
+     기록만 지우고 Hazard 의 "안에 있었다" 는 내부 에지 상태와 마지막 `atmo:override` 값은 그대로라, 그
+     상태에서 곧장 안으로 들여보내면 **변화가 없어 아무 이벤트도 안 나간다** (2026-09-09: `isInside` 는 true 인데
+     `hazard:insideChanged` 가 빈 배열이던 원인이 이것이었다). 그래서 재해 **시작 전**으로 한 번 되감아
+     밖 상태로 가라앉힌 다음에 들어간다. */
+  await P((a) => window.__seek(Math.max(0, a - 60)), h0.startsAt);
+  await waitSim(0.8);
   await P((a) => {
     const ctx = window.__game.ctx;
     window.__clear();
-    ctx.missionTime = a + FULL_S + 5;      // 맵 전체(폭풍의 눈이면 눈 밖)가 위험한 시점
+    ctx.missionTime = a.at + a.full + 5;   // 맵 전체(폭풍의 눈이면 눈 밖)가 위험한 시점
     const h = ctx.world.hazard;
     const p = ctx.player;
     let x = p.position.x, z = p.position.z;
     if (!h.isInside(x, z)) {
       const zs = h.getZones();
       const c = zs[0];
-      x = c.center.x + (c.radius + 90); z = c.center.z;   // 눈 밖으로
+      /* 눈 밖으로 — 다만 **맵 안에** 남아야 한다. 중심이 맵 가장자리 쪽이면 `+ radius + 90` 이 경계를 넘고,
+         `respawnAt` 이 맵 밖 좌표를 스폰 지점으로 되돌려 버려 (Spawn.restoreState 와 같은 보정) 플레이어가
+         안전지대 안에 그대로 남는다 — 그러면 이 검사는 재해가 아니라 좌표 때문에 실패한다. (2026-09-09) */
+      const lim = a.map / 2 - 20;
+      const out = c.radius + 20;
+      const dir = c.center.x > 0 ? -1 : 1;               // 맵 중앙을 향해 밀어낸다
+      x = Math.max(-lim, Math.min(lim, c.center.x + dir * out));
+      z = Math.max(-lim, Math.min(lim, c.center.z));
+      if (h.isInside(x, z) === false) { x = Math.max(-lim, Math.min(lim, c.center.x - dir * out)); }
     }
     p.respawnAt(new p.position.constructor(x, ctx.world.getHeightAt(x, z), z));
     window.__hp0 = p.hp;
-  }, h0.startsAt);
+  }, { at: h0.startsAt, full: FULL_S, map: MAP });
   await waitSim(0.6);
   const insideEv = await P(() => window.__ev['hazard:insideChanged']);
+  /* 실패하면 왜인지 알 수 있게 재해 · 플레이어 상태를 함께 찍는다 — 빈 배열만으로는 원인을 못 좁힌다. */
+  const hzDbg = await P(() => {
+    const ctx = window.__game.ctx; const h = ctx.world.hazard; const p = ctx.player;
+    return {
+      kind: h && h.kind, t: Math.round(ctx.missionTime), active: h && h.active,
+      progress: h && +h.progress.toFixed(3), phase: ctx.phase, dead: p.isDead,
+      px: +p.position.x.toFixed(1), pz: +p.position.z.toFixed(1),
+      inside: h && h.isInside(p.position.x, p.position.z),
+      zones: h ? h.getZones().map((z) => ({ s: z.shape, cx: +z.center.x.toFixed(1), cz: +z.center.z.toFixed(1), r: +z.radius.toFixed(1), si: z.safeInside })) : null,
+    };
+  });
   ok(insideEv.length >= 1 && insideEv[insideEv.length - 1].inside === true && insideEv[insideEv.length - 1].kind === h0.kind,
-    `들어가면 hazard:insideChanged {inside:true} (${JSON.stringify(insideEv)})`);
+    `들어가면 hazard:insideChanged {inside:true} (${JSON.stringify(insideEv)})`, JSON.stringify(hzDbg));
   const atmo = await P(() => window.__ev['atmo:override']);
   const last = atmo[atmo.length - 1];
   ok(!!last && last.blend > 0 && last.fogMul > 1 && last.fogMul <= FOG_MUL + 1e-6 && last.color !== null,
@@ -296,7 +323,7 @@ try {
     await waitSim(0.4);
     const first = await P(() => ({ z: window.__zones().length, e: window.__game.ctx.world.hazard.getSources().filter((s) => s.erupted).length }));
     ok(first.e === 1 && first.z === 1, `시작 시각에는 발생지 하나만 피어오른다 (erupted ${first.e} · zones ${first.z})`);
-    await P((a) => window.__seek(a + SPORE_INTERVAL + 2), SPORE_START);
+    await P((a) => window.__seek(a.at + a.iv + 2), { at: SPORE_START, iv: SPORE_INTERVAL });
     await waitSim(0.4);
     const second = await P(() => ({ z: window.__zones().length, e: window.__game.ctx.world.hazard.getSources().filter((s) => s.erupted).length }));
     ok(second.e === Math.min(2, sp.sources.length), `${SPORE_INTERVAL}초마다 하나씩 더 피어오른다 (erupted ${second.e})`);
@@ -305,7 +332,7 @@ try {
       '독성 포자 = 안이 위험한 원 여럿');
 
     // 끝까지 가면 맵 전체
-    await P((a) => window.__seek(a + FULL_S + 5), SPORE_START);
+    await P((a) => window.__seek(a.at + a.full + 5), { at: SPORE_START, full: FULL_S });
     await waitSim(0.4);
     ok(await P(() => window.__safeCount(16, 320)) === 0, '독성 포자도 끝까지 가면 안전지대가 없다');
 

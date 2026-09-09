@@ -53,7 +53,7 @@ npm run e2e:mp         # 헤드리스 크롬 2대로 릴레이+vite 관통 테�
 npm run pitch:webp # 피칭 문서 배포본 이미지: docs/pitch/assets/*.png → 같은 이름의 .webp (30MB → 2.8MB)
 ```
 
-개별 스모크 스크립트 30종의 목록과 각각이 검사하는 내용은 **[scripts/README.md](scripts/README.md)** 에 있다.
+개별 스모크 스크립트 36종의 목록과 각각이 검사하는 내용은 **[scripts/README.md](scripts/README.md)** 에 있다.
 `npm run verify` 가 폴더 → 스크립트 매핑으로 알아서 고르므로 손으로 하나씩 돌리지 않는다 (`node scripts/verify.mjs --list`).
 
 Windows 원클릭 실행 (프로젝트 루트에서 더블클릭):
@@ -77,7 +77,7 @@ start-server.bat relay   # 릴레이만 (npm run server, 0.0.0.0:8787) — 데�
 
 | 폴더 | 시스템 | `ctx` 게시 | 한 줄 책임 |
 |---|---|---|---|
-| [`data/`](data/README.md) | — | — | **게임 수치의 단일 원본 (csv 35개).** 데미지 · 체력 · 가격 · 확률 · 쿨다운 — `src/` 에는 같은 숫자가 없다 |
+| [`data/`](data/README.md) | — | — | **게임 수치의 단일 원본 (csv 39개).** 데미지 · 체력 · 가격 · 확률 · 쿨다운 — `src/` 에는 같은 숫자가 없다 |
 | [`src/shared/`](src/shared/README.md) | — | `GameContext`, `EventBus`, `Input`, `Random` | **계약. 제일 먼저 읽는다.** 타입 · 이벤트 · 상수(값은 `data/constants.csv`) · 키바인드 · csv 로더(`data/`) · 각 시스템의 `*Ref` 인터페이스 · **캐릭터 세이브 슬롯(`saveSlot`)** · **캐릭터 생성 규칙(`character`)** · **재화 칩(`currency`)** · **ESC 닫기 스택(`escape`)** |
 | [`src/core/`](src/core/README.md) | `Engine` | scene / camera / renderer | 렌더러 · 조명 · 하늘 · 포그 · 포스트프로세스 · 메인 루프 · 리사이즈 · 시스템 레지스트리 |
 | [`src/main.ts`](src/main.ts) | — | — | Engine 부트스트랩 + 시스템 등록 순서, 커서 모드 ↔ 버스 브리지, 포인터 락 재요청의 **유일한** 지점 |
@@ -245,6 +245,20 @@ start-server.bat relay   # 릴레이만 (npm run server, 0.0.0.0:8787) — 데�
 - **꾹 누르는 키는 키캡 위에 chevron 을 단다** (2026-09-09). `KeyGuideEntry.hold` 가 true 면 키 가이드가,
   `interact:promptChanged.hold` 면 상호작용 캡션이 같은 `.keycap.hold::before` 화살표를 그린다. 탭하는 키는
   예전 그대로다.
+- **사각 콜라이더는 `Obstacle.box` 다** (2026-09-09). 들어갈 수 있는 건물의 벽을 원기둥으로 흉내낼 수 없어
+  2026-09-09 앞 배치의 "OBB 는 버린다" 를 뒤집었다. 다만 **재작성은 하지 않았다** — `SpatialHash.addBox` 가
+  **외접원을 `radius` 로 채워** 버킷팅 · `overlaps` · `query` 는 그대로이고, `resolveCollision` · `raycast` ·
+  `getSurfaceY` · `getStandingObstacle` 만 `if (o.box)` 가지에서 새 수학으로 간다. 그래서 **원기둥 소품의
+  동작은 한 줄도 바뀌지 않는다.** 상자를 만들 때 `radius >= hypot(halfX, halfZ)` 를 반드시 채운다 — 안 채우면
+  광역 질의가 그 상자를 놓친다.
+- **움직이는 발판은 `Obstacle.velocity` 다** (2026-09-09). 전차 데크처럼 스스로 움직이는 장애물 **윗면에**
+  서 있으면 함께 실려 간다. 밟고 있는 쪽(`PlayerController`)이 `getStandingObstacle(...).velocity` 를 읽어
+  **위치에 직접** 더한다 — `vel` 에 더하면 이동 속도 · 스태미나 · 보행 애니메이션이 전차 속도로 흔들린다.
+  적 · 시체는 아직 읽지 않는다 ([docs/TODO.md](docs/TODO.md) C-18).
+- **재해는 시드에서 나오고 와이어를 쓰지 않는다** (2026-09-09). 종류 · 시작 시각(6–8분, 30초 단위) · 전선 방향 ·
+  눈 중심 · 포자 발생지와 그 순서가 전부 **미션 시드의 함수**이고 진행은 `ctx.missionTime` 의 함수다 — 안개와
+  같은 철학이라 평상시 흐르는 메시지가 **없고** 늦게 합류한 사람만 `hzq sync` 를 받는다. 시야 제한은
+  `atmo:override` **한 경로로만** 간다 (`core/Atmosphere.setOverride`; `world/` 가 `scene.fog` 를 직접 만지지 않는다).
 - **인게임 스크롤바는 어두운 UI 색을 쓴다** (2026-09-09). `:root` 의 `--sb-track` · `--sb-thumb` ·
   `--sb-thumb-hover` 가 단일 원본이고 `#ui-root` 아래 모든 스크롤러에 한 규칙으로 걸린다
   (`src/ui/styles/base.css`). `src/inventory/inventory.css` 는 그 스타일시트를 import 하지 않으므로 같은 이름을
