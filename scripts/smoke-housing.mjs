@@ -84,7 +84,8 @@ try {
       const bus = window.__game.ctx.bus;
       for (const n of ['housing:loaded', 'housing:changed', 'housing:modeChanged', 'housing:selectionChanged', 'housing:roomPurposeChanged',
         'housing:furniturePlaced', 'housing:furnitureMoved', 'housing:furnitureRecovered', 'housing:furnitureUpgraded', 'housing:facilityUpgraded',
-        'housing:stashSizeChanged', 'housing:presetApplied', 'ui:housingToggled', 'housing:shipManageChanged']) {
+        'housing:stashSizeChanged', 'housing:presetApplied', 'ui:housingToggled', 'housing:shipManageChanged',
+        'game:paused']) {
         window.__ev[n] = [];
         bus.on(n, (p) => { window.__ev[n].push(JSON.parse(JSON.stringify(p, (k, v) => (v && v.isVector3) ? [v.x, v.y, v.z] : v))); });
       }
@@ -485,6 +486,26 @@ try {
   ok(await H(() => !window.__game.ctx.housing.shipManageMode && !window.__game.ctx.uiBlockers.has('shipmanage')
     && !document.querySelector('.ship-manage').classList.contains('show')), 'closeShipManage → screen hidden, shipmanage blocker released');
   ok(await H(() => window.__game.ctx.player.controlsEnabled !== false), 'player controls restored after 시설 관리');
+
+  /* ── 2026-09-09: Tab · M · C leave 시설 관리 **without** opening the ESC 일시정지 메뉴 ──
+     In the ship the only two routes into that menu are a real `Keys.MENU` press and `input:pointerLockLost`
+     (`Input.onUserUnlock` → `game/parts/Phases.escapePause`). Leaving the mode releases the cursor owner and asks
+     for the pointer lock back, which walks straight past that second route — so each exit key is checked here. */
+  for (const [code, label] of [['Tab', 'Tab'], ['KeyM', 'M'], ['KeyC', 'C']]) {
+    await H(() => { window.__game.ctx.housing.openShipManage(); window.__ev['game:paused'].length = 0; });
+    await sleep(140);
+    const opened = await H(() => window.__game.ctx.housing.shipManageMode);
+    await tap(code);
+    await sleep(220);
+    const left = await H(() => ({
+      manage: window.__game.ctx.housing.shipManageMode,
+      blockers: [...window.__game.ctx.uiBlockers],
+      paused: window.__ev['game:paused'].length,
+      pause: !document.querySelector('.menu.pause')?.classList.contains('hidden'),
+    }));
+    ok(opened && !left.manage && !left.pause && left.paused === 0 && !left.blockers.includes('shipmanage'),
+      `${label} 로 시설 관리를 닫아도 일시정지 메뉴가 뜨지 않는다`, JSON.stringify(left));
+  }
 
   await H(() => window.__game.ctx.housing.openPresetMenu());
   await sleep(100);

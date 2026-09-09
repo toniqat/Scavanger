@@ -166,8 +166,11 @@ try {
   });
   ok(layout.shown, 'ESC opens the pause menu in the ship');
   const r = layout.resume;
-  ok(r.l <= layout.cx && layout.cx <= r.r && r.t <= layout.cy && layout.cy <= r.b,
-    '화면 한가운데(= Escape 가 커서를 돌려놓는 자리)가 게임으로 돌아가기 버튼 안에 있다', JSON.stringify([r, layout.cx, layout.cy]));
+  // 2026-09-09: 메뉴는 더 이상 커서를 찾아가지 않는다 — 세로 중앙 · 가로는 **왼쪽 절반** 고정 (사용자 결정).
+  const frameMidX = (r.l + r.r) / 2, frameMidY = (r.t + r.b) / 2;
+  ok(frameMidX < layout.cx, '일시정지 메뉴가 화면 왼쪽 절반에 있다', JSON.stringify([frameMidX, layout.cx]));
+  ok(Math.abs(frameMidY - layout.cy) <= layout.cy * 0.5,
+    '세로로는 화면 중앙 근처다', JSON.stringify([frameMidY, layout.cy]));
   ok(layout.cx > r.cx, '그 점은 버튼 중앙보다 **오른쪽**이다 (클릭하기 여유롭게)', JSON.stringify([layout.cx, r.cx]));
   ok(!layout.social, '2026-09-08: no 소셜 열 on the ESC screen (social is the 커뮤니티 panel alone)');
   // 2026-09-08: the `일시 정지` heading is gone too — Escape does not actually freeze anything, so the word was a lie.
@@ -417,8 +420,9 @@ try {
     };
   });
   ok(set.open, '설정 opens from the pause menu');
-  ok(set.side && set.justify === 'flex-start', 'the 설정 overlay is a left side panel (.side)', `${set.side} ${set.justify}`);
-  ok(set.right < set.w * 0.75, 'the 설정 panel stays on the left', JSON.stringify([set.right, set.w]));
+  // 2026-09-09: 설정은 **화면 중앙**에 오고 좌우로 넓어졌다 (ESC 가 왼쪽 절반으로 옮겨 가 피할 것이 없다).
+  ok(set.justify === 'center', 'the 설정 overlay is centred', `${set.side} ${set.justify}`);
+  ok(set.right > set.w * 0.6, 'the 설정 panel reaches past the middle (it is centred, not a left rail)', JSON.stringify([set.right, set.w]));
   ok(set.nav.join('|') === '화면 설정|오디오 설정|키 설정', 'the left rail lists the three sections in order', JSON.stringify(set.nav));
   ok(set.on.join('|') === '화면 설정' && set.section === 'display', '화면 설정 is selected by default', JSON.stringify([set.on, set.section]));
   ok(set.shownPanes.length === 1 && /display/.test(set.shownPanes[0]), 'exactly one pane is visible at a time', JSON.stringify(set.shownPanes));

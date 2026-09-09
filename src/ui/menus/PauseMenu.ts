@@ -2,14 +2,6 @@ import type { GameContext } from '@/shared';
 import { el, setText } from '../dom';
 import { MenuBase } from './MenuBase';
 
-/**
- * How far right of `게임으로 돌아가기`'s middle the cursor should land, as a fraction of the button's width
- * (0.5 would be its right edge). Keeps the arrow comfortably inside the button without hugging the label.
- */
-const CURSOR_BIAS = 0.28;
-/** Smallest gap the parked frame keeps to the viewport edge, px. */
-const MARGIN = 16;
-
 /** One 경고 팝업 the menu can raise: title, body, the label of the red button and what it does. */
 interface Ask {
   title: string;
@@ -50,6 +42,11 @@ interface Ask {
  *    script it did not open, so there it says so and falls back to the title screen.
  *  - 파티 떠나기 / 타이틀로 / 게임 종료 all go through the in-frame **경고 팝업** (`.pause-ask`), which owns Escape and
  *    Enter while it is up so neither reaches the menu underneath.
+ *
+ * **2026-09-09 (자리 고정)**: the menu no longer chases the mouse. It used to shift itself so `게임으로 돌아가기` sat
+ * under the viewport centre (`parkUnderCursor`, `--menu-dx/dy`) — the page cannot move the OS cursor, so the menu
+ * moved instead. That is gone: the frame is now **vertically centred in the left half** of the screen, a plain CSS
+ * position (`.menu.pause`, `ui/styles/base.css`), the same place every time. 설정 opens centred over it.
  */
 export class PauseMenu extends MenuBase {
   private returnBtn: HTMLButtonElement;
@@ -63,7 +60,6 @@ export class PauseMenu extends MenuBase {
   private askBody: HTMLElement;
   private askOk: HTMLButtonElement;
   private pending: Ask | null = null;
-  private readonly onResize = (): void => this.parkUnderCursor();
   private readonly onKey = (e: KeyboardEvent): void => this.handleKey(e);
 
   constructor(parent: HTMLElement, private readonly onSettings: () => void) {
@@ -119,11 +115,8 @@ export class PauseMenu extends MenuBase {
       }),
       ctx.bus.on('game:phaseChanged', () => this.hide()),
       // Someone else dropped the lobby (kick, 도킹 해제 elsewhere, disconnect) while the menu is up.
-      ctx.bus.on('net:lobbyLeft', () => { this.leaveBtn.style.display = 'none'; this.parkUnderCursor(); }),
-      ctx.bus.on('net:lobbyUpdated', () => {
-        this.leaveBtn.style.display = this.ctx.net?.lobby ? '' : 'none';
-        this.parkUnderCursor();
-      }),
+      ctx.bus.on('net:lobbyLeft', () => { this.leaveBtn.style.display = 'none'; }),
+      ctx.bus.on('net:lobbyUpdated', () => { this.leaveBtn.style.display = this.ctx.net?.lobby ? '' : 'none'; }),
     );
   }
 
@@ -135,14 +128,11 @@ export class PauseMenu extends MenuBase {
   get partyButton(): HTMLButtonElement { return this.leaveBtn; }
 
   protected override onShow(): void {
-    this.parkUnderCursor();
-    window.addEventListener('resize', this.onResize);
     window.addEventListener('keydown', this.onKey, true);
   }
 
   protected override onHide(): void {
     this.closeAsk();
-    window.removeEventListener('resize', this.onResize);
     window.removeEventListener('keydown', this.onKey, true);
   }
 
@@ -191,33 +181,6 @@ export class PauseMenu extends MenuBase {
     if (!ask) return;
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
     ask.run();
-  }
-
-  /**
-   * 2026-09-08 — **커서 자리에 버튼을 갖다 놓는다.**
-   *
-   * The page cannot move the OS cursor, so the menu moves instead. Escape releases the pointer lock and the browser
-   * puts the arrow back where it was captured, i.e. the middle of the canvas — so the frame is shifted until
-   * `게임으로 돌아가기` sits under the viewport centre, with the centre landing `CURSOR_BIAS` of the button's width
-   * **right of the button's middle**: the click needs no aiming, and the pointer is not sitting on the button's edge.
-   *
-   * Measured with `offset*` rather than `getBoundingClientRect`, because the frame carries both the entry animation
-   * and the offset itself as a `transform` — offsets are layout, so they read the same before and after. The result
-   * goes into `--menu-dx/dy` (see `.menu .frame` in `ui/styles/base.css`), which the keyframes carry too, so the
-   * menu animates in **at** its parked position instead of sliding there.
-   */
-  private parkUnderCursor(): void {
-    if (!this.visible) return;
-    const frame = this.frame, btn = this.resumeBtn;
-    if (!frame.offsetWidth || !btn.offsetWidth) return;
-    const bx = frame.offsetLeft + btn.offsetLeft + btn.offsetWidth / 2;
-    const by = frame.offsetTop + btn.offsetTop + btn.offsetHeight / 2;
-    const vw = window.innerWidth, vh = window.innerHeight;
-    const clamp = (v: number, lo: number, hi: number): number => (lo > hi ? (lo + hi) / 2 : Math.min(Math.max(v, lo), hi));
-    const dx = clamp(vw / 2 - CURSOR_BIAS * btn.offsetWidth - bx, MARGIN - frame.offsetLeft, vw - MARGIN - frame.offsetWidth - frame.offsetLeft);
-    const dy = clamp(vh / 2 - by, MARGIN - frame.offsetTop, vh - MARGIN - frame.offsetHeight - frame.offsetTop);
-    frame.style.setProperty('--menu-dx', `${Math.round(dx)}px`);
-    frame.style.setProperty('--menu-dy', `${Math.round(dy)}px`);
   }
 
   private returnToShip(): void {

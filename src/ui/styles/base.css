@@ -29,6 +29,14 @@
   --t-fast: 150ms;
   --t-med: 260ms;
   --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+
+  /* 스크롤바 (2026-09-09) — 인게임 UI 는 어두운 판이므로 스크롤바도 그 결이어야 한다. 예전에는 패널마다
+     `rgba(255,255,255,0.22)` 흰 막대를 따로 적어 밝은 줄이 튀었다. 지금은 이 세 값이 단일 원본이고
+     `#ui-root` 아래의 모든 스크롤러가 아래 규칙 하나로 같은 모양을 쓴다 (`inventory/inventory.css` 는
+     같은 이름을 fallback 과 함께 참조한다 — 그 파일은 이 스타일시트를 import 하지 않는다). */
+  --sb-track: rgba(4, 6, 9, 0.55);
+  --sb-thumb: rgba(52, 58, 66, 0.95);
+  --sb-thumb-hover: rgba(78, 86, 96, 1);
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -56,6 +64,17 @@ html, body {
   z-index: 10;
 }
 #ui-root .interactive { pointer-events: auto; }
+
+/* 모든 스크롤러의 기본값 (2026-09-09). 개별 패널은 폭만 바꾸면 되고 색은 다시 적지 않는다. Firefox 는
+   `scrollbar-width`/`scrollbar-color`, Chromium 계열은 `::-webkit-scrollbar-*` 를 본다 — 둘 다 적는다. */
+#ui-root, #ui-root * { scrollbar-width: thin; scrollbar-color: var(--sb-thumb) var(--sb-track); }
+#ui-root ::-webkit-scrollbar, #ui-root::-webkit-scrollbar { width: 6px; height: 6px; }
+#ui-root ::-webkit-scrollbar-track, #ui-root::-webkit-scrollbar-track { background: var(--sb-track); }
+#ui-root ::-webkit-scrollbar-thumb, #ui-root::-webkit-scrollbar-thumb {
+  background: var(--sb-thumb); border: 1px solid var(--c-border); border-radius: 0;
+}
+#ui-root ::-webkit-scrollbar-thumb:hover, #ui-root::-webkit-scrollbar-thumb:hover { background: var(--sb-thumb-hover); }
+#ui-root ::-webkit-scrollbar-corner, #ui-root::-webkit-scrollbar-corner { background: var(--sb-track); }
 
 button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
 input { font: inherit; color: inherit; }
@@ -420,14 +439,12 @@ input { font: inherit; color: inherit; }
   background: var(--c-panel-strong);
   border: 1px solid var(--c-border);
   animation: menuIn 320ms var(--ease);
-  /* 2026-09-08: `--menu-dx/dy` nudge a menu off centre. Only the 일시정지 메뉴 sets them (it parks
-     `게임으로 돌아가기` under the mouse — see ui/menus/PauseMenu); everything else keeps the 0px default,
-     including the entry animation, which has to carry the same offset or it would slide back to centre. */
-  transform: translate(var(--menu-dx, 0px), var(--menu-dy, 0px));
 }
+/* 2026-09-09: the `--menu-dx/dy` nudge is gone with the 일시정지 메뉴's cursor parking — a menu sits where its own
+   `.menu` rule puts it (the pause menu in the left half, everything else centred) and never moves afterwards. */
 @keyframes menuIn {
-  from { opacity: 0; transform: translate(var(--menu-dx, 0px), calc(var(--menu-dy, 0px) + 10px)); }
-  to { opacity: 1; transform: translate(var(--menu-dx, 0px), var(--menu-dy, 0px)); }
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
 }
 .menu .frame::before, .menu .frame::after {
   content: ""; position: absolute; width: 14px; height: 14px; border: 1px solid var(--c-accent);
@@ -459,7 +476,12 @@ input { font: inherit; color: inherit; }
 .menu .hint { font-size: 11px; color: var(--c-text-faint); letter-spacing: 0.06em; }
 .menu .version { position: absolute; right: 24px; bottom: 18px; font-size: 10px; letter-spacing: 0.2em; color: var(--c-text-faint); }
 
-.menu.pause { background: rgba(3, 4, 6, 0.6); }
+/* 2026-09-09 — **자리 고정: 화면 중앙 왼쪽.** The menu used to shift itself so `게임으로 돌아가기` landed under the
+   viewport centre (the page cannot move the OS cursor, so the menu moved). Now it is simply parked in the left half:
+   vertically centred, its own centre at ~25vw, clamped so the frame never touches the edge. 설정 opens centred on top. */
+.menu.pause { background: rgba(3, 4, 6, 0.6); justify-content: flex-start; }
+.menu.pause .frame { margin-left: clamp(24px, calc(25vw - 210px), 40vw); }
+@media (max-width: 900px) { .menu.pause .frame { margin-left: 24px; } }
 /* Phase 12: the 일시정지 메뉴 is always the top screen — above the inventory / container window (`.inv-root` 50 and its
  * tooltip / context menu / dialog layers ≤ 80), the map (40), the 커뮤니티 panel (46) and the hub popups (72); the dev
  * console (90) and the fixed popups (`.item-tip` 200, `.sc-menu` 300) stay above it. Its own overlays follow below. */
@@ -860,7 +882,7 @@ input { font: inherit; color: inherit; }
 .chat-lines::-webkit-scrollbar { display: none; }
 .chat.open .chat-lines { max-height: 300px; padding: 8px 10px; background: var(--c-panel); border: 1px solid var(--c-border); scrollbar-width: thin; }
 .chat.open .chat-lines::-webkit-scrollbar { display: block; width: 4px; }
-.chat.open .chat-lines::-webkit-scrollbar-thumb { background: var(--c-border-strong); }
+.chat.open .chat-lines::-webkit-scrollbar-thumb { background: var(--sb-thumb); }
 .chat-line {
   display: flex; gap: 6px; align-items: baseline;
   font-size: 12px; line-height: 1.35;
@@ -2063,7 +2085,6 @@ button.item-chip[data-def-id] { cursor: pointer; }
 }
 .sm-cards[hidden], .sm-purposes[hidden], .sm-store[hidden] { display: none; }
 .sm-cards::-webkit-scrollbar, .sm-purposes::-webkit-scrollbar, .sm-store::-webkit-scrollbar { width: 6px; }
-.sm-cards::-webkit-scrollbar-thumb, .sm-purposes::-webkit-scrollbar-thumb, .sm-store::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.22); }
 
 /* 용도 지정 (empty room) — sorted 제작 가능 → 제작 불가 → 이미 제작, each row led by the facility thumbnail */
 .sm-purpose {
@@ -2262,11 +2283,10 @@ button.item-chip[data-def-id] { cursor: pointer; }
  * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 /* ── ESC: a narrow button column ──
-   2026-09-08: the Phase 11 **left edge** (`justify-content: flex-start` + `margin-left: 72px`) is gone. The menu
-   parks itself so `게임으로 돌아가기` sits under the mouse (`ui/menus/PauseMenu.parkUnderCursor` → `--menu-dx/dy`),
-   and Escape leaves the cursor in the middle of the screen — pinned to the left edge the arrow came back onto the
-   darkened world and every pause cost an aimed click. The ship-only 소셜 열 (`.pause-social`) is gone too: social
-   is the 커뮤니티 panel / P alone, in the ship and in a raid alike. */
+   2026-09-08: the Phase 11 left edge gave way to a menu that parked itself under the mouse. 2026-09-09: that
+   chasing is gone in turn — the frame sits **vertically centred in the left half** (`.menu.pause` above), a fixed
+   place the hand learns. The ship-only 소셜 열 (`.pause-social`) is gone too: social is the 커뮤니티 panel / P
+   alone, in the ship and in a raid alike. */
 .menu.pause .frame { min-width: 340px; max-width: 380px; }
 
 /* ── 소셜 열 (menus/social/SocialColumn) — shared by the ESC screen and the 커뮤니티 panel ── */
@@ -2294,7 +2314,6 @@ button.item-chip[data-def-id] { cursor: pointer; }
    carry 수락 / 거절) and the section only exists while there is something in it. */
 .sc-grid.fixed { height: calc(var(--rows) * 56px); flex: none; }
 .sc-grid::-webkit-scrollbar { width: 4px; }
-.sc-grid::-webkit-scrollbar-thumb { background: var(--c-border-strong); }
 .sc-grid.is-empty { display: none; }
 
 /* one profile card */
@@ -2398,11 +2417,13 @@ button.item-chip[data-def-id] { cursor: pointer; }
 .sc-confirm-body { font-size: 12px; line-height: 1.5; color: var(--c-text-dim); }
 .sc-confirm-foot { display: flex; justify-content: flex-end; gap: 8px; }
 
-/* ── 설정: left-centre side panel — nav rail + a fixed-size scrolling pane (2026-09-08) ── */
-.menu.settings-menu.side { justify-content: flex-start; background: rgba(3, 4, 6, 0.6); }
+/* ── 설정: centred panel — nav rail + a fixed-size scrolling pane (2026-09-08; centred and widened 2026-09-09) ──
+   It used to hug the left edge (`margin-left: 72px`) to stay clear of the pause menu it opens from. The pause menu
+   moved to the left half in 2026-09-09 and this overlay carries its own backdrop at z 86, so it is centred now —
+   and wider, because the 키 설정 diagram and the two-column function list were cramped at 900 px. */
+.menu.settings-menu.side { justify-content: center; background: rgba(3, 4, 6, 0.6); }
 .menu.settings-menu.side .frame {
-  margin-left: 72px;
-  min-width: 760px; max-width: 900px; width: min(900px, calc(100vw - 120px));
+  min-width: 960px; max-width: 1120px; width: min(1120px, calc(100vw - 80px));
   max-height: calc(100vh - 48px); overflow: hidden;
 }
 /* The pane's height is fixed so switching sections never resizes the panel; only the pane scrolls. */
@@ -2437,8 +2458,8 @@ button.item-chip[data-def-id] { cursor: pointer; }
   color: #1a1408; background: var(--c-accent); border-color: var(--c-accent);
   box-shadow: 0 0 8px rgba(255, 179, 71, 0.35);
 }
-@media (max-width: 980px) {
-  .menu.settings-menu.side .frame { margin-left: 24px; min-width: 0; width: calc(100vw - 48px); }
+@media (max-width: 1040px) {
+  .menu.settings-menu.side .frame { min-width: 0; width: calc(100vw - 48px); }
   .set-cols { grid-template-columns: 132px minmax(0, 1fr); gap: 14px; }
   .set-nav { padding-right: 12px; }
 }
