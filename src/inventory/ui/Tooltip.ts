@@ -1,9 +1,9 @@
-import type { ArmorDef, EffectiveWeaponStats, ItemDef, ItemInstance, SkillId, StatId, WeaponDef } from '@/shared';
+import type { AmmoType, ArmorDef, EffectiveWeaponStats, ItemDef, ItemInstance, SkillId, StatId, WeaponDef } from '@/shared';
 import { PERK_DEFS, SOCKET_LABEL_KO, SOCKET_SLOTS, itemCreditValue, renderItemCost } from '@/shared';
 import { WEAPON_CLASS_LABEL_KO } from '@/items';
 import {
-  DURABILITY_LOW, TEXT, ammoTypeLabel, categoryLabel, effectiveRange, fmtDeg, fmtMul, fmtValue, gradeLabel, rarityColor, rarityLabel,
-  weaponClassLabel,
+  DURABILITY_LOW, TEXT, ammoTypeLabel, categoryLabel, effectiveRange, fmtDeg, fmtKg, fmtMul, fmtValue, rarityColor, rarityLabel,
+  socketAbbr, socketTip,
 } from './labels';
 
 export interface TooltipLookups {
@@ -19,7 +19,29 @@ export interface TooltipLookups {
   getStatName?(id: StatId): string;
   /** appended (Phase 12): units of `defId` the player owns (bag + 창고) — the 보유/필요 split of the repair-cost chips. */
   countOwned?(defId: string): number;
+  /**
+   * appended (2026-09-09, 게이지 툴팁): the **bare** graded def stats of a weapon item def — no sockets
+   * (`LootRef.getEffectiveStats(defId)`). The white layer of a gauge; `getStats(item)` is the socketed layer.
+   */
+  getBaseStats?(defId: string): EffectiveWeaponStats | null;
+  /** appended (2026-09-09): every weapon item def in the catalog — the gauge maxima are read off these once. */
+  allWeaponItemDefs?(): ItemDef[];
+  /** appended (2026-09-09): the ammo item (`category 'ammo'`) of a calibre — the thumbnail in the card's corner. */
+  findAmmoDef?(type: AmmoType): ItemDef | undefined;
 }
+
+/** Catalog maxima the weapon gauges are normalised against (computed lazily, once per Tooltip). */
+interface GaugeMaxima { damage: number; fireRate: number; recoil: number; range: number }
+
+/** The four gauge stats of one weapon (`damage` already × pellets, `recoil` in radians, `range` in metres). */
+interface GaugeValues { damage: number; fireRate: number; recoil: number; range: number }
+
+const gaugeValues = (weapon: WeaponDef, s: EffectiveWeaponStats): GaugeValues => ({
+  damage: s.damage * (weapon.pellets ?? 1),
+  fireRate: s.fireRate,
+  recoil: s.recoilV,
+  range: effectiveRange(weapon),
+});
 
 /**
  * Hover card: name, category · rarity, description, value, size and — for weapons — the effective stats
@@ -27,10 +49,20 @@ export interface TooltipLookups {
  * Phase 12: 임플란트 (`ItemDef.implant`) show 장착칸 / one line per stat bonus / the legendary perk, and a broken one
  * a red 망가짐 line with its 세레스 바이오 repair cost as item chips; a 회복 스프레이 shows its 게이지 (`durability` /
  * `durabilityMax`, `0 / 200` included — an empty can is still an item).
+ *
+ * 2026-09-09 (무기 카드 재설계): the numeric 대미지 / 연사 / 반동 / 사거리 rows became a **2×2 gauge grid**
+ * (`.inv-tt-gauges`) normalised against the catalog maximum of each stat, with the raw number kept small at the
+ * right. Every bar has two layers — the bare def value (`getBaseStats`, white) and the socketed value (`getStats`):
+ * a socket that raises a stat paints the extra segment green (`.bonus`), one that lowers it (a muzzle brake on
+ * recoil) shrinks the white fill and leaves the removed segment as a hollow green outline (`.reduced`). The ammo
+ * calibre is an item-chip-like **thumbnail** in the head's right corner, the five sockets are a **row of small
+ * squares** (attachment glyph, rarity border; empty = dashed + socket abbreviation), and the bottom bar reads
+ * 무게 on the left and 가치 on the right for every item. 종류 / 등급 / 탄창 / 정조준 시간 / 재장전 / 크기 rows are gone.
  */
 export class Tooltip {
   readonly el: HTMLElement;
   private visible = false;
+  private maxima: GaugeMaxima | null = null;
 
   constructor(private readonly lookups: TooltipLookups) {
     this.el = document.createElement('div');
@@ -42,15 +74,22 @@ export class Tooltip {
     this.el.innerHTML = '';
     this.el.style.setProperty('--rc', rarityColor(def));
 
+    const weapon = def.weaponId ? this.lookups.getWeapon(def.weaponId) : undefined;
+    const stats = weapon ? this.lookups.getStats(item) : null;
+
     const head = document.createElement('div');
     head.className = 'inv-tt-head';
+    const headText = document.createElement('div');
+    headText.className = 'inv-tt-head-text';
     const name = document.createElement('div');
     name.className = 'inv-tt-name';
     name.textContent = def.name;
     const sub = document.createElement('div');
     sub.className = 'inv-tt-sub';
     sub.textContent = `${categoryLabel(def)} · ${rarityLabel(def)}`;
-    head.append(name, sub);
+    headText.append(name, sub);
+    head.appendChild(headText);
+    if (stats) head.appendChild(this.buildAmmoThumb(stats.ammoType));
     this.el.appendChild(head);
 
     const desc = document.createElement('p');
@@ -58,24 +97,13 @@ export class Tooltip {
     desc.textContent = def.description;
     this.el.appendChild(desc);
 
+    if (weapon && stats) this.el.appendChild(this.buildGauges(def, weapon, stats));
+
     const rows: Array<[string, string, string?]> = [];
-    const weapon = def.weaponId ? this.lookups.getWeapon(def.weaponId) : undefined;
-    const stats = weapon ? this.lookups.getStats(item) : null;
     if (weapon && stats) {
       const s = TEXT.weaponStats;
-      const dmg = weapon.pellets ? `${stats.damage} × ${weapon.pellets} ${TEXT.pellets}` : `${stats.damage}`;
-      rows.push([s.weaponClass, weaponClassLabel(weapon)]);
-      rows.push([s.grade, gradeLabel(stats)]);
-      rows.push([s.damage, dmg]);
-      rows.push([s.magSize, `${stats.magSize}`]);
       rows.push([s.loaded, `${Math.max(0, item.ammoInMag ?? 0)} / ${stats.magSize}`]);
-      rows.push([s.fireRate, `${stats.fireRate} /s`]);
-      rows.push([s.recoil, fmtDeg(stats.recoilV)]);
-      rows.push([s.adsTime, `${stats.adsTime.toFixed(2)} s`]);
-      rows.push([s.reload, `${stats.reloadTime.toFixed(1)} s`]);
       rows.push([s.mode, weapon.automatic ? TEXT.auto : TEXT.semi]);
-      rows.push([s.ammo, ammoTypeLabel(stats.ammoType)]);
-      rows.push([s.effectiveRange, `${effectiveRange(weapon)} m`]);
       if (stats.adsZoom > 1 || stats.scope) rows.push([s.zoom, `${stats.adsZoom}×${stats.scope ? ' · 스코프' : ''}`]);
       const max = Math.max(1, stats.maxDurability);
       const cur = Math.max(0, Math.min(max, item.durability ?? max));
@@ -141,19 +169,19 @@ export class Tooltip {
         }
       }
     }
-    if (def.weight !== undefined) rows.push([TEXT.weight, `${(def.weight * Math.max(1, item.qty)).toFixed(1)} kg`]);
     if (def.healAmount) rows.push(['회복', `+${def.healAmount} HP`]);
     if (def.stackMax > 1) rows.push([TEXT.qty, `${item.qty} / ${def.stackMax}`]);
-    rows.push([TEXT.size, `${def.width} × ${def.height}`]);
 
-    const table = document.createElement('div');
-    table.className = 'inv-tt-stats';
-    for (const [k, v, cls] of rows) {
-      const kEl = document.createElement('span'); kEl.className = 'k'; kEl.textContent = k;
-      const vEl = document.createElement('span'); vEl.className = cls ? `v ${cls}` : 'v'; vEl.textContent = v;
-      table.append(kEl, vEl);
+    if (rows.length > 0) {
+      const table = document.createElement('div');
+      table.className = 'inv-tt-stats';
+      for (const [k, v, cls] of rows) {
+        const kEl = document.createElement('span'); kEl.className = 'k'; kEl.textContent = k;
+        const vEl = document.createElement('span'); vEl.className = cls ? `v ${cls}` : 'v'; vEl.textContent = v;
+        table.append(kEl, vEl);
+      }
+      this.el.appendChild(table);
     }
-    this.el.appendChild(table);
 
     if (imp) {
       const t = TEXT.implantStats;
@@ -181,37 +209,27 @@ export class Tooltip {
       }
     }
 
-    if (weapon) {
-      const sockets = document.createElement('div');
-      sockets.className = 'inv-tt-sockets';
-      const title = document.createElement('div');
-      title.className = 'inv-tt-sockets-title';
-      title.textContent = TEXT.weaponStats.sockets;
-      sockets.appendChild(title);
-      for (const s of SOCKET_SLOTS) {
-        const att = item.sockets?.[s];
-        const attDef = att ? this.lookups.getDef(att.defId) : undefined;
-        const row = document.createElement('div');
-        row.className = attDef ? 'inv-tt-socket is-filled' : 'inv-tt-socket';
-        const k = document.createElement('span'); k.className = 'k'; k.textContent = SOCKET_LABEL_KO[s];
-        const v = document.createElement('span'); v.className = 'v'; v.textContent = attDef?.name ?? TEXT.socketEmpty;
-        if (attDef) v.style.color = rarityColor(attDef);
-        row.append(k, v);
-        sockets.appendChild(row);
-      }
-      this.el.appendChild(sockets);
-    }
+    if (weapon) this.el.appendChild(this.buildSocketRow(item));
 
-    // Phase 10: 가치 is a bottom bar of the card (same shape as `ui/hud/ItemTip`'s): label left, amount right —
-    // a stack shows `단가 × 수량` next to the total.
+    // Phase 10: 가치 is a bottom bar of the card (same shape as `ui/hud/ItemTip`'s). 2026-09-09: 무게 sits at its
+    // left end (a stack's total), 가치 at the right — a stack shows `단가 × 수량` next to the total.
     const value = document.createElement('div');
     value.className = 'inv-tt-value';
+    const qty = Math.max(1, item.qty);
+    if (def.weight !== undefined) {
+      const w = document.createElement('span');
+      w.className = 'inv-tt-weight';
+      const wk = document.createElement('span'); wk.className = 'k'; wk.textContent = TEXT.weight;
+      const wv = document.createElement('span'); wv.className = 'v'; wv.textContent = fmtKg(def.weight * qty);
+      w.append(wk, wv);
+      value.appendChild(w);
+    }
+    const amount = document.createElement('span');
+    amount.className = 'inv-tt-value-amount';
     const vk = document.createElement('span');
     vk.className = 'k';
     vk.textContent = TEXT.value;
-    const amount = document.createElement('span');
-    amount.className = 'inv-tt-value-amount';
-    const qty = Math.max(1, item.qty);
+    amount.appendChild(vk);
     if (def.stackMax > 1 && qty > 1) {
       const unit = document.createElement('span');
       unit.className = 'inv-tt-value-unit';
@@ -226,12 +244,141 @@ export class Tooltip {
       total.textContent = fmtValue(itemCreditValue(def, 1));
       amount.appendChild(total);
     }
-    value.append(vk, amount);
+    value.appendChild(amount);
     this.el.appendChild(value);
 
     this.el.hidden = false;
     this.visible = true;
     this.move(x, y);
+  }
+
+  /* ── weapon card pieces (2026-09-09) ──────────────────────────────────── */
+
+  /**
+   * Catalog maxima of the four gauge stats, read once: every weapon item def → its bare graded stats
+   * (`getBaseStats`, sockets excluded) and its `WeaponDef` (pellets, range). A missing lookup leaves a maximum at 0
+   * and `buildGauges` falls back to the card's own value, so a bar can never overflow and a lone card reads full.
+   */
+  private gaugeMaxima(): GaugeMaxima {
+    if (this.maxima) return this.maxima;
+    const m: GaugeMaxima = { damage: 0, fireRate: 0, recoil: 0, range: 0 };
+    const defs = this.lookups.allWeaponItemDefs?.() ?? [];
+    for (const d of defs) {
+      if (!d.weaponId) continue;
+      const w = this.lookups.getWeapon(d.weaponId);
+      const s = w ? this.lookups.getBaseStats?.(d.id) : null;
+      if (!w || !s) continue;
+      const v = gaugeValues(w, s);
+      m.damage = Math.max(m.damage, v.damage);
+      m.fireRate = Math.max(m.fireRate, v.fireRate);
+      m.recoil = Math.max(m.recoil, v.recoil);
+      m.range = Math.max(m.range, v.range);
+    }
+    this.maxima = m;
+    return m;
+  }
+
+  private buildGauges(def: ItemDef, weapon: WeaponDef, stats: EffectiveWeaponStats): HTMLElement {
+    const max = this.gaugeMaxima();
+    const base = gaugeValues(weapon, this.lookups.getBaseStats?.(def.id) ?? stats);
+    const eff = gaugeValues(weapon, stats);
+    const s = TEXT.weaponStats;
+    const grid = document.createElement('div');
+    grid.className = 'inv-tt-gauges';
+    const pellets = weapon.pellets ?? 1;
+    const dmgText = pellets > 1 ? `${stats.damage}×${pellets}` : `${stats.damage}`;
+    grid.append(
+      this.buildGauge(s.damage, base.damage, eff.damage, max.damage, dmgText),
+      this.buildGauge(s.fireRate, base.fireRate, eff.fireRate, max.fireRate, `${stats.fireRate} /s`),
+      this.buildGauge(s.recoil, base.recoil, eff.recoil, max.recoil, fmtDeg(stats.recoilV)),
+      this.buildGauge(s.range, base.range, eff.range, max.range, `${eff.range} m`),
+    );
+    return grid;
+  }
+
+  /**
+   * One gauge cell: label, two-layer bar, small number. `base` is the bare def value (white), `eff` the socketed one:
+   * `eff > base` adds a green `.bonus` segment on top of the white fill, `eff < base` shrinks the white fill to
+   * `eff` and outlines the removed `eff..base` span with a hollow `.reduced` box. Fill = value / catalog max.
+   */
+  private buildGauge(label: string, base: number, eff: number, max: number, text: string): HTMLElement {
+    const cell = document.createElement('div');
+    cell.className = 'inv-tt-gauge';
+    const k = document.createElement('span'); k.className = 'k'; k.textContent = label;
+    const n = document.createElement('span'); n.className = 'n'; n.textContent = text;
+    const track = document.createElement('div');
+    track.className = 'track';
+    const scale = Math.max(max, base, eff, 1e-9);
+    const pct = (v: number): number => Math.max(0, Math.min(100, (v / scale) * 100));
+    const fill = document.createElement('i');
+    fill.className = 'fill';
+    fill.style.width = `${pct(Math.min(base, eff))}%`;
+    track.appendChild(fill);
+    if (eff > base + 1e-9) {
+      const bonus = document.createElement('i');
+      bonus.className = 'bonus';
+      bonus.style.left = `${pct(base)}%`;
+      bonus.style.width = `${pct(eff) - pct(base)}%`;
+      track.appendChild(bonus);
+      cell.classList.add('is-bonus');
+    } else if (eff < base - 1e-9) {
+      const reduced = document.createElement('i');
+      reduced.className = 'reduced';
+      reduced.style.left = `${pct(eff)}%`;
+      reduced.style.width = `${pct(base) - pct(eff)}%`;
+      track.appendChild(reduced);
+      cell.classList.add('is-reduced');
+    }
+    cell.append(k, track, n);
+    return cell;
+  }
+
+  /** Ammo calibre thumbnail (head, right corner): the ammo item's glyph in its colour, the calibre name as a caption. */
+  private buildAmmoThumb(type: AmmoType): HTMLElement {
+    const ammo = this.lookups.findAmmoDef?.(type);
+    const thumb = document.createElement('div');
+    thumb.className = ammo ? 'inv-tt-ammo' : 'inv-tt-ammo is-unknown';
+    thumb.title = `${TEXT.weaponStats.ammo}: ${ammoTypeLabel(type)}`;
+    if (ammo) {
+      thumb.style.setProperty('--ic', ammo.color);
+      const icon = document.createElement('span');
+      icon.className = 'ico';
+      icon.textContent = ammo.icon;
+      thumb.appendChild(icon);
+    }
+    const cap = document.createElement('span');
+    cap.className = 'cap';
+    cap.textContent = ammoTypeLabel(type);
+    thumb.appendChild(cap);
+    return thumb;
+  }
+
+  /** The five sockets as a row of small squares: attachment glyph + rarity border, or a dashed empty square. */
+  private buildSocketRow(item: ItemInstance): HTMLElement {
+    const row = document.createElement('div');
+    row.className = 'inv-tt-sockets';
+    for (const s of SOCKET_SLOTS) {
+      const att = item.sockets?.[s];
+      const attDef = att ? this.lookups.getDef(att.defId) : undefined;
+      const sq = document.createElement('div');
+      sq.className = attDef ? 'inv-tt-sock is-filled' : 'inv-tt-sock';
+      sq.title = socketTip(s, attDef?.name);
+      if (attDef) {
+        sq.style.setProperty('--ic', attDef.color);
+        sq.style.setProperty('--sc', rarityColor(attDef));
+        const icon = document.createElement('span');
+        icon.className = 'ico';
+        icon.textContent = attDef.icon;
+        sq.appendChild(icon);
+      } else {
+        const cap = document.createElement('span');
+        cap.className = 'cap';
+        cap.textContent = socketAbbr(s);
+        sq.appendChild(cap);
+      }
+      row.appendChild(sq);
+    }
+    return row;
   }
 
   move(x: number, y: number): void {

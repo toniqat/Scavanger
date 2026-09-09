@@ -1,7 +1,7 @@
 # SCAVANGER — Project Command Center
 
 Helldivers 2-inspired third-person extraction shooter in the browser. Three.js + Vite + TypeScript.
-Arc Raiders-style minimalist UI, Diablo 2-style grid inventory, procedural maps, 120 s extraction countdown.
+Arc Raiders-style minimalist UI, Diablo 2-style grid inventory, procedural maps, 60 s extraction countdown.
 게임은 걸어 다닐 수 있는 **개인 함선**(허브)에서 시작하고, 매치메이킹으로 **공유 함선**에 도킹해 분대가 발사 포드를 타고 임무로 나간다.
 릴레이 서버는 토큰별 **프로필 저장소**(크레딧 · 메타 · 창고 · 로드아웃 · 진행도 · 함선)와 **레이드 세션 저장소**를 함께 들고 있어
 중간에 끊긴 플레이어가 레이드로 복귀할 수 있다. 서버 없이 하는 싱글 플레이는 localStorage 로 그대로 동작한다.
@@ -98,14 +98,14 @@ start-server.bat relay   # 릴레이만 (npm run server, 0.0.0.0:8787) — 데�
 |---|---|---|---|
 | [`src/world/`](src/world/README.md) | `WorldSystem` | `ctx.world` | 절차 지형 · 바이옴 · 소품/장애물(**콜라이더 = 보이는 실루엣**, 낮은 것은 `getSurfaceY` 로 **올라선다**) · 상자 · 탈출 패드 · 채집 노드(약초 · **고철 더미**) · **전장의 안개(`ctx.world.fog`)** · 시뮬레이션 훈련장 · 충돌/레이캐스트 질의 |
 | [`src/enemies/`](src/enemies/README.md) | `EnemySystem` | `ctx.enemies` | 버그 5종 + 휴머노이드 로그 AI · 포병 · 베헤모스 · 팩션 · 시체 루팅 · 상태이상 · 총알 추적 · **지형지물 접지(`getSurfaceY`) · 대형 적 스폰 여유** · 호스트/리플리카 동기화 |
-| [`src/extraction/`](src/extraction/README.md) | `ExtractionSystem` | — | 탈출 콘솔(**평상시 빛기둥 없음 — 활성화 뒤에만 켜진다**) · 120초 카운트다운 · 함선 착륙/탑승/이륙, 호스트 권한 |
+| [`src/extraction/`](src/extraction/README.md) | `ExtractionSystem` | — | 탈출 콘솔(**평상시 빛기둥 없음 — 활성화 뒤에만 켜진다**) · **60초** 카운트다운(`EXTRACTION_COUNTDOWN`) · 함선 착륙/탑승/이륙, 호스트 권한 |
 
 ### 3.4 아이템 · 인벤토리 · 메타
 
 | 폴더 | 시스템 | `ctx` 게시 | 한 줄 책임 |
 |---|---|---|---|
 | [`src/items/`](src/items/README.md) | (데이터) | `ctx.loot` | 무기 6계열 × 등급 I–V · 탄약 · 부착물 · 가방 · 방어구 · 회복 소모품 · 씨앗 · 서적 · 임플란트 아이템 · 루팅 테이블 · 레시피(제작 · **고물 분해**) |
-| [`src/inventory/`](src/inventory/README.md) | `InventorySystem` | `ctx.inventory` | 디아블로2식 격자 모델 · 가방/장비/**임플란트 칸**/퀵슬롯 · 함선 창고 · **사망 시 전량 시체로(`stripForCorpse`) · 컨테이너별 격자 크기** · 컨테이너 감정 · 소켓 · 제작(**1초 홀드 · 산출물 썸네일 · 제작 수량 ◀▶**)/분해/**수리 팝업** · 출격 준비 점검 · Tab 화면(인벤토리/캐릭터/기업/함선) |
+| [`src/inventory/`](src/inventory/README.md) | `InventorySystem` | `ctx.inventory` | 디아블로2식 격자 모델 · 가방/장비/**임플란트 칸**/퀵슬롯 · 함선 창고 · **사망 시 전량 시체로(`stripForCorpse`) · 컨테이너별 격자 크기** · 컨테이너 감정 · 소켓 · 제작(**1초 홀드 · 한 칸 산출물 썸네일 · 제작 수량 ◀▶ · 넣을 자리 없으면 버튼 잠금(가방 → 창고)**)/분해/**수리 팝업** · 출격 준비 점검 · Tab 화면(인벤토리/캐릭터/기업/함선) · **무기 툴팁 = 2×2 게이지(대미지 · 연사 · 반동 · 사거리, 소켓 보너스 초록 · 반동 감소 초록 윤곽) + 우상단 탄종 썸네일 + 소켓 썸네일 한 줄**, **탄약 요청은 장착 무기 휠클릭 (`탄약 필요: <탄종>`)** |
 | [`src/pickups/`](src/pickups/README.md) | `PickupSystem` | `ctx.pickups` | 월드에 떨어진 아이템 (투척 궤적 · 절차 메시 · 빛기둥 · 호스트 권한 동기화) |
 | [`src/meta/`](src/meta/README.md) | `MetaSystem` | `ctx.meta` | 기업 4곳 · 신뢰도(모자란 거래/계약 탭은 잠김) · 크레딧 · 상점/거래대 · 계약 · 퀘스트 · 임플란트 수리 데스크. 화면은 **왼쪽 한 열**(기업 목록 → 신뢰도 게이지 → 페이지 탭 → 크레딧) + 페이지 + **풀 높이 가방/창고/진행 중인 계약**, 보상은 **재화 썸네일** |
 | [`src/progression/`](src/progression/README.md) | `ProgressionSystem` | `ctx.progression` | 레벨/XP · 능력치 5종 · 숙련도 14종 · 파생 수치(`derived`) · 임플란트 장착칸 규칙 · 캐릭터 시트(능력치 · 숙련도만 — 임플란트 UI 는 인벤토리) · 프로필 영속화(**슬롯별**, `accent`/`createdAt` 포함) |
@@ -117,7 +117,7 @@ start-server.bat relay   # 릴레이만 (npm run server, 0.0.0.0:8787) — 데�
 |---|---|---|---|
 | [`src/hub/`](src/hub/README.md) | `HubSystem` | `ctx.hub` | 개인/공유 함선 내부 · **격납고(개인 함선 4대 정박 · 방문)** · 도킹 컷씬 · **창문 워프(행성 이동, 조작 유지)** · 발사 포드(출격 준비 경고) · 전체화면 터미널(**닫기 버튼만 · 키 가이드 없음**) · 행성 선택 · 작업대 · 시설 관리 모드 · **분대원 상호작용 → 분대장 넘기기** |
 | [`src/game/`](src/game/README.md) | `GameFlowSystem` | `ctx.phase`, `ctx.corpses` | 페이즈 상태 기계 · **사망/시체(`ctx.corpses`, 자동 부활 없음 — 구조선만)** · **분대장 기기** · 레이드 실패 · **일시정지(ESC = 항상 열기, `escapePause`)** · 재접속 UX · 레이드 세션 저장/복귀 · 재개 게이트 |
-| [`src/ui/`](src/ui/README.md) | `HudSystem` | — | 모든 DOM UI — HUD 2계층 · 메뉴(**타이틀 = 워드마크 + 게임 시작/설정/종료**, **캐릭터 선택 3칸 · 캐릭터 생성(3D 프리뷰)**, **ESC = 중앙 왼쪽 고정**, 설정 3분할 · 화면 중앙 · 조작 다이어그램, **경고 팝업의 확정은 1초 홀드**) · 지도(**전장의 안개 — 미탐색은 회색 윤곽, 발견한 것만 마커**) · 채팅(**Enter 전송 후 유지 · Tab 닫기**) · **우측 하단 키 가이드(`ui:keyGuide`)** · 소셜(커뮤니티 패널 단일, **고정 크기**) · 아이템 툴팁 · 커서 아트 · 스타일시트 |
+| [`src/ui/`](src/ui/README.md) | `HudSystem` | — | 모든 DOM UI — HUD 2계층 · 메뉴(**타이틀 = 워드마크 + 게임 시작/설정/종료**, **캐릭터 선택 3칸 · 캐릭터 생성(3D 프리뷰)**, **ESC = 중앙 왼쪽 고정**, 설정 3분할 · 화면 중앙 · 조작 다이어그램, **경고 팝업의 확정은 1초 홀드**) · 지도(**전장의 안개 — 미탐색은 회색 윤곽, 발견한 것만 마커**) · 채팅(**Enter 전송 후 유지 · Tab 닫기**) · **우측 하단 키 가이드(`ui:keyGuide`)** · 소셜(커뮤니티 패널 단일, **고정 크기**) · 크로스헤어(**헤드샷 타격 표시 = 1.6배 X**) · **핑 v3(함선 안에서도 · 플레이어별 3개 · 관대한 조준 · 확인 핑 = 분대 색 원 · 모든 핑이 채팅 한 줄 · 화면 밖 화살표는 수명 내내)** · **입력 중 `…` 말풍선(원격만)** · 굵은 피격 방향 호 · 아이템 툴팁(**크기 줄 없음 · 무게 좌하단 · 가치 우하단**) · 커서 아트 · 스타일시트 |
 | [`src/audio/`](src/audio/README.md) | `AudioSystem` | `ctx.audio` | 절차 WebAudio SFX 전량 + 앰비언트, 버스 이벤트에 반응, 볼륨 영속화 |
 | [`src/tutorial/`](src/tutorial/README.md) | `TutorialSystem` | `ctx.tutorial` | 새 캐릭터 안내 18단계 — 목표 패널 · UI 스포트라이트(**합집합 포커싱**) · 바닥 안내선, 순서 강제 게이트(`blockReason`) + **잠긴 항목 숨김**(`hides`, **함선 창고 아이템 포함**) · 부족한 재료 top-up · **1초 홀드 건너뛰기** |
 | [`src/console/`](src/console/README.md) | `ConsoleSystem` | `ctx.console` | 개발자 콘솔 + 치트 (**dev 호스트에서만** 존재 — 그 외에는 DOM 도 키도 없다) |
@@ -126,9 +126,9 @@ start-server.bat relay   # 릴레이만 (npm run server, 0.0.0.0:8787) — 데�
 
 | 폴더 | 시스템 | `ctx` 게시 | 한 줄 책임 |
 |---|---|---|---|
-| [`src/net/`](src/net/README.md) | `NetSystem` | `ctx.net` | 릴레이 WebSocket 클라이언트 · 세션 토큰 · 로비 · 20 Hz 스냅샷 · 프로필 동기화 · 소셜 · 크루 카드 · **함선 배치(`ship state`)** · **분대장 지명 이관** |
+| [`src/net/`](src/net/README.md) | `NetSystem` | `ctx.net` | 릴레이 WebSocket 클라이언트 · 세션 토큰 · 로비 · 20 Hz 스냅샷 · 프로필 동기화 · 소셜 · 크루 카드 · **함선 배치(`ship state`)** · **분대장 지명 이관** · `PlayerFlags.TYPING`(채팅 입력 중) |
 | [`server/`](server/README.md) | (Node) | — | `ws` 릴레이 — 로비 · 5분 재접속 유예 · 호스트 이관(**자동 + 지명 `lobby:transferHost`**) · 프로필/레이드/소셜 저장소 · `selftest.ts` |
-| [`electron/`](electron/README.md) | (Electron main) | — | 데스크톱 스탠드얼론 셸 — 같은 프로세스에 릴레이 + `dist/` 를 로컬 http 로 서빙, `src/`·`server/` 무변경 |
+| [`electron/`](electron/README.md) | (Electron main) | — | 데스크톱 스탠드얼론 셸 — 같은 프로세스에 릴레이 + `dist/` 를 로컬 http 로 서빙(**창 포트 8790 고정 = 세이브 오리진**), `src/`·`server/` 무변경 |
 
 ---
 
@@ -155,6 +155,12 @@ start-server.bat relay   # 릴레이만 (npm run server, 0.0.0.0:8787) — 데�
 - `THREE.Vector3` 스크래치 객체를 재사용하고 핫 패스에서 프레임당 할당을 피한다.
 - 미션 리셋(`game:abort`, `game:newMission`) 때 직접 만든 지오메트리/머티리얼을 dispose 한다.
 - 키는 **사용 시점에 `Keys.X` 를 읽는다** — 모듈 상수로 캐시하지 않는다 ([docs/CONTROLS.md](docs/CONTROLS.md)).
+- **포인터 락이 튕겨 나온 것은 Escape 가 아니다** (2026-09-09). 화면 · 모드가 닫히면 `main.ts` 가 락을 다시
+  요청하는데, 전체화면 Chrome 과 데스크톱 셸은 그 락을 넘겨줬다가 곧바로 도로 가져갈 때가 있다. 그것을
+  `onUserUnlock` 으로 흘려 보내면 `game/` 이 플레이어의 Escape 로 읽어 **일시정지 메뉴를 혼자 띄운다** —
+  하우징 모드를 Tab 으로 닫으면 ESC 메뉴가 뜨던 문제이고, 닫으면서 락을 되찾는 화면 전부가 같은 뿌리였다.
+  `shared/Input` 이 우리 요청(`lastLockRequest`) 뒤 `LOCK_BOUNCE_GRACE_MS` 안의 락 상실을 걸러 내고
+  제스처 재시도만 건다. 이 창 안에서 진짜 Escape 를 놓쳐도 락 없는 Escape 는 진짜 keydown 으로 들어온다.
 - **Escape 는 일시정지 메뉴를 열기만 한다** (2026-09-08). 화면은 각자 자기를 연 키로 닫고(Tab · M · P · E),
   메뉴는 그 위에 쌓인다 — 닫는 것은 `게임으로 돌아가기` 클릭뿐이다. 가장 안쪽 팝업만 Escape 를 먼저 먹는다.
   그 예외에 **하우징 모드**(`hub/HousingMode`)가 들어간다 — 화면이 아니라 카메라와 조작을 통째로 가져가는
@@ -210,6 +216,16 @@ start-server.bat relay   # 릴레이만 (npm run server, 0.0.0.0:8787) — 데�
   `PROP_STEP_UP_MAX` 안에 있는 장애물 윗면만 잡으므로 낮은 바위에는 올라서고 첨탑은 벽으로 남는다.
   **표면을 먼저 잡고 `resolveCollision` 을 부른다** — 순서를 뒤집으면 옆으로 밀려난 뒤라 영영 못 올라간다.
   플레이어(`PlayerController`) · 적(`EnemyAI` · `Replica`) · 시체가 모두 같은 질의를 쓴다.
+- **소품 콜라이더는 지오메트리에서 재고, 그 지오메트리는 믿을 수 있어야 한다** (2026-09-09). `Props.hullOf`
+  가 바운딩 박스로 콜라이더를 만드는 이상 **정점 하나만 튀어도 소품 전체가 거대한 보이지 않는 원기둥이
+  된다.** 실제로 `world/noise.ts` 의 `noise3` 가 `lerp` 인자를 `(t, a, b)` 로 넣어 `[-1,1]` 대신
+  `[-31, +52]` 를 돌려주고 있었고, `build.displace` 가 그만큼 정점을 밀어 첨탑 콜라이더가 반지름 18 m 로
+  부풀었다 — 걸어서 못 지나가고 총알이 허공에서 멈추던 그것이다. 소품 지오메트리를 손보면 **콜라이더도
+  같이 재는 것**임을 기억한다.
+- **데스크톱 앱의 세이브는 창 포트에 묶여 있다** (2026-09-09). localStorage 는 오리진 단위이고 앱의
+  오리진은 `http://127.0.0.1:<창 포트>` 다. 그래서 `electron/main.ts` 의 창 서버는 **임의 포트를 절대
+  쓰지 않는다** — `APP_PORT`(8790)부터 정해진 순서로만 훑고, 릴레이 포트와는 완전히 분리돼 있다.
+  포트를 바꾸는 것은 캐릭터를 통째로 새로 시작하는 것과 같다.
 - **인게임 스크롤바는 어두운 UI 색을 쓴다** (2026-09-09). `:root` 의 `--sb-track` · `--sb-thumb` ·
   `--sb-thumb-hover` 가 단일 원본이고 `#ui-root` 아래 모든 스크롤러에 한 규칙으로 걸린다
   (`src/ui/styles/base.css`). `src/inventory/inventory.css` 는 그 스타일시트를 import 하지 않으므로 같은 이름을

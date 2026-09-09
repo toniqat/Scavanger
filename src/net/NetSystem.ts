@@ -197,6 +197,8 @@ export class NetSystem implements GameSystem, NetRef {
     /* appended: tactical kit — gear the remote avatars render. */
     bus.on('implant:wieldChanged', (e) => { this.snapshotter.implantId = e.wielded ? e.id : null; });
     bus.on('equip:changed', (e) => { if (e.slot === 'armor') this.snapshotter.armorId = e.item ? e.item.defId : null; });
+    // 2026-09-09: chat input open/closed → PlayerFlags.TYPING (remotes draw the `…` bubble; ui/hud owns the drawing).
+    bus.on('ui:chatToggled', (e) => { this.snapshotter.typing = e.open; });
     bus.on('player:died', (e) => {
       if (this._inSession) this.send({ t: 'died', p: [e.position.x, e.position.y, e.position.z] }, 'others');
     });

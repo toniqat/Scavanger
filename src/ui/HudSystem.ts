@@ -14,6 +14,7 @@ import { ScopeOverlay } from './hud/ScopeOverlay';
 import { Pings } from './hud/Pings';
 import { Squad } from './hud/Squad';
 import { Nameplates } from './hud/Nameplates';
+import { TypingBubbles } from './hud/TypingBubbles';
 import { SpectateOverlay } from './hud/SpectateOverlay';
 import { ChatLog } from './hud/ChatLog';
 import { QuickWheel } from './hud/QuickWheel';
@@ -110,6 +111,8 @@ export class HudSystem implements GameSystem {
   private pings!: Pings;
   private squad!: Squad;
   private nameplates!: Nameplates;
+  /** 2026-09-09: 입력 중 말풍선 — a remote player whose snapshot carries `PlayerFlags.TYPING`. */
+  private typing!: TypingBubbles;
   private spectate!: SpectateOverlay;
   private chat!: ChatLog;
   private wheel!: QuickWheel;
@@ -227,6 +230,7 @@ export class HudSystem implements GameSystem {
 
     this.socialRoot = el('div', { cls: 'hud social', parent: ctx.uiRoot });
     this.nameplates = new Nameplates(this.socialRoot);
+    this.typing = new TypingBubbles(this.socialRoot);
     // Phase 9 UI pass: chat log + squad list share one bottom-left column that sits directly on top of the vitals,
     // so the squad health bars read next to the player's own instead of colliding with the contract panel top-left.
     this.bottomLeft = el('div', { cls: 'hud-bl', parent: this.socialRoot });
@@ -278,7 +282,7 @@ export class HudSystem implements GameSystem {
     this.death = new DeathScreen(ctx.uiRoot);
     this.complete = new MissionComplete(ctx.uiRoot);
 
-    for (const c of [this.reticle, this.cook, this.wheel, this.swheel, this.strat, this.charge, this.targeting, this.offscreen, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.chat, this.map]) c.bind(ctx);
+    for (const c of [this.reticle, this.cook, this.wheel, this.swheel, this.strat, this.charge, this.targeting, this.offscreen, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.typing, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.chat, this.map]) c.bind(ctx);
     // the shared trackers first: the components they feed read them from their own bind / first update
     this.scanTracker.bind(ctx);
     this.cutscene.bind(ctx);
@@ -378,7 +382,7 @@ export class HudSystem implements GameSystem {
       this.offscreen.lateUpdate(ctx);
       this.statusMarkers.lateUpdate(ctx);
     }
-    if (this.socialVisible) this.nameplates.lateUpdate(ctx);
+    if (this.socialVisible) { this.nameplates.lateUpdate(ctx); this.typing.lateUpdate(ctx); }
     this.detection.lateUpdate(dt, ctx);
     this.scanReveal.lateUpdate(dt, ctx);
     this.deployables.lateUpdate(ctx);
@@ -544,7 +548,7 @@ export class HudSystem implements GameSystem {
 
   dispose(): void {
     for (const u of this.unsubs) u();
-    for (const c of [this.reticle, this.cook, this.wheel, this.swheel, this.strat, this.charge, this.targeting, this.offscreen, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.chat, this.deploy, this.map]) c.dispose();
+    for (const c of [this.reticle, this.cook, this.wheel, this.swheel, this.strat, this.charge, this.targeting, this.offscreen, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.typing, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.chat, this.deploy, this.map]) c.dispose();
     for (const c of [this.implantWidget, this.implantChip, this.quickStrip, this.detection, this.scanReveal, this.deployables, this.progressToasts, this.actionFx]) c.dispose();
     this.scanTracker.dispose();
     this.cutscene.dispose();

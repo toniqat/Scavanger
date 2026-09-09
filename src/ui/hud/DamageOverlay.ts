@@ -6,7 +6,15 @@ interface Arc { el: HTMLElement; angle: number; life: number; }
 const ARC_POOL = 6;
 const ARC_LIFE = 1.4;
 
-/** Directional damage arcs around the reticle, low-HP vignette with heartbeat, red edge flash. */
+/**
+ * Directional damage arcs around the reticle, low-HP vignette with heartbeat, red edge flash.
+ *
+ * 2026-09-09: the arc is a **220 px ring with a 6 px, ~70° red wedge** (`.dmg-arc`: conic-gradient masked to a ring,
+ * drop-shadow glow; peak opacity 0.95, life 1.4 s, `rotate(angle)` unchanged) — the old 140 px / 3 px border-top arc was
+ * too faint to read mid-fight. Arcs are driven by **`ui:damageIndicator` only**: `player/parts/Vitals` emits it *and*
+ * `player:damaged {from}` for the same hit, and listening to both drew two arcs per hit. `player:damaged` still drives
+ * the edge flash (it also fires for damage-over-time, which has no direction).
+ */
 export class DamageOverlay {
   readonly vignette: HTMLElement;
   readonly edgeFlash: HTMLElement;
@@ -30,12 +38,12 @@ export class DamageOverlay {
   bind(ctx: GameContext): void {
     this.unsubs.push(
       ctx.bus.on('ui:damageIndicator', ({ from }) => this.indicate(from, ctx)),
-      ctx.bus.on('player:damaged', ({ from }) => {
+      // edge flash only — the arc for this hit comes through `ui:damageIndicator` (same emitter, one arc per hit)
+      ctx.bus.on('player:damaged', () => {
         this.edgeFlash.classList.remove('show');
         void this.edgeFlash.offsetWidth;
         this.edgeFlash.classList.add('show');
         window.setTimeout(() => this.edgeFlash.classList.remove('show'), 40);
-        if (from) this.indicate(from, ctx);
       }),
       ctx.bus.on('game:newMission', () => this.reset()),
       ctx.bus.on('game:abort', () => this.reset()),
@@ -67,7 +75,7 @@ export class DamageOverlay {
       a.life -= dt;
       const t = Math.max(0, a.life / ARC_LIFE);
       const alpha = t < 0.3 ? t / 0.3 : 1;
-      a.el.style.opacity = (alpha * 0.9).toFixed(2);
+      a.el.style.opacity = (alpha * 0.95).toFixed(2);
       a.el.style.transform = `rotate(${a.angle.toFixed(1)}deg) scale(${(1 + (1 - t) * 0.15).toFixed(3)})`;
       if (a.life <= 0) a.el.style.opacity = '0';
     }

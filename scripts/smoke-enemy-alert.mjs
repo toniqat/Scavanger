@@ -5,7 +5,7 @@
 // `ctx.implants.resolveBarrierCollision / absorbFrontalAttack` are monkeypatched: the implants folder owns the real ones.
 // Usage: node scripts/smoke-enemy-alert.mjs [http://localhost:5273]   (needs a running vite; agents use a private port)
 import puppeteer from 'puppeteer-core';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
 const BASE = process.argv[2] ?? 'http://localhost:5273/';
 const CHROME = [
@@ -409,6 +409,12 @@ try {
 
   /* ── 정면 흡수: absorbFrontalAttack true → the melee never lands on the player ─────────────────────────────── */
   console.log('정면 근접공격 흡수');
+  // 2026-09-09: the bite damage is balance data (data/enemies.csv `attackDamage`, halved for bugs) — read it, never hard-code it.
+  const BITE = (() => {
+    const rows = readFileSync(new URL('../data/enemies.csv', import.meta.url), 'utf8').split(String.fromCharCode(10)).map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
+    const hdr = rows[0].split(','); const sc = rows.find((l) => l.startsWith('scavenger,')).split(',');
+    return Number(sc[hdr.indexOf('attackDamage')]);
+  })();
   const absorbSet = await P(() => {
     const ctx = window.__game.ctx; const impl = ctx.implants;
     impl.resolveBarrierCollision = window.__impOrig.rc;       // drop the wall so the bug can reach the player
@@ -425,12 +431,12 @@ try {
     const att = window.__ev['enemy:attacked'];
     return { abs: window.__abs.length, attacked: att.length, attackedByBug: att.filter((x) => x.id === a.id).length, hp: ctx.player.hp, owner: window.__abs[0] ? window.__abs[0].owner : null, amount: window.__abs[0] ? window.__abs[0].amount : null };
   }, wall);
-  ok(absorbed && typeof absorbed === 'object' && absorbRes.owner === 'local' && absorbRes.amount === 8, `absorbFrontalAttack('local', from, 8) consulted before the scavenger's bite`, JSON.stringify(absorbRes));
+  ok(absorbed && typeof absorbed === 'object' && absorbRes.owner === 'local' && absorbRes.amount === BITE, `absorbFrontalAttack('local', from, ${BITE}) consulted before the scavenger's bite`, JSON.stringify(absorbRes));
   ok(absorbRes.attackedByBug === 0 && (absorbRes.attacked > 0 || absorbRes.hp === absorbSet.hp0), `absorbed bite: no enemy:attacked, player hp unchanged (${absorbSet.hp0} → ${absorbRes.hp})`, JSON.stringify(absorbRes));
   // absorb false → the same bite lands
   await P(() => { const impl = window.__game.ctx.implants; impl.absorbFrontalAttack = () => false; window.__ev['enemy:attacked'].length = 0; });
   const landed = await untilSim((id) => window.__ev['enemy:attacked'].filter((x) => x.id === id).length >= 1 ? window.__ev['enemy:attacked'][0] : null, 8, wall.id);
-  ok(landed && typeof landed === 'object' && landed.damage === 8, `with absorbFrontalAttack false the bite lands (enemy:attacked damage ${landed?.damage})`, JSON.stringify(landed));
+  ok(landed && typeof landed === 'object' && landed.damage === BITE, `with absorbFrontalAttack false the bite lands (enemy:attacked damage ${landed?.damage})`, JSON.stringify(landed));
   await P(() => { const ctx = window.__game.ctx; const impl = ctx.implants; impl.absorbFrontalAttack = window.__impOrig.ab; const e = window.__sys.find(window.__W); if (e) e.kill(false); ctx.player.hp = ctx.player.maxHp; });
 
   /* ── ee barrierHit on a client: damageBarrier('local', p, amount) ───────────────────────────────────────── */

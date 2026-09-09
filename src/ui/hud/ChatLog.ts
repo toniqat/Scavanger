@@ -32,6 +32,12 @@ interface Line { el: HTMLElement; time: number; faded: boolean }
  *   • **Closed state shows 3.5 lines**: the log's closed `max-height` is measured from a real line
  *     (`--chat-closed-h` = 3.5 × line height + 3 gaps) so the fourth-oldest visible line is cut in half at the top
  *     under the fade mask. Open keeps its 300 px panel.
+ *   • **Korean IME Enter** (2026-09-09, later): the Enter that commits a composing syllable fires `keydown` with
+ *     `isComposing` (legacy `keyCode 229`) *before* `compositionend`; sending on it cleared the field and the IME then
+ *     re-inserted the last syllable on its own. The capture handler now ignores Enter / Esc while `e.isComposing`,
+ *     `keyCode === 229` or the input's own `compositionstart`→`compositionend` window is open — but a composing **Enter**
+ *     is remembered (`sendAfterCompose`) and posted right after `compositionend`, so Korean still sends on ONE Enter (a composing Tab only keeps
+ *     focus), so "안녕" + Enter commits, and the next Enter posts one line "안녕" with an empty field.
  *   • **Bottom-of-log bug**: the scroll container's height changes after `scrollTop` was set — `close()` shrinks it
  *     from 300 px back to the closed height (a scroll box keeps its `scrollTop`, not its bottom edge, when it shrinks,
  *     so the newest ~130 px slid out of view), and the web font swapping in after the first lines grew every line
@@ -74,10 +80,27 @@ export class ChatLog {
   private stickRaf = 0;
   private resizeObs: ResizeObserver | null = null;
 
+  /** True between `compositionstart` and `compositionend` on the input (Korean IME assembling a syllable). */
+  private composing = false;
+  /** A composing Enter was seen — send as soon as the IME commits (`compositionend`). */
+  private sendAfterCompose = false;
+
   private keyHandler = (e: KeyboardEvent): void => {
     const ctx = this.ctx;
     if (!ctx) return;
     if (this._open) {
+      // 2026-09-09 — Korean IME: the Enter that *commits* a syllable arrives as a keydown while the composition is still
+      // open (`isComposing`, legacy `keyCode 229`). Sending on it cleared the field and then `compositionend` re-inserted
+      // the syllable on its own — "안녕" + Enter posted "안녕" and left "녕" behind. Let the composition finish instead:
+      // no send / close on a composing Enter · Esc; a composing Tab only keeps focus (the next, real press closes).
+      if (e.isComposing || e.keyCode === 229 || this.composing) {
+        if (e.code === Keys.INVENTORY) { e.preventDefault(); e.stopImmediatePropagation(); }
+        // The committing Enter still means "send": remember it and post once `compositionend` has written the syllable,
+        // so Korean text goes out on ONE Enter and nothing is left behind in the field.
+        if ((e.code === Keys.CHAT || e.code === 'NumpadEnter') && !e.repeat) { e.preventDefault(); this.sendAfterCompose = true; }
+        return;
+      }
+      this.sendAfterCompose = false;
       if (e.code === Keys.CHAT || e.code === 'NumpadEnter') {
         e.preventDefault(); e.stopImmediatePropagation();
         if (!e.repeat) this.send();
@@ -125,6 +148,16 @@ export class ChatLog {
     // Keep game input from seeing typed characters (Input listens on window in the bubble phase).
     this.input.addEventListener('keydown', (e) => e.stopPropagation());
     this.input.addEventListener('keyup', (e) => e.stopPropagation());
+    // Korean IME (2026-09-09): remember the composition window so the capture-phase key handler above never sends
+    // the half-assembled syllable (some browsers deliver the committing Enter without `isComposing`).
+    this.input.addEventListener('compositionstart', () => { this.composing = true; });
+    this.input.addEventListener('compositionend', () => {
+      this.composing = false;
+      if (!this.sendAfterCompose) return;
+      this.sendAfterCompose = false;
+      // the committed text is in `value` by now; defer one tick so the IME has fully released the field
+      if (this._open) window.setTimeout(() => { if (this._open && !this.composing) this.send(); }, 0);
+    });
     this.input.addEventListener('blur', () => { if (this._open) this.input.focus(); });
     this.root.addEventListener('wheel', (e) => { if (this._open) e.stopPropagation(); }, { passive: true });
     // The scroll box changes height on open / close (and with the column's width): re-pin the newest line.
@@ -292,6 +325,8 @@ export class ChatLog {
     for (const l of this.lines) if (l.faded) { l.faded = false; toggleClass(l.el, 'faded', false); }
     this.inputRow.hidden = false;
     this.input.value = '';
+    this.composing = false;
+    this.sendAfterCompose = false;
     this.input.focus();
     this.stick();
     ctx.bus.emit('ui:chatToggled', { open: true });
@@ -304,6 +339,8 @@ export class ChatLog {
     const ctx = this.ctx;
     this._open = false;
     this.inputRow.hidden = true;
+    this.composing = false;
+    this.sendAfterCompose = false;
     this.input.blur();
     this.root.classList.remove('interactive', 'open');
     ctx.uiBlockers.delete(BLOCKER);

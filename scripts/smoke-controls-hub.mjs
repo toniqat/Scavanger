@@ -437,9 +437,12 @@ try {
     chip.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, clientX: r.left + 4, clientY: r.top + 4 }));
     const tipEl = document.querySelector('#ui-root > .item-tip');
     return { defId: chip.dataset.defId, hidden: tipEl?.hidden ?? true, name: tipEl?.querySelector('.it-name')?.textContent ?? '',
-      rows: tipEl?.querySelectorAll('.it-stats .k').length ?? 0, shown: window.__game.getSystem('hud').itemTipDefId };
+      rows: tipEl?.querySelectorAll('.it-stats .k').length ?? 0, labels: [...(tipEl?.querySelectorAll('.it-stats .k') ?? [])].map((e) => e.textContent),
+      bar: tipEl?.querySelector('.it-value .wt .k')?.textContent ?? '', shown: window.__game.getSystem('hud').itemTipDefId };
   });
-  ok(tip && !tip.hidden && tip.shown === tip.defId && tip.rows >= 3, `hovering a 재료 칩 shows the item card (${tip?.name} · ${tip?.rows} rows)`);
+  // 2026-09-09: the 크기 / 무게 rows left the stats table (무게 is the bottom bar's left half), so a material card has fewer rows
+  ok(tip && !tip.hidden && tip.shown === tip.defId && tip.rows >= 1 && !tip.labels.includes('크기') && !tip.labels.includes('무게') && tip.bar === '무게',
+    `hovering a 재료 칩 shows the item card (${tip?.name} · ${tip?.rows} rows, 무게 in the bottom bar)`);
   await page.evaluate(() => {
     const chip = document.querySelector('.inv-root .inv-screen .item-chip[data-def-id]');
     chip.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, relatedTarget: document.body }));
@@ -640,6 +643,8 @@ try {
      marked and must stay silent. */
   const lost = await page.evaluate(async () => {
     const ctx = window.__game.ctx;
+    const menu = document.querySelector('.menu.pause');
+    const up = () => !!menu && !menu.classList.contains('hidden');
     ctx.input.requestPointerLock();
     window.__lockEl = document.getElementById('game-canvas');
     document.dispatchEvent(new Event('pointerlockchange'));
@@ -647,22 +652,35 @@ try {
     ctx.input.exitPointerLock();
     document.dispatchEvent(new Event('pointerlockchange'));
     for (let i = 0; i < 4; i++) window.__game.frame(performance.now() + i * 20);
-    const menu = document.querySelector('.menu.pause');
-    const afterSelf = !!menu && !menu.classList.contains('hidden');
-    // the player's Escape: the lock simply disappears while the camera still wants it
+    const afterSelf = up();
+    /* 2026-09-09 (LOCK_BOUNCE_GRACE_MS): 우리가 방금 요청한 락이 **곧바로** 튕겨 나오는 것은 플레이어가 아니라
+       전체화면 Chrome · 데스크톱 셸이다 (하우징 모드를 Tab 으로 닫으면 ESC 메뉴가 뜨던 문제). 메뉴는 안 뜨고
+       다음 제스처를 기다리는 재시도만 걸린다. */
     ctx.input.requestPointerLock();
     window.__lockEl = document.getElementById('game-canvas');
     document.dispatchEvent(new Event('pointerlockchange'));
     window.__lockEl = null;
     document.dispatchEvent(new Event('pointerlockchange'));
+    await new Promise((r) => setTimeout(r, 60));
+    window.__game.frame(performance.now());
+    const afterBounce = { paused: up(), retry: ctx.input.awaitingLockGesture };
+    // the player's Escape: the same disappearance, but long after the request settled
+    ctx.input.requestPointerLock();
+    window.__lockEl = document.getElementById('game-canvas');
+    document.dispatchEvent(new Event('pointerlockchange'));
+    await new Promise((r) => setTimeout(r, 520));
+    window.__lockEl = null;
+    document.dispatchEvent(new Event('pointerlockchange'));
     await new Promise((r) => setTimeout(r, 120));
     window.__game.frame(performance.now());
     return {
-      afterSelf, paused: !!menu && !menu.classList.contains('hidden'),
+      afterSelf, afterBounce, paused: up(),
       blocker: ctx.uiBlockers.has('menu'), phase: ctx.phase,
     };
   });
   ok(!lost.afterSelf, 'a release the game itself made (커서 모드) never opens the menu', JSON.stringify(lost));
+  ok(!lost.afterBounce.paused && lost.afterBounce.retry,
+    'a lock that bounces straight back out of our own request never opens the menu (2026-09-09)', JSON.stringify(lost.afterBounce));
   ok(lost.paused && lost.blocker, 'a lock the player took away opens the 일시정지 메뉴 in one press', JSON.stringify(lost));
   await page.evaluate(async () => {
     const menu = document.querySelector('.menu.pause');

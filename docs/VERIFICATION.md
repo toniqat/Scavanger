@@ -47,6 +47,14 @@ When you add a smoke script: add it to `SMOKES` in `scripts/verify.mjs` with the
 in `CLAUDE.md`.
 
 ## History (what was actually tested)
+- 2026-09-09 세이브 유실 · 보이지 않는 거대 콜리전 · 로그 피격 · 헤드샷 마커: `npm run verify` (병행 작업이 `src/shared` 를 건드리고 있어 전체 매핑 + e2e-mp) → typecheck ok, typecheck-server ok, net-selftest 295/295, data-check ok, smoke-quickslots 46/46, smoke-phase2 55/55, smoke-weapons 137/137, smoke-stratagems 72/72, smoke-phase3 33/33, smoke-phase4 49/49, smoke-ship-rooms 72/72, smoke-tactical 87/87, smoke-controls-hub 125/125, smoke-housing 203/203, smoke-inventory-p6 124/124, smoke-console 63/63, smoke-progression 123/123, smoke-loadout 62/62, smoke-search 61/61, smoke-ui-p6 87/87, smoke-ui-p5 134/134, smoke-resume-gate 48/48, smoke-enemy-alert 42/42, smoke-uniques 72/72, smoke-meta 172/172, smoke-training 112/112, smoke-rogue-v2 52/52, smoke-library 126/126, smoke-ghost 86/86, smoke-enemy-delta 52/52, smoke-ecology 85/85, smoke-raidflow 48/48, smoke-planets 86/86, smoke-social 137/137, **smoke-props-collision 20/20 (신규)**, smoke-tutorial 67/67, smoke-hangar 58/58, e2e-mp 156/156 — **all passed, 6분 26초**. `npm run typecheck:app` ok.
+  네 건 모두 스모크가 아니라 **계측 스크립트**로 먼저 수치를 잡았다. 콜리전 쪽은 그대로 두면 또 조용히 재발할 종류라 상설 스모크로 남겼고(`smoke-props-collision.mjs`, `world` 폴더에 매핑), 나머지 셋은 일회용이라 지웠다:
+  - **`smoke-props-collision.mjs`** (계측판은 `_tmp-diag-collision.mjs`) — 장애물 988개를 인스턴스 행렬로 그려진 지오메트리와 1:1 매칭해 정점을 전부 훑는다. `noise3` 수정 전/후 시드 21: 바위 콜라이더 최대 반지름 **18.15 → 3.87 m**, 소품 위 여유 높이 **4.64 → 0.51 m**, `shotRadius − 실측 최대 반지름` 최대 **+0.10 → −0.06**(콜라이더가 그려진 것을 넘지 않는다). 첨탑 변형 지오메트리 바운딩 박스 x `[-2.90, 1.29] → [-1.15, 0.97]`.
+  - `_tmp-probe-displace.mjs` — 페이지에서 `noise.ts` / `build.ts` 를 직접 import 해 `noise3` 를 20만 번 뽑는다. 범위 **`[-31.209, +52.559]` → `[-0.905, +0.988]`**, 원뿔 정점 중 0.5 units 이상 밀린 것 **2개 → 0개**.
+  - `_tmp-diag-rogue.mjs` — 로그 16명에게 3거리 × 8방향 384발. 소품에 막힌 탄 **rock 23 → 1**, wall · pole **12 → 0**. 남은 차단(nest 78 · terrain 14)은 실제로 가려진 경우다.
+  그 스모크가 만들자마자 같은 계열의 잔여 결함 하나를 더 잡았다: `hullOf` 의 `y` 가 `max(|min.y|, |max.y|)` 라서, 코를 박고 누운 **탈출 포드 껍데기**(min.y ≈ −1, max.y ≈ 0.4)의 총알 실린더가 그려진 것보다 **1.34 m 높았다**. `bb.max.y` 로 바꿔 0.41 m 로 내려왔다 (가운데가 원점인 나머지 소품은 값이 같아 변화 없음, 반지름을 안 건드리므로 시드별 배치도 그대로).
+  - `_tmp-app-origin.mjs` — 데스크톱 앱을 네 번 띄운다(CDP 로 렌더러에 붙어 localStorage 를 읽고 쓴다). 오리진 네 번 모두 `http://127.0.0.1:8790`, **정상 종료 뒤 유지 PASS · 강제 종료(SIGTERM) 뒤에도 유지 PASS**. 수정 전에는 실행마다 오리진이 달라 100 % 유실이었다.
+- 2026-09-09 Tab→ESC 메뉴 · 튜토리얼 행성 이동 · 제작 목록 (`src/shared/Input` 포함): `npm run verify:all` → typecheck ok, typecheck-server ok, net-selftest 295/295, data-check ok, build 2,332.04 kB JS / 238.80 kB CSS, smoke-quickslots 46/46, smoke-phase2 55/55, smoke-weapons 137/137, smoke-stratagems 72/72, smoke-phase3 33/33, **smoke-phase4 45/49 → `--rerun-failed` 49/49** (텔레포트 · 스태미나 · 근접 · 넉백 4건은 플레이어가 죽은 채로 도는 이 스크립트의 오래된 flake — 재실행으로 green), smoke-ship-rooms 72/72, smoke-tactical 87/87, **smoke-controls-hub 125/125** (락 튕김이 메뉴를 열지 않는다는 단언 1개 추가), **smoke-inventory-p6 124/124** (가방만 꽉 차면 창고가 받는다는 단언 1개 추가 + 만실 문구를 `가방과 함선 창고에 공간이 없습니다` 로), smoke-housing 203/203, smoke-console 63/63, smoke-search 61/61, smoke-loadout 62/62, smoke-progression 123/123, smoke-ui-p6 87/87, smoke-ui-p5 134/134, smoke-resume-gate 48/48, smoke-uniques 72/72, smoke-enemy-alert 42/42, smoke-meta 172/172, smoke-rogue-v2 52/52, smoke-training 112/112, smoke-library 126/126, smoke-enemy-delta 52/52, smoke-ghost 86/86, smoke-planets 86/86, smoke-ecology 85/85, smoke-raidflow 48/48, smoke-social 137/137, smoke-tutorial 67/67, smoke-hangar 58/58, e2e-mp 156/156 — **6분 33초**. 세 건 모두 스모크가 아니라 **일회용 재현 스크립트**로 먼저 잡았다 (락은 `pointerlockchange` 를 실제로 쏘는 충실한 스텁이 있어야 재현된다 — 기존 스모크는 그걸 통째로 스텁해 두고 있다).
 - 2026-09-09 UI/UX 정리 · 제작 수량 · 튜토리얼 18단계 (`src/shared` 계약 선커밋): `npm run verify:all` → typecheck ok, typecheck-server ok, net-selftest 278/278, data-check ok, build 2,263.13 kB JS / 223.18 kB CSS, smoke-quickslots 46/46, smoke-phase2 55/55, smoke-weapons 137/137, smoke-stratagems 70/70, smoke-phase3 32/32, smoke-ship-rooms 72/72, **smoke-phase4 45/49** (지난 회차부터 red — 클린 트리에서 stash 후 재현해 이번 작업과 무관함을 확인했다: 텔레포트 · 스태미나 · 근접 · 넉백 4건), smoke-tactical 87/87, smoke-controls-hub 121/121, **smoke-housing 203/203** (Tab · M · C 로 시설 관리를 닫아도 일시정지 메뉴가 뜨지 않는다는 회귀 단언 3개 추가), **smoke-inventory-p6 123/123** (제작 수량 · 썸네일 · 창고 숨김 단언 14개 추가), smoke-console 63/63, smoke-progression 123/123, smoke-loadout 61/61, smoke-search 61/61, smoke-ui-p6 87/87, smoke-ui-p5 133/133, smoke-resume-gate 48/48, smoke-enemy-alert 42/42, smoke-uniques 71/71, smoke-meta 173/173, smoke-training 112/112, smoke-library 126/126, smoke-rogue-v2 52/52, smoke-ghost 86/86, smoke-enemy-delta 52/52, smoke-raidflow 48/48, smoke-planets 86/86, smoke-ecology 85/85, **smoke-social 133/136 → 137/137** (옛 규칙 단언 3개를 새 규칙으로: 커서 아래 주차 → 왼쪽 절반 고정, 설정 좌측 레일 → 화면 중앙), **smoke-tutorial 67/67** (18단계 · openCraft · 재료 top-up · 판 타일링 · 패널 z-index · 홀드 건너뛰기 단언 10개 추가), smoke-hangar 58/58, e2e-mp 156/156 — **6분 27초**.
 
 - 2026-09-09 대화 UI · 창문 워프 · 키 가이드 (에이전트 3개 병렬, `src/shared` 계약 선커밋): `npm run verify` (shared 를 건드려 전체 매핑 + e2e-mp) → typecheck ok, typecheck-server ok, net-selftest 278/278, data-check ok, smoke-quickslots 46/46, smoke-phase2 55/55, smoke-weapons 137/137, smoke-stratagems 70/70, smoke-phase3 32/32, smoke-ship-rooms 72/72, smoke-phase4 49/49, smoke-controls-hub 121/121, smoke-tactical 87/87, smoke-inventory-p6 109/109, smoke-housing 200/200, smoke-console 63/63, smoke-progression 123/123, smoke-loadout 61/61, smoke-search 61/61, **smoke-ui-p6 87/87** (하우징 힌트 바 단언 5 → 키 가이드 단언 3), smoke-ui-p5 133/133, smoke-resume-gate 48/48, smoke-enemy-alert 42/42, smoke-uniques 71/71, smoke-meta 173/173, smoke-rogue-v2 52/52, smoke-training 112/112, smoke-library 126/126, smoke-enemy-delta 52/52, smoke-ghost 86/86, **smoke-planets 86/86** (컷씬 단언 2 → 창문 워프 단언 2), smoke-raidflow 48/48, smoke-social 135/136 → 옛 규칙(`전송 후 입력창 닫힘`) 단언 하나를 고쳐 `--rerun-failed` **136/136**, smoke-ecology 85/85, smoke-tutorial 57/57, smoke-hangar 58/58, e2e-mp 156/156 — **6분 13초**. 에이전트별 자체 스모크(비공개 포트): ui 54/54 · 화면들 46/46 · 워프 38/38.
@@ -816,6 +824,33 @@ smoke-tutorial 67/67, smoke-hangar 58/58, e2e-mp 156/156
 - `smoke-planets` (86) — 단말기 푸터에 `닫기 (E)` 만 있고 `타이틀로` 가 **없다**는 것.
 
 ---
+
+## 2026-09-09 — 핑 v3 · 채팅 IME/말풍선 · 무기 툴팁 게이지 · 탈출 60초 · 버그 근접 피해 절반
+
+`npm run verify` (ui · inventory · net · data 매핑 → 실질적으로 전부, 8분 2초) 뒤 실패 2건을 스모크 수정으로 잡고
+`--rerun-failed` 통과:
+
+```
+2026-09-09: typecheck ok, typecheck-server ok, net-selftest 295/295, data-check ok,
+smoke-quickslots 46/46, smoke-phase2 55/55, smoke-weapons 137/137, smoke-stratagems 72/72,
+smoke-phase3 33/33, smoke-phase4 49/49, smoke-ship-rooms 72/72, smoke-tactical 87/87,
+smoke-controls-hub 125/125, smoke-inventory-p6 124/124, smoke-housing 203/203, smoke-console 63/63,
+smoke-progression 123/123, smoke-loadout 62/62, smoke-search 61/61, smoke-ui-p6 87/87,
+smoke-ui-p5 134/134, smoke-resume-gate 48/48, smoke-uniques 72/72, smoke-enemy-alert 42/42,
+smoke-meta 172/172, smoke-rogue-v2 52/52, smoke-library 126/126, smoke-enemy-delta 52/52,
+smoke-training 112/112, smoke-ghost 86/86, smoke-raidflow 48/48, smoke-social 137/137,
+smoke-planets 86/86, smoke-ecology 85/85, smoke-props-collision 20/20, smoke-tutorial 67/67,
+smoke-hangar 58/58, e2e-mp 156/156
+```
+
+**고친 스모크 3건** — 전부 설계가 바뀐 자리이거나 밸런스 수치를 박아 둔 자리다.
+
+- `smoke-ui-p5` (134) — 아이템 카드의 하단 바가 `무게(.wt) · 가치(.val)` 두 쪽이 됐다. 첫 `.k` 를 읽어 `가치` 를
+  단정하던 것을 `.val .k` 로 옮겼다.
+- `smoke-controls-hub` (124/125 → 125) — 재료 칩 카드의 `rows >= 3` 은 크기 · 무게 줄이 표에 있던 시절의 숫자다.
+  이제 `rows >= 1`, 표에 `크기` · `무게` 가 **없고** 하단 바 왼쪽이 `무게` 인지를 본다.
+- `smoke-enemy-alert` (40/42 → 42) — **스캐빈저 물기 피해 `8` 이 박혀 있었다.** 버그 근접 피해를 절반으로 내리자
+  두 단정이 깨져서 `data/enemies.csv` 의 `attackDamage` 를 읽어 비교한다(`BITE`).
 
 ## 2026-09-09 — 사망/시체 · 구조선 · 분대장 · 전장의 안개 · 지형지물 콜리전
 

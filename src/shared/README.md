@@ -771,3 +771,40 @@ Plan: `docs/DECISIONS.md`. Everything below is append-only; owners in brackets.
   - `progression.ts` 의 `PlayerProfile` 에 `accent` · `createdAt` · `playedAt` 추가 (전부 옵션).
   - `constants.ts`: `CHARACTER_SLOTS` · `CHAR_STAT_MIN` · `CHAR_STAT_MAX` · `CHAR_STAT_TOTAL` ·
     `CHAR_NAME_RANDOM_MAX` · `UI_HOLD_CONFIRM_S`. `HUB_WARP_SHAKE_PEAK` 0.28 → **0.14** (워프가 너무 흔들렸다).
+
+### 2026-09-09 — 포인터 락이 튕겨 나온 것을 Escape 로 읽지 않는다
+
+**증상:** 하우징 모드(시설 관리 · 방 꾸미기)를 **Tab 으로 닫으면 ESC 메뉴가 혼자 떴다.** 전체화면 브라우저와
+데스크톱 앱(`SCAVANGER.exe`)에서만 났고 창 모드에서는 안 났다.
+
+**뿌리는 하우징이 아니라 `Input` 이다.** 화면 · 모드가 닫히면 `main.ts` 가 락을 다시 요청하는데, 전체화면
+Chrome 과 Electron 셸은 그 락을 넘겨줬다가 곧바로 도로 가져갈 때가 있다. 그 두 번째 `pointerlockchange` 는
+`selfExit` 가 아니고 `wantLock` 은 켜져 있으므로 `onUserUnlock` → `input:pointerLockLost` → `escapePause()`
+경로를 그대로 탔다 — 게임은 그것을 플레이어가 누른 Escape 로 읽었다. 하우징 전용 증상이 아니라 **닫으면서 락을
+되찾는 화면 전부**(인벤토리 · 지도 · 터미널 · 정비 벤치 …)가 같은 뿌리를 공유했고, 실제로 인벤토리를 Tab 으로
+닫아도 똑같이 재현됐다.
+
+`pointerlockchange` 가 우리 요청(`lastLockRequest`) 뒤 **`LOCK_BOUNCE_GRACE_MS`(400 ms, `data/constants.csv`)**
+안에 락이 사라졌다고 알려 오면 그것은 플레이어가 아니다 — 메뉴를 띄우지 않고 이미 있던 제스처 재시도
+(`armLockGestureRetry`)만 걸어, 다음 키 · 클릭에서 카메라가 돌아온다. 이 창 안에서 진짜 Escape 를 놓쳐도
+손해는 없다: 락이 없는 Escape 는 진짜 keydown 으로 들어와 `GameFlowSystem.update` 가 그대로 메뉴를 연다.
+`scripts/smoke-controls-hub.mjs` 에 튕김 케이스가 한 줄 추가됐다.
+
+### 2026-09-09 — 핑 v3 (함선 핑 · 플레이어별 3개 · 확인 핑) · 채팅 입력 말풍선
+
+전부 **추가만** 이다.
+
+- `net.ts` `PingMessage.seq?` — 보낸 쪽의 핑 일련번호. 분대원이 이 번호로 그 핑을 지목해 확인(`알겠다`)할 수 있다.
+  없으면(옛 발신자) 확인할 수 없는 핑이다.
+- `net.ts` `PingAckMessage { t: 'pingack'; owner; seq }` (GameMessage 유니온에 추가) — 분대원 핑 위에 다시 핑을
+  찍은 "알겠다". 받는 쪽은 그 핑에 확인한 사람의 **분대 색 원**을 덧그리고 채팅에는 발신자가 보낸 일반 핑 채팅 줄
+  (`<이름>: 알겠다고 확인.`)이 흐른다. 소유자는 `ui/hud/Pings`.
+- `events.ts` `ping:acked {id, by, name, slot}` — 로컬 · 원격 확인 모두 발행 (`by: null` = 나).
+- `net.ts` `PlayerFlags.TYPING` (1<<28) — 채팅 입력창이 열려 있다. `net/Snapshotter` 가 `ui:chatToggled` 로 켜고 끄며
+  원격 아바타 머리 위 `…` 말풍선(`ui/hud/TypingBubbles`)이 이것을 읽는다. 호스트 고스트는 이 비트를 지운다.
+- `constants.ts` `PING_MAX_PER_PLAYER`(3) · `PING_AIM_ASSIST_PX`(56) — `data/constants.csv`. 핑 상한이 "내 핑 3개 +
+  분대원 1인 1개" 에서 **플레이어별 3개**로 바뀌었고, 핑 조준은 조준점 반경 56 px 안의 적 · 아이템 · 상자 · 분대
+  핑을 관대하게 잡는다.
+- `data/constants.csv` `EXTRACTION_COUNTDOWN` 120 → **60**. `data/enemies.csv` 버그 근접 `attackDamage` 전부 절반
+  (특수 능력 피해는 그대로).
+

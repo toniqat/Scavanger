@@ -603,6 +603,12 @@ export interface GameEvents {
   /* ── 지도 핑 (owner: ui — map screen → ping system, in-folder) ── */
   /** A ping was asked for at a world position by a surface with no aim ray (tactical-map middle click). */
   'ping:requestAt': { position: THREE.Vector3; kind: PingKind };
+  /* ── appended (2026-09-09): 확인 핑 (owner: ui/hud/Pings) ── */
+  /**
+   * Somebody pinged an existing squad ping to say 알겠다. `id` = the acknowledged ping's local id (as in `ping:placedV2`),
+   * `by` = the acker (null = the local player), `slot` = their lobby slot (colour). Fired for local and remote acks.
+   */
+  'ping:acked': { id: number; by: PeerId | null; name: string; slot: number };
 
   /* ── 마우스 커서 모드 (owner: shared/cursor.ts + Input; the art is ui/hud/GameCursor) ── */
   /**

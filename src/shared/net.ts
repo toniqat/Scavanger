@@ -333,6 +333,9 @@ export const PlayerFlags = {
   CARRYING: 1 << 26,
   /** This player is carried by a squadmate (DOWNED is set too; ignore their `p`, use the carrier's socket). */
   CARRIED: 1 << 27,
+  /* appended (2026-09-09): 채팅 입력 중 말풍선 */
+  /** Chat input is open (typing). Set by net from `ui:chatToggled`; remotes draw a `…` speech bubble over the head. */
+  TYPING: 1 << 28,
 } as const;
 
 /** Local player state → everyone, NET_PLAYER_SNAPSHOT_HZ. Owner: net (built from ctx.player / ctx.inventory). */
@@ -533,7 +536,21 @@ export type FlowMessage =
   | { t: 'flow'; ev: 'takeover' };
 
 /** Any → all: a tactical ping. Owner: ui/hud/Pings. `label` (appended) = item name for 'item' pings. */
-export interface PingMessage { t: 'ping'; p: Vec3Tuple; kind: PingKind; label?: string; enemyId?: number }
+export interface PingMessage {
+  t: 'ping'; p: Vec3Tuple; kind: PingKind; label?: string; enemyId?: number;
+  /**
+   * appended (2026-09-09): sender-local sequence number of this ping, so a squadmate can name it in a `PingAckMessage`.
+   * Older senders omit it — such pings cannot be acknowledged.
+   */
+  seq?: number;
+}
+
+/**
+ * appended (2026-09-09): any → all — "알겠다" on a squadmate's ping. `owner` is the peer who placed the ping and `seq`
+ * its `PingMessage.seq`. The receiver draws the acker's slot-colour ring on that ping and posts
+ * `<이름>이(가) 알겠다고 확인.` to the chat. Owner: ui/hud/Pings.
+ */
+export interface PingAckMessage { t: 'pingack'; owner: PeerId; seq: number }
 
 /** Any → all: crate opened (so other clients mark it looted). Owner: world/inventory. */
 export interface CrateMessage { t: 'crate'; id: string; ev: 'opened' | 'looted' }
@@ -623,6 +640,8 @@ export type GameMessage =
   | CrewRequest
   /* appended (2026-09-08): client → host bullet report (owner: enemies) */
   | ShotReport
+  /* appended (2026-09-09): ping acknowledgement (owner: ui/hud/Pings) */
+  | PingAckMessage
   /* appended (2026-09-08): 공용 함선 격납고 — 개인 함선 방문 (owner: hub) */
   | ShipVisitMessage
   | ShipVisitRequest

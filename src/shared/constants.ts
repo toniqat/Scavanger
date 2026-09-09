@@ -851,6 +851,7 @@ export const FREE_CURSOR_BLOCKER = 'cursor';
 
 /** How long a denied pointer-lock request keeps waiting for the next real user gesture to retry (ms). */
 export const LOCK_GESTURE_RETRY_MS = K.num('LOCK_GESTURE_RETRY_MS');
+export const LOCK_BOUNCE_GRACE_MS = K.num('LOCK_BOUNCE_GRACE_MS');
 
 /* ══ appended: Phase 11 — 행성 선택 · 소셜 (2026-09-07) ═════════════════════════════════════════════════════ */
 
@@ -1035,3 +1036,9 @@ export const ENEMY_SPAWN_RETRIES = K.num('ENEMY_SPAWN_RETRIES');
 export const PROP_STEP_UP_MAX = K.num('PROP_STEP_UP_MAX');
 /** 장애물 윗면 판정에 쓰는 여유(m) — 가장자리에서 미끄러져 떨어지지 않게 한다. */
 export const PROP_TOP_MARGIN = K.num('PROP_TOP_MARGIN');
+
+/* ── 핑 v3 (2026-09-09, owner: ui/hud/Pings) ── */
+/** 한 플레이어가 동시에 유지하는 핑 수 (나도 분대원도). 넘치면 그 사람의 가장 오래된 핑이 사라진다. */
+export const PING_MAX_PER_PLAYER = K.num('PING_MAX_PER_PLAYER');
+/** 핑 조준 보정 — 조준점에서 이 화면 거리(px) 안의 적 · 아이템 · 상자 · 분대 핑은 정확히 맞추지 않아도 찍힌다. */
+export const PING_AIM_ASSIST_PX = K.num('PING_AIM_ASSIST_PX');

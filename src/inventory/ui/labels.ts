@@ -1,5 +1,5 @@
-import type { AmmoType, EffectiveWeaponStats, ItemDef, LoadoutSlot, WeaponDef, WeightState } from '@/shared';
-import { Keys, WEAPON_GRADE_ROMAN, WEIGHT_STATE_LABEL_KO, formatCreditAmount, formatCredits, keyLabel } from '@/shared';
+import type { AmmoType, EffectiveWeaponStats, ItemDef, LoadoutSlot, SocketSlot, WeaponDef, WeightState } from '@/shared';
+import { Keys, SOCKET_LABEL_KO, WEAPON_GRADE_ROMAN, WEIGHT_STATE_LABEL_KO, formatCreditAmount, formatCredits, keyLabel } from '@/shared';
 import { AMMO_LABEL_KO, CATEGORY_LABEL_KO, RARITY_COLORS, RARITY_LABEL_KO, WEAPON_CLASS_LABEL_KO, getTierLabel, weaponClassOf } from '@/items';
 
 export const CELL = 54;   // px — default grid cell edge (the Tab window / container grids)
@@ -36,6 +36,11 @@ export const fmtDeg = (rad: number): string => `${(rad * 180 / Math.PI).toFixed(
 export const fmtMul = (m: number): string => `${m < 1 ? '−' : '+'}${Math.round(Math.abs(1 - m) * 100)} %`;
 /** Durability thresholds shared by tiles / tooltip. */
 export const DURABILITY_LOW = 0.3;
+/* 2026-09-09: tooltip socket squares — two-letter caption of an empty socket and the square's `title`. */
+/** `총구` → `총구`, `개머리판` → `개머`, `조준경` → `조준` — the muted caption of an empty socket square. */
+export const socketAbbr = (s: SocketSlot): string => SOCKET_LABEL_KO[s].slice(0, 2);
+/** `조준경: 없음` / `총구: 소음기` — hover title of one socket square. */
+export const socketTip = (s: SocketSlot, attachmentName?: string): string => `${SOCKET_LABEL_KO[s]}: ${attachmentName ?? TEXT.socketNone}`;
 
 export const SLOT_LABEL: Readonly<Record<LoadoutSlot, string>> = {
   primary: '주무기 I', primary2: '주무기 II', secondary: '보조무기', bag: '가방', armor: '방탄복',
@@ -153,6 +158,15 @@ export const TEXT = {
   craftNone: '지금 만들 수 있는 레시피가 없습니다',
   craftHold: '길게 눌러 제작',
   craftMaking: '제작 중…',
+  /**
+   * 2026-09-09: 산출물이 갈 데가 없으면 홀드 버튼이 이 문구로 바뀌며 비활성화된다 (`CraftPanel.paint`).
+   * 함선 작업대는 가방 → 창고 순으로 보므로 (`Crafting.roomForOutputs`) 두 곳을 다 말한다.
+   */
+  craftNoRoomShip: '가방·창고 공간 부족',
+  craftNoRoomField: '가방 공간 부족',
+  /** 비활성 버튼의 `title` — 왜 못 누르는지 한 문장으로. */
+  craftNoRoomTipShip: '만든 것을 넣을 자리가 없습니다 — 가방과 함선 창고를 비우세요',
+  craftNoRoomTipField: '만든 것을 넣을 자리가 없습니다 — 가방을 비우세요',
   /* 제작 수량 (2026-09-09) — `◀ 90 ▶` 위의 라벨과 화살표 버튼의 접근성 이름. */
   craftCount: {
     label: '제작 수량',
@@ -164,6 +178,8 @@ export const TEXT = {
   craftStationShip: '함선 작업대',
   craftStationField: '야전 제작',
   socketEmpty: '비어 있음',
+  /** 2026-09-09: `조준경: 없음` in a tooltip socket square's title (`socketTip`). */
+  socketNone: '없음',
   broken: '고장',
   auto: '자동', semi: '반자동', pellets: '펠릿',
   /* Phase 6: 무한 상자 (cheat catalog) */
@@ -206,8 +222,13 @@ export const TEXT = {
     done: '분해 완료',
     fail: '분해할 수 없습니다',
     close: '닫기',
-    /** 2026-09-08: the bag is checked **before** the hold now, so this is a refusal, not a post-mortem. */
+    /**
+     * 2026-09-08: the bag is checked **before** the hold now, so this is a refusal, not a post-mortem.
+     * 2026-09-09: 함선에서는 결과물이 가방 → 창고 순으로 들어가므로 (`Crafting.roomForOutputs`) 거기서는
+     * 두 곳을 다 말한다. `noRoom` 은 레이드(창고 없음) 쪽 문구로 남는다.
+     */
     noRoom: '가방에 공간이 없습니다',
+    noRoomShip: '가방과 함선 창고에 공간이 없습니다',
   },
   /** Shared close affordance of the modeless popups (임플란트 / 제작 / 분해). */
   modelessClose: '닫기',

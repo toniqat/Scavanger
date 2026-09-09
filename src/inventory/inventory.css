@@ -505,7 +505,7 @@ kbd {
   position: fixed;
   left: 0; top: 0;
   z-index: 70;
-  width: 264px;
+  width: 312px; /* 2026-09-09: was 264 — room for the 2×2 gauge grid + the ammo thumbnail */
   padding: 12px 14px 12px;
   pointer-events: none;
   background: linear-gradient(180deg, rgba(14, 17, 22, 0.96), rgba(9, 11, 15, 0.96));
@@ -516,8 +516,35 @@ kbd {
   animation: inv-tt-in 120ms var(--inv-ease) both;
 }
 @keyframes inv-tt-in { from { opacity: 0; } to { opacity: 1; } }
-.inv-tt-head { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
+/* 2026-09-09: the head is a row — name + sub on the left, the ammo calibre thumbnail (weapons) in the right corner */
+.inv-tt-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.inv-tt-head-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .inv-tt-name { font-size: 14px; font-weight: 600; color: color-mix(in srgb, var(--rc) 80%, white 30%); }
+.inv-tt-ammo {
+  --ic: #9aa3ad;
+  position: relative;
+  flex: none;
+  width: 44px; height: 44px;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--ic) 55%, rgba(255, 255, 255, 0.18));
+  border-radius: 3px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--ic) 14%, rgba(255, 255, 255, 0.03)), rgba(255, 255, 255, 0.02));
+  box-shadow: inset 0 0 12px color-mix(in srgb, var(--ic) 12%, transparent);
+}
+.inv-tt-ammo .ico {
+  position: relative; top: -5px;
+  font-size: 18px; line-height: 1;
+  color: color-mix(in srgb, var(--ic) 85%, white 25%);
+  text-shadow: 0 0 8px color-mix(in srgb, var(--ic) 55%, transparent), 0 1px 0 rgba(0, 0, 0, 0.6);
+}
+.inv-tt-ammo .cap {
+  position: absolute; left: 0; right: 0; bottom: 2px;
+  font-size: 8px; line-height: 1.1; letter-spacing: 0.02em; text-align: center;
+  color: rgba(233, 236, 239, 0.75);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.inv-tt-ammo.is-unknown { border-style: dashed; }
+.inv-tt-ammo.is-unknown .cap { position: static; font-size: 9px; color: var(--inv-muted); white-space: normal; padding: 0 3px; }
 .inv-tt-sub { font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--inv-muted); }
 .inv-tt-desc { margin: 0 0 10px; color: rgba(233, 236, 239, 0.8); font-size: 12px; line-height: 1.45; }
 .inv-tt-stats {
@@ -543,22 +570,85 @@ kbd {
   color: color-mix(in srgb, var(--inv-bad) 85%, white 15%);
 }
 .inv-tt-repair { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
+/* 2026-09-09: weapon gauges — 2×2 grid of label / two-layer bar / small number, normalised to the catalog maximum.
+   `.fill` = the bare def value (white), `.bonus` = the socketed surplus (green), `.reduced` = the span a socket took
+   away (hollow green outline over the empty track). */
+.inv-tt-gauges {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 14px;
+  margin-bottom: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--inv-line);
+}
+.inv-tt-gauge {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas: "k n" "t t";
+  align-items: baseline;
+  column-gap: 6px;
+  row-gap: 3px;
+  font-size: 10px;
+}
+.inv-tt-gauge .k { grid-area: k; color: var(--inv-muted); letter-spacing: 0.06em; }
+.inv-tt-gauge .n {
+  grid-area: n;
+  font-family: var(--ui-mono, ui-monospace, monospace);
+  font-size: 9.5px;
+  font-variant-numeric: tabular-nums;
+  color: rgba(233, 236, 239, 0.55);
+  white-space: nowrap;
+}
+.inv-tt-gauge.is-bonus .n { color: var(--c-success, #5ee08a); }
+.inv-tt-gauge.is-reduced .n { color: var(--c-success, #5ee08a); }
+.inv-tt-gauge .track {
+  grid-area: t;
+  position: relative;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.09);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+  overflow: hidden;
+}
+.inv-tt-gauge .track i { position: absolute; top: 0; bottom: 0; display: block; }
+.inv-tt-gauge .fill { left: 0; border-radius: 3px; background: rgba(255, 255, 255, 0.88); }
+.inv-tt-gauge .bonus { border-radius: 0 3px 3px 0; background: var(--c-success, #5ee08a); box-shadow: 0 0 6px color-mix(in srgb, var(--c-success, #5ee08a) 60%, transparent); }
+.inv-tt-gauge .reduced { box-sizing: border-box; border: 1px solid var(--c-success, #5ee08a); border-radius: 0 3px 3px 0; background: transparent; }
+
+/* 2026-09-09: the five sockets as a row of small squares — attachment glyph (its colour) with a rarity border,
+   or a dashed empty square with the two-letter socket caption. Hover title = `조준경: 없음` / `총구: 소음기`. */
 .inv-tt-sockets {
   display: flex;
-  flex-direction: column;
-  gap: 3px;
+  gap: 6px;
   margin-top: 8px;
   padding-top: 8px;
   border-top: 1px solid var(--inv-line);
-  font-size: 11px;
 }
-.inv-tt-sockets-title { margin-bottom: 2px; font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--inv-muted); }
-.inv-tt-socket { display: flex; justify-content: space-between; gap: 12px; }
-.inv-tt-socket .k { color: var(--inv-muted); letter-spacing: 0.06em; }
-.inv-tt-socket .v { color: rgba(233, 236, 239, 0.4); }
-.inv-tt-socket.is-filled .v { color: var(--inv-text); }
+.inv-tt-sock {
+  --ic: #9aa3ad;
+  --sc: rgba(255, 255, 255, 0.22);
+  flex: none;
+  width: 34px; height: 34px;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px dashed var(--sc);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.025);
+}
+.inv-tt-sock .cap { font-size: 9px; letter-spacing: 0.04em; color: rgba(233, 236, 239, 0.35); }
+.inv-tt-sock.is-filled {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--sc) 70%, rgba(255, 255, 255, 0.2));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--ic) 14%, rgba(255, 255, 255, 0.03)), rgba(255, 255, 255, 0.02));
+  box-shadow: inset 0 0 10px color-mix(in srgb, var(--ic) 12%, transparent), 0 0 6px color-mix(in srgb, var(--sc) 25%, transparent);
+}
+.inv-tt-sock .ico {
+  font-size: 16px; line-height: 1;
+  color: color-mix(in srgb, var(--ic) 85%, white 25%);
+  text-shadow: 0 0 8px color-mix(in srgb, var(--ic) 55%, transparent), 0 1px 0 rgba(0, 0, 0, 0.6);
+}
 
-/* Phase 10: 가치 as the card's bottom bar (label left, amount right; a stack adds `단가 × 수량`) */
+/* Phase 10: 가치 as the card's bottom bar. 2026-09-09: two-ended — 무게 left (items with `def.weight`), 가치 right;
+   a stack adds `단가 × 수량`. */
 .inv-tt-value {
   display: flex;
   align-items: baseline;
@@ -571,7 +661,9 @@ kbd {
   font-size: 11px;
 }
 .inv-tt-value .k { color: var(--inv-muted); letter-spacing: 0.16em; text-transform: uppercase; }
-.inv-tt-value-amount { display: flex; align-items: baseline; gap: 8px; font-variant-numeric: tabular-nums; }
+.inv-tt-weight { display: flex; align-items: baseline; gap: 6px; font-variant-numeric: tabular-nums; }
+.inv-tt-weight .v { color: var(--inv-text); font-size: 12px; }
+.inv-tt-value-amount { display: flex; align-items: baseline; gap: 8px; margin-left: auto; font-variant-numeric: tabular-nums; }
 .inv-tt-value-unit { color: var(--inv-muted); font-size: 10px; }
 .inv-tt-value-total { color: var(--inv-accent); font-size: 13px; font-weight: 600; }
 
@@ -984,6 +1076,11 @@ kbd {
 .inv-craft-row.is-locked .item-chip-thumb { filter: saturate(0.5) brightness(0.8); }
 .inv-craft-row.is-locked .inv-craft-thumb { filter: saturate(0.5) brightness(0.8); }
 .inv-craft-row.is-crafting { border-color: var(--inv-accent); }
+/* 2026-09-09: 재료는 있는데 **넣을 자리**가 없는 줄. `.is-locked` 와 달리 레시피 자체는 멀쩡하므로 줄을 어둡게
+ * 깔지 않고 테두리 · 썸네일만 경고색으로 짚어 준다 — 눌러도 안 되는 이유는 버튼 라벨이 글자로 말한다. */
+.inv-craft-row.is-nospace { border-color: color-mix(in srgb, var(--inv-bad) 55%, var(--inv-line)); }
+.inv-craft-row.is-nospace .inv-craft-thumb { filter: saturate(0.55) brightness(0.85); }
+.inv-craft-row.is-nospace .inv-craft-btn { color: var(--inv-bad); }
 .inv-craft-info { display: flex; flex-direction: column; gap: 5px; min-width: 0; flex: 1; }
 .inv-craft-name { font-size: 13px; font-weight: 600; }
 /* `.inv-craft-desc` (레시피 설명 줄) 은 2026-09-09 에 마크업에서 빠졌다 — 썸네일과 `이름 ×n` 이 그 자리를 한다. */

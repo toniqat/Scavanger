@@ -40,8 +40,8 @@
 | `ui/DisassemblePanel.ts` | **Phase 8** — the **아이템 분해** dialog: a `Modeless` showing the **expected result** (`재료` input chip with 보유/필요 → `결과물` output chip ×n, both `buildItemChip` from `@/shared`) and a `분해` button that runs the item's `break_*` recipe through `InventorySystem.craft` (a second click cancels). **2026-09-08**: the button **is** the progress bar (`.inv-craft-fill`) — the `1회 분해 · n s` hint line and the separate `.inv-dis-bar` under it are gone — and the bag is checked **before** the hold (`InventorySystem.craftHasRoom`), so a full bag disables the button up front with `가방에 공간이 없습니다` on it instead of failing after 2 s. `open(uid)` / `close()` / `refresh()` / `isOpen` / `itemUid` / `barEl` (now the button) / `progress`; emits `ui:disassembleToggled {open, uid}` on both edges and closes itself when the source stack is gone |
 | `ui/ImplantPanel.ts` | **임플란트 칸** (2026-09-08, 캐릭터 시트에서 이사). 장착 장비 격자(`.inv-equip-grid`) 바로 아래 `.inv-implants` 블록 두 개: **전술 임플란트** 슬롯 카드 + 모달리스 피커(`.inv-imp-pop`, 6종 카드, `ctx.implants.setEquipped`)와 **임플란트 아이템** (`임플란트 n / m칸` + 핍 줄, 장착한 것 한 줄씩(클릭 = 해제), `+ 장착` → `.inv-impi-pop` 이 가방 + 함선 창고의 후보를 나열; 망가짐 / 장착칸 부족은 사유와 함께 비활성). 두 피커 모두 **`ctx.uiRoot` 직속 자식**이다 (`.inv-root` 의 열림 애니메이션이 남기는 `scale:` 이 `position: fixed` 팝업의 컨테이닝 블록이 되므로). 능력치 임플란트는 `ctx.progression`, 전술 임플란트는 `ctx.implants` 로만 오간다 — 상태를 하나도 들고 있지 않다. `closePickers()` 가 `closeOverlays()` 사슬에 들어가 Escape 한 번을 먹는다. |
 | `ui/CrewLoadoutView.ts` | **Phase 10** — `createCrewLoadoutView(host, loadout, opts)`: a **read-only** 장비 / 가방 / 빠른 사용 view of another member's `captureCrewLoadout()` document (발사 준비 패널 → 우클릭). `sanitizeLoadoutSave` validates, `reviveItem` mints the items onto a throwaway `Grid`, `GridView` + `buildTileContent` draw them with no-op handlers. Blocks `['equip','bag','quick']` (no 함선 창고, no 크레딧), unknown def ids skipped, `EmbeddedView` (no blocker / pointer lock / Escape listener) — see the last section |
-| `ui/Tooltip.ts` | Hover card (name, category · rarity, description; weapons: 종류 / 등급 / 대미지 / 탄창 / 장전 / 연사 / 반동 / 정조준 시간 / 재장전 / 발사 모드 / 탄종 / 유효 사거리 / 배율 / 내구도 from `ctx.loot.getEffectiveStats` + the five sockets; attachments: socket, 호환, effects; bags: grid + 퀵슬롯; **서적 (Phase 9)**: 스킬 (한국어 name via the new `TooltipLookups.getSkillName` → `ctx.progression.getSkillDef`, the raw id as fallback) + 용도 `서재 책장에 꽂으면 해당 스킬 XP 증가`; qty, size, value) |
-| `ui/labels.ts` | Cell metrics (`CELL=54`, `GAP=2`, `STEP`), `SLOT_LABEL` / `SLOT_KEY`, `QUICK_DIR_GLYPH` (▲ ◥ ► ◢ ▼ ◣ ◄ ◤), `QUICK_ROSE_ORDER` (3×3 DOM order), Korean UI strings (hints, menu, quick panel, split dialog, stat labels, **`search`**: `?` / `???` / `감정 중 · n개 남음` / `감정 완료` / denied toast), formatters (`fmtDeg`, `fmtMul`, `gradeLabel`), `DURABILITY_LOW` (0.3). **Phase 8**: `TEXT.tabs` gained `ship` / the per-tab hints / `unavailable`, `TEXT.disassemble` (분해 dialog), `TEXT.modelessClose`, `TEXT.catalog.tabs.seed`, and **`TEXT.credits.value` returns the bare number** so the pill reads `CREDITS 500`. **Phase 9**: `TEXT.bookStats` (스킬 / 용도 / the 서재 책장 line) and `TEXT.catalog.tabs.book` (`서적`). **Phase 10**: `fmtValue` = `formatCredits` from `@/shared` (`1,200 C`, no `₩`) and `TEXT.credits.value` = `formatCreditAmount` |
+| `ui/Tooltip.ts` | Hover card (name, category · rarity, description; attachments: socket, 호환, effects; bags: grid + 퀵슬롯; **서적 (Phase 9)**: 스킬 (한국어 name via the new `TooltipLookups.getSkillName` → `ctx.progression.getSkillDef`, the raw id as fallback) + 용도 `서재 책장에 꽂으면 해당 스킬 XP 증가`; qty). **2026-09-09 무기 카드 재설계**: 대미지 · 연사 · 반동 · 사거리 are a **2×2 게이지 격자** (`.inv-tt-gauges`, bar = value ÷ the **catalog maximum** of that stat, computed lazily once from `TooltipLookups.allWeaponItemDefs()` × `getBaseStats(defId)` = `LootRef.getEffectiveStats(defId)`; damage = `damage × pellets`, range = `effectiveRange(weapon)`; the raw number stays small at the right). Two layers per bar: the bare def value in **white**, a socket surplus as a **green `.bonus`** segment, a socket reduction (muzzle brake on 반동) as a **hollow green `.reduced` outline** over the removed span. The head's right corner holds the **탄종 썸네일** (`.inv-tt-ammo`, `findAmmoDef(type)` → the `ammo` item's glyph in its colour + the calibre name as a caption inside; no ammo def → dashed square with the label alone). The five sockets are a **row of 34 px squares** (`.inv-tt-sock`: attachment glyph + rarity border, or dashed + `socketAbbr`; `title` = `조준경: 없음` / `총구: 소음기`). Kept rows: 장전 `n / max` (that is where the mag size lives now), 발사 모드, 배율, 내구도 (`is-low` / `is-broken`). **Gone for every item**: 크기 and 무게 rows — the bottom bar (`.inv-tt-value`) is two-ended, **무게 left** (stack total, only with `def.weight`) and **가치 right** |
+| `ui/labels.ts` | Cell metrics (`CELL=54`, `GAP=2`, `STEP`), `SLOT_LABEL` / `SLOT_KEY`, `QUICK_DIR_GLYPH` (▲ ◥ ► ◢ ▼ ◣ ◄ ◤), `QUICK_ROSE_ORDER` (3×3 DOM order), Korean UI strings (hints, menu, quick panel, split dialog, stat labels, **`search`**: `?` / `???` / `감정 중 · n개 남음` / `감정 완료` / denied toast), formatters (`fmtDeg`, `fmtMul`, `gradeLabel`), `DURABILITY_LOW` (0.3). **Phase 8**: `TEXT.tabs` gained `ship` / the per-tab hints / `unavailable`, `TEXT.disassemble` (분해 dialog), `TEXT.modelessClose`, `TEXT.catalog.tabs.seed`, and **`TEXT.credits.value` returns the bare number** so the pill reads `CREDITS 500`. **Phase 9**: `TEXT.bookStats` (스킬 / 용도 / the 서재 책장 line) and `TEXT.catalog.tabs.book` (`서적`). **Phase 10**: `fmtValue` = `formatCredits` from `@/shared` (`1,200 C`, no `₩`) and `TEXT.credits.value` = `formatCreditAmount`. **2026-09-09**: `socketAbbr(slot)` (two-letter caption of an empty tooltip socket square) · `socketTip(slot, name?)` (`조준경: 없음` / `총구: 소음기`) · `TEXT.socketNone` |
 | `inventory.css` | Styles (imported by `InventoryUI.ts`); scoped under `.inv-*` (`.inv-quick*` for the wheel panel, `.inv-tile-quick` badge, `.inv-cat-*` catalog, `.inv-repair-*` bench repair list, **Phase 7** `.is-hidden-item` footprint mask, `.inv-tile-scan` bottom-to-top gauge (`::before` height = `--p`) under the moving sheen, `.is-scanning`, `.inv-search-status` (`is-done` / `is-paused`; **2026-09-07** a fixed `min-width` so 감정 중 ↔ 감정 완료 cannot resize the container panel), `.inv-footer` (fixed-height slot shared by the hints and the drop zone; collapsed in `.is-hub`), `.is-pending` pulse; **Phase 8** `.inv-screen` / `.inv-screen-note` embedded-screen host, `.inv-modeless-layer` / `.inv-modeless[-implant|-craft|-disassemble]` / `.inv-modeless-head` / `.inv-modeless-body` / `.inv-modeless-close` / `.is-centred`, `.inv-dis-*` dialog, `.inv-craft-costs`, `.inv-menu-line` / `.inv-menu-item.has-costs` / `.inv-menu-costs`), no dependency on `src/ui/styles` — **except** the `.item-chip*` rules of `buildItemChip` / `renderItemCost`, which `src/ui/styles/base.css` owns (Phase 8 contract) |
 | `__selftest__.ts` | `runInventorySelfTest()` — console.assert checks for grid/rotation/stack/split-merge, `resize` (grow/shrink/overflow/priority/snapshot-restore), sockets (`Sockets.ts` + `canAttach` + effective stats), quick slots (auto-assign under 2 / 6 usable slots, move, clear, prune, consume-to-0 relink, signature), loot determinism, starter ids (dev use; exported via `@/inventory`, run from the browser console or `scripts/smoke-quickslots.mjs`) |
 | `index.ts` | Barrel — import via `@/inventory` |
@@ -174,7 +174,7 @@ re-equips from.
 **System API / events**
 - `dropItem(uid, qty?)` — searches bag, open container and equipment slots. Weapons/bags/attachments always drop as the whole `ItemInstance` (sockets, durability and rounds travel with it; `pickups/` forwards them as `ex`). Partial qty creates a new `ItemInstance` via `ctx.loot.createItem` and decrements the source. Emits `inventory:itemRemoved` (player-owned items only), `loadout:changed` (slot items) and `inventory:itemDropped { item, position, velocity }` with `position = eye − 0.3 m up + 0.4 m forward`, `velocity = forward × 3.5 + up 2.0`. The `pickups/` folder spawns and syncs the world object; inventory does no networking. UI plays `ui_drop`.
 - `splitItem(uid, qty)` — stackables only, `1 ≤ qty ≤ item.qty − 1`; the new stack is `place()`d at the first free slot of the same grid. Emits `inventory:itemSplit { source, created }`.
-- `requestItem(uid, from)` — `chat:post { kind: 'request' }` with `탄약 요청: <name> (<AMMO_LABEL_KO[getEffectiveStats(inst).ammoType]>)` for weapons or `<def.name> 필요` otherwise.
+- `requestItem(uid, from)` — `chat:post { kind: 'request' }` with **`탄약 필요: <AMMO_LABEL_KO[getEffectiveStats(inst).ammoType]>`** for weapons (2026-09-09: the weapon name is gone — the squad needs the calibre) or `<def.name> 필요` otherwise. Middle-click on a grid tile, an equipment-slot tile (`ui/parts/SlotPanel` → `beginPress`) and a quick-slot cell all reach it through `Drag.beginPress`'s `MIDDLE_BUTTON` branch; the context menu's `탄약 요청` / `요청` entries call it too.
 
 ## Known limits
 - Pickups dropped while in the hub (bag swap at the ship) settle in place but `pickups/` only lets the player take them during gameplay — swap bags with room to spare, or on a mission.
@@ -643,6 +643,32 @@ Data-driven off the frozen contract (`ItemCategory 'implant'`, `ItemDef.implant`
 
 ## 변경 이력
 
+- **2026-09-09 (아이템 툴팁 재설계 · `탄약 필요`)** — `ui/Tooltip.ts` + `inventory.css` (`.inv-tooltip` 폭 264 → 312 px).
+  ① **무기 카드의 숫자 표를 게이지로 바꿨다.** 종류 · 등급 · 대미지 · 탄창 · 연사 · 반동 · 정조준 시간 · 재장전 · 탄종 ·
+  유효 사거리 줄이 사라지고, 대미지 · 연사 · 반동 · 사거리는 **2×2 게이지 격자**(`.inv-tt-gauges`)다 — 라벨 + 가로 막대 +
+  작은 회색 숫자(`60` · `9 /s` · `2.40°` · `55 m`). 막대는 **카탈로그 최댓값**으로 정규화한다: `TooltipLookups.allWeaponItemDefs()`
+  (`ctx.loot.getAllItemDefs()` 중 `weaponId` 가 있는 것) 하나하나에 `getBaseStats(def.id)` = `LootRef.getEffectiveStats(defId)`
+  (등급 반영 · 소켓 없음)를 물어 `damage × pellets` · `fireRate` · `recoilV` · `effectiveRange(weapon)` 의 최대를 **툴팁당 한 번**
+  게으르게 잡는다 (`Tooltip.gaugeMaxima`). 그래서 산탄총 · 저격총은 대미지가, 저격총 · DMR 은 사거리가, SMG · 산탄총은 사거리가
+  낮게 읽힌다. 유니크 무기도 카탈로그에 들어가므로 (예: 미니건의 연사) 일반 무기의 연사 막대는 그 기준으로 짧아진다 — 의도.
+  ② **소켓 보너스 색.** 막대는 두 층이다 — 소켓 없는 정의값(`getBaseStats`)이 **흰색**, `getStats(item)` 이 그보다 크면
+  늘어난 구간이 **초록 `.bonus`**, 작으면(총구 브레이크의 반동) 흰 채움이 실효값까지 줄고 빠진 구간이 **속 빈 초록 윤곽
+  `.reduced`** 로 남는다. 사거리는 소켓 영향이 없어 한 층이다. 초록은 `var(--c-success, #5ee08a)` (이 파일은 base.css 를
+  import 하지 않으므로 fallback 을 적는다).
+  ③ **탄종 썸네일** (`.inv-tt-ammo`, 44 px, 머리글 오른쪽 구석): `findAmmoDef(type)` 이 카탈로그에서 `category 'ammo'` +
+  `ammoType` 이 같은 아이템을 찾아 그 글리프를 그 색으로, 아래 안쪽에 탄종 한국어 이름을 작게 쓴다. 수량은 없다. 탄약 아이템이
+  없는 탄종(유니크의 연료 · 전지 등)은 점선 사각형에 이름만.
+  ④ **소켓 5줄 → 정사각 썸네일 한 줄** (`.inv-tt-sock`, 34 px, `SOCKET_SLOTS` 순): 찬 칸은 부착물 글리프(그 색) + 희귀도
+  테두리, 빈 칸은 점선 + `socketAbbr` 두 글자. 부착물 스탯 글은 여기 없다 — 떼어서 그 카드를 읽는다. `소켓` 제목은 뺐고
+  칸마다 `title` (`조준경: 없음` / `총구: 소음기`, `labels.socketTip`).
+  ⑤ **모든 아이템**: `크기 w × h` 줄과 `무게` 줄 삭제. 하단 바(`.inv-tt-value`)가 **왼쪽 무게**(`def.weight` 가 있을 때만,
+  스택 합계 `fmtKg`) · **오른쪽 가치** 의 양끝 바가 됐다. 희귀도는 `분류 · 희귀도` 부제에 그대로. 남은 무기 줄은 `장전 n / max`
+  (탄창 크기는 여기서 읽는다) · 발사 모드 · 배율 · 내구도.
+  ⑥ `InventorySystem.requestItem` 의 무기 문구가 `탄약 요청: <무기> (<탄종>)` → **`탄약 필요: <탄종>`**. 비무기는
+  `<이름> 필요` 그대로. 장비 칸 타일도 `SlotPanel` → `beginPress` → `MIDDLE_BUTTON` 으로 같은 길을 이미 타고 있었다 (추가 없음).
+  `TooltipLookups` 에 `getBaseStats?` · `allWeaponItemDefs?` · `findAmmoDef?` 를 **추가만** 했고 `InventoryUI.mount` 가 `ctx.loot` 로
+  채운다. `TEXT.weaponStats` 의 안 쓰는 라벨(`weaponClass` · `grade` · `sockets` …)과 `gradeLabel` · `weaponClassLabel` 은 계약처럼 남겨 뒀다.
+
 - **2026-09-09 (사망 → 시체)** — 새 `parts/CorpseLoot.ts`: `InventoryRef.stripForCorpse()` (사망 시점의 전부를 뽑고 인벤토리를 비운다 — **완전 빈손 부활**) · `openContainerItemsSized()` (시체는 상자보다 큰 격자) · `pcorpse` 와이어로 시체 컨테이너 미리 만들기. `Container` 생성자와 `ContainerStore.getOrCreateWithItems` 가 격자 크기를 받는다(기본 6×4 그대로). `parts/Lifecycle.onRespawn` 은 `strippedForCorpse` 가 서 있으면 **스타터 킷을 지급하지 않는다** — 구조선 부활은 빈손이다. 레이드 실패 후 함선 복귀의 킷 리셋(`loseKit`)은 그대로.
   **알려진 한계**: 임플란트 아이템은 `ctx.progression` 이 들고 있고 `unequipImplant` 가 함선 전용이라 시체로 넘어가지 않는다 (계약 추가 필요).
 
@@ -765,3 +791,21 @@ Data-driven off the frozen contract (`ItemCategory 'implant'`, `ItemDef.implant`
   만든 것이 들어갈 자리인지 알려 준다). ③ 작업대 하단의 **수리 목록이 사라지고** `모두 수리` 가 헤더(닫기 왼쪽)로
   올라가 `ui/RepairPanel` 모달을 연다. 장비 칸이 숨으므로 만든 무기를 장착하려면 제작 창을 닫아야 하고,
   튜토리얼에 그 순서를 안내하는 `openBag` 단계가 새로 생겼다 (`src/tutorial`)
+
+### 2026-09-09 — 제작 목록: 한 칸 썸네일 + 넣을 자리 검사 (가방 → 창고)
+
+- **산출물 썸네일은 언제나 1×1** (`CraftPanel`). 실제 격자 크기로 그리니 4×2 돌격소총 한 줄이 탄약 한 줄의
+  네 배로 벌어져 목록이 무너졌다. 여기서 알아야 할 것은 "무엇이 나오는가"이고, 몇 칸을 먹는지는 툴팁과
+  아래의 공간 안내가 말한다. 겹치는 아이템의 수량은 1×1 타일도 그대로 그린다. 분해 팝업은 원래
+  `buildItemChip`(정사각 칩)이라 손댈 것이 없었다.
+- **누르기 전에 넣을 자리를 본다.** 재료가 다 있어도 결과물이 들어갈 데가 없으면 1초를 눌러 봐야 홀드 끝에서
+  거절당했다. 이제 `CraftPanel.paint` 가 **스테퍼에 걸린 수량 그대로** `craftHasRoom(id, n)` 을 물어 버튼을
+  잠그고(`.is-nospace`, 라벨 `가방·창고 공간 부족`, `title` 에 이유), `InventoryUI.refresh()` 를 타고
+  **작업대를 열 때 한 번 + 가방 · 창고가 바뀔 때마다** 다시 검사한다.
+- **가방 → 안 되면 함선 창고** (사용자 결정). `roomForOutputs` 가 가방 격자와 창고 격자를 한 덩어리씩
+  `addUnits` 와 같은 순서로 시뮬레이션하고(가방 스택 합치기 → 가방 빈칸 → 창고 스택 합치기 → 창고 빈칸),
+  `updateCraft` 는 `addUnits` 가 돌려준 넘침을 `tryAddToStash` 로 넘긴다 — 함선에서 넘치는 물건을 창고로
+  보내는 규칙은 `throwToWorld` 가 이미 쓰던 것이다. 레이드 중에는 창고가 없으므로 예전대로 가방만 본다.
+  분해 팝업도 같은 `craftHasRoom` 을 쓰므로 함께 따라간다.
+  *(재료 쪽은 그대로 **가방만** 본다 — `canCraft` → `countDef` → `countWhere`. 가방 + 창고를 함께 쓰는 것은
+  가구 제작 · 시설 업그레이드(`housing/`, `countDefAll`) 쪽이다.)*

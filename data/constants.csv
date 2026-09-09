@@ -4,7 +4,7 @@ key,value,note
 
 # ── 기본 ──
 MAP_SIZE,640,"world is a square [-MAP_SIZE/2, MAP_SIZE/2] on X and Z (meters)"
-EXTRACTION_COUNTDOWN,120,seconds from switch press to ship arrival
+EXTRACTION_COUNTDOWN,60,seconds from switch press to ship arrival
 PLAYER_MAX_HP,100,
 PLAYER_RADIUS,0.45,
 PLAYER_HEIGHT,1.8,
@@ -419,6 +419,7 @@ CREW_LOADOUT_COOLDOWN_S,2,Don't answer `crewq loadout` from the same peer more o
 # ── 마우스 커서 (owner: shared/cursor.ts + Input; the art is ui/hud/GameCursor) ──
 GAME_CURSOR_SIZE,22,Side of the drawn cursor image in CSS px (a 2× copy is generated for HiDPI through `image-set`).
 LOCK_GESTURE_RETRY_MS,10000,How long a denied pointer-lock request keeps waiting for the next real user gesture to retry (ms).
+LOCK_BOUNCE_GRACE_MS,400,"A pointer lock that disappears within this long after our own request is the browser / desktop shell bouncing it back, not the player pressing Escape — no 일시정지 메뉴, wait for the next gesture instead (ms)."
 
 # ── 행성 이동 (owner: hub; the cutscene is `DockingCutscene` reused as a warp) ──
 HUB_TRAVEL_DURATION,6,"Seconds of the 행성 이동 warp (2026-09-09: watched through the ship's viewports, no cutscene; ramp up → cruise → ramp down)."
@@ -516,3 +517,7 @@ ENEMY_SPAWN_RETRIES,12,버려진 지점을 다시 뽑는 최대 횟수.
 # ── 지형지물 위에 올라서기 (2026-09-09, owner: world) ──
 PROP_STEP_UP_MAX,0.9,걷다가 그냥 올라설 수 있는 장애물 윗면의 높이 차(m). 이보다 높으면 벽처럼 막힌다.
 PROP_TOP_MARGIN,0.15,장애물 윗면 판정에 쓰는 여유(m) — 가장자리에서 미끄러져 떨어지지 않게 한다.
+
+# ── 핑 v3 (2026-09-09, owner: ui/hud/Pings) ──
+PING_MAX_PER_PLAYER,3,한 플레이어가 동시에 유지하는 핑 수(나도 분대원도). 넘치면 그 사람의 가장 오래된 핑이 사라진다.
+PING_AIM_ASSIST_PX,56,핑 조준 보정 — 조준점에서 이 화면 거리(px) 안에 보이는 적 · 아이템 · 상자 · 분대 핑이면 정확히 맞추지 않아도 그것을 찍는다.

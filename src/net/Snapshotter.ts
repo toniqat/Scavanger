@@ -20,6 +20,8 @@ export class Snapshotter {
   implantId: ImplantId | null = null;
   /** Equipped armor def id. Set from `equip:changed`. */
   armorId: string | null = null;
+  /* appended (2026-09-09): 채팅 입력 중 말풍선 — set from `ui:chatToggled`; remotes draw `…` over the head. */
+  typing = false;
 
   private seq = 0;
   private readonly msg: PlayerSnapshot = {
@@ -107,6 +109,8 @@ export class Snapshotter {
     } else delete m.bhp;
     /* appended: Phase 7 */
     if (p.isMeleeHeavy) f |= PlayerFlags.MELEE_HEAVY;
+    /* appended (2026-09-09): chat input open → `…` speech bubble on remotes (valid in the hub too). */
+    if (this.typing) f |= PlayerFlags.TYPING;
     if (rs && !inHub) {
       if (rs.throwing) f |= PlayerFlags.THROWING;
       if (rs.cooking) f |= PlayerFlags.COOKING;

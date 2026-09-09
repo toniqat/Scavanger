@@ -210,7 +210,7 @@ export class RemotePlayer implements RemotePlayerRef {
     this.carrying = null;
     this.barrierHp = undefined;
     let f = this.flags & ~(PlayerFlags.DOWNED | PlayerFlags.DEAD | PlayerFlags.DROPPING | PlayerFlags.IN_HUB | PlayerFlags.IN_POD
-      | PlayerFlags.CARRYING | PlayerFlags.CARRIED | PlayerFlags.BARRIER);
+      | PlayerFlags.CARRYING | PlayerFlags.CARRIED | PlayerFlags.BARRIER | PlayerFlags.TYPING);
     if (g.st === 1) f |= PlayerFlags.DOWNED;
     else if (g.st === 2) f |= PlayerFlags.DEAD;
     this.flags = f;

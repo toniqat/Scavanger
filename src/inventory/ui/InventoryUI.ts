@@ -320,6 +320,11 @@ export class InventoryUI {
       // Phase 12: 임플란트 tooltip — stat names from progression, owned counts (bag + 창고) for the repair chips
       getStatName: (id) => { try { return this.ctx.progression?.getStatDef(id)?.name ?? id; } catch { return id; } },
       countOwned: (defId) => this.sys.countDefAll(defId),
+      // 2026-09-09: weapon gauges — bare def stats (white layer + catalog maxima), the weapon defs to scan, the
+      // ammo item of a calibre for the corner thumbnail (catalog scanned per call; the card is built on hover only)
+      getBaseStats: (defId) => this.sys.getLoot().getEffectiveStats(defId),
+      allWeaponItemDefs: () => this.sys.getLoot().getAllItemDefs().filter((d) => d.weaponId !== undefined),
+      findAmmoDef: (type) => this.sys.getLoot().getAllItemDefs().find((d) => d.category === 'ammo' && d.ammoType === type),
     });
     this.ghostLayer = document.createElement('div');
     this.ghostLayer.className = 'inv-ghost-layer';

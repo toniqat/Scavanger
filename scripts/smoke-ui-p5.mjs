@@ -292,8 +292,9 @@ try {
       hidden: tip.hidden,
       bar: !!bar,
       last: tip.lastElementChild === bar,
-      label: bar ? bar.querySelector('.k').textContent : '',
-      amount: bar ? bar.querySelector('.v').textContent : '',
+      // 2026-09-09: the bar is 무게(.wt, left) + 가치(.val, right) — read the 가치 half
+      label: bar ? (bar.querySelector('.val .k') ?? bar.querySelector('.k')).textContent : '',
+      amount: bar ? (bar.querySelector('.val .v') ?? bar.querySelector('.v')).textContent : '',
       align: bar ? getComputedStyle(bar).justifyContent : '',
       rows: [...tip.querySelectorAll('.it-stats .k')].map((e) => e.textContent),
     };

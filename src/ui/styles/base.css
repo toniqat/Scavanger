@@ -180,17 +180,25 @@ input { font: inherit; color: inherit; }
 .reticle .hitmarker span:nth-child(3) { transform: rotate(225deg) translate(4px, 0); }
 .reticle .hitmarker span:nth-child(4) { transform: rotate(315deg) translate(4px, 0); }
 .reticle .hitmarker.kill span { background: var(--c-danger); }
+/* 2026-09-09 — 헤드샷: 같은 X 를 1.6배로 그린다 (색은 그대로, 처치의 빨강만 따로다).
+   팝인 배율 1.4 도 같이 곱해 등장 애니메이션은 일반 타격과 똑같이 보인다. */
+.reticle .hitmarker.head { transform: scale(2.24); }
+.reticle .hitmarker.head.show { transform: scale(1.6); }
 
-/* Damage direction arcs around the reticle */
+/* Damage direction arcs around the reticle.
+   2026-09-09: 220 px ring, 6 px thick, a ~70° red wedge centred on 12 o'clock (rotated by the hit angle in JS) —
+   a conic-gradient wedge masked down to a ring, with soft ends and a glow. The old 3 px border-top arc was too faint. */
 .dmg-arcs { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
 .dmg-arc {
-  position: absolute; left: -70px; top: -70px; width: 140px; height: 140px;
+  position: absolute; left: -110px; top: -110px; width: 220px; height: 220px;
   border-radius: 50%;
-  border: 3px solid transparent;
-  border-top-color: var(--c-danger);
+  background: conic-gradient(from -35deg,
+    rgba(255, 77, 77, 0) 0deg, var(--c-danger) 10deg, var(--c-danger) 60deg, rgba(255, 77, 77, 0) 70deg, transparent 70deg);
+  -webkit-mask: radial-gradient(circle, transparent calc(50% - 8px), #000 calc(50% - 7px), #000 calc(50% - 1px), transparent 50%);
+  mask: radial-gradient(circle, transparent calc(50% - 8px), #000 calc(50% - 7px), #000 calc(50% - 1px), transparent 50%);
   opacity: 0;
   will-change: transform, opacity;
-  filter: drop-shadow(0 0 4px rgba(255, 77, 77, 0.6));
+  filter: drop-shadow(0 0 8px rgba(255, 77, 77, 0.85)) drop-shadow(0 0 2px rgba(255, 120, 120, 0.9));
 }
 
 /* Screen overlays */
@@ -682,6 +690,14 @@ input { font: inherit; color: inherit; }
 .pmarker.lost { filter: saturate(0.6); }
 .pmarker.lost .ico { animation: none; border-style: dashed; opacity: 0.8; }
 .pmarker.lost .lbl { color: var(--c-text-dim); }
+/* pings v3 (2026-09-09): 알겠다 acks — one dot per acker in their slot colour (`--ac`), under the distance */
+.pmarker .acks { display: flex; gap: 3px; align-items: center; }
+.pmarker .acks:empty { display: none; }
+.pmarker .acks i {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--ac, #fff);
+  box-shadow: 0 0 4px var(--ac, #fff), 0 0 2px #000;
+}
 @keyframes attackBob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
 @keyframes cautionBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
 
@@ -844,6 +860,38 @@ input { font: inherit; color: inherit; }
 .nameplate.far .name { font-size: 10px; }
 .nameplate.dead .name { color: var(--c-text-dim); text-decoration: line-through; }
 .nameplate.dead .hp .fill { background: var(--c-danger); }
+
+/* ── Typing bubbles (hud/TypingBubbles, 2026-09-09): remote player with PlayerFlags.TYPING ── */
+.typing-bubbles { position: absolute; inset: 0; pointer-events: none; }
+.tbubble {
+  position: absolute; left: 0; top: 0;
+  display: flex; align-items: center; gap: 4px;
+  padding: 5px 8px;
+  background: rgba(10, 12, 17, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  transform: translate(-50%, -100%);
+  will-change: transform, opacity;
+  opacity: 0;
+  pointer-events: none;
+}
+.tbubble::after {
+  content: ""; position: absolute; left: 50%; bottom: -5px;
+  width: 8px; height: 8px; transform: translateX(-50%) rotate(45deg);
+  background: rgba(10, 12, 17, 0.88);
+  border-right: 1px solid rgba(255, 255, 255, 0.14); border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+}
+.tbubble i {
+  display: block; width: 5px; height: 5px; border-radius: 50%;
+  background: var(--c-text);
+  animation: tbubbleDot 0.9s ease-in-out infinite;
+}
+.tbubble i:nth-child(2) { animation-delay: 0.15s; }
+.tbubble i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes tbubbleDot {
+  0%, 100% { transform: scale(0.6); opacity: 0.55; }
+  50% { transform: scale(1.2); opacity: 1; }
+}
 
 /* ── Squad pings (Pings.ts sets --pc to the sender's slot colour) ── */
 .pmarker.remote .lbl { color: var(--pc); font-weight: 700; letter-spacing: 0.1em; text-transform: none; }
@@ -1952,15 +2000,19 @@ button.item-chip[data-def-id] { cursor: pointer; }
 }
 .item-tip .it-stats .k { color: var(--c-text-faint); letter-spacing: 0.06em; }
 .item-tip .it-stats .v { text-align: right; color: var(--c-text); font-variant-numeric: tabular-nums; }
-/* Phase 10: 가치 as the card's bottom bar (label left, amount right-aligned, `100 C`) instead of a stats row */
+/* Phase 10: 가치 as the card's bottom bar instead of a stats row.
+   2026-09-09: 무게 left the stats table for the same bar — `.wt` (weight) on the left, `.val` (가치) on the right,
+   each a small label + amount; only the 가치 amount is accent-coloured. */
 .item-tip .it-value {
   display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
   margin: 2px -14px -12px; padding: 8px 14px 10px;
   border-top: 1px solid var(--c-border);
   background: rgba(255, 179, 71, 0.06);
 }
+.item-tip .it-value .wt, .item-tip .it-value .val { display: flex; align-items: baseline; gap: 6px; }
 .item-tip .it-value .k { font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--c-text-faint); }
 .item-tip .it-value .v { font-size: 14px; font-weight: 700; color: var(--c-accent); font-variant-numeric: tabular-nums; }
+.item-tip .it-value .wt .v { font-size: 12px; font-weight: 600; color: var(--c-text); }
 
 /* ── 재화 칩 (shared/currency, 2026-09-09) ──────────────────────────────────
    계약 · 퀘스트 보상의 크레딧 · 경험치 · 기업별 신뢰도. 아이템 칩과 **같은 상자 · 같은 간격**을 쓰므로 한

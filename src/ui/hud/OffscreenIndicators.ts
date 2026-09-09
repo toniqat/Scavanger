@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import type { GameContext, PeerId, PingKind, StratagemId } from '@/shared';
-import { OFFSCREEN_PING_SECONDS } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 import { PING_COLOR, PING_LABEL } from './Pings';
 import { STRATAGEM_COLOR, STRATAGEM_GLYPH, stratagemDef } from './stratagemGlyphs';
@@ -26,7 +25,8 @@ interface Target {
   sub: string;
 }
 
-interface PingEntry { id: number; pos: THREE.Vector3; kind: PingKind; until: number; owner: PeerId }
+/** `owner` null = the local player's own ping (v3: own pings get arrows too); `until` = the ping's own expiry. */
+interface PingEntry { id: number; pos: THREE.Vector3; kind: PingKind; until: number; owner: PeerId | null }
 interface CallEntry { id: string; pos: THREE.Vector3; kind: StratagemId; landsAt: number; landed: boolean }
 
 interface Arrow { root: HTMLElement; ico: HTMLElement; lbl: HTMLElement; lastKey: string; sub: string }
@@ -41,8 +41,10 @@ function cssColor(n: number): string { return `#${n.toString(16).padStart(6, '0'
  * Off-screen indicators (`.offscr`, gameplay layer): pooled edge arrows (`.oarrow.grenade/.ping/.call`, max 12) for
  * things the player should know about but cannot see:
  *   (a) live grenades from `ctx.weapons.getGrenades()` (● amber, label = fuse `n.ns`; brightens as the fuse runs out),
- *   (b) squadmate pings (`ping:placedV2` with `owner !== null`, kept `OFFSCREEN_PING_SECONDS`, dropped on
- *       `ping:removed`; icon/colour by kind, label `이름`-less kind label; fades over the last 1.5 s),
+ *   (b) pings — own **and** squadmates' (`ping:placedV2`, any `owner`; 2026-09-09 pings v3) — kept for the ping's
+ *       **whole lifetime** (`until = expires` from the event; the shared `OFFSCREEN_PING_SECONDS` stays exported as a
+ *       contract constant but is no longer read here), dropped on `ping:removed`; icon/colour by kind, `이름`-less kind
+ *       label; fades over the last 1.5 s. The arrow only shows while the ping is off-screen — on screen the marker does,
  *   (c) ship calls (`stratagem:called` → until `stratagem:landed` for airstrike / supply / structure, until
  *       `stratagem:ended` for the laser; glyph + colour by kind, label `n초` until landing, then the call name).
  * Each `lateUpdate` projects the target through `ctx.camera`: on-screen (inside the viewport minus a 6 % margin, in
@@ -80,10 +82,10 @@ export class OffscreenIndicators {
   bind(ctx: GameContext): void {
     const b = ctx.bus;
     this.unsubs.push(
-      b.on('ping:placedV2', ({ id, position, kind, owner }) => {
-        if (owner === null) return;
+      b.on('ping:placedV2', ({ id, position, kind, expires, owner }) => {
+        // v3: own pings too, and the arrow lives exactly as long as the ping itself
         this.pings = this.pings.filter((p) => p.id !== id);
-        this.pings.push({ id, pos: position, kind, until: ctx.time + OFFSCREEN_PING_SECONDS, owner });
+        this.pings.push({ id, pos: position, kind, until: expires, owner });
       }),
       b.on('ping:removed', ({ id }) => { this.pings = this.pings.filter((p) => p.id !== id); }),
       b.on('stratagem:called', ({ callId, kind, position, landsAt }) => {

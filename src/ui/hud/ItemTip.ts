@@ -21,8 +21,12 @@ import { el, setText } from '../dom';
  * 2026-09-08: an `implant` def also lists 장착칸 · 퍽 · 능력치 (· 상태 when broken) — the inventory's 임플란트 칸
  * is a row of square thumbnails now, so this card is where an equipped implant's numbers are read.
  *
- * Phase 10: 가치 left the stats table for a **bottom bar** (`.it-value`, label left / amount right-aligned) rendered
- * with the one credit formatter — `formatCredits(itemCreditValue(def))`, i.e. `1,200 C` (the old `cr` suffix is gone).
+ * Phase 10: 가치 left the stats table for a **bottom bar** (`.it-value`) rendered with the one credit formatter —
+ * `formatCredits(itemCreditValue(def))`, i.e. `1,200 C` (the old `cr` suffix is gone).
+ *
+ * 2026-09-09: the bottom bar is **무게 on the left · 가치 on the right** (`.it-value .wt` / `.val`, each `k` label +
+ * `v` amount) and the `크기 (w × h)` row is gone from every card — the footprint is what the bag grid already shows.
+ * The stats table hides itself when no row is left.
  *
  * **재화 (2026-09-09)**: 계약 · 퀘스트 보상의 크레딧 · 경험치 · 기업별 신뢰도는 아이템이 아니지만 같은 자리에
  * 같은 크기의 칩(`shared/currency.buildCurrencyChip`)으로 선다. 그 칩은 `data-def-id` 대신
@@ -37,6 +41,7 @@ export class ItemTip {
   private statsEl: HTMLElement;
   private valueEl: HTMLElement;
   private valueAmount: HTMLElement;
+  private weightAmount: HTMLElement;
   private ctx: GameContext | null = null;
   private defId: string | null = null;
   /** 지금 카드가 재화를 그리고 있다면 그 재화 id (아이템일 때 null). */
@@ -71,10 +76,15 @@ export class ItemTip {
     this.subEl = el('div', { cls: 'it-sub', parent: head });
     this.descEl = el('p', { cls: 'it-desc', parent: this.root });
     this.statsEl = el('div', { cls: 'it-stats', parent: this.root });
-    // Phase 10: 가치 left the stats table and became the card's bottom bar — label left, amount right-aligned, `100 C`.
+    // Phase 10: 가치 left the stats table and became the card's bottom bar. 2026-09-09: 무게 joined it — weight on the
+    // LEFT (`무게 1.2 kg`), 가치 on the RIGHT (amount right-aligned, `100 C`); the 크기 row is gone from the stats.
     this.valueEl = el('div', { cls: 'it-value', parent: this.root });
-    el('span', { cls: 'k', text: '가치', parent: this.valueEl });
-    this.valueAmount = el('span', { cls: 'v ui-mono', text: '', parent: this.valueEl });
+    const wt = el('span', { cls: 'wt', parent: this.valueEl });
+    el('span', { cls: 'k', text: '무게', parent: wt });
+    this.weightAmount = el('span', { cls: 'v ui-mono', text: '', parent: wt });
+    const val = el('span', { cls: 'val', parent: this.valueEl });
+    el('span', { cls: 'k', text: '가치', parent: val });
+    this.valueAmount = el('span', { cls: 'v ui-mono', text: '', parent: val });
   }
 
   bind(ctx: GameContext): void {
@@ -171,15 +181,16 @@ export class ItemTip {
       if (stats) rows.push(['능력치', stats]);
       if (imp.broken) rows.push(['상태', '망가짐 — 세레스 바이오에서 수리']);
     }
-    if (def.weight !== undefined) rows.push(['무게', `${def.weight.toFixed(1)} kg`]);
     if (def.stackMax > 1) rows.push(['최대 묶음', `${def.stackMax}`]);
-    rows.push(['크기', `${def.width} × ${def.height}`]);
+    // 2026-09-09: no 크기 row (the grid footprint is visible in the bag itself); 무게 moved to the bottom bar.
 
     this.statsEl.replaceChildren();
     for (const [k, v] of rows) {
       el('span', { cls: 'k', text: k, parent: this.statsEl });
       el('span', { cls: 'v', text: v, parent: this.statsEl });
     }
+    this.statsEl.hidden = rows.length === 0;
+    setText(this.weightAmount, def.weight !== undefined ? `${def.weight.toFixed(1)} kg` : '—');
     setText(this.valueAmount, formatCredits(itemCreditValue(def)));
     this.root.hidden = false;
     this.visible = true;
@@ -201,6 +212,7 @@ export class ItemTip {
     setText(this.subEl, '재화');
     setText(this.descEl, def.description);
     this.statsEl.replaceChildren();
+    this.statsEl.hidden = true;
     this.valueEl.hidden = true;
     this.root.hidden = false;
     this.visible = true;

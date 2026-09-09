@@ -552,7 +552,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
    * 2026-09-08: can the bag take this recipe's output (+ `extraOutputs`) right now? The same check `updateCraft`
    * makes when the hold ends — the 분해 dialog runs it **first** so an impossible shred never costs the hold.
    */
-  craftHasRoom(recipeId: string): boolean { return Craft.craftHasRoom(this, recipeId); }
+  craftHasRoom(recipeId: string, count = 1): boolean { return Craft.craftHasRoom(this, recipeId, count); }
 
   /** `targetUid` (2026-09-08): the exact stack a 분해 shreds — consumed before any other stack of the same def. */
   /** `count` (2026-09-09): 제작 수량 — the recipe runs `count` times in one hold (inputs × count, output × count). */
@@ -810,14 +810,18 @@ export class InventorySystem implements GameSystem, InventoryRef {
   /** Context menu `창고로 이동` on an equipped item (hub only): unequip straight into the stash. The bag slot shrinks the grid first. */
   moveToStash(uid: string, from: ItemLocation): OpResult { return StashOps.moveToStash(this, uid, from); }
 
-  /** Quick chat: ammo request for weapons, "<name> 필요" for anything else (`chat:post`, kind 'request'). */
+  /**
+   * Quick chat (middle-click / 요청 menu entry): `탄약 필요: <탄종>` for weapons, `<이름> 필요` for anything else
+   * (`chat:post`, kind 'request'). 2026-09-09: the weapon's own name left the ammo line — the squad needs the calibre,
+   * not the gun. Equipment-slot tiles reach this through the same `Drag.beginPress` middle-button path as grid tiles.
+   */
   requestItem(uid: string, from: ItemLocation): boolean {
     if (this.isItemLocked(uid, from)) return false;
     const item = this.findItem(uid, from);
     const def = item && ITEM_DEF_MAP.get(item.defId);
     if (!item || !def) return false;
     const stats = this.loot.getEffectiveStats(item);
-    const text = stats ? `탄약 요청: ${def.name} (${AMMO_LABEL_KO[stats.ammoType]})` : `${def.name} 필요`;
+    const text = stats ? `탄약 필요: ${AMMO_LABEL_KO[stats.ammoType]}` : `${def.name} 필요`;
     this.ctx.bus.emit('chat:post', { text, kind: 'request' });
     return true;
   }
