@@ -801,6 +801,7 @@ try {
       desc: !!row.querySelector('.inv-craft-desc'),
       stepper: !!row.querySelector('.inv-craft-count') && row.querySelectorAll('.inv-craft-step').length === 2,
       count: row.querySelector('.inv-craft-count-v')?.textContent,
+      outputQty: recipe?.outputQty,
     };
   }, RID);
   ok(!rowLook.missing && rowLook.hasTile && rowLook.tipHook,
@@ -809,7 +810,8 @@ try {
     `썸네일이 격자 칸 크기다 (${rowLook.defW}\u00d7${rowLook.defH} 칸 → ${rowLook.w}\u00d7${rowLook.h} px)`);
   ok(rowLook.name === rowLook.expect, `행 제목이 '산출물 \u00d7n' 이다 ("${rowLook.name}")`);
   ok(!rowLook.desc, '레시피 설명 줄이 사라졌다');
-  ok(rowLook.stepper && rowLook.count === '1', '제작 수량 스테퍼가 1 에서 시작한다');
+  ok(rowLook.stepper && rowLook.count === String(rowLook.outputQty),
+    `제작 수량 스테퍼가 1회분(${rowLook.outputQty})에서 시작한다 — 횟수가 아니라 총 개수를 읽는다`);
 
   const stepped = await page.evaluate((id) => {
     const row = document.querySelector(`.inv-craft-row[data-recipe="${id}"]`);
@@ -827,13 +829,14 @@ try {
       count: row.querySelector('.inv-craft-count-v')?.textContent,
       need: [...row.querySelectorAll('.item-chip-need')].map((n) => Number(n.textContent)),
       name: row.querySelector('.inv-craft-name')?.textContent,
-      expect: `${def.name} \u00d7${recipe.outputQty * 3}`,
+      expect: `${def.name} \u00d7${recipe.outputQty}`,
+      outputQty: recipe.outputQty,
     };
   }, RID);
-  ok(after3.count === '3' && after3.need.length === stepped.before.length
+  ok(after3.count === String(after3.outputQty * 3) && after3.need.length === stepped.before.length
     && after3.need.every((n, i) => n === stepped.before[i] * 3),
-    `\u25b6 두 번 → 수량 3, 재료 필요량도 3배 (${stepped.before.join('/')} → ${after3.need.join('/')})`);
-  ok(after3.name === after3.expect, `제목이 총량을 따라간다 ("${after3.name}")`);
+    `\u25b6 두 번 → 총 ${after3.count}개, 재료 필요량도 3배 (${stepped.before.join('/')} → ${after3.need.join('/')})`);
+  ok(after3.name === after3.expect, `제목은 1회분을 그대로 유지한다 ("${after3.name}")`);
 
   const batch = await page.evaluate(async (id) => {
     const ctx = window.__game.ctx, sys = window.__game.getSystem('inventory');

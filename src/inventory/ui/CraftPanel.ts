@@ -52,11 +52,12 @@ interface RowView {
  *  - The output is drawn as the **inventory tile it will become** (`buildTileContent` at the grid's own `CELL`), so a
  *    4×2 돌격소총 is a 4×2 tile and a 준중량탄 stack a single cell with its count. The thumbnail carries
  *    `data-item-tip` + `data-def-id`, the hook `ui/hud/ItemTip` delegates on — hovering it shows the usual item card.
- *  - The title is `산출물 이름 ×n` (`준중량탄 ×90`); the recipe's own name and its description line are **gone**.
- *  - A **제작 수량** stepper sits above the hold button: `◀ n ▶`, and the wheel over it steps too, capped by
- *    `sys.maxCraftCount(id)` (what the materials pay for). The material chips and the hold both scale with it, so one
- *    hold makes `outputQty × count` — 준중량탄 90 → 180 → 270. The unit is the recipe's own `outputQty`
- *    (사용자 결정 2026-09-09), never a re-derived stack size.
+ *  - The title is `산출물 이름 ×n` where `n` is what **one** craft makes (`준중량탄 ×90`) — it never moves; the
+ *    recipe's own name and its description line are **gone**.
+ *  - A **제작 수량** stepper sits above the hold button, reading the **total units the hold will make**
+ *    (`◀ 90 ▶` → `180` → `270`; 사용자 결정 2026-09-09 — "how many 발 do I get", not "how many runs"). The wheel over
+ *    it steps too, capped by `sys.maxCraftCount(id)` (what the materials pay for), and the material chips scale with
+ *    it. The step is the recipe's own `outputQty`, never a re-derived stack size.
  *  - The 키 가이드 line for the panel is empty now (`parts/Screens.setCraftOpen`): the button already reads
  *    `길게 눌러 제작`, so `1초 홀드 — 제작` was the same sentence twice.
  *
@@ -312,14 +313,16 @@ export class CraftPanel {
       row.button.disabled = row.locked || (!ok && !active);
 
       const out = this.getDef(row.recipe.outputDefId);
-      const total = row.recipe.outputQty * n;
-      // `산출물 이름 ×n` (2026-09-09) — the recipe's own name is not shown any more. The lock tag, when there is one,
-      // is the element's only child, so the text goes in front of it rather than through `textContent`.
-      const title = out ? `${out.name} \u00d7${total}` : row.recipe.name;
+      // `산출물 이름 ×n` (2026-09-09) — the recipe's own name is not shown any more, and `n` is what **one** craft
+      // makes, so the title never moves. The lock tag, when there is one, is the element's only child, so the text
+      // goes in front of it rather than through `textContent`.
+      const title = out ? `${out.name} \u00d7${row.recipe.outputQty}` : row.recipe.name;
       if (row.nameEl.firstChild?.nodeType === Node.TEXT_NODE) row.nameEl.firstChild.nodeValue = title;
       else row.nameEl.insertBefore(document.createTextNode(title), row.nameEl.firstChild);
 
-      row.countEl.textContent = String(n);
+      // The stepper reads the **total units this hold will make** (사용자 결정 2026-09-09: 경량탄이면 30 · 60 · 90),
+      // not the run count — `n` runs of a recipe is an implementation detail, "how many 발 do I get" is the question.
+      row.countEl.textContent = String(row.recipe.outputQty * n);
       row.el.classList.toggle('is-multi', n > 1);
       row.lessBtn.disabled = row.locked || active || n <= 1;
       row.moreBtn.disabled = row.locked || active || n >= max;
