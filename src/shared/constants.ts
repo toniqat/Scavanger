@@ -854,6 +854,13 @@ export const HUB_TRAVEL_DURATION = K.num('HUB_TRAVEL_DURATION');
 export const HUB_TRAVEL_WARP_FRACTION = K.num('HUB_TRAVEL_WARP_FRACTION');
 /** How far the warp stretches a star (multiplier on its own length while `HUB_TRAVEL_WARP_FRACTION` runs). */
 export const HUB_TRAVEL_WARP_STRETCH = K.num('HUB_TRAVEL_WARP_STRETCH');
+/* 2026-09-09 창문 워프: the trip is watched from inside the ship (no cutscene, controls stay on). */
+/** Seconds the warp takes to ramp up at the start and down at the end (`hub:warpProgress.speed` 0→1 / 1→0). */
+export const HUB_WARP_RAMP_S = K.num('HUB_WARP_RAMP_S');
+/** `camera:shake` intensity at full warp speed (fed every `HUB_WARP_SHAKE_INTERVAL_S`, scaled by `speed`). */
+export const HUB_WARP_SHAKE_PEAK = K.num('HUB_WARP_SHAKE_PEAK');
+/** Seconds between hull-shake pulses while the warp runs. */
+export const HUB_WARP_SHAKE_INTERVAL_S = K.num('HUB_WARP_SHAKE_INTERVAL_S');
 
 /* ── 터미널 (owner: hub/ui/HubMenu — full-screen since Phase 11) ── */
 /** Side of the square WebGL canvas the planet hologram renders into (device px are scaled by the DPR cap). */

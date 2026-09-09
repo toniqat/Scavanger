@@ -421,9 +421,12 @@ GAME_CURSOR_SIZE,22,Side of the drawn cursor image in CSS px (a 2× copy is gene
 LOCK_GESTURE_RETRY_MS,10000,How long a denied pointer-lock request keeps waiting for the next real user gesture to retry (ms).
 
 # ── 행성 이동 (owner: hub; the cutscene is `DockingCutscene` reused as a warp) ──
-HUB_TRAVEL_DURATION,4.5,"Seconds of the 행성 이동 cutscene. Shorter than `HUB_DOCKING_DURATION` — it is a hop, not an arrival."
-HUB_TRAVEL_WARP_FRACTION,0.55,Fraction of the cutscene spent in the streaked-star warp before the destination sphere resolves.
-HUB_TRAVEL_WARP_STRETCH,22,How far the warp stretches a star (multiplier on its own length while `HUB_TRAVEL_WARP_FRACTION` runs).
+HUB_TRAVEL_DURATION,6,"Seconds of the 행성 이동 warp (2026-09-09: watched through the ship's viewports, no cutscene; ramp up → cruise → ramp down)."
+HUB_TRAVEL_WARP_FRACTION,0.55,Fraction of the trip spent in the streaked-star warp before the destination sphere resolves.
+HUB_TRAVEL_WARP_STRETCH,22,How far the warp stretches a star (multiplier on its own length at full `speed`).
+HUB_WARP_RAMP_S,1.6,Seconds the warp takes to ramp up at the start and down at the end (`hub:warpProgress.speed`).
+HUB_WARP_SHAKE_PEAK,0.28,`camera:shake` intensity at full warp speed (pulsed every HUB_WARP_SHAKE_INTERVAL_S and scaled by `speed`).
+HUB_WARP_SHAKE_INTERVAL_S,0.18,Seconds between hull-shake pulses while the warp runs.
 
 # ── 터미널 (owner: hub/ui/HubMenu — full-screen since Phase 11) ──
 PLANET_HOLOGRAM_PX,360,Side of the square WebGL canvas the planet hologram renders into (device px are scaled by the DPR cap).

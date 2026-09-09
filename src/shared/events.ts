@@ -755,4 +755,31 @@ export interface GameEvents {
    * for our own ship), null when we are back on the shared deck; `readOnly` marks someone else's ship.
    */
   'hub:shipVisit': { peerId: PeerId | null; readOnly: boolean };
+
+  /* ── 키 가이드 (2026-09-09) ── */
+  /**
+   * 키 가이드 one-liner, bottom-right of the screen (drawn by `ui/hud/KeyGuide`; e.g. `R 회전 · X 버리기 · Tab 닫기`).
+   * A screen / mode emits `{ owner, keys }` when it opens and whenever its keys change — labels are read at emit
+   * time with `keyLabel(Keys.X)`, so re-emit on `input:bindingsChanged` — and `{ owner, keys: null }` when it closes.
+   * The guide keeps a stack per `owner` and shows the most recently opened one (popups over a screen win).
+   * **The guide appends the close entry itself** (`keyLabel(Keys.INVENTORY)` + `닫기`, always the rightmost item), so
+   * `keys` never lists the close key. Decision 2026-09-09: **Tab (`Keys.INVENTORY`) closes every screen / mode** in
+   * addition to the key that opened it (E for 터미널 · 작업대, M for 지도 · 시설 관리, …); a screen that eats Tab must
+   * `ctx.input.consume(Keys.INVENTORY)` so the inventory does not open on the same press. The ESC pause menu
+   * (`'menu'` blocker) is excluded — it draws no guide and the guide hides while it is up.
+   */
+  'ui:keyGuide': { owner: string; keys: ReadonlyArray<KeyGuideEntry> | null };
+
+  /* ── 창문 워프 (2026-09-09): 행성 이동 is no longer a cutscene ── */
+  /**
+   * Fact (hub): progress of the in-ship warp seen through the viewports, emitted every frame while `hub:travel` runs.
+   * `t` = 0..1 of `HUB_TRAVEL_DURATION`; `speed` = 0..1 warp intensity (ramps up over `HUB_WARP_RAMP_S`, holds, ramps
+   * down over the last `HUB_WARP_RAMP_S`) — the starfield stretch, the hull shake and the audio all follow `speed`.
+   * Controls stay enabled for the whole trip (the player walks around the ship); pods / terminal stay refused via
+   * `ctx.hub.travelling`.
+   */
+  'hub:warpProgress': { planet: PlanetId; t: number; speed: number };
 }
+
+/** One 키 가이드 entry (`ui:keyGuide`): `key` is the display label (`keyLabel(...)`), `label` the Korean action. */
+export interface KeyGuideEntry { key: string; label: string }
