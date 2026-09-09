@@ -782,6 +782,59 @@ export interface GameEvents {
    * `ctx.hub.travelling`.
    */
   'hub:warpProgress': { planet: PlanetId; t: number; speed: number };
+
+  /* ══ 2026-09-09: 사망/시체 · 구조선 · 분대장 · 전장의 안개 ═══════════════════════════════════════════════
+   *
+   * **자동 부활은 사라졌다.** `player:died` 뒤에 30초 카운트다운은 없고 `game:respawnAvailable` 도 더는
+   * 발행되지 않는다 (계약에는 남는다 — 삭제 금지). 완전히 죽으면 시체가 되고, 되살아나는 길은
+   * 분대원이 부르는 `rescue_drop` 뿐이다.
+   * ══════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+  /* ── 시체 (owner: game/parts/Corpses) ── */
+  /**
+   * Fact: 사망한 플레이어의 시체가 월드에 섰다. **레이드가 끝날 때까지 사라지지 않는다** (수명 · 거리 컬링 없음).
+   * 루팅은 `Interactable` `pcorpse:<owner>:<n>` → 기존 컨테이너 창(`inventory:containerOpened`)이 맡는다.
+   */
+  'corpse:playerSpawned': { id: string; ownerId: string; ownerName: string; position: THREE.Vector3; yaw: number };
+  /** Fact: 그 시체에서 마지막 아이템까지 빠졌다 (메시는 남고 프롬프트만 바뀐다). */
+  'corpse:playerEmptied': { id: string; ownerId: string };
+
+  /* ── 구조선 투하 (owner: stratagems/parts/Rescue) ── */
+  /** Fact: 분대 공용 잔여 횟수가 바뀌었다 (미션 시작의 초기값 방송 포함). */
+  'rescue:countChanged': { left: number; total: number };
+  /** Fact: 구조선 호출이 확정됐다 (횟수는 이 시점에 차감된다). `target` = 되살아날 분대원의 PeerId. */
+  'rescue:called': { callId: string; target: string; targetName: string; by: string; position: THREE.Vector3; eta: number };
+  /** Fact: 구조 포드가 착륙해 그 분대원이 다시 섰다. */
+  'rescue:landed': { callId: string; target: string; position: THREE.Vector3 };
+  /** Command (ui → stratagems): 구조선 선택 화면에서 이 분대원을 고른다 (`null` = 선택 해제). */
+  'rescue:selectTarget': { peerId: string | null };
+
+  /* ── 분대장(호스트) (owner: game/parts/Leader) ── */
+  /** Fact: 호스트가 완전히 사망해 시체 옆에 분대장 기기가 떨어졌다 (`Interactable` `leader_device`, 3초 홀드). */
+  'leader:deviceDropped': { position: THREE.Vector3; hostId: string };
+  /** Fact: 누군가 기기를 집어 분대장을 이어받았다 (기기는 사라진다). */
+  'leader:deviceTaken': { by: string; byName: string };
+  /** Command (ui/hub → net): 이 분대원에게 분대장을 넘긴다 (커뮤니티 우클릭 · 함선 안 상호작용). */
+  'leader:transferRequested': { peerId: string };
+
+  /* ── 전장의 안개 (owner: world/Fog) ── */
+  /**
+   * Fact: 안개 마스크가 자랐다. 지도는 이 이벤트에만 반응해 캐시된 안개 레이어를 다시 그린다 —
+   * 매 프레임 `FogRef.mask` 를 훑지 않는다. `explored` = 0..1 탐색률.
+   */
+  'fog:revealed': { revision: number; explored: number };
+  /**
+   * Fact: 아직 못 보던 랜드마크를 처음 발견했다 (탈출 신호소 · 둥지 · 상자 …). 토스트 · 지도 아이콘 · 나침반이
+   * 이걸 기준으로 켜진다. `kind` 는 지도 마커의 종류와 같은 이름을 쓴다.
+   */
+  'fog:discovered': { kind: 'extraction' | 'nest' | 'crate' | 'outpost' | 'gather'; id: string; position: THREE.Vector3 };
+
+  /* ── 원격 강하 포드 (owner: player/RemotePlayerSystem) ── */
+  /**
+   * Fact: 원격 분대원의 강하 포드가 떨어지기 시작했다. `kind` 0 = 미션 시작, 1 = 구조선.
+   * 2026-09-09 이전에는 아군이 그냥 자리에 나타났다 — 이제 포드가 보인다.
+   */
+  'net:remotePodDrop': { id: string; position: THREE.Vector3; yaw: number; kind: 0 | 1 };
 }
 
 /** One 키 가이드 entry (`ui:keyGuide`): `key` is the display label (`keyLabel(...)`), `label` the Korean action. */

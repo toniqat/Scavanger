@@ -18,6 +18,8 @@ import type { HousingRef } from './housing';
 import type { MetaRef } from './meta';
 /* appended (2026-09-08): 튜토리얼 */
 import type { TutorialRef } from './tutorial';
+/* appended (2026-09-09): 사망한 플레이어의 시체 */
+import type { CorpsesRef } from './types';
 
 class InteractableRegistryImpl implements InteractableRegistry {
   private items = new Map<string, Interactable>();
@@ -96,6 +98,12 @@ export class GameContext {
   /* appended (2026-09-08) */
   /** 튜토리얼 (새 프로필 안내). Published by tutorial/TutorialSystem; null while it is not registered. */
   tutorial: TutorialRef | null = null;
+  /* appended (2026-09-09) */
+  /**
+   * 사망한 플레이어의 시체 (레이드 내내 남는다). Published by game/GameFlowSystem.
+   * 적 시체는 여기 없다 — 그쪽은 `enemies/Corpses` 소관이다.
+   */
+  corpses: CorpsesRef | null = null;
   /* ── appended: Phase 7 (2026-09-06) ── */
   /** Mode of the running / last mission (`game/` sets it from `game:newMission.mode` before the world generates). */
   missionMode: MissionMode = 'raid';

@@ -238,7 +238,14 @@ export const STRATAGEM_DEFS: readonly StratagemDef[] = csvRows('stratagems.csv')
   radius: r.num('radius', { min: 0 }),
   hint: r.str('hint'),
 }));
-export const STRATAGEM_ORDER: readonly StratagemId[] = ['orbital_laser', 'airstrike', 'supply_drop', 'structure_drop'];
+/**
+ * G 휠에 뜨는 목록과 순서 — **4방위 고정**(N/E/S/W)이라 항목은 정확히 4개다.
+ * 2026-09-09: `airstrike` 를 휠에서 내리고 `rescue_drop` 을 올렸다. 항공 폭탄의 정의(csv 줄)와
+ * 구현(`stratagems/parts/Calls`)은 남아 있지만 어디서도 무장되지 않는다 — 계약은 지우지 않고 목록만 바꾼다.
+ */
+export const STRATAGEM_ORDER: readonly StratagemId[] = ['orbital_laser', 'supply_drop', 'structure_drop', 'rescue_drop'];
+/** 멀티에서 **호스트만** 무장할 수 있는 호출. 나머지는 아무나 쓴다. */
+export const STRATAGEM_HOST_ONLY: readonly StratagemId[] = ['orbital_laser', 'airstrike'];
 /** G held longer than this opens the wheel; a tap re-arms the last call. */
 export const STRATAGEM_WHEEL_HOLD = K.num('STRATAGEM_WHEEL_HOLD');
 /** LMB hold (s) before an orbital call switches to the top view. */
@@ -975,3 +982,56 @@ export const CHAR_NAME_RANDOM_MAX = K.num('CHAR_NAME_RANDOM_MAX');
 /* ── 위험한 버튼의 홀드 확정 (2026-09-09, owner: ui) ── */
 /** 파티 떠나기 · 타이틀로 · 게임 종료 확정 버튼을 눌러 두어야 하는 시간(초). */
 export const UI_HOLD_CONFIRM_S = K.num('UI_HOLD_CONFIRM_S');
+
+/* ══ 2026-09-09: 사망 · 시체 · 구조선 · 안개 · 지형지물 ═════════════════════════════════════════════════════ */
+
+/* ── 사망 · 시체 (owner: game/parts/Death · player · inventory) ── */
+/**
+ * **자동 부활은 없다** (2026-09-09). `PLAYER_RESPAWN_DELAY` 는 계약에 남아 있지만 아무도 읽지 않는다 —
+ * 완전히 사망하면 시체가 되고, 되살아나는 길은 분대원의 `rescue_drop` 뿐이다.
+ */
+/** 사망한 플레이어의 시체를 열 수 있는 거리(m). */
+export const PLAYER_CORPSE_LOOT_RANGE = K.num('PLAYER_CORPSE_LOOT_RANGE');
+/** 시체 루팅 격자의 칸 수 — 사망 시점의 장비 + 가방 전부가 들어가야 하므로 상자(6×4)보다 크다. */
+export const PLAYER_CORPSE_COLS = K.num('PLAYER_CORPSE_COLS');
+export const PLAYER_CORPSE_ROWS = K.num('PLAYER_CORPSE_ROWS');
+
+/* ── 구조선 투하 (owner: stratagems/parts/Rescue) ── */
+/** 레이드 한 판에 분대가 공용으로 쓰는 구조선 횟수. **호출 확정 시** 1 차감된다 (취소는 환불 없음). */
+export const RESCUE_DROPS_PER_RAID = K.num('RESCUE_DROPS_PER_RAID');
+/** 지정 지점 주변 이 반경(m) 안의 임의 지점에 구조 포드가 떨어진다. */
+export const RESCUE_SCATTER_RADIUS = K.num('RESCUE_SCATTER_RADIUS');
+/** 동시에 떨어지는 포드끼리 최소 이만큼(m) 떨어뜨린다 (겹침 방지). */
+export const RESCUE_POD_MIN_GAP = K.num('RESCUE_POD_MIN_GAP');
+/** 구조선으로 부활한 분대원이 시작하는 체력 (장비는 시체에 남으므로 빈손이다). */
+export const RESCUE_REVIVE_HP = K.num('RESCUE_REVIVE_HP');
+
+/* ── 분대장 기기 (owner: game/parts/Leader) ── */
+/** 분대장 기기를 상호작용으로 꾹 눌러야 하는 시간(초). */
+export const LEADER_DEVICE_HOLD_S = K.num('LEADER_DEVICE_HOLD_S');
+/** 분대장 기기 상호작용 거리(m). */
+export const LEADER_DEVICE_RANGE = K.num('LEADER_DEVICE_RANGE');
+
+/* ── 전장의 안개 (owner: world/Fog) ── */
+/** 안개 그리드 한 칸의 한 변(m). `MAP_SIZE / FOG_CELL_M` 이 격자 해상도가 된다. */
+export const FOG_CELL_M = K.num('FOG_CELL_M');
+/** 분대원 한 명이 자기 주위로 밝히는 반경(m). */
+export const FOG_REVEAL_RADIUS = K.num('FOG_REVEAL_RADIUS');
+/** 안개 그리드를 다시 칠하는 빈도(회/초). */
+export const FOG_UPDATE_HZ = K.num('FOG_UPDATE_HZ');
+
+/* ── 대형 적 스폰 여유 공간 (owner: enemies/Spawner) ── */
+/** 이 반경(m) 이상인 적은 구조물이 빽빽한 곳에 스폰하지 않는다. */
+export const ENEMY_BIG_RADIUS = K.num('ENEMY_BIG_RADIUS');
+/** 대형 적이 검사하는 원의 반경 = 자기 반경 × 이 값. */
+export const ENEMY_SPAWN_CLEARANCE_MUL = K.num('ENEMY_SPAWN_CLEARANCE_MUL');
+/** 검사 원 안의 장애물 점유 면적이 이 비율을 넘으면 그 지점을 버린다. */
+export const ENEMY_SPAWN_BLOCK_RATIO = K.num('ENEMY_SPAWN_BLOCK_RATIO');
+/** 버려진 지점을 다시 뽑는 최대 횟수. */
+export const ENEMY_SPAWN_RETRIES = K.num('ENEMY_SPAWN_RETRIES');
+
+/* ── 지형지물 위에 올라서기 (owner: world/WorldSystem) ── */
+/** 걷다가 그냥 올라설 수 있는 장애물 윗면의 높이 차(m). 이보다 높으면 벽처럼 막힌다. */
+export const PROP_STEP_UP_MAX = K.num('PROP_STEP_UP_MAX');
+/** 장애물 윗면 판정에 쓰는 여유(m) — 가장자리에서 미끄러져 떨어지지 않게 한다. */
+export const PROP_TOP_MARGIN = K.num('PROP_TOP_MARGIN');

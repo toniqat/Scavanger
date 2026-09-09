@@ -692,7 +692,8 @@ export interface WeaponsRef {
  * G hold → wheel → arm a call → target (top view for orbital calls, ground marker for drops) → effect after a delay.
  * All calls share one cooldown.
  * ──────────────────────────────────────────────────────────────────────────── */
-export type StratagemId = 'orbital_laser' | 'airstrike' | 'supply_drop' | 'structure_drop';
+/** 2026-09-09: `rescue_drop` 추가. `airstrike` 는 `STRATAGEM_ORDER` 에서 빠졌지만 타입·정의는 남는다. */
+export type StratagemId = 'orbital_laser' | 'airstrike' | 'supply_drop' | 'structure_drop' | 'rescue_drop';
 export type StratagemStage = 'incoming' | 'active' | 'done';
 export interface StratagemCall {
   /** `${peerId|'sp'}-${n}` */
@@ -1544,4 +1545,141 @@ export interface HubRef {
   enterShipBay(slot: number): boolean;
   /** Walk back out through the airlock into the hangar. Returns false when we are not inside a bay's ship. */
   returnToHangar(): boolean;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 2026-09-09 — 사망/시체 · 구조선 · 분대장 · 전장의 안개 · 지형지물 위 걷기
+ *
+ * 이 묶음의 계약. 인터페이스는 **선언 병합**으로 늘리기만 한다 (이름 변경 · 삭제 없음).
+ * ══════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/* ── 전장의 안개 (owner: world/Fog, 게시: `ctx.world.fog`) ─────────────────────────────────────────────── */
+/**
+ * 레이드 맵의 탐색 진행도. `MAP_SIZE / FOG_CELL_M` 변의 정사각 그리드 하나가 원본이고,
+ * **한 번 밝힌 칸은 레이드가 끝날 때까지 다시 어두워지지 않는다**.
+ *
+ * 밝히는 주체는 **분대원 전원**이다 — world 가 매 `FOG_UPDATE_HZ` 마다 로컬 플레이어와
+ * `ctx.net.getRemotePlayers()` 의 살아있는(같은 미션 안) 좌표 주위 `FOG_REVEAL_RADIUS` 를 칠한다.
+ * 스냅샷이 이미 20 Hz 로 흐르므로 **새 와이어가 필요 없다**. 늦게 합류한 클라이언트만 호스트에게
+ * `fogq sync` 로 지금까지의 마스크를 받는다.
+ *
+ * 훈련장(`mode === 'training'`)에서는 만들어지지 않는다 (`ctx.world.fog === null`).
+ */
+export interface FogRef {
+  /** 격자 해상도 (한 변의 칸 수). */
+  readonly cells: number;
+  /** 한 칸의 한 변(m) = `FOG_CELL_M`. */
+  readonly cellSize: number;
+  /** 새 칸이 밝혀질 때마다 1 오른다. 지도는 이 값이 바뀔 때만 안개 레이어를 다시 그린다. */
+  readonly revision: number;
+  /** 밝혀진 칸의 총 수 / 전체 칸 수 (0..1) — HUD 의 탐색률. */
+  readonly explored: number;
+  /**
+   * 행 우선 `cells × cells` 마스크. 0 = 미탐색, 255 = 밝혀짐.
+   * **읽기 전용으로 다룬다** — 지도 캔버스가 그대로 ImageData 로 밀어 넣는다.
+   */
+  readonly mask: Uint8Array;
+  /** 월드 좌표가 이미 밝혀진 칸인가. 범위 밖은 true (맵 밖은 가릴 것이 없다). */
+  isRevealed(x: number, z: number): boolean;
+  /** `position` 이 밝혀진 칸에 있는가 — 오브젝트 발견 게이트의 표준 질의. */
+  isDiscovered(position: THREE.Vector3): boolean;
+  /** 월드 좌표 주위 `radius` m 를 밝힌다 (world 가 스스로 부르고, 구조선 착륙 같은 이벤트도 쓴다). */
+  reveal(x: number, z: number, radius: number): void;
+  /** 늦게 합류한 클라이언트용 직렬화 (base64) / 적용. 호스트만 만든다. */
+  serialize(): string;
+  applySerialized(data: string): void;
+}
+
+export interface WorldRef {
+  /* ── appended (2026-09-09) ── */
+  /** 전장의 안개. 레이드에서만 존재하고 훈련장에서는 null. */
+  readonly fog: FogRef | null;
+  /**
+   * **걸어 다닐 수 있는 표면의 높이** — 지형 높이와 그 자리 장애물 윗면 중 높은 쪽.
+   * `getHeightAt` 은 지형만 보므로 발이 닿는 곳을 물을 때는 이쪽을 쓴다.
+   *
+   * `feetY` 를 주면 그 발 높이에서 **올라설 수 있는** 윗면만 본다 (`feetY + PROP_STEP_UP_MAX` 이하).
+   * 주지 않으면 그 자리에서 제일 높은 윗면을 돌려준다 (총알 · 낙하 판정용).
+   */
+  getSurfaceY(x: number, z: number, feetY?: number): number;
+  /**
+   * `(x, z)` 에서 발 높이 `feetY` 로 서 있을 때 밟고 있는 장애물, 없으면 null.
+   * 그 위에 선 동안 그 장애물은 `resolveCollision` 이 밀어내지 않는다.
+   */
+  getStandingObstacle(x: number, z: number, feetY: number): Obstacle | null;
+  /**
+   * 반경 `radius` 원 안을 장애물이 차지하는 면적 비율(0..1). 대형 적 스폰 자리를 거르는 데 쓴다.
+   * 원기둥 단면끼리의 근사값이고 겹침은 보정하지 않으므로 1 을 넘을 수 있다.
+   */
+  obstacleCoverage(x: number, z: number, radius: number): number;
+  /**
+   * 서로 `minGap` m 이상 떨어진 지점 `count` 개를 `center` 주변 `radius` 안에서 뽑는다
+   * (구조 포드가 겹쳐 떨어지지 않게). 지형 높이가 채워지고, 자리가 모자라면 그만큼만 돌려준다.
+   */
+  scatterPoints(center: THREE.Vector3, radius: number, count: number, minGap: number, seed?: number): THREE.Vector3[];
+}
+
+/* ── 사망한 플레이어의 시체 (owner: game/parts/Corpses, 게시: `ctx.corpses`) ───────────────────────────── */
+/**
+ * 한 구의 시체. **레이드가 끝날 때까지 사라지지 않는다** — 적 시체의 `CORPSE_LIFETIME` 도, 거리 컬링도
+ * 적용되지 않는다 (사용자 결정: 최적화 대상에서 제외).
+ */
+export interface PlayerCorpse {
+  /** `pcorpse:<ownerId>:<n>` — 같은 사람이 여러 번 죽으면 시체도 여러 구가 남는다. */
+  readonly id: string;
+  /** 주인의 PeerId (싱글은 `'sp'`). */
+  readonly ownerId: string;
+  readonly ownerName: string;
+  readonly position: THREE.Vector3;
+  readonly yaw: number;
+  /** `ctx.missionTime` 기준 사망 시각. */
+  readonly diedAt: number;
+  /** 남은 아이템이 하나도 없으면 true (프롬프트가 `비어 있음` 으로 바뀐다). */
+  readonly emptied: boolean;
+}
+
+export interface CorpsesRef {
+  getCorpses(): readonly PlayerCorpse[];
+  get(id: string): PlayerCorpse | null;
+  /** 이 사람의 가장 최근 시체 (구조선 대상 목록이 위치를 표시할 때 쓴다). */
+  latestOf(ownerId: string): PlayerCorpse | null;
+}
+
+/* ── 구조선 투하 (owner: stratagems/parts/Rescue) ─────────────────────────────────────────────────────── */
+/** 구조선 호출 화면에 뜨는 분대원 한 칸. */
+export interface RescueCandidate {
+  readonly peerId: string;
+  readonly name: string;
+  readonly slot: number;
+  /** 죽어 있어서 고를 수 있는가. 살아 있거나 전투불능이면 false (칸은 뜨지만 비활성). */
+  readonly selectable: boolean;
+  /** 죽어 있으면 그 시체의 위치, 아니면 null. */
+  readonly corpse: THREE.Vector3 | null;
+}
+
+export interface StratagemsRef {
+  /* ── appended (2026-09-09): 구조선 ── */
+  /** 남은 구조선 횟수 (분대 공용). 레이드 시작 시 `RESCUE_DROPS_PER_RAID`. */
+  readonly rescueLeft: number;
+  /** 구조선 호출이 지금 가능한가 = 남은 횟수 > 0 이고 죽어 있는 분대원이 하나라도 있다. */
+  readonly rescueAvailable: boolean;
+  /** 분대원 4칸 (죽은 사람만 `selectable`). 구조선 선택 화면이 이걸 그린다. */
+  getRescueCandidates(): readonly RescueCandidate[];
+  /** 지금 선택 화면에서 고른 대상, 없으면 null. */
+  readonly rescueTarget: string | null;
+}
+
+export interface InventoryRef {
+  /* ── appended (2026-09-09): 시체 루팅 ── */
+  /**
+   * **사망 시점의 전부** — 장비 슬롯 · 임플란트 칸 · 가방 · 퀵슬롯의 아이템을 하나의 목록으로 뽑고
+   * 로컬 인벤토리를 **비운다**. 시체 컨테이너를 채우는 유일한 입구이고, 사망 처리에서 한 번만 불린다.
+   */
+  stripForCorpse(): ItemInstance[];
+  /**
+   * `openContainerItems` 와 같지만 격자 크기를 지정한다 (시체는 `PLAYER_CORPSE_COLS × PLAYER_CORPSE_ROWS`).
+   * 이미 알고 있는 id 면 `items` · 크기 모두 무시하고 남은 내용물을 보여 준다.
+   */
+  openContainerItemsSized(containerId: string, items: ItemInstance[], position: THREE.Vector3,
+    cols: number, rows: number, title?: string): void;
 }

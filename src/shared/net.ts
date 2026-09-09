@@ -222,7 +222,20 @@ export type ClientToServer =
    */
   | { t: 'social:play'; code: PlayerCode }
   /** Direct message by 아이디, delivered as `social:whisper` if the target is connected. Works outside a lobby. */
-  | { t: 'social:whisper'; code: PlayerCode; text: string };
+  | { t: 'social:whisper'; code: PlayerCode; text: string }
+  /* ── appended (2026-09-09): 분대장 지명 이관 ── */
+  /**
+   * 분대장(호스트)을 `targetId` 에게 넘긴다. 서버가 받아 주는 경우는 둘뿐이다:
+   * ① 보낸 사람이 지금 호스트다, ② `claim` 이 true 이고 현재 호스트가 `lobby:hostDown` 으로
+   * **완전히 사망**했다고 표시해 두었다 (시체 옆의 분대장 기기). 그 외에는 `not_host`.
+   * `targetId` 가 같은 로비의 연결된 멤버가 아니면 `invalid`. 성공하면 새 `lobby:state` 가 방송된다.
+   */
+  | { t: 'lobby:transferHost'; targetId: PeerId; claim?: boolean }
+  /**
+   * 호스트 본인이 이 레이드에서 완전히 사망했다(또는 되살아났다)고 서버에 알린다. 서버는 이 표시가
+   * 있는 동안에만 남의 `lobby:transferHost {claim:true}` 를 허용한다. 미션이 끝나면 자동으로 지워진다.
+   */
+  | { t: 'lobby:hostDown'; down: boolean };
 
 export type ServerToClient =
   /**
@@ -612,8 +625,93 @@ export type GameMessage =
   | ShotReport
   /* appended (2026-09-08): 공용 함선 격납고 — 개인 함선 방문 (owner: hub) */
   | ShipVisitMessage
-  | ShipVisitRequest;
+  | ShipVisitRequest
+  /* appended (2026-09-09): 사망/시체 · 구조선 · 강하 포드 · 분대장 기기 · 안개 */
+  | CorpseMessage
+  | CorpseRequest
+  | RescueMessage
+  | PodMessage
+  | LeaderMessage
+  | LeaderRequest
+  | FogMessage
+  | FogRequest;
   /* append new message types above this line (keep `t` unique; prefix by owning folder if in doubt) */
+
+/* ══ 2026-09-09 wire: 시체 · 구조선 · 강하 포드 · 분대장 기기 · 안개 ════════════════════════════════════════
+ *
+ * 권한 규칙은 기존과 같다 — **호스트가 진실의 원본**이고, 늦게 합류한 클라이언트는 `*q sync` 로 현황을 받는다.
+ * 다만 시체의 **내용물**은 이미 있는 `cont` (ContainerMessage) 경로를 그대로 탄다: 시체는 컨테이너 하나이고
+ * 그 id 가 `pcorpse:<owner>:<n>` 일 뿐이다. 아래 메시지는 시체가 **어디에 있고 누구 것인지**만 나른다.
+ * ════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** 시체 안의 아이템 하나 — 정의 id · 개수 · (무기/방어구면) 내구도·장전·소켓. `PickupWire.ex` 와 같은 그릇이다. */
+export interface CorpseItemWire { defId: string; qty: number; ex?: ItemInstanceExtras }
+/**
+ * 한 구의 시체. `items` 는 **사망 시점의 전부**(장비 · 임플란트 · 가방 · 퀵슬롯)이고 굴림이 아니라
+ * 실측이므로 반드시 와이어에 실린다 — 상자처럼 시드로 재현할 수 없다. 받은 쪽은 이걸로
+ * `openContainerItemsSized('pcorpse:...', ...)` 컨테이너를 만들고, 이후의 **가져가기**는 기존
+ * `cont` / `contq` 호스트 권한 경로를 그대로 탄다.
+ */
+export interface PlayerCorpseWire {
+  id: string;
+  owner: PeerId;
+  name: string;
+  p: Vec3Tuple;
+  yaw: number;
+  /** 사망 시각 (보낸 쪽 `ctx.missionTime`). */
+  at: number;
+  items: CorpseItemWire[];
+}
+/**
+ * 사망한 플레이어의 시체. `spawn` 은 **죽은 본인**이 all 로 보낸다 (자기 인벤토리만이 진실이므로).
+ * `sync` 는 호스트가 `pcorpseq sync` / `flow rejoined` 에 답하는 전체 목록이다 — 그래서 호스트는
+ * 남의 시체도 `items` 채로 들고 있어야 한다.
+ */
+export type CorpseMessage =
+  | { t: 'pcorpse'; ev: 'spawn'; corpse: PlayerCorpseWire }
+  | { t: 'pcorpse'; ev: 'emptied'; id: string }
+  | { t: 'pcorpse'; ev: 'sync'; corpses: PlayerCorpseWire[] };
+/** 클라이언트 → 호스트: 지금 서 있는 시체 목록을 달라 (`world:ready` 이후 · 재합류). */
+export type CorpseRequest = { t: 'pcorpseq'; ev: 'sync' };
+
+/**
+ * 구조선 투하. 분대 공용 카운터는 **호스트가 들고 있다** — 아무나 `req` 를 보내고 호스트가
+ * `grant`(횟수 차감 + 착륙 지점 확정) 또는 `deny` 로 답한다. `count` 는 남은 횟수 방송이다.
+ * 착륙 지점은 호스트가 `world.scatterPoints` 로 뽑아 겹치지 않게 정한다.
+ */
+export type RescueMessage =
+  | { t: 'rescue'; ev: 'req'; target: PeerId; p: Vec3Tuple }
+  | { t: 'rescue'; ev: 'grant'; callId: string; target: PeerId; by: PeerId; p: Vec3Tuple; eta: number }
+  | { t: 'rescue'; ev: 'deny'; reason: 'empty' | 'alive' | 'busy' }
+  | { t: 'rescue'; ev: 'count'; left: number };
+
+/**
+ * **강하 포드를 남들도 보이게** 하는 유일한 메시지 (2026-09-09). 지금까지 원격 분대원은 자리에 그냥
+ * 스폰된 것처럼 보였다. 미션 시작 강하와 구조선 강하 둘 다 이걸 보낸다 — 받은 쪽은 `who` 의 아바타를
+ * 숨긴 채 포드를 떨어뜨리고, 문이 열리면 아바타를 되돌린다.
+ * `kind`: 0 = 미션 시작, 1 = 구조선.
+ */
+export interface PodMessage { t: 'pod'; ev: 'drop'; who: PeerId; p: Vec3Tuple; yaw: number; kind: 0 | 1 }
+
+/**
+ * 분대장 기기 — 호스트가 완전히 사망하면 시체 옆에 떨어지는 **오브젝트**(아이템이 아니다).
+ * `drop` 은 죽은 호스트가, `taken` 은 3초 홀드를 마친 사람이 보낸다. 실제 호스트 교체는
+ * `NetRef.transferHost(me, true)` → 서버 → `lobby:state` 로 확정되고, 이 메시지는 오브젝트만 치운다.
+ */
+export type LeaderMessage =
+  | { t: 'lead'; ev: 'drop'; p: Vec3Tuple; host: PeerId }
+  | { t: 'lead'; ev: 'taken'; by: PeerId }
+  | { t: 'lead'; ev: 'sync'; p: Vec3Tuple | null; host: PeerId | null };
+/** 클라이언트 → 호스트: 지금 바닥에 분대장 기기가 있나. */
+export type LeaderRequest = { t: 'leadq'; ev: 'sync' };
+
+/**
+ * 전장의 안개. 평소에는 **와이어가 없다** — 모두가 이미 흐르는 `ps` 스냅샷의 분대원 좌표로
+ * 각자 자기 마스크를 칠하므로 자연히 같아진다. 늦게 합류한 사람만 호스트에게 지금까지의 마스크를 받는다.
+ * `mask` 는 `FogRef.serialize()` 의 base64.
+ */
+export type FogMessage = { t: 'fog'; ev: 'sync'; mask: string };
+export type FogRequest = { t: 'fogq'; ev: 'sync' };
 
 export type GameMessageType = GameMessage['t'];
 export type GameMessageOf<T extends GameMessageType> = Extract<GameMessage, { t: T }>;
@@ -1101,4 +1199,23 @@ export interface NetRef {
   getShipVisit(id: PeerId): ShipVisitWire | null;
   /** Ask `id` for its ship layout (`shipq state`); the answer lands as `net:shipVisit`. */
   requestShipVisit(id: PeerId): void;
+}
+
+/* ══ 2026-09-09: 분대장(호스트) 지명 이관 (owner: game/parts/Leader) ══════════════════════════════════════ */
+export interface NetRef {
+  /* ── appended (2026-09-09) ── */
+  /**
+   * 분대장(호스트)을 `targetId` 에게 넘긴다. 서버가 `lobby:transferHost` 를 처리하고 새 `lobby:state` 를
+   * 뿌리면 모두가 `net:hostChanged` 를 받는다.
+   *
+   * 서버가 허용하는 경우는 둘뿐이다 — ① 부르는 사람이 지금 호스트다, 또는 ② `claim` 이 true 이고
+   * 현재 호스트가 이 레이드에서 **완전히 사망**했다고 서버가 알고 있다 (분대장 기기). 그 외에는
+   * `lobby:error {code:'not_host'}` 가 돌아온다. 세션 밖에서는 no-op.
+   */
+  transferHost(targetId: PeerId, claim?: boolean): void;
+  /**
+   * 호스트가 이 레이드에서 완전히 사망했다고 서버에 알린다 (호스트 본인이 보낸다).
+   * 서버는 이 표시가 있을 때만 다른 사람의 `transferHost({claim:true})` 를 받아 준다.
+   */
+  reportHostDown(down: boolean): void;
 }
