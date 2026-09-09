@@ -133,3 +133,11 @@ Appended (tactical kit):
 - **Phase 7** — the roll no longer double-plays (`dive` one-shot removed), `level_up` is played only by the result screen
 
 - **Phase 8** — publishes `ctx.audio` (`AudioRef`) — 전체 / 효과음 volumes on the master + sfx gains, persisted in `AUDIO_STORAGE_KEY`, `preview()`, `audio:volumeChanged`, pause duck composes instead of overwriting
+
+- **2026-09-09 (레이드 플레이 개선)** — `Synth.SOUNDS` 에 9종 추가. 전부 절차 합성이고 `audio:play {id}` 로만
+  불린다 (AudioSystem 의 자동 구독은 붙이지 않았다 — 발행 시점이 각 폴더의 사정이라 그쪽에서 명시적으로 쏜다):
+  `comms_wheel` (휠 열림 틱) · `comms_send` (무전 클릭 + 블립) · `keycard_use` (삑삑 + 빗장 클렁크) ·
+  `keycard_deny` (거부 버저) · `tram_start` (릴레이 + 모터 감김) · `tram_dock` (제동 쉭 + 완충기) ·
+  `hazard_warn` (함선의 낮은 3음 경보) · `hazard_inside` (피해 구역 진입 저역 러시) ·
+  `rogue_drop_alarm` (강하 경보 3음 + 대기 가르는 소리).
+  기존 것을 재사용한 곳: 행성 스캔 = `scan_pulse`, 상자 = `crate_open`, 핑 = `ping_attack` / `ping_caution`.

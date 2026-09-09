@@ -894,6 +894,70 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.tone(d, { type: 'sine', f0: 1568 * p, t0: t + 0.07, dur: 0.16, gain: 0.08 });
     return 0.25;
   },
+
+  /* ── appended (2026-09-09): 레이드 플레이 개선 — 의사소통 · 구조물 · 전차 · 재해 · 로그 강하 ────────── */
+
+  /** 의사소통 휠이 열린다: 아주 짧고 부드러운 틱. */
+  comms_wheel: (s, d, t, p) => {
+    s.tone(d, { type: 'sine', f0: 880 * p, f1: 1180 * p, t0: t, dur: 0.06, gain: 0.05 });
+    return 0.08;
+  },
+  /** 한 마디를 보냈다: 무전 클릭 + 상승 블립 (분대 전원이 듣는다). */
+  comms_send: (s, d, t, p) => {
+    s.noise(d, { t0: t, dur: 0.035, gain: 0.14, filter: { type: 'bandpass', f0: 2400 * p, q: 3 } });
+    s.tone(d, { type: 'square', f0: 660 * p, f1: 990 * p, t0: t + 0.03, dur: 0.09, gain: 0.07, lp: 2600 });
+    s.noise(d, { t0: t + 0.13, dur: 0.03, gain: 0.08, filter: { type: 'bandpass', f0: 1800 * p, q: 3 } });
+    return 0.2;
+  },
+  /** 키카드 인식 → 잠금 해제: 삑 두 번 + 빗장이 빠지는 둔탁한 클렁크. */
+  keycard_use: (s, d, t, p) => {
+    s.tone(d, { type: 'square', f0: 1320 * p, t0: t, dur: 0.05, gain: 0.07, lp: 3000 });
+    s.tone(d, { type: 'square', f0: 1760 * p, t0: t + 0.08, dur: 0.06, gain: 0.07, lp: 3000 });
+    s.tone(d, { type: 'sine', f0: 150 * p, f1: 60 * p, t0: t + 0.22, dur: 0.22, gain: 0.3 });
+    s.noise(d, { t0: t + 0.22, dur: 0.16, gain: 0.2, filter: { type: 'lowpass', f0: 900 * p, f1: 200, q: 0.8 } });
+    return 0.5;
+  },
+  /** 키카드가 없다: 낮은 거부 버저 두 번. */
+  keycard_deny: (s, d, t, p) => {
+    s.tone(d, { type: 'square', f0: 220 * p, t0: t, dur: 0.09, gain: 0.09, lp: 1200, decayCurve: 'lin' });
+    s.tone(d, { type: 'square', f0: 185 * p, t0: t + 0.13, dur: 0.12, gain: 0.09, lp: 1200, decayCurve: 'lin' });
+    return 0.3;
+  },
+  /** 전차 시동: 릴레이가 딸깍 물리고 모터가 감기며 올라온다. */
+  tram_start: (s, d, t, p) => {
+    s.noise(d, { t0: t, dur: 0.05, gain: 0.22, filter: { type: 'bandpass', f0: 1400 * p, q: 2 } });
+    s.tone(d, { type: 'sawtooth', f0: 42 * p, f1: 130 * p, t0: t + 0.08, dur: 1.1, gain: 0.26, attack: 0.12, lp: 700 });
+    s.noise(d, { t0: t + 0.1, dur: 1.2, gain: 0.1, attack: 0.25, filter: { type: 'lowpass', f0: 500 * p, f1: 1400 * p, q: 0.7 }, decayCurve: 'lin' });
+    return 1.3;
+  },
+  /** 전차 정차: 제동 쉭 + 완충기 클렁크. */
+  tram_dock: (s, d, t, p) => {
+    s.noise(d, { t0: t, dur: 0.55, gain: 0.2, filter: { type: 'highpass', f0: 2600 * p, f1: 1200 * p, q: 0.8 } });
+    s.tone(d, { type: 'sine', f0: 110 * p, f1: 48 * p, t0: t + 0.35, dur: 0.3, gain: 0.28 });
+    return 0.7;
+  },
+  /** 재해 예고: 함선에서 오는 낮은 2음 경보. `wave_alarm` 보다 무겁고 느리다. */
+  hazard_warn: (s, d, t, p) => {
+    for (let i = 0; i < 3; i++) {
+      s.tone(d, { type: 'square', f0: 196 * p, f1: 147 * p, t0: t + i * 0.42, dur: 0.34, gain: 0.1, lp: 1400, decayCurve: 'lin' });
+    }
+    s.noise(d, { t0: t, dur: 1.4, gain: 0.05, attack: 0.4, filter: { type: 'lowpass', f0: 400 * p, q: 0.7 }, decayCurve: 'lin' });
+    return 1.4;
+  },
+  /** 피해 구역에 들어갔다: 귀를 덮는 저역 러시 (나올 때는 이 소리를 쓰지 않는다). */
+  hazard_inside: (s, d, t, p) => {
+    s.noise(d, { t0: t, dur: 1.1, gain: 0.3, attack: 0.25, filter: { type: 'lowpass', f0: 260 * p, f1: 700 * p, q: 0.6 }, decayCurve: 'lin' });
+    s.tone(d, { type: 'sine', f0: 70 * p, f1: 44 * p, t0: t, dur: 0.9, gain: 0.2, attack: 0.2 });
+    return 1.2;
+  },
+  /** 로그 강하 경보: 하늘에서 뭔가 떨어진다 — 날카로운 3음 + 대기를 가르는 소리. */
+  rogue_drop_alarm: (s, d, t, p) => {
+    for (let i = 0; i < 3; i++) {
+      s.tone(d, { type: 'square', f0: 740 * p, t0: t + i * 0.13, dur: 0.09, gain: 0.09, lp: 3000, decayCurve: 'lin' });
+    }
+    s.noise(d, { t0: t + 0.45, dur: 1.0, gain: 0.16, attack: 0.5, filter: { type: 'bandpass', f0: 700 * p, f1: 2600 * p, q: 1.2 }, decayCurve: 'lin' });
+    return 1.5;
+  },
 };
 
 export const SOUND_IDS = Object.keys(SOUNDS);
