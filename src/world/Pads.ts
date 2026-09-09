@@ -130,7 +130,10 @@ export class Pads {
         xform(lamp, { x: 1.0, y: -0.12, z: 0 });
         xform(lamp, { x: px, y: py + 5.1, z: pz }, new THREE.Euler(0, -a + Math.PI, 0));
         lamps.push(lamp);
-        ctx.hash.add(new THREE.Vector3(px, py, pz), 0.45, 5.4, 'pole');
+        /* 2026-09-09 — 실루엣에 맞춘다: 그려진 것은 받침(반지름 0.7 · 높이 0.35)과 그 위의 가는 기둥
+         * (0.2 → 0.12)인데, 예전에는 `0.45 × 5.4` 한 덩이라 기둥 옆이 보이지 않는 벽이었고 총알도 먹었다. */
+        ctx.hash.add(new THREE.Vector3(px, py, pz), 0.7, 0.35, 'pole');
+        ctx.hash.add(new THREE.Vector3(px, py + 0.35, pz), 0.22, 5.05, 'pole');
       }
       const poleMesh = new THREE.Mesh(merge(poles), metalMat);
       poleMesh.castShadow = true; poleMesh.name = 'extraction_poles';

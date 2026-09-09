@@ -545,27 +545,39 @@ try {
   ok(cancel.mid.w > 0 && cancel.mid.t > 0 && cancel.mid.evs > 0, `second hold running (t ${cancel.mid.t.toFixed(2)})`, JSON.stringify(cancel.mid));
   ok(cancel.w === 0 && cancel.t === 0 && cancel.job === null && cancel.label === '분해' && cancel.open, 'clicking again cancels: fill emptied, job gone, dialog still open');
   ok(cancel.last && cancel.last.t === 0 && cancel.last.done === false && !cancel.anyDone, 'cancel reports {t:0, done:false} and never done', JSON.stringify(cancel.last));
-  /* 가방 칸을 먼저 본다 (2026-09-08): a bag with no room refuses the 분해 up front instead of after the hold. */
+  /* 넣을 자리를 먼저 본다 (2026-09-08; 2026-09-09 부터 함선에서는 **가방 → 창고**): no room refuses the 분해
+     up front instead of after the hold. 함선 안이므로 가방만 채워서는 막히지 않는다 — 창고가 받는다. */
   const noRoom = await page.evaluate(() => {
     const ctx = window.__game.ctx, i = ctx.inventory, sys = window.__game.getSystem('inventory');
     const p = sys['ui'].disassemblePanel;
-    const before = { room: i.craftHasRoom('break_ammo_light'), disabled: document.querySelector('.inv-dis-btn').disabled };
-    // fill every free cell, then repaint the dialog
+    const btn = () => document.querySelector('.inv-dis-btn');
+    const read = () => ({ room: i.craftHasRoom('break_ammo_light'), disabled: btn().disabled, label: btn().querySelector('span').textContent });
+    const before = read();
     // the 화약 stack this run already made would absorb the output on its own — clear it, then fill every free cell
     i.consumeWhere((d) => d.id === 'mat_gunpowder', 9999);
     const junk = [];
     const stackMax = ctx.loot.getItemDef('mat_scrap')?.stackMax ?? 1;
     for (let k = 0; k < 400; k++) { const it = ctx.loot.createItem('mat_scrap', stackMax); if (!i.tryAddItem(it)) break; junk.push({ uid: it.uid, qty: stackMax }); }
     p.refresh();
-    const btn = document.querySelector('.inv-dis-btn');
-    const after = { room: i.craftHasRoom('break_ammo_light'), disabled: btn.disabled, label: btn.querySelector('span').textContent };
+    const bagOnly = read();                       // 2026-09-09: 가방만 꽉 차서는 아직 막히지 않는다
+    // now close the stash too — that is the only state with nowhere left to put the output
+    const stash = sys.getStash();
+    const stashed = [];
+    for (let k = 0; k < 4000; k++) { const it = ctx.loot.createItem('mat_scrap', stackMax); if (!stash.autoPlace(it)) break; stashed.push(it.uid); }
+    sys.afterChange();
+    p.refresh();
+    const after = read();
+    for (const uid of stashed) stash.remove(uid);
+    sys.afterChange();
     for (const j of junk) i.consumeItem(j.uid, j.qty);
     p.refresh();
-    return { before, after, restored: document.querySelector('.inv-dis-btn').disabled };
+    return { before, bagOnly, after, restored: btn().disabled };
   });
-  ok(noRoom.before.room && !noRoom.before.disabled, '분해 button enabled while the bag has room', JSON.stringify(noRoom.before));
-  ok(!noRoom.after.room && noRoom.after.disabled && noRoom.after.label === '가방에 공간이 없습니다',
-    'a full bag disables the button up front with the reason on it', JSON.stringify(noRoom.after));
+  ok(noRoom.before.room && !noRoom.before.disabled, '분해 button enabled while there is room', JSON.stringify(noRoom.before));
+  ok(noRoom.bagOnly.room && !noRoom.bagOnly.disabled,
+    '함선에서는 가방만 꽉 차도 창고가 받으므로 분해가 계속 가능하다 (2026-09-09)', JSON.stringify(noRoom.bagOnly));
+  ok(!noRoom.after.room && noRoom.after.disabled && noRoom.after.label === '가방과 함선 창고에 공간이 없습니다',
+    'a full bag **and** stash disables the button up front with the reason on it', JSON.stringify(noRoom.after));
   ok(!noRoom.restored, 'and it comes back once the bag has room again');
   await page.evaluate(() => window.__game.getSystem('inventory')['ui'].disassemblePanel.close());
 

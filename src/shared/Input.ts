@@ -1,4 +1,4 @@
-import { LOCK_GESTURE_RETRY_MS } from './constants';
+import { LOCK_BOUNCE_GRACE_MS, LOCK_GESTURE_RETRY_MS } from './constants';
 import { CursorMode } from './cursor';
 
 /** How long after a lock request we check whether it actually took (engines that return no promise). */
@@ -104,7 +104,23 @@ export class Input {
         this.relockPending = false;
         if (!this.cursor.active) { this.requestPointerLock(); return; }
       }
-      if (!self && this.wantLock) this.userUnlock?.();
+      if (self || !this.wantLock) return;
+      /*
+       * 2026-09-09 — **우리가 방금 요청한 락이 튕겨 나온 것은 Escape 가 아니다.**
+       *
+       * 전체화면 Chrome 과 데스크톱 셸(Electron)은 화면 · 모드가 닫히면서 `main.ts` 가 다시 잡은 락을 넘겨줬다가
+       * 곧바로 도로 가져가는 일이 있다. 창 모드 브라우저에서는 안 나던 증상이라 오래 안 잡혔는데, 그 두 번째
+       * `pointerlockchange` 가 여기서 `userUnlock()` 으로 새어 나가면 `game/` 이 그것을 Escape 로 읽고
+       * **일시정지 메뉴를 혼자 띄운다** — 하우징 모드를 Tab 으로 닫으면 ESC 메뉴가 뜨던 문제가 바로 이것이고,
+       * 인벤토리 · 지도 · 터미널처럼 닫으면서 락을 되찾는 화면 전부가 같은 뿌리를 공유한다.
+       *
+       * 그래서 우리 요청(`lastLockRequest`) 직후 `LOCK_BOUNCE_GRACE_MS` 안에 사라진 락은 플레이어의 것이 아니라고
+       * 보고 메뉴를 띄우지 않는다. 대신 이미 있는 제스처 재시도를 걸어 두면 다음 키 · 클릭에서 카메라가 돌아온다.
+       * 진짜 Escape 를 이 창에서 놓치더라도 손해가 없다: 락이 없는 상태의 Escape 는 진짜 keydown 으로 들어와
+       * `GameFlowSystem.update` 가 그대로 메뉴를 연다.
+       */
+      if (performance.now() - this.lastLockRequest < LOCK_BOUNCE_GRACE_MS) { this.armLockGestureRetry(); return; }
+      this.userUnlock?.();
     });
     // 전체화면에서 Escape 를 게임 키로 (see `syncKeyboardLock`).
     document.addEventListener('fullscreenchange', this.syncKeyboardLock);

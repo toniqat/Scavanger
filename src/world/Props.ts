@@ -21,9 +21,18 @@ interface ScatterOpts {
 }
 
 /**
- * Drawn half-extents of a finished variant geometry, in the units the instance matrix scales: `xz` is the mean of the
+ * Drawn extents of a finished variant geometry, in the units the instance matrix scales: `xz` is the mean of the
  * X and Z half-widths (the mesh is randomly yawed, so neither axis alone is the silhouette a bullet meets) and `y` is
- * the taller of the two vertical halves. Used for `Obstacle.shotRadius / shotHeight` — see `WorldSystem.rayCylinder`.
+ * **how far the mesh reaches above its own origin**. Used for `Obstacle.shotRadius / shotHeight` — see
+ * `WorldSystem.rayCylinder`.
+ *
+ * 2026-09-09: `y` used to be `max(|min.y|, |max.y|)` — the taller of the two vertical halves. For anything centred
+ * that is the same number, but the **pod shell** (a hemisphere rotated nose-down: `min.y ≈ −1`, `max.y ≈ 0.4`) got a
+ * cylinder ~1.2 m taller than the drawn shell, i.e. bullets stopped in the air above it. The callers all add this to
+ * the instance origin, so the top is what they want.
+ *
+ * ⚠ 이 값은 **콜라이더가 된다.** 소품 지오메트리를 손보면 튀어나간 정점 하나가 그대로 보이지 않는 벽이 된다
+ * (2026-09-09 `noise.ts` 사건). `scripts/smoke-props-collision.mjs` 가 그걸 숫자로 잡는다.
  */
 function hullOf(geo: THREE.BufferGeometry): { xz: number; y: number } {
   geo.computeBoundingBox();
@@ -31,7 +40,7 @@ function hullOf(geo: THREE.BufferGeometry): { xz: number; y: number } {
   if (!bb) return { xz: 1, y: 1 };
   const hx = Math.max(Math.abs(bb.min.x), Math.abs(bb.max.x));
   const hz = Math.max(Math.abs(bb.min.z), Math.abs(bb.max.z));
-  return { xz: (hx + hz) / 2, y: Math.max(Math.abs(bb.min.y), Math.abs(bb.max.y)) };
+  return { xz: (hx + hz) / 2, y: Math.max(0, bb.max.y) };
 }
 
 /**

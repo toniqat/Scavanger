@@ -2,9 +2,13 @@
  * SCAVANGER desktop (Electron) main process.
  *
  * One process runs the whole game: it starts the **embedded relay** (`server/RelayServer.ts`) on loopback, serves the
- * vite build from that same http server and points a single BrowserWindow at `http://127.0.0.1:<port>/`. Loading over
- * http instead of `file://` is what keeps `src/` untouched — the renderer's same-origin `/ws` lands on the embedded
- * relay exactly like it does behind the vite proxy, so profiles, raid sessions and the social store all work offline.
+ * vite build from a small http server of its own and points a single BrowserWindow at `http://127.0.0.1:<APP_PORT>/`,
+ * forwarding that origin's `/ws` to whichever relay is in play. Loading over http instead of `file://` is what keeps
+ * `src/` untouched — the renderer's same-origin `/ws` lands on the relay exactly like it does behind the vite proxy,
+ * so profiles, raid sessions and the social store all work offline.
+ *
+ * The window's port is **fixed and never OS-chosen**: localStorage (every character, the stash, `scav.sessionToken`)
+ * is keyed by origin, so a port that moves between launches wipes the save. See `APP_PORT`.
  *
  * A distributed build normally points at ONE relay somebody else runs (`start-server.bat`), so the address is resolved
  * from four places, first hit wins — flag, env, a `relay.txt` the player can edit next to the exe, then the address
@@ -12,7 +16,8 @@
  * the offline single-machine build. `--local` forces that even when an address is configured.
  *
  * CLI / env (both accepted; the flag wins):
- *   --port=<n>         SCAV_PORT       relay + http port (default NET_DEFAULT_PORT, falls back to a free port)
+ *   --port=<n>         SCAV_PORT       embedded relay port (default NET_DEFAULT_PORT, falls back to a free port)
+ *   --app-port=<n>     SCAV_APP_PORT   the window's own http port (default 8790) — changing it starts a fresh save
  *   --lan              SCAV_LAN=1      bind 0.0.0.0 so other machines on the LAN can use this relay (firewall prompt)
  *   --relay=<ws url>   SCAV_RELAY      start no relay; proxy /ws to an existing one (ws://192.168.0.5:8787/ws)
  *   --local            SCAV_LOCAL=1    ignore every configured relay and run the embedded one (offline / solo)
@@ -39,7 +44,6 @@ const value = (name: string, env: string): string | undefined => {
   return hit ? hit.slice(name.length + 3) : process.env[env];
 };
 
-const portGiven = value('port', 'SCAV_PORT') !== undefined;
 const wantPort = Number(value('port', 'SCAV_PORT') ?? NET_DEFAULT_PORT) || NET_DEFAULT_PORT;
 const lan = flag('lan', 'SCAV_LAN');
 const devtools = flag('devtools', 'SCAV_DEVTOOLS');
@@ -116,10 +120,30 @@ function toRelayUrl(raw: string): URL {
 
 const WEB_ROOT = join(app.getAppPath(), 'dist');
 let relay: RelayServer | null = null;
-let proxyServer: HttpServer | null = null;
+let appServer: HttpServer | null = null;
 let win: BrowserWindow | null = null;
+/** 세이브(localStorage)를 디스크로 밀어내는 주기 — 아래 `flushStorageData` 주석 참고. */
+const SAVE_FLUSH_MS = 30_000;
+let flushTimer: NodeJS.Timeout | null = null;
 
 /* ── local server ─────────────────────────────────────────────────────── */
+
+/**
+ * 창이 열리는 로컬 http 포트 (`--app-port` / `SCAV_APP_PORT` 로 바꾼다).
+ *
+ * **2026-09-09 — 껐다 켜면 캐릭터가 사라지던 이유.** localStorage 는 오리진(`http://127.0.0.1:<port>`)
+ * 단위다. 그런데 창의 포트는 (a) 프록시 모드(= `relay.txt` 로 남의 릴레이에 붙는 배포본의 기본형)에서
+ * **언제나 OS 가 주는 임의 포트**였고, (b) 임베디드 모드에서도 릴레이 포트가 이미 쓰이는 중이면(`npm run
+ * server` · `start-server.bat` · 앞서 죽다 만 사본) 임의 포트로 떨어졌다. 실행할 때마다 오리진이 달라지니
+ * 캐릭터 · 창고 · 설정이 매번 빈 채로 떴고, `scav.sessionToken` 까지 새로 발급돼 **릴레이가 들고 있던 서버
+ * 프로필(크레딧 · 창고 · 로드아웃 · 진행도)도 같이 사라졌다.**
+ *
+ * 그래서 창은 릴레이와 **무관한 전용 포트**를 쓰고, 막혀 있으면 임의 포트가 아니라 정해진 순서로 다음 칸을
+ * 본다. 단일 인스턴스 락(`requestSingleInstanceLock`)이 있으므로 실제로는 언제나 첫 칸이다.
+ */
+const APP_PORT = Number(value('app-port', 'SCAV_APP_PORT') ?? 8790) || 8790;
+/** 첫 칸이 막혔을 때 훑어볼 칸 수. 임의 포트로는 절대 떨어지지 않는다 — 그게 세이브를 지운다. */
+const APP_PORT_TRIES = 10;
 
 /** Listen on `preferred`, falling back to an OS-chosen free one when it is taken (a second copy, or `npm run server`). */
 async function listenWithFallback(preferred: number, start: (port: number) => Promise<number>): Promise<number> {
@@ -133,9 +157,24 @@ async function listenWithFallback(preferred: number, start: (port: number) => Pr
   }
 }
 
-/** Embedded relay + static files on one http server. Returns the bound port. */
-async function startEmbedded(): Promise<number> {
-  const port = await listenWithFallback(wantPort, async (p) => {
+/** `ports` 를 **적힌 순서대로** 훑는다. 전부 막혔으면 던진다 — 임의 포트로 도망가지 않는다(오리진 = 세이브). */
+async function listenStable(ports: readonly number[], start: (port: number) => Promise<number>): Promise<number> {
+  let last: Error | null = null;
+  for (const p of ports) {
+    try {
+      return await start(p);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw e;
+      last = e as Error;
+      console.warn(`[desktop] app port ${p} is busy -> trying the next one`);
+    }
+  }
+  throw last ?? new Error('no free app port');
+}
+
+/** Embedded relay (its own http server; the window does not live on it). Returns the relay's ws URL. */
+async function startEmbedded(): Promise<URL> {
+  await listenWithFallback(wantPort, async (p) => {
     relay = await startRelayServer({
       port: p,
       host: lan ? '0.0.0.0' : '127.0.0.1',
@@ -144,27 +183,28 @@ async function startEmbedded(): Promise<number> {
     });
     return relay.port;
   });
+  // LAN 브라우저가 이 PC 에서 게임을 받아 갈 수 있게 릴레이 포트에서도 계속 서빙한다(예전 그대로).
   if (relay) attachStatic(relay.http, WEB_ROOT);
-  return port;
+  return new URL(`ws://127.0.0.1:${relay?.port ?? wantPort}${NET_WS_PATH}`);
 }
 
 /**
- * No relay of our own: static files locally, `/ws` forwarded to `target`.
+ * 창이 사는 http 서버: `dist/` 를 서빙하고 `/ws` 업그레이드를 `relayWs`(임베디드든 원격이든)로 파이프한다.
  *
- * Unlike the embedded case this server is a private detail (it only exists to give the window an origin), so it takes
- * an OS-chosen port unless one was asked for. Squatting on the relay port would be actively harmful: a player whose
- * configured relay is on this very machine would otherwise proxy `/ws` straight back into this process.
+ * 릴레이 포트를 절대 뺏지 않는다 — 자기 PC 의 릴레이를 가리키는 사람이 `/ws` 를 이 프로세스로 되돌려
+ * 보내게 되기 때문이다. 포트는 `APP_PORT` 부터 순서대로(위 주석) — 오리진이 곧 세이브다.
  */
-async function startProxied(target: URL): Promise<number> {
-  return listenWithFallback(portGiven ? wantPort : 0, (p) => new Promise<number>((resolve, reject) => {
+async function startWindowServer(relayWs: URL): Promise<number> {
+  const ports = Array.from({ length: APP_PORT_TRIES }, (_, i) => APP_PORT + i);
+  return listenStable(ports, (p) => new Promise<number>((resolve, reject) => {
     const server = createServer();
     server.once('error', reject);
     // A bare server has no handler, so answer unknown paths first; attachStatic then runs ahead of it.
     server.on('request', (_req, res) => { if (!res.headersSent) res.writeHead(404).end('SCAVANGER desktop'); });
     attachStatic(server, WEB_ROOT);
-    attachWsProxy(server, target, (e) => console.warn(`[desktop] relay proxy: ${e.message}`));
+    attachWsProxy(server, relayWs, (e) => console.warn(`[desktop] relay proxy: ${e.message}`));
     server.listen(p, '127.0.0.1', () => {
-      proxyServer = server;
+      appServer = server;
       const addr = server.address();
       resolve(typeof addr === 'object' && addr ? addr.port : p);
     });
@@ -274,6 +314,12 @@ if (!app.requestSingleInstanceLock()) {
     ses.setPermissionRequestHandler((_wc, permission, cb) => cb(allowed.has(permission)));
     ses.setPermissionCheckHandler((_wc, permission) => allowed.has(permission));
 
+    /* 2026-09-09 — Chromium 은 localStorage 를 느긋하게 디스크에 내린다: 정상 종료면 나갈 때 쓰지만,
+     * **작업 관리자로 끄거나 렌더러가 죽으면 마지막 쓰기 이후가 통째로 사라진다** (측정: SIGTERM 한 번에
+     * 세이브 전부 유실). 세이브 하나가 몇 KB 라 강제로 내리는 비용이 없으므로 주기적으로 · 종료할 때 내린다. */
+    flushTimer = setInterval(() => ses.flushStorageData(), SAVE_FLUSH_MS);
+    app.on('before-quit', () => ses.flushStorageData());
+
     if (!existsSync(join(WEB_ROOT, 'index.html'))) {
       dialog.showErrorBox('SCAVANGER', `게임 빌드를 찾을 수 없습니다:\n${WEB_ROOT}\n\n먼저 "npm run app:build" 를 실행하세요.`);
       app.quit();
@@ -281,21 +327,22 @@ if (!app.requestSingleInstanceLock()) {
     }
 
     try {
-      let port: number;
+      let relayWs: URL;
       const configured = resolveRelay();
       if (configured) {
-        const target = toRelayUrl(configured.url);
-        port = await startProxied(target);
+        relayWs = toRelayUrl(configured.url);
         const from = configured.from ? `: ${configured.from}` : '';
-        console.log(`[desktop] relay proxy -> ${target.href}  (${RELAY_SOURCE_LABEL[configured.source]}${from})`);
+        console.log(`[desktop] relay proxy -> ${relayWs.href}  (${RELAY_SOURCE_LABEL[configured.source]}${from})`);
       } else {
-        port = await startEmbedded();
-        console.log(`[desktop] embedded relay${lan ? ' on 0.0.0.0 (LAN)' : ''}`);
+        relayWs = await startEmbedded();
+        console.log(`[desktop] embedded relay on ${relayWs.host}${lan ? ' (bound 0.0.0.0 — LAN)' : ''}`);
       }
-      console.log(`[desktop] http://127.0.0.1:${port}/  (relay ws ${NET_WS_PATH})`);
+      // 창의 오리진은 릴레이와 무관한 고정 포트다 (localStorage = 세이브가 오리진에 묶여 있다).
+      const port = await startWindowServer(relayWs);
+      console.log(`[desktop] http://127.0.0.1:${port}/  (relay ws ${NET_WS_PATH} -> ${relayWs.href})`);
       createWindow(port);
     } catch (e) {
-      dialog.showErrorBox('SCAVANGER', `릴레이 서버를 시작하지 못했습니다.\n${(e as Error).message}`);
+      dialog.showErrorBox('SCAVANGER', `로컬 서버를 시작하지 못했습니다.\n${(e as Error).message}`);
       app.quit();
     }
   });
@@ -303,8 +350,9 @@ if (!app.requestSingleInstanceLock()) {
   app.on('window-all-closed', () => { app.quit(); });
 
   app.on('before-quit', () => {
-    proxyServer?.close();
-    proxyServer = null;
+    if (flushTimer) { clearInterval(flushTimer); flushTimer = null; }
+    appServer?.close();
+    appServer = null;
     void relay?.close();
     relay = null;
   });

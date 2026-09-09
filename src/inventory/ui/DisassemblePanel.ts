@@ -26,7 +26,7 @@ import { TEXT } from './labels';
  * **2026-09-08 (분해 UX)**: three cuts, all of them the same complaint — the dialog told you things after the fact.
  *  - The `1회 분해 · 2.0 s` line under the preview is gone; the duration is what the button fill shows.
  *  - The second horizontal bar under the button is gone too — the button *is* the progress bar.
- *  - **가방 공간을 먼저 본다** (`InventorySystem.craftHasRoom`). The bag used to be checked when the hold ended, so a
+ *  - **넣을 자리를 먼저 본다** (`InventorySystem.craftHasRoom` — 함선에서는 가방 → 창고, 2026-09-09). The bag used to be checked when the hold ended, so a
  *    full bag cost you the 2 s and then said no; the button now refuses up front with the reason on it.
  */
 /** Minimum spacing of two `inventory:disassembleProgress` emits (≤ 30 Hz). */
@@ -166,7 +166,8 @@ export class DisassemblePanel {
     this.running = active;
     // 2026-09-08: 칸부터 본다 — the bag check that used to run when the hold ended now gates the button.
     const room = this.sys.craftHasRoom(r.id);
-    const block = !enough ? TEXT.disassemble.short : !room ? TEXT.disassemble.noRoom : '';
+    const noRoom = this.sys.ctx.isHubPhase() ? TEXT.disassemble.noRoomShip : TEXT.disassemble.noRoom;
+    const block = !enough ? TEXT.disassemble.short : !room ? noRoom : '';
     this.button.disabled = !active && !!block;
     this.buttonLabel.textContent = active ? TEXT.disassemble.working : block || TEXT.disassemble.button;
     this.button.title = block;

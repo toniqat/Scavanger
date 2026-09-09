@@ -32,6 +32,10 @@ import {
 } from '../model';
 import type { InventorySystem } from '../InventorySystem';
 
+/** 산출물이 갈 데가 없을 때의 안내 — 함선에서는 창고까지 본 뒤라 두 곳을 다 말한다 (2026-09-09). */
+const NO_ROOM_SHIP = '가방과 함선 창고에 공간이 없습니다';
+const NO_ROOM_FIELD = '가방에 공간이 없습니다';
+
 /** 'ship' while walking the hub / menus, 'field' on a mission. */
 export function currentStation(sys: InventorySystem): CraftStation {
   return sys.ctx.isRaidActive() ? 'field' : 'ship';
@@ -213,62 +217,107 @@ export function maxCraftCount(sys: InventorySystem, recipeId: string): number {
   }
 
 /**
- * 2026-09-08 — whether the bag could take `recipeId`'s output (**and** its `extraOutputs`) right now. This is
- * literally the test `updateCraft` runs when the hold ends; the 분해 dialog runs it up front so a shred that can
- * only fail is refused **before** the hold instead of after it. Deliberately conservative in the same way:
- * the input stack is still in the bag, so a 분해 that would free its own cells can read as full. Unknown recipe /
- * output def → false.
+ * 2026-09-08 — whether `recipeId`'s output (**and** its `extraOutputs`) has somewhere to land right now: 가방, and
+ * 함선에서는 가방이 차면 **창고**까지 (see `roomForOutputs`). This is literally the test `updateCraft` runs when the
+ * hold ends; the 분해 dialog runs it up front so a shred that can only fail is refused **before** the hold instead of
+ * after it. Deliberately conservative in the same way: the input stack is still in the bag, so a 분해 that would free
+ * its own cells can read as full. Unknown recipe / output def → false.
+ *
+ * 2026-09-09 — takes `count`, so 제작 패널 can ask about **the quantity its stepper is showing** rather than one run
+ * (`CraftPanel.paint` → `is-nospace`). Omitted, it is the single run it always was.
  */
-export function craftHasRoom(sys: InventorySystem, recipeId: string): boolean {
+export function craftHasRoom(sys: InventorySystem, recipeId: string, count = 1): boolean {
   const r = getRecipe(recipeId);
-  return !!r && roomForOutputs(sys, r, 1);
+  return !!r && roomForOutputs(sys, r, normCount(count));
   }
 
 /**
- * 2026-09-09 (제작 수량) — can the bag take **everything** `count` runs of `recipe` produce (output + `extraOutputs`)?
- * A dry run of exactly what `addUnits` will do: merge into the existing stacks of each def first, then drop the
- * rest as ≤ `stackMax` chunks into the first free rectangle scanning rows top-down / left-right (both orientations of a
- * non-square footprint), on a scratch occupancy map so earlier chunks block later ones. Because the scan order is the
- * `Grid.findFreeSlot` order, a `true` here means the real placement succeeds — nothing is consumed when it would not.
+ * A scratch occupancy map of one grid — the dry-run twin of `Grid.autoPlace`, so a `true` here means the real
+ * placement succeeds and nothing is consumed when it would not.
  */
-function roomForOutputs(sys: InventorySystem, recipe: CraftRecipe, count: number): boolean {
-  const bag = sys.bag;
-  const cols = bag.cols, rows = bag.rows;
+interface DryGrid {
+  cols: number;
+  rows: number;
+  occ: Uint8Array;
+  /** Merge capacity left per def, read from the real grid the first time it is asked for and then spent down. */
+  merge: Map<string, number>;
+  grid: Grid;
+}
+
+function dryGrid(grid: Grid): DryGrid {
+  const cols = grid.cols, rows = grid.rows;
   const occ = new Uint8Array(cols * rows);
-  const mark = (x: number, y: number, w: number, h: number): void => {
-    for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) occ[yy * cols + xx] = 1;
-  };
-  for (const p of bag.items()) { const fp = bag.footprintOf(p.item); mark(p.x, p.y, fp.w, fp.h); }
-  const fits = (x: number, y: number, w: number, h: number): boolean => {
-    if (x + w > cols || y + h > rows) return false;
-    for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) if (occ[yy * cols + xx]) return false;
-    return true;
-  };
-  const place = (def: ItemDef): boolean => {
-    const shapes = def.width !== def.height ? [[def.width, def.height], [def.height, def.width]] : [[def.width, def.height]];
-    for (const [w, h] of shapes) {
-      for (let y = 0; y + h <= rows; y++) for (let x = 0; x + w <= cols; x++) {
-        if (fits(x, y, w, h)) { mark(x, y, w, h); return true; }
+  for (const p of grid.items()) {
+    const fp = grid.footprintOf(p.item);
+    for (let yy = p.y; yy < p.y + fp.h; yy++) for (let xx = p.x; xx < p.x + fp.w; xx++) occ[yy * cols + xx] = 1;
+  }
+  return { cols, rows, occ, merge: new Map(), grid };
+}
+
+/** Units of `def` this grid still absorbs into stacks it already holds; the budget is spent once per def. */
+function dryMerge(g: DryGrid, def: ItemDef, want: number): number {
+  if (def.stackMax <= 1 || want <= 0) return 0;
+  const cap = g.merge.get(def.id) ?? g.grid.mergeCapacity(def.id);
+  const used = Math.min(cap, want);
+  g.merge.set(def.id, cap - used);
+  return used;
+}
+
+/**
+ * One chunk into this grid's first free rectangle — rows top-down / left-right, both orientations of a non-square
+ * footprint, marking as it goes so earlier chunks block later ones. That is `Grid.findFreeSlot`'s own scan order.
+ */
+function dryPlace(g: DryGrid, def: ItemDef): boolean {
+  const shapes = def.width !== def.height ? [[def.width, def.height], [def.height, def.width]] : [[def.width, def.height]];
+  for (const [w, h] of shapes) {
+    for (let y = 0; y + h <= g.rows; y++) {
+      for (let x = 0; x + w <= g.cols; x++) {
+        let free = true;
+        for (let yy = y; yy < y + h && free; yy++) {
+          for (let xx = x; xx < x + w; xx++) if (g.occ[yy * g.cols + xx]) { free = false; break; }
+        }
+        if (!free) continue;
+        for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) g.occ[yy * g.cols + xx] = 1;
+        return true;
       }
     }
-    return false;
-  };
-  // one merge budget per def — the same def may appear as output *and* extra, and the budget is spent once
-  const merge = new Map<string, number>();
+  }
+  return false;
+}
+
+/**
+ * 2026-09-09 (제작 수량) — is there room for **everything** `count` runs of `recipe` produce (output +
+ * `extraOutputs`)?
+ *
+ * **2026-09-09 (사용자 결정): 가방 → 안 되면 함선 창고.** 함선 작업대에서 만든 것은 가방이 먼저 받고, 자리가
+ * 없으면 창고가 받는다 — `updateCraft` 가 `addUnits` 의 넘침을 `tryAddToStash` 로 넘기는 것이 그 짝이다. 넘치는
+ * 물건을 함선에서만 창고로 보내는 규칙 자체는 `InventorySystem.throwToWorld` 가 이미 쓰던 것이고, 여기서는 그것을
+ * "누르기 전에" 보는 검사로 옮겼을 뿐이다. 레이드 중에는 창고가 없으므로 예전처럼 가방만 본다.
+ *
+ * (재료 쪽은 그대로 **가방만** 본다 — `canCraft` → `countDef` → `countWhere`. 가방 + 창고를 함께 쓰는 것은
+ * 가구 제작 · 시설 업그레이드(`housing/`, `countDefAll`) 쪽이고, 아이템 레시피는 예전부터 가방이었다.)
+ *
+ * 한 덩어리(`stackMax` 이하)가 지나가는 길은 `addUnits` 와 글자 그대로 같다: 가방 스택에 합치기 → 가방 빈칸 →
+ * (넘쳤으면) 창고 스택에 합치기 → 창고 빈칸.
+ */
+function roomForOutputs(sys: InventorySystem, recipe: CraftRecipe, count: number): boolean {
+  const bag = dryGrid(sys.bag);
+  const stash = sys.ctx.isHubPhase() ? dryGrid(sys.getStash()) : null;
   const outputs = [{ defId: recipe.outputDefId, qty: recipe.outputQty }, ...(recipe.extraOutputs ?? [])];
   for (const o of outputs) {
     const def = ITEM_DEF_MAP.get(o.defId);
     if (!def) return false;
     let left = Math.max(0, Math.floor(o.qty * count));
-    if (def.stackMax > 1) {
-      const cap = merge.get(def.id) ?? bag.mergeCapacity(def.id);
-      const used = Math.min(cap, left);
-      merge.set(def.id, cap - used);
-      left -= used;
-    }
     while (left > 0) {
-      left -= Math.min(def.stackMax, left);
-      if (!place(def)) return false;
+      let chunk = Math.min(def.stackMax, left);
+      left -= chunk;
+      chunk -= dryMerge(bag, def, chunk);
+      if (chunk <= 0) continue;
+      if (dryPlace(bag, def)) continue;
+      if (!stash) return false;
+      chunk -= dryMerge(stash, def, chunk);
+      if (chunk <= 0) continue;
+      if (!dryPlace(stash, def)) return false;
     }
   }
   return true;
@@ -358,7 +407,7 @@ export function updateCraft(sys: InventorySystem, dt: number): void {
   //   준중량탄 hold that has room for one stack of 90 but not for 270 fails here, before a single 화약 is spent.
   if (!roomForOutputs(sys, r, count)) {
     sys.ctx.bus.emit('craft:failed', { recipeId: r.id, reason: 'space' });
-    sys.ctx.bus.emit('ui:notify', { text: '가방에 공간이 없습니다', kind: 'warning' });
+    sys.ctx.bus.emit('ui:notify', { text: sys.ctx.isHubPhase() ? NO_ROOM_SHIP : NO_ROOM_FIELD, kind: 'warning' });
     job.resolve(null);
     sys.ui?.refreshCraft();
     return;
@@ -368,8 +417,17 @@ export function updateCraft(sys: InventorySystem, dt: number): void {
   for (const i of sys.craftCost(r)) consumeFor(sys, i.defId, i.qty * count, job.targetUid);
   // `addUnits` merges into existing stacks first and then chunks the rest by `stackMax`, so 270 rounds become
   // however many ≤ 50-round stacks the bag needs; its return value is the *overflow* (empty when everything landed)
-  sys.addUnits(r.outputDefId, r.outputQty * count);
-  for (const e of r.extraOutputs ?? []) sys.addUnits(e.defId, e.qty * count);
+  // 2026-09-09 (가방 → 안 되면 창고): `addUnits` 가 가방에 못 넣고 돌려준 덩어리는 함선 창고가 받는다.
+  // `roomForOutputs` 가 방금 같은 순서로 자리를 확인했으므로 여기서 다시 떨어질 일은 없지만, 그래도 사라지게
+  // 두지는 않는다 — 넘어간 것이 있으면 어디로 갔는지 한 줄 알려 준다.
+  const spill = sys.addUnits(r.outputDefId, r.outputQty * count);
+  for (const e of r.extraOutputs ?? []) spill.push(...sys.addUnits(e.defId, e.qty * count));
+  for (const item of spill) {
+    const name = ITEM_DEF_MAP.get(item.defId)?.name ?? item.defId;
+    // 창고는 함선에서만 — 레이드 중에 `tryAddToStash` 는 손댈 수 없는 함선 격자를 건드린다. 밖에서는 예전처럼 떨군다.
+    if (sys.ctx.isHubPhase() && sys.tryAddToStash(item)) sys.ctx.bus.emit('ui:notify', { text: `${name} → 함선 창고`, kind: 'info', duration: 2 });
+    else sys.throwToWorld(item, false);
+  }
   const first = sys.bag.items().find((p) => p.item.defId === r.outputDefId)?.item
     ?? sys.loot.createItem(r.outputDefId, Math.min(outDef.stackMax, r.outputQty));
   sys.ctx.bus.emit('inventory:itemAdded', { item: first, name: outDef.name, rarity: outDef.rarity });

@@ -67,12 +67,14 @@ export class Reticle {
       b.on('weapon:scopeChanged', ({ scope }) => { this.scope = scope; }),
       b.on('quick:wheelChanged', ({ open }) => { this.wheelOpen = open; }),
       b.on('stratagem:wheelChanged', ({ open }) => { this.stratOpen = open; }),
-      b.on('ui:hitmarker', ({ kill }) => {
-        this.hitmarker.classList.remove('show', 'kill');
+      b.on('ui:hitmarker', ({ kill, headshot }) => {
+        this.hitmarker.classList.remove('show', 'kill', 'head');
         // force restart of transition
         void this.hitmarker.offsetWidth;
         this.hitmarker.classList.add('show');
         if (kill) this.hitmarker.classList.add('kill');
+        // 2026-09-09: 헤드샷은 같은 X 를 1.6배로 그린다 (색은 그대로 — 처치의 빨강만 따로다).
+        if (headshot) this.hitmarker.classList.add('head');
         this.hitTimer = kill ? 0.22 : 0.12;
       }),
       // ── grapple crosshair state ──

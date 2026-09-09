@@ -117,7 +117,11 @@ export class Outposts {
         const beacon = new THREE.SphereGeometry(0.18, 8, 6);
         xform(beacon, { x: ax, y: y0 + mastH + 0.25, z: az });
         beacons.push(beacon);
-        ctx.hash.add(new THREE.Vector3(ax, y0, az), 0.8, mastH, 'wall');
+        /* 2026-09-09 — 콜라이더는 보이는 실루엣이다. 예전 `0.8` 은 **그려진 기둥(반지름 0.1~0.22)의 네 배**
+         * 짜리 원기둥을 8~11 m 높이로 세워, 마스트 옆을 지나갈 수 없고 그 앞의 약탈자에게 쏜 총알이 허공에서
+         * 멈췄다. 밑동 받침(1.4 m 각)이 제일 굵으므로 발치만 그만큼 두고 기둥은 실제 굵기로 세운다. */
+        ctx.hash.add(new THREE.Vector3(ax, y0, az), 0.7, 0.8, 'wall');
+        ctx.hash.add(new THREE.Vector3(ax, y0 + 0.8, az), 0.24, mastH - 0.8, 'wall');
       }
 
       // rubble chunks (decorative)

@@ -71,6 +71,9 @@ const SMOKES = {
   'smoke-planets':      { file: 'scripts/smoke-planets.mjs',      folders: ['hub', 'world', 'game'] },
   'smoke-social':       { file: 'scripts/smoke-social.mjs',       folders: ['ui', 'net'] },
   'smoke-ecology':      { file: 'scripts/smoke-ecology.mjs',      folders: ['world', 'enemies', 'items'] },
+  /* 2026-09-09: 소품 콜라이더가 그려진 실루엣보다 큰지 **숫자로** 잰다. `Props.hullOf` 가 바운딩 박스로
+     콜라이더를 만들기 때문에 지오메트리 쪽 사고(→ `noise3` 의 lerp 인자 순서)가 곧 보이지 않는 벽이 된다. */
+  'smoke-props-collision': { file: 'scripts/smoke-props-collision.mjs', folders: ['world'] },
   /* 2026-09-08: 튜토리얼 — 게이트가 housing / hub / inventory / meta 의 거절 사유 함수에 들어가 있으므로
      그 폴더를 건드리면 함께 돈다. 다른 스모크는 전부 `scav.s1.tutorial` 을 done 으로 심고 시작한다. */
   'smoke-tutorial':     { file: 'scripts/smoke-tutorial.mjs',     folders: ['tutorial', 'hub', 'housing', 'inventory', 'ui', 'items'] },

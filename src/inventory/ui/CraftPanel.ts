@@ -49,11 +49,15 @@ interface RowView {
  *    (`.inv-root.is-craft`, see `parts/Screens.setCraftOpen`) — none of it has anything to do with a recipe list.
  *
  * **2026-09-09 (제작 UI 2차)** — the row is about the **thing being made**, not about the recipe:
- *  - The output is drawn as the **inventory tile it will become** (`buildTileContent` at the grid's own `CELL`), so a
- *    4×2 돌격소총 is a 4×2 tile and a 준중량탄 stack a single cell with its count. The thumbnail carries
+ *  - The output is drawn as the inventory tile it will become (`buildTileContent` at the grid's own `CELL`), always
+ *    **1×1** — see the 2026-09-09 note at the call site. The thumbnail carries
  *    `data-item-tip` + `data-def-id`, the hook `ui/hud/ItemTip` delegates on — hovering it shows the usual item card.
  *  - The title is `산출물 이름 ×n` where `n` is what **one** craft makes (`준중량탄 ×90`) — it never moves; the
  *    recipe's own name and its description line are **gone**.
+ *  - The hold button is **locked when the output has nowhere to go** (2026-09-09), not only when materials are
+ *    short: `InventorySystem.craftHasRoom(id, n)` is asked for the quantity the stepper is showing, the row gets
+ *    `.is-nospace`, and the button reads `가방·창고 공간 부족` with the reason in its `title`. Re-checked on every
+ *    `paint()`, which `InventoryUI.refresh()` runs when the bench opens and on every bag / stash change.
  *  - A **제작 수량** stepper sits above the hold button, reading the **total units the hold will make**
  *    (`◀ 90 ▶` → `180` → `270`; 사용자 결정 2026-09-09 — "how many 발 do I get", not "how many runs"). The wheel over
  *    it steps too, capped by `sys.maxCraftCount(id)` (what the materials pay for), and the material chips scale with
@@ -195,7 +199,11 @@ export class CraftPanel {
         thumb.dataset.defId = out.id;
         const tile = document.createElement('div');
         const item = this.sys.loot.createItem(out.id, Math.min(out.stackMax, recipe.outputQty));
-        buildTileContent(tile, item, out, out.width, out.height, null, CELL);
+        // 2026-09-09: **한 칸 고정.** 산출물을 실제 격자 크기로 그리니 4×2 돌격소총 한 줄이 탄약 한 줄의 네 배로
+        // 벌어져 목록이 무너졌다 (사용자 보고). 여기서 알아야 할 것은 "무엇이 나오는가"이지 "가방에서 몇 칸을
+        // 먹는가"가 아니고, 칸 수는 바로 아래 `is-nospace` 안내와 툴팁이 말해 준다. 스택 수량은 1×1 타일도 그대로
+        // 그리므로(`GridView.buildTileContent` 의 `inv-tile-qty`) 준중량탄 ×90 은 예전과 똑같이 읽힌다.
+        buildTileContent(tile, item, out, 1, 1, null, CELL);
         thumb.appendChild(tile);
         // A stacking def draws its own count; one that does not stack but is made in twos needs the badge.
         if (out.stackMax <= 1 && recipe.outputQty > 1) {
@@ -309,8 +317,19 @@ export class CraftPanel {
       const n = row.count;
 
       const ok = !row.locked && this.sys.canCraft(row.recipe.id, n);
+      /*
+       * 2026-09-09 (사용자 결정) — **넣을 자리부터 본다.** 재료가 다 있어도 산출물이 들어갈 칸이 없으면 1초를
+       * 눌러 봐야 홀드 끝에서 거절당했다 (분해 팝업은 2026-09-08 에 이미 앞으로 옮긴 검사다). 이제 제작 목록도
+       * 같다: `craftHasRoom` 을 **지금 스테퍼에 걸린 수량 그대로** 물어 버튼을 잠그고, 라벨과 툴팁이 이유를 말한다.
+       * 이 `paint()` 는 `InventoryUI.refresh()` 를 타고 `afterChange()` 마다 다시 도므로 — 작업대를 열 때
+       * (`setOpen` → `refresh`) 한 번, 그리고 가방 · 창고의 아이템이 바뀔 때마다 — 다시 검사된다.
+       */
+      const room = ok && this.sys.craftHasRoom(row.recipe.id, n);
+      const ship = this.sys.ctx.isHubPhase();
       row.el.classList.toggle('is-locked', !ok);
-      row.button.disabled = row.locked || (!ok && !active);
+      row.el.classList.toggle('is-nospace', ok && !room);
+      row.button.disabled = row.locked || ((!ok || !room) && !active);
+      row.button.title = ok && !room ? (ship ? TEXT.craftNoRoomTipShip : TEXT.craftNoRoomTipField) : '';
 
       const out = this.getDef(row.recipe.outputDefId);
       // `산출물 이름 ×n` (2026-09-09) — the recipe's own name is not shown any more, and `n` is what **one** craft
@@ -337,7 +356,11 @@ export class CraftPanel {
       row.el.classList.toggle('is-crafting', active);
       row.fill.style.width = active ? `${Math.round(job!.progress * 100)}%` : '0%';
       const label = row.button.querySelector('span');
-      if (label) label.textContent = active ? TEXT.craftMaking : TEXT.craftHold;
+      if (label) {
+        label.textContent = active ? TEXT.craftMaking
+          : ok && !room ? (ship ? TEXT.craftNoRoomShip : TEXT.craftNoRoomField)
+          : TEXT.craftHold;
+      }
     }
   }
 

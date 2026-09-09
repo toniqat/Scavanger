@@ -103,8 +103,19 @@ export class TutorialSystem implements GameSystem, TutorialRef {
       b.on('inventory:bagChanged', () => this.onInventory()),
 
       b.on('hub:terminalToggled', ({ open }) => { if (open) this.advanceIf('terminal'); }),
+      /*
+       * 2026-09-09 — `planet` 단계는 **워프가 시작될 때** 넘어간다.
+       *
+       * 원래는 `hub:planetChanged` 로 넘겼는데, 그 이벤트는 `hub/parts/Planet.finishTravel` 이 **도착해서**
+       * `hub:travel {end}` 를 낸 **바로 다음에** 낸다. 그래서 순서가 이렇게 엇갈렸다:
+       *   워프 시작 → (안내는 아직 `planet`) → 도착 → `travel {end}` (아직 `planet` 이라 무시) →
+       *   `planetChanged` → 이제서야 `travel` 로 넘어감 → **기다리던 `travel {end}` 는 이미 지나갔다.**
+       * 행성 이동을 다 마쳤는데 16/18 에서 멈춰 있던 것이 이것이다. 시작에서 넘기면 두 단계가 워프의
+       * 앞뒤를 하나씩 맡는다. `planetChanged` 는 그대로 두되 (도착만 보고 들어오는 경로의 보험) 이미
+       * 넘어간 뒤면 `advanceIf` 가 알아서 아무것도 하지 않는다.
+       */
       b.on('hub:planetChanged', () => this.advanceIf('planet')),
-      b.on('hub:travel', ({ stage }) => { if (stage === 'end') this.advanceIf('travel'); }),
+      b.on('hub:travel', ({ stage }) => { this.advanceIf(stage === 'start' ? 'planet' : 'travel'); }),
       b.on('hub:slotChanged', ({ local, peerId }) => { if (local && peerId) this.advanceIf('board'); }),
       b.on('game:newMission', () => this.advanceIf('board')),
       b.on('world:ready', () => this.onRaid()),

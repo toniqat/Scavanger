@@ -82,9 +82,16 @@ export class Noise {
       const k = pm12[h] * 3;
       return GRAD3[k] * dx + GRAD3[k + 1] * dy + GRAD3[k + 2] * dz;
     };
-    return lerp(w,
-      lerp(v, lerp(u, g(AA, x, y, z), g(BA, x - 1, y, z)), lerp(u, g(AB, x, y - 1, z), g(BB, x - 1, y - 1, z))),
-      lerp(v, lerp(u, g(AA + 1, x, y, z - 1), g(BA + 1, x - 1, y, z - 1)), lerp(u, g(AB + 1, x, y - 1, z - 1), g(BB + 1, x - 1, y - 1, z - 1))),
+    /* 2026-09-09 — `lerp` 는 `(a, b, t)` 다. 여기서만 `(t, a, b)` 로 넣고 있어서 세 겹을 거치는 동안
+     * `w + (a − w) · b` 가 쌓였고, 결과가 **[-1, 1] 이 아니라 [-31, +52]** 였다 (측정값). 이 값을 쓰는 곳은
+     * `build.displace` 하나뿐이라 지형(`noise2` · `fbm` · `ridged`)은 멀쩡했지만, 소품 정점 몇 개가 원점에서
+     * 10 units 씩 튕겨 나갔다. 눈에는 가는 가시 하나로 보여서 오래 지나쳤는데, 2026-09-09 에 `Props.hullOf`
+     * 가 **바운딩 박스로 콜라이더를 만들기** 시작하면서 그 정점 하나가 소품 전체를 감싸는 반지름 10 m ·
+     * 높이 20 m 짜리 보이지 않는 원기둥이 됐다 — 걸어서 못 지나가고 총알이 허공에서 멈추던 그것이다. */
+    return lerp(
+      lerp(lerp(g(AA, x, y, z), g(BA, x - 1, y, z), u), lerp(g(AB, x, y - 1, z), g(BB, x - 1, y - 1, z), u), v),
+      lerp(lerp(g(AA + 1, x, y, z - 1), g(BA + 1, x - 1, y, z - 1), u), lerp(g(AB + 1, x, y - 1, z - 1), g(BB + 1, x - 1, y - 1, z - 1), u), v),
+      w,
     );
   }
 

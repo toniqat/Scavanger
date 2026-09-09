@@ -5,9 +5,11 @@ Electron 은 이미 있는 두 조각을 한 프로세스에 담는 껍데기다
 
 ```
 Electron main process
-├─ startRelayServer()          server/RelayServer.ts (임베디드 릴레이, 127.0.0.1)
-├─ attachStatic(relay.http)    dist/ (vite 빌드) 를 같은 http 서버에서 서빙
-└─ BrowserWindow → http://127.0.0.1:<port>/
+├─ startRelayServer()          server/RelayServer.ts (임베디드 릴레이, 127.0.0.1:8787)
+├─ createServer()              창 전용 http 서버 — 127.0.0.1:8790 (APP_PORT, 고정)
+│   ├─ attachStatic()          dist/ (vite 빌드)
+│   └─ attachWsProxy()         /ws → 임베디드 릴레이
+└─ BrowserWindow → http://127.0.0.1:8790/
                      └─ 렌더러는 same-origin `/ws` 로 릴레이에 붙는다 (NetSystem.defaultUrl() 그대로)
 ```
 
@@ -16,11 +18,37 @@ Electron main process
 
 ```
 Electron main process (프록시 모드)
-├─ createServer()              빈 포트 (릴레이 포트를 뺏지 않는다)
+├─ createServer()              127.0.0.1:8790 (APP_PORT — 릴레이 포트를 뺏지 않는다)
 ├─ attachStatic(server)        dist/
 ├─ attachWsProxy(server, 목적지)  /ws 업그레이드를 원격 릴레이로 파이프
-└─ BrowserWindow → http://127.0.0.1:<free port>/
+└─ BrowserWindow → http://127.0.0.1:8790/
 ```
+
+## 창 포트는 고정이다 — 그게 세이브다 (2026-09-09)
+
+**증상**: 앱을 껐다 켜면 만든 캐릭터가 사라진다.
+
+localStorage(캐릭터 · 창고 · 설정 · `scav.sessionToken`)는 **오리진** 단위로 저장된다. 데스크톱 앱의
+오리진은 `http://127.0.0.1:<창 포트>` 인데, 그 포트가
+
+* 프록시 모드에서는 **언제나 OS 가 주는 임의 포트**였고 (배포본의 기본형이 프록시 모드다),
+* 임베디드 모드에서도 릴레이 포트(8787)가 이미 쓰이는 중이면(`start-server.bat` · `npm run server` ·
+  앞서 죽다 만 사본) 임의 포트로 떨어졌다.
+
+즉 실행할 때마다 다른 오리진이라 매번 빈 저장소로 떴다. `scav.sessionToken` 까지 새로 발급되므로
+**릴레이가 토큰으로 들고 있던 서버 프로필(크레딧 · 창고 · 로드아웃 · 진행도 · 함선)도 같이 사라졌다.**
+
+고친 뒤: 창은 릴레이와 **무관한 전용 포트 `APP_PORT`(8790)** 를 쓴다. 막혀 있으면 임의 포트가 아니라
+`8790 → 8799` 를 순서대로 훑고, 전부 막혔으면 실패를 알린다(조용히 새 오리진으로 도망가지 않는다).
+단일 인스턴스 락이 있으므로 실제로는 언제나 8790 이다. 임베디드 모드에서도 릴레이 포트에서 `dist/` 를
+계속 서빙하므로 LAN 브라우저로 받아 가던 길은 그대로다.
+
+**같이 고친 것 — 강제 종료**: Chromium 은 localStorage 를 느긋하게 내린다. 정상 종료면 나갈 때 쓰지만
+작업 관리자로 끄거나 렌더러가 죽으면 마지막 쓰기 이후가 통째로 사라진다(측정: SIGTERM 한 번에 전부 유실).
+`session.flushStorageData()` 를 `SAVE_FLUSH_MS`(30 초)마다, 그리고 `before-quit` 에 부른다.
+
+검증(`scripts/_tmp-app-origin.mjs`, 앱을 네 번 띄운다): 오리진이 네 번 모두 `http://127.0.0.1:8790`,
+정상 종료 뒤 세이브 유지 PASS, **강제 종료 뒤에도** 유지 PASS.
 
 ## 왜 `file://` 이 아니라 로컬 http 인가
 `NetSystem.defaultUrl()` 은 `VITE_WS_URL` 이 없으면 `ws://${location.host}/ws` 를 쓴다. `file://` 로 띄우면
@@ -33,7 +61,7 @@ vite 프록시와 완전히 같은 그림이 되고, `src/` 는 손대지 않아
 
 | 파일 | 역할 |
 |---|---|
-| `main.ts` | 앱 수명주기. 옵션 파싱 → 릴레이(또는 프록시) 기동 → `BrowserWindow`. 단일 인스턴스 락, 메뉴 제거, **F11 전체화면**, **Escape 가로채기 + 재잠금**(아래 "Escape"), 창 상태 추적, `pointerLock` / `fullscreen` 만 허용하는 권한 핸들러, 외부 링크는 기본 브라우저로, `dist/` 가 없으면 안내 다이얼로그. |
+| `main.ts` | 앱 수명주기. 옵션 파싱 → 릴레이(또는 원격 릴레이 주소 확정) → **창 전용 http 서버(`APP_PORT` 고정 · `listenStable`)** → `BrowserWindow`. localStorage 를 30초마다 · 종료할 때 디스크로 내린다(`flushStorageData`). 단일 인스턴스 락, 메뉴 제거, **F11 전체화면**, **Escape 가로채기 + 재잠금**(아래 "Escape"), 창 상태 추적, `pointerLock` / `fullscreen` 만 허용하는 권한 핸들러, 외부 링크는 기본 브라우저로, `dist/` 가 없으면 안내 다이얼로그. |
 | `static.ts` | `attachStatic(server, root)` — 기존 http 서버의 `request` 리스너를 가로채 정적 파일을 먼저 서빙하고, 못 찾으면 원래 핸들러(릴레이의 `/health` + 404)로 넘긴다. 경로 이탈(`..`) 차단, `cache-control: no-cache`. |
 | `wsProxy.ts` | `--relay=<url>` 전용. `/ws` 업그레이드를 원격 릴레이로 **raw 소켓 파이프**. 세션 쿼리(`?t=&n=`)까지 그대로 통과. |
 | `windowState.ts` | `<userData>/window-state.json` 에 크기 · 위치 · 최대화 · 전체화면 저장/복원. 저장된 모니터가 사라졌으면 위치를 버린다. |
@@ -99,7 +127,8 @@ npm run typecheck:app
 
 | 옵션 | 환경변수 | 뜻 |
 |---|---|---|
-| `--port=<n>` | `SCAV_PORT` | 릴레이 + http 포트 (기본 `NET_DEFAULT_PORT` 8787, 사용 중이면 빈 포트로 폴백). **프록시 모드에서는 지정하지 않으면 빈 포트를 쓴다** — 로컬 http 서버가 릴레이 포트를 뺏으면 자기 자신에게 프록시하게 된다 |
+| `--port=<n>` | `SCAV_PORT` | **임베디드 릴레이** 포트 (기본 `NET_DEFAULT_PORT` 8787, 사용 중이면 빈 포트로 폴백). 창 포트와는 무관하다 |
+| `--app-port=<n>` | `SCAV_APP_PORT` | 창이 열리는 http 포트 (기본 `APP_PORT` 8790, 막혀 있으면 +9 까지 순서대로). **바꾸면 오리진이 바뀌어 세이브가 새로 시작된다** — 위 "창 포트는 고정이다" 참고 |
 | `--lan` | `SCAV_LAN=1` | 자체 릴레이를 `0.0.0.0` 에 바인딩 — 같은 네트워크의 다른 PC 가 이 릴레이를 쓸 수 있다(방화벽 허용 창이 뜬다) |
 | `--relay=<ws url>` | `SCAV_RELAY` | 자체 릴레이를 띄우지 않고 `/ws` 를 원격 릴레이로 프록시 (`--relay=ws://192.168.0.5:8787/ws`) |
 | `--local` | `SCAV_LOCAL=1` | 설정된 주소를 **전부 무시**하고 자체 릴레이로 실행 (혼자 플레이 · 서버가 꺼져 있을 때) |
