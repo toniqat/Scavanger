@@ -1,4 +1,5 @@
 import type { GameContext } from '@/shared';
+import { UI_HOLD_CONFIRM_S } from '@/shared';
 import { el, setText } from '../dom';
 import { MenuBase } from './MenuBase';
 
@@ -47,6 +48,19 @@ interface Ask {
  * under the viewport centre (`parkUnderCursor`, `--menu-dx/dy`) — the page cannot move the OS cursor, so the menu
  * moved instead. That is gone: the frame is now **vertically centred in the left half** of the screen, a plain CSS
  * position (`.menu.pause`, `ui/styles/base.css`), the same place every time. 설정 opens centred over it.
+ *
+ * **2026-09-09 (확정은 1초 홀드)**: the red button in the 경고 팝업 is no longer a click — it is the game's
+ * hold-to-commit gesture (`UI_HOLD_CONFIRM_S`, `data/constants.csv`), the same one 제작 / 분해 use: a fill sweeps
+ * across the button while the pointer is held, letting go early cancels and resets it, and only a completed sweep
+ * fires the action, exactly once. The release is watched on `window` (like every drag in this project), so letting
+ * the mouse go anywhere — off the button, off the window — can never leave a gauge stuck mid-sweep; the pointer
+ * merely leaving the button cancels too.
+ *
+ * **Enter no longer confirms.** It is swallowed and does nothing: an accidental Enter (the chat key, and the key a
+ * browser uses to activate whatever button happens to be focused) must never leave a raid, and a held Enter would
+ * have raced key-repeat and focus-activation against the pointer gauge for no gain. Escape still cancels, the
+ * initial focus sits on **취소** (so Space is the safe answer, not the destructive one) and the only way to commit
+ * is the deliberate hold. The card says so in a hint line built from `UI_HOLD_CONFIRM_S` itself.
  */
 export class PauseMenu extends MenuBase {
   private returnBtn: HTMLButtonElement;
@@ -58,9 +72,18 @@ export class PauseMenu extends MenuBase {
   private ask: HTMLElement;
   private askTitle: HTMLElement;
   private askBody: HTMLElement;
+  private askNo: HTMLButtonElement;
   private askOk: HTMLButtonElement;
+  private askOkLabel: HTMLElement;
+  private askFill: HTMLElement;
   private pending: Ask | null = null;
+  /** `performance.now()` of the pointerdown that started the hold; 0 = nothing held. */
+  private holdStart = 0;
+  private holdRaf = 0;
+  private holdT = 0;
   private readonly onKey = (e: KeyboardEvent): void => this.handleKey(e);
+  /** A release anywhere ends the hold — a pointerup outside the button must not leave the gauge stuck. */
+  private readonly onWindowUp = (): void => this.cancelHold();
 
   constructor(parent: HTMLElement, private readonly onSettings: () => void) {
     super(parent, 'pause');
@@ -93,11 +116,19 @@ export class PauseMenu extends MenuBase {
     const card = el('div', { cls: 'pause-ask-card', parent: this.ask });
     this.askTitle = el('div', { cls: 'pause-ask-title', text: '', parent: card });
     this.askBody = el('div', { cls: 'pause-ask-body', text: '', parent: card });
+    // The hint is built from the constant, so the screen can never disagree with `data/constants.csv`.
+    el('div', { cls: 'pause-ask-hint', text: `확인 버튼을 ${UI_HOLD_CONFIRM_S}초 누르고 있어야 실행됩니다`, parent: card });
     const foot = el('div', { cls: 'pause-ask-foot', parent: card });
-    const no = el('button', { cls: 'ui-btn small', text: '취소', parent: foot });
-    this.askOk = el('button', { cls: 'ui-btn small danger', text: '확인', parent: foot }) as HTMLButtonElement;
-    no.addEventListener('click', (e) => { e.stopPropagation(); this.closeAsk(); });
-    this.askOk.addEventListener('click', (e) => { e.stopPropagation(); this.runAsk(); });
+    this.askNo = el('button', { cls: 'ui-btn small', text: '취소', parent: foot });
+    this.askOk = el('button', { cls: 'ui-btn small danger pause-ask-ok', parent: foot });
+    this.askFill = el('i', { cls: 'pause-ask-fill', parent: this.askOk });
+    this.askOkLabel = el('span', { cls: 'pause-ask-ok-t', text: '확인', parent: this.askOk });
+    this.askNo.addEventListener('click', (e) => { e.stopPropagation(); this.closeAsk(); });
+    // 홀드 확정: pointerdown starts the sweep, leaving the button cancels, and `onWindowUp` catches every release.
+    this.askOk.addEventListener('pointerdown', (e) => { e.stopPropagation(); this.startHold(e); });
+    this.askOk.addEventListener('pointerleave', () => this.cancelHold());
+    // A click on the red button is *not* a confirm any more — swallow it so nothing else reads it either.
+    this.askOk.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); });
   }
 
   override bind(ctx: GameContext): void {
@@ -126,6 +157,10 @@ export class PauseMenu extends MenuBase {
   get isAskOpen(): boolean { return !this.ask.hidden; }
   /** The 파티 떠나기 button (debug / smoke). */
   get partyButton(): HTMLButtonElement { return this.leaveBtn; }
+  /** The 경고 팝업's red 확정 button (debug / smoke). */
+  get askConfirmButton(): HTMLButtonElement { return this.askOk; }
+  /** How far the 확정 홀드 has swept, 0 … 1 (0 = nothing held) (debug / smoke). */
+  get askHoldProgress(): number { return this.holdT; }
 
   protected override onShow(): void {
     window.addEventListener('keydown', this.onKey, true);
@@ -137,15 +172,17 @@ export class PauseMenu extends MenuBase {
   }
 
   /**
-   * Tab leaves the menu; while the 경고 팝업 is up it owns Escape (cancel) and Enter (confirm) so neither falls
-   * through. Escape on the bare menu stays unhandled on purpose — `game/GameFlowSystem` owns that key and the menu
-   * is deliberately click-to-close (the click is also the gesture the browser wants before re-locking the pointer).
+   * Tab leaves the menu; while the 경고 팝업 is up it owns Escape (cancel) and **eats** Enter (2026-09-09: it no
+   * longer confirms — confirming is the pointer hold and nothing else), so neither falls through to the chat or to
+   * whatever button the browser happens to have focused. Escape on the bare menu stays unhandled on purpose —
+   * `game/GameFlowSystem` owns that key and the menu is deliberately click-to-close (the click is also the gesture
+   * the browser wants before re-locking the pointer).
    */
   private handleKey(e: KeyboardEvent): void {
     if (!this.visible) return;
     if (!this.ask.hidden) {
       if (e.code === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); this.closeAsk(); }
-      else if (e.code === 'Enter' || e.code === 'NumpadEnter') { e.preventDefault(); e.stopImmediatePropagation(); this.runAsk(); }
+      else if (e.code === 'Enter' || e.code === 'NumpadEnter') { e.preventDefault(); e.stopImmediatePropagation(); }
       return;
     }
     if (e.code !== 'Tab') return;
@@ -164,13 +201,16 @@ export class PauseMenu extends MenuBase {
     this.pending = ask;
     setText(this.askTitle, ask.title);
     setText(this.askBody, ask.body);
-    setText(this.askOk, ask.ok);
+    setText(this.askOkLabel, ask.ok);
     this.ask.hidden = false;
-    this.askOk.focus({ preventScroll: true });
+    // Focus the safe button: the destructive one cannot be triggered by a key at all, and a stray Space should
+    // cancel rather than look like it is arming something.
+    this.askNo.focus({ preventScroll: true });
   }
 
   private closeAsk(): void {
     if (this.ask.hidden) return;
+    this.stopHold();
     this.ask.hidden = true;
     this.pending = null;
   }
@@ -181,6 +221,56 @@ export class PauseMenu extends MenuBase {
     if (!ask) return;
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
     ask.run();
+  }
+
+  /* ── 확정 홀드 (UI_HOLD_CONFIRM_S) ───────────────────────────────────────── */
+
+  /** Left-button press on the red button arms the sweep; every other button is ignored. */
+  private startHold(e: PointerEvent): void {
+    if (e.button !== 0 || !this.pending || this.holdStart) return;
+    e.preventDefault();
+    this.holdStart = performance.now();
+    this.holdT = 0;
+    this.askOk.classList.add('is-holding');
+    window.addEventListener('pointerup', this.onWindowUp);
+    window.addEventListener('pointercancel', this.onWindowUp);
+    this.ctx.bus.emit('audio:play', { id: 'ui_pickup' });
+    this.tickHold();
+  }
+
+  /** One frame of the sweep. Driven by rAF, not by a system update — the menu has no per-frame hook. */
+  private readonly tickHold = (): void => {
+    if (!this.holdStart) return;
+    this.holdRaf = 0;
+    const t = Math.min(1, (performance.now() - this.holdStart) / (UI_HOLD_CONFIRM_S * 1000));
+    this.holdT = t;
+    this.askFill.style.width = `${(t * 100).toFixed(1)}%`;
+    if (t < 1) { this.holdRaf = requestAnimationFrame(this.tickHold); return; }
+    this.stopHold();
+    this.runAsk();      // fires once — `stopHold` disarmed the loop before the action ran
+  };
+
+  /** Released early / left the button: back to zero, nothing happens. */
+  private cancelHold(): void {
+    if (!this.holdStart) return;
+    this.stopHold();
+  }
+
+  private stopHold(): void {
+    this.holdStart = 0;
+    this.holdT = 0;
+    if (this.holdRaf) { cancelAnimationFrame(this.holdRaf); this.holdRaf = 0; }
+    window.removeEventListener('pointerup', this.onWindowUp);
+    window.removeEventListener('pointercancel', this.onWindowUp);
+    this.askFill.style.width = '0%';
+    this.askOk.classList.remove('is-holding');
+  }
+
+  /** The hold's `window` listeners and the capture-phase key listener must not outlive the menu. */
+  override dispose(): void {
+    this.stopHold();
+    window.removeEventListener('keydown', this.onKey, true);
+    super.dispose();
   }
 
   private returnToShip(): void {

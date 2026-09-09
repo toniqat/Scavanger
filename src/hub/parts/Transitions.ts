@@ -64,14 +64,6 @@ export function tryResume(sys: HubSystem): void {
   }).catch(() => { /* offline personal ship */ });
   }
 
-/** 타이틀로: leave the lobby (if any), tear down, phase 'menu' (the title shows because `ctx.net.lobby` is null). */
-export function toTitle(sys: HubSystem): void {
-  const ctx = sys.ctx;
-  if (ctx.net?.lobby) ctx.net.leaveLobby();
-  sys.teardown('menu');
-  ctx.setPhase('menu');
-  }
-
 export function setSpaceMode(sys: HubSystem, on: boolean): void {
   const atmo = sys.ctx.scene.userData.atmosphere as { setSpaceMode?: (on: boolean) => void } | undefined;
   atmo?.setSpaceMode?.(on);

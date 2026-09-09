@@ -93,7 +93,7 @@ try {
 
   await page.goto(BASE, { waitUntil: 'load' });
   await setup();
-  await P(() => { try { localStorage.removeItem('scav.tutorial'); } catch { /* off */ } });
+  await P(() => { try { localStorage.removeItem('scav.s1.tutorial'); } catch { /* off */ } });
 
   /* ── 1. 자동 시작 + 시작 카드 ────────────────────────────────────────── */
   console.log('자동 시작');
@@ -452,7 +452,7 @@ try {
 
   /* ── 6. 진행이 새로고침을 견딘다 ──────────────────────────────────────── */
   console.log('저장');
-  const saved = await P(() => JSON.parse(localStorage.getItem('scav.tutorial') ?? 'null'));
+  const saved = await P(() => JSON.parse(localStorage.getItem('scav.s1.tutorial') ?? 'null'));
   ok(saved && saved.step === 'craftGun' && saved.granted === true, `저장이 남는다 (${JSON.stringify(saved)})`);
   await page.reload({ waitUntil: 'load' });
   await setup();
@@ -490,7 +490,7 @@ try {
       housing: h.purposeBlock(2, 'lounge'),
       fin: window.__ev['tutorial:finished'].slice(-1)[0],
       panel: document.querySelector('.tut-panel').hidden, spot: document.querySelector('.tut-spot').hidden,
-      saved: JSON.parse(localStorage.getItem('scav.tutorial') ?? 'null'),
+      saved: JSON.parse(localStorage.getItem('scav.s1.tutorial') ?? 'null'),
     };
   });
   ok(!after.active && after.step === null && after.fin && after.fin.skipped === true, '건너뛰면 튜토리얼이 끝난다', JSON.stringify(after.fin));
@@ -500,14 +500,14 @@ try {
 
   /* ── 9. 이미 하던 프로필에는 켜지지 않는다 ──────────────────────────── */
   console.log('기존 프로필');
-  await P(() => { try { localStorage.removeItem('scav.tutorial'); } catch { /* off */ } });
+  await P(() => { try { localStorage.removeItem('scav.s1.tutorial'); } catch { /* off */ } });
   await page.reload({ waitUntil: 'load' });
   await setup();
   await enterShip();
   await sleep(300);
   const existing = await P(() => ({
     step: window.__game.ctx.tutorial.step,
-    saved: JSON.parse(localStorage.getItem('scav.tutorial') ?? 'null'),
+    saved: JSON.parse(localStorage.getItem('scav.s1.tutorial') ?? 'null'),
     rooms: (() => { const h = window.__game.ctx.housing; let n = 0; for (let i = 0; i < 10; i++) if (h.getRoom(i).purpose !== 'empty') n++; return n; })(),
   }));
   ok(existing.rooms > 0 && existing.step === null && existing.saved?.done === true,

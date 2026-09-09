@@ -304,6 +304,13 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
       b.on('container:itemRevealed', ({ rarity }) => {
         this.addSkillXp('appraisal', APPRAISE_XP_BY_RARITY[rarity] ?? APPRAISE_XP_BY_RARITY.common);
       }),
+      /* ── 이름 (2026-09-09): 캐릭터의 이름이 곧 대원 이름이다 ────────────────────────────────────────────
+       * 예전에는 타이틀의 콜사인 입력칸이 `ctx.net.setPlayerName` 을 불렀다. 그 칸이 사라지고 이름은
+       * 캐릭터(생성창 → `PlayerProfile.name`)의 것이 됐으므로, **프로필이 실릴 때마다** 그 이름을 net 으로
+       * 밀어 넣는다 — 명찰 · 로비 · 크루 카드가 전부 `ctx.net.playerName` 을 읽는다.
+       * 여기가 유일한 자리인 이유: 프로필의 주인이 이 시스템이고, `progress:loaded` 는 부팅(마이크로태스크
+       * 방송) · 서버 프로필 수신 · 캐릭터 초기화 **세 경우 모두** 지나가는 한 지점이다. */
+      b.on('progress:loaded', ({ profile }) => { try { ctx.net?.setPlayerName(profile.name); } catch { /* net 미준비 */ } }),
       /* ── server profile (Phase 7) ── */
       b.on('net:profileLoaded', () => this.onProfileLoaded()),
       /* ── 운반 (distance accumulated in update) ── */

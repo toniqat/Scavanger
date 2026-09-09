@@ -52,7 +52,7 @@ try {
     // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
     // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
     // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
-    try { localStorage.setItem('scav.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
+    try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
     // Park vite's HMR socket (another agent's save would full-reload the page) AND the relay socket (`/ws?t=`): this is a
@@ -132,7 +132,7 @@ try {
   await page.goto(BASE, { waitUntil: 'load' });
   await waitFor(page, () => !!window.__game, 'engine');
   // fresh ship + stash so the run is deterministic, then reload so the housing system boots from the fresh state
-  await page.evaluate(() => { localStorage.removeItem('scav.ship'); localStorage.removeItem('scav.stash'); localStorage.removeItem('scav.grant'); });
+  await page.evaluate(() => { localStorage.removeItem('scav.s1.ship'); localStorage.removeItem('scav.s1.stash'); localStorage.removeItem('scav.s1.grant'); });
   await page.reload({ waitUntil: 'load' });
   await setup();
 
@@ -341,8 +341,8 @@ try {
   /* ══ 6. persistence ════════════════════════════════════════════════════ */
   console.log('persistence');
   await H(() => window.__game.ctx.housing.save());
-  const saved = await H(() => JSON.parse(localStorage.getItem('scav.ship')));
-  ok(saved.version === 3, `scav.ship is v3 (${saved.version})`);
+  const saved = await H(() => JSON.parse(localStorage.getItem('scav.s1.ship')));
+  ok(saved.version === 3, `scav.s1.ship is v3 (${saved.version})`);
   ok(Array.isArray(saved.books) && saved.books.length === 2 && saved.books.every((b) => b.uid && typeof b.slot === 'number' && b.defId.startsWith('book_')),
     `books written to the save (${JSON.stringify(saved.books)})`);
   ok(Array.isArray(saved.bookDex) && saved.bookDex.length === 3, `bookDex written to the save (${saved.bookDex?.join(',')})`);
@@ -356,7 +356,7 @@ try {
   // hand-corrupted save → sanitised, never a throw
   await H(() => window.__game.ctx.housing.save());
   await H((u) => {
-    const raw = JSON.parse(localStorage.getItem('scav.ship'));
+    const raw = JSON.parse(localStorage.getItem('scav.s1.ship'));
     raw.books = [
       { uid: u, slot: 0, defId: 'book_gun_AR' },              // valid
       { uid: u, slot: 0, defId: 'book_medicine' },            // duplicate slot → dropped
@@ -367,7 +367,7 @@ try {
       { uid: u, slot: 'x', defId: 'book_grit' },              // bad slot type → dropped
     ];
     raw.bookDex = ['book_gun_AR', 'book_gun_AR', 'mat_scrap', 7, 'book_ghost'];
-    localStorage.setItem('scav.ship', JSON.stringify(raw));
+    localStorage.setItem('scav.s1.ship', JSON.stringify(raw));
   }, shelfA);
   await page.reload({ waitUntil: 'load' });
   await setup();

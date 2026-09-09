@@ -72,7 +72,7 @@ const SMOKES = {
   'smoke-social':       { file: 'scripts/smoke-social.mjs',       folders: ['ui', 'net'] },
   'smoke-ecology':      { file: 'scripts/smoke-ecology.mjs',      folders: ['world', 'enemies', 'items'] },
   /* 2026-09-08: 튜토리얼 — 게이트가 housing / hub / inventory / meta 의 거절 사유 함수에 들어가 있으므로
-     그 폴더를 건드리면 함께 돈다. 다른 스모크는 전부 `scav.tutorial` 을 done 으로 심고 시작한다. */
+     그 폴더를 건드리면 함께 돈다. 다른 스모크는 전부 `scav.s1.tutorial` 을 done 으로 심고 시작한다. */
   'smoke-tutorial':     { file: 'scripts/smoke-tutorial.mjs',     folders: ['tutorial', 'hub', 'housing', 'inventory', 'ui', 'items'] },
   /* 2026-09-08: 공용 함선 격납고 — 두 클라이언트가 필요하다 (개인 함선 방문 · `hs` 동석 규칙). 릴레이를 쓰므로
      e2e 와 같이 exclusive 로 돈다. */
@@ -260,7 +260,8 @@ try {
     fast.push(runCapture(npx, ['tsc', '--noEmit'], 'typecheck', { shell: isWin }).then((r) => summarize('typecheck', r)));
     fast.push(runCapture(npx, ['tsc', '--noEmit', '-p', 'server/tsconfig.json'], 'typecheck-server', { shell: isWin }).then((r) => summarize('typecheck-server', r)));
   }
-  fast.push(runCapture(process.execPath, ['--experimental-strip-types', '--disable-warning=ExperimentalWarning', 'server/selftest.ts'], 'net-selftest').then((r) => summarize('net-selftest', r)));
+  fast.push(runCapture(process.execPath, ['--experimental-strip-types', '--disable-warning=ExperimentalWarning', 'server/selftest.ts'], 'net-selftest').then((r) => summarize('net-selftest', r)));
+
   // data/*.csv 는 수치의 단일 원본이다 — 오타는 게임을 죽이지 않고 조용히 기본값으로 굴러가므로 여기서 잡는다.
   fast.push(runCapture(process.execPath, ['scripts/data-check.mjs'], 'data-check').then((r) => summarize('data-check', r)));
   if (opts.build) fast.push(runCapture(npx, ['vite', 'build'], 'build', { shell: isWin }).then((r) => {

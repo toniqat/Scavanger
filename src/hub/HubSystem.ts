@@ -249,7 +249,6 @@ export class HubSystem implements GameSystem, HubRef {
     ctx.hub = this;
     this.loadPlanet();
     this.menu = new HubMenu(ctx, {
-      toTitle: () => this.toTitle(),
       onClosed: () => this.relock(),
       startTraining: () => this.startTraining(),
       planet: () => this.planet,
@@ -414,9 +413,6 @@ export class HubSystem implements GameSystem, HubRef {
    * release our hooks). 'menu': back to the title (`game:abort` or 타이틀로) — also restores the planet atmosphere.
    */
   teardown(reason: 'mission' | 'menu'): void { return Interior.teardown(this, reason); }
-
-  /** 타이틀로: leave the lobby (if any), tear down, phase 'menu' (the title shows because `ctx.net.lobby` is null). */
-  private toTitle(): void { return Trans.toTitle(this); }
 
   setSpaceMode(on: boolean): void { return Trans.setSpaceMode(this, on); }
 

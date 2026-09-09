@@ -59,7 +59,7 @@ try {
     // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
     // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
     // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
-    try { localStorage.setItem('scav.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
+    try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
     window.__lockCalls = { req: 0, exit: 0 };
     window.__lockEl = null;
     Element.prototype.requestPointerLock = function () {
@@ -73,7 +73,7 @@ try {
   page.on('pageerror', (e) => errors.push(String(e)));
   // fresh profile / stash / bindings
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
-  await page.evaluate(() => { localStorage.removeItem('scav.stash'); localStorage.removeItem('scav.grant'); localStorage.removeItem('scav.keybinds'); });
+  await page.evaluate(() => { localStorage.removeItem('scav.s1.stash'); localStorage.removeItem('scav.s1.grant'); localStorage.removeItem('scav.keybinds'); });
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
   await waitFor(page, () => !!window.__game?.ctx, 'engine boot');
 
@@ -110,31 +110,52 @@ try {
     await el.click();
   };
 
-  /* ── 1. title: controls diagram ───────────────────────────────────── */
-  const title = await page.evaluate(() => ({
-    panel: !!document.querySelector('.menu.title .controls-panel'),
-    // Scoped to the title menu since Phase 11: the 설정 side panel holds a second ControlsPanel instance.
-    keys: document.querySelectorAll('.menu.title .ctl-key').length,
-    bound: document.querySelectorAll('.menu.title .ctl-key.bound').length,
-    mouseBound: document.querySelectorAll('.menu.title .ctl-mouse-svg .btn.bound').length,
-    wasd: !!document.querySelector('.menu.title .ctl-key[data-code="KeyW"].bound') && !!document.querySelector('.menu.title .ctl-key[data-code="KeyQ"].bound'),
-    rows: [...document.querySelectorAll('.menu.title .ctl-fn .fn')].map((n) => n.textContent),
-    oldList: !!document.querySelector('.menu.title .controls'),
-    btn: [...document.querySelectorAll('.menu.title .ui-btn')].some((b) => b.textContent === '키 설정 변경'),
-    frame: (() => { const f = document.querySelector('.menu.title .frame'); return { sw: f.scrollWidth, cw: f.clientWidth }; })(),
+  /* ── 1. 설정 → 키 설정: controls diagram ──────────────────────────────
+     2026-09-09: 타이틀은 워드마크 + `게임 시작` / `설정` / `종료` 세 버튼뿐이다. 조작 다이어그램과
+     `키 설정 변경` 은 설정 메뉴의 `키 설정` 구획(`SettingsMenu.buildKeys`)으로 옮겨 갔다. */
+  const home = await page.evaluate(() => ({
+    buttons: [...document.querySelectorAll('.menu.title .title-actions .ui-btn')].map((b) => b.textContent),
+    noPanel: !document.querySelector('.menu.title .controls-panel'),
+    noName: !document.querySelector('.menu.title .ui-input'),
+    // 2026-09-09: 프레임의 scrollWidth 는 재지 않는다 — `.wordmark` 는 마지막 글자의 letter-spacing 을
+    // 음수 오른쪽 마진으로 상쇄하므로 border box 보다 딱 그만큼 넓게 나온다 (보이지 않는 장부상의 넘침).
+    // 실제로 문제가 되는 것은 **페이지가 가로로 스크롤되는가** 와 프레임이 화면 안에 있는가 둘뿐이다.
+    frame: (() => {
+      const f = document.querySelector('.menu.title .frame').getBoundingClientRect();
+      const d = document.documentElement;
+      return { docSw: d.scrollWidth, docCw: d.clientWidth, left: Math.round(f.left), right: Math.round(f.right), vw: window.innerWidth };
+    })(),
   }));
-  ok(title.panel && title.keys >= 60, `title shows the keyboard diagram (${title.keys} keys)`);
+  ok(home.buttons.join(',') === '게임 시작,설정,종료', `title is three buttons (${home.buttons.join(' / ')})`);
+  ok(home.noPanel && home.noName, '조작 다이어그램 · 콜사인 입력칸은 타이틀에서 빠졌다');
+  ok(home.frame.docSw <= home.frame.docCw && home.frame.left >= 0 && home.frame.right <= home.frame.vw,
+    `title fits the viewport with no page scroll (doc ${home.frame.docSw}/${home.frame.docCw}, frame ${home.frame.left}…${home.frame.right} of ${home.frame.vw})`);
+  await shot('01-title-home');
+
+  await page.evaluate(() => [...document.querySelectorAll('.menu.title .title-actions .ui-btn')].find((b) => b.textContent === '설정').click());
+  await waitFor(page, () => !document.querySelector('.menu.settings-menu')?.hidden, '설정 메뉴 열림');
+  await page.evaluate(() => [...document.querySelectorAll('.menu.settings-menu .set-nav .set-nav-btn')].find((b) => b.textContent.includes('키 설정'))?.click());
+  const title = await page.evaluate(() => ({
+    panel: !!document.querySelector('.set-body.keys .controls-panel'),
+    keys: document.querySelectorAll('.set-body.keys .ctl-key').length,
+    bound: document.querySelectorAll('.set-body.keys .ctl-key.bound').length,
+    mouseBound: document.querySelectorAll('.set-body.keys .ctl-mouse-svg .btn.bound').length,
+    wasd: !!document.querySelector('.set-body.keys .ctl-key[data-code="KeyW"].bound') && !!document.querySelector('.set-body.keys .ctl-key[data-code="KeyQ"].bound'),
+    rows: [...document.querySelectorAll('.set-body.keys .ctl-fn .fn')].map((n) => n.textContent),
+    oldList: !!document.querySelector('.menu.title .controls'),
+    btn: [...document.querySelectorAll('.set-body.keys .ui-btn')].some((b) => b.textContent === '키 설정 변경'),
+  }));
+  ok(title.panel && title.keys >= 60, `설정 · 키 설정 shows the keyboard diagram (${title.keys} keys)`);
   ok(title.bound >= 18 && title.wasd, `${title.bound} bound keys lit (W, Q included)`);
   ok(title.mouseBound === 3, `mouse LMB / RMB / MMB lit (${title.mouseBound})`);
   ok(title.rows.includes('재장전 / (수류탄을 들고 있을 때) 코킹'), 'reload row carries the cook hint');
   ok(title.rows.includes('함선 호출'), 'ship call row is just 함선 호출');
-  ok(!title.rows.some((r) => /수류탄:|아이템 버리기|회전/.test(r)), 'no grenade / inventory-internal rows on the title');
+  ok(!title.rows.some((r) => /수류탄:|아이템 버리기|회전/.test(r)), 'no grenade / inventory-internal rows');
   ok(!title.oldList && title.btn, 'old text list gone, 키 설정 변경 button present');
-  ok(title.frame.sw <= title.frame.cw, `title frame has no horizontal overflow (${title.frame.sw}/${title.frame.cw})`);
   await shot('01-title-controls');
 
   /* ── 2. key rebinding overlay ─────────────────────────────────────── */
-  await page.evaluate(() => [...document.querySelectorAll('.menu.title .ui-btn')].find((b) => b.textContent === '키 설정 변경').click());
+  await page.evaluate(() => [...document.querySelectorAll('.set-body.keys .ui-btn')].find((b) => b.textContent === '키 설정 변경').click());
   ok(await page.evaluate(() => !document.querySelector('.menu.keybind-menu').hidden), 'key-settings overlay opened');
   const rowBtn = (label) => page.evaluateHandle((l) => [...document.querySelectorAll('.kb-row')].find((r) => r.querySelector('.kb-label').textContent === l)?.querySelector('.kb-key'), label);
   // rebind 앉기 → N
@@ -144,12 +165,12 @@ try {
   const afterBind = await page.evaluate(() => ({
     label: [...document.querySelectorAll('.kb-row')].find((r) => r.querySelector('.kb-label').textContent === '앉기').querySelector('.kb-key').textContent,
     saved: localStorage.getItem('scav.keybinds'),
-    titleN: !!document.querySelector('.ctl-key[data-code="KeyN"].bound'),
-    titleC: !!document.querySelector('.ctl-key[data-code="KeyC"].bound'),
+    titleN: !!document.querySelector('.set-body.keys .ctl-key[data-code="KeyN"].bound'),
+    titleC: !!document.querySelector('.set-body.keys .ctl-key[data-code="KeyC"].bound'),
   }));
   ok(afterBind.label === 'N', `앉기 rebound to N (${afterBind.label})`);
   ok(afterBind.saved && afterBind.saved.includes('"CROUCH":"KeyN"'), 'binding persisted to localStorage');
-  ok(afterBind.titleN && !afterBind.titleC, 'title diagram followed the rebinding (N lit, C dark)');
+  ok(afterBind.titleN && !afterBind.titleC, '설정의 조작 다이어그램이 리바인딩을 따라갔다 (N lit, C dark)');
   ok((await ev('input:bindingsChanged')).length >= 1, 'input:bindingsChanged emitted');
   // conflict: 엎드리기 → N as well
   await (await rowBtn('엎드리기')).asElement().click();
@@ -171,7 +192,9 @@ try {
   }));
   ok(reset.conflicts === 0 && reset.crouch === 'C' && !reset.saved, 'reset restored the defaults and cleared the save');
   await keyDown('Escape'); await keyUp('Escape');
-  ok(await page.evaluate(() => document.querySelector('.menu.keybind-menu').hidden && document.querySelector('.menu.title') && !document.querySelector('.menu.title').classList.contains('hidden')), 'Esc closed the overlay, title still up');
+  ok(await page.evaluate(() => document.querySelector('.menu.keybind-menu').hidden && !document.querySelector('.menu.settings-menu').hidden), 'Esc closed the overlay, 설정 still up');
+  await keyDown('Escape'); await keyUp('Escape');
+  ok(await page.evaluate(() => document.querySelector('.menu.settings-menu').hidden && !document.querySelector('.menu.title').hidden), 'Esc closed 설정, title still up');
 
   /* ── 3. hub: Tab ship screen ──────────────────────────────────────── */
   await page.evaluate(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
@@ -255,7 +278,7 @@ try {
   ok(stashMove.r === 'ok' && stashMove.after === stashMove.before + 1, `right-click moved ${stashMove.defId} bag → stash`);
   ok(stashMove.dropRefused, 'dropping in the ship lands in the stash, not the world');
   await sleep(600); // debounced save
-  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('scav.stash') ?? 'null'));
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('scav.s1.stash') ?? 'null'));
   ok(saved && saved.items?.length === stashMove.after + 1, `stash saved to localStorage (${saved?.items?.length} stacks)`);
 
   const toTab = (label) => page.evaluate((l) => {

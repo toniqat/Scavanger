@@ -1,159 +1,139 @@
-import type { GameContext } from '@/shared';
-import { sanitizePlayerName } from '@/shared';
-import { el, setText } from '../dom';
-import { NEW_CHARACTER_LABEL, resetCharacterSaves } from './newCharacter';
+import '../styles/title.css';
+import type { GameContext, SlotId } from '@/shared';
+import { takeAutoStart } from '@/shared';
+import { el, toggleClass } from '../dom';
 import { MenuBase } from './MenuBase';
-import { ControlsPanel, KEYBIND_BUTTON_LABEL } from './ControlsPanel';
+import { CharacterCreate } from './CharacterCreate';
+import { CharacterSelect } from './CharacterSelect';
+import { enterShip } from './enterShip';
 
 /**
- * Title screen: wordmark, callsign field, `함선 탑승` → `hub:enter {ship:'personal'}`, then the controls diagram
- * (procedural keyboard + mouse with the bound keys lit, per-function list) and a `키 설정 변경` button that opens
- * the key-settings overlay (`onKeybinds`, owned by HudSystem).
- * Visible on phase 'menu' only. Seed / matchmaking live in the ship terminal (hub).
- * Invite link (`?lobby=CODE` → `ctx.net.inviteCode`): the button reads `초대 수락 · 함선 탑승`; on click we
- * `ensureConnected()` first, then enter the personal ship and `joinLobby(code)` (the hub docks us into the shared ship).
- * A failed connection shows an inline message and falls back to the offline personal ship on the next click.
- * Phase 5: a `Lv. n` chip (`.lv-chip`) right of the callsign field reads `ctx.progression?.level`, refreshed on show and on
- * `progress:loaded` / `progress:levelUp`; hidden without a progression system.
- * 2026-09-07: a `새 캐릭터로 시작` button in the footer (two-step confirm) wipes every character save and reloads —
- * typing a new callsign only renames the existing character, which read as "a new character with an empty 창고".
+ * 타이틀 (2026-09-09 개편).
+ *
+ * 화면에는 **워드마크(위쪽 가운데)와 버튼 셋**뿐이다 — `게임 시작` / `설정` / `종료`.
+ *
+ *  - **콜사인 입력칸이 없다.** 이름은 이제 캐릭터가 갖는다 (생성창에서 정하고, 부팅 때 프로필에서
+ *    `ctx.net.setPlayerName` 으로 흘러간다 — `progression/ProgressionSystem` 이 그 한 곳이다).
+ *  - **조작 다이어그램(`menus/ControlsPanel`)과 `키 설정 변경` 이 설정 메뉴로 옮겨 갔다.** 설정의 `키 설정`
+ *    구획이 이미 둘을 다 갖고 있으므로 (`menus/SettingsMenu.buildKeys`), 타이틀은 `설정` 버튼 하나만 준다.
+ *  - **`새 캐릭터로 시작` 이 없다.** 그 일은 캐릭터 선택창에서 채워진 칸의 `삭제` 가 한다.
+ *  - `게임 시작` → 캐릭터 선택(`menus/CharacterSelect`) → (빈 칸이면) 생성(`menus/CharacterCreate`).
+ *
+ * 두 하위 화면은 **자기 blocker 토큰을 갖지 않는다.** 이 메뉴(`MenuBase`)가 phase `menu` 동안 `'menu'` 토큰과
+ * 커서 소유권을 계속 쥐고 있고, 둘은 그 위에 얹히는 화면이다 (`SettingsMenu` 와 같은 규칙).
+ *
+ * **부팅 자동 시작**: 슬롯을 바꾸면 언제나 `setActiveSlot` + `markAutoStart` + `location.reload()` 다 (시스템은
+ * 부팅 때 한 번 저장소를 읽는다). 새로고침 뒤 타이틀과 캐릭터 선택을 건너뛰고 곧장 함선으로 들어가야 하므로
+ * **`bind()` 에서 `takeAutoStart()` 를 한 번 읽는다** — 여기가 자리인 이유는 (a) 건너뛸 대상이 바로 이 화면이고,
+ * (b) `bind` 는 부팅에 정확히 한 번 불리며, (c) phase `menu` 의 show/hide 를 이미 이 클래스가 쥐고 있어서 다른
+ * 곳에서 읽으면 타이틀이 한 프레임 번쩍인다. `takeAutoStart()` 는 표시를 읽고 지우므로 나중에 일시정지 메뉴의
+ * `타이틀로` 로 돌아오면 타이틀이 정상으로 뜬다.
  */
 export class TitleMenu extends MenuBase {
-  private nameInput: HTMLInputElement;
-  private boardBtn: HTMLButtonElement;
-  private msg: HTMLElement;
-  private lvChip: HTMLElement;
-  private controls: ControlsPanel;
-  private busy = false;
-  private confirmEl!: HTMLElement;
-  private inviteFailed = false;
+  private readonly select: CharacterSelect;
+  private readonly create: CharacterCreate;
+  /** 이번 부팅이 타이틀을 건너뛰는가 (`takeAutoStart`); 한 번 쓰고 꺼진다. */
+  private autoStart = false;
 
-  constructor(parent: HTMLElement, private readonly onKeybinds: () => void) {
-    super(parent, 'title');
+  constructor(parent: HTMLElement, private readonly onSettings: () => void) {
+    super(parent, 'title home');
     const head = el('div', { parent: this.frame });
     el('div', { cls: 'wordmark', html: 'SCAV<span>A</span>NGER', parent: head });
     el('div', { cls: 'tagline', text: '강하 · 수집 · 탈출', parent: head });
 
-    const field = el('div', { cls: 'field', parent: this.frame });
-    el('span', { cls: 'ui-label', text: '콜사인 (대원 이름)', parent: field });
-    const row = el('div', { cls: 'row', parent: field });
-    this.nameInput = el('input', { cls: 'ui-input', attrs: { type: 'text', placeholder: '스캐빈저', maxlength: '16', spellcheck: 'false', autocomplete: 'off' }, parent: row });
-    this.nameInput.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') this.board(); });
-    this.nameInput.addEventListener('keyup', (e) => e.stopPropagation());
-    this.nameInput.addEventListener('change', () => this.applyName());
-    this.lvChip = el('span', { cls: 'lv-chip', text: 'Lv. 1', attrs: { title: '캐릭터 레벨' }, parent: row });
-    this.lvChip.hidden = true;
+    const actions = el('div', { cls: 'title-actions', parent: this.frame });
+    this.button(actions, '게임 시작', () => this.startGame(), 'primary');
+    this.button(actions, '설정', () => this.onSettings());
+    this.button(actions, '종료', () => this.quit(), 'quit');
 
-    const actions = el('div', { cls: 'actions', parent: this.frame });
-    this.boardBtn = this.button(actions, '함선 탑승', () => this.board(), 'primary');
-    this.msg = el('div', { cls: 'form-msg', text: '', parent: actions });
-    this.msg.hidden = true;
-
-    el('div', { cls: 'divider', parent: this.frame });
-    el('span', { cls: 'ui-label', text: '조작', parent: this.frame });
-    this.controls = new ControlsPanel(this.frame);
-    const foot = el('div', { cls: 'title-foot', parent: this.frame });
-    el('div', { cls: 'hint', text: '함선의 단말기에서 임무 시드를 고르고 분대를 모으세요. 발사 포드에 탑승하면 강하합니다.', parent: foot });
-    this.button(foot, KEYBIND_BUTTON_LABEL, () => this.onKeybinds(), 'keybinds');
-    this.button(foot, NEW_CHARACTER_LABEL, () => this.askNewCharacter(), 'newchar');
-    this.confirmEl = el('div', { cls: 'newchar-confirm', parent: this.frame });
-    el('div', { cls: 'form-msg danger', text: '함선 창고 · 장비 · 함선 · 진행도 · 크레딧이 모두 사라집니다. 되돌릴 수 없습니다.', parent: this.confirmEl });
-    const confirmRow = el('div', { cls: 'row', parent: this.confirmEl });
-    this.button(confirmRow, '초기화하고 새로 시작', () => this.newCharacter(), 'danger');
-    this.button(confirmRow, '취소', () => { this.confirmEl.hidden = true; });
-    this.confirmEl.hidden = true;
     el('div', { cls: 'version', text: 'SCAVANGER · PROTOTYPE', parent: this.root });
+
+    // 하위 화면은 타이틀 **다음에** DOM 에 붙으므로 자연히 그 위에 그려진다 (z-index 는 title.css 가 못 박는다).
+    this.select = new CharacterSelect(parent, () => this.syncStacked(), (slot: SlotId) => this.openCreate(slot));
+    this.create = new CharacterCreate(parent, () => { this.select.open(); this.syncStacked(); });
   }
 
   override bind(ctx: GameContext): void {
     super.bind(ctx);
+    this.select.bind(ctx);
+    this.create.bind(ctx);
+    // 슬롯 전환 직후의 부팅인가 — 표시는 여기서 정확히 한 번 소비된다.
+    this.autoStart = takeAutoStart();
     this.unsubs.push(
       ctx.bus.on('game:phaseChanged', () => this.refresh()),
-      ctx.bus.on('progress:loaded', () => this.refreshLevel()),
-      ctx.bus.on('progress:levelUp', ({ level }) => this.refreshLevel(level)),
     );
-    this.refreshLevel();
+    if (this.autoStart) {
+      // Engine 은 모든 시스템의 init() 을 한 번의 동기 패스로 돌린다 — 허브가 아직 `hub:enter` 를 구독하지
+      // 않았을 수 있으므로 한 마이크로태스크 뒤로 미룬다 (`ProgressionSystem` 의 초기 방송과 같은 이유).
+      queueMicrotask(() => {
+        if (!this.autoStart || this.ctx !== ctx) return;
+        this.autoStart = false;
+        void enterShip(ctx);
+      });
+    }
     this.refresh();
   }
 
+  /** 타이틀 본체 · 캐릭터 선택 · 생성 중 무엇을 보일지. */
   private refresh(): void {
-    if (this.ctx.phase === 'menu') this.show(); else this.hide();
-  }
-
-  /** `Lv. n` chip from `ctx.progression.level` (or the level-up payload when the event arrives first). */
-  private refreshLevel(level?: number): void {
-    const lv = level ?? this.ctx.progression?.level;
-    this.lvChip.hidden = lv === undefined;
-    if (lv !== undefined) setText(this.lvChip, `Lv. ${lv}`);
-  }
-
-  protected override onShow(): void {
-    this.refreshLevel();
-    const net = this.ctx.net;
-    if (net && !this.nameInput.value) this.nameInput.value = net.playerName;
-    const invite = !!net?.inviteCode && !this.inviteFailed;
-    setText(this.boardBtn, invite ? '초대 수락 · 함선 탑승' : '함선 탑승');
-    this.boardBtn.disabled = false;
-    this.busy = false;
-    this.controls.refresh();
-  }
-
-  protected override onHide(): void { this.msg.hidden = true; this.confirmEl.hidden = true; }
-
-  /** Step 1 of 새 캐릭터: show the confirm card (this throws away every character save). */
-  private askNewCharacter(): void {
-    this.confirmEl.hidden = !this.confirmEl.hidden;
-  }
-
-  /** Step 2: wipe the character saves and reload — a reload is the only way every system re-reads its storage. */
-  private newCharacter(): void {
-    this.confirmEl.hidden = true;
-    resetCharacterSaves();
-    window.location.reload();
-  }
-
-  private applyName(): void {
-    const net = this.ctx.net;
-    const name = sanitizePlayerName(this.nameInput.value);
-    this.nameInput.value = name;
-    net?.setPlayerName(name);
-  }
-
-  private showMsg(text: string, kind: 'info' | 'warning' | 'danger' = 'warning'): void {
-    this.msg.className = `form-msg ${kind}`;
-    setText(this.msg, text);
-    this.msg.hidden = false;
-  }
-
-  private async board(): Promise<void> {
-    if (this.busy) return;
-    this.applyName();
-    const ctx = this.ctx;
-    const net = ctx.net;
-    const code = net?.inviteCode ?? null;
-
-    if (net && code && !this.inviteFailed) {
-      this.busy = true;
-      this.boardBtn.disabled = true;
-      setText(this.boardBtn, '서버 연결 중…');
-      let ok = false;
-      try { ok = await net.ensureConnected(); } catch { ok = false; }
-      this.busy = false;
-      this.boardBtn.disabled = false;
-      if (ctx.phase !== 'menu') return;
-      if (!ok) {
-        this.inviteFailed = true;
-        setText(this.boardBtn, '함선 탑승');
-        this.showMsg('서버에 연결할 수 없습니다 — 초대를 수락하지 못했습니다. 다시 누르면 개인 함선(오프라인)으로 탑승합니다.', 'danger');
-        return;
-      }
-      ctx.bus.emit('hub:enter', { ship: 'personal' });
-      net.joinLobby(code);
-      ctx.bus.emit('ui:notify', { text: `초대 코드 ${code} — 공유 함선에 합류 중`, kind: 'info' });
+    if (this.ctx.phase !== 'menu' || this.autoStart) {
+      this.hide();
+      this.select.close();
+      this.create.close();
       return;
     }
-    ctx.bus.emit('hub:enter', { ship: 'personal' });
+    // 하위 화면이 떠 있으면 타이틀은 그 뒤에 그대로 남는다 (blocker 를 쥐고 있어야 한다).
+    this.show();
+    this.syncStacked();
   }
 
-  override dispose(): void { this.controls.dispose(); super.dispose(); }
+  /** 하위 화면이 떠 있는 동안 타이틀 본체는 눈에서만 지운다 (`hide()` 는 blocker 까지 놓아 버린다). */
+  private syncStacked(): void {
+    toggleClass(this.root, 'stacked', this.select.isOpen || this.create.isOpen);
+  }
+
+  /** 프레임마다 (HudSystem) — 생성창의 3D 미리보기만 돈다. 닫혀 있으면 즉시 돌아온다. */
+  update(dt: number): void { this.create.update(dt); }
+
+  /** 캐릭터 선택창이 떠 있는가 (디버그 / 스모크). */
+  get isSelectOpen(): boolean { return this.select.isOpen; }
+  /** 캐릭터 생성창이 떠 있는가 (디버그 / 스모크). */
+  get isCreateOpen(): boolean { return this.create.isOpen; }
+
+  protected override onHide(): void {
+    this.select.close();
+    this.create.close();
+    this.syncStacked();
+  }
+
+  private startGame(): void {
+    this.select.open();
+    this.syncStacked();
+  }
+
+  private openCreate(slot: SlotId): void {
+    this.create.open(slot);
+    this.syncStacked();
+  }
+
+  /**
+   * 게임 종료. `menus/PauseMenu.quit()` 과 **같은 다섯 줄을 일부러 복제한다** — 타이틀이 일시정지 메뉴를
+   * import 하면 두 화면이 서로 묶이고, 공유할 만큼 큰 코드도 아니다. `window.close()` 는 Electron 셸을 끝내고
+   * (`electron/main.ts` 가 유일한 BrowserWindow 를 갖는다), 브라우저는 스스로 열지 않은 탭을 닫아 주지 않으므로
+   * 한 틱 뒤에도 살아 있으면 그렇게 알린다. 여기는 이미 타이틀이라 돌아갈 화면은 없다.
+   */
+  private quit(): void {
+    const ctx = this.ctx;
+    try { window.close(); } catch (e) { console.error('[ui] window.close failed', e); }
+    window.setTimeout(() => {
+      if (window.closed) return;
+      ctx.bus.emit('ui:notify', { text: '브라우저에서는 탭을 직접 닫아주세요', kind: 'warning', duration: 3.5 });
+    }, 250);
+  }
+
+  override dispose(): void {
+    this.create.dispose();
+    this.select.dispose();
+    super.dispose();
+  }
 }

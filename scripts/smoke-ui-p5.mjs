@@ -51,7 +51,7 @@ try {
     // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
     // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
     // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
-    try { localStorage.setItem('scav.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
+    try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
     // Never let headless Chrome take a real pointer lock (Windows ClipCursor trap); `pointerLockElement` is faked below.
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
@@ -92,19 +92,44 @@ try {
   const texts = (sel) => P((s) => [...document.querySelectorAll(s)].map((e) => e.textContent), sel);
   const hud = (expr) => P((e) => { const h = window.__game.getSystem('hud'); return h[e]; }, expr);
 
-  console.log('title level chip');
+  // 2026-09-09: 타이틀의 `.lv-chip` 은 사라졌다 — 레벨은 캐릭터 선택창의 슬롯 카드가 읽는다 (세이브에서 직접).
+  console.log('character select slot card');
   const lvReal = await P(() => window.__game.ctx.progression.level);
-  let chip = await P(() => { const e = document.querySelector('.menu.title .lv-chip'); return e ? { text: e.textContent, hidden: e.hidden, phase: window.__game.ctx.phase, inRow: !!e.closest('.field .row') } : null; });
-  ok(chip && chip.phase === 'menu' && !chip.hidden && chip.inRow, 'title menu shows the .lv-chip beside the callsign field', JSON.stringify(chip));
-  ok(chip && chip.text === `Lv. ${lvReal}`, `chip reads Lv. ${lvReal} (ctx.progression.level)`, chip && chip.text);
+  const noChip = await P(() => ({ chip: !!document.querySelector('.menu.title .lv-chip'), phase: window.__game.ctx.phase }));
+  ok(noChip.phase === 'menu' && !noChip.chip, '타이틀에는 레벨 칩이 없다 (버튼 셋뿐)', JSON.stringify(noChip));
+  await P(() => [...document.querySelectorAll('.menu.title .title-actions .ui-btn')].find((b) => b.textContent === '게임 시작').click());
+  // 빈 브라우저로 부팅했으므로 세 칸 모두 비어 있다 — 프로필은 캐릭터 생성창이 쓰고, 그전에는 아무 세이브도 없다.
+  const empties = await P(() => ({
+    cards: document.querySelectorAll('.char-select .cs-card').length,
+    empty: document.querySelectorAll('.char-select .cs-card.empty').length,
+    plus: document.querySelector('.char-select .cs-card.empty .cs-empty-label')?.textContent,
+  }));
+  ok(empties.cards === 3 && empties.empty === 3 && empties.plus === '캐릭터 생성',
+    '빈 저장소 → 칸 셋 전부 비어 있고 각각 캐릭터 생성', JSON.stringify(empties));
+  // 슬롯 2 에 캐릭터를 심고 다시 열면 그 칸이 세이브에서 이름 · 레벨 · 능력치를 읽어 온다 (색인 파일 없음).
+  const card = await P((lv) => {
+    const p = { ...window.__game.ctx.progression.profile, name: '테스트대원', level: lv };
+    localStorage.setItem('scav.s2.profile', JSON.stringify(p));
+    const back = [...document.querySelectorAll('.char-select .ts-foot .ui-btn')].find((b) => b.textContent === '뒤로');
+    back.click();
+    [...document.querySelectorAll('.menu.title .title-actions .ui-btn')].find((b) => b.textContent === '게임 시작').click();
+    const c = [...document.querySelectorAll('.char-select .cs-card')].find((x) => x.querySelector('.cs-slot')?.textContent === '슬롯 2');
+    return c ? { lv: c.querySelector('.cs-lv')?.textContent, name: c.querySelector('.cs-name')?.textContent, empty: c.classList.contains('empty'), stats: c.querySelectorAll('.cs-stats .cc-mini').length } : null;
+  }, lvReal);
+  ok(card && !card.empty && card.name === '테스트대원' && card.lv === `Lv. ${lvReal}`, `슬롯 2 카드가 세이브를 읽는다 (Lv. ${lvReal})`, JSON.stringify(card));
+  ok(card && card.stats === 5, '슬롯 카드에 능력치 다섯 줄', JSON.stringify(card));
+  await P(() => {
+    localStorage.removeItem('scav.s2.profile');
+    [...document.querySelectorAll('.char-select .ts-foot .ui-btn')].find((b) => b.textContent === '뒤로')?.click();
+  });
   await emit('progress:levelUp', { level: 7, statPoints: 1 });
-  chip = await P(() => document.querySelector('.menu.title .lv-chip').textContent);
-  ok(chip === 'Lv. 7', 'progress:levelUp {level:7} → Lv. 7', chip);
   const lvToasts = await P(() => document.querySelectorAll('.ptoast.level').length);
   ok(lvToasts === 0, 'progress:levelUp raises no 레벨 업 toast any more (the result screen owns the moment)', String(lvToasts));
   await P(() => window.__game.ctx.bus.emit('progress:loaded', { profile: window.__game.ctx.progression.profile }));
-  chip = await P(() => document.querySelector('.menu.title .lv-chip').textContent);
-  ok(chip === `Lv. ${lvReal}`, 'progress:loaded → chip back to the real level', chip);
+  // 2026-09-09: `progress:loaded` 는 이제 콜사인을 `ctx.net` 에 밀어 넣는 자리다 — 타이틀에 칩이 없으니 그것을 본다.
+  const pushedName = await P(() => ({ profile: window.__game.ctx.progression.profile.name, net: window.__game.ctx.net?.playerName }));
+  ok(!pushedName.net || pushedName.net === pushedName.profile,
+    'progress:loaded → 캐릭터 이름이 net.playerName 으로 간다', JSON.stringify(pushedName));
   // The synthetic level-up toast above must not leak into the mission (ProgressToasts clears on game:newMission).
 
   console.log('mission');

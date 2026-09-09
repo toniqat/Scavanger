@@ -48,7 +48,7 @@ try {
     // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
     // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
     // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
-    try { localStorage.setItem('scav.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
+    try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
     // Park vite's HMR socket (another agent's save would full-reload the page) AND the relay socket (`/ws?t=`): this is a
@@ -325,7 +325,7 @@ try {
     const p = window.__game.ctx.progression;
     return { level: p.level, xp: p.xp, points: p.statPoints, str: p.getStat('strength'), gunAR: p.getSkill('gun_AR'), gunProg: p.getSkillProgress('gun_AR'), carry: p.derived.carryCapacity,
       loaded: window.__ev['progress:loaded'].length, xpEv: window.__ev['progress:xpGained'].length, stat: window.__ev['progress:statChanged'].length, skill: window.__ev['progress:skillProgress'].length,
-      local: JSON.parse(localStorage.getItem('scav.profile') ?? localStorage.getItem(Object.keys(localStorage).find((k) => (localStorage.getItem(k) ?? '').includes('"statProgress"')) ?? '') ?? 'null')?.level };
+      local: JSON.parse(localStorage.getItem('scav.s1.profile') ?? localStorage.getItem(Object.keys(localStorage).find((k) => (localStorage.getItem(k) ?? '').includes('"statProgress"')) ?? '') ?? 'null')?.level };
   });
   ok(srv.level === 7 && srv.xp === 50 && srv.points === 2 && srv.str === 9 && srv.gunAR === 12 && near(srv.gunProg, 0.25), 'net:profileLoaded → server document replaces level / xp / points / stats / skills', JSON.stringify(srv));
   ok(near(srv.carry, 28 + 2.2 * 9, 1e-6), 'derived recomputed from the server profile (carry 47.8 at 근력 9)', `${srv.carry}`);
@@ -631,11 +631,11 @@ try {
   await boot();
   const rt = await page.evaluate((uid) => {
     const p = window.__game.ctx.progression;
-    return { eq: p.getEquippedImplants().map((e) => e.defId), uid: p.getEquippedImplants()[0]?.uid, used: p.implantSlotsUsed, perk: p.derived.perks.quick_heal, dex: p.getImplantBonus('dexterity'), raw: JSON.parse(localStorage.getItem('scav.profile') ?? 'null')?.implants?.length };
+    return { eq: p.getEquippedImplants().map((e) => e.defId), uid: p.getEquippedImplants()[0]?.uid, used: p.implantSlotsUsed, perk: p.derived.perks.quick_heal, dex: p.getImplantBonus('dexterity'), raw: JSON.parse(localStorage.getItem('scav.s1.profile') ?? 'null')?.implants?.length };
   }, uQH);
   ok(rt.eq.length === 1 && rt.eq[0] === 'imp_perk_quick_heal' && rt.uid === uQH && rt.used === 2 && rt.perk === true && rt.dex === 1 && rt.raw === 1, 'reload: 가속 대사 still equipped (same uid), perk + bonus re-derived, profile.implants saved', JSON.stringify(rt));
   // an unknown def id in the saved array is dropped silently
-  await page.evaluate(() => { const raw = JSON.parse(localStorage.getItem('scav.profile')); raw.implants.push({ uid: 'ghost-1', defId: 'imp_removed_99' }, { bogus: true }, { uid: '', defId: 'imp_strength_1' }); localStorage.setItem('scav.profile', JSON.stringify(raw)); });
+  await page.evaluate(() => { const raw = JSON.parse(localStorage.getItem('scav.s1.profile')); raw.implants.push({ uid: 'ghost-1', defId: 'imp_removed_99' }, { bogus: true }, { uid: '', defId: 'imp_strength_1' }); localStorage.setItem('scav.s1.profile', JSON.stringify(raw)); });
   await page.reload({ waitUntil: 'load' });
   await boot();
   await sleep(100);

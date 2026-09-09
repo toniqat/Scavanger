@@ -505,7 +505,26 @@ input { font: inherit; color: inherit; }
 }
 .pause-ask-title { font-size: 16px; font-weight: 700; letter-spacing: 0.16em; color: var(--c-danger); }
 .pause-ask-body { font-size: 12px; line-height: 1.7; letter-spacing: 0.02em; color: var(--c-text-dim); }
-.pause-ask-foot { display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px; }
+.pause-ask-hint { font-size: 10px; letter-spacing: 0.1em; color: var(--c-text-faint); }
+/* 2026-09-09 — **취소 가 카드 왼쪽으로 삐져나오던 이유**: `.ui-btn` carries `min-width: 220px` for the menu's own
+   button column, and nothing reset it here. Two of them (440px + gap) cannot shrink below that inside a 420px card,
+   so `justify-content: flex-end` pushed the overflow out of the left edge. The footer's pair is its own thing: an
+   evenly split row that can shrink, one height, no overflow at any card width. */
+.pause-ask-foot { display: flex; gap: 8px; padding-top: 4px; }
+.pause-ask-foot .ui-btn {
+  flex: 1 1 0; min-width: 0; height: 40px; padding: 0 14px;
+  font-size: 11px; letter-spacing: 0.14em; white-space: nowrap;
+}
+/* 확정 홀드 게이지 — the 제작 / 분해 button's language (`inventory.css .inv-craft-fill`): a fill sweeping across
+   the button itself, driven per frame from `menus/PauseMenu`. */
+.pause-ask-ok { overflow: hidden; }
+.pause-ask-ok.is-holding { border-color: var(--c-danger); color: var(--c-danger); }
+.pause-ask-fill {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 0;
+  background: color-mix(in srgb, var(--c-danger) 45%, transparent);
+  pointer-events: none;
+}
+.pause-ask-ok-t { position: relative; z-index: 1; }
 .menu.complete .frame { min-width: 520px; }
 .menu.complete .banner { display: flex; flex-direction: column; gap: 4px; }
 .menu.death .frame { border-color: rgba(255, 77, 77, 0.35); }

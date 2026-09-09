@@ -310,3 +310,11 @@ credited to a peer that our client never sees (e.g. a DoT death out of range) is
   지어지므로 서로 다른 함선 안의 두 사람은 **좌표가 겹친다** — 격납고에서 남의 개인 함선에 들어가면 공유 데크에
   있는 분대원이 발밑에 겹쳐 서 있게 된다. 같은 함선을 구경 중인 둘은 서로 보인다(그게 이 기능의 요점이다).
   값이 양쪽 다 null 인 평소(임무 · 공유 데크)에는 아무것도 달라지지 않는다.
+
+- **2026-09-09 (캐릭터 악센트)** — `PlayerSystem` 의 `readonly model` 이 `new SoldierModel(localAccentColor())` 이 됐다.
+  캐릭터 생성창에서 고른 `PlayerProfile.accent` (`#rrggbb`) 가 로컬 병사의 벨트 · 어깨 · 스트라이프 · 부츠 · 바이저에
+  들어간다. 색은 `SoldierModel` 생성자에서 **구워지는데** 이 모델은 필드 초기화라 `init(ctx)` 보다 먼저 만들어지므로,
+  `ctx.progression` 이 아니라 `shared/saveSlot.readSlotCard(activeSlot()).accent` 로 활성 슬롯의 세이브에서 곧장 읽는다
+  (시스템들과 같은 "부팅 때 한 번"). 세이브가 없거나 색이 없으면 `SOLDIER_DEFAULT_ACCENT`.
+  **원격 아바타(`RemoteAvatar`)는 그대로 `NET_SLOT_COLORS[slot]`** 을 쓴다 — 분대에서 서로를 가려내는 색이라
+  캐릭터 색으로 바꾸지 않았다. `player/Portraits` 도 그대로 슬롯 색이다.

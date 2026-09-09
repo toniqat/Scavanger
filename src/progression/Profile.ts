@@ -153,6 +153,17 @@ export function migrate(raw: unknown): PlayerProfile | null {
   // Phase 12: equipped implant items — missing on older saves → []
   p.implants = sanitizeImplants(r.implants);
 
+  /* 2026-09-09 (캐릭터 생성창): `accent` / `createdAt` / `playedAt` 은 `shared/character.makeCharacterProfile`
+   * 이 심는 필드다. 여기서 옮겨 담지 않으면 **첫 저장에서 사라진다** — `migrate` 의 결과가 곧 다음
+   * `saveProfile` 의 내용이므로, 새로고침 한 번에 캐릭터의 색과 만든 시각이 지워졌다 (`readSlotCard` 가
+   * 읽는 자리도 여기다: 카드의 악센트가 기본색으로 되돌아갔다). 모르는 필드는 계속 버린다. */
+  const accent = r.accent;
+  if (typeof accent === 'string' && /^#[0-9a-fA-F]{6}$/.test(accent)) p.accent = accent;
+  const createdAt = num(r.createdAt, 0, 0, 8.64e15);
+  if (createdAt > 0) p.createdAt = createdAt;
+  const playedAt = num(r.playedAt, 0, 0, 8.64e15);
+  if (playedAt > 0) p.playedAt = playedAt;
+
   p.version = PROFILE_VERSION;
   return p;
 }

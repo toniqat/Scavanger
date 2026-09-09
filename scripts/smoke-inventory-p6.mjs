@@ -4,7 +4,7 @@
 // bench craft panel (openBenchCraft: title, locked rows, discount, repair list).
 // Phase 12 (2026-09-08): the 분해 게이지 (bar under the button grows per frame, `inventory:disassembleProgress` ≤ 30 Hz →
 // one done:true, {t:0} on cancel), ship 수리 of a 회복 스프레이 (캔 1 + 소독약 1, a can at gauge 0 stays an item — tooltip
-// `게이지 0 / 200`, broken tile bar, `scav.loadout` round trip), 임플란트 tooltips (장착칸 · stat lines · perk · 망가짐 +
+// `게이지 0 / 200`, broken tile bar, `scav.s1.loadout` round trip), 임플란트 tooltips (장착칸 · stat lines · perk · 망가짐 +
 // repair chips), the catalog's 임플란트 tab and the grid ops progression relies on (tryAddToStash / takeItem …).
 // Usage: node scripts/smoke-inventory-p6.mjs [http://localhost:5273/]   (needs `npm run dev`)
 //
@@ -51,7 +51,7 @@ try {
     // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
     // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
     // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
-    try { localStorage.setItem('scav.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
+    try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
   });
@@ -59,7 +59,7 @@ try {
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   // fresh stash so the size checks start from the default grid
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
-  await page.evaluate(() => { localStorage.removeItem('scav.stash'); localStorage.removeItem('scav.grant'); });
+  await page.evaluate(() => { localStorage.removeItem('scav.s1.stash'); localStorage.removeItem('scav.s1.grant'); });
   await page.goto(BASE, { waitUntil: 'load' });
   await waitFor(page, () => !!window.__game && !!window.__game.ctx.inventory, 'boot');
   const install = () => page.evaluate(() => {
@@ -265,7 +265,7 @@ try {
   await tap('Tab');
   await waitFor(page, () => !window.__game.ctx.inventory.isOpen, 'closed');
   await sleep(600); // debounced save
-  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('scav.stash') ?? 'null'));
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('scav.s1.stash') ?? 'null'));
   ok(saved && saved.v === 2 && saved.cols === 10 && saved.rows === 30, `save file carries cols/rows (v${saved?.v} ${saved?.cols}×${saved?.rows})`);
 
   /* ── 3. materials across bag + stash ─────────────────────────────── */
@@ -683,8 +683,8 @@ try {
   ok(spray.rows.includes('게이지 0 / 200'), `tooltip shows 게이지 0 / 200 (${spray.rows.join(' · ')})`);
   ok(spray.tileBroken && spray.tileBar, 'tile carries the broken gauge bar');
   await sleep(700); // debounced loadout save
-  const sprayFile = await page.evaluate(() => { const f = JSON.parse(localStorage.getItem('scav.loadout') ?? 'null'); const e = (f?.bag ?? []).filter((x) => x.defId === 'heal_spray'); return { n: e.length, durs: e.map((x) => x.durability) }; });
-  ok(sprayFile.n === 2 && sprayFile.durs.includes(0) && sprayFile.durs.includes(200), `scav.loadout keeps durability 0 (${JSON.stringify(sprayFile.durs)})`);
+  const sprayFile = await page.evaluate(() => { const f = JSON.parse(localStorage.getItem('scav.s1.loadout') ?? 'null'); const e = (f?.bag ?? []).filter((x) => x.defId === 'heal_spray'); return { n: e.length, durs: e.map((x) => x.durability) }; });
+  ok(sprayFile.n === 2 && sprayFile.durs.includes(0) && sprayFile.durs.includes(200), `scav.s1.loadout keeps durability 0 (${JSON.stringify(sprayFile.durs)})`);
 
   /* ── 5d. Phase 12: 임플란트 items — tooltip · grid ops · never quick / equip ── */
   console.log('임플란트 아이템');
@@ -738,7 +738,7 @@ try {
   await install();
   const sizeAfter = await page.evaluate(() => window.__game.ctx.inventory.getStashSize());
   ok(sizeAfter.cols === 10 && sizeAfter.rows === 30, `stash size survived the reload (${sizeAfter.cols}×${sizeAfter.rows})`);
-  // Phase 12: the empty 회복 스프레이 (gauge 0) came back from `scav.loadout` as an item at 0 — not fresh, not dropped
+  // Phase 12: the empty 회복 스프레이 (gauge 0) came back from `scav.s1.loadout` as an item at 0 — not fresh, not dropped
   const sprayKept = await page.evaluate(() => { const items = window.__game.ctx.inventory.getAllItems().filter((x) => x.defId === 'heal_spray'); return { n: items.length, durs: items.map((x) => x.durability).sort((a, b) => a - b) }; });
   ok(sprayKept.n === 2 && sprayKept.durs[0] === 0 && sprayKept.durs[1] === 200, `spray at gauge 0 survived the reload as 0 / 200 (${JSON.stringify(sprayKept.durs)})`);
   await page.evaluate(() => window.__game.ctx.bus.emit('game:newMission', { seed: 7 }));

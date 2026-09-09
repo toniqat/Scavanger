@@ -47,7 +47,7 @@ try {
     // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
     // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
     // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
-    try { localStorage.setItem('scav.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
+    try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
     // Park vite's HMR socket (another agent's save would full-reload the page) AND the relay socket (`/ws?t=`): this is a
@@ -119,7 +119,7 @@ try {
   await page.goto(BASE, { waitUntil: 'load' });
   await waitFor(page, () => !!window.__game, 'engine');
   // fresh ship + stash so the run is deterministic, then reload so the housing system boots from the fresh state
-  await page.evaluate(() => { localStorage.removeItem('scav.ship'); localStorage.removeItem('scav.stash'); localStorage.removeItem('scav.grant'); });
+  await page.evaluate(() => { localStorage.removeItem('scav.s1.ship'); localStorage.removeItem('scav.s1.stash'); localStorage.removeItem('scav.s1.grant'); });
   await page.reload({ waitUntil: 'load' });
   await setup();
   // 2026-09-07: a fresh stash is granted the 기본 지급품 — empty it again so the material counts below are exact
@@ -145,7 +145,7 @@ try {
   ok(await H(() => window.__game.ctx.housing.getPresetCount() === 0 && window.__game.ctx.housing.getCraftCostMul() === 1 && window.__game.ctx.housing.getSkillGainMul('gun_AR') === 1), 'no rooms: 0 presets, cost ×1, skill ×1');
   // `housing:loaded` fired inside init() before the recorder existed; the saved file proves the fresh state was written
   await sleep(500);
-  ok(await H(() => !!localStorage.getItem('scav.ship')), 'fresh state saved to localStorage (scav.ship)');
+  ok(await H(() => !!localStorage.getItem('scav.s1.ship')), 'fresh state saved to localStorage (scav.s1.ship)');
 
   console.log('hub');
   await H(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
@@ -568,7 +568,7 @@ try {
     window.__game.ctx.bus.emit('net:profileLoaded', { profile: { credits: 0, docs: window.__fakeProfile.docs, updatedAt: 0 }, migrated: false });
   }, shipSnap);
   const srv = await H(() => ({ room8: window.__game.ctx.housing.getRoom(8).purpose, storage: window.__game.ctx.housing.state.storageLevel, crate: window.__game.ctx.housing.getPlaced(8).map((f) => f.uid + ':' + f.defId), rows: window.__game.ctx.housing.getStashSize().rows,
-    loaded: window.__ev['housing:loaded'].length, changed: window.__ev['housing:changed'][window.__ev['housing:changed'].length - 1], stash: window.__ev['housing:stashSizeChanged'][window.__ev['housing:stashSizeChanged'].length - 1], local: JSON.parse(localStorage.getItem('scav.ship')).rooms[8].purpose, sets: window.__fakeProfile.sets.filter((k) => k === 'ship').length }));
+    loaded: window.__ev['housing:loaded'].length, changed: window.__ev['housing:changed'][window.__ev['housing:changed'].length - 1], stash: window.__ev['housing:stashSizeChanged'][window.__ev['housing:stashSizeChanged'].length - 1], local: JSON.parse(localStorage.getItem('scav.s1.ship')).rooms[8].purpose, sets: window.__fakeProfile.sets.filter((k) => k === 'ship').length }));
   ok(srv.room8 === 'kitchen' && srv.storage === 2 && srv.crate.join() === 'f-90:furn_crate', 'net:profileLoaded → server ship document replaces the state (room 8 kitchen, storage 2, crate f-90)', JSON.stringify(srv));
   ok(srv.loaded === loadedN + 1 && srv.changed?.reason === 'profile', 'housing:loaded re-emitted + housing:changed {profile}', JSON.stringify({ loaded: srv.loaded, changed: srv.changed }));
   ok(srv.rows === 36 && srv.stash && srv.stash.rows === 36, 'stash size follows the server storage level (36 rows) + housing:stashSizeChanged', JSON.stringify({ rows: srv.rows, ev: srv.stash }));
@@ -601,7 +601,7 @@ try {
   ok(next && next.uid === 'f-8', `uid counter continues after the highest persisted uid (${next?.uid})`);
   // corrupt save → sanitised, not a crash (flush first so the unload flush does not overwrite the corrupt file)
   await H(() => window.__game.ctx.housing.save());
-  await H(() => localStorage.setItem('scav.ship', JSON.stringify({ version: 1, rooms: [{ purpose: 'lab', level: 9 }], generatorLevel: 99, furniture: [{ uid: 'x', defId: 'nope', room: 0 }, { uid: 'f-3', defId: 'furn_crate', room: 30, x: 99, y: -1, yaw: 7, level: 5 }, { uid: 'f-3', defId: 'furn_bench_gun', room: 1, x: 0, y: 0, yaw: 0, level: 1 }, { uid: 'f-3', defId: 'furn_crate', room: 1, x: 7, y: 7, yaw: 0, level: 1 }, { uid: 'bad', defId: 'furn_crate', room: 1, x: 7, y: 7, yaw: 0, level: 1 }], furnitureStorage: [{ defId: 'furn_locker', qty: 'a' }], presets: [{ name: 1, implant: 'bogus', implantItems: ['imp_strength_1', 7, null] }] })));
+  await H(() => localStorage.setItem('scav.s1.ship', JSON.stringify({ version: 1, rooms: [{ purpose: 'lab', level: 9 }], generatorLevel: 99, furniture: [{ uid: 'x', defId: 'nope', room: 0 }, { uid: 'f-3', defId: 'furn_crate', room: 30, x: 99, y: -1, yaw: 7, level: 5 }, { uid: 'f-3', defId: 'furn_bench_gun', room: 1, x: 0, y: 0, yaw: 0, level: 1 }, { uid: 'f-3', defId: 'furn_crate', room: 1, x: 7, y: 7, yaw: 0, level: 1 }, { uid: 'bad', defId: 'furn_crate', room: 1, x: 7, y: 7, yaw: 0, level: 1 }], furnitureStorage: [{ defId: 'furn_locker', qty: 'a' }], presets: [{ name: 1, implant: 'bogus', implantItems: ['imp_strength_1', 7, null] }] })));
   await page.reload({ waitUntil: 'load' });
   await setup();
   const san = await H(() => JSON.parse(JSON.stringify(window.__game.ctx.housing.state)));
@@ -661,8 +661,8 @@ try {
   // flush lands, THEN clear the saves on the quiet page and reload again into a genuinely fresh profile
   await page.reload({ waitUntil: 'load' });
   await waitFor(page, () => !!window.__game && !!window.__game.ctx.housing, 'boot (flush)');
-  // `scav.loadout` too: the `give()` calls above put materials in the **bag**, and `countDefAll` counts bag + stash
-  await page.evaluate(() => { for (const k of ['scav.ship', 'scav.stash', 'scav.grant', 'scav.loadout']) localStorage.removeItem(k); });
+  // `scav.s1.loadout` too: the `give()` calls above put materials in the **bag**, and `countDefAll` counts bag + stash
+  await page.evaluate(() => { for (const k of ['scav.s1.ship', 'scav.s1.stash', 'scav.s1.grant', 'scav.s1.loadout']) localStorage.removeItem(k); });
   await page.reload({ waitUntil: 'load' });
   await setup();
   await H(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));

@@ -1,0 +1,321 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+ * 타이틀 흐름 (2026-09-09) — 타이틀 · 캐릭터 선택 · 캐릭터 생성.
+ *
+ * `ui/styles/base.css` 는 팔레트 · `.menu` 껍데기 · `.ui-btn` / `.ui-input` / `.ui-label` / `.keycap` 을 갖고
+ * 이 파일은 **그 위에 얹히는 세 화면만** 갖는다. 색 · 여백 리듬 · 트랜지션은 전부 base 의 변수를 쓴다
+ * (`--c-accent`, `--c-panel-strong`, `--t-med`, `--ease` …) — 여기서 새로 정의하지 않는다.
+ *
+ * 스크롤바 · 포커스 링도 base 가 이미 전역으로 칠했다.
+ * `TitleMenu.ts` 가 `import '../styles/title.css'` 로 끌어온다 (inventory.css · tutorial.css 와 같은 방식).
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── 타이틀 (.menu.title.home) ────────────────────────────────────────────
+   워드마크는 화면 **위쪽 가운데**, 그 아래 버튼 셋. 액자도 배경 패널도 없다 — 배경(함선 하늘)이 그대로 보이는
+   편이 조작 다이어그램을 걷어낸 이 화면에 맞는다. `.menu.title .frame` 의 900px 상자를 덮어써야 하므로
+   선택자에 `.home` 을 하나 더 얹는다 (base.css 는 다른 담당이라 건드리지 않는다). */
+.menu.title.home { align-items: flex-start; justify-content: center; }
+.menu.title.home .frame {
+  /* 상자는 **내용에 맞춘다**. 워드마크는 `clamp(46px, 7vw, 84px)` 라 폭이 화면에 따라 변하는데, 고정 px 를
+     적어 두면 넓은 화면에서 프레임이 넘치고(420 → 587, 720 → 737 …) 좁은 화면에서는 남는다. 액자도 배경도
+     없는 가운데 정렬 상자이므로 max-content 가 맞는 답이다 (2026-09-09). */
+  min-width: 0; width: max-content; max-width: calc(100vw - 40px);
+  margin-top: clamp(64px, 16vh, 190px);
+  padding: 0; gap: 46px;
+  background: none; border: none; overflow: visible;
+  align-items: center; text-align: center;
+}
+/* 액자 모서리 브래킷도 없앤다 (`.menu .frame::before/::after`). */
+.menu.title.home .frame::before,
+.menu.title.home .frame::after { content: none; }
+
+.menu.title.home .wordmark {
+  font-size: clamp(46px, 7vw, 84px);
+  text-shadow: 0 0 42px rgba(255, 179, 71, 0.18), 0 6px 30px rgba(0, 0, 0, 0.85);
+}
+.menu.title.home .tagline { margin-top: 12px; }
+
+.title-actions { display: flex; flex-direction: column; gap: 12px; width: min(300px, 100%); }
+.title-actions .ui-btn { width: 100%; height: 46px; letter-spacing: 0.2em; font-size: 13px; }
+.title-actions .ui-btn.quit { border-color: rgba(255, 255, 255, 0.18); color: var(--c-text-dim); }
+.title-actions .ui-btn.quit:hover { border-color: var(--c-danger); color: var(--c-danger); }
+
+/* ── 공통: 전체화면 하위 스크린 (캐릭터 선택 · 생성) ──────────────────────
+   타이틀(`MenuBase`)이 `'menu'` blocker 와 커서 소유권을 계속 쥐고 있고, 이 둘은 그 위에 얹히는 **화면**이다
+   (설정 오버레이와 같은 규칙 — 자기 토큰을 갖지 않는다). z-index 는 일시정지(85) 아래, 지도(40)·커뮤니티(46) 위. */
+.title-screen {
+  position: absolute; inset: 0; z-index: 84;
+  display: flex; flex-direction: column; align-items: center;
+  padding: clamp(14px, 2.6vh, 34px) 24px;
+  background: radial-gradient(ellipse at 50% 35%, rgba(8, 10, 14, 0.72), rgba(3, 4, 6, 0.95));
+  overflow-y: auto;
+}
+.title-screen[hidden] { display: none; }
+.title-screen > * { flex: none; }
+.title-screen .ts-head {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  margin-bottom: clamp(14px, 2.4vh, 28px);
+  animation: menuIn 280ms var(--ease);
+}
+.title-screen .ts-title { font-size: 26px; font-weight: 700; letter-spacing: 0.24em; }
+.title-screen .ts-sub { font-size: 11px; letter-spacing: 0.12em; color: var(--c-text-dim); }
+.title-screen .ts-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  width: 100%; max-width: 1120px; margin-top: auto; padding-top: 14px;
+}
+.title-screen .ts-foot .ui-btn { min-width: 0; height: 40px; padding: 0 26px; font-size: 12px; }
+.title-screen .form-msg {
+  width: 100%; max-width: 1040px;
+  padding: 10px 14px; margin-top: 14px;
+  border-left: 2px solid var(--c-accent); background: rgba(255, 255, 255, 0.04);
+  font-size: 12px; line-height: 1.6; color: var(--c-text-dim);
+}
+.title-screen .form-msg[hidden] { display: none; }
+.title-screen .form-msg.danger { border-left-color: var(--c-danger); color: #ffb3b3; }
+.title-screen .form-msg.info { border-left-color: var(--c-info); }
+
+/* ── 캐릭터 선택 ─────────────────────────────────────────────────────────── */
+.char-select .cs-cards {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px;
+  width: 100%; max-width: 1040px;
+  /* `.ts-foot` 의 `margin-top: auto` 와 짝을 이뤄 카드 줄을 머리글과 바닥 사이 가운데로 민다. */
+  margin-top: auto;
+}
+@media (max-width: 900px) { .char-select .cs-cards { grid-template-columns: 1fr; max-width: 420px; } }
+
+.cs-card {
+  --ac: var(--c-accent);
+  position: relative; display: flex; flex-direction: column; gap: 12px;
+  min-height: 340px; padding: 20px 20px 16px;
+  background: var(--c-panel-strong); border: 1px solid var(--c-border);
+  cursor: pointer; text-align: left;
+  transition: border-color var(--t-fast) var(--ease), transform var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+  animation: menuIn 320ms var(--ease) backwards;
+}
+.cs-card:nth-child(2) { animation-delay: 60ms; }
+.cs-card:nth-child(3) { animation-delay: 120ms; }
+.cs-card:hover { border-color: var(--ac); transform: translateY(-3px); background: rgba(16, 19, 24, 0.92); }
+.cs-card:focus-visible { outline: 1px solid var(--c-accent); outline-offset: 3px; }
+/* 카드 위쪽의 악센트 띠 — 그 캐릭터의 색이 카드의 색이다. */
+.cs-card .cs-bar { position: absolute; left: 0; right: 0; top: 0; height: 3px; background: var(--ac); }
+.cs-card .cs-slot {
+  font-family: var(--ui-mono); font-size: 10px; letter-spacing: 0.24em; color: var(--c-text-faint);
+}
+.cs-card .cs-name {
+  font-size: 22px; font-weight: 700; letter-spacing: 0.06em; color: var(--c-text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cs-card .cs-lv {
+  font-family: var(--ui-mono); font-size: 12px; font-weight: 600; letter-spacing: 0.14em; color: var(--ac);
+}
+.cs-card .cs-meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.cs-card .cs-meta .cell { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.cs-card .cs-meta .k { font-size: 9.5px; letter-spacing: 0.14em; color: var(--c-text-faint); }
+.cs-card .cs-meta .v {
+  font-family: var(--ui-mono); font-variant-numeric: tabular-nums; font-size: 15px; font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cs-card .cs-divider { height: 1px; background: var(--c-border); }
+
+/* 능력치 다섯 — 캐릭터 시트(`progression/ui/character.css` 의 `.cs-stat`)와 같은 어휘의 축소판:
+   이름은 왼쪽, 값은 오른쪽 mono, 그 아래 얇은 바. */
+.cc-mini { display: flex; flex-direction: column; gap: 4px; }
+.cc-mini .row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.cc-mini .n { font-size: 11.5px; letter-spacing: 0.04em; color: var(--c-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc-mini .v { font-family: var(--ui-mono); font-variant-numeric: tabular-nums; font-size: 13px; font-weight: 600; }
+.cc-mini .bar { position: relative; height: 3px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
+.cc-mini .bar i {
+  position: absolute; inset: 0; transform-origin: left; transform: scaleX(0);
+  background: var(--ac); transition: transform var(--t-fast) var(--ease);
+}
+.cs-card .cs-stats { display: flex; flex-direction: column; gap: 7px; }
+
+.cs-card .cs-actions { display: flex; justify-content: flex-end; margin-top: auto; padding-top: 8px; }
+.cs-card .cs-actions .ui-btn { min-width: 0; height: 30px; padding: 0 16px; font-size: 11px; }
+
+.cs-card .cs-filled { display: flex; flex-direction: column; gap: 12px; flex: 1; min-height: 0; }
+.cs-card .cs-filled[hidden], .cs-card .cs-empty-wrap[hidden], .cs-card .cs-bar[hidden] { display: none; }
+.cs-card.is-active { border-color: var(--ac); }
+.cs-card.is-active .cs-slot::after { content: " · 현재"; color: var(--ac); }
+
+/* 빈 칸 */
+.cs-card .cs-empty-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; }
+.cs-card.empty { border-style: dashed; }
+.cs-card.empty .cs-plus {
+  display: flex; align-items: center; justify-content: center;
+  width: 62px; height: 62px; border: 1px solid var(--c-border-strong); border-radius: 50%;
+  font-size: 30px; line-height: 1; color: var(--c-text-dim);
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.cs-card.empty:hover .cs-plus { color: var(--c-accent); border-color: var(--c-accent); }
+.cs-card.empty .cs-empty-label { font-size: 13px; letter-spacing: 0.16em; color: var(--c-text-dim); }
+.cs-card.empty .cs-slot { position: absolute; top: 16px; left: 20px; }
+.cs-card.busy { pointer-events: none; opacity: 0.5; }
+
+/* ── 캐릭터 생성 ─────────────────────────────────────────────────────────── */
+.char-create .cc-body {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 440px); gap: 24px;
+  width: 100%; max-width: 1120px;
+}
+@media (max-width: 980px) { .char-create .cc-body { grid-template-columns: 1fr; } }
+
+.cc-panel {
+  display: flex; flex-direction: column; gap: 14px;
+  padding: 16px 18px;
+  background: var(--c-panel-strong); border: 1px solid var(--c-border);
+}
+.cc-section { display: flex; flex-direction: column; gap: 9px; }
+.cc-section > .ui-label { margin-bottom: 1px; }
+
+/* 이름 + 주사위 */
+.cc-name-row { display: flex; gap: 8px; }
+.cc-name-row .ui-input { flex: 1; min-width: 0; }
+.ui-btn.cc-dice {
+  min-width: 0; width: 42px; height: 40px; padding: 0; flex: none;
+  font-size: 17px; line-height: 1; display: flex; align-items: center; justify-content: center;
+}
+.ui-btn.cc-dice:hover { border-color: var(--c-accent); color: var(--c-accent); }
+
+/* 악센트 스와치 */
+.cc-swatches { display: flex; flex-wrap: wrap; gap: 9px; }
+.cc-sw {
+  appearance: none; cursor: pointer; position: relative;
+  width: 34px; height: 34px; padding: 0;
+  border: 1px solid var(--c-border-strong); background: var(--sw, #888);
+  transition: transform var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+}
+.cc-sw:hover { transform: translateY(-2px); }
+.cc-sw.is-on { box-shadow: 0 0 0 2px var(--c-panel-strong), 0 0 0 3px var(--c-text); }
+.cc-sw:focus-visible { outline: 1px solid var(--c-accent); outline-offset: 3px; }
+
+/* 시작 임플란트 */
+.cc-implants { display: flex; flex-direction: column; gap: 6px; max-height: clamp(150px, 24vh, 250px); overflow-y: auto; padding-right: 4px; }
+.cc-imp {
+  appearance: none; cursor: pointer; text-align: left; font-family: inherit;
+  --ic: var(--c-info);
+  display: flex; gap: 11px; padding: 9px 11px;
+  border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03); color: var(--c-text);
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.cc-imp:hover { border-color: var(--c-border-strong); background: rgba(255, 255, 255, 0.06); }
+.cc-imp.is-on { border-color: var(--ic); background: rgba(255, 255, 255, 0.07); }
+.cc-imp .ico {
+  flex: none; display: flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border: 1px solid var(--ic); color: var(--ic); font-size: 15px; line-height: 1;
+}
+.cc-imp .body { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.cc-imp .nm { font-size: 12.5px; font-weight: 600; letter-spacing: 0.06em; }
+.cc-imp.is-on .nm { color: var(--ic); }
+.cc-imp .desc { font-size: 10.5px; line-height: 1.45; color: var(--c-text-faint); }
+
+/* 3D 미리보기 */
+.cc-preview {
+  position: relative; display: flex; flex-direction: column;
+  height: clamp(280px, 44vh, 430px);
+  background: linear-gradient(180deg, rgba(16, 20, 27, 0.9), rgba(6, 8, 11, 0.95));
+  border: 1px solid var(--c-border); overflow: hidden;
+}
+.cc-preview .cc-stage { position: relative; flex: 1; min-height: 0; }
+.cc-preview .cc-stage canvas { display: block; width: 100%; height: 100%; }
+/* 바닥 원반 · 스캔라인 — 홀로그램 대좌처럼 읽히게 하는 순수 CSS 장식 */
+.cc-preview .cc-stage::before {
+  content: ""; position: absolute; left: 50%; bottom: 34px; transform: translateX(-50%);
+  width: 62%; height: 46px; border-radius: 50%;
+  background: radial-gradient(ellipse at 50% 50%, rgba(255, 179, 71, 0.16), transparent 70%);
+  pointer-events: none;
+}
+.cc-preview .cc-stage::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.022) 0 1px, transparent 1px 3px);
+}
+.cc-preview .cc-nogl {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  padding: 24px; text-align: center; font-size: 12px; line-height: 1.7; color: var(--c-text-faint);
+}
+.cc-preview .cc-nogl[hidden] { display: none; }
+
+/* 능력치 (아래 띠) — `progression/ui/character.css` 의 `.cs-stat` 을 그대로 옮긴 어휘 */
+.char-create .cc-stats-wrap {
+  display: flex; flex-direction: column; gap: 12px;
+  width: 100%; max-width: 1120px; margin-top: 14px;
+  padding: 14px 18px;
+  background: var(--c-panel-strong); border: 1px solid var(--c-border);
+}
+.cc-stats-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.cc-stats-head-right { display: flex; align-items: center; gap: 16px; }
+.cc-points { display: flex; align-items: baseline; gap: 10px; }
+.cc-points .k { font-size: 11px; letter-spacing: 0.18em; color: var(--c-text-dim); }
+.cc-points .v {
+  font-family: var(--ui-mono); font-variant-numeric: tabular-nums;
+  font-size: 30px; font-weight: 700; line-height: 1; color: var(--c-accent);
+}
+.cc-points.spent .v { color: var(--c-text-faint); }
+.cc-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 8px 14px; }
+
+.cc-stat {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 9px;
+  border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03);
+}
+.cc-stat .t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.cc-stat .n { font-size: 13px; font-weight: 600; letter-spacing: 0.06em; }
+.cc-stat .d { font-size: 10.5px; color: var(--c-text-faint); line-height: 1.35; }
+.cc-stat .sp { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
+.cc-stat .sp .bar { position: relative; flex: 1; height: 3px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
+.cc-stat .sp .bar i {
+  position: absolute; inset: 0; transform-origin: left; transform: scaleX(0);
+  background: linear-gradient(90deg, var(--c-success), #a6f0c0);
+  transition: transform var(--t-fast) var(--ease);
+}
+.cc-stat .v { font-family: var(--ui-mono); font-variant-numeric: tabular-nums; font-size: 22px; font-weight: 600; min-width: 30px; text-align: right; }
+.cc-stat.maxed .v { color: var(--c-accent); }
+.cc-stat.maxed .sp .bar i { background: var(--c-accent); }
+.cc-stat .ui-btn.step {
+  min-width: 0; width: 30px; height: 30px; padding: 0; flex: none;
+  font-size: 13px; line-height: 1; display: flex; align-items: center; justify-content: center;
+}
+.cc-stat .ui-btn.step.up { border-color: var(--c-accent); color: var(--c-accent); background: rgba(255, 179, 71, 0.08); }
+.cc-stat .ui-btn.step:disabled { opacity: 0.26; pointer-events: none; border-color: var(--c-border); color: var(--c-text-dim); background: none; }
+
+.char-create .ts-foot .ui-btn.primary { min-width: 180px; }
+
+/* ── 경고 / 확인 팝업 (`menus/askPopup`) ─────────────────────────────────────
+   `.pause-ask` 와 같은 모양·같은 규칙(Escape 취소 · **Enter 는 먹고 아무 일도 안 한다** · 위험한 확정은
+   1초 홀드)이되 자기 화면 위에 뜬다. */
+.tm-ask {
+  position: absolute; inset: 0; z-index: 5;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(3, 4, 6, 0.76);
+}
+.tm-ask[hidden] { display: none; }
+.tm-ask-card {
+  display: flex; flex-direction: column; gap: 12px;
+  width: min(440px, calc(100vw - 48px));
+  padding: 22px 24px 18px;
+  background: var(--c-panel-strong); border: 1px solid var(--c-border-strong);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  animation: menuIn 180ms var(--ease);
+}
+.tm-ask-title { font-size: 16px; font-weight: 700; letter-spacing: 0.16em; }
+.tm-ask.danger .tm-ask-title { color: var(--c-danger); }
+.tm-ask-body { font-size: 12px; line-height: 1.75; letter-spacing: 0.02em; color: var(--c-text-dim); white-space: pre-line; }
+.tm-ask-hint { font-size: 10.5px; letter-spacing: 0.06em; color: var(--c-text-faint); }
+.tm-ask-hint[hidden] { display: none; }
+.tm-ask-foot { display: flex; gap: 8px; padding-top: 4px; }
+/* `.ui-btn` 의 `min-width: 220px` 를 되돌린다 — 되돌리지 않으면 440 px 짜리 한 쌍이 카드(440 px) 밖으로 밀린다
+   (`base.css` 의 `.pause-ask-foot` 가 2026-09-09 에 고친 것과 같은 함정). */
+.tm-ask-foot .ui-btn {
+  position: relative; overflow: hidden;
+  flex: 1 1 0; min-width: 0; height: 38px; padding: 0 14px;
+  font-size: 11px; letter-spacing: 0.14em; white-space: nowrap;
+}
+/* 1초 홀드 채움 (`UI_HOLD_CONFIRM_S`) — 제작 / 분해 / 파티 떠나기와 같은 어휘. */
+.tm-ask-fill {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 0;
+  background: color-mix(in srgb, var(--c-danger) 45%, transparent);
+  pointer-events: none;
+}
+
+/* 하위 화면(캐릭터 선택 · 생성)이 떠 있는 동안 타이틀 본체는 눈에서만 사라진다 — blocker 와 커서 소유권은
+   계속 `MenuBase` 가 쥐고 있어야 하므로 `hide()` 를 부르지 않고 프레임만 지운다. */
+.menu.title.home.stacked .frame,
+.menu.title.home.stacked .version { opacity: 0; transition: opacity var(--t-fast) var(--ease); }

@@ -49,7 +49,7 @@ try {
     // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
     // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
     // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
-    try { localStorage.setItem('scav.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
+    try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
     // Never let headless Chrome take a real pointer lock (Windows ClipCursor trap); scripts fake `pointerLockElement`.
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
@@ -237,7 +237,7 @@ try {
   const setsS = await P(() => ({ sets: window.__fakeProfile.sets.slice(), doc: window.__fakeProfile.docs.meta }));
   ok(setsS.sets.includes('meta') && setsS.doc && setsS.doc.v === 1 && setsS.doc.credits === tx.credits, "save → profile.set('meta', save)", JSON.stringify({ sets: setsS.sets, credits: setsS.doc?.credits }));
   // net:profileLoaded: the server document replaces the save, the balance is the server's
-  const snapS = await P(() => JSON.parse(localStorage.getItem('scav.meta')));
+  const snapS = await P(() => JSON.parse(localStorage.getItem('scav.s1.meta')));
   const loadedBefore = (await ev('meta:loaded')).length;
   await P((snap) => {
     const fake = window.__fakeProfile;
@@ -245,7 +245,7 @@ try {
     fake.credits = 4321;
     window.__game.ctx.bus.emit('net:profileLoaded', { profile: { credits: 4321, docs: fake.docs, updatedAt: 0 }, migrated: false });
   }, snapS);
-  const pl = await P(() => ({ credits: window.__game.ctx.meta.credits, helix: window.__game.ctx.meta.getRep('helix'), loaded: window.__ev['meta:loaded'].length, rc: window.__ev['meta:repChanged'][window.__ev['meta:repChanged'].length - 1], local: JSON.parse(localStorage.getItem('scav.meta')).credits }));
+  const pl = await P(() => ({ credits: window.__game.ctx.meta.credits, helix: window.__game.ctx.meta.getRep('helix'), loaded: window.__ev['meta:loaded'].length, rc: window.__ev['meta:repChanged'][window.__ev['meta:repChanged'].length - 1], local: JSON.parse(localStorage.getItem('scav.s1.meta')).credits }));
   ok(pl.credits === 4321 && pl.local === 4321, "net:profileLoaded → credits = server balance (4321, not the document's 5), cached locally", JSON.stringify({ credits: pl.credits, local: pl.local }));
   ok(pl.helix.rep === 1000 && pl.helix.level === 3 && pl.loaded === loadedBefore + 1 && pl.rc && pl.rc.corp === 'helix' && pl.rc.rep === 1000 && pl.rc.levelUp === true, 'server document replaced rep (helix 1000 / Lv.3) + meta:loaded + meta:repChanged {levelUp}', JSON.stringify({ helix: pl.helix, loaded: pl.loaded, rc: pl.rc }));
   // migrate: server has no balance and no document → local balance uploaded with reason 'migrate', local save uploaded
@@ -416,8 +416,8 @@ try {
   console.log('persistence: reload');
   const snap = { credits: await credits(), rep: (await rep('helix')).rep, level: (await rep('helix')).level };
   await P(() => window.__game.ctx.meta.save());
-  const saved = await P(() => { try { return JSON.parse(localStorage.getItem('scav.meta')); } catch { return null; } });
-  ok(saved && saved.v === 1 && saved.credits === snap.credits && saved.corps.helix.rep === snap.rep && saved.corps.helix.quests.h1 === 'complete' && saved.activeContract === null, 'localStorage scav.meta v1 holds credits / rep / h1 complete', JSON.stringify(saved));
+  const saved = await P(() => { try { return JSON.parse(localStorage.getItem('scav.s1.meta')); } catch { return null; } });
+  ok(saved && saved.v === 1 && saved.credits === snap.credits && saved.corps.helix.rep === snap.rep && saved.corps.helix.quests.h1 === 'complete' && saved.activeContract === null, 'localStorage scav.s1.meta v1 holds credits / rep / h1 complete', JSON.stringify(saved));
   await page.reload({ waitUntil: 'load' });
   await boot();
   ok(await credits() === snap.credits, `credits persisted (${snap.credits})`, `${await credits()}`);
@@ -445,12 +445,13 @@ try {
       corpBlocker: ctx.uiBlockers.has('corp'), blocker: ctx.uiBlockers.has('inventory'),
       isOpen: ctx.meta.isMenuOpen, tab: ctx.inventory.screenTab, invOpen: ctx.inventory.isOpen,
       cursor: ctx.input.isCursorMode,
-      // 2026-09-08: 상단 줄이 기업 목록 + 기업 패널, 그 아래가 페이지 탭 rail + 페이지
-      railTabs: root.querySelectorAll('.corp-shell > .corp-top > .corp-rail .corp-tabs .corp-tab').length,
-      topOrder: [...root.querySelectorAll('.corp-shell > .corp-top > *')].map((e) => e.className.split(' ')[0]),
-      sideOrder: [...root.querySelectorAll('.corp-main > .corp-side > *')].map((e) => e.className.split(' ')[0]),
+      // 2026-09-09: 왼쪽 한 열(.corp-rail)에 기업 목록 → 신뢰도 게이지 → 페이지 탭 → 크레딧, 그 오른쪽이 페이지
+      railTabs: root.querySelectorAll('.corp-shell > .corp-rail .corp-tabs .corp-tab').length,
+      railOrder: [...root.querySelectorAll('.corp-shell > .corp-rail > *')].map((e) => e.className.split(' ')[0]),
+      oldPanel: !!root.querySelector('.corp-panel'), oldTop: !!root.querySelector('.corp-top'),
       credits: root.querySelector('.corp-credits .v')?.textContent,
-      panel: root.querySelector('.corp-top .corp-panel .name')?.textContent,
+      repLv: root.querySelector('.corp-rep .lv')?.textContent,
+      panel: root.querySelector('.corp-tab.is-on .name')?.textContent,
       motto: !!root.querySelector('.corp-banner'), foot: !!root.querySelector('.hub-foot'),
       tabs, subs, rows: root.querySelectorAll('.corp-page .corp-row, .corp-page .ct-cell, .corp-page .corp-empty').length,
     };
@@ -461,13 +462,14 @@ try {
     JSON.stringify(dom && { oldOverlay: dom.oldOverlay, corpBlocker: dom.corpBlocker, blocker: dom.blocker, tab: dom.tab, cursor: dom.cursor }));
   // Phase 10: every credit readout is `formatCredits` → `1,200 C` (ko-KR grouping + the `C` unit, never `₩` / `cr`)
   ok(dom && dom.railTabs === 4 && dom.credits === `${snap.credits.toLocaleString('ko-KR')} C` && !dom.foot,
-    '상단 줄에 기업 목록 4개 + 크레딧 (100 C 표기), 푸터 없음', JSON.stringify(dom && { railTabs: dom.railTabs, credits: dom.credits, foot: dom.foot }));
-  ok(dom && dom.topOrder.join(',') === 'corp-rail,corp-panel',
-    '상단: 기업 목록 · 그 오른쪽에 기업 패널', JSON.stringify(dom && dom.topOrder));
-  ok(dom && dom.sideOrder.join(',') === 'corp-subtabs',
-    '화면 좌측 열은 거래/계약/퀘스트 탭만 (기업 패널은 상단으로 갔다)', JSON.stringify(dom && dom.sideOrder));
-  ok(dom && dom.tabs.length === 4 && dom.tabs.find((t) => t.corp === 'ceres')?.on && dom.panel === '세레스 바이오' && !dom.motto,
-    '4 corp tabs, ceres selected, 기업 패널 세레스 바이오 (no motto banner)', JSON.stringify(dom && dom.tabs));
+    '기업 열에 기업 목록 4개 + 크레딧 (100 C 표기), 푸터 없음', JSON.stringify(dom && { railTabs: dom.railTabs, credits: dom.credits, foot: dom.foot }));
+  // 2026-09-09: 상단 행(.corp-top)과 기업 패널(.corp-panel)은 사라졌다 — 기업 목록이 왼쪽 한 열로 내려가면서
+  // 우측 가방 / 함선 창고 / 진행 중인 계약이 화면 세로를 전부 쓰게 됐다. 신뢰도는 목록 아래 게이지 하나뿐이다.
+  ok(dom && dom.railOrder.join(',') === 'ct-title,corp-tabs,corp-rep,corp-subtabs,corp-credits' && !dom.oldPanel && !dom.oldTop,
+    '기업 열: 제목 · 기업 목록 · 신뢰도 게이지 · 페이지 탭 · 크레딧 (기업 패널 · 상단 행 없음)',
+    JSON.stringify(dom && { railOrder: dom.railOrder, oldPanel: dom.oldPanel, oldTop: dom.oldTop }));
+  ok(dom && dom.tabs.length === 4 && dom.tabs.find((t) => t.corp === 'ceres')?.on && dom.panel === '세레스 바이오' && /^Lv\.\d+$/.test(dom.repLv ?? '') && !dom.motto,
+    '4 corp tabs, ceres selected, 게이지가 그 기업의 Lv 를 읽는다 (no motto banner)', JSON.stringify(dom && { tabs: dom.tabs, repLv: dom.repLv }));
   ok(dom && dom.subs.map((s) => s.page).join(',') === 'trade,contracts,quests,implants', 'sub-tabs 거래 / 계약 / 퀘스트 / 임플란트 at ceres', JSON.stringify(dom && dom.subs));
   // 2026-09-08 UI/UX: 신뢰도 Lv.0 → 거래 탭은 잠기고, 화면은 잠기지 않는 퀘스트 탭으로 열린다.
   // 계약은 세레스에 minRepLevel 0 짜리가 있으므로 잠기지 않는다 (요구사항: Lv.0 에서도 계약은 가능).
@@ -722,10 +724,13 @@ try {
   const questDom = await P(() => ({
     badge: document.querySelector('.cq-list .corp-row.quest[data-id="ci1"] .badge')?.textContent, sel: document.querySelector('.cq-list .corp-row.quest[data-id="ci1"]')?.classList.contains('is-sel'),
     name: document.querySelector('.cq-deliver .cq-name')?.textContent, lines: document.querySelectorAll('.cq-deliver .cq-line').length,
-    reward: !!document.querySelector('.cq-deliver .rw-items .item-chip[data-def-id="imp_perception_3"]'), accept: document.querySelector('.cq-acts .ui-btn')?.textContent,
+    // 2026-09-09: 보상은 상세 패널이 아니라 퀘스트 목록 아래(.cq-rewards)에 재화 칩 + 아이템 칩 한 줄로 선다
+    reward: !!document.querySelector('.cq-rewards .item-chip[data-def-id="imp_perception_3"]'),
+    repChip: !!document.querySelector('.cq-rewards .currency-chip[data-currency-id="rep:ceres"]'),
+    accept: document.querySelector('.cq-acts .ui-btn')?.textContent,
   }));
-  ok(questDom.badge === '가능' && questDom.sel && questDom.name === '신경 접합제' && questDom.lines === 3 && questDom.reward && questDom.accept === '수락',
-    '퀘스트 tab: ci1 가능 · 3 delivery lines · reward chip imp_perception_3 · 수락', JSON.stringify(questDom));
+  ok(questDom.badge === '가능' && questDom.sel && questDom.name === '신경 접합제' && questDom.lines === 3 && questDom.reward && questDom.repChip && questDom.accept === '수락',
+    '퀘스트 tab: ci1 가능 · 3 delivery lines · 목록 아래 보상(재화 rep:ceres + imp_perception_3) · 수락', JSON.stringify(questDom));
   // 2026-09-08 (ESC = 항상 일시정지): the 기업 desk is a tab of the inventory window, so **Tab** closes it —
   // Escape now only opens the 일시정지 메뉴 on top of it.
   await tap('Tab');
@@ -736,7 +741,7 @@ try {
   // the 거래 성사 above left a debounced save pending — let it land first, or the pagehide flush would
   // overwrite the corrupt payload we are about to plant (SAVE_DELAY_MS = 350 ms)
   await sleep(600);
-  await P(() => localStorage.setItem('scav.meta', JSON.stringify({
+  await P(() => localStorage.setItem('scav.s1.meta', JSON.stringify({
     v: 1, credits: -50, corps: { helix: { rep: 'x', quests: { h1: 'locked', zzz: 'complete', b1: 'complete' } }, ceres: { rep: 250.7, quests: { c1: 'accepted' } } },
     activeContract: { id: 'nope', progress: 3 }, stats: null,
   })));

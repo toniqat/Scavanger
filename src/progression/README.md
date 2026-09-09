@@ -281,3 +281,15 @@ as a tab of the inventory window; Escape is not handled here at all any more and
 stacks over the sheet. The handler is capture-phase, so it ignores the press while `MENU_BLOCKER` is up and skips
 events aimed at a focused text field. The footer hint reads `Tab 으로 닫기`. The 전술 임플란트 picker in
 `ui/SheetBody` still eats its own Escape — it is the innermost popup.
+
+## 2026-09-09 — 캐릭터의 이름과 색이 실제로 쓰인다
+
+- **이름**: `ProgressionSystem.init` 이 `progress:loaded` 를 스스로 구독해 `ctx.net?.setPlayerName(profile.name)` 을
+  부른다. 예전에는 타이틀의 **콜사인 입력칸**이 그 일을 했는데 (`ui/menus/TitleMenu` → `net.setPlayerName`), 캐릭터
+  생성창이 생기면서 이름이 캐릭터의 것이 됐다. 여기가 자리인 이유: 프로필의 주인이 이 시스템이고, `progress:loaded`
+  는 **부팅 방송(마이크로태스크) · 서버 프로필 수신(`onProfileLoaded`) · 캐릭터 초기화(`resetProfile`)** 세 경우가
+  전부 지나가는 한 지점이다. 명찰 · 로비 · 크루 카드가 읽는 `ctx.net.playerName` 이 이걸로 채워진다.
+- **`Profile.migrate` 가 `accent` / `createdAt` / `playedAt` 을 옮겨 담는다** (`shared/character.makeCharacterProfile`
+  이 심는 필드). 옮기지 않으면 **첫 저장에서 사라졌다** — `migrate` 의 결과가 곧 다음 `saveProfile` 의 내용이라,
+  새로고침 한 번에 캐릭터의 색이 기본값으로 되돌아가고 (`readSlotCard` 가 읽는 자리도 여기다) 캐릭터 선택창의
+  카드 색까지 같이 잃었다. 모르는 필드를 버리는 규칙 자체는 그대로다.

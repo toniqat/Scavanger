@@ -78,7 +78,7 @@ start-server.bat relay   # 릴레이만 (npm run server, 0.0.0.0:8787) — 데�
 | 폴더 | 시스템 | `ctx` 게시 | 한 줄 책임 |
 |---|---|---|---|
 | [`data/`](data/README.md) | — | — | **게임 수치의 단일 원본 (csv 35개).** 데미지 · 체력 · 가격 · 확률 · 쿨다운 — `src/` 에는 같은 숫자가 없다 |
-| [`src/shared/`](src/shared/README.md) | — | `GameContext`, `EventBus`, `Input`, `Random` | **계약. 제일 먼저 읽는다.** 타입 · 이벤트 · 상수(값은 `data/constants.csv`) · 키바인드 · csv 로더(`data/`) · 각 시스템의 `*Ref` 인터페이스 |
+| [`src/shared/`](src/shared/README.md) | — | `GameContext`, `EventBus`, `Input`, `Random` | **계약. 제일 먼저 읽는다.** 타입 · 이벤트 · 상수(값은 `data/constants.csv`) · 키바인드 · csv 로더(`data/`) · 각 시스템의 `*Ref` 인터페이스 · **캐릭터 세이브 슬롯(`saveSlot`)** · **캐릭터 생성 규칙(`character`)** · **재화 칩(`currency`)** |
 | [`src/core/`](src/core/README.md) | `Engine` | scene / camera / renderer | 렌더러 · 조명 · 하늘 · 포그 · 포스트프로세스 · 메인 루프 · 리사이즈 · 시스템 레지스트리 |
 | [`src/main.ts`](src/main.ts) | — | — | Engine 부트스트랩 + 시스템 등록 순서, 커서 모드 ↔ 버스 브리지, 포인터 락 재요청의 **유일한** 지점 |
 
@@ -107,17 +107,17 @@ start-server.bat relay   # 릴레이만 (npm run server, 0.0.0.0:8787) — 데�
 | [`src/items/`](src/items/README.md) | (데이터) | `ctx.loot` | 무기 6계열 × 등급 I–V · 탄약 · 부착물 · 가방 · 방어구 · 회복 소모품 · 씨앗 · 서적 · 임플란트 아이템 · 루팅 테이블 · 레시피(제작 · **고물 분해**) |
 | [`src/inventory/`](src/inventory/README.md) | `InventorySystem` | `ctx.inventory` | 디아블로2식 격자 모델 · 가방/장비/**임플란트 칸**/퀵슬롯 · 함선 창고 · 컨테이너 감정 · 소켓 · 제작(**1초 홀드 · 산출물 썸네일 · 제작 수량 ◀▶**)/분해/**수리 팝업** · 출격 준비 점검 · Tab 화면(인벤토리/캐릭터/기업/함선) |
 | [`src/pickups/`](src/pickups/README.md) | `PickupSystem` | `ctx.pickups` | 월드에 떨어진 아이템 (투척 궤적 · 절차 메시 · 빛기둥 · 호스트 권한 동기화) |
-| [`src/meta/`](src/meta/README.md) | `MetaSystem` | `ctx.meta` | 기업 4곳 · 신뢰도(모자란 거래/계약 탭은 잠김) · 크레딧 · 상점/거래대 · 계약 · 퀘스트 · 임플란트 수리 데스크 |
-| [`src/progression/`](src/progression/README.md) | `ProgressionSystem` | `ctx.progression` | 레벨/XP · 능력치 5종 · 숙련도 14종 · 파생 수치(`derived`) · 임플란트 장착칸 규칙 · 캐릭터 시트(능력치 · 숙련도만 — 임플란트 UI 는 인벤토리) |
+| [`src/meta/`](src/meta/README.md) | `MetaSystem` | `ctx.meta` | 기업 4곳 · 신뢰도(모자란 거래/계약 탭은 잠김) · 크레딧 · 상점/거래대 · 계약 · 퀘스트 · 임플란트 수리 데스크. 화면은 **왼쪽 한 열**(기업 목록 → 신뢰도 게이지 → 페이지 탭 → 크레딧) + 페이지 + **풀 높이 가방/창고/진행 중인 계약**, 보상은 **재화 썸네일** |
+| [`src/progression/`](src/progression/README.md) | `ProgressionSystem` | `ctx.progression` | 레벨/XP · 능력치 5종 · 숙련도 14종 · 파생 수치(`derived`) · 임플란트 장착칸 규칙 · 캐릭터 시트(능력치 · 숙련도만 — 임플란트 UI 는 인벤토리) · 프로필 영속화(**슬롯별**, `accent`/`createdAt` 포함) |
 | [`src/housing/`](src/housing/README.md) | `HousingSystem` | `ctx.housing` | 함선 꾸미기 규칙 · 방 용도/시설 레벨 · 가구 · 재배 · 서재 · 로드아웃 프리셋 · `ShipState` 영속화 |
 
 ### 3.5 셸 · 흐름 · 표현
 
 | 폴더 | 시스템 | `ctx` 게시 | 한 줄 책임 |
 |---|---|---|---|
-| [`src/hub/`](src/hub/README.md) | `HubSystem` | `ctx.hub` | 개인/공유 함선 내부 · **격납고(개인 함선 4대 정박 · 방문)** · 도킹 컷씬 · **창문 워프(행성 이동, 조작 유지)** · 발사 포드(출격 준비 경고) · 전체화면 터미널 · 행성 선택 · 작업대 · 시설 관리 모드 |
+| [`src/hub/`](src/hub/README.md) | `HubSystem` | `ctx.hub` | 개인/공유 함선 내부 · **격납고(개인 함선 4대 정박 · 방문)** · 도킹 컷씬 · **창문 워프(행성 이동, 조작 유지)** · 발사 포드(출격 준비 경고) · 전체화면 터미널(**닫기 버튼만 · 키 가이드 없음**) · 행성 선택 · 작업대 · 시설 관리 모드 |
 | [`src/game/`](src/game/README.md) | `GameFlowSystem` | `ctx.phase` | 페이즈 상태 기계 · 사망/부활 · 레이드 실패 · **일시정지(ESC = 항상 열기, `escapePause`)** · 재접속 UX · 레이드 세션 저장/복귀 · 재개 게이트 |
-| [`src/ui/`](src/ui/README.md) | `HudSystem` | — | 모든 DOM UI — HUD 2계층 · 메뉴(**ESC = 중앙 왼쪽 고정**, 설정 3분할 · 화면 중앙, **경고 팝업 뒤의 파티 떠나기 · 타이틀로 · 게임 종료**) · 지도 · 채팅(**Enter 전송 후 유지 · Tab 닫기**) · **우측 하단 키 가이드(`ui:keyGuide`)** · 소셜(커뮤니티 패널 단일, **고정 크기**) · 아이템 툴팁 · 커서 아트 · 스타일시트 |
+| [`src/ui/`](src/ui/README.md) | `HudSystem` | — | 모든 DOM UI — HUD 2계층 · 메뉴(**타이틀 = 워드마크 + 게임 시작/설정/종료**, **캐릭터 선택 3칸 · 캐릭터 생성(3D 프리뷰)**, **ESC = 중앙 왼쪽 고정**, 설정 3분할 · 화면 중앙 · 조작 다이어그램, **경고 팝업의 확정은 1초 홀드**) · 지도 · 채팅(**Enter 전송 후 유지 · Tab 닫기**) · **우측 하단 키 가이드(`ui:keyGuide`)** · 소셜(커뮤니티 패널 단일, **고정 크기**) · 아이템 툴팁 · 커서 아트 · 스타일시트 |
 | [`src/audio/`](src/audio/README.md) | `AudioSystem` | `ctx.audio` | 절차 WebAudio SFX 전량 + 앰비언트, 버스 이벤트에 반응, 볼륨 영속화 |
 | [`src/tutorial/`](src/tutorial/README.md) | `TutorialSystem` | `ctx.tutorial` | 새 캐릭터 안내 18단계 — 목표 패널 · UI 스포트라이트(**합집합 포커싱**) · 바닥 안내선, 순서 강제 게이트(`blockReason`) + **잠긴 항목 숨김**(`hides`, **함선 창고 아이템 포함**) · 부족한 재료 top-up · **1초 홀드 건너뛰기** |
 | [`src/console/`](src/console/README.md) | `ConsoleSystem` | `ctx.console` | 개발자 콘솔 + 치트 (**dev 호스트에서만** 존재 — 그 외에는 DOM 도 키도 없다) |
@@ -165,6 +165,17 @@ start-server.bat relay   # 릴레이만 (npm run server, 0.0.0.0:8787) — 데�
   `keys:null` 을 보낸다. `Tab 닫기` 항목은 가이드가 스스로 맨 오른쪽에 붙이므로 `keys` 에 넣지 않는다. ESC 메뉴는 예외(가이드 없음).
 - **행성 이동은 컷씬이 아니다** (2026-09-09). 함선 창문 밖의 별이 줄기로 늘어나는 **창문 워프**(`hub:warpProgress`)이고
   조작은 그대로 살아 있다 — 이동 중에도 함선 안을 걸어 다닌다. 개인 → 공유 함선 **도킹 컷씬은 그대로**다.
+- **캐릭터 세이브는 슬롯별이다** (2026-09-09). 새 캐릭터 데이터를 저장할 때는 반드시 `slotKey(KEY)` 를 통과시킨다
+  (`scav.profile` → `scav.s2.profile`, `shared/saveSlot`). `scav.sessionToken` 도 슬롯별이라 릴레이의 서버 프로필까지
+  캐릭터마다 갈라진다. 공용으로 남는 것은 `SHARED_KEYS` 뿐 — 키 바인딩 · 오디오 · 화면 설정 · 콘솔 기록.
+  시스템은 부팅 때 한 번 저장소를 읽으므로 **슬롯 전환은 언제나 `location.reload()`** 다
+  (`setActiveSlot` → `markAutoStart` → reload; 새로고침 뒤 `takeAutoStart()` 가 타이틀을 건너뛴다).
+- **보상 단위는 아이템이 아니라 재화다** (2026-09-09). 신뢰도(기업별) · XP · 크레딧은 `data/currencies.csv` +
+  `shared/currency.ts` 의 **재화**이고 `buildCurrencyChip` 이 아이템 칩과 같은 크기 · 다른 틀(육각)로 그린다.
+  가짜 아이템 정의를 만들지 않는다 — 루팅 · 제작 표에 샌다. 툴팁은 `ui/hud/ItemTip` 의 `.is-currency`.
+- **되돌릴 수 없는 확정은 1초 홀드다** (2026-09-09). 파티 떠나기 · 타이틀로 · 게임 종료 · 캐릭터 삭제의 빨간 버튼은
+  `UI_HOLD_CONFIRM_S` 동안 눌러야 실행된다(제작 · 분해와 같은 게이지). **Enter 로는 확정되지 않는다** — 먹기만 하고,
+  Escape 가 취소이며 초기 포커스는 `취소` 다.
 - **일시정지 메뉴는 자리가 고정이다** (2026-09-09). 화면 세로 중앙 · 가로는 **왼쪽 절반**(중심이 약 25vw)에
   CSS 로 못 박혀 있다 (`.menu.pause`). 2026-09-08 의 "메뉴가 커서를 찾아간다"(`parkUnderCursor` · `--menu-dx/dy`)는
   걷어냈다 — 매번 다른 자리보다 늘 같은 자리가 낫다는 사용자 결정. **설정**은 그 위에 **화면 중앙**으로 뜬다.

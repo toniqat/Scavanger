@@ -760,3 +760,57 @@ smoke-ecology 85/85, smoke-tutorial 57/57, smoke-hangar 58/58, e2e-mp 8/11
   `equipGun` 의 **합집합 포커싱**이 그린 링이 `.inv-equip` 과 `.inv-panel-bag` 을 **둘 다 완전히 감싼다**는 것
   (원래 신고된 버그의 회귀 테스트다 — 예전에는 주무기 칸만 밝아 가방이 어두운 판 아래 깔렸다).
   `.scr-tabs` 는 캐릭터 시트도 같은 클래스를 쓰므로 `.inv-root .scr-tabs` 로 좁혀서 본다.
+
+
+---
+
+## 2026-09-09 — 캐릭터 슬롯 · 타이틀 재구성 · 기업 UI · 재화
+
+`npm run verify:all` (머지 게이트: `src/shared` · `main.ts` 를 건드렸다).
+
+```
+2026-09-09: typecheck ok, typecheck-server ok, net-selftest 278/278, data-check ok,
+build 2,290.75 kB JS / 236.80 kB CSS, smoke-quickslots 46/46, smoke-phase2 55/55,
+smoke-weapons 137/137, smoke-stratagems 70/70, smoke-phase3 32/32, smoke-ship-rooms 69/72,
+smoke-phase4 45/49, smoke-tactical 87/87, smoke-controls-hub 124/124, smoke-housing 203/203,
+smoke-inventory-p6 123/123, smoke-console 63/63, smoke-loadout 62/62, smoke-progression 123/123,
+smoke-search 61/61, smoke-ui-p6 87/87, smoke-ui-p5 134/134, smoke-resume-gate 48/48,
+smoke-uniques 71/71, smoke-enemy-alert 42/42, smoke-meta 172/172, smoke-training 112/112,
+smoke-rogue-v2 52/52, smoke-library 126/126, smoke-ghost 86/86, smoke-enemy-delta 52/52,
+smoke-raidflow 48/48, smoke-ecology 85/85, smoke-planets 86/86, smoke-social 137/137,
+smoke-tutorial 67/67, smoke-hangar 58/58, e2e-mp 156/156
+```
+
+**red 2건 — 둘 다 단독 재실행에서 만점이다.** 4레인 부하에서만 나는 늘 그 자리다.
+
+- `smoke-ship-rooms 69/72` → 단독 **72/72**. 이미 기록된 flake (하우징 모드의 커서 셀 판정 — `glideCamera` 가
+  아직 도착하지 않은 카메라로 바닥 레이를 쏜다).
+- `smoke-phase4 45/49` → 단독 **49/49**. 실패 상태가 `{"dead":true,"hp":0}` 였다 — 로그 분대의 사격을 받는
+  구간에서 플레이어가 죽으면 그 뒤 테스트(텔레포트 · 스태미나 · 근접 · 넉백)가 줄줄이 무너진다. 부하가 걸린
+  레인에서 시뮬레이션 스텝이 길어지면 재현된다. 전투 코드는 이번에 한 줄도 건드리지 않았다.
+- (앞선 회차에서 본 `smoke-hangar` · `e2e-mp` 의 `timeout waiting for A auto-connected` 는 **내가 겹쳐 돌린**
+  두 번째 러너의 헤드리스 크롬이 아직 릴레이에 붙어 있어서다. 같은 회차의 단독 실행에서 58/58 · 156/156.
+  `smoke-phase3 26/27` 도 마찬가지로 이전부터 알려진 `궤도 레이저` 실패이지 이번 회귀가 아니다.)
+
+**고친 스모크 5건** (설계가 바뀐 자리 · 세이브 키가 바뀐 자리):
+
+- **세이브 키 접두사** — 스모크 36개가 `localStorage` 를 직접 만진다. 캐릭터 세이브가 슬롯별이 되면서
+  `scav.tutorial` · `scav.stash` · `scav.loadout` · `scav.ship` · `scav.grant` · `scav.profile` · `scav.meta` ·
+  `scav.training` · `scav.planet` · `scav.sessionToken` 110곳을 `scav.s1.*` 로 옮겼다. 공용 저장
+  (`scav.keybinds` · `scav.audio` · `scav.display` · `scav.console.history`)은 그대로다.
+- `smoke-controls-hub` (20 → 124) — 조작 다이어그램 검사가 타이틀에서 **설정 → 키 설정**(`.set-body.keys`)으로
+  갔다. 타이틀은 버튼 셋(`게임 시작` / `설정` / `종료`)과 사라진 콜사인 · 다이어그램을 본다. 리바인딩이
+  설정 안의 다이어그램을 따라가는지, Escape 가 키 오버레이 → 설정 → 타이틀 순으로 한 겹씩 벗겨지는지도 본다.
+  가로 넘침 검사는 **프레임의 `scrollWidth` 를 재지 않게 고쳤다** — `.wordmark` 는 마지막 글자의 letter-spacing 을
+  음수 오른쪽 마진으로 상쇄하므로 border box 보다 딱 그만큼 넓게 나온다(보이지 않는 장부상의 넘침). 실제로
+  문제가 되는 **페이지 가로 스크롤**과 프레임이 뷰포트 안에 있는지를 본다.
+- `smoke-ui-p5` (133 → 134) — 타이틀의 `.lv-chip` 이 사라졌으므로 그 자리를 **캐릭터 선택창**이 받는다:
+  빈 저장소로 부팅하면 칸 셋이 전부 비어 있고, 슬롯 2 에 프로필을 심고 다시 열면 그 칸이 이름 · 레벨 ·
+  능력치 다섯 줄을 세이브에서 읽는다. `progress:loaded` 는 이제 캐릭터 이름을 `net.playerName` 으로 미는 자리다.
+- `smoke-loadout` (62) — `새 캐릭터로 시작` → 슬롯 카드의 `삭제`. 무엇이 사라지는지 적힌 **홀드 확정** 팝업이
+  뜨는지, **맨 클릭 한 번으로는 지워지지 않는지**, 지운 뒤 그 슬롯의 세이브와 세션 토큰만 사라지고 공용 설정은
+  남는지를 본다.
+- `smoke-meta` (172) — 기업 열이 `제목 · 기업 목록 · 신뢰도 게이지 · 페이지 탭 · 크레딧` 순이고 상단 행 ·
+  기업 패널이 없다는 것, 퀘스트 보상이 목록 아래(`.cq-rewards`)에 **재화 칩(`rep:ceres`) + 아이템 칩** 한 줄로
+  선다는 것.
+- `smoke-planets` (86) — 단말기 푸터에 `닫기 (E)` 만 있고 `타이틀로` 가 **없다**는 것.

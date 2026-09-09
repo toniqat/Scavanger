@@ -20,10 +20,10 @@ size (no more per-tab resizing) and every item requirement is a `buildItemChip` 
 | `parts/Console.ts` | 개발자 콘솔 명령 `credits` / `rep` / `contract` / `quest` / `implant`. dev 클라이언트에서만 등록된다(`src/console` 참고). 게임 규칙은 하나도 갖지 않고 위의 API 만 부른다. |
 | `Storage.ts` | `MetaSave` v1: `freshMetaSave()`, `sanitizeMetaSave()` (clamped credits, known corp / quest / contract ids only, only `accepted` / `complete` quest states kept), `MetaStorage` (load, 350 ms debounced `markDirty()`, `flush()` on `pagehide` / hub entry / dispose, every storage access in try/catch). Phase 7: `flush()` = `writeCache()` (localStorage) + `upload()` (`ctx.net.profile.set('meta', snapshot())`); `replace(doc)` adopts a server document without echoing it back. **Phase 9**: `upload()` dropped its `available` guard — the document is handed to `ProfileSync` offline too (stamped + queued, newest wins on the next connection) — and `MAX_PROGRESS` is exported so live hits clamp to the same ceiling as a load. |
 | `Rules.ts` | Pure functions, no ctx / DOM: `repInfoOf`, shop filter (`ruleMatches` / `corpSells` / `shopRarityCap` / `buildShop` sorted by category → rarity → price, `fits` → 공간 없음), `killGoalOf`, `contractBlockReason`, `contractHitDelta` (Phase 9: a non-finite `amount` is 0, not `NaN`), `settleContract` (fills `outcome`), `questStateOf`, `questBlockReason`, the 한국어 `REASON` strings. `rarityRank` / `RARITY_ORDER` come from `@/shared` (`labels.ts`) since Phase 7. **Phase 12**: `ruleMatches` honours `ShopRule.maxRarity`, never sells a broken implant, and resolves an `implantRepairMaterials` rule against `implantRepairMaterialIds(defs)`; `CATEGORY_SORT` gained `implant / seed / book`; pure repair rules `IMPLANT_REPAIR_FEE` (150 × grade, grade = rarity rank + 1 of the **repaired** def), `implantGrade` / `implantRepairFee` / `isRepairableImplantDef` / `implantRepairCost` / `canRepairImplant(ImplantRepairCheck)` (reason order 아이템 → 함선 → 크레딧 → 재료 → 공간), `REASON.notBroken / noTarget / materials`. |
-| `ui/CorpView.ts` | **(Phase 8)** The screen **body**, shared by both shells: header 기업 네트워크 + credit readout, 4 corp tabs (`CorpDef.color` accent, `Lv.n`), banner (slogan, description, rep bar `rep / next`), sub-tabs 상점 / 판매 / 계약 / 퀘스트, rows with 구매 / 판매 / 수락 / 포기 / 납품 buttons (disabled + tooltip from `blocked`), `귀중품 전부 판매`, `.form-msg` in a reserved slot. Renders into whatever host it is given and marks it `.corp-view` (`.is-embedded` for the inventory tab). Item thumbnails / 납품 requirements use `buildItemChip` / `renderItemCost` (`@/shared/itemChip`). Purchase messages come from `meta:purchase` (`구매 처리 중…` while a server transaction is pending) and refusals from `MetaSystem.onPurchaseFailure(fn)`. **No blocker, no pointer-lock, no window listener** — those belong to the shell. **Phase 12**: a fourth vertical page **임플란트** (`CorpPage 'implants'`, `PAGES[].corp = 'ceres'` → `pagesFor(corp)`; the button is `hidden` for every other corp and `setCorp` falls back to 거래): left `.ci-list` grid of broken implants (`.ct-cell.broken[data-uid]`, fee badge, `.is-sel`), right `.ci-repair` card — broken → result chips, `renderItemCost` material chips, `.ci-fee`, `.ci-block` reason + `.ci-repair-btn` 수리; results arrive through `meta.onImplantRepaired`. |
+| `ui/CorpView.ts` | **(2026-09-09 기준)** The screen **body**. 좌 `.corp-rail` 한 열(기업 목록 → 신뢰도 게이지 → 페이지 탭 → 크레딧) + 우 `.corp-page`(세로 전부). 계약 보상 · 퀘스트 보상은 `@/shared/currency` 의 **재화 칩**이고 퀘스트 목록 행은 이름 + 상태 배지뿐이다. 아래는 그 이전 기록. **(Phase 8)** The screen **body**, shared by both shells: header 기업 네트워크 + credit readout, 4 corp tabs (`CorpDef.color` accent, `Lv.n`), banner (slogan, description, rep bar `rep / next`), sub-tabs 상점 / 판매 / 계약 / 퀘스트, rows with 구매 / 판매 / 수락 / 포기 / 납품 buttons (disabled + tooltip from `blocked`), `귀중품 전부 판매`, `.form-msg` in a reserved slot. Renders into whatever host it is given and marks it `.corp-view` (`.is-embedded` for the inventory tab). Item thumbnails / 납품 requirements use `buildItemChip` / `renderItemCost` (`@/shared/itemChip`). Purchase messages come from `meta:purchase` (`구매 처리 중…` while a server transaction is pending) and refusals from `MetaSystem.onPurchaseFailure(fn)`. **No blocker, no pointer-lock, no window listener** — those belong to the shell. **Phase 12**: a fourth vertical page **임플란트** (`CorpPage 'implants'`, `PAGES[].corp = 'ceres'` → `pagesFor(corp)`; the button is `hidden` for every other corp and `setCorp` falls back to 거래): left `.ci-list` grid of broken implants (`.ct-cell.broken[data-uid]`, fee badge, `.is-sel`), right `.ci-repair` card — broken → result chips, `renderItemCost` material chips, `.ci-fee`, `.ci-block` reason + `.ci-repair-btn` 수리; results arrive through `meta.onImplantRepaired`. |
 | ~~`ui/CorpMenu.ts`~~ | **Deleted 2026-09-07.** The standalone overlay `.menu.corp-menu` (and with it the `'corp'` blocker, the capture-phase Esc and the cursor ownership) is gone: the 기업 screen is the Tab window's 기업 tab, opened through `ctx.inventory.openScreen('corp')`. `CorpPage` is exported from `ui/CorpView.ts`. |
 | `ui/dom.ts` | `el / setText / toggleClass / fmtNum` helpers (other folders' helpers are internal to them). `fmtNum` is for **non-credit** numbers only (신뢰도, 목표 진척, 납품 수량) — every credit readout goes through `formatCredits` (`@/shared`). |
-| `meta.css` | Corp-screen styles on top of `.menu .frame .ui-btn .form-msg` (`ui/styles/base.css`) and `.hub-head .hub-foot` (`hub/hub.css`); `--cc` = selected corp colour, `--corp-page-h` = the **fixed** page height. `.item-chip*` itself is ui's (`base.css`). **Phase 12**: `.ci*` — the 임플란트 desk (two columns, selected cell accent, repair card). |
+| `meta.css` | Corp-screen styles on top of `.menu .frame .ui-btn .form-msg` (`ui/styles/base.css`) and `.hub-head .hub-foot` (`hub/hub.css`); `--cc` = selected corp colour, `--corp-rail-w` = the 기업 열 width, `--corp-page-min` = the page's **floor** on a short viewport (2026-09-09: the height itself comes from `.inv-screen.corp-view { height: calc(100vh - 130px) }`, so the page fills the window — the old fixed `--corp-page-h` band is gone). `.item-chip*` / `.currency-chip*` are ui's (`base.css`). **Phase 12**: `.ci*` — the 임플란트 desk (two columns, selected cell accent, repair card). |
 | `index.ts` | Barrel. |
 
 ## Rules (all numbers from `src/shared/meta.ts`)
@@ -69,9 +69,12 @@ size (no more per-tab resizing) and every item requirement is a `buildItemChip` 
   `EmbeddedView {refresh, dispose}`. It adds **no `'corp'` blocker, never touches the cursor mode / pointer lock and installs no window Escape listener** — the
   inventory window owns all three; `dispose()` removes only the nodes / listeners the view added (never the host). Several views may live at once, so
   async purchase refusals are broadcast through `MetaSystem.onPurchaseFailure(fn)` (the legacy single-slot `onPurchaseFailed` still fires first).
-- **Fixed popup size (Phase 8)**: `.corp-page` has a constant `height` (`--corp-page-h`, only the viewport height changes it — no min/max band), the
-  `.form-msg` sits in a reserved `.corp-msg-slot` and `.hub-foot` keeps a `min-height`, so switching 상점 / 판매 / 계약 / 퀘스트, an empty ↔ full list
-  or hiding 귀중품 전부 판매 never resizes the frame. Rows scroll inside the page (`overflow-y: auto; overflow-x: hidden; scrollbar-width: thin`).
+- **Page height (2026-09-09, was the Phase 8 fixed band)**: `.inv-screen.corp-view` takes a **definite** `height`
+  (`calc(100vh - 130px)`, the same number `.inv-screen` already had as its `max-height`), so `.corp-page` is simply the second
+  cell of the `.corp-shell` grid and every column inside it stretches to the window. `--corp-page-min` is only a floor for a
+  short viewport. The `.form-msg` still sits in a reserved `.corp-msg-slot`, so switching 거래 / 계약 / 퀘스트 / 임플란트, an
+  empty ↔ full list or hiding 귀중품 전부 담기 never resizes the frame. Rows scroll inside each column
+  (`overflow-y: auto; overflow-x: hidden; scrollbar-width: thin`).
 - **Item chips (Phase 8)**: 상점 / 판매 rows show the item through `buildItemChip` (`.thumb` cell; sell rows carry the stack `×qty`, shop rows the owned
   count when non-zero), 퀘스트 납품 uses `renderItemCost` (썸네일 + 보유/필요, `is-short` → dimmed chip + red 보유 number) and quest reward items are
   `buildItemChip(..., {need: qty})`. No plain-text material runs remain in this folder.
@@ -115,8 +118,10 @@ on 8787 cannot hand the page a real profile mid-run. `npm run typecheck` clean f
 - Relayed contract hits are validated by shape only (whitelists + `1..META_HIT_MAX` + progress clamp, Phase 9) — never against the sender's position, weapon or line of sight; a peer that lies within those bounds is believed. The Phase 9 `metaq sync` catch-up hands a late joiner the hits each peer **broadcast itself**, so hits a peer received from a third party are not forwarded (no double counting, but a joiner can still miss the share of a member that has since left), and each peer answers a given requester only once per mission.
 - A purchase whose server answer never arrives (socket dropped mid-transaction) delivers the item on the local debit; the balance is corrected on the next `net:profileLoaded`.
 - The corp screen has no keyboard navigation beyond Esc, and no item tooltips beyond the row subtitle (the chip's `title` carries name + description).
-- `--corp-page-h` is a constant per viewport height, not per host: an embedded 기업 tab inside a short inventory window cannot shrink it on its own
-  (the host may override the variable inline if it ever needs to).
+- `.inv-screen.corp-view`'s `height: calc(100vh - 130px)` repeats a number that belongs to `inventory/`'s own `.inv-screen`
+  (`max-height`). If the Tab window ever changes its chrome, the two have to move together — meta/ cannot read it.
+- The 기업 열's `크레딧` readout is back on screen (2026-09-09) even though the Tab window has its own `CREDITS` pill in the
+  top-right corner: the balance now sits where the trading happens. The pill is the one to drop if the duplication grates.
 - `.item-chip*` styling is ui's (`ui/styles/base.css`); until that lands the chips render as bare glyph + count.
 
 ## Phase 9 UI pass (2026-09-07) — the trading desk
@@ -271,6 +276,27 @@ Implants are **items** (`ItemDef.implant`, category `'implant'`, owner items/ �
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-09 (기업 화면: 한 열은 기업, 나머지는 전부 페이지 · 보상은 재화 칩)** — `ui/CorpView.ts` + `meta.css`
+  - **`기업 패널`(`.corp-panel`) 삭제.** 이름 · Lv 는 기업 목록이 이미 찍고 있었고, 그 패널이 앉아 있던
+    `.corp-top` 가로 줄이 화면의 **세로를 통째로 깎아** 오른쪽 가방 / 함선 창고 · 진행 중인 계약이 납작했다.
+    껍데기는 이제 **좌 `.corp-rail`(기업 목록 → 신뢰도 게이지 → 페이지 탭 → 크레딧) · 우 `.corp-page`** 두 열
+    (`.corp-top` / `.corp-main` / `.corp-side` 는 없어졌다).
+  - **신뢰도 게이지가 기업 목록 아래로.** 막대 + `Lv.n` + `420 / 700`(만렙은 `최고 등급`)뿐이고 **`신뢰도` 라벨은
+    없다** — 기업 목록 밑의 눈금이 무엇을 재는지는 적을 것이 없다. 색은 선택한 기업의 `--cc`.
+  - **페이지가 창 높이를 전부 쓴다.** 고정 밴드 `--corp-page-h` 를 버리고 `.inv-screen.corp-view` 에
+    `height: calc(100vh − 130px)`(`.inv-screen` 이 이미 갖고 있던 `max-height` 와 같은 값)를 못 박아 flex 사슬에
+    확정 높이를 줬다. `--corp-page-min` 은 낮은 뷰포트에서의 바닥일 뿐이고, `@media (max-height: …)` 도 그 바닥만 낮춘다.
+  - **진행 중인 계약이 우측 열로.** 다른 페이지의 가방 / 함선 창고와 같은 자리, 같은 전체 높이 (`.cc` 두 열).
+  - **퀘스트 목록은 이름 + 상태 배지뿐.** 설명 줄(`.sub`)을 뺐다 — 목록은 고르는 자리다. 설명은 상세 패널에 그대로.
+  - **보상 = 재화 칩** (`@/shared/currency`, commit `a315693`). 계약 목록의
+    `신뢰도 +12 · XP +40 · 크레딧 +1,200` 글자 줄과 퀘스트 상세의 보상 줄이 `appendCurrencyRewards` /
+    `buildCurrencyChip` 의 육각 칩으로 바뀌었다. 신뢰도는 **기업마다 다른 재화**(`repCurrencyId(def.corp)`)라
+    썸네일 색이 기업 색이고, 다른 기업 계약이 우측에 꽂혀 있으면 그 기업의 칩이 나온다. 호버 카드는
+    `ui/hud/ItemTip` 이 `data-currency-id` 로 알아서 띄우므로 이 폴더에는 리스너가 없다. 퀘스트 보상은
+    **퀘스트 목록 아래 고정 줄**(`.cq-rewards`)에서 재화 칩 + 아이템 칩이 **한 줄로** 서고, 완료 토스트(`summary`)만
+    예전처럼 말로 보상을 적는다.
+  - 크레딧 표시는 기업 열 맨 아래로 돌아왔다 (`.corp-view.is-embedded .corp-credits { display: none }` 삭제).
 
 - **2026-09-09 (수치 csv 이관)** — 기업 · 계약 · 퀘스트 표가 `shared/meta.ts` 에서 csv 로 나갔다:
   `data/corps.csv`(4곳) · `data/corp_stock.csv`(판매 규칙 한 줄씩) · `data/contracts.csv` · `data/quests.csv`,

@@ -1,9 +1,10 @@
 import type {
-  ContractInfo, CorpId, EmbeddedView, GameContext, ItemDef, ItemInstance, QuestInfo, QuestState, ShopItem,
+  ContractInfo, CorpId, CurrencyReward, EmbeddedView, GameContext, ItemDef, ItemInstance, QuestInfo, QuestState,
+  ShopItem,
 } from '@/shared';
 import {
   CONTRACT_GOAL_LABEL_KO, CORP_DEFS, CORP_IDS, REP_TABLE, SHOP_UNLOCK_REP_LEVEL,
-  buildItemChip, formatCreditAmount, formatCredits, renderItemCost,
+  appendCurrencyRewards, buildItemChip, formatCreditAmount, formatCredits, renderItemCost, repCurrencyId,
 } from '@/shared';
 import type { ImplantRepairInfo, ImplantRepairResult, MetaSystem, PurchaseFailure } from '../MetaSystem';
 import { el, fmtNum, setText, toggleClass } from './dom';
@@ -16,38 +17,52 @@ import { el, fmtNum, setText, toggleClass } from './dom';
  * listener) is gone; the ship computer's `E` calls `ctx.inventory.openScreen('corp')`, so there is exactly one
  * 기업 네트워크 screen in the game and the window owns the blocker, the cursor and Escape.
  *
- * Screen shape (**2026-09-08**): the desk is a full-width table, not a pair of nested left rails —
+ * Screen shape (**2026-09-09**) — **한 열이 기업의 전부, 나머지는 전부 페이지**:
  *
- *   상단   `.corp-top` — the **기업 목록** (horizontal chips) with the **기업 패널** (이름 · Lv · 신뢰도) beside it
- *   좌     `.corp-side` — 거래 / 계약 / 퀘스트 / 임플란트, vertical
- *   그 우측 the page's own columns: 목록 → 납품 / 거래칸 (centre) → **가방 + 함선 창고** on the right
+ *   좌 `.corp-rail`  기업 목록 → 신뢰도 게이지 → 페이지 탭(거래 / 계약 / 퀘스트 / 임플란트) → 크레딧
+ *   우 `.corp-page`  그 페이지의 열들: 목록 → 거래칸 / 납품 (가운데) → **가방 + 함선 창고**(또는 진행 중인 계약)
  *
- * The two inventory grids run at the Tab window's own cell edge (`CT_CELL`) with their real column counts, so the
- * stash on this screen looks like the stash in the inventory instead of a shrunken copy of it. Before this the
- * 기업 목록 and the 기업 패널 ate two nested columns down the left and everything to their right had to fit in
- * what was left.
+ * Why it moved again. 2026-09-08 had a `.corp-top` row (기업 목록 + a 기업 패널) **stacked over** the page, and that
+ * row cost the whole screen its vertical space: the 가방 / 함선 창고 down the right had ~120 px less than the window
+ * could give them, on a screen whose whole point is looking at two grids at once. So the corp column swallowed the
+ * panel — the 기업 목록 already names the corp and prints its `Lv.n`, and the **신뢰도 게이지** now sits directly
+ * under that list (bar + `Lv.n` + `420 / 700`, **no `신뢰도` label**: what a gauge under the corp list measures needs
+ * no caption) — and the page took the full height of the tab. `.corp-panel` is gone, markup and CSS both.
  *
- * Phase 9 UI pass — rebuilt around a Tarkov-style trading desk:
- *   • the `기업 네트워크` title is gone: the **corp list** occupies the top-left slot with the credits readout on the
- *     right of the same row, and a compact **기업 패널** (name + 신뢰도 only) sits under it;
- *   • 상점 and 판매 merged into one **거래** page: the corp's stock on the left, a two-tray **거래칸** in the middle
- *     (구매 / 판매) with the net credit delta and one big **거래 성사** button under it, and the player's **real
- *     가방 + 함선 창고 grids** down the right (`InventoryRef.createTradeGrids`), stretched over the full column
- *     height. All three areas are **item grids** of `buildItemChip` cells, so hovering any of them raises the shared
- *     `ui/hud/ItemTip` card. Nothing buys or sells on click: items are staged into a tray (click, or drag a stock
- *     cell / an inventory tile onto it) and the whole basket settles at once;
- *   • **계약** is the corp's contract list with the currently accepted one pinned on the right;
- *   • **퀘스트** is the quest list, the selected quest's delivery table in the middle and the same inventory grids
- *     on the right;
+ * The page is no longer a `--corp-page-h` band either: `.inv-screen.corp-view` takes a **definite** height in
+ * `meta.css`, so `.corp-page` is just `flex: 1` and every grid inside it stretches to the window (`--corp-page-min`
+ * is only a floor for very short viewports). The two inventory grids still run at the Tab window's own cell edge
+ * (`CT_CELL`) with their real column counts, so the stash here looks like the stash in the inventory.
+ *
+ * Pages (Phase 9 UI pass, a Tarkov-style trading desk):
+ *   • **거래** (상점 + 판매 merged): the corp's stock on the left, a two-tray **거래칸** in the middle (구매 / 판매)
+ *     with the net credit delta and one big **거래 성사** button under it, and the player's **real 가방 + 함선 창고
+ *     grids** down the right (`InventoryRef.createTradeGrids`). All three areas are **item grids** of `buildItemChip`
+ *     cells, so hovering any of them raises the shared `ui/hud/ItemTip` card. Nothing buys or sells on click: items
+ *     are staged into a tray (click, or drag a stock cell / an inventory tile onto it) and the basket settles at once;
+ *   • **계약**: the corp's contract list in the middle and **진행 중인 계약 in the right-hand column** — the same
+ *     column the 가방 / 함선 창고 occupy on the other pages, at full height (2026-09-09; it used to be a narrow
+ *     right rail on a short page, so an accepted contract with a goal bar was cramped);
+ *   • **퀘스트**: the quest list on the left — **이름 + 상태 배지만** (the description belongs to the detail panel,
+ *     not to twenty list rows) — with the selected quest's **보상이 그 목록 바로 아래에 고정**되고, the 납품 table in
+ *     the middle and the same inventory grids on the right;
  *   • **임플란트** (Phase 12, 2026-09-08 — 세레스 바이오 only, the tab is hidden for every other corp): every broken
  *     implant in the bag + stash as an item grid on the left, the selected one's repair on the right — result chip,
  *     `renderItemCost` material chips (dimmed red when short), the credit fee and one **수리** button, gated by
  *     `Rules.canRepairImplant` through `MetaSystem.getImplantRepair`.
  *
- * **탭 잠금 (2026-09-08)**: a page the current 신뢰도 cannot use is not merely empty any more — its sub-tab is
- * `disabled` with the reason in its tooltip (`pageLock`), and the view opens on **퀘스트** instead (`resolvePage`),
- * the one page that is never rep-gated. 거래 needs `SHOP_UNLOCK_REP_LEVEL`; 계약 needs the lowest `minRepLevel`
- * among that corp's contracts (so a corp with a Lv.0 contract never locks). 퀘스트 · 임플란트 수리 never lock.
+ * **보상은 재화 칩이다 (2026-09-09)**. 계약과 퀘스트의 보상은 `신뢰도 +12 · XP +40 · 크레딧 +1,200` 한 줄 텍스트였다.
+ * 같은 자리의 아이템 보상은 썸네일인데 재화만 글자라 줄이 맞지 않았으므로, 이제 `@/shared/currency` 의
+ * `buildCurrencyChip` / `appendCurrencyRewards` 로 아이템 칩과 **같은 상자 · 같은 눈금**의 육각 칩을 그린다.
+ * 신뢰도는 **기업마다 다른 재화**(`repCurrencyId(def.corp)`)라 썸네일 색이 기업 색이고, 진행 중인 계약이 다른
+ * 기업 것이면 그 기업의 신뢰도 칩이 나온다. 호버 카드는 `ui/hud/ItemTip` 이 `data-currency-id` 로 알아서 띄우므로
+ * 여기서는 아무 리스너도 달지 않는다 — 칩을 `ctx.uiRoot` 안에 놓기만 하면 된다.
+ *
+ * **탭 잠금 (2026-09-08)**: a page the current 신뢰도 cannot use is not merely empty any more — its sub-tab looks
+ * locked (`.is-locked`, `pageLock`) but stays clickable so the click can say why, and the view opens on **퀘스트**
+ * instead (`resolvePage`), the one page that is never rep-gated. 거래 needs `SHOP_UNLOCK_REP_LEVEL`; 계약 needs the
+ * lowest `minRepLevel` among that corp's contracts (so a corp with a Lv.0 contract never locks). 퀘스트 · 임플란트
+ * 수리 never lock.
  *
  * Page bodies are built **once** and swapped, not rebuilt per refresh — the embedded grids own bus subscriptions and
  * a pointer drag, so recreating them on every `inventory:changed` would drop a drag mid-flight.
@@ -102,7 +117,8 @@ export class CorpView {
   private readonly creditsEl: HTMLElement;
   private readonly corpTabs = new Map<CorpId, HTMLButtonElement>();
   private readonly corpLv = new Map<CorpId, HTMLElement>();
-  private readonly panel: { name: HTMLElement; lv: HTMLElement; bar: HTMLElement; text: HTMLElement };
+  /** 신뢰도 게이지 (기업 목록 바로 아래). 예전 `기업 패널` 의 남은 절반 — 이름 · Lv 는 목록이 이미 찍는다. */
+  private readonly rep: { lv: HTMLElement; bar: HTMLElement; text: HTMLElement };
   private readonly subTabs = new Map<CorpPage, HTMLButtonElement>();
   private readonly page: HTMLElement;
   private readonly msg: HTMLElement;
@@ -131,6 +147,8 @@ export class CorpView {
 
   private questsEl: HTMLElement | null = null;
   private questListEl!: HTMLElement;
+  /** 선택한 퀘스트의 보상 — 퀘스트 목록 **아래에 고정된** 한 줄 (재화 칩 + 아이템 칩). */
+  private questRewardEl!: HTMLElement;
   private questDetailEl!: HTMLElement;
   private questGrids: EmbeddedView | null = null;
   private selectedQuest: string | null = null;
@@ -166,11 +184,11 @@ export class CorpView {
       return e;
     };
 
-    /* top: 기업 목록 + 기업 패널 · below: 페이지 탭 rail + 페이지 (2026-09-08) */
+    /* 2026-09-09: 좌 `.corp-rail` 한 열이 기업의 전부 (목록 → 신뢰도 게이지 → 페이지 탭 → 크레딧),
+       우 `.corp-page` 가 남은 폭과 **세로 전부**. 예전의 `.corp-top` 가로 줄과 `기업 패널` 은 없어졌다. */
     const shell = add(el('div', { cls: 'corp-shell', parent: host }));
-    const top = el('div', { cls: 'corp-top', parent: shell });
 
-    const rail = el('div', { cls: 'corp-rail', parent: top });
+    const rail = el('div', { cls: 'corp-rail', parent: shell });
     el('div', { cls: 'ct-title', text: '기업', parent: rail });
     const tabs = el('div', { cls: 'corp-tabs', parent: rail });
     for (const id of CORP_IDS) {
@@ -182,34 +200,30 @@ export class CorpView {
       b.addEventListener('click', (e) => { e.stopPropagation(); this.setCorp(id); });
       this.corpTabs.set(id, b);
     }
-    const cr = el('div', { cls: 'corp-credits', parent: rail });
-    el('span', { cls: 'k', text: '크레딧', parent: cr });
-    this.creditsEl = el('span', { cls: 'v', text: '0', parent: cr });
 
-    /* 기업 패널 — 상단 오른쪽, 기업 목록 옆 (2026-09-08: 예전에는 페이지 탭 위에 얹혀 있었다) */
-    const panel = el('div', { cls: 'corp-panel', parent: top });
-    const pl = el('div', { cls: 'pl', parent: panel });
-    const name = el('div', { cls: 'name', parent: pl });
-    const lv = el('div', { cls: 'lv', text: 'Lv.0', parent: pl });
-    const pr = el('div', { cls: 'pr', parent: panel });
-    el('span', { cls: 'k', text: '신뢰도', parent: pr });
-    const bar = el('div', { cls: 'rep-bar', parent: pr });
+    /* 신뢰도 게이지 — 기업 목록 바로 아래. `신뢰도` 라벨은 붙이지 않는다: 기업 목록 밑의 눈금이
+       무엇을 재는지는 설명할 것이 없다. 색은 선택한 기업의 `--cc`. */
+    const repEl = el('div', { cls: 'corp-rep', parent: rail });
+    const repRow = el('div', { cls: 'row', parent: repEl });
+    const lv = el('span', { cls: 'lv', text: 'Lv.0', parent: repRow });
+    const text = el('span', { cls: 'rep-text', parent: repRow });
+    const bar = el('div', { cls: 'rep-bar', parent: repEl });
     const fill = el('i', { parent: bar });
-    const text = el('div', { cls: 'rep-text', parent: pr });
-    this.panel = { name, lv, bar: fill, text };
+    this.rep = { lv, bar: fill, text };
 
-    const main = el('div', { cls: 'corp-main', parent: shell });
-    /* main panel's left column: 거래 / 계약 / 퀘스트 (vertical) */
-    const side = el('div', { cls: 'corp-side', parent: main });
-    const sub = el('div', { cls: 'corp-subtabs', parent: side });
+    const sub = el('div', { cls: 'corp-subtabs', parent: rail });
     for (const p of PAGES) {
       const b = el('button', { cls: 'scr-tab', text: p.label, parent: sub, attrs: { 'data-page': p.id } });
       b.addEventListener('click', (e) => { e.stopPropagation(); this.setPage(p.id); });
       this.subTabs.set(p.id, b);
     }
-    if (opts.onClose) this.button(side, '닫기', () => opts.onClose?.());
+    if (opts.onClose) this.button(rail, '닫기', () => opts.onClose?.());
 
-    this.page = el('div', { cls: 'corp-page', parent: main });
+    const cr = el('div', { cls: 'corp-credits', parent: rail });
+    el('span', { cls: 'k', text: '크레딧', parent: cr });
+    this.creditsEl = el('span', { cls: 'v', text: '0', parent: cr });
+
+    this.page = el('div', { cls: 'corp-page', parent: shell });
     // the message keeps a reserved slot so showing / hiding it never moves the frame
     const msgSlot = add(el('div', { cls: 'corp-msg-slot', parent: host }));
     this.msg = el('div', { cls: 'form-msg', parent: msgSlot });
@@ -335,13 +349,12 @@ export class CorpView {
     const rep = meta.getRep(this.corp);
     this.host.style.setProperty('--cc', def.color);
     this.opts.accentTarget?.style.setProperty('--cc', def.color);
-    setText(this.panel.name, def.name);
-    setText(this.panel.lv, `Lv.${rep.level}`);
+    setText(this.rep.lv, `Lv.${rep.level}`);
     const prev = REP_TABLE[rep.level] ?? 0;            // cumulative rep where the current level started
     const span = rep.next === null ? 1 : Math.max(1, rep.next - prev);
     const frac = rep.next === null ? 1 : Math.max(0, Math.min(1, (rep.rep - prev) / span));
-    this.panel.bar.style.transform = `scaleX(${frac.toFixed(3)})`;
-    setText(this.panel.text, rep.next === null ? `${fmtNum(rep.rep)} · 최고 등급` : `${fmtNum(rep.rep)} / ${fmtNum(rep.next)}`);
+    this.rep.bar.style.transform = `scaleX(${frac.toFixed(3)})`;
+    setText(this.rep.text, rep.next === null ? `${fmtNum(rep.rep)} · 최고 등급` : `${fmtNum(rep.rep)} / ${fmtNum(rep.next)}`);
 
     const pages = pagesFor(this.corp);
     this.current = this.resolvePage(this.current);
@@ -733,7 +746,14 @@ export class CorpView {
     fill.style.transform = `scaleX(${frac.toFixed(3)})`;
     toggleClass(bar, 'done', c.active && c.progress >= d.target);
     el('div', { cls: 'goal-text', text: `${CONTRACT_GOAL_LABEL_KO[d.goal]} ${fmtNum(Math.floor(c.progress))} / ${fmtNum(d.target)}`, parent: mid });
-    el('div', { cls: 'reward', text: `신뢰도 +${d.repReward} · XP +${d.xpReward} · 크레딧 +${formatCredits(d.creditsReward)}`, parent: r });
+    // 보상은 재화 칩이다 (2026-09-09). 신뢰도는 **그 계약의 기업** 것이므로 진행 중인 계약이 다른 기업 것이면
+    // 썸네일도 그 기업 색으로 바뀐다. 호버 카드는 `ui/hud/ItemTip` 이 `data-currency-id` 로 알아서 띄운다.
+    const reward = el('div', { cls: 'reward', parent: r });
+    appendCurrencyRewards(reward, [
+      { id: repCurrencyId(d.corp), amount: d.repReward },
+      { id: 'xp', amount: d.xpReward },
+      { id: 'credits', amount: d.creditsReward },
+    ], { size: 32 });
     if (c.active) {
       this.button(r, '포기', () => {
         const ok = this.meta.abandonContract();
@@ -761,6 +781,11 @@ export class CorpView {
     const list = el('div', { cls: 'cq-col list', parent: root });
     el('div', { cls: 'ct-title', text: '퀘스트 목록', parent: list });
     this.questListEl = el('div', { cls: 'cq-list', parent: list });
+    /* 선택한 퀘스트의 보상은 목록 **아래에 고정**된다 (2026-09-09) — 상세 패널은 납품 표와 버튼만 갖는다.
+       재화 칩과 아이템 칩이 한 줄에 서서 "이 퀘스트를 끝내면 무엇이 오는가" 가 목록 옆에서 바로 읽힌다. */
+    const rewards = el('div', { cls: 'cq-rewards', parent: list });
+    el('div', { cls: 'ct-title', text: '보상', parent: rewards });
+    this.questRewardEl = el('div', { cls: 'cq-reward-line item-chips', parent: rewards });
     const detail = el('div', { cls: 'cq-col detail', parent: root });
     el('div', { cls: 'ct-title', text: '납품', parent: detail });
     this.questDetailEl = el('div', { cls: 'cq-deliver', parent: detail });
@@ -785,9 +810,15 @@ export class CorpView {
     const sel = list.find((q) => q.def.id === this.selectedQuest) ?? null;
     if (!sel) this.empty(this.questDetailEl, '퀘스트를 선택하세요');
     else this.questDetail(sel);
+    this.renderQuestRewards(sel);
     this.questGrids?.refresh();
   }
 
+  /**
+   * One quest row: **이름 + 상태 배지뿐이다** (2026-09-09). 설명 줄(`.sub`)은 없앴다 — 목록은 고르는 자리이고
+   * 설명은 고른 다음의 자리라, 스무 줄에 같은 크기로 깔린 설명은 이름을 읽는 것만 방해했다. 설명은 상세 패널에
+   * 그대로 있다.
+   */
   private questRow(q: QuestInfo): void {
     const d = q.def;
     const r = el('div', { cls: `corp-row quest st-${q.state}`, parent: this.questListEl, attrs: { 'data-id': d.id } });
@@ -795,7 +826,6 @@ export class CorpView {
     el('div', { cls: 'badge', text: QUEST_BADGE[q.state], parent: r });
     const mid = el('div', { cls: 'mid', parent: r });
     el('div', { cls: 'name', text: d.name, parent: mid });
-    el('div', { cls: 'sub', text: d.desc, parent: mid });
     r.addEventListener('click', (e) => {
       e.stopPropagation();
       if (this.selectedQuest === d.id) return;
@@ -803,6 +833,26 @@ export class CorpView {
       this.ctx.bus.emit('audio:play', { id: 'ui_click' });
       this.refresh();
     });
+  }
+
+  /**
+   * 선택한 퀘스트의 보상 한 줄 — 퀘스트 목록 아래에 고정된다 (2026-09-09). 재화(신뢰도 · XP · 크레딧)는
+   * `appendCurrencyRewards` 의 육각 칩, 아이템은 `buildItemChip` 이고 **한 줄에 이어 붙는다**: 보상은 재화와
+   * 물건을 나눠 읽을 것이 아니라 "이만큼 받는다" 한 덩어리다. 신뢰도는 그 퀘스트를 낸 기업의 재화다.
+   */
+  private renderQuestRewards(q: QuestInfo | null): void {
+    const host = this.questRewardEl;
+    host.replaceChildren();
+    if (!q) { el('div', { cls: 'cq-reward-none', text: '퀘스트를 선택하세요', parent: host }); return; }
+    const rw = q.def.rewards;
+    const currency: CurrencyReward[] = [
+      { id: repCurrencyId(q.def.corp), amount: rw.rep },
+      { id: 'xp', amount: rw.xp },
+      { id: 'credits', amount: rw.credits ?? 0 },
+    ];
+    appendCurrencyRewards(host, currency, { size: 32 });
+    for (const it of rw.items ?? []) host.appendChild(buildItemChip(this.itemDef(it.defId), { size: 32, need: it.qty }));
+    if (host.childElementCount === 0) el('div', { cls: 'cq-reward-none', text: '보상 없음', parent: host });
   }
 
   /** The selected quest's delivery table + its 수락 / 납품 button (the drop target of the inventory grids). */
@@ -824,17 +874,11 @@ export class CorpView {
     }
     if (q.deliver.length === 0) el('div', { cls: 'cq-none', text: '납품할 물품이 없습니다', parent: table });
 
+    // 보상 칩은 여기가 아니라 퀘스트 목록 아래의 고정 줄이다 (`renderQuestRewards`). 완료 토스트만 말로 적는다.
     const rw = d.rewards;
-    const rewardCell = el('div', { cls: 'reward', parent: host });
     const parts = [`신뢰도 +${rw.rep}`, `XP +${rw.xp}`];
     if (rw.credits) parts.push(`크레딧 +${formatCredits(rw.credits)}`);
-    el('div', { cls: 'rw-line', text: parts.join(' · '), parent: rewardCell });
     const items = rw.items ?? [];
-    if (items.length > 0) {
-      const chips = el('div', { cls: 'rw-items item-chips', parent: rewardCell });
-      for (const it of items) chips.appendChild(buildItemChip(this.itemDef(it.defId), { size: 30, need: it.qty }));
-    }
-
     const summary = [...parts, ...items.map((it) => `${this.defName(it.defId)} ×${it.qty}`)];
     const acts = el('div', { cls: 'cq-acts', parent: host });
     if (q.state === 'available') {

@@ -44,7 +44,7 @@ try {
     // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
     // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
     // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
-    try { localStorage.setItem('scav.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
+    try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
     // Never let headless Chrome take a real pointer lock (Windows ClipCursor traps the OS cursor in the hidden window).
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
@@ -132,7 +132,7 @@ try {
   });
 
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
-  await page.evaluate(() => { localStorage.removeItem('scav.loadout'); localStorage.removeItem('scav.stash'); localStorage.removeItem('scav.grant'); localStorage.removeItem('scav.profile'); });
+  await page.evaluate(() => { localStorage.removeItem('scav.s1.loadout'); localStorage.removeItem('scav.s1.stash'); localStorage.removeItem('scav.s1.grant'); localStorage.removeItem('scav.s1.profile'); });
   await page.goto(BASE, { waitUntil: 'load' });
   await boot();
   await enterHub();
@@ -206,8 +206,8 @@ try {
     const stash = sys.getStash().items().map((p) => ({ defId: p.item.defId, qty: p.item.qty, x: p.x, y: p.y, durability: p.item.durability ?? null, ammoInMag: p.item.ammoInMag ?? null })).sort((a, b) => a.y - b.y || a.x - b.x);
     const l = sys.getLoadout();
     const quick = sys.getQuickSlots().map((i) => i ? i.defId : null);
-    const file = JSON.parse(localStorage.getItem('scav.loadout'));
-    const stashFile = JSON.parse(localStorage.getItem('scav.stash'));
+    const file = JSON.parse(localStorage.getItem('scav.s1.loadout'));
+    const stashFile = JSON.parse(localStorage.getItem('scav.s1.stash'));
     return {
       stash, primary: l.primary && { defId: l.primary.defId, durability: l.primary.durability, ammoInMag: l.primary.ammoInMag }, secondary: l.secondary, bag: sys.getGrid('bag').items().map((p) => p.item.defId), quick,
       stashChanged: window.__ev['inventory:stashChanged'].length - before.stashChanged, loadoutEv: window.__ev['loadout:changed'].length - before.loadout,

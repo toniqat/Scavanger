@@ -57,7 +57,7 @@ try {
     // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
     // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
     // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
-    try { localStorage.setItem('scav.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
+    try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
     // Park vite's HMR socket AND the relay socket: this script is the solo path, a real relay must not hand us a lobby.
@@ -133,7 +133,7 @@ try {
   /* ── 1. 목표 미지정: state, terminal screen, launch-slot gate ─────────── */
   console.log('목표 미지정');
   await boot('fresh');
-  await page.evaluate(() => { try { localStorage.removeItem('scav.planet'); } catch {} });
+  await page.evaluate(() => { try { localStorage.removeItem('scav.s1.planet'); } catch {} });
   await boot('no planet');
   await P(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
   await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub phase');
@@ -197,7 +197,8 @@ try {
   ok(term.crewName === 0 && term.nameInput === 0, `the 승무원 이름 section is gone (${term.crewName} label / ${term.nameInput} input)`);
   // 2026-09-08: `.seed-hint` 는 지웠다 — 시드는 여전히 개발자 콘솔 `/seed` 만 건드리지만, 화면에 적어 둘 이유가 없다.
   ok(term.seedHint === null, `.seed-hint removed (${JSON.stringify(term.seedHint)})`);
-  ok(term.closeBtn.includes('닫기 (E)') && term.closeBtn.includes('타이틀로'), `footer: ${term.closeBtn.join(' / ')}`);
+  // 2026-09-09: 타이틀로 는 단말기에서 뺐다 — 일시정지 메뉴에 이미 있고, 구석의 파괴적 버튼은 함정이다.
+  ok(term.closeBtn.includes('닫기 (E)') && !term.closeBtn.includes('타이틀로'), `footer: ${term.closeBtn.join(' / ')}`);
   ok(term.blocker && term.cursor === true, `the 'hub' blocker + software cursor (Phase 10 etiquette, cursor ${term.cursor})`);
   ok(term.locked === true, 'the pointer lock is kept (no exitPointerLock)');
   const tog = await lastEv('hub:terminalToggled');
@@ -310,7 +311,7 @@ try {
       planet: ctx.hub.planet, travelling: ctx.hub.travelling,
       cut: !!ctx.scene.getObjectByName('DockingCutscene'),
       controls: ctx.player.controlsEnabled !== false,
-      stored: (() => { try { return localStorage.getItem('scav.planet'); } catch { return null; } })(),
+      stored: (() => { try { return localStorage.getItem('scav.s1.planet'); } catch { return null; } })(),
       podPrompt: ctx.interactables.all().find((i) => i.id === 'hub_pod_0')?.getPrompt() ?? null,
       podCan: ctx.interactables.all().find((i) => i.id === 'hub_pod_0')?.canInteract() ?? null,
     };
@@ -320,7 +321,7 @@ try {
   ok(t2.planet === PLANETS[2].id && t2.travelling === false, `ctx.hub.planet = ${t2.planet}, travelling false`);
   ok(!t2.cut, 'the cutscene disposed itself');
   ok(t2.controls, 'controls handed back');
-  ok(t2.stored === PLANETS[2].id, `the pick is persisted in scav.planet (${t2.stored})`);
+  ok(t2.stored === PLANETS[2].id, `the pick is persisted in scav.s1.planet (${t2.stored})`);
   ok((await glow()) === PLANETS[2].hologram, `the window planet took the destination colour (0x${(await glow()).toString(16)})`);
   ok((await screenText()).includes(`목표 ${PLANETS[2].name}`), `terminal screen reads 목표 ${PLANETS[2].name}`);
   ok(t2.podPrompt === '발사 슬롯 탑승' && t2.podCan === true, `the launch slot opened up ("${t2.podPrompt}")`);

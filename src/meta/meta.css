@@ -3,37 +3,47 @@
  * `--cc` = the selected corp's accent colour (CorpDef.color), set on the view host and on every corp tab.
  *
  * **2026-09-07**: one shell only — the embedded 기업 tab `.corp-view.is-embedded` inside the inventory Tab screen
- * (the standalone `.menu.corp-menu` overlay is gone; the ship computer opens this tab). Layout:
+ * (the standalone `.menu.corp-menu` overlay is gone; the ship computer opens this tab).
+ *
+ * **2026-09-09 — 한 열은 기업, 나머지는 전부 페이지.** Layout:
  *
  *   상단  the window's own screen tabs (owned by inventory/)
- *   그 아래 `.corp-top`  — the 기업 목록 (horizontal chips) + the 기업 패널 beside it (2026-09-08)
- *   그 아래 `.corp-main` — `.corp-side` (vertical 거래 / 계약 / 퀘스트 tabs) + `.corp-page`, full width
+ *   좌    `.corp-rail`  — 기업 목록 → 신뢰도 게이지 → 페이지 탭(세로) → 크레딧, **화면 세로 전부**
+ *   우    `.corp-page`  — 그 페이지의 열들, 남은 폭과 세로 전부
  *
- * `--corp-page-h` stays a **constant** page height (never a min/max band) and the message line keeps a reserved
- * slot, so switching 거래 / 계약 / 퀘스트 (or an empty ↔ full list) never resizes the frame.
+ * 예전에는 `.corp-top`(기업 목록 + 기업 패널) 이 페이지 **위에 가로로** 얹혀 있었고, 그 줄이 화면의 세로를
+ * 통째로 깎아 오른쪽 가방 / 함선 창고 · 진행 중인 계약이 납작했다. 기업 패널(`.corp-panel`)은 통째로 없앴다 —
+ * 이름과 `Lv.n` 은 기업 목록이 이미 찍고, 남은 신뢰도 막대는 그 목록 바로 아래(`.corp-rep`)로 내려왔다.
+ *
+ * **페이지 높이는 이제 고정 밴드가 아니다.** `.inv-screen.corp-view` 가 창의 높이를 **확정값**으로 받으므로
+ * (파일 맨 아래) `.corp-page` 는 `.corp-shell` 격자의 한 칸이고 안의 열들이 창 끝까지 늘어난다. `--corp-page-min` 은
+ * 아주 낮은 뷰포트에서의 **바닥**일 뿐 — 예전 `--corp-page-h` 처럼 높이를 정하지 않는다. 메시지 줄은 여전히
+ * 예약된 슬롯을 갖는다.
  *
  * `--ct-cell` is the cell edge every item grid on this screen uses — 기업 재고, the 구매 / 판매 trays and the
  * embedded 가방 / 함선 창고 (`CT_CELL` in CorpView.ts passes the same number to `createTradeGrids`); the
  * 구매 / 판매 tray is exactly **5 cells wide** (the widest an item can be). 2026-09-08: it is the Tab
  * 인벤토리's own cell (`inventory/ui/labels.CELL` = 54) — the 가방 / 함선 창고 here are the same grids at the
- * same size, not shrunken copies of them. The 기업 목록 / 기업 패널 moving to the top row paid for the width. */
-.corp-view { --corp-page-h: 680px; --ct-cell: 54px; --ct-gap: 2px; --ct-step: 56px; }
+ * same size, not shrunken copies of them. */
+.corp-view { --corp-page-min: 420px; --corp-rail-w: 216px; --ct-cell: 54px; --ct-gap: 2px; --ct-step: 56px; }
 .corp-view.is-embedded { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 
-/* 상단: 기업 목록 + 기업 패널 · 아래: 페이지 탭 rail + 페이지 (2026-09-08) */
-.corp-shell { display: flex; flex-direction: column; gap: 12px; min-height: 0; flex: 1; }
-.corp-top { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 360px); gap: 14px; align-items: stretch; flex: none; }
-.corp-rail { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.corp-rail .corp-tabs { display: flex; flex-direction: row; flex-wrap: wrap; gap: 6px; }
-.corp-rail .corp-tab { flex: 1 1 0; min-width: 120px; }
-.corp-rail .corp-credits { margin-top: auto; padding-top: 8px; border-top: 1px solid var(--c-border); }
-.corp-main { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 14px; min-width: 0; min-height: 0; flex: 1; }
-.corp-side { display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 0; }
-.corp-side .corp-subtabs { display: flex; flex-direction: column; gap: 4px; align-self: stretch; border-radius: 0; padding: 0; background: none; border: 0; }
-.corp-side .scr-tab { justify-content: flex-start; text-align: left; padding: 10px 14px; border-radius: 0; }
+/* 좌 기업 열 | 우 페이지 (2026-09-09) */
+.corp-shell {
+  display: grid;
+  grid-template-columns: var(--corp-rail-w) minmax(0, 1fr);
+  /* one row, and it is the whole height — `--corp-page-min` only keeps it usable on a very short viewport */
+  grid-template-rows: minmax(var(--corp-page-min), 1fr);
+  gap: 16px; align-items: stretch; min-height: 0; flex: 1;
+}
+.corp-rail { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; }
+.corp-rail .corp-tabs { display: flex; flex-direction: column; gap: 6px; }
+/* 페이지 탭 · 크레딧은 각각 얇은 구분선 위에 앉는다 — 한 열 안에서 목록 / 게이지 / 탭 / 잔액이 갈린다 */
+.corp-rail .corp-subtabs { margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--c-border); }
+.corp-rail .corp-credits { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--c-border); }
+.corp-rail .ui-btn { width: 100%; justify-content: center; }
 /* 탭 잠금 (2026-09-08): 신뢰도가 모자란 거래 / 계약 탭은 자물쇠를 달고 흐려진다. 버튼 자체는 살아 있어서 — `disabled`
    였을 때는 클릭이 아예 안 먹어 이유를 볼 방법이 없었다 — 누르면 필요한 신뢰도를 토스트로 알려준다. */
-.corp-side .scr-tab.is-locked,
 .corp-subtabs .scr-tab.is-locked {
   opacity: 0.4;
   cursor: not-allowed;
@@ -62,31 +72,27 @@
 .corp-tab.is-on { color: var(--c-text); border-color: var(--cc); background: color-mix(in srgb, var(--cc) 14%, transparent); box-shadow: 0 0 12px color-mix(in srgb, var(--cc) 30%, transparent); }
 .corp-tab.is-on .lv { color: var(--cc); }
 
-/* Phase 9 UI pass: the banner (motto + description paragraph) is a compact 기업 패널 — name + 신뢰도 only.
- * 2026-09-08: it is the **right half of the top row**, next to the 기업 목록 chips. */
-.corp-panel {
-  display: flex; flex-direction: column; justify-content: center; gap: 8px;
-  padding: 10px 14px; min-width: 0;
-  border: 1px solid var(--c-border); border-left: 3px solid var(--cc);
-  background: linear-gradient(90deg, color-mix(in srgb, var(--cc) 12%, transparent), transparent 75%);
-}
-.corp-panel .pl { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-width: 0; }
-.corp-panel .name { font-size: 18px; font-weight: 700; letter-spacing: 0.12em; color: var(--cc); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.corp-panel .lv { font-family: var(--ui-mono); font-size: 14px; font-weight: 600; color: var(--cc); white-space: nowrap; }
-.corp-panel .pr { display: flex; flex-direction: column; gap: 4px; }
-.corp-panel .pr .k { font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--c-text-dim); }
-.corp-panel .rep-bar { height: 4px; background: rgba(255, 255, 255, 0.1); position: relative; overflow: hidden; }
-.corp-panel .rep-bar i { position: absolute; left: 0; top: 0; height: 100%; width: 100%; transform-origin: left; background: var(--cc); transition: transform var(--t-med) var(--ease); }
-.corp-panel .rep-text { font-family: var(--ui-mono); font-size: 11px; color: var(--c-text-dim); text-align: right; }
-/* sub tabs (reuse .scr-tab, but inline instead of the absolute .scr-tabs pill) */
-.corp-subtabs { display: flex; gap: 4px; padding: 4px; border: 1px solid var(--c-border); border-radius: 999px; background: rgba(8, 9, 11, 0.5); align-self: flex-start; }
+/* 신뢰도 게이지 (2026-09-09) — 기업 목록 바로 아래의 얇은 눈금. 예전 `기업 패널` 이 갖고 있던 것 중 살아남은
+ * 절반이다: 이름 · Lv 는 목록이 이미 찍으므로 여기는 **막대 + Lv + 수치**뿐이고, `신뢰도` 라벨도 없다 —
+ * 기업 목록 밑에 붙은 눈금이 무엇을 재는지는 적을 것이 없다. */
+.corp-rep { display: flex; flex-direction: column; gap: 5px; margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--c-border); }
+.corp-rep .row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; }
+.corp-rep .lv { font-family: var(--ui-mono); font-size: 14px; font-weight: 600; color: var(--cc); white-space: nowrap; }
+.corp-rep .rep-text { font-family: var(--ui-mono); font-size: 11px; color: var(--c-text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.corp-rep .rep-bar { height: 4px; background: rgba(255, 255, 255, 0.1); position: relative; overflow: hidden; }
+.corp-rep .rep-bar i { position: absolute; left: 0; top: 0; height: 100%; width: 100%; transform-origin: left; background: var(--cc); box-shadow: 0 0 10px color-mix(in srgb, var(--cc) 45%, transparent); transition: transform var(--t-med) var(--ease); }
+/* sub tabs (reuse .scr-tab): a vertical rail inside the corp column, not the absolute .scr-tabs pill */
+.corp-subtabs { display: flex; flex-direction: column; gap: 4px; align-self: stretch; padding: 0; border: 0; border-radius: 0; background: none; }
+.corp-subtabs .scr-tab { justify-content: flex-start; text-align: left; padding: 10px 14px; border-radius: 0; }
 
-/* Fixed page height (the same on every tab). Phase 9 UI pass: the page hosts a **column layout** now — each column
- * scrolls on its own, so the page itself never scrolls and the trading desk keeps its shape. */
+/* The page is the second cell of `.corp-shell` and takes **every pixel the corp column leaves** (2026-09-09): the
+ * host has a definite height, so the grid row resolves to a real number and the columns inside stretch to the
+ * window. Phase 9 UI pass: the page hosts a **column layout** — each column scrolls on its own, so the page itself
+ * never scrolls and the trading desk keeps its shape. */
 .corp-page {
-  height: var(--corp-page-h);
+  min-height: 0; min-width: 0; height: 100%;
   overflow: hidden;
-  display: flex; flex-direction: column; min-height: 0;
+  display: flex; flex-direction: column;
 }
 .corp-page > * { flex: 1; min-height: 0; }
 .ct-title { font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase; font-weight: 700; color: var(--c-text-dim); flex: none; }
@@ -112,9 +118,11 @@
 .corp-row .name-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .corp-row .sub { font-size: 11px; color: var(--c-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .corp-row .price { font-family: var(--ui-mono); font-size: 13px; color: var(--c-accent); white-space: nowrap; }
-.corp-row .reward { font-size: 11px; color: var(--c-text-dim); white-space: nowrap; text-align: right; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
-.corp-row .reward .rw-line { overflow: hidden; text-overflow: ellipsis; }
-.corp-row .reward .rw-items { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+/* 보상 — 2026-09-09: 글자 한 줄이 아니라 `@/shared/currency` 의 재화 칩이다 (`appendCurrencyRewards` 가
+   `.item-chips` 를 붙인다). 아이템 칩과 같은 상자·같은 눈금이라 아이템 보상과 한 줄에 서도 줄이 맞고,
+   `data-currency-id` 로 `ui/hud/ItemTip` 의 호버 카드가 뜬다 — 여기서 가려선 안 되므로 `pointer-events` 를
+   끄지 않는다. */
+.corp-row .reward { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
 .corp-row .ui-btn { min-width: 0; height: 34px; padding: 0 16px; font-size: 11px; white-space: nowrap; }
 .corp-row .tag { font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--cc); border: 1px solid color-mix(in srgb, var(--cc) 55%, transparent); padding: 1px 6px; white-space: nowrap; }
 .corp-row .tag.dim { color: var(--c-text-faint); border-color: var(--c-border); }
@@ -132,19 +140,20 @@
 /* 납품 요구 (renderItemCost): 썸네일 + 보유/필요, 부족하면 `.is-short` 딤드 + 빨간 보유 수 */
 .corp-row .deliver { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
 
-/* fixed page height by viewport — a constant per screen, never per tab */
-@media (max-height: 940px) { .corp-view { --corp-page-h: 560px; } }
-@media (max-height: 820px) { .corp-view { --corp-page-h: 450px; } }
-@media (max-height: 720px) { .corp-view { --corp-page-h: 350px; } }
+/* The page fills the window now, so the only per-viewport number left is the **floor** under it — a short screen
+   lets the page shrink instead of forcing the whole tab to scroll. */
+@media (max-height: 940px) { .corp-view { --corp-page-min: 360px; } }
+@media (max-height: 820px) { .corp-view { --corp-page-min: 300px; } }
+@media (max-height: 720px) { .corp-view { --corp-page-min: 240px; } }
 
 @media (max-width: 900px) {
-  .corp-top { grid-template-columns: minmax(0, 1fr); }
-  .corp-main { grid-template-columns: minmax(0, 1fr); }
-  .corp-side .corp-subtabs { flex-direction: row; flex-wrap: wrap; }
+  /* 기업 열이 들어갈 폭이 없다: 위아래로 접고 페이지 탭은 가로줄이 된다 */
+  .corp-shell { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(var(--corp-page-min), 1fr); }
+  .corp-rail .corp-subtabs { flex-direction: row; flex-wrap: wrap; }
+  .corp-rail .corp-credits { margin-top: 8px; }
   .corp-row, .corp-row.contract, .corp-row.quest { grid-template-columns: minmax(0, 1fr) auto; }
   .corp-row .thumb, .corp-row .badge { display: none; }
-  .corp-row .reward { grid-column: 1 / 2; text-align: left; max-width: none; }
-  .corp-row .reward .rw-items { justify-content: flex-start; }
+  .corp-row .reward { grid-column: 1 / 2; justify-content: flex-start; }
   .corp-row .price { grid-column: 1 / 2; }
   .corp-row .ui-btn { grid-column: 2 / 3; grid-row: 1 / span 2; }
 }
@@ -236,15 +245,18 @@
 .ct-drag-ghost { position: fixed; z-index: 999; pointer-events: none; opacity: 0.92; filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.6)); }
 .ct-drag-ghost.is-ok { outline: 2px solid var(--c-success); outline-offset: 2px; }
 
-/* ── 계약: 목록 | 진행 중 ── */
-.cc { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(260px, 1fr); gap: 14px; min-height: 0; }
+/* ── 계약: 계약 목록(가운데) | 진행 중인 계약(우측 열) ──
+   2026-09-09: 진행 중인 계약은 다른 페이지의 **가방 / 함선 창고와 같은 우측 열**이고 세로를 전부 쓴다.
+   예전에는 낮은 페이지 위의 좁은 오른쪽 레일이라 목표 막대 하나에도 답답했다. */
+.cc { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 0.95fr); gap: 14px; min-height: 0; }
 .cc-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; }
 .cc-list, .cc-active {
   flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin;
   display: flex; flex-direction: column; gap: 6px; padding-right: 4px;
 }
+.cc-col.active .cc-active { padding: 10px; border: 1px solid var(--c-border); background: rgba(0, 0, 0, 0.24); }
 .corp-row.contract.is-detail { grid-template-columns: minmax(0, 1fr); }
-.corp-row.contract.is-detail .reward { text-align: left; max-width: none; }
+.corp-row.contract.is-detail .reward { justify-content: flex-start; }
 
 /* ── 퀘스트: 목록 | 납품 테이블 | 내 가방 + 함선 창고 ── */
 .cq { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(240px, 1fr) minmax(0, 0.95fr); gap: 14px; min-height: 0; }
@@ -253,6 +265,11 @@
   flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin;
   display: flex; flex-direction: column; gap: 6px; padding-right: 4px;
 }
+/* 선택한 퀘스트의 보상 — 목록 아래에 고정된 한 줄 (2026-09-09). 재화 칩 + 아이템 칩이 섞여 서므로
+   `.item-chips` 의 간격을 그대로 쓰고, 줄 높이만 예약해 두어 보상 유무로 목록이 출렁이지 않게 한다. */
+.cq-rewards { flex: none; display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 1px solid var(--c-border); }
+.cq-rewards .cq-reward-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 44px; }
+.cq-rewards .cq-reward-none { font-size: 11px; color: var(--c-text-faint); letter-spacing: 0.04em; align-self: center; }
 .cq-list .corp-row.quest { grid-template-columns: 44px minmax(0, 1fr); cursor: pointer; }
 .cq-list .corp-row.quest.is-sel { border-color: var(--cc); background: color-mix(in srgb, var(--cc) 10%, transparent); }
 .cq-deliver { padding: 10px; border: 1px solid var(--c-border); background: rgba(0, 0, 0, 0.24); }
@@ -301,9 +318,12 @@
   .cq-col.inv { display: none; }
 }
 
-/* The 기업 tab is wider than the Tab window's default 1180 px frame — the desk is four columns across.
+/* The 기업 tab is wider than the Tab window's default 1180 px frame — the desk is four columns across, and since
+   2026-09-09 it is also **as tall as the window allows**: `.inv-screen` only had a `max-height`, so the desk had to
+   invent its own page height (`--corp-page-h`) and always fell short of the frame. Pinning the same number as a
+   real `height` gives the whole flex chain a definite length, and 가방 / 함선 창고 / 진행 중인 계약 stretch into it.
    `.corp-view` is put on `.inv-screen` by `CorpView`. */
-.inv-screen.corp-view { width: min(1760px, calc(100vw - 40px)); }
-/* The embedded 기업 tab sits under the inventory window's own `CREDITS n` pill — one balance on the row is enough
-   (the standalone overlay, which has no pill, keeps its readout). */
-.corp-view.is-embedded .corp-credits { display: none; }
+.inv-screen.corp-view {
+  width: min(1760px, calc(100vw - 40px));
+  height: calc(100vh - 130px);   /* == .inv-screen's own max-height, so nothing is clipped */
+}

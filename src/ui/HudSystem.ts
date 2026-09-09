@@ -266,7 +266,9 @@ export class HudSystem implements GameSystem {
     // 설정 (Phase 8): keys + audio, opened from the pause menu; it holds the one KeybindMenu instance.
     this.settings = new SettingsMenu(ctx.uiRoot, this.keybinds);
     this.settings.bind(ctx);
-    this.title = new TitleMenu(ctx.uiRoot, () => this.keybinds.open());
+    // 2026-09-09: 타이틀의 `설정` 은 일시정지 메뉴와 **같은** 설정 오버레이를 연다 — 조작 다이어그램과
+    // `키 설정 변경` 이 타이틀을 떠나 그 안(키 설정 구획)으로 들어갔기 때문이다.
+    this.title = new TitleMenu(ctx.uiRoot, () => this.settings.open());
     this.pause = new PauseMenu(ctx.uiRoot, () => this.settings.open());
     this.death = new DeathScreen(ctx.uiRoot);
     this.complete = new MissionComplete(ctx.uiRoot);
@@ -357,6 +359,8 @@ export class HudSystem implements GameSystem {
     this.damage.update(dt, ctx);
     this.complete.update(dt);
     this.death.update(dt);
+    // 타이틀 흐름: 캐릭터 생성창의 3D 미리보기만 돈다 (닫혀 있으면 즉시 돌아온다).
+    this.title.update(dt);
   }
 
   lateUpdate(dt: number, ctx: GameContext): void {
@@ -407,6 +411,9 @@ export class HudSystem implements GameSystem {
   /** Whether the 설정 overlay is open / which of its three sections the right pane shows (debug). */
   get isSettingsOpen(): boolean { return this.settings.isOpen; }
   get settingsSection(): string { return this.settings.activeSection; }
+  /** 타이틀 흐름 (2026-09-09): 캐릭터 선택 / 생성 화면이 떠 있는가 (debug / smoke). */
+  get isCharacterSelectOpen(): boolean { return this.title.isSelectOpen; }
+  get isCharacterCreateOpen(): boolean { return this.title.isCreateOpen; }
   /** Whether the 함선 관리 screen is showing / which room it edits / how many furniture cards it renders (debug). */
   get isShipManageOn(): boolean { return this.shipManage.isShowing; }
   get shipManageRoom(): number | null { return this.shipManage.activeRoom; }
@@ -428,6 +435,8 @@ export class HudSystem implements GameSystem {
   get isPauseHubVariant(): boolean { return this.pause.isHubVariant; }
   /** 2026-09-08: whether the 일시정지 메뉴's 경고 팝업 (파티 떠나기 / 타이틀로 / 게임 종료) is up (debug / smoke). */
   get isPauseAskOpen(): boolean { return this.pause.isAskOpen; }
+  /** 2026-09-09: 경고 팝업의 1초 홀드 진행도 0…1 (debug / smoke) — 확정은 클릭이 아니라 홀드다. */
+  get pauseHoldProgress(): number { return this.pause.askHoldProgress; }
   /** Whether the contract panel is up / pulsing (debug). */
   get isContractPanelOn(): boolean { return this.contractPanel.isShowing; }
   get isContractPulsing(): boolean { return this.contractPanel.isPulsing; }

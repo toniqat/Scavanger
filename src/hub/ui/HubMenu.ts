@@ -1,4 +1,4 @@
-import type { GameContext, KeyGuideEntry, LobbyState, NetRef, PlanetDef, PlanetId } from '@/shared';
+import type { GameContext, LobbyState, NetRef, PlanetDef, PlanetId } from '@/shared';
 import {
   Keys, MENU_BLOCKER, NET_SLOT_COLORS_CSS, NET_MAX_PLAYERS, PLANET_DEFS, PLANET_IDS, PLANET_THREAT_LABELS,
   isValidLobbyCode, normalizeLobbyCode, planetIndex,
@@ -8,8 +8,6 @@ import { createPlanetHologram, type PlanetHologram } from './PlanetHologram';
 
 /** What the menu needs from HubSystem. */
 export interface HubMenuHost {
-  /** "타이틀로": tear the hub down and return to the title. */
-  toTitle(): void;
   /** Called after the menu closed itself (E / 닫기) so the hub re-locks the pointer. */
   onClosed(): void;
   /** 시뮬레이션 훈련장 (Phase 7, shared ship): start a training or join the one already running. */
@@ -36,13 +34,20 @@ const MSG_TTL = 4500;
  * - **centre**: the 행성 홀로그램 (`ui/PlanetHologram`, its own WebGL canvas) with the planet's name, 지형, a
  *   위협 badge and its one-line brief, `◀ ▶` (mouse, `←` / `→` and `A` / `D`) and the **행성 이동** button.
  *   Stepping left / right only *previews* — the ship flies when 행성 이동 is pressed (`HubRef.setPlanet`).
- * - **right, bottom**: `시뮬레이션 훈련장`; the footer keeps 닫기 (E) / 타이틀로. (2026-09-08: the `/seed` 안내
+ * - **right, bottom**: `시뮬레이션 훈련장`; the footer is **닫기 (E) alone**. (2026-09-08: the `/seed` 안내
  *   줄과 신호 섹션의 `자동 매칭은 …` 안내 줄은 지웠다 — 화면에 당연한 설명을 남기지 않는다.)
  *   2026-09-08: the terminal closes on **E**, not Escape — Escape is the 일시정지 메뉴 everywhere now.
  *   2026-09-09: **Tab closes it too** (every screen does — `Keys.INVENTORY`, polled in `update()` which `HubSystem`
- *   runs before `InventorySystem`, and consumed so the same press cannot open the inventory). While open it owns the
- *   bottom-right 키 가이드 line (`ui:keyGuide`, owner `'terminal'`): `← → 행성 넘김` unless the tutorial has narrowed
- *   the planets to one, in which case only the guide's own `Tab 닫기` shows.
+ *   runs before `InventorySystem`, and consumed so the same press cannot open the inventory).
+ *
+ * **2026-09-09 (두 가지를 지웠다)**:
+ *  - **타이틀로 is gone from the footer.** The 일시정지 메뉴 already has it behind a 경고 팝업 with a 1초 홀드;
+ *    a one-click "leave everything" in the corner of a screen you open to pick a planet is a trap, not a shortcut.
+ *    `HubMenuHost.toTitle` went with it (nothing else called it), and so did `HubSystem.toTitle` / `Trans.toTitle`.
+ *  - **The bottom-right 키 가이드 (`ui:keyGuide`, owner `'terminal'`) is gone.** The terminal is a full screen with
+ *    a visible 닫기 (E) button and on-screen `◀ ▶` arrows, so a one-line key strip only repeated what the screen
+ *    already showed. The **arrow-key stepping still works** (`onKeyDown`) — only the guide line left, so no
+ *    `'terminal'` entry can be left standing on the guide stack.
  *
  * The 승무원 이름 section is **gone** (Phase 11): the call sign is entered once on the title screen
  * (`ui/menus/TitleMenu` → `net.setPlayerName`), so the terminal no longer renames anyone.
@@ -188,7 +193,6 @@ export class HubMenu {
     const foot = el('div', { cls: 'hub-foot', parent: f });
     const footRight = el('div', { cls: 'right', parent: foot });
     this.button(footRight, '닫기 (E)', () => this.close());
-    this.button(footRight, '타이틀로', () => { this.close(false); host.toTitle(); }, 'danger');
 
     // keep clicks inside from reaching the canvas' click-to-lock fallback
     root.addEventListener('mousedown', (e) => e.stopPropagation());
@@ -211,7 +215,7 @@ export class HubMenu {
       b.on('hub:planetChanged', ({ planet: p }) => { this.cursor = planetIndex(p); this.syncPlanet(0); this.refresh(); }),
       b.on('hub:travel', () => this.refresh()),
       // 2026-09-08: 튜토리얼이 감춘 매치메이킹 섹션 · 행성 넘김은 단계가 넘어가거나 건너뛰어지면 돌아온다
-      b.on('tutorial:changed', () => { if (this._open) { this.refresh(); this.emitGuide(); } }),
+      b.on('tutorial:changed', () => { if (this._open) this.refresh(); }),
     );
     window.addEventListener('keydown', this.onKeyDown);
   }
@@ -227,16 +231,6 @@ export class HubMenu {
   };
 
   private def(): PlanetDef { return PLANET_DEFS[this.cursor] ?? PLANET_DEFS[0]; }
-
-  /** 키 가이드 (2026-09-09): the arrows step the hologram; nothing else on the terminal is a key. */
-  private guideKeys(): KeyGuideEntry[] {
-    return this.planetLocked ? [] : [{ key: '← →', label: '행성 넘김' }];
-  }
-
-  private emitGuide(): void {
-    if (!this._open) return;
-    this.ctx.bus.emit('ui:keyGuide', { owner: 'terminal', keys: this.guideKeys() });
-  }
 
   /** 튜토리얼이 행성을 하나로 좁혀 놓았는가 (꺼져 있으면 언제나 false). */
   private get planetLocked(): boolean { return this.ctx.tutorial?.hides('planet') ?? false; }
@@ -316,7 +310,6 @@ export class HubMenu {
     this.syncPlanet(0);
     this.holo?.setVisible(true);
     this.refresh();
-    this.emitGuide();
     this.ctx.bus.emit('ui:hubMenuToggled', { open: true });
     this.ctx.bus.emit('hub:terminalToggled', { open: true });
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
@@ -330,7 +323,6 @@ export class HubMenu {
     (document.activeElement as HTMLElement | null)?.blur?.();
     this.ctx.uiBlockers.delete('hub');
     this.ctx.input.setCursorMode(false, 'hub');
-    this.ctx.bus.emit('ui:keyGuide', { owner: 'terminal', keys: null });
     this.ctx.bus.emit('ui:hubMenuToggled', { open: false });
     this.ctx.bus.emit('hub:terminalToggled', { open: false });
     if (relock) this.host.onClosed();

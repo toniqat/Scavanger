@@ -1,4 +1,4 @@
-// Single-player smoke test for the inventory folder's Phase 5 work (2026-09-06): loadout persistence (`scav.loadout`:
+// Single-player smoke test for the inventory folder's Phase 5 work (2026-09-06): loadout persistence (`scav.s1.loadout`:
 // ship changes survive a reload, starter resets overwrite the save, game:complete saves), the corp-shop access methods
 // (`tryAddToStash` / `tryAddItemAnywhere` / `takeItem` / `findItemAnywhere`), `inventory:containerOpened {first}` and
 // the ship Tab screen's 크레딧 readout + active 기업 tab.
@@ -42,7 +42,7 @@ try {
     // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
     // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
     // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
-    try { localStorage.setItem('scav.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
+    try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
     // Never let headless Chrome take a real pointer lock (Windows ClipCursor traps the OS cursor in the hidden window).
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
@@ -117,12 +117,12 @@ try {
       bag, quick: sys.getQuickSlots().map((i) => i ? i.defId : null), size: sys.getBagSize(),
     };
   });
-  const saveFile = () => page.evaluate(() => JSON.parse(localStorage.getItem('scav.loadout') ?? 'null'));
+  const saveFile = () => page.evaluate(() => JSON.parse(localStorage.getItem('scav.s1.loadout') ?? 'null'));
 
   /* ── 0. fresh: no save → starter on the first hub entry ─────────────── */
   console.log('fresh save');
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
-  await page.evaluate(() => { localStorage.removeItem('scav.loadout'); localStorage.removeItem('scav.stash'); localStorage.removeItem('scav.grant'); });
+  await page.evaluate(() => { localStorage.removeItem('scav.s1.loadout'); localStorage.removeItem('scav.s1.stash'); localStorage.removeItem('scav.s1.grant'); });
   await reload();
   const beforeHub = await snapshot();
   ok(!beforeHub.slots.primary && beforeHub.bag.length === 0, 'no save: bag + slots empty before the first hub entry', JSON.stringify(beforeHub.slots));
@@ -146,7 +146,7 @@ try {
   ok(saved && saved.reason === 'starter', 'applyStarter saved the starter (inventory:loadoutSaved {reason: starter})', JSON.stringify(saved));
   let file = await saveFile();
   ok(file && file.v === 1 && file.slots.secondary?.defId === 'wpn_hg' && Array.isArray(file.bag) && file.bag.length === snap.bag.length && Array.isArray(file.quick) && file.quick.length === 8,
-    'scav.loadout v1: slots + bag placements + 8 quick indices', JSON.stringify(file && { v: file.v, slots: Object.keys(file.slots), bag: file.bag.length, quick: file.quick }));
+    'scav.s1.loadout v1: slots + bag placements + 8 quick indices', JSON.stringify(file && { v: file.v, slots: Object.keys(file.slots), bag: file.bag.length, quick: file.quick }));
 
   /* ── 1. ship changes persist across a reload ───────────────────────── */
   console.log('ship changes → reload');
@@ -226,8 +226,8 @@ try {
   ok((await evCount('inventory:stashChanged')) > stashChangedBefore, 'inventory:stashChanged emitted');
   ok(toStash.found === 'mat_bio_sample' && toStash.inBag === null, 'findItemAnywhere finds the stash item (findItem does not)');
   await sleep(600);
-  const stashFile = await page.evaluate(() => JSON.parse(localStorage.getItem('scav.stash') ?? 'null'));
-  ok(stashFile && stashFile.items.some((e) => e.defId === 'mat_bio_sample' && e.qty === 5), 'stash persisted (scav.stash) after tryAddToStash', JSON.stringify(stashFile?.items?.length));
+  const stashFile = await page.evaluate(() => JSON.parse(localStorage.getItem('scav.s1.stash') ?? 'null'));
+  ok(stashFile && stashFile.items.some((e) => e.defId === 'mat_bio_sample' && e.qty === 5), 'stash persisted (scav.s1.stash) after tryAddToStash', JSON.stringify(stashFile?.items?.length));
   const anywhere = await page.evaluate(() => {
     const ctx = window.__game.ctx, inv = ctx.inventory;
     const first = inv.tryAddItemAnywhere(ctx.loot.createItem('gem_amber'));
@@ -438,45 +438,64 @@ try {
 
   /* ── 8. 기본 지급품 is once per **profile**, not once per stash file (2026-09-07) ────── */
   console.log('기본 지급품 grant flag');
-  // An account made before the grant existed has a `scav.stash` file (empty) and no `scav.grant` flag: the old
+  // An account made before the grant existed has a `scav.s1.stash` file (empty) and no `scav.s1.grant` flag: the old
   // `Stash.firstRun` condition skipped it forever, which is what left a "new character" with an empty 창고.
   await page.evaluate(() => {
-    localStorage.setItem('scav.stash', JSON.stringify({ v: 2, cols: 10, rows: 24, items: [] }));
-    localStorage.removeItem('scav.grant');
-    localStorage.removeItem('scav.loadout');
-    localStorage.removeItem('scav.sessionToken');     // a new relay identity: no server document to overwrite the grant
+    localStorage.setItem('scav.s1.stash', JSON.stringify({ v: 2, cols: 10, rows: 24, items: [] }));
+    localStorage.removeItem('scav.s1.grant');
+    localStorage.removeItem('scav.s1.loadout');
+    localStorage.removeItem('scav.s1.sessionToken');     // a new relay identity: no server document to overwrite the grant
   });
   await reload();
-  const retro = await page.evaluate(() => ({ n: window.__game.getSystem('inventory').getStashItems().length, flag: localStorage.getItem('scav.grant') }));
+  const retro = await page.evaluate(() => ({ n: window.__game.getSystem('inventory').getStashItems().length, flag: localStorage.getItem('scav.s1.grant') }));
   // the flag is `pending` until the server profile has been reconciled once, `done` after — either proves it was recorded
   ok(retro.n > 0 && (retro.flag === 'pending' || retro.flag === 'done'), `an existing but empty 창고 with no grant flag is granted once (${retro.n} 아이템, flag ${retro.flag})`);
   await reload();
   const again = await page.evaluate(() => window.__game.getSystem('inventory').getStashItems().length);
   ok(again === retro.n, `the grant does not repeat on the next launch (${again})`);
-  // 새 캐릭터로 시작 (2026-09-07): the title button wipes every character save but keeps the client settings
+  // 캐릭터 삭제 (2026-09-09): `새 캐릭터로 시작` 은 캐릭터 선택창 슬롯 카드의 `삭제` 가 됐다. 지우는 것은
+  // **그 슬롯 하나**(`scav.s<n>.*`)이고 공용 설정(오디오 · 키 · 화면)은 남는다. 확정은 1초 홀드다.
   const shown = await page.evaluate(() => {
     localStorage.setItem('scav.audio', '{"master":0.5}');
     localStorage.setItem('scav.keybinds', '{}');
     localStorage.setItem('scav.display', '{"bloom":false}');   // 2026-09-08: 화면 설정 is a client setting too
-    localStorage.setItem('scav.meta', '{"credits":1234}');
-    const btn = [...document.querySelectorAll('.menu.title .ui-btn')].find((b) => b.textContent === '새 캐릭터로 시작');
-    if (!btn) return { btn: false };
-    btn.click();
-    const card = document.querySelector('.menu.title .newchar-confirm');
-    return { btn: true, shown: !!card && !card.hidden, confirm: !!card?.querySelector('.ui-btn.danger'), token: localStorage.getItem('scav.sessionToken') };
+    localStorage.setItem('scav.s1.meta', '{"credits":1234}');
+    const start = [...document.querySelectorAll('.menu.title .title-actions .ui-btn')].find((b) => b.textContent === '게임 시작');
+    if (!start) return { btn: false };
+    start.click();
+    const card = document.querySelector('.char-select .cs-card:not(.empty)');
+    const del = card && [...card.querySelectorAll('.cs-actions .ui-btn.danger')].find((b) => b.textContent === '삭제');
+    if (!del) return { btn: true, del: false };
+    del.click();
+    const ask = document.querySelector('.char-select .tm-ask, .tm-ask');
+    return {
+      btn: true, del: true, shown: !!ask && !ask.hidden,
+      body: ask?.querySelector('.tm-ask-body')?.textContent ?? '',
+      hold: !!ask?.querySelector('.tm-ask-fill'),
+      token: localStorage.getItem('scav.s1.sessionToken'),
+    };
   });
-  ok(shown.btn && shown.shown && shown.confirm, '타이틀의 새 캐릭터로 시작 → 확인 카드 + 초기화 버튼', JSON.stringify(shown));
-  // pressing 초기화 clears the saves and reloads the page — drive the reload ourselves so the run stays in control
-  await page.evaluate(() => [...document.querySelectorAll('.menu.title .newchar-confirm .ui-btn')].find((b) => /초기화/.test(b.textContent)).click());
+  ok(shown.btn && shown.del && shown.shown && shown.hold && /창고|진행도/.test(shown.body),
+    '게임 시작 → 슬롯 카드의 삭제 → 무엇이 사라지는지 적힌 홀드 확정 팝업', JSON.stringify(shown));
+  // 홀드가 끝나야 지워진다 — 그냥 클릭은 아무 일도 없어야 하고, 스모크는 슬롯을 직접 지워 뒷일을 확인한다
+  const bareClick = await page.evaluate(() => {
+    document.querySelector('.tm-ask .ui-btn:last-child')?.click();
+    return localStorage.getItem('scav.s1.meta');
+  });
+  ok(bareClick === '{"credits":1234}', '맨 클릭 한 번으로는 지워지지 않는다 (1초 홀드)', String(bareClick));
+  await page.evaluate(() => {
+    // the hold gesture is covered by its own smoke; here we only need the *effect* of a confirmed delete
+    for (const k of Object.keys(localStorage)) if (k.startsWith('scav.s1.')) localStorage.removeItem(k);
+  });
   await reload();
   // (the systems write their own defaults again on the next boot, so compare the *contents*, not mere presence)
   const afterReset = await page.evaluate(() => ({
-    meta: localStorage.getItem('scav.meta'), token: localStorage.getItem('scav.sessionToken'),
+    meta: localStorage.getItem('scav.s1.meta'), token: localStorage.getItem('scav.s1.sessionToken'),
     audio: localStorage.getItem('scav.audio'), keybinds: localStorage.getItem('scav.keybinds'),
     display: localStorage.getItem('scav.display'),
     stash: window.__game.getSystem('inventory').getStashItems().length,
   }));
-  ok(!(afterReset.meta ?? '').includes('1234') && afterReset.token !== shown.token, `초기화가 캐릭터 저장과 세션 토큰을 버린다 (meta ${afterReset.meta}, 새 토큰 ${afterReset.token !== shown.token})`);
+  ok(!(afterReset.meta ?? '').includes('1234') && afterReset.token !== shown.token, `슬롯 삭제가 그 슬롯의 저장과 세션 토큰을 버린다 (meta ${afterReset.meta}, 새 토큰 ${afterReset.token !== shown.token})`);
   ok(afterReset.audio === '{"master":0.5}' && afterReset.keybinds === '{}' && afterReset.display === '{"bloom":false}',
     '오디오 · 키 설정 · 화면 설정은 캐릭터가 아니므로 남는다', JSON.stringify(afterReset));
   ok(afterReset.stash > 0, `새 캐릭터의 함선 창고에 기본 지급품이 들어 있다 (${afterReset.stash} 아이템)`);

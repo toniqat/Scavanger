@@ -9,7 +9,8 @@ import {
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
 import { damp, dampAngle, smoothstep, wrapAngle } from '@/core/util/MathUtil';
-import { SoldierModel, type SoldierPose } from './SoldierModel';
+import { activeSlot, readSlotCard } from '@/shared';
+import { SOLDIER_DEFAULT_ACCENT, SoldierModel, type SoldierPose } from './SoldierModel';
 import { CameraRig, type RigInput } from './CameraRig';
 import { PlayerController, type MoveInput, type MoveResult, type ShipBounds } from './PlayerController';
 import { Hellpod, type HellpodEvents } from './Hellpod';
@@ -29,11 +30,27 @@ import * as Stat from './parts/Statuses';
 import * as Shoulder from './parts/Shoulder';
 import * as Act from './parts/Interact';
 
+/**
+ * 로컬 캐릭터의 악센트 색 (`PlayerProfile.accent`, 캐릭터 생성창에서 고른 값) 을 숫자 hex 로.
+ *
+ * `SoldierModel` 은 악센트를 **생성자에서 굽는다**(재질이 그때 만들어진다). 그런데 이 모델은 `init(ctx)`
+ * 전에 필드 초기화로 만들어지므로 `ctx.progression` 을 볼 수 없다 — 그래서 `shared/saveSlot.readSlotCard`
+ * 로 활성 슬롯의 세이브에서 곧장 읽는다 (프로필을 읽는 시점이 시스템들과 같은 "부팅 때 한 번"이다).
+ * 세이브가 없거나 색이 없으면 기본 헬다이버 노랑. **원격 아바타는 그대로 로비 슬롯 색을 쓴다.**
+ */
+function localAccentColor(): number {
+  try {
+    const hex = readSlotCard(activeSlot()).accent;
+    if (hex && /^#[0-9a-fA-F]{6}$/.test(hex)) return Number.parseInt(hex.slice(1), 16);
+  } catch { /* storage off — 기본색으로 간다 */ }
+  return SOLDIER_DEFAULT_ACCENT;
+}
+
 export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   readonly name = 'player';
 
   ctx!: GameContext;
-  readonly model = new SoldierModel();
+  readonly model = new SoldierModel(localAccentColor());
   readonly controller = new PlayerController();
   rig!: CameraRig;
   readonly hellpod = new Hellpod();

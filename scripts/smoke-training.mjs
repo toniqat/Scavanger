@@ -8,7 +8,7 @@
 // lobby checks the shared-ship terminal entry (시작 / 합류 (n명 훈련 중) / 임무 진행 중) and the pod lock while a training runs.
 // Phase 9 `target modes`: `ctx.world.training` (TrainingRef), the mode console `training_mode` cycling 고정 → 이동 → 타임 코스
 // (`training:modeChanged`), 이동 표적 x sweep + a raycast at the moved x (hash re-bucketed), the timed course (start / `training:scored` /
-// `training:courseFinished` completed + timed-out, best in localStorage `scav.training`, `setMode` refused mid-course), the weapon rack
+// `training:courseFinished` completed + timed-out, best in localStorage `scav.s1.training`, `setMode` refused mid-course), the weapon rack
 // `training_rack` → `ui:catalogToggled {open:true}` and the catalog-granted weapon gone after the exit restore.
 // Usage: node scripts/smoke-training.mjs [http://localhost:5273/]   (needs a vite dev server; no relay needed)
 import puppeteer from 'puppeteer-core';
@@ -49,7 +49,7 @@ try {
     // 2026-09-08: 이 스크립트는 튜토리얼을 검사하지 않는다. 튜토리얼은 새 프로필에서 자동으로 시작해
     // 방 용도 · 제작 · 터미널 · 탑승을 순서대로 잠그므로, 여기서는 "이미 끝난 것"으로 표시해 둔다
     // (튜토리얼 자체는 scripts/smoke-tutorial.mjs 가 본다).
-    try { localStorage.setItem('scav.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
+    try { localStorage.setItem('scav.s1.tutorial', JSON.stringify({ version: 1, step: null, done: true })); } catch { /* storage off */ }
     Element.prototype.requestPointerLock = function () { return Promise.resolve(); };
     Document.prototype.exitPointerLock = function () {};
     const RealWS = window.WebSocket;
@@ -71,7 +71,7 @@ try {
   await waitFor(page, () => !!window.__game && !!window.__game.ctx.hub, 'boot');
   // Phase 11: a launch slot refuses boarding while the ship has no 목표 행성, so give this profile one up front
   // (the planet itself is `smoke-planets`' business; here it only has to be set so the READY-panel block can board).
-  await page.evaluate(() => { try { localStorage.removeItem('scav.ship'); localStorage.removeItem('scav.loadout'); localStorage.removeItem('scav.training'); localStorage.setItem('scav.planet', 'mossy'); } catch {} });
+  await page.evaluate(() => { try { localStorage.removeItem('scav.s1.ship'); localStorage.removeItem('scav.s1.loadout'); localStorage.removeItem('scav.s1.training'); localStorage.setItem('scav.s1.planet', 'mossy'); } catch {} });
   await page.goto(BASE, { waitUntil: 'load' });
   await waitFor(page, () => !!window.__game && !!window.__game.ctx.hub, 'boot (fresh ship state)');
   await page.evaluate(() => {
@@ -427,13 +427,13 @@ try {
       if (!h?.obstacle?.destructible) continue;
       h.obstacle.destructible.onDamage(60, h.point); knocked++;
     }
-    let best = null; try { best = JSON.parse(localStorage.getItem('scav.training')).best; } catch {}
+    let best = null; try { best = JSON.parse(localStorage.getItem('scav.s1.training')).best; } catch {}
     return { knocked, remaining: w.training.remaining, score: w.training.score, best: w.training.bestTime, stored: best };
   });
   const fin = await lastEv('training:courseFinished');
   ok(done.knocked === 9 && done.remaining === -1 && done.score === 10, `10 knock-downs end the course (knocked ${done.knocked}, remaining ${done.remaining})`);
   ok(fin && fin.completed === true && fin.score === 10 && fin.time > 0 && fin.time < 60 && fin.best === fin.time, `training:courseFinished ${JSON.stringify(fin)}`);
-  ok(done.best === fin.time && done.stored === fin.time, `best time stored in localStorage scav.training (${done.stored})`);
+  ok(done.best === fin.time && done.stored === fin.time, `best time stored in localStorage scav.s1.training (${done.stored})`);
   await waitSim(0.2);
   const p3 = await tr(() => window.__game.ctx.interactables.all().find((i) => i.id === 'training_mode').getPrompt());
   ok(p3 === '표적 모드: 타임 코스', `after a course the console cycles on (prompt "${p3}")`);
