@@ -183,6 +183,8 @@ export class InventoryUI {
     this.stashCount.className = 'inv-capacity';
     sHead.append(sTitleWrap, this.stashCount);
     this.stashView = new GridView('stash', getDef, getStats, this.tileHandlers());
+    // 2026-09-09: 튜토리얼 중에는 창고에서 그 단계의 재료 · 산출물만 보인다 (`stashItem` 게이트, 꺼져 있으면 항상 false)
+    this.stashView.setHideItem((item) => this.ctx.tutorial?.hides('stashItem', item.defId) ?? false);
     const sScroll = document.createElement('div');
     sScroll.className = 'inv-stash-scroll';
     sScroll.appendChild(this.stashView.el);
@@ -340,7 +342,8 @@ export class InventoryUI {
     // key labels follow the live bindings
     this.ctx.bus.on('input:bindingsChanged', () => { this.refreshKeyLabels(); this.emitGuide(); });
     // 2026-09-08: 튜토리얼이 감춘 화면 탭 · 레시피는 단계가 넘어가거나 건너뛰어지는 즉시 돌아온다
-    this.ctx.bus.on('tutorial:changed', () => { this.markTab(); this.refresh(); });
+    // 2026-09-09: the stash grid's `version` does not move when the 단계 does, so the hidden-item sweep is forced here
+    this.ctx.bus.on('tutorial:changed', () => { this.markTab(); this.stashView.refresh(true); this.refresh(); });
   }
 
   /** Bottom hint bar (mission): rotation / drop keys read the live bindings. */

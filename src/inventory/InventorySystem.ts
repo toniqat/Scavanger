@@ -527,7 +527,11 @@ export class InventorySystem implements GameSystem, InventoryRef {
   /** Inputs of a recipe after the workshop discount (ceil, never below 1). */
   craftCost(recipe: CraftRecipe): CraftIngredient[] { return Craft.craftCost(this, recipe); }
 
-  canCraft(recipeId: string): boolean { return Craft.canCraft(this, recipeId); }
+  /** `count` (2026-09-09, 제작 수량, default 1): every ingredient × count must be owned. */
+  canCraft(recipeId: string, count = 1): boolean { return Craft.canCraft(this, recipeId, count); }
+
+  /** 2026-09-09: the most runs the owned materials pay for (≥ 1 — 1 even when nothing is affordable); the count control's `▶` limit. */
+  maxCraftCount(recipeId: string): number { return Craft.maxCraftCount(this, recipeId); }
 
   /** Seconds the 제작 / 분해 button is held — the same `CRAFT_HOLD_TIME` for every recipe (2026-09-08). */
   craftDuration(recipeId: string): number { return Craft.craftDuration(this, recipeId); }
@@ -539,7 +543,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
   craftHasRoom(recipeId: string): boolean { return Craft.craftHasRoom(this, recipeId); }
 
   /** `targetUid` (2026-09-08): the exact stack a 분해 shreds — consumed before any other stack of the same def. */
-  craft(recipeId: string, targetUid?: string): Promise<ItemInstance | null> { return Craft.craft(this, recipeId, targetUid); }
+  /** `count` (2026-09-09): 제작 수량 — the recipe runs `count` times in one hold (inputs × count, output × count). */
+  craft(recipeId: string, targetUid?: string, count = 1): Promise<ItemInstance | null> { return Craft.craft(this, recipeId, targetUid, count); }
 
   /** Abort the running craft (releasing the hold button, closing the panel, dying). */
   cancelCraft(): boolean { return Craft.cancelCraft(this); }

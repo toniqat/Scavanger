@@ -153,6 +153,14 @@ export const TEXT = {
   craftNone: '지금 만들 수 있는 레시피가 없습니다',
   craftHold: '길게 눌러 제작',
   craftMaking: '제작 중…',
+  /* 제작 수량 (2026-09-09) — `◀ 90 ▶` 위의 라벨과 화살표 버튼의 접근성 이름. */
+  craftCount: {
+    label: '제작 수량',
+    less: '수량 줄이기',
+    more: '수량 늘리기',
+    /** 버튼 · 컨트롤의 `title` — 휠로도 조절된다는 것을 알려 준다. */
+    hint: '휠 또는 좌우 버튼으로 조절',
+  },
   craftStationShip: '함선 작업대',
   craftStationField: '야전 제작',
   socketEmpty: '비어 있음',

@@ -184,12 +184,32 @@ export function craftCost(sys: InventorySystem, recipe: CraftRecipe): CraftIngre
   return recipe.inputs.map((i) => ({ defId: i.defId, qty: Math.max(1, Math.ceil(i.qty * mul - 1e-9)) }));
   }
 
-export function canCraft(sys: InventorySystem, recipeId: string): boolean {
+/** `count` (2026-09-09, 제작 수량): every ingredient × `count` must be owned. */
+export function canCraft(sys: InventorySystem, recipeId: string, count = 1): boolean {
   const r = getRecipe(recipeId);
   if (!r) return false;
+  const n = normCount(count);
   // 2026-09-08: 튜토리얼이 순서를 강제하는 동안에는 그 단계의 레시피만 (꺼져 있으면 언제나 null)
   if (sys.ctx.tutorial?.blockReason('craft', recipeId)) return false;
-  return sys.craftCost(r).every((i) => sys.countDef(i.defId) >= i.qty);
+  return sys.craftCost(r).every((i) => sys.countDef(i.defId) >= i.qty * n);
+  }
+
+/** `count` as the job stores it: an integer ≥ 1 (NaN / 0 / negatives read as 1). */
+function normCount(count: number | undefined): number {
+  return Number.isFinite(count) ? Math.max(1, Math.floor(count as number)) : 1;
+}
+
+/**
+ * 2026-09-09 (제작 수량) — the most runs of `recipeId` the owned materials pay for, **≥ 1** (the UI's `▶` limit:
+ * when not even one run is affordable it still reads 1 and the hold button stays disabled through `canCraft`).
+ * Materials only — bag space is checked when the hold ends, like a single run.
+ */
+export function maxCraftCount(sys: InventorySystem, recipeId: string): number {
+  const r = getRecipe(recipeId);
+  if (!r) return 1;
+  let max = Infinity;
+  for (const i of sys.craftCost(r)) max = Math.min(max, Math.floor(sys.countDef(i.defId) / Math.max(1, i.qty)));
+  return Number.isFinite(max) ? Math.max(1, max) : 1;
   }
 
 /**
@@ -201,15 +221,58 @@ export function canCraft(sys: InventorySystem, recipeId: string): boolean {
  */
 export function craftHasRoom(sys: InventorySystem, recipeId: string): boolean {
   const r = getRecipe(recipeId);
-  const outDef = r ? ITEM_DEF_MAP.get(r.outputDefId) : undefined;
-  if (!r || !outDef) return false;
-  if (!sys.bag.canAbsorb(sys.loot.createItem(r.outputDefId, Math.min(outDef.stackMax, r.outputQty)))) return false;
-  for (const e of r.extraOutputs ?? []) {
-    const def = ITEM_DEF_MAP.get(e.defId);
-    if (!def || !sys.bag.canAbsorb(sys.loot.createItem(e.defId, Math.min(def.stackMax, e.qty)))) return false;
+  return !!r && roomForOutputs(sys, r, 1);
+  }
+
+/**
+ * 2026-09-09 (제작 수량) — can the bag take **everything** `count` runs of `recipe` produce (output + `extraOutputs`)?
+ * A dry run of exactly what `addUnits` will do: merge into the existing stacks of each def first, then drop the
+ * rest as ≤ `stackMax` chunks into the first free rectangle scanning rows top-down / left-right (both orientations of a
+ * non-square footprint), on a scratch occupancy map so earlier chunks block later ones. Because the scan order is the
+ * `Grid.findFreeSlot` order, a `true` here means the real placement succeeds — nothing is consumed when it would not.
+ */
+function roomForOutputs(sys: InventorySystem, recipe: CraftRecipe, count: number): boolean {
+  const bag = sys.bag;
+  const cols = bag.cols, rows = bag.rows;
+  const occ = new Uint8Array(cols * rows);
+  const mark = (x: number, y: number, w: number, h: number): void => {
+    for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) occ[yy * cols + xx] = 1;
+  };
+  for (const p of bag.items()) { const fp = bag.footprintOf(p.item); mark(p.x, p.y, fp.w, fp.h); }
+  const fits = (x: number, y: number, w: number, h: number): boolean => {
+    if (x + w > cols || y + h > rows) return false;
+    for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) if (occ[yy * cols + xx]) return false;
+    return true;
+  };
+  const place = (def: ItemDef): boolean => {
+    const shapes = def.width !== def.height ? [[def.width, def.height], [def.height, def.width]] : [[def.width, def.height]];
+    for (const [w, h] of shapes) {
+      for (let y = 0; y + h <= rows; y++) for (let x = 0; x + w <= cols; x++) {
+        if (fits(x, y, w, h)) { mark(x, y, w, h); return true; }
+      }
+    }
+    return false;
+  };
+  // one merge budget per def — the same def may appear as output *and* extra, and the budget is spent once
+  const merge = new Map<string, number>();
+  const outputs = [{ defId: recipe.outputDefId, qty: recipe.outputQty }, ...(recipe.extraOutputs ?? [])];
+  for (const o of outputs) {
+    const def = ITEM_DEF_MAP.get(o.defId);
+    if (!def) return false;
+    let left = Math.max(0, Math.floor(o.qty * count));
+    if (def.stackMax > 1) {
+      const cap = merge.get(def.id) ?? bag.mergeCapacity(def.id);
+      const used = Math.min(cap, left);
+      merge.set(def.id, cap - used);
+      left -= used;
+    }
+    while (left > 0) {
+      left -= Math.min(def.stackMax, left);
+      if (!place(def)) return false;
+    }
   }
   return true;
-  }
+}
 
 /**
  * Seconds the 제작 / 분해 button must be held — **always `CRAFT_HOLD_TIME`** (2026-09-08).
@@ -227,18 +290,20 @@ export function craftDuration(sys: InventorySystem, recipeId: string): number {
  * `targetUid` (2026-09-08): the exact stack the 분해 dialog was opened on — consumed first so clicking a specific
  * weapon shreds *that* one. Ordinary crafts pass nothing and keep the old `consumeDef` behaviour.
  */
-export function craft(sys: InventorySystem, recipeId: string, targetUid?: string): Promise<ItemInstance | null> {
+export function craft(sys: InventorySystem, recipeId: string, targetUid?: string, count = 1): Promise<ItemInstance | null> {
   const r = getRecipe(recipeId);
   if (!r) return Promise.resolve(null);
+  const n = normCount(count);
   sys.cancelCraft();
-  if (sys.availableRecipes().indexOf(r) < 0 || !sys.canCraft(recipeId)) {
+  if (sys.availableRecipes().indexOf(r) < 0 || !sys.canCraft(recipeId, n)) {
     sys.ctx.bus.emit('craft:failed', { recipeId, reason: 'missing' });
     return Promise.resolve(null);
   }
   const duration = sys.craftDuration(recipeId);
-  sys.ctx.bus.emit('craft:started', { recipeId, duration });
+  // 2026-09-09: `count` (제작 수량) rides along — the hold is still one `CRAFT_HOLD_TIME`, however many runs it buys
+  sys.ctx.bus.emit('craft:started', { recipeId, duration, count: n });
   return new Promise<ItemInstance | null>((resolve) => {
-    sys.craftJob = { recipe: r, remaining: duration, duration, resolve, targetUid };
+    sys.craftJob = { recipe: r, remaining: duration, duration, resolve, targetUid, count: n };
   });
   }
 
@@ -280,19 +345,18 @@ export function updateCraft(sys: InventorySystem, dt: number): void {
   if (job.remaining > 0) { sys.ui?.refreshCraft(); return; }
   sys.craftJob = null;
   const r = job.recipe;
+  const count = normCount(job.count);
   const outDef = ITEM_DEF_MAP.get(r.outputDefId);
-  if (!sys.canCraft(r.id) || !outDef) {
+  if (!sys.canCraft(r.id, count) || !outDef) {
     sys.ctx.bus.emit('craft:failed', { recipeId: r.id, reason: 'missing' });
     job.resolve(null);
     sys.ui?.refreshCraft();
     return;
   }
-  const product = sys.loot.createItem(r.outputDefId, Math.min(outDef.stackMax, r.outputQty));
-  // 2026-09-08: `extraOutputs` (기계 부품 분해) must fit too — checked before anything is consumed
-  const extras = (r.extraOutputs ?? []).map((e) => ({ ...e, def: ITEM_DEF_MAP.get(e.defId) }));
-  const roomForExtras = extras.every((e) =>
-    !!e.def && sys.bag.canAbsorb(sys.loot.createItem(e.defId, Math.min(e.def.stackMax, e.qty))));
-  if (!sys.bag.canAbsorb(product) || !roomForExtras) {
+  // 2026-09-08: `extraOutputs` (기계 부품 분해) must fit too — checked before anything is consumed.
+  // 2026-09-09: the check covers the **whole batch** (output × count + extras × count, `roomForOutputs`) — a 3-run
+  //   준중량탄 hold that has room for one stack of 90 but not for 270 fails here, before a single 화약 is spent.
+  if (!roomForOutputs(sys, r, count)) {
     sys.ctx.bus.emit('craft:failed', { recipeId: r.id, reason: 'space' });
     sys.ctx.bus.emit('ui:notify', { text: '가방에 공간이 없습니다', kind: 'warning' });
     job.resolve(null);
@@ -301,12 +365,15 @@ export function updateCraft(sys: InventorySystem, dt: number): void {
   }
   // 무기 분해 (2026-09-08): socketed attachments are worth more than the plate — they come back before the gun goes
   if (job.targetUid && isDisassembleRecipe(r)) sys.detachAllSockets(job.targetUid);
-  for (const i of sys.craftCost(r)) consumeFor(sys, i.defId, i.qty, job.targetUid);
-  const made = sys.addUnits(r.outputDefId, r.outputQty);
-  for (const e of extras) sys.addUnits(e.defId, e.qty);
-  const first = made[0] ?? product;
+  for (const i of sys.craftCost(r)) consumeFor(sys, i.defId, i.qty * count, job.targetUid);
+  // `addUnits` merges into existing stacks first and then chunks the rest by `stackMax`, so 270 rounds become
+  // however many ≤ 50-round stacks the bag needs; its return value is the *overflow* (empty when everything landed)
+  sys.addUnits(r.outputDefId, r.outputQty * count);
+  for (const e of r.extraOutputs ?? []) sys.addUnits(e.defId, e.qty * count);
+  const first = sys.bag.items().find((p) => p.item.defId === r.outputDefId)?.item
+    ?? sys.loot.createItem(r.outputDefId, Math.min(outDef.stackMax, r.outputQty));
   sys.ctx.bus.emit('inventory:itemAdded', { item: first, name: outDef.name, rarity: outDef.rarity });
-  sys.ctx.bus.emit('craft:completed', { recipeId: r.id, item: first });
+  sys.ctx.bus.emit('craft:completed', { recipeId: r.id, item: first, count });
   sys.ctx.bus.emit('audio:play', { id: 'craft_done' });
   sys.afterChange();
   sys.ui?.refreshCraft();

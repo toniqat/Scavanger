@@ -759,6 +759,136 @@ try {
   ok(partial.open && !partial.catalog && !partial.panel, 'closeCatalog hides only the catalog panel');
   await tap('Tab');
   await waitFor(page, () => !window.__game.ctx.inventory.isOpen, 'closed (mission)');
+
+  /* ── 7. 제작 UI 2차 (2026-09-09): 썸네일 · `이름 ×n` · 설명 줄 없음 · 제작 수량 ──
+     Last on purpose: it fills the bag with its own materials and really crafts, so nothing after it could be
+     confused by the leftovers. A fresh page puts the profile's bag back, and 작업대 needs a hub phase. */
+  console.log('제작 수량');
+  await page.goto(BASE, { waitUntil: 'load' });
+  await waitFor(page, () => !!window.__game && !!window.__game.ctx.inventory, 'boot (제작 수량)');
+  await install();
+  await page.evaluate(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
+  await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub', 40000);
+  await sleep(400);
+  const RID = 'make_ammo_medium';
+  // materials go in the **bag** — `canCraft` / `maxCraftCount` spend the bag, not the 함선 창고
+  const stocked = await page.evaluate((id) => {
+    const ctx = window.__game.ctx, sys = window.__game.getSystem('inventory');
+    const recipe = ctx.loot.getAllRecipes().find((r) => r.id === id);
+    const added = [];
+    for (const c of sys.craftCost(recipe)) {
+      for (let i = 0; i < 4; i++) added.push(ctx.inventory.tryAddItem(ctx.loot.createItem(c.defId, c.qty * 2)));
+    }
+    ctx.inventory.openBenchCraft('gun', 2);
+    return { added, max: sys.maxCraftCount(id) };
+  }, RID);
+  await sleep(350);
+  ok(stocked.max >= 3, `재료를 채우면 3회 이상 만들 수 있다 (max ${stocked.max})`, JSON.stringify(stocked));
+
+  const rowLook = await page.evaluate((id) => {
+    const row = document.querySelector(`.inv-craft-row[data-recipe="${id}"]`);
+    if (!row) return { missing: true };
+    const thumb = row.querySelector('.inv-craft-thumb');
+    const tile = thumb?.querySelector('.inv-tile');
+    const def = window.__game.ctx.loot.getItemDef(thumb?.dataset.defId ?? '');
+    const recipe = window.__game.ctx.loot.getAllRecipes().find((r) => r.id === id);
+    return {
+      name: row.querySelector('.inv-craft-name')?.textContent ?? '',
+      expect: def && recipe ? `${def.name} \u00d7${recipe.outputQty}` : null,
+      hasTile: !!tile, tipHook: thumb?.dataset.itemTip !== undefined && !!thumb?.dataset.defId,
+      w: tile ? parseInt(tile.style.width, 10) : -1, h: tile ? parseInt(tile.style.height, 10) : -1,
+      defW: def?.width, defH: def?.height,
+      desc: !!row.querySelector('.inv-craft-desc'),
+      stepper: !!row.querySelector('.inv-craft-count') && row.querySelectorAll('.inv-craft-step').length === 2,
+      count: row.querySelector('.inv-craft-count-v')?.textContent,
+    };
+  }, RID);
+  ok(!rowLook.missing && rowLook.hasTile && rowLook.tipHook,
+    '제작 행이 산출물을 인벤토리 타일로 그리고 툴팁 훅(data-item-tip)을 단다', JSON.stringify(rowLook));
+  ok(rowLook.w === rowLook.defW * 54 && rowLook.h === rowLook.defH * 54,
+    `썸네일이 격자 칸 크기다 (${rowLook.defW}\u00d7${rowLook.defH} 칸 → ${rowLook.w}\u00d7${rowLook.h} px)`);
+  ok(rowLook.name === rowLook.expect, `행 제목이 '산출물 \u00d7n' 이다 ("${rowLook.name}")`);
+  ok(!rowLook.desc, '레시피 설명 줄이 사라졌다');
+  ok(rowLook.stepper && rowLook.count === '1', '제작 수량 스테퍼가 1 에서 시작한다');
+
+  const stepped = await page.evaluate((id) => {
+    const row = document.querySelector(`.inv-craft-row[data-recipe="${id}"]`);
+    const before = [...row.querySelectorAll('.item-chip-need')].map((n) => Number(n.textContent));
+    const more = row.querySelectorAll('.inv-craft-step')[1];
+    more.click(); more.click();
+    return { before };
+  }, RID);
+  await sleep(250);
+  const after3 = await page.evaluate((id) => {
+    const row = document.querySelector(`.inv-craft-row[data-recipe="${id}"]`);
+    const recipe = window.__game.ctx.loot.getAllRecipes().find((r) => r.id === id);
+    const def = window.__game.ctx.loot.getItemDef(recipe.outputDefId);
+    return {
+      count: row.querySelector('.inv-craft-count-v')?.textContent,
+      need: [...row.querySelectorAll('.item-chip-need')].map((n) => Number(n.textContent)),
+      name: row.querySelector('.inv-craft-name')?.textContent,
+      expect: `${def.name} \u00d7${recipe.outputQty * 3}`,
+    };
+  }, RID);
+  ok(after3.count === '3' && after3.need.length === stepped.before.length
+    && after3.need.every((n, i) => n === stepped.before[i] * 3),
+    `\u25b6 두 번 → 수량 3, 재료 필요량도 3배 (${stepped.before.join('/')} → ${after3.need.join('/')})`);
+  ok(after3.name === after3.expect, `제목이 총량을 따라간다 ("${after3.name}")`);
+
+  const batch = await page.evaluate(async (id) => {
+    const ctx = window.__game.ctx, sys = window.__game.getSystem('inventory');
+    const recipe = ctx.loot.getAllRecipes().find((r) => r.id === id);
+    const cost = sys.craftCost(recipe);
+    const before = cost.map((c) => sys.countDef(c.defId));
+    const outBefore = sys.countDef(recipe.outputDefId);
+    const started = [];
+    const off = ctx.bus.on('craft:started', (p) => started.push(p));
+    const done = new Promise((res) => { const o = ctx.bus.on('craft:completed', (p) => { o(); res(p); }); });
+    void sys.craft(id, undefined, 3);
+    const ev = await Promise.race([done, new Promise((r) => setTimeout(() => r(null), 5000))]);
+    off();
+    return {
+      started: started[0] ?? null, completed: ev ? { recipeId: ev.recipeId, count: ev.count } : null,
+      spent: cost.map((c, i) => before[i] - sys.countDef(c.defId)), need: cost.map((c) => c.qty * 3),
+      made: sys.countDef(recipe.outputDefId) - outBefore, expectMade: recipe.outputQty * 3,
+    };
+  }, RID);
+  ok(batch.started?.count === 3, `craft:started 가 수량을 싣는다 (${JSON.stringify(batch.started)})`);
+  ok(batch.completed?.count === 3, `craft:completed 가 수량을 싣는다 (${JSON.stringify(batch.completed)})`);
+  ok(batch.spent.every((v, i) => v === batch.need[i]), `재료가 3배로 빠진다 (${batch.spent.join('/')} = ${batch.need.join('/')})`);
+  ok(batch.made === batch.expectMade, `한 번의 홀드로 산출물도 3배 (${batch.made} = ${batch.expectMade})`);
+  await page.evaluate(() => window.__game.ctx.inventory.closeAll());
+  await sleep(150);
+
+  /* ── 8. 창고는 `hides('stashItem', defId)` 가 막는 아이템을 그리지 않는다 (2026-09-09) ── */
+  const stashHide = await page.evaluate(async () => {
+    const ctx = window.__game.ctx, sys = window.__game.getSystem('inventory');
+    const first = [...sys.getStash().items()][0];
+    if (!first) return { skip: true };
+    const uid = first.item.uid, defId = first.item.defId;
+    const real = ctx.tutorial;
+    // only what the grid asks for; the real gate is covered by smoke-tutorial
+    ctx.tutorial = { active: true, step: 'craftAmmo', stepIndex: 1, stepCount: 18,
+      blockReason: () => null, hides: (gate, id) => gate === 'stashItem' && id === defId,
+      start: () => false, skip: () => {}, goto: () => false };
+    ctx.bus.emit('tutorial:changed', { active: true, step: 'craftAmmo', index: 1, count: 18 });
+    ctx.inventory.openScreen('inventory');
+    await new Promise((r) => setTimeout(r, 300));
+    const hidden = !document.querySelector(`.inv-grid-stash [data-uid="${uid}"]`);
+    const inGrid = [...sys.getStash().items()].some((p) => p.item.uid === uid);
+    ctx.tutorial = real;
+    ctx.bus.emit('tutorial:changed', { active: false, step: null, index: 0, count: 18 });
+    await new Promise((r) => setTimeout(r, 300));
+    const back = !!document.querySelector(`.inv-grid-stash [data-uid="${uid}"]`);
+    ctx.inventory.closeAll();
+    return { hidden, inGrid, back, defId };
+  });
+  if (stashHide.skip) ok(true, '창고가 비어 있어 stashItem 숨김은 건너뛴다');
+  else {
+    ok(stashHide.hidden && stashHide.inGrid,
+      `튜토리얼이 막는 창고 아이템은 그려지지 않는다 — 격자 데이터는 그대로 (${stashHide.defId})`, JSON.stringify(stashHide));
+    ok(stashHide.back, '튜토리얼이 끝나면 그 자리에 다시 나타난다');
+  }
 } catch (e) {
   fail++;
   console.log(`  FAIL exception: ${e && e.stack ? e.stack : e}`);

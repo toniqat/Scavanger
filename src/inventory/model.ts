@@ -129,6 +129,9 @@ export interface CraftJob {
    * goes. undefined for an ordinary craft.
    */
   targetUid?: string;
+  /* appended (2026-09-09): 제작 수량 */
+  /** How many times the recipe runs in this one hold (≥ 1): inputs × count are consumed, output × count is made. */
+  count: number;
 }
 
 /**

@@ -221,6 +221,12 @@ export class GridView {
   private vanishUids = new Set<string>();
   /** Tiles currently animating out → their removal timer. */
   private vanishing = new Map<HTMLElement, number>();
+  /**
+   * 2026-09-09: items this view must **not draw** although they sit in the grid (no tile → no hover, no press, no
+   * drag, no menu). The stash view answers with `ctx.tutorial.hides('stashItem', defId)` so the guided steps show only
+   * the tutorial's own materials; the data is untouched and the tiles come back on the next forced refresh.
+   */
+  private hideItem: ((item: ItemInstance) => boolean) | null = null;
 
   /** Cell edge / cell pitch of this grid in px. Only the 기업 거래 desk passes anything but the default. */
   private readonly cell: number;
@@ -244,6 +250,12 @@ export class GridView {
   }
 
   get current(): Grid | null { return this.grid; }
+
+  /** Predicate for items to leave undrawn (see `hideItem`); null shows everything. Re-renders at once. */
+  setHideItem(fn: ((item: ItemInstance) => boolean) | null): void {
+    this.hideItem = fn;
+    this.refresh(true);
+  }
 
   setGrid(grid: Grid | null): void {
     this.grid = grid;
@@ -281,6 +293,7 @@ export class GridView {
     for (const p of grid.items()) {
       const def = this.getDef(p.item.defId);
       if (!def) continue;
+      if (this.hideItem?.(p.item)) continue; // not in `seen` → an existing tile is swept away below
       seen.add(p.item.uid);
       let el = this.tiles.get(p.item.uid);
       const fp = grid.footprintOf(p.item);

@@ -1,7 +1,8 @@
 import type { CraftRecipe, ItemDef } from '@/shared';
 import { WORKBENCH_LABEL_KO, renderItemCost } from '@/shared';
 import type { BenchRecipeRow, InventorySystem } from '../InventorySystem';
-import { TEXT } from './labels';
+import { buildTileContent } from './GridView';
+import { CELL, TEXT } from './labels';
 
 interface RowView {
   recipe: CraftRecipe;
@@ -12,6 +13,15 @@ interface RowView {
   inputsEl: HTMLElement;
   button: HTMLButtonElement;
   fill: HTMLElement;
+  /* 2026-09-09 (제작 수량) */
+  /** Runs of the recipe one hold buys (≥ 1). Reset to 1 whenever the row list is rebuilt. */
+  count: number;
+  /** `산출물 이름 ×n` — repainted when the count changes. */
+  nameEl: HTMLElement;
+  /** The `◀ n ▶` readout in the middle of the stepper. */
+  countEl: HTMLElement;
+  lessBtn: HTMLButtonElement;
+  moreBtn: HTMLButtonElement;
 }
 
 /**
@@ -37,6 +47,18 @@ interface RowView {
  *    `RepairPanel`; a single item is repaired from its right-click menu.
  *  - While the panel is open the window hides 장착 장비 · 퀵슬롯 · 화면 탭 · 가방 헤더의 제작/가치
  *    (`.inv-root.is-craft`, see `parts/Screens.setCraftOpen`) — none of it has anything to do with a recipe list.
+ *
+ * **2026-09-09 (제작 UI 2차)** — the row is about the **thing being made**, not about the recipe:
+ *  - The output is drawn as the **inventory tile it will become** (`buildTileContent` at the grid's own `CELL`), so a
+ *    4×2 돌격소총 is a 4×2 tile and a 준중량탄 stack a single cell with its count. The thumbnail carries
+ *    `data-item-tip` + `data-def-id`, the hook `ui/hud/ItemTip` delegates on — hovering it shows the usual item card.
+ *  - The title is `산출물 이름 ×n` (`준중량탄 ×90`); the recipe's own name and its description line are **gone**.
+ *  - A **제작 수량** stepper sits above the hold button: `◀ n ▶`, and the wheel over it steps too, capped by
+ *    `sys.maxCraftCount(id)` (what the materials pay for). The material chips and the hold both scale with it, so one
+ *    hold makes `outputQty × count` — 준중량탄 90 → 180 → 270. The unit is the recipe's own `outputQty`
+ *    (사용자 결정 2026-09-09), never a re-derived stack size.
+ *  - The 키 가이드 line for the panel is empty now (`parts/Screens.setCraftOpen`): the button already reads
+ *    `길게 눌러 제작`, so `1초 홀드 — 제작` was the same sentence twice.
  *
  * **2026-09-08 (튜토리얼)**: a recipe `ctx.tutorial.hides('craft', id)` refuses is **left out of the list** rather
  * than drawn with a "튜토리얼에서는 ~" reason — during the guided steps the bench shows exactly the one recipe the
@@ -160,12 +182,33 @@ export class CraftPanel {
       row.dataset.recipe = recipe.id;
       if (locked) row.classList.add('is-bench-locked');
 
+      const out = this.getDef(recipe.outputDefId);
+
+      /* ── 산출물 썸네일: the tile this will become, at the grid's own cell size ── */
+      const thumb = document.createElement('div');
+      thumb.className = 'inv-craft-thumb';
+      if (out) {
+        // `data-item-tip` + `data-def-id` is what `ui/hud/ItemTip` delegates on — the same hover card the cost chips
+        // and the 기업 거래 tiles get. The tile itself is inert: no drag, no context menu, no handlers.
+        thumb.dataset.itemTip = '';
+        thumb.dataset.defId = out.id;
+        const tile = document.createElement('div');
+        const item = this.sys.loot.createItem(out.id, Math.min(out.stackMax, recipe.outputQty));
+        buildTileContent(tile, item, out, out.width, out.height, null, CELL);
+        thumb.appendChild(tile);
+        // A stacking def draws its own count; one that does not stack but is made in twos needs the badge.
+        if (out.stackMax <= 1 && recipe.outputQty > 1) {
+          const badge = document.createElement('div');
+          badge.className = 'inv-craft-thumb-qty';
+          badge.textContent = `×${recipe.outputQty}`;
+          thumb.appendChild(badge);
+        }
+      }
+
       const info = document.createElement('div');
       info.className = 'inv-craft-info';
       const name = document.createElement('div');
       name.className = 'inv-craft-name';
-      const out = this.getDef(recipe.outputDefId);
-      name.textContent = out ? `${recipe.name} → ${out.name} ×${recipe.outputQty}` : recipe.name;
       if (locked) {
         const tag = document.createElement('span');
         tag.className = 'inv-craft-locktag';
@@ -177,10 +220,28 @@ export class CraftPanel {
       const costs = document.createElement('div');
       costs.className = 'inv-craft-costs';
       inputs.appendChild(costs);
-      const desc = document.createElement('div');
-      desc.className = 'inv-craft-desc';
-      desc.textContent = recipe.description;
-      info.append(name, inputs, desc);
+      // 2026-09-09: the `.inv-craft-desc` line is gone — the thumbnail and the title say what this makes.
+      info.append(name, inputs);
+
+      /* ── 제작 수량 스테퍼 + 홀드 버튼 ── */
+      const act = document.createElement('div');
+      act.className = 'inv-craft-act';
+      const stepper = document.createElement('div');
+      stepper.className = 'inv-craft-count';
+      stepper.title = TEXT.craftCount.hint;
+      const lessBtn = document.createElement('button');
+      lessBtn.type = 'button';
+      lessBtn.className = 'inv-craft-step';
+      lessBtn.textContent = '\u25c0';
+      lessBtn.title = TEXT.craftCount.less;
+      const countEl = document.createElement('span');
+      countEl.className = 'inv-craft-count-v';
+      const moreBtn = document.createElement('button');
+      moreBtn.type = 'button';
+      moreBtn.className = 'inv-craft-step';
+      moreBtn.textContent = '\u25b6';
+      moreBtn.title = TEXT.craftCount.more;
+      stepper.append(lessBtn, countEl, moreBtn);
 
       const button = document.createElement('button');
       button.type = 'button';
@@ -190,7 +251,14 @@ export class CraftPanel {
       const label = document.createElement('span');
       label.textContent = TEXT.craftHold;
       button.append(fill, label);
-      if (locked) button.disabled = true;
+      act.append(stepper, button);
+
+      const view: RowView = {
+        recipe, locked, el: row, costsEl: costs, inputsEl: inputs, button, fill,
+        count: 1, nameEl: name, countEl, lessBtn, moreBtn,
+      };
+
+      if (locked) { button.disabled = true; lessBtn.disabled = true; moreBtn.disabled = true; }
       else {
         button.addEventListener('pointerdown', (e) => {
           if (e.button !== 0) return;
@@ -198,27 +266,71 @@ export class CraftPanel {
           this.press(recipe.id);
         });
         button.addEventListener('pointerleave', () => this.release());
+        lessBtn.addEventListener('click', (e) => { e.stopPropagation(); this.step(view, -1); });
+        moreBtn.addEventListener('click', (e) => { e.stopPropagation(); this.step(view, 1); });
+        // Non-passive: the list underneath must not scroll while the wheel is spending itself on the count.
+        stepper.addEventListener('wheel', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          this.step(view, e.deltaY < 0 ? 1 : -1);
+        }, { passive: false });
       }
 
-      row.append(info, button);
+      row.append(thumb, info, act);
       this.listEl.appendChild(row);
-      this.rows.push({ recipe, locked, el: row, costsEl: costs, inputsEl: inputs, button, fill });
+      this.rows.push(view);
     }
+  }
+
+  /**
+   * 2026-09-09 — move a row's 제작 수량 by `dir`, clamped to 1 … `maxCraftCount` (what the owned materials pay for).
+   * A running craft owns the count it started with, so the stepper is inert while that row is holding.
+   */
+  private step(row: RowView, dir: number): void {
+    if (row.locked || this.holding === row.recipe.id) return;
+    const max = Math.max(1, this.sys.maxCraftCount(row.recipe.id));
+    const next = Math.max(1, Math.min(max, row.count + dir));
+    if (next === row.count) return;
+    row.count = next;
+    this.sys.sfx('ui_pickup');
+    this.paint();
   }
 
   private paint(): void {
     const job = this.sys.craftProgress();
     for (const row of this.rows) {
-      const ok = !row.locked && this.sys.canCraft(row.recipe.id);
-      row.el.classList.toggle('is-locked', !ok);
-      row.button.disabled = row.locked || (!ok && job?.recipeId !== row.recipe.id);
+      const active = job?.recipeId === row.recipe.id;
+      // 2026-09-09 (제작 수량): the count is clamped on every paint — spending materials elsewhere (or a craft that
+      // just consumed its own) lowers the ceiling, and a stale `n` would then only fail at the end of the hold.
+      // A running row keeps the count it started with.
+      const max = Math.max(1, this.sys.maxCraftCount(row.recipe.id));
+      if (!active && row.count > max) row.count = max;
+      const n = row.count;
 
-      // Phase 8: thumbnail chips with 보유/필요 at the bottom right (dimmed + red 보유 when short)
-      renderItemCost(row.costsEl, this.sys.craftCost(row.recipe), this.getDef, (id) => this.sys.countWhere((d) => d.id === id), { size: 30 });
+      const ok = !row.locked && this.sys.canCraft(row.recipe.id, n);
+      row.el.classList.toggle('is-locked', !ok);
+      row.button.disabled = row.locked || (!ok && !active);
+
+      const out = this.getDef(row.recipe.outputDefId);
+      const total = row.recipe.outputQty * n;
+      // `산출물 이름 ×n` (2026-09-09) — the recipe's own name is not shown any more. The lock tag, when there is one,
+      // is the element's only child, so the text goes in front of it rather than through `textContent`.
+      const title = out ? `${out.name} \u00d7${total}` : row.recipe.name;
+      if (row.nameEl.firstChild?.nodeType === Node.TEXT_NODE) row.nameEl.firstChild.nodeValue = title;
+      else row.nameEl.insertBefore(document.createTextNode(title), row.nameEl.firstChild);
+
+      row.countEl.textContent = String(n);
+      row.el.classList.toggle('is-multi', n > 1);
+      row.lessBtn.disabled = row.locked || active || n <= 1;
+      row.moreBtn.disabled = row.locked || active || n >= max;
+
+      // Phase 8: thumbnail chips with 보유/필요 at the bottom right (dimmed + red 보유 when short).
+      // 2026-09-09: 필요 is the recipe's cost × the 제작 수량, so the chips answer the button that is about to be held.
+      const cost = this.sys.craftCost(row.recipe).map((i) => ({ defId: i.defId, qty: i.qty * n }));
+      renderItemCost(row.costsEl, cost, this.getDef, (id) => this.sys.countWhere((d) => d.id === id), { size: 30 });
       // 2026-09-08: the `2.0 s` 시간 칩 is gone — every recipe holds for the same `CRAFT_HOLD_TIME` now, so there was
       //   nothing left to tell apart. The button's own fill is the readout.
 
-      const active = job?.recipeId === row.recipe.id;
       row.el.classList.toggle('is-crafting', active);
       row.fill.style.width = active ? `${Math.round(job!.progress * 100)}%` : '0%';
       const label = row.button.querySelector('span');
@@ -233,7 +345,10 @@ export class CraftPanel {
     this.holding = recipeId;
     window.addEventListener('pointerup', this.onWindowUp);
     window.addEventListener('pointercancel', this.onWindowUp);
-    void this.sys.craft(recipeId).then(() => {
+    // 2026-09-09: the hold buys `count` runs at once (`InventoryRef.craft(id, targetUid?, count)`) — still one
+    // `CRAFT_HOLD_TIME`, however many runs it pays for.
+    const count = this.rows.find((r) => r.recipe.id === recipeId)?.count ?? 1;
+    void this.sys.craft(recipeId, undefined, count).then(() => {
       if (this.holding === recipeId) this.release();
       this.refresh();
     });

@@ -164,8 +164,9 @@ export function setCraftOpen(sys: InventoryUI, open: boolean): void {
   sys.layout?.classList.toggle('is-craft', open);
   sys.root?.classList.toggle('is-craft', open);
   if (open) sys.craftPanel.refresh();
-  // 2026-09-09 키 가이드: the 제작 열 is its own owner over the window's line — every recipe is a 1 s hold on its button
-  if (was !== open) sys.ctx.bus.emit('ui:keyGuide', { owner: 'inventory.craft', keys: open ? [{ key: '1초 홀드', label: '제작' }] : null });
+  // 2026-09-09 키 가이드: the 제작 열 is its own owner over the window's line. Mouse only — the hold button says what it
+  //   is, so the line carries no keys of its own (the guide appends `Tab 닫기` itself).
+  if (was !== open) sys.ctx.bus.emit('ui:keyGuide', { owner: 'inventory.craft', keys: open ? [] : null });
   }
 
 /** The panel's 닫기 button / Escape / an outside click: leave the bench too when one is active. */

@@ -1,4 +1,6 @@
 /* ─── SCAVANGER inventory — Arc Raiders-inspired panels over a Diablo grid ─── */
+/* 스크롤바 (2026-09-09): 색은 `ui/styles/base.css` 의 `--sb-thumb` / `--sb-track` 하나뿐이다. 이 파일은 그
+   스타일시트를 import 하지 않으므로 fallback 을 함께 적는다 — 값이 바뀌면 base.css 쪽만 고친다. */
 
 .inv-root {
   --inv-cell: 54px;
@@ -932,13 +934,44 @@ kbd {
 .inv-panel-craft { min-width: 340px; max-width: 380px; }
 .inv-craft-list { display: flex; flex-direction: column; gap: 8px; max-height: 520px; overflow-y: auto; padding-right: 4px; }
 .inv-craft-empty { color: var(--inv-muted); font-size: 12px; padding: 12px 2px; }
+/* 2026-09-09 (제작 UI 2차): 썸네일 · 정보 · (수량 + 홀드) 세 칸. 썸네일은 인벤토리 격자 타일 그대로라 4×2 소총이면
+   실제로 4×2 크기다 — 행 높이가 레시피마다 다른 것은 의도한 것이다. `align-items: flex-start` 로 위를 맞춘다. */
 .inv-craft-row {
-  display: flex; align-items: center; gap: 12px;
+  display: flex; align-items: flex-start; gap: 12px;
   padding: 10px 12px;
   border: 1px solid var(--inv-line);
   border-radius: 5px;
   background: rgba(255, 255, 255, 0.03);
 }
+/* 산출물 썸네일 — `buildTileContent` 가 그린 `.inv-tile` 하나를 담는다 (드래그 · 메뉴 없음, 호버 카드만). */
+.inv-craft-thumb { position: relative; flex: none; display: flex; cursor: help; }
+.inv-craft-thumb .inv-tile { position: static; cursor: help; }
+/* 겹치지 않는 아이템을 여러 개 만드는 레시피의 개수 (겹치는 것은 타일이 스스로 수량을 그린다) */
+.inv-craft-thumb-qty {
+  position: absolute; right: -3px; bottom: -4px;
+  padding: 0 4px; height: 15px; line-height: 14px;
+  border: 1px solid var(--inv-line-strong); background: rgba(6, 7, 9, 0.94);
+  font-size: 10px; font-variant-numeric: tabular-nums; color: var(--inv-text);
+}
+/* 우측 칸: 수량 스테퍼 위, 홀드 버튼 아래 */
+.inv-craft-act { display: flex; flex-direction: column; align-items: stretch; gap: 6px; flex: none; }
+.inv-craft-count {
+  display: flex; align-items: center; justify-content: space-between; gap: 4px;
+  height: 24px; padding: 0 4px;
+  border: 1px solid var(--inv-line); background: rgba(255, 255, 255, 0.04);
+}
+.inv-craft-count-v {
+  flex: 1; text-align: center;
+  font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--inv-text);
+}
+.inv-craft-row.is-multi .inv-craft-count-v { color: var(--inv-accent); }
+.inv-craft-step {
+  flex: none; width: 18px; height: 18px; line-height: 1;
+  font-size: 9px; color: var(--inv-muted);
+  transition: color 120ms var(--inv-ease), background 120ms var(--inv-ease);
+}
+.inv-craft-step:hover:not(:disabled) { color: var(--inv-text); background: rgba(255, 255, 255, 0.08); }
+.inv-craft-step:disabled { opacity: 0.3; cursor: default; }
 /* Phase 8 UI pass: a dimmed row is dimmed by *colour*, never by `opacity` — an alpha row let the blurred world show
  * through it and the recipe became unreadable. Same rule for `.is-bench-locked` below. */
 .inv-craft-row.is-locked {
@@ -947,13 +980,13 @@ kbd {
   color: var(--inv-muted);
 }
 .inv-craft-row.is-locked .inv-craft-name { color: var(--inv-muted); }
-.inv-craft-row.is-locked .inv-craft-desc { color: rgba(233, 236, 239, 0.38); }
 .inv-craft-row.is-locked .item-chip { opacity: 1; }
 .inv-craft-row.is-locked .item-chip-thumb { filter: saturate(0.5) brightness(0.8); }
+.inv-craft-row.is-locked .inv-craft-thumb { filter: saturate(0.5) brightness(0.8); }
 .inv-craft-row.is-crafting { border-color: var(--inv-accent); }
 .inv-craft-info { display: flex; flex-direction: column; gap: 5px; min-width: 0; flex: 1; }
 .inv-craft-name { font-size: 13px; font-weight: 600; }
-.inv-craft-desc { font-size: 11px; color: var(--inv-muted); line-height: 1.4; }
+/* `.inv-craft-desc` (레시피 설명 줄) 은 2026-09-09 에 마크업에서 빠졌다 — 썸네일과 `이름 ×n` 이 그 자리를 한다. */
 .inv-craft-inputs { display: flex; flex-wrap: wrap; gap: 5px; }
 .inv-craft-chip {
   font-size: 10px; letter-spacing: 0.02em;
@@ -1019,7 +1052,7 @@ kbd {
   scrollbar-width: thin; padding-right: 2px;
 }
 .inv-layout.is-craft .inv-col-right::-webkit-scrollbar { width: 6px; }
-.inv-layout.is-craft .inv-col-right::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.22); border-radius: 3px; }
+.inv-layout.is-craft .inv-col-right::-webkit-scrollbar-thumb { background: var(--sb-thumb, rgba(52, 58, 66, 0.95)); }
 /* inside the stacked column the panels keep their own `order`, so re-state it: 가방 위 · 함선 창고 아래 */
 .inv-layout.is-craft .inv-col-right .inv-panel-bag { order: 0; }
 .inv-layout.is-craft .inv-col-right .inv-panel-stash { order: 1; }
@@ -1037,10 +1070,10 @@ kbd {
 /* 가방 헤더는 남기되(용량은 만든 것이 들어갈 자리가 있는지 알려 준다) `제작` 버튼과 하단 가치만 뺀다 */
 .inv-layout.is-craft .inv-bag-craft { display: none; }
 .inv-layout.is-craft .inv-panel-bag > .inv-foot { display: none; }
-.inv-panel-craft { width: 460px; max-height: calc(100vh - 140px); }
+.inv-panel-craft { width: 520px; max-height: calc(100vh - 140px); }
 .inv-panel-craft .inv-craft-list { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; padding-right: 4px; }
 .inv-panel-craft .inv-craft-list::-webkit-scrollbar { width: 6px; }
-.inv-panel-craft .inv-craft-list::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.22); border-radius: 3px; }
+.inv-panel-craft .inv-craft-list::-webkit-scrollbar-thumb { background: var(--sb-thumb, rgba(52, 58, 66, 0.95)); }
 
 /* stash: fixed 10-wide grid, rows scroll */
 .inv-panel-stash { animation: inv-slide-in 200ms var(--inv-ease) both; }
@@ -1049,10 +1082,10 @@ kbd {
   overflow-y: auto; overflow-x: hidden;
   padding: 2px 8px 2px 2px;
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+  scrollbar-color: var(--sb-thumb, rgba(52, 58, 66, 0.95)) var(--sb-track, rgba(4, 6, 9, 0.55));
 }
 .inv-stash-scroll::-webkit-scrollbar { width: 6px; }
-.inv-stash-scroll::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.22); border-radius: 3px; }
+.inv-stash-scroll::-webkit-scrollbar-thumb { background: var(--sb-thumb, rgba(52, 58, 66, 0.95)); }
 .inv-stash-hint { font-size: 11px; letter-spacing: 0.04em; color: var(--inv-muted); }
 
 /* bag body + equipment column: the wide arrangement (rose right of the grid, two-column gear) needs room. The ship
@@ -1147,10 +1180,10 @@ kbd {
   overflow-y: auto; overflow-x: hidden;
   padding: 2px 8px 2px 2px;
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+  scrollbar-color: var(--sb-thumb, rgba(52, 58, 66, 0.95)) var(--sb-track, rgba(4, 6, 9, 0.55));
 }
 .inv-cat-scroll::-webkit-scrollbar { width: 6px; }
-.inv-cat-scroll::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.22); border-radius: 3px; }
+.inv-cat-scroll::-webkit-scrollbar-thumb { background: var(--sb-thumb, rgba(52, 58, 66, 0.95)); }
 .inv-cat-grid { display: grid; grid-template-columns: repeat(4, calc(2 * var(--inv-cell) + var(--inv-gap))); gap: 10px 8px; }
 .inv-cat-item { display: flex; flex-direction: column; gap: 4px; align-items: stretch; }
 .inv-cat-item .inv-tile { position: relative; left: auto; top: auto; }
@@ -1178,9 +1211,11 @@ kbd {
   color: var(--inv-muted);
 }
 .inv-craft-row.is-bench-locked .inv-craft-name { color: var(--inv-muted); }
-.inv-craft-row.is-bench-locked .inv-craft-desc { color: rgba(233, 236, 239, 0.38); }
 .inv-craft-row.is-bench-locked .item-chip-thumb { filter: saturate(0.5) brightness(0.8); }
-.inv-craft-row.is-bench-locked .inv-craft-btn { visibility: hidden; }
+.inv-craft-row.is-bench-locked .inv-craft-thumb { filter: saturate(0.5) brightness(0.8); }
+/* 레벨이 모자란 행은 만들 수 없으니 버튼도 수량도 자리만 지킨다 */
+.inv-craft-row.is-bench-locked .inv-craft-btn,
+.inv-craft-row.is-bench-locked .inv-craft-count { visibility: hidden; }
 .inv-craft-locktag {
   margin-left: 8px;
   padding: 1px 6px;
@@ -1201,7 +1236,7 @@ kbd {
 .inv-modeless-repair { width: min(620px, calc(100vw - 64px)); max-height: calc(100vh - 120px); }
 .inv-repair-list { display: flex; flex-direction: column; gap: 6px; max-height: min(420px, calc(100vh - 380px)); overflow-y: auto; padding-right: 4px; }
 .inv-repair-list::-webkit-scrollbar { width: 6px; }
-.inv-repair-list::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.22); border-radius: 3px; }
+.inv-repair-list::-webkit-scrollbar-thumb { background: var(--sb-thumb, rgba(52, 58, 66, 0.95)); }
 .inv-rep-total {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
   padding: 10px 12px;
@@ -1299,11 +1334,11 @@ kbd {
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.05);
   overflow: hidden auto;
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+  scrollbar-color: var(--sb-thumb, rgba(52, 58, 66, 0.95)) var(--sb-track, rgba(4, 6, 9, 0.55));
   animation: inv-pop 160ms var(--inv-ease) both;
 }
 .inv-screen::-webkit-scrollbar { width: 6px; }
-.inv-screen::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.22); border-radius: 3px; }
+.inv-screen::-webkit-scrollbar-thumb { background: var(--sb-thumb, rgba(52, 58, 66, 0.95)); }
 /* the owning folder is missing (no ctx.progression / meta / housing): a line under the grid, not a blank screen */
 .inv-screen-note {
   font-size: 12px; letter-spacing: 0.06em;
@@ -1375,7 +1410,7 @@ kbd {
   background: rgba(0, 0, 0, 0.28);
 }
 .tg-scroll::-webkit-scrollbar { width: 7px; height: 7px; }
-.tg-scroll::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.22); }
+.tg-scroll::-webkit-scrollbar-thumb { background: var(--sb-thumb, rgba(52, 58, 66, 0.95)); }
 .trade-grids .inv-tile { cursor: grab; }
 .trade-grids .inv-tile.is-staged { opacity: 0.3; filter: grayscale(0.7); cursor: default; }
 /* drag ghost: same tile content, following the cursor above everything */
