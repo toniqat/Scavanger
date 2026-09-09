@@ -27,6 +27,7 @@ export type TutorialStepId =
   | 'craftGun'     // 작업실로 걸어가 총기 작업대에서 무기 제작
   | 'openBag'      // 제작 창을 닫고 가방 + 장착 장비를 연다 (제작 중에는 장비 칸이 숨어 있다)
   | 'equipGun'     // 만든 무기를 주무기 칸에 장착
+  | 'openCraft'    // 가방 우측 상단의 제작 버튼으로 제작 창 열기 (2026-09-09)
   | 'craftAmmo'    // 그 무기의 탄약 제작
   | 'stowAmmo'     // 탄약을 가방에 넣기
   | 'terminal'     // 조종석 터미널 상호작용
@@ -37,7 +38,7 @@ export type TutorialStepId =
 
 export const TUTORIAL_STEPS: readonly TutorialStepId[] = [
   'intro', 'manage', 'generator', 'workshop', 'bench', 'benchPlace', 'manageDone',
-  'craftGun', 'openBag', 'equipGun', 'craftAmmo', 'stowAmmo',
+  'craftGun', 'openBag', 'equipGun', 'openCraft', 'craftAmmo', 'stowAmmo',
   'terminal', 'planet', 'travel', 'board', 'raid',
 ];
 
@@ -56,7 +57,8 @@ export type TutorialGate =
   | 'planet'        // 행성 지정
   | 'board'         // 발사 슬롯 탑승
   | 'screenTab'     // Tab 화면의 화면 탭 (id = 'character' | 'corp' | 'ship'; 인벤토리는 언제나 열려 있다)
-  | 'community';    // 우측 상단 커뮤니티 버튼 (숨김 전용)
+  | 'community'     // 우측 상단 커뮤니티 버튼 (숨김 전용)
+  | 'stashItem';    // 함선 창고 격자의 아이템 (id = 아이템 def id; 숨김 전용, 2026-09-09 — 튜토리얼 재료 · 산출물만 남긴다)
 
 /** 튜토리얼이 저장하는 것. `step` 이 null 이면 아직 시작하지 않았다. */
 export interface TutorialSave {

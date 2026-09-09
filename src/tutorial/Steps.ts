@@ -88,6 +88,14 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     spotUnion: true,
     spotText: '가방의 소총 → 주무기 I 칸',
   },
+  openCraft: {
+    id: 'openCraft', title: '제작 창을 여세요',
+    // 2026-09-09: 가방 우측 상단의 `제작` 버튼 → 함선 제작 창 (작업실에 총기 작업대가 놓여 있으므로 그 레시피가 보인다).
+    hint: '가방 우측 상단의 제작 버튼을 누르면 제작 창이 열립니다.',
+    allow: { craft: [TUTORIAL_AMMO_RECIPE] },
+    spot: ['.inv-bag-craft', '.inv-panel-bag'],
+    spotText: '제작',
+  },
   craftAmmo: {
     id: 'craftAmmo', title: '준중량탄을 만드세요',
     hint: '같은 작업대에서 준중량탄 대량 제작을 누릅니다.',

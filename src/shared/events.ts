@@ -369,8 +369,9 @@ export interface GameEvents {
   /* ── gathering & crafting (owner: world spawns, inventory crafts) ──────── */
   /** `kind` appended (2026-09-08): 'salvage' = 고철 노드 (제작 XP), undefined / 'herb' = 약초 (원예 XP). */
   'gather:collected': { nodeId: string; defId: string; qty: number; kind?: GatherNodeKind };
-  'craft:started': { recipeId: string; duration: number };
-  'craft:completed': { recipeId: string; item: ItemInstance };
+  /** `count` appended (2026-09-09): how many times the recipe is run in one hold (제작 수량, ≥ 1; absent = 1). */
+  'craft:started': { recipeId: string; duration: number; count?: number };
+  'craft:completed': { recipeId: string; item: ItemInstance; count?: number };
   'craft:failed': { recipeId: string; reason: 'missing' | 'space' | 'cancelled' };
   /** Command (inventory ui): open / close the field-crafting panel. */
   'ui:craftToggled': { open: boolean };

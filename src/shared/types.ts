@@ -420,11 +420,12 @@ export interface InventoryRef {
   consumeDef(defId: string, qty: number): boolean;
   /** Field crafting: recipes available at `station` given the current skills. */
   getRecipes(station: CraftStation): readonly CraftRecipe[];
-  /** true when every input of `recipeId` is in the bag. */
-  canCraft(recipeId: string): boolean;
+  /** true when every input of `recipeId` is in the bag. `count` (2026-09-09, default 1) = how many runs at once. */
+  canCraft(recipeId: string, count?: number): boolean;
   /** Start a craft (hold time applies); resolves to the produced item or null. */
   /** `targetUid` appended (2026-09-08): the exact stack a 분해 consumes first (아이템 우클릭 → 분해). */
-  craft(recipeId: string, targetUid?: string): Promise<ItemInstance | null>;
+  /** `count` appended (2026-09-09): 제작 수량 — the recipe runs `count` times in one hold (inputs × count, output × count). */
+  craft(recipeId: string, targetUid?: string, count?: number): Promise<ItemInstance | null>;
   /** Apply wear to a gear item (armor per hit). Emits `durability:changed` / `durability:broken`. Weapons keep `updateItem`. */
   damageDurability(uid: string, amount: number): void;
   /** Durability of a gear item (weapon / armor), or null when it is not tracked. */
