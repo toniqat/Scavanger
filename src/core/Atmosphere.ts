@@ -17,6 +17,15 @@ export class Atmosphere {
   spaceMode = false;
   private readonly scene: THREE.Scene;
   private readonly sunOffset = new THREE.Vector3();
+  /* ── appended (2026-09-09): 대기 오버라이드 (`atmo:override`) — 환경 재해가 시야를 좁히는 유일한 통로 ──
+   * 팔레트가 정한 값을 `base*` 에 떠 두고, 오버라이드를 그 **위에** 얹는다. 팔레트가 바뀌면 base 를 다시 잡고
+   * 오버라이드는 그대로 살아 있으므로, 재해 도중에 행성이 바뀌어도 어긋나지 않는다. */
+  private baseDensity = 0;
+  private readonly baseColor = new THREE.Color(0xffffff);
+  private ovFogMul = 1;
+  private ovColor: number | null = null;
+  private ovBlend = 0;
+  private readonly ovScratch = new THREE.Color();
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -74,6 +83,7 @@ export class Atmosphere {
       this.fog.density = 0;
       this.scene.background = new THREE.Color(p.horizon);
     }
+    this.captureBase();
     return p;
   }
 
@@ -97,6 +107,7 @@ export class Atmosphere {
     this.scene.background = new THREE.Color(0x020308);
     // key light from high and to the side so interior props get a readable rim through viewports
     this.sunOffset.set(0.35, 0.8, 0.5).normalize().multiplyScalar(140);
+    this.captureBase();
   }
 
   applyPalette(p: SkyPalette): void {
@@ -113,6 +124,39 @@ export class Atmosphere {
     this.fog.density = p.fogDensity;
     this.scene.background = new THREE.Color(p.fog);
     this.sunOffset.copy(this.sky.sunDir).multiplyScalar(140);
+    this.captureBase();
+  }
+
+  /* ── appended (2026-09-09): 대기 오버라이드 ───────────────────────────────────────────────────────────── */
+  /** 지금 fog 에 들어 있는 값을 "원래 하늘" 로 기억한다. 팔레트를 갈아 끼운 직후에 부른다. */
+  private captureBase(): void {
+    this.baseDensity = this.fog.density;
+    this.baseColor.copy(this.fog.color);
+    this.applyOverride();
+  }
+
+  /**
+   * 하늘 · 포그를 일시적으로 밀어붙인다 (`atmo:override` 이벤트의 구현). 마지막으로 받은 값 하나만 기억한다.
+   * `fogMul` = 원래 포그 농도의 배수, `color` = 섞어 넣을 색(null = 그대로), `blend` = 0..1 섞는 정도.
+   * `{1, null, 0}` 이면 완전히 원래대로 돌아간다.
+   */
+  setOverride(fogMul: number, color: number | null, blend: number): void {
+    this.ovFogMul = Number.isFinite(fogMul) ? Math.max(0, fogMul) : 1;
+    this.ovColor = color;
+    this.ovBlend = Number.isFinite(blend) ? Math.min(1, Math.max(0, blend)) : 0;
+    this.applyOverride();
+  }
+
+  /** base + 오버라이드를 실제 fog / background 에 반영한다. */
+  private applyOverride(): void {
+    const t = this.ovBlend;
+    this.fog.density = this.baseDensity * (1 + (this.ovFogMul - 1) * t);
+    this.fog.color.copy(this.baseColor);
+    if (this.ovColor !== null && t > 0) this.fog.color.lerp(this.ovScratch.setHex(this.ovColor), t);
+    // 배경은 포그 색을 따라간다 (포그 없는 맑은 행성은 `applyPlanet` 이 horizon 을 넣어 뒀으므로 건드리지 않는다)
+    if (this.baseDensity > 0 && this.scene.background instanceof THREE.Color) {
+      this.scene.background.copy(this.fog.color);
+    }
   }
 
   /** Keep the shadow frustum centred on the player (or camera when no player yet). */

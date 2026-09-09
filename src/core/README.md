@@ -40,3 +40,10 @@ Notes
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
 - **Phase 11** — `Atmosphere.applyPlanet(def)` — 행성이 `SkyPalette` 를 **이름으로** 고르고(시드 추첨과의 암묵적 인덱스 짝짓기 폐기) `fogDensity × fogMul` 을 적용하며, `fog:false` 행성은 포그 0 + 배경을 하늘 `horizon` 색으로. `Engine` 은 `world:ready.planet` 이 있으면 `applyPlanet`, 없으면 기존 `applySeed`
+
+- **2026-09-09 (대기 오버라이드)** — `Atmosphere.setOverride(fogMul, color, blend)` 와 `Engine` 의
+  `atmo:override` 구독. 환경 재해(`world/Hazard`)가 시야를 좁히는 **유일한 통로**다. 팔레트가 정한 포그
+  농도 · 색을 `captureBase()` 로 떠 두고 오버라이드를 그 **위에** 얹으므로, `applyPalette` /
+  `applyPlanet` / `setSpaceMode` 로 하늘이 갈려도 오버라이드가 어긋나지 않는다 (세 곳 모두 끝에서
+  `captureBase()` 를 부른다). `game:abort` 는 `{1, null, 0}` 으로 되돌린다. 포그가 없는 맑은 행성
+  (`fog:false`, 배경이 `horizon` 색)에서는 배경을 건드리지 않는다 — 포그 농도만 0 에서 출발해 오른다.

@@ -243,6 +243,14 @@ export class PlayerController {
       vel.y = Math.max(vel.y, 0);
     }
 
+    // ── 움직이는 발판 (2026-09-09): 전차 데크처럼 `Obstacle.velocity` 를 가진 것 **윗면에 서 있으면** 함께
+    //    실려 간다. 발판 속도는 `vel` 에 더하지 않고 **위치에 직접** 더한다 — 이동 속도 · 스태미나 · 보행
+    //    애니메이션이 전차 속도로 흔들리지 않게. 실내(함선) 모드에서는 발판이 없으므로 건너뛴다.
+    if (this.grounded && !this.interior && world && world.ready) {
+      const ride = world.getStandingObstacle(pos.x, pos.z, pos.y)?.velocity;
+      if (ride) { pos.x += ride.x * dt; pos.y += ride.y * dt; pos.z += ride.z * dt; }
+    }
+
     // ── integrate
     pos.x += vel.x * dt;
     pos.z += vel.z * dt;

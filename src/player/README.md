@@ -337,3 +337,11 @@ credited to a peer that our client never sees (e.g. a DoT death out of range) is
   (시스템들과 같은 "부팅 때 한 번"). 세이브가 없거나 색이 없으면 `SOLDIER_DEFAULT_ACCENT`.
   **원격 아바타(`RemoteAvatar`)는 그대로 `NET_SLOT_COLORS[slot]`** 을 쓴다 — 분대에서 서로를 가려내는 색이라
   캐릭터 색으로 바꾸지 않았다. `player/Portraits` 도 그대로 슬롯 색이다.
+
+- **2026-09-09 (움직이는 발판)** — `PlayerController` 가 적분 **직전에**
+  `world.getStandingObstacle(pos.x, pos.z, pos.y)?.velocity` 를 읽어 그 속도를 **위치에 직접** 더한다
+  (`Obstacle.velocity`, 2026-09-09 계약). 전차 데크처럼 스스로 움직이는 발판 위에 서 있으면 함께 실려
+  간다. `vel` 에 더하지 않는 이유: 그러면 이동 속도 · 스태미나 · 보행 애니메이션의 `speed` 가 전차
+  속도로 흔들린다. 실내(함선 `InteriorCollider`) 모드에는 발판이 없으므로 건너뛴다.
+  지형지물 위 걷기(`getSurfaceY` → `resolveCollision` 순서)는 이미 2026-09-09 앞선 배치에서 들어가 있다
+  — `world/README.md` 의 "player/PlayerController still calls getHeightAt" 는 낡은 문장이다.

@@ -66,7 +66,9 @@ export class Engine {
       this.renderer.toneMappingExposure = p.exposure;
       this.fx.clear();
     });
-    this.ctx.bus.on('game:abort', () => this.fx.clear());
+    this.ctx.bus.on('game:abort', () => { this.fx.clear(); this.atmosphere.setOverride(1, null, 0); });
+    /* appended (2026-09-09): 환경 재해가 시야를 좁히는 유일한 통로. 마지막으로 받은 값 하나만 남는다. */
+    this.ctx.bus.on('atmo:override', ({ fogMul, color, blend }) => this.atmosphere.setOverride(fogMul, color, blend));
     // freeze === false (multiplayer pause menu) keeps the simulation running; only the menu is shown.
     this.ctx.bus.on('game:paused', ({ paused, freeze }) => { this.paused = paused && freeze !== false; });
   }
