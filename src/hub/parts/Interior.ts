@@ -247,6 +247,7 @@ export function stationUsable(sys: HubSystem): boolean {
 
 export function disposeInterior(sys: HubSystem): void {
   Hangar.clearBays(sys);
+  sys.clearLeaderHandoff();   // 2026-09-09: 분대장 넘기기 상호작용도 인테리어와 함께 걷는다
   sys.housingMode.setShip(null, null);
   sys.furniture?.dispose(); sys.furniture = null;
   for (const pod of sys.pods) pod.dispose();

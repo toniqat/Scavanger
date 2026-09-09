@@ -410,11 +410,13 @@ try {
     const e = sys.find(id);
     if (!e) return null;
     const it = ctx.interactables.all().find((x) => x.id === `corpse:${id}`);
-    const ground = ctx.world.getHeightAt(e.position.x, e.position.z);
+    // 2026-09-09 (지형지물 위 걷기): 몸이 내려앉는 바닥은 지형이 아니라 **표면**이다 — 시체가 바위 위에
+    // 걸치면 `getHeightAt` 보다 몇 m 높은 곳에서 멈추는 것이 정상이다. 같은 질의로 재야 한다.
+    const ground = ctx.world.getSurfaceY(e.position.x, e.position.z, e.position.y);
     return { landed: e.deathLanded, dy: +(e.position.y - ground).toFixed(3), lootable: e.lootable, pending: e.corpsePending,
       corpse: !!it, cy: it ? +(it.position.y - ground).toFixed(3) : null, dirAnim: e.anim.deathDir, fall: +e.anim.deathFall.toFixed(2) };
   }, air?.id);
-  ok(landed && landed.landed === true && Math.abs(landed.dy) < 0.05, `the dead body fell to the terrain (dy ${landed?.dy} m)`, JSON.stringify(landed));
+  ok(landed && landed.landed === true && Math.abs(landed.dy) < 0.05, `the dead body settled on the surface (dy ${landed?.dy} m)`, JSON.stringify(landed));
   ok(landed && landed.corpse === true && landed.lootable === true && !landed.pending && Math.abs(landed.cy) < 0.05,
     `the corpse interactable registers at the landing position (dy ${landed?.cy} m)`);
   ok(landed && landed.fall >= 1 && landed.dirAnim >= 0 && landed.dirAnim <= 2,

@@ -1,8 +1,10 @@
 /**
- * src/game/parts/Death.ts — **사망 · 부활 · 분대 전멸**.
+ * src/game/parts/Death.ts — **사망 · 구조 · 분대 전멸**.
  *
- * 죽으면 30초 뒤 부활할 수 있지만, **분대 전원이 나가떨어지면 레이드가 실패**한다
- * (솔로는 죽는 즉시). 끊긴 대원의 고스트도 살아 있는 것으로 세므로 판정이 단순하지 않다.
+ * **2026-09-09: 자동 부활은 없다.** 완전히 죽으면 그 자리에 시체가 서고(`parts/CorpseNet`), 들고 있던 것은
+ * 전부 거기로 넘어간다. 되살아나는 길은 분대원이 부르는 **구조선**(`rescue_drop`)뿐이고, 그 착륙이
+ * `rescue:landed` 로 도착한다. **분대 전원이 나가떨어지면 레이드가 실패**한다 (솔로는 죽는 즉시).
+ * 끊긴 대원의 고스트도 살아 있는 것으로 세므로 판정이 단순하지 않다.
  */
 import * as THREE from 'three';
 import type {
@@ -18,6 +20,9 @@ import { RESUME_GATE_BLOCKER } from '@/shared';
 import { ResumeGate, installDesktopRelockHook, syncDesktopCursor } from '../ResumeGate';
 import { clearSoloRaid, loadSoloRaid, saveSoloRaid, soloRaidStatus, type SoloRaidSave } from '../SoloRaid';
 import { ALL_DEAD_CHECK_INTERVAL, DEATH_TO_SCREEN, DISCONNECT_ABORT_DELAY, LIFTOFF_TO_COMPLETE, MISSION_FAILS_WHEN_ALL_DEAD, THREAT_MAX, THREAT_MIN, THREAT_RAMP_SECONDS, XP_DEATH_MUL, XP_EXTRACT_BONUS, XP_PER_KILL, XP_PER_LOOT_VALUE, XP_PER_MINUTE, XP_TIME_CAP } from '../model';
+/* appended (2026-09-09): 시체 · 분대장 기기 */
+import * as Corpse from './CorpseNet';
+import * as Leader from './Leader';
 import type { GameFlowSystem } from '../GameFlowSystem';
 
 export function onLocalDied(sys: GameFlowSystem): void {
@@ -43,37 +48,50 @@ export function onLocalDied(sys: GameFlowSystem): void {
     sys.setPaused(false);
     return;
   }
-  // Multiplayer: the phase stays — the squad (and the host simulation) keeps going. The UI shows a spectate overlay;
-  // a respawn (hellpod at the mission spawn) unlocks after PLAYER_RESPAWN_DELAY unless the squad is wiped first.
-  sys.respawnTimer = PLAYER_RESPAWN_DELAY;
-  sys.respawnLastSec = -1;
-  sys.tickRespawn();
+  /*
+   * Multiplayer: the phase stays — the squad (and the host simulation) keeps going, and the UI shows the spectate
+   * overlay. **2026-09-09: no countdown any more** — the body becomes a lootable corpse and the only way back is a
+   * squadmate's 구조선 (`rescue_drop` → `rescue:landed`). `PLAYER_RESPAWN_DELAY` / `game:respawnAvailable` stay in the
+   * contract but nobody writes or reads them.
+   */
+  sys.respawnTimer = -1; sys.respawnLastSec = -1;
   sys.setPaused(false);
-  ctx.bus.emit('ui:notify', { text: `전사 — ${PLAYER_RESPAWN_DELAY}초 후 부활 가능`, kind: 'danger', duration: 4 });
+  Corpse.spawnLocalCorpse(sys);
+  Leader.onHostDied(sys);
+  const left = ctx.stratagems?.rescueLeft ?? 0;
+  ctx.bus.emit('ui:notify', {
+    text: left > 0 ? `전사 — 분대원의 구조선을 기다립니다 (남은 구조선 ${left})` : '전사 — 남은 구조선이 없습니다',
+    kind: 'danger', duration: 5,
+  });
   if (MISSION_FAILS_WHEN_ALL_DEAD) {
     sys.allDeadCheckTimer = ALL_DEAD_CHECK_INTERVAL;
     sys.checkAllDead();
   }
   }
 
-/** Emits `game:respawnAvailable` once per whole second while the respawn timer runs (and once at 0). */
-export function tickRespawn(sys: GameFlowSystem): void {
-  const sec = Math.max(0, Math.ceil(sys.respawnTimer));
-  if (sec === sys.respawnLastSec) return;
-  sys.respawnLastSec = sec;
-  sys.ctx.bus.emit('game:respawnAvailable', { seconds: sec });
-  }
+/**
+ * 2026-09-09: **비활성** — 자동 부활이 사라져 `game:respawnAvailable` 은 더 이상 발행되지 않는다.
+ * 이벤트도 `PLAYER_RESPAWN_DELAY` 도 계약이라 지우지 않았을 뿐이다.
+ */
+export function tickRespawn(_sys: GameFlowSystem): void { /* no automatic respawn since 2026-09-09 */ }
 
-/** `game:respawn` (UI): honoured only while dead, after the delay and while the raid is still running (never on 레이드 실패). */
-export function onRespawnRequest(sys: GameFlowSystem): void {
+/** 2026-09-09: **비활성** — `game:respawn` 은 아무도 발행하지 않고, 발행되더라도 무시한다. */
+export function onRespawnRequest(_sys: GameFlowSystem): void { /* rescue only since 2026-09-09 */ }
+
+/**
+ * 구조 포드가 착륙했다 (`stratagems/parts/Rescue` 가 발행). **내가 대상일 때만** 반응한다 —
+ * 몸을 다시 세우는 것은 `player/` 가 (헬포드 강하 · `RESCUE_REVIVE_HP` · 빈손), 여기서는 흐름만 정리한다.
+ */
+export function onRescueLanded(sys: GameFlowSystem, target: string): void {
   const ctx = sys.ctx;
-  if (!(ctx.player?.isDead ?? false)) return;
-  if (sys.respawnTimer !== 0) return;
+  const me = Corpse.localPeerId(sys);
+  if (target !== me) return;
   if (!sys.inLiveMission()) return;
-  const spawn = ctx.world?.getPlayerSpawn();
-  if (!spawn) return;
-  sys.deathTimer = -1; sys.respawnTimer = -1; sys.respawnLastSec = -1;
-  ctx.bus.emit('player:respawn', { position: spawn.clone() });
+  sys.deathTimer = -1;
+  sys.respawnTimer = -1; sys.respawnLastSec = -1;
+  sys.allDeadCheckTimer = -1;
+  if (ctx.phase === 'deploying') sys.setPhase('playing');
+  Leader.onHostRevived(sys);
   }
 
 /** Downed (tactical kit hook): the mission keeps running — a squadmate or a defibrillator can still bring the player back. */

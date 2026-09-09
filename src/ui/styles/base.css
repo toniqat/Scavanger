@@ -1038,13 +1038,9 @@ input { font: inherit; color: inherit; }
 .vitals .revive .bar .fill { width: 100%; height: 100%; background: var(--c-success); transform-origin: left; transform: scaleX(0); transition: transform 90ms linear; }
 @keyframes downedPulse { from { opacity: 1; } to { opacity: 0.55; } }
 
-/* Spectate banner: respawn countdown */
-.spectate .respawn { font-family: var(--ui-mono); font-size: 12px; letter-spacing: 0.14em; color: var(--c-text-dim); margin-top: 4px; }
-.spectate .respawn.ready { color: var(--c-success); font-weight: 700; animation: downedPulse 0.9s ease-in-out infinite alternate; }
-
-/* Death screen: respawn button while counting down */
-.menu.death .ui-btn.respawn.waiting { opacity: 0.55; font-family: var(--ui-mono); letter-spacing: 0.1em; }
-.menu .ui-btn.respawn:disabled { opacity: 0.55; }
+/* Spectate banner: 남은 구조선 (2026-09-09 — 부활 카운트다운을 대신한다) */
+.spectate .rescue { font-family: var(--ui-mono); font-size: 12px; letter-spacing: 0.14em; color: var(--c-success); font-weight: 700; margin-top: 4px; }
+.spectate .rescue.none { color: var(--c-danger); animation: downedPulse 0.9s ease-in-out infinite alternate; }
 
 /* dead-but-spectating: no wheel / cook gauge either */
 .hud.spectating .qwheel, .hud.spectating .cook, .hud.spectating .reload, .hud.spectating .heal, .hud.spectating .hold { opacity: 0 !important; visibility: hidden; }

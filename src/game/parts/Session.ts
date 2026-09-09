@@ -32,11 +32,10 @@ export function onGhostRestore(sys: GameFlowSystem, state: PlayerRestoreState): 
   try { ctx.player?.restoreState(state); } catch (e) { console.error('[gameflow] restoreState failed', e); }
   if (ctx.phase === 'deploying') sys.setPhase('playing');
   if (state.state === 2) {
-    // Our body bled out while we were away: the usual squad death flow (spectate + timed respawn) applies.
-    sys.respawnTimer = PLAYER_RESPAWN_DELAY;
-    sys.respawnLastSec = -1;
-    sys.tickRespawn();
-    ctx.bus.emit('ui:notify', { text: `전사 상태로 복귀 — ${PLAYER_RESPAWN_DELAY}초 후 부활 가능`, kind: 'danger', duration: 4 });
+    // Our body bled out while we were away. 2026-09-09: no countdown — the corpse already stands where we fell
+    // (the host synced it) and only a squadmate's 구조선 brings us back.
+    sys.respawnTimer = -1; sys.respawnLastSec = -1;
+    ctx.bus.emit('ui:notify', { text: '전사 상태로 복귀 — 분대원의 구조선을 기다립니다', kind: 'danger', duration: 4 });
     sys.allDeadCheckTimer = ALL_DEAD_CHECK_INTERVAL;
     sys.checkAllDead();
   } else {

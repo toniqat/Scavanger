@@ -466,7 +466,9 @@ export class EnemyReplica {
       e.throwTimer = hint === 13 ? STATUS_HOLD : 0;
     }
     e.position.set(_pose.x, _pose.y, _pose.z);
-    if (!e.airborne) e.position.y = world.getHeightAt(_pose.x, _pose.z);   // hide small height mismatches
+    // 2026-09-09: `getSurfaceY` with the host's own y as the foot height — a body standing on a rock keeps its
+    // rock top instead of being yanked down to the terrain the moment the snapshot lands.
+    if (!e.airborne) e.position.y = world.getSurfaceY(_pose.x, _pose.z, _pose.y);   // hide small height mismatches
     e.yaw = _pose.yaw;
     e.hp = latest.hp;
     e.state = latest.st;

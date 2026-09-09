@@ -814,3 +814,48 @@ smoke-tutorial 67/67, smoke-hangar 58/58, e2e-mp 156/156
   기업 패널이 없다는 것, 퀘스트 보상이 목록 아래(`.cq-rewards`)에 **재화 칩(`rep:ceres`) + 아이템 칩** 한 줄로
   선다는 것.
 - `smoke-planets` (86) — 단말기 푸터에 `닫기 (E)` 만 있고 `타이틀로` 가 **없다**는 것.
+
+---
+
+## 2026-09-09 — 사망/시체 · 구조선 · 분대장 · 전장의 안개 · 지형지물 콜리전
+
+`npm run verify:all` **전부 통과** (8분 18초, 4레인 병렬):
+
+```
+2026-09-09: typecheck ok, typecheck-server ok, net-selftest 295/295, data-check ok,
+build 2,329.28 kB JS / 238.46 kB CSS, smoke-quickslots 46/46, smoke-phase2 55/55,
+smoke-weapons 137/137, smoke-stratagems 72/72, smoke-phase3 33/33, smoke-phase4 49/49,
+smoke-ship-rooms 72/72, smoke-tactical 87/87, smoke-controls-hub 124/124,
+smoke-inventory-p6 123/123, smoke-housing 203/203, smoke-console 63/63,
+smoke-progression 123/123, smoke-search 61/61, smoke-loadout 62/62, smoke-ui-p6 87/87,
+smoke-ui-p5 134/134, smoke-resume-gate 48/48, smoke-meta 172/172, smoke-uniques 72/72,
+smoke-enemy-alert 42/42, smoke-rogue-v2 52/52, smoke-library 126/126,
+smoke-enemy-delta 52/52, smoke-training 112/112, smoke-ghost 86/86, smoke-raidflow 48/48,
+smoke-social 137/137, smoke-planets 86/86, smoke-ecology 85/85, smoke-tutorial 67/67,
+smoke-hangar 58/58, e2e-mp 156/156
+```
+
+**고친 스모크 6건.** 앞의 넷은 설계가 바뀐 자리이고, **뒤의 둘은 스모크가 밸런스 수치를 박아 두고 있던
+자리다** — 기능 회귀가 아니라 테스트의 결함이었고, 이번에 체력을 2배로 올리면서 드러났다.
+
+- `smoke-raidflow` (42 → 48) — 자동 부활 폐지. `죽은 고스트로 복귀 → 30초 카운트다운` 단정을
+  **`카운트다운이 없고 game:respawn 이 무력하다`** 로 뒤집었다. 되살아나는 길은 구조선뿐이다.
+- `smoke-ui-p5` (134) — 사망 화면에 `부활` 버튼이 **DOM 에서 아예 사라졌다**. `.ui-btn.respawn` 의
+  `hidden` 을 읽던 두 곳이 `null.hidden` 으로 터졌다 — 존재 자체를 보는 검사로 바꿨다.
+- `smoke-stratagems` (71 → 72) — 호스트의 `stratq sync` 답장에 `rescue count` 가 한 통 더 실린다.
+  **보낸 개수**가 아니라 `strat sync` 가 정확히 하나이고 전부 요청자에게만 간다로 재고, 잔여 횟수가
+  같이 오는지를 새로 본다.
+- `smoke-rogue-v2` (52) — 시체가 내려앉는 바닥은 이제 지형이 아니라 **표면**이다. 낙하 지점을
+  `getHeightAt` 으로 재던 것을 `getSurfaceY` 로 바꿨다 (바위 위에 걸친 시체가 몇 m 높은 곳에서
+  멈추는 것이 정상이다).
+- `e2e-mp` (156) — **`hp < 60` 이 박혀 있었다.** 스캐빈저 체력이 120 이 되는 순간 10 피해로는 영영
+  성립하지 않는 조건이라 `host applies hit` 이 타임아웃했다. **맞기 전 체력보다 낮아졌는가**로 고쳤다.
+- `smoke-uniques` (71 → 72) — 로켓 점프는 **원래부터 경합이었다.** 7 m/s 점프의 공중 체류가 GRAVITY 24
+  에서 0.58초뿐이라 `look` · `click` 의 puppeteer 왕복이 조금만 늦으면 로켓이 터지기 전에 착지해
+  `!isGrounded` 가 깨진다. 더 세게 뛰면 이번엔 폭발이 `BAZOOKA_ALT_RADIUS` 밖으로 멀어져(높이가 곧
+  거리다) 자해조차 안 난다. 점프는 그대로 두고 **timeScale 0.2 로 시뮬 시간을 늦춰** 왕복 지연을
+  흡수했고, `폭발 순간 아직 공중이었나` 단정을 하나 더했다.
+
+**주의 — 소품 배치가 시드 대비 달라졌다.** `isSpotFree` 가 `o.radius` 로 거르는데 이동 콜라이더가
+실측으로 넓어졌고, 거절된 자리는 그 콜백의 남은 rng 추첨을 건너뛴다. 멀티 결정성은 그대로다(같은 코드 ·
+같은 시드면 모든 클라이언트가 같은 월드) — 다만 "시드 21 이 어제와 똑같이 생겼다"는 더는 아니다.

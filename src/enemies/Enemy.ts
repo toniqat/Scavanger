@@ -435,12 +435,21 @@ export class Enemy implements EnemyRef {
     return y >= this.plateY0 - r && y <= this.plateY1 + r;
   }
 
-  /** Classify a hit for damage multipliers. */
+  /**
+   * Classify a hit for damage multipliers.
+   *
+   * 2026-09-09: the **head sphere is tested first**. The behemoth's plate capsule (`plateRadius` = radius × 0.5,
+   * hanging `head.z + head.r × 0.9` ahead) swallows most of its own head sphere, so with the plate first a side or
+   * overhead shot that `raycastEx` had already resolved as `'head'` was demoted to the armoured `'front'` when
+   * `takeDamage` re-classified the same point — i.e. the behemoth had no headshot at all, which only became
+   * visible once its `headMul` went 1 → 2. A point that is genuinely on the head is a headshot; the plate still
+   * claims everything else in front, so frontal shots are armoured exactly as before.
+   */
   classifyHit(hitPoint?: THREE.Vector3, hitDir?: THREE.Vector3): HitPart {
     if (hitPoint) {
-      if (this.hasFrontPlate && this.isFrontPlate(hitPoint)) return 'front';
       this.headCenter(_v);
       if (_v.distanceToSquared(hitPoint) <= (this.stats.headRadius * 1.15) ** 2) return 'head';
+      if (this.hasFrontPlate && this.isFrontPlate(hitPoint)) return 'front';
     }
     if (hitDir) {
       const d = hitDir.x * Math.sin(this.yaw) + hitDir.z * Math.cos(this.yaw);
@@ -587,7 +596,8 @@ export class Enemy implements EnemyRef {
     this.anim.deathDir = Math.max(0, ENEMY_DEATH_DIRS.indexOf(this.deathDir));
     this.anim.deathFall = 0;
     const world = this.host?.ctx.world ?? null;
-    const ground = world && world.ready ? world.getHeightAt(this.position.x, this.position.z) : this.position.y;
+    // 2026-09-09: 지형이 아니라 **밟고 있는 표면** — 바위 위에서 죽으면 바위 위에 눕는다
+    const ground = world && world.ready ? world.getSurfaceY(this.position.x, this.position.z, this.position.y) : this.position.y;
     this.deathLanded = this.position.y <= ground + 0.05;
     if (this.deathLanded) { this.position.y = ground; this.deathVy = 0; }
     this.chargePhase = 0;

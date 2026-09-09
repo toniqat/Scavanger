@@ -23,6 +23,7 @@ import { HoldGauge } from './hud/HoldGauge';
 import { ReloadGauge } from './hud/ReloadGauge';
 import { StratagemWheel } from './hud/StratagemWheel';
 import { StratagemPanel } from './hud/StratagemPanel';
+import { RescuePicker } from './hud/RescuePicker';
 import { ChargeGauge } from './hud/ChargeGauge';
 import { TargetingHud } from './hud/TargetingHud';
 import { OffscreenIndicators } from './hud/OffscreenIndicators';
@@ -119,6 +120,8 @@ export class HudSystem implements GameSystem {
   private hold!: HoldGauge;
   private swheel!: StratagemWheel;
   private strat!: StratagemPanel;
+  /** 2026-09-09: 구조선 대상 선택 화면 (자기 스스로 `ctx.stratagems` 를 보고 뜬다). */
+  private rescuePick!: RescuePicker;
   private charge!: ChargeGauge;
   private targeting!: TargetingHud;
   private offscreen!: OffscreenIndicators;
@@ -251,6 +254,8 @@ export class HudSystem implements GameSystem {
     this.itemTip = new ItemTip(ctx.uiRoot);
     // 키 가이드 (2026-09-09): same placement rationale — the bottom-right one-liner must sit over every open screen.
     this.keyGuide = new KeyGuide(ctx.uiRoot);
+    // 구조선 대상 선택 (2026-09-09): a full-screen picker, so it hangs off `#ui-root` like the map / menus.
+    this.rescuePick = new RescuePicker(ctx.uiRoot);
     // 인게임 마우스 커서 sprite: same placement rationale as the item card — over every window, layer and menu.
     this.gameCursor = new GameCursor();
 
@@ -282,6 +287,7 @@ export class HudSystem implements GameSystem {
     for (const c of [this.reload, this.heal, this.hold, this.gameCursor]) c.bind(ctx);
     for (const c of [this.contractPanel, this.trainingPanel, this.metaToasts]) c.bind(ctx);
     this.community.bind(ctx);
+    this.rescuePick.bind(ctx);
     for (const m of [this.title, this.pause, this.death, this.complete]) m.bind(ctx);
 
     const b = ctx.bus;
@@ -347,6 +353,8 @@ export class HudSystem implements GameSystem {
     this.shipHint.update(ctx);
     // 커뮤니티: same self-gating, plus the P-hold on a 분대 초대 (it needs dt).
     this.community.update(dt, ctx);
+    // 구조선 대상 선택: self-gating on `ctx.stratagems.armed === 'rescue_drop' && rescueTarget === null`.
+    this.rescuePick.update(dt, ctx);
     // 키 가이드: hides under the 일시정지 메뉴 (one blocker lookup per frame).
     this.keyGuide.update();
     this.contractPanel.update(ctx);
@@ -492,6 +500,9 @@ export class HudSystem implements GameSystem {
   /** 커뮤니티 widget / panel / invite state (debug, Phase 11). */
   get isCommunityOn(): boolean { return this.community.isShowing; }
   get isCommunityOpen(): boolean { return this.community.isOpen; }
+  /** 2026-09-09: 구조선 대상 선택 화면이 떠 있나 / 고를 수 있는 칸 수 (debug / smoke). */
+  get isRescuePickerOpen(): boolean { return this.rescuePick.isOpen; }
+  get rescuePickerSelectable(): number { return this.rescuePick.selectableCount; }
   get communityInviteCount(): number { return this.community.inviteCount; }
   get communityHoldProgress(): number { return this.community.holdProgress; }
   /** 귓속말 target of the chat input, null when it is ordinary squad chat (debug, Phase 11). */
@@ -541,6 +552,7 @@ export class HudSystem implements GameSystem {
     for (const c of [this.reload, this.heal, this.hold, this.gameCursor]) c.dispose();
     for (const c of [this.contractPanel, this.trainingPanel, this.metaToasts]) c.dispose();
     this.community.dispose();
+    this.rescuePick.dispose();
     for (const m of [this.title, this.pause, this.death, this.complete]) m.dispose();
     this.settings.dispose();
     this.keybinds.dispose();

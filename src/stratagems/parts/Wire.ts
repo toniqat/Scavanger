@@ -21,6 +21,7 @@ import {
   SharedGeo, TargetRing, CallMarker, Burst, dustBurst, sparkBurst, LaserBeam, Fireball, SupplyCrateMesh, BarricadeMesh, makeRubble, KIND_COLOR,
 } from '../Visuals';
 import { AIRSTRIKE_FX_TIME, Call, GRENADE_STRUCTURE_DAMAGE, type Host, LASER_TICK, SHAKE_RANGE, STRUCTURE_DROP_HEIGHT, STRUCTURE_MIN_GAP, STRUCTURE_STAGGER, SUPPLY_DROP_HEIGHT, Structure, TARGET_EMIT_EPS, WHEEL_DRAG_PX, _a, _b, _dir, defOf, toTuple } from '../model';
+import * as Rescue from './Rescue';
 import type { StratagemSystem } from '../StratagemSystem';
 
 /* ─────────────────────────── net ─────────────────────────── */
@@ -51,6 +52,8 @@ export function ensureNetHooks(sys: StratagemSystem): void {
     net.onMessage('flow', (msg, from) => {
       if (msg.ev === 'rejoined' && net.isHost) sys.sendSync(from);
     }),
+    /* 2026-09-09: 구조선 — 요청 · 승인 · 거절 · 잔여 횟수 (권한은 전부 호스트) */
+    net.onMessage('rescue', (msg, from) => Rescue.onRescueMessage(sys, msg, from)),
   );
   }
 
@@ -59,6 +62,8 @@ export function syncWire(sys: StratagemSystem): StratagemCallWire[] {
   const now = sys.ctx.time;
   const out: StratagemCallWire[] = [];
   for (const c of sys.calls) {
+    // 2026-09-09: 구조선은 4초짜리 일회성 호출이고, 늦게 받은 쪽이 다시 `rescue:landed` 를 내면 안 되므로 싣지 않는다.
+    if (c.kind === 'rescue_drop') continue;
     if (c.kind === 'orbital_laser' || c.kind === 'airstrike') { if (c.stage === 'done') continue; }
     else if (c.kind === 'structure_drop' && c.structures.length > 0 && c.structures.every((s) => s.destroyed)) continue;
     const w: StratagemCallWire = { callId: c.id, kind: c.kind, p: toTuple(c.position), seed: c.seed, eta: Math.round((c.landsAt - now) * 100) / 100, caller: c.caller };
@@ -77,6 +82,8 @@ export function sendSync(sys: StratagemSystem, to: PeerId): void {
   const net = sys.ctx.net;
   if (!net || !sys.ctx.isMultiplayer) return;
   net.send({ t: 'strat', ev: 'sync', calls: sys.syncWire() }, to);
+  // 2026-09-09: 분대 공용 구조선 잔여 횟수도 late-join 경로에 태운다 (`StratagemCallWire` 에는 자리가 없다).
+  net.send({ t: 'rescue', ev: 'count', left: sys._rescueLeft }, to);
   }
 
 /**

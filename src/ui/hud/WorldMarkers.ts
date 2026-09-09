@@ -9,7 +9,14 @@ interface Marker {
   lastKey: string;
 }
 
-/** Projects extraction pads (and the landed ship) to screen-space diamond markers. */
+/**
+ * Projects extraction pads (and the landed ship) to screen-space diamond markers.
+ *
+ * **2026-09-09 — 발견 게이트.** A pad you have not walked near yet does not exist for the HUD: the marker is built
+ * at `world:ready` as before but stays hidden until `ctx.world.fog.isDiscovered(position)` is true (the fog reveals
+ * on the whole squad's positions, so a squadmate finding it counts). The **active** pad is exempt — once the
+ * countdown runs everybody knows where to go. No fog (훈련장 / an older world) → everything shows as before.
+ */
 export class WorldMarkers {
   readonly root: HTMLElement;
   private markers = new Map<string, Marker>();
@@ -65,9 +72,12 @@ export class WorldMarkers {
     const cam = ctx.camera;
     const player = ctx.player;
     const w = ctx.uiRoot.clientWidth, h = ctx.uiRoot.clientHeight;
+    const fog = ctx.world?.fog ?? null;
     for (const [id, m] of this.markers) {
       // Landed ship marker: only relevant to show until boarded; hide when the pad is active and the ship marker exists.
       if (this.shipPos && id !== '__ship' && id === this.activeId) { this.hide(m); continue; }
+      // 발견 게이트 (2026-09-09): 아직 못 본 신호소는 아예 뜨지 않는다 (활성 신호소 · 함선은 예외)
+      if (fog && id !== '__ship' && id !== this.activeId && !fog.isDiscovered(m.pos)) { this.hide(m); continue; }
       this.v.copy(m.pos); this.v.y += 2.2;
       this.v.project(cam);
       const behind = this.v.z > 1 || this.v.z < -1;

@@ -7,8 +7,12 @@ import {
 } from '@/shared';
 import { RemoteAvatar } from './RemoteAvatar';
 import type { CarryHost, CarryStatus, CarryTarget } from './Carry';
+/* appended (2026-09-09): 아군의 강하 포드 */
+import { RemotePods } from './RemotePods';
 
 const EMPTY: readonly RemotePlayerRef[] = [];
+/** 스크래치 — `pod drop` 좌표 (핫 패스는 아니지만 프레임당 할당을 만들지 않는다). */
+const _podPos = new THREE.Vector3();
 /** Max rate of `revive progress` relay messages while holding E on a downed teammate. */
 const REVIVE_PROGRESS_INTERVAL = 0.25;
 /** After a completed revive the interactable stays away this long (until the peer's DOWNED flag clears). */
@@ -127,9 +131,12 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
   private readonly localCarried = new Set<PeerId>();
   /** Phase 10: peer id whose shoulder socket our own body currently hangs on (null = not carried). */
   private myCarrier: PeerId | null = null;
+  /** 2026-09-09: 아군의 강하 포드 (`pod drop`). 미션 시작 · 구조선 둘 다 여기로 들어온다. */
+  private pods: RemotePods | null = null;
 
   init(ctx: GameContext): void {
     this.ctx = ctx;
+    this.pods = new RemotePods(ctx.scene);
     // the player owns the carry rules but not the avatars / refs — hand it this system as its carry host
     (ctx.player as unknown as { setCarryHost?(h: CarryHost | null): void } | null)?.setCarryHost?.(this);
     ctx.bus.on('net:remotePlayerAdded', ({ id }) => {
@@ -163,6 +170,14 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
           this.restoreTo(from);
           this.sendSync(from);
         }),
+        /*
+         * 2026-09-09 — **아군의 강하 포드**. 지금까지 원격 분대원은 자리에 그냥 나타났다. `who` 의 아바타는
+         * 그 사람의 `PlayerFlags.DROPPING` 이 이미 감추고 있으므로 여기서는 포드만 떨어뜨리면 된다.
+         */
+        net.onMessage('pod', (msg) => {
+          if (msg.ev !== 'drop' || !msg.who || msg.who === net.localId) return;
+          this.pods?.drop(ctx, msg.who, _podPos.set(msg.p[0], msg.p[1], msg.p[2]), msg.yaw, msg.kind);
+        }),
         net.onMessage('ghost', (msg) => {
           // every client remembers the last wire state so a promoted host can rebuild the ghosts
           if (msg.ev === 'state' || msg.ev === 'restore') this.lastGhost.set(msg.g.id, msg.g);
@@ -184,6 +199,8 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
     }
     // Phase 10: bodies riding on somebody's shoulder (including our own) — the avatars exist by now
     this.updateCarries(refs, ctx);
+    // 2026-09-09: 떨어지는 중인 아군 포드 (없으면 즉시 반환)
+    this.pods?.update(dt, ctx);
     if (this.ghosts.size > 0 || this.parked.size > 0) this.updateGhosts(dt, ctx);
   }
 
@@ -346,6 +363,7 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
     this.ghosts.clear();
     this.lastGhost.clear();
     this.parked.clear();
+    this.pods?.clear();
   }
 
   /* ─────────────────────────── revive interactable ─────────────────────────── */

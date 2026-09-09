@@ -133,10 +133,16 @@ export class PlayerController {
     if (impulse.y > 0.01) { this.grounded = false; this.coyote = 0; this.position.y += 0.02; }
   }
 
-  groundHeight(x: number, z: number, world: WorldRef | null): number {
+  /**
+   * 발이 닿는 표면의 높이. 2026-09-09 부터 지형만이 아니라 **장애물 윗면**도 본다 (`getSurfaceY`) —
+   * 낮은 바위 위로 걸어 올라갈 수 있는 이유다. `feetY` 를 반드시 넘겨라: 그래야 지금 발 높이에서
+   * `PROP_STEP_UP_MAX` 안에 있는 윗면만 잡는다. 생략하면 그 자리에서 제일 높은 윗면이 나오는데
+   * 그건 총알 · 낙하용 질의지 걷기용이 아니다.
+   */
+  groundHeight(x: number, z: number, world: WorldRef | null, feetY?: number): number {
     if (this.interior) return this.interior.getFloorAt(x, z);
     if (this.shipBounds) return this.shipBounds.center.y - this.shipBounds.halfExtents.y;
-    if (world && world.ready) return world.getHeightAt(x, z);
+    if (world && world.ready) return world.getSurfaceY(x, z, feetY);
     return 0;
   }
 
@@ -259,11 +265,19 @@ export class PlayerController {
       pos.x = THREE.MathUtils.clamp(pos.x, c.x - h.x + PLAYER_RADIUS, c.x + h.x - PLAYER_RADIUS);
       pos.z = THREE.MathUtils.clamp(pos.z, c.z - h.z + PLAYER_RADIUS, c.z + h.z - PLAYER_RADIUS);
     } else if (world && world.ready) {
+      // 지형지물 위 걷기 (2026-09-09): **표면을 먼저 잡고** 밀어낸다. `getSurfaceY(x, z, feetY)` 는 지금 발
+      // 높이에서 `PROP_STEP_UP_MAX` 안에 있는 윗면만 돌려주고, 일단 올라선 뒤에는 `resolveCollision` 이
+      // 같은 `PROP_TOP_MARGIN` 판정으로 그 장애물을 밀어내지 않는다. 순서를 뒤집으면 옆으로 밀려난
+      // 다음이라 낮은 바위에 영영 못 올라간다.
+      if (this.grounded) {
+        const step = world.getSurfaceY(pos.x, pos.z, pos.y);
+        if (step > pos.y) pos.y = step;
+      }
       world.resolveCollision(pos, PLAYER_RADIUS);
     }
 
     // ── ground contact
-    const g = this.groundHeight(pos.x, pos.z, world);
+    const g = this.groundHeight(pos.x, pos.z, world, pos.y);
     const wasGrounded = this.grounded;
     if (pos.y <= g + 0.001) {
       if (!wasGrounded && vel.y < -1) out.landed = -vel.y;

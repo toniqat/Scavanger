@@ -49,6 +49,11 @@ function cssColor(n: number): string { return `#${n.toString(16).padStart(6, '0'
  * front of the camera) → arrow hidden; otherwise the projected direction from the screen centre is clamped to a rect
  * `EDGE_PAD` px inside the viewport and the arrow rotates to point at it. Behind the camera → the direction is mirrored
  * so the arrow pins to the bottom / sides. Nearest 12 targets win. Cleared on mission reset.
+ *
+ * **2026-09-09 — no 안개 gate here, deliberately.** Every arrow is a *live squad event* (our own grenade, a
+ * squadmate's ping, a ship call somebody just made), not a world landmark, so `FogRef.isDiscovered` has nothing to
+ * hide: whoever placed it saw the spot. The discovery gate lives in `WorldMarkers` / `Compass` / `ui/map`, which are
+ * the three that draw 탈출 신호소 · 둥지 · 상자 · 채집물.
  */
 export class OffscreenIndicators {
   readonly root: HTMLElement;

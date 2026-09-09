@@ -338,6 +338,11 @@ try {
   await clearEv();
   await P(() => window.__heal());
   const hpJump = await P(() => window.__game.ctx.player.hp);
+  // 2026-09-09: 이 구간은 원래부터 경합이었다 — 7 m/s 점프의 공중 체류가 GRAVITY 24 에서 0.58 초뿐이라
+  // `look` · `click` 의 puppeteer 왕복이 조금만 늦어도 로켓이 터지기 전에 착지해 `!isGrounded` 가 깨진다.
+  // 더 세게 뛰면 이번엔 폭발이 BAZOOKA_ALT_RADIUS 밖으로 멀어져 자해도 로켓 점프도 안 난다(높이가 곧 거리다).
+  // 그래서 **점프를 그대로 두고 시간을 늦춘다** — timeScale 0.2 면 같은 왕복이 시뮬 시간을 1/5 만 먹는다.
+  await P(() => { window.__game.ctx.timeScale = 0.2; });
   await P(() => window.__game.ctx.player.applyImpulse(new (window.__game.ctx.player.position.constructor)(0, 7, 0)));
   await waitSim(0.15);
   await look(0, 3000);
@@ -345,12 +350,14 @@ try {
   const air = await P(() => ({ grounded: window.__game.ctx.player.isGrounded, vy: window.__game.ctx.player.velocity.y, pitch: window.__game.ctx.player.pitch }));
   await click(2);
   await waitSim(0.6);
-  const jump = await P(() => ({ alt: window.__ev['weapon:altFired'].length, blast: window.__ev['player:blastJump'], hp: window.__game.ctx.player.hp, vy: window.__game.ctx.player.velocity.y, hits: window.__ev['weapon:hit'] }));
+  const jump = await P(() => ({ alt: window.__ev['weapon:altFired'].length, blast: window.__ev['player:blastJump'], hp: window.__game.ctx.player.hp, vy: window.__game.ctx.player.velocity.y, grounded: window.__game.ctx.player.isGrounded, hits: window.__ev['weapon:hit'] }));
   ok(!air.grounded && air.pitch < -0.6, `airborne and looking down before the shot (pitch ${air.pitch?.toFixed(2)})`, JSON.stringify(air));
   ok(jump.alt === 1, 'RMB rocket → weapon:altFired');
+  ok(!jump.grounded, 'still airborne when the rocket went off (the condition the super jump needs)', JSON.stringify({ vy: jump.vy, grounded: jump.grounded }));
   ok(jump.blast.length === 1 && jump.blast[0].impulse[1] === 17, 'player:blastJump with BAZOOKA_SUPER_JUMP', JSON.stringify(jump.blast));
   ok(jump.hp <= hpJump - 22 + 0.01, `self damage 22 (hp ${hpJump} → ${jump.hp})`);
   ok(jump.vy > air.vy + 5, `velocity.y raised by the blast (${air.vy.toFixed(1)} → ${jump.vy.toFixed(1)})`);
+  await P(() => { window.__game.ctx.timeScale = 1; });
   await waitSim(3);
   await P((y) => window.__face(y), yaw0);
   await look(0, -3000);

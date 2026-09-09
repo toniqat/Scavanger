@@ -198,6 +198,16 @@ function parseClientMessage(raw: RawData, isBinary: boolean): ClientToServer | n
     case 'social:whisper':
       return validSocialCode(m.code) && typeof m.text === 'string' && m.text.length <= MAX_WHISPER_INPUT
         ? { t: 'social:whisper', code: m.code as string, text: m.text } : null;
+    /* appended: 2026-09-09 — 분대장 지명 이관. 규칙은 전부 핸들러가 본다; 여기서는 모양만. */
+    case 'lobby:transferHost': {
+      if (typeof m.targetId !== 'string' || m.targetId.length === 0 || m.targetId.length > MAX_CODE_INPUT) return null;
+      if (m.claim !== undefined && typeof m.claim !== 'boolean') return null;
+      const out: ClientToServer = { t: 'lobby:transferHost', targetId: m.targetId };
+      if (m.claim === true) out.claim = true;
+      return out;
+    }
+    case 'lobby:hostDown':
+      return typeof m.down === 'boolean' ? { t: 'lobby:hostDown', down: m.down } : null;
     default:
       return null;
   }
@@ -674,6 +684,43 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         // No travel message exists: every member starts the cutscene off its own copy of `LobbyState.planet`.
         broadcastState(lobby);
         pushLobbyPresence(lobby);
+        return;
+      }
+
+      /* appended: 2026-09-09 — 분대장(호스트) 지명 이관 */
+      case 'lobby:transferHost': {
+        const lobby = lobbies.lobbyOf(c.id);
+        if (!lobby) { sendError(c, 'not_in_lobby'); return; }
+        /*
+         * 허용되는 두 경우뿐이다: ① 보낸 사람이 지금 호스트다, ② `claim` 이고 현재 호스트가 `lobby:hostDown`
+         * 으로 사망 표시를 켜 두었다 (시체 옆의 분대장 기기를 집은 사람). 그 외에는 `not_host`.
+         */
+        const isHost = lobby.hostId === c.id;
+        const claiming = m.claim === true && lobby.hostDown && !isHost;
+        if (!isHost && !claiming) { sendError(c, 'not_host'); return; }
+        const target = lobby.get(m.targetId);
+        if (!target || !target.connected) { sendError(c, 'invalid', '분대에 없는(또는 접속이 끊긴) 대원입니다.'); return; }
+        if (lobby.hostId === m.targetId) {
+          // 이미 그 사람이 분대장 — 사망 표시만 걷고 상태를 되돌려 준다 (`lobby:planet` 의 no-op 과 같은 규약).
+          lobby.hostDown = false;
+          sendTo(c, { t: 'lobby:state', lobby: lobbyState(lobby) });
+          return;
+        }
+        lobby.transferHostTo(m.targetId);
+        clearMigrate(lobby.code);
+        log(`lobby ${lobby.code}: host handed to ${m.targetId} by ${c.name}(${c.id})${claiming ? ' (claim: host down)' : ''}`);
+        broadcastState(lobby);
+        pushLobbyPresence(lobby);
+        return;
+      }
+
+      case 'lobby:hostDown': {
+        const lobby = lobbies.lobbyOf(c.id);
+        if (!lobby) { sendError(c, 'not_in_lobby'); return; }
+        if (lobby.hostId !== c.id) { sendError(c, 'not_host'); return; }
+        if (lobby.hostDown === m.down) return;
+        lobby.hostDown = m.down;
+        log(`lobby ${lobby.code}: host ${c.id} down=${m.down}`);
         return;
       }
 

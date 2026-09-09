@@ -209,6 +209,11 @@ export class NetSystem implements GameSystem, NetRef {
     /* Phase 11: publish my level for friends' rows (debounced inside SocialSync; progression may be absent). */
     bus.on('progress:loaded', () => this.pushLevel());
     bus.on('progress:levelUp', () => this.pushLevel());
+    /*
+     * 2026-09-09: 분대장 넘기기의 **공용 입구**. 커뮤니티 창의 우클릭 메뉴도, 공용 함선 안의 상호작용도
+     * 같은 이벤트를 낸다 — 어느 쪽도 `ctx.net` 을 직접 붙잡지 않는다.
+     */
+    bus.on('leader:transferRequested', ({ peerId }) => this.transferHost(peerId));
   }
 
   /** `social:me` with the current character level; a no-op without a progression system (headless tests / stubs). */
@@ -308,6 +313,17 @@ export class NetSystem implements GameSystem, NetRef {
   quickMatch(): void { return Lobby.quickMatch(this); }
   setPublic(isPublic: boolean): void { return Lobby.setPublic(this, isPublic); }
   setLobbySeed(seed: number): void { return Lobby.setLobbySeed(this, seed); }
+
+  /* ══ 2026-09-09: 분대장(호스트) 지명 이관 ═════════════════════════════ */
+  /**
+   * 분대장을 `targetId` 에게 넘긴다. 서버가 허용하는 경우는 ① 내가 지금 호스트다, 또는 ② `claim` 이고
+   * 현재 호스트가 `reportHostDown(true)` 로 사망 표시를 켜 두었다 (분대장 기기) — 그 외에는 `not_host`.
+   * 성공하면 새 `lobby:state` 가 오고 모두가 `net:hostChanged` 를 받는다. 로비 밖에서는 no-op.
+   */
+  transferHost(targetId: PeerId, claim?: boolean): void { return Lobby.transferHost(this, targetId, claim); }
+
+  /** 호스트 본인이 이 레이드에서 완전히 사망했다고 서버에 알린다 (남의 `claim` 이 통하는 유일한 조건). */
+  reportHostDown(down: boolean): void { return Lobby.reportHostDown(this, down); }
 
   /**
    * Re-enter the running mission (raid after a resume, or join a running training from the terminal): tells the

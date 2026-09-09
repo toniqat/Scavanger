@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { GameContext, PingKind } from '@/shared';
+import type { FogRef, GameContext, PingKind } from '@/shared';
 import { Keys, MENU_BLOCKER, NET_SLOT_COLORS_CSS, PlayerFlags, SUSPENDED_LABEL_KO, keyLabel } from '@/shared';
 import { el, setText } from '../dom';
 import type { PingView } from '../hud/Pings';
@@ -64,6 +64,17 @@ export class MapScreen {
   private seedEl: HTMLElement;
   private zoomEl: HTMLElement;
   private staticCanvas: HTMLCanvasElement | null = null;
+  /**
+   * 2026-09-09 — 전장의 안개. `staticCanvas` 는 **밝혀진 곳에만** 보이는 컬러 지형이고, `outlineCanvas` 는
+   * 미탐색 구역에 깔리는 회색 윤곽(등고선 + 약한 음영, 색도 디테일도 없다)이다. `fogLayer` 는 컬러 레이어를
+   * 안개 마스크로 자른 결과 캔버스로, **`fog:revealed` 가 왔을 때만** 다시 만든다 — 매 프레임 마스크를
+   * 훑지 않는다. 안개가 없는 세계(훈련장)에서는 셋 다 예전처럼 컬러 한 장으로 동작한다.
+   */
+  private outlineCanvas: HTMLCanvasElement | null = null;
+  private fogLayer: HTMLCanvasElement | null = null;
+  private fogDirty = true;
+  private fogRevision = -1;
+  private exploredEl: HTMLElement;
   private staticSeed = NaN;
 
   private _open = false;
@@ -160,6 +171,9 @@ export class MapScreen {
     }
 
     const foot = el('div', { cls: 'map-foot', parent: side });
+    const exploredRow = el('div', { cls: 'map-zoom-row', parent: foot });
+    el('span', { cls: 'ui-label', text: '탐색률', parent: exploredRow });
+    this.exploredEl = el('span', { cls: 'ui-mono', text: '—', parent: exploredRow });
     const zoomRow = el('div', { cls: 'map-zoom-row', parent: foot });
     el('span', { cls: 'ui-label', text: '확대', parent: zoomRow });
     this.zoomEl = el('span', { cls: 'ui-mono', text: '1.0×', parent: zoomRow });
@@ -211,9 +225,16 @@ export class MapScreen {
     this.unsubs.push(
       b.on('world:ready', ({ seed }) => {
         this.activePadId = null; this.shipPos = null; this.pings.clear();
-        this.staticCanvas = null; this.staticSeed = seed;
+        this.staticCanvas = null; this.outlineCanvas = null; this.staticSeed = seed;
+        this.fogLayer = null; this.fogDirty = true; this.fogRevision = -1;
         setText(this.seedEl, `SEED ${seed}`);
+        setText(this.exploredEl, '—');
         this.resetView();
+      }),
+      // 2026-09-09: the fog layer is rebuilt ONLY here — never per frame from `FogRef.mask`.
+      b.on('fog:revealed', ({ explored }) => {
+        this.fogDirty = true;
+        setText(this.exploredEl, `${Math.round(explored * 100)}%`);
       }),
       b.on('extraction:activated', ({ pointId }) => { this.activePadId = pointId; }),
       b.on('extraction:shipLanded', ({ position }) => { this.shipPos = position.clone(); }),
@@ -222,7 +243,12 @@ export class MapScreen {
       b.on('ping:removed', ({ id }) => { this.pings.delete(id); }),
       b.on('game:phaseChanged', () => { if (!ctx.isGameplayPhase()) this.close(false); }),
       b.on('player:died', () => this.close(false)),
-      b.on('game:abort', () => { this.close(false); this.staticCanvas = null; this.pings.clear(); this.shipPos = null; this.activePadId = null; }),
+      b.on('game:abort', () => {
+        this.close(false);
+        this.staticCanvas = null; this.outlineCanvas = null; this.fogLayer = null;
+        this.fogDirty = true; this.fogRevision = -1;
+        this.pings.clear(); this.shipPos = null; this.activePadId = null;
+      }),
       b.on('input:bindingsChanged', () => { if (this._open) this.emitGuide(); }),
     );
     window.addEventListener('resize', this.onResize);
@@ -265,6 +291,9 @@ export class MapScreen {
     this.root.hidden = false;
     this.fit();
     if (!this.staticCanvas || this.staticSeed !== ctx.world.seed) this.buildStatic(ctx);
+    this.fogDirty = true;
+    const fog = ctx.world.fog;
+    setText(this.exploredEl, fog ? `${Math.round(fog.explored * 100)}%` : '—');
     window.addEventListener('mousemove', this.onMouseMove);
     window.addEventListener('mouseup', this.onMouseUp);
     this.emitGuide();
@@ -372,6 +401,11 @@ export class MapScreen {
 
     const img = new ImageData(n, n);
     const d = img.data;
+    // 2026-09-09: the same pass also paints the **grey outline** used where the fog has not lifted — no colour,
+    // no height ramp, just a near-flat grey with the contour lines and a touch of the same hillshade, so an
+    // unexplored map still reads as "a map of this size with ridges here" and nothing more.
+    const outImg = new ImageData(n, n);
+    const od = outImg.data;
     // light from the north-west, above
     const lx = -0.55, ly = 0.72, lz = -0.42;
     const lo = [18, 26, 28], hi = [150, 160, 146]; // dark low → light high
@@ -395,31 +429,87 @@ export class MapScreen {
         let b = (lo[2] + (hi[2] - lo[2]) * t) * shade;
         // contour: level changes toward the right or downward neighbour
         const lv = Math.floor(h / CONTOUR_STEP);
-        if (lv !== Math.floor(hr / CONTOUR_STEP) || lv !== Math.floor(hd / CONTOUR_STEP)) {
+        const contour = lv !== Math.floor(hr / CONTOUR_STEP) || lv !== Math.floor(hd / CONTOUR_STEP);
+        if (contour) {
           r *= 0.72; g *= 0.72; b *= 0.72;
           r += 12; g += 12; b += 10;
         }
         d[k * 4] = r; d[k * 4 + 1] = g; d[k * 4 + 2] = b; d[k * 4 + 3] = 255;
+        // outline: 14 grey + a hint of relief, contour lines a little brighter
+        const grey = 14 + 10 * dot + (contour ? 16 : 0);
+        od[k * 4] = grey; od[k * 4 + 1] = grey + 1; od[k * 4 + 2] = grey + 2; od[k * 4 + 3] = 255;
       }
     }
+    this.staticCanvas = this.upscale(img, n, true);
+    this.outlineCanvas = this.upscale(outImg, n, false);
+    this.fogLayer = null;
+    this.fogDirty = true;
+  }
+
+  /** `n × n` ImageData → an `STATIC_PX` canvas (smoothed), with the scanline texture + frame on the colour layer. */
+  private upscale(img: ImageData, n: number, decorate: boolean): HTMLCanvasElement {
     const small = document.createElement('canvas');
     small.width = n; small.height = n;
     small.getContext('2d')!.putImageData(img, 0, 0);
-
     const big = document.createElement('canvas');
     big.width = STATIC_PX; big.height = STATIC_PX;
     const c = big.getContext('2d')!;
     c.imageSmoothingEnabled = true;
     c.imageSmoothingQuality = 'high';
     c.drawImage(small, 0, 0, STATIC_PX, STATIC_PX);
-    // faint scanlines for texture
-    c.fillStyle = 'rgba(0,0,0,0.08)';
-    for (let y = 0; y < STATIC_PX; y += 4) c.fillRect(0, y, STATIC_PX, 1);
+    if (decorate) {
+      // faint scanlines for texture
+      c.fillStyle = 'rgba(0,0,0,0.08)';
+      for (let y = 0; y < STATIC_PX; y += 4) c.fillRect(0, y, STATIC_PX, 1);
+    }
     // map edge
-    c.strokeStyle = 'rgba(232,230,225,0.35)';
+    c.strokeStyle = decorate ? 'rgba(232,230,225,0.35)' : 'rgba(232,230,225,0.18)';
     c.lineWidth = 2;
     c.strokeRect(1, 1, STATIC_PX - 2, STATIC_PX - 2);
-    this.staticCanvas = big;
+    return big;
+  }
+
+  /**
+   * The colour layer cut to the fog mask. Built only when `fog:revealed` marked it dirty (or on open) — the mask is
+   * `cells × cells` (80² at `FOG_CELL_M` 8), pushed in as `ImageData` alpha and upscaled with smoothing so the
+   * revealed area has a soft edge instead of 8 m stair steps.
+   */
+  private buildFogLayer(fog: FogRef | null): void {
+    this.fogDirty = false;
+    if (!fog || !this.staticCanvas) { this.fogLayer = null; return; }
+    this.fogRevision = fog.revision;
+    const n = fog.cells;
+    const img = new ImageData(n, n);
+    const d = img.data;
+    for (let i = 0; i < n * n; i++) {
+      const o = i * 4;
+      d[o] = 255; d[o + 1] = 255; d[o + 2] = 255;
+      d[o + 3] = fog.mask[i] !== 0 ? 255 : 0;
+    }
+    const small = document.createElement('canvas');
+    small.width = n; small.height = n;
+    small.getContext('2d')!.putImageData(img, 0, 0);
+    let big = this.fogLayer;
+    if (!big) {
+      big = document.createElement('canvas');
+      big.width = STATIC_PX; big.height = STATIC_PX;
+      this.fogLayer = big;
+    }
+    const c = big.getContext('2d')!;
+    c.globalCompositeOperation = 'source-over';
+    c.clearRect(0, 0, STATIC_PX, STATIC_PX);
+    c.imageSmoothingEnabled = true;
+    c.imageSmoothingQuality = 'high';
+    c.drawImage(small, 0, 0, STATIC_PX, STATIC_PX);
+    c.globalCompositeOperation = 'source-in';     // keep the colour only where the mask is opaque
+    c.drawImage(this.staticCanvas, 0, 0);
+    c.globalCompositeOperation = 'source-over';
+  }
+
+  /** 안개 게이트: 아직 밝혀지지 않은 자리의 오브젝트는 지도에 그리지 않는다. 안개가 없으면 전부 보인다. */
+  private discovered(pos: THREE.Vector3): boolean {
+    const fog = this.ctx?.world?.fog;
+    return !fog || fog.isDiscovered(pos);
   }
 
   /* ── dynamic layer ─────────────────────────────────────────────────────── */
@@ -432,7 +522,15 @@ export class MapScreen {
     c.fillRect(0, 0, C, C);
     const s = this.scale();
     const extent = this.size * s;
-    if (this.staticCanvas) c.drawImage(this.staticCanvas, this.ox, this.oy, extent, extent);
+    // 2026-09-09: 미탐색은 회색 윤곽, 밝혀진 곳만 컬러. 안개가 없는 세계(훈련장)는 예전처럼 컬러 한 장.
+    const fog = ctx.world?.fog ?? null;
+    if (fog) {
+      if (this.fogDirty || this.fogRevision !== fog.revision) this.buildFogLayer(fog);
+      if (this.outlineCanvas) c.drawImage(this.outlineCanvas, this.ox, this.oy, extent, extent);
+      if (this.fogLayer) c.drawImage(this.fogLayer, this.ox, this.oy, extent, extent);
+    } else if (this.staticCanvas) {
+      c.drawImage(this.staticCanvas, this.ox, this.oy, extent, extent);
+    }
 
     this.drawGrid(c);
 
@@ -441,6 +539,7 @@ export class MapScreen {
     if (world?.ready) {
       // nests
       for (const p of world.getNestPositions()) {
+        if (!this.discovered(p)) continue;
         const x = this.toX(p.x), y = this.toY(p.z);
         if (!this.inView(x, y, NEST_RADIUS_M * s)) continue;
         const rr = NEST_RADIUS_M * s;
@@ -453,6 +552,7 @@ export class MapScreen {
       }
       // crates
       for (const cr of world.getCrates()) {
+        if (!this.discovered(cr.position)) continue;
         const x = this.toX(cr.position.x), y = this.toY(cr.position.z);
         if (!this.inView(x, y, 6)) continue;
         const sz = cr.opened ? 3 : 4;
@@ -467,6 +567,7 @@ export class MapScreen {
       const nodes = world.getGatherNodes?.();
       if (nodes) {
         for (const g of nodes) {
+          if (!this.discovered(g.position)) continue;
           const x = this.toX(g.position.x), y = this.toY(g.position.z);
           if (!this.inView(x, y, 5)) continue;
           if (g.kind === 'salvage') {
@@ -485,6 +586,8 @@ export class MapScreen {
       }
       // extraction pads
       for (const e of world.getExtractionPoints()) {
+        // an active pad is squad-wide knowledge (the countdown is running) — never hidden by the fog
+        if (e.id !== this.activePadId && !this.discovered(e.position)) continue;
         const x = this.toX(e.position.x), y = this.toY(e.position.z);
         if (!this.inView(x, y, 30)) continue;
         const active = e.id === this.activePadId;
@@ -686,6 +789,8 @@ export class MapScreen {
     window.removeEventListener('mouseup', this.onMouseUp);
     if (this._open) { this._open = false; this.ctx?.uiBlockers.delete(BLOCKER); this.ctx?.input.setCursorMode(false, BLOCKER); }
     this.staticCanvas = null;
+    this.outlineCanvas = null;
+    this.fogLayer = null;
     this.root.remove();
   }
 }

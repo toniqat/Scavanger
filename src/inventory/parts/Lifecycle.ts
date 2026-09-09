@@ -42,6 +42,7 @@ import type { InventorySystem } from '../InventorySystem';
 export function onWorldReady(sys: InventorySystem, seed: number): void {
   sys.missionSeed = seed;
   sys.outcome = 'none';
+  sys.strippedForCorpse = false;
   sys.closeAll();
   sys.clearContainers();
   if (sys.isDestitute()) { sys.applyStarter(); return; }
@@ -136,9 +137,19 @@ export function onGameOver(sys: InventorySystem): void {
   sys.loseKit();
   }
 
-/** Phase 2 death flow: the hellpod re-drop after `PLAYER_RESPAWN_DELAY` brings the starter kit (mission continues, crates keep their state). */
+/**
+ * 부활 시 인벤토리.
+ *
+ * 2026-09-09: **자동 부활이 사라지고** 되살아나는 길은 분대원의 구조선뿐이다. 완전히 사망한 순간
+ * `stripForCorpse()` 가 들고 있던 것을 전부 시체로 옮겼으므로 **구조 포드에서는 빈손으로 내린다** —
+ * `strippedForCorpse` 가 서 있으면 아무것도 지급하지 않고 그 표시만 내린다.
+ *
+ * 그 밖의 재드롭(훈련장 재시작, 재접속 복귀 실패 fallback)은 예전처럼 스타터 킷을 받는다.
+ * 레이드 실패 후 함선 복귀의 킷 리셋은 `onAbort` / `onGameOver` → `loseKit` 이 그대로 맡는다.
+ */
 export function onRespawn(sys: InventorySystem): void {
   sys.closeAll();
+  if (sys.strippedForCorpse) { sys.strippedForCorpse = false; return; }
   sys.applyStarter();
   }
 
@@ -150,6 +161,7 @@ export function onRespawn(sys: InventorySystem): void {
 export function onAbort(sys: InventorySystem): void {
   sys.closeAll();
   sys.clearContainers();
+  sys.strippedForCorpse = false;
   const outcome = sys.outcome;
   sys.outcome = 'none';
   if (outcome === 'complete' || outcome === 'over') return;

@@ -463,7 +463,10 @@ try {
   ok(rw.lv === 'Lv. 3' && rw.num === '120 / 300 XP', 'no level-up → Lv. 3, 120 / 300 XP', `${rw.lv} ${rw.num}`);
   ok(/scaleX\(0\.13/.test(rw.fill), 'bar starts at the pre-mission fraction (40 / 300)', rw.fill);
   ok(rw.contract === '계약 실패 · 진척 유지 안 됨 · 소탕 작전 II 12 / 60' && /\blost\b/.test(rw.ccls), 'death contract line without outcome falls back to 계약 실패 · 진척 유지 안 됨 · p / t', `${rw.contract} ${rw.ccls}`);
-  ok(!(await hud('isRaidFailed')) && (await P(() => !document.querySelector('.menu.death .ui-btn.respawn').hidden)), 'plain death keeps the 부활 button (not raid-failed)');
+  // 2026-09-09: 자동 부활 폐지 — 이 화면에 `부활` 버튼은 아예 없다. 남는 버튼은 `함선으로 귀환` 하나다.
+  ok(!(await hud('isRaidFailed')) && (await P(() => !document.querySelector('.menu.death .ui-btn.respawn')
+    && [...document.querySelectorAll('.menu.death .ui-btn')].some((b) => b.textContent === '함선으로 귀환'))),
+  'plain death: no 부활 button any more, 함선으로 귀환 only');
   await waitSim(1.8);
   rw = await P(() => { const r = document.querySelector('.menu.death .rewards'); return { gain: r.querySelector('.xp-gain').textContent, up: r.classList.contains('up'), fill: r.querySelector('.xp-bar .fill').style.transform, counting: window.__game.getSystem('hud').deathRewards.isCounting, audio: window.__ev['audio:play'].filter((a) => a.id === 'level_up').length }; });
   ok(rw.gain === '+80' && !rw.counting && !rw.up && /scaleX\(0\.4/.test(rw.fill) && rw.audio === 1, 'death count-up ends at +80, bar 40 %, no level-up audio', JSON.stringify(rw));
@@ -478,10 +481,10 @@ try {
   await P(() => { window.__ev['game:respawn'].length = 0; });
   await emit('game:raidFailed', { stats: { ...base, extracted: false } });
   await emit('game:over', { stats: { ...base, extracted: false } });
-  let rf = await P(() => { const m = document.querySelector('.menu.death'); return { cls: m.className, title: m.querySelector('.title').textContent, sub: m.querySelector('.subtitle').textContent, respawnHidden: m.querySelector('.ui-btn.respawn').hidden, autoHidden: m.querySelector('.auto-return').hidden, auto: m.querySelector('.auto-return').textContent, hasReturn: [...m.querySelectorAll('.ui-btn')].some((b) => b.textContent === '함선으로 귀환'), failed: window.__game.getSystem('hud').isRaidFailed }; });
+  let rf = await P(() => { const m = document.querySelector('.menu.death'); return { cls: m.className, title: m.querySelector('.title').textContent, sub: m.querySelector('.subtitle').textContent, respawnHidden: !m.querySelector('.ui-btn.respawn'), autoHidden: m.querySelector('.auto-return').hidden, auto: m.querySelector('.auto-return').textContent, hasReturn: [...m.querySelectorAll('.ui-btn')].some((b) => b.textContent === '함선으로 귀환'), failed: window.__game.getSystem('hud').isRaidFailed }; });
   ok(!/\bhidden\b/.test(rf.cls) && /\braid-failed\b/.test(rf.cls) && rf.failed, 'game:raidFailed + game:over → death screen in .raid-failed mode', rf.cls);
   ok(rf.title === '레이드 실패' && rf.sub.includes('전멸'), 'title 레이드 실패', `${rf.title} / ${rf.sub}`);
-  ok(rf.respawnHidden && rf.hasReturn, 'no 부활 button, 함선으로 귀환 stays', JSON.stringify(rf));
+  ok(rf.respawnHidden && rf.hasReturn, 'no 부활 button in the DOM at all, 함선으로 귀환 stays', JSON.stringify(rf));
   const autoS = 12; // RAID_FAILED_AUTO_RETURN_S (src/shared/constants.ts)
   ok(!rf.autoHidden && rf.auto === `${autoS}초 후 자동 귀환`, `auto-return line reads ${autoS}초 후 자동 귀환 (RAID_FAILED_AUTO_RETURN_S)`, rf.auto);
   await waitSim(1.6);
@@ -492,7 +495,7 @@ try {
   await emit('game:respawnAvailable', { seconds: 0 });
   await P(() => { const ev = new KeyboardEvent('keydown', { code: 'Space', key: ' ', bubbles: true, cancelable: true }); document.body.dispatchEvent(ev); });
   const respawns = await P(() => window.__ev['game:respawn'].length);
-  ok(respawns === 0 && (await P(() => document.querySelector('.menu.death').classList.contains('raid-failed'))), 'Space never emits game:respawn in raid-failed mode (even at 0 s)', String(respawns));
+  ok(respawns === 0 && (await P(() => document.querySelector('.menu.death').classList.contains('raid-failed'))), 'Space never emits game:respawn (자동 부활 폐지 — 화면에 부활 경로가 없다)', String(respawns));
   await emit('game:phaseChanged', { phase: 'playing', prev: 'dead' });
   ok(await P(() => document.querySelector('.menu.death').classList.contains('hidden')), 'raid-failed screen hides when the phase moves on');
   // (the mode reset on game:abort is asserted in the final "mission reset" section)

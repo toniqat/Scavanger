@@ -26,7 +26,13 @@ let sharedHazard: THREE.CanvasTexture | null = null;
 
 /**
  * Extraction switch console: pedestal + slanted panel + big hazard-striped lever + status lamp
- * + holographic beacon light shaft (idle: cool white/blue, active: amber, blinking).
+ * + holographic beacon light shaft.
+ *
+ * **2026-09-09 — the idle beacon is gone.** The 40 m shaft used to advertise every 신호소 from anywhere on the map,
+ * which is exactly what the 전장의 안개 is there to take away: you now have to walk into a pad's reveal radius to
+ * find it. The shaft comes **back on** in `active` (amber blink) — by then the whole squad knows where the console
+ * is and the 120 s countdown wants a landmark to run toward. The pedestal light / screen / lamp stay lit in every
+ * state so the console still reads from close up (which is what makes it 발견 in the first place).
  */
 export class ExtractionConsole {
   readonly group = new THREE.Group();
@@ -95,6 +101,7 @@ export class ExtractionConsole {
     this.beacon = new THREE.Mesh(this.geo(new THREE.CylinderGeometry(0.35, 0.9, 40, 16, 1, true)), this.beaconMat);
     this.beacon.position.set(0, 20.5, 0);
     this.beacon.renderOrder = 4;
+    this.beacon.visible = false;      // idle: no 빛기둥 (2026-09-09) — `setState('active')` turns it on
 
     this.light = new THREE.PointLight(0x6fb8ff, 6, 10, 1.8);
     this.light.position.set(0, 1.9, 0.2);
@@ -116,13 +123,14 @@ export class ExtractionConsole {
       this.beaconMat.color.set(0xffb347);
       this.screenMat.emissive.set(0xff8a2a);
       this.light.color.set(0xffb347);
+      this.beacon.visible = true;     // 탈출 활성화 = 분대 전원이 향할 랜드마크
     } else if (s === 'idle') {
       this.leverTarget = -0.5;
       this.lampMat.color.set(0x9fd8ff); this.lampMat.emissive.set(0x6fb8ff);
       this.beaconMat.color.set(0x6fb8ff);
       this.screenMat.emissive.set(0x2a6fa8);
       this.light.color.set(0x6fb8ff);
-      this.beacon.visible = true;
+      this.beacon.visible = false;    // 평상시에는 빛기둥 없음
     } else {
       this.leverTarget = 0.55;
       this.lampMat.emissive.set(0x222222);

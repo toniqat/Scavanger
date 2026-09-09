@@ -3,6 +3,7 @@ import {
   COMMUNITY_BLOCKER, COMMUNITY_TAP_MAX_S, Keys, SQUAD_INVITE_HOLD_S, SQUAD_INVITE_MAX, formatPlayerCode, keyLabel,
 } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
+import { AskPopup } from '../menus/askPopup';
 import { SocialColumn } from '../menus/social/SocialColumn';
 import { SOCIAL_UNAVAILABLE_KO, socialOf } from '../menus/social/socialSource';
 import type { CutsceneWatch } from './CutsceneWatch';
@@ -61,6 +62,16 @@ export class Community {
   private pHeld = 0;
   private closeBtn: HTMLElement | null = null;
 
+  /* 2026-09-09 — 분대장 넘기기: 분대원 행의 우클릭 메뉴 + 확인 팝업. 내가 호스트일 때만 열린다. */
+  private leadMenu!: HTMLElement;
+  private ask!: AskPopup;
+  private leadTarget: string | null = null;
+  private readonly onDocDownLead = (e: MouseEvent): void => {
+    if (this.leadMenu.hidden) return;
+    if (e.target instanceof Node && this.leadMenu.contains(e.target)) return;
+    this.closeLeadMenu();
+  };
+
   constructor(parent: HTMLElement, private cutscene: CutsceneWatch | null = null) {
     this.root = el('div', { cls: 'community', parent });
     this.btn = el('button', { cls: 'cm-btn interactive', parent: this.root });
@@ -92,7 +103,37 @@ export class Community {
     });
     this.column.bind(ctx);
     this.panel.addEventListener('mousedown', (e) => e.stopPropagation());
-    this.panel.addEventListener('contextmenu', (e) => e.preventDefault());
+    /*
+     * 2026-09-09 — **분대장 넘기기**. 분대원 행(`.sc-srow[data-peer-id]`, `menus/social/SocialColumn` 이 그린다)을
+     * 우클릭하면 메뉴가 뜬다. 내가 호스트가 아니거나 나 자신을 눌렀으면 아무것도 열지 않는다 (규칙은 서버와
+     * 같다: 호스트만, 같은 로비의 연결된 멤버에게만). 확정은 되돌릴 수 없는 일이 아니지만 실수 방지를 위해
+     * `menus/askPopup` 의 확인 팝업을 한 번 거치고, 초기 포커스는 그 팝업의 규약대로 **취소** 쪽이다.
+     */
+    this.panel.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      const row = (e.target as HTMLElement | null)?.closest?.('.sc-srow[data-peer-id]') as HTMLElement | null;
+      const peerId = row?.dataset.peerId ?? null;
+      const net = ctx.net;
+      if (!peerId || !net?.lobby || !net.isHost || peerId === net.localId) { this.closeLeadMenu(); return; }
+      const member = net.lobby.players.find((p) => p.id === peerId);
+      if (!member || !member.connected) { this.closeLeadMenu(); return; }
+      this.openLeadMenu(peerId, member.name || '분대원', e.clientX + 4, e.clientY + 4);
+    });
+    /* 메뉴 · 팝업은 패널이 아니라 `#ui-root` 아래에 산다 — 패널의 overflow 에 잘리지 않게. */
+    this.leadMenu = el('div', { cls: 'sc-menu interactive', parent: ctx.uiRoot });
+    this.leadMenu.hidden = true;
+    this.leadMenu.addEventListener('mousedown', (e) => e.stopPropagation());
+    this.leadMenu.addEventListener('contextmenu', (e) => e.preventDefault());
+    this.ask = new AskPopup(ctx.uiRoot);
+    this.ask.bind(ctx);
+    /*
+     * `title.css` 의 `.tm-ask` 는 타이틀 화면 **안**에 놓이려고 `position:absolute; z-index:5` 다. 여기서는
+     * `#ui-root` 의 직계 자식이라 커뮤니티 패널(과 그 위의 우클릭 메뉴) 밑으로 깔린다 — 이 인스턴스에만
+     * 인라인으로 못을 박는다 (`.sc-confirm` 이 쓰는 302 보다 위).
+     */
+    this.ask.root.style.position = 'fixed';
+    this.ask.root.style.zIndex = '320';
+    window.addEventListener('mousedown', this.onDocDownLead, true);
 
     this.unsubs.push(
       ctx.bus.on('social:updated', () => { this.inviteKey = ''; }),
@@ -180,6 +221,40 @@ export class Community {
     if (this.closeBtn) setText(this.closeBtn, `닫기 (${keyLabel(Keys.INVITE)})`);
   }
 
+  /* ── 분대장 넘기기 (2026-09-09) ───────────────────────────────────────── */
+  /** 우클릭한 분대원 행에 붙는 한 줄 메뉴. `leader:transferRequested` 가 net 으로 가는 유일한 입구다. */
+  private openLeadMenu(peerId: string, name: string, x: number, y: number): void {
+    this.leadTarget = peerId;
+    const items = el('div', { cls: 'sc-menu-items' });
+    // `.sc-mi .w` 는 붉은 "못 하는 이유" 칸이므로 이름은 라벨 안에 넣는다.
+    const b = el('button', { cls: 'sc-mi', parent: items });
+    el('span', { cls: 'l', text: `분대장 넘기기 → ${name}`, parent: b });
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.closeLeadMenu();
+      this.ask.open({
+        title: '분대장 넘기기',
+        body: `${name} 대원에게 분대장을 넘깁니다.\n임무 중에는 그 대원이 호스트 권한(적 · 탈출 · 전리품)을 이어받습니다.`,
+        ok: '넘기기',
+        run: () => { this.ctx.bus.emit('leader:transferRequested', { peerId }); },
+      });
+    });
+    this.leadMenu.replaceChildren(items);
+    this.leadMenu.hidden = false;
+    const w = 200, h = 46;
+    this.leadMenu.style.left = `${Math.max(6, Math.min(window.innerWidth - w - 6, x))}px`;
+    this.leadMenu.style.top = `${Math.max(6, Math.min(window.innerHeight - h - 6, y))}px`;
+  }
+
+  private closeLeadMenu(): void {
+    if (this.leadMenu?.hidden !== false) return;
+    this.leadMenu.hidden = true;
+    this.leadTarget = null;
+  }
+
+  /** 우클릭 메뉴가 겨누고 있는 분대원 (debug / smoke). */
+  get leaderMenuTarget(): string | null { return this.leadTarget; }
+
   /** 키 가이드 entries for the open panel (the guide appends `Tab 닫기` itself; P is the panel's own close key). */
   private emitGuide(): void {
     this.ctx.bus.emit('ui:keyGuide', {
@@ -250,6 +325,8 @@ export class Community {
     this._open = false;
     this.panel.hidden = true;
     this.column.contextMenu?.close();
+    this.closeLeadMenu();
+    this.ask.close();
     ctx.uiBlockers.delete(COMMUNITY_BLOCKER);
     ctx.input.setCursorMode(false, COMMUNITY_BLOCKER);
     ctx.bus.emit('ui:keyGuide', { owner: 'community', keys: null });
@@ -259,6 +336,10 @@ export class Community {
   dispose(): void {
     for (const u of this.unsubs) u();
     this.unsubs = [];
+    window.removeEventListener('mousedown', this.onDocDownLead, true);
+    this.ask?.close();
+    this.ask?.root.remove();
+    this.leadMenu?.remove();
     if (this._open) {
       this._open = false;
       this.ctx?.uiBlockers.delete(COMMUNITY_BLOCKER);

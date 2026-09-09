@@ -9,7 +9,10 @@ Import via `@/game` → `GameFlowSystem`.
 |---|---|
 | `GameFlowSystem.ts` | `GameSystem` (`name: 'gameflow'`). Phases: `menu → deploying → playing → extracting → shipLanded → liftoff → complete` or `dead`. The ship hub phases `hub` / `docking` are owned by `hub/HubSystem` (see below). |
 | `model.ts` | 폴더 공용 어휘 — `GameFlowSystem` 에서 떼어낸 상수 · 타입 · 스크래치. 클래스를 참조하지 않으므로 `parts/*` 가 순환 import 없이 쓴다. `GameFlowSystem.ts` 가 재수출하므로 기존 import 경로는 그대로다 |
-| `parts/Death.ts` | **사망 · 부활 · 분대 전멸**. 죽으면 30초 뒤 부활할 수 있지만, **분대 전원이 나가떨어지면 레이드가 실패**한다 (솔로는 죽는 즉시). 끊긴 대원의 고스트도 살아 있는 것으로 세므로 판정이 단순하지 않다. |
+| `parts/Death.ts` | **사망 · 구조 · 분대 전멸**. **2026-09-09: 자동 부활은 없다** — 완전히 죽으면 시체가 서고(`Corpses.ts`) 되살아나는 길은 분대원의 구조선(`rescue:landed`)뿐이다. **분대 전원이 나가떨어지면 레이드가 실패**한다 (솔로는 죽는 즉시). 끊긴 대원의 고스트도 살아 있는 것으로 세므로 판정이 단순하지 않다. |
+| `Corpses.ts` | **사망한 플레이어의 시체** (`ctx.corpses` = `PlayerCorpseManager`). `PlayerCorpseObject` 는 `Interactable` 이자 `PlayerCorpse` 다 — id `pcorpse:<owner>:<n>`, 프롬프트 `<이름>의 유해 뒤지기`(비면 `비어 있음`), 상호작용 → `inventory.openContainerItemsSized(...)`. 메시는 `SoldierModel` 을 죽은 자세로 **한 번** 굳혀 둔 것이고 (`setGreyed`), **레이드가 끝날 때까지 사라지지 않는다** — 수명도 거리 컬링도 없다 (사용자 결정). |
+| `parts/CorpseNet.ts` | **시체의 생성과 동기화** (`pcorpse` / `pcorpseq`). `spawn` 은 죽은 본인이 `'all'` 로 (자기 인벤토리만이 진실), 호스트는 남의 시체도 `items` 채로 들고 있다가 `pcorpseq sync` / `flow rejoined` 에 `pcorpse sync` 로 답한다. 시체 **안의 아이템을 가져가는** 것은 상자와 똑같이 기존 `cont` / `contq` 경로다. `crate:looted` → `pcorpse emptied`. |
+| `parts/Leader.ts` | **분대장 기기**. 멀티에서 호스트가 완전히 사망하면 시체 옆에 절차 생성 오브젝트(아이템 아님)가 떨어지고 죽은 호스트가 `ctx.net.reportHostDown(true)` 를 남긴다. `Interactable` `leader_device` (`LEADER_DEVICE_RANGE`, **`LEADER_DEVICE_HOLD_S` 홀드**, `분대장 기기 회수`) → `transferHost(me, true)` + `lead taken`. **`net:hostChanged` 토스트의 유일한 주인**이다 — 기기 회수든 커뮤니티 우클릭 이관이든 전부 여기로 모인다. |
 | `parts/Session.ts` | **레이드 세션 저장과 복귀**. 솔로 레이드는 localStorage 에 5분짜리 스냅샷을 남기고(`SoloRaid.ts`), 멀티는 릴레이의 레이드 저장소를 쓴다. 복귀는 `world:ready` 뒤에 인벤토리 · 스탯 · 시계를 되돌리고, 호스트가 보관하던 몸이 있으면 그 자리에서 일어난다(없으면 헬포드로 떨어진다). |
 | `parts/Phases.ts` | **페이즈 전환과 일시정지**. menu → hub → deploying → playing → extracting → complete / dead → hub. 일시정지는 **월드를 멈추지 않고**(2026-09-07) 창 포커스를 잃었을 때만 뜬다. 일시정지 메뉴는 항상 단 하나의 화면이라 다른 창이 열려 있으면 즉시 양보한다(Phase 12 — 겹쳐서 둘 다 못 끄던 상태의 수정). |
 | `parts/Wire.ts` | **`flow` 메시지**와 호스트 이관 · 로비 이탈의 흐름 처리. |
@@ -28,7 +31,10 @@ Import via `@/game` → `GameFlowSystem`.
 | `extraction:shipLanded` | `shipLanded` |
 | `extraction:boarded` | remembers that the local player boarded (for `stats.extracted` in multiplayer) |
 | `extraction:liftoff` | `liftoff`; after 6.5 s → `complete()`: `stats.extracted = true` (multiplayer: `boarded && !isDead && !isDowned`), `lootValue = inventory.getTotalValue()`, `awardMissionXp()`, `complete`, `game:complete {stats}` |
-| `player:died` | training: immediate `player:respawn` at the arena spawn (no failure). Solo raid: after 2.5 s → `gameOver()` (레이드 실패). Multiplayer: phase unchanged, 30 s respawn countdown (`game:respawnAvailable`), host runs the all-dead check |
+| `player:died` | training: immediate `player:respawn` at the arena spawn (no failure). Solo raid: after 2.5 s → `gameOver()` (레이드 실패). Multiplayer (**2026-09-09**): phase unchanged, **no countdown** — `stripForCorpse()` → 시체(`parts/CorpseNet.spawnLocalCorpse`), 호스트였다면 분대장 기기(`parts/Leader.onHostDied`), 토스트 `전사 — 분대원의 구조선을 기다립니다 (남은 구조선 n)`, host runs the all-dead check |
+| `rescue:landed` | `target` 이 나면(싱글은 `'sp'`) 죽음 타이머 · 전멸 체크를 내리고 `deploying` 이면 `playing` 으로. 몸을 세우는 것은 `player/` 가 한다 (`rescueRevive` — 헬포드 · `RESCUE_REVIVE_HP` · 빈손) |
+| `crate:looted` (`pcorpse:…`) | 그 시체를 `비어 있음` 으로 바꾸고 `corpse:playerEmptied` + `pcorpse emptied` 를 방송 (메시는 남는다) |
+| `world:cleared` / `game:abort` / `game:newMission` | 시체 · 분대장 기기 전부 정리 + 지오메트리 dispose (`clearCorpses()`) |
 | `player:downed` | **not a death**: phase unchanged, `ui:notify "쓰러짐 — 아군의 제세동기를 기다립니다"`, the all-dead check is re-armed (a squadmate may already be dead) |
 | `player:revived` | stops the all-dead check when the local player is no longer dead |
 | `game:abort` | multiplayer host **during a live raid** (gameplay / `deploying`, never a training): `flow abort` to others first (leaving a result screen is local — the mission is already over); closes inventory, `menu`. If the abort ended a *lobby* mission / result screen, emits `hub:enter {ship:'shared'}` one microtask later (no-op when HubSystem's own `hub:enter` already built the ship) |
@@ -88,10 +94,22 @@ It also bumps `ctx.progression.profile.raids` (always) and `.extractions` (on `s
   `hub:enter {ship: lobby ? 'shared' : 'personal'}` (normally personal — the lobby is gone). Reason `left` (we chose to leave) is ignored.
 - Single-player is untouched: solo aborts still land on the title menu (the title's `함선 탑승` re-enters the personal ship).
 
-## Phase 2 (2026-09-05): death → respawn (squad only since Phase 7)
-- Multiplayer `player:died` → `respawnTimer = PLAYER_RESPAWN_DELAY` (30 s) and `game:respawnAvailable {seconds}` once per second (0 = allowed); phase unchanged (spectate overlay).
-- `game:respawn` (UI, Space / 부활 button) → `onRespawnRequest()`: only while dead, the timer is exactly 0 and the raid is still live → `player:respawn {position: world.getPlayerSpawn()}`
-  (player re-drops in the hellpod, inventory reapplies the starter kit). `player:landed` → `playing` as usual. Never honoured on the 레이드 실패 screen.
+## ~~Phase 2 (2026-09-05): death → respawn~~ → **2026-09-09: 자동 부활은 없다**
+
+30초 부활 카운트다운은 **걷어냈다**. `PLAYER_RESPAWN_DELAY` · `game:respawn` · `game:respawnAvailable` 은
+**계약이라 남아 있지만 아무도 발행하지도 구독하지도 않는다** (`tickRespawn` / `onRespawnRequest` 는 빈 함수다).
+
+멀티에서 완전히 사망하면:
+1. `inventory.stripForCorpse()` 로 장비 · 가방 · 퀵슬롯이 통째로 빠지고 (완전 빈손),
+2. 그 자리에 시체가 서고 (`pcorpse spawn` 을 `'all'` 로 — 되돌아온 자기 메시지는 id 로 중복 제거),
+3. 호스트였다면 시체 옆에 분대장 기기가 떨어지고 `reportHostDown(true)` 가 서버에 남고,
+4. `ui/hud/SpectateOverlay` 가 `분대원의 구조선을 기다립니다` + `남은 구조선 n` 을 띄운다.
+
+되살아나는 길은 분대원의 `rescue_drop` 뿐이다 — `stratagems/parts/Rescue` 가 `rescue:landed` 를 발행하고
+`player/` 가 몸을(`RESCUE_REVIVE_HP`, 빈손, 헬포드 `kind` 1) `game/parts/Death` 가 흐름을 맡는다.
+**전멸 판정은 그대로다**: 죽은 사람은 계속 out 이고 전원 out 이면 레이드 실패.
+
+솔로 레이드는 예전처럼 죽는 즉시 레이드 실패라 시체도 구조선 화면도 없다 (전리품 가치가 결과창에 그대로 뜬다).
 
 ## Phase 7 (2026-09-06): squad wipe · raid session · rejoin · 훈련장 · host takeover
 - **Wipe = failure** (`MISSION_FAILS_WHEN_ALL_DEAD = true`). `checkAllDead()` (host only, never in a training): the local player is out (`isDead && !isDowned`) and no
@@ -231,6 +249,20 @@ over them and 게임으로 돌아가기 returns to what was open. `onFocusLost` 
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-09 (사망 · 시체 · 분대장)** — **자동 부활 제거**(30초 카운트다운 · `game:respawnAvailable` 발행/구독을
+  끊었다 — 계약은 남는다), 새 `Corpses.ts` 가 `ctx.corpses` 를 게시하고 완전히 사망한 플레이어의 **시체**를
+  레이드가 끝날 때까지 세워 둔다(절차 생성 `SoldierModel`, `Interactable` `pcorpse:<owner>:<n>`,
+  루팅은 `openContainerItemsSized` + 기존 `cont` 경로), 새 `parts/CorpseNet.ts` 가 `pcorpse` / `pcorpseq` 와
+  호스트 late-join sync 를, 새 `parts/Leader.ts` 가 **분대장 기기**(3초 홀드 회수 · `reportHostDown` ·
+  `transferHost(me, true)`)와 `net:hostChanged` 토스트를 맡는다. `rescue:landed` 로 부활 흐름을 정리한다.
+
+### 알려진 한계 (2026-09-09)
+- `Corpses.ts` 가 `@/player` 의 `SoldierModel` 을 import 한다 — **폴더 간 import 금지 규약의 의도적 예외**다
+  (병사 모델을 두 번 만들지 않기 위해서). 역방향 의존은 없으므로 순환은 생기지 않는다.
+- **임플란트 아이템은 시체로 가지 않는다.** 그 인스턴스는 `ctx.progression` 이 들고 있고
+  `ProgressionRef.unequipImplant` 는 함선 전용이라 레이드 중에 뺄 방법이 계약에 없다
+  (`ProgressionRef.stripImplants()` 같은 추가가 필요하다).
 
 - **2026-09-08 (훈련장은 강하하지 않는다)** — `onWorldReady` 가 훈련이면 `'deploying'` 을 건너뛰고 바로
   `'playing'` 이다. 훈련장은 함선 안의 방이지 행성이 아니라 `player/` 도 헬포드를 띄우지 않으므로,

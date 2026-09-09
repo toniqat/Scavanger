@@ -173,8 +173,14 @@ export class RemoteAvatar implements RemoteAvatarRef {
      * touring the same 개인 함선 do see each other, which is the whole point.
      */
     const elsewhere = (ref.hubSite ?? null) !== (ctx.hub?.hubSite ?? null);
+    /*
+     * 2026-09-09: 완전히 사망한 분대원은 **시체 오브젝트**(`ctx.corpses`)가 대신 서 있다. 그 시체가 존재하는
+     * 동안 아바타까지 죽은 자세로 누워 있으면 같은 자리에 몸이 둘이므로 아바타를 감춘다. 전투불능(`downed`)은
+     * 시체가 아니라 여전히 아바타다 — 제세동기로 일어날 수 있다.
+     */
+    const replacedByCorpse = ref.isDead && !!ctx.corpses?.latestOf(ref.id);
     // Phase 7: a suspended member stays visible even though its snapshots are stale (the host's ghost owns the body)
-    const visible = !dropping && !inPod && !elsewhere && (suspended || (!ref.stale && ref.connected));
+    const visible = !dropping && !inPod && !elsewhere && !replacedByCorpse && (suspended || (!ref.stale && ref.connected));
 
     // ── landing burst: first frame out of the hellpod
     if (this.wasDropping && !dropping && ref.connected) {

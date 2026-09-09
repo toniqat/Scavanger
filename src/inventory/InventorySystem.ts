@@ -45,6 +45,8 @@ import * as StashOps from './parts/StashOps';
 import * as Drop from './parts/DropResolver';
 import * as Dur from './parts/Durability';
 import * as Launch from './parts/LaunchCheck';
+/* appended (2026-09-09): 사망 → 시체 컨테이너 */
+import * as Corpse from './parts/CorpseLoot';
 export class InventorySystem implements GameSystem, InventoryRef {
   readonly name = 'inventory';
 
@@ -77,7 +79,13 @@ export class InventorySystem implements GameSystem, InventoryRef {
   catalogOpen = false;
   bench: ActiveBench | null = null;
   /* Phase 7: container search + host authority + net subscriptions. */
-  private openedIds = new Set<string>();
+  /** `parts/` 가 닿는다 (`CorpseLoot.openContainerItemsSized`) — 폴더 밖 계약은 아니다. */
+  openedIds = new Set<string>();
+  /**
+   * 2026-09-09: 이번 사망에서 `stripForCorpse()` 로 전부 시체에 넘겼다 → **구조선 부활은 빈손**이다.
+   * `player:respawn` 의 스타터 지급 분기를 한 번만 건너뛰고 스스로 꺼진다.
+   */
+  strippedForCorpse = false;
   pendingTakes: PendingTake[] = [];
   private lastSearchEmit = -1;
   /** Seconds left of the `SEARCH_START_DELAY` grace after the container window opened (0 = 감정 ticking). */
@@ -188,6 +196,10 @@ export class InventorySystem implements GameSystem, InventoryRef {
           if (msg.ev === 'rejoined' && this.isNetAuthority()) net.send({ t: 'cont', ev: 'sync', items: this.containers.takenWire() }, from);
         }),
       );
+      // 2026-09-09: 플레이어 시체는 컨테이너 하나다 (`pcorpse:<owner>:<n>`). 와이어가 도착하는 즉시 컨테이너를
+      // 만들어 두어야 호스트가 한 번도 열어 본 적 없는 시체의 `contq take` 도 심판할 수 있다.
+      const corpseOff = Corpse.hookCorpseWire(this, ctx);
+      if (corpseOff) this.offs.push(corpseOff);
     }
     // Capture-phase so Escape closes the inventory without also reaching the menu system.
     window.addEventListener('keydown', this.escHandler, true);
@@ -831,7 +843,22 @@ export class InventorySystem implements GameSystem, InventoryRef {
     this.ctx.bus.emit('inventory:containerOpened', { containerId, first });
   }
 
-  private showContainer(c: Container): void {
+  /**
+   * 2026-09-09 — `openContainerItems` 와 같지만 격자 크기를 지정한다 (플레이어 유해는
+   * `PLAYER_CORPSE_COLS × PLAYER_CORPSE_ROWS`). 이미 아는 id 면 `items` · 크기 모두 무시하고 남은 내용물을 보여 준다.
+   */
+  openContainerItemsSized(containerId: string, items: ItemInstance[], position: THREE.Vector3,
+    cols: number, rows: number, title?: string): void {
+    return Corpse.openContainerItemsSized(this, containerId, items, position, cols, rows, title);
+  }
+
+  /**
+   * 2026-09-09 — 사망 시점의 전부(장비 · 가방 · 퀵슬롯)를 뽑고 로컬 인벤토리를 비운다. 시체 컨테이너를
+   * 채우는 유일한 입구이고, `game/parts/Death` 의 사망 처리에서 정확히 한 번만 불린다.
+   */
+  stripForCorpse(): ItemInstance[] { return Corpse.stripForCorpse(this); }
+
+  showContainer(c: Container): void {
     this.activeContainer = c;
     this.searchDelay = SEARCH_START_DELAY;   // 2026-09-08: 감정 waits out the window's open animation
     this.hubMode = false;

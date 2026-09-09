@@ -1,0 +1,87 @@
+/*
+ * SCAVANGER — 구조선 대상 선택 화면 (2026-09-09).
+ * `ui/styles/base.css` 의 토큰(--sb-*, .ui-mono, .ui-label)을 그대로 쓰고, 색만 구조선 분홍(--rp-tint)을 더한다.
+ * 이 파일은 base.css 를 import 하지 않으므로 참조하는 토큰마다 fallback 을 함께 적는다.
+ */
+.rescue-pick {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  background: radial-gradient(120% 90% at 50% 45%, rgba(8, 10, 14, 0.55), rgba(4, 6, 9, 0.86));
+  z-index: 40;
+  --rp-tint: #ff8ac4;
+}
+.rescue-pick[hidden] { display: none !important; }
+
+.rescue-pick .rp-head { text-align: center; }
+.rescue-pick .rp-title {
+  font-size: 20px;
+  letter-spacing: 0.16em;
+  color: var(--rp-tint);
+  text-shadow: 0 0 14px rgba(255, 138, 196, 0.45);
+}
+.rescue-pick .rp-sub {
+  margin-top: 6px;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: rgba(226, 232, 240, 0.72);
+}
+.rescue-pick .rp-left {
+  margin-top: 4px;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: rgba(226, 232, 240, 0.5);
+}
+
+.rescue-pick .rp-cells {
+  display: grid;
+  grid-template-columns: repeat(4, 168px);
+  gap: 12px;
+}
+
+.rescue-pick .rp-cell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 12px 14px;
+  min-height: 122px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-left: 3px solid var(--sc, #94a3b8);
+  background: linear-gradient(180deg, rgba(18, 22, 30, 0.92), rgba(11, 14, 20, 0.92));
+  color: #e2e8f0;
+  text-align: left;
+  font: inherit;
+  cursor: default;
+  opacity: 0.45;
+  transition: opacity 0.12s ease, border-color 0.12s ease, transform 0.12s ease;
+}
+.rescue-pick .rp-cell.is-on { opacity: 1; cursor: pointer; }
+.rescue-pick .rp-cell.is-on:hover {
+  border-color: var(--rp-tint);
+  transform: translateY(-2px);
+}
+.rescue-pick .rp-cell.empty { border-left-color: rgba(100, 116, 139, 0.4); }
+
+.rescue-pick .rp-key {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  min-width: 18px;
+  padding: 1px 5px;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  border-radius: 3px;
+  font-size: 11px;
+  color: rgba(226, 232, 240, 0.7);
+  text-align: center;
+}
+.rescue-pick .rp-name { font-size: 14px; letter-spacing: 0.04em; }
+.rescue-pick .rp-slot { font-size: 11px; letter-spacing: 0.1em; color: var(--sc, #94a3b8); }
+.rescue-pick .rp-state { margin-top: auto; font-size: 12px; letter-spacing: 0.06em; }
+.rescue-pick .rp-cell.is-on .rp-state { color: var(--rp-tint); }
+.rescue-pick .rp-cell:not(.is-on) .rp-state { color: rgba(148, 163, 184, 0.8); }
+.rescue-pick .rp-where { font-size: 11px; color: rgba(148, 163, 184, 0.75); }

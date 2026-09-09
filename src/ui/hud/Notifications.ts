@@ -53,7 +53,9 @@ export class Notifications {
       b.on('player:stimUsed', () => { if (!this.channel) this.push('회복제 사용', 'success', '생명력', 2); }),
       // down / revive / respawn (Phase 2)
       b.on('player:revived', ({ hp }) => this.push(`부활 — 체력 <b>${Math.ceil(hp)}</b>`, 'success', '생명력', 3)),
-      b.on('game:respawnAvailable', ({ seconds }) => { if (seconds <= 0) this.push('부활 준비 완료', 'success', '부활', 3); }),
+      // 2026-09-09: 자동 부활이 사라져 `game:respawnAvailable` 은 아무도 발행하지 않는다 — 그 자리에 구조선 알림이 온다
+      b.on('rescue:called', ({ targetName }) => this.push(`${escapeHtml(targetName)} 구조선 호출됨`, 'success', '구조', 3)),
+      b.on('leader:deviceDropped', () => this.push('분대장 기기가 떨어졌습니다', 'warning', '분대장', 4)),
       b.on('net:remoteDowned', ({ name }) => this.push(`<b>${escapeHtml(name)}</b> 전투불능 — 구조 필요`, 'danger', '분대', 4)),
       b.on('net:remoteRevived', ({ name }) => this.push(`<b>${escapeHtml(name)}</b> 부활`, 'success', '분대', 3)),
       // multiplayer feed

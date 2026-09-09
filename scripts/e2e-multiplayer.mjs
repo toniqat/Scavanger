@@ -386,7 +386,9 @@ try {
   if (target) {
     const hostHpBefore = await A.evaluate((id) => window.__game.ctx.enemies.getEnemies().find((x) => x.id === id)?.hp, target.id);
     await B.evaluate((id) => { const e = window.__game.ctx.enemies.getEnemies().find((x) => x.id === id); const V = e.position.constructor; e.takeDamage(10, e.position.clone().add(new V(0, 0.5, 0)), new V(0, 0, 1)); }, target.id);
-    const hostHpAfter = await waitFor(A, (id) => { const hp = window.__game.ctx.enemies.getEnemies().find((x) => x.id === id)?.hp; return hp !== undefined && hp < 60 ? hp : 0; }, 'host applies hit', 5000, target.id);
+    // 2026-09-09: 기준값을 `hp < 60` 으로 박아 두었더니 적 체력이 2배가 된 순간 영영 성립하지 않았다.
+    // **맞기 전 체력보다 낮아졌는가**로 재야 밸런스 수치와 무관해진다.
+    const hostHpAfter = await waitFor(A, (a) => { const hp = window.__game.ctx.enemies.getEnemies().find((x) => x.id === a.id)?.hp; return hp !== undefined && hp < a.before ? hp : 0; }, 'host applies hit', 5000, { id: target.id, before: hostHpBefore });
     ok(hostHpAfter !== undefined && hostHpAfter < hostHpBefore, `host applied client hit (${hostHpBefore} → ${hostHpAfter})`);
   }
 

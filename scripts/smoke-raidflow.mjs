@@ -2,6 +2,7 @@
 // auto return to the ship after RAID_FAILED_AUTO_RETURN_S), 훈련장 enter / death-respawn / exit with the inventory snapshot
 // restored and no XP / settlement / threat, rejoin restore (`net:raidLoaded` blob + `net:ghostRestore` alive / dead) and the
 // `NET_GHOST_RESTORE_TIMEOUT_S` hellpod fallback, extraction consoles absent when the world has no pads.
+// 2026-09-09: 자동 부활 폐지 — 죽은 몸으로 복귀해도 카운트다운이 없고 `game:respawn` 은 무력하다 (구조선만이 되살린다).
 // Usage: node scripts/smoke-raidflow.mjs [http://localhost:5273]   (needs a running vite)
 import puppeteer from 'puppeteer-core';
 import { existsSync } from 'node:fs';
@@ -241,15 +242,17 @@ try {
   await waitSim(0.5);
   st = await P(() => { const ctx = window.__game.ctx; return { phase: ctx.phase, pending: ctx.rejoinPending, restored: window.__spy.restoreState.length, state: window.__spy.restoreState[0]?.state, ra: window.__ev['game:respawnAvailable'].at(-1)?.seconds, failed: window.__ev['game:raidFailed'].length }; });
   ok(st.restored === 1 && st.state === 2 && st.phase === 'playing' && !st.pending, 'dead ghost restored → playing (spectate), rejoinPending cleared', JSON.stringify(st));
-  ok(typeof st.ra === 'number' && st.ra > 25 && st.ra <= 30, 'dead ghost → 30 s respawn countdown starts', `${st.ra}`);
+  // 2026-09-09: 자동 부활이 사라졌다. 죽은 몸으로 복귀하면 관전 상태에 그대로 머무르고,
+  // 30초 카운트다운도 `game:respawn` 도 더는 아무것도 하지 않는다 — 되살아나는 길은 분대원의 구조선뿐이다.
+  ok(st.ra === undefined, 'dead ghost → no respawn countdown (자동 부활 폐지)', `${st.ra}`);
   ok(st.failed === 0, 'a dead restore alone is not a raid failure (solo path is bypassed)', `${st.failed}`);
   await P(() => { window.__game.ctx.timeScale = 10; });
-  await waitFor(page, () => { const a = window.__ev['game:respawnAvailable']; return a.length > 0 && a[a.length - 1].seconds === 0; }, 'respawn countdown', 120000);
+  await waitSim(3);
   await P(() => { window.__game.ctx.timeScale = 1; });
   await P(() => window.__game.ctx.bus.emit('game:respawn', {}));
   await waitSim(0.3);
-  const respawnedAfterGhost = await P(() => window.__ev['player:respawn'].length);
-  ok(respawnedAfterGhost === 1 || (await P(() => !window.__game.ctx.player.isDead)), 'game:respawn after the countdown re-drops (or the player is already alive)', `${respawnedAfterGhost}`);
+  st = await P(() => ({ ra: window.__ev['game:respawnAvailable'].length, respawns: window.__ev['player:respawn'].length, dead: window.__game.ctx.player.isDead }));
+  ok(st.ra === 0 && st.respawns === 0 && st.dead, 'no countdown and game:respawn is inert — the body waits for a 구조선', JSON.stringify(st));
 
   console.log('rejoin: restore timeout fallback');
   await P(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));

@@ -107,6 +107,8 @@ Phase 11 이 뼈대만 놓고 끝난 부분 + 호스트 검증이 비어 있는 
 | C-8 | **옛 `KEY_*` 상수가 deprecated 기본값으로 남아 있다** — 모든 읽는 쪽 이관을 확인하고 제거 | HISTORY Controls |
 | C-9 | **`Keys.SWAP` 제거의 후폭풍** — `이전 무기` 를 리바인딩했던 플레이어는 통보 없이 그 바인딩을 잃는다 | HISTORY 2026-09-07(마우스 커서 rework) |
 | C-10 | **`meta/ui/dom.ts` 의 `fmtNum` 은 `en-US`, `formatCredits` 는 `ko-KR`** — 오늘 값이 같은 건 우연이다 | `src/meta/ui/dom.ts:24` vs `src/shared/meta.ts:410` |
+| C-11 | **`WorldRef` 에 전초기지 접근자가 없다**. `fog:discovered.kind` 는 `'outpost'` 를 받는데 위치를 물을 길이 없어 지도가 전초기지를 아예 그리지 못한다 (안개 이전에도 안 그렸다) | `src/shared/events.ts` `fog:discovered`, `src/world/Outposts.ts` |
+| C-12 | **`ProgressionRef` 에 레이드 중 임플란트 회수 수단이 없다**. `unequipImplant` 가 함선 전용 게이트라 `stripForCorpse` 가 임플란트를 시체로 옮기지 못한다. 지금은 **유지가 의도된 설계**지만(2026-09-09 사용자 결정), 뒤집으려면 `stripImplants()` 가 먼저 필요하다 | `src/progression/ProgressionSystem.ts:117`, `src/shared/types.ts` `stripForCorpse` |
 
 ## 묶음 7 (상시) — 밸런스 · 튜닝
 

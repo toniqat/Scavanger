@@ -91,6 +91,9 @@ export class Call implements StratagemCall {
   structures: Structure[] = [];
   landedCount = 0;
   audioStarted = false;
+  /* 구조선 (2026-09-09): 이 호출이 되살리는 분대원과 호출한 사람. 다른 종류에서는 null. */
+  rescueTarget: string | null = null;
+  rescueBy: string | null = null;
   constructor(
     readonly id: string, readonly kind: StratagemId, readonly position: THREE.Vector3,
     readonly landsAt: number, readonly caller: PeerId | null, readonly seed: number, local: boolean,

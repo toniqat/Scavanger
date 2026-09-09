@@ -119,10 +119,13 @@ try {
   ok(st.armed === null && (await lastEv('stratagem:armed'))?.id === null, 'G tap again puts the call away');
   await keyDown('KeyG'); await waitSim(0.4);
   ok((await lastEv('stratagem:wheelChanged'))?.open === true, 'G hold opens the wheel');
+  // 2026-09-09: STRATAGEM_ORDER = N 궤도 폭격 · E 보급품 투하 · S 트라이포드 투하 · W 구조선 투하
   await mouseMove(60, 0); await waitSim(0.1);
-  ok((await lastEv('stratagem:wheelChanged'))?.hover === 'airstrike', 'drag right → hover E = airstrike', JSON.stringify(await lastEv('stratagem:wheelChanged')));
+  ok((await lastEv('stratagem:wheelChanged'))?.hover === 'supply_drop', 'drag right → hover E = supply_drop', JSON.stringify(await lastEv('stratagem:wheelChanged')));
   await mouseMove(-60, 60); await waitSim(0.1);
-  ok((await lastEv('stratagem:wheelChanged'))?.hover === 'supply_drop', 'drag down → hover S = supply_drop');
+  ok((await lastEv('stratagem:wheelChanged'))?.hover === 'structure_drop', 'drag down → hover S = structure_drop');
+  await mouseMove(60, -60); await waitSim(0.1);
+  ok((await lastEv('stratagem:wheelChanged'))?.hover === 'supply_drop', 'drag back right → hover E = supply_drop again');
   await keyUp('KeyG'); await waitSim(0.15);
   st = await state();
   ok(st.armed === 'supply_drop' && (await lastEv('stratagem:wheelChanged'))?.open === false, 'release arms the hovered call, wheel closed', JSON.stringify(st));
@@ -272,8 +275,13 @@ try {
     return { asClient, a, b };
   });
   ok(ans.asClient.length === 0, 'a non-host ignores stratq sync');
-  const aMsg = ans.a[0]?.msg;
-  ok(ans.a.length === 1 && ans.a[0].to === 'PEER' && aMsg?.t === 'strat' && aMsg.ev === 'sync' && Array.isArray(aMsg.calls), 'host answers stratq sync with one strat sync to the requester', JSON.stringify(ans.a));
+  // 2026-09-09: 같은 답장에 구조선 잔여 횟수(`rescue count`)가 한 통 더 실린다. 그래서 개수가 아니라
+  // **strat sync 가 정확히 하나 있고 전부 요청자에게만 간다**로 잰다.
+  const stratSyncs = ans.a.filter((s) => s.msg?.t === 'strat' && s.msg.ev === 'sync');
+  const aMsg = stratSyncs[0]?.msg;
+  ok(stratSyncs.length === 1 && ans.a.every((s) => s.to === 'PEER') && Array.isArray(aMsg?.calls), 'host answers stratq sync with one strat sync to the requester', JSON.stringify(ans.a));
+  const rescueLeft = await P(() => window.__game.ctx.stratagems.rescueLeft);
+  ok(ans.a.some((s) => s.msg?.t === 'rescue' && s.msg.ev === 'count' && s.msg.left === rescueLeft), 'the same answer carries the squad 구조선 count', JSON.stringify(ans.a.map((s) => s.msg?.t)));
   const wireIds = (aMsg?.calls ?? []).map((c) => c.callId);
   ok(!wireIds.includes(airId) && wireIds.includes(structId) && wireIds.includes(called.callId) && wireIds.includes('H-1') && wireIds.includes('H-4'), `done airstrike excluded, structures / supply / synced calls included (${wireIds.join(',')})`);
   const w1 = aMsg?.calls.find((c) => c.callId === 'H-1'), wS = aMsg?.calls.find((c) => c.callId === structId), wSup = aMsg?.calls.find((c) => c.callId === called.callId), w4 = aMsg?.calls.find((c) => c.callId === 'H-4');

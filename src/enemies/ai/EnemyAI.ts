@@ -447,7 +447,8 @@ function attack(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget | null): 
     e.position.y += e.vy * dt;
     const world = host.ctx.world!;
     world.resolveCollision(e.position, s.radius);
-    const ground = world.getHeightAt(e.position.x, e.position.z);
+    // 2026-09-09: a leap can land **on** a low rock — the surface below the falling body, not the terrain
+    const ground = world.getSurfaceY(e.position.x, e.position.z, e.position.y);
     a.crouch = -0.3; // stretched
     a.headPitch = THREE.MathUtils.lerp(a.headPitch, 0.3, dt * 5);
     r.mandible = 1;
@@ -544,6 +545,11 @@ export function integrate(e: Enemy, dt: number, world: WorldRef, host: EnemyHost
   _prev.copy(pos);
   pos.x += e.velocity.x * dt;
   pos.z += e.velocity.z * dt;
+  // 2026-09-09 (지형지물 위 걷기): 표면을 **먼저** 잡는다. `getSurfaceY(x, z, feetY)` 는 지금 발 높이에서
+  // 올라설 수 있는 윗면(`PROP_STEP_UP_MAX` 이내)만 돌려주므로, 낮은 바위면 y 가 그 윗면으로 올라가고
+  // `resolveCollision` 이 그 장애물을 밀어내지 않는다(같은 `PROP_TOP_MARGIN` 판정). 높은 첨탑이면 y 는
+  // 지형에 남고 예전과 똑같이 벽으로 밀린다. 순서를 바꾸면 밀려난 뒤라 영영 못 올라간다.
+  pos.y = world.getSurfaceY(pos.x, pos.z, pos.y);
   world.resolveCollision(pos, s.radius);
   // Phase 12: a raised 배리어 is a wall for every grounded enemy (pushed out here; a charge that hits it stumbles below
   // exactly like one that hit a rock). The host retargets a bumping enemy onto the carrier.
@@ -559,7 +565,8 @@ export function integrate(e: Enemy, dt: number, world: WorldRef, host: EnemyHost
       if (host.targets.distToLocal(pos) < (big ? 45 : 25)) host.ctx.bus.emit('camera:shake', { intensity: big ? 0.6 : 0.35, duration: 0.35 });
     }
   }
-  pos.y = world.getHeightAt(pos.x, pos.z);
+  // `resolveCollision` / `resolveBarrier` may have shoved the body sideways — re-seat it on that spot's surface
+  pos.y = world.getSurfaceY(pos.x, pos.z, pos.y);
 
   // gait from distance travelled
   const moved = Math.hypot(pos.x - _prev.x, pos.z - _prev.z);
@@ -607,7 +614,8 @@ export function integrateDeathFall(e: Enemy, dt: number, world: WorldRef): void 
   if (e.deathLanded || dt <= 0) return;
   e.deathVy = Math.max(-CORPSE_FALL_MAX_SPEED, e.deathVy - GRAVITY * dt);
   e.position.y += e.deathVy * dt;
-  const ground = world.getHeightAt(e.position.x, e.position.z);
+  // 2026-09-09: a body dropped over a rock rests on the rock (deterministic on host and replica alike)
+  const ground = world.getSurfaceY(e.position.x, e.position.z, e.position.y);
   if (e.position.y <= ground) {
     e.position.y = ground;
     e.deathVy = 0;

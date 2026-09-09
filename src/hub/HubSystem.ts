@@ -219,6 +219,15 @@ export class HubSystem implements GameSystem, HubRef {
   /** Answer `shipq state`; also called on `hub:entered` when `ctx.net` was missing at init. */
   bindShipRequests(): void { return Hangar.bindShipRequests(this); }
 
+  /* ── 분대장 넘기기 (2026-09-09) ─────────────────────────────────────────── */
+  /**
+   * 공용 함선 안의 원격 분대원마다 `lead:<peerId>` `Interactable` 을 세운다 (내가 호스트일 때만).
+   * 아바타 자체는 `player/RemotePlayerSystem` 소유라 위치만 읽는다 — 자세히는 `parts/Crew`.
+   */
+  readonly leaderHandoffs = new Map<PeerId, { it: Interactable; pos: THREE.Vector3 }>();
+  updateLeaderHandoff(): void { return Crew.updateLeaderHandoff(this); }
+  clearLeaderHandoff(): void { return Crew.clearLeaderHandoff(this); }
+
   boardedSlot = -1;
   boardedAt = 0;
   /** `ctx.time` of the last un-board — the pod refuses a new boarding for `REBOARD_GRACE` after it. */
@@ -343,7 +352,8 @@ export class HubSystem implements GameSystem, HubRef {
    * only draws a software cursor, so it must not stop the pod's Esc / E un-board or the lock-loss handler — exactly
    * the shape of `HousingMode.blockedByPanel()`.
    */
-  private uiBlocked(): boolean {
+  /* `private` is stripped because `parts/Crew` reads it (folder convention: parts get at what they touch). */
+  uiBlocked(): boolean {
     const b = this.ctx.uiBlockers;
     if (b.size === 0) return false;
     return !(b.size === 1 && b.has(HUB_READY_BLOCKER));
@@ -539,6 +549,8 @@ export class HubSystem implements GameSystem, HubRef {
     this.trackRoom();
     // 격납고: a bay boarded before its layout arrived finishes (or gives up) here
     Hangar.tickPendingVisit(this);
+    // 분대장 넘기기 (2026-09-09): 같은 함선 안의 원격 분대원마다 상호작용 지점을 따라 붙인다 (호스트만)
+    this.updateLeaderHandoff();
 
     // housing mode owns the input (cursor / place / rotate / recover / C / M) while active
     if (this.housingMode.active) { this.housingMode.update(dt); this.tickCountdown(dt); this.tickTravel(dt); return; }

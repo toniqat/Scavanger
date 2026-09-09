@@ -92,6 +92,26 @@ export function quickMatch(sys: NetSystem): void {
 
 export function setPublic(sys: NetSystem, isPublic: boolean): void { sys.client.send({ t: 'lobby:setPublic', isPublic }); }
 
+/* ══ 2026-09-09: 분대장(호스트) 지명 이관 ═══════════════════════════════════════════════════════════════════
+ *
+ * 서버가 받아 주는 경우는 둘뿐이다 — ① 지금 내가 호스트다, ② `claim` 이고 현재 호스트가 `lobby:hostDown` 으로
+ * 사망 표시를 켜 두었다(시체 옆의 분대장 기기). 그 외에는 `lobby:error {code:'not_host'}` 가 돌아온다.
+ * 여기서는 **로비가 없을 때만** no-op 이다 — 함선(로비는 있고 세션은 없다) 안에서도 넘길 수 있어야 한다.
+ */
+export function transferHost(sys: NetSystem, targetId: PeerId, claim?: boolean): void {
+  if (!sys._lobby || !sys.client.connected) return;
+  if (typeof targetId !== 'string' || targetId.length === 0) return;
+  const msg: Extract<ClientToServer, { t: 'lobby:transferHost' }> = { t: 'lobby:transferHost', targetId };
+  if (claim) msg.claim = true;
+  sys.client.send(msg);
+  }
+
+/** 호스트 본인이 이 레이드에서 완전히 사망했다(또는 되살아났다)고 서버에 알린다 (분대장 기기의 전제 조건). */
+export function reportHostDown(sys: NetSystem, down: boolean): void {
+  if (!sys._lobby || !sys.client.connected) return;
+  sys.client.send({ t: 'lobby:hostDown', down });
+  }
+
 export function setLobbySeed(sys: NetSystem, seed: number): void {
   const s = Math.floor(seed) >>> 0;
   if (sys._lobby) sys._lobby.seed = s; // optimistic mirror; the broadcast confirms it

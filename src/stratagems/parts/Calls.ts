@@ -1,7 +1,7 @@
 /**
  * src/stratagems/parts/Calls.ts — **호출된 함선 지원이 실제로 하는 일**.
  *
- * 궤도 레이저(10초 지속 피해) · 항공 폭탄 · 보급품 상자(티어 5) · 파괴 가능 엄폐 구조물.
+ * 궤도 레이저(10초 지속 피해) · 항공 폭탄 · 보급품 상자(티어 5) · 파괴 가능 엄폐 구조물(트라이포드). 구조선은 `parts/Rescue`.
  * 시각 효과는 전부 절차 생성이고 조명은 쓰지 않는다.
  */
 import * as THREE from 'three';
@@ -20,6 +20,7 @@ import {
   SharedGeo, TargetRing, CallMarker, Burst, dustBurst, sparkBurst, LaserBeam, Fireball, SupplyCrateMesh, BarricadeMesh, makeRubble, KIND_COLOR,
 } from '../Visuals';
 import { AIRSTRIKE_FX_TIME, Call, GRENADE_STRUCTURE_DAMAGE, type Host, LASER_TICK, SHAKE_RANGE, STRUCTURE_DROP_HEIGHT, STRUCTURE_MIN_GAP, STRUCTURE_STAGGER, SUPPLY_DROP_HEIGHT, Structure, TARGET_EMIT_EPS, WHEEL_DRAG_PX, _a, _b, _dir, defOf, toTuple } from '../model';
+import * as Rescue from './Rescue';
 import type { StratagemSystem } from '../StratagemSystem';
 
 export function createCall(sys: StratagemSystem, kind: StratagemId, position: THREE.Vector3, eta: number, seed: number, local: boolean, id?: string, caller?: PeerId | null): Call {
@@ -101,6 +102,8 @@ export function updateCalls(sys: StratagemSystem, dt: number): void {
       case 'airstrike': sys.updateAirstrike(c, t); break;
       case 'supply_drop': sys.updateSupply(c, t); break;
       case 'structure_drop': sys.updateStructures(c, t); break;
+      /* 2026-09-09: 구조선 — 포드 메시는 player/ 가 그리므로 여기서는 마커 · 착륙 FX · 이벤트만 */
+      case 'rescue_drop': sys.updateRescue(c, t); break;
     }
   }
   }
@@ -344,6 +347,8 @@ export function removeCall(sys: StratagemSystem, c: Call): void {
 export function clearAll(sys: StratagemSystem): void {
   sys.putAway();
   sys.gHeld = false;
+  // 2026-09-09: 분대 공용 구조선 횟수는 레이드마다 새로 채워진다
+  Rescue.resetRescue(sys);
   for (let i = sys.calls.length - 1; i >= 0; i--) sys.removeCall(sys.calls[i]);
   for (const b of sys.bursts) { sys.group.remove(b.points); b.dispose(); }
   sys.bursts.length = 0;

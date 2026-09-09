@@ -52,6 +52,13 @@ export class Lobby {
    * a training ignores it. **`reset()` keeps it** — the destination outlives the mission.
    */
   planet: PlanetId | null = null;
+  /* 2026-09-09 — 분대장 지명 이관 */
+  /**
+   * 현재 호스트가 이 레이드에서 **완전히 사망**했다고 스스로 알린 상태 (`lobby:hostDown`). 이 표시가 켜져 있는
+   * 동안에만 다른 멤버의 `lobby:transferHost {claim:true}` (시체 옆의 분대장 기기)를 받아 준다.
+   * 호스트가 바뀌거나 미션이 끝나면(`reset()`) 자동으로 꺼진다 — 표시가 다음 판까지 남아서는 안 된다.
+   */
+  hostDown = false;
 
   constructor(code: string, hostId: PeerId, isPublic = false, now: number = Date.now()) {
     this.code = code;
@@ -123,6 +130,21 @@ export class Lobby {
     if (!next || next.id === this.hostId) return false;
     this.hostId = next.id;
     for (const p of this.players.values()) p.isHost = p.id === this.hostId;
+    this.hostDown = false;   // 2026-09-09: 새 호스트는 살아 있다 — 사망 표시는 호스트를 따라가지 않는다
+    return true;
+  }
+
+  /**
+   * 2026-09-09 — **지명 이관**. `migrateHost` 의 슬롯 규칙을 건너뛰고 `targetId` 를 그대로 분대장으로 세운다
+   * (커뮤니티 우클릭 · 함선 안 상호작용 · 분대장 기기). 같은 로비의 **연결된** 멤버만 받는다.
+   * 이관이 일어나면 사망 표시도 함께 지운다.
+   */
+  transferHostTo(targetId: PeerId): boolean {
+    const p = this.players.get(targetId);
+    if (!p || !p.connected) return false;
+    this.hostId = targetId;
+    for (const q of this.players.values()) q.isHost = q.id === this.hostId;
+    this.hostDown = false;
     return true;
   }
 
@@ -194,6 +216,7 @@ export class Lobby {
     this.seed = null;
     this.mode = null;
     this.raid.clear();
+    this.hostDown = false;   // 2026-09-09: 미션이 끝나면 분대장 사망 표시도 끝난다
     for (const p of this.players.values()) { p.ready = false; p.inMission = false; }
   }
 

@@ -101,13 +101,19 @@ try {
   await keyDown('KeyG'); await waitSim(0.5);
   let wheel = await lastEv('stratagem:wheelChanged');
   ok(wheel && wheel.open === true, 'G hold opens the ship-call wheel', JSON.stringify(wheel));
+  // 2026-09-09: STRATAGEM_ORDER = N 궤도 폭격 · E 보급품 투하 · S 트라이포드 투하 · W 구조선 투하
   await P(() => { window.__game.ctx.input.mouseDX += 80; });
   await waitSim(0.2);
   wheel = await lastEv('stratagem:wheelChanged');
-  ok(wheel && wheel.hover === 'airstrike', 'drag right hovers 항공 폭탄 (E)', JSON.stringify(wheel));
+  ok(wheel && wheel.hover === 'supply_drop', 'drag right hovers 보급품 투하 (E)', JSON.stringify(wheel));
+  // back to N for the top-view section (the only remaining topview call is 궤도 폭격)
+  await P(() => { const i = window.__game.ctx.input; i.mouseDX -= 80; i.mouseDY -= 80; });
+  await waitSim(0.2);
+  wheel = await lastEv('stratagem:wheelChanged');
+  ok(wheel && wheel.hover === 'orbital_laser', 'drag up hovers 궤도 폭격 (N)', JSON.stringify(wheel));
   await keyUp('KeyG'); await waitSim(0.3);
   armed = await lastEv('stratagem:armed');
-  ok(armed && armed.id === 'airstrike', 'release arms the airstrike', JSON.stringify(armed));
+  ok(armed && armed.id === 'orbital_laser', 'release arms the orbital laser', JSON.stringify(armed));
 
   console.log('top-view targeting');
   await mouseDown(0);
@@ -116,7 +122,7 @@ try {
   ok(charge && charge.t > 0.2 && charge.t < 0.6, 'LMB hold charges (~1/3 after 1 s)', JSON.stringify(charge));
   await waitSim(2.4);
   let tg = await lastEv('stratagem:targeting');
-  ok(tg && tg.active === true && tg.kind === 'airstrike', 'charge complete → top-view targeting', JSON.stringify(tg));
+  ok(tg && tg.active === true && tg.kind === 'orbital_laser', 'charge complete → top-view targeting', JSON.stringify(tg));
   const camState = await P(() => { const ctx = window.__game.ctx; const p = ctx.player.position; return { camY: ctx.camera.position.y - p.y, controls: ctx.player.controlsEnabled }; });
   ok(camState.camY > 40, 'camera is high above the player', JSON.stringify(camState));
   await mouseUp(0);
@@ -199,6 +205,16 @@ try {
   ok(afterLoot.active, 'gameplay active again after closing the loot window', JSON.stringify(afterLoot));
 
   console.log('laser');
+  // 2026-09-09 (적 체력 ×2): 이 구간은 timeScale 4 로 수십 초를 흘려보내는데, 앞선 폭격에서 살아남은 벌레가
+  // 그 사이에 플레이어를 물어 죽이면 레이드가 실패해 함선으로 돌아가고 호출 목록이 통째로 비워진다 —
+  // 레이저가 제 시간에 끝나는지와는 아무 상관 없는 실패다. 주변을 비우고 체력을 채운 뒤 잰다.
+  await P(() => {
+    const ctx = window.__game.ctx;
+    ctx.enemies.setThreatLevel(0);
+    ctx.enemies.applyExplosion(ctx.player.position, 120, 99999);
+    ctx.player.applyStim(ctx.player.maxHp);
+  });
+  await waitSim(2);
   await P(() => { const s = window.__game.getSystem('stratagems'); s.debugCooldownReset?.(); });
   await P((t) => { const s = window.__game.getSystem('stratagems'); const V = window.__game.ctx.player.position.constructor; s.debugCall('orbital_laser', new V(t[0], t[1], t[2])); }, target);
   await P(() => { window.__game.ctx.timeScale = 4; });

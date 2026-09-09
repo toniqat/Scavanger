@@ -1,6 +1,10 @@
 import * as THREE from 'three';
-import type { EnemyType, GameContext, PlanetEcosystem } from '@/shared';
+import {
+  ENEMY_BIG_RADIUS, ENEMY_SPAWN_BLOCK_RATIO, ENEMY_SPAWN_CLEARANCE_MUL, ENEMY_SPAWN_RETRIES,
+  type EnemyType, type GameContext, type PlanetEcosystem, type WorldRef,
+} from '@/shared';
 import type { Enemy } from './Enemy';
+import { ENEMY_STATS } from './EnemyTypes';
 import type { TargetList } from './Targets';
 
 /** Spawn services provided by EnemySystem to the spawner / wave director. */
@@ -202,18 +206,53 @@ export function findSpawnCenter(host: SpawnHost, around: THREE.Vector3, minDist:
   return false;
 }
 
+/* ══ 2026-09-09: 덩치 큰 적의 스폰 자리 ═══════════════════════════════════════════════════════════════════
+ * 반경 `ENEMY_BIG_RADIUS` 이상인 종(스퓨어 · 포병 · 차저 · 베헤모스 · 로그 보스)은 바위와 첨탑이 오밀조밀한
+ * 자리에 떨어지면 자기 몸으로 낀 채 못 움직였다. 스폰 지점마다 `WorldRef.obstacleCoverage` 로 자기 반경의
+ * `ENEMY_SPAWN_CLEARANCE_MUL` 배 원을 재고, 점유율이 `ENEMY_SPAWN_BLOCK_RATIO` 를 넘으면 그 자리를 버리고
+ * 최대 `ENEMY_SPAWN_RETRIES` 번 다시 뽑는다. **끝내 실패하면 그 한 마리를 건너뛴다** — 작은 종으로 바꾸지
+ * 않는다(구성표는 밸런스의 원본이고, 여기서 몰래 바꾸면 웨이브 난이도가 조용히 달라진다).
+ * ════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** true when `type` is big enough that a cluttered spot would trap it. */
+export function needsSpawnClearance(type: EnemyType): boolean {
+  const st = ENEMY_STATS[type];
+  return !!st && st.radius >= ENEMY_BIG_RADIUS;
+}
+
+/** true when `(x, z)` is too cluttered for `type` to walk out of. Small types are never blocked. */
+export function spawnBlocked(world: WorldRef, type: EnemyType, x: number, z: number): boolean {
+  if (!needsSpawnClearance(type)) return false;
+  const r = ENEMY_STATS[type].radius * ENEMY_SPAWN_CLEARANCE_MUL;
+  return world.obstacleCoverage(x, z, r) > ENEMY_SPAWN_BLOCK_RATIO;
+}
+
+/**
+ * Place one group member around `center`, re-rolling the offset while the spot is too cluttered for `type`.
+ * Writes into `_p`; returns false when every retry failed (the caller skips that spawn).
+ */
+function placeMember(world: WorldRef, type: EnemyType, center: THREE.Vector3, i: number, count: number, out: THREE.Vector3): boolean {
+  const retries = needsSpawnClearance(type) ? Math.max(0, ENEMY_SPAWN_RETRIES) : 0;
+  for (let a = 0; a <= retries; a++) {
+    const ang = (i / count) * Math.PI * 2 + Math.random() * 0.8 + (a > 0 ? Math.random() * Math.PI * 2 : 0);
+    // widen the ring a little on each retry so a whole cluttered pocket is escaped rather than re-rolled inside
+    const rad = 1.5 + Math.random() * (2 + count * 0.5) + a * 1.5;
+    out.set(center.x + Math.cos(ang) * rad, 0, center.z + Math.sin(ang) * rad);
+    if (!world.isInsideBounds(out.x, out.z)) { if (a < retries) continue; out.copy(center); }
+    world.resolveCollision(out, 1.2);
+    out.y = world.getHeightAt(out.x, out.z);      // groups land on the terrain, never perched on a prop
+    if (!spawnBlocked(world, type, out.x, out.z)) return true;
+  }
+  return false;
+}
+
 /** Spawn a group scattered around `center`. Returns spawned count. */
 export function spawnGroup(host: SpawnHost, types: readonly EnemyType[], center: THREE.Vector3, chase: boolean, relentless: boolean, faceTarget?: THREE.Vector3): number {
   const world = host.ctx.world;
   if (!world) return 0;
   let n = 0;
   for (let i = 0; i < types.length; i++) {
-    const ang = (i / types.length) * Math.PI * 2 + Math.random() * 0.8;
-    const rad = 1.5 + Math.random() * (2 + types.length * 0.5);
-    _p.set(center.x + Math.cos(ang) * rad, 0, center.z + Math.sin(ang) * rad);
-    if (!world.isInsideBounds(_p.x, _p.z)) _p.copy(center);
-    world.resolveCollision(_p, 1.2);
-    _p.y = world.getHeightAt(_p.x, _p.z);
+    if (!placeMember(world, types[i], center, i, types.length, _p)) continue;   // no room for this one → skip it
     const yaw = faceTarget ? Math.atan2(faceTarget.x - _p.x, faceTarget.z - _p.z) : Math.random() * Math.PI * 2;
     if (host.spawn(types[i], _p, yaw, chase, relentless)) n++;
   }
@@ -344,8 +383,16 @@ export class AmbientSpawner {
     if (!ecoAllows(this.eco, 'artillery')) return;
     if (host.countAlive('artillery') >= maxArtilleryOf(this.eco)) return;
     if (host.ensureCapacity(1, this.cap + 2) <= 0) return;
-    if (!findSpawnCenter(host, around, 80, 120, false, 60, this.center)) return;
-    const yaw = Math.atan2(around.x - this.center.x, around.z - this.center.z);
-    host.spawn('artillery', this.center, yaw, true, false);
+    const world = host.ctx.world;
+    if (!world) return;
+    // 2026-09-09: the artillery is the one big type that does not come through `spawnGroup`, so it re-rolls its
+    // own dig-in spot here — a mortar bug wedged between spires never gets a firing line.
+    for (let a = 0; a <= Math.max(0, ENEMY_SPAWN_RETRIES); a++) {
+      if (!findSpawnCenter(host, around, 80, 120, false, 60, this.center)) return;
+      if (spawnBlocked(world, 'artillery', this.center.x, this.center.z)) continue;
+      const yaw = Math.atan2(around.x - this.center.x, around.z - this.center.z);
+      host.spawn('artillery', this.center, yaw, true, false);
+      return;
+    }
   }
 }

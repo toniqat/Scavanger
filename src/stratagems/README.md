@@ -8,7 +8,8 @@ Registered in `src/main.ts` after `PickupSystem`, before `ExtractionSystem`.
 | `StratagemSystem.ts` | Input state machine (G tap / wheel, LMB charge → top view, ground ring), calls + shared cooldown, effects (laser / airstrike / supply crate / cover structures), destructible obstacles, net sync, cleanup, debug hooks |
 | `model.ts` | 폴더 공용 어휘 — `StratagemSystem` 에서 떼어낸 상수 · 타입 · 스크래치. 클래스를 참조하지 않으므로 `parts/*` 가 순환 import 없이 쓴다. `StratagemSystem.ts` 가 재수출하므로 기존 import 경로는 그대로다 |
 | `parts/Targeting.ts` | **G 휠과 조준**. G 를 탭하면 바로, 홀드하면 4방향 휠에서 고른다. 고른 뒤에는 지면 링으로 조준하거나 좌클릭 3초 충전으로 **상단 시점**에 들어가 지면 커서를 놓는다. 우클릭 / Esc 로 취소. |
-| `parts/Calls.ts` | **호출된 함선 지원이 실제로 하는 일**. 궤도 레이저(10초 지속 피해) · 항공 폭탄 · 보급품 상자(티어 5) · 파괴 가능 엄폐 구조물. 시각 효과는 전부 절차 생성이고 조명은 쓰지 않는다. |
+| `parts/Calls.ts` | **호출된 함선 지원이 실제로 하는 일**. 궤도 레이저(10초 지속 피해) · 항공 폭탄 · 보급품 상자(티어 5) · 파괴 가능 엄폐 구조물(트라이포드). 구조선은 `parts/Rescue`. 시각 효과는 전부 절차 생성이고 조명은 쓰지 않는다. |
+| `parts/Rescue.ts` | **구조선 투하** (2026-09-09). 분대원 4칸 후보 목록 · 무장 게이트(호스트 전용 · 잔여 횟수 · 대상 유무) · `rescue req/grant/deny/count` 와이어 · 착륙 프레임. **헬포드는 그리지 않는다** — 원격 포드는 `player/` 의 `pod drop` 이 유일한 원본이라, 여기서는 마커 · 착륙 먼지와 `rescue:called` / `rescue:landed` 까지다. |
 | `parts/Wire.ts` | **`strat` / `stratq` 네트워크 경로**. 늦게 합류한 클라이언트는 진행 중인 호출 목록을 받아 재구성한다(`applySync`). 이미 떨어졌어야 할 호출은 조용히 **빨리감기**해서(`fastForward`) 장애물과 보급 상자가 바로 존재하게 한다. 쿨다운은 공유하지 않는다 — 개인 값이다. |
 | `Visuals.ts` | Procedural visuals, **no lights, no assets**: `SharedGeo` (one geometry set per system), `TargetRing`, `CallMarker` (beacon + flashing ring), `Burst` (`THREE.Points` dust / sparks), `LaserBeam`, `Fireball`, `SupplyCrateMesh`, `BarricadeMesh`, `makeRubble` |
 | `index.ts` | exports `StratagemSystem` |
@@ -23,7 +24,8 @@ armed(topview def: orbital_laser, airstrike)
 top view: setControlsEnabled(false) + setLookLocked(true) + setCameraOverride(player + (0, TOPVIEW_HEIGHT, 0.001), lookAt player)
           cursor += mouse × TOPVIEW_CURSOR_SPEED (screen right = +X, screen up = −Z), clamped to TOPVIEW_RANGE and map bounds,
           y = getHeightAt ── fresh LMB press──▶ confirm · RMB / Esc (capture-phase, swallowed)──▶ back to armed
-armed(ground def: supply_drop, structure_drop) = `targeting` true, ring on the aim ray (`getAimRay` → `world.raycast` ≤ GROUND_TARGET_RANGE,
+armed(ground def: supply_drop, structure_drop, rescue_drop*) = `targeting` true, ring on the aim ray (`getAimRay` → `world.raycast` ≤ GROUND_TARGET_RANGE,
+          *rescue_drop 은 `rescueTarget` 이 정해지기 전에는 링을 켜지 않는다 — 분대원 선택 화면이 먼저다 (2026-09-09),
           else clamped at range on the terrain) ──LMB──▶ confirm · RMB──▶ idle
 confirm → Call {stage 'incoming', landsAt = time + def.delay} + shared cooldown (def.cooldown) + disarm
 ```
@@ -51,10 +53,27 @@ Emits `stratagem:wheelChanged`, `stratagem:armed`, `stratagem:chargeChanged`, `s
 `stratagem:called`, `stratagem:landed`, `stratagem:ended`, `stratagem:cooldown` (start / every 0.5 s / 0), `structure:damaged`,
 `structure:destroyed`, `crate:open`, `camera:shake`, `audio:play` (`ui_equip` arm, `ui_open` wheel / top view, `ui_click` hover / confirm,
 `ui_deny`, `hellpod_fall` 2.5 s before landing, `explosion` impacts), `ui:notify`.
+2026-09-09 추가: `rescue:countChanged` (잔여 횟수), `rescue:called` (호출 확정 — 차감 시점), `rescue:landed` (부활 신호).
 Listens: `game:abort`, `game:newMission`, `hub:entered`, `world:cleared` (full cleanup), `player:died`, `player:downed`, `game:phaseChanged`,
-`crate:looted`, `grenade:exploded`.
+`crate:looted`, `grenade:exploded`, `rescue:selectTarget` (선택 화면), `net:hostChanged` (호스트 전용 호출 잠금 갱신 · 손에 든 것 내려놓기).
 
-## Net (`StratagemMessage`, `src/shared/net.ts`)
+## 구조선 투하 (2026-09-09, `parts/Rescue.ts`)
+```
+arm(rescue_drop) ──(잔여 0 → `구조선을 모두 소진했습니다` · 죽은 대원 없음 → `구조 대상이 없습니다`)──▶ 거부
+armed, rescueTarget = null ──▶ ui/hud/RescuePicker 가 스스로 뜬다 (blocker + 커서, 1~4 · 클릭 · 우클 취소)
+   `rescue:selectTarget {peerId}` ──▶ rescueTarget 세팅 ──▶ 평소의 지면 링
+   `rescue:selectTarget {peerId:null}` ──▶ disarm
+confirm ──▶ 호스트면 grant, 아니면 `rescue req {target, p}` → host
+host.grant: 잔여 −1 (`rescue count` 방송 + `rescue:countChanged`) · `world.scatterPoints(p, RESCUE_SCATTER_RADIUS,
+   1, RESCUE_POD_MIN_GAP, seed)` 로 착륙 지점 (없으면 지정 지점 그대로) · `rescue grant` 를 모두에게
+grant 수신 ──▶ Call(rescue_drop) + `rescue:called` ──▶ landsAt ──▶ 마커 제거 · 먼지 · `rescue:landed` · `stratagem:ended`
+```
+`StratagemsRef` 의 `rescueLeft` / `rescueAvailable` / `getRescueCandidates()` / `rescueTarget` 이 이 상태의 공개면이다.
+후보는 로비 멤버(없으면 로컬 + 원격 참조)이고 **죽은 사람만** `selectable` — `RemotePlayerRef.isDead && !isDowned`
+또는 `ctx.corpses?.latestOf(id)` (그 ref 는 다른 폴더가 게시하므로 **없을 수 있다**: 옵셔널 체이닝으로만 만진다).
+차감은 **grant 시점**이고 취소 · 실패해도 환불하지 않는다 (사용자 결정). **헬포드는 여기서 그리지 않는다.**
+
+## Net (`StratagemMessage` · `RescueMessage`, `src/shared/net.ts`)
 - `{t:'strat', ev:'call', callId, kind, p, eta, seed}` → others on confirm; receivers create the call with `landsAt = time + eta`, `local = false`.
 - `{t:'strat', ev:'structHp', callId, index, hp}` → others whenever a structure takes damage locally; receivers apply lower hp only.
 - **Late-join sync (Phase 9)**: `{t:'stratq', ev:'sync'}` → host on `world:ready` from every non-host client; the **host** answers
@@ -67,7 +86,11 @@ Listens: `game:abort`, `game:newMission`, `hub:entered`, `world:cleared` (full c
   already-landed call the **whole** wire entry — fast-forward, `st` application (a block that is already rubble is destroyed without its
   demolition shake / dust / bang) and the `looted` close — runs inside that same silent window; state events (`stratagem:landed`,
   `structure:damaged / destroyed`, `stratagem:ended`) are still emitted, only the felt FX are dropped. Cooldowns are personal and never synced.
-Call ids are `${net.localId ?? 'sp'}-${n}`; structure ids `${callId}:${index}`; supply interactables `supply:${callId}`.
+- **구조선 (2026-09-09)**: `{t:'rescue', ev:'req'|'grant'|'deny'|'count'}` — 권한은 전부 호스트. 진행 중인 구조선
+  호출은 `strat sync` 에 **싣지 않는다** (4초짜리 일회성이고, 늦게 받은 쪽이 `rescue:landed` 를 다시 내면 안 된다);
+  대신 `sendSync` 가 `rescue count` 를 함께 보내 잔여 횟수만 late-join 경로에 태운다.
+
+Call ids are `${net.localId ?? 'sp'}-${n}` (구조선은 `${localId}-r${n}`); structure ids `${callId}:${index}`; supply interactables `supply:${callId}`.
 
 ## Tuning
 All numbers live in `src/shared/constants.ts` (`STRATAGEM_DEFS`, `STRATAGEM_WHEEL_HOLD`, `STRATAGEM_CHARGE_TIME`, `TOPVIEW_*`,
@@ -125,3 +148,15 @@ existing path. **RMB** is the cancel that works while aiming, and the HUD hints 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
 - **Phase 9** — **late-join sync** — a non-host asks `stratq sync` on `world:ready` and the host answers `strat sync {calls}` (also unprompted on `flow rejoined`) with every live call: relative `eta` (≤ 0 fast-forwards the landing so obstacles / the supply crate exist at once), damaged structures only, `looted`; the cooldown stays personal
+
+- **2026-09-09 (호출 목록 재편 · 호스트 전용 · 구조선)** — 휠은 4분할 그대로지만 목록이 바뀌었다
+  (`STRATAGEM_ORDER` = 궤도 폭격 · 보급품 투하 · **트라이포드 투하** · **구조선 투하**). `airstrike` 는 휠에서만
+  빠졌고 정의(csv)와 구현(`parts/Calls`)은 그대로 남아 `debugCall` · 콘솔로 여전히 부를 수 있다.
+  - **호스트 전용** — `STRATAGEM_HOST_ONLY` (`orbital_laser` · `airstrike`) 는 멀티에서 호스트만 무장한다.
+    거부는 `arm()` 한 곳(`parts/Rescue.armBlockReason`)에서 나오고, 휠의 회색 처리도 **같은 재료**
+    (`STRATAGEM_HOST_ONLY` + `ctx.net.isHost`)를 UI 쪽에서 다시 계산한다 — 두 판단이 어긋날 수 없다.
+    `net:hostChanged` 로 자리를 잃으면 손에 든 호출을 내려놓는다.
+  - **구조선** — 무장하면 지면 조준 **전에** `ui/hud/RescuePicker` 가 뜬다. 그 화면이 blocker 를 들고 있는 동안
+    `baseActive()` 가 거짓이라 조준은 저절로 멈춰 있고, `rescue:selectTarget` 으로 대상이 오면 평소의 지면 링이
+    돌아온다. 확정은 호출을 만들지 않고 호스트에게 `rescue req` 를 보낸다 — 분대 공용 횟수의 원본이 거기 있다.
+  - 잔여 횟수는 `clearAll`(= `game:newMission` · `game:abort` · `hub:entered` · `world:cleared`)에서 다시 찬다.

@@ -12,6 +12,8 @@ import {
   PLAYER_DOWN_HP, PLAYER_DOWN_BLEED_PER_SEC, PLAYER_DOWN_SPEED_MUL, PLAYER_REVIVE_HP, PLAYER_GIVE_UP_HOLD,
   ARMOR_DURABILITY_PER_DAMAGE, CLOAK_BREAK_TIME, CLOAK_DETECT_MUL, CLOAK_REVEAL_DISTANCE, MELEE_COOLDOWN, MELEE_STAMINA_COST,
   ROLL_COOLDOWN, ROLL_DAMAGE_MUL, ROLL_DURATION, ROLL_STAMINA_COST, SLASH_DURATION,
+  /* appended (2026-09-09): 구조선 부활 */
+  RESCUE_REVIVE_HP,
   type GameSystem, type PlayerRef, type PlayerWeaponHost, type Interactable, type Stance, type InteriorCollider,
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
@@ -285,13 +287,40 @@ export function holdForRestore(sys: PlayerSystem, position: THREE.Vector3): void
   sys.rig.snapTo(_v, sys.bodyYaw);
   }
 
-export function startDrop(sys: PlayerSystem): void {
+/**
+ * 헬포드 강하 시작. `kind` 0 = 미션 시작, 1 = 구조선 (2026-09-09).
+ *
+ * 2026-09-09: **분대원에게도 포드가 보인다.** 지금까지 원격 분대원은 자리에 그냥 나타났다 — 이제 강하를
+ * 시작한 사람이 `pod drop` 을 `'others'` 로 보내고, 받은 쪽(`RemotePlayerSystem`)이 원격 포드를 떨어뜨린다.
+ * 카메라 연출은 로컬만의 것이라 와이어에 없다.
+ */
+export function startDrop(sys: PlayerSystem, kind: 0 | 1 = 0): void {
   const pos = sys.controller.position;
   sys.controlsEnabled = false;
   sys.model.setVisible(false);
   sys.hellpod.start(pos, sys.bodyYaw);
   if (sys.hellpod.getCameraPose(_camPos, _camLook)) sys.rig.setOverride(_camPos, _camLook, true);
   sys.ctx.bus.emit('audio:play', { id: 'hellpod_fall', position: pos, volume: 1 });
+  const ctx = sys.ctx;
+  const me = ctx.net?.localId;
+  if (ctx.isMultiplayer && me) {
+    ctx.net?.send({ t: 'pod', ev: 'drop', who: me, p: [pos.x, pos.y, pos.z], yaw: sys.bodyYaw, kind }, 'others');
+  }
+  }
+
+/**
+ * 구조 포드 착륙 (`rescue:landed`, 2026-09-09). 내가 대상일 때만 반응한다 — 헬포드 강하로 다시 서고,
+ * 체력은 `RESCUE_REVIVE_HP`, **인벤토리는 빈 채로**다 (들고 있던 것은 전부 시체에 남았다).
+ * 흐름(페이즈 · 분대장 표시)은 `game/parts/Death.onRescueLanded` 이 맡는다.
+ */
+export function rescueRevive(sys: PlayerSystem, position: THREE.Vector3): void {
+  // 착륙 지점은 호스트가 `world.scatterPoints` 로 이미 정해 보낸 값이다 — 분대 스폰 링을 다시 씌우지 않는다.
+  _v.copy(position);
+  if (sys.ctx.world?.ready) _v.y = sys.ctx.world.getHeightAt(_v.x, _v.z);
+  sys.respawnAt(_v.clone());
+  sys.hp = THREE.MathUtils.clamp(Math.round(RESCUE_REVIVE_HP), 1, sys.maxHp);
+  sys.ctx.bus.emit('player:healthChanged', { hp: sys.hp, maxHp: sys.maxHp, delta: 0 });
+  if (sys.ctx.missionMode !== 'training') sys.startDrop(1);
   }
 
 export function updateDrop(sys: PlayerSystem, dt: number): void {

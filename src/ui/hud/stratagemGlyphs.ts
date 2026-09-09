@@ -7,6 +7,8 @@ export const STRATAGEM_GLYPH: Readonly<Record<StratagemId, string>> = {
   airstrike: '▼',
   supply_drop: '▣',
   structure_drop: '▦',
+  /** 2026-09-09: 구조선 투하 — 의료 십자 (알아볼 수 있는 유니코드 하나, 에셋 없음). */
+  rescue_drop: '✚',
 };
 
 /** CSS colour per ship call (danger red for the two orbital strikes, green/blue for the drops). */
@@ -15,6 +17,7 @@ export const STRATAGEM_COLOR: Readonly<Record<StratagemId, string>> = {
   airstrike: '#ff8a3d',
   supply_drop: '#4fd17e',
   structure_drop: '#7fb7e6',
+  rescue_drop: '#ff8ac4',
 };
 
 export function stratagemDef(id: StratagemId | null | undefined): StratagemDef | undefined {

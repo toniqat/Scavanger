@@ -9,6 +9,8 @@ import {
   type GameContext, type GameSystem, type StratagemsRef, type StratagemId, type StratagemCall, type StratagemStage, type StratagemDef,
   type PlayerRef, type PlayerWeaponHost, type Interactable, type Obstacle, type DestructibleRef, type WorldRef, type Vec3Tuple, type PeerId,
   type StratagemCallWire,
+  /* 2026-09-09: 구조선 투하 */
+  RESCUE_DROPS_PER_RAID, type RescueCandidate,
 } from '@/shared';
 import {
   SharedGeo, TargetRing, CallMarker, Burst, dustBurst, sparkBurst, LaserBeam, Fireball, SupplyCrateMesh, BarricadeMesh, makeRubble, KIND_COLOR,
@@ -20,6 +22,7 @@ export * from './model';
 import * as Aim from './parts/Targeting';
 import * as Calls from './parts/Calls';
 import * as Wire from './parts/Wire';
+import * as Rescue from './parts/Rescue';
 
 export class StratagemSystem implements GameSystem, StratagemsRef {
   readonly name = 'stratagems';
@@ -60,6 +63,11 @@ export class StratagemSystem implements GameSystem, StratagemsRef {
   groundTargeting = false;
   readonly lastEmitted = new THREE.Vector3(NaN, NaN, NaN);
   targetValid = false;
+  /* ── 구조선 (2026-09-09) ── */
+  /** 분대 공용 잔여 횟수. 호스트가 원본이고 `rescue count` 로 방송된다. */
+  _rescueLeft = RESCUE_DROPS_PER_RAID;
+  /** 선택 화면에서 고른 분대원 (null = 아직 고르지 않음 → 지면 조준이 시작되지 않는다). */
+  _rescueTarget: string | null = null;
 
   get armed(): StratagemId | null { return this._armed; }
   get targeting(): boolean { return this.topview || this.groundTargeting; }
@@ -71,6 +79,14 @@ export class StratagemSystem implements GameSystem, StratagemsRef {
     for (const c of this.calls) for (const s of c.structures) if (s.landed && !s.destroyed) n++;
     return n;
   }
+
+  /* ── StratagemsRef: 구조선 (2026-09-09) ── */
+  get rescueLeft(): number { return this._rescueLeft; }
+  get rescueAvailable(): boolean { return Rescue.rescueAvailable(this); }
+  getRescueCandidates(): readonly RescueCandidate[] { return Rescue.getRescueCandidates(this); }
+  get rescueTarget(): string | null { return this._rescueTarget; }
+  /** 무장 거부 사유 (호스트 전용 · 구조선 게이트), 없으면 null. UI 는 같은 규칙을 `@/shared` 로 스스로 계산한다. */
+  armBlockReason(id: StratagemId): string | null { return Rescue.armBlockReason(this, id); }
 
   /* ─────────────────────────── GameSystem ─────────────────────────── */
   init(ctx: GameContext): void {
@@ -97,6 +113,19 @@ export class StratagemSystem implements GameSystem, StratagemsRef {
       b.on('world:ready', () => {
         const net = ctx.net;
         if (ctx.isMultiplayer && net && !net.isHost) net.send({ t: 'stratq', ev: 'sync' }, 'host');
+      }),
+      /* 2026-09-09 구조선: 선택 화면(ui/hud/RescuePicker)이 고른 대상 */
+      b.on('rescue:selectTarget', ({ peerId }) => this.selectRescueTarget(peerId)),
+      /*
+       * 2026-09-09 분대장 이관: 잠금 상태가 즉시 갱신되어야 한다. 새로 잠긴 호출을 손에 들고 있었다면
+       * (호스트 자리를 잃었다) 그대로 내려놓는다 — 조준만 해 놓고 쏠 수 없는 상태를 남기지 않는다.
+       */
+      b.on('net:hostChanged', () => {
+        const armed = this._armed;
+        if (armed && Rescue.hostLocked(this, armed)) {
+          this.putAway();
+          ctx.bus.emit('ui:notify', { text: '분대장이 바뀌어 호출을 내려놓았습니다', kind: 'warning', duration: 2 });
+        }
       }),
     );
     this.ensureNetHooks();
@@ -267,6 +296,21 @@ export class StratagemSystem implements GameSystem, StratagemsRef {
   private splashStructures(center: THREE.Vector3, radius: number, damage: number): void { return Calls.splashStructures(this, center, radius, damage); }
 
   disposeStructure(s: Structure): void { return Calls.disposeStructure(this, s); }
+
+  /* ─────────────────────────── 구조선 (2026-09-09) ─────────────────────────── */
+  /** `rescue:selectTarget` — 선택 화면이 고른 분대원 (null = 해제 → 호출을 내려놓는다). */
+  selectRescueTarget(peerId: string | null): void { return Rescue.selectTarget(this, peerId); }
+
+  /** 지면 조준 확정 → 호스트에게 `rescue req` (호스트 · 싱글은 그 자리에서 승인). */
+  confirmRescue(target: string, position: THREE.Vector3): void { return Rescue.confirmRescue(this, target, position); }
+
+  /** 호스트 권한: 횟수 −1 + 착륙 지점 확정 + `rescue grant` 방송. */
+  grantRescue(target: string, position: THREE.Vector3, by: string): void { return Rescue.grant(this, target, position, by); }
+
+  /** 잔여 횟수를 세우고 `rescue:countChanged` (호스트면 `rescue count` 방송). */
+  setRescueLeft(left: number, broadcast: boolean): void { return Rescue.setRescueLeft(this, left, broadcast); }
+
+  updateRescue(c: Call, t: number): void { return Rescue.updateRescue(this, c, t); }
 
   /* ─────────────────────────── net ─────────────────────────── */
   private ensureNetHooks(): void { return Wire.ensureNetHooks(this); }

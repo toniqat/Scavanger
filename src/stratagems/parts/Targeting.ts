@@ -20,6 +20,7 @@ import {
   SharedGeo, TargetRing, CallMarker, Burst, dustBurst, sparkBurst, LaserBeam, Fireball, SupplyCrateMesh, BarricadeMesh, makeRubble, KIND_COLOR,
 } from '../Visuals';
 import { AIRSTRIKE_FX_TIME, Call, GRENADE_STRUCTURE_DAMAGE, type Host, LASER_TICK, SHAKE_RANGE, STRUCTURE_DROP_HEIGHT, STRUCTURE_MIN_GAP, STRUCTURE_STAGGER, SUPPLY_DROP_HEIGHT, Structure, TARGET_EMIT_EPS, WHEEL_DRAG_PX, _a, _b, _dir, defOf, toTuple } from '../model';
+import * as Rescue from './Rescue';
 import type { StratagemSystem } from '../StratagemSystem';
 
 /* ─────────────────────────── input ─────────────────────────── */
@@ -69,6 +70,15 @@ export function updateInput(sys: StratagemSystem, dt: number): void {
   const def = defOf(armed);
 
   if (def.targeting === 'ground') {
+    /*
+     * 2026-09-09 구조선: 지면 조준 **전에** 분대원 선택 화면이 먼저다. 그 화면은 blocker 를 들고 있으므로
+     * 보통은 여기까지 오지 않지만, 화면이 아직 뜨지 않은 프레임에도 링이 깜빡이지 않도록 못을 박아 둔다.
+     */
+    if (armed === 'rescue_drop' && sys._rescueTarget === null) {
+      sys.setGroundTargeting(false);
+      if (input.wasMousePressed(MouseButtons.AIM)) sys.disarm();
+      return;
+    }
     sys.setGroundTargeting(true);
     sys.updateGroundCursor(host);
     if (input.wasMousePressed(MouseButtons.AIM)) { sys.disarm(); return; }
@@ -121,6 +131,14 @@ export function arm(sys: StratagemSystem, id: StratagemId): void {
     sys.ctx.bus.emit('ui:notify', { text: `함선 호출 재충전 중 (${Math.ceil(sys._cooldown)}초)`, kind: 'warning', duration: 1.5 });
     return;
   }
+  /* 2026-09-09: 호스트 전용 호출(궤도 폭격 · 항공 폭탄)과 구조선의 게이트 — 같은 규칙을 휠이 회색으로 그린다. */
+  const blocked = Rescue.armBlockReason(sys, id);
+  if (blocked) {
+    sys.audio('ui_deny', undefined, 0.6);
+    sys.ctx.bus.emit('ui:notify', { text: blocked, kind: 'warning', duration: 2 });
+    return;
+  }
+  sys._rescueTarget = null;
   sys.cancelCharge();
   sys.setGroundTargeting(false);   // re-enabled next frame for ground defs
   sys._armed = id; sys.lastArmed = id;
@@ -133,6 +151,7 @@ export function arm(sys: StratagemSystem, id: StratagemId): void {
 export function disarm(sys: StratagemSystem): void {
   sys.cancelCharge();
   sys.setGroundTargeting(false);
+  sys._rescueTarget = null;
   if (sys._armed === null) return;
   sys._armed = null;
   sys.ctx.bus.emit('stratagem:armed', { id: null });
@@ -256,6 +275,17 @@ export function confirm(sys: StratagemSystem, def: StratagemDef): void {
   sys.startCooldown(def.cooldown);
   sys._armed = null;
   sys.ctx.bus.emit('stratagem:armed', { id: null });
+  /*
+   * 2026-09-09 구조선은 여기서 호출을 만들지 않는다 — 분대 공용 횟수를 든 **호스트**가 승인해야 하고,
+   * 그 `rescue grant` 가 돌아와야 비로소 호출이 선다 (싱글은 그 자리에서 자기가 승인한다).
+   */
+  if (def.id === 'rescue_drop') {
+    const who = sys._rescueTarget;
+    sys._rescueTarget = null;
+    sys.audio('ui_click', undefined, 0.6);
+    if (who) sys.confirmRescue(who, target);
+    return;
+  }
   const call = sys.createCall(def.id, target, def.delay, seed, true);
   sys.audio('ui_click', undefined, 0.6);
   const net = sys.ctx.net;

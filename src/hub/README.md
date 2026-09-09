@@ -17,7 +17,7 @@ Everything is procedural Three.js geometry — no asset files. Import via `@/hub
 | `parts/Interior.ts` | **함선 내부 짓기 · 허물기**. 개인 함선(조종석 → 복도 → 방 10개 → 에어락)과 공유 함선의 지오메트리, 스테이션 배치, 가구 배치(`buildHousing`), 방 추적과 표지판. 모든 클라이언트가 같은 지오메트리를 만들어야 공유 함선의 위치 스냅샷이 맞는다. |
 | `parts/Transitions.ts` | **함선을 드나드는 전환**. 타이틀 → 개인 함선, 도킹 → 공유 함선, 임무 종료 → 함선, 재접속 복귀. 컷씬을 태울지 바로 바꿔치울지(`swapDirect`)와, 진행 중인 레이드로 자동 재투입할지를 정한다. |
 | `parts/Hangar.ts` | **공용 함선 격납고** (2026-09-08). 정박 구역 4곳의 상호작용(`hub_ship_bay_<slot>`)과 프롬프트 · 거절 사유, 개인 함선 배치(`refreshBays`), 그리고 남의 함선을 그리기 위한 배치 정보 교환 (`ship state` / `shipq state`, 크루 카드와 같은 방식 — 도착 시 1회 · 내 함선이 바뀌면 디바운스 · 요청에는 즉시). 레이아웃이 아직 안 왔으면 `SHIP_VISIT_WAIT_S` 동안 기다렸다가(`tickPendingVisit`) 들여보내거나 포기한다. |
-| `parts/Crew.ts` | **크루 카드** (Phase 10) 와 훈련장 입장. 허브에서는 `PlayerSnapshot` 의 무기 · 임플란트가 null 이고 `LobbyPlayer` 에는 레벨이 없다. 그래서 발사 준비 패널이 쓸 정보(이름 · 레벨 · 장착 임플란트 · 방어구)를 별도 `crew` 메시지로 주고받는다. 요청이 오면 그 대원의 장비 문서도 보낸다. |
+| `parts/Crew.ts` | **크루 카드** (Phase 10) · 훈련장 입장 · **분대장 넘기기 상호작용** (2026-09-09, `updateLeaderHandoff` / `clearLeaderHandoff` — 같은 함선 안의 원격 분대원마다 `lead:<peerId>` `Interactable`, 내가 호스트일 때만). 허브에서는 `PlayerSnapshot` 의 무기 · 임플란트가 null 이고 `LobbyPlayer` 에는 레벨이 없다. 그래서 발사 준비 패널이 쓸 정보(이름 · 레벨 · 장착 임플란트 · 방어구)를 별도 `crew` 메시지로 주고받는다. 요청이 오면 그 대원의 장비 문서도 보낸다. |
 | `HousingMode.ts` | 3D side of housing mode (rules live in `ctx.housing`): reacts to `housing:modeChanged` **and `housing:shipManageChanged`** (함선 관리, Phase 8), controls off + oblique top-down camera over the room, pointer-locked cursor, ghost + footprint frame, LMB / R / X / C / wheel / `[ ]` / **M** (2026-09-08: was Esc — M is the key that entered the mode), `housing:cursorChanged`. See **Housing mode** below. **2026-09-09**: Tab (`Keys.INVENTORY`) leaves the mode exactly like M (consumed, so the inventory never opens on it); owns 키 가이드 owner `'housing'` (`LMB 설치 · R 회전 · X 회수 · 휠 선택 · C 취소`, live labels) — replaces the deleted `ui/hud/HousingHint`. |
 | `LaunchPod.ts` | Pod mesh (open cylinder + sliding door with a window, slot-coloured floor ring / rear strip / lamp, CanvasTexture name tag that billboards), `Interactable` `hub_pod_<slot>` (`holdTime` 0.4) in front of the door, toggles the pod-door collider blocker while a *remote* occupant closes the door. `getCameraShot()` = boarded over-shoulder framing. |
 | `Terminal.ts` | `Interactable` `hub_terminal` (instant, `함선 터미널`) → opens `HubMenu`; `setScreen()` writes status lines to the console's CanvasTexture. |
@@ -384,6 +384,14 @@ over the 닫기 (Esc) / 타이틀로 footer.
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-09 (함선 안에서 분대장 넘기기)** — 공용 함선에서 다른 분대원에게 다가가면 `분대장 넘기기`
+  상호작용이 뜬다 (`parts/Crew.updateLeaderHandoff`, `HubSystem.leaderHandoffs`, `LEADER_DEVICE_RANGE`).
+  **내가 호스트일 때만** 등록되고, `RemotePlayerRef.hubSite` 가 우리 `hubSite` 와 같은 사람만 대상이다 —
+  격납고에서 남의 개인 함선을 구경 중인 사람은 애초에 보이지도 않으니 말을 걸 수도 없어야 한다.
+  원격 아바타는 `player/RemotePlayerSystem` 소유라 **위치만 읽어** 우리 쪽 `Vector3` 에 복사한다.
+  상호작용이 하는 일은 `leader:transferRequested {peerId}` 한 줄뿐이다 — 커뮤니티 창의 우클릭과 **같은 입구**이고,
+  실제 이관은 net → 서버 → `lobby:state` 가 확정한다. 인테리어를 걷을 때(`parts/Interior.disposeInterior`) 함께 지운다.
 
 - **2026-09-09 (터미널에서 타이틀로 · 키 가이드 제거)** — 전체화면 터미널의 오른쪽 아래에 있던 것 둘을 지웠다.
   - **`타이틀로` 버튼.** 행성을 고르러 여는 화면의 구석에 "전부 버리고 나가기" 를 한 번의 클릭으로 두는 것은

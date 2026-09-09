@@ -269,6 +269,8 @@ export class SocialColumn {
     peerId: string, slot: number, name: string, local: boolean, code: PlayerCode | null, level: number,
   ): HTMLElement {
     const row = el('div', { cls: `sc-srow${local ? ' me' : ''}` });
+    // 2026-09-09: 분대장 넘기기 우클릭 메뉴가 이 행을 PeerId 로 되짚는다 (`hud/Community` 가 델리게이트한다).
+    row.dataset.peerId = peerId;
     row.style.setProperty('--sc', NET_SLOT_COLORS_CSS[slot] ?? '#fff');
     const left = el('div', { cls: 'sc-sleft', parent: row });
     el('span', { cls: 'sc-id ui-mono', text: code ? formatPlayerCode(code) : '아이디 미확인', parent: left });

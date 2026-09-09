@@ -498,8 +498,26 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
       if (ctx.missionMode !== 'training') this.startDrop();
     });
     ctx.bus.on('game:abort', () => this.resetAll());
-    // game/GameFlowSystem: respawn countdown elapsed and the player asked for it
+    // game/GameFlowSystem: 훈련장 재시작 · 재접속 복귀 fallback (2026-09-09 이후 자동 부활은 없다)
     ctx.bus.on('player:respawn', ({ position }) => this.respawn(position));
+    /*
+     * 2026-09-09 — **구조선 부활**. `stratagems/parts/Rescue` 가 착륙을 알리면 대상 본인만 반응한다:
+     * 헬포드 강하(`kind` 1) · 체력 `RESCUE_REVIVE_HP` · 인벤토리는 사망 때 시체로 넘어갔으므로 빈손.
+     * 싱글은 `'sp'` 가 자기 자신이다 (계약).
+     */
+    ctx.bus.on('rescue:landed', ({ target, position }) => {
+      const me = ctx.isMultiplayer ? ctx.net?.localId ?? 'sp' : 'sp';
+      if (target !== me) return;
+      this.rescueRevive(position);
+    });
+    /*
+     * 2026-09-09 — 내 시체가 섰다: 같은 자리에 몸이 둘일 이유가 없으므로 살아 있던 모델을 감춘다.
+     * 부활(`respawnAt`)이 다시 보이게 한다.
+     */
+    ctx.bus.on('corpse:playerSpawned', ({ ownerId }) => {
+      const me = ctx.isMultiplayer ? ctx.net?.localId ?? 'sp' : 'sp';
+      if (ownerId === me) this.model.setVisible(false);
+    });
     // the hub tore its ship down: nothing to walk on any more (world:ready -> respawnAt clears it too)
     ctx.bus.on('hub:left', () => this.setInterior(null));
     ctx.bus.on('camera:shake', ({ intensity, duration }) => this.rig.addShake(intensity, duration));
@@ -911,7 +929,11 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   /** Rejoin wait: everything reset like `game:abort`, feet + camera parked at `position`, model hidden, no controls. */
   private holdForRestore(position: THREE.Vector3): void { return Spawn.holdForRestore(this, position); }
 
-  startDrop(): void { return Spawn.startDrop(this); }
+  /** 헬포드 강하. `kind` 0 = 미션 시작, 1 = 구조선 — 분대원에게 `pod drop` 으로 알린다 (2026-09-09). */
+  startDrop(kind: 0 | 1 = 0): void { return Spawn.startDrop(this, kind); }
+
+  /** 구조 포드가 나를 실어 왔다 (`rescue:landed`): 빈손 · `RESCUE_REVIVE_HP` 로 다시 강하한다. */
+  rescueRevive(position: THREE.Vector3): void { return Spawn.rescueRevive(this, position); }
 
   private updateDrop(dt: number): void { return Spawn.updateDrop(this, dt); }
 

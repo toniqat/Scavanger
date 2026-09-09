@@ -1,5 +1,5 @@
 import type { GameContext, StratagemId } from '@/shared';
-import { Keys, keyLabel } from '@/shared';
+import { Keys, RESCUE_DROPS_PER_RAID, keyLabel } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 import { STRATAGEM_COLOR, STRATAGEM_GLYPH, stratagemArmHint, stratagemDef } from './stratagemGlyphs';
 
@@ -28,6 +28,8 @@ export class StratagemPanel {
   private lastKey = '';
   private lastFill = -1;
   private unsubs: Array<() => void> = [];
+  /** 2026-09-09: 분대 공용 구조선 잔여 횟수 (`rescue:countChanged`, 없으면 만재로 본다). */
+  private rescueLeft = RESCUE_DROPS_PER_RAID;
 
   constructor(parent: HTMLElement) {
     this.root = el('div', { cls: 'strat-panel off', parent });
@@ -53,6 +55,8 @@ export class StratagemPanel {
         if (remaining <= 0) this.total = total;
         this.render();
       }),
+      /* 2026-09-09: 구조선은 분대 공용 횟수를 쓰므로 패널이 `3/5` 로 남은 수를 들고 있는다. */
+      b.on('rescue:countChanged', ({ left }) => { this.rescueLeft = Math.max(0, left); this.seen = true; this.render(); }),
       b.on('game:newMission', () => { this.armed = null; this.targeting = false; this.render(); }),
       b.on('game:abort', () => { this.armed = null; this.targeting = false; this.render(); }),
       b.on('player:died', () => { this.armed = null; this.targeting = false; this.render(); }),
@@ -76,7 +80,7 @@ export class StratagemPanel {
     const def = stratagemDef(this.armed);
     const cooling = this.remaining > 0;
     const secs = Math.ceil(this.remaining);
-    const key = `${this.seen ? 1 : 0}|${this.armed ?? ''}|${this.targeting ? 1 : 0}|${cooling ? secs : 0}`;
+    const key = `${this.seen ? 1 : 0}|${this.armed ?? ''}|${this.targeting ? 1 : 0}|${cooling ? secs : 0}|${this.rescueLeft}`;
     if (key !== this.lastKey) {
       this.lastKey = key;
       toggleClass(this.root, 'off', !this.seen);
@@ -86,7 +90,8 @@ export class StratagemPanel {
       if (def) {
         setText(this.ico, STRATAGEM_GLYPH[def.id]);
         this.ico.style.color = STRATAGEM_COLOR[def.id];
-        setText(this.nameEl, def.name);
+        // 구조선만 이름 옆에 분대 공용 잔여 횟수를 달고 다닌다 (2026-09-09).
+        setText(this.nameEl, def.id === 'rescue_drop' ? `${def.name} ${this.rescueLeft}/${RESCUE_DROPS_PER_RAID}` : def.name);
         setText(this.hintEl, def.hint);
         setText(this.ctrlEl, this.targeting ? (def.targeting === 'topview' ? '좌클 확정 · 우클 취소' : '좌클 투하 · 우클 취소') : stratagemArmHint(def));
       } else {

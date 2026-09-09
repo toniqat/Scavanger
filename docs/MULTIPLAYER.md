@@ -32,6 +32,49 @@
 
 - **2026-09-08 (공용 함선 격납고)**: 공유 함선 뒤 격납고에는 분대원 개개인의 **개인 함선**이 정박해 있고, 그 사람의 함선 안으로 걸어 들어갈 수 있다. 남의 함선 내부를 그리려면 배치 정보가 필요해서 `ship state` (`ShipVisitWire` — 방 용도 · 시설 레벨 · 배치 가구 · 꽂힌 책)가 새로 생겼다. 동작은 **크루 카드와 같다**: 공유 함선 도착 시 `others` 로 한 번 뿌리고 나머지에게 `shipq state` 를 요청, 내 함선이 바뀌면 디바운스 재방송, 요청에는 쿨다운을 두고 즉답. 서버는 여전히 내용을 보지 않는다(불투명 릴레이). 창고 · 프리셋 · 도감은 보내지 않는다 — **방문은 둘러보기 전용**이라 그릴 것만 있으면 된다. 함선을 드나드는 것은 **로비 상태를 전혀 바꾸지 않는다**(도킹도 아니고 임무도 아니다). 인테리어가 전부 월드 원점에 지어지므로 "지금 어느 함선 안인가"를 `PlayerSnapshot.hs` 로 알려서(`null` = 공유 데크) 값이 다른 아바타는 그리지 않는다 — 같은 함선을 구경 중인 둘은 서로 보인다.
 
-## 3. 아직 동기화되지 않은 것
+- **2026-09-09 (분대장 지명 이관 · 구조선 투하)**: 아래 4절 · 5절.
+
+## 4. 분대장(호스트) 지명 이관
+
+이관 경로가 이제 **셋**이다. 앞의 둘은 예전부터 있던 자동 이관이고, 셋째가 2026-09-09 에 더해진 **지명**이다.
+
+| 경로 | 누가 정하나 | 언제 |
+|---|---|---|
+| 자동 (드롭) | 서버 | 호스트 소켓이 끊기고 `NET_HOST_MIGRATE_DELAY_MS` 가 지나면 — 레이드 중이면 **미션 안에 있는** 접속 멤버에게, 아무도 없으면 **주차**(parked) |
+| 자동 (미션 이탈) | 서버 | 접속 중인 호스트가 `lobby:mission false` (새로고침 · 함선 복귀) 를 보내면 즉시 |
+| **지명** | **사람** | `lobby:transferHost {targetId, claim?}` — 커뮤니티 창 우클릭 · 공용 함선 안 상호작용 · 시체 옆 분대장 기기 |
+
+**와이어 (`src/shared/net.ts`)**
+
+- `{t:'lobby:transferHost', targetId, claim?}` → 서버가 받아 주는 경우는 둘뿐이다:
+  ① 보낸 사람이 **지금 호스트**다, 또는 ② `claim === true` 이고 현재 호스트가 `lobby:hostDown` 으로 **사망 표시**를
+  켜 두었다. 그 외에는 `lobby:error {code:'not_host'}`. `targetId` 가 같은 로비의 **연결된** 멤버가 아니면 `invalid`,
+  로비 밖이면 `not_in_lobby`. 성공하면 `Lobby.transferHostTo` 가 `hostId` 와 모든 `LobbyPlayer.isHost` 를 갱신하고
+  **사망 표시를 지운 뒤** `lobby:state` 를 방송한다 — 즉 같은 claim 을 두 번 쓸 수 없다.
+  이미 그 사람이 호스트면 방송 없이 보낸 사람에게만 상태를 되돌려 준다 (`lobby:planet` 의 no-op 과 같은 규약).
+- `{t:'lobby:hostDown', down}` → **호스트 본인만** 세울 수 있다 (`not_host`). `LobbyState` 에 실리지 않으므로
+  **아무것도 방송하지 않는다** — 남들은 그냥 claim 을 시도하고 `not_host` 로 알게 된다. 미션이 끝나거나
+  (`lobby:reset` · `autoResetMission` → `Lobby.reset()`) 호스트가 바뀌면(`migrateHost` / `transferHostTo`) 자동으로 꺼진다.
+- 클라이언트 API 는 `NetRef.transferHost(targetId, claim?)` · `NetRef.reportHostDown(down)` 이고, 둘 다
+  **로비가 없거나 소켓이 끊겼으면 no-op** 이다 (함선 안 = 세션 밖에서도 넘길 수 있어야 하므로 세션은 보지 않는다).
+- UI 는 서버를 직접 부르지 않는다. 커뮤니티 창의 우클릭도 함선 안 상호작용도 `leader:transferRequested {peerId}`
+  버스 이벤트 하나를 내고, `NetSystem` 이 그것을 구독해 `transferHost(peerId)` 를 부른다.
+- 이관이 끝나면 모두가 평소의 `net:hostChanged` 를 받는다 — **시스템들이 승격/강등되는 경로는 자동 이관과 한 글자도
+  다르지 않다.** 호스트 전용 함선 호출(`STRATAGEM_HOST_ONLY`)을 무장 중이던 사람은 그 이벤트에서 손을 내려놓는다.
+
+## 5. 구조선 투하 (`rescue_drop`)
+
+- **분대 공용 횟수는 호스트가 들고 있다** (`RESCUE_DROPS_PER_RAID`). 아무나 `{t:'rescue', ev:'req', target, p}` 를
+  호스트에게 보내고, 호스트가 `grant`(횟수 −1 + `world.scatterPoints` 로 착륙 지점 확정) 또는 `deny`
+  (`empty` / `alive` / `busy`) 로 답한다. **차감은 grant 시점**이고 취소 · 실패해도 환불하지 않는다.
+- `{t:'rescue', ev:'count', left}` 가 잔여 횟수 방송이고 `rescue:countChanged` 로 HUD 에 닿는다. 늦게 합류한
+  클라이언트는 `stratq sync` / `flow rejoined` 답장에 이 프레임이 함께 실린다 (`StratagemCallWire` 에는 자리가 없다).
+- 진행 중인 구조선 호출은 `strat sync` 에 **싣지 않는다** — 4초짜리 일회성이고, 늦게 받은 쪽이 `rescue:landed` 를
+  다시 내면 안 되기 때문이다.
+- **헬포드는 stratagems 가 그리지 않는다.** 원격에서 보이는 강하 포드의 유일한 원본은 `player/` 의 `pod drop`
+  (`PodMessage`, `kind:1`) 이다. stratagems 는 표적 마커 · 착륙 먼지와 `rescue:called` / `rescue:landed` 만 낸다.
+- 멀티에서 **궤도 폭격 · 항공 폭탄은 호스트 전용**(`STRATAGEM_HOST_ONLY`)이다. 싱글 플레이는 제한이 없다.
+
+## 6. 아직 동기화되지 않은 것
 
 - **Not synced yet**: pickup lifetime expiry is per-client (`PICKUP_LIFETIME` is 0); a host promoted mid-mission does not inherit the old host's guard anchors / lures and takes its wave index from the `ee wave` events it saw; a corpse the host never opened validates only the first take per index; `ee grenadeHit` matches replica grenades by proximity.

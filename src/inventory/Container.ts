@@ -37,8 +37,13 @@ export class Container {
 
   constructor(readonly id: string, readonly tier: number, position: THREE.Vector3, getDef: DefLookup,
     /** Loot-window title; undefined → the tier label. */
-    public title?: string) {
-    this.grid = new Grid(CONTAINER_COLS, CONTAINER_ROWS, getDef);
+    public title?: string,
+    /**
+     * appended (2026-09-09): per-container grid. Crates keep the 6×4 default; a 플레이어 유해 asks for
+     * `PLAYER_CORPSE_COLS × PLAYER_CORPSE_ROWS` because a whole loadout + bag has to fit in it.
+     */
+    cols: number = CONTAINER_COLS, rows: number = CONTAINER_ROWS) {
+    this.grid = new Grid(Math.max(1, Math.floor(cols)), Math.max(1, Math.floor(rows)), getDef);
     this.position.copy(position);
   }
 
@@ -165,15 +170,17 @@ export class ContainerStore {
   /**
    * Container with caller-supplied contents (corpses). `items` are only used on the first open
    * for this id; a known id ignores them and shows its remaining contents. `title` updates the cached one.
+   * `size` (appended 2026-09-09) picks the grid on creation only — a known id keeps the grid it was built with.
    */
-  getOrCreateWithItems(id: string, items: readonly ItemInstance[], position: THREE.Vector3, title?: string): Container {
+  getOrCreateWithItems(id: string, items: readonly ItemInstance[], position: THREE.Vector3, title?: string,
+    size?: { cols: number; rows: number }): Container {
     let c = this.containers.get(id);
     if (c) {
       c.position.copy(position);
       if (title) c.title = title;
       return c;
     }
-    c = new Container(id, 0, position, this.getDef, title ?? CONTAINER_DEFAULT_TITLE);
+    c = new Container(id, 0, position, this.getDef, title ?? CONTAINER_DEFAULT_TITLE, size?.cols, size?.rows);
     c.fill(items);
     this.containers.set(id, c);
     this.applyPending(c);

@@ -1334,6 +1334,100 @@ async function main(): Promise<void> {
     p8a.close(); p8b.close();
     await sleep(GRACE_MS + 400);
     assert(server.lobbies.count === 0 && server.clientCount() === 0, 'part 8 cleanup: all lobbies deleted, no clients left', { lobbies: server.lobbies.count, clients: server.clientCount() });
+
+    /* ══════════════════════ part 9 (2026-09-09): 분대장(호스트) 지명 이관 ══════════════════════
+     *
+     * 두 경우만 통한다 — 지금 호스트가 넘기거나, `lobby:hostDown` 으로 사망 표시가 켜진 뒤 누군가 claim 하거나.
+     * 나머지는 `not_host`, 로비 밖 targetId 는 `invalid`.
+     */
+    const { c: p9a } = await connect('P9A', url, { token: makeToken('9'), name: '분대장' });
+    const { c: p9b } = await connect('P9B', url, { token: makeToken('8'), name: '대원B' });
+    const { c: p9c } = await connect('P9C', url, { token: makeToken('7'), name: '대원C' });
+    p9a.send({ t: 'lobby:create', name: '분대장' });
+    const l9 = await p9a.wait('lobby:state');
+    const code9 = l9.lobby.code;
+    p9b.send({ t: 'lobby:join', code: code9, name: '대원B' });
+    await Promise.all([p9a, p9b].map((cl) => cl.wait('lobby:state', (mm) => mm.lobby.players.length === 2)));
+    assert(l9.lobby.hostId === p9a.id, 'part 9: the creator is the host', l9.lobby.hostId);
+
+    /* ① 호스트가 남에게 넘기면 모두가 새 lobby:state 를 받는다 */
+    p9a.send({ t: 'lobby:transferHost', targetId: p9b.id });
+    const t9 = await Promise.all([p9a, p9b].map((cl) => cl.wait('lobby:state', (mm) => mm.lobby.hostId === p9b.id)));
+    assert(t9[0].lobby.players.find((p) => p.id === p9b.id)?.isHost === true
+      && t9[0].lobby.players.find((p) => p.id === p9a.id)?.isHost === false,
+      'lobby:transferHost by the host moves hostId and every isHost flag', t9[0].lobby.players);
+
+    /* ② 이제 호스트가 아닌 A 가 되돌리려 하면 not_host */
+    p9a.send({ t: 'lobby:transferHost', targetId: p9a.id });
+    let e9 = await p9a.wait('lobby:error');
+    assert(e9.code === 'not_host', 'a non-host transferHost → not_host', e9);
+
+    /* ③ 사망 표시가 없는 상태의 claim 도 not_host */
+    p9a.send({ t: 'lobby:transferHost', targetId: p9a.id, claim: true });
+    e9 = await p9a.wait('lobby:error');
+    assert(e9.code === 'not_host', 'claim without a hostDown flag → not_host', e9);
+
+    /* ④ 사망 표시는 호스트만 세울 수 있다 */
+    p9a.send({ t: 'lobby:hostDown', down: true });
+    e9 = await p9a.wait('lobby:error');
+    assert(e9.code === 'not_host', 'lobby:hostDown from a non-host → not_host', e9);
+
+    /* ⑤ 호스트가 사망 표시를 켜면 남의 claim 이 통한다 (분대장 기기) */
+    p9b.send({ t: 'lobby:hostDown', down: true });
+    assert(await p9a.expectNone('lobby:state', 200), 'lobby:hostDown itself broadcasts nothing (it is not part of LobbyState)');
+    p9a.send({ t: 'lobby:transferHost', targetId: p9a.id, claim: true });
+    const c9 = await Promise.all([p9a, p9b].map((cl) => cl.wait('lobby:state', (mm) => mm.lobby.hostId === p9a.id)));
+    assert(c9[0].lobby.hostId === p9a.id, 'claim after lobby:hostDown hands the 분대장 to the claimer', c9[0].lobby.hostId);
+
+    /* ⑥ 표시는 이관과 함께 지워진다 — 같은 claim 을 두 번 쓸 수 없다 */
+    p9b.send({ t: 'lobby:transferHost', targetId: p9b.id, claim: true });
+    e9 = await p9b.wait('lobby:error');
+    assert(e9.code === 'not_host', 'the hostDown flag is cleared by the transfer, so a second claim → not_host', e9);
+
+    /* ⑦ 로비 밖 targetId 는 invalid */
+    p9a.send({ t: 'lobby:transferHost', targetId: p9c.id });
+    e9 = await p9a.wait('lobby:error');
+    assert(e9.code === 'invalid', 'a targetId outside the lobby → invalid', e9);
+    p9a.send({ t: 'lobby:transferHost', targetId: 'nobody-at-all' });
+    e9 = await p9a.wait('lobby:error');
+    assert(e9.code === 'invalid', 'an unknown targetId → invalid', e9);
+
+    /* ⑧ 이미 호스트인 사람에게 넘기면 방송 없이 상태만 되돌아온다 */
+    p9b.flush();
+    p9a.send({ t: 'lobby:transferHost', targetId: p9a.id });
+    const noop9 = await p9a.wait('lobby:state');
+    assert(noop9.lobby.hostId === p9a.id, 'transferHost to the current host echoes the state to the sender', noop9.lobby.hostId);
+    assert(await p9b.expectNone('lobby:state', 200), 'a no-op transferHost is not broadcast to the squad');
+
+    /* ⑨ 로비 밖에서 보내면 not_in_lobby */
+    p9c.send({ t: 'lobby:transferHost', targetId: p9a.id });
+    e9 = await p9c.wait('lobby:error');
+    assert(e9.code === 'not_in_lobby', 'transferHost outside a lobby → not_in_lobby', e9);
+
+    /* ⑩ 미션이 끝나면(lobby:reset) 사망 표시도 끝난다 */
+    await pickPlanet(p9a, 'mossy', [p9b]);
+    for (const cl of [p9a, p9b]) cl.send({ t: 'lobby:ready', ready: true });
+    await Promise.all([p9a, p9b].map((cl) => cl.wait('lobby:state', (mm) => mm.lobby.players.every((p) => p.ready))));
+    p9a.send({ t: 'lobby:start', seed: 911 });
+    await Promise.all([p9a, p9b].map((cl) => cl.wait('game:start')));
+    p9a.send({ t: 'lobby:hostDown', down: true });
+    p9a.send({ t: 'lobby:reset' });
+    await Promise.all([p9a, p9b].map((cl) => cl.wait('lobby:state', (mm) => !mm.lobby.started)));
+    p9b.send({ t: 'lobby:transferHost', targetId: p9b.id, claim: true });
+    e9 = await p9b.wait('lobby:error');
+    assert(e9.code === 'not_host', 'lobby:reset clears the hostDown flag (a later claim → not_host)', e9);
+
+    /* ⑪ 잘못된 프레임은 파서가 먼저 거른다 */
+    p9a.sendRaw(JSON.stringify({ t: 'lobby:transferHost' }));
+    e9 = await p9a.wait('lobby:error');
+    assert(e9.code === 'invalid', 'lobby:transferHost with no targetId → invalid (parser)', e9);
+    p9a.sendRaw(JSON.stringify({ t: 'lobby:hostDown', down: 'yes' }));
+    e9 = await p9a.wait('lobby:error');
+    assert(e9.code === 'invalid', 'lobby:hostDown with a non-boolean → invalid (parser)', e9);
+
+    p9a.close(); p9b.close(); p9c.close();
+    await sleep(GRACE_MS + 400);
+    assert(server.lobbies.count === 0 && server.clientCount() === 0, 'part 9 cleanup: all lobbies deleted, no clients left', { lobbies: server.lobbies.count, clients: server.clientCount() });
   } catch (e) {
     fail('unexpected exception', (e as Error).message);
   } finally {

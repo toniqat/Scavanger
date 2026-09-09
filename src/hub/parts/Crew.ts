@@ -9,7 +9,7 @@ import * as THREE from 'three';
 import type { PlanetId } from '@/shared';
 import { getPlanet, isPlanetId, planetLabel, HUB_TRAVEL_DURATION, PLANET_NONE_LABEL, PLANET_STORAGE_KEY } from '@/shared';
 import type { CrewCardWire, GameContext, GameSystem, HubLaunchSlot, HubRef, HubShipKind, Interactable, InteriorCollider, LoadoutSlot, LobbyState, PeerId, RoomPurpose } from '@/shared';
-import { CREW_CARD_MIN_INTERVAL_S, CREW_LOADOUT_COOLDOWN_S, HUB_DOCKING_DURATION, HUB_LAUNCH_COUNTDOWN, HUB_READY_BLOCKER, HUB_READY_CELLS, Keys, NET_SLOT_COLORS, ROOM_PURPOSE_LABEL_KO } from '@/shared';
+import { CREW_CARD_MIN_INTERVAL_S, CREW_LOADOUT_COOLDOWN_S, HUB_DOCKING_DURATION, HUB_LAUNCH_COUNTDOWN, HUB_READY_BLOCKER, HUB_READY_CELLS, Keys, LEADER_DEVICE_RANGE, NET_SLOT_COLORS, ROOM_PURPOSE_LABEL_KO } from '@/shared';
 import { PersonalShip } from '../interiors/PersonalShip';
 import { SharedShip } from '../interiors/SharedShip';
 import type { StationDef } from '../interiors/stations';
@@ -151,6 +151,68 @@ export function sendCrewLoadout(sys: HubSystem, to: PeerId): void {
   if (loadout === null || loadout === undefined) return;
   sys.loadoutAnsweredAt.set(to, ctx.time);
   try { net.send({ t: 'crew', ev: 'loadout', card: sys.crewCard(), loadout }, to); } catch { /* offline */ }
+  }
+
+/* ── 분대장 넘기기 (2026-09-09) ─────────────────────────────────────────── */
+/**
+ * 공용 함선 안에서 **다른 분대원에게 다가가 분대장을 넘긴다**. 내가 호스트일 때만 `Interactable` 이 뜨고,
+ * **같은 함선 안**(`RemotePlayerRef.hubSite === HubSystem.hubSite`)에 있는 접속 중인 대원만 대상이다 —
+ * 격납고에서 남의 개인 함선을 구경하는 사람에게 말을 걸 수는 없다.
+ *
+ * 원격 아바타는 `player/RemotePlayerSystem` 소유이므로 여기서는 **읽기만** 한다: `getRemotePlayers()` 의 위치를
+ * 우리 쪽 `Vector3` 로 복사해 상호작용 지점으로 쓴다. 상호작용은 `leader:transferRequested` 하나만 낸다 —
+ * 실제 이관은 net → 서버 → `lobby:state` 가 확정한다 (커뮤니티 창의 우클릭과 완전히 같은 입구).
+ */
+export function updateLeaderHandoff(sys: HubSystem): void {
+  const ctx = sys.ctx;
+  const net = ctx.net;
+  const live = ctx.phase === 'hub' && !sys.cutscene && !!net?.lobby && net.isHost && !sys.housingMode.active;
+  if (!live) { clearLeaderHandoff(sys); return; }
+  const site = sys.hubSite;
+  const seen = new Set<string>();
+  for (const ref of net.getRemotePlayers()) {
+    if (!ref.connected || ref.stale) continue;
+    if ((ref.hubSite ?? null) !== site) continue;         // 다른 함선 안에 있는 사람은 보이지도 않는다
+    const member = net.lobby?.players.find((p) => p.id === ref.id);
+    if (!member || !member.connected) continue;
+    seen.add(ref.id);
+    let entry = sys.leaderHandoffs.get(ref.id);
+    if (!entry) {
+      const pos = ref.position.clone();
+      const id = `lead:${ref.id}`;
+      const peerId = ref.id;
+      const it: Interactable = {
+        id, position: pos, radius: LEADER_DEVICE_RANGE,
+        getPrompt: () => `${nameOf(sys, peerId)}에게 분대장 넘기기`,
+        canInteract: () => ctx.phase === 'hub' && !!ctx.net?.isHost && !sys.uiBlocked(),
+        interact: () => {
+          ctx.bus.emit('leader:transferRequested', { peerId });
+          ctx.bus.emit('audio:play', { id: 'ui_click' });
+        },
+      };
+      entry = { it, pos };
+      sys.leaderHandoffs.set(peerId, entry);
+      ctx.interactables.register(it);
+    }
+    entry.pos.copy(ref.position);
+    entry.pos.y += 1;   // 가슴 높이 — 발밑보다 조준하기 쉽다
+  }
+  for (const [id, entry] of sys.leaderHandoffs) {
+    if (seen.has(id)) continue;
+    ctx.interactables.unregister(entry.it.id);
+    sys.leaderHandoffs.delete(id);
+  }
+  }
+
+function nameOf(sys: HubSystem, peerId: PeerId): string {
+  const p = sys.ctx.net?.lobby?.players.find((q) => q.id === peerId);
+  return p?.name || '분대원';
+}
+
+export function clearLeaderHandoff(sys: HubSystem): void {
+  if (sys.leaderHandoffs.size === 0) return;
+  for (const entry of sys.leaderHandoffs.values()) sys.ctx.interactables.unregister(entry.it.id);
+  sys.leaderHandoffs.clear();
   }
 
 /** Arriving in the shared ship: publish our card and ask the squad for theirs. */

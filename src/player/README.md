@@ -22,7 +22,21 @@ Also owns `RemotePlayerSystem` (`name: 'remotePlayers'`, registered right after 
 | `Portraits.ts` | **`createPortraits(ctx, host, cells)` → `PortraitRef`** (Phase 10, `PlayerRef.createPortraits`, hosted by the hub's 발사 준비 패널). One canvas with its **own** `THREE.WebGLRenderer` + `Scene` + `PerspectiveCamera` (fov 28, 4.3 m back, looking at y 1.0) + 2 `DirectionalLight`s + a `HemisphereLight`, because `core/Engine` renders through the composer at the end of the frame and offers no post-render hook. `cells` cells are drawn one per `setViewport` / `setScissor` / `setScissorTest(true)` pass (the canvas is cleared once, `autoClear` off, `alpha: true` so the panel shows through) with only that cell's model visible. Each cell owns its **own** `SoldierModel` — nothing is shared with the main renderer's avatars (a second GL context would re-upload every geometry and the two `dispose()` paths would fight) — rebuilt when the cell's slot changes, since the accent colour is baked at construction. `setMember(i, {slot, armorId} \| null)` (null = empty cell, nothing drawn), `setYaw(i, yaw)` (`HUB_READY_PORTRAIT_YAW`), `render(dt, time)` (no-op while `!visible`, resizes from the host element), `setVisible`, `dispose()`. Armor is resolved with `RemoteAvatar.resolveArmorDef`; the silhouette pass stays off. Returns **null** when a second WebGL context cannot be created — callers degrade to a name-only cell. |
 | `Carry.ts` | The 들쳐메기 seam between the two systems in this folder: `CarryTarget` / `CarryStatus` / **`CarryHost`** (`findCarriable` / `targetOf` / `carryStatus` / `attachCarried` / `detachCarried`). `PlayerSystem` owns the rules but not the bodies; `RemotePlayerSystem` implements the host and installs itself with `PlayerSystem.setCarryHost(this)` in its own `init`. Without a host `carry()` always fails, so single-player is untouched. |
 | `Hellpod.ts` | Procedural pod (floor, struts, nose cone, thrusters, 4 petal doors hinged at the floor). Drop choreography: 2.4 s fall from +150 m with thruster particles → impact (ground blast, fireball, sparks, flash) → 0.35 s hold → 0.55 s doors open (ease-out-back) → 0.5 s step-out. `getCameraPose` provides the cutscene camera during fall/impact. Stays in the world as a prop. |
+| `RemotePods.ts` | **아군의 강하 포드** (2026-09-09). `RemotePlayerSystem` 이 `pod drop` 을 받으면 여기서 같은 `Hellpod` 인스턴스를 떨어뜨린다 — 낙하 · 착지 충격 · 문 열림 + 위치 오디오, 카메라 컷만 없다. 분대원 한 명당 포드 하나를 재사용하고(최대 3), 착륙한 포드는 소품으로 남는다. 아바타를 감추는 일은 하지 않는다 — 강하 중인 본인의 `PlayerFlags.DROPPING` 이 이미 그 일을 한다. `clear()` 가 지오메트리를 dispose 한다. |
 | `index.ts` | Barrel (also exports `RemotePlayerSystem`, `RemoteAvatar`, `DebugRemoteRef`, `Ghost`, `SOLDIER_DEFAULT_ACCENT`, `buildArmorPlate` / `buildHeldItem` / `GearLook`, `createPortraits`, `CarryHost` / `CarryStatus` / `CarryTarget`). |
+
+## 2026-09-09 — 강하 포드 동기화 · 구조선 부활 · 시체가 아바타를 대신한다
+
+- **`startDrop(kind)`** (`parts/Spawn`) 이 멀티에서 `pod drop {who, p, yaw, kind}` 을 `'others'` 로 보낸다
+  (`kind` 0 = 미션 시작, 1 = 구조선). 받는 쪽은 `RemotePlayerSystem` → `RemotePods`.
+- **`rescueRevive(position)`** (`parts/Spawn`) — `rescue:landed {target, position}` 에서 **내가 대상일 때만**
+  (`ctx.net.localId`, 싱글은 `'sp'`). 호스트가 정한 착륙 지점에 그대로 서고(분대 스폰 링을 다시 씌우지 않는다),
+  체력 `RESCUE_REVIVE_HP`, 인벤토리는 사망 때 시체로 넘어갔으므로 **빈손**, 그리고 `startDrop(1)`.
+  페이즈 정리는 `game/parts/Death.onRescueLanded` 가 한다.
+- **`corpse:playerSpawned`** 가 내 것이면 로컬 병사 모델을 감춘다 — 같은 자리에 몸이 둘일 이유가 없다
+  (부활의 `respawnAt` 이 다시 보이게 한다). 원격도 같다: `RemoteAvatar` 는 `ref.isDead && ctx.corpses.latestOf(id)`
+  이면 그리지 않는다 (전투불능은 여전히 아바타다 — 제세동기로 일어난다).
+- **자동 부활은 사라졌다** — `player:respawn` 은 이제 훈련장 재시작과 재접속 복귀 fallback 만 탄다.
 
 ## Hub & interiors (appended `PlayerRef` members — what the hub may rely on)
 - `setInterior(collider | null)` / `interior`: while set, the controller walks on `collider.getFloorAt`, is pushed out by `collider.resolveCollision`, has no slope sliding and no map-bounds clamp, jumps are allowed and ceiling-clamped by `collider.raycast` (straight up from hips + 0.6 m), and the camera collides with `collider.raycast` + is clamped to `collider.bounds`. `ctx.world` may be null — every world read in `PlayerSystem` / `PlayerController` / `CameraRig` is null-safe. Setting a collider snaps the feet onto the deck if they are within 1.5 m of it. Takes precedence over `setShipInterior`. Cleared by `respawnAt` (i.e. every `world:ready`) and on `hub:left`; **not** cleared by `game:abort`, so `setInterior` may be called before or after the abort the hub triggers.
@@ -278,6 +292,11 @@ credited to a peer that our client never sees (e.g. a DoT death out of range) is
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-09 (강하 포드 · 구조선 부활)** — 새 `RemotePods.ts` 가 `pod drop` 으로 **아군의 헬포드를 보이게**
+  한다(지금까지 원격 분대원은 자리에 그냥 나타났다), `startDrop(kind)` 이 그 메시지를 보내고,
+  `rescueRevive()` 가 `rescue:landed` 로 빈손 · `RESCUE_REVIVE_HP` 부활을 처리하며, 시체가 선 분대원의
+  아바타는 그리지 않는다(`RemoteAvatar` 의 `replacedByCorpse`).
 
 - **2026-09-09 (예외를 삼키는 E)** — `parts/Interact.perform` 의 `try { target.interact() } catch` 가 콘솔
   한 줄만 남겨서, 상호작용이 예외로 죽으면 화면에는 **프롬프트가 그대로 뜬 채 아무 일도 안 일어나는** 것으로만

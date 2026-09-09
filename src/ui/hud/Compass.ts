@@ -238,7 +238,13 @@ export class Compass {
       this.strip.style.transform = `translateX(${(-heading * PX_PER_RAD).toFixed(1)}px)`;
     }
     const half = STRIP_WIDTH / 2 - 14;
-    for (const m of this.markers.values()) {
+    // 발견 게이트 (2026-09-09): 안개가 아직 안 걷힌 신호소는 나침반에도 뜨지 않는다. 활성 신호소(`activeId`)와
+    // 함선은 분대 전원이 이미 아는 사실이라 예외. 안개가 없는 세계(훈련장)에서는 전부 예전처럼 보인다.
+    const fog = ctx.world?.fog ?? null;
+    for (const [id, m] of this.markers) {
+      const gated = fog !== null && id !== '__ship' && id !== this.activeId && !fog.isDiscovered(m.pos);
+      if (m.el.hidden !== gated) m.el.hidden = gated;
+      if (gated) continue;
       this.tmp.subVectors(m.pos, player.position);
       const dist = Math.hypot(this.tmp.x, this.tmp.z);
       const bearing = Math.atan2(this.tmp.x, -this.tmp.z); // 0 = north

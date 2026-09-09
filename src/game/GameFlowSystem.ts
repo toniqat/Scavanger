@@ -19,6 +19,11 @@ import * as Death from './parts/Death';
 import * as Session from './parts/Session';
 import * as Phases from './parts/Phases';
 import * as Wire from './parts/Wire';
+/* appended (2026-09-09): 플레이어 시체 · 분대장 기기 */
+import { PlayerCorpseManager } from './Corpses';
+import * as Corpse from './parts/CorpseNet';
+import * as Leader from './parts/Leader';
+import type { LeaderDeviceObject } from './parts/Leader';
 
 export class GameFlowSystem implements GameSystem {
   readonly name = 'gameflow';
@@ -29,9 +34,20 @@ export class GameFlowSystem implements GameSystem {
   awaitingWorld = false;
   completeTimer = -1;
   deathTimer = -1;
-  /** Phase 2: seconds until a respawn is allowed (−1 = not dead / not running). */
+  /**
+   * Phase 2 의 부활 카운트다운. **2026-09-09 이후 아무도 켜지 않는다** — 자동 부활이 사라지고 되살아나는
+   * 길은 구조선뿐이다. 필드와 `PLAYER_RESPAWN_DELAY` · `game:respawnAvailable` 은 계약이라 남겨 둔다.
+   */
   respawnTimer = -1;
   respawnLastSec = -1;
+
+  /* ── 2026-09-09: 시체 · 분대장 기기 ── */
+  /** 레이드에 서 있는 모든 플레이어 시체 (`ctx.corpses`). 레이드가 끝날 때까지 사라지지 않는다. */
+  corpses: PlayerCorpseManager | null = null;
+  corpseUnsubs: Array<() => void> = [];
+  /** 바닥에 떨어진 분대장 기기 (호스트가 완전히 사망했을 때만 존재). */
+  leaderDevice: LeaderDeviceObject | null = null;
+  leaderUnsubs: Array<() => void> = [];
   paused = false;
   lastThreat = -1;
 
@@ -84,10 +100,18 @@ export class GameFlowSystem implements GameSystem {
 
   init(ctx: GameContext): void {
     this.ctx = ctx;
+    // 2026-09-09: 시체 저장소를 `ctx.corpses` 로 게시한다 (구조선 대상 목록 · 지도가 읽는다).
+    this.corpses = new PlayerCorpseManager(ctx);
+    ctx.corpses = this.corpses;
     const b = ctx.bus;
     this.unsubs.push(
       b.on('game:newMission', ({ seed, mode, planet }) => this.onNewMission(seed, mode, planet)),
       b.on('world:ready', () => {
+        // 2026-09-09: 새 월드에는 시체도 분대장 기기도 없다. 클라이언트는 호스트에게 현황을 청한다.
+        this.clearCorpses();
+        this.ensureNetHooks();
+        Corpse.requestCorpseSync(this);
+        Leader.requestLeaderSync(this);
         if (!this.awaitingWorld) return;
         this.awaitingWorld = false;
         this.onWorldReady();
@@ -104,14 +128,20 @@ export class GameFlowSystem implements GameSystem {
         this.completeTimer = LIFTOFF_TO_COMPLETE;
       }),
       b.on('player:died', () => this.onLocalDied()),
-      b.on('game:respawn', () => this.onRespawnRequest()),
+      // 2026-09-09: `game:respawn` 은 더 이상 구독하지 않는다 (자동 부활 없음 — 구조선뿐).
       b.on('player:spawned', () => { this.respawnTimer = -1; this.respawnLastSec = -1; }),
+      /* ── 2026-09-09: 시체 · 구조선 · 분대장 기기 ── */
+      b.on('crate:looted', ({ crateId }) => Corpse.onContainerLooted(this, crateId)),
+      b.on('rescue:landed', ({ target }) => Death.onRescueLanded(this, target)),
+      b.on('world:cleared', () => this.clearCorpses()),
       /* Downed is NOT death: the mission keeps running and a defibrillator can still bring the player back. */
       b.on('player:downed', () => this.onLocalDowned()),
       b.on('player:revived', () => this.onLocalRevived()),
       // stats.kills / cratesOpened / damageTaken are incremented by Enemy / World / Player systems;
       // missionTime + stats.timeSeconds advance in Engine.frame(). GameFlow only finalizes them.
       b.on('game:abort', () => this.onAbort()),
+      b.on('game:abort', () => this.clearCorpses()),
+      b.on('game:newMission', () => this.clearCorpses()),
       b.on('game:paused', ({ paused }) => this.setPaused(paused, false)),
       /* multiplayer */
       b.on('net:remoteDied', () => this.checkAllDead()),
@@ -144,7 +174,11 @@ export class GameFlowSystem implements GameSystem {
       // Phase 9: ghost states live on the refs (`RemotePlayerRef.ghostState`, net fills them); a ghost that bleeds out
       // is caught by the 0.5 s timer that runs while the local player is out
       b.on('net:peerSuspended', () => this.checkAllDead()),
-      b.on('net:hostChanged', ({ isLocalHost }) => this.onHostChanged(isLocalHost)),
+      b.on('net:hostChanged', ({ hostId, isLocalHost }) => {
+        this.onHostChanged(isLocalHost);
+        // 2026-09-09: 이 토스트의 주인은 여기 하나다 — 기기 회수든 커뮤니티 우클릭 이관이든 전부 여기로 모인다.
+        Leader.onHostChangedToast(this, hostId, isLocalHost);
+      }),
       b.on('training:exitRequested', () => this.exitTraining()),
       b.on('inventory:itemAdded', () => this.saveRaid()),
       b.on('crate:looted', () => this.saveRaid()),
@@ -197,7 +231,18 @@ export class GameFlowSystem implements GameSystem {
 
   /* ── Multiplayer helpers ─────────────────────────────────────────────── */
   /** Subscribe to host `flow` messages once `ctx.net` exists (NetSystem publishes it before this system inits, but stay lazy). */
-  ensureNetHooks(): void { return Wire.ensureNetHooks(this); }
+  ensureNetHooks(): void {
+    Wire.ensureNetHooks(this);
+    // 2026-09-09: 시체 / 분대장 기기도 같은 시점에 붙는다 (`net` 이 생긴 뒤 한 번씩).
+    Corpse.hookCorpseNet(this);
+    Leader.hookLeaderNet(this);
+  }
+
+  /** 미션 리셋: 시체 · 분대장 기기를 전부 치우고 지오메트리를 dispose 한다. */
+  clearCorpses(): void {
+    this.corpses?.clear();
+    Leader.clearDevice(this);
+  }
 
   /** Clients only: mirror the host's mission-level decisions. */
   onFlowMessage(msg: FlowMessage, from: PeerId): void { return Wire.onFlowMessage(this, msg, from); }
@@ -353,10 +398,8 @@ export class GameFlowSystem implements GameSystem {
       this.deathTimer -= dt;
       if (this.deathTimer < 0) { this.deathTimer = -1; this.gameOver(); }
     }
-    if (this.respawnTimer >= 0) {
-      if (this.respawnTimer > 0) this.respawnTimer = Math.max(0, this.respawnTimer - dt);
-      this.tickRespawn();
-    }
+    // 2026-09-09: 바닥의 분대장 기기가 맥동한다 (없으면 no-op).
+    Leader.updateLeader(this, dt);
     if (this.allDeadCheckTimer >= 0) {
       this.allDeadCheckTimer -= dt;
       if (this.allDeadCheckTimer < 0) {
@@ -407,6 +450,11 @@ export class GameFlowSystem implements GameSystem {
   dispose(): void {
     for (const u of this.unsubs) u();
     this.netUnsub?.(); this.netUnsub = null;
+    Corpse.unhookCorpseNet(this);
+    Leader.unhookLeaderNet(this);
+    this.clearCorpses();
+    if (this.ctx?.corpses === this.corpses) this.ctx.corpses = null;
+    this.corpses = null;
     window.removeEventListener('blur', this.onWindowBlur);
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
     window.removeEventListener('pagehide', this.onPageHide);

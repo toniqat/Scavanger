@@ -12,6 +12,8 @@ export const KIND_COLOR: Readonly<Record<StratagemId, number>> = {
   airstrike: 0xff6a3d,
   supply_drop: 0x4dffb8,
   structure_drop: 0xffd24d,
+  /* 2026-09-09: 구조선 투하 — 의료 십자의 분홍빛, 다른 넷과 겹치지 않는 색. */
+  rescue_drop: 0xff6fb5,
 };
 
 export class SharedGeo {

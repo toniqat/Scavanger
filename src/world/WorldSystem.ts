@@ -2,11 +2,12 @@ import * as THREE from 'three';
 import type { PlanetId } from '@/shared';
 import type { MissionMode, TrainingRef } from '@/shared';
 import {
-  MAP_SIZE, Random, TRAINING_ARENA_SIZE, getPlanet, isPlanetId,
-  type CrateDef, type ExtractionPointDef, type GameContext, type GameSystem, type GatherNodeDef,
+  FOG_REVEAL_RADIUS, MAP_SIZE, PROP_STEP_UP_MAX, PROP_TOP_MARGIN, Random, TRAINING_ARENA_SIZE, getPlanet, isPlanetId,
+  type CrateDef, type ExtractionPointDef, type FogRef, type GameContext, type GameSystem, type GatherNodeDef,
   type Obstacle, type PlanetDef, type TerrainHit, type WorldRef,
 } from '@/shared';
 import { Ambience } from './Ambience';
+import { Fog } from './Fog';
 import { type Biome, biomeById, pickBiome } from './biomes';
 import { type BuildCtx, PLAY_LIMIT } from './build';
 import { Crates } from './Crates';
@@ -22,6 +23,18 @@ import { HALF, Terrain } from './Terrain';
 import { TrainingArena } from './TrainingArena';
 
 const SOFT_WALL = HALF - 4;
+
+/** Exact area shared by two circles (`obstacleCoverage`). 0 when they miss, the smaller disc when nested. */
+function circleOverlap(d: number, r1: number, r2: number): number {
+  if (r1 <= 0 || r2 <= 0) return 0;
+  if (d >= r1 + r2) return 0;
+  if (d <= Math.abs(r1 - r2)) { const r = Math.min(r1, r2); return Math.PI * r * r; }
+  const s1 = r1 * r1, s2 = r2 * r2;
+  const a1 = Math.acos(Math.min(1, Math.max(-1, (d * d + s1 - s2) / (2 * d * r1))));
+  const a2 = Math.acos(Math.min(1, Math.max(-1, (d * d + s2 - s1) / (2 * d * r2))));
+  return s1 * (a1 - Math.sin(2 * a1) / 2) + s2 * (a2 - Math.sin(2 * a2) / 2);
+}
+
 const NONE_CRATES: readonly CrateDef[] = [];
 const NONE_VEC: readonly THREE.Vector3[] = [];
 const NONE_GATHER: readonly GatherNodeDef[] = [];
@@ -67,8 +80,16 @@ export class WorldSystem implements GameSystem, WorldRef {
   private generated = false;
   private unsubs: (() => void)[] = [];
 
+  /**
+   * 전장의 안개 (2026-09-09). 레이드에서만 만들어지고 훈련장에서는 null — 지도 · 월드 마커 · 나침반이
+   * `isDiscovered` 로 게이트되므로 null 이면 예전처럼 전부 보인다.
+   */
+  private fogMask: Fog | null = null;
+
   // scratch
   private readonly queryOut: ObstacleEntry[] = [];
+  private readonly surfaceOut: ObstacleEntry[] = [];
+  private readonly coverOut: ObstacleEntry[] = [];
   private readonly tmpN = new THREE.Vector3();
   private readonly heightFn = (x: number, z: number) => this.getHeightAt(x, z);
   private hitNx = 0; private hitNy = 1; private hitNz = 0;
@@ -109,6 +130,7 @@ export class WorldSystem implements GameSystem, WorldRef {
     this.crates.update(dt, t);
     this.gather.update(dt, t);
     this.ambience.update(dt, ctx.camera);
+    this.fogMask?.update(dt);
   }
 
   dispose(): void {
@@ -167,6 +189,11 @@ export class WorldSystem implements GameSystem, WorldRef {
     const sp = this.layout.spawn;
     this.spawnPos.set(sp.x, this.getHeightAt(sp.x, sp.z), sp.z);
 
+    // 전장의 안개는 레이드에서만 — 스폰 주변은 미리 밝혀 둔다 (강하 지점은 분대가 이미 아는 자리다)
+    this.fogMask = new Fog();
+    this.fogMask.attach(ctx);
+    this.fogMask.reveal(sp.x, sp.z, FOG_REVEAL_RADIUS);
+
     this.generated = true;
     this.ready = true;
     const ms = performance.now() - t0;
@@ -215,6 +242,8 @@ export class WorldSystem implements GameSystem, WorldRef {
   clear(): void {
     if (!this.generated) return;
     this.ready = false;
+    this.fogMask?.dispose();
+    this.fogMask = null;
     if (this.mode === 'training') {
       this.arena.dispose();
       this.hash.clear();
@@ -266,6 +295,105 @@ export class WorldSystem implements GameSystem, WorldRef {
     return h;
   }
 
+  /**
+   * 2026-09-09 — **걸어 다닐 수 있는 표면**: 지형 높이와 그 자리 장애물 윗면 중 높은 쪽.
+   * `feetY` 를 주면 그 발 높이에서 올라설 수 있는 윗면(`feetY + PROP_STEP_UP_MAX` 이하)만 본다 — 그보다
+   * 높은 장애물은 벽으로 남아야 하므로 표면으로 세지 않는다. 안 주면 그 자리에서 제일 높은 윗면
+   * (총알 · 낙하 판정).
+   */
+  getSurfaceY(x: number, z: number, feetY?: number): number {
+    const ground = this.getHeightAt(x, z);
+    if (!this.ready) return ground;
+    const out = this.surfaceOut;
+    out.length = 0;
+    // radius 0: 그 점을 실제로 덮는 원기둥만 (`query` 는 `radius + o.radius` 로 판정한다)
+    this.hash.query(x, z, 0, out);
+    const ceiling = feetY === undefined ? Infinity : feetY + PROP_STEP_UP_MAX;
+    let best = ground;
+    for (let i = 0; i < out.length; i++) {
+      const o = out[i];
+      const top = o.position.y + o.height;
+      if (top <= best || top > ceiling) continue;
+      best = top;
+    }
+    out.length = 0;
+    return best;
+  }
+
+  /**
+   * 지금 밟고 있는 장애물 (`PROP_TOP_MARGIN` 여유). 그 위에 서 있는 동안 `resolveCollision` 은 이 장애물을
+   * 밀어내지 않는다 — 같은 여유를 쓰므로 두 판정이 어긋나 가장자리에서 튕겨 나가는 일이 없다.
+   */
+  getStandingObstacle(x: number, z: number, feetY: number): Obstacle | null {
+    if (!this.ready) return null;
+    const out = this.surfaceOut;
+    out.length = 0;
+    this.hash.query(x, z, 0, out);
+    let best: Obstacle | null = null;
+    let bestTop = -Infinity;
+    for (let i = 0; i < out.length; i++) {
+      const o = out[i];
+      const top = o.position.y + o.height;
+      if (feetY < top - PROP_TOP_MARGIN || feetY > top + PROP_TOP_MARGIN) continue;
+      if (top <= bestTop) continue;
+      bestTop = top;
+      best = o;
+    }
+    out.length = 0;
+    return best;
+  }
+
+  /**
+   * 반경 `radius` 원 안을 장애물 단면이 차지하는 면적 비율. 원-원 교차 면적의 합이고 겹침은 보정하지
+   * 않으므로 1 을 넘을 수 있다 — 대형 적 스폰 자리를 거르는 용도다 (`enemies/Spawner`).
+   */
+  obstacleCoverage(x: number, z: number, radius: number): number {
+    if (!this.ready || radius <= 0) return 0;
+    const out = this.coverOut;
+    out.length = 0;
+    this.hash.query(x, z, radius, out);
+    let area = 0;
+    for (let i = 0; i < out.length; i++) {
+      const o = out[i];
+      area += circleOverlap(Math.hypot(o.position.x - x, o.position.z - z), radius, o.radius);
+    }
+    out.length = 0;
+    return area / (Math.PI * radius * radius);
+  }
+
+  /**
+   * 서로 `minGap` 이상 떨어진 지점 `count` 개를 `center` 주위 `radius` 안에서 뽑는다 (구조 포드가 겹쳐
+   * 떨어지지 않게). 1차 통과에서는 장애물 위를 피하고, 그래도 모자라면 간격만 지키는 2차 통과로 채운다 —
+   * 두 통과 모두 같은 `Random` 을 쓰므로 `seed` 를 주면 결정적이다.
+   */
+  scatterPoints(center: THREE.Vector3, radius: number, count: number, minGap: number, seed?: number): THREE.Vector3[] {
+    const out: THREE.Vector3[] = [];
+    if (count <= 0 || radius <= 0) return out;
+    const rng = new Random(seed === undefined ? (Math.random() * 0xffffffff) >>> 0 : seed >>> 0);
+    const gap2 = minGap > 0 ? minGap * minGap : 0;
+    const attempts = Math.max(24, count * 24);
+    for (let pass = 0; pass < 2 && out.length < count; pass++) {
+      for (let a = 0; a < attempts && out.length < count; a++) {
+        const ang = rng.range(0, Math.PI * 2);
+        const d = radius * Math.sqrt(rng.next());
+        const x = center.x + Math.cos(ang) * d, z = center.z + Math.sin(ang) * d;
+        if (!this.isInsideBounds(x, z)) continue;
+        if (pass === 0 && this.hash.overlaps(x, z, 1.5)) continue;
+        let clear = true;
+        for (let i = 0; i < out.length; i++) {
+          const dx = out[i].x - x, dz = out[i].z - z;
+          if (dx * dx + dz * dz < gap2) { clear = false; break; }
+        }
+        if (!clear) continue;
+        out.push(new THREE.Vector3(x, this.getHeightAt(x, z), z));
+      }
+    }
+    return out;
+  }
+
+  /** 전장의 안개 (`FogRef`); 훈련장에서는 null. */
+  get fog(): FogRef | null { return this.fogMask; }
+
   getNormalAt(x: number, z: number, out: THREE.Vector3 = new THREE.Vector3()): THREE.Vector3 {
     if (this.mode === 'training') return out.set(0, 1, 0);
     const e = 0.6;
@@ -288,7 +416,9 @@ export class WorldSystem implements GameSystem, WorldRef {
     this.hash.query(position.x, position.z, radius, out);
     for (let i = 0; i < out.length; i++) {
       const o = out[i];
-      if (position.y > o.position.y + o.height - 0.05) continue;   // above the obstacle
+      // 2026-09-09: 윗면에 서 있으면 밀어내지 않는다. 여유는 `getStandingObstacle` 과 같은 `PROP_TOP_MARGIN`
+      // 이라 두 판정이 어긋나 가장자리에서 튕겨 나가지 않는다 (예전엔 0.05 로 훨씬 빡빡했다).
+      if (position.y >= o.position.y + o.height - PROP_TOP_MARGIN) continue;   // above the obstacle
       let dx = position.x - o.position.x, dz = position.z - o.position.z;
       let d = Math.sqrt(dx * dx + dz * dz);
       const min = radius + o.radius;

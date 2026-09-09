@@ -92,7 +92,11 @@ export class Props {
       this.place(v, composeMatrix(x, y, z, rng.range(0, Math.PI * 2), rng.range(-0.25, 0.25), rng.range(-0.25, 0.25), s, sy, s), rng.range(0.85, 1.1));
       if (!outside || Math.abs(x) < HALF + 6 && Math.abs(z) < HALF + 6) {
         const hull = boulderHull[vi];
-        ctx.hash.add(new THREE.Vector3(x, y, z), s * 0.82, s * 1.3, 'rock', { radius: hull.xz * s, height: hull.y * sy });
+        // 2026-09-09 (지형지물 위 걷기): 이동 콜라이더도 **보이는 실루엣** 이다 — 예전의 `s*0.82 / s*1.3` 은
+        // 눈에 보이는 바위보다 좁고 ~0.5 s 높아서, 엄폐로 안기면 옆구리가 비고 위에는 올라설 수가 없었다.
+        // 이제 총알과 발이 같은 원기둥을 본다: 낮은 바위는 `PROP_STEP_UP_MAX` 안이라 걸어 올라가진다.
+        const r = hull.xz * s, h = hull.y * sy;
+        ctx.hash.add(new THREE.Vector3(x, y, z), r, h, 'rock', { radius: r, height: h });
       }
     });
 
@@ -105,22 +109,35 @@ export class Props {
       return g;
     });
     const spireVar = spires.map((g) => this.variant([{ geo: g, mat: rockMat, castShadow: true, receiveShadow: true }], 160, 'spire'));
+    // A cone's widest ring **is** its base, so the measured hull is exactly the silhouette at foot / chest height —
+    // the part anyone hides behind or walks into. Higher up the cylinder is wider than the drawn spire; that is the
+    // same trade a boulder makes and it is the safe direction for 엄폐.
+    const spireHull = spires.map((g) => hullOf(g));
     this.scatter(ctx, rng, { count: Math.round(210 * b.spireDensity), limit: HALF - 12, clusterFreq: 0.02, clusterBias: -0.15 }, (x, z) => {
       const s = rng.range(1.4, 3.6);
       if (!isSpotFree(ctx, x, z, s * 0.95, { maxSlope: 0.45, padExtra: 6 })) return;
       const y = ctx.terrain.getHeightAt(x, z) - 0.4 * s;
-      const v = spireVar[rng.int(0, spireVar.length - 1)];
+      const vi = rng.int(0, spireVar.length - 1);
+      const v = spireVar[vi];
       const sy = s * rng.range(0.9, 1.5);
       this.place(v, composeMatrix(x, y, z, rng.range(0, Math.PI * 2), rng.range(-0.12, 0.12), rng.range(-0.12, 0.12), s, sy, s), rng.range(0.85, 1.05));
-      // a tall instance (`sy` up to 1.5 × s) drew ~2 m of spire above a 4.2 × s collider — bullets flew straight
-      // through the top third. The shot cylinder takes the instance's real height; the base radius is close enough
-      // to the cone's lower half, which is the part anyone actually hides behind.
-      ctx.hash.add(new THREE.Vector3(x, y, z), s * 0.8, s * 4.2, 'rock', { radius: s * 0.8, height: sy * 4.2 });
+      // 2026-09-09: both cylinders are the measured hull now. `s * 0.8` was **narrower** than the drawn base, so
+      // shots slipped past the visible rock; the old `s * 4.2` collider also ignored the instance's own `sy`.
+      // A spire is always ≥ 5 m tall, so it stays a wall — `getSurfaceY` never offers its top as a step.
+      const hull = spireHull[vi];
+      const r = hull.xz * s, h = hull.y * sy;
+      ctx.hash.add(new THREE.Vector3(x, y, z), r, h, 'rock', { radius: r, height: h });
     });
 
     /* Trees */
     if (b.treeStyle !== 'none') {
       const treeVars: Variant[] = [];
+      /**
+       * 2026-09-09: the drawn top of each tree variant (max over its parts), so the collider is not ~1 m short of
+       * the trunk it draws. The **radius** deliberately stays the trunk's (0.5 × s): a fungal cap is 2 m wide 3.5 m
+       * up, and a cylinder that wide would be an invisible wall at ground level and would stop bullets in open air.
+       */
+      const treeTop: number[] = [];
       for (let k = 0; k < 3; k++) {
         if (b.treeStyle === 'fungal') {
           const trunk = new THREE.CylinderGeometry(0.22 + k * 0.03, 0.5, 3.4 + k * 0.4, 7);
@@ -139,9 +156,11 @@ export class Props {
             paintGradient(cap, b.canopy.clone().multiplyScalar(0.55), b.canopy);
             caps.push(cap);
           }
+          const capGeo = merge(caps);
+          treeTop.push(Math.max(hullOf(trunk).y, hullOf(capGeo).y));
           treeVars.push(this.variant([
             { geo: trunk, mat: trunkMat, castShadow: true, receiveShadow: true },
-            { geo: merge(caps), mat: this.canopyMat, castShadow: true, receiveShadow: false },
+            { geo: capGeo, mat: this.canopyMat, castShadow: true, receiveShadow: false },
           ], 320, 'tree'));
         } else {
           const parts: THREE.BufferGeometry[] = [];
@@ -161,6 +180,7 @@ export class Props {
           }
           const g = merge(parts);
           paintGradient(g, b.trunk.clone().multiplyScalar(0.7), b.trunk.clone().multiplyScalar(1.15));
+          treeTop.push(hullOf(g).y);
           treeVars.push(this.variant([{ geo: g, mat: trunkMat, castShadow: true, receiveShadow: true }], 320, 'tree'));
         }
       }
@@ -168,14 +188,19 @@ export class Props {
         const s = rng.range(0.9, 1.9);
         if (!isSpotFree(ctx, x, z, 0.6 * s, { maxSlope: 0.32, padExtra: 5 })) return;
         const y = ctx.terrain.getHeightAt(x, z) - 0.15;
-        const v = treeVars[rng.int(0, treeVars.length - 1)];
-        this.place(v, composeMatrix(x, y, z, rng.range(0, Math.PI * 2), rng.range(-0.06, 0.06), rng.range(-0.06, 0.06), s, s * rng.range(0.9, 1.2), s), rng.range(0.85, 1.1));
-        ctx.hash.add(new THREE.Vector3(x, y, z), 0.5 * s, 5 * s, 'tree');
+        const vi = rng.int(0, treeVars.length - 1);
+        const v = treeVars[vi];
+        const sy = s * rng.range(0.9, 1.2);
+        this.place(v, composeMatrix(x, y, z, rng.range(0, Math.PI * 2), rng.range(-0.06, 0.06), rng.range(-0.06, 0.06), s, sy, s), rng.range(0.85, 1.1));
+        // trunk radius for both cylinders; the height is the instance's real drawn top (was a flat `5 * s`)
+        const h = treeTop[vi] * sy;
+        ctx.hash.add(new THREE.Vector3(x, y, z), 0.5 * s, h, 'tree', { radius: 0.5 * s, height: h });
       });
     }
 
     /* Crystal clusters */
     const crystalVars: Variant[] = [];
+    const crystalHull: Array<{ xz: number; y: number }> = [];
     for (let k = 0; k < 3; k++) {
       const parts: THREE.BufferGeometry[] = [];
       const n = 4 + k * 2;
@@ -190,15 +215,21 @@ export class Props {
       }
       const g = merge(parts);
       paintGradient(g, b.crystal.clone().multiplyScalar(0.35), b.crystal);
+      crystalHull.push(hullOf(g));
       crystalVars.push(this.variant([{ geo: g, mat: this.crystalMat, castShadow: true, receiveShadow: false }], 200, 'crystal'));
     }
     this.scatter(ctx, rng, { count: Math.round(340 * b.crystalDensity), limit: HALF - 12, clusterFreq: 0.025, clusterBias: -0.12 }, (x, z) => {
       const s = rng.range(0.7, 1.6);
       if (!isSpotFree(ctx, x, z, 0.9 * s, { maxSlope: 0.4, padExtra: 4 })) return;
       const y = ctx.terrain.getHeightAt(x, z) - 0.2;
-      const v = crystalVars[rng.int(0, crystalVars.length - 1)];
+      const vi = rng.int(0, crystalVars.length - 1);
+      const v = crystalVars[vi];
       this.place(v, composeMatrix(x, y, z, rng.range(0, Math.PI * 2), 0, 0, s, s, s), rng.range(0.9, 1.1));
-      ctx.hash.add(new THREE.Vector3(x, y, z), 0.8 * s, 2.5 * s, 'crystal');
+      // 2026-09-09: measured cluster hull instead of the guessed `0.8 / 2.5` — a short cluster is now something a
+      // shot really stops on, and a tall one keeps blocking movement at its drawn height.
+      const hull = crystalHull[vi];
+      const r = hull.xz * s, h = hull.y * s;
+      ctx.hash.add(new THREE.Vector3(x, y, z), r, h, 'crystal', { radius: r, height: h });
     });
 
     /* Grass tufts (decoration only) */
@@ -230,14 +261,24 @@ export class Props {
       this.variant([{ geo: podGeo, mat: debrisMat, castShadow: true, receiveShadow: true }], 50, 'debris'),
       this.variant([{ geo: panelGeo, mat: debrisMat, castShadow: true, receiveShadow: true }], 80, 'debris'),
     ];
+    // 2026-09-09: measured hulls. The crate / pod are low enough that `PROP_STEP_UP_MAX` lets you stand on them,
+    // so the cylinder top has to be the **lid**, not a guessed `s`. The crate is randomly yawed, so its XZ radius
+    // is the corner sweep (√2 × the half-width) rather than the mean half-width.
+    const debrisHull = [hullOf(crateGeo), hullOf(podGeo)];
     this.scatter(ctx, rng, { count: Math.round(170 * b.debrisDensity), limit: HALF - 12, clusterFreq: 0.02, clusterBias: -0.1 }, (x, z) => {
       const kind = rng.int(0, 2);
       const s = kind === 1 ? rng.range(1.2, 2.2) : rng.range(0.8, 1.4);
-      const r = kind === 2 ? 0.4 : 0.8 * s;
+      const hull = kind === 2 ? null : debrisHull[kind];
+      const r = kind === 2 ? 0.4 : hull!.xz * (kind === 0 ? Math.SQRT2 : 1) * s;
       if (!isSpotFree(ctx, x, z, r, { maxSlope: 0.3, padExtra: 2 })) return;
-      const y = ctx.terrain.getHeightAt(x, z) + (kind === 0 ? s * 0.42 : kind === 1 ? -0.3 * s : 0.02);
+      const lift = kind === 0 ? s * 0.42 : kind === 1 ? -0.3 * s : 0.02;
+      const y = ctx.terrain.getHeightAt(x, z) + lift;
       this.place(debrisVars[kind], composeMatrix(x, y, z, rng.range(0, Math.PI * 2), kind === 0 ? rng.range(-0.15, 0.15) : rng.range(-0.3, 0.3), kind === 0 ? rng.range(-0.15, 0.15) : rng.range(-0.3, 0.3), s, s, s), rng.range(0.85, 1.1));
-      if (kind !== 2) ctx.hash.add(new THREE.Vector3(x, y - (kind === 0 ? s * 0.42 : 0), z), r, s, 'debris');
+      if (kind !== 2) {
+        const base = kind === 0 ? y - lift : y;
+        const h = Math.max(0.2, y + hull!.y * s - base);
+        ctx.hash.add(new THREE.Vector3(x, base, z), r, h, 'debris', { radius: r, height: h });
+      }
     });
 
     /* Pebbles — small ground rocks, decoration only */

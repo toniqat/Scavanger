@@ -75,6 +75,8 @@ Contract: `src/shared/net.ts` (types + constants) and the `net:*` events in `src
 | `lobbyPlanet` | **Phase 11.** `lobby.planet` (the host's 목표 행성) or null outside a lobby / while nothing is picked. hub/ reads it as its own `planet` whenever a lobby exists. |
 | `setLobbyPlanet(planet)` | **Phase 11.** Host only, lobby not started, `isPlanetId` checked: mirrors `lobby.planet` optimistically (like `setLobbySeed`) and sends `lobby:planet`. Emits **no** event — hub/ drives its own terminal / cutscene from `HubRef.setPlanet` and learns about a *squadmate's* change from the server's `net:lobbyUpdated`. |
 | `social` | **Phase 11.** `SocialRef` (see `SocialSync.ts`). Always present; `available` is false offline / for an anonymous socket / on a relay without a store, and then every method is inert. |
+| `transferHost(targetId, claim?)` | **2026-09-09 — 분대장 지명 이관.** `lobby:transferHost` 를 보낸다. 서버가 받아 주는 경우는 ① 내가 지금 호스트, ② `claim` 이고 현재 호스트가 `reportHostDown(true)` 로 사망 표시를 켰다 — 그 외에는 `lobby:error not_host` (→ `net:error`). **로비가 없거나 소켓이 끊겼을 때만 no-op** 이다: 함선(세션 밖)에서도 넘길 수 있어야 하므로 `inSession` 은 보지 않는다. 결과는 평소의 `lobby:state` → `net:hostChanged` 로만 온다 — 이 메서드는 아무 이벤트도 내지 않는다. |
+| `reportHostDown(down)` | **2026-09-09.** 호스트 본인이 이 레이드에서 완전히 사망했다고(또는 되살아났다고) 서버에 알린다. 남의 `transferHost(..., true)` 가 통하는 유일한 조건이고, 서버는 이 표시를 **방송하지 않는다**. |
 | `leaveMission()` | Leave the running mission but keep the lobby: `inSession=false`, remotes cleared, `lobby:mission false` (the server closes a training when its last member leaves), `net:lobbyUpdated`. game/ calls it on a training exit; a client's own abort goes through `game:abort` and ends the same way. |
 | `missionMode` | `lobby.mode ?? 'raid'` while the lobby is started, else null. |
 | `profile` | `ProfileRef` (see `ProfileSync.ts`). |
@@ -329,6 +331,13 @@ mission peer, `rejoinMission` → `net:gameStarting` + `flow rejoined` at the ho
   `getShipVisit(id)` / `requestShipVisit(id)`, 보내는 쪽은 `hub/parts/Hangar` 소유. `send()` 가 자기 방송을
   스누핑하므로 **내 정박 구역도 남들이 보는 것과 똑같은 와이어로** 그려진다. 로비를 떠나면 `crewCards` 와 함께
   비우고, 사라진 멤버의 것은 `lobby:state` 스윕에서 지운다.
+
+- **2026-09-09 (분대장 지명 이관)** — `NetRef.transferHost(targetId, claim?)` · `reportHostDown(down)`
+  (`parts/Lobby`). UI 는 net 을 직접 붙잡지 않는다: 커뮤니티 창의 우클릭도, 공용 함선 안의 상호작용도
+  **`leader:transferRequested {peerId}`** 하나를 내고 `NetSystem.init` 이 그것을 구독해 `transferHost(peerId)` 를
+  부른다 — 입구가 하나뿐이라 두 UI 가 규칙을 따로 들고 있을 수 없다. 이관이 확정되는 경로는 자동 이관과
+  **완전히 같다** (`lobby:state` → `applyLobby` → `onHostChanged` → `net:hostChanged`), 그래서 net 쪽에 승격/강등
+  코드는 한 줄도 더해지지 않았다. `net:hostChanged` 를 듣고 토스트를 띄우는 것은 `game/parts/Leader` 의 몫이다.
 
 - **2026-09-08 (같은 함선끼리만 보인다)** — `PlayerSnapshot.hs` (append-only, 없으면 공유 데크). 모든 인테리어가
   원점에 지어지므로 서로 다른 함선 안의 두 사람은 좌표가 겹친다. `Snapshotter` 가 `ctx.hub.hubSite` 를 실어
