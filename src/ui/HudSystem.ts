@@ -35,6 +35,8 @@ import { Detection } from './hud/Detection';
 import { ScanReveal } from './hud/ScanReveal';
 import { ScanTracker } from './hud/ScanTracker';
 import { CutsceneWatch } from './hud/CutsceneWatch';
+import { HubDot } from './hud/HubDot';
+import { ShellMarkers } from './hud/ShellMarkers';
 import { Deployables } from './hud/Deployables';
 import { ProgressToasts } from './hud/ProgressToasts';
 import { ActionFeedback } from './hud/ActionFeedback';
@@ -92,6 +94,9 @@ import type { RewardsBlock } from './menus/RewardsBlock';
  * 2026-09-07 커서 rework replaced that sprite with `GameCursor`, which only injects the procedural `cursor:` art and
  * toggles `body.cursor-ui` (the real OS cursor is back, so there is nothing to draw per frame); the tactical map gets a `setPingPlacer` wired to
  * `Pings.placeAtWorld` so a middle-click on the map drops a squad ping.
+ * 2026-09-09 (함선 크로스헤어): `HubDot` (`.hub-dot`, the ship's centre dot) joins the social layer and `HoldGauge`
+ * **moves** there from the gameplay layer, so the 발사 포드 탑승 hold fills a ring around that dot in the hub while the
+ * gameplay behaviour is unchanged (the social layer is up in every phase the gameplay layer is).
  * Phase 11 (소셜): `Community` joins the social layer — the ship-only 커뮤니티 thumbnail, its panel (which reuses the
  * ESC screen's `menus/social/SocialColumn`) and the 분대 초대 stack with its `Keys.INVITE` hold; the pause menu's own
  * social column is built by `PauseMenu`, and `debugSocial(snapshot, invites)` fakes the mirror for the smoke.
@@ -120,7 +125,12 @@ export class HudSystem implements GameSystem {
   /* Phase 10: two more crosshair rings — the reload radial moved off the weapon panel, the 회복약 is a 2 s hold */
   private reload!: ReloadGauge;
   private heal!: HealGauge;
+  /** 2026-09-09: lives in the **social** layer so the 발사 포드 탑승 hold fills a ring in the ship too (see `init`). */
   private hold!: HoldGauge;
+  /** 2026-09-09: 함선 내 점 크로스헤어 — the social layer's centre dot for the hub phases. */
+  private hubDot!: HubDot;
+  /** 포탄 HUD 마커 (2026-09-09): artillery shells inside the 인지력 radius. */
+  private shells!: ShellMarkers;
   private swheel!: StratagemWheel;
   private strat!: StratagemPanel;
   /** 2026-09-09: 구조선 대상 선택 화면 (자기 스스로 `ctx.stratagems` 를 보고 뜬다). */
@@ -197,11 +207,11 @@ export class HudSystem implements GameSystem {
     this.markers = new WorldMarkers(this.hudRoot);
     this.pings = new Pings(this.hudRoot);
     this.offscreen = new OffscreenIndicators(this.hudRoot);
+    this.shells = new ShellMarkers(this.hudRoot);
     this.reticle = new Reticle(this.hudRoot);
     this.cook = new CookGauge(this.hudRoot);
     this.reload = new ReloadGauge(this.hudRoot);
     this.heal = new HealGauge(this.hudRoot);
-    this.hold = new HoldGauge(this.hudRoot);
     this.charge = new ChargeGauge(this.hudRoot);
     this.wcharge = new WeaponChargeGauge(this.hudRoot);
     this.statusMarkers = new StatusMarkers(this.hudRoot);
@@ -237,6 +247,13 @@ export class HudSystem implements GameSystem {
     this.chat = new ChatLog(this.bottomLeft);
     this.squad = new Squad(this.bottomLeft);
     this.prompt = new InteractionPrompt(this.socialRoot);
+    // 2026-09-09: the 홀드 링 moved from the gameplay layer to this one — the social layer is the one that stays up in
+    // the ship, and the 발사 포드 탑승 (0.4 s hold) had no ring there. One instance serves both phases; the
+    // `.hud.spectating .hold` rule still applies because this root carries `.spectating` too.
+    this.hold = new HoldGauge(this.socialRoot);
+    // 2026-09-09: 함선 내 점 크로스헤어 — the gameplay reticle is hidden in the hub, so the ship gets its own centre dot
+    // (self-gated: phase `hub`, no blocker, no docking / warp cutscene). The hold ring above sits around it.
+    this.hubDot = new HubDot(this.socialRoot, this.cutscene);
     this.notifs = new Notifications(this.socialRoot);
     this.progressToasts = new ProgressToasts(this.socialRoot);
     this.metaToasts = new MetaToasts(this.progressToasts.root);
@@ -282,7 +299,7 @@ export class HudSystem implements GameSystem {
     this.death = new DeathScreen(ctx.uiRoot);
     this.complete = new MissionComplete(ctx.uiRoot);
 
-    for (const c of [this.reticle, this.cook, this.wheel, this.swheel, this.strat, this.charge, this.targeting, this.offscreen, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.typing, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.chat, this.map]) c.bind(ctx);
+    for (const c of [this.reticle, this.cook, this.wheel, this.swheel, this.strat, this.charge, this.targeting, this.offscreen, this.shells, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.typing, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.chat, this.map]) c.bind(ctx);
     // the shared trackers first: the components they feed read them from their own bind / first update
     this.scanTracker.bind(ctx);
     this.cutscene.bind(ctx);
@@ -355,6 +372,8 @@ export class HudSystem implements GameSystem {
     this.roomLabel.update(ctx);
     // 함선 관리 hint: two compares per frame, and it must survive a hidden social layer state change.
     this.shipHint.update(ctx);
+    // 함선 내 점 크로스헤어: same self-gating (phase / blockers / cutscene), one compare per frame.
+    this.hubDot.update(ctx);
     // 커뮤니티: same self-gating, plus the P-hold on a 분대 초대 (it needs dt).
     this.community.update(dt, ctx);
     // 구조선 대상 선택: self-gating on `ctx.stratagems.armed === 'rescue_drop' && rescueTarget === null`.
@@ -380,6 +399,7 @@ export class HudSystem implements GameSystem {
       this.markers.lateUpdate(ctx);
       this.pings.lateUpdate(ctx);
       this.offscreen.lateUpdate(ctx);
+      this.shells.lateUpdate(dt, ctx);
       this.statusMarkers.lateUpdate(ctx);
     }
     if (this.socialVisible) { this.nameplates.lateUpdate(ctx); this.typing.lateUpdate(ctx); }
@@ -404,6 +424,8 @@ export class HudSystem implements GameSystem {
   get isKeybindsOpen(): boolean { return this.keybinds.isOpen; }
   /** Edge arrows currently visible (debug). */
   get offscreenCount(): number { return this.offscreen.visibleCount; }
+  /** Live 포탄 markers + edge arrows (debug / smoke). */
+  get shellMarkerCount(): number { return this.shells.visibleCount; }
   /** Unique-weapon charge gauge kind while showing, else null (debug). */
   get weaponChargeKind(): 'charge' | 'spinup' | 'slash' | null { return this.wcharge.activeKind; }
   /** Live 전소 / 감전 world markers (debug). */
@@ -464,6 +486,8 @@ export class HudSystem implements GameSystem {
   get isHoldGaugeOn(): boolean { return this.hold.isShowing; }
   get holdGaugeProgress(): number { return this.hold.progress; }
   get isHoldGaugeGiveUp(): boolean { return this.hold.isGiveUp; }
+  /** 2026-09-09 함선 내 점 크로스헤어 — smoke hook. */
+  get isHubDotOn(): boolean { return this.hubDot.isShowing; }
   get isGameCursorOn(): boolean { return this.gameCursor.isShowing; }
   /** Whether the vitals' 포기 bar is up (debug, Phase 9). */
   get isGiveUpBarOn(): boolean { return this.vitals.isGiveUpShowing; }
@@ -548,12 +572,12 @@ export class HudSystem implements GameSystem {
 
   dispose(): void {
     for (const u of this.unsubs) u();
-    for (const c of [this.reticle, this.cook, this.wheel, this.swheel, this.strat, this.charge, this.targeting, this.offscreen, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.typing, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.chat, this.deploy, this.map]) c.dispose();
+    for (const c of [this.reticle, this.cook, this.wheel, this.swheel, this.strat, this.charge, this.targeting, this.offscreen, this.shells, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.typing, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.chat, this.deploy, this.map]) c.dispose();
     for (const c of [this.implantWidget, this.implantChip, this.quickStrip, this.detection, this.scanReveal, this.deployables, this.progressToasts, this.actionFx]) c.dispose();
     this.scanTracker.dispose();
     this.cutscene.dispose();
     for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.roomLabel, this.shipManage, this.shipHint, this.itemTip, this.keyGuide]) c.dispose();
-    for (const c of [this.reload, this.heal, this.hold, this.gameCursor]) c.dispose();
+    for (const c of [this.reload, this.heal, this.hold, this.gameCursor, this.hubDot]) c.dispose();
     for (const c of [this.contractPanel, this.trainingPanel, this.metaToasts]) c.dispose();
     this.community.dispose();
     this.rescuePick.dispose();

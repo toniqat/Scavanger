@@ -11,8 +11,8 @@ import { Grid, OOB, type Placement, type PriorityPlacement } from './Grid';
 import { Container, ContainerStore } from './Container';
 import { attachedItems, clearSocket, findSocketed, setSocket } from './Sockets';
 import {
-  assignQuickSlot, autoAssignQuickSlots, createQuickSlots, firstFreeQuickSlot, isQuickIndex, isQuickUsable, pruneQuickSlots,
-  quickSlotOf, quickSlotsSignature, relinkQuickSlot, type QuickSlotUids,
+  createQuickSlots, firstFreeQuickSlot, isQuickIndex, isQuickUsable, mergeIntoQuick, quickSlotOf, quickSlotsSignature,
+  type QuickSlotItems,
 } from './QuickSlots';
 import { InventoryUI, type ScreenTab } from './ui/InventoryUI';
 export type { ScreenTab } from './ui/InventoryUI';
@@ -71,8 +71,12 @@ export class InventorySystem implements GameSystem, InventoryRef {
   outcome: MissionOutcome = 'none';
   lastGrenades = -1;
   lastStims = -1;
-  /** Quick-use wheel: bag item uids by wheel direction (see `QuickSlots.ts`); `lastQuickSig` gates the change event. */
-  quickSlots: QuickSlotUids = createQuickSlots();
+  /**
+   * Quick-use wheel — **its own container** (2026-09-09, 사용자 결정): the stack in each wheel direction lives *here*,
+   * not in the bag grid (see `QuickSlots.ts`). It still counts toward the bag weight, the HUD counts and every
+   * `countWhere` / `consumeWhere` query. `lastQuickSig` gates the change event.
+   */
+  quickSlots: QuickSlotItems = createQuickSlots();
   lastQuickSig = '';
   lastStashVersion = 0;
   /* Phase 6: 무한 상자 window state + the bench the craft panel is showing. */
@@ -332,9 +336,20 @@ export class InventorySystem implements GameSystem, InventoryRef {
 
   getDef(defId: string): ItemDef | undefined { return ITEM_DEF_MAP.get(defId); }
 
+  /** Bag **grid** stacks only (the corp trade / implant desk / workbench list what is sellable / repairable there); the wheel is `getQuickSlots()`. */
   getAllItems(): ItemInstance[] { return this.bag.items().map((p) => p.item); }
 
-  getTotalValue(): number { return this.bag.totalValue(); }
+  /** Bag grid + wheel stacks (the wheel is carried too). */
+  getTotalValue(): number { return this.bag.totalValue() + this.quickTotalValue(); }
+
+  /** Non-empty wheel stacks (in wheel-direction order). */
+  quickItems(): ItemInstance[] { return this.quickSlots.filter((it): it is ItemInstance => it !== null); }
+
+  quickTotalValue(): number {
+    let v = 0;
+    for (const it of this.quickItems()) { const d = ITEM_DEF_MAP.get(it.defId); if (d) v += d.value * it.qty; }
+    return v;
+  }
 
   getBagSize(): BagSize { return this.bagSizeOf(this.loadout.bag); }
 
@@ -353,10 +368,11 @@ export class InventorySystem implements GameSystem, InventoryRef {
     return this.countWhere((d) => d.id === defId);
   }
 
-  /** Bag + equipped gear weight against the character's carry capacity (근력 via `ctx.progression`). */
+  /** Bag + wheel + equipped gear weight against the character's carry capacity (근력 via `ctx.progression`). */
   getWeight(): WeightInfo {
     const mult = gearMultipliers(this.ctx.progression?.derived);
-    let w = sumWeight(this.bag.items().map((p) => p.item), (id) => ITEM_DEF_MAP.get(id));
+    // 2026-09-09: the wheel is a separate container but it hangs off the same shoulders — its stacks weigh in too
+    let w = sumWeight([...this.bag.items().map((p) => p.item), ...this.quickItems()], (id) => ITEM_DEF_MAP.get(id));
     for (const slot of LOADOUT_SLOTS) {
       const it = this.loadout[slot];
       if (!it) continue;
@@ -566,20 +582,28 @@ export class InventorySystem implements GameSystem, InventoryRef {
 
   private updateCraft(dt: number): void { return Craft.updateCraft(this, dt); }
 
+  /** Units in the bag grid **and on the wheel** matching `pred` (2026-09-09: a stim on the wheel is still carried). */
   countWhere(pred: (def: ItemDef, inst: ItemInstance) => boolean): number {
     let n = 0;
     for (const p of this.bag.items()) {
       const def = ITEM_DEF_MAP.get(p.item.defId);
       if (def && pred(def, p.item)) n += p.item.qty;
     }
+    for (const it of this.quickItems()) {
+      const def = ITEM_DEF_MAP.get(it.defId);
+      if (def && pred(def, it)) n += it.qty;
+    }
     return n;
   }
 
+  /**
+   * Remove up to `qty` units matching `pred`: bag stacks first (smallest first, so partial stacks disappear before
+   * full ones), then the wheel — what the player put on the wheel on purpose is the last thing a recipe eats.
+   */
   consumeWhere(pred: (def: ItemDef, inst: ItemInstance) => boolean, qty: number): number {
     let left = Math.max(0, Math.floor(qty));
     if (left === 0) return 0;
     let consumed = 0;
-    // consume smallest stacks first so partial stacks disappear before full ones
     const matches = this.bag.items()
       .filter((p) => { const d = ITEM_DEF_MAP.get(p.item.defId); return !!d && pred(d, p.item); })
       .sort((a, b) => a.item.qty - b.item.qty);
@@ -590,16 +614,26 @@ export class InventorySystem implements GameSystem, InventoryRef {
       if (p.item.qty <= 0) this.removeEmptyStack(p.item);
       else this.bag.version++;
     }
+    if (left > 0) {
+      const wheel = this.quickSlots
+        .map((it, index) => ({ it, index }))
+        .filter(({ it }) => { const d = it && ITEM_DEF_MAP.get(it.defId); return !!it && !!d && pred(d, it); })
+        .sort((a, b) => a.it!.qty - b.it!.qty);
+      for (const { it, index } of wheel) {
+        if (left <= 0) break;
+        const take = Math.min(left, it!.qty);
+        it!.qty -= take; left -= take; consumed += take;
+        if (it!.qty <= 0) this.removeEmptyQuick(index);
+      }
+    }
     if (consumed > 0) this.afterChange();
     return consumed;
   }
 
   /* ── quick-use wheel (InventoryRef) ────────────────────────────────────── */
 
-  /** Wheel slots resolved to live bag items (null = empty or the stack left the bag). */
-  getQuickSlots(): readonly (ItemInstance | null)[] {
-    return this.quickSlots.map((uid) => (uid === null ? null : this.bag.get(uid)?.item ?? null));
-  }
+  /** The wheel's own stacks (2026-09-09: they live here, not in the bag grid). */
+  getQuickSlots(): readonly (ItemInstance | null)[] { return this.quickSlots; }
 
   /** Usable wheel slots for the equipped bag (clamped to QUICK_SLOTS; tactical legendary bags define 9). */
   getQuickSlotCount(): number {
@@ -607,29 +641,74 @@ export class InventorySystem implements GameSystem, InventoryRef {
   }
 
   /**
-   * Assign bag item `uid` (stim / grenade) to wheel slot `index`, or clear it with null. A uid lives in one slot
-   * only, so assigning it elsewhere moves it. Locked slots (`!isQuickSlotActive(index, getQuickSlotCount())`,
-   * unlock order N S E W then diagonals) can be cleared but not filled.
+   * **Move** bag stack `uid` (stim / grenade / usable gadget) into wheel slot `index`, or empty the slot with null —
+   * the wheel is its own container since 2026-09-09, so the stack leaves the bag grid and its cells free up.
+   *
+   * The displaced occupant (a swap, or the `null` clear) goes back to the bag; when the bag has no room the move is
+   * **refused** and nothing changes (`inventory:full` names the item) - a wheel stack is never silently destroyed and
+   * never dropped on the floor by a UI click. Locked slots (`!isQuickSlotActive`, unlock order N S E W then the
+   * diagonals) can be emptied but not filled. A uid already on the wheel moves between slots without touching the bag.
    */
   setQuickSlot(index: number, uid: string | null): boolean {
     if (!isQuickIndex(index)) return false;
-    if (uid !== null) {
-      const item = this.bag.get(uid)?.item;
-      if (!item || !isQuickUsable(ITEM_DEF_MAP.get(item.defId))) return false;
-      if (!isQuickSlotActive(index, this.getQuickSlotCount())) return false;
+    const occupant = this.quickSlots[index];
+
+    if (uid === null) {
+      if (!occupant) return true;
+      if (!this.returnQuickToBag(occupant)) return false;
+      this.quickSlots[index] = null;
+      this.afterQuickChange();
+      return true;
     }
-    if (assignQuickSlot(this.quickSlots, index, uid)) {
-      this.bag.version++; // bag tiles carry the direction badge
-      this.syncQuickSlots();
-      this.ui?.refresh();
+
+    if (occupant?.uid === uid) return true;
+    if (!isQuickSlotActive(index, this.getQuickSlotCount())) return false;
+
+    // already on the wheel: a pure re-order (swap the two slots, the bag never sees it)
+    const at = quickSlotOf(this.quickSlots, uid);
+    if (at >= 0) {
+      this.quickSlots[index] = this.quickSlots[at];
+      this.quickSlots[at] = occupant;
+      this.afterQuickChange();
+      return true;
     }
+
+    const p = this.bag.get(uid);
+    const item = p?.item;
+    if (!p || !item || !isQuickUsable(ITEM_DEF_MAP.get(item.defId))) return false;
+    // the occupant may need the cells the incoming stack is about to free, so take the incoming one out first
+    const cell = { x: p.x, y: p.y };
+    this.bag.remove(uid);
+    if (occupant && !this.returnQuickToBag(occupant)) {
+      // put it back exactly where it was and refuse
+      if (!this.bag.place(item, cell.x, cell.y)) this.bag.autoPlace(item);
+      return false;
+    }
+    this.quickSlots[index] = item;
+    this.afterQuickChange();
     return true;
   }
 
-  /** Slot index of bag item `uid`, or -1 (UI badges / menu state). */
+  /** Wheel to bag (merging into stacks first). False when the bag has no room; the caller then refuses the move. */
+  private returnQuickToBag(item: ItemInstance): boolean {
+    if (this.bag.autoPlace(item)) return true;
+    const def = ITEM_DEF_MAP.get(item.defId);
+    if (def) this.ctx.bus.emit('inventory:full', { item, name: def.name });
+    return false;
+  }
+
+  /** A wheel move changed something: the bag tiles, the HUD wheel, the weight and the save file all follow. */
+  private afterQuickChange(): void {
+    this.bag.version++;
+    this.syncQuickSlots();
+    this.afterChange();
+    this.ui?.refresh();
+  }
+
+  /** Slot index holding stack `uid`, or -1 (UI badges / menu state). */
   quickIndexOf(uid: string): number { return quickSlotOf(this.quickSlots, uid); }
 
-  /** Context menu `빠른 슬롯에 등록`: first free usable slot. 'noop' when already assigned, 'fail' when none is free / not usable. */
+  /** Context menu: move the stack into the first free usable slot. 'noop' when it is already on the wheel. */
   registerQuick(uid: string): OpResult {
     if (this.quickIndexOf(uid) >= 0) return 'noop';
     const index = firstFreeQuickSlot(this.quickSlots, this.getQuickSlotCount());
@@ -637,14 +716,37 @@ export class InventorySystem implements GameSystem, InventoryRef {
     return this.setQuickSlot(index, uid) ? 'ok' : 'fail';
   }
 
+  /** Wheel slot back into the bag. 'noop' when the slot is empty, 'fail' when the bag is full. */
+  unregisterQuick(index: number): OpResult {
+    if (!isQuickIndex(index) || !this.quickSlots[index]) return 'noop';
+    return this.setQuickSlot(index, null) ? 'ok' : 'fail';
+  }
+
   /**
-   * Weapons: a stim was injected / a grenade thrown from this exact bag stack. Removes up to `qty` units and
-   * returns the count. At 0 the stack leaves the bag (`inventory:itemRemoved`); its wheel slot moves to another
-   * stack of the same item when one is free, else clears (`inventory:quickSlotsChanged`).
+   * Weapons: a stim was injected / a grenade thrown from this exact stack - **wheel first**, since that is where
+   * the quick-use hand takes from (`weapons/parts/QuickUse`), then the bag grid for anything else that names a uid.
+   * Removes up to `qty` units and returns the count; an emptied stack disappears (`inventory:itemRemoved`) and, on
+   * the wheel, clears its slot (`inventory:quickSlotsChanged`).
    */
   consumeItem(uid: string, qty = 1): number {
+    const want = Math.max(0, Math.floor(qty));
+    if (want <= 0) return 0;
+
+    const qi = quickSlotOf(this.quickSlots, uid);
+    if (qi >= 0) {
+      const item = this.quickSlots[qi];
+      if (!item) return 0;
+      const n = Math.min(want, item.qty);
+      if (n <= 0) return 0;
+      item.qty -= n;
+      if (item.qty <= 0) this.removeEmptyQuick(qi);
+      else this.syncQuickSlots();
+      this.afterChange();
+      return n;
+    }
+
     const p = this.bag.get(uid);
-    const n = Math.min(Math.max(0, Math.floor(qty)), p?.item.qty ?? 0);
+    const n = Math.min(want, p?.item.qty ?? 0);
     if (!p || n <= 0) return 0;
     p.item.qty -= n;
     if (p.item.qty <= 0) this.removeEmptyStack(p.item);
@@ -653,21 +755,25 @@ export class InventorySystem implements GameSystem, InventoryRef {
     return n;
   }
 
-  /** A bag stack hit 0: drop it from the grid, hand its wheel slot to a sibling stack of the same def, emit removed. */
+  /** A bag stack hit 0: drop it from the grid and announce. (The wheel is a separate container - see `removeEmptyQuick`.) */
   private removeEmptyStack(item: ItemInstance): void {
     this.bag.remove(item.uid);
-    if (quickSlotOf(this.quickSlots, item.uid) >= 0) {
-      const sibling = this.bag.items().find((q) => q.item.defId === item.defId && !this.quickSlots.includes(q.item.uid));
-      if (sibling) relinkQuickSlot(this.quickSlots, item.uid, sibling.item.uid);
-    }
     this.ctx.bus.emit('inventory:itemRemoved', { item });
   }
 
-  /** Prune slots whose stack left the bag, then emit `inventory:quickSlotsChanged` when anything the HUD shows changed. */
+  /** A wheel stack hit 0: empty its slot and announce. The slot stays usable, it just holds nothing. */
+  private removeEmptyQuick(index: number): void {
+    const item = this.quickSlots[index];
+    if (!item) return;
+    this.quickSlots[index] = null;
+    this.syncQuickSlots();
+    this.ctx.bus.emit('inventory:itemRemoved', { item });
+  }
+
+  /** Emit `inventory:quickSlotsChanged` when anything the HUD shows changed (no pruning - the stacks live here). */
   private syncQuickSlots(): void {
-    pruneQuickSlots(this.quickSlots, (uid) => this.bag.has(uid));
     const active = this.getQuickSlotCount();
-    const sig = quickSlotsSignature(this.quickSlots, (uid) => this.bag.get(uid)?.item ?? null, active);
+    const sig = quickSlotsSignature(this.quickSlots, active);
     if (sig === this.lastQuickSig) return;
     this.lastQuickSig = sig;
     this.ctx.bus.emit('inventory:quickSlotsChanged', { slots: [...this.getQuickSlots()], active });
@@ -676,10 +782,19 @@ export class InventorySystem implements GameSystem, InventoryRef {
   tryAddItem(item: ItemInstance): boolean {
     const def = ITEM_DEF_MAP.get(item.defId);
     if (!def) return false;
+    // 2026-09-09: top the **wheel** stacks up first — picking up 붕대 while the wheel holds a partial 붕대 stack
+    // should refill the thing the player actually uses, not start a second stack in the grid.
+    if (mergeIntoQuick(this.quickSlots, item, (id) => ITEM_DEF_MAP.get(id)) <= 0) {
+      this.syncQuickSlots();
+      this.ctx.bus.emit('inventory:itemAdded', { item, name: def.name, rarity: def.rarity });
+      this.afterChange();
+      return true;
+    }
     if (!this.bag.autoPlace(item)) {
       this.ctx.bus.emit('inventory:full', { item, name: def.name });
       return false;
     }
+    this.syncQuickSlots();   // a partial merge changed a wheel qty
     this.ctx.bus.emit('inventory:itemAdded', { item, name: def.name, rarity: def.rarity });
     this.afterChange();
     return true;
@@ -754,14 +869,21 @@ export class InventorySystem implements GameSystem, InventoryRef {
     return true;
   }
 
-  /** Any player-owned item: bag → equipment slots → attachments socketed in an owned weapon. */
+  /** Any player-owned item: bag → wheel → equipment slots → attachments socketed in an owned weapon. */
   findItem(uid: string, from?: ItemLocation): ItemInstance | null {
     if (from) {
       if (from.kind === 'slot') return this.loadout[from.slot]?.uid === uid ? (this.loadout[from.slot] ?? null) : null;
+      // 2026-09-09: the wheel is its own container, so a `quick` location is answered from the slot itself
+      if (from.kind === 'quick') {
+        const it = this.quickSlots[from.index];
+        return it?.uid === uid ? it : null;
+      }
       return this.getGrid(from.grid)?.get(uid)?.item ?? null;
     }
     const p = this.bag.get(uid);
     if (p) return p.item;
+    const qi = quickSlotOf(this.quickSlots, uid);
+    if (qi >= 0) return this.quickSlots[qi];
     for (const s of LOADOUT_SLOTS) {
       const it = this.loadout[s];
       if (it?.uid === uid) return it;
@@ -933,6 +1055,20 @@ export class InventorySystem implements GameSystem, InventoryRef {
    * path (`inventory:itemRemoved`, its wheel slot relinked / cleared); the stash persists through `afterChange`.
    */
   takeItem(uid: string, qty?: number): number {
+    // 2026-09-09: a stack on the wheel is carried like any other, so it can be sold / handed over as well
+    const qi = quickSlotOf(this.quickSlots, uid);
+    if (qi >= 0) {
+      const it = this.quickSlots[qi];
+      if (!it) return 0;
+      const want = qty === undefined ? it.qty : Math.floor(qty);
+      if (!Number.isFinite(want) || want < 1) return 0;
+      const n = Math.min(want, it.qty);
+      it.qty -= n;
+      if (it.qty <= 0) this.removeEmptyQuick(qi);
+      else this.syncQuickSlots();
+      this.afterChange();
+      return n;
+    }
     const found = this.locateInGrids(uid);
     if (!found || found.gridId === 'container') return 0;
     const { item, grid, gridId } = found;
@@ -1163,10 +1299,20 @@ export class InventorySystem implements GameSystem, InventoryRef {
 
   sfx(id: UiSfx): void { this.ctx.bus.emit('audio:play', { id }); }
 
-  /** Find an item anywhere (bag → container → slots). */
+  /**
+   * Find an item anywhere (bag → container → stash → **wheel** → equipment slots).
+   *
+   * 2026-09-09: the wheel had to be added here, not just to `findItem` — `dropItem` (버리기) and the repair /
+   * stash helpers resolve a bare uid through this, so without it a stack on the wheel could not be thrown away.
+   */
   locate(uid: string): { item: ItemInstance; from: ItemLocation } | null {
     const inGrid = this.locateInGrids(uid);
     if (inGrid) return { item: inGrid.item, from: { kind: 'grid', grid: inGrid.gridId } };
+    const qi = quickSlotOf(this.quickSlots, uid);
+    if (qi >= 0) {
+      const it = this.quickSlots[qi];
+      if (it) return { item: it, from: { kind: 'quick', index: qi } };
+    }
     for (const slot of LOADOUT_SLOTS) {
       const it = this.loadout[slot];
       if (it?.uid === uid) return { item: it, from: { kind: 'slot', slot } };
@@ -1269,9 +1415,13 @@ export class InventorySystem implements GameSystem, InventoryRef {
     this._open = open;
     if (open) {
       this.ctx.uiBlockers.add(BLOCKER_TOKEN);
+      // 2026-09-09: ESC 도 이 창을 닫는다 (`shared/escape` — 열린 순서의 역순으로 맨 위 하나). 팝업이 떠 있는
+      // 동안은 `escHandler` 가 Escape 를 먼저 삼키므로 여기까지 오지 않는다.
+      this.ctx.escape.push(BLOCKER_TOKEN, () => this.closeAll());
       this.ctx.input.setCursorMode(true, BLOCKER_TOKEN);
     } else {
       this.ctx.uiBlockers.delete(BLOCKER_TOKEN);
+      this.ctx.escape.remove(BLOCKER_TOKEN);
       this.ctx.input.setCursorMode(false, BLOCKER_TOKEN);
     }
   }
@@ -1308,13 +1458,17 @@ export class InventorySystem implements GameSystem, InventoryRef {
     const overflow: ItemInstance[] = [];
     if (!def) return overflow;
     let left = Math.max(0, Math.floor(qty));
+    const beforeSig = this.lastQuickSig;
     while (left > 0) {
       const chunk = Math.min(def.stackMax, left);
       left -= chunk;
       const item = this.loot.createItem(defId, chunk);
+      // 2026-09-09: the wheel is a container too — fill its partial stacks before making a new bag stack
+      if (mergeIntoQuick(this.quickSlots, item, (id) => ITEM_DEF_MAP.get(id)) <= 0) continue;
       if (this.bag.mergeIntoStacks(item) <= 0) continue;
       if (!this.bag.autoPlace(item)) overflow.push(item);
     }
+    if (beforeSig === this.lastQuickSig) this.syncQuickSlots();   // wheel qty may have grown
     return overflow;
   }
 
@@ -1359,6 +1513,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
   detach(item: ItemInstance, from: ItemLocation): void {
     if (from.kind === 'slot') {
       if (this.loadout[from.slot]?.uid === item.uid) this.loadout[from.slot] = null;
+    } else if (from.kind === 'quick') {
+      if (this.quickSlots[from.index]?.uid === item.uid) this.quickSlots[from.index] = null;
     } else {
       this.getGrid(from.grid)?.remove(item.uid);
       if (from.grid === 'container') item.searched = true;

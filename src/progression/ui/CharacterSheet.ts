@@ -75,6 +75,7 @@ export class CharacterSheet {
     this.body.disarmReset();
     // Blocker first, then the in-game cursor — the pointer lock is kept, so GameFlow never sees an exit at all.
     this.ctx.uiBlockers.add(BLOCKER);
+    this.ctx.escape.push(BLOCKER, () => this.close());
     this.ctx.input.setCursorMode(true, BLOCKER);
     this.root.hidden = false;
     this.frame.style.animation = 'none';
@@ -95,6 +96,7 @@ export class CharacterSheet {
     this.root.hidden = true;
     (document.activeElement as HTMLElement | null)?.blur?.();
     this.ctx.uiBlockers.delete(BLOCKER);
+    this.ctx.escape.remove(BLOCKER);
     this.ctx.input.setCursorMode(false, BLOCKER);
     this.ctx.bus.emit('ui:keyGuide', { owner: 'character', keys: null });
     this.ctx.bus.emit('ui:statsToggled', { open: false });
@@ -108,6 +110,7 @@ export class CharacterSheet {
   dispose(): void {
     window.removeEventListener('keydown', this.escHandler, true);
     this.ctx.uiBlockers.delete(BLOCKER);
+    this.ctx.escape.remove(BLOCKER);
     this.ctx.input.setCursorMode(false, BLOCKER);
     this._open = false;
     this.body.dispose();

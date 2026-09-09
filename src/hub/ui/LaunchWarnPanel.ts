@@ -65,6 +65,7 @@ export class LaunchWarnPanel {
     this._open = true;
     this.onConfirm = onConfirm;
     this.ctx.uiBlockers.add('hub');            // before the cursor mode (GameFlow / hub UI etiquette)
+    this.ctx.escape.push('hub:launchWarn', () => this.close());
     this.ctx.input.setCursorMode(true, 'hub'); // keep the pointer lock; draw the software cursor
     setText(this.subtitle, `${warnings.length}가지 · 이대로 출격할 수 있지만 권장하지 않습니다`);
     this.list.replaceChildren();
@@ -98,6 +99,7 @@ export class LaunchWarnPanel {
     this.root.hidden = true;
     (document.activeElement as HTMLElement | null)?.blur?.();
     this.ctx.uiBlockers.delete('hub');
+    this.ctx.escape.remove('hub:launchWarn');
     this.ctx.input.setCursorMode(false, 'hub');
     if (relock) this.host.onClosed();
   }
@@ -112,7 +114,11 @@ export class LaunchWarnPanel {
   }
 
   dispose(): void {
-    if (this._open) { this.ctx.uiBlockers.delete('hub'); this.ctx.input.setCursorMode(false, 'hub'); }
+    if (this._open) {
+      this.ctx.uiBlockers.delete('hub');
+      this.ctx.escape.remove('hub:launchWarn');
+      this.ctx.input.setCursorMode(false, 'hub');
+    }
     this._open = false;
     this.onConfirm = null;
     this.root.remove();

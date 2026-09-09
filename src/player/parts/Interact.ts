@@ -46,11 +46,13 @@ export function updateInteraction(sys: PlayerSystem, dt: number, active: boolean
   if (target !== sys.interactTarget) { sys.cancelHold(); sys.interactTarget = target; }
   if (!input.isDown(Keys.INTERACT)) sys.holdArmed = true;
   let text: string | null = null;
+  let isHold = false; // 2026-09-09: told to the prompt so the ui can draw the 꾹 누르기 chevron over the keycap
   if (target) {
     text = target.getPrompt();
     // 재주 (Phase 5): every hold interaction runs `derived.interactSpeedMul` times faster — applied here once, so
     // interactables publish their base `holdTime` and never scale it themselves.
     const hold = (target.holdTime ?? 0) / Math.max(0.25, ctx.progression?.derived.interactSpeedMul ?? 1);
+    isHold = hold > 0;
     if (hold > 0) {
       if (input.isDown(Keys.INTERACT) && sys.holdArmed) {
         sys.holdProgress += dt / hold;
@@ -72,7 +74,7 @@ export function updateInteraction(sys: PlayerSystem, dt: number, active: boolean
   }
   if (text !== sys.lastPromptText || sys.holdProgress !== sys.lastHoldProgress) {
     sys.lastPromptText = text; sys.lastHoldProgress = sys.holdProgress;
-    ctx.bus.emit('interact:promptChanged', { text, holdProgress: sys.holdProgress });
+    ctx.bus.emit('interact:promptChanged', { text, holdProgress: sys.holdProgress, hold: isHold });
   }
   }
 

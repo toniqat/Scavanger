@@ -4,7 +4,7 @@ import {
   type EnemyType, type GameContext, type PlanetEcosystem, type WorldRef,
 } from '@/shared';
 import type { Enemy } from './Enemy';
-import { ENEMY_STATS } from './EnemyTypes';
+import { ARTILLERY_AI, ENEMY_STATS } from './EnemyTypes';
 import type { TargetList } from './Targets';
 
 /** Spawn services provided by EnemySystem to the spawner / wave director. */
@@ -375,7 +375,8 @@ export class AmbientSpawner {
   }
 
   /**
-   * Phase 4: from threat 0.5 an artillery bug may dig in 80–120 m out, already aware.
+   * Phase 4: from threat 0.5 an artillery bug may dig in `ARTILLERY_AI.spawnMin`–`spawnMax` m out, already aware
+   * (2026-09-09: was a hard-coded 80–120 m for the 90 m range; the ring follows the csv now that the range is 63 m).
    * Phase 11: the ceiling is `eco.maxArtillery` and a planet whose `eco.bugs` has no artillery never digs one in.
    */
   private maybeArtillery(host: SpawnHost, around: THREE.Vector3): void {
@@ -388,7 +389,7 @@ export class AmbientSpawner {
     // 2026-09-09: the artillery is the one big type that does not come through `spawnGroup`, so it re-rolls its
     // own dig-in spot here — a mortar bug wedged between spires never gets a firing line.
     for (let a = 0; a <= Math.max(0, ENEMY_SPAWN_RETRIES); a++) {
-      if (!findSpawnCenter(host, around, 80, 120, false, 60, this.center)) return;
+      if (!findSpawnCenter(host, around, ARTILLERY_AI.spawnMin, ARTILLERY_AI.spawnMax, false, 60, this.center)) return;
       if (spawnBlocked(world, 'artillery', this.center.x, this.center.z)) continue;
       const yaw = Math.atan2(around.x - this.center.x, around.z - this.center.z);
       host.spawn('artillery', this.center, yaw, true, false);

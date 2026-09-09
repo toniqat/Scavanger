@@ -140,13 +140,29 @@ try {
   });
   ok(granted.weapons && granted.bags === 3 && granted.armor === 3 && granted.ammo === 40 && granted.defib === 2,
     '기본 지급품: 총기 5종 · 여분 가방 3 · 방탄복 3 · 탄약 40세트 · 재세동기 2세트 in the 함선 창고', JSON.stringify(granted));
-  ok(snap.bag.some((i) => i.defId === 'grenade_frag') && snap.bag.some((i) => i.defId === 'heal_bandage') && snap.quick[0] === 'grenade_frag' && snap.quick[4] === 'heal_bandage',
-    'starter bag items + quick slots N grenade / S stim', JSON.stringify(snap.quick));
+  // 2026-09-09: the wheel is its own container — a stack put on it LEAVES the bag grid, but it is still carried
+  // (weight, countWhere / countDef, recipes). So the starter grenade / stim must be on the wheel and *not* in the grid.
+  const starterQuick = await page.evaluate(() => {
+    const inv = window.__game.ctx.inventory;
+    return {
+      quick: inv.getQuickSlots().map((i) => i && { defId: i.defId, qty: i.qty }),
+      bagIds: inv.getGrid('bag').items().map((p) => p.item.defId),
+      grenades: inv.countDef('grenade_frag'), stims: inv.countDef('heal_bandage'),
+    };
+  });
+  ok(starterQuick.quick[0]?.defId === 'grenade_frag' && starterQuick.quick[4]?.defId === 'heal_bandage'
+    && !starterQuick.bagIds.includes('grenade_frag') && !starterQuick.bagIds.includes('heal_bandage')
+    && starterQuick.grenades === starterQuick.quick[0].qty && starterQuick.grenades > 0
+    && starterQuick.stims === starterQuick.quick[4].qty && starterQuick.stims > 0,
+    'starter grenade / stim sit ON the wheel (N / S), not in the bag grid, and still count (countDef)', JSON.stringify(starterQuick));
   let saved = await lastEv('inventory:loadoutSaved');
   ok(saved && saved.reason === 'starter', 'applyStarter saved the starter (inventory:loadoutSaved {reason: starter})', JSON.stringify(saved));
   let file = await saveFile();
-  ok(file && file.v === 1 && file.slots.secondary?.defId === 'wpn_hg' && Array.isArray(file.bag) && file.bag.length === snap.bag.length && Array.isArray(file.quick) && file.quick.length === 8,
-    'scav.s1.loadout v1: slots + bag placements + 8 quick indices', JSON.stringify(file && { v: file.v, slots: Object.keys(file.slots), bag: file.bag.length, quick: file.quick }));
+  ok(file && file.v === 2 && file.slots.secondary?.defId === 'wpn_hg' && Array.isArray(file.bag) && file.bag.length === snap.bag.length
+    && Array.isArray(file.quick) && file.quick.length === 8
+    && file.quick.every((q) => q === null || (typeof q === 'object' && typeof q.defId === 'string'))
+    && file.quick[0]?.defId === 'grenade_frag' && file.quick[4]?.defId === 'heal_bandage',
+    'scav.s1.loadout v2: slots + bag placements + 8 quick entries (serialized stacks, not bag indices)', JSON.stringify(file && { v: file.v, slots: Object.keys(file.slots), bag: file.bag.length, quick: file.quick }));
 
   /* ── 1. ship changes persist across a reload ───────────────────────── */
   console.log('ship changes → reload');
@@ -168,8 +184,12 @@ try {
   const gemEntry = file?.bag.find((e) => e.defId === 'gem_amber');
   ok(file?.slots.primary2?.defId === 'wpn_smg' && file.slots.primary2.durability === 123 && file.slots.primary2.ammoInMag === 5, 'save carries the SMG with durability 123 / 5 rounds', JSON.stringify(file?.slots.primary2));
   ok(gemEntry && Number.isInteger(gemEntry.x) && Number.isInteger(gemEntry.y) && typeof gemEntry.rotated === 'boolean', 'save carries the gem with its cell + rotation', JSON.stringify(gemEntry));
-  const grenadeIdx = file?.bag.findIndex((e) => e.defId === 'grenade_frag');
-  ok(file?.quick[0] === grenadeIdx && file.quick[4] === file.bag.findIndex((e) => e.defId === 'heal_bandage'), 'quick slots saved as bag indices (N grenade, S stim)', JSON.stringify(file?.quick));
+  // v2: `quick[i]` is the serialized stack itself. Never a number, and never duplicated into `bag`.
+  const qN = file?.quick[0], qS = file?.quick[4];
+  ok(qN?.defId === 'grenade_frag' && qN.qty >= 1 && qS?.defId === 'heal_bandage' && qS.qty >= 1
+    && !file.quick.some((q) => typeof q === 'number')
+    && !file.bag.some((e) => e.defId === 'grenade_frag' || e.defId === 'heal_bandage'),
+    'quick slots saved as the stacks themselves (N grenade, S stim) — no bag index, and gone from `bag`', JSON.stringify(file?.quick));
   const before = await snapshot();
   await reload();
   const restored = await snapshot();
@@ -273,13 +293,33 @@ try {
   ok((await evCount('inventory:itemRemoved')) > removedBefore, 'inventory:itemRemoved for the bag item');
   ok(take.fromStash === 2 && take.stashAfter === 3 && take.stashGem === 1 && take.stashGemGone, 'takeItem from the stash (partial 5 → 3, whole gem)');
   ok(take.equipped === 0 && take.unknown === 0 && take.zero === 0, 'equipped gear / unknown uid / qty 0 refused (0)');
+  // 2026-09-09: assigning a stack to the wheel **moves** it out of the bag grid, so `takeItem` (grids only) can no
+  // longer reach it; draining it through `consumeItem` — the path the quick-use hand takes — is what empties slot S.
+  // (A stim of its own def, so the assertion cannot lean on whatever the earlier sections left on the wheel.)
   const quickTake = await page.evaluate(() => {
-    const inv = window.__game.ctx.inventory;
-    const stim = inv.getQuickSlots()[4];
-    const n = stim ? inv.takeItem(stim.uid) : -1;
-    return { n, slot: inv.getQuickSlots()[4], stims: inv.countWhere((d) => d.id === 'heal_bandage') };
+    const ctx = window.__game.ctx, inv = ctx.inventory;
+    const DEF = 'heal_bandage_herb';
+    for (const g of inv.getAllItems().filter((i) => i.defId === 'gem_amber').slice(0, 2)) inv.takeItem(g.uid); // the bag is full of gems here
+    const pre = inv.countDef(DEF);
+    const stim = ctx.loot.createItem(DEF, 2);
+    const added = inv.tryAddItem(stim);
+    const inBagBefore = inv.getGrid('bag').items().some((p) => p.item.uid === stim.uid);
+    const moved = inv.setQuickSlot(4, stim.uid);
+    const inBagAfter = inv.getGrid('bag').items().some((p) => p.item.uid === stim.uid);
+    const qty = inv.getQuickSlots()[4]?.qty ?? 0;
+    // a wheel stack is carried like any other, so the corp-sale path reaches it too — partial first, then the rest
+    const part = inv.takeItem(stim.uid, 1);
+    const held = inv.getQuickSlots()[4];
+    const afterPart = held && { uid: held.uid, qty: held.qty };   // snapshot now — `held` is the live instance
+    const rest = inv.takeItem(stim.uid);
+    return { pre, added, inBagBefore, moved, inBagAfter, qty, part, afterPart,
+      rest, slot: inv.getQuickSlots()[4], stims: inv.countDef(DEF), found: inv.findItem(stim.uid) };
   });
-  ok(quickTake.n === 2 && quickTake.slot === null && quickTake.stims === 0, 'taking the quick-slotted stim stack clears wheel slot S', JSON.stringify(quickTake));
+  ok(quickTake.pre === 0 && quickTake.added && quickTake.inBagBefore && quickTake.moved && !quickTake.inBagAfter && quickTake.qty === 2,
+    'setQuickSlot MOVES the stack: it leaves the bag grid and lives in wheel slot S', JSON.stringify(quickTake));
+  ok(quickTake.part === 1 && quickTake.afterPart?.uid && quickTake.afterPart.qty === 1, 'takeItem(wheel stack, 1) leaves the rest in slot S', JSON.stringify(quickTake));
+  ok(quickTake.rest === 1 && quickTake.slot === null && quickTake.stims === 0 && quickTake.found === null,
+    'taking the quick-slotted stim stack clears wheel slot S', JSON.stringify(quickTake));
   const foundAll = await page.evaluate(() => {
     const inv = window.__game.ctx.inventory;
     const l = inv.getLoadout();
@@ -382,10 +422,13 @@ try {
       doc: d, keys: Object.keys(d).sort().join(','),
       searchedInCrew: JSON.stringify(d).includes('"searched"'), searchedInRaid: JSON.stringify(raid).includes('"searched"'),
       slots: Object.keys(d.slots).sort().join(','), bag: d.bag.length, quick: d.quick.length,
+      // v2: every wheel entry is a serialized stack or null — never an index into `bag`
+      quickShape: d.quick.every((q) => q === null || (!!q && typeof q === 'object' && typeof q.defId === 'string')),
+      raidV: raid.v, raidMark: raid.raid,
     };
   });
-  ok(doc.doc && doc.doc.v === 1 && doc.keys === 'bag,quick,slots,v' && doc.bag >= 1 && doc.quick === 8,
-    'captureCrewLoadout: the loadout-save shape (v / slots / bag / quick)', JSON.stringify({ keys: doc.keys, bag: doc.bag, quick: doc.quick }));
+  ok(doc.doc && doc.doc.v === 2 && doc.keys === 'bag,quick,slots,v' && doc.bag >= 1 && doc.quick === 8 && doc.quickShape,
+    'captureCrewLoadout: the v2 loadout-save shape (v / slots / bag / quick as stacks)', JSON.stringify({ v: doc.doc?.v, keys: doc.keys, bag: doc.bag, quick: doc.quick, shape: doc.quickShape }));
   ok(doc.searchedInCrew === false && doc.searchedInRaid === true,
     'captureCrewLoadout drops the `searched` flags (captureRaidState still keeps them)', JSON.stringify({ crew: doc.searchedInCrew, raid: doc.searchedInRaid }));
 
@@ -435,6 +478,61 @@ try {
   ok(view.unchanged && !view.dragging && !view.menu, 'read-only: press / drag / context menu / double-click change nothing', JSON.stringify(view));
   ok(view.blockersSame && view.locked, 'EmbeddedView contract: no ui blocker, the pointer lock is untouched', JSON.stringify({ blockers: view.blockersSame, locked: view.locked }));
   ok(view.afterDispose === 0, 'dispose() empties the host');
+
+  /* ── 8b. LOADOUT_SAVE_VERSION 1 → 2 migration (2026-09-09) ───────────────
+   * Before this change `quick[i]` was an **index into `bag`** and the stack stayed in the grid. `sanitizeLoadoutSave`
+   * now lifts those stacks out of `bag` into `quick` on read, so an existing player's file lands in the new model
+   * (wheel = its own container) instead of showing the same stim twice. A hand-written v1 document is the only way
+   * to reach that branch — nothing writes v1 any more. */
+  console.log('v1 → v2 loadout migration');
+  // Back to the ship first: a live **solo raid** is resumed on the next boot (`game/SoloRaid.ts`) and its raid blob
+  // would be applied over the loadout file, so a reload from a mission tests nothing here.
+  await enterHub();
+  await sleep(800);                       // let the debounced hub save land before we replace the file
+  await page.evaluate(() => {
+    // …and the **server profile** would come back through `net:profileLoaded` and replace the local loadout too.
+    localStorage.removeItem('scav.s1.sessionToken');   // a new relay identity: no server loadout doc to win
+    localStorage.setItem('scav.s1.loadout', JSON.stringify({
+      v: 1,
+      slots: { secondary: { defId: 'wpn_hg', qty: 1 }, bag: { defId: 'bag_common', qty: 1 }, armor: { defId: 'armor_1', qty: 1 } },
+      bag: [
+        { defId: 'grenade_frag', qty: 3, rotated: false, x: 0, y: 0 },   // quick[0] (and the duplicate quick[1]) point here
+        { defId: 'mat_scrap', qty: 5, rotated: false, x: 1, y: 0 },      // no wheel slot → stays in the grid, keeps its cell
+        { defId: 'heal_bandage', qty: 2, rotated: false, x: 2, y: 0 },   // quick[4] points here
+      ],
+      // 0 twice (a stack can only be lifted once) and 9 out of range (ignored) — the sanitiser must survive both
+      quick: [0, 0, null, null, 2, null, 9, null],
+    }));
+  });
+  await reload();
+  const migrated = await page.evaluate(() => {
+    const inv = window.__game.ctx.inventory, sys = window.__game.getSystem('inventory');
+    return {
+      quick: inv.getQuickSlots().map((i) => i && { defId: i.defId, qty: i.qty }),
+      bag: inv.getGrid('bag').items().map((p) => ({ defId: p.item.defId, qty: p.item.qty, x: p.x, y: p.y })),
+      grenades: inv.countDef('grenade_frag'), stims: inv.countDef('heal_bandage'), scrap: inv.countDef('mat_scrap'),
+      secondary: inv.getLoadout().secondary?.defId ?? null,
+      recapture: sys.captureLoadoutSave(),
+    };
+  });
+  ok(migrated.quick[0]?.defId === 'grenade_frag' && migrated.quick[0].qty === 3
+    && migrated.quick[4]?.defId === 'heal_bandage' && migrated.quick[4].qty === 2
+    && migrated.quick[1] === null && migrated.quick[6] === null && migrated.secondary === 'wpn_hg',
+    'v1 file: the stacks the quick indices pointed at are lifted onto the wheel (N 수류탄 ×3 / S 붕대 ×2; duplicate + out-of-range index ignored)', JSON.stringify(migrated.quick));
+  ok(migrated.bag.length === 1 && migrated.bag[0].defId === 'mat_scrap' && migrated.bag[0].qty === 5 && migrated.bag[0].x === 1 && migrated.bag[0].y === 0,
+    'v1 file: the lifted stacks left the bag grid; the entry with no wheel slot keeps its cell', JSON.stringify(migrated.bag));
+  ok(migrated.grenades === 3 && migrated.stims === 2 && migrated.scrap === 5,
+    'migrated wheel stacks are still carried (countDef sees bag + wheel)', JSON.stringify({ g: migrated.grenades, s: migrated.stims, m: migrated.scrap }));
+  const rec = migrated.recapture;
+  ok(rec.v === 2 && rec.quick[0]?.defId === 'grenade_frag' && rec.quick[0].qty === 3 && rec.quick[4]?.defId === 'heal_bandage'
+    && !rec.quick.some((q) => typeof q === 'number') && rec.bag.length === 1
+    && !rec.bag.some((e) => e.defId === 'grenade_frag' || e.defId === 'heal_bandage'),
+    're-capture after reading a v1 file writes v2: the stacks live in `quick`, no indices, not duplicated into `bag`', JSON.stringify({ v: rec.v, bag: rec.bag.map((e) => e.defId), quick: rec.quick.map((q) => q && q.defId) }));
+  // the migrated file is what a reload sees from now on (the store rewrites v2 on the next save)
+  await page.evaluate(() => window.__game.getSystem('inventory').loadoutStore.saveNow('smoke'));
+  const rewritten = await saveFile();
+  ok(rewritten?.v === 2 && rewritten.quick[0]?.defId === 'grenade_frag' && !rewritten.quick.some((q) => typeof q === 'number'),
+    'the next write replaces the v1 file on disk with the v2 shape', JSON.stringify(rewritten && { v: rewritten.v, quick: rewritten.quick }));
 
   /* ── 8. 기본 지급품 is once per **profile**, not once per stash file (2026-09-07) ────── */
   console.log('기본 지급품 grant flag');

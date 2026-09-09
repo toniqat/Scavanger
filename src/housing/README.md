@@ -256,3 +256,9 @@ field's own handler, so it skips events whose target is an `<input>` / `<textare
 이름 would close the panel. `ui/PresetMenu`'s name field keeps `isolateInput`, but its Escape now only blurs.
 
 함선 관리 mode itself is left with **M** (`hub/HousingMode`), not Escape.
+
+### 2026-09-09 — ESC 닫기
+
+`ui/Panel` 이 `openPanel()` 에서 `ctx.escape.push(BLOCKER, () => this.close())` 하고 `close()` 에서 `remove` 한다 —
+하우징 패널(재배 · 서재 · 프리셋)이 E 외에 Tab · ESC 로도 닫힌다. E 캡처 리스너와 `PresetMenu` 이름 칸의
+`isolateInput` 은 그대로다. 순서는 `shared/escape`(열린 순서의 역순), 정책은 `game/parts/Phases.escapeKey`.

@@ -141,8 +141,10 @@ export class WarpStreaks {
  *
  * `set(speed, dest)`: point stars fade out as `speed` rises, streaks fade in and stretch to `maxStretch`, the planet
  * fades out on the way up and — re-tinted to `dest` the moment the warp is at full speed or starts easing off —
- * fades back in on the way down. A planet at opacity 0 is also made invisible: an invisible-but-drawn sphere would
- * still write depth and punch a hole in the streaks behind it.
+ * fades back in on the way down. Visibility is the `Planet`'s own business (`setOpacity` hides it at ≈ 0 so an
+ * invisible-but-drawn sphere never punches a depth hole in the streaks). **2026-09-09:** the re-tint moment is also
+ * where the destination becomes real, so it opens the planet's `setShown` gate — a ship that had no 목표 행성 (window
+ * empty) shows the new planet fading in on the way down, never the old default sphere popping in at warp start.
  */
 export class ViewportWarp {
   readonly streaks: WarpStreaks;
@@ -159,6 +161,7 @@ export class ViewportWarp {
     const easing = k < this.speed;
     if (dest && !this.tinted && (k >= 0.98 || (easing && k > 0))) {
       this.planet.setColors(dest.color, dest.atmo);
+      this.planet.setShown(true);                    // the destination exists now — let the fade-in show it
       this.tinted = true;
     }
     if (k <= 0) this.tinted = false;
@@ -166,9 +169,7 @@ export class ViewportWarp {
     this.stars.setOpacity(1 - k);
     this.streaks.setStretch(1 + k * (this.maxStretch - 1));
     this.streaks.setOpacity(Math.min(1, k * 1.4));
-    const po = 1 - k;
-    this.planet.setOpacity(po);
-    this.planet.group.visible = po > 0.01;
+    this.planet.setOpacity(1 - k);                   // ≈ 0 → the Planet hides itself (depth-hole guard lives there)
   }
 
   get active(): boolean { return this.speed > 0; }

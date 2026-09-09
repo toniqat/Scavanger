@@ -1,8 +1,9 @@
 import type { DerivedStats, PerkId, PlayerProfile, SkillId, StatId, WeaponClass } from '@/shared';
 import {
   DETECT_BASE_RADIUS, DETECT_ENEMY_BASE_RADIUS, DETECT_ENEMY_PER_PERCEPTION, DETECT_PER_PERCEPTION,
-  PERK_IDS, PLAYER_MAX_STAMINA, SKILL_LEVEL_MAX, STAT_BASE, WEIGHT_BASE_CAPACITY, WEIGHT_PER_STRENGTH,
+  PERK_IDS, PLAYER_MAX_STAMINA, SKILL_LEVEL_MAX, STAT_BASE, STAT_MAX, STAT_MIN, WEIGHT_BASE_CAPACITY, WEIGHT_PER_STRENGTH,
   XP_BASE, XP_EXPONENT,
+  GRAVITY, GRENADE_THROW_LIFT, GRENADE_THROW_SPEED, PLAYER_HEIGHT, THROW_RANGE_MUL_MAX, THROW_RANGE_MUL_MIN,
 } from '@/shared';
 import { WEAPON_CLASS_SKILL } from './defs';
 
@@ -18,7 +19,24 @@ import { WEAPON_CLASS_SKILL } from './defs';
 /* per stat point above STAT_BASE */
 const MELEE_PER_STR = 0.05;         // ×1.75 at 근력 20
 const JUMP_PER_STR = 0.02;
-const THROW_PER_STR = 0.03;
+/**
+ * 투척 거리 (2026-09-09): no longer "per point over STAT_BASE" — linear from THROW_RANGE_MUL_MIN at STAT_MIN 근력 (1 → 1.0,
+ * the value a 근력-5 character used to have) to THROW_RANGE_MUL_MAX at STAT_MAX (20 → 1.74 = old max 1.45 × 1.2).
+ */
+function throwRangeMulOf(strength: number): number {
+  const span = Math.max(1, STAT_MAX - STAT_MIN);
+  const t = Math.min(1, Math.max(0, (strength - STAT_MIN) / span));
+  return THROW_RANGE_MUL_MIN + (THROW_RANGE_MUL_MAX - THROW_RANGE_MUL_MIN) * t;
+}
+
+/** Overhand throw range on flat ground (m): release at ~eye height, speed × √mul (range ∝ speed²), lift, GRAVITY. */
+export function throwRangeMetres(throwRangeMul: number): number {
+  const vx = GRENADE_THROW_SPEED * Math.sqrt(Math.max(0.25, throwRangeMul));
+  const vy = GRENADE_THROW_LIFT;
+  const h = PLAYER_HEIGHT * 0.86;    // release point ≈ eye height (player/model EYE_STAND 1.55 of 1.8)
+  const t = (vy + Math.sqrt(vy * vy + 2 * GRAVITY * h)) / GRAVITY;
+  return vx * t;
+}
 const STAMINA_PER_END = 5;          // flat max stamina
 const STAMINA_REGEN_PER_END = 0.04;
 const SKILL_GAIN_PER_INT = 0.06;    // ×1.9 at 지능 20
@@ -107,7 +125,8 @@ export function computeDerived(profile: PlayerProfile, specialBackpack: boolean,
     carryCapacity: WEIGHT_BASE_CAPACITY + WEIGHT_PER_STRENGTH * str,
     meleeDamageMul: 1 + MELEE_PER_STR * over(profile, 'strength', imp),
     jumpHeightMul: 1 + JUMP_PER_STR * over(profile, 'strength', imp),
-    throwRangeMul: 1 + THROW_PER_STR * over(profile, 'strength', imp),
+    throwRangeMul: throwRangeMulOf(str),
+    throwRangeM: throwRangeMetres(throwRangeMulOf(str)),
     /* 지구력 */
     maxStamina: PLAYER_MAX_STAMINA + STAMINA_PER_END * over(profile, 'endurance', imp),
     staminaRegenMul: 1 + STAMINA_REGEN_PER_END * over(profile, 'endurance', imp),

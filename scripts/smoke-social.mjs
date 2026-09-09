@@ -376,15 +376,24 @@ try {
   }));
   ok(esc.menu && !esc.pause, 'Escape cancels the context menu without opening the 일시정지 메뉴', JSON.stringify(esc));
   ok(esc.panel, 'the 커뮤니티 panel behind it stays open');
-  // 2026-09-08: with nothing innermost left, the next Escape is the 일시정지 메뉴 — stacked over the panel.
+  // 2026-09-09 (ESC 닫기): with nothing innermost left, the next Escape closes the **커뮤니티 panel** itself
+  // (열린 화면 중 맨 위 하나), and only the press after that — with nothing open — opens the 일시정지 메뉴.
   await P(() => window.__tap('Escape'));
   await waitSim(0.15);
   let esc2 = await P(() => ({
     pause: !document.querySelector('.menu.pause').classList.contains('hidden'),
     panel: !document.querySelector('.community-panel').hidden,
+    open: window.__game.getSystem('hud').isCommunityOpen,
   }));
-  ok(esc2.pause, 'the next Escape opens the 일시정지 메뉴 over the panel', JSON.stringify(esc2));
-  ok(esc2.panel, 'and the 커뮤니티 panel is left open underneath (it closes on its own key)');
+  ok(!esc2.panel && !esc2.open, 'the next Escape closes the 커뮤니티 panel (맨 위 하나)', JSON.stringify(esc2));
+  ok(!esc2.pause, 'and it does not open the 일시정지 메뉴 in the same press', JSON.stringify(esc2));
+  await P(() => window.__tap('Escape'));
+  await waitSim(0.15);
+  const esc3 = await P(() => ({
+    pause: !document.querySelector('.menu.pause').classList.contains('hidden'),
+    esc: window.__game.ctx.escape.size,
+  }));
+  ok(esc3.pause && esc3.esc === 0, '닫을 화면이 없어진 다음 Escape 가 일시정지 메뉴를 연다', JSON.stringify(esc3));
 
   console.log('설정 side panel');
   await click('.menu.pause .actions .ui-btn', 1);
@@ -461,9 +470,8 @@ try {
   console.log('커뮤니티 thumbnail');
   await emit('game:paused', { paused: false });
   await waitSim(0.1);
-  await P(() => window.__tap('KeyP'));    // 2026-09-08: P closes the 커뮤니티 panel we left open above
-  await waitSim(0.2);
-  ok(await P(() => !window.__game.getSystem('hud').isCommunityOpen), 'a P tap closes the 커뮤니티 panel');
+  // 2026-09-09: the panel is already gone — the Escape above closed it (2026-09-08 left it open for a P tap here).
+  ok(await P(() => !window.__game.getSystem('hud').isCommunityOpen), '커뮤니티 panel 은 위의 Escape 로 이미 닫혔다');
   await P(() => window.__setSocial(window.__snap()));
   await waitSim(0.3);
   let cm = await P(() => {
@@ -506,7 +514,7 @@ try {
   ok(panel.col === 1 && panel.friends === 4, 'the panel reuses the same SocialColumn component', JSON.stringify(panel));
   ok(panel.code.includes('AB3D-9KMN'), 'the panel head shows my own 아이디', panel.code);
   ok(panel.ev.slice(-1)[0] === true, 'ui:communityToggled {open:true}', JSON.stringify(panel.ev));
-  // 2026-09-08: P closes it (Escape is the 일시정지 메뉴); the close button reads the live key label.
+  // P closes it, and so does Escape / Tab (2026-09-09); the close button reads the live P key label.
   ok(await P(() => (document.querySelector('.cp-close')?.textContent ?? '') === '닫기 (P)'), 'the close button names the P key');
   await P(() => window.__tap('KeyP'));
   await waitSim(0.2);

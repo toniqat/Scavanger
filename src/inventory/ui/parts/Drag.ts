@@ -146,6 +146,8 @@ export function startDrag(sys: InventoryUI, d: DragState): void {
     const view = sys.viewOf(d.from.grid);
     if (d.qty !== null) view.markSplitSource(d.uid, d.item.qty - d.qty);
     else view.setDragging(d.uid);
+  } else if (d.from.kind === 'quick') {
+    sys.quickCell(d.from.index)?.classList.add('is-dragging');
   } else {
     sys.slots.get(d.from.slot)?.tile?.classList.add('is-dragging');
   }
@@ -300,6 +302,8 @@ export function setSocketTarget(sys: InventoryUI, w: { uid: string; loc: ItemLoc
   sys.socketTarget = w;
   if (w.loc.kind === 'grid') {
     sys.viewOf(w.loc.grid).setSocketTarget(w.uid, state);
+  } else if (w.loc.kind === 'quick') {
+    // a weapon never sits on the wheel, so there is no socket target to mark there
   } else {
     const tile = sys.slots.get(w.loc.slot)?.tile;
     tile?.classList.toggle('is-socket-ok', state === 'ok');

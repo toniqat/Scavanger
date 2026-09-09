@@ -67,21 +67,42 @@ export function onFocusLost(sys: GameFlowSystem): void {
   ctx.bus.emit('input:pointerLockLost', {});   // → escapePause() does the pausing
   }
 
-/* ── Escape (2026-09-08) ────────────────────────────────────────────
+/* ── Escape (2026-09-08 → 2026-09-09) ─────────────────
  *
- * **Escape always opens the 일시정지 메뉴, and never closes it.** Two entry points reach here because the browser
- * splits the key in two: while the pointer is locked Escape never becomes a keydown (it only frees the cursor, and
- * `Input.onUserUnlock` reports that as `input:pointerLockLost`), while a screen that already freed the cursor
- * delivers a real `Keys.MENU` press. Both mean the same thing, so both land in this one function.
+ * **Escape 한 번은 열려 있는 화면 중 맨 위 하나를 닫는다. 닫을 화면이 없을 때만 일시정지 메뉴가 열린다.**
  *
- * The menu deliberately has no Escape-to-close: the browser refuses a re-lock until it sees a fresh engagement
- * gesture after an Escape exit, so `게임으로 돌아가기` (a click) is what gives the camera back. It also means the
- * key can be mashed with no effect at all, instead of walking into the UA's repeated-Escape throttle.
+ * 들어오는 길은 둘이다. 포인터 락이 걸려 있는 동안 Escape 는 keydown 이 되지 않고 커서만 풀리므로
+ * `Input.onUserUnlock` 이 `input:pointerLockLost` 로 알려 주고, 화면이 이미 커서를 쓰고 있으면 진짜
+ * `Keys.MENU` keydown 이 들어온다. 앞의 경우는 닫을 화면이 없는 상황이므로 곧장 `escapePause` 로 가고,
+ * 뒤의 경우만 `escapeKey` 를 지난다.
  *
- * Screens no longer close on Escape either — each closes on the key that opened it (Tab / M / P / E) — so the menu
- * simply stacks on top of whatever is open and `게임으로 돌아가기` returns to it. The Phase 12 재개 게이트 stays
- * underneath as the last resort: it only shows once the menu is gone too and the lock still could not be retaken.
+ * 2026-09-08 에는 화면의 ESC 닫기를 모두 없애고 Escape 를 메뉴를 여는 키 하나로 두었다. Escape 에는
+ * user activation 이 없어서 그 키로 화면을 닫으면 재락이 거부되고 커서가 남는다는 이유였다. 2026-09-09 에
+ * 되돌렸다 — 사람은 커서가 보이면 그 창을 ESC 로 닫으려 하고, 닫은 뒤의 처리는 이제 두 환경 모두 답이 있다.
+ * 데스크톱 셸은 ESC key-up 마다 메인 프로세스가 activation 을 만들어 자동으로 락을 되찾고
+ * (`electron/main.ts` → `__scavShellRelock`), 브라우저는 `좌측 클릭으로 게임 재개` 게이트
+ * (`game/ResumeGate`)가 그 한 클릭을 받는다 — 원래 이 상황을 위해 만든 UI 다.
+ *
+ * 닫히는 순서는 **열린 순서의 역순**(`ctx.escape`, `shared/escape`)이고 시스템 등록 순서가 아니다. Tab 공용
+ * 닫기는 각 화면이 자기 `update()` 에서 키를 읽는 방식이라 순서가 `main.ts` 의 등록 순서로 정해지는데,
+ * ESC 는 맨 위 하나만 닫아야 하므로 열린 순서를 아는 곳이 필요하다.
+ *
+ * 가장 안쪽 팝업(수량 지정 · 우클릭 메뉴 · 경고 팝업 · 설정 · 키 바꾸기)은 지금도 자기가 window capture
+ * 핸들러에서 Escape 를 삼켜 `Input` 이 기록조차 못 하게 한다. 그래서 이 스택이 다루는 것은 그 아래층인
+ * **화면** 뿐이다.
+ *
+ * 일시정지 메뉴 자신을 ESC 로 닫는 것은 데스크톱 셸 전용이다 (`isDesktopShell()`). 메뉴는 스택을 쓰지 않고
+ * 자기 window capture 핸들러에서 Escape 를 Tab 과 똑같이 처리한다 (`ui/menus/PauseMenu`) — 어차피 늘 맨 위이고,
+ * 그 핸들러는 이미 경고 팝업의 Escape 예외를 들고 있다. 브라우저에서는 `게임으로 돌아가기` 클릭이 그대로
+ * 남는다. 그 클릭이 브라우저가 재락 전에 요구하는 제스처이기도 하다.
  */
+/** Escape 한 번: 맨 위 화면 하나를 닫고, 스택이 비어 있으면 일시정지 메뉴를 연다. */
+export function escapeKey(sys: GameFlowSystem): void {
+  if (sys.ctx.escape.closeTop()) return;
+  escapePause(sys);
+  }
+
+/** 닫을 화면이 없을 때의 Escape — 일시정지 메뉴를 **열기만** 한다 (닫는 것은 `게임으로 돌아가기`). */
 export function escapePause(sys: GameFlowSystem): void {
   const ctx = sys.ctx;
   if (sys.paused) return;
@@ -112,11 +133,15 @@ export function toggleFreeCursor(sys: GameFlowSystem, on?: boolean): void {
     if (ctx.uiBlockers.size > 0 || !(ctx.isGameplayPhase() || sys.inShip())) return;
     if (ctx.player?.isDead ?? false) return;
     ctx.uiBlockers.add(FREE_CURSOR_BLOCKER);
+    // 2026-09-09: Escape 는 이제 **카메라를 돌려준다** (일시정지 메뉴가 아니라). 뒤에 창이 없는 유일한 커서
+    // 소유자이므로 닫을 것이 이것뿐이면 그게 곧 "커서 그만" 이고, 스택이 비어 있을 때만 메뉴가 열린다.
+    ctx.escape.push(FREE_CURSOR_BLOCKER, () => toggleFreeCursor(sys, false));
     ctx.input.setCursorMode(true, FREE_CURSOR_BLOCKER);
     window.addEventListener('mousedown', sys.onFreeCursorClick);
   } else {
     window.removeEventListener('mousedown', sys.onFreeCursorClick);
     ctx.uiBlockers.delete(FREE_CURSOR_BLOCKER);
+    ctx.escape.remove(FREE_CURSOR_BLOCKER);
     ctx.input.setCursorMode(false, FREE_CURSOR_BLOCKER);
   }
   ctx.bus.emit('ui:freeCursorToggled', { active: want });

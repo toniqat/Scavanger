@@ -16,7 +16,11 @@ const _knock = new THREE.Vector3();
 const _side = new THREE.Vector3();
 
 /* ── artillery ──────────────────────────────────────────────────────────── */
-/** Keeps ARTILLERY_RANGE from its target: retreats when closer than 60 m, digs in and lobs a shell every 6–9 s. Never melees. */
+/**
+ * Keeps ARTILLERY_RANGE from its target: retreats inside `ARTILLERY_AI.retreatDist`, closes in beyond `approachDist`,
+ * otherwise digs in and lobs a shell every `fireMin`–`fireMax` s at targets within `maxRange`. Never melees.
+ * (2026-09-09: 42 / 88 / 98 m — the whole envelope shrank 30 % with `ARTILLERY_RANGE` 90 → 63.)
+ */
 export function chaseArtillery(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget): number {
   const s = e.stats;
   const a = e.anim;

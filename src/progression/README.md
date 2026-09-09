@@ -246,6 +246,11 @@ rules, the storage and the UI; items/ the defs and loot; meta/ (세레스 바이
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
+- **2026-09-09 (투척 거리 = m 표기, 기울기 개정)** — `derive.throwRangeMulOf` 가 `STAT_BASE` 기준 포인트당 +3 % 대신
+  **`STAT_MIN`(1) → `THROW_RANGE_MUL_MIN`(1.0), `STAT_MAX`(20) → `THROW_RANGE_MUL_MAX`(1.74) 선형**이다 — 새 캐릭터(근력 1)가
+  예전 근력 5 만큼 던지고, 최대는 예전 최대(1.45)의 1.2배 (사용자 결정). 새 `DerivedStats.throwRangeM` 은
+  `derive.throwRangeMetres` 가 `GRENADE_THROW_SPEED · GRENADE_THROW_LIFT · GRAVITY`(전부 csv) 로 평지 오버핸드
+  사거리를 재 준 값이고, 캐릭터 시트(`ui/SheetBody`) 의 `투척 거리` 줄은 배율이 아니라 **이 m 값**을 보여 준다.
 - **2026-09-09 (키 가이드)** — `ui/CharacterSheet` (단독 오버레이) 가 열릴 때 `ui:keyGuide {owner:'character', keys:[]}`,
   닫힐 때 `null` 을 보낸다 — 시트는 마우스 전용이라 가이드에는 스스로 붙이는 `Tab 닫기` 만 뜬다. Tab 닫기는 2026-09-08
   그대로. 인벤토리 Tab 창의 캐릭터 탭(`createSheetView`)은 창의 owner `'inventory'` 가 대신 낸다
@@ -293,3 +298,9 @@ events aimed at a focused text field. The footer hint reads `Tab 으로 닫기`.
   이 심는 필드). 옮기지 않으면 **첫 저장에서 사라졌다** — `migrate` 의 결과가 곧 다음 `saveProfile` 의 내용이라,
   새로고침 한 번에 캐릭터의 색이 기본값으로 되돌아가고 (`readSlotCard` 가 읽는 자리도 여기다) 캐릭터 선택창의
   카드 색까지 같이 잃었다. 모르는 필드를 버리는 규칙 자체는 그대로다.
+
+### 2026-09-09 — ESC 닫기
+
+`ui/CharacterSheet` 이 열 때 `ctx.escape.push(BLOCKER, () => this.close())`, 닫을 때 `remove` 한다 (dispose 포함) —
+시트가 Tab 외에 ESC 로도 닫힌다. `escHandler`(Tab) 는 그대로. 순서는 `shared/escape`, 정책은
+`game/parts/Phases.escapeKey` (맨 위 하나만 닫고, 비어 있을 때만 일시정지 메뉴).

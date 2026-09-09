@@ -85,6 +85,8 @@ export interface DerivedStats {
   meleeDamageMul: number;
   jumpHeightMul: number;
   throwRangeMul: number;
+  /** 2026-09-09: flat-ground overhand throw distance (m) — GRENADE_THROW_SPEED × √throwRangeMul ballistics; the sheet shows this, not the multiplier. */
+  throwRangeM: number;
   /* 지구력 */
   maxStamina: number;
   staminaRegenMul: number;

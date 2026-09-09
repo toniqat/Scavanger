@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { EventBus } from './EventBus';
 import { Input } from './Input';
+import { EscapeStack } from './escape';
 import type {
   GamePhase, WorldRef, PlayerRef, EnemyManagerRef, InventoryRef, LootRef,
   Interactable, InteractableRegistry, MissionStats, HubRef, PickupsRef, WeaponsRef, StratagemsRef,
@@ -138,6 +139,12 @@ export class GameContext {
 
   /** Any system that needs gameplay input blocked adds a token here (e.g. 'inventory', 'menu'). */
   readonly uiBlockers = new Set<string>();
+  /**
+   * 2026-09-09: 열린 화면들의 **Escape 닫기** 동작을 열린 순서로 (`shared/escape`). 화면은 `uiBlockers.add` 옆에서
+   * `escape.push(token, () => this.close())`, `delete` 옆에서 `escape.remove(token)` 한다. ESC 를 받은
+   * `game/GameFlowSystem` 이 `closeTop()` 을 먼저 부르고, 비어 있을 때만 일시정지 메뉴를 연다.
+   */
+  readonly escape = new EscapeStack();
 
   constructor(canvas: HTMLCanvasElement, uiRoot: HTMLElement, scene: THREE.Scene, camera: THREE.PerspectiveCamera, renderer: THREE.WebGLRenderer) {
     this.canvas = canvas;

@@ -139,6 +139,24 @@ input { font: inherit; color: inherit; }
   color: var(--c-text);
   background: rgba(255, 255, 255, 0.06);
 }
+/* 꾹 누르기 keycap (2026-09-09): a **bold accent chevron pointing down at the cap** — "this key is held, not tapped".
+   One rule for every place a hold key is shown: the 키 가이드 (`KeyGuideEntry.hold`), the E 프롬프트 of a hold
+   interactable (`interact:promptChanged.hold` — 발사 포드 탑승), any future popup. Drawn with two borders of a rotated
+   square (crisp at any HUD size, no glyph font dependency), glowing in the accent colour and nodding 2 px so the eye
+   catches it; the cap itself gets an accent border so the pair reads as one unit. Containers that hold one make room
+   above with `:has()` (the chevron overhangs the cap by ~9 px). */
+.keycap.hold { position: relative; border-color: var(--c-accent); box-shadow: 0 0 0 1px rgba(255, 179, 71, 0.25) inset; }
+.keycap.hold::before {
+  content: ''; position: absolute; left: 50%; top: -10px;
+  width: 8px; height: 8px;
+  border-right: 3px solid var(--c-accent); border-bottom: 3px solid var(--c-accent);
+  transform: translate(-50%, 0) rotate(45deg);
+  filter: drop-shadow(0 0 3px rgba(255, 179, 71, 0.85)) drop-shadow(0 1px 1px rgba(0, 0, 0, 0.9));
+  animation: holdChevron 900ms var(--ease) infinite alternate;
+  pointer-events: none;
+}
+@keyframes holdChevron { from { transform: translate(-50%, -2px) rotate(45deg); } to { transform: translate(-50%, 1px) rotate(45deg); } }
+.key-guide:has(.keycap.hold), .prompt .row:has(.keycap.hold) { padding-top: 16px; }
 
 /* ── HUD layer ─────────────────────────────────────────────────────────── */
 .hud {
@@ -184,6 +202,32 @@ input { font: inherit; color: inherit; }
    팝인 배율 1.4 도 같이 곱해 등장 애니메이션은 일반 타격과 똑같이 보인다. */
 .reticle .hitmarker.head { transform: scale(2.24); }
 .reticle .hitmarker.head.show { transform: scale(1.6); }
+/* 소모품 모드 (2026-09-09, hud/Reticle): a grenade / gadget / 회복 소모품 in hand → dot only, the four ticks fade out,
+   and a small mono readout sits to the **right** of the dot (`×3`, or `×1 · 62%` for a 회복 스프레이 gauge). */
+.reticle .tick { transition: opacity var(--t-fast) var(--ease); }
+.reticle.consumable .tick { opacity: 0; }
+.reticle.consumable .dot { width: 3px; height: 3px; left: -1.5px; top: -1.5px; }
+.reticle .qinfo {
+  position: absolute; left: 12px; top: -8px;
+  display: none; white-space: nowrap;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.04em; color: rgba(255, 255, 255, 0.9);
+  text-shadow: 0 0 3px rgba(0, 0, 0, 0.95), 0 1px 2px rgba(0, 0, 0, 0.9);
+}
+.reticle.consumable .qinfo { display: block; }
+
+/* 함선 내 점 크로스헤어 (2026-09-09, hud/HubDot, social layer): the gameplay reticle is hidden in the hub, so the ship
+   has its own 3 px dot at screen centre. `.show` is toggled by the widget (phase hub · no blocker · no cutscene);
+   the 홀드 링 (`.hold`, same layer, same centre) fills around it while boarding a 발사 포드. */
+.hub-dot {
+  position: absolute; left: 50%; top: 50%;
+  width: 3px; height: 3px; margin: -1.5px 0 0 -1.5px;
+  border-radius: 50%; background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.9);
+  pointer-events: none;
+  opacity: 0; transition: opacity var(--t-fast) var(--ease);
+}
+.hub-dot.show { opacity: 1; }
+.hud.spectating .hub-dot { opacity: 0 !important; }
 
 /* Damage direction arcs around the reticle.
    2026-09-09: 220 px ring, 6 px thick, a ~70° red wedge centred on 12 o'clock (rotated by the hit angle in JS) —
@@ -947,6 +991,11 @@ input { font: inherit; color: inherit; }
   mask-image: linear-gradient(180deg, transparent, #000 14px);
 }
 .chat-lines::-webkit-scrollbar { display: none; }
+/* 2026-09-09: the closed log showed a scrollbar anyway. The global `#ui-root *` scroller rule (above) sets
+   `scrollbar-width: thin` at id specificity, which beats the class rule's `none` — and once `scrollbar-width` is not
+   `auto`, Chromium ignores the `::-webkit-scrollbar` pseudo-elements entirely, so the `display: none` never applied.
+   Restate `none` under `#ui-root` for the closed state (the webkit rule stays for engines that still honour it). */
+#ui-root .chat:not(.open) .chat-lines { scrollbar-width: none; }
 .chat.open .chat-lines { max-height: 300px; padding: 8px 10px; background: var(--c-panel); border: 1px solid var(--c-border); scrollbar-width: thin; }
 .chat.open .chat-lines::-webkit-scrollbar { display: block; width: 4px; }
 .chat.open .chat-lines::-webkit-scrollbar-thumb { background: var(--sb-thumb); }
@@ -2370,16 +2419,18 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
   100% { box-shadow: 0 0 0 10px transparent; background: color-mix(in srgb, var(--ic) 12%, transparent); }
 }
 
-/* 시설 관리 furniture rows (Phase 9 UI pass): the 제작 button on a craft row, the storage-tab variants */
-.fcard-craft {
+/* 시설 관리 furniture rows (Phase 9 UI pass): the 제작 button on a craft row, the storage-tab variants.
+   2026-09-09: `.fcard-place` is the 가구 창고 row's 배치 button — same chip as 제작, right side of the card. */
+.fcard-craft, .fcard-place {
   flex: none; align-self: center; padding: 4px 10px;
   border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.04);
   font: inherit; font-size: 10px; letter-spacing: 0.12em; color: var(--c-text); cursor: pointer;
   transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease);
 }
-.fcard-craft:hover:not(:disabled) { color: var(--c-accent); border-color: var(--c-accent); background: rgba(255, 179, 71, 0.14); }
-.fcard-craft:disabled { color: var(--c-text-faint); border-style: dashed; cursor: not-allowed; }
+.fcard-craft:hover:not(:disabled), .fcard-place:hover:not(:disabled) { color: var(--c-accent); border-color: var(--c-accent); background: rgba(255, 179, 71, 0.14); }
+.fcard-craft:disabled, .fcard-place:disabled { color: var(--c-text-faint); border-style: dashed; cursor: not-allowed; }
 .fcard-note { font-size: 10px; letter-spacing: 0.06em; color: var(--c-text-faint); }
+.fcard-note.is-full { color: var(--c-accent); }
 .fcard.store.is-blocked { cursor: not-allowed; border-style: dashed; opacity: 0.55; }
 .fcard.store.is-blocked .fcard-name { color: var(--c-text-dim); }
 .fcard.store.is-blocked:hover { background: rgba(255, 255, 255, 0.03); border-color: var(--c-border); }

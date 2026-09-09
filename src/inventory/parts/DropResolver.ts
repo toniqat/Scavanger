@@ -16,10 +16,7 @@ import { durabilityInfo, gearMultipliers, makeWeightInfo, searchTimeFor, sumWeig
 import { Grid, OOB, type Placement, type PriorityPlacement } from '../Grid';
 import { Container, ContainerStore } from '../Container';
 import { attachedItems, clearSocket, findSocketed, setSocket } from '../Sockets';
-import {
-  assignQuickSlot, autoAssignQuickSlots, createQuickSlots, firstFreeQuickSlot, isQuickIndex, isQuickUsable, pruneQuickSlots,
-  quickSlotOf, quickSlotsSignature, relinkQuickSlot, type QuickSlotUids,
-} from '../QuickSlots';
+import { isQuickIndex, isQuickUsable, lockedQuickItems } from '../QuickSlots';
 import { setStarterGrantState, starterGrantState } from '../Stash';
 import { LOADOUT_SAVE_VERSION, isEmptyLoadoutSave, loadLoadoutSave, sanitizeLoadoutSave, type LoadoutSave } from '../Loadout';
 import { reviveItem, savedCell, serializeExtras, serializePlacement, type SavedPlacement } from '../Serialize';
@@ -130,9 +127,16 @@ export function previewDrop(sys: InventorySystem, uid: string, from: ItemLocatio
   if (target.kind === 'weapon') return sys.previewAttach(uid, from, target.uid, target.loc);
 
   if (target.kind === 'quick') {
-    if (from.kind !== 'grid' || from.grid !== 'bag' || !isQuickUsable(def)) return 'bad';
+    // 2026-09-09: the wheel is its own container — a bag stack **moves** in, and a stack already on the wheel
+    // may be re-ordered between slots (that one never touches the bag).
+    const fromBag = from.kind === 'grid' && from.grid === 'bag';
+    if ((!fromBag && from.kind !== 'quick') || !isQuickUsable(def)) return 'bad';
     if (!isQuickIndex(target.index) || !isQuickSlotActive(target.index, sys.getQuickSlotCount())) return 'bad';
-    return sys.quickSlots[target.index] === uid ? 'noop' : sys.quickSlots[target.index] ? 'swap' : 'ok';
+    const occupant = sys.quickSlots[target.index];
+    if (occupant?.uid === uid) return 'noop';
+    // a swap needs somewhere for the occupant to land: the bag, unless the incoming stack vacates a wheel slot
+    if (occupant && from.kind !== 'quick' && !sys.bag.canAbsorb(occupant)) return 'bad';
+    return occupant ? 'swap' : 'ok';
   }
 
   if (target.kind === 'slot') {
@@ -166,6 +170,8 @@ export function previewDrop(sys: InventorySystem, uid: string, from: ItemLocatio
     const od = ITEM_DEF_MAP.get(other.item.defId);
     return od && slotAccepts(od, from.slot) ? 'swap' : 'bad';
   }
+  // a stack on the wheel has no grid cells to trade — drop it on an empty cell (or merge) instead
+  if (from.kind !== 'grid') return 'bad';
   // multiplayer: a swap would put my item into the container (not shared) — refused
   if (sys.ctx.isMultiplayer && (from.grid === 'container') !== (target.grid === 'container')) return 'bad';
   return sys.canSwap(item, from.grid, other.item, grid) ? 'swap' : 'bad';
@@ -268,8 +274,7 @@ export function dropImpl(sys: InventorySystem, uid: string, from: ItemLocation, 
     const moved = grid.mergeInto(item, other.item.uid);
     if (moved <= 0) return 'fail';
     if (item.qty <= 0) {
-      // the whole stack merged away: its wheel slot follows the surviving stack
-      if (target.grid === 'bag') relinkQuickSlot(sys.quickSlots, item.uid, other.item.uid);
+      // 2026-09-09: nothing to relink any more — `detach` empties the wheel slot when the stack came from there
       sys.detach(item, from);
       sys.afterMove(item, from, to, moved);
     } else {
@@ -294,6 +299,7 @@ export function dropImpl(sys: InventorySystem, uid: string, from: ItemLocation, 
     sys.afterChange();
     return 'ok';
   }
+  if (from.kind !== 'grid') return 'fail';   // wheel stack: no cells to trade (see `previewDrop`)
   const srcGrid = sys.getGrid(from.grid);
   if (!srcGrid) return 'fail';
   if (sys.ctx.isMultiplayer && (from.grid === 'container') !== (target.grid === 'container')) return 'fail';
@@ -321,6 +327,7 @@ export function quickMoveImpl(sys: InventorySystem, uid: string, from: ItemLocat
   if (from.kind === 'slot' && from.slot === 'bag') return sys.changeBag(null, null, 'grid');
   let dest: GridId;
   if (from.kind === 'slot') dest = 'bag';
+  else if (from.kind === 'quick') dest = 'bag';   // 2026-09-09: 우클릭 = 가방으로 되돌리기
   else if (from.grid === 'container' || from.grid === 'stash') dest = 'bag';
   else if (sys.activeContainer) dest = 'container';
   else if (sys.hubMode) dest = 'stash';
@@ -496,6 +503,13 @@ export function changeBag(sys: InventorySystem, next: ItemInstance | null, from:
     return 'fail';
   }
   sys.loadout.bag = next;
+  // 2026-09-09: a smaller bag unlocks fewer wheel slots — the stacks past its count come back to the grid
+  // (and follow `overflow` to the ground when even that is full). A locked slot never keeps an item.
+  const stranded = lockedQuickItems(sys.quickSlots, Math.max(0, Math.min(QUICK_SLOTS, Math.floor(size.quickSlots))));
+  for (const { index, item } of stranded) {
+    sys.quickSlots[index] = null;
+    if (!sys.bag.autoPlace(item)) overflow.push(item);
+  }
   if (next && nextDef && from) sys.emitTransfer(next, nextDef, from, { kind: 'slot', slot: 'bag' });
   for (const it of overflow) sys.throwToWorld(it, true);
   if (old && oldTo === 'world') sys.throwToWorld(old, true);
@@ -538,6 +552,7 @@ export function dropOnSlot(sys: InventorySystem, item: ItemInstance, def: ItemDe
     return 'ok';
   }
   if (slot === 'bag') return sys.changeBag(item, from, 'grid');
+  if (from.kind !== 'grid') return 'fail';   // the wheel only ever holds quick-usable stacks, never equipment
   const srcGrid = sys.getGrid(from.grid);
   const src = srcGrid?.get(item.uid);
   if (!srcGrid || !src) return 'fail';

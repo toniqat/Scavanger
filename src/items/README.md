@@ -420,6 +420,8 @@ the loot rules (corpse / crate counts over 400 / 300 rolls, no working implant, 
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
+- **2026-09-09 (산탄 이름)** — `data/ammo.csv` 의 `shell` 이름이 `산탄` → **`산탄총 탄약`**, `data/recipes.csv` 의 세 레시피
+  이름(`산탄 분해 · 산탄 제작 · 산탄 대량 제작`)도 `산탄총 탄약 …` 으로. id 는 그대로라 코드 무변경.
 - **2026-09-09 (수치 csv 이관)** — 아이템 데이터의 원본이 `data/*.csv` 로 나갔다. `ItemDefs.ts` · `WeaponDefs.ts` ·
   `ArmorDefs.ts` · `ImplantDefs.ts` · `LootTables.ts` · `Recipes.ts` · `WeaponStats.ts` 에 **표가 하나도 없다** —
   csv 줄을 `ItemDef` / `WeaponDef` 로 옮기는 코드와 등급 계단 · 분해 산출량 같은 계산식만 남았다.

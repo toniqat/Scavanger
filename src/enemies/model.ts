@@ -103,6 +103,8 @@ export const _hd = new THREE.Vector3();
 export const _c = new THREE.Vector3();
 export const _m = new THREE.Vector3();
 export const _aim = new THREE.Vector3();
+/** fireShell: the clamped lead vector (2026-09-09). */
+export const _lead = new THREE.Vector3();
 export const _dir = new THREE.Vector3();
 export const _to = new THREE.Vector3();
 export const _zero = new THREE.Vector3();

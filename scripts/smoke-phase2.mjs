@@ -105,14 +105,28 @@ try {
   ok(qs.n === 2, 'common bag → 2 usable quick slots (N and S per the unlock order)', `${qs.n}`);
   const qsEv = await ev('inventory:quickSlotsChanged');
   ok(qsEv.length > 0 && qsEv[qsEv.length - 1].active === 2, 'inventory:quickSlotsChanged emitted with active count');
-  const setRes = await P(() => { const inv = window.__game.ctx.inventory; const stim = inv.getAllItems().find((i) => i.defId === 'heal_bandage'); const gun = inv.getLoadout().secondary;
-    const lockedRefused = !inv.setQuickSlot(2, stim.uid);
-    const moveOk = inv.setQuickSlot(0, stim.uid);
-    return { lockedRefused, moveOk, gunRefused: !inv.setQuickSlot(4, gun.uid), slots: inv.getQuickSlots().map((s) => s?.defId ?? null) }; });
+  // 2026-09-09 — the wheel is its own container: the starter 붕대 / 수류탄 live in their slots and are **not** in the
+  // bag grid, so their uids come from `getQuickSlots()` (`getAllItems()` is the bag grid alone).
+  const setRes = await P(() => {
+    const inv = window.__game.ctx.inventory;
+    const stim = inv.getQuickSlots()[4]?.uid ?? null;   // 시작 키트가 S 에 올려 둔 붕대
+    const gun = inv.getLoadout().secondary;
+    const inBag = inv.getAllItems().some((i) => i.defId === 'heal_bandage' || i.defId === 'grenade_frag');
+    const bagBefore = inv.getAllItems().length;
+    const lockedRefused = !inv.setQuickSlot(2, stim);
+    const moveOk = inv.setQuickSlot(0, stim);           // 이미 휠에 있는 스택 → 두 칸 맞바꾸기
+    return { inBag, lockedRefused, moveOk, bagUntouched: inv.getAllItems().length === bagBefore,
+      gunRefused: !inv.setQuickSlot(4, gun.uid), slots: inv.getQuickSlots().map((s) => s?.defId ?? null) };
+  });
+  ok(setRes.inBag === false, 'the wheel stacks left the bag grid (getAllItems has neither)');
   ok(setRes.lockedRefused, 'a locked slot (E with a common bag) refuses assignment');
-  ok(setRes.moveOk && setRes.slots[0] === 'heal_bandage' && setRes.slots[4] === null, 'setQuickSlot moves the stim S→N (one slot per item)', JSON.stringify(setRes.slots));
+  ok(setRes.moveOk && setRes.slots[0] === 'heal_bandage' && setRes.slots[4] === 'grenade_frag' && setRes.bagUntouched,
+    'setQuickSlot on a wheel uid swaps the two slots (bag untouched)', JSON.stringify(setRes));
   ok(setRes.gunRefused, 'a weapon cannot go into a quick slot');
-  await P(() => { const inv = window.__game.ctx.inventory; const stim = inv.getAllItems().find((i) => i.defId === 'heal_bandage'); const g = inv.getAllItems().find((i) => i.defId === 'grenade_frag'); inv.setQuickSlot(4, stim.uid); inv.setQuickSlot(0, g.uid); });
+  // back to 수류탄 N / 붕대 S for the wheel tests below (a second swap)
+  await P(() => { const inv = window.__game.ctx.inventory; inv.setQuickSlot(0, inv.getQuickSlots()[4].uid); });
+  const restored = await P(() => window.__game.ctx.inventory.getQuickSlots().map((s) => s?.defId ?? null));
+  ok(restored[0] === 'grenade_frag' && restored[4] === 'heal_bandage', 'swapped back: 수류탄 N, 붕대 S', JSON.stringify(restored));
 
   console.log('stim in hand (F tap)');
   await P(() => window.__game.ctx.player.takeDamage(40));

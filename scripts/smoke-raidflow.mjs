@@ -274,10 +274,10 @@ try {
   ok(await P(() => !window.__game.ctx.player.isDead && window.__game.ctx.player.hp > 0), 'fallback: player alive after the hellpod drop');
   ok((await P(() => window.__spy.saveRaid.length)) === 0, 'saveRaid never called outside a multiplayer raid session');
 
-  /* 2026-09-08 (ESC = 항상 일시정지): Escape opens the 일시정지 메뉴 from anywhere and never closes anything —
-     the menu **stacks** over an open container window and 게임으로 돌아가기 is the only way out of it. This replaces
-     the Phase 12 "the pause yields to any screen that opens over it" rule the same block used to assert. */
-  console.log('2026-09-08: 일시정지 ↔ 아이템 창 (메뉴가 위에 쌓인다)');
+  /* 2026-09-09 (ESC 닫기): Escape closes the **top open screen** and opens the 일시정지 메뉴 only when there is
+     nothing to close (`shared/escape` → `game/escapeKey`). The menu itself is unchanged in the browser — it stacks
+     over whatever is open and 게임으로 돌아가기 is the only way out of it (the shell also closes it on Escape). */
+  console.log('2026-09-09: ESC 닫기 ↔ 일시정지 ↔ 아이템 창 (메뉴는 위에 쌓인다)');
   const screens = () => P(() => {
     const ctx = window.__game.ctx;
     const vis = (e) => !!e && !e.hidden && !e.classList.contains('hidden') && getComputedStyle(e).visibility !== 'hidden' && getComputedStyle(e).display !== 'none';
@@ -299,12 +299,21 @@ try {
   sc = await screens();
   ok(!sc.menu && sc.blockers.length === 0, '게임으로 돌아가기 is what closes it', JSON.stringify(sc));
 
-  await P(() => { const ctx = window.__game.ctx; ctx.inventory.openContainerItems('flow:1', [ctx.loot.createItem('ammo_light', 10)], ctx.player.position.clone(), '테스트 상자'); });
+  const openBox = (id) => P((cid) => { const ctx = window.__game.ctx; ctx.inventory.openContainerItems(cid, [ctx.loot.createItem('ammo_light', 10)], ctx.player.position.clone(), '테스트 상자'); }, id);
+  await openBox('flow:1');
   await waitSim(0.3);
   await escTap();
   sc = await screens();
+  ok(!sc.invOpen && !sc.menu && sc.blockers.length === 0,
+     'Escape over an open container **closes it** and opens nothing (2026-09-09)', JSON.stringify(sc));
+  // the menu still stacks over a screen — it just is not Escape that puts it there any more
+  await openBox('flow:2');
+  await waitSim(0.3);
+  await P(() => window.__game.ctx.bus.emit('game:paused', { paused: true }));
+  await waitSim(0.2);
+  sc = await screens();
   ok(sc.invOpen && sc.menu && sc.blockers.join() === 'inventory,menu',
-     'Escape over an open container stacks the menu on top — both blockers held', JSON.stringify(sc));
+     'the 일시정지 메뉴 stacks over an open container — both blockers held', JSON.stringify(sc));
   await resumeClick();
   sc = await screens();
   ok(sc.invOpen && !sc.menu && sc.blockers.join() === 'inventory',

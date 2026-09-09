@@ -62,10 +62,12 @@ export const KEY_ACTION_DEFS: readonly KeyActionDef[] = [
   /*
    * 2026-09-08 (ESC = 항상 일시정지): every screen is closed by the key that **opened** it, and Escape is nothing
    * but the 일시정지 메뉴 — so these labels name both jobs of each key.
+   * 2026-09-09: **ESC 도 닫는다** — 열린 화면 중 맨 위 하나(`shared/escape` → `game/escapeKey`), 닫을 것이
+   * 없을 때만 일시정지 메뉴다. 메뉴 자신을 ESC 로 닫는 것은 데스크톱 앱 전용이라 라벨에 그렇게 적는다.
    */
   { id: 'INVENTORY', label: '인벤토리 · 캐릭터 · 기업 · 함선 (열기 / 닫기)', group: '인터페이스', scope: 'global' },
   { id: 'MAP', label: '지도 · 함선 관리 (열기 / 닫기)', group: '인터페이스', scope: 'game' },
-  { id: 'MENU', label: '일시 정지 (메뉴는 게임으로 돌아가기로 닫기)', group: '인터페이스', scope: 'global' },
+  { id: 'MENU', label: '화면 닫기 · 일시 정지 (메뉴 닫기는 앱에서만)', group: '인터페이스', scope: 'global' },
   /* appended (2026-09-07, 커서 rework): frees the mouse cursor without opening a screen; press again to give it back. */
   { id: 'CURSOR', label: '마우스 커서 표시 / 숨기기', group: '인터페이스', scope: 'global' },
   /* appended (Phase 11); 2026-09-08: a tap is the 커뮤니티 panel, a hold still accepts a 분대 초대. */

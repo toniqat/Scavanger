@@ -108,7 +108,8 @@ export const ROGUE_AI = {
   weapons: ROGUE_AI_TEXT.weapons.split('|').map((w) => w.trim()).filter(Boolean) as readonly string[],
   bossWeapon: ROGUE_AI_TEXT.bossWeapon,
 };
-export const ARTILLERY_AI = ability<'retreatDist' | 'approachDist' | 'fireMin' | 'fireMax' | 'digTime' | 'maxRange'>('ARTILLERY_AI');
+/** 2026-09-09: `spawnMin` / `spawnMax` = the ring `Spawner.maybeArtillery` digs one in on (m) — sits between retreat and approach so it fires at once. */
+export const ARTILLERY_AI = ability<'retreatDist' | 'approachDist' | 'fireMin' | 'fireMax' | 'digTime' | 'maxRange' | 'spawnMin' | 'spawnMax'>('ARTILLERY_AI');
 export const TOXIC_AI = ability<'swell'>('TOXIC_AI');
 export const BEHEMOTH_AI = ability<'engageDist' | 'chargeCooldown' | 'overshoot' | 'maxDuration' | 'enemyDamage' | 'enemyShove' | 'stumble'>('BEHEMOTH_AI');
 

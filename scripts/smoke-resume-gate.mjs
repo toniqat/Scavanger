@@ -1,9 +1,11 @@
-// game/ smoke: the 브라우저 재개 게이트 ('좌측 클릭으로 게임 재개'), the desktop-shell cursor rules and the way the
-// 일시정지 메뉴 stacks over an open screen (2026-09-08: ESC = 항상 일시정지).
+// game/ smoke: the 브라우저 재개 게이트 ('좌측 클릭으로 게임 재개'), the desktop-shell cursor rules, the way the
+// 일시정지 메뉴 stacks over an open screen, and **ESC 닫기** (2026-09-09).
 //
-// 2026-09-08: the gate's trigger is a screen closed by **its own key** (Tab / M / E) whose re-lock the browser then
-// refuses — Escape does not close screens any more, it opens the 일시정지 메뉴, and that menu's 게임으로 돌아가기
-// click is normally the gesture Chrome wants. The gate is what is left for every path where no click arrives.
+// The gate's trigger is a screen whose re-lock the browser refuses — a screen closed by its own key (Tab / M / E)
+// re-locks at once because a real key carries activation, while **Escape carries none**. 2026-09-09: ESC closes the
+// top open screen again (`ctx.escape` → `game/escapeKey`), so the gate is now the browser's answer for that path
+// too; a shell hands the page an activation instead (§9). ESC with nothing open still opens the 일시정지 메뉴, and
+// that menu closes on the key **only in the shell** — in the browser its 게임으로 돌아가기 click is the gesture.
 //
 // The pointer lock is stubbed *realistically*: `window.__lockGrant` decides whether `requestPointerLock` resolves (and
 // sets `pointerLockElement`) or rejects — a rejection is exactly what Chrome does after an Escape (no user activation),
@@ -260,8 +262,59 @@ try {
   await waitState('(s) => !s.menuVis && s.locked', '게임으로 돌아가기 → locked', 5000);
   ok((await state()).locked && !(await state()).gateVis, '게임으로 돌아가기 (a click) re-locks without a gate');
 
-  /* ── 8. desktop shell: no gate, cursor hidden while no owner ────────────── */
-  console.log('8. isDesktopShell(): no gate; body.desktop-nocursor follows cursor mode');
+  /* ── 8. ESC 닫기: 맨 위 화면 하나 (2026-09-09) ───────────────────────────── */
+  console.log('8. ESC 는 열린 화면 중 맨 위 하나를 닫는다 (브라우저도) — 비어 있을 때만 일시정지 메뉴');
+  await grant(false);
+  await openContainer('test:8');
+  await waitState('(s) => s.invVis', 'container for the ESC test', 5000);
+  const pausedN8 = (await ev('game:paused')).length;
+  await tap('Escape');
+  await waitState('(s) => !s.invVis', 'ESC closed the container window', 5000);
+  s = await state();
+  ok(!s.invOpen && !s.menuVis, 'ESC closed the window and did NOT open the 일시정지 메뉴', JSON.stringify(s));
+  ok((await ev('game:paused')).length === pausedN8, 'the ESC that closed a screen emitted no game:paused');
+  await waitState('(s) => s.gateVis', 'gate after an ESC-closed screen', 5000);
+  ok((await state()).gateVis, '브라우저: ESC 로 닫으면 재개 게이트가 그 클릭을 받는다 (Escape 에는 activation 이 없다)');
+  await tap('Escape');
+  await waitState('(s) => s.menuVis', 'ESC with an empty stack pauses', 5000);
+  ok((await state()).menuVis, '닫을 화면이 없으면 ESC 는 그대로 일시정지 메뉴');
+  await grant(true);
+  await P(() => [...document.querySelectorAll('.menu.pause button')].find((b) => b.textContent.includes('게임으로 돌아가기')).click());
+  await waitState('(s) => !s.menuVis && s.locked', 'resumed (8)', 5000);
+  // LIFO: 두 겹으로 열려 있으면 ESC 한 번은 **나중에 열린 것** 하나만 닫는다 (`shared/escape`).
+  await P(() => {
+    const e = window.__game.ctx.escape;
+    window.__esc = [];
+    e.push('lo', () => window.__esc.push('lo'));
+    e.push('hi', () => window.__esc.push('hi'));
+  });
+  await tap('Escape'); await waitSim(0.1);
+  ok((await P(() => window.__esc.join())) === 'hi' && !(await state()).menuVis,
+     'ESC 한 번 = 맨 위 하나만 (메뉴는 열리지 않는다)', await P(() => window.__esc.join()));
+  await tap('Escape'); await waitSim(0.1);
+  ok((await P(() => window.__esc.join())) === 'hi,lo' && !(await state()).menuVis,
+     '두 번째 ESC = 그 아래 하나', await P(() => window.__esc.join()));
+  await tap('Escape');
+  await waitState('(s) => s.menuVis', 'stack empty → pause (8)', 5000);
+  ok((await state()).menuVis && (await P(() => window.__game.ctx.escape.size)) === 0, '스택이 비면 그때 일시정지 메뉴');
+  await P(() => [...document.querySelectorAll('.menu.pause button')].find((b) => b.textContent.includes('게임으로 돌아가기')).click());
+  await waitState('(s) => !s.menuVis && s.locked', 'resumed after the LIFO check', 5000);
+  // 한 걸음만 되돌린 화면은 **스택에 남는다** (`false` 를 돌려준다) — 하우징 모드가 가구만 내려놓는 경우가 그것이다.
+  await P(() => {
+    const e = window.__game.ctx.escape;
+    window.__steps = 0;
+    e.push('twostep', () => { window.__steps++; return window.__steps >= 2; });
+  });
+  await tap('Escape'); await waitSim(0.1);
+  let two = await P(() => ({ steps: window.__steps, size: window.__game.ctx.escape.size }));
+  ok(two.steps === 1 && two.size === 1 && !(await state()).menuVis,
+     'false 를 돌려준 닫기는 스택에 남는다 (한 걸음만 되돌린 화면)', JSON.stringify(two));
+  await tap('Escape'); await waitSim(0.1);
+  two = await P(() => ({ steps: window.__steps, size: window.__game.ctx.escape.size }));
+  ok(two.steps === 2 && two.size === 0, '두 번째 ESC 가 그 화면을 실제로 닫는다', JSON.stringify(two));
+
+  /* ── 9. desktop shell: no gate, cursor hidden while no owner, ESC closes the menu ── */
+  console.log('9. isDesktopShell(): no gate; body.desktop-nocursor follows cursor mode; ESC 가 메뉴도 닫는다');
   await P(() => { window.__scavDesktop = true; });
   await waitState('(s) => s.nocursor', 'desktop-nocursor on', 5000);
   s = await state();
@@ -289,12 +342,22 @@ try {
   s = await state();
   ok(s.blockers.includes('cursor') && !s.nocursor, 'Alt 커서 (a cursor owner) shows the OS cursor in the shell', JSON.stringify(s));
   await tap('AltLeft'); await waitState('(s) => s.locked && s.nocursor', 'Alt cursor closed (desktop)', 5000);
+  // 2026-09-09 (사용자 결정): 셸에서는 **ESC 가 일시정지 메뉴도 닫는다**. 브라우저는 §2 그대로 클릭 전용이다 —
+  // 셸에서만 메인 프로세스가 ESC key-up 에 activation 을 주므로 닫는 즉시 카메라가 돌아온다.
+  await tap('Escape');
+  await waitState('(s) => s.menuVis', 'pause menu (desktop ESC test)', 5000);
+  await tap('Escape');
+  await waitState('(s) => !s.menuVis', 'desktop: ESC closed the 일시정지 메뉴', 5000);
+  s = await state();
+  ok(!s.menuVis, 'desktop shell: ESC closes the 일시정지 메뉴 (browser keeps click-only)', JSON.stringify(s));
+  ok((await ev('game:paused')).slice(-1)[0].paused === false, 'the ESC close went through game:paused {paused:false}');
+  await waitState('(s) => s.locked', 'desktop: locked again after the ESC close', 5000);
   await P(() => { window.__scavDesktop = false; });
   await waitState('(s) => !s.nocursor', 'desktop off', 5000);
   ok(!(await state()).nocursor, 'browser again: class removed');
 
-  /* ── 9. hub: the gate works in the ship too; never on a result screen ───── */
-  console.log('9. hub + death guards');
+  /* ── 10. hub: the gate works in the ship too; never on a result screen ──── */
+  console.log('10. hub + death guards');
   await P(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
   await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub (9)');
   await waitState('(s) => s.locked && s.blockers.length === 0', 'hub locked', 8000);

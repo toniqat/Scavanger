@@ -57,7 +57,8 @@ export interface GameEvents {
   'player:aimChanged': { aiming: boolean };
   'player:landed': { impactSpeed: number };
   'player:footstep': { position: THREE.Vector3; sprinting: boolean };
-  'interact:promptChanged': { text: string | null; holdProgress: number };
+  /** 2026-09-09 (additive): `hold` = the current interactable has a `holdTime` — the prompt keycap gets a ⌄ chevron. */
+  'interact:promptChanged': { text: string | null; holdProgress: number; hold?: boolean };
   'interact:performed': { id: string };
   /* appended: stance / stamina / dive */
   'player:stanceChanged': { stance: Stance; prev: Stance };
@@ -844,4 +845,9 @@ export interface GameEvents {
 }
 
 /** One 키 가이드 entry (`ui:keyGuide`): `key` is the display label (`keyLabel(...)`), `label` the Korean action. */
-export interface KeyGuideEntry { key: string; label: string }
+export interface KeyGuideEntry {
+  key: string;
+  label: string;
+  /** 2026-09-09: the key must be **held** (탑승 · 1초 홀드) — the guide draws a downward chevron over the keycap. */
+  hold?: boolean;
+}

@@ -46,6 +46,68 @@ Phase 0 – 12 는 전부 구현 완료다 (2026-09-05 ~ 2026-09-08). 각 단계
 
 최신순. 새 항목은 이 섹션 맨 위에 추가한다.
 
+- 2026-09-09 (UI/UX 정리 7차 — 캐릭터 생성 · 튜토리얼 · 퀵슬롯 컨테이너 · 함선 크로스헤어 · 포병): 사용자 요청 15건을
+  한 묶음으로 받았다. 결정은 AskUserQuestion 4문항 — ① **투척 거리**는 "기본 1.5배"가 그대로는 성립하지 않아
+  (지금은 근력 5 = 1.0배, 근력 20 = 1.45배) 사용자가 직접 고쳐 말했다: **근력 1 이 예전 근력 5 의 값**,
+  **근력 20 은 예전 최대의 1.2배**, 그리고 **상세 능력치에 m 로 표기**. ② 가구 창고 카드는 **클릭 = 선택만**,
+  배치는 새 `배치` 버튼. ③ 포탄 인디케이터는 **화면 마커만** (바닥 링 없음). ④ 퀵슬롯은 **무게는 가방에 합산**,
+  기존 세이브는 **가방 → 퀵슬롯으로 이관**.
+  - **계약 선작업 (`src/shared` · `data/*.csv`)** — `KeyGuideEntry.hold?`(꾹 누르기 키캡), `DerivedStats.throwRangeM`,
+    `TUTORIAL_STEPS` 17단계(`openCraft` 는 순서에서만 제외 — id 는 남는다), 새 상수
+    `GRENADE_THROW_SPEED/LIFT` · `GRENADE_UNDERHAND_LIFT`(`weapons/model.ts` 에서 csv 로 이관) ·
+    `THROW_RANGE_MUL_MIN/MAX` · `TUTORIAL_STEP_DELAY_S` · `TUTORIAL_DIM_FADE_S` · `SHELL_LEAD_MAX`,
+    수치 변경 `IMPLANT_GRAPPLE_COOLDOWN` 6 → **12**, `ARTILLERY_RANGE` 90 → **63**, `SHELL_FLIGHT_TIME` 4.5 → **6.3**
+    (사거리 −30 % · 비행 속도 −50 %), `ARTILLERY_AI` 3칸, 산탄 → **산탄총 탄약**.
+  - **투척 거리** — `progression/derive.throwRangeMulOf` 가 `STAT_BASE` 기준 포인트당 +3 % 대신 `STAT_MIN`→`STAT_MAX`
+    선형(1.0 → 1.74)이고, `throwRangeMetres` 가 같은 csv 상수로 평지 사거리를 재 캐릭터 시트에 **m** 로 띄운다.
+  - **퀵슬롯 = 또 하나의 가방 공간** — 가장 큰 작업. 휠이 가방 아이템의 uid 를 가리키는 링크에서 **자기 컨테이너**
+    (`QuickSlotItems`)로 바뀌었다: 올린 스택은 가방 격자에서 사라지고, 무게 · 재료 계산 · 시체 · 레이드 blob 은
+    그대로 따라온다. 세이브는 **v1 → v2** 이고 `sanitizeLoadoutSave` 가 읽을 때 이관한다. 자세히는
+    [inventory/README.md](../src/inventory/README.md) 의 해당 절.
+  - **나머지** — 캐릭터 생성창 3열 개편(임플란트 큰 타일 + 우측 컨텍스트 메뉴, 능력치 세로 5줄, 남은 점수 0 일 때만
+    확정), 튜토리얼 0.5초 지연 + 딤 페이드 + 소총·탄약 한 번에 + `equipGun` 포커싱 축소(주무기 I·II ~ 가방),
+    가구 창고 `배치` 버튼(방이 바뀔 때마다 자리 재검사), 목표 행성이 없으면 창문에 행성이 안 보인다,
+    함선 안 점 크로스헤어 + 탑승 홀드 링 + 꾹 누르기 chevron 키캡, 소모품 들었을 때 점 크로스헤어 + 수량/내구도,
+    닫힌 채팅 스크롤바(`scrollbar-width: none`), 포탄 리본 궤적 + 인지력 반경 안에서만 뜨는 HUD 마커.
+  - **에이전트 6개 중 5개가 API 한도로 중도 종료**됐다. 남은 트리는 `src/inventory` 만 101개 타입 에러였고
+    (휠 모델을 절반만 옮긴 상태), 리드가 이어받아 마무리했다. `src/ui/hud/KeyGuide.ts` 는 죽은 에이전트의 쓰기가
+    템플릿 문자열 안에 **NUL · \x01 · \x02 를 박아 넣어** 파일이 바이너리로 잡히고 있었다 — 복구했다.
+    (같은 검사에서 `scripts/smoke-ui-p5.mjs` 의 `/\x08ready\x08/` 도 나왔는데 이건 **이전부터 커밋돼 있던**
+    별개 버그다: `\bready\b` 로 쓰려던 정규식이 백스페이스 문자가 돼 그 단언이 늘 통과한다. 이번 작업 범위 밖이라
+    건드리지 않았다 — [TODO.md](TODO.md) 후보.)
+
+- 2026-09-09 (ESC 닫기): 사용자 질문에서 시작했다 — "ESC 커서 이탈은 브라우저만의 문제이고 스탠드얼론 앱은
+  아니지 않나? 앱에서는 ESC 로 창을 닫게 하고 싶다." 확인해 보니 전제가 반쯤 달랐다: **화면이 열려 있으면
+  포인터 락이 이미 풀려 있어 Escape 는 브라우저에서도 평범한 keydown 으로 들어온다.** 2026-09-08 의
+  "ESC = 항상 일시정지" 는 브라우저 한계가 아니라 우리 결정이었고, 진짜 한계는 **닫은 뒤 재락** 한 층뿐이다
+  (Escape 에는 user activation 이 없다). 결정은 AskUserQuestion 3문항 — ① 적용 범위는 **브라우저 · 앱 둘 다**
+  (조작을 환경마다 갈라 놓지 않는다. 브라우저는 닫은 뒤 `좌측 클릭으로 게임 재개` 게이트를 한 번 클릭),
+  ② 일시정지 메뉴 자신을 ESC 로 닫는 것은 **앱에서만**, ③ 겹쳐 있으면 **맨 위 하나만**.
+  - **계약 (`shared/escape.ts` 신규 · 추가만)** — `EscapeStack` (`push` / `remove` / `closeTop` / `topKey` ·
+    `size` · `has` · `clear`) 과 `GameContext.escape`. 화면은 `uiBlockers.add` **옆에서**
+    `escape.push(token, () => this.close())`, `delete` 옆에서 `remove(token)` 한다 — teardown 경로가 여러 개인
+    화면(`close()` · `hide()` · `dispose()`)도 그러면 저절로 정리된다. `'hub'` 처럼 토큰을 나눠 쓰는 곳은
+    `'hub:terminal'` · `'hub:workbench'` · `'hub:launchWarn'` · `'hub:crewLoadout'` 자기 key 를 쓴다.
+  - **순서를 `shared` 로 올린 이유** — Tab 공용 닫기(2026-09-09 오전)는 화면마다 자기 `update()` 에서 키를 읽고
+    `consume` 하는 방식이라 닫히는 순서가 **`main.ts` 의 시스템 등록 순서**로 정해진다. ESC 는 "맨 위 하나만"
+    이므로 열린 순서가 필요했다. 그래서 `hub/HousingMode` 의 `Keys.MENU` 폴링도 걷어냈다 — `HubSystem`(89)이
+    `GameFlowSystem`(105)보다 먼저 돌아 **위에 떠 있는 패널보다 모드가 먼저 닫혔다**. C 는 그대로다.
+  - **정책 한 곳** — `game/parts/Phases.escapeKey`: `ctx.escape.closeTop()` 이 false 면 `escapePause()`.
+    락이 걸린 채 누른 Escape 는 그대로 `input:pointerLockLost` → `escapePause()` 다 (그때는 커서를 쓰는 화면이
+    없으므로 닫을 것도 없다). **Alt 커서**는 `escapePause` 가 강제로 내려놓던 것에서 스택의 한 항목이 됐다 —
+    ESC 는 카메라를 돌려주고 끝난다.
+  - **일시정지 메뉴** — `ui/menus/PauseMenu` 의 capture 핸들러가 `isDesktopShell()` 일 때만 Escape 를 Tab 과
+    똑같이 처리한다. capture 라서 `Input` 이 키를 기록하기 전에 삼켜, `escapeKey` 가 같은 프레임에 메뉴를 다시
+    열지 않는다. 브라우저는 `게임으로 돌아가기` 클릭 그대로 — 그 클릭이 재락 제스처를 겸한다.
+  - **키 가이드** — 우측 하단 `닫기` 항목의 keycap 이 둘(`Tab` · `Esc`)이 됐다. 첫 keycap 은 Tab 으로 남는다
+    (튜토리얼의 `.kg-close` 스포트라이트와 스모크가 그 첫 `.keycap` 을 읽는다). `MENU` 키 라벨도
+    `화면 닫기 · 일시 정지 (메뉴 닫기는 앱에서만)` 로.
+  - **팝업 계층은 손대지 않았다** — 수량 지정 · 우클릭 메뉴 · 경고 팝업 · 설정 · 키 바꾸기 · 채팅 · 개발자
+    콘솔은 계속 자기 window capture 핸들러에서 Escape 를 삼킨다. 콘솔은 그래서 스택에 올리지 않았다.
+  - **스모크** — `smoke-resume-gate` §8(닫기 · LIFO · 게이트) · §9(셸에서 메뉴 닫기) 추가,
+    `smoke-controls-hub`(가방 · Alt 커서) · `smoke-raidflow`(메뉴 쌓기는 `game:paused` 로) 갱신,
+    `smoke-ui-p6` 에 키 가이드 두 keycap. 2026-09-08 규칙을 적어 둔 주석 다섯 곳도 같이 고쳤다.
+
 - 2026-09-09 (핑 v3 · 채팅 · 무기 툴팁 · 탈출 60초 · 버그 피해 절반): 사용자 요청 묶음. 결정은 AskUserQuestion 2라운드
   (플레이어별 3개 · 탄약 요청은 인벤토리 휠클릭만 · 근접 피해만 절반 · 무기 등급 줄만 제거 · 화살표는 핑 수명 내내 ·
   말풍선은 원격만 · 조준점 호를 굵게 · 반동 감소는 초록 윤곽). 계약(`src/shared`)을 리드가 먼저 쓰고 `ui` · `inventory`

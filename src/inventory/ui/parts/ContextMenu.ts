@@ -74,7 +74,7 @@ export function menuEntries(sys: InventoryUI, uid: string, from: ItemLocation, i
   const isStack = def.stackMax > 1 && item.qty >= 2;
   const hasContainer = !!sys.sys.getActiveContainer();
   const quick = () => sys.result(sys.sys.quickMove(uid, from), 'ui_drop', from, uid);
-  const owned = from.kind === 'slot' || from.grid === 'bag';
+  const owned = from.kind === 'slot' || from.kind === 'quick' || from.grid === 'bag';
 
   // 1. quick action (what a plain right-click / double-click does)
   if (from.kind === 'slot') {
@@ -89,7 +89,8 @@ export function menuEntries(sys: InventoryUI, uid: string, from: ItemLocation, i
         entries.push({ label: TEXT.menu.equipPrimary2, run: () => sys.result(sys.sys.equip(uid, 'primary2') ? 'ok' : 'fail', 'ui_equip', from, uid) });
       }
     }
-    if (from.grid === 'container') entries.push({ label: TEXT.menu.toBag, run: quick });
+    if (from.kind === 'quick') entries.push({ label: TEXT.menu.toBag, run: quick });   // 2026-09-09: 휠 → 가방
+    else if (from.grid === 'container') entries.push({ label: TEXT.menu.toBag, run: quick });
     else if (from.grid === 'stash') entries.push({ label: TEXT.menu.toBag, run: quick });
     else if (hasContainer && !isBagDef(def)) entries.push({ label: TEXT.menu.toContainer, run: quick });
     else if (sys.hub && !isBagDef(def)) entries.push({ label: TEXT.menu.toStash, run: quick });

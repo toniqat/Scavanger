@@ -60,8 +60,8 @@ const _ray = new THREE.Raycaster();
  *   wheel / [ ]               cycle the selection through the furniture storage (null = cursor only)
  *   C   (`CANCEL_KEY`)        cancel the current selection / put a carried piece back — and, with an empty
  *                             cursor, leave the mode just like Esc (Phase 8 UI pass)
- *   Esc (`Keys.MENU`)         same as C (2026-09-08): the mode owns Escape, so cancelling 하우징 모드 no longer
- *                             puts the 일시정지 메뉴 up on top of it
+ *   Esc (`Keys.MENU`)         same as C, but through the shared 닫기 스택 (2026-09-09): the mode registers its own
+ *                             cancel with `ctx.escape`, so a panel opened **on top** of it closes first
  *   M (`Keys.MAP`)            leave 함선 관리 (`closeShipManage`) or plain housing mode (2026-09-08: was Esc)
  *   Tab (`Keys.INVENTORY`)    same as M (2026-09-09: Tab closes every screen / mode). Consumed, so the inventory —
  *                             which polls the key after `HubSystem` — never opens on the press that left the mode.
@@ -175,6 +175,15 @@ export class HousingMode {
     this.manage = true;
     if (this.ctx.uiBlockers.has(MANAGE_BLOCKER)) return;
     this.ctx.uiBlockers.add(MANAGE_BLOCKER);
+    // 2026-09-09: ESC 는 `ctx.escape` 스택이 부른다 (열린 순서의 역순 — 위에 패널이 떠 있으면 그것이 먼저).
+    // 한 번에 한 걸음: 들고 있는 가구 · 골라 둔 선택을 먼저 되돌리고, 빈 커서일 때만 모드를 나간다.
+    // 되돌리기만 한 경우는 **`false`** 를 돌려줘 항목을 스택에 남긴다 — 그러지 않으면 다음 ESC 가 아직 살아
+    // 있는 모드 위로 일시정지 메뉴를 띄운다 (2026-09-08 에 피하려던 바로 그 상태다).
+    this.ctx.escape.push(MANAGE_BLOCKER, () => {
+      if (this.cancelSelection()) return false;
+      this.exit();
+      return true;
+    });
     this.ctx.input.setCursorMode(true, MANAGE_BLOCKER);
   }
 
@@ -264,6 +273,7 @@ export class HousingMode {
     }
     if (wasManage || this.ctx.uiBlockers.has(MANAGE_BLOCKER)) {
       this.ctx.uiBlockers.delete(MANAGE_BLOCKER);
+      this.ctx.escape.remove(MANAGE_BLOCKER);
       this.ctx.input.setCursorMode(false, MANAGE_BLOCKER);
       this.relock();
     }
@@ -332,18 +342,13 @@ export class HousingMode {
     // open on the press that left 시설 관리.
     if (input.wasPressed(Keys.INVENTORY)) { input.consume(Keys.INVENTORY); this.exit(); return; }
     /*
-     * Escape **cancels the mode** (2026-09-08, second pass). The global rule is "Escape 는 일시정지 메뉴를 열기만
-     * 한다", with the documented carve-out that the innermost thing eats it first — and 함선 관리 is exactly that:
-     * it owns the camera and the controls, so a pause menu stacked on top of it left the player in two modes at
-     * once with no way to read which one Escape had meant. `HubSystem` (and therefore this) updates **before**
-     * `GameFlowSystem`, so consuming the key here is what keeps game/ from also opening the menu this frame.
-     * A carried piece / an armed selection is put back first (one Escape = one step back), exactly like C.
+     * Escape **는 여기서 읽지 않는다** (2026-09-09). 2026-09-08 에는 이 모드가 Escape 를 직접 먹고 소비했다 —
+     * 카메라와 조작을 통째로 가져가는 모드 위에 일시정지 메뉴가 쌓이면 플레이어가 두 모드에 동시에 갇혔기
+     * 때문이다. 그 예외는 이제 `ctx.escape` 스택이 일반 규칙으로 대신한다: 모드는 열릴 때 자기 닫기를
+     * 스택에 올리고(`enter`), `game/escapeKey` 가 **가장 나중에 열린 것 하나**만 닫는다. 여기서 계속 키를
+     * 폴링하면 시스템 등록 순서가 이기므로 — `HubSystem` 이 `GameFlowSystem` 보다 먼저 돌아 — 위에 떠 있는
+     * 패널보다 모드가 먼저 닫혔다. C 는 그대로 남는다 (모드 전용 취소 키).
      */
-    if (input.wasPressed(Keys.MENU)) {
-      input.consume(Keys.MENU);
-      if (!this.cancelSelection()) this.exit();
-      return;
-    }
     // C: cancel what the cursor holds; with an empty cursor it leaves the mode, exactly like Esc
     if (input.wasPressed(CANCEL_KEY) && !this.cancelSelection()) { this.exit(); return; }
     if (input.wasPressed(Keys.ROTATE_ITEM)) {

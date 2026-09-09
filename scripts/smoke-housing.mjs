@@ -423,6 +423,51 @@ try {
   ok(smStore.storeHidden === false && smStore.cardsHidden && smStore.rows === smStore.stored,
     `가구 창고 tab lists every stored def (${smStore.rows} / ${smStore.stored})`, JSON.stringify(smStore));
   ok(smStore.rows === 0 || smStore.firstFits, '이 방에 놓을 수 있는 가구가 목록 맨 위에 온다', JSON.stringify(smStore));
+  /* 2026-09-09: 창고 카드 클릭은 선택만, 배치는 카드 오른쪽 `배치` 버튼(.fcard-place)이 첫 빈 칸에 곧바로 놓는다.
+     맞지 않는 카드(`is-blocked`)와 자리가 없는 카드는 버튼이 꺼지고 `.fcard-note` 가 사유(`<용도> 전용` / `자리 없음`)를 적는다. */
+  const smPlace = await H(() => {
+    const root = document.querySelector('.ship-manage');
+    const cards = [...root.querySelectorAll('.sm-store .fcard')];
+    const notes = cards.map((c) => c.querySelector('.fcard-note')?.textContent ?? '');
+    return {
+      rows: cards.length, btns: cards.filter((c) => c.querySelector('.fcard-place')).length,
+      notesOk: notes.every((n) => n === '배치 가능' || n === '자리 없음' || / 전용$/.test(n)),
+      blockedOff: cards.filter((c) => c.classList.contains('is-blocked')).every((c) => c.querySelector('.fcard-place').disabled),
+      fullOff: cards.filter((c) => (c.querySelector('.fcard-note')?.textContent ?? '') === '자리 없음').every((c) => c.querySelector('.fcard-place').disabled),
+      first: cards.find((c) => !c.classList.contains('is-blocked') && !c.querySelector('.fcard-place').disabled)?.dataset.defId ?? null,
+    };
+  });
+  ok(smPlace.btns === smPlace.rows && smPlace.notesOk && smPlace.blockedOff && smPlace.fullOff,
+    `every store row has a 배치 button; blocked / full rows have it disabled with a reason (${smPlace.rows})`, JSON.stringify(smPlace));
+  if (smPlace.first) {
+    const before = await H((id) => {
+      const h = window.__game.ctx.housing;
+      return { placed: h.getPlaced(0).length, stored: h.getStored().filter((s) => s.defId === id).reduce((n, s) => n + s.qty, 0) };
+    }, smPlace.first);
+    await H((id) => document.querySelector(`.ship-manage .sm-store .fcard[data-def-id="${id}"]`).click(), smPlace.first);
+    await sleep(120);
+    const sel = await H((id) => ({
+      ghost: window.__game.ctx.housing.selectedFurniture,
+      hl: document.querySelector(`.ship-manage .sm-store .fcard[data-def-id="${id}"]`)?.classList.contains('is-sel') ?? null,
+    }), smPlace.first);
+    ok(sel.ghost === null && sel.hl === true, `clicking a store card only highlights it — no ghost on the cursor (${smPlace.first})`, JSON.stringify(sel));
+    await H(() => { window.__ev['housing:furniturePlaced'].length = 0; });
+    await H((id) => document.querySelector(`.ship-manage .sm-store .fcard[data-def-id="${id}"] .fcard-place`).click(), smPlace.first);
+    await sleep(160);
+    const after = await H((id) => {
+      const h = window.__game.ctx.housing;
+      return { placed: h.getPlaced(0).length, stored: h.getStored().filter((s) => s.defId === id).reduce((n, s) => n + s.qty, 0) };
+    }, smPlace.first);
+    const placedEv = await lastEv('housing:furniturePlaced');
+    ok(after.placed === before.placed + 1 && after.stored === before.stored - 1 && placedEv?.item?.defId === smPlace.first && placedEv?.item?.room === 0,
+      `배치 → the piece lands in 방 1 on the first free cell, storage −1, housing:furniturePlaced (${smPlace.first} @ ${placedEv?.item?.x},${placedEv?.item?.y} yaw ${placedEv?.item?.yaw})`,
+      JSON.stringify({ before, after, placedEv }));
+    // put the piece back so the rest of the run sees the storage it expects
+    await H((uid) => window.__game.ctx.housing.recover(uid), placedEv?.item?.uid ?? '');
+    await sleep(120);
+  } else {
+    ok(true, 'no placeable store row in 방 1 right now — 배치 click-through skipped', JSON.stringify(smPlace));
+  }
   await H(() => [...document.querySelectorAll('.ship-manage .sm-tabs .sm-tab')].find((b) => b.textContent === '가구 제작').click());
   await sleep(120);
   await H(() => window.__game.ctx.housing.setManageRoom(9));

@@ -79,6 +79,23 @@ UI 화면은 자기 토큰을 추가하고 `ctx.input.setCursorMode(true, TOKEN)
   게임은 계속 돌고, `Input` 이 다음 진짜 제스처에서 락을 재시도하며, 캔버스 좌클릭이 폴백이다.
   **창 포커스를 잃었을 때만 일시정지된다.**
 
+### ESC 닫기 스택 (2026-09-09)
+
+blocker 토큰과 짝을 이루는 두 번째 등록부다. 화면은 `uiBlockers.add(TOKEN)` **옆에서**
+`ctx.escape.push(TOKEN, () => this.close())` 하고, `delete` 옆에서 `ctx.escape.remove(TOKEN)` 한다
+(`shared/escape` 의 `EscapeStack`). Escape 한 번은 **열린 순서의 역순으로 맨 위 하나**를 닫고, 스택이 비어
+있을 때만 일시정지 메뉴가 열린다 — 정책은 `game/parts/Phases.escapeKey` 한 곳이다.
+
+- 순서를 `shared` 가 아는 이유: Tab 공용 닫기처럼 화면마다 키를 폴링하면 닫히는 순서가 **시스템 등록 순서**로
+  정해져(`main.ts`), 위에 뜬 패널보다 아래 모드가 먼저 닫힌다.
+- 한 토큰을 여럿이 나눠 쓰는 곳(`hub`)은 `'hub:terminal'` 처럼 자기 key 를 쓴다. 토큰이 아예 없는 팝업도
+  자기 key 로 올릴 수 있다 (`'hub:crewLoadout'`).
+- 가장 안쪽 팝업(수량 지정 · 우클릭 메뉴 · 경고 팝업 · 설정 · 키 바꾸기 · 채팅 · 콘솔)은 스택에 없다 —
+  자기 **window capture** 핸들러에서 Escape 를 삼켜 `Input` 이 기록조차 못 하게 한다.
+- 일시정지 메뉴 자신은 **데스크톱 앱에서만** Escape 로 닫힌다(`isDesktopShell()`, `ui/menus/PauseMenu`).
+- 닫기 함수가 **`false`** 를 돌려주면 항목이 스택에 남는다 — 화면 안에서 한 걸음만 되돌린 경우
+  (하우징 모드가 들고 있던 가구만 내려놓는 것처럼).
+
 키 레이아웃과 커서의 자세한 사정은 [CONTROLS.md](CONTROLS.md).
 
 ## 5. `src/main.ts` — 부트스트랩

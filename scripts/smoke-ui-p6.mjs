@@ -182,6 +182,9 @@ try {
   });
   ok(/\bshow\b/.test(hh.cls) && hh.on && hh.owner === 'housing', 'ui:keyGuide {owner:housing} → guide .show', JSON.stringify(hh));
   ok(hh.items.join(' · ') === 'LMB 설치 · R 회전 · X 회수 · 휠 선택 · C 취소 · Tab 닫기', 'guide items in order, Tab 닫기 appended last', hh.items.join(' · '));
+  // 2026-09-09: ESC 도 맨 위 화면 하나를 닫으므로 (`game/escapeKey`) 닫기 항목은 keycap 이 둘이다 — Tab 다음에 Esc.
+  const kgClose = await P(() => [...document.querySelectorAll('#ui-root > .key-guide .kg-close .keycap')].map((k) => k.textContent));
+  ok(kgClose.join(' ') === 'Tab Esc', '닫기 항목은 Tab · Esc 두 keycap (ESC 닫기, 2026-09-09)', kgClose.join(' '));
   await emit('ui:keyGuide', { owner: 'housing', keys: null });
   hh = await P(() => { const h = window.__game.getSystem('hud'); return { cls: document.querySelector('#ui-root > .key-guide').className, on: h.isKeyGuideOn, owner: h.keyGuideOwner }; });
   ok(!/\bshow\b/.test(hh.cls) && !hh.on && hh.owner === null, 'ui:keyGuide {keys:null} → guide hidden', JSON.stringify(hh));

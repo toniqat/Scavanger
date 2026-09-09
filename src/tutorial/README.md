@@ -33,7 +33,7 @@
 
 ---
 
-## 단계 (18)
+## 단계 (17)
 
 | # | id | 목표 | 다음으로 넘어가는 신호 |
 |---|---|---|---|
@@ -42,19 +42,27 @@
 | 3 | `generator` | 발전기 가동 (Lv.1) | `housing:facilityUpgraded {id:'generator', level>=1}` |
 | 4 | `workshop` | 빈 방 → 작업실 | `housing:roomPurposeChanged {purpose:'workshop'}` |
 | 5 | `bench` | 총기 작업대 **제작** | `housing:changed {reason:'craft'}` + 창고에 `furn_bench_gun` |
-| 6 | `benchPlace` | 가구 창고 → 작업실에 **배치** | `housing:furniturePlaced {defId:'furn_bench_gun'}` |
+| 6 | `benchPlace` | 가구 창고 → 작업실에 **배치** (카드의 `배치` 버튼 또는 바닥 클릭) | `housing:furniturePlaced {defId:'furn_bench_gun'}` |
 | 7 | `manageDone` | 함선 관리 닫기 | `housing:shipManageChanged {active:false}` |
 | 8 | `craftGun` | 작업대에서 돌격소총 | `craft:completed {recipeId:'make_wpn_ar'}` |
-| 9 | `openBag` | 제작 창 닫기 (장비 칸이 돌아온다) | `ui:craftToggled {open:false}` · 또는 제작 열 없이 `inventory:opened` |
-| 10 | `equipGun` | 주무기 칸에 장착 | `loadout:changed` + 주무기가 `wpn_ar` |
-| 11 | `openCraft` | 가방의 **제작** 버튼으로 제작 창 열기 | 제작 열이 열린다 (아래 참고) |
-| 12 | `craftAmmo` | 준중량탄 제작 | `craft:completed {recipeId:'bulk_ammo_medium'}` |
-| 13 | `stowAmmo` | 탄약을 가방에 | `inventory:changed` + 가방에 `ammo_medium` |
-| 14 | `terminal` | 조종석 터미널 | `hub:terminalToggled {open:true}` |
-| 15 | `planet` | 목표 행성 지정 | `hub:planetChanged` |
-| 16 | `travel` | 워프 대기 | `hub:travel {stage:'end'}` |
-| 17 | `board` | 발사 슬롯 탑승 | `hub:slotChanged` (로컬) 또는 `game:newMission` |
-| 18 | `raid` | 탈출 지점 확인 | `world:ready` 6초 뒤 자동 종료 |
+| 9 | `craftAmmo` | **같은 창에서** 준중량탄 | `craft:completed {recipeId:'bulk_ammo_medium'}` |
+| 10 | `openBag` | 제작 창 닫기 (장비 칸이 돌아온다) | `ui:craftToggled {open:false}` · 또는 제작 열 없이 `inventory:opened` |
+| 11 | `equipGun` | **주무기 I 또는 II** 칸에 장착 | `loadout:changed` + `primary`/`primary2` 가 `wpn_ar` |
+| 12 | `stowAmmo` | 탄약을 가방에 | `inventory:changed` + 가방에 `ammo_medium` |
+| 13 | `terminal` | 조종석 터미널 | `hub:terminalToggled {open:true}` |
+| 14 | `planet` | 목표 행성 지정 | `hub:planetChanged` |
+| 15 | `travel` | 워프 대기 | `hub:travel {stage:'end'}` |
+| 16 | `board` | 발사 슬롯 탑승 | `hub:slotChanged` (로컬) 또는 `game:newMission` |
+| 17 | `raid` | 탈출 지점 확인 | `world:ready` 6초 뒤 자동 종료 |
+
+> **2026-09-09 — `openCraft` 는 순서에서 빠졌다** (17단계). 소총과 탄약을 **작업대 한 번**에 만들므로 장착 뒤에
+> 제작 창을 다시 열 일이 없다. id 는 `TutorialStepId` 계약에 남아 있고 (`Steps.ts` 의 표에도 자리를 둔다 —
+> `stepDef` 가 언제나 정의를 돌려주도록), 진행 중이던 세이브는 `normalizeStep('openCraft') → 'craftAmmo'` 로
+> 옮겨 붙는다. 순서에 있는 id 인지는 `isOrderedStep` 이 판정한다.
+>
+> **단계 사이에 반 박자**(`TUTORIAL_STEP_DELAY_S`, 0.5초)가 있다. 새 화면이 먼저 보이고 스포트라이트 · 바닥
+> 안내선이 그 뒤에 뜬다 — 작업대를 눌렀을 때 제작 창이 뜨기도 전에 구멍이 뚫려 있던 문제를 없앤다. 어두운 판은
+> `TUTORIAL_DIM_FADE_S` 동안 서서히 어두워진다 (`.tut-spot.is-lit`).
 
 > `openCraft` 는 2026-09-09 에 생겼다 (사용자 요청). 장착까지 마치고 나면 다음 할 일이 "탄약을 만든다"인데
 > 제작 창이 닫혀 있어서, 안내는 제작 행을 가리키는데 그 행이 화면에 없었다. 이제 **가방 우측 상단의 `제작`
@@ -147,7 +155,7 @@
 
 1. **바닥 (한 번)** — `craftGun` 에 들어설 때 `TUTORIAL_CRAFT_GRANT`(폐금속 16 · 합금 2 · 화약 20)를 넣는다
    (`granted` 플래그로 튜토리얼당 한 번).
-2. **top-up (2026-09-09, 멱등)** — 제작 단계(`craftGun` · `openCraft` · `craftAmmo`)에 들어설 때마다
+2. **top-up (2026-09-09, 멱등)** — 제작 단계(`craftGun` · `craftAmmo`)에 들어설 때마다
    `ensureMaterials(recipeId)` 가 **그 레시피의 재료를 하나씩 보고 `필요 − 보유` 만큼만** 더 준다. 필요량은
    레시피(`ctx.loot`)에서 읽으므로 코드에 숫자가 없고, 보유는 `canCraft` 와 같은 자리(가방)를 본다. 가방부터
    넣고 자리가 없으면 함선 창고로 (`tryAddItemAnywhere`). 모자란 것이 없으면 아무 일도 없고 토스트도 뜨지 않는다.
@@ -161,7 +169,7 @@ Lv.1 이 대량 탄약밖에 못 만들어 "작업대로 총을 만든다"는 �
 
 ## 스모크
 
-`scripts/smoke-tutorial.mjs` (67). **다른 스모크는 전부** `evaluateOnNewDocument` 에서
+`scripts/smoke-tutorial.mjs` (83). **다른 스모크는 전부** `evaluateOnNewDocument` 에서
 `scav.tutorial` 을 `done` 으로 심고 시작한다 — 튜토리얼은 새 프로필에서 자동으로 켜져 그 스크립트들이
 드라이브하는 행동을 순서대로 잠그기 때문이다.
 
@@ -227,3 +235,31 @@ Lv.1 이 대량 탄약밖에 못 만들어 "작업대로 총을 만든다"는 �
 `travel {end}` 가 이미 지나간 뒤였다. 이제 `planet` 은 **`hub:travel {start}`**(워프 시작)에서 넘어가므로 두
 단계가 워프의 앞뒤를 하나씩 맡는다. `hub:planetChanged` 구독은 도착만 보고 들어오는 경로의 보험으로 남겨 뒀다
 (`advanceIf` 는 현재 단계가 아니면 아무것도 하지 않는다).
+
+### 2026-09-09 — 반 박자 지연이 스포트라이트를 영영 안 띄우던 문제
+
+`TUTORIAL_STEP_DELAY_S` 를 넣은 첫 구현이 `parts/Spotlight.update` 에서 이렇게 셌다:
+
+```ts
+if (this.wait > 0) this.wait -= dt;                 // 음수로 넘어간다
+...
+if (this.wait < 0) this.wait = TUTORIAL_STEP_DELAY_S;   // 그 음수를 "대상이 지금 나타났다" 로 읽는다
+if (this.wait > 0) { this.timer = Math.min(RETARGET_INTERVAL, this.wait); return; }
+```
+
+`timer` 를 `min(RETARGET_INTERVAL, wait)` 로 잡는 순간 **둘이 같은 값이 되어** 늘 같은 프레임에 0 을 지난다.
+그 프레임에서 `wait` 은 아주 작은 **음수**가 되고, 바로 아래 줄이 그것을 `-1`(아직 안 세고 있다) 표식으로
+오해해 0.5초를 다시 세기 시작한다 — `place()` 는 `wait` 이 **정확히 0** 인 프레임에만 도달하므로 사실상
+영영 안 온다. 계측값은 0.5 → 0.0004 → 0.5 → 0.0002 … 의 무한 반복이었고, 실제로 켜지기까지 23.7초가
+걸리거나 60초 안에 끝내 안 켜졌다 (설계값 0.5초).
+
+고친 것은 한 줄이다 — **세는 동안 0 밑으로 내려가지 않게** 한다:
+
+```ts
+if (this.wait > 0) this.wait = Math.max(0, this.wait - dt);
+```
+
+`-1` 은 "아직 세고 있지 않다" 는 **별개의 표식**이므로 이제 그 뜻으로만 읽힌다. 같은 지연을 쓰는
+`parts/Guide` 는 처음부터 `if (this.wait > 0) { this.wait -= dt; if (this.wait > 0) return; }` 모양이라
+멀쩡했다 (~490 ms). 카운터를 두 개(`wait` · `timer`) 돌리면서 하나를 다른 하나로 잡아 줄 때는
+**표식 값과 오버슈트가 겹치지 않는지** 확인한다.

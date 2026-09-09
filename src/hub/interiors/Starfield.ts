@@ -71,6 +71,12 @@ export class Starfield {
  * A lit planet sphere with a thin emissive atmosphere shell (seen through viewports, and — since Phase 11 — inside
  * the terminal's planet hologram). `setColors` re-tints it in place so the ship's window planet can follow the
  * 목표 행성 without rebuilding the geometry, and `setOpacity` drives the hologram's `PLANET_SWAP_TIME` cross-fade.
+ *
+ * **2026-09-09 (목표 행성이 없으면 창밖에 행성도 없다):** `group.visible` is owned here and is the AND of two gates —
+ * `setShown(on)` (is there a destination at all? the hub decides from `HubRef.planet`) and the opacity being above
+ * `HIDE_BELOW` (the warp fade). Neither caller touches `group.visible` directly, so the two never fight: a hidden
+ * planet stays hidden through a warp's fade-in until the destination is known, and a shown planet still vanishes at
+ * opacity 0 (an invisible-but-drawn sphere would write depth and punch a hole in the streaks behind it).
  */
 export class Planet {
   readonly group = new THREE.Group();
@@ -80,6 +86,11 @@ export class Planet {
   /** Atmosphere opacity at full strength (`setOpacity` scales this, never overwrites it). */
   private readonly shellBase: number;
   private readonly spin: number;
+  /** Below this opacity the sphere is not drawn at all (depth-write hole in the warp streaks otherwise). */
+  private static readonly HIDE_BELOW = 0.01;
+  /** Destination gate (`setShown`); defaults to visible so the hologram and legacy callers behave as before. */
+  private shown = true;
+  private opacity = 1;
 
   constructor(radius: number, color: number, atmo: number, spin = 0.01, shellOpacity = 0.16) {
     const g = new THREE.SphereGeometry(radius, 40, 28);
@@ -103,12 +114,31 @@ export class Planet {
     this.shellMat.color.setHex(atmo);
   }
 
-  /** 0..1 fade for the hologram swap (1 = the material's own opacity). */
+  /** 0..1 fade for the hologram swap / warp (1 = the material's own opacity). Opacity ≈ 0 also hides the group. */
   setOpacity(o: number): void {
     const k = THREE.MathUtils.clamp(o, 0, 1);
+    this.opacity = k;
     this.bodyMat.transparent = k < 1;
     this.bodyMat.opacity = k;
     this.shellMat.opacity = this.shellBase * k;
+    this.applyVisible();
+  }
+
+  /**
+   * Destination gate (2026-09-09): `false` = there is no 목표 행성, so nothing hangs outside the window whatever the
+   * opacity says; `true` = the planet shows as the fade allows. Independent of `setOpacity` — both are ANDed.
+   */
+  setShown(on: boolean): void {
+    if (this.shown === on) return;
+    this.shown = on;
+    this.applyVisible();
+  }
+
+  /** Whether the destination gate is open (debug / smoke). */
+  get isShown(): boolean { return this.shown; }
+
+  private applyVisible(): void {
+    this.group.visible = this.shown && this.opacity > Planet.HIDE_BELOW;
   }
 
   update(dt: number): void { this.group.rotation.y += dt * this.spin; }

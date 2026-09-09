@@ -16,7 +16,11 @@ export type GridId = 'bag' | 'container' | 'stash';
 export type SlotId = LoadoutSlot;
 export const LOADOUT_SLOTS: readonly LoadoutSlot[] = ['primary', 'primary2', 'secondary', 'bag', 'armor'];
 export const WEAPON_SLOT_IDS: readonly WeaponSlot[] = ['primary', 'primary2', 'secondary'];
-export type ItemLocation = { kind: 'grid'; grid: GridId } | { kind: 'slot'; slot: SlotId };
+/**
+ * Where an item lives. `quick` (2026-09-09): a stack sitting **in** wheel slot `index` — the wheel is its own container
+ * since that date, so an item there is in no grid (`locKind` = 'player', like the equipment slots).
+ */
+export type ItemLocation = { kind: 'grid'; grid: GridId } | { kind: 'slot'; slot: SlotId } | { kind: 'quick'; index: number };
 export type DropTarget =
   | { kind: 'grid'; grid: GridId; x: number; y: number; rotated: boolean }
   | { kind: 'slot'; slot: SlotId }

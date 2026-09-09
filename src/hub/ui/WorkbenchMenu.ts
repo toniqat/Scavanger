@@ -84,6 +84,7 @@ export class WorkbenchMenu {
     this._open = true;
     this.ctx.uiBlockers.add('hub');            // before the cursor mode (GameFlow / hub UI etiquette)
     // Phase 10: keep the pointer lock and drive the software cursor instead of handing the OS cursor back.
+    this.ctx.escape.push('hub:workbench', () => this.close());
     this.ctx.input.setCursorMode(true, 'hub');
     this.root.hidden = false;
     this.frame.style.animation = 'none';
@@ -102,6 +103,7 @@ export class WorkbenchMenu {
     this.root.hidden = true;
     (document.activeElement as HTMLElement | null)?.blur?.();
     this.ctx.uiBlockers.delete('hub');
+    this.ctx.escape.remove('hub:workbench');
     this.ctx.input.setCursorMode(false, 'hub');
     this.ctx.bus.emit('ui:keyGuide', { owner: 'workbench', keys: null });
     this.ctx.bus.emit('hub:workbenchToggled', { open: false });
@@ -264,7 +266,11 @@ export class WorkbenchMenu {
   dispose(): void {
     for (const u of this.unsubs) u();
     this.unsubs.length = 0;
-    if (this._open) { this.ctx.uiBlockers.delete('hub'); this.ctx.input.setCursorMode(false, 'hub'); }
+    if (this._open) {
+      this.ctx.uiBlockers.delete('hub');
+      this.ctx.escape.remove('hub:workbench');
+      this.ctx.input.setCursorMode(false, 'hub');
+    }
     this.root.remove();
   }
 }

@@ -248,6 +248,7 @@ HUD 는 `ui/hud/ImplantWidget` 의 크로스헤어 좌측 세로 게이지 (대�
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
+- **2026-09-09 (갈고리 쿨타임 2배)** — `IMPLANT_GRAPPLE_COOLDOWN` 6 → 12 s (`data/constants.csv` 만 바뀌었다, 코드 무변경).
 - **Phase 7** — overcharge beam replicated over `imp beam {target, self}` (≤ 4 Hz, immediate off) and drawn by `RemoteImplants` (caster socket → target chest, self glow)
 
 - **Phase 9** — `raycastBarrier` is a **pure** query and `damageBarrier(owner, point, amount?)` is the single damage entry point (a per-tick line-of-sight test no longer chews the shield), the owner re-sends `imp barrier` on `flow rejoined` so a late joiner sees a standing shield, the duplicate `'revive'` buff branch moved out (gadgets own it), `debugBeam(peerId)` for the tests

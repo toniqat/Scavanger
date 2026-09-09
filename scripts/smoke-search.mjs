@@ -194,18 +194,24 @@ try {
   const calls = await page.evaluate(() => window.__profileCalls);
   const stashCall = calls.find((c) => c[0] === 'stash'), loadoutCall = calls.find((c) => c[0] === 'loadout');
   ok(stashCall && stashCall[1].v === 2 && stashCall[1].items.some((i) => i.defId === 'mat_scrap' && i.qty === 4), 'stash save → profile.set("stash", file v2)', JSON.stringify(stashCall && stashCall[1]));
-  ok(loadoutCall && loadoutCall[1].v === 1 && loadoutCall[1].bag.some((i) => i.defId === 'mat_alloy'), 'loadout save → profile.set("loadout", file v1)', JSON.stringify(loadoutCall && { v: loadoutCall[1].v, bag: loadoutCall[1].bag.length }));
+  // 2026-09-09: LOADOUT_SAVE_VERSION 2 — `quick[i]` is the serialized stack itself, never an index into `bag`
+  ok(loadoutCall && loadoutCall[1].v === 2 && loadoutCall[1].bag.some((i) => i.defId === 'mat_alloy')
+    && Array.isArray(loadoutCall[1].quick) && loadoutCall[1].quick.length === 8
+    && loadoutCall[1].quick.every((q) => q === null || (!!q && typeof q === 'object' && typeof q.defId === 'string')),
+    'loadout save → profile.set("loadout", file v2 with the wheel stacks)', JSON.stringify(loadoutCall && { v: loadoutCall[1].v, bag: loadoutCall[1].bag.length, quick: loadoutCall[1].quick }));
   // a server record replaces the local state
   const loaded = await page.evaluate(() => {
     const ctx = window.__game.ctx;
     const sys = window.__game.getSystem('inventory');
     const before = { stashChanged: window.__ev['inventory:stashChanged'].length, loadout: window.__ev['loadout:changed'].length, saved: window.__ev['inventory:loadoutSaved'].length, calls: window.__profileCalls.length };
     const stashDoc = { v: 2, cols: 10, rows: 24, items: [{ defId: 'mat_gunpowder', qty: 7, rotated: false, x: 2, y: 3 }, { defId: 'wpn_smg', qty: 1, rotated: false, x: 0, y: 0, durability: 55, ammoInMag: 9 }] };
-    const loadoutDoc = { v: 1, slots: { primary: { defId: 'wpn_sg', qty: 1, durability: 210, ammoInMag: 4 }, bag: { defId: 'bag_common', qty: 1 } }, bag: [{ defId: 'heal_bandage', qty: 2, rotated: false, x: 1, y: 1 }], quick: [null, null, null, null, 0, null, null, null] };
+    // deliberately a **v1** document (quick = bag indices): `sanitizeLoadoutSave` migrates it on the profile path too,
+    // lifting the stim out of `bag` onto the wheel while `mat_scrap` (no wheel slot) stays in the grid.
+    const loadoutDoc = { v: 1, slots: { primary: { defId: 'wpn_sg', qty: 1, durability: 210, ammoInMag: 4 }, bag: { defId: 'bag_common', qty: 1 } }, bag: [{ defId: 'heal_bandage', qty: 2, rotated: false, x: 1, y: 1 }, { defId: 'mat_scrap', qty: 4, rotated: false, x: 0, y: 2 }], quick: [null, null, null, null, 0, null, null, null] };
     ctx.bus.emit('net:profileLoaded', { profile: { credits: 120, docs: { stash: stashDoc, loadout: loadoutDoc }, updatedAt: Date.now() }, migrated: false });
     const stash = sys.getStash().items().map((p) => ({ defId: p.item.defId, qty: p.item.qty, x: p.x, y: p.y, durability: p.item.durability ?? null, ammoInMag: p.item.ammoInMag ?? null })).sort((a, b) => a.y - b.y || a.x - b.x);
     const l = sys.getLoadout();
-    const quick = sys.getQuickSlots().map((i) => i ? i.defId : null);
+    const quick = sys.getQuickSlots().map((i) => i ? { defId: i.defId, qty: i.qty } : null);
     const file = JSON.parse(localStorage.getItem('scav.s1.loadout'));
     const stashFile = JSON.parse(localStorage.getItem('scav.s1.stash'));
     return {
@@ -218,8 +224,11 @@ try {
   ok(loaded.stash.length === 2 && loaded.stash[0].defId === 'wpn_smg' && loaded.stash[0].durability === 55 && loaded.stash[0].ammoInMag === 9 && loaded.stash[1].defId === 'mat_gunpowder' && loaded.stash[1].x === 2 && loaded.stash[1].y === 3,
     'net:profileLoaded: the stash document replaces the local stash (placements + durability / rounds)', JSON.stringify(loaded.stash));
   ok(loaded.stashChanged >= 1 && loaded.stashFile.join() === ['mat_gunpowder', 'wpn_smg'].join(), 'stash replaced → inventory:stashChanged + localStorage mirror', JSON.stringify([loaded.stashChanged, loaded.stashFile]));
-  ok(loaded.primary?.defId === 'wpn_sg' && loaded.primary.durability === 210 && loaded.primary.ammoInMag === 4 && loaded.secondary === null && loaded.bag.join() === 'heal_bandage' && loaded.quick[4] === 'heal_bandage',
-    'net:profileLoaded: the loadout document replaces slots / bag / quick slots', JSON.stringify({ p: loaded.primary, bag: loaded.bag, quick: loaded.quick }));
+  // the wheel entry is the stack itself now, so it is read off the slot — a bag lookup would never find it
+  ok(loaded.primary?.defId === 'wpn_sg' && loaded.primary.durability === 210 && loaded.primary.ammoInMag === 4 && loaded.secondary === null
+    && loaded.bag.join() === 'mat_scrap' && loaded.quick[4]?.defId === 'heal_bandage' && loaded.quick[4].qty === 2
+    && loaded.quick.filter(Boolean).length === 1,
+    'net:profileLoaded: the loadout document replaces slots / bag / wheel (a v1 doc migrates: the stim lands on the wheel, out of the grid)', JSON.stringify({ p: loaded.primary, bag: loaded.bag, quick: loaded.quick }));
   ok(loaded.loadoutEv >= 1 && loaded.savedProfile.includes('profile') && !loaded.echoed.includes('loadout') && loaded.fileSlots.join() === 'bag,primary',
     'loadout replaced → loadout:changed, local file rewritten (reason profile) without echoing the doc back', JSON.stringify({ ev: loaded.loadoutEv, saved: loaded.savedProfile, echoed: loaded.echoed, fileSlots: loaded.fileSlots }));
   // Phase 9: the inventory keeps no offline queue of its own — a save made while the server is unreachable is still
@@ -514,8 +523,11 @@ try {
     return { state, flaggedUid: flagged.uid, stimCount: stims.length, json: JSON.stringify(state).length };
   });
   const before = await snapshot();
-  ok(raid.state && raid.state.v === 1 && raid.state.raid === 1 && Array.isArray(raid.state.bag) && raid.state.slots.primary?.durability === 123 && raid.state.slots.primary?.ammoInMag === 5 && raid.state.slots.primary?.sockets?.muzzle?.defId === 'att_brake',
-    'captureRaidState: loadout-save shape with durability / rounds / sockets', JSON.stringify(raid.state.slots.primary));
+  // `raid` is the blob marker (still 1); `v` is LOADOUT_SAVE_VERSION, which the wheel-as-container change moved to 2
+  ok(raid.state && raid.state.v === 2 && raid.state.raid === 1 && Array.isArray(raid.state.bag) && raid.state.slots.primary?.durability === 123 && raid.state.slots.primary?.ammoInMag === 5 && raid.state.slots.primary?.sockets?.muzzle?.defId === 'att_brake'
+    && Array.isArray(raid.state.quick) && raid.state.quick.length === 8
+    && raid.state.quick.every((q) => q === null || (!!q && typeof q === 'object' && typeof q.defId === 'string')),
+    'captureRaidState: v2 loadout-save shape with durability / rounds / sockets and the wheel stacks', JSON.stringify({ v: raid.state?.v, raid: raid.state?.raid, primary: raid.state?.slots.primary, quick: raid.state?.quick }));
   ok(raid.state.bag.some((e) => e.defId === 'mat_alloy' && e.searched === false) && raid.state.bag.filter((e) => e.searched === false).length === 1 && raid.state.bag.every((e) => e.searched === undefined || typeof e.searched === 'boolean'),
     'captureRaidState: `searched` mirrors the instances (false only on the flagged bag entry)', JSON.stringify(raid.state.bag.map((e) => [e.defId, e.searched])));
   const applied = await page.evaluate((state) => {

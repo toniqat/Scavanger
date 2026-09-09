@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import {
   BEHEMOTH_KNOCKBACK, BURNOUT_DURATION, CORPSE_LAND_TIMEOUT, CORPSE_LIFETIME, ENEMY_DEATH_DIRS, ENEMY_SHOT_ALERT_DIST, ENEMY_SHOT_IMPACT_DIST, ENEMY_STATUS_BITS, FLAME_AFTERBURN_DPS, FLAME_AFTERBURN_DURATION, GADGET_LURE_RADIUS, MAP_SIZE,
   NET_ENEMY_SNAPSHOT_HZ, PLAYER_HEIGHT, PLAYER_RADIUS, ROGUE_DAMAGE, ROGUE_GRENADE_DAMAGE, ROGUE_GRENADE_FUSE, ROGUE_GRENADE_RADIUS, ROGUE_MAG_ROUNDS, ROGUE_RANGE,
-  SHELL_BLAST_RADIUS, SHELL_DAMAGE, SHELL_FLIGHT_TIME, SHOCK_SLOW_DURATION, SHOCK_SLOW_FACTOR, TOXIC_DAMAGE, TOXIC_RADIUS, getPlanet,
+  SHELL_BLAST_RADIUS, SHELL_DAMAGE, SHELL_FLIGHT_TIME, SHELL_LEAD_MAX, SHOCK_SLOW_DURATION, SHOCK_SLOW_FACTOR, TOXIC_DAMAGE, TOXIC_RADIUS, getPlanet,
   type DamageMessage, type EnemyDeathDir, type EnemyEvent, type EnemyFaction, type EnemyHit, type EnemyManagerRef, type EnemyRef, type EnemySnapshot, type EnemyStatusKind, type EnemyType, type GameContext, type GameSystem,
   type HitRequest, type InterceptableRef, type PeerId, type PlanetEcosystem, type ShotReport, type Vec3Tuple, type WorldRef,
 } from '@/shared';
@@ -35,7 +35,7 @@ import { animHint, encodeSnapshot, round, SnapshotCache, tuple } from '../net/Ho
 import { CorpseManager, rollCorpseLootable, type CorpseWireOpts } from '../Corpses';
 import { placeRogueGuards, type RogueSpawnHost } from '../RogueGuards';
 import { raySphere, rayCapsule, rayStandingCapsule } from '../RayTests';
-import { BARRIER_BUMP_INTERVAL, BARRIER_RETARGET_S, BURN_TICK, CLASH_RADIUS, CLASH_THROTTLE, CORPSE_SLACK, EMBER_INTERVAL, FLEE_DURATION, GRENADE_KNOCKBACK, GRENADE_LOB_SPEED, GRENADE_NOISE, GUNFIRE_LURE_DURATION, GUNFIRE_LURE_WEIGHT, INCAP_EMBER_INTERVAL, MAX_REQUEST_DAMAGE, MAX_REQUEST_RADIUS, MAX_SHOT_RANGE, MAX_STATUS_DURATION, PROMOTE_ID_GAP, PROMOTE_SEQ_GAP, RECYCLE_DISTANCE, SHIELD_CONTACT_Y, SHOCK_SPARK_TIME, SHOT_CHECK_INTERVAL, SPARK_INTERVAL, STATUS_REQUEST_INTERVAL, SUSPICION_RADIUS, SUSPICION_REFRESH, _aim, _c, _dir, _eye, _hc, _hd, _hp, _kb, _m, _sd, _sh, _so, _to, _v, _v2, _zero, deathDirIndex, isVec3Tuple, killedBuf, queryBuf } from '../model';
+import { BARRIER_BUMP_INTERVAL, BARRIER_RETARGET_S, BURN_TICK, CLASH_RADIUS, CLASH_THROTTLE, CORPSE_SLACK, EMBER_INTERVAL, FLEE_DURATION, GRENADE_KNOCKBACK, GRENADE_LOB_SPEED, GRENADE_NOISE, GUNFIRE_LURE_DURATION, GUNFIRE_LURE_WEIGHT, INCAP_EMBER_INTERVAL, MAX_REQUEST_DAMAGE, MAX_REQUEST_RADIUS, MAX_SHOT_RANGE, MAX_STATUS_DURATION, PROMOTE_ID_GAP, PROMOTE_SEQ_GAP, RECYCLE_DISTANCE, SHIELD_CONTACT_Y, SHOCK_SPARK_TIME, SHOT_CHECK_INTERVAL, SPARK_INTERVAL, STATUS_REQUEST_INTERVAL, SUSPICION_RADIUS, SUSPICION_REFRESH, _aim, _c, _dir, _eye, _hc, _hd, _hp, _kb, _lead, _m, _sd, _sh, _so, _to, _v, _v2, _zero, deathDirIndex, isVec3Tuple, killedBuf, queryBuf } from '../model';
 import type { EnemySystem } from '../EnemySystem';
 
 /** Spit at an explicit point (smoke return fire / deployables) — the glob still hurts whoever it lands on. */
@@ -194,13 +194,22 @@ export function shotFx(sys: EnemySystem, from: THREE.Vector3, to: THREE.Vector3,
   if (hit) sys.playAudio('hit_flesh', to, 0.6, 0.9);
   }
 
-/** Artillery: shell `sid` toward the target's predicted position, landing after SHELL_FLIGHT_TIME. */
+/**
+ * Artillery: shell `sid` toward the target's predicted position, landing after SHELL_FLIGHT_TIME.
+ * The lead is half the flight time of the target's current velocity, **clamped to `SHELL_LEAD_MAX`** (2026-09-09): with a
+ * 6.3 s flight a sprinting player would otherwise be led by ~19 m — a shell that lands where you are *going* is not
+ * dodgeable, one that lands a few metres ahead of where you *are* is.
+ */
 export function fireShell(sys: EnemySystem, e: Enemy, target: CombatTarget): void {
   const ctx = sys.ctx;
   const world = ctx.world;
   if (!world || !sys.shells) return;
   const sid = sys.nextShellId++;
-  _aim.copy(target.position).addScaledVector(target.velocity, SHELL_FLIGHT_TIME * 0.5);
+  _lead.copy(target.velocity).multiplyScalar(SHELL_FLIGHT_TIME * 0.5);
+  _lead.y = 0;
+  const leadLen = _lead.length();
+  if (leadLen > SHELL_LEAD_MAX) _lead.multiplyScalar(SHELL_LEAD_MAX / leadLen);
+  _aim.copy(target.position).add(_lead);
   _aim.x += (Math.random() - 0.5) * 3; _aim.z += (Math.random() - 0.5) * 3;
   _aim.y = world.getHeightAt(_aim.x, _aim.z);
   _m.set(e.position.x, e.position.y + e.stats.height * 0.95, e.position.z);

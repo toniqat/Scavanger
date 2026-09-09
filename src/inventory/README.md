@@ -809,3 +809,42 @@ Data-driven off the frozen contract (`ItemCategory 'implant'`, `ItemDef.implant`
   분해 팝업도 같은 `craftHasRoom` 을 쓰므로 함께 따라간다.
   *(재료 쪽은 그대로 **가방만** 본다 — `canCraft` → `countDef` → `countWhere`. 가방 + 창고를 함께 쓰는 것은
   가구 제작 · 시설 업그레이드(`housing/`, `countDefAll`) 쪽이다.)*
+
+### 2026-09-09 — ESC 닫기
+
+`setOpen(true)` 가 `ctx.uiBlockers.add` 옆에서 `ctx.escape.push(BLOCKER_TOKEN, () => this.closeAll())` 하고
+`setOpen(false)` 가 `remove` 한다. 창(가방 · 컨테이너 · 함선 3열 · 캐릭터 / 기업 / 함선 탭)이 ESC 로도 닫힌다 —
+열린 화면 중 맨 위 하나만이므로 위에 다른 화면이 있으면 그것이 먼저다 (`shared/escape`, `game/escapeKey`).
+**팝업 우선 규칙은 그대로다**: `escHandler` 가 `closePopups()` 로 수량 지정 · 우클릭 메뉴 · 분해 · 수리 ·
+임플란트 피커를 먼저 취소하고 `stopPropagation` 하므로 그 Escape 는 `Input` 에 기록조차 되지 않는다.
+
+### 2026-09-09 — 퀵슬롯은 또 하나의 가방 공간이다
+
+사용자 결정: **소모품을 퀵슬롯에 올리면 가방 격자에서 사라진다.** 예전에는 퀵슬롯이 가방 아이템의 `uid` 를
+가리키는 링크였고 스택은 격자에 그대로 있었다 — 같은 물건이 두 곳에 보였다.
+
+- **모델** (`QuickSlots.ts`) — `QuickSlotUids`(uid 배열) → **`QuickSlotItems`**(`ItemInstance` 배열). 링크 시절의
+  `assignQuickSlot` · `relinkQuickSlot` · `pruneQuickSlots` · `clearQuickSlotOf` · `autoAssignQuickSlots` 는 함께
+  사라졌고, 대신 컨테이너로서 필요한 것들이 들어왔다: `lockedQuickItems`(작은 가방이 못 여는 칸의 스택),
+  `mergeIntoQuick`(주움 · 제작이 휠 스택부터 채운다), `pickStarterQuick`(시작 키트가 **고르기만** 하고 옮기는 것은
+  부르는 쪽). `quickSlotsSignature` 는 uid 해석 함수 없이 `(slots, active)` 두 인자다.
+- **이동** (`InventorySystem.setQuickSlot`) — 가방 → 칸은 **옮기기**다(격자 칸이 빈다). 칸에 있던 것은 가방으로
+  돌아가고, **가방에 자리가 없으면 이동 자체를 거절한다**(`inventory:full`) — 휠 아이템을 조용히 없애거나
+  바닥에 떨어뜨리지 않는다. 이미 휠에 있는 스택을 다른 칸으로 옮기는 것은 두 칸을 맞바꾸는 것이고 가방을
+  건드리지 않는다. `unregisterQuick(index)` 가 반대 방향(칸 → 가방)이다.
+- **질의** — `countWhere` · `consumeWhere` · `getWeight` · `getTotalValue` · `findItem` · `locate` · `takeItem` 이
+  휠을 함께 본다 (`locate` 를 빠뜨리면 휠 스택을 **버릴 수 없다** — `dropItem` 이 uid 를 그것으로 푼다)
+  (퀵슬롯의 붕대도 들고 다니는 짐이고 레시피 재료다). `consumeWhere` 는 **가방을 먼저** 비우고 휠은 마지막이다 —
+  일부러 올려 둔 것이 레시피에 먼저 먹히지 않게. `consumeItem(uid)` 는 반대로 **휠을 먼저** 본다 (빠른 사용의 손이
+  거기서 꺼낸다). `getAllItems()` 는 여전히 가방 격자만이다 (거래 · 수리 목록).
+- **예외: `splitItem` 은 격자 전용이다** (`locateInGrids`). 휠 칸은 한 칸이라 쪼갠 스택을 놓을 자리가 없다 —
+  나눠야 하면 먼저 가방으로 되돌린다.
+- **위치** (`model.ts`) — `ItemLocation` 에 `{ kind: 'quick'; index }` 가 추가됐다(`locKind` 는 `'player'`).
+  UI 는 휠 칸을 그 위치로 넘긴다 — 예전처럼 `BAG_LOC` 으로 넘기면 `findItem` 이 못 찾는다. 무기는 휠에 오지
+  않으므로 소켓 · 장비 슬롯 경로는 `quick` 을 거절한다.
+- **세이브** (`Loadout.ts`, `LOADOUT_SAVE_VERSION` 1 → **2**) — `quick[i]` 가 `bag` 인덱스가 아니라 **스택 자체**
+  (`SavedExtras`)다. **v1 파일은 읽을 때 이관된다**(`sanitizeLoadoutSave`): v1 의 `quick` 인덱스가 가리키던 항목을
+  `bag` 에서 **빼내** `quick` 으로 옮긴다 — 살아 있는 모델과 같은 모양이 된다. 레이드 세션 blob · 크루 카드도
+  같은 함수를 지나므로 함께 따라간다.
+- **사망 · 가방 교체** — `stripForCorpse` 가 휠 스택도 시체에 넣는다. 가방을 더 작은 것으로 바꾸면
+  `lockedQuickItems` 로 잠긴 칸의 스택을 가방으로 되돌리고, 그것도 넘치면 기존 `overflow` 와 함께 바닥에 떨어진다.

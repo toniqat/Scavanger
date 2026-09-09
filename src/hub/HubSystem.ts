@@ -558,8 +558,11 @@ export class HubSystem implements GameSystem, HubRef {
     /*
      * 2026-09-08 (ESC = 항상 일시정지): the hub does not read Escape any more. Every screen here closes on the key
      * that opened it — the 터미널 and the 정비 벤치 on **E** (both hang off an `Interactable`), the 분대원 장비
-     * popup on another right-click or its 닫기 button — and Escape falls straight through to game/, which puts the
-     * 일시정지 메뉴 over whatever is open.
+     * popup on another right-click or its 닫기 button — and Escape falls straight through to game/.
+     *
+     * 2026-09-09 (ESC 닫기): 그 Escape 가 이제 **화면을 닫는다**. 여기서 키를 읽는 대신 각 화면이 열릴 때
+     * `ctx.escape` 에 자기 닫기를 올리고(`ui/HubMenu` · `ui/WorkbenchMenu` · `ui/LaunchWarnPanel` ·
+     * `ui/CrewLoadoutPanel` — `'hub'` 토큰을 나눠 쓰므로 key 는 각자), `game/escapeKey` 가 맨 위 하나만 닫는다.
      *
      * `HubSystem` updates **before** `PlayerSystem`, so the E that opens one of these panels is polled here while the
      * panel is still closed: one tap can never open and close it in the same frame. Typing in the terminal's fields

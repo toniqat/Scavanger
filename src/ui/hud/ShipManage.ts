@@ -1,7 +1,7 @@
 import type { CraftIngredient, FurnitureDef, FurnitureModelKind, GameContext, ItemDef, RoomPurpose } from '@/shared';
 import {
-  FACILITY_COLOR, FACILITY_GLYPH, Keys, renderItemCost, ROOM_PURPOSES, ROOM_PURPOSES_ACTIVE, ROOM_PURPOSE_COLOR,
-  ROOM_PURPOSE_GLYPH, ROOM_PURPOSE_LABEL_KO, SHIP_ROOM_COUNT,
+  FACILITY_COLOR, FACILITY_GLYPH, Keys, renderItemCost, ROOM_GRID_COLS, ROOM_GRID_ROWS, ROOM_PURPOSES, ROOM_PURPOSES_ACTIVE,
+  ROOM_PURPOSE_COLOR, ROOM_PURPOSE_GLYPH, ROOM_PURPOSE_LABEL_KO, SHIP_ROOM_COUNT,
 } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 
@@ -22,6 +22,9 @@ interface Card {
 
 /** Which list the right-hand panel shows for a room that already has a purpose. */
 type FurnTab = 'craft' | 'store';
+
+/** A free grid cell + yaw the 배치 button would drop a stored piece on (2026-09-09). */
+interface FreeSpot { x: number; y: number; yaw: 0 | 1 }
 
 /** Glyph per procedural furniture model (no asset files — the card thumbnail is a tinted frame + a character). */
 const MODEL_GLYPH: Readonly<Record<FurnitureModelKind, string>> = {
@@ -50,14 +53,24 @@ const ASSIGNABLE: readonly RoomPurpose[] = ROOM_PURPOSES.filter((p) => p !== 'em
  *           **가구 제작** — every furniture def the room accepts (`getFurnitureFor`), its craft materials as
  *           `.item-chip`s and a 제작 button that calls `ctx.housing.craftFurniture` (this is the only place furniture
  *           is crafted); clicking the row selects it for placement when one is already in storage.
- *           **가구 창고** — what `getStored()` holds: pieces this room accepts first (clickable → `selectFurniture`),
- *           every other stored piece under them, dimmed and disabled with the reason.
+ *           **가구 창고** — what `getStored()` holds: pieces this room accepts first, every other stored piece under
+ *           them, dimmed and disabled with the reason (`<용도> 전용`). **2026-09-09 (배치 버튼):** clicking a store
+ *           card only **selects** it (`.is-sel` highlight) — it no longer arms ghost placement (`selectFurniture` is
+ *           not called from this tab). Each accepted card carries a **`배치` button** (`.fcard-place`, right side,
+ *           the craft tab's `.fcard-craft` twin) that drops the piece **straight into the current room** on the
+ *           first free cell: `findFreeSpot` scans `ROOM_GRID_ROWS × ROOM_GRID_COLS` top-left first (y outer, x inner)
+ *           at yaw 0, then the whole grid again at yaw 1, through `HousingRef.canPlace`; a hit goes to
+ *           `HousingRef.place` (storage qty decrements there, `housing:furniturePlaced` fires — the tutorial's
+ *           `benchPlace` step completes on it). The button is **disabled when nothing fits** and the `.fcard-note`
+ *           says why: `배치 가능` / `자리 없음` / `<용도> 전용`. The fit result is part of the store list's memo key
+ *           and is recomputed on every room change — `housing:changed`, `furniturePlaced` / `Moved` / `Recovered`,
+ *           `facilityUpgraded`, `roomPurposeChanged` and the manage-room switch all refresh it.
  *         A 빈 방으로 button in the header clears the room — through a confirm popup and
  *         `HousingRef.removeRoomFacility`, so every material the facility cost comes back (2026-09-08).
  *
  * Driven by `housing:shipManageChanged` (open / close / room change) and `housing:changed` (storage, purposes,
- * materials); `housing:selectionChanged` only re-marks the active card. Takes no blocker token — housing/ owns the
- * mode and hub/ owns the camera and the placement keys.
+ * materials) plus the per-piece housing events above; `housing:selectionChanged` only re-marks the active card.
+ * Takes no blocker token — housing/ owns the mode and hub/ owns the camera and the placement keys.
  *
  * **Phase 12 (시설 증축 that "did nothing"):** on a fresh ship every purpose is refused by the 발전기 gate
  * (`ROOM_PURPOSE_BUILD_GENERATOR_LEVEL` 1 vs a generator at level 0) while the cost chips read as affordable — the
@@ -189,6 +202,13 @@ export class ShipManage {
     this.unsubs.push(
       b.on('housing:shipManageChanged', ({ active, room }) => this.setActive(active, room)),
       b.on('housing:changed', () => { if (this.active) this.refresh(); }),
+      // 2026-09-09: the 배치 button's fit check depends on what is on the floor and how big the room is — every
+      // change to the room re-scans (the list memo carries the result, so an unchanged answer redraws nothing)
+      b.on('housing:furniturePlaced', () => { if (this.active) this.refresh(); }),
+      b.on('housing:furnitureMoved', () => { if (this.active) this.refresh(); }),
+      b.on('housing:furnitureRecovered', () => { if (this.active) this.refresh(); }),
+      b.on('housing:facilityUpgraded', () => { if (this.active) this.refresh(); }),
+      b.on('housing:roomPurposeChanged', () => { if (this.active) this.refresh(); }),
       b.on('housing:selectionChanged', ({ defId }) => this.markSelection(defId)),
       b.on('inventory:changed', () => { if (this.active) this.refresh(); }),
       b.on('inventory:stashChanged', () => { if (this.active) this.refresh(); }),
@@ -276,12 +296,65 @@ export class ShipManage {
     this.refresh();
   }
 
-  /** A 가구 창고 row: arm it for placement (housing refuses a def with nothing in storage). */
+  /** A 가구 제작 row with a piece in storage: arm it for ghost placement (housing refuses a def with nothing stored). */
   private pickCard(defId: string): void {
     const housing = this.ctx.housing;
     if (!housing) return;
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
     housing.selectFurniture(this.selected === defId ? null : defId);
+  }
+
+  /**
+   * A 가구 창고 row (2026-09-09): **select only** — highlight the card, nothing on the cursor. Placement from this
+   * tab goes through the row's 배치 button (`placeCard`); clicking the row again clears the highlight.
+   */
+  private selectStoreCard(defId: string): void {
+    this.ctx.bus.emit('audio:play', { id: 'ui_click' });
+    this.markSelection(this.selected === defId ? null : defId);
+  }
+
+  /**
+   * First free cell for `defId` in `room` — rows top to bottom, columns left to right, yaw 0 over the whole grid
+   * first and yaw 1 only when nothing fits upright. Null when the room has no room (or the def is refused there).
+   */
+  private findFreeSpot(room: number, defId: string): FreeSpot | null {
+    const housing = this.ctx.housing;
+    if (!housing) return null;
+    for (const yaw of [0, 1] as const) {
+      for (let y = 0; y < ROOM_GRID_ROWS; y++) {
+        for (let x = 0; x < ROOM_GRID_COLS; x++) {
+          if (housing.canPlace(room, defId, x, y, yaw)) return { x, y, yaw };
+        }
+      }
+    }
+    return null;
+  }
+
+  /** The 배치 button: drop one stored piece on the first free cell of the current room (`findFreeSpot`). */
+  private placeCard(defId: string): void {
+    const housing = this.ctx.housing;
+    const room = this.room;
+    if (!housing || room === null) return;
+    const def = housing.getFurnitureDef(defId);
+    const spot = this.findFreeSpot(room, defId);
+    if (!spot) {
+      this.ctx.bus.emit('audio:play', { id: 'ui_deny' });
+      this.ctx.bus.emit('ui:notify', { text: `${def?.name ?? defId} — 이 방에 놓을 자리가 없습니다`, kind: 'warning' });
+      this.refresh();
+      return;
+    }
+    const placed = housing.place(room, defId, spot.x, spot.y, spot.yaw);
+    if (!placed) {
+      this.ctx.bus.emit('audio:play', { id: 'ui_deny' });
+      this.ctx.bus.emit('ui:notify', { text: `${def?.name ?? defId} 배치에 실패했습니다`, kind: 'warning' });
+      this.refresh();
+      return;
+    }
+    this.ctx.bus.emit('audio:play', { id: 'ui_equip' });
+    this.ctx.bus.emit('ui:notify', { text: `${def?.name ?? defId} — 방 ${room + 1} 에 배치했습니다`, kind: 'success' });
+    // `place` already emitted `housing:furniturePlaced` + `housing:changed`, which redraw the list; this covers a bus
+    // that has no listener wired yet (dispose races) and costs nothing when the memo key is unchanged.
+    this.refresh();
   }
 
   /**
@@ -607,19 +680,25 @@ export class ShipManage {
   }
 
   /**
-   * 가구 창고 tab: everything in furniture storage. Pieces this room accepts come first and are clickable; the rest
-   * follow, dimmed and disabled, so the player can still see what the ship owns without switching rooms.
+   * 가구 창고 tab: everything in furniture storage. Pieces this room accepts come first; the rest follow, dimmed and
+   * disabled, so the player can still see what the ship owns without switching rooms. 2026-09-09: a row click only
+   * selects (highlight), the row's **배치** button (`.fcard-place`) places on the first free cell (`findFreeSpot`)
+   * and is disabled — with `자리 없음` in the note — when the room is full for that piece.
    */
   private refreshStore(room: number | null, purpose: RoomPurpose): void {
     const housing = this.ctx.housing;
     if (!housing) return;
     const allowed = new Set(housing.getFurnitureFor(purpose).map((d) => d.id));
     const stored = this.storedCounts();
-    const entries = [...stored].map(([defId, qty]) => ({ defId, qty, def: housing.getFurnitureDef(defId), fits: allowed.has(defId) }))
-      .filter((e) => !!e.def) as Array<{ defId: string; qty: number; def: FurnitureDef; fits: boolean }>;
+    const entries = [...stored].map(([defId, qty]) => {
+      const fits = allowed.has(defId);
+      const spot = fits && room !== null ? this.findFreeSpot(room, defId) : null;
+      return { defId, qty, def: housing.getFurnitureDef(defId), fits, spot };
+    }).filter((e) => !!e.def) as Array<{ defId: string; qty: number; def: FurnitureDef; fits: boolean; spot: FreeSpot | null }>;
     entries.sort((a, b) => Number(b.fits) - Number(a.fits) || a.def.name.localeCompare(b.def.name, 'ko'));
 
-    const key = `store|${room}|${purpose}|${entries.map((e) => `${e.defId}:${e.qty}:${e.fits ? 1 : 0}`).join(',')}`;
+    // the fit result is part of the key: a piece placed / recovered elsewhere in the room flips `자리 없음` ↔ `배치 가능`
+    const key = `store|${room}|${purpose}|${entries.map((e) => `${e.defId}:${e.qty}:${e.fits ? 1 : 0}${e.spot ? 1 : 0}`).join(',')}`;
     if (key === this.storeKey) { this.markSelection(this.selected); return; }
     this.storeKey = key;
 
@@ -627,7 +706,7 @@ export class ShipManage {
     this.cards = [];
     this.emptyEl.hidden = entries.length > 0;
     if (entries.length === 0) setText(this.emptyEl, '가구 창고가 비어 있습니다 — 가구 제작 탭에서 만드세요');
-    for (const { defId, qty, def, fits } of entries) {
+    for (const { defId, qty, def, fits, spot } of entries) {
       const card = el('button', { cls: `fcard store${fits ? '' : ' is-blocked'}`, parent: this.storeEl });
       card.dataset.defId = defId;       // 가구 제작 카드와 같은 손잡이 — 튜토리얼 스포트라이트 · 스모크가 집는다
       card.style.setProperty('--fc', def.color);
@@ -637,11 +716,18 @@ export class ShipManage {
       el('span', { cls: 'fcard-size', text: `${def.cols}×${def.rows}`, parent: thumb });
       const body = el('div', { cls: 'fcard-body', parent: card });
       el('div', { cls: 'fcard-name', text: def.name, parent: body });
-      el('div', { cls: 'fcard-note', text: fits ? '클릭해 배치' : `${ROOM_PURPOSE_LABEL_KO[def.room === 'any' ? 'empty' : def.room]} 전용`, parent: body });
+      const note = !fits ? `${ROOM_PURPOSE_LABEL_KO[def.room === 'any' ? 'empty' : def.room]} 전용` : spot ? '배치 가능' : '자리 없음';
+      const noteEl = el('div', { cls: 'fcard-note', text: note, parent: body });
+      toggleClass(noteEl, 'is-full', fits && !spot);
       const own = el('div', { cls: 'fcard-own', text: `보유 ${qty}`, parent: body });
       toggleClass(own, 'none', qty <= 0);
       card.disabled = !fits;
-      if (fits) card.addEventListener('click', (e) => { e.stopPropagation(); this.pickCard(defId); });
+      // the row only highlights itself; the 배치 button is the one that touches the floor
+      if (fits) card.addEventListener('click', (e) => { e.stopPropagation(); this.selectStoreCard(defId); });
+      const place = el('button', { cls: 'fcard-place', text: '배치', parent: card });
+      place.disabled = !fits || !spot;
+      place.title = !fits ? '이 방에 설치할 수 없습니다' : spot ? `${def.name} 배치 — 방 ${(room ?? 0) + 1} 의 빈 자리에 놓습니다` : '이 방에 놓을 자리가 없습니다';
+      place.addEventListener('click', (e) => { e.stopPropagation(); this.placeCard(defId); });
       this.cards.push({ defId, root: card });
     }
     this.markSelection(this.selected);

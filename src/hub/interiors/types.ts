@@ -77,6 +77,13 @@ export interface ShipInterior {
    */
   setPlanetLook?(color: number, atmo: number): void;
   /**
+   * 목표 행성이 없으면 창밖에 행성도 없다 (2026-09-09): show / hide the decorative window planet. The hub calls it
+   * from `applyPlanetLook` with `HubRef.planet !== null` — a fresh character, a lobby whose host has not picked yet,
+   * or a cleared destination leaves the viewport as stars only. Independent of the warp fade (`setWarp`), which
+   * only drives opacity; the interior's `Planet` ANDs the two. Optional like `setPlanetLook`.
+   */
+  setPlanetVisible?(on: boolean): void;
+  /**
    * 창문 워프 (2026-09-09): drive the view outside the windows with the warp `speed` (0 = at rest, 1 = full warp;
    * `hub:warpProgress.speed`). The hub calls it **every frame of a trip** and once more with 0 on arrival /
    * cancellation. Expected look: the point stars fade out as the streaks fade in and stretch toward

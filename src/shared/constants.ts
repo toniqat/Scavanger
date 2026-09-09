@@ -212,6 +212,13 @@ export const GRENADE_FUSE = K.num('GRENADE_FUSE');
 export const GRENADE_COOK_MAX = K.num('GRENADE_COOK_MAX');
 /** Underhand toss speed multiplier. */
 export const GRENADE_UNDERHAND_SPEED_MUL = K.num('GRENADE_UNDERHAND_SPEED_MUL');
+/** 2026-09-09: throw ballistics moved out of weapons/model.ts so progression can quote the range in metres. */
+export const GRENADE_THROW_SPEED = K.num('GRENADE_THROW_SPEED');
+export const GRENADE_THROW_LIFT = K.num('GRENADE_THROW_LIFT');
+export const GRENADE_UNDERHAND_LIFT = K.num('GRENADE_UNDERHAND_LIFT');
+/** 투척 거리 배율 (2026-09-09): linear from THROW_RANGE_MUL_MIN at STAT_MIN 근력 to THROW_RANGE_MUL_MAX at STAT_MAX. */
+export const THROW_RANGE_MUL_MIN = K.num('THROW_RANGE_MUL_MIN');
+export const THROW_RANGE_MUL_MAX = K.num('THROW_RANGE_MUL_MAX');
 
 /* ── appended: Phase 3 — ship calls / stratagems ── */
 import type { StratagemId } from './types';
@@ -303,6 +310,8 @@ export const SHELL_FLIGHT_TIME = K.num('SHELL_FLIGHT_TIME');
 export const SHELL_BLAST_RADIUS = K.num('SHELL_BLAST_RADIUS');
 export const SHELL_DAMAGE = K.num('SHELL_DAMAGE');
 export const SHELL_RADIUS = K.num('SHELL_RADIUS');
+/** 2026-09-09: max distance (m) a shell leads a moving target by — keeps a 6.3 s shell dodgeable. */
+export const SHELL_LEAD_MAX = K.num('SHELL_LEAD_MAX');
 /** Toxic bug: burst radius (m), damage (players and enemies alike), trigger distance (m). */
 export const TOXIC_RADIUS = K.num('TOXIC_RADIUS');
 export const TOXIC_DAMAGE = K.num('TOXIC_DAMAGE');
@@ -936,7 +945,7 @@ export const COMPASS_ENEMY_COLOR = '#ff4d4d';
 /* ── 브라우저 재개 게이트 (owner: game) ── */
 /** `ctx.uiBlockers` token the '좌측 클릭으로 게임 재개' gate holds (browser only, never in the Electron shell). */
 export const RESUME_GATE_BLOCKER = 'resumegate';
-/* ── ESC = 항상 일시정지 (2026-09-08) ── */
+/* ── 일시정지 메뉴 토큰 (2026-09-08; ESC 닫기 규칙은 2026-09-09) ── */
 /**
  * `ctx.uiBlockers` token every full-screen menu (`ui/menus/MenuBase`) holds — the 일시정지 메뉴 above all. Screens
  * whose own key doubles as their close key (Tab / M / P / E) test for it so that key does not reach through the
@@ -970,6 +979,9 @@ export const SHIP_VISIT_MAX_FURNITURE = K.num('SHIP_VISIT_MAX_FURNITURE');
 
 /* ── 캐릭터 슬롯 · 생성 (2026-09-09, owner: shared/saveSlot · shared/character) ── */
 /** 타이틀 캐릭터 선택창의 칸 수. 슬롯마다 세이브가 완전히 분리된다 (`scav.s<n>.*`). */
+/** 튜토리얼 (2026-09-09): delay before the spotlight / guide of a new step appears, and the dim fade-in. */
+export const TUTORIAL_STEP_DELAY_S = K.num('TUTORIAL_STEP_DELAY_S');
+export const TUTORIAL_DIM_FADE_S = K.num('TUTORIAL_DIM_FADE_S');
 export const CHARACTER_SLOTS = K.num('CHARACTER_SLOTS');
 /** 캐릭터 생성창에서 한 능력치가 가질 수 있는 최소값. */
 export const CHAR_STAT_MIN = K.num('CHAR_STAT_MIN');

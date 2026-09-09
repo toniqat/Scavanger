@@ -4,6 +4,8 @@ import { el, setText } from './dom';
 
 /** How long we wait for a peer's `crew loadout` answer before giving up (seconds of wall clock). */
 const REQUEST_TIMEOUT_MS = 5000;
+/** `ctx.escape` key — the popup has no blocker token of its own (the 포드 패널 under it holds one). */
+const ESCAPE_KEY = 'hub:crewLoadout';
 
 export interface CrewLoadoutTarget {
   /** null for a solo / lobby-less local player. */
@@ -82,6 +84,8 @@ export class CrewLoadoutPanel {
     this.target = target;
     this.anchor = anchor;
     this._open = true;
+    // 2026-09-09: ESC 도 이 팝업을 닫는다 — 발사 포드(`ReadyPanel`)보다 나중에 열렸으므로 스택의 맨 위다.
+    this.ctx.escape.push(ESCAPE_KEY, () => this.close());
     this.openedAt = performance.now();
     this.root.hidden = false;
     this.bar.style.background = NET_SLOT_COLORS_CSS[target.slot % NET_SLOT_COLORS_CSS.length];
@@ -155,6 +159,7 @@ export class CrewLoadoutPanel {
   close(): void {
     if (!this._open) return;
     this._open = false;
+    this.ctx.escape.remove(ESCAPE_KEY);
     this.reset();
     this.root.hidden = true;
     this.anchor = null;

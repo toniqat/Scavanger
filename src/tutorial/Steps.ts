@@ -66,12 +66,27 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     spot: ['.key-guide .kg-close', '.key-guide'],
     spotText: 'Tab — 관리 모드 닫기',
   },
+  /*
+   * 2026-09-09 — 제작 흐름은 **작업대 한 번**이다: 소총 → (같은 창에서) 준중량탄 → 창 닫기 → 장착 → 탄약 가방에.
+   * 그래서 `craftGun` 부터 `stowAmmo` 까지는 소총 · 탄약 레시피를 **둘 다** 허용한다 — 막힌 레시피는 목록에서
+   * 사라지므로(`hides`), 소총을 만드는 순간 그 행이 빠지고 탄약 행이 튀어나오면 목록이 흔들린다. 어느 것을
+   * 만들 차례인지는 스포트라이트가 가리킨다.
+   */
   craftGun: {
     id: 'craftGun', title: '작업대에서 돌격소총을 만드세요',
-    hint: '작업실로 걸어가 총기 작업대를 사용하고 돌격소총 제작을 누릅니다.',
-    allow: { craft: [TUTORIAL_GUN_RECIPE] },
+    hint: '작업실로 걸어가 총기 작업대를 사용하고 돌격소총 제작을 1초간 누릅니다.',
+    allow: { craft: [TUTORIAL_GUN_RECIPE, TUTORIAL_AMMO_RECIPE] },
     spot: ['.inv-craft-row[data-recipe="make_wpn_ar"] .inv-craft-btn', '.inv-craft-row[data-recipe="make_wpn_ar"]', '.inv-panel-craft'],
     spotText: '돌격소총 제작',
+    guide: 'bench',
+  },
+  craftAmmo: {
+    id: 'craftAmmo', title: '준중량탄을 만드세요',
+    // 소총 바로 다음, **같은 작업대 창**이 열린 채로. 재료 부족분은 이 단계에 들어설 때 `ensureMaterials` 가 채운다.
+    hint: '같은 작업대에서 준중량탄 대량 제작을 1초간 누릅니다. 재료는 튜토리얼이 채워 둡니다.',
+    allow: { craft: [TUTORIAL_GUN_RECIPE, TUTORIAL_AMMO_RECIPE] },
+    spot: ['.inv-craft-row[data-recipe="bulk_ammo_medium"] .inv-craft-btn', '.inv-craft-row[data-recipe="bulk_ammo_medium"]', '.inv-panel-craft'],
+    spotText: '준중량탄 대량 제작',
     guide: 'bench',
   },
   openBag: {
@@ -79,43 +94,38 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     // 2026-09-08: 제작 중에는 장착 장비 칸이 숨는다 (`.inv-root.is-craft`) — 만든 무기를 장착하려면 먼저 작업대를
     //   닫아야 한다. 그 순서를 안내 없이 두면 "장비 칸이 어디 갔지"에서 막힌다.
     hint: '작업대 우측 상단의 닫기를 누르면 장착 장비와 가방이 나타납니다.',
-    allow: { craft: [TUTORIAL_GUN_RECIPE] },
+    allow: { craft: [TUTORIAL_GUN_RECIPE, TUTORIAL_AMMO_RECIPE] },
     spot: ['.inv-craft-close', '.inv-panel-craft'],
     spotText: '제작 창 닫기',
   },
   equipGun: {
     id: 'equipGun', title: '만든 소총을 주무기로 장착하세요',
-    hint: '가방의 소총을 왼쪽 장착 장비의 주무기 I 칸으로 끌어다 놓습니다 (창이 닫혔으면 Tab).',
+    hint: '가방의 소총을 왼쪽 장착 장비의 주무기 I 또는 II 칸으로 끌어다 놓습니다 (창이 닫혔으면 Tab).',
     // 직전 단계의 레시피는 그대로 열어 둔다 — 막힌 레시피는 목록에서 사라지므로 작업대가 통째로 비지 않게.
-    allow: { craft: [TUTORIAL_GUN_RECIPE] },
+    allow: { craft: [TUTORIAL_GUN_RECIPE, TUTORIAL_AMMO_RECIPE] },
     // 2026-09-08: 주무기 칸 하나만 밝히면 **집을 곳(가방)이 어두운 판 아래** 깔려 드래그를 시작조차 못 했다.
     //   장비 열과 가방은 맞닿아 있으므로(−24 px 이음매) 둘의 합집합이 이어진 도형 하나가 된다.
-    spot: ['.inv-equip', '.inv-panel-bag'],
+    // 2026-09-09: 장비 열 전체(`.inv-equip`)가 아니라 **주무기 I · II 칸**(`inventory/ui/parts/SlotPanel.buildSlot` 의
+    //   `.inv-slot-primary` · `.inv-slot-primary2`, `data-slot` 도 같다)부터 가방까지만 — 보조무기 · 방탄복 · 가방 칸과
+    //   임플란트 칸은 이 단계와 상관없다. 구멍은 여전히 사각형 하나라 두 칸과 가방 패널을 감싸는 최소 사각형이 된다.
+    spot: ['.inv-root .inv-equip .inv-slot-primary', '.inv-root .inv-equip .inv-slot-primary2', '.inv-panel-bag'],
     spotUnion: true,
-    spotText: '가방의 소총 → 주무기 I 칸',
+    spotText: '가방의 소총 → 주무기 I · II 칸',
   },
   openCraft: {
+    // (순서에서 제외, 2026-09-09) `TUTORIAL_STEPS` 에 없다 — id 가 계약(`TutorialStepId`)에 남아 있어 표에만 자리를 둔다.
+    //   예전에는 장착 다음에 가방의 `제작` 버튼을 밝혀 탄약 제작 창을 다시 열게 했는데, 지금은 소총 · 탄약을 작업대에서
+    //   한 번에 만들므로 할 일이 없다. `stepDef('openCraft')` 는 안전하게 이 항목을 돌려주고 `nextStep` 은 null 이다.
     id: 'openCraft', title: '제작 창을 여세요',
-    // 2026-09-09: 가방 우측 상단의 `제작` 버튼 → 함선 제작 창. 작업실에 총기 작업대가 놓여 있으므로 그 레시피(준중량탄)가
-    //   그 창에도 보인다 (`inventory/parts/Crafting.getRecipes` 가 `ctx.housing.getBenchLevel` 로 대신 찾는다).
-    //   작업대로 걸어가 직접 여는 것도 같은 신호(제작 창 열림)라 그대로 넘어간다.
     hint: '가방 우측 상단의 제작 버튼을 누르면 제작 창이 열립니다 (작업대를 직접 사용해도 됩니다).',
-    allow: { craft: [TUTORIAL_AMMO_RECIPE] },
+    allow: { craft: [TUTORIAL_GUN_RECIPE, TUTORIAL_AMMO_RECIPE] },
     spot: ['.inv-bag-craft', '.inv-panel-bag'],
     spotText: '제작 창 열기',
-  },
-  craftAmmo: {
-    id: 'craftAmmo', title: '준중량탄을 만드세요',
-    hint: '제작 창에서 준중량탄 대량 제작을 1초간 누릅니다. 재료는 튜토리얼이 채워 둡니다.',
-    allow: { craft: [TUTORIAL_AMMO_RECIPE] },
-    spot: ['.inv-craft-row[data-recipe="bulk_ammo_medium"] .inv-craft-btn', '.inv-craft-row[data-recipe="bulk_ammo_medium"]', '.inv-panel-craft'],
-    spotText: '준중량탄 대량 제작',
-    guide: 'bench',
   },
   stowAmmo: {
     id: 'stowAmmo', title: '탄약을 가방에 넣으세요',
     hint: '함선 창고의 준중량탄을 가방 격자로 끌어다 놓습니다.',
-    allow: { craft: [TUTORIAL_AMMO_RECIPE] },
+    allow: { craft: [TUTORIAL_GUN_RECIPE, TUTORIAL_AMMO_RECIPE] },
     // `equipGun` 과 같은 이유의 합집합 — 집을 곳(창고)과 놓을 곳(가방)이 둘 다 밝아야 드래그가 된다.
     spot: ['.inv-panel-stash', '.inv-panel-bag'],
     spotUnion: true,
@@ -156,7 +166,21 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
   },
 };
 
+/** 단계 정의. 순서에서 빠진 id(`openCraft`)도 표에 있으므로 언제나 정의를 돌려준다. */
 export const stepDef = (id: TutorialStepId): StepDef => STEP_DEFS[id];
+
+/** 순서에 있는 단계인가 (`openCraft` 처럼 계약에만 남은 id 를 거른다). */
+export const isOrderedStep = (id: string): id is TutorialStepId => (TUTORIAL_STEPS as readonly string[]).includes(id);
+
+/**
+ * 저장 · 콘솔에서 들어온 id 를 순서 안의 단계로 고친다 (2026-09-09). 순서에서 빠진 `openCraft` 는 그 자리를 이어받은
+ * `craftAmmo` 로 — 진행 중이던 저장이 새 순서에서도 막히지 않고 이어진다. 모르는 값은 null.
+ */
+export function normalizeStep(id: string | null | undefined): TutorialStepId | null {
+  if (typeof id !== 'string') return null;
+  if (id === 'openCraft') return 'craftAmmo';
+  return isOrderedStep(id) ? id : null;
+}
 
 /** 다음 단계 (마지막이면 null = 튜토리얼 종료). */
 export function nextStep(id: TutorialStepId): TutorialStepId | null {

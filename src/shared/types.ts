@@ -394,11 +394,18 @@ export interface InventoryRef {
   /* ── appended: quick-use slots (Phase 2, owner: inventory) ── */
   /**
    * The 8 wheel slots (index = wheel direction, see QUICK_SLOT_DIRS: 0 N, 1 NE, 2 E, 3 SE, 4 S, 5 SW, 6 W, 7 NW).
-   * Entries reference bag items (stacks stay in the grid); a slot clears when its stack is consumed / dropped.
+   * **2026-09-09 — the wheel is its own container** (사용자 결정): an entry is the stack *itself*, which is therefore
+   * **not** in the bag grid any more (it still counts toward the bag weight and every `countWhere` / `consumeWhere`
+   * query). A slot empties when its stack is consumed / moved back. Before that date the entries referenced bag items
+   * and the stacks stayed in the grid.
    * Only the first `getQuickSlotCount()` slots are usable (bag def `quickSlots`).
    */
   getQuickSlots(): readonly (ItemInstance | null)[];
-  /** Assign bag item `uid` (category in QUICK_USABLE_CATEGORIES) to wheel slot `index`, or clear it with null. Emits `inventory:quickSlotsChanged`. */
+  /**
+   * **Move** bag stack `uid` (category in QUICK_USABLE_CATEGORIES) into wheel slot `index`, or empty the slot with
+   * null — the stack leaves / re-enters the bag grid. False when the move is refused (locked slot, wrong category,
+   * or the bag has no room for the displaced stack). Emits `inventory:quickSlotsChanged`.
+   */
   setQuickSlot(index: number, uid: string | null): boolean;
   /** Usable wheel slots for the equipped bag (BAG_DEFAULT_QUICK_SLOTS without a bag). */
   getQuickSlotCount(): number;

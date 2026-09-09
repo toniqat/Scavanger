@@ -19,13 +19,17 @@ interface StatRow {
 /**
  * 캐릭터 생성 (2026-09-09) — 캐릭터 선택창의 빈 칸에서 열린다.
  *
- * 화면은 셋으로 나뉜다:
- *  - **왼쪽 · 캐릭터 설정**: 이름(+주사위) · 악센트 색상 · 시작 임플란트.
+ * 화면은 **세 열**(`.cc-body`)이다 (2026-09-09 개편 — 1280×720 에 스크롤 없이 들어가야 한다):
+ *  - **왼쪽 · 캐릭터 설정**: 이름(+주사위) · **시작 임플란트 타일**. 임플란트는 목록이 아니라 지금 고른 것
+ *    하나를 큰 썸네일(`.cc-imp-tile`, 아이콘 크게 · `--ic` 색 · 이름은 우하단)로 보여 주고, 타일을 누르면
+ *    **타일 오른쪽에 컨텍스트 메뉴**(`.cc-imp-menu`, 커뮤니티 우클릭 메뉴 `.sc-menu` 와 같은 껍데기)가 떠서
+ *    `CREATE_IMPLANT_IDS` 전부를 아이콘 · 이름 · 설명으로 나열한다. 고르면 닫히고, 바깥 클릭 · Escape 로도
+ *    닫힌다 — Escape 는 다른 팝업과 같이 capture 핸들러에서 삼켜 `Input` 이 보지 못하게 한다.
+ *  - **가운데 · 캐릭터 스탯**: 능력치 다섯을 **세로 한 줄씩**(`.cc-stat-list`) `◀ ▶` 로 배분한다. 표현은
+ *    캐릭터 시트(`progression/ui/SheetBody` 의 `.cs-stat`)를 그대로 옮겼다 — 이름 · 설명 · 얇은 바 · mono 숫자.
+ *    `◀` 와 `▶` 는 둘 다 악센트(주황) 윤곽이고 못 누르는 쪽만 흐려진다. 남은 점수를 크게 띄운다.
  *  - **오른쪽 · 3D 미리보기**: `menus/SoldierPreview` (자기 WebGL 컨텍스트, `hub/ui/PlanetHologram` 의 규칙).
- *    악센트를 고르면 그 자리에서 다시 칠해진다.
- *  - **아래 · 캐릭터 스탯**: 능력치 다섯을 `◀ ▶` 로 배분한다. 표현은 캐릭터 시트(`progression/ui/SheetBody`
- *    의 `.cs-stat`)를 그대로 옮겼다 — 이름 · 설명 · 얇은 바 · mono 숫자. `＋` 자리에 `◀ ▶` 가 들어가고,
- *    남은 점수를 크게 띄운다.
+ *    그 **바로 아래 악센트 스와치**(`.cc-accent`) — 고르면 그 자리에서 다시 칠해진다.
  *
  * **규칙은 전부 `shared/character.ts`** 에 있다 (`CREATE_STAT_MIN/MAX/POINTS`, `canAdjustStat`,
  * `rollCreateStats`, `rollCallsign`, `sanitizeCharacterName`, `ACCENT_COLORS`, `CREATE_IMPLANT_IDS`).
@@ -33,6 +37,10 @@ interface StatRow {
  *
  * **주사위는 사람이 손으로 넣은 것을 말없이 지우지 않는다**: 이름을 직접 쳤거나 능력치를 한 번이라도
  * 조정했다면 먼저 경고 팝업(`menus/askPopup`)을 띄우고 확인해야 덮어쓴다. `확정` 도 요약 팝업을 지난다.
+ *
+ * **점수가 남아 있으면 확정할 수 없다** (2026-09-09): `확정` 버튼은 `statPointsLeft > 0` 인 동안 `disabled`
+ * (툴팁 `남은 점수를 모두 배분하세요`)이고, 그래도 눌리면(키보드 등) `능력치 배분 미완료` 안내 팝업만 뜬다.
+ * 그래서 옛 "남은 점수 N점은 버려집니다" 줄은 요약에서 사라졌다 — 그런 일이 이제 없다.
  *
  * 확정 뒤에는 `createCharacterInSlot` → `setActiveSlot` → `markAutoStart` → `location.reload()` 다.
  * 실행 중인 시스템에 새 프로필을 밀어 넣는 길은 없다 (창고 · 메타 · 함선까지 다시 읽어야 하고, 그게 부팅이다).
@@ -47,7 +55,13 @@ export class CharacterCreate {
   private readonly nameInput: HTMLInputElement;
   private readonly slotTag: HTMLElement;
   private readonly swatches: { hex: string; btn: HTMLButtonElement }[] = [];
+  /** 컨텍스트 메뉴의 항목들 (`.cc-imp-mi[data-id]`). */
   private readonly implantBtns = new Map<ImplantId, HTMLButtonElement>();
+  /** 지금 고른 임플란트를 보여 주는 큰 타일 + 그 안의 아이콘 · 이름. */
+  private readonly implantTile: HTMLButtonElement;
+  private readonly implantIcon: HTMLElement;
+  private readonly implantName: HTMLElement;
+  private readonly implantMenu: HTMLElement;
   private readonly statRows = new Map<StatId, StatRow>();
   private readonly pointsValue: HTMLElement;
   private readonly pointsBox: HTMLElement;
@@ -61,6 +75,18 @@ export class CharacterCreate {
   /** 임플란트 · 능력치 목록은 `ctx` 가 있어야 이름을 얻으므로 첫 `open()` 에서 채운다. */
   private implantHost: HTMLElement | null = null;
   private statHost: HTMLElement | null = null;
+
+  /** 임플란트 메뉴 바깥을 누르면 닫는다 (커뮤니티 우클릭 메뉴와 같은 규약 — `window` capture). */
+  private readonly onDocDownImp = (e: MouseEvent): void => {
+    if (this.implantMenu.hidden) return;
+    if (e.target instanceof Node && (this.implantMenu.contains(e.target) || this.implantTile.contains(e.target))) return;
+    this.closeImplantMenu();
+  };
+  /** 메뉴가 떠 있는 동안 Escape 는 메뉴만 닫고 아무에게도 가지 않는다 (다른 팝업과 같은 capture 규약). */
+  private readonly onKeyImp = (e: KeyboardEvent): void => {
+    if (this.implantMenu.hidden) return;
+    if (e.code === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); this.closeImplantMenu(); }
+  };
 
   private slot: SlotId = 1;
   private stats: Record<StatId, number> = baseCreateStats();
@@ -90,7 +116,7 @@ export class CharacterCreate {
     this.nameInput = el('input', {
       cls: 'ui-input',
       attrs: {
-        type: 'text', placeholder: '대원 이름', maxlength: String(CHARACTER_NAME_MAX),
+        type: 'text', placeholder: `최대 ${CHARACTER_NAME_MAX}자까지 입력`, maxlength: String(CHARACTER_NAME_MAX),
         spellcheck: 'false', autocomplete: 'off',
       },
       parent: nameRow,
@@ -105,35 +131,22 @@ export class CharacterCreate {
     this.nameInput.addEventListener('input', () => { this.nameTouched = this.nameInput.value.trim().length > 0; });
     const dice = el('button', { cls: 'ui-btn cc-dice', text: '🎲', attrs: { title: '무작위 호출명' }, parent: nameRow });
     dice.addEventListener('click', (e) => { e.stopPropagation(); this.rollName(); });
-    el('div', { cls: 'hint', text: `최대 ${CHARACTER_NAME_MAX}자. 주사위를 누르면 무작위 호출명이 들어갑니다.`, parent: nameSec });
 
-    const accentSec = el('div', { cls: 'cc-section', parent: form });
-    el('span', { cls: 'ui-label', text: '악센트 색상', parent: accentSec });
-    const swWrap = el('div', { cls: 'cc-swatches', parent: accentSec });
-    for (const hex of ACCENT_COLORS) {
-      const btn = el('button', { cls: 'cc-sw', attrs: { title: hex, 'aria-label': hex }, parent: swWrap });
-      btn.style.setProperty('--sw', hex);
-      btn.addEventListener('click', (e) => { e.stopPropagation(); this.setAccent(hex); });
-      this.swatches.push({ hex, btn });
-    }
-    el('div', { cls: 'hint', text: '전투복의 벨트 · 어깨 · 바이저에 들어가는 색입니다.', parent: accentSec });
-
-    const impSec = el('div', { cls: 'cc-section', parent: form });
+    const impSec = el('div', { cls: 'cc-section cc-implant-sec', parent: form });
     el('span', { cls: 'ui-label', text: '시작 임플란트', parent: impSec });
     this.implantHost = el('div', { cls: 'cc-implants', parent: impSec });
+    // 큰 타일 하나 — 지금 고른 임플란트. 누르면 오른쪽에 메뉴가 뜬다.
+    this.implantTile = el('button', { cls: 'cc-imp-tile', attrs: { title: '시작 임플란트 고르기', 'aria-haspopup': 'menu' }, parent: this.implantHost });
+    this.implantIcon = el('span', { cls: 'ico', text: '', parent: this.implantTile });
+    this.implantName = el('span', { cls: 'nm', text: '', parent: this.implantTile });
+    el('span', { cls: 'caret', text: '▸', parent: this.implantTile });
+    this.implantTile.addEventListener('click', (e) => { e.stopPropagation(); this.toggleImplantMenu(); });
+    this.implantMenu = el('div', { cls: 'sc-menu cc-imp-menu', attrs: { role: 'menu' }, parent: this.root });
+    this.implantMenu.hidden = true;
+    this.implantMenu.addEventListener('mousedown', (e) => e.stopPropagation());
 
-    /* ── 오른쪽: 3D 미리보기 ── */
-    const preview = el('div', { cls: 'cc-preview', parent: body });
-    this.stage = el('div', { cls: 'cc-stage', parent: preview });
-    this.noGl = el('div', {
-      cls: 'cc-nogl',
-      text: '이 브라우저에서는 미리보기를 그릴 수 없습니다 (WebGL 컨텍스트 부족). 캐릭터 생성은 그대로 진행됩니다.',
-      parent: this.stage,
-    });
-    this.noGl.hidden = true;
-
-    /* ── 아래: 캐릭터 스탯 ── */
-    const statsWrap = el('div', { cls: 'cc-stats-wrap', parent: this.root });
+    /* ── 가운데: 캐릭터 스탯 (세로 한 줄씩) ── */
+    const statsWrap = el('div', { cls: 'cc-stats-wrap', parent: body });
     const statsHead = el('div', { cls: 'cc-stats-head', parent: statsWrap });
     el('span', { cls: 'ui-label', text: '캐릭터 스탯', parent: statsHead });
     const right = el('div', { cls: 'cc-stats-head-right', parent: statsHead });
@@ -143,7 +156,27 @@ export class CharacterCreate {
     const statDice = el('button', { cls: 'ui-btn cc-dice', text: '🎲', attrs: { title: '능력치 무작위 배분' }, parent: right });
     statDice.addEventListener('click', (e) => { e.stopPropagation(); this.rollStats(); });
 
-    this.statHost = el('div', { cls: 'cc-stat-grid', parent: statsWrap });
+    this.statHost = el('div', { cls: 'cc-stat-list', parent: statsWrap });
+
+    /* ── 오른쪽: 3D 미리보기 + 그 아래 악센트 스와치 ── */
+    const side = el('div', { cls: 'cc-side', parent: body });
+    const preview = el('div', { cls: 'cc-preview', parent: side });
+    this.stage = el('div', { cls: 'cc-stage', parent: preview });
+    this.noGl = el('div', {
+      cls: 'cc-nogl',
+      text: '이 브라우저에서는 미리보기를 그릴 수 없습니다 (WebGL 컨텍스트 부족). 캐릭터 생성은 그대로 진행됩니다.',
+      parent: this.stage,
+    });
+    this.noGl.hidden = true;
+    const accentSec = el('div', { cls: 'cc-section cc-accent', parent: side });
+    el('span', { cls: 'ui-label', text: '악센트 색상', parent: accentSec });
+    const swWrap = el('div', { cls: 'cc-swatches', parent: accentSec });
+    for (const hex of ACCENT_COLORS) {
+      const btn = el('button', { cls: 'cc-sw', attrs: { title: hex, 'aria-label': hex }, parent: swWrap });
+      btn.style.setProperty('--sw', hex);
+      btn.addEventListener('click', (e) => { e.stopPropagation(); this.setAccent(hex); });
+      this.swatches.push({ hex, btn });
+    }
 
     this.msg = el('div', { cls: 'form-msg danger', text: '', parent: this.root });
     this.msg.hidden = true;
@@ -169,26 +202,54 @@ export class CharacterCreate {
   /** `bind` 전에도 안전한 ctx 접근. */
   private ctxSafe(): GameContext | null { return (this.ctx as GameContext | undefined) ?? null; }
 
-  /** 임플란트 목록은 `ctx.implants` 가 있어야 이름 · 설명이 나오므로 `bind` 뒤에 채운다. */
+  /** 임플란트 메뉴 항목은 `ctx.implants` 가 있어야 이름 · 설명이 나오므로 `bind` 뒤에 채운다. */
   private fillImplants(): void {
     const host = this.implantHost;
     if (!host || this.implantBtns.size > 0) return;
     const defs = this.implantDefs();
     if (defs.length === 0) {
-      el('div', { cls: 'hint', text: '임플란트 정보를 불러오지 못했습니다.', parent: host });
+      this.implantTile.disabled = true;
+      setText(this.implantName, '임플란트 정보 없음');
       return;
     }
+    const items = el('div', { cls: 'sc-menu-items', parent: this.implantMenu });
     for (const def of defs) {
-      const btn = el('button', { cls: 'cc-imp', parent: host });
+      const btn = el('button', { cls: 'sc-mi cc-imp-mi', attrs: { role: 'menuitemradio', 'data-id': def.id }, parent: items });
       btn.style.setProperty('--ic', def.color);
       el('span', { cls: 'ico', text: def.icon, parent: btn });
       const body = el('span', { cls: 'body', parent: btn });
       el('span', { cls: 'nm', text: def.name, parent: body });
       el('span', { cls: 'desc', text: def.description, parent: body });
-      btn.addEventListener('click', (e) => { e.stopPropagation(); this.setImplant(def.id); });
+      btn.addEventListener('click', (e) => { e.stopPropagation(); this.setImplant(def.id); this.closeImplantMenu(); });
       this.implantBtns.set(def.id, btn);
     }
     if (!this.implantBtns.has(this.implant)) this.implant = defs[0].id;
+  }
+
+  /** 타일 클릭 — 메뉴를 타일 **오른쪽**에 붙여 띄운다 (화면 밖으로 나가면 안쪽으로 밀어 넣는다). */
+  private toggleImplantMenu(): void {
+    if (!this.implantMenu.hidden) { this.closeImplantMenu(); return; }
+    if (this.implantBtns.size === 0) return;
+    this.implantMenu.hidden = false;
+    const tile = this.implantTile.getBoundingClientRect();
+    const w = this.implantMenu.offsetWidth, h = this.implantMenu.offsetHeight;
+    const gap = 8;
+    let x = tile.right + gap;
+    if (x + w > window.innerWidth - gap) x = Math.max(gap, tile.left - gap - w);   // 오른쪽에 자리가 없으면 왼쪽
+    const y = Math.max(gap, Math.min(window.innerHeight - h - gap, tile.top));
+    this.implantMenu.style.left = `${Math.round(x)}px`;
+    this.implantMenu.style.top = `${Math.round(y)}px`;
+    window.addEventListener('mousedown', this.onDocDownImp, true);
+    window.addEventListener('keydown', this.onKeyImp, true);
+    this.ctx.bus.emit('audio:play', { id: 'ui_click' });
+    this.implantBtns.get(this.implant)?.focus({ preventScroll: true });
+  }
+
+  private closeImplantMenu(): void {
+    if (this.implantMenu.hidden) return;
+    this.implantMenu.hidden = true;
+    window.removeEventListener('mousedown', this.onDocDownImp, true);
+    window.removeEventListener('keydown', this.onKeyImp, true);
   }
 
   private statDefs(): readonly StatDef[] {
@@ -232,6 +293,10 @@ export class CharacterCreate {
   get draftStats(): Readonly<Record<StatId, number>> { return this.stats; }
   /** 미리보기 캔버스가 살아 있는가 (디버그). */
   get hasPreview(): boolean { return this.preview !== null; }
+  /** 지금 고른 시작 임플란트 (디버그 / 스모크). */
+  get draftImplant(): ImplantId { return this.implant; }
+  /** 임플란트 컨텍스트 메뉴가 떠 있는가 (디버그 / 스모크). */
+  get isImplantMenuOpen(): boolean { return !this.implantMenu.hidden; }
 
   /** `slot` 칸에 새 캐릭터를 만드는 화면을 연다 (상태는 매번 처음부터). */
   open(slot: SlotId): void {
@@ -243,7 +308,6 @@ export class CharacterCreate {
     this.statsTouched = false;
     this.nameInput.value = '';
     this.msg.hidden = true;
-    this.confirmBtn.disabled = false;
     setText(this.slotTag, `슬롯 ${slot}`);
 
     this.fillImplants();
@@ -265,6 +329,7 @@ export class CharacterCreate {
     if (!this._open) return;
     this._open = false;
     this.ask.close();
+    this.closeImplantMenu();
     this.preview?.setVisible(false);
     this.root.hidden = true;
   }
@@ -344,13 +409,23 @@ export class CharacterCreate {
   /* ── 확정 ─────────────────────────────────────────────────────────────── */
 
   private askConfirm(): void {
+    this.closeImplantMenu();
+    const left = statPointsLeft(this.stats);
+    if (left > 0) {
+      // 버튼은 이미 disabled 지만 키보드 · 스모크가 우회할 수 있다 — 안내만 하고 아무것도 만들지 않는다.
+      this.ask.open({
+        title: '능력치 배분 미완료',
+        body: `남은 점수 ${left}점을 모두 배분해야 캐릭터를 만들 수 있습니다.`,
+        ok: '확인',
+        run: () => {},
+      });
+      return;
+    }
     const name = sanitizeCharacterName(this.nameInput.value);
     const lines = this.statDefs().map((d) => `${d.name} ${this.stats[d.id]}`).join(' · ');
-    const left = statPointsLeft(this.stats);
-    const leftLine = left > 0 ? `\n\n남은 점수 ${left}점은 버려집니다.` : '';
     this.ask.open({
       title: '캐릭터 확정',
-      body: `이름  ${name}\n능력치  ${lines}${leftLine}\n\n정말로 만들겠습니까?`,
+      body: `이름  ${name}\n능력치  ${lines}\n\n정말로 만들겠습니까?`,
       ok: '만들기',
       run: () => this.create(name),
     });
@@ -364,7 +439,7 @@ export class CharacterCreate {
       name, stats: this.stats, accent: this.accent, implant: this.implant,
     });
     if (!profile) {
-      this.confirmBtn.disabled = false;
+      this.refresh();
       setText(this.msg, '저장소에 쓸 수 없어 캐릭터를 만들지 못했습니다 — 브라우저의 사이트 데이터 차단 · 시크릿 모드를 확인하세요.');
       this.msg.hidden = false;
       return;
@@ -380,12 +455,27 @@ export class CharacterCreate {
 
   private refresh(): void {
     for (const s of this.swatches) toggleClass(s.btn, 'is-on', s.hex === this.accent);
-    for (const [id, btn] of this.implantBtns) toggleClass(btn, 'is-on', id === this.implant);
+    for (const [id, btn] of this.implantBtns) {
+      const on = id === this.implant;
+      toggleClass(btn, 'is-on', on);
+      btn.setAttribute('aria-checked', on ? 'true' : 'false');
+    }
+    const cur = this.implantDefs().find((d) => d.id === this.implant);
+    if (cur) {
+      this.implantTile.style.setProperty('--ic', cur.color);
+      this.implantTile.dataset.id = cur.id;
+      setText(this.implantIcon, cur.icon);
+      setText(this.implantName, cur.name);
+      this.implantTile.title = cur.description || '시작 임플란트 고르기';
+    }
     this.preview?.setAccent(this.accent);
 
     const left = statPointsLeft(this.stats);
     setText(this.pointsValue, String(left));
     toggleClass(this.pointsBox, 'spent', left <= 0);
+    // 점수가 남아 있으면 만들 수 없다 — 버튼이 스스로 말한다.
+    this.confirmBtn.disabled = left > 0;
+    this.confirmBtn.title = left > 0 ? '남은 점수를 모두 배분하세요' : '';
     for (const [id, row] of this.statRows) {
       const v = this.stats[id] ?? CREATE_STAT_MIN;
       setText(row.value, String(v));
@@ -399,6 +489,7 @@ export class CharacterCreate {
 
   dispose(): void {
     this.close();
+    this.implantMenu.remove();
     this.preview?.dispose();
     this.preview = null;
     this.ask.dispose();

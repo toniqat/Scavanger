@@ -47,6 +47,11 @@ When you add a smoke script: add it to `SMOKES` in `scripts/verify.mjs` with the
 in `CLAUDE.md`.
 
 ## History (what was actually tested)
+- 2026-09-09 UI/UX 정리 7차 (캐릭터 생성 · 튜토리얼 · **퀵슬롯 컨테이너** · 함선 크로스헤어 · 포병 — 에이전트 6개 중 5개가 API 한도로 중도 종료된 뒤 리드가 인수): `npm run verify:all` → typecheck ok, typecheck-server ok, net-selftest 295/295, data-check ok, build 2,362.05 kB JS / 247.66 kB CSS, **smoke-quickslots 73/73**, **smoke-phase2 57/57**, smoke-weapons 137/137, smoke-stratagems 72/72, smoke-phase3 33/33, smoke-ship-rooms 72/72, smoke-phase4 49/49, smoke-tactical 87/87, **smoke-controls-hub 129/129**, smoke-housing 206/206, smoke-inventory-p6 124/124, smoke-console 63/63, smoke-progression 123/123, smoke-search 61/61, **smoke-loadout 69/69**, smoke-ui-p6 88/88, smoke-ui-p5 134/134, smoke-resume-gate 59/59, smoke-enemy-alert 42/42, smoke-uniques 72/72, smoke-rogue-v2 52/52, smoke-meta 172/172, smoke-library 126/126, smoke-training 112/112, smoke-enemy-delta 52/52, smoke-ghost 86/86, smoke-planets 86/86, smoke-raidflow 49/49, smoke-social 138/138, smoke-ecology 85/85, smoke-props-collision 20/20, **smoke-tutorial 83/83**, smoke-hangar 58/58, e2e-mp 156/156 — **전부 통과, 6분 30초**. 자세히는 아래 [해당 절](#2026-09-09--uiux-정리-7차-퀵슬롯-컨테이너--스포트라이트-반-박자--포병).
+- 2026-09-09 ESC 닫기 (`src/shared/escape.ts` 신규 — 계약이라 전체): `npm run verify:all` → typecheck ok, typecheck-server ok, net-selftest 295/295, data-check ok, build 2,343.01 kB JS / 243.14 kB CSS, smoke-quickslots 46/46, smoke-phase2 55/55, smoke-weapons 137/137, smoke-stratagems 72/72, smoke-phase3 33/33, smoke-phase4 49/49, smoke-ship-rooms 72/72, smoke-tactical 87/87, **smoke-controls-hub 127/127** (가방 위 ESC 는 가방을 닫고 메뉴를 열지 않는다 · Alt 커서 ESC 는 카메라만 돌려준다 — 옛 규칙 단언 4개를 새 규칙으로 바꾸고 2개 추가), smoke-inventory-p6 124/124, smoke-housing 203/203, smoke-console 63/63, smoke-loadout 62/62, smoke-progression 123/123, smoke-search 61/61, **smoke-ui-p6 88/88** (키 가이드 `닫기` 항목의 keycap 이 `Tab` · `Esc` 둘이라는 단언 1개 추가), smoke-ui-p5 134/134, **smoke-resume-gate 57/57** (§8 ESC 닫기 · LIFO · 게이트, §9 셸에서 메뉴 닫기 — 단언 9개 추가), smoke-enemy-alert 42/42, smoke-uniques 72/72, smoke-rogue-v2 52/52, smoke-meta 172/172, smoke-library 126/126, smoke-training 112/112, smoke-enemy-delta 52/52, smoke-ghost 86/86, smoke-planets 86/86, smoke-ecology 85/85, **smoke-raidflow 49/49** (ESC 는 컨테이너를 닫고, 메뉴 쌓기는 `game:paused` 로 확인), **smoke-social 120/137 → `--rerun-failed` 138/138** (커뮤니티 패널 위 ESC 가 패널을 닫으므로 그 뒤 흐름을 고쳤다 — 옛 단언 2개 교체 + 1개 추가), smoke-props-collision 20/20, smoke-tutorial 67/67, smoke-hangar 58/58, e2e-mp 156/156 — **6분 31초** (+ 재실행 41초).
+  - red 였던 `smoke-social` 은 2026-09-08 규칙(`ESC 는 커뮤니티 패널 위에 일시정지 메뉴를 쌓는다`)을 그대로 단언하고 있었고, 그 뒤 흐름이 "패널이 열려 있다" 를 전제로 P 탭을 하고 있어 12건이 연쇄로 넘어졌다. 새 규칙(ESC → 패널 닫기 → 한 번 더 → 메뉴)으로 고치니 전부 green.
+  - 재검증 (한 걸음만 되돌리는 닫기 함수 = `false` 반환 수정 뒤): `--only smoke-resume-gate,smoke-housing,smoke-ship-rooms,smoke-controls-hub` → **smoke-resume-gate 59/59** (두 단계 닫기 단언 2개 추가) · smoke-housing 203/203 · smoke-ship-rooms 72/72 · smoke-controls-hub 127/127, 1분 15초. 2회차 전체에서 `smoke-ship-rooms 69/72` 가 한 번 red 였으나 재실행 72/72 — 하우징 커서 셀 매핑 3건은 마우스 좌표 · 카메라 타이밍에 걸리는 이 스크립트의 flake다 (코드 변경은 주석뿐이었다).
+  - 헤드리스에서 **셸 경로도 검사된다** — `window.__scavDesktop = true` 로 `isDesktopShell()` 을 켜고 ESC 로 일시정지 메뉴가 닫히는지(그리고 `game:paused {paused:false}` 가 나가는지) 본다.
 - 2026-09-09 세이브 유실 · 보이지 않는 거대 콜리전 · 로그 피격 · 헤드샷 마커: `npm run verify` (병행 작업이 `src/shared` 를 건드리고 있어 전체 매핑 + e2e-mp) → typecheck ok, typecheck-server ok, net-selftest 295/295, data-check ok, smoke-quickslots 46/46, smoke-phase2 55/55, smoke-weapons 137/137, smoke-stratagems 72/72, smoke-phase3 33/33, smoke-phase4 49/49, smoke-ship-rooms 72/72, smoke-tactical 87/87, smoke-controls-hub 125/125, smoke-housing 203/203, smoke-inventory-p6 124/124, smoke-console 63/63, smoke-progression 123/123, smoke-loadout 62/62, smoke-search 61/61, smoke-ui-p6 87/87, smoke-ui-p5 134/134, smoke-resume-gate 48/48, smoke-enemy-alert 42/42, smoke-uniques 72/72, smoke-meta 172/172, smoke-training 112/112, smoke-rogue-v2 52/52, smoke-library 126/126, smoke-ghost 86/86, smoke-enemy-delta 52/52, smoke-ecology 85/85, smoke-raidflow 48/48, smoke-planets 86/86, smoke-social 137/137, **smoke-props-collision 20/20 (신규)**, smoke-tutorial 67/67, smoke-hangar 58/58, e2e-mp 156/156 — **all passed, 6분 26초**. `npm run typecheck:app` ok.
   네 건 모두 스모크가 아니라 **계측 스크립트**로 먼저 수치를 잡았다. 콜리전 쪽은 그대로 두면 또 조용히 재발할 종류라 상설 스모크로 남겼고(`smoke-props-collision.mjs`, `world` 폴더에 매핑), 나머지 셋은 일회용이라 지웠다:
   - **`smoke-props-collision.mjs`** (계측판은 `_tmp-diag-collision.mjs`) — 장애물 988개를 인스턴스 행렬로 그려진 지오메트리와 1:1 매칭해 정점을 전부 훑는다. `noise3` 수정 전/후 시드 21: 바위 콜라이더 최대 반지름 **18.15 → 3.87 m**, 소품 위 여유 높이 **4.64 → 0.51 m**, `shotRadius − 실측 최대 반지름` 최대 **+0.10 → −0.06**(콜라이더가 그려진 것을 넘지 않는다). 첨탑 변형 지오메트리 바운딩 박스 x `[-2.90, 1.29] → [-1.15, 0.97]`.
@@ -894,3 +899,57 @@ smoke-hangar 58/58, e2e-mp 156/156
 **주의 — 소품 배치가 시드 대비 달라졌다.** `isSpotFree` 가 `o.radius` 로 거르는데 이동 콜라이더가
 실측으로 넓어졌고, 거절된 자리는 그 콜백의 남은 rng 추첨을 건너뛴다. 멀티 결정성은 그대로다(같은 코드 ·
 같은 시드면 모든 클라이언트가 같은 월드) — 다만 "시드 21 이 어제와 똑같이 생겼다"는 더는 아니다.
+
+## 2026-09-09 — UI/UX 정리 7차 (퀵슬롯 컨테이너 · 스포트라이트 반 박자 · 포병)
+
+**첫 실행 8 red → 최종 전부 green.** 실패는 전부 "옛 모델을 보던 단언"이었고, 그 단언들을 고치는 과정에서
+**진짜 버그 세 개**가 나왔다. 셋 다 스모크를 느슨하게 고치는 대신 소스를 고쳤다.
+
+### 검증 도중 나온 진짜 버그 3건
+
+1. **`InventorySystem.locate()` 가 휠을 못 봤다.** `findItem` 에만 휠 분기를 넣고 `locate` 를 빠뜨려서
+   **퀵슬롯의 스택을 버릴 수 없었다** (`dropItem` 이 uid 를 `locate` 로 푼다). `takeItem`(기업 판매)도 같은
+   이유로 못 닿았다. 둘 다 휠 분기를 넣었다. `splitItem` 은 **격자 전용이 맞다** (휠 칸은 한 칸이라 쪼갠 쪽을
+   놓을 자리가 없다) — README 에 그렇게 적었다.
+2. **`mergeIntoQuick` 이 아무도 안 부르는 함수였다.** README 는 "주움 · 제작이 휠 스택부터 채운다" 고
+   적어 놨는데 실제로는 `tryAddItem` · `addUnits` 어디에도 없었다. 둘 다에 넣었다 (부분 병합 뒤
+   `syncQuickSlots` 로 HUD 수량이 따라간다).
+3. **튜토리얼 스포트라이트가 영영 안 떴다.** 반 박자 지연(`TUTORIAL_STEP_DELAY_S`)의 첫 구현에서 `wait` 이
+   음수로 넘어가고, 바로 다음 줄이 그 음수를 `-1`(아직 안 세고 있다) 표식으로 오해해 0.5초를 무한히 다시
+   셌다 — `timer = min(RETARGET_INTERVAL, wait)` 가 두 카운터를 같은 값으로 묶어 늘 같은 프레임에 함께
+   넘어갔기 때문이다. 계측: 0.5 → 0.0004 → 0.5 → … 무한 반복, 실제 점등까지 **23.7초** 또는 60초 안에
+   **끝내 안 뜸**(설계값 0.5초). 고친 뒤 측정값은 **522 ms · 566 ms**. 자세히는
+   [tutorial/README.md](../src/tutorial/README.md) 의 변경 이력.
+
+### 스모크 (증가분은 전부 새 규칙을 실제로 검사한다)
+
+- **smoke-quickslots 46 → 73** — 휠이 자기 컨테이너라는 것 전반: 시작 키트가 가방 격자에 **없다**,
+  `setQuickSlot` 이 **옮기기**이고 밀려난 스택이 가방으로 돌아간다, 가방이 꽉 차면 `setQuickSlot(i, null)` 이
+  **false 로 거절**하고 `inventory:full` 이 뜬다, 휠↔휠은 가방을 안 건드리는 맞바꿈, 휠 스택 `dropItem` ·
+  `takeItem` · `splitItem` 거절, `mergeIntoQuick` 톱업(가방 타일이 안 생긴다), 형제 스택 승계가 **없다**,
+  가방 타일에 방향 뱃지가 **하나도 없다**.
+- **smoke-loadout 62 → 69** — v2 모양 + **v1 → v2 이관 절(8b)** 신설: 손으로 쓴 v1 문서(중복 인덱스 `0,0` ·
+  범위 밖 `9` 포함)를 심고 리로드해 ① 가리키던 스택이 휠로 올라가고 ② **가방 격자에서 빠지며**
+  ③ 휠 인덱스가 없던 항목은 자기 칸을 지키고 ④ 다시 캡처하면 **v2** 로 쓰이고 ⑤ 가방에 복제되지 않는다.
+  (이 절이 뭔가를 검사하게 만들려면 함정 둘을 먼저 치워야 했다 — 부팅 때 **솔로 레이드 blob** 이 로드아웃
+  파일을 덮고, `net:profileLoaded` 가 릴레이의 로드아웃 문서로 갈아치운다. 스크립트에 적어 뒀다.)
+- **smoke-tutorial 67 → 83** — 17단계 순서 · `openCraft` 부재 · 저장된 `openCraft` 가 `craftAmmo` 로 접힌다,
+  반 박자를 **양쪽으로** 단언(직후엔 안 떠 있고 ~0.5초에 뜬다, 300 ms ≤ t < 2000 ms), 딤 페이드 변수,
+  구멍을 **어두운 판 4장에서** 재 `Spotlight.place` 규칙과 ±1 px 비교(링은 1→1.045 애니메이션이라 흔들린다),
+  `equipGun` 포커싱이 장비 열 전체가 아니라는 것, 주무기 II 장착으로도 완료, 제작 흐름을 `goto` 가 아니라
+  **실제로 제작해서** 통과.
+- **smoke-controls-hub 125 → 129**, **smoke-phase2 55 → 57**, **smoke-search · smoke-weapons** 는 개수 유지
+  (휠 위치를 보도록 단언을 옮겼다).
+
+### 그 밖에
+
+- **`src/ui/hud/KeyGuide.ts` 가 바이너리 파일이 돼 있었다.** 한도로 죽은 에이전트의 쓰기가 템플릿 문자열
+  안에 **NUL · 0x01 · 0x02** 를 박아 넣었다 (`${e.key}${...}\x00${e.label}` · `.join('\x01')`). 복구했고,
+  레포 전체를 제어문자로 훑어 나머지를 확인했다.
+- 그 검사에서 **`scripts/smoke-ui-p5.mjs:203` 의 `/\bready\b/` 가 백스페이스 문자 두 개**로 커밋돼 있는 것도
+  나왔다 — 이번 작업과 무관한 **기존 버그**이고 그 단언이 늘 통과한다. 범위 밖이라 고치지 않고
+  [TODO.md](TODO.md) **C-13** 으로 남겼다 (고치면 단언이 실제로 검사를 시작하므로 그때 red 가 날 수 있다).
+- **smoke-phase4 는 첫 실행에서 45/49** 였다가 최종 49/49 — 언제나 같은 신호(`{"dead":true,"hp":0}`)로 나오는
+  이 스크립트의 오래된 flake다 (2026-09-09 기록에 클린 워크트리 4회 3승 1패로 확인해 둔 그것).
+- 검증용 릴레이가 죽은 포트를 "already up" 으로 잡는 환경 flake가 한 번 있었다. `smoke-weapons` 만
+  `no console errors` 에서 WebSocket 잡음을 안 걸러 내므로 그때 red 로 보인다 — 릴레이가 살아 있으면 통과한다.

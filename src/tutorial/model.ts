@@ -26,7 +26,7 @@ export const TUTORIAL_AMMO_DEF = 'ammo_medium';
  * 여유를 더한 양이다.
  *
  * 2026-09-09: 이 표는 바닥일 뿐이고 **실제 필요량은 레시피에서 읽는다** — `TutorialSystem.ensureMaterials(recipeId)`
- * 가 제작 단계(`craftGun` · `openCraft` · `craftAmmo`)에 들어설 때마다 재료별 `필요 − 보유` 만큼만 채운다(top-up).
+ * 가 제작 단계(`craftGun` · `craftAmmo`)에 들어설 때마다 재료별 `필요 − 보유` 만큼만 채운다(top-up).
  * 소총이 폐금속 6 을 먹은 뒤 준중량탄의 폐금속 5 가 모자라던 문제가 그래서 없다. 여기에 숫자를 더 적지 않는다.
  */
 export const TUTORIAL_CRAFT_GRANT: readonly { defId: string; qty: number }[] = [

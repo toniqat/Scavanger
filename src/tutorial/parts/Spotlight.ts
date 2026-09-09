@@ -1,3 +1,4 @@
+import { TUTORIAL_DIM_FADE_S, TUTORIAL_STEP_DELAY_S } from '@/shared';
 import { RETARGET_INTERVAL } from '../model';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -17,6 +18,13 @@ import { RETARGET_INTERVAL } from '../model';
  * 깔려 **드래그를 시작할 수도, 놓을 수도 없다**. union 모드는 찾은 대상들의 사각형을 **하나로 합쳐** 뚫는다 —
  * 네 판으로 만드는 구멍은 언제나 사각형 하나이므로, 서로 붙어 있는 패널들을 넘겨야 이어진 도형으로 읽힌다
  * (장비 열과 가방은 실제로 맞닿아 있다: `.inv-layout:not(.is-craft)` 의 −24 px 이음매).
+ *
+ * **2026-09-09 — 반 박자 늦게 켜진다** (`TUTORIAL_STEP_DELAY_S`, `data/constants.csv`). 대상이 **나타난 순간**부터
+ * 그만큼 기다렸다가 판 · 링 · 말풍선을 한 번에 올린다 — 단계가 넘어간 직후든, 작업대를 열어 제작 행이 뒤늦게
+ * 생긴 때든 마찬가지다. 새 화면이 먼저 보이고 그 뒤에 포커싱이 따라와야 "무엇이 열렸는지"가 읽힌다. 켜질 때
+ * 어두운 판은 `TUTORIAL_DIM_FADE_S` 동안 투명에서 서서히 어두워진다 (`.tut-spot.is-lit`, `--tut-dim-fade`) —
+ * 같은 단계 안에서 대상이 자리를 옮기는 재조준(`RETARGET_INTERVAL`)은 이미 켜진 판을 그대로 쓰므로 다시
+ * 페이드하지 않는다. 대상이 사라졌다가(확인 팝업 · 화면 닫힘) 다시 나타나면 그때는 또 한 번 기다리고 페이드한다.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 interface Rect { x: number; y: number; w: number; h: number }
@@ -44,11 +52,18 @@ export class Spotlight {
   private timer = 0;
   private last: Rect | null = null;
   private shown = false;
+  /**
+   * 대상이 나타난 뒤 켜지기까지 남은 시간 (s). `-1` = 아직 대상을 못 봤다(세지 않는다). 대상이 보이는 첫 update 에
+   * `TUTORIAL_STEP_DELAY_S` 로 시작해 0 이 되는 순간 `place()` 한다. 숨거나 대상이 바뀌면 `-1` 로 돌아간다.
+   */
+  private wait = -1;
 
   constructor(parent: HTMLElement) {
     this.root = document.createElement('div');
     this.root.className = 'tut-spot';
     this.root.hidden = true;
+    // 페이드 시간은 csv 상수 하나가 원본 — CSS 는 이 변수만 읽는다
+    this.root.style.setProperty('--tut-dim-fade', `${TUTORIAL_DIM_FADE_S}s`);
     for (let i = 0; i < 4; i++) {
       const p = document.createElement('div');
       p.className = 'tut-spot-pane interactive';
@@ -74,22 +89,38 @@ export class Spotlight {
   set(selectors: readonly string[] | undefined, text: string, union = false): void {
     const next = selectors ?? [];
     if (next === this.selectors && text === this.text && union === this.union) return;
+    const retarget = next !== this.selectors;
     this.selectors = next;
     this.text = text;
     this.union = union;
     this.timer = 0;                       // 다음 update 에서 즉시 다시 찾는다
-    if (next.length === 0) this.hide();
+    // 대상이 바뀌었다(= 단계가 넘어갔다) — 지금 켜진 것은 바로 접고, 새 대상은 나타난 뒤 반 박자 기다려 켠다.
+    //   말풍선 문구만 바뀐 것은 재조준으로 취급해 그대로 따라간다.
+    if (next.length === 0 || retarget) this.hide();
   }
 
-  /** 프레임마다. 대상이 움직이거나 사라지는 것을 따라간다 (`RETARGET_INTERVAL` 간격). */
+  /**
+   * 프레임마다. 대상이 움직이거나 사라지는 것을 따라간다 (`RETARGET_INTERVAL` 간격).
+   * 꺼져 있는 동안 대상이 보이면 `wait` 를 세기 시작하고, 다 세고 나서야 켠다 — 기다리는 동안은 다음 확인을
+   * 남은 시간에 맞춰 당겨 잡아 켜지는 순간이 `RETARGET_INTERVAL` 만큼 더 늦어지지 않게 한다.
+   */
   update(dt: number): void {
     if (this.selectors.length === 0) return;
+    // 세는 동안에는 **0 밑으로 내려가지 않는다**. `-1` 은 "아직 세고 있지 않다" 는 별개의 표식이라,
+    // 카운트다운이 음수로 넘어가면 아래의 `wait < 0` 이 그것을 "대상이 지금 나타났다" 로 잘못 읽어
+    // 0.5 초를 영원히 다시 센다 (2026-09-09 버그 — 스포트라이트가 몇십 초씩 안 뜨거나 끝내 안 떴다:
+    // `timer = min(RETARGET_INTERVAL, wait)` 가 둘을 같은 값으로 묶어 늘 같은 프레임에 함께 넘어갔다).
+    if (this.wait > 0) this.wait = Math.max(0, this.wait - dt);
     this.timer -= dt;
     if (this.timer > 0) return;
     this.timer = RETARGET_INTERVAL;
     if (this.yielding()) { this.hide(); return; }
     const b = this.union ? this.unionRect() : this.find()?.getBoundingClientRect() ?? null;
     if (!b || b.width <= 0 || b.height <= 0) { this.hide(); return; }
+    if (!this.shown) {
+      if (this.wait < 0) this.wait = TUTORIAL_STEP_DELAY_S;          // 대상이 지금 나타났다 (`-1` 표식) — 세기 시작
+      if (this.wait > 0) { this.timer = Math.min(RETARGET_INTERVAL, this.wait); return; }
+    }
     this.place({ x: b.left - PAD, y: b.top - PAD, w: b.width + PAD * 2, h: b.height + PAD * 2 });
   }
 
@@ -155,20 +186,30 @@ export class Spotlight {
     this.tip.textContent = this.text;
     this.tip.style.cssText = `left:${px(Math.min(Math.max(8, x0), vw - 300))};top:${px(Math.max(8, tipTop))}`;
     this.tip.hidden = !this.text;
-    if (!this.shown) { this.shown = true; this.root.hidden = false; }
+    if (!this.shown) {
+      this.shown = true;
+      this.root.hidden = false;
+      // `display:none` 에서 막 나온 요소는 클래스를 같은 프레임에 달면 transition 이 돌지 않는다 — 한 번 재계산시킨 뒤 켠다
+      void this.root.offsetWidth;
+      this.root.classList.add('is-lit');
+    }
     this.last = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
   }
 
   private hide(): void {
+    this.wait = -1;
     if (!this.shown) return;
     this.shown = false;
     this.root.hidden = true;
+    this.root.classList.remove('is-lit');
     this.last = null;
   }
 
   /** 스모크 / 디버그: 지금 밝히고 있는 사각형 — 정수 모서리로 굳힌 구멍 (없으면 null). */
   get rect(): Rect | null { return this.last; }
   get visible(): boolean { return this.shown; }
+  /** 스모크 / 디버그: 대상은 보이는데 아직 반 박자를 세고 있다. */
+  get pending(): boolean { return !this.shown && this.wait > 0; }
 
   dispose(): void {
     this.root.remove();

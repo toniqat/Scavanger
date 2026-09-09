@@ -76,6 +76,7 @@ export abstract class HousingPanel {
     if (this._open) { this.refresh(); return; }
     this._open = true;
     this.ctx.uiBlockers.add(BLOCKER);          // blocker first, then the in-game cursor (the lock is kept)
+    this.ctx.escape.push(BLOCKER, () => this.close());
     this.ctx.input.setCursorMode(true, BLOCKER);
     this.root.hidden = false;
     this.frame.style.animation = 'none';
@@ -98,6 +99,7 @@ export abstract class HousingPanel {
     this.msg.hidden = true;
     (document.activeElement as HTMLElement | null)?.blur?.();
     this.ctx.uiBlockers.delete(BLOCKER);
+    this.ctx.escape.remove(BLOCKER);
     this.ctx.input.setCursorMode(false, BLOCKER);
     this.ctx.bus.emit('ui:keyGuide', { owner: `housing.${this.page}`, keys: null });
     this.ctx.bus.emit('ui:housingToggled', { open: false, page: wirePage(this.page) });

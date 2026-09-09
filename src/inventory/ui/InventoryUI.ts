@@ -415,9 +415,10 @@ export class InventoryUI {
   /**
    * The **popups only** — split dialog, right-click context menu, 분해 dialog — without the 제작 column.
    *
-   * 2026-09-08 (ESC = 항상 일시정지): Escape no longer closes the window, it cancels the innermost popup and
-   * otherwise falls through to the 일시정지 메뉴. The 제작 column is a column of the window (its own 제작 button
-   * toggles it), not a popup, so it deliberately stays open under the menu.
+   * 2026-09-08: Escape cancels the innermost popup first and otherwise falls through. **2026-09-09 (ESC 닫기)**:
+   * 떨어진 그 Escape 는 이제 창을 닫는다 (`shared/escape` 의 맨 위 항목 = 이 창), 예전에는 일시정지 메뉴였다.
+   * 어느 쪽이든 팝업 우선 규칙은 그대로다. The 제작 column is a column of the window (its own 제작 button toggles
+   * it), not a popup, so it goes with the window.
    */
   closePopups(): boolean {
     const a = this.dialog?.close() ?? false;
@@ -688,6 +689,9 @@ export class InventoryUI {
   /** Wheel cell under the pointer (null when not over the rose). */
   quickCellAt(x: number, y: number): QuickCell | null { return QuickUI.quickCellAt(this, x, y); }
 
+  /** The wheel cell element for `index` (drag / shake feedback since 2026-09-09). */
+  quickCell(index: number): HTMLElement | null { return this.quickCells.find((c) => c.index === index)?.el ?? null; }
+
   /**
    * Credit value of everything in the equipment slots (2026-09-08). The 가치 readout under the bag used to count
    * only what was *in* the bag, so equipping a rifle made the number you are carrying out of the raid drop.
@@ -780,6 +784,14 @@ export class InventoryUI {
   shake(loc: ItemLocation, uid: string): void {
     if (loc.kind === 'grid') {
       this.viewOf(loc.grid).shake(uid);
+    } else if (loc.kind === 'quick') {
+      const cell = this.quickCell(loc.index);
+      if (cell) {
+        cell.classList.remove('is-shake');
+        void cell.offsetWidth;
+        cell.classList.add('is-shake');
+        setTimeout(() => cell.classList.remove('is-shake'), 360);
+      }
     } else {
       const sv = this.slots.get(loc.slot);
       if (sv?.tile) {

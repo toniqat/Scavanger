@@ -459,7 +459,7 @@ try {
   });
   ok(gear.t1 === '장비 작업대 Lv.1' && gear.gearBtn && !gear.rows.some((n) => /AR|SMG|P-2/.test(n)), `gear bench repairs no weapons (${gear.rows.join(', ') || 'empty'})`);
   ok(gear.t2 === '가젯 작업대 Lv.1' && !gear.gadgetBtn, 'gadget bench has no 수리 button');
-  // 닫기 leaves bench mode, window stays; Esc closes the window
+  // 닫기 leaves bench mode, window stays; Tab (또는 Esc — 2026-09-09) closes the window
   await page.evaluate(() => document.querySelector('.inv-craft-close').click());
   await sleep(100);
   const closed = await page.evaluate(() => ({ bench: window.__game.getSystem('inventory').getBench(), panel: document.querySelector('.inv-panel-craft').hidden, open: window.__game.ctx.inventory.isOpen }));

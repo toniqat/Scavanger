@@ -300,6 +300,7 @@ export class HubMenu {
     this._open = true;
     this.ctx.uiBlockers.add('hub');            // before the cursor mode (GameFlow / hub UI etiquette)
     // Phase 10: keep the pointer lock and drive the software cursor instead of handing the OS cursor back.
+    this.ctx.escape.push('hub:terminal', () => this.close());
     this.ctx.input.setCursorMode(true, 'hub');
     this.root.hidden = false;
     this.frame.style.animation = 'none';
@@ -322,6 +323,7 @@ export class HubMenu {
     this.holo?.setVisible(false);              // stop rendering the second WebGL context while it is closed
     (document.activeElement as HTMLElement | null)?.blur?.();
     this.ctx.uiBlockers.delete('hub');
+    this.ctx.escape.remove('hub:terminal');
     this.ctx.input.setCursorMode(false, 'hub');
     this.ctx.bus.emit('ui:hubMenuToggled', { open: false });
     this.ctx.bus.emit('hub:terminalToggled', { open: false });
@@ -482,6 +484,7 @@ export class HubMenu {
     window.removeEventListener('keydown', this.onKeyDown);
     this.holo?.dispose(); this.holo = null;
     this.ctx.uiBlockers.delete('hub');
+    this.ctx.escape.remove('hub:terminal');
     this.ctx.input.setCursorMode(false, 'hub');
     this.root.remove();
   }

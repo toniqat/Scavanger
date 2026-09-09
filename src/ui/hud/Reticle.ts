@@ -1,4 +1,4 @@
-import type { GameContext, ImplantId, Stance } from '@/shared';
+import type { GameContext, ImplantId, ItemInstance, Stance } from '@/shared';
 import { el, setText, toggleClass, damp } from '../dom';
 
 /** Base reticle gap (px) per stance, [hip, ADS]. */
@@ -19,6 +19,14 @@ const MOVE_SPEED_EPS = 0.5; // m/s of horizontal velocity that counts as "moving
  * Grapple (갈고리, tactical kit): with the grapple implant equipped (it is an instant Q cast, the gun stays in hand)
  * the reticle grows a bracket ring with the anchor distance whenever `implant:grappleTargetChanged {valid}` says the
  * point under the crosshair can be hooked, and keeps it (green) while the wire is attached.
+ *
+ * **소모품 모드 (2026-09-09):** while a quick-use consumable is in the hands (`quick:equipped {item}` — 수류탄 · 가젯 ·
+ * 회복 소모품) the four ticks hide (`.reticle.consumable`, CSS) and only the dot stays, with a small mono readout to
+ * its **right** (`.qinfo`): the stack count `×n` and, for an item with its own gauge (회복 스프레이 —
+ * `ItemDef.durabilityMax` on the def, `ItemInstance.durability` on the instance), the remaining gauge as `n%`
+ * (`×2 · 62%` when both apply). The live instance is re-read from `ctx.inventory.findItem(uid)` only when something
+ * that can change it fires (`quick:used` · `inventory:itemUpdated` · `inventory:quickSlotsChanged` · `durability:changed`),
+ * never per frame. `quick:equipped {item: null}` (the gun is back) restores the normal crosshair; so does a mission reset.
  */
 export class Reticle {
   readonly root: HTMLElement;
@@ -26,11 +34,16 @@ export class Reticle {
   private hitmarker: HTMLElement;
   private hook: HTMLElement;
   private hookDist: HTMLElement;
+  private qinfo: HTMLElement;
   private implant: ImplantId | null = null;
   private wielded = false;
   private grappleValid = false;
   private grappleDist = 0;
   private lastHookKey = '';
+  /** Consumable in hand (`quick:equipped.item`), null while a gun is out. */
+  private quickItem: ItemInstance | null = null;
+  private quickDirty = false;
+  private lastQuickText = '';
   private gap = 14;
   private targetGap = 14;
   private bloom = 0;
@@ -40,6 +53,7 @@ export class Reticle {
   private stratOpen = false;
   private hitTimer = 0;
   private lastGap = -1;
+  private ctx: GameContext | null = null;
   private unsubs: Array<() => void> = [];
 
   constructor(parent: HTMLElement) {
@@ -56,11 +70,15 @@ export class Reticle {
     this.hook.hidden = true;
     for (let i = 0; i < 4; i++) el('i', { parent: this.hook });
     this.hookDist = el('span', { cls: 'gdist ui-mono', text: '', parent: this.hook });
+    // 소모품 readout right of the dot (only rendered in `.consumable` mode).
+    this.qinfo = el('span', { cls: 'qinfo ui-mono', text: '', parent: this.root });
     this.apply(14);
   }
 
   bind(ctx: GameContext): void {
+    this.ctx = ctx;
     const b = ctx.bus;
+    const touch = (): void => { if (this.quickItem) this.quickDirty = true; };
     this.unsubs.push(
       b.on('weapon:fired', () => { this.bloom = Math.min(this.bloom + 6, 22); }),
       b.on('player:aimChanged', ({ aiming }) => { this.aiming = aiming; }),
@@ -77,6 +95,16 @@ export class Reticle {
         if (headshot) this.hitmarker.classList.add('head');
         this.hitTimer = kill ? 0.22 : 0.12;
       }),
+      // ── 소모품 모드 (2026-09-09) ──
+      b.on('quick:equipped', ({ item }) => { this.setQuick(item); }),
+      b.on('quick:used', ({ item, remaining }) => {
+        // the emitter already knows the stack left; a 0 keeps the mode until weapons/ un-equips (`quick:equipped null`)
+        if (this.quickItem && item.uid === this.quickItem.uid) { this.quickItem = { ...this.quickItem, qty: remaining }; }
+        this.quickDirty = true;
+      }),
+      b.on('inventory:itemUpdated', touch),
+      b.on('inventory:quickSlotsChanged', touch),
+      b.on('durability:changed', touch),
       // ── grapple crosshair state ──
       b.on('implant:equipped', ({ id }) => { this.implant = id; this.syncHook(); }),
       b.on('implant:wieldChanged', ({ id, wielded }) => { this.implant = id; this.wielded = wielded; this.syncHook(); }),
@@ -86,8 +114,8 @@ export class Reticle {
       }),
       b.on('implant:grappleAttached', () => { toggleClass(this.hook, 'attached', true); this.lastHookKey = ''; this.syncHook(); }),
       b.on('implant:grappleReleased', () => { toggleClass(this.hook, 'attached', false); this.lastHookKey = ''; this.syncHook(); }),
-      b.on('game:newMission', () => { this.wielded = false; this.grappleValid = false; this.syncHook(); }),
-      b.on('game:abort', () => { this.wielded = false; this.grappleValid = false; this.syncHook(); }),
+      b.on('game:newMission', () => { this.wielded = false; this.grappleValid = false; this.syncHook(); this.setQuick(null); }),
+      b.on('game:abort', () => { this.wielded = false; this.grappleValid = false; this.syncHook(); this.setQuick(null); }),
     );
   }
 
@@ -103,6 +131,40 @@ export class Reticle {
     toggleClass(this.hook, 'valid', this.grappleValid);
     setText(this.hookDist, this.grappleValid ? `${Math.round(this.grappleDist)}m` : '');
   }
+
+  /** Enter / leave 소모품 모드: ticks hide, the dot stays, the count readout appears to its right. */
+  private setQuick(item: ItemInstance | null): void {
+    this.quickItem = item;
+    toggleClass(this.root, 'consumable', !!item);
+    if (item) { this.quickDirty = true; this.syncQuick(); }
+    else if (this.lastQuickText !== '') { this.lastQuickText = ''; setText(this.qinfo, ''); }
+  }
+
+  /** Re-read the live instance and rewrite the readout (only when an event marked it dirty). */
+  private syncQuick(): void {
+    if (!this.quickDirty || !this.quickItem) return;
+    this.quickDirty = false;
+    const ctx = this.ctx;
+    const inv = ctx?.inventory;
+    // the inventory copy is the truth for qty / durability; the event copy is the fallback (smokes, missing item)
+    const live = inv?.findItem(this.quickItem.uid) ?? this.quickItem;
+    const def = inv?.getDef(live.defId) ?? ctx?.loot?.getItemDef(live.defId);
+    const parts: string[] = [];
+    parts.push(`×${Math.max(0, live.qty)}`);
+    const max = def?.durabilityMax ?? 0;
+    if (max > 0 && typeof live.durability === 'number') {
+      parts.push(`${Math.round(Math.max(0, Math.min(1, live.durability / max)) * 100)}%`);
+    }
+    const text = parts.join(' · ');
+    if (text === this.lastQuickText) return;
+    this.lastQuickText = text;
+    setText(this.qinfo, text);
+  }
+
+  /** Whether the reticle is in 소모품 모드 (dot only + count) (debug / smoke). */
+  get isConsumable(): boolean { return this.quickItem !== null; }
+  /** The readout right of the dot while in 소모품 모드, '' otherwise (debug / smoke). */
+  get consumableText(): string { return this.lastQuickText; }
 
   update(dt: number, ctx: GameContext): void {
     const p = ctx.player;
@@ -133,6 +195,8 @@ export class Reticle {
       this.implant = imp.equipped; this.wielded = imp.wielded;
       this.syncHook();
     }
+    // 소모품 readout: rewritten only after an event marked it dirty (one boolean per frame otherwise).
+    if (this.quickDirty) this.syncQuick();
 
     const scoped = this.scope && this.aiming;
     // Hidden behind blockers / the scope; dimmed while the quick-use wheel is open.

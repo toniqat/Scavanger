@@ -38,10 +38,10 @@ Import via `@/game` → `GameFlowSystem`.
 | `player:downed` | **not a death**: phase unchanged, `ui:notify "쓰러짐 — 아군의 제세동기를 기다립니다"`, the all-dead check is re-armed (a squadmate may already be dead) |
 | `player:revived` | stops the all-dead check when the local player is no longer dead |
 | `game:abort` | multiplayer host **during a live raid** (gameplay / `deploying`, never a training): `flow abort` to others first (leaving a result screen is local — the mission is already over); closes inventory, `menu`. If the abort ended a *lobby* mission / result screen, emits `hub:enter {ship:'shared'}` one microtask later (no-op when HubSystem's own `hub:enter` already built the ship) |
-| Escape (gameplay phase **or `hub`**) | **2026-09-08: always `escapePause()`** — the 일시정지 메뉴 opens no matter what is on screen, and Escape never closes it or anything else (see the section at the end). Two entry points reach that method because the browser splits the key: a real `Keys.MENU` press when a screen already freed the cursor, and `input:pointerLockLost` when the pointer was locked and the browser ate the keydown to free it. Blockers are **not** checked — the menu stacks over an open screen. `PauseMenu` emits `game:paused false` from its button. `freeze` is always false (2026-09-07): a raid is an extraction run, and stopping the clock with a keypress made Escape a save-scum button; the field stays on the wire because Engine and the HUD read it |
+| Escape (gameplay phase **or `hub`**) | **2026-09-09: `escapeKey()`** — `ctx.escape.closeTop()` 이 열려 있는 화면 중 맨 위 하나를 닫고, 스택이 비어 있을 때만 `escapePause()` 가 일시정지 메뉴를 연다 (see the 2026-09-09 section at the end). 메뉴는 여전히 Escape 로 닫히지 않는다 — 데스크톱 셸만 예외다. Two entry points reach that method because the browser splits the key: a real `Keys.MENU` press when a screen already freed the cursor, and `input:pointerLockLost` when the pointer was locked and the browser ate the keydown to free it. Blockers are **not** checked — the menu stacks over an open screen. `PauseMenu` emits `game:paused false` from its button. `freeze` is always false (2026-09-07): a raid is an extraction run, and stopping the clock with a keypress made Escape a save-scum button; the field stays on the wire because Engine and the HUD read it |
 | `window` `blur` / `visibilitychange` → hidden | if gameplay phase, no blocker, player alive and not paused → emits `input:pointerLockLost` and pauses. **2026-09-07 (커서 rework): losing the pointer lock is no longer one of these triggers.** Releasing the lock is how every screen shows the mouse now, and Chrome drops it on any Escape, so treating a missing lock as "the player left" is exactly what made the game freeze whenever the Windows cursor appeared. Only losing the *window* means someone actually walked away |
 | ~~lost-lock watchdog~~ (`checkLockLost`) | **deleted 2026-09-07.** It existed because Phase 10 screens kept the lock and a lock that went missing meant the software cursor had silently fallen back to mirroring the real OS one. With the rework there is no hybrid state to detect: no lock simply means the mouse is a cursor |
-| Escape while the Alt 커서 is up | **2026-09-08**: `escapePause()` drops the free cursor **and** opens the menu in the same press — the Alt 커서 is the one cursor owner with no window behind it, so leaving it up under the menu would strand the player with no camera |
+| Escape while the Alt 커서 is up | **2026-09-09**: the Alt 커서 is an entry on `ctx.escape`, so Escape **gives the camera back and stops there** — no menu. (2026-09-08 dropped the cursor *and* opened the menu in the same press.) `escapePause` still force-drops it if the menu is opened some other way, since it is the one cursor owner with no window behind it |
 | left click on the canvas while the Alt 커서 is up | **2026-09-07:** closes it (`onFreeCursorClick` → `toggleFreeCursor(false)`) — it is the one cursor owner with no window behind it, so a click on the world can only mean 카메라 복귀, and a click is the user gesture Chrome wants before it grants the lock back. A click whose target is a HUD element is left alone |
 | `Keys.CURSOR` (Alt) | **2026-09-07:** frees the mouse in place with no screen behind it — `ctx.uiBlockers` token `FREE_CURSOR_BLOCKER` (`'cursor'`) + `input.setCursorMode(true, 'cursor')`, so gameplay input is gated exactly as an open panel gates it and `main.ts` re-locks on release. Emits `ui:freeCursorToggled {active}`. Only from a gameplay phase or the ship, alive, with no other blocker; a phase change or a death releases it in `update()` |
 | unpause (**게임으로 돌아가기 only** — 2026-09-08: Escape is inert on the menu, and that click is the engagement gesture the browser requires before it will re-lock) | emits `game:paused false` and nothing else — **2026-09-07 (커서 rework)**: `ui/menus/MenuBase` owns the `'menu'` cursor token (taken on `show()`, dropped on `hide()`) and `main.ts` is the single place that re-requests the lock once the last cursor owner is gone. `GameFlowSystem` no longer touches the pointer lock at all. Outside fullscreen Chrome still grants no activation for Escape, so that request may be denied and `Input` retries it from the next click or key; in fullscreen `navigator.keyboard.lock(['Escape'])` means it never had to |
@@ -223,9 +223,39 @@ over them and 게임으로 돌아가기 returns to what was open. `onFocusLost` 
 ### Known follow-ups
 - `input:pointerLockLost` is emitted by both `main.ts` (a user unlock) and `onFocusLost` (a window blur). The handler
   is idempotent, but the event no longer means only one thing.
-- With Escape inert on the menu, a player whose mouse stops working has no keyboard way out of the pause screen.
-- The pause stacking is one level deep by design: Escape over the menu does nothing, so there is no "close the menu
-  and the screen under it" gesture.
+
+## 2026-09-09 — ESC 닫기 (위 절의 후속: 화면 닫기만 되돌렸다)
+
+**Escape 한 번은 열려 있는 화면 중 맨 위 하나를 닫는다. 닫을 화면이 없을 때만 일시정지 메뉴가 열린다.**
+사용자 보고: 커서가 보이면 사람은 그 창을 ESC 로 닫으려 한다.
+
+위 2026-09-08 절의 세 가지 이유 가운데 **(1) 락이 걸린 동안 Escape 는 keydown 이 되지 않는다** 와
+**(3) 메뉴 위에서 Escape 를 연타해도 아무 일이 없다** 는 그대로다. 무너진 것은 (2)뿐이다 — 닫은 뒤 카메라를
+되찾는 방법이 이제 두 환경 모두 있다:
+
+- **데스크톱 셸**: `electron/main.ts` 가 ESC **key-up** 마다 `executeJavaScript(code, true)` 로 페이지에
+  activation 을 건네 `window.__scavShellRelock` 을 부른다 → 닫히는 즉시 카메라가 돌아온다.
+- **브라우저**: `좌측 클릭으로 게임 재개` 게이트(`ResumeGate`)가 그 한 클릭을 받는다. 원래 이 상황을 위해
+  만든 UI 이므로 새 문제가 아니다 (사용자 결정 2026-09-09: 조작을 환경마다 갈라 놓지 않는다).
+
+| 무엇 | 어디 |
+|---|---|
+| 열린 순서 | `shared/escape.ts` 의 `EscapeStack`, `ctx.escape` 로 게시. 화면은 `uiBlockers.add` 옆에서 `push(token, () => this.close())`, `delete` 옆에서 `remove(token)`. 닫기 함수가 **`false`** 를 돌려주면 항목이 남는다 (한 걸음만 되돌린 화면 — 하우징 모드) |
+| 정책 (한 곳) | `parts/Phases.escapeKey` — `ctx.escape.closeTop()` 이 false 면 `escapePause()`. `GameFlowSystem.update` 의 `Keys.MENU` 폴링이 유일한 호출자 |
+| 락이 걸린 채로 누른 Escape | 그대로 `input:pointerLockLost` → `escapePause()`. 그때는 커서를 쓰는 화면이 없으므로 닫을 것도 없다 |
+| 가장 안쪽 팝업 | 바뀐 것 없음 — 수량 지정 · 우클릭 메뉴 · 경고 팝업 · 설정 · 키 바꾸기 · 콘솔 · 채팅은 자기 window capture 핸들러에서 Escape 를 삼켜 `Input` 이 기록조차 못 하게 한다. 스택은 그 아래층인 **화면** 만 다룬다 |
+| Alt 커서 | `escapePause` 가 강제로 내려놓던 것에서 **스택의 한 항목**으로 바뀌었다 (`toggleFreeCursor`). ESC 는 카메라를 돌려주고 끝난다 — 메뉴는 열리지 않는다 |
+| 하우징 / 함선 관리 모드 | `hub/HousingMode` 가 `Keys.MENU` 를 직접 폴링하던 것을 걷어내고 스택에 올렸다. 폴링은 `HubSystem`(등록 89) 이 `GameFlowSystem`(105) 보다 먼저 돌아 **위에 떠 있는 패널보다 모드가 먼저 닫혔다**. C 는 그대로 |
+| 일시정지 메뉴 자신 | **데스크톱 셸에서만** ESC 로 닫힌다 (`isDesktopShell()`, `ui/menus/PauseMenu` 의 capture 핸들러가 Tab 과 똑같이 처리). 브라우저는 `게임으로 돌아가기` 클릭 그대로 — 그 클릭이 재락에 필요한 제스처이기도 하다 |
+| 키 가이드 | 우측 하단 `닫기` 항목의 keycap 이 **둘**(`Tab` · `Esc`)이 됐다 (`ui/hud/KeyGuide`) |
+| 검증 | `scripts/smoke-resume-gate.mjs` §8 (닫기 · LIFO · 게이트) · §9 (셸에서 메뉴 닫기), `scripts/smoke-controls-hub.mjs` (가방 · Alt 커서), `scripts/smoke-raidflow.mjs`, `scripts/smoke-ui-p6.mjs` (키 가이드) |
+
+### Known follow-ups (2026-09-09)
+- 스택은 push/remove 규율에 의존한다 (블로커 토큰과 같은 규율). 화면이 `remove` 를 빼먹고 닫히면 그 ESC 한 번이
+  이미 닫힌 화면의 `close()` 를 부르고(무해) 메뉴는 열리지 않는다.
+- 튜토리얼 안내 팝업(`tutorial/ui/Popup`)은 스택에 없다 — 버튼(확인 · 1초 홀드 건너뛰기)이 그 팝업의 유일한
+  출구여서다. 그 위에서 ESC 는 여전히 일시정지 메뉴를 연다.
+- 브라우저에서 ESC 로 화면을 닫으면 재개 게이트가 한 번 뜬다. 조작을 통일하기로 한 대가이고, 셸에는 없다.
 
 ## 파일 분할 규약 (`model.ts` + `parts/`, 2026-09-08)
 

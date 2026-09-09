@@ -1,5 +1,5 @@
 import type { GameContext } from '@/shared';
-import { UI_HOLD_CONFIRM_S } from '@/shared';
+import { UI_HOLD_CONFIRM_S, isDesktopShell } from '@/shared';
 import { el, setText } from '../dom';
 import { MenuBase } from './MenuBase';
 
@@ -174,15 +174,25 @@ export class PauseMenu extends MenuBase {
   /**
    * Tab leaves the menu; while the 경고 팝업 is up it owns Escape (cancel) and **eats** Enter (2026-09-09: it no
    * longer confirms — confirming is the pointer hold and nothing else), so neither falls through to the chat or to
-   * whatever button the browser happens to have focused. Escape on the bare menu stays unhandled on purpose —
-   * `game/GameFlowSystem` owns that key and the menu is deliberately click-to-close (the click is also the gesture
-   * the browser wants before re-locking the pointer).
+   * whatever button the browser happens to have focused.
+   *
+   * **Escape 는 데스크톱 셸에서만 메뉴를 닫는다** (2026-09-09, 사용자 결정). 브라우저에서는 그대로 클릭 전용이다 —
+   * Escape 에는 user activation 이 없어서 그 키로 닫으면 포인터 락을 되찾지 못하고 `좌측 클릭으로 게임 재개`
+   * 게이트가 한 번 더 뜬다. 셸에서는 메인 프로세스가 ESC key-up 마다 activation 을 만들어 주므로
+   * (`electron/main.ts` → `__scavShellRelock`) 닫히는 즉시 카메라가 돌아온다. 이 핸들러는 window capture 라
+   * `Input` 이 키를 기록하기 전에 삼키므로, `game/escapeKey` 가 같은 프레임에 메뉴를 다시 열지 않는다.
    */
   private handleKey(e: KeyboardEvent): void {
     if (!this.visible) return;
     if (!this.ask.hidden) {
       if (e.code === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); this.closeAsk(); }
       else if (e.code === 'Enter' || e.code === 'NumpadEnter') { e.preventDefault(); e.stopImmediatePropagation(); }
+      return;
+    }
+    if (e.code === 'Escape' && isDesktopShell()) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      this.resume();
       return;
     }
     if (e.code !== 'Tab') return;

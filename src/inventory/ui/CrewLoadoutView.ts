@@ -34,10 +34,11 @@ export class CrewLoadoutView implements EmbeddedView {
   /** The snapshot's own grid — never registered anywhere, so `GridId 'bag'` here means "this member's bag". */
   private readonly bag: Grid;
   private bagView: GridView | null = null;
-  /** Revived instances in `save.bag` order (null = def unknown / no room), for the quick-slot indices. */
+  /** Revived instances in `save.bag` order (null = def unknown / no room). */
   private readonly revived: (ItemInstance | null)[] = [];
   private readonly slots: Partial<Record<LoadoutSlot, ItemInstance>> = {};
-  private readonly quickUids: (string | null)[] = new Array<string | null>(QUICK_SLOTS).fill(null);
+  /** The wheel's own stacks (2026-09-09 — v2 saves carry the stack itself, not an index into `bag`). */
+  private readonly quickItems: (ItemInstance | null)[] = new Array<ItemInstance | null>(QUICK_SLOTS).fill(null);
   private quickActive = BAG_DEFAULT_QUICK_SLOTS;
   private disposed = false;
 
@@ -85,7 +86,7 @@ export class CrewLoadoutView implements EmbeddedView {
     host.appendChild(this.root);
   }
 
-  /** Mint the snapshot's items: slots (category-checked), bag placements, then the wheel indices. */
+  /** Mint the snapshot's items: slots (category-checked), bag placements, then the wheel's own stacks. */
   private build(save: LoadoutSave): void {
     const getDef = (id: string): ItemDef | undefined => this.inv.getDef(id);
     const loot = this.inv.getLoot();
@@ -109,9 +110,8 @@ export class CrewLoadoutView implements EmbeddedView {
     for (const item of pending) {
       if (!this.bag.autoPlace(item)) this.revived[this.revived.indexOf(item)] = null;
     }
-    save.quick.forEach((idx, i) => {
-      const item = idx === null ? null : this.revived[idx];
-      if (item && this.bag.has(item.uid)) this.quickUids[i] = item.uid;
+    save.quick.forEach((sv, i) => {
+      this.quickItems[i] = reviveItem(sv, getDef, loot, 'CrewLoadout');
     });
   }
 
@@ -212,8 +212,7 @@ export class CrewLoadoutView implements EmbeddedView {
       const body = document.createElement('div');
       body.className = 'inv-quick-body';
       cell.append(dir, body);
-      const uid = this.quickUids[index];
-      const item = uid ? this.bag.get(uid)?.item : undefined;
+      const item = this.quickItems[index] ?? undefined;
       const def = item ? this.inv.getDef(item.defId) : undefined;
       if (!isQuickSlotActive(index, this.quickActive)) cell.classList.add('is-locked');
       if (item && def) {

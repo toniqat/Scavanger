@@ -314,6 +314,10 @@ still runs at the item's own rate).
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
+- **2026-09-09 (투척 상수 csv 이관)** — `model.ts` 의 `GRENADE_THROW_SPEED`(17) · `GRENADE_THROW_LIFT`(3.5) ·
+  `GRENADE_UNDERHAND_LIFT`(1.2) 가 `data/constants.csv` → `@/shared` 로 옮겨졌고 `model.ts` 는 re-export 만 한다 —
+  `progression/derive` 가 같은 수치로 투척 사거리를 m 로 계산해 캐릭터 시트에 보여 주기 위해서다. `parts/Throwing` 의
+  호출부는 그대로다. 근력 배율(`derived.throwRangeMul`) 자체의 기울기는 progression README 참조.
 - **2026-09-08 (스코프 탄도)** — `parts/Firing.fire` 가 **스코프 조준 중에는 조준선에서 쏜다**. 모든 사격은
   모델 총구에서 나가 카메라 레이가 맞춘 점으로 수렴하는데, 3인칭 총구는 카메라보다 ~0.15 m **왼쪽** · ~1 m 앞이라
   총구에서 본 각도로 ~8° 왼쪽이다 — 저격 거리에서 예광탄이 비행 내내 조준선 왼쪽을 지나고, 카메라 레이가 아무것도

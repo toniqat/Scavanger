@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { GameContext } from '@/shared';
+import { TUTORIAL_STEP_DELAY_S } from '@/shared';
 import {
   GUIDE_ARRIVE, GUIDE_COLOR, GUIDE_DASH, GUIDE_FLOW, GUIDE_GAP, GUIDE_LIFT, GUIDE_WIDTH,
   PILLAR_HEIGHT, PILLAR_RADIUS, RETARGET_INTERVAL,
@@ -67,6 +68,8 @@ export class Guide {
   private readonly disposables: Array<THREE.BufferGeometry | THREE.Material> = [];
   private targetId: string | null = null;
   private timer = 0;
+  /** 새 목표가 정해진 뒤 선을 깔기까지 남은 시간 (s, `TUTORIAL_STEP_DELAY_S`) — 스포트라이트와 같은 박자로 늦게 나타난다 (2026-09-09). */
+  private wait = 0;
   private mounted = false;
   private time = 0;
   /** Last resolved target position (null = the interactable is not registered right now). */
@@ -120,11 +123,13 @@ export class Guide {
     if (this.targetId === id) return;
     this.targetId = id;
     this.timer = 0;
-    if (!id) this.unmount();
+    this.wait = TUTORIAL_STEP_DELAY_S;
+    this.unmount();                       // 이전 목표의 선은 바로 걷고, 새 선은 반 박자 뒤에
   }
 
   update(dt: number): void {
     if (!this.targetId) return;
+    if (this.wait > 0) { this.wait -= dt; if (this.wait > 0) return; }
     this.time += dt * GUIDE_FLOW;
     this.timer -= dt;
     if (this.timer <= 0) {

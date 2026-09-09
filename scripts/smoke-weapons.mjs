@@ -401,11 +401,18 @@ try {
   const empty = await page.evaluate((uid) => {
     const ctx = window.__game.ctx; const it = ctx.inventory.findItem(uid);
     const ch = window.__ev['item:channelChanged'];
-    return { present: !!it, dur: it?.durability ?? null, inBag: ctx.inventory.getAllItems().some((i) => i.uid === uid), held: ctx.weapons.remoteState.heldItemId,
+    // 2026-09-09: the wheel is its own container, so the can is NOT in the bag grid (`getAllItems`) — "still owned"
+    // means the player still has it somewhere (wheel or bag), which is what "not consumed" is about.
+    return { present: !!it, dur: it?.durability ?? null, held: ctx.weapons.remoteState.heldItemId,
+      inBag: ctx.inventory.getAllItems().some((i) => i.uid === uid),
+      owned: ctx.inventory.getQuickSlots().some((i) => i?.uid === uid) || ctx.inventory.getAllItems().some((i) => i.uid === uid),
+      spraysOwned: ctx.inventory.countDef('heal_spray'),
       ch, notes: window.__ev['ui:notify'].map((n) => n.text), quickUsed: window.__ev['quick:used'].length,
       slot0: ctx.inventory.getQuickSlots()[0]?.uid ?? null };
   }, sprayReady.uid);
-  ok(empty.present && empty.inBag && empty.dur === 0, `drained to 0: the can is still in the bag at durability 0 (not consumed)`, JSON.stringify({ present: empty.present, dur: empty.dur, inBag: empty.inBag }));
+  ok(empty.present && empty.owned && !empty.inBag && empty.spraysOwned >= 1 && empty.dur === 0,
+    `drained to 0: the can is still owned (on the wheel, not the bag grid) at durability 0 — not consumed`,
+    JSON.stringify({ present: empty.present, dur: empty.dur, owned: empty.owned, inBag: empty.inBag, sprays: empty.spraysOwned }));
   ok(empty.slot0 === sprayReady.uid && empty.held === 'heal_spray', 'the empty can stays in quick slot N and in the hand', JSON.stringify({ slot0: empty.slot0, held: empty.held }));
   const chFirst = empty.ch[0], chLast = empty.ch[empty.ch.length - 1];
   ok(!!chFirst && chFirst.active === true && chFirst.uid === sprayReady.uid && chFirst.defId === 'heal_spray' && chFirst.gauge > 0 && chFirst.gauge <= 0.03,

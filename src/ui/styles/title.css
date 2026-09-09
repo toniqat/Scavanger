@@ -151,9 +151,13 @@
 .cs-card.empty .cs-slot { position: absolute; top: 16px; left: 20px; }
 .cs-card.busy { pointer-events: none; opacity: 0.5; }
 
-/* ── 캐릭터 생성 ─────────────────────────────────────────────────────────── */
+/* ── 캐릭터 생성 ─────────────────────────────────────────────────────────────
+   세 열 (2026-09-09 개편): [설정: 이름 · 임플란트 타일] [능력치 세로 다섯 줄] [미리보기 + 악센트].
+   1280×720 에 스크롤 없이 들어가야 한다 — 가장 높은 열은 가운데(능력치 ~370 px)이고 나머지 두 열은
+   grid 의 stretch 로 같은 높이가 된다 (미리보기 무대가 남는 높이를 채운다). */
 .char-create .cc-body {
-  display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 440px); gap: 24px;
+  display: grid; grid-template-columns: minmax(250px, 320px) minmax(0, 1fr) minmax(270px, 380px); gap: 20px;
+  align-items: stretch;
   width: 100%; max-width: 1120px;
 }
 @media (max-width: 980px) { .char-create .cc-body { grid-template-columns: 1fr; } }
@@ -175,7 +179,8 @@
 }
 .ui-btn.cc-dice:hover { border-color: var(--c-accent); color: var(--c-accent); }
 
-/* 악센트 스와치 */
+/* 악센트 스와치 — 미리보기 바로 아래 (`.cc-side > .cc-accent`) */
+.cc-accent { flex: none; }
 .cc-swatches { display: flex; flex-wrap: wrap; gap: 9px; }
 .cc-sw {
   appearance: none; cursor: pointer; position: relative;
@@ -187,30 +192,62 @@
 .cc-sw.is-on { box-shadow: 0 0 0 2px var(--c-panel-strong), 0 0 0 3px var(--c-text); }
 .cc-sw:focus-visible { outline: 1px solid var(--c-accent); outline-offset: 3px; }
 
-/* 시작 임플란트 */
-.cc-implants { display: flex; flex-direction: column; gap: 6px; max-height: clamp(150px, 24vh, 250px); overflow-y: auto; padding-right: 4px; }
-.cc-imp {
-  appearance: none; cursor: pointer; text-align: left; font-family: inherit;
+/* 시작 임플란트 — 지금 고른 것 하나를 큰 타일로. 목록은 타일을 눌러 여는 컨텍스트 메뉴에 있다. */
+.cc-implant-sec { flex: 1; min-height: 0; }
+.cc-implants { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.cc-imp-tile {
+  appearance: none; cursor: pointer; text-align: left; font-family: inherit; color: var(--c-text);
   --ic: var(--c-info);
-  display: flex; gap: 11px; padding: 9px 11px;
-  border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03); color: var(--c-text);
-  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+  position: relative; display: flex; align-items: center; justify-content: center;
+  flex: 1; min-height: 104px; max-height: 150px; padding: 12px;
+  border: 1px solid var(--ic);
+  background:
+    radial-gradient(ellipse at 50% 40%, color-mix(in srgb, var(--ic) 22%, transparent), transparent 72%),
+    rgba(255, 255, 255, 0.03);
+  transition: background var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
 }
-.cc-imp:hover { border-color: var(--c-border-strong); background: rgba(255, 255, 255, 0.06); }
-.cc-imp.is-on { border-color: var(--ic); background: rgba(255, 255, 255, 0.07); }
-.cc-imp .ico {
+.cc-imp-tile:hover { box-shadow: 0 0 0 1px var(--ic), 0 0 18px color-mix(in srgb, var(--ic) 35%, transparent); }
+.cc-imp-tile:focus-visible { outline: 1px solid var(--c-accent); outline-offset: 3px; }
+.cc-imp-tile:disabled { cursor: default; opacity: 0.5; }
+.cc-imp-tile .ico {
+  font-size: 46px; line-height: 1; color: var(--ic);
+  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--ic) 55%, transparent));
+}
+/* 이름은 타일 **우하단** */
+.cc-imp-tile .nm {
+  position: absolute; right: 10px; bottom: 8px; max-width: calc(100% - 20px);
+  font-size: 12.5px; font-weight: 700; letter-spacing: 0.08em; color: var(--ic);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cc-imp-tile .caret { position: absolute; right: 10px; top: 6px; font-size: 12px; color: var(--c-text-faint); }
+.cc-imp-tile:hover .caret { color: var(--c-text); }
+
+/* 컨텍스트 메뉴 — 껍데기는 커뮤니티 우클릭 메뉴(`base.css` 의 `.sc-menu` · `.sc-mi`), 항목만 아이콘 + 이름 + 설명. */
+.cc-imp-menu { min-width: 300px; max-width: 360px; }
+.cc-imp-menu[hidden] { display: none; }
+.cc-imp-menu .sc-mi.cc-imp-mi {
+  --ic: var(--c-info);
+  align-items: center; justify-content: flex-start; gap: 11px; padding: 8px 10px;
+  border-left: 2px solid transparent;
+}
+.cc-imp-menu .cc-imp-mi.is-on { border-left-color: var(--ic); background: rgba(255, 255, 255, 0.05); }
+.cc-imp-menu .cc-imp-mi .ico {
   flex: none; display: flex; align-items: center; justify-content: center;
   width: 30px; height: 30px; border: 1px solid var(--ic); color: var(--ic); font-size: 15px; line-height: 1;
 }
-.cc-imp .body { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.cc-imp .nm { font-size: 12.5px; font-weight: 600; letter-spacing: 0.06em; }
-.cc-imp.is-on .nm { color: var(--ic); }
-.cc-imp .desc { font-size: 10.5px; line-height: 1.45; color: var(--c-text-faint); }
+.cc-imp-menu .cc-imp-mi .body { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.cc-imp-menu .cc-imp-mi .nm { font-size: 12.5px; font-weight: 600; letter-spacing: 0.06em; }
+.cc-imp-menu .cc-imp-mi.is-on .nm { color: var(--ic); }
+.cc-imp-menu .cc-imp-mi .desc { font-size: 10.5px; line-height: 1.45; color: var(--c-text-faint); }
+.cc-imp-menu .cc-imp-mi:hover .desc { color: var(--c-text-dim); }
 
-/* 3D 미리보기 */
+/* 오른쪽 열: 미리보기 + 그 아래 악센트 */
+.cc-side { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+
+/* 3D 미리보기 — 열의 남는 높이를 채운다 (grid stretch). */
 .cc-preview {
   position: relative; display: flex; flex-direction: column;
-  height: clamp(280px, 44vh, 430px);
+  flex: 1; min-height: clamp(220px, 34vh, 400px);
   background: linear-gradient(180deg, rgba(16, 20, 27, 0.9), rgba(6, 8, 11, 0.95));
   border: 1px solid var(--c-border); overflow: hidden;
 }
@@ -233,10 +270,10 @@
 }
 .cc-preview .cc-nogl[hidden] { display: none; }
 
-/* 능력치 (아래 띠) — `progression/ui/character.css` 의 `.cs-stat` 을 그대로 옮긴 어휘 */
+/* 능력치 (가운데 열, 세로 다섯 줄) — `progression/ui/character.css` 의 `.cs-stat` 을 그대로 옮긴 어휘 */
 .char-create .cc-stats-wrap {
   display: flex; flex-direction: column; gap: 12px;
-  width: 100%; max-width: 1120px; margin-top: 14px;
+  min-width: 0;
   padding: 14px 18px;
   background: var(--c-panel-strong); border: 1px solid var(--c-border);
 }
@@ -249,7 +286,7 @@
   font-size: 30px; font-weight: 700; line-height: 1; color: var(--c-accent);
 }
 .cc-points.spent .v { color: var(--c-text-faint); }
-.cc-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 8px 14px; }
+.cc-stat-list { display: flex; flex-direction: column; gap: 8px; }
 
 .cc-stat {
   display: flex; align-items: center; gap: 10px;
@@ -273,10 +310,14 @@
   min-width: 0; width: 30px; height: 30px; padding: 0; flex: none;
   font-size: 13px; line-height: 1; display: flex; align-items: center; justify-content: center;
 }
-.cc-stat .ui-btn.step.up { border-color: var(--c-accent); color: var(--c-accent); background: rgba(255, 179, 71, 0.08); }
+/* ◀ 와 ▶ 는 같은 주황 — 못 누르는 쪽만 흐려진다. */
+.cc-stat .ui-btn.step.up,
+.cc-stat .ui-btn.step.down { border-color: var(--c-accent); color: var(--c-accent); background: rgba(255, 179, 71, 0.08); }
 .cc-stat .ui-btn.step:disabled { opacity: 0.26; pointer-events: none; border-color: var(--c-border); color: var(--c-text-dim); background: none; }
 
 .char-create .ts-foot .ui-btn.primary { min-width: 180px; }
+/* 점수가 남아 있는 동안 `확정` 은 잠긴다 — `title` 툴팁이 이유를 말한다. */
+.char-create .ts-foot .ui-btn.primary:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* ── 경고 / 확인 팝업 (`menus/askPopup`) ─────────────────────────────────────
    `.pause-ask` 와 같은 모양·같은 규칙(Escape 취소 · **Enter 는 먹고 아무 일도 안 한다** · 위험한 확정은

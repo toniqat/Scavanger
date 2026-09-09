@@ -307,6 +307,7 @@ export class Community {
     this.panel.hidden = false;
     ctx.uiBlockers.add(COMMUNITY_BLOCKER);
     // Phase 10 cursor rules: keep the pointer lock, hand UI input to the software cursor.
+    ctx.escape.push(COMMUNITY_BLOCKER, () => this.close());
     ctx.input.setCursorMode(true, COMMUNITY_BLOCKER);
     const social = socialOf(ctx);
     social?.refresh();
@@ -328,6 +329,7 @@ export class Community {
     this.closeLeadMenu();
     this.ask.close();
     ctx.uiBlockers.delete(COMMUNITY_BLOCKER);
+    ctx.escape.remove(COMMUNITY_BLOCKER);
     ctx.input.setCursorMode(false, COMMUNITY_BLOCKER);
     ctx.bus.emit('ui:keyGuide', { owner: 'community', keys: null });
     ctx.bus.emit('ui:communityToggled', { open: false });
@@ -343,6 +345,7 @@ export class Community {
     if (this._open) {
       this._open = false;
       this.ctx?.uiBlockers.delete(COMMUNITY_BLOCKER);
+      this.ctx?.escape.remove(COMMUNITY_BLOCKER);
       this.ctx?.input.setCursorMode(false, COMMUNITY_BLOCKER);
     }
     this.column?.dispose();

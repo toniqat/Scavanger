@@ -294,6 +294,9 @@ export class GameFlowSystem implements GameSystem {
   /** Escape (or a pointer lock the player took away) → the 일시정지 메뉴. See `parts/Phases.escapePause`. */
   escapePause(): void { return Phases.escapePause(this); }
 
+  /** Escape 한 번: 열린 화면 중 맨 위 하나를 닫거나, 없으면 일시정지 메뉴 (2026-09-09). */
+  escapeKey(): void { return Phases.escapeKey(this); }
+
   /**
    * Alt (`Keys.CURSOR`): hand the mouse over without opening anything, and take it back on the next press.
    *
@@ -365,9 +368,10 @@ export class GameFlowSystem implements GameSystem {
     if (this.soloPending || this.soloExpired) this.consumeStoredSoloRaid();
     if (this.inLiveMission()) this.wasMultiplayerHost = ctx.isMultiplayer && (ctx.net?.isHost ?? false);
 
-    // Escape **always** means the 일시정지 메뉴 (2026-09-08) — see `escapePause`. Reached only while the pointer is
-    // already free (a screen is open); the locked case arrives as `input:pointerLockLost` instead.
-    if (ctx.input.wasPressed(Keys.MENU)) { ctx.input.consume(Keys.MENU); this.escapePause(); }
+    // Escape: **가장 위 화면 하나를 닫고, 닫을 것이 없으면 일시정지 메뉴** (2026-09-09) — see `escapeKey`.
+    // Reached only while the pointer is already free (a screen is open); the locked case arrives as
+    // `input:pointerLockLost` instead, and that one has no screen to close by definition.
+    if (ctx.input.wasPressed(Keys.MENU)) { ctx.input.consume(Keys.MENU); this.escapeKey(); }
     // Phase 12: '좌측 클릭으로 게임 재개' (browser) / hidden OS cursor while nothing needs it (Electron shell). The
     // gate only ever shows once every screen **and** the 일시정지 메뉴 are gone and the lock could not be retaken.
     this.resumeGate?.update();

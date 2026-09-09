@@ -35,6 +35,8 @@ export function stripForCorpse(sys: InventorySystem): ItemInstance[] {
     if (it) out.push(it);
   }
   for (const p of sys.bag.items()) out.push(p.item);
+  // 2026-09-09: the wheel is its own container — its stacks are carried too, so they go on the corpse as well
+  for (const it of sys.quickSlots) if (it) out.push(it);
 
   sys.closeAll();
   sys.loadout = { primary: null, primary2: null, secondary: null, bag: null, armor: null };

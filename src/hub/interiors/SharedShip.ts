@@ -254,6 +254,11 @@ export class SharedShip implements ShipInterior {
     this.planet.setColors(color, atmo);
   }
 
+  /** 목표 행성 없음 → 창밖 행성 숨김 (2026-09-09): see `ShipInterior.setPlanetVisible`. */
+  setPlanetVisible(on: boolean): void {
+    this.planet.setShown(on);
+  }
+
   /** 창문 워프 (2026-09-09): see `ShipInterior.setWarp` — stars → streaks, planet out and back in as `dest`. */
   setWarp(speed: number, dest?: WarpDestination): void {
     this.warp.set(speed, dest);

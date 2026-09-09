@@ -71,9 +71,8 @@ export const QUICK_USE_COOLDOWN = 0.4;
 /** Shortest fuse a cooked grenade leaves the hand with. */
 export const GRENADE_MIN_FUSE = 0.15;
 /** Overhand throw speed / lift (pre-Phase 2 numbers). */
-export const GRENADE_THROW_SPEED = 17;
-export const GRENADE_THROW_LIFT = 3.5;
-export const GRENADE_UNDERHAND_LIFT = 1.2;
+// 2026-09-09: throw ballistics live in data/constants.csv (shared) so progression can quote the range in metres.
+export { GRENADE_THROW_SPEED, GRENADE_THROW_LIFT, GRENADE_UNDERHAND_LIFT } from '@/shared';
 
 export type QuickKind = 'stim' | 'grenade' | 'gadget';
 

@@ -105,7 +105,7 @@ Grid: `ROOM_GRID_COLS × ROOM_GRID_ROWS` = 8 × 8 cells of `HOUSING_CELL_SIZE` 0
 - **Exit**: `setCameraOverride(null)` + `setControlsEnabled(true)` (only while the phase is still `hub`; teardown handles the rest), ghost disposed, carry dropped (the piece stays where it was), and the `shipmanage` blocker token released + the pointer re-locked. The release is **not** gated on `active` and the `housing:*Changed` handlers must not clear `manage` before calling `deactivate()` — doing so was the Phase 8 bug where Esc gave the camera back but left the token up, so the player had no controls and the 시설 관리(M) hint stayed hidden.
 
 ## Notes
-- **Atmosphere**: `core/Atmosphere.setSpaceMode(on)` (sky dome hidden, black background, fog 0, cool dim key + hemi). Reached through `ctx.scene.userData.atmosphere` (feature folders may not import `core/`); `applySeed` on the next `world:ready` restores the palette automatically. Each interior renders its own `Starfield` + `Planet` outside the viewports.
+- **Atmosphere**: `core/Atmosphere.setSpaceMode(on)` (sky dome hidden, black background, fog 0, cool dim key + hemi). Reached through `ctx.scene.userData.atmosphere` (feature folders may not import `core/`); `applySeed` on the next `world:ready` restores the palette automatically. Each interior renders its own `Starfield` + `Planet` outside the viewports — the `Planet` only while a 목표 행성 is set (2026-09-09, `setPlanetVisible`).
 - **Lights**: personal ship **13** `PointLight`s (cockpit 4, corridor 5, airlock 1 + `ROOM_LIGHT_POOL` = 3 room lights), shared ship 6; the count is **constant and no light is ever toggled** (toggling `visible` recompiles every shader) — a room light that must follow the player to another room ramps its intensity to 0, is repositioned and ramps back to `ROOM_LIGHT_INTENSITY`. Static geometry is merged per material (personal ≈ 22 renderables + pod + 11 signs, shared ≈ 29 + 4 pods); **Phase 8** adds 3 merged meshes per room for its own strip material instances (white / cyan / amber clones, disposed with the ship) and 2 door-leaf meshes per doorway (11 doors: 10 rooms + the cockpit arch). Each placed furniture piece is 2–5 merged meshes in its room group (+1 `Lv.n` plane for benches). Pod-door colliders are toggled via `BoxInteriorCollider.setBlockerEnabled`, furniture blockers via `removeBlocker`, not by rebuilding the collider.
 - **Optional refs**: `ctx.implants` / `ctx.inventory` / `ctx.progression` / `ctx.loot` may all be null (other systems register separately). Every station and page checks them and degrades to a disabled state with a Korean explanation; no formula from progression is re-derived here — only `derived.gatherYieldMul` and `derived.interactSpeedMul` are read.
 - **재배 (Phase 8)** is no longer a hub station: the 온실 room's `furn_grow_rack` pieces own the plots and `ctx.housing` owns the timers / seeds / panel. The hub only renders the racks (stacked by `PlacedFurniture.layer`) and forwards `E` to `openGrowMenu(uid)`.
@@ -287,7 +287,8 @@ over the 닫기 (Esc) / 타이틀로 footer.
   gated on the terminal being open, and a missing second GL context degrades to `.no-holo` + the text card.
 - **`HubSystem` planet state.** `HubRef.planet` is a **getter**: `ctx.net.lobbyPlanet` in a lobby, else the local
   pick restored from / saved to `PLANET_STORAGE_KEY`. `setPlanet` + `travelBlockReason` + `startTravel` /
-  `finishTravel` / `applyPlanetLook` are described in the Flow table above.
+  `finishTravel` / `applyPlanetLook` are described in the Flow table above. **2026-09-09:** `applyPlanetLook` also
+  gates the window planet's visibility — `HubRef.planet === null` → `ShipInterior.setPlanetVisible(false)` (stars only).
 - **`DockingCutscene` `'travel'`** + the new `interiors/WarpStreaks`: our own hull from behind, stars stretched to
   `HUB_TRAVEL_WARP_STRETCH` for `HUB_TRAVEL_WARP_FRACTION` of the run, then the destination sphere resolving. The
   ship interior is never rebuilt for a planet change — `Planet.setColors` re-tints the window planet in place.
@@ -384,6 +385,22 @@ over the 닫기 (Esc) / 타이틀로 footer.
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-09 (목표 행성이 없으면 창밖에 행성도 없다)** — 개인 · 공유 함선 둘 다, 창문 밖의 장식 행성은
+  **목표 행성이 정해져 있을 때만** 보인다. 진실의 원본은 `HubRef.planet`(로비면 `lobbyPlanet`, 아니면 슬롯별 저장
+  pick) 하나이고 게이트는 **`parts/Planet.applyPlanetLook`** 한 곳이다: `getPlanet(sys.planet)` 이 없으면
+  `ShipInterior.setPlanetVisible(false)`, 있으면 `true` + 기존 `setPlanetLook` 재착색. 인테리어 빌드
+  (`parts/Interior.build`) · `lobby:state` 의 행성 변경(`parts/Transitions`) · 워프 도착 `finishTravel` · 워프 취소
+  `cancelTravel` 이 이미 전부 `applyPlanetLook` 을 부르므로 새 캐릭터(저장된 pick 없음) · 호스트가 아직 고르지
+  않은 로비 · 지워진 목표 모두 별만 보인다. **워프 페이드와 싸우지 않는다**: `interiors/Starfield.Planet` 이
+  `group.visible` 을 혼자 소유하고 `setShown(on)`(목표 존재) **AND** `opacity > HIDE_BELOW`(워프 페이드) 로 계산한다 —
+  `WarpStreaks.ViewportWarp` 는 더 이상 `group.visible` 을 직접 쓰지 않고 `setOpacity` 만 부르며, 목적지 색을
+  입히는 순간(`k ≥ 0.98` 또는 감속 시작)에 `setShown(true)` 를 열어 **첫 목표를 고른 함선**에서 새 행성이 감속
+  구간에 페이드인으로 나타난다(워프 시작 때 기본색 구가 튀어나오지 않는다). `ShipInterior.setPlanetVisible?(on)`
+  은 `setPlanetLook` 처럼 선택 사항이고 `PersonalShip` · `SharedShip` 이 `planet.setShown` 으로 구현한다.
+  터미널 홀로그램(`ui/PlanetHologram`)은 `setShown` 을 부르지 않으므로(기본 true) 전과 같다. `Planet.isShown`
+  게터(디버그). `npm run typecheck` 통과; 스모크는 리드가 돈다 (`scripts/smoke-planets.mjs` 의 목표 미지정 구간에
+  `HubPlanet` 그룹의 `visible === false` 확인을 더할 자리).
 
 - **2026-09-09 (함선 안에서 분대장 넘기기)** — 공용 함선에서 다른 분대원에게 다가가면 `분대장 넘기기`
   상호작용이 뜬다 (`parts/Crew.updateLeaderHandoff`, `HubSystem.leaderHandoffs`, `LEADER_DEVICE_RANGE`).
@@ -544,3 +561,18 @@ over the 닫기 (Esc) / 타이틀로 footer.
     `SHIP_VISIT_MAX_FURNITURE` 를 `shared/constants.ts` 로 올려 **보내는 쪽과 받는 쪽이 같은 수**를 쓴다.
   - 방문 입장 위치가 출구 상호작용 반경(2.6 m)보다 **가까워서**(1.9 m) 들어서자마자 `격납고로 나가기` 가 떠 있었다.
     3.0 m 로 들어가고 반경은 2.2 m.
+
+### 2026-09-09 — ESC 닫기 (hub/ 쪽)
+
+- **`HousingMode`**: `Keys.MENU` 폴링을 걷어내고 `enterManage()` 에서 `ctx.escape.push(MANAGE_BLOCKER, …)` 로
+  올린다 (닫기 동작은 예전 폴링과 같다 — 들고 있는 가구 · 골라 둔 선택을 먼저 되돌리고, 빈 커서일 때만 모드를
+  나간다). 되돌리기만 한 경우는 닫기 함수가 **`false`** 를 돌려줘 항목을 스택에 남긴다 — 그러지 않으면 다음
+  ESC 가 아직 살아 있는 모드 위로 일시정지 메뉴를 띄운다. 잠금을 유지하는 **평상시 하우징 모드**(관리 모드가
+  아닌 쪽)는 그대로 `HubSystem.onPointerLockChange` 가 락 상실로 빠져나간다 — 거기서는 Escape 가 keydown 이
+  되지 않으므로 스택에 올릴 것도 없다.
+  폴링을 남겨 두면 `HubSystem`(등록 89)이 `GameFlowSystem`(105)보다 먼저 돌아 **위에 떠 있는 패널보다 모드가
+  먼저 닫혔다**. C · M · Tab 은 그대로. 순서는 `shared/escape`, 정책은 `game/parts/Phases.escapeKey`.
+- **`ui/HubMenu`(터미널) · `ui/WorkbenchMenu` · `ui/LaunchWarnPanel`**: 세 화면이 `'hub'` blocker 토큰을 나눠 쓰므로
+  닫기 스택에는 각자 자기 key 를 쓴다 — `'hub:terminal'` · `'hub:workbench'` · `'hub:launchWarn'`.
+- **`ui/CrewLoadoutPanel`**: 자기 blocker 가 없는 팝업(아래 포드 패널이 들고 있다)이라 `'hub:crewLoadout'` key 로
+  올린다. 포드 패널보다 나중에 열리므로 ESC 한 번은 이 팝업만 닫는다.

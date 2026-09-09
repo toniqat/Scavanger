@@ -89,6 +89,7 @@ export class RescuePicker {
     this.lastKey = '';
     this.root.hidden = false;
     ctx.uiBlockers.add(RESCUE_BLOCKER);
+    ctx.escape.push(RESCUE_BLOCKER, () => this.cancel());
     ctx.input.setCursorMode(true, RESCUE_BLOCKER);
     this.render();
     ctx.bus.emit('ui:keyGuide', {
@@ -108,6 +109,7 @@ export class RescuePicker {
     this._open = false;
     this.root.hidden = true;
     ctx.uiBlockers.delete(RESCUE_BLOCKER);
+    ctx.escape.remove(RESCUE_BLOCKER);
     ctx.input.setCursorMode(false, RESCUE_BLOCKER);
     ctx.bus.emit('ui:keyGuide', { owner: 'rescue', keys: null });
   }
@@ -182,6 +184,7 @@ export class RescuePicker {
     if (this._open) {
       this._open = false;
       this.ctx?.uiBlockers.delete(RESCUE_BLOCKER);
+      this.ctx?.escape.remove(RESCUE_BLOCKER);
       this.ctx?.input.setCursorMode(false, RESCUE_BLOCKER);
     }
     this.root.remove();

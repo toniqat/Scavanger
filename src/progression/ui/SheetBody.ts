@@ -314,7 +314,8 @@ function derivedText(key: string, d: DerivedStats): string {
     case 'detectRadius': return dist(d.detectRadius);
     case 'enemyDetectRadius': return dist(d.enemyDetectRadius);
     case 'meleeDamageMul': return mul(d.meleeDamageMul);
-    case 'throwRangeMul': return mul(d.throwRangeMul);
+    // 2026-09-09: 사용자 결정 — 배율이 아니라 m 로 보여 준다 (평지 오버핸드 기준, derive.throwRangeMetres).
+    case 'throwRangeMul': return dist(d.throwRangeM);
     case 'skillGainMul': return mul(d.skillGainMul);
     case 'useSpeedMul': return mul(d.useSpeedMul);
     case 'interactSpeedMul': return mul(d.interactSpeedMul);

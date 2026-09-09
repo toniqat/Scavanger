@@ -20,6 +20,7 @@ Everything every feature folder depends on. Append-only: add new events/fields, 
 | `currency.ts` | **재화** (2026-09-09) — 크레딧 · 경험치 · 기업별 신뢰도의 정의(`CURRENCY_DEFS`, `data/currencies.csv`)와 칩 렌더러 (`buildCurrencyChip` · `appendCurrencyRewards`). 아이템이 아닌 보상을 아이템 칩과 같은 자리 · 같은 크기로, 다른 틀(육각)로 그린다. 호버 카드는 `ui/hud/ItemTip` 의 `.is-currency` |
 | `saveSlot.ts` | **캐릭터 세이브 슬롯** (2026-09-09) — `slotKey('scav.profile')` → `scav.s2.profile`. `activeSlot` · `setActiveSlot` · `ensureMigrated`(옛 단일 키 → 슬롯 1) · `readSlotCards` · `deleteSlot` · `markAutoStart`/`takeAutoStart`. 공용 저장(`SHARED_KEYS`: 키 바인딩 · 오디오 · 화면 · 콘솔 기록)은 접두사를 받지 않는다 |
 | `character.ts` | **캐릭터 생성 규칙** (2026-09-09) — 능력치 하한 1 · 상한 5 · 합 15(`CREATE_STAT_*`), 배분 검사(`canAdjustStat`) · 주사위(`rollCreateStats` · `rollCallsign`) · 악센트 팔레트 · `makeCharacterProfile` / `createCharacterInSlot` |
+| `escape.ts` | **ESC 닫기 스택** (2026-09-09) — 열린 화면들의 Escape 동작을 열린 순서로 (`EscapeStack`: `push`/`remove`/`closeTop`). `ctx.escape` 로 게시되고 정책은 `game/parts/Phases.escapeKey` (맨 위 하나만 닫고, 비면 일시정지 메뉴) |
 | `index.ts` | Barrel export — import via `@/shared` |
 
 ## Appended contract (2026-09, stance / weapon classes / ping / map)
@@ -808,3 +809,27 @@ Chrome 과 Electron 셸은 그 락을 넘겨줬다가 곧바로 도로 가져갈
 - `data/constants.csv` `EXTRACTION_COUNTDOWN` 120 → **60**. `data/enemies.csv` 버그 근접 `attackDamage` 전부 절반
   (특수 능력 피해는 그대로).
 
+
+### 2026-09-09 — ESC 닫기 스택 (`escape.ts`)
+
+전부 **추가만** 이다.
+
+- `escape.ts` (신규) `EscapeStack` — 열려 있는 화면들의 **Escape 닫기** 동작을 열린 순서로 들고 있는 LIFO 스택.
+  `push(key, close)` / `remove(key)` / `closeTop()` / `topKey` · `size` · `has` · `clear`. 같은 `key` 를 다시 push
+  하면 맨 위로 올라온다. 닫기 함수가 **`false` 를 돌려주면 항목이 스택에 남는다** — 화면 안에서 한 걸음만
+  되돌린 경우(하우징 모드가 들고 있던 가구만 내려놓는 것처럼)이고, 그러지 않으면 아직 살아 있는 모드 위로
+  다음 ESC 가 일시정지 메뉴를 띄운다.
+- `GameContext.ts` `readonly escape = new EscapeStack()` — `uiBlockers` 와 같은 격의 계약이라 ref 인터페이스 없이
+  직접 쓴다. 화면은 `uiBlockers.add` **옆에서** `escape.push(token, () => this.close())`, `delete` 옆에서
+  `escape.remove(token)` 한다 (teardown 경로가 여러 개인 화면도 그러면 저절로 정리된다). 한 토큰을 여럿이
+  나눠 쓰는 곳(`'hub'`)은 `'hub:terminal'` 처럼 자기 key 를 쓴다.
+- `Keybinds.ts` `MENU` 라벨 `'일시 정지 (메뉴는 게임으로 돌아가기로 닫기)'` → **`'화면 닫기 · 일시 정지 (메뉴 닫기는 앱에서만)'`**.
+
+**왜.** 2026-09-08 에는 Escape 를 "일시정지 메뉴를 여는 키" 하나로 두고 화면은 자기를 연 키(Tab · M · P · E)로만
+닫았다. 브라우저가 Escape 에 user activation 을 주지 않아서 그 키로 화면을 닫으면 재락이 거부되고 커서가
+남았기 때문이다. 사용자 보고 2026-09-09: **커서가 보이면 사람은 그 창을 ESC 로 닫으려 한다.** 닫은 뒤의
+처리는 이제 양쪽 모두 답이 있다 — 데스크톱 셸은 메인 프로세스가 ESC key-up 에 activation 을 만들어 자동으로
+락을 되찾고(`electron/main.ts` → `__scavShellRelock`), 브라우저는 `좌측 클릭으로 게임 재개` 게이트
+(`game/ResumeGate`)가 그 한 클릭을 받는다. 순서가 `shared` 로 온 이유는 하나다: Tab 공용 닫기는 화면마다 자기
+`update()` 에서 키를 읽으므로 **시스템 등록 순서**(`main.ts`)가 닫히는 순서를 정하는데, ESC 는 "맨 위 하나만"
+이므로 열린 순서를 아는 곳이 필요하다. 정책은 `game/parts/Phases.escapeKey` 한 곳이다.

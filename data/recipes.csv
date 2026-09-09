@@ -9,11 +9,11 @@ group,id,name,station,bench,benchLevel,inputs,outputDefId,outputQty,extraOutputs
 craft,break_ammo_light,경량탄 분해,field,,,ammo_light:30,mat_gunpowder,4,,2,crafting,0,경량탄 30발을 분해해 화약 4를 얻는다.
 craft,break_ammo_medium,준중량탄 분해,field,,,ammo_medium:30,mat_gunpowder,6,,2,crafting,0,준중량탄 30발을 분해해 화약 6을 얻는다.
 craft,break_ammo_heavy,중량탄 분해,field,,,ammo_heavy:10,mat_gunpowder,5,,2,crafting,0,중량탄 10발을 분해해 화약 5를 얻는다.
-craft,break_ammo_shell,산탄 분해,field,,,ammo_shell:8,mat_gunpowder,5,,2,crafting,0,산탄 8발을 분해해 화약 5를 얻는다.
+craft,break_ammo_shell,산탄총 탄약 분해,field,,,ammo_shell:8,mat_gunpowder,5,,2,crafting,0,산탄 8발을 분해해 화약 5를 얻는다.
 craft,make_ammo_light,경량탄 제작,field,,,mat_gunpowder:4|mat_scrap:1,ammo_light,30,,3,crafting,0,화약 4 + 폐금속 1 → 경량탄 30발.
 craft,make_ammo_medium,준중량탄 제작,field,,,mat_gunpowder:6|mat_scrap:2,ammo_medium,30,,3,crafting,0,화약 6 + 폐금속 2 → 준중량탄 30발.
 craft,make_ammo_heavy,중량탄 제작,field,,,mat_gunpowder:5|mat_alloy:1,ammo_heavy,10,,4,crafting,20,화약 5 + 합금 판 1 → 중량탄 10발. 제작 20 필요.
-craft,make_ammo_shell,산탄 제작,field,,,mat_gunpowder:5|mat_scrap:2,ammo_shell,8,,3,crafting,0,화약 5 + 폐금속 2 → 산탄 8발.
+craft,make_ammo_shell,산탄총 탄약 제작,field,,,mat_gunpowder:5|mat_scrap:2,ammo_shell,8,,3,crafting,0,화약 5 + 폐금속 2 → 산탄 8발.
 craft,make_smoke,연막탄 제작,field,,,mat_gunpowder:4|mat_bio_sample:2,gad_smoke,1,,3.5,crafting,10,화약 4 + 생체 조직 2 → 연막탄. 제작 10 필요.
 craft,make_incendiary,소이 수류탄 제작,field,,,mat_gunpowder:8|herb_ashleaf:2,grenade_incendiary,1,,4,crafting,15,화약 8 + 잿빛잎 2 → 소이 수류탄. 제작 15 필요.
 craft,make_mine,지뢰 제작,ship,gadget,1,mat_gunpowder:10|mat_alloy:2,gad_mine,1,,5,crafting,35,"화약 10 + 합금 판 2 → 지뢰. 가젯 작업대, 제작 35 필요."
@@ -28,7 +28,7 @@ craft,grow_glowcap,발광버섯 배양,ship,medical,2,herb_bloodroot:6|mat_bio_s
 craft,bulk_ammo_light,경량탄 대량 제작,ship,gun,1,mat_gunpowder:14|mat_scrap:3,ammo_light,120,,6,crafting,0,화약 14 + 폐금속 3 → 경량탄 120발. 총기 작업대.
 craft,bulk_ammo_medium,준중량탄 대량 제작,ship,gun,1,mat_gunpowder:16|mat_scrap:5,ammo_medium,90,,6,crafting,0,화약 16 + 폐금속 5 → 준중량탄 90발. 총기 작업대.
 craft,bulk_ammo_heavy,중량탄 대량 제작,ship,gun,1,mat_gunpowder:13|mat_alloy:2,ammo_heavy,30,,7,crafting,15,"화약 13 + 합금 판 2 → 중량탄 30발. 총기 작업대, 제작 15 필요."
-craft,bulk_ammo_shell,산탄 대량 제작,ship,gun,1,mat_gunpowder:13|mat_scrap:5,ammo_shell,24,,6,crafting,0,화약 13 + 폐금속 5 → 산탄 24발. 총기 작업대.
+craft,bulk_ammo_shell,산탄총 탄약 대량 제작,ship,gun,1,mat_gunpowder:13|mat_scrap:5,ammo_shell,24,,6,crafting,0,화약 13 + 폐금속 5 → 산탄 24발. 총기 작업대.
 craft,make_wpn_ar,돌격소총 제작,ship,gun,1,mat_scrap:6|mat_alloy:1,wpn_ar,1,,8,crafting,0,폐금속 6 + 합금 판 1 → 돌격소총 (등급 I). 총기 작업대.
 craft,make_att_brake,총구 제동기 제작,ship,gun,2,mat_scrap:6|mat_alloy:2,att_brake,1,,8,crafting,20,"폐금속 6 + 합금 판 2 → 총구 제동기. 총기 작업대 Lv.2, 제작 20 필요."
 craft,make_att_comp,보정기 제작,ship,gun,2,mat_scrap:6|mat_alloy:2,att_comp,1,,8,crafting,20,"폐금속 6 + 합금 판 2 → 보정기. 총기 작업대 Lv.2, 제작 20 필요."

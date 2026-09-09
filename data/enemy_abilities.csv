@@ -50,13 +50,16 @@ ROGUE_AI,range,90
 ROGUE_AI_TEXT,weapons,ar|smg|sg|dmr
 ROGUE_AI_TEXT,bossWeapon,dmr
 
-# ARTILLERY_AI — 포병 벌레 (후퇴/접근 거리 m · 발사 간격 s · 굴착 s · 최대 사거리 m)
-ARTILLERY_AI,retreatDist,60
-ARTILLERY_AI,approachDist,125
+# ARTILLERY_AI — 포병 벌레 (후퇴/접근 거리 m · 발사 간격 s · 굴착 s · 최대 사거리 m · 앰비언트 굴착 스폰 거리 m)
+# 2026-09-09: 사거리 −30 % (60/125/140 → 42/88/98). spawnMin/Max 는 Spawner.maybeArtillery 가 파고들 자리를 뽑는 링 — 접근/후퇴 거리 사이여야 스폰 즉시 굴착한다.
+ARTILLERY_AI,retreatDist,42
+ARTILLERY_AI,approachDist,88
 ARTILLERY_AI,fireMin,6
 ARTILLERY_AI,fireMax,9
 ARTILLERY_AI,digTime,1.2
-ARTILLERY_AI,maxRange,140
+ARTILLERY_AI,maxRange,98
+ARTILLERY_AI,spawnMin,56
+ARTILLERY_AI,spawnMax,84
 
 # TOXIC_AI — 독성 벌레 (자폭 직전 부풀기 s)
 TOXIC_AI,swell,0.6

@@ -60,9 +60,10 @@ engine.ctx.input.cursor.onModeChange((active, owner) => {
 });
 
 /*
- * 2026-09-08 (ESC = 항상 일시정지): the browser eats the Escape that leaves the pointer lock, so the *unlock* is the
- * only evidence the key was pressed. `Input` reports one it did not cause; `game/GameFlowSystem` listens on the bus
- * and puts the 일시정지 메뉴 up, exactly as it does for a focus loss.
+ * 2026-09-08: the browser eats the Escape that leaves the pointer lock, so the *unlock* is the only evidence the key
+ * was pressed. `Input` reports one it did not cause; `game/GameFlowSystem` listens on the bus and puts the
+ * 일시정지 메뉴 up, exactly as it does for a focus loss. That path is unchanged by the 2026-09-09 ESC 닫기 rule:
+ * a locked pointer means no screen owns the cursor, so there is nothing for Escape to close.
  */
 engine.ctx.input.onUserUnlock(() => engine.ctx.bus.emit('input:pointerLockLost', {}));
 

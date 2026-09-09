@@ -10,7 +10,7 @@
   position: absolute; left: 22px; top: 22px;
   /* 2026-09-09: 화면들(인벤토리 .inv-root 50 · 함선 관리 · 터미널) 과 스포트라이트(78) 위, 키 가이드(84) · 일시정지(85)
      아래에 **언제나** 있다. 예전의 24 → is-lifted 79 방식은 포커싱 대상을 못 찾은 순간마다 인벤토리 창의 블러가 패널을
-     덮었다 (제작 행이 아직 없는 11단계). */
+     덮었다 (제작 행이 아직 없는 제작 단계). */
   z-index: 79;
   display: flex; flex-direction: column; gap: 6px;
   width: 288px; padding: 12px 14px 12px;
@@ -43,12 +43,18 @@
 /* ── 스포트라이트 (네 판이 구멍을 만들고 클릭을 먹는다) ─────────────────────── */
 .tut-spot { position: absolute; inset: 0; z-index: 78; }   /* 인벤토리(50) · 함선 관리 위, 일시정지(85) 아래 */
 .tut-spot[hidden] { display: none !important; }
+/*
+ * 2026-09-09: 어두운 판은 **투명에서 시작해** `.tut-spot.is-lit` 이 붙으면 `--tut-dim-fade`(= `TUTORIAL_DIM_FADE_S`,
+ * `parts/Spotlight` 가 csv 상수로 심는다) 동안 어두워진다. 클래스는 `hidden` 을 벗긴 뒤 한 번 재계산하고 붙이므로
+ * 켜질 때마다 페이드가 돈다. 같은 단계 안의 재조준은 판의 위치만 바꾸므로 다시 페이드하지 않는다.
+ */
 .tut-spot-pane {
   position: absolute;
-  background: rgba(4, 6, 9, 0.62);
+  background: rgba(4, 6, 9, 0);
   pointer-events: auto; cursor: not-allowed;
-  transition: background-color 160ms ease;
+  transition: background-color var(--tut-dim-fade) ease;
 }
+.tut-spot.is-lit .tut-spot-pane { background: rgba(4, 6, 9, 0.62); }
 /*
  * 2026-09-08 — 밝기만 오가는 펄스는 너무 희미해서 눈에 안 띄었다. 이제 **천천히 확대-축소**한다:
  * 링 자체가 1 → 1.045 로 숨을 쉬고, `::after` 의 에코 링이 1 → 1.16 으로 퍼지며 사라진다 (같은 2.0s 박자).
@@ -95,6 +101,7 @@
 @media (prefers-reduced-motion: reduce) {
   .tut-spot-ring, .tut-spot-ring::after { animation: none; }
   .tut-spot-ring::after { opacity: 0; }
+  .tut-spot-pane { transition: none; }
   .tut-panel { animation: none; }
 }
 

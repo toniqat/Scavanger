@@ -287,6 +287,7 @@ export class MapScreen {
     // Phase 10 (§2): the pointer lock is KEPT and the software cursor drives the UI — no `exitPointerLock()` here, so
     // the OS cursor never wanders onto another monitor. `setCursorMode` is ref-counted by the blocker token.
     ctx.uiBlockers.add(BLOCKER);
+    ctx.escape.push(BLOCKER, () => this.close());
     ctx.input.setCursorMode(true, BLOCKER);
     this.root.hidden = false;
     this.fit();
@@ -313,6 +314,7 @@ export class MapScreen {
     this.canvas.classList.remove('grabbing');
     this.root.hidden = true;
     ctx.uiBlockers.delete(BLOCKER);
+    ctx.escape.remove(BLOCKER);
     ctx.input.setCursorMode(false, BLOCKER);
     window.removeEventListener('mousemove', this.onMouseMove);
     window.removeEventListener('mouseup', this.onMouseUp);
@@ -787,7 +789,12 @@ export class MapScreen {
     window.removeEventListener('resize', this.onResize);
     window.removeEventListener('mousemove', this.onMouseMove);
     window.removeEventListener('mouseup', this.onMouseUp);
-    if (this._open) { this._open = false; this.ctx?.uiBlockers.delete(BLOCKER); this.ctx?.input.setCursorMode(false, BLOCKER); }
+    if (this._open) {
+      this._open = false;
+      this.ctx?.uiBlockers.delete(BLOCKER);
+      this.ctx?.escape.remove(BLOCKER);
+      this.ctx?.input.setCursorMode(false, BLOCKER);
+    }
     this.staticCanvas = null;
     this.outlineCanvas = null;
     this.fogLayer = null;

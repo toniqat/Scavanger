@@ -78,7 +78,7 @@ start-server.bat relay   # 릴레이만 (npm run server, 0.0.0.0:8787) — 데�
 | 폴더 | 시스템 | `ctx` 게시 | 한 줄 책임 |
 |---|---|---|---|
 | [`data/`](data/README.md) | — | — | **게임 수치의 단일 원본 (csv 35개).** 데미지 · 체력 · 가격 · 확률 · 쿨다운 — `src/` 에는 같은 숫자가 없다 |
-| [`src/shared/`](src/shared/README.md) | — | `GameContext`, `EventBus`, `Input`, `Random` | **계약. 제일 먼저 읽는다.** 타입 · 이벤트 · 상수(값은 `data/constants.csv`) · 키바인드 · csv 로더(`data/`) · 각 시스템의 `*Ref` 인터페이스 · **캐릭터 세이브 슬롯(`saveSlot`)** · **캐릭터 생성 규칙(`character`)** · **재화 칩(`currency`)** |
+| [`src/shared/`](src/shared/README.md) | — | `GameContext`, `EventBus`, `Input`, `Random` | **계약. 제일 먼저 읽는다.** 타입 · 이벤트 · 상수(값은 `data/constants.csv`) · 키바인드 · csv 로더(`data/`) · 각 시스템의 `*Ref` 인터페이스 · **캐릭터 세이브 슬롯(`saveSlot`)** · **캐릭터 생성 규칙(`character`)** · **재화 칩(`currency`)** · **ESC 닫기 스택(`escape`)** |
 | [`src/core/`](src/core/README.md) | `Engine` | scene / camera / renderer | 렌더러 · 조명 · 하늘 · 포그 · 포스트프로세스 · 메인 루프 · 리사이즈 · 시스템 레지스트리 |
 | [`src/main.ts`](src/main.ts) | — | — | Engine 부트스트랩 + 시스템 등록 순서, 커서 모드 ↔ 버스 브리지, 포인터 락 재요청의 **유일한** 지점 |
 
@@ -97,7 +97,7 @@ start-server.bat relay   # 릴레이만 (npm run server, 0.0.0.0:8787) — 데�
 | 폴더 | 시스템 | `ctx` 게시 | 한 줄 책임 |
 |---|---|---|---|
 | [`src/world/`](src/world/README.md) | `WorldSystem` | `ctx.world` | 절차 지형 · 바이옴 · 소품/장애물(**콜라이더 = 보이는 실루엣**, 낮은 것은 `getSurfaceY` 로 **올라선다**) · 상자 · 탈출 패드 · 채집 노드(약초 · **고철 더미**) · **전장의 안개(`ctx.world.fog`)** · 시뮬레이션 훈련장 · 충돌/레이캐스트 질의 |
-| [`src/enemies/`](src/enemies/README.md) | `EnemySystem` | `ctx.enemies` | 버그 5종 + 휴머노이드 로그 AI · 포병 · 베헤모스 · 팩션 · 시체 루팅 · 상태이상 · 총알 추적 · **지형지물 접지(`getSurfaceY`) · 대형 적 스폰 여유** · 호스트/리플리카 동기화 |
+| [`src/enemies/`](src/enemies/README.md) | `EnemySystem` | `ctx.enemies` | 버그 5종 + 휴머노이드 로그 AI · 포병(**사거리 −30 % · 비행 −50 % · 리본 궤적**) · 베헤모스 · 팩션 · 시체 루팅 · 상태이상 · 총알 추적 · **지형지물 접지(`getSurfaceY`) · 대형 적 스폰 여유** · 호스트/리플리카 동기화 |
 | [`src/extraction/`](src/extraction/README.md) | `ExtractionSystem` | — | 탈출 콘솔(**평상시 빛기둥 없음 — 활성화 뒤에만 켜진다**) · **60초** 카운트다운(`EXTRACTION_COUNTDOWN`) · 함선 착륙/탑승/이륙, 호스트 권한 |
 
 ### 3.4 아이템 · 인벤토리 · 메타
@@ -105,21 +105,21 @@ start-server.bat relay   # 릴레이만 (npm run server, 0.0.0.0:8787) — 데�
 | 폴더 | 시스템 | `ctx` 게시 | 한 줄 책임 |
 |---|---|---|---|
 | [`src/items/`](src/items/README.md) | (데이터) | `ctx.loot` | 무기 6계열 × 등급 I–V · 탄약 · 부착물 · 가방 · 방어구 · 회복 소모품 · 씨앗 · 서적 · 임플란트 아이템 · 루팅 테이블 · 레시피(제작 · **고물 분해**) |
-| [`src/inventory/`](src/inventory/README.md) | `InventorySystem` | `ctx.inventory` | 디아블로2식 격자 모델 · 가방/장비/**임플란트 칸**/퀵슬롯 · 함선 창고 · **사망 시 전량 시체로(`stripForCorpse`) · 컨테이너별 격자 크기** · 컨테이너 감정 · 소켓 · 제작(**1초 홀드 · 한 칸 산출물 썸네일 · 제작 수량 ◀▶ · 넣을 자리 없으면 버튼 잠금(가방 → 창고)**)/분해/**수리 팝업** · 출격 준비 점검 · Tab 화면(인벤토리/캐릭터/기업/함선) · **무기 툴팁 = 2×2 게이지(대미지 · 연사 · 반동 · 사거리, 소켓 보너스 초록 · 반동 감소 초록 윤곽) + 우상단 탄종 썸네일 + 소켓 썸네일 한 줄**, **탄약 요청은 장착 무기 휠클릭 (`탄약 필요: <탄종>`)** |
+| [`src/inventory/`](src/inventory/README.md) | `InventorySystem` | `ctx.inventory` | 디아블로2식 격자 모델 · 가방/장비/**임플란트 칸**/**퀵슬롯(= 또 하나의 가방 공간, 올리면 격자에서 사라진다)** · 함선 창고 · **사망 시 전량 시체로(`stripForCorpse`) · 컨테이너별 격자 크기** · 컨테이너 감정 · 소켓 · 제작(**1초 홀드 · 한 칸 산출물 썸네일 · 제작 수량 ◀▶ · 넣을 자리 없으면 버튼 잠금(가방 → 창고)**)/분해/**수리 팝업** · 출격 준비 점검 · Tab 화면(인벤토리/캐릭터/기업/함선) · **무기 툴팁 = 2×2 게이지(대미지 · 연사 · 반동 · 사거리, 소켓 보너스 초록 · 반동 감소 초록 윤곽) + 우상단 탄종 썸네일 + 소켓 썸네일 한 줄**, **탄약 요청은 장착 무기 휠클릭 (`탄약 필요: <탄종>`)** |
 | [`src/pickups/`](src/pickups/README.md) | `PickupSystem` | `ctx.pickups` | 월드에 떨어진 아이템 (투척 궤적 · 절차 메시 · 빛기둥 · 호스트 권한 동기화) |
 | [`src/meta/`](src/meta/README.md) | `MetaSystem` | `ctx.meta` | 기업 4곳 · 신뢰도(모자란 거래/계약 탭은 잠김) · 크레딧 · 상점/거래대 · 계약 · 퀘스트 · 임플란트 수리 데스크. 화면은 **왼쪽 한 열**(기업 목록 → 신뢰도 게이지 → 페이지 탭 → 크레딧) + 페이지 + **풀 높이 가방/창고/진행 중인 계약**, 보상은 **재화 썸네일** |
-| [`src/progression/`](src/progression/README.md) | `ProgressionSystem` | `ctx.progression` | 레벨/XP · 능력치 5종 · 숙련도 14종 · 파생 수치(`derived`) · 임플란트 장착칸 규칙 · 캐릭터 시트(능력치 · 숙련도만 — 임플란트 UI 는 인벤토리) · 프로필 영속화(**슬롯별**, `accent`/`createdAt` 포함) |
+| [`src/progression/`](src/progression/README.md) | `ProgressionSystem` | `ctx.progression` | 레벨/XP · 능력치 5종 · 숙련도 14종 · 파생 수치(`derived`, **투척 거리는 m 로 표기**) · 임플란트 장착칸 규칙 · 캐릭터 시트(능력치 · 숙련도만 — 임플란트 UI 는 인벤토리) · 프로필 영속화(**슬롯별**, `accent`/`createdAt` 포함) |
 | [`src/housing/`](src/housing/README.md) | `HousingSystem` | `ctx.housing` | 함선 꾸미기 규칙 · 방 용도/시설 레벨 · 가구 · 재배 · 서재 · 로드아웃 프리셋 · `ShipState` 영속화 |
 
 ### 3.5 셸 · 흐름 · 표현
 
 | 폴더 | 시스템 | `ctx` 게시 | 한 줄 책임 |
 |---|---|---|---|
-| [`src/hub/`](src/hub/README.md) | `HubSystem` | `ctx.hub` | 개인/공유 함선 내부 · **격납고(개인 함선 4대 정박 · 방문)** · 도킹 컷씬 · **창문 워프(행성 이동, 조작 유지)** · 발사 포드(출격 준비 경고) · 전체화면 터미널(**닫기 버튼만 · 키 가이드 없음**) · 행성 선택 · 작업대 · 시설 관리 모드 · **분대원 상호작용 → 분대장 넘기기** |
-| [`src/game/`](src/game/README.md) | `GameFlowSystem` | `ctx.phase`, `ctx.corpses` | 페이즈 상태 기계 · **사망/시체(`ctx.corpses`, 자동 부활 없음 — 구조선만)** · **분대장 기기** · 레이드 실패 · **일시정지(ESC = 항상 열기, `escapePause`)** · 재접속 UX · 레이드 세션 저장/복귀 · 재개 게이트 |
-| [`src/ui/`](src/ui/README.md) | `HudSystem` | — | 모든 DOM UI — HUD 2계층 · 메뉴(**타이틀 = 워드마크 + 게임 시작/설정/종료**, **캐릭터 선택 3칸 · 캐릭터 생성(3D 프리뷰)**, **ESC = 중앙 왼쪽 고정**, 설정 3분할 · 화면 중앙 · 조작 다이어그램, **경고 팝업의 확정은 1초 홀드**) · 지도(**전장의 안개 — 미탐색은 회색 윤곽, 발견한 것만 마커**) · 채팅(**Enter 전송 후 유지 · Tab 닫기**) · **우측 하단 키 가이드(`ui:keyGuide`)** · 소셜(커뮤니티 패널 단일, **고정 크기**) · 크로스헤어(**헤드샷 타격 표시 = 1.6배 X**) · **핑 v3(함선 안에서도 · 플레이어별 3개 · 관대한 조준 · 확인 핑 = 분대 색 원 · 모든 핑이 채팅 한 줄 · 화면 밖 화살표는 수명 내내)** · **입력 중 `…` 말풍선(원격만)** · 굵은 피격 방향 호 · 아이템 툴팁(**크기 줄 없음 · 무게 좌하단 · 가치 우하단**) · 커서 아트 · 스타일시트 |
+| [`src/hub/`](src/hub/README.md) | `HubSystem` | `ctx.hub` | 개인/공유 함선 내부 · **격납고(개인 함선 4대 정박 · 방문)** · 도킹 컷씬 · **창문 워프(행성 이동, 조작 유지)** · **목표 행성이 없으면 창밖에 행성이 없다** · 발사 포드(출격 준비 경고) · 전체화면 터미널(**닫기 버튼만 · 키 가이드 없음**) · 행성 선택 · 작업대 · 시설 관리 모드 · **분대원 상호작용 → 분대장 넘기기** |
+| [`src/game/`](src/game/README.md) | `GameFlowSystem` | `ctx.phase`, `ctx.corpses` | 페이즈 상태 기계 · **사망/시체(`ctx.corpses`, 자동 부활 없음 — 구조선만)** · **분대장 기기** · 레이드 실패 · **ESC = 맨 위 화면 닫기 → 없으면 일시정지(`escapeKey`)** · 재접속 UX · 레이드 세션 저장/복귀 · 재개 게이트 |
+| [`src/ui/`](src/ui/README.md) | `HudSystem` | — | 모든 DOM UI — HUD 2계층 · 메뉴(**타이틀 = 워드마크 + 게임 시작/설정/종료**, **캐릭터 선택 3칸 · 캐릭터 생성(3D 프리뷰)**, **ESC = 중앙 왼쪽 고정**, 설정 3분할 · 화면 중앙 · 조작 다이어그램, **경고 팝업의 확정은 1초 홀드**) · 지도(**전장의 안개 — 미탐색은 회색 윤곽, 발견한 것만 마커**) · 채팅(**Enter 전송 후 유지 · Tab 닫기**) · **우측 하단 키 가이드(`ui:keyGuide`)** · 소셜(커뮤니티 패널 단일, **고정 크기**) · 크로스헤어(**헤드샷 타격 표시 = 1.6배 X · 소모품을 들면 점 + 수량/내구도 · 함선 안에서도 점(`HubDot`) + 탑승 홀드 링**) · **포탄 HUD 마커(인지력 반경 안에서만)** · **핑 v3(함선 안에서도 · 플레이어별 3개 · 관대한 조준 · 확인 핑 = 분대 색 원 · 모든 핑이 채팅 한 줄 · 화면 밖 화살표는 수명 내내)** · **입력 중 `…` 말풍선(원격만)** · 굵은 피격 방향 호 · 아이템 툴팁(**크기 줄 없음 · 무게 좌하단 · 가치 우하단**) · 커서 아트 · 스타일시트 |
 | [`src/audio/`](src/audio/README.md) | `AudioSystem` | `ctx.audio` | 절차 WebAudio SFX 전량 + 앰비언트, 버스 이벤트에 반응, 볼륨 영속화 |
-| [`src/tutorial/`](src/tutorial/README.md) | `TutorialSystem` | `ctx.tutorial` | 새 캐릭터 안내 18단계 — 목표 패널 · UI 스포트라이트(**합집합 포커싱**) · 바닥 안내선, 순서 강제 게이트(`blockReason`) + **잠긴 항목 숨김**(`hides`, **함선 창고 아이템 포함**) · 부족한 재료 top-up · **1초 홀드 건너뛰기** |
+| [`src/tutorial/`](src/tutorial/README.md) | `TutorialSystem` | `ctx.tutorial` | 새 캐릭터 안내 **17단계** — 목표 패널 · UI 스포트라이트(**합집합 포커싱 · 0.5초 늦게 · 딤 페이드인**) · 바닥 안내선, 순서 강제 게이트(`blockReason`) + **잠긴 항목 숨김**(`hides`, **함선 창고 아이템 포함**) · 부족한 재료 top-up · **1초 홀드 건너뛰기** |
 | [`src/console/`](src/console/README.md) | `ConsoleSystem` | `ctx.console` | 개발자 콘솔 + 치트 (**dev 호스트에서만** 존재 — 그 외에는 DOM 도 키도 없다) |
 
 ### 3.6 네트워크 · 배포
@@ -161,14 +161,23 @@ start-server.bat relay   # 릴레이만 (npm run server, 0.0.0.0:8787) — 데�
   하우징 모드를 Tab 으로 닫으면 ESC 메뉴가 뜨던 문제이고, 닫으면서 락을 되찾는 화면 전부가 같은 뿌리였다.
   `shared/Input` 이 우리 요청(`lastLockRequest`) 뒤 `LOCK_BOUNCE_GRACE_MS` 안의 락 상실을 걸러 내고
   제스처 재시도만 건다. 이 창 안에서 진짜 Escape 를 놓쳐도 락 없는 Escape 는 진짜 keydown 으로 들어온다.
-- **Escape 는 일시정지 메뉴를 열기만 한다** (2026-09-08). 화면은 각자 자기를 연 키로 닫고(Tab · M · P · E),
-  메뉴는 그 위에 쌓인다 — 닫는 것은 `게임으로 돌아가기` 클릭뿐이다. 가장 안쪽 팝업만 Escape 를 먼저 먹는다.
-  그 예외에 **하우징 모드**(`hub/HousingMode`)가 들어간다 — 화면이 아니라 카메라와 조작을 통째로 가져가는
-  **모드**라, Escape 는 C 와 똑같이 모드를 취소한다 (일시정지 메뉴가 그 위에 쌓이지 않는다).
+- **Escape 는 열려 있는 화면 중 맨 위 하나를 닫는다** (2026-09-09, 2026-09-08 규칙 개정). 닫을 화면이 없을 때만
+  일시정지 메뉴가 열린다. 순서는 **열린 순서의 역순**이고 그것을 아는 곳은 `shared/escape` 의 `ctx.escape`
+  하나다 — 화면은 `uiBlockers.add` **옆에서** `escape.push(token, () => this.close())`, `delete` 옆에서
+  `escape.remove(token)` 한다. 정책은 `game/parts/Phases.escapeKey` 한 곳뿐이다 (폴링으로 흉내내지 않는다 —
+  키를 각자 읽으면 닫히는 순서가 `main.ts` 의 시스템 등록 순서로 정해져, 위에 뜬 패널보다 아래 모드가 먼저 닫힌다.
+  그래서 **하우징 모드**도 자기 Escape 폴링을 걷어내고 이 스택에 올라갔다 — C 는 그대로다).
+  가장 안쪽 팝업(수량 지정 · 우클릭 메뉴 · 경고 팝업 · 설정 · 키 바꾸기 · 채팅 · 콘솔)은 그대로 자기 capture
+  핸들러에서 Escape 를 삼켜 `Input` 이 기록조차 못 하게 한다. **일시정지 메뉴 자신은 데스크톱 앱에서만** ESC 로
+  닫힌다 (`isDesktopShell()`, `ui/menus/PauseMenu`) — 브라우저에서는 `게임으로 돌아가기` 클릭이 재락에 필요한
+  제스처를 겸하므로 그대로다. 2026-09-08 에 닫기를 걷어낸 이유(Escape 에는 user activation 이 없어 재락이
+  거부된다)는 이제 양쪽 모두 답이 있다: 앱은 메인 프로세스가 ESC key-up 에 activation 을 만들어 주고
+  (`__scavShellRelock`), 브라우저는 `좌측 클릭으로 게임 재개` 게이트가 그 한 클릭을 받는다.
 - **Tab 은 모든 화면 · 모드의 공용 닫기 키다** (2026-09-09). 자기를 연 키(E · M …)로도 여전히 닫히지만 Tab 도 닫는다 —
   Tab 을 먹는 화면은 `ctx.input.consume(Keys.INVENTORY)` 로 인벤토리가 같은 키에 열리지 않게 한다. 열린 화면은
   `ui:keyGuide {owner, keys}` 를 내보내 **우측 하단 한 줄 키 가이드**(`ui/hud/KeyGuide`)에 자기 키를 올리고, 닫을 때
-  `keys:null` 을 보낸다. `Tab 닫기` 항목은 가이드가 스스로 맨 오른쪽에 붙이므로 `keys` 에 넣지 않는다. ESC 메뉴는 예외(가이드 없음).
+  `keys:null` 을 보낸다. `닫기` 항목은 가이드가 스스로 맨 오른쪽에 붙이므로 `keys` 에 넣지 않는다 — 2026-09-09
+  부터 그 항목의 keycap 은 **둘**(`Tab` · `Esc`)이다. ESC 메뉴는 예외(가이드 없음).
 - **행성 이동은 컷씬이 아니다** (2026-09-09). 함선 창문 밖의 별이 줄기로 늘어나는 **창문 워프**(`hub:warpProgress`)이고
   조작은 그대로 살아 있다 — 이동 중에도 함선 안을 걸어 다닌다. 개인 → 공유 함선 **도킹 컷씬은 그대로**다.
 - **캐릭터 세이브는 슬롯별이다** (2026-09-09). 새 캐릭터 데이터를 저장할 때는 반드시 `slotKey(KEY)` 를 통과시킨다
@@ -226,6 +235,16 @@ start-server.bat relay   # 릴레이만 (npm run server, 0.0.0.0:8787) — 데�
   오리진은 `http://127.0.0.1:<창 포트>` 다. 그래서 `electron/main.ts` 의 창 서버는 **임의 포트를 절대
   쓰지 않는다** — `APP_PORT`(8790)부터 정해진 순서로만 훑고, 릴레이 포트와는 완전히 분리돼 있다.
   포트를 바꾸는 것은 캐릭터를 통째로 새로 시작하는 것과 같다.
+- **퀵슬롯은 가방 격자가 아니다** (2026-09-09). 휠에 올린 소모품은 **가방에서 사라진다** — 퀵슬롯이 자기
+  컨테이너(`InventorySystem.quickSlots: QuickSlotItems`)이고 스택 자체를 들고 있다. 무게 · `countWhere` ·
+  `consumeWhere` · 시체(`stripForCorpse`) · 레이드 blob 은 휠을 함께 보지만 `getAllItems()`(거래 · 수리 목록)는
+  여전히 가방 격자만이다. `setQuickSlot` 은 **옮기기**이고 밀려난 스택이 가방에 못 들어가면 **이동 자체를
+  거절한다** — 휠 아이템을 조용히 버리지 않는다. 세이브는 **v2** 이고 `quick[i]` 가 인덱스가 아니라 스택이다
+  (v1 은 `sanitizeLoadoutSave` 가 읽을 때 가방에서 빼내 이관한다). UI 는 휠 칸을 `{ kind: 'quick', index }`
+  로 넘긴다 — `BAG_LOC` 으로 넘기면 `findItem` 이 못 찾는다.
+- **꾹 누르는 키는 키캡 위에 chevron 을 단다** (2026-09-09). `KeyGuideEntry.hold` 가 true 면 키 가이드가,
+  `interact:promptChanged.hold` 면 상호작용 캡션이 같은 `.keycap.hold::before` 화살표를 그린다. 탭하는 키는
+  예전 그대로다.
 - **인게임 스크롤바는 어두운 UI 색을 쓴다** (2026-09-09). `:root` 의 `--sb-track` · `--sb-thumb` ·
   `--sb-thumb-hover` 가 단일 원본이고 `#ui-root` 아래 모든 스크롤러에 한 규칙으로 걸린다
   (`src/ui/styles/base.css`). `src/inventory/inventory.css` 는 그 스타일시트를 import 하지 않으므로 같은 이름을

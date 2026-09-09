@@ -27,7 +27,7 @@ export type TutorialStepId =
   | 'craftGun'     // 작업실로 걸어가 총기 작업대에서 무기 제작
   | 'openBag'      // 제작 창을 닫고 가방 + 장착 장비를 연다 (제작 중에는 장비 칸이 숨어 있다)
   | 'equipGun'     // 만든 무기를 주무기 칸에 장착
-  | 'openCraft'    // 가방 우측 상단의 제작 버튼으로 제작 창 열기 (2026-09-09)
+  | 'openCraft'    // (순서에서 제외, 2026-09-09) 가방 우측 상단의 제작 버튼으로 제작 창 열기 — 소총 · 탄약을 작업대에서 한 번에 만들면서 빠졌다
   | 'craftAmmo'    // 그 무기의 탄약 제작
   | 'stowAmmo'     // 탄약을 가방에 넣기
   | 'terminal'     // 조종석 터미널 상호작용
@@ -38,7 +38,8 @@ export type TutorialStepId =
 
 export const TUTORIAL_STEPS: readonly TutorialStepId[] = [
   'intro', 'manage', 'generator', 'workshop', 'bench', 'benchPlace', 'manageDone',
-  'craftGun', 'openBag', 'equipGun', 'openCraft', 'craftAmmo', 'stowAmmo',
+  // 2026-09-09: 총기 작업대에서 소총 → 탄약을 **한 번에** 만든다 — `openCraft` 는 순서에서 빠졌다 (id 는 계약이라 남긴다).
+  'craftGun', 'craftAmmo', 'openBag', 'equipGun', 'stowAmmo',
   'terminal', 'planet', 'travel', 'board', 'raid',
 ];
 

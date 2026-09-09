@@ -59,6 +59,11 @@ QUICK_WHEEL_DRAG_PX,30,Pointer-locked mouse travel (px) needed before a wheel di
 GRENADE_FUSE,3,Fuse after the pin is pulled; a grenade cooked this long explodes in the hand.
 GRENADE_COOK_MAX,3,
 GRENADE_UNDERHAND_SPEED_MUL,0.45,Underhand toss speed multiplier.
+GRENADE_THROW_SPEED,17,Overhand release speed (m/s) before the 근력 multiplier (2026-09-09: moved here from weapons/model.ts).
+GRENADE_THROW_LIFT,3.5,Extra upward velocity (m/s) added to an overhand throw.
+GRENADE_UNDERHAND_LIFT,1.2,Upward velocity (m/s) of an underhand toss.
+THROW_RANGE_MUL_MIN,1.0,"투척 거리 배율 at STAT_MIN 근력 (2026-09-09): 근력 1 → 1.0 (= 예전 근력 5 값). 사이는 선형, STAT_MAX 에서 THROW_RANGE_MUL_MAX."
+THROW_RANGE_MUL_MAX,1.74,투척 거리 배율 at STAT_MAX 근력 (= 예전 최대 1.45 × 1.2).
 
 # ── appended: Phase 3 — ship calls / stratagems ──
 STRATAGEM_WHEEL_HOLD,0.22,G held longer than this opens the wheel; a tap re-arms the last call.
@@ -97,11 +102,12 @@ ROGUE_RUSH_CHANCE,0.2,
 ROGUE_BOSS_SCALE,1.5,Boss rogue multipliers and escort count.
 ROGUE_BOSS_HP_MUL,5,
 ROGUE_BOSS_ESCORTS,3,
-ARTILLERY_RANGE,90,"Artillery bug: preferred stand-off range (m), shell flight time (s), blast radius (m) / damage, shell hit radius for interception (m)."
-SHELL_FLIGHT_TIME,4.5,
+ARTILLERY_RANGE,63,"Artillery bug (2026-09-09: 90 → 63, 사거리 −30 %): preferred stand-off range (m), shell flight time (s), blast radius (m) / damage, shell hit radius for interception (m)."
+SHELL_FLIGHT_TIME,6.3,2026-09-09: 4.5 → 6.3 — 사거리 −30 % 에 비행 속도 −50 % (4.5 × 0.7 / 0.5).
 SHELL_BLAST_RADIUS,5,
 SHELL_DAMAGE,55,
 SHELL_RADIUS,0.6,
+SHELL_LEAD_MAX,8,"2026-09-09: 포탄이 표적의 이동을 앞질러 조준하는 최대 거리(m). 조준점 = 위치 + 속도 × (SHELL_FLIGHT_TIME × 0.5) 인데 비행 6.3 s 로는 리드가 19 m 까지 자라 피할 수 없는 자리에 떨어지므로 여기서 자른다."
 TOXIC_RADIUS,5,"Toxic bug: burst radius (m), damage (players and enemies alike), trigger distance (m)."
 TOXIC_DAMAGE,70,
 TOXIC_TRIGGER_DIST,2.2,
@@ -146,7 +152,7 @@ DETECT_ENEMY_COLOR,0xff4d4d,
 # ── tactical implants ──
 IMPLANT_GRAPPLE_RANGE,45,
 IMPLANT_GRAPPLE_SPEED,26,pull speed (m/s)
-IMPLANT_GRAPPLE_COOLDOWN,6,
+IMPLANT_GRAPPLE_COOLDOWN,12,2026-09-09: 6 → 12 (2배).
 IMPLANT_DASH_CHARGES,3,
 IMPLANT_DASH_DISTANCE,7.5,
 IMPLANT_DASH_COOLDOWN,5,per charge
@@ -483,6 +489,8 @@ GADGET_JUMPPAD_HP,150,점프대 내구도
 GADGET_JUMPPAD_RADIUS,1.7,점프대 발동 반경(m)
 
 # ── 캐릭터 슬롯 · 생성 (2026-09-09, owner: shared/saveSlot · shared/character) ──
+TUTORIAL_STEP_DELAY_S,0.5,"튜토리얼 단계가 넘어간 뒤 스포트라이트 · 안내가 뜨기까지 기다리는 시간 (2026-09-09) — 새 화면이 먼저 보이고 그 뒤에 포커싱된다."
+TUTORIAL_DIM_FADE_S,0.5,스포트라이트 어두운 판이 서서히 어두워지는 시간 (s).
 CHARACTER_SLOTS,3,타이틀 캐릭터 선택창의 칸 수. 슬롯마다 세이브가 완전히 분리된다 (`scav.s<n>.*`).
 CHAR_STAT_MIN,1,캐릭터 생성창에서 한 능력치가 가질 수 있는 최소값.
 CHAR_STAT_MAX,5,캐릭터 생성창에서 한 능력치가 가질 수 있는 최대값 (성장 상한 STAT_MAX 와는 별개).

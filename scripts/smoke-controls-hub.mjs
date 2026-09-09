@@ -218,10 +218,10 @@ try {
       equipMid: (() => { const s = root.querySelector('.inv-panel-stash').getBoundingClientRect(); const e = root.querySelector('.inv-equip').getBoundingClientRect(); const b = root.querySelector('.inv-panel-bag').getBoundingClientRect(); return s.right <= e.left + 4 && e.right <= b.left + 4; })(),
     };
   });
-  /* ── 2026-09-08: ESC = 항상 일시정지 · 화면은 자기 키로 닫는다 ──────────
-     Escape used to close whatever screen was open. It now **stacks** the 일시정지 메뉴 over it, and the screen's own
-     key (Tab here) is what closes it — so a mistyped Escape can never lose an open bag, and the menu is reachable
-     from anywhere in one press. */
+  /* ── 2026-09-09: ESC 는 맨 위 화면 하나를 닫는다 ─────────────────────────
+     2026-09-08 에는 Escape 가 화면을 닫지 않고 일시정지 메뉴를 그 위에 쌓기만 했다. 2026-09-09 에 되돌렸다 —
+     커서가 보이면 사람은 그 창을 ESC 로 닫으려 하고, 닫은 뒤의 재락은 셸이 activation 을 만들어 주거나
+     브라우저의 재개 게이트가 받는다 (`game/escapeKey`, `shared/escape`). 메뉴는 스택이 비어 있을 때만 열린다. */
   const escOverInv = await page.evaluate(async () => {
     const key = (code, type) => document.body.dispatchEvent(new KeyboardEvent(type, { code, bubbles: true }));
     key('Escape', 'keydown'); key('Escape', 'keyup');
@@ -232,12 +232,24 @@ try {
       paused: !!menu && !menu.classList.contains('hidden'),
       inv: window.__game.ctx.inventory.isOpen,
       blockers: [...window.__game.ctx.uiBlockers].sort(),
+      escSize: window.__game.ctx.escape.size,
     };
   });
-  ok(escOverInv.paused, 'Escape over the open bag opens the 일시정지 메뉴');
-  ok(escOverInv.inv, 'and leaves the bag open underneath', JSON.stringify(escOverInv));
-  ok(escOverInv.blockers.join(',') === 'inventory,menu', 'both blockers are held at once', JSON.stringify(escOverInv.blockers));
-  // Tab must not reach through the menu, and the menu only closes on its own button.
+  ok(!escOverInv.inv, 'ESC 가 열린 가방을 닫는다 (2026-09-09)', JSON.stringify(escOverInv));
+  ok(!escOverInv.paused, '그 ESC 로 일시정지 메뉴는 열리지 않는다', JSON.stringify(escOverInv));
+  ok(escOverInv.blockers.length === 0 && escOverInv.escSize === 0, 'blocker 도 닫기 스택도 비었다', JSON.stringify(escOverInv));
+  // 닫을 화면이 없을 때만 메뉴 — 그리고 메뉴는 화면 위에 그대로 쌓인다 (2026-09-08 규칙은 메뉴 쪽만 남았다).
+  await tap('Tab');
+  await waitFor(page, () => window.__game.ctx.inventory.isOpen, 'bag re-opened under the menu test');
+  await page.evaluate(() => window.__game.ctx.bus.emit('game:paused', { paused: true }));
+  await waitSim(0.1);
+  const menuOverInv = await page.evaluate(() => {
+    const menu = document.querySelector('.menu.pause');
+    return { paused: !!menu && !menu.classList.contains('hidden'), inv: window.__game.ctx.inventory.isOpen, blockers: [...window.__game.ctx.uiBlockers].sort() };
+  });
+  ok(menuOverInv.paused && menuOverInv.inv, '일시정지 메뉴는 열린 가방 위에 쌓인다', JSON.stringify(menuOverInv));
+  ok(menuOverInv.blockers.join(',') === 'inventory,menu', 'both blockers are held at once', JSON.stringify(menuOverInv.blockers));
+  // Tab must not reach through the menu, and the menu only closes on its own button (browser).
   await tap('Tab');
   await waitSim(0.1);
   ok(await page.evaluate(() => window.__game.ctx.inventory.isOpen), 'Tab does not reach the bag through the menu');
@@ -266,6 +278,23 @@ try {
   ok(hubScreen.quickRight, 'quick-use rose sits right of the bag grid (≥ 1600 px)');
   ok(hubScreen.hints, 'inventory hint bar hidden in the ship');
   await shot('03-hub-tab-screen');
+
+  /* 2026-09-09 — 휠은 또 하나의 가방 공간이다: 시작 키트의 수류탄 · 붕대는 **슬롯 안**에 있고 가방 격자에는
+     탄약만 남는다. 아래 두 검사(가방 → 창고 이동, 함선에서 버리면 창고로)는 서로 다른 두 스택이 필요하므로
+     `unregisterQuick` 으로 수류탄을 가방으로 되돌려 온다 — 그 자체가 새 API 의 검사이기도 하다. */
+  const wheelVsBag = await page.evaluate(() => {
+    const inv = window.__game.getSystem('inventory');
+    const wheel = inv.getQuickSlots().map((q) => q?.defId ?? null);
+    const bag = inv.getAllItems().map((i) => i.defId);
+    const index = inv.getQuickSlots().findIndex((q) => !!q);
+    const unreg = index >= 0 ? inv.unregisterQuick(index) : 'noop';
+    return { wheel, bag, index, unreg, bagAfter: inv.getAllItems().map((i) => i.defId) };
+  });
+  ok(wheelVsBag.wheel[0] === 'grenade_frag' && wheelVsBag.wheel[4] === 'heal_bandage'
+    && !wheelVsBag.bag.includes('grenade_frag') && !wheelVsBag.bag.includes('heal_bandage'),
+    '함선의 가방 격자에 휠 스택은 없다 (수류탄 N · 붕대 S 는 슬롯 안)', JSON.stringify(wheelVsBag));
+  ok(wheelVsBag.unreg === 'ok' && wheelVsBag.bagAfter.includes('grenade_frag'),
+    'unregisterQuick(0) 이 수류탄을 가방 격자로 되돌린다', JSON.stringify(wheelVsBag));
 
   // bag → stash via right-click quick move (API), persistence across reload
   const stashMove = await page.evaluate(() => {
@@ -588,8 +617,9 @@ try {
   });
   ok(alt.cursor && alt.blocker && !alt.locked, 'Alt frees the mouse in place (cursor mode + its own blocker, lock released)', JSON.stringify(alt));
   ok(!alt.paused, 'Alt does not pause the game');
-  /* 2026-09-08: Escape is the 일시정지 메뉴 everywhere, so it no longer *just* closes the Alt 커서 — it drops the
-     free cursor (which has no window behind it and would strand the player) and puts the menu up in its place. */
+  /* 2026-09-09: Escape 는 Alt 커서를 **놓고 끝난다** — 카메라가 돌아오고, 메뉴는 열리지 않는다. Alt 커서도
+     `ctx.escape` 의 한 항목이므로(뒤에 창이 없는 유일한 커서 소유자) 그것이 곧 "닫을 것" 이고, 메뉴는 스택이
+     비어 있을 때만 열린다. 2026-09-08 에는 같은 Escape 가 커서를 놓고 그 자리에 메뉴를 띄웠다. */
   const altOff = await page.evaluate(async () => {
     const key = (code, type) => document.body.dispatchEvent(new KeyboardEvent(type, { code, bubbles: true }));
     key('Escape', 'keydown'); key('Escape', 'keyup');
@@ -602,10 +632,14 @@ try {
     };
   });
   ok(!altOff.blocker, 'Escape drops the Alt 커서 blocker', JSON.stringify(altOff));
-  ok(altOff.paused && altOff.menuBlocker, 'and the same Escape opens the 일시정지 메뉴 in its place', JSON.stringify(altOff));
-  // The menu only closes on 게임으로 돌아가기 — Escape is deliberately inert on it.
+  ok(!altOff.paused && !altOff.menuBlocker, 'and that is all it does — no 일시정지 메뉴 (2026-09-09)', JSON.stringify(altOff));
+  // The menu only closes on 게임으로 돌아가기 (in the browser) — a second Escape is inert on it.
   const pauseEsc = await page.evaluate(async () => {
     const key = (code, type) => document.body.dispatchEvent(new KeyboardEvent(type, { code, bubbles: true }));
+    // 스택이 빈 상태의 Escape 가 메뉴를 연다 (Alt 커서는 방금 닫혔다).
+    key('Escape', 'keydown'); key('Escape', 'keyup');
+    await new Promise((r) => setTimeout(r, 120));
+    window.__game.frame(performance.now());
     key('Escape', 'keydown'); key('Escape', 'keyup');
     await new Promise((r) => setTimeout(r, 120));
     window.__game.frame(performance.now());

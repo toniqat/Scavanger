@@ -3,8 +3,8 @@ import { ITEM_DEF_MAP, LootService, STARTER_LOADOUT } from '@/items';
 import { Grid } from './Grid';
 import { attachedItems, clearAllSockets, clearSocket, filledSocketCount, findSocketed, setSocket } from './Sockets';
 import {
-  QUICK_AUTO_GRENADE, QUICK_AUTO_STIM, assignQuickSlot, autoAssignQuickSlots, clearQuickSlotOf, createQuickSlots, firstFreeQuickSlot,
-  isQuickUsable, pruneQuickSlots, quickSlotOf, quickSlotsSignature, relinkQuickSlot,
+  QUICK_AUTO_GRENADE, QUICK_AUTO_STIM, createQuickSlots, firstFreeQuickSlot, isQuickUsable, lockedQuickItems,
+  mergeIntoQuick, pickStarterQuick, quickSlotOf, quickSlotsSignature,
 } from './QuickSlots';
 
 /**
@@ -223,46 +223,48 @@ export function runInventorySelfTest(): boolean {
     check(isQuickUsable(getDef('heal_bandage')) && isQuickUsable(getDef('grenade_frag')) && !isQuickUsable(getDef('ammo_medium')), 'quick: only stims / grenades are usable');
     const slots = createQuickSlots();
     check(slots.length === QUICK_SLOTS && slots.every((s) => s === null), 'quick: 8 empty slots');
-    // starter policy with the common bag (2 usable slots = N + S per QUICK_SLOT_UNLOCK_ORDER): grenade → N, stim → S
-    autoAssignQuickSlots(slots, g.items().map((p) => p.item), getDef, 2);
-    check(slots[QUICK_AUTO_GRENADE] === nade.uid && slots[QUICK_AUTO_STIM] === stim.uid && slots[1] === null, 'quick: auto-assign N grenade, S stim under a 2-slot bag');
-    // with a single usable slot (no bag) only the grenade fits (N); the stim finds no free usable slot
-    autoAssignQuickSlots(slots, g.items().map((p) => p.item), getDef, 1);
-    check(slots[QUICK_AUTO_GRENADE] === nade.uid && slots.filter(Boolean).length === 1, 'quick: auto-assign under a 1-slot bag keeps only the grenade');
-    autoAssignQuickSlots(slots, g.items().map((p) => p.item), getDef, 6);
-    check(slots[QUICK_AUTO_GRENADE] === nade.uid && slots[QUICK_AUTO_STIM] === stim.uid, 'quick: auto-assign N grenade, S stim under a 6-slot bag');
-    // set: the same uid occupies one slot only (moves), clear by index / by uid
-    check(assignQuickSlot(slots, 2, stim.uid) && slots[2] === stim.uid && slots[QUICK_AUTO_STIM] === null, 'quick: assigning elsewhere moves the stim');
-    check(!assignQuickSlot(slots, 2, stim.uid), 'quick: re-assigning the same slot is a no-op');
-    check(quickSlotOf(slots, stim.uid) === 2 && quickSlotOf(slots, ammo.uid) === -1, 'quick: quickSlotOf');
-    // unlock order: 2 slots → N (taken) then S (free) = 4; 1 slot → only N, taken → -1; 3 slots → N, S, E (E taken by the stim) → 4
-    check(firstFreeQuickSlot(slots, 2) === 4 && firstFreeQuickSlot(slots, 1) === -1 && firstFreeQuickSlot(slots, 3) === 4, 'quick: first free usable slot follows QUICK_SLOT_UNLOCK_ORDER');
-    check(firstFreeQuickSlot(slots, 0) === -1 && firstFreeQuickSlot(slots, 8) === 4, 'quick: first free with 0 / 8 usable slots');
-    check(assignQuickSlot(slots, 2, null) && slots[2] === null, 'quick: clear by index');
-    assignQuickSlot(slots, 2, stim.uid);
-    check(clearQuickSlotOf(slots, stim.uid) === 2 && slots[2] === null && clearQuickSlotOf(slots, stim.uid) === -1, 'quick: clear by uid');
-    // prune: the grenade leaves the bag (dropped / moved to a crate / overflow) → its slot clears
-    g.remove(nade.uid);
-    check(pruneQuickSlots(slots, (uid) => g.has(uid)) && slots[QUICK_AUTO_GRENADE] === null, 'quick: item leaving the bag clears its slot');
-    check(!pruneQuickSlots(slots, (uid) => g.has(uid)), 'quick: prune is idempotent');
-    // consume to 0: the slot follows a sibling stack of the same def when one exists, else clears
-    assignQuickSlot(slots, 2, stim.uid);
-    stim.qty = 0; g.remove(stim.uid);
-    const stimB = loot.createItem('heal_bandage', 1);
-    check(g.autoPlace(stimB), 'quick: sibling stim stack placed');
-    check(relinkQuickSlot(slots, stim.uid, stimB.uid) && slots[2] === stimB.uid, 'quick: consumed stack hands its slot to the sibling stack');
-    check(!relinkQuickSlot(slots, stimB.uid, stimB.uid), 'quick: relink onto itself is a no-op');
-    stimB.qty = 0; g.remove(stimB.uid);
-    check(pruneQuickSlots(slots, (uid) => g.has(uid)) && slots[2] === null && slots.every((s) => s === null), 'quick: consuming the last stack clears the slot');
+
+    /* 2026-09-09 — the wheel is its own container: `pickStarterQuick` only *chooses*, the caller moves the stack
+       out of the bag. Starter policy with the common bag (2 usable slots = N + S per QUICK_SLOT_UNLOCK_ORDER). */
+    const bagItems = g.items().map((p) => p.item);
+    const picks2 = pickStarterQuick(slots, bagItems, getDef, 2);
+    check(picks2.length === 2, 'quick: starter picks a grenade and a stim');
+    check(picks2[0].index === QUICK_AUTO_GRENADE && picks2[0].item === nade, 'quick: starter grenade goes to N');
+    check(picks2[1].index === QUICK_AUTO_STIM && picks2[1].item === stim, 'quick: starter stim goes to S');
+    check(picks2.every((q) => !getDef(q.item.defId) || isQuickUsable(getDef(q.item.defId))), 'quick: starter never picks ammo');
+    // with a single usable slot only the grenade fits (N); the stim finds no free usable slot
+    check(pickStarterQuick(slots, bagItems, getDef, 1).length === 1, 'quick: starter under a 1-slot bag keeps only the grenade');
+    check(pickStarterQuick(slots, bagItems, getDef, 0).length === 0, 'quick: starter with no usable slot picks nothing');
+
+    // apply the picks the way `applyStarter` does: the stacks *leave* the bag grid
+    for (const { index, item } of picks2) { g.remove(item.uid); slots[index] = item; }
+    check(!g.has(nade.uid) && !g.has(stim.uid), 'quick: a stack on the wheel is no longer in the bag grid');
+    check(slots[QUICK_AUTO_GRENADE] === nade && slots[QUICK_AUTO_STIM] === stim, 'quick: the wheel holds the stacks themselves');
+    check(quickSlotOf(slots, stim.uid) === QUICK_AUTO_STIM && quickSlotOf(slots, ammo.uid) === -1, 'quick: quickSlotOf');
+
+    // unlock order: N and S are taken, so 2 usable slots have nothing free; 3 opens E (index 2)
+    check(firstFreeQuickSlot(slots, 2) === -1 && firstFreeQuickSlot(slots, 3) === 2, 'quick: first free usable slot follows QUICK_SLOT_UNLOCK_ORDER');
+    check(firstFreeQuickSlot(slots, 0) === -1 && firstFreeQuickSlot(slots, 8) === 2, 'quick: first free with 0 / 8 usable slots');
+
+    // a smaller bag strands whatever sits past its usable count — the system hands those back to the grid
+    check(lockedQuickItems(slots, 8).length === 0, 'quick: nothing is stranded under an 8-slot bag');
+    const stranded = lockedQuickItems(slots, 1);
+    check(stranded.length === 1 && stranded[0].index === QUICK_AUTO_STIM && stranded[0].item === stim, 'quick: a 1-slot bag strands the S stim');
+
+    // merging tops the wheel stack up first (a pickup / craft of the same def)
+    const moreStim = loot.createItem('heal_bandage', 2);
+    const maxStim = getDef('heal_bandage')?.stackMax ?? 0;
+    const before = stim.qty;
+    const leftover = mergeIntoQuick(slots, moreStim, getDef);
+    check(stim.qty === Math.min(maxStim, before + 2) && leftover === moreStim.qty, 'quick: a pickup merges into the wheel stack first');
+    const notStackable = loot.createItem('ammo_medium', 5);
+    check(mergeIntoQuick(slots, notStackable, getDef) === notStackable.qty, 'quick: a def with no wheel stack is left untouched');
+
     // signature changes with qty / active (drives the change event)
-    const f = loot.createItem('grenade_frag', 2);
-    g.autoPlace(f);
-    assignQuickSlot(slots, 0, f.uid);
-    const resolve = (uid: string) => g.get(uid)?.item ?? null;
-    const s1 = quickSlotsSignature(slots, resolve, 2);
-    f.qty = 1;
-    const s2 = quickSlotsSignature(slots, resolve, 2);
-    const s3 = quickSlotsSignature(slots, resolve, 3);
+    const s1 = quickSlotsSignature(slots, 2);
+    stim.qty -= 1;
+    const s2 = quickSlotsSignature(slots, 2);
+    const s3 = quickSlotsSignature(slots, 3);
     check(s1 !== s2 && s2 !== s3, 'quick: signature tracks qty and active count');
   }
 

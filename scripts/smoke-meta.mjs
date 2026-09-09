@@ -731,8 +731,8 @@ try {
   }));
   ok(questDom.badge === '가능' && questDom.sel && questDom.name === '신경 접합제' && questDom.lines === 3 && questDom.reward && questDom.repChip && questDom.accept === '수락',
     '퀘스트 tab: ci1 가능 · 3 delivery lines · 목록 아래 보상(재화 rep:ceres + imp_perception_3) · 수락', JSON.stringify(questDom));
-  // 2026-09-08 (ESC = 항상 일시정지): the 기업 desk is a tab of the inventory window, so **Tab** closes it —
-  // Escape now only opens the 일시정지 메뉴 on top of it.
+  // The 기업 desk is a tab of the inventory window, so **Tab** closes it (2026-09-09: Esc closes it as well —
+  // the top open screen — and the 일시정지 메뉴 is what an Esc with nothing open opens).
   await tap('Tab');
   await sleep(60);
   ok(await P(() => !document.querySelector('.inv-screen.corp-view') && !window.__game.ctx.meta.isMenuOpen), 'Tab closes the desk window');

@@ -17,10 +17,7 @@ import { durabilityInfo, gearMultipliers, makeWeightInfo, searchTimeFor, sumWeig
 import { Grid, OOB, type Placement, type PriorityPlacement } from '../Grid';
 import { Container, ContainerStore } from '../Container';
 import { attachedItems, clearSocket, findSocketed, setSocket } from '../Sockets';
-import {
-  assignQuickSlot, autoAssignQuickSlots, createQuickSlots, firstFreeQuickSlot, isQuickIndex, isQuickUsable, pruneQuickSlots,
-  quickSlotOf, quickSlotsSignature, relinkQuickSlot, type QuickSlotUids,
-} from '../QuickSlots';
+import { createQuickSlots, isQuickUsable, pickStarterQuick } from '../QuickSlots';
 import { setStarterGrantState, starterGrantState } from '../Stash';
 import { LOADOUT_SAVE_VERSION, isEmptyLoadoutSave, loadLoadoutSave, sanitizeLoadoutSave, type LoadoutSave } from '../Loadout';
 import { reviveItem, savedCell, serializeExtras, serializePlacement, type SavedPlacement } from '../Serialize';
@@ -52,16 +49,17 @@ export function onWorldReady(sys: InventorySystem, seed: number): void {
   sys.afterChange();
   }
 
-/** Snapshot for the save file: slots + bag placements + quick slots as bag indices. */
+/**
+ * Snapshot for the save file: slots + bag placements + the wheel's own stacks.
+ *
+ * v2 (2026-09-09): `quick[i]` is the **stack itself**, not an index into `bag` — the wheel is its own container, so
+ * a stack on the wheel is not in `bag` at all. `Loadout.sanitizeLoadoutSave` migrates a v1 file on read.
+ */
 export function captureLoadoutSave(sys: InventorySystem): LoadoutSave {
   const slots: LoadoutSave['slots'] = {};
   for (const s of LOADOUT_SLOTS) { const it = sys.loadout[s]; if (it) slots[s] = serializeExtras(it); }
   const placements = sys.bag.items();
-  const quick = sys.quickSlots.map((uid) => {
-    if (uid === null) return null;
-    const i = placements.findIndex((p) => p.item.uid === uid);
-    return i >= 0 ? i : null;
-  });
+  const quick = sys.quickSlots.map((it) => (it ? serializeExtras(it) : null));
   return { v: LOADOUT_SAVE_VERSION, slots, bag: placements.map(serializePlacement), quick };
   }
 
@@ -109,12 +107,18 @@ export function applyLoadoutSave(sys: InventorySystem, save: LoadoutSave): (Item
   for (const item of pending) {
     if (!sys.bag.autoPlace(item)) { console.warn(`[Loadout] no room for '${item.defId}' on load — discarded`); revived[revived.indexOf(item)] = null; }
   }
-  // quick slots: bag index → uid (locked slots keep their assignment, as they do in a session)
+  // 2026-09-09: the wheel holds its own stacks — revive them straight into the slots, never into the bag grid.
+  // (A v1 file arrives here already migrated: `sanitizeLoadoutSave` lifted those stacks out of `bag` into `quick`.)
   sys.quickSlots = createQuickSlots();
-  save.quick.forEach((idx, i) => {
-    const item = idx === null ? null : revived[idx];
-    if (!item || !sys.bag.has(item.uid) || !isQuickUsable(getDef(item.defId))) return;
-    assignQuickSlot(sys.quickSlots, i, item.uid);
+  save.quick.forEach((sv, i) => {
+    const item = reviveItem(sv, getDef, sys.loot, 'Loadout');
+    if (!item) return;
+    if (!isQuickUsable(getDef(item.defId))) {
+      // no longer a quick-usable category (a data change): keep the item, put it in the bag
+      if (!sys.bag.autoPlace(item)) console.warn(`[Loadout] no room for '${item.defId}' off the wheel — discarded`);
+      return;
+    }
+    sys.quickSlots[i] = item;
   });
   return revived;
   }
@@ -259,7 +263,12 @@ export function applyStarter(sys: InventorySystem): void {
   const size = sys.bagSizeOf(bagItem);
   sys.bag.resize(size.cols, size.rows);
   for (const e of STARTER_LOADOUT.items) sys.addUnits(e.id, e.qty);
-  autoAssignQuickSlots(sys.quickSlots, sys.getAllItems(), (id) => ITEM_DEF_MAP.get(id), sys.getQuickSlotCount());
+  // 2026-09-09: the picks are **moved** out of the bag onto the wheel (it is its own container now).
+  sys.quickSlots = createQuickSlots();
+  for (const { index, item } of pickStarterQuick(sys.quickSlots, sys.getAllItems(), (id: string) => ITEM_DEF_MAP.get(id), sys.getQuickSlotCount())) {
+    sys.bag.remove(item.uid);
+    sys.quickSlots[index] = item;
+  }
   sys.lastGrenades = -1; sys.lastStims = -1; sys.lastQuickSig = ''; // force count / quick-slot events
   sys.ctx.bus.emit('inventory:bagChanged', { ...size, dropped: [] });
   sys.emitLoadout();

@@ -199,9 +199,18 @@ export function cancelTravel(sys: HubSystem): void {
   sys.applyPlanetLook();
   }
 
-/** The decorative planet outside the viewports takes the 목표 행성's colours (nothing else is rebuilt). */
+/**
+ * The decorative planet outside the viewports takes the 목표 행성's colours (nothing else is rebuilt).
+ *
+ * **2026-09-09:** no destination → no planet. `HubRef.planet` (the lobby's pick, else the slot's saved solo pick) is
+ * the single source of truth; when it is null — a fresh character, a lobby whose host has not chosen, a cleared
+ * pick — the window shows stars only (`ShipInterior.setPlanetVisible(false)`). Every caller that already re-tinted
+ * here (interior build, `lobby:state` planet change, warp arrival / cancel) gets the gate for free, and the warp's
+ * own re-tint moment (`interiors/WarpStreaks.ViewportWarp`) opens it before the fade-in so a first pick appears.
+ */
 export function applyPlanetLook(sys: HubSystem): void {
   const def = getPlanet(sys.planet);
+  sys.interior?.setPlanetVisible?.(!!def);
   if (!def) return;
   sys.interior?.setPlanetLook?.(def.hologram, def.hologramAtmo);
   }

@@ -5,7 +5,7 @@ import {
   SKIP_HOLD_TIME, TUTORIAL_AMMO_DEF, TUTORIAL_AMMO_RECIPE, TUTORIAL_BENCH_DEF, TUTORIAL_CRAFT_GRANT,
   TUTORIAL_GUN_DEF, TUTORIAL_GUN_RECIPE, TUTORIAL_ROOM_PURPOSE, TUTORIAL_SAVE_VERSION, TUTORIAL_STORAGE_KEY,
 } from './model';
-import { nextStep, stepDef, stepIndexOf } from './Steps';
+import { nextStep, normalizeStep, stepDef, stepIndexOf } from './Steps';
 import * as Gates from './parts/Gates';
 import { Guide } from './parts/Guide';
 import { Spotlight } from './parts/Spotlight';
@@ -25,10 +25,14 @@ import { TutorialPopup } from './ui/Popup';
  *
  * **재료**: 기본 지급품은 발전기 · 작업실 · 작업대까지 쓰고 나면 아무것도 만들 수 없어서, `craftGun` 단계에
  * 들어설 때 `TUTORIAL_CRAFT_GRANT` 를 한 번 넣어 준다 (바닥, 튜토리얼당 한 번, 저장에 기록). 그 위에
- * **top-up** (2026-09-09): 제작 단계(`craftGun` · `openCraft` · `craftAmmo`)에 들어설 때마다 `ensureMaterials(recipeId)`
+ * **top-up** (2026-09-09): 제작 단계(`craftGun` · `craftAmmo`)에 들어설 때마다 `ensureMaterials(recipeId)`
  * 가 그 레시피의 재료를 하나씩 보고 `필요 − 보유` 만큼만 더 준다 — 소총이 폐금속 6 을 먹어 준중량탄의 폐금속 5 가
  * 모자라던 문제가 그래서 없다. 필요량은 레시피에서 읽으므로 코드에 숫자가 없고, 멱등이라 새로고침으로 다시 들어와도
  * 모자란 만큼만 다시 채운다 (`topped` 는 어느 단계가 채웠는지의 기록).
+ *
+ * **표시 타이밍** (2026-09-09): 단계가 넘어가면 목표 패널의 글은 바로 바뀌지만 스포트라이트와 바닥 안내선은
+ * `TUTORIAL_STEP_DELAY_S` 뒤에 나타난다 — 그 박자는 `parts/Spotlight` · `parts/Guide` 가 각자 센다 (대상이 뒤늦게
+ * 나타나는 경우까지 한 곳에서 다루려면 대상을 찾는 쪽이 세는 것이 맞다). 여기서는 아무것도 기다리지 않는다.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 interface SaveV1 extends TutorialSave {
@@ -92,9 +96,10 @@ export class TutorialSystem implements GameSystem, TutorialRef {
       b.on('craft:completed', ({ recipeId }) => this.onCrafted(recipeId)),
       // 2026-09-08: 제작 창을 닫아야 장착 장비 칸이 돌아온다 — 그 한 번의 닫기가 `openBag` 단계다.
       //   창을 통째로 닫아 버린 사람을 위해 `inventory:opened`(= Tab 으로 가방을 다시 연 것)도 같은 신호로 본다.
-      // 2026-09-09: 열림은 `openCraft` 단계의 신호다. `ui:craftToggled` 는 **작업대 경로**(openBenchCraft / closeBench)만
-      //   내고, 가방의 `제작` 버튼(plain 제작 열)은 내지 않는다 — 그 경로는 제작 열이 키 가이드에 자기 줄을 올리는
-      //   `ui:keyGuide {owner:'inventory.craft'}` (keys ≠ null = 열림, null = 닫힘) 로 본다. 둘 다 같은 함수로 모은다.
+      // 2026-09-09: `ui:craftToggled` 는 **작업대 경로**(openBenchCraft / closeBench)만 내고, 가방의 `제작` 버튼(plain 제작 열)은
+      //   내지 않는다 — 그 경로는 제작 열이 키 가이드에 자기 줄을 올리는 `ui:keyGuide {owner:'inventory.craft'}`
+      //   (keys ≠ null = 열림, null = 닫힘) 로 본다. 둘 다 같은 함수로 모아 `craftOpen` 하나를 유지한다.
+      //   (열림을 신호로 쓰던 `openCraft` 단계는 같은 날 순서에서 빠졌다 — 소총 · 탄약을 작업대에서 한 번에 만든다.)
       b.on('ui:craftToggled', ({ open }) => this.onCraftPanel(open)),
       b.on('ui:keyGuide', ({ owner, keys }) => { if (owner === 'inventory.craft') this.onCraftPanel(keys !== null); }),
       b.on('inventory:opened', () => this.onInventoryOpened()),
@@ -110,7 +115,7 @@ export class TutorialSystem implements GameSystem, TutorialRef {
        * `hub:travel {end}` 를 낸 **바로 다음에** 낸다. 그래서 순서가 이렇게 엇갈렸다:
        *   워프 시작 → (안내는 아직 `planet`) → 도착 → `travel {end}` (아직 `planet` 이라 무시) →
        *   `planetChanged` → 이제서야 `travel` 로 넘어감 → **기다리던 `travel {end}` 는 이미 지나갔다.**
-       * 행성 이동을 다 마쳤는데 16/18 에서 멈춰 있던 것이 이것이다. 시작에서 넘기면 두 단계가 워프의
+       * 행성 이동을 다 마쳤는데 `planet` 단계(지금 14/17)에서 멈춰 있던 것이 이것이다. 시작에서 넘기면 두 단계가 워프의
        * 앞뒤를 하나씩 맡는다. `planetChanged` 는 그대로 두되 (도착만 보고 들어오는 경로의 보험) 이미
        * 넘어간 뒤면 `advanceIf` 가 알아서 아무것도 하지 않는다.
        */
@@ -168,9 +173,10 @@ export class TutorialSystem implements GameSystem, TutorialRef {
   }
 
   goto(step: TutorialStepId): boolean {
-    if (!TUTORIAL_STEPS.includes(step)) return false;
+    const target = normalizeStep(step);   // 순서에서 빠진 `openCraft` 는 `craftAmmo` 로
+    if (!target) return false;
     this.save.done = false;
-    this.setStep(step);
+    this.setStep(target);
     return true;
   }
 
@@ -267,11 +273,10 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     window.setTimeout(() => { if (!this.craftOpen) this.advanceIf('openBag'); }, 0);
   }
 
-  /** 제작 열이 열리거나 닫혔다 (작업대 경로 · 가방 버튼 경로 모두). */
+  /** 제작 열이 열리거나 닫혔다 (작업대 경로 · 가방 버튼 경로 모두). 닫힘이 `openBag` 의 신호다. */
   private onCraftPanel(open: boolean): void {
     this.craftOpen = open;
-    if (open) this.advanceIf('openCraft');
-    else this.advanceIf('openBag');
+    if (!open) this.advanceIf('openBag');
   }
 
   private onCrafted(recipeId: string): void {
@@ -279,7 +284,7 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     else if (recipeId === TUTORIAL_AMMO_RECIPE) this.advanceIf('craftAmmo');
   }
 
-  /** 주무기 칸에 소총이 들어왔는가. */
+  /** 주무기 칸에 소총이 들어왔는가 — 주무기 I · II 어느 쪽이든 된다. */
   private onLoadout(): void {
     if (this.save.step !== 'equipGun') return;
     const l = this.ctx.inventory?.getLoadout();
@@ -321,9 +326,10 @@ export class TutorialSystem implements GameSystem, TutorialRef {
   private setStep(step: TutorialStepId): void {
     this.save.step = step;
     this.save.done = false;
-    // 재료: 바닥(한 번) + 그 단계 레시피의 부족분 top-up (멱등)
+    // 재료: 바닥(한 번) + 그 단계 레시피의 부족분 top-up (멱등). 탄약 재료는 소총이 완성되어 `craftAmmo` 에 들어서는
+    //   바로 그 순간 채운다 — 소총이 먹은 폐금속을 그때 본다 (같은 작업대 창이 열린 채라 목록이 곧바로 만들 수 있는 상태가 된다).
     if (step === 'craftGun') { this.grantMaterials(); this.ensureMaterials(TUTORIAL_GUN_RECIPE, step); }
-    else if (step === 'openCraft' || step === 'craftAmmo') this.ensureMaterials(TUTORIAL_AMMO_RECIPE, step);
+    else if (step === 'craftAmmo') this.ensureMaterials(TUTORIAL_AMMO_RECIPE, step);
     this.persist();
     this.refreshVisuals();
     this.ctx.bus.emit('tutorial:changed', { active: true, step, index: stepIndexOf(step), count: this.stepCount });
@@ -331,8 +337,6 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     // 이미 돌고 있는 발전기 · 이미 만들어 둔 작업대 앞에서 "만드세요"를 띄우지 않는다 (콘솔 `tutorial step`, 저장 복구)
     if (step === 'generator' && this.generatorReady()) this.advance();
     else if (step === 'bench' && this.benchStored()) this.advance();
-    // 제작 열이 이미 열려 있으면 "여세요"는 할 일이 아니다 (작업대 앞에서 장착까지 마친 뒤 곧바로 다시 연 경우)
-    else if (step === 'openCraft' && this.craftOpen) this.advance();
   }
 
   private finish(skipped: boolean): void {
@@ -480,8 +484,8 @@ export class TutorialSystem implements GameSystem, TutorialRef {
       const raw = window.localStorage.getItem(slotKey(TUTORIAL_STORAGE_KEY));
       if (!raw) return freshSave();
       const doc = JSON.parse(raw) as Partial<SaveV1>;
-      const step = typeof doc.step === 'string' && TUTORIAL_STEPS.includes(doc.step as TutorialStepId)
-        ? doc.step as TutorialStepId : null;
+      // 순서에서 빠진 단계(`openCraft`)로 저장된 진행은 그 자리를 이어받은 단계로 옮긴다 — 저장이 새 순서에서 막히지 않게
+      const step = normalizeStep(doc.step);
       return {
         version: TUTORIAL_SAVE_VERSION,
         step: doc.done ? null : step,
@@ -490,7 +494,7 @@ export class TutorialSystem implements GameSystem, TutorialRef {
         granted: !!doc.granted,
         benchUid: typeof doc.benchUid === 'string' ? doc.benchUid : undefined,
         topped: Array.isArray(doc.topped)
-          ? doc.topped.filter((s): s is TutorialStepId => typeof s === 'string' && TUTORIAL_STEPS.includes(s as TutorialStepId))
+          ? doc.topped.map((s) => normalizeStep(s as string)).filter((s): s is TutorialStepId => s !== null)
           : undefined,
       };
     } catch { return freshSave(); }
