@@ -20,16 +20,37 @@ export const TUTORIAL_AMMO_RECIPE = 'bulk_ammo_medium';
 export const TUTORIAL_AMMO_DEF = 'ammo_medium';
 
 /**
- * 제작 단계에서 한 번 지급하는 재료 (`craftGun` 에 들어설 때 함선 창고로).
+ * 제작 단계에서 한 번 지급하는 재료의 **바닥**(`craftGun` 에 들어설 때 함선 창고로).
  * 기본 지급품은 발전기 Lv.1 + 작업실 증축 + 작업대 제작으로 폐금속 20 · 케이블 3 · 합금 2 를 쓰도록 맞춰져 있어
  * 작업대를 짓고 나면 아무것도 만들 수 없다. 소총(`폐금속 6 · 합금 1`) + 준중량탄(`화약 16 · 폐금속 5`)에
  * 여유를 더한 양이다.
+ *
+ * 2026-09-09: 이 표는 바닥일 뿐이고 **실제 필요량은 레시피에서 읽는다** — `TutorialSystem.ensureMaterials(recipeId)`
+ * 가 제작 단계(`craftGun` · `openCraft` · `craftAmmo`)에 들어설 때마다 재료별 `필요 − 보유` 만큼만 채운다(top-up).
+ * 소총이 폐금속 6 을 먹은 뒤 준중량탄의 폐금속 5 가 모자라던 문제가 그래서 없다. 여기에 숫자를 더 적지 않는다.
  */
 export const TUTORIAL_CRAFT_GRANT: readonly { defId: string; qty: number }[] = [
   { defId: 'mat_scrap', qty: 16 },
   { defId: 'mat_alloy', qty: 2 },
   { defId: 'mat_gunpowder', qty: 20 },
 ];
+
+/**
+ * 튜토리얼 동안 **함선 창고에 그려지는** 아이템 (`hides('stashItem', defId)`, 2026-09-09). 지급 재료 · 만든 소총 ·
+ * 만든 탄약뿐이다 — 기본 지급품(씨앗 · 서적 · 기타 소모품)은 안내가 끝날 때까지 창고에서 사라져 있다.
+ * 없어지는 것이 아니라 **그리지 않는** 것이라(`inventory/ui` 의 판정), 건너뛰거나 끝나면 그 자리에 그대로 돌아온다.
+ */
+export const TUTORIAL_STASH_WHITELIST: readonly string[] = [
+  ...TUTORIAL_CRAFT_GRANT.map((g) => g.defId),
+  TUTORIAL_GUN_DEF,
+  TUTORIAL_AMMO_DEF,
+];
+
+/**
+ * 건너뛰기 확인 카드의 **홀드 시간** (s, 2026-09-09). 제작 버튼의 1초 홀드(`inventory/model.CRAFT_HOLD_TIME`)와 같은
+ * 값이지만 다른 기능 폴더의 내부를 import 하지 않으므로 여기 다시 적는다 — UI 타이밍이라 csv 대상이 아니다.
+ */
+export const SKIP_HOLD_TIME = 1.0;
 
 /** 안내선 · 스포트라이트가 목표를 다시 찾는 주기 (s) — 매 프레임 DOM 을 뒤지지 않는다. */
 export const RETARGET_INTERVAL = 0.25;
@@ -61,6 +82,8 @@ export interface StepDef {
    * 값이 문자열 배열이면 그 id 만 허용한다 (`roomPurpose: ['workshop']`).
    */
   allow?: Partial<Record<TutorialGate, true | readonly string[]>>;
+  // `stashItem` 은 여기 적지 않는다 — 허용 목록이 단계와 무관하게 `TUTORIAL_STASH_WHITELIST` 하나라 `parts/Gates`
+  //   가 특별 취급한다 (`raid` 만 `stashItem: true` 로 전부 연다).
   /** 이 단계에서 화면에 뜨는 UI 중 밝힐 요소의 CSS 선택자 (앞에서부터 먼저 찾히는 것 하나). */
   spot?: readonly string[];
   /**

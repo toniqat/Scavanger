@@ -33,7 +33,7 @@
 
 ---
 
-## 단계 (17)
+## 단계 (18)
 
 | # | id | 목표 | 다음으로 넘어가는 신호 |
 |---|---|---|---|
@@ -47,13 +47,22 @@
 | 8 | `craftGun` | 작업대에서 돌격소총 | `craft:completed {recipeId:'make_wpn_ar'}` |
 | 9 | `openBag` | 제작 창 닫기 (장비 칸이 돌아온다) | `ui:craftToggled {open:false}` · 또는 제작 열 없이 `inventory:opened` |
 | 10 | `equipGun` | 주무기 칸에 장착 | `loadout:changed` + 주무기가 `wpn_ar` |
-| 11 | `craftAmmo` | 준중량탄 제작 | `craft:completed {recipeId:'bulk_ammo_medium'}` |
-| 12 | `stowAmmo` | 탄약을 가방에 | `inventory:changed` + 가방에 `ammo_medium` |
-| 13 | `terminal` | 조종석 터미널 | `hub:terminalToggled {open:true}` |
-| 14 | `planet` | 목표 행성 지정 | `hub:planetChanged` |
-| 15 | `travel` | 워프 대기 | `hub:travel {stage:'end'}` |
-| 16 | `board` | 발사 슬롯 탑승 | `hub:slotChanged` (로컬) 또는 `game:newMission` |
-| 17 | `raid` | 탈출 지점 확인 | `world:ready` 6초 뒤 자동 종료 |
+| 11 | `openCraft` | 가방의 **제작** 버튼으로 제작 창 열기 | 제작 열이 열린다 (아래 참고) |
+| 12 | `craftAmmo` | 준중량탄 제작 | `craft:completed {recipeId:'bulk_ammo_medium'}` |
+| 13 | `stowAmmo` | 탄약을 가방에 | `inventory:changed` + 가방에 `ammo_medium` |
+| 14 | `terminal` | 조종석 터미널 | `hub:terminalToggled {open:true}` |
+| 15 | `planet` | 목표 행성 지정 | `hub:planetChanged` |
+| 16 | `travel` | 워프 대기 | `hub:travel {stage:'end'}` |
+| 17 | `board` | 발사 슬롯 탑승 | `hub:slotChanged` (로컬) 또는 `game:newMission` |
+| 18 | `raid` | 탈출 지점 확인 | `world:ready` 6초 뒤 자동 종료 |
+
+> `openCraft` 는 2026-09-09 에 생겼다 (사용자 요청). 장착까지 마치고 나면 다음 할 일이 "탄약을 만든다"인데
+> 제작 창이 닫혀 있어서, 안내는 제작 행을 가리키는데 그 행이 화면에 없었다. 이제 **가방 우측 상단의 `제작`
+> 버튼**(`.inv-bag-craft`)을 밝히는 단계가 하나 들어간다. 넘어가는 신호는 "제작 열이 열렸다" 하나이고, 그 사실이
+> 두 경로로 온다 — 작업대 경로는 `ui:craftToggled {open:true}`, 가방 버튼 경로는 제작 열이 자기 줄을 올리는
+> `ui:keyGuide {owner:'inventory.craft'}` (`keys ≠ null` = 열림). `TutorialSystem.onCraftPanel` 이 둘을 한곳에 모은다.
+> 작업실에 총기 작업대가 놓여 있으면 그 레시피가 가방 제작 창에도 뜨므로(`getRecipes` 가 `getBenchLevel` 로 찾는다)
+> 어느 쪽으로 열어도 준중량탄을 만들 수 있다.
 
 > `openBag` 는 **제작 화면이 장착 장비 칸을 숨기게 된 뒤**(2026-09-08, `src/inventory`) 생겼다. 그 전에는
 > `equipGun` 이 곧바로 `.inv-slot-primary` 를 밝혔는데, 작업대가 열린 화면에는 그 칸이 아예 없었다.
@@ -63,6 +72,10 @@
 > 도착점 하나만 밝히면 집을 곳이 어두운 판 아래 깔려 손이 묶인다. 구멍은 언제나 사각형 하나이므로 맞닿은 것들만
 > 넘긴다: `equipGun` 은 `.inv-equip` + `.inv-panel-bag`(−24 px 이음매로 실제로 붙어 있다), `stowAmmo` 는
 > `.inv-panel-stash` + `.inv-panel-bag`.
+
+> `manageDone` 은 2026-09-09 부터 **우측 하단 키 가이드**를 밝힌다 (`.key-guide .kg-close` → 없으면 `.key-guide`).
+> 그 전에는 밝힐 것 없이 부제로만 "Esc 또는 C" 라고 했는데, 정작 화면에 늘 떠 있는 답(`Tab 닫기`)을 가리키지
+> 않았다. 가이드는 `pointer-events:none` 에 z 84 라 어두운 판(78) **위**에 뜨므로, 링이 그 둘레를 두른다.
 
 > `generator` 는 **시설 증축의 전제 조건**이다. 이 단계가 없던 동안에는 발전기 Lv.0 인 새 함선에서
 > 작업실 행이 바로 포커싱되고 발전기 게이트에 막혀 **진행 자체가 불가능**했다 (2026-09-08 수정).
@@ -92,6 +105,7 @@
 | `screenTab` | `inventory/ui/parts/Screens.setTab` · `markTab` | 인벤토리 외 화면 탭 (자물쇠 + 사유 툴팁) |
 | `matchmaking` | `hub/ui/HubMenu.refresh` (`hides`) | 신호 · 공유 함선 섹션 **숨김** |
 | `community` | `ui/hud/Community.update` (`hides`) | 우측 상단 커뮤니티 버튼 **숨김** |
+| `stashItem` | `inventory/ui/InventoryUI` (창고 격자, `hides`) | 흰 목록 밖의 **함선 창고 아이템 전부 숨김** |
 
 ### 잠그지 않고 **감춘다** (2026-09-08)
 
@@ -108,6 +122,7 @@
 | `inventory/ui/CraftPanel.refresh` | 허락한 레시피 외의 **제작 행** |
 | `inventory/ui/parts/Screens.markTab` | 인벤토리 외의 **화면 탭** (자물쇠 + 툴팁이 아니라 `hidden`) |
 | `hub/ui/HubMenu.refreshTravel` | 행성 **넘김 화살표 · 점** (고를 수 있는 행성이 하나뿐이라) |
+| `inventory/ui/GridView` (창고 뷰) | 안내에 쓰지 않는 **창고 아이템** — 타일을 아예 그리지 않는다 |
 
 목록이 통째로 비면 그것대로 이상하므로 `Steps.ts` 가 인접 단계의 항목을 열어 둔다 — `manageDone` 은 작업대
 카드를, `equipGun` · `stowAmmo` 는 직전 단계의 레시피를 그대로 허용한다. 네 호출부 모두 캐시 키에 현재
@@ -128,14 +143,25 @@
 ## 재료 지급
 
 기본 지급품(`STARTER_STASH`)은 발전기 Lv.1 + 작업실 증축 + 작업대 제작으로 폐금속 20 · 케이블 3 · 합금 2 를
-쓰도록 맞춰져 있어서, **작업대를 짓고 나면 아무것도 만들 수 없다**. `craftGun` 단계에 들어설 때
-`TUTORIAL_CRAFT_GRANT`(폐금속 16 · 합금 2 · 화약 20)를 함선 창고에 한 번 넣어 준다 (`granted` 플래그로 한 번만).
+쓰도록 맞춰져 있어서, **작업대를 짓고 나면 아무것도 만들 수 없다**. 두 겹으로 채운다.
+
+1. **바닥 (한 번)** — `craftGun` 에 들어설 때 `TUTORIAL_CRAFT_GRANT`(폐금속 16 · 합금 2 · 화약 20)를 넣는다
+   (`granted` 플래그로 튜토리얼당 한 번).
+2. **top-up (2026-09-09, 멱등)** — 제작 단계(`craftGun` · `openCraft` · `craftAmmo`)에 들어설 때마다
+   `ensureMaterials(recipeId)` 가 **그 레시피의 재료를 하나씩 보고 `필요 − 보유` 만큼만** 더 준다. 필요량은
+   레시피(`ctx.loot`)에서 읽으므로 코드에 숫자가 없고, 보유는 `canCraft` 와 같은 자리(가방)를 본다. 가방부터
+   넣고 자리가 없으면 함선 창고로 (`tryAddItemAnywhere`). 모자란 것이 없으면 아무 일도 없고 토스트도 뜨지 않는다.
+
+②가 생긴 이유는 명확하다: 소총이 폐금속 6 을 먹고 나면 준중량탄의 폐금속 5 가 모자라서 **11단계에서 제작
+자체가 불가능**했다 (2026-09-09 사용자 보고). 고정 표를 키우는 대신 부족분만 채우는 쪽을 골랐다 — 레시피 수치를
+csv 에서 바꿔도 안내가 계속 성립한다.
+
 같은 이유로 **총기 작업대 Lv.1 에 `make_wpn_ar`(돌격소총 제작) 레시피를 새로 넣었다** — 그 전에는 작업대
 Lv.1 이 대량 탄약밖에 못 만들어 "작업대로 총을 만든다"는 동작 자체가 없었다 (`src/items/Recipes.ts`).
 
 ## 스모크
 
-`scripts/smoke-tutorial.mjs` (52). **다른 스모크는 전부** `evaluateOnNewDocument` 에서
+`scripts/smoke-tutorial.mjs` (67). **다른 스모크는 전부** `evaluateOnNewDocument` 에서
 `scav.tutorial` 을 `done` 으로 심고 시작한다 — 튜토리얼은 새 프로필에서 자동으로 켜져 그 스크립트들이
 드라이브하는 행동을 순서대로 잠그기 때문이다.
 
@@ -144,6 +170,27 @@ Lv.1 이 대량 탄약밖에 못 만들어 "작업대로 총을 만든다"는 �
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-09 (안내 6건)** — 사용자 요청.
+  ① **`openCraft` 단계 신설** (17 → 18단계): 장착 다음에 **가방의 `제작` 버튼**을 밝힌다. 그 전에는 제작 행을
+  가리키는데 제작 창이 닫혀 있어 밝힐 것이 없었다. 넘어가는 신호는 작업대 경로(`ui:craftToggled`)와 가방 버튼
+  경로(`ui:keyGuide {owner:'inventory.craft'}`) 둘 다 받는다.
+  ② **재료 top-up** — `ensureMaterials(recipeId)` 가 제작 단계마다 `필요 − 보유` 만큼만 채운다. 소총이 폐금속을
+  먹어 준중량탄을 못 만들던 진행 불가를 없앴다. 숫자는 레시피에서 읽으므로 코드에 없다.
+  ③ **`manageDone` 이 키 가이드를 밝힌다** (`.key-guide .kg-close`) — 화면에 늘 떠 있는 `Tab 닫기` 를 가리켜
+  관리 모드를 어떻게 나가는지 보여 준다.
+  ④ **스포트라이트의 1 px 띠 수정** — `place()` 가 판마다 좌표를 따로 반올림해서, 대상 사각형이 소수점이면
+  구멍 위아래에 어둡지 않은 가로줄이 남았다 (8단계에서 잘 보였다). 이제 네 모서리를 먼저 정수로 굳히고
+  (`floor`/`ceil`) 판 넷과 링을 전부 거기서 파생한다 — 아래 판의 `top` 이 곧 옆 판의 `bottom` 이다.
+  ⑤ **목표 패널이 언제나 화면들 위에** (`z-index: 79` 고정). 예전에는 24 였다가 포커싱 중에만 79 로 올라가서,
+  대상을 못 찾은 순간마다 인벤토리 창(z 50 + 블러)이 패널을 덮었다 (11단계). `is-lifted` 와 `setLifted` 는
+  상태 표시로만 남는다.
+  ⑥ **건너뛰기가 어려워졌다** — 확인 카드의 본문 두 줄(제한 해제 안내 · 콘솔 `tutorial start`)을 지워 제목과
+  버튼만 남기고, 건너뛰기는 **채워진 빨간 홀드 버튼**(`SKIP_HOLD_TIME` 1초)이 됐다. 클릭은 무시하고 게이지가
+  다 차야 끝난다 (`ui/Popup.PopupButton.hold`, 제작의 1초 홀드와 같은 문법).
+  ⑦ **튜토리얼 중 함선 창고 정리** — 새 게이트 `stashItem` 이 흰 목록(`TUTORIAL_STASH_WHITELIST`: 지급 재료 ·
+  만든 소총 · 만든 탄약) 밖의 창고 아이템을 전부 감춘다. 단계마다 다른 목록이 아니라 튜토리얼 내내 같은 목록이라
+  `Steps.ts` 의 `allow` 가 아니라 `parts/Gates` 가 직접 판정한다 (`raid` 만 `stashItem: true` 로 전부 연다).
 
 - **2026-09-08 (함선 관리 단계 포커싱)** — `manage` 단계에 열린 화면이 없어 밝힐 것이 없었다. 우측 하단에 늘 떠
   있는 `시설 관리` 키 힌트(`ui/hud/ShipManageHint`, `.ship-hint`)를 포커싱해 "어디를 봐야 하는지"부터 알려 준다.

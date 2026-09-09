@@ -114,7 +114,7 @@ try {
   ok(intro.panel, '좌측 상단 목표 패널이 함께 뜬다');
   // 2026-09-08: 함선에 들어서며 걸린 relock 이 카드에서 커서를 빼앗아 가면 안 된다 (버튼을 누를 수가 없다)
   ok(intro.cursorOn, '카드가 뜬 채로 마우스 커서가 살아 있다 (body.cursor-on)');
-  ok(intro.ev && intro.ev.active === true && intro.ev.step === 'intro' && intro.ev.count === 17, `tutorial:changed {intro, 1/17} (${JSON.stringify(intro.ev)})`);
+  ok(intro.ev && intro.ev.active === true && intro.ev.step === 'intro' && intro.ev.count === 18, `tutorial:changed {intro, 1/18} (${JSON.stringify(intro.ev)})`);
 
   /* ── 2. 게이트가 순서를 강제한다 ────────────────────────────────────── */
   console.log('게이트');
@@ -350,6 +350,63 @@ try {
     };
   });
   ok(union.covers, `equipGun 은 장비 열 + 가방을 한 구멍으로 밝힌다 (${union.w} px ⊇ ${union.eqW} + ${union.bagW})`, JSON.stringify(union));
+  /* 2026-09-09: 어두운 판 네 장이 화면을 **빈틈없이** 덮는가. 예전에는 판마다 top/height 를 따로 반올림해서
+     소수점 사각형이면 구멍 위아래에 1 px 짜리 밝은 가로줄이 남았다 (8단계에서 특히 잘 보였다). */
+  const tiling = await P(() => {
+    const p = [...document.querySelectorAll('.tut-spot-pane')].map((e) => e.getBoundingClientRect());
+    if (p.length !== 4) return { ok: false, why: `panes=${p.length}` };
+    const [top, bottom, left, right] = p;
+    const int = (v) => Math.abs(v - Math.round(v)) < 0.001;
+    return {
+      ok: int(top.bottom) && int(bottom.top) && int(left.top) && int(left.bottom)
+        && left.top === top.bottom && right.top === top.bottom
+        && left.bottom === bottom.top && right.bottom === bottom.top,
+      seamTop: top.bottom, leftTop: left.top, seamBottom: bottom.top, leftBottom: left.bottom,
+    };
+  });
+  ok(tiling.ok, '스포트라이트 네 판이 정수 모서리로 빈틈없이 맞물린다 (1 px 띠 없음)', JSON.stringify(tiling));
+
+  /* 2026-09-09: 목표 패널은 인벤토리 창(.inv-root, z 50 + 블러) 위에 **언제나** 있다 (예전에는 포커싱 중에만). */
+  const zorder = await P(() => ({
+    panel: Number(getComputedStyle(document.querySelector('.tut-panel')).zIndex),
+    inv: Number(getComputedStyle(document.querySelector('.inv-root')).zIndex),
+  }));
+  ok(zorder.panel > zorder.inv, `목표 패널이 인벤토리 창 위에 있다 (${zorder.panel} > ${zorder.inv})`, JSON.stringify(zorder));
+
+  /* ── 4b. openCraft · 재료 top-up (2026-09-09) ─────────────────────────── */
+  console.log('제작 창 열기 · 재료 보급');
+  await P(() => { window.__game.ctx.inventory.closeAll(); window.__game.ctx.tutorial.goto('openCraft'); });
+  await sleep(200);
+  ok(await step() === 'openCraft', 'equipGun 다음은 제작 창을 여는 단계다');
+  const bagBtn = await P(() => {
+    window.__game.ctx.inventory.openScreen('inventory');
+    return true;
+  });
+  await sleep(200);
+  const hasBtn = await P(() => !!document.querySelector('.inv-bag-craft'));
+  await sleep(200);
+  ok(bagBtn && hasBtn, '가방 우측 상단에 제작 버튼이 있다 (.inv-bag-craft — 이 단계의 포커싱 대상)');
+  await P(() => document.querySelector('.inv-bag-craft').click());
+  await sleep(250);
+  ok(await step() === 'craftAmmo', '제작 창을 열면 탄약 제작 단계로 넘어간다');
+  const ammoReady = await P(() => ({
+    can: window.__game.ctx.inventory.canCraft('bulk_ammo_medium'),
+    powder: window.__game.ctx.inventory.countWhere((d) => d.id === 'mat_gunpowder'),
+    scrap: window.__game.ctx.inventory.countWhere((d) => d.id === 'mat_scrap'),
+  }));
+  ok(ammoReady.can, `준중량탄 재료가 채워져 있다 (화약 ${ammoReady.powder} · 폐금속 ${ammoReady.scrap})`, JSON.stringify(ammoReady));
+
+  /* 2026-09-09: 창고에는 튜토리얼이 쓰는 것만 보인다 (`stashItem` 게이트 — 데이터는 그대로, 그리지 않을 뿐) */
+  const stashGate = await P(() => {
+    const t = window.__game.ctx.tutorial;
+    return {
+      scrap: t.hides('stashItem', 'mat_scrap'), gun: t.hides('stashItem', 'wpn_ar'),
+      ammo: t.hides('stashItem', 'ammo_medium'), other: t.hides('stashItem', 'med_bandage'),
+    };
+  });
+  ok(!stashGate.scrap && !stashGate.gun && !stashGate.ammo && stashGate.other,
+    '창고는 튜토리얼 재료 · 소총 · 탄약만 보이고 나머지는 감춘다', JSON.stringify(stashGate));
+
   await P(() => { window.__game.ctx.inventory.closeAll(); window.__game.ctx.tutorial.goto('craftGun'); });
   await sleep(200);
 
@@ -364,6 +421,31 @@ try {
   }));
   ok(confirm.open && /건너뛸까요/.test(confirm.title ?? '') && confirm.acts.join(',') === '계속하기,건너뛰기',
     '건너뛰기 버튼이 확인 카드를 띄운다', JSON.stringify(confirm));
+
+  /* 2026-09-09: 본문 없음 + 건너뛰기는 **채워진 빨간 홀드 버튼** — 짧게 눌러서는 끝나지 않는다. */
+  const card = await P(() => {
+    const body = document.querySelector('.tut-popup-card .body');
+    const skip = [...document.querySelectorAll('.tut-popup-card .acts .ui-btn')].find((b) => b.textContent === '건너뛰기');
+    return {
+      bodyLines: body ? body.querySelectorAll('p').length : -1,
+      bodyShown: body ? getComputedStyle(body).display !== 'none' : true,
+      danger: !!skip?.classList.contains('danger'), hold: !!skip?.classList.contains('tut-hold'),
+      fill: !!skip?.querySelector('.tut-hold-fill'),
+    };
+  });
+  ok(card.bodyLines === 0 && !card.bodyShown, '확인 카드에 본문이 없다 (빈 칸도 남지 않는다)', JSON.stringify(card));
+  ok(card.danger && card.hold && card.fill, '건너뛰기는 빨간 홀드 버튼이다', JSON.stringify(card));
+
+  // 짧게 누르면 아무 일도 없다
+  const holdOn = (ms) => P(async (t) => {
+    const btn = [...document.querySelectorAll('.tut-popup-card .acts .ui-btn')].find((b) => b.textContent === '건너뛰기');
+    btn.dispatchEvent(new PointerEvent('pointerdown', { button: 0, bubbles: true, pointerId: 1 }));
+    await new Promise((r) => setTimeout(r, t));
+    btn.dispatchEvent(new PointerEvent('pointerup', { button: 0, bubbles: true, pointerId: 1 }));
+  }, ms);
+  await holdOn(200);
+  await sleep(150);
+  ok(await step() === 'craftGun', '짧게 누르면 건너뛰지 않는다');
   ok(await clickPopup('계속하기'), '계속하기');
   await sleep(150);
   ok(await step() === 'craftGun', '취소하면 하던 단계 그대로');

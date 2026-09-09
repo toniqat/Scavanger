@@ -1,5 +1,5 @@
 import type { TutorialGate, TutorialStepId } from '@/shared';
-import { blockedBy } from '../model';
+import { TUTORIAL_STASH_WHITELIST, blockedBy } from '../model';
 import { stepDef } from '../Steps';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -21,6 +21,18 @@ const WRONG_ID: Partial<Record<TutorialGate, string>> = {
 const ALWAYS_HIDDEN: readonly TutorialGate[] = ['community', 'matchmaking'];
 
 /**
+ * `stashItem` (2026-09-09) — 함선 창고 격자의 아이템 하나. 단계마다 다른 허용 목록이 아니라 **튜토리얼 내내 같은
+ * 흰 목록**(지급 재료 · 만든 소총 · 만든 탄약)이라 `Steps.ts` 의 `allow` 에 적지 않고 여기서 직접 본다.
+ * `allow.stashItem === true`(`raid`)면 전부 연다. id 없는 호출은 "완전히 열려 있나"라 그때만 null.
+ */
+function stashItemBlock(allow: true | readonly string[] | undefined, id: string | undefined): string | null {
+  if (allow === true) return null;
+  if (id === undefined) return null;
+  if (TUTORIAL_STASH_WHITELIST.includes(id)) return null;
+  return '튜토리얼 중에는 안내에 쓰는 재료와 만든 것만 보입니다';
+}
+
+/**
  * `step` 에서 `gate`(+ `id`)가 막히는지. 막히면 한국어 사유, 아니면 null.
  * `step` 이 null(비활성)이면 호출부가 부르기 전에 걸러 주지만, 방어적으로 여기서도 null 을 돌려준다.
  */
@@ -30,6 +42,7 @@ export function blockReason(step: TutorialStepId | null, gate: TutorialGate, id?
   if (gate === 'screenTab' && (id === undefined || id === 'inventory')) return null;
   const def = stepDef(step);
   const allow = def.allow?.[gate];
+  if (gate === 'stashItem') return stashItemBlock(allow, id);
   if (allow === undefined) {
     if (gate === 'community') return '튜토리얼 중에는 사용할 수 없습니다';
     if (gate === 'screenTab') return '튜토리얼 중에는 인벤토리 탭만 쓸 수 있습니다';

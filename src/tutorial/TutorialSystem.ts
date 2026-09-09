@@ -2,7 +2,7 @@ import './tutorial.css';
 import type { GameContext, GameSystem, TutorialGate, TutorialRef, TutorialSave, TutorialStepId } from '@/shared';
 import { SHIP_ROOM_COUNT, TUTORIAL_STEPS } from '@/shared';
 import {
-  TUTORIAL_AMMO_DEF, TUTORIAL_AMMO_RECIPE, TUTORIAL_BENCH_DEF, TUTORIAL_CRAFT_GRANT,
+  SKIP_HOLD_TIME, TUTORIAL_AMMO_DEF, TUTORIAL_AMMO_RECIPE, TUTORIAL_BENCH_DEF, TUTORIAL_CRAFT_GRANT,
   TUTORIAL_GUN_DEF, TUTORIAL_GUN_RECIPE, TUTORIAL_ROOM_PURPOSE, TUTORIAL_SAVE_VERSION, TUTORIAL_STORAGE_KEY,
 } from './model';
 import { nextStep, stepDef, stepIndexOf } from './Steps';
@@ -24,10 +24,20 @@ import { TutorialPopup } from './ui/Popup';
  * 새로고침을 견디고, 끝나면(완주 또는 건너뛰기) 다시 시작하지 않는다. dev 콘솔의 `tutorial` 로 다시 켤 수 있다.
  *
  * **재료**: 기본 지급품은 발전기 · 작업실 · 작업대까지 쓰고 나면 아무것도 만들 수 없어서, `craftGun` 단계에
- * 들어설 때 `TUTORIAL_CRAFT_GRANT` 를 함선 창고에 한 번 넣어 준다 (튜토리얼당 한 번, 저장에 기록).
+ * 들어설 때 `TUTORIAL_CRAFT_GRANT` 를 한 번 넣어 준다 (바닥, 튜토리얼당 한 번, 저장에 기록). 그 위에
+ * **top-up** (2026-09-09): 제작 단계(`craftGun` · `openCraft` · `craftAmmo`)에 들어설 때마다 `ensureMaterials(recipeId)`
+ * 가 그 레시피의 재료를 하나씩 보고 `필요 − 보유` 만큼만 더 준다 — 소총이 폐금속 6 을 먹어 준중량탄의 폐금속 5 가
+ * 모자라던 문제가 그래서 없다. 필요량은 레시피에서 읽으므로 코드에 숫자가 없고, 멱등이라 새로고침으로 다시 들어와도
+ * 모자란 만큼만 다시 채운다 (`topped` 는 어느 단계가 채웠는지의 기록).
  * ──────────────────────────────────────────────────────────────────────────── */
 
-interface SaveV1 extends TutorialSave { granted?: boolean; benchUid?: string }
+interface SaveV1 extends TutorialSave {
+  /** `TUTORIAL_CRAFT_GRANT`(바닥)를 넣었다 — 한 번만. */
+  granted?: boolean;
+  benchUid?: string;
+  /** `ensureMaterials` 가 돌았던 단계들 (2026-09-09). 기록일 뿐 — top-up 은 멱등이라 다시 들어오면 모자란 만큼만 또 준다. */
+  topped?: TutorialStepId[];
+}
 
 const freshSave = (): SaveV1 => ({ version: TUTORIAL_SAVE_VERSION, step: null, done: false });
 
@@ -82,7 +92,11 @@ export class TutorialSystem implements GameSystem, TutorialRef {
       b.on('craft:completed', ({ recipeId }) => this.onCrafted(recipeId)),
       // 2026-09-08: 제작 창을 닫아야 장착 장비 칸이 돌아온다 — 그 한 번의 닫기가 `openBag` 단계다.
       //   창을 통째로 닫아 버린 사람을 위해 `inventory:opened`(= Tab 으로 가방을 다시 연 것)도 같은 신호로 본다.
-      b.on('ui:craftToggled', ({ open }) => { this.craftOpen = open; if (!open) this.advanceIf('openBag'); }),
+      // 2026-09-09: 열림은 `openCraft` 단계의 신호다. `ui:craftToggled` 는 **작업대 경로**(openBenchCraft / closeBench)만
+      //   내고, 가방의 `제작` 버튼(plain 제작 열)은 내지 않는다 — 그 경로는 제작 열이 키 가이드에 자기 줄을 올리는
+      //   `ui:keyGuide {owner:'inventory.craft'}` (keys ≠ null = 열림, null = 닫힘) 로 본다. 둘 다 같은 함수로 모은다.
+      b.on('ui:craftToggled', ({ open }) => this.onCraftPanel(open)),
+      b.on('ui:keyGuide', ({ owner, keys }) => { if (owner === 'inventory.craft') this.onCraftPanel(keys !== null); }),
       b.on('inventory:opened', () => this.onInventoryOpened()),
       b.on('loadout:changed', () => this.onLoadout()),
       b.on('inventory:changed', () => this.onInventory()),
@@ -242,6 +256,13 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     window.setTimeout(() => { if (!this.craftOpen) this.advanceIf('openBag'); }, 0);
   }
 
+  /** 제작 열이 열리거나 닫혔다 (작업대 경로 · 가방 버튼 경로 모두). */
+  private onCraftPanel(open: boolean): void {
+    this.craftOpen = open;
+    if (open) this.advanceIf('openCraft');
+    else this.advanceIf('openBag');
+  }
+
   private onCrafted(recipeId: string): void {
     if (recipeId === TUTORIAL_GUN_RECIPE) this.advanceIf('craftGun');
     else if (recipeId === TUTORIAL_AMMO_RECIPE) this.advanceIf('craftAmmo');
@@ -289,7 +310,9 @@ export class TutorialSystem implements GameSystem, TutorialRef {
   private setStep(step: TutorialStepId): void {
     this.save.step = step;
     this.save.done = false;
-    if (step === 'craftGun') this.grantMaterials();
+    // 재료: 바닥(한 번) + 그 단계 레시피의 부족분 top-up (멱등)
+    if (step === 'craftGun') { this.grantMaterials(); this.ensureMaterials(TUTORIAL_GUN_RECIPE, step); }
+    else if (step === 'openCraft' || step === 'craftAmmo') this.ensureMaterials(TUTORIAL_AMMO_RECIPE, step);
     this.persist();
     this.refreshVisuals();
     this.ctx.bus.emit('tutorial:changed', { active: true, step, index: stepIndexOf(step), count: this.stepCount });
@@ -297,6 +320,8 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     // 이미 돌고 있는 발전기 · 이미 만들어 둔 작업대 앞에서 "만드세요"를 띄우지 않는다 (콘솔 `tutorial step`, 저장 복구)
     if (step === 'generator' && this.generatorReady()) this.advance();
     else if (step === 'bench' && this.benchStored()) this.advance();
+    // 제작 열이 이미 열려 있으면 "여세요"는 할 일이 아니다 (작업대 앞에서 장착까지 마친 뒤 곧바로 다시 연 경우)
+    else if (step === 'openCraft' && this.craftOpen) this.advance();
   }
 
   private finish(skipped: boolean): void {
@@ -316,8 +341,8 @@ export class TutorialSystem implements GameSystem, TutorialRef {
   /* ── 재료 지급 ─────────────────────────────────────────────────────────── */
 
   /**
-   * 제작 단계 진입 시 한 번. 함선 창고로 넣고(가득 찼으면 가방으로) 무엇이 들어갔는지 알려 준다.
-   * 저장에 `granted` 를 남기므로 새로고침해도 두 번 주지 않는다.
+   * 바닥 지급 — `craftGun` 진입 시 한 번. 가방으로 넣고(가득 찼으면 함선 창고로) 무엇이 들어갔는지 알려 준다.
+   * 저장에 `granted` 를 남기므로 새로고침해도 두 번 주지 않는다. 실제 부족분은 `ensureMaterials` 가 본다.
    */
   private grantMaterials(): void {
     if (this.save.granted) return;
@@ -332,7 +357,48 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     }
     this.save.granted = true;
     if (given > 0) {
-      this.ctx.bus.emit('ui:notify', { text: '보급: 제작 재료가 함선 창고에 들어왔습니다', kind: 'success', duration: 4 });
+      this.ctx.bus.emit('ui:notify', { text: '보급: 제작 재료가 들어왔습니다', kind: 'success', duration: 4 });
+    }
+  }
+
+  /**
+   * **Top-up** (2026-09-09) — `recipeId` 의 재료 하나하나에 대해 `필요 − 보유` 만큼만 더 준다. 필요량은 레시피(`ctx.loot`)
+   * 에서, 보유는 `canCraft` 와 같은 자리(가방, `countWhere`)에서 읽는다 — 제작은 가방의 재료만 쓰기 때문이다.
+   * 가방부터 넣고 자리가 없으면 함선 창고로 (`tryAddItemAnywhere`). 멱등: 모자란 것이 없으면 아무 일도 없고 토스트도 없다.
+   */
+  private ensureMaterials(recipeId: string, step: TutorialStepId): void {
+    const inv = this.ctx.inventory, loot = this.ctx.loot;
+    if (!inv || !loot) return;
+    let recipe: { inputs: readonly { defId: string; qty: number }[] } | undefined;
+    try { recipe = loot.getAllRecipes().find((r) => r.id === recipeId); } catch { recipe = undefined; }
+    if (!recipe) return;
+    const given: string[] = [];
+    let toStash = false;
+    for (const { defId, qty } of recipe.inputs) {
+      let have = 0;
+      try { have = inv.countWhere((d) => d.id === defId); } catch { have = 0; }
+      let short = qty - have;
+      if (short <= 0) continue;
+      const def = inv.getDef(defId);
+      const max = Math.max(1, def?.stackMax ?? 1);
+      let added = 0;
+      while (short > 0) {
+        const q = Math.min(max, short);
+        let where: 'bag' | 'stash' | null = null;
+        try { where = inv.tryAddItemAnywhere(loot.createItem(defId, q)); } catch { where = null; }
+        if (!where) break;
+        if (where === 'stash') toStash = true;
+        short -= q; added += q;
+      }
+      if (added > 0) given.push(`${def?.name ?? defId} ${added}`);
+    }
+    const topped = this.save.topped ?? (this.save.topped = []);
+    if (!topped.includes(step)) topped.push(step);
+    if (given.length > 0) {
+      this.ctx.bus.emit('ui:notify', {
+        text: `보급: ${given.join(' · ')} — ${toStash ? '가방이 차서 일부는 함선 창고에' : '가방에'} 채웠습니다`,
+        kind: 'success', duration: 4,
+      });
     }
   }
 
@@ -388,12 +454,10 @@ export class TutorialSystem implements GameSystem, TutorialRef {
   private askSkip(): void {
     if (!this.active || this.confirmingSkip) return;
     this.confirmingSkip = true;
-    this.popup.open('튜토리얼을 건너뛸까요?', [
-      '남은 안내가 모두 사라지고 제한도 함께 풀립니다.',
-      '개발자 콘솔의 `tutorial start` 로 다시 시작할 수 있습니다.',
-    ], [
+    // 2026-09-09: 본문 없음 — 제목과 버튼만. 건너뛰기는 빨간 **홀드 버튼**(`SKIP_HOLD_TIME`)이라 짧게 눌러서는 끝나지 않는다.
+    this.popup.open('튜토리얼을 건너뛸까요?', [], [
       { label: '계속하기', onClick: () => { this.confirmingSkip = false; this.popup.close(); this.refreshVisuals(); } },
-      { label: '건너뛰기', kind: 'danger', onClick: () => { this.confirmingSkip = false; this.skip(); } },
+      { label: '건너뛰기', kind: 'danger', hold: SKIP_HOLD_TIME, onClick: () => { this.confirmingSkip = false; this.skip(); } },
     ]);
     this.refreshVisuals();
   }
@@ -414,6 +478,9 @@ export class TutorialSystem implements GameSystem, TutorialRef {
         room: typeof doc.room === 'number' ? doc.room : undefined,
         granted: !!doc.granted,
         benchUid: typeof doc.benchUid === 'string' ? doc.benchUid : undefined,
+        topped: Array.isArray(doc.topped)
+          ? doc.topped.filter((s): s is TutorialStepId => typeof s === 'string' && TUTORIAL_STEPS.includes(s as TutorialStepId))
+          : undefined,
       };
     } catch { return freshSave(); }
   }

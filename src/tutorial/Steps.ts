@@ -8,7 +8,8 @@ import { TUTORIAL_AMMO_RECIPE, TUTORIAL_BENCH_DEF, TUTORIAL_GUN_RECIPE, TUTORIAL
  * 이벤트마다 제각각이라 표로 만들면 오히려 읽기 어려워진다.
  *
  * `allow` 에 **없는** 게이트는 전부 막힌다 (사용자 결정: 순서를 엄격하게 강제). `community` 와
- * `screenTab`(인벤토리 외)은 어느 단계에도 없으므로 튜토리얼 내내 잠긴다.
+ * `screenTab`(인벤토리 외)은 어느 단계에도 없으므로 튜토리얼 내내 잠긴다. `stashItem`(창고 아이템 숨김)은
+ * 단계와 무관한 허용 목록(`TUTORIAL_STASH_WHITELIST`)이라 `parts/Gates` 가 직접 판정한다 — `raid` 만 전부 연다.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
@@ -56,9 +57,14 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
   },
   manageDone: {
     id: 'manageDone', title: '함선 관리를 닫으세요',
-    hint: 'Esc 또는 C 로 관리 모드를 빠져나옵니다.',
+    hint: '화면 우측 아래 키 가이드의 닫기 키(Tab)를 누르면 관리 모드를 빠져나옵니다 (M · C 도 됩니다).',
     // 작업대는 계속 허용해 둔다 — 막힌 것은 목록에서 사라지므로, 방금까지 보던 카드가 통째로 비지 않도록.
     allow: { manageExit: true, furniture: [TUTORIAL_BENCH_DEF] },
+    // 2026-09-09: 관리 모드가 켜져 있는 동안 우측 하단에 떠 있는 키 가이드(`ui/hud/KeyGuide`, `.key-guide`)를 밝힌다 —
+    //   가이드가 스스로 맨 오른쪽에 붙이는 `Tab 닫기` 항목(`.kg-close`)이 먼저, 없으면 가이드 한 줄 전체.
+    //   가이드는 `pointer-events:none` 이고 z 84 라 어두운 판(78) 위에 떠 있다 — 링은 그 둘레를 두른다.
+    spot: ['.key-guide .kg-close', '.key-guide'],
+    spotText: 'Tab — 관리 모드 닫기',
   },
   craftGun: {
     id: 'craftGun', title: '작업대에서 돌격소총을 만드세요',
@@ -90,15 +96,17 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
   },
   openCraft: {
     id: 'openCraft', title: '제작 창을 여세요',
-    // 2026-09-09: 가방 우측 상단의 `제작` 버튼 → 함선 제작 창 (작업실에 총기 작업대가 놓여 있으므로 그 레시피가 보인다).
-    hint: '가방 우측 상단의 제작 버튼을 누르면 제작 창이 열립니다.',
+    // 2026-09-09: 가방 우측 상단의 `제작` 버튼 → 함선 제작 창. 작업실에 총기 작업대가 놓여 있으므로 그 레시피(준중량탄)가
+    //   그 창에도 보인다 (`inventory/parts/Crafting.getRecipes` 가 `ctx.housing.getBenchLevel` 로 대신 찾는다).
+    //   작업대로 걸어가 직접 여는 것도 같은 신호(제작 창 열림)라 그대로 넘어간다.
+    hint: '가방 우측 상단의 제작 버튼을 누르면 제작 창이 열립니다 (작업대를 직접 사용해도 됩니다).',
     allow: { craft: [TUTORIAL_AMMO_RECIPE] },
     spot: ['.inv-bag-craft', '.inv-panel-bag'],
-    spotText: '제작',
+    spotText: '제작 창 열기',
   },
   craftAmmo: {
     id: 'craftAmmo', title: '준중량탄을 만드세요',
-    hint: '같은 작업대에서 준중량탄 대량 제작을 누릅니다.',
+    hint: '제작 창에서 준중량탄 대량 제작을 1초간 누릅니다. 재료는 튜토리얼이 채워 둡니다.',
     allow: { craft: [TUTORIAL_AMMO_RECIPE] },
     spot: ['.inv-craft-row[data-recipe="bulk_ammo_medium"] .inv-craft-btn', '.inv-craft-row[data-recipe="bulk_ammo_medium"]', '.inv-panel-craft'],
     spotText: '준중량탄 대량 제작',
@@ -143,7 +151,7 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     // 레이드는 그대로 진행된다 — 이 단계에서는 아무것도 막지 않고 아무것도 감추지 않는다.
     allow: {
       roomPurpose: true, furniture: true, manageExit: true, craft: true,
-      terminal: true, planet: true, board: true, screenTab: true,
+      terminal: true, planet: true, board: true, screenTab: true, stashItem: true,
     },
   },
 };

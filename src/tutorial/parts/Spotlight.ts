@@ -132,23 +132,31 @@ export class Spotlight {
     return null;
   }
 
+  /**
+   * 네 판 + 링을 놓는다. **모서리를 먼저 정수로 굳히고**(2026-09-09) 판 네 장과 링을 전부 그 네 모서리에서 파생한다 —
+   * 예전에는 판마다 `top`/`height` 를 따로 반올림해서, 대상 사각형이 소수점이면 구멍 위아래에 **가로 한 줄이
+   * 어둡지 않게 남았다**(1 px 띠, 8단계에서 특히 잘 보였다). 지금은 아래 판의 `top` 이 곧 옆 판의 `bottom` 이라
+   * 네 판이 화면을 빈틈없이 덮는다 (스모크가 그 타일링을 검사한다). 구멍은 바깥으로 넉넉히 잡는다(floor / ceil).
+   */
   private place(r: Rect): void {
     const vw = window.innerWidth, vh = window.innerHeight;
-    const px = (v: number): string => `${Math.round(v)}px`;
+    const x0 = Math.max(0, Math.floor(r.x)), y0 = Math.max(0, Math.floor(r.y));
+    const x1 = Math.min(vw, Math.ceil(r.x + r.w)), y1 = Math.min(vh, Math.ceil(r.y + r.h));
+    const px = (v: number): string => `${v}px`;
     const [top, bottom, left, right] = this.panes;
-    top.style.cssText = `left:0;top:0;width:${px(vw)};height:${px(Math.max(0, r.y))}`;
-    bottom.style.cssText = `left:0;top:${px(r.y + r.h)};width:${px(vw)};height:${px(Math.max(0, vh - r.y - r.h))}`;
-    left.style.cssText = `left:0;top:${px(r.y)};width:${px(Math.max(0, r.x))};height:${px(r.h)}`;
-    right.style.cssText = `left:${px(r.x + r.w)};top:${px(r.y)};width:${px(Math.max(0, vw - r.x - r.w))};height:${px(r.h)}`;
-    this.ring.style.cssText = `left:${px(r.x)};top:${px(r.y)};width:${px(r.w)};height:${px(r.h)}`;
+    top.style.cssText = `left:0;top:0;width:${px(vw)};height:${px(y0)}`;
+    bottom.style.cssText = `left:0;top:${px(y1)};width:${px(vw)};height:${px(Math.max(0, vh - y1))}`;
+    left.style.cssText = `left:0;top:${px(y0)};width:${px(x0)};height:${px(Math.max(0, y1 - y0))}`;
+    right.style.cssText = `left:${px(x1)};top:${px(y0)};width:${px(Math.max(0, vw - x1))};height:${px(Math.max(0, y1 - y0))}`;
+    this.ring.style.cssText = `left:${px(x0)};top:${px(y0)};width:${px(Math.max(0, x1 - x0))};height:${px(Math.max(0, y1 - y0))}`;
     // 말풍선은 대상 아래, 화면을 벗어나면 위로
-    const below = r.y + r.h + 10;
-    const tipTop = below + 44 > vh ? r.y - 44 : below;
+    const below = y1 + 10;
+    const tipTop = below + 44 > vh ? y0 - 44 : below;
     this.tip.textContent = this.text;
-    this.tip.style.cssText = `left:${px(Math.min(Math.max(8, r.x), vw - 300))};top:${px(Math.max(8, tipTop))}`;
+    this.tip.style.cssText = `left:${px(Math.min(Math.max(8, x0), vw - 300))};top:${px(Math.max(8, tipTop))}`;
     this.tip.hidden = !this.text;
     if (!this.shown) { this.shown = true; this.root.hidden = false; }
-    this.last = r;
+    this.last = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
   }
 
   private hide(): void {
@@ -158,7 +166,7 @@ export class Spotlight {
     this.last = null;
   }
 
-  /** 스모크 / 디버그: 지금 밝히고 있는 사각형 (없으면 null). */
+  /** 스모크 / 디버그: 지금 밝히고 있는 사각형 — 정수 모서리로 굳힌 구멍 (없으면 null). */
   get rect(): Rect | null { return this.last; }
   get visible(): boolean { return this.shown; }
 
