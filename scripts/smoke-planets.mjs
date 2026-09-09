@@ -271,14 +271,16 @@ try {
   await waitSim(0.2);   // the status line is written by the next `HubSystem.update` frame, not by `startTravel`
   const t1 = await P(() => {
     const ctx = window.__game.ctx;
+    // 2026-09-09: no cutscene any more — the 창문 워프 streaks live under the interior root and the player keeps control
     const cut = ctx.scene.getObjectByName('DockingCutscene');
-    let streaks = false, dest = 0;
-    cut?.traverse((o) => { if (o.name === 'HubWarpStreaks') streaks = true; if (o.name === 'HubPlanet') dest++; });
+    const ship = ctx.scene.getObjectByName('PersonalShip');
+    let streaks = false;
+    ship?.traverse((o) => { if (o.name === 'HubWarpStreaks') streaks = true; });
     return {
       start: window.__ev['hub:travel'].slice(-1)[0] ?? null,
       menuHidden: document.querySelector('.menu.hub-menu').hidden,
       blocker: ctx.uiBlockers.has('hub'), cursor: ctx.input.isCursorMode,
-      phase: ctx.phase, cut: !!cut, streaks, dest,
+      phase: ctx.phase, cut: !!cut, streaks, controls: ctx.player.controlsEnabled !== false,
       interior: !!ctx.hub.collider && !!ctx.player.interior,
       status: document.querySelector('.hub-status')?.textContent ?? '',
       podCan: ctx.interactables.all().find((i) => i.id === 'hub_pod_0')?.canInteract() ?? null,
@@ -287,8 +289,8 @@ try {
   ok(t1.start && t1.start.stage === 'start' && t1.start.planet === PLANETS[2].id, `hub:travel {stage:'start', planet:'${t1.start?.planet}'}`);
   ok(t1.menuHidden && !t1.blocker && t1.cursor === false, 'the terminal closed itself and released the blocker / cursor');
   ok(t1.phase === 'hub', `the phase stays 'hub' during a planet change (${t1.phase})`);
-  ok(t1.cut && t1.streaks, 'the warp cutscene is in the scene with its WarpStreaks layer');
-  ok(t1.dest === 1, `the destination sphere is built once (${t1.dest})`);
+  ok(!t1.cut && t1.streaks, 'no cutscene object — the WarpStreaks layer lives under the ship interior (창문 워프)');
+  ok(t1.controls, 'controls stay enabled while warping (the player walks the ship)');
   ok(t1.interior, 'the ship interior was NOT rebuilt (collider + player interior kept)');
   ok(/항로 이동 중/.test(t1.status), `status line "${t1.status.trim().slice(0, 30)}"`);
   ok(t1.podCan === false, 'launch slots are unavailable while travelling');

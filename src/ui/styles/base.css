@@ -848,9 +848,11 @@ input { font: inherit; color: inherit; }
   width: 100%;
   display: flex; flex-direction: column; gap: 6px;
 }
+/* Closed: exactly 3.5 line pitches (`--chat-closed-h` is measured from a real line by hud/ChatLog; the fallback is
+   12px × 1.35 × 3.5 + 3 gaps). The fourth-oldest visible line is cut in half at the top, under the fade mask. */
 .chat-lines {
   display: flex; flex-direction: column; gap: 2px;
-  max-height: 168px; overflow-y: auto;
+  max-height: var(--chat-closed-h, 62.7px); overflow-y: auto;
   scrollbar-width: none;
   -webkit-mask-image: linear-gradient(180deg, transparent, #000 14px);
   mask-image: linear-gradient(180deg, transparent, #000 14px);
@@ -885,13 +887,19 @@ input { font: inherit; color: inherit; }
 }
 .chat-prompt { color: var(--c-accent); font-weight: 700; font-size: 14px; }
 .chat-input {
-  flex: 1; height: 100%;
+  flex: 1; min-width: 0; height: 100%;
   background: none; border: none; outline: none;
   color: var(--c-text); font-family: var(--ui-font); font-size: 13px;
+  white-space: nowrap; overflow: hidden;   /* single line: the caret scrolls the text inside the bounded width */
   user-select: text; -webkit-user-select: text;
 }
 .chat-input::placeholder { color: var(--c-text-faint); }
-.chat-hint { font-size: 9px; letter-spacing: 0.12em; color: var(--c-text-faint); font-family: var(--ui-mono); }
+/* Flush-right close hint (2026-09-09): `<Tab> 키로 닫기`, its own flex item so typed text never runs under it. */
+.chat-hint {
+  flex: none; display: inline-flex; align-items: center; gap: 5px;
+  font-size: 10px; letter-spacing: 0.08em; color: var(--c-text-faint); white-space: nowrap;
+}
+.chat-hint .keycap { min-width: 18px; height: 18px; padding: 0 5px; font-size: 9px; color: var(--c-text-dim); }
 
 /* hub: the interaction prompt sits a little lower (no weapon / vitals), squad list moves up under the top edge */
 .hud.hub .prompt { bottom: 22%; }
@@ -1649,33 +1657,30 @@ input { font: inherit; color: inherit; }
 }
 .cheat-tag.show { opacity: 1; }
 
-/* Housing-mode hints: own layer `.hud.housing` (never hidden by the gameplay/social gating).
- * Phase 9 UI pass — the bottom-centre bar carries only the placement key hints, and 종료 (Esc) moved to its own
- * bottom-right chip styled like the ship's 시설 관리(M) hint it stands in for. */
+/* Housing layer `.hud.housing` (never hidden by the gameplay/social gating) — only hud/ShipManage lives here since
+ * 2026-09-09: the old `.housing-hint` bar / `.housing-exit` chip were replaced by the 키 가이드 (`.key-guide`, below). */
 .hud.housing { pointer-events: none; }
-.housing-hint {
-  position: absolute; left: 50%; bottom: 40px; transform: translate(-50%, 12px);
-  display: flex; flex-direction: column; align-items: center; gap: 4px;
-  padding: 8px 18px;
-  background: rgba(8, 9, 11, 0.72); border: 1px solid var(--c-border);
-  opacity: 0; visibility: hidden;
-  transition: opacity var(--t-fast) var(--ease), transform var(--t-fast) var(--ease), visibility var(--t-fast);
-}
-.housing-hint.show { opacity: 1; visibility: visible; transform: translate(-50%, 0); }
-.housing-hint .row { display: flex; align-items: center; gap: 10px; font-size: 12px; }
-.housing-hint .keys { font-size: 11px; letter-spacing: 0.12em; color: var(--c-text-dim); white-space: nowrap; }
 
-.housing-exit {
-  position: absolute; right: 28px; bottom: 28px;
+/* ── 키 가이드 (hud/KeyGuide, 2026-09-09): one line, bottom-right, a direct child of #ui-root ──
+   `R 회전 · X 버리기 · Tab 닫기` for the topmost open screen / mode. z 84: above the inventory window (50–80), the hub
+   terminal, the 시설 관리 panel, the map (40), the tutorial spotlight (78) and popups (79–80); below the 일시정지 (85),
+   which hides it anyway. Same corner as `.ship-hint`, but the two never show together (the hint needs no blocker,
+   the guide needs an open screen). */
+.key-guide {
+  position: absolute; right: 28px; bottom: 28px; z-index: 84;
   display: flex; align-items: center; gap: 8px;
   padding: 6px 10px;
   background: rgba(8, 9, 11, 0.6); border: 1px solid var(--c-border);
+  font-size: 11px; letter-spacing: 0.12em; color: var(--c-text-dim); white-space: nowrap;
   opacity: 0; visibility: hidden; transform: translateY(6px);
   transition: opacity var(--t-fast) var(--ease), transform var(--t-fast) var(--ease), visibility var(--t-fast);
+  pointer-events: none;
 }
-.housing-exit.show { opacity: 1; visibility: visible; transform: none; }
-.housing-exit .t { font-size: 11px; letter-spacing: 0.16em; color: var(--c-text-dim); }
-.housing-exit .keycap { min-width: 20px; height: 20px; font-size: 10px; }
+.key-guide.show { opacity: 1; visibility: visible; transform: none; }
+.key-guide .kg-item { display: inline-flex; align-items: center; gap: 6px; }
+.key-guide .keycap { min-width: 20px; height: 20px; font-size: 10px; color: var(--c-text); background: rgba(255, 255, 255, 0.1); }
+.key-guide .kg-label { color: var(--c-text-dim); }
+.key-guide .kg-sep { color: var(--c-text-faint); }
 
 /* Room entry label (social layer, top-centre; fades after the hold time) */
 .room-label {

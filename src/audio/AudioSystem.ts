@@ -28,7 +28,12 @@ interface Ambient {
   engine: { osc: OscillatorNode; osc2: OscillatorNode; filter: BiquadFilterNode; gain: GainNode } | null;
   /** Ship-interior hum + ventilation loop (hub / docking phases only). */
   hub: { filter: BiquadFilterNode; gain: GainNode; vent: GainNode } | null;
+  /** 창문 워프 (2026-09-09): drive hum that follows `hub:warpProgress.speed` (detuned saws + rushing noise → lowpass). */
+  warp: { osc: OscillatorNode; osc2: OscillatorNode; filter: BiquadFilterNode; gain: GainNode; rush: GainNode } | null;
 }
+
+/** Seconds without a `hub:warpProgress` after which the warp hum is treated as over (a cancelled trip emits no `end`). */
+const WARP_HUM_HOLD_S = 0.3;
 
 const RECONNECT_WARN_INTERVAL_MS = 5000;
 /** A `pickup:spawned` this soon after our own `inventory:itemDropped` is the thrown item → no landing tick. */
@@ -51,9 +56,12 @@ export class AudioSystem implements GameSystem, AudioRef {
 
   private recent = new Map<string, number[]>();
   private lastPlay = new Map<string, { t: number; auto: boolean }>();
-  private amb: Ambient = { wind: null, tension: null, engine: null, hub: null };
+  private amb: Ambient = { wind: null, tension: null, engine: null, hub: null, warp: null };
   /** Set on `hub:entered`, cleared on `hub:left` / `game:newMission`. Silences planet wind + ship engine. */
   private hubActive = false;
+  /** Last `hub:warpProgress.speed` (0..1) and the seconds left before it is forgotten (`WARP_HUM_HOLD_S`). */
+  private warpSpeed = 0;
+  private warpHold = 0;
   private lastLaunchSecond = -1;
   private lastReconnectWarn = -Infinity;
   private lastLocalDrop = -Infinity;
@@ -178,11 +186,15 @@ export class AudioSystem implements GameSystem, AudioRef {
         this.hubActive = true; this.lastLaunchSecond = -1;
         this.shipPresent = false; this.engineTarget = 0; this.tensionTarget = 0; this.liftoffTimer = -1;
       }),
-      b.on('hub:left', () => { this.hubActive = false; this.lastLaunchSecond = -1; }),
+      b.on('hub:left', () => { this.hubActive = false; this.lastLaunchSecond = -1; this.warpSpeed = 0; this.warpHold = 0; }),
       b.on('hub:docking', ({ stage }) => {
         if (stage === 'start') auto('hub_dock_thrusters', undefined, 0.8);
         else auto('hub_dock_clamp', undefined, 0.85);
       }),
+      // 창문 워프 (2026-09-09): the hub sends `hub_dock_thrusters` / `hub_dock_clamp` itself at the ends of a trip; in
+      // between, the drive hum rides `speed` (rising / falling with the ramps). No one-shot here.
+      b.on('hub:warpProgress', ({ speed }) => { this.warpSpeed = Math.max(0, Math.min(1, speed)); this.warpHold = WARP_HUM_HOLD_S; }),
+      b.on('hub:travel', ({ stage }) => { if (stage === 'end') { this.warpSpeed = 0; this.warpHold = 0; } }),
       b.on('hub:slotChanged', ({ local, peerId }) => { if (local) auto('pod_door', undefined, 0.7, peerId === null ? 0.9 : 1); }),
       b.on('hub:launchCountdown', ({ seconds }) => {
         if (seconds > 0) {
@@ -386,6 +398,23 @@ export class AudioSystem implements GameSystem, AudioRef {
     vsrc.connect(vf).connect(vg).connect(hg);
     h1.start(); h2.start(); h3.start(); vsrc.start(); vlfo.start();
     this.amb.hub = { filter: hf, gain: hg, vent: vg };
+
+    // 창문 워프 drive (2026-09-09): two detuned saws + a rushing noise band → lowpass → gain. Everything is a target
+    // set per frame from `hub:warpProgress.speed`: pitch 38 → 90 Hz, filter 180 → 1600 Hz, gain 0 → 0.22.
+    const w1 = ac.createOscillator(); w1.type = 'sawtooth'; w1.frequency.value = 38;
+    const w2 = ac.createOscillator(); w2.type = 'sawtooth'; w2.frequency.value = 38.7;
+    const wsub = ac.createOscillator(); wsub.type = 'sine'; wsub.frequency.value = 19;
+    const wsubG = ac.createGain(); wsubG.gain.value = 0.6;
+    const wf = ac.createBiquadFilter(); wf.type = 'lowpass'; wf.frequency.value = 180; wf.Q.value = 1.6;
+    const wg = ac.createGain(); wg.gain.value = 0;
+    w1.connect(wf); w2.connect(wf); wsub.connect(wsubG).connect(wf);
+    const wn = ac.createBufferSource(); wn.buffer = (s as any).noiseBuf as AudioBuffer; wn.loop = true;
+    const wnf = ac.createBiquadFilter(); wnf.type = 'bandpass'; wnf.frequency.value = 1400; wnf.Q.value = 0.5;
+    const rush = ac.createGain(); rush.gain.value = 0;
+    wn.connect(wnf).connect(rush).connect(wf);
+    wf.connect(wg).connect(this.ambBus);
+    w1.start(); w2.start(); wsub.start(); wn.start();
+    this.amb.warp = { osc: w1, osc2: w2, filter: wf, gain: wg, rush };
   }
 
   /* ── volume settings (`AudioRef`) ────────────────────────────────────── */
@@ -517,6 +546,18 @@ export class AudioSystem implements GameSystem, AudioRef {
       this.amb.hub.gain.gain.setTargetAtTime(inHub ? (docking ? 0.22 : 0.15) : 0, now, inHub ? 0.8 : 0.4);
       this.amb.hub.filter.frequency.setTargetAtTime(docking ? 420 : 260, now, 0.8);
       this.amb.hub.vent.gain.setTargetAtTime(docking ? 0.15 : 0.3, now, 0.8);
+    }
+
+    // 창문 워프 drive: follows the last `hub:warpProgress.speed`; forgotten after `WARP_HUM_HOLD_S` without one.
+    if (this.amb.warp) {
+      if (this.warpHold > 0) { this.warpHold -= dt; if (this.warpHold <= 0) this.warpSpeed = 0; }
+      const s = inHub ? this.warpSpeed : 0;
+      const w = this.amb.warp;
+      w.gain.gain.setTargetAtTime(s * 0.22, now, 0.12);
+      w.filter.frequency.setTargetAtTime(180 + s * 1420, now, 0.15);
+      w.osc.frequency.setTargetAtTime(38 + s * 52, now, 0.2);
+      w.osc2.frequency.setTargetAtTime(38.7 + s * 53.1, now, 0.2);
+      w.rush.gain.setTargetAtTime(s * 0.55, now, 0.15);
     }
 
     // Tension: rises as countdown runs out.

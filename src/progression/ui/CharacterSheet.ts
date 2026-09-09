@@ -81,6 +81,8 @@ export class CharacterSheet {
     void this.frame.offsetWidth;
     this.frame.style.animation = '';
     this.refresh();
+    // 2026-09-09 키 가이드: the sheet is mouse-only, so its line is the guide's own `Tab 닫기` (owner `'character'`)
+    this.ctx.bus.emit('ui:keyGuide', { owner: 'character', keys: [] });
     this.ctx.bus.emit('ui:statsToggled', { open: true });
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
   }
@@ -94,6 +96,7 @@ export class CharacterSheet {
     (document.activeElement as HTMLElement | null)?.blur?.();
     this.ctx.uiBlockers.delete(BLOCKER);
     this.ctx.input.setCursorMode(false, BLOCKER);
+    this.ctx.bus.emit('ui:keyGuide', { owner: 'character', keys: null });
     this.ctx.bus.emit('ui:statsToggled', { open: false });
   }
 

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import type { GameContext } from '@/shared';
-import { FURNITURE_DEF_MAP, HOUSING_CELL_SIZE, Keys, MouseButtons, ROOM_GRID_COLS, ROOM_GRID_ROWS, furnitureFootprint } from '@/shared';
+import type { GameContext, KeyGuideEntry } from '@/shared';
+import { FURNITURE_DEF_MAP, HOUSING_CELL_SIZE, Keys, MouseButtons, ROOM_GRID_COLS, ROOM_GRID_ROWS, furnitureFootprint, keyLabel } from '@/shared';
 import { GHOST_BAD, GHOST_OK, buildFurniture, type FurnitureLayer, type FurnitureModel } from './interiors/Furniture';
 import { ROOM_BOXES, roomCellToWorld, yawToRotation, type RoomBox } from './interiors/RoomLayout';
 import type { PersonalShip } from './interiors/PersonalShip';
@@ -63,7 +63,12 @@ const _ray = new THREE.Raycaster();
  *   Esc (`Keys.MENU`)         same as C (2026-09-08): the mode owns Escape, so cancelling 하우징 모드 no longer
  *                             puts the 일시정지 메뉴 up on top of it
  *   M (`Keys.MAP`)            leave 함선 관리 (`closeShipManage`) or plain housing mode (2026-09-08: was Esc)
+ *   Tab (`Keys.INVENTORY`)    same as M (2026-09-09: Tab closes every screen / mode). Consumed, so the inventory —
+ *                             which polls the key after `HubSystem` — never opens on the press that left the mode.
  * Emits `housing:cursorChanged {room, x, y, valid}` whenever the footprint cell or its validity changes.
+ * **키 가이드 (2026-09-09)**: while active the mode owns the bottom-right guide line (`ui:keyGuide`, owner
+ * `'housing'`): `LMB 설치 · R 회전 · X 회수 · 휠 선택 · C 취소` with the labels read live (re-emitted on
+ * `input:bindingsChanged`); the guide appends `Tab 닫기` itself. This replaced the old `ui/hud/HousingHint` bar.
  *
  * **함선 관리 (Phase 8)**: `housing:shipManageChanged {active, room}` enters the same camera / cursor from
  * anywhere in the ship (no "stand in the room" gate — housing owns that rule) and retargets the camera when
@@ -141,6 +146,8 @@ export class HousingMode {
         if (active && room !== null) { this.enterManage(); this.activate(room); }
         else this.deactivate();
       }),
+      // 키 가이드 labels follow the live bindings
+      ctx.bus.on('input:bindingsChanged', () => { if (this.active) this.emitGuide(); }),
     );
     // Both events, because the two callers differ: a real browser fires `pointerdown` then `mousedown` (the Set
     // below dedupes them inside the frame), while the headless smokes dispatch only `mousedown`.
@@ -204,6 +211,23 @@ export class HousingMode {
     this.cursorInRoom = true;
     this.frame.visible = true;
     this.refresh(true);
+    if (!retarget) this.emitGuide();
+  }
+
+  /* ── 키 가이드 (2026-09-09) ───────────────────────────────────────────── */
+  /** The mode's real actions, most important first; `C` is the fixed cancel key (see `CANCEL_KEY`), never rebound. */
+  private guideKeys(): KeyGuideEntry[] {
+    return [
+      { key: keyLabel(Keys.FIRE), label: '설치' },
+      { key: keyLabel(Keys.ROTATE_ITEM), label: '회전' },
+      { key: keyLabel(Keys.DROP_ITEM), label: '회수' },
+      { key: '휠', label: '선택' },
+      { key: keyLabel(CANCEL_KEY), label: '취소' },
+    ];
+  }
+
+  private emitGuide(): void {
+    this.ctx.bus.emit('ui:keyGuide', { owner: 'housing', keys: this.guideKeys() });
   }
 
   /** Ease the override pose toward the current room's goal; no-op once it has arrived. */
@@ -231,6 +255,7 @@ export class HousingMode {
       this.carry = null;
       this.disposeGhost();
       this.frame.visible = false;
+      this.ctx.bus.emit('ui:keyGuide', { owner: 'housing', keys: null });
       const p = this.ctx.player;
       if (p && this.ctx.phase === 'hub') {
         p.setCameraOverride(null);
@@ -302,6 +327,10 @@ export class HousingMode {
     // keys
     // 2026-09-08: **M leaves the mode**, the same key that entered it (`HubSystem` reads `Keys.MAP` for 함선 관리).
     if (input.wasPressed(Keys.MAP)) { input.consume(Keys.MAP); this.exit(); return; }
+    // 2026-09-09: **Tab leaves it exactly like M** (Tab closes every screen / mode). The mode hides the gameplay HUD
+    // and `InventorySystem` polls the same key later in the frame, so it is consumed here — the inventory must not
+    // open on the press that left 시설 관리.
+    if (input.wasPressed(Keys.INVENTORY)) { input.consume(Keys.INVENTORY); this.exit(); return; }
     /*
      * Escape **cancels the mode** (2026-09-08, second pass). The global rule is "Escape 는 일시정지 메뉴를 열기만
      * 한다", with the documented carve-out that the innermost thing eats it first — and 함선 관리 is exactly that:

@@ -87,6 +87,8 @@ export class CrewLoadoutPanel {
     this.bar.style.background = NET_SLOT_COLORS_CSS[target.slot % NET_SLOT_COLORS_CSS.length];
     setText(this.nameEl, target.name);
     this.setStatus('');
+    // 2026-09-09 키 가이드: read-only popup, so its line is the guide's own `Tab 닫기` (`ReadyPanel.update` closes it on Tab)
+    this.ctx.bus.emit('ui:keyGuide', { owner: 'pod.loadout', keys: [] });
     this.ctx.bus.emit('hub:crewLoadoutToggled', { open: true, peerId: target.peerId });
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
 
@@ -158,6 +160,7 @@ export class CrewLoadoutPanel {
     this.anchor = null;
     const peerId = this.target?.peerId ?? null;
     this.target = null;
+    this.ctx.bus.emit('ui:keyGuide', { owner: 'pod.loadout', keys: null });
     this.ctx.bus.emit('hub:crewLoadoutToggled', { open: false, peerId });
   }
 

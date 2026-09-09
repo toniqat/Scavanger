@@ -1,5 +1,5 @@
 import type { GameContext, ImplantDef, ImplantId, PeerId, PortraitRef } from '@/shared';
-import { HUB_READY_BLOCKER, HUB_READY_CELLS, HUB_READY_PORTRAIT_YAW, NET_SLOT_COLORS_CSS } from '@/shared';
+import { HUB_READY_BLOCKER, HUB_READY_CELLS, HUB_READY_PORTRAIT_YAW, Keys, MENU_BLOCKER, NET_SLOT_COLORS_CSS } from '@/shared';
 import { el, setText, toggleClass } from './dom';
 import { CrewLoadoutPanel } from './CrewLoadoutPanel';
 
@@ -225,6 +225,15 @@ export class ReadyPanel {
 
   update(dt: number, time: number): void {
     if (!this._visible) return;
+    // 2026-09-09 (Tab closes the innermost popup first): while the 분대원 장비 popup is up and the inventory is *not*,
+    // Tab closes the popup and is consumed — `HubSystem` runs this before `InventorySystem` polls the key. With the
+    // inventory open over the pod, Tab stays the window's (it closes the window; the popup is left alone). Boarding
+    // itself is deliberately **not** left on Tab: Tab opens the bag while boarded (Phase 10) and E is the way out.
+    if (this.loadout.isOpen && !(this.ctx.inventory?.isOpen ?? false) && !this.ctx.uiBlockers.has(MENU_BLOCKER)
+      && this.ctx.input.wasPressed(Keys.INVENTORY)) {
+      this.ctx.input.consume(Keys.INVENTORY);
+      this.loadout.close();
+    }
     this.portraits?.render(dt, time);
   }
 

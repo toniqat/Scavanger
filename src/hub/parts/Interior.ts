@@ -233,12 +233,16 @@ export function trackRoom(sys: HubSystem): void {
   sys.ctx.bus.emit('hub:roomEntered', { room, purpose: room === null ? null : sys.roomPurpose(room) });
   }
 
-/** Terminal / station consoles are usable while walking the ship (not boarded, no menu, not docking, not decorating). */
+/**
+ * Terminal / station consoles are usable while walking the ship (not boarded, no menu, not docking, not decorating,
+ * **not warping** — 2026-09-09: the 창문 워프 no longer runs a cutscene, so `travelling` has to be checked here itself).
+ */
 export function stationUsable(sys: HubSystem): boolean {
   // 방문 중(남의 함선)에는 아무것도 쓸 수 없다 — 터미널 · 정비대 · 기업 네트워크 · 임플란트 시술대 전부 (2026-09-08)
   if (sys.visitReadOnly) return false;
   return sys.ctx.phase === 'hub' && !sys.menu.isOpen && !sys.wbMenu.isOpen && !(sys.ctx.inventory?.isOpen ?? false)
-    && !(sys.ctx.housing?.isMenuOpen ?? false) && !sys.corpMenuOpen() && sys.boardedSlot < 0 && !sys.cutscene && !sys.housingMode.active;
+    && !(sys.ctx.housing?.isMenuOpen ?? false) && !sys.corpMenuOpen() && sys.boardedSlot < 0 && !sys.cutscene && !sys.travelling
+    && !sys.housingMode.active;
   }
 
 export function disposeInterior(sys: HubSystem): void {
@@ -271,7 +275,7 @@ export function teardown(sys: HubSystem, reason: 'mission' | 'menu'): void {
   sys.status.hide();
   sys.ready.hide();
   sys.cutscene?.dispose(); sys.cutscene = null;
-  sys.travelling = false;
+  sys.cancelTravel();
   sys.disposeInterior();
   sys.visit = null; sys.visitShip = null; sys.pendingBay = null;   // 격납고: a visit never survives leaving the hub
   sys.countdown = -1; sys.launched = false;

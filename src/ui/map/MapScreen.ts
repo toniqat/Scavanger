@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { GameContext, PingKind } from '@/shared';
-import { Keys, MENU_BLOCKER, NET_SLOT_COLORS_CSS, PlayerFlags, SUSPENDED_LABEL_KO } from '@/shared';
+import { Keys, MENU_BLOCKER, NET_SLOT_COLORS_CSS, PlayerFlags, SUSPENDED_LABEL_KO, keyLabel } from '@/shared';
 import { el, setText } from '../dom';
 import type { PingView } from '../hud/Pings';
 import { PING_LABEL } from '../hud/Pings';
@@ -50,6 +50,11 @@ interface MapPing { id: number; kind: PingKind; position: THREE.Vector3; expires
  * Wheel zooms around the cursor, left-drag pans, **middle-click drops a ping** (Phase 10, `setPingPlacer`).
  * Adds `ctx.uiBlockers` token 'map' and enters software-cursor mode with the same token — the pointer lock is kept
  * (Phase 10 §2), so there is no `exitPointerLock()` and no relock microtask.
+ *
+ * 2026-09-09: **Tab (`Keys.INVENTORY`) closes it too** (consumed, so the inventory does not open on the same press —
+ * `InventorySystem` polls earlier in the frame but its own guard already refuses while the `'map'` blocker is up),
+ * and while open it emits `ui:keyGuide {owner:'map'}` (핑 · 확대 · 이동; re-emitted on `input:bindingsChanged`, `null`
+ * on close) for the bottom-right 키 가이드, which appends the `Tab 닫기` entry itself.
  */
 export class MapScreen {
   readonly root: HTMLElement;
@@ -218,17 +223,34 @@ export class MapScreen {
       b.on('game:phaseChanged', () => { if (!ctx.isGameplayPhase()) this.close(false); }),
       b.on('player:died', () => this.close(false)),
       b.on('game:abort', () => { this.close(false); this.staticCanvas = null; this.pings.clear(); this.shipPos = null; this.activePadId = null; }),
+      b.on('input:bindingsChanged', () => { if (this._open) this.emitGuide(); }),
     );
     window.addEventListener('resize', this.onResize);
   }
 
-  /** Poll the M key; call every frame. */
+  /** Poll the M key (and Tab while open); call every frame. */
   update(ctx: GameContext): void {
     if (ctx.input.wasPressed(Keys.MAP) && ctx.isGameplayPhase() && !(ctx.player?.isDead ?? false)
       && !ctx.uiBlockers.has(MENU_BLOCKER) && (this._open || ctx.uiBlockers.size === 0)) {
       if (this._open) this.close(); else this.open();
+    } else if (this._open && ctx.input.wasPressed(Keys.INVENTORY) && !ctx.uiBlockers.has(MENU_BLOCKER)) {
+      // 2026-09-09: Tab closes every screen; swallow it so nothing later in the frame opens the inventory on it.
+      ctx.input.consume(Keys.INVENTORY);
+      this.close();
     }
     if (this._open) this.draw(ctx);
+  }
+
+  /** 키 가이드 entries for the map (the guide appends `Tab 닫기` itself). */
+  private emitGuide(): void {
+    this.ctx.bus.emit('ui:keyGuide', {
+      owner: 'map',
+      keys: [
+        { key: keyLabel(Keys.PING), label: '핑' },
+        { key: '휠', label: '확대' },
+        { key: `${keyLabel(Keys.FIRE)} 드래그`, label: '이동' },
+      ],
+    });
   }
 
   open(): void {
@@ -245,6 +267,7 @@ export class MapScreen {
     if (!this.staticCanvas || this.staticSeed !== ctx.world.seed) this.buildStatic(ctx);
     window.addEventListener('mousemove', this.onMouseMove);
     window.addEventListener('mouseup', this.onMouseUp);
+    this.emitGuide();
     ctx.bus.emit('ui:mapToggled', { open: true });
   }
 
@@ -264,6 +287,7 @@ export class MapScreen {
     ctx.input.setCursorMode(false, BLOCKER);
     window.removeEventListener('mousemove', this.onMouseMove);
     window.removeEventListener('mouseup', this.onMouseUp);
+    ctx.bus.emit('ui:keyGuide', { owner: 'map', keys: null });
     ctx.bus.emit('ui:mapToggled', { open: false });
   }
 

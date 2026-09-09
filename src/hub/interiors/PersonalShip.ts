@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { HubShipKind } from '@/shared';
 import {
-  HOUSING_CELL_SIZE, ROOM_GRID_COLS, ROOM_GRID_ROWS, ROOM_LIGHT_DISTANCE, ROOM_LIGHT_INTENSITY, ROOM_LIGHT_POOL,
+  HOUSING_CELL_SIZE, HUB_TRAVEL_WARP_STRETCH, ROOM_GRID_COLS, ROOM_GRID_ROWS, ROOM_LIGHT_DISTANCE, ROOM_LIGHT_INTENSITY, ROOM_LIGHT_POOL,
   ROOM_STRIP_DIM, ROOM_STRIP_LIT, SHIP_ROOM_COUNT,
 } from '@/shared';
 import { GeoBatch, HUB_MATS as M, disposeMeshes, yawFromForward } from './GeoBatch';
@@ -9,10 +9,11 @@ import { BoxInteriorCollider } from './InteriorCollider';
 import { ShipDoors } from './Doors';
 import { Parts, fixture } from './parts';
 import { Starfield, Planet } from './Starfield';
+import { ViewportWarp } from './WarpStreaks';
 import { implantBay, shipComputer, type ShipStations, type StationDef } from './stations';
 import { TextPlane } from '../Labels';
 import { AIRLOCK, CEIL, COCKPIT, CORRIDOR, DOOR_HEIGHT, DOOR_WIDTH, ROOM_BOXES, ROOMS_PER_SIDE, SEGMENT, WALL, type RoomBox } from './RoomLayout';
-import type { PodSlotDef, RoomDef, ShipInterior, TerminalDef } from './types';
+import type { PodSlotDef, RoomDef, ShipInterior, TerminalDef, WarpDestination } from './types';
 
 /**
  * Personal ship (함선 꾸미기, 2026-09-06): cockpit (−Z) → 3 m corridor running +Z → ten 4 × 4 m housing rooms
@@ -54,6 +55,8 @@ export class PersonalShip implements ShipInterior {
   private lights: THREE.PointLight[] = [];
   private stars: Starfield;
   private planet: Planet;
+  /** 창문 워프 (2026-09-09): streaks past the cockpit viewport, driven by the hub through `setWarp`. */
+  private warp: ViewportWarp;
   private screens: TextPlane[] = [];
   private beacon: THREE.Mesh;
   private beaconMat: THREE.MeshBasicMaterial;
@@ -253,6 +256,8 @@ export class PersonalShip implements ShipInterior {
     this.planet = new Planet(110, 0x6c8a5a, 0x8fd0ff);
     this.planet.group.position.set(-70, -50, -360);
     r.add(this.planet.group);
+    // 창문 워프: the nose is −Z (the cockpit viewport wall); the hull is ~9 m off the axis, the streak shell starts at 26
+    this.warp = new ViewportWarp(r, this.stars, this.planet, HUB_TRAVEL_WARP_STRETCH, { forward: new THREE.Vector3(0, 0, -1), rMin: 26, rMax: 240, span: 900 });
   }
 
   /** 창고 cabinet (stash prop, decorative — the stash grid lives on the Tab ship screen). */
@@ -382,9 +387,15 @@ export class PersonalShip implements ShipInterior {
     this.planet.setColors(color, atmo);
   }
 
+  /** 창문 워프 (2026-09-09): see `ShipInterior.setWarp` — stars → streaks, planet out and back in as `dest`. */
+  setWarp(speed: number, dest?: WarpDestination): void {
+    this.warp.set(speed, dest);
+  }
+
   update(dt: number, time: number): void {
     this.stars.update(dt);
     this.planet.update(dt);
+    this.warp.update(dt);
     this.beaconMat.opacity = 0.35 + 0.45 * (0.5 + 0.5 * Math.sin(time * 4));
   }
 
@@ -399,6 +410,7 @@ export class PersonalShip implements ShipInterior {
     for (const s of this.screens) s.dispose();
     this.terminal.screen.dispose();
     for (const rd of this.rooms) rd.furnitureGroup.removeFromParent();
+    this.warp.dispose();
     this.stars.dispose();
     this.planet.dispose();
     this.beacon.geometry.dispose(); this.beaconMat.dispose();

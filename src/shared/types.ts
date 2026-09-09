@@ -1380,13 +1380,14 @@ export interface HubRef {
    */
   readonly planet: PlanetId | null;
   /**
-   * Pick the 목표 행성. Refused (`false`) for a non-host in a lobby, while a launch countdown runs, during a travel
-   * cutscene, and for an unknown id. On success the ship flies there: `hub:travel {stage:'start'}` → the docking
-   * cutscene reused as a warp → `hub:travel {stage:'end'}` → `hub:planetChanged`. In a lobby the host also calls
-   * `ctx.net.setLobbyPlanet`, and every member's own `lobby:state` starts the same cutscene locally.
+   * Pick the 목표 행성. Refused (`false`) for a non-host in a lobby, while a launch countdown runs, while already
+   * travelling, and for an unknown id. On success the ship flies there: `hub:travel {stage:'start'}` → the 창문 워프
+   * (2026-09-09: seen through the viewports, controls stay on, `hub:warpProgress` every frame) →
+   * `hub:travel {stage:'end'}` → `hub:planetChanged`. In a lobby the host also calls `ctx.net.setLobbyPlanet`, and
+   * every member's own `lobby:state` starts the same warp locally.
    */
   setPlanet(planet: PlanetId): boolean;
-  /** true while the ship is flying to a new planet (controls locked, terminal closed, pods unavailable). */
+  /** true while the ship is flying to a new planet (terminal closed, pods unavailable; the player keeps walking). */
   readonly travelling: boolean;
 }
 

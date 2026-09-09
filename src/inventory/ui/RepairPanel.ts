@@ -96,6 +96,8 @@ export class RepairPanel {
     this.scrim.hidden = false;
     this.shell.open(anchor, true);
     this.refresh();
+    // 2026-09-09 키 가이드: mouse-only popup, so the line is the close entry alone (Tab closes this before the window)
+    this.sys.ctx.bus.emit('ui:keyGuide', { owner: 'inventory.repair', keys: [] });
   }
 
   /** Escape · 창이 닫힐 때. 열려 있었으면 true (Escape 가 소비된다). */
@@ -107,9 +109,11 @@ export class RepairPanel {
 
   /** 셸이 스스로 닫힌 뒤(닫기 버튼 · 바깥 클릭)와 `close()` 둘 다가 지나가는 뒤처리. */
   private afterClose(): void {
+    const wasUp = !this.scrim.hidden;
     this.scrim.hidden = true;
     this.excluded.clear();
     this.hideMsg();
+    if (wasUp) this.sys.ctx.bus.emit('ui:keyGuide', { owner: 'inventory.repair', keys: null });
   }
 
   /** 목록 · 합계 · 버튼을 지금 상태로 다시 그린다 (열려 있을 때만). */

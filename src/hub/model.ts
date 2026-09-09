@@ -44,8 +44,27 @@ export const READY_ECHO_GRACE = 1.5;
  * itself stays closed for a moment, exactly mirroring `UNBOARD_GRACE` on the way in.
  */
 export const REBOARD_GRACE = 0.5;
-/** The two cutscene directions that swap the ship interior (`'travel'` keeps it — see `startTravel`). */
-export type DockTransition = Exclude<DockDirection, 'travel'>;
+/**
+ * The two cutscene directions that swap the ship interior. (Until 2026-09-09 this excluded a `'travel'` direction;
+ * 행성 이동 is no longer a cutscene — see `WarpState` and `parts/Planet.ts`.)
+ */
+export type DockTransition = DockDirection;
+
+/**
+ * 창문 워프 (2026-09-09): one 행성 이동 in flight. Lives on `HubSystem.warp` for exactly the span of
+ * `hub:travel {start}` → `{end}` and is ticked by `parts/Planet.tickTravel` every hub frame — no cutscene, no camera
+ * override, no control lock. The interior is a spectator: it gets `setWarp(speed, dest)` each frame.
+ */
+export interface WarpState {
+  planet: PlanetId;
+  by: 'local' | 'squad';
+  /** Seconds since `startTravel`. */
+  elapsed: number;
+  /** Seconds until the next `camera:shake` pulse (`HUB_WARP_SHAKE_INTERVAL_S`). */
+  shakeIn: number;
+  /** Colours the window planet takes on arrival (`PlanetDef.hologram` / `hologramAtmo`). */
+  dest: { color: number; atmo: number };
+}
 
 export const _camPos = new THREE.Vector3();
 export const _camLook = new THREE.Vector3();

@@ -23,7 +23,7 @@ import { ReadyPanel, type ReadyCellInfo } from './ui/ReadyPanel';
 import { randomSeed } from './ui/dom';
 import './hub.css';
 
-import { type DockTransition, LOCK_REQUEST_GRACE_MS, READY_ECHO_GRACE, UNBOARD_GRACE, _camLook, _camPos, _front } from './model';
+import { type DockTransition, type WarpState, LOCK_REQUEST_GRACE_MS, READY_ECHO_GRACE, UNBOARD_GRACE, _camLook, _camPos, _front } from './model';
 /** 폴더 공용 어휘(상수 · 타입 · 스크래치)는 `model.ts` 가 갖는다 — 기존 import 경로를 위해 재수출한다. */
 export * from './model';
 import * as Planet from './parts/Planet';
@@ -67,8 +67,13 @@ export class HubSystem implements GameSystem, HubRef {
     if (net?.lobby) return net.lobbyPlanet ?? null;
     return this.localPlanet;
   }
-  /** true while the travel cutscene runs (controls locked, terminal closed, pods unavailable). */
+  /**
+   * true while the ship is warping to a new planet (2026-09-09: the 창문 워프 — terminal closed, pods / bays / consoles
+   * unavailable, but the **controls stay on** and the camera is the player's; nothing is locked).
+   */
   travelling = false;
+  /** 창문 워프 in flight (`parts/Planet.tickTravel`), null at rest. `travelling` is its public shadow. */
+  warp: WarpState | null = null;
   /** The solo pick (persisted); in a lobby `LobbyState.planet` wins and this is only the fallback. */
   localPlanet: PlanetId | null = null;
   /** `lobby.planet` as of the last `net:lobbyUpdated` we reacted to — a change starts the squad's cutscene. */
@@ -77,8 +82,8 @@ export class HubSystem implements GameSystem, HubRef {
   /**
    * Pick the 목표 행성 and fly there. Refused (false) for a non-host in a lobby, for an unknown id, while a
    * cutscene / travel runs, while a launch countdown is ticking, outside the hub and when it is already the target.
-   * On success: `hub:travel {stage:'start'}` → the docking cutscene reused as a warp → `hub:travel {stage:'end'}` +
-   * `hub:planetChanged`. The ship interior is **not** rebuilt — only the view outside it changes.
+   * On success: `hub:travel {stage:'start'}` → the 창문 워프 (`hub:warpProgress` every frame, controls on) →
+   * `hub:travel {stage:'end'}` + `hub:planetChanged`. The ship interior is **not** rebuilt — only the view outside it changes.
    */
   setPlanet(planet: PlanetId): boolean { return Planet.setPlanet(this, planet); }
 
@@ -91,13 +96,20 @@ export class HubSystem implements GameSystem, HubRef {
   savePlanet(): void { return Planet.savePlanet(this); }
 
   /**
-   * Fly to `planet`. Everyone steps out of their pod, the terminal / workbench close and `DockingCutscene` runs in
-   * `'travel'` mode (`HUB_TRAVEL_DURATION`). The interior is **kept** (no `disposeInterior`, no rebuild, the phase
-   * stays `'hub'`) — a planet change is a change of scenery, not a new ship.
+   * Fly to `planet` — the 창문 워프 (2026-09-09). Everyone steps out of their pod, the terminal / workbench close and
+   * `warp` is armed for `HUB_TRAVEL_DURATION`; `tickTravel` drives the interior's `setWarp`, `hub:warpProgress` and the
+   * hull shake every frame. No cutscene, no camera override, no control lock. The interior is **kept** (no
+   * `disposeInterior`, no rebuild, the phase stays `'hub'`) — a planet change is a change of scenery, not a new ship.
    */
   startTravel(planet: PlanetId, by: 'local' | 'squad'): void { return Planet.startTravel(this, planet, by); }
 
   finishTravel(planet: PlanetId, by: 'local' | 'squad'): void { return Planet.finishTravel(this, planet, by); }
+
+  /** One frame of the 창문 워프 (no-op at rest). Runs **after** the pod / status tick so its status line wins. */
+  tickTravel(dt: number): void { return Planet.tickTravel(this, dt); }
+
+  /** Drop a warp in flight without landing it (interior teardown / swap). No `hub:travel {end}` — see `parts/Planet`. */
+  cancelTravel(): void { return Planet.cancelTravel(this); }
 
   /** The decorative planet outside the viewports takes the 목표 행성's colours (nothing else is rebuilt). */
   applyPlanetLook(): void { return Planet.applyPlanetLook(this); }
@@ -513,13 +525,12 @@ export class HubSystem implements GameSystem, HubRef {
     if (this.shipStateDirty) Hangar.sendShipState(this, false);
     if (this.cutscene) {
       this.cutscene.update(dt);
-      if (this.cutscene) {
-        const d = this.cutscene.direction;
-        this.status.set(d === 'dock' ? '도킹 절차 진행 중' : d === 'undock' ? '도킹 해제 중' : `${planetLabel(this.planet)} 항로 이동 중`, null);
-      }
+      if (this.cutscene) this.status.set(this.cutscene.direction === 'dock' ? '도킹 절차 진행 중' : '도킹 해제 중', null);
       return;
     }
     if (ctx.phase !== 'hub' || !this.interior) return;
+    // (2026-09-09) a 창문 워프 does **not** return early here: the interior keeps animating (자동문 · 방 조명 · star
+    // drift — and now the streaks), the player keeps walking, and `tickTravel` runs at the tail of this frame.
 
     this.interior.update(dt, ctx.time);
     // 자동문 + 방 조명 follow the player — both interiors have sliding doors since the 격납고 (2026-09-08)
@@ -534,7 +545,7 @@ export class HubSystem implements GameSystem, HubRef {
     Hangar.tickPendingVisit(this);
 
     // housing mode owns the input (cursor / place / rotate / recover / C / M) while active
-    if (this.housingMode.active) { this.housingMode.update(dt); this.tickCountdown(dt); return; }
+    if (this.housingMode.active) { this.housingMode.update(dt); this.tickCountdown(dt); this.tickTravel(dt); return; }
 
     /*
      * 2026-09-08 (ESC = 항상 일시정지): the hub does not read Escape any more. Every screen here closes on the key
@@ -562,6 +573,7 @@ export class HubSystem implements GameSystem, HubRef {
     if (ctx.uiBlockers.size === 0 && this.boardedSlot < 0 && ctx.input.wasPressed(Keys.MAP)) this.openShipManage();
 
     this.tickCountdown(dt);
+    this.tickTravel(dt);
   }
 
   /**

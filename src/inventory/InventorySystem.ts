@@ -201,7 +201,10 @@ export class InventorySystem implements GameSystem, InventoryRef {
     // 2026-09-08: Tab is now also the *close* key, so it must not reach through the 일시정지 메뉴 stacked on top.
     if (ctx.input.wasPressed(Keys.INVENTORY) && !ctx.uiBlockers.has(MENU_BLOCKER)
       && (ctx.isGameplayPhase() || ctx.isHubPhase()) && (this._open || onlyReadyBlocked)) {
-      this.toggleBag();
+      // 2026-09-09 (Tab 은 모든 화면을 닫는다): like Escape, Tab cancels the **innermost popup** first — 수량 지정 ·
+      // 우클릭 메뉴 · 분해 · 수리 · 임플란트 피커 — and closes the window only when nothing is stacked over it. The
+      // 제작 열 is a column of the window, not a popup, so it goes with the window.
+      if (!(this._open && this.ui?.closePopups())) this.toggleBag();
     }
     this.updateCraft(dt);
     if (!this._open) return;

@@ -1,5 +1,5 @@
 import type { GameContext, ChatKind, PeerId, PlayerCode, WhisperLine } from '@/shared';
-import { Keys, CHAT_MAX_LINES, formatPlayerCode } from '@/shared';
+import { Keys, CHAT_MAX_LINES, formatPlayerCode, keyLabel } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 import { socialOf } from '../menus/social/socialSource';
 
@@ -7,6 +7,8 @@ const BLOCKER = 'chat';
 const LINE_FADE_AFTER = 12;   // seconds a line stays fully visible while the input is closed
 const FADE_CHECK = 0.25;      // seconds between fade sweeps
 const MAX_TEXT = 120;
+/** Closed-state log height in line pitches: three full lines + the fourth cut in half at the top (2026-09-09). */
+const CLOSED_LINES = 3.5;
 
 interface Line { el: HTMLElement; time: number; faded: boolean }
 
@@ -17,9 +19,25 @@ interface Line { el: HTMLElement; time: number; faded: boolean }
  *
  * Input: `Keys.CHAT` (Enter) while `ctx.isControlActive()` (gameplay OR hub) opens a text field — blocker token
  * `'chat'` plus `input.setCursorMode(true, 'chat')` (Phase 10 §2: the pointer lock is **kept**, the software cursor
- * owns the UI, and there is no relock microtask on close). Enter sends (`chat:post` kind 'text', ≤ 120 chars), Esc
- * cancels. A capture-phase keydown listener with `stopImmediatePropagation` keeps Esc from pausing and letters from
- * moving the player.
+ * owns the UI, and there is no relock microtask on close). A capture-phase keydown listener with
+ * `stopImmediatePropagation` keeps Esc from pausing and letters from moving the player.
+ *
+ * **2026-09-09 (채팅 UI 정리).**
+ *   • **Enter sends and keeps the input open** (cleared, still focused, no hide/show so the row's entrance animation
+ *     never re-runs); an empty Enter is a no-op. Closing is **Tab (`Keys.INVENTORY`) or Esc** only — Tab is consumed
+ *     (`ctx.input.consume`) so the inventory does not open on the same press. Esc on an empty whisper input drops
+ *     the target first, exactly as before. A `.chat-hint` chip (`<Tab 키캡> 키로 닫기`, live `keyLabel`) sits flush
+ *     right of the single-line input; the input is `flex:1; min-width:0` so long text scrolls inside it and never
+ *     runs under the hint.
+ *   • **Closed state shows 3.5 lines**: the log's closed `max-height` is measured from a real line
+ *     (`--chat-closed-h` = 3.5 × line height + 3 gaps) so the fourth-oldest visible line is cut in half at the top
+ *     under the fade mask. Open keeps its 300 px panel.
+ *   • **Bottom-of-log bug**: the scroll container's height changes after `scrollTop` was set — `close()` shrinks it
+ *     from 300 px back to the closed height (a scroll box keeps its `scrollTop`, not its bottom edge, when it shrinks,
+ *     so the newest ~130 px slid out of view), and the web font swapping in after the first lines grew every line
+ *     under a scroll position computed for the fallback font. `stick()` now re-pins the bottom synchronously **and**
+ *     on the next frame, and is called on add / open / close / `document.fonts.ready` / container resize
+ *     (`ResizeObserver`).
  *
  * Feeds: `chat:post` (own line, sent as `ChatMessage` to 'others' while in a lobby), `net:chat`, and system lines for
  * `net:peerJoined/peerLeft`, `pickup:taken` (remote), `hub:slotChanged`, `hub:launchCountdown`, and (Phase 7)
@@ -42,6 +60,7 @@ export class ChatLog {
   private input: HTMLInputElement;
   private targetChip: HTMLElement;
   private targetName: HTMLElement;
+  private closeKey: HTMLElement;
   private ctx!: GameContext;
   private lines: Line[] = [];
   private _open = false;
@@ -50,6 +69,10 @@ export class ChatLog {
   /** Active 귓속말 target, or null for ordinary squad chat (Phase 11). */
   private target: { code: PlayerCode; name: string } | null = null;
   private unsubs: Array<() => void> = [];
+  /** Last measured line height (px) the closed `max-height` was derived from; 0 = not measured yet. */
+  private lineH = 0;
+  private stickRaf = 0;
+  private resizeObs: ResizeObserver | null = null;
 
   private keyHandler = (e: KeyboardEvent): void => {
     const ctx = this.ctx;
@@ -58,6 +81,11 @@ export class ChatLog {
       if (e.code === Keys.CHAT || e.code === 'NumpadEnter') {
         e.preventDefault(); e.stopImmediatePropagation();
         if (!e.repeat) this.send();
+      } else if (e.code === Keys.INVENTORY) {
+        // 2026-09-09: Tab closes every screen. Swallow the press for `Input` too so the inventory does not open.
+        e.preventDefault(); e.stopImmediatePropagation();
+        ctx.input.consume(Keys.INVENTORY);
+        if (!e.repeat) this.close();
       } else if (e.code === Keys.MENU) {
         e.preventDefault(); e.stopImmediatePropagation();
         // Escape on an empty whisper input drops the target first — one key, two steps out.
@@ -87,15 +115,25 @@ export class ChatLog {
     clearTarget.addEventListener('click', (e) => { e.stopPropagation(); this.setTarget(null); this.input.focus(); });
     el('span', { cls: 'chat-prompt', text: '›', parent: this.inputRow });
     this.input = el('input', {
-      cls: 'chat-input', attrs: { type: 'text', maxlength: String(MAX_TEXT), placeholder: '메시지 입력… (Enter 전송 · Esc 취소)', spellcheck: 'false', autocomplete: 'off' },
+      cls: 'chat-input', attrs: { type: 'text', maxlength: String(MAX_TEXT), placeholder: '메시지 입력… (Enter 전송)', spellcheck: 'false', autocomplete: 'off' },
       parent: this.inputRow,
     });
-    el('span', { cls: 'chat-hint', text: `${MAX_TEXT}자`, parent: this.inputRow });
+    // Flush-right close hint — its own flex item after the input (`flex:none`), so typed text can never run under it.
+    const hint = el('span', { cls: 'chat-hint', parent: this.inputRow });
+    this.closeKey = el('span', { cls: 'keycap', text: keyLabel(Keys.INVENTORY), parent: hint });
+    el('span', { cls: 'chat-hint-t', text: '키로 닫기', parent: hint });
     // Keep game input from seeing typed characters (Input listens on window in the bubble phase).
     this.input.addEventListener('keydown', (e) => e.stopPropagation());
     this.input.addEventListener('keyup', (e) => e.stopPropagation());
     this.input.addEventListener('blur', () => { if (this._open) this.input.focus(); });
     this.root.addEventListener('wheel', (e) => { if (this._open) e.stopPropagation(); }, { passive: true });
+    // The scroll box changes height on open / close (and with the column's width): re-pin the newest line.
+    if (typeof ResizeObserver !== 'undefined') {
+      this.resizeObs = new ResizeObserver(() => this.stick());
+      this.resizeObs.observe(this.list);
+    }
+    // Web fonts arriving after the first lines change every line's height under an already-set scroll position.
+    document.fonts?.ready.then(() => { this.lineH = 0; this.measure(); this.stick(); });
   }
 
   get isOpen(): boolean { return this._open; }
@@ -104,6 +142,7 @@ export class ChatLog {
     this.ctx = ctx;
     const b = ctx.bus;
     this.unsubs.push(
+      b.on('input:bindingsChanged', () => setText(this.closeKey, keyLabel(Keys.INVENTORY))),
       b.on('chat:post', ({ text, kind }) => this.post(text, kind)),
       b.on('net:chat', ({ id, name, text, kind }) => this.add(id, name, text, kind ?? 'text', false)),
       b.on('net:peerJoined', ({ name }) => this.system(`${name} 합류`)),
@@ -181,7 +220,7 @@ export class ChatLog {
     this.target = t;
     this.targetChip.hidden = !t;
     if (t) setText(this.targetName, `→ ${t.name || formatPlayerCode(t.code)}`);
-    this.input.placeholder = t ? '귓속말 입력… (Enter 전송 · Esc 대상 해제)' : '메시지 입력… (Enter 전송 · Esc 취소)';
+    this.input.placeholder = t ? '귓속말 입력… (Enter 전송 · Esc 대상 해제)' : '메시지 입력… (Enter 전송)';
     toggleClass(this.root, 'whispering', !!t);
     // The column that holds the log is owned by HudSystem (`.hud-bl`); the spec puts it mid-left while whispering.
     const col = this.root.parentElement;
@@ -208,8 +247,36 @@ export class ChatLog {
     this.list.appendChild(line);
     this.lines.push({ el: line, time: performance.now() / 1000, faded: false });
     while (this.lines.length > CHAT_MAX_LINES) { const old = this.lines.shift()!; old.el.remove(); }
-    this.list.scrollTop = this.list.scrollHeight;
+    this.measure(line);
+    this.stick();
     this.ctx.bus.emit('chat:message', { id, name, text, kind, local });
+  }
+
+  /**
+   * Derive the closed `max-height` (`--chat-closed-h` on `.chat`) from a real line so it is exactly `CLOSED_LINES`
+   * pitches whatever the font metrics: 3 full lines + 3 gaps + half a line. Re-measured only when the line height
+   * actually changes (first line, font swap).
+   */
+  private measure(line: HTMLElement | null = this.lines[this.lines.length - 1]?.el ?? null): void {
+    if (!line) return;
+    const h = line.getBoundingClientRect().height;
+    if (!(h > 0) || Math.abs(h - this.lineH) < 0.01) return;
+    this.lineH = h;
+    const gap = parseFloat(getComputedStyle(this.list).rowGap) || 0;
+    const full = Math.floor(CLOSED_LINES);
+    const px = full * h + full * gap + (CLOSED_LINES - full) * h;
+    this.root.style.setProperty('--chat-closed-h', `${px.toFixed(2)}px`);
+  }
+
+  /** Pin the newest line to the bottom edge — now, and again after the next layout. */
+  private stick(): void {
+    const list = this.list;
+    list.scrollTop = list.scrollHeight;
+    if (this.stickRaf) return;
+    this.stickRaf = requestAnimationFrame(() => {
+      this.stickRaf = 0;
+      list.scrollTop = list.scrollHeight;
+    });
   }
 
   /* ── input ─────────────────────────────────────────────────────────────── */
@@ -226,7 +293,7 @@ export class ChatLog {
     this.inputRow.hidden = false;
     this.input.value = '';
     this.input.focus();
-    this.list.scrollTop = this.list.scrollHeight;
+    this.stick();
     ctx.bus.emit('ui:chatToggled', { open: true });
   }
 
@@ -245,25 +312,35 @@ export class ChatLog {
     const now = performance.now() / 1000;
     for (const l of this.lines) l.time = Math.max(l.time, now - LINE_FADE_AFTER + 3);
     this.acc = FADE_CHECK;
+    // The box just shrank back to the closed height — a scroll container keeps its scrollTop, not its bottom edge.
+    this.stick();
     ctx.bus.emit('ui:chatToggled', { open: false });
   }
 
+  /**
+   * Enter: send what is typed and **stay open** (2026-09-09) — the field is cleared and keeps focus, the row is never
+   * hidden so its entrance animation does not replay. An empty Enter does nothing. The whisper target is kept.
+   */
   private send(): void {
     const text = this.input.value.trim().slice(0, MAX_TEXT);
+    if (!text) return;
     const t = this.target;
-    if (text && t) {
+    if (t) {
       // The mirror echoes a successful whisper back as `social:whisper {line.out}` — never double-write it here.
       const sent = socialOf(this.ctx)?.whisper(t.code, text) ?? false;
       if (!sent) this.system(`귓속말 전송 실패 — ${t.name || formatPlayerCode(t.code)}`);
-    } else if (text) {
+    } else {
       this.ctx.bus.emit('chat:post', { text, kind: 'text' });
     }
-    this.close();
+    this.input.value = '';
+    this.input.focus();
   }
 
   dispose(): void {
     for (const u of this.unsubs) u();
     window.removeEventListener('keydown', this.keyHandler, true);
+    this.resizeObs?.disconnect();
+    if (this.stickRaf) cancelAnimationFrame(this.stickRaf);
     if (this._open) { this._open = false; this.ctx?.uiBlockers.delete(BLOCKER); this.ctx?.input.setCursorMode(false, BLOCKER); }
     this.root.remove();
   }

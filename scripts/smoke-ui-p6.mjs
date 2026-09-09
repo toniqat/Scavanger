@@ -85,10 +85,11 @@ try {
   const dashT = (s) => Number.parseFloat(String(s));
   const layers = await P(() => ({ gameplay: !!document.querySelector('.hud.gameplay .wcharge') && !!document.querySelector('.hud.gameplay .status-markers'),
     social: !!document.querySelector('.hud.social .cheat-tag') && !!document.querySelector('.hud.social .room-label'),
-    housing: !!document.querySelector('.hud.housing .housing-hint') }));
+    // 2026-09-09: the housing key bar is gone — the bottom-right 키 가이드 (`ui:keyGuide`) sits directly under #ui-root
+    guide: !!document.querySelector('#ui-root > .key-guide') }));
   ok(layers.gameplay, 'charge gauge + status markers live in the gameplay layer');
   ok(layers.social, 'MOVE CHEAT tag + room label live in the social layer');
-  ok(layers.housing, 'housing hint bar lives in its own .hud.housing layer');
+  ok(layers.guide, 'key guide lives directly under #ui-root (above every screen layer)');
 
   console.log('weapon charge gauge');
   await emit('weapon:chargeChanged', { weaponId: 'u_shock', kind: 'charge', t: 0.5 });
@@ -169,24 +170,21 @@ try {
   ok(!/\bshow\b/.test(ct.cls) && !ct.on, 'cheat:moveCheat false → tag off', JSON.stringify(ct));
 
   // Phase 9 UI pass: the bar carries **only** the placement key hints, and 종료 (Esc) is its own bottom-right chip.
-  console.log('housing hint bar');
-  await emit('housing:modeChanged', { active: true, room: 0 });
+  // 2026-09-09: the housing key bar (`ui/hud/HousingHint`) is gone. hub/HousingMode now emits `ui:keyGuide {owner:'housing'}`
+  // and the bottom-right 키 가이드 (`ui/hud/KeyGuide`) draws it — with `Tab 닫기` appended by the guide as the last item.
+  console.log('key guide (housing owner)');
+  await emit('ui:keyGuide', { owner: 'housing', keys: [{ key: 'LMB', label: '설치' }, { key: 'R', label: '회전' }, { key: 'X', label: '회수' }, { key: '휠', label: '선택' }, { key: 'C', label: '취소' }] });
   let hh = await P(() => {
-    const e = document.querySelector('.housing-hint'); const x = document.querySelector('.housing-exit');
-    return { cls: e.className, rows: e.children.length, keys: e.querySelector('.keys').textContent,
-      sel: !!e.querySelector('.name'), cell: !!e.querySelector('.cell'),
-      on: window.__game.getSystem('hud').isHousingHintOn, vis: getComputedStyle(e).visibility,
-      exitCls: x.className, exitText: x.textContent };
+    const e = document.querySelector('#ui-root > .key-guide');
+    const items = [...e.querySelectorAll('.kg-item')].map((i) => `${i.querySelector('.keycap').textContent} ${i.querySelector('.kg-label').textContent}`);
+    const h = window.__game.getSystem('hud');
+    return { cls: e.className, items, on: h.isKeyGuideOn, owner: h.keyGuideOwner };
   });
-  ok(/\bshow\b/.test(hh.cls) && hh.on, 'housing:modeChanged active → bar .show', hh.cls);
-  ok(hh.rows === 1 && !hh.sel && !hh.cell, `the bar is the key line only (${hh.rows} row(s))`);
-  // 2026-09-08: Esc 도 하우징 모드를 취소한다 (일시정지 메뉴가 그 위에 쌓이지 않는다) — 힌트 줄이 둘 다 적는다.
-  ok(hh.keys === 'LMB 설치 · R 회전 · X 회수 · 휠 선택 · C · Esc 취소', 'key hints from live bindings (C · Esc 취소)', hh.keys);
-  // 2026-09-08: 함선 관리 leaves on M (the key that entered it), not Escape
-  ok(/\bshow\b/.test(hh.exitCls) && /종료/.test(hh.exitText) && /M/.test(hh.exitText), '종료 (M) chip bottom-right', hh.exitText);
-  await emit('housing:modeChanged', { active: false, room: null });
-  hh = await P(() => ({ cls: document.querySelector('.housing-hint').className, exitCls: document.querySelector('.housing-exit').className, on: window.__game.getSystem('hud').isHousingHintOn }));
-  ok(!/\bshow\b/.test(hh.cls) && !/\bshow\b/.test(hh.exitCls) && !hh.on, 'housing:modeChanged inactive → both hidden', JSON.stringify(hh));
+  ok(/\bshow\b/.test(hh.cls) && hh.on && hh.owner === 'housing', 'ui:keyGuide {owner:housing} → guide .show', JSON.stringify(hh));
+  ok(hh.items.join(' · ') === 'LMB 설치 · R 회전 · X 회수 · 휠 선택 · C 취소 · Tab 닫기', 'guide items in order, Tab 닫기 appended last', hh.items.join(' · '));
+  await emit('ui:keyGuide', { owner: 'housing', keys: null });
+  hh = await P(() => { const h = window.__game.getSystem('hud'); return { cls: document.querySelector('#ui-root > .key-guide').className, on: h.isKeyGuideOn, owner: h.keyGuideOwner }; });
+  ok(!/\bshow\b/.test(hh.cls) && !hh.on && hh.owner === null, 'ui:keyGuide {keys:null} → guide hidden', JSON.stringify(hh));
 
   console.log('room label');
   await emit('hub:roomEntered', { room: 0, purpose: 'workshop' });
@@ -421,7 +419,7 @@ try {
   await P((v) => { const V = window.__game.ctx.player.position.constructor; window.__game.ctx.bus.emit('enemy:incinerated', { id: 99, position: new V(v[0], v[1], v[2]), duration: 6 }); window.__game.ctx.bus.emit('weapon:chargeChanged', { weaponId: 'u_shock', kind: 'charge', t: 0.3 }); window.__game.ctx.bus.emit('housing:modeChanged', { active: true, room: 1 }); window.__game.ctx.bus.emit('hub:roomEntered', { room: 2, purpose: 'range' }); }, s);
   await emit('game:abort', {});
   await waitSim(0.1);
-  const reset = await P(() => { const h = window.__game.getSystem('hud'); return { markers: h.statusMarkerCount, charge: h.weaponChargeKind, housing: h.isHousingHintOn, room: h.isRoomLabelOn, training: h.isTrainingPanelOn }; });
+  const reset = await P(() => { const h = window.__game.getSystem('hud'); return { markers: h.statusMarkerCount, charge: h.weaponChargeKind, housing: h.isKeyGuideOn, room: h.isRoomLabelOn, training: h.isTrainingPanelOn }; });
   ok(reset.markers === 0 && reset.charge === null && !reset.housing && !reset.room && !reset.training, 'game:abort clears markers, gauge, housing bar, room label and the training panel', JSON.stringify(reset));
 
   ok(errors.length === 0, 'no console errors', errors.slice(0, 5).join(' | '));

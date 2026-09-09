@@ -1,6 +1,6 @@
 import type { EmbeddedView, FacilityId, GameContext } from '@/shared';
 import {
-  Keys, ROOM_PURPOSES, ROOM_PURPOSES_ACTIVE, ROOM_PURPOSE_COLOR, ROOM_PURPOSE_GLYPH, ROOM_PURPOSE_LABEL_KO,
+  Keys, MENU_BLOCKER, ROOM_PURPOSES, ROOM_PURPOSES_ACTIVE, ROOM_PURPOSE_COLOR, ROOM_PURPOSE_GLYPH, ROOM_PURPOSE_LABEL_KO,
   keyLabel,
 } from '@/shared';
 import type { HousingSystem } from '../HousingSystem';
@@ -26,6 +26,10 @@ import { CHIP_SIZE_SMALL, clear, el, facilityThumb, levelText, renderCost, secti
  * **Embedded view contract**: it renders into the host element the inventory window owns and does **not** add a
  * `ctx.uiBlockers` token, exit the pointer lock or install a window-level Escape listener — the window owns all three.
  * `refresh()` repaints, `dispose()` removes everything it added (elements + bus subscriptions).
+ *
+ * 2026-09-09 (Tab closes every screen, innermost first): while the 시설 제거 confirm or the 시설 증축 popup is up, a
+ * capture-phase **Tab** listener closes that popup and stops the event before `Input` records it — so the press
+ * closes the popup, not the whole Tab window behind it. Installed only while a popup is open, removed in `dispose()`.
  */
 export function createShipView(ctx: GameContext, housing: HousingSystem, host: HTMLElement): EmbeddedView {
   // The 함선 tab owns its height: the window frame stops scrolling and the 방 목록 scrolls instead.
@@ -91,7 +95,24 @@ export function createShipView(ctx: GameContext, housing: HousingSystem, host: H
   const confirmCancel = el('button', { cls: 'ui-btn', text: '취소', parent: confirmActs });
   const confirmOk = el('button', { cls: 'ui-btn danger', text: '제거', parent: confirmActs });
   let pendingRoom = -1;
-  const closeConfirm = (): void => { confirmEl.hidden = true; pendingRoom = -1; };
+  /* 2026-09-09: Tab closes the innermost popup (제거 confirm / 증축 picker) before the window — see the file comment */
+  let popupKeyOn = false;
+  const onPopupKey = (e: KeyboardEvent): void => {
+    if (e.code !== Keys.INVENTORY || ctx.uiBlockers.has(MENU_BLOCKER)) return;
+    if (confirmEl.hidden && buildEl.hidden) return;
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    ctx.bus.emit('audio:play', { id: 'ui_close' });
+    if (!confirmEl.hidden) closeConfirm(); else closeBuild();
+  };
+  const syncPopupKey = (): void => {
+    const want = !confirmEl.hidden || !buildEl.hidden;
+    if (want === popupKeyOn) return;
+    popupKeyOn = want;
+    if (want) window.addEventListener('keydown', onPopupKey, true);
+    else window.removeEventListener('keydown', onPopupKey, true);
+  };
+  const closeConfirm = (): void => { confirmEl.hidden = true; pendingRoom = -1; syncPopupKey(); };
   confirmCancel.addEventListener('click', (e) => { e.stopPropagation(); ctx.bus.emit('audio:play', { id: 'ui_close' }); closeConfirm(); });
   confirmEl.addEventListener('mousedown', (e) => { if (e.target === confirmEl) closeConfirm(); });
   confirmOk.addEventListener('click', (e) => {
@@ -115,7 +136,7 @@ export function createShipView(ctx: GameContext, housing: HousingSystem, host: H
   const buildActs = el('div', { cls: 'acts', parent: buildCard });
   const buildClose = el('button', { cls: 'ui-btn', text: '닫기', parent: buildActs });
   let buildRoom = -1;
-  const closeBuild = (): void => { buildEl.hidden = true; buildRoom = -1; };
+  const closeBuild = (): void => { buildEl.hidden = true; buildRoom = -1; syncPopupKey(); };
   buildClose.addEventListener('click', (e) => { e.stopPropagation(); ctx.bus.emit('audio:play', { id: 'ui_close' }); closeBuild(); });
   buildEl.addEventListener('mousedown', (e) => { if (e.target === buildEl) closeBuild(); });
 
@@ -159,6 +180,7 @@ export function createShipView(ctx: GameContext, housing: HousingSystem, host: H
     buildRoom = room;
     renderBuild();
     buildEl.hidden = false;
+    syncPopupKey();
     ctx.bus.emit('audio:play', { id: 'ui_click' });
   };
 
@@ -178,6 +200,7 @@ export function createShipView(ctx: GameContext, housing: HousingSystem, host: H
     if (refund.length) renderCost(confirmCost, refund, housing, CHIP_SIZE_SMALL);
     else el('span', { cls: 'item-chip-free', text: '돌려받을 재료 없음', parent: confirmCost });
     confirmEl.hidden = false;
+    syncPopupKey();
     ctx.bus.emit('audio:play', { id: 'ui_click' });
   };
 
@@ -282,6 +305,7 @@ export function createShipView(ctx: GameContext, housing: HousingSystem, host: H
       for (const u of unsubs) u();
       unsubs.length = 0;
       clearTimeout(msgTimer);
+      confirmEl.hidden = true; buildEl.hidden = true; syncPopupKey();
       root.remove();
       host.classList.remove('is-ship');
       clear(host);

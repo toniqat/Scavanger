@@ -605,7 +605,7 @@ try {
   await waitSim(0.2);
   let sent = await P(() => ({ log: window.__log(), open: window.__game.getSystem('hud').isChatOpen, target: window.__game.getSystem('hud').chatWhisperTarget }));
   ok(sent.log.at(-1) === 'whisper:CDEF2345,거기 있나', 'Enter sends through social.whisper(code, text)', JSON.stringify(sent.log.slice(-2)));
-  ok(!sent.open, 'the input closes after sending');
+  ok(sent.open, 'the input stays open after sending (2026-09-09: Enter sends, Tab / Esc close)');
   ok(sent.target === 'CDEF2345', 'the target survives the close (the next Enter whispers too)', String(sent.target));
   let lines = await P(() => document.querySelectorAll('.chat-line.whisper').length);
   ok(lines === 0, 'the sender writes no local echo — the mirror answers with social:whisper', String(lines));

@@ -1,5 +1,5 @@
 import './../inventory.css';
-import type { EmbeddedView, GameContext, ItemDef, ItemInstance } from '@/shared';
+import type { EmbeddedView, GameContext, ItemDef, ItemInstance, KeyGuideEntry } from '@/shared';
 import { Keys, QUICK_SLOTS, QUICK_SLOT_LABEL_KO, isQuickSlotActive, keyLabel, renderItemCost } from '@/shared';
 import { ITEM_DEF_MAP, getWeaponDef } from '@/items';
 import type { Container } from '../Container';
@@ -334,10 +334,11 @@ export class InventoryUI {
     root.append(this.tabsEl, this.creditsEl, layout, this.screenHost, this.screenNote, footer,
       this.modelessLayer, this.tooltip.el, this.ghostLayer);
     this.menu = new ContextMenu(root);
-    this.dialog = new SplitDialog(root);
+    // 2026-09-09: the 수량 지정 dialog is its own 키 가이드 owner (`Enter 확인`) stacked over the window's line
+    this.dialog = new SplitDialog(root, (open) => this.ctx.bus.emit('ui:keyGuide', { owner: 'inventory.split', keys: open ? [{ key: 'Enter', label: '확인' }] : null }));
     this.ctx.uiRoot.appendChild(root);
     // key labels follow the live bindings
-    this.ctx.bus.on('input:bindingsChanged', () => this.refreshKeyLabels());
+    this.ctx.bus.on('input:bindingsChanged', () => { this.refreshKeyLabels(); this.emitGuide(); });
     // 2026-09-08: 튜토리얼이 감춘 화면 탭 · 레시피는 단계가 넘어가거나 건너뛰어지는 즉시 돌아온다
     this.ctx.bus.on('tutorial:changed', () => { this.markTab(); this.refresh(); });
   }
@@ -365,6 +366,31 @@ export class InventoryUI {
     this.quickKey.textContent = keyLabel(Keys.QUICK);
     const dz = this.dropZone.querySelector<HTMLElement>('.inv-key-drop');
     if (dz) dz.textContent = keyLabel(Keys.DROP_ITEM);
+  }
+
+  /* ── 키 가이드 (2026-09-09) ────────────────────────────────────────────── */
+
+  /**
+   * Keys the window's active tab really answers to, for the bottom-right 키 가이드 (`ui:keyGuide`, owner
+   * `'inventory'`). Labels are read live (`keyLabel`), so this is re-emitted on `input:bindingsChanged` and on every
+   * tab change; the guide appends `Tab 닫기` itself, so the close key is never listed here. The embedded 캐릭터 / 기업 /
+   * 함선 tabs are mouse-only → `[]` (the guide then shows the close entry alone).
+   */
+  guideKeys(): KeyGuideEntry[] {
+    if (this.activeTab !== 'inventory') return [];
+    return [
+      { key: keyLabel(Keys.ROTATE_ITEM), label: '회전' },
+      // X: 임무에서는 바닥에 버리고, 함선에서는 창고로 보낸다 (`InventorySystem.dropItem`)
+      { key: keyLabel(Keys.DROP_ITEM), label: this.hub ? '창고로' : '버리기' },
+      { key: '우클릭', label: '빠른 이동 · 메뉴' },
+      { key: '휠클릭', label: '요청' },
+    ];
+  }
+
+  /** Emit the window's 키 가이드 line (no-op while hidden — `hide()` sends the `null` instead). */
+  emitGuide(): void {
+    if (!this.visible) return;
+    this.ctx.bus.emit('ui:keyGuide', { owner: 'inventory', keys: this.guideKeys() });
   }
 
   /**
@@ -427,6 +453,7 @@ export class InventoryUI {
     this.root.hidden = false;
     this.visible = true;
     this.refresh();
+    this.emitGuide();
     // force a style flush so the enter transition plays
     void this.root.offsetWidth;
     this.root.classList.add('is-visible');
@@ -436,10 +463,11 @@ export class InventoryUI {
     if (!this.root || !this.visible) return;
     this.visible = false;
     this.cancelDrag();
-    this.closeOverlays();
+    this.closeOverlays();          // the popups / 제작 열 drop their own 키 가이드 owners first …
     this.setTab('inventory');
     this.tooltip.hide();
     this.hovered = null;
+    this.ctx.bus.emit('ui:keyGuide', { owner: 'inventory', keys: null });   // … then the window's line goes
     this.root.classList.remove('is-visible');
     const root = this.root;
     this.closeTimer = window.setTimeout(() => { root.hidden = true; this.closeTimer = null; }, 180);

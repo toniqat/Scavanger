@@ -17,7 +17,7 @@ frame already has real numbers; `NetSystem` still goes first).
 | `derive.ts` | `computeDerived(profile, specialBackpack)` → `DerivedStats`, `xpForLevel(level)`, `DEFAULT_DERIVED`. All tuning constants live here. |
 | `Profile.ts` | `localStorage` load / save / migrate / clear. Every access in `try/catch`. **2026-09-07**: `DEFAULT_IMPLANT` (`'grapple'`) — a fresh profile starts with 갈고리 in the 전술 임플란트 slot instead of an empty one (all six implants are owned from level 1, so an empty slot was just a missed default). Existing saves are untouched. |
 | `ui/SheetBody.ts` | **공용 렌더러** (Phase 8): `CharacterSheetHost` 인터페이스 + `SheetBody` — 헤더 / XP 바 / 능력치 · 숙련도 2단 / 파생 능력치 그리드 / 푸터(캐릭터 초기화)를 넘겨받은 부모 요소 안에 만든다. blocker · 포인터 락 · Esc · `.scr-tabs` 는 **모른다** (껍데기의 몫). `el()` 헬퍼도 여기서 export. |
-| `ui/CharacterSheet.ts` | 단독 오버레이 (`.menu.char-sheet`): `.scr-tabs` + `.frame` + `SheetBody`. Blocker token `'stats'`, 포인터 락, capture-phase Esc. |
+| `ui/CharacterSheet.ts` | 단독 오버레이 (`.menu.char-sheet`): `.scr-tabs` + `.frame` + `SheetBody`. Blocker token `'stats'`, 포인터 락, capture-phase **Tab** 닫기 (2026-09-08). 2026-09-09: 키 가이드 owner `'character'` (`keys: []`). |
 | `ui/SheetView.ts` | 인벤토리 Tab 화면의 **캐릭터 탭** (`EmbeddedView`): `host` 안에 `.cs-embed` + 같은 `SheetBody`. blocker / 락 / Esc / 탭 pill 없음. |
 | `ui/character.css` | Its styles (imported from `CharacterSheet.ts` / `SheetView.ts`); reuses `.menu` / `.ui-*` from `ui/styles/base.css`. |
 | `index.ts` | Barrel. |
@@ -245,6 +245,10 @@ rules, the storage and the UI; items/ the defs and loot; meta/ (세레스 바이
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-09 (키 가이드)** — `ui/CharacterSheet` (단독 오버레이) 가 열릴 때 `ui:keyGuide {owner:'character', keys:[]}`,
+  닫힐 때 `null` 을 보낸다 — 시트는 마우스 전용이라 가이드에는 스스로 붙이는 `Tab 닫기` 만 뜬다. Tab 닫기는 2026-09-08
+  그대로. 인벤토리 Tab 창의 캐릭터 탭(`createSheetView`)은 창의 owner `'inventory'` 가 대신 낸다
 
 - **2026-09-09 (수치 csv 이관)** — `defs.ts` 에 표가 없다. 능력치 5종은 `data/stats.csv`, 숙련도 14종은
   `data/skills.csv`(사격 숙련만 `weaponClass` 칸을 쓴다), 무기→숙련 대응 · 적중당 경험치 · 등급별 감정 경험치는

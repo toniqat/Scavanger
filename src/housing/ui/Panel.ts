@@ -30,14 +30,19 @@ export abstract class HousingPanel {
    * 2026-09-08: these panels hang off a piece of furniture, so **E closes them** — the same key that opened them.
    * Escape is the 일시정지 메뉴 now and is not captured here at all (it stacks over the panel and returns to it).
    * The key is read live from `Keys`, never cached, and ignored while a menu owns the screen above us.
+   * 2026-09-09: **Tab closes them too** (Tab closes every screen). Stopping the event here in the capture phase is
+   * what keeps `Input` from ever recording the press, so the inventory cannot open on it. Unlike E, Tab is taken
+   * even from a focused 프리셋 이름 field — nothing is typed with Tab, and `close()` blurs the field anyway.
    */
   private onKeyCapture = (e: KeyboardEvent): void => {
-    if (!this._open || e.code !== Keys.INTERACT) return;
+    if (!this._open) return;
+    const tab = e.code === Keys.INVENTORY;
+    if (!tab && e.code !== Keys.INTERACT) return;
     if (this.ctx.uiBlockers.has(MENU_BLOCKER)) return;
     // This listener is capture-phase on `window`, so it runs *before* a focused field's own handler: without this
     // the E of a 프리셋 이름 would close the panel instead of being typed.
     const t = e.target;
-    if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) return;
+    if (!tab && (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement)) return;
     e.stopImmediatePropagation();
     e.preventDefault();
     this.close();
@@ -78,6 +83,8 @@ export abstract class HousingPanel {
     this.frame.style.animation = '';
     window.addEventListener('keydown', this.onKeyCapture, true);
     this.refresh();
+    // 2026-09-09 키 가이드: the panels are buttons only, so their line is the guide's own `Tab 닫기` (owner per page)
+    this.ctx.bus.emit('ui:keyGuide', { owner: `housing.${this.page}`, keys: [] });
     this.ctx.bus.emit('ui:housingToggled', { open: true, page: wirePage(this.page) });
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
   }
@@ -92,6 +99,7 @@ export abstract class HousingPanel {
     (document.activeElement as HTMLElement | null)?.blur?.();
     this.ctx.uiBlockers.delete(BLOCKER);
     this.ctx.input.setCursorMode(false, BLOCKER);
+    this.ctx.bus.emit('ui:keyGuide', { owner: `housing.${this.page}`, keys: null });
     this.ctx.bus.emit('ui:housingToggled', { open: false, page: wirePage(this.page) });
   }
 

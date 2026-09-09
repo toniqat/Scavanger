@@ -443,7 +443,7 @@ The seed still decides layout / crates / nests / loot; the **planet** decides th
   a Tab-screen tab since Phase 8), because both listened with `uiBlockers.size === 0`.
 - Voice sliders in the 분대원 panel are **UI only** (`SQUAD_VOICE_DEFAULT`); there is no voice chat.
 - Ownership: `server/` the social store + presence fan-out + `lobby:planet` · `net/` `SocialSync` + the planet wire ·
-  `hub/` the full-screen terminal, planet selection, the travel cutscene and the launch-slot gate · `ui/` the ESC
+  `hub/` the full-screen terminal, planet selection, the travel warp (2026-09-09: in-ship 창문 워프, `hub:warpProgress`) and the launch-slot gate · `ui/` the ESC
   layout (buttons left, social column right), the settings panel, the community icon / invite panels and the whisper
   mode · `world/` planet → biome + herbs · `core/` planet → sky / fog (lead) · `enemies/` the ecosystem.
 
@@ -744,3 +744,12 @@ Plan: `docs/DECISIONS.md`. Everything below is append-only; owners in brackets.
 
 **규칙:** 새 수치는 csv 에 줄을 만들고 여기에는 이름만 낸다. 잘못된 칸은 던지지 않고 기본값으로 굴러가며
 (`dataIssues()` 에 쌓인다), `npm run data:check` 가 그 목록을 보고 실패한다.
+
+- **2026-09-09 (키 가이드 · 창문 워프)** — 전부 **추가만** 했다 (`HUB_TRAVEL_WARP_FRACTION` 하나만 지웠다 — 컷씬이 사라져
+  아무도 읽지 않는다). `events.ts`: `ui:keyGuide {owner, keys|null}` + `KeyGuideEntry {key, label}` — 열린 화면 · 모드가
+  자기 키를 내고 `ui/hud/KeyGuide` 가 우측 하단 한 줄로 그린다, `Tab 닫기` 는 가이드가 스스로 맨 오른쪽에 붙이므로
+  `keys` 에 넣지 않는다; **Tab(`Keys.INVENTORY`)이 모든 화면의 공용 닫기 키**라 Tab 을 먹는 화면은
+  `ctx.input.consume(Keys.INVENTORY)` 한다. `hub:warpProgress {planet, t, speed}` — 행성 이동이 컷씬에서 함선 안
+  창문 워프로 바뀌어 매 프레임 진행도를 낸다(조작은 그대로). `constants.ts`: `HUB_WARP_RAMP_S` · `HUB_WARP_SHAKE_PEAK` ·
+  `HUB_WARP_SHAKE_INTERVAL_S` (csv 에 줄 추가), `HUB_TRAVEL_DURATION` 4.5 → 6. `types.ts` 의 `HubRef.setPlanet` /
+  `travelling` 주석과 `tutorial.ts` 의 `travel` 단계 주석에서 「컷씬」을 지웠다.

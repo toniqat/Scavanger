@@ -124,6 +124,8 @@ export class DisassemblePanel {
     this.shell.open(anchor);
     this.shell.place();
     this.onToggled(true, uid);
+    // 2026-09-09 키 가이드: the 분해 button is a hold; Tab closes this popup before the window
+    this.sys.ctx.bus.emit('ui:keyGuide', { owner: 'inventory.disassemble', keys: [{ key: '홀드', label: '분해' }] });
     return true;
   }
 
@@ -143,6 +145,7 @@ export class DisassemblePanel {
     this.recipe = null;
     this.hideMsg();
     this.onToggled(false, uid);
+    this.sys.ctx.bus.emit('ui:keyGuide', { owner: 'inventory.disassemble', keys: null });
   }
 
   /** Repaint the chips / affordability. Called on open and from the window's `refresh()`. */

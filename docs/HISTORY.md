@@ -46,6 +46,27 @@ Phase 0 – 12 는 전부 구현 완료다 (2026-09-05 ~ 2026-09-08). 각 단계
 
 최신순. 새 항목은 이 섹션 맨 위에 추가한다.
 
+- 2026-09-09 (대화 UI · 창문 워프 · 키 가이드): 사용자 요청 세 묶음을 계약 먼저(`src/shared` 커밋) → 폴더 소유권을 나눈
+  에이전트 3개(ui / hub 워프 / 화면들)로 나눠 구현했다.
+  **대화 UI** (`ui/hud/ChatLog`): 로그가 길어지면 중간쯤이 보이던 원인은 `close()` 가 300px 패널을 닫힌 높이로 줄일 때
+  스크롤 컨테이너가 `scrollTop` 값을 지키느라 최신 130px 이 밀려난 것(+ 웹폰트 스왑으로 줄 높이가 늦게 바뀜) —
+  add/open/close/`fonts.ready`/`ResizeObserver` 에서 다시 바닥에 붙인다. 닫힌 상태는 한 줄을 실측해 **3.5줄**
+  (`--chat-closed-h`)만 보이고, Enter 는 보내고 **입력창을 그대로 둔다**(행 노드 재사용, 재애니메이션 없음),
+  Tab 도 닫는다(Esc 유지), 입력창 맨 오른쪽에 `Tab 키로 닫기` 힌트가 `flex:none` 으로 붙어 텍스트에 가려지지 않는다.
+  **창문 워프** (`hub/parts/Planet.ts` · `interiors/WarpStreaks.ViewportWarp`): 행성 이동은 더는 컷씬이 아니다 —
+  `DockingCutscene` 의 `'travel'` 방향을 지웠고, 함선 창밖 별(`Starfield`)이 사라지며 `WarpStreaks` 가 이동 방향으로
+  늘어나고(`HUB_TRAVEL_WARP_STRETCH × speed`), 행성 구체는 사라졌다가 새 색으로 돌아온다. `speed` 는
+  `HUB_WARP_RAMP_S`(1.6 s) smoothstep 상승 → 순항 → 하강, 매 프레임 `hub:warpProgress`, 셰이크는
+  `HUB_WARP_SHAKE_INTERVAL_S` 마다 `HUB_WARP_SHAKE_PEAK × speed` (약→강→약). 길이 `HUB_TRAVEL_DURATION` 4.5→**6 s**,
+  조작은 살아 있어 이동 중에도 걸어 다닌다(포드 · 터미널만 `이동 중` 거부). 토스트 `<행성> 행성으로 이동합니다`.
+  `audio/` 에 `speed` 를 따르는 워프 험이 붙었다. 개인 → 공유 함선 도킹 컷씬은 그대로다.
+  **키 가이드** (`ui/hud/KeyGuide` · `ui:keyGuide {owner, keys|null}`): 우측 하단 한 줄, 키캡 강조, 소유자 스택(팝업이
+  화면 위에 오면 팝업 키가 보인다), `Tab 닫기` 는 가이드가 맨 오른쪽에 스스로 붙인다. **Tab 이 공용 닫기 키** —
+  Tab 화면(+ 제작 열 · 수리 · 분해 · 수량 팝업 순서대로) · 터미널 · 정비 벤치 · 시설 관리 모드 · 하우징 팝업 ·
+  지도 · 커뮤니티 · 분대원 장비 팝업이 Tab 으로 닫히고 자기 키(E · M · P)도 그대로 닫는다. ESC 메뉴는 제외.
+  `ui/hud/HousingHint` 삭제(시설 관리 키 줄은 HousingMode 가 owner `housing` 으로 낸다). 포드 하차는 Tab 에 두지
+  않았다(탑승 중 Tab 은 가방). 스모크 `smoke-ui-p6` · `smoke-planets` 를 새 구조에 맞게 고쳤다.
+
 - 2026-09-09 (수치를 csv 로): 밸런스 숫자가 `src/` 전체에 흩어져 있어 한 값을 만지려면 어느 TS 파일에 있는지부터
   찾아야 했다. **게임 안의 모든 수치를 프로젝트 루트 `data/` 의 csv 35개로 옮겼다** — 데미지 · 체력 · 가격 ·
   확률 · 쿨다운 · 무게 · 격자 크기까지. 코드에는 같은 숫자가 남아 있지 않고, TS 는 csv 줄을 자기 타입으로

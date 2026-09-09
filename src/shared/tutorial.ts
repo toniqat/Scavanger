@@ -31,7 +31,7 @@ export type TutorialStepId =
   | 'stowAmmo'     // 탄약을 가방에 넣기
   | 'terminal'     // 조종석 터미널 상호작용
   | 'planet'       // 목표 행성 지정 (1번 행성만)
-  | 'travel'       // 행성 이동 컷씬 종료 대기
+  | 'travel'       // 행성 이동(창문 워프) 종료 대기
   | 'board'        // 발사 슬롯 탑승
   | 'raid';        // 레이드 시작 — 탈출구 인디케이터를 강조하고 끝난다
 

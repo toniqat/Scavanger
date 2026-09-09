@@ -41,7 +41,8 @@ export function enter(sys: HubSystem, requested: HubShipKind): void {
   if (requested !== ship) console.info(`[hub] hub:enter ${requested} → ${ship} (lobby ${ctx.net?.lobby ? 'present' : 'absent'})`);
   const phase = ctx.phase;
   if (phase !== 'menu' && phase !== 'hub' && phase !== 'docking') ctx.bus.emit('game:abort', {});   // abort the mission / result screen first
-  if (sys.cutscene) { sys.cutscene.dispose(); sys.cutscene = null; sys.travelling = false; }
+  if (sys.cutscene) { sys.cutscene.dispose(); sys.cutscene = null; }
+  sys.cancelTravel();                                                          // a 창문 워프 in flight does not survive a re-entry
   if (sys.interior && sys.ship === ship && ctx.phase === 'hub') return;      // idempotent
   sys.disposeInterior();
   const spawn = sys.build(ship, false);
@@ -90,8 +91,9 @@ export function startTransition(sys: HubSystem, direction: DockTransition): void
   const ctx = sys.ctx;
   if (sys.cutscene) {
     if (sys.cutscene.direction === direction) return;
-    sys.cutscene.dispose(); sys.cutscene = null; sys.travelling = false;
+    sys.cutscene.dispose(); sys.cutscene = null;
   }
+  sys.cancelTravel();             // the docking cutscene takes the camera; a 창문 워프 in flight is dropped with the interior
   if (sys.boardedSlot >= 0) sys.leavePod(false, false);
   sys.visit = null; sys.visitShip = null; sys.pendingBay = null;   // 격납고: a docking transition always leaves a visit
   sys.menu.close(false);
@@ -107,7 +109,7 @@ export function startTransition(sys: HubSystem, direction: DockTransition): void
 
 export function finishTransition(sys: HubSystem, direction: DockTransition): void {
   const ctx = sys.ctx;
-  sys.cutscene?.dispose(); sys.cutscene = null; sys.travelling = false;
+  sys.cutscene?.dispose(); sys.cutscene = null; sys.cancelTravel();
   const target: HubShipKind = direction === 'dock' && ctx.net?.lobby ? 'shared' : 'personal';
   const spawn = sys.build(target, target === 'shared');
   ctx.setPhase('hub');
@@ -119,7 +121,7 @@ export function finishTransition(sys: HubSystem, direction: DockTransition): voi
 /** Swap interiors without a cutscene (resume after reload / seamless cases). */
 export function swapDirect(sys: HubSystem, target: HubShipKind): void {
   const ctx = sys.ctx;
-  sys.cutscene?.dispose(); sys.cutscene = null; sys.travelling = false;
+  sys.cutscene?.dispose(); sys.cutscene = null; sys.cancelTravel();
   if (sys.boardedSlot >= 0) sys.leavePod(false, false);
   sys.visit = null; sys.visitShip = null; sys.pendingBay = null;   // 격납고: a direct swap always leaves a visit
   sys.menu.close(false);
@@ -148,7 +150,7 @@ export function boardShip(sys: HubSystem, peerId: PeerId | null, slot: number): 
     ctx.bus.emit('ui:notify', { text: '함선 정보를 받지 못했습니다', kind: 'warning' });
     return;
   }
-  sys.cutscene?.dispose(); sys.cutscene = null; sys.travelling = false;
+  sys.cutscene?.dispose(); sys.cutscene = null; sys.cancelTravel();
   sys.pendingBay = null;
   if (sys.boardedSlot >= 0) sys.leavePod(false, false);
   sys.menu.close(false);
@@ -170,7 +172,7 @@ export function leaveShip(sys: HubSystem): void {
   const ctx = sys.ctx;
   const visit = sys.visit;
   if (!visit) return;
-  sys.cutscene?.dispose(); sys.cutscene = null; sys.travelling = false;
+  sys.cutscene?.dispose(); sys.cutscene = null; sys.cancelTravel();
   sys.menu.close(false);
   sys.wbMenu.close(false);
   sys.ready.hide();

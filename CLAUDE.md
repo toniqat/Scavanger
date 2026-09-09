@@ -115,9 +115,9 @@ start-server.bat relay   # 릴레이만 (npm run server, 0.0.0.0:8787) — 데�
 
 | 폴더 | 시스템 | `ctx` 게시 | 한 줄 책임 |
 |---|---|---|---|
-| [`src/hub/`](src/hub/README.md) | `HubSystem` | `ctx.hub` | 개인/공유 함선 내부 · **격납고(개인 함선 4대 정박 · 방문)** · 도킹 & 워프 컷씬 · 발사 포드(출격 준비 경고) · 전체화면 터미널 · 행성 선택 · 작업대 · 시설 관리 모드 |
+| [`src/hub/`](src/hub/README.md) | `HubSystem` | `ctx.hub` | 개인/공유 함선 내부 · **격납고(개인 함선 4대 정박 · 방문)** · 도킹 컷씬 · **창문 워프(행성 이동, 조작 유지)** · 발사 포드(출격 준비 경고) · 전체화면 터미널 · 행성 선택 · 작업대 · 시설 관리 모드 |
 | [`src/game/`](src/game/README.md) | `GameFlowSystem` | `ctx.phase` | 페이즈 상태 기계 · 사망/부활 · 레이드 실패 · **일시정지(ESC = 항상 열기, `escapePause`)** · 재접속 UX · 레이드 세션 저장/복귀 · 재개 게이트 |
-| [`src/ui/`](src/ui/README.md) | `HudSystem` | — | 모든 DOM UI — HUD 2계층 · 메뉴(설정 3분할, **ESC = 경고 팝업 뒤의 파티 떠나기 · 타이틀로 · 게임 종료**) · 지도 · 채팅 · 소셜(커뮤니티 패널 단일, **고정 크기**) · 아이템 툴팁 · 커서 아트 · 스타일시트 |
+| [`src/ui/`](src/ui/README.md) | `HudSystem` | — | 모든 DOM UI — HUD 2계층 · 메뉴(설정 3분할, **ESC = 경고 팝업 뒤의 파티 떠나기 · 타이틀로 · 게임 종료**) · 지도 · 채팅(**Enter 전송 후 유지 · Tab 닫기**) · **우측 하단 키 가이드(`ui:keyGuide`)** · 소셜(커뮤니티 패널 단일, **고정 크기**) · 아이템 툴팁 · 커서 아트 · 스타일시트 |
 | [`src/audio/`](src/audio/README.md) | `AudioSystem` | `ctx.audio` | 절차 WebAudio SFX 전량 + 앰비언트, 버스 이벤트에 반응, 볼륨 영속화 |
 | [`src/tutorial/`](src/tutorial/README.md) | `TutorialSystem` | `ctx.tutorial` | 새 캐릭터 안내 17단계 — 목표 패널 · UI 스포트라이트(**합집합 포커싱**) · 바닥 안내선, 순서 강제 게이트(`blockReason`) + **잠긴 항목 숨김**(`hides`) |
 | [`src/console/`](src/console/README.md) | `ConsoleSystem` | `ctx.console` | 개발자 콘솔 + 치트 (**dev 호스트에서만** 존재 — 그 외에는 DOM 도 키도 없다) |
@@ -159,6 +159,12 @@ start-server.bat relay   # 릴레이만 (npm run server, 0.0.0.0:8787) — 데�
   메뉴는 그 위에 쌓인다 — 닫는 것은 `게임으로 돌아가기` 클릭뿐이다. 가장 안쪽 팝업만 Escape 를 먼저 먹는다.
   그 예외에 **하우징 모드**(`hub/HousingMode`)가 들어간다 — 화면이 아니라 카메라와 조작을 통째로 가져가는
   **모드**라, Escape 는 C 와 똑같이 모드를 취소한다 (일시정지 메뉴가 그 위에 쌓이지 않는다).
+- **Tab 은 모든 화면 · 모드의 공용 닫기 키다** (2026-09-09). 자기를 연 키(E · M …)로도 여전히 닫히지만 Tab 도 닫는다 —
+  Tab 을 먹는 화면은 `ctx.input.consume(Keys.INVENTORY)` 로 인벤토리가 같은 키에 열리지 않게 한다. 열린 화면은
+  `ui:keyGuide {owner, keys}` 를 내보내 **우측 하단 한 줄 키 가이드**(`ui/hud/KeyGuide`)에 자기 키를 올리고, 닫을 때
+  `keys:null` 을 보낸다. `Tab 닫기` 항목은 가이드가 스스로 맨 오른쪽에 붙이므로 `keys` 에 넣지 않는다. ESC 메뉴는 예외(가이드 없음).
+- **행성 이동은 컷씬이 아니다** (2026-09-09). 함선 창문 밖의 별이 줄기로 늘어나는 **창문 워프**(`hub:warpProgress`)이고
+  조작은 그대로 살아 있다 — 이동 중에도 함선 안을 걸어 다닌다. 개인 → 공유 함선 **도킹 컷씬은 그대로**다.
 - **일시정지 메뉴는 커서를 찾아간다** (2026-09-08). 페이지는 OS 커서를 옮길 수 없으므로 메뉴가 움직인다 —
   `ui/menus/PauseMenu` 가 `게임으로 돌아가기` 버튼 안(중앙보다 살짝 오른쪽)에 화면 한가운데가 오도록 자리를 잡는다.
 

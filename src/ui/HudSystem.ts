@@ -1,4 +1,4 @@
-import type { GameContext, GameSystem, LobbyState, RemotePlayerRef, SocialSnapshot, SquadInvite } from '@/shared';
+import type { GameContext, GameSystem, KeyGuideEntry, LobbyState, RemotePlayerRef, SocialSnapshot, SquadInvite } from '@/shared';
 import { el, toggleClass } from './dom';
 import { Reticle } from './hud/Reticle';
 import { Vitals } from './hud/Vitals';
@@ -39,7 +39,7 @@ import { ActionFeedback } from './hud/ActionFeedback';
 import { WeaponChargeGauge } from './hud/WeaponChargeGauge';
 import { StatusMarkers } from './hud/StatusMarkers';
 import { CheatTag } from './hud/CheatTag';
-import { HousingHint } from './hud/HousingHint';
+import { KeyGuide } from './hud/KeyGuide';
 import { ItemTip } from './hud/ItemTip';
 import { GameCursor } from './hud/GameCursor';
 import { ShipManage } from './hud/ShipManage';
@@ -74,8 +74,11 @@ import type { RewardsBlock } from './menus/RewardsBlock';
  * ring), `TargetingHud` (toggles `.hud.targeting` on the gameplay root, which hides the reticle) and `OffscreenIndicators`
  * (edge arrows for grenades / squad pings / incoming calls).
  * Phase 6: `WeaponChargeGauge` (unique-weapon charge / spin-up / slash arc) and `StatusMarkers` (🔥 전소 / ⚡ world markers)
- * in the gameplay layer; `CheatTag` (`MOVE CHEAT`) and `RoomLabel` (`방 n · 용도`) in the social layer; `HousingHint` in its
- * own `.hud.housing` layer (placement hints while the ship housing mode is active).
+ * in the gameplay layer; `CheatTag` (`MOVE CHEAT`) and `RoomLabel` (`방 n · 용도`) in the social layer; the `.hud.housing`
+ * layer (2026-09-09: `HousingHint` is gone — hub/HousingMode emits `ui:keyGuide` and the `KeyGuide` draws it).
+ * 2026-09-09: `KeyGuide` (`.key-guide`, bottom-right one-liner `R 회전 · X 버리기 · Tab 닫기` for the topmost open
+ * screen, fed by `ui:keyGuide`) is a direct child of `ctx.uiRoot` like `ItemTip`, so it floats over every window in
+ * both hub and gameplay phases; `keyGuide.update()` polls the `'menu'` blocker each frame.
  * Phase 5: `ContractPanel` (active corp contract under the objective) in the gameplay layer; `MetaToasts` (credits chip /
  * reputation level / contract settlement) share the `ProgressToasts` column in the social layer; quest / purchase / sale
  * lines go through `Notifications`; the result screens carry a `RewardsBlock`; the title menu a `Lv. n` chip.
@@ -147,7 +150,7 @@ export class HudSystem implements GameSystem {
   private wcharge!: WeaponChargeGauge;
   private statusMarkers!: StatusMarkers;
   private cheatTag!: CheatTag;
-  private housingHint!: HousingHint;
+  private keyGuide!: KeyGuide;
   private roomLabel!: RoomLabel;
   /* Phase 8 (ship UX) */
   private shipManage!: ShipManage;
@@ -237,16 +240,17 @@ export class HudSystem implements GameSystem {
     // Phase 11: the 커뮤니티 thumbnail + 분대 초대 panels — ship only, self-gated on `ctx.isHubPhase()`.
     this.community = new Community(this.socialRoot, this.cutscene);
 
-    // Housing-mode layer: its own `.hud.housing` root (always attached; the hint bar toggles `.show` itself) so the
-    // placement hints are visible in the ship where the gameplay HUD is hidden.
+    // Housing layer: its own `.hud.housing` root (always attached) so the 시설 관리 screen is visible in the ship where
+    // the gameplay HUD is hidden. (The housing hint bar that used to live here was replaced by `KeyGuide`, 2026-09-09.)
     this.housingRoot = el('div', { cls: 'hud housing', parent: ctx.uiRoot });
-    this.housingHint = new HousingHint(this.housingRoot);
-    // Phase 8: the 함선 관리 screen (방 목록 + 가구 카드 바) shares that layer so it survives the same gating.
+    // Phase 8: the 함선 관리 screen (방 목록 + 가구 카드 바) lives in that layer so it survives the same gating.
     this.shipManage = new ShipManage(this.housingRoot);
 
     // 재료 요구 칩 hover card: a direct child of `#ui-root` so it floats over the inventory window, the 함선 관리
     // screen and every menu — it delegates on `.item-chip[data-def-id]` wherever a chip is rendered.
     this.itemTip = new ItemTip(ctx.uiRoot);
+    // 키 가이드 (2026-09-09): same placement rationale — the bottom-right one-liner must sit over every open screen.
+    this.keyGuide = new KeyGuide(ctx.uiRoot);
     // 인게임 마우스 커서 sprite: same placement rationale as the item card — over every window, layer and menu.
     this.gameCursor = new GameCursor();
 
@@ -272,7 +276,7 @@ export class HudSystem implements GameSystem {
     this.scanTracker.bind(ctx);
     this.cutscene.bind(ctx);
     for (const c of [this.implantWidget, this.implantChip, this.quickStrip, this.detection, this.scanReveal, this.deployables, this.progressToasts, this.actionFx]) c.bind(ctx);
-    for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.housingHint, this.roomLabel, this.shipManage, this.shipHint, this.itemTip]) c.bind(ctx);
+    for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.roomLabel, this.shipManage, this.shipHint, this.itemTip, this.keyGuide]) c.bind(ctx);
     for (const c of [this.reload, this.heal, this.hold, this.gameCursor]) c.bind(ctx);
     for (const c of [this.contractPanel, this.trainingPanel, this.metaToasts]) c.bind(ctx);
     this.community.bind(ctx);
@@ -341,6 +345,8 @@ export class HudSystem implements GameSystem {
     this.shipHint.update(ctx);
     // 커뮤니티: same self-gating, plus the P-hold on a 분대 초대 (it needs dt).
     this.community.update(dt, ctx);
+    // 키 가이드: hides under the 일시정지 메뉴 (one blocker lookup per frame).
+    this.keyGuide.update();
     this.contractPanel.update(ctx);
     this.trainingPanel.update(ctx);
     this.metaToasts.update(dt);
@@ -391,7 +397,11 @@ export class HudSystem implements GameSystem {
   /** Whether the `MOVE CHEAT` tag is on (debug). */
   get isMoveCheatTagOn(): boolean { return this.cheatTag.isOn; }
   /** Whether the housing hint bar is showing (debug). */
-  get isHousingHintOn(): boolean { return this.housingHint.isActive; }
+  /** 키 가이드 (2026-09-09): owner on top of the stack / entries as rendered (close entry last) / visibility. */
+  get keyGuideOwner(): string | null { return this.keyGuide.owner; }
+  get keyGuideOwners(): readonly string[] { return this.keyGuide.owners; }
+  get keyGuideEntries(): readonly KeyGuideEntry[] { return this.keyGuide.entries; }
+  get isKeyGuideOn(): boolean { return this.keyGuide.isShowing; }
   /** Whether the room label is up (debug). */
   get isRoomLabelOn(): boolean { return this.roomLabel.isShowing; }
   /** Whether the 설정 overlay is open / which of its three sections the right pane shows (debug). */
@@ -518,7 +528,7 @@ export class HudSystem implements GameSystem {
     for (const c of [this.implantWidget, this.implantChip, this.quickStrip, this.detection, this.scanReveal, this.deployables, this.progressToasts, this.actionFx]) c.dispose();
     this.scanTracker.dispose();
     this.cutscene.dispose();
-    for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.housingHint, this.roomLabel, this.shipManage, this.shipHint, this.itemTip]) c.dispose();
+    for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.roomLabel, this.shipManage, this.shipHint, this.itemTip, this.keyGuide]) c.dispose();
     for (const c of [this.reload, this.heal, this.hold, this.gameCursor]) c.dispose();
     for (const c of [this.contractPanel, this.trainingPanel, this.metaToasts]) c.dispose();
     this.community.dispose();

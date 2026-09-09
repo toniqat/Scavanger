@@ -30,6 +30,11 @@ import type { CutsceneWatch } from './CutsceneWatch';
  * **Phase 12:** hidden for the length of a docking / warp cutscene (`CutsceneWatch` — `hub:docking` / `hub:travel`
  * start → end, phase `'docking'`, `ctx.hub.travelling`); the phase check alone missed the warp, whose phase stays
  * `'hub'`. The open panel closes when a cutscene starts.
+ *
+ * **2026-09-09:** **Tab (`Keys.INVENTORY`) closes the panel too** (consumed so the inventory does not open — its own
+ * guard already refuses while `COMMUNITY_BLOCKER` is up), and the open panel emits `ui:keyGuide {owner:'community'}`
+ * (`우클릭 메뉴` · `P 닫기`; re-emitted on `input:bindingsChanged`, `null` on close) for the bottom-right 키 가이드,
+ * which appends `Tab 닫기` itself.
  */
 export class Community {
   readonly root: HTMLElement;
@@ -94,7 +99,7 @@ export class Community {
       ctx.bus.on('social:invited', () => { this.inviteKey = ''; }),
       ctx.bus.on('social:inviteClosed', () => { this.inviteKey = ''; this.held = 0; }),
       // The 닫기 label and the invite hint both name the live `Keys.INVITE` — never cache a key label.
-      ctx.bus.on('input:bindingsChanged', () => { this.inviteKey = ''; this.refreshKeyLabels(); }),
+      ctx.bus.on('input:bindingsChanged', () => { this.inviteKey = ''; this.refreshKeyLabels(); if (this._open) this.emitGuide(); }),
       ctx.bus.on('game:phaseChanged', () => { if (this._open && !ctx.isHubPhase()) this.close(); }),
       ctx.bus.on('game:newMission', () => { if (this._open) this.close(); }),
     );
@@ -124,6 +129,11 @@ export class Community {
       if (!on) this.held = 0;
     }
     if (this._open && (!ctx.isHubPhase() || cutscene)) this.close();
+    // 2026-09-09: Tab closes every screen (the 일시정지 메뉴 stacked on top keeps it, like P below).
+    if (this._open && free && ctx.input.wasPressed(Keys.INVENTORY)) {
+      ctx.input.consume(Keys.INVENTORY);
+      this.close();
+    }
     if (!on && !this._open) return;
 
     const social = socialOf(ctx);
@@ -168,6 +178,17 @@ export class Community {
 
   private refreshKeyLabels(): void {
     if (this.closeBtn) setText(this.closeBtn, `닫기 (${keyLabel(Keys.INVITE)})`);
+  }
+
+  /** 키 가이드 entries for the open panel (the guide appends `Tab 닫기` itself; P is the panel's own close key). */
+  private emitGuide(): void {
+    this.ctx.bus.emit('ui:keyGuide', {
+      owner: 'community',
+      keys: [
+        { key: '우클릭', label: '메뉴' },
+        { key: keyLabel(Keys.INVITE), label: '닫기' },
+      ],
+    });
   }
 
   private applyHold(): void {
@@ -218,6 +239,7 @@ export class Community {
       ? `내 아이디 ${formatPlayerCode(social.me.code)}`
       : SOCIAL_UNAVAILABLE_KO);
     this.column.refresh(true);
+    this.emitGuide();
     ctx.bus.emit('ui:communityToggled', { open: true });
     ctx.bus.emit('audio:play', { id: 'ui_click' });
   }
@@ -230,6 +252,7 @@ export class Community {
     this.column.contextMenu?.close();
     ctx.uiBlockers.delete(COMMUNITY_BLOCKER);
     ctx.input.setCursorMode(false, COMMUNITY_BLOCKER);
+    ctx.bus.emit('ui:keyGuide', { owner: 'community', keys: null });
     ctx.bus.emit('ui:communityToggled', { open: false });
   }
 

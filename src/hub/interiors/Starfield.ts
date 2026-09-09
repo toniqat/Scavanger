@@ -6,6 +6,9 @@ function rng(seed: number): () => number {
   return () => { s = (s + 0x6d2b79f5) >>> 0; let t = s; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 }
 
+/** The point stars' resting opacity (`setOpacity(1)`). */
+const STARFIELD_BASE_OPACITY = 0.95;
+
 /**
  * Procedural starfield: a sphere of `count` points around `center`, drawn without size attenuation
  * so it reads the same through viewports and in the docking cutscene. Rotates very slowly.
@@ -36,11 +39,21 @@ export class Starfield {
     this.geo = new THREE.BufferGeometry();
     this.geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     this.geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-    this.mat = new THREE.PointsMaterial({ size: 1.7, sizeAttenuation: false, vertexColors: true, transparent: true, opacity: 0.95, depthWrite: false, fog: false });
+    this.mat = new THREE.PointsMaterial({ size: 1.7, sizeAttenuation: false, vertexColors: true, transparent: true, opacity: STARFIELD_BASE_OPACITY, depthWrite: false, fog: false });
     this.points = new THREE.Points(this.geo, this.mat);
     this.points.frustumCulled = false;
     this.points.name = 'HubStarfield';
     this.spin = spin;
+  }
+
+  /**
+   * 0..1 fade (창문 워프, 2026-09-09): the point stars give way to `WarpStreaks` as the warp speed rises. Scales the
+   * material's own opacity and hides the object at 0 so an invisible field costs no draw call.
+   */
+  setOpacity(o: number): void {
+    const k = THREE.MathUtils.clamp(o, 0, 1);
+    this.mat.opacity = STARFIELD_BASE_OPACITY * k;
+    this.points.visible = k > 0.01;
   }
 
   update(dt: number): void {

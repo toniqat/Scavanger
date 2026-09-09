@@ -1,5 +1,5 @@
 import type { GameContext, ItemInstance, LoadoutSlot } from '@/shared';
-import { WEAPON_DEFAULT_DURABILITY } from '@/shared';
+import { Keys, MENU_BLOCKER, WEAPON_DEFAULT_DURABILITY } from '@/shared';
 import { el, setText, toggleClass } from './dom';
 
 /** What the menu needs from HubSystem. */
@@ -26,6 +26,8 @@ interface WeaponRow {
  * with a durability bar, the repair cost from `ctx.loot.getRepairCost`, a `수리` button → `ctx.inventory.repairWeapon`,
  * and `모두 수리`. Same pointer-lock etiquette + `'hub'` blocker token as `HubMenu`; emits `hub:workbenchToggled`.
  * Everything is null-guarded against `ctx.inventory` / `ctx.loot` (built by other folders).
+ * 2026-09-09: closes on **Tab** as well as E (polled in `update()`, consumed — see `HubMenu.update`), and owns the
+ * 키 가이드 line while open (owner `'workbench'`, `keys: []` — the bench is buttons only, so the guide shows `Tab 닫기`).
  */
 export class WorkbenchMenu {
   readonly root: HTMLElement;
@@ -89,6 +91,7 @@ export class WorkbenchMenu {
     this.frame.style.animation = '';
     this.hint.hidden = true;
     this.render();
+    this.ctx.bus.emit('ui:keyGuide', { owner: 'workbench', keys: [] });
     this.ctx.bus.emit('hub:workbenchToggled', { open: true });
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
   }
@@ -100,6 +103,7 @@ export class WorkbenchMenu {
     (document.activeElement as HTMLElement | null)?.blur?.();
     this.ctx.uiBlockers.delete('hub');
     this.ctx.input.setCursorMode(false, 'hub');
+    this.ctx.bus.emit('ui:keyGuide', { owner: 'workbench', keys: null });
     this.ctx.bus.emit('hub:workbenchToggled', { open: false });
     if (relock) this.host.onClosed();
   }
@@ -244,6 +248,11 @@ export class WorkbenchMenu {
 
   update(): void {
     if (this.hintTimer > 0 && !this.hint.hidden && performance.now() > this.hintTimer) { this.hint.hidden = true; this.hintTimer = 0; }
+    // 2026-09-09: Tab closes the bench (consumed before `InventorySystem` polls it); the 일시정지 메뉴 keeps the key
+    if (this._open && this.ctx.input.wasPressed(Keys.INVENTORY) && !this.ctx.uiBlockers.has(MENU_BLOCKER)) {
+      this.ctx.input.consume(Keys.INVENTORY);
+      this.close();
+    }
   }
 
   private button(parent: HTMLElement, label: string, onClick: () => void, extraCls = ''): HTMLButtonElement {

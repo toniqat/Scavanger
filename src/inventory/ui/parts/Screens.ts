@@ -63,6 +63,7 @@ export function setTab(sys: InventoryUI, tab: ScreenTab): void {
     sys.layout.hidden = false;
     sys.screenHost.hidden = true;
     sys.markTab();
+    sys.emitGuide();               // 2026-09-09: the 키 가이드 line follows the tab
     return;
   }
   const view = sys.buildScreenView(tab);
@@ -74,6 +75,7 @@ export function setTab(sys: InventoryUI, tab: ScreenTab): void {
     sys.screenNote.hidden = false;
     sys.screenNote.textContent = TEXT.tabs.unavailable(SCREEN_TABS.find((t) => t.id === tab)?.label ?? '');
     sys.markTab();
+    sys.emitGuide();
     sys.sys.sfx('ui_error');
     return;
   }
@@ -83,6 +85,7 @@ export function setTab(sys: InventoryUI, tab: ScreenTab): void {
   sys.screenHost.hidden = false;
   view.refresh();
   sys.markTab();
+  sys.emitGuide();
   }
 
 /** `createSheetView` / `createCorpView` / `createShipView`; null when that system is not present. */
@@ -154,12 +157,15 @@ export function toggleCraft(sys: InventoryUI): void {
  * `openBag` 단계가 그 순서를 그대로 안내한다.
  */
 export function setCraftOpen(sys: InventoryUI, open: boolean): void {
+  const was = sys.craftPanel.isOpen;
   sys.craftPanel.setOpen(open);
   if (open) sys.disassemble.close();
   else sys.repair.close();          // 수리 팝업은 작업대에 붙어 있다 — 작업대를 떠나면 같이 닫힌다
   sys.layout?.classList.toggle('is-craft', open);
   sys.root?.classList.toggle('is-craft', open);
   if (open) sys.craftPanel.refresh();
+  // 2026-09-09 키 가이드: the 제작 열 is its own owner over the window's line — every recipe is a 1 s hold on its button
+  if (was !== open) sys.ctx.bus.emit('ui:keyGuide', { owner: 'inventory.craft', keys: open ? [{ key: '1초 홀드', label: '제작' }] : null });
   }
 
 /** The panel's 닫기 button / Escape / an outside click: leave the bench too when one is active. */

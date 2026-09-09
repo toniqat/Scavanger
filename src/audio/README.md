@@ -8,7 +8,7 @@ Import via `@/audio` → `AudioSystem`, `Synth`, `SOUNDS`, `SOUND_IDS`.
 
 | File | Purpose |
 |---|---|
-| `AudioSystem.ts` | `GameSystem` (`name: 'audio'`). Plays `audio:play {id, position?, volume?, pitch?}` (positional → equal-power panner, inverse distance, listener follows `ctx.camera` each frame). Auto-hooks events whose owners do not send audio themselves (see below). Dedupe: the same id from an explicit `audio:play` and an auto-hook within 100 ms plays once. Rate limit: max 8 identical ids per 100 ms. Ambience: wind/planet drone (looped noise → LFO-swept lowpass + 42 Hz sub), tension pulse during `extracting`/`shipLanded` (tremolo rate rises as the countdown runs out), ship engine hum while the ship is present (fades 8 s after liftoff), **ship-interior hum + ventilation** while in the hub (see below). Master ducks to 25 % while paused. **Phase 8**: implements `AudioRef` and publishes `ctx.audio` (volume settings, see below). |
+| `AudioSystem.ts` | `GameSystem` (`name: 'audio'`). Plays `audio:play {id, position?, volume?, pitch?}` (positional → equal-power panner, inverse distance, listener follows `ctx.camera` each frame). Auto-hooks events whose owners do not send audio themselves (see below). Dedupe: the same id from an explicit `audio:play` and an auto-hook within 100 ms plays once. Rate limit: max 8 identical ids per 100 ms. Ambience: wind/planet drone (looped noise → LFO-swept lowpass + 42 Hz sub), tension pulse during `extracting`/`shipLanded` (tremolo rate rises as the countdown runs out), ship engine hum while the ship is present (fades 8 s after liftoff), **ship-interior hum + ventilation** while in the hub (see below), **창문 워프 drive hum** following `hub:warpProgress.speed` (2026-09-09, see below). Master ducks to 25 % while paused. **Phase 8**: implements `AudioRef` and publishes `ctx.audio` (volume settings, see below). |
 | `Synth.ts` | `Synth` primitives (`tone()`, `noise()`, `envelope()`, `click()` metallic transient, `tail()` staggered reverberant noise) and the `SOUNDS` library: `Record<id, (synth, dest, t0, pitch) => duration>`. |
 | `index.ts` | Barrel. |
 
@@ -77,6 +77,13 @@ The hub is **not gameplay**: while `hubActive` (set on `hub:entered`, cleared on
 noise through a 0.09 Hz-swept bandpass for ventilation) fades to 0.15 in the hub and 0.22 with a brighter filter during `docking`.
 `hub:entered` / phase `hub` also reset `shipPresent` / `engineTarget` / `liftoffTimer` so a mission's ship never hums into the hub.
 
+**창문 워프 drive (`amb.warp`, 2026-09-09)**: two detuned saws (38 / 38.7 Hz) + a 19 Hz sub sine + a 1.4 kHz bandpassed noise
+"rush" → lowpass (Q 1.6) → gain, all on `ambBus`. Every frame the targets follow the last `hub:warpProgress.speed` (0..1):
+gain `0 → 0.22`, filter `180 → 1600 Hz`, pitch `38 → 90 Hz`, rush `0 → 0.55` — so the hum rises over the warp's ramp-up,
+holds, and falls with the ramp-down. The speed is forgotten `WARP_HUM_HOLD_S` (0.3 s) after the last progress event and on
+`hub:travel {end}` / `hub:left`, so a warp cancelled mid-flight (interior torn down) fades out on its own. Silent outside the hub.
+The one-shots at the ends of a trip (`hub_dock_thrusters` / `hub_dock_clamp`) are sent by `hub/` itself.
+
 ## Auto-hooked events → id
 `player:damaged`→player_hurt · `player:died`→player_death · `player:footstep`→footstep · `player:stimUsed`→stim ·
 `player:landed`→hellpod_impact · `player:dived`→roll (Phase 7: the legacy `dive` one-shot no longer doubles it) · `player:staminaDepleted`→stamina_depleted · `player:stanceChanged`→stance_change (pitch by stance) ·
@@ -92,7 +99,7 @@ Gunshots are **not** auto-hooked — WeaponSystem sends `audio:play shot_*` (inc
 Appended (ship hub / chat / pickups / reconnection):
 - `hub:docking {stage:'start'}`→hub_dock_thrusters · `{stage:'end'}`→hub_dock_clamp · `hub:slotChanged {local:true}`→pod_door (pitch 0.9 when `peerId` is null) ·
   `hub:launchCountdown`→countdown_beep once per distinct `seconds` > 0 (pitch 1.25 for the last 3), launch_rumble once at `seconds === 0` · `ui:hubMenuToggled`→ui_click.
-  `hub:entered` / `hub:left` only switch the ambience (no one-shot).
+  `hub:entered` / `hub:left` only switch the ambience (no one-shot). `hub:warpProgress {speed}` → the 창문 워프 drive hum targets (no one-shot; see the Ship hub section), `hub:travel {end}` silences it.
 - `chat:message`: remote `text`→chat_blip, remote `request`→chat_request, own (`local:true`) text/request→ui_click at 0.35, `system` and `ping` lines silent (the ping already sounded) · `ui:chatToggled`→chat_open|chat_close.
 - `inventory:itemDropped`→item_toss (positional) · `pickup:spawned`→pickup_land (positional, volume 0.3) **except** within 0.15 s of our own drop (that spawn is the thrown item, not a landing) · `pickup:taken` is **not** auto-hooked: PickupSystem sends `audio:play {id:'pickup'}` itself on a local take (`pickup` = `pickup_chime` synth); remote takes are silent.
 - `net:reconnecting`→net_warning, rate-limited to once per 5 s across attempts · `net:resumed`→net_resumed · `net:matched`→net_matched.
@@ -116,6 +123,10 @@ Appended (tactical kit):
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-09 (창문 워프)** — `amb.warp` 드라이브 험 신설: `hub:warpProgress.speed` 를 따라 게인 · 필터 · 피치 · 노이즈가
+  함께 오르고 내린다 (`WARP_HUM_HOLD_S` 0.3초 안에 진행 이벤트가 없으면 스스로 꺼진다 — 중단된 워프 대비). 원샷은 그대로
+  `hub/` 가 보낸다.
 
 - **tactical kit** — 36 tactical-kit SFX (grapple, dash, barrier, overcharge, scan, rocket, melee, roll, jump pad, turret, mine, fire, defib, gather, craft, gear break, level up)
 

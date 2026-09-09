@@ -43,6 +43,9 @@ export interface RoomDef {
   furnitureGroup: THREE.Group;
 }
 
+/** Colours the window planet takes once the warp lands (`PlanetDef.hologram` / `hologramAtmo`). */
+export interface WarpDestination { color: number; atmo: number }
+
 /** A built ship interior (personal or shared). Geometry is at world origin on every client. */
 export interface ShipInterior {
   readonly kind: HubShipKind;
@@ -69,10 +72,18 @@ export interface ShipInterior {
   readonly rooms?: readonly RoomDef[];
   /**
    * 목표 행성 (Phase 11): re-tint the decorative planet outside the viewports to the selected planet's
-   * `PlanetDef.hologram` / `hologramAtmo`. Called on build and when a travel cutscene ends — the interior itself is
+   * `PlanetDef.hologram` / `hologramAtmo`. Called on build and when a warp ends — the interior itself is
    * never rebuilt for a planet change, only the view outside it.
    */
   setPlanetLook?(color: number, atmo: number): void;
+  /**
+   * 창문 워프 (2026-09-09): drive the view outside the windows with the warp `speed` (0 = at rest, 1 = full warp;
+   * `hub:warpProgress.speed`). The hub calls it **every frame of a trip** and once more with 0 on arrival /
+   * cancellation. Expected look: the point stars fade out as the streaks fade in and stretch toward
+   * `HUB_TRAVEL_WARP_STRETCH`, the window planet fades out on the way up and — re-tinted to `dest` — fades back in
+   * on the way down. Optional: an interior without windows may omit it (the hub guards the call).
+   */
+  setWarp?(speed: number, dest?: WarpDestination): void;
   /**
    * 자동문 · 방 조명 (2026-09-08): per-frame animation that follows the player. Optional — an interior without
    * sliding doors simply omits it. `PersonalShip` moves its room-light pool here too.

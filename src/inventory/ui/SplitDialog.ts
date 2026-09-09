@@ -16,7 +16,8 @@ export class SplitDialog {
   private max = 1;
   private onConfirm: ((qty: number) => void) | null = null;
 
-  constructor(host: HTMLElement) {
+  /** @param onToggle 2026-09-09: open / close report for the window's 키 가이드 (the dialog has no bus of its own). */
+  constructor(host: HTMLElement, private readonly onToggle: (open: boolean) => void = () => {}) {
     this.el = document.createElement('div');
     this.el.className = 'inv-dialog-backdrop';
     this.el.hidden = true;
@@ -92,6 +93,7 @@ export class SplitDialog {
     this.sync(Math.max(1, Math.floor(item.qty / 2)), 'range');
     this.el.hidden = false;
     this._open = true;
+    this.onToggle(true);
     requestAnimationFrame(() => { this.input.focus(); this.input.select(); });
   }
 
@@ -102,6 +104,7 @@ export class SplitDialog {
     this.onConfirm = null;
     this.el.hidden = true;
     (document.activeElement as HTMLElement | null)?.blur?.();
+    this.onToggle(false);
     return true;
   }
 

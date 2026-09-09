@@ -847,12 +847,10 @@ export const LOCK_GESTURE_RETRY_MS = K.num('LOCK_GESTURE_RETRY_MS');
 
 /* ══ appended: Phase 11 — 행성 선택 · 소셜 (2026-09-07) ═════════════════════════════════════════════════════ */
 
-/* ── 행성 이동 (owner: hub; the cutscene is `DockingCutscene` reused as a warp) ── */
-/** Seconds of the 행성 이동 cutscene. Shorter than `HUB_DOCKING_DURATION` — it is a hop, not an arrival. */
+/* ── 행성 이동 (owner: hub; 2026-09-09: an in-ship 창문 워프 — `interiors/WarpStreaks.ViewportWarp` — not a cutscene) ── */
+/** Seconds of the 행성 이동 warp (ramp up → cruise → ramp down). Shorter than `HUB_DOCKING_DURATION` — a hop, not an arrival. */
 export const HUB_TRAVEL_DURATION = K.num('HUB_TRAVEL_DURATION');
-/** Fraction of the cutscene spent in the streaked-star warp before the destination sphere resolves. */
-export const HUB_TRAVEL_WARP_FRACTION = K.num('HUB_TRAVEL_WARP_FRACTION');
-/** How far the warp stretches a star (multiplier on its own length while `HUB_TRAVEL_WARP_FRACTION` runs). */
+/** How far the warp stretches a star (multiplier on its own length at full `hub:warpProgress.speed`). */
 export const HUB_TRAVEL_WARP_STRETCH = K.num('HUB_TRAVEL_WARP_STRETCH');
 /* 2026-09-09 창문 워프: the trip is watched from inside the ship (no cutscene, controls stay on). */
 /** Seconds the warp takes to ramp up at the start and down at the end (`hub:warpProgress.speed` 0→1 / 1→0). */

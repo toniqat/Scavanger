@@ -1,14 +1,15 @@
 import * as THREE from 'three';
-import { NET_MAX_PLAYERS, NET_SLOT_COLORS, type HubShipKind } from '@/shared';
+import { HUB_TRAVEL_WARP_STRETCH, NET_MAX_PLAYERS, NET_SLOT_COLORS, type HubShipKind } from '@/shared';
 import { GeoBatch, HUB_MATS as M, disposeMeshes, yawFromForward } from './GeoBatch';
 import { BoxInteriorCollider } from './InteriorCollider';
 import { ShipDoors } from './Doors';
 import { Hangar, type HangarBayDef } from './Hangar';
 import { Parts, fixture } from './parts';
 import { Starfield, Planet } from './Starfield';
+import { ViewportWarp } from './WarpStreaks';
 import { implantBay, repairBench, shipComputer, type ShipStations, type StationDef } from './stations';
 import { TextPlane } from '../Labels';
-import type { PodSlotDef, ShipInterior, TerminalDef, WorkbenchDef } from './types';
+import type { PodSlotDef, ShipInterior, TerminalDef, WarpDestination, WorkbenchDef } from './types';
 
 const ROOM = { minX: -13, maxX: 13, minZ: -7, maxZ: 7 };
 const CEIL = 4.2;
@@ -53,6 +54,8 @@ export class SharedShip implements ShipInterior {
   private lights: THREE.PointLight[] = [];
   private stars: Starfield;
   private planet: Planet;
+  /** 창문 워프 (2026-09-09): streaks past the bridge viewport, driven by the hub through `setWarp`. */
+  private warp: ViewportWarp;
   private screens: TextPlane[] = [];
   private holoMat: THREE.MeshBasicMaterial;
   private holo: THREE.Mesh;
@@ -241,11 +244,19 @@ export class SharedShip implements ShipInterior {
     this.planet = new Planet(150, 0x8a6a4a, 0xffb98a);
     this.planet.group.position.set(-430, -70, 60);
     r.add(this.planet.group);
+    // 창문 워프: the bridge (and its viewport) is −X, so that is the nose. The hangar reaches z ≈ +37 behind the
+    // deck, so the streak shell starts at 48 m off the X axis — no streak ever crosses a walkable room.
+    this.warp = new ViewportWarp(r, this.stars, this.planet, HUB_TRAVEL_WARP_STRETCH, { forward: new THREE.Vector3(-1, 0, 0), rMin: 48, rMax: 300, span: 1000, seed: 37 });
   }
 
   /** 목표 행성 (Phase 11): the planet outside the −X viewport takes the squad's selected planet colours. */
   setPlanetLook(color: number, atmo: number): void {
     this.planet.setColors(color, atmo);
+  }
+
+  /** 창문 워프 (2026-09-09): see `ShipInterior.setWarp` — stars → streaks, planet out and back in as `dest`. */
+  setWarp(speed: number, dest?: WarpDestination): void {
+    this.warp.set(speed, dest);
   }
 
   /** 격납고 bays, in slot order (the hub hangs the boarding interactables off these). */
@@ -262,6 +273,7 @@ export class SharedShip implements ShipInterior {
   update(dt: number, time: number): void {
     this.stars.update(dt);
     this.planet.update(dt);
+    this.warp.update(dt);
     this.holo.rotation.y += dt * 0.6;
     this.holoMat.opacity = 0.28 + 0.1 * Math.sin(time * 2.3);
     this.hangar.update(dt, time);
@@ -275,6 +287,7 @@ export class SharedShip implements ShipInterior {
     this.lights.length = 0;
     for (const s of this.screens) s.dispose();
     this.terminal.screen.dispose();
+    this.warp.dispose();
     this.stars.dispose();
     this.planet.dispose();
     this.holo.geometry.dispose(); this.holoMat.dispose();

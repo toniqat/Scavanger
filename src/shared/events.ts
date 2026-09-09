@@ -668,8 +668,10 @@ export interface GameEvents {
    */
   'hub:planetChanged': { planet: PlanetId; by: 'local' | 'squad' };
   /**
-   * Ship travel: `'start'` locks controls, closes the terminal, un-boards every pod and runs the docking cutscene as
-   * a warp; `'end'` hands control back. Local to each client — it is driven by each client's own `lobby:state`.
+   * Ship travel: `'start'` closes the terminal, un-boards every pod and begins the trip; `'end'` marks arrival.
+   * Local to each client — it is driven by each client's own `lobby:state`.
+   * 2026-09-09: no longer a cutscene — the warp is watched through the ship's viewports, controls stay enabled
+   * (see `hub:warpProgress`); `ctx.hub.travelling` is true in between.
    */
   'hub:travel': { stage: 'start' | 'end'; planet: PlanetId };
   /** The full-screen terminal opened / closed (blocker `'hub'`, software cursor on). Replaces nothing — new. */
