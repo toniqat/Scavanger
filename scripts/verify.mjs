@@ -78,6 +78,9 @@ const SMOKES = {
   /* 2026-09-09: 버려진 구조물 · 선로 · 전차. 같은 취지로 **사각(OBB) 콜라이더**가 그려진 실루엣 안에 있는지
      재고, 실내 이동 · 지하실 해치 · 플랫폼 데크 · 전차 발판 속도까지 본다. */
   'smoke-structures':   { file: 'scripts/smoke-structures.mjs',   folders: ['world', 'items', 'inventory'] },
+  /* 2026-09-09: 환경 재해 — 종류 · 시작 시각이 시드의 함수라 와이어가 없다. 시드 결정성 · 도형 규약 ·
+     끝까지 갔을 때의 맵 봉쇄 · 초당 피해 · atmo:override · 거대 버섯 군락을 브라우저 안에서 잰다. */
+  'smoke-hazard':       { file: 'scripts/smoke-hazard.mjs',       folders: ['world'] },
   /* 2026-09-08: 튜토리얼 — 게이트가 housing / hub / inventory / meta 의 거절 사유 함수에 들어가 있으므로
      그 폴더를 건드리면 함께 돈다. 다른 스모크는 전부 `scav.s1.tutorial` 을 done 으로 심고 시작한다. */
   'smoke-tutorial':     { file: 'scripts/smoke-tutorial.mjs',     folders: ['tutorial', 'hub', 'housing', 'inventory', 'ui', 'items'] },

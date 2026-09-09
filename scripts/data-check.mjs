@@ -32,6 +32,7 @@ const DATA_OWNERS = [
   '/src/progression/defs.ts',    // stats · skills
   '/src/meta/Rules.ts',          // tuning (임플란트 수리 수수료)
   '/src/world/structures/model.ts', // structures (버려진 구조물 · 선로 플랫폼 · 전차)
+  '/src/world/hazard/model.ts',  // hazards (환경 재해의 색 · 입자 · 벽)
 ];
 
 const server = await createServer({

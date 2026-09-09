@@ -8,7 +8,7 @@ textures are procedural.
 
 | File | Responsibility |
 |---|---|
-| `WorldSystem.ts` | `GameSystem` + `WorldRef` implementation. Orchestrates generation order (terrain → nests → pads → outposts → **structures → rails** → props → crates → **gather** → ambience), owns the `SpatialHash`, and answers queries: `getHeightAt` (heightfield + extraction platform top), `getNormalAt`, `resolveCollision` (circle push-out + soft wall at ±(MAP_SIZE/2−4)), `raycast` (heightfield ray-march + analytic ray/cylinder vs obstacles — **2026-09-08** it shoots at `Obstacle.shotRadius / shotHeight` when a prop declares them, and the slab clip is complete: the old code tested only the entry point of the infinite cylinder plus the top cap, so a ray entering the footprint below the base and crossing the body further along reported a miss), `getEnemySpawnPoints`, `getExtractionPoints`, `getCrates`, `getNestPositions`, `getPlayerSpawn`, `getGatherNodes` (appended). Extra: `getBiome()`. **2026-09-09 (사각 콜라이더)**: `resolveCollision` · `raycast` · `getSurfaceY` · `getStandingObstacle` 가 `Obstacle.box` 를 만나면 `obb.ts` 로 갈라진다 — 원기둥 소품의 코드 경로는 한 줄도 바뀌지 않았다. `getStructures / structureAt / getRailLines / getTrams` 는 `Structures` / `Rails` 로 위임한다 (훈련장은 빈 배열). **Phase 11**: `generate(seed, mode, planet)` — the 목표 행성 (from `game:newMission.planet`, else `ctx.missionPlanet`) is stored on `WorldRef.planet`, picks the biome by id and is echoed in `world:ready.planet`; an unknown id is reported as null. |
+| `WorldSystem.ts` | `GameSystem` + `WorldRef` implementation. Orchestrates generation order (terrain → nests → pads → outposts → **structures → rails → hazard** → props → crates → **gather** → ambience), owns the `SpatialHash`, and answers queries: `getHeightAt` (heightfield + extraction platform top), `getNormalAt`, `resolveCollision` (circle push-out + soft wall at ±(MAP_SIZE/2−4)), `raycast` (heightfield ray-march + analytic ray/cylinder vs obstacles — **2026-09-08** it shoots at `Obstacle.shotRadius / shotHeight` when a prop declares them, and the slab clip is complete: the old code tested only the entry point of the infinite cylinder plus the top cap, so a ray entering the footprint below the base and crossing the body further along reported a miss), `getEnemySpawnPoints`, `getExtractionPoints`, `getCrates`, `getNestPositions`, `getPlayerSpawn`, `getGatherNodes` (appended). Extra: `getBiome()`. **2026-09-09 (사각 콜라이더)**: `resolveCollision` · `raycast` · `getSurfaceY` · `getStandingObstacle` 가 `Obstacle.box` 를 만나면 `obb.ts` 로 갈라진다 — 원기둥 소품의 코드 경로는 한 줄도 바뀌지 않았다. `getStructures / structureAt / getRailLines / getTrams` 는 `Structures` / `Rails` 로 위임한다 (훈련장은 빈 배열). **2026-09-09 (환경 재해)**: `get hazard()` 가 `Hazard.ref` 를 돌려준다 — 후보 없는 행성 · 자리를 못 잡은 시드 · 훈련장이면 null. **Phase 11**: `generate(seed, mode, planet)` — the 목표 행성 (from `game:newMission.planet`, else `ctx.missionPlanet`) is stored on `WorldRef.planet`, picks the biome by id and is echoed in `world:ready.planet`; an unknown id is reported as null. |
 | `noise.ts` | Seeded 2D simplex (`noise2`), 3D gradient noise (`noise3`), `fbm`, `ridged`, `billow`; `lerp/clamp/smoothstep` helpers. **2026-09-09 — `noise3` 의 `lerp` 인자 순서가 뒤집혀 있었다.** `lerp` 는 `(a, b, t)` 인데 `(t, a, b)` 로 넣어 세 겹의 보간이 `w + (a − w)·b` 로 쌓였고, 값이 `[-1, 1]` 이 아니라 **측정 `[-31.2, +52.6]`** 이었다. 쓰는 곳이 `build.displace` 하나뿐이라 지형(`noise2` 계열)은 멀쩡했지만 소품 정점 몇 개가 원점에서 10 units 씩 튕겨 나갔고, `Props.hullOf` 가 바운딩 박스로 콜라이더를 만들면서 그 정점 하나가 소품 전체를 감싸는 거대 원기둥이 됐다 (아래 `Props.ts`). 고친 뒤 범위 `[-0.91, +0.99]`. |
 | `biomes.ts` | Five biome palettes (amber desert, frozen tundra, mossy swamp, ashen volcanic, crimson alien): terrain bands, prop colors, scatter density multipliers. `pickBiome(seed)` reproduces core's `new Random(seed).fork('atmosphere').pick(SKY_PALETTES)` draw so `BIOMES[i]` is always shown under `SKY_PALETTES[i]` (amber-dusk, cold-blue, toxic-green, rust-storm, pale-noon) and each palette is tuned to contrast with its fog color (`pairedSky`, `fogHint`). If core changes the palette count or fork label, the pairing silently degrades to "random but valid". **Phase 11**: `biomeById(id)` looks a palette up by `PlanetDef.biome`, so with a 목표 행성 the pairing is data instead of two matching draws; `pickBiome` stays the no-planet fallback. |
 | `layout.ts` | Macro layout from the seed: spawn pad near an edge, 3 extraction pads (≥180 m apart, ≥150 m from spawn), 4–6 nest pads, 5–8 POI pads, craters, basins. `padClearance`, `nearestPad`. **2026-09-09**: `structures: StructureSite[]` (버려진 구조물 부지 + 지하실 구덩이 치수) 와 `rail: RailPlan | null` (`RAIL_CHANCE`, `loop`/`line`, 위상, 플랫폼 패드)이 붙었다 — 둘 다 **지형이 평탄화해야** 하는 자리라 매크로 단계에서 먼저 잡는다. 크레이터 · 분지를 다 뽑은 **뒤에** 굴리므로 그 앞의 추첨은 밀리지 않지만, 새 패드가 `pads` 에 들어가 `padClearance` 를 바꾸므로 **소품 · 상자 · 적 스폰의 자리는 달라진다** (건물 안에 바위가 서지 않게 하려면 그게 맞다). |
@@ -20,10 +20,16 @@ textures are procedural.
 | `Pads.ts` | Extraction platforms (concrete disc, seams, yellow/black hazard ring, H marker, 20 blinking edge lights, 4 light poles just outside the 14 m clear zone, one warm PointLight) and the spawn marker (scorch ring + green beacons). `PLATFORM_HEIGHT/RADIUS`. **2026-09-09**: 조명 기둥의 콜라이더가 `0.45 × 5.4` 한 덩어리였다 — 그려진 기둥은 반지름 0.2→0.12 뿐이라 기둥 옆이 보이지 않는 벽이고 총알도 먹었다. 이제 받침(`0.7 × 0.35`)과 기둥(`0.22 × 5.05`) 두 실린더다. |
 | `Outposts.ts` | POI ruins: slab, broken wall segments, pillars, antenna mast with dish + blinking red beacon, rubble, barrels. Walls/pillars/mast are obstacles. **2026-09-09**: 안테나 마스트가 `0.8 × mastH`(8~11 m) 한 덩어리였다 — 그려진 기둥(반지름 0.1~0.22)의 네 배라, 마스트 옆을 못 지나가고 그 앞의 약탈자에게 쏜 총알이 허공에서 멈췄다. 이제 밑동 받침(`0.7 × 0.8`)과 기둥(`0.24 × mastH−0.8`) 두 실린더다. |
 | `Crates.ts` | 30–40 loot crates: tiered body/lid geometry (beveled frame, stripes), blinking light, tier-4 beacon beam. Registers an `Interactable` per crate (radius 2.8, Korean prompts), lid tween (0.6 s), dust puff, `crate:open`, `audio:play crate_open`, `stats.cratesOpened`. Placement: tier 2 near POIs, tier 3 outside nest rings, tier 4 caches far from spawn, tier 1 in the open. Crates are obstacles (r 0.9). |
-| `Gather.ts` | **채집물 (harvestable nodes)** — 약초 plants **and (2026-09-08) 고철 더미**, `GatherNodeDef.kind` telling them apart. `GATHER_NODES_PER_MISSION` (34) procedural herbs in 3 variants, placed in small clusters on gentle, unoccupied ground (`isSpotFree`, ≥ 7 m between clusters, 1.6 m inside one). Two `InstancedMesh` per variant (body + emissive glow part) → 6 draw calls total; the glow material pulses in `update`. Each node registers an `Interactable` (radius 2.2, `holdTime = GATHER_INTERACT_TIME / derived.interactSpeedMul` via a live getter, Korean prompt from the item def name). Harvest → node marked `harvested`, 0.42 s shrink-and-sink instance animation, `gather:collected {nodeId, defId, qty}` (qty × `derived.gatherYieldMul`), `audio:play gather`, then `ctx.inventory.tryAddItem`. Herb def ids are discovered from `ctx.loot.getAllItemDefs()` (`category === 'herb'`); a `FALLBACK_HERB_IDS` list keeps the plants in the world while `items/` has none. **Phase 11**: `build(ctx, game, eco)` takes the planet's ecosystem — the plant **shape** (`variant`) and the **herb it drops** (`defId`) are separate draws now (they used to be bound by `herbIds[variant % len]`), the herb is a weighted draw over `eco.herbs` per cluster (an id `items/` never registered is ignored) and the node count is `GATHER_NODES_PER_MISSION × eco.gatherDensity`; with no planet the old shape-bound pairing is used verbatim and no extra rng is consumed, so the layout is unchanged. **Multiplayer is host-authoritative** (same shape as pickups): clients send `harvq take` / `harvq sync`, the host answers `harv taken {id, by}` / `harv sync {nodes}` and also pushes a sync on `flow rejoined`. Only harvested ids travel — positions are seed-deterministic. A client's pending take expires after 3 s so a lost message never bricks a node. **Phase 9**: a non-host also re-requests the taken set on `net:hostChanged {isLocalHost:false}` (a promoted host never saw the old host's `harv taken` broadcasts as authority). **2026-09-08 — 고철 더미**: `SALVAGE_NODES_PER_MISSION` (7) more nodes of `kind: 'salvage'` in a 4th variant (`SALVAGE_VARIANT`, a crushed drum + bent plates + pipes in metal / rust with amber cut markers — biome colours are deliberately **not** used so a pile reads as metal on any planet). They are drawn **after** the plants from the same `gather` rng fork, so the herb layout for a seed is byte-identical to before; one is tried near each `ctx.layout.pois` (ring 5–14 m) and the rest go in the open, ≥ 12 m apart and ≥ 5 m from any plant. Each yields `mat_scrap` (qty 1, 30 % 2 — ≈ 9 per mission if every pile is stripped), holds for `SALVAGE_INTERACT_TIME` (3 s) inside radius 2.6, prompts `폐금속 해체 (E)`, **ignores `derived.gatherYieldMul`** (that is a 원예 stat) and carries `kind` in `gather:collected` so `progression/` grants 제작 XP instead of 원예. Placement, interaction, the shrink animation and the whole `harv` / `harvq` host authority are the plants' code unchanged. |
+| `Gather.ts` | **채집물 (harvestable nodes)** — 약초 plants **and (2026-09-08) 고철 더미**, `GatherNodeDef.kind` telling them apart. `GATHER_NODES_PER_MISSION` (34) procedural herbs in 3 variants, placed in small clusters on gentle, unoccupied ground (`isSpotFree`, ≥ 7 m between clusters, 1.6 m inside one). Two `InstancedMesh` per variant (body + emissive glow part) → 6 draw calls total; the glow material pulses in `update`. Each node registers an `Interactable` (radius 2.2, `holdTime = GATHER_INTERACT_TIME / derived.interactSpeedMul` via a live getter, Korean prompt from the item def name). Harvest → node marked `harvested`, 0.42 s shrink-and-sink instance animation, `gather:collected {nodeId, defId, qty}` (qty × `derived.gatherYieldMul`), `audio:play gather`, then `ctx.inventory.tryAddItem`. Herb def ids are discovered from `ctx.loot.getAllItemDefs()` (`category === 'herb'`); a `FALLBACK_HERB_IDS` list keeps the plants in the world while `items/` has none. **Phase 11**: `build(ctx, game, eco)` takes the planet's ecosystem — the plant **shape** (`variant`) and the **herb it drops** (`defId`) are separate draws now (they used to be bound by `herbIds[variant % len]`), the herb is a weighted draw over `eco.herbs` per cluster (an id `items/` never registered is ignored) and the node count is `GATHER_NODES_PER_MISSION × eco.gatherDensity`; with no planet the old shape-bound pairing is used verbatim and no extra rng is consumed, so the layout is unchanged. **Multiplayer is host-authoritative** (same shape as pickups): clients send `harvq take` / `harvq sync`, the host answers `harv taken {id, by}` / `harv sync {nodes}` and also pushes a sync on `flow rejoined`. Only harvested ids travel — positions are seed-deterministic. A client's pending take expires after 3 s so a lost message never bricks a node. **Phase 9**: a non-host also re-requests the taken set on `net:hostChanged {isLocalHost:false}` (a promoted host never saw the old host's `harv taken` broadcasts as authority). **2026-09-08 — 고철 더미**: `SALVAGE_NODES_PER_MISSION` (7) more nodes of `kind: 'salvage'` in a 4th variant (`SALVAGE_VARIANT`, a crushed drum + bent plates + pipes in metal / rust with amber cut markers — biome colours are deliberately **not** used so a pile reads as metal on any planet). They are drawn **after** the plants from the same `gather` rng fork, so the herb layout for a seed is byte-identical to before; one is tried near each `ctx.layout.pois` (ring 5–14 m) and the rest go in the open, ≥ 12 m apart and ≥ 5 m from any plant. Each yields `mat_scrap` (qty 1, 30 % 2 — ≈ 9 per mission if every pile is stripped), holds for `SALVAGE_INTERACT_TIME` (3 s) inside radius 2.6, prompts `폐금속 해체 (E)`, **ignores `derived.gatherYieldMul`** (that is a 원예 stat) and carries `kind` in `gather:collected` so `progression/` grants 제작 XP instead of 원예. Placement, interaction, the shrink animation and the whole `harv` / `harvq` host authority are the plants' code unchanged. **2026-09-09 — 거대 버섯 군락의 채집 버섯**: `build(ctx, game, eco, groves)` 의 네 번째 인자가 `Hazard.getGroveSpots()` 다. 군락마다 `GROVE_PICKS_MIN`~`MAX` 개의 포자균 갓(변종 1)을 `GROVE_PICK_RING_MIN`~`MAX` 고리에 심는다 — 종류는 약초 무리와 같은 규칙으로 군락당 하나이고, **약초 · 고철 배치가 전부 끝난 뒤에** 뽑으므로 앞의 rng 스트림이 밀리지 않는다 (고철 더미가 쓴 수법 그대로). 변종 1 의 `InstancedMesh` 용량만 `groves.length × GROVE_PICKS_MAX` 만큼 늘어난다. |
 | `TrainingArena.ts` | **시뮬레이션 훈련장** (Phase 7): the world built for `game:newMission {mode:'training'}` instead of the planet. Flat `TRAINING_ARENA_SIZE` (64 m) deck with a procedural CanvasTexture grid, four walls with ribs + corner pillars, a ceiling at `ARENA_CEILING` 7 m with 15 emissive light panels, cyan wall bands / lane edges, an amber firing line at z +20 and amber distance marks, spawn ring at (0, 0, 26) ("south", the player faces −Z). 3 lanes (x −10 / 0 / +10) × `TRAINING_TARGET_COUNT` / 3 rows of **pop-up targets**: post + hinged board (silhouette + rings CanvasTexture, resting emissive so they read at 40 m), each an `ObstacleEntry {kind:'target', radius 0.42, height 2.1}` in the world hash with a `DestructibleRef` (`training_target_<i>`, hp `TRAINING_TARGET_HP`) — weapons hit them through the ordinary `raycast → obstacle.destructible.onDamage` path (Phase 3 cover). A hit flashes the board + a small additive ring; at 0 hp the board hinges to the floor (0.28 s, the entry leaves the hash so shots pass), `hit_metal` low, and it rises again `TRAINING_TARGET_RESPAWN_S` later (hp reset, entry re-inserted). Counters `hits` / `knockdowns` → `ui:objective {text:'시뮬레이션 훈련장 · 출구 콘솔로 종료', subText:'명중 n · 격추 m'}` on every change. **Three consoles** along the south wall, one pedestal each (`buildConsole(name, x, lines, accent)`: pedestal + tilted emissive screen + floor halo, obstacle r 0.6): **출구** at x −8 (`Interactable 'training_exit'`, prompt `훈련 종료`, one `training:exitRequested` per second), **모드 콘솔** at x +8 (`'training_mode'`, prompt `표적 모드: <라벨>` → cycles 고정 → 이동 → 타임 코스; in 타임 코스 the next E reads `타임 코스 시작` and starts a run, `타임 코스 진행 중 · n초` while one runs; its screen is repainted in place with `redrawScreen`) and the **무기 거치대** at x +14 (`'training_rack'`, prompt `무기 거치대` → `ctx.inventory.openCatalog({category:'primary'})` — the 무한 상자 on its 주무기 tab; game/'s training exit restores the old loadout afterwards) with a merged wall rack of four silhouetted guns behind it as dressing. **Target modes (Phase 9, `TrainingRef`)**: `mode / setMode / score / hits / remaining / bestTime / startCourse / resetScore`, published as `ctx.world.training`. `static` 고정 = the Phase 7 behaviour; `moving` 이동 sweeps each target **±`TRAINING_MOVING_SPAN`** (a **half**-width, 3.2 m either side of the lane centre — 3.2 + the 0.42 m target radius stays inside `LANE_HALF_W` 4) at `TRAINING_MOVING_SPEED` with a `TRAINING_MOVING_PAUSE_S` pause at each end (`setTargetX` moves the mesh **and** the hash entry, re-bucketing only when the entry's cells change, so shots keep hitting the board where it is drawn); `timed` 타임 코스 = knock `TRAINING_COURSE_TARGETS` targets down inside `TRAINING_COURSE_TIME_S` (every knock-down emits `training:scored {score, hits, index}`; finishing or timing out emits `training:courseFinished {time, score, completed, best}`, arms a `TRAINING_COURSE_COOLDOWN_S` cooldown and, on a completion, saves a new best to localStorage `TRAINING_BEST_STORAGE_KEY`). `setMode` is refused while a course runs, emits `training:modeChanged`, resets the score and parks the targets back on their `baseX`. The objective sub-text now reads `<모드> [· n/m · 남은 n초 | · 최고 n.n초] · 명중 n · 격추 m`. Everything here is **client-local** — no wire messages. Queries: `raycastShell` (floor / ceiling / 4 wall planes, writes the normal), `clampInside` (hard wall clamp), `isInside`. No lights: the arena is shown in the atmosphere's **space mode** (black background, no fog, cool key light) plus a little emissive on the deck / hull. `dispose()` unregisters the console, empties the hash entries and disposes every geometry / material / texture. |
 | `Ambience.ts` | 900 additive spore points drifting in a box around the camera (wrapping) with a custom `ShaderMaterial` (perspective size clamped to 1–6 px, fade-in 1.5–6 m from camera, far fade, fog-aware, twinkle); 14 slow dust sprites. |
 | `Fog.ts` | **전장의 안개** (2026-09-09, `FogRef`, published as `ctx.world.fog`; **null in a training**). One `MAP_SIZE / FOG_CELL_M` square `Uint8Array` (80² at cell 8 m) is the single source of truth and **a cell once lit stays lit for the whole raid**. Every `FOG_UPDATE_HZ` (5 Hz) it paints `FOG_REVEAL_RADIUS` (55 m) around the local player **and every live remote squadmate** (`ctx.net.getRemotePlayers()`, skipping `!inMission` / dead / gone refs) — the squad's sight is shared, and because everyone already reads the same 20 Hz `ps` snapshots **there is no new wire in normal play**. Only a late joiner asks (`fogq sync` → the host's `fog sync {mask}` = `serialize()`, the mask bit-packed to 800 B and base64'd); `flow rejoined` pushes the same, and a client re-requests on `net:hostChanged {isLocalHost:false}`. `fog:revealed {revision, explored}` fires **only on a tick where the mask actually grew**, never per frame, so the map can cache its layer. The same tick runs the **발견 게이트**: extraction consoles, nest holes, crates, gather nodes and (2026-09-09) **버려진 구조물 · 선로 플랫폼** that fall into a lit cell emit `fog:discovered {kind, id, position}` once, and the two landmark kinds (신호소 · 둥지) also raise a short `ui:notify` — **`structure` · `rail` 은 일부러 토스트를 띄우지 않는다**, 그 둘은 `ui/hud/RaidAlerts` 가 소유하므로 여기서도 띄우면 두 번 뜬다. `WorldSystem` pre-lights `FOG_REVEAL_RADIUS` around the player spawn (the drop point is not a discovery) and disposes the whole thing in `clear()`. |
+| `Hazard.ts` | **환경 재해** (`HazardRef`, 게시: `ctx.world.hazard`; **훈련장 · 후보 없는 행성에서는 null**). 종류 · 시작 시각 · 도형이 전부 **미션 시드 + `missionTime` 의 함수**라 평상시 와이어가 없다 — 늦게 합류한 사람만 `hzq sync` → 호스트의 `hz sync {data}`(= `serialize()` = 계획 JSON). 예고(`hazard:announced`) · 시작(`hazard:started`) · 진행도(`hazard:progress`, `PROGRESS_EMIT_S` 0.4초마다) · 출입(`hazard:insideChanged`, **바뀔 때만**) · 피해(`HAZARD_TICK_S` 마다 `HAZARD_DPS × HAZARD_TICK_S`) · 시야(`atmo:override` **하나로만**) · 군락 발견(`fog:discovered {kind:'grove'}`, 토스트 없음)을 여기서 낸다. `getGroveSpots()` 로 `Gather` 에게 군락 자리를 넘긴다. |
+| `hazard/model.ts` | 재해가 공유하는 어휘. **`data/hazards.csv` 를 읽는 유일한 자리** (색 · 입자 밀도/크기/속도 · 벽 색/높이/두께) + `HazardPlan` · `SporeSource` 타입 + 거대 버섯 군락 치수 + `pickStartSeconds` (30초 단위 절단) + `isFrontKind`. THREE 를 **값으로 쓰지 않는다** — `scripts/data-check.mjs` 의 `DATA_OWNERS` 가 이 모듈을 아주 이르게 읽는다. |
+| `hazard/parts/Plan.ts` | **추첨**. 후보(`PlanetDef.hazards`)에서 종류 하나, 시작 시각(포자만 `SPORE_START_S` 고정), 전선 방향 · 폭풍의 눈 중심 · 포자 발생지. `planGroveSpots` 는 **전용 fork** 라 종류 추첨이 군락 자리를 밀지 않는다. `coverRadius` 가 33² 격자로 **맵의 어느 점이든 가장 가까운 발생지까지의 거리**를 실제로 재서 `sourceRadius` 를 잡고, 늦게 피어오르는 발생지는 `growthMps` 를 올려 `HAZARD_FULL_S` 안에 다 자라게 한다. |
+| `hazard/parts/Zones.ts` | 계획 + `missionTime` → **도형**. `front` 는 −span → +span (span = 맵을 법선에 투영한 반폭 + `FRONT_MARGIN`), `storm_eye` 는 `STORM_EYE_RADIUS_START→END` 선형 축소, `spores` 는 피어오른 발생지마다 원. 배열도 도형 객체도 재사용하므로 프레임당 할당이 0이다. `zoneDepth` / `maxDepth` 가 `isInside` 와 경계 페더 둘 다를 답한다. |
+| `hazard/parts/Grove.ts` | **거대 버섯 군락** — 줄기 · 갓 · 발광하는 갓 밑면 · 밑동 통풍구를 절차로 세워 두 메시(본체 · 발광)로 병합한다. **콜라이더는 줄기뿐이다** (갓은 4~9 m 상공에 있다 — `Props` 의 나무와 같은 이유). 발광 세기만 `update` 에서 맥동한다. |
+| `hazard/parts/Visuals.ts` | **표현**: 카메라를 따라다니며 감기는 입자 구름(`Ambience` 가 본보기, 구역 밖에서는 그리지 않는다) + 경계에 서는 벽 (`front` = 전선을 따라 `frontBandM` 두께로 겹친 커튼 3장, `circle` = 열린 원통). 커튼 텍스처는 절차 `CanvasTexture` 이고 시간에 따라 흐른다. |
 | `obb.ts` | **사각(OBB) 콜라이더** 수학 (2026-09-09, `Obstacle.box`). `boxRadius` (버킷팅용 외접원) · `boxContainsXZ` (윗면 판정) · `boxPushOut` (원 vs 상자 밀어내기, 중심이 안이면 가장 얕은 면으로) · `rayBox` (슬래브 셋 + `boxHitNormal`) · `BOX_HEADROOM`. **`o.box` 가 있을 때만 불린다** — 원기둥 경로는 그대로다. 회전 규약: `box.yaw` 는 수학 규약(로컬 +X → 월드 `(cos, sin)`)이고 같은 상자를 그리는 메시의 Euler 는 `-yaw` 다 (three 의 Y 회전이 반대 손). |
 | `Structures.ts` | **버려진 구조물** — 전진기지 · 연구실 · 불시착 함선. 건물 세우기, 컴퓨터(행성 스캔) · 지하실 해치 상호작용, 컨테이너 배치, `struct`/`structq` 호스트 권위, `getDefs` / `structureAt`. 지하실 해치는 **잠긴 동안 계단 구멍을 막는 상자 콜라이더**이고 열리면 hash 에서 빠지며 옆으로 미끄러진다. 로그 강하의 "구역당 1회" 기록(`roguedZones`)도 여기 있다. |
 | `structures/model.ts` | 구조물 · 선로가 공유하는 어휘. **`data/structures.csv` 를 읽는 유일한 자리** (개수 · 크기 · 컨테이너 수 · 지하실 확률/깊이 · 상자 티어 가중치) + 건물 치수 상수(`WALL_T` · `DOOR_W` · `STAIR_HALF` · `SLAB_T` · `PIT_BLEND` · `CONTAINER_RADIUS`) + `pickTier`. THREE 를 **값으로 쓰지 않는다** — `layout.ts` 와 `scripts/data-check.mjs` 가 아주 이르게 읽는다. |
@@ -196,6 +202,94 @@ structures → rails → props → crates → gather`). 벽 · 데크 · 컨테�
 - 훈련장에는 구조물도 선로도 만들지 않는다 (`mode === 'training'` 에서 전부 빈 배열).
 
 
+## 2026-09-09: 환경 재해 (제한시간 행성)
+
+Contract (pre-written, read-only, `git show 9ea3fc0`): `HazardKind` · `HAZARD_KINDS` · `HAZARD_LABEL_KO` ·
+`HazardZone` · `HazardSource` · `HazardRef` · `WorldRef.hazard`, `hazard:planned / announced / started /
+progress / insideChanged`, **`atmo:override`**, `fog:discovered.kind += grove`, `HazardMessage`(`hz`) /
+`HazardRequest`(`hzq`), `HAZARD_*` · `STORM_EYE_*` · `SPORE_*`, `PlanetDef.hazards` (`data/planets.csv` 의
+`hazards` 열). 그림 수치는 **`data/hazards.csv` (신규)**.
+
+레이드 시작 뒤 `HAZARD_START_MIN_S`~`HAZARD_START_MAX_S` 사이 **30초 단위**의 한 시각에 시작해
+`HAZARD_FULL_S` 에 걸쳐 맵을 덮는 행성 현상이다. 함선이 궤도에서 관측하는 것이라 **전장의 안개에 가리지
+않는다** — 지도는 안개 레이어 위에 그린다 (그 층은 ui/ 소관).
+
+### 종류 · 도형 · 진행 곡선
+| 종류 | 도형 (`getZones()`) | 진행 |
+|---|---|---|
+| 모래 폭풍 `sandstorm` · 눈보라 `blizzard` | `front` **하나**. 전선은 `center` 를 지나고 법선이 진행 방향 `(dirX,dirZ)` 이며 **법선의 반대편(이미 지나온 쪽)이 위험**이다 | 맵을 법선에 투영한 반폭 `span`(+`FRONT_MARGIN`) 을 −span → +span 으로 **선형** 통과. 방향은 시드로 완전 무작위 |
+| 폭풍의 눈 `storm_eye` | `circle` + `safeInside:true` **하나**. 중심은 시드로 뽑은 **레이드 내내 고정**된 한 점 (맵 안쪽 60 % 안) | 반경 `STORM_EYE_RADIUS_START`(300) → `STORM_EYE_RADIUS_END`(60) **선형** 축소 — 페이즈가 없어 어디로 좁아질지 처음부터 안다 |
+| 독성 포자 `spores` | `circle` + `safeInside:false` **여럿**. 각 원의 중심 = 지형의 **거대 버섯 군락** | 시작 시각은 `SPORE_START_S`(6분) **고정**. 발생지가 `SPORE_SOURCE_INTERVAL_S` 마다 하나씩 더 피어오르고, 각자 `growthMps` 로 `sourceRadius` 까지 자란다 |
+
+### "끝까지 가면 맵 전체" 를 어떻게 보장했나
+- **front** — `span` 에 `FRONT_MARGIN`(= `HAZARD_EDGE_M`) 을 얹었다. 이 여유가 없으면 progress 0 · 1 에서
+  전선이 정확히 모서리에 걸쳐 부호가 0 이 되고, 축에 나란한 방향에서는 **변 전체**가 그 줄에 걸린다
+  ("아직 아무 데도 위험하지 않다" 와 "이제 안전지대가 없다" 가 그 한 줄에서만 어긋난다). 16방향 ×
+  17×17 표본에서 양끝 실패 0 을 확인하고 넣은 값이다.
+- **spores** — `SPORE_RADIUS_MAX`(110) 만으로는 640 m 맵을 6개로 덮을 수 없다 (6 × π·110² ≈ 228k m² <
+  409k m²). 그래서 `Plan.coverRadius` 가 뽑힌 배치에서 **맵의 어느 점이든 가장 가까운 발생지까지의
+  거리**를 33² 격자로 실제로 재고, `sourceRadius = max(SPORE_RADIUS_MAX, 그 거리 + 20 m)` 로 잡는다.
+  여기에 늦게 피어오르는 발생지는 `growthMps = max(SPORE_GROWTH_MPS, sourceRadius / 남은 시간)` 으로
+  올려 `HAZARD_FULL_S` 안에 반드시 다 자란다. 배치도 한쪽에 몰리지 않게 best-of-260 · 최소 간격 130 m
+  로 흩는다. 검증: 17×17 표본에서 `HAZARD_FULL_S` 시점 안전 표본 **0**.
+- **storm_eye** — 계약 상수가 `STORM_EYE_RADIUS_END`(60 m) 이므로 눈은 60 m 로 남는다. 640 m 맵의
+  2.8 % 이고 탈출 패드에서 멀면 사실상 강제 탈출이지만, **문자 그대로 "안전지대 0" 인 유일한 예외**다
+  (아래 알려진 한계).
+
+### 피해 · 시야
+`HAZARD_TICK_S` 마다 `HAZARD_DPS × HAZARD_TICK_S` 를 `ctx.player.takeDamage` 로 준다 — 프레임이 튀어도
+누적 타이머를 `while` 로 소진하므로 정확히 초당 1회다. 죽었거나(`isDead`) 함선 안(`isInShip`) · 강하 중
+(`isDropping`) · 게임플레이 페이즈가 아니면 세지 않는다 (전투불능은 그대로 맞는다 — `takeDamage` 가
+`downHp` 를 깎는다).
+
+시야는 **`atmo:override` 하나로만** 좁힌다: 경계에서 `HAZARD_EDGE_M` 에 걸쳐 `blend` 를 0→1 로 올리고
+`fogMul = 1 + (HAZARD_FOG_MUL − 1) × blend`, `color` 는 `data/hazards.csv` 의 `fogColor`. `ATMO_EPS`(0.02)
+보다 작게 흔들리면 보내지 않고, 구역을 나가거나 미션이 끝나면 `{fogMul:1, color:null, blend:0}` 으로
+반드시 되돌린다 (`dispose` 포함). **`src/core/` 는 한 줄도 건드리지 않았다.**
+
+### 거대 버섯 군락 — 배치가 기존 rng 를 밀지 않는 이유
+군락은 **`spores` 가 후보에 있는 행성이면 이번 레이드의 재해가 무엇이든** 선다 (그 행성의 생태이지
+재해의 부속이 아니다). 그래서 자리는 `rng.fork('hazardGroves')`, 메시는 `rng.fork('hazardGroveMesh')`,
+재해 추첨은 `rng.fork('hazard')` 로 **서로 다른 fork** 다 — `Random.fork` 는 부모를 전진시키지 않으므로
+`props` · `crates` · `gather` 가 보는 rng 스트림은 이 배치 전과 **같다**.
+
+채집 버섯은 `Gather.build(ctx, game, eco, groves)` 의 네 번째 인자로 들어가 **약초 · 고철 배치가 전부 끝난
+뒤에** 뽑는다 (2026-09-08 고철 더미가 쓴 수법 그대로) — 그래서 같은 시드의 약초 · 고철 레이아웃은
+바이트 단위로 종전과 같다. 변종 1(포자균 갓)의 `InstancedMesh` 용량만 `군락 수 × GROVE_PICKS_MAX` 늘어난다.
+
+**다만 콜라이더는 다르다.** 군락 줄기가 `SpatialHash` 에 들어가므로 `isSpotFree` 가 그 자리를 피한다 —
+`Structures` 배치가 이미 적어 둔 것과 같은 대가로, **같은 시드의 소품 · 상자 · 채집물 자리가 이 배치 전과
+바이트 단위로 같지는 않다** (멀티 결정성은 그대로 — 모두가 같은 코드를 같은 시드로 돌린다).
+군락을 **소품 · 상자 앞**에 세우는 것도 그래서다: 순서를 뒤집으면 군락 한가운데 바위가 선다.
+
+### 동기화
+**평상시 와이어가 0 이다.** 종류 · 시작 시각 · 전선 방향 · 눈 중심 · 발생지 자리 · 피어오르는 순서가 전부
+미션 시드의 함수이고, 진행은 `ctx.missionTime` 의 함수다 — 모두가 같은 월드를 같은 시드로 만들면 같은
+답이 나온다 (안개와 같은 철학). 늦게 합류한 클라이언트만 `hzq sync` 를 보내고 호스트가
+`hz sync {data}`(= `serialize()` = 계획 JSON)로 답한다. `flow rejoined` 에도 호스트가 밀어 주고,
+`net:hostChanged {isLocalHost:false}` 에는 클라이언트가 다시 요청한다 (`Fog` · `Gather` 와 같은 모양).
+
+### 알려진 한계 (환경 재해)
+- **폭풍의 눈만 마지막에 `STORM_EYE_RADIUS_END`(60 m) 짜리 안전지대가 남는다.** 계약 상수가 그 값이라
+  존중했다. 나머지 셋은 `HAZARD_FULL_S` 에 표본 안전지대가 0 이다.
+- **포그가 없는 행성(카민 I, `planets.csv` 의 `fog false`)에서는 시야가 좁아지지 않는다.**
+  `core/Atmosphere.applyOverride` 가 `baseDensity × (1 + …)` 를 쓰는데 그 행성은 `baseDensity` 가 0 이라
+  무엇을 곱해도 0 이고, 배경색도 `baseDensity > 0` 일 때만 따라간다. `src/core/` 는 이 배치의 소관이
+  아니라 그대로 뒀다 — 그 행성에서 시야를 가리는 것은 입자뿐이다.
+- **`getSources()` 는 `spores` 일 때만 채워진다** (계약: "다른 재해는 빈 배열"). 그래서 베르단트 III 에서
+  폭풍의 눈이 걸린 레이드에서는 군락이 월드에는 서 있지만 **지도에는 뜨지 않는다** — 지도 아이콘이
+  `getSources()` 를 읽기 때문이다. `fog:discovered {kind:'grove'}` 는 그때도 나간다.
+- **`applySerialized` 는 군락을 옮기지 않는다.** 같은 시드 · 같은 행성이면 계획이 이미 같으므로 이 경로는
+  시드가 어긋난 피어를 위한 안전망이고, 그 드문 경우에는 지도의 발생지 원과 지형의 군락이 어긋난다.
+- **적 · 시체는 재해에 피해를 입지 않는다.** 계약이 `ctx.player` 만 말하고, `enemies/` 는 이 배치의
+  소관이 아니다. 벌레가 모래 폭풍 속을 멀쩡히 걸어 나온다.
+- **재해 벽은 지형을 따라가지 않는다.** 커튼 · 원통 모두 `HEIGHT_MIN` 에서 `wallHeight` 만큼 서는 평평한
+  판이라 높은 능선에서는 발밑이 비어 보일 수 있다. 판정(`isInside`)은 높이와 무관한 2D 라 어긋나지 않는다.
+- **기운 거대 버섯의 줄기 꼭대기는 콜라이더 밖이다.** 줄기를 밑동 기준으로 최대 0.12 rad 기울이는데
+  콜라이더는 밑동에 선 수직 원기둥이라, 9 m 짜리 줄기의 꼭대기가 최대 1 m 벗어난다. 방향은 **안전한 쪽**
+  (콜라이더가 그려진 것보다 작다 = 보이지 않는 벽이 없다)이라 그대로 뒀다 — 나무와 같은 판단이다.
+- **훈련장에는 재해가 없다** (`WorldRef.hazard` 가 null).
+
 ## Phase 3 (2026-09-06): dynamic obstacles
 - `WorldRef.addObstacle(obstacle) → remover`: inserts a `kind: 'dynamic'` entry (with its `destructible`) into the same `SpatialHash` as the props, so collision,
   raycasts and enemy avoidance see dropped cover structures / supply crates immediately; `SpatialHash.remove()` takes it out again. `clear()` drops them with the world.
@@ -288,6 +382,16 @@ without a 목표 행성; the arena / target-mode half is green), `smoke-rogue-v2
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-09 (환경 재해)** — `Hazard.ts` (+ `hazard/model.ts` · `parts/Plan.ts` · `parts/Zones.ts` ·
+  `parts/Grove.ts` · `parts/Visuals.ts`) 로 **제한시간 행성**: 행성 후보 중 하나를 미션 시드로 뽑아
+  6~8분(30초 단위, 독성 포자만 6분 고정)에 시작해 `HAZARD_FULL_S` 에 걸쳐 맵을 덮는다. 모래 폭풍 ·
+  눈보라는 직선으로 잠식하는 `front`, 폭풍의 눈은 고정된 한 점으로 좁아지는 안전 원, 독성 포자는
+  **거대 버섯 군락**에서 하나씩 피어올라 커지는 원 여럿이다. 구역 안에서 `HAZARD_TICK_S` 마다
+  `HAZARD_DPS` 피해 + `atmo:override` 로 시야 제한 + 절차 입자/커튼. 군락 둘레에는 채집 버섯이 심어지고
+  (`Gather` 의 네 번째 인자), 다 발견하면 6분 뒤 어디서 시작될지 미리 안다. 종류 · 시각 · 도형이 전부
+  시드의 함수라 **평상시 와이어가 없다** (늦은 합류만 `hzq`/`hz`). 수치는 `data/hazards.csv` (신규) 와
+  `data/constants.csv`. 검증: `scripts/smoke-hazard.mjs` (신규).
 
 - **2026-09-09 (버려진 구조물 · 선로 · 전차)** — `Obstacle.box`(OBB) 를 world/ 에 들였다: `obb.ts` 신규,
   `SpatialHash.addBox` / `move`, `resolveCollision` · `raycast` · `getSurfaceY` · `getStandingObstacle` 의 상자 가지

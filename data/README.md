@@ -38,6 +38,7 @@ npm run dev             # csv 를 저장하면 바로 다시 읽는다
 | 행성 5곳 — 위협 · 생태 · 하늘 | [`planets.csv`](planets.csv) |
 | **행성 진행도별 무기 등급 드롭 곡선** (앞쪽 행성에서 III 이상 봉인) | [`planet_loot.csv`](planet_loot.csv) |
 | **버려진 구조물 · 선로 플랫폼 · 전차** — 개수 · 크기 · 컨테이너 수 · 지하실 확률 · 상자 티어 가중치 | [`structures.csv`](structures.csv) |
+| **환경 재해 4종** — 색 · 입자 밀도 · 벽 높이/두께 (규칙 수치는 `constants.csv`) | [`hazards.csv`](hazards.csv) |
 | 함선 호출 (스트라타젬) | [`stratagems.csv`](stratagems.csv) |
 
 각 파일의 첫 줄들(`#` 로 시작)이 그 표의 열 하나하나가 무엇인지 설명한다. **파일을 열면 거기부터 읽는다.**
@@ -169,6 +170,26 @@ csv 는 Vite 의 `import.meta.glob(..., { query: '?raw', eager: true })` 로 **�
 건물의 **치수 상수**(벽 두께 · 문 폭 · 계단 구멍 · 슬래브 두께)는 여기 없다 — 밸런스 수치가 아니라 그림의
 문제라 `src/world/structures/model.ts` 에 둔다.
 
+
+### 2026-09-09 — `hazards.csv` (신규) · 환경 재해
+
+**환경 재해 4종의 그림 수치.** 한 줄이 재해 하나다 — `sandstorm` (모래 폭풍) · `blizzard` (눈보라) ·
+`storm_eye` (폭풍의 눈) · `spores` (독성 포자). `kind` 는 코드가 찾는 값이라 바꾸지 않는다.
+`src/world/hazard/model.ts` 가 읽고 `src/world/Hazard.ts` 가 쓴다.
+
+- `fogColor` — 구역 **안에서** 포그 · 하늘에 섞어 넣을 색. 재해는 `atmo:override` 이벤트 하나로만 시야를
+  좁히므로 이 색이 그 이벤트의 `color` 다. ⚠ 포그가 없는 행성(카민 I: `planets.csv` 의 `fog false`)에서는
+  포그 농도를 곱해도 0이라 **색 · 시야 제한이 걸리지 않는다** — 그 행성에서 시야를 좁히는 것은 입자뿐이다.
+- `particleColor` / `particleCount` / `particleSize` / `particleBox` — 카메라를 따라다니는 입자 구름.
+  개수를 줄이면 그대로 성능이 붙고, `particleBox` 를 키우면 같은 개수가 넓게 퍼져 옅어진다.
+- `driftMps` / `riseMps` — 입자가 옆으로 흐르는 · 위로 뜨는 속도(m/s). 눈보라만 `riseMps` 가 음수다(내린다).
+- `wallColor` / `wallOpacity` / `wallHeight` / `frontBandM` — 경계에 서는 벽. `sandstorm` · `blizzard` 는
+  전선을 따라 `frontBandM` 두께로 겹친 커튼, `storm_eye` · `spores` 는 열린 원통이다.
+
+**규칙 수치는 여기 없다.** 시작 시각(`HAZARD_START_MIN_S` · `MAX` · `STEP_S`) · 예고(`HAZARD_WARN_S`) ·
+피해(`HAZARD_DPS` · `HAZARD_TICK_S`) · 봉쇄 시간(`HAZARD_FULL_S`) · 시야 배수(`HAZARD_FOG_MUL`) ·
+경계 폭(`HAZARD_EDGE_M`) · 폭풍의 눈 반경(`STORM_EYE_*`) · 포자(`SPORE_*`) 는 전부 `constants.csv` 이고,
+**어느 행성에 어떤 재해가 오는지**는 `planets.csv` 의 `hazards` 열이다 (칸을 비우면 재해 없는 행성).
 
 ### 2026-09-09 — `planet_loot.csv` (신규) · 지하실 키카드
 

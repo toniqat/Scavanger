@@ -22,6 +22,7 @@ export class Atmosphere {
    * 오버라이드는 그대로 살아 있으므로, 재해 도중에 행성이 바뀌어도 어긋나지 않는다. */
   private baseDensity = 0;
   private readonly baseColor = new THREE.Color(0xffffff);
+  private readonly baseBg = new THREE.Color(0xffffff);
   private ovFogMul = 1;
   private ovColor: number | null = null;
   private ovBlend = 0;
@@ -132,6 +133,7 @@ export class Atmosphere {
   private captureBase(): void {
     this.baseDensity = this.fog.density;
     this.baseColor.copy(this.fog.color);
+    if (this.scene.background instanceof THREE.Color) this.baseBg.copy(this.scene.background);
     this.applyOverride();
   }
 
@@ -147,15 +149,28 @@ export class Atmosphere {
     this.applyOverride();
   }
 
-  /** base + 오버라이드를 실제 fog / background 에 반영한다. */
+  /**
+   * base + 오버라이드를 실제 fog / background 에 반영한다.
+   *
+   * 농도는 **`base` 에서 `target` 으로의 보간**이다. 곱셈(`base × mul`)이 아닌 이유는 2026-09-09 에 드러났다:
+   * **포그가 없는 맑은 행성**(`PlanetDef.fog:false` → 카민 I)은 `baseDensity` 가 0 이라 무엇을 곱해도 0 이고,
+   * 그 행성의 모래 폭풍 안에서 시야가 전혀 좁아지지 않았다. `target` 을 팔레트 자신의 `fogDensity` 에서
+   * 잡으면 그 행성도 "맑음(0) → 폭풍(팔레트 농도 × mul)" 으로 자연스럽게 오른다.
+   * 포그가 있는 행성에서는 `lerp(base, base × mul, t)` = 예전 곱셈식과 **완전히 같은 값**이다.
+   */
   private applyOverride(): void {
     const t = this.ovBlend;
-    this.fog.density = this.baseDensity * (1 + (this.ovFogMul - 1) * t);
+    const base = this.baseDensity;
+    // 맑은 행성(base 0)은 팔레트가 원래 갖고 있던 농도를 기준으로 삼는다 — 0 에 곱하면 영원히 0 이다
+    const target = (base > 0 ? base : this.palette.fogDensity) * this.ovFogMul;
+    this.fog.density = base + (target - base) * t;
     this.fog.color.copy(this.baseColor);
     if (this.ovColor !== null && t > 0) this.fog.color.lerp(this.ovScratch.setHex(this.ovColor), t);
-    // 배경은 포그 색을 따라간다 (포그 없는 맑은 행성은 `applyPlanet` 이 horizon 을 넣어 뒀으므로 건드리지 않는다)
-    if (this.baseDensity > 0 && this.scene.background instanceof THREE.Color) {
-      this.scene.background.copy(this.fog.color);
+    // 배경도 원래 색 → 포그 색으로 같이 넘어간다. t=0 이면 `baseBg` 그대로라 맑은 행성의 horizon 배경이 지켜지고,
+    // 포그가 있는 행성은 `baseBg === baseColor` 라 예전처럼 포그 색을 그대로 따라간다.
+    if (this.scene.background instanceof THREE.Color) {
+      this.scene.background.copy(this.baseBg);
+      if (t > 0) this.scene.background.lerp(this.fog.color, t);
     }
   }
 

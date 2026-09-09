@@ -15,6 +15,7 @@ import { type Biome, biomeById, pickBiome } from './biomes';
 import { type BuildCtx, PLAY_LIMIT } from './build';
 import { Crates } from './Crates';
 import { Gather } from './Gather';
+import { Hazard } from './Hazard';
 import { generateLayout, padClearance, type WorldLayout } from './layout';
 import { Nests } from './Nests';
 import { Noise } from './noise';
@@ -80,6 +81,7 @@ export class WorldSystem implements GameSystem, WorldRef {
   private readonly structures = new Structures();
   private readonly rails = new Rails();
   private readonly gather = new Gather();
+  private readonly hazardSys = new Hazard();
   private readonly ambience = new Ambience();
   private readonly arena = new TrainingArena();
   private readonly hash = new SpatialHash(16);
@@ -144,6 +146,7 @@ export class WorldSystem implements GameSystem, WorldRef {
     this.structures.update(dt, t);
     this.rails.update(dt, t);
     this.gather.update(dt, t);
+    this.hazardSys.update(dt, ctx);
     this.ambience.update(dt, ctx.camera);
     this.fogMask?.update(dt);
   }
@@ -198,9 +201,13 @@ export class WorldSystem implements GameSystem, WorldRef {
      * `layout` 이 잡아 뒀고 `Terrain` 이 평탄화 · 지하실 굴착까지 끝냈다. */
     this.structures.build(bctx, ctx);
     this.rails.build(bctx, ctx);
+    /* 2026-09-09 — 환경 재해도 **소품 · 상자 앞**이다: 거대 버섯 군락의 줄기가 먼저 hash 에 들어가야
+     * `isSpotFree` 가 군락 한가운데를 피한다. 재해 종류 · 시작 시각은 미션 시드에서만 나오므로
+     * 여기서 만들어도 클라이언트끼리 어긋나지 않는다. */
+    this.hazardSys.build(bctx, ctx, def?.hazards ?? []);
     this.props.build(bctx);
     this.crates.build(bctx, ctx);
-    this.gather.build(bctx, ctx, def?.eco ?? null);
+    this.gather.build(bctx, ctx, def?.eco ?? null, this.hazardSys.getGroveSpots());
     this.ambience.build(bctx);
 
     this.extractionPoints = this.layout.extraction.map((p, i) => ({
@@ -219,7 +226,7 @@ export class WorldSystem implements GameSystem, WorldRef {
     this.generated = true;
     this.ready = true;
     const ms = performance.now() - t0;
-    console.info(`[World] seed ${this.seed} · planet ${def ? `${this.planet} (${def.name})` : '—'} · biome ${this.biome.id} (${this.biome.name}) · ${this.hash.getAll().length} obstacles · ${this.crates.getDefs().length} crates · ${this.gather.getNodes().length} herbs · ${this.structures.getDefs().length} structures · ${this.rails.getLines().length ? this.rails.getLines()[0].kind : 'no'} rail · ${ms.toFixed(0)} ms`);
+    console.info(`[World] seed ${this.seed} · planet ${def ? `${this.planet} (${def.name})` : '—'} · biome ${this.biome.id} (${this.biome.name}) · ${this.hash.getAll().length} obstacles · ${this.crates.getDefs().length} crates · ${this.gather.getNodes().length} herbs · ${this.structures.getDefs().length} structures · ${this.rails.getLines().length ? this.rails.getLines()[0].kind : 'no'} rail · hazard ${this.hazardSys.kind ?? '—'}${this.hazardSys.kind ? ` @ ${this.hazardSys.startsAt}s` : ''} · ${ms.toFixed(0)} ms`);
     ctx.bus.emit('world:ready', { seed: this.seed, playerSpawn: this.spawnPos.clone(), planet: this.planet });
   }
 
@@ -275,6 +282,7 @@ export class WorldSystem implements GameSystem, WorldRef {
       return;
     }
     this.ambience.dispose();
+    this.hazardSys.dispose();
     this.gather.dispose();
     this.rails.dispose();
     this.structures.dispose();
@@ -607,8 +615,8 @@ export class WorldSystem implements GameSystem, WorldRef {
   getRailLines(): readonly RailLineDef[] { return this.mode === 'training' ? NONE_RAILS : this.rails.getLines(); }
   /** 선로 위의 전차. */
   getTrams(): readonly TramDef[] { return this.mode === 'training' ? NONE_TRAMS : this.rails.getTrams(); }
-  /** 이번 레이드의 환경 재해. */
-  get hazard(): HazardRef | null { return null; }
+  /** 이번 레이드의 환경 재해. 후보가 없는 행성 · 훈련장이면 null. */
+  get hazard(): HazardRef | null { return this.mode === 'training' ? null : this.hazardSys.ref; }
 
   getEnemySpawnPoints(around: THREE.Vector3, count: number, minDist: number, maxDist: number): THREE.Vector3[] {
     const result: THREE.Vector3[] = [];

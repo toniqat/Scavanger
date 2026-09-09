@@ -47,3 +47,10 @@ Notes
   `applyPlanet` / `setSpaceMode` 로 하늘이 갈려도 오버라이드가 어긋나지 않는다 (세 곳 모두 끝에서
   `captureBase()` 를 부른다). `game:abort` 는 `{1, null, 0}` 으로 되돌린다. 포그가 없는 맑은 행성
   (`fog:false`, 배경이 `horizon` 색)에서는 배경을 건드리지 않는다 — 포그 농도만 0 에서 출발해 오른다.
+
+- **2026-09-09 (오버라이드가 맑은 행성에서도 걸린다)** — `applyOverride` 의 농도 계산이 곱셈에서 **보간**으로
+  바뀌었다: `density = base + (target − base) × t`, `target = (base > 0 ? base : palette.fogDensity) × fogMul`.
+  포그가 있는 행성에서는 `lerp(base, base × mul, t)` 라 **예전 곱셈식과 값이 같다**. 바뀐 것은 `PlanetDef.fog:false`
+  인 **맑은 행성**(카민 I)뿐인데, 거기는 `baseDensity` 가 0 이라 무엇을 곱해도 0 이었고 그 행성의 모래 폭풍 안에서
+  시야가 전혀 좁아지지 않았다. 배경색도 같은 `t` 로 `baseBg → fog.color` 를 넘어가므로 맑은 행성의 horizon 배경이
+  `t=0` 에서 그대로 지켜진다 (포그 있는 행성은 `baseBg === baseColor` 라 예전과 동일).

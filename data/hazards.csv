@@ -1,0 +1,16 @@
+# 환경 재해 4종의 **그림 수치**. 규칙 수치(시작 시각 · 피해 · 반경 · 성장 속도)는 data/constants.csv 의
+# HAZARD_* · STORM_EYE_* · SPORE_* 이고, 어느 행성에 어떤 재해가 오는지는 data/planets.csv 의 hazards 열이다.
+# kind = HazardKind (sandstorm | blizzard | storm_eye | spores) — 코드가 찾는 값이라 바꾸지 않는다.
+#        한국어 이름은 코드(shared/types 의 HAZARD_LABEL_KO)에 있으므로 여기 적지 않는다.
+# fogColor      = 구역 안에서 포그 · 하늘에 섞어 넣을 색 (0xRRGGBB, atmo:override.color).
+# particleColor = 휘몰아치는 입자 색 (0xRRGGBB).
+# particleCount = 카메라 주위에 띄우는 입자 수. 구역 밖에서는 0장 그린다 (경계에서 서서히 짙어진다).
+# particleSize  = 입자 하나의 월드 크기(m). particleBox = 입자 구름의 반변(m, 카메라를 따라다니며 감긴다).
+# driftMps      = 입자가 옆으로 흐르는 속도(m/s). riseMps = 위로 뜨는 속도(m/s, 음수면 내린다).
+# wallColor     = 경계에 세우는 벽(전선 커튼 · 폭풍 원통 · 포자 기둥)의 색. wallOpacity = 그 벽의 불투명도.
+# wallHeight    = 그 벽의 높이(m). frontBandM = front 재해에서 전선 커튼의 두께(m, 앞뒤로 겹쳐 세운다).
+kind,fogColor,particleColor,particleCount,particleSize,particleBox,driftMps,riseMps,wallColor,wallOpacity,wallHeight,frontBandM
+sandstorm,0xc4a068,0xd8b478,1100,0.55,58,26,1.2,0xc4a068,0.34,72,14
+blizzard,0xdde9ff,0xffffff,1300,0.32,58,19,-2.4,0xcfe0ff,0.30,72,12
+storm_eye,0x8d8b85,0xb6b2a8,1000,0.48,58,23,0.9,0x7c7972,0.30,84,10
+spores,0x5fc27a,0x9dff7a,800,0.62,52,4,1.4,0x5fc27a,0.26,58,8

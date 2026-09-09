@@ -6,6 +6,9 @@ import {
   type Interactable, type ItemInstance, type PeerId, type PlanetEcosystem, type Random,
 } from '@/shared';
 import { type BuildCtx, PLAY_LIMIT, composeMatrix, isSpotFree, merge, paint, paintGradient, xform } from './build';
+import {
+  GROVE_PICKS_MAX, GROVE_PICKS_MIN, GROVE_PICK_RING_MAX, GROVE_PICK_RING_MIN, GROVE_PICK_VARIANT,
+} from './hazard/model';
 
 /** Seconds the shrink-away animation runs after a node is harvested. */
 const HARVEST_ANIM = 0.42;
@@ -106,7 +109,10 @@ export class Gather {
    * old uniform "one herb per plant shape") and `eco.gatherDensity` scales `GATHER_NODES_PER_MISSION`.
    * null (no planet / an unknown id) reproduces the pre-Phase-11 placement draw exactly for the same seed.
    */
-  build(ctx: BuildCtx, game: GameContext, eco: PlanetEcosystem | null = null): void {
+  build(
+    ctx: BuildCtx, game: GameContext, eco: PlanetEcosystem | null = null,
+    groves: ReadonlyArray<{ x: number; z: number }> = [],
+  ): void {
     this.game = game;
     this.ensureNet();
     const rng = ctx.rng.fork('gather');
@@ -118,7 +124,11 @@ export class Gather {
 
     // variants 0–2 are the plant shapes, variant 3 the 고철 더미 — each mesh is sized for its own node budget
     const salvageTarget = SALVAGE_NODES_PER_MISSION;
-    const capacityOf = (k: number): number => (k === SALVAGE_VARIANT ? salvageTarget : target);
+    // 2026-09-09: 거대 버섯 군락 둘레의 채집 버섯은 전부 포자균 갓(변종 1)이라 그 변종만 자리를 더 잡는다
+    const groveExtra = groves.length * GROVE_PICKS_MAX;
+    const capacityOf = (k: number): number => (
+      k === SALVAGE_VARIANT ? salvageTarget : k === GROVE_PICK_VARIANT ? target + groveExtra : target
+    );
     for (let k = 0; k <= SALVAGE_VARIANT; k++) {
       const glowMat = new THREE.MeshStandardMaterial({
         vertexColors: true, roughness: 0.35, metalness: 0.0,
@@ -198,6 +208,35 @@ export class Gather {
         push(rng.range(-PLAY_LIMIT + 12, PLAY_LIMIT - 12), rng.range(-PLAY_LIMIT + 12, PLAY_LIMIT - 12));
       }
       spots.push(...salvageSpots);
+    }
+
+    /* ── 거대 버섯 군락의 채집 버섯 (2026-09-09) ──────────────────────────────
+     * 군락 자체는 `world/Hazard` 가 세운다 (줄기가 이미 hash 에 들어가 있다). 여기서 하는 것은 그 둘레
+     * 고리에 **채집 가능한 버섯**을 심는 것뿐이고, 노드 · 상호작용 · 호스트 권한 동기화는 약초 코드 그대로다.
+     * 고철 더미와 같은 수법으로 **약초 · 고철 배치가 끝난 뒤에** 뽑으므로 앞의 rng 스트림을 밀지 않는다. */
+    if (groves.length > 0) {
+      const groveSpots: Spot[] = [];
+      const clear = (x: number, z: number): boolean => {
+        if (!isSpotFree(ctx, x, z, 0.7, { maxSlope: 0.34, padExtra: 3 })) return false;
+        for (const p of spots) if ((p.x - x) ** 2 + (p.z - z) ** 2 < 2.6 * 2.6) return false;
+        for (const p of groveSpots) if ((p.x - x) ** 2 + (p.z - z) ** 2 < 2.6 * 2.6) return false;
+        return true;
+      };
+      for (const g of groves) {
+        const want = rng.int(GROVE_PICKS_MIN, GROVE_PICKS_MAX);
+        // 한 군락은 한 종류로 — 약초 무리와 같은 규칙 (행성 가중치가 있으면 그것으로 뽑는다)
+        const defId = weights ? this.pickHerb(weights, rng) : herbIds[GROVE_PICK_VARIANT % herbIds.length];
+        let placed = 0;
+        for (let a = 0; a < 80 && placed < want; a++) {
+          const ang = rng.range(0, Math.PI * 2);
+          const d = rng.range(GROVE_PICK_RING_MIN, GROVE_PICK_RING_MAX);
+          const x = g.x + Math.cos(ang) * d, z = g.z + Math.sin(ang) * d;
+          if (!clear(x, z)) continue;
+          groveSpots.push({ x, z, variant: GROVE_PICK_VARIANT, defId, kind: 'herb' });
+          placed++;
+        }
+      }
+      spots.push(...groveSpots);
     }
 
     let id = 0;
