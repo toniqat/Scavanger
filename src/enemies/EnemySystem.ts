@@ -5,7 +5,11 @@ import {
   SHELL_BLAST_RADIUS, SHELL_DAMAGE, SHELL_FLIGHT_TIME, SHOCK_SLOW_DURATION, SHOCK_SLOW_FACTOR, TOXIC_DAMAGE, TOXIC_RADIUS, getPlanet,
   type DamageMessage, type EnemyDeathDir, type EnemyEvent, type EnemyFaction, type EnemyHit, type EnemyManagerRef, type EnemyRef, type EnemySnapshot, type EnemyStatusKind, type EnemyType, type GameContext, type GameSystem,
   type HitRequest, type InterceptableRef, type PeerId, type PlanetEcosystem, type ShotReport, type Vec3Tuple, type WorldRef,
+  /* appended (2026-09-09): 로그 강하 계약 */
+  type RogueDropView,
 } from '@/shared';
+/* appended (2026-09-09): 아직 구현 전인 계약의 빈 답 (enemies/ 담당이 채우면 사라진다) */
+const NONE_ROGUE_DROPS: readonly RogueDropView[] = [];
 import { FxManager, ParticleBurst } from '@/core/fx';
 import { Enemy, type EnemyHost, type HitPart } from './Enemy';
 import { ROGUE_AI, SPEWER_SPIT } from './EnemyTypes';
@@ -55,6 +59,11 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
    * extends. Unknown ids are ignored; `seconds <= 0` hides the listed ones (`[]` + 0 is a no-op).
    */
   setXray(ids: readonly number[], seconds: number): void { return Status.setXray(this, ids, seconds); }
+  /* ── appended (2026-09-09): 로그 강하 — 계약 자리만 잡아 둔 stub. enemies/ 담당이 채운다. ── */
+  /** **호스트 전용**: 로그 분대를 강하시킨다. 인원 · 보스 여부는 분대 인원에서 정해진다. */
+  callRogueDrop(_dropId: string, _position: THREE.Vector3): boolean { return false; }
+  /** 진행 중인 강하 (HUD 경고 · 오프스크린 화살표용). */
+  getRogueDrops(): readonly RogueDropView[] { return NONE_ROGUE_DROPS; }
   /** Phase 12: through-wall silhouettes (`setXray`). */
   readonly xray = new EnemyXray();
   readonly grid = new SpatialGrid<Enemy>(MAP_SIZE + 40, 8);

@@ -529,3 +529,44 @@ PROP_TOP_MARGIN,0.15,장애물 윗면 판정에 쓰는 여유(m) — 가장자�
 # ── 핑 v3 (2026-09-09, owner: ui/hud/Pings) ──
 PING_MAX_PER_PLAYER,3,한 플레이어가 동시에 유지하는 핑 수(나도 분대원도). 넘치면 그 사람의 가장 오래된 핑이 사라진다.
 PING_AIM_ASSIST_PX,56,핑 조준 보정 — 조준점에서 이 화면 거리(px) 안에 보이는 적 · 아이템 · 상자 · 분대 핑이면 정확히 맞추지 않아도 그것을 찍는다.
+
+# ── 2026-09-09 레이드 플레이 개선: 의사소통 휠 (owner: ui/hud/CommsWheel) ──
+COMMS_WHEEL_HOLD_S,0.18,H 를 이만큼 누르고 있어야 의사소통 휠이 열린다(초). 짧게 톡 누르면 아무 일도 없다.
+COMMS_WHEEL_DEAD_PX,26,휠 중심에서 이 화면 거리(px)를 넘겨야 방향 한 칸이 선택된다.
+COMMS_COOLDOWN_S,2,같은 사람이 다시 한 마디를 보낼 수 있게 되기까지의 시간(초).
+
+# ── 2026-09-09: 버려진 구조물 (owner: world/Structures) ──
+STRUCTURE_SCAN_RADIUS,170,구조물 컴퓨터의 행성 스캔이 안개를 걷는 반경(m).
+STRUCTURE_SCAN_HOLD_S,3,행성 스캔 콘솔을 꾹 눌러야 하는 시간(초).
+STRUCTURE_UNLOCK_HOLD_S,2,키카드로 지하실 문을 여는 홀드 시간(초).
+STRUCTURE_INTERACT_RANGE,2.8,구조물 문 · 컴퓨터 상호작용 거리(m).
+
+# ── 2026-09-09: 선로 · 전차 (owner: world/Rails) ──
+RAIL_CHANCE,0.7,구역에 선로가 놓일 확률 (0 = 언제나 없음).
+TRAM_SPEED,14,전차 주행 속도(m/s).
+TRAM_START_HOLD_S,1.5,플랫폼 콘솔에서 전차에 시동을 거는 홀드 시간(초).
+TRAM_DOCK_S,8,전차가 플랫폼에 정차해 있는 시간(초).
+
+# ── 2026-09-09: 로그 강하 (owner: enemies/RogueDrop) ──
+ROGUE_DROP_CHANCE,0.45,구조물 · 플랫폼을 조사할 때 로그 강하가 트리거될 확률. 구역당 1회만 굴린다.
+ROGUE_DROP_ETA_S,8,예고에서 착지까지의 시간(초).
+ROGUE_DROP_RADIUS,26,착지 지점이 흩어지는 반경(m).
+
+# ── 2026-09-09: 환경 재해 (owner: world/Hazard) ──
+HAZARD_START_MIN_S,360,재해 시작 시각의 하한(초 · 레이드 시작 기준).
+HAZARD_START_MAX_S,480,재해 시작 시각의 상한(초).
+HAZARD_START_STEP_S,30,시작 시각을 이 간격(초)으로 끊어 뽑는다 (예: 6분 30초).
+HAZARD_WARN_S,30,시작 이 초 전에 예고 방송이 나간다.
+HAZARD_DPS,1,피해 구역 안에서 초당 받는 피해.
+HAZARD_TICK_S,1,피해를 주는 주기(초).
+HAZARD_FULL_S,420,재해가 시작해서 맵을 완전히 덮기까지의 시간(초). 이후에는 안전지대가 없다.
+HAZARD_FOG_MUL,7,피해 구역 안에서 포그 농도에 곱하는 배수 (시야 제한).
+HAZARD_EDGE_M,12,구역 경계의 페더 폭(m) — 화면 효과가 서서히 올라온다.
+STORM_EYE_RADIUS_START,300,폭풍의 눈: 처음 안전 원의 반경(m).
+STORM_EYE_RADIUS_END,60,폭풍의 눈: 끝까지 좁아졌을 때의 반경(m).
+SPORE_START_S,360,독성 포자만은 시작 시각이 고정이다(초).
+SPORE_SOURCES_MIN,3,거대 버섯 군락(= 포자 발생지)의 최소 개수.
+SPORE_SOURCES_MAX,6,거대 버섯 군락의 최대 개수.
+SPORE_SOURCE_INTERVAL_S,50,발생지가 하나씩 더 피어오르는 간격(초).
+SPORE_RADIUS_MAX,110,발생지 하나가 끝까지 자랐을 때의 반경(m).
+SPORE_GROWTH_MPS,1.6,발생지 반경이 자라는 속도(m/s).

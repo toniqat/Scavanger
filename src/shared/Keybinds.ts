@@ -58,6 +58,8 @@ export const KEY_ACTION_DEFS: readonly KeyActionDef[] = [
   { id: 'INTERACT', label: '상호작용 (길게) · 전투불능 아군 구조', group: '상호작용', scope: 'game' },
   { id: 'PING', label: '핑 (홀드+드래그: 방향 핑)', group: '상호작용', scope: 'game', mouseOnly: true },
   { id: 'CHAT', label: '채팅', group: '상호작용', scope: 'game' },
+  /* appended (2026-09-09): 꾹 눌러 방사형 휠 — 서 있으면 4칸, 전투불능이면 2칸 (`shared/comms.ts`). */
+  { id: 'COMMS', label: '의사소통 (꾹 눌러 휠)', group: '상호작용', scope: 'game' },
 
   /*
    * 2026-09-08 (ESC = 항상 일시정지): every screen is closed by the key that **opened** it, and Escape is nothing

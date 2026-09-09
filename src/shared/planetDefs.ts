@@ -5,7 +5,8 @@
  * (`isPlanetId` 하나 때문에). 이 파일은 csv 를 읽으므로 Vite 번들 안에서만 살 수 있고, 서버는 여기를
  * 건드리지 않는다. 두 파일 모두 `@/shared` 배럴로 나가므로 게임 코드에서는 차이가 보이지 않는다.
  */
-import type { EnemyType } from './types';
+import type { EnemyType, HazardKind } from './types';
+import { HAZARD_KINDS } from './types';
 import type { PlanetId } from './planets';
 import { PLANET_IDS, PLANET_NONE_LABEL } from './planets';
 import { csvRows } from './data/tables';
@@ -49,6 +50,12 @@ export interface PlanetDef {
   hologram: number;
   hologramAtmo: number;
   eco: PlanetEcosystem;
+  /**
+   * appended (2026-09-09): 이 행성에서 일어날 수 있는 **환경 재해 후보**. 레이드마다 미션 시드로 그중 하나를 뽑는다
+   * (`data/planets.csv` 의 `hazards` 열, `|` 로 이어 쓴다). 빈 칸 = 재해 없는 행성 (`WorldRef.hazard` 가 null).
+   * 모르는 이름은 조용히 버린다 — 한 줄의 오타가 레이드를 깨지 않게.
+   */
+  hazards: readonly HazardKind[];
 }
 
 /**
@@ -68,6 +75,7 @@ export const PLANET_DEFS: readonly PlanetDef[] = csvRows('planets.csv').map((r) 
   fogMul: r.num('fogMul', { min: 0 }),
   hologram: r.num('hologram'),
   hologramAtmo: r.num('hologramAtmo'),
+  hazards: r.list('hazards').filter((h): h is HazardKind => (HAZARD_KINDS as readonly string[]).includes(h)),
   eco: {
     bugs: Object.fromEntries(r.costList('bugs').map((c) => [c.defId, c.qty])) as Partial<Record<EnemyType, number>>,
     pressure: r.num('pressure', { min: 0 }),
@@ -96,6 +104,16 @@ export function planetIndex(id: PlanetId | null | undefined): number {
 /** Display name for a planet id — `PLANET_NONE_LABEL` when nothing is selected, so every readout agrees. */
 export function planetLabel(id: PlanetId | null | undefined): string {
   return getPlanet(id)?.name ?? PLANET_NONE_LABEL;
+}
+
+/**
+ * appended (2026-09-09): **행성 난이도 순번 1..5** — `data/planets.csv` 의 줄 순서가 곧 난이도 순서다
+ * (1 = 아켈론 II … 5 = 카민 I). 무기 등급 드롭 곡선(`data/planet_loot.csv`)이 이 번호로 줄을 찾는다.
+ * 행성을 고르지 않았으면 1 (가장 앞 행성과 같은 취급 — 가장 짠 곡선).
+ */
+export function planetTier(id: PlanetId | null | undefined): number {
+  const i = id == null ? -1 : PLANET_IDS.indexOf(id);
+  return i < 0 ? 1 : i + 1;
 }
 
 /** 위협 등급 badge text, indexed by `PlanetDef.threat`. */

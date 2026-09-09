@@ -12,10 +12,14 @@ import { el, setText, toggleClass } from '../dom';
 export type PingKind = SharedPingKind;
 
 export const PING_LABEL: Record<PingKind, string> = {
-  ground: '핑', enemy: '적', crate: '보급', extraction: '탈출', item: '아이템', attack: '돌격', caution: '주의',
+  ground: '핑', enemy: '적', crate: '보급', extraction: '탈출', item: '아이템', attack: '저쪽으로 가자', caution: '여기 조심해',
+  /* appended (2026-09-09): 전투불능일 때 좌/우 홀드 제스처가 되는 두 종류 + 구조물 · 선로 */
+  help: '살려줘', abandon: '나를 버려', structure: '구조물', rail: '선로',
 };
 export const PING_COLOR: Record<PingKind, number> = {
   ground: 0x7fb7e6, enemy: 0xff4d4d, crate: 0x4fd17e, extraction: 0xffb347, item: 0xc77dff, attack: 0xff6a3d, caution: 0xffc23a,
+  /* appended (2026-09-09) */
+  help: 0xff4d4d, abandon: 0x8a929c, structure: 0xd8c48a, rail: 0x9fb4c7,
 };
 const ENEMY_LOST_LABEL = '적 (마지막 위치)';
 

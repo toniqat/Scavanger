@@ -1,6 +1,8 @@
 import type * as THREE from 'three';
 import type { ChatKind, EnemyType, GamePhase, PingKind, Stance, ItemInstanceExtras, StratagemId } from './types';
 import type { DeployableKind, GadgetId } from './gadgets';
+/* appended (2026-09-09): 레이드 플레이 개선 — 의사소통 휠 */
+import type { CommsId } from './comms';
 import type { ImplantId } from './implants';
 /* appended (Phase 7, 2026-09-06): server profile / raid session */
 import type { ProfileDocKey, ProfileRecord, ProfileRef, RaidSessionBlob } from './profile';
@@ -653,7 +655,9 @@ export type GameMessage =
   | LeaderMessage
   | LeaderRequest
   | FogMessage
-  | FogRequest;
+  | FogRequest
+  /* appended (2026-09-09): 레이드 플레이 개선 — 의사소통 · 구조물 · 전차 · 재해 · 로그 강하 (파일 끝 절 참고) */
+  | RaidContentMessage;
   /* append new message types above this line (keep `t` unique; prefix by owning folder if in doubt) */
 
 /* ══ 2026-09-09 wire: 시체 · 구조선 · 강하 포드 · 분대장 기기 · 안개 ════════════════════════════════════════
@@ -1238,3 +1242,65 @@ export interface NetRef {
    */
   reportHostDown(down: boolean): void;
 }
+
+/* ══ 2026-09-09: 레이드 플레이 개선 — 의사소통 · 구조물 · 전차 · 재해 · 로그 강하 ═══════════════════════════
+ * 전부 `GameMessage` 에 **추가**된다 (아래 union 참고). 권위 규약은 기존과 같다:
+ *   - `*q` 로 끝나는 것은 **요청**(누구나 → 호스트), 접미사 없는 것은 **사실**(호스트 → 전원).
+ *   - 싱글 플레이에서는 아무것도 나가지 않는다 (`ctx.net` 이 없거나 `!inSession`).
+ * ────────────────────────────────────────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * 누구나 → 전원: 의사소통 휠 한 마디. `text` 는 **이미 완성된 문장**이다 (숫자가 든 문구는 보낸 쪽이 채운다).
+ * 받는 쪽은 `id` 로 색 · 아이콘을, `text` 로 채팅 줄을 만든다. Owner: ui/hud/CommsWheel.
+ */
+export interface CommsMessage { t: 'comm'; id: CommsId; text: string }
+
+/**
+ * 구조물 (owner: world/Structures). 호스트가 지하실 잠금 해제 · 행성 스캔 · 로그 강하 소모를 확정한다 —
+ * 두 사람이 같은 문을 동시에 열어 키카드가 둘 다 사라지는 일을 막는다.
+ */
+export type StructureMessage =
+  | { t: 'struct'; ev: 'unlocked'; id: string; by: PeerId | null }
+  | { t: 'struct'; ev: 'scanned'; id: string }
+  /** 이미 발생한 구조물 이벤트 전체 (늦게 합류 · 호스트 이관용). */
+  | { t: 'struct'; ev: 'sync'; unlocked: string[]; scanned: string[]; rogued: string[] };
+export type StructureRequest =
+  | { t: 'structq'; ev: 'unlock'; id: string }
+  | { t: 'structq'; ev: 'scan'; id: string }
+  | { t: 'structq'; ev: 'sync' };
+
+/** 전차 한 대의 와이어 상태. `st` = `TRAM_STATES` 의 index. */
+export interface TramWire { id: string; s: number; dir: 1 | -1; st: number }
+/** 전차 (owner: world/Rails). 위치는 선로 위 거리 `s` 하나로 충분하다 — 경로는 시드 결정적이다. */
+export type TramMessage =
+  | { t: 'tram'; ev: 'state'; tram: TramWire }
+  | { t: 'tram'; ev: 'sync'; trams: TramWire[] };
+export type TramRequest =
+  | { t: 'tramq'; ev: 'start'; id: string }
+  | { t: 'tramq'; ev: 'sync' };
+
+/**
+ * 환경 재해 (owner: world/Hazard). 종류 · 시작 시각은 **미션 시드에서** 나오므로 평상시에는 아무것도 흐르지
+ * 않는다 — 늦게 합류한 사람만 `hzq sync` 로 진행 상태(`HazardRef.serialize`)를 받는다.
+ */
+export type HazardMessage = { t: 'hz'; ev: 'sync'; data: string };
+export type HazardRequest = { t: 'hzq'; ev: 'sync' };
+
+/** 로그 강하 (owner: enemies/RogueDrop). 실제 적 스폰은 기존 `ee spawn` 이 싣는다 — 이건 예고 연출용이다. */
+export type RogueDropMessage =
+  | { t: 'rdrop'; ev: 'incoming'; dropId: string; p: Vec3Tuple; eta: number; count: number; boss: boolean }
+  | { t: 'rdrop'; ev: 'landed'; dropId: string; p: Vec3Tuple };
+
+/**
+ * 2026-09-09 이후 `GameMessage` 에 더해지는 것들. 기존 union 선언은 손대지 않고 여기서 **합집합으로 확장**한다
+ * — `GameMessage` 는 `GameMessageType` / `GameMessageOf` 의 원본이므로 이 파일 안에서 한 번만 넓힌다.
+ */
+export type RaidContentMessage =
+  | CommsMessage
+  | StructureMessage
+  | StructureRequest
+  | TramMessage
+  | TramRequest
+  | HazardMessage
+  | HazardRequest
+  | RogueDropMessage;

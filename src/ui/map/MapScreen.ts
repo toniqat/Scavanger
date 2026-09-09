@@ -40,6 +40,8 @@ const COL = {
 const COL_SUSPENDED = '#8a8f99';
 const PING_CSS: Record<PingKind, string> = {
   ground: COL.info, enemy: COL.danger, crate: COL.success, extraction: COL.accent, item: COL.pickup, attack: COL.attack, caution: COL.caution,
+  /* appended (2026-09-09): 전투불능 좌/우 핑 + 구조물 · 선로 */
+  help: COL.danger, abandon: '#8a929c', structure: '#d8c48a', rail: '#9fb4c7',
 };
 
 interface MapPing { id: number; kind: PingKind; position: THREE.Vector3; expires: number; owner?: { name: string; color: string } | null; label?: string; lost?: boolean }

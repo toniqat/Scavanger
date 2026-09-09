@@ -63,6 +63,8 @@ export interface KeyBindings {
   INVITE: string;
   /* appended (2026-09-07, 커서 rework): Alt frees the mouse cursor during gameplay without opening any screen. */
   CURSOR: string;
+  /* appended (2026-09-09): H 홀드 = 의사소통 휠. 톡 누르면 아무 일도 없다 (STIM 이 은퇴하며 비운 자리다). */
+  COMMS: string;
 }
 
 /** Factory defaults; `Keys` is the live (rebindable) copy. Both are keyed by `KeyAction`. */
@@ -96,6 +98,8 @@ export const DEFAULT_KEYS: Readonly<KeyBindings> = {
   INVITE: 'KeyP',
   /* 2026-09-07 (커서 rework): Alt = 커서 표시 / 숨기기. 구르기 moved off Alt onto V. */
   CURSOR: 'AltLeft',
+  /* 2026-09-09: 의사소통 휠. 은퇴한 STIM 과 같은 H 를 쓴다 — 그 키는 아무 데도 안 걸려 있었다. */
+  COMMS: 'KeyH',
 };
 
 /**
@@ -1054,3 +1058,85 @@ export const PROP_TOP_MARGIN = K.num('PROP_TOP_MARGIN');
 export const PING_MAX_PER_PLAYER = K.num('PING_MAX_PER_PLAYER');
 /** 핑 조준 보정 — 조준점에서 이 화면 거리(px) 안의 적 · 아이템 · 상자 · 분대 핑은 정확히 맞추지 않아도 찍힌다. */
 export const PING_AIM_ASSIST_PX = K.num('PING_AIM_ASSIST_PX');
+
+/* ══ appended: 2026-09-09 — 레이드 플레이 개선 ═════════════════════════════════════════════════════════════
+ * 값은 전부 `data/constants.csv` · `data/tables.csv` 다. 여기는 이름 · 주석 · 타입만 소유한다.
+ * ══════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/* ── 의사소통 휠 (owner: ui/hud/CommsWheel; 배치와 문구는 `shared/comms.ts`) ── */
+/** `Keys.COMMS` 를 이만큼(초) 누르고 있어야 휠이 열린다. 짧게 톡 누르면 아무 일도 없다. */
+export const COMMS_WHEEL_HOLD_S = K.num('COMMS_WHEEL_HOLD_S');
+/** 휠 중심에서 이 화면 거리(px)를 넘겨야 한 칸이 선택된다 (포인터 락 델타 누적). */
+export const COMMS_WHEEL_DEAD_PX = K.num('COMMS_WHEEL_DEAD_PX');
+/** 같은 사람이 다시 한 마디를 보낼 수 있게 되기까지의 시간(초). */
+export const COMMS_COOLDOWN_S = K.num('COMMS_COOLDOWN_S');
+
+/* ── 버려진 구조물 (owner: world/Structures) ── */
+/** 구조물 컴퓨터의 **행성 스캔**이 안개를 걷는 반경(m). 구조물당 1회. */
+export const STRUCTURE_SCAN_RADIUS = K.num('STRUCTURE_SCAN_RADIUS');
+/** 행성 스캔 콘솔의 홀드 시간(초). */
+export const STRUCTURE_SCAN_HOLD_S = K.num('STRUCTURE_SCAN_HOLD_S');
+/** 키카드로 지하실 문을 여는 홀드 시간(초). */
+export const STRUCTURE_UNLOCK_HOLD_S = K.num('STRUCTURE_UNLOCK_HOLD_S');
+/** 구조물 문 · 컴퓨터 상호작용 거리(m). */
+export const STRUCTURE_INTERACT_RANGE = K.num('STRUCTURE_INTERACT_RANGE');
+
+/* ── 선로 · 전차 (owner: world/Rails) ── */
+/** 구역에 선로가 놓일 확률 (0 = 언제나 없음). */
+export const RAIL_CHANCE = K.num('RAIL_CHANCE');
+/** 전차 주행 속도(m/s). */
+export const TRAM_SPEED = K.num('TRAM_SPEED');
+/** 플랫폼 콘솔에서 전차에 시동을 거는 홀드 시간(초). */
+export const TRAM_START_HOLD_S = K.num('TRAM_START_HOLD_S');
+/** 전차가 플랫폼에 정차해 있는 시간(초). */
+export const TRAM_DOCK_S = K.num('TRAM_DOCK_S');
+
+/* ── 로그 강하 (owner: enemies/RogueDrop) ── */
+/** 구조물 · 플랫폼을 조사할 때 강하가 트리거될 확률. **구역당 한 번만** 굴린다. */
+export const ROGUE_DROP_CHANCE = K.num('ROGUE_DROP_CHANCE');
+/** 예고에서 착지까지의 시간(초). */
+export const ROGUE_DROP_ETA_S = K.num('ROGUE_DROP_ETA_S');
+/** 착지 지점이 흩어지는 반경(m). */
+export const ROGUE_DROP_RADIUS = K.num('ROGUE_DROP_RADIUS');
+/** 강하 인원의 하한 — **index 0 = 분대 1명**, 3 = 분대 4명 (`data/tables.csv`). */
+export const ROGUE_DROP_COUNT_MIN = numberList('tables.csv', 'ROGUE_DROP_COUNT_MIN');
+/** 강하 인원의 상한 (같은 색인 규칙). */
+export const ROGUE_DROP_COUNT_MAX = numberList('tables.csv', 'ROGUE_DROP_COUNT_MAX');
+/** 그 강하에 **로그 분대장**이 섞일 확률 (같은 색인 규칙: 1명 0 · 2명 0.5 · 3명 이상 1). */
+export const ROGUE_DROP_BOSS_CHANCE = numberList('tables.csv', 'ROGUE_DROP_BOSS_CHANCE');
+
+/* ── 환경 재해 (owner: world/Hazard) ── */
+/** 재해 시작 시각의 하한(초, 레이드 시작 기준). */
+export const HAZARD_START_MIN_S = K.num('HAZARD_START_MIN_S');
+/** 재해 시작 시각의 상한(초). */
+export const HAZARD_START_MAX_S = K.num('HAZARD_START_MAX_S');
+/** 시작 시각을 이 간격(초)으로 끊어 뽑는다 — 6분 30초 · 7분 00초 같은 값만 나온다. */
+export const HAZARD_START_STEP_S = K.num('HAZARD_START_STEP_S');
+/** 시작 이 초 전에 예고(`hazard:announced`)가 나간다. */
+export const HAZARD_WARN_S = K.num('HAZARD_WARN_S');
+/** 피해 구역 안에서 초당 받는 피해. */
+export const HAZARD_DPS = K.num('HAZARD_DPS');
+/** 피해를 주는 주기(초). */
+export const HAZARD_TICK_S = K.num('HAZARD_TICK_S');
+/** 재해가 시작해서 **맵을 완전히 덮기까지**의 시간(초). 이후에는 안전지대가 없다 = 사실상 강제 탈출. */
+export const HAZARD_FULL_S = K.num('HAZARD_FULL_S');
+/** 피해 구역 안에서 포그 농도에 곱하는 배수 (`atmo:override.fogMul`). */
+export const HAZARD_FOG_MUL = K.num('HAZARD_FOG_MUL');
+/** 구역 경계의 페더 폭(m) — 화면 효과가 이 폭에 걸쳐 서서히 올라온다. */
+export const HAZARD_EDGE_M = K.num('HAZARD_EDGE_M');
+/** 폭풍의 눈: 처음 안전 원의 반경(m). */
+export const STORM_EYE_RADIUS_START = K.num('STORM_EYE_RADIUS_START');
+/** 폭풍의 눈: 끝까지 좁아졌을 때의 반경(m). */
+export const STORM_EYE_RADIUS_END = K.num('STORM_EYE_RADIUS_END');
+/** 독성 포자만은 시작 시각이 고정이다(초) — 6분. */
+export const SPORE_START_S = K.num('SPORE_START_S');
+/** 거대 버섯 군락(= 포자 발생지)의 최소 개수. */
+export const SPORE_SOURCES_MIN = K.num('SPORE_SOURCES_MIN');
+/** 거대 버섯 군락의 최대 개수. */
+export const SPORE_SOURCES_MAX = K.num('SPORE_SOURCES_MAX');
+/** 발생지가 하나씩 더 피어오르는 간격(초). */
+export const SPORE_SOURCE_INTERVAL_S = K.num('SPORE_SOURCE_INTERVAL_S');
+/** 발생지 하나가 끝까지 자랐을 때의 반경(m). */
+export const SPORE_RADIUS_MAX = K.num('SPORE_RADIUS_MAX');
+/** 발생지 반경이 자라는 속도(m/s). */
+export const SPORE_GROWTH_MPS = K.num('SPORE_GROWTH_MPS');

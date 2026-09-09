@@ -5,6 +5,8 @@ import {
   FOG_REVEAL_RADIUS, MAP_SIZE, PROP_STEP_UP_MAX, PROP_TOP_MARGIN, Random, TRAINING_ARENA_SIZE, getPlanet, isPlanetId,
   type CrateDef, type ExtractionPointDef, type FogRef, type GameContext, type GameSystem, type GatherNodeDef,
   type Obstacle, type PlanetDef, type TerrainHit, type WorldRef,
+  /* appended (2026-09-09): 레이드 플레이 개선 계약 */
+  type StructureDef, type RailLineDef, type TramDef, type HazardRef,
 } from '@/shared';
 import { Ambience } from './Ambience';
 import { Fog } from './Fog';
@@ -38,6 +40,10 @@ function circleOverlap(d: number, r1: number, r2: number): number {
 const NONE_CRATES: readonly CrateDef[] = [];
 const NONE_VEC: readonly THREE.Vector3[] = [];
 const NONE_GATHER: readonly GatherNodeDef[] = [];
+/* appended (2026-09-09): 아직 구현 전인 계약의 빈 답 (world/ 담당이 채우면 사라진다) */
+const NONE_STRUCTURES: readonly StructureDef[] = [];
+const NONE_RAILS: readonly RailLineDef[] = [];
+const NONE_TRAMS: readonly TramDef[] = [];
 
 /**
  * Owns the procedural planet surface: terrain, props/obstacles, nests, pads, outposts, crates, ambience.
@@ -559,6 +565,18 @@ export class WorldSystem implements GameSystem, WorldRef {
 
   /** Harvestable plants (consumed nodes stay in the list with `harvested: true`). */
   getGatherNodes(): readonly GatherNodeDef[] { return this.mode === 'training' ? NONE_GATHER : this.gather.getNodes(); }
+
+  /* ── appended (2026-09-09): 레이드 플레이 개선 — 계약 자리만 잡아 둔 stub. world/ 담당이 채운다. ── */
+  /** 버려진 구조물 (전진기지 · 연구실 · 불시착 함선). */
+  getStructures(): readonly StructureDef[] { return NONE_STRUCTURES; }
+  /** `(x, z)` 를 품는 구조물, 없으면 null. */
+  structureAt(_x: number, _z: number): StructureDef | null { return null; }
+  /** 선로 (구역마다 있을 수도, 없을 수도 있다). */
+  getRailLines(): readonly RailLineDef[] { return NONE_RAILS; }
+  /** 선로 위의 전차. */
+  getTrams(): readonly TramDef[] { return NONE_TRAMS; }
+  /** 이번 레이드의 환경 재해. */
+  get hazard(): HazardRef | null { return null; }
 
   getEnemySpawnPoints(around: THREE.Vector3, count: number, minDist: number, maxDist: number): THREE.Vector3[] {
     const result: THREE.Vector3[] = [];

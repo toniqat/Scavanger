@@ -39,3 +39,5 @@ export * from './character';
 export * from './currency';
 /* appended (2026-09-09): Escape 닫기 스택 — 열린 화면 중 가장 위 하나를 ESC 로 닫는다 */
 export * from './escape';
+/* appended (2026-09-09): 레이드 플레이 개선 — 의사소통 휠 계약 */
+export * from './comms';

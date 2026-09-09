@@ -1,4 +1,6 @@
 import type { ArmorDef, CraftRecipe, EffectiveWeaponStats, EnemyType, ItemDef, ItemInstance, ItemInstanceExtras, LootRef, WeaponDef } from '@/shared';
+/* appended (2026-09-09): 행성별 무기 등급 곡선 */
+import type { PlanetId } from '@/shared';
 import { Random } from '@/shared';
 import { UNIQUE_WEAPON_IDS } from '@/shared';
 import { ATTACHMENT_ITEM_DEFS, BOOK_ITEM_DEFS, ITEM_DEFS, ITEM_DEF_MAP, ammoItemIdFor, isWeaponItemDef, itemIdForWeapon, rarityRank } from './ItemDefs';
@@ -223,6 +225,16 @@ export class LootService implements LootRef {
 
     out.sort((a, b) => this.area(b) - this.area(a));
     return out;
+  }
+
+  /* ── appended (2026-09-09): 행성별 무기 등급 곡선 — 계약 자리만 잡아 둔 stub. items/ 담당이 채운다. ── */
+  /** 행성의 등급 곡선을 적용한 상자 굴림. 지금은 `rollCrate` 와 같다. */
+  rollCrateOn(tier: number, rng: Random, _planet: PlanetId | null): ItemInstance[] {
+    return this.rollCrate(tier, rng);
+  }
+  /** 행성의 등급 상한을 적용한 시체 굴림. 지금은 `rollCorpse` 와 같다. */
+  rollCorpseOn(type: EnemyType, rng: Random, rogueWeaponId: string | undefined, _planet: PlanetId | null): ItemInstance[] {
+    return this.rollCorpse(type, rng, rogueWeaponId);
   }
 
   /** Stack quantity for a pick: ammo = rounds as a tier-scaled fraction of the stack; other stackables capped by the tier. */

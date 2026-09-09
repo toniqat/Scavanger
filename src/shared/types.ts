@@ -26,8 +26,15 @@ export type GamePhase =
 /** Which ship interior the hub is showing. */
 export type HubShipKind = 'personal' | 'shared';
 
-/** Ping categories (owner: ui/hud/Pings). `attack` / `caution` are the drag-gesture pings, `item` = dropped item / crate. */
-export type PingKind = 'ground' | 'enemy' | 'crate' | 'extraction' | 'item' | 'attack' | 'caution';
+/**
+ * Ping categories (owner: ui/hud/Pings). `attack` / `caution` are the drag-gesture pings, `item` = dropped item / crate.
+ * 2026-09-09 (레이드 플레이 개선): `help` / `abandon` are the **downed** variant of the same left/right hold gesture —
+ * while the local player is DOWNED the 지역 핑 wheel shows 살려줘 / 나를 버려 instead of 여기 조심해 / 저쪽으로 가자.
+ * `structure` = 버려진 구조물, `rail` = 선로 · 플랫폼 · 전차 (aim-assist snaps onto them like a crate does).
+ */
+export type PingKind =
+  | 'ground' | 'enemy' | 'crate' | 'extraction' | 'item' | 'attack' | 'caution'
+  | 'help' | 'abandon' | 'structure' | 'rail';
 
 /** Chat line categories (owner: ui/hud/ChatLog). */
 /** `whisper` appended (Phase 11): a direct message, rendered with a → 아이디 prefix and never relayed to the squad. */
@@ -1689,4 +1696,231 @@ export interface InventoryRef {
    */
   openContainerItemsSized(containerId: string, items: ItemInstance[], position: THREE.Vector3,
     cols: number, rows: number, title?: string): void;
+}
+
+/* ══ appended: 2026-09-09 — 레이드 플레이 개선 (구조물 · 선로 · 환경 재해 · 로그 강하 · 의사소통) ═════════════
+ * 계약은 **추가만** 한다. 소유 폴더는 각 절의 머리에 적었다.
+ * 관련 문서: docs/DECISIONS.md 의 `2026-09-09 레이드 플레이 개선`.
+ * ────────────────────────────────────────────────────────────────────────────────────────────────────────────── */
+
+/* ── 사각 콜라이더 · 함께 움직이는 발판 (owner: world) ─────────────────────────────────────────────────── */
+export interface Obstacle {
+  /**
+   * **사각(OBB) 콜라이더.** 주면 `radius` 원 대신 이 상자로 밀어내고 레이를 맞춘다 — 건물 벽 · 전차 차체처럼
+   * 원기둥으로는 거짓말이 되는 것들을 위해 2026-09-09 에 추가했다. `radius` 는 **여전히 채워 둔다**:
+   * `SpatialHash` 버킷팅과 광역 질의(`getObstaclesNear` · `obstacleCoverage`)가 그 외접원을 쓴다
+   * (`radius >= hypot(halfX, halfZ)` 여야 질의가 상자를 놓치지 않는다).
+   * `yaw` 는 Y축 회전(rad)이고 `halfX` / `halfZ` 는 회전 **전** 로컬 축의 반길이다.
+   */
+  box?: { halfX: number; halfZ: number; yaw: number };
+  /**
+   * 이 장애물 **윗면에 서 있는 동안** 함께 실려 가는 속도(m/s, 월드 좌표). 전차 · 움직이는 발판이 채운다.
+   * `WorldRef.getStandingObstacle` 로 밟고 있는 장애물을 찾은 쪽(플레이어 · 적 · 시체)이 자기 위치에 더한다.
+   * 없거나 0 벡터면 고정 발판이다.
+   */
+  velocity?: THREE.Vector3;
+}
+
+/* ── 버려진 구조물 (owner: world/Structures) ──────────────────────────────────────────────────────────── */
+/**
+ * 행성 구역마다 무작위로 놓이는 **들어갈 수 있는** 폐건물. 안에 상호작용 컨테이너가 밀집해 있고,
+ * `outpost` / `lab` 은 지하실을 가질 수 있다 — 지하실 문은 **항상 잠겨 있고** 그 구조물의 지상층 컨테이너
+ * 어딘가에 키카드가 **정확히 하나** 들어 있다.
+ */
+export type StructureKind = 'outpost' | 'lab' | 'wreck';
+export const STRUCTURE_KINDS: readonly StructureKind[] = ['outpost', 'lab', 'wreck'];
+export const STRUCTURE_LABEL_KO: Readonly<Record<StructureKind, string>> = {
+  outpost: '버려진 전진기지', lab: '버려진 연구실', wreck: '불시착한 함선',
+};
+
+export interface StructureDef {
+  /** `struct_<kind>_<n>` — 시드 결정적이므로 모든 클라이언트에서 같다. */
+  id: string;
+  kind: StructureKind;
+  /** 지상층 바닥 중심 (y = 바닥 높이). */
+  position: THREE.Vector3;
+  yaw: number;
+  /** 지도 마커 · 스폰 회피 · 로그 강하 목표가 쓰는 대략 반경(m). */
+  radius: number;
+  /** 지하실이 있는가. */
+  hasBasement: boolean;
+  /** 지하실 잠금문의 위치. `hasBasement` 가 false 면 null. */
+  basementDoor: THREE.Vector3 | null;
+  /** 키카드로 지하실 문이 열렸는가 (호스트 권위, `struct unlocked` 로 전파). */
+  unlocked: boolean;
+  /** 이 구조물의 컴퓨터로 **행성 스캔**을 이미 돌렸는가 (구조물당 1회). */
+  scanned: boolean;
+  /** 이 구조물에서 로그 강하가 이미 일어났는가 — **구역당 1회**라는 규칙의 저장소. */
+  rogueDropUsed: boolean;
+}
+
+/* ── 선로 · 플랫폼 · 전차 (owner: world/Rails) ─────────────────────────────────────────────────────────── */
+/** `loop` = 구역 외곽을 두르는 순환 선로, `line` = 구역을 가로/세로로 가로지르는 왕복 직선 선로. */
+export type RailKind = 'loop' | 'line';
+export const RAIL_LABEL_KO: Readonly<Record<RailKind, string>> = { loop: '순환 선로', line: '반복 선로' };
+
+/** 선로 끝(또는 순환 선로 한 곳)의 플랫폼 — 그 자체가 파밍 장소다. */
+export interface RailPlatformDef {
+  id: string;
+  position: THREE.Vector3;
+  yaw: number;
+  /** 플랫폼 데크의 대략 반경(m). */
+  radius: number;
+}
+
+export interface RailLineDef {
+  /** `rail_<n>`. */
+  id: string;
+  kind: RailKind;
+  /**
+   * 선로 중심선의 지점들 (y = 레일 상면 높이). `loop` 이면 마지막 → 첫 지점이 이어지는 **닫힌 고리**이고
+   * `line` 이면 열린 꺾은선이라 전차가 끝에서 방향을 뒤집는다.
+   */
+  points: readonly THREE.Vector3[];
+  /** 중심선 전체 길이(m) — `loop` 은 닫는 구간을 포함한다. */
+  length: number;
+  platforms: readonly RailPlatformDef[];
+}
+
+/** 전차의 상태. `idle` = 시동 전, `moving` = 주행, `docked` = 플랫폼 정차 중. */
+export type TramState = 'idle' | 'moving' | 'docked';
+/** 와이어 순서 (`tram state.st` 가 이 배열의 인덱스다). 재정렬 금지. */
+export const TRAM_STATES: readonly TramState[] = ['idle', 'moving', 'docked'];
+
+export interface TramDef {
+  /** `tram_<lineId>`. 선로 하나에 전차 하나. */
+  id: string;
+  lineId: string;
+  /** 차체 중심 (y = 데크 높이). 호스트가 굴리고 클라이언트는 보간한다. */
+  position: THREE.Vector3;
+  yaw: number;
+  state: TramState;
+  /** 선로 위 진행 거리(m). **호스트 권위** — 이 값 하나가 전차의 진짜 상태다. */
+  s: number;
+  /** 진행 방향 (+1 / −1). `loop` 은 언제나 +1. */
+  dir: 1 | -1;
+}
+
+/* ── 환경 재해 (owner: world/Hazard) ───────────────────────────────────────────────────────────────────── */
+/**
+ * 레이드 시작 뒤 `HAZARD_START_MIN_S`–`HAZARD_START_MAX_S` 사이 **30초 단위**의 한 시각에 시작해 맵을
+ * 서서히 덮는 행성 현상. 후보는 행성마다 정해져 있고(`data/planets.csv` 의 `hazards` 열) 그중 하나를
+ * **레이드마다** 미션 시드로 뽑는다 — 와이어가 필요 없다. 범위 안에 있으면 초당 `HAZARD_DPS` 피해를 입고
+ * 시야가 좁아지며, 끝까지 진행하면 안전지대가 사라져 사실상 강제 탈출이 된다.
+ *
+ * **함선이 관측하는 현상이므로 전장의 안개에 가려지지 않는다** — 지도는 안개 레이어 **위에** 그린다.
+ */
+export type HazardKind = 'sandstorm' | 'blizzard' | 'storm_eye' | 'spores';
+export const HAZARD_KINDS: readonly HazardKind[] = ['sandstorm', 'blizzard', 'storm_eye', 'spores'];
+export const HAZARD_LABEL_KO: Readonly<Record<HazardKind, string>> = {
+  sandstorm: '모래 폭풍', blizzard: '눈보라', storm_eye: '폭풍의 눈', spores: '독성 포자',
+};
+
+/** 위험/안전 구역 한 덩어리. 지도 · HUD · `isInside` 가 모두 이 도형만 본다. */
+export interface HazardZone {
+  id: string;
+  /**
+   * `front` = 반평면(가로로 넓게 차오르는 벽). 전선은 `center` 를 지나고 법선이 `(dirX, dirZ)` 이며
+   * **이미 지나온 쪽**(법선의 반대편)이 위험하다. `circle` = 원.
+   */
+  shape: 'front' | 'circle';
+  center: { x: number; z: number };
+  /** `circle` 의 반경(m). `front` 에서는 0. */
+  radius: number;
+  /** `front` 진행 방향의 단위 벡터. `circle` 에서는 (0, 0). */
+  dirX: number;
+  dirZ: number;
+  /** `circle` 만: true = 원 **안이 안전**하고 바깥이 위험 (폭풍의 눈). false = 원 안이 위험 (독성 포자). */
+  safeInside: boolean;
+}
+
+/** 독성 포자가 피어오를 자리 — 지형의 **거대 버섯 군락**. 안개를 걷어 발견한 것만 `discovered` 다. */
+export interface HazardSource {
+  id: string;
+  position: THREE.Vector3;
+  /** 이 발생지가 최종적으로 덮을 반경(m). */
+  radius: number;
+  /** 이미 피어오르기 시작했는가. */
+  erupted: boolean;
+  /** 안개가 걷혀 플레이어가 아는 자리인가 (`FogRef.isDiscovered`). 지도는 이것만 그린다. */
+  discovered: boolean;
+}
+
+export interface HazardRef {
+  /** 이번 레이드의 재해. 후보가 없는 행성(또는 훈련장)이면 null. */
+  readonly kind: HazardKind | null;
+  /** 시작 시각 (`ctx.missionTime` 초). 재해가 없으면 −1. */
+  readonly startsAt: number;
+  /** 예고 방송이 이미 나갔는가 (`HAZARD_WARN_S` 전). */
+  readonly announced: boolean;
+  /** 지금 진행 중인가 (`missionTime >= startsAt`). */
+  readonly active: boolean;
+  /** 0..1 — 1 이면 맵을 다 덮었다 (안전지대 없음). */
+  readonly progress: number;
+  /** 이 지점이 지금 **피해 구역** 안인가. 매 프레임 불려도 되는 싼 질의다. */
+  isInside(x: number, z: number): boolean;
+  /** 지도 · HUD 가 그릴 도형. 내부 배열을 재사용하므로 **읽고 바로 쓴다** (보관 금지). */
+  getZones(): readonly HazardZone[];
+  /** 독성 포자 발생지. 다른 재해는 빈 배열. */
+  getSources(): readonly HazardSource[];
+  /** 늦게 합류한 클라이언트용 (호스트만 만든다). `HazardMessage 'sync'` 가 실어 나른다. */
+  serialize(): string;
+  applySerialized(data: string): void;
+}
+
+/* ── 위 셋을 묶는 world 접근자 ─────────────────────────────────────────────────────────────────────────── */
+export interface WorldRef {
+  /* ── appended (2026-09-09): 레이드 플레이 개선 ── */
+  /** 이번 맵의 버려진 구조물 전부 (훈련장은 빈 배열). */
+  getStructures(): readonly StructureDef[];
+  /** `(x, z)` 를 품는 구조물(자기 `radius` 안), 없으면 null. */
+  structureAt(x: number, z: number): StructureDef | null;
+  /** 이번 맵의 선로 (없을 수도 있다 — 구역마다 무작위). */
+  getRailLines(): readonly RailLineDef[];
+  /** 선로 위의 전차 (선로 하나당 하나). */
+  getTrams(): readonly TramDef[];
+  /** 이번 레이드의 환경 재해. 후보가 없는 행성 · 훈련장이면 null. */
+  readonly hazard: HazardRef | null;
+}
+
+/* ── 행성별 무기 등급 드롭 (owner: items/Loot) ─────────────────────────────────────────────────────────── */
+export interface LootRef {
+  /**
+   * appended (2026-09-09): 상자에서 나온 **무기의 등급**은 행성이 정한다 (`data/planet_loot.csv`).
+   * 그 행성의 등급 곡선으로 무기를 다시 등급 매기고, 곡선이 0 인 등급은 아예 나오지 않는다
+   * (앞쪽 행성에서 IV · V 가 봉인되는 이유). `planet` 이 null 이면 예전 그대로 상자 티어의 희귀도 가중치를 쓴다.
+   *
+   * `rollCrate(tier, rng)` 는 그대로 남아 있고 `rollCrateOn(tier, rng, null)` 과 같은 결과를 준다.
+   */
+  rollCrateOn(tier: number, rng: Random, planet: PlanetId | null): ItemInstance[];
+  /**
+   * appended (2026-09-09): 시체(로그 · 보스)가 떨구는 무기의 등급도 같은 곡선으로 **상한**을 받는다.
+   * `planet` 이 null 이면 `rollCorpse` 와 완전히 같다.
+   */
+  rollCorpseOn(type: EnemyType, rng: Random, rogueWeaponId: string | undefined, planet: PlanetId | null): ItemInstance[];
+}
+
+/* ── 로그 강하 (owner: enemies/RogueDrop) ──────────────────────────────────────────────────────────────── */
+/** 진행 중인 로그 강하 한 건. */
+export interface RogueDropView {
+  readonly id: string;
+  readonly position: THREE.Vector3;
+  /** 몇 명이 내리는가. */
+  readonly count: number;
+  /** 보스(로그 분대장)가 섞여 있는가. */
+  readonly boss: boolean;
+  /** `ctx.time` 기준 착지 시각. */
+  readonly landsAt: number;
+}
+
+export interface EnemyManagerRef {
+  /* ── appended (2026-09-09): 로그 강하 ── */
+  /**
+   * **호스트 전용.** `position` 주위에 로그 분대를 강하시킨다 (경고 → `ROGUE_DROP_ETA_S` 뒤 착지 → 진격).
+   * 인원과 보스 여부는 **분대 인원**에서 정해진다 (`ROGUE_DROP_*` 상수) — 호출자가 정하지 않는다.
+   * 이미 같은 `dropId` 가 진행 중이거나 호스트가 아니면 false.
+   */
+  callRogueDrop(dropId: string, position: THREE.Vector3): boolean;
+  /** 진행 중인 강하 (HUD 경고 · 오프스크린 화살표용). */
+  getRogueDrops(): readonly RogueDropView[];
 }

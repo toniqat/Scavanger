@@ -33,6 +33,8 @@ interface Arrow { root: HTMLElement; ico: HTMLElement; lbl: HTMLElement; lastKey
 
 const PING_ICON: Record<PingKind, string> = {
   ground: '◆', enemy: '▲', crate: '■', extraction: '◇', item: '◈', attack: '➤', caution: '⚠',
+  /* appended (2026-09-09): 전투불능 좌/우 핑 + 구조물 · 선로 */
+  help: '✚', abandon: '✖', structure: '⬢', rail: '═',
 };
 
 function cssColor(n: number): string { return `#${n.toString(16).padStart(6, '0')}`; }

@@ -1,5 +1,8 @@
 import type * as THREE from 'three';
 import type { GamePhase, ItemInstance, MissionStats, EnemyType, Stance, HubShipKind, ChatKind, PingKind, WeaponSlot, SocketSlot, StratagemId } from './types';
+/* appended (2026-09-09): 레이드 플레이 개선 — 구조물 · 재해 · 의사소통 휠 */
+import type { StructureKind, HazardKind } from './types';
+import type { CommsId } from './comms';
 /* appended (Phase 10): varied enemy deaths / probabilistic corpse looting */
 import type { EnemyDeathDir } from './types';
 /* appended (2026-09-08): 폐금속 공급 — 고철 노드 */
@@ -834,7 +837,12 @@ export interface GameEvents {
    * Fact: 아직 못 보던 랜드마크를 처음 발견했다 (탈출 신호소 · 둥지 · 상자 …). 토스트 · 지도 아이콘 · 나침반이
    * 이걸 기준으로 켜진다. `kind` 는 지도 마커의 종류와 같은 이름을 쓴다.
    */
-  'fog:discovered': { kind: 'extraction' | 'nest' | 'crate' | 'outpost' | 'gather'; id: string; position: THREE.Vector3 };
+  /* 2026-09-09 (레이드 플레이 개선): `structure` (버려진 전진기지 · 연구실 · 불시착 함선), `rail` (선로 · 플랫폼),
+     `grove` (거대 버섯 군락 = 독성 포자 발생지) 추가 — union 은 추가만 한다. */
+  'fog:discovered': {
+    kind: 'extraction' | 'nest' | 'crate' | 'outpost' | 'gather' | 'structure' | 'rail' | 'grove';
+    id: string; position: THREE.Vector3;
+  };
 
   /* ── 원격 강하 포드 (owner: player/RemotePlayerSystem) ── */
   /**
@@ -842,6 +850,74 @@ export interface GameEvents {
    * 2026-09-09 이전에는 아군이 그냥 자리에 나타났다 — 이제 포드가 보인다.
    */
   'net:remotePodDrop': { id: string; position: THREE.Vector3; yaw: number; kind: 0 | 1 };
+
+  /* ══ 2026-09-09: 레이드 플레이 개선 — 의사소통 · 구조물 · 선로 · 재해 · 로그 강하 ═══════════════════════
+   * 소유 폴더는 각 절 머리에. 전부 **추가**이고 기존 이벤트는 손대지 않았다.
+   * ══════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+  /* ── 의사소통 휠 (owner: ui/hud/CommsWheel) ── */
+  /**
+   * Fact: 누군가 의사소통 휠에서 한 마디를 보냈다 (`H` 홀드 → 방향 선택 → 놓기). 로컬 · 원격 공통.
+   * 채팅 한 줄(`ChatKind 'request'`)과 오디오는 ui/ 가 이 이벤트 하나에서 만든다.
+   * `text` 는 이미 완성된 한국어 문장이다 — `contract` 처럼 숫자가 들어가는 문구는 **보낸 쪽이** 채워 보낸다.
+   * `position` = 보낸 사람의 위치 (원격은 마지막 스냅샷 위치), 알 수 없으면 null.
+   */
+  'comms:sent': {
+    id: CommsId; text: string; by: string | null; byName: string; slot: number; position: THREE.Vector3 | null;
+  };
+  /** Fact: 의사소통 휠이 열리고 닫혔다 (`downed` = 전투불능 2칸 배치). `hover` = 지금 가리키는 칸 index, 없으면 null. */
+  'comms:wheelChanged': { open: boolean; downed: boolean; hover: number | null };
+
+  /* ── 지역 핑 휠 (owner: ui/hud/Pings) ── */
+  /**
+   * Fact: 핑 버튼을 누르고 있는 동안의 좌/우 휠이 열리고 닫혔다. `downed` 면 살려줘 / 나를 버려,
+   * 아니면 여기 조심해 / 저쪽으로 가자. `hover` 는 지금 향한 쪽.
+   */
+  'ping:wheelChanged': { open: boolean; downed: boolean; hover: 'left' | 'right' | null };
+
+  /* ── 버려진 구조물 (owner: world/Structures) ── */
+  /** Fact: 구조물의 지하실 문이 키카드로 열렸다 (키카드는 소비된다). */
+  'structure:unlocked': { id: string; kind: StructureKind; by: string | null; position: THREE.Vector3 };
+  /** Fact: 구조물의 컴퓨터로 행성 스캔을 돌려 주변 `radius` m 의 안개가 걷혔다 (구조물당 1회). */
+  'structure:scanned': { id: string; kind: StructureKind; position: THREE.Vector3; radius: number };
+  /**
+   * Fact: 플레이어가 구조물(또는 선로 플랫폼)의 컨테이너를 조사했다 — **로그 강하 추첨의 유일한 계기**다.
+   * `zoneId` 는 "구역당 1회" 를 세는 열쇠(구조물 id 또는 플랫폼 id)이고, enemies/ 가 이걸 듣고 굴린다.
+   */
+  'structure:investigated': { zoneId: string; kind: StructureKind | 'platform'; position: THREE.Vector3 };
+
+  /* ── 선로 · 전차 (owner: world/Rails) ── */
+  /** Fact: 콘솔에서 전차에 시동이 걸렸다 (호스트가 확정한 뒤). */
+  'rail:tramStarted': { lineId: string; tramId: string; by: string | null };
+  /** Fact: 전차가 플랫폼에 정차했다 / 다시 출발했다. */
+  'rail:tramDocked': { tramId: string; platformId: string | null; docked: boolean };
+
+  /* ── 로그 강하 (owner: enemies/RogueDrop) ── */
+  /** Fact: 로그 강하가 예고됐다 (하늘의 포드 + 경보). `eta` = `ctx.time` 기준 착지까지 남은 초. */
+  'rogueDrop:incoming': { dropId: string; position: THREE.Vector3; count: number; boss: boolean; eta: number };
+  /** Fact: 포드가 착지해 로그들이 내렸다. */
+  'rogueDrop:landed': { dropId: string; position: THREE.Vector3; count: number; boss: boolean };
+
+  /* ── 환경 재해 (owner: world/Hazard) ── */
+  /** Fact: 이번 레이드의 재해와 시작 시각이 정해졌다 (미션 시드에서, 월드 생성 직후 한 번). */
+  'hazard:planned': { kind: HazardKind; startsAt: number };
+  /** Fact: 시작 `HAZARD_WARN_S` 초 전 예고. HUD 경고 · 오디오가 여기 붙는다. */
+  'hazard:announced': { kind: HazardKind; secondsLeft: number };
+  /** Fact: 재해가 시작됐다. */
+  'hazard:started': { kind: HazardKind };
+  /** Fact: 진행도가 바뀌었다 (초당 몇 번 수준으로만 발행한다 — 프레임마다 쏘지 않는다). `progress` 0..1. */
+  'hazard:progress': { kind: HazardKind; progress: number };
+  /** Fact: 로컬 플레이어가 피해 구역에 들어갔다 / 나왔다. 시야 · 화면 효과 · 경고음이 여기 붙는다. */
+  'hazard:insideChanged': { inside: boolean; kind: HazardKind | null };
+
+  /* ── 대기 오버라이드 (owner: core/Atmosphere) ── */
+  /**
+   * Command: 하늘 · 포그를 일시적으로 밀어붙인다. `fogMul` = 현재 행성 포그 농도의 배수(1 = 원래대로),
+   * `color` = 섞어 넣을 포그/하늘 색(0xRRGGBB, null = 그대로), `blend` = 0..1 섞는 정도.
+   * 재해가 이걸로 시야를 좁히고, 재해가 끝나면 `{fogMul:1, color:null, blend:0}` 로 되돌린다.
+   * core/ 는 마지막으로 받은 값 하나만 기억하고 매 프레임 팔레트 위에 얹는다.
+   */
+  'atmo:override': { fogMul: number; color: number | null; blend: number };
 }
 
 /** One 키 가이드 entry (`ui:keyGuide`): `key` is the display label (`keyLabel(...)`), `label` the Korean action. */
