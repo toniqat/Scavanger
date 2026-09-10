@@ -143,7 +143,14 @@ export class ParticlePool {
 const _p = new THREE.Vector3();
 const _v = new THREE.Vector3();
 
-/** Red signal flare + smoke column that rises from the active pad for the whole countdown. */
+/**
+ * Red signal flare + smoke column that rises from the active pad for the whole countdown.
+ *
+ * `group` is **never hidden** (2026-09-10). It holds a point light, and three.js skips invisible subtrees when it
+ * collects lights: toggling the group changes `numPointLights` mid-raid, which recompiles the shader of every
+ * material in the scene — a visible freeze the moment the countdown starts. `shown` gates the work instead, the
+ * light rides its own intensity and the two particle pools already hide their own `Points`.
+ */
 export class FlareColumn {
   readonly group = new THREE.Group();
   private smoke: ParticlePool;
@@ -152,6 +159,7 @@ export class FlareColumn {
   private core: THREE.Mesh;
   private acc = 0;
   private time = 0;
+  private shown = false;
   active = false;
 
   constructor() {
@@ -165,19 +173,20 @@ export class FlareColumn {
     );
     this.core.position.y = 0.3;
     this.group.add(this.smoke.points, this.embers.points, this.glow, this.core);
-    this.group.visible = false;
+    this.core.visible = false;
   }
 
   start(position: THREE.Vector3): void {
     this.group.position.copy(position);
-    this.group.visible = true;
+    this.core.visible = true;
+    this.shown = true;
     this.active = true;
     this.glow.intensity = 40;
   }
   stop(): void { this.active = false; }
 
   update(dt: number): void {
-    if (!this.group.visible) return;
+    if (!this.shown) return;
     this.time += dt;
     if (this.active) {
       this.acc += dt;
@@ -201,11 +210,16 @@ export class FlareColumn {
     }
     this.smoke.update(dt);
     this.embers.update(dt);
-    if (!this.active && !this.smoke.points.visible && !this.embers.points.visible) this.group.visible = false;
+    if (!this.active && !this.smoke.points.visible && !this.embers.points.visible) {
+      this.shown = false;
+      this.core.visible = false;
+      this.glow.intensity = 0;
+    }
   }
 
   reset(): void {
-    this.active = false; this.smoke.clear(); this.embers.clear(); this.group.visible = false; this.glow.intensity = 0;
+    this.active = false; this.shown = false; this.smoke.clear(); this.embers.clear();
+    this.core.visible = false; this.glow.intensity = 0;
   }
 
   dispose(): void {

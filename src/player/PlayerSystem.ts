@@ -908,6 +908,13 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
 
   lateUpdate(dt: number, ctx: GameContext): void {
     const ri = this.rigInput;
+    // 2026-09-10: the parent may have moved during *this* frame's updates (the extraction ship registers after
+    // us and climbs at ~26 m/s), and the body is already drawn at the new pose because it hangs off that parent.
+    // Re-derive the world position here or the camera trails the bay by a whole frame — half a metre of it.
+    if (this.attachedParent && !this.carriedSocket) {
+      this.model.root.updateWorldMatrix(true, false);
+      this.controller.position.setFromMatrixPosition(this.model.root.matrixWorld);
+    }
     ri.pivot.copy(this.controller.position).add(this.eyePos);
     if (this.isDead) ri.pivot.y = this.controller.position.y + 0.9;
     ri.aim = this.aimBlend;

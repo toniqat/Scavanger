@@ -12,12 +12,23 @@ const _v1 = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 
+/** Interior lamp intensity while the bay is lit (0 = ship hidden; see the light note on `body`). */
+const INTERIOR_LIGHT = 8;
+
 /**
  * Procedural "Pelican"-style dropship (~14 m). Local -Z is the nose; the rear ramp opens toward +Z.
  * The bay floor sits at local y = 0 so that, once landed, the player walks straight in from the ground.
  */
 export class Dropship {
   readonly root = new THREE.Group();
+  /**
+   * Every mesh of the ship. **The visibility toggle lives here, not on `root`** (2026-09-10): three.js skips
+   * invisible subtrees in `projectObject`, so lights parked under a hidden root are not counted — and the frame
+   * the ship appears `numPointLights` jumps by 3 and **every material in the scene recompiles its shader**.
+   * That was the freeze when the dropship arrived. `root` therefore stays visible forever and carries the three
+   * point lights (intensity 0 while hidden) — the rule `core/fx/FlashPool` already states.
+   */
+  readonly body = new THREE.Group();
   readonly interiorSwitchWorld = new THREE.Vector3();
   state: ShipState = 'hidden';
 
@@ -33,6 +44,8 @@ export class Dropship {
   private interiorLampMat: THREE.MeshStandardMaterial;
   private switchMat: THREE.MeshStandardMaterial;
   private gear: THREE.Group;
+  /** Bay lining — only ever seen from inside, so it is kept out of the sun's shadow pass. */
+  private interiorParts: THREE.Mesh[] = [];
   private disposables: Array<THREE.BufferGeometry | THREE.Material> = [];
 
   // Flight
@@ -56,7 +69,7 @@ export class Dropship {
     const interior = this.mat(new THREE.MeshStandardMaterial({ color: 0x2b2e33, roughness: 0.85, metalness: 0.3, side: THREE.DoubleSide }));
     const floorMat = this.mat(new THREE.MeshStandardMaterial({ color: 0x3a3d42, roughness: 0.9, metalness: 0.2 }));
 
-    const r = this.root;
+    const r = this.body;   // meshes only — the lights go straight on `root` (see the `body` note)
     // ── Bay (interior) ── floor at y 0, walls x ±1.6, z from -5.2 .. 0.2, ceiling 2.6
     const floor = new THREE.Mesh(this.geo(new THREE.BoxGeometry(3.2, 0.12, 5.4)), floorMat);
     floor.position.set(0, -0.06, -2.5);
@@ -73,6 +86,7 @@ export class Dropship {
       const ribL = new THREE.Mesh(this.geo(new THREE.BoxGeometry(0.08, BAY_HEIGHT - 0.2, 0.16)), hullDark);
       ribL.position.set(-1.56, BAY_HEIGHT / 2, z);
       const ribR = ribL.clone(); ribR.position.x = 1.56;
+      this.interiorParts.push(ribL, ribR);
       r.add(ribL, ribR);
     }
     // Seats (benches) along the walls
@@ -81,6 +95,7 @@ export class Dropship {
       bench.position.set(sx * 1.35, 0.5, -2.7);
       const back = new THREE.Mesh(this.geo(new THREE.BoxGeometry(0.08, 0.6, 4.2)), hullDark);
       back.position.set(sx * 1.55, 0.85, -2.7);
+      this.interiorParts.push(bench, back);
       r.add(bench, back);
     }
     // Ceiling light strip
@@ -100,12 +115,34 @@ export class Dropship {
     swGuard.position.set(0, 1.3, -5.0);
     const swLabel = new THREE.Mesh(this.geo(new THREE.PlaneGeometry(0.5, 0.08)), this.mat(new THREE.MeshStandardMaterial({ color: 0xe6b31e, emissive: 0xe6b31e, emissiveIntensity: 0.5 })));
     swLabel.position.set(0, 1.0, -5.005);
-    r.add(floor, wallL, wallR, ceiling, frontWall, lamp, this.interiorLight, swBox, swBtn, swGuard, swLabel);
+    r.add(floor, wallL, wallR, ceiling, frontWall, lamp, swBox, swBtn, swGuard, swLabel);
+    this.interiorLight.intensity = 0;          // lit by `showBody()`; the light itself never leaves the scene
+    this.root.add(this.interiorLight);
+    this.interiorParts.push(wallL, wallR, ceiling, frontWall, lamp, swBox, swBtn, swGuard, swLabel);
 
     // ── Outer hull ──
-    const hullBody = new THREE.Mesh(this.geo(new THREE.BoxGeometry(4.2, 3.3, 7.2)), hull);
-    hullBody.position.set(0, 1.35, -3.0);
-    // Cut-out illusion: outer hull is slightly larger than the bay, so the interior walls are what the player sees inside.
+    // 2026-09-10: this used to be **one solid box** (4.2 × 3.3 × 7.2 at y 1.35, z −3.0), so its rear face sat
+    // right behind the bay opening — the ramp came down and revealed a grey wall instead of the lit interior.
+    // It is a shell now: four slabs around the bay (left / right / roof / belly) plus a front cap, leaving a real
+    // hole at the rear. The only thing that closes that hole is the ramp itself (upright at z = 0.25 when closed,
+    // 3.2 wide × 3.0 tall — it covers the whole opening), which is exactly what a rear door should do.
+    // Hull outline x ±2.1, y −0.3..3.0, z −6.6..0.6; the opening is x ±1.6, y 0..2.6 (the bay lining sits inside it).
+    const sideW = 2.1 - 1.6;
+    const sideGeo = this.geo(new THREE.BoxGeometry(sideW, 3.3, 7.2));
+    for (const sx of [-1, 1]) {
+      const side = new THREE.Mesh(sideGeo, hull);
+      side.position.set(sx * (2.1 - sideW / 2), 1.35, -3.0);
+      r.add(side);
+    }
+    const hullRoof = new THREE.Mesh(this.geo(new THREE.BoxGeometry(4.2, 0.4, 7.2)), hull);
+    hullRoof.position.set(0, 2.8, -3.0);
+    const hullBelly = new THREE.Mesh(this.geo(new THREE.BoxGeometry(4.2, 0.3, 7.2)), hull);
+    hullBelly.position.set(0, -0.15, -3.0);
+    // Front cap: the forward section (between the bay's front wall and the nose) has to stay closed now that the
+    // shell is open-ended — the 4-sided nose cone leaves corner gaps you would otherwise see straight through.
+    const hullFront = new THREE.Mesh(this.geo(new THREE.BoxGeometry(4.2, 3.3, 0.2)), hullDark);
+    hullFront.position.set(0, 1.35, -6.5);
+    r.add(hullRoof, hullBelly, hullFront);
     const hullTop = new THREE.Mesh(this.geo(new THREE.BoxGeometry(3.0, 0.6, 6.4)), hullDark);
     hullTop.position.set(0, 3.25, -3.2);
     const spine = new THREE.Mesh(this.geo(new THREE.BoxGeometry(0.8, 0.5, 9.4)), accent);
@@ -129,7 +166,7 @@ export class Dropship {
     }
     const tailPlane = new THREE.Mesh(this.geo(new THREE.BoxGeometry(3.4, 0.12, 1.4)), hull);
     tailPlane.position.set(0, 3.9, 0.3);
-    r.add(hullBody, hullTop, spine, nose, cockpit, chin, tailPlane);
+    r.add(hullTop, spine, nose, cockpit, chin, tailPlane);
 
     // ── Wings + nacelles + thrust cones ──
     const thrustGeo = this.geo(new THREE.ConeGeometry(0.85, 2.2, 18, 1, true));
@@ -150,7 +187,8 @@ export class Dropship {
       const el = new THREE.PointLight(0x66c4ff, 0, 18, 1.5);
       el.position.set(sx * 4.2, -0.4, -3.2);
       this.engineLights.push(el);
-      r.add(wing, nacelle, ring, cone, el);
+      this.root.add(el);   // stays in the scene with the other lights (see the `body` note)
+      r.add(wing, nacelle, ring, cone);
     }
 
     // ── Landing gear (3 legs, retract by scale) ──
@@ -189,7 +227,17 @@ export class Dropship {
 
     r.traverse((o) => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; } });
     for (const c of this.thrustCones) c.castShadow = false;
+    // The bay lining is invisible from outside; keeping it out of the shadow pass halves the ship's caster count.
+    for (const m of this.interiorParts) m.castShadow = false;
     r.visible = false;
+    this.root.add(r);
+  }
+
+  /** Reveal the hull and light the bay. The lights never leave the scene — only their intensity moves. */
+  private showBody(): void {
+    this.body.visible = true;
+    this.interiorLampMat.emissive.set(0xfff2dc); this.interiorLampMat.emissiveIntensity = 2.2;
+    this.interiorLight.color.set(0xfff2dc); this.interiorLight.intensity = INTERIOR_LIGHT;
   }
 
   private geo<T extends THREE.BufferGeometry>(g: T): T { this.disposables.push(g); return g; }
@@ -206,7 +254,7 @@ export class Dropship {
     this.hover.copy(landPos).add(_v2.set(0, 24, 0));
     this.root.position.copy(this.start);
     this.root.rotation.set(0, yaw, 0);
-    this.root.visible = true;
+    this.showBody();
     this.state = 'approach';
     this.t = 0;
     this.duration = Math.max(2, approachDuration);
@@ -339,7 +387,7 @@ export class Dropship {
     this.hover.copy(landPos).add(_v2.set(0, 24, 0));
     this.root.position.copy(landPos);
     this.root.rotation.set(0, yaw, 0);
-    this.root.visible = true;
+    this.showBody();
     this.state = 'landed';
     this.t = 0;
     this.bank = 0;
@@ -371,13 +419,39 @@ export class Dropship {
     return Math.abs(_v1.x) <= BAY_HALF_W + 0.1 && _v1.z >= BAY_Z_MIN && _v1.z <= BAY_Z_MAX && _v1.y > -1 && _v1.y < BAY_HEIGHT;
   }
 
-  /** World-space AABB that fully contains the rotated bay (lenient bounds for player clamping). */
-  getInteriorBounds(): { center: THREE.Vector3; halfExtents: THREE.Vector3 } {
-    const center = new THREE.Vector3(0, BAY_HEIGHT / 2, (BAY_Z_MIN + BAY_Z_MAX) / 2).applyMatrix4(this.root.matrixWorld);
+  /**
+   * World y of the bay deck (local y = 0) directly under `(x, z)`. The deck **tilts** — the liftoff climb pitches
+   * the nose up by 0.35 rad — so a single flat height for the whole box would sink a rider ~0.9 m through the
+   * floor at the far end of the bay. Solving the deck plane instead is exact for any attitude.
+   * `root` is a direct child of the scene, so its local transform is its world transform.
+   */
+  floorYAt(x: number, z: number): number {
+    const o = this.root.position;                 // the root origin sits on the deck
+    const up = _v2.set(0, 1, 0).applyQuaternion(this.root.quaternion);
+    if (Math.abs(up.y) < 1e-3) return o.y;
+    return o.y - (up.x * (x - o.x) + up.z * (z - o.z)) / up.y;
+  }
+
+  /**
+   * Rewrite `out` with the world-space AABB of the rotated bay (lenient bounds for player clamping); `at` is the
+   * world position the deck height is solved for (the rider — see `floorYAt`), defaulting to the bay centre.
+   * **The caller keeps one object and refreshes it every frame** — `PlayerRef.setShipInterior` stores the
+   * reference, and the box has to travel with the ship or a boarded player is left walking on a floor that is no
+   * longer there (2026-09-10: that was the "함선은 올라가는데 플레이어만 떨어진다" bug during liftoff).
+   */
+  writeInteriorBounds(out: { center: THREE.Vector3; halfExtents: THREE.Vector3 }, at?: THREE.Vector3): void {
+    out.center.set(0, BAY_HEIGHT / 2, (BAY_Z_MIN + BAY_Z_MAX) / 2).applyMatrix4(this.root.matrixWorld);
+    out.center.y = this.floorYAt(at ? at.x : out.center.x, at ? at.z : out.center.z) + BAY_HEIGHT / 2;
     const hw = BAY_HALF_W, hd = (BAY_Z_MAX - BAY_Z_MIN) / 2;
     const c = Math.abs(Math.cos(this.landYaw)), s = Math.abs(Math.sin(this.landYaw));
-    const halfExtents = new THREE.Vector3(hw * c + hd * s, BAY_HEIGHT / 2, hw * s + hd * c);
-    return { center, halfExtents };
+    out.halfExtents.set(hw * c + hd * s, BAY_HEIGHT / 2, hw * s + hd * c);
+  }
+
+  /** Fresh world-space AABB of the bay. Prefer `writeInteriorBounds` when the box is held across frames. */
+  getInteriorBounds(): { center: THREE.Vector3; halfExtents: THREE.Vector3 } {
+    const out = { center: new THREE.Vector3(), halfExtents: new THREE.Vector3() };
+    this.writeInteriorBounds(out);
+    return out;
   }
 
   getGroundY(): number { return this.landPos.y; }
@@ -388,13 +462,15 @@ export class Dropship {
 
   reset(): void {
     this.state = 'hidden';
-    this.root.visible = false;
+    this.body.visible = false;
     this.rampAngle = this.rampTarget = Math.PI / 2;
     this.ramp.rotation.x = -this.rampAngle;
     this.thrust = 0;
     this.landingLightMat.emissiveIntensity = 0;
     this.interiorLampMat.emissive.set(0xfff2dc); this.interiorLampMat.emissiveIntensity = 2.2;
-    this.interiorLight.color.set(0xfff2dc); this.interiorLight.intensity = 8;
+    // `update` early-returns while hidden, so the lights are darkened here — they stay in the scene either way.
+    this.interiorLight.color.set(0xfff2dc); this.interiorLight.intensity = 0;
+    for (const el of this.engineLights) el.intensity = 0;
     this.root.rotation.set(0, 0, 0);
     _q.identity();
   }

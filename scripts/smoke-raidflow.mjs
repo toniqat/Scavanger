@@ -74,7 +74,7 @@ try {
     const bus = window.__game.ctx.bus;
     for (const n of ['player:died', 'player:downed', 'player:respawn', 'player:spawned', 'player:landed', 'game:respawnAvailable', 'game:phaseChanged',
       'game:over', 'game:raidFailed', 'game:complete', 'game:abort', 'hub:entered', 'hub:left', 'game:newMission', 'world:ready', 'ui:notify',
-      'player:giveUpProgress']) {
+      'player:giveUpProgress', 'extraction:shipIncoming', 'extraction:shipLanded', 'extraction:boarded', 'extraction:liftoff']) {
       window.__ev[n] = [];
       bus.on(n, (p) => { window.__ev[n].push(JSON.parse(JSON.stringify(p ?? {}, (k, v) => (v && v.isVector3) ? [v.x, v.y, v.z] : v))); });
     }
@@ -325,6 +325,85 @@ try {
 
   await P(() => window.__game.ctx.bus.emit('game:abort', {}));
   await waitFor(page, () => window.__game.ctx.phase === 'menu', 'abort (phase 12 block)', 20000);
+
+  console.log('2026-09-10: 탈출 함선 — 열린 뒷문 · 함께 올라가기 · 조명 개수 고정');
+  await P(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
+  await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub (extraction)');
+  await resetEv();
+  await startMission(77);
+  await P(() => {
+    // Lights three.js would actually upload. An invisible ancestor removes them from the count, and any change
+    // in that count recompiles the shader of every material in the scene — the freeze when the ship arrived.
+    window.__lights = () => { let n = 0; window.__game.ctx.scene.traverseVisible((o) => { if (o.isLight && !o.isAmbientLight) n++; }); return n; };
+  });
+  const lights0 = await P(() => window.__lights());
+  const activated = await P(() => {
+    const ctx = window.__game.ctx;
+    const pts = ctx.world.getExtractionPoints();
+    if (!pts.length) return false;
+    ctx.player.teleport(pts[0].position.clone());
+    const it = ctx.interactables.all().find((i) => i.id.startsWith('extract_'));
+    if (!it) return false;
+    it.interact();
+    return true;
+  });
+  ok(activated, 'extraction console activated');
+  await waitSim(0.3);
+  ok((await P(() => window.__lights())) === lights0, '신호탄이 붙어도 씬의 조명 개수가 그대로다', `${lights0}`);
+
+  await P(() => { window.__game.getSystem('extraction').countdown = 12.5; });
+  await waitFor(page, () => window.__ev['extraction:shipIncoming'].length > 0, 'shipIncoming', 40000);
+  await waitSim(0.4);
+  ok((await P(() => window.__game.getSystem('extraction').ship.body.visible)), '함선이 나타난다 (body.visible)');
+  ok((await P(() => window.__lights())) === lights0, '함선이 나타나도 씬의 조명 개수가 그대로다', `${lights0}`);
+
+  await waitFor(page, () => window.__ev['extraction:shipLanded'].length > 0, 'shipLanded', 60000);
+  await waitSim(2.0);   // the ramp opens over 1.5 s
+  const blocked = await P(() => {
+    // Nothing of the hull may straddle the doorway plane (ship-local z = 0.45) inside the opening — only the ramp,
+    // which lives in its own group, ever closes it.
+    const ship = window.__game.getSystem('extraction').ship;
+    const bad = [];
+    for (const o of ship.body.children) {
+      if (!o.isMesh || !o.geometry) continue;
+      o.geometry.computeBoundingBox();
+      const bb = o.geometry.boundingBox, p = o.position, s = o.scale;
+      const min = { x: bb.min.x * s.x + p.x, y: bb.min.y * s.y + p.y, z: bb.min.z * s.z + p.z };
+      const max = { x: bb.max.x * s.x + p.x, y: bb.max.y * s.y + p.y, z: bb.max.z * s.z + p.z };
+      if (min.z <= 0.45 && max.z >= 0.45 && min.x < 1.4 && max.x > -1.4 && min.y < 2.4 && max.y > 0.15) bad.push(o.geometry.type);
+    }
+    return bad;
+  });
+  ok(blocked.length === 0, '뒷문 자리가 뚫려 있다 (램프만이 닫는다)', JSON.stringify(blocked));
+
+  await P(() => {
+    const ship = window.__game.getSystem('extraction').ship;
+    const p = new (ship.root.position.constructor)(0, 0, -2.5).applyMatrix4(ship.root.matrixWorld);
+    window.__game.ctx.player.teleport(p, undefined, false);
+  });
+  await waitSim(0.5);
+  ok(await P(() => window.__ev['extraction:boarded'].length > 0 && window.__game.ctx.player.isInShip), 'player boarded the bay');
+  await P(() => {
+    window.__ride = [];
+    const sys = window.__game.getSystem('extraction'), ctx = window.__game.ctx;
+    sys.liftoff();
+    const id = setInterval(() => {
+      const pos = ctx.player.position;
+      window.__ride.push({ shipY: sys.ship.root.position.y, py: pos.y, gap: pos.y - sys.ship.floorYAt(pos.x, pos.z) });
+      if (window.__ride.length > 60) clearInterval(id);
+    }, 60);
+  });
+  await waitSim(4.0);
+  const ride = await P(() => window.__ride);
+  const climb = ride[ride.length - 1].shipY - ride[0].shipY;
+  const rider = ride[ride.length - 1].py - ride[0].py;
+  const worstGap = Math.max(...ride.map((s) => Math.abs(s.gap)));
+  ok(climb > 10, '함선이 실제로 올라간다', `${climb.toFixed(2)} m`);
+  ok(Math.abs(rider - climb) < 0.6, '탑승자가 함선과 함께 올라간다', `ship ${climb.toFixed(2)} m vs player ${rider.toFixed(2)} m`);
+  ok(worstGap < 0.35, '탑승자가 데크에서 떨어지지 않는다', `worst ${worstGap.toFixed(3)} m`);
+  ok((await P(() => window.__lights())) === lights0, '이륙 뒤에도 조명 개수가 그대로다', `${lights0}`);
+  await P(() => window.__game.ctx.bus.emit('game:abort', {}));
+  await waitFor(page, () => window.__game.ctx.phase === 'menu', 'abort (extraction)', 20000);
 
   // cleanly back to the hub
   await P(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));

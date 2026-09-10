@@ -47,6 +47,22 @@ When you add a smoke script: add it to `SMOKES` in `scripts/verify.mjs` with the
 in `CLAUDE.md`.
 
 ## History (what was actually tested)
+- 2026-09-10 탈출 함선 — 열린 뒷문 · 탑승 이동 · 도착 렉 (`src/extraction` · `src/player/PlayerSystem.ts`): `npm run verify` (extraction + player 매핑 전체) → **전부 통과, 6분 59초**. `2026-09-10: typecheck ok, typecheck-server ok, net-selftest 295/295, data-check ok, smoke-quickslots 73/73, smoke-phase2 57/57, smoke-weapons 136/136, smoke-stratagems 75/75, smoke-phase3 33/33, smoke-ship-rooms 72/72, smoke-phase4 49/49, smoke-tactical 87/87, smoke-controls-hub 144/144, smoke-inventory-p6 124/124, smoke-housing 206/206, smoke-console 63/63, smoke-search 61/61, smoke-loadout 69/69, smoke-progression 123/123, smoke-ui-p6 88/88, smoke-ui-p5 136/136, smoke-uniques 72/72, smoke-enemy-alert 42/42, smoke-rogue-drop 29/29, smoke-rogue-v2 52/52, smoke-resume-gate 62/62, smoke-meta 172/172, smoke-training 112/112, smoke-library 126/126, smoke-enemy-delta 52/52, smoke-ghost 86/86, smoke-planets 86/86, smoke-social 138/138, smoke-ecology 90/90, smoke-props-collision 20/20, smoke-structures 25/25, smoke-server-dist ok, smoke-raidflow 59/59, smoke-hazard 43/43, smoke-tutorial 83/83, smoke-hangar 58/58, e2e-mp 156/156`.
+
+  **`smoke-raidflow` 를 49 → 59 로 늘렸다** — 이 셋이 이번 회귀 가드다: ① 뒷문 평면(함선 로컬 z 0.45, `|x|<1.4`,
+  `0.15<y<2.4`)을 가로지르는 외피 메시가 없다, ② 이륙하면 탑승자가 함선과 함께 오른다(30 m 상승에서 차이
+  0.6 m 미만 · 데크와의 오차 0.35 m 미만), ③ **씬의 광원 개수가 신호탄 · 함선 등장 · 이륙 뒤에 전부 같다**
+  (`scene.traverseVisible` 로 센다 — 이 숫자가 바뀌면 씬의 모든 머티리얼이 셰이더를 다시 컴파일한다).
+  고치기 전 같은 검사로 재현했다: 신호탄만으로 **15 → 16** 이 됐다.
+
+  스모크 밖에서 눈과 계측으로 본 것: 착륙한 함선을 뒤에서 찍은 헤드리스 스크린샷(1280×720, 카메라 오버라이드
+  7 m · 18 m)에서 **램프가 내려간 뒤 화물칸 내부(리브 · 벤치 · 천장 · 안쪽 벽)가 그대로 보인다**;
+  `body` 의 로컬 바운딩 박스가 고치기 전과 **완전히 같다**(−5.3..5.3 / −2..4.9 / −10.15..3, 그림자 캐스터만
+  50 → 31); 레이드 400프레임 표본에서 광원 15 → 19 로 늘어도 **p50 프레임 시간 16.7 ms 로 동일**.
+  `PlayerSystem.lateUpdate` 의 새 가지가 다른 스모크에 닿지 않는다는 것은 `attachTo` 를 후킹해 확인했다 —
+  일반 레이드 8초 동안 **비-null 호출 0회**(`attachedParent` 는 탈출 이륙에서만 세팅된다).
+  `smoke-phase4` 는 이 작업 중 간헐적으로 red 였는데 **고치기 전 코드에서도 같은 빈도로 재현**됐다
+  (A/B 교차 3회씩: with 2·3·0, base 0·0·3) — 이 스크립트의 알려진 플레이키이고 최종 실행에서는 49/49 다.
 - 2026-09-10 함선 호출 썸네일 · 공유 쿨타임 · 탄약 핑 제거 (`src/ui` · `src/stratagems` · `data/stratagems.csv`): `npm run verify` (stratagems + ui 매핑 12종) → typecheck ok, typecheck-server ok, net-selftest 295/295, data-check ok, smoke-quickslots 73/73, smoke-phase2 57/57, **smoke-stratagems 75/75** (공유 쿨타임 60 → 90 으로 고치고 **쿨타임 중 G 홀드가 휠을 열지 않는다** 단언 3개 추가), **smoke-phase3 31/33**, smoke-controls-hub 131/131, smoke-ui-p6 88/88, smoke-resume-gate 62/62, **smoke-ui-p5 136/136** (우하단 순서 단언을 `qstrip,wbox` + `.scall` 이 열에 없다로 교체), smoke-meta 172/172, smoke-social 138/138, smoke-uniques 72/72, smoke-tutorial 83/83 — 2분 18초. red 둘은 보급 상자 루팅 구간에서 **테스트 플레이어가 적에게 죽어**(`phase: dead`, hp 0) 그 뒤가 연쇄로 넘어진 것으로, 이 스크립트의 알려진 플레이키다 (같은 날 직전 실행에서는 궤도 레이저 대기에서 타임아웃했다 — 매번 다른 지점이다). `--rerun-failed` → **smoke-phase3 33/33**, 1분 6초. `.strat-panel` → `.scall .sc-thumb` 로 바꾼 존재 검사는 첫 실행에서 이미 green 이었다. 추가로 헤드리스 스크린샷(1600×900, 하단 중앙 클립)으로 평상시 · 무장 중 · 쿨타임 중(41초 · 5.9초) 네 상태를 눈으로 확인했다 — 차오름(`--fill` 0.93)과 중앙 숫자가 임플란트와 같게 그려진다.
 - 2026-09-10 레이드 HUD 손보기 3차 (무기 패널 `.wbox` · 퀵슬롯 0.6배 · 흰 구분선 = 내구도 바 — `src/ui` 만): `npm run verify` (ui 매핑 11종) → typecheck ok, typecheck-server ok, net-selftest 295/295, data-check ok, smoke-quickslots 73/73, smoke-ui-p6 88/88, smoke-phase2 57/57, smoke-controls-hub 131/131, smoke-ui-p5 136/136, smoke-resume-gate 62/62, smoke-meta 172/172, smoke-uniques 72/72, smoke-social 138/138, **smoke-phase3 27/28**, smoke-tutorial 83/83 — 2분 27초. red 하나는 `timeout waiting for laser ended`(궤도 레이저 지속시간 대기)로 HUD 와 무관한 플레이키였고 `--rerun-failed` 에서 **smoke-phase3 33/33**, 1분 7초. DOM 이 `.wbox` 만큼 깊어졌지만 스모크가 보는 선택자(`.weapon .wthumb` · `.weapon .mag` · `.weapon .reserve` · `.qstrip .qs-cell` · `.weapon` 의 앞 4자식 순서)는 전부 그대로 맞아 **스크립트는 한 줄도 고치지 않았다**. 추가로 헤드리스 스크린샷(1600×900, 미션 진입 후 우하단 클립)으로 총기 모드와 소모품 모드(`.wbox` display:none / `.cons` display:flex)를 눈으로 확인했다.
 - 2026-09-10 플레이 피드백 11건 (홀드 키캡 · 퀵슬롯 · **보조무기 제거** · 웨이브 · 재해 · 지도 · 지하실 · 상자 배치 · 선로 · 전차 — `src/shared` 를 건드려 전체): `npm run verify:all` → 4 red (`smoke-phase2` · `smoke-weapons` · `smoke-loadout` · `smoke-tutorial`, 전부 **보조무기 제거로 기대값이 바뀐 단언**) → 스모크를 고치고 `--rerun-failed` 2회 만에 **전부 통과, 6분 34초**. 자세히는 아래 [해당 절](#2026-09-10--플레이-피드백-11건-홀드-키캡--퀵슬롯--보조무기-제거--웨이브--재해--지도--지하실--상자-배치--선로--전차).

@@ -59,6 +59,14 @@ export class ExtractionSystem implements GameSystem {
   private shipLandPos = new THREE.Vector3();
   private shipYaw = 0;
   private dir = new THREE.Vector3();
+  /**
+   * The bay box handed to `PlayerRef.setShipInterior`. **One object, rewritten every frame while boarded** —
+   * `PlayerController` reads the floor and the XZ clamp straight off it, so it has to travel with the ship
+   * (2026-09-10: a snapshot taken at boarding left the player standing on thin air the moment the ship climbed).
+   */
+  private shipBounds = { center: new THREE.Vector3(), halfExtents: new THREE.Vector3() };
+  /** Local player is attached to the ship for the climb (`rideAlong` in `liftoff`). */
+  private riding = false;
 
   /* ── multiplayer state ── */
   /** Host: every peer (incl. local) currently inside the bay. */
@@ -488,9 +496,14 @@ export class ExtractionSystem implements GameSystem {
     this.ctx.interactables.unregister('ship_liftoff_switch');
     // Multiplayer: only a boarded, living local player rides along — anyone left outside keeps their controls.
     const rideAlong = !this.ctx.isMultiplayer || (this.boarded && !(player?.isDead ?? false));
-    if (player && rideAlong) {
+    this.riding = !!player && rideAlong;
+    if (this.riding && player) {
       player.setControlsEnabled(false);
       player.attachTo(ship.root);
+    } else if (player && this.boarded) {
+      // Standing in the bay but not riding (dead in multiplayer): let go of the deck rather than be dragged up
+      // by a box that is now climbing away.
+      player.setShipInterior(null);
     }
     this.ctx.bus.emit('extraction:liftoff', { position: ship.position.clone() });
     this.ctx.bus.emit('audio:play', { id: 'ship_liftoff', position: ship.position });
@@ -534,6 +547,12 @@ export class ExtractionSystem implements GameSystem {
     }
 
     const ev = ship.update(dt);
+    // The bay moves — while landed it only bobs, but during liftoff it climbs away. `PlayerSystem` reads the box
+    // (floor + XZ clamp) and derives the rider's world position from `ship.root`; both come from the matrix
+    // `ship.update` just wrote, so refresh the box here and the two never disagree by more than a frame.
+    if (ctx.player && this.boarded && (this.riding || !this.lifting)) {
+      ship.writeInteriorBounds(this.shipBounds, ctx.player.position);
+    }
     if (ev.touchdown && !this.landed) this.onShipLanded();
     if (ev.rampClosed && this.lifting && !this.doorsClosedEmitted) {
       this.doorsClosedEmitted = true;
@@ -559,7 +578,8 @@ export class ExtractionSystem implements GameSystem {
       const inside = ship.containsWorldPoint(player.position);
       if (inside && !this.boarded) {
         this.boarded = true;
-        player.setShipInterior(ship.getInteriorBounds());
+        ship.writeInteriorBounds(this.shipBounds, player.position);
+        player.setShipInterior(this.shipBounds);
         ctx.bus.emit('extraction:boarded', {});
         this.onLocalBoardingChanged(true);
       } else if (!inside && this.boarded) {
@@ -597,6 +617,7 @@ export class ExtractionSystem implements GameSystem {
     this.shipCalled = false;
     this.landed = false;
     this.lifting = false;
+    this.riding = false;
     this.doorsClosedEmitted = false;
     this.lastBeepSecond = -1;
     this.boardedPeers.clear();
