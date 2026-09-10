@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { GRAVITY, Layers, type GadgetId, type GameContext } from '@/shared';
+import { GRAVITY, Layers, PROP_STEP_UP_MAX, breakFragileAlong, type GadgetId, type GameContext } from '@/shared';
 
 const BODY_R = 0.1;
 const MAX_BODIES = 8;
@@ -18,6 +18,7 @@ interface Body {
 }
 
 const _n = new THREE.Vector3();
+const _prev = new THREE.Vector3();
 const _c = new THREE.Color();
 
 /**
@@ -75,13 +76,19 @@ export class ThrownGadgetManager {
       if (!b.active) continue;
       b.age += dt;
       b.vel.y -= GRAVITY * dt;
+      _prev.copy(b.pos);
       b.pos.addScaledVector(b.vel, dt);
       if (world && world.ready) {
+        // 2026-09-11: 창문 유리는 깨고 지나간다
+        breakFragileAlong(world, _prev, b.pos);
         world.resolveCollision(b.pos, BODY_R);
-        const ground = world.getHeightAt(b.pos.x, b.pos.z) + BODY_R;
+        // 2026-09-11: 바닥 = 그 자리의 표면 (건물 2층 · 옥상 · 계단)
+        const terrain = world.getHeightAt(b.pos.x, b.pos.z);
+        const surface = world.getSurfaceY(b.pos.x, b.pos.z, b.pos.y + BODY_R - PROP_STEP_UP_MAX);
+        const ground = surface + BODY_R;
         if (b.pos.y <= ground) {
           b.pos.y = ground;
-          world.getNormalAt(b.pos.x, b.pos.z, _n);
+          if (surface > terrain + 0.02) _n.set(0, 1, 0); else world.getNormalAt(b.pos.x, b.pos.z, _n);
           this.land(b);
           continue;
         }

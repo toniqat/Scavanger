@@ -36,6 +36,8 @@ export interface StructureSite {
   wallH: number;
   /** 지하실 구덩이. null = 지하실 없음. 로컬 축 반길이 + 바닥 깊이(m)다. */
   pit: { halfX: number; halfZ: number; depth: number } | null;
+  /** 지상 층수 (2026-09-11) — 1 또는 2. 어느 쪽이든 옥상이 있다. */
+  floors: number;
 }
 
 /**
@@ -270,7 +272,9 @@ export function generateLayout(rng: Random): WorldLayout {
         const pit = wantPit && row.halfW > 3.4 && row.halfD > 3.4
           ? { halfX: row.halfW - 2.2, halfZ: row.halfD - 2.2, depth: row.basementDepth }
           : null;
-        structures.push({ kind: row.kind, pad, halfW: row.halfW, halfD: row.halfD, wallH: row.wallH, pit });
+        // 2026-09-11: 2층 여부. **맨 마지막에** 굴린다 — 앞의 추첨(자리 · 지하실)을 밀지 않는다.
+        const floors = row.upperChance > 0 && rng.chance(row.upperChance) ? 2 : 1;
+        structures.push({ kind: row.kind, pad, halfW: row.halfW, halfD: row.halfD, wallH: row.wallH, pit, floors });
         placed++;
       }
     }

@@ -7,9 +7,13 @@ import {
   type Obstacle, type PlanetDef, type TerrainHit, type WorldRef,
   /* appended (2026-09-09): 레이드 플레이 개선 계약 */
   type StructureDef, type RailLineDef, type TramDef, type HazardRef,
+  /* appended (2026-09-11) */
+  type LadderDef, type PeerId,
 } from '@/shared';
 import { Ambience } from './Ambience';
-import { BOX_HEADROOM, boxContainsXZ, boxHitNormal, boxPushOut, rayBox } from './obb';
+import { BOX_HEADROOM, boxContainsXZ, boxHitNormal, boxPushOut, rampTopAt, rayBox, rayRamp } from './obb';
+import { hullAreaCentroid, hullContainsXZ, hullHitNormal, hullPushOut, rayHull } from './hull';
+import { SMALL_BODY_R } from './structures/parts/Glass';
 import { Fog } from './Fog';
 import { type Biome, biomeById, pickBiome } from './biomes';
 import { type BuildCtx, PLAY_LIMIT } from './build';
@@ -48,6 +52,7 @@ const NONE_GATHER: readonly GatherNodeDef[] = [];
 const NONE_STRUCTURES: readonly StructureDef[] = [];
 const NONE_RAILS: readonly RailLineDef[] = [];
 const NONE_TRAMS: readonly TramDef[] = [];
+const NONE_LADDERS: readonly LadderDef[] = [];
 
 /**
  * Owns the procedural planet surface: terrain, props/obstacles, nests, pads, outposts, crates, ambience.
@@ -107,6 +112,12 @@ export class WorldSystem implements GameSystem, WorldRef {
   private readonly heightFn = (x: number, z: number) => this.getHeightAt(x, z);
   private hitNx = 0; private hitNy = 1; private hitNz = 0;
   private readonly shellN = new THREE.Vector3(0, 1, 0);
+  private readonly hullN = { x: 0, y: 1, z: 0 };
+  private readonly hullAC = { area: 0, x: 0, z: 0 };
+  /* 2026-09-11: 상자 · 컨테이너의 **열린 모습** 동기화 (`crate opened / sync / syncq`) */
+  private readonly openedIds = new Set<string>();
+  private openNetHooked = false;
+  private readonly eyeTmp = new THREE.Vector3();
 
   constructor() { this.root.name = 'World'; }
 
@@ -119,6 +130,7 @@ export class WorldSystem implements GameSystem, WorldRef {
     this.gather.attach(ctx);
     this.structures.attach(ctx);
     this.rails.attach(ctx);
+    this.ensureOpenNet();
     this.unsubs.push(
       // `mode` / `planet` travel on the event; a rejoin without them falls back to `ctx.missionMode` / `ctx.missionPlanet`
       // (the emitter sets both before emitting, per the contract, because generation runs inside this emit)
@@ -143,7 +155,7 @@ export class WorldSystem implements GameSystem, WorldRef {
     this.pads.update(t);
     this.outposts.update(t);
     this.crates.update(dt, t);
-    this.structures.update(dt, t);
+    this.structures.update(dt, t, this.eyeFor(ctx));
     this.rails.update(dt, t);
     this.gather.update(dt, t);
     this.hazardSys.update(dt, ctx);
@@ -208,6 +220,11 @@ export class WorldSystem implements GameSystem, WorldRef {
     this.props.build(bctx);
     this.crates.build(bctx, ctx);
     this.gather.build(bctx, ctx, def?.eco ?? null, this.hazardSys.getGroveSpots());
+    /* 2026-09-11 — 빛기둥이 사라진 대신 **열린 모습**이 "이미 조사했다" 를 말한다. 이 클라이언트에서 처음 열린
+     * 상자 · 컨테이너는 분대 전원의 화면에서도 열리게 알린다 (내용물은 `inventory/` 의 `cont` 가 따로 맞춘다). */
+    this.crates.setOpenListener(this.onLocalOpened);
+    this.structures.setOpenListener(this.onLocalOpened);
+    this.rails.setOpenListener(this.onLocalOpened);
     this.ambience.build(bctx);
 
     this.extractionPoints = this.layout.extraction.map((p, i) => ({
@@ -227,6 +244,8 @@ export class WorldSystem implements GameSystem, WorldRef {
     this.ready = true;
     const ms = performance.now() - t0;
     console.info(`[World] seed ${this.seed} · planet ${def ? `${this.planet} (${def.name})` : '—'} · biome ${this.biome.id} (${this.biome.name}) · ${this.hash.getAll().length} obstacles · ${this.crates.getDefs().length} crates · ${this.gather.getNodes().length} herbs · ${this.structures.getDefs().length} structures · ${this.rails.getLines().length ? this.rails.getLines()[0].kind : 'no'} rail · hazard ${this.hazardSys.kind ?? '—'}${this.hazardSys.kind ? ` @ ${this.hazardSys.startsAt}s` : ''} · ${ms.toFixed(0)} ms`);
+    this.ensureOpenNet();
+    this.requestOpenSync();
     ctx.bus.emit('world:ready', { seed: this.seed, playerSpawn: this.spawnPos.clone(), planet: this.planet });
   }
 
@@ -271,6 +290,7 @@ export class WorldSystem implements GameSystem, WorldRef {
   clear(): void {
     if (!this.generated) return;
     this.ready = false;
+    this.openedIds.clear();
     this.fogMask?.dispose();
     this.fogMask = null;
     if (this.mode === 'training') {
@@ -298,6 +318,62 @@ export class WorldSystem implements GameSystem, WorldRef {
     this.layout = null;
     this.biome = null;
     this.generated = false;
+  }
+
+  /** 조명 풀이 가까운 방을 고르는 기준 — 살아 있는 플레이어의 눈, 없으면 카메라. */
+  private eyeFor(ctx: GameContext): THREE.Vector3 {
+    const p = ctx.player;
+    if (p && !p.isDead) return p.getEyePosition(this.eyeTmp);
+    return this.eyeTmp.copy(ctx.camera.position);
+  }
+
+  /* ── 2026-09-11: 열린 상자 · 컨테이너 동기화 ─────────────────────────────
+   * 누구나 → 전원 `crate opened {id}` (연 사람이 알린다 — 결과가 같아서 확정이 필요 없다). 호스트는 목록을
+   * 들고 있다가 늦게 합류한 사람(`flow rejoined` · `crate syncq`)에게 `crate sync {ids}` 로 준다. */
+  private readonly onLocalOpened = (id: string): void => {
+    this.openedIds.add(id);
+    const ctx = this.ctx;
+    const net = ctx?.net;
+    if (ctx?.isMultiplayer && net) net.send({ t: 'crate', ev: 'opened', id }, 'others');
+  };
+
+  private applyOpened(id: string): void {
+    if (!this.ready || this.mode === 'training') return;
+    this.openedIds.add(id);
+    if (this.crates.markOpened(id)) return;
+    if (this.structures.markContainerOpened(id)) return;
+    this.rails.markContainerOpened(id);
+  }
+
+  private ensureOpenNet(): void {
+    const ctx = this.ctx;
+    const net = ctx?.net;
+    if (!ctx || !net || this.openNetHooked) return;
+    this.openNetHooked = true;
+    this.unsubs.push(
+      net.onMessage('crate', (m, from) => {
+        if (!ctx.isMultiplayer) return;
+        if (m.ev === 'opened') { this.applyOpened(m.id); return; }
+        if (m.ev === 'syncq') { if (net.isHost) this.sendOpenSync(from); return; }
+        if (m.ev === 'sync' && !net.isHost) for (const id of m.ids ?? []) this.applyOpened(id);
+      }),
+      net.onMessage('flow', (m, from) => { if (m.ev === 'rejoined' && net.isHost) this.sendOpenSync(from); }),
+      ctx.bus.on('net:hostChanged', ({ isLocalHost }) => { if (!isLocalHost) this.requestOpenSync(); }),
+    );
+  }
+
+  private requestOpenSync(): void {
+    const ctx = this.ctx;
+    const net = ctx?.net;
+    if (!ctx || !net || !ctx.isMultiplayer || net.isHost || !this.ready) return;
+    net.send({ t: 'crate', ev: 'syncq', id: '' }, 'host');
+  }
+
+  private sendOpenSync(to: PeerId): void {
+    const ctx = this.ctx;
+    const net = ctx?.net;
+    if (!ctx || !net || !ctx.isMultiplayer || !this.ready) return;
+    net.send({ t: 'crate', ev: 'sync', id: '', ids: [...this.openedIds] }, to);
   }
 
   /** Current biome (null before generation). */
@@ -344,10 +420,15 @@ export class WorldSystem implements GameSystem, WorldRef {
     let best = ground;
     for (let i = 0; i < out.length; i++) {
       const o = out[i];
-      const top = o.position.y + o.height;
-      if (top <= best || top > ceiling) continue;
+      let top = o.position.y + o.height;
+      if (top <= best) continue;
       // 2026-09-09: 사각 콜라이더는 외접원이 아니라 **상자 단면**이 발판이다 (벽 모서리 바깥 허공에 서지 않게)
-      if (o.box && !boxContainsXZ(o, x, z)) continue;
+      if (o.box) {
+        if (!boxContainsXZ(o, x, z)) continue;
+        // 2026-09-11: 경사 발판(계단)은 그 자리의 경사면 높이다
+        if (o.ramp) { top = rampTopAt(o, x, z); if (top <= best) continue; }
+      } else if (o.hull && !hullContainsXZ(o.hull.points, x, z)) continue;   // 2026-09-11: 볼록 윤곽 단면
+      if (top > ceiling) continue;
       best = top;
     }
     out.length = 0;
@@ -367,9 +448,10 @@ export class WorldSystem implements GameSystem, WorldRef {
     let bestTop = -Infinity;
     for (let i = 0; i < out.length; i++) {
       const o = out[i];
-      const top = o.position.y + o.height;
-      if (feetY < top - PROP_TOP_MARGIN || feetY > top + PROP_TOP_MARGIN) continue;
       if (o.box && !boxContainsXZ(o, x, z)) continue;
+      if (o.hull && !hullContainsXZ(o.hull.points, x, z)) continue;
+      const top = o.ramp ? rampTopAt(o, x, z) : o.position.y + o.height;
+      if (feetY < top - PROP_TOP_MARGIN || feetY > top + PROP_TOP_MARGIN) continue;
       if (top <= bestTop) continue;
       bestTop = top;
       best = o;
@@ -390,6 +472,14 @@ export class WorldSystem implements GameSystem, WorldRef {
     let area = 0;
     for (let i = 0; i < out.length; i++) {
       const o = out[i];
+      if (o.hull) {
+        // 2026-09-11: 볼록 윤곽은 외접원이 아니라 **같은 넓이의 원**(무게중심)으로 센다 — 경사지 바위는 인스턴스
+        // 원점이 보이는 부분에서 몇 m 떨어져 외접원이 실제보다 훨씬 크다.
+        hullAreaCentroid(o.hull.points, this.hullAC);
+        const req = Math.sqrt(Math.max(0, this.hullAC.area) / Math.PI);
+        area += circleOverlap(Math.hypot(this.hullAC.x - x, this.hullAC.z - z), radius, req);
+        continue;
+      }
       area += circleOverlap(Math.hypot(o.position.x - x, o.position.z - z), radius, o.radius);
     }
     out.length = 0;
@@ -451,13 +541,28 @@ export class WorldSystem implements GameSystem, WorldRef {
     this.hash.query(position.x, position.z, radius, out);
     for (let i = 0; i < out.length; i++) {
       const o = out[i];
+      // 2026-09-11: 깨진 창틀은 사람 · 적은 막고 수류탄 · 투척 가젯은 지나간다 (`structures/parts/Glass`)
+      if (o.passSmall && radius < SMALL_BODY_R) continue;
+      // 2026-09-11: 경사 발판은 몸이 선 자리(단면으로 자른 자리)의 경사면 높이가 윗면이다
+      const top = o.ramp ? rampTopAt(o, position.x, position.z) : o.position.y + o.height;
       // 2026-09-09: 윗면에 서 있으면 밀어내지 않는다. 여유는 `getStandingObstacle` 과 같은 `PROP_TOP_MARGIN`
       // 이라 두 판정이 어긋나 가장자리에서 튕겨 나가지 않는다 (예전엔 0.05 로 훨씬 빡빡했다).
-      if (position.y >= o.position.y + o.height - PROP_TOP_MARGIN) continue;   // above the obstacle
+      if (position.y >= top - PROP_TOP_MARGIN) continue;   // above the obstacle
+      if (o.hull) {
+        // 2026-09-11 — 볼록 다각형 기둥. 원기둥 소품과 **같은 규칙**(올라설 수 있는 단 예외 없음)이고 판정만
+        // 원 대신 윤곽이다. 밑면은 땅에 묻혀 있으므로 머리 위 판정은 사실상 켜지지 않는다.
+        if (position.y + BOX_HEADROOM <= o.position.y) continue;
+        hullPushOut(o.hull.points, position, radius);
+        continue;
+      }
       if (o.box) {
         // 2026-09-09 — 사각 콜라이더. 상자는 **떠 있을 수 있어서**(지하실 천장 슬래브 · 전차 데크) 머리 위로
         // 지나가는 판은 밀어내지 않는다. 원기둥은 전부 땅에서 올라오므로 이 가지에 오지 않는다.
-        if (position.y + BOX_HEADROOM <= o.position.y) continue;
+        // 2026-09-11: **작은 몸(투척물)의 머리 위 여유는 제 크기뿐**이고 아래의 "올라설 수 있는 단" 예외도 없다.
+        // 사람 기준(2.1 m)을 그대로 쓰면 실내에서 던진 수류탄이 1.5 m 만 떠도 천장판에 걸려 건물 밖으로
+        // 밀려 나가고, 창 윗벽에 밀려 창문을 못 지나가며, 난간 · 창턱을 그냥 뚫고 지나갔다.
+        const small = radius < SMALL_BODY_R;
+        if (position.y + (small ? radius * 2 : BOX_HEADROOM) <= o.position.y) continue;
         /* 2026-09-10 — **올라설 수 있는 단은 벽이 아니다.** 윗면이 발 높이에서 `PROP_STEP_UP_MAX` 안이면
          * `getSurfaceY(x, z, feetY)` 가 어차피 그 위로 발을 올려 준다 (움직이는 쪽의 규약: 표면 먼저,
          * 밀어내기 나중). 그런데도 여기서 밀어내면 **몸이 그 단 위로 올라갈 자리에 닿기 전에 밀려나** 영영
@@ -465,7 +570,7 @@ export class WorldSystem implements GameSystem, WorldRef {
          * 단 바로 위의 단이 늘 몸에 겹치므로, 매 프레임 아래로 밀려 계단을 그대로 미끄러져 내려갔다.
          * 조건은 `getSurfaceY` 의 천장과 **같은 식**이라 두 판정이 어긋나지 않는다.
          * 상자에만 건다 — 원기둥 소품의 코드 경로는 2026-09-09 규약대로 한 줄도 바뀌지 않는다. */
-        if (o.position.y + o.height <= position.y + PROP_STEP_UP_MAX) continue;
+        if (!small && top <= position.y + PROP_STEP_UP_MAX) continue;
         boxPushOut(o, position, radius);
         continue;
       }
@@ -509,12 +614,17 @@ export class WorldSystem implements GameSystem, WorldRef {
     const ex = ox + dx * limitT, ez = oz + dz * limitT;
     this.hash.walkSegment(ox, oz, ex, ez, this.hash.maxRadius, (o) => {
       const limit = bestT > 0 ? bestT : maxDist;
+      if (o.passRays) return false;   // 2026-09-11: 깨진 창틀 — 총알 · 시야가 지나간다
       // 2026-09-09: 사각 콜라이더는 슬래브 셋으로 맞힌다 (`obb.rayBox`), 원기둥은 예전 그대로.
-      const t = o.box ? rayBox(ox, oy, oz, dx, dy, dz, o, limit) : this.rayCylinder(ox, oy, oz, dx, dy, dz, o, limit);
+      // 2026-09-11: 경사 발판은 쐐기(`obb.rayRamp`), 볼록 기둥은 층별 윤곽(`rayHullObstacle`).
+      const t = o.hull ? this.rayHullObstacle(ox, oy, oz, dx, dy, dz, o, limit)
+        : o.box ? (o.ramp ? rayRamp(ox, oy, oz, dx, dy, dz, o, limit) : rayBox(ox, oy, oz, dx, dy, dz, o, limit))
+          : this.rayCylinder(ox, oy, oz, dx, dy, dz, o, limit);
       if (t >= 0 && (bestT < 0 || t < bestT)) {
         bestT = t;
         bestObs = o;
-        if (o.box) this.tmpN.set(boxHitNormal.x, boxHitNormal.y, boxHitNormal.z);
+        if (o.hull) this.tmpN.set(this.hullN.x, this.hullN.y, this.hullN.z);
+        else if (o.box) this.tmpN.set(boxHitNormal.x, boxHitNormal.y, boxHitNormal.z);
         else this.tmpN.set(this.hitNx, this.hitNy, this.hitNz);   // rayCylinder wrote hitN*
       }
       return false;
@@ -526,6 +636,29 @@ export class WorldSystem implements GameSystem, WorldRef {
     const hit: TerrainHit = { point, normal, distance: bestT };
     if (bestObs) hit.obstacle = bestObs as Obstacle;
     return hit;
+  }
+
+  /**
+   * 2026-09-11 — 레이 vs 볼록 다각형 기둥. 층(`hull.bands`)이 있으면 가장 가까운 층, 없으면 이동 윤곽을 밑면부터
+   * 윗면까지 쓴다. 맞은 층의 법선을 `hullN` 에 남긴다. −1 = 빗나감.
+   */
+  private rayHullObstacle(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, o: Obstacle, maxT: number): number {
+    const hull = o.hull!;
+    if (!hull.bands || hull.bands.length === 0) {
+      const t = rayHull(ox, oy, oz, dx, dy, dz, hull.points, o.position.y, o.position.y + o.height, maxT);
+      if (t >= 0) { this.hullN.x = hullHitNormal.x; this.hullN.y = hullHitNormal.y; this.hullN.z = hullHitNormal.z; }
+      return t;
+    }
+    let best = -1;
+    for (let i = 0; i < hull.bands.length; i++) {
+      const b = hull.bands[i];
+      const t = rayHull(ox, oy, oz, dx, dy, dz, b.points, b.y0, b.y1, best >= 0 ? best : maxT);
+      if (t >= 0 && (best < 0 || t < best)) {
+        best = t;
+        this.hullN.x = hullHitNormal.x; this.hullN.y = hullHitNormal.y; this.hullN.z = hullHitNormal.z;
+      }
+    }
+    return best;
   }
 
   /**
@@ -625,6 +758,8 @@ export class WorldSystem implements GameSystem, WorldRef {
   getTrams(): readonly TramDef[] { return this.mode === 'training' ? NONE_TRAMS : this.rails.getTrams(); }
   /** 이번 레이드의 환경 재해. 후보가 없는 행성 · 훈련장이면 null. */
   get hazard(): HazardRef | null { return this.mode === 'training' ? null : this.hazardSys.ref; }
+  /** 2026-09-11: 구조물 사다리 (훈련장은 빈 배열). */
+  getLadders(): readonly LadderDef[] { return this.mode === 'training' ? NONE_LADDERS : this.structures.getLadders(); }
 
   getEnemySpawnPoints(around: THREE.Vector3, count: number, minDist: number, maxDist: number): THREE.Vector3[] {
     const result: THREE.Vector3[] = [];

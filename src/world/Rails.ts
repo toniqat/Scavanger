@@ -27,7 +27,8 @@
  */
 import * as THREE from 'three';
 import {
-  Layers, TRAM_ACCEL_S, TRAM_CALL_HOLD_S, TRAM_CALL_RANGE, TRAM_DOCK_S, TRAM_SPEED, TRAM_START_DELAY_S, TRAM_STATES,
+  Layers, TRAM_ACCEL_S, TRAM_CALL_HOLD_S, TRAM_CALL_RANGE, TRAM_DEPART_NOTICE_RANGE, TRAM_DOCK_S, TRAM_SPEED,
+  TRAM_START_DELAY_S, TRAM_STATES,
   type GameContext, type PeerId, type RailLineDef, type RailPlatformDef,
   type TramDef, type TramMessage, type TramRequest, type TramState, type TramWire,
 } from '@/shared';
@@ -48,6 +49,12 @@ import { structureRow } from './structures/model';
 const TRAM_CONSOLE_ID = 'rail:tram_rail_0:console';
 /** 플랫폼 호출 콘솔의 `Interactable` id. */
 const callConsoleId = (platformId: string): string => `rail:${platformId}:call`;
+/**
+ * 내가 전차를 부른 뒤 이 시간(초) 안에 시작된 출발에는 「곧 출발합니다」를 띄우지 않는다 (2026-09-10).
+ * 부른 사람에게는 「전차를 호출했다」 한 줄이면 된다. 클라이언트는 호스트의 `tram state` 가 돌아와야 출발이
+ * 시작되므로 왕복 지연을 넉넉히 덮는다 — 밸런스 수치가 아니라 네트워크 여유다 (`TRAM_SNAP_M` 과 같은 부류).
+ */
+const CALL_NOTICE_MUTE_S = 3;
 
 /**
  * 호출 콘솔이 지금 무엇을 할 수 있나.
@@ -74,6 +81,8 @@ export class Rails {
   private built = false;
   private netHooked = false;
   private netTimer = 0;
+  /** `ctx.time` 기준 — 이 시각 전에 시작한 출발에는 「곧 출발합니다」를 띄우지 않는다 (내가 방금 불렀다). */
+  private callNoticeUntil = -Infinity;
   private readonly unsubs: Array<() => void> = [];
 
   // scratch (핫 패스에서 프레임당 할당 금지)
@@ -254,6 +263,8 @@ export class Rails {
       position: inst.consolePos,
       radius: TRAM_CONSOLE.radius,
       holdTime: TRAM_CONSOLE.holdTime,
+      // 2026-09-10: 콘솔은 그 자체로 발광하는 장치다 — 감지 빛기둥(`ui/hud/Detection`)을 세우지 않는다.
+      hidePillar: true,
       getPrompt: () => (this.tram && this.tram.def.state !== 'moving' ? '전차 시동 (E)' : null),
       canInteract: () => !!this.game?.isGameplayActive() && this.tram?.def.state !== 'moving',
       interact: () => this.requestStart(),
@@ -272,6 +283,7 @@ export class Rails {
       position: pos,
       radius: TRAM_CALL_RANGE,
       get holdTime(): number { return self.callState(index) === 'ready' ? TRAM_CALL_HOLD_S : 0; },
+      hidePillar: true,   // 2026-09-10: 호출 콘솔에도 감지 빛기둥을 세우지 않는다 (발광 띠가 이미 표시다)
       getPrompt: () => {
         switch (self.callState(index)) {
           case 'ready': return '전차 호출 (E)';
@@ -295,6 +307,11 @@ export class Rails {
   }
 
   /* ── update ───────────────────────────────────────────────────────── */
+
+  /** 2026-09-11: 플랫폼 · 전차 컨테이너가 이 클라이언트에서 처음 열리면 불린다. */
+  setOpenListener(cb: ((id: string) => void) | null): void { this.containers.setOpenListener(cb); }
+  /** 2026-09-11: 분대원이 연 컨테이너를 열린 모습으로. 이 묶음의 것이 아니면 false. */
+  markContainerOpened(id: string): boolean { return this.containers.markOpened(id); }
 
   update(dt: number, time: number): void {
     if (!this.built) return;
@@ -354,7 +371,27 @@ export class Rails {
    */
   private beginRun(inst: TramInst): void {
     inst.runT = -TRAM_START_DELAY_S;
-    this.game?.bus.emit('ui:notify', { text: '전차가 곧 출발합니다', kind: 'info' });
+    if (this.nearDeparture(inst)) this.game?.bus.emit('ui:notify', { text: '전차가 곧 출발합니다', kind: 'info' });
+  }
+
+  /**
+   * 2026-09-10 — 「전차가 곧 출발합니다」는 **떠나는 전차 곁에 있는 사람**에게만 뜬다 (사용자 결정).
+   * 멀리 있는 승강장에서 부른 사람에게 "곧 출발" 은 틀린 말이다 — 그 사람에게는 「전차를 호출했다」가 이미 떴다.
+   *
+   * 곁 = 차체 단면(OBB) 바깥 거리가 `TRAM_DEPART_NOTICE_RANGE` 안 (탑승자는 0 이라 늘 포함, 옆 승강장 데크 ·
+   * 계단 발치까지). 각 클라이언트가 **자기 플레이어로** 판단하므로 와이어는 그대로다. 방금 내가 불렀으면
+   * (`callNoticeUntil`) 곁에 있어도 띄우지 않는다.
+   */
+  private nearDeparture(inst: TramInst): boolean {
+    const ctx = this.game;
+    const p = ctx?.player;
+    if (!ctx || !p || p.isDead) return false;
+    if (ctx.time < this.callNoticeUntil) return false;
+    const c = Math.cos(inst.def.yaw), s = Math.sin(inst.def.yaw);
+    const dx = p.position.x - inst.def.position.x, dz = p.position.z - inst.def.position.z;
+    const ox = Math.max(0, Math.abs(dx * c + dz * s) - inst.halfLen);
+    const oz = Math.max(0, Math.abs(-dx * s + dz * c) - inst.halfWid);
+    return Math.hypot(ox, oz) <= TRAM_DEPART_NOTICE_RANGE;
   }
 
   /**
@@ -426,12 +463,15 @@ export class Rails {
       });
       return;
     }
+    /* 2026-09-10: 부른 사람에게는 **「전차를 호출했다」 한 줄만** 띄운다 — 싱글 · 호스트 · 클라이언트가 같다.
+     * 곧이어 시작될 출발(`beginRun`)이 「곧 출발합니다」를 겹치지 않게 잠깐 입을 막는다 (`nearDeparture`). */
+    this.callNoticeUntil = ctx.time + CALL_NOTICE_MUTE_S;
+    ctx.bus.emit('ui:notify', { text: '전차를 호출했다', kind: 'info', duration: 2 });
     const net = ctx.net;
     if (ctx.isMultiplayer && net && !net.isHost) {
       /* 와이어에는 목적지 칸이 없다 (`TramRequest` 는 계약이고 이 배치는 `src/shared` 를 건드리지 않는다).
        * 호스트가 **요청자의 위치**에서 목적지를 읽는다 — `targetSFor`. */
       net.send({ t: 'tramq', ev: 'start', id: inst.def.id }, 'host');
-      ctx.bus.emit('ui:notify', { text: '전차를 호출했다', kind: 'info', duration: 2 });
       return;
     }
     this.applyStart(net?.localId ?? null, this.platformS[index]);

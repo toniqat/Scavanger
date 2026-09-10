@@ -67,6 +67,13 @@ export interface SoldierPose {
    * holstered while carrying).
    */
   carry?: number;
+  /* ── appended: 사다리 (2026-09-11) ── */
+  /**
+   * Ladder climb 0..1: torso upright facing the rungs (no camera twist), hands alternately gripping above the head,
+   * knees alternately raised; the cycle is `stridePhase` (π per rung). The weapon socket is hidden above
+   * `CLIMB_HIDE_WEAPON`.
+   */
+  climb?: number;
 }
 
 interface Limb {
@@ -93,7 +100,55 @@ const SIL_ORDER = 1;
 const BODY_ORDER = 2;
 /** Height of the tumble pivot used by the roll pose (roughly the curled body's centre). */
 const ROLL_PIVOT_Y = 0.55;
+/** Above this climb blend the weapon socket (gun, held item, remote attachments) is hidden — both hands are on the rungs. */
+const CLIMB_HIDE_WEAPON = 0.35;
 const _silColor = new THREE.Color();
+
+/*
+ * 2026-09-10 — **공유 GPU 자원.** 병사 한 명은 지오메트리 43개 · 실루엣 머티리얼 1개를 쓰는데, 그 값은 인스턴스와
+ * 무관하다(치수 · 악센트 색만 정한다). 예전에는 인스턴스마다 새로 만들어 원격 아바타가 함선 ↔ 행성을 오갈 때마다
+ * 43개를 다시 올렸다. 이제 모듈 캐시 하나가 들고 **아무 인스턴스도 dispose 하지 않는다** (별도 WebGL 컨텍스트를
+ * 쓰는 `Portraits` · `ui/menus/SoldierPreview` 도 같은 객체를 쓴다 — three.js 는 GPU 버퍼를 렌더러별로 따로 잡으므로
+ * 공유해도 된다; 누가 `geometry.dispose()` 를 부르면 모든 렌더러에서 사라지므로 부르지 않는 것이 규약이다).
+ * **몸 머티리얼은 공유하지 않는다** — `setFade` · `setGreyed` · `setGlow` · 바이저 맥동이 인스턴스마다 값을 바꾼다.
+ */
+const SHARED_GEOS = new Map<string, THREE.BufferGeometry>();
+const SHARED_SIL_MATS = new Map<number, THREE.MeshBasicMaterial>();
+
+function sharedGeo(key: string, make: () => THREE.BufferGeometry): THREE.BufferGeometry {
+  let g = SHARED_GEOS.get(key);
+  if (!g) { g = make(); SHARED_GEOS.set(key, g); }
+  return g;
+}
+
+/** Occlusion silhouette material for one colour — never mutated after construction, so every body of that colour shares it. */
+function sharedSilMat(color: number): THREE.MeshBasicMaterial {
+  let m = SHARED_SIL_MATS.get(color);
+  if (!m) {
+    m = new THREE.MeshBasicMaterial({
+      color, depthTest: true, depthFunc: THREE.GreaterDepth, depthWrite: false,
+      transparent: false, fog: false, toneMapped: false, side: THREE.DoubleSide, // cape planes are double-sided
+    });
+    SHARED_SIL_MATS.set(color, m);
+  }
+  return m;
+}
+
+const setBodyOrder = (o: THREE.Object3D): void => { o.renderOrder = BODY_ORDER; };
+
+/**
+ * Lift socket children (and, `depth` > 1, their children) to the body render order. Two levels because a remote
+ * avatar parents its own per-avatar socket into `weaponSocket` and the weapon model goes one level below that.
+ * Allocation-free unless something actually needs lifting.
+ */
+function liftSocketChildren(o: THREE.Object3D, depth: number): void {
+  const kids = o.children;
+  for (let i = 0; i < kids.length; i++) {
+    const k = kids[i];
+    if (k.renderOrder !== BODY_ORDER) k.traverse(setBodyOrder);
+    else if (depth > 1 && k.children.length > 0) liftSocketChildren(k, depth - 1);
+  }
+}
 
 /**
  * Stylised armoured trooper (~1.8 m) built from primitives. Root origin is at the feet, model faces -Z.
@@ -110,6 +165,8 @@ export class SoldierModel {
    */
   readonly shoulderSocket = new THREE.Object3D();
   readonly headPivot = new THREE.Object3D();
+  /** Both sockets, built once so `syncSocketRenderOrder` allocates nothing per frame (2026-09-10). */
+  private readonly sockets: readonly THREE.Object3D[] = [this.weaponSocket, this.shoulderSocket];
 
   private readonly hips = new THREE.Object3D();
   private readonly torso = new THREE.Object3D();
@@ -118,8 +175,11 @@ export class SoldierModel {
   private readonly armR: Limb; private readonly armL: Limb;
   private readonly legR: Limb; private readonly legL: Limb;
   private readonly capeSegs: THREE.Object3D[] = [];
+  /**
+   * Per-instance body materials only (fade / grey / glow / visor pulse mutate them). Geometries and the silhouette
+   * material are shared module-wide (see `SHARED_GEOS`) and are never listed or disposed here.
+   */
   private readonly materials: THREE.Material[] = [];
-  private readonly geometries: THREE.BufferGeometry[] = [];
   private readonly bodyGroup = new THREE.Group();
   /** Occlusion silhouette: one child mesh per body mesh sharing its geometry (see SIL_ORDER). */
   private readonly silMeshes: THREE.Mesh[] = [];
@@ -220,7 +280,7 @@ export class SoldierModel {
       seg.position.set(0, y, i === 0 ? 0.17 : 0);
       const w = 0.5 - i * 0.04;
       const len = 0.3;
-      const plane = new THREE.Mesh(this.geo(new THREE.PlaneGeometry(w, len)), mCape);
+      const plane = new THREE.Mesh(sharedGeo(`plane:${w}|${len}`, () => new THREE.PlaneGeometry(w, len)), mCape);
       plane.position.y = -len / 2;
       plane.castShadow = true;
       plane.receiveShadow = false;
@@ -242,11 +302,7 @@ export class SoldierModel {
     //    paint the self-occluded parts (rear arm behind the chest) black over the visible model.
     _silColor.setHex(accentColor !== ACCENT ? accentColor : 0x000000);
     if (accentColor !== ACCENT) _silColor.multiplyScalar(0.16);
-    this.silMat = new THREE.MeshBasicMaterial({
-      color: _silColor.getHex(), depthTest: true, depthFunc: THREE.GreaterDepth, depthWrite: false,
-      transparent: false, fog: false, toneMapped: false, side: THREE.DoubleSide, // cape planes are double-sided
-    });
-    this.materials.push(this.silMat);
+    this.silMat = sharedSilMat(_silColor.getHex());   // shared per colour — not in `materials`, never disposed here
     for (const m of bodyMeshes) {
       const sil = new THREE.Mesh(m.geometry, this.silMat);   // child → inherits the part transform (incl. scale)
       sil.name = 'sil';
@@ -373,12 +429,7 @@ export class SoldierModel {
    * squadmate) to the body's render order — meshes added after the constructor have no silhouette of their own.
    */
   private syncSocketRenderOrder(): void {
-    for (const socket of [this.weaponSocket, this.shoulderSocket]) {
-      const kids = socket.children;
-      for (let i = 0; i < kids.length; i++) {
-        if (kids[i].renderOrder !== BODY_ORDER) kids[i].traverse((o) => { o.renderOrder = BODY_ORDER; });
-      }
-    }
+    for (let s = 0; s < this.sockets.length; s++) liftSocketChildren(this.sockets[s], 2);
   }
 
   /* ─────────────── builders ─────────────── */
@@ -387,24 +438,24 @@ export class SoldierModel {
     this.materials.push(m);
     return m;
   }
-  private geo<T extends THREE.BufferGeometry>(g: T): T { this.geometries.push(g); return g; }
+  // geometry comes from the module cache (`sharedGeo`) — identical dimensions give the very same BufferGeometry
   private box(w: number, h: number, d: number, m: THREE.Material, x: number, y: number, z: number): THREE.Mesh {
-    const mesh = new THREE.Mesh(this.geo(new THREE.BoxGeometry(w, h, d)), m);
+    const mesh = new THREE.Mesh(sharedGeo(`box:${w}|${h}|${d}`, () => new THREE.BoxGeometry(w, h, d)), m);
     mesh.position.set(x, y, z);
     return mesh;
   }
   private sphere(r: number, m: THREE.Material, x: number, y: number, z: number): THREE.Mesh {
-    const mesh = new THREE.Mesh(this.geo(new THREE.SphereGeometry(r, 16, 12)), m);
+    const mesh = new THREE.Mesh(sharedGeo(`sphere:${r}`, () => new THREE.SphereGeometry(r, 16, 12)), m);
     mesh.position.set(x, y, z);
     return mesh;
   }
   private cyl(rt: number, rb: number, h: number, m: THREE.Material, x: number, y: number, z: number): THREE.Mesh {
-    const mesh = new THREE.Mesh(this.geo(new THREE.CylinderGeometry(rt, rb, h, 12)), m);
+    const mesh = new THREE.Mesh(sharedGeo(`cyl:${rt}|${rb}|${h}`, () => new THREE.CylinderGeometry(rt, rb, h, 12)), m);
     mesh.position.set(x, y, z);
     return mesh;
   }
   private capsule(r: number, len: number, m: THREE.Material, x: number, y: number, z: number): THREE.Mesh {
-    const mesh = new THREE.Mesh(this.geo(new THREE.CapsuleGeometry(r, len, 4, 10)), m);
+    const mesh = new THREE.Mesh(sharedGeo(`capsule:${r}|${len}`, () => new THREE.CapsuleGeometry(r, len, 4, 10)), m);
     mesh.position.set(x, y, z);
     return mesh;
   }
@@ -451,6 +502,9 @@ export class SoldierModel {
   update(dt: number, time: number, p: SoldierPose): void {
     this.syncSocketRenderOrder();
     this.updateGlow(dt, time);
+    // 2026-09-11: hanging on a ladder → no gun in the hands (weapons/ owns the model; hiding the socket is enough)
+    const socketShown = !((p.climb ?? 0) > CLIMB_HIDE_WEAPON && p.dead <= 0 && p.downed <= 0.001);
+    if (this.weaponSocket.visible !== socketShown) this.weaponSocket.visible = socketShown;
     const dead = p.dead;
     if (dead > 0) { this.poseDead(dt, p); return; }
     // 2026-09-08: 전투불능 is its own pose, not "prone with a tilt" — the body falls **backwards** and lies on its
@@ -495,6 +549,10 @@ export class SoldierModel {
     const ck = THREE.MathUtils.clamp(p.cooking ?? 0, 0, 1) * (1 - lie);
     // Phase 10: fireman carry (upright only — the load is put down before anything else happens)
     const cry = THREE.MathUtils.clamp(p.carry ?? 0, 0, 1) * (1 - lie);
+    // 2026-09-11: ladder climb (upright only). `clS` 1 = right hand high + left knee up, 0 = the mirror; the extremes
+    // sit on the rung boundaries (φ = kπ) where the `ladder_step` clank plays.
+    const clb = THREE.MathUtils.clamp(p.climb ?? 0, 0, 1) * (1 - lie);
+    const clS = 0.5 - 0.5 * Math.cos(phi);
 
     // ── hips / root bob
     const bob = (Math.abs(Math.sin(phi)) - 0.5) * (0.045 + 0.03 * sp) * mv * ground;
@@ -506,13 +564,16 @@ export class SoldierModel {
     targetHipY -= 0.07 * chg + 0.05 * hvc + 0.09 * melW * hvy + 0.06 * cry;
     // roll: pull the pelvis into a ball around the tumble pivot
     if (rollB > 0.001) targetHipY = lerp(targetHipY, 0.5, rollB);
+    if (clb > 0.001) targetHipY = lerp(targetHipY, this.hipsBaseY - 0.05, clb);
     this.hips.position.y = damp(this.hips.position.y, targetHipY, lie > 0.01 ? 10 : 20, dt);
     const hipRoll = Math.sin(phi) * 0.05 * mv * ground;
     const hipYaw = -Math.sin(phi) * 0.08 * mv * ground * (1 - aim);
     // pitch the whole body forward: prone ≈ 85°
     const hipPitch = -1.48 * lie;
     const crawlRoll = Math.sin(phi) * 0.07 * crawl;
-    this.j(this.hips, hipPitch, hipYaw * (1 - lie), hipRoll * (1 - lie) + crawlRoll, dt, lie > 0.01 ? 9 : 18);
+    // climbing: the hips sway a little toward the raised knee instead of the walk roll / yaw
+    const climbRoll = (clS - 0.5) * 0.1 * clb;
+    this.j(this.hips, hipPitch, hipYaw * (1 - lie) * (1 - clb), (hipRoll * (1 - lie) + crawlRoll) * (1 - clb) + climbRoll, dt, lie > 0.01 ? 9 : 18);
 
     // ── legs: walk cycle
     const swing = (0.5 + 0.35 * sp) * mv * ground;
@@ -547,6 +608,13 @@ export class SoldierModel {
       finThighR = lerp(finThighR, 1.65, rollB); finThighL = lerp(finThighL, 1.5, rollB);
       finKneeR = lerp(finKneeR, -2.0, rollB); finKneeL = lerp(finKneeL, -2.0, rollB);
     }
+    if (clb > 0.001) {
+      // ladder: knees alternately raised onto the next rung (left knee up while the right hand is high)
+      const cThR = 0.3 + 0.8 * (1 - clS), cKnR = -(0.45 + 1.05 * (1 - clS));
+      const cThL = 0.3 + 0.8 * clS, cKnL = -(0.45 + 1.05 * clS);
+      finThighR = lerp(finThighR, cThR, clb); finThighL = lerp(finThighL, cThL, clb);
+      finKneeR = lerp(finKneeR, cKnR, clb); finKneeL = lerp(finKneeL, cKnL, clb);
+    }
     const legLambda = rollB > 0.001 ? 26 : 22;
     this.j(this.legR.upper, finThighR, 0, -legSpread, dt, legLambda);
     this.j(this.legL.upper, finThighL, 0, legSpread, dt, legLambda);
@@ -564,18 +632,23 @@ export class SoldierModel {
     lean += 0.14 * chg - 0.06 * spr - 0.09 * hvc + 0.2 * cry;
     if (hov > 0.001) lean = lerp(lean, -0.12, hov);
     if (rollB > 0.001) lean = lerp(lean, 0.9, rollB);      // curl into the tumble
-    const twist = THREE.MathUtils.clamp(p.torsoTwist, -0.6, 0.6) * (1 - aim) * (1 - 0.6 * lie) - 0.38 * th;
+    if (clb > 0.001) lean = lerp(lean, 0.05, clb);         // ladder: upright, chest to the rungs
+    // climbing keeps the shoulders square to the ladder — the camera may look anywhere
+    const twist = (THREE.MathUtils.clamp(p.torsoTwist, -0.6, 0.6) * (1 - aim) * (1 - 0.6 * lie) - 0.38 * th) * (1 - clb);
     // the chop drags the shoulders around with it; the big slash winds the shoulders far right and whips them left
     const chopTwist = melW * (0.35 - 0.85 * melChop);
     const slashTwist = melW * lerp(0.75, -0.95, slashS);
-    const meleeTwist = lerp(chopTwist, slashTwist, hvy);
+    const meleeTwist = lerp(chopTwist, slashTwist, hvy) * (1 - clb);
     this.j(this.torso, lean, twist + meleeTwist, -hipRoll * 0.5 * (1 - lie) + 0.1 * cry, dt, mel > 0.001 ? 22 : 14);
     this.chestMesh.scale.y = 1 + breathe * 0.012;
 
     // ── head: look along aim, counter the lean; lifted while lying
     const standHeadX = -standLean * 0.6 + p.aimPitch * 0.45 * (0.4 + 0.6 * aim) + p.flinch * 0.3;
     const lieHeadX = 0.95 + THREE.MathUtils.clamp(p.aimPitch, -0.5, 0.8) * 0.3 + p.flinch * 0.2;
-    this.j(this.headPivot, lerp(standHeadX, lieHeadX, lie) - 0.12 * cry, twist * 0.4, 0, dt, 12);
+    // climbing: look up the ladder, following the camera pitch a little and turning the head toward the camera yaw
+    const climbHeadX = 0.22 + THREE.MathUtils.clamp(p.aimPitch, -0.4, 0.6) * 0.35;
+    const climbHeadYaw = THREE.MathUtils.clamp(p.torsoTwist, -0.9, 0.9) * 0.45 * clb;
+    this.j(this.headPivot, lerp(lerp(standHeadX, lieHeadX, lie) - 0.12 * cry, climbHeadX, clb), twist * 0.4 + climbHeadYaw, 0, dt, 12);
 
     // ── arms
     let rUx: number, rUz: number, rL: number, lUx: number, lUz: number, lL: number;
@@ -712,7 +785,16 @@ export class SoldierModel {
       rUx = lerp(rUx, 1.35, dwn); rUz = lerp(rUz, -0.55, dwn); rL = lerp(rL, 0.2, dwn);
       lUx = lerp(lUx, 1.1, dwn); lUz = lerp(lUz, 0.6, dwn); lL = lerp(lL, 0.15, dwn);
     }
-    const armLambda = mel > 0.001 ? 26 : rollB > 0.001 ? 22 : 16;
+    if (clb > 0.001) {
+      // ladder: hands above the head on the rungs in front, alternating — the high hand reaches with the arm almost
+      // straight, the low hand grips at head height with the elbow bent down (upper + forearm ≈ 2.8 rad keeps the
+      // hand in front of the face instead of behind the head)
+      const cRUx = lerp(1.95, 2.65, clS), cRL = lerp(0.9, 0.18, clS);
+      const cLUx = lerp(1.95, 2.65, 1 - clS), cLL = lerp(0.9, 0.18, 1 - clS);
+      rUx = lerp(rUx, cRUx, clb); rUz = lerp(rUz, -0.14, clb); rL = lerp(rL, cRL, clb);
+      lUx = lerp(lUx, cLUx, clb); lUz = lerp(lUz, 0.14, clb); lL = lerp(lL, cLL, clb);
+    }
+    const armLambda = mel > 0.001 ? 26 : clb > 0.5 ? 24 : rollB > 0.001 ? 22 : 16;
     this.j(this.armR.upper, rUx, 0, rUz, dt, armLambda);
     this.j(this.armR.lower, rL, 0, 0, dt, armLambda);
     this.j(this.armL.upper, lUx, 0, lUz, dt, armLambda);
@@ -835,6 +917,7 @@ export class SoldierModel {
       o.rotation.set(0, 0, 0);
     });
     this.weaponSocket.rotation.set(-Math.PI / 2, 0, 0);
+    this.weaponSocket.visible = true;   // 2026-09-11: the climb pose hides it
     this.bodyGroup.rotation.set(0, 0, 0);
     this.bodyGroup.position.set(0, 0, 0);
     this.hips.position.y = this.hipsBaseY;
@@ -843,9 +926,33 @@ export class SoldierModel {
 
   setVisible(v: boolean): void { this.root.visible = v; }
 
+  /**
+   * 2026-09-10 — back to the state the constructor leaves (`SoldierPool.release`): no armor plates, no glow, not
+   * greyed, opaque, silhouette off, neutral pose, root detached at the origin and visible. Anything another owner
+   * parented into the sockets / root must already be gone — the pool never inspects foreign children.
+   */
+  resetForReuse(): void {
+    this.setArmor(null);
+    this.setGreyed(false);
+    this.setFade(1);
+    this.setSilhouette(false);
+    this.glowTarget = 0;
+    this.glow = 0;
+    for (const m of this.plateMats) m.emissiveIntensity = 0;
+    this.resetPose();
+    this.chestMesh.scale.y = 1;
+    this.bodyGroup.visible = true;
+    this.root.removeFromParent();
+    this.root.position.set(0, 0, 0);
+    this.root.quaternion.identity();
+    this.root.scale.set(1, 1, 1);
+    this.root.visible = true;
+    this.root.name = 'Soldier';
+  }
+
+  /** Frees the per-instance materials + armor look and detaches the root. Shared geometries / silhouette material stay. */
   dispose(): void {
     if (this.armorLook) { this.armorLook.dispose(); this.armorLook = null; this.armorLookId = null; }
-    for (const g of this.geometries) g.dispose();
     for (const m of this.materials) m.dispose();
     this.root.removeFromParent();
   }

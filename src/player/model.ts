@@ -75,6 +75,20 @@ export const SPAWN_RING_RADIUS = 4;         // multiplayer: per-slot drop offset
 export const FADE_FAR = 0.9;
 export const FADE_NEAR = 0.45;
 
+/* ── 단차 보간 · 사다리 (2026-09-11) — 수치 원본은 `STEP_SMOOTH_RATE` · `STEP_SMOOTH_MAX` (data/constants.csv) ── */
+/** 한 프레임 높이 변화가 이보다 작으면(m) 보간하지 않는다 — 지형 굴곡은 그대로 따라간다. */
+export const STEP_SMOOTH_MIN = 0.04;
+/**
+ * 높이 변화 / 수평 이동이 이 비율을 넘을 때만 "단차" 다. 경사면(최대 50° ≈ 1.19)은 연속이므로 보간하면 모델이
+ * 발밑에서 뜨거나 가라앉는다 — 낮은 바위 · 상자 모서리 · `SNAP_DOWN` 은 한 프레임에 수 배로 튄다.
+ */
+export const STEP_SLOPE_RATIO = 1.5;
+/** 사다리를 잡을 때 몸이 옮겨 붙는 시각 보간의 최대 길이(m). */
+export const CLIMB_GRAB_OFFSET_MAX = 2;
+/** 가로대 소리 크기: 보통 / 빠르게. */
+export const LADDER_STEP_VOLUME = 0.45;
+export const LADDER_STEP_VOLUME_FAST = 0.6;
+
 export const _v = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0), _spawn = new THREE.Vector3();
 export const _q = new THREE.Quaternion(), _camPos = new THREE.Vector3(), _camLook = new THREE.Vector3();
 export const _dir = new THREE.Vector3();

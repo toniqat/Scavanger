@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { GRAVITY, Layers, ROGUE_GRENADE_RADIUS, type GameContext, type GrenadeView } from '@/shared';
+import { GRAVITY, Layers, ROGUE_GRENADE_RADIUS, breakFragileAlong, type GameContext, type GrenadeView } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -144,6 +144,8 @@ export class RogueGrenades {
       const len = _d.length();
       if (len > 1e-4) {
         _d.multiplyScalar(1 / len);
+        // 2026-09-11: 창문 유리는 튕기지 않고 깨고 지나간다 (깨진 창틀은 레이가 무시한다)
+        breakFragileAlong(world, g.prev, p);
         const wh = world.raycast(g.prev, _d, len + VISUAL_RADIUS);
         if (wh) { p.copy(wh.point).addScaledVector(wh.normal, VISUAL_RADIUS); _n.copy(wh.normal); hit = true; }
       }

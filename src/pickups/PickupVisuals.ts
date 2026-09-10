@@ -145,7 +145,9 @@ export class PickupVisualPool {
     // Phase 10: breathe around PICKUP_PILLAR_OPACITY (the geometry's vertex fade owns the vertical falloff).
     v.beamMat.opacity = resting ? PICKUP_PILLAR_OPACITY * (0.75 + 0.45 * s) : PICKUP_PILLAR_OPACITY * 0.25;
     v.ringMat.opacity = resting ? 0.35 + 0.35 * s : 0;
-    v.beam.visible = true;
+    // 2026-09-11: 빛기둥은 시체에만 선다 (사용자 결정) — 떨어진 아이템은 바닥 고리와 몸체 발광만 남는다.
+    // 메시는 풀에 그대로 두고 감추기만 한다 (광원이 아니므로 개수 규칙과는 무관하다).
+    v.beam.visible = false;
     v.ring.visible = resting;
     if (resting) {
       v.body.rotation.y += 0.008;

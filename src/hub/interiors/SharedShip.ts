@@ -1,10 +1,11 @@
 import * as THREE from 'three';
-import { HUB_TRAVEL_WARP_STRETCH, NET_MAX_PLAYERS, NET_SLOT_COLORS, type HubShipKind } from '@/shared';
+import { HUB_POINT_LIGHTS, HUB_TRAVEL_WARP_STRETCH, NET_MAX_PLAYERS, NET_SLOT_COLORS, type HubShipKind } from '@/shared';
 import { GeoBatch, HUB_MATS as M, disposeMeshes, yawFromForward } from './GeoBatch';
 import { BoxInteriorCollider } from './InteriorCollider';
 import { ShipDoors } from './Doors';
 import { Hangar, type HangarBayDef } from './Hangar';
-import { Parts, fixture } from './parts';
+import { Parts } from './parts';
+import { LightPool, type LightFixture } from './LightPool';
 import { Starfield, Planet } from './Starfield';
 import { ViewportWarp } from './WarpStreaks';
 import { implantBay, repairBench, shipComputer, type ShipStations, type StationDef } from './stations';
@@ -24,7 +25,8 @@ const HANGAR_DOOR_HEIGHT = 3.2;
 /**
  * Shared ship: 26×14 m main deck. Bridge + terminal and a wide viewport at −X, four launch pods in a row on the −Z
  * wall (slot-coloured rings by LaunchPod), armoury / lockers / crates along +Z, central holo table, airlock at +X
- * where docking arrivals spawn. Six constant point lights.
+ * where docking arrivals spawn. Six light fixtures on the deck + nine in the hangar, served by `HUB_POINT_LIGHTS`
+ * pool lights nearest the player (2026-09-10, `LightPool` — the deck and the hangar used to hang 15 lights of their own).
  *
  * **격납고 (2026-09-08)**: the middle of the +Z (aft) wall is a 4 m 자동문 that opens on approach onto the
  * `Hangar` deck — 44 × 30 m, four marked bays with the squad's 개인 함선 parked in them. The hangar is part of *this*
@@ -51,7 +53,8 @@ export class SharedShip implements ShipInterior {
   readonly doors = new ShipDoors(this.root);
 
   private meshes: THREE.Mesh[] = [];
-  private lights: THREE.PointLight[] = [];
+  /** 2026-09-10: every point light of this ship (deck + hangar fixtures, nearest to the player first). */
+  private lightPool!: LightPool;
   private stars: Starfield;
   private planet: Planet;
   /** 창문 워프 (2026-09-09): streaks past the bridge viewport, driven by the hub through `setWarp`. */
@@ -230,13 +233,20 @@ export class SharedShip implements ShipInterior {
     this.holo.position.set(0, 1.62, 1.5);
     r.add(this.holo);
 
-    // constant lights (6)
-    fixture(r, -8, CEIL - 0.3, 0.5, 0xeef2ff, 30, 13, this.lights);
-    fixture(r, 0, CEIL - 0.3, 0.8, 0xeef2ff, 30, 13, this.lights);
-    fixture(r, 8, CEIL - 0.3, 0.5, 0xeef2ff, 30, 13, this.lights);
-    fixture(r, ROOM.minX + 1.8, 2.9, 0, 0x5fd7ff, 14, 8, this.lights);
-    fixture(r, 0, 3.4, ROOM.minZ + 2.4, 0xffb347, 18, 10, this.lights);
-    fixture(r, 4, 3.0, ROOM.maxZ - 1.6, 0xffd7a8, 12, 8, this.lights);
+    // 광원 자리 (2026-09-10): the deck's six fixtures + the hangar's nine; `HUB_POINT_LIGHTS` pool lights serve the nearest
+    const fx = (x: number, y: number, z: number, color: number, intensity: number, distance: number): LightFixture => ({ x, y, z, color, intensity, distance });
+    const deck: LightFixture[] = [
+      fx(-8, CEIL - 0.3, 0.5, 0xeef2ff, 30, 13),
+      fx(0, CEIL - 0.3, 0.8, 0xeef2ff, 30, 13),
+      fx(8, CEIL - 0.3, 0.5, 0xeef2ff, 30, 13),
+      fx(ROOM.minX + 1.8, 2.9, 0, 0x5fd7ff, 14, 8),
+      fx(0, 3.4, ROOM.minZ + 2.4, 0xffb347, 18, 10),
+      fx(4, 3.0, ROOM.maxZ - 1.6, 0xffd7a8, 12, 8),
+    ];
+    // zones: the deck (0) and the 격납고 behind the aft wall (1) — see `updateNear`
+    for (const f of deck) f.zone = 0;
+    for (const f of this.hangar.lightFixtures) f.zone = 1;
+    this.lightPool = new LightPool(r, HUB_POINT_LIGHTS, [...deck, ...this.hangar.lightFixtures]);
 
     // space outside (−X viewport)
     this.stars = new Starfield(420, 2200, 23);
@@ -270,10 +280,15 @@ export class SharedShip implements ShipInterior {
   /** Park the squad's ships: `names[i]` = crew name in bay `i`, null = empty bay. */
   setBayOccupants(names: readonly (string | null)[]): void { this.hangar.setOccupants(names); }
 
-  /** 자동문 + hangar animation follow the player (called by the hub, same contract as `PersonalShip.updateNear`). */
+  /** 자동문 + the light pool follow the player (called by the hub, same contract as `PersonalShip.updateNear`). */
   updateNear(dt: number, px: number, pz: number): void {
     this.doors.update(dt, px, pz);
+    // past the aft wall = the 격납고: its nine gantry lamps outrank the deck lamps behind the bulkhead, and vice versa
+    this.lightPool.update(dt, px, pz, pz > ROOM.maxZ ? 1 : 0);
   }
+
+  /** The ship's light pool (debug / smoke). */
+  get lights(): LightPool { return this.lightPool; }
 
   update(dt: number, time: number): void {
     this.stars.update(dt);
@@ -288,8 +303,7 @@ export class SharedShip implements ShipInterior {
     this.hangar.dispose();
     this.doors.dispose();
     disposeMeshes(this.meshes);
-    for (const l of this.lights) l.removeFromParent();
-    this.lights.length = 0;
+    this.lightPool.dispose();
     for (const s of this.screens) s.dispose();
     this.terminal.screen.dispose();
     this.warp.dispose();

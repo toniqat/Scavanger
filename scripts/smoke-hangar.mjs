@@ -151,14 +151,16 @@ try {
     let lights = 0, bayGroups = 0;
     const hangar = ctx.scene.getObjectByName('Hangar');
     hangar?.traverse((o) => { if (o.isPointLight) lights++; if (o.isGroup && /^hangar-bay-\d$/.test(o.name)) bayGroups++; });
-    return { inside, open, gateZ: g.z, hangar: !!hangar, lights, bayGroups, bounds: [col.bounds.center.z, col.bounds.halfExtents.z] };
+    const fixtures = window.__game.getSystem('hub').interior?.hangar?.lightFixtures?.length ?? -1;
+    return { inside, open, gateZ: g.z, hangar: !!hangar, lights, fixtures, bayGroups, bounds: [col.bounds.center.z, col.bounds.halfExtents.z] };
   });
   ok(deck.hangar, 'a Hangar group hangs off the shared-ship interior');
   ok(deck.inside, 'the hangar floor is walkable (a circle at (0, 20) stays put)');
   ok(deck.open, 'the aft doorway is an open shared edge (no blocker in it)');
   // the gate blocker's inner face is maxZ − 0.1 = 37.25, so a 0.4 m circle is pushed back to 36.85
   ok(deck.gateZ < 36.9, `the exterior bay gate is solid (pushed back to z ${deck.gateZ.toFixed(2)})`);
-  ok(deck.lights === 9, `hangar owns 9 constant point lights (${deck.lights})`);
+  // 2026-09-10: the hangar lists 9 light fixtures and owns no PointLight — the shared ship's `LightPool` lights them
+  ok(deck.lights === 0 && deck.fixtures === 9, `hangar has 9 light fixtures and no light of its own (fixtures ${deck.fixtures}, lights ${deck.lights})`);
   ok(deck.bayGroups === 4, `4 bay groups (${deck.bayGroups})`);
   ok(deck.bounds[0] > 10 && deck.bounds[1] > 20, `the collider bounds grew to cover the hangar (centre z ${deck.bounds[0].toFixed(1)}, half ${deck.bounds[1].toFixed(1)})`);
 

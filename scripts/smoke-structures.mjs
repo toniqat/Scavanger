@@ -9,12 +9,13 @@
 //   2. 모든 `box` 콜라이더가 자기 구조물이 **그린 바운딩 박스 안**에 있다 (여유 SLACK_M)
 //   3. 실내가 걸어 다닐 수 있다: 방 한가운데는 밀려나지 않고, 벽 한가운데는 밀려난다
 //   4. 벽이 총알을 막는다 (`raycast` 가 벽 두께 안에서 멈춘다)
-//   5. 지하실: 해치가 잠긴 동안 윗면이 바닥 높이이고(그 위를 걷는다), 천장 슬래브 윗면도 바닥 높이다
+//   5. 지하실 (2026-09-11 개편): 계단 복도 끝의 **서 있는 문**이 잠긴 동안 복도를 막고, 지하실 바닥이 서는 판이다
 //   6. 선로: 플랫폼 데크 윗면 = 전차 바닥 높이 (틈 없이 건너탄다), 계단이 한 단씩 `PROP_STEP_UP_MAX` 안이다
 //   7. 전차: 시동을 걸면 데크가 움직이고 `getStandingObstacle(...).velocity` 가 `TRAM_SPEED` 를 가리킨다
 //      (player/PlayerController 가 그 값을 위치에 더한다 — 실제로 실려 가는지의 근거)
 //   8. 호출 콘솔 (2026-09-10): 플랫폼마다 데크 위에 서고, 전차가 선 승강장에서는 잠기고(홀드 0), 반대편에서
 //      부르면 **선로 위 거리**가 줄며 다가오고, 운행 중에는 중복 호출 · 운전실 콘솔이 둘 다 거부된다
+//   9. (2026-09-11) 천장 · 2층 · 사다리 · 옥상 스캐너 · 경사 계단 · 창문 · 열린 모습 동기화 · 조명 풀 · 스캔 파동
 //
 // Usage: node scripts/smoke-structures.mjs [http://localhost:5273]
 import puppeteer from 'puppeteer-core';
@@ -134,7 +135,7 @@ try {
       for (const o of world.getObstacles()) {
         if (!o.box) continue;
         boxes++;
-        const owner = ['building', 'slab', 'hatch', 'console'].includes(o.kind)
+        const owner = ['building', 'slab', 'hatch', 'console', 'door', 'glass'].includes(o.kind)
           ? structs.find((s) => Math.hypot(s.x - o.position.x, s.z - o.position.z) < s.radius + 12)?.id
           : 'rail';
         const b = owner ? drawn.get(owner) : null;
@@ -168,11 +169,21 @@ try {
       if (!s) return null;
       const y = world.getSurfaceY(s.position.x, s.position.z, s.position.y + 0.5);
 
-      // 방 한가운데(구조물 중심)에서는 밀려나지 않아야 한다 — 벽이 방을 통째로 막으면 여기서 잡힌다
-      const p = new V3(s.position.x, y, s.position.z);
-      const before = { x: p.x, z: p.z };
-      world.resolveCollision(p, 0.4);
-      const centreMove = Math.hypot(p.x - before.x, p.z - before.z);
+      // 1층 바닥의 대부분에서 밀려나지 않아야 한다 — 벽 · 계단 · 난간이 방을 통째로 막으면 여기서 잡힌다.
+      // (2026-09-11: 한가운데 한 점만 보던 검사를 격자로 바꿨다 — 계단 구멍 · 소품이 한가운데에 설 수 있다.)
+      let onFloor = 0, free = 0;
+      const R = Math.max(2, s.radius - 6);
+      for (let gx = -R; gx <= R; gx += 1.0) for (let gz = -R; gz <= R; gz += 1.0) {
+        if (gx * gx + gz * gz > R * R) continue;
+        const x = s.position.x + gx, z = s.position.z + gz;
+        const sy = world.getSurfaceY(x, z, s.position.y + 0.3);
+        if (Math.abs(sy - s.position.y) > 0.05) continue;
+        onFloor++;
+        const q = new V3(x, sy, z);
+        world.resolveCollision(q, 0.4);
+        if (Math.hypot(q.x - x, q.z - z) < 0.01) free++;
+      }
+      const centreMove = onFloor > 0 ? 1 - free / onFloor : 1;
 
       // 바깥 벽을 향해 쏜다 — 반드시 무언가에 막혀야 한다
       let blocked = 0, tries = 0;
@@ -184,27 +195,139 @@ try {
         if (hit && hit.distance < s.radius + 2) blocked++;
       }
 
-      // 지하실이 있으면: 잠긴 해치 윗면 = 지상층 바닥 높이
-      let hatchTop = null, basementDrop = null;
+      // 지하실이 있으면 (2026-09-11): 잠긴 문짝이 복도를 막고, 문 앞 지하실 바닥이 서는 판이며, 1층보다 3 m 넘게 아래다
+      let hatchTop = null, basementDrop = null, doorBlocks = null;
       const withBase = world.getStructures().find((x) => x.hasBasement);
       if (withBase && withBase.basementDoor) {
         const dpos = withBase.basementDoor;
-        hatchTop = world.getSurfaceY(dpos.x, dpos.z, dpos.y + 0.5) - dpos.y;
-        basementDrop = dpos.y - world.getHeightAt(dpos.x, dpos.z);   // 구덩이 깊이
+        hatchTop = world.getSurfaceY(dpos.x, dpos.z, dpos.y + 0.5) - dpos.y;   // 지하실 바닥 = 문 밑변 높이
+        basementDrop = withBase.position.y - dpos.y;
+        const door = world.getObstacles().find((o) => o.kind === 'door' && Math.hypot(o.position.x - dpos.x, o.position.z - dpos.z) < 0.2);
+        if (door) {
+          const p = new V3(dpos.x, dpos.y, dpos.z);
+          world.resolveCollision(p, 0.45);
+          doorBlocks = Math.hypot(p.x - dpos.x, p.z - dpos.z);
+        } else doorBlocks = -1;
       }
-      return { centreMove, blocked, tries, hatchTop, basementDrop, structs: world.getStructures().length };
+      return { centreMove, blocked, tries, hatchTop, basementDrop, doorBlocks, structs: world.getStructures().length };
     });
 
     if (inside) {
-      ok(inside.centreMove < 0.01, `a structure's middle is standable (moved ${inside.centreMove.toFixed(3)} m)`);
+      ok(inside.centreMove < 0.4, `most of a structure's ground floor is standable (${((1 - inside.centreMove) * 100).toFixed(0)} % free)`);
       ok(inside.blocked >= 6, `walls stop shots from inside (${inside.blocked}/${inside.tries} directions blocked)`);
       if (inside.hatchTop !== null) {
-        ok(Math.abs(inside.hatchTop) < 0.2, `locked hatch is walkable at floor level (Δ ${inside.hatchTop.toFixed(2)} m)`);
-        ok(inside.basementDrop > 2, `the basement pit is actually dug (${inside.basementDrop.toFixed(1)} m below the floor)`);
+        ok(Math.abs(inside.hatchTop) < 0.2, `basement floor in front of the door is a standing plate (Δ ${inside.hatchTop.toFixed(2)} m)`);
+        ok(inside.basementDrop > 3, `the basement is a storey below the ground floor (${inside.basementDrop.toFixed(1)} m)`);
+        ok(inside.doorBlocks > 0.2, `the locked standing door blocks the stair corridor (pushed ${inside.doorBlocks.toFixed(2)} m)`);
       } else {
         console.log('  --   no basement this seed (basementChance)');
       }
     }
+
+
+    /* ── 9. 2026-09-11: 천장 · 2층 · 사다리 · 옥상 스캐너 · 경사 계단 · 창문 · 동기화 · 조명 · 파동 ─────────── */
+    const b = await page.evaluate(() => {
+      const ctx = window.__game.ctx;
+      const world = ctx.world;
+      const ws = window.__game.getSystem('world');
+      const st = ws.structures;
+      const V3 = ctx.camera.position.constructor;
+      const rows = [];
+      for (const s of world.getStructures()) {
+        if (s.kind === 'wreck') continue;
+        const lad = world.getLadders().filter((l) => l.id.startsWith(`ladder_${s.id}_`));
+        const scan = ctx.interactables.all().find((i) => i.id === `struct:${s.id}:scan`);
+        const l = lad[0];
+        rows.push({
+          id: s.id, ladders: lad.length,
+          storeys: l ? Math.round((l.topY - s.position.y) / 4.1) : 0,
+          roofStand: l ? +(world.getSurfaceY(l.exit.x, l.exit.z, l.exit.y + 0.5) - l.exit.y).toFixed(2) : null,
+          baseStand: l ? +(world.getSurfaceY(l.base.x, l.base.z, l.base.y + 0.5) - l.base.y).toFixed(2) : null,
+          scanOnRoof: !!scan && !!l && Math.abs(scan.position.y - l.topY) < 0.05,
+          // 1층 한가운데서 위로 쏘면 천장(바닥판 밑면)에 맞는다
+          ceil: (() => { const h = world.raycast(new V3(s.position.x, s.position.y + 1.2, s.position.z), new V3(0, 1, 0), 10); return h ? +(h.point.y - s.position.y).toFixed(2) : null; })(),
+        });
+      }
+      const wreckScan = world.getStructures().filter((s) => s.kind === 'wreck').some((s) => ctx.interactables.all().some((i) => i.id === `struct:${s.id}:scan`));
+
+      // 경사 계단: 낮은 끝 → 높은 끝을 0.1 m 씩 훑은 표면 높이의 가장 큰 한 걸음
+      let ramps = 0, worstStep = 0, worstEnd = 0;
+      for (const o of world.getObstacles()) {
+        if (!o.ramp || !o.box) continue;
+        ramps++;
+        const c = Math.cos(o.box.yaw), sn = Math.sin(o.box.yaw);
+        let prev = null;
+        for (let lx = -o.box.halfX + 0.05; lx <= o.box.halfX - 0.05; lx += 0.1) {
+          const x = o.position.x + lx * c, z = o.position.z + lx * sn;
+          const y = world.getSurfaceY(x, z, prev === null ? o.position.y + o.height - o.ramp.rise + 0.1 : prev + 0.1);
+          if (prev !== null) worstStep = Math.max(worstStep, y - prev);
+          prev = y;
+        }
+        const hx = o.position.x + o.box.halfX * c, hz = o.position.z + o.box.halfX * sn;
+        worstEnd = Math.max(worstEnd, Math.abs(world.getSurfaceY(hx, hz, o.position.y + o.height + 0.3) - (o.position.y + o.height)));
+      }
+
+      // 창문: 레이가 유리에 맞고, 깨면 레이는 지나가며, 사람 크기 몸은 여전히 막히고 수류탄 크기는 지나간다
+      const glass = st.glassSet;
+      let win = { count: glass.count, hit: false, passAfter: false, bodyBlocked: false, smallPasses: false, broken: 0 };
+      const pane = world.getObstacles().find((o) => o.kind === 'glass' && o.fragile);
+      if (pane) {
+        const c = Math.cos(pane.box.yaw), sn = Math.sin(pane.box.yaw);
+        const nx = -sn, nz = c;                                  // 창 면의 법선
+        const mid = new V3(pane.position.x, pane.position.y + pane.height / 2, pane.position.z);
+        const from = new V3(mid.x + nx * 3, mid.y, mid.z + nz * 3);
+        const dir = new V3(-nx, 0, -nz);
+        const h1 = world.raycast(from, dir, 5);
+        win.hit = !!h1 && h1.obstacle === pane;
+        if (h1 && h1.obstacle && h1.obstacle.destructible) h1.obstacle.destructible.onDamage(10, h1.point);
+        const h2 = world.raycast(from, dir, 5);
+        win.passAfter = !h2 || h2.obstacle !== pane;
+        const body = new V3(mid.x, pane.position.y + 0.1, mid.z);
+        world.resolveCollision(body, 0.45);
+        win.bodyBlocked = Math.hypot(body.x - mid.x, body.z - mid.z) > 0.1;
+        const small = new V3(mid.x, mid.y, mid.z);
+        world.resolveCollision(small, 0.08);
+        win.smallPasses = Math.hypot(small.x - mid.x, small.z - mid.z) < 0.01;
+        win.broken = glass.brokenCount;
+      }
+
+      // 열린 모습: 컨테이너 하나를 남이 연 것처럼 표시
+      const cont = ctx.interactables.all().find((i) => i.id.startsWith('container:struct_'));
+      const cid = cont ? cont.id.slice('container:'.length) : null;
+      const markOk = cid ? st.markContainerOpened(cid) && st.isContainerOpened(cid) : false;
+
+      // 조명 풀
+      const pool = st.lights;
+      return { rows, wreckScan, ramps, worstStep, worstEnd, win, markOk, pool: pool ? { size: pool.size, fixtures: pool.fixtureList.length } : null };
+    });
+    ok(b.rows.length >= 1 && b.rows.every((r) => r.ladders >= 1), `전진기지 · 연구실마다 옥상 사다리가 있다 (${b.rows.map((r) => `${r.id}:${r.storeys}층`).join(', ')})`, JSON.stringify(b.rows));
+    ok(b.rows.every((r) => r.roofStand !== null && Math.abs(r.roofStand) < 0.1), '사다리 꼭대기의 내리는 자리가 옥상 바닥이다', JSON.stringify(b.rows.map((r) => r.roofStand)));
+    ok(b.rows.every((r) => r.baseStand !== null && Math.abs(r.baseStand) < 0.1), '사다리 발치가 맨 위층 바닥이다', JSON.stringify(b.rows.map((r) => r.baseStand)));
+    ok(b.rows.every((r) => r.scanOnRoof), '맵 스캐너가 옥상에 있다', JSON.stringify(b.rows.map((r) => r.scanOnRoof)));
+    ok(!b.wreckScan, '불시착 함선에는 스캐너가 없다');
+    ok(b.rows.every((r) => r.ceil !== null && r.ceil > 3 && r.ceil < 4.5), `1층에 천장이 있다 (천장 높이 ${b.rows.map((r) => r.ceil).join(', ')} m)`);
+    ok(b.ramps >= 1 && b.worstStep < 0.12, `계단이 경사면이라 한 걸음(0.1 m)에 튀지 않는다 (경사 ${b.ramps}개, 최대 ${b.worstStep.toFixed(3)} m)`);
+    ok(b.worstEnd < 0.1, `계단 높은 끝이 위층 바닥과 이어진다 (Δ ${b.worstEnd.toFixed(3)} m)`);
+    ok(b.win.count > 0 && b.win.hit, `창문 유리가 레이를 막는다 (창 ${b.win.count}장)`, JSON.stringify(b.win));
+    ok(b.win.passAfter && b.win.broken >= 1, '깨진 창은 총알이 지나간다', JSON.stringify(b.win));
+    ok(b.win.bodyBlocked && b.win.smallPasses, '깨진 창은 몸은 막고 투척물은 지나간다', JSON.stringify(b.win));
+    ok(b.markOk, '남이 연 컨테이너가 열린 모습이 된다');
+    ok(!!b.pool && b.pool.size === 4 && b.pool.fixtures > 0, `구조물 조명 풀 (${b.pool && b.pool.size}개 광원 · 자리 ${b.pool && b.pool.fixtures})`);
+
+    // 스캔 파동: 옥상 콘솔을 누르면 파동이 퍼진다
+    const wave = await page.evaluate(() => {
+      const ctx = window.__game.ctx;
+      const st = window.__game.getSystem('world').structures;
+      const s = ctx.world.getStructures().find((x) => x.kind !== 'wreck');
+      const c = s && ctx.interactables.all().find((i) => i.id === `struct:${s.id}:scan`);
+      if (!c) return null;
+      c.interact();
+      return { active: st.scanWaves.activeCount, scanned: s.scanned };
+    });
+    ok(!!wave && wave.scanned && wave.active >= 1, '맵 스캔이 파동을 쏜다', JSON.stringify(wave));
+    await waitSim(page, 7);
+    const waveEnd = await page.evaluate(() => window.__game.getSystem('world').structures.scanWaves.activeCount);
+    ok(waveEnd === 0, `파동이 STRUCTURE_SCAN_WAVE_S 뒤에 끝난다 (남은 ${waveEnd})`);
 
     /* ── 6 · 7. 선로 · 플랫폼 · 전차 ─────────────────────────────────── */
     const rail = await page.evaluate(() => {

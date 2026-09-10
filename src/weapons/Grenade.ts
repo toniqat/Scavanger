@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { GRAVITY, GRENADE_FUSE as SHARED_GRENADE_FUSE, type GameContext, type GrenadeView } from '@/shared';
+import { GRAVITY, GRENADE_FUSE as SHARED_GRENADE_FUSE, PROP_STEP_UP_MAX, breakFragileAlong, type GameContext, type GrenadeView } from '@/shared';
 import type { WeaponFx } from './fx/WeaponFx';
 
 /** Alias of the shared contract value (3 s); kept for the barrel export. */
@@ -26,7 +26,7 @@ interface GrenadeBody {
   blinkOn: boolean;
 }
 
-const _n = new THREE.Vector3(), _tmp = new THREE.Vector3();
+const _n = new THREE.Vector3(), _tmp = new THREE.Vector3(), _prev = new THREE.Vector3();
 
 /**
  * Pooled frag grenades: arc with gravity, bounce on terrain, fuse, radial damage (enemies + player),
@@ -98,13 +98,20 @@ export class GrenadeManager {
       g.fuse -= dt;
       if (g.fuse <= 0) { this.explode(g); continue; }
       g.vel.y -= GRAVITY * dt;
+      _prev.copy(g.pos);
       g.pos.addScaledVector(g.vel, dt);
       if (world && world.ready) {
+        // 2026-09-11: 창문 유리는 튕기지 않고 깨고 지나간다 (깨진 창틀은 `resolveCollision` 이 작은 몸을 밀지 않는다)
+        breakFragileAlong(world, _prev, g.pos);
         world.resolveCollision(g.pos, BODY_R);
-        const ground = world.getHeightAt(g.pos.x, g.pos.z) + BODY_R;
+        // 2026-09-11: 바닥은 지형이 아니라 **그 자리의 표면**이다 — 건물 2층 · 옥상 · 계단에 떨어진다 (예전에는 지형만
+        // 봐서 2층 바닥을 뚫고 떨어졌다). 몸 윗면 높이까지의 윗면만 잡으므로 천장판으로 튀어 오르지 않는다.
+        const terrain = world.getHeightAt(g.pos.x, g.pos.z);
+        const surface = world.getSurfaceY(g.pos.x, g.pos.z, g.pos.y + BODY_R - PROP_STEP_UP_MAX);
+        const ground = surface + BODY_R;
         if (g.pos.y < ground) {
           g.pos.y = ground;
-          world.getNormalAt(g.pos.x, g.pos.z, _n);
+          if (surface > terrain + 0.02) _n.set(0, 1, 0); else world.getNormalAt(g.pos.x, g.pos.z, _n);
           const vn = g.vel.dot(_n);
           if (vn < 0) {
             // reflect with restitution, damp tangential (friction)

@@ -36,9 +36,10 @@ import type { HubSystem } from '../HubSystem';
  * `fromBay` (2026-09-08, 격납고): the bay slot we just walked out of — the shared ship then spawns the player in
  * front of that bay instead of at the deck's default position. Ignored for the personal ship.
  */
-export function build(sys: HubSystem, ship: HubShipKind, viaAirlock: boolean, fromBay?: number): THREE.Vector3 {
+export function build(sys: HubSystem, ship: HubShipKind, viaAirlock: boolean, fromBay?: number, prebuilt?: ShipInterior): THREE.Vector3 {
   const ctx = sys.ctx;
-  const interior: ShipInterior = ship === 'personal' ? new PersonalShip() : new SharedShip();
+  // 2026-09-10: a docking cutscene hands over the ship it built (and compiled) while it played — see `Transitions.prebuildTarget`
+  const interior: ShipInterior = prebuilt ?? (ship === 'personal' ? new PersonalShip() : new SharedShip());
   ctx.scene.add(interior.root);
   sys.interior = interior;
   sys.ship = ship;
@@ -246,6 +247,8 @@ export function stationUsable(sys: HubSystem): boolean {
   }
 
 export function disposeInterior(sys: HubSystem): void {
+  // a ship prebuilt for a transition that never finished (a new transition, a re-entry, the mission) goes with it
+  if (sys.pendingInterior) { sys.pendingInterior.interior.dispose(); sys.pendingInterior = null; }
   Hangar.clearBays(sys);
   sys.clearLeaderHandoff();   // 2026-09-09: 분대장 넘기기 상호작용도 인테리어와 함께 걷는다
   sys.housingMode.setShip(null, null);

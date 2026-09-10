@@ -362,11 +362,10 @@ try {
   await P(() => window.__scavShellRelock());
   await waitState('(s) => s.locked', 'hook re-locked', 5000);
   ok((await state()).locked, '__scavShellRelock re-locks once no screen owns the cursor');
-  // Alt 커서 counts as an owner → cursor shown
+  // 2026-09-10: Alt 커서는 제거됐다 — 셸에서 Alt 를 눌러도 커서 소유자가 생기지 않고 커서는 숨은 채다
   await tap('AltLeft'); await waitSim(0.15);
   s = await state();
-  ok(s.blockers.includes('cursor') && !s.nocursor, 'Alt 커서 (a cursor owner) shows the OS cursor in the shell', JSON.stringify(s));
-  await tap('AltLeft'); await waitState('(s) => s.locked && s.nocursor', 'Alt cursor closed (desktop)', 5000);
+  ok(s.blockers.length === 0 && s.nocursor && s.locked, 'Alt no longer shows the OS cursor in the shell (no owner, lock kept)', JSON.stringify(s));
   // 2026-09-09 (사용자 결정): 셸에서는 **ESC 가 일시정지 메뉴도 닫는다**. 브라우저는 §2 그대로 클릭 전용이다 —
   // 셸에서만 메인 프로세스가 ESC key-up 에 activation 을 주므로 닫는 즉시 카메라가 돌아온다.
   await tap('Escape');

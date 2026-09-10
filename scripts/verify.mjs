@@ -67,6 +67,9 @@ const SMOKES = {
   'smoke-meta':         { file: 'scripts/smoke-meta.mjs',         folders: ['meta', 'inventory', 'hub', 'ui', 'game'] },
   'smoke-training':     { file: 'scripts/smoke-training.mjs',     folders: ['world', 'hub', 'housing', 'game'] },
   'smoke-ghost':        { file: 'scripts/smoke-ghost.mjs',        folders: ['player', 'net', 'game'] },
+  /* 2026-09-11: 사다리 (잡기 · W/S · 달리기 스태미나 · 꼭대기 올라서기 · E 놓기 · 점프 · 발치 내려서기 · 무기 잠금 ·
+     CLIMBING 비트) + 단차 보간(`bodyOffset`) + 월드 천장 클램프. 가짜 `LadderDef` 로 돌아 world 의 사다리가 없어도 된다. */
+  'smoke-ladder':       { file: 'scripts/smoke-ladder.mjs',       folders: ['player', 'net'] },
   'smoke-raidflow':     { file: 'scripts/smoke-raidflow.mjs',     folders: ['game', 'extraction', 'player', 'inventory', 'world'] },
   'smoke-library':      { file: 'scripts/smoke-library.mjs',      folders: ['housing', 'items', 'hub', 'inventory'] },
   'smoke-enemy-delta':  { file: 'scripts/smoke-enemy-delta.mjs',  folders: ['enemies', 'net'] },

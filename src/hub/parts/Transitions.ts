@@ -46,6 +46,7 @@ export function enter(sys: HubSystem, requested: HubShipKind): void {
   if (sys.interior && sys.ship === ship && ctx.phase === 'hub') return;      // idempotent
   sys.disposeInterior();
   const spawn = sys.build(ship, false);
+  void ctx.shaders?.holdForScene();   // 2026-09-10: compile the ship before its first frame instead of inside it
   ctx.setPhase('hub');
   ctx.bus.emit('hub:entered', { ship, spawn: spawn.clone() });
   // 2026-09-08: through `relock`, not a bare `requestPointerLock` — a listener of `hub:entered` (the 튜토리얼 시작
@@ -97,13 +98,40 @@ export function startTransition(sys: HubSystem, direction: DockTransition): void
   ctx.bus.emit('ui:notify', { text: direction === 'dock' ? '도킹 절차 시작' : '도킹 해제 — 개인 함선으로 복귀', kind: 'info' });
   const duration = direction === 'dock' ? HUB_DOCKING_DURATION : HUB_DOCKING_DURATION * 0.5;
   sys.cutscene = new DockingCutscene(ctx, direction, duration, () => sys.finishTransition(direction));
+  void ctx.shaders?.holdForScene();   // 2026-09-10: the exterior stage compiles before its first frame (was a 0.24 s hitch)
+  }
+
+/** Seconds into a docking cutscene before the destination ship is built — off the cutscene's own first frames. */
+export const PREBUILD_AFTER_S = 0.5;
+
+/**
+ * 2026-09-10: build the ship a running docking cutscene lands in **now**, and compile its shaders in the background
+ * while the cutscene plays (`ctx.shaders.warm`, the cutscene stage as what it replaces). `finishTransition` then only
+ * attaches it. Arriving in the shared ship used to hitch three times (0.4 / 0.8 / 0.4 s) while those shaders compiled
+ * on the first frames inside. Called from `HubSystem.update` once the cutscene is `PREBUILD_AFTER_S` old.
+ */
+export function prebuildTarget(sys: HubSystem): void {
+  const cut = sys.cutscene;
+  if (!cut || sys.pendingInterior) return;
+  const kind: HubShipKind = cut.direction === 'dock' ? 'shared' : 'personal';
+  const interior: ShipInterior = kind === 'personal' ? new PersonalShip() : new SharedShip();
+  const ready = sys.ctx.shaders ? sys.ctx.shaders.warm(interior.root, cut.root) : Promise.resolve(true);
+  sys.pendingInterior = { kind, interior, ready };
   }
 
 export function finishTransition(sys: HubSystem, direction: DockTransition): void {
   const ctx = sys.ctx;
   sys.cutscene?.dispose(); sys.cutscene = null; sys.cancelTravel();
   const target: HubShipKind = direction === 'dock' && ctx.net?.lobby ? 'shared' : 'personal';
-  const spawn = sys.build(target, target === 'shared');
+  // 2026-09-10: take the ship `prebuildTarget` built and compiled during the cutscene (a lobby that vanished mid-dock
+  // lands in the personal ship instead — then the prebuilt shared ship is thrown away)
+  const pre = sys.pendingInterior;
+  sys.pendingInterior = null;
+  const prebuilt = pre && pre.kind === target ? pre.interior : undefined;
+  if (pre && !prebuilt) pre.interior.dispose();
+  const spawn = sys.build(target, target === 'shared', undefined, prebuilt);
+  // pods, signs, furniture and parked ships are newer than that warm-up: compile them with the rest before the first frame
+  void ctx.shaders?.holdForScene();
   ctx.setPhase('hub');
   ctx.bus.emit('hub:docking', { stage: 'end', direction });
   ctx.bus.emit('hub:entered', { ship: target, spawn: spawn.clone() });
@@ -121,6 +149,7 @@ export function swapDirect(sys: HubSystem, target: HubShipKind): void {
   sys.ready.hide();
   sys.disposeInterior();
   const spawn = sys.build(target, target === 'shared');
+  void ctx.shaders?.holdForScene();
   ctx.setPhase('hub');
   ctx.bus.emit('hub:entered', { ship: target, spawn: spawn.clone() });
   }
@@ -152,6 +181,7 @@ export function boardShip(sys: HubSystem, peerId: PeerId | null, slot: number): 
   sys.visit = { peerId, slot, readOnly: peerId !== null };
   sys.visitShip = wire;
   const spawn = sys.build('personal', false);
+  void ctx.shaders?.holdForScene();
   ctx.setPhase('hub');
   ctx.bus.emit('hub:entered', { ship: 'personal', spawn: spawn.clone() });
   ctx.bus.emit('hub:shipVisit', { peerId: sys.hubSite, readOnly: sys.visitReadOnly });
@@ -172,6 +202,7 @@ export function leaveShip(sys: HubSystem): void {
   const slot = visit.slot;
   sys.visit = null; sys.visitShip = null; sys.pendingBay = null;
   const spawn = sys.build('shared', false, slot);
+  void ctx.shaders?.holdForScene();
   ctx.setPhase('hub');
   ctx.bus.emit('hub:entered', { ship: 'shared', spawn: spawn.clone() });
   ctx.bus.emit('hub:shipVisit', { peerId: null, readOnly: false });

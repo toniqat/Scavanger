@@ -119,6 +119,8 @@ export class Snapshotter {
     if (p.isMeleeHeavy) f |= PlayerFlags.MELEE_HEAVY;
     /* appended (2026-09-09): chat input open → `…` speech bubble on remotes (valid in the hub too). */
     if (this.typing) f |= PlayerFlags.TYPING;
+    /* appended (2026-09-11): 사다리에 매달림 → 원격이 오르기 자세를 그리고 `p` 가 수직으로 움직인다. */
+    if (!inHub && typeof p.climbingLadder === 'string' && p.climbingLadder.length > 0) f |= PlayerFlags.CLIMBING;
     if (rs && !inHub) {
       if (rs.throwing) f |= PlayerFlags.THROWING;
       if (rs.cooking) f |= PlayerFlags.COOKING;

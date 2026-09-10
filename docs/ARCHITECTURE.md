@@ -38,6 +38,14 @@ GameFlowSystem → TutorialSystem → ConsoleSystem
 > `world:ready` 는 뒤에 등록된 시스템들의 `game:newMission` 핸들러보다 **먼저** 발생한다.
 > 그래서 `world:ready` 에서 무조건 `reset()` 하면 안 된다 — `ctx.world.seed` 를 확인한다.
 
+> **셰이더 hold (2026-09-10)**: `world:ready` 가 나면 `core/Engine` 이 `ctx.shaders.holdForScene()` 을 건다. 그 순간부터
+> `holding` 이고, 같은 프레임의 나머지 `game:newMission` 핸들러(허브 철거 · 헬포드 · 탈출 콘솔 …)가 다 돈 뒤
+> **그리기 직전에** 씬 전체를 컴파일한 다음, 드라이버가 끝낼 때까지 **시뮬레이션 dt 가 0 이고 그리지 않는다**
+> (`game:paused {freeze}` 와 같은 방식 — 시스템은 dt 0 으로 계속 돌고 네트워크 메시지도 처리한다). 그래서 hold
+> 동안 `ctx.missionTime` 은 멈추고 `ctx.time` 은 흐른다. 함선 진입 · 도킹 컷씬 시작 · 공유 함선 도착 · 격납고
+> 드나들기도 같은 hold 를 건다 (`hub/parts/Transitions`). 씬의 점광원 개수는 `core/LightBudget` 이 세션 내내
+> 고정한다 — 광원을 더하는 코드는 CLAUDE.md 의 광원 규칙을 먼저 읽는다.
+
 ## 2. 게임 루프 (플레이어 관점, 목표)
 
 게임 시작 → 개인 함선 → 컴퓨터(기업 접촉 · 계약 · 퀘스트) → 공유 함선 호출(큐) → 매칭 → 목표 행성 설정 →
@@ -64,7 +72,7 @@ GameFlowSystem → TutorialSystem → ConsoleSystem
 - `ctx.isControlActive()` — 이동 · 자세 · 상호작용 · 카메라의 게이트 (게임플레이 **또는** `hub` 페이즈, blocker 없음).
 
 **UI blocker 토큰**: `menu` · `inventory` · `map` · `chat` · `hub`(터미널) · `ready`(발사 준비 패널 —
-허브의 하차 경로는 이 토큰 하나만 무시한다) · `cursor`(Alt 커서) · `housing` · `shipmanage` ·
+허브의 하차 경로는 이 토큰 하나만 무시한다) · ~~`cursor`(Alt 커서 — 2026-09-10 제거, 쓰는 곳 없음)~~ · `housing` · `shipmanage` ·
 `COMMUNITY_BLOCKER` · `RESUME_GATE_BLOCKER`.
 
 ### 커서 = 포인터 락 해제 (2026-09-07 rework)

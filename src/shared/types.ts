@@ -2015,3 +2015,75 @@ export interface EnemyManagerRef {
    */
   getEnemyGrenades(): readonly GrenadeView[];
 }
+
+/* ══ appended (2026-09-11): 볼록 콜라이더 · 경사 발판 · 깨지는 창 · 사다리 ═══════════════════════════════
+ * 계약은 **추가만** 한다. 소유 폴더는 각 절의 머리에 적었다.
+ * ────────────────────────────────────────────────────────────────────────────────────────────────────────────── */
+
+/* ── 볼록 다각형 기둥 (owner: world) ─────────────────────────────────────────────────────────────────── */
+/** 볼록 콜라이더의 한 층 — `[y0, y1]` 높이 사이에서 보이는 메시의 볼록 윤곽 (월드 XZ, 반시계). */
+export interface ObstacleHullBand {
+  y0: number;
+  y1: number;
+  /** `[x0, z0, x1, z1, …]` 월드 좌표, 반시계(위에서 내려다본 +X → +Z 회전 방향). */
+  points: Float32Array;
+}
+
+/**
+ * **볼록 다각형 기둥.** 주면 `radius` 원 대신 이 윤곽으로 밀어내고 발판을 판정한다 — 바위 · 크리스탈 · 첨탑처럼
+ * 원 하나로는 어떤 방향은 파고들고 어떤 방향은 앞에서 막히는 소품을 위해 2026-09-11 에 추가했다.
+ * `box` 와 같은 규약으로 `radius` 는 **여전히 채워 둔다** (`position` 에서 가장 먼 꼭짓점까지 = 외접원):
+ * `SpatialHash` 버킷팅과 광역 질의가 그 원을 쓴다.
+ */
+export interface ObstacleHull {
+  /** 이동 · 발판용 윤곽 (`[x0, z0, …]`, 월드 좌표, 반시계). 높이는 `position.y .. position.y + height`. */
+  points: Float32Array;
+  /** 총알 · 시야용 층. 없으면 `points` 를 전체 높이에 쓴다. 층은 아래에서 위로 정렬돼 있다. */
+  bands?: readonly ObstacleHullBand[];
+}
+
+export interface Obstacle {
+  /** 볼록 다각형 기둥 (2026-09-11). `box` 와 함께 쓰지 않는다. */
+  hull?: ObstacleHull;
+  /**
+   * **경사 발판** (2026-09-11) — `box` 와 함께만 쓴다. 윗면이 상자의 로컬 +X 방향으로 올라가는 경사면이다:
+   * 로컬 `x = -halfX` 에서 `position.y + height - rise`, `x = +halfX` 에서 `position.y + height`.
+   * 계단은 **보이는 것은 계단, 밟는 것은 이 경사면**이라 한 단씩 튀지 않고 스르륵 오르내린다.
+   */
+  ramp?: { rise: number };
+  /**
+   * 한 방에 깨지는 판 (창문 유리, 2026-09-11). 맞힌 쪽(총알 · 투척물)이 `destructible.onDamage` 를 부르고,
+   * 깨지면 소유자가 hash 에서 뺀다. 이동은 막지만 **투척물은 이 판에서 튕기지 않고 깨고 지나간다.**
+   */
+  fragile?: boolean;
+}
+
+/* ── 사다리 (owner: world/Structures — 매달리는 쪽: player) ─────────────────────────────────────────────── */
+/**
+ * 들어갈 수 있는 건물의 사다리 한 줄. 좌표는 전부 월드이고 시드 결정적이다.
+ * 매달린 몸은 `base` 의 XZ 에 고정되고 `base.y .. topY` 사이를 오르내린다.
+ */
+export interface LadderDef {
+  /** `ladder_<structureId>_<n>`. */
+  id: string;
+  /** 사다리에 매달린 **몸 중심**의 XZ, y = 아래 바닥 높이 (발치). */
+  base: THREE.Vector3;
+  /** 꼭대기에 올라서는 바닥의 높이 (옥상 윗면). */
+  topY: number;
+  /** 사다리 면에서 **매달린 사람 쪽**으로 향하는 수평 단위 벡터. 매달리면 `-normal` 을 바라본다. */
+  normal: THREE.Vector3;
+  /** 꼭대기에서 올라선 뒤 서는 자리 (y = `topY`). 사다리 위쪽 너머(`-normal` 방향) 바닥이다. */
+  exit: THREE.Vector3;
+}
+
+export interface WorldRef {
+  /* ── appended (2026-09-11) ── */
+  /** 이번 맵의 사다리 전부 (훈련장 · 구조물이 없으면 빈 배열). */
+  getLadders(): readonly LadderDef[];
+}
+
+export interface PlayerRef {
+  /* ── appended (2026-09-11): 사다리 (owner: player) ── */
+  /** 지금 매달려 있는 사다리 id. 매달려 있지 않으면 null (없으면 null 과 같다). */
+  readonly climbingLadder?: string | null;
+}

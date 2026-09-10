@@ -693,6 +693,15 @@ Data-driven off the frozen contract (`ItemCategory 'implant'`, `ItemDef.implant`
 
 ## 변경 이력
 
+- **2026-09-10 (달리는 전차 안의 컨테이너가 곧바로 닫히던 것)** — `Container.position` 은 연 순간의 **복사본**이라,
+  전차 객실 컨테이너(`world/structures/parts/Containers` 의 `dynamic` 스펙)는 창을 연 지 약 0.4초 만에 자동 닫힘
+  거리(`AUTO_CLOSE_DISTANCE` 6 m)를 넘었고 감정(`SEARCH_MAX_DISTANCE`)도 "사거리 밖" 으로 멈췄다 — 플레이어와
+  컨테이너가 함께 달리는데 둘 사이 거리를 달리기 전 자리에서 쟀기 때문이다 (헤드리스 프로브로 재현).
+  이제 `ContainerStore.getOrCreate*` 가 여는 쪽이 넘긴 **살아 있는 객체**를 `Container.anchor` 에 들고,
+  두 거리 판정이 `livePosition`(= `anchor ?? position`)을 본다. 여는 쪽(상자 def · 컨테이너 spec · 적 시체 ·
+  플레이어 시체 · 보급 상자)은 전부 수명이 긴 객체를 넘긴다 — **스크래치 벡터를 넘기면 안 된다.**
+  멈춰 있는 상자에서는 두 값이 같아 동작이 바뀌지 않는다.
+
 - **2026-09-10 (제작 대개편 2단계 — 내구도 연동 분해 · 수리, 정제 작업대 탭)** — 1단계(`data/` · `src/items` ·
   `LootRef` 계약) 위에 인벤토리를 맞췄다. 새 파일은 없고 전부 기존 `parts/` · `ui/` 안이다.
 

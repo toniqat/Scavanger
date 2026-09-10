@@ -1,10 +1,12 @@
 # src/core — Engine, atmosphere, shared FX pools
 
-Owner: `Engine`. Publishes `ctx.scene / ctx.camera / ctx.renderer` (via `GameContext`) and runs the main loop.
+Owner: `Engine`. Publishes `ctx.scene / ctx.camera / ctx.renderer` (via `GameContext`) and, since 2026-09-10, `ctx.shaders` (`ShaderWarmup`, set in the constructor — before any system `init`), and runs the main loop.
 
 | File | Purpose |
 |---|---|
-| `Engine.ts` | `Engine(canvas, uiRoot)`: WebGLRenderer (sRGB, ACES, PCFSoft shadows, pixelRatio ≤ 1.5), Scene, PerspectiveCamera(70), `GameContext`, input binding. `addSystem()`, `start()` (calls `init` on all systems, then rAF loop). Frame: dt clamp ≤ 0.05 → `ctx.time`, `ctx.missionTime` (gameplay phase & not paused) → `update` → `lateUpdate` → FX pools → atmosphere → render → `input.endFrame()`. While `game:paused` systems still run but with **dt = 0** — unless the event carries `freeze: false` (multiplayer pause menu), in which case dt keeps flowing. Post chain: RenderPass → UnrealBloomPass(0.35 / 0.45 / 0.85, half-res) → OutputPass; `setPostProcessing(false)` falls back to plain render, and a perf guard disables bloom automatically after sustained slow frames in the first 90 s. Listens `world:ready` → picks a palette from the seed, `game:abort` → clears FX. |
+| `Engine.ts` | `Engine(canvas, uiRoot)`: WebGLRenderer (sRGB, ACES, PCFSoft shadows, pixelRatio ≤ 1.5), Scene, PerspectiveCamera(70), `GameContext`, input binding. `addSystem()`, `start()` (calls `init` on all systems, then rAF loop). Frame: dt clamp ≤ 0.05 → `ctx.time`, `ctx.missionTime` (gameplay phase & not paused) → `update` → `lateUpdate` → FX pools → atmosphere → `shaders.update()` → `shaders.beforeRender()` (light budget + a queued whole-scene warm-up) → render (**skipped while `shaders.holding`**, and sim dt is 0 exactly like a freeze pause) → `input.endFrame()`. While `game:paused` systems still run but with **dt = 0** — unless the event carries `freeze: false` (multiplayer pause menu), in which case dt keeps flowing. Post chain: RenderPass → UnrealBloomPass(0.35 / 0.45 / 0.85, half-res) → OutputPass; `setPostProcessing(false)` falls back to plain render, and a perf guard disables bloom automatically after sustained slow frames in the first 90 s. Listens `world:ready` → picks a palette from the seed + `shaders.holdForScene()` (2026-09-10), `game:abort` → clears FX. |
+| `LightBudget.ts` | **점광원 개수 고정** (2026-09-10). `SCENE_POINT_LIGHT_BUDGET` 개의 intensity 0 · 검정 · 도달거리 1 mm 여분 광원(`LightBudget` 그룹)을 들고, 매 프레임 그리기 직전에 진짜 점광원을 세서(`traverseVisible` − 켜진 여분) 모자란 만큼만 여분의 `visible` 을 켠다 — 셰이더 프로그램 키의 `numPointLights` 가 세션 내내 같다. 진짜 광원이 예산을 넘으면 그 값마다 한 번 경고. `contentCount()` · `padsShown` · `countVisiblePointLights(root)`. 디버그: `__game.lights`. **2026-09-11**: 예산 23 → **25** (레이드 = 상주 15 + 패드 3 + 콘솔 3 + 구조물 풀 4). |
+| `ShaderWarmup.ts` | **`ctx.shaders`** (계약 `shared/render`, 2026-09-10). `warm(root, replaces?)` = 컴포저의 렌더 타깃을 잠깐 바인딩하고, `root` 가 들어오고 `replaces` 가 빠진 뒤의 점광원 개수로 여분을 맞춘 채 `renderer.compile` (씬 밖 오브젝트는 `compile(root, cam, scene)`, 씬 안이면 씬 전체) → 모은 머티리얼의 `currentProgram.isReady()` 를 **Engine 프레임마다** 확인해 resolve (폐기된 머티리얼 = 준비됨 — `compileAsync` 의 `setTimeout` 폴링이 거기서 던졌다, `SHADER_WARMUP_TIMEOUT_S` 넘으면 false). `holdForScene()` = 호출한 순간부터 `holding`, 이번 프레임 끝(`beforeRender`)에 씬 전체를 컴파일하고 끝날 때까지 hold. `hold(promise)`. 디버그: `__game.shaders` (`pendingJobs`). |
 | `Atmosphere.ts` | Directional sun with 2048 shadow map, ±60 m ortho frustum that follows `ctx.player.position` (snapped to a 2 m grid to avoid shimmer), hemisphere fill (intensity 1.35 so shadowed ground/characters stay readable), `FogExp2` (~250 m visibility), sky dome. `applySeed(seed)` picks one of `SKY_PALETTES`. `setSpaceMode(on)` (ship hub): hides the sky dome, black background, fog 0, cool dim key/hemi; `applySeed` restores. Exposed as `scene.userData.atmosphere` so `hub/` can call it without importing `core/`. |
 | `Sky.ts` | Gradient sky dome ShaderMaterial (zenith/horizon/ground, horizon haze, sun disc + glow, faint stars where dark). Follows the camera. `SKY_PALETTES`: amber-dusk, cold-blue, toxic-green, rust-storm, pale-noon (colours, fog density, sun direction, exposure). |
 | `util/MathUtil.ts` | `damp/dampVec3/dampAngle`, `smoothDamp` (critically damped spring), easings, `noise1`, `randomInCone`. |
@@ -54,3 +56,12 @@ Notes
   인 **맑은 행성**(카민 I)뿐인데, 거기는 `baseDensity` 가 0 이라 무엇을 곱해도 0 이었고 그 행성의 모래 폭풍 안에서
   시야가 전혀 좁아지지 않았다. 배경색도 같은 `t` 로 `baseBg → fog.color` 를 넘어가므로 맑은 행성의 horizon 배경이
   `t=0` 에서 그대로 지켜진다 (포그 있는 행성은 `baseBg === baseColor` 라 예전과 동일).
+
+- **2026-09-10 (점광원 예산 · 셰이더 선컴파일)** — `LightBudget` · `ShaderWarmup` 신규. `Engine` 이 `ctx.shaders` 를
+  게시하고, 프레임마다 `shaders.update()` → `shaders.beforeRender()` 뒤 `holding` 이면 그리지 않는다(시뮬레이션 dt 0,
+  `ctx.time` 은 흐른다). `world:ready` 에 `holdForScene()`. 멀티 도킹 · 강하에서 3초씩 멈추던 렉이 셰이더
+  컴파일이었고, 그 절반은 장면마다 점광원 개수가 달라(함선 27 · 컷씬 15 · 공유 함선 29 · 행성 20) 이미 컴파일한
+  프로그램을 못 쓴 탓이었다. 이제 개수는 세션 내내 23 이고 새 장면은 컴파일이 끝난 뒤에 그린다.
+  ⚠ 위 `setShadows` 절의 "recompiles nothing" 은 **틀렸다** — 프로그램 키의 `shadowMapEnabled` 가 그림자를
+  드리우는 광원 수를 보므로 해의 `castShadow` 를 끄면 lit 머티리얼이 한 번 전부 다시 컴파일된다. 자동 블룸 끄기
+  (`perfGuard`)도 렌더 타깃이 캔버스로 바뀌어 같은 일이 난다 (TODO C-44).

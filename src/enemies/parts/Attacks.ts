@@ -175,6 +175,8 @@ export function fireGun(sys: EnemySystem, e: Enemy, target: CombatTarget, aimErr
     foe.takeDamage(dmg, _to, _dir, 'ai');
     sys.noteClash(_to);
   }
+  // 2026-09-11: 로그의 총알도 창문 유리를 깬다 (몸 · 배리어에 막히지 않고 유리가 첫 표면일 때)
+  if (wh && !victim && !foe && !barrier && wh.obstacle?.fragile) wh.obstacle.destructible?.onDamage(dmg, wh.point);
   if (wh && !victim && !foe && !barrier) {
     const fx = FxManager.get();
     if (fx) ParticleBurst.dust(fx.alpha, wh.point, wh.normal, 4, 0.5);

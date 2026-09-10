@@ -226,8 +226,12 @@ export class WeaponSystem implements GameSystem {
     this.grenades.update(dt);
     this.projectiles.update(dt);
     this.remote.update(dt);
-    // one frame after the drop scene rendered: compile shaders for the pooled/hidden FX meshes (async when possible)
-    if (this.warmupFrames > 0 && --this.warmupFrames === 0) this.fx.warmUp(ctx.renderer, ctx.scene, ctx.camera);
+    // Two frames into the drop: compile shaders for the pooled/hidden FX meshes — **only without `ctx.shaders`**.
+    // 2026-09-10: core already compiles the whole scene (hidden meshes included) on `world:ready` and holds the frame
+    // until the driver is done, against the composer's render target. This `renderer.compile` ran with no target bound
+    // (the canvas: sRGB + ACES), so it compiled variants the game never draws — and its traversal alone cost ~170 ms
+    // in the middle of the drop.
+    if (this.warmupFrames > 0 && --this.warmupFrames === 0 && !ctx.shaders) this.fx.warmUp(ctx.renderer, ctx.scene, ctx.camera);
 
     // Phase 12: the 스프레이 ticker never outlives its channel — every end path funnels through `stopSpray`, and this
     // is the backstop for any that clears the hold flags directly (`active:false` must always be the last event).

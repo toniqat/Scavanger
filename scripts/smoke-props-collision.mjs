@@ -11,6 +11,12 @@
 //   2. 장애물 하나하나를 그 자리에 그려진 인스턴스와 1:1 로 맞춰(인스턴스 행렬의 이동 성분),
 //      정점을 전부 훑어 **실측 최대 반지름 · 실측 윗면**과 콜라이더를 비교
 //   3. 손으로 적어 둔 콜라이더(탈출 패드 조명 기둥 · 아웃포스트 안테나)가 그려진 굵기 안인가
+//   4. (2026-09-10) 바위 · 첨탑 콜라이더가 **땅 위로 보이는** 바위보다 앞에서 막지 않는가 — 2번은 땅에 묻힌
+//      정점까지 "그려진 것" 으로 세서 폭풍 안개 속 보이지 않는 벽을 못 잡았다. 내려 쏘는 레이로 잰다.
+//      ⚠ 바위 · 첨탑 콜라이더의 중심은 이제 인스턴스 원점이 아니라 **보이는 윤곽의 중심**이다 (`Props.footprintOf`).
+//      경사지에서 몇 m 옮겨진 바위는 2번의 XZ 이동 성분 매칭에서 빠지고, 그 바위들은 4번이 본다.
+//   5. (2026-09-11) 바위 · 첨탑 · 크리스탈 · 잔해는 **볼록 윤곽**(`Obstacle.hull`)이다 — 4번은 방위마다 윤곽까지의
+//      거리로 재고, 윤곽이 보이는 가장자리보다 안쪽으로 **파고들지도** 않는지(p10) 함께 본다.
 //
 // Usage: node scripts/smoke-props-collision.mjs [http://localhost:5273]
 import puppeteer from 'puppeteer-core';
@@ -116,6 +122,9 @@ try {
       // 장애물을 XZ 0.05 m 격자로 색인해 인스턴스 행렬의 이동 성분과 맞춘다 (place() 가 쓴 바로 그 x,z).
       const idx = new Map();
       for (const o of obs) {
+        // 사각 콜라이더(구조물 벽 · 문 · 유리 · 선로)는 smoke-structures 가 본다 — 인스턴스 원점과 XZ 가 우연히
+        // 겹치는 문짝 · 유리 메시를 벽 조각과 짝지으면 엉뚱한 비교가 된다 (2026-09-11)
+        if (o.box) continue;
         const k = `${Math.round(o.position.x * 20)}_${Math.round(o.position.z * 20)}`;
         let a = idx.get(k); if (!a) { a = []; idx.set(k, a); }
         a.push(o);
@@ -144,13 +153,47 @@ try {
           if (v.y > st.topY) st.topY = v.y;
         }
       };
+      /* 2026-09-10: 바위 · 첨탑 콜라이더는 **보이는 윤곽의 중심**에 선다 (`Props.footprintOf`) — 인스턴스 원점과
+         XZ 가 몇 cm ~ 몇 m 어긋나므로 위의 0.08 m 매칭에 걸리지 않는다. 그 인스턴스는 4 m 안의 **아직 짝이 없는**
+         가장 가까운 `rock` 장애물과 맺는다 (산포가 `isSpotFree` 로 바위끼리 떨어뜨려 두므로 이웃과 헷갈릴 일이 적다). */
+      const claimed = new Set();
+      const inHull = (o, x, z) => {
+        const p = o.hull.points, m = p.length / 2;
+        for (let i = 0; i < m; i++) {
+          const j = (i + 1) % m, ax = p[i * 2], az = p[i * 2 + 1], dx = p[j * 2] - ax, dz = p[j * 2 + 1] - az;
+          if ((x - ax) * dz - (z - az) * dx > 1e-3 * Math.hypot(dx, dz)) return false;
+        }
+        return true;
+      };
+      const nearHull = (x, z) => {
+        const out = [];
+        ctx.world.hash.query(x, z, 0, out);
+        for (const o of out) if (o.hull && (o.kind === 'crystal' || o.kind === 'debris') && !claimed.has(o) && inHull(o, x, z)) return o;
+        return null;
+      };
+      const nearRock = (x, z) => {
+        const out = [];
+        ctx.world.hash.query(x, z, 4, out);
+        let best = null, bestD = Infinity;
+        for (const o of out) {
+          if (o.kind !== 'rock' || claimed.has(o)) continue;
+          const d = Math.hypot(o.position.x - x, o.position.z - z);
+          if (d < bestD && d < 4) { bestD = d; best = o; }
+        }
+        return best;
+      };
       ctx.scene.traverse((n) => {
         if (n.isInstancedMesh) {
           n.updateWorldMatrix(true, false);
+          const rocky = /prop_(boulder|spire)/.test(n.name || '');
+          const hully = /prop_(crystal|debris)/.test(n.name || '');
           for (let i = 0; i < n.count; i++) {
             n.getMatrixAt(i, m);
             m.premultiply(n.matrixWorld);
-            const hit = match(m.elements[12], m.elements[14]);
+            let hit = match(m.elements[12], m.elements[14]);
+            if (!hit && rocky) hit = nearRock(m.elements[12], m.elements[14]);
+            if (!hit && hully) hit = nearHull(m.elements[12], m.elements[14]);
+            if (hit && (rocky || hully)) claimed.add(hit);
             if (hit) measure(n.geometry, m, hit, n.name);
           }
         } else if (n.isMesh) {
@@ -189,6 +232,71 @@ try {
     ok(r.maxPole <= 0.75, `extraction pad poles stay at their drawn footprint (max r ${r.maxPole.toFixed(2)})`);
     ok(r.tallWall <= 0.3, `the antenna mast is as thin as it draws above its base (max r ${r.tallWall.toFixed(2)} for height > 6 m)`);
     ok(r.maxWall <= 0.75, `outpost walls / pillars stay near their drawn thickness (max r ${r.maxWall.toFixed(2)})`);
+
+    /* 2026-09-10 — **땅 위로 보이는 바위보다 앞에서 막지 않는가.** 위 검사는 정점 전부(땅에 묻힌 적도 포함)와
+       비교하므로 "메시 전체의 바운딩 박스" 콜라이더를 통과시켰다 — 그런데 행성마다 바위의 절반이 보이는 바위보다
+       0.5 m 이상 앞에서 막았다(폭풍 안개 속 보이지 않는 벽). 그래서 **보이는 것**으로 잰다: 바위 콜라이더마다
+       16 방위로 테두리에서 안쪽으로 내려 쏘는 레이를 걸어, 지형 위로 올라온 바위 표면을 처음 맞힌 반지름과
+       콜라이더 반지름의 차이(방위 평균)를 본다. */
+    const fp = await page.evaluate(async () => {
+      const THREE = await import('/node_modules/.vite/deps/three.js');
+      const world = window.__game.getSystem('world');
+      const meshes = [];
+      world.root.traverse((o) => { if (o.isInstancedMesh && /prop_(boulder|spire)/.test(o.name || '')) meshes.push(o); });
+      const rocks = world.hash.getAll().filter((o) => o.kind === 'rock' && Math.abs(o.position.x) < 300 && Math.abs(o.position.z) < 300);
+      const ray = new THREE.Raycaster(); ray.far = 400;
+      const from = new THREE.Vector3(), down = new THREE.Vector3(0, -1, 0);
+      /* 2026-09-11: 콜라이더가 볼록 윤곽이면 방위마다 **윤곽까지의 거리**가 콜라이더 반지름이다 (윤곽의 무게중심에서). */
+      const extent = (o, cx, cz, ux, uz) => {
+        if (!o.hull) return o.radius;
+        const p = o.hull.points, mm = p.length / 2;
+        let best = 0;
+        for (let i = 0; i < mm; i++) {
+          const j = (i + 1) % mm, ax = p[i * 2] - cx, az = p[i * 2 + 1] - cz, bx = p[j * 2] - cx, bz = p[j * 2 + 1] - cz;
+          const ex = bx - ax, ez = bz - az, den = ux * ez - uz * ex;
+          if (Math.abs(den) < 1e-9) continue;
+          const t = (ax * ez - az * ex) / den, s = (ax * uz - az * ux) / den;
+          if (t > best && s >= -1e-6 && s <= 1 + 1e-6) best = t;
+        }
+        return best;
+      };
+      const margins = [], inner = [];
+      let worst = null;
+      for (const rk of rocks) {
+        let cx = rk.position.x, cz = rk.position.z;
+        if (rk.hull) { const p = rk.hull.points; cx = 0; cz = 0; for (let i = 0; i < p.length; i += 2) { cx += p[i]; cz += p[i + 1]; } cx /= p.length / 2; cz /= p.length / 2; }
+        let sum = 0, sumIn = 0;
+        for (let b = 0; b < 16; b++) {
+          const a = (b / 16) * Math.PI * 2, ux = Math.cos(a), uz = Math.sin(a);
+          const colR = extent(rk, cx, cz, ux, uz);
+          let visR = 0;
+          for (let rr = colR + 0.6; rr > 0.05; rr -= 0.1) {
+            const x = cx + ux * rr, z = cz + uz * rr;
+            ray.set(from.set(x, rk.position.y + rk.height + 5, z), down);
+            const hit = ray.intersectObjects(meshes, false)[0];
+            if (hit && hit.point.y > world.getHeightAt(x, z) + 0.05) { visR = rr; break; }
+          }
+          sum += Math.max(0, colR - visR);
+          sumIn += Math.max(0, visR - colR);
+        }
+        const m = sum / 16;
+        margins.push(m);
+        inner.push(sumIn / 16);
+        if (!worst || m > worst.m) worst = { m: +m.toFixed(2), hull: !!rk.hull, h: +rk.height.toFixed(2), x: +rk.position.x.toFixed(1), z: +rk.position.z.toFixed(1) };
+      }
+      margins.sort((a, b) => a - b);
+      inner.sort((a, b) => a - b);
+      return {
+        n: margins.length, hulls: rocks.filter((o) => o.hull).length,
+        p90: margins[Math.floor(margins.length * 0.9)] ?? 0, over1: margins.filter((m) => m > 1).length, worst,
+        innerP90: inner[Math.floor(inner.length * 0.9)] ?? 0,
+      };
+    });
+    ok(fp.n > 50, `${fp.n} rock colliders probed against the visible rock`);
+    ok(fp.hulls === fp.n, `every rock collider is a convex hull (${fp.hulls}/${fp.n})`);
+    ok(fp.innerP90 <= 0.35, `rock hulls do not sit inside the visible rock either (p90 of the mean undershoot ${fp.innerP90.toFixed(2)} m ≤ 0.35)`);
+    ok(fp.p90 <= 0.35, `rock colliders reach no further than the rock you can see (p90 of the mean overshoot ${fp.p90.toFixed(2)} m ≤ 0.35)`, JSON.stringify(fp.worst));
+    ok(fp.over1 === 0, `no rock blocks more than 1 m in front of its visible edge on average (${fp.over1})`, JSON.stringify(fp.worst));
   }
 
   ok(errors.length === 0, 'no console errors', errors.slice(0, 3).join(' | '));

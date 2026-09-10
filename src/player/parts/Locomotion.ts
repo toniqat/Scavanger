@@ -11,7 +11,7 @@ import {
   GameContext, Keys, MouseButtons, PLAYER_MAX_HP, PLAYER_MAX_STAMINA, PLAYER_RADIUS, PLAYER_WALK_SPEED,
   PLAYER_DOWN_HP, PLAYER_DOWN_BLEED_PER_SEC, PLAYER_DOWN_SPEED_MUL, PLAYER_REVIVE_HP, PLAYER_GIVE_UP_HOLD,
   ARMOR_DURABILITY_PER_DAMAGE, CLOAK_BREAK_TIME, CLOAK_DETECT_MUL, CLOAK_REVEAL_DISTANCE, MELEE_COOLDOWN, MELEE_STAMINA_COST,
-  ROLL_COOLDOWN, ROLL_DAMAGE_MUL, ROLL_DURATION, ROLL_STAMINA_COST, SLASH_DURATION,
+  ROLL_COOLDOWN, ROLL_DAMAGE_MUL, ROLL_DURATION, ROLL_STAMINA_COST, SLASH_DURATION, LADDER_SPRINT_DRAIN,
   type GameSystem, type PlayerRef, type PlayerWeaponHost, type Interactable, type Stance, type InteriorCollider,
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
@@ -179,14 +179,16 @@ export function updateStamina(sys: PlayerSystem, dt: number): void {
     if (sys.stamina <= 0) { sys.onStaminaDepleted(); sys.setHovering(false); }
     return;
   }
-  if (c.sprinting && !sys.isDead) {
-    sys.stamina -= STAMINA_SPRINT_DRAIN * dt;
+  // 2026-09-11: 사다리를 빠르게 오르내리는 동안은 달리기와 같은 자리에서 `LADDER_SPRINT_DRAIN` 을 쓴다 (회복도 막는다)
+  const drain = c.climbFast ? LADDER_SPRINT_DRAIN : c.sprinting ? STAMINA_SPRINT_DRAIN : 0;
+  if (drain > 0 && !sys.isDead) {
+    sys.stamina -= drain * dt;
     sys.regenDelay = STAMINA_REGEN_DELAY;
     if (sys.stamina <= 0) { sys.stamina = 0; sys.onStaminaDepleted(); }
   } else if (sys.regenDelay > 0) {
     sys.regenDelay -= dt;
   } else if (sys.stamina < max) {
-    let rate = c.speed < 0.3 && !c.rolling ? STAMINA_REGEN_IDLE : STAMINA_REGEN_MOVING;
+    let rate = c.speed < 0.3 && !c.rolling && c.climbSpeed < 0.3 ? STAMINA_REGEN_IDLE : STAMINA_REGEN_MOVING;
     rate *= sys.ctx.progression?.derived.staminaRegenMul ?? 1;
     rate *= sys.gear.weight.staminaRegenMul;
     rate *= 1 + sys.gear.ultralightBonus;
@@ -199,6 +201,7 @@ export function updateStamina(sys: PlayerSystem, dt: number): void {
 export function canAct(sys: PlayerSystem): boolean {
   return sys.spawned && sys.controlsEnabled && !sys.isDead && !sys._downed && !sys._inPod
     && sys.carriedSocket === null
+    && !sys.controller.climbing   // 2026-09-11: 사다리에 매달린 손으로는 구르기 · 근접 · 들쳐메기가 없다
     && sys.ctx.isControlActive()
     && !(sys.hellpod.isActive && sys.hellpod.state !== 'exiting');
   }

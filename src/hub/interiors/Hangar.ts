@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { NET_MAX_PLAYERS, NET_SLOT_COLORS } from '@/shared';
 import { GeoBatch, HUB_MATS as M, disposeMeshes, yawFromForward } from './GeoBatch';
 import type { BoxInteriorCollider } from './InteriorCollider';
-import { Parts, fixture } from './parts';
+import { Parts } from './parts';
+import type { LightFixture } from './LightPool';
 import { buildPersonalExterior, type ExteriorModel } from './ExteriorShips';
 import { TextPlane } from '../Labels';
 
@@ -77,7 +78,11 @@ export class Hangar {
   readonly minZ: number;
   readonly maxZ: number;
 
-  private lights: THREE.PointLight[] = [];
+  /**
+   * 2026-09-10: the hangar's light **fixtures** — no `PointLight` of its own any more. `SharedShip` hands them to its
+   * `LightPool` together with the deck's, so the nearest `HUB_POINT_LIGHTS` of the fifteen are lit.
+   */
+  readonly lightFixtures: LightFixture[] = [];
   private signs: TextPlane[] = [];
   /** Parked ship models by slot (null = empty bay). Driven by `setOccupants`. */
   private parked: (ExteriorModel | null)[] = new Array(NET_MAX_PLAYERS).fill(null);
@@ -226,16 +231,17 @@ export class Hangar {
     for (let i = 0; i < 9; i++) b.box(0.5, 0.03, 0.12, -16 + i * 4, 0.015, minZ + 6.2, M.stripAmber);
 
     /*
-     * ── lights (9, constant) ──
+     * ── light fixtures (9) ──
      * Hung off the gantries at 5.6 m, **not** under the 9 m ceiling: `PointLight` decays with the square of the
      * distance, so the first pass (6 lamps at 8.2 m, intensity 90) put roughly a third of the ship deck's
      * illuminance on a deck 3.6× its area and the whole hangar read as a black void with glowing strips. At 5.6 m
      * an intensity of 130 lands at ≈ 4 — a working-bay brightness that still falls off between the rows.
+     * 2026-09-10: fixtures only — the ship's `LightPool` hangs its lights on the nearest of these.
      */
     for (const z of [minZ + 5, minZ + 20]) {
-      for (const x of [-15, -5, 5, 15]) fixture(this.root, x, 5.6, z, 0xdfe9ff, 130, 30, this.lights);
+      for (const x of [-15, -5, 5, 15]) this.lightFixtures.push({ x, y: 5.6, z, color: 0xdfe9ff, intensity: 130, distance: 30 });
     }
-    fixture(this.root, 0, 4.6, maxZ - 3.0, 0xffb347, 26, 16, this.lights);
+    this.lightFixtures.push({ x: 0, y: 4.6, z: maxZ - 3.0, color: 0xffb347, intensity: 26, distance: 16 });
 
     // hazard beacons flanking the gate
     this.beaconMat = new THREE.MeshBasicMaterial({ color: 0xff8a3a, transparent: true, opacity: 0.75 });
@@ -301,8 +307,6 @@ export class Hangar {
     for (const bm of this.beacons) { bm.geometry.dispose(); bm.removeFromParent(); }
     this.beacons.length = 0;
     this.beaconMat.dispose();
-    for (const l of this.lights) l.removeFromParent();
-    this.lights.length = 0;
     this.root.removeFromParent();
   }
 }

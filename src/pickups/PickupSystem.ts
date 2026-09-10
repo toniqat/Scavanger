@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import {
+  PROP_STEP_UP_MAX,
   GRAVITY, PICKUP_LIFETIME, PICKUP_MAX,
   type GameContext, type GameSystem, type Interactable, type ItemDef, type ItemInstance, type PickupRef, type PickupsRef,
   type ItemMessage, type ItemRequest, type FlowMessage, type PickupWire, type PeerId, type Vec3Tuple, type ItemInstanceExtras,
@@ -158,10 +159,14 @@ export class PickupSystem implements GameSystem, PickupsRef {
     p.position.addScaledVector(p.vel, dt);
     world.resolveCollision(p.position, BODY_R);
     if (!world.isInsideBounds(p.position.x, p.position.z)) { p.vel.x *= -0.5; p.vel.z *= -0.5; }
-    const ground = world.getHeightAt(p.position.x, p.position.z) + rest;
+    // 2026-09-11: 바닥은 지형이 아니라 **그 자리의 표면**이다 — 건물 2층 · 옥상 · 계단에 떨어뜨린 아이템이 바닥판을
+    // 뚫고 떨어지지 않는다. 몸 윗면 조금 위까지의 윗면만 잡으므로 천장판으로 튀어 오르지 않는다.
+    const terrain = world.getHeightAt(p.position.x, p.position.z);
+    const surface = world.getSurfaceY(p.position.x, p.position.z, p.position.y - rest + 0.25 - PROP_STEP_UP_MAX);
+    const ground = surface + rest;
     if (p.position.y <= ground) {
       p.position.y = ground;
-      world.getNormalAt(p.position.x, p.position.z, _n);
+      if (surface > terrain + 0.02) _n.set(0, 1, 0); else world.getNormalAt(p.position.x, p.position.z, _n);
       const vn = p.vel.dot(_n);
       if (vn < 0) {
         p.vel.addScaledVector(_n, -vn * 1.25);   // small bounce
@@ -207,7 +212,7 @@ export class PickupSystem implements GameSystem, PickupsRef {
       p.vel.set(0, 0, 0);
       // resting spawn (sync / echo without velocity): snap onto the terrain
       const world = this.ctx.world;
-      if (world && world.ready) p.position.y = world.getHeightAt(position.x, position.z) + restHeightFor(def.category);
+      if (world && world.ready) p.position.y = world.getSurfaceY(position.x, position.z, position.y + 0.3 - PROP_STEP_UP_MAX) + restHeightFor(def.category);
       this.settle(p);
     }
     p.optimistic = optimistic;

@@ -14,7 +14,6 @@ import {
   GameContext as Ctx, Keys, PlayerFlags, PLAYER_RESPAWN_DELAY, RAID_FAILED_AUTO_RETURN_S, RAID_SAVE_INTERVAL_S,
   NET_GHOST_RESTORE_TIMEOUT_S,
 } from '@/shared';
-import { FREE_CURSOR_BLOCKER } from '@/shared';
 import { RESUME_GATE_BLOCKER } from '@/shared';
 import { ResumeGate, installDesktopRelockHook, syncDesktopCursor } from '../ResumeGate';
 import { clearSoloRaid, loadSoloRaid, saveSoloRaid, soloRaidStatus, type SoloRaidSave } from '../SoloRaid';
@@ -108,43 +107,7 @@ export function escapePause(sys: GameFlowSystem): void {
   if (sys.paused) return;
   if (!(ctx.isGameplayPhase() || inShip(sys))) return;
   if (ctx.player?.isDead ?? false) return;
-  // The Alt 커서 has no window behind it, so leaving it up under the menu would strand the player without a camera.
-  if (ctx.uiBlockers.has(FREE_CURSOR_BLOCKER)) toggleFreeCursor(sys, false);
   sys.setPaused(true);
-  }
-
-/**
- * Alt (`Keys.CURSOR`): hand the mouse over without opening anything, and take it back on the next press.
- *
- * It is a plain cursor-mode owner with its own blocker token, so gameplay input is gated exactly the way an open
- * panel gates it (no firing, no camera) and `main.ts` re-locks when it is released. Escape closes it too.
- *
- * 2026-09-07: **좌클릭도 닫는다.** This is the one cursor owner with no window behind it, so a click on the 3D
- * canvas can only mean "give me the camera back" — and a click is the real user gesture Chrome wants before it
- * grants the pointer lock, so the camera comes back at once instead of at the next keypress. A click that lands
- * on a HUD element (its own event target) is left alone.
- */
-export function toggleFreeCursor(sys: GameFlowSystem, on?: boolean): void {
-  const ctx = sys.ctx;
-  const want = on ?? !ctx.uiBlockers.has(FREE_CURSOR_BLOCKER);
-  if (want === ctx.uiBlockers.has(FREE_CURSOR_BLOCKER)) return;
-  if (want) {
-    // Only where the pointer is actually captured — never over another screen, a menu or a result phase.
-    if (ctx.uiBlockers.size > 0 || !(ctx.isGameplayPhase() || sys.inShip())) return;
-    if (ctx.player?.isDead ?? false) return;
-    ctx.uiBlockers.add(FREE_CURSOR_BLOCKER);
-    // 2026-09-09: Escape 는 이제 **카메라를 돌려준다** (일시정지 메뉴가 아니라). 뒤에 창이 없는 유일한 커서
-    // 소유자이므로 닫을 것이 이것뿐이면 그게 곧 "커서 그만" 이고, 스택이 비어 있을 때만 메뉴가 열린다.
-    ctx.escape.push(FREE_CURSOR_BLOCKER, () => toggleFreeCursor(sys, false));
-    ctx.input.setCursorMode(true, FREE_CURSOR_BLOCKER);
-    window.addEventListener('mousedown', sys.onFreeCursorClick);
-  } else {
-    window.removeEventListener('mousedown', sys.onFreeCursorClick);
-    ctx.uiBlockers.delete(FREE_CURSOR_BLOCKER);
-    ctx.escape.remove(FREE_CURSOR_BLOCKER);
-    ctx.input.setCursorMode(false, FREE_CURSOR_BLOCKER);
-  }
-  ctx.bus.emit('ui:freeCursorToggled', { active: want });
   }
 
 /* ── Mission start / rejoin ──────────────────────────────────────────── */

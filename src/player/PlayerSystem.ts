@@ -12,7 +12,8 @@ import { damp, dampAngle, smoothstep, wrapAngle } from '@/core/util/MathUtil';
 import { activeSlot, readSlotCard } from '@/shared';
 import { SOLDIER_DEFAULT_ACCENT, SoldierModel, type SoldierPose } from './SoldierModel';
 import { CameraRig, type RigInput } from './CameraRig';
-import { PlayerController, type MoveInput, type MoveResult, type ShipBounds } from './PlayerController';
+import { PlayerController, type ClimbInput, type MoveInput, type MoveResult, type ShipBounds } from './PlayerController';
+import type { LadderDef } from '@/shared';
 import { Hellpod, type HellpodEvents } from './Hellpod';
 import { PlayerGear } from './PlayerGear';
 import type { CarryEndReason, PortraitRef } from '@/shared';
@@ -20,6 +21,7 @@ import { PLAYER_CARRY_DROP_S, PLAYER_CARRY_OFFSET, PLAYER_CARRY_PICKUP_S, PLAYER
 import type { CarryHost } from './Carry';
 import { createPortraits } from './Portraits';
 
+import { LADDER_STEP_VOLUME, LADDER_STEP_VOLUME_FAST } from './model';
 import { AUTO_REVIVE_DELAY_S, BURN_TICK, CLOAK_FADE, CLOAK_PROBE_INTERVAL, DEATH_ANIM, EXHAUSTED_SLOW, EXHAUSTED_SLOW_TIME, EYE_CROUCH, EYE_PRONE, EYE_ROLL, EYE_STAND, FADE_FAR, FADE_NEAR, GIVE_UP_PROGRESS_HZ, HOVER_AUTO_FALL, HOVER_STAMINA_DRAIN, INVULN_TIME, KNOCKBACK_MIN_LIFT, MELEE_SWING_TIME, type MeleeKind, SPAWN_RING_RADIUS, SPEEDMOD_ARMOR, SPEEDMOD_WEIGHT, STAMINA_JUMP_COST, STAMINA_REGEN_DELAY, STAMINA_REGEN_IDLE, STAMINA_REGEN_MOVING, STAMINA_SPRINT_DRAIN, STAMINA_SPRINT_RECOVER, STAND_UP_TIME, STIM_DURATION, type SpeedMod, type WeaponState, _camLook, _camPos, _dir, _q, _spawn, _up, _v } from './model';
 /** 폴더 공용 어휘(상수 · 타입 · 스크래치)는 `model.ts` 가 갖는다 — 기존 import 경로를 위해 재수출한다. */
 export * from './model';
@@ -29,6 +31,7 @@ import * as Spawn from './parts/Spawn';
 import * as Stat from './parts/Statuses';
 import * as Shoulder from './parts/Shoulder';
 import * as Act from './parts/Interact';
+import * as Climb from './parts/Climb';
 
 /**
  * 로컬 캐릭터의 악센트 색 (`PlayerProfile.accent`, 캐릭터 생성창에서 고른 값) 을 숫자 hex 로.
@@ -172,6 +175,18 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   shipBounds: ShipBounds = null;
   _interior: InteriorCollider | null = null;
   _inPod = false;
+  /* ── 사다리 · 단차 보간 (2026-09-11, `parts/Climb`) ── */
+  /** Damped 0..1 blend driving `SoldierPose.climb`. */
+  climbBlend = 0;
+  /** Last `player:climbChanged.ladderId` emitted (null = on the ground). */
+  climbSent: string | null = null;
+  /** Per-frame ladder input (W/S · sprint · jump · E), filled by `Climb.readClimbInput`. */
+  readonly climbInput: ClimbInput = { z: 0, fast: false, jump: false, drop: false };
+  /**
+   * Visual-only offset of the model (and the camera pivot) from the physics position: sudden steps (low rocks, box
+   * edges, the ground snap) and the ladder grab snap are written here and decay by `STEP_SMOOTH_RATE`.
+   */
+  readonly bodyOffset = new THREE.Vector3();
 
   // interaction
   interactTarget: Interactable | null = null;
@@ -184,7 +199,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
 
   // scratch
   readonly moveInput: MoveInput = { x: 0, z: 0, sprint: false, jump: false, stance: 'stand', aiming: false };
-  private readonly moveResult: MoveResult = { footstep: false, landed: 0, jumped: false, rollEnded: false };
+  private readonly moveResult: MoveResult = { footstep: false, landed: 0, jumped: false, rollEnded: false, rung: false, climbEnded: null };
   readonly podEvents: HellpodEvents = { impact: false, opened: false, finished: false };
   private readonly pose: SoldierPose = {
     moveBlend: 0, sprint: 0, stridePhase: 0, crouch: 0, aim: 0, aimPitch: 0, torsoTwist: 0, airborne: 0,
@@ -230,6 +245,17 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   /* ── Phase 7 (docs/DECISIONS.md Phase 7) ── */
   /** true while the 용검 heavy slash pose plays (`startMelee('heavy')`); net puts MELEE_HEAVY on the wire from it. */
   get isMeleeHeavy(): boolean { return this.meleeTimer > 0 && this.meleeKind === 'heavy'; }
+  /* ── 사다리 (2026-09-11, appended contract `PlayerRef.climbingLadder`) ── */
+  /** Id of the ladder we hang on (also while mounting the top), null otherwise. net puts `CLIMBING` on the wire from it. */
+  get climbingLadder(): string | null { return this.controller.climbLadder ? this.controller.climbLadder.id : null; }
+
+  /** `ladder:grab` → hang on `ladder` (ignored while dead / downed / carrying / carried / in a pod / dropping / in an interior …). */
+  grabLadder(ladder: LadderDef, from: 'bottom' | 'top'): boolean { return Climb.grabLadder(this, ladder, from); }
+  /** Let go of the ladder for any reason (the body falls from where it hangs). Emits `player:climbChanged {null}` once. */
+  releaseLadder(): void { return Climb.releaseLadder(this); }
+  /** Reset paths: release the ladder and drop the visual step / grab offset. */
+  clearClimbState(): void { return Climb.clearClimbState(this); }
+  syncClimb(): void { return Climb.syncClimb(this); }
 
   /**
    * Rejoin: resume the body exactly as the host's ghost left it — standing at `position` facing `yaw`, no hellpod,
@@ -430,6 +456,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
    * `ctx.world` may be null. Takes precedence over `setShipInterior`. Cleared by `respawnAt` (and `hub:left`).
    */
   setInterior(collider: InteriorCollider | null): void {
+    if (collider) this.releaseLadder();
     this._interior = collider;
     this.controller.interior = collider;
     this.rigInput.interior = collider;
@@ -458,7 +485,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   setInPod(inPod: boolean): void {
     if (inPod === this._inPod) return;
     this._inPod = inPod;
-    if (inPod) { this.clearCarry('action'); this.setAiming(false); this.controller.velocity.set(0, 0, 0); this.controller.sprinting = false; }
+    if (inPod) { this.releaseLadder(); this.clearCarry('action'); this.setAiming(false); this.controller.velocity.set(0, 0, 0); this.controller.sprinting = false; }
     if (this.spawned && !this.scopeHidden) this.model.setVisible(!inPod);
   }
 
@@ -515,6 +542,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   respawnAt(position: THREE.Vector3, yaw?: number): void { return Spawn.respawnAt(this, position, yaw); }
 
   setShipInterior(bounds: ShipBounds): void {
+    if (bounds) this.releaseLadder();
     this.shipBounds = bounds;
     this.controller.shipBounds = bounds;
   }
@@ -525,6 +553,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   }
 
   attachTo(parent: THREE.Object3D | null): void {
+    if (parent) this.releaseLadder();
     const target = parent ?? this.ctx.scene;
     if (this.model.root.parent === target) { this.attachedParent = parent; return; }
     this.model.root.updateWorldMatrix(true, false);
@@ -546,6 +575,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   }
   canUseWeapons(): boolean {
     return this.spawned && this.controlsEnabled && !this.isDead && !this._downed && !this.controller.diving
+      && !this.controller.climbing   // 2026-09-11: both hands are on the ladder
       && !(this.hellpod.isActive && this.hellpod.state !== 'exiting');
   }
   setWeaponState(state: { hasWeapon: boolean; reloading: boolean; firing: boolean; twoHanded: boolean; throwing?: boolean; holdingItem?: boolean; charging?: boolean; spraying?: boolean; heavy?: boolean; altFire?: boolean; cooking?: boolean }): void {
@@ -628,6 +658,9 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     });
     // the hub tore its ship down: nothing to walk on any more (world:ready -> respawnAt clears it too)
     ctx.bus.on('hub:left', () => this.setInterior(null));
+    // 2026-09-11: 사다리 — world 의 사다리 Interactable 이 E 로 낸다. 함선에 들어가면 무조건 놓는다.
+    ctx.bus.on('ladder:grab', ({ ladder, from }) => { this.grabLadder(ladder, from); });
+    ctx.bus.on('hub:entered', () => this.clearClimbState());
     ctx.bus.on('camera:shake', ({ intensity, duration }) => this.rig.addShake(intensity, duration));
     ctx.bus.on('player:applySlow', ({ duration, factor }) => {
       // strongest slow wins; refresh the timer
@@ -664,6 +697,12 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
       this.model.root.updateWorldMatrix(true, false);
       c.position.setFromMatrixPosition(this.model.root.matrixWorld);
     }
+
+    // 2026-09-11: a body that stopped being free (dead / downed / pod / carried / attached / interior / ship box /
+    // hellpod) cannot keep hanging on a ladder — the explicit reset paths release it too, this is the backstop.
+    if (c.climbing && (!this.spawned || this.isDead || this._downed || this._inPod || this.carriedSocket !== null
+      || this.attachedParent !== null || this._interior !== null || this.shipBounds !== null
+      || (this.hellpod.isActive && this.hellpod.state !== 'exiting'))) this.releaseLadder();
 
     // movement / stances / interaction / camera run in gameplay AND hub phases (no UI blocker)
     const control = ctx.isControlActive();
@@ -724,7 +763,13 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
 
     // ── movement input
     const mi = this.moveInput;
-    if (active && !moveFrozen && downed) {
+    const climbing = c.climbing;
+    if (climbing) {
+      // 사다리 (2026-09-11): W/S · 달리기 · 점프 · E 만 (`parts/Climb.readClimbInput`). 자세 키 · 구르기 · 가방 부양 ·
+      // 조준은 없다; UI 가 열려 있거나 조작이 꺼져 있으면 그 자리에 매달려 있다.
+      mi.x = 0; mi.z = 0; mi.sprint = false; mi.jump = false; mi.aiming = false;
+      Climb.readClimbInput(this, active && !moveFrozen);
+    } else if (active && !moveFrozen && downed) {
       // downed: crawl only — no stance changes, no jump / sprint / dive; Space held = give up
       mi.x = (input.isDown(Keys.RIGHT) ? 1 : 0) - (input.isDown(Keys.LEFT) ? 1 : 0);
       mi.z = (input.isDown(Keys.FORWARD) ? 1 : 0) - (input.isDown(Keys.BACK) ? 1 : 0);
@@ -766,13 +811,23 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     }
     mi.stance = this._stance;
     const wasSprinting = c.sprinting;
-    if (!moveFrozen) {
+    const prevX = c.position.x, prevY = c.position.y, prevZ = c.position.z, prevGrounded = c.grounded;
+    if (climbing) {
+      c.updateClimb(dt, this.climbInput, this.moveResult);
+    } else if (!moveFrozen) {
       c.update(dt, mi, this.rig.yaw, ctx.world, this.moveResult);
     } else {
       this.moveResult.footstep = false; this.moveResult.landed = 0; this.moveResult.jumped = false;
-      this.moveResult.rollEnded = false;
+      this.moveResult.rollEnded = false; this.moveResult.rung = false; this.moveResult.climbEnded = null;
     }
+    // top / bottom / E / jump all end inside the controller — one `player:climbChanged {null}` from here
+    this.syncClimb();
+    // sudden steps are smoothed on the model only (the physics position has already moved)
+    Climb.updateStepSmoothing(this, dt, prevX, prevY, prevZ, prevGrounded);
     const r = this.moveResult;
+    if (r.rung) {
+      ctx.bus.emit('audio:play', { id: 'ladder_step', position: c.position, volume: c.climbFast ? LADDER_STEP_VOLUME_FAST : LADDER_STEP_VOLUME });
+    }
     if (c.sprinting !== wasSprinting) ctx.bus.emit('player:sprintChanged', { sprinting: c.sprinting });
     if (r.footstep) {
       ctx.bus.emit('player:footstep', { position: c.position, sprinting: c.sprinting });
@@ -821,7 +876,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     if (downed && !this.isDead) this.updateDowned(dt, active);
 
     // ── interaction (a downed player cannot interact; neither can one with a body on the shoulder)
-    this.updateInteraction(dt, active && !downed && !this._carrying);
+    //    2026-09-11: nor one hanging on a ladder — E belongs to the ladder (let go) while climbing
+    this.updateInteraction(dt, active && !downed && !this._carrying && !c.climbing);
 
     // ── death anim
     if (this.isDead) this.deadTimer += dt;
@@ -847,14 +903,18 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.sprayBlend = damp(this.sprayBlend, this.weaponState.spraying ? 1 : 0, 12, dt);
     this.heavyBlend = damp(this.heavyBlend, this.weaponState.heavy ? 1 : 0, 8, dt);
     this.carryBlend = damp(this.carryBlend, this._carrying ? 1 : 0, 8, dt);
+    this.climbBlend = damp(this.climbBlend, c.climbing ? 1 : 0, 12, dt);
     const eyeTarget = diving ? EYE_ROLL : this._stance === 'prone' ? EYE_PRONE : this._stance === 'crouch' ? EYE_CROUCH : EYE_STAND;
     this.eyePos.y = damp(this.eyePos.y, eyeTarget, 10, dt);
 
     // body faces aim when aiming/firing/reloading/throwing/meleeing or prone, the roll direction while rolling, else movement
     const faceCamera = this.isAiming || this.weaponState.firing || this.weaponState.reloading || this.weaponState.throwing
       || this._stance === 'prone' || this.meleeTimer > 0;
+    const ladder = c.climbLadder;
     if (!this.isDead) {
-      if (diving) this.bodyYaw = dampAngle(this.bodyYaw, Math.atan2(-c.rollDir.x, -c.rollDir.z), 20, dt);
+      // on a ladder the body faces the rungs (-normal); the camera stays free
+      if (ladder) this.bodyYaw = dampAngle(this.bodyYaw, Math.atan2(ladder.normal.x, ladder.normal.z), 18, dt);
+      else if (diving) this.bodyYaw = dampAngle(this.bodyYaw, Math.atan2(-c.rollDir.x, -c.rollDir.z), 20, dt);
       else if (faceCamera) this.bodyYaw = dampAngle(this.bodyYaw, this.rig.yaw, this._stance === 'prone' ? 7 : 18, dt);
       else if (c.speed > 0.4) this.bodyYaw = dampAngle(this.bodyYaw, Math.atan2(-c.moveDir.x, -c.moveDir.z), 12, dt);
     }
@@ -867,7 +927,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     p.aim = this.aimBlend;
     p.aimPitch = this.rig.pitch;
     p.torsoTwist = wrapAngle(this.rig.yaw - this.bodyYaw);
-    p.airborne = damp(p.airborne, c.grounded || diving ? 0 : 1, 12, dt);
+    p.airborne = damp(p.airborne, c.grounded || diving || c.climbing ? 0 : 1, 12, dt);
     p.verticalVel = c.velocity.y;
     p.flinch = this.flinch;
     p.hasWeapon = this.weaponState.hasWeapon;
@@ -886,6 +946,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     p.heavyCarry = this.heavyBlend;
     p.hover = this.hoverBlend;
     p.carry = this.carryBlend;
+    p.climb = this.climbBlend;
     p.downed = this.downedBlend;   // 2026-09-08: 전투불능 is its own backward-fall pose (SoldierModel.poseDowned)
     p.dead = this.isDead ? Math.min(1, this.deadTimer / DEATH_ANIM) : 0;
     this.model.update(dt, ctx.time, p);
@@ -901,7 +962,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
       this.attachedParent.getWorldQuaternion(_q).invert();
       root.quaternion.setFromAxisAngle(_up, this.bodyYaw).premultiply(_q);
     } else {
-      root.position.copy(c.position);
+      root.position.copy(c.position).add(this.bodyOffset);   // 2026-09-11: step / ladder-grab smoothing (visual only)
       root.quaternion.setFromAxisAngle(_up, this.bodyYaw);
     }
   }
@@ -915,7 +976,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
       this.model.root.updateWorldMatrix(true, false);
       this.controller.position.setFromMatrixPosition(this.model.root.matrixWorld);
     }
-    ri.pivot.copy(this.controller.position).add(this.eyePos);
+    // the pivot follows the smoothed body (bodyOffset), so a step never slides the soldier inside the frame
+    ri.pivot.copy(this.controller.position).add(this.eyePos).add(this.bodyOffset);
     if (this.isDead) ri.pivot.y = this.controller.position.y + 0.9;
     ri.aim = this.aimBlend;
     ri.sprint = this.sprintBlend;

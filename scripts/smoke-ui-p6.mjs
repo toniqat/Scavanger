@@ -354,7 +354,13 @@ try {
   await waitSim(0.25);
   t1 = await hudP12();
   ok(t1.scans === 1 && t1.ticks === t0.ticks + 1 && t1.scannedDom >= 1, `scan:cast → one 정찰 tick (.scanned) although the enemy is ${far.toFixed(0)} m away`, JSON.stringify(t1));
-  ok(await P(() => { const g = window.__game.ctx.scene.getObjectByName('scan-reveals'); return !!g && g.children.some((m) => m.visible); }), 'ScanReveal raised a through-wall pillar for the scan:cast target');
+  // 2026-09-11: 빛기둥은 시체에만 선다 (`ui/hud/pillar.pillarAllowed`) — 정찰로 드러난 적에게는 기둥이 없고
+  // (붉은 투시 실루엣 · 나침반 틱이 알린다), 시체 목표에는 여전히 투시 기둥이 선다.
+  ok(await P(() => { const g = window.__game.ctx.scene.getObjectByName('scan-reveals'); return !g || !g.children.some((m) => m.visible); }), 'ScanReveal raises no through-wall pillar for an enemy scan:cast target (pillars are corpse-only)');
+  await P(() => { const ctx = window.__game.ctx;
+    ctx.bus.emit('detect:reveal', { duration: 3, targets: [{ kind: 'crate', id: 'corpse:p6-probe', position: ctx.player.position.clone(), label: '시체' }] }); });
+  await waitSim(0.15);
+  ok(await P(() => { const g = window.__game.ctx.scene.getObjectByName('scan-reveals'); return !!g && g.children.some((m) => m.visible); }), 'ScanReveal raises a through-wall pillar for a corpse target');
   await waitSim(2.5);
   t1 = await hudP12();
   ok(t1.scans === 1 && t1.ticks === t0.ticks + 1, 'the reveal persists (2.5 s later, still tracked)', JSON.stringify(t1));

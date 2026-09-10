@@ -1,13 +1,14 @@
 import * as THREE from 'three';
 import type { HubShipKind } from '@/shared';
 import {
-  HOUSING_CELL_SIZE, HUB_TRAVEL_WARP_STRETCH, ROOM_GRID_COLS, ROOM_GRID_ROWS, ROOM_LIGHT_DISTANCE, ROOM_LIGHT_INTENSITY, ROOM_LIGHT_POOL,
+  HOUSING_CELL_SIZE, HUB_POINT_LIGHTS, HUB_TRAVEL_WARP_STRETCH, ROOM_GRID_COLS, ROOM_GRID_ROWS, ROOM_LIGHT_DISTANCE, ROOM_LIGHT_INTENSITY, ROOM_LIGHT_POOL,
   ROOM_STRIP_DIM, ROOM_STRIP_LIT, SHIP_ROOM_COUNT,
 } from '@/shared';
 import { GeoBatch, HUB_MATS as M, disposeMeshes, yawFromForward } from './GeoBatch';
 import { BoxInteriorCollider } from './InteriorCollider';
 import { ShipDoors } from './Doors';
-import { Parts, fixture } from './parts';
+import { Parts } from './parts';
+import { LightPool, type LightFixture } from './LightPool';
 import { Starfield, Planet } from './Starfield';
 import { ViewportWarp } from './WarpStreaks';
 import { implantBay, shipComputer, type ShipStations, type StationDef } from './stations';
@@ -18,9 +19,10 @@ import type { PodSlotDef, RoomDef, ShipInterior, TerminalDef, WarpDestination } 
 /**
  * Personal ship (함선 꾸미기, 2026-09-06): cockpit (−Z) → 3 m corridor running +Z → ten 4 × 4 m housing rooms
  * (five per side, doors on the corridor) → airlock. Every coordinate lives in `RoomLayout.ts`.
- * Static geometry is merged per material (`GeoBatch`); the point-light count is constant
- * (**13**: cockpit 4, corridor 5, airlock 1 + the `ROOM_LIGHT_POOL` room lights, which are re-anchored and
- * ramped, never toggled). Furniture is rendered by `Furniture.ts` into `RoomDef.furnitureGroup`.
+ * Static geometry is merged per material (`GeoBatch`); the point-light count is constant: **`HUB_POINT_LIGHTS`**
+ * pool lights (2026-09-10, was 13 lights of its own) serve the light fixtures nearest the player — cockpit 4,
+ * corridor 5, airlock 1 and the nearest `ROOM_LIGHT_POOL` lit rooms (`LightPool`: re-anchored and ramped, never
+ * toggled). Furniture is rendered by `Furniture.ts` into `RoomDef.furnitureGroup`.
  *
  * Phase 8 (2026-09-06): the built-in workbench and the hydroponics rack are gone (정비 벤치 / 재배층 are placeable
  * furniture now), every doorway carries a sliding `ShipDoors` door and each room owns its emissive strip materials
@@ -52,7 +54,6 @@ export class PersonalShip implements ShipInterior {
   readonly doors = new ShipDoors(this.root);
 
   private meshes: THREE.Mesh[] = [];
-  private lights: THREE.PointLight[] = [];
   private stars: Starfield;
   private planet: Planet;
   /** 창문 워프 (2026-09-09): streaks past the cockpit viewport, driven by the hub through `setWarp`. */
@@ -63,9 +64,19 @@ export class PersonalShip implements ShipInterior {
   /** Per-room emissive strip materials (own instances so one room can be dimmed without touching the others). */
   private stripMats: THREE.MeshStandardMaterial[][] = [];
   private roomLit: boolean[] = new Array(SHIP_ROOM_COUNT).fill(false);
-  /** Constant pool of room point lights + the room each one currently sits in (−1 = parked, intensity 0). */
-  private roomLights: THREE.PointLight[] = [];
-  private roomLightRoom: number[] = [];
+  /**
+   * 2026-09-10: every point light of this ship. `HUB_POINT_LIGHTS` lights move between the fixtures below, nearest to
+   * the player first, so the scene-wide count stays inside `SCENE_POINT_LIGHT_BUDGET` (see `LightPool`).
+   */
+  private lightPool!: LightPool;
+  /** The ten fixed fixtures (cockpit 4, corridor 5, airlock 1). */
+  private readonly staticFixtures: LightFixture[] = [];
+  /** One ceiling fixture per room; only lit rooms are candidates, and only the nearest `ROOM_LIGHT_POOL` of them. */
+  private readonly roomFixtures: LightFixture[] = [];
+  /** Rooms whose fixture is in the pool's candidate list right now (sorted by index). */
+  private roomPick: number[] = [];
+  private readonly roomPickNext: number[] = [];
+  private readonly roomDist: number[] = new Array(SHIP_ROOM_COUNT).fill(0);
 
   constructor() {
     const r = this.root;
@@ -234,21 +245,21 @@ export class PersonalShip implements ShipInterior {
     this.beacon.position.set(0, 3.0, A.maxZ - 0.25);
     r.add(this.beacon);
 
-    // constant lights (10): cockpit 4, corridor 5, airlock 1 — never toggled
-    fixture(r, -2.4, CEIL - 0.25, -3.2, 0xeef2ff, 18, 9, this.lights);
-    fixture(r, 2.4, CEIL - 0.25, -3.2, 0xeef2ff, 18, 9, this.lights);
-    fixture(r, 0, 2.3, C.minZ + 0.9, 0x5fd7ff, 10, 7, this.lights);
-    fixture(r, px - 1.2, 2.4, pz, 0xffb347, 12, 6, this.lights);
-    for (let k = 0; k < ROOMS_PER_SIDE; k++) fixture(r, 0, CEIL - 0.25, CORRIDOR.minZ + k * SEGMENT + SEGMENT / 2, 0xeef2ff, 14, 8, this.lights);
-    fixture(r, 0, 2.7, 26.3, 0xff6a4a, 8, 5, this.lights);
-    // room-light pool (constant count, never toggled): parked at intensity 0 until `updateNear` anchors them
-    for (let k = 0; k < ROOM_LIGHT_POOL; k++) {
-      const before = this.lights.length;
-      fixture(r, 0, CEIL - 0.6, CORRIDOR.minZ + SEGMENT, 0xfff0d8, 0, ROOM_LIGHT_DISTANCE, this.lights);
-      const l = this.lights[before];
-      this.roomLights.push(l);
-      this.roomLightRoom.push(-1);
+    // 광원 자리 (2026-09-10): the ten places this ship used to hang its own PointLights (cockpit 4, corridor 5, airlock 1)
+    // plus one per room. `HUB_POINT_LIGHTS` real lights serve the nearest of them — see `LightPool` / `updateNear`.
+    const fx = (x: number, y: number, z: number, color: number, intensity: number, distance: number): LightFixture => ({ x, y, z, color, intensity, distance });
+    this.staticFixtures.push(
+      fx(-2.4, CEIL - 0.25, -3.2, 0xeef2ff, 18, 9),
+      fx(2.4, CEIL - 0.25, -3.2, 0xeef2ff, 18, 9),
+      fx(0, 2.3, C.minZ + 0.9, 0x5fd7ff, 10, 7),
+      fx(px - 1.2, 2.4, pz, 0xffb347, 12, 6),
+    );
+    for (let k = 0; k < ROOMS_PER_SIDE; k++) this.staticFixtures.push(fx(0, CEIL - 0.25, CORRIDOR.minZ + k * SEGMENT + SEGMENT / 2, 0xeef2ff, 14, 8));
+    this.staticFixtures.push(fx(0, 2.7, 26.3, 0xff6a4a, 8, 5));
+    for (const rb of ROOM_BOXES) {
+      this.roomFixtures[rb.index] = fx((rb.minX + rb.maxX) / 2, CEIL - 0.6, (rb.minZ + rb.maxZ) / 2, 0xfff0d8, ROOM_LIGHT_INTENSITY, ROOM_LIGHT_DISTANCE);
     }
+    this.lightPool = new LightPool(r, HUB_POINT_LIGHTS, this.staticFixtures.slice());
 
     // space outside
     this.stars = new Starfield(320, 1800, 11);
@@ -344,42 +355,44 @@ export class PersonalShip implements ShipInterior {
 
   /** Lit rooms (debug / smoke). */
   isRoomLit(room: number): boolean { return this.roomLit[room] === true; }
-  /** Room each pool light currently sits in (debug / smoke). */
-  get roomLightRooms(): readonly number[] { return this.roomLightRoom; }
+  /** Room each pool light currently serves, −1 for a corridor / cockpit / airlock fixture or a parked light (debug / smoke). */
+  get roomLightRooms(): readonly number[] {
+    const list = this.lightPool.fixtureList;
+    return this.lightPool.assignment.map((i) => (i >= 0 ? this.roomFixtures.indexOf(list[i]) : -1));
+  }
+  /** The ship's light pool (debug / smoke). */
+  get lights(): LightPool { return this.lightPool; }
 
   /**
-   * Player-proximity animation: sliding doors + the room-light pool. The light **count never changes** and no
-   * light is ever toggled — a light that must move to another room first ramps its intensity to 0, is repositioned,
-   * then ramps back up (`ROOM_LIGHT_INTENSITY`).
+   * Player-proximity animation: sliding doors + the light pool. The light **count never changes** and no light is
+   * ever toggled — a light that must move to another fixture first ramps its intensity to 0, is repositioned, then
+   * ramps back up (`LightPool`). A lit room is a candidate only while it is one of the nearest `ROOM_LIGHT_POOL`.
    */
   updateNear(dt: number, px: number, pz: number): void {
     this.doors.update(dt, px, pz);
-    const pool = this.roomLights;
-    if (pool.length === 0) return;
-    // the nearest lit rooms deserve the pool
-    const cand: Array<{ i: number; d: number }> = [];
+    this.pickRooms(px, pz);
+    this.lightPool.update(dt, px, pz);
+  }
+
+  /** Nearest `ROOM_LIGHT_POOL` lit rooms → the pool's candidate list (rewritten only when that set changes). */
+  private pickRooms(px: number, pz: number): void {
+    const next = this.roomPickNext;
+    next.length = 0;
     for (const rb of ROOM_BOXES) {
       if (!this.roomLit[rb.index]) continue;
-      const cx = (rb.minX + rb.maxX) / 2, cz = (rb.minZ + rb.maxZ) / 2;
-      cand.push({ i: rb.index, d: (cx - px) * (cx - px) + (cz - pz) * (cz - pz) });
+      const f = this.roomFixtures[rb.index];
+      this.roomDist[rb.index] = (f.x - px) * (f.x - px) + (f.z - pz) * (f.z - pz);
+      next.push(rb.index);
     }
-    cand.sort((a, b) => a.d - b.d);
-    const want = cand.slice(0, pool.length).map((q) => q.i);
-    const free = want.filter((i) => !this.roomLightRoom.includes(i));
-    const rate = ROOM_LIGHT_INTENSITY * 2.5 * dt;
-    for (let k = 0; k < pool.length; k++) {
-      const l = pool[k];
-      let target = 0;
-      if (want.includes(this.roomLightRoom[k])) target = ROOM_LIGHT_INTENSITY;
-      else if (l.intensity <= 0.02 && free.length > 0) {
-        const next = free.shift() as number;
-        const rb = ROOM_BOXES[next];
-        this.roomLightRoom[k] = next;
-        l.position.set((rb.minX + rb.maxX) / 2, CEIL - 0.6, (rb.minZ + rb.maxZ) / 2);
-        target = ROOM_LIGHT_INTENSITY;
-      } else if (l.intensity <= 0.02) this.roomLightRoom[k] = -1;
-      l.intensity = target > l.intensity ? Math.min(target, l.intensity + rate) : Math.max(target, l.intensity - rate);
-    }
+    next.sort((a, b) => this.roomDist[a] - this.roomDist[b]);
+    if (next.length > ROOM_LIGHT_POOL) next.length = ROOM_LIGHT_POOL;
+    next.sort((a, b) => a - b);
+    const cur = this.roomPick;
+    if (cur.length === next.length && cur.every((v, i) => v === next[i])) return;
+    this.roomPick = next.slice();
+    const list: LightFixture[] = this.staticFixtures.slice();
+    for (const i of this.roomPick) list.push(this.roomFixtures[i]);
+    this.lightPool.setFixtures(list);
   }
 
   /** 목표 행성 (Phase 11): the planet outside the cockpit viewport takes the selected planet's colours. */
@@ -407,9 +420,7 @@ export class PersonalShip implements ShipInterior {
   dispose(): void {
     this.doors.dispose();
     disposeMeshes(this.meshes);
-    for (const l of this.lights) l.removeFromParent();
-    this.lights.length = 0;
-    this.roomLights.length = 0;
+    this.lightPool.dispose();
     for (const mats of this.stripMats) for (const m of mats ?? []) m.dispose();     // per-room clones, not shared
     this.stripMats.length = 0;
     for (const s of this.screens) s.dispose();

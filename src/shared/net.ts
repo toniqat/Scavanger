@@ -338,6 +338,9 @@ export const PlayerFlags = {
   /* appended (2026-09-09): 채팅 입력 중 말풍선 */
   /** Chat input is open (typing). Set by net from `ui:chatToggled`; remotes draw a `…` speech bubble over the head. */
   TYPING: 1 << 28,
+  /* appended (2026-09-11): 사다리 */
+  /** Hanging on a ladder (`PlayerRef.climbingLadder`); remotes play the climb pose, `p` moves vertically. */
+  CLIMBING: 1 << 29,
 } as const;
 
 /** Local player state → everyone, NET_PLAYER_SNAPSHOT_HZ. Owner: net (built from ctx.player / ctx.inventory). */
@@ -555,7 +558,16 @@ export interface PingMessage {
 export interface PingAckMessage { t: 'pingack'; owner: PeerId; seq: number }
 
 /** Any → all: crate opened (so other clients mark it looted). Owner: world/inventory. */
-export interface CrateMessage { t: 'crate'; id: string; ev: 'opened' | 'looted' }
+export interface CrateMessage {
+  t: 'crate'; id: string;
+  /**
+   * appended (2026-09-11): `sync` = 이미 열린 상자 · 컨테이너 id 전부(`ids`, 호스트 → 늦게 합류한 사람),
+   * `syncq` = 그 목록을 달라는 요청(누구나 → 호스트, `id` 는 빈 문자열). `opened` 는 누구나 → 전원이다
+   * (열린 **모습**만 맞춘다 — 내용물은 `cont` 가 따로 동기화한다). Owner: world.
+   */
+  ev: 'opened' | 'looted' | 'sync' | 'syncq';
+  ids?: string[];
+}
 
 /** Any → all: short text chat / quick-chat line. Owner: ui/hud/ChatLog. `kind` (appended) defaults to 'text'. */
 export interface ChatMessage { t: 'chat'; text: string; kind?: ChatKind }
@@ -1266,8 +1278,13 @@ export interface CommsMessage { t: 'comm'; id: CommsId; text: string }
 export type StructureMessage =
   | { t: 'struct'; ev: 'unlocked'; id: string; by: PeerId | null }
   | { t: 'struct'; ev: 'scanned'; id: string }
-  /** 이미 발생한 구조물 이벤트 전체 (늦게 합류 · 호스트 이관용). */
-  | { t: 'struct'; ev: 'sync'; unlocked: string[]; scanned: string[]; rogued: string[] };
+  /**
+   * appended (2026-09-11): 창문 `w` 번이 깨졌다. **누구나 → 전원** (깬 사람이 보낸다 — 여러 명이 같은 창을 동시에
+   * 깨도 결과가 같으므로 호스트 확정이 필요 없다). 호스트는 목록을 들고 있다가 `sync.glass` 에 싣는다.
+   */
+  | { t: 'struct'; ev: 'glass'; id: string; w: number }
+  /** 이미 발생한 구조물 이벤트 전체 (늦게 합류 · 호스트 이관용). `glass` (appended 2026-09-11) = 깨진 창 `<id>:<w>`. */
+  | { t: 'struct'; ev: 'sync'; unlocked: string[]; scanned: string[]; rogued: string[]; glass?: string[] };
 export type StructureRequest =
   | { t: 'structq'; ev: 'unlock'; id: string }
   | { t: 'structq'; ev: 'scan'; id: string }

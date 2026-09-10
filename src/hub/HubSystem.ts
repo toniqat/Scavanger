@@ -142,6 +142,11 @@ export class HubSystem implements GameSystem, HubRef {
   startTraining(): boolean { return Crew.startTraining(this); }
 
   interior: ShipInterior | null = null;
+  /**
+   * 2026-09-10: the ship a running docking cutscene will land in, built `PREBUILD_AFTER_S` into it and compiling in the
+   * background (`ready`). `finishTransition` attaches it; `disposeInterior` throws it away if the transition never ends.
+   */
+  pendingInterior: { kind: HubShipKind; interior: ShipInterior; ready: Promise<boolean> } | null = null;
   pods: LaunchPod[] = [];
   terminal: Terminal | null = null;
   workbench: Workbench | null = null;
@@ -365,7 +370,7 @@ export class HubSystem implements GameSystem, HubRef {
   /** Personal ship: connect in the background; a lobby on `welcome` (resume) moves us straight to the shared ship. */
   tryResume(): void { return Trans.tryResume(this); }
 
-  build(ship: HubShipKind, viaAirlock: boolean, fromBay?: number): THREE.Vector3 { return Interior.build(this, ship, viaAirlock, fromBay); }
+  build(ship: HubShipKind, viaAirlock: boolean, fromBay?: number, prebuilt?: ShipInterior): THREE.Vector3 { return Interior.build(this, ship, viaAirlock, fromBay, prebuilt); }
 
   /**
    * 함선 시설: the implant bay, which opens the Tab ship screen (inventory window: 창고 / 장비 + 임플란트 슬롯 /
@@ -531,6 +536,8 @@ export class HubSystem implements GameSystem, HubRef {
     if (this.shipStateDirty) Hangar.sendShipState(this, false);
     if (this.cutscene) {
       this.cutscene.update(dt);
+      // 2026-09-10: build + compile the destination ship while the cutscene plays (off its first frames)
+      if (this.cutscene && !this.pendingInterior && this.cutscene.elapsed >= Trans.PREBUILD_AFTER_S) Trans.prebuildTarget(this);
       if (this.cutscene) this.status.set(this.cutscene.direction === 'dock' ? '도킹 절차 진행 중' : '도킹 해제 중', null);
       return;
     }

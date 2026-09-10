@@ -21,6 +21,8 @@ import type { MetaRef } from './meta';
 import type { TutorialRef } from './tutorial';
 /* appended (2026-09-09): 사망한 플레이어의 시체 */
 import type { CorpsesRef } from './types';
+/* appended (2026-09-10): 셰이더 선컴파일 · 광원 예산 */
+import type { ShaderWarmupRef } from './render';
 
 class InteractableRegistryImpl implements InteractableRegistry {
   private items = new Map<string, Interactable>();
@@ -105,6 +107,12 @@ export class GameContext {
    * 적 시체는 여기 없다 — 그쪽은 `enemies/Corpses` 소관이다.
    */
   corpses: CorpsesRef | null = null;
+  /* appended (2026-09-10) */
+  /**
+   * 셰이더 선컴파일 + 점광원 예산 (`shared/render`). Published by `core/Engine` in its constructor, so it is set before
+   * any system `init` runs. 새 장면(함선 · 행성)을 보여 주기 전에 `warm` / `holdForScene` 으로 컴파일을 끝내 둔다.
+   */
+  shaders: ShaderWarmupRef | null = null;
   /* ── appended: Phase 7 (2026-09-06) ── */
   /** Mode of the running / last mission (`game/` sets it from `game:newMission.mode` before the world generates). */
   missionMode: MissionMode = 'raid';

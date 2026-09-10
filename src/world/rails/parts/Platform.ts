@@ -16,6 +16,7 @@
 import * as THREE from 'three';
 import { Layers, PROP_STEP_UP_MAX, RAIL_STAIR_DEPTH, RAIL_STAIR_MAX_RISE, type Random, type RailPlatformDef } from '@/shared';
 import { type BuildCtx, merge, paint, paintGradient, xform } from '../../build';
+import { buildStairFlight } from '../../structures/parts/Stairs';
 import type { ContainerSpec } from '../../structures/parts/Containers';
 import { pickTier, type structureRow } from '../../structures/model';
 import { DECK, DECK_DARK, STEEL, STEEL_DARK, type RailBuild } from '../model';
@@ -157,18 +158,16 @@ function buildStairs(
     n = need; baseY = b;
   }
   const total = Math.max(0.4, deckTop - baseY);
+  void total;
 
-  // i = 0 이 데크에 가장 가까운(가장 높은) 단이다. 마지막 한 단은 데크 상판이므로 `n - 1` 개만 세운다.
-  for (let i = 0; i < n - 1; i++) {
-    const top = baseY + (total * (n - 1 - i)) / n;
-    const off = offsetOf(i);
-    const px = cx + ax * off, pz = cz + az * off;
-    const gy = Math.min(ctx.terrain.getHeightAt(px, pz), top - 0.12);
-    const h = top - gy;
-    const g = new THREE.BoxGeometry(4.4, h, depth);
-    xform(g, { x: px, y: gy + h / 2, z: pz }, new THREE.Euler(0, -yaw, 0));
-    paint(g, DECK_DARK, 0.05, rng);
-    parts.push(g);
-    ctx.hash.addBox(new THREE.Vector3(px, gy, pz), 2.2, depth / 2, yaw, h, 'platform');
-  }
+  /* 2026-09-11 — **경사 콜라이더** (`structures/parts/Stairs`). 단은 여전히 지형에서 올라오는 덩어리로 그리지만
+   * 밟는 것은 데크 가장자리(`halfD`)에서 바깥 끝(`halfD + n × depth`)까지 이어진 경사면 하나다 — 한 단씩 튀어
+   * 오르지 않는다 (사용자 요청 "계단을 스르륵"). 단수 `n` 은 계단이 **얼마나 멀리 뻗는가**만 정한다. */
+  buildStairFlight(ctx, parts, rng, {
+    // 경사면이 데크 안으로 한 뼘 들어간다 — 이음매가 정확히 같은 선이면 부동소수 오차로 발이 빠질 수 있다
+    hx: cx + ax * (halfD - 0.08), hz: cz + az * (halfD - 0.08), ux: ax, uz: az,
+    width: 4.4, run: n * depth + 0.08, topY: deckTop, bottomY: baseY,
+    solidY: (x, z) => ctx.terrain.getHeightAt(x, z),
+    dark: DECK_DARK, light: DECK, kind: 'platform',
+  });
 }

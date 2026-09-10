@@ -45,6 +45,7 @@ export function restoreState(sys: PlayerSystem, state: PlayerRestoreState): void
     _v.copy(sys.resolveSpawn(sys.ctx.world.getPlayerSpawn()));
   }
   if (sys.ctx.world?.ready) _v.y = Math.max(_v.y, sys.ctx.world.getHeightAt(_v.x, _v.z));
+  sys.clearClimbState();
   sys.hellpod.hide();
   sys.attachTo(null);
   sys.setInterior(null);
@@ -130,6 +131,7 @@ export function respawn(sys: PlayerSystem, position: THREE.Vector3): void {
  * active camera override (the hub owns that via `setCameraOverride(null)`).
  */
 export function spawnStanding(sys: PlayerSystem, position: THREE.Vector3, yaw: number): void {
+  sys.clearClimbState();
   sys.hellpod.hide();
   sys.attachTo(null);
   sys.shipBounds = null; sys.controller.shipBounds = null;
@@ -176,6 +178,7 @@ export function spawnStanding(sys: PlayerSystem, position: THREE.Vector3, yaw: n
 export function teleport(sys: PlayerSystem, position: THREE.Vector3, yaw?: number, snap?: boolean): void {
   if (!sys.spawned || sys.isDead || sys._inPod) return;
   if (sys.hellpod.isActive && sys.hellpod.state !== 'exiting') return;
+  sys.clearClimbState();
   _v.copy(position);
   if (snap !== false) {
     if (sys._interior) _v.y = sys._interior.getFloorAt(_v.x, _v.z);
@@ -200,6 +203,7 @@ export function teleport(sys: PlayerSystem, position: THREE.Vector3, yaw?: numbe
 
 export function respawnAt(sys: PlayerSystem, position: THREE.Vector3, yaw?: number): void {
   const y = yaw ?? Math.atan2(position.x, position.z); // face the map centre by default
+  sys.clearClimbState();
   sys.attachTo(null);
   sys.setInterior(null);
   sys._inPod = false;
@@ -352,6 +356,7 @@ export function updateDrop(sys: PlayerSystem, dt: number): void {
   }
 
 export function resetAll(sys: PlayerSystem): void {
+  sys.clearClimbState();
   sys.hellpod.hide();
   sys.attachTo(null);
   sys.shipBounds = null; sys.controller.shipBounds = null;

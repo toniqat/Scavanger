@@ -21,7 +21,7 @@ engine.addSystem(new GadgetSystem());
 | `GadgetDefs.ts` | `GADGET_DEFS` (10 gadgets, 한국어 이름/설명), `gadgetDef(id)`, `gadgetForKind(kind)`, `RECOVERABLE_KINDS` / `isRecoverable`, `ENEMY_TARGET_KINDS`, `SOLID_KINDS`. |
 | `Deployable.ts` | `Deployable implements DeployableRef` — hp/armed/expires/yaw + per-kind runtime state (`fireTimer`, `targetId`, `headYaw`, `tickTimer`, `padCooldown` = 같은 프레임 가드, `padNext` = 플레이어별 재발동 시각(Phase 9), `netCooldown`) and `takeDamage()` (routes to the authority). Also the physical sizes: `BARRICADE_HALF`, `MINE_TRIGGER_RADIUS`, `JUMPPAD_TRIGGER_RADIUS`, `DOME_UNFOLD_TIME`. |
 | `GadgetVisuals.ts` | `GadgetVisualPool`: pooled procedural meshes per `DeployableKind` + a 12-slot expanding ring-pulse FX pool. Shared geometry, per-visual materials, recoloured on reuse. **No lights anywhere** (constant scene light count → no shader recompiles). `warm()` pre-builds one visual per kind. |
-| `ThrownGadget.ts` | `ThrownGadgetManager`: 8 pooled canisters with a gravity arc + obstacle push-out; deploys on the first ground contact (or after 4 s). |
+| `ThrownGadget.ts` | `ThrownGadgetManager`: 8 pooled canisters with a gravity arc + obstacle push-out; deploys on the first ground contact (or after 4 s). **2026-09-11**: 창문 유리를 깨고 지나가고(`shared/fragile`), 땅 = `getSurfaceY`(건물 2층 · 옥상). 설치물의 배치 높이는 아직 지형이다. |
 | `index.ts` | Barrel. |
 
 ## 10종 가젯
@@ -179,6 +179,7 @@ host 는 `flow rejoined` 에도 gad sync 로 답한다
 
 ## 변경 이력
 
+- **2026-09-11** — `ThrownGadget` 이 창문 유리를 깨고 건물 바닥판에 떨어진다 (world 의 창문 · 2층 건물).
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
 - **2026-09-09 (수치 csv 이관)** — `GadgetDefs.ts` 의 표는 **TS 에 남는다**: 설명문이 `GADGET_*` 상수를 그대로

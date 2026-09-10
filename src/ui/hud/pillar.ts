@@ -41,6 +41,16 @@ export function makePillarGeometry(
   return geo;
 }
 
+/**
+ * **빛기둥은 시체에만 선다** (2026-09-11, 사용자 결정). 적 시체 `corpse:<id>` 와 분대원 시체 `pcorpse:<owner>:<n>`
+ * 만 true — 상자 · 컨테이너 · 채집물 · 떨어진 아이템 · 설치물 · 보급품은 더 이상 기둥을 세우지 않는다.
+ * 상자 · 컨테이너는 대신 **열린 모습**(뚜껑 · 문)으로 조사 여부를 보여 준다 (`world/Crates` · `ContainerSet`).
+ * `hud/Detection`(범위 안) 과 `hud/ScanReveal`(정찰 결과) 이 같은 규칙을 쓴다.
+ */
+export function pillarAllowed(interactableId: string): boolean {
+  return interactableId.startsWith('corpse:') || interactableId.startsWith('pcorpse:');
+}
+
 /** The one material shape a pillar needs: additive + vertex colours, no depth writes, no lights, both faces. */
 export function makePillarMaterial(color: number, opacity: number, throughWall = false): THREE.MeshBasicMaterial {
   return new THREE.MeshBasicMaterial({

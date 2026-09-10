@@ -24,6 +24,15 @@ export const CONTAINER_DEFAULT_TITLE = '컨테이너';
 export class Container {
   readonly grid: Grid;
   readonly position = new THREE.Vector3();
+  /**
+   * 2026-09-10 — 연 쪽이 넘긴 **살아 있는** 자리 객체. 달리는 전차 안의 컨테이너는 그 객체가 매 프레임 제자리에서
+   * 고쳐지는데 `position` 은 연 순간의 복사본이라, 거리 판정이 그것을 보면 창을 연 지 0.4초 만에 "멀어졌다" 며
+   * 닫히고 감정도 멈췄다. 여는 쪽은 전부 수명이 긴 객체(상자 def · 컨테이너 spec · 시체 · 보급 상자)를 넘긴다 —
+   * **스크래치 벡터를 넘기면 안 된다.**
+   */
+  anchor: THREE.Vector3 | null = null;
+  /** 거리 판정용 자리 — 살아 있는 `anchor`, 없으면 복사본. */
+  get livePosition(): THREE.Vector3 { return this.anchor ?? this.position; }
   /** `crate:looted` emitted once when the grid first becomes empty. */
   lootedEmitted = false;
   /** Uids in roll order (`fill` order) — the wire's `idx`. Never shrinks (a taken item keeps its index). */
@@ -158,9 +167,11 @@ export class ContainerStore {
     let c = this.containers.get(id);
     if (c) {
       c.position.copy(position);
+      c.anchor = position;
       return c;
     }
     c = new Container(id, tier, position, this.getDef);
+    c.anchor = position;
     const rng = new Random(((missionSeed >>> 0) ^ Random.hash(id)) >>> 0);
     c.fill(loot.rollCrateOn(tier, rng, planet));
     this.containers.set(id, c);
@@ -178,10 +189,12 @@ export class ContainerStore {
     let c = this.containers.get(id);
     if (c) {
       c.position.copy(position);
+      c.anchor = position;
       if (title) c.title = title;
       return c;
     }
     c = new Container(id, 0, position, this.getDef, title ?? CONTAINER_DEFAULT_TITLE, size?.cols, size?.rows);
+    c.anchor = position;
     c.fill(items);
     this.containers.set(id, c);
     this.applyPending(c);

@@ -10,6 +10,8 @@ Everything every feature folder depends on. Append-only: add new events/fields, 
 | `planetDefs.ts` | 행성 정의표 (`PLANET_DEFS`, `getPlanet`, `planetIndex`, `planetLabel`, `PLANET_THREAT_LABELS`) — `data/planets.csv` 를 읽으므로 **브라우저 전용**. 릴레이 서버가 Node 에서 직접 실행하는 `planets.ts` 와 갈라 두었다 |
 | `types.ts` | `GamePhase`, `MissionStats`, item/weapon defs, `*Ref` interfaces (World, Player, EnemyManager, Inventory, Loot), `Interactable`, `GameSystem` |
 | `events.ts` | `GameEvents` map: every bus event name → payload type, grouped by owning module |
+| `lightPool.ts` | **점광원 풀** (2026-09-11, `hub/interiors` 에서 옮김) — 광원 자리(`LightFixture`)는 얼마든지, 진짜 광원은 `size` 개만 가까운 자리로 옮겨 단다 (intensity 만 움직이고 `visible` 은 안 건드린다). `update(dt, px, pz, zone?, eyeY?)` — `eyeY` 를 주면 층이 다른 자리를 뒤로 민다. 함선(`HUB_POINT_LIGHTS`)과 행성 구조물(`STRUCTURE_POINT_LIGHTS`)이 쓴다 |
+| `fragile.ts` | `breakFragileAlong(world, from, to)` (2026-09-11) — 투척물이 한 걸음 선분 위의 **깨지는 판(창문 유리)** 을 깨고 지나가게 한다. weapons · gadgets · enemies 공용 |
 | `EventBus.ts` | Typed synchronous emitter (`on/once/off/emit`) |
 | `Input.ts` | Keyboard/mouse state with per-frame pressed/released sets, pointer lock helpers. `endFrame()` called by Engine |
 | `GameContext.ts` | Shared context: bus, input, interactables registry, scene/camera/renderer, module refs, phase, stats, `uiBlockers`, `isGameplayActive()` |
@@ -636,6 +638,17 @@ Plan: `docs/DECISIONS.md`. Everything below is append-only; owners in brackets.
 
 ## 변경 이력
 
+- **2026-09-11 (추가만)** — `Obstacle.hull / ramp / fragile` + `ObstacleHull(Band)`, `LadderDef` · `WorldRef.getLadders` ·
+  `PlayerRef.climbingLadder?`, 이벤트 `ladder:grab` · `player:climbChanged` · `structure:glassBroken`, `PlayerFlags.CLIMBING`,
+  `StructureMessage` 에 `glass` + `sync.glass?`, `CrateMessage.ev` 에 `sync` · `syncq` + `ids?`, 상수 `STRUCTURE_POINT_LIGHTS` ·
+  `STRUCTURE_SCAN_WAVE_S` · `LADDER_*` · `STEP_SMOOTH_*` · `THROW_ARC_PREVIEW_FRACTION` · `BOX_HEADROOM`, 새 모듈 `lightPool.ts` ·
+  `fragile.ts`. 이름 변경 · 삭제 없음.
+- **2026-09-10 (Alt 커서 제거, 사용자 결정)** — `KEY_ACTION_DEFS` 에서 `CURSOR` 줄을 뺐다 (설정 · 조작 화면에 안 뜬다).
+  `Keys.CURSOR` · `DEFAULT_KEYS.CURSOR`(`AltLeft`) · `FREE_CURSOR_BLOCKER` · `'ui:freeCursorToggled'` 는 **그대로
+  있다** — 추가만 하는 계약이고 `SECONDARY` 와 같은 처리다. 아무도 읽거나 발행하지 않는다. `loadKeybinds` 의
+  "구르기가 `CURSOR` 와 같은 키면 기본값으로" 이관도 걷어냈다 (Alt 가 빈 키가 됐으니 구르기를 Alt 에 묶어도 된다).
+  `Input` 의 Alt `preventDefault` 는 남겼다 — 브라우저 · 셸 메뉴 막대가 포커스를 가져가지 않게 하는 용도다
+
 - **2026-09-10 (보조무기 정책 · 새 수치 넷)** —
   ① **보조무기는 "목록에서만" 뺐다.** `LoadoutSlot` · `WeaponSlot` · `Loadout.secondary` · `Keys.SECONDARY` ·
   `DEFAULT_KEYS.SECONDARY` 는 **그대로 있다** (`src/shared` 는 추가만 한다 — 저장된 프리셋 · 크루 카드 ·
@@ -918,6 +931,14 @@ ESC 로 인벤토리 · 지도를 닫으면 카메라가 **+245 ms** 에 스스�
   `0.5 × g × (T/2)²` 라 9.81 로는 6.3 s 비행에서 48.7 m 까지 솟아 화면 밖에서 떨어졌다.
 - `housing.ts` **`HousingRef.findFreeSpot(room, defId)`** — 자동 가구 배치 자리. 규칙이 `ui/hud/ShipManage` 안에
   묻혀 있던 것을 `housing/Rules` 로 끌어냈다.
+- `render.ts` (신규) **`ShaderWarmupRef`** + **`GameContext.shaders`** — 셰이더 선컴파일(`warm(root, replaces?)`)과
+  hold(`holdForScene()` · `hold(promise)` · `holding`), `pointLightBudget`. `core/Engine` 이 **생성자에서** 게시하므로
+  모든 시스템 `init` 보다 먼저 있다. 기능 폴더는 새 장면을 보여 주기 전에 부르기만 하고, **렌더 타깃 · 광원 상태
+  맞추기는 core 가 한다** — 업데이트 도중 `renderer.compile` 을 직접 부르면(타깃 = 캔버스) 쓰이지 않을 변형만
+  컴파일된다. hold 동안 Engine 은 시뮬레이션 dt 0 으로 돌고 그리지 않는다 (`game:paused {freeze}` 와 같은 방식).
+- `constants.ts` **`SCENE_POINT_LIGHT_BUDGET`** (23) · **`HUB_POINT_LIGHTS`** (8) · **`SHADER_WARMUP_TIMEOUT_S`** (8) —
+  씬의 점광원 개수는 여분까지 세션 내내 예산 하나다. 광원을 새로 만드는 코드는 **상주 광원(15) + 자기 장면의
+  광원 ≤ 예산**인지 먼저 본다 (`smoke-lights` 가 개수 변화와 예산 초과를 둘 다 잡는다).
 
 ### 2026-09-10 — 서버 주소 (배포용 릴레이에 붙는 길)
 

@@ -71,8 +71,8 @@ export const KEY_ACTION_DEFS: readonly KeyActionDef[] = [
   { id: 'INVENTORY', label: '인벤토리 · 캐릭터 · 기업 · 함선 (열기 / 닫기)', group: '인터페이스', scope: 'global' },
   { id: 'MAP', label: '지도 · 함선 관리 (열기 / 닫기)', group: '인터페이스', scope: 'game' },
   { id: 'MENU', label: '화면 닫기 · 일시 정지 (메뉴 닫기는 앱에서만)', group: '인터페이스', scope: 'global' },
-  /* appended (2026-09-07, 커서 rework): frees the mouse cursor without opening a screen; press again to give it back. */
-  { id: 'CURSOR', label: '마우스 커서 표시 / 숨기기', group: '인터페이스', scope: 'global' },
+  // 2026-09-10: Alt 커서(화면 없이 마우스만 풀던 기능)를 걷어내 `CURSOR` 줄은 이 목록에서 빠졌다 (설정 화면에도 안 뜬다).
+  // `Keys.CURSOR` · `DEFAULT_KEYS.CURSOR` 자체는 계약이라 그대로 있다 — `SECONDARY` 와 같은 처리, 아무도 읽지 않을 뿐이다.
   /* appended (Phase 11); 2026-09-08: a tap is the 커뮤니티 panel, a hold still accepts a 분대 초대. */
   { id: 'INVITE', label: '커뮤니티 (길게: 분대 초대 수락)', group: '인터페이스', scope: 'global' },
 
@@ -201,12 +201,10 @@ export function loadKeybinds(): void {
       if (typeof v === 'string' && canBind(d.id, v)) Keys[d.id] = v;
     }
     /*
-     * 2026-09-07 (커서 rework): Alt used to be 구르기 and is now 마우스 커서. `saveKeybinds` only writes entries that
-     * differ from the defaults, so a player who never rebound 구르기 has nothing stored and lands on the new V —
-     * but someone who explicitly bound it to Alt (or to whatever `CURSOR` holds) would end up rolling every time
-     * they asked for the cursor. Give the older action back its default rather than leaving both on one key.
+     * 2026-09-07 에는 여기서 "구르기가 `CURSOR` 와 같은 키면 기본값으로 되돌린다" 를 했다 (Alt 가 구르기 → 커서로
+     * 바뀌던 때의 이관). 2026-09-10 에 Alt 커서가 사라져 Alt 는 빈 키가 됐으므로 그 되돌리기도 걷어냈다 —
+     * 남겨 두면 구르기를 일부러 Alt 에 묶은 사람이 부팅할 때마다 V 로 돌아간다.
      */
-    if (Keys.DIVE === Keys.CURSOR) Keys.DIVE = DEFAULT_KEYS.DIVE;
     applyAliases();
   } catch { /* corrupt → defaults */ }
 }

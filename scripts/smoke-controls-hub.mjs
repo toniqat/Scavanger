@@ -651,7 +651,7 @@ try {
   ok(afterTerm.cursor === false && afterTerm.mode === false, 'closing the terminal leaves 커서 모드');
   ok(afterTerm.locked, 'the pointer lock is back the moment the last cursor owner leaves (main.ts relock)');
 
-  /* Alt (`Keys.CURSOR`): free the mouse with no screen behind it, and no pause. */
+  /* 2026-09-10: Alt 커서는 제거됐다 — Alt 는 커서도 blocker 도 만들지 않고, 락도 그대로다. */
   const alt = await page.evaluate(async () => {
     const key = (code, type) => document.body.dispatchEvent(new KeyboardEvent(type, { code, bubbles: true }));
     key('AltLeft', 'keydown'); key('AltLeft', 'keyup');
@@ -660,33 +660,16 @@ try {
     const menu = document.querySelector('.menu.pause');
     return {
       cursor: window.__game.ctx.input.isCursorMode,
-      blocker: window.__game.ctx.uiBlockers.has('cursor'),
+      blockers: [...window.__game.ctx.uiBlockers],
       locked: window.__game.ctx.input.isPointerLocked,
       paused: !!menu && !menu.classList.contains('hidden'),
     };
   });
-  ok(alt.cursor && alt.blocker && !alt.locked, 'Alt frees the mouse in place (cursor mode + its own blocker, lock released)', JSON.stringify(alt));
-  ok(!alt.paused, 'Alt does not pause the game');
-  /* 2026-09-09: Escape 는 Alt 커서를 **놓고 끝난다** — 카메라가 돌아오고, 메뉴는 열리지 않는다. Alt 커서도
-     `ctx.escape` 의 한 항목이므로(뒤에 창이 없는 유일한 커서 소유자) 그것이 곧 "닫을 것" 이고, 메뉴는 스택이
-     비어 있을 때만 열린다. 2026-09-08 에는 같은 Escape 가 커서를 놓고 그 자리에 메뉴를 띄웠다. */
-  const altOff = await page.evaluate(async () => {
-    const key = (code, type) => document.body.dispatchEvent(new KeyboardEvent(type, { code, bubbles: true }));
-    key('Escape', 'keydown'); key('Escape', 'keyup');
-    await new Promise((r) => setTimeout(r, 120));
-    window.__game.frame(performance.now());
-    const menu = document.querySelector('.menu.pause');
-    return {
-      blocker: window.__game.ctx.uiBlockers.has('cursor'), menuBlocker: window.__game.ctx.uiBlockers.has('menu'),
-      paused: !!menu && !menu.classList.contains('hidden'),
-    };
-  });
-  ok(!altOff.blocker, 'Escape drops the Alt 커서 blocker', JSON.stringify(altOff));
-  ok(!altOff.paused && !altOff.menuBlocker, 'and that is all it does — no 일시정지 메뉴 (2026-09-09)', JSON.stringify(altOff));
+  ok(!alt.cursor && alt.blockers.length === 0 && alt.locked && !alt.paused, 'Alt no longer frees the mouse (no cursor mode, no blocker, lock kept, no pause)', JSON.stringify(alt));
   // The menu only closes on 게임으로 돌아가기 (in the browser) — a second Escape is inert on it.
   const pauseEsc = await page.evaluate(async () => {
     const key = (code, type) => document.body.dispatchEvent(new KeyboardEvent(type, { code, bubbles: true }));
-    // 스택이 빈 상태의 Escape 가 메뉴를 연다 (Alt 커서는 방금 닫혔다).
+    // 스택이 빈 상태의 Escape 가 메뉴를 연다 (터미널은 위에서 닫혔다).
     key('Escape', 'keydown'); key('Escape', 'keyup');
     await new Promise((r) => setTimeout(r, 120));
     window.__game.frame(performance.now());
@@ -702,24 +685,6 @@ try {
   });
   ok(pauseEsc.still, 'a second Escape does NOT close the 일시정지 메뉴');
   ok(pauseEsc.closed && !pauseEsc.blocker, '게임으로 돌아가기 is what closes it', JSON.stringify(pauseEsc));
-
-  /* 2026-09-07: the Alt 커서 also closes on a left click on the world — it is the one cursor owner with no window
-     behind it, and a click is the user gesture Chrome wants before it grants the lock back. */
-  const altClick = await page.evaluate(async () => {
-    const key = (code, type) => document.body.dispatchEvent(new KeyboardEvent(type, { code, bubbles: true }));
-    key('AltLeft', 'keydown'); key('AltLeft', 'keyup');
-    await new Promise((r) => setTimeout(r, 120));
-    window.__game.frame(performance.now());
-    const on = window.__game.ctx.input.isCursorMode;
-    const canvas = document.getElementById('game-canvas');
-    canvas.dispatchEvent(new MouseEvent('mousedown', { button: 0, bubbles: true }));
-    await new Promise((r) => setTimeout(r, 60));
-    window.__game.frame(performance.now());
-    const ctx = window.__game.ctx;
-    return { on, cursor: ctx.input.isCursorMode, blocker: ctx.uiBlockers.has('cursor'), locked: ctx.input.isPointerLocked };
-  });
-  ok(altClick.on, 'Alt opens the free cursor again');
-  ok(!altClick.cursor && !altClick.blocker && altClick.locked, '좌클릭으로도 Alt 커서가 닫히고 카메라가 돌아온다', JSON.stringify(altClick));
 
   /* 2026-09-08: an unlock we did not ask for **is** the Escape key — the browser eats the keydown to free the
      cursor, so `pointerlockchange` is the only evidence the player pressed it. `Input.onUserUnlock` → `main.ts` →

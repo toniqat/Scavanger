@@ -234,7 +234,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
     }
     const player = ctx.player;
     if (player?.isDead) { this.closeAll(); return; }
-    if (this.activeContainer && player && player.position.distanceTo(this.activeContainer.position) > AUTO_CLOSE_DISTANCE) {
+    // 2026-09-10: 연 순간의 복사본이 아니라 **지금 자리**와 잰다 — 달리는 전차 안의 컨테이너가 곧바로 닫혔다.
+    if (this.activeContainer && player && player.position.distanceTo(this.activeContainer.livePosition) > AUTO_CLOSE_DISTANCE) {
       this.closeAll();
       return;
     }
@@ -1198,7 +1199,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
     const item = next.item;
     const def = ITEM_DEF_MAP.get(item.defId);
     if (!def) { item.searched = true; c.grid.version++; return; }
-    const inRange = player.position.distanceTo(c.position) <= SEARCH_MAX_DISTANCE;
+    const inRange = player.position.distanceTo(c.livePosition) <= SEARCH_MAX_DISTANCE;
     const need = searchTimeFor(def, gearMultipliers(this.ctx.progression?.derived).searchSpeedMul);
     let t = c.searchProgress.get(item.uid) ?? 0;
     if (inRange && dt > 0) { t += dt; c.searchProgress.set(item.uid, t); }

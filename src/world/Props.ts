@@ -4,6 +4,7 @@ import type { Random } from '@/shared';
 import { type BuildCtx, composeMatrix, displace, isSpotFree, merge, paint, paintGradient, scratch, xform } from './build';
 import { HALF } from './Terrain';
 import { smoothstep } from './noise';
+import { propHullOf } from './propHull';
 
 interface Part { geo: THREE.BufferGeometry; mat: THREE.Material; castShadow: boolean; receiveShadow: boolean }
 interface Variant {
@@ -85,11 +86,6 @@ export class Props {
       return g;
     });
     const boulderVar = boulders.map((g) => this.variant([{ geo: g, mat: rockMat, castShadow: true, receiveShadow: true }], 700, 'boulder'));
-    // 2026-09-08 (엄폐): the drawn half-extents of each displaced variant, measured once. The collider below stays
-    // where it was (0.82 × s — a rock you can hug without an invisible wall), but bullets are stopped by these:
-    // the old ray cylinder was ~30 % narrower and ~0.5 m taller than the rock, so shots went through the visible
-    // sides and stopped in the air above it. XZ takes the mean of the two axes because the mesh is randomly yawed.
-    const boulderHull = boulders.map((g) => hullOf(g));
     this.scatter(ctx, rng, { count: Math.round(1000 * b.boulderDensity), limit: HALF + 70, clusterFreq: 0.012, clusterBias: 0.15 }, (x, z) => {
       const outside = Math.abs(x) > HALF - 6 || Math.abs(z) > HALF - 6;
       const s = outside ? rng.range(2.5, 7.5) : (rng.chance(0.12) ? rng.range(3.2, 5.5) : rng.range(1.0, 2.8));
@@ -98,14 +94,17 @@ export class Props {
       const vi = rng.int(0, boulderVar.length - 1);
       const v = boulderVar[vi];
       const sy = s * rng.range(0.8, 1.15);
-      this.place(v, composeMatrix(x, y, z, rng.range(0, Math.PI * 2), rng.range(-0.25, 0.25), rng.range(-0.25, 0.25), s, sy, s), rng.range(0.85, 1.1));
+      // `composeMatrix` 는 공유 스크래치를 돌려준다 — `place` 는 복사만 하므로 바로 아래 실측에 그대로 쓴다
+      const m = composeMatrix(x, y, z, rng.range(0, Math.PI * 2), rng.range(-0.25, 0.25), rng.range(-0.25, 0.25), s, sy, s);
+      this.place(v, m, rng.range(0.85, 1.1));
       if (!outside || Math.abs(x) < HALF + 6 && Math.abs(z) < HALF + 6) {
-        const hull = boulderHull[vi];
-        // 2026-09-09 (지형지물 위 걷기): 이동 콜라이더도 **보이는 실루엣** 이다 — 예전의 `s*0.82 / s*1.3` 은
-        // 눈에 보이는 바위보다 좁고 ~0.5 s 높아서, 엄폐로 안기면 옆구리가 비고 위에는 올라설 수가 없었다.
-        // 이제 총알과 발이 같은 원기둥을 본다: 낮은 바위는 `PROP_STEP_UP_MAX` 안이라 걸어 올라가진다.
-        const r = hull.xz * s, h = hull.y * sy;
-        ctx.hash.add(new THREE.Vector3(x, y, z), r, h, 'rock', { radius: r, height: h });
+        // 2026-09-09 (지형지물 위 걷기): 총알과 발이 같은 원기둥을 본다 — 낮은 바위는 `PROP_STEP_UP_MAX` 안이라
+        // 걸어 올라가진다. 2026-09-10: 그 원기둥을 메시 전체(`hullOf`)가 아니라 **땅 위로 보이는 부분**에서 잰다
+        // (`footprintOf` — 묻힌 적도 · 경사지 옆구리 · 튀어나온 정점 하나가 보이지 않는 벽을 세우던 것).
+        // 2026-09-11: 원 하나(방위 평균 반지름)가 아니라 **볼록 윤곽**이다 (`propHull.ts`) — 길쭉한 바위의 긴 쪽으로
+        // 파고들지도, 짧은 쪽에서 앞서 막지도 않는다. 총알은 높이별 층 윤곽을 본다.
+        const pc = propHullOf(ctx, boulders[vi], m);
+        if (pc) ctx.hash.addHull(new THREE.Vector3(pc.x, y, pc.z), pc.hull, Math.max(0.05, pc.top - y), 'rock');
       }
     });
 
@@ -118,10 +117,8 @@ export class Props {
       return g;
     });
     const spireVar = spires.map((g) => this.variant([{ geo: g, mat: rockMat, castShadow: true, receiveShadow: true }], 160, 'spire'));
-    // A cone's widest ring **is** its base, so the measured hull is exactly the silhouette at foot / chest height —
-    // the part anyone hides behind or walks into. Higher up the cylinder is wider than the drawn spire; that is the
-    // same trade a boulder makes and it is the safe direction for 엄폐.
-    const spireHull = spires.map((g) => hullOf(g));
+    // A cone's widest ring **is** its base — but the base is buried `0.4 × s`, so the ring you actually walk into is the
+    // one where the cone leaves the ground. `footprintOf` measures exactly that (2026-09-10).
     this.scatter(ctx, rng, { count: Math.round(210 * b.spireDensity), limit: HALF - 12, clusterFreq: 0.02, clusterBias: -0.15 }, (x, z) => {
       const s = rng.range(1.4, 3.6);
       if (!isSpotFree(ctx, x, z, s * 0.95, { maxSlope: 0.45, padExtra: 6 })) return;
@@ -129,13 +126,15 @@ export class Props {
       const vi = rng.int(0, spireVar.length - 1);
       const v = spireVar[vi];
       const sy = s * rng.range(0.9, 1.5);
-      this.place(v, composeMatrix(x, y, z, rng.range(0, Math.PI * 2), rng.range(-0.12, 0.12), rng.range(-0.12, 0.12), s, sy, s), rng.range(0.85, 1.05));
-      // 2026-09-09: both cylinders are the measured hull now. `s * 0.8` was **narrower** than the drawn base, so
+      const m = composeMatrix(x, y, z, rng.range(0, Math.PI * 2), rng.range(-0.12, 0.12), rng.range(-0.12, 0.12), s, sy, s);
+      this.place(v, m, rng.range(0.85, 1.05));
+      // 2026-09-09: both cylinders are the measured silhouette. `s * 0.8` was **narrower** than the drawn base, so
       // shots slipped past the visible rock; the old `s * 4.2` collider also ignored the instance's own `sy`.
       // A spire is always ≥ 5 m tall, so it stays a wall — `getSurfaceY` never offers its top as a step.
-      const hull = spireHull[vi];
-      const r = hull.xz * s, h = hull.y * sy;
-      ctx.hash.add(new THREE.Vector3(x, y, z), r, h, 'rock', { radius: r, height: h });
+      // 2026-09-10: measured above the ground (`footprintOf`), not over the whole cone (`hullOf`).
+      // 2026-09-11: 볼록 윤곽 + 층 — 위로 좁아지는 원뿔 옆 허공에서 총알이 멈추지 않는다.
+      const pc = propHullOf(ctx, spires[vi], m);
+      if (pc) ctx.hash.addHull(new THREE.Vector3(pc.x, y, pc.z), pc.hull, Math.max(0.05, pc.top - y), 'rock');
     });
 
     /* Trees */
@@ -209,7 +208,7 @@ export class Props {
 
     /* Crystal clusters */
     const crystalVars: Variant[] = [];
-    const crystalHull: Array<{ xz: number; y: number }> = [];
+    const crystalGeos: THREE.BufferGeometry[] = [];
     for (let k = 0; k < 3; k++) {
       const parts: THREE.BufferGeometry[] = [];
       const n = 4 + k * 2;
@@ -224,7 +223,7 @@ export class Props {
       }
       const g = merge(parts);
       paintGradient(g, b.crystal.clone().multiplyScalar(0.35), b.crystal);
-      crystalHull.push(hullOf(g));
+      crystalGeos.push(g);
       crystalVars.push(this.variant([{ geo: g, mat: this.crystalMat, castShadow: true, receiveShadow: false }], 200, 'crystal'));
     }
     this.scatter(ctx, rng, { count: Math.round(340 * b.crystalDensity), limit: HALF - 12, clusterFreq: 0.025, clusterBias: -0.12 }, (x, z) => {
@@ -233,12 +232,13 @@ export class Props {
       const y = ctx.terrain.getHeightAt(x, z) - 0.2;
       const vi = rng.int(0, crystalVars.length - 1);
       const v = crystalVars[vi];
-      this.place(v, composeMatrix(x, y, z, rng.range(0, Math.PI * 2), 0, 0, s, s, s), rng.range(0.9, 1.1));
-      // 2026-09-09: measured cluster hull instead of the guessed `0.8 / 2.5` — a short cluster is now something a
-      // shot really stops on, and a tall one keeps blocking movement at its drawn height.
-      const hull = crystalHull[vi];
-      const r = hull.xz * s, h = hull.y * s;
-      ctx.hash.add(new THREE.Vector3(x, y, z), r, h, 'crystal', { radius: r, height: h });
+      const m = composeMatrix(x, y, z, rng.range(0, Math.PI * 2), 0, 0, s, s, s);
+      this.place(v, m, rng.range(0.9, 1.1));
+      // 2026-09-09: measured cluster hull instead of the guessed `0.8 / 2.5`.
+      // 2026-09-11: 볼록 윤곽 — 조각 사이로 뻗은 결정 끝을 원 하나로 덮지 않는다. 머리 위로 기운 조각은
+      // 이동 윤곽(지면 ~2.2 m)에서 빠지고 총알 층에만 남는다.
+      const pc = propHullOf(ctx, crystalGeos[vi], m);
+      if (pc) ctx.hash.addHull(new THREE.Vector3(pc.x, y, pc.z), pc.hull, Math.max(0.05, pc.top - y), 'crystal');
     });
 
     /* Grass tufts (decoration only) */
@@ -282,11 +282,13 @@ export class Props {
       if (!isSpotFree(ctx, x, z, r, { maxSlope: 0.3, padExtra: 2 })) return;
       const lift = kind === 0 ? s * 0.42 : kind === 1 ? -0.3 * s : 0.02;
       const y = ctx.terrain.getHeightAt(x, z) + lift;
-      this.place(debrisVars[kind], composeMatrix(x, y, z, rng.range(0, Math.PI * 2), kind === 0 ? rng.range(-0.15, 0.15) : rng.range(-0.3, 0.3), kind === 0 ? rng.range(-0.15, 0.15) : rng.range(-0.3, 0.3), s, s, s), rng.range(0.85, 1.1));
+      const m = composeMatrix(x, y, z, rng.range(0, Math.PI * 2), kind === 0 ? rng.range(-0.15, 0.15) : rng.range(-0.3, 0.3), kind === 0 ? rng.range(-0.15, 0.15) : rng.range(-0.3, 0.3), s, s, s);
+      this.place(debrisVars[kind], m, rng.range(0.85, 1.1));
       if (kind !== 2) {
+        // 2026-09-11: 기울어진 상자 · 포드 껍질도 볼록 윤곽 (모서리 스윕 원이 아니다)
         const base = kind === 0 ? y - lift : y;
-        const h = Math.max(0.2, y + hull!.y * s - base);
-        ctx.hash.add(new THREE.Vector3(x, base, z), r, h, 'debris', { radius: r, height: h });
+        const pc = propHullOf(ctx, kind === 0 ? crateGeo : podGeo, m);
+        if (pc) ctx.hash.addHull(new THREE.Vector3(pc.x, base, pc.z), pc.hull, Math.max(0.2, pc.top - base), 'debris');
       }
     });
 

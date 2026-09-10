@@ -4,7 +4,7 @@ import {
   DETECT_HIGHLIGHT_COLOR, DETECT_ENEMY_COLOR, IMPLANT_SCAN_REVEAL_TIME,
   INTERACT_PILLAR_OPACITY, SCAN_PILLAR_HEIGHT,
 } from '@/shared';
-import { makePillarGeometry, makePillarMaterial } from './pillar';
+import { makePillarGeometry, makePillarMaterial, pillarAllowed } from './pillar';
 
 /**
  * Pool size. Phase 12's 정찰 is one wide `IMPLANT_SCAN_RADIUS` (70 m) pulse that reveals every interactable **and**
@@ -90,6 +90,8 @@ export class ScanReveal {
     const dur = duration > 0 ? duration : IMPLANT_SCAN_REVEAL_TIME;
     const expires = this.ctx.time + dur;
     for (const t of targets) {
+      // 2026-09-11: 빛기둥은 시체에만 — 적은 붉은 투시 실루엣(`enemies.setXray`)과 화살표가, 나머지는 나침반이 알린다.
+      if (!pillarAllowed(t.id)) continue;
       const key = `${t.kind}:${t.id}`;
       const existing = this.reveals.find((r) => r.key === key);
       if (existing) {
@@ -101,7 +103,7 @@ export class ScanReveal {
       if (this.reveals.length >= MAX_REVEALS) this.reveals.shift();
       this.reveals.push({ key, kind: t.kind, position: t.position.clone(), object: t.object ?? null, expires });
     }
-    this.ensureScene();
+    if (this.reveals.length > 0) this.ensureScene();
   }
 
   private clear(): void {

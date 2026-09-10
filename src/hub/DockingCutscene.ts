@@ -133,6 +133,8 @@ export class DockingCutscene {
   }
 
   get finished(): boolean { return this.done; }
+  /** Seconds of the cutscene played so far (the hub prebuilds the destination ship off this, 2026-09-10). */
+  get elapsed(): number { return this.t * this.duration; }
 
   dispose(): void {
     this.done = true;

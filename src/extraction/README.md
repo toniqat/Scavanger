@@ -69,6 +69,11 @@ screen via GameFlow). If a flow is already active locally only the countdown / n
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
+- **2026-09-10 (콘솔에 감지 빛기둥 없음)** — 탈출 신호 콘솔(`extract_<padId>`)과 함선 안 이륙 스위치
+  (`ship_liftoff_switch`)의 `Interactable` 에 `hidePillar: true`. 가까이 가면 `ui/hud/Detection` 이 세우던 청록
+  빛기둥이 더 이상 서지 않는다 (콘솔 자체가 발광 장치라 루팅 표시와 헷갈렸다 — 사용자 요청). 활성화 뒤 패드
+  한가운데서 오르는 **신호탄 연기(`FlareColumn`)는 그대로**다 — 그것은 감지 표시가 아니라 착륙 지점 표시다.
+
 - **2026-09-10 (뒷문 · 탑승 이동 · 도착 렉)** — 플레이 피드백 3건.
 
   1. **뒷문 자리가 실제로 뚫렸다.** 외피가 상자 하나(`4.2 × 3.3 × 7.2`)라 그 **뒷면이 화물칸 입구 바로 뒤에**

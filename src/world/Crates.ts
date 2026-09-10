@@ -15,8 +15,9 @@ interface CrateInst {
   root: THREE.Group;
   lid: THREE.Group;
   light: THREE.Mesh;
-  beam: THREE.Mesh | null;
   animT: number;      // -1 idle, else seconds since open started
+  /** 이 클라이언트가 이미 한 번 열었나 (2026-09-11) — `def.opened` 는 누가 열었든 열린 모습이다. */
+  rolled: boolean;
   interactable: Interactable;
 }
 
@@ -28,13 +29,29 @@ export class Crates {
   private geometries: THREE.BufferGeometry[] = [];
   private materials: THREE.Material[] = [];
   private lightMats = new Map<number, THREE.MeshStandardMaterial>();
-  private beamMat: THREE.MeshBasicMaterial | null = null;
   private gameCtx: GameContext | null = null;
+  private readonly byId = new Map<string, CrateInst>();
+  /** 이 클라이언트에서 뚜껑이 처음 열렸을 때 (월드가 `crate opened` 로 분대에 알린다). */
+  private onOpened: ((id: string) => void) | null = null;
   private puffs: Puffs | null = null;
 
   constructor() { this.group.name = 'Crates'; }
 
   getDefs(): readonly CrateDef[] { return this.defs; }
+
+  /** 2026-09-11: 열린 모습 동기화 — 이 클라이언트에서 뚜껑이 처음 열리면 불린다. */
+  setOpenListener(cb: ((id: string) => void) | null): void { this.onOpened = cb; }
+
+  /**
+   * 2026-09-11: 분대원이 연 상자를 **열린 모습**으로 (뚜껑 · 불빛만, 이벤트 · 통계 · 소리 없음).
+   * 빛기둥이 사라진 대신 "누가 이미 조사했나" 를 이 모습이 말한다. 이 묶음의 상자가 아니면 false.
+   */
+  markOpened(id: string): boolean {
+    const inst = this.byId.get(id);
+    if (!inst) return false;
+    if (!inst.def.opened) { inst.def.opened = true; inst.animT = 0; inst.light.visible = false; }
+    return true;
+  }
 
   build(ctx: BuildCtx, game: GameContext): void {
     this.gameCtx = game;
@@ -46,8 +63,6 @@ export class Crates {
       this.lightMats.set(tier, m);
       this.materials.push(m);
     }
-    this.beamMat = new THREE.MeshBasicMaterial({ color: 0xffc040, transparent: true, opacity: 0.22, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
-    this.materials.push(this.beamMat);
 
     // geometry per tier (body incl. frame + stripes), one lid geometry per tier
     const bodyGeos = new Map<number, THREE.BufferGeometry>();
@@ -58,9 +73,7 @@ export class Crates {
     }
     this.geometries.push(...bodyGeos.values(), ...lidGeos.values());
     const lightGeo = new THREE.BoxGeometry(0.16, 0.08, 0.06);
-    const beamGeo = new THREE.CylinderGeometry(0.28, 0.5, 16, 10, 1, true);
-    xform(beamGeo, { x: 0, y: 8, z: 0 });
-    this.geometries.push(lightGeo, beamGeo);
+    this.geometries.push(lightGeo);
 
     // ── placement ─────────────────────────────────────────────────────
     const placements: { x: number; z: number; tier: number }[] = [];
@@ -136,16 +149,9 @@ export class Crates {
       light.position.set(0.4, CRATE_H - 0.12, CRATE_D / 2 + 0.02);
       root.add(light);
 
-      let beam: THREE.Mesh | null = null;
-      if (p.tier === 4) {
-        beam = new THREE.Mesh(beamGeo, this.beamMat);
-        beam.position.y = CRATE_H;
-        beam.frustumCulled = false;
-        root.add(beam);
-      }
-
+      /* 2026-09-11: 4티어 상자의 빛기둥(빔)을 걷어냈다 — 빛기둥은 시체에만 선다 (사용자 결정). */
       const inst: CrateInst = {
-        def, root, lid, light, beam, animT: -1,
+        def, root, lid, light, animT: -1, rolled: false,
         interactable: {
           id: def.id,
           position: def.position,
@@ -160,6 +166,7 @@ export class Crates {
         },
       };
       this.crates.push(inst);
+      this.byId.set(def.id, inst);
       this.group.add(root);
       game.interactables.register(inst.interactable);
     }
@@ -172,12 +179,15 @@ export class Crates {
   private onInteract(inst: CrateInst): void {
     const game = this.gameCtx;
     if (!game) return;
-    const first = !inst.def.opened;
-    if (first) {
+    if (!inst.def.opened) {
       inst.def.opened = true;
       inst.animT = 0;
       inst.light.visible = false;
-      if (inst.beam) inst.beam.visible = false;
+      this.onOpened?.(inst.def.id);
+    }
+    const first = !inst.rolled;
+    if (first) {
+      inst.rolled = true;
       game.stats.cratesOpened++;
       game.bus.emit('audio:play', { id: 'crate_open', position: inst.def.position });
       this.puffs?.burst(inst.def.position.x, inst.def.position.y + CRATE_H, inst.def.position.z, 14);
@@ -191,7 +201,6 @@ export class Crates {
       const ph = time * (tier === 4 ? 6 : 2.5) + tier;
       m.emissiveIntensity = (ph % (Math.PI * 2)) < 0.6 ? 3.0 : 0.25;
     }
-    if (this.beamMat) this.beamMat.opacity = 0.16 + 0.08 * Math.sin(time * 2.4);
     for (let i = 0; i < this.crates.length; i++) {
       const c = this.crates[i];
       if (c.animT < 0) continue;
@@ -211,13 +220,14 @@ export class Crates {
       this.group.remove(c.root);
     }
     this.crates.length = 0;
+    this.byId.clear();
+    this.onOpened = null;
     this.defs.length = 0;
     for (const g of this.geometries) g.dispose();
     this.geometries.length = 0;
     for (const m of this.materials) m.dispose();
     this.materials.length = 0;
     this.lightMats.clear();
-    this.beamMat = null;
     if (this.puffs) { this.group.remove(this.puffs.points); this.puffs.dispose(); this.puffs = null; }
     this.group.removeFromParent();
     this.gameCtx = null;

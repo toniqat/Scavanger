@@ -122,7 +122,7 @@ export class ResumeGate {
 /* ── 데스크톱 셸 커서 (Phase 12) ──────────────────────────────────────────────────────────────────────────────────
  * The Electron shell never shows the gate: the lock is retaken by the shell's own Escape handling, and while no screen
  * owns the cursor the OS cursor is simply hidden (`body.desktop-nocursor`), whether or not the lock is held right now.
- * A screen taking cursor mode (the Alt 커서 included — it is a cursor owner) shows it again; result / title screens are
+ * A screen taking cursor mode shows it again; result / title screens are
  * not gameplay phases, so the cursor is visible there.
  */
 const DESKTOP_NOCURSOR_CLASS = 'desktop-nocursor';

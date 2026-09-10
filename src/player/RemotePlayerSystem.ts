@@ -11,6 +11,7 @@ import { STRIDE_MIN_SPEED } from './PlayerController';
 import type { CarryHost, CarryStatus, CarryTarget } from './Carry';
 /* appended (2026-09-09): 아군의 강하 포드 */
 import { RemotePods } from './RemotePods';
+import { SoldierPool } from './SoldierPool';
 
 const EMPTY: readonly RemotePlayerRef[] = [];
 /** 스크래치 — `pod drop` 좌표 (핫 패스는 아니지만 프레임당 할당을 만들지 않는다). */
@@ -104,9 +105,11 @@ const _cw = new THREE.Vector3();
 /**
  * Renders every peer in `ctx.net.getRemotePlayers()` as a `RemoteAvatar`. Avatars are created on demand
  * (first frame a ref is seen, or on `net:remotePlayerAdded`), driven every frame from the interpolated ref,
- * and disposed on `net:remotePlayerRemoved`, when `!ref.connected` (unless `suspended`), when the ref disappears
+ * and ended on `net:remotePlayerRemoved`, when `!ref.connected` (unless `suspended`), when the ref disappears
  * from the list, and wholesale on `game:abort` / `game:newMission` / `hub:entered` (refs that survive are
  * re-avatared next frame). Runs in every phase — hub avatars render whenever `ctx.net` still lists remote refs.
+ * 2026-09-10: an ended avatar's `SoldierModel` is **parked** in `soldierPool` rather than disposed, and the next
+ * avatar of the same slot colour reuses it — so those wholesale clears no longer rebuild every body.
  *
  * Phase 2: every downed, alive, connected, non-stale ref gets a `revive:<peerId>` `Interactable` (hold E
  * PLAYER_REVIVE_HOLD within PLAYER_REVIVE_RANGE) that relays `revive progress/cancel/done` to that peer;
@@ -149,8 +152,15 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
   /** 2026-09-10: 원격 발소리 — peer 별 마지막 걸음 인덱스와 시각 (`remote:footstep`). */
   private readonly steps = new Map<PeerId, StepState>();
 
+  /**
+   * 2026-09-10: parked `SoldierModel`s keyed by accent — every `clearAll` / `remove` hands the body back here and the
+   * next avatar of that slot colour takes it, so crossing ship ↔ planet no longer rebuilds the bodies.
+   */
+  private readonly soldierPool = new SoldierPool();
+
   init(ctx: GameContext): void {
     this.ctx = ctx;
+    // 2026-09-10: the three remote pods (and their thruster lights) enter the scene here, once, and never leave it
     this.pods = new RemotePods(ctx.scene);
     // the player owns the carry rules but not the avatars / refs — hand it this system as its carry host
     (ctx.player as unknown as { setCarryHost?(h: CarryHost | null): void } | null)?.setCarryHost?.(this);
@@ -221,6 +231,10 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
 
   dispose(): void {
     this.clearAll();
+    // final teardown only: `clearAll` merely hides the pods and parks the bodies
+    this.pods?.dispose();
+    this.pods = null;
+    this.soldierPool.dispose();
     (this.ctx?.player as unknown as { setCarryHost?(h: CarryHost | null): void } | null)?.setCarryHost?.(null);
     for (const u of this.unsubs) u();
     this.unsubs.length = 0;
@@ -367,7 +381,7 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
     let av = this.avatars.get(ref.id);
     if (av && av.ref !== ref) { this.remove(ref.id); av = undefined; } // ref object was recreated
     if (!av) {
-      av = new RemoteAvatar(ref, this.ctx.scene);
+      av = new RemoteAvatar(ref, this.ctx.scene, this.soldierPool);
       this.avatars.set(ref.id, av);
       ref.avatar = av;
     } else if (ref.avatar !== av) {

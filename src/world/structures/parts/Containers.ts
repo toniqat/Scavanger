@@ -44,8 +44,15 @@ interface Inst {
   spec: ContainerSpec;
   root: THREE.Group;
   door: THREE.Object3D;
+  lamp: THREE.Mesh;
   anim: number;                 // −1 idle, else seconds since opening
+  /** 문이 열린 **모습** — 누가 열었든 (2026-09-11: 분대원이 연 것도 `markOpened` 로 열린다). */
   opened: boolean;
+  /**
+   * 이 클라이언트가 이미 한 번 열었나 (2026-09-11 분리). 키카드 내용물 채우기 · `structure:investigated` 는
+   * **내 첫 개봉**에 걸린다 — 남이 먼저 열어 문이 열려 있어도 내 캐시에는 키카드가 없으므로 여기서 채워야 한다.
+   */
+  rolled: boolean;
   interactable: Interactable;
 }
 
@@ -63,11 +70,30 @@ export class ContainerSet {
   private game: GameContext | null = null;
   /** 이미 조사한 구역 (구역당 `structure:investigated` 한 번). */
   private readonly investigated = new Set<string>();
+  private readonly byId = new Map<string, Inst>();
+  /** 이 클라이언트에서 컨테이너 문이 처음 열렸을 때 (월드가 `crate opened` 로 분대에 알린다). */
+  private onOpened: ((id: string) => void) | null = null;
 
   constructor(name = 'StructureContainers') { this.group.name = name; }
 
-  /** 이미 열려 있는 컨테이너 id (호스트 동기화가 필요하지 않다 — inventory/ 가 컨테이너를 이미 동기화한다). */
   get count(): number { return this.insts.length; }
+
+  /** 2026-09-11: 열린 모습 동기화 — 이 클라이언트에서 문이 처음 열리면 불린다. */
+  setOpenListener(cb: ((id: string) => void) | null): void { this.onOpened = cb; }
+
+  /**
+   * 2026-09-11: 분대원이 연 컨테이너를 **열린 모습**으로 (문이 열리는 애니메이션만, 이벤트 · 내용물 없음).
+   * 이 묶음의 것이 아니면 false. 빛기둥이 사라진 대신 "누가 이미 조사했나" 를 이 모습이 말한다.
+   */
+  markOpened(id: string): boolean {
+    const inst = this.byId.get(id);
+    if (!inst) return false;
+    if (!inst.opened) { inst.opened = true; inst.anim = 0; inst.lamp.visible = false; }
+    return true;
+  }
+
+  /** 열린 모습인가 (디버그 · 스모크). */
+  isOpened(id: string): boolean { return this.byId.get(id)?.opened ?? false; }
 
   build(ctx: BuildCtx, game: GameContext, specs: readonly ContainerSpec[]): void {
     this.game = game;
@@ -103,7 +129,7 @@ export class ContainerSet {
       lamp.position.set(0.28, STYLE_H[spec.style] - 0.22, STYLE_R[spec.style] * 0.66);
       root.add(lamp);
 
-      const inst: Inst = { spec, root, door, anim: -1, opened: false, interactable: null as unknown as Interactable };
+      const inst: Inst = { spec, root, door, lamp, anim: -1, opened: false, rolled: false, interactable: null as unknown as Interactable };
       inst.interactable = {
         id: `container:${spec.id}`,
         position: spec.position,
@@ -114,6 +140,7 @@ export class ContainerSet {
         interact: () => this.open(inst),
       };
       this.insts.push(inst);
+      this.byId.set(spec.id, inst);
       this.group.add(root);
       game.interactables.register(inst.interactable);
       if (!spec.dynamic) {
@@ -128,10 +155,15 @@ export class ContainerSet {
     const game = this.game;
     if (!game) return;
     const spec = inst.spec;
-    const first = !inst.opened;
-    if (first) {
+    const first = !inst.rolled;
+    if (!inst.opened) {
       inst.opened = true;
       inst.anim = 0;
+      inst.lamp.visible = false;
+      this.onOpened?.(spec.id);
+    }
+    if (first) {
+      inst.rolled = true;
       // 키카드가 든 컨테이너만 내용물을 직접 채운다 — 나머지는 상자 코드가 티어로 굴린다.
       if (spec.bonusDefId) {
         const items = this.rollWithBonus(game, spec);
@@ -185,7 +217,9 @@ export class ContainerSet {
       this.group.remove(c.root);
     }
     this.insts.length = 0;
+    this.byId.clear();
     this.investigated.clear();
+    this.onOpened = null;
     for (const g of this.geos) g.dispose();
     this.geos = [];
     for (const m of this.mats) m.dispose();

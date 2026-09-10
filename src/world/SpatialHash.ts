@@ -1,11 +1,16 @@
 import type * as THREE from 'three';
-import type { Obstacle } from '@/shared';
+import type { Obstacle, ObstacleHull } from '@/shared';
+import { hullRadiusFrom } from './hull';
 
 /** Obstacle with internal bookkeeping (dedupe stamp for ray queries). */
 export interface ObstacleEntry extends Obstacle {
   stamp: number;
   /** what created it — 'rock' | 'tree' | 'nest' | 'crate' | 'wall' | 'pole' | 'crystal' | 'debris' */
   kind: string;
+  /** 2026-09-11 (world 내부): 레이가 무시한다 — 깨진 창틀 (`structures/parts/Glass`). */
+  passRays?: boolean;
+  /** 2026-09-11 (world 내부): 반지름 `SMALL_BODY_R` 미만의 몸(투척물)은 밀어내지 않는다 — 깨진 창틀. */
+  passSmall?: boolean;
 }
 
 /**
@@ -82,6 +87,27 @@ export class SpatialHash {
       position, radius: Math.hypot(halfX, halfZ), height, stamp: 0, kind,
       box: { halfX, halfZ, yaw },
     };
+    this.insert(e);
+    return e;
+  }
+
+  /**
+   * 2026-09-11 — **경사 발판** (`Obstacle.ramp`): 계단. 상자와 같은 OBB 이고 윗면이 로컬 +X 로 `rise` 만큼 올라간다
+   * (`obb.rampTopAt`). `position.y` 는 밑면, `height` 는 **높은 쪽 끝**의 윗면까지다.
+   */
+  addRamp(position: THREE.Vector3, halfX: number, halfZ: number, yaw: number, height: number, rise: number, kind: string): ObstacleEntry {
+    const e = this.addBox(position, halfX, halfZ, yaw, height, kind);
+    e.ramp = { rise: Math.max(0, Math.min(height, rise)) };
+    return e;
+  }
+
+  /**
+   * 2026-09-11 — **볼록 다각형 기둥** (`Obstacle.hull`): 바위 · 첨탑 · 크리스탈 · 잔해. `radius` 는 계약대로
+   * `position` 에서 가장 먼 꼭짓점(층 포함)까지의 외접원이라 버킷팅 · `overlaps` · `query` 는 그대로다.
+   * `position.y` 는 밑면, `height` 는 그려진 윗면까지다.
+   */
+  addHull(position: THREE.Vector3, hull: ObstacleHull, height: number, kind: string): ObstacleEntry {
+    const e: ObstacleEntry = { position, radius: Math.max(0.05, hullRadiusFrom(hull, position.x, position.z)), height, stamp: 0, kind, hull };
     this.insert(e);
     return e;
   }

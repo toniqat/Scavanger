@@ -6,6 +6,8 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { GameContext, getPlanet, type GameSystem } from '@/shared';
 import { Atmosphere } from './Atmosphere';
 import { FxManager } from './fx/FxManager';
+import { LightBudget } from './LightBudget';
+import { ShaderWarmup } from './ShaderWarmup';
 
 const MAX_DT = 0.05;
 
@@ -22,6 +24,10 @@ export class Engine {
   readonly camera: THREE.PerspectiveCamera;
   readonly atmosphere: Atmosphere;
   readonly fx: FxManager;
+  /** 2026-09-10: the scene's point-light count never changes (padding lights) — see `LightBudget`. */
+  readonly lights: LightBudget;
+  /** 2026-09-10: `ctx.shaders` — compile before showing, hold the frame while the driver links. */
+  readonly shaders: ShaderWarmup;
 
   private readonly systems: GameSystem[] = [];
   private composer: EffectComposer | null = null;
@@ -59,12 +65,25 @@ export class Engine {
     this.resize();
     window.addEventListener('resize', () => this.resize());
 
+    this.lights = new LightBudget(this.scene);
+    // compile against the target the scene is really drawn into: the program key's colour space / tone mapping follow it
+    this.shaders = new ShaderWarmup(this.renderer, this.scene, this.camera, this.lights,
+      () => (this.postEnabled && this.composer ? this.composer.readBuffer : null));
+    this.ctx.shaders = this.shaders;
+
     this.ctx.bus.on('world:ready', ({ seed, planet }) => {
       /* Phase 11: a selected planet names its own sky palette; without one the sky is still drawn from the seed. */
       const def = getPlanet(planet ?? this.ctx.missionPlanet);
       const p = def ? this.atmosphere.applyPlanet(def) : this.atmosphere.applySeed(seed);
       this.renderer.toneMappingExposure = p.exposure;
       this.fx.clear();
+      /*
+       * 2026-09-10: a whole new world is about to be drawn for the first time. Its shaders used to compile inside that
+       * first render — two frames of ~3 s at every drop. Hold instead: the rest of `game:newMission` still runs (hub
+       * teardown, hellpod, consoles …), the scene is compiled at the end of the frame, and simulation time stands still
+       * until the driver has linked every program.
+       */
+      void this.shaders.holdForScene();
     });
     this.ctx.bus.on('game:abort', () => { this.fx.clear(); this.atmosphere.setOverride(1, null, 0); });
     /* appended (2026-09-09): 환경 재해가 시야를 좁히는 유일한 통로. 마지막으로 받은 값 하나만 남는다. */
@@ -170,8 +189,10 @@ export class Engine {
     if (dt > MAX_DT) dt = MAX_DT;
 
     ctx.time += dt;
-    const sdt = this.paused ? 0 : dt * ctx.timeScale;
-    if (!this.paused && ctx.isGameplayPhase()) {
+    // a shader hold freezes the simulation exactly like `game:paused {freeze}` (systems still run with dt 0)
+    const frozen = this.paused || this.shaders.holding;
+    const sdt = frozen ? 0 : dt * ctx.timeScale;
+    if (!frozen && ctx.isGameplayPhase()) {
       ctx.missionTime += sdt;
       ctx.stats.timeSeconds = ctx.missionTime;
     }
@@ -187,8 +208,13 @@ export class Engine {
     this.fx.update(sdt, this.camera);
     this.atmosphere.update(ctx.time, this.camera, ctx.player ? ctx.player.position : null);
 
-    if (this.postEnabled && this.composer) this.composer.render(dt);
-    else this.renderer.render(this.scene, this.camera);
+    this.shaders.update();         // resolve warm-ups whose programs finished linking
+    this.shaders.beforeRender();   // light budget + a queued whole-scene warm-up (may start a hold)
+    // while holding, the canvas keeps the last frame: drawing now would block on the very compile we are waiting for
+    if (!this.shaders.holding) {
+      if (this.postEnabled && this.composer) this.composer.render(dt);
+      else this.renderer.render(this.scene, this.camera);
+    }
 
     this.perfGuard(dt);
     ctx.input.endFrame();

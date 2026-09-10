@@ -379,6 +379,8 @@ export class ExtractionSystem implements GameSystem {
         position: console.interactPoint,
         radius: 2.6,
         holdTime: 1.2,
+        // 2026-09-10: 콘솔은 그 자체로 눈에 띄는 장치다 — 감지 빛기둥(`ui/hud/Detection`)을 세우지 않는다.
+        hidePillar: true,
         getPrompt: () => (this.ctx.phase === 'playing' ? '탈출 신호 전송 (E 길게)' : null),
         canInteract: () => this.ctx.phase === 'playing' && !this.activePad,
         interact: () => {
@@ -472,6 +474,7 @@ export class ExtractionSystem implements GameSystem {
       position: ship.interiorSwitchWorld,
       radius: 2.4,
       holdTime: 1.0,
+      hidePillar: true,   // 2026-09-10: 함선 안 출발 버튼에도 감지 빛기둥을 세우지 않는다
       getPrompt: () => {
         if (!this.boarded || this.ctx.phase !== 'shipLanded') return null;
         if (this.liftoffReady()) return '이륙 스위치 작동 (E 길게)';

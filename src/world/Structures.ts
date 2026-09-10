@@ -2,56 +2,65 @@
  * src/world/Structures.ts — **버려진 구조물** (전진기지 · 연구실 · 불시착 함선).
  *
  * 들어갈 수 있는 폐건물이다. 안에는 상호작용 컨테이너가 밀집해 있고, 전진기지 · 연구실에는 **지하실**이
- * 딸릴 수 있다 — 지하실 해치는 **언제나 잠겨 있고** 그 구조물의 지상층 컨테이너 **딱 하나**에 키카드가
- * 들어 있다 (`key_basement`, 열면 소비된다). 각 구조물의 컴퓨터로는 주변 안개를 걷는 **행성 스캔**을
- * 한 번 돌릴 수 있다.
+ * 딸릴 수 있다 — 지하실 문은 **언제나 잠겨 있고** 그 구조물의 지상층 컨테이너 **딱 하나**에 키카드가
+ * 들어 있다 (`key_basement`, 열면 소비된다). 전진기지 · 연구실의 **옥상**에는 주변 안개를 걷는 **맵 스캐너**가
+ * 있다 (구조물당 1회).
  *
- * 소유 계약: `StructureDef` · `WorldRef.getStructures / structureAt` · `structure:unlocked / scanned /
- * investigated` · `StructureMessage`(`struct`) / `StructureRequest`(`structq`) · `STRUCTURE_*` 상수.
- * 수치는 `data/structures.csv` (`structures/model.ts` 가 읽는다).
+ * 2026-09-11 — 천장 · 2층 · 창문 · 사다리 · 옥상 스캐너 · 실내 조명 · 지하 계단 복도와 서 있는 문
+ * (지오메트리는 `structures/parts/Build`, 유리는 `parts/Glass`, 파동은 `parts/ScanWave`). 여기에는 수명 ·
+ * 상호작용 · 멀티만 남는다.
  *
- * 생성 순서: 부지는 **`layout.ts`** 가 잡는다 (지형이 그 자리를 평탄화하고 지하실 구덩이를 파야 하므로).
- * 건물은 **지형 · 아웃포스트 다음, 소품 · 상자 앞**에 세운다 — `isSpotFree` 가 건물 자리를 이미 알고 있어야
- * 방 안에 바위가 서지 않는다.
+ * 소유 계약: `StructureDef` · `LadderDef` · `WorldRef.getStructures / structureAt / getLadders` ·
+ * `structure:unlocked / scanned / investigated / glassBroken` · `ladder:grab` · `StructureMessage`(`struct`) /
+ * `StructureRequest`(`structq`) · `STRUCTURE_*` 상수. 수치는 `data/structures.csv` (`structures/model.ts` 가 읽는다).
  *
- * 멀티: 지하실 개방 · 행성 스캔은 **호스트 권위**다 (`Gather` 의 `harv` / `harvq` 와 같은 모양).
+ * 멀티: 지하실 개방 · 맵 스캔은 **호스트 권위**다 (`Gather` 의 `harv` / `harvq` 와 같은 모양). 창문은 **깬 사람이
+ * 알린다** — 누가 깨든 결과가 같아서 확정이 필요 없다.
  */
 import * as THREE from 'three';
 import {
-  Layers,
-  STRUCTURE_INTERACT_RANGE, STRUCTURE_LABEL_KO, STRUCTURE_SCAN_HOLD_S, STRUCTURE_SCAN_RADIUS,
-  STRUCTURE_UNLOCK_HOLD_S,
-  type GameContext, type PeerId, type Random, type StructureDef, type StructureKind,
+  LADDER_GRAB_RANGE, Layers, LightPool, STRUCTURE_INTERACT_RANGE, STRUCTURE_LABEL_KO, STRUCTURE_POINT_LIGHTS,
+  STRUCTURE_SCAN_HOLD_S, STRUCTURE_SCAN_RADIUS, STRUCTURE_UNLOCK_HOLD_S,
+  type GameContext, type LadderDef, type LightFixture, type PeerId, type Random, type StructureDef, type StructureKind,
   type StructureMessage, type StructureRequest,
 } from '@/shared';
+import { FxManager, ParticleBurst } from '@/core/fx';
 import { type BuildCtx, merge, paint, paintGradient, xform } from './build';
 import type { ObstacleEntry, SpatialHash } from './SpatialHash';
-import { PALETTE, type BuildingPlan, type Spot, buildBuilding, buildWreck, mergeOrNull } from './structures/parts/Build';
+import { PALETTE, type BuildingPlan, type DoorSpot, type Spot, buildBuilding, buildWreck, mergeOrNull } from './structures/parts/Build';
 import { ContainerSet, type ContainerSpec } from './structures/parts/Containers';
+import { GlassSet, type WindowSpec } from './structures/parts/Glass';
+import { ScanWave } from './structures/parts/ScanWave';
 import { pickTier, structureRow } from './structures/model';
 
 /** 지하실 열쇠의 아이템 def id. `items/` 가 아직 등록하지 않았으면 키카드가 그냥 안 들어간다 (문은 그대로 잠긴다). */
 export const BASEMENT_KEY_DEF = 'key_basement';
 
-/** 해치가 옆으로 밀려나는 데 걸리는 시간(초). */
-const HATCH_SLIDE_S = 0.9;
+/** 지하실 문짝이 옆으로 밀려나는 데 걸리는 시간(초). */
+const DOOR_SLIDE_S = 1.1;
 
 interface Inst {
   def: StructureDef;
-  /** 잠긴 동안 계단 구멍을 막는 상자 콜라이더. 열리면 hash 에서 빠진다. */
-  hatchEntry: ObstacleEntry | null;
-  hatchMesh: THREE.Object3D | null;
-  hatchDx: number;
-  hatchDz: number;
-  hatchAnim: number;      // −1 idle
+  /** 잠긴 동안 복도를 막는 문짝 콜라이더. 열리면 hash 에서 빠진다. */
+  doorEntry: ObstacleEntry | null;
+  doorMesh: THREE.Object3D | null;
+  readonly doorBase: THREE.Vector3;
+  readonly doorSlide: THREE.Vector3;
+  doorAnim: number;      // −1 idle
   scanMat: THREE.MeshStandardMaterial | null;
+  /** 옥상 스캐너 자리 (불시착 함선은 null). */
+  scanPos: THREE.Vector3 | null;
 }
+
+const _c = new THREE.Vector3();
+const _n = new THREE.Vector3();
 
 export class Structures {
   readonly group = new THREE.Group();
   private readonly insts: Inst[] = [];
   private readonly byId = new Map<string, Inst>();
   private readonly defs: StructureDef[] = [];
+  private readonly ladders: LadderDef[] = [];
   /**
    * 로그 강하를 이미 굴린 구역 (`structure:investigated` 의 `zoneId`). 구조물 id 뿐 아니라 **선로 플랫폼 ·
    * 전차**의 zoneId 도 들어간다 — 그쪽은 `StructureDef` 가 아니라 여기 문자열로만 남는다.
@@ -60,6 +69,9 @@ export class Structures {
    */
   private readonly roguedZones = new Set<string>();
   private readonly containers = new ContainerSet('StructureContainers');
+  private glass = new GlassSet();
+  private scanWave = new ScanWave();
+  private lightPool: LightPool | null = null;
   private geos: THREE.BufferGeometry[] = [];
   private mats: THREE.Material[] = [];
   private structMat: THREE.MeshStandardMaterial | null = null;
@@ -93,6 +105,17 @@ export class Structures {
 
   getDefs(): readonly StructureDef[] { return this.defs; }
 
+  getLadders(): readonly LadderDef[] { return this.ladders; }
+
+  /** 창문 (디버그 · 스모크). */
+  get glassSet(): GlassSet { return this.glass; }
+  /** 맵 스캐너 파동 (디버그 · 스모크). */
+  get scanWaves(): ScanWave { return this.scanWave; }
+  /** 광원 풀 (디버그 · 스모크). */
+  get lights(): LightPool | null { return this.lightPool; }
+  /** 컨테이너가 열린 모습인가 (디버그 · 스모크). */
+  isContainerOpened(id: string): boolean { return this.containers.isOpened(id); }
+
   /** `(x, z)` 를 품는 구조물 (자기 `radius` 안), 없으면 null. */
   structureAt(x: number, z: number): StructureDef | null {
     for (let i = 0; i < this.defs.length; i++) {
@@ -103,21 +126,32 @@ export class Structures {
     return null;
   }
 
+  /** 컨테이너가 이 클라이언트에서 처음 열렸을 때 (월드가 `crate opened` 를 보낸다). */
+  setOpenListener(cb: ((id: string) => void) | null): void { this.containers.setOpenListener(cb); }
+  /** 남이 연 컨테이너를 열린 모습으로. 이 묶음의 것이 아니면 false. */
+  markContainerOpened(id: string): boolean { return this.containers.markOpened(id); }
+
   build(ctx: BuildCtx, game: GameContext): void {
     this.game = game;
     this.hash = ctx.hash;
     this.hookBus();
     this.ensureNet();
     this.built = true;
+    /* 광원 풀은 **구조물이 하나도 없어도** 만든다 — 레이드의 점광원 개수를 맵마다 같게 둔다 (`core/LightBudget`). */
+    this.lightPool = new LightPool(this.group, STRUCTURE_POINT_LIGHTS, [], 'StructureLight');
+    this.group.add(this.scanWave.group);
+    ctx.root.add(this.group);
     const sites = ctx.layout.structures;
     if (sites.length === 0) return;
     const rng = ctx.rng.fork('structures');
 
     this.structMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.84, metalness: 0.2 });
-    this.glowMat = new THREE.MeshStandardMaterial({ color: 0x08120f, emissive: new THREE.Color(0x74e0b0), emissiveIntensity: 1.6 });
+    this.glowMat = new THREE.MeshStandardMaterial({ color: 0x08120f, emissive: new THREE.Color(0xfff0d0), emissiveIntensity: 1.6 });
     this.mats.push(this.structMat, this.glowMat);
 
     const specs: ContainerSpec[] = [];
+    const glassSpecs: { structureId: string; index: number; spec: WindowSpec }[] = [];
+    const fixtures: LightFixture[] = [];
     const counters: Partial<Record<StructureKind, number>> = {};
     for (const site of sites) {
       const row = structureRow(site.kind);
@@ -127,7 +161,8 @@ export class Structures {
       const id = `struct_${site.kind}_${n}`;
       const plan: BuildingPlan = {
         cx: site.pad.x, cz: site.pad.z, yaw: site.pad.yaw, y0: site.pad.height,
-        halfW: site.halfW, halfD: site.halfD, wallH: site.wallH, pit: site.pit,
+        halfW: site.halfW, halfD: site.halfD, wallH: site.wallH, pit: site.pit, floors: site.floors,
+        containers: row.containers, basementContainers: row.basementContainers,
       };
       const out = site.kind === 'wreck' ? buildWreck(ctx, plan, rng) : buildBuilding(ctx, plan, rng, site.kind === 'lab');
 
@@ -153,15 +188,18 @@ export class Structures {
         position: new THREE.Vector3(site.pad.x, site.pad.height, site.pad.z),
         yaw: site.pad.yaw,
         radius: Math.hypot(site.halfW, site.halfD) + 2,
-        hasBasement: out.hatch !== null,
-        basementDoor: out.hatch ? new THREE.Vector3(out.hatch.x, out.hatch.y, out.hatch.z) : null,
+        hasBasement: out.door !== null,
+        basementDoor: out.door ? new THREE.Vector3(out.door.x, out.door.y, out.door.z) : null,
         unlocked: false, scanned: false, rogueDropUsed: false,
       };
-      const inst: Inst = { def, hatchEntry: null, hatchMesh: null, hatchDx: 0, hatchDz: 0, hatchAnim: -1, scanMat: null };
+      const inst: Inst = {
+        def, doorEntry: null, doorMesh: null, doorBase: new THREE.Vector3(), doorSlide: new THREE.Vector3(), doorAnim: -1,
+        scanMat: null, scanPos: null,
+      };
 
-      /* 컨테이너: 지상층 + (있으면) 지하실. 키카드는 **지상층 하나**에만 들어간다 — 지하실 안에 넣으면
-       * 영영 못 여는 방이 된다. */
-      const ground = out.containers.slice(0, row.containers);
+      /* 컨테이너: 지상층(1 · 2층) + (있으면) 지하실. 키카드는 **지상 컨테이너 하나**에만 들어간다 — 지하실 안에
+       * 넣으면 영영 못 여는 방이 된다. 자리 고르기는 `buildBuilding` 이 이미 끝냈다 (조명이 그 방에 달린다). */
+      const ground = out.containers;
       const keyIdx = def.hasBasement && ground.length > 0 ? rng.int(0, ground.length - 1) : -1;
       ground.forEach((s, i) => specs.push({
         id: `${id}_c${i}`, position: new THREE.Vector3(s.x, s.y, s.z), yaw: s.yaw,
@@ -170,14 +208,27 @@ export class Structures {
         bonusDefId: i === keyIdx ? BASEMENT_KEY_DEF : undefined,
       }));
       const deepTiers = row.basementTiers.length > 0 ? row.basementTiers : row.tiers;
-      out.basementContainers.slice(0, row.basementContainers).forEach((s, i) => specs.push({
+      out.basementContainers.forEach((s, i) => specs.push({
         id: `${id}_b${i}`, position: new THREE.Vector3(s.x, s.y, s.z), yaw: s.yaw,
         tier: pickTier(deepTiers, rng.next()), style: ((i + 1) % 3) as 0 | 1 | 2,
         zoneId: id, zoneKind: site.kind,
       }));
 
-      this.buildConsole(ctx, game, rng, inst, out.console);
-      if (out.hatch) this.buildHatch(ctx, game, rng, inst, out.hatch);
+      if (out.console) this.buildConsole(ctx, game, rng, inst, out.console);
+      if (out.door) this.buildDoor(ctx, game, rng, inst, out.door);
+      out.ladders.forEach((l, i) => {
+        const ladder: LadderDef = {
+          id: `ladder_${id}_${i}`,
+          base: new THREE.Vector3(l.base.x, l.base.y, l.base.z),
+          topY: l.topY,
+          normal: new THREE.Vector3(l.normal.x, 0, l.normal.z).normalize(),
+          exit: new THREE.Vector3(l.exit.x, l.exit.y, l.exit.z),
+        };
+        this.ladders.push(ladder);
+        this.registerLadder(game, ladder);
+      });
+      out.windows.forEach((w, i) => glassSpecs.push({ structureId: id, index: i, spec: w }));
+      fixtures.push(...out.fixtures);
 
       this.insts.push(inst);
       this.byId.set(id, inst);
@@ -185,23 +236,28 @@ export class Structures {
     }
 
     this.containers.build(ctx, game, specs);
-    ctx.root.add(this.group);
+    this.glass.build(ctx, glassSpecs, (sid, idx, point) => this.breakGlass(sid, idx, true, point));
+    this.group.add(this.glass.group);
+    this.lightPool.setFixtures(fixtures);
     this.requestSync();
   }
 
-  update(dt: number, time: number): void {
+  /** `eye` = 조명 풀이 가까운 방을 고르는 기준 (플레이어 눈 · 없으면 카메라). */
+  update(dt: number, time: number, eye: THREE.Vector3 | null): void {
     if (!this.built) return;
     this.containers.update(dt, time);
-    if (this.glowMat) this.glowMat.emissiveIntensity = 1.1 + 0.5 * Math.sin(time * 1.7);
+    if (this.glowMat) this.glowMat.emissiveIntensity = 1.35 + 0.15 * Math.sin(time * 1.7);
     for (const inst of this.insts) {
       if (inst.scanMat) inst.scanMat.emissiveIntensity = inst.def.scanned ? 0.3 : 1.1 + 0.7 * Math.sin(time * 3.1);
-      if (inst.hatchAnim < 0 || !inst.hatchMesh) continue;
-      inst.hatchAnim += dt;
-      const t = Math.min(1, inst.hatchAnim / HATCH_SLIDE_S);
+      if (inst.doorAnim < 0 || !inst.doorMesh) continue;
+      inst.doorAnim += dt;
+      const t = Math.min(1, inst.doorAnim / DOOR_SLIDE_S);
       const e = 1 - Math.pow(1 - t, 3);
-      inst.hatchMesh.position.set(inst.hatchDx * e, 0, inst.hatchDz * e);
-      if (t >= 1) { inst.hatchAnim = -1; inst.hatchMesh.visible = false; }
+      inst.doorMesh.position.copy(inst.doorBase).addScaledVector(inst.doorSlide, e);
+      if (t >= 1) inst.doorAnim = -1;
     }
+    if (eye && this.lightPool) this.lightPool.update(dt, eye.x, eye.z, -1, eye.y);
+    this.scanWave.update(dt);
   }
 
   dispose(): void {
@@ -211,10 +267,21 @@ export class Structures {
       game?.interactables.unregister(`struct:${inst.def.id}:scan`);
       game?.interactables.unregister(`struct:${inst.def.id}:door`);
     }
+    for (const l of this.ladders) {
+      game?.interactables.unregister(`ladder:${l.id}:bottom`);
+      game?.interactables.unregister(`ladder:${l.id}:top`);
+    }
+    this.ladders.length = 0;
     this.insts.length = 0;
     this.byId.clear();
     this.defs.length = 0;
     this.roguedZones.clear();
+    this.glass.dispose();
+    this.glass = new GlassSet();
+    this.scanWave.dispose();
+    this.scanWave = new ScanWave();
+    this.lightPool?.dispose();
+    this.lightPool = null;
     for (const g of this.geos) g.dispose();
     this.geos = [];
     for (const m of this.mats) m.dispose();
@@ -227,7 +294,7 @@ export class Structures {
     this.built = false;
   }
 
-  /* ── 컴퓨터 (행성 스캔) ────────────────────────────────────────────── */
+  /* ── 옥상 맵 스캐너 ────────────────────────────────────────────────── */
 
   private buildConsole(ctx: BuildCtx, game: GameContext, rng: Random, inst: Inst, spot: Spot): void {
     const parts: THREE.BufferGeometry[] = [];
@@ -239,6 +306,16 @@ export class Structures {
     xform(hood, { x: spot.x, y: spot.y + 1.4, z: spot.z }, new THREE.Euler(-0.32, -spot.yaw, 0));
     paint(hood, PALETTE.METAL_DARK, 0.06, rng);
     parts.push(hood);
+    // 옥상 스캐너다운 안테나 접시 (그림만)
+    const px = spot.x - Math.cos(spot.yaw) * 0.72, pz = spot.z - Math.sin(spot.yaw) * 0.72;
+    const dishPole = new THREE.BoxGeometry(0.1, 1.1, 0.1);
+    xform(dishPole, { x: px, y: spot.y + 1.6, z: pz });
+    paint(dishPole, PALETTE.METAL_DARK);
+    parts.push(dishPole);
+    const dish = new THREE.CylinderGeometry(0.55, 0.12, 0.22, 12);
+    xform(dish, { x: px, y: spot.y + 2.2, z: pz }, new THREE.Euler(0.6, -spot.yaw, 0));
+    paint(dish, PALETTE.METAL, 0.05, rng);
+    parts.push(dish);
     const geo = merge(parts);
     this.geos.push(geo);
     const mesh = new THREE.Mesh(geo, this.structMat!);
@@ -252,84 +329,80 @@ export class Structures {
     this.mats.push(scanMat);
     inst.scanMat = scanMat;
     const screen = new THREE.Mesh(screenGeo, scanMat);
-    screen.position.set(
-      spot.x + Math.sin(spot.yaw) * 0.14,
-      spot.y + 1.42,
-      spot.z - Math.cos(spot.yaw) * 0.14,
-    );
+    screen.name = `${inst.def.id}_console_screen`;
+    screen.position.set(spot.x + Math.sin(spot.yaw) * 0.14, spot.y + 1.42, spot.z - Math.cos(spot.yaw) * 0.14);
     screen.rotation.set(-0.32, -spot.yaw, 0);
     this.group.add(screen);
 
     ctx.hash.add(new THREE.Vector3(spot.x, spot.y, spot.z), 0.55, 1.1, 'console');
 
     const pos = new THREE.Vector3(spot.x, spot.y, spot.z);
+    inst.scanPos = pos;
     game.interactables.register({
       id: `struct:${inst.def.id}:scan`,
       position: pos,
       radius: STRUCTURE_INTERACT_RANGE,
       holdTime: STRUCTURE_SCAN_HOLD_S,
-      getPrompt: () => (inst.def.scanned ? null : '행성 스캔 (E)'),
+      hidePillar: true,
+      getPrompt: () => (inst.def.scanned ? null : '맵 스캔 (E)'),
       canInteract: () => !inst.def.scanned && !!this.game?.isGameplayActive(),
       interact: () => this.requestScan(inst),
     });
   }
 
-  /* ── 지하실 해치 ──────────────────────────────────────────────────── */
+  /* ── 지하실 문 (서 있는 문짝) ──────────────────────────────────────── */
 
-  private buildHatch(ctx: BuildCtx, game: GameContext, rng: Random, inst: Inst,
-    hatch: Spot & { halfX: number; halfZ: number }): void {
-    const plate = new THREE.BoxGeometry(hatch.halfX * 2, 0.26, hatch.halfZ * 2);
-    xform(plate, { x: 0, y: -0.13, z: 0 });
-    paint(plate, PALETTE.METAL, 0.06, rng);
-    const stripes: THREE.BufferGeometry[] = [plate];
-    for (const s of [-1, 1]) {
-      const st = new THREE.BoxGeometry(hatch.halfX * 1.7, 0.03, 0.22);
-      xform(st, { x: 0, y: 0.005, z: s * hatch.halfZ * 0.45 });
-      paint(st, PALETTE.RUST);
-      stripes.push(st);
+  private buildDoor(ctx: BuildCtx, game: GameContext, rng: Random, inst: Inst, door: DoorSpot): void {
+    const parts: THREE.BufferGeometry[] = [];
+    const panel = new THREE.BoxGeometry(door.halfW * 2, door.height, door.thick);
+    xform(panel, { x: 0, y: door.height / 2, z: 0 });
+    paintGradient(panel, PALETTE.METAL_DARK, PALETTE.METAL, 0, door.height);
+    parts.push(panel);
+    for (const y of [0.45, door.height - 0.55]) {
+      const st = new THREE.BoxGeometry(door.halfW * 1.8, 0.16, door.thick + 0.03);
+      xform(st, { x: 0, y, z: 0 });
+      paint(st, new THREE.Color(0x9a7a2a), 0.05, rng);
+      parts.push(st);
     }
-    const geo = merge(stripes);
+    const handle = new THREE.BoxGeometry(0.08, 0.5, door.thick + 0.12);
+    xform(handle, { x: door.halfW * 0.7, y: 1.1, z: 0 });
+    paint(handle, PALETTE.METAL_DARK);
+    parts.push(handle);
+    const geo = merge(parts);
     this.geos.push(geo);
     const mesh = new THREE.Mesh(geo, this.structMat!);
     mesh.castShadow = true;
+    mesh.name = `${inst.def.id}_door`;
     const holder = new THREE.Group();
-    holder.name = `${inst.def.id}_hatch`;
+    holder.name = `${inst.def.id}_door_holder`;
+    holder.position.set(door.x, door.y, door.z);
+    holder.rotation.y = -door.yaw;
     holder.add(mesh);
-    const outer = new THREE.Group();
-    outer.position.set(hatch.x, hatch.y, hatch.z);
-    outer.rotation.y = -hatch.yaw;
-    outer.add(holder);
-    this.group.add(outer);
-    inst.hatchMesh = holder;
-    // 열리면 **로컬 +X** 로 미끄러진다 (holder 는 이미 회전한 부모 밑이라 로컬 축이면 된다)
-    inst.hatchDx = hatch.halfX * 2 + 0.5;
-    inst.hatchDz = 0;
+    this.group.add(holder);
+    inst.doorMesh = holder;
+    inst.doorBase.set(door.x, door.y, door.z);
+    inst.doorSlide.set(door.slideX, 0, door.slideZ);
+    /* 잠긴 동안은 문짝이 곧 콜라이더다 — 열리면 hash 에서 빠지고 옆으로 밀려난다. */
+    inst.doorEntry = ctx.hash.addBox(new THREE.Vector3(door.x, door.y, door.z), door.halfW, door.thick / 2 + 0.02, door.yaw, door.height, 'door');
 
-    /* 잠긴 동안은 이 뚜껑이 곧 콜라이더다. 밑면을 지상층 바닥 바로 아래에 두어 **윗면이 정확히 바닥
-     * 높이**가 되게 한다 — 그 위를 걸어 지나갈 수 있고, 열면 hash 에서 빠져 계단이 드러난다. */
-    inst.hatchEntry = ctx.hash.addBox(
-      new THREE.Vector3(hatch.x, hatch.y - 0.26, hatch.z), hatch.halfX, hatch.halfZ, hatch.yaw, 0.26, 'hatch',
-    );
-
-    // 카드 리더기 (해치 옆의 낮은 기둥 + LED)
+    // 카드 리더기 (복도 벽의 가슴 높이 상자 + LED)
     {
-      const rx = hatch.x - Math.sin(hatch.yaw) * (hatch.halfZ + 0.8);
-      const rz = hatch.z + Math.cos(hatch.yaw) * (hatch.halfZ + 0.8);
-      const post = new THREE.BoxGeometry(0.32, 1.15, 0.32);
-      xform(post, { x: rx, y: hatch.y + 0.58, z: rz }, new THREE.Euler(0, -hatch.yaw, 0));
-      paintGradient(post, PALETTE.METAL_DARK, PALETTE.METAL, hatch.y, hatch.y + 1.15);
-      this.geos.push(post);
-      const pm = new THREE.Mesh(post, this.structMat!);
-      pm.castShadow = true;
-      this.group.add(pm);
-      const led = new THREE.BoxGeometry(0.17, 0.11, 0.07);
-      xform(led, { x: rx, y: hatch.y + 0.98, z: rz }, new THREE.Euler(0, -hatch.yaw, 0));
+      const box = new THREE.BoxGeometry(0.3, 0.42, 0.16);
+      xform(box, { x: door.reader.x, y: door.y + 1.35, z: door.reader.z }, new THREE.Euler(0, -door.reader.yaw, 0));
+      paint(box, PALETTE.METAL_DARK);
+      this.geos.push(box);
+      const bm = new THREE.Mesh(box, this.structMat!);
+      bm.name = `${inst.def.id}_reader`;
+      this.group.add(bm);
+      const led = new THREE.BoxGeometry(0.17, 0.08, 0.2);
+      xform(led, { x: door.reader.x, y: door.y + 1.46, z: door.reader.z }, new THREE.Euler(0, -door.reader.yaw, 0));
       this.geos.push(led);
-      this.group.add(new THREE.Mesh(led, this.glowMat!));
-      ctx.hash.add(new THREE.Vector3(rx, hatch.y, rz), 0.26, 1.15, 'console');
+      const lm = new THREE.Mesh(led, this.glowMat!);
+      lm.name = `${inst.def.id}_reader_led`;
+      this.group.add(lm);
     }
 
-    const pos = new THREE.Vector3(hatch.x, hatch.y, hatch.z);
+    const pos = new THREE.Vector3(door.interact.x, door.interact.y, door.interact.z);
     const self = this;
     game.interactables.register({
       id: `struct:${inst.def.id}:door`,
@@ -347,6 +420,59 @@ export class Structures {
   private hasKeycard(): boolean {
     const inv = this.game?.inventory;
     return !!inv && inv.countWhere((def) => def.id === BASEMENT_KEY_DEF) > 0;
+  }
+
+  /* ── 사다리 ───────────────────────────────────────────────────────── */
+
+  /**
+   * 사다리마다 **발치 · 꼭대기** 두 `Interactable`. 누르면 `ladder:grab` 을 낼 뿐이고 오르내리기는 전부
+   * `player/` 가 한다. 매달려 있는 동안에는 두 프롬프트가 모두 숨는다 (E 가 사다리 놓기이기 때문이다).
+   */
+  private registerLadder(game: GameContext, ladder: LadderDef): void {
+    const self = this;
+    const can = (): boolean => !!self.game?.isGameplayActive() && !self.game.player?.climbingLadder && !self.game.player?.isDead;
+    const grab = (from: 'bottom' | 'top'): void => {
+      const g = self.game;
+      if (!g || g.player?.climbingLadder) return;
+      g.bus.emit('ladder:grab', { ladder, from });
+    };
+    game.interactables.register({
+      id: `ladder:${ladder.id}:bottom`,
+      position: ladder.base.clone(),
+      radius: LADDER_GRAB_RANGE,
+      getPrompt: () => '사다리 오르기 (E)',
+      canInteract: can,
+      interact: () => grab('bottom'),
+    });
+    game.interactables.register({
+      id: `ladder:${ladder.id}:top`,
+      position: ladder.exit.clone(),
+      radius: LADDER_GRAB_RANGE,
+      getPrompt: () => '사다리 내려가기 (E)',
+      canInteract: can,
+      interact: () => grab('top'),
+    });
+  }
+
+  /* ── 창문 ─────────────────────────────────────────────────────────── */
+
+  /** 창 한 장을 깬다. `byLocal` = 이 클라이언트의 총알 · 투척물이 깼다 (와이어로 알린다). */
+  private breakGlass(structureId: string, index: number, byLocal: boolean, point?: THREE.Vector3): void {
+    if (!this.glass.breakPane(structureId, index)) return;
+    const ctx = this.game;
+    if (!ctx) return;
+    const center = this.glass.centerOf(structureId, index, new THREE.Vector3());
+    if (!center) return;
+    const fx = FxManager.get();
+    if (fx && this.glass.normalOf(structureId, index, _n)) {
+      _c.copy(point ?? center);
+      ParticleBurst.sparks(fx.additive, _c, _n, 12, 3.5, 0xd8f4ff);
+      ParticleBurst.sparks(fx.additive, _c, _n.negate(), 9, 2.5, 0xd8f4ff);
+    }
+    ctx.bus.emit('audio:play', { id: 'glass_break', position: center });
+    ctx.bus.emit('structure:glassBroken', { structureId, index, position: center, byLocal });
+    const net = ctx.net;
+    if (byLocal && ctx.isMultiplayer && net) net.send({ t: 'struct', ev: 'glass', id: structureId, w: index }, 'others');
   }
 
   /* ── 상호작용 → 호스트 권위 ───────────────────────────────────────── */
@@ -375,18 +501,23 @@ export class Structures {
     if (ctx.isMultiplayer && net) net.send({ t: 'struct', ev: 'unlocked', id: inst.def.id, by }, 'others');
   }
 
-  /** `announce` = 이 클라이언트의 조작으로 일어난 일인가 (토스트 · 소리). */
+  /**
+   * `announce` = 이 클라이언트의 조작으로 일어난 일인가 (토스트). **파동과 소리는 누구 화면에서든** 난다
+   * (옥상에서 누가 스캔하면 분대 전원이 맵을 훑는 파동을 본다).
+   */
   private applyScan(inst: Inst, announce: boolean): void {
     const ctx = this.game;
     if (!ctx || inst.def.scanned) return;
     inst.def.scanned = true;
-    ctx.world?.fog?.reveal(inst.def.position.x, inst.def.position.z, STRUCTURE_SCAN_RADIUS);
+    const at = inst.scanPos ?? inst.def.position;
+    ctx.world?.fog?.reveal(at.x, at.z, STRUCTURE_SCAN_RADIUS);
+    this.scanWave.fire(at);
     ctx.bus.emit('structure:scanned', {
       id: inst.def.id, kind: inst.def.kind, position: inst.def.position, radius: STRUCTURE_SCAN_RADIUS,
     });
+    ctx.bus.emit('audio:play', { id: 'scan_pulse', position: at, volume: 1, pitch: 0.7 });
     if (!announce) return;
-    ctx.bus.emit('audio:play', { id: 'scan_pulse', position: inst.def.position });
-    ctx.bus.emit('ui:notify', { text: `${STRUCTURE_LABEL_KO[inst.def.kind]} — 행성 스캔 완료`, kind: 'success', duration: 2.6 });
+    ctx.bus.emit('ui:notify', { text: `${STRUCTURE_LABEL_KO[inst.def.kind]} — 맵 스캔 완료`, kind: 'success', duration: 2.6 });
   }
 
   /** `consume` = 이 클라이언트가 키카드를 낸 사람인가. */
@@ -394,8 +525,8 @@ export class Structures {
     const ctx = this.game;
     if (!ctx || inst.def.unlocked) return;
     inst.def.unlocked = true;
-    if (inst.hatchEntry) { this.hash?.remove(inst.hatchEntry); inst.hatchEntry = null; }
-    inst.hatchAnim = 0;
+    if (inst.doorEntry) { this.hash?.remove(inst.doorEntry); inst.doorEntry = null; }
+    inst.doorAnim = 0;
     if (consume) {
       ctx.inventory?.consumeWhere((def) => def.id === BASEMENT_KEY_DEF, 1);
       ctx.bus.emit('audio:play', { id: 'keycard_use', position: inst.def.basementDoor ?? inst.def.position });
@@ -406,7 +537,7 @@ export class Structures {
     });
   }
 
-  /* ── 멀티 (호스트 권위) ───────────────────────────────────────────── */
+  /* ── 멀티 ─────────────────────────────────────────────────────────── */
 
   private ensureNet(): void {
     const ctx = this.game;
@@ -429,7 +560,6 @@ export class Structures {
     const ctx = this.game;
     if (!ctx || this.busHooked) return;
     this.busHooked = true;
-    // 조사한 그 순간 (성공 · 실패와 무관하게) 소진으로 표시한다 — enemies/ 는 읽기만 한다.
     this.unsubs.push(ctx.bus.on('structure:investigated', ({ zoneId }) => this.markRogued(zoneId)));
   }
 
@@ -447,11 +577,13 @@ export class Structures {
     net.send({ t: 'structq', ev: 'sync' }, 'host');
   }
 
-  /** 호스트 → 클라이언트. */
+  /** 호스트 → 클라이언트. 창문만은 **누구 → 전원**이라 호스트도 받는다. */
   private onMessage(m: StructureMessage): void {
     const ctx = this.game;
     const net = ctx?.net;
-    if (!ctx || !net || !ctx.isMultiplayer || net.isHost) return;
+    if (!ctx || !net || !ctx.isMultiplayer) return;
+    if (m.ev === 'glass') { this.breakGlass(m.id, m.w, false); return; }
+    if (net.isHost) return;
     if (m.ev === 'unlocked') {
       const inst = this.byId.get(m.id);
       // 키카드는 **연 사람의 것만** 사라진다
@@ -464,8 +596,28 @@ export class Structures {
       return;
     }
     for (const id of m.unlocked) { const i = this.byId.get(id); if (i) this.applyUnlock(i, null, false); }
-    for (const id of m.scanned) { const i = this.byId.get(id); if (i) this.applyScan(i, false); }
+    for (const id of m.scanned) { const i = this.byId.get(id); if (i) this.applyScanQuiet(i); }
     for (const id of m.rogued) this.markRogued(id);
+    for (const key of m.glass ?? []) {
+      const at = key.lastIndexOf(':');
+      if (at > 0) this.breakGlassQuiet(key.slice(0, at), Number(key.slice(at + 1)));
+    }
+  }
+
+  /** 늦게 합류한 사람의 동기화: 이미 끝난 스캔은 파동 · 소리 없이 상태만. */
+  private applyScanQuiet(inst: Inst): void {
+    if (inst.def.scanned) return;
+    inst.def.scanned = true;
+    const at = inst.scanPos ?? inst.def.position;
+    this.game?.world?.fog?.reveal(at.x, at.z, STRUCTURE_SCAN_RADIUS);
+  }
+
+  /** 늦게 합류한 사람의 동기화: 이미 깨진 창은 파편 · 소리 없이. */
+  private breakGlassQuiet(structureId: string, index: number): void {
+    if (!Number.isFinite(index)) return;
+    if (!this.glass.breakPane(structureId, index)) return;
+    const center = this.glass.centerOf(structureId, index, new THREE.Vector3());
+    if (center) this.game?.bus.emit('structure:glassBroken', { structureId, index, position: center, byLocal: false });
   }
 
   /** 클라이언트 → 호스트. */
@@ -496,6 +648,7 @@ export class Structures {
       unlocked: this.defs.filter((d) => d.unlocked).map((d) => d.id),
       scanned: this.defs.filter((d) => d.scanned).map((d) => d.id),
       rogued: [...this.roguedZones],
+      glass: this.glass.brokenKeys(),
     }, to);
   }
 }

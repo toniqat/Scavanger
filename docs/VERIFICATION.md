@@ -47,6 +47,15 @@ When you add a smoke script: add it to `SMOKES` in `scripts/verify.mjs` with the
 in `CLAUDE.md`.
 
 ## History (what was actually tested)
+- 2026-09-11 볼록 콜라이더 · 경사 계단 · 2층 건물 · 창문 · 사다리 · 옥상 스캐너 · 빛기둥은 시체에만 · 투척 궤적 50 % (`src/world/**` · `src/player/**` · `src/shared/**` 추가만 · `src/ui/hud/{pillar,Detection,ScanReveal}` · `src/weapons/{Grenade,fx/ThrowArc}` · `src/gadgets/ThrownGadget` · `src/enemies/{parts/Attacks,fx/RogueGrenade}` · `src/pickups/*` · `src/net/{Snapshotter,RemotePlayer}` · `src/audio/Synth` · `data/constants.csv` · `data/structures.csv` · 스모크 4개 수정 + `smoke-ladder` 신규): `npm run verify:all` → 3 red. `smoke-server-dist` · `smoke-pitch` 는 기존 환경 크래시(`net.ts` 확장자 · `F:\Project` 경로) — `node --experimental-strip-types scripts/smoke-server-dist.mjs` 로 따로 돌리면 **23/23** 이라 바뀐 `net.ts` 계약을 릴레이가 그대로 읽는다. `smoke-ui-p6 87/88` 은 **의도한 변경**(정찰 적 목표에 투시 기둥이 서던 단언 — 이제 시체에만)이라 단언을 고쳤고 `--only smoke-ui-p6` → **89/89**. `docs line: 2026-09-11: typecheck ok, typecheck-server ok, net-selftest 295/295, data-check ok, build 2,584.75 kB JS / 259.63 kB CSS, smoke-quickslots 73/73, smoke-phase2 57/57, smoke-weapons 136/136, smoke-stratagems 75/75, smoke-phase3 33/33, smoke-phase4 49/49, smoke-ship-rooms 72/72, smoke-tactical 87/87, smoke-controls-hub 139/139, smoke-inventory-p6 144/144, smoke-loadout 69/69, smoke-housing 206/206, smoke-console 63/63, smoke-progression 123/123, smoke-ui-p6 89/89 (단언 수정 후 재실행), smoke-search 61/61, smoke-ui-p5 136/136, smoke-enemy-alert 42/42, smoke-uniques 72/72, smoke-rogue-drop 30/30, smoke-meta 172/172, smoke-resume-gate 62/62, smoke-rogue-v2 52/52, smoke-training 112/112, smoke-library 126/126, smoke-ladder 38/38, smoke-enemy-delta 52/52, smoke-planets 86/86, smoke-ghost 86/86, smoke-social 138/138, smoke-ecology 90/90, smoke-props-collision 35/35, smoke-raidflow 59/59, smoke-server-dist exit 1 (기존, strip-types 로 23/23), smoke-pitch exit 1 (기존), smoke-hazard 43/43, smoke-tutorial 86/86, smoke-structures 115/115, smoke-lights 12/12, smoke-hangar 58/58, e2e-mp 156/156`.
+- 2026-09-10 바위 · 첨탑 콜라이더 = 땅 위 윤곽 (`src/world/Props.ts` `footprintOf` · `scripts/smoke-props-collision.mjs` 4번 검사 + 옮겨진 바위 매칭): ⚠ 작업 트리는 **다른 세션이 `src/core` · `src/shared` 를 고치는 중이라** 게임이 뜨지 않았다(`SCENE_POINT_LIGHT_BUDGET` export 없음 · typecheck 3 red 전부 그 파일들) — 그래서 **HEAD 워크트리 + 이 두 파일**로 검증했다(워크트리 typecheck 0 error). `node scripts/verify.mjs`(world 매핑) → `smoke-phase3 27/28` 하나 red(레이저 대기 중 페이즈가 hub 로 빠짐, 4레인 부하), `--rerun-failed` → **33/33**, 3분 3초 + 1분 7초. `docs line: 2026-09-10: typecheck ok, typecheck-server ok, net-selftest 295/295, data-check ok, smoke-stratagems 75/75, smoke-phase4 49/49, smoke-tactical 87/87, smoke-training 112/112, smoke-rogue-drop 30/30, smoke-phase3 33/33 (재실행), smoke-ecology 90/90, smoke-planets 86/86, smoke-props-collision 29/29, smoke-hazard 43/43, smoke-raidflow 59/59, smoke-structures 67/67, smoke-lights 4/4`. 별도 헤드리스 프로브: **바위 전수 조사**(4 행성 seed 1, 바위마다 16 방위로 내려 쏜 레이의 첫 가시 반지름 vs 콜라이더) 중앙값 0.47 → 0.09 m · p90 0.9 → 0.19 m · 0.5 m 초과 98–215 → 0; **폭풍의 눈 경계 재주행**(베르단트 III · 피로스 VII × 진행도 60/90 % × 16 방위 × 안팎, 달리기) 멈춤 6 → 3 이고 남은 셋은 54° 경사 둘 + 오르막의 1.9 m 잔해 상자 하나(보이는 장애물) — **바위 멈춤 2곳은 사라졌다**; 월드 생성 284–338 ms.
+- 2026-09-10 Alt 커서 제거 (`src/game/GameFlowSystem.ts` · `parts/Phases.ts` · `ResumeGate.ts` 주석 · `src/shared/Keybinds.ts` · `constants.ts` 주석 · `scripts/smoke-controls-hub.mjs` · `smoke-resume-gate.mjs`): `npm run verify` → 3 red, 7분 31초. `smoke-server-dist` · `smoke-pitch` 는 위 항목과 같은 기존 환경 크래시(`net.ts` 확장자 · `F:\Project` 경로, 두 스크립트 모두 무변경). `smoke-inventory-p6 143/144` 는 같은 분해 홀드 게이지 표본 플레이키이고 단독 재실행 **144/144**. 바꾼 스모크는 둘 다 통과 — `smoke-controls-hub 139/139`(Alt 단언 6개 삭제 · "Alt 는 커서를 풀지 않는다" 1개 추가로 144 → 139), `smoke-resume-gate 62/62`. ⚠ 러너가 e2e 전에 8787 릴레이를 재시작하면서 **밖에서 띄워 둔 `npm run dev:all` 이 통째로 내려갔다** (`scripts/dev-all.mjs` 는 자식 하나가 끝나면 전부 끈다 — vite 5273 도 같이). `docs line: 2026-09-10: typecheck ok, typecheck-server ok, net-selftest 295/295, data-check ok, smoke-quickslots 73/73, smoke-phase2 57/57, smoke-weapons 136/136, smoke-stratagems 75/75, smoke-phase3 33/33, smoke-phase4 49/49, smoke-ship-rooms 72/72, smoke-tactical 87/87, smoke-controls-hub 139/139, smoke-inventory-p6 144/144 (재실행), smoke-housing 206/206, smoke-loadout 69/69, smoke-console 63/63, smoke-progression 123/123, smoke-search 61/61, smoke-ui-p6 88/88, smoke-ui-p5 136/136, smoke-uniques 72/72, smoke-enemy-alert 42/42, smoke-rogue-drop 30/30, smoke-meta 172/172, smoke-resume-gate 62/62, smoke-training 112/112, smoke-library 126/126, smoke-rogue-v2 52/52, smoke-ghost 86/86, smoke-enemy-delta 52/52, smoke-ecology 90/90, smoke-planets 86/86, smoke-social 138/138, smoke-raidflow 59/59, smoke-props-collision 20/20, smoke-server-dist exit 1 (기존), smoke-pitch exit 1 (기존), smoke-tutorial 86/86, smoke-hazard 43/43, smoke-structures 67/67, smoke-lights 4/4, smoke-hangar 58/58, e2e-mp 156/156`.
+- 2026-09-10 전차 출발 알림 · 콘솔 빛기둥 · 전차 위 컨테이너 (`src/world/Rails.ts` · `Structures.ts` · `src/extraction/ExtractionSystem.ts` · `src/inventory/Container.ts` · `InventorySystem.ts` · **`src/shared/constants.ts` 추가 1줄** · `data/constants.csv` 1줄): `npm run verify:all` → 4 red, 7분 34초. 판정: **`smoke-server-dist` · `smoke-pitch` 는 변경을 stash 한 깨끗한 트리에서도 같은 크래시**(각각 `node` 가 `src/shared/net.ts` 를 못 읽음 `ERR_UNKNOWN_FILE_EXTENSION`, 스크립트에 박힌 `F:\Project\Scavanger\docs\pitch\pages` 경로 없음) — 이번 변경과 무관한 환경 문제로 남긴다. `smoke-ship-rooms 69/72` · `smoke-inventory-p6 143/144` 는 깨끗한 트리 `--rerun-failed` 에서 72/72 · 144/144, **변경된 트리 `--only` 재실행에서도 72/72 · 144/144** — 4레인 병렬 부하의 타이밍 플레이키(분해 홀드 게이지 표본이 이미 끝난 뒤에 찍힘 · 하우징 커서 픽). 그 밖에 전부 통과: `2026-09-10: typecheck ok, typecheck-server ok, net-selftest 295/295, data-check ok, build 2,539.51 kB JS / 259.63 kB CSS, smoke-quickslots 73/73, smoke-phase2 57/57, smoke-weapons 136/136, smoke-stratagems 75/75, smoke-phase3 33/33, smoke-phase4 49/49, smoke-ship-rooms 72/72 (재실행), smoke-tactical 87/87, smoke-controls-hub 144/144, smoke-inventory-p6 144/144 (재실행), smoke-loadout 69/69, smoke-housing 206/206, smoke-console 63/63, smoke-progression 123/123, smoke-search 61/61, smoke-ui-p6 88/88, smoke-ui-p5 136/136, smoke-uniques 72/72, smoke-enemy-alert 42/42, smoke-rogue-drop 30/30, smoke-meta 172/172, smoke-resume-gate 62/62, smoke-rogue-v2 52/52, smoke-library 126/126, smoke-training 112/112, smoke-enemy-delta 52/52, smoke-planets 86/86, smoke-ghost 86/86, smoke-social 138/138, smoke-ecology 90/90, smoke-props-collision 20/20, smoke-raidflow 59/59, smoke-server-dist exit 1 (기존), smoke-pitch exit 1 (기존), smoke-tutorial 86/86, smoke-structures 67/67, smoke-hazard 43/43, smoke-lights 4/4, smoke-hangar 58/58, e2e-mp 156/156`.
+
+  동작 확인은 일회성 헤드리스 프로브(커밋하지 않음, 시드 21): 380 m 떨어진 승강장에서 호출 → 토스트 `전차를 호출했다` 하나뿐 ·
+  전차 안에서 시동 → `전차가 곧 출발합니다` · 콘솔류 11개 `hidePillar=true` · 달리는 전차 객실 컨테이너가 2초 넘게
+  열린 채 유지(고치기 전 0.4초 만에 `closeAll`). 붕대 5초 홀드 8회(가속 · 곡선 · 정차 · 걸으면서)는 고치기 전에도
+  전부 끝까지 갔다 — 회복 끊김은 재현하지 못했다.
 - 2026-09-10 피칭 문서 23 → 31 페이지 (`docs/pitch/` · `scripts/shots-pitch.mjs` · 신규 `scripts/smoke-pitch.mjs` — **게임 코드 무변경**): `node scripts/verify.mjs --only smoke-pitch` → typecheck ok, typecheck-server ok, net-selftest 295/295, data-check ok, **smoke-pitch ok** — 49초. 새 스크립트가 31쪽을 전부 열어 JS 오류 0 · 사이드바 31 · `a.active` 각 1 · `.nextnav` 대상 파일 전부 실재 · 카드 넘기기(`1/5 → 2/5 → 되돌아 5/5`, ESC 닫힘, 단독 이미지에는 UI 없음)를 확인했다. `smoke-pitch` · `smoke-server-dist` 에 `standalone: true` 를 붙여 러너가 **쓰지도 않을 vite · 릴레이를 띄우지 않게** 했다(20초 절약, 로그에 `servers skipped`). 스크린샷은 `node scripts/shots-pitch.mjs` 로 20장을 새로 찍고 `npm run pitch:webp` (20.6 MB → 1.85 MB, −91 %). 촬영이 뜻대로 안 되던 셋은 [HISTORY 의 같은 날 6차 절](HISTORY.md)에 적었다.
 - 2026-09-10 조명 개수 버그 나머지 (`src/player/Hellpod.ts` · `src/game/parts/Leader.ts` · `GameFlowSystem.init` · 신규 `scripts/smoke-lights.mjs`): `npm run verify` (player + game + extraction 매핑 전체) → `smoke-phase4 48/49` 하나 red, `--rerun-failed` → **49/49** (이 스크립트의 알려진 플레이키 — 6차에서 A/B 교차로 고치기 전 코드에서도 같은 빈도로 재현됨을 확인했다). 그 밖에 **전부 통과**, 7분 30초 + 1분 1초. 새 `smoke-lights 4/4`.
 
@@ -1299,3 +1308,61 @@ smoke-hangar 58/58, e2e-mp 156/156
 
 이번 배치는 배포물(`electron/` · `server/tool.ts` · `scripts/pack-release.mjs`)을 건드리지 않아
 `npm run app:dist` 눈 확인은 생략했다 (`smoke-server-dist` 는 러너가 돌렸다).
+
+## 2026-09-10 — 멀티플레이 렉 (셰이더 선컴파일 · 점광원 예산 · 원격 포드 · 아바타 재사용)
+
+`npm run verify:all -- --keep-relay --url http://127.0.0.1:5284/` — **격리 vite(5284) + 격리 인메모리 릴레이(8799)** 로
+돌렸다. 같은 작업 트리에서 다른 세션이 vite 5273 · 릴레이 8787(접속 1명)을 쓰고 있어서, 러너가 8787 을 재시작하거나
+e2e 빠른 매칭이 남의 로비에 들어가지 않게 했다 (격리 vite 의 `/ws` 프록시만 8799 로 돌린 설정 파일 — 스모크는 전부
+같은 오리진 `/ws` 로 붙으므로 이것으로 충분하다). **6분 52초, 5건 실패** → 3건은 이번 계약 변경을 따라 스모크를
+고쳐 재실행 통과, 2건은 이번 변경과 무관.
+
+```
+2026-09-10: typecheck ok, typecheck-server ok, net-selftest 295/295, data-check ok, build 2,548.83 kB JS / 259.63 kB CSS,
+smoke-quickslots 73/73, smoke-phase2 57/57, smoke-weapons 136/136, smoke-stratagems 75/75, smoke-phase3 33/33,
+smoke-phase4 49/49, smoke-ship-rooms 71/72, smoke-tactical 87/87, smoke-controls-hub 139/139, smoke-inventory-p6 144/144,
+smoke-loadout 69/69, smoke-housing 206/206, smoke-console 63/63, smoke-progression 123/123, smoke-search 61/61,
+smoke-ui-p6 88/88, smoke-ui-p5 136/136, smoke-enemy-alert 42/42, smoke-uniques 72/72, smoke-rogue-drop 30/30,
+smoke-meta 172/172, smoke-resume-gate 62/62, smoke-rogue-v2 52/52, smoke-library 126/126, smoke-training 112/112,
+smoke-enemy-delta 52/52, smoke-planets 86/86, smoke-social 138/138, smoke-ghost 86/86, smoke-ecology 90/90,
+smoke-props-collision 29/29, smoke-raidflow 59/59, smoke-server-dist exit 1, smoke-pitch exit 1, smoke-tutorial 86/86,
+smoke-hazard 43/43, smoke-structures 67/67, smoke-lights 11/12, smoke-hangar 57/58, e2e-mp 156/156
+```
+
+재실행 (`node scripts/verify.mjs --only smoke-lights,smoke-ship-rooms,smoke-hangar --keep-relay --url …5284`):
+
+```
+2026-09-10: net-selftest 295/295, data-check ok, smoke-ship-rooms 72/72, smoke-lights 12/12, smoke-hangar 58/58
+```
+
+### 계약이 바뀌어 고친 스모크 3건
+
+- **`smoke-ship-rooms`** — "개인 함선 점광원 13" → **광원 풀 크기와 같다** (`interior.lights.size` 를 물어서 쓴다 —
+  `smoke-housing` 의 가구 개수 literal 교훈).
+- **`smoke-hangar`** — "격납고가 광원 9 개를 가진다" → **광원 자리 9 · 자기 광원 0** (광원은 공유 함선의 풀이 건다).
+- **`smoke-lights` 4 → 12** — 로드 경계도 예외 없이 개수 불변 + 도킹 · 공유 함선 · 격납고 · 분대원 포드 구간 + 예산
+  초과 · 선빌드 · 격납고 구역 · 강하 hold 해제. 첫 실행의 red 는 **세는 시점**이었다: `setInterval` 이 도킹 시작
+  (네트워크 메시지 핸들러 안)과 다음 프레임의 여분 보충 사이 — 아무것도 그리지 않는 틈 — 의 25→18 을 잡았다.
+  셰이더가 한 번도 보지 않은 숫자라 `scene.onBeforeRender` 에서 세도록 바꿨다 (three.js 가 광원을 모으기 직전).
+
+### 이번 변경과 무관한 red 2건 (둘 다 커밋 `2908926` 그대로의 스크립트)
+
+- **`smoke-pitch`** — `ROOT = 'F:/Project/Scavanger/docs/pitch'` 가 하드코딩돼 있다. 이 PC 의 저장소는 `D:` 다.
+- **`smoke-server-dist`** — `address rules` 절이 `src/shared/net.ts` 를 직접 import 한다. Node 22.17 은
+  `--experimental-strip-types` 없이는 `.ts` 를 읽지 못하고 러너는 스모크를 그 플래그 없이 띄운다.
+  둘 다 TODO C-45 · C-46.
+
+### 스모크 밖에서 잰 것 (헤드리스 2대 프로파일러, 격리 릴레이 — 저장소에 넣지 않았다)
+
+50 ms 를 넘긴 프레임, 같은 PC · ANGLE D3D11:
+
+| 순간 | 전 | 후 |
+|---|---|---|
+| 타이틀 → 개인 함선 | 1,649 ms | 104 ms |
+| 도킹 시작 | 240 ms | 없음 |
+| 공유 함선 도착 | 394 + 788 + 401 ms | 없음 (hold 19 ms) |
+| 강하 시작 | 3,488 + 3,437 + 315 ms | 507 + 493 + 70 ms (앞의 둘은 hold 안: 월드 생성 CPU + 씬 컴파일 순회) |
+| 분대원 포드 첫 강하 | 2,706 / 3,064 ms | 없음 |
+
+광원 개수: 전 = 개인 27 · 컷씬 15 · 공유 29 · 행성 20 (+ 분대원 포드마다 1) → 후 = 세션 내내 23 (방향광 · 반구광 포함 25).
+스크린샷 전후 비교: 개인 함선 복도 · 공유 함선 데크 · 격납고 동일, 격납고 맨 안쪽 오른쪽 벽만 약간 어둡다.

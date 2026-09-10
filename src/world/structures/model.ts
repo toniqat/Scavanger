@@ -34,6 +34,8 @@ export interface StructureRow {
   basementContainers: number;
   tiers: readonly TierWeight[];
   basementTiers: readonly TierWeight[];
+  /** 2층이 올라갈 확률 (2026-09-11). 0 = 늘 단층 (불시착 함선 · 선로 부속). */
+  upperChance: number;
 }
 
 const ROW_KINDS: readonly StructureRowKind[] = ['outpost', 'lab', 'wreck', 'rail_platform', 'tram'];
@@ -63,6 +65,7 @@ export const STRUCTURE_ROWS: readonly StructureRow[] = csvRows('structures.csv')
     basementContainers: r.int('basementContainers', { min: 0 }),
     tiers: tierList(r, 'tiers'),
     basementTiers: tierList(r, 'basementTiers'),
+    upperChance: r.num('upperChance', { min: 0, max: 1 }),
   };
 });
 
@@ -95,20 +98,39 @@ export function pickTier(tiers: readonly TierWeight[], roll: number): number {
 export const WALL_T = 0.42;
 /** 출입구 폭(m). */
 export const DOOR_W = 2.6;
-/** 지하실 계단이 지나갈 슬래브 구멍의 반길이(m). */
-export const STAIR_HALF = 1.5;
 /**
- * 지하실 계단 한 단의 최대 높이(m) — `PROP_STEP_UP_MAX`(0.9) 의 **절반 이하**여야 한다 (2026-09-10).
- *
- * 한 단에 서 있으면 `resolveCollision` 은 발 높이에서 `PROP_STEP_UP_MAX` 안에 있는 단만 통과시킨다.
- * 그보다 높은 첫 단이 몸통 반지름(`PLAYER_RADIUS` 0.45) 안에 들어오면 그 단이 벽이 되어 계단이 막힌다 —
- * 그래서 "통과되는 단" 이 두 단 이상 (= `2 × STAIR_TREAD_MIN` > 0.45) 되게 잡는다.
+ * 2026-09-11 — 계단은 **경사 콜라이더**(`Obstacle.ramp`)다 (`parts/Stairs`). 예전의 `STAIR_HALF` ·
+ * `STAIR_RISE_MAX` · `STAIR_TREAD_MIN` 은 "한 단이 벽이 되지 않게" 단 크기를 맞추던 값이라 필요가 없어졌다.
  */
-export const STAIR_RISE_MAX = 0.45;
-/** 지하실 계단 한 단의 최소 디딤폭(m). `PLAYER_RADIUS`(0.45) 보다 넓어야 한 단에 설 수 있다. */
-export const STAIR_TREAD_MIN = 0.62;
-/** 지하실 천장 슬래브 두께(m) — 윗면이 지상층 바닥과 정확히 같은 높이가 되게 밑으로 판다. */
+/** 계단 기울기 (높이 ÷ 수평 길이). 0.7 ≈ 35°. */
+export const STAIR_SLOPE = 0.7;
+/** 보이는 한 단의 높이(m) — 그림일 뿐 콜라이더와 무관하다. */
+export const STAIR_STEP_RISE = 0.3;
+/** 1층 → 2층 실내 계단 폭(m). */
+export const STAIR_W = 1.7;
+/** 층 사이 바닥판(= 아래층 천장 · 옥상) 두께(m). 1층 바닥판도 같은 두께라 지하실 천장이 된다. */
 export const SLAB_T = 0.5;
+/** 문 높이(m). 그 위는 상인방 벽이다 (천장이 생겼으므로 문은 벽의 구멍이다). */
+export const DOOR_H = 2.5;
+/** 창문 가로 폭 · 창턱 높이 · 창 윗변 높이 · 유리 두께(m, 층 바닥 기준). */
+export const WINDOW_W = 1.5;
+export const WINDOW_SILL = 1.0;
+export const WINDOW_TOP = 2.4;
+export const GLASS_T = 0.05;
+/** 옥상 난간벽 높이(m). */
+export const PARAPET_H = 1.0;
+/** 계단 구멍 · 옥상 해치 둘레 난간 높이 · 두께(m). */
+export const RAIL_H = 1.0;
+export const RAIL_T = 0.12;
+/** 옥상 해치 구멍의 가로 · 세로(m). 사다리에 매달린 몸(반지름 0.45)이 닿지 않고 지나가는 크기. */
+export const HATCH_W = 1.4;
+export const HATCH_D = 1.2;
+/** 사다리 면에서 매달린 몸 중심까지(m). */
+export const LADDER_STANDOFF = 0.55;
+/** 지하 계단 복도 반폭(m) · 계단 끝 층계참 길이(m) · 지하실 바닥판 두께(m). */
+export const BASEMENT_HALL_HALF = 1.1;
+export const BASEMENT_LANDING = 1.6;
+export const BASEMENT_FLOOR_T = 0.3;
 /**
  * 지하실 구덩이 벽의 페더 폭(m). 지형은 사각 구덩이를 이 폭에 걸쳐 내려간다 (`Terrain.build`).
  * **천장 슬래브는 이만큼 더 넓게 덮어야 한다** — 안 그러면 구덩이 둘레에 폭 1.6 m 짜리 도랑이 생겨

@@ -192,6 +192,7 @@ export function heal(sys: PlayerSystem, amount: number): void {
 export function enterDowned(sys: PlayerSystem): void {
   if (sys._downed || sys.isDead) return;
   sys.clearCarry('action');   // a downed carrier cannot hold anybody up
+  sys.releaseLadder();        // 2026-09-11: nor hang on a ladder — the body falls
   sys._downed = true;
   sys._downHp = PLAYER_DOWN_HP;
   sys.bleedAcc = 0; sys.giveUpHold = 0;
@@ -279,6 +280,7 @@ export function die(sys: PlayerSystem): void {
   sys.healPool = 0;
   sys.clearShield();
   sys.clearCarry('died');
+  sys.releaseLadder();   // 2026-09-11
   sys.clearDowned();
   sys.setAiming(false);
   sys.setHovering(false);

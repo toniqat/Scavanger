@@ -2,6 +2,8 @@ import type * as THREE from 'three';
 import type { GamePhase, ItemInstance, MissionStats, EnemyType, Stance, HubShipKind, ChatKind, PingKind, WeaponSlot, SocketSlot, StratagemId } from './types';
 /* appended (2026-09-09): 레이드 플레이 개선 — 구조물 · 재해 · 의사소통 휠 */
 import type { StructureKind, HazardKind } from './types';
+/* appended (2026-09-11) */
+import type { LadderDef } from './types';
 import type { CommsId } from './comms';
 /* appended (Phase 10): varied enemy deaths / probabilistic corpse looting */
 import type { EnemyDeathDir } from './types';
@@ -940,6 +942,20 @@ export interface GameEvents {
    * `NetRef.reconnectRelay()` 를 부른 쪽이 한다.
    */
   'net:relayChanged': { url: string; custom: boolean };
+
+  /* ══ appended (2026-09-11): 사다리 · 깨지는 창 · 옥상 스캐너 ══════════════════════════════════════════ */
+  /**
+   * Command → player: 로컬 플레이어가 이 사다리에 매달린다. `from` = 어디서 잡았나 (`bottom` 은 발치에서 오르기
+   * 시작, `top` 은 꼭대기에서 내려가기 시작). world 의 사다리 `Interactable` 이 낸다 — 사다리 정의를 통째로 싣는다.
+   */
+  'ladder:grab': { ladder: LadderDef; from: 'bottom' | 'top' };
+  /** Fact: 로컬 플레이어가 사다리에 매달렸다(`ladderId`) / 내려왔다(null). */
+  'player:climbChanged': { ladderId: string | null };
+  /**
+   * Fact: 구조물 창문이 깨졌다 (이 클라이언트에서든 와이어로든). `byLocal` = 이 클라이언트가 깼다.
+   * world 가 콜라이더를 빼고 유리를 감춘 **뒤에** 낸다.
+   */
+  'structure:glassBroken': { structureId: string; index: number; position: THREE.Vector3; byLocal: boolean };
 }
 
 /** One 키 가이드 entry (`ui:keyGuide`): `key` is the display label (`keyLabel(...)`), `label` the Korean action. */

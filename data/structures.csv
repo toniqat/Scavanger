@@ -2,16 +2,17 @@
 # kind 는 코드가 찾는 값이라 바꾸지 않는다 — outpost | lab | wreck | rail_platform | tram.
 # minCount~maxCount = 한 맵에 놓이는 개수. rail_platform 은 선로 하나에 딸리는 수, tram 은 선로당 대수다.
 #   (선로가 이번 맵에 놓이는지는 data/constants.csv 의 RAIL_CHANCE 가 정한다.)
-# halfW/halfD = 바닥 반길이(m), wallH = 벽 높이(m). 전차는 차체 반길이 · 객실 높이다.
+# halfW/halfD = 바닥 반길이(m), wallH = 벽 높이(m). 전진기지 · 연구실은 **층의 천장 높이**다 (2026-09-11: PC 두 명 = 3.6). 전차는 차체 반길이 · 객실 높이다.
 # minGap = 스폰 · 탈출 패드 · 둥지 · 다른 구조물에서 떨어져야 하는 최소 거리(m).
 # containers = 지상층(전차는 객실) 컨테이너 수, basementContainers = 지하실 컨테이너 수.
-# basementChance = 지하실이 딸릴 확률 (0 = 지하실 없는 종류), basementDepth = 지하실 바닥 깊이(m).
+# basementChance = 지하실이 딸릴 확률 (0 = 지하실 없는 종류), basementDepth = 지형을 파는 깊이(m) — 지하실 바닥판 0.3 + 천장 높이 + 1층 바닥판 0.5.
+# upperChance = 2층이 올라갈 확률 (2026-09-11). 1층 건물도 옥상이 있고 사다리로 오른다 — 맵 스캐너는 언제나 옥상에 있다.
 # tiers / basementTiers = "상자티어:가중치" 를 | 로 이어 쓴다 (티어 1~4 = data/loot_tiers.csv 의 그 티어).
 #   전진기지는 무장 · 탄약 · 의료가 섞인 2티어 위주, 연구실은 감정 가치가 높은 3티어가 조금 더 많고,
 #   불시착 함선은 귀중품 · 취미품이 나오는 4티어가 유일하게 흔한 자리다. 지하실은 언제나 그 구조물의 최상급이다.
-kind,label,minCount,maxCount,halfW,halfD,wallH,minGap,containers,basementChance,basementDepth,basementContainers,tiers,basementTiers
-outpost,버려진 전진기지,1,2,11,8.5,3.4,120,8,0.65,3.6,5,1:2|2:6|3:3,3:5|4:3
-lab,버려진 연구실,1,2,10,9,3.2,120,8,0.6,3.4,5,1:2|2:5|3:4,3:5|4:3
-wreck,불시착한 함선,0,1,9,5.5,3,110,7,0,0,0,1:2|2:4|3:3|4:2,
-rail_platform,선로 플랫폼,2,2,7,4.5,1.1,40,4,0,0,0,1:3|2:5|3:2,
-tram,전차,1,1,1.9,6,2.2,0,3,0,0,0,2:4|3:3|4:1,
+kind,label,minCount,maxCount,halfW,halfD,wallH,minGap,containers,basementChance,basementDepth,basementContainers,tiers,basementTiers,upperChance
+outpost,버려진 전진기지,1,2,11,8.5,3.6,120,8,0.65,4.4,5,1:2|2:6|3:3,3:5|4:3,0.5
+lab,버려진 연구실,1,2,10,9,3.6,120,8,0.6,4.4,5,1:2|2:5|3:4,3:5|4:3,0.5
+wreck,불시착한 함선,0,1,9,5.5,3,110,7,0,0,0,1:2|2:4|3:3|4:2,,0
+rail_platform,선로 플랫폼,2,2,7,4.5,1.1,40,4,0,0,0,1:3|2:5|3:2,,0
+tram,전차,1,1,1.9,6,2.2,0,3,0,0,0,2:4|3:3|4:1,,0

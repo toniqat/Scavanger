@@ -43,3 +43,9 @@ export * from './escape';
 export * from './comms';
 /* appended (2026-09-10): 포탄 궤적 닫힌 식 — enemies 와 ui 가 같은 자리를 그린다 */
 export * from './ballistics';
+/* appended (2026-09-10): 셰이더 선컴파일 · 점광원 예산 — `ctx.shaders` */
+export * from './render';
+/* appended (2026-09-11): 점광원 풀 — 함선(hub)과 행성 구조물(world)이 같은 규칙으로 가까운 자리만 비춘다 */
+export * from './lightPool';
+/* appended (2026-09-11): 투척물이 창문 유리를 깨고 지나가는 한 줄 — weapons · gadgets · enemies 공용 */
+export * from './fragile';

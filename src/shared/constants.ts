@@ -61,7 +61,8 @@ export interface KeyBindings {
   CONSOLE: string; MOVE_CHEAT: string;
   /* appended (Phase 11): hold P to accept a 분대 초대 (ship only). Took P off the undocumented character-sheet shortcut. */
   INVITE: string;
-  /* appended (2026-09-07, 커서 rework): Alt frees the mouse cursor during gameplay without opening any screen. */
+  /* appended (2026-09-07, 커서 rework): Alt frees the mouse cursor during gameplay without opening any screen.
+     2026-09-10: 그 기능은 제거됐다 — 계약이라 필드는 남고 아무도 읽지 않는다 (`SECONDARY` 와 같은 처리). */
   CURSOR: string;
   /* appended (2026-09-09): H 홀드 = 의사소통 휠. 톡 누르면 아무 일도 없다 (STIM 이 은퇴하며 비운 자리다). */
   COMMS: string;
@@ -71,7 +72,7 @@ export interface KeyBindings {
 export const DEFAULT_KEYS: Readonly<KeyBindings> = {
   FORWARD: 'KeyW', BACK: 'KeyS', LEFT: 'KeyA', RIGHT: 'KeyD',
   SPRINT: 'ShiftLeft', JUMP: 'Space',
-  /** C toggles crouch, Z toggles prone, V rolls (ends prone) — Alt is the 커서 호출 key since 2026-09-07. */
+  /** C toggles crouch, Z toggles prone, V rolls (ends prone). Alt is unbound since the Alt 커서 was removed (2026-09-10). */
   CROUCH: 'KeyC', PRONE: 'KeyZ', DIVE: 'KeyV',
   RELOAD: 'KeyR', INTERACT: 'KeyE',
   /** Tactical kit: H puts a stim in hand directly (F is the melee attack). GRENADE is legacy (G = ship calls). */
@@ -96,7 +97,8 @@ export const DEFAULT_KEYS: Readonly<KeyBindings> = {
   CONSOLE: 'Backquote', MOVE_CHEAT: 'Home',
   /* Phase 11: 분대 초대 수락 (홀드). The P character-sheet shortcut is gone — 캐릭터 is a Tab-screen tab. */
   INVITE: 'KeyP',
-  /* 2026-09-07 (커서 rework): Alt = 커서 표시 / 숨기기. 구르기 moved off Alt onto V. */
+  /* 2026-09-07 (커서 rework): Alt = 커서 표시 / 숨기기. 구르기 moved off Alt onto V.
+     2026-09-10: Alt 커서 제거 — 값은 남지만 `KEY_ACTION_DEFS` 에 없어 아무 데도 걸리지 않는다. */
   CURSOR: 'AltLeft',
   /* 2026-09-09: 의사소통 휠. 은퇴한 STIM 과 같은 H 를 쓴다 — 그 키는 아무 데도 안 걸려 있었다. */
   COMMS: 'KeyH',
@@ -861,7 +863,10 @@ export const CREW_LOADOUT_COOLDOWN_S = K.num('CREW_LOADOUT_COOLDOWN_S');
  */
 /** Side of the drawn cursor image in CSS px (a 2× copy is generated for HiDPI through `image-set`). */
 export const GAME_CURSOR_SIZE = K.num('GAME_CURSOR_SIZE');
-/** `ctx.uiBlockers` token the Alt 커서 (a free cursor with no screen behind it) holds while it is up. */
+/**
+ * `ctx.uiBlockers` token the Alt 커서 (a free cursor with no screen behind it) held while it was up.
+ * 2026-09-10: 그 기능이 제거돼 아무도 이 토큰을 쓰지 않는다 — 계약이라 export 만 남았다.
+ */
 export const FREE_CURSOR_BLOCKER = 'cursor';
 
 /** How long a denied pointer-lock request keeps waiting for the next real user gesture to retry (ms). */
@@ -1073,6 +1078,8 @@ export const RAIL_CLEARANCE_M = K.num('RAIL_CLEARANCE_M');
 export const TRAM_CALL_HOLD_S = K.num('TRAM_CALL_HOLD_S');
 /** 플랫폼 호출 콘솔의 상호작용 거리(m). */
 export const TRAM_CALL_RANGE = K.num('TRAM_CALL_RANGE');
+/** 2026-09-10 — 「전차가 곧 출발합니다」 알림을 받는 거리(m, 차체 단면 바깥). 멀리서 부른 사람은 보지 않는다. */
+export const TRAM_DEPART_NOTICE_RANGE = K.num('TRAM_DEPART_NOTICE_RANGE');
 
 /* ── 핑 v3 (2026-09-09, owner: ui/hud/Pings) ── */
 /** 한 플레이어가 동시에 유지하는 핑 수 (나도 분대원도). 넘치면 그 사람의 가장 오래된 핑이 사라진다. */
@@ -1279,3 +1286,44 @@ export const TRAM_CONSOLE_RANGE = K.num('TRAM_CONSOLE_RANGE');
 export const RAIL_STAIR_MAX_RISE = K.num('RAIL_STAIR_MAX_RISE');
 /** 플랫폼 계단 한 단의 깊이(m). */
 export const RAIL_STAIR_DEPTH = K.num('RAIL_STAIR_DEPTH');
+
+/* ── 2026-09-10: 셰이더 선컴파일 · 광원 예산 (owner: core/LightBudget · core/ShaderWarmup · hub/interiors/LightPool) ── */
+/** 씬에 늘 보이는 점광원 개수 — 모자란 만큼 intensity 0 여분이 채운다 (`core/LightBudget`). 레이드의 실제 개수와 같게 둔다. */
+export const SCENE_POINT_LIGHT_BUDGET = K.num('SCENE_POINT_LIGHT_BUDGET');
+/** 함선 인테리어가 한꺼번에 켜는 점광원 개수 — 플레이어에게 가까운 광원 자리부터 (`hub/interiors/LightPool`). */
+export const HUB_POINT_LIGHTS = K.num('HUB_POINT_LIGHTS');
+/** 셰이더 선컴파일을 기다리며 화면을 멈춰 두는 최대 시간(초, `ctx.shaders`). */
+export const SHADER_WARMUP_TIMEOUT_S = K.num('SHADER_WARMUP_TIMEOUT_S');
+
+/* ── 2026-09-11: 구조물 조명 · 사다리 · 계단 보간 · 투척 궤적 · 옥상 스캐너 ── */
+/** 버려진 구조물이 한꺼번에 켜는 점광원 개수 — 플레이어에게 가까운 광원 자리부터 (`world/Structures`). */
+export const STRUCTURE_POINT_LIGHTS = K.num('STRUCTURE_POINT_LIGHTS');
+/** 옥상 맵 스캐너의 파동이 맵 끝까지 퍼지는 시간(초). */
+export const STRUCTURE_SCAN_WAVE_S = K.num('STRUCTURE_SCAN_WAVE_S');
+/** 사다리 발치 · 꼭대기에서 매달릴 수 있는 거리(m). */
+export const LADDER_GRAB_RANGE = K.num('LADDER_GRAB_RANGE');
+/** 사다리 오르내리기 속도(m/s). */
+export const LADDER_CLIMB_SPEED = K.num('LADDER_CLIMB_SPEED');
+/** 달리기 키를 누른 채 오르내리는 속도(m/s, 스태미나 소모). */
+export const LADDER_SPRINT_SPEED = K.num('LADDER_SPRINT_SPEED');
+/** 사다리에서 빠르게 오르내리는 동안 초당 스태미나 소모. */
+export const LADDER_SPRINT_DRAIN = K.num('LADDER_SPRINT_DRAIN');
+/** 사다리 점프 — 사다리를 놓고 위로 뛰는 속도(m/s). */
+export const LADDER_JUMP_SPEED = K.num('LADDER_JUMP_SPEED');
+/** 사다리 점프의 수평 속도(m/s, 사다리 너머 = `-LadderDef.normal` 방향). */
+export const LADDER_JUMP_PUSH = K.num('LADDER_JUMP_PUSH');
+/** E 로 사다리를 놓을 때 떨어져 나가는 수평 속도(m/s, `+LadderDef.normal` 방향). */
+export const LADDER_DROP_PUSH = K.num('LADDER_DROP_PUSH');
+/** 꼭대기에서 옥상으로 올라서는 동작 길이(초). */
+export const LADDER_MOUNT_S = K.num('LADDER_MOUNT_S');
+/** 단차를 오르내릴 때 모델이 물리 위치를 따라잡는 감쇠 계수(1/초). */
+export const STEP_SMOOTH_RATE = K.num('STEP_SMOOTH_RATE');
+/** 이보다 큰 한 프레임 높이 변화(m)는 보간하지 않는다 (순간이동). */
+export const STEP_SMOOTH_MAX = K.num('STEP_SMOOTH_MAX');
+/** 투척 궤적 미리보기가 그리는 비율 (실제 수평 비거리의 이만큼, 착지 표시 없음). */
+export const THROW_ARC_PREVIEW_FRACTION = K.num('THROW_ARC_PREVIEW_FRACTION');
+/**
+ * 뜬 상자 콜라이더의 밑면이 발에서 이만큼(m) 위면 몸을 밀어내지 않는다 (`world/obb` · `world/WorldSystem.resolveCollision`).
+ * `player/PlayerController` 의 점프 천장 클램프가 같은 값을 쓴다 (2026-09-11 — 그 전에는 두 폴더가 2.1 을 따로 적었다).
+ */
+export const BOX_HEADROOM = K.num('BOX_HEADROOM');

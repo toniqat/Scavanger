@@ -7,7 +7,6 @@ import {
   GameContext as Ctx, Keys, PlayerFlags, PLAYER_RESPAWN_DELAY, RAID_FAILED_AUTO_RETURN_S, RAID_SAVE_INTERVAL_S,
   NET_GHOST_RESTORE_TIMEOUT_S,
 } from '@/shared';
-import { FREE_CURSOR_BLOCKER } from '@/shared';
 import { RESUME_GATE_BLOCKER } from '@/shared';
 import { ResumeGate, installDesktopRelockHook, syncDesktopCursor } from './ResumeGate';
 import { clearSoloRaid, loadSoloRaid, saveSoloRaid, soloRaidStatus, type SoloRaidSave } from './SoloRaid';
@@ -300,26 +299,6 @@ export class GameFlowSystem implements GameSystem {
   /** Escape 한 번: 열린 화면 중 맨 위 하나를 닫거나, 없으면 일시정지 메뉴 (2026-09-09). */
   escapeKey(): void { return Phases.escapeKey(this); }
 
-  /**
-   * Alt (`Keys.CURSOR`): hand the mouse over without opening anything, and take it back on the next press.
-   *
-   * It is a plain cursor-mode owner with its own blocker token, so gameplay input is gated exactly the way an open
-   * panel gates it (no firing, no camera) and `main.ts` re-locks when it is released. 2026-09-08: Escape drops it
-   * as well, but only on the way to the 일시정지 메뉴 (`escapePause`) — it is not a plain close any more.
-   *
-   * 2026-09-07: **좌클릭도 닫는다.** This is the one cursor owner with no window behind it, so a click on the 3D
-   * canvas can only mean "give me the camera back" — and a click is the real user gesture Chrome wants before it
-   * grants the pointer lock, so the camera comes back at once instead of at the next keypress. A click that lands
-   * on a HUD element (its own event target) is left alone.
-   */
-  private toggleFreeCursor(on?: boolean): void { return Phases.toggleFreeCursor(this, on); }
-
-  /** Left click on the world while the Alt 커서 is up = 카메라 복귀 (see `toggleFreeCursor`). */
-  readonly onFreeCursorClick = (e: MouseEvent): void => {
-    if (e.button !== 0 || e.target !== this.ctx.canvas) return;
-    this.toggleFreeCursor(false);
-  };
-
   /* ── Mission start / rejoin ──────────────────────────────────────────── */
   /** NetSystem announces a session start right before its `game:newMission`; `rejoin` = re-entering a running mission. */
   private onGameStarting(rejoin: boolean, mode: MissionMode | undefined): void { return Phases.onGameStarting(this, rejoin, mode); }
@@ -379,13 +358,7 @@ export class GameFlowSystem implements GameSystem {
     // gate only ever shows once every screen **and** the 일시정지 메뉴 are gone and the lock could not be retaken.
     this.resumeGate?.update();
     syncDesktopCursor(ctx);
-    // Alt: free the mouse cursor in place (no screen, no pause). Pressed again gives it back; Escape drops it and
-    // opens the 일시정지 메뉴 instead (2026-09-08).
-    if (ctx.input.wasPressed(Keys.CURSOR)) this.toggleFreeCursor();
-    // It is the only cursor owner with no window behind it, so nothing else would ever drop it: a phase change
-    // (mission end, abort, docking) or a death has to.
-    if (ctx.uiBlockers.has(FREE_CURSOR_BLOCKER)
-      && (!(ctx.isGameplayPhase() || this.inShip()) || (ctx.player?.isDead ?? false))) this.toggleFreeCursor(false);
+    // 2026-09-10: Alt 커서(`Keys.CURSOR` → 화면 없이 마우스만 풀기)는 제거됐다 — 커서는 화면이 열릴 때만 나온다.
 
     if (ctx.isGameplayPhase() && !this.isTraining()) {
       // Difficulty ramp 0.3 → 0.7 over 8 minutes of mission time (never on the training range).
@@ -465,7 +438,6 @@ export class GameFlowSystem implements GameSystem {
     window.removeEventListener('blur', this.onWindowBlur);
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
     window.removeEventListener('pagehide', this.onPageHide);
-    window.removeEventListener('mousedown', this.onFreeCursorClick);
     this.resumeGate?.dispose(); this.resumeGate = null;
     document.body.classList.remove('desktop-nocursor');
   }

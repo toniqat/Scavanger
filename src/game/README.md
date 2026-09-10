@@ -41,9 +41,7 @@ Import via `@/game` → `GameFlowSystem`.
 | Escape (gameplay phase **or `hub`**) | **2026-09-09: `escapeKey()`** — `ctx.escape.closeTop()` 이 열려 있는 화면 중 맨 위 하나를 닫고, 스택이 비어 있을 때만 `escapePause()` 가 일시정지 메뉴를 연다 (see the 2026-09-09 section at the end). 메뉴는 여전히 Escape 로 닫히지 않는다 — 데스크톱 셸만 예외다. Two entry points reach that method because the browser splits the key: a real `Keys.MENU` press when a screen already freed the cursor, and `input:pointerLockLost` when the pointer was locked and the browser ate the keydown to free it. Blockers are **not** checked — the menu stacks over an open screen. `PauseMenu` emits `game:paused false` from its button. `freeze` is always false (2026-09-07): a raid is an extraction run, and stopping the clock with a keypress made Escape a save-scum button; the field stays on the wire because Engine and the HUD read it |
 | `window` `blur` / `visibilitychange` → hidden | if gameplay phase, no blocker, player alive and not paused → emits `input:pointerLockLost` and pauses. **2026-09-07 (커서 rework): losing the pointer lock is no longer one of these triggers.** Releasing the lock is how every screen shows the mouse now, and Chrome drops it on any Escape, so treating a missing lock as "the player left" is exactly what made the game freeze whenever the Windows cursor appeared. Only losing the *window* means someone actually walked away |
 | ~~lost-lock watchdog~~ (`checkLockLost`) | **deleted 2026-09-07.** It existed because Phase 10 screens kept the lock and a lock that went missing meant the software cursor had silently fallen back to mirroring the real OS one. With the rework there is no hybrid state to detect: no lock simply means the mouse is a cursor |
-| Escape while the Alt 커서 is up | **2026-09-09**: the Alt 커서 is an entry on `ctx.escape`, so Escape **gives the camera back and stops there** — no menu. (2026-09-08 dropped the cursor *and* opened the menu in the same press.) `escapePause` still force-drops it if the menu is opened some other way, since it is the one cursor owner with no window behind it |
-| left click on the canvas while the Alt 커서 is up | **2026-09-07:** closes it (`onFreeCursorClick` → `toggleFreeCursor(false)`) — it is the one cursor owner with no window behind it, so a click on the world can only mean 카메라 복귀, and a click is the user gesture Chrome wants before it grants the lock back. A click whose target is a HUD element is left alone |
-| `Keys.CURSOR` (Alt) | **2026-09-07:** frees the mouse in place with no screen behind it — `ctx.uiBlockers` token `FREE_CURSOR_BLOCKER` (`'cursor'`) + `input.setCursorMode(true, 'cursor')`, so gameplay input is gated exactly as an open panel gates it and `main.ts` re-locks on release. Emits `ui:freeCursorToggled {active}`. Only from a gameplay phase or the ship, alive, with no other blocker; a phase change or a death releases it in `update()` |
+| ~~`Keys.CURSOR` (Alt) · Alt 커서~~ | **2026-09-10 제거 (사용자 결정).** 화면 없이 마우스만 풀던 기능(`toggleFreeCursor` · `onFreeCursorClick` · Escape 스택 항목 · `escapePause` 의 강제 해제)을 통째로 걷어냈다 — 커서는 이제 화면이 열릴 때만 나온다. `Keys.CURSOR` · `FREE_CURSOR_BLOCKER` · `ui:freeCursorToggled` 는 `src/shared` 계약이라 남았고 아무도 쓰지 않는다 |
 | unpause (**게임으로 돌아가기 only** — 2026-09-08: Escape is inert on the menu, and that click is the engagement gesture the browser requires before it will re-lock) | emits `game:paused false` and nothing else — **2026-09-07 (커서 rework)**: `ui/menus/MenuBase` owns the `'menu'` cursor token (taken on `show()`, dropped on `hide()`) and `main.ts` is the single place that re-requests the lock once the last cursor owner is gone. `GameFlowSystem` no longer touches the pointer lock at all. Outside fullscreen Chrome still grants no activation for Escape, so that request may be denied and `Input` retries it from the next click or key; in fullscreen `navigator.keyboard.lock(['Escape'])` means it never had to |
 
 ## Notes
@@ -191,7 +189,7 @@ event) — without the `leaveLobby()` first, `onAbort` would regroup us in the s
 클릭이 정말 필요한 거부(`"A user gesture is required"`)뿐이다.
 
 ### 데스크톱 셸 (`syncDesktopCursor` / `installDesktopRelockHook`)
-- **커서 숨김**: 셸에서 게임플레이 / 함선 페이즈이고 커서 소유자가 없으면(Alt 커서도 소유자다) `<body>` 에
+- **커서 숨김**: 셸에서 게임플레이 / 함선 페이즈이고 커서 소유자가 없으면 `<body>` 에
   `desktop-nocursor` 를 걸어 `cursor: none !important` — 락이 있든 없든. `ui/hud/GameCursor` 가 런타임
   `<style>` 로 같은 명시도의 규칙을 넣으므로 클래스를 하나 더 얹어 순서를 이긴다.
 - **Escape 재잠금 훅**: `electron/main.ts` 가 Escape **key-up** 에서
@@ -254,7 +252,7 @@ over them and 게임으로 돌아가기 returns to what was open. `onFocusLost` 
 | 하우징 / 함선 관리 모드 | `hub/HousingMode` 가 `Keys.MENU` 를 직접 폴링하던 것을 걷어내고 스택에 올렸다. 폴링은 `HubSystem`(등록 89) 이 `GameFlowSystem`(105) 보다 먼저 돌아 **위에 떠 있는 패널보다 모드가 먼저 닫혔다**. C 는 그대로 |
 | 일시정지 메뉴 자신 | **데스크톱 셸에서만** ESC 로 닫힌다 (`isDesktopShell()`, `ui/menus/PauseMenu` 의 capture 핸들러가 Tab 과 똑같이 처리). 브라우저는 `게임으로 돌아가기` 클릭 그대로 — 그 클릭이 재락에 필요한 제스처이기도 하다 |
 | 키 가이드 | 우측 하단 `닫기` 항목의 keycap 이 **둘**(`Tab` · `Esc`)이 됐다 (`ui/hud/KeyGuide`) |
-| 검증 | `scripts/smoke-resume-gate.mjs` §8 (닫기 · LIFO · 게이트) · §9 (셸에서 메뉴 닫기), `scripts/smoke-controls-hub.mjs` (가방 · Alt 커서), `scripts/smoke-raidflow.mjs`, `scripts/smoke-ui-p6.mjs` (키 가이드) |
+| 검증 | `scripts/smoke-resume-gate.mjs` §8 (닫기 · LIFO · 게이트) · §9 (셸에서 메뉴 닫기), `scripts/smoke-controls-hub.mjs` (가방 · Alt 가 커서를 풀지 않는다 — 2026-09-10), `scripts/smoke-raidflow.mjs`, `scripts/smoke-ui-p6.mjs` (키 가이드) |
 
 ### Known follow-ups (2026-09-09)
 - 스택은 push/remove 규율에 의존한다 (블로커 토큰과 같은 규율). 화면이 `remove` 를 빼먹고 닫히면 그 ESC 한 번이
@@ -285,6 +283,12 @@ over them and 게임으로 돌아가기 returns to what was open. `onFocusLost` 
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-10 (Alt 커서 제거, 사용자 결정)** — `Keys.CURSOR`(Alt) 폴링 · `toggleFreeCursor` · `onFreeCursorClick`
+  (캔버스 좌클릭 복귀) · ESC 스택 항목 · `escapePause` 의 강제 해제 · 사망/페이즈 전환 시 해제를 전부 걷어냈다.
+  커서는 화면이 열릴 때만 나온다. `Keys.CURSOR` · `FREE_CURSOR_BLOCKER` · `ui:freeCursorToggled` 는 `src/shared`
+  계약이라 남았고 아무도 쓰지 않는다 (`KEY_ACTION_DEFS` 에서 줄이 빠져 설정 화면에도 없다). 위 2026-09-08 ·
+  2026-09-09 절의 Alt 커서 서술은 그 당시 기록이다
 
 - **2026-09-09 (사망 · 시체 · 분대장)** — **자동 부활 제거**(30초 카운트다운 · `game:respawnAvailable` 발행/구독을
   끊었다 — 계약은 남는다), 새 `Corpses.ts` 가 `ctx.corpses` 를 게시하고 완전히 사망한 플레이어의 **시체**를

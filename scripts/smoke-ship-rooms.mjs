@@ -119,7 +119,8 @@ try {
     const ids = ctx.interactables.all().map((i) => i.id);
     let lights = 0, roomGroups = 0;
     ctx.scene.getObjectByName('PersonalShip').traverse((o) => { if (o.isPointLight) lights++; if (o.isGroup && /^room-\d+$/.test(o.name)) roomGroups++; });
-    return { ship: ctx.hub.ship, ids, lights, roomGroups, pos: [ctx.player.position.x, ctx.player.position.z], room: ctx.hub.currentRoom };
+    const pool = window.__game.getSystem('hub').interior?.lights?.size ?? -1;
+    return { ship: ctx.hub.ship, ids, lights, pool, roomGroups, pos: [ctx.player.position.x, ctx.player.position.z], room: ctx.hub.currentRoom };
   });
   ok(ship.ship === 'personal' && Math.abs(ship.pos[0]) < 0.01 && Math.abs(ship.pos[1] + 1.8) < 0.05, `spawned in the cockpit at (${ship.pos.map((n) => n.toFixed(2))})`);
   // Phase 8: the cockpit lost its built-in 정비 벤치 (now 작업실 furniture) and its 수경 재배 rack (now 온실 재배층).
@@ -130,8 +131,9 @@ try {
   ok(!ship.ids.includes('hub_facility'), 'facility console hub_facility removed');
   const roomIds = ship.ids.filter((i) => /^hub_room_\d$/.test(i));
   ok(roomIds.length === 0, `no room door consoles registered (${roomIds.length})`);
-  // Phase 8: + ROOM_LIGHT_POOL (3) lights that re-anchor to the nearest non-empty rooms; the count stays constant.
-  ok(ship.lights === 13, `constant point-light count 13 (${ship.lights})`);
+  // 2026-09-10: the ship owns exactly its `LightPool` (HUB_POINT_LIGHTS) — the pool re-anchors to the nearest fixtures
+  // (cockpit / corridor / airlock / nearest lit rooms) and the count stays constant. Read the size, not a literal.
+  ok(ship.pool > 0 && ship.lights === ship.pool, `constant point-light count = light pool size (${ship.lights} / pool ${ship.pool})`);
   ok(ship.roomGroups === 10, `one furniture group per room (${ship.roomGroups})`);
   ok(ship.room === null, 'currentRoom is null in the cockpit');
   // 2026-09-07: a ship starts with ten empty rooms and no furniture — the room-1 작업실 is gone. The housing-mode

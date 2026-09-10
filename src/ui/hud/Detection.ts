@@ -5,7 +5,7 @@ import {
   INTERACT_PILLAR_OPACITY,
 } from '@/shared';
 import { el } from '../dom';
-import { makePillarGeometry, makePillarMaterial } from './pillar';
+import { makePillarGeometry, makePillarMaterial, pillarAllowed } from './pillar';
 import type { ScanTracker } from './ScanTracker';
 
 const MAX_SHELLS = 24;          // pooled light pillars (interactables in range)
@@ -24,7 +24,7 @@ interface Candidate { pos: THREE.Vector3; height: number; scanned: boolean }
 /**
  * 감지 시스템 (perception).
  *
- * 1. Interactables (crates, gather nodes, pickups, deployables, switches) inside
+ * 1. **Corpses only** (2026-09-11 — `pillarAllowed`; crates / gather nodes / pickups / deployables no longer get one) inside
  *    `ctx.progression.derived.detectRadius` get a pooled **light pillar** in the scene (Phase 10 — it replaced the
  *    light-blue fresnel sphere): an open cylinder rising from the ground with baked vertex colours that go black
  *    toward the top, drawn additively so black reads as transparent (see `hud/pillar.ts`). Depth-tested, so walls
@@ -163,6 +163,8 @@ export class Detection {
     for (const it of ctx.interactables.all()) {
       const dx = it.position.x - from.x, dy = it.position.y - from.y, dz = it.position.z - from.z;
       if (dx * dx + dy * dy + dz * dz > r2) continue;
+      // 2026-09-11: 빛기둥은 시체에만 (`pillarAllowed`) — 상자 · 컨테이너는 열린 모습으로 조사 여부를 보여 준다.
+      if (!pillarAllowed(it.id)) continue;
       if (!it.canInteract()) continue;
       // 2026-09-08: an interactable this client has already dealt with (a searched corpse) hides its own pillar.
       if (it.hidePillar) continue;

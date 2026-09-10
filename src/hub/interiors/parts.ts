@@ -215,11 +215,8 @@ export class Parts {
   }
 }
 
-/** Constant-count point light with a small emissive fixture. */
-export function fixture(parent: THREE.Object3D, x: number, y: number, z: number, color: number, intensity: number, distance: number, out: THREE.PointLight[]): void {
-  const l = new THREE.PointLight(color, intensity, distance, 2);
-  l.position.set(x, y, z);
-  l.castShadow = false;
-  parent.add(l);
-  out.push(l);
-}
+/*
+ * `fixture()` (a PointLight of the ship's own) was removed on 2026-09-10: interiors list `LightFixture`s and a
+ * `LightPool` of `HUB_POINT_LIGHTS` lights serves the nearest of them, so the scene-wide point-light count never
+ * changes (see `LightPool.ts` and `core/LightBudget`).
+ */

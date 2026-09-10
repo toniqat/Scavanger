@@ -3,10 +3,12 @@ import {
   NET_SLOT_COLORS, PlayerFlags, ROLL_DURATION, SLASH_DURATION, type ArmorDef, type GameContext, type RemoteAvatarRef,
   type RemotePlayerRef,
 } from '@/shared';
+import { LADDER_RUNG_M } from './PlayerController';
 import { FxManager, ParticleBurst } from '@/core/fx';
 import { damp, dampAngle, wrapAngle } from '@/core/util/MathUtil';
 import { SoldierModel, SOLDIER_DEFAULT_ACCENT, type SoldierPose } from './SoldierModel';
 import { buildHeldItem, type GearLook } from './GearLook';
+import type { SoldierPool } from './SoldierPool';
 
 /* Nameplate anchors for the armoured trooper body (head ≈ 1.7 m standing; the HUD adds +0.35 m). */
 const HEAD_STAND = 1.7;
@@ -27,6 +29,14 @@ const DOWN_MARKER_Y = 0.95;
  */
 const SUSPENDED_FLAG_MASK = PlayerFlags.HAS_WEAPON | PlayerFlags.TWO_HANDED | PlayerFlags.DOWNED | PlayerFlags.DEAD
   | PlayerFlags.IN_POD | PlayerFlags.IN_HUB;
+
+/* ── 사다리 (2026-09-11) ── */
+/** A snapshot height change bigger than this in one frame is a teleport / stream restart, not climbing. */
+const CLIMB_PHASE_MAX_DY = 1;
+/** A climbing peer is matched to the ladder whose base is this close (XZ, m) to face its rungs. */
+const CLIMB_LADDER_MATCH_M = 1.2;
+/** Volume of a remote rung clank (positional; the local climber plays 0.45 / 0.6). */
+const REMOTE_RUNG_VOLUME = 0.35;
 
 const _up = new THREE.Vector3(0, 1, 0);
 const _wp = new THREE.Vector3();
@@ -60,6 +70,10 @@ export class RemoteAvatar implements RemoteAvatarRef {
 
   /** Frame stamp used by RemotePlayerSystem to sweep avatars whose ref vanished without an event. */
   seenFrame = 0;
+  /** 2026-09-10: where the body goes back on `dispose` (null = dispose it). */
+  private readonly pool: SoldierPool | null;
+  /** Set by `dispose` — the body may already belong to another avatar, so nothing may touch it afterwards. */
+  private disposed = false;
   /**
    * Phase 10: this body is riding on somebody's shoulder socket — its `root` transform is owned by that socket,
    * so the per-frame `position` / `quaternion` writes are skipped. Set by `RemotePlayerSystem` for instant local
@@ -101,6 +115,13 @@ export class RemoteAvatar implements RemoteAvatarRef {
   private heavyBlend = 0;
   /** Phase 10: `PlayerFlags.CARRYING` → the fireman-carry arm pose (the load itself is another avatar). */
   private carryBlend = 0;
+  /* ── 2026-09-11: `PlayerFlags.CLIMBING` — the wire has only the bit, so the rung phase comes from the snapshot height ── */
+  private climbBlend = 0;
+  private climbPhase = 0;
+  private climbLastY = Number.NaN;
+  private climbStepIdx = 0;
+  /** Facing of the matched ladder (`atan2(normal.x, normal.z)`); null = not matched yet / not climbing. */
+  private climbYaw: number | null = null;
   private heldLook: GearLook | null = null;
   private heldDefId: string | null = null;
   private armorLookId: string | null = null;
@@ -116,12 +137,26 @@ export class RemoteAvatar implements RemoteAvatarRef {
     meleeHeavy: 0, charging: 0, spraying: 0, heavyCarry: 0, cooking: 0, carry: 0,
   };
 
-  constructor(readonly ref: RemotePlayerRef, parent: THREE.Object3D) {
+  /**
+   * @param pool 2026-09-10: the body comes from (and goes back to) this pool instead of being built / disposed per
+   *   avatar. `null` keeps the old build-and-dispose behaviour.
+   */
+  constructor(readonly ref: RemotePlayerRef, parent: THREE.Object3D, pool: SoldierPool | null = null) {
     const accent = NET_SLOT_COLORS[ref.slot] ?? SOLDIER_DEFAULT_ACCENT;
-    this.model = new SoldierModel(accent);
+    this.pool = pool;
+    this.model = pool ? pool.acquire(accent) : new SoldierModel(accent);
     this.root = this.model.root;
     this.root.name = `RemoteSoldier:${ref.id}`;
-    this.weaponSocket = this.model.weaponSocket;
+    /*
+     * 2026-09-10: a **fresh socket object per avatar**, parented at identity inside the model's hand socket. The body
+     * itself may be a pooled one another avatar used a moment ago; `weapons/RemoteWeapons` (and `implants/`) key their
+     * attachments on socket identity (`e.socket !== socket` → rebuild), so handing out the model's own socket again
+     * would let them believe a weapon they parented into a now-parked body is still in the hand. `dispose` detaches
+     * this object, and whatever other folders hung on it leaves with it — exactly what disposing the model did before.
+     */
+    this.weaponSocket = new THREE.Object3D();
+    this.weaponSocket.name = 'RemoteWeaponSocket';
+    this.model.weaponSocket.add(this.weaponSocket);
     this.shoulderSocket = this.model.shoulderSocket;
     this.bodyYaw = ref.yaw;
     this.wasDropping = (ref.flags & PlayerFlags.DROPPING) !== 0;
@@ -160,6 +195,7 @@ export class RemoteAvatar implements RemoteAvatarRef {
   get poseView(): Readonly<SoldierPose> { return this.pose; }
 
   update(dt: number, ctx: GameContext): void {
+    if (this.disposed) return;   // the pooled body may already be driving another avatar
     const ref = this.ref;
     const suspended = ref.suspended === true;
     const rawFlags = ref.flags;
@@ -249,6 +285,10 @@ export class RemoteAvatar implements RemoteAvatarRef {
     const spraying = (flags & PlayerFlags.SPRAYING) !== 0 && hasWeapon && !downed;
     const heavy = (flags & PlayerFlags.HEAVY) !== 0 && hasWeapon && !downed;
     const moveBlend = suspended ? 0 : ref.moveBlend;
+    // 사다리 (2026-09-11): 오르기 자세 — 위상은 높이 변화에서, 방향은 가까운 사다리에서
+    const climbing = (flags & PlayerFlags.CLIMBING) !== 0 && !downed && !ref.isDead;
+    this.updateClimb(ctx, climbing);
+    this.climbBlend = damp(this.climbBlend, climbing ? 1 : 0, 12, dt);
 
     // roll: the wire only carries the flag, so the tumble phase is timed locally
     if (rolling) {
@@ -274,12 +314,13 @@ export class RemoteAvatar implements RemoteAvatarRef {
       if (this.meleeTimer >= this.meleeDuration) { this.meleeTimer = -1; this.meleeHeavy = 0; }
     }
 
-    this.sprintBlend = damp(this.sprintBlend, sprinting && !downed ? 1 : 0, 8, dt);
+    this.sprintBlend = damp(this.sprintBlend, sprinting && !downed && !climbing ? 1 : 0, 8, dt);
     this.aimBlend = damp(this.aimBlend, aiming && hasWeapon && !downed ? 1 : 0, 12, dt);
     this.crouchBlend = damp(this.crouchBlend, ref.stance === 'crouch' && !rolling && !downed ? 1 : 0, 10, dt);
     this.proneBlend = damp(this.proneBlend, prone && !rolling ? 1 : 0, 8, dt);
     this.downedBlend = damp(this.downedBlend, downed && !ref.isDead ? 1 : 0, 7, dt);
-    this.airBlend = damp(this.airBlend, airborne && !downed && !rolling ? 1 : 0, 12, dt);
+    // a climber is not grounded on the wire (AIRBORNE) but must not play the jump / fall tuck
+    this.airBlend = damp(this.airBlend, airborne && !downed && !rolling && !climbing ? 1 : 0, 12, dt);
     this.holdItemBlend = damp(this.holdItemBlend, holdingItem ? 1 : 0, 10, dt);
     this.throwBlend = damp(this.throwBlend, throwing ? 1 : 0, 12, dt);
     this.cookBlend = damp(this.cookBlend, cooking ? 1 : 0, 10, dt);
@@ -307,7 +348,9 @@ export class RemoteAvatar implements RemoteAvatarRef {
     const hSpeed = suspended ? 0 : Math.hypot(v.x, v.z);
     if (!ref.isDead) {
       const faceCamera = (aiming || firing || reloading || prone || meleeing || throwing || cooking || suspended) && !rolling;
-      if (rolling && hSpeed > 0.4) this.bodyYaw = dampAngle(this.bodyYaw, Math.atan2(-v.x, -v.z), 20, dt);
+      // climbing: face the matched ladder's rungs (the snapshot yaw is the camera's); unmatched → hold the facing
+      if (climbing) { if (this.climbYaw !== null) this.bodyYaw = dampAngle(this.bodyYaw, this.climbYaw, 18, dt); }
+      else if (rolling && hSpeed > 0.4) this.bodyYaw = dampAngle(this.bodyYaw, Math.atan2(-v.x, -v.z), 20, dt);
       else if (faceCamera) this.bodyYaw = dampAngle(this.bodyYaw, ref.yaw, prone ? 7 : 18, dt);
       else if (hSpeed > 0.4) this.bodyYaw = dampAngle(this.bodyYaw, Math.atan2(-v.x, -v.z), 12, dt);
     }
@@ -326,7 +369,7 @@ export class RemoteAvatar implements RemoteAvatarRef {
     const p = this.pose;
     p.moveBlend = moveBlend;
     p.sprint = this.sprintBlend;
-    p.stridePhase = ref.stridePhase;
+    p.stridePhase = this.climbBlend > 0.01 ? this.climbPhase : ref.stridePhase;
     p.crouch = this.crouchBlend;
     p.prone = this.proneBlend;
     p.aim = this.aimBlend;
@@ -353,10 +396,35 @@ export class RemoteAvatar implements RemoteAvatarRef {
     p.downed = this.downedBlend;   // 2026-09-08: 전투불능 = the backward-fall pose, same as the local player
     p.dead = ref.isDead ? Math.min(1, this.deadTimer / DEATH_ANIM) : 0;
     p.carry = this.carryBlend;
+    p.climb = this.climbBlend;
     this.model.update(dt, ctx.time, p);
 
     if (!riding) this.root.quaternion.setFromAxisAngle(_up, this.bodyYaw);
   }
+
+  /**
+   * 사다리 (2026-09-11). The wire carries only `CLIMBING`: the rung phase is accumulated from the interpolated
+   * snapshot height (π per `LADDER_RUNG_M`, same rule as the local controller), each rung boundary plays a quiet
+   * positional `ladder_step`, and the facing comes from the nearest ladder in `ctx.world.getLadders()`.
+   */
+  private updateClimb(ctx: GameContext, climbing: boolean): void {
+    if (!climbing) { this.climbLastY = Number.NaN; this.climbYaw = null; return; }
+    const y = this.ref.position.y;
+    if (Number.isFinite(this.climbLastY)) {
+      const dy = Math.abs(y - this.climbLastY);
+      if (dy < CLIMB_PHASE_MAX_DY) this.climbPhase += dy / LADDER_RUNG_M * Math.PI;
+    }
+    this.climbLastY = y;
+    const idx = Math.floor(this.climbPhase / Math.PI);
+    if (idx !== this.climbStepIdx) {
+      this.climbStepIdx = idx;
+      ctx.bus.emit('audio:play', { id: 'ladder_step', position: this.ref.position, volume: REMOTE_RUNG_VOLUME });
+    }
+    if (this.climbYaw === null) this.climbYaw = nearestLadderYaw(ctx, this.ref.position);
+  }
+
+  /** Test query: 0..1 climb blend. */
+  get climbAmount(): number { return this.climbBlend; }
 
   /* ─────────────────────────── Phase 7 gear looks ─────────────────────────── */
   /**
@@ -421,14 +489,39 @@ export class RemoteAvatar implements RemoteAvatarRef {
     if (this.downMarkerMat) this.downMarkerMat.opacity = 0.55 + Math.sin(t * 6) * 0.35;
   }
 
+  /**
+   * Ends this avatar. The body goes back to the pool (2026-09-10) — or is disposed without one — so everything this
+   * avatar hung on it has to come off first: the held-item look, the downed beacon, and the per-avatar weapon socket
+   * (taking whatever `weapons/` · `implants/` parented into it along, the same subtree disposing the model detached).
+   */
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
     if (this.ref.avatar === this) this.ref.avatar = null;
-    if (this.heldLook) { this.heldLook.dispose(); this.heldLook = null; this.heldDefId = null; }
+    if (this.heldLook) { this.heldLook.group.removeFromParent(); this.heldLook.dispose(); this.heldLook = null; this.heldDefId = null; }
+    this.downMarker?.removeFromParent();
     this.downMarkerGeo?.dispose();
     this.downMarkerMat?.dispose();
     this.downMarker = null; this.downMarkerGeo = null; this.downMarkerMat = null;
-    this.model.dispose(); // also detaches the root (and any weapon model parented into the socket)
+    this.weaponSocket.removeFromParent();
+    if (this.pool) this.pool.release(this.model);   // resets the body and detaches its root
+    else this.model.dispose();                      // also detaches the root
   }
+}
+
+/** Facing (`atan2(normal.x, normal.z)` = looking along -normal) of the ladder a climbing body at `pos` hangs on, or null. */
+function nearestLadderYaw(ctx: GameContext, pos: THREE.Vector3): number | null {
+  const world = ctx.world;
+  if (!world || typeof world.getLadders !== 'function') return null;
+  let best: { normal: THREE.Vector3 } | null = null;
+  let bestD = CLIMB_LADDER_MATCH_M * CLIMB_LADDER_MATCH_M;
+  for (const l of world.getLadders()) {
+    if (pos.y < l.base.y - CLIMB_LADDER_MATCH_M || pos.y > l.topY + CLIMB_LADDER_MATCH_M) continue;
+    const dx = l.base.x - pos.x, dz = l.base.z - pos.z;
+    const d = dx * dx + dz * dz;
+    if (d < bestD) { bestD = d; best = l; }
+  }
+  return best ? Math.atan2(best.normal.x, best.normal.z) : null;
 }
 
 /** `ar` may be an ArmorDef id or the item def id that links to one (`ItemDef.armorId`). */

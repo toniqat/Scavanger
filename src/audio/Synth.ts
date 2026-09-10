@@ -244,6 +244,39 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.tone(d, { type: 'sine', f0: 110 * q, f1: 60, t0: t, dur: 0.05, gain: 0.12 });
     return 0.08;
   },
+  /** 2026-09-11 — one ladder rung: a short, subtle metallic clank (hand / boot on a steel rung) + a soft body thud. */
+  ladder_step: (s, d, t, p) => {
+    const q = p * r(0.9, 1.12);
+    s.noise(d, { t0: t, dur: 0.025, gain: 0.1, filter: { type: 'bandpass', f0: 2600 * q, q: 3 } });
+    s.tone(d, { type: 'triangle', f0: 1180 * q, f1: 1040 * q, t0: t, dur: 0.09, gain: 0.05 });
+    s.tone(d, { type: 'sine', f0: 2470 * q, t0: t, dur: 0.06, gain: 0.02 });
+    s.tone(d, { type: 'sine', f0: 150 * q, f1: 80, t0: t, dur: 0.05, gain: 0.08 });
+    return 0.1;
+  },
+  /**
+   * 2026-09-11 — a window pane shattering (~0.6 s): a bright broadband crack, a short glassy ring, then a tinkling
+   * tail of staggered high-passed shard bursts. `world/` plays it when a building window is shot or hit.
+   */
+  glass_break: (s, d, t, p) => {
+    const q = p * r(0.92, 1.08);
+    // crack: sharp transient across the top end + a low knock of the frame
+    s.noise(d, { t0: t, dur: 0.05, gain: 0.55, filter: { type: 'highpass', f0: 2200 * q, q: 0.7 } });
+    s.noise(d, { t0: t, dur: 0.09, gain: 0.3, filter: { type: 'bandpass', f0: 4800 * q, f1: 2600 * q, q: 1.4 } });
+    s.tone(d, { type: 'sine', f0: 190 * q, f1: 90, t0: t, dur: 0.06, gain: 0.18 });
+    // pane ring: two inharmonic partials decaying fast
+    s.tone(d, { type: 'sine', f0: 3150 * q, f1: 2980 * q, t0: t, dur: 0.22, gain: 0.05 });
+    s.tone(d, { type: 'sine', f0: 4630 * q, t0: t + 0.005, dur: 0.16, gain: 0.035 });
+    // tinkle: shards landing — short high bandpassed bursts at jittered times, getting quieter
+    for (let i = 0; i < 9; i++) {
+      const at = t + 0.06 + i * 0.055 + r(-0.02, 0.02);
+      const g = 0.16 * (1 - i / 10);
+      const f = r(5200, 8400) * q;
+      s.noise(d, { t0: at, dur: 0.018 + r(0, 0.02), gain: g, filter: { type: 'bandpass', f0: f, q: 6 } });
+      if (i % 3 === 0) s.tone(d, { type: 'sine', f0: f * 0.6, t0: at, dur: 0.05, gain: g * 0.18 });
+    }
+    s.noise(d, { t0: t + 0.04, dur: 0.55, gain: 0.07, attack: 0.02, filter: { type: 'highpass', f0: 6000 * q, q: 0.5 }, decayCurve: 'lin' });
+    return 0.62;
+  },
   /* bugs */
   bug_screech: (s, d, t, p) => {
     const q = p * r(0.85, 1.2);

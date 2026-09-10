@@ -10,14 +10,14 @@
  * 2026-09-09 이전과 한 줄도 다르지 않다.
  */
 import type * as THREE from 'three';
-import type { Obstacle } from '@/shared';
+import { BOX_HEADROOM as SHARED_BOX_HEADROOM, type Obstacle } from '@/shared';
 
 /**
  * 상자 콜라이더는 **떠 있을 수 있다** (지하실 천장 슬래브 · 전차 데크 · 플랫폼 데크). 머리 위로 이만큼(m)
  * 넘게 떠 있는 판은 밀어내지 않는다 — 지하실 안에서 천장에 밀려 벽으로 빨려 나가지 않게 하는 판정이다.
  * 원기둥에는 이 판정이 없다 (전부 땅에서 올라오므로 켜질 일이 없고, 켜면 기존 동작이 바뀐다).
  */
-export const BOX_HEADROOM = 2.1;
+export const BOX_HEADROOM = SHARED_BOX_HEADROOM;   // 2026-09-11: 값은 `data/constants.csv` — player 의 천장 클램프와 같은 값
 
 /** 상자를 감싸는 외접원 반경 — `Obstacle.radius` 에 넣어야 하는 값이다. */
 export function boxRadius(halfX: number, halfZ: number): number {
@@ -137,4 +137,66 @@ export function rayBox(
     boxHitNormal.z = nx * s + nz * c;
   }
   return tmin;
+}
+
+/* ── 경사 발판 (2026-09-11, `Obstacle.ramp`) ─────────────────────────────────────────────────────────────
+ * 계단의 콜라이더. **보이는 것은 계단, 밟는 것은 경사면**이라 한 단마다 발이 튀어 오르지 않는다 (사용자 요청
+ * "계단을 뚝뚝 끊기지 않고 스르륵"). 상자(`o.box`)와 같은 OBB 이고 윗면만 로컬 +X 로 기울어 있다:
+ * `x = -halfX` 에서 `position.y + height - rise`, `x = +halfX` 에서 `position.y + height`.
+ * ⚠ `o.ramp` 가 있을 때만 불린다 — 평평한 상자의 경로(`rayBox` · `boxPushOut`)는 한 줄도 바뀌지 않았다. */
+
+/** `(x, z)` 에서의 경사면 높이. 상자 단면 밖이면 가장 가까운 가장자리(로컬 X 로 자른 자리)의 높이다. */
+export function rampTopAt(o: Obstacle, x: number, z: number): number {
+  const b = o.box!, r = o.ramp!;
+  toLocal(o, x, z, L);
+  const lx = L.x < -b.halfX ? -b.halfX : L.x > b.halfX ? b.halfX : L.x;
+  const t = b.halfX > 1e-6 ? (lx + b.halfX) / (2 * b.halfX) : 1;
+  return o.position.y + o.height - r.rise + r.rise * t;
+}
+
+/* 로컬 반공간 6 장: ±X · ±Z · 밑면 · 기운 윗면. `n·p <= d` 가 안쪽이다. */
+const RP_N = new Float32Array(18);
+const RP_D = new Float32Array(6);
+
+/**
+ * 레이 vs 경사 발판 (쐐기). 맞으면 `t`, 아니면 −1. 법선은 `boxHitNormal` 에 쓴다 (`rayBox` 와 같은 자리).
+ * 원점이 이미 안이면 −1 — 다른 콜라이더와 같은 규약.
+ */
+export function rayRamp(
+  ox: number, oy: number, oz: number, dx: number, dy: number, dz: number,
+  o: Obstacle, maxT: number,
+): number {
+  const b = o.box!, r = o.ramp!;
+  const c = Math.cos(b.yaw), s = Math.sin(b.yaw);
+  const rx = ox - o.position.x, rz = oz - o.position.z;
+  const lox = rx * c + rz * s, loz = -rx * s + rz * c;
+  const ldx = dx * c + dz * s, ldz = -dx * s + dz * c;
+  const base = o.position.y;
+  const k = b.halfX > 1e-6 ? r.rise / (2 * b.halfX) : 0;
+  const cTop = base + o.height - r.rise / 2;
+  RP_N[0] = 1; RP_N[1] = 0; RP_N[2] = 0;
+  RP_N[3] = -1; RP_N[4] = 0; RP_N[5] = 0;
+  RP_N[6] = 0; RP_N[7] = 0; RP_N[8] = 1;
+  RP_N[9] = 0; RP_N[10] = 0; RP_N[11] = -1;
+  RP_N[12] = 0; RP_N[13] = -1; RP_N[14] = 0;
+  RP_N[15] = -k; RP_N[16] = 1; RP_N[17] = 0;
+  RP_D[0] = b.halfX; RP_D[1] = b.halfX; RP_D[2] = b.halfZ; RP_D[3] = b.halfZ; RP_D[4] = -base; RP_D[5] = cTop;
+  let tE = -Infinity, tL = Infinity, hit = -1;
+  for (let i = 0; i < 6; i++) {
+    const nx = RP_N[i * 3], ny = RP_N[i * 3 + 1], nz = RP_N[i * 3 + 2];
+    const num = RP_D[i] - (nx * lox + ny * oy + nz * loz);
+    const den = nx * ldx + ny * dy + nz * ldz;
+    if (Math.abs(den) < 1e-9) { if (num < 0) return -1; continue; }
+    const t = num / den;
+    if (den < 0) { if (t > tE) { tE = t; hit = i; } }
+    else if (t < tL) tL = t;
+    if (tE > tL) return -1;
+  }
+  if (hit < 0 || tE < 0 || tE > maxT) return -1;
+  const nx = RP_N[hit * 3], ny = RP_N[hit * 3 + 1], nz = RP_N[hit * 3 + 2];
+  const len = Math.hypot(nx, ny, nz) || 1;
+  boxHitNormal.x = (nx * c - nz * s) / len;
+  boxHitNormal.y = ny / len;
+  boxHitNormal.z = (nx * s + nz * c) / len;
+  return tE;
 }

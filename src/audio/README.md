@@ -31,7 +31,8 @@ sliders without importing this folder.
 ## Sound ids (`SOUNDS`)
 Weapons: `shot_rifle` `shot_pistol` `shot_shotgun` `shot_energy` `shot_smg` `shot_sniper` `bolt_cycle` `dry_fire` `reload_start` `reload_end` `hit_flesh` `hit_terrain` `grenade_throw` `grenade_bounce` `explosion`
 World/UI: `crate_open` `interact` `ui_pickup` `ui_drop` `ui_rotate` `ui_error` `ui_deny` `ui_equip` `ui_click` `ui_open` `ui_close` `ping` `map_open` `map_close` `scope_in` `scope_out` `mission_complete`
-Player: `stim` `player_hurt` `player_death` `footstep` `player_land` `player_jump` `dive` `stamina_depleted` `stance_change` `hellpod_fall` `hellpod_impact` `hellpod_open`
+Player: `stim` `player_hurt` `player_death` `footstep` `ladder_step` `player_land` `player_jump` `dive` `stamina_depleted` `stance_change` `hellpod_fall` `hellpod_impact` `hellpod_open`
+World (structures): `glass_break`
 Bugs: `bug_screech` `bug_attack` `bug_death` `bug_step` `bug_hit` `acid_splash` `wave_alarm`
 로그 강하: `rogue_drop_alarm` `rogue_pod_fall` `rogue_pod_impact`
 Extraction: `extract_activate` `countdown_beep` `ship_approach` `ship_land` `ship_liftoff` `door_close`
@@ -206,3 +207,9 @@ Appended (tactical kit):
   `hazard_warn` (함선의 낮은 3음 경보) · `hazard_inside` (피해 구역 진입 저역 러시) ·
   `rogue_drop_alarm` (강하 경보 3음 + 대기 가르는 소리).
   기존 것을 재사용한 곳: 행성 스캔 = `scan_pulse`, 상자 = `crate_open`, 핑 = `ping_attack` / `ping_caution`.
+
+- **2026-09-11 (사다리 · 유리창)** — `Synth.SOUNDS` 에 2종 추가, 둘 다 `audio:play {id, position}` 으로만 불린다
+  (자동 구독 없음). `ladder_step` — 가로대 하나: 짧은 금속 클렁크(대역 노이즈 + 비조화 삼각파 · 사인) + 낮은 몸 쿵,
+  약 0.1초, 일부러 작다. `player/` 가 가로대(`LADDER_RUNG_M`)마다 로컬 0.45 · 빠르게 0.6, 원격 아바타는 0.35 로 낸다.
+  `glass_break` — 유리창이 깨지는 소리(약 0.6초): 밝은 광대역 크랙 + 창틀의 낮은 노크 + 짧은 유리 울림(비조화 사인 둘) +
+  시차를 둔 고역 파편 버스트 9개와 하이패스 노이즈 꼬리. `world/` 가 구조물 창문이 맞으면 낸다.
