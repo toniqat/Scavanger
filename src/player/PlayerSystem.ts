@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { PlayerRestoreState } from '@/shared';
+import type { PlayerRestoreState, Rarity } from '@/shared';
 import {
   GameContext, Keys, MouseButtons, PLAYER_MAX_HP, PLAYER_MAX_STAMINA, PLAYER_RADIUS, PLAYER_WALK_SPEED,
   PLAYER_DOWN_HP, PLAYER_DOWN_BLEED_PER_SEC, PLAYER_DOWN_SPEED_MUL, PLAYER_REVIVE_HP, PLAYER_GIVE_UP_HOLD,
@@ -235,6 +235,13 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   get isHovering(): boolean { return this._hovering; }
   get isOvercharged(): boolean { return this._overcharged; }
   get damageReduction(): number { return this.gear.damageReduction; }
+
+  /* ── 실드 (2026-09-10) — 자리만 잡은 스텁. 실제 풀 · 피해 순서 · 충전은 실드 작업이 채운다. ── */
+  get shield(): number { return 0; }
+  get maxShield(): number { return 0; }
+  get shieldRarity(): Rarity | null { return null; }
+  get shieldTier(): number { return 0; }
+  chargeShield(_amount: number): boolean { return false; }
   get isBurning(): boolean { return this._burning; }
 
   /**

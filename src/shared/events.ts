@@ -918,6 +918,20 @@ export interface GameEvents {
    * core/ 는 마지막으로 받은 값 하나만 기억하고 매 프레임 팔레트 위에 얹는다.
    */
   'atmo:override': { fogMul: number; color: number | null; blend: number };
+
+  /* ══ appended (2026-09-10): 방탄복 = 실드 · 원격 발소리 · 위험 인디케이터 ══════════════════════ */
+  /**
+   * Fact: 로컬 플레이어의 **실드**(방탄복이 주는 추가 체력)가 바뀌었다. `hp` 와 완전히 별개의 풀이고
+   * 피해는 실드 → 체력 순으로 들어간다. 방탄복을 벗으면 `maxShield: 0`, `rarity: null`.
+   * `rarity` · `tier` 는 좌하단 실드 게이지의 **칸 색과 칸 수**를 정한다 (`ARMOR_SHIELD_PER_SEGMENT` 당 한 칸).
+   * 장착 · 교체 · 피격 · 충전 · 스폰 어디서든 발행된다 (`delta` = 이번 변화량, 감소는 음수).
+   */
+  'player:shieldChanged': { shield: number; maxShield: number; delta: number; rarity: Rarity | null; tier: number };
+  /**
+   * Fact: **원격** 분대원의 발이 땅에 닿았다 (로컬 플레이어는 `player:footstep`). audio 가 거리 감쇠를
+   * 걸어 재생한다 — 발행하는 쪽은 거리를 재지 않는다.
+   */
+  'remote:footstep': { position: THREE.Vector3; sprinting: boolean; peerId: PeerId };
 }
 
 /** One 키 가이드 entry (`ui:keyGuide`): `key` is the display label (`keyLabel(...)`), `label` the Korean action. */

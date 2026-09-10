@@ -312,6 +312,8 @@ export const ROGUE_BOSS_ESCORTS = K.num('ROGUE_BOSS_ESCORTS');
 export const ARTILLERY_RANGE = K.num('ARTILLERY_RANGE');
 export const SHELL_FLIGHT_TIME = K.num('SHELL_FLIGHT_TIME');
 export const SHELL_BLAST_RADIUS = K.num('SHELL_BLAST_RADIUS');
+/** 2026-09-10: 포탄 궤적 전용 유효 중력 — 실제 `GRAVITY` 가 아니다 (`shared/ballistics`). */
+export const SHELL_ARC_GRAVITY = K.num('SHELL_ARC_GRAVITY');
 export const SHELL_DAMAGE = K.num('SHELL_DAMAGE');
 export const SHELL_RADIUS = K.num('SHELL_RADIUS');
 /** 2026-09-09: max distance (m) a shell leads a moving target by — keeps a 6.3 s shell dodgeable. */

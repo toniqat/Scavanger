@@ -17,6 +17,8 @@ export const ARMOR_DEFS: readonly ArmorDef[] = csvRows('armor.csv').map((r) => (
   rarity: r.str('rarity') as ArmorDef['rarity'],
   description: r.str('description'),
   damageReduction: r.num('damageReduction', { min: 0, max: 1 }),
+  /* TODO(2026-09-10 실드): data/armor.csv 의 `shield` 칸에서 읽는다 (`=ARMOR_SHIELD_BY_TIER.n`). */
+  shield: r.has('shield') ? r.num('shield', { min: 0 }) : 0,
   weight: r.num('weight', { min: 0 }),
   durabilityMax: r.int('durabilityMax', { min: 1 }),
   perk: r.enum('perk', ['none', 'regen', 'ultralight', 'optical'] as const),

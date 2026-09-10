@@ -21,8 +21,18 @@ export interface ArmorDef {
   rarity: Rarity;
   /** 1..5 for numbered armor (방탄복 I..V), 0 for uniques. */
   tier: number;
-  /** Incoming damage multiplier reduction, 0..0.9 (0.25 = takes 25 % less damage). */
+  /**
+   * **2026-09-10 이후 피해 계산에 쓰이지 않는다.** 방탄복은 피해 감소가 아니라 실드(추가 체력)를 준다
+   * (`shield`). 이 값은 유니크 방탄복의 실드량을 비례 환산한 **근거**로만 남아 있다 — 계약은 추가만
+   * 한다는 규칙 그대로 지우지 않았을 뿐이다. 0..0.9.
+   */
   damageReduction: number;
+  /**
+   * appended (2026-09-10): **실드 최대치**(추가 체력). 번호 방탄복 I..V 는 `ARMOR_SHIELD_BY_TIER`
+   * (20/40/60/80/100), 유니크(tier 0)는 `damageReduction / ARMOR_DR_BY_TIER.5 × 100` 을 반올림한 값이다.
+   * 실드는 체력보다 **먼저** 깎이고 회복은 '실드 충전기' 소모품으로만 한다.
+   */
+  shield: number;
   /** kg. Counts against the weight budget while equipped. */
   weight: number;
   durabilityMax: number;

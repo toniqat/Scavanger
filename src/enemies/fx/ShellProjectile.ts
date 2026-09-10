@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { GRAVITY, Layers, SHELL_RADIUS, type GameContext, type InterceptableRef } from '@/shared';
+import { GRAVITY, Layers, SHELL_RADIUS, shellLaunchVelocity, shellPositionAt, type GameContext, type InterceptableRef } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
 import { raySphere } from '../RayTests';
 
@@ -41,25 +41,9 @@ const _side = new THREE.Vector3();
 const _toCam = new THREE.Vector3();
 const _col = new THREE.Color();
 
-/**
- * Closed form of the arc every shell flies (also replicated by `ui/hud/ShellMarkers` so the HUD marker sits on the
- * visible shell): `p(t) = from + vel0·t − ½·G·t²·ŷ` with `vel0 = (Δ/T) + ½·G·T·ŷ`, so `p(T) = target` exactly.
- * 2026-09-09: replaced the per-frame Euler step (which drifted from this by ~G·dt·t/2 — half a metre by the end of a
- * 6.3 s flight) so host, replica and HUD all agree to the millimetre.
- */
-export function shellPositionAt(from: THREE.Vector3, vel0: THREE.Vector3, t: number, out: THREE.Vector3): THREE.Vector3 {
-  return out.set(
-    from.x + vel0.x * t,
-    from.y + vel0.y * t - 0.5 * GRAVITY * t * t,
-    from.z + vel0.z * t,
-  );
-}
-
-/** Launch velocity that reaches `target` from `from` after `T` seconds (`T` already clamped ≥ 0.5). */
-export function shellLaunchVelocity(from: THREE.Vector3, target: THREE.Vector3, T: number, out: THREE.Vector3): THREE.Vector3 {
-  _d.subVectors(target, from);
-  return out.set(_d.x / T, _d.y / T + 0.5 * GRAVITY * T, _d.z / T);
-}
+/* 2026-09-10: 궤적 수식은 `@/shared/ballistics` 로 옮겼다 (ui/hud 의 마커가 같은 식을 써야 하는데
+ * 폴더끼리 import 하지 않기 때문). 이 두 줄은 기존 호출부 · import 를 지키기 위한 재수출이다. */
+export { shellPositionAt, shellLaunchVelocity } from '@/shared';
 
 class Shell implements InterceptableRef {
   id = 0;

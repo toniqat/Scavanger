@@ -107,6 +107,7 @@ SHELL_FLIGHT_TIME,6.3,2026-09-09: 4.5 → 6.3 — 사거리 −30 % 에 비행 �
 SHELL_BLAST_RADIUS,5,
 SHELL_DAMAGE,55,
 SHELL_RADIUS,0.6,
+SHELL_ARC_GRAVITY,2.6,"2026-09-10: 포탄 궤적에만 쓰는 유효 중력(m/s^2). 정점 높이 = 0.5 x this x (SHELL_FLIGHT_TIME/2)^2 이므로 9.81 로는 6.3 s 비행에서 49 m 까지 솟아 화면 밖에서 떨어졌다 (날아오는 줄도 모른다). 낮출수록 궤적이 평평해져 시야 안에 들어온다."
 SHELL_LEAD_MAX,8,"2026-09-09: 포탄이 표적의 이동을 앞질러 조준하는 최대 거리(m). 조준점 = 위치 + 속도 × (SHELL_FLIGHT_TIME × 0.5) 인데 비행 6.3 s 로는 리드가 19 m 까지 자라 피할 수 없는 자리에 떨어지므로 여기서 자른다."
 TOXIC_RADIUS,5,"Toxic bug: burst radius (m), damage (players and enemies alike), trigger distance (m)."
 TOXIC_DAMAGE,70,

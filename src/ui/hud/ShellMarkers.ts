@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { GameContext } from '@/shared';
-import { DETECT_ENEMY_BASE_RADIUS, GRAVITY } from '@/shared';
+import { DETECT_ENEMY_BASE_RADIUS, shellLaunchVelocity, shellPositionAt } from '@/shared';
 import { el } from '../dom';
 import '../styles/shellMarkers.css';
 
@@ -31,7 +31,8 @@ interface Mark { el: HTMLElement; lastKey: string }
  * ring as the detected-enemy arrows. **Screen marker only — no ground ring** (user decision).
  *
  * The shell's position is not read from the enemies folder (no cross-folder import): the marker integrates the same
- * closed-form arc `enemies/fx/ShellProjectile` flies — `p(t) = from + vel0·t − ½·G·t²·ŷ`, `vel0 = Δ/T + ½·G·T·ŷ` — from
+ * closed-form arc `enemies/fx/ShellProjectile` flies. 2026-09-10: 그 수식은 이제 `@/shared/ballistics` 한 곳에 있고
+ * (`shellLaunchVelocity` · `shellPositionAt`, 중력은 `SHELL_ARC_GRAVITY`) 양쪽이 그것을 부른다 — 베껴 두지 않는다. 인자는
  * the `enemy:shellFired {sid, from, target, flightTime}` payload, so it sits exactly on the visible shell. `life` is
  * accumulated from the same `dt`, like the shell. Dropped on `enemy:shellLanded` / `enemy:shellIntercepted` for that
  * `sid`, or after `flightTime + 2.5 s` as a safety net; cleared on `game:abort` / `game:newMission`.
@@ -92,7 +93,7 @@ export class ShellMarkers {
     const T = Math.max(0.5, flightTime);
     slot.sid = sid;
     slot.from.copy(from);
-    slot.vel0.set((target.x - from.x) / T, (target.y - from.y) / T + 0.5 * GRAVITY * T, (target.z - from.z) / T);
+    shellLaunchVelocity(from, target, T, slot.vel0);
     slot.flight = T;
     slot.life = 0;
     slot.active = true;
@@ -143,11 +144,7 @@ export class ShellMarkers {
     for (const t of this.tracked) {
       if (!t.active) continue;
       const life = t.life;
-      this.p.set(
-        t.from.x + t.vel0.x * life,
-        t.from.y + t.vel0.y * life - 0.5 * GRAVITY * life * life,
-        t.from.z + t.vel0.z * life,
-      );
+      shellPositionAt(t.from, t.vel0, life, this.p);
       const dx = this.p.x - from.x, dz = this.p.z - from.z;
       if (dx * dx + dz * dz > r2) continue;                   // outside the 인지 radius → no marker
       const hot = t.flight - life < HOT_S;

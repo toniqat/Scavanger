@@ -1924,3 +1924,26 @@ export interface EnemyManagerRef {
   /** 진행 중인 강하 (HUD 경고 · 오프스크린 화살표용). */
   getRogueDrops(): readonly RogueDropView[];
 }
+
+/* ══ appended (2026-09-10): 방탄복 = 실드 ═══════════════════════════════════════════════════════════ */
+
+export interface PlayerRef {
+  /* ── 실드 (owner: player/PlayerSystem) ────────────────────────────────────
+   * 방탄복은 더 이상 피해를 깎지 않는다 (`PlayerRef.damageReduction` 은 계약으로만 남아 늘 0 이다).
+   * 대신 **추가 체력 풀**을 준다: 들어온 피해는 `shield` 를 먼저 비우고 남은 만큼만 `hp` 로 간다.
+   * 실드는 스스로 재생하지 않는다 — '실드 충전기' 소모품(`chargeShield`)과 함선 복귀로만 채워진다.
+   * 변화는 전부 `player:shieldChanged` 로 알린다. */
+  /** 현재 실드. 방탄복이 없으면 0. */
+  readonly shield: number;
+  /** 장착한 방탄복의 `ArmorDef.shield`. 없으면 0. */
+  readonly maxShield: number;
+  /** 실드 게이지 칸 색을 정하는 방탄복 등급. 없으면 null. */
+  readonly shieldRarity: Rarity | null;
+  /** 방탄복 tier (번호 방탄복 1..5, 유니크 0). 없으면 0. */
+  readonly shieldTier: number;
+  /**
+   * 실드 충전기: `amount` 만큼 실드를 채운다 (`Infinity` = 가득). 방탄복이 없거나 이미 가득이면
+   * **아무것도 쓰지 않고** false — 호출자가 아이템을 소모하기 전에 이걸로 먼저 묻는다.
+   */
+  chargeShield(amount: number): boolean;
+}

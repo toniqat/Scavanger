@@ -41,3 +41,5 @@ export * from './currency';
 export * from './escape';
 /* appended (2026-09-09): 레이드 플레이 개선 — 의사소통 휠 계약 */
 export * from './comms';
+/* appended (2026-09-10): 포탄 궤적 닫힌 식 — enemies 와 ui 가 같은 자리를 그린다 */
+export * from './ballistics';
