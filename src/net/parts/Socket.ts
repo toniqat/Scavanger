@@ -10,12 +10,12 @@ import type {
   NetRef, NetStatus, PeerId, PingKind, RelayTarget, RemotePlayerRef, ServerToClient, Vec3Tuple,
 } from '@/shared';
 import type { ClientToServer, MissionMode, ProfileRef, RaidSessionBlob } from '@/shared';
-import type { PlanetId, SocialRef } from '@/shared';
+import type { PlanetId, RelayProbe, SocialRef } from '@/shared';
 import { isPlanetId } from '@/shared';
 import {
   NET_INVITE_PARAM, NET_MISSION_RESUME_TIMEOUT_MS, NET_NAME_PARAM, NET_PLAYER_SNAPSHOT_HZ, NET_RECONNECT_BACKOFF_MS,
   NET_TOKEN_LENGTH, NET_TOKEN_PARAM, NET_TOKEN_STORAGE_KEY, NET_WS_PATH, PlayerFlags, RAID_BLOB_MAX_BYTES,
-  isValidLobbyCode, normalizeLobbyCode, sanitizePlayerName,
+  RELAY_STORAGE_KEY, isValidLobbyCode, normalizeLobbyCode, relayUrlFrom, sanitizePlayerName,
 } from '@/shared';
 import { NetClient } from '../NetClient';
 import { ProfileSync } from '../ProfileSync';
@@ -24,7 +24,7 @@ import { RemotePlayer } from '../RemotePlayer';
 import { Snapshotter } from '../Snapshotter';
 import type { CrewCardWire, ImplantId } from '@/shared';
 import { IMPLANT_IDS } from '@/shared';
-import { CHAT_KINDS, type Handler, IMPLANT_ID_SET, MAX_LOBBYLESS_ATTEMPTS, NAME_STORAGE_KEY, PEER_LINGER, PING_KINDS, SNAPSHOT_INTERVAL, TOKEN_ALPHABET, TOKEN_RE, defIdOrNull, isGhostWire, isNum, isVec3, loadOrCreateSessionToken, sameCard, sanitizeCrewCard, vec } from '../model';
+import { CHAT_KINDS, type Handler, IMPLANT_ID_SET, MAX_LOBBYLESS_ATTEMPTS, NAME_STORAGE_KEY, RELAY_PROBE_TIMEOUT_MS, PEER_LINGER, PING_KINDS, SNAPSHOT_INTERVAL, TOKEN_ALPHABET, TOKEN_RE, defIdOrNull, isGhostWire, isNum, isVec3, loadOrCreateSessionToken, sameCard, sanitizeCrewCard, vec } from '../model';
 import type { NetSystem } from '../NetSystem';
 
 /* ── Phase 8 ── */
@@ -69,12 +69,78 @@ export function disconnect(sys: NetSystem): void {
   sys.client.close();
   }
 
+/* ── 릴레이 주소 (2026-09-10) ────────────────────────────────────────────
+ * 우선순위는 `shared/net` 의 `RELAY_STORAGE_KEY` 주석에 적힌 네 단계이고, 렌더러가 아는 것은 그중 하나뿐이다
+ * — **설정에 적어 둔 주소**. 나머지(플래그 · `SCAV_RELAY` · `server.txt` · 임베디드)는 데스크톱 셸이 골라
+ * 같은 오리진 `/ws` 뒤에 숨겨 두므로 여기서는 그냥 같은 오리진으로 붙으면 된다.
+ */
+
+/** 설정에 적어 둔 주소 원문 (없거나 저장소를 못 읽으면 빈 문자열). 슬롯 공용 키라 `slotKey` 를 타지 않는다. */
+export function relayOverride(): string {
+  try { return localStorage.getItem(RELAY_STORAGE_KEY)?.trim() ?? ''; } catch { return ''; }
+  }
+
+/** 설정의 주소를 쓴다/지운다. 형식이 아니면 아무것도 저장하지 않고 false. */
+export function setRelayOverride(sys: NetSystem, raw: string): boolean {
+  const text = raw.trim();
+  if (text && !relayUrlFrom(text)) return false;
+  try {
+    if (text) localStorage.setItem(RELAY_STORAGE_KEY, text);
+    else localStorage.removeItem(RELAY_STORAGE_KEY);
+  } catch { /* storage unavailable → 이 페이지 동안만 유효 */ }
+  sys.ctx?.bus.emit('net:relayChanged', { url: defaultUrl(sys), custom: !!text });
+  return true;
+  }
+
 export function defaultUrl(sys: NetSystem): string {
+  const custom = relayUrlFrom(relayOverride());
+  if (custom) return custom;
   const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env;
   const fromEnv = env?.VITE_WS_URL;
   if (fromEnv) return fromEnv;
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   return `${proto}://${location.host}${NET_WS_PATH}`;
+  }
+
+/**
+ * 주소 하나를 **익명으로**(토큰 없이) 두드려 `welcome` 까지의 시간을 잰다. 토큰을 붙이면 서버가 같은 세션의
+ * 중복 접속으로 보고 살아 있는 내 소켓을 `duplicate` 로 끊어 버린다 — 연결 테스트가 연결을 죽이면 안 된다.
+ * `NetClient` 를 쓰지 않는 이유도 같다: 이 소켓은 상태 기계에 들어가지 않고 여기서 열고 여기서 닫는다.
+ */
+export function probeRelay(sys: NetSystem, raw?: string): Promise<RelayProbe> {
+  const url = relayUrlFrom(raw ?? relayOverride()) ?? (raw === undefined ? defaultUrl(sys) : null);
+  if (!url) return Promise.resolve({ ok: false, url: '', ms: 0, error: '주소 형식이 아닙니다' });
+  return new Promise<RelayProbe>((resolve) => {
+    let ws: WebSocket;
+    // 형식은 이미 `relayUrlFrom` 이 봤으므로, 여기서 던지는 것은 사실상 혼합 콘텐츠(https 페이지 + ws://)다.
+    try { ws = new WebSocket(url); } catch { resolve({ ok: false, url, ms: 0, error: '이 주소를 열 수 없습니다 (https 페이지에서는 ws:// 를 쓸 수 없습니다)' }); return; }
+    const t0 = performance.now();
+    let done = false;
+    const finish = (r: RelayProbe): void => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      try { ws.close(); } catch { /* already closing */ }
+      resolve(r);
+    };
+    const timer = setTimeout(() => finish({ ok: false, url, ms: 0, error: '응답이 없습니다 (방화벽 · 포트 확인)' }),
+      RELAY_PROBE_TIMEOUT_MS);
+    ws.onmessage = (ev) => {
+      // 첫 프레임이 곧 `welcome` 이다. 내용은 보지 않는다 — 릴레이가 말을 한다는 것만 확인한다.
+      const ms = Math.max(1, Math.round(performance.now() - t0));
+      finish({ ok: typeof ev.data === 'string' && ev.data.includes('welcome'), url, ms,
+        error: typeof ev.data === 'string' && ev.data.includes('welcome') ? undefined : '릴레이가 아닙니다' });
+    };
+    ws.onerror = () => finish({ ok: false, url, ms: 0, error: '연결할 수 없습니다' });
+    ws.onclose = () => finish({ ok: false, url, ms: 0, error: '연결이 거부되었습니다' });
+  });
+  }
+
+/** 저장된 주소로 다시 붙는다. 로비에 있었다면 떠난다 (서버가 바뀌면 그 로비는 존재하지 않는다). */
+export async function reconnectRelay(sys: NetSystem): Promise<boolean> {
+  disconnect(sys);
+  sys.intentionalClose = false;
+  return ensureConnected(sys);
   }
 
 /** Append `?t=<token>&n=<name>` (NET_TOKEN_PARAM / NET_NAME_PARAM) to a relay URL. */

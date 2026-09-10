@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>선로 · 전차 — PROJECT SCAVANGER</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-page="p-rails">
+<div class="shell">
+
+<aside class="side">
+  <div class="brand">
+    <a href="00-intro.html"><h1>PROJECT <em>SCAVANGER</em></h1></a>
+    <p>PITCH DOCUMENT · v0.1</p>
+  </div>
+  <nav class="tree" id="tree"></nav>
+</aside>
+
+<main class="main" id="main">
+
+<article id="p-rails">
+  <div class="crumb">레이드 / 선로 · 전차</div>
+  <h1>선로 · 전차 <span class="badge ok">구현</span></h1>
+
+  <div class="shotrow">
+    <figure class="shot" data-src="../assets/rail-line.png">
+      <div class="ph"><span class="tag">스크린샷</span><span class="ttl">맵을 가로지르는 선로</span>
+      <span class="desc">지형 위로 떠 있는 궤도 — 위를 걸어 다닌다</span>
+      <span class="meta">assets/rail-line.png</span></div>
+      <figcaption>선로는 <b>걸어 올라설 수 있는 높이(0.75 m)</b>다. 담이 아니라 길이다.</figcaption>
+    </figure>
+    <figure class="shot" data-src="../assets/rail-tram.png">
+      <div class="ph"><span class="tag">스크린샷</span><span class="ttl">주행 중인 전차</span>
+      <span class="desc">데크에 서 있으면 함께 실려 간다</span>
+      <span class="meta">assets/rail-tram.png</span></div>
+    </figure>
+  </div>
+
+  <p class="lede">맵의 <b>70 %</b>에 순환 또는 왕복 <strong>선로</strong>가 놓이고, 그 위를 <strong>전차</strong>가 달린다. 절차 생성 벌판에 <b>사람이 만든 축</b>을 하나 그어 주는 장치다 — 어디로 갈지 막막하던 벌판에 「따라가면 되는 선」이 생긴다.</p>
+
+  <h2 id="s-ride"><span class="hn">4.9</span>타는 법</h2>
+  <div class="tw"><table>
+    <thead><tr><th style="width:20%">단계</th><th>내용</th></tr></thead>
+    <tbody>
+      <tr><td class="k">1. 플랫폼</td><td>선로마다 플랫폼 <b>2곳</b>. 각각 컨테이너가 딸려 있어 그 자체로 파밍 지점이다. <span class="chip">조사하면 로그 강하</span></td></tr>
+      <tr><td class="k">2. 콘솔 시동</td><td>플랫폼 콘솔을 <b>1.5초 홀드</b>. 시동 알림이 뜨고 <b>1초</b> 정지한 뒤 <b>3초</b> 동안 가속한다 — 뛰어가서 탈 수 있는 유예다.</td></tr>
+      <tr><td class="k">3. 주행</td><td>최고 <b>11.2 m/s</b>. 달리기보다 빠르고, 달리는 동안 <b>스태미나를 쓰지 않는다</b>.</td></tr>
+      <tr><td class="k">4. 하차</td><td>아무 데서나 뛰어내린다. 다음 플랫폼에서는 <b>8초</b> 정차한다.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="cards">
+    <div class="card"><h5>움직이는 발판</h5><p>데크 <b>윗면에</b> 서 있으면 함께 실려 간다. 걸어 다니고, 쏘고, 재장전하는 동안에도 전차는 계속 간다.</p></div>
+    <div class="card"><h5>달리는 사격 진지</h5><p>무거운 가방을 메고도 이동할 수 있는 유일한 길이다 — <a class="wl" href="17-extraction.html">탈출</a>을 앞두고 가방이 무거울 때 가치가 급등한다.</p></div>
+    <div class="card"><h5>소리가 난다</h5><p>시동을 걸면 알림이 울린다. 편한 만큼 <b>어디로 가는지 광고</b>하는 셈이다.</p></div>
+  </div>
+
+  <div class="note am"><b>왜 「자동 주행」인가.</b> 운전대를 쥐게 하면 한 명이 운전수로 묶인다. 콘솔로 시동만 걸고 전차가 알아서 달리게 하면 <b>분대 전원이 계속 전투원</b>으로 남는다 — 조작을 늘리지 않고 이동 수단을 준다.</div>
+
+  <div class="nextnav">
+    <a href="12-structures.html"><span>이전</span>← 버려진 구조물</a>
+    <a class="n" href="14-hazards.html"><span>다음</span>환경 재해 →</a>
+  </div>
+</article>
+
+</main>
+
+<aside class="toc">
+  <h4>이 페이지</h4>
+  <div id="toc"></div>
+</aside>
+</div>
+
+<script src="../app.js"></script>
+</body>
+</html>

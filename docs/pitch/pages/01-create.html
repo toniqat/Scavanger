@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>캐릭터 생성 — PROJECT SCAVANGER</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-page="p-create">
+<div class="shell">
+
+<aside class="side">
+  <div class="brand">
+    <a href="00-intro.html"><h1>PROJECT <em>SCAVANGER</em></h1></a>
+    <p>PITCH DOCUMENT · v0.1</p>
+  </div>
+  <nav class="tree" id="tree"></nav>
+</aside>
+
+<main class="main" id="main">
+
+<article id="p-create">
+  <div class="crumb">캐릭터 / 생성</div>
+  <h1>캐릭터 생성 <span class="badge ok">구현</span></h1>
+
+  <div class="shotrow">
+    <figure class="shot" data-src="../assets/char-select.png">
+      <div class="ph"><span class="tag">스크린샷</span><span class="ttl">캐릭터 선택 — 3칸</span>
+      <span class="desc">게임 시작을 누르면 나오는 화면</span>
+      <span class="meta">assets/char-select.png</span></div>
+    </figure>
+    <figure class="shot" data-src="../assets/char-create.png">
+      <div class="ph"><span class="tag">스크린샷</span><span class="ttl">캐릭터 생성창</span>
+      <span class="desc">우측 3D 프리뷰 · 좌측 이름 · 색 · 시작 임플란트 · 능력치</span>
+      <span class="meta">assets/char-create.png</span></div>
+      <figcaption>프리뷰는 그림이 아니라 <b>실제로 게임에 나갈 그 모델</b>이다 — 절차 생성이라 외부 에셋이 없다.</figcaption>
+    </figure>
+  </div>
+
+  <p class="lede">캐릭터를 <strong>3칸</strong>까지 굴린다. 슬롯마다 창고 · 함선 · 진행도 · 크레딧이 <b>완전히 갈라져</b> 있어, 한쪽에서 모은 장비가 다른 쪽으로 새지 않는다 — 「저격 빌드 하나 · 근접 빌드 하나」를 따로 키울 수 있다는 뜻이다.</p>
+
+  <h2 id="s-create"><span class="hn">2.1</span>만들 때 정하는 것</h2>
+  <div class="tw"><table>
+    <thead><tr><th style="width:22%">항목</th><th>내용</th></tr></thead>
+    <tbody>
+      <tr><td class="k">이름</td><td>콜사인. 주사위 버튼으로 굴릴 수도 있다.</td></tr>
+      <tr><td class="k">악센트 색</td><td>내 캐릭터의 상징색. <b>분대에서 나를 가리키는 색</b>이기도 하다 — <a class="wl" href="10-comms.html#s-ping">확인 핑</a>의 원이 이 색으로 그려진다.</td></tr>
+      <tr><td class="k">시작 <a class="wl" href="05-tactical.html">임플란트</a></td><td>첫 전술 임플란트를 고른다. 갈고리로 시작하면 기동, 배리어로 시작하면 버티기가 된다.</td></tr>
+      <tr><td class="k">능력치 배분</td><td>5종에 <b>각 1~5 · 합 15</b>. 전부 1에서 시작하므로 <b>10점</b>을 나눠 준다.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="tw"><table>
+    <thead><tr><th style="width:18%">능력치</th><th>올리면</th></tr></thead>
+    <tbody>
+      <tr><td class="k">근력</td><td>적재량 · 근접 피해 · 도약력 · <b>투척 거리</b></td></tr>
+      <tr><td class="k">지구력</td><td>최대 스태미나 · 회복 속도</td></tr>
+      <tr><td class="k">인지력</td><td>상호작용물과 <b>화면 밖 적</b>을 감지하는 거리</td></tr>
+      <tr><td class="k">지능</td><td>모든 <a class="wl" href="03-skills.html">숙련도</a>가 오르는 속도</td></tr>
+      <tr><td class="k">재주</td><td>소모품 사용 속도 · 상호작용 홀드 속도</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="note"><b>돌이킬 수 없는 배분이 아니다.</b> 여기서 정하는 15점은 <b>출발점</b>일 뿐이고, 능력치는 레이드를 돌며 계속 오른다(성장 상한은 20). 첫 화면에서 빌드를 완전히 결정하게 만들면 신규 플레이어가 겁을 먹는다 — <b>「어디부터 시작할까」</b> 정도의 무게로 맞췄다.</div>
+
+  <h2 id="s-slot"><span class="hn">2.2</span>슬롯이 갈라 놓는 것</h2>
+  <div class="cards">
+    <div class="card"><h5>갈라지는 것</h5><p>크레딧 · 창고 · 로드아웃 · 진행도 · <a class="wl" href="19-ship.html">함선 배치</a> · <a class="wl" href="24-rep.html">기업 신뢰도</a>. <b>서버가 들고 있는 프로필까지</b> 캐릭터마다 나뉜다.</p></div>
+    <div class="card"><h5>공유되는 것</h5><p>키 바인딩 · 오디오 · 화면 설정. <b>어느 캐릭터로 들어가든 손에 익은 조작 그대로</b>다 — 조작은 캐릭터의 속성이 아니다.</p></div>
+    <div class="card"><h5>삭제는 1초 홀드</h5><p>슬롯 카드의 빨간 <b>삭제</b>는 <a class="wl" href="30-controls.html">누르고 있어야</a> 실행된다.</p></div>
+  </div>
+
+  <div class="note am"><b>새 캐릭터는 손을 잡아 준다.</b> 처음 만든 캐릭터는 <b>17단계 튜토리얼</b>이 함선을 한 바퀴 돌린다 — 장비 착용 · 제작 · 시설 배치 · 행성 이동 · 출격까지. UI 를 직접 밝혀 가며 안내하고, 순서를 벗어나면 잠긴다. 익숙한 사람은 <b>1초 홀드</b>로 건너뛴다.</div>
+
+  <div class="nextnav">
+    <a href="00-intro.html"><span>이전</span>← 프로젝트 개요</a>
+    <a class="n" href="02-stats.html"><span>다음</span>스탯 →</a>
+  </div>
+</article>
+
+</main>
+
+<aside class="toc">
+  <h4>이 페이지</h4>
+  <div id="toc"></div>
+</aside>
+</div>
+
+<script src="../app.js"></script>
+</body>
+</html>

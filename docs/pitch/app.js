@@ -9,13 +9,13 @@
    ────────────────────────────────────────────────────────────────────── */
 const TREE = [
   { n:'1', t:'개요',      pages:[['p-intro','프로젝트 개요']] },
-  { n:'2', t:'캐릭터',    pages:[['p-stats','스탯'],['p-skills','숙련도'],['p-implant-item','임플란트'],['p-tactical','전술 임플란트']] },
-  { n:'3', t:'전투',      pages:[['p-weapons','무기'],['p-gadget','가젯'],['p-stratagem','함선 호출']] },
-  { n:'4', t:'레이드',    pages:[['p-raid-flow','레이드 흐름'],['p-planets','행성 · 기믹'],['p-enemies','적'],['p-extraction','탈출'],['p-dungeon','던전 레이드']] },
-  { n:'5', t:'함선',      pages:[['p-ship','개인 함선'],['p-facility','시설'],['p-guild','길드 함선']] },
+  { n:'2', t:'캐릭터',    pages:[['p-create','캐릭터 생성'],['p-stats','스탯'],['p-skills','숙련도'],['p-implant-item','임플란트'],['p-tactical','전술 임플란트']] },
+  { n:'3', t:'전투',      pages:[['p-weapons','무기 · 방어구'],['p-gadget','가젯'],['p-stratagem','함선 호출']] },
+  { n:'4', t:'레이드',    pages:[['p-raid-flow','레이드 흐름'],['p-comms','분대 커뮤니케이션'],['p-planets','행성'],['p-structures','버려진 구조물'],['p-rails','선로 · 전차'],['p-hazards','환경 재해'],['p-fog','전장의 안개'],['p-enemies','적'],['p-extraction','탈출'],['p-dungeon','던전 레이드']] },
+  { n:'5', t:'함선',      pages:[['p-ship','개인 함선'],['p-facility','시설'],['p-hangar','격납고 · 분대'],['p-guild','길드 함선']] },
   { n:'6', t:'기업',      pages:[['p-corp','기업 · 인물'],['p-rep','신뢰도 · 계약'],['p-quest','퀘스트']] },
   { n:'7', t:'미니게임',  pages:[['p-crypto','암호화폐 트레이딩'],['p-auction','창고 경매']] },
-  { n:'8', t:'부록',      pages:[['p-status','개발 현황'],['p-controls','조작']] },
+  { n:'8', t:'부록',      pages:[['p-status','개발 현황'],['p-hud','화면 보는 법'],['p-controls','조작']] },
 ];
 
 const $  = (s, r) => (r || document).querySelector(s);
@@ -185,32 +185,67 @@ if (location.hash) {
   if (el) el.scrollIntoView({ block:'start' });
 }
 
-/* ── 이미지 크게 보기 (라이트박스) ────────────────────────────────────
-   figure.shot 안의 실제 <img> 를 누르면 전체 화면으로 열리고,
-   아무 데나 다시 누르거나 ESC 를 누르면 닫힌다.
+/* ── 이미지 크게 보기 (라이트박스 · 카드 넘기기) ──────────────────────
+   figure.shot 안의 실제 <img> 를 누르면 전체 화면으로 열린다.
+
+   **묶음.** 같은 `.shotrow` 안의 이미지들은 한 벌로 취급해, 크게 본 상태에서
+   ◀ ▶ · ← → · 스와이프로 **다음 장을 바로 넘겨** 본다 (행성 5장처럼 나열된
+   그림을 닫았다 다시 여는 일이 없다). `.shotrow` 밖의 단독 그림은 자기 혼자가
+   한 벌이라 넘기기 UI 가 아예 붙지 않는다.
+
    위 「이미지 자동 교체」가 나중에 끼워 넣는 <img> 도 잡아야 하므로
-   document 위임으로 붙인다. 플레이스홀더(.ph)는 대상이 아니다.
+   document 위임으로 붙인다. 플레이스홀더(.ph)는 <img> 가 아니므로 대상이 아니다.
+   아직 파일이 없는 자리는 묶음에서도 자동으로 빠진다.
    ────────────────────────────────────────────────────────────────────── */
 (function lightbox(){
   let box = null, hideTimer = 0;
+  let group = [], at = 0;                     /* 지금 보고 있는 묶음과 그 안의 위치 */
 
   function build(){
     box = document.createElement('div');
     box.className = 'lb';
     box.style.display = 'none';
-    box.innerHTML = '<div class="x">닫기 · ESC</div><img alt=""><div class="cap"></div>';
+    box.innerHTML =
+      '<div class="x">닫기 · ESC</div>' +
+      '<button class="nav prev" type="button" aria-label="이전 이미지">‹</button>' +
+      '<img alt="">' +
+      '<button class="nav next" type="button" aria-label="다음 이미지">›</button>' +
+      '<div class="cap"></div><div class="count"></div>';
+    /* 배경을 누르면 닫는다. 이미지 · 화살표는 자기 몫을 하고 전파를 끊는다. */
     box.addEventListener('click', close);
+    $('img', box).addEventListener('click', (e) => e.stopPropagation());
+    $('.prev', box).addEventListener('click', (e) => { e.stopPropagation(); step(-1); });
+    $('.next', box).addEventListener('click', (e) => { e.stopPropagation(); step(1); });
     document.body.appendChild(box);
     return box;
   }
 
-  function open(img){
-    if (!box) build();
+  /* 누른 그림이 속한 묶음 — 같은 .shotrow 안에서 이미 그려진 <img> 들 */
+  function groupOf(img){
+    const row = img.closest('.shotrow');
+    const imgs = row ? $$('figure.shot img', row) : [img];
+    return imgs.length ? imgs : [img];
+  }
+
+  function show(i){
+    at = (i + group.length) % group.length;   /* 양끝에서 되돈다 */
+    const img = group[at];
     const fig = img.closest('figure.shot');
     const cap = fig ? $('figcaption', fig) : null;
     $('img', box).src = img.currentSrc || img.src;
     $('img', box).alt = img.alt || '';
     $('.cap', box).textContent = (cap && cap.textContent.trim()) || img.alt || '';
+    const many = group.length > 1;
+    $('.count', box).textContent = many ? (at + 1) + ' / ' + group.length : '';
+    box.classList.toggle('multi', many);
+  }
+
+  function step(d){ if (group.length > 1) show(at + d); }
+
+  function open(img){
+    if (!box) build();
+    group = groupOf(img);
+    show(Math.max(0, group.indexOf(img)));
     clearTimeout(hideTimer);
     box.style.display = 'flex';
     document.body.style.overflow = 'hidden';
@@ -224,6 +259,8 @@ if (location.hash) {
     hideTimer = setTimeout(() => { box.style.display = 'none'; }, 160);
   }
 
+  const isOpen = () => !!box && box.classList.contains('on');
+
   document.addEventListener('click', (e) => {
     const img = e.target.closest && e.target.closest('figure.shot img');
     if (!img) return;
@@ -231,5 +268,22 @@ if (location.hash) {
     open(img);
   });
 
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') return close();
+    if (!isOpen()) return;
+    if (e.key === 'ArrowLeft')  { e.preventDefault(); step(-1); }
+    if (e.key === 'ArrowRight') { e.preventDefault(); step(1); }
+  });
+
+  /* 터치 스와이프 — 세로로 그은 것은 넘기지 않는다 */
+  let tx = 0, ty = 0;
+  document.addEventListener('touchstart', (e) => {
+    if (!isOpen() || !e.touches[0]) return;
+    tx = e.touches[0].clientX; ty = e.touches[0].clientY;
+  }, { passive: true });
+  document.addEventListener('touchend', (e) => {
+    if (!isOpen() || !e.changedTouches[0]) return;
+    const dx = e.changedTouches[0].clientX - tx, dy = e.changedTouches[0].clientY - ty;
+    if (Math.abs(dx) > 48 && Math.abs(dx) > Math.abs(dy)) step(dx < 0 ? 1 : -1);
+  }, { passive: true });
 })();

@@ -40,7 +40,9 @@ export const AUTOSTART_KEY = 'scav.autostart';
 
 /** 캐릭터가 아닌 것 — 슬롯 접두사를 받지 않고, 슬롯을 지워도 살아남는다. */
 export const SHARED_KEYS: ReadonlySet<string> = new Set([
-  'scav.keybinds', 'scav.audio', 'scav.display', 'scav.console.history', ACTIVE_SLOT_KEY,
+  // 2026-09-10: `scav.relay` (= shared/net `RELAY_STORAGE_KEY`) 는 이 PC 가 어느 서버에 붙는지이지 캐릭터
+  // 데이터가 아니다 — 키 바인딩 · 오디오와 같은 자리다. 슬롯을 지워도 서버 주소는 남는다.
+  'scav.keybinds', 'scav.audio', 'scav.display', 'scav.console.history', 'scav.relay', ACTIVE_SLOT_KEY,
 ]);
 
 /** `scav.s3.` 같은 이미 네임스페이스된 키를 알아보는 패턴. */

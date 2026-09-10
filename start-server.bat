@@ -36,7 +36,7 @@ echo.
 echo   친구들이 접속할 주소
 echo     ws://%LANIP%:8787/ws
 echo.
-echo   SCAVANGER.exe 는 exe 옆의 relay.txt 첫 줄을 읽습니다.
+echo   SCAVANGER.exe 는 exe 옆의 server.txt 첫 줄을 읽습니다.
 echo   빌드 기본값을 바꾸려면 electron\default-relay.txt 를 고친 뒤
 echo   npm run app:build 를 다시 실행하세요.
 echo.

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>임플란트 — PROJECT SCAVANGER</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-page="p-implant-item">
+<div class="shell">
+
+<aside class="side">
+  <div class="brand">
+    <a href="00-intro.html"><h1>PROJECT <em>SCAVANGER</em></h1></a>
+    <p>PITCH DOCUMENT · v0.1</p>
+  </div>
+  <nav class="tree" id="tree"></nav>
+</aside>
+
+<main class="main" id="main">
+
+<article id="p-implant-item">
+  <div class="crumb">캐릭터 / 임플란트</div>
+  <h1>임플란트</h1>
+  <p class="lede">RPG의 <strong>장신구</strong> 포지션. <br>레퍼런스는 <b>할로우 나이트의 부적</b> — 장착칸이 한정돼 있고, 성능이 좋을수록 칸을 많이 먹는다. 무엇을 포기할지가 곧 빌드다.</p>
+
+  <div class="cards">
+    <div class="card"><h5>장착칸</h5><p>기본 <b>4칸</b>, 레벨 <b>5마다 +1</b>, 최대 <b>10칸</b>. <a class="wl" href="02-stats.html">레벨</a>이 곧 빌드의 자유도다.</p></div>
+    <div class="card"><h5>획득 경로</h5><p>레이드에서는 <b>망가진 채로만</b> 나온다. <a class="wl" href="23-corp.html">세레스 바이오</a>의 수리 데스크에서 재료를 내고 되살린다.</p></div>
+    <div class="card"><h5>제작 불가</h5><p>작업대로는 만들 수 없다. 상점 · 퀘스트 · 수리 — 세 경로뿐이라 희소성이 유지된다.</p></div>
+  </div>
+
+  <h2 id="s-imp-stat"><span class="hn">2.4</span>능력치 임플란트</h2>
+  <p>스탯 5종 × 등급 I~IV = <strong>20종</strong>. 등급이 오르면 보너스도 칸도 커진다.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th>등급</th><th>희귀도</th><th class="num">장착칸</th><th class="num">스탯 보너스</th><th class="num">가치</th><th>예시</th></tr></thead>
+    <tbody>
+      <tr><td class="k">I</td><td><span style="color:#9aa3ad">일반</span></td><td class="num">1</td><td class="num">+1</td><td class="num">400 C</td><td>근력 임플란트 I</td></tr>
+      <tr><td class="k">II</td><td><span style="color:#4fd17e">고급</span></td><td class="num">2</td><td class="num">+2</td><td class="num">900 C</td><td>지구력 임플란트 II</td></tr>
+      <tr><td class="k">III</td><td><span style="color:#4aa3ff">희귀</span></td><td class="num">2</td><td class="num">+3</td><td class="num">1,800 C</td><td>인지력 임플란트 III</td></tr>
+      <tr><td class="k">IV</td><td><span style="color:#b56cff">서사</span></td><td class="num">3</td><td class="num">+4</td><td class="num">3,600 C</td><td>지능 임플란트 IV</td></tr>
+    </tbody>
+  </table></div>
+  <p style="color:var(--tx2);font-size:13.5px">III 등급부터는 상점에 없다 — <a class="wl" href="25-quest.html">퀘스트</a>와 수리 데스크에서만 나온다.</p>
+
+  <h2 id="s-imp-perk"><span class="hn">2.5</span>전설 임플란트 (퍽)</h2>
+  <p>스탯이 아니라 <strong>규칙 자체</strong>를 바꾼다. 칸을 크게 먹으므로 하나만 껴도 빌드가 정해진다.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th style="width:22%">이름</th><th class="num">칸</th><th style="width:16%">덤</th><th>효과</th></tr></thead>
+    <tbody>
+      <tr><td class="k" style="color:#ffb347">재기동 회로</td><td class="num">3</td><td>지구력 +1</td><td>전투불능이 되면 <b>레이드당 한 번</b> 자동으로 일어난다.</td></tr>
+      <tr><td class="k" style="color:#ffb347">가속 대사</td><td class="num">2</td><td>재주 +1</td><td>회복 아이템 사용 시간이 <b>절반</b>이 된다.</td></tr>
+      <tr><td class="k" style="color:#ffb347">아드레날린 펌프</td><td class="num">3</td><td>근력 +1</td><td>적을 처치하면 <b>스태미나가 전부 회복</b>된다.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2 id="s-imp-repair"><span class="hn">2.6</span>망가진 임플란트 · 수리</h2>
+  <p>레이드에서 나오는 건 전부 <b>망가진</b> 버전이다. 장착도 안 되고 능력치도 안 준다. <a class="wl" href="23-corp.html">세레스 바이오</a>에 가져가면 등급에 맞는 재료를 받고 되살려 준다.</p>
+
+  <details>
+    <summary>세부 수치 — 등급별 수리 재료</summary>
+    <div class="dbody"><div class="tw"><table>
+      <thead><tr><th>등급</th><th>필요 재료</th></tr></thead>
+      <tbody>
+        <tr><td class="k">일반</td><td>회로 기판 1 · 전선 1</td></tr>
+        <tr><td class="k">고급</td><td>회로 기판 1 · 전선 1 · 합금 판 1</td></tr>
+        <tr><td class="k">희귀</td><td>회로 기판 2 · 전선 2 · 합금 판 1</td></tr>
+        <tr><td class="k">서사</td><td>회로 기판 2 · 전선 2 · 합금 판 1 · 소독약 1</td></tr>
+        <tr><td class="k">전설</td><td>회로 기판 3 · 전선 3 · 합금 판 2 · 소독약 1</td></tr>
+      </tbody>
+    </table></div>
+    <p style="margin-top:10px">망가진 임플란트의 판매가는 정상품의 <b>1/4</b>. 팔 것인가 고칠 것인가 — 초반의 작은 딜레마다.</p></div>
+  </details>
+
+  <figure class="shot" data-src="../assets/implant-slots.png">
+    <div class="ph"><span class="tag">스크린샷</span><span class="ttl">임플란트 장착 화면</span>
+    <span class="desc"><span class="key">Tab</span> → 인벤토리 탭의 장비 열. 장착칸 게이지와 끼운 임플란트, 아래에 장착 후보 목록(망가진 것은 「세레스 바이오에서 수리」로 표시).</span>
+    <span class="meta">권장 1920×1080 · assets/implant-slots.png</span></div>
+    <figcaption>장착칸이 모자라면 후보가 「장착칸 부족」으로 회색 처리된다 — 무엇을 뺄지가 곧 빌드다.</figcaption>
+  </figure>
+
+  <div class="nextnav">
+    <a href="03-skills.html"><span>이전</span>← 숙련도</a>
+    <a class="n" href="05-tactical.html"><span>다음</span>전술 임플란트 →</a>
+  </div>
+</article>
+
+</main>
+
+<aside class="toc">
+  <h4>이 페이지</h4>
+  <div id="toc"></div>
+</aside>
+</div>
+
+<script src="../app.js"></script>
+</body>
+</html>

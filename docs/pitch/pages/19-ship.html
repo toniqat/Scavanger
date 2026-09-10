@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>개인 함선 — PROJECT SCAVANGER</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-page="p-ship">
+<div class="shell">
+
+<aside class="side">
+  <div class="brand">
+    <a href="00-intro.html"><h1>PROJECT <em>SCAVANGER</em></h1></a>
+    <p>PITCH DOCUMENT · v0.1</p>
+  </div>
+  <nav class="tree" id="tree"></nav>
+</aside>
+
+<main class="main" id="main">
+
+<article id="p-ship">
+  <div class="crumb">함선 / 개인 함선</div>
+  <h1>개인 함선</h1>
+  <figure class="shot" data-src="../assets/ship-interior.png">
+    <div class="ph"><span class="tag">스크린샷</span><span class="ttl">개인 함선 내부 — 복도와 방들</span>
+    <span class="desc">복도에서 양쪽 방이 보이는 구도. 방마다 다른 시설(작업실 · 온실 · 서재)이 들어차 있으면 이상적.</span>
+    <span class="meta">권장 1920×1080 · assets/ship-interior.png</span></div>
+  </figure>
+  <div class="shotrow">
+    <figure class="shot" data-src="../assets/ship-housing-mode.png">
+      <div class="ph"><span class="tag">스크린샷</span><span class="ttl">꾸미기 모드 — 격자 배치</span>
+      <span class="desc">가구 고스트와 배치 격자가 보이는 탑다운 카메라</span>
+      <span class="meta">assets/ship-housing-mode.png</span></div>
+    </figure>
+    <figure class="shot" data-src="../assets/ship-manage.png">
+      <div class="ph"><span class="tag">스크린샷</span><span class="ttl">시설 관리 화면</span>
+      <span class="desc">방 10칸 목록 · 용도 지정 · 발전기/창고 업그레이드</span>
+      <span class="meta">assets/ship-manage.png</span></div>
+    </figure>
+  </div>
+
+  <p class="lede">타르코프의 <b>은신처</b>에 해당하는 공간이자, 이 게임에서 <strong>죽어도 남는 유일한 자산</strong>. 걸어 다닐 수 있는 실제 공간이며, 조종실 → 복도 → <strong>빈 방 10개</strong> → 에어록 구조다.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th style="width:22%">구성</th><th>설명</th></tr></thead>
+    <tbody>
+      <tr><td class="k">방 10칸</td><td>좌현 5 · 우현 5. 각 방에 <a class="wl" href="20-facility.html">용도</a>를 지정하면 그 시설이 된다.</td></tr>
+      <tr><td class="k">발전기</td><td>방을 차지하지 않는 함선 공용 시설. <b>모든 증축의 전제 조건</b>이며 최대 5레벨.</td></tr>
+      <tr><td class="k">창고</td><td>10칸 × 24행에서 시작해 레벨 5에서 <b>10 × 60</b>까지. 익스트랙션 게임에서 창고는 곧 재산이다.</td></tr>
+      <tr><td class="k">에어록</td><td>매칭 시 <a class="wl" href="09-raid-flow.html">공유 함선</a>으로 나가는 통로.</td></tr>
+      <tr><td class="k">더 좋은 함선</td><td><span class="badge plan">기획</span> 크레딧을 많이 모으면 <b>방이 더 많은 함선</b>을 구매. 시설 개수 상한이 올라간다.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>꾸미기 모드</h3>
+  <p>방 안에서 꾸미기 모드로 들어가면 <b>격자에 가구를 배치</b>한다. 90° 회전, 회수, 시설 전용 가구 제한(작업대는 작업실에만) 규칙이 있다. 재배층처럼 <b>쌓을 수 있는</b> 가구도 있다.</p>
+
+  <div class="nextnav">
+    <a href="18-dungeon.html"><span>이전</span>← 던전 레이드</a>
+    <a class="n" href="20-facility.html"><span>다음</span>시설 →</a>
+  </div>
+</article>
+
+</main>
+
+<aside class="toc">
+  <h4>이 페이지</h4>
+  <div id="toc"></div>
+</aside>
+</div>
+
+<script src="../app.js"></script>
+</body>
+</html>

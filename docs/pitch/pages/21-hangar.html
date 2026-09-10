@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>격납고 · 분대 — PROJECT SCAVANGER</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-page="p-hangar">
+<div class="shell">
+
+<aside class="side">
+  <div class="brand">
+    <a href="00-intro.html"><h1>PROJECT <em>SCAVANGER</em></h1></a>
+    <p>PITCH DOCUMENT · v0.1</p>
+  </div>
+  <nav class="tree" id="tree"></nav>
+</aside>
+
+<main class="main" id="main">
+
+<article id="p-hangar">
+  <div class="crumb">함선 / 격납고 · 분대</div>
+  <h1>격납고 · 분대 <span class="badge ok">구현</span></h1>
+
+  <div class="shotrow">
+    <figure class="shot" data-src="../assets/hangar.png">
+      <div class="ph"><span class="tag">스크린샷</span><span class="ttl">공유 함선 격납고</span>
+      <span class="desc">분대원의 개인 함선 4대가 나란히 정박해 있다</span>
+      <span class="meta">assets/hangar.png</span></div>
+    </figure>
+    <figure class="shot" data-src="../assets/hangar-visit.png">
+      <div class="ph"><span class="tag">스크린샷</span><span class="ttl">분대원 함선 방문</span>
+      <span class="desc">남의 함선에 걸어 들어간다</span>
+      <span class="meta">assets/hangar-visit.png</span></div>
+    </figure>
+  </div>
+
+  <p class="lede">매칭이 잡히면 내 <a class="wl" href="19-ship.html">개인 함선</a>이 <strong>공유 함선에 도킹</strong>한다. 그 뒤의 자동문을 열면 <strong>격납고</strong> — 분대원 <b>4명의 개인 함선이 실제로 정박</b>해 있고, 걸어 들어가 남의 함선을 구경할 수 있다.</p>
+
+  <div class="cards">
+    <div class="card"><h5>로비가 공간이다</h5><p>메뉴 화면에서 「준비」를 누르는 대신, <b>걸어 다니는 방</b>에서 출격을 준비한다. 헬다이버즈 2의 연출된 로비를 <b>실제 공간</b>으로 옮긴 것이다.</p></div>
+    <div class="card"><h5>꾸민 함선이 보여진다</h5><p><a class="wl" href="19-ship.html">함선 꾸미기</a>에 값을 매기는 장치다 — 아무도 안 보는 방을 꾸미는 것과, 분대원이 걸어 들어와 보는 방을 꾸미는 것은 다르다.</p></div>
+    <div class="card"><h5>같은 함선끼리만 보인다</h5><p>남의 함선에 들어가 있으면 그 안의 사람만 보인다. 넷이 각자 자기 함선에 있어도 서로 방해하지 않는다.</p></div>
+  </div>
+
+  <h2 id="s-leader"><span class="hn">5.1</span>분대장</h2>
+
+  <p>분대에는 <strong>분대장</strong>이 하나 있다. 판정의 기준점이자 <a class="wl" href="08-stratagem.html">궤도 폭격</a>을 쥔 사람이고, <b>구조선 5회</b>의 잔량도 분대장이 들고 있다.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th style="width:26%">넘기는 법</th><th>조건</th></tr></thead>
+    <tbody>
+      <tr><td class="k">지명해서 넘긴다</td><td>지금 분대장이 커뮤니티 목록에서 우클릭하거나, <b>함선 안에서 그 사람에게 직접 말을 걸어</b> 넘긴다.</td></tr>
+      <tr><td class="k">시체에서 빼앗는다</td><td>분대장이 레이드에서 죽으면 그 <a class="wl" href="09-raid-flow.html#s-death">시체</a> 옆에 <b>분대장 기기</b>가 남는다. 누구든 <b>3초 홀드</b>로 가져간다.</td></tr>
+      <tr><td class="k">자동 이관</td><td>분대장이 <b>접속을 끊으면</b> 서버가 남은 사람에게 넘긴다 — 판이 멈추지 않는다.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="note am"><b>왜 분대장을 만들었나.</b> 광역 피해 호출을 넷 모두에게 주면 <b>아군 오사가 사고가 아니라 일상</b>이 된다. 하나만 쥐여 주면 그 사람이 「지금 쏜다」를 말하게 되고, <a class="wl" href="10-comms.html">의사소통 휠</a>의 「앞장서라」가 실제 역할을 가리키게 된다. <b>죽으면 빼앗기는</b> 규칙까지 붙여, 분대장 자리 자체가 레이드 안의 사건이 된다.</div>
+
+  <h2 id="s-recon"><span class="hn">5.2</span>끊겨도 돌아온다</h2>
+  <p>연결이 끊겨도 <b>5분 안에</b> 돌아오면 <strong>진행 중인 레이드로 복귀</strong>한다 — 위치 · 체력 · <a class="wl" href="06-weapons.html#s-armor">실드</a> · 가방까지 그대로다. 서버가 레이드 세션을 들고 있어서 가능한 구조이고, <b>캐주얼 대상 게임에서는 선택이 아니라 필수</b>라고 봤다. 끊긴 동안 내 캐릭터는 「고스트」로 그 자리에 남는다.</p>
+
+  <div class="nextnav">
+    <a href="20-facility.html"><span>이전</span>← 시설</a>
+    <a class="n" href="22-guild.html"><span>다음</span>길드 함선 →</a>
+  </div>
+</article>
+
+</main>
+
+<aside class="toc">
+  <h4>이 페이지</h4>
+  <div id="toc"></div>
+</aside>
+</div>
+
+<script src="../app.js"></script>
+</body>
+</html>

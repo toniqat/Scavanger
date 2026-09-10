@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>무기 · 방어구 — PROJECT SCAVANGER</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-page="p-weapons">
+<div class="shell">
+
+<aside class="side">
+  <div class="brand">
+    <a href="00-intro.html"><h1>PROJECT <em>SCAVANGER</em></h1></a>
+    <p>PITCH DOCUMENT · v0.1</p>
+  </div>
+  <nav class="tree" id="tree"></nav>
+</aside>
+
+<main class="main" id="main">
+
+<article id="p-weapons">
+  <div class="crumb">전투 / 무기 · 방어구</div>
+  <h1>무기 · 방어구</h1>
+  <figure class="shot" data-src="../assets/weapon-inventory.png">
+    <div class="ph"><span class="tag">스크린샷</span><span class="ttl">디아블로 2식 격자 인벤토리 · 무기 소켓</span>
+    <span class="desc">가방 격자에 아이템이 크기별로 들어차 있고, 무기 툴팁에 소켓 상태와 실효 스탯이 뜬 화면.</span>
+    <span class="meta">권장 1920×1080 · assets/weapon-inventory.png</span></div>
+    <figcaption>가방 등급에 따라 격자 크기가 달라진다 — 전설 가방 10×6, 일반 5×6, 미장착 5×3. 가방을 낮은 등급으로 바꾸면 넘치는 아이템은 즉시 월드에 떨어진다.</figcaption>
+  </figure>
+
+  <p class="lede">무기는 <strong>6계열 × 5등급</strong>. 등급이 오르면 대미지와 최대 내구도가 오른다. 슬롯은 <b>주무기 I · II 둘뿐</b>이며, 총마다 <b>내구도</b>가 닳아 함선 정비 벤치에서 수리해야 한다.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th style="width:17%">계열</th><th>탄약</th><th class="num">대미지</th><th class="num">연사</th><th class="num">탄창</th><th class="num">사거리</th><th>성격</th></tr></thead>
+    <tbody>
+      <tr><td class="k">돌격소총 AR</td><td>준중량탄</td><td class="num">60</td><td class="num">10/s</td><td class="num">45</td><td class="num">220 m</td><td>범용 자동</td></tr>
+      <tr><td class="k">기관단총 SMG</td><td>경량탄</td><td class="num">32</td><td class="num">14/s</td><td class="num">40</td><td class="num">120 m</td><td>근거리 제압 · 감소폭 큼</td></tr>
+      <tr><td class="k">산탄총 SG</td><td>산탄</td><td class="num">22×8</td><td class="num">1.3/s</td><td class="num">8</td><td class="num">42 m</td><td>초근접 순간 화력</td></tr>
+      <tr><td class="k">지정사수소총 DMR</td><td>중량탄</td><td class="num">120</td><td class="num">3/s</td><td class="num">15</td><td class="num">420 m</td><td>중거리 정밀 · 1.6× 조준</td></tr>
+      <tr><td class="k">저격소총 SR</td><td>중량탄</td><td class="num">330</td><td class="num">0.9/s</td><td class="num">5</td><td class="num">700 m</td><td>장거리 한 발 · 4× 스코프</td></tr>
+      </tbody>
+  </table></div>
+  <p style="color:var(--tx2);font-size:13.5px">등급 표기는 이름 뒤에 로마 숫자 — <code>기관단총 III</code>. I 일반 · II 고급 · III 희귀 · IV 서사 · V 전설.</p>
+
+  <div class="note"><b>총은 두 자루만 들고 간다.</b> 예전에는 권총 칸이 따로 있었지만, <b>「주무기 둘을 어떻게 조합할까」</b>가 더 선명한 선택이라 없앴다 — 근거리 하나 · 원거리 하나로 갈지, 같은 계열 둘로 갈지가 곧 빌드다. 남은 한 손은 <a class="wl" href="07-gadget.html">가젯</a>과 <a class="wl" href="05-tactical.html">전술 임플란트</a>가 채운다.</div>
+
+  <h3>부착물 · 소켓</h3>
+  <p>총구 · 그립 · 탄창 · 개머리판 · 조준경 <b>5개 소켓</b>. 제동기(반동↓), 앵글 그립, 확장 탄창, 레이저사이트, 4×/6×/8× 조준경 등을 끼워 총을 자기 손에 맞춘다. 인벤토리에서 부착물을 총 타일에 <b>드래그</b>하면 장착된다.</p>
+
+  <h3>유니크 무기</h3>
+  <p>계열 밖의 <b>특수 무기 6종</b>. 상점에는 없고 레이드에서만 나온다 — 화염방사기 <b>인페르노</b>, 전기 <b>테슬라 코일</b>, 수리검 <b>카게</b>, 활 <b>롱혼</b>, 바주카 <b>해머헤드</b>, 미니건 <b>사이클론</b>. 대부분 우클릭 <b>대체 사격</b>을 갖는다.</p>
+
+  <h2 id="s-armor"><span class="hn">3.1</span>방탄복 = 실드</h2>
+
+  <figure class="shot" data-src="../assets/armor-shield.png">
+    <div class="ph"><span class="tag">스크린샷</span><span class="ttl">실드 게이지 · 5등분 체력</span>
+    <span class="desc">좌하단 HUD — 이름 아래 실드 게이지, 그 아래 5등분 체력</span>
+    <span class="meta">assets/armor-shield.png</span></div>
+    <figcaption>실드가 먼저 비고, 그다음에야 체력이 깎인다.</figcaption>
+  </figure>
+
+  <p class="lede">방탄복은 <strong>피해를 깎지 않는다.</strong> 들어온 피해는 <b>실드를 먼저 비우고</b> 남은 만큼만 체력(100)으로 간다 — 즉 방탄복은 <b>추가 체력 풀</b>이다.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th style="width:22%">등급</th><th class="num">실드</th><th>성격</th></tr></thead>
+    <tbody>
+      <tr><td class="k">방탄복 I</td><td class="num">20</td><td>스캐빈저 한 대를 받아 낸다.</td></tr>
+      <tr><td class="k">방탄복 II</td><td class="num">40</td><td></td></tr>
+      <tr><td class="k">방탄복 III</td><td class="num">60</td><td></td></tr>
+      <tr><td class="k">방탄복 IV</td><td class="num">80</td><td></td></tr>
+      <tr><td class="k">방탄복 V</td><td class="num">100</td><td><b>체력을 두 배로</b> 만든다.</td></tr>
+      <tr><td class="k">유니크 3벌</td><td class="num">90 · 33 · 27</td><td>재생 · 초경량 · 광학미채. 실드를 덜 주는 대신 퍽을 준다.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>충전기 — 레이드 중 실드를 되찾는 유일한 길</h3>
+  <p>실드는 <b>함선에 있는 동안 늘 가득</b>이지만, 레이드 중에는 저절로 차지 않는다. 채우는 방법은 소모품 <b>실드 충전기</b>뿐이다.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th style="width:26%">충전기</th><th class="num">사용</th><th class="num">회복</th><th class="num">스택</th></tr></thead>
+    <tbody>
+      <tr><td class="k">실드 충전기</td><td class="num">2 s</td><td class="num">+20</td><td class="num">5</td></tr>
+      <tr><td class="k">고출력 실드 충전기</td><td class="num">4 s</td><td class="num">+40</td><td class="num">5</td></tr>
+      <tr><td class="k">완충 실드 충전기</td><td class="num">6 s</td><td class="num">최대치까지</td><td class="num">2</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="cards">
+    <div class="card"><h5>여벌 방탄복은 충전기가 아니다</h5><p>레이드 중에 새 방탄복으로 갈아입어도 <b>채워 주지 않는다</b>. 안 그러면 여벌 한 벌이 공짜 완충이 되어 충전기가 의미를 잃는다.</p></div>
+    <div class="card"><h5>내구도 = 흡수한 만큼 닳는다</h5><p>실드가 먹은 피해만큼 판이 닳고, <b>0 이면 파손 = 실드 최대치 0</b>. 함선 작업대에서 수리한다.</p></div>
+    <div class="card"><h5>현장 제작</h5><p>충전기는 <b>구동 코어 + 전력 케이블</b>로 레이드 한복판에서 만든다. 로그가 붕대와 함께 떨어뜨린다.</p></div>
+  </div>
+
+  <div class="note am"><b>왜 피해 감소를 버렸나.</b> 「30 % 감소」는 화면에서 보이지 않는다 — 아프게 맞았는지 덜 아프게 맞았는지 플레이어가 알 수 없었다. 실드는 <b>게이지가 눈앞에서 줄어드는 자원</b>이라, 언제 엄폐할지 · 충전기를 언제 쓸지가 매 순간의 판단이 된다.</div>
+
+  <div class="nextnav">
+    <a href="05-tactical.html"><span>이전</span>← 전술 임플란트</a>
+    <a class="n" href="07-gadget.html"><span>다음</span>가젯 →</a>
+  </div>
+</article>
+
+</main>
+
+<aside class="toc">
+  <h4>이 페이지</h4>
+  <div id="toc"></div>
+</aside>
+</div>
+
+<script src="../app.js"></script>
+</body>
+</html>

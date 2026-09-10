@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>전장의 안개 — PROJECT SCAVANGER</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-page="p-fog">
+<div class="shell">
+
+<aside class="side">
+  <div class="brand">
+    <a href="00-intro.html"><h1>PROJECT <em>SCAVANGER</em></h1></a>
+    <p>PITCH DOCUMENT · v0.1</p>
+  </div>
+  <nav class="tree" id="tree"></nav>
+</aside>
+
+<main class="main" id="main">
+
+<article id="p-fog">
+  <div class="crumb">레이드 / 전장의 안개</div>
+  <h1>전장의 안개 <span class="badge ok">구현</span></h1>
+
+  <div class="shotrow">
+    <figure class="shot" data-src="../assets/fog-map-early.png">
+      <div class="ph"><span class="tag">스크린샷</span><span class="ttl">레이드 초반의 지도</span>
+      <span class="desc">밝힌 곳 말고는 회색 윤곽뿐</span>
+      <span class="meta">assets/fog-map-early.png</span></div>
+      <figcaption>발견하지 않은 상자 · 패드 · 채집 노드는 <b>지도에 아예 없다</b>.</figcaption>
+    </figure>
+    <figure class="shot" data-src="../assets/fog-map-late.png">
+      <div class="ph"><span class="tag">스크린샷</span><span class="ttl">분대가 흩어진 뒤</span>
+      <span class="desc">네 사람이 밝힌 자리가 합쳐진다</span>
+      <span class="meta">assets/fog-map-late.png</span></div>
+      <figcaption>밝혀진 구역과 미탐색 구역 사이에는 <b>또렷한 경계선</b>이 그어진다.</figcaption>
+    </figure>
+  </div>
+
+  <p class="lede">지도는 <strong>처음부터 열려 있지 않다</strong>. 분대원 <b>전원</b>이 걸어 다니며 각자 주위 <b>55 m</b>를 칠하고, 밝힌 칸은 레이드가 끝날 때까지 유지된다.</p>
+
+  <div class="cards">
+    <div class="card"><h5>발견 전에는 존재하지 않는다</h5><p>아직 밝히지 않은 구역의 오브젝트는 <b>지도 · 월드 마커 · 나침반 어디에도</b> 뜨지 않는다. 상자를 찾는 것이 실제로 「찾는」 행위가 된다.</p></div>
+    <div class="card"><h5>흩어질 이유</h5><p>안개는 <b>분대 합산</b>이다. 넷이 뭉쳐 다니면 지도가 한 줄만 열리고, 흩어지면 네 배로 열린다 — 안전과 정보가 맞바꿔진다.</p></div>
+    <div class="card"><h5>탈출 패드도 숨어 있다</h5><p><a class="wl" href="17-extraction.html">탈출 신호소</a>의 빛기둥은 <b>평상시 꺼져 있다</b>. 「나갈 곳을 미리 찾아 두는 것」 자체가 준비 행위가 된다.</p></div>
+  </div>
+
+  <h2 id="s-reveal"><span class="hn">4.11</span>안개를 걷는 다른 방법</h2>
+  <div class="tw"><table>
+    <thead><tr><th style="width:26%">수단</th><th class="num">반경</th><th>비고</th></tr></thead>
+    <tbody>
+      <tr><td class="k">걸어 다니기</td><td class="num">55 m</td><td>분대원 전원의 위치가 함께 칠한다</td></tr>
+      <tr><td class="k"><a class="wl" href="12-structures.html#s-computer">구조물 컴퓨터</a></td><td class="num">170 m</td><td>3초 홀드. 한 번에 크게 걷는다</td></tr>
+      <tr><td class="k"><a class="wl" href="05-tactical.html">정찰 스캔</a> 임플란트</td><td class="num">—</td><td>적과 상자를 분대 전원에게 드러낸다</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="note"><b>통신 없이 같아진다.</b> 안개를 맞추는 데 오가는 데이터가 <b>없다</b> — 어차피 초당 20회 흐르는 위치 정보로 각자 칠하면 저절로 같은 그림이 된다. 늦게 합류한 사람만 비트로 압축한 마스크 <b>800바이트</b>를 한 번 받는다. <a class="wl" href="14-hazards.html">환경 재해</a>와 같은 설계다.</div>
+
+  <div class="note am"><b>왜 지도를 닫아 뒀나.</b> 처음부터 다 보이는 지도는 레이드를 <b>체크리스트</b>로 만든다. 안개는 같은 맵을 매번 새로 만나게 하고, <b>정찰 · 스캔 · 흩어지기</b>에 값을 매기며, 무엇보다 <a class="wl" href="10-comms.html">분대원끼리 말할 이유</a>를 만든다 — 「저쪽 봤어?」가 실제 정보가 된다.</div>
+
+  <div class="nextnav">
+    <a href="14-hazards.html"><span>이전</span>← 환경 재해</a>
+    <a class="n" href="16-enemies.html"><span>다음</span>적 →</a>
+  </div>
+</article>
+
+</main>
+
+<aside class="toc">
+  <h4>이 페이지</h4>
+  <div id="toc"></div>
+</aside>
+</div>
+
+<script src="../app.js"></script>
+</body>
+</html>

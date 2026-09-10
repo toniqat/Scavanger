@@ -20,6 +20,7 @@ Everything every feature folder depends on. Append-only: add new events/fields, 
 | `currency.ts` | **재화** (2026-09-09) — 크레딧 · 경험치 · 기업별 신뢰도의 정의(`CURRENCY_DEFS`, `data/currencies.csv`)와 칩 렌더러 (`buildCurrencyChip` · `appendCurrencyRewards`). 아이템이 아닌 보상을 아이템 칩과 같은 자리 · 같은 크기로, 다른 틀(육각)로 그린다. 호버 카드는 `ui/hud/ItemTip` 의 `.is-currency` |
 | `saveSlot.ts` | **캐릭터 세이브 슬롯** (2026-09-09) — `slotKey('scav.profile')` → `scav.s2.profile`. `activeSlot` · `setActiveSlot` · `ensureMigrated`(옛 단일 키 → 슬롯 1) · `readSlotCards` · `deleteSlot` · `markAutoStart`/`takeAutoStart`. 공용 저장(`SHARED_KEYS`: 키 바인딩 · 오디오 · 화면 · 콘솔 기록)은 접두사를 받지 않는다 |
 | `character.ts` | **캐릭터 생성 규칙** (2026-09-09) — 능력치 하한 1 · 상한 5 · 합 15(`CREATE_STAT_*`), 배분 검사(`canAdjustStat`) · 주사위(`rollCreateStats` · `rollCallsign`) · 악센트 팔레트 · `makeCharacterProfile` / `createCharacterInSlot` |
+| `net.ts` (서버 주소 절) | **2026-09-10** — `RELAY_STORAGE_KEY`(`scav.relay`, 슬롯 공용) · `relayUrlFrom(raw)` (맨 주소 → `ws://host:8787/ws`) · `RelayProbe` · `lanAddresses(networkInterfaces())`. 클라이언트 · 설정 UI · 데스크톱 셸 · 배포 서버 배너가 **같은** 두 함수를 부른다 — 각자 정규화하면 설정에서 초록불인 주소로 앱이 다른 데 붙는다 |
 | `escape.ts` | **ESC 닫기 스택** (2026-09-09) — 열린 화면들의 Escape 동작을 열린 순서로 (`EscapeStack`: `push`/`remove`/`closeTop`). `ctx.escape` 로 게시되고 정책은 `game/parts/Phases.escapeKey` (맨 위 하나만 닫고, 비면 일시정지 메뉴) |
 | `ballistics.ts` | **포탄 궤적 닫힌 식** (2026-09-10) — `shellLaunchVelocity` · `shellPositionAt` · `shellApexHeight`. `enemies/fx/ShellProjectile`(실제 포탄)와 `ui/hud` 의 HUD 마커가 **같은 자리**를 그려야 하는데 폴더끼리 import 하지 않으므로 수식을 여기 한 곳에 둔다 — 예전에는 양쪽이 각자 베껴 두고 있어 한쪽만 고치면 마커가 포탄에서 떨어졌다. 중력은 `GRAVITY` 가 아니라 **`SHELL_ARC_GRAVITY`** 다 |
 | `index.ts` | Barrel export — import via `@/shared` |
@@ -917,3 +918,24 @@ ESC 로 인벤토리 · 지도를 닫으면 카메라가 **+245 ms** 에 스스�
   `0.5 × g × (T/2)²` 라 9.81 로는 6.3 s 비행에서 48.7 m 까지 솟아 화면 밖에서 떨어졌다.
 - `housing.ts` **`HousingRef.findFreeSpot(room, defId)`** — 자동 가구 배치 자리. 규칙이 `ui/hud/ShipManage` 안에
   묻혀 있던 것을 `housing/Rules` 로 끌어냈다.
+
+### 2026-09-10 — 서버 주소 (배포용 릴레이에 붙는 길)
+
+릴레이가 저장소 없이 켜지는 **단독 exe** 로 배포되면서(`server/tool.ts`), 클라이언트가 "어느 서버에 붙나" 를
+말할 수 있어야 했다. 그 값은 네 곳에서 오고 위에서부터 이긴다 — ① 게임 안 `설정 › 서버 설정`,
+② `--relay=` / `SCAV_RELAY`, ③ exe 옆 `server.txt`, ④ 같은 오리진 `/ws` (vite 프록시 · 임베디드 릴레이).
+②③④ 는 데스크톱 셸이 고르고 렌더러에는 **같은 오리진 `/ws`** 로만 보이므로, `src/` 가 아는 것은 ① 하나다.
+
+- `net.ts` **`RELAY_STORAGE_KEY`** (`scav.relay`) — 사용자가 적은 주소. `saveSlot.SHARED_KEYS` 에 들어 있어
+  **슬롯 접두사를 받지 않는다**: 이 PC 가 어느 서버에 붙는지는 캐릭터의 속성이 아니다 (키 바인딩과 같은 자리).
+- `net.ts` **`relayUrlFrom(raw)`** — 사람이 적은 한 줄 → 완전한 ws URL (`192.168.0.12` → `ws://192.168.0.12:8787/ws`),
+  형식이 아니면 `null`. **`electron/main.ts` 가 갖고 있던 `toRelayUrl` 을 여기로 올린 것**이고 설정 UI ·
+  `net/parts/Socket` · 그 셸이 전부 이것을 부른다 — 셋이 각자 정규화하면 설정에서 초록불이 뜬 주소로 앱이
+  다른 데 붙는다 (`shared/ballistics` 와 같은 이유의 이동).
+- `net.ts` **`RelayProbe`** · **`NetRef.relayUrl` / `relayOverride` / `setRelayOverride` / `probeRelay` /
+  `reconnectRelay`** — 연결 테스트는 **익명**(토큰 없이) 소켓이다. 토큰을 붙이면 서버가 중복 세션으로 보고
+  살아 있는 내 소켓을 `duplicate` 로 끊는다 — 연결을 확인하는 버튼이 연결을 죽이면 안 된다.
+- `net.ts` **`lanAddresses(interfaces)`** — 밖에서 보이는 IPv4 를 쓸 만한 순서로. `scripts/lan-address.mjs` 의
+  순위 함수를 올린 것이고 배포 서버의 배너(`server/tool.ts`)가 같은 답을 내야 해서다. `shared/` 는 node 를
+  import 하지 않으므로 `networkInterfaces()` 의 **결과를 받는다**.
+- `events.ts` **`net:relayChanged {url, custom}`** — 주소가 바뀌었다는 사실만. 재접속은 부른 쪽의 몫이다.

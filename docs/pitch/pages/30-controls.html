@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>조작 — PROJECT SCAVANGER</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-page="p-controls">
+<div class="shell">
+
+<aside class="side">
+  <div class="brand">
+    <a href="00-intro.html"><h1>PROJECT <em>SCAVANGER</em></h1></a>
+    <p>PITCH DOCUMENT · v0.1</p>
+  </div>
+  <nav class="tree" id="tree"></nav>
+</aside>
+
+<main class="main" id="main">
+
+<article id="p-controls">
+  <div class="crumb">부록 / 조작</div>
+  <h1>조작</h1>
+  <p class="lede">키보드 · 마우스 기본 레이아웃. <b>콘솔 패드 대응을 전제로 동시 입력 수를 억제</b>해 설계했다. <span class="key">Esc</span>를 뺀 <b>모든 키는 리바인딩</b>할 수 있다.</p>
+
+  <h2 id="s-move"><span class="hn">8.6</span>이동 · 사격</h2>
+  <div class="tw"><table>
+    <thead><tr><th style="width:26%">키</th><th>동작</th></tr></thead>
+    <tbody>
+      <tr><td class="k"><span class="key">W</span> <span class="key">A</span> <span class="key">S</span> <span class="key">D</span></td><td>이동</td></tr>
+      <tr><td class="k"><span class="key">Shift</span></td><td>달리기 — 스태미나를 쓴다</td></tr>
+      <tr><td class="k"><span class="key">C</span> / <span class="key">Z</span></td><td>앉기 / 엎드리기 <span class="chip">함선에서는 엎드리기 불가</span></td></tr>
+      <tr><td class="k"><span class="key">Space</span> / <span class="key">V</span></td><td>점프 / 구르기 <span class="chip">무거우면 구르기 거부</span></td></tr>
+      <tr><td class="k">좌클릭 / 우클릭</td><td>사격 / 정조준(ADS). 유니크 무기는 우클릭이 <b>보조 발사</b>다</td></tr>
+      <tr><td class="k"><span class="key">R</span> / <span class="key">F</span></td><td>재장전(수류탄은 핀 뽑기) / 근접 공격</td></tr>
+      <tr><td class="k"><span class="key">1</span> <span class="key">2</span></td><td><a class="wl" href="06-weapons.html">주무기 I · II</a> — 교체 0.4초</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2 id="s-use"><span class="hn">8.7</span>쓰는 키 — 톡 / 꾹</h2>
+  <p>이 게임의 조작 규약은 하나다. <strong>톡 누르면 「마지막에 쓰던 것」, 꾹 누르면 「고르는 휠」</strong>이 열린다. 그래서 손가락이 외울 키가 늘지 않는다.</p>
+  <div class="tw"><table>
+    <thead><tr><th style="width:14%">키</th><th style="width:30%">톡</th><th>꾹</th></tr></thead>
+    <tbody>
+      <tr><td class="k"><span class="key">T</span></td><td>손에 든 소모품 사용</td><td><b>빠른 사용 휠</b> — 8방향 (<a class="wl" href="07-gadget.html">가젯</a> 포함)</td></tr>
+      <tr><td class="k"><span class="key">G</span></td><td>마지막 <a class="wl" href="08-stratagem.html">함선 호출</a> 무장 / 해제</td><td><b>4방위 휠.</b> 재충전 중에는 열리지 않고 「재충전 n초」로 끝난다</td></tr>
+      <tr><td class="k"><span class="key">H</span></td><td>— (아무 일도 없다)</td><td><b><a class="wl" href="10-comms.html">의사소통 휠</a></b> — 4칸, 쓰러져 있으면 2칸으로 바뀐다</td></tr>
+      <tr><td class="k">휠클릭</td><td>—</td><td><b><a class="wl" href="10-comms.html#s-ping">핑 휠</a></b> — 좌 「여기 조심해」 / 우 「저쪽으로 가자」</td></tr>
+      <tr><td class="k"><span class="key">Q</span></td><td colspan="2"><a class="wl" href="05-tactical.html">전술 임플란트</a> — 임플란트마다 즉발 / 홀드 / 손에 들기</td></tr>
+      <tr><td class="k"><span class="key">E</span></td><td colspan="2">상호작용 — 상자 · 콘솔 · 시체 · 탑승. <b>홀드형이면 키캡에 <span style="color:var(--am)">˅</span> 표시</b>가 붙고 크로스헤어에 진행 링이 찬다</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2 id="s-screen"><span class="hn">8.8</span>화면 — 여는 키와 닫는 키</h2>
+  <div class="tw"><table>
+    <thead><tr><th style="width:26%">키</th><th>동작</th></tr></thead>
+    <tbody>
+      <tr><td class="k"><span class="key">Tab</span></td><td>인벤토리 (함선에서는 <b>인벤토리 / 캐릭터 / 기업 / 함선</b> 4탭) — <b>그리고 열려 있는 아무 화면이나 닫는다</b></td></tr>
+      <tr><td class="k"><span class="key">M</span></td><td><a class="wl" href="15-fog.html">전술 지도</a></td></tr>
+      <tr><td class="k"><span class="key">Enter</span></td><td>채팅 — 보내고 <b>입력창은 그대로 둔다</b></td></tr>
+      <tr><td class="k"><span class="key">Alt</span></td><td>커서 모드 — 화면을 열지 않고 마우스만 푼다</td></tr>
+      <tr><td class="k"><span class="key">X</span></td><td>아이템 버리기 (인벤토리가 열려 있을 때)</td></tr>
+      <tr><td class="k"><span class="key">Esc</span></td><td><b>열려 있는 화면 중 맨 위 하나</b>를 닫는다. 닫을 것이 없을 때만 일시정지 메뉴가 열린다</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="cards">
+    <div class="card"><h5><span class="key">Tab</span> 은 어디서나 닫기다</h5><p>화면마다 닫는 키를 외우게 하지 않는다. 자기를 연 키(<span class="key">E</span> · <span class="key">M</span>)로도 닫히지만 <b>Tab 은 항상 닫는다.</b></p></div>
+    <div class="card"><h5><span class="key">Esc</span> 는 한 겹씩 벗긴다</h5><p>여러 화면이 겹쳐 있으면 <b>열린 순서의 역순</b>으로 맨 위 하나만 닫는다. 실수로 메뉴가 튀어나오지 않는다.</p></div>
+    <div class="card"><h5>우측 하단 키 가이드</h5><p>화면을 열면 그 화면이 쓰는 키가 <b>한 줄로</b> 뜬다. 꾹 눌러야 하는 키에는 키캡 위에 <span style="color:var(--am)">˅</span> 가 붙는다.</p></div>
+  </div>
+
+  <div class="note am"><b>되돌릴 수 없는 것은 1초 홀드다.</b> 파티 떠나기 · 타이틀로 · 게임 종료 · 캐릭터 삭제의 빨간 버튼은 <b>누르고 있어야</b> 실행된다. <span class="key">Enter</span>로는 확정되지 않고(먹기만 한다), 초기 포커스는 언제나 <b>취소</b>다 — 한 번의 실수가 레이드를 버리게 두지 않는다.</div>
+
+  <div class="nextnav">
+    <a href="29-hud.html"><span>이전</span>← 화면 보는 법</a>
+  </div>
+</article>
+
+</main>
+
+<aside class="toc">
+  <h4>이 페이지</h4>
+  <div id="toc"></div>
+</aside>
+</div>
+
+<script src="../app.js"></script>
+</body>
+</html>

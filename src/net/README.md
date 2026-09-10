@@ -348,6 +348,15 @@ mission peer, `rejoinMission` → `net:gameStarting` + `flow rejoined` at the ho
   **단단한 콜라이더 blocker** 를 방 밖 ~31 m 지점 — 방문자 함선 어디에나, 방문의 유일한 출구인 에어락 위에도 —
   놓을 수 있었다. 가구 개수 상한은 `SHIP_VISIT_MAX_FURNITURE` 로 `shared/constants.ts` 에 올려 보내는 쪽과 공유한다.
 
+- **2026-09-10 (서버 주소)** — `parts/Socket` 의 `defaultUrl()` 이 이제 **설정에 적어 둔 주소를 먼저** 본다
+  (`relayOverride()` → localStorage `scav.relay`, **슬롯 접두사 없는 공용 키**). 없으면 예전 그대로
+  `VITE_WS_URL` → 같은 오리진 `/ws` 다. 함께 붙은 것: `setRelayOverride(raw)` (형식이 아니면 저장하지 않고
+  false, `net:relayChanged` 발행), `probeRelay(raw?)` — **토큰 없이** 익명 소켓 하나를 열어 `welcome` 까지의
+  시간을 재고 닫는다 (토큰을 붙이면 서버가 중복 세션으로 보고 **살아 있는 내 소켓을 끊는다**; 그래서
+  `NetClient` 도 쓰지 않는다 — 이 소켓은 상태 기계에 들어가지 않는다), `reconnectRelay()` (끊고 다시 붙는다;
+  로비에 있었으면 떠난다). 주소 정규화는 `shared/net.relayUrlFrom` 하나가 하고 UI · 데스크톱 셸 · 서버 배너가
+  같은 함수를 쓴다. 와이어 · 스냅샷 · 프로필 규약은 **하나도 바뀌지 않았다** — 어디로 붙는지만 바뀐다.
+
 - **2026-09-09 (채팅 입력 중 말풍선)** — `PlayerFlags.TYPING` (append-only). `NetSystem` 이 `ui:chatToggled {open}` 을
   듣고 `Snapshotter.typing` 을 켜고 끄며, 스냅샷 플래그에 실린다 — 함선 안에서도 유효하다. 그리는 쪽은
   `ui/hud/TypingBubbles` (원격 아바타에만; 내 머리 위에는 안 뜬다). `RemotePlayer.applyGhost` 는 다른 자세 비트와

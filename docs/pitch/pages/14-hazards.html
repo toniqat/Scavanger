@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>환경 재해 — PROJECT SCAVANGER</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-page="p-hazards">
+<div class="shell">
+
+<aside class="side">
+  <div class="brand">
+    <a href="00-intro.html"><h1>PROJECT <em>SCAVANGER</em></h1></a>
+    <p>PITCH DOCUMENT · v0.1</p>
+  </div>
+  <nav class="tree" id="tree"></nav>
+</aside>
+
+<main class="main" id="main">
+
+<article id="p-hazards">
+  <div class="crumb">레이드 / 환경 재해</div>
+  <h1>환경 재해 <span class="badge ok">구현</span></h1>
+
+  <div class="shotrow">
+    <figure class="shot" data-src="../assets/hazard-sandstorm.png">
+      <div class="ph"><span class="tag">스크린샷</span><span class="ttl">모래 폭풍</span>
+      <span class="desc">전선 커튼이 한 방향에서 밀고 들어온다</span>
+      <span class="meta">assets/hazard-sandstorm.png</span></div>
+      <figcaption>다가오는 것이 <b>보인다</b> — 언제 접을지 스스로 정하게 하려면 경고가 눈에 보여야 한다.</figcaption>
+    </figure>
+    <figure class="shot" data-src="../assets/hazard-blizzard.png">
+      <div class="ph"><span class="tag">스크린샷</span><span class="ttl">눈보라</span>
+      <span class="desc">눈 지형에서는 모래 폭풍 대신 이것이 온다</span>
+      <span class="meta">assets/hazard-blizzard.png</span></div>
+    </figure>
+    <figure class="shot" data-src="../assets/hazard-stormeye.png">
+      <div class="ph"><span class="tag">스크린샷</span><span class="ttl">폭풍의 눈</span>
+      <span class="desc">원통 벽이 고정 중심으로 수축한다</span>
+      <span class="meta">assets/hazard-stormeye.png</span></div>
+      <figcaption>안에서는 <b>15 m 앞</b>도 안 보이지만, 벽만은 또렷해 육안으로 찾아 나갈 수 있다.</figcaption>
+    </figure>
+    <figure class="shot" data-src="../assets/hazard-spores.png">
+      <div class="ph"><span class="tag">스크린샷</span><span class="ttl">독성 포자</span>
+      <span class="desc">거대 버섯 군락에서 하나씩 피어올라 번진다</span>
+      <span class="meta">assets/hazard-spores.png</span></div>
+    </figure>
+  </div>
+
+  <p class="lede">레이드 <b>6~8분</b>째, 행성이 스스로 시계를 켠다. 재해는 예고 <b>30초</b> 뒤 시작해 <b>7분</b>에 걸쳐 맵 전체를 덮는다 — 끝까지 가면 <strong>안전지대가 남지 않는다</strong>. 즉 <b>사실상의 강제 탈출</b>이다.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th style="width:18%">재해</th><th style="width:24%">모양</th><th class="num">시야</th><th>행성</th></tr></thead>
+    <tbody>
+      <tr><td class="k">모래 폭풍</td><td>전선이 한 방향으로 잠식</td><td class="num">~50 m</td><td>아켈론 II · 피로스 VII · 카민 I</td></tr>
+      <tr><td class="k">눈보라</td><td>전선이 한 방향으로 잠식</td><td class="num">~50 m</td><td>보레아스 IX <span class="chip">눈 지형 전용</span></td></tr>
+      <tr><td class="k">폭풍의 눈</td><td><b>고정 중심으로 수축</b> · 300 m → 60 m</td><td class="num">~15 m</td><td>모든 행성</td></tr>
+      <tr><td class="k">독성 포자</td><td>발생지 3–6곳이 <b>50초마다</b> 하나씩 피어 번진다</td><td class="num">~50 m</td><td>베르단트 III · 카민 I</td></tr>
+    </tbody>
+  </table></div>
+
+  <p style="color:var(--tx2);font-size:13.5px">구역 안에서는 <b>초당 1</b>의 피해를 받는다 — 즉사시키는 벽이 아니라 <b>밀어내는 압력</b>이다. 잠깐 가로지르는 것은 되지만, 그 안에서 파밍할 수는 없다.</p>
+
+  <h2 id="s-design"><span class="hn">4.10</span>왜 넣었나</h2>
+
+  <div class="cards">
+    <div class="card"><h5>「한 상자만 더」에 값을 매긴다</h5><p>익스트랙션 슈터의 마지막 질문은 언제나 <b>언제 나갈까</b>다. 재해는 그 질문에 <b>기한</b>을 붙인다 — 안 나가면 맵이 사라진다.</p></div>
+    <div class="card"><h5>매 레이드가 다르다</h5><p>종류 · 시작 시각 · 전선 방향 · 눈의 중심이 전부 <b>레이드마다 새로 뽑힌다</b>. 같은 행성을 반복해도 마지막 5분의 모양이 달라진다.</p></div>
+    <div class="card"><h5>지형이 적이 된다</h5><p><a class="wl" href="16-enemies.html">적</a>을 늘리지 않고 압박을 올리는 방법이다. 60마리 목표 프레임을 지키면서 긴장을 만든다.</p></div>
+  </div>
+
+  <div class="note"><b>통신이 필요 없는 설계.</b> 재해의 모든 것이 <b>미션 시드와 경과 시간의 함수</b>다 — 그래서 분대원끼리 주고받는 데이터가 <b>0바이트</b>다. 각자 계산해도 저절로 같은 폭풍을 본다. 도중에 합류한 사람만 현재 상태를 한 번 받는다. <a class="wl" href="15-fog.html">전장의 안개</a>와 같은 철학이다.</div>
+
+  <div class="note am"><b>지도에서도 보인다.</b> 재해 구역은 <a class="wl" href="15-fog.html">지도</a> 위에 <b>빗금과 두 겹 경계선</b>으로 덮여, 안개 위에서도 「여기는 이미 삼켜졌다」가 한눈에 읽힌다.</div>
+
+  <div class="nextnav">
+    <a href="13-rails.html"><span>이전</span>← 선로 · 전차</a>
+    <a class="n" href="15-fog.html"><span>다음</span>전장의 안개 →</a>
+  </div>
+</article>
+
+</main>
+
+<aside class="toc">
+  <h4>이 페이지</h4>
+  <div id="toc"></div>
+</aside>
+</div>
+
+<script src="../app.js"></script>
+</body>
+</html>

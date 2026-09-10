@@ -432,7 +432,8 @@ try {
   // 2026-09-09: 설정은 **화면 중앙**에 오고 좌우로 넓어졌다 (ESC 가 왼쪽 절반으로 옮겨 가 피할 것이 없다).
   ok(set.justify === 'center', 'the 설정 overlay is centred', `${set.side} ${set.justify}`);
   ok(set.right > set.w * 0.6, 'the 설정 panel reaches past the middle (it is centred, not a left rail)', JSON.stringify([set.right, set.w]));
-  ok(set.nav.join('|') === '화면 설정|오디오 설정|키 설정', 'the left rail lists the three sections in order', JSON.stringify(set.nav));
+  // 2026-09-10: 서버 설정(접속할 릴레이 주소)이 네 번째로 붙었다.
+  ok(set.nav.join('|') === '화면 설정|오디오 설정|키 설정|서버 설정', 'the left rail lists the four sections in order', JSON.stringify(set.nav));
   ok(set.on.join('|') === '화면 설정' && set.section === 'display', '화면 설정 is selected by default', JSON.stringify([set.on, set.section]));
   ok(set.shownPanes.length === 1 && /display/.test(set.shownPanes[0]), 'exactly one pane is visible at a time', JSON.stringify(set.shownPanes));
   ok(set.paneScroll === 'auto', 'the right pane scrolls vertically', set.paneScroll);

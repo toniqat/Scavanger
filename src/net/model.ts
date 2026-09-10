@@ -37,6 +37,11 @@ export const SNAPSHOT_INTERVAL = 1 / NET_PLAYER_SNAPSHOT_HZ;
 export const PEER_LINGER = 1.0;
 /** Auto-reconnect attempts made when we are NOT a lobby member (with a suspended lobby we retry forever). */
 export const MAX_LOBBYLESS_ATTEMPTS = NET_RECONNECT_BACKOFF_MS.length;
+/**
+ * 2026-09-10: `설정 › 서버 설정` 의 연결 테스트가 기다리는 시간. 죽은 IP 는 OS 의 TCP 타임아웃(수십 초)까지
+ * `onerror` 를 주지 않으므로 우리가 먼저 끊는다 — 버튼이 영원히 돌면 주소가 틀렸다는 답과 구별되지 않는다.
+ */
+export const RELAY_PROBE_TIMEOUT_MS = 4000;
 export const TOKEN_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
 export const TOKEN_RE = /^[A-Za-z0-9_-]+$/;
 export const PING_KINDS: ReadonlySet<string> = new Set<PingKind>(['ground', 'enemy', 'crate', 'extraction', 'item', 'attack', 'caution']);

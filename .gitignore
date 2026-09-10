@@ -15,3 +15,9 @@ server/data/
 # electron desktop build
 dist-electron
 release/
+
+# 배포용 서버 빌드 (2026-09-10): rolldown 번들 + SEA blob. exe 는 release/ 안이다
+dist-server/
+
+# 아이콘 미리보기 (npm run icon -- --png). icon.ico 자체는 커밋한다 — 빌드 리소스다
+electron/resources/icon-preview.png

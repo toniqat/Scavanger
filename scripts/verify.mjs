@@ -7,7 +7,7 @@
  *   node scripts/verify.mjs --folders weapons,ui # smokes mapped to those feature folders
  *   node scripts/verify.mjs --only smoke-weapons,e2e-mp
  *   node scripts/verify.mjs --rerun-failed       # only what failed in the previous run (scripts/logs/last-run.json)
- *   node scripts/verify.mjs --list               # folder → smoke map
+ *   node scripts/verify.mjs --list               # folder → smoke map (+ src/ 밖의 경로 매핑)
  *
  * Options: --jobs N (parallel Chrome instances, default 4; use 1–2 with SMOKE_GL=swiftshader, which is CPU-bound) · --serial · --base <git ref> (diff base for --changed,
  *          default = working tree vs HEAD, falling back to HEAD~1) · --build · --no-typecheck · --no-e2e ·
@@ -15,7 +15,8 @@
  *
  * What it does:
  *   1. typecheck (client + server), net:selftest and data:check (data/*.csv 스키마) in parallel — seconds.
- *   2. Starts vite (5273) and the relay (8787) if they are not up. When e2e-mp is in the set the relay is always
+ *   2. Starts vite (5273) and the relay (8787) if they are not up — **unless every selected script is `standalone`**
+ *      (smoke-server-dist, smoke-pitch), which use neither. When e2e-mp is in the set the relay is always
  *      restarted first: public lobbies left by an interrupted run live for the 5-min grace and hijack quick match.
  *   3. Runs the selected smoke scripts concurrently (each owns its own headless Chrome on the real GPU via ANGLE D3D11,
  *      10–50 s each; lanes start 8 s apart so vite warm-up and Chrome launches never coincide). Output goes to
@@ -38,6 +39,7 @@ const isWin = process.platform === 'win32';
 
 // ─── Job catalogue ─────────────────────────────────────────────────────────────────────────────────────────────
 // `folders` = feature folders (src/<name>, or `server`) whose changes make this script relevant.
+// `standalone: true` = neither vite nor the relay is used, so the runner does not start them.
 // Keep this in sync with the "Verification" section of CLAUDE.md when a smoke is added.
 const SMOKES = {
   'smoke-weapons':      { file: 'scripts/smoke-weapons.mjs',      folders: ['weapons', 'items', 'inventory', 'hub', 'pickups', 'audio'] },
@@ -47,7 +49,7 @@ const SMOKES = {
   'smoke-stratagems':   { file: 'scripts/smoke-stratagems.mjs',   folders: ['stratagems', 'world'] },
   'smoke-phase4':       { file: 'scripts/smoke-phase4.mjs',       folders: ['enemies', 'items', 'world', 'inventory', 'weapons', 'player'] },
   'smoke-tactical':     { file: 'scripts/smoke-tactical.mjs',     folders: ['implants', 'gadgets', 'progression', 'player', 'world', 'enemies', 'inventory', 'items', 'weapons', 'audio'] },
-  'smoke-controls-hub': { file: 'scripts/smoke-controls-hub.mjs', folders: ['ui', 'hub', 'inventory', 'implants', 'progression', 'player'] },
+  'smoke-controls-hub': { file: 'scripts/smoke-controls-hub.mjs', folders: ['ui', 'hub', 'inventory', 'implants', 'progression', 'player', 'net'] },
   'smoke-ship-rooms':   { file: 'scripts/smoke-ship-rooms.mjs',   folders: ['hub', 'housing'] },
   'smoke-inventory-p6': { file: 'scripts/smoke-inventory-p6.mjs', folders: ['inventory', 'housing', 'items'] },
   'smoke-loadout':      { file: 'scripts/smoke-loadout.mjs',      folders: ['inventory'] },
@@ -87,6 +89,14 @@ const SMOKES = {
   /* 2026-09-08: 공용 함선 격납고 — 두 클라이언트가 필요하다 (개인 함선 방문 · `hs` 동석 규칙). 릴레이를 쓰므로
      e2e 와 같이 exclusive 로 돈다. */
   'smoke-hangar':       { file: 'scripts/smoke-hangar.mjs',       folders: ['hub', 'net', 'housing', 'player'], exclusive: true, freshRelay: true },
+  /* 2026-09-10: 배포용 서버 빌드 (`npm run server:dist`) — 브라우저도 vite 도 릴레이도 쓰지 않는다.
+     번들이 CJS 인지 · ws 가 안에 들어갔는지 · `--port` / `--data` 가 먹는지 · 릴레이가 말을 하는지, 그리고
+     주소 정규화(`relayUrlFrom`) · LAN 주소 순위(`lanAddresses`)를 검사한다. exe 는 굽지 않는다 (86 MB). */
+  'smoke-server-dist': { file: 'scripts/smoke-server-dist.mjs', folders: ['server', 'net'], standalone: true },
+  /* 2026-09-10: 피칭 위키(`docs/pitch/`) — 빌드가 없어서 깨져도 조용한 문서다. vite 도 게임도 쓰지 않고
+     `docs/pitch` 를 정적으로 서빙해 페이지를 전부 열어 본다 (링크 · 사이드바 · nextnav · 카드 넘기기).
+     `folders` 로는 안 잡히므로(`src/` 밖이다) 위의 `EXTRA_PATHS` 가 `docs/pitch/` 변경에서 직접 고른다. */
+  'smoke-pitch':        { file: 'scripts/smoke-pitch.mjs',        folders: [], standalone: true },
   /* 2026-09-10: 씬의 광원 개수. 플레이 중에 그 숫자가 바뀌면 씬의 모든 머티리얼이 셰이더를 다시 컴파일해
      한 프레임이 멎는다 — 지금까지 탈출 함선 · 신호탄 · 헬포드 · 분대장 기기가 이 그물에 걸렸다. 광원을
      들고 있는 폴더 전부에 매핑한다. */
@@ -95,6 +105,11 @@ const SMOKES = {
 };
 // Anything under these paths touches the contract / bootstrap → run everything.
 const GLOBAL_PATHS = [/^src\/shared\//, /^src\/core\//, /^src\/main\.ts$/, /^index\.html$/, /^vite\.config/, /^package\.json$/, /^tsconfig/];
+
+// `src/` 밖에 사는 것들 — 폴더 이름으로는 안 잡히므로 경로에서 스모크를 직접 고른다.
+const EXTRA_PATHS = [
+  { label: 'docs/pitch/', re: /^docs\/pitch\//, smokes: ['smoke-pitch'] },
+];
 
 // ─── CLI ───────────────────────────────────────────────────────────────────────────────────────────────────────
 const argv = process.argv.slice(2);
@@ -120,6 +135,8 @@ if (opts.list) {
   console.log('folder → smoke scripts');
   for (const f of Object.keys(byFolder).sort()) console.log(`  ${f.padEnd(12)} ${byFolder[f].join(', ')}`);
   console.log(`  ${'(global)'.padEnd(12)} src/shared, src/core, main.ts, package.json → all`);
+  // `src/` 밖의 경로로 붙는 것들은 폴더 표에 안 나오므로 따로 찍는다.
+  for (const e of EXTRA_PATHS) console.log(`  ${'(path)'.padEnd(12)} ${e.label} → ${e.smokes.join(', ')}`);
   process.exit(0);
 }
 
@@ -133,14 +150,15 @@ function changedFiles() {
   return git(['diff', '--name-only', 'HEAD~1', 'HEAD']).split('\n').filter(Boolean);
 }
 function foldersOf(files) {
-  const folders = new Set(); let global = false;
+  const folders = new Set(); const extra = new Set(); let global = false;
   for (const f of files) {
     const p = f.replace(/\\/g, '/');
     if (GLOBAL_PATHS.some((re) => re.test(p))) { global = true; continue; }
     const m = p.match(/^src\/([^/]+)\//); if (m) folders.add(m[1]);
     if (/^server\//.test(p)) folders.add('server');
+    for (const e of EXTRA_PATHS) if (e.re.test(p)) e.smokes.forEach((n) => extra.add(n));
   }
-  return { folders: [...folders], global };
+  return { folders: [...folders], extra: [...extra], global };
 }
 function select() {
   const names = Object.keys(SMOKES);
@@ -161,9 +179,13 @@ function select() {
     reason = `--folders ${opts.folders.join(',')}`;
   } else {
     const files = changedFiles();
-    const { folders, global } = foldersOf(files);
+    const { folders, extra, global } = foldersOf(files);
     if (global) { picked = names; reason = `changed: shared/core/bootstrap → all (${files.length} files)`; }
-    else { picked = names.filter((n) => SMOKES[n].folders.some((f) => folders.includes(f))); reason = `changed folders: ${folders.join(', ') || '(none)'}`; }
+    else {
+      // `extra` = `src/` 밖의 경로가 직접 고른 것 (docs/pitch → smoke-pitch). 폴더 매핑과 합집합이다.
+      picked = names.filter((n) => extra.includes(n) || SMOKES[n].folders.some((f) => folders.includes(f)));
+      reason = `changed folders: ${[...folders, ...extra.map((n) => `(${n})`)].join(', ') || '(none)'}`;
+    }
   }
   if (!opts.e2e) picked = picked.filter((n) => n !== 'e2e-mp');
   return { picked, reason };
@@ -286,15 +308,22 @@ try {
   }));
   for (const s of await Promise.all(fast)) { results.push(s); report(s); }
 
+  // `standalone` = 이 스크립트는 vite 도 릴레이도 쓰지 않는다 (배포 서버 빌드 · 피칭 위키).
+  // 고른 것이 **전부** standalone 이면 서버를 아예 띄우지 않는다 — 안 그러면 쓰지도 않을 vite 를
+  // 기다리느라 수십 초를 버린다. 하나라도 브라우저를 쓰면 예전처럼 둘 다 띄운다.
+  const needServers = picked.some((n) => !SMOKES[n].standalone);
   if (picked.length) {
-    // 2. Servers.
-    const relayUrl = 'http://localhost:8787/health';
-    const needFreshRelay = picked.some((n) => SMOKES[n].freshRelay) && !opts.keepRelay;
-    if (needFreshRelay && pidsOnPort(8787).length) { console.log('  restarting relay (stale lobbies would hijack quick match)'); killPort(8787); await sleep(500); }
-    if (!(await isUp(relayUrl))) { started.relay = npmRun('server', 'relay'); await waitUp(relayUrl, 'relay'); console.log('  relay started (8787)'); }
-    else console.log('  relay already up (8787)');
-    if (!(await isUp(opts.url))) { started.vite = npmRun('dev', 'vite'); await waitUp(opts.url, 'vite'); console.log(`  vite started (${opts.url})`); }
-    else console.log(`  vite already up (${opts.url})`);
+    // 2. Servers — 고른 것이 전부 standalone 이면 건너뛴다.
+    if (!needServers) console.log('  servers skipped (standalone scripts only)');
+    else {
+      const relayUrl = 'http://localhost:8787/health';
+      const needFreshRelay = picked.some((n) => SMOKES[n].freshRelay) && !opts.keepRelay;
+      if (needFreshRelay && pidsOnPort(8787).length) { console.log('  restarting relay (stale lobbies would hijack quick match)'); killPort(8787); await sleep(500); }
+      if (!(await isUp(relayUrl))) { started.relay = npmRun('server', 'relay'); await waitUp(relayUrl, 'relay'); console.log('  relay started (8787)'); }
+      else console.log('  relay already up (8787)');
+      if (!(await isUp(opts.url))) { started.vite = npmRun('dev', 'vite'); await waitUp(opts.url, 'vite'); console.log(`  vite started (${opts.url})`); }
+      else console.log(`  vite already up (${opts.url})`);
+    }
 
     // 3. Smokes in a pool; exclusive jobs afterwards, one at a time.
     const pool = picked.filter((n) => !SMOKES[n].exclusive);

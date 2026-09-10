@@ -10,10 +10,15 @@
  * The window's port is **fixed and never OS-chosen**: localStorage (every character, the stash, `scav.sessionToken`)
  * is keyed by origin, so a port that moves between launches wipes the save. See `APP_PORT`.
  *
- * A distributed build normally points at ONE relay somebody else runs (`start-server.bat`), so the address is resolved
- * from four places, first hit wins — flag, env, a `relay.txt` the player can edit next to the exe, then the address
- * baked in at build time (`SCAV_DEFAULT_RELAY=… npm run app:dist`). Nothing configured at all = embedded relay, i.e.
- * the offline single-machine build. `--local` forces that even when an address is configured.
+ * A distributed build normally points at ONE relay somebody else runs (`SCAVANGER-Server.exe`), so the address is
+ * resolved from four places, first hit wins — flag, env, a `server.txt` the player can edit next to the exe, then the
+ * address baked in at build time (`SCAV_DEFAULT_RELAY=… npm run app:dist`). Nothing configured at all = embedded
+ * relay, i.e. the offline single-machine build. `--local` forces that even when an address is configured.
+ *
+ * **2026-09-10 — 게임 안 `설정 › 서버 설정` 이 이 넷 전부보다 위다.** 그것은 렌더러의 localStorage
+ * (`shared/net` `RELAY_STORAGE_KEY`)에 있고 `NetSystem.defaultUrl()` 이 같은 오리진 `/ws` 대신 그 주소로
+ * 곧장 붙으므로, 여기서 고른 주소는 그때 **쓰이지 않는다** — 여기서 고른 것은 *기본값*이다. 그 기본값이
+ * 무엇인지 설정 화면이 보여 줄 수 있게 `RELAY_ROUTE` 로 알려 준다.
  *
  * CLI / env (both accepted; the flag wins):
  *   --port=<n>         SCAV_PORT       embedded relay port (default NET_DEFAULT_PORT, falls back to a free port)
@@ -28,7 +33,7 @@ import { dirname, join } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 import { app, BrowserWindow, dialog, Menu, session, shell } from 'electron';
 import { startRelayServer, type RelayServer } from '../server/RelayServer.ts';
-import { NET_DEFAULT_PORT, NET_WS_PATH } from '../src/shared/net.ts';
+import { NET_DEFAULT_PORT, NET_WS_PATH, relayUrlFrom } from '../src/shared/net.ts';
 import { attachStatic } from './static.ts';
 import { attachWsProxy } from './wsProxy.ts';
 import { loadWindowState, trackWindowState } from './windowState.ts';
@@ -56,14 +61,21 @@ const rawEscape = flag('raw-escape', 'SCAV_RAW_ESCAPE');
 /** Address compiled in by `electron/build.mjs` (`SCAV_DEFAULT_RELAY`); the empty string when the build set none. */
 declare const __SCAV_DEFAULT_RELAY__: string;
 
-/** Plain-text override the player can edit without a rebuild: first non-empty, non-`#` line is the address. */
-const RELAY_FILE = 'relay.txt';
+/**
+ * Plain-text override the player can edit without a rebuild: first non-empty, non-`#` line is the address.
+ * **2026-09-10**: the distributed name is `server.txt` (그 폴더에서 유일하게 사람이 고치는 파일이다);
+ * `relay.txt` 는 이미 배포된 사본을 위해 계속 읽는다 — 앞에 있는 이름이 이긴다.
+ */
+const RELAY_FILES = ['server.txt', 'relay.txt'];
+
+/** Local route the renderer's 설정 화면 asks for the *default* address (see the header comment). */
+const RELAY_ROUTE = '/__scav/relay';
 
 type RelaySource = 'flag' | 'env' | 'file' | 'build';
 const RELAY_SOURCE_LABEL: Record<RelaySource, string> = {
   flag: '--relay',
   env: 'SCAV_RELAY',
-  file: RELAY_FILE,
+  file: RELAY_FILES[0],
   build: 'build default',
 };
 
@@ -71,26 +83,33 @@ const RELAY_SOURCE_LABEL: Record<RelaySource, string> = {
  * Where the player's own copy sits. A portable exe unpacks itself into a temp folder, so `process.execPath` is not
  * where they put the file — electron-builder hands us the real directory in `PORTABLE_EXECUTABLE_DIR`. `cwd` covers
  * `npm run app`, where `execPath` is Electron's own binary inside node_modules.
+ *
+ * **2026-09-10 — 배포본은 `app/` 안에 있다.** 받는 사람이 보는 폴더에는 stub `SCAVANGER.exe` · `server.txt` ·
+ * 서버 exe 만 두고 실제 빌드는 `app/` 으로 내렸으므로(`scripts/pack-release.mjs`), `execPath` 의 **부모**도
+ * 후보다 — 사람이 고치는 `server.txt` 는 그 위에 있다.
  */
 function configDirs(): string[] {
-  const dirs = [process.env.PORTABLE_EXECUTABLE_DIR, dirname(process.execPath), process.cwd()];
+  const exeDir = dirname(process.execPath);
+  const dirs = [process.env.PORTABLE_EXECUTABLE_DIR, exeDir, dirname(exeDir), process.cwd()];
   return [...new Set(dirs.filter((d): d is string => !!d))];
 }
 
 function readRelayFile(): { url: string; from: string } | null {
   for (const dir of configDirs()) {
-    const path = join(dir, RELAY_FILE);
-    if (!existsSync(path)) continue;
-    try {
-      // Notepad likes to save UTF-8 with a BOM; without this the BOM'd first line stops looking like a comment.
-      const text = readFileSync(path, 'utf8');
-      const line = (text.charCodeAt(0) === 0xfeff ? text.slice(1) : text)
-        .split(/\r?\n/)
-        .map((l) => l.trim())
-        .find((l) => l.length > 0 && !l.startsWith('#'));
-      if (line) return { url: line, from: path };
-    } catch (e) {
-      console.warn(`[desktop] ${path}: ${(e as Error).message}`);
+    for (const name of RELAY_FILES) {
+      const path = join(dir, name);
+      if (!existsSync(path)) continue;
+      try {
+        // Notepad likes to save UTF-8 with a BOM; without this the BOM'd first line stops looking like a comment.
+        const text = readFileSync(path, 'utf8');
+        const line = (text.charCodeAt(0) === 0xfeff ? text.slice(1) : text)
+          .split(/\r?\n/)
+          .map((l) => l.trim())
+          .find((l) => l.length > 0 && !l.startsWith('#'));
+        if (line) return { url: line, from: path };
+      } catch (e) {
+        console.warn(`[desktop] ${path}: ${(e as Error).message}`);
+      }
     }
   }
   return null;
@@ -109,13 +128,16 @@ function resolveRelay(): { url: string; source: RelaySource; from?: string } | n
   return null;
 }
 
-/** Accepts `ws://host:port/ws`, `host:port` and a bare `host` — the port and `/ws` path are filled in. */
+/**
+ * Accepts `ws://host:port/ws`, `host:port` and a bare `host` — the port and `/ws` path are filled in.
+ * **2026-09-10**: the rule itself lives in `shared/net.relayUrlFrom` so 설정 화면 · 렌더러 · 이 셸이 같은
+ * 주소를 만든다 (설정에서 초록불이 뜬 주소로 앱이 다른 데 붙으면 안 된다). 형식이 아니면 그대로 던진다 —
+ * 부르는 쪽이 이미 `try` 안에서 임베디드 릴레이로 떨어질 준비를 하고 있다.
+ */
 function toRelayUrl(raw: string): URL {
-  const text = raw.trim();
-  const url = new URL(/^wss?:\/\//i.test(text) ? text : `ws://${text}`);
-  if (!url.port) url.port = String(NET_DEFAULT_PORT);
-  if (!url.pathname || url.pathname === '/') url.pathname = NET_WS_PATH;
-  return url;
+  const url = relayUrlFrom(raw);
+  if (!url) throw new Error(`릴레이 주소 형식이 아닙니다: ${raw}`);
+  return new URL(url);
 }
 
 const WEB_ROOT = join(app.getAppPath(), 'dist');
@@ -194,13 +216,22 @@ async function startEmbedded(): Promise<URL> {
  * 릴레이 포트를 절대 뺏지 않는다 — 자기 PC 의 릴레이를 가리키는 사람이 `/ws` 를 이 프로세스로 되돌려
  * 보내게 되기 때문이다. 포트는 `APP_PORT` 부터 순서대로(위 주석) — 오리진이 곧 세이브다.
  */
-async function startWindowServer(relayWs: URL): Promise<number> {
+async function startWindowServer(relayWs: URL, def: { target: string; source: string } | null): Promise<number> {
   const ports = Array.from({ length: APP_PORT_TRIES }, (_, i) => APP_PORT + i);
   return listenStable(ports, (p) => new Promise<number>((resolve, reject) => {
     const server = createServer();
     server.once('error', reject);
     // A bare server has no handler, so answer unknown paths first; attachStatic then runs ahead of it.
-    server.on('request', (_req, res) => { if (!res.headersSent) res.writeHead(404).end('SCAVANGER desktop'); });
+    server.on('request', (req, res) => {
+      if (res.headersSent) return;
+      // 설정 › 서버 설정 이 "기본값: …" 줄에 쓸 값. 이 창의 렌더러만 볼 수 있는 loopback 라우트다.
+      if ((req.url ?? '').split('?')[0] === RELAY_ROUTE) {
+        res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+        res.end(JSON.stringify(def ?? { target: '', source: 'embedded' }));
+        return;
+      }
+      res.writeHead(404).end('SCAVANGER desktop');
+    });
     attachStatic(server, WEB_ROOT);
     attachWsProxy(server, relayWs, (e) => console.warn(`[desktop] relay proxy: ${e.message}`));
     server.listen(p, '127.0.0.1', () => {
@@ -328,17 +359,21 @@ if (!app.requestSingleInstanceLock()) {
 
     try {
       let relayWs: URL;
+      /** 설정 화면의 "기본값: …" 줄에 그대로 실리는 값 (`RELAY_ROUTE`). */
+      let def: { url: string; source: string } | null = null;
       const configured = resolveRelay();
       if (configured) {
         relayWs = toRelayUrl(configured.url);
         const from = configured.from ? `: ${configured.from}` : '';
         console.log(`[desktop] relay proxy -> ${relayWs.href}  (${RELAY_SOURCE_LABEL[configured.source]}${from})`);
+        def = { url: relayWs.href, source: RELAY_SOURCE_LABEL[configured.source] };
       } else {
         relayWs = await startEmbedded();
         console.log(`[desktop] embedded relay on ${relayWs.host}${lan ? ' (bound 0.0.0.0 — LAN)' : ''}`);
+        def = { url: relayWs.href, source: '이 PC 의 내장 서버' };
       }
       // 창의 오리진은 릴레이와 무관한 고정 포트다 (localStorage = 세이브가 오리진에 묶여 있다).
-      const port = await startWindowServer(relayWs);
+      const port = await startWindowServer(relayWs, def && { target: def.url, source: def.source });
       console.log(`[desktop] http://127.0.0.1:${port}/  (relay ws ${NET_WS_PATH} -> ${relayWs.href})`);
       createWindow(port);
     } catch (e) {

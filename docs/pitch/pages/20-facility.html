@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>시설 — PROJECT SCAVANGER</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-page="p-facility">
+<div class="shell">
+
+<aside class="side">
+  <div class="brand">
+    <a href="00-intro.html"><h1>PROJECT <em>SCAVANGER</em></h1></a>
+    <p>PITCH DOCUMENT · v0.1</p>
+  </div>
+  <nav class="tree" id="tree"></nav>
+</aside>
+
+<main class="main" id="main">
+
+<article id="p-facility">
+  <div class="crumb">함선 / 시설</div>
+  <h1>함선 시설</h1>
+  <div class="shotrow">
+    <figure class="shot" data-src="../assets/facility-greenhouse.png">
+      <div class="ph"><span class="tag">스크린샷</span><span class="ttl">온실 — 재배층</span>
+      <span class="desc">쌓아 올린 재배 스테이션과 성장 게이지 UI</span>
+      <span class="meta">assets/facility-greenhouse.png</span></div>
+    </figure>
+    <figure class="shot" data-src="../assets/facility-workshop.png">
+      <div class="ph"><span class="tag">스크린샷</span><span class="ttl">작업실 — 제작 UI</span>
+      <span class="desc">작업대 앞에서 연 레시피 목록과 재료 충족 표시</span>
+      <span class="meta">assets/facility-workshop.png</span></div>
+    </figure>
+    <figure class="shot ref" data-src="../assets/ref-hideout.png">
+      <div class="ph"><span class="tag">레퍼런스</span><span class="ttl">타르코프 은신처</span>
+      <span class="desc">시설 증축 · 전력 배분의 원형</span>
+      <span class="meta">assets/ref-hideout.png</span></div>
+    </figure>
+    <figure class="shot ref" data-src="../assets/ref-farm.png">
+      <div class="ph"><span class="tag">레퍼런스</span><span class="ttl">스마트팜 / 동물의 숲</span>
+      <span class="desc">현실 시간 재배와 꾸미기의 톤</span>
+      <span class="meta">assets/ref-farm.png</span></div>
+    </figure>
+  </div>
+
+  <p class="lede">레이드에서 얻은 <strong>온갖 재료들의 하수구</strong>. 폐금속 · 합금 · 회로 기판 · 전선이 쓸모를 갖는 순간이 여기다. 방에 용도를 지정해 증축하고, 그 시설에만 놓을 수 있는 가구를 제작해 배치한다.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th style="width:16%">시설</th><th style="width:11%">현황</th><th>기능</th></tr></thead>
+    <tbody>
+      <tr><td class="k"><span class="gl" style="color:#ffd166">⚡</span>발전기</td><td><span class="badge ok">구현</span></td><td>함선 전력 공급. <b>방을 차지하지 않고</b> 업그레이드된다(최대 5). 시설마다 요구 전력이 다르고, <b>전력을 더 주면 성능이 오르는</b> 시설도 있다.</td></tr>
+      <tr><td class="k"><span class="gl" style="color:#ffd27a">⚒</span>작업실</td><td><span class="badge ok">구현</span></td><td>총기 · 장비 · 가젯 · 의학 <b>작업대 4종</b>을 배치해 제작 · 분해 · 수리. 최대 3레벨.</td></tr>
+      <tr><td class="k"><span class="gl" style="color:#7fd2ff">◎</span>시뮬레이션 훈련장</td><td><span class="badge ok">구현</span></td><td>혼자 또는 친구와, <b>보유하지 않은 총기와 아이템을 미리 써 본다</b>. 가상의 적 홀로그램 호출. 로드아웃 프리셋 관리 · 사격 숙련 상승량 +10%/레벨(최대 5).</td></tr>
+      <tr><td class="k"><span class="gl" style="color:#c9a77a">▤</span>서재</td><td><span class="badge ok">구현</span></td><td>책장을 제작해 배치하고 레이드에서 주운 <a class="wl" href="03-skills.html">책</a>을 꽂는다. 그 책이 가르치는 숙련의 <b>상승량이 영구 증가</b>. 꽂아 본 책은 도감에 남는다.</td></tr>
+      <tr><td class="k"><span class="gl" style="color:#7ee08a">❀</span>온실</td><td><span class="badge ok">구현</span></td><td>재배 스테이션(재배층)을 제작하고 씨앗을 심어 <b>현실 시간</b>으로 약초를 기른다. 스마트팜 형태 — 한 번에 많이 기르려면 스테이션이 많아야 하고, 그만큼 <b>전력을 먹는다</b>. 층당 4구획.</td></tr>
+      <tr><td class="k"><span class="gl" style="color:#c79fff">⚗</span>연구실</td><td><span class="badge wip">다음</span></td><td>레이드에서 얻은 채집물 · 씨앗 · DNA 채취물로 <b>토양 · 씨앗 · 배양육</b>을 연구·생산. <b>온실이 먼저 필요</b>하다.</td></tr>
+      <tr><td class="k"><span class="gl" style="color:#ffb0a0">♨</span>주방</td><td><span class="badge wip">다음</span></td><td>연구실 + 온실 산출물로 요리. 먹으면 <b>다음 레이드 한정</b> 능력치 버프. 한 번에 하나만. <b>파티원도 같이 먹는다</b>(동일 버프).</td></tr>
+      <tr><td class="k"><span class="gl" style="color:#ff9f7a">⚖</span>헬스장</td><td><span class="badge wip">다음</span></td><td>미니게임으로 <a class="wl" href="02-stats.html">근력 · 지구력</a>을 올린다. 기구마다 <b>12~18시간 쿨타임</b>이 따로 있고, 첫 기구를 쓰면 다른 기구의 보너스가 서서히 감소(50% → 25% …)한다.</td></tr>
+      <tr><td class="k"><span class="gl" style="color:#9fb4c8">⛏</span>암호화폐 채굴장</td><td><span class="badge wip">다음</span></td><td>레이드에서 얻은 <b>그래픽카드</b>를 꽂아 8종 암호화폐 중 원하는 것을 채굴. 전력을 많이 넣을수록 채굴 속도·채굴량이 오른다. <a class="wl" href="26-crypto.html">트레이딩 →</a></td></tr>
+      <tr><td class="k"><span class="gl" style="color:#e8a0d0">☕</span>휴식 공간</td><td><span class="badge plan">기획</span></td><td>TV · 스피커로 레이드에서 주운 비디오와 Vinyl 을 재생. 순수 수집 · 꾸미기 동기.</td></tr>
+      <tr><td class="k"><span class="gl" style="color:#9fb4ff">▦</span>창고</td><td><span class="badge ok">구현</span></td><td>방을 차지하지 않는 함선 공용 시설. 레벨 5까지 올리면 격자가 <b>10×24 → 10×60</b>.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="note am"><b>전력이 모든 것의 병목이다.</b> 시설을 늘릴수록 발전기가 모자라고, 발전기를 올리려면 레이드를 더 뛰어야 한다. 온실과 채굴장처럼 "전력을 더 주면 더 잘 도는" 시설이 있어 <b>전력 배분 자체가 선택</b>이 된다.</div>
+
+  <details>
+    <summary>세부 수치 — 증축 비용 예시</summary>
+    <div class="dbody">
+      <div class="tw"><table>
+        <thead><tr><th>시설</th><th>증축 재료 (레벨 1)</th></tr></thead>
+        <tbody>
+          <tr><td class="k">작업실</td><td>폐금속 8 · 전선 2</td></tr>
+          <tr><td class="k">시뮬레이션 훈련장</td><td>폐금속 10 · 전선 2</td></tr>
+          <tr><td class="k">서재</td><td>폐금속 10 · 합금 판 2</td></tr>
+          <tr><td class="k">온실</td><td>폐금속 12 · 합금 판 2</td></tr>
+          <tr><td class="k">연구실</td><td>합금 판 6 · 회로 기판 2</td></tr>
+          <tr><td class="k">주방</td><td>폐금속 8 · 합금 판 2</td></tr>
+          <tr><td class="k">헬스장</td><td>폐금속 8</td></tr>
+          <tr><td class="k">채굴 시설</td><td>합금 판 6 · 회로 기판 3</td></tr>
+          <tr><td class="k">휴식 공간</td><td>폐금속 6 · 전선 1</td></tr>
+        </tbody>
+      </table></div>
+      <p style="margin-top:10px">모든 증축은 <b>발전기 Lv.1 이상</b>을 요구한다. 시설을 철거하면 증축비와 업그레이드비를 <b>전액 환급</b>받으므로, 배치를 바꿔 보는 실험에 비용이 들지 않는다.</p>
+    </div>
+  </details>
+
+  <div class="nextnav">
+    <a href="19-ship.html"><span>이전</span>← 개인 함선</a>
+    <a class="n" href="21-hangar.html"><span>다음</span>격납고 · 분대 →</a>
+  </div>
+</article>
+
+</main>
+
+<aside class="toc">
+  <h4>이 페이지</h4>
+  <div id="toc"></div>
+</aside>
+</div>
+
+<script src="../app.js"></script>
+</body>
+</html>

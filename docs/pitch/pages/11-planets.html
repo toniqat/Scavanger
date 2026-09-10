@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>행성 · 기믹 — PROJECT SCAVANGER</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-page="p-planets">
+<div class="shell">
+
+<aside class="side">
+  <div class="brand">
+    <a href="00-intro.html"><h1>PROJECT <em>SCAVANGER</em></h1></a>
+    <p>PITCH DOCUMENT · v0.1</p>
+  </div>
+  <nav class="tree" id="tree"></nav>
+</aside>
+
+<main class="main" id="main">
+
+<article id="p-planets">
+  <div class="crumb">레이드 / 행성</div>
+  <h1>행성</h1>
+  <div class="shotrow c3">
+    <figure class="shot" data-src="../assets/planet-amber.png">
+      <div class="ph"><span class="tag">스크린샷</span><span class="ttl">아켈론 II</span><span class="desc">호박빛 사막</span>
+      <span class="meta">assets/planet-amber.png</span></div>
+      <figcaption>아켈론 II · 호박빛 사막</figcaption>
+    </figure>
+    <figure class="shot" data-src="../assets/planet-tundra.png">
+      <div class="ph"><span class="tag">스크린샷</span><span class="ttl">보레아스 IX</span><span class="desc">동토 툰드라</span>
+      <span class="meta">assets/planet-tundra.png</span></div>
+      <figcaption>보레아스 IX · 동토 툰드라</figcaption>
+    </figure>
+    <figure class="shot" data-src="../assets/planet-mossy.png">
+      <div class="ph"><span class="tag">스크린샷</span><span class="ttl">베르단트 III</span><span class="desc">이끼 습지</span>
+      <span class="meta">assets/planet-mossy.png</span></div>
+      <figcaption>베르단트 III · 이끼 습지</figcaption>
+    </figure>
+    <figure class="shot" data-src="../assets/planet-ashen.png">
+      <div class="ph"><span class="tag">스크린샷</span><span class="ttl">피로스 VII</span><span class="desc">잿빛 화산지대</span>
+      <span class="meta">assets/planet-ashen.png</span></div>
+      <figcaption>피로스 VII · 잿빛 화산지대</figcaption>
+    </figure>
+    <figure class="shot" data-src="../assets/planet-crimson.png">
+      <div class="ph"><span class="tag">스크린샷</span><span class="ttl">카민 I</span><span class="desc">적색 외계 평원 · 포그 없음</span>
+      <span class="meta">assets/planet-crimson.png</span></div>
+      <figcaption>카민 I · 적색 외계 평원</figcaption>
+    </figure>
+  </div>
+
+  <p class="lede">각 행성은 <strong>고유한 규칙을 가진 절차 생성</strong>이다. 지형 팔레트 · 하늘 · 포그 · 생태(어떤 적이 얼마나 나오는지, 어떤 약초가 자라는지)가 행성마다 정해져 있고, 그 안에서 지형 배치와 전리품은 매번 새 시드로 굴러간다.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th style="width:15%">행성</th><th style="width:14%">지형</th><th style="width:11%">위협</th><th>브리핑</th></tr></thead>
+    <tbody>
+      <tr><td class="k" style="color:#ffc98a">아켈론 II</td><td>호박빛 사막</td><td><span class="badge ok">낮음</span></td><td>모래에 묻힌 채굴 전초. 벌레는 드물지만 <b>약탈자 거점이 촘촘</b>하다.</td></tr>
+      <tr><td class="k" style="color:#9ad8ff">보레아스 IX</td><td>동토 툰드라</td><td><span class="badge wip">보통</span></td><td>얼어붙은 평원. <b>무리 사냥꾼</b>이 시야 밖에서 달려든다.</td></tr>
+      <tr><td class="k" style="color:#5affb0">베르단트 III</td><td>이끼 습지</td><td><span class="badge wip">보통</span></td><td>포자로 뿌연 습지. <b>산성 개체</b>가 많고 약초가 무성하다.</td></tr>
+      <tr><td class="k" style="color:#ff7a1a">피로스 VII</td><td>잿빛 화산지대</td><td><span class="badge" style="background:rgba(255,122,107,.14);color:var(--rd);border:1px solid rgba(255,122,107,.3)">높음</span></td><td>재가 내리는 용암 지대. <b>중장갑 개체와 포격</b>이 상시 압박한다.</td></tr>
+      <tr><td class="k" style="color:#ff5ad0">카민 I</td><td>적색 외계 평원</td><td><span class="badge" style="background:rgba(255,122,107,.14);color:var(--rd);border:1px solid rgba(255,122,107,.3)">높음</span></td><td>포그 없는 맑은 하늘 — <b>멀리까지 보이고, 저쪽에서도 이쪽이 보인다.</b></td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="note"><b>행성 선택은 곧 빌드 선택이다.</b> 카민 I은 시야가 트여 저격이 산다. 베르단트 III는 안개 때문에 산탄총과 <a class="wl" href="05-tactical.html">정찰</a>이 산다. 아켈론 II는 벌레보다 사람(약탈자)이 주적이라 총싸움이 된다.</div>
+
+  <h2 id="s-gimmick"><span class="hn">4.5</span>행성 기믹 <span class="badge ok">구현</span></h2>
+
+  <p>행성마다 <strong>그 행성에서만 만나는 광역 위협</strong>이 붙는다. 적이 아니라 <b>지형이 적</b>인 셈이다. 지금 굴러가는 것은 <a class="wl" href="14-hazards.html">환경 재해</a> 넷이다 — 행성마다 후보가 정해져 있고, 그중 하나가 레이드마다 무작위로 걸린다.</p>
+
+  <div class="cards">
+    <div class="card"><h5><span class="dot" style="background:var(--am)"></span>모래 폭풍</h5><p>사막 · 화산 행성. 전선이 한 방향으로 밀고 들어와 맵을 삼킨다.</p></div>
+    <div class="card"><h5><span class="dot" style="background:var(--cy)"></span>눈보라</h5><p>눈 지형에서는 모래 폭풍 대신 이것이 온다.</p></div>
+    <div class="card"><h5><span class="dot" style="background:var(--rd)"></span>폭풍의 눈</h5><p>고정된 중심으로 <b>수축</b>한다. 안에서는 앞이 안 보이고 벽만 또렷하다.</p></div>
+    <div class="card"><h5><span class="dot" style="background:var(--gr)"></span>독성 포자</h5><p>습지의 거대 버섯 군락에서 하나씩 피어올라 번진다.</p></div>
+  </div>
+
+  <div class="note am"><b>행성이 시계를 준다.</b> 재해는 <b>6~8분</b>에 시작해 끝내 맵 전체를 덮는다 — 파밍을 언제 접을지 정해 주는 <b>사실상의 강제 탈출</b>이다. 자세한 것은 <a class="wl" href="14-hazards.html">환경 재해</a>.</div>
+
+  <div class="nextnav">
+    <a href="10-comms.html"><span>이전</span>← 분대 커뮤니케이션</a>
+    <a class="n" href="12-structures.html"><span>다음</span>버려진 구조물 →</a>
+  </div>
+</article>
+
+</main>
+
+<aside class="toc">
+  <h4>이 페이지</h4>
+  <div id="toc"></div>
+</aside>
+</div>
+
+<script src="../app.js"></script>
+</body>
+</html>

@@ -14,7 +14,7 @@ Electron main process
 ```
 
 릴레이 주소가 **설정되어 있으면** 자체 릴레이를 띄우는 대신 그 주소로 `/ws` 를 프록시한다(아래 "릴레이 주소").
-배포본은 보통 이쪽이다 — 한 사람이 `start-server.bat` 으로 서버를 켜고 나머지는 exe 만 실행한다.
+배포본은 보통 이쪽이다 — 한 사람이 `SCAVANGER-Server.exe` 로 서버를 켜고 나머지는 게임만 실행한다.
 
 ```
 Electron main process (프록시 모드)
@@ -50,6 +50,31 @@ localStorage(캐릭터 · 창고 · 설정 · `scav.sessionToken`)는 **오리�
 검증(`scripts/_tmp-app-origin.mjs`, 앱을 네 번 띄운다): 오리진이 네 번 모두 `http://127.0.0.1:8790`,
 정상 종료 뒤 세이브 유지 PASS, **강제 종료 뒤에도** 유지 PASS.
 
+## 배포 폴더 (2026-09-10)
+
+`npm run app:dist` 가 만드는 것은 exe 하나가 아니라 **그대로 압축해 보낼 폴더**다.
+
+```
+release/SCAVANGER/
+  app/                    electron-builder `dir` 산출물 전부 (SCAVANGER.exe + .pak · dll · locales …)
+  SCAVANGER.exe           stub 런처 — app\SCAVANGER.exe 를 띄운다 (launcher.cs)
+  server.txt              접속할 서버 주소 한 줄 — 사람이 고치는 유일한 파일
+  SCAVANGER-Server.exe    서버를 켤 사람만 실행 (server/tool.ts)
+```
+
+**왜 stub 인가**: `dir` 결과를 그대로 주면 exe 옆에 파일 수백 개가 놓여 무엇을 눌러야 할지 알 수 없다.
+`portable` 타깃(자체 압축 exe)은 그 문제는 없지만 실행마다 임시 폴더로 자기를 풀어 시작이 느리고,
+`server.txt` 를 옆에 두는 지금 구조와도 맞지 않는다. 그래서 실제 빌드는 `app/` 으로 내리고 루트에는 누를
+것만 남긴다. stub 은 Windows 에 항상 있는 .NET Framework 컴파일러(`csc.exe`)로 굽는다 — 새 빌드 의존성이
+없고 `/target:winexe` 라 콘솔이 깜빡이지 않으며 `/win32icon` 으로 게임과 같은 아이콘을 박는다.
+
+`app/` 안으로 들어간 것 때문에 `configDirs()` 가 **`execPath` 의 부모**까지 후보로 본다 — `server.txt` 는
+그 위에 있다. stub 도 작업 폴더를 배포 폴더로 잡아 준다(같은 파일을 `cwd` 로도 찾게).
+
+**아이콘**은 `scripts/make-icon.mjs` 가 코드로 그린다 (`npm run icon` → `resources/icon.ico`) — 이 프로젝트에는
+손으로 만든 에셋 파일이 없다는 규칙(`CLAUDE.md` §4)을 아이콘에도 적용했다. 16 · 24 px 은 링과 갈매기를 굵게
+키운 별도 비율을 쓴다(`markFor`) — 256 px 비율을 그대로 줄이면 한 픽셀 이하가 되어 뭉개진다.
+
 ## 왜 `file://` 이 아니라 로컬 http 인가
 `NetSystem.defaultUrl()` 은 `VITE_WS_URL` 이 없으면 `ws://${location.host}/ws` 를 쓴다. `file://` 로 띄우면
 `location.host` 가 비어 릴레이 주소가 만들어지지 않으므로, 빌드 타임 `VITE_WS_URL` 이나 preload 주입 같은
@@ -61,12 +86,14 @@ vite 프록시와 완전히 같은 그림이 되고, `src/` 는 손대지 않아
 
 | 파일 | 역할 |
 |---|---|
+| `launcher.cs` | **stub 런처의 소스** (2026-09-10). `app\SCAVANGER.exe` 를 띄우는 것 하나만 한다 — 인자를 그대로 넘기고, 작업 폴더를 배포 폴더로 잡고, 파일이 없으면 한국어 MessageBox 를 띄운다. `scripts/pack-release.mjs` 가 `csc.exe` 로 굽는다. |
 | `main.ts` | 앱 수명주기. 옵션 파싱 → 릴레이(또는 원격 릴레이 주소 확정) → **창 전용 http 서버(`APP_PORT` 고정 · `listenStable`)** → `BrowserWindow`. localStorage 를 30초마다 · 종료할 때 디스크로 내린다(`flushStorageData`). 단일 인스턴스 락, 메뉴 제거, **F11 전체화면**, **Escape 가로채기 + 재잠금**(아래 "Escape"), 창 상태 추적, `pointerLock` / `fullscreen` 만 허용하는 권한 핸들러, 외부 링크는 기본 브라우저로, `dist/` 가 없으면 안내 다이얼로그. |
 | `static.ts` | `attachStatic(server, root)` — 기존 http 서버의 `request` 리스너를 가로채 정적 파일을 먼저 서빙하고, 못 찾으면 원래 핸들러(릴레이의 `/health` + 404)로 넘긴다. 경로 이탈(`..`) 차단, `cache-control: no-cache`. |
 | `wsProxy.ts` | `--relay=<url>` 전용. `/ws` 업그레이드를 원격 릴레이로 **raw 소켓 파이프**. 세션 쿼리(`?t=&n=`)까지 그대로 통과. |
 | `windowState.ts` | `<userData>/window-state.json` 에 크기 · 위치 · 최대화 · 전체화면 저장/복원. 저장된 모니터가 사라졌으면 위치를 버린다. |
 | `build.mjs` | `main.ts` + 임베디드 릴레이를 `dist-electron/main.js` 로 번들. **rolldown**(vite 의존성이라 새 패키지가 필요 없다)을 쓰고 `electron` / `ws` 는 external. `default-relay.txt` 의 주소를 `transform.define` 으로 `__SCAV_DEFAULT_RELAY__` 에 굽는다(`define` 은 최상위가 아니라 `transform` 아래다 — 최상위에 두면 경고만 내고 조용히 무시된다). |
-| `default-relay.txt` | 배포본이 기본으로 접속할 릴레이 주소 **한 줄**. 빌드 타임에 구워지고, electron-builder `extraFiles` 로 exe 옆에 `relay.txt` 라는 이름으로도 복사된다 — 그래서 받은 사람이 재빌드 없이 주소를 고칠 수 있다. |
+| `default-relay.txt` | 배포본이 기본으로 접속할 릴레이 주소 **한 줄**. 빌드 타임에 `__SCAV_DEFAULT_RELAY__` 로 구워지고, `scripts/pack-release.mjs` 가 그 주소를 배포 폴더의 **`server.txt`** 로도 써 준다(주석 포함) — 그래서 받은 사람이 재빌드 없이 주소를 고칠 수 있다. 2026-09-10 이전 이름은 `relay.txt` 였고 `main.ts` 는 그 이름도 계속 읽는다. |
+| `resources/icon.ico` | 앱 아이콘 (16 · 24 · 32 · 48 · 64 · 128 · 256 px). `scripts/make-icon.mjs` 가 생성하고 electron-builder(`win.icon`) · stub(`/win32icon`) · 서버 exe(rcedit)가 **같은 파일**을 쓴다. |
 | `tsconfig.json` | `electron/` + `server/` 를 함께 타입 체크 (`npm run typecheck:app`). |
 
 `server/` 는 `--experimental-strip-types` 로 도는 erasable TypeScript 인데 Electron 메인 프로세스에는 그 로더가

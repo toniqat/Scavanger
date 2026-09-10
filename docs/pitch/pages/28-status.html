@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>개발 현황 — PROJECT SCAVANGER</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-page="p-status">
+<div class="shell">
+
+<aside class="side">
+  <div class="brand">
+    <a href="00-intro.html"><h1>PROJECT <em>SCAVANGER</em></h1></a>
+    <p>PITCH DOCUMENT · v0.1</p>
+  </div>
+  <nav class="tree" id="tree"></nav>
+</aside>
+
+<main class="main" id="main">
+
+<article id="p-status">
+  <div class="crumb">부록 / 개발 현황</div>
+  <h1>개발 현황</h1>
+  <p class="lede">현재 <strong>플레이 가능한 프로토타입</strong>이 브라우저에서 동작한다. 이 문서의 <span class="badge ok">구현</span> 표시는 프로토타입에서 실제로 돌아가는 기능이고, <span class="badge wip">다음</span> · <span class="badge plan">기획</span> 은 설계만 된 것이다.</p>
+
+  <h2 id="s-built"><span class="hn">8.1</span>기능별 현황</h2>
+  <div class="tw"><table>
+    <thead><tr><th style="width:26%">영역</th><th style="width:11%">상태</th><th>비고</th></tr></thead>
+    <tbody>
+      <tr><td class="k">3인칭 컨트롤러 · 사격</td><td><span class="badge ok">구현</span></td><td>자세 3종 · 스태미나 · 반동 · 히트스캔/발사체 · <b>전 종족 헤드샷</b></td></tr>
+      <tr><td class="k">무기 6계열 × 5등급</td><td><span class="badge ok">구현</span></td><td>내구도 · 탄약 5종 · 소켓 5개 · 유니크 6종 · <b>주무기 2슬롯</b></td></tr>
+      <tr><td class="k"><a class="wl" href="06-weapons.html#s-armor">방탄복 = 실드 · 충전기</a></td><td><span class="badge ok">구현</span></td><td>등급별 실드 20~100 · 충전기 3종 · 내구도 파손 / 수리</td></tr>
+      <tr><td class="k">격자 인벤토리</td><td><span class="badge ok">구현</span></td><td>디아블로 2식 · 가방/장비/<b>퀵슬롯</b> · 함선 창고 · 제작 / 분해 / 수리</td></tr>
+      <tr><td class="k">전술 임플란트 6종</td><td><span class="badge ok">구현</span></td><td>배리어 물리 충돌 · 실드 배쉬 · 분대 공유 정찰까지</td></tr>
+      <tr><td class="k">가젯 10종</td><td><span class="badge ok">구현</span></td><td>호스트 권한 배치물 동기화 포함</td></tr>
+      <tr><td class="k"><a class="wl" href="08-stratagem.html">함선 호출 4종</a></td><td><span class="badge ok">구현</span></td><td>탑뷰 조준 · <b>공유 쿨다운</b> · 구조선 · 분대장 전용 궤도 폭격</td></tr>
+      <tr><td class="k">적 10종 · 팩션 전투</td><td><span class="badge ok">구현</span></td><td>벌레 8 + 로그 2, 상호 교전 · 총구 기준 사선 · 곡사 궤적</td></tr>
+      <tr><td class="k">행성 5종 · 절차 생성</td><td><span class="badge ok">구현</span></td><td>바이옴 · 하늘 · 생태 · <b>행성 순번 = 난이도 = 전리품 등급</b></td></tr>
+      <tr><td class="k"><a class="wl" href="12-structures.html">버려진 구조물</a></td><td><span class="badge ok">구현</span></td><td>전진기지 · 연구실 · 불시착 함선 — 진입 · 지하실 · 키카드 · 행성 스캔</td></tr>
+      <tr><td class="k"><a class="wl" href="13-rails.html">선로 · 전차</a></td><td><span class="badge ok">구현</span></td><td>콘솔 시동 · 자동 주행 · <b>움직이는 발판 탑승</b> · 플랫폼 컨테이너</td></tr>
+      <tr><td class="k"><a class="wl" href="14-hazards.html">환경 재해 4종</a></td><td><span class="badge ok">구현</span></td><td>모래 폭풍 · 눈보라 · 폭풍의 눈 · 독성 포자 — 시드 결정적, 상시 통신 0</td></tr>
+      <tr><td class="k"><a class="wl" href="15-fog.html">전장의 안개</a></td><td><span class="badge ok">구현</span></td><td>분대 합산 시야 · 지도 / 마커 / 나침반 게이트 · 늦은 합류 동기화</td></tr>
+      <tr><td class="k"><a class="wl" href="09-raid-flow.html#s-death">죽음 · 시체 · 구조선</a></td><td><span class="badge ok">구현</span></td><td>자동 부활 없음 · 시체 루팅 · 분대 공용 5회 · 강하 포드 동기화</td></tr>
+      <tr><td class="k"><a class="wl" href="10-comms.html">핑 · 의사소통 휠</a></td><td><span class="badge ok">구현</span></td><td>플레이어별 3개 · 확인 핑 · 화면 밖 화살표 · 전투불능 전용 문구</td></tr>
+      <tr><td class="k"><a class="wl" href="17-extraction.html">탈출 60초</a></td><td><span class="badge ok">구현</span></td><td>콘솔 · 웨이브(분대 인원 비례) · 착륙 · 탑승 · 이륙</td></tr>
+      <tr><td class="k">스탯 5 · 숙련도 14</td><td><span class="badge ok">구현</span></td><td>파생 수치 일원화 · 캐릭터 시트</td></tr>
+      <tr><td class="k"><a class="wl" href="01-create.html">캐릭터 슬롯 3 · 생성</a></td><td><span class="badge ok">구현</span></td><td>슬롯별 세이브 · 3D 프리뷰 · 능력치 배분 · 시작 임플란트</td></tr>
+      <tr><td class="k">임플란트 아이템 23종</td><td><span class="badge ok">구현</span></td><td>+ 망가진 23종 · 수리 데스크 · 전설 퍽 3종</td></tr>
+      <tr><td class="k">기업 4 · 신뢰도 · 계약 · 퀘스트</td><td><span class="badge ok">구현</span></td><td>상점 필터 · 가격 · 계약 정산 · 납품 퀘스트 · 재화 칩</td></tr>
+      <tr><td class="k">함선 · 시설 · 꾸미기</td><td><span class="badge ok">구현</span></td><td>방 10 · 발전기 · 창고 · 작업실 · 훈련장 · 서재 · 온실 · 가구 자동 배치</td></tr>
+      <tr><td class="k"><a class="wl" href="21-hangar.html">격납고 · 분대장 이관</a></td><td><span class="badge ok">구현</span></td><td>개인 함선 4대 정박 · 방문 · 지명 이관 · 분대장 기기</td></tr>
+      <tr><td class="k">4인 멀티플레이</td><td><span class="badge ok">구현</span></td><td>릴레이 · 20 Hz 스냅샷 · 호스트 이관 · <b>5분 재접속 유예</b> · 레이드 복귀</td></tr>
+      <tr><td class="k">튜토리얼</td><td><span class="badge ok">구현</span></td><td>새 캐릭터 17단계 · UI 스포트라이트 · 순서 강제 게이트</td></tr>
+      <tr><td class="k">데스크톱 빌드 · 배포</td><td><span class="badge ok">구현</span></td><td>Electron 실행 파일 + <b>서버 단독 exe</b>(Node 불필요) + 게임 내 서버 주소 설정</td></tr>
+      <tr><td colspan="3" style="text-align:center;color:var(--tx3);font-family:var(--mono);font-size:11.5px;letter-spacing:.1em">─── 다음 단계 ───</td></tr>
+      <tr><td class="k">연구실 · 주방 · 헬스장</td><td><span class="badge wip">다음</span></td><td>요리 버프 · 스탯 트레이닝 미니게임</td></tr>
+      <tr><td class="k"><a class="wl" href="26-crypto.html">암호화폐 채굴 · 트레이딩</a></td><td><span class="badge wip">다음</span></td><td>시설은 배치 가능, 경제 시뮬레이션 미구현</td></tr>
+      <tr><td class="k"><a class="wl" href="18-dungeon.html">던전 레이드</a></td><td><span class="badge plan">기획</span></td><td>수작업 선형 맵 · 퀘스트 해금</td></tr>
+      <tr><td class="k">인물 · 메신저 서사</td><td><span class="badge plan">기획</span></td><td>대화 시스템 · 배신 분기</td></tr>
+      <tr><td class="k"><a class="wl" href="22-guild.html">길드 · 길드 함선</a></td><td><span class="badge plan">기획</span></td><td>공동 증축 · 레이드 지원</td></tr>
+      <tr><td class="k"><a class="wl" href="27-auction.html">창고 경매</a></td><td><span class="badge plan">기획</span></td><td>4인 블라인드 옥션</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2 id="s-tech"><span class="hn">8.2</span>기술 스택</h2>
+  <div class="tw"><table>
+    <thead><tr><th style="width:22%">항목</th><th>내용</th></tr></thead>
+    <tbody>
+      <tr><td class="k">엔진</td><td>Three.js 0.185 · TypeScript (strict) · Vite</td></tr>
+      <tr><td class="k">에셋</td><td><b>외부 에셋 파일 0개.</b> 플레이어 · 벌레 · 상자 · 함선 · 소품 전부 코드에서 지오메트리로 절차 생성. 텍스처도 절차 Canvas.</td></tr>
+      <tr><td class="k">UI</td><td>순수 DOM + CSS. React 없음.</td></tr>
+      <tr><td class="k">네트워크</td><td>Node <code>ws</code> 릴레이. 20 Hz 스냅샷, 호스트 권한 판정, 프로필/레이드 세션 서버 저장.</td></tr>
+      <tr><td class="k">배포</td><td>브라우저 · Electron 포터블 실행 파일. 싱글 플레이는 서버 없이 localStorage 만으로 동작.</td></tr>
+      <tr><td class="k">목표 성능</td><td>적 60마리 동시에 60 fps</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="note gr"><b>절차 생성 파이프라인의 의미.</b> 아트 에셋이 하나도 없으므로 <b>아티스트 없이도 기능 검증이 끝난다</b>. 캐주얼 아트 스타일로 갈아입히는 작업은 게임플레이가 확정된 뒤 별도 트랙으로 진행할 수 있다 — 프로토타입 단계의 리스크를 크게 줄이는 선택.</div>
+
+  <div class="nextnav">
+    <a href="27-auction.html"><span>이전</span>← 창고 경매</a>
+    <a class="n" href="29-hud.html"><span>다음</span>화면 보는 법 →</a>
+  </div>
+</article>
+
+</main>
+
+<aside class="toc">
+  <h4>이 페이지</h4>
+  <div id="toc"></div>
+</aside>
+</div>
+
+<script src="../app.js"></script>
+</body>
+</html>

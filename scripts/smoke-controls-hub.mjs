@@ -196,6 +196,56 @@ try {
   await keyDown('Escape'); await keyUp('Escape');
   ok(await page.evaluate(() => document.querySelector('.menu.settings-menu').hidden && !document.querySelector('.menu.title').hidden), 'Esc closed 설정, title still up');
 
+  /* ── 2.5 설정 › 서버 설정 (2026-09-10) ───────────────────────────────
+     배포본에서 다른 PC 의 서버로 붙는 유일한 창구다. 여기서 재접속을 **실행하지는 않는다** — 뒤 섹션이
+     쓰는 연결을 끊어 버리므로, 저장 · 검사 · 정규화만 보고 마지막에 저장을 비운다. */
+  await page.evaluate(() => [...document.querySelectorAll('.menu.title .title-actions .ui-btn')].find((b) => b.textContent === '설정').click());
+  await waitFor(page, () => !document.querySelector('.menu.settings-menu')?.hidden, '설정 메뉴 열림');
+  const navLabels = await page.evaluate(() => [...document.querySelectorAll('.menu.settings-menu .set-nav .set-nav-btn')].map((b) => b.textContent));
+  ok(navLabels.join(',') === '화면 설정,오디오 설정,키 설정,서버 설정', `설정은 네 섹션이다 (${navLabels.join(' / ')})`);
+  await page.evaluate(() => [...document.querySelectorAll('.menu.settings-menu .set-nav .set-nav-btn')].find((b) => b.textContent.includes('서버 설정'))?.click());
+  const net0 = await page.evaluate(() => ({
+    shown: !document.querySelector('.set-body.network')?.hidden,
+    input: !!document.querySelector('.set-body.network .set-text'),
+    buttons: [...document.querySelectorAll('.set-body.network .set-net-foot .ui-btn')].map((b) => b.textContent),
+    // 아무것도 안 적혀 있으면 세 버튼 전부 잠겨 있다 (바꿀 것이 없다).
+    locked: [...document.querySelectorAll('.set-body.network .set-net-foot .ui-btn')].every((b) => b.disabled),
+    note: document.querySelector('.set-body.network .set-hint')?.textContent ?? '',
+    stored: localStorage.getItem('scav.relay'),
+  }));
+  ok(net0.shown && net0.input, '서버 설정에 주소 입력칸이 있다');
+  ok(net0.buttons.join(',') === '연결 테스트,적용하고 다시 접속,기본값으로', `버튼 세 개 (${net0.buttons.join(' / ')})`);
+  ok(net0.locked, '빈 칸에서는 세 버튼이 모두 잠겨 있다');
+  ok(net0.stored === null, '아직 저장된 주소가 없다');
+
+  // 형식 검사와 정규화는 `shared/net.relayUrlFrom` 하나가 판단한다 (셸 · 서버 배너와 같은 함수).
+  const rules = await page.evaluate(() => {
+    const net = window.__game.ctx.net;
+    const bad = net.setRelayOverride('::::');
+    const good = net.setRelayOverride('192.168.0.12');
+    return { bad, good, stored: localStorage.getItem('scav.relay'), url: net.relayUrl, override: net.relayOverride };
+  });
+  ok(rules.bad === false, '형식이 아닌 주소는 거절된다');
+  ok(rules.good === true && rules.stored === '192.168.0.12', '주소가 슬롯 접두사 없는 공용 키에 저장된다 (scav.relay)');
+  ok(rules.url === 'ws://192.168.0.12:8787/ws', `defaultUrl 이 그 주소로 갈린다 (${rules.url})`);
+
+  // 살아 있는 접속을 끊지 않는 익명 probe: 닿지 않는 주소는 실패로, 지금 서버는 성공으로 돌아온다.
+  const probes = await page.evaluate(async () => {
+    const net = window.__game.ctx.net;
+    // TEST-NET-1 (RFC 5737) — 라우팅되지 않는다.
+    const dead = await net.probeRelay('192.0.2.1');
+    net.setRelayOverride('');
+    const live = await net.probeRelay();
+    return { dead, live, override: net.relayOverride, stored: localStorage.getItem('scav.relay') };
+  });
+  ok(probes.dead.ok === false && !!probes.dead.error, `닿지 않는 주소는 실패로 돌아온다 (${probes.dead.error})`);
+  ok(probes.dead.url === 'ws://192.0.2.1:8787/ws', 'probe 도 같은 정규화를 쓴다');
+  ok(probes.live.ok === true && probes.live.ms > 0, `지금 서버는 응답한다 (${probes.live.ms}ms)`);
+  ok(probes.override === '' && probes.stored === null, '기본값으로 되돌리면 저장이 지워진다');
+  await shot('02b-settings-network');
+  await keyDown('Escape'); await keyUp('Escape');
+  ok(await page.evaluate(() => document.querySelector('.menu.settings-menu').hidden), 'Esc 로 설정을 닫았다');
+
   /* ── 3. hub: Tab ship screen ──────────────────────────────────────── */
   await page.evaluate(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
   await waitFor(page, () => window.__game.ctx.phase === 'hub', 'hub phase');

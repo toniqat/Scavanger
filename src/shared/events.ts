@@ -932,6 +932,14 @@ export interface GameEvents {
    * 걸어 재생한다 — 발행하는 쪽은 거리를 재지 않는다.
    */
   'remote:footstep': { position: THREE.Vector3; sprinting: boolean; peerId: PeerId };
+
+  /* ══ appended (2026-09-10): 서버 주소 ══════════════════════════════════════════════════════════ */
+  /**
+   * Fact: 접속할 릴레이 주소가 바뀌었다 (`설정 › 서버 설정`). `custom` = 사용자가 직접 적은 주소이고
+   * false 면 배포 기본값(같은 오리진 `/ws`)으로 되돌아간 것이다. **재접속은 이 이벤트가 하지 않는다** —
+   * `NetRef.reconnectRelay()` 를 부른 쪽이 한다.
+   */
+  'net:relayChanged': { url: string; custom: boolean };
 }
 
 /** One 키 가이드 entry (`ui:keyGuide`): `key` is the display label (`keyLabel(...)`), `label` the Korean action. */

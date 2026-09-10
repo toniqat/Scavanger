@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>화면 보는 법 — PROJECT SCAVANGER</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-page="p-hud">
+<div class="shell">
+
+<aside class="side">
+  <div class="brand">
+    <a href="00-intro.html"><h1>PROJECT <em>SCAVANGER</em></h1></a>
+    <p>PITCH DOCUMENT · v0.1</p>
+  </div>
+  <nav class="tree" id="tree"></nav>
+</aside>
+
+<main class="main" id="main">
+
+<article id="p-hud">
+  <div class="crumb">부록 / 화면</div>
+  <h1>화면 보는 법 <span class="badge ok">구현</span></h1>
+
+  <figure class="shot" data-src="../assets/hud-raid.png">
+    <div class="ph"><span class="tag">스크린샷</span><span class="ttl">레이드 HUD 전체</span>
+    <span class="desc">네 모서리와 화면 중앙 하단에만 정보가 있다</span>
+    <span class="meta">권장 1920×1080 · assets/hud-raid.png</span></div>
+    <figcaption>아크 레이더스식 미니멀 — <b>글자보다 썸네일</b>, 설명보다 게이지.</figcaption>
+  </figure>
+
+  <p class="lede">HUD 의 원칙은 하나다. <strong>화면에서 당연한 설명을 걷어낸다.</strong> 라벨을 지우고, 숫자를 줄이고, 대신 <b>등급색 · 게이지 · 썸네일</b>로 읽히게 만든다.</p>
+
+  <h2 id="s-layout"><span class="hn">8.3</span>어디에 무엇이 있나</h2>
+  <div class="tw"><table>
+    <thead><tr><th style="width:20%">자리</th><th>내용</th></tr></thead>
+    <tbody>
+      <tr><td class="k">좌상단</td><td><b>임무 시간</b>만. 목표 문구는 전부 걷어냈다.</td></tr>
+      <tr><td class="k">좌하단</td><td>내 <b>이름</b> · <a class="wl" href="06-weapons.html#s-armor">실드 게이지</a> · <b>5등분 체력</b>. 「생명력」 같은 라벨은 없다.</td></tr>
+      <tr><td class="k">우하단</td><td><b>무기 패널</b> — 등급색 정사각 썸네일 + <code>24 / 120</code> + 클래스 태그, 상자 바닥에 <b>내구도 바</b>. 그 위에 <b>퀵슬롯</b>과 <span class="key">T</span>.</td></tr>
+      <tr><td class="k">하단 중앙</td><td><a class="wl" href="08-stratagem.html">함선 호출</a> 썸네일 + <a class="wl" href="05-tactical.html">전술 임플란트</a> 썸네일. <b>둘 다 쿨타임이 아래에서 위로 차오르고</b> 한가운데 남은 초가 뜬다.</td></tr>
+      <tr><td class="k">중앙</td><td>크로스헤어. 타격하면 <b>X</b>, 헤드샷이면 <b>1.6배 X</b>, 처치면 빨강. 소모품을 들면 점으로 바뀌고 수량이 붙는다.</td></tr>
+      <tr><td class="k">우하단 한 줄</td><td><b>키 가이드</b> — 지금 열려 있는 화면이 쓰는 키만 보여 준다. <a class="wl" href="30-controls.html">조작</a> 참조.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2 id="s-danger"><span class="hn">8.4</span>위험 인디케이터</h2>
+
+  <figure class="shot" data-src="../assets/hud-danger.png">
+    <div class="ph"><span class="tag">스크린샷</span><span class="ttl">날아오는 것을 알려 준다</span>
+    <span class="desc">화면 밖이면 크로스헤어 둘레의 호, 화면 안이면 머리 마커</span>
+    <span class="meta">assets/hud-danger.png</span></div>
+  </figure>
+
+  <p>죽는 이유를 모르는 죽음을 없애는 장치다. 대상은 셋 — <b>적 곡사포탄 · 수류탄(아군 + 적) · <a class="wl" href="08-stratagem.html">함선 호출</a> 낙하물</b>.</p>
+
+  <div class="cards">
+    <div class="card"><h5>둘이 겹치지 않는다</h5><p>같은 위험물에 대해 <b>화면 밖이면 방향 호, 화면 안이면 머리 마커</b> — 한 번에 하나만 뜬다.</p></div>
+    <div class="card"><h5>색이 누구 것인지를 말한다</h5><p><span style="color:var(--am)">호박</span> = 아군, <span style="color:var(--rd)">빨강</span> = 적. 밝아지면 <b>임박</b>이다.</p></div>
+    <div class="card"><h5>내 머리 위는 무조건 보인다</h5><p>인지력이 낮아도 착탄 지점이 <b>40 m</b> 안이면 반드시 표시한다 — 「모르고 죽는 것」을 막는 게 목적인데 능력치 때문에 안 보이면 목적이 무너진다.</p></div>
+  </div>
+
+  <div class="note"><b>곡사포는 화면 안으로 날아온다.</b> 예전에는 포탄이 <b>48 m</b>까지 솟아 시야 밖으로 나갔다가 머리 위에서 떨어졌다 — 날아온 줄도 모르는 죽음의 정체였다. 포탄에만 별도의 유효 중력을 줘 정점을 <b>9.9 m</b>로 낮췄다. 하강 내내 화면 안에 있고, 발사각은 32° 라 <b>여전히 곡사포로 읽힌다</b>.</div>
+
+  <h2 id="s-map"><span class="hn">8.5</span>지도</h2>
+  <p><span class="key">M</span>. <a class="wl" href="15-fog.html">전장의 안개</a>가 걸려 있어 미탐색 구역은 <b>회색 윤곽</b>뿐이고, 밝혀진 경계에는 또렷한 선이 그어진다. <a class="wl" href="14-hazards.html">재해</a> 구역은 안개 위에 <b>빗금</b>으로 덮인다. 지도 위에서도 <a class="wl" href="10-comms.html#s-ping">핑</a>을 찍을 수 있다.</p>
+
+  <div class="note am"><b>HUD 도 밸런싱 대상이다.</b> 이 화면은 실제 플레이 피드백을 받아 <b>사흘에 걸쳐 세 번</b> 다시 짰다 — 무기 아이콘이 허공에 떠 보이던 것을 상자로 묶고, 「예비」 라벨을 지워 <code>40 / 80</code>으로 읽히게 하고, 함선 호출의 텍스트 패널을 통째로 지워 임플란트와 같은 <b>정사각 썸네일</b>로 통일했다.</div>
+
+  <div class="nextnav">
+    <a href="28-status.html"><span>이전</span>← 개발 현황</a>
+    <a class="n" href="30-controls.html"><span>다음</span>조작 →</a>
+  </div>
+</article>
+
+</main>
+
+<aside class="toc">
+  <h4>이 페이지</h4>
+  <div id="toc"></div>
+</aside>
+</div>
+
+<script src="../app.js"></script>
+</body>
+</html>

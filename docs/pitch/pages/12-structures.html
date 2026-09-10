@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>버려진 구조물 — PROJECT SCAVANGER</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-page="p-structures">
+<div class="shell">
+
+<aside class="side">
+  <div class="brand">
+    <a href="00-intro.html"><h1>PROJECT <em>SCAVANGER</em></h1></a>
+    <p>PITCH DOCUMENT · v0.1</p>
+  </div>
+  <nav class="tree" id="tree"></nav>
+</aside>
+
+<main class="main" id="main">
+
+<article id="p-structures">
+  <div class="crumb">레이드 / 구조물</div>
+  <h1>버려진 구조물 <span class="badge ok">구현</span></h1>
+
+  <div class="shotrow">
+    <figure class="shot" data-src="../assets/structure-outpost.png">
+      <div class="ph"><span class="tag">스크린샷</span><span class="ttl">버려진 전진기지</span>
+      <span class="desc">지붕이 무너진 건물 — 들어가서 뒤진다</span>
+      <span class="meta">assets/structure-outpost.png</span></div>
+      <figcaption>지붕은 <b>무너뜨렸다</b> — 서까래와 난간만 남긴다. 카메라 특례 코드 없이 실내가 보이고, 「버려진 건물」이라는 설정과도 맞는다.</figcaption>
+    </figure>
+    <figure class="shot" data-src="../assets/structure-basement.png">
+      <div class="ph"><span class="tag">스크린샷</span><span class="ttl">지하실 — 잠긴 문</span>
+      <span class="desc">지상층 바닥에 뚫린 계단 구멍과 해치</span>
+      <span class="meta">assets/structure-basement.png</span></div>
+      <figcaption>키카드를 찾을 때까지 해치가 구멍을 막고 있다.</figcaption>
+    </figure>
+  </div>
+
+  <p class="lede">절차 생성 지형 위에 <strong>실제로 들어갈 수 있는 건물</strong>이 선다. 벽과 문이 있는 실내 공간이라, 허허벌판의 총싸움이 여기서는 <b>모서리와 문틈의 총싸움</b>이 된다.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th style="width:22%">구조물</th><th class="num">한 맵에</th><th class="num">지하실</th><th>전리품 성격</th></tr></thead>
+    <tbody>
+      <tr><td class="k">버려진 전진기지</td><td class="num">1–2</td><td class="num">65 %</td><td>무장 · 탄약 · 의료가 섞인 <b>2티어</b> 위주</td></tr>
+      <tr><td class="k">버려진 연구실</td><td class="num">1–2</td><td class="num">60 %</td><td>감정 가치가 높은 <b>3티어</b>가 조금 더 많다</td></tr>
+      <tr><td class="k">불시착한 함선</td><td class="num">0–1</td><td class="num">없음</td><td>귀중품 · 취미품의 <b>4티어</b>가 흔한 유일한 자리</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2 id="s-basement"><span class="hn">4.6</span>지하실 — 잠겨 있고, 열쇠는 위층에 있다</h2>
+
+  <p>구조물의 진짜 전리품은 <b>지하실</b>에 있다. 지상층 바닥에 계단 구멍이 뚫려 있어 눈으로 바로 보이지만, <b>해치가 잠겨 있다.</b></p>
+
+  <div class="cards">
+    <div class="card"><h5>키카드는 반드시 지상층에</h5><p>같은 건물의 <b>지상층 컨테이너 정확히 하나</b>에 들어 있다 — 지하실 안에는 절대 넣지 않는다. 무작위 루팅으로는 나오지 않는다.</p></div>
+    <div class="card"><h5>여는 데 2초</h5><p>카드를 들고 해치를 <b>2초 홀드</b>. 그 2초 동안 등 뒤가 비고, 위층을 뒤지는 소리는 이미 났다.</p></div>
+    <div class="card"><h5>최상급 상자</h5><p>지하실 컨테이너는 <b>언제나 그 구조물의 최상급</b> 티어다. <b>4티어 상자는 이제 구조물 안에만</b> 있다.</p></div>
+  </div>
+
+  <div class="note am"><b>「들어간다」가 만든 것.</b> 구조물은 단순히 새 파밍 장소가 아니라 <b>레이드의 리듬을 만드는 장치</b>다. 밖에서는 사거리와 엄폐가 싸움을 정하지만, 안에서는 산탄총과 근접이 산다. 그리고 지하실 문 앞에서 2초를 서 있는 동안 — 아래 <a class="wl" href="#s-drop">로그 강하</a>가 등 뒤에 떨어진다.</div>
+
+  <h2 id="s-computer"><span class="hn">4.7</span>컴퓨터 — 안개를 걷는다</h2>
+  <p>구조물 안의 컴퓨터를 <b>3초 홀드</b>하면 <b>행성 스캔</b>이 돈다. 주변 <b>170 m</b>의 <a class="wl" href="15-fog.html">전장의 안개</a>가 걷히고, 그 안에 있던 상자 · 채집 노드 · 탈출 패드가 분대 전원의 지도에 올라온다. 파밍 동선을 정하는 것이 곧 이 콘솔을 언제 켜느냐다.</p>
+
+  <h2 id="s-drop"><span class="hn">4.8</span>로그 강하 — 조사하면 사람이 온다</h2>
+
+  <figure class="shot" data-src="../assets/rogue-drop.png">
+    <div class="ph"><span class="tag">스크린샷</span><span class="ttl">로그 강하 예고</span>
+    <span class="desc">구조물을 조사한 직후, 8초 뒤 착지</span>
+    <span class="meta">assets/rogue-drop.png</span></div>
+  </figure>
+
+  <p>구조물과 <a class="wl" href="13-rails.html">선로 플랫폼</a>을 <b>처음 조사할 때</b> 한 번 굴린다(<b>45 %</b>). 걸리면 알람이 울리고 <b>8초 뒤</b> 약탈자 분대가 강하해 구조물로 진격한다.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th style="width:26%">분대 인원</th><th class="num">강하 인원</th><th>보스</th></tr></thead>
+    <tbody>
+      <tr><td class="k">1명</td><td class="num">2–3</td><td>없음</td></tr>
+      <tr><td class="k">2명</td><td class="num">4–5</td><td>50 %</td></tr>
+      <tr><td class="k">4명</td><td class="num">6–8</td><td>확정</td></tr>
+    </tbody>
+  </table></div>
+
+  <p style="color:var(--tx2);font-size:13.5px">구역당 한 번만 굴린다 — 실패해도 소진된다. 같은 건물을 다시 뒤진다고 계속 불러들이지는 않는다.</p>
+
+  <div class="note"><b>파밍에 값을 매기는 장치.</b> 구조물은 전리품이 좋은 만큼 <b>사람을 부른다</b>. 「좋은 상자가 있는 곳」과 「위험한 곳」을 같은 자리에 놓아, 파밍 자체가 판단이 되게 만든다.</div>
+
+  <div class="nextnav">
+    <a href="11-planets.html"><span>이전</span>← 행성</a>
+    <a class="n" href="13-rails.html"><span>다음</span>선로 · 전차 →</a>
+  </div>
+</article>
+
+</main>
+
+<aside class="toc">
+  <h4>이 페이지</h4>
+  <div id="toc"></div>
+</aside>
+</div>
+
+<script src="../app.js"></script>
+</body>
+</html>

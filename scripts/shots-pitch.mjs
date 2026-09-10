@@ -99,6 +99,34 @@ try {
   };
   const closeUi = async () => { await P(() => { window.__game.ctx.inventory?.closeAll?.(); window.__game.ctx.housing?.closeMenus?.(); }); await sleep(350); };
 
+  /* ══ 0. 타이틀 — 캐릭터 선택 · 생성 ═════════════════════════════════════
+     **`enterHub()` 보다 먼저** 찍는다. 함선에 들어간 뒤에는 타이틀로 돌아갈 길이
+     없고(일시정지 메뉴의 `타이틀로` 는 새로고침이다), 이 두 화면은 타이틀 위에서만 산다. */
+  await step('char-select', async () => {
+    await P(() => {
+      const t = window.__game.getSystem('hud')?.title;
+      if (!t) throw new Error('no title menu');
+      t.create.close(); t.select.open();
+    });
+    await sleep(700);
+  });
+
+  await step('char-create', async () => {
+    await P(() => {
+      const t = window.__game.getSystem('hud')?.title;
+      if (!t) throw new Error('no title menu');
+      /* 비어 있는 슬롯이라야 생성창이 열린다 — 2번을 쓴다 */
+      t.select.close(); t.create.open(2);
+    });
+    await sleep(1400);   /* 3D 프리뷰가 첫 프레임을 그릴 시간 */
+  });
+
+  await P(() => {
+    const t = window.__game.getSystem('hud')?.title;
+    if (t) { t.create.close(); t.select.close(); }
+  });
+  await sleep(300);
+
   /* ══ 준비: 크레딧 · 신뢰도 · 아이템 · 시설 ═══════════════════════════════ */
   await enterHub();
   await P(() => {
@@ -447,19 +475,380 @@ try {
     await sleep(6500);
   });
 
-  await step('extraction', async () => {
+  /* ── 탈출: 콘솔 작동 → 함선 도착 (2026-09-10) ────────────────────────────
+     예전 `extraction` 한 장(배리어를 든 방어 컷)을 이 둘로 갈랐다. 카운트다운이
+     60 초라 실시간으로는 기다릴 수 없어 `ctx.timeScale` 로 감는다 — 시뮬레이션만
+     빨라지고 렌더는 그대로라 스크린샷 품질은 같다. */
+  const goToPad = async (back) => P((b) => {
+    const ctx = window.__game.ctx, V = window.__V;
+    const pad = ctx.interactables.all().find((i) => i.id.startsWith('extract_'));
+    if (!pad) throw new Error('no extraction console');
+    const px = pad.position.x + b, pz = pad.position.z + b;
+    ctx.player.setCameraOverride(null);
+    ctx.player.spawnStanding(V(px, ctx.world.getHeightAt(px, pz), pz), Math.PI * 0.75);
+    return true;
+  }, back);
+
+  await step('extraction-console', async () => {
+    await startRaid('amber', 20260908);
+    await goToPad(5);
+    await sleep(400);
     await P(() => {
-      const ctx = window.__game.ctx;
+      const ctx = window.__game.ctx, V = window.__V;
       const pad = ctx.interactables.all().find((i) => i.id.startsWith('extract_'));
-      if (!pad) throw new Error('no extraction console');
-      const V = window.__V;
-      const px = pad.position.x + 5, pz = pad.position.z + 5;
-      ctx.player.setCameraOverride(null);
-      ctx.player.spawnStanding(V(px, ctx.world.getHeightAt(px, pz), pz), Math.PI * 0.75);
       pad.interact();
+      /* 신호소가 프레임 한가운데 오도록 어깨 너머에서 잡는다 */
+      const cx = pad.position.x + 7, cz = pad.position.z + 7;
+      ctx.player.setCameraOverride(
+        V(cx, ctx.world.getHeightAt(cx, cz) + 3.2, cz),
+        V(pad.position.x, pad.position.y + 1.4, pad.position.z), true,
+      );
     });
     await sleep(2600);
   });
+
+  await step('extraction-ship', async () => {
+    /* 자기 완결형으로 간다 — 앞 단계가 재시도로 다시 돌면 상태가 날아간다.
+       카운트다운 60 초를 실시간으로 기다릴 수 없어 `ctx.timeScale` 로 감되,
+       **하강이 시작되는 순간 멈춘다**: 착륙까지 감으면 함선이 어두운 지형에
+       묻혀 실루엣이 안 읽히고, 더 감으면 이륙해 미션이 끝나고 패드가 사라진다.
+       내려오는 중이 「함선이 도착했을 때」가 가장 잘 읽히는 순간이다. */
+    await startRaid('amber', 20260908);
+    await goToPad(5);
+    await sleep(400);
+    await P(() => {
+      const ctx = window.__game.ctx;
+      ctx.enemies.setThreatLevel(0);
+      ctx.interactables.all().find((i) => i.id.startsWith('extract_')).interact();
+      ctx.timeScale = 6;
+    });
+    let seen = false;
+    for (let i = 0; i < 60; i++) {
+      /* 6배로 감는 동안 탈출 웨이브가 실제로 사람을 죽인다 — 폴링할 때마다 회복시켜 둔다 */
+      seen = await P(() => {
+        window.__game.ctx.player.heal(999);
+        const sh = window.__game.getSystem('extraction')?.ship;
+        return sh?.state === 'descend' || sh?.state === 'landed';
+      });
+      if (seen) break;
+      await sleep(220);
+    }
+    await P(() => { window.__game.ctx.timeScale = 1; });
+    if (!seen) throw new Error('dropship never approached');
+    await sleep(500);
+    /* 하늘을 등진 함선을 패드 옆에서 올려다본다 — 실측 바운딩 박스 중심을 겨눈다 */
+    await P(() => {
+      const ctx = window.__game.ctx, V = window.__V;
+      const sh = window.__game.getSystem('extraction').ship;
+      sh.root.updateMatrixWorld(true);
+      const b = { x0: 1e9, y0: 1e9, z0: 1e9, x1: -1e9, y1: -1e9, z1: -1e9 };
+      sh.root.traverse((o) => {
+        if (!o.isMesh || !o.visible || !o.geometry) return;
+        o.geometry.computeBoundingBox?.();
+        const g = o.geometry.boundingBox; if (!g) return;
+        for (const cx of [g.min.x, g.max.x]) for (const cy of [g.min.y, g.max.y]) for (const cz of [g.min.z, g.max.z]) {
+          const v = V(cx, cy, cz).applyMatrix4(o.matrixWorld);
+          b.x0 = Math.min(b.x0, v.x); b.y0 = Math.min(b.y0, v.y); b.z0 = Math.min(b.z0, v.z);
+          b.x1 = Math.max(b.x1, v.x); b.y1 = Math.max(b.y1, v.y); b.z1 = Math.max(b.z1, v.z);
+        }
+      });
+      const mx = (b.x0 + b.x1) / 2, my = (b.y0 + b.y1) / 2, mz = (b.z0 + b.z1) / 2;
+      if (![mx, my, mz].every(Number.isFinite)) throw new Error('no ship geometry');
+      const cx = mx + 20, cz = mz + 20;
+      ctx.player.setCameraOverride(V(cx, ctx.world.getHeightAt(cx, cz) + 2.2, cz), V(mx, my, mz), true);
+    });
+    await sleep(1200);
+  });
+
+  /* ── 레이드 HUD · 방탄복 실드 · 위험 인디케이터 ─────────────────────────── */
+  /** 실드 게이지 · 무기 패널이 둘 다 채워진 레이드 화면을 만든다.
+   *  장비는 **함선에서** 갖춰야 한다 — 레이드 한복판에서 끼우면 무기 칸이 비는 수가 있다. */
+  const geared = async (planet, seed) => {
+    await enterHub();
+    await P(() => {
+      const ctx = window.__game.ctx;
+      const give = (id) => { const it = ctx.loot.createItem(id); if (it) ctx.inventory.tryAddItemAnywhere(it); return it; };
+      const armor = give('armor_4');
+      if (armor) { try { ctx.inventory.equip(armor.uid, 'armor'); } catch { /* 이미 입었을 수 있다 */ } }
+      for (const [id, slot] of [['wpn_ar_g4', 'primary'], ['wpn_sr_g3', 'primary2']]) {
+        const it = ctx.inventory.getAllItems().find((x) => x.defId === id) ?? give(id);
+        if (it) { try { ctx.inventory.equip(it.uid, slot); } catch { /* 이미 장착 */ } }
+      }
+      for (let i = 0; i < 3; i++) { give('ammo_medium'); give('ammo_heavy'); }
+    });
+    await sleep(700);
+    await startRaid(planet, seed);
+  };
+
+  await step('hud-raid', async () => {
+    await geared('amber', 20260908);
+    await P(() => {
+      const ctx = window.__game.ctx, V = window.__V;
+      const fin = (v) => v && [v.x, v.y, v.z].every(Number.isFinite);
+      const p0 = ctx.player.position;
+      const es = ctx.enemies.getEnemies().filter((e) => !e.isDead && fin(e.position))
+        .sort((a, b) => a.position.distanceTo(p0) - b.position.distanceTo(p0));
+      if (!es.length) throw new Error('no enemies alive');
+      const t = es[0].position;
+      const fx = t.x + 13, fz = t.z + 13, fy = ctx.world.getHeightAt(fx, fz);
+      if (!Number.isFinite(fy)) throw new Error('non-finite ground');
+      ctx.player.setCameraOverride(null);
+      ctx.player.spawnStanding(V(fx, fy, fz), Math.atan2(t.x - fx, t.z - fz) + Math.PI);
+    });
+    await sleep(600);
+    /* spawnStanding 은 체력을 가득 채우므로 **프레이밍 뒤에** 깎는다.
+       방탄복 IV 의 실드는 80 이라 30 만 깎아야 실드 게이지가 반쯤 남아 읽힌다 —
+       80 을 넘겨 깎으면 실드 줄이 비어 「이 게임에 실드가 있다」가 안 보인다. */
+    await P(() => window.__game.ctx.player.applyDamage?.(30, 'shot'));
+    await sleep(700);
+  });
+
+  await step('armor-shield', async () => {
+    /* 같은 상태를 조금 더 가까이 — 06-weapons 의 실드 절이 쓴다 */
+    await P(() => {
+      const ctx = window.__game.ctx, V = window.__V;
+      const fin = (v) => v && [v.x, v.y, v.z].every(Number.isFinite);
+      const p0 = ctx.player.position;
+      const es = ctx.enemies.getEnemies().filter((e) => !e.isDead && fin(e.position))
+        .sort((a, b) => a.position.distanceTo(p0) - b.position.distanceTo(p0));
+      if (!es.length) throw new Error('no enemies alive');
+      const t = es[0].position;
+      const fx = t.x + 9, fz = t.z + 9, fy = ctx.world.getHeightAt(fx, fz);
+      if (!Number.isFinite(fy)) throw new Error('non-finite ground');
+      ctx.player.setCameraOverride(null);
+      ctx.player.spawnStanding(V(fx, fy, fz), Math.atan2(t.x - fx, t.z - fz) + Math.PI);
+    });
+    await sleep(500);
+    await P(() => window.__game.ctx.player.applyDamage?.(35, 'shot'));
+    await sleep(700);
+  });
+
+  await step('hud-danger', async () => {
+    /* 함선 호출 낙하물이 가장 확실한 인디케이터 소스다 — 예고 동안 마커가 떠 있다 */
+    await P(() => {
+      const ctx = window.__game.ctx, V = window.__V;
+      const sys = window.__game.getSystem('stratagems');
+      const p = ctx.player.position;
+      const tx = p.x + 9, tz = p.z + 9;
+      sys.debugCall('supply_drop', V(tx, ctx.world.getHeightAt(tx, tz), tz));
+    });
+    await sleep(1400);
+  });
+
+  /* ── 격납고는 자동 촬영하지 않는다 ───────────────────────────────────────
+     공유 함선 격납고(`Hangar`)는 **로비가 있어야** 지어진다 — 릴레이 + 클라이언트
+     둘이 필요하므로 이 스크립트(단일 페이지)로는 만들 수 없다. `hangar.png` ·
+     `hangar-visit.png` 는 손으로 찍거나 플레이스홀더로 남는다
+     (릴레이까지 띄우는 검사는 `scripts/smoke-hangar.mjs` 가 한다). */
+
+  /* ── 분대 커뮤니케이션: 두 휠 ─────────────────────────────────────────────
+     위젯의 `setOpen` 을 직접 부르면 **다음 프레임에 도로 닫힌다** — 두 휠 모두
+     매 프레임 「키가 눌려 있는가」를 다시 보기 때문이다. 그래서 진짜 입력을
+     넣고 **누른 채로** 찍는다. */
+  await step('comms-wheel', async () => {
+    await startRaid('amber', 20260908);
+    /* 스폰 자리는 소품에 막혀 있을 때가 많다 — 트인 자리로 한 발 옮긴다 */
+    await P(() => {
+      const ctx = window.__game.ctx, V = window.__V;
+      const spot = ctx.world.scatterPoints(ctx.player.position, 45, 1, 8)[0];
+      if (!spot) return;
+      ctx.player.setCameraOverride(null);
+      ctx.player.spawnStanding(V(spot.x, ctx.world.getHeightAt(spot.x, spot.z), spot.z), Math.PI * 0.4);
+    });
+    await sleep(600);
+    await page.keyboard.down('KeyH');
+    await sleep(600);
+    await page.mouse.move(1060, 470);          /* 한 칸을 가리켜 hover 를 켠다 */
+    await sleep(500);
+    const open = await P(() => !!window.__game.getSystem('hud')?.isCommsWheelOpen);
+    if (!open) { await page.keyboard.up('KeyH'); throw new Error('comms wheel did not open'); }
+  });
+  /* 위 단계를 건너뛴 실행(`ONLY`)에서는 누른 적이 없다 — 놓기는 조용히 넘어간다 */
+  try { await page.keyboard.up('KeyH'); } catch { /* not pressed */ }
+  await sleep(200);
+
+  await step('ping-wheel', async () => {
+    await page.mouse.move(960, 540);
+    await page.mouse.down({ button: 'middle' });
+    await sleep(500);
+    await page.mouse.move(1080, 545);          /* 오른쪽으로 밀어 「저쪽으로 가자」 */
+    await sleep(400);
+    const open = await P(() => !!window.__game.getSystem('hud')?.isPingWheelOpen);
+    if (!open) { await page.mouse.up({ button: 'middle' }); throw new Error('ping wheel did not open'); }
+  });
+  try { await page.mouse.up({ button: 'middle' }); } catch { /* not pressed */ }
+  await sleep(200);
+
+  /* ── 버려진 구조물 ─────────────────────────────────────────────────────── */
+  /** 구조물이 실제로 놓인 시드를 찾을 때까지 굴린다 — 개수가 0 인 맵이 나올 수 있다. */
+  const findStructure = async (planet, seeds, kind) => {
+    for (const seed of seeds) {
+      await startRaid(planet, seed);
+      const hit = await P((k) => {
+        const list = window.__game.ctx.world.getStructures().filter((s) => !k || s.kind === k);
+        return list.length ? list[0].id : null;
+      }, kind);
+      if (hit) return hit;
+    }
+    throw new Error('no structure (' + (kind ?? 'any') + ') in ' + seeds.length + ' seed(s)');
+  };
+
+  await step('structure-outpost', async () => {
+    const id = await findStructure('amber', [20260908, 771, 4242, 9001, 313], 'outpost');
+    await P((sid) => {
+      const ctx = window.__game.ctx, V = window.__V;
+      const st = ctx.world.getStructures().find((s) => s.id === sid);
+      const d = st.radius + 13;
+      const cx = st.position.x + d, cz = st.position.z + d;
+      ctx.player.setCameraOverride(
+        V(cx, ctx.world.getHeightAt(cx, cz) + 9, cz),
+        V(st.position.x, st.position.y + 2, st.position.z), true,
+      );
+    }, id);
+    await sleep(1200);
+  });
+
+  await step('structure-basement', async () => {
+    const id = await findStructure('amber', [20260908, 771, 4242, 9001, 313], null);
+    await P((sid) => {
+      const ctx = window.__game.ctx, V = window.__V;
+      const st = ctx.world.getStructures().find((s) => s.id === sid);
+      const door = st.basementDoor ?? st.position;
+      const cx = door.x + 5, cz = door.z + 5;
+      ctx.player.setCameraOverride(V(cx, door.y + 4.6, cz), V(door.x, door.y, door.z), true);
+    }, id);
+    await sleep(1000);
+  });
+
+  await step('rogue-drop', async () => {
+    await P(() => {
+      const ctx = window.__game.ctx;
+      const st = ctx.world.getStructures()[0];
+      if (!st) throw new Error('no structure to draw a drop to');
+      ctx.player.setCameraOverride(null);
+      ctx.enemies.callRogueDrop?.(st.position, st.id);
+    });
+    await sleep(2200);
+  });
+
+  /* ── 선로 · 전차 ───────────────────────────────────────────────────────── */
+  const findRail = async (planet, seeds) => {
+    for (const seed of seeds) {
+      await startRaid(planet, seed);
+      const has = await P(() => window.__game.ctx.world.getTrams().length > 0);
+      if (has) return true;
+    }
+    throw new Error('no rail line in any seed');
+  };
+
+  await step('rail-line', async () => {
+    await findRail('tundra', [771, 20260908, 4242, 9001, 313]);
+    await P(() => {
+      const ctx = window.__game.ctx, V = window.__V;
+      const t = ctx.world.getTrams()[0];
+      const cx = t.position.x + 26, cz = t.position.z + 26;
+      ctx.player.setCameraOverride(
+        V(cx, ctx.world.getHeightAt(cx, cz) + 16, cz),
+        V(t.position.x, t.position.y, t.position.z), true,
+      );
+    });
+    await sleep(1200);
+  });
+
+  await step('rail-tram', async () => {
+    await P(() => {
+      const ctx = window.__game.ctx, V = window.__V;
+      const t = ctx.world.getTrams()[0];
+      const cx = t.position.x + 11, cz = t.position.z + 11;
+      ctx.player.setCameraOverride(
+        V(cx, t.position.y + 5.5, cz), V(t.position.x, t.position.y + 1, t.position.z), true,
+      );
+    });
+    await sleep(1000);
+  });
+
+  /* ── 환경 재해 4종 ─────────────────────────────────────────────────────────
+     종류는 시드의 함수라 원하는 재해가 나올 때까지 시드를 굴린다. 진행은
+     `ctx.missionTime` 의 함수이므로 그 값을 밀어 넣으면 6분을 기다리지 않는다. */
+  const hazardShot = async (kind, planet, seeds, at) => {
+    let ok = false;
+    for (const seed of seeds) {
+      await startRaid(planet, seed);
+      ok = await P((k) => window.__game.ctx.world.hazard?.kind === k, kind);
+      if (ok) break;
+    }
+    if (!ok) throw new Error('hazard ' + kind + ' did not roll on ' + planet);
+    await P((frac) => {
+      const ctx = window.__game.ctx, hz = ctx.world.hazard;
+      /* 시작 시각을 지나 재해가 화면을 덮을 만큼만 감는다 (1 = 맵 전체) */
+      ctx.missionTime = hz.startsAt + 420 * frac;
+    }, at);
+    await sleep(1800);
+    /* 전선(또는 눈의 벽)이 프레임에 들어오도록 높은 자리에서 그쪽을 본다 —
+       기본 스폰 카메라는 코앞의 소품에 막혀 재해가 안 보인다. */
+    await P(() => {
+      const ctx = window.__game.ctx, V = window.__V;
+      const z = ctx.world.hazard.getZones()[0];
+      const p = ctx.player.position;
+      let tx, tz;
+      if (!z) { tx = p.x + 60; tz = p.z + 60; }
+      else if (z.shape === 'front') {
+        /* front 는 법선 `dir` **반대편**이 이미 삼켜진 쪽이다 — 전선 커튼은 그쪽에 서 있다 */
+        tx = p.x - z.dirX * 80; tz = p.z - z.dirZ * 80;
+      } else { /* 원: 경계 위의 가장 가까운 점을 본다 */
+        const dx = p.x - z.center.x, dz = p.z - z.center.z, d = Math.hypot(dx, dz) || 1;
+        tx = z.center.x + (dx / d) * z.radius; tz = z.center.z + (dz / d) * z.radius;
+      }
+      const dx = tx - p.x, dz = tz - p.z, d = Math.hypot(dx, dz) || 1;
+      /* 플레이어에서 그쪽으로 조금 물러선 자리에 카메라를 두고 수평으로 본다 */
+      const cx = p.x - (dx / d) * 9, cz = p.z - (dz / d) * 9;
+      const cy = ctx.world.getHeightAt(cx, cz) + 13;
+      const ty = ctx.world.getHeightAt(p.x, p.z) + 9;
+      if (![cx, cy, cz, tx, ty, tz].every(Number.isFinite)) return;
+      ctx.player.setCameraOverride(V(cx, cy, cz), V(p.x + (dx / d) * 40, ty, p.z + (dz / d) * 40), true);
+    });
+    await sleep(1000);
+  };
+
+  const HZ_SEEDS = [20260908, 771, 4242, 9001, 313, 5150, 8080, 1234, 60607];
+  await step('hazard-sandstorm', async () => { await hazardShot('sandstorm', 'amber', HZ_SEEDS, 0.45); });
+  await step('hazard-blizzard', async () => { await hazardShot('blizzard', 'tundra', HZ_SEEDS, 0.45); });
+  await step('hazard-stormeye', async () => { await hazardShot('storm_eye', 'tundra', HZ_SEEDS, 0.78); });
+  await step('hazard-spores', async () => { await hazardShot('spores', 'mossy', HZ_SEEDS, 0.5); });
+
+  /* ── 전장의 안개 · 지도 ────────────────────────────────────────────────── */
+  const openMap = (on) => P((o) => {
+    const m = window.__game.getSystem('hud')?.map;
+    if (!m) throw new Error('no map screen');
+    if (o && !m.isOpen) m.open(); else if (!o && m.isOpen) m.close();
+  }, on);
+
+  await step('fog-map-early', async () => {
+    await startRaid('mossy', 4242);
+    await P(() => { window.__game.ctx.player.setCameraOverride(null); });
+    await openMap(true);
+    await sleep(1100);
+  });
+
+  await step('fog-map-late', async () => {
+    /* 분대 넷이 흩어져 돌아다닌 뒤의 모양 — 흩어진 지점 여럿을 직접 칠한다 */
+    await P(() => {
+      const ctx = window.__game.ctx, V = window.__V;
+      const fog = ctx.world.fog, p = ctx.player.position;
+      /* `reveal` 은 (x, z, radius) 를 받는다 — Vector3 가 아니다 */
+      const walk = (x0, z0, x1, z1) => {           /* 두 점 사이를 걸어간 것처럼 칠한다 */
+        for (let t = 0; t <= 1; t += 0.06) fog.reveal(x0 + (x1 - x0) * t, z0 + (z1 - z0) * t, 55);
+      };
+      const legs = [[0, 0, 150, 70], [0, 0, -130, 120], [0, 0, 95, -160], [0, 0, -70, -100]];
+      for (const [ax, az, bx, bz] of legs) walk(p.x + ax, p.z + az, p.x + bx, p.z + bz);
+      /* 분대원 넷이 끝에서 더 흩어진 모양 */
+      for (const [dx, dz] of [[210, 40], [-190, 170], [140, -230], [-110, -160]]) fog.reveal(p.x + dx, p.z + dz, 55);
+    });
+    await sleep(1000);
+  });
+
+  /* 지도를 닫아 둔다 — 뒤에 단계를 더 붙일 때 지도가 덮고 있으면 안 된다 */
+  await openMap(false);
 
 } finally {
   await browser.close();

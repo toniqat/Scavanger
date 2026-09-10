@@ -1327,3 +1327,101 @@ export interface RemotePlayerRef {
   /** `PlayerSnapshot.shm` — 이 peer 의 실드 최대치. */
   readonly maxShield?: number;
 }
+
+/* ══ appended (2026-09-10): 서버 주소 — 배포용 릴레이에 붙는 길 ════════════════════════════════════════════
+ * 릴레이는 이제 저장소 없이도 켤 수 있는 **단독 exe**(`server/tool.ts` → `npm run server:dist`)로 배포되고,
+ * 클라이언트는 그 주소를 **네 곳**에서 얻는다. 위에서부터 먼저 이긴다:
+ *
+ *   ① 게임 안 `설정 › 서버 설정` 에 적은 주소  (localStorage `RELAY_STORAGE_KEY`, 캐릭터 슬롯 공용)
+ *   ② `SCAVANGER.exe --relay=<url>` / `SCAV_RELAY`
+ *   ③ exe 옆 `relay.txt` 첫 줄
+ *   ④ 아무것도 없음 → 같은 오리진의 `/ws` (vite 프록시 · 데스크톱 앱의 임베디드 릴레이)
+ *
+ * ②③④ 는 셸(`electron/main.ts`)이 고르고 렌더러에는 **같은 오리진 `/ws`** 로만 보인다 — 그래서 ① 만
+ * `defaultUrl()` 안에서 갈라지면 된다. 브라우저에서도 ① 은 그대로 동작한다.
+ * ──────────────────────────────────────────────────────────────────────────────────────────────────────── */
+
+/** 사용자가 적어 둔 릴레이 주소 (`scav.relay`). **슬롯 공용 키**다 — `saveSlot.SHARED_KEYS` 참고. */
+export const RELAY_STORAGE_KEY = 'scav.relay';
+
+/**
+ * 사람이 적은 주소 한 줄 → 완전한 ws URL. `ws://host:port/ws` 는 그대로, `host:port` 와 맨 `host` 는
+ * 포트(`NET_DEFAULT_PORT`)와 경로(`NET_WS_PATH`)를 채운다. 형식이 아니면 `null`.
+ *
+ * `electron/main.ts`(프록시 목적지) · `ui/menus/SettingsMenu`(입력 검사) · `net/parts/Socket`(접속)이 **같은**
+ * 함수를 쓴다 — 셋이 각자 정규화하면 설정에서 초록불이 뜬 주소로 앱이 다른 데 붙는다.
+ */
+export function relayUrlFrom(raw: string): string | null {
+  const text = raw.trim();
+  if (!text) return null;
+  let url: URL;
+  try {
+    url = new URL(/^wss?:\/\//i.test(text) ? text : `ws://${text}`);
+  } catch {
+    return null;
+  }
+  if (!url.hostname) return null;
+  if (!url.port) url.port = String(NET_DEFAULT_PORT);
+  if (!url.pathname || url.pathname === '/') url.pathname = NET_WS_PATH;
+  url.search = '';
+  url.hash = '';
+  return url.href;
+}
+
+/** `probeRelay` 결과. `ms` 는 소켓 open 부터 `welcome` 까지. */
+export interface RelayProbe {
+  ok: boolean;
+  /** 실제로 두드린 주소 (정규화 뒤). 주소가 틀렸으면 빈 문자열. */
+  url: string;
+  /** 왕복 시간 ms (실패면 0). */
+  ms: number;
+  /** 한국어 실패 사유 (성공이면 없음). */
+  error?: string;
+}
+
+/**
+ * 한 대의 컴퓨터에서 밖으로 보이는 IPv4 후보를 **쓸 만한 순서로** 정렬한다. 개발 PC 는 Hyper-V · WSL · VPN
+ * 스위치까지 여러 개를 갖고 `ipconfig` 순서는 쓸모가 없으므로, 가상 어댑터를 뒤로 밀고 실제 사설망 범위를
+ * 앞으로 당긴다. `scripts/lan-address.mjs`(배너)와 `server/tool.ts`(배포 서버의 첫 줄)가 같은 답을 내야 해서
+ * 여기 있다. `networkInterfaces()` 의 결과를 그대로 넘긴다 — `shared/` 는 node 를 import 하지 않는다.
+ */
+export function lanAddresses(
+  interfaces: Record<string, readonly { address: string; family: string | number; internal: boolean }[] | undefined>,
+): { name: string; address: string }[] {
+  const VIRTUAL = /vEthernet|VMware|VirtualBox|Hyper-V|WSL|Loopback|TAP|Tailscale|ZeroTier|Bluetooth|Npcap/i;
+  const score = (name: string, address: string): number => {
+    let s = VIRTUAL.test(name) ? 0 : 100;
+    if (address.startsWith('192.168.')) s += 30;
+    else if (/^172\.(1[6-9]|2\d|3[01])\./.test(address)) s += 20;
+    else if (address.startsWith('10.')) s += 10;
+    else if (address.startsWith('169.254.')) s -= 50;        // APIPA: DHCP 가 응답하지 않았다
+    else if (address.startsWith('100.')) s += 5;             // CGNAT 범위, Tailscale 도 여기다
+    return s;
+  };
+  return Object.entries(interfaces)
+    .flatMap(([name, addrs]) => (addrs ?? []).map((a) => ({ name, ...a })))
+    .filter((a) => (a.family === 'IPv4' || a.family === 4) && !a.internal)
+    .map((a) => ({ name: a.name, address: a.address, score: score(a.name, a.address) }))
+    .sort((a, b) => b.score - a.score || a.address.localeCompare(b.address))
+    .map(({ name, address }) => ({ name, address }));
+}
+
+export interface NetRef {
+  /* ── appended (2026-09-10): 서버 주소 ── */
+  /** 지금 접속에 쓰는(또는 쓸) 릴레이 주소. */
+  readonly relayUrl: string;
+  /** 설정에 적어 둔 주소 그대로 (없으면 빈 문자열 = 배포 기본값을 쓴다). */
+  readonly relayOverride: string;
+  /**
+   * 설정의 주소를 바꾼다. 빈 문자열 = 기본값으로 되돌린다. 형식이 아니면 `false` 를 돌려주고 아무것도
+   * 저장하지 않는다. **저장만 한다** — 실제로 옮겨 붙는 것은 `reconnectRelay()` 다.
+   */
+  setRelayOverride(raw: string): boolean;
+  /**
+   * 주소 하나를 **익명으로** 두드려 본다 (토큰을 보내지 않는다 — 보내면 서버가 같은 세션의 중복 접속으로
+   * 보고 살아 있는 내 소켓을 끊는다). 살아 있는 연결 · 로비를 건드리지 않는다. 인자가 없으면 지금 설정값.
+   */
+  probeRelay(raw?: string): Promise<RelayProbe>;
+  /** 저장된 주소로 다시 붙는다. 로비에 있었다면 떠난다. 성공 여부를 돌려준다. */
+  reconnectRelay(): Promise<boolean>;
+}

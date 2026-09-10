@@ -4,7 +4,7 @@ import type {
   NetRef, NetStatus, PeerId, PingKind, RelayTarget, RemotePlayerRef, ServerToClient, Vec3Tuple,
 } from '@/shared';
 import type { ClientToServer, MissionMode, ProfileRef, RaidSessionBlob } from '@/shared';
-import type { PlanetId, SocialRef } from '@/shared';
+import type { PlanetId, RelayProbe, SocialRef } from '@/shared';
 /* appended (2026-09-08): 공용 함선 격납고 */
 import type { ShipVisitWire } from '@/shared';
 import { isPlanetId } from '@/shared';
@@ -281,6 +281,17 @@ export class NetSystem implements GameSystem, NetRef {
   }
 
   defaultUrl(): string { return Sock.defaultUrl(this); }
+
+  /* ── 서버 주소 (2026-09-10) ─────────────────────────────────────────── */
+  get relayUrl(): string { return Sock.defaultUrl(this); }
+
+  get relayOverride(): string { return Sock.relayOverride(); }
+
+  setRelayOverride(raw: string): boolean { return Sock.setRelayOverride(this, raw); }
+
+  probeRelay(raw?: string): Promise<RelayProbe> { return Sock.probeRelay(this, raw); }
+
+  reconnectRelay(): Promise<boolean> { return Sock.reconnectRelay(this); }
 
   /** Append `?t=<token>&n=<name>` (NET_TOKEN_PARAM / NET_NAME_PARAM) to a relay URL. */
   withSession(url: string): string { return Sock.withSession(this, url); }

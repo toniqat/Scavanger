@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>숙련도 — PROJECT SCAVANGER</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-page="p-skills">
+<div class="shell">
+
+<aside class="side">
+  <div class="brand">
+    <a href="00-intro.html"><h1>PROJECT <em>SCAVANGER</em></h1></a>
+    <p>PITCH DOCUMENT · v0.1</p>
+  </div>
+  <nav class="tree" id="tree"></nav>
+</aside>
+
+<main class="main" id="main">
+
+<article id="p-skills">
+  <div class="crumb">캐릭터 / 숙련도</div>
+  <h1>숙련도 (스킬)</h1>
+  <p class="lede">특정 행동을 할 때마다 상승하는 성장 요소. <br>저격소총으로 맞히면 <strong>저격 숙련</strong>이, 상자를 뒤지면 <strong>감정</strong>이, 약초를 캐면 <strong>원예</strong>가 상승. <br>스킬 레벨에 따라 해당 행동에 대한 추가 보너스를 획득.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th style="width:20%">숙련도</th><th style="width:14%">연관 스탯</th><th style="width:30%">오르는 조건</th><th>효과</th></tr></thead>
+    <tbody>
+      <tr><td class="k">운반</td><td>근력</td><td>무거운 짐을 지고 이동</td><td>「조금 무거움」의 스태미나 손해 감소</td></tr>
+      <tr><td class="k">감정</td><td>인지력</td><td>상자를 뒤짐</td><td>아이템 서치 속도 ↑</td></tr>
+      <tr><td class="k">인내</td><td>지구력</td><td>치명상을 버텨냄</td><td>치명타를 체력 1로 버틸 확률 ↑</td></tr>
+      <tr><td class="k">원예</td><td>재주 · 지능</td><td>약초 채집</td><td>채집 수확량 ↑ · <a class="wl" href="20-facility.html">온실</a> 재배 속도 ↑</td></tr>
+      <tr><td class="k">제작</td><td>재주 · 지능</td><td>현장 제작 완료</td><td>제작 속도 ↑</td></tr>
+      <tr><td class="k">의학</td><td>지능</td><td>치료 물자 조제</td><td>회복 아이템 효과 ↑</td></tr>
+      <tr><td class="k">암호학</td><td>지능</td><td>탈출 콘솔 해킹</td><td><a class="wl" href="17-extraction.html">탈출선 호출</a>이 빨라짐 (카운트다운 단축)</td></tr>
+      <tr><td class="k">전술 임플란트</td><td>지능</td><td><a class="wl" href="05-tactical.html">임플란트</a> 사용</td><td>재사용 대기시간 ↓</td></tr>
+      <tr><td class="k">장비 관리</td><td>재주</td><td>장비 수리</td><td>내구도 소모 ↓</td></tr>
+      <tr><td class="k">사격 · 돌격소총</td><td>인지력</td><td>AR 명중</td><td rowspan="5" style="vertical-align:middle">해당 계열 <b>반동 ↓ · 재장전 속도 ↑</b><br><span style="color:var(--tx3);font-size:12px">한 발의 가치는 계열별로 다르다 — 저격 &gt; 산탄 &gt; 지정사수 &gt; 돌격 &gt; 기관단총</span></td></tr>
+      <tr><td class="k">사격 · 기관단총</td><td>인지력</td><td>SMG · 권총 명중</td></tr>
+      <tr><td class="k">사격 · 저격소총</td><td>인지력</td><td>SR 명중</td></tr>
+      <tr><td class="k">사격 · 지정사수소총</td><td>인지력</td><td>DMR 명중</td></tr>
+      <tr><td class="k">사격 · 산탄총</td><td>인지력</td><td>SG 명중</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2 id="s-book"><span class="hn">2.3</span>책과 서재</h2>
+    <figure class="shot" data-src="../assets/library-shelf.png">
+    <div class="ph"><span class="tag">스크린샷</span><span class="ttl">서재 — 책장에 책 꽂기</span>
+    <span class="desc">책장 앞 상호작용 UI. 슬롯 6칸 · 꽂힌 책이 올려주는 숙련도 표시 · 도감 탭.</span>
+    <span class="meta">권장 1600×900 · assets/library-shelf.png</span></div>
+  </figure>
+  <p>레이드에서 <b>서적</b> 아이템 획득 가능. <br>함선 <a class="wl" href="20-facility.html">서재</a>의 책장에 꽂으면, 그 책이 가르치는 숙련도의 <strong>상승량이 영구적으로 늘어난다</strong>. 한 번 꽂은 책은 도감에 남는다.</p>
+
+  <div class="nextnav">
+    <a href="02-stats.html"><span>이전</span>← 스탯</a>
+    <a class="n" href="04-implant-item.html"><span>다음</span>임플란트 →</a>
+  </div>
+</article>
+
+</main>
+
+<aside class="toc">
+  <h4>이 페이지</h4>
+  <div id="toc"></div>
+</aside>
+</div>
+
+<script src="../app.js"></script>
+</body>
+</html>

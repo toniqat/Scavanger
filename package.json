@@ -9,7 +9,11 @@
     "build": "tsc --noEmit && vite build",
     "app": "electron .",
     "app:build": "npm run build && node electron/build.mjs",
-    "app:dist": "npm run app:build && electron-builder --win portable",
+    "app:pack": "npm run app:build && electron-builder --win dir",
+    "app:dist": "npm run icon && npm run app:pack && node scripts/pack-release.mjs",
+    "server:dist": "node scripts/build-server.mjs",
+    "server:bundle": "node scripts/build-server.mjs --bundle-only",
+    "icon": "node scripts/make-icon.mjs",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview --port 5274",
     "server": "node --experimental-strip-types --disable-warning=ExperimentalWarning server/index.ts",
@@ -35,6 +39,7 @@
     "@types/ws": "^8.18.1",
     "electron": "^44.2.0",
     "electron-builder": "^26.15.3",
+    "postject": "^1.0.0-alpha.6",
     "puppeteer-core": "^25.10.0",
     "typescript": "^7.0.2",
     "vite": "^8.2.2"
@@ -54,25 +59,17 @@
       "!node_modules/**/*",
       "node_modules/ws/**/*"
     ],
-    "extraFiles": [
-      {
-        "from": "electron/default-relay.txt",
-        "to": "relay.txt"
-      }
-    ],
     "asar": true,
     "win": {
+      "icon": "electron/resources/icon.ico",
       "target": [
         {
-          "target": "portable",
+          "target": "dir",
           "arch": [
             "x64"
           ]
         }
       ]
-    },
-    "portable": {
-      "artifactName": "SCAVANGER-${version}-portable.exe"
     }
   }
 }

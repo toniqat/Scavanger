@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>분대 커뮤니케이션 — PROJECT SCAVANGER</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-page="p-comms">
+<div class="shell">
+
+<aside class="side">
+  <div class="brand">
+    <a href="00-intro.html"><h1>PROJECT <em>SCAVANGER</em></h1></a>
+    <p>PITCH DOCUMENT · v0.1</p>
+  </div>
+  <nav class="tree" id="tree"></nav>
+</aside>
+
+<main class="main" id="main">
+
+<article id="p-comms">
+  <div class="crumb">레이드 / 분대</div>
+  <h1>분대 커뮤니케이션 <span class="badge ok">구현</span></h1>
+
+  <div class="shotrow">
+    <figure class="shot" data-src="../assets/ping-wheel.png">
+      <div class="ph"><span class="tag">스크린샷</span><span class="ttl">핑 휠</span>
+      <span class="desc">휠클릭을 꾹 — 좌 「여기 조심해」 · 우 「저쪽으로 가자」</span>
+      <span class="meta">assets/ping-wheel.png</span></div>
+    </figure>
+    <figure class="shot" data-src="../assets/comms-wheel.png">
+      <div class="ph"><span class="tag">스크린샷</span><span class="ttl">의사소통 휠</span>
+      <span class="desc">H 를 꾹 — 4칸, 쓰러지면 2칸으로 바뀐다</span>
+      <span class="meta">assets/comms-wheel.png</span></div>
+    </figure>
+  </div>
+
+  <p class="lede"><strong>보이스 채팅이 없어도 협동이 되는 것</strong>이 목표다. 모르는 사람 넷이 매칭되는 게임에서 마이크를 전제하면 대부분의 판은 말없이 흩어진다 — 그래서 <b>키 하나로 끝나는 소통</b>을 조작 규약으로 못 박았다.</p>
+
+  <h2 id="s-ping"><span class="hn">4.2</span>핑 — 장소를 가리킨다</h2>
+
+  <p>휠클릭을 꾹 누르면 보이는 <b>2칸 휠</b>이 뜬다. 미는 방향이 곧 뜻이다.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th style="width:20%">상태</th><th style="width:26%">← 왼쪽</th><th>오른쪽 →</th></tr></thead>
+    <tbody>
+      <tr><td class="k">서 있을 때</td><td><b>여기 조심해</b></td><td><b>저쪽으로 가자</b></td></tr>
+      <tr><td class="k">전투불능</td><td><b>살려줘</b></td><td><b>나를 버려</b></td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="cards">
+    <div class="card"><h5>관대하게 잡는다</h5><p>조준점 <b>56 px</b> 안에 있으면 분대 핑 → 적 → 아이템 → 상자 → 패드 순으로 알아서 집는다. 정확히 겨눌 필요가 없다.</p></div>
+    <div class="card"><h5>플레이어별 3개</h5><p>상한이 <b>사람마다</b> 3개다. 한 명이 도배해도 다른 사람의 핑이 밀려나지 않는다.</p></div>
+    <div class="card"><h5>확인 핑</h5><p>분대원의 핑을 다시 찍으면 새 핑 대신 <b>「알겠다」</b>가 나간다 — 그 핑 둘레에 확인한 사람의 <b>분대 색 원</b>이 겹친다. 말 없이 대답이 된다.</p></div>
+    <div class="card"><h5>화면 밖에도 남는다</h5><p>시야를 벗어난 핑은 <b>화면 가장자리 화살표</b>로 방향을 가리키고, 핑이 살아 있는 내내 유지된다.</p></div>
+    <div class="card"><h5>모든 핑이 한 줄</h5><p>핑은 반드시 <b>채팅 한 줄</b>을 남긴다 — <code>핑 (32 m)</code> · <code>적 발견</code> · <code>&lt;아이템&gt; 여기 있음</code>. 놓쳐도 로그에 남는다.</p></div>
+    <div class="card"><h5>함선 안에서도</h5><p>레이드 전 <a class="wl" href="21-hangar.html">공유 함선</a>에서도 찍힌다 — 작업대 · 터미널을 가리키며 준비를 맞춘다.</p></div>
+  </div>
+
+  <h2 id="s-wheel"><span class="hn">4.3</span>의사소통 휠 — 의사를 말한다</h2>
+
+  <p>핑이 <b>장소</b>라면 <span class="key">H</span> 휠은 <b>의사</b>다. 꾹 누르면 방사형 휠이 열리고, 방향을 골라 놓으면 한 마디가 나간다.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th style="width:20%">상태</th><th>칸</th></tr></thead>
+    <tbody>
+      <tr><td class="k">서 있을 때</td><td><b>회복 필요</b> · <b>탈출</b> · <b>내 계약</b> · <b>앞장서라</b></td></tr>
+      <tr><td class="k">전투불능</td><td><b>살려줘</b> · <b>나를 버려</b></td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="note"><b>「내 계약」이 특별한 이유.</b> 이 한 칸은 정해진 문구가 아니라 <a class="wl" href="24-rep.html">지금 내가 들고 있는 계약</a>의 이름과 남은 건수를 읽어 온다 — <code>「부품 회수」 3/5 남았다</code>. 넷이 각자 다른 계약을 들고 온 분대에서, <b>어디로 가야 하는지를 한 번에 맞춘다</b>.</div>
+
+  <div class="cards">
+    <div class="card"><h5>쓰러지면 휠이 바뀐다</h5><p>휠을 <b>연 채로</b> 쓰러져도 그 자리에서 배치가 바뀐다. 반대로 지역 핑은 <b>누른 순간에 고정</b>되어, 드래그 도중 되살아나도 뜻이 뒤집히지 않는다.</p></div>
+    <div class="card"><h5>톡 누르면 아무 일도 없다</h5><p>실수로 스쳐 눌러 「살려줘」가 나가지 않는다. 반드시 <b>꾹 누르고 방향을 밀어야</b> 한다.</p></div>
+    <div class="card"><h5>화면을 가리지 않는다</h5><p>휠은 커서를 풀지도, 조작을 막지도 않는다. 여는 동안에도 계속 움직이고 쏜다.</p></div>
+  </div>
+
+  <h2 id="s-chat"><span class="hn">4.4</span>채팅</h2>
+  <p>타이핑을 택한 사람을 위한 배려도 넣었다. <span class="key">Enter</span>는 <b>보내고 입력창을 그대로 둔다</b>(연달아 칠 수 있다). 한글 <b>IME 조합 중</b>에 눌러도 마지막 음절이 씹히지 않는다. 그리고 입력 중인 사람의 머리 위에는 원격 분대원에게 <b><span style="color:var(--am)">…</span> 말풍선</b>이 뜬다 — <b>「지금 뭔가 치고 있으니 기다려」</b>가 보인다.</p>
+
+  <div class="note am"><b>설계 원칙.</b> 소통 수단을 늘리지 않고 <b>같은 키에 상황을 얹었다</b>. 쓰러지면 핑도 휠도 저절로 「살려줘 / 나를 버려」가 된다 — 급할 때 새로 외울 것이 없다는 뜻이다. <a class="wl" href="30-controls.html">조작</a>의 「톡 / 꾹」 규약이 여기서도 그대로 쓰인다.</div>
+
+  <div class="nextnav">
+    <a href="09-raid-flow.html"><span>이전</span>← 레이드 흐름</a>
+    <a class="n" href="11-planets.html"><span>다음</span>행성 →</a>
+  </div>
+</article>
+
+</main>
+
+<aside class="toc">
+  <h4>이 페이지</h4>
+  <div id="toc"></div>
+</aside>
+</div>
+
+<script src="../app.js"></script>
+</body>
+</html>

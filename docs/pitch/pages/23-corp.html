@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>기업 · 인물 — PROJECT SCAVANGER</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body data-page="p-corp">
+<div class="shell">
+
+<aside class="side">
+  <div class="brand">
+    <a href="00-intro.html"><h1>PROJECT <em>SCAVANGER</em></h1></a>
+    <p>PITCH DOCUMENT · v0.1</p>
+  </div>
+  <nav class="tree" id="tree"></nav>
+</aside>
+
+<main class="main" id="main">
+
+<article id="p-corp">
+  <div class="crumb">기업 / 목록</div>
+  <h1>기업</h1>
+  <p class="lede">먼 미래, 국가 개념은 사라지고 <strong>범우주적 영향력을 가진 기업들</strong>이 남았다. 플레이어는 이들과 계약을 맺고 레이드를 뛰며, 이들이 상점이자 퀘스트 제공자이자 세계관 화자다.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th style="width:17%">기업</th><th style="width:16%">슬로건</th><th>취급 품목</th><th style="width:16%">계약 유형</th></tr></thead>
+    <tbody>
+      <tr>
+        <td class="k" style="color:#ff8a5c">헬릭스 방산</td><td>수량이 곧 화력.</td>
+        <td>돌격소총 · 기관단총 · 권총, 경량탄 · 준중량탄을 <b>대량으로</b> 취급하는 군수 기업.</td>
+        <td>터미니드 소탕<br>화력 시연</td>
+      </tr>
+      <tr>
+        <td class="k" style="color:#7fb4ff">바스티온 중공업</td><td>한 발의 무게.</td>
+        <td>저격소총 · 지정사수소총 · 산탄총, 중량탄 · 산탄. 신뢰도 2부터 방탄복.</td>
+        <td>로그(약탈자) 제거</td>
+      </tr>
+      <tr>
+        <td class="k" style="color:#d9b96a">노마드 장비</td><td>짊어진 만큼 살아 돌아온다.</td>
+        <td>가방과 방탄복 전문 원정 장비 상사. <b>전술 가방</b>은 신뢰도 3부터.</td>
+        <td>전리품 회수<br>보급 조사</td>
+      </tr>
+      <tr>
+        <td class="k" style="color:#6ee7a8">세레스 바이오</td><td>몸이 먼저다.</td>
+        <td>회복 소모품 · 수류탄 · <a class="wl" href="07-gadget.html">가젯</a> · <a class="wl" href="04-implant-item.html">임플란트</a>. 부착물과 서적은 신뢰도 2부터. <b>망가진 임플란트 수리 데스크</b>가 여기 있다.</td>
+        <td>검체 채취<br>(시체 수색)</td>
+      </tr>
+    </tbody>
+  </table></div>
+
+  <div class="note"><b>기업이 곧 빌드 방향이다.</b> 저격수를 하고 싶으면 바스티온 신뢰도를, 짐꾼 빌드를 하고 싶으면 노마드를, 육성 속도를 원하면 세레스를 올려야 한다. 신뢰도를 어디에 쓸지가 초반 100시간의 계획이 된다.</div>
+
+  <h2 id="s-people"><span class="hn">6.1</span>인물 <span class="badge plan">기획</span></h2>
+  <p>기업 신뢰도가 오르면 <b>기업 소속 인물</b>, 또는 <b>그 기업에 반대하는 인물</b>이 메신저로 접근한다. <strong>컷씬 없이 대화와 퀘스트만으로</strong> 세계관을 설명하고 단기 목표를 준다.</p>
+  <p style="font-size:13px;color:var(--tx3)">▸ 썸네일에 마우스를 올리면 상세가 뜬다. 초상은 <code>assets/npc-*.png</code> 를 넣으면 자동으로 교체된다.</p>
+
+  <div class="people">
+    <div class="person" data-src="../assets/npc-varga.png">
+      <div class="av">VA</div><div class="nm">바르가</div><div class="rl">헬릭스 · 조달관</div>
+      <div class="tip"><b>바르가</b><span class="aff" style="color:#ff8a5c">헬릭스 방산 · 전선 조달관</span>말이 짧고 숫자만 본다. 소탕 계약을 던지고 결과만 확인한다. 신뢰도가 오르면 시제 총기를 먼저 만져 보게 해 준다.</div>
+    </div>
+    <div class="person" data-src="../assets/npc-kestrel.png">
+      <div class="av">KE</div><div class="nm">케스트럴</div><div class="rl">바스티온 · 사격 교관</div>
+      <div class="tip"><b>케스트럴</b><span class="aff" style="color:#7fb4ff">바스티온 중공업 · 퇴역 저격수</span>로그 무리를 개인적인 원한으로 쫓는다. 그의 의뢰는 대부분 "누구를 죽여 달라"이고, 보상은 좋은 총이다.</div>
+    </div>
+    <div class="person" data-src="../assets/npc-doss.png">
+      <div class="av">DO</div><div class="nm">도스</div><div class="rl">노마드 · 중개상</div>
+      <div class="tip"><b>도스</b><span class="aff" style="color:#d9b96a">노마드 장비 · 중개상</span>물건이 어디 있는지 다 안다. 회수 계약과 <a class="wl" href="27-auction.html">창고 경매</a> 정보를 흘려 준다. 정보값은 따로 받는다.</div>
+    </div>
+    <div class="person" data-src="../assets/npc-ceres-dr.png">
+      <div class="av">RE</div><div class="nm">렌</div><div class="rl">세레스 · 연구원</div>
+      <div class="tip"><b>렌</b><span class="aff" style="color:#6ee7a8">세레스 바이오 · 임플란트 연구원</span>망가진 임플란트를 고쳐 주고, 시험 삼아 새 물건을 몸에 넣어 보라고 권한다. 임상 데이터를 원한다.</div>
+    </div>
+    <div class="person" data-src="../assets/npc-informant.png">
+      <div class="av">?</div><div class="nm">이름 없음</div><div class="rl">반(反) 세레스</div>
+      <div class="tip"><b>이름 없음</b><span class="aff" style="color:var(--rd)">소속 불명 · 내부 고발자</span>세레스 신뢰도가 높아지면 접근해 온다. 스파이 행위를 요구하고, 그 대가로 <a class="wl" href="18-dungeon.html">연구소 던전</a>의 위치를 준다. 응하면 세레스 신뢰도가 깎인다.</div>
+    </div>
+  </div>
+
+  <div class="note am"><b>배신의 선택지.</b> 신뢰도가 높아질수록 <b>그 기업을 배신할 기회</b>가 생긴다. 반대 세력의 제안을 받아들이면 새로운 던전과 보상이 열리지만, 쌓아 온 신뢰도는 깎인다. 한 캐릭터가 모든 기업의 최고 등급을 동시에 갖기 어렵게 만드는 장치다.</div>
+
+  <div class="nextnav">
+    <a href="22-guild.html"><span>이전</span>← 길드 함선</a>
+    <a class="n" href="24-rep.html"><span>다음</span>신뢰도 · 계약 →</a>
+  </div>
+</article>
+
+</main>
+
+<aside class="toc">
+  <h4>이 페이지</h4>
+  <div id="toc"></div>
+</aside>
+</div>
+
+<script src="../app.js"></script>
+</body>
+</html>
