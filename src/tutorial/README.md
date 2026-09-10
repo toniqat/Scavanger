@@ -15,7 +15,7 @@
 | 파일 | 역할 |
 |---|---|
 | `TutorialSystem.ts` | `GameSystem` + `TutorialRef`. 단계 기계 · 이벤트 구독 · localStorage 저장 · 재료 지급 · dev 콘솔 `tutorial` 명령. `ctx.tutorial` 을 게시한다. |
-| `model.ts` | 폴더 공용 어휘 — 저장 키 · blocker 토큰 · 튜토리얼이 만들게 하는 id들(`furn_bench_gun` · `make_wpn_ar` · `bulk_ammo_medium`) · 지급 재료 표 · 안내선 수치 · `StepDef` 타입. 상태 없음. |
+| `model.ts` | 폴더 공용 어휘 — 저장 키 · blocker 토큰 · 튜토리얼이 만들게 하는 id들(`furn_bench_gun` · `make_wpn_ar` · `make_ammo_medium`) · 지급 재료 표 · 안내선 수치 · `StepDef` 타입. 상태 없음. |
 | `Steps.ts` | **단계 표** — 각 단계의 제목 · 부제 · `allow`(허용 게이트) · 스포트라이트 선택자 · 안내선 목표. 진행 조건은 여기 없다 (아래 참고). |
 | `parts/Gates.ts` | 게이트 판정 순수 함수. `allow` 에 없는 게이트는 전부 막고, 배열이면 그 id 만 허용한다. `hides(gate, id?)` 도 여기 — **막히는 것은 곧 감추는 것**이다. |
 | `parts/Guide.ts` | **바닥 안내선** — 흐르는 점선 띠(셰이더) + 목표 빛기둥 + 링. `Interactable.id` 하나로 목표를 잡는다. |
@@ -45,7 +45,7 @@
 | 6 | `benchPlace` | 가구 창고 → 작업실에 **배치** (카드의 `배치` 버튼 또는 바닥 클릭) | `housing:furniturePlaced {defId:'furn_bench_gun'}` |
 | 7 | `manageDone` | 함선 관리 닫기 | `housing:shipManageChanged {active:false}` |
 | 8 | `craftGun` | 작업대에서 돌격소총 | `craft:completed {recipeId:'make_wpn_ar'}` |
-| 9 | `craftAmmo` | **같은 창에서** 준중량탄 | `craft:completed {recipeId:'bulk_ammo_medium'}` |
+| 9 | `craftAmmo` | **같은 창에서** 준중량탄 | `craft:completed {recipeId:'make_ammo_medium'}` |
 | 10 | `openBag` | 제작 창 닫기 (장비 칸이 돌아온다) | `ui:craftToggled {open:false}` · 또는 제작 열 없이 `inventory:opened` |
 | 11 | `equipGun` | **주무기 I 또는 II** 칸에 장착 | `loadout:changed` + `primary`/`primary2` 가 `wpn_ar` |
 | 12 | `stowAmmo` | 탄약을 가방에 | `inventory:changed` + 가방에 `ammo_medium` |
@@ -160,16 +160,19 @@
    레시피(`ctx.loot`)에서 읽으므로 코드에 숫자가 없고, 보유는 `canCraft` 와 같은 자리(가방)를 본다. 가방부터
    넣고 자리가 없으면 함선 창고로 (`tryAddItemAnywhere`). 모자란 것이 없으면 아무 일도 없고 토스트도 뜨지 않는다.
 
-②가 생긴 이유는 명확하다: 소총이 폐금속 6 을 먹고 나면 준중량탄의 폐금속 5 가 모자라서 **11단계에서 제작
-자체가 불가능**했다 (2026-09-09 사용자 보고). 고정 표를 키우는 대신 부족분만 채우는 쪽을 골랐다 — 레시피 수치를
-csv 에서 바꿔도 안내가 계속 성립한다.
+②가 생긴 이유는 명확하다: 소총이 폐금속을 먹고 나면 준중량탄의 폐금속이 모자라서 **제작 자체가 불가능**했다
+(2026-09-09 사용자 보고). 고정 표를 키우는 대신 부족분만 채우는 쪽을 골랐다 — 레시피 수치를 csv 에서 바꿔도
+안내가 계속 성립한다. **2026-09-10 제작 대개편이 그 설계를 그대로 증명했다**: 소총이 `폐금속 6 · 합금 1` →
+`폐금속 8` 로, 탄약이 `화약 16 · 폐금속 5`(대량 90발) → `화약 6 · 폐금속 2`(30발) 로 바뀌었는데 `ensureMaterials`
+는 한 글자도 고치지 않았다 — 재료 종류와 수량을 그때그때 `ctx.loot` 의 레시피에서 읽기 때문이다.
+`TUTORIAL_CRAFT_GRANT`(바닥)만 주석의 근거 수치를 새 값으로 고쳤다.
 
 같은 이유로 **총기 작업대 Lv.1 에 `make_wpn_ar`(돌격소총 제작) 레시피를 새로 넣었다** — 그 전에는 작업대
 Lv.1 이 대량 탄약밖에 못 만들어 "작업대로 총을 만든다"는 동작 자체가 없었다 (`src/items/Recipes.ts`).
 
 ## 스모크
 
-`scripts/smoke-tutorial.mjs` (83). **다른 스모크는 전부** `evaluateOnNewDocument` 에서
+`scripts/smoke-tutorial.mjs` (86). **다른 스모크는 전부** `evaluateOnNewDocument` 에서
 `scav.tutorial` 을 `done` 으로 심고 시작한다 — 튜토리얼은 새 프로필에서 자동으로 켜져 그 스크립트들이
 드라이브하는 행동을 순서대로 잠그기 때문이다.
 
@@ -178,6 +181,22 @@ Lv.1 이 대량 탄약밖에 못 만들어 "작업대로 총을 만든다"는 �
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-10 (제작 대개편에 맞춰 탄약 단계 복구)** — 같은 날의 제작 대개편이 `data/recipes.csv` 에서
+  **총탄 대량 제작 4줄**(`bulk_ammo_light` · `_medium` · `_heavy` · `_shell`)을 지웠는데 `TUTORIAL_AMMO_RECIPE` 가
+  `bulk_ammo_medium` 을 가리키고 있었다 — 목록에 없는 레시피라 `craft:completed` 가 영영 오지 않아 **새 캐릭터
+  안내가 9단계(`craftAmmo`)에서 멈췄다.** 그 자리를 잇는 것은 **`make_ammo_medium`**(`화약 6 · 폐금속 2` → 30발)이다:
+  `station: 'field'` · `bench` 없음 이라 ① 현장에서도 되고 ② 작업대 창의 목록이 `bench` 없는 레시피를 전부 싣기
+  때문에(`inventory/parts/Crafting.getRecipes` 의 `if (r.bench === undefined) return true`) **총기 작업대 창에도
+  그대로 뜬다** — "같은 창에서 소총 → 탄약" 흐름이 유지된다. 산출이 90 → 30발로 줄었지만 `stowAmmo` 는
+  "가방에 준중량탄이 **있나**"만 보므로 수량과 무관하다 (스모크가 이제 그것을 직접 못 박는다).
+  `Steps.craftAmmo` 의 선택자는 이제 문자열이 아니라 **`TUTORIAL_AMMO_RECIPE` 에서 만든다** (`craftGun` 도 같이) —
+  같은 id 를 두 곳에 손으로 적어 둔 것이 이번 회귀의 절반이었다. 문구도 `준중량탄 대량 제작` → `준중량탄 제작`.
+  **재료 top-up 은 한 글자도 안 고쳤다** — 재료 종류·수량을 레시피에서 읽는 설계라 새 재료 구성(화약 6 · 폐금속 2)
+  에서 그대로 돈다. 같은 대개편의 나머지(작업대 `refine` 추가 · 새 재료 5종 · `break_*` 의 `data/salvage.csv` 이관 ·
+  실드 충전기의 의학 작업대 이동 · 가젯 레벨 재배치)는 튜토리얼이 참조하지 않는다: 이 폴더가 아는 id 는
+  `furn_bench_gun` · `make_wpn_ar` · `wpn_ar` · `make_ammo_medium` · `ammo_medium` 과 지급 재료 셋뿐이고
+  (`model.ts`), 새 작업대·새 가구·새 레시피는 게이트가 **감추므로**(`hides`) 목록이 늘어도 안내는 그대로다.
 
 - **2026-09-09 (안내 6건)** — 사용자 요청.
   ① **`openCraft` 단계 신설** (17 → 18단계): 장착 다음에 **가방의 `제작` 버튼**을 밝힌다. 그 전에는 제작 행을

@@ -16,14 +16,21 @@ export const TUTORIAL_ROOM_PURPOSE = 'workshop' as const;
 export const TUTORIAL_BENCH_DEF = 'furn_bench_gun';
 export const TUTORIAL_GUN_RECIPE = 'make_wpn_ar';
 export const TUTORIAL_GUN_DEF = 'wpn_ar';
-export const TUTORIAL_AMMO_RECIPE = 'bulk_ammo_medium';
+/*
+ * 2026-09-10 (제작 대개편) — `bulk_ammo_medium`(대량 제작, 화약 16 · 폐금속 5 → 90발)이 `data/recipes.csv` 에서
+ * 사라져 이 단계가 **영영 끝나지 않았다**. 그 자리를 잇는 것은 `make_ammo_medium`(화약 6 · 폐금속 2 → 30발)이다.
+ * `station: 'field'` · `bench` 없음 이라 현장에서도 되고, 작업대 창의 목록은 `bench` 가 없는 레시피를 전부 싣기
+ * 때문에(`inventory/parts/Crafting.getRecipes`) **총기 작업대 창에도 그대로 뜬다** — 튜토리얼의 "같은 창에서" 흐름이
+ * 그대로다. 산출이 90 → 30발로 줄었지만 뒤 단계(`stowAmmo`)는 "가방에 준중량탄이 있나"만 보므로 수량과 무관하다.
+ */
+export const TUTORIAL_AMMO_RECIPE = 'make_ammo_medium';
 export const TUTORIAL_AMMO_DEF = 'ammo_medium';
 
 /**
  * 제작 단계에서 한 번 지급하는 재료의 **바닥**(`craftGun` 에 들어설 때 함선 창고로).
  * 기본 지급품은 발전기 Lv.1 + 작업실 증축 + 작업대 제작으로 폐금속 20 · 케이블 3 · 합금 2 를 쓰도록 맞춰져 있어
- * 작업대를 짓고 나면 아무것도 만들 수 없다. 소총(`폐금속 6 · 합금 1`) + 준중량탄(`화약 16 · 폐금속 5`)에
- * 여유를 더한 양이다.
+ * 작업대를 짓고 나면 아무것도 만들 수 없다. 소총(`폐금속 8`) + 준중량탄(`화약 6 · 폐금속 2`)에 여유를 더한 양이다
+ * (2026-09-10 제작 대개편으로 두 레시피의 재료가 바뀌었다 — 이 표는 늘리지 않는다, 아래 top-up 이 본다).
  *
  * 2026-09-09: 이 표는 바닥일 뿐이고 **실제 필요량은 레시피에서 읽는다** — `TutorialSystem.ensureMaterials(recipeId)`
  * 가 제작 단계(`craftGun` · `craftAmmo`)에 들어설 때마다 재료별 `필요 − 보유` 만큼만 채운다(top-up).

@@ -32,11 +32,12 @@ npm run dev             # csv 를 저장하면 바로 다시 읽는다
 | **상자 루팅** — 티어 규칙 · 카테고리 가중치 · 확정 픽 · 아이템별 배수 | [`loot_tiers.csv`](loot_tiers.csv) · [`loot_category_weights.csv`](loot_category_weights.csv) · [`loot_guaranteed.csv`](loot_guaranteed.csv) · [`loot_item_weights.csv`](loot_item_weights.csv) |
 | **시체 루팅** | [`loot_corpses.csv`](loot_corpses.csv) · [`loot_corpse_rolls.csv`](loot_corpse_rolls.csv) |
 | 제작 레시피 | [`recipes.csv`](recipes.csv) |
+| **분해** — 무엇을 뜯으면 무엇이 나오나 (장비는 여기 없다 — 제작 재료에서 자동으로 만든다) | [`salvage.csv`](salvage.csv) |
 | 능력치 · 숙련도 | [`stats.csv`](stats.csv) · [`skills.csv`](skills.csv) |
 | 기업 · 판매 목록 · 계약 · 퀘스트 | [`corps.csv`](corps.csv) · [`corp_stock.csv`](corp_stock.csv) · [`contracts.csv`](contracts.csv) · [`quests.csv`](quests.csv) |
 | 함선 — 방 용도 증축 · 시설 강화 · 가구 | [`room_purposes.csv`](room_purposes.csv) · [`facility_upgrades.csv`](facility_upgrades.csv) · [`furniture.csv`](furniture.csv) · [`furniture_upgrades.csv`](furniture_upgrades.csv) |
 | 행성 5곳 — 위협 · 생태 · 하늘 | [`planets.csv`](planets.csv) |
-| **행성 진행도별 무기 등급 드롭 곡선** (앞쪽 행성에서 III 이상 봉인) | [`planet_loot.csv`](planet_loot.csv) |
+| **행성 진행도별 드롭 곡선** — ① 총기 등급(앞쪽 행성에서 III 이상 봉인) ② **총기가 아닌 것들의 희귀도 배수** | [`planet_loot.csv`](planet_loot.csv) |
 | **버려진 구조물 · 선로 플랫폼 · 전차** — 개수 · 크기 · 컨테이너 수 · 지하실 확률 · 상자 티어 가중치 | [`structures.csv`](structures.csv) |
 | **환경 재해 4종** — 색 · 입자 밀도 · 벽 높이/두께 (규칙 수치는 `constants.csv`) | [`hazards.csv`](hazards.csv) |
 | 함선 호출 (스트라타젬) — **`cooldown` 은 네 호출이 함께 쓰는 하나의 쿨타임**이다 | [`stratagems.csv`](stratagems.csv) |
@@ -136,6 +137,67 @@ csv 는 Vite 의 `import.meta.glob(..., { query: '?raw', eager: true })` 로 **�
 은 계속 TS 에 있다. `gadgets/GadgetDefs.ts` 와 `implants/ImplantDefs.ts` 의 표도 TS 에 남는데,
 그 설명문이 `constants.csv` 의 상수를 그대로 찍기 때문이다 (csv 로 옮기면 설명문의 숫자가 수치와 따로 논다).
 그 표들의 수치 자체는 전부 `constants.csv` 의 `GADGET_*` / `IMPLANT_*` 다.
+
+### 2026-09-10 — 제작 대개편 (`salvage.csv` 신규 · `recipes.csv` 전면 개편)
+
+**제작 · 분해 · 수리가 하나의 축으로 묶였다.** 어떤 장비의 "값어치" 를 정하는 자리는 이제
+`recipes.csv` 의 그 줄 하나뿐이다 — 수리비도 분해 산출도 거기서 나온다.
+
+- **`items.csv`**: **상위 재료 5종** 신규 (전부 `category: material`, 1×1, 스택 10) —
+  `mat_weave` 강화 직조포(고급, ₩55, 0.35 kg) · `mat_ballistic_fiber` 복합 방탄섬유(희귀, ₩125, 0.95) ·
+  `mat_capacitor` 축전 모듈(희귀, ₩140, 1.1) · `mat_ingot` 강화합금 잉곳(희귀, ₩95, 1.7) ·
+  `mat_control_module` 제어 모듈(서사, ₩380, 1.5). 셋 다 **정제 작업대에서만** 나온다. 기존 줄은 안 건드렸다.
+- **`recipes.csv`**: `group` 열이 사라졌다(분해가 나갔으므로). `bench` 에 **`refine`(정제 작업대)** 이 붙었다.
+  줄 수 48 → **94**. 뺀 것: 총탄 대량 제작 4줄(`bulk_ammo_*`) · 분해 6줄. 더한 것: 정제 7 · 무기 25 ·
+  방탄복 5 · 가방 8 · 부착물 14 · 가젯 12. 옮긴 것: 실드 충전기 3종이 `field` → **의학 작업대 Lv.1/2/3**,
+  지뢰 · 제세동기의 작업대 레벨.
+  ⚠ **내구도가 있는 장비 레시피의 재료는 한 종류당 2 이상**이어야 한다 (1 이면 수리비(올림)가 제작비와
+  같아진다). `src/items/Salvage.ts` 의 `checkSalvageEconomy()` 가 검사한다.
+- **`salvage.csv` (신규)**: `id,inputDefId,qty,outputs,scaleByDurability,duration,skill,skillRequired,description`.
+  **손으로 정한 분해만** 여기 있다 (탄약 4 · 기계 부품 · 고출력 충전기 = 6줄). 무기 25 · 방탄복 5 · 가방 8 의
+  분해는 `recipes.csv` 의 **제작 재료**에서 코드가 만든다 — 그래서 총을 뜯으면 그 등급이 요구한 상위 재료도 나온다.
+  읽는 코드는 `src/items/Salvage.ts` (`scripts/data-check.mjs` 의 `DATA_OWNERS` 에 등록돼 있다).
+- **`tables.csv`**: `REPAIR_COST_BY_DURABILITY`(0.5 / 0.4 / 0.3 / 0.2 / 0.1) · `SALVAGE_YIELD_BY_DURABILITY`
+  (0.08 / 0.16 / 0.24 / 0.32 / 0.40) 신규 — key 0 = 0~20 % … 4 = 81~100 %. **수리는 제작 재료 × 배수(올림),
+  분해는 × 배수(내림)** 이고 둘의 합이 늘 1 보다 작아 무한 이득이 없다. `SALVAGE_CLASS_MUL` 은 삭제
+  (총기 종류별 차이는 이제 레시피에 직접 적혀 있다).
+- **`tuning.csv`**: `WEAPON_SALVAGE_BASE` · `WEAPON_SALVAGE_PER_GRADE` · `ARMOR_SALVAGE_BASE` ·
+  `ARMOR_SALVAGE_PER_TIER` 삭제. 신규 `BAG_SALVAGE_DURATION`(5) · `SALVAGE_MAIN_MIN_YIELD`(1, 주재료 한
+  종류만 0 으로 안 떨어진다) · `UNIQUE_REPAIR_MUL`(1.5, 제작 레시피가 없는 유니크의 수리 기준 = 같은 종류
+  등급 V × 1.5).
+- **`furniture.csv` · `furniture_upgrades.csv`**: `furn_bench_refine` 정제 작업대 (작업실, 4×2,
+  `model=bench_refine`, `interaction=workbench_refine`, 제작 폐금속 10 + 합금 2 + 케이블 2, maxLevel 3) 와
+  그 강화 비용 2줄.
+
+### 2026-09-10 — 로그 강하 경보
+
+- **`constants.csv`**: 새 블록 6줄 (전부 신규, 기존 줄은 손대지 않았다). 강하는 대기를 찢는 굉음이라
+  **평소의 인지력 반경(`DETECT_ENEMY_BASE_RADIUS` 26 m)을 쓰지 않는다** — `ROGUE_DROP_ALERT_RADIUS`(260 m,
+  인지력의 10배) 하나가 소리와 HUD 위험 표시를 함께 게이트한다. 그 대신 **감쇠는 남긴다**:
+  `ROGUE_DROP_ALERT_FALLOFF_EXP`(1.3, 원격 발소리와 같은 곡선) · `ROGUE_DROP_ALARM_VOLUME`(0.95) ·
+  `ROGUE_DROP_FALL_VOLUME`(0.9) · `ROGUE_DROP_MIN_VOLUME`(0.02) · `ROGUE_DROP_FALL_LEAD_S`(4.2 — 착지
+  몇 초 전에 낙하 굉음이 시작되는가). `MAP_SIZE` 가 640 이므로 260 m 는 "맵 반대편까지는 안 들린다" 다.
+
+### 2026-09-10 — `planet_loot.csv` 에 희귀도 배수 3열 (`rareMul` · `epicMul` · `legMul`)
+
+**난이도 1 행성(아켈론 II)에서 희귀 이상이 나올 확률을 절반 수준으로 낮췄다.** `planet_loot.csv` 는 이제 축이
+둘이다 — 기존 `g1..g5` · `uniqueMul` 은 **총기 등급**, 새 `rareMul` · `epicMul` · `legMul` 은 **총기가 아닌
+나머지 전부**(방탄복 · 가방 · 부착물 · 임플란트 · 소모품 · 재료 · 귀중품 …)의 희귀도다. 두 축은 서로 안 움직인다.
+
+- 값: rank 1 = **0.5 / 0.5 / 0.5**, rank 2~5 = 1 / 1 / 1. `uniqueMul` 은 손대지 않았다.
+- 규칙: `loot_tiers.csv` 의 `rare` · `epic` · `legendary` 가중치에 배수를 곱하고, **깎인 총량을
+  `common` · `uncommon` 의 원래 비율 그대로 되돌려** 준다 — 그래서 **가중치 합이 안 바뀐다**
+  (예: 티어 3 `15/30/40/14/1` → `24.17/48.33/20/7/0.5`, 합 100 그대로).
+- 배수가 셋 다 1 이면 코드가 조정 자체를 우회하므로 **rank 2~5 는 예전 결과와 비트 단위로 같다**
+  (상자 · 시체 2만 회 굴림 서명 일치로 확인).
+- ⚠ 배수는 **가중치** 배수라 실제 등장 비율은 등급별 아이템 종 수에 따라 달라진다. 실측(rank 1, 맵 티어
+  분포 가중 평균): 희귀 이상 비율 방탄복·가방 22.4 % → **13.7 %**(0.61배) · 총기 제외 전체 18.7 % →
+  **12.2 %**(0.65배) · 상자당 희귀 이상 개수 0.70 → **0.46개**(0.67배). 정확히 0.5배까지 내리려면
+  배수를 0.37(방탄복·가방 기준) ~ 0.25(개수 기준) 로 더 낮춘다.
+- 어디에 걸리나: **상자 전부**(티어 1~5, 보급 투하 포함) 와 **시체의 망가진 임플란트 굴림**
+  (`loot_corpse_rolls.csv` 의 `implantWeights`). 시체의 나머지 드랍(`loot_corpses.csv`)은 아이템별 확률이지
+  희귀도 추첨이 아니고, 보스 부착물은 등급으로 자른 뒤 균등 추첨이라 배수를 걸 자리가 없다.
+- `node scripts/check-planet-loot.mjs` 가 이 축의 표도 같이 찍는다.
 
 ### 2026-09-10 — 방탄복 = 실드 · 실드 충전기 3종
 
@@ -247,7 +309,9 @@ csv 는 Vite 의 `import.meta.glob(..., { query: '?raw', eager: true })` 로 **�
 (연료통 · 전지 · 표창 · 화살 · 로켓 · 탄띠)도 같은 배수로 막힌다 (유니크 총에 딸려 나오는 한 스택은 예외). `src/items/LootTables.ts` 가 읽고 `Loot.rollCrateOn` /
 `rollCorpseOn` 이 쓴다.
 
-**총기 등급만** 여기서 정한다. `loot_tiers.csv` 의 `common..legendary` 열은 그대로 다른 카테고리
+**총기 등급만** 여기서 정한다 (⚠ 2026-09-10 에 `rareMul` · `epicMul` · `legMul` 이 붙어 총기가 **아닌** 것들의
+희귀도도 이 파일이 함께 다루게 됐다 — 위 그 절 참고. 여기 적힌 것은 `g1..g5` 축 이야기다).
+`loot_tiers.csv` 의 `common..legendary` 열은 그대로 다른 카테고리
 (부착물 · 방어구 · 임플란트 · 귀중품 …)의 희귀도를 정한다 — 앞쪽 행성의 총만 짜게 하려고 티어 표를
 건드리면 총이 아닌 물건까지 같이 짜지기 때문이다. 상자 티어는 **무기가 얼마나 자주 나오나**
 (`weaponChance`: 티어 1 = 0 · 2 = 0.35 · 3 = 0.55 · 4 = 1), 행성은 **나온 무기가 얼마나 좋은가** 를 맡는다.

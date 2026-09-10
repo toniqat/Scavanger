@@ -10,7 +10,8 @@ const MARGIN = 0.06;
 const EDGE_PAD = 44;
 const PING_FADE = 1.5;
 
-type Cat = 'ping' | 'drop';
+/** 2026-09-10: 수류탄 · 함선 호출에 이어 로그 강하까지 `hud/DangerIndicators` 로 가서, 남은 것은 핑뿐이다. */
+type Cat = 'ping';
 
 interface Target {
   cat: Cat;
@@ -47,10 +48,10 @@ function cssColor(n: number): string { return `#${n.toString(16).padStart(6, '0'
  *       **whole lifetime** (`until = expires` from the event; the shared `OFFSCREEN_PING_SECONDS` stays exported as a
  *       contract constant but is no longer read here), dropped on `ping:removed`; icon/colour by kind, `이름`-less kind
  *       label; fades over the last 1.5 s. The arrow only shows while the ping is off-screen — on screen the marker does,
- *   (c) **로그 강하** (2026-09-09, `.oarrow.drop(.boss)`): `ctx.enemies.getRogueDrops()` polled every `lateUpdate` —
- *       a drop is a live target from its 예고 to its landing, so the manager's own list beats a cached event; ⬇ in
- *       amber (red with a 로그 분대장), label `n초` until touchdown, then `로그 n` / `로그 분대장`. The toast + alarm
- *       that go with it live in `hud/RaidAlerts`.
+ *   (c) **로그 강하도 2026-09-10 부터 여기 없다.** 2026-09-09 의 `.oarrow.drop` 화살표는
+ *       `hud/DangerIndicators` 로 옮겼다 — 하늘에서 떨어지는 것은 (a) 와 같은 이유로 화면 안이면 머리 마커 ·
+ *       밖이면 방향 호라는 하나의 언어를 쓰고, 그래야 화면 안에 들어왔을 때도 표시가 남는다. 토스트는 여전히
+ *       `hud/RaidAlerts`, 경보음은 `audio/AudioSystem` 이다.
  * Each `lateUpdate` projects the target through `ctx.camera`: on-screen (inside the viewport minus a 6 % margin, in
  * front of the camera) → arrow hidden; otherwise the projected direction from the screen centre is clamped to a rect
  * `EDGE_PAD` px inside the viewport and the arrow rotates to point at it. Behind the camera → the direction is mirrored
@@ -115,16 +116,8 @@ export class OffscreenIndicators {
         out.push({ cat: 'ping', pos: p.pos, icon: PING_ICON[p.kind] ?? '◆', color: cssColor(PING_COLOR[p.kind] ?? 0x7fb7e6), label: PING_LABEL[p.kind] ?? '핑', alpha, sub: p.kind });
       }
     }
-    // (c) 로그 강하 (2026-09-09): 예고 → 착지까지 살아 있는 목표라 이벤트 목록이 아니라 매니저에게 직접 묻는다.
-    //     `getRogueDrops()` 는 계약(`EnemyManagerRef`)이고 enemies/ 가 아직 구현하지 않았으면 빈 배열이다.
-    const drops = ctx.enemies?.getRogueDrops?.();
-    if (drops) {
-      for (const d of drops) {
-        const eta = d.landsAt - t;
-        const label = eta > 0 ? `${Math.ceil(eta)}초` : d.boss ? '로그 분대장' : `로그 ${d.count}`;
-        out.push({ cat: 'drop', pos: d.position, icon: '⬇', color: d.boss ? '#ff4d4d' : '#ff8a3d', label, alpha: 1, sub: d.boss ? 'boss' : '' });
-      }
-    }
+    // (c) 로그 강하도 2026-09-10 부터 `hud/DangerIndicators` 가 그린다 — 하늘에서 떨어지는 것은 화면 안이면
+    //     머리 마커 · 밖이면 방향 호라는 한 언어로 간다 (수류탄 · 함선 호출과 같은 이유).
     if (out.length > MAX_ARROWS) {
       const p = ctx.player?.position;
       if (p) out.sort((a, b) => a.pos.distanceToSquared(p) - b.pos.distanceToSquared(p));

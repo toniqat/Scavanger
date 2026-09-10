@@ -1,15 +1,17 @@
-import type { ArmorDef, CraftRecipe, EffectiveWeaponStats, EnemyType, ItemDef, ItemInstance, ItemInstanceExtras, LootRef, WeaponDef } from '@/shared';
+import type { ArmorDef, CraftIngredient, CraftRecipe, DurabilityBucketInfo, EffectiveWeaponStats, EnemyType, ItemDef, ItemInstance, ItemInstanceExtras, LootRef, WeaponDef } from '@/shared';
 /* appended (2026-09-09): 행성별 무기 등급 곡선 */
 import type { PlanetId, WeaponGrade } from '@/shared';
 import { Random, planetTier } from '@/shared';
 import { UNIQUE_WEAPON_IDS } from '@/shared';
 import { AMMO_TYPES_V2, ATTACHMENT_ITEM_DEFS, BOOK_ITEM_DEFS, ITEM_DEFS, ITEM_DEF_MAP, UNIQUE_AMMO_TYPES, ammoItemIdFor, isWeaponItemDef, itemIdForWeapon, rarityRank } from './ItemDefs';
 import { WEAPON_DEF_MAP, WEAPON_FAMILIES, gradeOf, isUniqueWeapon, weaponFamilyOf, weaponIdForGrade } from './WeaponDefs';
-import { canAttach as canAttachDef, computeWeaponStats, repairCost } from './WeaponStats';
+import { canAttach as canAttachDef, computeWeaponStats } from './WeaponStats';
 import { ARMOR_DEF_MAP } from './ArmorDefs';
-import { ALL_CRAFT_RECIPES } from './Recipes';
+import { craftCostOf } from './Recipes';
+/* appended (2026-09-10): 수리 · 분해는 제작 재료 × 내구도 구간 배수다 (`Salvage.ts`). */
+import { ALL_CRAFT_RECIPES, durabilityBucketInfo, durabilityBucketOf, repairCostFor, salvageFor } from './Salvage';
 import { IMPLANT_BROKEN_DEFS } from './ImplantDefs';
-import { CORPSE_TABLE_MAP, DEFAULT_ROGUE_WEAPON_ID, getPlanetGradeCurve, getTierTable, type PlanetGradeCurve, type TierTable } from './LootTables';
+import { CORPSE_TABLE_MAP, DEFAULT_ROGUE_WEAPON_ID, getPlanetGradeCurve, getTierTable, planetRarityWeights, type PlanetGradeCurve, type TierTable } from './LootTables';
 
 /**
  * 유니크 전용 탄종의 아이템 id (`ammo_fuel` … `ammo_belt`) 와 등급 무기가 쓰는 평범한 탄종의 id.
@@ -72,10 +74,20 @@ export class LootService implements LootRef {
     return weapon ? computeWeaponStats(weapon, inst) : null;
   }
 
+  /**
+   * 2026-09-10 — **제작 재료 × 남은 내구도 구간의 수리 배수(올림)**. 시그니처는 그대로지만 이제
+   * 방탄복도 값을 돌려준다 (예전에는 무기만이었고 방탄복 수리는 공짜였다). 회복 스프레이처럼
+   * 자기 규칙이 있는 것은 예전처럼 `[]` 라 `inventory` 의 `sprayRepairCost` 경로가 그대로 산다.
+   */
   getRepairCost(inst: ItemInstance): { defId: string; qty: number }[] {
-    const weapon = this.weaponDefOfItem(inst.defId);
-    return weapon ? repairCost(weapon, inst) : [];
+    return repairCostFor(inst);
   }
+
+  /* ── appended (2026-09-10): 내구도 연동 수리 · 분해 (owner: items/Salvage) ── */
+  durabilityBucketOf(inst: ItemInstance): number { return durabilityBucketOf(inst); }
+  durabilityBucketInfo(inst: ItemInstance): DurabilityBucketInfo { return durabilityBucketInfo(inst); }
+  getCraftCostOf(defId: string): readonly CraftIngredient[] { return craftCostOf(defId); }
+  getSalvageFor(inst: ItemInstance): CraftRecipe | null { return salvageFor(inst); }
 
   canAttach(weapon: ItemInstance, attachment: ItemInstance): boolean {
     const weaponDef = this.weaponDefOfItem(weapon.defId);
@@ -249,8 +261,13 @@ export class LootService implements LootRef {
     }
 
     // Phase 12: a fried implant — one 망가진 임플란트 weighted by rarity (rolled last, so every earlier draw is unchanged)
+    /* 2026-09-10: 이것도 **희귀도 추첨**이라 상자와 같은 배수를 건다 (`loot_corpse_rolls.csv` 의
+       `implantWeights` 에 common..epic 이 다 있어 상자 표와 모양이 같다). 안 걸면 앞쪽 행성에서
+       보스 시체가 희귀 임플란트의 우회로가 된다. 확률(`chance`) 자체는 그대로다 — 배수는 "무엇이
+       나오나" 를 정하지 "몇 번 나오나" 를 정하지 않는다. `rng.weighted` 는 배수와 무관하게 draw 를
+       하나 쓰므로 rng 소비도 그대로다. */
     if (table.implant && rng.chance(table.implant.chance)) {
-      const w = table.implant.weights;
+      const w = planetRarityWeights(table.implant.weights, curve);
       const pool = IMPLANT_BROKEN_DEFS.filter((d) => (w[d.rarity] ?? 0) > 0);
       if (pool.length > 0) out.push(this.createItem(rng.weighted(pool, (d) => w[d.rarity] ?? 0).id, 1));
     }
@@ -265,6 +282,12 @@ export class LootService implements LootRef {
    * 행성의 등급 곡선을 적용한 상자 굴림. 무기가 나오는 **빈도**는 여전히 상자 티어(`weaponChance`)가 정하고,
    * 나온 무기의 **등급**만 그 행성의 곡선으로 다시 뽑는다 (계열 추첨은 그대로).
    * 등급이 없는 **유니크 무기**는 곡선 대신 `uniqueMul` 로 등장 가중치 자체가 줄고, 0 이면 후보에서 빠진다.
+   *
+   * 2026-09-10: **총기가 아닌 것들**(방탄복 · 가방 · 부착물 · 임플란트 · 소모품 · 재료 · 귀중품)에는
+   * 그 행성의 `rareMul` · `epicMul` · `legMul` 이 걸린다 — 티어 표의 희귀도 가중치를 깎고 깎인 만큼
+   * common · uncommon 으로 되돌려 총합을 유지한다 (`planetRarityWeights`). 총기 등급은 그 뒤 `regrade`
+   * 가 g1..g5 로 덮어쓰므로 이 배수를 타지 않는다 — 두 축은 일부러 별개다.
+   *
    * `planet` 이 null 이거나 표에 없는 행성이면 `rollCrate` 와 완전히 같다.
    */
   rollCrateOn(tier: number, rng: Random, planet: PlanetId | null): ItemInstance[] {
@@ -275,6 +298,11 @@ export class LootService implements LootRef {
    * 행성의 등급 **상한**을 적용한 시체 굴림. 그 외에는 `rollCorpse` 와 같다 — 보스가 III/IV 를 떨구는 규칙은
    * 그대로이고 상한을 넘는 등급만 상한으로 내려온다. 등급이 없는 **유니크**는 보스 굴림의 확률에
    * `uniqueMul` 이 곱해진다 (0 인 행성에서는 보스도 유니크를 떨구지 않는다).
+   *
+   * 2026-09-10: 시체에서 **희귀도로 뽑는 것은 망가진 임플란트 하나뿐**이고 거기에 `rareMul` · `epicMul` ·
+   * `legMul` 이 걸린다. 나머지 시체 드랍(`loot_corpses.csv`)은 "이 적이 이 물건을 들고 있었나" 라는
+   * 아이템별 확률이지 희귀도 추첨이 아니고, 보스 부착물은 `maxRarity` 로 자른 뒤 **균등**하게 뽑는다 —
+   * 둘 다 배수를 걸 자리가 없다 (csv 에서 확률을 직접 고치는 쪽이 맞다).
    */
   rollCorpseOn(type: EnemyType, rng: Random, rogueWeaponId: string | undefined, planet: PlanetId | null): ItemInstance[] {
     return this.rollCorpseWithMax(type, rng, rogueWeaponId, this.curveFor(planet));
@@ -355,7 +383,11 @@ export class LootService implements LootRef {
        (티어 5 처럼 등급 무기가 전부 0 인 표에서 실제로 일어난다). curve 가 null 이면 후보가 그대로다. */
     const candidates = curve ? all.filter((d) => this.curveMul(curve, d) > 0) : all;
     if (candidates.length === 0) return null;
-    const weightOf = (d: ItemDef): number => table.rarityWeights[d.rarity] * this.weightMul(table, d) * this.curveMul(curve, d);
+    /* 2026-09-10: 행성의 `rareMul` · `epicMul` · `legMul` 을 여기 한 곳에서 건다 — 상자의 희귀도 굴림은
+       확정 픽 · 무기 픽 · 카테고리 픽이 전부 이 함수를 지난다. 배수가 1 이면 `table.rarityWeights` 를
+       그대로(같은 객체로) 돌려받으므로 그 행성의 결과는 예전과 비트 단위로 같다. */
+    const rarityWeights = planetRarityWeights(table.rarityWeights, curve);
+    const weightOf = (d: ItemDef): number => rarityWeights[d.rarity] * this.weightMul(table, d) * this.curveMul(curve, d);
     const weighted = candidates.filter((d) => weightOf(d) > 0);
     if (weighted.length > 0) return rng.weighted(weighted, weightOf);
     if (relaxRarity) return rng.weighted(candidates, (d) => 1 / (1 + rarityRank(d.rarity)));

@@ -135,6 +135,16 @@ try {
   const dmg = await P(() => ({ hp: window.__game.ctx.player.hp, attacked: window.__ev['enemy:attacked'].filter((a) => a.type === 'rogue' || a.type === 'rogue_boss').length, shots: window.__ev['enemy:shot'].length, hits: window.__ev['enemy:shot'].filter((s) => s.hit).length }));
   ok(dmg.shots >= 1, `rogue keeps firing (${dmg.shots} shots, ${dmg.hits} hits, player hp ${dmg.hp}) — a full 4-round burst depends on the cover cycle timing`);
 
+  /* 여기까지가 플레이어가 맞아야 하는 유일한 절이다. 이 뒤로는 로그가 몇 분 동안 계속 쏘는데 아무도 그 피해를
+     검사하지 않고, **맞아 죽으면 레이드가 실패로 끝난다** — `player:died` → `game:raidFailed` → phase 'dead'.
+     2026-09-09 에 완전 사망의 자동 부활이 없어졌으므로 `respawnAt` 으로 몸만 일으켜도 그 레이드는 되돌아오지
+     않는다 (phase 는 `RAID_FAILED_AUTO_RETURN_S` 뒤 함선으로 갈 뿐이고 `uiBlockers` 에 'menu' 가 남는다).
+     그래서 **사후에 되살리지 않고 애초에 죽지 않게** 한다 — 이 뒤의 모든 절은 적 쪽만 검사한다. */
+  await P(() => {
+    const pl = window.__game.ctx.player;
+    window.__healGuard = setInterval(() => { if (pl.hp < pl.maxHp) pl.heal(pl.maxHp - pl.hp); }, 100);
+  });
+
   console.log('faction clash');
   const clash = await P((id) => {
     const sys = window.__sys; const ctx = window.__game.ctx;
@@ -346,9 +356,15 @@ try {
     if (pl.isDead) pl.respawnAt(pl.position.clone(), pl.yaw);
     return was;
   });
-  /* 사망 → `respawnAt` 은 즉시지만 사망 화면 · 관전 오버레이가 닫히며 `uiBlockers` 가 비는 데 몇 프레임 걸린다.
-     `canAct()` 가 `ctx.isControlActive()` 를 보므로 그 전에 `startMelee` 를 부르면 조용히 거절된다 (2026-09-09). */
-  await waitSim(1.2);
+  /* 회복 가드를 여기서 걷는다 — 아래 훅(스태미나 · 근접 · 넉백)은 체력을 건드리지 않는다. */
+  await P(() => { clearInterval(window.__healGuard); window.__healGuard = 0; });
+  /* `revive()` / `respawnAt` 은 즉시지만 전투불능 화면이 닫히며 `uiBlockers` 가 비는 데 몇 프레임 걸린다.
+     `canAct()` 가 `ctx.isControlActive()` 를 보므로 그 전에 `startMelee` 를 부르면 조용히 거절된다 (2026-09-09).
+     고정 시간으로 기다리지 않는다 — 조작이 실제로 돌아온 것을 조건으로 기다린다. */
+  await waitFor(page, () => {
+    const ctx = window.__game.ctx;
+    return ctx.isControlActive() && !ctx.player.isDead && !ctx.player.isDowned;
+  }, 'control restored after revive', 20000);
   const tp = await P(() => {
     const ctx = window.__game.ctx; const pl = ctx.player; const V = pl.position.constructor;
     const from = pl.position.clone();

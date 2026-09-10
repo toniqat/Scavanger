@@ -2,6 +2,7 @@
 // 검사: callRogueDrop 의 예고 → getRogueDrops → ROGUE_DROP_ETA_S 뒤 착지 → 분대 인원(싱글 = 2~3명, 보스 없음)
 //       스폰 → 트리거 지점(구조물)으로 진격, 같은 dropId 재호출 거부, structure:investigated 의 **구역당 1회**,
 //       상시 개체수 상한이 강하 인원을 깎지 않는 것, 훈련장 게이트.
+//       2026-09-10: 강하가 조용하지 않은 것 — 토스트 + 위험 인디케이터 + 착지 충격음(rogue_pod_impact).
 // Usage: node scripts/smoke-rogue-drop.mjs [http://localhost:5273]   (needs a running vite; agents use a private port)
 import puppeteer from 'puppeteer-core';
 import { existsSync } from 'node:fs';
@@ -124,8 +125,20 @@ try {
   ok(view && Math.abs(view.landsAt - (call.time + ETA)) < 0.6, `landsAt = ctx.time + ROGUE_DROP_ETA_S (${view && (view.landsAt - call.time).toFixed(2)}s)`);
   const inc = await P(() => window.__ev['rogueDrop:incoming']);
   ok(inc.length === 1 && inc[0].dropId === 'smoke_zone' && inc[0].eta === ETA, `rogueDrop:incoming emitted once (${inc.length})`, JSON.stringify(inc[0]));
-  const alarm = await P(() => window.__ev['audio:play'].filter((a) => a.id === 'wave_alarm' || a.id === 'hellpod_fall').map((a) => a.id));
-  ok(alarm.includes('wave_alarm'), '경보음 (wave_alarm) 이 울린다', JSON.stringify(alarm.slice(-4)));
+  // 2026-09-10: 경보 · 낙하 굉음은 audio/AudioSystem 이 `rogueDrop:incoming` 을 받아 낸다 (전용 반경 · 거리 감쇠).
+  // `audio:play` 버스 이벤트가 아니라 AudioSystem 내부 호출이므로 여기서는 DOM 알림 · 위험 인디케이터로 확인한다.
+  // 토스트와 인디케이터는 같은 프레임에 뜨지 않으므로(하나는 이벤트 · 하나는 lateUpdate) 폴링하며 누적한다.
+  let alerted = { toast: false, danger: 0 };
+  const seenAlert = () => {
+    const a = window.__alert || (window.__alert = { toast: false, danger: 0 });
+    if ([...document.querySelectorAll('.notif')].some((n) => /강하 감지/.test(n.textContent || ''))) a.toast = true;
+    a.danger = Math.max(a.danger, document.querySelectorAll('.dgr-head:not([hidden]), .dgr-arc:not([hidden])').length);
+    return a.toast && a.danger > 0 ? a : null;
+  };
+  try { alerted = await waitFor(page, seenAlert, '강하 알림', 6000); }
+  catch { alerted = await P(() => window.__alert ?? { toast: false, danger: 0 }); }
+  ok(alerted.toast, '토스트 `적 n명 강하 감지` 가 뜬다');
+  ok(alerted.danger > 0, '위험 인디케이터(머리 마커 · 방향 호)가 강하를 가리킨다', JSON.stringify(alerted));
 
   /* ── 2. 착지 ───────────────────────────────────────────────────────────── */
   console.log(`착지 (+${ETA}s)`);
@@ -144,7 +157,7 @@ try {
       investigating: fresh.filter((e) => e.investigating).length,
       origin: fresh.map((e) => Math.hypot(e.shotOrigin.x - d.x, e.shotOrigin.z - d.z)),
       ids: fresh.map((e) => e.id),
-      impact: window.__ev['audio:play'].filter((x) => x.id === 'hellpod_impact').length,
+      impact: window.__ev['audio:play'].filter((x) => x.id === 'rogue_pod_impact').length,
     };
   }, { before: call.before });
   ok(landed.ev.length === 1 && landed.ev[0].dropId === 'smoke_zone', `rogueDrop:landed emitted once (${landed.ev.length})`);
@@ -155,7 +168,7 @@ try {
   ok(landed.guard.every((d) => d < 0.01), 'guardPos = 트리거 지점 (진격이 끝나면 구조물을 지킨다)', JSON.stringify(landed.guard));
   ok(landed.investigating === landed.spawned, `전원이 진격(investigate) 상태로 내린다 (${landed.investigating} / ${landed.spawned})`);
   ok(landed.origin.every((d) => d < 0.01), '진격 목표 = 트리거 지점', JSON.stringify(landed.origin));
-  ok(landed.impact > 0, `착지 충격음 (hellpod_impact ×${landed.impact})`);
+  ok(landed.impact > 0, `착지 충격음 (rogue_pod_impact ×${landed.impact})`);
 
   /* ── 3. 진격 ───────────────────────────────────────────────────────────── */
   console.log(`진격 (watch ${WATCH_S}s → advance)`);

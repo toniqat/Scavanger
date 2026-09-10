@@ -6,6 +6,9 @@
 // one done:true, {t:0} on cancel), ship 수리 of a 회복 스프레이 (캔 1 + 소독약 1, a can at gauge 0 stays an item — tooltip
 // `게이지 0 / 200`, broken tile bar, `scav.s1.loadout` round trip), 임플란트 tooltips (장착칸 · stat lines · perk · 망가짐 +
 // repair chips), the catalog's 임플란트 tab and the grid ops progression relies on (tryAddToStash / takeItem …).
+// 2026-09-10 (제작 대개편 2단계): 분해 산출이 **남은 내구도**를 탄다 (미리보기 · 실제 산출이 같은 레시피를 본다),
+// 방탄복 수리가 재료를 실제로 소비한다 (예전에는 공짜였다), 수리 · 분해 팝업에 내구도 구간 표시,
+// 정제 작업대(다섯 번째 작업대) + 제작 패널의 작업대 탭 · 94줄에서의 정렬 · 홀드 중 재배치 금지.
 // Usage: node scripts/smoke-inventory-p6.mjs [http://localhost:5273/]   (needs `npm run dev`)
 //
 // Timing: Engine clamps dt to 50 ms and the frame rate depends on the machine, so every wait is on simulation time
@@ -417,6 +420,15 @@ try {
   ok(modal.rows.length > 0 && modal.rows.length < modal.full && modal.rows.every((r) => r.bar && r.x),
     `닳은 장비만 줄로 뜬다 — 내구도 막대 + × (${modal.rows.length} / 보유 ${modal.full})`, JSON.stringify(modal.rows));
   ok(modal.totals > 0 && /\(\d+\)/.test(modal.btn), `아래에 합계 재료 ${modal.totals}종 · 버튼 "${modal.btn}"`);
+  // 2026-09-10 (제작 대개편): 수리 재료 = 제작 재료 × 남은 내구도 구간의 배수 — 줄마다 그 구간이 보인다
+  const repBucket = await page.evaluate(() => ({
+    buckets: [...document.querySelectorAll('.inv-modeless-repair .inv-repair-bucket')].map((e) => e.textContent),
+    hint: document.querySelector('.inv-modeless-repair .inv-rep-hint')?.textContent ?? '',
+    rows: document.querySelectorAll('.inv-modeless-repair .inv-repair-row').length,
+  }));
+  ok(repBucket.buckets.length === repBucket.rows && repBucket.buckets.every((t) => /\d+~\d+ %/.test(t) && /제작 재료의 \d+ %/.test(t)),
+    `수리 줄마다 내구도 구간 표시 (${repBucket.buckets.join(' / ')})`, JSON.stringify(repBucket));
+  ok(/내구도가 낮을수록/.test(repBucket.hint), `수리 팝업이 "구간이 바뀌면 값이 바뀐다" 를 말한다 ("${repBucket.hint}")`);
   const excluded = await page.evaluate(() => {
     const rows = [...document.querySelectorAll('.inv-modeless-repair .inv-repair-row')];
     const before = document.querySelector('.inv-modeless-repair .inv-repair-all').textContent;
@@ -459,6 +471,54 @@ try {
   });
   ok(gear.t1 === '장비 작업대 Lv.1' && gear.gearBtn && !gear.rows.some((n) => /AR|SMG|P-2/.test(n)), `gear bench repairs no weapons (${gear.rows.join(', ') || 'empty'})`);
   ok(gear.t2 === '가젯 작업대 Lv.1' && !gear.gadgetBtn, 'gadget bench has no 수리 button');
+
+  /* ── 2026-09-10 (제작 대개편 2단계): 정제 작업대 · 작업대 탭 ─────────── */
+  const refine = await page.evaluate(() => {
+    const ctx = window.__game.ctx, i = ctx.inventory, sys = window.__game.getSystem('inventory');
+    i.openBenchCraft('refine', 3);
+    sys['ui'].refreshCraft();
+    const title = document.querySelector('.inv-panel-craft .inv-title').textContent;
+    const benchTabs = !!document.querySelector('.inv-craft-tabs') && !document.querySelector('.inv-craft-tabs').hidden;
+    const refineRecipes = ctx.loot.getAllRecipes().filter((r) => r.bench === 'refine').map((r) => r.outputDefId);
+    i.closeBench();
+    // 함선에 작업대가 다 깔린 상태를 흉내내면 `제작` 패널 한 목록이 94 줄이 된다 → 탭이 뜬다
+    const origBench = ctx.housing.getBenchLevel, origSkill = ctx.progression.getSkill;
+    ctx.housing.getBenchLevel = () => 3;
+    ctx.progression.getSkill = () => 99;
+    sys['ui'].setCraftOpen(true);
+    sys['ui'].craftPanel.refresh();
+    const tabs = [...document.querySelectorAll('.inv-craft-tab')].map((b) => ({ id: b.dataset.tab, text: b.textContent, on: b.classList.contains('is-on') }));
+    const rowsAll = document.querySelectorAll('.inv-craft-row').length;
+    document.querySelector('.inv-craft-tab[data-tab="refine"]')?.click();
+    const rowsRefine = [...document.querySelectorAll('.inv-craft-row')].map((r) => r.dataset.recipe);
+    // 정렬 규약: 만들 수 있는 줄이 위로 (2026-09-10), 94 줄이 되어도 그대로
+    document.querySelector('.inv-craft-tab[data-tab="all"]')?.click();
+    const ready = [...document.querySelectorAll('.inv-craft-row')].map((r) => (r.classList.contains('is-locked') ? 0 : 1));
+    // 홀드 중에는 줄을 옮기지 않는다 (누르는 버튼의 DOM 이 움직이면 pointerleave 로 제작이 취소된다)
+    const first = [...document.querySelectorAll('.inv-craft-row:not(.is-locked)')][0]?.dataset.recipe ?? null;
+    let orderKept = true;
+    if (first) {
+      const before = [...document.querySelectorAll('.inv-craft-row')].map((r) => r.dataset.recipe).join('|');
+      void sys.craft(first);
+      for (let n = 0; n < 5; n++) sys['ui'].refreshCraft();
+      orderKept = [...document.querySelectorAll('.inv-craft-row')].map((r) => r.dataset.recipe).join('|') === before;
+      sys.cancelCraft();
+    }
+    ctx.housing.getBenchLevel = origBench;
+    ctx.progression.getSkill = origSkill;
+    sys['ui'].setCraftOpen(false);
+    return { title, benchTabs, refineRecipes, tabs, rowsAll, rowsRefine, ready, orderKept, holdRecipe: first };
+  });
+  ok(refine.title === '정제 작업대 Lv.3', `정제 작업대가 다섯 번째 작업대로 열린다 ('${refine.title}')`);
+  ok(refine.refineRecipes.length === 7, `정제 레시피 7종 (${refine.refineRecipes.join(', ')})`);
+  ok(!refine.benchTabs, '작업대를 열고 들어온 화면에는 탭이 없다 (이미 그 작업대 하나다)');
+  ok(refine.tabs.length === 7 && refine.tabs[0].id === 'all' && refine.tabs.some((t) => t.id === 'refine' && /정제 작업대/.test(t.text)),
+    `제작 패널 탭 ${refine.tabs.length}개 — 정제 작업대 포함 (${refine.tabs.map((t) => t.text).join(' · ')})`, JSON.stringify(refine.tabs));
+  ok(refine.rowsAll > 80 && refine.rowsRefine.length === 7 && refine.rowsRefine.every((id) => /^refine_/.test(id)),
+    `탭이 목록을 가른다 — 전체 ${refine.rowsAll}줄 → 정제 ${refine.rowsRefine.length}줄`, JSON.stringify(refine.rowsRefine));
+  ok(refine.ready.length > 1 && /^1*0*$/.test(refine.ready.join('')),
+    `만들 수 있는 줄이 위로 — 94줄에서도 성립 (준비 ${refine.ready.filter(Boolean).length} / ${refine.ready.length})`);
+  ok(refine.orderKept, `홀드 중에는 줄이 움직이지 않는다 (${refine.holdRecipe})`);
   // 닫기 leaves bench mode, window stays; Tab (또는 Esc — 2026-09-09) closes the window
   await page.evaluate(() => document.querySelector('.inv-craft-close').click());
   await sleep(100);
@@ -639,17 +699,80 @@ try {
     `무기 분해는 클릭한 그 한 정만 갈아 폐금속 ${gunOut.scrap} (남은 총 ${gunOut.guns})`, JSON.stringify(gunOut));
   ok(gunSetup.attached && gunOut.brakeBack, '소켓에 물려 있던 총구 제동기는 분해 전에 가방으로 돌아온다');
 
-  // 방탄복 분해
+  // 방탄복 분해. 2026-09-10 (제작 대개편): 산출 = **제작 재료 × 남은 내구도 구간의 배수**(내림) 라서
+  // 만피 방탄복 I(폐금속 10 + 천조각 6 + 구동 코어 2) 은 ×0.40 → 폐금속 4 + 천조각 2 다 (예전 상수 3 이 아니다).
   const armorOut = await page.evaluate(async () => {
     const ctx = window.__game.ctx, i = ctx.inventory, sys = window.__game.getSystem('inventory');
     i.consumeWhere((d) => d.id === 'mat_scrap', 9999);
     const plate = ctx.loot.createItem('armor_1', 1);
     i.tryAddItem(plate);
     const recipe = sys.disassembleRecipeFor(plate.uid);
-    return { recipeId: recipe?.id ?? null, out: recipe?.outputQty ?? 0, station: recipe?.station ?? null };
+    return {
+      recipeId: recipe?.id ?? null, out: recipe?.outputQty ?? 0, station: recipe?.station ?? null,
+      extras: (recipe?.extraOutputs ?? []).map((e) => `${e.defId}:${e.qty}`),
+      craft: ctx.loot.getCraftCostOf('armor_1').map((c) => `${c.defId}:${c.qty}`),
+    };
   });
-  ok(armorOut.recipeId === 'break_armor_1' && armorOut.out === 3 && armorOut.station === 'field',
+  ok(armorOut.recipeId === 'break_armor_1' && armorOut.out === 4 && armorOut.station === 'field',
     `방탄복 I 도 현장에서 분해된다 → 폐금속 ${armorOut.out} (${armorOut.recipeId})`, JSON.stringify(armorOut));
+
+  /* ── 2026-09-10: 분해 산출이 남은 내구도를 탄다 ────────────────────────
+     예전에는 `getAllRecipes()` 의 정적 줄(구간 4 기준)을 그대로 썼기 때문에 5 % 남은 방탄복도 만피와 똑같이
+     폐금속 4 + 천조각 2 를 뱉었다. 미리보기 · 자리 검사 · 실제 산출 셋이 같은 레시피를 봐야 한다. */
+  const durSalvage = await page.evaluate(async () => {
+    const ctx = window.__game.ctx, i = ctx.inventory, sys = window.__game.getSystem('inventory');
+    const mats = (d) => d.id === 'mat_scrap' || d.id === 'mat_cloth' || d.id === 'mat_core';
+    const fmt = (r) => (r ? [`${r.outputDefId}:${r.outputQty}`, ...(r.extraOutputs ?? []).map((e) => `${e.defId}:${e.qty}`)].join('|') : 'null');
+    const run = async (frac) => {
+      i.consumeWhere(mats, 9999);
+      const max = ctx.loot.getItemDef('armor_1').durabilityMax;
+      const plate = ctx.loot.createItem('armor_1', 1, { durability: Math.max(1, Math.round(max * frac)) });
+      i.tryAddItem(plate);
+      const preview = sys.disassembleRecipeFor(plate.uid);
+      const bucket = ctx.loot.durabilityBucketInfo(plate);
+      await sys.craft(preview.id, plate.uid);
+      return {
+        preview: fmt(preview), bucket: bucket.label, mul: bucket.salvageMul, gone: !i.findItem(plate.uid),
+        got: { scrap: i.countWhere((d) => d.id === 'mat_scrap'), cloth: i.countWhere((d) => d.id === 'mat_cloth'), core: i.countWhere((d) => d.id === 'mat_core') },
+      };
+    };
+    const fresh = await run(1.0);
+    const wrecked = await run(0.05);
+    i.consumeWhere(mats, 9999);
+    return { fresh, wrecked };
+  });
+  ok(durSalvage.fresh.preview === 'mat_scrap:4|mat_cloth:2' && durSalvage.fresh.bucket === '81~100 %',
+    `만피 방탄복 I 분해 미리보기 = ${durSalvage.fresh.preview} (${durSalvage.fresh.bucket})`, JSON.stringify(durSalvage.fresh));
+  ok(durSalvage.wrecked.preview === 'mat_scrap:1' && durSalvage.wrecked.bucket === '0~20 %',
+    `5 % 방탄복 I 분해 미리보기 = ${durSalvage.wrecked.preview} (${durSalvage.wrecked.bucket})`, JSON.stringify(durSalvage.wrecked));
+  ok(durSalvage.fresh.got.scrap === 4 && durSalvage.fresh.got.cloth === 2 && durSalvage.fresh.gone,
+    `실제 산출도 미리보기와 같다 — 만피 폐금속 ${durSalvage.fresh.got.scrap} + 천조각 ${durSalvage.fresh.got.cloth}`, JSON.stringify(durSalvage.fresh.got));
+  ok(durSalvage.wrecked.got.scrap === 1 && durSalvage.wrecked.got.cloth === 0 && durSalvage.wrecked.gone,
+    `망가진 방탄복은 적게 나온다 — 폐금속 ${durSalvage.wrecked.got.scrap} + 천조각 ${durSalvage.wrecked.got.cloth}`, JSON.stringify(durSalvage.wrecked.got));
+
+  /* ── 2026-09-10: 분해 팝업에 내구도 구간이 뜬다 (사양서 §4) ──────────── */
+  const disNote = await page.evaluate(() => {
+    const ctx = window.__game.ctx, i = ctx.inventory, sys = window.__game.getSystem('inventory');
+    const max = ctx.loot.getItemDef('armor_1').durabilityMax;
+    const plate = ctx.loot.createItem('armor_1', 1, { durability: Math.round(max * 0.3) });
+    i.tryAddItem(plate);
+    const opened = sys['ui'].openDisassemble(plate.uid);
+    const note = document.querySelector('.inv-modeless-disassemble .inv-dur-note');
+    const out = { opened, hidden: note?.hidden ?? true, text: note?.textContent ?? '' };
+    sys['ui'].disassemble.close();
+    // 내구도가 없는 것(탄약)에는 구간 줄이 없다 — 있지도 않은 게이지를 설명하지 않는다
+    i.tryAddItem(ctx.loot.createItem('ammo_light', 30));
+    const ammo = i.getAllItems().find((x) => x.defId === 'ammo_light');
+    out.ammoOpened = sys['ui'].openDisassemble(ammo.uid);
+    out.ammoNote = !document.querySelector('.inv-modeless-disassemble .inv-dur-note')?.hidden;
+    sys['ui'].disassemble.close();
+    // 뒷정리: 다음 검사(회복 스프레이)가 쓸 가방 칸을 남겨 둔다
+    i.consumeWhere((d) => d.id === 'armor_1' || d.id === 'ammo_light', 9999);
+    return out;
+  });
+  ok(disNote.opened && !disNote.hidden && /21~40 %/.test(disNote.text) && /제작 재료의 16 %/.test(disNote.text),
+    `분해 팝업이 구간과 배수를 말한다 ("${disNote.text}")`, JSON.stringify(disNote));
+  ok(disNote.ammoOpened && !disNote.ammoNote, '내구도가 없는 탄약 분해에는 구간 줄이 없다');
 
   /* ── 5c. Phase 12: 회복 스프레이 수리 (ship) · gauge 0 stays an item ─ */
   console.log('회복 스프레이 수리');
@@ -697,6 +820,42 @@ try {
   await sleep(700); // debounced loadout save
   const sprayFile = await page.evaluate(() => { const f = JSON.parse(localStorage.getItem('scav.s1.loadout') ?? 'null'); const e = (f?.bag ?? []).filter((x) => x.defId === 'heal_spray'); return { n: e.length, durs: e.map((x) => x.durability) }; });
   ok(sprayFile.n === 2 && sprayFile.durs.includes(0) && sprayFile.durs.includes(200), `scav.s1.loadout keeps durability 0 (${JSON.stringify(sprayFile.durs)})`);
+
+  /* ── 5c-2. 2026-09-10 (제작 대개편): 방탄복 수리는 더 이상 공짜가 아니다 ──
+     예전 `repair()` 는 `getEffectiveStats(item)` 이 null 이면(= 방탄복) 재료 없이 만피로 되돌렸다.
+     이제 `getRepairCost` 가 방탄복에도 값을 주므로 (제작 재료 × 구간 배수, 올림) 그 재료를 실제로 소비한다. */
+  console.log('방탄복 수리 (재료 소비)');
+  const armorRepair = await page.evaluate(() => {
+    const ctx = window.__game.ctx, i = ctx.inventory, sys = window.__game.getSystem('inventory');
+    const mats = (d) => d.id === 'mat_scrap' || d.id === 'mat_cloth' || d.id === 'mat_core';
+    i.consumeWhere(mats, 9999);
+    const max = ctx.loot.getItemDef('armor_1').durabilityMax;
+    const plate = ctx.loot.createItem('armor_1', 1, { durability: Math.round(max * 0.1) });
+    i.tryAddItem(plate);
+    const info = sys.repairInfo(plate.uid);
+    const noMats = sys.repair(plate.uid);
+    const durAfterFail = i.findItem(plate.uid)?.durability;
+    for (const [id, n] of [['mat_scrap', 10], ['mat_cloth', 10], ['mat_core', 5]]) i.tryAddItem(ctx.loot.createItem(id, n));
+    const have0 = { scrap: i.countWhere((d) => d.id === 'mat_scrap'), cloth: i.countWhere((d) => d.id === 'mat_cloth'), core: i.countWhere((d) => d.id === 'mat_core') };
+    const repaired = sys.repair(plate.uid);
+    const have1 = { scrap: i.countWhere((d) => d.id === 'mat_scrap'), cloth: i.countWhere((d) => d.id === 'mat_cloth'), core: i.countWhere((d) => d.id === 'mat_core') };
+    const out = {
+      cost: info?.cost.map((c) => `${c.defId}×${c.qty}`), short: info?.short, bucket: info?.bucket?.label, mul: info?.bucket?.repairMul,
+      noMats, durAfterFail, repaired, durAfter: i.findItem(plate.uid)?.durability, max,
+      spent: { scrap: have0.scrap - have1.scrap, cloth: have0.cloth - have1.cloth, core: have0.core - have1.core },
+      full: sys.repairInfo(plate.uid),
+    };
+    i.consumeWhere(mats, 9999);
+    i.consumeWhere((d) => d.id === 'armor_1', 9999);
+    return out;
+  });
+  ok(JSON.stringify(armorRepair.cost) === JSON.stringify(['mat_scrap×5', 'mat_cloth×3', 'mat_core×1']) && armorRepair.bucket === '0~20 %' && armorRepair.mul === 0.5,
+    `방탄복 I @10 % 수리비 = 제작 재료 × 0.5 (${armorRepair.cost?.join(', ')}, ${armorRepair.bucket})`, JSON.stringify(armorRepair));
+  ok(armorRepair.noMats === false && armorRepair.durAfterFail === 20, '재료가 없으면 방탄복 수리가 거절된다 (내구도 그대로)');
+  ok(armorRepair.repaired === true && armorRepair.durAfter === armorRepair.max, `재료가 있으면 만피로 (${armorRepair.durAfter} / ${armorRepair.max})`);
+  ok(armorRepair.spent.scrap === 5 && armorRepair.spent.cloth === 3 && armorRepair.spent.core === 1,
+    `수리가 재료를 실제로 소비한다 (${JSON.stringify(armorRepair.spent)})`);
+  ok(armorRepair.full === null, '만피 방탄복은 다시 수리되지 않는다');
 
   /* ── 5d. Phase 12: 임플란트 items — tooltip · grid ops · never quick / equip ── */
   console.log('임플란트 아이템');

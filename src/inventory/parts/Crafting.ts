@@ -4,6 +4,13 @@
  * 필드 제작(`제작` 열)과 함선 작업대(`openBenchCraft`)는 같은 규칙을 쓰고 재료 출처만 다르다:
  * 레이드에서는 가방만, 함선에서는 가방 + 함선 창고(`countDefAll` / `consumeDefAll`).
  * 분해(`break_*`)는 제작 목록이 아니라 아이템 우클릭에서 열리며 진행 게이지를 `inventory:disassembleProgress` 로 흘린다.
+ *
+ * **2026-09-10 (제작 대개편 2단계) — 분해 산출은 남은 내구도를 탄다.** `getAllRecipes()` 에 실려 있는 `break_*`
+ * 레시피의 수량은 **구간 4(81~100 %) 기준**이다. 그것을 그대로 쓰면 5 % 남은 총도 새 총만큼 뱉는다 —
+ * 실제로 방탄복 I 은 어느 내구도에서나 `폐금속 4 + 천조각 2` 를 돌려주고 있었다(구간 0 의 정답은 `폐금속 1`).
+ * 그래서 **분해 대상이 지정된 순간 레시피를 다시 푼다** (`resolveRecipe` → `ctx.loot.getSalvageFor(inst)`):
+ * 미리보기(`disassembleRecipeFor`) · 자리 검사(`craftHasRoom`) · 실제 산출(`updateCraft`) 셋이 같은 레시피를 본다.
+ * id 는 그대로이므로 `craft(recipeId, uid)` 의 게이트(`availableRecipes` 동일성 · `canCraft`)는 한 줄도 바뀌지 않는다.
  */
 import * as THREE from 'three';
 import type {
@@ -13,6 +20,8 @@ import type {
 import { BAG_DEFAULT_COLS, BAG_DEFAULT_QUICK_SLOTS, BAG_DEFAULT_ROWS, Keys, QUICK_SLOTS, SEARCH_MAX_DISTANCE, SOCKET_SLOTS, isQuickSlotActive } from '@/shared';
 import { AMMO_LABEL_KO, ITEM_DEF_MAP, STARTER_LOADOUT, STARTER_STASH, ammoItemIdFor, getRecipe, isWeaponItemDef, itemWeight } from '@/items';
 import { durabilityInfo, gearMultipliers, makeWeightInfo, searchTimeFor, sumWeight } from '../Gear';
+/* 2026-09-10: 수리 재료를 정하는 곳은 하나다 (`getRepairCost` → 없으면 회복 스프레이). */
+import { repairMaterials } from './Durability';
 import { Grid, OOB, type Placement, type PriorityPlacement } from '../Grid';
 import { Container, ContainerStore } from '../Container';
 import { attachedItems, clearSocket, findSocketed, setSocket } from '../Sockets';
@@ -98,10 +107,10 @@ export function benchRepairRows(sys: InventorySystem, wornOnly = false): BenchRe
     const dur = sys.getDurability(item.uid);
     if (!dur || dur.max <= 0) return;
     if (wornOnly && dur.durability >= dur.max) return;
-    const cost = (sys.loot.getEffectiveStats(item) ? sys.loot.getRepairCost(item) : []).map((c) => ({
+    const cost = repairMaterials(sys, item, def).map((c) => ({
       ...c, name: ITEM_DEF_MAP.get(c.defId)?.name ?? c.defId, have: sys.countDef(c.defId),
     }));
-    rows.push({ uid: item.uid, item, def, where, dur, cost, short: cost.some((c) => c.have < c.qty) });
+    rows.push({ uid: item.uid, item, def, where, dur, bucket: sys.loot.durabilityBucketInfo(item), cost, short: cost.some((c) => c.have < c.qty) });
   };
   for (const slot of LOADOUT_SLOTS) { const it = sys.loadout[slot]; if (it) push(it, slot); }
   for (const p of sys.bag.items()) push(p.item, null);
@@ -133,27 +142,46 @@ export function getRecipes(sys: InventorySystem, station: CraftStation, bench?: 
   return sys.loot.getAllRecipes().filter((r) => {
     if (skillOf(r.skill) < r.skillRequired) return false;
     if (station === 'field') return r.station === 'field';
-    if (r.bench === undefined) return true;
     const need = r.benchLevel ?? 1;
+    /* 2026-09-10 (사용자 결정) — **작업대를 열면 그 작업대의 레시피만 보인다.** 예전에는 `bench` 가 없는
+       레시피를 전부 실어서 정제 작업대 Lv.3 에도 붕대 · 탄약이 떴다. 레시피가 94줄로 늘면서 그 목록이
+       읽을 수 없어졌다. 현장 레시피도 이제 `data/recipes.csv` 에서 자기 작업대를 밝히므로(탄약 → 총기 …)
+       "같은 작업대 창에서 소총 다음 탄약" 같은 흐름은 그대로 산다 — 튜토리얼이 그것에 기대고 있다. */
     if (bench !== undefined) return r.bench === bench && need <= level;
+    /* 가방 화면의 제작 목록: 현장 레시피는 작업대가 없어도 언제나(그래서 `bench` 태그를 안 본다),
+       함선 전용 레시피는 그 작업대가 실제로 놓여 있고 레벨이 되어야 한다. */
+    if (r.station === 'field') return true;
+    if (r.bench === undefined) return true;
     return placedLevel(r.bench) >= need;
   });
   }
 
 /**
- * Phase 8 — 분해 recipe of an item the player owns, or null. A `break_*` recipe whose **only** input is that
- * item's def id counts; the UI turns it into the `분해` context-menu entry and the modeless dialog. Crafting
- * itself is unchanged (`craft()` still accepts these recipes) — they are only hidden from the craft *list*.
+ * Phase 8 — 분해 recipe of an item the player owns, or null. The UI turns it into the `분해` context-menu entry
+ * and the modeless dialog. Crafting itself is unchanged (`craft()` still accepts these recipes) — they are only
+ * hidden from the craft *list*.
+ *
+ * **2026-09-10 — 이것은 미리보기이고, 미리보기는 실제와 같아야 한다.** 예전에는 `getAllRecipes()` 를 훑어
+ * 정적 `break_*` 줄을 그대로 돌려줬다. 그 줄의 수량은 구간 4(81~100 %) 기준이라 5 % 남은 방탄복 I 도
+ * `폐금속 4 + 천조각 2` 라고 적혀 있었다 (실제 정답은 `폐금속 1`). 이제 `ctx.loot.getSalvageFor(inst)` 가
+ * 그 인스턴스의 남은 내구도로 다시 푼 레시피를 준다 — `id` 는 같으므로 `craft(id, uid)` 는 그대로 동작한다.
  */
 export function disassembleRecipeFor(sys: InventorySystem, uid: string): CraftRecipe | null {
   const item = sys.findItem(uid);
-  if (!item) return null;
-  for (const r of sys.loot.getAllRecipes()) {
-    if (!isDisassembleRecipe(r)) continue;
-    if (r.inputs.length === 1 && r.inputs[0].defId === item.defId) return r;
+  return item ? sys.loot.getSalvageFor(item) : null;
   }
-  return null;
-  }
+
+/**
+ * 분해 대상이 지정된 `break_*` 를 **그 인스턴스의 남은 내구도**로 다시 푼다 (2026-09-10). 미리보기 ·
+ * 자리 검사 · 실제 산출이 전부 이 함수를 지난다. 분해가 아니거나 대상이 없으면 받은 레시피 그대로다.
+ */
+function resolveRecipe(sys: InventorySystem, r: CraftRecipe | undefined, targetUid?: string): CraftRecipe | null {
+  if (!r) return null;
+  if (!targetUid || !isDisassembleRecipe(r)) return r;
+  const item = sys.findItem(targetUid);
+  if (!item || item.defId !== r.inputs[0]?.defId) return r;
+  return sys.loot.getSalvageFor(item) ?? r;
+}
 
 /**
  * Open the modeless 분해 dialog over the open window (the item context menu's `분해` entry; also a handle for
@@ -221,9 +249,12 @@ export function maxCraftCount(sys: InventorySystem, recipeId: string): number {
  *
  * 2026-09-09 — takes `count`, so 제작 패널 can ask about **the quantity its stepper is showing** rather than one run
  * (`CraftPanel.paint` → `is-nospace`). Omitted, it is the single run it always was.
+ *
+ * 2026-09-10 — takes `targetUid`, so the 분해 팝업 asks about **what this exact item will actually produce**.
+ * 정적 줄로 재면 구간 4 기준의 산출물 자리를 잡으므로, 다 망가진 총을 뜯을 때 자리 계산이 어긋난다.
  */
-export function craftHasRoom(sys: InventorySystem, recipeId: string, count = 1): boolean {
-  const r = getRecipe(recipeId);
+export function craftHasRoom(sys: InventorySystem, recipeId: string, count = 1, targetUid?: string): boolean {
+  const r = resolveRecipe(sys, getRecipe(recipeId), targetUid);
   return !!r && roomForOutputs(sys, r, normCount(count));
   }
 
@@ -389,7 +420,9 @@ export function updateCraft(sys: InventorySystem, dt: number): void {
   job.remaining -= dt;
   if (job.remaining > 0) { sys.ui?.refreshCraft(); return; }
   sys.craftJob = null;
-  const r = job.recipe;
+  // 2026-09-10: `job.recipe` 는 정적 줄(구간 4 기준)이다 — 분해라면 **지금 그 아이템**의 내구도로 다시 푼다.
+  // 재료(`inputs`)는 어느 쪽이든 같으므로 `canCraft` · `craftCost` 는 그대로 두 레시피 어느 것으로 물어도 된다.
+  const r = resolveRecipe(sys, job.recipe, job.targetUid) ?? job.recipe;
   const count = normCount(job.count);
   const outDef = ITEM_DEF_MAP.get(r.outputDefId);
   if (!sys.canCraft(r.id, count) || !outDef) {

@@ -13,6 +13,8 @@
 //   6. 선로: 플랫폼 데크 윗면 = 전차 바닥 높이 (틈 없이 건너탄다), 계단이 한 단씩 `PROP_STEP_UP_MAX` 안이다
 //   7. 전차: 시동을 걸면 데크가 움직이고 `getStandingObstacle(...).velocity` 가 `TRAM_SPEED` 를 가리킨다
 //      (player/PlayerController 가 그 값을 위치에 더한다 — 실제로 실려 가는지의 근거)
+//   8. 호출 콘솔 (2026-09-10): 플랫폼마다 데크 위에 서고, 전차가 선 승강장에서는 잠기고(홀드 0), 반대편에서
+//      부르면 **선로 위 거리**가 줄며 다가오고, 운행 중에는 중복 호출 · 운전실 콘솔이 둘 다 거부된다
 //
 // Usage: node scripts/smoke-structures.mjs [http://localhost:5273]
 import puppeteer from 'puppeteer-core';
@@ -246,11 +248,154 @@ try {
       ok(deck.every((d) => d.deck >= d.clear - 0.35), `선로 위에 발판 콜라이더가 있다 (표본 ${deck.length}곳)`, JSON.stringify(deck));
       ok(deck.every((d) => d.clear > 0.4), '선로가 지형에 파묻히지 않는다', JSON.stringify(deck.map((d) => d.clear)));
 
-      // 시동을 걸고 달리는 동안 데크가 발판 속도를 들고 있는지
-      await page.evaluate(() => {
+      /* 2026-09-10 — **차체는 선로 방향으로 길쭉하다.** 바닥 콜라이더의 상자 반길이(로컬 +X = 접선)가
+       * 반폭(로컬 +Z)보다 커야 한다. 예전에는 정확히 반대여서 선로와 수직인 판때기가 달려 있었다. */
+      const body = await page.evaluate(() => {
         const w = window.__game.ctx.world;
-        const id = w.getRailLines()[0].platforms[0].id;
-        window.__game.ctx.interactables.all().find((i) => i.id === `rail:${id}:console`)?.interact();
+        const t = w.getTrams()[0];
+        // 바닥판 = `velocity` 를 든 상자 중 단면이 가장 큰 것. `getStandingObstacle` 로 찍으면 전차 옆의
+        // 선로 발판과 동점이 날 수 있어(높이가 같다) 검사가 흔들린다 — 콜라이더 목록에서 곧장 고른다.
+        let floor = null;
+        for (const o of w.getObstacles()) {
+          if (o.kind !== 'tram' || !o.box || !o.velocity) continue;
+          if (!floor || o.box.halfX * o.box.halfZ > floor.box.halfX * floor.box.halfZ) floor = o;
+        }
+        const con = window.__game.ctx.interactables.all().find((i) => i.id === 'rail:tram_rail_0:console');
+        if (!floor) return { halfX: 0, halfZ: 0, console: null, ride: false };
+        const c = Math.cos(t.yaw), s = Math.sin(t.yaw);
+        const dx = con ? con.position.x - t.position.x : 0, dz = con ? con.position.z - t.position.z : 0;
+        const st = w.getStandingObstacle(t.position.x, t.position.z, t.position.y);
+        return {
+          halfX: floor.box.halfX, halfZ: floor.box.halfZ,
+          console: con ? { lx: dx * c + dz * s, lz: -dx * s + dz * c } : null,
+          ride: !!(st && st.velocity),
+        };
+      });
+      ok(body.ride, '전차 바닥에 서면 탑승 발판(velocity)이 잡힌다 — 옆 선로 발판에 밀리지 않는다');
+      ok(body.halfX > body.halfZ * 1.5, `차체가 선로 방향으로 길쭉하다 (반길이 ${body.halfX.toFixed(1)} m · 반폭 ${body.halfZ.toFixed(1)} m)`);
+      ok(!!body.console && Math.abs(body.console.lx) < body.halfX && Math.abs(body.console.lz) < body.halfZ,
+        '시동 콘솔이 전차 차체 **안**에 있다', JSON.stringify(body.console));
+
+      /* 2026-09-10 — **플랫폼 계단은 한 단이 `PROP_STEP_UP_MAX`(0.9) 안**이라야 걸어 올라간다.
+       * 데크 바깥으로 나가는 축을 훑으며 표면 높이의 최대 상승폭을 잰다. */
+      const stairs = await page.evaluate(() => {
+        const w = window.__game.ctx.world;
+        const plat = w.getRailLines()[0].platforms[0];
+        const ax = -Math.sin(plat.yaw), az = Math.cos(plat.yaw);
+        const ys = [];
+        for (let off = 16; off >= 2.5; off -= 0.1) {
+          ys.push(w.getSurfaceY(plat.position.x + ax * off, plat.position.z + az * off));
+        }
+        let worst = 0;
+        for (let i = 1; i < ys.length; i++) worst = Math.max(worst, ys[i] - ys[i - 1]);
+        return { worst: +worst.toFixed(3), top: ys[ys.length - 1], deck: plat.position.y };
+      });
+      ok(stairs.worst <= 0.9 + 1e-3, `플랫폼 계단 한 단이 PROP_STEP_UP_MAX 안이다 (최대 ${stairs.worst.toFixed(2)} m)`);
+      ok(Math.abs(stairs.top - stairs.deck) < 0.25, `계단이 데크 상판으로 이어진다 (Δ ${(stairs.top - stairs.deck).toFixed(2)} m)`);
+
+      /* 2026-09-10 (두 번째) — **플랫폼 호출 콘솔**.
+       * 시동이 운전실로 들어간 뒤 플랫폼에서 전차를 부르는 유일한 수단이다. 상태는 `canInteract` 가 아니라
+       * **프롬프트 + 홀드 시간**으로 드러나야 한다 (부를 수 없으면 홀드 0 = 눌러 보면 즉시 거부).
+       * `canInteract` 를 내리면 `findBest` 가 통째로 걸러 프롬프트조차 안 뜬다. */
+      /* 전차가 부른 승강장 쪽으로 오는지는 **선로 위 거리**로 재야 한다 — 순환 선로에서 반대편 플랫폼은
+       * 지름의 양 끝이라 XZ 직선거리는 40 m 를 달려도 2 m 밖에 줄지 않는다. 아래 두 함수는 `rails/model`
+       * 의 `nearestS` · `deltaS` 를 **스모크가 독립적으로 다시 구현한 것**이다 (같은 코드를 부르지 않는다). */
+      const callIdle = await page.evaluate(() => {
+        const railS = (line, x, z) => {
+          const segs = line.kind === 'loop' ? line.points.length : line.points.length - 1;
+          let cum = 0, bestS = 0, bestD = Infinity;
+          for (let i = 0; i < segs; i++) {
+            const a = line.points[i], b = line.points[(i + 1) % line.points.length];
+            const dx = b.x - a.x, dz = b.z - a.z, len = Math.hypot(dx, dz), len2 = dx * dx + dz * dz;
+            const t = len2 > 1e-6 ? Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / len2)) : 0;
+            const px = a.x + dx * t, pz = a.z + dz * t;
+            const d = (px - x) * (px - x) + (pz - z) * (pz - z);
+            if (d < bestD) { bestD = d; bestS = cum + len * t; }
+            cum += len;
+          }
+          return bestS;
+        };
+        const gapS = (line, from, to) => {
+          let d = to - from;
+          if (line.kind === 'loop') { const h = line.length / 2; while (d > h) d -= line.length; while (d < -h) d += line.length; }
+          return Math.abs(d);
+        };
+        const ctx = window.__game.ctx, w = ctx.world;
+        const line = w.getRailLines()[0], t = w.getTrams()[0];
+        const cab = ctx.interactables.all().find((x) => x.id === 'rail:tram_rail_0:console');
+        return {
+          cons: line.platforms.map((p) => {
+            const i = ctx.interactables.all().find((x) => x.id === `rail:${p.id}:call`);
+            return {
+              id: p.id, found: !!i,
+              onDeck: i ? Math.hypot(i.position.x - p.position.x, i.position.z - p.position.z) <= p.radius : false,
+              prompt: i ? i.getPrompt() : null, hold: i ? (i.holdTime ?? 0) : -1, can: i ? i.canInteract() : false,
+              gap: +gapS(line, t.s, railS(line, p.position.x, p.position.z)).toFixed(1),
+            };
+          }),
+          cab: cab ? { prompt: cab.getPrompt(), hold: cab.holdTime ?? 0, can: cab.canInteract() } : null,
+        };
+      });
+      ok(callIdle.cons.length >= 2 && callIdle.cons.every((c) => c.found && c.onDeck && c.can),
+        `플랫폼마다 호출 콘솔이 데크 위에 있다 (${callIdle.cons.length}개)`, JSON.stringify(callIdle.cons));
+      const here = callIdle.cons.reduce((a, b) => (a.gap <= b.gap ? a : b));
+      const far = callIdle.cons.reduce((a, b) => (a.gap >= b.gap ? a : b));
+      ok(here.hold === 0 && /대기/.test(here.prompt ?? ''),
+        `전차가 선 승강장에서는 호출이 잠긴다 (${here.prompt})`, JSON.stringify(here));
+      ok(far.hold > 0 && /호출/.test(far.prompt ?? ''),
+        `반대편 승강장에서는 부를 수 있다 (${far.prompt} · 홀드 ${far.hold}s · ${far.gap} m)`, JSON.stringify(far));
+      ok(!!callIdle.cab && callIdle.cab.can && callIdle.cab.hold > 0,
+        `정차 중에는 운전실 콘솔이 눌린다 (${callIdle.cab?.prompt})`, JSON.stringify(callIdle.cab));
+
+      // 부른다 → 기존 출발 절차 그대로 (알림 → 1초 대기 → 3초 가속) 이므로 5.5초 뒤에 재본다.
+      await page.evaluate((id) => {
+        window.__game.ctx.interactables.all().find((i) => i.id === `rail:${id}:call`)?.interact();
+      }, far.id);
+      await waitSim(page, 5.5);
+      const called = await page.evaluate((farId) => {
+        const railS = (line, x, z) => {
+          const segs = line.kind === 'loop' ? line.points.length : line.points.length - 1;
+          let cum = 0, bestS = 0, bestD = Infinity;
+          for (let i = 0; i < segs; i++) {
+            const a = line.points[i], b = line.points[(i + 1) % line.points.length];
+            const dx = b.x - a.x, dz = b.z - a.z, len = Math.hypot(dx, dz), len2 = dx * dx + dz * dz;
+            const t = len2 > 1e-6 ? Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / len2)) : 0;
+            const px = a.x + dx * t, pz = a.z + dz * t;
+            const d = (px - x) * (px - x) + (pz - z) * (pz - z);
+            if (d < bestD) { bestD = d; bestS = cum + len * t; }
+            cum += len;
+          }
+          return bestS;
+        };
+        const gapS = (line, from, to) => {
+          let d = to - from;
+          if (line.kind === 'loop') { const h = line.length / 2; while (d > h) d -= line.length; while (d < -h) d += line.length; }
+          return Math.abs(d);
+        };
+        const ctx = window.__game.ctx, w = ctx.world;
+        const line = w.getRailLines()[0], t = w.getTrams()[0];
+        const p = line.platforms.find((q) => q.id === farId);
+        const cab = ctx.interactables.all().find((x) => x.id === 'rail:tram_rail_0:console');
+        return {
+          state: t.state, s: t.s,
+          gap: +gapS(line, t.s, railS(line, p.position.x, p.position.z)).toFixed(1),
+          cons: line.platforms.map((q) => {
+            const i = ctx.interactables.all().find((x) => x.id === `rail:${q.id}:call`);
+            return { id: q.id, hold: i ? (i.holdTime ?? 0) : -1, prompt: i ? i.getPrompt() : null };
+          }),
+          cabCan: cab ? cab.canInteract() : true,
+        };
+      }, far.id);
+      ok(called.state === 'moving', `호출로 전차가 출발한다 (${called.state})`);
+      ok(called.gap < far.gap - 20, `부른 승강장 쪽으로 다가온다 (${far.gap} → ${called.gap} m)`);
+      ok(called.cons.every((c) => c.hold === 0 && /운행/.test(c.prompt ?? '')),
+        '운행 중에는 중복 호출이 거부된다 (홀드 0 + 이유가 적힌 프롬프트)', JSON.stringify(called.cons));
+      ok(!called.cabCan, '운행 중에는 운전실 콘솔도 잠긴다');
+
+      // 달리는 동안 데크가 발판 속도를 들고 있는지 — 콘솔은 **전차 안**에 있다 (2026-09-10).
+      // 전차는 위의 **호출**로 이미 달리고 있으므로 이 누름은 (설계대로) 아무 일도 하지 않는다.
+      await page.evaluate(() => {
+        window.__game.ctx.interactables.all().find((i) => i.id === 'rail:tram_rail_0:console')?.interact();
       });
       // 2026-09-10: 출발은 알림 뒤 `TRAM_START_DELAY_S`(1초) 대기 + `TRAM_ACCEL_S`(3초) cubic 가속이다 —
       // 예전처럼 2초만 기다리면 아직 1 m/s 도 안 나온다. 최고 속도까지 간 뒤에 잰다.
@@ -266,7 +411,7 @@ try {
           deckTop: w.getSurfaceY(t.position.x, t.position.z, t.position.y + 0.5) - t.position.y,
         };
       });
-      ok(riding.state === 'moving' && riding.s !== rail.tram.s, `the tram runs after the console hold (s ${rail.tram.s.toFixed(0)} → ${riding.s.toFixed(0)})`);
+      ok(riding.state === 'moving' && riding.s !== rail.tram.s, `호출로 출발한 전차가 계속 달린다 (s ${rail.tram.s.toFixed(0)} → ${riding.s.toFixed(0)})`);
       ok(Math.abs(riding.deckTop) < 0.2, `the tram deck is standable at the tram floor (Δ ${riding.deckTop.toFixed(2)} m)`);
       ok(riding.hasDeck && riding.speed > 5, `standing on the deck reports a ride velocity (${riding.speed.toFixed(1)} m/s)`, JSON.stringify(riding));
     }

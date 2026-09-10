@@ -9,6 +9,7 @@ furn_bench_gun,총기 작업대,workshop,4,2,1,bench_gun,workbench_gun,mat_scrap
 furn_bench_gear,장비 작업대,workshop,4,2,1,bench_gear,workbench_gear,mat_scrap:8|mat_alloy:2|mat_cable:1,3,,#9fb4ff,방탄복과 가방을 제작하고 수리합니다.
 furn_bench_gadget,가젯 작업대,workshop,4,2,1,bench_gadget,workbench_gadget,mat_scrap:8|mat_alloy:2|mat_cable:1,3,,#8fe8ff,수류탄과 가젯을 제작합니다.
 furn_bench_medical,의학 작업대,workshop,4,2,1,bench_medical,workbench_medical,mat_scrap:6|mat_alloy:2|mat_bio_sample:3,3,,#6ee7a8,스팀과 회복 아이템을 조제합니다.
+furn_bench_refine,정제 작업대,workshop,4,2,1,bench_refine,workbench_refine,mat_scrap:10|mat_alloy:2|mat_cable:2,3,,#e0a0ff,폐금속·천조각·구동 코어를 상위 재료로 정제합니다. 고등급 장비의 관문입니다.
 furn_range_console,관물대,range,2,1,2,locker,range_console,mat_scrap:6|mat_cable:2|mat_circuit:1,1,,#7fd2ff,로드아웃 프리셋을 저장하고 즉시 무장합니다. 사격장에 설치하세요.
 furn_target_lane,표적 레인,range,2,6,1.8,target_lane,none,mat_scrap:6|mat_alloy:1,1,,#c8ccd2,시뮬레이터 표적 레인 (장식).
 furn_sim_hub,시뮬레이션 허브,range,2,2,1.5,sim_hub,sim_hub,mat_scrap:8|mat_cable:2|mat_circuit:2,1,,#9fe8ff,시뮬레이션 훈련장에 입장합니다. 탄약과 내구도는 소모되지 않습니다.

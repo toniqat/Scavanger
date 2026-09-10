@@ -2,8 +2,8 @@
  * src/world/Rails.ts — **선로 · 플랫폼 · 전차**.
  *
  * 구역마다 `RAIL_CHANCE` 로 놓이고, 모양은 두 가지다 — 구역 외곽을 도는 **순환 선로**(`loop`)와 구역을
- * 가로지르는 **왕복 직선 선로**(`line`). 이동 수단이면서 파밍 장소다: 플랫폼만 털거나, 콘솔에서
- * `TRAM_START_HOLD_S` 홀드로 전차에 시동을 걸고 올라타 **달리는 전차 안**을 털면서 다음 플랫폼까지 간다.
+ * 가로지르는 **왕복 직선 선로**(`line`). 이동 수단이면서 파밍 장소다: 플랫폼만 털거나, **운전실 콘솔**에서
+ * `TRAM_START_HOLD_S` 홀드로 전차에 시동을 걸고 **달리는 전차 안**을 털면서 다음 플랫폼까지 간다.
  *
  * 소유 계약: `RailLineDef` · `RailPlatformDef` · `TramDef` · `TramState` · `WorldRef.getRailLines / getTrams`
  * · `rail:tramStarted` / `rail:tramDocked` · `TramMessage`(`tram`) / `TramRequest`(`tramq`) · `RAIL_*` / `TRAM_*`.
@@ -13,66 +13,57 @@
  *
  * 전차의 진짜 상태는 **선로 위 진행거리 `s` 하나**이고 **호스트 권위**다. 경로는 시드 결정적이라
  * 와이어에는 `s` · 방향 · 상태만 흐른다 (`TRAM_NET_INTERVAL` 마다 한 번).
+ *
+ * ## 2026-09-10 배치
+ * - **도착하면 선다.** 정차 뒤 자동 재출발을 없앴다 — 다음 출발은 반드시 콘솔 조작이다 (`update` 의 `docked`).
+ * - **콘솔은 운전실 안**이다 (`parts/Tram`).
+ * - **플랫폼 기둥은 「전차 호출」 콘솔이다** (2026-09-10, 두 번째 배치). 시동이 차 안으로 들어간 뒤
+ *   플랫폼에서 전차를 부를 수단이 없어졌으므로, 그 기둥이 **부르기만** 하는 콘솔이 됐다 — 출발은
+ *   여전히 타서 운전실 콘솔을 눌러야 한다. 호출은 **기존 출발 절차를 그대로 재사용**한다
+ *   (`applyStart` → 알림 → `TRAM_START_DELAY_S` 대기 → `TRAM_ACCEL_S` 가속 → `checkDock` → `idle`).
+ * - **차체가 진행 방향으로 길쭉하다.** 축 규약과 그 전의 버그는 `rails/model` 의 주석에 있다.
+ * - **최고 속도 근처의 전차에 치이면 피해 + 넉백** (`parts/Tram.updateTramHit`).
+ * - 지오메트리 · 배치 · 충돌은 전부 `rails/parts/` 로 내렸다. 이 파일에 남은 것은 **수명 · 상태 기계 · 멀티**다.
  */
 import * as THREE from 'three';
 import {
-  Layers, TRAM_ACCEL_S, TRAM_DOCK_S, TRAM_SPEED, TRAM_START_DELAY_S, TRAM_START_HOLD_S, TRAM_STATES,
-  type GameContext, type PeerId, type RailLineDef, type RailPlatformDef, type Random,
+  Layers, TRAM_ACCEL_S, TRAM_CALL_HOLD_S, TRAM_CALL_RANGE, TRAM_DOCK_S, TRAM_SPEED, TRAM_START_DELAY_S, TRAM_STATES,
+  type GameContext, type PeerId, type RailLineDef, type RailPlatformDef,
   type TramDef, type TramMessage, type TramRequest, type TramState, type TramWire,
 } from '@/shared';
-import { type BuildCtx, merge, paint, paintGradient, xform } from './build';
-import type { ObstacleEntry, SpatialHash } from './SpatialHash';
+import { merge, type BuildCtx } from './build';
+import type { SpatialHash } from './SpatialHash';
 import {
-  DOCK_WINDOW, GAUGE_HALF, PIER_STEP, PLATFORM_OFFSET, RAIL_DECK_HALF_W, RAIL_DECK_STEP, RAIL_DECK_T,
-  RAIL_DECK_Y, RAIL_MAX_GRADE, TIE_STEP,
-  TRAM_NET_INTERVAL, TRAM_SNAP_M, type RailPath, deltaS, makePath, nearestS, sampleAt, wrapS,
+  CONSOLE_GLOW, CONSOLE_GLOW_BASE, DOCK_WINDOW, PLATFORM_OFFSET, RAIL_MAX_GRADE, RAIL_DECK_Y, TRAM_FLOOR_UP,
+  TRAM_NET_INTERVAL, TRAM_SNAP_M, type RailBuild, type RailPath, type TramInst,
+  deltaS, makePath, nearestS, sampleAt, wrapS,
 } from './rails/model';
+import { buildTrack } from './rails/parts/Track';
+import { buildPlatform } from './rails/parts/Platform';
+import { TRAM_CONSOLE, buildTram, placeTram, updateTramHit } from './rails/parts/Tram';
 import { ContainerSet, type ContainerSpec } from './structures/parts/Containers';
-import { pickTier, structureRow } from './structures/model';
+import { structureRow } from './structures/model';
 
-/** 전차 바닥이 레일 상면 위로 뜨는 높이(m). 플랫폼 데크 윗면도 같은 높이라 그냥 걸어 건넌다. */
-const TRAM_FLOOR_UP = 0.35;
-/** 옆판 가운데를 비워 두는 승강구의 반폭(m). 양쪽 다 비운다 (왕복 선로에서 전차가 뒤집혀 달린다). */
-const TRAM_DOOR_HALF = 1.4;
+/** 운전실 콘솔의 `Interactable` id — 전차가 하나뿐이라 상수다. */
+const TRAM_CONSOLE_ID = 'rail:tram_rail_0:console';
+/** 플랫폼 호출 콘솔의 `Interactable` id. */
+const callConsoleId = (platformId: string): string => `rail:${platformId}:call`;
 
-const STEEL = new THREE.Color(0x6a6f76);
-const STEEL_DARK = new THREE.Color(0x33383e);
-const TIE = new THREE.Color(0x4a423a);
-const DECK = new THREE.Color(0x6d6a63);
-const DECK_DARK = new THREE.Color(0x45433e);
-
-interface MovingPart {
-  entry: ObstacleEntry;
-  /** 전차 로컬 오프셋 (X = 폭, Z = 길이). */
-  ox: number; oz: number;
-  /** 상자 밑면의 y 오프셋 (전차 바닥 기준). */
-  oy: number;
-}
-
-interface TramInst {
-  def: TramDef;
-  root: THREE.Group;
-  parts: MovingPart[];
-  /** 모든 발판 콜라이더가 **같은 객체**를 참조한다 — 제자리에서 고치면 다 같이 바뀐다. */
-  vel: THREE.Vector3;
-  containers: { spec: ContainerSpec; ox: number; oz: number; oy: number }[];
-  dockTimer: number;
-  /**
-   * 2026-09-10 — 이번 주행을 시작한 뒤 흐른 시간(초). 시동 알림이 뜬 순간 `-TRAM_START_DELAY_S` 로 놓이므로
-   * **음수인 동안은 서 있고**, 0 을 넘으면 `TRAM_ACCEL_S` 에 걸쳐 cubic ease-in 으로 `TRAM_SPEED` 까지 오른다.
-   * 클라이언트도 같은 값을 굴린다 — 위치는 호스트의 `s` 로 보정되지만 발판 속도(`vel`)는 스스로 계산한다.
-   */
-  runT: number;
-  lastDock: string | null;
-  /** 클라이언트가 맞춰 갈 호스트의 `s` (호스트에서는 쓰지 않는다). */
-  targetS: number;
-}
+/**
+ * 호출 콘솔이 지금 무엇을 할 수 있나.
+ * - `ready` — 부를 수 있다 (전차가 서 있고, 여기 있지 않다)
+ * - `here`  — 이미 이 승강장에 서 있다 (부를 것이 없다)
+ * - `busy`  — 달리는 중이다 (도착할 때까지 못 부른다)
+ */
+type CallState = 'ready' | 'here' | 'busy';
 
 export class Rails {
   readonly group = new THREE.Group();
   private path: RailPath | null = null;
   private line: RailLineDef | null = null;
   private platformS: number[] = [];
+  /** 플랫폼별 호출 콘솔의 자리 (거부음을 그 자리에서 낸다). 인덱스는 `platformS` 와 같다. */
+  private callPos: THREE.Vector3[] = [];
   private tram: TramInst | null = null;
   private readonly containers = new ContainerSet('RailContainers');
   private geos: THREE.BufferGeometry[] = [];
@@ -174,7 +165,8 @@ export class Rails {
     const railMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.6 });
     this.mats.push(railMat);
     this.mat = railMat;
-    this.buildTrack(ctx, rng, path, railMat);
+    const out: RailBuild = { geos: this.geos, group: this.group, mat: railMat, glow: [] };
+    buildTrack(ctx, rng, path, out);
 
     /* ── 플랫폼 ─────────────────────────────────────────────────────── */
     const platRow = structureRow('rail_platform');
@@ -195,15 +187,37 @@ export class Rails {
         radius: platRow ? Math.hypot(platRow.halfW, platRow.halfD) : 8,
       };
       platforms.push(def);
-      this.buildPlatform(ctx, game, rng, def, platRow, pad.height, deckTop, yaw, ax, az, specs);
+      const conPos = buildPlatform(ctx, rng, def, platRow, pad.height, deckTop, yaw, ax, az, specs, out);
+      this.callPos.push(conPos);
+      this.registerCall(game, def, conPos, i);
     });
+
+    /* 호출 콘솔의 발광 조각은 플랫폼마다 메시를 늘리지 않고 **하나로** 합친다 (드로우콜 +1). */
+    if (out.glow.length > 0) {
+      const glowMat = new THREE.MeshStandardMaterial({
+        color: CONSOLE_GLOW_BASE, emissive: CONSOLE_GLOW, emissiveIntensity: 1.5, roughness: 0.4,
+      });
+      this.mats.push(glowMat);
+      const glowGeo = merge(out.glow);
+      this.geos.push(glowGeo);
+      const glowMesh = new THREE.Mesh(glowGeo, glowMat);
+      glowMesh.layers.enable(Layers.PROP);
+      // 이름은 `rail_` 로 시작해야 한다 — `scripts/smoke-structures.mjs` 가 그 접두사로 선로 실루엣을 모은다.
+      glowMesh.name = 'rail_console_glow';
+      this.group.add(glowMesh);
+      out.glow.length = 0;
+    }
 
     this.line = {
       id: 'rail_0', kind: plan.kind, points: pts, length: path.total, platforms,
     };
 
     /* ── 전차 ───────────────────────────────────────────────────────── */
-    this.buildTram(ctx, rng, path, specs);
+    const startS = this.platformS.length > 0 ? this.platformS[0] : 0;
+    const inst = buildTram(ctx, rng, startS, this.platformS.length > 0 ? 'plat_0' : null, specs, out);
+    this.tram = inst;
+    placeTram(inst, path, 0, this.hash);
+    this.registerConsole(game, inst);
 
     this.containers.build(ctx, game, specs);
     ctx.root.add(this.group);
@@ -213,8 +227,10 @@ export class Rails {
   dispose(): void {
     const game = this.game;
     this.containers.dispose();
-    for (const p of this.platformS.keys()) game?.interactables.unregister(`rail:plat_${p}:console`);
+    game?.interactables.unregister(TRAM_CONSOLE_ID);
+    for (const p of this.line?.platforms ?? []) game?.interactables.unregister(callConsoleId(p.id));
     this.platformS.length = 0;
+    this.callPos.length = 0;
     this.tram = null;
     this.line = null;
     this.path = null;
@@ -229,298 +245,53 @@ export class Rails {
     this.built = false;
   }
 
-  /* ── 선로 지오메트리 ──────────────────────────────────────────────── */
-
-  private buildTrack(ctx: BuildCtx, rng: Random, path: RailPath, mat: THREE.MeshStandardMaterial): void {
-    const parts: THREE.BufferGeometry[] = [];
-    const pos = new THREE.Vector3(), tan = new THREE.Vector3();
-    // 침목 + 레일 토막: 구간마다 한 덩어리로 놓아 곡선을 따라간다
-    for (let s = 0; s < path.total; s += TIE_STEP) {
-      sampleAt(path, s, pos, tan);
-      const yaw = Math.atan2(tan.z, tan.x);
-      const tie = new THREE.BoxGeometry(0.9, 0.16, GAUGE_HALF * 2 + 0.5);
-      xform(tie, { x: pos.x, y: pos.y - 0.16, z: pos.z }, new THREE.Euler(0, -yaw, 0));
-      paint(tie, TIE, 0.09, rng);
-      parts.push(tie);
-      for (const side of [-1, 1]) {
-        const rail = new THREE.BoxGeometry(TIE_STEP + 0.12, 0.14, 0.16);
-        xform(rail, { x: 0, y: 0, z: side * GAUGE_HALF });
-        xform(rail, { x: pos.x, y: pos.y - 0.04, z: pos.z }, new THREE.Euler(0, -yaw, 0));
-        paintGradient(rail, STEEL_DARK, STEEL);
-        parts.push(rail);
-      }
-    }
-    // 교각 (지형까지 내려가는 기둥) — 이것만 콜라이더를 갖는다
-    for (let s = 0; s < path.total; s += PIER_STEP) {
-      sampleAt(path, s, pos, tan);
-      const ground = ctx.terrain.getHeightAt(pos.x, pos.z);
-      const h = Math.max(0.4, pos.y - 0.3 - ground);
-      const yaw = Math.atan2(tan.z, tan.x);
-      const pier = new THREE.BoxGeometry(0.55, h, 0.55);
-      xform(pier, { x: pos.x, y: ground + h / 2, z: pos.z }, new THREE.Euler(0, -yaw, 0));
-      paintGradient(pier, STEEL_DARK, STEEL, ground, ground + h);
-      parts.push(pier);
-      const cap = new THREE.BoxGeometry(1.5, 0.2, GAUGE_HALF * 2 + 0.7);
-      xform(cap, { x: pos.x, y: ground + h + 0.1, z: pos.z }, new THREE.Euler(0, -yaw, 0));
-      paint(cap, STEEL_DARK, 0.05, rng);
-      parts.push(cap);
-      ctx.hash.addBox(new THREE.Vector3(pos.x, ground, pos.z), 0.3, 0.3, yaw, h, 'pier');
-    }
-    /* 2026-09-10 — **걸어 다니는 발판.** 예전에는 교각만 콜라이더였다: 선로는 그림일 뿐이고 침목 사이로
-     * 그대로 빠졌다. 이제 `RAIL_DECK_STEP` 마다 얇은 상자를 이어 붙여 윗면이 레일 상면과 같게 만든다 —
-     * `getSurfaceY` 가 그 윗면을 잡으므로 땅에서 `RAIL_DECK_Y`(0.75 m, `PROP_STEP_UP_MAX` 안) 만큼
-     * 올라서서 선로 위를 걸어 다닌다. 침목마다 걸지 않는 이유는 `rails/model` 의 주석에 있다. */
-    for (let s = 0; s < path.total; s += RAIL_DECK_STEP) {
-      sampleAt(path, s + RAIL_DECK_STEP / 2, pos, tan);
-      const yaw = Math.atan2(tan.z, tan.x);
-      ctx.hash.addBox(
-        new THREE.Vector3(pos.x, pos.y - RAIL_DECK_T, pos.z),
-        RAIL_DECK_STEP / 2 + 0.15, RAIL_DECK_HALF_W, yaw, RAIL_DECK_T, 'rail',
-      );
-    }
-    const geo = merge(parts);
-    this.geos.push(geo);
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.castShadow = true; mesh.receiveShadow = true;
-    mesh.layers.enable(Layers.PROP);
-    mesh.name = 'rail_track';
-    this.group.add(mesh);
+  /* ── 운전실 콘솔 (2026-09-10 — 플랫폼에서 차 안으로) ─────────────────
+   * `Interactable.position` 은 `inst.consolePos` **그 객체**다 — `placeTram` 이 매 프레임 제자리에서
+   * 고치므로 달리는 중에도 조준이 따라붙는다 (객실 컨테이너와 같은 수법). */
+  private registerConsole(game: GameContext, inst: TramInst): void {
+    game.interactables.register({
+      id: TRAM_CONSOLE_ID,
+      position: inst.consolePos,
+      radius: TRAM_CONSOLE.radius,
+      holdTime: TRAM_CONSOLE.holdTime,
+      getPrompt: () => (this.tram && this.tram.def.state !== 'moving' ? '전차 시동 (E)' : null),
+      canInteract: () => !!this.game?.isGameplayActive() && this.tram?.def.state !== 'moving',
+      interact: () => this.requestStart(),
+    });
   }
 
-  /* ── 플랫폼 ───────────────────────────────────────────────────────── */
-
-  private buildPlatform(
-    ctx: BuildCtx, game: GameContext, rng: Random, def: RailPlatformDef,
-    row: ReturnType<typeof structureRow>, groundY: number, deckTop: number, yaw: number,
-    ax: number, az: number, specs: ContainerSpec[],
-  ): void {
-    const halfW = row ? row.halfW : 7, halfD = row ? row.halfD : 4.5;
-    const parts: THREE.BufferGeometry[] = [];
-    const { x: cx, z: cz } = def.position;
-    const deckH = Math.max(0.4, deckTop - groundY);
-
-    // 데크: **뜬 상자 콜라이더**가 아니라 땅에서 올라오는 덩어리다 (밑에 들어갈 일이 없다)
-    const deck = new THREE.BoxGeometry(halfW * 2, deckH, halfD * 2);
-    xform(deck, { x: cx, y: deckTop - deckH / 2, z: cz }, new THREE.Euler(0, -yaw, 0));
-    paintGradient(deck, DECK_DARK, DECK, deckTop - deckH, deckTop);
-    parts.push(deck);
-    ctx.hash.addBox(new THREE.Vector3(cx, deckTop - deckH, cz), halfW, halfD, yaw, deckH, 'platform');
-
-    // 계단 (바깥쪽으로 4단)
-    {
-      const steps = 4;
-      for (let i = 0; i < steps; i++) {
-        const top = groundY + (deckH * (steps - i)) / (steps + 1);
-        const px = cx + ax * (halfD + 0.45 + i * 0.9), pz = cz + az * (halfD + 0.45 + i * 0.9);
-        const h = Math.max(0.12, top - groundY);
-        const g = new THREE.BoxGeometry(4.4, h, 0.9);
-        xform(g, { x: px, y: groundY + h / 2, z: pz }, new THREE.Euler(0, -yaw, 0));
-        paint(g, DECK_DARK, 0.05, rng);
-        parts.push(g);
-        ctx.hash.addBox(new THREE.Vector3(px, groundY, pz), 2.2, 0.45, yaw, h, 'platform');
-      }
-    }
-
-    // 바깥쪽 난간 · 지붕 기둥 (실루엣만 — 카메라를 막지 않는다)
-    for (let i = -1; i <= 1; i += 2) {
-      const g = new THREE.BoxGeometry(0.28, 2.6, 0.28);
-      const px = cx + ax * (halfD - 0.5) + Math.cos(yaw) * (halfW - 0.8) * i;
-      const pz = cz + az * (halfD - 0.5) + Math.sin(yaw) * (halfW - 0.8) * i;
-      xform(g, { x: px, y: deckTop + 1.3, z: pz }, new THREE.Euler(0, -yaw, 0));
-      paint(g, STEEL_DARK, 0.06, rng);
-      parts.push(g);
-    }
-    {
-      const rail = new THREE.BoxGeometry(halfW * 2, 0.14, 0.16);
-      const px = cx + ax * (halfD - 0.25), pz = cz + az * (halfD - 0.25);
-      xform(rail, { x: px, y: deckTop + 1.0, z: pz }, new THREE.Euler(0, -yaw, 0));
-      paint(rail, STEEL, 0.05, rng);
-      parts.push(rail);
-    }
-
-    const geo = merge(parts);
-    this.geos.push(geo);
-    const mesh = new THREE.Mesh(geo, this.mat!);
-    mesh.castShadow = true; mesh.receiveShadow = true;
-    mesh.layers.enable(Layers.PROP);
-    mesh.name = `rail_${def.id}`;
-    this.group.add(mesh);
-
-    // 컨테이너 (데크 위, 선로 반대쪽에 붙여)
-    const count = row ? row.containers : 4;
-    for (let i = 0; i < count; i++) {
-      const t = count === 1 ? 0 : (i / (count - 1) - 0.5) * (halfW * 2 - 2.4);
-      const px = cx + Math.cos(yaw) * t + ax * (halfD - 1.1);
-      const pz = cz + Math.sin(yaw) * t + az * (halfD - 1.1);
-      specs.push({
-        id: `${def.id}_c${i}`, position: new THREE.Vector3(px, deckTop, pz), yaw: yaw + Math.PI / 2,
-        tier: pickTier(row ? row.tiers : [], rng.next()), style: (i % 3) as 0 | 1 | 2,
-        zoneId: def.id, zoneKind: 'platform',
-      });
-    }
-
-    // 콘솔 (전차 시동)
-    {
-      const px = cx + Math.cos(yaw) * (halfW - 1.2) - ax * (halfD - 1.0);
-      const pz = cz + Math.sin(yaw) * (halfW - 1.2) - az * (halfD - 1.0);
-      const post = new THREE.BoxGeometry(0.8, 1.1, 0.5);
-      xform(post, { x: px, y: deckTop + 0.55, z: pz }, new THREE.Euler(0, -yaw, 0));
-      paintGradient(post, STEEL_DARK, STEEL, deckTop, deckTop + 1.1);
-      const cgeo = merge([post]);
-      this.geos.push(cgeo);
-      const cm = new THREE.Mesh(cgeo, this.mat!);
-      cm.castShadow = true;
-      cm.name = `rail_${def.id}_console`;
-      this.group.add(cm);
-      ctx.hash.add(new THREE.Vector3(px, deckTop, pz), 0.5, 1.1, 'console');
-
-      const pos = new THREE.Vector3(px, deckTop, pz);
-      game.interactables.register({
-        id: `rail:${def.id}:console`,
-        position: pos,
-        radius: 2.6,
-        holdTime: TRAM_START_HOLD_S,
-        getPrompt: () => {
-          const st = this.tram?.def.state;
-          if (!st) return null;
-          return st === 'moving' ? null : '전차 시동 (E)';
-        },
-        canInteract: () => !!this.game?.isGameplayActive() && this.tram?.def.state !== 'moving',
-        interact: () => this.requestStart(),
-      });
-    }
+  /* ── 플랫폼 호출 콘솔 (2026-09-10 — 「부르기만」 한다) ────────────────────
+   * 상태를 **프롬프트와 홀드 시간으로** 드러낸다: 부를 수 없는 상태에서는 홀드 0 이라 눌러 보면
+   * 곧바로 거부음 + 이유 토스트다 (지하실 해치와 같은 규약 — 게이지를 다 채운 뒤 거절당하지 않는다).
+   * `canInteract` 를 false 로 내리지 않는 이유가 그것이다: 그러면 `findBest` 가 통째로 걸러
+   * **프롬프트조차 안 뜬다** — 왜 안 오는지 알 길이 없어진다. */
+  private registerCall(game: GameContext, def: RailPlatformDef, pos: THREE.Vector3, index: number): void {
+    const self = this;
+    game.interactables.register({
+      id: callConsoleId(def.id),
+      position: pos,
+      radius: TRAM_CALL_RANGE,
+      get holdTime(): number { return self.callState(index) === 'ready' ? TRAM_CALL_HOLD_S : 0; },
+      getPrompt: () => {
+        switch (self.callState(index)) {
+          case 'ready': return '전차 호출 (E)';
+          case 'here': return '전차 대기 중 — 타서 운전실 콘솔로 출발';
+          default: return '전차 운행 중 — 정차하면 부를 수 있다';
+        }
+      },
+      canInteract: () => !!self.game?.isGameplayActive() && !!self.tram,
+      interact: () => self.requestCall(index),
+    });
   }
 
-  /* ── 전차 ─────────────────────────────────────────────────────────── */
-
-  private buildTram(ctx: BuildCtx, rng: Random, path: RailPath, specs: ContainerSpec[]): void {
-    const row = structureRow('tram');
-    const halfW = row ? row.halfW : 1.9, halfD = row ? row.halfD : 6, wallH = row ? row.wallH : 2.2;
-    const parts: THREE.BufferGeometry[] = [];
-
-    // 바닥 · 대차
-    const floor = new THREE.BoxGeometry(halfW * 2, 0.3, halfD * 2);
-    xform(floor, { x: 0, y: -0.15, z: 0 });
-    paintGradient(floor, STEEL_DARK, STEEL);
-    parts.push(floor);
-    for (const s of [-1, 1]) {
-      const bogie = new THREE.BoxGeometry(halfW * 1.5, 0.4, 1.6);
-      xform(bogie, { x: 0, y: -0.5, z: s * halfD * 0.6 });
-      paint(bogie, STEEL_DARK, 0.06, rng);
-      parts.push(bogie);
-    }
-    /* 옆판 (허리 높이 — 위가 열려 있어 카메라가 갇히지 않는다). 가운데는 **승강구**로 비운다:
-     * 양쪽 다 비우는 이유는 왕복 선로에서 전차가 뒤집혀 달리기 때문이다 (플랫폼이 반대편에 온다). */
-    const doorHalf = TRAM_DOOR_HALF;
-    for (const s of [-1, 1]) {
-      for (const seg of [-1, 1]) {
-        const z0 = seg < 0 ? -halfD : doorHalf, z1 = seg < 0 ? -doorHalf : halfD;
-        const len = z1 - z0;
-        const w = new THREE.BoxGeometry(0.24, 1.05, len);
-        xform(w, { x: s * halfW, y: 0.52, z: (z0 + z1) / 2 });
-        paintGradient(w, STEEL_DARK, STEEL, 0, 1.05);
-        parts.push(w);
-        const cap = new THREE.BoxGeometry(0.34, 0.1, len);
-        xform(cap, { x: s * halfW, y: 1.08, z: (z0 + z1) / 2 });
-        paint(cap, STEEL, 0.05, rng);
-        parts.push(cap);
-      }
-    }
-    // 운전실 (앞쪽 끝) + 전조등
-    {
-      const cab = new THREE.BoxGeometry(halfW * 2, wallH, 1.8);
-      xform(cab, { x: 0, y: wallH / 2, z: halfD - 0.9 });
-      paintGradient(cab, STEEL_DARK, STEEL, 0, wallH);
-      parts.push(cab);
-      const glass = new THREE.BoxGeometry(halfW * 1.5, 0.6, 0.08);
-      xform(glass, { x: 0, y: wallH * 0.66, z: halfD - 0.02 });
-      paint(glass, new THREE.Color(0x1b3742));
-      parts.push(glass);
-    }
-    // 후미 난간
-    {
-      const g = new THREE.BoxGeometry(halfW * 2, 1.05, 0.22);
-      xform(g, { x: 0, y: 0.52, z: -halfD });
-      paintGradient(g, STEEL_DARK, STEEL, 0, 1.05);
-      parts.push(g);
-    }
-
-    const geo = merge(parts);
-    this.geos.push(geo);
-    const mesh = new THREE.Mesh(geo, this.mat!);
-    mesh.castShadow = true; mesh.receiveShadow = true;
-    mesh.layers.enable(Layers.PROP);
-    const root = new THREE.Group();
-    root.name = 'tram';
-    root.add(mesh);
-    this.group.add(root);
-
-    const startS = this.platformS.length > 0 ? this.platformS[0] : 0;
-    const vel = new THREE.Vector3();
-    const def: TramDef = {
-      id: 'tram_rail_0', lineId: 'rail_0',
-      position: new THREE.Vector3(), yaw: 0, state: 'idle', s: startS, dir: 1,
-    };
-    const inst: TramInst = {
-      def, root, parts: [], vel, containers: [], dockTimer: 0, runT: 0,
-      lastDock: this.platformS.length > 0 ? 'plat_0' : null, targetS: startS,
-    };
-
-    /* 콜라이더: 바닥(= 발판) 하나 + 옆판 둘 + 운전실 하나. 전부 `Obstacle.box` 이고 `velocity` 는
-     * **같은 벡터 객체**를 공유한다 — 매 프레임 그 하나만 고치면 발판 질의가 곧바로 새 속도를 본다. */
-    const addPart = (ox: number, oz: number, oy: number, hx: number, hz: number, h: number, kind: string): void => {
-      const entry = ctx.hash.addBox(new THREE.Vector3(0, -9999, 0), hx, hz, 0, h, kind);
-      entry.velocity = vel;
-      inst.parts.push({ entry, ox, oz, oy });
-    };
-    addPart(0, 0, -0.3, halfW, halfD, 0.3, 'tram');                       // 바닥 (윗면 = 전차 바닥)
-    for (const sx of [-1, 1]) for (const seg of [-1, 1]) {
-      const z0 = seg < 0 ? -halfD : TRAM_DOOR_HALF, z1 = seg < 0 ? -TRAM_DOOR_HALF : halfD;
-      addPart(sx * halfW, (z0 + z1) / 2, 0, 0.12, (z1 - z0) / 2, 1.05, 'tram');   // 옆판 (승강구 빼고)
-    }
-    addPart(0, halfD - 0.9, 0, halfW, 0.9, wallH, 'tram');                // 운전실
-    addPart(0, -halfD, 0, halfW, 0.11, 1.05, 'tram');                     // 후미 난간
-
-    // 객실 컨테이너 (움직인다 — `ContainerSpec.dynamic`)
-    const count = row ? row.containers : 3;
-    for (let i = 0; i < count; i++) {
-      const oz = -halfD + 1.6 + (i * (halfD * 2 - 4.2)) / Math.max(1, count - 1);
-      const ox = (i % 2 === 0 ? -1 : 1) * (halfW - 0.8);
-      const spec: ContainerSpec = {
-        id: `tram_c${i}`, position: new THREE.Vector3(), yaw: 0,
-        tier: pickTier(row ? row.tiers : [], rng.next()), style: (i % 3) as 0 | 1 | 2,
-        zoneId: 'tram_rail_0', zoneKind: 'platform', dynamic: true,
-      };
-      specs.push(spec);
-      inst.containers.push({ spec, ox, oz, oy: 0 });
-    }
-
-    this.tram = inst;
-    this.placeTram(inst, path, 0);
-  }
-
-  /** `s` 에서 전차 · 콜라이더 · 컨테이너를 다시 놓는다. `speed` 는 발판 속도(m/s, 0 이면 정지). */
-  private placeTram(inst: TramInst, path: RailPath, speed: number): void {
-    sampleAt(path, inst.def.s, this.sPos, this.sTan);
-    const yaw = Math.atan2(this.sTan.z, this.sTan.x) + (inst.def.dir < 0 ? Math.PI : 0);
-    const fy = this.sPos.y + TRAM_FLOOR_UP;
-    inst.def.position.set(this.sPos.x, fy, this.sPos.z);
-    inst.def.yaw = yaw;
-    inst.root.position.set(this.sPos.x, fy, this.sPos.z);
-    inst.root.rotation.y = -yaw;
-    inst.vel.set(this.sTan.x * speed * inst.def.dir, 0, this.sTan.z * speed * inst.def.dir);
-
-    const c = Math.cos(yaw), s = Math.sin(yaw);
-    // 로컬 X = 폭, 로컬 Z = 길이. 메시는 Euler(0, −yaw, 0) 이라 로컬 +X → 월드 (cos, sin), +Z → (−sin, cos).
-    for (const p of inst.parts) {
-      const wx = this.sPos.x + p.ox * c - p.oz * s;
-      const wz = this.sPos.z + p.ox * s + p.oz * c;
-      this.hash?.move(p.entry, wx, fy + p.oy, wz, yaw);
-    }
-    for (const cc of inst.containers) {
-      cc.spec.position.set(this.sPos.x + cc.ox * c - cc.oz * s, fy + cc.oy, this.sPos.z + cc.ox * s + cc.oz * c);
-      cc.spec.yaw = yaw + (cc.ox < 0 ? 0 : Math.PI);
-    }
+  /** 이 플랫폼의 호출 콘솔이 지금 무엇을 할 수 있나. */
+  private callState(index: number): CallState {
+    const inst = this.tram, path = this.path;
+    if (!inst || !path || index >= this.platformS.length) return 'busy';
+    if (inst.def.state === 'moving') return 'busy';
+    // 정차 판정과 **같은 창**을 쓴다 (`checkDock`) — 눈에 보이게 서 있는데 "부를 수 있다" 고 하지 않는다.
+    if (Math.abs(deltaS(path, inst.def.s, this.platformS[index])) <= DOCK_WINDOW) return 'here';
+    return 'ready';
   }
 
   /* ── update ───────────────────────────────────────────────────────── */
@@ -545,10 +316,14 @@ export class Rails {
         else if (inst.def.s >= path.total && inst.def.dir === 1) inst.def.dir = -1;
       }
     } else if (inst.def.state === 'docked') {
+      /* 2026-09-10 — **자동 재출발은 없다** (사용자 보고: 콘솔을 만지지 않았는데 다시 떠났다).
+       * `TRAM_DOCK_S` 는 이제 "정차 안내" 가 떠 있는 시간일 뿐이고, 그 뒤에는 `idle` 로 내려앉아
+       * **운전실 콘솔이 다시 눌릴 때까지 서 있는다.** 두 상태 모두 `state !== 'moving'` 이라
+       * 콘솔은 어느 쪽에서든 눌린다. */
       inst.dockTimer -= dt;
       if (host && inst.dockTimer <= 0) {
-        inst.def.state = 'moving';
-        this.beginRun(inst);
+        inst.dockTimer = 0;
+        inst.def.state = 'idle';
         ctx?.bus.emit('rail:tramDocked', { tramId: inst.def.id, platformId: inst.lastDock, docked: false });
         this.broadcastState();
       }
@@ -562,7 +337,8 @@ export class Rails {
       else inst.def.s = wrapS(path, inst.def.s + d * Math.min(1, dt * 4));
     }
 
-    this.placeTram(inst, path, speed);
+    placeTram(inst, path, speed, this.hash);
+    updateTramHit(ctx, inst, speed, dt);
 
     if (host && ctx?.isMultiplayer && ctx.net) {
       this.netTimer -= dt;
@@ -604,6 +380,7 @@ export class Rails {
       inst.def.s = this.platformS[i];
       inst.def.state = 'docked';
       inst.dockTimer = TRAM_DOCK_S;
+      inst.runT = 0;
       inst.lastDock = id;
       ctx?.bus.emit('rail:tramDocked', { tramId: inst.def.id, platformId: id, docked: true });
       ctx?.bus.emit('audio:play', { id: 'tram_dock', position: inst.def.position });
@@ -623,10 +400,76 @@ export class Rails {
     this.applyStart(net?.localId ?? null);
   }
 
-  private applyStart(by: PeerId | null): void {
+  /**
+   * **호출** — 이 플랫폼을 목적지로 삼아 출발시킨다 (2026-09-10).
+   *
+   * 새 경로를 만들지 않는다: 목적지 쪽으로 방향만 정하고 그대로 `applyStart` 로 들어가므로
+   * 알림 → `TRAM_START_DELAY_S` 대기 → `TRAM_ACCEL_S` 가속 → `checkDock` → `docked` → `idle` 까지가
+   * 시동 콘솔과 **완전히 같은 절차**다. 그래서 호출로 온 전차도 도착하면 그 자리에 선다.
+   *
+   * **중복 호출은 거부한다** (무시도 예약도 아니다). 예약해 두면 누른 사람은 왜 안 오는지 모른 채
+   * 기다리고, 도착한 전차가 아무도 안 만졌는데 다시 떠나는 2026-09-10 의 그 버그가 되살아난다.
+   * 달리는 중에는 어차피 `applyStart` 가 거절하므로, 거부를 **눌리는 순간** 보여 주는 편이 정직하다 —
+   * 정차하면 곧바로 다시 부를 수 있다.
+   */
+  private requestCall(index: number): void {
+    const ctx = this.game;
+    const inst = this.tram;
+    if (!ctx || !inst) return;
+    const state = this.callState(index);
+    if (state !== 'ready') {
+      const at = this.callPos[index] ?? inst.def.position;
+      ctx.bus.emit('audio:play', { id: 'keycard_deny', position: at });
+      ctx.bus.emit('ui:notify', {
+        text: state === 'here' ? '전차가 이미 이 승강장에 있다' : '전차가 운행 중이다 — 정차한 뒤에 다시 부른다',
+        kind: 'warning', duration: 2.2,
+      });
+      return;
+    }
+    const net = ctx.net;
+    if (ctx.isMultiplayer && net && !net.isHost) {
+      /* 와이어에는 목적지 칸이 없다 (`TramRequest` 는 계약이고 이 배치는 `src/shared` 를 건드리지 않는다).
+       * 호스트가 **요청자의 위치**에서 목적지를 읽는다 — `targetSFor`. */
+      net.send({ t: 'tramq', ev: 'start', id: inst.def.id }, 'host');
+      ctx.bus.emit('ui:notify', { text: '전차를 호출했다', kind: 'info', duration: 2 });
+      return;
+    }
+    this.applyStart(net?.localId ?? null, this.platformS[index]);
+  }
+
+  /**
+   * 요청자에게 **가장 가까운 플랫폼**의 진행거리. 호출의 목적지를 와이어 없이 푸는 자리다.
+   * 운전실 콘솔을 누른 사람은 정차한 전차 안에 있으므로 그 전차가 선 플랫폼이 뽑히고, 그러면
+   * 목적지 = 지금 자리라 방향이 그대로 유지된다 (= 예전 동작). 위치를 모르면 null 이다.
+   */
+  private targetSFor(peer: PeerId): number | null {
+    const net = this.game?.net;
+    const line = this.line;
+    if (!net || !line || this.platformS.length === 0) return null;
+    const ref = net.getRemotePlayers().find((r) => r.id === peer);
+    if (!ref) return null;
+    let best = -1, bestD = Infinity;
+    line.platforms.forEach((p, i) => {
+      const d = Math.hypot(p.position.x - ref.position.x, p.position.z - ref.position.z);
+      if (d < bestD) { bestD = d; best = i; }
+    });
+    return best >= 0 ? this.platformS[best] : null;
+  }
+
+  /**
+   * @param targetS 목적지로 삼을 진행거리 (호출). null 이면 지금 방향 그대로 (시동 콘솔).
+   *   **`loop` 에서는 방향을 건드리지 않는다** — `TramDef.dir` 은 순환 선로에서 언제나 +1 이라고
+   *   계약(`shared/types`)에 적혀 있고, 플랫폼이 둘뿐이라 그대로 돌아도 부른 쪽에 닿는다.
+   */
+  private applyStart(by: PeerId | null, targetS: number | null = null): void {
     const ctx = this.game;
     const inst = this.tram;
     if (!ctx || !inst || inst.def.state === 'moving') return;
+    const path = this.path;
+    if (targetS !== null && path && !path.loop) {
+      const d = targetS - inst.def.s;
+      if (Math.abs(d) > 0.01) inst.def.dir = d > 0 ? 1 : -1;
+    }
     inst.def.state = 'moving';
     inst.dockTimer = 0;
     this.beginRun(inst);
@@ -665,6 +508,7 @@ export class Rails {
       this.beginRun(inst);
       this.game?.bus.emit('audio:play', { id: 'tram_start', position: inst.def.position });
     }
+    if (prev === 'moving' && inst.def.state !== 'moving') inst.runT = 0;
   }
 
   private ensureNet(): void {
@@ -681,7 +525,8 @@ export class Rails {
       net.onMessage('tramq', (m: TramRequest, from) => {
         if (!ctx.net?.isHost) return;
         if (m.ev === 'sync') { this.sendSync(from); return; }
-        if (this.tram && m.id === this.tram.def.id) this.applyStart(from);
+        // 시동이든 호출이든 같은 요청이다 — 목적지는 요청자가 서 있는 자리에서 읽는다 (`targetSFor`).
+        if (this.tram && m.id === this.tram.def.id) this.applyStart(from, this.targetSFor(from));
       }),
       net.onMessage('flow', (m, from) => { if (m.ev === 'rejoined' && ctx.net?.isHost) this.sendSync(from); }),
       ctx.bus.on('net:hostChanged', ({ isLocalHost }) => { if (!isLocalHost && this.built) this.requestSync(); }),

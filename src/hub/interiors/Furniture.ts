@@ -161,6 +161,21 @@ const BUILDERS: Record<FurnitureModelKind, Builder> = {
     b.boxB(0.26, 0.1, 0.2, w * 0.3, top, 0.08, M.hullLight);
   }),
   /**
+   * 정제 작업대 (2026-09-10): 상위 재료 전용 작업대. 나머지 넷이 "물건을 조립하는 책상" 이라면 이것은
+   * **용해로**다 — 왼쪽에 호박색으로 달아오른 도가니, 가운데 주형 트레이(식어 가는 잉곳 세 개), 오른쪽에
+   * 권취 드럼(케이블 · 직조포). 실루엣만으로 다른 작업대와 구분되게 도가니를 상판 위로 크게 올렸다.
+   */
+  bench_refine: (b, w, d, h, a, lv) => benchBody(b, w, d, h, a, lv, (b) => {
+    const top = h - 0.02;
+    b.cyl(0.17, 0.21, 0.34, 12, -w * 0.3, top + 0.17, 0.02, M.hullDark);                        // crucible shell
+    b.cyl(0.14, 0.14, 0.05, 12, -w * 0.3, top + 0.33, 0.02, M.stripAmber);                      // molten pool
+    b.cyl(0.03, 0.03, 0.42, 8, -w * 0.3, top + 0.55, 0.02, M.gunmetal);                         // extractor pipe
+    b.boxB(0.46, 0.07, 0.26, w * 0.02, top, 0.06, M.crateDark);                                 // mould tray
+    for (let k = 0; k < 3; k++) b.box(0.11, 0.06, 0.16, w * 0.02 - 0.14 + k * 0.14, top + 0.09, 0.06, k === 0 ? M.stripAmber : M.trim);
+    b.cyl(0.11, 0.11, 0.26, 10, w * 0.3, top + 0.11, 0.08, M.fabric, 0, 0, Math.PI / 2);        // winding drum
+    b.box(0.04, 0.04, 0.3, w * 0.3, top + 0.11, 0.08, M.gunmetal);                              // drum axle
+  }),
+  /**
    * 정비 벤치 (Phase 8): the old cockpit `Parts.workbench` silhouette at furniture scale — steel table with a
    * drawer block, a vise on the left, a parts tray and the wall tool board that `benchBody` already draws.
    */

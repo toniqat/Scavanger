@@ -15,7 +15,9 @@
 import * as THREE from 'three';
 import type { Random } from '@/shared';
 import { type BuildCtx, merge, paint, paintGradient, xform } from '../../build';
-import { DOOR_W, PIT_BLEND, SLAB_T, STAIR_HALF, WALL_T } from '../model';
+import {
+  DOOR_W, FLOOR_LIP, FLOOR_OVERHANG, SLAB_T, STAIR_HALF, STAIR_RISE_MAX, STAIR_TREAD_MIN, WALL_T,
+} from '../model';
 
 /** 구조물 한 채를 세우는 데 필요한 부지 정보 (`layout.StructureSite` 에서 옮겨 온다). */
 export interface BuildingPlan {
@@ -39,6 +41,29 @@ export interface BuildingOut {
   hatch: (Spot & { halfX: number; halfZ: number }) | null;
   /** 지하실 바닥 높이 (지하실이 없으면 y0). */
   basementY: number;
+}
+
+/**
+ * 지상층 바닥판 한 조각 — **그리는 판과 서는 판이 같다** (2026-09-10).
+ *
+ * 콜라이더 윗면은 정확히 `y0`, 그린 윗면은 `y0 + FLOOR_LIP` 이다 (평탄한 패드 위에서 지형과 z-fighting 이
+ * 나지 않게 2 cm 만 띄운다). 밑면은 `y0 − SLAB_T` 라 지하실에서는 그대로 천장이 된다 —
+ * 예전의 "그린 바닥 조각(콜라이더 없음) + 천장 슬래브(콜라이더만 좁게)" 두 겹을 하나로 합친 것이고,
+ * 그 두 겹의 넓이가 서로 달랐던 것이 문턱 버그의 원인이었다 (`model.FLOOR_OVERHANG` 주석).
+ */
+function floorPlate(
+  ctx: BuildCtx, parts: THREE.BufferGeometry[], rng: Random,
+  rot: (lx: number, lz: number) => [number, number], yaw: number, y0: number,
+  lx0: number, lx1: number, lz0: number, lz1: number, color: THREE.Color,
+): void {
+  if (lx1 - lx0 < 0.3 || lz1 - lz0 < 0.3) return;
+  const hx = (lx1 - lx0) / 2, hz = (lz1 - lz0) / 2;
+  const [wx, wz] = rot((lx0 + lx1) / 2, (lz0 + lz1) / 2);
+  const g = new THREE.BoxGeometry(hx * 2, SLAB_T, hz * 2);
+  xform(g, { x: wx, y: y0 + FLOOR_LIP - SLAB_T / 2, z: wz }, new THREE.Euler(0, -yaw, 0));
+  paint(g, color, 0.05, rng);
+  parts.push(g);
+  ctx.hash.addBox(new THREE.Vector3(wx, y0 - SLAB_T, wz), hx, hz, yaw, SLAB_T, 'slab');
 }
 
 const CONCRETE = new THREE.Color(0x7a7770);
@@ -121,7 +146,11 @@ export function buildBuilding(ctx: BuildCtx, plan: BuildingPlan, rng: Random, la
   /* ── 계단 구멍 (지하실이 있을 때). 소품 · 컨테이너보다 **먼저** 정해야 그 위에 아무것도 서지 않는다 —
    *    구멍 위는 바닥이 없으므로 거기 놓인 것은 허공에 뜬다. 뒤쪽 방(격벽 너머)에 두어 정문에서 바로 보이지 않게. */
   const pit = plan.pit;
-  const run = pit ? Math.max(3.0, pit.depth * 1.25) : 0;
+  /* 계단 치수를 **먼저** 푼다 — 구멍(= 해치 = 바닥판에 뚫는 자리)의 길이가 계단 길이 그대로여야 한다.
+   * 단 높이는 `STAIR_RISE_MAX` 이하, 디딤폭은 `STAIR_TREAD_MIN` 이상 (둘 다 `../model` 의 주석 참고). */
+  const stairSteps = pit ? Math.max(3, Math.ceil(pit.depth / STAIR_RISE_MAX)) : 0;
+  const stairTread = pit ? Math.max(STAIR_TREAD_MIN, pit.depth / stairSteps) : 0;
+  const run = pit ? stairSteps * stairTread : 0;
   const runHalf = run / 2;
   const openZ = pit ? Math.min(pit.halfZ - runHalf - 0.4, Math.max(partZ + runHalf + 1.2, 0)) : 0;
   const openX = pit ? Math.max(-pit.halfX + STAIR_HALF + 0.3, Math.min(pit.halfX - STAIR_HALF - 0.3, rng.range(-2, 2))) : 0;
@@ -129,33 +158,29 @@ export function buildBuilding(ctx: BuildCtx, plan: BuildingPlan, rng: Random, la
   const overHole = (lx: number, lz: number, pad = 0): boolean =>
     !!pit && Math.abs(lx - openX) < STAIR_HALF + pad && Math.abs(lz - openZ) < runHalf + pad;
 
-  /* ── 지상층 바닥 ───────────────────────────────────────────────────────
-   * 2026-09-10 — **계단 구멍을 도려낸 네 조각**이다. 예전에는 발자국 전체를 덮는 판 하나였다:
-   * 콜라이더가 없으니 걸어 내려갈 수는 있었지만 **눈에는 지하실 입구가 통째로 막혀 보였다** —
-   * 해치를 열어도 바닥이 그대로 깔려 있으니 "열린 게 맞나?" 가 됐다 (전진기지 · 연구실 공통).
-   * 그래서 천장 슬래브(`slab`)와 **똑같이** 구멍 둘레만 남긴다. 이 조각들은 예전처럼 콜라이더가 없다 —
-   * 걸어 다니는 바닥은 지형이고, 지하실 위를 덮는 것은 아래의 슬래브 상자다.
-   * (그래서 이 블록은 구멍 자리 `openX/openZ` 가 정해진 **뒤**로 내려왔다.) */
+  /* ── 지상층 바닥판 ─────────────────────────────────────────────────────
+   * 2026-09-10 — **계단 구멍을 도려낸 네 조각**이고, 이 판이 곧 **걸어 다니는 바닥이자 지하실 천장**이다.
+   *
+   * 예전에는 두 겹이었다: 그린 바닥 조각(발자국 전체, 콜라이더 없음)과 천장 슬래브(구덩이 + `PIT_BLEND`
+   * 만큼만, 콜라이더 있음). 넓이가 달라서 **그 사이의 띠에서는 지형을 밟았는데**, 지하실 구덩이의 페더가
+   * 1.6 m 인데 지형 격자가 2 m 라 그 띠의 지형이 바닥보다 최대 1 m 넘게 꺼져 있었다 — 문으로 들어서면
+   * 도랑에 빠지고, 바닥까지의 턱이 `PROP_STEP_UP_MAX`(0.9) 를 넘어 **점프해야만** 들어가졌다.
+   * 이제 판 하나가 발자국 + `FLOOR_OVERHANG` 까지 덮고 윗면이 정확히 `y0` 다 (`floorPlate`).
+   * 문 · 무너진 틈 어디로 들어와도 문턱이 없고, 계단 구멍만 뚫려 있다.
+   * (그래서 이 블록은 구멍 자리 `openX/openZ` 가 정해진 **뒤**에 있다.) */
   {
-    const fx = halfW + 0.3, fz = halfD + 0.3;
-    const floorPiece = (lx0: number, lx1: number, lz0: number, lz1: number): void => {
-      if (lx1 - lx0 < 0.3 || lz1 - lz0 < 0.3) return;
-      const hx = (lx1 - lx0) / 2, hz = (lz1 - lz0) / 2;
-      const [wx, wz] = rot((lx0 + lx1) / 2, (lz0 + lz1) / 2);
-      const g = new THREE.BoxGeometry(hx * 2, 0.24, hz * 2);
-      xform(g, { x: wx, y: y0 - 0.1, z: wz }, new THREE.Euler(0, -yaw, 0));
-      paint(g, CONCRETE_DARK, 0.07, rng);
-      parts.push(g);
-    };
+    const fx = halfW + FLOOR_OVERHANG, fz = halfD + FLOOR_OVERHANG;
+    const piece = (lx0: number, lx1: number, lz0: number, lz1: number): void =>
+      floorPlate(ctx, parts, rng, rot, yaw, y0, lx0, lx1, lz0, lz1, CONCRETE_DARK);
     if (!pit) {
-      floorPiece(-fx, fx, -fz, fz);
+      piece(-fx, fx, -fz, fz);
     } else {
       const hx0 = openX - STAIR_HALF, hx1 = openX + STAIR_HALF;
       const hz0 = openZ - runHalf, hz1 = openZ + runHalf;
-      floorPiece(-fx, fx, -fz, hz0);
-      floorPiece(-fx, fx, hz1, fz);
-      floorPiece(-fx, hx0, hz0, hz1);
-      floorPiece(hx1, fx, hz0, hz1);
+      piece(-fx, fx, -fz, hz0);
+      piece(-fx, fx, hz1, fz);
+      piece(-fx, hx0, hz0, hz1);
+      piece(hx1, fx, hz0, hz1);
     }
   }
 
@@ -263,32 +288,23 @@ export function buildBuilding(ctx: BuildCtx, plan: BuildingPlan, rng: Random, la
       ctx.hash.addBox(new THREE.Vector3(px, basementY, pz), len, 0.15, byaw, pit.depth, 'building');
     }
 
-    /* 천장 슬래브 = 지상층 바닥. **뜬 상자 콜라이더**라 윗면(= y0)은 걸어 다니고 밑은 지하실 천장이다
-     * (`WorldSystem.resolveCollision` 이 `BOX_HEADROOM` 위의 상자를 밀어내지 않는다). 계단 구멍만 뺀다.
-     * 슬래브는 구덩이보다 `PIT_BLEND` 만큼 **더 넓다** — 지형이 그 폭에 걸쳐 내려가므로 딱 맞게 덮으면
-     * 구덩이 둘레에 도랑이 남아 실내를 걷다 빠진다. */
-    const slab = (lx0: number, lx1: number, lz0: number, lz1: number): void => {
-      if (lx1 - lx0 < 0.3 || lz1 - lz0 < 0.3) return;
-      const hx = (lx1 - lx0) / 2, hz = (lz1 - lz0) / 2;
-      const [wx, wz] = rot((lx0 + lx1) / 2, (lz0 + lz1) / 2);
-      const g = new THREE.BoxGeometry(hx * 2, SLAB_T, hz * 2);
-      xform(g, { x: wx, y: y0 - SLAB_T / 2, z: wz }, new THREE.Euler(0, -yaw, 0));
-      paint(g, CONCRETE_DARK, 0.05, rng);
-      parts.push(g);
-      ctx.hash.addBox(new THREE.Vector3(wx, y0 - SLAB_T, wz), hx, hz, yaw, SLAB_T, 'slab');
-    };
-    const ox0 = openX - STAIR_HALF, ox1 = openX + STAIR_HALF;
-    const oz0 = openZ - runHalf, oz1 = openZ + runHalf;
-    const sx = Math.min(halfW - 0.5, pit.halfX + PIT_BLEND), sz = Math.min(halfD - 0.5, pit.halfZ + PIT_BLEND);
-    slab(-sx, sx, -sz, oz0);
-    slab(-sx, sx, oz1, sz);
-    slab(-sx, ox0, oz0, oz1);
-    slab(ox1, sx, oz0, oz1);
+    /* 2026-09-10 — 천장 슬래브는 따로 없다. 위의 **지상층 바닥판**(`floorPlate`)이 밑면 `y0 − SLAB_T` 짜리
+     * 뜬 상자라 그대로 지하실 천장이다 (`WorldSystem.resolveCollision` 이 `BOX_HEADROOM` 위의 상자를
+     * 밀어내지 않으므로 지하실에서 천장에 끼이지 않는다). 예전에는 이 자리에서 구덩이 + `PIT_BLEND` 만큼만
+     * 덮는 두 번째 판을 따로 깔았고, 그 판과 그린 바닥의 넓이 차이가 문턱 버그였다. */
+    const oz0 = openZ - runHalf;
 
-    // 계단: 구멍 안에서 +Z 로 내려간다
+    /* 계단: 구멍 안에서 +Z 로 내려간다. 단마다 **밑면이 지하실 바닥인 상자**를 깐다.
+     *
+     * 2026-09-10 — 예전에는 이 계단을 걸어 내려갈 수 없었다. 한 단의 디딤폭(`tread`)이
+     * `PLAYER_RADIUS`(0.45) 보다 좁아서, 어느 단에 서 있든 **바로 윗단이 늘 몸에 겹쳤다.**
+     * `resolveCollision` 이 그 윗단을 벽으로 보고 매 프레임 아래로 밀어내니 계단을 그대로 미끄러져
+     * 떨어지고, 올라갈 때는 다음 단에 발을 올리기 전에 밀려나 영영 못 올라갔다.
+     * 고친 곳은 두 군데다 — ① `WorldSystem.resolveCollision` 이 `PROP_STEP_UP_MAX` 안의 상자 윗면을
+     * 벽으로 보지 않는다(= 올라설 수 있는 단이다), ② 여기서 디딤폭을 `STAIR_TREAD_MIN` 이상으로 잡아
+     * 한 단이 몸통보다 좁아지지 않게 한다. 단 높이는 `STAIR_RISE_MAX`(≤ `PROP_STEP_UP_MAX`) 로 제한한다. */
     {
-      const steps = Math.max(6, Math.round(pit.depth / 0.28));
-      const tread = run / steps;
+      const steps = stairSteps, tread = stairTread;
       for (let i = 0; i < steps; i++) {
         const top = y0 - (pit.depth * (i + 1)) / steps;
         const lz = oz0 + tread * (i + 0.5);
@@ -343,13 +359,11 @@ export function buildWreck(ctx: BuildCtx, plan: BuildingPlan, rng: Random): Buil
   const cos = Math.cos(yaw), sin = Math.sin(yaw);
   const rot = (lx: number, lz: number): [number, number] => [cx + lx * cos - lz * sin, cz + lx * sin + lz * cos];
 
-  // 바닥 (동체 데크)
-  {
-    const g = new THREE.BoxGeometry(halfW * 2, 0.26, halfD * 2);
-    xform(g, { x: cx, y: y0 - 0.06, z: cz }, new THREE.Euler(0, -yaw, 0));
-    paint(g, METAL_DARK, 0.08, rng);
-    parts.push(g);
-  }
+  /* 바닥 (동체 데크). 2026-09-10 — 건물과 같은 `floorPlate` 다: **그린 판이 곧 서는 판**이고 윗면이
+   * 정확히 `y0` 라 찢긴 옆구리 · 후미 램프 어느 쪽으로 들어와도 문턱이 없다 (예전에는 콜라이더가 없어
+   * 지형을 밟았다 — 평탄한 패드에서는 우연히 맞았을 뿐이다). */
+  floorPlate(ctx, parts, rng, rot, yaw, y0,
+    -(halfW + FLOOR_OVERHANG), halfW + FLOOR_OVERHANG, -(halfD + FLOOR_OVERHANG), halfD + FLOOR_OVERHANG, METAL_DARK);
 
   // 옆판 (앞으로 갈수록 좁아진다) — 세 토막씩
   for (const s of [-1, 1]) {
@@ -372,7 +386,6 @@ export function buildWreck(ctx: BuildCtx, plan: BuildingPlan, rng: Random): Buil
 
   // 후미 격벽 (열린 램프)
   {
-    const [wx, wz] = rot(0, -halfD);
     for (const s of [-1, 1]) {
       const seg = halfW - DOOR_W / 2;
       if (seg < 0.4) break;
@@ -383,8 +396,10 @@ export function buildWreck(ctx: BuildCtx, plan: BuildingPlan, rng: Random): Buil
       parts.push(g);
       ctx.hash.addBox(new THREE.Vector3(px, y0, pz), seg / 2, 0.2, yaw, wallH, 'building');
     }
+    // 램프는 바닥판(= `halfD + FLOOR_OVERHANG`) **바깥**에 놓는다 — 안쪽에 두면 판 밑에 묻혀 안 보인다.
+    const [rx, rz] = rot(0, -(halfD + FLOOR_OVERHANG + 1.2));
     const ramp = new THREE.BoxGeometry(DOOR_W, 0.16, 2.6);
-    xform(ramp, { x: wx, y: y0 - 0.2, z: wz }, new THREE.Euler(0.16, -yaw, 0));
+    xform(ramp, { x: rx, y: y0 - 0.16, z: rz }, new THREE.Euler(0.16, -yaw, 0));
     paint(ramp, METAL, 0.06, rng);
     parts.push(ramp);
   }

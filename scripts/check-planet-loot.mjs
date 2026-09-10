@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 /**
- * 행성별 무기 등급 드롭률 표 — `node scripts/check-planet-loot.mjs`.
+ * 행성별 드롭률 표 — `node scripts/check-planet-loot.mjs`.
+ *
+ * `data/planet_loot.csv` 의 **두 축**을 각각 잰다:
+ *   ① g1..g5 · uniqueMul — 총기 등급 곡선
+ *   ② rareMul · epicMul · legMul (2026-09-10) — 총기가 아닌 것들의 희귀도
  *
  * Vite 를 헤드리스로 띄워 게임이 실제로 쓰는 `src/items/Loot.ts` 를 그대로 불러 상자를 굴린다
  * (브라우저도 GPU 도 필요 없다). 행성 1..5 × 상자 티어 1..4 로 각 ROLLS 회 굴려
@@ -43,7 +47,7 @@ const items = await server.ssrLoadModule('/src/items/index.ts');
 const tables = await server.ssrLoadModule('/src/shared/data/tables.ts');
 
 const { Random, PLANET_IDS, planetTier, planetLabel } = shared;
-const { LootService, ITEM_DEF_MAP, WEAPON_DEF_MAP, gradeOf, isUniqueWeapon } = items;
+const { LootService, ITEM_DEF_MAP, WEAPON_DEF_MAP, PLANET_GRADE_CURVES, gradeOf, isUniqueWeapon } = items;
 const loot = new LootService();
 
 const issues = tables.dataIssues();
@@ -124,6 +128,61 @@ check(at(5)[4] > at(4)[4] && at(5)[4] < 0.20, `5번 행성: P(V) < 20 % — ${pc
 for (const w of weighted) {
   const low = (w.avg[0] + w.avg[1]) / w.avg.reduce((a, b) => a + b, 0);
   check(low >= 0.25, `${w.rank}번 행성: 나온 무기의 25 % 이상이 I · II — ${(low * 100).toFixed(1)} %`);
+}
+
+/* ── 총기가 아닌 것들의 희귀도 (rareMul · epicMul · legMul, 2026-09-10) ──────────
+ * 이 축은 g1..g5 와 **별개**다 — 방탄복 · 가방 · 부착물 · 임플란트 · 소모품 · 재료 · 귀중품이 대상이고
+ * 총기는 등급 곡선이 그 위를 덮어쓰므로 여기 표에서 아예 뺀다.
+ * rank 1 과 rank 2 는 티어 표도 uniqueMul(0)도 같고 **오직 이 배수만 다르므로** 둘의 비가 곧 배수의 효과다. */
+console.log('');
+console.log('총기가 아닌 것들의 희귀도 (data/planet_loot.csv 의 rareMul · epicMul · legMul)');
+console.log('  순번 · 행성        |     일반 |     고급 |     희귀 |     서사 |     전설 | 희귀 이상');
+
+const HI_RARITIES = new Set(['rare', 'epic', 'legendary']);
+const RARITY_ORDER = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
+
+/** 행성 하나: 맵 티어 분포로 가중 평균한 "총기가 아닌 아이템" 의 희귀도 비율. */
+function nonWeaponRarity(planet) {
+  const avg = Object.fromEntries(RARITY_ORDER.map((r) => [r, 0]));
+  for (const tier of [1, 2, 3, 4]) {
+    const n = Object.fromEntries(RARITY_ORDER.map((r) => [r, 0]));
+    let total = 0;
+    for (let i = 0; i < ROLLS; i++) {
+      for (const it of loot.rollCrateOn(tier, new Random((i * 2654435761 + tier * 7919 + 1) >>> 0), planet)) {
+        const def = ITEM_DEF_MAP.get(it.defId);
+        if (!def || (def.weaponId && WEAPON_DEF_MAP.get(def.weaponId))) continue;   // 총기는 g1..g5 축이다
+        n[def.rarity]++; total++;
+      }
+    }
+    const share = TIER_MIX[tier] / MIX_TOTAL;
+    for (const r of RARITY_ORDER) avg[r] += (n[r] / (total || 1)) * share;
+  }
+  const sum = RARITY_ORDER.reduce((a, r) => a + avg[r], 0) || 1;
+  for (const r of RARITY_ORDER) avg[r] /= sum;
+  return avg;
+}
+
+const rarityByRank = [];
+for (const planet of PLANET_IDS) {
+  const rank = planetTier(planet);
+  const a = nonWeaponRarity(planet);
+  const hi = RARITY_ORDER.filter((r) => HI_RARITIES.has(r)).reduce((s, r) => s + a[r], 0);
+  rarityByRank.push({ rank, hi, a });
+  console.log(`  ${rank}번 ${planetLabel(planet).padEnd(12)} |${RARITY_ORDER.map((r) => pct(a[r])).join(' |')} |${pct(hi)}`);
+}
+const hiAt = (rank) => rarityByRank.find((r) => r.rank === rank).hi;
+// 1번과 2번은 티어 표 · uniqueMul 이 같고 배수만 다르다 — 그 비가 곧 이 기능이 하는 일이다.
+// 가중치를 절반으로 깎아도 등급마다 아이템 **종 수**가 달라 실제 비율은 0.6 배 언저리가 된다 (csv 주석 참고).
+{
+  const ratio = hiAt(1) / hiAt(2);
+  check(ratio > 0.45 && ratio < 0.8,
+    `1번 행성의 희귀 이상 비율이 2번의 0.45~0.8 배 — ${pct(hiAt(1)).trim()} / ${pct(hiAt(2)).trim()} = ${ratio.toFixed(3)} 배`);
+}
+// 2~5번은 배수가 전부 1 이라야 한다 — 1 이면 코드가 조정 자체를 우회하므로 "예전과 한 톨도 안 바뀐다" 가 성립한다.
+for (const curve of PLANET_GRADE_CURVES) {
+  if (curve.rank === 1) continue;
+  check(curve.rarityMulIdentity,
+    `${curve.rank}번 행성: 희귀도 배수가 전부 1 (예전 결과 그대로) — rare ${curve.rarityMul.rare} · epic ${curve.rarityMul.epic} · leg ${curve.rarityMul.legendary}`);
 }
 
 /* ── 시체(로그 · 보스)의 무기 등급 상한 ─────────────────────────────────────────── */

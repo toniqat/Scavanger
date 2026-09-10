@@ -6,7 +6,7 @@
  * (그러지 않으면 `InventorySystem` ↔ `parts/*` 순환 import 가 된다).
  * `InventorySystem.ts` 가 `export * from './model'` 로 그대로 재수출하므로 기존 import 경로는 전부 그대로 동작한다.
  */
-import type { CraftIngredient, CraftRecipe, DurabilityInfo, ItemDef, ItemInstance, LoadoutSlot, WeaponSlot, WorkbenchKind } from '@/shared';
+import type { CraftIngredient, CraftRecipe, DurabilityBucketInfo, DurabilityInfo, ItemDef, ItemInstance, LoadoutSlot, WeaponSlot, WorkbenchKind } from '@/shared';
 import { isWeaponItemDef } from '@/items';
 import type { LoadoutSave } from './Loadout';
 /* ── UI ↔ system vocabulary ─────────────────────────────────────────────── */
@@ -51,11 +51,25 @@ export type MissionOutcome = 'none' | 'complete' | 'over';
 export type ActiveBench = { kind: WorkbenchKind; level: number };
 /** A craft-panel row: `locked` = the recipe belongs to this bench but needs a higher bench level. */
 export type BenchRecipeRow = { recipe: CraftRecipe; locked: boolean };
-/** A repair-list row of the bench panel (`where` = loadout slot, null = in the bag grid). */
+/** 재료 한 줄 + 지금 가진 수량 (수리 목록 · 우클릭 수리 readout). */
+export type RepairCostRow = { defId: string; qty: number; name: string; have: number };
+/**
+ * A repair-list row of the bench panel (`where` = loadout slot, null = in the bag grid).
+ *
+ * 2026-09-10 — `bucket` 이 붙었다. 수리 재료는 이제 **제작 재료 × 남은 내구도 구간의 배수**라서
+ * "왜 이만큼 드는가" 를 말해 주는 것이 구간이다 (`ctx.loot.durabilityBucketInfo`).
+ */
 export type BenchRepairRow = {
   uid: string; item: ItemInstance; def: ItemDef; where: LoadoutSlot | null; dur: DurabilityInfo;
-  cost: { defId: string; qty: number; name: string; have: number }[]; short: boolean;
+  bucket: DurabilityBucketInfo;
+  cost: RepairCostRow[]; short: boolean;
 };
+/**
+ * `InventorySystem.repairInfo` 의 반환값 (우클릭 메뉴의 `수리` 항목).
+ * `bucket` 은 **제작 재료 규칙으로 값이 나왔을 때만** 채워진다 — 회복 스프레이의 캔 · 소독약은 게이지
+ * 비율로 정해지므로(`sprayRepairCost`) 구간 배수로 설명하면 거짓말이 된다.
+ */
+export type RepairInfo = { cost: RepairCostRow[]; short: boolean; bucket: DurabilityBucketInfo | null };
 
 export const AUTO_CLOSE_DISTANCE = 6;
 /** `container:searchProgress` rate cap (s). */

@@ -1,0 +1,26 @@
+# 분해(解体) 표 — 2026-09-10 신규. 예전에는 recipes.csv 의 `group,salvage` 줄이었다.
+# 아이템 우클릭 → `분해` 로만 열린다 (제작 목록에는 뜨지 않는다).
+#
+# 여기 적는 것은 **손으로 정한 분해**뿐이다. 무기 25종 · 방탄복 5벌 · 가방 8종처럼
+# 제작 레시피가 있는 장비는 이 파일에 없다 — src/items/Salvage.ts 가 `data/recipes.csv` 의
+# **제작 재료**에서 자동으로 만든다 (제작 재료 × SALVAGE_YIELD_BY_DURABILITY, 내림).
+# 그래서 총을 뜯으면 폐금속만이 아니라 그 등급이 요구한 상위 재료도 같이 나온다.
+#
+# id           코드가 찾는 값. `break_` 로 시작해야 분해로 취급된다 (isDisassembleRecipe).
+# inputDefId   분해할 아이템의 id, qty 는 한 번에 들어가는 개수(탄약은 발수).
+# outputs      "아이템id:수량" 을 | 로 이어 쓴다. 첫 항목이 대표 산출물이고 나머지는 extraOutputs 다.
+# scaleByDurability
+#              true  = outputs 가 **내구도 100 % 기준**이고 실제로는 남은 내구도 구간의 배수가 곱해진다
+#                      (data/tables.csv 의 SALVAGE_YIELD_BY_DURABILITY).
+#              false = 적힌 수량이 그대로 나온다. 내구도가 없는 탄약 · 재료 · 소모품이 이쪽이다.
+# duration     홀드 시간(초), skill / skillRequired 는 제작 레시피와 같은 뜻이다.
+#
+# ⚠ 불변식: 어떤 아이템이든 「수리 재료 + 분해 산출 ≤ 제작 재료」 여야 한다 (제작 → 분해 무한 이득 차단).
+#   src/items/Salvage.ts 의 `checkSalvageEconomy()` 가 실제 숫자로 검사하고 npm run data:check 가 돌린다.
+id,inputDefId,qty,outputs,scaleByDurability,duration,skill,skillRequired,description
+break_ammo_light,ammo_light,30,mat_gunpowder:4,false,2,crafting,0,경량탄 30발을 분해해 화약 4를 얻는다.
+break_ammo_medium,ammo_medium,30,mat_gunpowder:6,false,2,crafting,0,준중량탄 30발을 분해해 화약 6을 얻는다.
+break_ammo_heavy,ammo_heavy,10,mat_gunpowder:5,false,2,crafting,0,중량탄 10발을 분해해 화약 5를 얻는다.
+break_ammo_shell,ammo_shell,8,mat_gunpowder:5,false,2,crafting,0,산탄 8발을 분해해 화약 5를 얻는다.
+break_machine_parts,mat_machine_parts,1,mat_scrap:3|mat_cable:1,false,3,crafting,0,기계 부품 1을 분해해 폐금속 3 + 전력 케이블 1을 얻는다.
+break_shield_charger_hi,shield_charger_hi,1,mat_core:1|mat_cable:1,false,3,crafting,0,고출력 실드 충전기 1개를 뜯어 구동 코어 1 + 전력 케이블 1을 되찾는다.

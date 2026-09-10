@@ -149,12 +149,17 @@ export class ContainerSet {
    * 상자 코드와 **같은 방식**으로 굴린 내용물 + 키카드. rng 시드도 `inventory/Container` 와 같은
    * `<맵 시드> ^ hash(id)` 라 어느 클라이언트에서 열어도 같은 물건이 나온다 (`ctx.world.seed` = 이 맵의 시드).
    * `items/` 가 아직 키카드 def 를 등록하지 않았으면 **조용히 빼고** 나머지만 채운다.
+   *
+   * 2026-09-10 — `rollCrate` 가 아니라 **`rollCrateOn(tier, rng, missionPlanet)`** 이다. `inventory/Container`
+   * 는 2026-09-09 부터 행성을 넘기고 있었는데 여기만 안 넘겨서, 구조물 · 지하실 · 플랫폼 · 전차 안의 상자만
+   * 행성의 무기 등급 곡선(`data/planet_loot.csv`)도 희귀도 배수도 타지 않았다 — 등급 IV · V 가 봉인된
+   * 앞쪽 행성에서 구조물이 그 봉인의 우회로였다. "상자 코드와 같은 방식" 이라는 이 주석의 약속이 곧 계약이다.
    */
   private rollWithBonus(game: GameContext, spec: ContainerSpec): ItemInstance[] | null {
     const loot = game.loot;
     if (!loot) return null;
     const rng = new Random((((game.world?.seed ?? 0) >>> 0) ^ Random.hash(spec.id)) >>> 0);
-    const items = loot.rollCrate(spec.tier, rng);
+    const items = loot.rollCrateOn(spec.tier, rng, game.missionPlanet);
     if (spec.bonusDefId && loot.getItemDef(spec.bonusDefId)) {
       try { items.unshift(loot.createItem(spec.bonusDefId, 1)); } catch { /* def 가 있어도 만들 수 없으면 그냥 넘어간다 */ }
     }

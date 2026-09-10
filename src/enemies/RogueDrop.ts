@@ -6,8 +6,15 @@
  * world/ 가 그 구역의 컨테이너를 **처음** 조사할 때 `structure:investigated {zoneId, kind, position}` 를 낸다.
  * 호스트가 그 구역에 대해 딱 한 번 `ROGUE_DROP_CHANCE` 를 굴리고, 성공하면 로그 분대가 하늘에서 내려온다:
  *
- *   예고(`rogueDrop:incoming` + `rdrop incoming` + 경보) → `ROGUE_DROP_ETA_S` 초 낙하 →
+ *   예고(`rogueDrop:incoming` + `rdrop incoming`) → `ROGUE_DROP_ETA_S` 초 낙하 →
  *   착지(`rogueDrop:landed` + `rdrop landed`) → 로그 스폰 → **트리거 지점(구조물)으로 진격**
+ *
+ * ## 알린다 (2026-09-10)
+ * 강하는 조용히 일어나면 안 된다. 이 파일이 내는 것은 **포드 착지 충격음(`rogue_pod_impact`)뿐**이고,
+ * 무전 경보(`rogue_drop_alarm`)와 대기를 찢는 낙하 굉음(`rogue_pod_fall`)은 `audio/AudioSystem` 이
+ * `rogueDrop:incoming` 을 받아 낸다 — 둘 다 인지력이 아니라 전용 반경 `ROGUE_DROP_ALERT_RADIUS` 로
+ * 게이트하고 그 안에서 거리에 따라 줄어든다. 화면 표시는 `ui/hud/RaidAlerts`(토스트)와
+ * `ui/hud/DangerIndicators`(화면 안 = 머리 마커 · 밖 = 방향 호)의 몫이다.
  *
  * ## 규모는 분대 인원이 정한다
  * `ROGUE_DROP_COUNT_MIN/MAX` · `ROGUE_DROP_BOSS_CHANCE` 는 `data/tables.csv` 의 배열 표이고 **index 0 = 분대 1명**
@@ -429,10 +436,9 @@ export class RogueDropDirector {
     return Math.max(1, Math.min(MAX_SQUAD, n));
   }
 
-  /** 예고 상태를 만든다 (호스트 · 리플리카 공통): 슬롯 구성 + 포드 낙하 시작 + 경보. */
+  /** 예고 상태를 만든다 (호스트 · 리플리카 공통): 슬롯 구성 + 포드 낙하 시작. 소리는 audio/ 가 낸다. */
   private begin(id: string, position: THREE.Vector3, count: number, boss: boolean, eta: number, points: THREE.Vector3[], rng: Random): Drop {
-    const host = this.host;
-    const ctx = host.ctx;
+    const ctx = this.host.ctx;
     const slots: Slot[] = [];
     for (let i = 0; i < count; i++) {
       const isBoss = boss && i === 0;
@@ -454,10 +460,16 @@ export class RogueDropDirector {
     }
     this.drops.push(drop);
     this.viewsDirty = true;
-    // 경보는 분대 전체를 향한 것이라 플레이어 자리에서 울린다; 낙하음은 강하 지점에서 방향을 준다
-    const at = ctx.player?.position ?? position;
-    host.playAudio('wave_alarm', at, 0.85, 1.1);
-    host.playAudio('hellpod_fall', position, 0.6, 0.8);
+    /*
+     * 2026-09-10 — **경보 · 낙하 굉음은 여기서 울리지 않는다.** `rogueDrop:incoming` 하나만 내고
+     * `audio/AudioSystem` 이 그것을 받아 `rogue_drop_alarm`(무전 경보, 지금) 과 `rogue_pod_fall`
+     * (대기를 찢는 굉음, 착지 `ROGUE_DROP_FALL_LEAD_S` 초 전) 을 낸다. 이유는 둘이다:
+     *  ① 소리의 **거리 감쇠**가 `ROGUE_DROP_ALERT_RADIUS` 라는 전용 반경(인지력과 무관)의 함수인데
+     *     그 곡선은 패너의 감쇠와 겹치면 안 되므로 `panOnly` 를 아는 audio/ 안에서만 계산할 수 있다,
+     *  ② 예고와 굉음의 **시각이 다르다** — 8초 전에 다 울려 버리면 정작 떨어질 때가 조용하다.
+     * 이벤트는 호스트 · 리플리카(`onIncomingWire`) 양쪽에서 나가므로 멀티에서도 전원이 듣는다.
+     * 포드 하나하나의 착지 충격음(`rogue_pod_impact`)만 위치가 포드 자신이라 `impactFx` 에 남는다.
+     */
     return drop;
   }
 
@@ -520,7 +532,8 @@ export class RogueDropDirector {
       ParticleBurst.dust(fx.alpha, p, _fxDir, 12, 1.6);
       ParticleBurst.sparks(fx.additive, p, _fxDir, 10, 6, 0xff8844);
     }
-    host.playAudio('hellpod_impact', p, 0.9, 0.85);
+    // 2026-09-10: 아군 헬포드(`hellpod_impact`)가 아니라 **적 포드**의 충격음 — 더 낮게 꽂히고 파편이 튄다
+    host.playAudio('rogue_pod_impact', p, 0.9, 0.9);
     const player = ctx.player?.position;
     if (player) {
       const d = Math.hypot(player.x - p.x, player.z - p.z);

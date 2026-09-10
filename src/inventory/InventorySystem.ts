@@ -14,6 +14,8 @@ import {
   createQuickSlots, firstFreeQuickSlot, isQuickIndex, isQuickUsable, mergeIntoQuick, quickSlotOf, quickSlotsSignature,
   type QuickSlotItems,
 } from './QuickSlots';
+/* appended (2026-09-10): 휠 교체에서 밀려난 스택이 갈 자리 — 미리보기와 실행이 같은 규칙을 본다 */
+import { applyQuickSwap, type QuickSwapCell, type QuickSwapPlan } from './QuickSwap';
 import { InventoryUI, type ScreenTab } from './ui/InventoryUI';
 export type { ScreenTab } from './ui/InventoryUI';
 import { TradeGrids, type TradeGridsOptions } from './ui/TradeGrids';
@@ -30,7 +32,7 @@ import {
   LOADOUT_SLOTS, MOD_CTRL, MOD_SHIFT, SEARCH_EMIT_INTERVAL, SEARCH_START_DELAY, SPRAY_REFILL_COST, TAKE_REQUEST_TIMEOUT, WEAPON_SLOT_IDS,
   isArmorDef, isAttachmentDef, isBagDef, isDisassembleRecipe, isWeaponDef, sameProfileDoc, slotAccepts,
   type ActiveBench, type BagSize, type BenchRecipeRow, type BenchRepairRow, type CraftJob, type DropPreview, type DropTarget,
-  type GridId, type ItemLocation, type MissionOutcome, type OpResult, type PendingTake, type RaidInventoryState, type SlotId, type UiSfx,
+  type GridId, type ItemLocation, type MissionOutcome, type OpResult, type PendingTake, type RaidInventoryState, type RepairInfo, type SlotId, type UiSfx,
 } from './model';
 /** 폴더 공용 어휘는 `model.ts` 가 갖는다 — 기존 import 경로를 위해 그대로 재수출한다. */
 export * from './model';
@@ -412,16 +414,22 @@ export class InventorySystem implements GameSystem, InventoryRef {
   sprayRepairCost(item: ItemInstance, def: ItemDef): CraftIngredient[] | null { return Dur.sprayRepairCost(this, item, def); }
 
   /**
-   * Ship workbench: weapons go through `repairWeapon` (materials), a 회복 스프레이 is refilled for `sprayRepairCost`
-   * (Phase 12), armor is restored to full for free.
+   * 완전 수리에 드는 재료 — `getRepairCost` (무기 · 방탄복) 를 먼저 보고, 비었을 때만 회복 스프레이의
+   * 게이지 충전(`sprayRepairCost`). 2026-09-10 부터 방탄복 수리도 재료를 쓴다.
+   */
+  repairMaterials(item: ItemInstance, def: ItemDef): CraftIngredient[] { return Dur.repairMaterials(this, item, def); }
+
+  /**
+   * Ship workbench: weapons go through `repairWeapon` (materials), everything else pays `repairMaterials`
+   * (방탄복 = 제작 재료 × 내구도 구간 배수, 회복 스프레이 = 캔 + 소독약, 그 밖에는 무료).
    */
   repair(uid: string): boolean { return Dur.repair(this, uid); }
 
   /**
-   * Context-menu repair readout (hub only): materials still needed for a weapon (`[]` = free / armor), `short`
-   * = which of them the bag lacks. null when the item is not worn / not repairable.
+   * Context-menu repair readout (hub only): materials still needed (`[]` = free), `short` = which of them the bag
+   * lacks, `bucket` = 남은 내구도 구간. null when the item is not worn / not repairable.
    */
-  repairInfo(uid: string): { cost: { defId: string; qty: number; name: string; have: number }[]; short: boolean } | null { return Dur.repairInfo(this, uid); }
+  repairInfo(uid: string): RepairInfo | null { return Dur.repairInfo(this, uid); }
 
   /** 'ship' while walking the hub / menus, 'field' on a mission. */
   currentStation(): CraftStation { return Craft.currentStation(this); }
@@ -568,7 +576,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
    * 2026-09-08: can the bag take this recipe's output (+ `extraOutputs`) right now? The same check `updateCraft`
    * makes when the hold ends — the 분해 dialog runs it **first** so an impossible shred never costs the hold.
    */
-  craftHasRoom(recipeId: string, count = 1): boolean { return Craft.craftHasRoom(this, recipeId, count); }
+  craftHasRoom(recipeId: string, count = 1, targetUid?: string): boolean { return Craft.craftHasRoom(this, recipeId, count, targetUid); }
 
   /** `targetUid` (2026-09-08): the exact stack a 분해 shreds — consumed before any other stack of the same def. */
   /** `count` (2026-09-09): 제작 수량 — the recipe runs `count` times in one hold (inputs × count, output × count). */
@@ -686,9 +694,17 @@ export class InventorySystem implements GameSystem, InventoryRef {
     // the occupant may need the cells the incoming stack is about to free, so take the incoming one out first
     const cell = { x: p.x, y: p.y, rotated: item.rotated };
     found.grid.remove(uid);
-    if (occupant && !this.returnQuickToBag(occupant)) {
+    /*
+     * 2026-09-10 — 밀려난 스택의 자리는 `QuickSwap` 이 정한다: **들어오는 스택이 비운 그 칸** → 가방 → 출발 격자.
+     * 예전에는 가방만 봤고(`returnQuickToBag`), 그래서 **가방이 꽉 차면 1:1 교체 자체가 거절**됐다 — 자리를
+     * 맞바꾸기만 하면 되는데도. 실패하면 여기서 아무것도 바뀌지 않는다 (`place`/`autoPlace` 는 전부-아니면-전무).
+     */
+    const swapped = occupant ? applyQuickSwap(this.quickSwapPlan(occupant, found.grid, found.gridId, cell, uid)) : null;
+    if (occupant && !swapped) {
       // put it back exactly where it was and refuse
       if (!found.grid.place(item, cell.x, cell.y, cell.rotated)) found.grid.autoPlace(item);
+      const od = ITEM_DEF_MAP.get(occupant.defId);
+      if (od) this.ctx.bus.emit('inventory:full', { item: occupant, name: od.name });
       return false;
     }
     if (found.gridId === 'container') item.searched = true;
@@ -696,7 +712,22 @@ export class InventorySystem implements GameSystem, InventoryRef {
     this.afterQuickChange();
     // 상자/창고 → 휠 is a location change, so it announces itself like a container → bag take does
     if (found.gridId !== 'bag') this.emitTransfer(item, def, { kind: 'grid', grid: found.gridId }, { kind: 'quick', index });
+    // …and the displaced stack leaving the player for that same 상자/창고 is the mirror of it
+    if (occupant && swapped !== 'bag' && found.gridId !== 'bag') {
+      const od = ITEM_DEF_MAP.get(occupant.defId);
+      if (od) this.emitTransfer(occupant, od, { kind: 'quick', index }, { kind: 'grid', grid: found.gridId });
+    }
     return true;
+  }
+
+  /**
+   * 2026-09-10 — 휠 교체에서 **밀려난 스택**이 갈 자리 규칙 (`QuickSwap.ts`). `previewDrop` 은 `canQuickSwap` 으로,
+   * `setQuickSlot` 은 `applyQuickSwap` 으로 **같은 계획**을 본다. 멀티플레이의 공유 상자에는 내 물건을 넣을 수
+   * 없으므로(`refusesIntoContainer` 와 같은 이유) 그때만 출발 격자를 후보에서 뺀다.
+   */
+  quickSwapPlan(occupant: ItemInstance, source: Grid | null, sourceId: GridId | null, cell: QuickSwapCell | null, incomingUid: string): QuickSwapPlan {
+    const allowSource = !(this.ctx.isMultiplayer && sourceId === 'container');
+    return { occupant, bag: this.bag, source, cell, incomingUid, allowSource };
   }
 
   /** Wheel to bag (merging into stacks first). False when the bag has no room; the caller then refuses the move. */
@@ -1389,7 +1420,11 @@ export class InventorySystem implements GameSystem, InventoryRef {
 
   quickMoveImpl(uid: string, from: ItemLocation): OpResult { return Drop.quickMoveImpl(this, uid, from); }
 
-  /** Double-click: weapons / bags equip (`equipTargetFor`), anything else quick-moves. */
+  /**
+   * Double-click. 가방 · 장비 칸: weapons / bags equip (`equipTargetFor`), anything else quick-moves.
+   * 컨테이너(상자 · 시체 · 함선 창고)는 2026-09-10 부터 **언제나 가방이 먼저**이고, 가방이 꽉 찼을 때만
+   * `빈 장비 칸 → 임플란트 칸 → 빈 퀵슬롯` 폴백이 돈다 (폴더 README 의 `Equipment slots` 절).
+   */
   activate(uid: string, from: ItemLocation): OpResult { return Drop.activate(this, uid, from); }
 
   activateImpl(uid: string, from: ItemLocation): OpResult { return Drop.activateImpl(this, uid, from); }

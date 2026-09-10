@@ -1,6 +1,6 @@
 import type { AttachmentDef, AttachmentEffects, EffectiveWeaponStats, ItemInstance, WeaponDef, WeaponGrade } from '@/shared';
 import {
-  REPAIR_ALLOY_PER, REPAIR_SCRAP_PER, SOCKET_SLOTS, WEAPON_ADS_TIME, WEAPON_DEFAULT_DURABILITY, WEAPON_GRADE_ROMAN,
+  SOCKET_SLOTS, WEAPON_ADS_TIME, WEAPON_DEFAULT_DURABILITY, WEAPON_GRADE_ROMAN,
   WEAPON_SWAP_TIME_PRIMARY, WEAPON_SWAP_TIME_SECONDARY, keyTable,
 } from '@/shared';
 
@@ -86,15 +86,12 @@ export function computeWeaponStats(def: WeaponDef, inst?: ItemInstance): Effecti
   return stats;
 }
 
-/** Materials to fully repair `inst` (empty when nothing is missing). Uniques cost like a legendary (grade V). */
-export function repairCost(def: WeaponDef, inst: ItemInstance): { defId: string; qty: number }[] {
-  const max = def.maxDurability ?? WEAPON_DEFAULT_DURABILITY;
-  const missing = max - (inst.durability ?? max);
-  if (missing <= 0) return [];
-  const cost = [{ defId: 'mat_scrap', qty: Math.ceil(missing / REPAIR_SCRAP_PER) }];
-  if (isUniqueWeapon(def) || gradeOf(def) >= 3) cost.push({ defId: 'mat_alloy', qty: Math.ceil(missing / REPAIR_ALLOY_PER) });
-  return cost;
-}
+/*
+ * 2026-09-10 — `repairCost(def, inst)` 는 **여기서 사라졌다.** 수리비는 이제 빠진 내구도가 아니라
+ * **제작 재료 × 남은 내구도 구간의 배수**이고, 무기뿐 아니라 방탄복도 같은 규칙을 탄다.
+ * 구현은 `items/Salvage.ts` 의 `repairCostFor(inst)` 하나이고 `ctx.loot.getRepairCost` 가 그것을 부른다.
+ * `REPAIR_SCRAP_PER` · `REPAIR_ALLOY_PER` 상수는 계약이라 `shared/constants` 에 남아 있을 뿐이다.
+ */
 
 /** Does `attachment` fit `weaponDef`? (class list and calibre list, when given). Uniques take no attachments. */
 export function canAttach(weaponDef: WeaponDef, attachment: AttachmentDef): boolean {

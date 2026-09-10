@@ -16,7 +16,10 @@ import { durabilityInfo, gearMultipliers, makeWeightInfo, searchTimeFor, sumWeig
 import { Grid, OOB, type Placement, type PriorityPlacement } from '../Grid';
 import { Container, ContainerStore } from '../Container';
 import { attachedItems, clearSocket, findSocketed, setSocket } from '../Sockets';
-import { isQuickIndex, isQuickUsable, lockedQuickItems } from '../QuickSlots';
+import { firstFreeQuickSlot, isQuickIndex, isQuickUsable, lockedQuickItems } from '../QuickSlots';
+/* appended (2026-09-10): 휠 교체 규칙 — `previewDrop` 과 `setQuickSlot` 이 같은 계획을 본다 */
+import { canQuickSwap } from '../QuickSwap';
+import { QUICK_DIR_GLYPH, SLOT_LABEL } from '../ui/labels';
 import { setStarterGrantState, starterGrantState } from '../Stash';
 import { LOADOUT_SAVE_VERSION, isEmptyLoadoutSave, loadLoadoutSave, sanitizeLoadoutSave, type LoadoutSave } from '../Loadout';
 import { reviveItem, savedCell, serializeExtras, serializePlacement, type SavedPlacement } from '../Serialize';
@@ -135,8 +138,19 @@ export function previewDrop(sys: InventorySystem, uid: string, from: ItemLocatio
     if (!isQuickIndex(target.index) || !isQuickSlotActive(target.index, sys.getQuickSlotCount())) return 'bad';
     const occupant = sys.quickSlots[target.index];
     if (occupant?.uid === uid) return 'noop';
-    // a swap needs somewhere for the occupant to land: the bag, unless the incoming stack vacates a wheel slot
-    if (occupant && from.kind !== 'quick' && !sys.bag.canAbsorb(occupant)) return 'bad';
+    /*
+     * 2026-09-10 — **1:1 교체는 가방 여유를 요구하지 않는다.** 예전에는 여기서 `sys.bag.canAbsorb(occupant)` 만
+     * 봤는데, 그 검사는 들어오는 스택이 **아직 격자에 있는 상태**에서 돌아 그것이 곧 비울 칸을 세지 않았다.
+     * 그래서 가방이 꽉 차면 `가방 → 휠` 교체가 미리보기 단계에서 빨간불(= `dropImpl` 이 곧장 'fail')이 됐고,
+     * `상자 → 휠` 은 `setQuickSlot` 이 밀려난 스택을 가방에서만 찾다가 거절했다. 이제 양쪽이 `QuickSwap` 의
+     * 같은 규칙을 본다 — 비운 그 칸 → 가방 → 출발 격자.
+     */
+    if (occupant && from.kind !== 'quick') {
+      const src = sys.getGrid(from.grid);
+      const p = src?.get(uid);
+      const cell = p ? { x: p.x, y: p.y, rotated: item.rotated } : null;
+      if (!canQuickSwap(sys.quickSwapPlan(occupant, src ?? null, from.grid, cell, uid))) return 'bad';
+    }
     return occupant ? 'swap' : 'ok';
   }
 
@@ -349,7 +363,11 @@ export function quickMoveImpl(sys: InventorySystem, uid: string, from: ItemLocat
   return 'ok';
   }
 
-/** Double-click: weapons / bags equip (`equipTargetFor`), anything else quick-moves. */
+/**
+ * Double-click. **가방 · 장비 칸에서**: weapons / bags equip (`equipTargetFor`), anything else quick-moves.
+ * **컨테이너(상자 · 시체 · 함선 창고)에서** (2026-09-10): 언제나 가방이 먼저이고, 가방이 꽉 찼을 때만
+ * `activateFallback` 이 `빈 장비 칸 → 임플란트 칸 → 빈 퀵슬롯` 을 본다.
+ */
 export function activate(sys: InventorySystem, uid: string, from: ItemLocation): OpResult {
   if (sys.isContainerLoc(from)) return sys.guardedTake(uid, from, null, () => sys.activateImpl(uid, from));
   return sys.activateImpl(uid, from);
@@ -359,12 +377,78 @@ export function activateImpl(sys: InventorySystem, uid: string, from: ItemLocati
   const item = sys.findItem(uid, from);
   const def = item && ITEM_DEF_MAP.get(item.defId);
   if (!item || !def) return 'fail';
+  /*
+   * 2026-09-10 (사용자 결정) — **상자에서 찾은 것은 무조건 가방이 먼저다.** 예전에는 장착 아이템(무기 · 방탄복 ·
+   * 가방)을 상자에서 더블클릭하면 `equipTargetFor` 를 타고 곧장 장비 칸으로 들어갔다. 주우면서 지금 든 총이
+   * 조용히 바뀌는 것이라 레이드 중에는 사고였다. 이제 컨테이너(상자 · 시체 · 함선 창고) 더블클릭은 언제나
+   * `가방 → 장비 → 퀵슬롯` 순서이고, **가방에 자리가 없을 때만** 뒤의 둘로 넘어간다 (`activateFallback`).
+   * 가방 · 휠 · 장비 칸에서 누른 더블클릭은 예전 그대로다 — 거기서는 "장착" 이 하려는 일 그 자체다.
+   */
+  if (from.kind === 'grid' && from.grid !== 'bag') {
+    if (sys.bag.canAbsorb(item)) return sys.quickMoveImpl(uid, from);
+    return activateFallback(sys, item, def, from);
+  }
   const slot = sys.equipTargetFor(def);
   if (slot) {
     if (from.kind === 'slot') return 'noop';
     return sys.dropOnSlot(item, def, from, slot);
   }
   return sys.quickMoveImpl(uid, from);
+  }
+
+/** 2026-09-10 — `장착 → 퀵슬롯` 순으로 자리를 찾을 때 쓰는 안내 (어디로 갔는지 사용자가 알아야 한다). */
+const WENT_TO = (name: string, where: string): string => `가방이 가득 찼습니다 — ${name} → ${where}`;
+
+/**
+ * 2026-09-10 — 컨테이너 더블클릭이 **가방에 못 들어갔을 때만** 도는 폴백.
+ *
+ *   ① **빈** 장비 칸 (주무기 I · II · 가방 · 방탄복). 이미 장착한 것을 조용히 밀어내지 않는다 — 빈 칸일 때만.
+ *   ② 임플란트 아이템이면 빈 임플란트 장착칸 (`ctx.progression.equipImplant`; 함선에서만, 그리고 그 함수가
+ *      가방 · 창고만 보므로 사실상 **함선 창고**에서 누른 경우다. 레이드 상자에서는 조용히 실패한다).
+ *   ③ 퀵슬롯에 올릴 수 있는 소모품이면 **빈** 휠 칸.
+ *   ④ 셋 다 아니면 `inventory:full` — 예전과 똑같은 거부음 + 토스트.
+ *
+ * ①②③ 으로 들어갔을 때는 `ui:notify` 로 **어디로 갔는지** 말한다. 가방에 들어가는 평범한 경우에는
+ * 아무 말도 하지 않는다 (그게 기대되는 자리다).
+ */
+function activateFallback(sys: InventorySystem, item: ItemInstance, def: ItemDef, from: ItemLocation): OpResult {
+  const notify = (where: string): void => {
+    sys.ctx.bus.emit('ui:notify', { text: WENT_TO(def.name, where), kind: 'info', duration: 2.2 });
+  };
+
+  const slot = emptyEquipTargetFor(sys, def);
+  if (slot) {
+    const r = sys.dropOnSlot(item, def, from, slot);
+    if (r === 'ok') { notify(SLOT_LABEL[slot]); return r; }
+  }
+
+  if (def.implant && !def.implant.broken) {
+    const prog = sys.ctx.progression;
+    if (prog && typeof prog.equipImplant === 'function' && prog.equipImplant(item.uid)) {
+      notify('임플란트 칸');
+      return 'ok';
+    }
+  }
+
+  if (isQuickUsable(def)) {
+    const index = firstFreeQuickSlot(sys.quickSlots, sys.getQuickSlotCount());
+    if (index >= 0 && sys.setQuickSlot(index, item.uid)) {
+      notify(`퀵슬롯 ${QUICK_DIR_GLYPH[index] ?? String(index + 1)}`);
+      return 'ok';
+    }
+  }
+
+  sys.ctx.bus.emit('inventory:full', { item, name: def.name });
+  return 'fail';
+  }
+
+/** 지금 **비어 있는** 장비 칸 중 이 아이템을 받는 곳. 장착된 것을 밀어내지 않으므로 `equipTargetFor` 와 다르다. */
+function emptyEquipTargetFor(sys: InventorySystem, def: ItemDef): LoadoutSlot | null {
+  for (const slot of LOADOUT_SLOTS) {
+    if (!slotAccepts(def, slot)) continue;
+    if (!sys.loadout[slot]) return slot;
+  }
+  return null;
   }
 
 export function rotateItem(sys: InventorySystem, uid: string, gridId: GridId): OpResult {

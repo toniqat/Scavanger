@@ -1,7 +1,7 @@
 import type { CraftIngredient, FurnitureDef, FurnitureModelKind, GameContext, ItemDef, RoomPurpose } from '@/shared';
 import {
   FACILITY_COLOR, FACILITY_GLYPH, Keys, renderItemCost, ROOM_PURPOSES, ROOM_PURPOSES_ACTIVE,
-  ROOM_PURPOSE_COLOR, ROOM_PURPOSE_GLYPH, ROOM_PURPOSE_LABEL_KO, SHIP_ROOM_COUNT,
+  ROOM_PURPOSE_COLOR, ROOM_PURPOSE_GLYPH, ROOM_PURPOSE_LABEL_KO, SHIP_ROOM_COUNT, WORKBENCH_ICON,
 } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 
@@ -28,7 +28,9 @@ interface FreeSpot { x: number; y: number; yaw: 0 | 1 | 2 | 3 }
 
 /** Glyph per procedural furniture model (no asset files — the card thumbnail is a tinted frame + a character). */
 const MODEL_GLYPH: Readonly<Record<FurnitureModelKind, string>> = {
-  bench_gun: '⚒', bench_gear: '⛭', bench_gadget: '⚙', bench_medical: '✚',
+  /* 작업대 다섯의 글리프는 `shared` 의 `WORKBENCH_ICON` 이 원본이다 — 제작 탭(`inventory/ui/labels`)과 같은 글자여야 한다. */
+  bench_gun: WORKBENCH_ICON.gun, bench_gear: WORKBENCH_ICON.gear, bench_gadget: WORKBENCH_ICON.gadget,
+  bench_medical: WORKBENCH_ICON.medical, bench_refine: WORKBENCH_ICON.refine,
   range_console: '▣', target_lane: '◎', sim_hub: '◈',
   grow_rack: '❀', repair_bench: '⛏', bookshelf: '▤',
   locker: '▤', table: '▭', shelf: '☰', crate: '▨', lamp: '☀', plant: '❦', chair: '⌂', bunk: '▬',

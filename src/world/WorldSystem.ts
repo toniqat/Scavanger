@@ -458,6 +458,14 @@ export class WorldSystem implements GameSystem, WorldRef {
         // 2026-09-09 — 사각 콜라이더. 상자는 **떠 있을 수 있어서**(지하실 천장 슬래브 · 전차 데크) 머리 위로
         // 지나가는 판은 밀어내지 않는다. 원기둥은 전부 땅에서 올라오므로 이 가지에 오지 않는다.
         if (position.y + BOX_HEADROOM <= o.position.y) continue;
+        /* 2026-09-10 — **올라설 수 있는 단은 벽이 아니다.** 윗면이 발 높이에서 `PROP_STEP_UP_MAX` 안이면
+         * `getSurfaceY(x, z, feetY)` 가 어차피 그 위로 발을 올려 준다 (움직이는 쪽의 규약: 표면 먼저,
+         * 밀어내기 나중). 그런데도 여기서 밀어내면 **몸이 그 단 위로 올라갈 자리에 닿기 전에 밀려나** 영영
+         * 못 올라간다 — 지하실 계단이 그 자리에서 걸렸다. 한 단의 디딤폭이 몸통 반지름보다 좁으면 서 있는
+         * 단 바로 위의 단이 늘 몸에 겹치므로, 매 프레임 아래로 밀려 계단을 그대로 미끄러져 내려갔다.
+         * 조건은 `getSurfaceY` 의 천장과 **같은 식**이라 두 판정이 어긋나지 않는다.
+         * 상자에만 건다 — 원기둥 소품의 코드 경로는 2026-09-09 규약대로 한 줄도 바뀌지 않는다. */
+        if (o.position.y + o.height <= position.y + PROP_STEP_UP_MAX) continue;
         boxPushOut(o, position, radius);
         continue;
       }

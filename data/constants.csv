@@ -547,6 +547,7 @@ STRUCTURE_INTERACT_RANGE,2.8,구조물 문 · 컴퓨터 상호작용 거리(m).
 
 # ── 2026-09-09: 선로 · 전차 (owner: world/Rails) ──
 RAIL_CHANCE,0.7,구역에 선로가 놓일 확률 (0 = 언제나 없음).
+RAIL_CLEARANCE_M,9,선로 중심선 좌우로 아무것도 놓지 않는 회랑의 반폭(m). 구조물 · 폐허 · 둥지 · 크레이터 · 소품 · 상자 · 채집물이 이 안에 들어오지 않는다 (플랫폼은 선로 시설이라 예외).
 TRAM_SPEED,11.2,전차 최고 주행 속도(m/s). 2026-09-10: 14 → 11.2 (예전의 0.8배).
 TRAM_START_HOLD_S,1.5,플랫폼 콘솔에서 전차에 시동을 거는 홀드 시간(초).
 TRAM_START_DELAY_S,1,시동 알림이 뜬 뒤 전차가 실제로 움직이기 시작할 때까지의 시간(초).
@@ -595,3 +596,29 @@ ENEMY_WALL_STANDOFF,1,"원거리 적(로그 · 스퓨어)이 사격할 때 총�
 ENEMY_FIRE_LOS_S,0.25,"총구 → 표적 사선 검사 주기(초). 적마다 결과를 캐시한다 — 매 프레임 · 매 발마다 레이캐스트를 쏘면 핫 패스가 죽는다. 표적이 바뀌면 캐시는 즉시 버린다."
 ENEMY_FIRE_STRAFE_S,1.5,"사선이 막힌 원거리 적이 한 번에 옆으로 비켜서는 시간(초). 이 시간이 지나도 못 뚫으면 로그는 새 엄폐물을 고르고 · 스퓨어는 반대쪽으로 돌고 · 포병은 반대쪽으로 자리를 옮겨 다시 판다."
 DANGER_NEAR_RADIUS,40,위험 인디케이터(HUD): 인지력 반경 밖이라도 이 거리(m) 안에 떨어지는 곡사포탄은 무조건 보여 준다. 날아오는 줄도 모르고 맞는 것을 막는 최소 경고.
+
+# ── 로그 강하 경보 (2026-09-10) — owner: audio/AudioSystem · ui/hud/DangerIndicators ──
+ROGUE_DROP_ALERT_RADIUS,260,"로그 강하 경보 전용 반경(m). 강하는 대기를 찢는 굉음이라 평소의 인지력 반경(DETECT_ENEMY_BASE_RADIUS 26 m)을 쓰지 않는다 — 이 반경 안이면 경보음도 HUD 위험 표시도 무조건 뜬다. 밖이면 아무것도 없다(MAP_SIZE 640 이므로 맵 반대편까지는 들리지 않는다)."
+ROGUE_DROP_ALERT_FALLOFF_EXP,1.3,"강하음의 거리 감쇠 지수. (1 - d/ROGUE_DROP_ALERT_RADIUS)^exp 를 곱한다 — 원격 발소리(FOOTSTEP_FALLOFF_EXP)와 같은 철학이다. 게이트만 넓히고 감쇠는 남긴다."
+ROGUE_DROP_ALARM_VOLUME,0.95,"강하 경보음(rogue_drop_alarm)의 밑 크기 — 거리 감쇠를 먹기 전 값."
+ROGUE_DROP_FALL_VOLUME,0.9,"강하 낙하음(rogue_pod_fall)의 밑 크기 — 거리 감쇠를 먹기 전 값."
+ROGUE_DROP_MIN_VOLUME,0.02,"이 크기 밑으로 줄어든 강하음은 보이스를 만들지 않고 버린다."
+ROGUE_DROP_FALL_LEAD_S,4.2,"착지 몇 초 전에 낙하 굉음이 시작되는가. rogue_pod_fall 의 길이와 맞춰 두면 소리가 잦아드는 순간 포드가 꽂힌다."
+
+# ── 2026-09-10: 전차 탑승 · 전차 충돌 · 플랫폼 계단 (owner: player/PlayerController · world/Rails) ──
+RIDE_HEADROOM,2.6,"움직이는 발판(전차 데크) 윗면에서 이 높이(m) 안에 있으면 아직 탄 것으로 본다. 점프해도 이 안이라 차량과 함께 날아간다."
+RIDE_FOOT_DROP,0.7,"발판 윗면보다 이만큼(m) 아래까지는 아직 탑승이다 — 경사 · 프레임 요동으로 한두 프레임 발이 뜨거나 빠져도 내려지지 않는다."
+RIDE_EDGE_MARGIN,0.35,"차량 콜라이더 단면 밖으로 이만큼(m) 벗어나도 아직 탑승이다. 이보다 더 나가면 하차이고 관성만 남는다."
+RIDE_INERTIA_S,1.2,"하차한 뒤 차량의 관성이 남아 있는 최대 시간(초)."
+RIDE_INERTIA_DAMP,3.2,"하차 관성이 줄어드는 지수 감쇠 계수(1/초). 클수록 빨리 멎는다."
+TRAM_HIT_SPEED_MIN,7,"이 속도(m/s) 밑으로 달리는 전차는 부딪혀도 다치지 않는다. TRAM_SPEED 에 가까울수록 위험하다."
+TRAM_HIT_DAMAGE,60,"최고 속도(TRAM_SPEED)로 달리는 전차에 치였을 때의 피해. 실제 피해는 그때 속도에 비례한다 (실드부터 닳는다)."
+TRAM_HIT_KNOCKBACK,15,"전차에 치였을 때 튕겨 나가는 속도(m/s) — 최고 속도 기준이고 그때 속도에 비례한다."
+TRAM_HIT_COOLDOWN_S,1.5,"같은 사람이 전차에 다시 치일 수 있게 되기까지의 시간(초)."
+TRAM_HIT_FLOOR_CLEAR,0.18,"전차 바닥보다 발이 이만큼(m) 아래에 있어야 치인 것으로 본다 — 탑승자(바닥 높이)와 플랫폼 위(같은 높이)를 판정에서 빼는 값이다."
+TRAM_HIT_REACH,2.4,"전차 바닥에서 아래로 이만큼(m) 까지가 치이는 높이 범위다 (그보다 더 아래는 전차 밑)."
+TRAM_CONSOLE_RANGE,2.4,"전차 운전실 콘솔의 상호작용 거리(m)."
+RAIL_STAIR_MAX_RISE,0.6,"플랫폼 계단 한 단의 최대 높이(m). PROP_STEP_UP_MAX(0.9) 보다 낮아야 걸어서 올라선다 — 데크가 높으면 단수가 늘어난다."
+RAIL_STAIR_DEPTH,0.9,"플랫폼 계단 한 단의 깊이(m). 단끼리 틈 없이 이어 붙는다."
+TRAM_CALL_HOLD_S,2,"선로 플랫폼의 호출 콘솔에서 전차를 이 승강장으로 부르는 홀드 시간(초). 시동(TRAM_START_HOLD_S)보다 길다 — 잘못 부르면 전차가 반대편으로 떠난다."
+TRAM_CALL_RANGE,2.4,"플랫폼 호출 콘솔의 상호작용 거리(m)."

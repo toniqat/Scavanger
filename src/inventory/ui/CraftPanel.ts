@@ -1,8 +1,23 @@
-import type { CraftRecipe, ItemDef } from '@/shared';
-import { WORKBENCH_LABEL_KO, renderItemCost } from '@/shared';
+import type { CraftRecipe, ItemDef, WorkbenchKind } from '@/shared';
+import { WORKBENCH_KINDS, WORKBENCH_LABEL_KO, renderItemCost } from '@/shared';
 import type { BenchRecipeRow, InventorySystem } from '../InventorySystem';
 import { buildTileContent } from './GridView';
 import { CELL, TEXT } from './labels';
+
+/**
+ * 작업대 탭의 한 칸 (2026-09-10). `'all'` = 전부, `'field'` = `bench` 가 없는 현장 빠른제작,
+ * 나머지는 `WorkbenchKind` 그대로. 탭은 **작업대 모드가 아닐 때만** 뜬다 — 작업대를 열고 들어온 화면은
+ * 이미 그 작업대 하나다.
+ */
+type CraftTab = 'all' | 'field' | WorkbenchKind;
+
+/** 레시피가 속한 탭. */
+/* 현장 레시피는 자기 작업대 태그가 있어도 `빠른제작` 탭이다 — 그 탭의 뜻이 "작업대 없이도 되는 것" 이다.
+ * (2026-09-10 부터 탄약 · 붕대 · 연막에도 `bench` 가 붙었다. 그것은 작업대 창에 뜨라는 표시일 뿐이다.) */
+const tabOf = (r: CraftRecipe): CraftTab => (r.station === 'field' ? 'field' : (r.bench ?? 'field'));
+
+/** 탭 순서 — `전체` · 작업대 다섯(계약 순서 그대로) · `빠른제작`. */
+const TAB_ORDER: readonly CraftTab[] = ['all', ...WORKBENCH_KINDS, 'field'];
 
 interface RowView {
   recipe: CraftRecipe;
@@ -65,6 +80,16 @@ interface RowView {
  *  - The 키 가이드 line for the panel is empty now (`parts/Screens.setCraftOpen`): the button already reads
  *    `길게 눌러 제작`, so `1초 홀드 — 제작` was the same sentence twice.
  *
+ * **2026-09-10 (제작 대개편 2단계)** — 두 가지가 붙었다.
+ *  - **작업대 탭** (`.inv-craft-tabs`): 레시피가 48 → 94 줄로 늘고 다섯 번째 작업대(**정제 작업대**)가 생기면서
+ *    함선의 `제작` 패널 한 목록이 읽히지 않게 됐다. `전체` · 작업대 다섯(`WORKBENCH_KINDS` 순서, 이름은
+ *    `WORKBENCH_LABEL_KO`) · `빠른제작`(bench 없는 현장 레시피) 로 가른다. **작업대를 열고 들어온 화면에는
+ *    탭이 없다** — 이미 그 작업대 하나다. 고를 것이 하나뿐이면(`전체` + 한 종류) 줄 자체가 숨는다.
+ *  - **홀드 중에는 게이지만 다시 그린다** (`frozen` → `paintProgress`). `updateCraft` 가 매 프레임 이 패널을
+ *    새로 그리는데, 94 줄 × `craftHasRoom`(가방 · 창고 격자를 통째로 복사한다) 은 홀드 1 초 동안 60 번 돌
+ *    이유가 없는 계산이다. 화면에서 바뀌는 것은 채워지는 막대뿐이고, **홀드 중에 줄을 옮기지 않는다**는
+ *    규약(`applySort`)과 같은 뿌리다.
+ *
  * **2026-09-08 (튜토리얼)**: a recipe `ctx.tutorial.hides('craft', id)` refuses is **left out of the list** rather
  * than drawn with a "튜토리얼에서는 ~" reason — during the guided steps the bench shows exactly the one recipe the
  * step is asking for. The 단계 is part of the rebuild signature, so finishing or skipping the tutorial brings the
@@ -78,12 +103,26 @@ export class CraftPanel {
   private stationEl: HTMLElement;
   private discountEl: HTMLElement;
   private closeBtn: HTMLButtonElement;
-  /** `ëª¨ë ìë¦¬` â ìë¦¬ë¥¼ íë ììë(íê¸° Â· ì¥ë¹)ììë§ ë³´ì¸ë¤. */
+  /** `모두 수리` — 수리를 하는 작업대(화기 · 장비)에서만 보인다. */
   private repairBtn: HTMLButtonElement;
+  /** **만든 순서(= csv 순서) 그대로**의 행 목록. 화면의 줄 순서는 `applySort` 가 DOM 에서만 바꾼다. */
   private rows: RowView[] = [];
   private sig = '';
+  /** 마지막으로 DOM 에 반영한 줄 순서 (레시피 id 를 이어 붙인 것). */
+  private sortSig = '';
   private holding: string | null = null;
   private onWindowUp = (): void => { this.release(); };
+  /* ── 2026-09-10: 작업대 탭 ── */
+  /** 탭 버튼이 사는 줄 (작업대 모드 · 탭이 하나뿐이면 숨는다). */
+  private tabsEl: HTMLElement;
+  /** 지금 고른 탭. 그 탭에 줄이 하나도 남지 않으면 `all` 로 되돌아간다. */
+  private tab: CraftTab = 'all';
+  /**
+   * 홀드가 도는 동안 목록을 얼려 두기 위한 표시 (2026-09-10) — 값이 있으면 `refresh()` 가 게이지만 다시 그린다.
+   * 홀드 중에는 어차피 줄을 옮기지 않기로 되어 있고(`applySort`), 94 줄 × (canCraft · maxCraftCount ·
+   * craftHasRoom(격자 두 개를 복사한다)) 를 **매 프레임** 돌 이유가 없다.
+   */
+  private frozen: string | null = null;
 
   constructor(
     private readonly sys: InventorySystem,
@@ -129,13 +168,18 @@ export class CraftPanel {
     actions.append(this.discountEl, this.repairBtn, this.closeBtn);
     head.append(titles, actions);
 
+    // 2026-09-10: 작업대 탭 (작업대 모드가 아닐 때만 채워진다)
+    this.tabsEl = document.createElement('div');
+    this.tabsEl.className = 'inv-craft-tabs';
+    this.tabsEl.hidden = true;
+
     this.listEl = document.createElement('div');
     this.listEl.className = 'inv-craft-list';
     this.emptyEl = document.createElement('div');
     this.emptyEl.className = 'inv-craft-empty';
     this.emptyEl.textContent = TEXT.craftNone;
 
-    this.el.append(head, this.listEl, this.emptyEl);
+    this.el.append(head, this.tabsEl, this.listEl, this.emptyEl);
     this.el.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
@@ -145,12 +189,22 @@ export class CraftPanel {
     if (this.el.hidden === !open) return;
     this.el.hidden = !open;
     if (!open) this.release();
-    else { this.sig = ''; this.refresh(); }
+    else { this.sig = ''; this.frozen = null; this.refresh(); }
   }
 
   /** Rebuild the rows when the available recipe set changes; otherwise just repaint counts / progress. */
   refresh(): void {
     if (this.el.hidden) return;
+    /*
+     * **2026-09-10 — 홀드가 도는 동안에는 게이지만.** `updateCraft` 가 매 프레임 `refreshCraft()` 를 부르므로
+     * 이 함수는 홀드 1 초 동안 60 번 돈다. 레시피가 48 → 94 줄로 늘면서 그 한 번이 목록 재구성 신호 계산 +
+     * 줄마다 `canCraft` · `maxCraftCount` · `craftHasRoom`(가방 · 창고 격자를 통째로 복사한다) 이 됐다.
+     * 홀드 중에 바뀌는 것은 채워지는 막대뿐이고 **줄을 움직이지 않는다는 규약**(`applySort`)도 이미 있으므로,
+     * 첫 프레임에 한 번 제대로 그린 뒤로는 막대만 다시 그린다.
+     */
+    const running = this.sys.craftProgress();
+    if (running && this.frozen === running.recipeId) { this.paintProgress(running); return; }
+    this.frozen = running?.recipeId ?? null;
     const bench = this.sys.getBench();
     if (bench) {
       this.stationEl.textContent = TEXT.bench.eyebrow;
@@ -165,17 +219,74 @@ export class CraftPanel {
     if (mul < 1) this.discountEl.textContent = TEXT.bench.discount(Math.round((1 - mul) * 100));
 
     const tut = this.sys.ctx.tutorial;
-    const recipes = this.sys.getBenchRecipes().filter((r) => !(tut?.hides('craft', r.recipe.id) ?? false));
-    const sig = `${bench ? `${bench.kind}:${bench.level}` : '-'}|${mul}|t${tut?.step ?? '-'}`
+    const all = this.sys.getBenchRecipes().filter((r) => !(tut?.hides('craft', r.recipe.id) ?? false));
+    // 2026-09-10: 작업대 탭. 작업대를 열고 들어온 화면은 이미 한 작업대이므로 그때는 탭이 없다.
+    const tabs = bench ? [] : TAB_ORDER.filter((t) => t === 'all' || all.some((r) => tabOf(r.recipe) === t));
+    if (tabs.length <= 2) { this.tab = 'all'; tabs.length = 0; }   // `전체` + 한 종류뿐이면 고를 것이 없다
+    else if (!tabs.includes(this.tab)) this.tab = 'all';
+    this.buildTabs(tabs);
+    const recipes = this.tab === 'all' ? all : all.filter((r) => tabOf(r.recipe) === this.tab);
+    const sig = `${bench ? `${bench.kind}:${bench.level}` : '-'}|${mul}|t${tut?.step ?? '-'}|${this.tab}`
       + `|${recipes.map((r) => `${r.recipe.id}${r.locked ? '!' : ''}`).join('|')}`;
     if (sig !== this.sig) {
       this.sig = sig;
+      this.sortSig = '';
       this.build(recipes);
     }
     this.emptyEl.hidden = recipes.length > 0;
     this.paint();
     // `모두 수리` 버튼은 수리를 하는 작업대에서만 (가젯 · 의료 작업대는 고칠 게 없다)
     this.repairBtn.hidden = !bench || (bench.kind !== 'gun' && bench.kind !== 'gear');
+  }
+
+  /**
+   * **작업대 탭 줄** (2026-09-10). 이름은 `WORKBENCH_LABEL_KO`(`@/shared`) 가 원본이라 다섯 작업대가 함선
+   * 관리 화면 · 작업대 제목 · 여기에서 **같은 이름**으로 불린다 (정제 작업대가 그 어휘로 붙는 것이 전부다).
+   * 아이콘은 `TEXT.craftTabs.icon` 의 글리프. 빈 배열이면 줄 자체가 숨는다.
+   *
+   * 목록과 달리 탭은 **재료 상태를 보지 않으므로** 매 프레임 다시 만들 이유가 없다 — 탭 구성이 그대로면
+   * `is-on` 만 옮긴다.
+   */
+  private buildTabs(tabs: readonly CraftTab[]): void {
+    this.tabsEl.hidden = tabs.length === 0;
+    if (tabs.length === 0) { this.tabsEl.replaceChildren(); return; }
+    const wanted = tabs.join('|');
+    if (this.tabsEl.dataset.tabs !== wanted) {
+      this.tabsEl.dataset.tabs = wanted;
+      this.tabsEl.replaceChildren(...tabs.map((t) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'inv-craft-tab';
+        b.dataset.tab = t;
+        const ico = document.createElement('i');
+        ico.className = 'inv-craft-tab-ico';
+        ico.textContent = TEXT.craftTabs.icon[t] ?? '';
+        const label = document.createElement('span');
+        label.textContent = t === 'all' ? TEXT.craftTabs.all : t === 'field' ? TEXT.craftTabs.field : WORKBENCH_LABEL_KO[t];
+        b.append(ico, label);
+        b.title = label.textContent;
+        b.addEventListener('click', () => {
+          if (this.tab === t) return;
+          this.tab = t;
+          this.sys.sfx('ui_pickup');
+          this.refresh();
+        });
+        return b;
+      }));
+    }
+    for (const b of this.tabsEl.children) b.classList.toggle('is-on', (b as HTMLElement).dataset.tab === this.tab);
+  }
+
+  /**
+   * 홀드 중의 최소 갱신 (2026-09-10): 도는 줄의 게이지 하나만 옮긴다. 재료 칩 · 정렬 · 자리 검사는
+   * 손대지 않는다 — 그 셋은 홀드가 끝난 뒤 `refresh()` 의 느린 길이 한 번에 다시 그린다.
+   */
+  private paintProgress(job: { recipeId: string; progress: number }): void {
+    for (const row of this.rows) {
+      const active = row.recipe.id === job.recipeId;
+      row.el.classList.toggle('is-crafting', active);
+      row.fill.style.width = active ? `${Math.round(job.progress * 100)}%` : '0%';
+    }
   }
 
   private build(recipes: readonly BenchRecipeRow[]): void {
@@ -305,7 +416,32 @@ export class CraftPanel {
     this.paint();
   }
 
+  /**
+   * **2026-09-10 — 지금 만들 수 있는 것이 위로.** 재료 · 숙련도 · 작업대 레벨을 전부 만족한 줄이 먼저 오고,
+   * 그 안에서는 **원래 순서(csv 순서)를 유지**한다 (안정 정렬).
+   *
+   * - 숙련도는 애초에 `getRecipes` 가 걸러 목록에 없고, 작업대 레벨은 `locked` 다. 그래서 여기서 볼 것은
+   *   `!locked && canCraft(id, 1)` 하나뿐이다 — **한 번이라도 만들 수 있나**이지 스테퍼에 걸린 수량이 아니다
+   *   (◀▶ 를 올렸다고 줄이 아래로 내려가면 그 줄을 놓친다).
+   * - 넣을 자리(`craftHasRoom`)는 보지 **않는다**: 가방이 찬 것은 레시피의 성질이 아니고, 그 줄은 이미
+   *   `is-nospace` 로 이유를 말하고 있다.
+   * - `paint()` 안에서 도므로 재료를 넣거나 빼면 (→ `afterChange` → `InventoryUI.refresh`) 정렬이 곧바로 따라온다.
+   * - **홀드 중에는 줄을 움직이지 않는다.** 누르고 있는 버튼의 DOM 을 옮기면 포인터가 그 위를 떠난 것으로 읽혀
+   *   (`pointerleave` → `release`) 제작이 취소된다.
+   */
+  private applySort(): void {
+    if (this.holding || this.rows.length < 2) return;
+    const order = this.rows
+      .map((row, i) => ({ row, i, ready: !row.locked && this.sys.canCraft(row.recipe.id, 1) }))
+      .sort((a, b) => (a.ready === b.ready ? a.i - b.i : a.ready ? -1 : 1));
+    const sig = order.map((o) => o.row.recipe.id).join('|');
+    if (sig === this.sortSig) return;
+    this.sortSig = sig;
+    for (const o of order) this.listEl.appendChild(o.row.el);
+  }
+
   private paint(): void {
+    this.applySort();
     const job = this.sys.craftProgress();
     for (const row of this.rows) {
       const active = job?.recipeId === row.recipe.id;

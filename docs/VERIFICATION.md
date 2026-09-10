@@ -47,6 +47,7 @@ When you add a smoke script: add it to `SMOKES` in `scripts/verify.mjs` with the
 in `CLAUDE.md`.
 
 ## History (what was actually tested)
+- 2026-09-10 피칭 문서 23 → 31 페이지 (`docs/pitch/` · `scripts/shots-pitch.mjs` · 신규 `scripts/smoke-pitch.mjs` — **게임 코드 무변경**): `node scripts/verify.mjs --only smoke-pitch` → typecheck ok, typecheck-server ok, net-selftest 295/295, data-check ok, **smoke-pitch ok** — 49초. 새 스크립트가 31쪽을 전부 열어 JS 오류 0 · 사이드바 31 · `a.active` 각 1 · `.nextnav` 대상 파일 전부 실재 · 카드 넘기기(`1/5 → 2/5 → 되돌아 5/5`, ESC 닫힘, 단독 이미지에는 UI 없음)를 확인했다. `smoke-pitch` · `smoke-server-dist` 에 `standalone: true` 를 붙여 러너가 **쓰지도 않을 vite · 릴레이를 띄우지 않게** 했다(20초 절약, 로그에 `servers skipped`). 스크린샷은 `node scripts/shots-pitch.mjs` 로 20장을 새로 찍고 `npm run pitch:webp` (20.6 MB → 1.85 MB, −91 %). 촬영이 뜻대로 안 되던 셋은 [HISTORY 의 같은 날 6차 절](HISTORY.md)에 적었다.
 - 2026-09-10 조명 개수 버그 나머지 (`src/player/Hellpod.ts` · `src/game/parts/Leader.ts` · `GameFlowSystem.init` · 신규 `scripts/smoke-lights.mjs`): `npm run verify` (player + game + extraction 매핑 전체) → `smoke-phase4 48/49` 하나 red, `--rerun-failed` → **49/49** (이 스크립트의 알려진 플레이키 — 6차에서 A/B 교차로 고치기 전 코드에서도 같은 빈도로 재현됨을 확인했다). 그 밖에 **전부 통과**, 7분 30초 + 1분 1초. 새 `smoke-lights 4/4`.
 
   **새 스모크가 그물이다.** 레이드 한 판을 돌며 `scene.traverseVisible` 로 매 프레임 광원을 세고 로드 경계
@@ -1179,3 +1180,122 @@ smoke-hangar 58/58, e2e-mp 156/156
 흘려보내는데 그 사이에 벌레가 플레이어를 죽이면 레이드가 실패해 함선으로 돌아가고 호출 목록이
 비워진다. 실패 시 덤프도 정확히 `{"phase":"hub"}` 였다. 주변을 비우는 방어 코드가 이미 있지만
 `timeScale 4` × 최대 60 s = 240 s 의 시뮬레이션 동안 새로 스폰되는 것까지는 막지 못한다.
+
+---
+
+## 2026-09-10 — 배포용 서버 툴 · 게임 내 서버 주소 · 배포 폴더 · 아이콘
+
+`src/shared` 를 건드렸으므로 **`npm run verify:all`** (규약대로). 7분 59초, 3건 red → 원인 정리 후 재실행 all green.
+
+```
+2026-09-10: typecheck ok, typecheck-server ok, net-selftest 295/295, data-check ok,
+build 2,493.33 kB JS / 258.23 kB CSS, smoke-quickslots 73/73, smoke-phase2 57/57,
+smoke-weapons 136/136, smoke-stratagems 75/75, smoke-phase4 49/49, smoke-tactical 87/87,
+smoke-controls-hub 144/144, smoke-ship-rooms 72/72, smoke-inventory-p6 124/124,
+smoke-housing 206/206, smoke-console 63/63, smoke-search 61/61, smoke-loadout 69/69,
+smoke-progression 123/123, smoke-ui-p6 88/88, smoke-ui-p5 136/136, smoke-uniques 72/72,
+smoke-enemy-alert 42/42, smoke-rogue-v2 52/52, smoke-resume-gate 62/62, smoke-rogue-drop 29/29,
+smoke-meta 172/172, smoke-training 112/112, smoke-library 126/126, smoke-enemy-delta 52/52,
+smoke-ghost 86/86, smoke-raidflow 49/49, smoke-social 138/138, smoke-ecology 90/90,
+smoke-planets 86/86, smoke-phase3 33/33, smoke-props-collision 20/20, smoke-structures 25/25,
+smoke-server-dist ok (23/23), smoke-hazard 43/43, smoke-tutorial 83/83, smoke-hangar 58/58,
+e2e-mp 156/156
+```
+
+(`smoke-loadout` · `smoke-social` · `smoke-phase3` 의 숫자는 재실행 결과다 — 아래 참고.)
+
+### 첫 실행의 red 3건
+
+- **`smoke-social 137/138`** — `설정` 의 좌측 레일이 **세 섹션**이라고 단언하고 있었다. 서버 설정이 네
+  번째로 붙었으므로 단언을 넷으로 고쳤다. (검사가 제 일을 했다.)
+- **`smoke-loadout 68/69`** — 캐릭터 삭제의 홀드 팝업을 `document.querySelector('.tm-ask')` 로 찾는데,
+  `설정 › 서버 설정` 이 **자기 `AskPopup`** 을 갖게 되면서 `.tm-ask` 가 문서에 둘이 됐다. 설정 쪽이
+  문서 순서상 먼저라 숨어 있는 그것을 집고 `shown:false` 로 떨어졌다. 설정의 팝업에 **`set-ask`**
+  표식을 주고 그 스모크는 `:not(.set-ask)` 로 걸러 낸다 (`src/ui/README.md` 에도 적었다). 이건
+  **실제 취약점**이었다 — 앞으로 전역 `.tm-ask` 로 타이틀 팝업을 찾는 코드는 같은 함정에 빠진다.
+- **`smoke-phase3 26/27`** (`timeout waiting for laser ignited`, 312 s) — 아래 절에 이미 적힌 **알려진
+  flaky** 다. 단독 재실행 **33/33**. 이 배치와 무관하다.
+
+### 새 스모크 `smoke-server-dist` (23검사)
+
+`server/` · `src/net/` 에 매핑. 브라우저 · vite · 릴레이 없이 돈다: 번들이 CJS 인지 · top-level await 이
+없는지 · `ws` 가 안에 들어갔는지 · `bufferutil` 은 external 인지 → **그 번들로 서버를 켜서** `/health` ·
+배너 · `--port` / `--data` · `welcome` · 로비 생성 → `relayUrlFrom` 7검사 · `lanAddresses` 4검사.
+**exe 단계(postject, 86 MB)는 굽지 않는다** — 그 앞이 전부 여기서 걸린다. 자기 포트는 8830–8869 에서
+고른다 (8787 릴레이 · 8790–8799 창 서버를 피한다).
+
+### `smoke-controls-hub` 에 서버 설정 13검사 추가 (131 → 144)
+
+설정이 네 섹션인지, 주소 칸 · 버튼 셋, 빈 칸에서 버튼 잠금, 형식이 아닌 주소 거절, 저장 키가 **슬롯
+접두사 없는 `scav.relay`** 인지, `defaultUrl` 이 그 주소로 갈리는지, 닿지 않는 주소(TEST-NET-1
+`192.0.2.1`)가 실패로 돌아오는지, 지금 릴레이가 응답하는지(6 ms), `기본값으로` 가 저장을 지우는지,
+Escape 로 닫히는지. 이 블록은 **재접속을 실행하지 않는다** — 뒤 섹션이 쓰는 연결을 끊으므로.
+
+### 손으로 한 것 (자동화하지 않았다)
+
+- `npm run app:dist` 를 끝까지 돌려 `release/SCAVANGER/` 가 `app/` · `SCAVANGER.exe` · `server.txt` ·
+  `SCAVANGER-Server.exe` **넷만** 담는지 확인.
+- 구워진 `SCAVANGER-Server.exe` 를 **Node 없이** 실행 → 배너 · `GET /health` 확인 (`--port=8797`),
+  그리고 번들 단계도 같은 방식으로 (`dist-server/server.cjs`, 8798).
+- **`적용하고 다시 접속` 전체 경로**를 브라우저에서 눌러 확인 (일회용 스크립트, 커밋하지 않았다):
+  분대 안에서 적용 → 경고 팝업 + `1초` 문구 → **팝업이 떠 있는 동안 저장 없음** → 취소하면 저장도
+  분대도 그대로 → 다시 적용 후 0.4초에 39.6 % 채워짐 → 확정 시 저장 + 재접속 + `접속됨 · ws://…`.
+  (여기서 **버그 하나를 잡았다**: 원래는 팝업을 띄우기 **전에** 주소를 저장해서, 취소해도 다음 자동
+  재접속이 조용히 새 서버로 갔다. 저장을 홀드 확정 뒤로 옮겼다.)
+  같은 릴레이를 가리키는 다른 주소(vite 프록시 ↔ 직접)로 옮기면 서버의 재접속 유예가 로비를 되살리므로
+  분대가 유지된다 — 경고 문구는 그쪽에서 보수적으로만 틀린다(진짜 다른 서버면 떠난다).
+- 아이콘 16 / 32 / 48 / 256 px 시각 확인 (`npm run icon -- --png`), stub exe 의 버전 정보
+  (`FileDescription: SCAVANGER`).
+
+**주의**: `smoke-controls-hub` 는 릴레이가 떠 있어야 한다 (원래도 `no console errors` 검사가 그랬다).
+단독 실행할 때는 `npm run server` 를 먼저 켠다 — `npm run verify` 는 러너가 알아서 띄운다.
+
+## 2026-09-10 — 플레이 피드백 배치 (실내 · 계단 · 선로 · 전차 · 인벤토리 · 루팅 · 제작 대개편)
+
+`npm run verify:all` — **전부 통과, 9분 21초, 실패 0건.**
+
+```
+2026-09-10: typecheck ok, typecheck-server ok, net-selftest 295/295, data-check ok,
+build 2,537.79 kB JS / 259.63 kB CSS, smoke-quickslots 73/73, smoke-weapons 136/136,
+smoke-phase2 57/57, smoke-stratagems 75/75, smoke-phase3 33/33, smoke-ship-rooms 72/72,
+smoke-phase4 49/49, smoke-tactical 87/87, smoke-controls-hub 144/144, smoke-inventory-p6 144/144,
+smoke-housing 206/206, smoke-console 63/63, smoke-progression 123/123, smoke-loadout 69/69,
+smoke-search 61/61, smoke-ui-p6 88/88, smoke-ui-p5 136/136, smoke-enemy-alert 42/42,
+smoke-uniques 72/72, smoke-rogue-v2 52/52, smoke-rogue-drop 30/30, smoke-resume-gate 62/62,
+smoke-meta 172/172, smoke-library 126/126, smoke-training 112/112, smoke-enemy-delta 52/52,
+smoke-ghost 86/86, smoke-planets 86/86, smoke-ecology 90/90, smoke-social 138/138,
+smoke-props-collision 20/20, smoke-raidflow 59/59, smoke-server-dist ok, smoke-hazard 43/43,
+smoke-structures 67/67, smoke-tutorial 86/86, smoke-pitch ok, smoke-lights 4/4,
+smoke-hangar 58/58, e2e-mp 156/156
+```
+
+늘어난 검사: `smoke-structures` 51 → **67** (전차 호출 콘솔 8건 × rail 있는 시드 2개),
+`smoke-inventory-p6` 104 → **144** (내구도별 분해 · 방탄복 수리 · 구간 표시 · 정제 탭 · 정렬 · 홀드),
+`smoke-tutorial` 83 → **86**, `smoke-rogue-drop` 에 강하 토스트 · 위험 인디케이터 2건.
+
+### 검증 도중에 스모크 자체가 틀렸던 것 2건
+
+- **`smoke-phase4` 의 "오래된 flake" 가 flake 가 아니었다** (두 번째로). 2026-09-09 에 한 번
+  `if (pl.isDead) pl.respawnAt(...)` 로 고쳤는데 그것으로는 부족했다 — **사후 부활은 레이드 실패를
+  되돌리지 못한다.** `player:died` → `game:raidFailed` → `phase 'dead'` + `uiBlockers` 에 `'menu'` 가
+  남고, 그 뒤 `canAct()` 가 `isControlActive()` 를 보므로 `startMelee` 가 조용히 거절된다. 몸만 일으켜
+  놓고 고정 시간(1.2 s)을 기다리는 방식이라 **얼마를 기다려도 통과하지 못한다**. 로그가 몇 분 동안
+  쏘는 그 구간에서 **애초에 죽지 않게** 회복 가드를 걸고(그 뒤 절은 전부 적 쪽만 검사한다), 고정 대기를
+  `isControlActive() && !isDead && !isDowned` 조건 대기로 바꿨다.
+- **`smoke-housing` 의 가구 개수가 세 자리에 손으로 적혀 있었다.** 정제 작업대가 하나 늘자 5건이 red 가
+  됐다 (`FURNITURE_DEFS 18` · `workshop 13` · 카드 13 × 3곳). 카나리아 한 줄만 literal 로 남기고
+  화면 검사들은 `getFurnitureFor('workshop').length` 를 그때그때 물어서 쓴다.
+
+### `data:check` 가 이제 경제까지 검산한다
+
+새 csv 는 `data/salvage.csv` 하나지만(csv 39 → 40), 스키마 검사에 더해
+`src/items/Salvage.checkSalvageEconomy()` 가 **분해 38종 × 내구도 5구간 × 재료 종류 전부**를 실제 정수로
+돌려 네 가지를 확인한다 — ① 분해 ≤ 제작, ② 수리 + 분해 ≤ 제작(한 종류는 엄격히 작다), ③ 분해(구간 4)
+− 수리(b) ≤ 분해(b) (「고쳐서 뜯기」가 「지금 뜯기」보다 이득이면 안 된다), ④ 제작에 안 쓰는 재료가
+분해에서 나오지 않는다. **최악 비율 0.667** (`wpn_ar_g3` 구간 0 의 합금 판), 위반 0건.
+수치를 고치고 이 검사를 통과하면 그것이 곧 증명이다.
+
+### 손으로 하지 않은 것
+
+이번 배치는 배포물(`electron/` · `server/tool.ts` · `scripts/pack-release.mjs`)을 건드리지 않아
+`npm run app:dist` 눈 확인은 생략했다 (`smoke-server-dist` 는 러너가 돌렸다).

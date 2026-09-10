@@ -27,7 +27,7 @@ Arc Raiders-style minimalist UI, Diablo 2-style grid inventory, procedural maps,
 | **앞으로 해야 할 작업** | [docs/TODO.md](docs/TODO.md) — 다음 페이즈 후보 묶음 + 항목별 코드 근거 |
 | 완료된 단계 목록 | [docs/HISTORY.md](docs/HISTORY.md) 의 `완료된 단계` |
 | Phase 5–12 에서 무엇을 결정했나 | [docs/DECISIONS.md](docs/DECISIONS.md) |
-| **투자자 · 퍼블리셔용 소개 문서** (위키형 HTML, 빌드 없음 · 공개본 **https://toniqat.github.io/Scavanger/**) | [docs/pitch/README.md](docs/pitch/README.md) → `docs/pitch/index.html` (페이지 원본은 `docs/pitch/pages/00-intro.html` … `22-controls.html` 23개) |
+| **투자자 · 퍼블리셔용 소개 문서** (위키형 HTML, 빌드 없음 · 공개본 **https://toniqat.github.io/Scavanger/**) | [docs/pitch/README.md](docs/pitch/README.md) → `docs/pitch/index.html` (페이지 원본은 `docs/pitch/pages/00-intro.html` … `30-controls.html` **31개**. 페이지 순서 · 파일 번호 · 절 번호의 원본은 `docs/pitch/app.js` 의 `TREE` 하나이고, 깨지면 `node scripts/smoke-pitch.mjs` 가 잡는다) |
 
 ---
 
@@ -43,7 +43,9 @@ npm run build
 
 npm run app:build  # 데스크톱(Electron) 빌드: vite dist/ + 메인 프로세스 dist-electron/
 npm run app        # 빌드된 데스크톱 앱 실행 (임베디드 릴레이 + 로컬 http, 브라우저 불필요)
-npm run app:dist   # + electron-builder → release/SCAVANGER-<version>-portable.exe
+npm run app:dist   # 배포 폴더 release/SCAVANGER/ 전체 (아이콘 + app/ + stub exe + server.txt + 서버 exe)
+npm run server:dist # 서버만: release/SCAVANGER-Server.exe (Node 없이 도는 단독 exe, 약 86MB)
+npm run icon       # 앱 아이콘 electron/resources/icon.ico 를 코드로 다시 그린다 (--png = 미리보기)
 
 npm run verify     # 기능 하나 끝낸 뒤: typecheck + selftest + 건드린 폴더에 매핑된 스모크만 (4 병렬)
 npm run verify:all # 머지 전: 전부 + build + e2e:mp (~10 분)
@@ -51,10 +53,28 @@ npm run net:selftest   # 서버 프로토콜 셀프테스트 (브라우저 불�
 npm run e2e:mp         # 헤드리스 크롬 2대로 릴레이+vite 관통 테스트
 
 npm run pitch:webp # 피칭 문서 배포본 이미지: docs/pitch/assets/*.png → 같은 이름의 .webp (30MB → 2.8MB)
+node scripts/shots-pitch.mjs  # 피칭 문서 스크린샷 자동 촬영 (npm run dev 가 떠 있어야 한다)
+node scripts/smoke-pitch.mjs  # 피칭 문서 31쪽이 뜨는지 (링크 · 사이드바 · nextnav · 카드 넘기기)
 ```
 
-개별 스모크 스크립트 37종의 목록과 각각이 검사하는 내용은 **[scripts/README.md](scripts/README.md)** 에 있다.
+개별 스모크 스크립트 40종의 목록과 각각이 검사하는 내용은 **[scripts/README.md](scripts/README.md)** 에 있다.
 `npm run verify` 가 폴더 → 스크립트 매핑으로 알아서 고르므로 손으로 하나씩 돌리지 않는다 (`node scripts/verify.mjs --list`).
+
+### 배포 (2026-09-10)
+
+`npm run app:dist` 가 만드는 것은 exe 하나가 아니라 **그대로 압축해 보낼 폴더**다:
+
+```
+release/SCAVANGER/
+  app/                    electron 빌드 전부 (SCAVANGER.exe + .pak · dll · locales …)
+  SCAVANGER.exe           stub 런처 — app\SCAVANGER.exe 를 띄운다 (electron/launcher.cs, csc.exe 로 굽는다)
+  server.txt              접속할 서버 주소 한 줄 — 받는 사람이 고치는 유일한 파일 (구 relay.txt)
+  SCAVANGER-Server.exe    서버를 켤 사람만 실행 (server/tool.ts, Node 불필요)
+```
+
+서버를 켤 사람은 `SCAVANGER-Server.exe` 를 더블클릭하고 창에 적히는 주소를 알려 주면 된다.
+받는 사람은 게임 안 **`설정 › 서버 설정`** 에 그 주소를 적는다 (`server.txt` 를 고쳐도 된다 — 게임 안 설정이 우선).
+자세한 것은 [electron/README.md](electron/README.md) 의 `배포 폴더` 와 [server/README.md](server/README.md) 의 `배포`.
 
 Windows 원클릭 실행 (프로젝트 루트에서 더블클릭):
 
@@ -64,6 +84,7 @@ start-server.bat relay   # 릴레이만 (npm run server, 0.0.0.0:8787) — 데�
 ```
 
 배너에 이 PC 의 LAN 주소(`ws://<IP>:8787/ws`)를 찍는다 — 데스크톱 앱이 접속할 값이다.
+(배포본을 받은 사람에게는 `start-server.bat` 대신 `SCAVANGER-Server.exe` 가 그 역할을 한다.)
 게임 실행은 `SCAVANGER.exe` 또는 `npm run dev`.
 `start-server.bat` 은 한국어 메시지를 위해 **CP949(시스템 ANSI)** 로 저장한다 — UTF-8 + `chcp 65001` 조합은 cmd 가 label 을 재탐색할 때 파싱이 깨진다.
 
@@ -86,7 +107,7 @@ start-server.bat relay   # 릴레이만 (npm run server, 0.0.0.0:8787) — 데�
 
 | 폴더 | 시스템 | `ctx` 게시 | 한 줄 책임 |
 |---|---|---|---|
-| [`src/player/`](src/player/README.md) | `PlayerSystem` | `ctx.player` | 3인칭 컨트롤러 · 카메라 리그 · 절차 생성 병사 모델 · **강하 포드 동기화(아군 헬포드가 보인다) · 구조선 부활** · 체력(**100 고정 아님 — getter**)/**실드(방탄복 = 추가 체력, 피해는 실드부터)**/전투불능(**1인 분대는 즉사**)/스태미나 · 자세 · 상호작용 · 실내 충돌 · 원격 아바타(**같은 함선끼리만 보인다**) · 호스트 고스트 |
+| [`src/player/`](src/player/README.md) | `PlayerSystem` | `ctx.player` | 3인칭 컨트롤러 · 카메라 리그 · 절차 생성 병사 모델 · **강하 포드 동기화(아군 헬포드가 보인다) · 구조선 부활** · **차량 탑승(전차 OBB 안이면 유지 · 로컬 좌표로 이동 · 하차 관성)** · 체력(**100 고정 아님 — getter**)/**실드(방탄복 = 추가 체력, 피해는 실드부터)**/전투불능(**1인 분대는 즉사**)/스태미나 · 자세 · 상호작용 · 실내 충돌 · 원격 아바타(**같은 함선끼리만 보인다**) · 호스트 고스트 |
 | [`src/weapons/`](src/weapons/README.md) | `WeaponSystem` | — | 무기 **2슬롯(주무기 I · II — 2026-09-10 보조무기 제거)** · 실효 스탯 · 내구도 · 탄약 v2 · 히트스캔/발사체 · 빠른 사용 휠 · 수류탄 · 근접 · 유니크 무기 · 원격 재생 |
 | [`src/implants/`](src/implants/README.md) | `ImplantSystem` | `ctx.implants` | 전술 임플란트 6종 (갈고리 · 대시 · 배리어 방패 · 오버차지 · 정찰 스캔 · 대전차포), Q 키 구동, 배리어 충돌/흡수/실드 배쉬 · **HUD 는 화면 중앙 하단 가로 썸네일(`ui/hud/ImplantWidget`)** |
 | [`src/gadgets/`](src/gadgets/README.md) | `GadgetSystem` | `ctx.gadgets` | 소모품 가젯 10종 (은폐 · 돔 실드 · 바리케이드 · 수류탄류 · 지뢰 · 포탑 · 제세동기 · 점프대), 호스트 권한 배치물 |
@@ -96,7 +117,7 @@ start-server.bat relay   # 릴레이만 (npm run server, 0.0.0.0:8787) — 데�
 
 | 폴더 | 시스템 | `ctx` 게시 | 한 줄 책임 |
 |---|---|---|---|
-| [`src/world/`](src/world/README.md) | `WorldSystem` | `ctx.world` | 절차 지형 · 바이옴 · 소품/장애물(**콜라이더 = 보이는 실루엣**, 낮은 것은 `getSurfaceY` 로 **올라선다**) · **상자(허허벌판에는 없다 — 폐허 전초 · 구조물 둘레 · 둥지에만)** · 탈출 패드 · 채집 노드(약초 · **고철 더미**) · **전장의 안개(`ctx.world.fog`)** · **버려진 구조물(전진기지 · 연구실 · 불시착 함선 — 들어간다 · 지하실은 잠겨 있고 키카드가 그 안에 있다 · 지상층 바닥에 계단 구멍이 뚫려 있다 · 컴퓨터로 행성 스캔)** · **선로 · 플랫폼 · 전차(선로 위를 걸어 다닌다 · 콘솔 시동 → 알림 뒤 1초 정지 → 3초 가속 · 데크에 서면 함께 실려 간다)** · **환경 재해(`ctx.world.hazard` — 모래 폭풍 · 눈보라 · 폭풍의 눈 · 독성 포자. 6–8분에 시작해 맵을 덮는다 = 사실상 강제 탈출, 눈 지형에는 모래 폭풍 대신 눈보라, 폭풍의 눈 안은 앞이 안 보이고 벽만 또렷하다, 포자는 거대 버섯 군락에서 피어오른다)** · 시뮬레이션 훈련장 · 충돌/레이캐스트 질의(**사각 OBB 콜라이더 `Obstacle.box`**) |
+| [`src/world/`](src/world/README.md) | `WorldSystem` | `ctx.world` | 절차 지형 · 바이옴 · 소품/장애물(**콜라이더 = 보이는 실루엣**, 낮은 것은 `getSurfaceY` 로 **올라선다**) · **상자(허허벌판에는 없다 — 폐허 전초 · 구조물 둘레 · 둥지에만)** · 탈출 패드 · 채집 노드(약초 · **고철 더미**) · **전장의 안개(`ctx.world.fog`)** · **버려진 구조물(전진기지 · 연구실 · 불시착 함선 — 들어간다 · 지하실은 잠겨 있고 키카드가 그 안에 있다 · 지상층 바닥에 계단 구멍이 뚫려 있다 · 컴퓨터로 행성 스캔)** · **선로 · 플랫폼 · 전차(선로 방향으로 길쭉한 차체 · **시동 콘솔은 운전실 안** · 플랫폼 안내판 = **호출 콘솔**(부르기만 하고 출발은 안에서) · 도착하면 `idle` 로 서고 **자동 재출발 없음** · 최고 속도에서 치이면 피해 + 넉백)** · **선로 회랑(`RAIL_CLEARANCE_M`) 안에는 아무것도 놓지 않는다 — 그래서 선로를 제일 먼저 잡고 나머지가 피한다** · **환경 재해(`ctx.world.hazard` — 모래 폭풍 · 눈보라 · 폭풍의 눈 · 독성 포자. 6–8분에 시작해 맵을 덮는다 = 사실상 강제 탈출, 눈 지형에는 모래 폭풍 대신 눈보라, 폭풍의 눈 안은 앞이 안 보이고 벽만 또렷하다, 포자는 거대 버섯 군락에서 피어오른다)** · 시뮬레이션 훈련장 · 충돌/레이캐스트 질의(**사각 OBB 콜라이더 `Obstacle.box`**) |
 | [`src/enemies/`](src/enemies/README.md) | `EnemySystem` | `ctx.enemies` | 버그 5종 + 휴머노이드 로그 AI · 포병(**사거리 −30 % · 비행 −50 % · 리본 궤적 · 궤적 높이는 `SHELL_ARC_GRAVITY`(정점 9.9 m) — 화면 안으로 날아온다**) · 베헤모스 · 팩션 · 시체 루팅 · 상태이상 · 총알 추적 · **지형지물 접지(`getSurfaceY`) · 대형 적 스폰 여유** · **로그 강하(구조물 조사 → 구역당 1회 · 분대 인원 비례 · 구조물로 진격)** · **벽에 붙은 채로 쏘지 않는다(`ai/FireLine` — 총구 기준 사선, 막히면 사격만 보류하고 스트레이프)** · **탈출 웨이브도 분대 인원 비례(`WAVE_SQUAD_SCALE`)** · 호스트/리플리카 동기화 |
 | [`src/extraction/`](src/extraction/README.md) | `ExtractionSystem` | — | 탈출 콘솔(**평상시 빛기둥 없음 — 활성화 뒤에만 켜진다**) · **60초** 카운트다운(`EXTRACTION_COUNTDOWN`) · 함선 착륙/탑승/이륙(**뒷문 자리는 실제로 뚫려 있고 램프만이 막는다 · 탑승하면 데크 평면을 따라 함선과 함께 실려 올라간다**), 호스트 권한 |
 
@@ -104,8 +125,8 @@ start-server.bat relay   # 릴레이만 (npm run server, 0.0.0.0:8787) — 데�
 
 | 폴더 | 시스템 | `ctx` 게시 | 한 줄 책임 |
 |---|---|---|---|
-| [`src/items/`](src/items/README.md) | (데이터) | `ctx.loot` | 무기 6계열 × 등급 I–V · 탄약 · 부착물 · 가방 · **방탄복(= 실드 20/40/60/80/100)** · 회복 소모품 · **실드 충전기 3종** · 씨앗 · 서적 · 임플란트 아이템 · 루팅 테이블 · 레시피(제작 · **고물 분해**) |
-| [`src/inventory/`](src/inventory/README.md) | `InventorySystem` | `ctx.inventory` | 디아블로2식 격자 모델 · 가방/장비(**주무기 I · II · 가방 · 방탄복 — 보조무기 칸 없음**)/**임플란트 칸**/**퀵슬롯(= 또 하나의 가방 공간, 올리면 격자에서 사라진다 · 상자 · 창고와 곧장 오간다)** · 함선 창고 · **사망 시 전량 시체로(`stripForCorpse`) · 컨테이너별 격자 크기** · 컨테이너 감정 · 소켓 · 제작(**1초 홀드 · 한 칸 산출물 썸네일 · 제작 수량 ◀▶ · 넣을 자리 없으면 버튼 잠금(가방 → 창고)**)/분해/**수리 팝업** · 출격 준비 점검 · Tab 화면(인벤토리/캐릭터/기업/함선) · **무기 툴팁 = 2×2 게이지(대미지 · 연사 · 반동 · 사거리, 소켓 보너스 초록 · 반동 감소 초록 윤곽) + 우상단 탄종 썸네일 + 소켓 썸네일 한 줄**, **탄약 요청은 장착 무기 휠클릭 (`탄약 필요: <탄종>`)** |
+| [`src/items/`](src/items/README.md) | (데이터) | `ctx.loot` | 무기 6계열 × 등급 I–V · 탄약 · 부착물 · 가방 · **방탄복(= 실드 20/40/60/80/100)** · 회복 소모품 · **실드 충전기 3종** · 씨앗 · 서적 · 임플란트 아이템 · 루팅 테이블 · **제작(`data/recipes.csv` 94줄 — 상위 재료 5종 · 정제 작업대 · 무기 25종 전부) · 분해/수리(`data/salvage.csv` + 제작 재료 × 내구도 20 % 5구간 배수 — 「제작 → 분해」 무한 이득이 없다는 것을 `data:check` 가 매번 검산한다)** |
+| [`src/inventory/`](src/inventory/README.md) | `InventorySystem` | `ctx.inventory` | 디아블로2식 격자 모델 · 가방/장비(**주무기 I · II · 가방 · 방탄복 — 보조무기 칸 없음**)/**임플란트 칸**/**퀵슬롯(= 또 하나의 가방 공간, 올리면 격자에서 사라진다 · 상자 · 창고와 곧장 오간다)** · 함선 창고 · **사망 시 전량 시체로(`stripForCorpse`) · 컨테이너별 격자 크기** · 컨테이너 감정 · 소켓 · 제작(**1초 홀드 · 한 칸 산출물 썸네일 · 제작 수량 ◀▶ · 넣을 자리 없으면 버튼 잠금(가방 → 창고) · 만들 수 있는 항목이 위로 · 작업대 탭 6종(전체/총기/장비/가젯/의학/정제) + 빠른제작 · 작업대를 열면 그 작업대 레시피만**)/**분해 · 수리(둘 다 남은 내구도 20 % 5구간을 탄다 — 팝업이 구간과 배율을 적는다)** · 출격 준비 점검 · Tab 화면(인벤토리/캐릭터/기업/함선) · **무기 툴팁 = 2×2 게이지(대미지 · 연사 · 반동 · 사거리, 소켓 보너스 초록 · 반동 감소 초록 윤곽) + 우상단 탄종 썸네일 + 소켓 썸네일 한 줄**, **탄약 요청은 장착 무기 휠클릭 (`탄약 필요: <탄종>`)** |
 | [`src/pickups/`](src/pickups/README.md) | `PickupSystem` | `ctx.pickups` | 월드에 떨어진 아이템 (투척 궤적 · 절차 메시 · 빛기둥 · 호스트 권한 동기화) |
 | [`src/meta/`](src/meta/README.md) | `MetaSystem` | `ctx.meta` | 기업 4곳 · 신뢰도(모자란 거래/계약 탭은 잠김) · 크레딧 · 상점/거래대 · 계약 · 퀘스트 · 임플란트 수리 데스크. 화면은 **왼쪽 한 열**(기업 목록 → 신뢰도 게이지 → 페이지 탭 → 크레딧) + 페이지 + **풀 높이 가방/창고/진행 중인 계약**, 보상은 **재화 썸네일** |
 | [`src/progression/`](src/progression/README.md) | `ProgressionSystem` | `ctx.progression` | 레벨/XP · 능력치 5종 · 숙련도 14종 · 파생 수치(`derived`, **투척 거리는 m 로 표기**) · 임플란트 장착칸 규칙 · 캐릭터 시트(능력치 · 숙련도만 — 임플란트 UI 는 인벤토리) · 프로필 영속화(**슬롯별**, `accent`/`createdAt` 포함) |
@@ -118,7 +139,7 @@ start-server.bat relay   # 릴레이만 (npm run server, 0.0.0.0:8787) — 데�
 | [`src/hub/`](src/hub/README.md) | `HubSystem` | `ctx.hub` | 개인/공유 함선 내부 · **격납고(개인 함선 4대 정박 · 방문)** · 도킹 컷씬 · **창문 워프(행성 이동, 조작 유지)** · **목표 행성이 없으면 창밖에 행성이 없다** · 발사 포드(출격 준비 경고) · 전체화면 터미널(**닫기 버튼만 · 키 가이드 없음**) · 행성 선택 · 작업대 · 시설 관리 모드 · **분대원 상호작용 → 분대장 넘기기** |
 | [`src/game/`](src/game/README.md) | `GameFlowSystem` | `ctx.phase`, `ctx.corpses` | 페이즈 상태 기계 · **사망/시체(`ctx.corpses`, 자동 부활 없음 — 구조선만)** · **분대장 기기** · 레이드 실패 · **ESC = 맨 위 화면 닫기 → 없으면 일시정지(`escapeKey`)** · 재접속 UX · 레이드 세션 저장/복귀 · 재개 게이트 |
 | [`src/ui/`](src/ui/README.md) | `HudSystem` | — | 모든 DOM UI — HUD 2계층(**레이드 HUD 2026-09-10 개편: 좌상단 = 임무 시간만 · 우하단 무기 패널 = 가로로 긴 상자(`.wbox`) 안에 등급색 정사각 썸네일 + `24 / 120` + 클래스 태그, 바닥에 내구도 바 · 퀵슬롯 54 px + `T` · 좌하단 = 이름 + 실드 게이지 + 5등분 체력 · 하단 중앙 = 함선 호출 정사각 썸네일(`.scall`) + 전술 임플란트, 둘 다 쿨타임이 아래에서 위로 차오르고 한가운데 남은 초**) · 메뉴(**타이틀 = 워드마크 + 게임 시작/설정/종료**, **캐릭터 선택 3칸 · 캐릭터 생성(3D 프리뷰)**, **ESC = 중앙 왼쪽 고정**, 설정 3분할 · 화면 중앙 · 조작 다이어그램, **경고 팝업의 확정은 1초 홀드**) · 지도(**전장의 안개 — 미탐색은 회색 윤곽, 발견한 것만 마커, 밝혀진 경계에는 또렷한 선, 재해는 안개 위에 빗금으로 덮인다**) · 채팅(**Enter 전송 후 유지 · Tab 닫기**) · **우측 하단 키 가이드(`ui:keyGuide`)** · 소셜(커뮤니티 패널 단일, **고정 크기**) · 크로스헤어(**헤드샷 타격 표시 = 1.6배 X · 소모품을 들면 점 + 수량/내구도 · 함선 안에서도 점(`HubDot`) + 탑승 홀드 링**) · **위험 인디케이터(`ui/hud/DangerIndicators` — 적 곡사포탄 · 수류탄(아군 + 적) · 함선 호출 낙하물. 화면 밖이면 크로스헤어 바깥 방향 호, 화면 안이면 머리 마커, 둘이 겹치지 않는다. 색 = 누구 것인가, `hot` = 임박)** · **핑 v3(함선 안에서도 · 플레이어별 3개 · 관대한 조준 · 확인 핑 = 분대 색 원 · 모든 핑이 채팅 한 줄 · 화면 밖 화살표는 수명 내내 · 2026-09-10 아래 드래그 탄약 요청 제거 — H 의사소통 휠 · 인벤토리 휠클릭으로 대체)** · **입력 중 `…` 말풍선(원격만)** · 굵은 피격 방향 호 · 아이템 툴팁(**크기 줄 없음 · 무게 좌하단 · 가치 우하단**) · 커서 아트 · 스타일시트 |
-| [`src/audio/`](src/audio/README.md) | `AudioSystem` | `ctx.audio` | 절차 WebAudio SFX 전량 + 앰비언트, 버스 이벤트에 반응, 볼륨 영속화 · **발소리(로컬은 늘 같은 크기 · 원격은 거리 감쇠 · 자세별 크기)** |
+| [`src/audio/`](src/audio/README.md) | `AudioSystem` | `ctx.audio` | 절차 WebAudio SFX 전량 + 앰비언트, 버스 이벤트에 반응, 볼륨 영속화 · **발소리(로컬은 늘 같은 크기 · 원격은 거리 감쇠 · 자세별 크기)** · **로그 강하 경보(무전 경보 + 착지 직전 낙하 굉음 — 인지력이 아니라 전용 반경 `ROGUE_DROP_ALERT_RADIUS` 로 게이트하고 거리 감쇠는 남긴다)** |
 | [`src/tutorial/`](src/tutorial/README.md) | `TutorialSystem` | `ctx.tutorial` | 새 캐릭터 안내 **17단계** — 목표 패널 · UI 스포트라이트(**합집합 포커싱 · 0.5초 늦게 · 딤 페이드인**) · 바닥 안내선, 순서 강제 게이트(`blockReason`) + **잠긴 항목 숨김**(`hides`, **함선 창고 아이템 포함**) · 부족한 재료 top-up · **1초 홀드 건너뛰기** |
 | [`src/console/`](src/console/README.md) | `ConsoleSystem` | `ctx.console` | 개발자 콘솔 + 치트 (**dev 호스트에서만** 존재 — 그 외에는 DOM 도 키도 없다) |
 
@@ -126,9 +147,9 @@ start-server.bat relay   # 릴레이만 (npm run server, 0.0.0.0:8787) — 데�
 
 | 폴더 | 시스템 | `ctx` 게시 | 한 줄 책임 |
 |---|---|---|---|
-| [`src/net/`](src/net/README.md) | `NetSystem` | `ctx.net` | 릴레이 WebSocket 클라이언트 · 세션 토큰 · 로비 · 20 Hz 스냅샷 · 프로필 동기화 · 소셜 · 크루 카드 · **함선 배치(`ship state`)** · **분대장 지명 이관** · `PlayerFlags.TYPING`(채팅 입력 중) |
-| [`server/`](server/README.md) | (Node) | — | `ws` 릴레이 — 로비 · 5분 재접속 유예 · 호스트 이관(**자동 + 지명 `lobby:transferHost`**) · 프로필/레이드/소셜 저장소 · `selftest.ts` |
-| [`electron/`](electron/README.md) | (Electron main) | — | 데스크톱 스탠드얼론 셸 — 같은 프로세스에 릴레이 + `dist/` 를 로컬 http 로 서빙(**창 포트 8790 고정 = 세이브 오리진**), `src/`·`server/` 무변경 |
+| [`src/net/`](src/net/README.md) | `NetSystem` | `ctx.net` | 릴레이 WebSocket 클라이언트 · 세션 토큰 · 로비 · 20 Hz 스냅샷 · 프로필 동기화 · 소셜 · 크루 카드 · **함선 배치(`ship state`)** · **분대장 지명 이관** · `PlayerFlags.TYPING`(채팅 입력 중) · **접속할 서버 주소(`설정 › 서버 설정` → `defaultUrl`) · 익명 연결 테스트** |
+| [`server/`](server/README.md) | (Node) | — | `ws` 릴레이 — 로비 · 5분 재접속 유예 · 호스트 이관(**자동 + 지명 `lobby:transferHost`**) · 프로필/레이드/소셜 저장소 · `selftest.ts` · **배포용 엔트리 `tool.ts`(단독 exe → `npm run server:dist`)** |
+| [`electron/`](electron/README.md) | (Electron main) | — | 데스크톱 스탠드얼론 셸 — 같은 프로세스에 릴레이 + `dist/` 를 로컬 http 로 서빙(**창 포트 8790 고정 = 세이브 오리진**), `src/`·`server/` 무변경 · **배포 폴더 = `app/` + stub 런처(`launcher.cs`) + `server.txt`** · 아이콘 |
 
 ---
 
@@ -329,11 +350,76 @@ start-server.bat relay   # 릴레이만 (npm run server, 0.0.0.0:8787) — 데�
   `HousingRef.findFreeSpot` 으로 묻는다. 문 앞 여유는 **자동 배치에만** 있다 — `canPlaceAt` 에 넣으면
   `ShipState.sanitize` 가 이미 문 앞에 가구를 둔 함선에서 그 가구를 창고로 빼앗는다.
 - **HUD 위험 표시는 화면 안/밖에 따라 하나만 뜬다** (2026-09-10). `ui/hud/DangerIndicators` 하나가 적
-  곡사포탄 · 수류탄(아군 + 적) · 함선 호출 낙하물을 전부 들고, 화면 밖이면 크로스헤어 바깥 방향 호를,
-  화면 안이면 머리 마커를 그린다 — 같은 위험물에 둘이 겹치지 않는다. **색이 누구 것인지를, `hot` 이
-  임박을 말한다** (아군 호박 · 적 빨강). 인지력 반경 게이트는 포탄에만 남기되 착탄 지점이
+  곡사포탄 · 수류탄(아군 + 적) · 함선 호출 낙하물 · **로그 강하 포드**를 전부 들고, 화면 밖이면 크로스헤어
+  바깥 방향 호를, 화면 안이면 머리 마커를 그린다 — 같은 위험물에 둘이 겹치지 않는다. **색이 누구 것인지를,
+  `hot` 이 임박을 말한다** (아군 호박 · 적 빨강). 인지력 반경 게이트는 포탄에만 남기되 착탄 지점이
   `DANGER_NEAR_RADIUS` 안이면 무조건 보여 준다. **전장의 안개 게이트는 걸지 않는다** — 지금 벌어지는
   사건이지 발견된 오브젝트가 아니다.
+
+- **한 아이템의 값어치를 정하는 자리는 `data/recipes.csv` 하나다** (2026-09-10, 제작 대개편). 수리비도 분해
+  산출도 **그 아이템의 제작 재료**에서 나오고, 곱해지는 것은 `data/tables.csv` 의 남은 내구도 20 % 5구간 배수
+  (`REPAIR_COST_BY_DURABILITY` 0.5→0.1 · `SALVAGE_YIELD_BY_DURABILITY` 0.08→0.40)뿐이다. 그래서 세 값이
+  **따로 놀 수 없다** — 재료를 고치면 셋이 같이 움직인다. 두 표를 같은 구간에서 더한 값이 1 보다 작아야
+  「제작 → 분해 → 제작」이, `분해(4) − 수리(b) ≤ 분해(b)` 여야 「고쳐서 뜯기」가 이득이 되지 않는다.
+  `src/items/Salvage.checkSalvageEconomy()` 가 분해 38종 × 5구간 × 재료 종류 전부를 **실제 정수로** 돌려
+  `npm run data:check` 가 매번 검산한다 — 값을 고치고 그 검사를 통과하면 그것이 곧 증명이다.
+  분해 최소 보장은 **재료당 1 이 아니라 주재료 한 종류에만** 있다: 종류마다 보장하면 등급 IV 총의 「잉곳 2」가
+  0 % 구간에서도 1 개 돌아오는데 같은 구간 수리비도 `ceil(2×0.5)=1` 이라 **잉곳이 스스로 늘어난다**.
+
+- **상위 재료는 정제 작업대에서만 나온다** (2026-09-10, 사용자 결정). 3계열 × 2단계다 — 금속(합금 판 →
+  강화합금 잉곳 · 폐금속+케이블 → 기계 부품) · 전자(구동 코어 → 축전 모듈 · 회로기판+파워셀 → 제어 모듈) ·
+  섬유(천조각 → 강화 직조포 · 천조각+생체조직 → 복합 방탄섬유). 등급 IV~V 장비는 전부 그 장비군의 상위
+  재료를 요구하므로 **정제 작업대가 후반 제작의 관문**이고, 그것만이 현장 빠른제작이 없는 계열이다.
+  `WorkbenchKind` 에 `'refine'` 을 더한 것이 이번 계약 추가의 전부다 (나머지 넷은 한 줄도 안 바뀌었다).
+
+- **`bench` 는 「그 레시피가 속한 작업대」다** (2026-09-10, 사용자 결정). 작업대를 열면 **그 작업대의 레시피만**
+  보인다 — 예전에는 `bench` 가 없는 줄을 전부 실어 정제 작업대 Lv.3 에도 붕대 · 탄약이 떴고, 레시피가 94줄로
+  늘면서 읽을 수 없어졌다. 그래서 현장 레시피도 자기 작업대를 밝힌다: 탄약 → 총기, 붕대 → 의학, 연막 → 가젯.
+  `station: 'field'` + `bench` 는 **모순이 아니다** — "어디서든 만들 수 있고, 그 작업대 창에도 뜬다" 는 뜻이다
+  (튜토리얼의 "같은 작업대 창에서 소총 → 탄약" 이 여기 기댄다). 가방 화면의 `빠른제작` 탭은 여전히
+  `station` 으로 가른다 — 그 탭의 뜻은 "작업대 없이도 되는 것" 이다.
+
+- **작업대 글리프의 원본은 `shared/WORKBENCH_ICON` 이다** (2026-09-10). 같은 글자가 제작 탭
+  (`inventory/ui/labels`)과 가구 카드(`ui/hud/ShipManage`) **두 폴더에 복사돼** 있어 한쪽만 고치면 같은
+  작업대가 두 화면에서 다른 그림이 됐다 — 「같은 것을 두 폴더가 쓰면 `shared` 로 뽑는다」 그대로다.
+
+- **좁은 계단은 콜라이더가 벽이 된다** (2026-09-10). `resolveCollision` 의 상자 가지가 발이 윗면
+  `PROP_TOP_MARGIN`(0.15) 안일 때만 통과시켜서, 디딤폭이 `PLAYER_RADIUS`(0.45)보다 좁으면 **어느 단에 서
+  있든 바로 윗단이 늘 몸에 겹쳐** 매 프레임 아래로 밀렸다 — 지하실 계단에서 미끄러져 떨어지고 다시 올라오지
+  못하던 그것이다. 이제 윗면이 `발 높이 + PROP_STEP_UP_MAX` 이하인 상자는 밀어내지 않는다(`getSurfaceY` 의
+  천장과 **같은 식**). **원기둥 경로는 한 줄도 안 바뀌었다** — 낮은 바위까지 풀면 옆구리에 몸이 반지름만큼
+  파고들고 수류탄 · 아이템이 그것을 넘어간다. 계단 치수도 **단 높이를 고정하고 단수를 거기서 뽑는다**
+  (지하실 `STAIR_RISE_MAX` · 플랫폼 `RAIL_STAIR_MAX_RISE`): 데크 높이가 자리마다 다른데 단수를 고정하면
+  언덕에서 한 단이 `PROP_STEP_UP_MAX` 를 넘는다.
+- **들어가는 건물의 바닥은 한 장이어야 한다** (2026-09-10). 지상층이 *장식 바닥*(발자국 전체, 콜라이더 없음)과
+  *천장 슬래브*(구덩이 + `PIT_BLEND` 만큼만, 콜라이더 있음) **두 겹**이라 그 사이 띠에서는 지형을 밟았는데,
+  지형 격자(2 m)가 지하실 페더(1.6 m)보다 넓어 벽 안쪽이 최대 3.6 m 파여 있었다 — 문으로 들어서면 그 도랑에
+  빠지고 턱을 마주쳐 **점프해야만** 들어갔다. `Build.floorPlate` 하나가 발자국 + `FLOOR_OVERHANG` 까지 덮고
+  **콜라이더 윗면이 정확히 `y0`** 다 (그린 윗면만 `FLOOR_LIP` 만큼 띄워 z-fighting 을 피한다).
+- **탑승은 발판 프레임이 아니라 차량 부피로 판정한다** (2026-09-10, 사용자 결정). 전차 위에서 조금만 움직여도
+  내려지던 것은 `getStandingObstacle(...).velocity` 를 **밟고 있는 프레임에만** 더했기 때문이다 — 점프 · 경사 ·
+  승강구 · 데크 가장자리에서 질의가 한 프레임만 빠져도 그만큼 차가 발밑에서 빠져나간다. 진입만 발판 질의를
+  쓰고 **유지는 차량 OBB + 헤드룸**, **이동은 차량 로컬 좌표를 매 프레임 차량의 현재 변환으로 다시 푼다**
+  (스냅샷을 찍지 않는다 — 함선 실내가 같은 이유로 깨졌다). `vel` 은 끝까지 **로컬 속도**라 2026-09-09 의
+  "위치에 직접 더한다" 가 지키려던 것(이동 속도 · 스태미나 · 보행 애니메이션이 안 흔들린다)이 그대로 산다.
+  ⚠ 같은 자리에서 `RAIL_DECK_STEP` 을 5 → 3 m 로 줄였다: 발판 상자는 평평한데 선로는 기울어 있어 윗면 오차가
+  `step/2 × RAIL_MAX_GRADE` = **정확히 `TRAM_FLOOR_UP`(0.35)** 였고, 최대 경사 구간에서 선로 발판과 전차
+  바닥이 같은 높이가 되면 `getStandingObstacle` 이 동점을 임의로 골라 **탑승이 시작조차 안 됐다**.
+- **선로는 제일 먼저 잡고 나머지가 피한다** (2026-09-10). `line` 은 원점을 지나는 선분, `loop` 은 원점 중심
+  원이라 `RailPlan` 의 자유도는 하나뿐이다 — 패드를 다 뽑은 **뒤에** 선로를 굴리면 비켜 갈 곳이 없다
+  (반지름 20 m 원반 하나가 막는 방향 폭이 0.4 rad 라 스무 개면 π 를 넘는다). 그래서 `generateLayout` 이
+  선로를 먼저 정하고 구조물 · 전초 · 둥지 · 크레이터 · 소품 · 상자 · 채집물이 `RAIL_CLEARANCE_M` 을 비운다.
+  **대가**: 같은 시드의 매크로 레이아웃이 2026-09-09 이전과 다르다 (멀티 결정성은 그대로).
+
+- **강하는 조용히 일어나지 않는다** (2026-09-10). 로그 강하(`enemies/RogueDrop`)는 규칙(구역당 1회 · 분대
+  인원 비례 · 호스트 권한)은 그대로이고 **알림만 붙었다**: `rogueDrop:incoming` 하나를 세 폴더가 나눠 받는다 —
+  `audio/AudioSystem` 이 무전 경보 `rogue_drop_alarm`(즉시)와 대기를 찢는 `rogue_pod_fall`(착지
+  `ROGUE_DROP_FALL_LEAD_S` 초 전)을, `ui/hud/RaidAlerts` 가 토스트를, `ui/hud/DangerIndicators` 가 위험 표시를.
+  `enemies/` 에 남은 소리는 포드마다의 `rogue_pod_impact` 뿐이다. **소리도 표시도 인지력 반경을 보지 않는다** —
+  대기를 찢는 굉음이라 인지력이 좁아도 알아야 하므로 전용 반경 `ROGUE_DROP_ALERT_RADIUS`(260 m = 인지력의
+  10배) **하나를 소리와 표시가 함께** 쓴다("들리는데 안 보인다" 가 없다). 그 대신 **감쇠는 남긴다** — 원격
+  발소리와 같은 곡선이라 맵 반대편까지 들리지는 않는다. 소리를 audio/ 가 갖는 이유는 그 곡선이 패너 설정
+  (`panOnly`)과 얽혀 있어서다 — 다른 폴더에서 볼륨을 정하면 감쇠가 두 번 곱해진다.
 
 - **씬의 광원 개수를 플레이 중에 바꾸지 않는다** (2026-09-10). three.js 는 `projectObject` 에서 **보이지 않는
   가지를 통째로 건너뛰므로** 숨긴 그룹 밑의 광원은 세지 않는다. 그래서 그 그룹을 보이게 하는 순간
@@ -354,6 +440,20 @@ start-server.bat relay   # 릴레이만 (npm run server, 0.0.0.0:8787) — 데�
   **데크 평면**에서 푼다 (`Dropship.floorYAt`): 이륙 상승은 기수를 0.35 rad 들어 올리므로 평평한 높이 하나로는
   화물칸 끝에서 0.9 m 가 어긋난다. 그리고 `attachTo` 로 붙은 몸은 **`update` 와 `lateUpdate` 양쪽에서**
   부모 행렬로부터 월드 좌표를 다시 읽는다 — 태우는 쪽(`extraction`)이 `player` **뒤에** 등록돼 있어서다.
+- **접속할 서버 주소는 네 곳에서 오고 순서가 정해져 있다** (2026-09-10). ① 게임 안 `설정 › 서버 설정`
+  (localStorage `scav.relay`, **슬롯 공용**) → ② `--relay=` · `SCAV_RELAY` → ③ 배포 폴더의 `server.txt`
+  첫 줄 → ④ 같은 오리진 `/ws` (vite 프록시 · 데스크톱 앱의 임베디드 릴레이). ②③④ 를 고르는 곳은
+  `electron/main.ts` 하나이고 렌더러에는 **같은 오리진 `/ws`** 로만 보이므로, `src/` 가 갈라지는 지점은
+  `net/parts/Socket.defaultUrl()` 의 ① 하나다. 주소 문자열을 해석하는 곳도 **하나뿐**이다 —
+  `shared/net.relayUrlFrom` (예전 `electron/main.ts` 의 `toRelayUrl`). 설정 UI · 렌더러 · 셸이 각자
+  정규화하면 초록불이 뜬 주소로 앱이 다른 데 붙는다. **연결 테스트는 토큰 없이** 붙는다: 같은 토큰으로
+  두 번 붙으면 서버가 중복 세션으로 보고 살아 있는 내 소켓을 끊는다.
+- **배포 폴더에는 누를 것만 둔다** (2026-09-10, 사용자 결정). electron 빌드 전부를 `app/` 으로 내리고 루트에는
+  stub `SCAVANGER.exe` · `server.txt` · `SCAVANGER-Server.exe` 만 남긴다 (`scripts/pack-release.mjs`).
+  그래서 `electron/main.ts` 의 `configDirs()` 는 **`execPath` 의 부모까지** 후보로 본다 — 사람이 고치는
+  `server.txt` 는 `app/` 밖에 있다. 서버 exe 의 프로필 저장소도 같은 이유로 `%LOCALAPPDATA%\SCAVANGER\server`
+  다 (`--data=` 로 옮긴다). **아이콘도 코드로 그린다** (`scripts/make-icon.mjs` — 외부 에셋 금지는 아이콘에도
+  적용된다) 그리고 게임 · stub · 서버 exe 가 같은 `icon.ico` 를 쓴다.
 
 ## 5. 품질 기준
 
@@ -366,6 +466,9 @@ start-server.bat relay   # 릴레이만 (npm run server, 0.0.0.0:8787) — 데�
 - **기능 하나 끝낸 뒤**: `npm run verify` — 건드린 폴더에 매핑된 스모크만 GPU 4레인 병렬, vite/릴레이는 러너가 띄운다.
 - **머지 전, 또는 `src/shared` · `src/core` · `main.ts` 를 건드렸으면**: `npm run verify:all` (+ build + `e2e:mp`).
   스모크를 손으로 하나씩 돌리지 않는다 — 그게 1시간짜리 검증이었다.
+- **배포물을 건드렸으면**(`server/tool.ts` · `scripts/build-server.mjs` · `pack-release.mjs` · `electron/`):
+  `npm run verify` 가 `smoke-server-dist` 를 자동으로 돌린다(번들 · 부팅 · 주소 규약). 실제 exe · 배포 폴더는
+  `npm run app:dist` 를 한 번 돌려 `release/SCAVANGER/` 가 넷으로만 채워지는지 눈으로 본다 — 이건 자동화하지 않았다.
 - 디버그 훅: `window.__game.ctx`, `window.__game.getSystem('player'|'weapons'|'net'|'enemies'|…)`.
 - **끝나면 문서**: 건드린 폴더의 `README.md`(구조 + `변경 이력`), 이 파일의 폴더 지도 행(한 줄),
   [docs/HISTORY.md](docs/HISTORY.md) 의 작업 기록, 러너가 뱉은 `docs line:` 을 [docs/VERIFICATION.md](docs/VERIFICATION.md) 에.

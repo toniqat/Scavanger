@@ -1,5 +1,5 @@
 import type { AmmoType, EffectiveWeaponStats, ItemDef, LoadoutSlot, SocketSlot, WeaponDef, WeightState } from '@/shared';
-import { Keys, SOCKET_LABEL_KO, WEAPON_GRADE_ROMAN, WEIGHT_STATE_LABEL_KO, formatCreditAmount, formatCredits, keyLabel } from '@/shared';
+import { Keys, SOCKET_LABEL_KO, WEAPON_GRADE_ROMAN, WEIGHT_STATE_LABEL_KO, WORKBENCH_ICON, formatCreditAmount, formatCredits, keyLabel } from '@/shared';
 import { AMMO_LABEL_KO, CATEGORY_LABEL_KO, RARITY_COLORS, RARITY_LABEL_KO, WEAPON_CLASS_LABEL_KO, getTierLabel, weaponClassOf } from '@/items';
 
 export const CELL = 54;   // px — default grid cell edge (the Tab window / container grids)
@@ -233,8 +233,37 @@ export const TEXT = {
     noRoom: '가방에 공간이 없습니다',
     noRoomShip: '가방과 함선 창고에 공간이 없습니다',
   },
+  /**
+   * **내구도 구간** (2026-09-10, 제작 대개편). 수리 재료와 분해 산출은 `제작 재료 × 남은 내구도 구간의 배수`
+   * 라서, 화면이 말해 줘야 하는 것은 두 가지다 — ① 지금 **어느 구간**인가, ② 그 구간의 **배수가 얼마**인가.
+   * 배수는 `ctx.loot.durabilityBucketInfo` 가 주는 값이고 여기 상수로 적지 않는다 (수치는 `data/tables.csv`).
+   * 내구도가 없는 아이템은 언제나 구간 4 이므로 이 줄을 그리지 않는다.
+   */
+  durability: {
+    eyebrow: '남은 내구도',
+    /** `81~100 % · 제작 재료의 10 %` — 수리 팝업. */
+    repair: (label: string, mul: number): string => `${label} · 제작 재료의 ${Math.round(mul * 100)} %`,
+    /** `81~100 % · 제작 재료의 40 %` — 분해 팝업. */
+    salvage: (label: string, mul: number): string => `${label} · 제작 재료의 ${Math.round(mul * 100)} %`,
+    /** 구간이 바뀌면 숫자가 바뀐다는 것을 말해 주는 한 줄. */
+    repairNote: '내구도가 낮을수록 수리 재료가 많이 듭니다',
+    salvageNote: '내구도가 낮을수록 나오는 재료가 적습니다',
+  },
   /** Shared close affordance of the modeless popups (임플란트 / 제작 / 분해). */
   modelessClose: '닫기',
+  /**
+   * **작업대 탭** (2026-09-10). 함선의 `제작` 패널은 작업대를 가리지 않고 전부 한 목록에 쏟아 놓는다 —
+   * 레시피가 48 → 94 줄로 늘고 정제 작업대가 다섯 번째로 붙으면서 그대로는 읽히지 않는다. 탭 이름은
+   * `WORKBENCH_LABEL_KO`(`@/shared`) 하나가 원본이고, 여기 있는 것은 **글리프뿐**이다.
+   * (같은 글리프를 `ui/hud/ShipManage` 의 시설 관리 화면도 쓴다 — 작업대를 알아보는 눈이 같아야 한다.)
+   */
+  craftTabs: {
+    all: '전체',
+    /** `bench` 가 없는 레시피 = 현장 빠른제작 (함선에서도 만들 수 있다). */
+    field: '빠른제작',
+    /** 작업대 글리프의 원본은 `shared` 의 `WORKBENCH_ICON` 이다 — 가구 카드(`ui/hud/ShipManage`)와 같은 글자여야 한다. */
+    icon: { all: '▦', field: '✥', ...WORKBENCH_ICON } as Readonly<Record<string, string>>,
+  },
   /* Phase 6: 작업실 bench crafting */
   bench: {
     eyebrow: 'WORKSHOP BENCH',

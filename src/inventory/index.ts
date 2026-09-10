@@ -8,6 +8,9 @@ export {
   lockedQuickItems, mergeIntoQuick, pickStarterQuick, quickSlotsSignature,
 } from './QuickSlots';
 export type { QuickSlotItems } from './QuickSlots';
+/* 2026-09-10: 퀵슬롯 1:1 교체에서 밀려난 스택이 갈 자리 (미리보기 · 실행이 같은 규칙을 본다) */
+export { canQuickSwap, applyQuickSwap } from './QuickSwap';
+export type { QuickSwapCell, QuickSwapPlan, QuickSwapWhere } from './QuickSwap';
 export { Container, ContainerStore, CONTAINER_COLS, CONTAINER_ROWS } from './Container';
 export { runInventorySelfTest } from './__selftest__';
 /* Phase 5: loadout persistence + shared item serialisation */

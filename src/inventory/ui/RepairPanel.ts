@@ -16,6 +16,11 @@ import { SLOT_LABEL, TEXT } from './labels';
  *     (사용자 결정) — 한 번의 `모두 수리`를 위한 임시 선택이지 저장하는 설정이 아니다.
  *   - **소모 재료** — 목록 아래에 제외를 뺀 **합계**를 `보유/필요` 칩으로. × 를 누를 때마다 그 자리에서 다시 센다.
  *
+ * **2026-09-10 (제작 대개편 2단계)** — 수리비는 이제 `제작 재료 × 남은 내구도 구간의 배수`(올림)이고 **방탄복도
+ * 재료를 쓴다** (예전에는 그 자리가 무료였다). 그래서 줄마다 내구도 막대 옆에 `61~80 % · 제작 재료의 20 %` 를
+ * 붙이고, 목록 아래 안내 한 줄이 "더 닳으면 더 든다" 를 말한다 — 같은 장비인데 어제와 값이 다른 이유가
+ * 화면 안에 있어야 한다. 배수는 `ctx.loot.durabilityBucketInfo`(원본 `data/tables.csv`) 에서 온다.
+ *
  * 개별 수리는 아이템 우클릭 메뉴의 `수리` 가 갖는다 (`ui/parts/ContextMenu`) — 이 팝업은 일괄 작업만 한다.
  *
  * 모달처럼 보이지만 셸은 다른 팝업과 같은 `Modeless` 다: blocker 도 포인터 락도 건드리지 않고(창이 이미 둘 다
@@ -66,7 +71,12 @@ export class RepairPanel {
 
     this.hintEl = document.createElement('div');
     this.hintEl.className = 'inv-rep-hint';
-    this.hintEl.textContent = TEXT.bench.repairHint;
+    // 2026-09-10: 두 줄 — 개별 수리가 어디에 있는지, 그리고 왜 값이 매번 다른지 (내구도 구간)
+    const where = document.createElement('span');
+    where.textContent = TEXT.bench.repairHint;
+    const why = document.createElement('em');
+    why.textContent = TEXT.durability.repairNote;
+    this.hintEl.append(where, why);
 
     this.runBtn = document.createElement('button');
     this.runBtn.type = 'button';
@@ -164,6 +174,11 @@ export class RepairPanel {
     const text = document.createElement('div');
     text.className = 'inv-repair-dur';
     text.textContent = `${Math.round(cur)} / ${Math.round(max)}`;
+    // 2026-09-10: 구간이 곧 재료 배수다 — `61~80 % · 제작 재료의 20 %`
+    const bucket = document.createElement('span');
+    bucket.className = 'inv-repair-bucket';
+    bucket.textContent = TEXT.durability.repair(r.bucket.label, r.bucket.repairMul);
+    text.appendChild(bucket);
     mid.append(name, bar, text);
 
     const cost = document.createElement('div');

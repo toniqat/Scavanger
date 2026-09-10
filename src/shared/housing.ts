@@ -105,16 +105,32 @@ export const FACILITY_COLOR: Readonly<Record<FacilityId, string>> = {
   generator: '#ffd166', storage: '#9fb4ff', workshop: '#ffd27a', range: '#7fd2ff',
 };
 
-/** The four 작업실 benches. */
-export type WorkbenchKind = 'gun' | 'gear' | 'gadget' | 'medical';
-export const WORKBENCH_KINDS: readonly WorkbenchKind[] = ['gun', 'gear', 'gadget', 'medical'];
+/**
+ * The 작업실 benches. **appended (2026-09-10): `'refine'` — 정제 작업대.**
+ *
+ * 상위 재료(합금 판 · 강화합금 잉곳 · 기계 부품 · 축전 모듈 · 제어 모듈 · 강화 직조포 · 복합 방탄섬유)는
+ * 여기서만 만든다 — 현장 빠른제작이 없는 유일한 계열이고, 고등급 장비 레시피가 그 재료를 요구하므로
+ * 정제 작업대가 후반 제작의 관문이다. 나머지 넷의 동작은 한 줄도 바뀌지 않는다.
+ */
+export type WorkbenchKind = 'gun' | 'gear' | 'gadget' | 'medical' | 'refine';
+export const WORKBENCH_KINDS: readonly WorkbenchKind[] = ['gun', 'gear', 'gadget', 'medical', 'refine'];
 export const WORKBENCH_LABEL_KO: Readonly<Record<WorkbenchKind, string>> = {
-  gun: '총기 작업대', gear: '장비 작업대', gadget: '가젯 작업대', medical: '의학 작업대',
+  gun: '총기 작업대', gear: '장비 작업대', gadget: '가젯 작업대', medical: '의학 작업대', refine: '정제 작업대',
+};
+/**
+ * appended (2026-09-10): 작업대 글리프. 같은 글자가 `inventory/ui/labels`(제작 탭)와
+ * `ui/hud/ShipManage`(가구 카드) **두 폴더에 복사돼** 있었다 — 한쪽만 고치면 같은 작업대가 두 화면에서
+ * 다른 그림이 된다. CLAUDE.md 의 「같은 것을 두 폴더가 쓰면 `shared` 로 뽑는다」 그대로 여기가 원본이다.
+ * 외부 에셋 금지 규약대로 아이콘은 유니코드 한 글자다.
+ */
+export const WORKBENCH_ICON: Readonly<Record<WorkbenchKind, string>> = {
+  gun: '⚒', gear: '⛭', gadget: '⚙', medical: '✚', refine: '⌘',
 };
 
 /** Procedural furniture models hub/ knows how to build (no asset files). */
 export type FurnitureModelKind =
   | 'bench_gun' | 'bench_gear' | 'bench_gadget' | 'bench_medical'
+  | 'bench_refine'   // appended (2026-09-10): 정제 작업대 — 상위 재료 전용
   | 'range_console' | 'target_lane'
   | 'sim_hub'   // appended (Phase 7): 시뮬레이션 허브 — holo pedestal in the 사격장
   /* appended (Phase 8): 온실 재배층 (stackable grow rack) and the 정비 벤치 moved out of the cockpit */
@@ -126,6 +142,7 @@ export type FurnitureModelKind =
 export type FurnitureInteraction =
   | 'none'
   | 'workbench_gun' | 'workbench_gear' | 'workbench_gadget' | 'workbench_medical'  // → ctx.inventory.openBenchCraft(kind)
+  | 'workbench_refine'                                                            // appended (2026-09-10) → 같은 길, kind 'refine'
   | 'range_console'                                                               // → ctx.housing.openPresetMenu()
   | 'sim_hub'                                                                     // appended (Phase 7) → hub starts / joins the 시뮬레이션 훈련장
   /* appended (Phase 8) */

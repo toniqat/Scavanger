@@ -1026,6 +1026,29 @@ kbd {
 .inv-panel-craft { min-width: 340px; max-width: 380px; }
 .inv-craft-list { display: flex; flex-direction: column; gap: 8px; max-height: 520px; overflow-y: auto; padding-right: 4px; }
 .inv-craft-empty { color: var(--inv-muted); font-size: 12px; padding: 12px 2px; }
+/* ── 2026-09-10: 작업대 탭 (전체 · 총기 · 장비 · 가젯 · 의학 · 정제 · 빠른제작) ──────────────
+   레시피가 94 줄이 되면서 함선의 `제작` 패널 한 목록으로는 읽히지 않는다. 작업대를 열고 들어온 화면에는
+   탭이 없다 (`hidden`). 글리프는 함선 관리 화면(`ui/hud/ShipManage`)이 쓰는 것과 같다 — 같은 작업대를
+   같은 그림으로 알아보게. */
+.inv-craft-tabs { display: flex; flex-wrap: wrap; gap: 4px; padding-bottom: 2px; }
+.inv-craft-tab {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 8px;
+  border: 1px solid var(--inv-line);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--inv-muted);
+  font: inherit; font-size: 10px; letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: color 90ms linear, border-color 90ms linear, background 90ms linear;
+}
+.inv-craft-tab:hover { color: var(--inv-text); border-color: color-mix(in srgb, var(--inv-accent) 40%, var(--inv-line)); }
+.inv-craft-tab.is-on {
+  color: var(--inv-text);
+  border-color: color-mix(in srgb, var(--inv-accent) 65%, transparent);
+  background: color-mix(in srgb, var(--inv-accent) 14%, transparent);
+}
+.inv-craft-tab-ico { font-style: normal; font-size: 12px; line-height: 1; opacity: 0.9; }
 /* 2026-09-09 (제작 UI 2차): 썸네일 · 정보 · (수량 + 홀드) 세 칸. 썸네일은 인벤토리 격자 타일 그대로라 4×2 소총이면
    실제로 4×2 크기다 — 행 높이가 레시피마다 다른 것은 의도한 것이다. `align-items: flex-start` 로 위를 맞춘다. */
 .inv-craft-row {
@@ -1343,7 +1366,9 @@ kbd {
 }
 .inv-rep-total-chips { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
 .inv-rep-total-none { font-size: 11px; color: var(--inv-muted); }
-.inv-rep-hint { font-size: 10px; letter-spacing: 0.06em; color: var(--inv-muted); }
+/* 2026-09-10: 두 줄 — 개별 수리가 어디에 있는지, 그리고 왜 값이 매번 다른지 (내구도 구간) */
+.inv-rep-hint { display: flex; flex-direction: column; gap: 2px; font-size: 10px; letter-spacing: 0.06em; color: var(--inv-muted); }
+.inv-rep-hint em { font-style: normal; color: color-mix(in srgb, var(--inv-accent) 55%, var(--inv-muted)); }
 .inv-repair-all { align-self: stretch; padding: 9px 12px; }
 .inv-repair-all:disabled { opacity: 0.4; cursor: not-allowed; }
 .inv-repair-open { padding: 6px 12px; }
@@ -1388,6 +1413,8 @@ kbd {
 .inv-repair-bar.warn i { background: var(--inv-accent); }
 .inv-repair-bar.low i { background: var(--inv-bad); }
 .inv-repair-dur { font-size: 10px; font-variant-numeric: tabular-nums; color: var(--inv-muted); }
+/* 2026-09-10: 그 줄의 재료가 왜 그만큼인지 — 남은 내구도 구간과 그 구간의 배수 (`61~80 % · 제작 재료의 20 %`) */
+.inv-repair-bucket { margin-left: 8px; letter-spacing: 0.03em; color: color-mix(in srgb, var(--inv-accent) 60%, var(--inv-muted)); }
 /* Phase 8: the cost cell holds `renderItemCost` chips (or the 정비 완료 text) */
 .inv-repair-cost { font-size: 10px; letter-spacing: 0.02em; color: var(--inv-text); white-space: nowrap; }
 .inv-repair-cost.item-chips { display: flex; align-items: center; gap: 6px; }
@@ -1478,6 +1505,19 @@ kbd {
 .inv-dis-side { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; min-width: 0; }
 .inv-dis-side.item-chips { flex-wrap: wrap; }
 .inv-dis-arrow { flex: none; font-size: 18px; color: var(--inv-muted); }
+/* ── 2026-09-10: 남은 내구도 구간 한 줄 (분해 팝업 밑) ─────────────────────────
+   수리 재료 · 분해 산출이 `제작 재료 × 구간 배수` 라서, 위의 칩이 왜 그 숫자인지를 말하는 줄이다.
+   `em` 은 "구간이 바뀌면 숫자가 바뀐다" 를 말하는 안내라 한 단계 더 흐리다. */
+.inv-dur-note {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 8px 6px;
+  border: 1px solid var(--inv-line);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.02);
+  text-align: center;
+}
+.inv-dur-note b { font-size: 12px; font-weight: 600; color: var(--inv-text); font-variant-numeric: tabular-nums; }
+.inv-dur-note em { font-style: normal; font-size: 10px; letter-spacing: 0.04em; color: var(--inv-muted); }
 .inv-dis-msg { font-size: 11px; letter-spacing: 0.04em; text-align: center; }
 .inv-dis-msg.is-ok { color: var(--inv-ok); }
 .inv-dis-msg.is-bad { color: color-mix(in srgb, var(--inv-bad) 80%, white 20%); }

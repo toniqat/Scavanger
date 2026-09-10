@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { MAP_SIZE, RAIL_CHANCE, Random, type RailKind, type StructureKind } from '@/shared';
-import { STRUCTURE_ROWS, structureRow } from './structures/model';
+import { RAIL_CLEARANCE_M, STRUCTURE_ROWS, structureRow } from './structures/model';
 
 /**
  * 2026-09-09 — `structure` (버려진 구조물 부지) 와 `platform` (선로 플랫폼) 이 붙었다.
@@ -77,20 +77,85 @@ function farFromAll(x: number, z: number, others: readonly { x: number; z: numbe
   return true;
 }
 
+/** `RailPlan` 의 중심선 위 한 점 (`t` = 0..1). `Rails.build` 가 점열을 만드는 식과 **같은 식**이다. */
+function railPointAt(loop: boolean, extent: number, angle: number, t: number): { x: number; z: number } {
+  return loop
+    ? { x: Math.cos(angle + t * Math.PI * 2) * extent, z: Math.sin(angle + t * Math.PI * 2) * extent }
+    : { x: Math.cos(angle) * (t * 2 - 1) * extent, z: Math.sin(angle) * (t * 2 - 1) * extent };
+}
+
+/**
+ * `(x, z)` 에서 선로 **중심선**까지의 XZ 거리. 선로가 없으면 Infinity.
+ * `loop` 은 닫힌 원이라 점-원 거리, `line` 은 원점을 지나는 선분이라 점-선분 거리다.
+ */
+export function railDistance(rail: RailPlan | null, x: number, z: number): number {
+  if (!rail) return Infinity;
+  if (rail.kind === 'loop') return Math.abs(Math.hypot(x, z) - rail.extent);
+  const dx = Math.cos(rail.angle), dz = Math.sin(rail.angle);
+  const t = Math.max(-rail.extent, Math.min(rail.extent, x * dx + z * dz));
+  return Math.hypot(x - dx * t, z - dz * t);
+}
+
+/**
+ * 선로 회랑까지의 여유(m) — 음수면 **회랑 안**이라 아무것도 놓지 않는다 (`isSpotFree` 가 본다).
+ * 플랫폼은 선로 시설이므로 여기서 세지 않는다 (그 자리는 `layout.pads` 의 `platform` 패드가 막는다).
+ */
+export function railClearance(layout: WorldLayout, x: number, z: number): number {
+  return railDistance(layout.rail, x, z) - RAIL_CLEARANCE_M;
+}
+
 /** Place the macro layout: spawn, extraction pads, nests, POIs, craters, basins. Deterministic per rng. */
 export function generateLayout(rng: Random): WorldLayout {
   const margin = 56; // keep pads away from the cliff wall
   const inner = HALF - margin;
 
-  // Spawn near one edge
+  /* ── 2026-09-10: 선로를 **제일 먼저** 잡는다 ─────────────────────────────────
+   * 요구는 "선로 회랑 안에 아무것도 놓이지 않는다" 인데, 선로의 자유도는 `line` = 방향 하나,
+   * `loop` = 반지름 하나뿐이다 (둘 다 원점을 지나는 도형이고 `Rails` 가 `extent` · `angle` 을 그대로 쓴다).
+   * 패드 스무 개를 다 뽑아 놓고 그 사이를 지나는 각도 · 반지름을 찾는 것은 실제로 불가능하다 — 반지름
+   * 20 m 짜리 원반 하나가 막는 각도 폭이 0.4 rad 쯤이라 스무 개면 π 를 넘는다. 그래서 순서를 뒤집었다:
+   * **선로가 먼저 서고 나머지가 전부 피한다** (`railFree`). 2026-09-09 의 "크레이터 다음에 굴린다" 는
+   * rng 순서 배려는 여기서 끝난다 — 같은 시드의 매크로 레이아웃이 이 변경 전과 달라진다
+   * (멀티 결정성은 그대로: 모두가 같은 코드를 같은 시드로 돌린다). */
+  let rail: RailPlan | null = null;
+  if (rng.chance(RAIL_CHANCE)) {
+    const platRow = structureRow('rail_platform');
+    const stopCount = Math.max(2, platRow ? platRow.minCount : 2);
+    const loop = rng.chance(0.5);
+    const extent = loop ? inner * 0.62 : inner * 0.72;
+    const angle = loop ? rng.range(0, Math.PI * 2) : (rng.chance(0.5) ? 0 : Math.PI / 2) + rng.range(-0.35, 0.35);
+    const stops: number[] = [];
+    for (let i = 0; i < stopCount; i++) stops.push(loop ? i / stopCount : i / (stopCount - 1));
+    const platforms: Pad[] = stops.map((t) => {
+      const p = railPointAt(loop, extent, angle, t);
+      return { kind: 'platform' as PadKind, x: p.x, z: p.z, radius: 13, blend: 12, yaw: 0, height: 0 };
+    });
+    rail = { kind: (loop ? 'loop' : 'line') as RailKind, extent, angle, stops, platforms };
+  }
+
+  /** 반지름 `extra` 짜리 자리가 선로 회랑 · 플랫폼 패드를 건드리지 않는가. */
+  const railFree = (x: number, z: number, extra: number): boolean => {
+    if (!rail) return true;
+    if (railDistance(rail, x, z) < RAIL_CLEARANCE_M + extra) return false;
+    for (const p of rail.platforms) if (dist(x, z, p.x, p.z) < p.radius + extra) return false;
+    return true;
+  };
+
+  // Spawn near one edge (선로 회랑에 걸리면 가장자리를 따라 다시 뽑는다)
   const side = rng.int(0, 3);
-  const along = rng.range(-inner * 0.6, inner * 0.6);
+  let along = rng.range(-inner * 0.6, inner * 0.6);
   const edgeDist = HALF - 64;
-  let sx = 0, sz = 0;
-  if (side === 0) { sx = -edgeDist; sz = along; }
-  else if (side === 1) { sx = edgeDist; sz = along; }
-  else if (side === 2) { sx = along; sz = -edgeDist; }
-  else { sx = along; sz = edgeDist; }
+  const edgePoint = (a: number): { x: number; z: number } => (
+    side === 0 ? { x: -edgeDist, z: a }
+      : side === 1 ? { x: edgeDist, z: a }
+        : side === 2 ? { x: a, z: -edgeDist }
+          : { x: a, z: edgeDist });
+  for (let a = 0; a < 60; a++) {
+    const p = edgePoint(along);
+    if (railFree(p.x, p.z, 18)) break;
+    along = rng.range(-inner * 0.6, inner * 0.6);
+  }
+  const { x: sx, z: sz } = edgePoint(along);
   const spawn: Pad = { kind: 'spawn', x: sx, z: sz, radius: 18, blend: 22, yaw: Math.atan2(-sx, -sz), height: 0 };
 
   // Extraction pads: 3, pairwise >= 180 m, >= 150 m from spawn
@@ -104,6 +169,7 @@ export function generateLayout(rng: Random): WorldLayout {
       const x = rng.range(-inner, inner), z = rng.range(-inner, inner);
       if (dist(x, z, spawn.x, spawn.z) < minSpawn) continue;
       if (!farFromAll(x, z, extraction, minPair)) continue;
+      if (!railFree(x, z, 20)) continue;
       extraction.push({ kind: 'extraction', x, z, radius: 20, blend: 26, yaw: rng.range(-Math.PI, Math.PI), height: 0 });
     }
   }
@@ -119,6 +185,7 @@ export function generateLayout(rng: Random): WorldLayout {
       if (dist(x, z, spawn.x, spawn.z) < 110) continue;
       if (!farFromAll(x, z, extraction, 62)) continue;
       if (!farFromAll(x, z, nests, 90)) continue;
+      if (!railFree(x, z, 20)) continue;
       nests.push({ kind: 'nest', x, z, radius: 20, blend: 24, yaw: rng.range(-Math.PI, Math.PI), height: 0 });
     }
   }
@@ -135,11 +202,14 @@ export function generateLayout(rng: Random): WorldLayout {
       if (!farFromAll(x, z, extraction, 48)) continue;
       if (!farFromAll(x, z, nests, 48)) continue;
       if (!farFromAll(x, z, pois, 70)) continue;
+      if (!railFree(x, z, 13)) continue;
       pois.push({ kind: 'poi', x, z, radius: 13, blend: 16, yaw: rng.range(-Math.PI, Math.PI), height: 0 });
     }
   }
 
-  const pads = [spawn, ...extraction, ...nests, ...pois];
+  /* 플랫폼 패드는 **구조물보다 먼저** 넣는다: 겹칠 일은 없지만(`railFree`), `Terrain` 이 배열 순서대로
+   * 평탄화하므로 만에 하나 겹치면 뒤에 오는 구조물 바닥이 이긴다 — 실내 바닥이 기우는 쪽보다 낫다. */
+  const pads = [spawn, ...extraction, ...nests, ...pois, ...(rail ? rail.platforms : [])];
 
   // Craters: 3–5, away from pads
   const craters: Crater[] = [];
@@ -152,6 +222,8 @@ export function generateLayout(rng: Random): WorldLayout {
       const x = rng.range(-inner, inner), z = rng.range(-inner, inner);
       if (!farFromAll(x, z, pads, radius + 34)) continue;
       if (!farFromAll(x, z, craters, radius + 40)) continue;
+      // 선로는 지형을 평탄화하지 않는다 — 크레이터를 가로지르면 교각만 길어지고 궤도가 허공에 뜬다
+      if (!railFree(x, z, radius)) continue;
       craters.push({ x, z, radius, depth: rng.range(4, 8) });
     }
   }
@@ -188,6 +260,7 @@ export function generateLayout(rng: Random): WorldLayout {
         if (!farFromAll(x, z, nests, 80)) continue;
         if (!farFromAll(x, z, pois, 55)) continue;
         if (!farFromAll(x, z, structures.map((s) => s.pad), 110)) continue;
+        if (!railFree(x, z, reach + 4)) continue;
         const pad: Pad = {
           kind: 'structure', x, z, radius: reach + 4, blend: 11,
           yaw: rng.range(-Math.PI, Math.PI), height: 0,
@@ -204,38 +277,8 @@ export function generateLayout(rng: Random): WorldLayout {
     for (const s of structures) pads.push(s.pad);
   }
 
-  /* ── 2026-09-09: 선로 계획 ────────────────────────────────────────────────
-   * 선로 자체는 지형을 평탄화하지 않는다 (교각이 높이를 맞춘다) — 여기서 정하는 것은 모양과 **플랫폼 자리**다.
-   * 위상은 8번 굴려 스폰 · 둥지 · 탈출 패드에서 제일 멀리 떨어지는 것을 고른다. */
-  let rail: RailPlan | null = null;
-  if (rng.chance(RAIL_CHANCE)) {
-    const platRow = structureRow('rail_platform');
-    const stopCount = Math.max(2, platRow ? platRow.minCount : 2);
-    const loop = rng.chance(0.5);
-    const extent = loop ? inner * 0.62 : inner * 0.72;
-    const avoid = [spawn, ...extraction, ...nests, ...structures.map((s) => s.pad)];
-    const at = (angle: number, t: number): { x: number; z: number } => (loop
-      ? { x: Math.cos(angle + t * Math.PI * 2) * extent, z: Math.sin(angle + t * Math.PI * 2) * extent }
-      : { x: Math.cos(angle) * (t * 2 - 1) * extent, z: Math.sin(angle) * (t * 2 - 1) * extent });
-    let bestAngle = 0, bestScore = -Infinity, bestStops: number[] = [];
-    for (let a = 0; a < 8; a++) {
-      const angle = loop ? rng.range(0, Math.PI * 2) : (rng.chance(0.5) ? 0 : Math.PI / 2) + rng.range(-0.35, 0.35);
-      const stops: number[] = [];
-      for (let i = 0; i < stopCount; i++) stops.push(loop ? i / stopCount : i / (stopCount - 1));
-      let score = Infinity;
-      for (const t of stops) {
-        const p = at(angle, t);
-        for (const o of avoid) score = Math.min(score, dist(p.x, p.z, o.x, o.z));
-      }
-      if (score > bestScore) { bestScore = score; bestAngle = angle; bestStops = stops; }
-    }
-    const platforms: Pad[] = bestStops.map((t) => {
-      const p = at(bestAngle, t);
-      return { kind: 'platform' as PadKind, x: p.x, z: p.z, radius: 13, blend: 12, yaw: 0, height: 0 };
-    });
-    rail = { kind: (loop ? 'loop' : 'line') as RailKind, extent, angle: bestAngle, stops: bestStops, platforms };
-    for (const p of platforms) pads.push(p);
-  }
+  /* 선로 계획은 이 함수 **맨 앞**에서 이미 잡혔다 (위의 2026-09-10 주석) — 여기서는 아무것도 하지 않는다.
+   * 플랫폼 패드도 `pads` 에 이미 들어가 있다. */
 
   return { spawn, extraction, nests, pois, pads, craters, basins, structures, rail };
 }

@@ -958,6 +958,34 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.noise(d, { t0: t + 0.45, dur: 1.0, gain: 0.16, attack: 0.5, filter: { type: 'bandpass', f0: 700 * p, f1: 2600 * p, q: 1.2 }, decayCurve: 'lin' });
     return 1.5;
   },
+  /**
+   * 적 강하 포드가 대기를 찢고 내려오는 굉음 (2026-09-10). `hellpod_fall` 과 **같은 어휘**(위에서 아래로 쓸리는
+   * 밴드패스 노이즈 + 내려가는 saw)를 쓰되 셋이 다르다: ① 더 길고(4.2 s) 더 어둡게 끝나며(260 Hz),
+   * ② saw 가 **둘로 디튠**돼 맥놀이가 생겨 아군 포드의 매끈한 한 줄과 갈린다, ③ 마지막 1 초에 금속이 우는
+   * 상승음이 붙는다(적 포드의 역추진). 아군 헬포드와 헷갈리면 안 되는 소리라 음색과 피치를 둘 다 비틀었다.
+   */
+  rogue_pod_fall: (s, d, t, p) => {
+    s.noise(d, { t0: t, dur: 4.2, gain: 0.5, attack: 1.3, filter: { type: 'bandpass', f0: 2600 * p, f1: 260 * p, q: 0.7 }, decayCurve: 'lin' });
+    s.tone(d, { type: 'sawtooth', f0: 190 * p, f1: 46 * p, t0: t, dur: 4.2, gain: 0.15, attack: 1.5, lp: 430, decayCurve: 'lin' });
+    s.tone(d, { type: 'sawtooth', f0: 190 * p, f1: 46 * p, t0: t, dur: 4.2, gain: 0.11, attack: 1.5, detune: 27, lp: 430, decayCurve: 'lin' });
+    s.tone(d, { type: 'sine', f0: 34 * p, f1: 22 * p, t0: t + 0.6, dur: 3.6, gain: 0.3, attack: 1.6, decayCurve: 'lin' });
+    s.tone(d, { type: 'square', f0: 330 * p, f1: 880 * p, t0: t + 3.2, dur: 1.0, gain: 0.05, attack: 0.4, lp: 2600, decayCurve: 'lin' });
+    return 4.3;
+  },
+  /**
+   * 적 강하 포드의 착지 충격 (2026-09-10). `hellpod_impact` 보다 낮고 무겁게 꽂히고, 아군 포드에는 없는
+   * **파편 클릭 3개**와 해치가 열리는 저역 클렁크가 붙는다.
+   */
+  rogue_pod_impact: (s, d, t, p) => {
+    s.tone(d, { type: 'sine', f0: 56 * p, f1: 19, t0: t, dur: 0.9, gain: 1.15 });
+    s.noise(d, { t0: t, dur: 0.55, gain: 0.85, filter: { type: 'lowpass', f0: 1100, f1: 80 } });
+    s.click(d, t + 0.04, 1800 * p, 0.3, 0.05);
+    s.click(d, t + 0.13, 1300 * p, 0.22, 0.06);
+    s.click(d, t + 0.25, 2200 * p, 0.16, 0.04);
+    s.noise(d, { t0: t + 0.12, dur: 1.2, gain: 0.14, filter: { type: 'bandpass', f0: 2200, f1: 600, q: 1 }, decayCurve: 'lin' });
+    s.tone(d, { type: 'square', f0: 170 * p, f1: 96 * p, t0: t + 0.06, dur: 0.3, gain: 0.07, lp: 900 });
+    return 1.3;
+  },
 };
 
 export const SOUND_IDS = Object.keys(SOUNDS);

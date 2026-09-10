@@ -24,7 +24,7 @@ import {
   LOADOUT_SLOTS, MOD_CTRL, MOD_SHIFT, SEARCH_EMIT_INTERVAL, SPRAY_REFILL_COST, TAKE_REQUEST_TIMEOUT, WEAPON_SLOT_IDS,
   isArmorDef, isAttachmentDef, isBagDef, isDisassembleRecipe, isWeaponDef, sameProfileDoc, slotAccepts,
   type ActiveBench, type BagSize, type BenchRecipeRow, type BenchRepairRow, type DropPreview, type DropTarget,
-  type GridId, type ItemLocation, type OpResult, type PendingTake, type RaidInventoryState, type SlotId,
+  type GridId, type ItemLocation, type OpResult, type PendingTake, type RaidInventoryState, type RepairInfo, type SlotId,
 } from '../model';
 import type { InventorySystem } from '../InventorySystem';
 
@@ -80,8 +80,23 @@ export function sprayRepairCost(sys: InventorySystem, item: ItemInstance, def: I
   }
 
 /**
- * Ship workbench: weapons go through `repairWeapon` (materials), a 회복 스프레이 is refilled for `sprayRepairCost`
- * (Phase 12), armor is restored to full for free.
+ * **완전 수리에 드는 재료** — 한 곳에서만 정한다 (2026-09-10, 제작 대개편 2단계).
+ *
+ * 예전에는 `getEffectiveStats(item) ? getRepairCost(item) : sprayRepairCost(...)` 였다. 즉 **무기일 때만**
+ * `getRepairCost` 를 물었고, 방탄복은 그 삼항의 else 가지로 흘러 `sprayRepairCost` 도 null 이라 **재료 없이
+ * 만피 복구**됐다 (실측: 내구도 5 / 200 짜리 방탄복 I 을 `repair()` 하면 폐금속 0 을 쓰고 200 이 됐다).
+ * 이제 `getRepairCost` 가 방탄복에도 값을 돌려주므로 **그것을 먼저 보고, 비었을 때만** 회복 스프레이의
+ * 게이지 충전(`sprayRepairCost`)으로 내려간다. 가방처럼 둘 다 비는 것은 예전대로 무료 수리다.
+ */
+export function repairMaterials(sys: InventorySystem, item: ItemInstance, def: ItemDef): CraftIngredient[] {
+  const cost = sys.loot.getRepairCost(item);
+  if (cost.length) return cost;
+  return sys.sprayRepairCost(item, def) ?? [];
+}
+
+/**
+ * Ship workbench: weapons go through `repairWeapon` (materials), everything else pays `repairMaterials` —
+ * 방탄복은 **제작 재료 × 내구도 구간 배수**, 회복 스프레이는 캔 + 소독약 (Phase 12), 그 밖에는 무료.
  */
 export function repair(sys: InventorySystem, uid: string): boolean {
   if (sys.ctx.isRaidActive()) return false;
@@ -96,12 +111,10 @@ export function repair(sys: InventorySystem, uid: string): boolean {
   const max = def.durabilityMax;
   if (max === undefined || max <= 0) return false;
   if ((item.durability ?? max) >= max) return false;
-  const sprayCost = sys.sprayRepairCost(item, def);
-  if (sprayCost) {
-    // all materials or nothing — the empty can stays a valid (0 / max) item until then
-    for (const c of sprayCost) if (sys.countDef(c.defId) < c.qty) return false;
-    for (const c of sprayCost) sys.consumeWhere((d) => d.id === c.defId, c.qty);
-  }
+  // all materials or nothing — a half-worn 방탄복 / an empty can stays a valid (n / max) item until then
+  const cost = repairMaterials(sys, item, def);
+  for (const c of cost) if (sys.countDef(c.defId) < c.qty) return false;
+  for (const c of cost) sys.consumeWhere((d) => d.id === c.defId, c.qty);
   item.durability = max;
   sys.ctx.bus.emit('inventory:itemUpdated', { item });
   sys.ctx.bus.emit('durability:changed', { uid, defId: def.id, durability: max, max });
@@ -112,21 +125,24 @@ export function repair(sys: InventorySystem, uid: string): boolean {
   }
 
 /**
- * Context-menu repair readout (hub only): materials still needed for a weapon (`[]` = free / armor), `short`
- * = which of them the bag lacks. null when the item is not worn / not repairable.
+ * Context-menu repair readout (hub only): materials still needed (`[]` = free), `short` = which of them the bag
+ * lacks, `bucket` = 남은 내구도 구간 (그 구간의 배수가 곧 재료 수량이다 — 2026-09-10). null when the item is
+ * not worn / not repairable.
  */
-export function repairInfo(sys: InventorySystem, uid: string): { cost: { defId: string; qty: number; name: string; have: number }[]; short: boolean } | null {
+export function repairInfo(sys: InventorySystem, uid: string): RepairInfo | null {
   const item = sys.findItem(uid);
   const def = item && ITEM_DEF_MAP.get(item.defId);
   if (!item || !def) return null;
   const dur = sys.getDurability(uid);
   if (!dur || dur.max <= 0 || dur.durability >= dur.max) return null;
-  // weapons: the loot table's cost; 회복 스프레이 (Phase 12): 캔 + 소독약 scaled by the missing gauge; armor: free
-  const raw = sys.loot.getEffectiveStats(item) ? sys.loot.getRepairCost(item) : sys.sprayRepairCost(item, def) ?? [];
-  const cost = raw.map((c) => ({
+  // 2026-09-10: `getRepairCost` 를 **먼저** 본다 (무기 · 방탄복). 비었을 때만 회복 스프레이의 게이지 충전.
+  const byCraft = sys.loot.getRepairCost(item);
+  const cost = (byCraft.length ? byCraft : sys.sprayRepairCost(item, def) ?? []).map((c) => ({
     ...c, name: ITEM_DEF_MAP.get(c.defId)?.name ?? c.defId, have: sys.countDef(c.defId),
   }));
-  return { cost, short: cost.some((c) => c.have < c.qty) };
+  // 구간은 **제작 재료 규칙으로 값이 나온 경우에만** 뜻이 있다. 회복 스프레이의 캔 · 소독약은 게이지 비율로
+  // 정해지므로 (`sprayRepairCost`) 여기서 `제작 재료의 n %` 라고 말하면 거짓말이 된다.
+  return { cost, short: cost.some((c) => c.have < c.qty), bucket: byCraft.length ? sys.loot.durabilityBucketInfo(item) : null };
   }
 
 /** Socket a bag (or open-container) attachment into a player-owned weapon; see `attachFrom`. */

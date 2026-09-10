@@ -28,6 +28,7 @@ const DATA_OWNERS = [
   '/src/items/WeaponStats.ts',   // tuning (반동 · 조준 계수)
   '/src/items/LootTables.ts',    // loot_*
   '/src/items/Recipes.ts',       // recipes
+  '/src/items/Salvage.ts',       // salvage (분해 표) + 내구도 구간 배수
   '/src/enemies/EnemyTypes.ts',  // enemies · enemy_abilities
   '/src/progression/defs.ts',    // stats · skills
   '/src/meta/Rules.ts',          // tuning (임플란트 수리 수수료)
@@ -54,6 +55,18 @@ for (const mod of DATA_OWNERS) {
 }
 
 const tables = await server.ssrLoadModule('/src/shared/data/tables.ts');
+
+/* 제작 ↔ 분해 ↔ 수리 경제 검산 (2026-09-10): 「제작 → (수리) → 분해 → 제작」 이 이득이 되면 안 된다.
+ * 스키마가 아니라 **수치의 뜻**을 보는 검사라 로더가 아니라 items/Salvage.ts 가 직접 계산한다. */
+let economy = [];
+try {
+  const salvage = await server.ssrLoadModule('/src/items/Salvage.ts');
+  economy = salvage.checkSalvageEconomy();
+} catch (e) {
+  loadFailed = true;
+  console.error(`\n[data:check] 분해 경제 검산을 못 돌렸다:\n  ${String(e?.message ?? e).split('\n')[0]}`);
+}
+
 await server.close();
 
 const issues = tables.dataIssues();
@@ -62,7 +75,7 @@ const touched = new Set(tables.touchedFiles());
 const orphans = files.filter((f) => !touched.has(f));
 const unread = tables.allKeyTables().flatMap((t) => t.unreadKeys().map((k) => `${t.file}: ${k}`));
 
-const rows = issues.length + orphans.length + unread.length;
+const rows = issues.length + orphans.length + unread.length + economy.length;
 
 if (issues.length) {
   console.error(`\n잘못된 칸 ${issues.length}건`);
@@ -78,6 +91,11 @@ if (orphans.length) {
 if (unread.length) {
   console.error(`\n아무도 읽지 않는 키 ${unread.length}건 (오타이거나 지워진 수치의 잔재다)`);
   for (const k of unread) console.error(`  data/${k}`);
+}
+
+if (economy.length) {
+  console.error(`\n제작 → 분해 무한 이득 ${economy.length}건 (수리 재료 + 분해 산출 ≤ 제작 재료 여야 한다)`);
+  for (const v of economy) console.error(`  ${v.defId}${v.bucket >= 0 ? ` [내구도 구간 ${v.bucket}]` : ''} — ${v.message}`);
 }
 
 if (loadFailed || rows) {

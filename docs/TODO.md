@@ -114,10 +114,15 @@ Phase 11 이 뼈대만 놓고 끝난 부분 + 호스트 검증이 비어 있는 
 | C-15 | **폭풍의 눈만 끝까지 가도 60 m 안전지대가 남는다** (맵의 2.8 %). `STORM_EYE_RADIUS_END` 가 계약 상수라 무시하지 않았다 — "맵 전체를 덮는다" 를 글자대로 지키려면 그 상수를 0 으로 두거나 마지막 구간만 따로 처리해야 한다 | `data/constants.csv` `STORM_EYE_RADIUS_END`, HISTORY 2026-09-09 |
 | C-16 | **키카드 컨테이너가 첫 개봉에 `inventory:containerOpened` 를 두 번 낸다** (두 번째는 `first:false`) — 키카드를 넣느라 컨테이너를 먼저 열기 때문이다 | `src/world/structures/parts/Containers.ts` |
 | C-17 | **구조물 컨테이너의 문 애니메이션은 동기화하지 않는다** (내용물은 inventory/ 가 이미 동기화한다) | `src/world/structures/parts/Containers.ts` |
-| C-18 | **적이 움직이는 발판에 실려 가지 않는다**. `Obstacle.velocity` 를 읽는 것은 `PlayerController` 뿐이다 — 매 프레임 적마다 해시 질의가 하나 늘고, 전차 데크(2.05 m)는 `PROP_STEP_UP_MAX`(0.9 m)로 오를 수 없어 지금은 도달 불가라 넣지 않았다 (2026-09-09 판단) | `src/enemies/ai/EnemyAI.ts` `integrate` |
+| C-18 | **적 · 시체가 움직이는 발판에 실려 가지 않고, 전차에 치이지도 않는다**. 차량 탑승은 `PlayerController` 하나만 안다 (2026-09-10 부터 `Obstacle.velocity` 가 아니라 차량 OBB 로 판정한다). ⚠ **2026-09-09 에 "도달 불가라 넣지 않았다" 던 근거는 이제 틀렸다** — 그때는 전차 데크(2.05 m)가 `PROP_STEP_UP_MAX`(0.9 m)로 오를 수 없었지만, 2026-09-10 에 플랫폼 계단이 실제로 걸어 오를 수 있게 고쳐져 적이 데크에 올라설 수 있다. 치이는 쪽은 `rails/parts/Tram.updateTramHit` 의 판정을 그대로 쓰면 되지만 `EnemyRef` 에 "이 지점의 적을 밀며 때린다" 입구가 없다 | `src/enemies/ai/EnemyAI.ts` `integrate`, `src/world/rails/parts/Tram.ts` |
 | C-13 | **`scripts/smoke-ui-p5.mjs` 의 정규식이 백스페이스 문자다** — 소스에 `\bready\b` 대신 **제어문자 0x08 두 개**가 박혀 있어 (`!/<BS>ready<BS>/.test(hg.cls)`) 그 단언이 **늘 통과한다**. 커밋된 지 오래된 별개 버그이고, 고치면 단언이 실제로 검사를 시작하므로 그때 red 가 날 수 있다 | `scripts/smoke-ui-p5.mjs:203` |
 | C-12 | **`ProgressionRef` 에 레이드 중 임플란트 회수 수단이 없다**. `unequipImplant` 가 함선 전용 게이트라 `stripForCorpse` 가 임플란트를 시체로 옮기지 못한다. 지금은 **유지가 의도된 설계**지만(2026-09-09 사용자 결정), 뒤집으려면 `stripImplants()` 가 먼저 필요하다 | `src/progression/ProgressionSystem.ts:117`, `src/shared/types.ts` `stripForCorpse` |
 | C-19 | **원격 분대원 체력 바에 실드가 안 보인다**. 와이어는 이미 흐른다 (`PlayerSnapshot.sh` / `.shm` → `RemotePlayerRef.shield` / `maxShield`) — 읽어 그리기만 하면 된다 | `src/ui/hud/Nameplates.ts`, `src/net/RemotePlayer.ts:111` |
+| C-35 | **상위 재료 5종이 루팅 · 상점에 없다** — `mat_ingot` · `mat_capacitor` · `mat_control_module` · `mat_weave` · `mat_ballistic_fiber` 는 정제 작업대로만 얻는다 (2026-09-10 설계 의도). 유통을 열려면 `data/loot_item_weights.csv` 와 `data/corp_stock.csv` 에 줄이 필요하고, 그러면 정제가 관문이라는 진행 축이 약해진다 — **결정이 먼저다** | `data/loot_item_weights.csv`, `data/corp_stock.csv` |
+| C-36 | **가방은 수리할 수 없다** (분해는 된다). `data/bags.csv` 에 `durabilityMax` 가 없고 `items/Salvage.REPAIRABLE` 도 `primary`/`secondary`/`armor` 뿐이다. 가방에 내구도를 주려면 csv 열 + 소모 시점(무엇이 가방을 닳게 하나)부터 정해야 한다 | `data/bags.csv`, `src/items/Salvage.ts` |
+| C-37 | **아이템 호버 툴팁에는 내구도 구간이 안 뜬다** — 수리 · 분해 · 우클릭 팝업 셋에만 넣었다 (2026-09-10). 호버에서도 "지금 뜯으면 얼마" 를 보려면 `ctx.loot.durabilityBucketInfo` 를 읽어 그리면 된다 | `src/ui/hud/ItemTip.ts` |
+| C-38 | **`getStandingObstacle` 이 윗면 동점을 임의로 고른다** (`top <= bestTop` 이면 continue). 2026-09-10 에 `RAIL_DECK_STEP` 을 줄여 전차에서는 동점 자체를 없앴지만, 근본 해결은 **`velocity` 를 가진 발판을 동점에서 우선**하는 것이다 | `src/world/WorldSystem.ts` `getStandingObstacle` |
+| C-39 | **전차 호출에 전용 사운드가 없다** — 거부는 `keycard_deny`, 출발은 `tram_start` 를 재활용한다. 부른 사람이 멀면 `tram_start` 가 거리 감쇠로 안 들려 토스트에만 의존한다. 승강장 차임(`tram_call`)이 있으면 `updateTramHit` 옆 한 줄만 바꾸면 된다 | `src/audio/Synth.ts`, `src/world/Rails.ts` |
 | C-20 | **고철 더미에서 `mat_core`(구동 코어)가 나오지 않는다**. 실드 충전기의 현장 제작 재료인데 산출물이 `SALVAGE_DEF_ID = 'mat_scrap'` 하나로 못 박혀 있다. 지금 코어는 로그 시체와 상자에서만 나온다 | `src/world/Gather.ts` `SALVAGE_DEF_ID` |
 | C-21 | **실드 충전기 전용 SFX 가 없다** — 기존 `stim` 사운드를 pitch 1.25 로 재사용한다 | `src/weapons/parts/Healing.ts` |
 | C-22 | **지면 재질별 발소리가 없다**. 흙 소리 하나뿐이고 허브 갑판만 피치로 흉내 낸다. `WorldRef` 에 표면 재질 질의가 없어 `src/shared` 계약 추가가 먼저다 | `src/audio/Synth.ts` `footstep`, `src/shared/types.ts` `WorldRef` |
@@ -125,6 +130,9 @@ Phase 11 이 뼈대만 놓고 끝난 부분 + 호스트 검증이 비어 있는 
 | C-24 | **언덕에서 곡사포가 반복 재배치될 수 있다**. 궤적 사전 검사가 지형을 포함하는데 낮아진 궤적은 발사면 위 6–9 m 뿐이라, 능선 너머로 쏘려는 포는 계속 거절당한다 (거절 1회당 약 2.7 s) | `src/enemies/parts/Attacks.ts` `shellArcBlocked` |
 | C-25 | **로그 엄폐 선정의 `COVER_STANDOFF`(0.7)가 `ENEMY_WALL_STANDOFF`(1)과 따로 논다**. 사선 검사가 나쁜 자리를 걸러 주지만 두 수치를 합치는 게 맞다 — 바꾸면 Phase 7 엄폐 스모크가 재기준화된다 | `src/enemies/ai/RogueCover.ts` |
 | C-26 | **`hud/SlotStrip.ts` 의 헬퍼 4종에 소비자가 없다** (`WEAPON_SLOTS` · `weaponSlotKey` · `WEAPON_SLOT_LABEL_KO` · `weaponShortName`). 위젯은 없어졌고 헬퍼만 남았다 | `src/ui/hud/SlotStrip.ts` |
+| C-28 | **데스크톱 셸이 쓰지 않을 릴레이/프록시를 그래도 띄운다**. 게임 안 `설정 › 서버 설정` 이 이기면 렌더러는 같은 오리진 `/ws` 를 쓰지 않으므로 임베디드 릴레이(또는 프록시)가 놀고 있다 — 포트 하나와 저장소 하나를 쓴다. 셸이 렌더러의 선택을 모르기 때문이고(localStorage 는 렌더러 것이다), 알려면 preload/IPC 가 필요하다 | `electron/main.ts` `resolveRelay` · `startEmbedded`, `src/net/parts/Socket.ts` `defaultUrl` |
+| C-29 | **서버 exe 에 관리 수단이 없다** — 강퇴 · 밴 · 최대 인원 · 접속 목록이 없고 콘솔은 읽기 전용이다. 접속 제한을 두지 않기로 한 2026-09-10 결정의 결과이고, 필요해지면 `RelayServer` 쪽 계약이 먼저다 | `server/tool.ts` (콘솔 배너 + 하트비트뿐) |
+| C-30 | **`SCAVANGER-Server.exe` 는 서명되지 않았다** — 받는 사람이 Windows SmartScreen 경고를 지난다. postject 가 node.exe 의 서명을 깨므로(`warning: The signature seems corrupted!`) 정식으로는 우리 인증서로 다시 서명해야 한다 | `scripts/build-server.mjs` (postject 주입) |
 | C-27 | **자동 배치의 문 앞 여유 때문에 빽빽한 방이 `자리 없음` 이 될 수 있다** (손으로는 아직 놓을 수 있다). 문 앞에 손으로 가구를 세워 스스로 갇히는 것도 예전 그대로 가능하다 — 근본 대응(문 앞 칸 예약)은 문 지오메트리를 가진 `hub/` 소유다 | `src/housing/Rules.ts` `doorClearanceCell` |
 
 ## 묶음 7 (상시) — 밸런스 · 튜닝

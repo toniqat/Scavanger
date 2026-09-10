@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import {
   GRAVITY, IMPLANT_GRAPPLE_SPEED, PLAYER_HEIGHT, PLAYER_RADIUS, PLAYER_SPRINT_SPEED, PLAYER_WALK_SPEED,
   PLAYER_CROUCH_SPEED, PLAYER_PRONE_SPEED, ROLL_DISTANCE, ROLL_DURATION,
-  type WorldRef, type Stance, type InteriorCollider,
+  RIDE_EDGE_MARGIN, RIDE_FOOT_DROP, RIDE_HEADROOM, RIDE_INERTIA_DAMP, RIDE_INERTIA_S,
+  type Obstacle, type WorldRef, type Stance, type InteriorCollider,
 } from '@/shared';
 import { damp } from '@/core/util/MathUtil';
 
@@ -49,8 +50,46 @@ const GRAPPLE_ARRIVE = 1.4;
 
 const _wish = new THREE.Vector3(), _hv = new THREE.Vector3(), _n = new THREE.Vector3(), _slide = new THREE.Vector3();
 const _rayO = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0), _pull = new THREE.Vector3();
+/** 차량 탑승 스크래치 — 차량의 현재 변환으로 푼 자리. */
+const _ride = new THREE.Vector3();
 /** Ceiling probe: from the hips straight up; stops the jump when the head would pass through a deck above. */
 const CEIL_PROBE_START = 0.6;
+
+/* ── 차량 탑승 좌표 변환 (2026-09-10) ────────────────────────────────────────────────────────────────
+ * `Obstacle.box`(계약, 2026-09-09)는 `{halfX, halfZ, yaw}` 이고 `yaw` 는 수학 규약(로컬 +X → 월드
+ * `(cos, sin)`)이다. 여기서는 그 **계약 필드만** 읽어 세 줄짜리 회전을 직접 푼다 — `world/obb.ts` 를
+ * import 하면 폴더 내부를 건드리는 것이고, 이만한 식을 `shared` 로 올릴 만큼 쓰는 곳이 많지도 않다.
+ * 상자가 없는(원기둥) 발판은 yaw 0 으로 취급하므로 같은 코드가 그대로 돈다.
+ */
+/** 월드 좌표 → 차량 로컬 (`out.y` 는 **발판 윗면 기준** 높이). */
+function recordRideLocal(c: Obstacle, pos: THREE.Vector3, out: THREE.Vector3): void {
+  const yaw = c.box ? c.box.yaw : 0;
+  const dx = pos.x - c.position.x, dz = pos.z - c.position.z;
+  const cs = Math.cos(yaw), sn = Math.sin(yaw);
+  out.set(dx * cs + dz * sn, pos.y - (c.position.y + c.height), -dx * sn + dz * cs);
+}
+
+/** 차량 로컬 → 월드 (차량의 **지금** 변환으로 푼다). */
+function restoreRideLocal(c: Obstacle, local: THREE.Vector3, pos: THREE.Vector3): void {
+  const yaw = c.box ? c.box.yaw : 0;
+  const cs = Math.cos(yaw), sn = Math.sin(yaw);
+  pos.set(
+    c.position.x + local.x * cs - local.z * sn,
+    c.position.y + c.height + local.y,
+    c.position.z + local.x * sn + local.z * cs,
+  );
+}
+
+/** 아직 이 차량에 타고 있는가 — 차량 단면(+`RIDE_EDGE_MARGIN`) 안이고 높이 범위 안일 때만. */
+function rideContains(c: Obstacle, pos: THREE.Vector3): boolean {
+  const top = c.position.y + c.height;
+  if (pos.y > top + RIDE_HEADROOM || pos.y < top - RIDE_FOOT_DROP) return false;
+  const dx = pos.x - c.position.x, dz = pos.z - c.position.z;
+  if (!c.box) return dx * dx + dz * dz <= (c.radius + RIDE_EDGE_MARGIN) ** 2;
+  const cs = Math.cos(c.box.yaw), sn = Math.sin(c.box.yaw);
+  const lx = dx * cs + dz * sn, lz = -dx * sn + dz * cs;
+  return Math.abs(lx) <= c.box.halfX + RIDE_EDGE_MARGIN && Math.abs(lz) <= c.box.halfZ + RIDE_EDGE_MARGIN;
+}
 
 /**
  * Kinematic character controller: camera-relative acceleration, gravity, single jump, stances
@@ -89,6 +128,19 @@ export class PlayerController {
   grappleTarget: THREE.Vector3 | null = null;
   /** Tactical backpack hover: caps the fall speed while airborne. */
   hovering = false;
+  /**
+   * 지금 타고 있는 **차량**(움직이는 발판). null = 걷고 있다. 2026-09-10 부터 탑승은 상태다 — 자세한 이유는
+   * `updateRide` 의 주석에 있다. 참조는 `SpatialHash` 안의 살아 있는 `Obstacle` 이라 **매 프레임 현재
+   * 변환을 다시 읽는다** (스냅샷을 찍지 않는다).
+   */
+  private carrier: Obstacle | null = null;
+  /** 차량 로컬 좌표 (x = 차 길이 방향, z = 폭 방향, y = 발판 윗면 기준 높이). */
+  private readonly rideLocal = new THREE.Vector3();
+  /** `rideLocal` 을 적어 둔 순간의 **월드** 자리. 차이만 더하려고 들고 있다. */
+  private readonly rideWorld = new THREE.Vector3();
+  /** 하차 관성 (m/s, 월드 XZ). 마찰로 감쇠한다. */
+  private readonly rideInertia = new THREE.Vector3();
+  private rideInertiaT = 0;
   private lastStep = 0;
   private wasGrounded = true;
   private coyote = 0;
@@ -107,7 +159,11 @@ export class PlayerController {
     this.rolling = false; this.rollTimer = 0; this.rollProgress = 0;
     this.grappleTarget = null; this.hovering = false;
     this.speed = 0; this.stridePhase = 0; this.lastStep = 0;
+    this.carrier = null; this.rideInertia.set(0, 0, 0); this.rideInertiaT = 0;
   }
+
+  /** 지금 차량(전차 데크 등)에 타고 있는가. HUD · 디버그용. */
+  get riding(): boolean { return this.carrier !== null; }
 
   /**
    * Launch a roll in `dir` (horizontal unit vector). PlayerSystem has already checked stamina, cooldown,
@@ -151,6 +207,102 @@ export class PlayerController {
     if (this.shipBounds) return this.shipBounds.center.y - this.shipBounds.halfExtents.y;
     if (world && world.ready) return world.getSurfaceY(x, z, feetY);
     return 0;
+  }
+
+  /**
+   * **차량(움직이는 발판) 탑승** — 진입 · 유지 · 이탈이 전부 여기 있다 (2026-09-10).
+   *
+   * ## 왜 상태인가
+   * 2026-09-09 판은 매 프레임 `getStandingObstacle(...)?.velocity` 를 찾아 그 속도를 위치에 더했다.
+   * 그러면 **발판 질의에서 한 프레임만 빠져도** 그 프레임만큼 차량이 발밑에서 빠져나간다 — 점프 · 경사 ·
+   * 승강구 · 데크 가장자리에서 늘 생기는 일이고, 몇 프레임이면 차 밖이다 ("조금만 움직여도 내려진다").
+   * 그래서 탑승을 **명시적인 상태**(`carrier`)로 들고, 유지 조건을 발판 질의가 아니라
+   * **차량 OBB + 헤드룸**(`RIDE_*`)으로 본다. 특정 발판 프레임을 밟았는지는 진입에만 쓴다.
+   *
+   * ## 이동은 차량 좌표에서 푼다
+   * 지난 프레임의 자리를 차량 로컬 좌표(`rideLocal`)로 적어 두고, 이번 프레임에 **차량의 현재 변환**으로
+   * 다시 푼다 — 직선 속도만이 아니라 곡선 구간의 **회전**까지 정확히 따라가고, 프레임 누락이 없다.
+   * 스냅샷은 절대 찍지 않는다 (`CLAUDE.md`: 함선 실내가 같은 이유로 깨졌다).
+   *
+   * ## `vel` 은 손대지 않는다
+   * 옮기는 것은 **위치뿐**이고 `vel` 은 끝까지 **차량 기준 로컬 속도**다. 이동 속도 · 스태미나(`sprinting`) ·
+   * 보행 애니메이션(`speed` · `stridePhase`)이 전차 속도로 흔들리지 않는다 — 2026-09-09 규약의 **이유**가
+   * 그것이고, 여기서도 그대로 지킨다. 점프해도 헤드룸 안이므로 차량과 함께 날아간다.
+   *
+   * ## 하차
+   * OBB(+`RIDE_EDGE_MARGIN`) 나 높이 범위를 벗어나면 그 순간의 차량 속도를 **관성**으로 넘겨받아
+   * `RIDE_INERTIA_S` 동안 `RIDE_INERTIA_DAMP` 로 감쇠시킨다 — 달리는 전차에서 옆으로 뛰어내리면
+   * 앞으로 날아간다.
+   */
+  private updateRide(dt: number, world: WorldRef | null): void {
+    const pos = this.position;
+    if (this.interior || this.shipBounds || !world || !world.ready) {
+      this.releaseRide(false);
+      this.applyRideInertia(dt);
+      return;
+    }
+    // ① 유지 — 차량 OBB + 헤드룸 안이면 계속 탄 것이다 (발판을 밟았는지는 보지 않는다)
+    if (this.carrier && !rideContains(this.carrier, pos)) this.releaseRide(true);
+    // ② 진입 — 새로 잡을 때만 발판 질의를 쓴다. 잡은 프레임에는 옮기지 않는다 (차량은 이미 제자리다)
+    if (!this.carrier && this.grounded) {
+      const o = world.getStandingObstacle(pos.x, pos.z, pos.y);
+      if (o && o.velocity) {
+        this.carrier = o;
+        this.rideInertia.set(0, 0, 0);
+        this.rideInertiaT = 0;
+        this.recordRide();
+        return;
+      }
+    }
+    // ③ 이동 — 차량의 **현재** 변환으로 지난 프레임의 로컬 좌표를 다시 푼다.
+    //    자리를 통째로 덮어쓰지 않고 **차이만** 더한다 — 그 사이에 남이 몸을 옮겼다면(순간이동 · 임펄스)
+    //    그것을 지우지 않기 위해서다.
+    if (this.carrier) {
+      restoreRideLocal(this.carrier, this.rideLocal, _ride);
+      pos.x += _ride.x - this.rideWorld.x;
+      pos.y += _ride.y - this.rideWorld.y;
+      pos.z += _ride.z - this.rideWorld.z;
+    } else {
+      this.applyRideInertia(dt);
+    }
+  }
+
+  /** 지금 자리를 차량 좌표로 적어 둔다 (다음 프레임에 차량의 새 변환으로 푼다). */
+  private recordRide(): void {
+    const c = this.carrier;
+    if (!c) return;
+    recordRideLocal(c, this.position, this.rideLocal);
+    this.rideWorld.copy(this.position);
+  }
+
+  /** 하차. `keepInertia` 면 그 순간의 차량 속도를 관성으로 넘겨받는다. */
+  private releaseRide(keepInertia: boolean): void {
+    const c = this.carrier;
+    if (!c) return;
+    this.carrier = null;
+    if (keepInertia && c.velocity) {
+      this.rideInertia.set(c.velocity.x, 0, c.velocity.z);
+      this.rideInertiaT = RIDE_INERTIA_S;
+    } else {
+      this.rideInertia.set(0, 0, 0);
+      this.rideInertiaT = 0;
+    }
+  }
+
+  /** 하차 관성: 위치에 더하고 지수 감쇠시킨다 (`vel` 에는 넣지 않는다 — 스태미나 · 보행이 흔들린다). */
+  private applyRideInertia(dt: number): void {
+    if (this.rideInertiaT <= 0) return;
+    this.rideInertiaT -= dt;
+    const pos = this.position;
+    pos.x += this.rideInertia.x * dt;
+    pos.z += this.rideInertia.z * dt;
+    const k = Math.exp(-RIDE_INERTIA_DAMP * dt);
+    this.rideInertia.x *= k;
+    this.rideInertia.z *= k;
+    if (this.rideInertiaT <= 0 || this.rideInertia.lengthSq() < 0.04) {
+      this.rideInertiaT = 0;
+      this.rideInertia.set(0, 0, 0);
+    }
   }
 
   update(dt: number, inp: MoveInput, yaw: number, world: WorldRef | null, out: MoveResult): void {
@@ -250,13 +402,8 @@ export class PlayerController {
       vel.y = Math.max(vel.y, 0);
     }
 
-    // ── 움직이는 발판 (2026-09-09): 전차 데크처럼 `Obstacle.velocity` 를 가진 것 **윗면에 서 있으면** 함께
-    //    실려 간다. 발판 속도는 `vel` 에 더하지 않고 **위치에 직접** 더한다 — 이동 속도 · 스태미나 · 보행
-    //    애니메이션이 전차 속도로 흔들리지 않게. 실내(함선) 모드에서는 발판이 없으므로 건너뛴다.
-    if (this.grounded && !this.interior && world && world.ready) {
-      const ride = world.getStandingObstacle(pos.x, pos.z, pos.y)?.velocity;
-      if (ride) { pos.x += ride.x * dt; pos.y += ride.y * dt; pos.z += ride.z * dt; }
-    }
+    // ── 차량 탑승 (2026-09-10): 차량이 이번 프레임에 옮겨 간 만큼 몸을 먼저 옮긴다. `vel` 은 손대지 않는다.
+    this.updateRide(dt, world);
 
     // ── integrate
     pos.x += vel.x * dt;
@@ -304,6 +451,9 @@ export class PlayerController {
     }
     this.wasGrounded = wasGrounded;
     if (this.grounded) this.hovering = false;
+
+    // 이번 프레임의 최종 자리를 **차량 좌표로 다시 적어 둔다** — 다음 프레임에 차량의 새 변환으로 푼다.
+    this.recordRide();
 
     // ── stride / footsteps
     this.speed = Math.hypot(vel.x, vel.z);

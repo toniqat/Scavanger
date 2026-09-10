@@ -153,7 +153,35 @@ export interface PlanetGradeCurve {
    * 그보다 윗급이 나오면 앞뒤가 안 맞기 때문이다. 상자 픽 가중치와 보스 시체 유니크 굴림 양쪽에 걸린다.
    */
   uniqueMul: number;
+  /**
+   * 2026-09-10: **총기가 아닌 것들**(방탄복 · 가방 · 부착물 · 임플란트 · 소모품 · 재료 · 귀중품 …)의
+   * 희귀도 가중치에 곱하는 배수 — `data/planet_loot.csv` 의 `rareMul` · `epicMul` · `legMul`.
+   * common · uncommon 은 언제나 1 이다: 그 둘은 **깎인 몫을 되받는 쪽**이라 곱하는 대상이 아니다
+   * (`planetRarityWeights` 참고).
+   *
+   * 총기 등급은 이 배수를 안 탄다 — `grades` 곡선이 뽑은 등급이 그 위를 덮어쓰기 때문이다
+   * (`Loot.regrade`). 두 축은 일부러 갈라 놨다.
+   */
+  rarityMul: Readonly<Record<Rarity, number>>;
+  /** 세 배수가 전부 1 인가 = 이 행성은 희귀도를 손대지 않는다. `planetRarityWeights` 의 우회 조건. */
+  rarityMulIdentity: boolean;
 }
+
+/**
+ * 배수가 곱해지는 등급과 그 값이 든 csv 열 이름. 이 셋 말고는 곱하지 않는다.
+ * 열을 늘리려면 여기와 `planet_loot.csv` 의 헤더를 같이 늘린다.
+ */
+const RARITY_MUL_COLUMNS: readonly (readonly [Rarity, string])[] = [
+  ['rare', 'rareMul'],
+  ['epic', 'epicMul'],
+  ['legendary', 'legMul'],
+];
+
+/**
+ * 깎인 총량을 **원래 비율 그대로** 되돌려 받는 등급. 이 둘이 있어서 배수를 걸어도 가중치 합이 안 변한다 —
+ * 희귀 이상이 줄어든 만큼 정확히 그만큼 일반 · 고급이 늘고, "상자에서 물건이 덜 나온다" 가 되지 않는다.
+ */
+const RARITY_REFUND: readonly Rarity[] = ['common', 'uncommon'];
 
 export const PLANET_GRADE_CURVES: readonly PlanetGradeCurve[] = csvRows('planet_loot.csv').map((r) => {
   const weightOf: Partial<Record<WeaponGrade, number>> = {};
@@ -163,6 +191,9 @@ export const PLANET_GRADE_CURVES: readonly PlanetGradeCurve[] = csvRows('planet_
   }
   const grades = WEAPON_GRADES.filter((g) => (weightOf[g] ?? 0) > 0);
   if (grades.length === 0) r.report('g1', '등급 가중치가 전부 0 이다 — 이 행성에서는 무기가 아예 안 나온다');
+  /* 빈 칸 · 없는 열은 1 (= 손대지 않음) — 열을 못 찾아 행성 전체가 조용히 짜지는 것보다 낫다. */
+  const rarityMul = Object.fromEntries(RARITY_ORDER_5.map((q) => [q, 1])) as Record<Rarity, number>;
+  for (const [rarity, column] of RARITY_MUL_COLUMNS) rarityMul[rarity] = r.num(column, { min: 0, fallback: 1 });
   return {
     rank: r.int('rank', { min: 1 }),
     name: r.str('name'),
@@ -170,6 +201,8 @@ export const PLANET_GRADE_CURVES: readonly PlanetGradeCurve[] = csvRows('planet_
     weightOf,
     maxGrade: (grades[grades.length - 1] ?? 1) as WeaponGrade,
     uniqueMul: r.num('uniqueMul', { min: 0 }),
+    rarityMul,
+    rarityMulIdentity: RARITY_MUL_COLUMNS.every(([rarity]) => rarityMul[rarity] === 1),
   };
 });
 
@@ -181,6 +214,56 @@ const PLANET_GRADE_CURVE_MAP: ReadonlyMap<number, PlanetGradeCurve> = new Map(PL
  */
 export function getPlanetGradeCurve(rank: number): PlanetGradeCurve | null {
   return PLANET_GRADE_CURVE_MAP.get(Math.round(rank)) ?? null;
+}
+
+/** `base` 객체 하나당 rank → 조정된 가중치. 굴림마다 새 객체를 만들지 않으려고 들고 있는다. */
+const RARITY_WEIGHT_CACHE = new WeakMap<object, Map<number, Readonly<Partial<Record<Rarity, number>>>>>();
+
+/**
+ * 2026-09-10: 희귀도 가중치 한 벌에 그 행성의 `rareMul` · `epicMul` · `legMul` 을 걸어 돌려준다.
+ *
+ * 1. rare · epic · legendary 에 각각 배수를 곱한다.
+ * 2. 그렇게 **깎인 총량**(`shaved`)을 common · uncommon 이 **원래 가지고 있던 비율 그대로** 나눠 받는다.
+ *
+ * 그래서 가중치 **합은 그대로**다 — 희귀 이상이 준 만큼 정확히 일반 · 고급이 는다. 상자에서 나오는
+ * 물건의 개수(`count`)는 어차피 이 표와 무관하지만, 합이 흔들리면 `itemWeightMul` 같은 다른 배수의
+ * 세기가 행성마다 달라져 표를 읽을 수 없게 된다.
+ *
+ * **배수가 셋 다 1 이면 `base` 를 그대로(같은 객체로) 돌려준다** — 부동소수 곱셈조차 하지 않으므로
+ * rank 2~5 의 결과는 이 기능이 없던 때와 비트 단위로 같다. `curve` 가 null 인 경로(훈련장 · 구형 세이브)도 같다.
+ *
+ * ⚠ 표에 **되돌려 받을 자리(common · uncommon)가 하나도 없으면** 재분배를 건너뛴다 — 합은 줄지만
+ *   세 배수가 같은 값이면 서로 상쇄돼 비율이 그대로다 (확정 픽처럼 후보가 이미 희귀 이상뿐인 굴림에서
+ *   배수가 상쇄되는 것과 같은 이야기다). 깎을 자리가 없는 표는 `shaved` 가 0 이라 그냥 지나간다.
+ */
+export function planetRarityWeights<T extends Readonly<Partial<Record<Rarity, number>>>>(
+  base: T, curve: PlanetGradeCurve | null,
+): T {
+  if (!curve || curve.rarityMulIdentity) return base;
+  let byRank = RARITY_WEIGHT_CACHE.get(base);
+  if (!byRank) { byRank = new Map(); RARITY_WEIGHT_CACHE.set(base, byRank); }
+  const hit = byRank.get(curve.rank);
+  if (hit) return hit as T;
+
+  const out: Partial<Record<Rarity, number>> = { ...base };
+  let shaved = 0;
+  for (const [rarity] of RARITY_MUL_COLUMNS) {
+    const w = base[rarity];
+    if (w === undefined) continue;
+    const scaled = w * curve.rarityMul[rarity];
+    shaved += w - scaled;
+    out[rarity] = scaled;
+  }
+  let refundBase = 0;
+  for (const rarity of RARITY_REFUND) refundBase += base[rarity] ?? 0;
+  if (shaved !== 0 && refundBase > 0) {
+    for (const rarity of RARITY_REFUND) {
+      const w = base[rarity];
+      if (w !== undefined) out[rarity] = w + shaved * (w / refundBase);
+    }
+  }
+  byRank.set(curve.rank, out);
+  return out as T;
 }
 
 /* ────────────────────────────────────────────────────────────────────────────

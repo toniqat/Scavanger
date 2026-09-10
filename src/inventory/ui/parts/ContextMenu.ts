@@ -114,7 +114,9 @@ export function menuEntries(sys: InventoryUI, uid: string, from: ItemLocation, i
       renderItemCost(costs, info.cost, (id) => ITEM_DEF_MAP.get(id), (id) => have.get(id) ?? 0, { size: 28 });
       entries.push({
         label: TEXT.menu.repair,
-        hint: info.short ? TEXT.menu.repairShort : undefined,
+        // 2026-09-10: 재료가 있으면 **왜 이만큼인가** = 남은 내구도 구간 (`제작 재료 × 구간 배수`)
+        hint: info.short ? TEXT.menu.repairShort
+          : info.bucket ? TEXT.durability.repair(info.bucket.label, info.bucket.repairMul) : undefined,
         costs,
         separator: entries.length > 0,
         run: () => {

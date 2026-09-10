@@ -1,7 +1,7 @@
 import type * as THREE from 'three';
 import type { Random } from './Random';
 import type { GameContext } from './GameContext';
-import type { ArmorDef, CraftRecipe, CraftStation, DurabilityInfo, WeightInfo } from './gear';
+import type { ArmorDef, CraftIngredient, CraftRecipe, CraftStation, DurabilityInfo, WeightInfo } from './gear';
 import type { LoadoutPreset, WorkbenchKind } from './housing';
 import type { SkillId } from './progression';
 /* appended (Phase 11, 2026-09-07): 행성 선택 */
@@ -1951,6 +1951,58 @@ export interface PlayerRef {
    * **아무것도 쓰지 않고** false — 호출자가 아이템을 소모하기 전에 이걸로 먼저 묻는다.
    */
   chargeShield(amount: number): boolean;
+}
+
+/* ══ appended (2026-09-10): 제작 대개편 — 내구도 연동 수리 · 분해 ═══════════════════════════════════
+ *
+ * 수리비와 분해 산출은 이제 **그 아이템을 새로 제작할 때 드는 재료**에서 나온다. 남은 내구도를 20 % 단위
+ * 다섯 구간으로 나누고 (`durabilityBucketOf`), 구간마다 정해진 배수를 제작 재료에 곱한다
+ * (`data/tables.csv` 의 `REPAIR_COST_BY_DURABILITY` · `SALVAGE_YIELD_BY_DURABILITY`).
+ * 그래서 같은 총이라도 **지금 남은 내구도에 따라 수리비와 분해 산출이 달라진다** — UI 는 인스턴스를 들고 물어야 한다.
+ *
+ * 두 배수의 합이 언제나 1 보다 작아서 「제작 → (수리) → 분해 → 제작」 이 이득이 되지 않는다.
+ * 실제 숫자로 검사하는 곳은 `items/Salvage.checkSalvageEconomy()` 이고 `npm run data:check` 가 돌린다.
+ *
+ * ⚠ **`getRepairCost(inst)` 는 시그니처가 그대로이고 구현만 이 규칙으로 바뀌었다** (위 원본 블록 참고):
+ *   더 이상 "빠진 내구도 ÷ REPAIR_SCRAP_PER" 가 아니라 `제작 재료 × REPAIR_COST_BY_DURABILITY[구간]`(올림)
+ *   이고, 무기뿐 아니라 **방탄복도** 값을 돌려준다 (예전에는 방탄복 수리가 공짜였다). 내구도가 가득이거나
+ *   내구도 자체가 없는 아이템은 예전처럼 `[]` 다.
+ */
+export interface LootRef {
+  /**
+   * 남은 내구도 구간 **0..4** — 0 = 0~20 % · 1 = 21~40 % · 2 = 41~60 % · 3 = 61~80 % · 4 = 81~100 %.
+   * 내구도가 없는 아이템(가방 · 재료 · 탄약)은 언제나 **4** 다.
+   */
+  durabilityBucketOf(inst: ItemInstance): number;
+  /** 구간 하나의 설명 — UI 가 "지금 몇 번째 구간인가" 와 그 배수를 그대로 그릴 수 있게. */
+  durabilityBucketInfo(inst: ItemInstance): DurabilityBucketInfo;
+  /**
+   * 이 아이템을 **새로 제작할 때** 드는 재료 (수리 · 분해 계산의 기준). 제작 레시피가 없으면 `[]`
+   * (유니크 무기 · 유니크 방탄복 · 루팅 전용 아이템). 반환 배열은 공유되므로 고치지 않는다.
+   */
+  getCraftCostOf(defId: string): readonly CraftIngredient[];
+  /**
+   * 이 인스턴스를 **지금** 분해하면 나오는 것. 분해할 수 없으면 null (유니크 · 제작 레시피가 없는 장비 ·
+   * 산출이 0 인 경우). 돌아오는 것은 여전히 `CraftRecipe` 모양이고 `id` 는 `getAllRecipes()` 에 있는
+   * 그 분해 레시피와 **같다** — 달라지는 것은 `outputQty` / `extraOutputs` 뿐이다 (내구도 구간이 곱해진 값).
+   * `getAllRecipes()` 에 실려 있는 쪽은 **구간 4(81~100 %) 기준**이므로, 실제로 소비 · 산출할 때는
+   * 반드시 이 함수가 돌려준 레시피를 써야 한다.
+   */
+  getSalvageFor(inst: ItemInstance): CraftRecipe | null;
+}
+
+/** `LootRef.durabilityBucketInfo` 의 반환값. */
+export interface DurabilityBucketInfo {
+  /** 0..4 (0 = 0~20 %). */
+  bucket: number;
+  /** 남은 내구도 비율 0..1 (내구도가 없으면 1). */
+  ratio: number;
+  /** 이 구간의 수리 재료 배수 (제작 재료 × 이 값, 올림). */
+  repairMul: number;
+  /** 이 구간의 분해 산출 배수 (제작 재료 × 이 값, 내림). */
+  salvageMul: number;
+  /** 한국어 구간 표기 (`81~100 %`). */
+  label: string;
 }
 
 export interface EnemyManagerRef {

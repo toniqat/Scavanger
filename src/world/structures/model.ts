@@ -97,6 +97,16 @@ export const WALL_T = 0.42;
 export const DOOR_W = 2.6;
 /** 지하실 계단이 지나갈 슬래브 구멍의 반길이(m). */
 export const STAIR_HALF = 1.5;
+/**
+ * 지하실 계단 한 단의 최대 높이(m) — `PROP_STEP_UP_MAX`(0.9) 의 **절반 이하**여야 한다 (2026-09-10).
+ *
+ * 한 단에 서 있으면 `resolveCollision` 은 발 높이에서 `PROP_STEP_UP_MAX` 안에 있는 단만 통과시킨다.
+ * 그보다 높은 첫 단이 몸통 반지름(`PLAYER_RADIUS` 0.45) 안에 들어오면 그 단이 벽이 되어 계단이 막힌다 —
+ * 그래서 "통과되는 단" 이 두 단 이상 (= `2 × STAIR_TREAD_MIN` > 0.45) 되게 잡는다.
+ */
+export const STAIR_RISE_MAX = 0.45;
+/** 지하실 계단 한 단의 최소 디딤폭(m). `PLAYER_RADIUS`(0.45) 보다 넓어야 한 단에 설 수 있다. */
+export const STAIR_TREAD_MIN = 0.62;
 /** 지하실 천장 슬래브 두께(m) — 윗면이 지상층 바닥과 정확히 같은 높이가 되게 밑으로 판다. */
 export const SLAB_T = 0.5;
 /**
@@ -107,3 +117,31 @@ export const SLAB_T = 0.5;
 export const PIT_BLEND = 1.6;
 /** 컨테이너 상호작용 반경(m) — 상자(2.8)보다 좁다. 실내에 밀집하므로 서로를 가리지 않게. */
 export const CONTAINER_RADIUS = 1.9;
+/**
+ * 지상층 바닥판이 벽 중심선 **바깥으로** 물러나는 폭(m) — 건물 둘레의 기초 앞치마다 (2026-09-10).
+ *
+ * 왜 필요한가: 지형 격자는 2 m 간격인데 지하실 구덩이의 페더는 `PIT_BLEND`(1.6 m) 뿐이라, 구덩이 둘레가
+ * **한 칸 안에서** 내려간다. 그래서 벽 안쪽 1~2 m 띠의 지형이 바닥보다 최대 1 m 넘게 꺼져 있었고
+ * (표본: 전진기지에서 −1.08 m), 문으로 들어서면 그 도랑에 빠진 뒤 `PROP_STEP_UP_MAX`(0.9) 를 넘는
+ * 턱을 마주쳐 **점프해야만** 들어갈 수 있었다. 바닥판을 발자국 전체 + 이 폭까지 깔고 **윗면을 정확히
+ * `y0`** 로 두면 문턱이 사라진다 — 걷는 바닥이 지형이 아니라 이 판이 되기 때문이다.
+ */
+export const FLOOR_OVERHANG = 0.9;
+/** 바닥판이 지형 위로 살짝 솟는 높이(m). 0 이면 평탄한 패드에서 지형과 z-fighting 이 난다. */
+export const FLOOR_LIP = 0.02;
+
+/* ── 선로 회랑 ─────────────────────────────────────────────────────────────── */
+
+/**
+ * 선로 회랑 반폭(m). 값의 주인은 `data/constants.csv` 이고 그것을 읽는 곳은 `src/shared/constants.ts`
+ * 하나다 — 여기서는 이름만 다시 내보내 `world/` 안의 호출부가 짧게 쓰게 한다.
+ */
+export { RAIL_CLEARANCE_M } from '@/shared';
+
+/* ── 전차 호출 콘솔 (2026-09-10) ──────────────────────────────────────────── */
+
+/**
+ * 플랫폼 호출 콘솔의 홀드 시간(초) · 상호작용 거리(m). `RAIL_CLEARANCE_M` 과 같은 이유로 이름만
+ * 다시 내보낸다 — 값의 주인은 `data/constants.csv`, 그것을 읽는 곳은 `src/shared/constants.ts` 하나다.
+ */
+export { TRAM_CALL_HOLD_S, TRAM_CALL_RANGE } from '@/shared';

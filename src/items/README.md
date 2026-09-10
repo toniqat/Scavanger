@@ -7,9 +7,9 @@ Pure data + the `LootRef` implementation. No DOM, no Three.js scene objects. Wea
 | `WeaponDefs.ts` | 6 weapon **families** (one per class, 2026-09-07) × 5 grades = 30 `WeaponDef`s built by `buildGrade` **+ 6 legendary uniques** (`UNIQUE_WEAPON_DEFS`, `UNIQUE_WEAPON_DEF_MAP`, `isUniqueWeapon(def)`, `isUniqueWeaponId`, `UNIQUE_WEAPON_DURABILITY`, `UNIQUE_WEAPON_MAG`) — all in `WEAPON_DEFS`, `WEAPON_DEF_MAP`, `getWeaponDef`; `WEAPON_FAMILIES` (graded families only), `WEAPON_GRADES`, `weaponGradesOf(family)`, `weaponIdForGrade(family, grade)`; `WEAPON_CLASS_LABEL_KO`, `WEAPON_CLASS_SHORT` (`SMG/AR/SG/SR/DMR/HG`), `WEAPON_BASE_DURABILITY` (per class), `weaponClassOf(def)`, `weaponFamilyOf(def)`, `gradeOf(def)`, `damageFalloff(def, distance)` |
 | `ImplantDefs.ts` | **Phase 12** (2026-09-08): 46 `ItemDef`s of category `'implant'` — `IMPLANT_WORKING_DEFS` (23: 5 stats × grades I–IV `imp_<stat>_<g>` + 3 legendary perk implants `imp_perk_<perk>`) and `IMPLANT_BROKEN_DEFS` (23 `imp_broken_*` twins: `망가진 …`, `implant.broken`, `repairsTo` / `repairCost`), together `IMPLANT_ITEM_DEFS`; `PERK_IMPLANT_DEFS`, `IMPLANT_GRADES`, `IMPLANT_SLOTS_BY_GRADE`, `IMPLANT_VALUE_BY_RARITY`, `IMPLANT_REPAIR_COST`, `IMPLANT_STAT_NAME_KO`, `implantItemIdFor(stat, grade)`, `perkImplantItemIdFor(perk)`, `brokenImplantIdOf(id)`, `isImplantItemDef`, `isBrokenImplantDef`. See *임플란트 아이템* below. |
 | `ItemDefs.ts` | 151 `ItemDef`s (`ITEM_DEFS`, `ITEM_DEF_MAP`, `getItemDef`, `itemDefsByCategory`, `isWeaponItemDef`) — 46 weapon items generated from `WEAPON_DEFS` (`WEAPON_ITEM_DEFS`; uniques use `UNIQUE_WEAPON_META`), `AMMO_ITEM_DEFS` (10), `ATTACHMENT_ITEM_DEFS`, `BAG_ITEM_DEFS`, `SEED_ITEM_DEFS` (3, Phase 8), `BOOK_ITEM_DEFS` (14, Phase 9 — `bookItemIdFor`, `BOOK_DEF_BY_SKILL`), `IMPLANT_ITEM_DEFS` (46, Phase 12 — spread in after the books), consumables, valuables, materials; rarity palette `RARITY_COLORS`, `RARITY_ORDER`, `rarityRank`, `rarityForGrade` / `gradeForRarity`; Korean labels (`RARITY_LABEL_KO`, `CATEGORY_LABEL_KO`, `AMMO_LABEL_KO`); `AMMO_TYPES_V2` (10), `UNIQUE_AMMO_TYPES`, `AMMO_ROUND_WEIGHT`, `ammoItemIdFor(type)`, `itemIdForWeapon(weaponId)`, `WEAPON_GRADE_VALUE_STEP`; `STARTER_LOADOUT` + `StarterLoadout` type |
-| `WeaponStats.ts` | `computeWeaponStats(def, inst?)` → `EffectiveWeaponStats` (grade already in the def + slot timings + socketed attachments; **uniques return the def numbers untouched**), `baseWeaponStats`, `applyAttachmentEffects`, `socketedAttachments`, `repairCost(def, inst)` (uniques = legendary), `canAttach(weaponDef, attachmentDef)` (false for uniques), `gradeRoman`, `clampGrade`, `RECOIL_H_RATIO` (0.7), `SECONDARY_ADS_TIME_MUL` (0.5) |
-| `LootTables.ts` | **2026-09-09** `PLANET_GRADE_CURVES` / `getPlanetGradeCurve(rank)` (`data/planet_loot.csv`) — 행성 난이도 순번 1..5 별 무기 등급 곡선(`grades` · `weightOf` · `maxGrade`). Per-tier `TierTable`s (`LOOT_TABLES`, `getTierTable`, `getTierLabel`): item count, rarity weights (= weapon grade weights), category weights incl. `attachment` / `bag`, weapon chance, `ammoFraction`, guaranteed picks, `itemWeightMul` (family-wide for weapons; Phase 6 helpers `uniqueWeapons / uniqueAmmo / gradedFamilies`; Phase 8 `seed` weights at tiers 1–3; Phase 9 `book` weights at tiers 2–4; **Phase 12** `implant` weights at tiers 2–4 with `workingImplants()` zeroed and `brokenImplants({byRarity})` tapering — broken legendaries tier 4 only). Phase 4: per-`EnemyType` `CorpseTable`s (`CORPSE_TABLES`, `CORPSE_TABLE_MAP`, `CorpseDrop`, `CorpseWeapon`, `CorpseUnique`, `DEFAULT_ROGUE_WEAPON_ID`; Phase 8 `BUG_SEEDS` on every bug type; Phase 9 `CorpseBook` on 로그 / 보스; **Phase 12** `CorpseImplant {chance, weights}` on 로그 6 % / 보스 45 %) |
-| `Loot.ts` | `LootService implements LootRef` — **2026-09-09** `rollCrateOn(tier, rng, planet)` / `rollCorpseOn(type, rng, rogueWeaponId, planet)` (행성별 무기 등급, 아래 *행성별 무기 등급*), `rollCrate(tier, rng?)` (a rolled unique brings one stack of its calibre), `rollCorpse(type, rng?, rogueWeaponId?)` (boss unique roll, then the Phase 9 book, then the **Phase 12 broken-implant roll last** — earlier draws never shift), `createItem(defId, qty?, extras?)`, `getEffectiveStats`, `getRepairCost`, `canAttach`, def lookups (`getAllItemDefs` includes uniques / unique ammo / new materials — the cheat catalog lists everything); `nextUid()` |
+| `WeaponStats.ts` | `computeWeaponStats(def, inst?)` → `EffectiveWeaponStats` (grade already in the def + slot timings + socketed attachments; **uniques return the def numbers untouched**), `baseWeaponStats`, `applyAttachmentEffects`, `socketedAttachments`, `canAttach(weaponDef, attachmentDef)` (false for uniques), `gradeRoman`, `clampGrade`, `RECOIL_H_RATIO` (0.7), `SECONDARY_ADS_TIME_MUL` (0.5). **2026-09-10: `repairCost` 는 여기서 사라졌다** — 수리비는 제작 재료 × 내구도 구간 배수이고 구현은 `Salvage.repairCostFor` 다 |
+| `LootTables.ts` | **2026-09-09** `PLANET_GRADE_CURVES` / `getPlanetGradeCurve(rank)` (`data/planet_loot.csv`) — 행성 난이도 순번 1..5 별 무기 등급 곡선(`grades` · `weightOf` · `maxGrade`); **2026-09-10** 같은 표의 둘째 축 `rarityMul` / `rarityMulIdentity` + `planetRarityWeights(base, curve)` (아래 *행성별 희귀도 배수*). Per-tier `TierTable`s (`LOOT_TABLES`, `getTierTable`, `getTierLabel`): item count, rarity weights (= weapon grade weights), category weights incl. `attachment` / `bag`, weapon chance, `ammoFraction`, guaranteed picks, `itemWeightMul` (family-wide for weapons; Phase 6 helpers `uniqueWeapons / uniqueAmmo / gradedFamilies`; Phase 8 `seed` weights at tiers 1–3; Phase 9 `book` weights at tiers 2–4; **Phase 12** `implant` weights at tiers 2–4 with `workingImplants()` zeroed and `brokenImplants({byRarity})` tapering — broken legendaries tier 4 only). Phase 4: per-`EnemyType` `CorpseTable`s (`CORPSE_TABLES`, `CORPSE_TABLE_MAP`, `CorpseDrop`, `CorpseWeapon`, `CorpseUnique`, `DEFAULT_ROGUE_WEAPON_ID`; Phase 8 `BUG_SEEDS` on every bug type; Phase 9 `CorpseBook` on 로그 / 보스; **Phase 12** `CorpseImplant {chance, weights}` on 로그 6 % / 보스 45 %) |
+| `Loot.ts` | `LootService implements LootRef` — **2026-09-09** `rollCrateOn(tier, rng, planet)` / `rollCorpseOn(type, rng, rogueWeaponId, planet)` (행성별 무기 등급, 아래 *행성별 무기 등급*; **2026-09-10** 부터 총기가 아닌 것들에는 행성 희귀도 배수도 걸린다 — 아래 *행성별 희귀도 배수*), `rollCrate(tier, rng?)` (a rolled unique brings one stack of its calibre), `rollCorpse(type, rng?, rogueWeaponId?)` (boss unique roll, then the Phase 9 book, then the **Phase 12 broken-implant roll last** — earlier draws never shift), `createItem(defId, qty?, extras?)`, `getEffectiveStats`, `getRepairCost`, `canAttach`, def lookups (`getAllItemDefs` includes uniques / unique ammo / new materials — the cheat catalog lists everything); `nextUid()` |
 | `index.ts` | Barrel — import via `@/items` |
 
 ## Weapon families & grades
@@ -130,7 +130,9 @@ stash and shows the ordinary durability bar. `제세동기` (`gad_defib`, a gadg
 
 **Valuables**: `gem_quartz`, `gem_amber`, `gem_sapphire`, `gem_void`, `cred_chip` (stack 5), `super_earth_medal` (1×1) · `salvage_electronics`, `data_core`, `data_core_encrypted` (2×1) · `sample_canister`, `sample_canister_pure` (3×1) · `terminid_gland` (1×1) · `alien_artifact`, `alien_relic` (2×2).
 
-**Materials** (1×1, stack 10): `mat_scrap` (repair), `mat_bio_sample`, `mat_alloy` (repair, grade ≥ III), `mat_power_cell`.
+**Materials** (1×1, stack 10): `mat_scrap`, `mat_bio_sample`, `mat_alloy`, `mat_power_cell`.
+2026-09-10 상위 재료 5종 (`mat_weave` · `mat_ballistic_fiber` · `mat_capacitor` · `mat_ingot` · `mat_control_module`)
+은 **정제 작업대에서만** 나온다 — *Recipes* 절의 *재료 등급 축*.
 2026-09-07 회복 재료: `mat_cloth` 천조각 (common, stack 20, tiers 1–3), `mat_can` 캔 (common, stack 10, tiers 1–3),
 `mat_syringe` 주사기 (uncommon, stack 10, tiers 2–3), `mat_antiseptic` 소독약 (uncommon, **crafted only**: 캔 1 + 혈근초 1).
 
@@ -206,7 +208,8 @@ Rogue weapon (`CorpseWeapon`): `rogueWeaponId` is the `WeaponDef` id the rogue c
 | File | Role |
 |---|---|
 | `ArmorDefs.ts` | 8 `ArmorDef`s (`ARMOR_DEFS`, `ARMOR_DEF_MAP`, `getArmorDef`), `armorItemSize(def)` grid footprint, `ARMOR_ICON`. 2026-09-10: `ArmorDef.shield` (실드 최대치) 가 실제로 쓰이는 값이고 `damageReduction` 은 환산 근거로만 남았다 |
-| `Recipes.ts` | 41 hand-written `CraftRecipe`s (`CRAFT_RECIPES`) — ammo teardown → 화약, 화약 → ammo, herbs → medicine, and (Phase 6) the four 작업실 bench chains (`bench` / `benchLevel`) — **plus the generated 고물 분해 recipes** (2026-09-08: `SALVAGE_RECIPES` = 기계 부품 + one `break_wpn_*` per non-unique weapon def + one `break_armor_*` per numbered plate). `ALL_CRAFT_RECIPES` = both, and is what `ctx.loot.getAllRecipes()` returns; `CRAFT_RECIPE_MAP` / `getRecipe` index it. Table in *Recipes* below |
+| `Recipes.ts` | **제작만** — `data/recipes.csv` 94줄을 `CRAFT_RECIPES` 로 옮기고, 아이템 하나를 만드는 데 드는 재료를 `CRAFT_COST_BY_OUTPUT` / `craftCostOf(defId)` 로 색인한다 (`outputQty === 1` 인 레시피만 — 수리비 · 분해 산출의 기준이 이 색인이다) |
+| `Salvage.ts` | **분해 · 수리 (2026-09-10 신규)** — 내구도 20 % 5구간(`durabilityBucketOf` · `durabilityBucketInfo` · `bucketOfRatio` · `DURABILITY_BUCKET_LABELS`), `repairCostFor(inst)`, `salvageFor(inst)`, `data/salvage.csv` 손 분해 6줄 + 제작 재료에서 생성한 분해 38줄(`SALVAGE_RECIPES`), `ALL_CRAFT_RECIPES` · `CRAFT_RECIPE_MAP` · `getRecipe`, 그리고 무한 이득 검산 `checkSalvageEconomy()` (`npm run data:check` 가 돌린다). Table in *Recipes* below |
 
 New categories: `armor` (`ItemDef.armorId` → `ArmorDef`, `durabilityMax`), `gadget` (`gadgetId`, behaviour in `src/gadgets`), `herb` (gathered from `WorldRef.getGatherNodes()`); `mat_gunpowder` for the ammo recipes; every def carries a `weight` (kg, `itemWeight(def, qty)`, default `DEFAULT_ITEM_WEIGHT`). The branch's `BackpackDef` catalogue was **not** merged — bags stay the weapon-package `bag_*` items (`BagDef`, `bag.tactical` = hover / faster swap perk). Starter kit adds `armor_2` + one `gad_smoke`. `LootRef` gained `getArmorDef` and `getAllRecipes`; loot tables roll `gadget` / `herb` / `armor` (heavy deployables never in tier 1).
 
@@ -337,84 +340,125 @@ All 14: **1×2**, `stackMax` 1 (never stack), `weight` 0.6 kg, icon `CATEGORY_IC
 (they carry `BUG_SEEDS` instead). The 세레스 corp shop stocks `{category:'book', minRepLevel:2}`. No `CraftRecipe`
 outputs a book.
 
-## Recipes (`getAllRecipes`) — 41 + 생성된 고물 분해
+## Recipes (`getAllRecipes`) — 제작 94 + 분해 44 (2026-09-10 제작 대개편)
 
-`station: 'field'` recipes also work on the ship. Phase 6: every `station: 'ship'` recipe names a `bench` (`WorkbenchKind`: gun 총기 / gear 장비 / gadget 가젯 / medical 의학) and a `benchLevel`; `inventory.getRecipes('ship', bench, level)` filters on both (`ctx.housing.getBenchLevel`). `outputQty` never exceeds the output's `stackMax` (`createItem` clamps). All ids are unique; every input / output id exists (checked live, see the verification note).
+원본은 **`data/recipes.csv`**(제작 94줄)와 **`data/salvage.csv`**(손으로 적은 분해 6줄)다. 나머지 분해 38줄은
+`Salvage.ts` 가 **제작 재료에서 생성한다** — 무기 25종 · 방탄복 5벌 · 가방 8종. `ALL_CRAFT_RECIPES` = 제작 + 분해이고
+그것이 `ctx.loot.getAllRecipes()` 다. `CRAFT_RECIPE_MAP` / `getRecipe` 는 이제 `Salvage.ts` 에 있다 (배럴 경유라 호출부 무변경).
 
-**Field** (12 + 생성된 `break_wpn_*` 30 · `break_armor_*` 5)
+`station: 'field'` recipes also work on the ship. `station: 'ship'` recipe 는 전부 `bench`(`WorkbenchKind`:
+gun 총기 / gear 장비 / gadget 가젯 / medical 의학 / **refine 정제**)와 `benchLevel` 을 갖고,
+`inventory.getRecipes('ship', bench, level)` 이 둘 다로 거른다 (`ctx.housing.getBenchLevel`).
 
-| id | skill (req) | in → out |
+### 재료 등급 축 — 3계열 × 2단계
+
+```
+금속계  폐금속 ──▶ 합금 판 ──▶ 강화합금 잉곳 mat_ingot          [완벽 상위호환]
+        폐금속 + 전력 케이블 ──▶ 기계 부품 mat_machine_parts    [파생 상위]
+전자계  구동 코어 ──▶ 축전 모듈 mat_capacitor                   [완벽 상위호환]
+        회로 기판 + 파워 셀 ──▶ 제어 모듈 mat_control_module    [파생 상위]
+섬유계  천조각 ──▶ 강화 직조포 mat_weave                        [완벽 상위호환]
+        천조각 + 생체 조직 ──▶ 복합 방탄섬유 mat_ballistic_fiber [파생 상위]
+```
+
+**상위 재료는 정제 작업대(`bench: 'refine'`)에서만 나온다** — 현장 빠른제작이 없다. 장비군별 상위 재료:
+총기 = 잉곳 + 기계 부품 · 실드(방탄복) = 축전 모듈 + 제어 모듈 · 가방 = 강화 직조포 + 복합 방탄섬유.
+등급 IV~V · 서사/전설 장비는 **반드시** 그 상위 재료를 요구하므로 정제 작업대가 최고급 장비의 관문이다.
+"완벽 상위호환" 은 상위를 요구하는 자리에 하위를 못 넣는다는 뜻이고, **대체 투입 규칙은 없다** — 레시피가 적은 id 그대로다.
+
+### 작업대별 배치
+
+| 작업대 | Lv.1 | Lv.2 | Lv.3 |
+|---|---|---|---|
+| **정제** `refine` (7) | 합금 판 · 강화 직조포 · 기계 부품 | 축전 모듈 · 복합 방탄섬유 | 강화합금 잉곳 · 제어 모듈 |
+| **총기** `gun` (45) | AR · SMG · SG 등급 I~II (6) | 전 계열 등급 III (5) + DMR · SR 등급 I~II (4) + 부착물 하위 6 | 전 계열 등급 IV~V (10) + 부착물 상위 8 + 유니크 탄약 6 |
+| **장비** `gear` (13) | 방탄복 I~II · 가방 일반/고급 | 방탄복 III · 가방 희귀(전술 포함) | 방탄복 IV~V · 가방 서사/전설(전술 포함) |
+| **가젯** `gadget` (12) | 고폭 · 연막 · 소이 수류탄 | 유인 · 화염수류탄 · 지뢰 | 바리케이드 · 점프대 · 은폐 장막 · 제세동기 · 돔 실드 · 포탑 |
+| **의학** `medical` (9) | 소독약 · 회복주사 · 혈근초 · **실드 충전기** | 스프레이 · 붕대 대량 · 발광버섯 · **고출력 충전기** | **완충 충전기** |
+| **현장** `field` (8) | 탄약 4종 · 연막 · 소이 수류탄 · 붕대 2종 | | |
+
+무기 25종은 **손으로 적었다** (`make_wpn_<family>[_g2..g5]`). 등급 곡선(value ×1.6/등급)과 재료 등급 곡선이
+하나의 공식으로 안 맞아 떨어져 — 어떤 공식을 써도 IV 와 V 가 붙거나 등급 I 이 폭발했다 — 그리고 DMR · SR 만
+Lv.1 에서 빠지는 예외까지 표로 들어가야 했다. 대신 `checkSalvageEconomy()` 가 **제작 레시피 없는 비유니크
+무기 def** 를 잡아 주므로 계열이 늘어나면 `npm run data:check` 가 바로 알려 준다.
+
+폐금속 기준선(등급 I → V): ar 8·11·14·16·18 · smg 10·14·17·20·23 · sg 11·15·19·22·25 · dmr 14·20·24·28·32 ·
+sr 15·21·26·30·35. 등급 III 부터 합금 판 + 기계 부품, IV 부터 강화합금 잉곳이 붙는다 (DMR · SR 은 한 단계 더).
+재료 총가치는 모든 무기에서 판매가(`value`)보다 낮다 — 만드는 편이 사는 편보다 싸다.
+
+### 내구도 연동 수리 · 분해 (`Salvage.ts`)
+
+기준은 **그 아이템의 제작 재료**다. 남은 내구도를 20 % 단위 다섯 구간으로 나누고
+(`durabilityBucketOf` → 0 = 0~20 % … 4 = 81~100 %, 내구도가 없는 아이템은 4) 구간별 배수를 곱한다
+(`data/tables.csv` 의 `REPAIR_COST_BY_DURABILITY` · `SALVAGE_YIELD_BY_DURABILITY`):
+
+| 남은 내구도 | 수리 (올림) | 분해 (내림) | 합 |
+|---|---|---|---|
+| 81~100 % | ×0.10 | ×0.40 | 0.50 |
+| 61~80 % | ×0.20 | ×0.32 | 0.52 |
+| 41~60 % | ×0.30 | ×0.24 | 0.54 |
+| 21~40 % | ×0.40 | ×0.16 | 0.56 |
+| 0~20 % | ×0.50 | ×0.08 | 0.58 |
+
+- **반올림** — 수리는 올림, 분해는 내림 (둘 다 플레이어에게 불리한 쪽 = 착취 방지).
+  분해는 **재료 종류마다 최소 1 을 보장하지 않는다**: 보장하면 등급 IV 총의 「강화합금 잉곳 2」가 통째로
+  돌아와 「제작 → 분해 → 제작」이 이득이 된다. 예외는 **제일 많이 든 재료 한 종류**뿐이고
+  (`SALVAGE_MAIN_MIN_YIELD` 1), 그 자리는 언제나 폐금속 · 천조각이 8 이상이라 안전하다.
+- **유니크 무기 · 유니크 방탄복은 분해 금지**(제작 레시피가 없으므로 자동으로 빠진다), **수리는 된다** —
+  기준을 같은 총기 종류의 **등급 V**(유니크 방탄복은 방탄복 V)에서 빌려 `UNIQUE_REPAIR_MUL`(1.5)을 곱한다.
+  옛 공식(빠진 내구도 ÷ `REPAIR_SCRAP_PER`)은 사라졌다 — 유니크 내구도가 320~3000 이라 같은 전설끼리
+  수리비가 10배 갈렸고 등급 무기와 다른 축으로 움직여 읽히지 않았다.
+- **가방은 내구도가 없어 언제나 구간 4** — 분해는 제작 재료 ×0.40 고정이고 수리는 없다(`[]`).
+- 예: 돌격소총 IV(제작 폐금속 16 + 합금 판 4 + 기계 부품 3 + 잉곳 2) — 81~100 % 이면 수리 2/1/1/1,
+  분해 폐금속 6 + 합금 판 1 + 기계 부품 1; 0~20 % 이면 수리 8/2/2/1, 분해 폐금속 1.
+
+`LootRef` 에 붙은 것(계약 **추가**): `durabilityBucketOf(inst)` · `durabilityBucketInfo(inst)` ·
+`getCraftCostOf(defId)` · `getSalvageFor(inst)`. **`getRepairCost(inst)` 는 시그니처가 그대로이고 구현만
+바뀌었다** — 이제 방탄복도 값을 돌려준다.
+
+⚠ `getAllRecipes()` 에 실린 생성 분해는 **구간 4 기준**이다. 실제로 소비 · 산출할 때는 반드시
+`getSalvageFor(inst)` 가 돌려준 레시피를 써야 한다 (id 는 같고 `outputQty` / `extraOutputs` 만 다르다).
+
+### 분해 표 `data/salvage.csv`
+
+`id,inputDefId,qty,outputs,scaleByDurability,duration,skill,skillRequired,description`.
+`outputs` 는 `아이템id:수량` 을 `|` 로 이은 것이고 첫 항목이 대표 산출물, 나머지가 `extraOutputs` 다.
+`scaleByDurability` 가 true 면 적힌 값이 100 % 기준이고 구간 배수가 곱해진다 (지금 6줄 모두 false).
+
+| id | 입력 | 산출 |
 |---|---|---|
-| `break_ammo_light` / `_medium` / `_heavy` / `_shell` | crafting 0 | 경량탄 30 / 준중량탄 30 / 중량탄 10 / 산탄 8 → 화약 4 / 6 / 5 / 5 |
-| `make_ammo_light` / `_medium` / `_shell` | crafting 0 | 화약 4 + 폐금속 1 → 경량탄 30 · 화약 6 + 폐금속 2 → 준중량탄 30 · 화약 5 + 폐금속 2 → 산탄 8 |
-| `make_ammo_heavy` | crafting 20 | 화약 5 + 합금 판 1 → 중량탄 10 |
-| `make_smoke` | crafting 10 | 화약 4 + 생체 조직 2 → 연막탄 |
-| `make_incendiary` | crafting 15 | 화약 8 + 잿빛잎 2 → 소이 수류탄 |
-| `break_machine_parts` | crafting 0 | 기계 부품 1 → **폐금속 3 + 전력 케이블 1** (`extraOutputs`, 2026-09-08) |
-| `break_wpn_*` (생성, 유니크 제외) | crafting 0 | 무기 1정 → 폐금속 `(2 + 등급−1) × 총기 배수` — 권총 I 1 … 저격소총 V 8, 6 s |
-| `break_armor_1`…`_5` (생성) | crafting 0 | 방탄복 1벌 → 폐금속 `3 + (티어−1)×2` — I 3 … V 11, 5 s |
-| `make_bandage` | medicine 0 | 천조각 5 → 붕대 |
-| `make_bandage_herb` | medicine 0 | 천조각 5 + 혈근초 1 → 약초 붕대 |
+| `break_ammo_light` / `_medium` / `_heavy` / `_shell` | 경량탄 30 / 준중량탄 30 / 중량탄 10 / 산탄 8 | 화약 4 / 6 / 5 / 5 |
+| `break_machine_parts` | 기계 부품 1 | 폐금속 3 + 전력 케이블 1 |
+| `break_shield_charger_hi` | 고출력 실드 충전기 1 | 구동 코어 1 + 전력 케이블 1 |
 
-**총기 작업대** (`bench: 'gun'`, 15)
+생성 분해의 id 는 `break_<아이템id>` — `break_wpn_ar_g3` · `break_armor_2` · `break_bag_epic` …
+(`break_wpn_*` · `break_armor_*` 는 예전과 같은 id 라 `inventory` 의 `disassembleRecipeFor` 가 그대로 찾는다).
 
-| id | Lv | skill (req) | in → out |
-|---|---|---|---|
-| `bulk_ammo_light` / `_medium` / `_shell` | 1 | crafting 0 | 화약 14 + 폐금속 3 → 경량탄 120 · 화약 16 + 폐금속 5 → 준중량탄 90 · 화약 13 + 폐금속 5 → 산탄 24 |
-| `bulk_ammo_heavy` | 1 | crafting 15 | 화약 13 + 합금 판 2 → 중량탄 30 |
-| `make_att_brake` / `make_att_comp` | 2 | crafting 20 | 폐금속 6 + 합금 판 2 → 총구 제동기 / 보정기 |
-| `make_att_grip_vertical` | 2 | crafting 15 | 폐금속 5 + 합금 판 1 → 수직 그립 |
-| `make_att_laser` | 2 | crafting 25 | 합금 판 2 + 파워 셀 1 + 전력 케이블 1 → 레이저사이트 |
-| `make_att_stock` | 2 | crafting 30 | 폐금속 8 + 합금 판 3 → 전술 개머리판 |
-| `make_ammo_fuel` | 3 | crafting 30 | 화약 6 + 생체 조직 4 + 폐금속 2 → 연료통 100 |
-| `make_ammo_cell` | 3 | crafting 30 | 파워 셀 2 + 전력 케이블 1 → 전지 30 |
-| `make_ammo_shuriken` | 3 | crafting 30 | 합금 판 4 + 폐금속 4 → 표창 20 |
-| `make_ammo_arrow` | 3 | crafting 30 | 폐금속 4 + 합금 판 1 + 잿빛잎 2 → 화살 15 |
-| `make_ammo_rocket` | 3 | crafting 40 | 화약 12 + 합금 판 3 + 회로 기판 1 → 로켓 3 |
-| `make_ammo_belt` | 3 | crafting 30 | 화약 20 + 폐금속 8 → 탄띠 150 |
+### 검산 — `checkSalvageEconomy()`
 
-**장비 작업대** (`bench: 'gear'`, 4)
-
-| id | Lv | skill (req) | in → out |
-|---|---|---|---|
-| `make_armor_1` | 1 | crafting 0 | 폐금속 10 + 합금 판 2 → 방탄복 I |
-| `make_bag_common` | 1 | crafting 0 | 폐금속 6 + 생체 조직 6 → 일반 가방 |
-| `make_armor_2` | 2 | crafting 20 | 폐금속 12 + 합금 판 5 → 방탄복 II |
-| `make_bag_uncommon` | 2 | crafting 20 | 폐금속 8 + 합금 판 3 + 생체 조직 6 → 고급 가방 |
-
-**가젯 작업대** (`bench: 'gadget'`, 6)
-
-| id | Lv | skill (req) | in → out |
-|---|---|---|---|
-| `make_frag_batch` | 1 | crafting 10 | 화약 8 + 폐금속 3 → G-12 고폭 수류탄 ×2 |
-| `make_smoke_batch` | 1 | crafting 10 | 화약 10 + 생체 조직 5 → 연막탄 ×3 |
-| `make_mine` (was ship/any) | 1 | crafting 35 | 화약 10 + 합금 판 2 → 지뢰 |
-| `make_lure` | 2 | crafting 20 | 화약 4 + 폐금속 2 + 전력 케이블 1 → 유인 수류탄 |
-| `make_fire_gadget` | 2 | crafting 25 | 화약 8 + 잿빛잎 3 → 화염수류탄 |
-| `make_defib_charge` (was ship/any) | 2 | medicine 40 | 파워 셀 2 + 발광버섯 1 → 제세동기 |
-
-**의학 작업대** (`bench: 'medical'`, 4)
-
-| id | Lv | skill (req) | in → out |
-|---|---|---|---|
-| `make_antiseptic` | 1 | medicine 10 | 캔 1 + 혈근초 1 → 소독약 |
-| `make_heal_syringe` | 1 | medicine 25 | 주사기 1 + 소독약 1 → 회복주사 |
-| `make_heal_spray` | 2 | medicine 45 | 캔 1 + 소독약 1 → 회복 스프레이 |
-| `grow_bloodroot` (was ship/any) | 1 | gardening 0 | 잿빛잎 4 → 혈근초 6 |
-| `make_bandage_batch` | 2 | medicine 10 | 천조각 12 + 혈근초 2 → 약초 붕대 ×3 |
-| `grow_glowcap` (was ship/any) | 2 | gardening 20 | 혈근초 6 + 생체 조직 3 → 발광버섯 2 |
-
-No `station: 'ship'` recipe is left without a bench, so the legacy `hub_workbench` only offers field recipes until a bench exists (the plan's "undefined = any ship workbench" case is currently unused).
-
-**Consumables**: `grenade_frag`, `grenade_incendiary` (1×1, stack 4) · `stim` (+50), `stim_advanced` (+100) (1×1, stack 3) · `ammo_medium (30발)`, `ammo_light (30발)`, `ammo_shell (8발)`, `ammo_heavy (10발)` (2×1, stack 2). All are `quickUsable`.
+`npm run data:check` 가 돌린다 (`scripts/data-check.mjs`). 모든 생성 분해 × 모든 내구도 구간에서 네 가지를 본다:
+① 분해 산출 ≤ 제작 재료 ② 수리 + 분해 ≤ 제작 재료이고 한 종류는 **엄격히 작다** ③ 분해(구간 4) − 수리(구간 b)
+≤ 분해(구간 b) — "고쳐서 뜯는" 편이 "지금 뜯는" 것보다 이득이면 안 된다 ④ 제작에 안 쓰는 재료가 분해에서 안 나온다.
+손으로 적은 고정 분해도 (제작 레시피가 있으면) 같은 검사를 받는다. 현재 위반 0건, 최악의 `(수리+분해)/제작`
+비율은 **0.667** (`wpn_ar_g3` 구간 0 의 합금 판 2/3).
 
 **Valuables**: `gem_quartz`, `gem_amber`, `gem_sapphire`, `gem_void`, `cred_chip` (stack 5), `super_earth_medal` (1×1) · `salvage_electronics`, `data_core`, `data_core_encrypted` (2×1) · `sample_canister`, `sample_canister_pure` (3×1) · `terminid_gland` (1×1) · `alien_artifact`, `alien_relic` (2×2).
 
-**Materials** (1×1): `mat_scrap`, `mat_bio_sample`, `mat_alloy`, `mat_power_cell` (stack 10), `mat_gunpowder` (stack 20), Phase 6 `mat_cable` 전력 케이블 (common, stack 10), `mat_circuit` 회로 기판 (rare, stack 10).
+**Materials** (1×1, stack 10): `mat_scrap` · `mat_bio_sample` · `mat_alloy` · `mat_power_cell` · `mat_cable` ·
+`mat_circuit` · `mat_machine_parts` · `mat_core`, `mat_gunpowder` (stack 20), 2026-09-07 회복 재료
+`mat_cloth` (stack 20) · `mat_can` · `mat_syringe` · `mat_antiseptic`, 그리고 **2026-09-10 상위 재료 5종**:
 
-`STARTER_LOADOUT = { primary: null, secondary: 'wpn_hg', bag: 'bag_common', armor: 'armor_1', items: [ammo_light×80, heal_bandage×2, grenade_frag×3] }` — the minimum kit only; see *Starter loadout & 기본 지급품*.
+| id | 이름 | rarity | ₩ | kg | 정제 |
+|---|---|---|---|---|---|
+| `mat_weave` | 강화 직조포 | uncommon | 55 | 0.35 | Lv.1 — 천조각 6 |
+| `mat_ballistic_fiber` | 복합 방탄섬유 | rare | 125 | 0.95 | Lv.2 — 천조각 6 + 생체 조직 3 |
+| `mat_capacitor` | 축전 모듈 | rare | 140 | 1.1 | Lv.2 — 구동 코어 4 |
+| `mat_ingot` | 강화합금 잉곳 | rare | 95 | 1.7 | Lv.3 — 합금 판 2 |
+| `mat_control_module` | 제어 모듈 | epic | 380 | 1.5 | Lv.3 — 회로 기판 2 + 파워 셀 1 |
 
-Ammo recipes were rewritten for ammo v2 (`qty` = rounds): 경량탄 30 ↔ 화약 4, 준중량탄 30 ↔ 화약 6, 중량탄 10 ↔ 화약 5 (+ 합금 판, 제작 20), 산탄 8 ↔ 화약 5.
+(`mat_alloy` 는 정제 Lv.1 에서 폐금속 3 으로도 나오고, `mat_machine_parts` 는 Lv.1 에서 폐금속 6 + 케이블 2 다 —
+분해로 되찾는 폐금속 3 + 케이블 1 이 제작 재료의 딱 절반이라 무한 루프가 없다.)
+
 
 ## 임플란트 아이템 (Phase 12, 2026-09-08 — `ImplantDefs.ts`)
 
@@ -479,8 +523,10 @@ the loot rules (corpse / crate counts over 400 / 300 rolls, no working implant, 
 - **`rollCrate` / `rollCorpse` 는 그대로 남는다.** 내부적으로 `curve = null` / `maxGrade = null` 로 위임하고
   그 경로에서는 rng 를 한 번도 더 쓰지 않으므로 `src/inventory/__selftest__.ts` 의 고정 벡터가 그대로 맞는다.
   `planet` 이 null (훈련장 · 구형 세이브)이면 예전과 완전히 같다.
-- **다른 아이템의 희귀도는 안 건드린다** — `loot_tiers.csv` 의 `common..legendary` 열은 계속 부착물 ·
+- **이 곡선은 다른 아이템의 희귀도를 안 건드린다** — `loot_tiers.csv` 의 `common..legendary` 열이 계속 부착물 ·
   방어구 · 임플란트 · 귀중품의 등급을 정한다. 총만 짜게 하려고 티어 표를 내리면 총이 아닌 물건까지 짜진다.
+  (2026-09-10 부터 같은 csv 의 **다른 세 열**이 총기가 아닌 것들의 희귀도를 따로 조절한다 — 아래
+  *행성별 희귀도 배수*. 두 축은 서로 안 움직인다.)
 - 상자 티어는 **무기가 얼마나 자주 나오나**(`weaponChance` 0 / 0.35 / 0.55 / 1), 행성은 **얼마나 좋은가** 를
   맡는다. 그래서 티어 1 상자에서는 어느 행성에서도 총이 안 나온다.
 
@@ -513,6 +559,51 @@ P(V) < 5 % · 4번 5~6 % · 5번 < 20 %)와 대조한다. **수치를 고칠 때
 `ctx.missionPlanet` 을 넘긴다. `src/enemies/Corpses.ts` 의 `Corpse.interact()` 가 `rollCorpseOn` 을 쓴다.
 함선 보급 투하(스트라타젬)도 `crate:open` → `getOrCreate` 로 같은 길을 지난다.
 
+## 행성별 희귀도 배수 (2026-09-10 — `data/planet_loot.csv` 의 `rareMul` · `epicMul` · `legMul`)
+
+같은 csv 의 **둘째 축**이고 위 등급 곡선과 완전히 별개다. 이쪽이 다루는 것은 **총기가 아닌 전부** —
+방탄복 · 가방 · 부착물 · 임플란트 · 소모품 · 재료 · 귀중품. 앞쪽 행성에서 좋은 **장비**도 덜 나오게 하려고
+넣었다 (사용자 결정, rank 1 = 0.5 / rank 2~5 = 1).
+
+- **규칙은 `LootTables.planetRarityWeights(base, curve)` 하나다.** ① `rare` · `epic` · `legendary` 가중치에
+  각각 배수를 곱하고 ② 깎인 총량을 `common` · `uncommon` 이 **원래 가지고 있던 비율 그대로** 나눠 받는다.
+  그래서 **가중치 합이 안 바뀐다** — 희귀 이상이 준 만큼 정확히 일반 · 고급이 는다.
+  예: 티어 3 `15/30/40/14/1` → `24.17/48.33/20/7/0.5` (합 100 그대로).
+- **배수가 셋 다 1 이면 `base` 를 같은 객체로 그대로 돌려준다** (`rarityMulIdentity`). 부동소수 곱셈조차
+  하지 않으므로 **rank 2~5 는 이 기능이 없던 때와 비트 단위로 같다** — 상자 · 시체 각 2만 회 굴림의
+  내용물 서명이 도입 전후로 일치하는 것으로 확인했다. `curve` 가 null 인 경로(훈련장 · 구형 세이브)도 같다.
+- **어디에 걸리나**
+  - **상자 전부** — `LootService.pickDef` 한 곳에서 건다. 확정 픽 · 무기 픽 · 카테고리 픽이 모두 이 함수를
+    지나므로 티어 1~4 와 **티어 5 보급 투하**가 자동으로 같은 배수를 받는다.
+  - **시체의 망가진 임플란트 굴림** — `loot_corpse_rolls.csv` 의 `implantWeights` 도 common..epic 이 다 있는
+    **희귀도 표**라 모양이 같다. 안 걸면 앞쪽 행성에서 보스 시체가 희귀 임플란트의 우회로가 된다.
+    확률(`chance`) 자체는 그대로다 — 배수는 "무엇이 나오나" 를 정하지 "몇 번 나오나" 를 정하지 않는다.
+  - **안 거는 곳**: `loot_corpses.csv` 의 시체 드랍(아이템별 확률이지 희귀도 추첨이 아니다) · 보스 부착물
+    (`maxRarity` 로 자른 뒤 **균등** 추첨이라 걸 자리가 없고, 가중 추첨으로 바꾸면 배수 1 인 행성의 결과까지
+    바뀐다) · 총기 등급(`regrade` 가 `g1..g5` 로 덮어쓴다).
+- **확정 픽(`loot_guaranteed.csv`)의 하한은 못 뚫는다.** "희귀 이상 확정" 줄은 후보가 이미 희귀 이상뿐이라
+  셋에 같은 배수가 걸리면 서로 상쇄돼 분포가 그대로다 — 확정은 확정으로 남는다. 반대로 "고급 이상" 줄
+  (티어 2 귀중품)은 고급이 되돌려 받는 쪽이라 실제로 고급 쪽으로 기운다.
+- `rng` 소비는 어느 쪽이든 그대로다 — `Random.weighted` 는 가중치와 무관하게 `next()` 를 하나만 쓴다.
+
+**실측** (rank 1, 상자 2만 회/칸, 맵 티어 분포 가중 평균, 총기 제외):
+
+| 무엇 | 배수 전 | 배수 0.5 | 배 |
+|---|---|---|---|
+| 희귀 이상 비율 — 총기 제외 전부 | 18.71 % | **12.19 %** | 0.65 |
+| 희귀 이상 비율 — 방탄복 · 가방만 | 22.28 % | **13.37 %** | 0.60 |
+| 희귀 이상 비율 — 방탄복 · 가방 · 부착물 | 26.11 % | **15.03 %** | 0.58 |
+| 상자 1개당 희귀 이상 아이템 개수 | 0.695개 | **0.463개** | 0.67 |
+| 상자 1개당 전체 아이템 개수 | 2.43 / 3.49 / 4.49 / 5.50 (티어 1~4) | 같음 | 1.00 |
+
+⚠ **배수는 "가중치" 배수이지 "확률" 배수가 아니다.** 추첨은 아이템 정의 하나하나를 놓고 하므로 실제 비율은
+그 등급에 아이템이 **몇 종** 있느냐에도 달린다 — 희귀 이상 쪽에 정의가 훨씬 많아서 가중치를 정확히 절반으로
+깎아도 등장 비율은 0.6배 언저리에서 멈춘다. 정확히 0.5배까지 내리려면 배수를 **0.37**(방탄복·가방 기준) ~
+**0.25**(상자당 개수 기준) 로 더 낮춰야 한다 (실측 스윕 결과).
+
+`node scripts/check-planet-loot.mjs` 가 이 표도 같이 뽑고, rank 1 이 rank 2 의 0.45~0.8 배인지와
+rank 2~5 의 배수가 전부 1 인지를 대조한다.
+
 ## 지하실 키카드 (2026-09-09)
 
 `key_basement` **버려진 구조물의 지하실 키카드** — 카테고리 `valuable`, uncommon, 1×1, 스택 1, ₩0, 0.05 kg,
@@ -526,6 +617,31 @@ P(V) < 5 % · 4번 5~6 % · 5번 < 20 %)와 대조한다. **수치를 고칠 때
 
 ## 변경 이력
 
+- **2026-09-10 (제작 대개편)** — 제작 · 분해 · 수리를 하나의 축에 묶었다. ① **상위 재료 5종**
+  (`mat_weave` · `mat_ballistic_fiber` · `mat_capacitor` · `mat_ingot` · `mat_control_module`) 과 **정제 작업대**
+  (`bench: 'refine'`, `furn_bench_refine`, 레시피 7종) — 등급 IV~V 장비는 전부 상위 재료를 요구하므로
+  정제 작업대가 최고급 장비의 관문이다. ② **`data/recipes.csv` 전면 개편** — 총탄 대량 제작 4줄 삭제,
+  무기 25종 · 방탄복 5벌 · 가방 8종 · 부착물 14종 · 가젯 12종 · 실드 충전기 3종을 전부 적어 94줄이 됐다
+  (실드 충전기는 현장 제작에서 **의학 작업대 Lv.1/2/3** 으로 옮겼다). ③ **분해가 `data/salvage.csv` 로 나갔다** —
+  `recipes.csv` 의 `group` 열이 사라졌고, `Salvage.ts` 가 손 분해 6줄 + **제작 재료에서 생성한** 38줄을 합쳐
+  `SALVAGE_RECIPES` 를 만든다. 그래서 총을 뜯으면 폐금속만이 아니라 그 등급이 요구한 합금 판 · 기계 부품 ·
+  강화합금 잉곳도 나온다. ④ **수리 · 분해가 내구도를 탄다** — 20 % 단위 5구간
+  (`REPAIR_COST_BY_DURABILITY` 0.5~0.1 · `SALVAGE_YIELD_BY_DURABILITY` 0.08~0.40, `data/tables.csv`),
+  수리는 올림 · 분해는 내림, 최소 1 은 **주재료 한 종류에만**. 유니크는 분해 금지 그대로이고 수리는 같은
+  종류 등급 V 기준 × `UNIQUE_REPAIR_MUL`(1.5). `LootRef` 에 `durabilityBucketOf` · `durabilityBucketInfo` ·
+  `getCraftCostOf` · `getSalvageFor` 를 **추가**했고 `getRepairCost` 는 시그니처 그대로 구현만 바뀌었다
+  (이제 방탄복도 비용이 있다). `WeaponStats.repairCost` · `tuning.csv` 의 `WEAPON_SALVAGE_BASE` ·
+  `WEAPON_SALVAGE_PER_GRADE` · `ARMOR_SALVAGE_BASE` · `ARMOR_SALVAGE_PER_TIER` · `tables.csv` 의
+  `SALVAGE_CLASS_MUL` 은 사라졌다. 무한 이득이 없다는 것은 `checkSalvageEconomy()` 가 모든 아이템 ·
+  모든 구간의 실제 숫자로 증명하고 `npm run data:check` 가 매번 돌린다 (현재 0건, 최악 비율 0.667).
+
+- **2026-09-10 (행성별 희귀도 배수)** — `data/planet_loot.csv` 에 **`rareMul` · `epicMul` · `legMul`** 세 열을
+  더했다 (rank 1 = 0.5, rank 2~5 = 1). 난이도 1 행성에서 **총기가 아닌 것들**(방탄복 · 가방 · 부착물 ·
+  임플란트 · 소모품 · 재료 · 귀중품)의 희귀 이상 등장을 절반 수준으로 낮추고, 깎인 가중치를 일반 · 고급이
+  원래 비율대로 되받아 **총합을 유지한다**. 새 코드는 `LootTables.planetRarityWeights` 하나와 그것을 부르는
+  `Loot.pickDef` · 임플란트 굴림 두 줄뿐이고, **숫자는 csv 에만 있다**. 배수가 전부 1 이면 함수가 인자를
+  그대로 돌려주므로 **rank 2~5 의 결과는 도입 전과 비트 단위로 같다**(2만 회 굴림 서명 일치로 확인).
+  총기 등급(`g1..g5`) · `uniqueMul` 은 한 톨도 안 건드렸다. 자세한 것은 위 *행성별 희귀도 배수*.
 - **2026-09-10 (방탄복 = 실드)** — 방탄복이 피해 감소 대신 **실드(추가 체력)** 를 준다. `ArmorDef.shield` 를
   `data/armor.csv` 의 새 `shield` 칸에서 읽고 (번호 방탄복은 `data/tables.csv` 의 새 표 `ARMOR_SHIELD_BY_TIER`
   = 20/40/60/80/100, 유니크 3벌은 옛 뎀감률을 비례 환산한 90 / 33 / 27), `damageReduction` 은 **아무도 읽지

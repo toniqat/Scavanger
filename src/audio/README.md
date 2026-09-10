@@ -33,6 +33,7 @@ Weapons: `shot_rifle` `shot_pistol` `shot_shotgun` `shot_energy` `shot_smg` `sho
 World/UI: `crate_open` `interact` `ui_pickup` `ui_drop` `ui_rotate` `ui_error` `ui_deny` `ui_equip` `ui_click` `ui_open` `ui_close` `ping` `map_open` `map_close` `scope_in` `scope_out` `mission_complete`
 Player: `stim` `player_hurt` `player_death` `footstep` `player_land` `player_jump` `dive` `stamina_depleted` `stance_change` `hellpod_fall` `hellpod_impact` `hellpod_open`
 Bugs: `bug_screech` `bug_attack` `bug_death` `bug_step` `bug_hit` `acid_splash` `wave_alarm`
+로그 강하: `rogue_drop_alarm` `rogue_pod_fall` `rogue_pod_impact`
 Extraction: `extract_activate` `countdown_beep` `ship_approach` `ship_land` `ship_liftoff` `door_close`
 Ship hub: `hub_dock_thrusters` `hub_dock_clamp` `pod_door` `launch_rumble`
 Chat: `chat_blip` `chat_request` `chat_open` `chat_close`
@@ -91,6 +92,31 @@ Tactical-kit ids in detail:
 - 예전 `play()` 의 **160 m 하드 컷**에서 `footstep` 은 빠졌다 (`bug_step` · `hit_terrain` 만 남았다) —
   발소리는 그보다 훨씬 짧은 자기 사거리를 갖는다.
 
+## 로그 강하 경보 — 인지력을 보지 않는다 (2026-09-10)
+
+전진기지 · 연구실을 조사해 **로그 강하**(`enemies/RogueDrop`)가 트리거되면 조용히 일어나면 안 된다.
+`AudioSystem` 이 `rogueDrop:incoming` / `rogueDrop:landed` 를 직접 받아 **소리 두 개**를 낸다 (세 번째인
+착지 충격음 `rogue_pod_impact` 만 포드 위치가 필요해 `enemies/RogueDrop.impactFx` 가 낸다).
+
+| | 언제 | 위치 | 크기 |
+|---|---|---|---|
+| `rogue_drop_alarm` | 예고 즉시 (`rogueDrop:incoming`) | **주지 않는다** — 분대 무전에 뜨는 경고이지 하늘에서 나는 소리가 아니다 (본인 발소리와 같은 처리) | `ROGUE_DROP_ALARM_VOLUME` × 감쇠, 피치 `1.06` |
+| `rogue_pod_fall` | 착지 `ROGUE_DROP_FALL_LEAD_S`(4.2) 초 전 — `update` 가 기다린다 | 준다. 패너는 **방향만** (`panOnly`) | `ROGUE_DROP_FALL_VOLUME` × 감쇠, 피치 `0.88` |
+| `rogue_pod_impact` | 포드마다 착지 순간 (enemies/) | 포드 자신 | 기본 패너 (가까이서만 나는 소리) |
+
+- **인지력 게이트를 쓰지 않는다.** 강하는 대기를 찢는 굉음이라 `derived.enemyDetectRadius`(기본 26 m)가
+  좁아도 들려야 한다. 대신 **전용 반경 `ROGUE_DROP_ALERT_RADIUS`(260 m = 인지력의 10배)** 하나로 게이트한다 —
+  `ui/hud/DangerIndicators` 의 화면 표시가 쓰는 반경과 **같은 값**이라 "들리는데 안 보인다" 가 없다.
+- **감쇠는 남긴다** (`MAP_SIZE` 640 이므로 맵 반대편까지 들리면 안 된다). 원격 발소리와 같은 곡선이다:
+  반경 밖은 아예 재생하지 않고, 안쪽은 `(1 − d/radius) ^ ROGUE_DROP_ALERT_FALLOFF_EXP` 를 곱하며,
+  `ROGUE_DROP_MIN_VOLUME` 밑은 버린다. 굉음의 거리는 **울리는 순간에 다시 잰다** — 예고 때 멀었어도
+  달려갔으면 크게 들린다.
+- **멀티**: `rogueDrop:incoming` 은 호스트(`RogueDropDirector.call`)와 리플리카(`onIncomingWire`) 양쪽에서
+  나가므로 새 와이어 없이 전원이 듣는다.
+- 예고 → 굉음을 **나눈 이유**: 예고에서 착지까지 `ROGUE_DROP_ETA_S`(8초)라, 8초 전에 다 울려 버리면 정작
+  떨어질 때가 조용하다. 그래서 추적 목록(`drops`)을 들고 착지 직전에 한 번만 굉음을 낸다
+  (`game:newMission` / `game:abort` 에서 비운다).
+
 ## Ship hub (phases `hub` / `docking`)
 The hub is **not gameplay**: while `hubActive` (set on `hub:entered`, cleared on `hub:left` / `game:newMission`) or the phase is
 `hub`/`docking`, the planet wind target is 0, the extraction engine hum is muted, the tension pulse is 0, and `enemy:waveStarted` is ignored
@@ -144,6 +170,16 @@ Appended (tactical kit):
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-10 (로그 강하 경보)** — 강하가 조용히 일어나던 문제. `rogue_pod_fall`(대기를 찢는 굉음 — 밴드패스
+  노이즈가 2.6 kHz → 260 Hz 로 쓸려 내려오고 **디튠된 saw 둘**이 190 → 46 Hz, 서브 사인 34 → 22 Hz, 마지막
+  1초에 역추진 상승음)과 `rogue_pod_impact`(56 → 19 Hz 서브 + 로우패스 노이즈 + **파편 클릭 3개** + 해치
+  클렁크)를 새로 합성했고, 2026-09-09 에 만들어 두고 아무도 부르지 않던 `rogue_drop_alarm` 을 여기서 쓴다.
+  세 소리 모두 아군 헬포드(`hellpod_fall` / `hellpod_impact`)와 **같은 어휘 · 다른 음색**이다.
+  `rogueDrop:incoming` / `landed` 를 이 시스템이 받아 **인지력이 아니라 `ROGUE_DROP_ALERT_RADIUS`** 로
+  게이트하고 거리 감쇠를 건다 (위 *로그 강하 경보* 절). 예전에 `enemies/RogueDrop` 이 내던 `wave_alarm`
+  (벌레 웨이브와 같은 소리) + `hellpod_fall` 과 `ui/hud/RaidAlerts` 의 `wave_alarm`(같은 사건에 경보가 둘)
+  은 걷어냈다.
 
 - **2026-09-10 (PC · 원격 분대원 발소리)** — `remote:footstep` 을 받아 재생한다. 로컬 · 원격이 `footstep()`
   한 경로로 합쳐지고 **거리 감쇠는 원격에만** 걸린다 (`FOOTSTEP_AUDIBLE_RANGE` 밖은 재생하지 않음,

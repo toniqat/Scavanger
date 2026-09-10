@@ -136,12 +136,15 @@ try {
   const stash0 = await H(() => window.__game.ctx.housing.getStashSize());
   ok(stash0.cols === 10 && stash0.rows === 24, `getStashSize() 10×24 at storage 0 (${stash0.cols}×${stash0.rows})`);
   // Phase 8 added furn_repair_bench (작업실) and furn_grow_rack (온실); Phase 9 furn_bookshelf (서재)
-  ok(await H(() => window.__game.ctx.housing.getAllFurnitureDefs().length === 18), 'FURNITURE_DEFS exposed (18, incl. furn_sim_hub / repair_bench / grow_rack / bookshelf)');
+  ok(await H(() => window.__game.ctx.housing.getAllFurnitureDefs().length === 19), 'FURNITURE_DEFS exposed (19, incl. furn_sim_hub / repair_bench / grow_rack / bookshelf / bench_refine)');
   ok(st0.version === 3 && Array.isArray(st0.books) && st0.books.length === 0 && Array.isArray(st0.bookDex) && st0.bookDex.length === 0, `fresh state is v3 with empty books / bookDex (v${st0.version})`);
   ok(await H(() => window.__game.ctx.housing.getFurnitureFor('library').some((d) => d.id === 'furn_bookshelf' && d.interaction === 'bookshelf') && !window.__game.ctx.housing.getFurnitureFor('workshop').some((d) => d.id === 'furn_bookshelf')), 'furn_bookshelf in the 서재 catalogue only');
   ok(await H(() => window.__game.ctx.housing.getFurnitureFor('range').some((d) => d.id === 'furn_sim_hub' && d.interaction === 'sim_hub' && d.model === 'sim_hub') && !window.__game.ctx.housing.getFurnitureFor('workshop').some((d) => d.id === 'furn_sim_hub')), 'furn_sim_hub in the 사격장 catalogue only (interaction / model sim_hub)');
   // Phase 8: workshop also accepts the 정비 벤치, and 온실 accepts the 재배층
-  ok(await H(() => window.__game.ctx.housing.getFurnitureFor('workshop').length === 13 && window.__game.ctx.housing.getFurnitureFor('empty').length === 8 && window.__game.ctx.housing.getFurnitureFor('greenhouse').length === 9), 'getFurnitureFor: workshop 13 (4 benches + 정비 벤치 + 8 any), empty 8, greenhouse 9');
+  ok(await H(() => window.__game.ctx.housing.getFurnitureFor('workshop').length === 14 && window.__game.ctx.housing.getFurnitureFor('empty').length === 8 && window.__game.ctx.housing.getFurnitureFor('greenhouse').length === 9), 'getFurnitureFor: workshop 14 (5 benches + 정비 벤치 + 8 any), empty 8, greenhouse 9');
+  /* 아래 화면 검사들은 이 수를 **그때그때 물어서** 쓴다 — 작업대가 하나 늘 때마다 세 자리를 손으로 고치던 것이
+     2026-09-10 정제 작업대에서 실제로 red 를 냈다. 위 한 줄만 카나리아로 남긴다. */
+  const workshopFurniture = await H(() => window.__game.ctx.housing.getFurnitureFor('workshop').length);
   ok(await H(() => window.__game.ctx.housing.getPresetCount() === 0 && window.__game.ctx.housing.getCraftCostMul() === 1 && window.__game.ctx.housing.getSkillGainMul('gun_AR') === 1), 'no rooms: 0 presets, cost ×1, skill ×1');
   // `housing:loaded` fired inside init() before the recorder existed; the saved file proves the fresh state was written
   await sleep(500);
@@ -395,7 +398,7 @@ try {
       head: root.querySelector('.sm-bar-head').textContent };
   });
   ok(smDom.rooms === 10 && /방 1/.test(smDom.on), `방 목록: 10 rows, room 1 active (${smDom.on})`);
-  ok(smDom.cards === 13 && smDom.purposes === 0 && /작업실/.test(smDom.head), `가구 목록 for the 작업실 (${smDom.cards} cards, '${smDom.head}')`);
+  ok(smDom.cards === workshopFurniture && smDom.purposes === 0 && /작업실/.test(smDom.head), `가구 목록 for the 작업실 (${smDom.cards} cards, '${smDom.head}')`);
   /* Phase 9 UI pass: 가구 제작 / 가구 창고 tabs on the side panel */
   const smTabs = await H(() => {
     const root = document.querySelector('.ship-manage');
@@ -406,7 +409,7 @@ try {
       storeHidden: root.querySelector('.sm-store').hidden,
     };
   });
-  ok(smTabs.tabs === '가구 제작* 가구 창고' && !smTabs.tabsHidden && smTabs.craftBtns === 13 && smTabs.storeHidden,
+  ok(smTabs.tabs === '가구 제작* 가구 창고' && !smTabs.tabsHidden && smTabs.craftBtns === workshopFurniture && smTabs.storeHidden,
     `side panel tabs 가구 제작 / 가구 창고, every craft row has a 제작 button (${smTabs.craftBtns})`, JSON.stringify(smTabs));
   await H(() => [...document.querySelectorAll('.ship-manage .sm-tabs .sm-tab')].find((b) => b.textContent === '가구 창고').click());
   await sleep(120);
@@ -779,7 +782,7 @@ try {
     confirm: window.__game.getSystem('hud').isShipManageConfirmOn }));
   ok(built.purpose === 'workshop' && built.level === 1 && !built.confirm, `확인 → 방 4 is a 작업실 Lv.1 (${built.purpose})`);
   ok(built.scrap === 12 && built.cable === 2, `증축 consumed 폐금속 8 · 케이블 2 from the 창고 (left ${built.scrap} · ${built.cable})`);
-  ok(/작업실/.test(built.head) && built.cards === 13, `side panel switched to the 작업실 furniture list (${built.cards} cards)`);
+  ok(/작업실/.test(built.head) && built.cards === workshopFurniture, `side panel switched to the 작업실 furniture list (${built.cards} cards)`);
   ok((await lastEv('housing:roomPurposeChanged'))?.room === 3, 'housing:roomPurposeChanged {room:3}');
   await H(() => window.__game.ctx.housing.closeShipManage());
   await sleep(80);

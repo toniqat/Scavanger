@@ -3,7 +3,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import type { Random } from '@/shared';
 import type { Biome } from './biomes';
 import type { WorldLayout } from './layout';
-import { padClearance } from './layout';
+import { padClearance, railClearance } from './layout';
 import type { Noise } from './noise';
 import type { SpatialHash } from './SpatialHash';
 import { HALF, Terrain } from './Terrain';
@@ -25,7 +25,11 @@ export const PLAY_LIMIT = HALF - 10;
 
 /**
  * Is a circle at (x,z) free for placing something?
- * Checks bounds, slope, pad clearance (negative `padExtra` allows entering pads) and obstacle overlap.
+ * Checks bounds, slope, pad clearance (negative `padExtra` allows entering pads), **the rail corridor**
+ * and obstacle overlap.
+ *
+ * 2026-09-10 — 선로 회랑(`railClearance`)은 `ignorePads` 로도 못 끈다. 상자는 폐허 · 구조물 둘레 고리를
+ * `ignorePads: true` 로 뿌리는데, 그 고리가 선로를 가로지르면 궤도 위에 상자가 선다.
  */
 export function isSpotFree(
   ctx: BuildCtx, x: number, z: number, radius: number,
@@ -36,6 +40,7 @@ export function isSpotFree(
   const maxSlope = opts.maxSlope ?? 0.35;
   if (ctx.terrain.getSlopeAt(x, z) > maxSlope) return false;
   if (!opts.ignorePads && padClearance(ctx.layout, x, z, opts.padExtra ?? 4) < radius) return false;
+  if (railClearance(ctx.layout, x, z) < radius) return false;
   if (ctx.hash.overlaps(x, z, radius)) return false;
   return true;
 }

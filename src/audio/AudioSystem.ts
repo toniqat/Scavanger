@@ -4,6 +4,8 @@ import {
   AUDIO_DEFAULT_MASTER, AUDIO_DEFAULT_SFX, AUDIO_STORAGE_KEY,
   FOOTSTEP_AUDIBLE_RANGE, FOOTSTEP_FALLOFF_EXP, FOOTSTEP_REMOTE_GAIN,
   FOOTSTEP_VOL_CROUCH, FOOTSTEP_VOL_PRONE, FOOTSTEP_VOL_SPRINT, FOOTSTEP_VOL_WALK,
+  ROGUE_DROP_ALARM_VOLUME, ROGUE_DROP_ALERT_FALLOFF_EXP, ROGUE_DROP_ALERT_RADIUS,
+  ROGUE_DROP_FALL_LEAD_S, ROGUE_DROP_FALL_VOLUME, ROGUE_DROP_MIN_VOLUME,
 } from '@/shared';
 import { Synth, SOUNDS } from './Synth';
 
@@ -51,6 +53,19 @@ const FOOTSTEP_PITCH_DECK = 1.16;
 /** 이보다 조용해질 바에는 보이스를 만들지 않는다 (사거리 끝자락의 무음 재생 방지). */
 const FOOTSTEP_MIN_VOLUME = 0.012;
 
+/* ── 로그 강하 (2026-09-10) ────────────────────────────────────────────
+ * 피치는 "소리 그 자체" 라 코드에 둔다 (발소리 피치와 같은 규약). 크기 · 반경 · 감쇠 지수는 csv 다.
+ */
+/** 경보음의 피치 — 아군 웨이브 경보(`wave_alarm`)보다 살짝 높아 "적의 것" 으로 읽힌다. */
+const ROGUE_DROP_ALARM_PITCH = 1.06;
+/** 낙하 굉음의 피치 — 아군 헬포드보다 낮게 깔린다. */
+const ROGUE_DROP_FALL_PITCH = 0.88;
+/** 착지 뒤 이만큼 지나면 추적을 버린다 (착지 방송을 못 받은 강하 대비). */
+const ROGUE_DROP_FORGET_S = 3;
+
+/** 예고를 받아 놓고 착지 직전에 굉음을 낼 강하 하나. */
+interface DropSound { id: string; pos: THREE.Vector3; landsAt: number; roared: boolean }
+
 const RECONNECT_WARN_INTERVAL_MS = 5000;
 /** A `pickup:spawned` this soon after our own `inventory:itemDropped` is the thrown item → no landing tick. */
 const LOCAL_DROP_SPAWN_WINDOW = 0.15;
@@ -94,6 +109,9 @@ export class AudioSystem implements GameSystem, AudioRef {
   /* tactical kit: barrier state, so `implant:barrierChanged` can tell deploy / stow / break apart. */
   private barrierActive = false;
   private barrierHp = 0;
+
+  /** 예고~착지 사이의 로그 강하 (2026-09-10) — 굉음을 낼 시각을 기다린다. */
+  private drops: DropSound[] = [];
 
   private camPos = new THREE.Vector3();
   private camFwd = new THREE.Vector3();
@@ -158,6 +176,9 @@ export class AudioSystem implements GameSystem, AudioRef {
 
       // enemies (EnemySystem emits its own bug_* audio:play; we only add the wave alarm). Combat-only: never in the hub.
       b.on('enemy:waveStarted', () => { if (ctx.isGameplayPhase()) auto('wave_alarm'); }),
+      // 로그 강하 (2026-09-10): 경보는 지금, 낙하 굉음은 착지 직전에. 둘 다 인지력이 아니라 전용 반경을 본다.
+      b.on('rogueDrop:incoming', ({ dropId, position, eta }) => this.rogueDropIncoming(dropId, position, eta)),
+      b.on('rogueDrop:landed', ({ dropId }) => this.rogueDropDone(dropId)),
 
       // inventory / crates
       b.on('inventory:opened', () => auto('ui_open')),
@@ -326,7 +347,9 @@ export class AudioSystem implements GameSystem, AudioRef {
         this.shipPresent = false; this.engineTarget = 0; this.tensionTarget = 0; this.liftoffTimer = -1; this.lastScope = false; this.aiming = false;
         this.hubActive = false; this.lastLaunchSecond = -1;
         this.barrierActive = false; this.barrierHp = 0;
+        this.drops.length = 0;
       }),
+      b.on('game:abort', () => { this.drops.length = 0; }),
       b.on('game:paused', ({ paused }) => {
         this.ducked = paused;
         this.applyVolumes(0.1); // slower ramp: the duck is a mood change, not a setting
@@ -527,6 +550,61 @@ export class AudioSystem implements GameSystem, AudioRef {
     this.play('footstep', position, vol, pitch, true, true);
   }
 
+  /* ── 로그 강하 (2026-09-10) ──────────────────────────────────────────── */
+  /**
+   * 강하음의 크기. **인지력 반경(`derived.enemyDetectRadius`)을 보지 않는다** — 대기를 찢고 떨어지는 굉음이라
+   * 인지력이 좁아도 들려야 한다는 것이 이 소리의 요구사항이고, 그 대신 전용 반경
+   * `ROGUE_DROP_ALERT_RADIUS`(인지력의 10배) 하나로 게이트한다. 반경 밖은 0 = 재생하지 않는다 —
+   * 맵 반대편의 강하까지 들리면 안 되기 때문이다. 안쪽은 원격 발소리와 같은 곡선으로 줄어든다.
+   */
+  private dropGain(position: THREE.Vector3, base: number): number {
+    const d = this.camPos.distanceTo(position);
+    if (d >= ROGUE_DROP_ALERT_RADIUS) return 0;
+    const v = base * Math.pow(1 - d / ROGUE_DROP_ALERT_RADIUS, ROGUE_DROP_ALERT_FALLOFF_EXP);
+    return v < ROGUE_DROP_MIN_VOLUME ? 0 : v;
+  }
+
+  /**
+   * `rogueDrop:incoming` — 호스트가 굴렸든(`enemies/RogueDrop.call`) 리플리카가 `rdrop` 으로 받았든 같은
+   * 이벤트가 오므로 **멀티에서도 전원이 듣는다.** 지금 울리는 것은 경보뿐이고, 굉음은 착지 직전에 나간다
+   * (`update`) — 8초 전에 다 울려 버리면 정작 떨어질 때가 조용하다.
+   *
+   * 경보는 **위치를 주지 않는다**: 분대 무전에 뜨는 경고이지 하늘에서 나는 소리가 아니다 (본인 발소리와 같은
+   * 처리). 방향은 굉음과 HUD 위험 표시가 말한다.
+   */
+  private rogueDropIncoming(dropId: string, position: THREE.Vector3, eta: number): void {
+    const now = this.ctx?.time ?? 0;
+    const landsAt = now + Math.max(0, eta);
+    const i = this.drops.findIndex((d) => d.id === dropId);
+    if (i >= 0) this.drops.splice(i, 1);
+    this.drops.push({ id: dropId, pos: position.clone(), landsAt, roared: false });
+    const vol = this.dropGain(position, ROGUE_DROP_ALARM_VOLUME);
+    if (vol > 0) this.play('rogue_drop_alarm', undefined, vol, ROGUE_DROP_ALARM_PITCH, true);
+  }
+
+  /** 착지했다 — 굉음은 이미 났고 충격음은 `enemies/RogueDrop` 이 포드마다 낸다. 추적만 끝낸다. */
+  private rogueDropDone(dropId: string): void {
+    const i = this.drops.findIndex((d) => d.id === dropId);
+    if (i >= 0) this.drops.splice(i, 1);
+  }
+
+  /**
+   * 매 프레임: 착지 `ROGUE_DROP_FALL_LEAD_S` 초 전이 되면 낙하 굉음을 한 번 낸다. 굉음은 **방향이 중요하다**
+   * (어느 쪽 하늘에서 내려오는가) — 그래서 위치를 주되 `panOnly` 로 넘겨 패너의 inverse 감쇠가 우리 곡선과
+   * 겹치지 않게 한다. 감쇠는 그 순간의 거리로 다시 잰다 (예고 때 멀었어도 달려갔으면 크게 들린다).
+   */
+  private updateDrops(now: number): void {
+    for (let i = this.drops.length - 1; i >= 0; i--) {
+      const d = this.drops[i];
+      if (!d.roared && now >= d.landsAt - ROGUE_DROP_FALL_LEAD_S) {
+        d.roared = true;
+        const vol = this.dropGain(d.pos, ROGUE_DROP_FALL_VOLUME);
+        if (vol > 0) this.play('rogue_pod_fall', d.pos, vol, ROGUE_DROP_FALL_PITCH, true, true);
+      }
+      if (now > d.landsAt + ROGUE_DROP_FORGET_S) this.drops.splice(i, 1);
+    }
+  }
+
   /* ── playback ────────────────────────────────────────────────────────── */
   /**
    * `panOnly` = 거리 감쇠를 **호출부가 이미 계산했다** (발소리). 패너는 방향(equalpower)만 맡고 rolloff 0 이라
@@ -601,6 +679,9 @@ export class AudioSystem implements GameSystem, AudioRef {
       (L as any).setPosition?.(this.camPos.x, this.camPos.y, this.camPos.z);
       (L as any).setOrientation?.(this.camFwd.x, this.camFwd.y, this.camFwd.z, this.camUp.x, this.camUp.y, this.camUp.z);
     }
+
+    // 로그 강하: 착지 직전의 굉음 (camPos 를 갱신한 뒤라야 거리 감쇠가 이 프레임 값이다).
+    if (this.drops.length) this.updateDrops(ctx.time);
 
     // Ambience targets by phase. The hub is not gameplay: planet wind + ship engine are silenced, interior hum runs.
     const inHub = this.hubActive || ctx.phase === 'hub' || ctx.phase === 'docking';

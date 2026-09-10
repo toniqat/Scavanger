@@ -1,57 +1,116 @@
-# 손으로 적는 제작 레시피. id 는 코드가 찾는 값이므로 바꾸지 않는다 (break_ 로 시작하면 "분해" 취급).
+# 손으로 적는 **제작** 레시피. id 는 코드가 찾는 값이므로 바꾸지 않는다.
+# 분해(break_*)는 여기 없다 — 2026-09-10 부터 data/salvage.csv 가 그 표다.
 # station: field = 현장·함선 둘 다 · ship = 함선에서만.
-# bench 를 적으면 그 작업대(gun|gear|gadget|medical)가 benchLevel 이상이어야 한다.
+# bench = 이 레시피가 **속한 작업대** (gun|gear|gadget|medical|refine).
+#   station ship 이면 그 작업대가 benchLevel 이상이어야 만들 수 있다는 뜻이고,
+#   station field 이면 **어디서든 만들 수 있되 그 작업대 창에 뜬다**는 뜻이다 (2026-09-10 사용자 결정:
+#   작업대를 열면 그 작업대의 레시피만 보인다 — 그래서 현장 레시피도 자기 작업대를 밝혀야 한다).
+#   비워 두면 어느 작업대에도 안 뜨고 가방 화면의 빠른제작에만 나온다.
 # inputs / extraOutputs 는 "아이템id:수량" 을 | 로 이어 쓴다.
 # duration 은 홀드 시간(초, 재주·제작 숙련으로 줄어든다), skillRequired 는 필요한 숙련도다.
-# group: craft = 제작 목록에 뜨는 레시피 · salvage = 아이템 우클릭 → 분해로만 열리는 레시피.
-# 무기 · 방탄복 분해 레시피는 여기 없다 — 코드가 def 표에서 자동으로 만든다 (tuning.csv 의 *_SALVAGE_*).
-group,id,name,station,bench,benchLevel,inputs,outputDefId,outputQty,extraOutputs,duration,skill,skillRequired,description
-craft,break_ammo_light,경량탄 분해,field,,,ammo_light:30,mat_gunpowder,4,,2,crafting,0,경량탄 30발을 분해해 화약 4를 얻는다.
-craft,break_ammo_medium,준중량탄 분해,field,,,ammo_medium:30,mat_gunpowder,6,,2,crafting,0,준중량탄 30발을 분해해 화약 6을 얻는다.
-craft,break_ammo_heavy,중량탄 분해,field,,,ammo_heavy:10,mat_gunpowder,5,,2,crafting,0,중량탄 10발을 분해해 화약 5를 얻는다.
-craft,break_ammo_shell,산탄총 탄약 분해,field,,,ammo_shell:8,mat_gunpowder,5,,2,crafting,0,산탄 8발을 분해해 화약 5를 얻는다.
-craft,make_ammo_light,경량탄 제작,field,,,mat_gunpowder:4|mat_scrap:1,ammo_light,30,,3,crafting,0,화약 4 + 폐금속 1 → 경량탄 30발.
-craft,make_ammo_medium,준중량탄 제작,field,,,mat_gunpowder:6|mat_scrap:2,ammo_medium,30,,3,crafting,0,화약 6 + 폐금속 2 → 준중량탄 30발.
-craft,make_ammo_heavy,중량탄 제작,field,,,mat_gunpowder:5|mat_alloy:1,ammo_heavy,10,,4,crafting,20,화약 5 + 합금 판 1 → 중량탄 10발. 제작 20 필요.
-craft,make_ammo_shell,산탄총 탄약 제작,field,,,mat_gunpowder:5|mat_scrap:2,ammo_shell,8,,3,crafting,0,화약 5 + 폐금속 2 → 산탄 8발.
-craft,make_smoke,연막탄 제작,field,,,mat_gunpowder:4|mat_bio_sample:2,gad_smoke,1,,3.5,crafting,10,화약 4 + 생체 조직 2 → 연막탄. 제작 10 필요.
-craft,make_incendiary,소이 수류탄 제작,field,,,mat_gunpowder:8|herb_ashleaf:2,grenade_incendiary,1,,4,crafting,15,화약 8 + 잿빛잎 2 → 소이 수류탄. 제작 15 필요.
-craft,make_mine,지뢰 제작,ship,gadget,1,mat_gunpowder:10|mat_alloy:2,gad_mine,1,,5,crafting,35,"화약 10 + 합금 판 2 → 지뢰. 가젯 작업대, 제작 35 필요."
-craft,make_shield_charger,실드 충전기 제작,field,,,mat_core:1|mat_cable:1,shield_charger,1,,4,crafting,0,구동 코어 1 + 전력 케이블 1 → 실드 충전기. 현장에서 맨손으로 된다.
-craft,make_shield_charger_hi,고출력 실드 충전기 제작,field,,,mat_core:2|mat_cable:2,shield_charger_hi,1,,6,crafting,15,구동 코어 2 + 전력 케이블 2 → 고출력 실드 충전기. 제작 15 필요.
-craft,make_shield_charger_full,완충 실드 충전기 제작,field,,,mat_core:4|mat_cable:3|mat_circuit:1,shield_charger_full,1,,8,crafting,35,구동 코어 4 + 전력 케이블 3 + 회로 기판 1 → 완충 실드 충전기. 제작 35 필요.
-salvage,break_shield_charger_hi,고출력 실드 충전기 분해,field,,,shield_charger_hi:1,mat_core,1,mat_cable:1,3,crafting,0,고출력 실드 충전기 1개를 뜯어 구동 코어 1 + 전력 케이블 1 을 되찾는다.
-craft,make_bandage,붕대 제작,field,,,mat_cloth:5,heal_bandage,1,,3,medicine,0,천조각 5 → 붕대.
-craft,make_bandage_herb,약초 붕대 제작,field,,,mat_cloth:5|herb_bloodroot:1,heal_bandage_herb,1,,4,medicine,0,천조각 5 + 혈근초 1 → 약초 붕대.
-craft,make_antiseptic,소독약 조제,ship,medical,1,mat_can:1|herb_bloodroot:1,mat_antiseptic,1,,4,medicine,10,캔 1 + 혈근초 1 → 소독약. 의학 작업대.
-craft,make_heal_syringe,회복주사 조제,ship,medical,1,mat_syringe:1|mat_antiseptic:1,heal_syringe,1,,5,medicine,25,"주사기 1 + 소독약 1 → 회복주사. 의학 작업대, 의학 25 필요."
-craft,make_heal_spray,회복 스프레이 제작,ship,medical,2,mat_can:1|mat_antiseptic:1,heal_spray,1,,8,medicine,45,"캔 1 + 소독약 1 → 회복 스프레이. 의학 작업대 Lv.2, 의학 45 필요."
-craft,make_defib_charge,제세동기 정비,ship,gadget,2,mat_power_cell:2|herb_glowcap:1,gad_defib,1,,6,medicine,40,"파워 셀 2 + 발광버섯 1 → 제세동기. 가젯 작업대 Lv.2, 의학 40 필요."
-craft,grow_bloodroot,혈근초 증식,ship,medical,1,herb_ashleaf:4,herb_bloodroot,6,,4,gardening,0,수경 재배기에서 잿빛잎 4로 혈근초 6을 길러낸다. 의학 작업대.
-craft,grow_glowcap,발광버섯 배양,ship,medical,2,herb_bloodroot:6|mat_bio_sample:3,herb_glowcap,2,,6,gardening,20,"혈근초 6 + 생체 조직 3 → 발광버섯 2. 의학 작업대 Lv.2, 원예 20 필요."
-craft,bulk_ammo_light,경량탄 대량 제작,ship,gun,1,mat_gunpowder:14|mat_scrap:3,ammo_light,120,,6,crafting,0,화약 14 + 폐금속 3 → 경량탄 120발. 총기 작업대.
-craft,bulk_ammo_medium,준중량탄 대량 제작,ship,gun,1,mat_gunpowder:16|mat_scrap:5,ammo_medium,90,,6,crafting,0,화약 16 + 폐금속 5 → 준중량탄 90발. 총기 작업대.
-craft,bulk_ammo_heavy,중량탄 대량 제작,ship,gun,1,mat_gunpowder:13|mat_alloy:2,ammo_heavy,30,,7,crafting,15,"화약 13 + 합금 판 2 → 중량탄 30발. 총기 작업대, 제작 15 필요."
-craft,bulk_ammo_shell,산탄총 탄약 대량 제작,ship,gun,1,mat_gunpowder:13|mat_scrap:5,ammo_shell,24,,6,crafting,0,화약 13 + 폐금속 5 → 산탄 24발. 총기 작업대.
-craft,make_wpn_ar,돌격소총 제작,ship,gun,1,mat_scrap:6|mat_alloy:1,wpn_ar,1,,8,crafting,0,폐금속 6 + 합금 판 1 → 돌격소총 (등급 I). 총기 작업대.
-craft,make_att_brake,총구 제동기 제작,ship,gun,2,mat_scrap:6|mat_alloy:2,att_brake,1,,8,crafting,20,"폐금속 6 + 합금 판 2 → 총구 제동기. 총기 작업대 Lv.2, 제작 20 필요."
-craft,make_att_comp,보정기 제작,ship,gun,2,mat_scrap:6|mat_alloy:2,att_comp,1,,8,crafting,20,"폐금속 6 + 합금 판 2 → 보정기. 총기 작업대 Lv.2, 제작 20 필요."
-craft,make_att_grip_vertical,수직 그립 제작,ship,gun,2,mat_scrap:5|mat_alloy:1,att_grip_vertical,1,,6,crafting,15,"폐금속 5 + 합금 판 1 → 수직 그립. 총기 작업대 Lv.2, 제작 15 필요."
-craft,make_att_laser,레이저사이트 제작,ship,gun,2,mat_alloy:2|mat_power_cell:1|mat_cable:1,att_laser,1,,8,crafting,25,"합금 판 2 + 파워 셀 1 + 전력 케이블 1 → 레이저사이트. 총기 작업대 Lv.2, 제작 25 필요."
-craft,make_att_stock,전술 개머리판 제작,ship,gun,2,mat_scrap:8|mat_alloy:3,att_stock,1,,10,crafting,30,"폐금속 8 + 합금 판 3 → 전술 개머리판. 총기 작업대 Lv.2, 제작 30 필요."
-craft,make_ammo_fuel,연료통 충전,ship,gun,3,mat_gunpowder:6|mat_bio_sample:4|mat_scrap:2,ammo_fuel,100,,8,crafting,30,"화약 6 + 생체 조직 4 + 폐금속 2 → 연료 100 (「인페르노」). 총기 작업대 Lv.3, 제작 30 필요."
-craft,make_ammo_cell,전지 제작,ship,gun,3,mat_power_cell:2|mat_cable:1,ammo_cell,30,,8,crafting,30,"파워 셀 2 + 전력 케이블 1 → 전지 30 (「테슬라 코일」). 총기 작업대 Lv.3, 제작 30 필요."
-craft,make_ammo_shuriken,표창 단조,ship,gun,3,mat_alloy:4|mat_scrap:4,ammo_shuriken,20,,8,crafting,30,"합금 판 4 + 폐금속 4 → 표창 20 (「카게」). 총기 작업대 Lv.3, 제작 30 필요."
-craft,make_ammo_arrow,화살 제작,ship,gun,3,mat_scrap:4|mat_alloy:1|herb_ashleaf:2,ammo_arrow,15,,7,crafting,30,"폐금속 4 + 합금 판 1 + 잿빛잎 2 → 화살 15 (「롱혼」). 총기 작업대 Lv.3, 제작 30 필요."
-craft,make_ammo_rocket,로켓 조립,ship,gun,3,mat_gunpowder:12|mat_alloy:3|mat_circuit:1,ammo_rocket,3,,10,crafting,40,"화약 12 + 합금 판 3 + 회로 기판 1 → 로켓 3 (「해머헤드」). 총기 작업대 Lv.3, 제작 40 필요."
-craft,make_ammo_belt,탄띠 연결,ship,gun,3,mat_gunpowder:20|mat_scrap:8,ammo_belt,150,,10,crafting,30,"화약 20 + 폐금속 8 → 탄띠 150발 (「사이클론」). 총기 작업대 Lv.3, 제작 30 필요."
-craft,make_armor_1,방탄복 I 제작,ship,gear,1,mat_scrap:10|mat_alloy:2,armor_1,1,,10,crafting,0,폐금속 10 + 합금 판 2 → 방탄복 I. 장비 작업대.
-craft,make_armor_2,방탄복 II 제작,ship,gear,2,mat_scrap:12|mat_alloy:5,armor_2,1,,12,crafting,20,"폐금속 12 + 합금 판 5 → 방탄복 II. 장비 작업대 Lv.2, 제작 20 필요."
-craft,make_bag_common,일반 가방 제작,ship,gear,1,mat_scrap:6|mat_bio_sample:6,bag_common,1,,8,crafting,0,폐금속 6 + 생체 조직 6 → 일반 가방 (5×6). 장비 작업대.
-craft,make_bag_uncommon,고급 가방 제작,ship,gear,2,mat_scrap:8|mat_alloy:3|mat_bio_sample:6,bag_uncommon,1,,10,crafting,20,"폐금속 8 + 합금 판 3 + 생체 조직 6 → 고급 가방 (6×6). 장비 작업대 Lv.2, 제작 20 필요."
-craft,make_frag_batch,고폭 수류탄 제작,ship,gadget,1,mat_gunpowder:8|mat_scrap:3,grenade_frag,2,,6,crafting,10,"화약 8 + 폐금속 3 → G-12 고폭 수류탄 2. 가젯 작업대, 제작 10 필요."
-craft,make_smoke_batch,연막탄 대량 제작,ship,gadget,1,mat_gunpowder:10|mat_bio_sample:5,gad_smoke,3,,7,crafting,10,"화약 10 + 생체 조직 5 → 연막탄 3. 가젯 작업대, 제작 10 필요."
-craft,make_lure,유인 수류탄 제작,ship,gadget,2,mat_gunpowder:4|mat_scrap:2|mat_cable:1,gad_lure,1,,6,crafting,20,"화약 4 + 폐금속 2 + 전력 케이블 1 → 유인 수류탄. 가젯 작업대 Lv.2, 제작 20 필요."
-craft,make_fire_gadget,화염수류탄 제작,ship,gadget,2,mat_gunpowder:8|herb_ashleaf:3,gad_incendiary,1,,6,crafting,25,"화약 8 + 잿빛잎 3 → 화염수류탄 (화염지대). 가젯 작업대 Lv.2, 제작 25 필요."
-craft,make_bandage_batch,붕대 대량 제작,ship,medical,2,mat_cloth:12|herb_bloodroot:2,heal_bandage_herb,3,,8,medicine,10,"천조각 12 + 혈근초 2 → 약초 붕대 3. 의학 작업대 Lv.2, 의학 10 필요."
-salvage,break_machine_parts,기계 부품 분해,field,,,mat_machine_parts:1,mat_scrap,3,mat_cable:1,3,crafting,0,기계 부품 1을 분해해 폐금속 3 + 전력 케이블 1을 얻는다.
+#
+# ⚠ 내구도가 있는 장비(무기 · 방탄복)의 **수리비와 분해 산출은 이 표의 inputs 에서 나온다**
+#   (data/tables.csv 의 REPAIR_COST_BY_DURABILITY · SALVAGE_YIELD_BY_DURABILITY 배율).
+#   그래서 그런 레시피의 재료는 한 종류당 **2 이상**이어야 한다 — 1 이면 수리비(올림)가 제작비와 같아져
+#   「제작 → 수리 → 분해」가 이득이 되지 않는다는 불변식이 아슬아슬해진다. src/items/Salvage.ts 가 검사한다.
+#
+# 재료 등급 축 (2026-09-10 제작 대개편):
+#   하위    폐금속 · 천조각 · 생체 조직 · 화약 · 구동 코어 · 전력 케이블
+#   중위    합금 판 · 기계 부품 · 강화 직조포 · 회로 기판 · 파워 셀
+#   상위    총기 = 강화합금 잉곳 + 기계 부품 · 실드(방탄복) = 축전 모듈 + 제어 모듈 · 가방 = 강화 직조포 + 복합 방탄섬유
+#   상위 재료는 전부 **정제 작업대**(bench refine)에서만 나온다 — 정제를 거치지 않으면 최고급 장비를 못 만든다.
+id,name,station,bench,benchLevel,inputs,outputDefId,outputQty,extraOutputs,duration,skill,skillRequired,description
+make_ammo_light,경량탄 제작,field,gun,1,mat_gunpowder:4|mat_scrap:1,ammo_light,30,,3,crafting,0,화약 4 + 폐금속 1 → 경량탄 30발.
+make_ammo_medium,준중량탄 제작,field,gun,1,mat_gunpowder:6|mat_scrap:2,ammo_medium,30,,3,crafting,0,화약 6 + 폐금속 2 → 준중량탄 30발.
+make_ammo_heavy,중량탄 제작,field,gun,1,mat_gunpowder:5|mat_alloy:1,ammo_heavy,10,,4,crafting,20,화약 5 + 합금 판 1 → 중량탄 10발. 제작 20 필요.
+make_ammo_shell,산탄총 탄약 제작,field,gun,1,mat_gunpowder:5|mat_scrap:2,ammo_shell,8,,3,crafting,0,화약 5 + 폐금속 2 → 산탄 8발.
+make_smoke,연막탄 제작,field,gadget,1,mat_gunpowder:4|mat_bio_sample:2,gad_smoke,1,,3.5,crafting,10,화약 4 + 생체 조직 2 → 연막탄. 제작 10 필요.
+make_incendiary,소이 수류탄 제작,field,gadget,1,mat_gunpowder:8|herb_ashleaf:2,grenade_incendiary,1,,4,crafting,15,화약 8 + 잿빛잎 2 → 소이 수류탄. 제작 15 필요.
+make_bandage,붕대 제작,field,medical,1,mat_cloth:5,heal_bandage,1,,3,medicine,0,천조각 5 → 붕대.
+make_bandage_herb,약초 붕대 제작,field,medical,1,mat_cloth:5|herb_bloodroot:1,heal_bandage_herb,1,,4,medicine,0,천조각 5 + 혈근초 1 → 약초 붕대.
+refine_alloy,합금 판 정제,ship,refine,1,mat_scrap:3,mat_alloy,1,,5,crafting,0,폐금속 3 → 합금 판 1. 정제 작업대.
+refine_weave,강화 직조포 직조,ship,refine,1,mat_cloth:6,mat_weave,1,,5,crafting,0,천조각 6 → 강화 직조포 1. 정제 작업대.
+refine_machine_parts,기계 부품 조립,ship,refine,1,mat_scrap:6|mat_cable:2,mat_machine_parts,1,,6,crafting,15,"폐금속 6 + 전력 케이블 2 → 기계 부품 1. 정제 작업대, 제작 15 필요."
+refine_capacitor,축전 모듈 정제,ship,refine,2,mat_core:4,mat_capacitor,1,,8,crafting,20,"구동 코어 4 → 축전 모듈 1. 정제 작업대 Lv.2, 제작 20 필요."
+refine_fiber,복합 방탄섬유 직조,ship,refine,2,mat_cloth:6|mat_bio_sample:3,mat_ballistic_fiber,1,,8,crafting,20,"천조각 6 + 생체 조직 3 → 복합 방탄섬유 1. 정제 작업대 Lv.2, 제작 20 필요."
+refine_ingot,강화합금 잉곳 주조,ship,refine,3,mat_alloy:2,mat_ingot,1,,10,crafting,35,"합금 판 2 → 강화합금 잉곳 1. 정제 작업대 Lv.3, 제작 35 필요."
+refine_control_module,제어 모듈 조립,ship,refine,3,mat_circuit:2|mat_power_cell:1,mat_control_module,1,,10,crafting,35,"회로 기판 2 + 파워 셀 1 → 제어 모듈 1. 정제 작업대 Lv.3, 제작 35 필요."
+make_wpn_ar,돌격소총 I 제작,ship,gun,1,mat_scrap:8,wpn_ar,1,,8,crafting,0,폐금속 8 → 돌격소총 I. 총기 작업대.
+make_wpn_ar_g2,돌격소총 II 제작,ship,gun,1,mat_scrap:11,wpn_ar_g2,1,,9,crafting,15,"폐금속 11 → 돌격소총 II. 총기 작업대, 제작 15 필요."
+make_wpn_ar_g3,돌격소총 III 제작,ship,gun,2,mat_scrap:14|mat_alloy:3|mat_machine_parts:2,wpn_ar_g3,1,,10,crafting,25,"폐금속 14 + 합금 판 3 + 기계 부품 2 → 돌격소총 III. 총기 작업대 Lv.2, 제작 25 필요."
+make_wpn_ar_g4,돌격소총 IV 제작,ship,gun,3,mat_scrap:16|mat_alloy:4|mat_machine_parts:3|mat_ingot:2,wpn_ar_g4,1,,12,crafting,35,"폐금속 16 + 합금 판 4 + 기계 부품 3 + 강화합금 잉곳 2 → 돌격소총 IV. 총기 작업대 Lv.3, 제작 35 필요."
+make_wpn_ar_g5,돌격소총 V 제작,ship,gun,3,mat_scrap:18|mat_alloy:5|mat_machine_parts:4|mat_ingot:4,wpn_ar_g5,1,,14,crafting,40,"폐금속 18 + 합금 판 5 + 기계 부품 4 + 강화합금 잉곳 4 → 돌격소총 V. 총기 작업대 Lv.3, 제작 40 필요."
+make_wpn_smg,기관단총 I 제작,ship,gun,1,mat_scrap:10,wpn_smg,1,,8,crafting,0,폐금속 10 → 기관단총 I. 총기 작업대.
+make_wpn_smg_g2,기관단총 II 제작,ship,gun,1,mat_scrap:14,wpn_smg_g2,1,,9,crafting,15,"폐금속 14 → 기관단총 II. 총기 작업대, 제작 15 필요."
+make_wpn_smg_g3,기관단총 III 제작,ship,gun,2,mat_scrap:17|mat_alloy:3|mat_machine_parts:2,wpn_smg_g3,1,,10,crafting,25,"폐금속 17 + 합금 판 3 + 기계 부품 2 → 기관단총 III. 총기 작업대 Lv.2, 제작 25 필요."
+make_wpn_smg_g4,기관단총 IV 제작,ship,gun,3,mat_scrap:20|mat_alloy:4|mat_machine_parts:3|mat_ingot:2,wpn_smg_g4,1,,12,crafting,35,"폐금속 20 + 합금 판 4 + 기계 부품 3 + 강화합금 잉곳 2 → 기관단총 IV. 총기 작업대 Lv.3, 제작 35 필요."
+make_wpn_smg_g5,기관단총 V 제작,ship,gun,3,mat_scrap:23|mat_alloy:5|mat_machine_parts:4|mat_ingot:4,wpn_smg_g5,1,,14,crafting,40,"폐금속 23 + 합금 판 5 + 기계 부품 4 + 강화합금 잉곳 4 → 기관단총 V. 총기 작업대 Lv.3, 제작 40 필요."
+make_wpn_sg,산탄총 I 제작,ship,gun,1,mat_scrap:11,wpn_sg,1,,8,crafting,0,폐금속 11 → 산탄총 I. 총기 작업대.
+make_wpn_sg_g2,산탄총 II 제작,ship,gun,1,mat_scrap:15,wpn_sg_g2,1,,9,crafting,15,"폐금속 15 → 산탄총 II. 총기 작업대, 제작 15 필요."
+make_wpn_sg_g3,산탄총 III 제작,ship,gun,2,mat_scrap:19|mat_alloy:3|mat_machine_parts:2,wpn_sg_g3,1,,10,crafting,25,"폐금속 19 + 합금 판 3 + 기계 부품 2 → 산탄총 III. 총기 작업대 Lv.2, 제작 25 필요."
+make_wpn_sg_g4,산탄총 IV 제작,ship,gun,3,mat_scrap:22|mat_alloy:4|mat_machine_parts:3|mat_ingot:2,wpn_sg_g4,1,,12,crafting,35,"폐금속 22 + 합금 판 4 + 기계 부품 3 + 강화합금 잉곳 2 → 산탄총 IV. 총기 작업대 Lv.3, 제작 35 필요."
+make_wpn_sg_g5,산탄총 V 제작,ship,gun,3,mat_scrap:25|mat_alloy:5|mat_machine_parts:4|mat_ingot:4,wpn_sg_g5,1,,14,crafting,40,"폐금속 25 + 합금 판 5 + 기계 부품 4 + 강화합금 잉곳 4 → 산탄총 V. 총기 작업대 Lv.3, 제작 40 필요."
+make_wpn_dmr,지정사수소총 I 제작,ship,gun,2,mat_scrap:14,wpn_dmr,1,,8,crafting,15,"폐금속 14 → 지정사수소총 I. 총기 작업대 Lv.2, 제작 15 필요."
+make_wpn_dmr_g2,지정사수소총 II 제작,ship,gun,2,mat_scrap:20,wpn_dmr_g2,1,,9,crafting,20,"폐금속 20 → 지정사수소총 II. 총기 작업대 Lv.2, 제작 20 필요."
+make_wpn_dmr_g3,지정사수소총 III 제작,ship,gun,2,mat_scrap:24|mat_alloy:4|mat_machine_parts:3,wpn_dmr_g3,1,,10,crafting,25,"폐금속 24 + 합금 판 4 + 기계 부품 3 → 지정사수소총 III. 총기 작업대 Lv.2, 제작 25 필요."
+make_wpn_dmr_g4,지정사수소총 IV 제작,ship,gun,3,mat_scrap:28|mat_alloy:5|mat_machine_parts:4|mat_ingot:3,wpn_dmr_g4,1,,12,crafting,35,"폐금속 28 + 합금 판 5 + 기계 부품 4 + 강화합금 잉곳 3 → 지정사수소총 IV. 총기 작업대 Lv.3, 제작 35 필요."
+make_wpn_dmr_g5,지정사수소총 V 제작,ship,gun,3,mat_scrap:32|mat_alloy:7|mat_machine_parts:5|mat_ingot:5,wpn_dmr_g5,1,,14,crafting,40,"폐금속 32 + 합금 판 7 + 기계 부품 5 + 강화합금 잉곳 5 → 지정사수소총 V. 총기 작업대 Lv.3, 제작 40 필요."
+make_wpn_sr,저격소총 I 제작,ship,gun,2,mat_scrap:15,wpn_sr,1,,8,crafting,15,"폐금속 15 → 저격소총 I. 총기 작업대 Lv.2, 제작 15 필요."
+make_wpn_sr_g2,저격소총 II 제작,ship,gun,2,mat_scrap:21,wpn_sr_g2,1,,9,crafting,20,"폐금속 21 → 저격소총 II. 총기 작업대 Lv.2, 제작 20 필요."
+make_wpn_sr_g3,저격소총 III 제작,ship,gun,2,mat_scrap:26|mat_alloy:4|mat_machine_parts:3,wpn_sr_g3,1,,10,crafting,25,"폐금속 26 + 합금 판 4 + 기계 부품 3 → 저격소총 III. 총기 작업대 Lv.2, 제작 25 필요."
+make_wpn_sr_g4,저격소총 IV 제작,ship,gun,3,mat_scrap:30|mat_alloy:5|mat_machine_parts:4|mat_ingot:3,wpn_sr_g4,1,,12,crafting,35,"폐금속 30 + 합금 판 5 + 기계 부품 4 + 강화합금 잉곳 3 → 저격소총 IV. 총기 작업대 Lv.3, 제작 35 필요."
+make_wpn_sr_g5,저격소총 V 제작,ship,gun,3,mat_scrap:35|mat_alloy:7|mat_machine_parts:5|mat_ingot:5,wpn_sr_g5,1,,14,crafting,40,"폐금속 35 + 합금 판 7 + 기계 부품 5 + 강화합금 잉곳 5 → 저격소총 V. 총기 작업대 Lv.3, 제작 40 필요."
+make_att_grip_angled,앵글 그립 제작,ship,gun,2,mat_scrap:5|mat_alloy:2,att_grip_angled,1,,6,crafting,15,"폐금속 5 + 합금 판 2 → 앵글 그립. 총기 작업대 Lv.2, 제작 15 필요."
+make_att_grip_vertical,수직 그립 제작,ship,gun,2,mat_scrap:5|mat_alloy:2,att_grip_vertical,1,,6,crafting,15,"폐금속 5 + 합금 판 2 → 수직 그립. 총기 작업대 Lv.2, 제작 15 필요."
+make_att_brake,총구 제동기 제작,ship,gun,2,mat_scrap:6|mat_alloy:2,att_brake,1,,8,crafting,20,"폐금속 6 + 합금 판 2 → 총구 제동기. 총기 작업대 Lv.2, 제작 20 필요."
+make_att_comp,보정기 제작,ship,gun,2,mat_scrap:6|mat_alloy:2,att_comp,1,,8,crafting,20,"폐금속 6 + 합금 판 2 → 보정기. 총기 작업대 Lv.2, 제작 20 필요."
+make_att_choke,산탄총 초크 제작,ship,gun,2,mat_scrap:7|mat_alloy:2,att_choke,1,,8,crafting,20,"폐금속 7 + 합금 판 2 → 산탄총 초크. 총기 작업대 Lv.2, 제작 20 필요."
+make_att_laser,레이저사이트 제작,ship,gun,2,mat_alloy:2|mat_core:2|mat_cable:2,att_laser,1,,8,crafting,25,"합금 판 2 + 구동 코어 2 + 전력 케이블 2 → 레이저사이트. 총기 작업대 Lv.2, 제작 25 필요."
+make_att_mag_light,확장형 경량 탄창 제작,ship,gun,3,mat_scrap:8|mat_alloy:3,att_mag_light,1,,8,crafting,25,"폐금속 8 + 합금 판 3 → 확장형 경량 탄창. 총기 작업대 Lv.3, 제작 25 필요."
+make_att_mag_medium,확장형 준중량 탄창 제작,ship,gun,3,mat_scrap:8|mat_alloy:3,att_mag_medium,1,,8,crafting,25,"폐금속 8 + 합금 판 3 → 확장형 준중량 탄창. 총기 작업대 Lv.3, 제작 25 필요."
+make_att_mag_shell,확장형 산탄 탄창 제작,ship,gun,3,mat_scrap:9|mat_alloy:4,att_mag_shell,1,,9,crafting,30,"폐금속 9 + 합금 판 4 → 확장형 산탄 탄창. 총기 작업대 Lv.3, 제작 30 필요."
+make_att_mag_heavy,확장형 중량 탄창 제작,ship,gun,3,mat_scrap:10|mat_alloy:4,att_mag_heavy,1,,9,crafting,30,"폐금속 10 + 합금 판 4 → 확장형 중량 탄창. 총기 작업대 Lv.3, 제작 30 필요."
+make_att_stock,전술 개머리판 제작,ship,gun,3,mat_scrap:10|mat_alloy:4,att_stock,1,,10,crafting,30,"폐금속 10 + 합금 판 4 → 전술 개머리판. 총기 작업대 Lv.3, 제작 30 필요."
+make_att_scope4,4배 조준경 제작,ship,gun,3,mat_alloy:3|mat_circuit:2|mat_cable:2,att_scope4,1,,10,crafting,30,"합금 판 3 + 회로 기판 2 + 전력 케이블 2 → 4배 조준경. 총기 작업대 Lv.3, 제작 30 필요."
+make_att_scope6,6배 조준경 제작,ship,gun,3,mat_alloy:4|mat_circuit:4|mat_cable:2,att_scope6,1,,12,crafting,35,"합금 판 4 + 회로 기판 4 + 전력 케이블 2 → 6배 조준경. 총기 작업대 Lv.3, 제작 35 필요."
+make_att_scope8,8배 조준경 제작,ship,gun,3,mat_ingot:2|mat_circuit:6|mat_cable:3,att_scope8,1,,14,crafting,40,"강화합금 잉곳 2 + 회로 기판 6 + 전력 케이블 3 → 8배 조준경. 총기 작업대 Lv.3, 제작 40 필요."
+make_ammo_fuel,연료통 충전,ship,gun,3,mat_gunpowder:6|mat_bio_sample:4|mat_scrap:2,ammo_fuel,100,,8,crafting,30,"화약 6 + 생체 조직 4 + 폐금속 2 → 연료 100 (「인페르노」). 총기 작업대 Lv.3, 제작 30 필요."
+make_ammo_cell,전지 제작,ship,gun,3,mat_power_cell:2|mat_cable:1,ammo_cell,30,,8,crafting,30,"파워 셀 2 + 전력 케이블 1 → 전지 30 (「테슬라 코일」). 총기 작업대 Lv.3, 제작 30 필요."
+make_ammo_shuriken,표창 단조,ship,gun,3,mat_alloy:4|mat_scrap:4,ammo_shuriken,20,,8,crafting,30,"합금 판 4 + 폐금속 4 → 표창 20 (「카게」). 총기 작업대 Lv.3, 제작 30 필요."
+make_ammo_arrow,화살 제작,ship,gun,3,mat_scrap:4|mat_alloy:1|herb_ashleaf:2,ammo_arrow,15,,7,crafting,30,"폐금속 4 + 합금 판 1 + 잿빛잎 2 → 화살 15 (「롱혼」). 총기 작업대 Lv.3, 제작 30 필요."
+make_ammo_rocket,로켓 조립,ship,gun,3,mat_gunpowder:12|mat_alloy:3|mat_circuit:1,ammo_rocket,3,,10,crafting,40,"화약 12 + 합금 판 3 + 회로 기판 1 → 로켓 3 (「해머헤드」). 총기 작업대 Lv.3, 제작 40 필요."
+make_ammo_belt,탄띠 연결,ship,gun,3,mat_gunpowder:20|mat_scrap:8,ammo_belt,150,,10,crafting,30,"화약 20 + 폐금속 8 → 탄띠 150발 (「사이클론」). 총기 작업대 Lv.3, 제작 30 필요."
+make_armor_1,방탄복 I 제작,ship,gear,1,mat_scrap:10|mat_cloth:6|mat_core:2,armor_1,1,,10,crafting,0,폐금속 10 + 천조각 6 + 구동 코어 2 → 방탄복 I (실드 20). 장비 작업대.
+make_armor_2,방탄복 II 제작,ship,gear,1,mat_scrap:14|mat_cloth:8|mat_core:4,armor_2,1,,11,crafting,15,"폐금속 14 + 천조각 8 + 구동 코어 4 → 방탄복 II (실드 40). 장비 작업대, 제작 15 필요."
+make_armor_3,방탄복 III 제작,ship,gear,2,mat_scrap:16|mat_weave:4|mat_alloy:4|mat_core:4,armor_3,1,,12,crafting,25,"폐금속 16 + 강화 직조포 4 + 합금 판 4 + 구동 코어 4 → 방탄복 III (실드 60). 장비 작업대 Lv.2, 제작 25 필요."
+make_armor_4,방탄복 IV 제작,ship,gear,3,mat_scrap:16|mat_ballistic_fiber:3|mat_capacitor:2|mat_control_module:2,armor_4,1,,14,crafting,35,"폐금속 16 + 복합 방탄섬유 3 + 축전 모듈 2 + 제어 모듈 2 → 방탄복 IV (실드 80). 장비 작업대 Lv.3, 제작 35 필요."
+make_armor_5,방탄복 V 제작,ship,gear,3,mat_scrap:18|mat_ballistic_fiber:5|mat_capacitor:3|mat_control_module:2,armor_5,1,,16,crafting,40,"폐금속 18 + 복합 방탄섬유 5 + 축전 모듈 3 + 제어 모듈 2 → 방탄복 V (실드 100). 장비 작업대 Lv.3, 제작 40 필요."
+make_bag_common,일반 가방 제작,ship,gear,1,mat_cloth:8|mat_bio_sample:4|mat_scrap:2,bag_common,1,,8,crafting,0,천조각 8 + 생체 조직 4 + 폐금속 2 → 일반 가방 (5×6). 장비 작업대.
+make_bag_uncommon,고급 가방 제작,ship,gear,1,mat_cloth:12|mat_bio_sample:6|mat_scrap:4,bag_uncommon,1,,10,crafting,15,"천조각 12 + 생체 조직 6 + 폐금속 4 → 고급 가방 (6×6). 장비 작업대, 제작 15 필요."
+make_bag_rare,희귀 가방 제작,ship,gear,2,mat_weave:4|mat_cloth:8|mat_bio_sample:6|mat_scrap:4,bag_rare,1,,12,crafting,25,"강화 직조포 4 + 천조각 8 + 생체 조직 6 + 폐금속 4 → 희귀 가방 (8×6). 장비 작업대 Lv.2, 제작 25 필요."
+make_bag_rare_tac,희귀 전술 가방 제작,ship,gear,2,mat_weave:5|mat_cloth:8|mat_bio_sample:6|mat_scrap:4,bag_rare_tac,1,,12,crafting,25,"강화 직조포 5 + 천조각 8 + 생체 조직 6 + 폐금속 4 → 희귀 전술 가방 (7×6, 퀵슬롯 7). 장비 작업대 Lv.2, 제작 25 필요."
+make_bag_epic,서사 가방 제작,ship,gear,3,mat_weave:6|mat_ballistic_fiber:3|mat_scrap:6,bag_epic,1,,14,crafting,35,"강화 직조포 6 + 복합 방탄섬유 3 + 폐금속 6 → 서사 가방 (9×6). 장비 작업대 Lv.3, 제작 35 필요."
+make_bag_epic_tac,서사 전술 가방 제작,ship,gear,3,mat_weave:7|mat_ballistic_fiber:3|mat_scrap:6,bag_epic_tac,1,,14,crafting,35,"강화 직조포 7 + 복합 방탄섬유 3 + 폐금속 6 → 서사 전술 가방 (8×6, 퀵슬롯 8). 장비 작업대 Lv.3, 제작 35 필요."
+make_bag_legendary,전설 가방 제작,ship,gear,3,mat_weave:8|mat_ballistic_fiber:6|mat_scrap:8,bag_legendary,1,,16,crafting,40,"강화 직조포 8 + 복합 방탄섬유 6 + 폐금속 8 → 전설 가방 (10×6). 장비 작업대 Lv.3, 제작 40 필요."
+make_bag_legendary_tac,전설 전술 가방 제작,ship,gear,3,mat_weave:9|mat_ballistic_fiber:6|mat_scrap:8,bag_legendary_tac,1,,16,crafting,40,"강화 직조포 9 + 복합 방탄섬유 6 + 폐금속 8 → 전설 전술 가방 (9×6, 퀵슬롯 9). 장비 작업대 Lv.3, 제작 40 필요."
+make_frag_batch,고폭 수류탄 제작,ship,gadget,1,mat_gunpowder:8|mat_scrap:3,grenade_frag,2,,6,crafting,10,"화약 8 + 폐금속 3 → G-12 고폭 수류탄 2. 가젯 작업대, 제작 10 필요."
+make_smoke_batch,연막탄 대량 제작,ship,gadget,1,mat_gunpowder:10|mat_bio_sample:5,gad_smoke,3,,7,crafting,10,"화약 10 + 생체 조직 5 → 연막탄 3. 가젯 작업대, 제작 10 필요."
+make_incendiary_batch,소이 수류탄 대량 제작,ship,gadget,1,mat_gunpowder:14|herb_ashleaf:4,grenade_incendiary,2,,7,crafting,15,"화약 14 + 잿빛잎 4 → G-10 소이 수류탄 2. 가젯 작업대, 제작 15 필요."
+make_lure,유인 수류탄 제작,ship,gadget,2,mat_gunpowder:4|mat_scrap:2|mat_cable:1,gad_lure,1,,6,crafting,20,"화약 4 + 폐금속 2 + 전력 케이블 1 → 유인 수류탄. 가젯 작업대 Lv.2, 제작 20 필요."
+make_fire_gadget,화염수류탄 제작,ship,gadget,2,mat_gunpowder:8|herb_ashleaf:3,gad_incendiary,1,,6,crafting,25,"화약 8 + 잿빛잎 3 → 화염수류탄 (화염지대). 가젯 작업대 Lv.2, 제작 25 필요."
+make_mine,지뢰 제작,ship,gadget,2,mat_gunpowder:10|mat_alloy:2,gad_mine,1,,5,crafting,25,"화약 10 + 합금 판 2 → 지뢰. 가젯 작업대 Lv.2, 제작 25 필요."
+make_barricade,바리케이드 제작,ship,gadget,3,mat_scrap:14|mat_alloy:4|mat_cable:2,gad_barricade,1,,10,crafting,30,"폐금속 14 + 합금 판 4 + 전력 케이블 2 → 바리케이드. 가젯 작업대 Lv.3, 제작 30 필요."
+make_jumppad,점프대 제작,ship,gadget,3,mat_scrap:12|mat_alloy:3|mat_power_cell:2,gad_jumppad,1,,10,crafting,30,"폐금속 12 + 합금 판 3 + 파워 셀 2 → 점프대. 가젯 작업대 Lv.3, 제작 30 필요."
+make_cloak_veil,은폐 장막 제작,ship,gadget,3,mat_alloy:3|mat_circuit:2|mat_capacitor:1,gad_cloak_veil,1,,12,crafting,35,"합금 판 3 + 회로 기판 2 + 축전 모듈 1 → 은폐 장막. 가젯 작업대 Lv.3, 제작 35 필요."
+make_defib_charge,제세동기 정비,ship,gadget,3,mat_power_cell:2|herb_glowcap:1|mat_capacitor:1,gad_defib,1,,6,medicine,40,"파워 셀 2 + 발광버섯 1 + 축전 모듈 1 → 제세동기. 가젯 작업대 Lv.3, 의학 40 필요."
+make_dome_shield,돔 실드 제작,ship,gadget,3,mat_ingot:2|mat_capacitor:2|mat_control_module:1,gad_dome_shield,1,,14,crafting,40,"강화합금 잉곳 2 + 축전 모듈 2 + 제어 모듈 1 → 돔 실드. 가젯 작업대 Lv.3, 제작 40 필요."
+make_turret,포탑 제작,ship,gadget,3,mat_ingot:3|mat_machine_parts:4|mat_control_module:1,gad_turret,1,,16,crafting,40,"강화합금 잉곳 3 + 기계 부품 4 + 제어 모듈 1 → 포탑 설치. 가젯 작업대 Lv.3, 제작 40 필요."
+make_antiseptic,소독약 조제,ship,medical,1,mat_can:1|herb_bloodroot:1,mat_antiseptic,1,,4,medicine,10,캔 1 + 혈근초 1 → 소독약. 의학 작업대.
+make_heal_syringe,회복주사 조제,ship,medical,1,mat_syringe:1|mat_antiseptic:1,heal_syringe,1,,5,medicine,25,"주사기 1 + 소독약 1 → 회복주사. 의학 작업대, 의학 25 필요."
+make_shield_charger,실드 충전기 제작,ship,medical,1,mat_core:1|mat_cable:1,shield_charger,1,,4,crafting,0,구동 코어 1 + 전력 케이블 1 → 실드 충전기 (실드 20). 의학 작업대.
+grow_bloodroot,혈근초 증식,ship,medical,1,herb_ashleaf:4,herb_bloodroot,6,,4,gardening,0,수경 재배기에서 잿빛잎 4로 혈근초 6을 길러낸다. 의학 작업대.
+make_heal_spray,회복 스프레이 제작,ship,medical,2,mat_can:1|mat_antiseptic:1,heal_spray,1,,8,medicine,45,"캔 1 + 소독약 1 → 회복 스프레이. 의학 작업대 Lv.2, 의학 45 필요."
+make_bandage_batch,붕대 대량 제작,ship,medical,2,mat_cloth:12|herb_bloodroot:2,heal_bandage_herb,3,,8,medicine,10,"천조각 12 + 혈근초 2 → 약초 붕대 3. 의학 작업대 Lv.2, 의학 10 필요."
+make_shield_charger_hi,고출력 실드 충전기 제작,ship,medical,2,mat_core:2|mat_cable:2,shield_charger_hi,1,,6,crafting,15,"구동 코어 2 + 전력 케이블 2 → 고출력 실드 충전기 (실드 40). 의학 작업대 Lv.2, 제작 15 필요."
+grow_glowcap,발광버섯 배양,ship,medical,2,herb_bloodroot:6|mat_bio_sample:3,herb_glowcap,2,,6,gardening,20,"혈근초 6 + 생체 조직 3 → 발광버섯 2. 의학 작업대 Lv.2, 원예 20 필요."
+make_shield_charger_full,완충 실드 충전기 제작,ship,medical,3,mat_capacitor:1|mat_cable:3|mat_circuit:1,shield_charger_full,1,,8,crafting,35,"축전 모듈 1 + 전력 케이블 3 + 회로 기판 1 → 완충 실드 충전기 (실드 완전 회복). 의학 작업대 Lv.3, 제작 35 필요."

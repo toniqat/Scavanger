@@ -1061,6 +1061,19 @@ export const PROP_STEP_UP_MAX = K.num('PROP_STEP_UP_MAX');
 /** 장애물 윗면 판정에 쓰는 여유(m) — 가장자리에서 미끄러져 떨어지지 않게 한다. */
 export const PROP_TOP_MARGIN = K.num('PROP_TOP_MARGIN');
 
+/* ── 선로 회랑 (2026-09-10, owner: world/layout) ── */
+/**
+ * 선로 중심선 좌우로 **아무것도 놓지 않는** 회랑의 반폭(m). 구조물 · 폐허 전초 · 둥지 · 크레이터 ·
+ * 소품 · 상자 · 채집 노드가 전부 이 거리를 비운다 — 검사는 `clearance + 그 물건의 반지름` 이다.
+ * 플랫폼은 예외이고 그 자리는 `platform` 패드가 막는다.
+ */
+export const RAIL_CLEARANCE_M = K.num('RAIL_CLEARANCE_M');
+/** 플랫폼 **호출 콘솔**의 홀드 시간(초). 운전실 시동(`TRAM_START_HOLD_S`)보다 길다 — 호출은 남이 타고
+ * 있을 수도 있는 차를 통째로 불러오고, 잘못 부르면 분대가 반대편까지 걸어야 한다. */
+export const TRAM_CALL_HOLD_S = K.num('TRAM_CALL_HOLD_S');
+/** 플랫폼 호출 콘솔의 상호작용 거리(m). */
+export const TRAM_CALL_RANGE = K.num('TRAM_CALL_RANGE');
+
 /* ── 핑 v3 (2026-09-09, owner: ui/hud/Pings) ── */
 /** 한 플레이어가 동시에 유지하는 핑 수 (나도 분대원도). 넘치면 그 사람의 가장 오래된 핑이 사라진다. */
 export const PING_MAX_PER_PLAYER = K.num('PING_MAX_PER_PLAYER');
@@ -1206,3 +1219,63 @@ export const ARMOR_SHIELD_PER_SEGMENT = K.num('ARMOR_SHIELD_PER_SEGMENT');
  */
 /** 인지력 반경 밖이라도 무조건 경고하는 착탄 거리(m). */
 export const DANGER_NEAR_RADIUS = K.num('DANGER_NEAR_RADIUS');
+
+/* ══ 로그 강하 경보 (2026-09-10) ══════════════════════════════════════════════════════════════════════
+ * 강하는 대기를 찢으며 떨어지는 굉음이라 **평소의 인지력 게이트를 쓰지 않는다** — 경보음도 HUD 위험 표시도
+ * `ROGUE_DROP_ALERT_RADIUS`(인지력 `DETECT_ENEMY_BASE_RADIUS` 26 m 의 10 배) 하나만 본다. 그 대신
+ * **거리 감쇠는 남긴다**: 원격 발소리(`FOOTSTEP_*`)와 같은 철학이라 반경 밖은 아예 재생하지 않고 안쪽은
+ * `(1 - d / radius) ^ ROGUE_DROP_ALERT_FALLOFF_EXP` 를 곱한다. 소유자는 `audio/AudioSystem`(소리) 과
+ * `ui/hud/DangerIndicators`(표시)이고, 강하 자체의 규칙은 `enemies/RogueDrop` 그대로다.
+ */
+/** 강하 경보 전용 반경(m). 이 안이면 인지력과 무관하게 들리고 보인다. */
+export const ROGUE_DROP_ALERT_RADIUS = K.num('ROGUE_DROP_ALERT_RADIUS');
+/** 강하음의 거리 감쇠 지수 — `(1 - d / ROGUE_DROP_ALERT_RADIUS) ^ exp`. */
+export const ROGUE_DROP_ALERT_FALLOFF_EXP = K.num('ROGUE_DROP_ALERT_FALLOFF_EXP');
+/** 강하 경보음(`rogue_drop_alarm`)의 밑 크기 — 거리 감쇠를 먹기 전. */
+export const ROGUE_DROP_ALARM_VOLUME = K.num('ROGUE_DROP_ALARM_VOLUME');
+/** 강하 낙하음(`rogue_pod_fall`)의 밑 크기 — 거리 감쇠를 먹기 전. */
+export const ROGUE_DROP_FALL_VOLUME = K.num('ROGUE_DROP_FALL_VOLUME');
+/** 이 크기 밑으로 줄어든 강하음은 보이스를 만들지 않는다. */
+export const ROGUE_DROP_MIN_VOLUME = K.num('ROGUE_DROP_MIN_VOLUME');
+/** 착지 몇 초 전에 낙하 굉음이 시작되는가 (`rogue_pod_fall` 의 길이와 맞춘다). */
+export const ROGUE_DROP_FALL_LEAD_S = K.num('ROGUE_DROP_FALL_LEAD_S');
+
+/* ══ 전차 탑승 · 전차 충돌 · 플랫폼 계단 (2026-09-10) ═════════════════════════════════════════════════
+ * 값은 전부 `data/constants.csv`. 소유자는 `player/PlayerController`(RIDE_*) 와 `world/Rails`(TRAM_HIT_* ·
+ * TRAM_CONSOLE_RANGE · RAIL_STAIR_*).
+ *
+ * **왜 `Obstacle.velocity` 만으로는 모자랐나**: 예전에는 "지금 밟고 있는 발판" 을 매 프레임 새로 찾아
+ * 그 속도를 위치에 더했다. 한 프레임이라도 발판 질의에서 빠지면(점프 · 경사 · 문틈) 그 프레임만큼 차량이
+ * 발밑에서 빠져나가고, 몇 프레임이면 차 밖이다. 그래서 **탑승을 상태로 들고**(진입 · 유지 · 이탈) 유지 조건을
+ * 발판 질의가 아니라 **차량 OBB + 헤드룸**으로 본다.
+ */
+/** 발판 윗면에서 이 높이(m) 안이면 아직 탑승 — 점프해도 차량과 함께 날아간다. */
+export const RIDE_HEADROOM = K.num('RIDE_HEADROOM');
+/** 발판 윗면보다 이만큼(m) 아래까지는 아직 탑승 (경사 · 프레임 요동 여유). */
+export const RIDE_FOOT_DROP = K.num('RIDE_FOOT_DROP');
+/** 차량 콜라이더 단면 밖으로 이만큼(m) 벗어나도 아직 탑승. */
+export const RIDE_EDGE_MARGIN = K.num('RIDE_EDGE_MARGIN');
+/** 하차 뒤 차량 관성이 남아 있는 최대 시간(초). */
+export const RIDE_INERTIA_S = K.num('RIDE_INERTIA_S');
+/** 하차 관성의 지수 감쇠 계수(1/초). */
+export const RIDE_INERTIA_DAMP = K.num('RIDE_INERTIA_DAMP');
+
+/** 이 속도(m/s) 밑으로 달리는 전차는 부딪혀도 안전하다. */
+export const TRAM_HIT_SPEED_MIN = K.num('TRAM_HIT_SPEED_MIN');
+/** `TRAM_SPEED` 로 달리는 전차에 치였을 때의 피해 (실제 피해는 그때 속도에 비례). */
+export const TRAM_HIT_DAMAGE = K.num('TRAM_HIT_DAMAGE');
+/** 치였을 때 튕겨 나가는 속도(m/s, 최고 속도 기준). */
+export const TRAM_HIT_KNOCKBACK = K.num('TRAM_HIT_KNOCKBACK');
+/** 같은 사람이 다시 치일 수 있게 되기까지의 시간(초). */
+export const TRAM_HIT_COOLDOWN_S = K.num('TRAM_HIT_COOLDOWN_S');
+/** 전차 바닥보다 발이 이만큼(m) 아래여야 치인 것 — 탑승자 · 플랫폼 위를 판정에서 빼는 값이다. */
+export const TRAM_HIT_FLOOR_CLEAR = K.num('TRAM_HIT_FLOOR_CLEAR');
+/** 전차 바닥에서 아래로 이만큼(m) 까지가 치이는 높이 범위. */
+export const TRAM_HIT_REACH = K.num('TRAM_HIT_REACH');
+/** 전차 운전실 콘솔의 상호작용 거리(m). */
+export const TRAM_CONSOLE_RANGE = K.num('TRAM_CONSOLE_RANGE');
+
+/** 플랫폼 계단 한 단의 최대 높이(m) — `PROP_STEP_UP_MAX` 보다 낮아야 걸어 올라간다. */
+export const RAIL_STAIR_MAX_RISE = K.num('RAIL_STAIR_MAX_RISE');
+/** 플랫폼 계단 한 단의 깊이(m). */
+export const RAIL_STAIR_DEPTH = K.num('RAIL_STAIR_DEPTH');

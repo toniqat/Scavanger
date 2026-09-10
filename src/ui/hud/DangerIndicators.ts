@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { GameContext, GrenadeView, StratagemId } from '@/shared';
-import { DANGER_NEAR_RADIUS, DETECT_ENEMY_BASE_RADIUS, shellLaunchVelocity, shellPositionAt } from '@/shared';
+import { DANGER_NEAR_RADIUS, DETECT_ENEMY_BASE_RADIUS, ROGUE_DROP_ALERT_RADIUS, shellLaunchVelocity, shellPositionAt } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 import { STRATAGEM_COLOR, STRATAGEM_GLYPH, stratagemDef } from './stratagemGlyphs';
 import '../styles/danger.css';
@@ -16,7 +16,7 @@ const TIMEOUT_PAD_S = 2.5;
 /** |NDC| beyond this counts as off-screen (the projected point is at / past the viewport edge). */
 const EDGE_NDC = 0.94;
 
-type Cat = 'shell' | 'grenade' | 'call';
+type Cat = 'shell' | 'grenade' | 'call' | 'drop';
 
 interface Shell {
   sid: number;
@@ -42,8 +42,8 @@ interface Item {
 }
 interface Slot { el: HTMLElement; ico: HTMLElement; lbl: HTMLElement; lastKey: string }
 
-const CAT_NAME: Record<Cat, string> = { shell: '포탄', grenade: '수류탄', call: '낙하물' };
-const CAT_ICON: Record<Cat, string> = { shell: '◆', grenade: '●', call: '▣' };
+const CAT_NAME: Record<Cat, string> = { shell: '포탄', grenade: '수류탄', call: '낙하물', drop: '적 강하' };
+const CAT_ICON: Record<Cat, string> = { shell: '◆', grenade: '●', call: '▣', drop: '⬇' };
 /** Hoisted so sorting the candidates allocates nothing (it runs only when more than `MAX` are live). */
 const byNear = (a: Item, b: Item): number => a.d2 - b.d2;
 /*
@@ -56,6 +56,9 @@ const GRENADE_COLOR = '#ffb347';
 const GRENADE_HOT_COLOR = '#ff8c1a';
 const GRENADE_HOSTILE_COLOR = '#ff4d4d';
 const GRENADE_HOSTILE_HOT_COLOR = '#ff2020';
+/** 로그 강하 포드 — 적의 것이므로 포탄과 같은 빨강. 분대장이 섞였으면 한 단계 더 진하다. */
+const DROP_COLOR = '#ff4d4d';
+const DROP_BOSS_COLOR = '#ff2020';
 
 /**
  * 위험 인디케이터 (`.dgr`, 게임플레이 레이어, 2026-09-10).
@@ -74,11 +77,19 @@ const GRENADE_HOSTILE_HOT_COLOR = '#ff2020';
  *     `ctx.enemies.getEnemyGrenades()` (적 — 로그가 던진 것) 둘 다. 라벨은 남은 신관이고, **색이 누구 것인지를
  *     말한다** (아군 호박 · 적 빨강; `hot` 은 임박만 나타낸다).
  *   - **함선 호출 낙하물** — `stratagem:called` → `landed` / `ended`. 궤도 폭격 · 보급품 · 트라이포드 · 구조선.
+ *   - **로그 강하 포드** (2026-09-10 추가) — `ctx.enemies.getRogueDrops()`. 하늘에서 적이 내려오는 것도
+ *     "지금 떨어지고 있는 것" 이라 함선 호출 낙하물과 같은 언어로 그린다. 색은 **적의 것**이므로 빨강
+ *     (분대장이 섞이면 한 단계 진하게), 라벨은 착지까지 남은 초 → 착지 직후 `로그 n` / `로그 분대장`.
+ *     2026-09-09 에 `hud/OffscreenIndicators` 가 그리던 `.oarrow.drop` 화살표는 **여기로 옮겨 왔다** —
+ *     한 목표가 두 언어로 그려지면 안 되고, 화면 안에서는 아무 표시도 없었다(강하가 조용했던 이유 중 하나).
  *
+
  * **인지력 반경 게이트 (결정, 2026-09-10).** 포탄에 걸려 있던 `derived.enemyDetectRadius` 게이트는 유지하되
  * **착탄 지점이 `DANGER_NEAR_RADIUS` 안이면 무조건** 보여 준다 — 인디케이터의 목적이 "날아오는 줄도 모르는
  * 것" 을 알리는 것이라, 내 머리 위로 떨어지는 포탄이 인지력 부족으로 안 보이면 그 목적이 무너진다. 수류탄과
- * 낙하물에는 게이트가 없다: 둘 다 분대가 방금 만든 사건이고 이미 눈앞에 있다.
+ * 낙하물에는 게이트가 없다: 둘 다 분대가 방금 만든 사건이고 이미 눈앞에 있다. **로그 강하만은 인지력을
+ * 아예 보지 않고 전용 반경 `ROGUE_DROP_ALERT_RADIUS`(인지력의 10배) 하나를 본다** — 대기를 찢고 떨어지는
+ * 굉음이라 인지력이 좁아도 알아야 하고, `audio/AudioSystem` 의 강하음이 쓰는 반경과 정확히 같다.
  *
  * **전장의 안개 게이트는 걸지 않는다** — `hud/OffscreenIndicators` 상단의 2026-09-09 근거 그대로다. 여기서
  * 그리는 것은 발견된 오브젝트가 아니라 지금 벌어지는 사건이다.
@@ -242,7 +253,23 @@ export class DangerIndicators {
     // (b) 수류탄 — 아군(내 것 + 원격 분대원의 복제본)과 **적(로그)** 것 모두. 게이트 없음: 이미 발치에 있다.
     this.pushGrenades(ctx.weapons?.getGrenades?.(), from, false);
     this.pushGrenades(ctx.enemies?.getEnemyGrenades?.(), from, true);
-    // (c) 함선 호출 낙하물 — somebody in the squad called it, so no gate either
+    // (c) 로그 강하 포드 (2026-09-10) — 예고에서 착지까지 살아 있는 목표라 이벤트 목록이 아니라 매니저에게
+    //     직접 묻는다 (`getRogueDrops()` 는 `EnemyManagerRef` 계약이고, 없으면 빈 배열이다).
+    //     게이트는 **인지력이 아니라** 강하 전용 반경 `ROGUE_DROP_ALERT_RADIUS` 다 — 대기를 찢고 떨어지는
+    //     굉음이라 인지력이 좁아도 보여야 하고, 그렇다고 맵 반대편까지 뜨면 안 된다 (같은 반경으로 소리도 난다).
+    const drops = ctx.enemies?.getRogueDrops?.();
+    if (drops && drops.length) {
+      const alert2 = ROGUE_DROP_ALERT_RADIUS * ROGUE_DROP_ALERT_RADIUS;
+      for (const d of drops) {
+        const dx = d.position.x - from.x, dz = d.position.z - from.z;
+        const dd2 = dx * dx + dz * dz;
+        if (dd2 > alert2) continue;
+        const eta = d.landsAt - t;
+        const label = eta > 0.05 ? this.etaLabel(eta, 'drop', '') : (d.boss ? '로그 분대장' : `로그 ${d.count}`);
+        this.push('drop', d.position, d.boss ? DROP_BOSS_COLOR : DROP_COLOR, CAT_ICON.drop, label, eta > 0 && eta < HOT_S, dd2);
+      }
+    }
+    // (d) 함선 호출 낙하물 — somebody in the squad called it, so no gate either
     for (const c of this.calls) {
       const eta = c.landed ? 0 : c.landsAt - t;
       const def = stratagemDef(c.kind);

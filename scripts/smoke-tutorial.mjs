@@ -16,6 +16,11 @@
 //     0.3 s → lit again ~0.5 s later), bounded on both sides, for the spotlight and the 3D floor guide alike.
 //   • spotlight geometry is read off the **four dark panes** (`window.__hole` / `window.__spotOn`), never the ring —
 //     the ring has a slow scale animation, so its `getBoundingClientRect` wobbles frame to frame.
+// 2026-09-10: 제작 대개편으로 `bulk_ammo_medium`(대량 제작, 90발)이 csv 에서 사라졌다 — 탄약 단계는
+// `make_ammo_medium`(화약 6 · 폐금속 2 → 30발)이다. 그래서 여기서 두 가지를 더 못 박는다:
+//   • 그 레시피가 **작업대 창에 뜰 수 있는 모양**인가 (`station: 'field'` · `bench` 없음).
+//   • `stowAmmo` 가 **수량을 전제하지 않는가** — 만든 양(= csv 의 `outputQty`, 스모크에 숫자를 적지 않는다)이
+//     얼마든 가방에 있기만 하면 `terminal` 로 넘어간다.
 // Usage: node scripts/smoke-tutorial.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { existsSync } from 'node:fs';
@@ -413,7 +418,7 @@ try {
     const inv = window.__game.ctx.inventory, t = window.__game.ctx.tutorial;
     return {
       gun: inv.canCraft('make_wpn_ar'), other: inv.canCraft('make_bandage'),
-      gateGun: t.blockReason('craft', 'make_wpn_ar'), gateAmmo: t.blockReason('craft', 'bulk_ammo_medium'),
+      gateGun: t.blockReason('craft', 'make_wpn_ar'), gateAmmo: t.blockReason('craft', 'make_ammo_medium'),
       gateOther: t.blockReason('craft', 'make_bandage'), hidesOther: t.hides('craft', 'make_bandage'),
     };
   });
@@ -472,7 +477,7 @@ try {
   await waitSpot('돌격소총', 'spotlight (돌격소총 제작)');
   const gunRow = await P(() => {
     const row = document.querySelector('.inv-craft-row[data-recipe="make_wpn_ar"]');
-    const ammo = document.querySelector('.inv-craft-row[data-recipe="bulk_ammo_medium"]');
+    const ammo = document.querySelector('.inv-craft-row[data-recipe="make_ammo_medium"]');
     return {
       row: !!row, ammo: !!ammo, rows: document.querySelectorAll('.inv-craft-row').length,
       spot: window.__spotOn(['.inv-craft-row[data-recipe="make_wpn_ar"] .inv-craft-btn', '.inv-craft-row[data-recipe="make_wpn_ar"]', '.inv-panel-craft']),
@@ -490,7 +495,7 @@ try {
   /* 2026-09-09 재료 top-up: 소총이 폐금속을 먹고 나면 준중량탄이 모자란다 — `craftAmmo` 에 들어서는 순간
      `ensureMaterials` 가 `필요 − 보유` 만큼만 채운다 (숫자는 레시피에서 읽으므로 코드에 없다). */
   const ammoReady = await P(() => ({
-    can: window.__game.ctx.inventory.canCraft('bulk_ammo_medium'),
+    can: window.__game.ctx.inventory.canCraft('make_ammo_medium'),
     powder: window.__game.ctx.inventory.countWhere((d) => d.id === 'mat_gunpowder'),
     scrap: window.__game.ctx.inventory.countWhere((d) => d.id === 'mat_scrap'),
     craftOpen: !!document.querySelector('.inv-panel-craft') && document.querySelector('.inv-root').classList.contains('is-craft'),
@@ -500,9 +505,9 @@ try {
   ok(ammoReady.can && ammoReady.gun >= 1,
     `준중량탄 재료가 채워져 있다 (화약 ${ammoReady.powder} · 폐금속 ${ammoReady.scrap})`, JSON.stringify(ammoReady));
   await waitSpot('준중량탄', 'spotlight (준중량탄 제작)');
-  const ammoRow = await P(() => window.__spotOn(['.inv-craft-row[data-recipe="bulk_ammo_medium"] .inv-craft-btn', '.inv-craft-row[data-recipe="bulk_ammo_medium"]', '.inv-panel-craft']));
+  const ammoRow = await P(() => window.__spotOn(['.inv-craft-row[data-recipe="make_ammo_medium"] .inv-craft-btn', '.inv-craft-row[data-recipe="make_ammo_medium"]', '.inv-panel-craft']));
   ok(ammoRow.exact, `포커싱이 같은 창의 준중량탄 행으로 옮겨 간다 ("${ammoRow.tip}")`, JSON.stringify(ammoRow));
-  ok(await P(async () => !!(await window.__game.ctx.inventory.craft('bulk_ammo_medium'))), '같은 창에서 준중량탄을 만든다');
+  ok(await P(async () => !!(await window.__game.ctx.inventory.craft('make_ammo_medium'))), '같은 창에서 준중량탄을 만든다');
   await waitStep('openBag');
 
   /* 소총 · 탄약이 다 만들어진 **뒤에야** 제작 창을 닫는다 (`openBag`). */
@@ -579,6 +584,36 @@ try {
   // 2026-09-10: 보조무기 칸이 사라져 시작 지급품이 **주무기 I** 에 기관단총을 준다 — 예전처럼 I 칸이 비어 있지 않다.
   ok(equipped.primary2 === 'wpn_ar' && ['stowAmmo', 'terminal'].includes(equipped.step),
     '주무기 II 칸에 장착해도 장착 단계가 끝난다', JSON.stringify(equipped));
+
+  /* ── 4d. 탄약 단계는 수량을 전제하지 않는다 (2026-09-10 제작 대개편) ──────
+     `bulk_ammo_medium`(대량 제작, 90발)이 csv 에서 사라져 `make_ammo_medium`(30발)이 그 자리를 잇는다.
+     두 가지를 못 박는다 — ① 그 레시피가 **작업대 창에 뜰 수 있는 모양**인가 (`station: 'field'` · `bench` 없음 →
+     `getRecipes` 가 bench 모드에서도 싣는다), ② `stowAmmo` 는 "가방에 준중량탄이 있나"만 보므로 **수량과 무관**하다
+     (만들어진 양이 곧 레시피의 `outputQty` 이고, 그 값을 여기서도 csv 에서 읽는다 — 스모크에 숫자를 적지 않는다). */
+  const ammoRecipe = await P(() => {
+    const ctx = window.__game.ctx;
+    const r = ctx.loot.getAllRecipes().find((x) => x.id === 'make_ammo_medium');
+    return r ? { station: r.station, bench: r.bench ?? null, outputQty: r.outputQty, out: r.outputDefId } : null;
+  });
+  /* 2026-09-10 (사용자 결정) — 작업대를 열면 **그 작업대의 레시피만** 보인다. 그래서 현장 레시피도
+     `data/recipes.csv` 에서 자기 작업대를 밝힌다: 탄약은 `station: field` + `bench: gun` 이라
+     어디서든 만들 수 있으면서 총기 작업대 창에도 뜬다 — 튜토리얼의 "같은 창에서 소총 → 탄약" 이 그것에 기댄다. */
+  ok(!!ammoRecipe && ammoRecipe.station === 'field' && ammoRecipe.bench === 'gun' && ammoRecipe.out === 'ammo_medium',
+    '탄약 레시피는 field 이면서 총기 작업대 소속이다 (어디서든 제작 + 총기 작업대 창에 표시)', JSON.stringify(ammoRecipe));
+  const stow = await P(() => {
+    const inv = window.__game.ctx.inventory;
+    // 만든 탄약이 가방에 못 들어가 창고로 갔으면 그것을 집어 온다 — 그게 `stowAmmo` 단계가 시키는 일이다
+    if (inv.countWhere((d) => d.id === 'ammo_medium') === 0) {
+      const s = inv.getStashItems().find((it) => it.defId === 'ammo_medium');
+      if (s) inv.takeItem(s.uid);
+    }
+    const rounds = inv.countWhere((d) => d.id === 'ammo_medium');
+    if (window.__game.ctx.tutorial.step === 'stowAmmo') inv.afterChange();   // 이미 가방에 있으면 판정을 한 번 깨운다
+    return rounds;
+  });
+  ok(stow >= (ammoRecipe?.outputQty ?? 1), `만든 준중량탄이 가방에 있다 (${stow}발 ≥ outputQty ${ammoRecipe?.outputQty})`);
+  await waitFor(page, () => window.__game.ctx.tutorial.step === 'terminal', 'step terminal', 15000);
+  ok(await step() === 'terminal', 'stowAmmo 는 수량과 무관하게 넘어간다 (30발이든 90발이든)');
 
   /* 2026-09-09: 창고에는 튜토리얼이 쓰는 것만 보인다 (`stashItem` 게이트 — 데이터는 그대로, 그리지 않을 뿐) */
   const stashGate = await P(() => {

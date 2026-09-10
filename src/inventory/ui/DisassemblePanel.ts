@@ -28,6 +28,12 @@ import { TEXT } from './labels';
  *  - The second horizontal bar under the button is gone too — the button *is* the progress bar.
  *  - **넣을 자리를 먼저 본다** (`InventorySystem.craftHasRoom` — 함선에서는 가방 → 창고, 2026-09-09). The bag used to be checked when the hold ended, so a
  *    full bag cost you the 2 s and then said no; the button now refuses up front with the reason on it.
+ *
+ * **2026-09-10 (제작 대개편 2단계)** — 산출이 **남은 내구도**를 탄다. 팝업은 열 때 한 번이 아니라 매 `refresh()`
+ * 마다 `disassembleRecipeFor(uid)` 로 레시피를 다시 풀고(= `ctx.loot.getSalvageFor(inst)`), 자리 검사도 그
+ * 아이템 기준으로 묻는다. 예전에는 정적 `break_*` 줄(구간 4 기준)을 그렸기 때문에 **다 망가진 방탄복 I 도
+ * `폐금속 4 + 천조각 2` 라고 적혀 있었다** — 실제로 나오는 것은 `폐금속 1` 이다. 미리보기 밑에 붙은
+ * `.inv-dur-note` 한 줄이 지금 구간과 그 배수를 말한다.
  */
 /** Minimum spacing of two `inventory:disassembleProgress` emits (≤ 30 Hz). */
 const PROGRESS_EMIT_MS = 1000 / 30;
@@ -48,6 +54,8 @@ export class DisassemblePanel {
   private readonly preview: HTMLElement;
   private readonly inputHost: HTMLElement;
   private readonly outputHost: HTMLElement;
+  /** 남은 내구도 구간 + 그 구간의 분해 배수 (2026-09-10). 내구도가 없는 아이템에서는 숨는다. */
+  private readonly durEl: HTMLElement;
   private readonly msgEl: HTMLElement;
   private readonly button: HTMLButtonElement;
   private readonly fill: HTMLElement;
@@ -86,6 +94,11 @@ export class DisassemblePanel {
       column(TEXT.disassemble.input, this.inputHost), arrow, column(TEXT.disassemble.output, this.outputHost),
     );
 
+    // 2026-09-10: 산출이 남은 내구도를 타므로 **어느 구간이라 이 숫자인가**를 말해 준다 (사양서 §4).
+    this.durEl = document.createElement('div');
+    this.durEl.className = 'inv-dur-note';
+    this.durEl.hidden = true;
+
     this.msgEl = document.createElement('div');
     this.msgEl.className = 'inv-dis-msg';
     this.msgEl.hidden = true;
@@ -100,7 +113,7 @@ export class DisassemblePanel {
     this.button.append(this.fill, this.buttonLabel);
     this.button.addEventListener('click', () => this.run());
 
-    this.shell.body.append(this.preview, this.msgEl, this.button);
+    this.shell.body.append(this.preview, this.durEl, this.msgEl, this.button);
   }
 
   get el(): HTMLElement { return this.shell.el; }
@@ -150,10 +163,14 @@ export class DisassemblePanel {
 
   /** Repaint the chips / affordability. Called on open and from the window's `refresh()`. */
   refresh(): void {
-    const r = this.recipe;
-    if (!r) return;
+    if (!this.recipe) return;
     // the item may have been consumed / moved away meanwhile
     if (this.uid && !this.sys.findItem(this.uid)) { this.close(); return; }
+    // 2026-09-10: 산출은 **지금 남은 내구도**의 함수다 — 매번 다시 풀어 미리보기와 실제를 붙여 둔다
+    // (`disassembleRecipeFor` → `ctx.loot.getSalvageFor`). 창을 열어 둔 채 아이템이 닳아도 숫자가 따라온다.
+    const fresh = this.uid ? this.sys.disassembleRecipeFor(this.uid) : null;
+    if (fresh) this.recipe = fresh;
+    const r = this.recipe;
     const cost = this.sys.craftCost(r);
     const enough = renderItemCost(this.inputHost, cost, this.getDef, (id) => this.sys.countWhere((d) => d.id === id), { size: 46, withName: true });
     // 2026-09-08: 기계 부품처럼 여러 재료가 나오는 분해는 결과물 칩을 나란히 (`CraftRecipe.extraOutputs`)
@@ -161,17 +178,43 @@ export class DisassemblePanel {
       buildItemChip(this.getDef(r.outputDefId), { need: r.outputQty, size: 46, withName: true }),
       ...(r.extraOutputs ?? []).map((e) => buildItemChip(this.getDef(e.defId), { need: e.qty, size: 46, withName: true })),
     );
+    this.paintDurability();
     const job = this.sys.craftProgress();
     const active = job?.recipeId === r.id;
     this.running = active;
     // 2026-09-08: 칸부터 본다 — the bag check that used to run when the hold ended now gates the button.
-    const room = this.sys.craftHasRoom(r.id);
+    // 2026-09-10: **이 아이템 기준으로** 묻는다 — 구간 4 기준의 정적 줄로 재면 자리 계산이 어긋난다.
+    const room = this.sys.craftHasRoom(r.id, 1, this.uid ?? undefined);
     const noRoom = this.sys.ctx.isHubPhase() ? TEXT.disassemble.noRoomShip : TEXT.disassemble.noRoom;
     const block = !enough ? TEXT.disassemble.short : !room ? noRoom : '';
     this.button.disabled = !active && !!block;
     this.buttonLabel.textContent = active ? TEXT.disassemble.working : block || TEXT.disassemble.button;
     this.button.title = block;
     this.tick();
+  }
+
+  /**
+   * **남은 내구도 구간 한 줄** (2026-09-10, 사양서 §4). `81~100 % · 제작 재료의 40 %` 와 그 아래 안내
+   * 한 줄 — 구간이 바뀌면 위의 결과물 칩이 함께 바뀐다는 것이 읽혀야 한다. 배수는 전부
+   * `ctx.loot.durabilityBucketInfo` 에서 오고(원본은 `data/tables.csv`) 여기에는 숫자가 없다.
+   * 내구도를 쓰지 않는 아이템(탄약 · 재료 · 가방)은 언제나 구간 4 이므로 줄 자체를 숨긴다 —
+   * 있지도 않은 게이지를 설명할 이유가 없다.
+   */
+  private paintDurability(): void {
+    const item = this.uid ? this.sys.findItem(this.uid) : null;
+    const dur = item ? this.sys.getDurability(item.uid) : null;
+    if (!item || !dur || dur.max <= 0) { this.durEl.hidden = true; return; }
+    const info = this.sys.loot.durabilityBucketInfo(item);
+    this.durEl.hidden = false;
+    this.durEl.replaceChildren();
+    const cap = document.createElement('span');
+    cap.className = 'inv-eyebrow';
+    cap.textContent = TEXT.durability.eyebrow;
+    const val = document.createElement('b');
+    val.textContent = TEXT.durability.salvage(info.label, info.salvageMul);
+    const note = document.createElement('em');
+    note.textContent = TEXT.durability.salvageNote;
+    this.durEl.append(cap, val, note);
   }
 
   /**

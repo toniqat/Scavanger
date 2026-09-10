@@ -15,13 +15,13 @@ BOOK_WEIGHT,0.6,서적 1권 무게(kg)
 IMPLANT_WEIGHT,0.2,임플란트 1개 무게(kg)
 BROKEN_IMPLANT_VALUE_DIV,4,망가진 임플란트 가격 = 정상품 ÷ 이 값
 
-# items — 고물 분해 산출량
-WEAPON_SALVAGE_BASE,2,무기 분해 폐금속: 등급 I 기준값
-WEAPON_SALVAGE_PER_GRADE,1,등급 1단계마다 +
+# items — 고물 분해 (2026-09-10 개편: 산출량은 data/recipes.csv 의 제작 재료 × tables.csv 의
+#   SALVAGE_YIELD_BY_DURABILITY 다. 여기 남은 것은 홀드 시간과 반올림 규칙뿐이다.)
 WEAPON_SALVAGE_DURATION,6,무기 분해 홀드 시간(초)
-ARMOR_SALVAGE_BASE,3,방탄복 분해 폐금속: 티어 1 기준값
-ARMOR_SALVAGE_PER_TIER,2,티어 1단계마다 +
 ARMOR_SALVAGE_DURATION,5,방탄복 분해 홀드 시간(초)
+BAG_SALVAGE_DURATION,5,가방 분해 홀드 시간(초)
+SALVAGE_MAIN_MIN_YIELD,1,"분해 산출은 내림이지만 **제일 많이 든 재료** 한 종류만 이 값을 밑돌지 않는다 (0 이 나오는 것을 막는다). 나머지 재료는 0 이면 안 나온다 — 최소 1 을 보장하면 상위 재료가 통째로 돌아와 무한 이득이 된다."
+UNIQUE_REPAIR_MUL,1.5,"제작 레시피가 없는 유니크(무기 · 방탄복)의 수리비 배수. 기준은 같은 계열 등급 V (유니크 방탄복은 방탄복 V) 의 제작 재료다."
 
 # items — 방탄복 아이템 가격 (value = BASE + 실드 × SHIELD_MUL + 내구도 × DUR_MUL)
 # 2026-09-10: 예전 ARMOR_VALUE_DR_MUL(4200)이 피해감소에 곱해지던 자리다. 실드 = 뎀감률 ÷ 0.3 × 100 이라

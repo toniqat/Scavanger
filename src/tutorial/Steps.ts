@@ -76,17 +76,19 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     id: 'craftGun', title: '작업대에서 돌격소총을 만드세요',
     hint: '작업실로 걸어가 총기 작업대를 사용하고 돌격소총 제작을 1초간 누릅니다.',
     allow: { craft: [TUTORIAL_GUN_RECIPE, TUTORIAL_AMMO_RECIPE] },
-    spot: ['.inv-craft-row[data-recipe="make_wpn_ar"] .inv-craft-btn', '.inv-craft-row[data-recipe="make_wpn_ar"]', '.inv-panel-craft'],
+    spot: [`.inv-craft-row[data-recipe="${TUTORIAL_GUN_RECIPE}"] .inv-craft-btn`, `.inv-craft-row[data-recipe="${TUTORIAL_GUN_RECIPE}"]`, '.inv-panel-craft'],
     spotText: '돌격소총 제작',
     guide: 'bench',
   },
   craftAmmo: {
     id: 'craftAmmo', title: '준중량탄을 만드세요',
     // 소총 바로 다음, **같은 작업대 창**이 열린 채로. 재료 부족분은 이 단계에 들어설 때 `ensureMaterials` 가 채운다.
-    hint: '같은 작업대에서 준중량탄 대량 제작을 1초간 누릅니다. 재료는 튜토리얼이 채워 둡니다.',
+    hint: '같은 작업대에서 준중량탄 제작을 1초간 누릅니다. 재료는 튜토리얼이 채워 둡니다.',
     allow: { craft: [TUTORIAL_GUN_RECIPE, TUTORIAL_AMMO_RECIPE] },
-    spot: ['.inv-craft-row[data-recipe="bulk_ammo_medium"] .inv-craft-btn', '.inv-craft-row[data-recipe="bulk_ammo_medium"]', '.inv-panel-craft'],
-    spotText: '준중량탄 대량 제작',
+    // 2026-09-10: `bulk_ammo_medium`(대량 제작)이 제작 대개편에서 사라져 `make_ammo_medium` 으로 옮겼다.
+    //   선택자는 `TUTORIAL_AMMO_RECIPE` 에서 만든다 — id 를 손으로 두 번 적으면 다음에 또 어긋난다.
+    spot: [`.inv-craft-row[data-recipe="${TUTORIAL_AMMO_RECIPE}"] .inv-craft-btn`, `.inv-craft-row[data-recipe="${TUTORIAL_AMMO_RECIPE}"]`, '.inv-panel-craft'],
+    spotText: '준중량탄 제작',
     guide: 'bench',
   },
   openBag: {
