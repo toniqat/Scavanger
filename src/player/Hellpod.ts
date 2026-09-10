@@ -23,6 +23,14 @@ const _v = new THREE.Vector3(), _vel = new THREE.Vector3(), _up = new THREE.Vect
  */
 export class Hellpod {
   readonly group = new THREE.Group();
+  /**
+   * Every mesh of the pod. **The visibility toggle lives here, not on `group`** (2026-09-10, same rule as
+   * `extraction/Ship`): three.js skips invisible subtrees when it collects lights, so a light parked under a
+   * hidden group is not counted — showing the group then changes `numPointLights` and **every material in the
+   * scene recompiles its shader**. A rescue drop lands mid-raid, which is the worst possible moment for that.
+   * `group` therefore stays visible forever and carries `thrusterLight` (intensity 0 while idle).
+   */
+  private readonly body = new THREE.Group();
   state: HellpodState = 'idle';
   private t = 0;
   private readonly landing = new THREE.Vector3();
@@ -50,34 +58,34 @@ export class Hellpod {
       const strut = new THREE.Mesh(this.geo(new THREE.BoxGeometry(0.1, 1.9, 0.1)), dark);
       strut.position.set(Math.cos(a) * 0.6, 1.1, Math.sin(a) * 0.6);
       strut.rotation.y = -a;
-      this.group.add(strut);
+      this.body.add(strut);
     }
     const seatBack = new THREE.Mesh(this.geo(new THREE.BoxGeometry(0.5, 1.2, 0.08)), dark);
     seatBack.position.set(0, 1.1, 0.46);
-    this.group.add(seatBack);
+    this.body.add(seatBack);
     const floor = new THREE.Mesh(this.geo(new THREE.CylinderGeometry(0.66, 0.7, 0.16, 16)), body);
     floor.position.y = 0.08;
-    this.group.add(floor);
+    this.body.add(floor);
     const floorTrim = new THREE.Mesh(this.geo(new THREE.CylinderGeometry(0.72, 0.72, 0.05, 16)), trim);
     floorTrim.position.y = 0.16;
-    this.group.add(floorTrim);
+    this.body.add(floorTrim);
     // nose cone
     const nose = new THREE.Mesh(this.geo(new THREE.ConeGeometry(0.68, 0.9, 16)), body);
     nose.position.y = 2.45;
-    this.group.add(nose);
+    this.body.add(nose);
     const noseTrim = new THREE.Mesh(this.geo(new THREE.CylinderGeometry(0.66, 0.7, 0.12, 16)), trim);
     noseTrim.position.y = 2.02;
-    this.group.add(noseTrim);
+    this.body.add(noseTrim);
     // thrusters under the floor
     for (let i = 0; i < 4; i++) {
       const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
       const th = new THREE.Mesh(this.geo(new THREE.CylinderGeometry(0.12, 0.16, 0.22, 10)), this.thrusterMat);
       th.position.set(Math.cos(a) * 0.4, -0.08, Math.sin(a) * 0.4);
-      this.group.add(th);
+      this.body.add(th);
     }
     this.thrusterLight = new THREE.PointLight(0xff8a30, 0, 14, 2);
     this.thrusterLight.position.y = -0.4;
-    this.group.add(this.thrusterLight);
+    this.group.add(this.thrusterLight);   // never hidden — see the `body` note
 
     // 4 petal doors hinged at the floor (one faces -Z: the exit direction)
     for (let i = 0; i < 4; i++) {
@@ -94,11 +102,12 @@ export class Hellpod {
       const window = new THREE.Mesh(this.geo(new THREE.BoxGeometry(0.02, 0.3, 0.4)), this.mat(0x0a1a2a, 0.9, 0.2));
       window.position.set(0.09, 1.5, 0);
       pivot.add(window);
-      this.group.add(pivot);
+      this.body.add(pivot);
       this.doors.push(pivot);
     }
-    this.group.traverse((o) => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-    this.group.visible = false;
+    this.body.traverse((o) => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+    this.body.visible = false;
+    this.group.add(this.body);
   }
 
   private mat(color: number, metalness: number, roughness: number): THREE.MeshStandardMaterial {
@@ -114,7 +123,7 @@ export class Hellpod {
     this.yaw = yaw;
     this.state = 'falling';
     this.t = 0;
-    this.group.visible = true;
+    this.body.visible = true;
     this.group.position.set(landing.x, landing.y + DROP_HEIGHT, landing.z);
     this.group.rotation.set(0, yaw, 0);
     for (const d of this.doors) d.rotation.z = 0;
@@ -126,7 +135,7 @@ export class Hellpod {
   /** Reset to hidden (mission abort). */
   hide(): void {
     this.state = 'idle';
-    this.group.visible = false;
+    this.body.visible = false;
     this.thrusterLight.intensity = 0;
   }
 

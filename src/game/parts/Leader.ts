@@ -17,6 +17,23 @@ import type { GameFlowSystem } from '../GameFlowSystem';
 
 const DEVICE_ID = 'leader_device';
 
+/**
+ * 기기의 점광원은 **기기 안에 살지 않는다** (2026-09-10). three.js 는 보이지 않는/씬에 없는 광원을 세지
+ * 않으므로, 기기를 씬에 넣고 빼는 것만으로 `numPointLights` 가 오르내리고 그때마다 **씬의 모든 머티리얼이
+ * 셰이더를 다시 컴파일한다** — 하필 호스트가 죽어 분대가 제일 급한 순간에 두 번. 그래서 광원 하나를
+ * `init` 때 씬에 심어 두고(`installLeaderLight`) 기기는 **자리와 밝기만** 준다. `core/fx/FlashPool` 과
+ * `extraction/Ship` 과 같은 규칙이다.
+ */
+let deviceLight: THREE.PointLight | null = null;
+
+/** `GameFlowSystem.init` 에서 한 번. 광원은 레이드 내내 씬에 남고 기기가 없을 때는 `intensity` 가 0 이다. */
+export function installLeaderLight(sys: GameFlowSystem): void {
+  if (deviceLight) return;
+  deviceLight = new THREE.PointLight(0xffc23a, 0, 9, 2);
+  deviceLight.name = 'LeaderDeviceLight';
+  sys.ctx.scene.add(deviceLight);
+}
+
 /** 바닥에 떨어진 분대장 기기 — 각진 신호기 하나. 아이템이 아니라 오브젝트다 (인벤토리에 들어가지 않는다). */
 export class LeaderDeviceObject implements Interactable {
   readonly id = DEVICE_ID;
@@ -27,7 +44,6 @@ export class LeaderDeviceObject implements Interactable {
   private readonly geos: THREE.BufferGeometry[] = [];
   private readonly mats: THREE.Material[] = [];
   private readonly beacon: THREE.Mesh;
-  private readonly light: THREE.PointLight;
   private t = 0;
 
   constructor(private readonly sys: GameFlowSystem, readonly hostId: string, position: THREE.Vector3) {
@@ -55,9 +71,6 @@ export class LeaderDeviceObject implements Interactable {
     ring.rotation.x = Math.PI / 2;
     ring.position.y = 0.21;
     this.group.add(ring);
-    this.light = new THREE.PointLight(0xffc23a, 8, 9, 2);
-    this.light.position.y = 0.6;
-    this.group.add(this.light);
     this.group.traverse((o) => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   }
 
@@ -68,7 +81,10 @@ export class LeaderDeviceObject implements Interactable {
   update(dt: number): void {
     this.t += dt;
     const k = 0.55 + Math.sin(this.t * 3.4) * 0.45;
-    this.light.intensity = 4 + k * 10;
+    if (deviceLight) {
+      deviceLight.position.set(this.position.x, this.position.y + 0.6, this.position.z);
+      deviceLight.intensity = 4 + k * 10;
+    }
     this.beacon.scale.setScalar(0.9 + k * 0.25);
     this.group.rotation.y += dt * 0.6;
   }
@@ -89,6 +105,7 @@ export class LeaderDeviceObject implements Interactable {
     for (const g of this.geos) g.dispose();
     for (const m of this.mats) m.dispose();
     this.group.removeFromParent();
+    if (deviceLight) deviceLight.intensity = 0;   // 광원은 씬에 남는다 — 밝기만 끈다
   }
 }
 

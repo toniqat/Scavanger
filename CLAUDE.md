@@ -53,7 +53,7 @@ npm run e2e:mp         # 헤드리스 크롬 2대로 릴레이+vite 관통 테�
 npm run pitch:webp # 피칭 문서 배포본 이미지: docs/pitch/assets/*.png → 같은 이름의 .webp (30MB → 2.8MB)
 ```
 
-개별 스모크 스크립트 36종의 목록과 각각이 검사하는 내용은 **[scripts/README.md](scripts/README.md)** 에 있다.
+개별 스모크 스크립트 37종의 목록과 각각이 검사하는 내용은 **[scripts/README.md](scripts/README.md)** 에 있다.
 `npm run verify` 가 폴더 → 스크립트 매핑으로 알아서 고르므로 손으로 하나씩 돌리지 않는다 (`node scripts/verify.mjs --list`).
 
 Windows 원클릭 실행 (프로젝트 루트에서 더블클릭):
@@ -342,7 +342,12 @@ start-server.bat relay   # 릴레이만 (npm run server, 0.0.0.0:8787) — 데�
   렉이 심하다" 의 정체였다. **규칙은 `core/fx/FlashPool` 이 처음부터 적어 둔 것 그대로다** — 광원은 씬에
   계속 두고 **`intensity` 만 0 으로 내린다**. 그러려면 표시 토글을 광원이 **아닌** 곳에 둬야 한다:
   `Dropship.root` 는 영영 보이는 채로 광원을 들고 `Dropship.body` 가 메시 전부와 `visible` 을 갖는다
-  (`FlareColumn` 은 `group` 대신 `shown` 플래그). 광원을 새로 만드는 코드는 이 규칙을 먼저 읽는다.
+  (`FlareColumn` 은 `group` 대신 `shown` 플래그). 같은 이유로 **헬포드**도 `group`(광원) / `body`(메시)로
+  갈라져 있고(재접속 복귀의 `hide()` + 구조선 강하의 `start()` 가 레이드 중에 두 번 바꾸고 있었다),
+  **분대장 기기**의 광원은 기기 안이 아니라 `init` 때 씬에 심어 둔 것 하나다(`Leader.installLeaderLight`) —
+  광원을 든 오브젝트를 씬에 넣고 빼는 것만으로도 같은 일이 난다. 이 규칙은 **`npm run verify` 가
+  `smoke-lights` 로 강제한다**: 레이드 한 판을 돌며 `traverseVisible` 로 세어, 로드 경계가 아닌 곳에서
+  숫자가 바뀌면 실패한다. 광원을 새로 만드는 코드는 이 규칙을 먼저 읽는다.
 - **함선처럼 움직이는 실내는 박스를 매 프레임 다시 쓴다** (2026-09-10). `PlayerRef.setShipInterior(bounds)` 는
   **참조를 들고 있고** `PlayerController` 가 거기서 바닥 높이와 XZ 클램프를 읽는다 — 탑승 순간 찍어 둔
   스냅샷을 넘기면 함선이 이륙할 때 바닥만 땅에 남아 플레이어가 떨어진다. 바닥 높이는 박스의 상수가 아니라

@@ -47,6 +47,17 @@ When you add a smoke script: add it to `SMOKES` in `scripts/verify.mjs` with the
 in `CLAUDE.md`.
 
 ## History (what was actually tested)
+- 2026-09-10 조명 개수 버그 나머지 (`src/player/Hellpod.ts` · `src/game/parts/Leader.ts` · `GameFlowSystem.init` · 신규 `scripts/smoke-lights.mjs`): `npm run verify` (player + game + extraction 매핑 전체) → `smoke-phase4 48/49` 하나 red, `--rerun-failed` → **49/49** (이 스크립트의 알려진 플레이키 — 6차에서 A/B 교차로 고치기 전 코드에서도 같은 빈도로 재현됨을 확인했다). 그 밖에 **전부 통과**, 7분 30초 + 1분 1초. 새 `smoke-lights 4/4`.
+
+  **새 스모크가 그물이다.** 레이드 한 판을 돌며 `scene.traverseVisible` 로 매 프레임 광원을 세고 로드 경계
+  (허브 구축 · 미션 시작)가 아닌 곳에서 숫자가 바뀌면 실패한다. 고친 코드: 변화 2회(`hub` −1→27, `mission-start`
+  27→20)뿐이고 플레이 중 0회. **고치기 전 코드에 대고 같은 스크립트를 돌려 2/4 red 로 재현했다** —
+  `19 → 18 [playing] rejoin restoreState (hellpod.hide)`, `18 → 19 [playing] rescue drop (hellpod.start)`.
+  이것이 헬포드의 실제 트리거다: 포드는 착륙 뒤에도 소품으로 남아 보이므로 **구조선 강하만으로는 안 바뀌고**,
+  재접속 복귀가 먼저 숨겨야 한다 (6차 보고에서 "구조선 강하 때마다" 라고 한 것은 과했다). 분대장 기기는
+  멀티 호스트 사망이 필요해 솔로 스모크로는 재현할 수 없어 **코드로 확정**했다 (`ctx.scene.add(d.group)` /
+  `dispose()` 가 광원을 든 그룹을 넣고 뺐다); 대신 광원이 `init` 때 씬에 `intensity 0` 으로 심겨 있는지를 단언한다.
+  영구 비용은 광원 +2 (헬포드 스러스터 · 기기) — 레이드 표본에서 허브 25→27, 레이드 19→20.
 - 2026-09-10 탈출 함선 — 열린 뒷문 · 탑승 이동 · 도착 렉 (`src/extraction` · `src/player/PlayerSystem.ts`): `npm run verify` (extraction + player 매핑 전체) → **전부 통과, 6분 59초**. `2026-09-10: typecheck ok, typecheck-server ok, net-selftest 295/295, data-check ok, smoke-quickslots 73/73, smoke-phase2 57/57, smoke-weapons 136/136, smoke-stratagems 75/75, smoke-phase3 33/33, smoke-ship-rooms 72/72, smoke-phase4 49/49, smoke-tactical 87/87, smoke-controls-hub 144/144, smoke-inventory-p6 124/124, smoke-housing 206/206, smoke-console 63/63, smoke-search 61/61, smoke-loadout 69/69, smoke-progression 123/123, smoke-ui-p6 88/88, smoke-ui-p5 136/136, smoke-uniques 72/72, smoke-enemy-alert 42/42, smoke-rogue-drop 29/29, smoke-rogue-v2 52/52, smoke-resume-gate 62/62, smoke-meta 172/172, smoke-training 112/112, smoke-library 126/126, smoke-enemy-delta 52/52, smoke-ghost 86/86, smoke-planets 86/86, smoke-social 138/138, smoke-ecology 90/90, smoke-props-collision 20/20, smoke-structures 25/25, smoke-server-dist ok, smoke-raidflow 59/59, smoke-hazard 43/43, smoke-tutorial 83/83, smoke-hangar 58/58, e2e-mp 156/156`.
 
   **`smoke-raidflow` 를 49 → 59 로 늘렸다** — 이 셋이 이번 회귀 가드다: ① 뒷문 평면(함선 로컬 z 0.45, `|x|<1.4`,

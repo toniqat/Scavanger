@@ -87,6 +87,10 @@ const SMOKES = {
   /* 2026-09-08: 공용 함선 격납고 — 두 클라이언트가 필요하다 (개인 함선 방문 · `hs` 동석 규칙). 릴레이를 쓰므로
      e2e 와 같이 exclusive 로 돈다. */
   'smoke-hangar':       { file: 'scripts/smoke-hangar.mjs',       folders: ['hub', 'net', 'housing', 'player'], exclusive: true, freshRelay: true },
+  /* 2026-09-10: 씬의 광원 개수. 플레이 중에 그 숫자가 바뀌면 씬의 모든 머티리얼이 셰이더를 다시 컴파일해
+     한 프레임이 멎는다 — 지금까지 탈출 함선 · 신호탄 · 헬포드 · 분대장 기기가 이 그물에 걸렸다. 광원을
+     들고 있는 폴더 전부에 매핑한다. */
+  'smoke-lights':       { file: 'scripts/smoke-lights.mjs',       folders: ['extraction', 'player', 'game', 'hub', 'world', 'core'] },
   'e2e-mp':             { file: 'scripts/e2e-multiplayer.mjs',    folders: ['net', 'server', 'game', 'extraction', 'hub', 'pickups', 'player', 'enemies'], exclusive: true, freshRelay: true },
 };
 // Anything under these paths touches the contract / bootstrap → run everything.

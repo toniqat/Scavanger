@@ -103,6 +103,9 @@ export class GameFlowSystem implements GameSystem {
     // 2026-09-09: 시체 저장소를 `ctx.corpses` 로 게시한다 (구조선 대상 목록 · 지도가 읽는다).
     this.corpses = new PlayerCorpseManager(ctx);
     ctx.corpses = this.corpses;
+    // 2026-09-10: 분대장 기기의 점광원을 씬에 미리 심는다 — 기기를 넣고 뺄 때 광원 개수가 바뀌면
+    // 씬의 모든 머티리얼이 셰이더를 다시 컴파일한다 (`parts/Leader` 의 `installLeaderLight` 주석).
+    Leader.installLeaderLight(this);
     const b = ctx.bus;
     this.unsubs.push(
       b.on('game:newMission', ({ seed, mode, planet }) => this.onNewMission(seed, mode, planet)),
