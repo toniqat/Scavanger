@@ -141,9 +141,19 @@ try {
   st = await state();
   const called = await lastEv('stratagem:called');
   ok(called?.kind === 'supply_drop' && st.calls === 1 && st.armed === null && st.targeting === false, 'LMB confirms: stratagem:called, disarmed, targeting off', JSON.stringify({ st, called }));
-  ok(st.cooldown > 59 && st.total === 60 && (await ev('stratagem:cooldown')).length >= 1, 'shared cooldown 60 s started', JSON.stringify(st));
+  /* 2026-09-10: 공유 쿨타임 값이 바뀌었다 — 구조선 30 · 보급품/트라이포드 90 · 궤도 폭격 120 (data/stratagems.csv). */
+  ok(st.cooldown > 89 && st.total === 90 && (await ev('stratagem:cooldown')).length >= 1, 'shared cooldown 90 s started', JSON.stringify(st));
   await key('KeyG');
   ok((await state()).armed === null && (await ev('ui:notify')).some((n) => /재충전/.test(n.text)), 'arming refused while on cooldown (ui:notify)', JSON.stringify(await ev('ui:notify')));
+  /* 2026-09-10 (사용자 결정): 쿨타임 중에는 **휠 자체가 열리지 않는다** — 고를 수 있는 칸이 하나도 없기 때문이다. */
+  await keyDown('KeyG'); await waitSim(0.5);
+  const coolWheel = await lastEv('stratagem:wheelChanged');
+  ok(coolWheel?.open === false && !(await S((s) => s.wheelOpen)),
+    '쿨타임 중 G 홀드는 휠을 열지 않는다', JSON.stringify(coolWheel));
+  ok((await ev('ui:notify')).filter((n) => /재충전/.test(n.text)).length >= 2,
+    '휠을 열려 한 순간에도 재충전 토스트가 뜬다', String((await ev('ui:notify')).filter((n) => /재충전/.test(n.text)).length));
+  await keyUp('KeyG'); await waitSim(0.15);
+  ok((await state()).armed === null, '홀드를 놓아도 무장되지 않는다 (쿨타임)', JSON.stringify(await state()));
   const p0 = await P(() => window.__game.ctx.player.hp);
   await waitSim(3.5);
   const landed = await lastEv('stratagem:landed');

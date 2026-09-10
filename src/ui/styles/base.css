@@ -1186,34 +1186,9 @@ input { font: inherit; color: inherit; }
 .swheel.cooling .scd { display: block; }
 .swheel .ssub { font-size: 8px; letter-spacing: 0.08em; color: var(--c-text-faint); line-height: 1.3; }
 
-/* Ship-call panel: above the weapon panel, bottom-right */
-/* Phase 9 UI pass: in the weapon column (topmost) instead of a fixed `bottom` — the 임플란트 / 빠른 사용 strips made
-   that offset land inside the panel, and the column's height now depends on what the player carries. */
-.strat-panel {
-  display: flex; flex-direction: column; align-items: flex-end; gap: 3px;
-  min-width: 150px; max-width: 260px; margin-bottom: 4px;
-  opacity: 0.8; transition: opacity var(--t-fast) var(--ease);
-}
-.strat-panel.off { display: none; }
-.strat-panel.armed { opacity: 1; }
-.strat-panel .row { display: flex; align-items: center; gap: 7px; }
-.strat-panel .keycap.g { font-size: 9px; min-width: 16px; height: 16px; padding: 0 4px; color: var(--c-text-dim); }
-.strat-panel .keycap.g.lit { color: var(--c-accent); border-color: var(--c-accent); }
-.strat-panel .ico { display: none; font-size: 15px; line-height: 1; }
-.strat-panel.armed .ico { display: inline-block; }
-.strat-panel .nm { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 600; color: var(--c-text-dim); }
-.strat-panel.armed .nm { color: var(--c-text); }
-.strat-panel.cooling .nm { color: var(--c-accent); font-family: var(--ui-mono); text-transform: none; letter-spacing: 0.04em; }
-.strat-panel .hint { display: none; font-size: 9px; color: var(--c-text-dim); letter-spacing: 0.04em; white-space: nowrap; }
-.strat-panel.armed .hint { display: block; }
-.strat-panel .ctrl { font-size: 9px; letter-spacing: 0.12em; color: var(--c-text-faint); white-space: nowrap; }
-.strat-panel.armed .ctrl { color: var(--c-accent); border: 1px solid rgba(255, 179, 71, 0.5); padding: 2px 6px; }
-.strat-panel.targeting .ctrl { color: var(--c-text); border-color: var(--c-border-strong); }
-.strat-panel .ctrl:empty { display: none; }
-.strat-panel .cd-bar { width: 100%; height: 2px; background: rgba(255, 255, 255, 0.12); overflow: hidden; margin-top: 2px; }
-.strat-panel .cd-bar .fill { width: 100%; height: 100%; background: var(--c-text-dim); transform-origin: left; transform: scaleX(1); will-change: transform; }
-.strat-panel.cooling .cd-bar .fill { background: var(--c-accent); }
-.strat-panel.armed .cd-bar { opacity: 0.4; }
+/* 2026-09-10 (2차): 함선 호출 텍스트 패널(`.strat-panel` — G 키캡 + 이름 + 설명 + 조작 힌트 + 가로 쿨다운 바)의
+   규칙 블록이 여기 있었다. 그 위젯이 **임플란트 왼쪽의 정사각 썸네일**(`.scall`, `styles/shipCall.css`)로
+   바뀌면서 클래스를 쓰는 요소가 없어져 죽은 규칙만 지웠다. */
 
 /* Charge ring around the reticle (LMB held on an orbital call) */
 .charge {
@@ -1331,7 +1306,7 @@ input { font: inherit; color: inherit; }
   font-size: 10px; letter-spacing: 0.16em; color: var(--c-text-dim);
   border: 1px solid var(--c-border); background: var(--c-panel); padding: 4px 10px; white-space: nowrap;
 }
-.hud.spectating .swheel, .hud.spectating .strat-panel, .hud.spectating .charge, .hud.spectating .targeting-hud { opacity: 0 !important; visibility: hidden; }
+.hud.spectating .swheel, .hud.spectating .charge, .hud.spectating .targeting-hud { opacity: 0 !important; visibility: hidden; }
 
 /* Off-screen indicators: pooled edge arrows */
 .offscr { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
@@ -2100,6 +2075,25 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .set-hint { font-size: 10px; letter-spacing: 0.08em; color: var(--c-text-faint); }
 .set-foot { display: flex; justify-content: flex-end; padding-top: 10px; border-top: 1px solid var(--c-border); }
 .set-foot .ui-btn { min-width: 0; padding: 0 22px; }
+
+/* ── 서버 설정 (2026-09-10): 주소 한 칸 + 연결 테스트 · 적용 · 기본값으로 ──
+   접속할 릴레이를 게임 안에서 고르는 유일한 자리다 (`menus/SettingsMenu.buildNetwork`). 상태 한 줄은 색으로만
+   말한다 — `.ok` 초록, `.bad` 붉은색, 아무 클래스도 없으면 "확인 중" 같은 중립이다. */
+.set-text {
+  width: 320px; height: 32px; padding: 0 10px;
+  border: 1px solid var(--c-border-strong); background: var(--c-fill);
+  font-family: inherit; font-size: 12px; letter-spacing: 0.06em; color: var(--c-text);
+  outline: none;
+}
+.set-text:focus { border-color: var(--c-accent); box-shadow: 0 0 0 1px rgba(255, 179, 71, 0.25); }
+.set-text:disabled { opacity: 0.35; }
+.set-text::placeholder { color: var(--c-text-faint); }
+.set-net-status { font-size: 11px; letter-spacing: 0.06em; color: var(--c-text-dim); min-height: 15px; }
+.set-net-status.ok { color: #7fd18a; }
+.set-net-status.bad { color: var(--c-danger); }
+.set-net-foot { display: flex; gap: 8px; flex-wrap: wrap; }
+.set-net-foot .ui-btn { min-width: 0; height: 32px; padding: 0 16px; font-size: 11px; }
+.set-net-foot .ui-btn:disabled { opacity: 0.35; cursor: default; }
 
 /* ── 함선 관리(M) hint: bottom-right of the social layer, persistent in the ship ── */
 .ship-hint {

@@ -1,0 +1,107 @@
+/*
+ * 함선 호출 썸네일 (2026-09-10 2차, 사용자 결정) — `hud/StratagemPanel` 전용 시트.
+ *
+ * 우측 하단 무기 열의 텍스트 패널(`.strat-panel` — `G` 키캡 + 호출 이름 + 설명 + 조작 힌트 + 가로 쿨다운 바)을
+ * 걷어내고, **전술 임플란트 왼쪽의 정사각 썸네일** 하나로 바꿨다. 문구는 전부 없앴다 — 썸네일 + 그 아래 `G`
+ * 키캡뿐이고, 무장하면 썸네일이 그 호출의 색으로 밝아진다.
+ *
+ * 쿨타임 연출은 **임플란트와 완전히 같은 방식**이다 (`styles/implant.css` 의 `.ib-*` 와 짝): 같은 얼굴 두 장을
+ * 겹쳐 아래 장은 딤드, 위 장은 밑에서부터 `--fill` 만큼만 드러나는 밝은 사본. 클래스 이름만 `.sb-*` 로 갈라
+ * 뒀다 — HUD 위젯끼리 같은 클래스를 나눠 쓰면 한쪽 수정이 다른 쪽을 무너뜨린다 (2026-09-09 `.hold` 사고).
+ *
+ * 자리 · 크기는 `implant.css` 의 `:root` 변수(`--imp-th` · `--imp-tw` · `--imp-bottom` · `--imp-gap`)가
+ * 원본이다. 여기서 그 숫자를 다시 적지 않는다 — 임플란트 썸네일이 줄면 이쪽도 함께 줄어든다.
+ * 색 · 트랜지션 변수는 전부 `base.css` `:root` 것을 쓰고 여기서 새 색을 정의하지 않는다.
+ */
+
+/* 임플란트 썸네일의 **왼쪽**. 오른쪽 끝이 화면 중앙에서 임플란트 반폭 + 간격만큼 비켜 있으므로,
+   임플란트가 (장착하지 않아서 · 전투불능이라) 숨어도 이 썸네일은 자리를 지킨다. */
+.scall {
+  --sc: var(--c-text-dim);   /* 호출 색 — 무장 중이면 그 호출의 `STRATAGEM_COLOR` */
+  --fill: 0;                 /* 0…1, 아래에서 위로 차오르는 양 */
+  position: absolute;
+  right: calc(50% + var(--imp-tw) / 2 + var(--imp-gap));
+  bottom: var(--imp-bottom);
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  pointer-events: none;
+  transition: opacity var(--t-fast) var(--ease);
+}
+.scall[hidden], .scall.off { display: none !important; }
+
+/* ── 정사각 썸네일 (한 변 = 임플란트 썸네일 높이) ── */
+.sc-thumb {
+  position: relative;
+  width: var(--imp-th); height: var(--imp-th);
+  overflow: hidden;
+  background: rgba(8, 10, 14, 0.66);
+  border: 1px solid rgba(255, 255, 255, 0.20);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.55);
+  transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+}
+.sb-face {
+  position: absolute; left: 0; bottom: 0;
+  width: 100%; height: var(--imp-th);
+  display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(0, 0, 0, 0.18));
+  font-size: 20px; line-height: 1;
+  color: var(--sc);
+  text-shadow: 0 0 8px rgba(0, 0, 0, 0.9);
+}
+.sb-face.lit {
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--sc) 16%, transparent),
+    color-mix(in srgb, var(--sc) 30%, transparent));
+  text-shadow: 0 0 10px var(--sc), 0 0 3px rgba(0, 0, 0, 0.9);
+}
+/* 밝은 사본을 밑에서부터 `--fill` 만큼만 드러낸다 */
+.sb-reveal {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  height: calc(var(--fill) * 100%);
+  overflow: hidden;
+}
+/* 딤드 = 쿨타임 중 */
+.scall.dim .sb-face:not(.lit) { opacity: 0.34; }
+.scall.dim .sc-thumb { border-color: rgba(255, 255, 255, 0.12); }
+
+/* 중앙 남은 쿨타임 숫자 (임플란트와 같은 규칙: 10초 미만은 소수 한 자리) */
+.sc-cd {
+  position: absolute; left: 0; right: 0; top: 50%;
+  transform: translateY(-50%);
+  text-align: center;
+  font-size: 14px; font-weight: 700; letter-spacing: 0.02em;
+  color: var(--c-text);
+  text-shadow: 0 0 6px rgba(0, 0, 0, 0.95), 0 1px 2px #000;
+}
+.sc-cd:empty { display: none; }
+
+/* 우측 하단 남은 구조선 횟수 (구조선을 손에 들었을 때만) */
+.sc-ch {
+  position: absolute; right: 3px; bottom: 1px;
+  font-size: 10px; font-weight: 700; line-height: 1;
+  color: var(--c-text);
+  text-shadow: 0 0 5px rgba(0, 0, 0, 0.95), 0 1px 2px #000;
+}
+.sc-ch:empty { display: none; }
+.scall.spent .sc-ch { color: var(--c-danger); }
+
+/* 썸네일 하단의 사용 키 */
+.scall .sc-key {
+  min-width: 18px; height: 14px; padding: 0 5px;
+  font-size: 9px;
+  background: rgba(8, 10, 14, 0.72);
+}
+@media (max-height: 620px) {
+  .scall .sb-face { font-size: 15px; }
+  .scall .sc-cd { font-size: 12px; }
+  .scall .sc-key { height: 11px; font-size: 8px; }
+}
+
+/* 무장 중: 테두리 · 키캡이 그 호출의 색을 쓴다 (임플란트의 `.wielded` 와 같은 연출) */
+.scall.armed .sc-thumb { border-color: var(--sc); box-shadow: 0 0 10px color-mix(in srgb, var(--sc) 45%, transparent); }
+.scall.armed .sc-key { color: var(--sc); border-color: var(--sc); }
+.scall.pulse .sc-thumb { animation: scallPulse 320ms var(--ease); }
+@keyframes scallPulse { 0% { transform: scale(1.1); filter: brightness(1.6); } 100% { transform: scale(1); filter: none; } }
+
+/* 관전 · blocker 에서는 다른 크로스헤어 위젯들과 같이 사라진다 (조준 중에는 무엇을 들었는지 보여야 하므로 남는다) */
+.scall.blocked { opacity: 0; }
+.hud.spectating .scall { opacity: 0 !important; visibility: hidden; }

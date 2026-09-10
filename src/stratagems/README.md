@@ -29,7 +29,14 @@ armed(ground def: supply_drop, structure_drop, rescue_drop*) = `targeting` true,
           else clamped at range on the terrain) ──LMB──▶ confirm · RMB──▶ idle
 confirm → Call {stage 'incoming', landsAt = time + def.delay} + shared cooldown (def.cooldown) + disarm
 ```
-Arming while `cooldown > 0` is refused (`ui_deny`, `ui:notify "함선 호출 재충전 중 (n초)"`). The weapons system does not fire / aim while
+**공유 쿨타임 (2026-09-10, 사용자 결정).** `_cooldown` 은 예전부터 **네 호출 전체가 함께 쓰는 하나의 값**이었고
+(`confirm` 이 `startCooldown(def.cooldown)` 으로 그 호출의 길이만큼 넷 모두를 잠근다), 길이만 새로 정했다 —
+**구조선 30 · 보급품 90 · 트라이포드 90 · 궤도 폭격 120** (`data/stratagems.csv` 의 `cooldown`; 코드에는 없다).
+Arming while `cooldown > 0` is refused (`ui_deny`, `ui:notify "함선 호출 재충전 중 (n초)"`) — `denyCooldown(sys)`
+한 곳이 그 소리 · 문구를 갖는다. **2026-09-10 부터 쿨타임 중에는 `G` 홀드로 휠도 열리지 않는다**: 고를 수 있는
+칸이 하나도 없으므로 여는 대신 같은 거부를 내고, 그 자리에서 `gHeld = false` 로 홀드를 끊어 손을 뗄 때
+`arm` 이 같은 토스트를 한 번 더 띄우지 않게 한다 (`parts/Targeting.updateInput`).
+The weapons system does not fire / aim while
 `ctx.stratagems.armed` or `targeting` is set (wired by weapons). Targeting is cancelled (camera / controls restored, call kept) when
 gameplay stops being active (blockers, pointer lock lost); the call is put away on `player:died`, `player:downed` and any non-gameplay phase.
 
@@ -144,6 +151,18 @@ existing path. **RMB** is the cancel that works while aiming, and the HUD hints 
 ---
 
 ## 변경 이력
+
+- **2026-09-10 (2차) — 공유 쿨타임 값 재조정 + 쿨타임 중 휠 잠금 (사용자 결정).**
+  ① `data/stratagems.csv` 의 `cooldown` 만 바꿨다: 구조선 45 → **30**, 보급품 60 → **90**, 트라이포드 60 → **90**,
+  궤도 폭격 90 → **120** (`airstrike` 는 휠에 없으므로 90 그대로). 쿨타임이 공유라는 것은 처음부터 그랬고
+  (`_cooldown` 하나), 이번에 csv 머리말에 그 사실을 적어 두었다 — 표만 보고 "호출별 개인 쿨타임" 으로 읽히던 것을
+  막는다. ② **쿨타임 중에는 `G` 홀드로 휠이 열리지 않는다.** 예전에는 열리되 네 칸이 회색이었는데, 고를 수 있는
+  칸이 하나도 없는 휠을 여는 것은 의미가 없다는 사용자 판단이다. `updateInput` 의 홀드 임계 지점에 `_cooldown > 0`
+  가지를 하나 넣고 `denyCooldown(sys)` (거부음 + `재충전 n초` 토스트)로 끝낸다 — 그 헬퍼는 `arm` 의 거부와
+  **같은 함수**다. `StratagemWheel` 의 `.cooling` 표현은 지우지 않았다(안전망).
+  ③ HUD 쪽 짝: 우측 하단 `.strat-panel` 텍스트 패널이 **임플란트 왼쪽의 정사각 썸네일**(`ui/hud/StratagemPanel`,
+  `.scall`)로 바뀌었다 — 이 폴더는 손대지 않았고 이벤트(`stratagem:armed` · `stratagem:cooldown` · `rescue:countChanged`)
+  가 그대로 그것을 먹인다.
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 

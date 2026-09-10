@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type {
-  GameContext, EnemyRef, InteriorCollider, PeerId, PingKind as SharedPingKind, PingMessage, PingAckMessage, WeaponSlot, AmmoType,
+  GameContext, EnemyRef, InteriorCollider, PeerId, PingKind as SharedPingKind, PingMessage, PingAckMessage,
 } from '@/shared';
 import {
   MouseButtons, PING_LIFETIME, PING_DRAG_THRESHOLD_PX, PING_HOLD_MAX, PING_MAX_PER_PLAYER, PING_AIM_ASSIST_PX,
@@ -23,16 +23,6 @@ export const PING_COLOR: Record<PingKind, number> = {
   help: 0xff4d4d, abandon: 0x8a929c, structure: 0xd8c48a, rail: 0x9fb4c7,
 };
 const ENEMY_LOST_LABEL = '적 (마지막 위치)';
-
-/**
- * Korean calibre names for the ammo-request quick chat. Mirrors `items/ItemDefs.AMMO_LABEL_KO` — this folder imports
- * only `@/shared`, and the calibre union (`AmmoType`) is a shared contract, so the table is repeated here.
- */
-const AMMO_TYPE_KO: Readonly<Record<AmmoType, string>> = {
-  light: '경량탄', medium: '준중량탄', heavy: '중량탄', shell: '산탄',
-  rifle: '소총탄', pistol: '권총탄', shotgun: '산탄', energy: '에너지 셀',
-  fuel: '연료통', cell: '전지', shuriken: '표창', arrow: '화살', rocket: '로켓', belt: '탄띠',
-};
 
 const COOLDOWN = 0.3;
 const RAY_MAX = 300;
@@ -95,7 +85,7 @@ interface Ping extends PingView {
  * depends on the local player's state (`PING_HOLD_KINDS`: 여기 조심해 / 저쪽으로 가자, or 살려줘 / 나를 버려 while
  * downed), so the gesture no longer names a `PingKind` directly the way v2's `attack` / `caution` did.
  */
-type Gesture = 'plain' | 'left' | 'right' | 'ammo';
+type Gesture = 'plain' | 'left' | 'right';
 
 /** Aim-assist candidate. `pri` 1 = squad ping (→ ack), 2 enemy, 3 pickup, 4 crate, 5 pad; lower wins, then screen distance. */
 interface AimCandidate { pri: number; px: number; kind: PingKind; pos: THREE.Vector3; enemy: EnemyRef | null; ping: Ping | null; label: string }
@@ -112,10 +102,11 @@ interface AimCandidate { pri: number; px: number; kind: PingKind; pos: THREE.Vec
  * linger into the next ship or mission.
  *
  * **Gesture** (unchanged): press = start hold; drag while held (pointer-locked deltas accumulate). Release:
- *   dx ≥ +PING_DRAG_THRESHOLD_PX → `attack` (돌격), dx ≤ −threshold → `caution` (주의),
- *   dy ≥ threshold (drag down) → ammo request quick chat `탄약 필요: <탄종>` (the equipped weapon's calibre through
- *   `ctx.loot.getEffectiveStats`, `AMMO_TYPE_KO`; no world ping), otherwise a plain ping.
+ *   dx ≥ +PING_DRAG_THRESHOLD_PX → `attack` (돌격), dx ≤ −threshold → `caution` (주의), otherwise a plain ping.
  *   Holding longer than PING_HOLD_MAX locks the gesture to a plain ping. A radial hint appears after 150 ms.
+ *   **2026-09-10 (사용자 결정): 아래로 드래그하던 탄약 보충 핑은 없어졌다** — `H` 의사소통 휠과 인벤토리
+ *   휠클릭(`InventoryRef.requestItem`)이 같은 부탁을 이미 하고 있어 제스처가 겹쳤다. 이제 세로 드래그는
+ *   평범한 핑이고, 이 컴포넌트는 장착 무기를 더 이상 추적하지 않는다.
  *
  * **Aim assist** (plain gesture pings only — not 돌격 / 주의, not the map's `placeAtWorld`). Before the exact raycast,
  * candidates are projected to the screen and the one nearest the crosshair inside `PING_AIM_ASSIST_PX` wins, provided it
@@ -168,17 +159,12 @@ export class Pings {
   private holding = false;
   private holdStart = 0;
   private dragX = 0;
-  private dragY = 0;
   private wheelShown = false;
   private hintDir: Gesture = 'plain';
   /** Layout the wheel is drawn with while a hold runs — frozen at press so it cannot flip mid-drag. */
   private holdDowned = false;
   private pressOrigin = new THREE.Vector3();
   private pressDir = new THREE.Vector3();
-
-  // active weapon (for the ammo request)
-  private activeWeaponName: string | null = null;
-  private activeWeaponSlot: WeaponSlot | null = null;
 
   // scratch
   private origin = new THREE.Vector3();
@@ -204,14 +190,8 @@ export class Pings {
       ctx.bus.on('hub:left', () => { this.clear(false); this.cancelHold(); }),
       ctx.bus.on('player:died', () => { this.clearLocal(); this.cancelHold(); }),
       ctx.bus.on('net:remotePlayerRemoved', ({ id }) => this.removeOwnedBy(id)),
-      ctx.bus.on('weapon:equipped', ({ slot, name }) => { this.activeWeaponSlot = slot; this.activeWeaponName = name; }),
       // Phase 10: a surface with no aim ray (the tactical map's middle-click) asks for a ping at a world point.
       ctx.bus.on('ping:requestAt', ({ position, kind }) => this.placeAtWorld(position, kind)),
-      ctx.bus.on('loadout:changed', ({ primary, secondary, primary2 }) => {
-        if (this.activeWeaponSlot === 'primary2' && !primary2) { this.activeWeaponSlot = null; this.activeWeaponName = null; }
-        if (this.activeWeaponSlot === 'primary' && !primary) { this.activeWeaponSlot = null; this.activeWeaponName = null; }
-        if (this.activeWeaponSlot === 'secondary' && !secondary) { this.activeWeaponSlot = null; this.activeWeaponName = null; }
-      }),
     );
     // Full PingMessage (label / enemyId / seq) through the net module; the bus event only carries position + kind.
     if (ctx.net) {
@@ -293,7 +273,7 @@ export class Pings {
       if (!(canPing && input.wasMousePressed(MouseButtons.PING) && ctx.time - this.lastPingTime >= COOLDOWN)) return;
       this.holding = true;
       this.holdStart = ctx.time;
-      this.dragX = 0; this.dragY = 0;
+      this.dragX = 0;
       this.hintDir = 'plain';
       // The two sides mean something else while downed — frozen at press so a revive mid-drag cannot swap them.
       this.holdDowned = ctx.player?.isDowned ?? false;
@@ -306,7 +286,7 @@ export class Pings {
     if (!canPing) { this.cancelHold(); return; }
     const held = ctx.time - this.holdStart;
     const locked = held > PING_HOLD_MAX; // gesture timed out → plain ping on release
-    if (!locked) { this.dragX += input.mouseDX; this.dragY += input.mouseDY; }
+    if (!locked) this.dragX += input.mouseDX;
 
     const gesture = locked ? 'plain' : this.classify();
     const showWheel = held >= HINT_DELAY && !locked;
@@ -317,7 +297,7 @@ export class Pings {
     }
     if (gesture !== this.hintDir) {
       this.hintDir = gesture;
-      this.wheel.setHover(showWheel ? (gesture === 'ammo' ? 'ammo' : this.sideOf(gesture)) : null);
+      this.wheel.setHover(showWheel ? this.sideOf(gesture) : null);
       if (showWheel) ctx.bus.emit('ping:wheelChanged', { open: true, downed: this.holdDowned, hover: this.sideOf(gesture) });
     }
 
@@ -329,8 +309,6 @@ export class Pings {
         case 'right':
           this.place(ctx, PING_HOLD_KINDS[this.holdDowned ? 'downed' : 'alive'][gesture], this.pressOrigin, this.pressDir);
           break;
-        // 2026-09-09: 전투불능이면 아래 드래그가 탄약 요청이 아니다 (총을 못 쏘니 부탁할 이유가 없다) — 평범한 핑.
-        case 'ammo': this.requestAmmo(ctx); break;
         default: {
           ctx.camera.getWorldPosition(this.origin);
           ctx.camera.getWorldDirection(this.dir);
@@ -343,17 +321,19 @@ export class Pings {
     }
   }
 
-  /** Wheel side a gesture points at (`plain` / `ammo` point at neither). */
+  /** Wheel side a gesture points at (`plain` points at neither). */
   private sideOf(gesture: Gesture): PingSide | null {
     return gesture === 'left' || gesture === 'right' ? gesture : null;
   }
 
+  /**
+   * 2026-09-10 (사용자 결정): **아래로 드래그하던 탄약 보충 핑을 없앴다** — 같은 부탁이 `H` 의사소통 휠에
+   * 있고, 인벤토리에서 장착 무기를 휠클릭해도 같은 문구가 나간다. 이제 아래 드래그는 그냥 평범한 핑이라
+   * 세로 성분은 보지 않는다 (좌/우만 남는다).
+   */
   private classify(): Gesture {
-    const T = PING_DRAG_THRESHOLD_PX;
     const ax = Math.abs(this.dragX);
-    // downed: no ammo request — the downward drag falls through to a plain ping (marks where I am)
-    if (!this.holdDowned && this.dragY >= T && this.dragY > ax) return 'ammo';
-    if (ax >= T) return this.dragX > 0 ? 'right' : 'left';
+    if (ax >= PING_DRAG_THRESHOLD_PX) return this.dragX > 0 ? 'right' : 'left';
     return 'plain';
   }
 
@@ -366,23 +346,6 @@ export class Pings {
   }
 
   private cancelHold(): void { if (this.holding) this.endHold(); }
-
-  /** Drag-down quick chat: `탄약 필요: <탄종>` — the equipped weapon's calibre, falling back to the weapon name. */
-  private requestAmmo(ctx: GameContext): void {
-    let name = this.activeWeaponName;
-    let ammo: string | null = null;
-    const loadout = ctx.inventory?.getLoadout();
-    const inst = this.activeWeaponSlot && loadout ? loadout[this.activeWeaponSlot] : null;
-    if (inst && ctx.loot) {
-      const stats = ctx.loot.getEffectiveStats(inst);
-      if (stats?.ammoType) ammo = AMMO_TYPE_KO[stats.ammoType] ?? stats.ammoType;
-      const def = ctx.loot.getItemDef(inst.defId);
-      const wd = def?.weaponId ? ctx.loot.getWeaponDef(def.weaponId) : undefined;
-      name = wd?.name ?? def?.name ?? name;
-    }
-    const what = ammo ?? name;
-    ctx.bus.emit('chat:post', { text: what ? `탄약 필요: ${what}` : '탄약 필요', kind: 'request' });
-  }
 
   /* ── enemy tracking (visible only) ─────────────────────────────────────── */
 

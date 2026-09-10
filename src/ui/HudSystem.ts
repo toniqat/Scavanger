@@ -242,10 +242,7 @@ export class HudSystem implements GameSystem {
     // (2026-09-10: the 임플란트 칩 that used to sit above it is gone — `ImplantWidget` is the one implant
     //  readout now, at the bottom centre under the stamina bar.)
     this.quickStrip = new QuickStrip(this.weapon.root);
-    // The ship-call readout joins the same column (it used to be absolutely positioned at `bottom: 176px`, which the
-    // two new strips now occupy) — `.strat-panel.off` is `display:none`, so it costs no height while idle.
-    this.strat = new StratagemPanel(this.weapon.root);
-    this.weapon.root.prepend(this.strat.root, this.quickStrip.root);
+    this.weapon.root.prepend(this.quickStrip.root);
     this.compass = new Compass(this.hudRoot, this.scanTracker);
     this.objective = new Objective(this.hudRoot);
     this.contractPanel = new ContractPanel(this.hudRoot);
@@ -254,6 +251,10 @@ export class HudSystem implements GameSystem {
     this.detection = new Detection(this.hudRoot, this.scanTracker);
     this.deployables = new Deployables(this.hudRoot);
     this.implantWidget = new ImplantWidget(this.hudRoot);
+    // 2026-09-10 (2차, 사용자 결정): 함선 호출은 더 이상 우측 하단 무기 열의 텍스트 패널이 아니라
+    // **임플란트 바로 왼쪽의 정사각 썸네일**이다 — 그래서 무기 열을 떠나 여기, 같은 하단 중앙 줄에 선다
+    // (자리는 `styles/shipCall.css` 가 `implant.css` 의 `:root` 기하 변수로 잡는다).
+    this.strat = new StratagemPanel(this.hudRoot);
     this.scanReveal = new ScanReveal();
 
     this.socialRoot = el('div', { cls: 'hud social', parent: ctx.uiRoot });

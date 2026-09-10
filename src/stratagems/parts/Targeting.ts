@@ -52,6 +52,12 @@ export function updateInput(sys: StratagemSystem, dt: number): void {
     } else {
       sys.gHoldT += dt;
       if (!sys.wheelOpen && sys.gHoldT >= STRATAGEM_WHEEL_HOLD && host.canUseWeapons()) {
+        /*
+         * 2026-09-10 (사용자 결정): **쿨타임 중에는 휠이 아예 열리지 않는다.** 네 호출이 하나의 쿨타임을
+         * 공유하므로 열어 봐야 고를 수 있는 칸이 하나도 없다 — 거부음 + 토스트로 끝내고, 홀드를 여기서
+         * 끊어(`gHeld = false`) 손을 뗄 때 `arm` 이 같은 토스트를 한 번 더 띄우지 않게 한다.
+         */
+        if (sys._cooldown > 0) { sys.gHeld = false; denyCooldown(sys); return; }
         sys.wheelOpen = true; sys.wheelDX = 0; sys.wheelDY = 0; sys.wheelHover = null;
         sys.cancelCharge();
         host.setLookLocked(true);
@@ -125,12 +131,14 @@ export function closeWheel(sys: StratagemSystem, host: Host): void {
   sys.ctx.bus.emit('stratagem:wheelChanged', { open: false, hover: null });
   }
 
+/** 공유 쿨타임이 도는 동안의 거부 — 휠 열기와 무장이 같은 소리 · 같은 문구를 쓴다. */
+function denyCooldown(sys: StratagemSystem): void {
+  sys.audio('ui_deny', undefined, 0.6);
+  sys.ctx.bus.emit('ui:notify', { text: `함선 호출 재충전 중 (${Math.ceil(sys._cooldown)}초)`, kind: 'warning', duration: 1.5 });
+}
+
 export function arm(sys: StratagemSystem, id: StratagemId): void {
-  if (sys._cooldown > 0) {
-    sys.audio('ui_deny', undefined, 0.6);
-    sys.ctx.bus.emit('ui:notify', { text: `함선 호출 재충전 중 (${Math.ceil(sys._cooldown)}초)`, kind: 'warning', duration: 1.5 });
-    return;
-  }
+  if (sys._cooldown > 0) { denyCooldown(sys); return; }
   /* 2026-09-09: 호스트 전용 호출(궤도 폭격 · 항공 폭탄)과 구조선의 게이트 — 같은 규칙을 휠이 회색으로 그린다. */
   const blocked = Rescue.armBlockReason(sys, id);
   if (blocked) {

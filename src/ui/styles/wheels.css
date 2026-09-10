@@ -84,15 +84,9 @@
 .psector.hover .ar { color: var(--pc, #7fb7e6); }
 .psector.hover .nm { color: var(--pc, #7fb7e6); text-shadow: 0 0 8px var(--pc, #7fb7e6), 0 1px 3px rgba(0, 0, 0, 0.85); }
 
-/* 아래로 드래그 = 탄약 요청. 전투불능이면 `hidden` (총을 못 쏘는 사람이 탄약을 부를 이유가 없다). */
-.pwheel .ammo-leg {
-  position: absolute; left: 50%; top: 100%; transform: translate(-50%, 4px);
-  display: flex; align-items: center; gap: 5px;
-  font-size: 10px; letter-spacing: 0.12em; color: var(--c-text-faint);
-  white-space: nowrap;
-  transition: color var(--t-fast) var(--ease), text-shadow var(--t-fast) var(--ease);
-}
-.pwheel .ammo-leg.hover { color: var(--c-accent); text-shadow: 0 0 8px rgba(255, 179, 71, 0.6); }
+/* 2026-09-10 (사용자 결정): 아래로 드래그하던 `▼ 탄약` 다리(`.ammo-leg`)를 없앴다 — 같은 부탁이 `H`
+   의사소통 휠과 인벤토리 휠클릭에 있어 제스처가 겹쳤다. 그 규칙 블록이 여기 있었고, 클래스를 쓰는 요소가
+   사라져 함께 지웠다. 이제 아래 드래그는 그냥 평범한 핑이다. */
 
 /* 관전 중에는 개인 위젯과 함께 사라진다 (`base.css` 의 `.hud.spectating` 규칙과 같은 취급) */
 .hud.spectating .cwheel, .hud.spectating .pwheel { opacity: 0 !important; visibility: hidden; }

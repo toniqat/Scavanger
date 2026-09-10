@@ -318,6 +318,7 @@ try {
       aboveVitals: !!bl && !!vitals && bl.getBoundingClientRect().bottom <= vitals.getBoundingClientRect().top + 4,
       left: bl ? Math.round(bl.getBoundingClientRect().left) : -1,
       order: w ? [...w.children].slice(0, 4).map((n) => n.className.split(' ')[0]).join(',') : '',
+      stratInColumn: !!w?.querySelector('.scall'),
       slotLbl: !!w?.querySelector(':scope > .name-row .slot-lbl'),   // the 빠른 사용 block keeps its own label
       type: w?.querySelector('.type')?.textContent ?? '',
       quick: filled.length,
@@ -332,8 +333,9 @@ try {
   });
   ok(!p9.weight, '인게임 무게 표시(.weightbar) 제거');
   ok(p9.column && p9.aboveVitals && p9.left === 32, `채팅 + 분대 목록이 좌하단 한 열(.hud-bl)에서 체력바 위에 (left ${p9.left})`, JSON.stringify(p9));
-  /* 2026-09-10: 임플란트 칩이 하단 중앙으로, 무기 슬롯 칸(.wslots)이 제거되면서 우하단은 호출 → 빠른 사용 → 무기 패널이다. */
-  ok(p9.order.startsWith('strat-panel,qstrip'), `우하단 순서: 함선 호출 → 빠른 사용 → 무기 패널 (${p9.order})`);
+  /* 2026-09-10 (2차): 함선 호출도 하단 중앙(임플란트 왼쪽 `.scall`)으로 떠났다 — 우하단은 빠른 사용 → 무기 상자(.wbox)뿐이다. */
+  ok(p9.order.startsWith('qstrip,wbox') && !p9.stratInColumn,
+    `우하단 순서: 빠른 사용 → 무기 패널, 함선 호출은 열에 없다 (${p9.order})`);
   ok(!p9.slotLbl && !p9.type.includes('·'), `무기 정보에서 '주무기' / 탄약 표기 제거 (type '${p9.type}')`);
   ok(p9.quick >= 1 && p9.chips === p9.quick, `빠른 사용 썸네일 ${p9.quick}칸 (모두 item-chip)`, JSON.stringify({ quick: p9.quick, chips: p9.chips }));
   ok(p9.equipped === null ? p9.implant === null : p9.implant === p9.equipped, `전술 임플란트 썸네일이 화면 하단 중앙에 (${p9.implant ?? '없음'} / equipped ${p9.equipped})`);

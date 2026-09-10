@@ -3,8 +3,8 @@ import { Keys, QUICK_SLOTS, QUICK_SLOT_DIRS, buildItemChip, isQuickSlotActive, k
 import { el, setText, toggleClass } from '../dom';
 import '../styles/raidHud.css';
 
-/** Thumbnail edge in px (2026-09-10: 60 → 90, 1.5배). */
-const THUMB = 90;
+/** Thumbnail edge in px (2026-09-10: 60 → 90 (1.5배) → 54 (그 0.6배, 2차 조정)). */
+const THUMB = 54;
 
 interface Cell {
   root: HTMLElement;
@@ -22,9 +22,10 @@ interface Cell {
  * else the first filled slot). The cell is lit (`.is-hand`) while that item is actually in the hands; the whole
  * widget hides when the wheel is empty.
  *
- * 2026-09-10 (레이드 HUD 개편, 사용자 결정): 썸네일이 1.5배(60 → 90 px)가 되고, 칸 번호 대신 **빠른 사용 키**를
- * 단다 (`.qs-key.keycap`). 키 문자열은 하드코딩하지 않는다 — `keyLabel(Keys.QUICK)` 을 쓰고
- * `input:bindingsChanged` 에 다시 읽는다 (리바인딩 규약).
+ * 2026-09-10 (레이드 HUD 개편, 사용자 결정): 칸 번호 대신 **빠른 사용 키**를 단다 (`.qs-key.keycap`).
+ * 키 문자열은 하드코딩하지 않는다 — `keyLabel(Keys.QUICK)` 을 쓰고 `input:bindingsChanged` 에 다시
+ * 읽는다 (리바인딩 규약). 썸네일은 1.5배(60 → 90 px)로 키웠다가 **그 0.6배(54 px)** 로 되돌렸다 —
+ * `THUMB` 와 `styles/raidHud.css` 의 `.qs-body` 를 **같이** 고친다 (칩 크기와 칸 크기가 따로 논다).
  *
  * Data: `inventory:quickSlotsChanged` (seeded from `ctx.inventory.getQuickSlots()`), counts from `quick:used` /
  * `inventory:itemUpdated`, unlock count from `ctx.inventory.getBagSize().quickSlots` (`inventory:bagChanged`).

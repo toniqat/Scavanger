@@ -12,14 +12,26 @@
  * `ctx.implants` 에서 읽는다 (원본은 `data/*.csv`).
  */
 
+/* 화면 하단 중앙 줄의 **공용 기하**(2026-09-10 2차). 함선 호출 썸네일(`styles/shipCall.css` 의 `.scall`)이
+   임플란트 **왼쪽**에 같은 밑단 · 같은 높이로 붙으므로, 두 시트가 같은 숫자를 각자 적지 않도록 여기 `:root`
+   하나가 원본이 된다. 짧은 화면에서 줄어드는 것도 이 변수들만 바꾸면 양쪽이 함께 따라온다. */
+:root {
+  --imp-th: 38px;            /* 썸네일 높이 (= 함선 호출 정사각 썸네일의 한 변) */
+  --imp-tw: 96px;            /* 임플란트 썸네일 폭 — 함선 호출이 이 절반만큼 중앙에서 비켜 앉는다 */
+  --imp-bottom: max(8px, calc(9% - 66px));
+  --imp-gap: 8px;            /* 임플란트와 함선 호출 썸네일 사이 */
+}
+@media (max-height: 760px) { :root { --imp-th: 32px; --imp-tw: 84px; --imp-bottom: 6px; } }
+@media (max-height: 620px) { :root { --imp-th: 26px; --imp-tw: 76px; --imp-bottom: 4px; } }
+
 /* 자리: 화면 가로 중앙, **스태미나 바 아래**. 스태미나(`.stamina`)는 `bottom: 9%` 라 세로 해상도에 따라
    올라갔다 내려갔다 하므로 이쪽도 같은 9% 에서 자기 높이만큼 뺀 자리를 쓰고, 그래도 자리가 없는
-   짧은 화면에서는 썸네일을 줄인다 (아래 두 media 블록). */
+   짧은 화면에서는 썸네일을 줄인다 (위 `:root` 의 두 media 블록 + 아래의 글꼴 크기 조정). */
 .imp-hud {
   --ic: var(--c-info);
-  --th: 38px;                /* 썸네일 높이 — `.ib-face` 사본이 같은 높이를 알아야 밑단이 맞는다 */
+  --th: var(--imp-th);       /* 썸네일 높이 — `.ib-face` 사본이 같은 높이를 알아야 밑단이 맞는다 */
   --fill: 0;                 /* 0…1, 아래에서 위로 밝아지는 양 */
-  position: absolute; left: 50%; bottom: max(8px, calc(9% - 66px));
+  position: absolute; left: 50%; bottom: var(--imp-bottom);
   transform: translateX(-50%);
   display: flex; flex-direction: column; align-items: center; gap: 3px;
   pointer-events: none;
@@ -27,13 +39,10 @@
 }
 .imp-hud[hidden] { display: none !important; }
 @media (max-height: 760px) {
-  .imp-hud { --th: 32px; bottom: 6px; gap: 2px; }
-  .imp-hud .imp-thumb { width: 84px; }
+  .imp-hud { gap: 2px; }
   .imp-hud .ib-face { font-size: 18px; }
 }
 @media (max-height: 620px) {
-  .imp-hud { --th: 26px; bottom: 4px; }
-  .imp-hud .imp-thumb { width: 76px; }
   .imp-hud .ib-face { font-size: 15px; }
   .imp-hud .ib-cd { font-size: 12px; }
   .imp-hud .imp-key { height: 11px; font-size: 8px; }
@@ -42,7 +51,7 @@
 /* ── 가로로 긴 썸네일 ── */
 .imp-thumb {
   position: relative;
-  width: 96px; height: var(--th);
+  width: var(--imp-tw); height: var(--th);
   overflow: hidden;
   background: rgba(8, 10, 14, 0.66);
   border: 1px solid rgba(255, 255, 255, 0.20);

@@ -229,11 +229,11 @@ try {
   console.log('hud');
   const hud = await P(() => ({
     swheel: !!document.querySelector('.swheel'),
-    panel: !!document.querySelector('.strat-panel'),
+    panel: !!document.querySelector('.scall .sc-thumb'),
     offscr: !!document.querySelector('.offscr'),
   }));
   ok(hud.swheel, 'stratagem wheel element exists');
-  ok(hud.panel, 'stratagem panel element exists');
+  ok(hud.panel, '함선 호출 썸네일(.scall .sc-thumb)이 있다 — 2026-09-10 2차에 .strat-panel 텍스트 패널을 대신했다');
   ok(hud.offscr, 'off-screen indicator layer exists');
   const grenViews = await P(() => Array.isArray(window.__game.ctx.weapons.getGrenades()));
   ok(grenViews, 'ctx.weapons.getGrenades() returns a list');

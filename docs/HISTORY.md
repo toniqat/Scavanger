@@ -46,6 +46,77 @@ Phase 0 – 12 는 전부 구현 완료다 (2026-09-05 ~ 2026-09-08). 각 단계
 
 최신순. 새 항목은 이 섹션 맨 위에 추가한다.
 
+- 2026-09-10 (4차: 함선 호출 썸네일 · 공유 쿨타임 재조정 · 쿨타임 중 휠 잠금 · 탄약 핑 제거):
+
+  플레이 피드백 4건. `src/ui` · `src/stratagems` · `data/stratagems.csv` 를 건드렸고 새 수치는 전부 csv 안이다.
+
+  - **함선 호출 표시가 정사각 썸네일이 됐다.** 우측 하단 무기 열의 텍스트 패널(`.strat-panel` — `G` 키캡 +
+    호출 이름 + 설명 한 줄 + 조작 힌트 + 가로 쿨다운 바)을 통째로 걷어내고 **전술 임플란트 바로 왼쪽**의
+    정사각 썸네일 하나(`ui/hud/StratagemPanel`, `.scall`, 새 시트 `styles/shipCall.css`)로 바꿨다.
+    **글자는 전부 없앴다**(사용자 결정) — 썸네일 + 그 아래 `G` 키캡뿐이고, 조작 설명이 필요하면 `G` 를 꾹
+    눌러 휠을 연다. 쿨타임 연출은 **임플란트와 완전히 같다**: 딤드 + `--fill` 이 아래에서 위로 차오르며
+    밝아짐 + 한가운데 남은 초(10초 미만은 소수 한 자리, 같은 `secs` 규칙).
+    - 글리프는 무장 중이면 그 호출, 아니면 **마지막으로 무장했던 호출**이다 — `G` 탭이 바로 그것을 다시
+      무장하기 때문이다. `lastArmed` 를 `StratagemsRef` 에 새로 뚫지 않고 이미 흐르는 `stratagem:armed` 의
+      null 아닌 id 로 같은 값을 따라 만든다(초기값은 시스템과 같은 `STRATAGEM_ORDER[0]`).
+    - **하단 중앙 줄의 기하는 `implant.css` 의 `:root` 하나가 원본이다** (`--imp-th` · `--imp-tw` ·
+      `--imp-bottom` · `--imp-gap`). 두 시트가 같은 숫자를 각자 적으면 짧은 화면 media 에서 어긋난다.
+      `.scall` 은 `right: calc(50% + var(--imp-tw)/2 + var(--imp-gap))` 라 **임플란트가 숨어도**(미장착 ·
+      전투불능) 자리가 흔들리지 않는다. 얼굴 클래스는 `.ib-*` 를 나눠 쓰지 않고 `.sb-*` 로 갈랐다 —
+      HUD 위젯끼리 클래스를 공유하면 한쪽 수정이 다른 쪽을 무너뜨린다(2026-09-09 `.hold` 사고).
+    - 조준 중에는 임플란트가 `.hud.targeting` 으로 사라지지만 `.scall` 은 **남긴다** — 지금 무엇을 들고
+      조준하는지가 그 순간 유일하게 중요한 정보다.
+  - **공유 쿨타임 값 재조정.** 쿨타임이 네 호출 공유라는 것은 처음부터 그랬고(`_cooldown` 하나) 길이만
+    새로 정했다 — 구조선 45 → **30**, 보급품 60 → **90**, 트라이포드 60 → **90**, 궤도 폭격 90 → **120**
+    (`data/stratagems.csv`; `airstrike` 는 휠에 없어 90 그대로). csv 머리말에 "이 값이 네 종류를 모두
+    잠근다" 를 적어 뒀다 — 표만 보면 호출별 개인 쿨타임으로 읽힌다.
+  - **쿨타임 중에는 휠이 아예 열리지 않는다.** 예전에는 열리되 네 칸이 회색이었는데, 고를 수 있는 칸이
+    하나도 없는 휠을 여는 것은 의미가 없다는 사용자 판단이다. `parts/Targeting.updateInput` 의 홀드 임계
+    지점에 `_cooldown > 0` 가지를 넣고 `denyCooldown(sys)` 로 끝낸다(거부음 + `재충전 n초` 토스트) —
+    그 헬퍼는 `arm` 의 거부와 **같은 함수**이고, 그 자리에서 `gHeld = false` 로 홀드를 끊어 손을 뗄 때
+    같은 토스트가 두 번 뜨지 않게 한다.
+  - **아래로 드래그하던 탄약 보충 핑 제거.** `H` 의사소통 휠과 인벤토리의 장착 무기 휠클릭이 같은 부탁을
+    이미 하고 있어 제스처가 겹쳤다. `Gesture` 에서 `'ammo'` 가 빠지고 `classify()` 는 세로 성분을 아예
+    보지 않는다 — `weapon:equipped` · `loadout:changed` 구독, `activeWeaponSlot/Name`, `AMMO_TYPE_KO` 표,
+    `requestAmmo()`, `dragY`, `.ammo-leg` DOM · CSS 가 전부 함께 사라졌다. **같은 문구를 내던
+    `InventorySystem.requestItem` 은 그대로다** — 없어진 것은 핑 제스처뿐이다.
+  - `base.css` 에서는 **죽은 규칙만** 지웠다(`.strat-panel` 블록 28줄 + `.hud.spectating` 목록의 그 항목).
+  - 검증: `npm run verify` (stratagems · ui, 12종) → `smoke-phase3` 만 red 인데 보급 상자 구간에서 테스트
+    플레이어가 적에게 죽는 이 스크립트의 플레이키였다(직전 실행에서는 다른 지점에서 넘어졌다) →
+    `--rerun-failed` 33/33. `smoke-stratagems` 는 새 단언 3개를 포함해 75/75.
+  - 문서: [src/ui/README.md](../src/ui/README.md) · [src/stratagems/README.md](../src/stratagems/README.md)
+    변경 이력 + 표 행, [data/README.md](../data/README.md), [docs/CONTROLS.md](CONTROLS.md) 의 `G` · 휠클릭 행,
+    [CLAUDE.md](../CLAUDE.md) 규약 절 + 폴더 지도 두 행.
+
+- 2026-09-10 (3차: 레이드 HUD 손보기 — 무기 패널 상자 · 퀵슬롯 0.6배 · 흰 구분선):
+
+  전날 개편한 레이드 HUD 를 실제로 플레이해 보고 온 피드백 3건. `src/ui` 만 건드렸고 새 수치는 전부
+  `styles/raidHud.css` 안이라 csv 는 손대지 않았다.
+
+  - **무기 표시가 아이콘만 허공에 떠 있었다.** 등급색 썸네일 · 큰 잔탄 · 클래스 태그가 배경 없이
+    흩어져 있어 "패널" 로 읽히지 않았다. 새 래퍼 `.wbox`(어두운 반투명 + 얇은 테두리, `min-width` 330 px)로
+    한 상자에 담고 안을 **가로 한 줄**로 폈다 — 좌측 등급색 정사각 썸네일 → `24 / 120` → 오른쪽 끝의
+    클래스 태그. 썸네일의 `--wrc` 가 이제 테두리 · 안쪽 글로우뿐 아니라 **바탕색**까지 정한다
+    (`color-mix(in srgb, var(--wrc) 20%, rgba(0,0,0,0.45))`).
+  - **`예비` 라벨 제거.** `raidHud.css` 가 덮어쓰던 `.reserve::before { content: "예비 " }` 를 걷어내
+    `base.css` 의 `/ ` 구분자로 돌아갔고, `.ammo-nums` 도 세로 열 → 가로 한 줄이라 `40 / 80` 으로 읽힌다.
+  - **빠른 사용 칸과 무기 패널 사이의 흰 가로선은 내구도 바였다** (사용자에게 확인). `.dura` 가 `.weapon`
+    열의 **맨 위 직계 자식**이라 폭 100 % 흰 선이 퀵슬롯 바로 밑에 그어지고 있었다. 지우지 않고 `.wbox`
+    **바닥**으로 옮겼다 — 내구도 표시는 그대로 살아 있고 이제 상자 안 게이지로 읽힌다.
+  - **퀵슬롯 썸네일 0.6배** (90 → 54 px). 칩 크기(`hud/QuickStrip` 의 `THUMB`)와 칸 크기
+    (`raidHud.css` 의 `.qs-body`)가 **다른 파일에 있으므로 둘을 같이** 고친다 — 하나만 고치면 칩이
+    칸을 넘치거나 칸 안에서 논다.
+  - DOM 이 한 단계 깊어졌지만 `base.css` 의 `.weapon.consumable > .name-row / > .dura / > .ammo-row`
+    직계 선택자는 **살려 뒀다**: `.cons` · `.modes` 는 여전히 `.weapon` 의 직계 자식이고, 총기 쪽만
+    `raidHud.css` 의 `.hud .weapon.consumable > .wbox { display: none }` 한 줄이 대신 숨긴다.
+    스모크가 보는 `.weapon .wthumb` · `.weapon .mag` · `.weapon .reserve` 는 전부 descendant 라 그대로 맞는다.
+  - 알려진 한계: 퀵슬롯 **위**에도 흰 가로선이 하나 더 있는데 그것은 이 두 위젯이 아니라 함선 호출 패널의
+    쿨다운 바(`.strat-panel .cd-bar`, 준비 상태라 100 % 로 차 있다)다 — 이번 요청 범위 밖이라 두었다.
+  - 검증: `npm run verify` (ui) → `smoke-phase3` 만 red(궤도 레이저 타임아웃, HUD 와 무관한 플레이키)
+    → `--rerun-failed` 로 33/33 통과. 헤드리스 스크린샷으로 총기 모드 · 소모품 모드 둘 다 눈으로 확인.
+  - 문서: [src/ui/README.md](../src/ui/README.md) 변경 이력 맨 위 + `raidHud.css` · `WeaponPanel` ·
+    `QuickStrip` 행, [CLAUDE.md](../CLAUDE.md) `src/ui/` 행.
+
 - 2026-09-10 (2차: 곡사포 궤적 · 위험 인디케이터 · 발소리 · 벽밀착 사격 · 가구 배치 · 레이드 HUD 개편 ·
   방탄복 → 실드):
 

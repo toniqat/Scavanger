@@ -47,7 +47,13 @@ const UNIQUE_MODES: Readonly<Record<UniqueWeaponKind, { l: string; r: string }>>
  * 주무기 키 · 무기 이름이 전부 없어졌다. 그 높이는 남은 것들이 가져간다 — 썸네일 34 → 58 px, 잔탄 40 → 64 px
  * (`styles/raidHud.css`). 무기 이름은 썸네일이 대신하므로 `.wthumb` 는 이름 없는 정사각형이 되고, 테두리 · 안쪽
  * 글로우가 **무기 등급색**(`--wrc` = `rarityColor(def.rarity)`)을 쓴다 — 아이템 칩 자체의 `--rc` 와 같은 색이라
- * 가방에서 보던 등급이 그대로 읽힌다. 예비 탄약은 잔탄 **우측 아래**에 작게 붙는다.
+ * 가방에서 보던 등급이 그대로 읽힌다.
+ *
+ * 2026-09-10 (2차, 사용자 결정): 그 총기 표시가 이제 **가로로 긴 한 상자**(`.wbox`, 어두운 반투명 + 얇은 테두리)
+ * 안에 든다 — 아이콘만 떠 있는 것이 아니라 패널로 읽힌다. 좌측이 **등급색 정사각 배경**을 깐 썸네일이고
+ * (`--wrc` 가 테두리 · 안쪽 글로우 · 바탕색 셋을 다 정한다), 그 오른쪽이 `24 / 120`, 맨 오른쪽이 분류 태그다.
+ * `예비` 라벨은 없앴다 — base.css 의 `/ ` 구분자로 돌아간다. **내구도 바는 상자 바닥**으로 들어갔다:
+ * 상자 밖 맨 위에 있을 때는 빠른 사용 칸과 무기 패널을 가르는 **흰 가로 구분선**으로 읽혔다.
  *
  * **Consumable mode** (`.weapon.consumable`, `quick:equipped {item}`): the gun rows are hidden and a `.cons` block shows
  * the item name + stack count (`quick:used.remaining` / `inventory:itemUpdated`) with a usage hint; back to gun mode on
@@ -84,19 +90,25 @@ export class WeaponPanel {
   constructor(parent: HTMLElement) {
     this.root = el('div', { cls: 'weapon', parent });
 
-    this.duraEl = el('div', { cls: 'dura', parent: this.root });
-    this.duraFill = el('div', { cls: 'fill', parent: this.duraEl });
+    // 2026-09-10 (2차, 사용자 결정): 총기 표시는 **가로로 긴 한 상자**(`.wbox`) 안에 든다 —
+    // 좌측 등급색 정사각 썸네일 · 잔탄 `24 / 120` · 맨 오른쪽 분류 태그, 그리고 상자 **바닥**에 내구도 바.
+    // 내구도 바가 상자 밖 맨 위에 있을 때는 빠른 사용 칸과 무기 패널 사이를 가르는 **흰 구분선**으로 읽혔다.
+    // `.cons` · `.modes` 는 상자 밖에 그대로 남는다 (base.css 의 `.weapon.consumable > …` 규칙을 지킨다).
+    const box = el('div', { cls: 'wbox', parent: this.root });
     // Phase 10: the reload arc that used to sit left of this row is gone — `hud/ReloadGauge` draws it at the crosshair.
     // 2026-09-10: 썸네일이 **왼쪽**, 숫자가 오른쪽이다 (예전에는 반대였다).
-    const ammoRow = el('div', { cls: 'ammo-row', parent: this.root });
+    const ammoRow = el('div', { cls: 'ammo-row', parent: box });
     this.thumbEl = el('div', { cls: 'wthumb', parent: ammoRow });
     this.thumbIcon = el('div', { cls: 'wt-icon', parent: this.thumbEl });
     const ammoNums = el('div', { cls: 'ammo-nums', parent: ammoRow });
     this.magEl = el('span', { cls: 'mag', text: '0', parent: ammoNums });
     this.reserveEl = el('span', { cls: 'reserve', text: '0', parent: ammoNums });
 
-    const tagRow = el('div', { cls: 'name-row', parent: this.root });
+    const tagRow = el('div', { cls: 'name-row', parent: ammoRow });
     this.typeEl = el('span', { cls: 'type', text: '—', parent: tagRow });
+
+    this.duraEl = el('div', { cls: 'dura', parent: box });
+    this.duraFill = el('div', { cls: 'fill', parent: this.duraEl });
 
     // Unique-weapon fire modes (`.modes`, only for defs with `altFire` / `unique`): `좌: …` / `우: …`.
     this.modesEl = el('div', { cls: 'modes', parent: this.root });

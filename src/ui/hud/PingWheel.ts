@@ -9,7 +9,7 @@ const R_OUT = 108;
 const SECTOR_GAP_DEG = 6;
 const LABEL_RADIUS = (R_IN + R_OUT) / 2;
 
-/** Which side is showing / hovered. `ammo` is the 아래로 드래그 leg, not a wheel sector. */
+/** Which side is showing / hovered. 2026-09-10: 아래 드래그(탄약) 다리가 없어져 좌/우가 전부다. */
 export type PingSide = 'left' | 'right';
 /** The four `PingKind`s the hold gesture can place — derived from the contract table, never re-typed by hand. */
 export type PingHoldKind = (typeof PING_HOLD_KINDS)[keyof typeof PING_HOLD_KINDS][PingSide];
@@ -39,8 +39,10 @@ interface Sector { arc: SVGPathElement; root: HTMLElement; nm: HTMLElement }
  * **좌/우 두 칸의 뜻은 로컬 플레이어의 상태가 정한다** (`shared/comms.ts` 의 `PING_HOLD_KINDS`):
  * 서 있을 때 좌 = 여기 조심해(`caution`) · 우 = 저쪽으로 가자(`attack`), **전투불능이면** 좌 = 살려줘(`help`) ·
  * 우 = 나를 버려(`abandon`). 라벨은 `PING_HOLD_LABEL_KO`, 색은 `hud/Pings` 의 `PING_COLOR` 와 같은 값이다.
- * 서 있을 때만 아래쪽에 **`▼ 탄약`** 다리(`.ammo-leg`)가 붙는다 — 전투불능 플레이어는 총을 못 쏘므로
- * 탄약을 부탁할 이유가 없어 그 제스처가 아예 사라진다 (그때 아래 드래그는 그냥 평범한 핑이다).
+ *
+ * **2026-09-10 (사용자 결정): 아래쪽 `▼ 탄약` 다리를 없앴다.** 같은 부탁이 `H` 의사소통 휠에 있고 인벤토리에서
+ * 장착 무기를 휠클릭해도 같은 문구(`탄약 필요: <탄종>`)가 나가므로 제스처가 겹쳤다 — 이제 아래로 드래그하면
+ * 그냥 평범한 핑이 찍힌다. 휠은 좌/우 두 칸뿐이다 (`.ammo-leg` 의 CSS 도 `styles/wheels.css` 에서 지웠다).
  *
  * 휠은 `pointer-events:none` 오버레이이고 blocker · ESC 스택 · 포인터 락 어디에도 손대지 않는다.
  */
@@ -48,11 +50,10 @@ export class PingWheel {
   readonly root: HTMLElement;
   private svg: SVGSVGElement;
   private items: HTMLElement;
-  private ammoLeg: HTMLElement;
   private sectors: Record<PingSide, Sector>;
   private open = false;
   private downed = false;
-  private hover: PingSide | 'ammo' | null = null;
+  private hover: PingSide | null = null;
 
   constructor(parent: HTMLElement) {
     this.root = el('div', { cls: 'pwheel', parent });
@@ -79,10 +80,6 @@ export class PingWheel {
     };
     this.sectors = { left: make('left'), right: make('right') };
 
-    this.ammoLeg = el('div', { cls: 'ammo-leg', parent: this.root });
-    el('span', { cls: 'ar', text: '▼', parent: this.ammoLeg });
-    el('span', { cls: 'nm', text: '탄약', parent: this.ammoLeg });
-
     this.applyLabels();
   }
 
@@ -99,14 +96,13 @@ export class PingWheel {
     toggleClass(this.root, 'show', open);
   }
 
-  setHover(hover: PingSide | 'ammo' | null): void {
+  setHover(hover: PingSide | null): void {
     if (hover === this.hover) return;
     this.hover = hover;
     toggleClass(this.sectors.left.root, 'hover', hover === 'left');
     toggleClass(this.sectors.right.root, 'hover', hover === 'right');
     if (this.sectors.left.arc.classList.contains('hover') !== (hover === 'left')) this.sectors.left.arc.classList.toggle('hover', hover === 'left');
     if (this.sectors.right.arc.classList.contains('hover') !== (hover === 'right')) this.sectors.right.arc.classList.toggle('hover', hover === 'right');
-    toggleClass(this.ammoLeg, 'hover', hover === 'ammo');
   }
 
   private applyLabels(): void {
@@ -118,8 +114,6 @@ export class PingWheel {
       s.root.style.setProperty('--pc', COLOR[kind] ?? '#7fb7e6');
       s.arc.style.setProperty('--pc', COLOR[kind] ?? '#7fb7e6');
     }
-    // 전투불능일 때는 탄약 요청 다리가 없다 (총을 못 쏘는 사람이 탄약을 부를 이유가 없다)
-    this.ammoLeg.hidden = this.downed;
   }
 
   dispose(): void { this.root.remove(); }

@@ -39,7 +39,7 @@ npm run dev             # csv 를 저장하면 바로 다시 읽는다
 | **행성 진행도별 무기 등급 드롭 곡선** (앞쪽 행성에서 III 이상 봉인) | [`planet_loot.csv`](planet_loot.csv) |
 | **버려진 구조물 · 선로 플랫폼 · 전차** — 개수 · 크기 · 컨테이너 수 · 지하실 확률 · 상자 티어 가중치 | [`structures.csv`](structures.csv) |
 | **환경 재해 4종** — 색 · 입자 밀도 · 벽 높이/두께 (규칙 수치는 `constants.csv`) | [`hazards.csv`](hazards.csv) |
-| 함선 호출 (스트라타젬) | [`stratagems.csv`](stratagems.csv) |
+| 함선 호출 (스트라타젬) — **`cooldown` 은 네 호출이 함께 쓰는 하나의 쿨타임**이다 | [`stratagems.csv`](stratagems.csv) |
 
 각 파일의 첫 줄들(`#` 로 시작)이 그 표의 열 하나하나가 무엇인지 설명한다. **파일을 열면 거기부터 읽는다.**
 
