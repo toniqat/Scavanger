@@ -64,6 +64,14 @@ export class Snapshotter {
     else delete m.dhp;
 
     /*
+     * 2026-09-10: 실드는 **방탄복을 입었을 때만** 실린다 (`dhp` 와 같은 규약). 원격 체력 바가 그리고,
+     * 호스트가 고스트를 만들 때 물려주며, 재접속 복귀가 이 값을 돌려준다 — 없으면 돌아온 사람만 실드를 잃는다.
+     */
+    const shm = Math.round(p.maxShield ?? 0);
+    if (shm > 0) { m.shm = shm; m.sh = Math.round(p.shield ?? 0); }
+    else { delete m.shm; delete m.sh; }
+
+    /*
      * Phase 10: a carrier has a downed squadmate on its shoulder and is therefore UNARMED — the no-gun path below is
      * forced so remote avatars pose two-handed-under-the-body instead of holding a rifle through the victim.
      * `carrying` is a plain string on `PlayerRef` (guarded: an older player impl may not have the member yet).

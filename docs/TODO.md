@@ -117,6 +117,15 @@ Phase 11 이 뼈대만 놓고 끝난 부분 + 호스트 검증이 비어 있는 
 | C-18 | **적이 움직이는 발판에 실려 가지 않는다**. `Obstacle.velocity` 를 읽는 것은 `PlayerController` 뿐이다 — 매 프레임 적마다 해시 질의가 하나 늘고, 전차 데크(2.05 m)는 `PROP_STEP_UP_MAX`(0.9 m)로 오를 수 없어 지금은 도달 불가라 넣지 않았다 (2026-09-09 판단) | `src/enemies/ai/EnemyAI.ts` `integrate` |
 | C-13 | **`scripts/smoke-ui-p5.mjs` 의 정규식이 백스페이스 문자다** — 소스에 `\bready\b` 대신 **제어문자 0x08 두 개**가 박혀 있어 (`!/<BS>ready<BS>/.test(hg.cls)`) 그 단언이 **늘 통과한다**. 커밋된 지 오래된 별개 버그이고, 고치면 단언이 실제로 검사를 시작하므로 그때 red 가 날 수 있다 | `scripts/smoke-ui-p5.mjs:203` |
 | C-12 | **`ProgressionRef` 에 레이드 중 임플란트 회수 수단이 없다**. `unequipImplant` 가 함선 전용 게이트라 `stripForCorpse` 가 임플란트를 시체로 옮기지 못한다. 지금은 **유지가 의도된 설계**지만(2026-09-09 사용자 결정), 뒤집으려면 `stripImplants()` 가 먼저 필요하다 | `src/progression/ProgressionSystem.ts:117`, `src/shared/types.ts` `stripForCorpse` |
+| C-19 | **원격 분대원 체력 바에 실드가 안 보인다**. 와이어는 이미 흐른다 (`PlayerSnapshot.sh` / `.shm` → `RemotePlayerRef.shield` / `maxShield`) — 읽어 그리기만 하면 된다 | `src/ui/hud/Nameplates.ts`, `src/net/RemotePlayer.ts:111` |
+| C-20 | **고철 더미에서 `mat_core`(구동 코어)가 나오지 않는다**. 실드 충전기의 현장 제작 재료인데 산출물이 `SALVAGE_DEF_ID = 'mat_scrap'` 하나로 못 박혀 있다. 지금 코어는 로그 시체와 상자에서만 나온다 | `src/world/Gather.ts` `SALVAGE_DEF_ID` |
+| C-21 | **실드 충전기 전용 SFX 가 없다** — 기존 `stim` 사운드를 pitch 1.25 로 재사용한다 | `src/weapons/parts/Healing.ts` |
+| C-22 | **지면 재질별 발소리가 없다**. 흙 소리 하나뿐이고 허브 갑판만 피치로 흉내 낸다. `WorldRef` 에 표면 재질 질의가 없어 `src/shared` 계약 추가가 먼저다 | `src/audio/Synth.ts` `footstep`, `src/shared/types.ts` `WorldRef` |
+| C-23 | **적(`bug_step`)의 발소리는 옛 경로 그대로다** — 160 m 하드 컷 + inverse 패너라, 플레이어 발소리에 새로 붙은 거리 곡선을 따르지 않는다 | `src/audio/AudioSystem.ts` |
+| C-24 | **언덕에서 곡사포가 반복 재배치될 수 있다**. 궤적 사전 검사가 지형을 포함하는데 낮아진 궤적은 발사면 위 6–9 m 뿐이라, 능선 너머로 쏘려는 포는 계속 거절당한다 (거절 1회당 약 2.7 s) | `src/enemies/parts/Attacks.ts` `shellArcBlocked` |
+| C-25 | **로그 엄폐 선정의 `COVER_STANDOFF`(0.7)가 `ENEMY_WALL_STANDOFF`(1)과 따로 논다**. 사선 검사가 나쁜 자리를 걸러 주지만 두 수치를 합치는 게 맞다 — 바꾸면 Phase 7 엄폐 스모크가 재기준화된다 | `src/enemies/ai/RogueCover.ts` |
+| C-26 | **`hud/SlotStrip.ts` 의 헬퍼 4종에 소비자가 없다** (`WEAPON_SLOTS` · `weaponSlotKey` · `WEAPON_SLOT_LABEL_KO` · `weaponShortName`). 위젯은 없어졌고 헬퍼만 남았다 | `src/ui/hud/SlotStrip.ts` |
+| C-27 | **자동 배치의 문 앞 여유 때문에 빽빽한 방이 `자리 없음` 이 될 수 있다** (손으로는 아직 놓을 수 있다). 문 앞에 손으로 가구를 세워 스스로 갇히는 것도 예전 그대로 가능하다 — 근본 대응(문 앞 칸 예약)은 문 지오메트리를 가진 `hub/` 소유다 | `src/housing/Rules.ts` `doorClearanceCell` |
 
 ## 묶음 7 (상시) — 밸런스 · 튜닝
 

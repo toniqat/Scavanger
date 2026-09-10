@@ -1,15 +1,15 @@
-import type { GameContext, ItemDef, ItemInstance, UniqueWeaponKind, WeaponDef, WeaponSlot } from '@/shared';
+import type { GameContext, ItemDef, ItemInstance, UniqueWeaponKind, WeaponDef } from '@/shared';
 import { DEFIB_USE_TIME_S, Keys, WEAPON_DEFAULT_DURABILITY, keyLabel } from '@/shared';
 import { buildItemChip } from '@/shared';
 import { WEAPON_CLASS_LABEL_KO, weaponClassOf } from '@/items';
-import { el, setText, toggleClass } from '../dom';
-import { SlotStrip, weaponSlotKey } from './SlotStrip';
+import { el, rarityColor, setText, toggleClass } from '../dom';
+import '../styles/raidHud.css';
 
 /** Durability ratio at/below which the bar turns amber (`.worn`). */
 const DURABILITY_WORN = 0.3;
 
-/** Thumbnail edge of the weapon chip in the bottom-right box. */
-const WEAPON_THUMB_SIZE = 34;
+/** Thumbnail edge of the weapon chip in the bottom-right box (2026-09-10: 34 → 58, the name line that shared the box is gone). */
+const WEAPON_THUMB_SIZE = 58;
 
 /** Usage hint per consumable category (`.weapon.consumable .hint`). */
 const CONSUMABLE_HINT: Record<string, string> = {
@@ -39,13 +39,16 @@ const UNIQUE_MODES: Readonly<Record<UniqueWeaponKind, { l: string; r: string }>>
 };
 
 /**
- * Bottom-right weapon readout: slot strip (1/2/3/F), durability bar, mag / reserve (bag rounds) with the weapon
- * **thumbnail** beside them, slot tag + class tag, low / empty / broken states. The reload readout moved
- * to the crosshair in Phase 10 (`hud/ReloadGauge`) — this panel no longer owns an arc or a `재장전` pill.
+ * Bottom-right weapon readout: durability bar, then one row of **썸네일 ← → 잔탄 / 예비탄**, then the class tag,
+ * plus the low / empty / broken states. The reload readout moved to the crosshair in Phase 10 (`hud/ReloadGauge`) —
+ * this panel no longer owns an arc or a `재장전` pill.
  *
- * 2026-09-07: the separate name line above the durability bar is gone. The name now lives in `.wthumb`, a
- * fixed-size horizontal box right of the ammo count holding the inventory item chip (`buildItemChip`, so the icon
- * and rarity colour match the bag exactly) plus the weapon name.
+ * 2026-09-10 (레이드 HUD 개편, 사용자 결정): 패널 **위**의 슬롯 칸(`hud/SlotStrip` 의 `1 · 2 · T`)과 패널 **아래**의
+ * 주무기 키 · 무기 이름이 전부 없어졌다. 그 높이는 남은 것들이 가져간다 — 썸네일 34 → 58 px, 잔탄 40 → 64 px
+ * (`styles/raidHud.css`). 무기 이름은 썸네일이 대신하므로 `.wthumb` 는 이름 없는 정사각형이 되고, 테두리 · 안쪽
+ * 글로우가 **무기 등급색**(`--wrc` = `rarityColor(def.rarity)`)을 쓴다 — 아이템 칩 자체의 `--rc` 와 같은 색이라
+ * 가방에서 보던 등급이 그대로 읽힌다. 예비 탄약은 잔탄 **우측 아래**에 작게 붙는다.
+ *
  * **Consumable mode** (`.weapon.consumable`, `quick:equipped {item}`): the gun rows are hidden and a `.cons` block shows
  * the item name + stack count (`quick:used.remaining` / `inventory:itemUpdated`) with a usage hint; back to gun mode on
  * `quick:equipped {item:null}` or the next `weapon:equipped`. Gun state keeps updating underneath, so the switch back is
@@ -53,9 +56,6 @@ const UNIQUE_MODES: Readonly<Record<UniqueWeaponKind, { l: string; r: string }>>
  */
 export class WeaponPanel {
   readonly root: HTMLElement;
-  readonly slots: SlotStrip;
-  private slotEl: HTMLElement;
-  private nameEl: HTMLElement;
   private magEl: HTMLElement;
   private reserveEl: HTMLElement;
   private typeEl: HTMLElement;
@@ -83,22 +83,19 @@ export class WeaponPanel {
 
   constructor(parent: HTMLElement) {
     this.root = el('div', { cls: 'weapon', parent });
-    this.slots = new SlotStrip(this.root);
 
     this.duraEl = el('div', { cls: 'dura', parent: this.root });
     this.duraFill = el('div', { cls: 'fill', parent: this.duraEl });
     // Phase 10: the reload arc that used to sit left of this row is gone — `hud/ReloadGauge` draws it at the crosshair.
+    // 2026-09-10: 썸네일이 **왼쪽**, 숫자가 오른쪽이다 (예전에는 반대였다).
     const ammoRow = el('div', { cls: 'ammo-row', parent: this.root });
+    this.thumbEl = el('div', { cls: 'wthumb', parent: ammoRow });
+    this.thumbIcon = el('div', { cls: 'wt-icon', parent: this.thumbEl });
     const ammoNums = el('div', { cls: 'ammo-nums', parent: ammoRow });
     this.magEl = el('span', { cls: 'mag', text: '0', parent: ammoNums });
     this.reserveEl = el('span', { cls: 'reserve', text: '0', parent: ammoNums });
-    // Fixed-size thumbnail box right of the count: inventory item chip + weapon name (2026-09-07).
-    this.thumbEl = el('div', { cls: 'wthumb', parent: ammoRow });
-    this.thumbIcon = el('div', { cls: 'wt-icon', parent: this.thumbEl });
-    this.nameEl = el('span', { cls: 'name wt-name', text: '—', parent: this.thumbEl });
 
     const tagRow = el('div', { cls: 'name-row', parent: this.root });
-    this.slotEl = el('span', { cls: 'slot', text: '1', parent: tagRow });
     this.typeEl = el('span', { cls: 'type', text: '—', parent: tagRow });
 
     // Unique-weapon fire modes (`.modes`, only for defs with `altFire` / `unique`): `좌: …` / `우: …`.
@@ -123,7 +120,6 @@ export class WeaponPanel {
   }
 
   bind(ctx: GameContext): void {
-    this.slots.bind(ctx);
     const b = ctx.bus;
     this.unsubs.push(
       b.on('input:bindingsChanged', () => setText(this.consKey, keyLabel(Keys.QUICK))),
@@ -142,8 +138,6 @@ export class WeaponPanel {
         this.exitConsumable();
         this.weaponId = p.weaponId;
         this.magSize = Math.max(1, p.magSize);
-        this.setSlot(p.slot);
-        setText(this.nameEl, p.name);
         const def = ctx.loot?.getWeaponDef(p.weaponId);
         // Phase 9 UI pass: the slot word (주무기 …) and the calibre (준중량탄 …) are gone — the numbered chip and the class say enough.
         setText(this.typeEl, def ? WEAPON_CLASS_LABEL_KO[weaponClassOf(def)] : '—');
@@ -171,8 +165,8 @@ export class WeaponPanel {
         if (!this.isActive(p.uid, p.weaponId)) return;
         this.setDurability(0, 1, true);
       }),
-      // 2026-09-08: the swap only highlights the slot strip now — its timer is the crosshair ring (`hud/ReloadGauge`).
-      b.on('weapon:swapStarted', ({ slot }) => this.setSlot(slot)),
+      // 2026-09-10: 슬롯 칸이 없어져 교체는 이 패널에서 아무것도 하지 않는다 — 타이머는 크로스헤어 링
+      // (`hud/ReloadGauge`) 이고, 새 무기의 썸네일 · 잔탄은 곧 오는 `weapon:equipped` 가 갈아 끼운다.
       b.on('weapon:dryFire', () => {
         this.magEl.classList.remove('flash');
         void this.magEl.offsetWidth;
@@ -182,7 +176,6 @@ export class WeaponPanel {
         if (!primary && !primary2 && !secondary) {
           this.weaponId = '';
           this.weaponUid = '';
-          setText(this.nameEl, '무장 없음');
           setText(this.typeEl, '—');
           this.setThumb(undefined);
           this.setModes(undefined);
@@ -194,10 +187,16 @@ export class WeaponPanel {
     );
   }
 
-  /** Rebuild the weapon thumbnail (the shared inventory chip, so icon + rarity colour match the bag). */
+  /**
+   * Rebuild the weapon thumbnail (the shared inventory chip, so icon + rarity colour match the bag).
+   * 2026-09-10: 상자 자신도 **무기 등급색**으로 칠한다 — `--wrc` 는 칩이 쓰는 `--rc` 와 같은 값
+   * (`rarityColor` → base.css 의 `--r-*`), 그래서 등급이 한눈에 읽힌다.
+   */
   private setThumb(def: ItemDef | undefined): void {
     this.thumbIcon.replaceChildren();
     if (def) this.thumbIcon.appendChild(buildItemChip(def, { size: WEAPON_THUMB_SIZE }));
+    const rc = def ? rarityColor(def.rarity) : '';
+    if (this.thumbEl.style.getPropertyValue('--wrc') !== rc) this.thumbEl.style.setProperty('--wrc', rc);
     toggleClass(this.thumbEl, 'is-empty', !def);
   }
 
@@ -243,10 +242,6 @@ export class WeaponPanel {
   /** Whether the unique fire-mode lines are showing (debug). */
   get hasModes(): boolean { return this.root.classList.contains('has-modes'); }
 
-  private setSlot(slot: WeaponSlot): void {
-    setText(this.slotEl, weaponSlotKey(slot));
-  }
-
   private setAmmo(mag: number, reserve: number): void {
     setText(this.magEl, String(mag));
     setText(this.reserveEl, String(reserve));
@@ -273,5 +268,5 @@ export class WeaponPanel {
     }
   }
 
-  dispose(): void { for (const u of this.unsubs) u(); this.slots.dispose(); this.root.remove(); }
+  dispose(): void { for (const u of this.unsubs) u(); this.root.remove(); }
 }

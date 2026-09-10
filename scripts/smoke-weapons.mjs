@@ -844,11 +844,16 @@ try {
     stamina: !!document.querySelector('.hud .stamina'),
     staminaFull: document.querySelector('.hud .stamina')?.classList.contains('full'),
     dur: !!document.querySelector('.weapon .dur, .weapon .durability, .weapon [class*="dur"]'),
+    /* 2026-09-10: 상단 슬롯 칸(.wslots)은 없어졌다 — 패널은 썸네일 + 큰 잔탄 + 작은 예비탄이다. */
+    thumb: !!document.querySelector('.weapon .wthumb'),
+    mag: document.querySelector('.weapon .mag')?.textContent ?? null,
+    reserve: document.querySelector('.weapon .reserve')?.textContent ?? null,
     slots: document.querySelectorAll('.wslots .wslot').length,
   }));
   ok(hud.stamina && hud.staminaFull, 'stamina bar present and hidden (.full) while idle');
   ok(hud.dur, 'weapon panel has a durability element');
-  ok(hud.slots >= 3, 'weapon slot strip has 3 cells', `${hud.slots}`);
+  ok(hud.thumb && hud.mag !== null && hud.reserve !== null, 'weapon panel has thumbnail + mag + reserve', JSON.stringify(hud));
+  ok(hud.slots === 0, 'weapon slot strip (1·2·3·T) removed', `${hud.slots}`);
 
   ok(errors.length === 0, 'no console errors', errors.slice(0, 5).join(' | '));
 } catch (e) {

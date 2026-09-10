@@ -380,9 +380,10 @@ try {
       // no barrier → the same shot lands
       block = false;
       calls.length = 0;
-      const hpA = ctx.player.hp;
+      /* 2026-09-10: 방탄복은 이제 실드(추가 체력)라 피해가 hp 보다 **먼저 실드**를 깎는다 — 실효 체력으로 잰다. */
+      const hpA = ctx.player.hp + ctx.player.shield;
       sys.fireGun(rogue, t, 0, 1);
-      r.open = { calls: calls.length, hpA, hpB: ctx.player.hp, shot: window.__ev['enemy:shot'][window.__ev['enemy:shot'].length - 1] ?? null };
+      r.open = { calls: calls.length, hpA, hpB: ctx.player.hp + ctx.player.shield, shield: ctx.player.shield, maxShield: ctx.player.maxShield, shot: window.__ev['enemy:shot'][window.__ev['enemy:shot'].length - 1] ?? null };
       imp.raycastBarrier = orig.ray; imp.damageBarrier = orig.dmg;
       rogue.kill(false); if (spewer) spewer.kill(false);
       return r;
@@ -392,7 +393,7 @@ try {
     ok(bar.gun && bar.gun.shot && Math.hypot(bar.gun.shot.to[0] - bar.gun.shot.from[0], bar.gun.shot.to[2] - bar.gun.shot.from[2]) < 2, 'the tracer ends at the barrier point (≈1.5 m from the muzzle)', JSON.stringify(bar.gun?.shot));
     ok(bar.shell && bar.shell.calls === 1 && bar.shell.hp === bar.gun.hp0, 'artillery landing: damageBarrier ×1, no player damage', JSON.stringify(bar.shell));
     ok(bar.acid && bar.acid.calls === 1 && bar.acid.hp === bar.gun.hp0, 'acid hit: damageBarrier ×1, no player damage', JSON.stringify(bar.acid));
-    ok(bar.open && bar.open.calls === 0 && bar.open.hpB < bar.open.hpA && bar.open.shot && bar.open.shot.hit === true, `without a barrier the same shot lands (${bar.open?.hpA} → ${bar.open?.hpB})`, JSON.stringify(bar.open));
+    ok(bar.open && bar.open.calls === 0 && bar.open.hpB < bar.open.hpA && bar.open.shot && bar.open.shot.hit === true, `without a barrier the same shot lands — 실효 체력(hp + 실드) ${bar.open?.hpA} → ${bar.open?.hpB}`, JSON.stringify(bar.open));
   }
 
   const gameErrors = errors.filter((e) => !/WebSocket/.test(e));

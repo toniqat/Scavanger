@@ -1105,3 +1105,48 @@ ESC 로 화면을 닫으면 재잠금 요청이 **정확히 한 번**, **Escape 
 `Execution context was destroyed, most likely because of a navigation` · `timeout waiting for playing`.
 같은 이유로 이 배치의 스모크 정리는 `smoke-controls-hub` · `smoke-resume-gate` **단독 실행 결과**를 근거로
 삼았다. 편집이 멎은 뒤 `npm run verify:all` 을 한 번 다시 돌려야 한다.
+
+---
+
+## 2026-09-10 — 2차 배치 (곡사포 궤적 · 위험 인디케이터 · 발소리 · 벽밀착 사격 · 가구 배치 · 레이드 HUD · 실드)
+
+`npm run verify:all` (7분 11초, 4레인 병렬). 앞 절의 "마지막 verify:all 은 신뢰할 수 없다" 는 이 실행으로
+해소됐다 — 편집이 멎은 상태에서 돌렸고 HMR reload 는 없었다.
+
+```
+2026-09-10: typecheck ok, typecheck-server ok, net-selftest 295/295, data-check ok,
+build 2,488.09 kB JS / 256.86 kB CSS, smoke-quickslots 73/73, smoke-phase2 57/57, smoke-weapons 136/136,
+smoke-stratagems 72/72, smoke-phase4 49/49, smoke-tactical 87/87, smoke-controls-hub 131/131,
+smoke-phase3 33/33, smoke-ship-rooms 72/72, smoke-inventory-p6 124/124, smoke-housing 206/206,
+smoke-console 63/63, smoke-search 61/61, smoke-loadout 69/69, smoke-progression 123/123,
+smoke-ui-p6 88/88, smoke-ui-p5 136/136, smoke-enemy-alert 42/42, smoke-uniques 72/72,
+smoke-rogue-v2 52/52, smoke-rogue-drop 29/29, smoke-resume-gate 62/62, smoke-meta 172/172,
+smoke-training 112/112, smoke-library 126/126, smoke-enemy-delta 52/52, smoke-ghost 86/86,
+smoke-planets 86/86, smoke-raidflow 49/49, smoke-social 138/138, smoke-ecology 90/90,
+smoke-structures 25/25, smoke-props-collision 20/20, smoke-hazard 43/43, smoke-tutorial 83/83,
+smoke-hangar 58/58, e2e-mp 156/156
+```
+
+### 이 배치에서 고친 스모크 (전부 DOM · 계약이 실제로 바뀐 것이지, 테스트를 느슨하게 한 것이 아니다)
+
+- `smoke-tactical` — `ctx.player.damageReduction > 0` → **`maxShield > 0`**. 방탄복은 이제 피해를 깎지
+  않으므로 DR 은 늘 0 이다. 방탄복이 실제로 무언가를 준다는 검사는 실드로 옮겼다.
+- `smoke-weapons` — `.wslots .wslot ≥ 3` → **`=== 0`** (칸이 없어진 것이 요점) + 새 패널 검사
+  (`.wthumb` · `.mag` · `.reserve`).
+- `smoke-ui-p5` — 우하단 순서에서 `implant-chip` · `wslots` 제거, 임플란트는 `.imp-hud` 의
+  `dataset.implant` 로 검사하고 **이름이 없고 키만 있다**는 것을 새로 단언한다. 목표 문구 블록은
+  `.text`/`.sub` 가 **없다**는 것과 시계만 남았다는 것, `ui:objective` 가 no-op 이라 문구가 되살아나지
+  않는다는 것으로 다시 썼다.
+- `smoke-controls-hub` — `.implant-gauge`(크로스헤어 왼쪽 세로 게이지) → `.imp-hud`(화면 중앙 하단
+  가로 썸네일). 위치 단언도 "크로스헤어 왼쪽 · 세로 중앙" 에서 **"가로 중앙 · 화면 아래쪽"** 으로.
+  대시의 칸 셋(`.seg`) 검사는 썸네일 안 숫자(`.ib-ch`) + `accent` 클래스 검사로 바뀌었다.
+- `smoke-enemy-delta` — 배리어 없이 맞은 총알이 hp 를 깎는지 보던 검사가 **실드가 대신 먹어서**
+  실패했다 (hp 100 → 100). 실효 체력 `hp + shield` 로 잰다.
+
+### `smoke-phase3` 는 flaky 다 (이 배치와 무관)
+
+첫 실행에서 `timeout waiting for laser ended` 로 떨어졌다가 단독 재실행에서 33/33 통과했다.
+그 파일 자신이 2026-09-09 주석으로 원인을 적어 두고 있다 — 레이저 구간은 `timeScale 4` 로 수십 초를
+흘려보내는데 그 사이에 벌레가 플레이어를 죽이면 레이드가 실패해 함선으로 돌아가고 호출 목록이
+비워진다. 실패 시 덤프도 정확히 `{"phase":"hub"}` 였다. 주변을 비우는 방어 코드가 이미 있지만
+`timeScale 4` × 최대 60 s = 240 s 의 시뮬레이션 동안 새로 스폰되는 것까지는 막지 못한다.

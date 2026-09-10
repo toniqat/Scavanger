@@ -1,13 +1,21 @@
 # 방탄복. tier 1–5 는 번호 방탄복, tier 0 은 전설 유니크 3벌이다.
-# damageReduction 은 0–1 피해 감소율 (번호 방탄복은 tables.csv 의 ARMOR_DR_BY_TIER 를 그대로 쓴다).
+# 2026-09-10 — 방탄복은 피해 감소가 아니라 **실드(추가 체력)** 를 준다.
+#   shield = 실드 최대치. 피해는 실드를 먼저 비우고 남은 만큼만 체력(100)으로 간다.
+#   번호 방탄복은 tables.csv 의 ARMOR_SHIELD_BY_TIER 를 그대로 가리킨다 (20/40/60/80/100).
+#   유니크 3벌은 옛 뎀감률을 비례 환산한 값이다: round(damageReduction / ARMOR_DR_BY_TIER.5 * 100)
+#     재생 0.27/0.3*100 = 90 · 초경량 0.1/0.3*100 = 33 · 광학미채 0.08/0.3*100 = 27.
+#   damageReduction 은 **더 이상 피해 계산에 쓰이지 않는다** — 위 환산의 근거로만 남겨 둔 열이다.
+# rarity 는 2026-09-10 에 tier 와 1:1 로 맞췄다 (I 일반 · II 고급 · III 희귀 · IV 서사 · V 전설).
 # perk: none | regen | ultralight | optical. perkValue 는 그 퍽의 수치 (재생 = 초당 회복량 등).
-# durabilityMax 는 판이 버티는 흡수량, weight 는 kg, 가격은 tuning.csv 의 ARMOR_VALUE_* 로 계산된다.
-id,name,tier,rarity,damageReduction,weight,durabilityMax,perk,perkValue,color,icon,description
-armor_1,방탄복 I,1,common,=ARMOR_DR_BY_TIER.1,3,200,none,,#8e9299,⛊,경량 케블라 조끼. 파편을 겨우 막아준다.
-armor_2,방탄복 II,2,common,=ARMOR_DR_BY_TIER.2,3.8,280,none,,#93a08c,⛊,표준 지급 방탄복. 전면에 세라믹 플레이트 한 장.
-armor_3,방탄복 III,3,uncommon,=ARMOR_DR_BY_TIER.3,4.2,380,none,,#6f9d72,🛡,전면·측면 플레이트 캐리어. 기동성과 방호의 절충안.
-armor_4,방탄복 IV,4,rare,=ARMOR_DR_BY_TIER.4,4.5,480,none,,#5b8fd6,🛡,중장갑 캐리어. 목·사타구니 보호대 포함.
-armor_5,방탄복 V,5,epic,=ARMOR_DR_BY_TIER.5,5.8,600,none,,#a877e8,🛡,외골격 보조 중장갑. 무겁지만 대부분의 물기 공격을 견딘다.
-armor_regen,재생 방탄복,0,legendary,0.27,6.2,520,regen,1,#ff9f6b,✚,나노 섬유가 상처를 봉합한다. 스태미나가 가득할 때 초당 체력 1 회복.
-armor_ultralight,초경량 방탄복,0,legendary,0.1,1.9,300,ultralight,0.18,#ffe08a,❖,에어로젤 직물. 방호는 최소지만 스태미나 회복과 이동속도가 크게 오른다.
-armor_optical,광학미채 방탄복,0,legendary,0.08,2.4,260,optical,,#8fe8ff,◊,적응형 광학 위장막. 상시 은폐 상태를 유지하지만 방호력은 형편없다.
+# durabilityMax 는 판이 버티는 흡수량(실드가 먹은 피해 × ARMOR_DURABILITY_PER_DAMAGE 만큼 닳는다),
+#   0 이 되면 파손 = 실드 최대치 0 이고 함선 작업대에서 수리한다. weight 는 kg,
+#   가격은 tuning.csv 의 ARMOR_VALUE_* (BASE + shield × SHIELD_MUL + durabilityMax × DUR_MUL) 로 계산된다.
+id,name,tier,rarity,damageReduction,shield,weight,durabilityMax,perk,perkValue,color,icon,description
+armor_1,방탄복 I,1,common,=ARMOR_DR_BY_TIER.1,=ARMOR_SHIELD_BY_TIER.1,3,200,none,,#8e9299,⛊,경량 케블라 조끼. 얇은 반응 장갑이 실드 20 을 세운다.
+armor_2,방탄복 II,2,uncommon,=ARMOR_DR_BY_TIER.2,=ARMOR_SHIELD_BY_TIER.2,3.8,280,none,,#93a08c,⛊,표준 지급 방탄복. 세라믹 플레이트 한 장이 실드 40 을 세운다.
+armor_3,방탄복 III,3,rare,=ARMOR_DR_BY_TIER.3,=ARMOR_SHIELD_BY_TIER.3,4.2,380,none,,#6f9d72,🛡,전면·측면 플레이트 캐리어. 실드 60. 기동성과 방호의 절충안.
+armor_4,방탄복 IV,4,epic,=ARMOR_DR_BY_TIER.4,=ARMOR_SHIELD_BY_TIER.4,4.5,480,none,,#5b8fd6,🛡,중장갑 캐리어. 실드 80. 목·사타구니 보호대 포함.
+armor_5,방탄복 V,5,legendary,=ARMOR_DR_BY_TIER.5,=ARMOR_SHIELD_BY_TIER.5,5.8,600,none,,#a877e8,🛡,외골격 보조 중장갑. 실드 100. 무겁지만 어지간한 일격은 몸에 닿지도 않는다.
+armor_regen,재생 방탄복,0,legendary,0.27,90,6.2,520,regen,1,#ff9f6b,✚,나노 섬유가 상처를 봉합한다. 실드 90. 스태미나가 가득할 때 초당 체력 1 회복.
+armor_ultralight,초경량 방탄복,0,legendary,0.1,33,1.9,300,ultralight,0.18,#ffe08a,❖,에어로젤 직물. 실드는 33 뿐이지만 스태미나 회복과 이동속도가 크게 오른다.
+armor_optical,광학미채 방탄복,0,legendary,0.08,27,2.4,260,optical,,#8fe8ff,◊,적응형 광학 위장막. 상시 은폐 상태를 유지하지만 실드는 27 밖에 안 된다.

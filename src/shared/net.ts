@@ -911,7 +911,11 @@ export interface NetRef {
 /* ── appended: Phase 7 — ghosts (host-simulated bodies of suspended members; owner: player/RemotePlayerSystem on the host) ── */
 /** 0 alive (standing where they were), 1 downed (bleeding `dhp`), 2 dead. */
 export type GhostState = 0 | 1 | 2;
-export interface GhostWire { id: PeerId; p: Vec3Tuple; yaw: number; hp: number; dhp: number; st: GhostState }
+export interface GhostWire {
+  id: PeerId; p: Vec3Tuple; yaw: number; hp: number; dhp: number; st: GhostState;
+  /** appended (2026-09-10): 실드 — 없거나 0 이면 생략된다. 옛 호스트가 보낸 고스트는 실드가 없다. */
+  sh?: number;
+}
 /**
  * Host → all `state` (on change + NET_GHOST_STATE_HZ) while a member is suspended; `sync` = every ghost (reply to
  * `ghostq sync` / `flow rejoined`); `restore` → the returning member only: your body as the host left it — apply with
@@ -1304,3 +1308,22 @@ export type RaidContentMessage =
   | HazardMessage
   | HazardRequest
   | RogueDropMessage;
+
+/* ══ appended (2026-09-10): 방탄복 = 실드 ═══════════════════════════════════════════════════════════════ */
+
+export interface PlayerSnapshot {
+  /**
+   * 실드(방탄복이 주는 추가 체력)와 그 최대치. **방탄복을 입었을 때만 실린다** (`dhp` 가 전투불능일 때만
+   * 타는 것과 같은 규약) — 옛 송신자는 둘 다 없다. 원격 체력 바가 실드를 그리고, 호스트가 고스트를 만들 때
+   * 그 사람의 실드를 물려주며, 재접속 복귀(`ghost restore`)가 실드를 되돌려 준다.
+   */
+  sh?: number;
+  shm?: number;
+}
+
+export interface RemotePlayerRef {
+  /** `PlayerSnapshot.sh` — 이 peer 의 현재 실드. 방탄복이 없거나 아직 모르면 undefined. */
+  readonly shield?: number;
+  /** `PlayerSnapshot.shm` — 이 peer 의 실드 최대치. */
+  readonly maxShield?: number;
+}

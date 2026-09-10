@@ -119,6 +119,9 @@ Category `bag`, 2×2, stack 1, `ItemDef.bag: { cols, rows, quickSlots, tactical?
 | `heal_syringe` | 회복주사 | rare | 1×1 · 3 | 2 s | 1초 만에 hp 50 | 주사기 1 + 소독약 1 (의학 Lv.1) |
 | `heal_spray` | 회복 스프레이 | epic | 1×2 · 1 | 채널 | 게이지 100, 0.1 s마다 게이지 1 → 반경 8 m 자신·아군 hp 1 | 캔 1 + 소독약 1 (의학 Lv.2) |
 
+2026-09-10: 같은 `category: 'stim'` 에 **실드 충전기 3종**이 붙었다 — 체력이 아니라 실드를 채운다
+(*Body armor* 절의 *실드 충전기*).
+
 The 스프레이's gauge is the instance's `durability` (`durabilityMax` 100), so a half-used can keeps its charge in the
 stash and shows the ordinary durability bar. `제세동기` (`gad_defib`, a gadget) is stack 2 and now takes a
 `DEFIB_USE_TIME_S` (1 s) hold. 스팀 / 고급 스팀 are **removed** — `ItemCategory 'stim'` and `applyStim` are unchanged.
@@ -202,27 +205,65 @@ Rogue weapon (`CorpseWeapon`): `rogueWeaponId` is the `WeaponDef` id the rogue c
 
 | File | Role |
 |---|---|
-| `ArmorDefs.ts` | 8 `ArmorDef`s (`ARMOR_DEFS`, `ARMOR_DEF_MAP`, `getArmorDef`), `armorItemSize(def)` grid footprint, `ARMOR_ICON` |
+| `ArmorDefs.ts` | 8 `ArmorDef`s (`ARMOR_DEFS`, `ARMOR_DEF_MAP`, `getArmorDef`), `armorItemSize(def)` grid footprint, `ARMOR_ICON`. 2026-09-10: `ArmorDef.shield` (실드 최대치) 가 실제로 쓰이는 값이고 `damageReduction` 은 환산 근거로만 남았다 |
 | `Recipes.ts` | 41 hand-written `CraftRecipe`s (`CRAFT_RECIPES`) — ammo teardown → 화약, 화약 → ammo, herbs → medicine, and (Phase 6) the four 작업실 bench chains (`bench` / `benchLevel`) — **plus the generated 고물 분해 recipes** (2026-09-08: `SALVAGE_RECIPES` = 기계 부품 + one `break_wpn_*` per non-unique weapon def + one `break_armor_*` per numbered plate). `ALL_CRAFT_RECIPES` = both, and is what `ctx.loot.getAllRecipes()` returns; `CRAFT_RECIPE_MAP` / `getRecipe` index it. Table in *Recipes* below |
 
 New categories: `armor` (`ItemDef.armorId` → `ArmorDef`, `durabilityMax`), `gadget` (`gadgetId`, behaviour in `src/gadgets`), `herb` (gathered from `WorldRef.getGatherNodes()`); `mat_gunpowder` for the ammo recipes; every def carries a `weight` (kg, `itemWeight(def, qty)`, default `DEFAULT_ITEM_WEIGHT`). The branch's `BackpackDef` catalogue was **not** merged — bags stay the weapon-package `bag_*` items (`BagDef`, `bag.tactical` = hover / faster swap perk). Starter kit adds `armor_2` + one `gad_smoke`. `LootRef` gained `getArmorDef` and `getAllRecipes`; loot tables roll `gadget` / `herb` / `armor` (heavy deployables never in tier 1).
 
-## Body armor (`ArmorDef`)
+## Body armor (`ArmorDef`) — **실드** (2026-09-10)
 
-Numbered plates take their damage reduction straight from `ARMOR_DR_BY_TIER`, so the shared contract stays the single source of truth.
+**방탄복은 피해를 깎지 않는다.** `ArmorDef.shield` 만큼의 **추가 체력 풀**을 주고, 들어온 피해는 그 풀을 먼저
+비운 뒤 남은 만큼만 체력(100)으로 간다. 번호 방탄복 I..V 는 `data/armor.csv` 가 `=ARMOR_SHIELD_BY_TIER.n` 으로
+`data/tables.csv` 의 표를 그대로 가리키고, 유니크 3벌은 옛 뎀감률을 `round(damageReduction / ARMOR_DR_BY_TIER.5
+× 100)` 으로 환산한 값을 직접 적었다. `ArmorDef.damageReduction` 은 **그 환산의 근거로만 남은 열**이고 코드
+어디서도 읽지 않는다 (`PlayerRef.damageReduction` 도 늘 0 — 계약이라 지우지 않았을 뿐).
 
-| id | 이름 | rarity | DR | kg | 내구도 | 칸 | perk |
-|---|---|---|---|---|---|---|---|
-| `armor_1` | 방탄복 I | common | 6 % | 3.0 | 200 | 2×2 | — |
-| `armor_2` | 방탄복 II | common | 12 % | 4.6 | 280 | 2×2 | — |
-| `armor_3` | 방탄복 III | uncommon | 18 % | 6.6 | 380 | 2×3 | — |
-| `armor_4` | 방탄복 IV | rare | 24 % | 9.2 | 480 | 2×3 | — |
-| `armor_5` | 방탄복 V | epic | 30 % | 12.4 | 600 | 2×3 | — |
-| `armor_regen` | 재생 방탄복 | legendary | 27 % | 10.6 | 520 | 2×3 | `regen`, `perkValue` 1 hp/s while stamina is full |
-| `armor_ultralight` | 초경량 방탄복 | legendary | 10 % | 1.9 | 300 | 2×2 | `ultralight`, `perkValue` 0.18 (스태미나 회복 + 이동속도) |
-| `armor_optical` | 광학미채 방탄복 | legendary | 8 % | 3.4 | 260 | 2×2 | `optical` — 상시 은폐 |
+rarity 는 2026-09-10 에 tier 와 1:1 로 맞췄다 (I 일반 · II 고급 · III 희귀 · IV 서사 · V 전설).
+
+| id | 이름 | rarity | 실드 | kg | 내구도 | 칸 | ₩ | perk |
+|---|---|---|---|---|---|---|---|---|
+| `armor_1` | 방탄복 I | common | **20** | 3.0 | 200 | 2×2 | 832 | — |
+| `armor_2` | 방탄복 II | uncommon | **40** | 3.8 | 280 | 2×2 | 1 196 | — |
+| `armor_3` | 방탄복 III | rare | **60** | 4.2 | 380 | 2×3 | 1 588 | — |
+| `armor_4` | 방탄복 IV | epic | **80** | 4.5 | 480 | 2×3 | 1 980 | — |
+| `armor_5` | 방탄복 V | legendary | **100** | 5.8 | 600 | 2×3 | 2 400 | — |
+| `armor_regen` | 재생 방탄복 | legendary | **90** | 6.2 | 520 | 2×3 | 2 162 | `regen`, `perkValue` 1 hp/s while stamina is full |
+| `armor_ultralight` | 초경량 방탄복 | legendary | **33** | 1.9 | 300 | 2×2 | 1 136 | `ultralight`, `perkValue` 0.18 (스태미나 회복 + 이동속도) |
+| `armor_optical` | 광학미채 방탄복 | legendary | **27** | 2.4 | 260 | 2×2 | 1 004 | `optical` — 상시 은폐 |
+
+가격은 `data/tuning.csv` 의 `ARMOR_VALUE_BASE + shield × ARMOR_VALUE_SHIELD_MUL(12.6) + durabilityMax ×
+ARMOR_VALUE_DUR_MUL` 이다 — 12.6 = 옛 `ARMOR_VALUE_DR_MUL`(4200) × 0.3 ÷ 100 이라 값은 그대로다.
+
+**내구도는 그대로 남는다.** 실드가 먹은 피해 × `ARMOR_DURABILITY_PER_DAMAGE`(0.35) 만큼 판이 닳고, 0 이 되면
+**파손 = 실드 최대치 0** 이다 (충전기로도 못 채운다). 함선 작업대에서 수리하면 되살아난다.
 
 Perks are **declared here and implemented in `src/player`** (regen tick, ultralight speed/stamina, optical `setCloak(Infinity, 'armor')`).
+
+### 실드 충전기 (2026-09-10, `SHIELD_CHARGE_MAP` / `shieldChargeOf`)
+
+실드를 채우는 소모품 3종. `data/items.csv` 의 `shieldUseTime` · `shieldHp` 칸이 채워진 줄이 곧 충전기이고
+(`shieldHp` **-1 = 완전 회복**), `ItemDefs.ts` 가 그것을 `SHIELD_CHARGE_MAP: Map<itemId, {useTime, amount}>` 으로
+내준다 — `amount` 가 `Infinity` 면 최대치까지다. **`ItemDef` 에 칸을 새로 열지 않았다**: `src/shared` 는 조율
+없이 고치지 않는 계약이라, `weapons/` 와 `inventory/` 가 이미 하고 있는 `@/items` import 로 `shieldChargeOf(defId)`
+를 묻는다.
+
+셋 다 `category: 'stim'` 이라 퀵슬롯 · 루팅 카테고리 · 손에 든 모습 · 좌클릭 홀드가 회복 소모품과 같은 길을
+탄다. 다른 점은 홀드가 끝났을 때 `PlayerRef.applyHeal` 이 아니라 **`PlayerRef.chargeShield`** 로 간다는 것뿐이다.
+방탄복이 없거나 실드가 이미 가득이면 **홀드가 시작조차 되지 않고 아이템도 줄지 않는다**.
+
+| id | 이름 | rarity | 사용 | 효과 | 스택 | kg | ₩ |
+|---|---|---|---|---|---|---|---|
+| `shield_charger` | 실드 충전기 | common | 2 s | 실드 +20 | 5 | 0.3 | 60 |
+| `shield_charger_hi` | 고출력 실드 충전기 | uncommon | 4 s | 실드 +40 | 5 | 0.35 | 170 |
+| `shield_charger_full` | 완충 실드 충전기 | rare | 6 s | 실드 **완전 회복** | 2 | 0.5 | 430 |
+
+**어디서 나오나** — 로그가 붕대와 함께 완제품을 들고 다닌다 (`rogue` 26 % / 고출력 6 %, `rogue_boss` 70 % /
+30 % / 완충 8 %) 그리고 상자의 `stim` 굴림에 섞인다 (티어 1 ×0.5 · 2 ×0.8, 고급 · 완충은 낮은 티어에서 0).
+**필드 제작**은 새 재료 `mat_core` 「구동 코어」(일반 재료, 1×1, 스택 10, 0.25 kg, ₩30 — 로그 시체 30 % 1–2 /
+보스 80 % 1–3, 상자 티어 1–3) 와 `mat_cable` 전력 케이블 조합이다:
+`make_shield_charger` (코어 1 + 케이블 1, 4 s) · `make_shield_charger_hi` (코어 2 + 케이블 2, 제작 15, 6 s) ·
+`make_shield_charger_full` (코어 4 + 케이블 3 + 회로 기판 1, 제작 35, 8 s) — 전부 `station: 'field'` 라 **작업대
+없이 레이드 현장에서** 만든다. 분해는 `break_shield_charger_hi` 하나 (→ 코어 1 + 케이블 1).
 
 ## Gadget consumables
 
@@ -484,6 +525,16 @@ P(V) < 5 % · 4번 5~6 % · 5번 < 20 %)와 대조한다. **수치를 고칠 때
 ---
 
 ## 변경 이력
+
+- **2026-09-10 (방탄복 = 실드)** — 방탄복이 피해 감소 대신 **실드(추가 체력)** 를 준다. `ArmorDef.shield` 를
+  `data/armor.csv` 의 새 `shield` 칸에서 읽고 (번호 방탄복은 `data/tables.csv` 의 새 표 `ARMOR_SHIELD_BY_TIER`
+  = 20/40/60/80/100, 유니크 3벌은 옛 뎀감률을 비례 환산한 90 / 33 / 27), `damageReduction` 은 **아무도 읽지
+  않는 근거 열**로만 남았다. `armor.csv` 의 rarity 를 tier 와 1:1 로 다시 맞췄고 (`armor_5` 가 **전설**),
+  아이템 가격 식이 `ARMOR_VALUE_DR_MUL` → **`ARMOR_VALUE_SHIELD_MUL`(12.6)** 로 바뀌었지만 값은 그대로다.
+  `armorItemSize` · `ARMOR_SALVAGE_*`(`tier > 0` 기준) 는 손대지 않았으므로 `break_armor_5` 도 그대로 있다.
+  새로 붙은 것: **실드 충전기 3종**(`shield_charger` / `_hi` / `_full`, category `stim`, `SHIELD_CHARGE_MAP` ·
+  `shieldChargeOf`) · 재료 **`mat_core` 구동 코어** · 필드 레시피 3 + 분해 1 · 로그 시체와 상자 루팅.
+  ⚠ 로그 · 보스 시체 표에 줄이 늘어 `rollCorpse` 의 rng 소비가 예전과 다르다 (고정 벡터를 세는 스모크 주의).
 
 - **2026-09-10 (권총 제거 · 최소 지급품)** — `data/weapons.csv` 의 `hg`(권총) 줄이 사라져 무기 계열은 5종이다.
   덩달아 `wpn_hg` 아이템 · `break_wpn_hg` 분해 레시피 · 헬릭스 상점의 `secondary,PISTOL` 줄 ·

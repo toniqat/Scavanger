@@ -1,6 +1,10 @@
 import * as THREE from 'three';
-import type { AudioChannel, AudioRef, AudioSettings, GameContext, GameSystem } from '@/shared';
-import { AUDIO_DEFAULT_MASTER, AUDIO_DEFAULT_SFX, AUDIO_STORAGE_KEY } from '@/shared';
+import type { AudioChannel, AudioRef, AudioSettings, GameContext, GameSystem, PeerId, Stance } from '@/shared';
+import {
+  AUDIO_DEFAULT_MASTER, AUDIO_DEFAULT_SFX, AUDIO_STORAGE_KEY,
+  FOOTSTEP_AUDIBLE_RANGE, FOOTSTEP_FALLOFF_EXP, FOOTSTEP_REMOTE_GAIN,
+  FOOTSTEP_VOL_CROUCH, FOOTSTEP_VOL_PRONE, FOOTSTEP_VOL_SPRINT, FOOTSTEP_VOL_WALK,
+} from '@/shared';
 import { Synth, SOUNDS } from './Synth';
 
 const RATE_WINDOW = 0.1;       // seconds
@@ -34,6 +38,18 @@ interface Ambient {
 
 /** Seconds without a `hub:warpProgress` after which the warp hum is treated as over (a cancelled trip emits no `end`). */
 const WARP_HUM_HOLD_S = 0.3;
+
+/* ── 발소리 (2026-09-10) ────────────────────────────────────────────────
+ * 크기(자세별 · 사거리 · 감쇠 지수)는 전부 `data/constants.csv` 다. 여기 남는 것은 **소리 그 자체**인
+ * 피치 배수뿐 — 어떤 표면을 어떤 자세로 밟았을 때의 톤이라 밸런스 수치가 아니다.
+ */
+const FOOTSTEP_PITCH_SPRINT = 1.05;
+const FOOTSTEP_PITCH_CROUCH = 0.96;
+const FOOTSTEP_PITCH_PRONE = 0.9;
+/** 함선 갑판(금속)은 흙보다 톤이 높다 — 실내에서 원격 발소리를 들었을 때의 구분. */
+const FOOTSTEP_PITCH_DECK = 1.16;
+/** 이보다 조용해질 바에는 보이스를 만들지 않는다 (사거리 끝자락의 무음 재생 방지). */
+const FOOTSTEP_MIN_VOLUME = 0.012;
 
 const RECONNECT_WARN_INTERVAL_MS = 5000;
 /** A `pickup:spawned` this soon after our own `inventory:itemDropped` is the thrown item → no landing tick. */
@@ -116,7 +132,9 @@ export class AudioSystem implements GameSystem, AudioRef {
       // player
       b.on('player:damaged', () => auto('player_hurt', undefined, 0.9, 0.9 + Math.random() * 0.2)),
       b.on('player:died', () => auto('player_death')),
-      b.on('player:footstep', ({ position, sprinting }) => auto('footstep', position, sprinting ? 0.5 : 0.32, sprinting ? 1.05 : 1)),
+      // 발소리 (2026-09-10): 본인은 거리 감쇠 없이 늘 같은 크기, 원격 분대원만 멀 수록 작아진다.
+      b.on('player:footstep', ({ position, sprinting }) => this.footstep(null, position, sprinting)),
+      b.on('remote:footstep', ({ position, sprinting, peerId }) => this.footstep(peerId, position, sprinting)),
       b.on('player:stimUsed', () => auto('stim')),
       b.on('player:landed', () => { auto('hellpod_impact', undefined, 1); }),
       // Phase 7: `player:dived` is the roll (the dive was replaced) — only the positional `roll` one-shot below plays now.
@@ -473,8 +491,48 @@ export class AudioSystem implements GameSystem, AudioRef {
     } catch { /* private mode / quota → keep the session values only */ }
   }
 
+  /* ── 발소리 (2026-09-10) ─────────────────────────────────────────────── */
+  /** 자세별 크기: 달리기 > 걷기 > 웅크림 > 엎드림. 자세를 모르면 걷기/달리기만 구분한다. */
+  private footstepVolume(stance: Stance | undefined, sprinting: boolean): number {
+    if (stance === 'prone') return FOOTSTEP_VOL_PRONE;
+    if (stance === 'crouch') return FOOTSTEP_VOL_CROUCH;
+    return sprinting ? FOOTSTEP_VOL_SPRINT : FOOTSTEP_VOL_WALK;
+  }
+
+  /**
+   * `player:footstep` (peerId null = 본인) 과 `remote:footstep` 의 공통 재생 경로.
+   *
+   * - **본인**은 감쇠 대상이 아니다 — 위치를 주지 않으므로 패너를 아예 타지 않고 늘 같은 크기로 들린다.
+   * - **원격**은 `(1 - d / FOOTSTEP_AUDIBLE_RANGE) ^ FOOTSTEP_FALLOFF_EXP` 로 줄고 사거리 밖이면 재생조차
+   *   하지 않는다. 패너는 **방향만** 맡는다 (`panOnly`) — 패너의 inverse 감쇠까지 겹치면 두 번 줄어든다.
+   * - 자세는 이벤트에 없으므로 `ctx.player` / `ctx.net` 에서 읽는다 (계약은 추가만 하는 규칙 그대로 둔다).
+   * - 함선 안에서도 그대로 들린다. 갑판은 금속이라 톤만 조금 높다 (`FOOTSTEP_PITCH_DECK`).
+   */
+  private footstep(peerId: PeerId | null, position: THREE.Vector3, sprinting: boolean): void {
+    const ctx = this.ctx;
+    const stance = peerId === null
+      ? ctx?.player?.stance
+      : ctx?.net?.getRemotePlayer(peerId)?.stance;
+    let vol = this.footstepVolume(stance, sprinting);
+    let pitch = sprinting ? FOOTSTEP_PITCH_SPRINT
+      : stance === 'prone' ? FOOTSTEP_PITCH_PRONE
+        : stance === 'crouch' ? FOOTSTEP_PITCH_CROUCH : 1;
+    if (peerId === null) { this.play('footstep', undefined, vol, pitch, true); return; }
+
+    const d = this.camPos.distanceTo(position);
+    if (d >= FOOTSTEP_AUDIBLE_RANGE) return;
+    vol *= FOOTSTEP_REMOTE_GAIN * Math.pow(1 - d / FOOTSTEP_AUDIBLE_RANGE, FOOTSTEP_FALLOFF_EXP);
+    if (vol < FOOTSTEP_MIN_VOLUME) return;
+    if (this.hubActive || ctx?.phase === 'hub' || ctx?.phase === 'docking') pitch *= FOOTSTEP_PITCH_DECK;
+    this.play('footstep', position, vol, pitch, true, true);
+  }
+
   /* ── playback ────────────────────────────────────────────────────────── */
-  private play(id: string, position: THREE.Vector3 | undefined, volume = 1, pitch = 1, auto = false): void {
+  /**
+   * `panOnly` = 거리 감쇠를 **호출부가 이미 계산했다** (발소리). 패너는 방향(equalpower)만 맡고 rolloff 0 이라
+   * 게인을 건드리지 않는다 — 그렇지 않으면 inverse 감쇠가 겹쳐 두 번 줄어든다.
+   */
+  private play(id: string, position: THREE.Vector3 | undefined, volume = 1, pitch = 1, auto = false, panOnly = false): void {
     if (!this.ac || !this.synth || this.ac.state !== 'running') return;
     const fn = SOUNDS[id];
     if (!fn) { if (!auto) console.warn(`[Audio] unknown sound id "${id}"`); return; }
@@ -498,13 +556,21 @@ export class AudioSystem implements GameSystem, AudioRef {
     let dest: AudioNode = this.sfxBus;
     if (position) {
       const p = this.ac.createPanner();
-      p.panningModel = 'equalpower'; p.distanceModel = 'inverse';
-      p.refDistance = 4; p.maxDistance = 220; p.rolloffFactor = 1.1;
+      p.panningModel = 'equalpower';
+      if (panOnly) {
+        // 감쇠는 호출부의 곡선이 이미 걸었다 — rolloff 0 = 방향만, 게인은 그대로.
+        p.distanceModel = 'linear'; p.refDistance = 1; p.maxDistance = 10000; p.rolloffFactor = 0;
+      } else {
+        p.distanceModel = 'inverse';
+        p.refDistance = 4; p.maxDistance = 220; p.rolloffFactor = 1.1;
+      }
       this.setParam(p.positionX, position.x, now); this.setParam(p.positionY, position.y, now); this.setParam(p.positionZ, position.z, now);
       p.connect(dest); dest = p;
-      // Quick distance cull for tiny sounds
-      const d = this.camPos.distanceTo(position);
-      if (d > 160 && (id === 'footstep' || id === 'bug_step' || id === 'hit_terrain')) return;
+      // Quick distance cull for tiny sounds (발소리는 `footstep()` 이 `FOOTSTEP_AUDIBLE_RANGE` 로 이미 걸렀다)
+      if (!panOnly) {
+        const d = this.camPos.distanceTo(position);
+        if (d > 160 && (id === 'bug_step' || id === 'hit_terrain')) { p.disconnect(); g.disconnect(); return; }
+      }
     }
     g.connect(dest);
     const dur = fn(this.synth, g, now, Math.max(0.25, Math.min(4, pitch)));

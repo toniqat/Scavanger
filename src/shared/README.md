@@ -21,6 +21,7 @@ Everything every feature folder depends on. Append-only: add new events/fields, 
 | `saveSlot.ts` | **캐릭터 세이브 슬롯** (2026-09-09) — `slotKey('scav.profile')` → `scav.s2.profile`. `activeSlot` · `setActiveSlot` · `ensureMigrated`(옛 단일 키 → 슬롯 1) · `readSlotCards` · `deleteSlot` · `markAutoStart`/`takeAutoStart`. 공용 저장(`SHARED_KEYS`: 키 바인딩 · 오디오 · 화면 · 콘솔 기록)은 접두사를 받지 않는다 |
 | `character.ts` | **캐릭터 생성 규칙** (2026-09-09) — 능력치 하한 1 · 상한 5 · 합 15(`CREATE_STAT_*`), 배분 검사(`canAdjustStat`) · 주사위(`rollCreateStats` · `rollCallsign`) · 악센트 팔레트 · `makeCharacterProfile` / `createCharacterInSlot` |
 | `escape.ts` | **ESC 닫기 스택** (2026-09-09) — 열린 화면들의 Escape 동작을 열린 순서로 (`EscapeStack`: `push`/`remove`/`closeTop`). `ctx.escape` 로 게시되고 정책은 `game/parts/Phases.escapeKey` (맨 위 하나만 닫고, 비면 일시정지 메뉴) |
+| `ballistics.ts` | **포탄 궤적 닫힌 식** (2026-09-10) — `shellLaunchVelocity` · `shellPositionAt` · `shellApexHeight`. `enemies/fx/ShellProjectile`(실제 포탄)와 `ui/hud` 의 HUD 마커가 **같은 자리**를 그려야 하는데 폴더끼리 import 하지 않으므로 수식을 여기 한 곳에 둔다 — 예전에는 양쪽이 각자 베껴 두고 있어 한쪽만 고치면 마커가 포탄에서 떨어졌다. 중력은 `GRAVITY` 가 아니라 **`SHELL_ARC_GRAVITY`** 다 |
 | `index.ts` | Barrel export — import via `@/shared` |
 
 ## Appended contract (2026-09, stance / weapon classes / ping / map)
@@ -895,3 +896,24 @@ Chrome 과 Electron 셸은 그 락을 넘겨줬다가 곧바로 도로 가져갈
 **실측 결과** (실제 게임을 Electron 창에 띄우고 `sendInputEvent` 로 진짜 키를 넣어 측정):
 ESC 로 인벤토리 · 지도를 닫으면 카메라가 **+245 ms** 에 스스로 돌아온다(고치기 전에는 클릭 전까지 영영).
 자기 키(Tab · M)로 닫으면 예전처럼 **+0–5 ms**. 스로틀에 걸린 경우도 클릭 없이 **1.35초 뒤** 스스로 복구된다.
+
+## 2026-09-10 — 추가된 계약 (전부 추가만, 이름 변경 · 삭제 없음)
+
+- `gear.ts` **`ArmorDef.shield`** — 방탄복이 주는 실드(추가 체력) 최대치. 번호 방탄복은 `ARMOR_SHIELD_BY_TIER`
+  (20/40/60/80/100), 유니크는 옛 `damageReduction / ARMOR_DR_BY_TIER.5 × 100` 환산값이다.
+  **`damageReduction` 은 지우지 않았지만 피해 계산에서 빠졌다** — 그 환산의 근거로만 남아 있고
+  `PlayerRef.damageReduction` 은 늘 0 이다 (`airstrike` · `secondary` 와 같은 처리).
+- `types.ts` **`PlayerRef.shield` / `maxShield` / `shieldRarity` / `shieldTier` / `chargeShield(amount)`** —
+  피해는 실드를 먼저 비우고 남은 만큼만 hp 로 간다. `chargeShield` 는 채울 게 없으면 아무것도 쓰지 않고 `false`
+  (호출자가 아이템을 소모하기 **전에** 묻는다). `Infinity` = 가득.
+- `types.ts` **`PlayerRestoreState.shield?`** — 재접속 복귀의 실드. **생략은 0 이 아니라 "모른다"**이고 받는 쪽이
+  방탄복 최대치로 복구한다; 0 으로 읽으면 돌아온 사람만 조용히 실드를 잃는다.
+- `events.ts` **`player:shieldChanged`** — 장착 · 교체 · 피격 · 충전 · 스폰 어디서든. `rarity` · `tier` 가
+  좌하단 실드 게이지의 칸 색과 칸 수를 정한다 (`ARMOR_SHIELD_PER_SEGMENT` 20 당 한 칸).
+- `events.ts` **`remote:footstep`** — 원격 분대원의 발소리. 거리 감쇠는 `audio/` 의 몫이라 발행하는 쪽은 거리를 재지 않는다.
+- `net.ts` **`PlayerSnapshot.sh` / `.shm`**, **`RemotePlayerRef.shield` / `maxShield`**, **`GhostWire.sh`** —
+  `dhp` 와 같은 규약으로 **방탄복을 입었을 때만** 실린다.
+- `constants.ts` **`SHELL_ARC_GRAVITY`** — 포탄 궤적 전용 유효 중력 (실제 `GRAVITY` 가 아니다). 정점 높이가
+  `0.5 × g × (T/2)²` 라 9.81 로는 6.3 s 비행에서 48.7 m 까지 솟아 화면 밖에서 떨어졌다.
+- `housing.ts` **`HousingRef.findFreeSpot(room, defId)`** — 자동 가구 배치 자리. 규칙이 `ui/hud/ShipManage` 안에
+  묻혀 있던 것을 `housing/Rules` 로 끌어냈다.

@@ -185,9 +185,10 @@ try {
     inv.tryAddItem(item);
     const done = inv.equip(item.uid, 'armor');
     ctx.player.update(0.6, ctx);   // PlayerGear re-reads the inventory on the next tick
-    return { done, dr: ctx.player.damageReduction };
+    /* 2026-09-10: 방탄복은 피해 감소가 아니라 실드(추가 체력)를 준다 — `damageReduction` 은 계약으로만 남아 늘 0 이다. */
+    return { done, shield: ctx.player.maxShield };
   });
-  ok(armor.done && armor.dr > 0, `armor equipped, damage reduction ${(armor.dr * 100).toFixed(0)}%`);
+  ok(armor.done && armor.shield > 0, `armor equipped, shield +${armor.shield}`);
 
   /* ── melee + roll ─────────────────────────────────────────────────── */
   ok(await page.evaluate(() => window.__game.ctx.player.startMelee()), 'startMelee() accepted');

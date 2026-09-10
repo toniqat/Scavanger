@@ -5,7 +5,7 @@ import { SHELL_ARC_GRAVITY } from './constants';
  * 포탄 궤적 (2026-09-10)
  *
  * 곡사포탄이 나는 포물선의 **닫힌 식**이다. `enemies/fx/ShellProjectile` (실제 포탄) 과
- * `ui/hud/ShellMarkers` · 위험 인디케이터(HUD 마커) 가 **같은 자리**를 그려야 하는데 폴더끼리는
+ * `ui/hud/DangerIndicators`(HUD 위험 인디케이터) 가 **같은 자리**를 그려야 하는데 폴더끼리는
  * 서로 import 하지 않으므로 (`@/shared` 만) 수식을 여기 한 곳에 둔다. 예전에는 양쪽이 각자
  * 베껴 두고 있었다 — 한쪽만 고치면 마커가 포탄에서 떨어진다.
  *

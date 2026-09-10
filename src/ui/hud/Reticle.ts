@@ -1,5 +1,7 @@
 import type { GameContext, ImplantId, ItemInstance, Stance } from '@/shared';
+import { Keys, keyLabel, onKeybindsChanged } from '@/shared';
 import { el, setText, toggleClass, damp } from '../dom';
+import '../styles/implant.css';
 
 /** Base reticle gap (px) per stance, [hip, ADS]. */
 const STANCE_GAP: Record<Stance, [number, number]> = {
@@ -8,6 +10,8 @@ const STANCE_GAP: Record<Stance, [number, number]> = {
   prone: [8, 4],
 };
 const SPRINT_GAP = 18;
+/** Fallback glyph for the 갈고리 chip when `ctx.implants` is not up yet (`IMPLANT_DEFS.grapple.icon`). */
+const GRAPPLE_GLYPH = '⚓';
 const MOVE_BONUS = 2;
 const MOVE_SPEED_EPS = 0.5; // m/s of horizontal velocity that counts as "moving"
 
@@ -27,6 +31,14 @@ const MOVE_SPEED_EPS = 0.5; // m/s of horizontal velocity that counts as "moving
  * (`×2 · 62%` when both apply). The live instance is re-read from `ctx.inventory.findItem(uid)` only when something
  * that can change it fires (`quick:used` · `inventory:itemUpdated` · `inventory:quickSlotsChanged` · `durability:changed`),
  * never per frame. `quick:equipped {item: null}` (the gun is back) restores the normal crosshair; so does a mission reset.
+ *
+ * **갈고리 칩 (2026-09-10):** 크로스헤어 **좌측**에 갈고리 아이콘 + 사용 키(`Keys.IMPLANT`)를 붙인다 —
+ * 지금 조준한 방향에 갈고리를 걸 수 있으면 아이콘이 밝고 키캡이 보이고, 걸 수 없으면 **키는 숨고 아이콘만
+ * 딤드**로 남으며, 갈고리를 장착하지 않았으면 아예 없다. 판정은 UI 가 흉내내지 않는다: implants/ 의
+ * `updateGrapple` 이 매 프레임 자기 조준 광선으로 계산해 보내는 **`implant:grappleTargetChanged {valid}`**
+ * 하나가 유일한 근거이고 (= `castGrapple` 이 보는 `grappleTargetValid` 와 같은 값), 여기서는 레이캐스트를
+ * 한 번도 쏘지 않는다. 임플란트 쿨타임 · 충전 수는 이 칩에 없다 — 그것은 전부 화면 중앙 하단의
+ * `hud/ImplantWidget` 썸네일로 내려갔다.
  */
 export class Reticle {
   readonly root: HTMLElement;
@@ -34,6 +46,11 @@ export class Reticle {
   private hitmarker: HTMLElement;
   private hook: HTMLElement;
   private hookDist: HTMLElement;
+  /** 갈고리 칩 (2026-09-10): 아이콘 + 사용 키, 크로스헤어 좌측. */
+  private grap: HTMLElement;
+  private grapIco: HTMLElement;
+  private grapKey: HTMLElement;
+  private lastGrapKey = '';
   private qinfo: HTMLElement;
   private implant: ImplantId | null = null;
   private wielded = false;
@@ -72,6 +89,11 @@ export class Reticle {
     this.hook.hidden = true;
     for (let i = 0; i < 4; i++) el('i', { parent: this.hook });
     this.hookDist = el('span', { cls: 'gdist ui-mono', text: '', parent: this.hook });
+    // 갈고리 칩 left of the crosshair: icon (+ the implant key while the aim point can actually be hooked).
+    this.grap = el('div', { cls: 'rgrap', parent: this.root });
+    this.grap.hidden = true;
+    this.grapIco = el('span', { cls: 'rg-ico', text: GRAPPLE_GLYPH, parent: this.grap });
+    this.grapKey = el('kbd', { cls: 'keycap', text: keyLabel(Keys.IMPLANT), parent: this.grap });
     // 소모품 readout right of the dot (only rendered in `.consumable` mode).
     this.qinfo = el('span', { cls: 'qinfo ui-mono', text: '', parent: this.root });
     this.apply(14);
@@ -116,6 +138,9 @@ export class Reticle {
         this.grappleValid = valid; this.grappleDist = distance;
         this.syncHook();
       }),
+      // 키는 사용 시점에 읽는다 (모듈 상수로 캐시하지 않는다) — 리바인딩되면 칩의 키캡도 따라간다.
+      b.on('input:bindingsChanged', () => setText(this.grapKey, keyLabel(Keys.IMPLANT))),
+      onKeybindsChanged(() => setText(this.grapKey, keyLabel(Keys.IMPLANT))),
       b.on('implant:grappleAttached', () => { toggleClass(this.hook, 'attached', true); this.lastHookKey = ''; this.syncHook(); }),
       b.on('implant:grappleReleased', () => { toggleClass(this.hook, 'attached', false); this.lastHookKey = ''; this.syncHook(); }),
       b.on('game:newMission', () => { this.wielded = false; this.grappleValid = false; this.syncHook(); this.setQuick(null); }),
@@ -128,12 +153,41 @@ export class Reticle {
     // or the wire is attached, so the crosshair stays clean otherwise.
     const show = this.implant === 'grapple' && (this.grappleValid || this.hook.classList.contains('attached'));
     const key = `${show ? 1 : 0}|${this.grappleValid ? 1 : 0}|${show && this.grappleValid ? Math.round(this.grappleDist) : -1}`;
-    if (key === this.lastHookKey) return;
+    if (key === this.lastHookKey) { this.syncGrapple(); return; }
     this.lastHookKey = key;
     if (this.hook.hidden === show) this.hook.hidden = !show;
-    if (!show) return;
-    toggleClass(this.hook, 'valid', this.grappleValid);
-    setText(this.hookDist, this.grappleValid ? `${Math.round(this.grappleDist)}m` : '');
+    if (show) {
+      toggleClass(this.hook, 'valid', this.grappleValid);
+      setText(this.hookDist, this.grappleValid ? `${Math.round(this.grappleDist)}m` : '');
+    }
+    this.syncGrapple();
+  }
+
+  /**
+   * 갈고리 칩: equipped → 아이콘, 걸 수 있으면 + 사용 키. Not a second judgement — `this.grappleValid` is the
+   * `implant:grappleTargetChanged {valid}` that implants/ computes with the ray it would actually fire.
+   */
+  private syncGrapple(): void {
+    const equipped = this.implant === 'grapple';
+    const can = equipped && this.grappleValid;
+    const key = `${equipped ? 1 : 0}|${can ? 1 : 0}`;
+    if (key === this.lastGrapKey) return;
+    this.lastGrapKey = key;
+    if (this.grap.hidden === equipped) this.grap.hidden = !equipped;
+    if (!equipped) return;
+    const def = this.ctx?.implants?.getDef('grapple');
+    setText(this.grapIco, def?.icon ?? GRAPPLE_GLYPH);
+    if (def?.color) this.grap.style.setProperty('--gc', def.color);
+    setText(this.grapKey, keyLabel(Keys.IMPLANT));
+    toggleClass(this.grap, 'can', can);
+    // 걸 수 없으면 키는 숨긴다 — 누를 수 없는 키를 보여 주지 않는다 (아이콘만 딤드로 남는다).
+    if (this.grapKey.hidden !== !can) this.grapKey.hidden = !can;
+  }
+
+  /** 갈고리 칩 상태 (debug / smoke): 'off' = 미장착, 'dim' = 걸 수 없음, 'ready' = 걸 수 있음. */
+  get grappleChip(): 'off' | 'dim' | 'ready' {
+    if (this.grap.hidden) return 'off';
+    return this.grap.classList.contains('can') ? 'ready' : 'dim';
   }
 
   /** Enter / leave 소모품 모드: ticks hide, the dot stays, the count readout appears to its right. */

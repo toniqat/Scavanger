@@ -1133,6 +1133,11 @@ export interface PlayerRestoreState {
   downHp: number;
   /** 0 alive · 1 downed · 2 dead (`GhostState`). */
   state: 0 | 1 | 2;
+  /**
+   * appended (2026-09-10): 실드. 생략(옛 세이브 · 옛 호스트)이면 **0 이 아니라 방탄복의 최대치**로 복구한다 —
+   * 모르는 값을 0 으로 읽으면 재접속한 사람만 조용히 실드를 잃는다.
+   */
+  shield?: number;
 }
 
 export interface PlayerRef {
@@ -1946,4 +1951,15 @@ export interface PlayerRef {
    * **아무것도 쓰지 않고** false — 호출자가 아이템을 소모하기 전에 이걸로 먼저 묻는다.
    */
   chargeShield(amount: number): boolean;
+}
+
+export interface EnemyManagerRef {
+  /* ── appended (2026-09-10): 위험 인디케이터 ── */
+  /**
+   * 지금 날아가는 **적** 수류탄 (로그가 던진 것). HUD 의 위험 인디케이터가 아군 수류탄
+   * (`WeaponsRef.getGrenades()`) 과 나란히 읽는다 — 같은 `GrenadeView` 모양이고, `remote` 는
+   * "이 클라이언트에 권한이 없는 복제본" 이라는 뜻으로 쓴다. 한 풀 몸체당 view 객체 하나를 재사용하므로
+   * 반환 배열도 그 자리에서 다시 쓰인다: **호출자는 붙들어 두지 말고 그 프레임에 다 읽는다.**
+   */
+  getEnemyGrenades(): readonly GrenadeView[];
 }

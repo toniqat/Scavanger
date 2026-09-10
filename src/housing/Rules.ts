@@ -3,6 +3,7 @@ import {
   BENCH_MAX_LEVEL, BOOK_GAIN_MAX, BOOK_RARITY_MUL, BOOK_XP_PER_BOOK, FACILITY_LABEL_KO, FURNITURE_DEF_MAP, GENERATOR_MAX_LEVEL, GENERATOR_UPGRADE_COST, PRESETS_BY_RANGE_LEVEL,
   RANGE_MAX_LEVEL, RANGE_SKILL_GAIN_PER_LEVEL, RANGE_UPGRADE_COST, ROOM_GRID_COLS, ROOM_GRID_ROWS, ROOM_PURPOSE_LABEL_KO,
   ROOM_PURPOSES, ROOM_PURPOSE_BUILD_COST, ROOM_PURPOSE_BUILD_GENERATOR_LEVEL,
+  SHIP_ROOM_COUNT,
   STASH_COLS, STASH_ROWS_BY_STORAGE_LEVEL, STORAGE_MAX_LEVEL, STORAGE_UPGRADE_COST, WORKSHOP_COST_DISCOUNT_PER_LEVEL,
   WORKSHOP_MAX_LEVEL, WORKSHOP_UPGRADE_COST, furnitureFootprint,
 } from '@/shared';
@@ -339,6 +340,86 @@ export function canPlaceAt(state: ShipState, room: number, def: FurnitureDef, x:
     return false;
   }
   return true;
+}
+
+/* ── 자동 배치 (2026-09-10) ────────────────────────────────────────────────
+ * 「좌측 상단부터 가로줄을 먼저 채우고, 가구는 아래를 가리킨다」 — 시설 관리 화면(가구 창고의 `배치` 버튼)이
+ * 손으로 고르지 않은 자리를 정할 때의 **유일한** 규칙이다. 사용자가 하우징 모드에서 직접 돌려 놓은 회전은
+ * 이 함수를 지나지 않으므로 그대로다.
+ *
+ * 화면 ↔ 격자 대응의 근거는 두 곳이다 (여기서 다시 재지 않고 그대로 옮겨 적는다):
+ *   · `hub/interiors/RoomLayout` — 격자 `x` 는 월드 +X, `y` 는 월드 +Z (셀 (0,0) = 방의 min-x / min-z 모서리).
+ *     가구의 월드 회전은 `rotation.y = −yaw·π/2` 이고 절차 모델의 **정면은 로컬 −Z** 다.
+ *   · `hub/HousingMode` — 시설 관리 카메라는 Phase 10 부터 **모든 방**에서 방 중심의 +X 쪽(`CAM_TOWARD_DOOR`)
+ *     에서 −X 를 내려다본다. 그래서 **화면 오른쪽 = 월드 −Z, 화면 아래 = 월드 +X** 다 (그 파일의 커서
+ *     이동 주석과 같은 문장이다: "screen right = world −Z and screen down = world +X for every room").
+ *
+ * 두 줄을 합치면 이 폴더가 쓸 좌표가 나온다:
+ *   화면 아래   = 격자 `x` 증가          화면 오른쪽 = 격자 `y` 감소
+ *   화면 좌측 상단 = (x 0, y 최대)        화면의 가로줄 = `x` 를 고정한 채 `y` 를 줄여 가는 줄
+ * 그래서 훑는 순서는 **x 오름차순(바깥) × y 내림차순(안쪽)** — 화면으로 보면 왼쪽 위에서 오른쪽으로 한 줄을
+ * 채우고 다음 줄로 내려간다. 앵커(`x`,`y`)는 격자 최소 모서리라, 화면 좌측 상단에 딱 붙이려면 `y` 를
+ * `ROOM_GRID_ROWS − fp.rows` 에서 시작해 0 까지 내린다.
+ *
+ * 방향은 정면 벡터로 정한다: `R_y(−yaw·π/2)·(0,0,−1) = (−sin θ, −cos θ)` 이므로
+ *   yaw 0 → −Z (화면 오른쪽) · **yaw 1 → +X (화면 아래)** · yaw 2 → +Z (화면 왼쪽) · yaw 3 → −X (화면 위).
+ * 예전에는 `[0, 1]` 순서라 작업대가 언제나 yaw 0 = **화면 오른쪽 벽**을 보고 서서, 쓰려면 벽과 작업대 사이로
+ * 끼어 들어가야 했다. 이제 yaw 1 이 먼저다. 대체 회전이 `0` 인 이유는 yaw 1/3 과 0/2 의 발자국이 서로 전치라
+ * "yaw 1 로 안 들어가는 가구"는 yaw 3 으로도 안 들어가기 때문이다 — 눕혀 봐야 의미가 있다.
+ */
+export const AUTO_PLACE_YAWS: readonly (0 | 1 | 2 | 3)[] = [1, 0];
+
+/* ── 출입구 앞 여유 (자동 배치에만 적용) ───────────────────────────────────
+ * 순서만 바꾸면 **문이 막힌다.** 방문은 방의 ±X 벽 한가운데(`hub/interiors/RoomLayout`: `doorZ` = 방의 z 중앙,
+ * `DOOR_WIDTH` 1.6 m)에 있고, 어느 벽인지는 방 번호가 정한다 — 앞쪽 절반(0…4)은 좌현이라 문이 **+X** 벽에,
+ * 뒤쪽 절반(5…9)은 우현이라 문이 **−X** 벽에 붙는다. 새 규칙의 첫 자리(격자 x 0, 화면 좌측 상단)는 우현 방에서
+ * 바로 그 문 앞이고, 4×2 작업대를 yaw 1 로 놓으면 1.6 m 문틈의 절반(0.8 m)을 막아 `PLAYER_RADIUS` 0.45 ×2 =
+ * 0.9 m 인 플레이어가 **드나들지 못한다**(가구는 `hub/interiors/Furniture` 가 실제 콜라이더를 세운다).
+ *
+ * 그래서 자동 배치만 문 앞 상자를 비켜 간다 — 문 쪽 벽에서 `DOOR_CLEAR_DEPTH` 칸 깊이 ×
+ * 벽 한가운데 `DOOR_CLEAR_SPAN` 칸. 손으로 놓는 경로(하우징 모드 고스트 · `move`)와 `canPlaceAt` 자체는
+ * **건드리지 않는다**: `ShipState.sanitize` 가 저장된 배치를 `canPlaceAt` 으로 다시 검사하므로, 이 여유를
+ * 배치 규칙에 넣었다면 이미 문 앞에 가구를 둔 함선의 가구가 로드할 때 가구 창고로 쫓겨났을 것이다
+ * (= 세이브 소급 변경). 좌현 방에서는 예약 칸이 화면 아래쪽 끝이라 「좌측 상단부터」가 그대로 성립한다.
+ *
+ * 두 수치는 밸런스가 아니라 **치수**라 csv 가 아니라 여기 있다 (`data/README.md` 의 "csv 로 옮기지 않은 것" —
+ * `world/structures/model.ts` 가 벽 두께 · 문 폭을 TS 에 두는 것과 같은 이유).
+ */
+/** 문 쪽 벽에서 비워 두는 깊이(칸). 2 칸 = 1.0 m ≥ 플레이어 지름 0.9 m. */
+export const DOOR_CLEAR_DEPTH = 2;
+/** 벽 한가운데에서 비워 두는 폭(칸). 4 칸 = 2.0 m ≥ 문 폭 1.6 m. */
+export const DOOR_CLEAR_SPAN = 4;
+
+/** Min corner of the `DOOR_CLEAR_DEPTH × DOOR_CLEAR_SPAN` block auto-placement keeps free in front of `room`'s door. */
+export function doorClearanceCell(room: number): { x: number; y: number } {
+  // 좌현(앞 절반)은 문이 +X 벽 = 격자 x 최대 쪽, 우현(뒤 절반)은 −X 벽 = 격자 x 0 쪽.
+  const port = room < Math.floor(SHIP_ROOM_COUNT / 2);
+  return {
+    x: port ? ROOM_GRID_COLS - DOOR_CLEAR_DEPTH : 0,
+    y: Math.floor((ROOM_GRID_ROWS - DOOR_CLEAR_SPAN) / 2),
+  };
+}
+
+/** A free cell + yaw the 배치 버튼 drops a stored piece on. */
+export interface FurniturePlacement { x: number; y: number; yaw: 0 | 1 | 2 | 3 }
+
+/**
+ * First spot `def` fits in `room` under the rule above — 화면 좌측 상단부터 가로줄 먼저, 아래를 향한 채,
+ * 출입구 앞은 비워 두고. `null` when nothing fits (the caller keeps its existing 자리 없음 handling); every
+ * candidate still goes through `canPlaceAt`, so 용도 · 격자 경계 · 겹침 · 쌓기 한도 규칙은 하나도 우회하지 않는다.
+ */
+export function autoPlaceSpot(state: ShipState, room: number, def: FurnitureDef): FurniturePlacement | null {
+  const door = doorClearanceCell(room);
+  for (const yaw of AUTO_PLACE_YAWS) {
+    const fp = furnitureFootprint(def, yaw);
+    for (let x = 0; x + fp.cols <= ROOM_GRID_COLS; x++) {          // 화면 세로: 위 → 아래
+      for (let y = ROOM_GRID_ROWS - fp.rows; y >= 0; y--) {        // 화면 가로: 왼쪽 → 오른쪽
+        if (overlaps(x, y, fp.cols, fp.rows, door.x, door.y, DOOR_CLEAR_DEPTH, DOOR_CLEAR_SPAN)) continue;
+        if (canPlaceAt(state, room, def, x, y, yaw)) return { x, y, yaw };
+      }
+    }
+  }
+  return null;
 }
 
 /**

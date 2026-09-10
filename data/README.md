@@ -73,14 +73,14 @@ npm run dev             # csv 를 저장하면 바로 다시 읽는다
 ```csv
 u_flame,인페르노,flamethrower,...,=FLAME_DPS,=FLAME_ALT_DPS,...,=FLAME_CONE_DEG/2
 rogue_boss,rogue,=140*ROGUE_BOSS_HP_MUL,...
-armor_3,방탄복 III,3,uncommon,=ARMOR_DR_BY_TIER.3,...
+armor_3,방탄복 III,3,rare,...,=ARMOR_SHIELD_BY_TIER.3,...
 ```
 
 이름은 이 순서로 찾는다:
 
 1. `constants.csv` 의 키 — `=FLAME_DPS`
 2. `tuning.csv` 의 키 — `=WEAPON_SALVAGE_BASE`
-3. `tables.csv` 의 `표이름.키` — `=ARMOR_DR_BY_TIER.3`
+3. `tables.csv` 의 `표이름.키` — `=ARMOR_SHIELD_BY_TIER.3`
 
 **왜 이게 필요한가:** 유니크 무기의 화염 피해는 `weapons_unique.csv` 에도 있고 실제 발사 코드에도 있다.
 숫자를 양쪽에 베껴 두면 한쪽만 고쳤을 때 조용히 어긋난다. `=FLAME_DPS` 로 적어 두면 `constants.csv` 의
@@ -136,6 +136,35 @@ csv 는 Vite 의 `import.meta.glob(..., { query: '?raw', eager: true })` 로 **�
 은 계속 TS 에 있다. `gadgets/GadgetDefs.ts` 와 `implants/ImplantDefs.ts` 의 표도 TS 에 남는데,
 그 설명문이 `constants.csv` 의 상수를 그대로 찍기 때문이다 (csv 로 옮기면 설명문의 숫자가 수치와 따로 논다).
 그 표들의 수치 자체는 전부 `constants.csv` 의 `GADGET_*` / `IMPLANT_*` 다.
+
+### 2026-09-10 — 방탄복 = 실드 · 실드 충전기 3종
+
+**방탄복은 이제 피해를 깎지 않고 실드(추가 체력)를 준다.** 피해는 실드를 먼저 비우고 남은 만큼만 체력(100)으로
+간다. 실드는 스스로 재생하지 않는다 — 함선 안에서는 늘 가득이고, 레이드에서는 **실드 충전기**로만 채운다.
+
+- **`tables.csv`**: `ARMOR_SHIELD_BY_TIER` (신규, key 0..5 = 0 / 20 / 40 / 60 / 80 / 100). `ARMOR_DR_BY_TIER` 는
+  **지우지 않고 남겼다** — 이제 아무 계산에도 안 쓰이고, 유니크 방탄복 실드량을 환산한 근거로만 있다.
+- **`armor.csv`**: `shield` 열 신규. 번호 방탄복은 `=ARMOR_SHIELD_BY_TIER.n` 으로 위 표를 가리키고, 유니크 3벌은
+  `round(damageReduction / ARMOR_DR_BY_TIER.5 × 100)` 으로 환산한 값을 직접 적었다 — **재생 90 · 초경량 33 ·
+  광학미채 27**. `rarity` 도 tier 에 맞춰 다시 맞췄다: `armor_1` 일반 · `_2` 고급 · `_3` 희귀 · `_4` 서사 ·
+  `_5` **전설** (예전에는 common,common,uncommon,rare,epic 이라 5등급과 어긋났다). 설명문도 실드 기준으로 고쳤다.
+- **`tuning.csv`**: `ARMOR_VALUE_DR_MUL`(4200) → **`ARMOR_VALUE_SHIELD_MUL`(12.6)**. 실드 = 뎀감률 ÷ 0.3 × 100
+  이므로 `4200 × 0.3 ÷ 100 = 12.6` 이고 **가격은 한 푼도 안 바뀐다** (방탄복 I 832 … V 2400).
+- **`constants.csv`**: `ARMOR_SHIELD_PER_SEGMENT`(20) 신규 — 좌하단 체력 · 실드 게이지 한 칸의 크기. 체력 100 과
+  방탄복 V 실드 100 이 똑같이 5칸이 된다.
+- **`items.csv`**: `shieldUseTime` · `shieldHp` 열 신규 (**`description` 뒤에 붙였다** — 나머지 줄은 그냥 비어 있다).
+  이 두 칸이 채워진 줄이 곧 실드 충전기이고, `shieldHp` 가 **-1 이면 "완전 회복"** 이다. 새 줄 넷:
+  `shield_charger` 실드 충전기 (일반, 2초, 실드 20, 스택 5) · `shield_charger_hi` 고출력 (고급, 4초, 40, 스택 5) ·
+  `shield_charger_full` 완충 (희귀, 6초, 완전 회복, 스택 2) — 셋 다 `category: 'stim'` 이라 퀵슬롯 · 루팅 카테고리 ·
+  손에 든 모습이 회복 소모품과 같은 길을 탄다 — 그리고 재료 `mat_core` **구동 코어** (일반 재료, 스택 10, ₩30).
+- **`recipes.csv`**: `make_shield_charger` (코어 1 + 케이블 1) · `_hi` (코어 2 + 케이블 2, 제작 15) · `_full`
+  (코어 4 + 케이블 3 + 회로 기판 1, 제작 35) — 전부 `station: field` 라 **레이드 현장에서 맨손으로 만든다**
+  (작업대 요구 없음). 분해는 `break_shield_charger_hi` 하나 (→ 코어 1 + 케이블 1).
+- **`loot_corpses.csv`**: 로그가 붕대와 함께 완제품을 들고 다닌다 — `rogue` 실드 충전기 26 % · 고출력 6 % ·
+  구동 코어 30 %(1–2), `rogue_boss` 70 % · 30 % · 완충 8 % · 코어 80 %(1–3).
+  ⚠ 로그 시체 표에 줄이 늘었으므로 `rollCorpse` 의 rng 소비가 예전과 다르다 (고정 벡터를 세는 스모크 주의).
+- **`loot_item_weights.csv`**: `mat_core` 티어 1 ×1.5 · 2 ×1.2 · 3 ×1 · 5 ×0, `shield_charger` 티어 1 ×0.5 ·
+  2 ×0.8 (붕대 공급을 밀어내지 않게), 고급/완충은 낮은 티어에서 0.
 
 ### 2026-09-10 — 보조무기 제거 · 분대 인원별 웨이브 · 전차 가속
 

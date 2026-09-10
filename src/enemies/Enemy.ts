@@ -40,8 +40,13 @@ export interface EnemyHost {
   pickTarget(e: Enemy): CombatTarget | null;
   /** Rogue hitscan shot at `target` (host resolves occlusion / capsule hits / damage, FX, audio, `enemy:shot`, `ee shoot`). */
   fireGun(e: Enemy, target: CombatTarget, aimError: number, damageMul: number): void;
-  /** Artillery: lob a shell at the target's predicted position (`enemy:shellFired`, `ee shell`). */
-  fireShell(e: Enemy, target: CombatTarget): void;
+  /**
+   * Artillery: lob a shell at the target's predicted position (`enemy:shellFired`, `ee shell`).
+   * 2026-09-10: returns false when nothing was fired — the pool is full, or the **low** arc
+   * (`SHELL_ARC_GRAVITY`) is blocked by a hill / tree / structure so the round would burst on the gunner's own
+   * position. The AI answers a refusal by relocating (`ai/GimmickAI.chaseArtillery`).
+   */
+  fireShell(e: Enemy, target: CombatTarget): boolean;
   /** Behemoth charge contact with a player: damage + sideways knockback (local) / `dmg` (remote). */
   chargeHit(e: Enemy, target: CombatTarget, damage: number, knockDir: THREE.Vector3): void;
   /** Behemoth charge started (event + wire). */
@@ -282,6 +287,18 @@ export class Enemy implements EnemyRef {
   /** ctx.time of the last `implant:barrierBumped` for this enemy (≤ 2 Hz). */
   barrierBumpAt = -Infinity;
 
+  /* ── appended: 총구 사선 (2026-09-10, 벽에 대고 쏘지 않게) ─────────────────── */
+  /** ctx.time of the last muzzle → target line test (`ai/FireLine`, throttled to `ENEMY_FIRE_LOS_S`). */
+  fireLineAt = -Infinity;
+  /** Cached result of that test. Defaults to true so an enemy nobody tested behaves exactly as before. */
+  fireLineClear = true;
+  /** Distance from the **muzzle** to whatever blocks the line (Infinity = clear; ≤ standoff = we are flush against it). */
+  fireLineGap = Infinity;
+  /** Seconds left of the current sideways step taken to open a blocked line (`ai/FireLine.fireLineStrafe`). */
+  fireBlockTimer = 0;
+  /** Which way that step goes; flipped whenever a new leg starts so a rogue works both flanks of a wall. */
+  fireStrafeSign: 1 | -1 = 1;
+
   constructor(type: EnemyType) {
     this.rig = isRogueType(type) ? createRogueRig(type as RogueType) : createBugRig(type as BugType);
     this.type = type;
@@ -352,6 +369,9 @@ export class Enemy implements EnemyRef {
     // Phase 12
     this.investigating = false; this.shotTimer = 0; this.shotPhase = 0; this.shotHold = 0; this.shotCheckAt = -Infinity;
     this.barrierUntil = -Infinity; this.barrierOwner = null; this.barrierBumpAt = -Infinity;
+    // 2026-09-10 (총구 사선)
+    this.fireLineAt = -Infinity; this.fireLineClear = true; this.fireLineGap = Infinity;
+    this.fireBlockTimer = 0; this.fireStrafeSign = Math.random() < 0.5 ? -1 : 1;
     this.syncTarget();
     const a = this.anim;
     a.gait = Math.random() * Math.PI * 2; a.speed = 0; a.headYaw = 0; a.headPitch = 0; a.mandible = 0;

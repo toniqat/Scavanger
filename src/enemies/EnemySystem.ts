@@ -7,6 +7,8 @@ import {
   type HitRequest, type InterceptableRef, type PeerId, type PlanetEcosystem, type ShotReport, type Vec3Tuple, type WorldRef,
   /* appended (2026-09-09): 로그 강하 계약 */
   type RogueDropView,
+  /* appended (2026-09-10): HUD 위험 인디케이터가 읽는 적 수류탄 */
+  type GrenadeView,
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
 import { Enemy, type EnemyHost, type HitPart } from './Enemy';
@@ -33,7 +35,7 @@ import { placeRogueGuards, type RogueSpawnHost } from './RogueGuards';
 import { RogueDropDirector, type RogueDropHost } from './RogueDrop';
 import { raySphere, rayCapsule, rayStandingCapsule } from './RayTests';
 
-import { BARRIER_BUMP_INTERVAL, BARRIER_RETARGET_S, BURN_TICK, CLASH_RADIUS, CLASH_THROTTLE, CORPSE_SLACK, EMBER_INTERVAL, FLEE_DURATION, GRENADE_KNOCKBACK, GRENADE_LOB_SPEED, GRENADE_NOISE, GUNFIRE_LURE_DURATION, GUNFIRE_LURE_WEIGHT, INCAP_EMBER_INTERVAL, MAX_REQUEST_DAMAGE, MAX_REQUEST_RADIUS, MAX_SHOT_RANGE, MAX_STATUS_DURATION, PROMOTE_ID_GAP, PROMOTE_SEQ_GAP, RECYCLE_DISTANCE, SHIELD_CONTACT_Y, SHOCK_SPARK_TIME, SHOT_CHECK_INTERVAL, SPARK_INTERVAL, STATUS_REQUEST_INTERVAL, SUSPICION_RADIUS, SUSPICION_REFRESH, _aim, _c, _dir, _eye, _hc, _hd, _hp, _kb, _m, _sd, _sh, _so, _to, _v, _v2, _zero, deathDirIndex, isVec3Tuple, killedBuf, queryBuf } from './model';
+import { BARRIER_BUMP_INTERVAL, BARRIER_RETARGET_S, BURN_TICK, CLASH_RADIUS, CLASH_THROTTLE, CORPSE_SLACK, EMBER_INTERVAL, FLEE_DURATION, GRENADE_KNOCKBACK, GRENADE_LOB_SPEED, GRENADE_NOISE, GUNFIRE_LURE_DURATION, GUNFIRE_LURE_WEIGHT, INCAP_EMBER_INTERVAL, MAX_REQUEST_DAMAGE, MAX_REQUEST_RADIUS, MAX_SHOT_RANGE, MAX_STATUS_DURATION, PROMOTE_ID_GAP, PROMOTE_SEQ_GAP, RECYCLE_DISTANCE, SHIELD_CONTACT_Y, SHOCK_SPARK_TIME, SHOT_CHECK_INTERVAL, SPARK_INTERVAL, STATUS_REQUEST_INTERVAL, SUSPICION_RADIUS, SUSPICION_REFRESH, EMPTY_GRENADES, _aim, _c, _dir, _eye, _hc, _hd, _hp, _kb, _m, _sd, _sh, _so, _to, _v, _v2, _zero, deathDirIndex, isVec3Tuple, killedBuf, queryBuf } from './model';
 /** 폴더 공용 어휘(상수 · 타입 · 스크래치)는 `model.ts` 가 갖는다 — 기존 import 경로를 위해 재수출한다. */
 export * from './model';
 import * as Dmg from './parts/Damage';
@@ -66,6 +68,8 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   callRogueDrop(dropId: string, position: THREE.Vector3): boolean { return this.rogueDrops.call(dropId, position); }
   /** 진행 중인 강하 (HUD 경고 · 오프스크린 화살표용). */
   getRogueDrops(): readonly RogueDropView[] { return this.rogueDrops.views(); }
+  /** 2026-09-10: 날아가는 적 수류탄 — HUD 위험 인디케이터가 아군 수류탄과 나란히 읽는다. */
+  getEnemyGrenades(): readonly GrenadeView[] { return this.grenades?.getViews() ?? EMPTY_GRENADES; }
   /** 로그 강하 — 굴림 기록 · 포드 연출 · 착지 스폰 (호스트 권한, 훈련장에서는 아무 것도 하지 않는다). */
   readonly rogueDrops = new RogueDropDirector();
   /** Phase 12: through-wall silhouettes (`setXray`). */
@@ -121,6 +125,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   readonly lastAudio = new Map<string, number>();
 
   get replica(): boolean { return !this.authority; }
+
   /** Authority inside a running session: replicate out. */
   get hosting(): boolean { return this.authority && this.multiplayer && !!this.ctx.net; }
 
@@ -746,7 +751,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   shotFx(from: THREE.Vector3, to: THREE.Vector3, hit: number): void { return Atk.shotFx(this, from, to, hit); }
 
   /** Artillery: shell `sid` toward the target's predicted position, landing after SHELL_FLIGHT_TIME. */
-  fireShell(e: Enemy, target: CombatTarget): void { return Atk.fireShell(this, e, target); }
+  fireShell(e: Enemy, target: CombatTarget): boolean { return Atk.fireShell(this, e, target); }
 
   /* ── ShellHost ─────────────────────────────────────────────────────────── */
   onShellLanded(sid: number, p: THREE.Vector3): void { return Atk.onShellLanded(this, sid, p); }

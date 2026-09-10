@@ -206,7 +206,8 @@ const armorItem = (a: ArmorDef): ItemDef => {
   return def({
     id: a.id, name: a.name, description: a.description, category: 'armor', rarity: a.rarity,
     width, height,
-    value: Math.round(T.num('ARMOR_VALUE_BASE') + a.damageReduction * T.num('ARMOR_VALUE_DR_MUL') + a.durabilityMax * T.num('ARMOR_VALUE_DUR_MUL')),
+    /* 2026-09-10: 가격은 뎀감률이 아니라 실드에서 나온다 (`ARMOR_VALUE_SHIELD_MUL` 12.6 = 옛 4200 × 0.3 ÷ 100 이라 값은 그대로). */
+    value: Math.round(T.num('ARMOR_VALUE_BASE') + a.shield * T.num('ARMOR_VALUE_SHIELD_MUL') + a.durabilityMax * T.num('ARMOR_VALUE_DUR_MUL')),
     icon: ARMOR_ICON[a.id] ?? '⛊', armorId: a.id, weight: a.weight, durabilityMax: a.durabilityMax,
   });
 };
@@ -247,6 +248,37 @@ const GENERIC_ITEM_DEFS: readonly ItemDef[] = csvRows('items.csv').map((r) => {
 
 /** `items.csv` 안에서 한 카테고리만 뽑는다 (파일에 적힌 순서 그대로). */
 const itemGroup = (category: ItemCategory): ItemDef[] => GENERIC_ITEM_DEFS.filter((d) => d.category === category);
+
+/* ── 실드 충전기 (2026-09-10) ─────────────────────────────────────────────────
+ * 방탄복이 주는 **실드**(추가 체력)를 채우는 소모품 3종. 회복 소모품과 나란히 `category: 'stim'` 이라
+ * 퀵슬롯 · 루팅 카테고리 · 손에 든 모습이 전부 공짜로 따라온다. 다른 점은 좌클릭 홀드가 끝났을 때
+ * `PlayerRef.applyHeal` 이 아니라 **`PlayerRef.chargeShield`** 로 간다는 것뿐이다.
+ *
+ * `ItemDef` 에 칸을 새로 열지 않은 이유: `src/shared` 는 조율 없이 고치지 않는 계약이다. 대신
+ * 여기 표 하나를 두고 `weapons/` 와 `inventory/` 가 `shieldChargeOf(defId)` 로 묻는다
+ * (두 폴더 모두 이미 `@/items` 를 import 한다 — `WeaponDefaults.ts` · `inventory/Gear.ts` 참고).
+ */
+export interface ShieldChargeDef {
+  /** 좌클릭을 눌러야 하는 시간(초) — 회복 소모품의 `heal.useTime` 과 같은 뜻. */
+  useTime: number;
+  /** 채워 줄 실드량. `Infinity` = 완전 회복 (csv 의 `shieldHp` 가 음수일 때). */
+  amount: number;
+}
+
+/** `items.csv` 의 `shieldUseTime` / `shieldHp` 칸이 채워진 줄 = 실드 충전기. */
+export const SHIELD_CHARGE_MAP: ReadonlyMap<string, ShieldChargeDef> = new Map(
+  csvRows('items.csv')
+    .filter((r) => r.has('shieldUseTime'))
+    .map((r) => {
+      const hp = r.num('shieldHp');
+      return [r.str('id'), { useTime: r.num('shieldUseTime', { min: 0 }), amount: hp < 0 ? Infinity : hp }] as const;
+    }),
+);
+
+/** 이 아이템이 실드 충전기면 그 수치, 아니면 undefined. */
+export function shieldChargeOf(defId: string | undefined): ShieldChargeDef | undefined {
+  return defId ? SHIELD_CHARGE_MAP.get(defId) : undefined;
+}
 
 /* ── definitions ──────────────────────────────────────────────────────────── */
 export const ITEM_DEFS: readonly ItemDef[] = [

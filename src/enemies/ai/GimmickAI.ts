@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {
-  BEHEMOTH_CHARGE_DAMAGE, BEHEMOTH_CHARGE_SPEED, BEHEMOTH_WINDUP, PLAYER_RADIUS, TOXIC_TRIGGER_DIST,
+  BEHEMOTH_CHARGE_DAMAGE, BEHEMOTH_CHARGE_SPEED, BEHEMOTH_WINDUP, ENEMY_FIRE_STRAFE_S, PLAYER_RADIUS, TOXIC_TRIGGER_DIST,
 } from '@/shared';
 import type { Enemy, EnemyHost } from '../Enemy';
 import { ARTILLERY_AI, BEHEMOTH_AI, TOXIC_AI } from '../EnemyTypes';
@@ -14,6 +14,9 @@ import { lookAtTarget, startMelee, stumble, type AttackResult } from './Common';
 
 const _knock = new THREE.Vector3();
 const _side = new THREE.Vector3();
+
+/** 궤적이 막힌 포병이 옆으로 옮겨 가는 거리(m). 그림/알고리즘 상수라 csv 대상이 아니다. */
+const ARTILLERY_RELOCATE_M = 7;
 
 /* ── artillery ──────────────────────────────────────────────────────────── */
 /**
@@ -44,6 +47,19 @@ export function chaseArtillery(e: Enemy, dt: number, host: EnemyHost, t: CombatT
     a.crouch = e.dug * 0.8;
     return s.speed * 0.8;
   }
+  /*
+   * 2026-09-10 (낮은 궤적): 궤적이 막혀 발사가 거절된 뒤 자리를 옮기는 중. 정점이 9.9 m 로 내려온 만큼
+   * 언덕 · 나무 · 폐허 벽 뒤에서는 제 발치에 떨어지므로, 같은 자리에서 6~9초마다 자살하게 두지 않고
+   * 굴착을 풀고 옆으로 걸어간 뒤 다시 판다. **조준만 하고 굳어 있지 않는다.**
+   */
+  if (e.fireBlockTimer > 0) {
+    e.fireBlockTimer -= dt;
+    e.hasMoveTarget = true;                 // moveTarget 은 거절 시점에 써 뒀다
+    e.hasFacePoint = false;
+    e.dug = Math.max(0, e.dug - dt * 2);
+    a.crouch = e.dug * 0.8;
+    return s.speed * 0.9;
+  }
   // hold position: dig in, then fire on the timer
   e.hasMoveTarget = false;
   e.dug = Math.min(1, e.dug + dt / ARTILLERY_AI.digTime);
@@ -52,13 +68,35 @@ export function chaseArtillery(e: Enemy, dt: number, host: EnemyHost, t: CombatT
   e.shellTimer -= dt;
   if (e.shellTimer <= 0) {
     if (e.dug >= 0.95 && d <= ARTILLERY_AI.maxRange && !t.isDeadOrDowned) {
-      host.fireShell(e, t);
-      a.recoil = 1;
-      a.flinch = Math.max(a.flinch, 0.6); a.flinchZ = -0.6; a.flinchX = 0;   // rear squat on fire
-      e.shellTimer = ARTILLERY_AI.fireMin + Math.random() * (ARTILLERY_AI.fireMax - ARTILLERY_AI.fireMin);
+      if (host.fireShell(e, t)) {
+        a.recoil = 1;
+        a.flinch = Math.max(a.flinch, 0.6); a.flinchZ = -0.6; a.flinchX = 0;   // rear squat on fire
+        e.shellTimer = ARTILLERY_AI.fireMin + Math.random() * (ARTILLERY_AI.fireMax - ARTILLERY_AI.fireMin);
+      } else artilleryRelocate(e, host, t);
     } else e.shellTimer = 0.5;
   }
   return 0;
+}
+
+/**
+ * 궤적이 막혔다 → 굴착을 풀고 표적 방향의 수직으로 `ARTILLERY_RELOCATE_M` 옮긴 뒤 다시 판다.
+ * 방향은 매번 뒤집으므로 한쪽이 막혀 있으면 다음에는 반대쪽을 시도한다. 다시 파는 데 걸리는 시간
+ * (`digTime`) 만큼은 어차피 못 쏘므로 다음 발사 시도는 그 뒤로 민다.
+ */
+function artilleryRelocate(e: Enemy, host: EnemyHost, t: CombatTarget): void {
+  e.dug = 0;
+  e.fireBlockTimer = ENEMY_FIRE_STRAFE_S;
+  e.shellTimer = ENEMY_FIRE_STRAFE_S + ARTILLERY_AI.digTime;
+  const dx = t.position.x - e.position.x, dz = t.position.z - e.position.z;
+  const l = Math.hypot(dx, dz);
+  const side = e.fireStrafeSign;
+  e.fireStrafeSign = -side as 1 | -1;
+  if (l < 1e-3) return;
+  const nx = dx / l, nz = dz / l;
+  const mx = e.position.x - nz * side * ARTILLERY_RELOCATE_M;
+  const mz = e.position.z + nx * side * ARTILLERY_RELOCATE_M;
+  if (!host.ctx.world!.isInsideBounds(mx, mz)) { e.moveTarget.copy(t.position); return; }
+  e.moveTarget.set(mx, 0, mz);
 }
 
 /* ── toxic ──────────────────────────────────────────────────────────────── */

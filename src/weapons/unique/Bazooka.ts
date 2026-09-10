@@ -102,9 +102,11 @@ export class Bazooka implements UniqueHandler {
       _centre.copy(host.position); _centre.y += 0.9;
       const d = _centre.distanceTo(pos);
       if (d < radius) {
-        // flat self damage that ignores armor: `takeDamage` applies the armor reduction inside, so pre-scale it away
-        const dr = typeof host.damageReduction === 'number' ? THREE.MathUtils.clamp(host.damageReduction, 0, 0.9) : 0;
-        host.takeDamage(BAZOOKA_SELF_DAMAGE / (1 - dr), pos.clone());
+        /*
+         * 2026-09-10: 방탄복이 피해를 깎지 않게 되어(`damageReduction` 은 늘 0) 되돌릴 감쇄가 없다 —
+         * `BAZOOKA_SELF_DAMAGE` 를 그대로 넣는다. 방탄복은 이제 실드로 이 피해를 **대신 맞아 준다**.
+         */
+        host.takeDamage(BAZOOKA_SELF_DAMAGE, pos.clone());
         _away.subVectors(_centre, pos);
         if (_away.lengthSq() < 1e-4) _away.set(0, 1, 0); else _away.normalize();
         if (typeof host.applyKnockback === 'function') host.applyKnockback(_away, BAZOOKA_KNOCKBACK);

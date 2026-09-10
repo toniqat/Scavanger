@@ -1,6 +1,6 @@
 import type { AmmoType, ArmorDef, EffectiveWeaponStats, ItemDef, ItemInstance, SkillId, StatId, WeaponDef } from '@/shared';
 import { PERK_DEFS, SOCKET_LABEL_KO, SOCKET_SLOTS, itemCreditValue, renderItemCost } from '@/shared';
-import { WEAPON_CLASS_LABEL_KO } from '@/items';
+import { WEAPON_CLASS_LABEL_KO, shieldChargeOf } from '@/items';
 import {
   DURABILITY_LOW, TEXT, ammoTypeLabel, categoryLabel, effectiveRange, fmtDeg, fmtKg, fmtMul, fmtValue, rarityColor, rarityLabel,
   socketAbbr, socketTip,
@@ -138,7 +138,8 @@ export class Tooltip {
       const a = this.lookups.getArmorDef(def.armorId);
       const t = TEXT.armorStats;
       if (a) {
-        rows.push([t.dr, `${Math.round(a.damageReduction * 100)} %`]);
+        // 2026-09-10: 방탄복은 피해를 깎지 않는다 — 실드(추가 체력)를 준다
+        rows.push([t.shield, `+${Math.round(a.shield)}`]);
         const max = def.durabilityMax ?? a.durabilityMax;
         rows.push([t.durability, `${Math.round(Math.max(0, Math.min(max, item.durability ?? max)))} / ${max}`]);
         if (a.perk !== 'none') rows.push([t.perk, a.description]);
@@ -150,6 +151,13 @@ export class Tooltip {
       const cur = Math.round(Math.max(0, Math.min(max, item.durability ?? max)));
       const cls = cur <= 0 ? 'is-broken' : cur / max < DURABILITY_LOW ? 'is-low' : undefined;
       rows.push([TEXT.gauge, `${cur} / ${max}`, cls]);
+    }
+    // 2026-09-10: 실드 충전기 — 얼마나 채우는가 · 몇 초 눌러야 하는가
+    const charge = shieldChargeOf(def.id);
+    if (charge) {
+      const t = TEXT.shieldChargeStats;
+      rows.push([t.amount, Number.isFinite(charge.amount) ? `+${Math.round(charge.amount)}` : t.full]);
+      rows.push([t.useTime, `${charge.useTime} s`]);
     }
     if (def.book) {
       const t = TEXT.bookStats;

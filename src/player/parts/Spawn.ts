@@ -74,6 +74,13 @@ export function restoreState(sys: PlayerSystem, state: PlayerRestoreState): void
   sys.rig.setOverride(null);
   sys.interactTarget = null; sys.holdProgress = 0;
 
+  /*
+   * 2026-09-10: 실드도 돌려준다. 생략된 값(옛 세이브 · 실드를 모르는 옛 호스트)은 **0 이 아니라 최대치**다 —
+   * 모르는 것을 0 으로 읽으면 재접속한 사람만 방탄복을 입은 채 실드를 잃는다. 전투불능 · 사망은 실드가 0.
+   */
+  sys._shield = 0;
+  sys.pendingShield = state.state === 0 ? (Number.isFinite(state.shield) ? (state.shield as number) : Infinity) : null;
+
   const st = state.state;
   if (st === 2) {
     // dead: lie where the ghost fell; the death anim is already over. No `player:died` — game/ owns the flow.

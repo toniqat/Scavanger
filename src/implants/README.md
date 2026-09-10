@@ -113,7 +113,16 @@
 ## 장착 UI (2026-09-06)
 임플란트 장착은 함선 **Tab 화면**(inventory 폴더, 장비 열 아래의 임플란트 슬롯 → 클릭 → 6종 카드; 장착 중인 카드를 다시 누르면 해제)에서 한다.
 터미널의 임플란트 탭과 `hub/ui/ImplantPanel` 은 삭제됐고, 함선의 임플란트 시술대(`hub_implant_bay`)는 그 Tab 화면을 연다.
-HUD 는 `ui/hud/ImplantWidget` 의 크로스헤어 좌측 세로 게이지 (대시 3분할 · 배리어 내구도/잠금 · 오버차지 에너지 · 그 외 쿨타임).
+HUD 는 `ui/hud/ImplantWidget` — **2026-09-10 부터 화면 중앙 하단(스태미나 바 아래)의 가로 썸네일**이다 (그 전에는
+크로스헤어 좌측 세로 게이지였다). 이름은 적지 않고 글리프 + 아래의 `Keys.IMPLANT` 키캡만 두며, 상태는 셋으로 갈린다:
+**쿨타임형**(갈고리 · 정찰 · 대전차포) 딤드 + 아래에서 위로 밝아짐 + 중앙 남은 초, **충전형**(대시) 우하단 충전 수
+(0 = 쿨타임형 연출, 1 이상 = 강조색 차오름, 최대 = 정상), **게이지형**(배리어 내구도 · 오버차지 에너지) 썸네일 안
+중앙 하단 게이지 — 배리어 붕괴 잠금은 내구도가 잠금 시간에 맞춰 0 → 만충으로 차오르므로 그대로 쿨타임 표시를 겸한다.
+UI 는 **`ImplantsRef` 의 기존 값만** 읽는다 (`cooldownRemaining` / `cooldownTotal` / `charges` / `maxCharges` /
+`barrierHp` / `barrierMaxHp` / `barrierLockout` / `energy` / `energyMax`) — 이 폴더에 새 질의를 추가하지 않았다.
+갈고리는 크로스헤어 **좌측**에 아이콘 + 사용 키가 따로 붙는데(`ui/hud/Reticle` 의 `.rgrap`), 그 판정도 새 API 가
+아니라 `updateGrapple` 이 이미 매 프레임 보내는 **`implant:grappleTargetChanged {valid, distance}`** 하나다
+(= `castGrapple` 이 보는 `grappleTargetValid`). 걸 수 없으면 키캡을 숨기고 아이콘만 딤드로 남긴다.
 
 ## Phase 7 (2026-09-06): 오버차지 빔 복제 (`imp beam`)
 
@@ -248,6 +257,11 @@ HUD 는 `ui/hud/ImplantWidget` 의 크로스헤어 좌측 세로 게이지 (대�
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
 
+- **2026-09-10 (임플란트 HUD 이전 · 크로스헤어 갈고리 표시)** — **이 폴더의 코드는 한 줄도 바뀌지 않았다.**
+  HUD 가 크로스헤어 좌측 세로 게이지에서 **화면 중앙 하단의 가로 썸네일**(`ui/hud/ImplantWidget`, `.imp-hud`)로
+  옮겨 가고 갈고리 표시가 크로스헤어 좌측에 생겼는데(`ui/hud/Reticle` 의 `.rgrap`), 둘 다 **기존 `ImplantsRef`
+  값과 기존 이벤트만** 읽어서 그린다 — 읽기 질의를 새로 열 필요가 없었다 (`implant:grappleTargetChanged` 가 이미
+  `castGrapple` 과 같은 판정을 매 프레임 내보내고 있다). 표시 유형 분류는 `장착 UI` 절에 적어 두었다.
 - **2026-09-09 (갈고리 쿨타임 2배)** — `IMPLANT_GRAPPLE_COOLDOWN` 6 → 12 s (`data/constants.csv` 만 바뀌었다, 코드 무변경).
 - **Phase 7** — overcharge beam replicated over `imp beam {target, self}` (≤ 4 Hz, immediate off) and drawn by `RemoteImplants` (caster socket → target chest, self glow)
 

@@ -93,7 +93,8 @@ export function takeDamage(sys: PlayerSystem, amount: number, from?: THREE.Vecto
 
 /**
  * Single damage path. `dot` (burning) skips the invulnerability window, the shake / audio and the 인내 (grit)
- * save. Armor reduces the amount and wears down (tactical kit); a roll counts as a partial i-frame.
+ * save. **2026-09-10 — 실드 먼저**: 방탄복이 준 실드가 피해를 먼저 먹고 (그만큼 판이 닳는다) 남은 것만
+ * 체력으로 간다. 방탄복의 피해 감소는 없다. A roll counts as a partial i-frame.
  */
 export function applyDamage(sys: PlayerSystem, amount: number, from: THREE.Vector3 | undefined, dot: boolean): void {
   if (sys.isDead || !(amount > 0) || !sys.spawned) return;
@@ -117,20 +118,27 @@ export function applyDamage(sys: PlayerSystem, amount: number, from: THREE.Vecto
   }
   let raw = amount;
   if (sys.controller.rolling) raw *= ROLL_DAMAGE_MUL;
-  const after = raw * (1 - sys.gear.damageReduction);
-  const absorbed = raw - after;
+  /*
+   * 2026-09-10 — 방탄복은 피해를 **깎지 않는다**. 대신 실드(추가 체력)를 먼저 비우고 남은 만큼만 체력으로
+   * 간다 (`absorbShield` 가 `player:shieldChanged` 를 낸다). 옛 `raw * (1 - gear.damageReduction)` 경로는
+   * 통째로 사라졌고 `damageReduction` 은 늘 0 인 계약 잔재다.
+   */
+  const absorbed = sys.absorbShield(raw);
+  const after = raw - absorbed;
   const dealt = Math.min(sys.hp, after);
+  /** 이번에 몸으로 느낀 총량 (실드가 다 막아도 피격 피드백은 나가야 한다). */
+  const felt = dealt + absorbed;
   sys.wearGear(absorbed);
   sys.hp -= dealt;
   sys.ctx.stats.damageTaken += dealt;
-  bus.emit('player:damaged', { amount: dealt, hp: sys.hp, from });
+  bus.emit('player:damaged', { amount: felt, hp: sys.hp, from });
   bus.emit('player:healthChanged', { hp: sys.hp, maxHp: sys.maxHp, delta: -dealt });
   if (!dot) {
     sys.flinch = 1;
     bus.emit('ui:damageIndicator', { from: from ?? sys.controller.position.clone() });
-    const shake = Math.min(0.7, 0.15 + dealt / 60);
+    const shake = Math.min(0.7, 0.15 + felt / 60);
     sys.rig.addShake(shake, 0.25);
-    bus.emit('audio:play', { id: 'player_hurt', volume: Math.min(1, 0.4 + dealt / 50) });
+    bus.emit('audio:play', { id: 'player_hurt', volume: Math.min(1, 0.4 + felt / 50) });
   }
   if (sys.hp <= 0) sys.onLethal(dot);
   }
@@ -189,6 +197,7 @@ export function enterDowned(sys: PlayerSystem): void {
   sys.bleedAcc = 0; sys.giveUpHold = 0;
   sys.hp = 0;
   sys.healPool = 0;
+  sys.clearShield();   // 2026-09-10: 쓰러지면 실드도 없다 (충전기로도 못 채운다 — `chargeShield` 는 살아 있을 때만)
   sys.setAiming(false);
   sys.setHovering(false);
   sys.controller.cancelRoll();
@@ -268,6 +277,7 @@ export function die(sys: PlayerSystem): void {
   sys.isDead = true;
   sys.deadTimer = 0;
   sys.healPool = 0;
+  sys.clearShield();
   sys.clearCarry('died');
   sys.clearDowned();
   sys.setAiming(false);

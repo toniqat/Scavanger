@@ -94,6 +94,24 @@ export const SHOT_CHECK_INTERVAL = 0.2;
 export const MAX_SHOT_RANGE = 400;
 /** Height of the 배리어 panel centre used for the `ee barrierHit` / `implant:barrierBumped` contact point. */
 export const SHIELD_CONTACT_Y = 1.0;
+/* ── appended: 낮은 곡사 궤적 · 벽에 대고 쏘지 않기 (2026-09-10) ── */
+/**
+ * 발사 전 궤적 검사(`parts/Attacks.shellArcBlocked`)가 궤적을 몇 개의 현(chord)으로 나누어 훑는가.
+ * 포물선은 위로 볼록하므로 현은 언제나 실제 궤적 **아래**를 지난다 = 검사는 보수적이다(막혔다고 잘못 보긴 해도
+ * 뚫렸다고 잘못 보지 않는다). 4개면 현과 궤적의 최대 차이가 `0.5·g·(T/8)²` ≈ 0.6 m 라 충분히 촘촘하다.
+ * 시각/알고리즘 상수라 csv 대상이 아니다 (`TRAIL_SAMPLES` 와 같은 부류).
+ */
+export const SHELL_ARC_SAMPLES = 4;
+/**
+ * 궤적의 앞쪽 이만큼만 검사한다. 마지막 하강 구간은 조준점(= 땅) 으로 내려꽂히므로 무조건 지형에 걸려
+ * 전부 "막힘" 이 된다 — 표적 바로 앞의 벽에 맞는 것은 잡을 필요도 없다(그 자리에서 터지면 그만이다).
+ * 0.75·T 시점의 포탄은 발사점보다 아직 7.4 m 위라 평지에서 오검출이 나지 않는다.
+ */
+export const SHELL_ARC_CHECK_FRAC = 0.75;
+export const _arcV = new THREE.Vector3();
+export const _arcP = new THREE.Vector3();
+export const _arcA = new THREE.Vector3();
+export const _arcD = new THREE.Vector3();
 
 export const _v = new THREE.Vector3();
 export const _v2 = new THREE.Vector3();
@@ -133,3 +151,7 @@ export const queryBuf: Enemy[] = [];
  * changes **live** through `setAuthority` (Phase 7: `net:hostChanged` mid-mission promotes replicas into simulated
  * enemies or demotes the simulation into replicas) — nothing else caches it.
  */
+
+/* appended (2026-09-10): 적이 수류탄을 하나도 안 던지고 있을 때 `getEnemyGrenades()` 가 돌려주는 빈 목록.
+ * 매번 `[]` 를 만들면 HUD 가 프레임마다 부르므로 쓰레기가 된다. */
+export const EMPTY_GRENADES: readonly import('@/shared').GrenadeView[] = [];

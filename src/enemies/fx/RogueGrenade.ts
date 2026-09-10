@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { GRAVITY, Layers, ROGUE_GRENADE_RADIUS, type GameContext } from '@/shared';
+import { GRAVITY, Layers, ROGUE_GRENADE_RADIUS, type GameContext, type GrenadeView } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -49,6 +49,9 @@ const _up = new THREE.Vector3(0, 1, 0);
 
 export class RogueGrenades {
   private readonly items: Grenade[] = [];
+  /* HUD 위험 인디케이터용 view (풀 몸체당 하나 재사용) — `getViews()` 참고. */
+  private readonly views: ({ position: THREE.Vector3; fuse: number; remote: boolean } | undefined)[] = [];
+  private readonly viewList: GrenadeView[] = [];
   private readonly geo = new THREE.SphereGeometry(VISUAL_RADIUS, 10, 8);
   private readonly mat = new THREE.MeshStandardMaterial({ color: 0x2a2e26, emissive: 0xc83a1a, emissiveIntensity: 0.9, roughness: 0.5, metalness: 0.4 });
   private host: GrenadeHost | null = null;
@@ -82,6 +85,25 @@ export class RogueGrenades {
 
   /** Live grenades. */
   count(): number { let n = 0; for (const g of this.items) if (g.active) n++; return n; }
+
+  /**
+   * 2026-09-10: HUD 위험 인디케이터가 읽는 목록 (`EnemyManagerRef.getEnemyGrenades()`). 아군 수류탄의
+   * `weapons/Grenade.getViews()` 와 **같은 모양 · 같은 규약**이다 — 풀 몸체 하나당 view 객체 하나를 재사용하고
+   * `position` 은 살아 있는 동안 같은 `Vector3` 인스턴스(`mesh.position`)다. `remote` 는 이 클라이언트에
+   * 권한이 없는 복제본이라는 뜻으로 쓴다 (`!authority`).
+   */
+  getViews(): readonly GrenadeView[] {
+    this.viewList.length = 0;
+    for (let i = 0; i < this.items.length; i++) {
+      const g = this.items[i];
+      if (!g.active) continue;
+      let v = this.views[i];
+      if (!v) { v = { position: g.mesh.position, fuse: 0, remote: false }; this.views[i] = v; }
+      v.fuse = g.fuse; v.remote = !g.authority;
+      this.viewList.push(v);
+    }
+    return this.viewList;
+  }
 
   /** Host migration: grenades in flight switch sides (demoted → visual only, promoted → they now hurt). */
   setAuthorityAll(authority: boolean): void { for (const g of this.items) g.authority = authority; }

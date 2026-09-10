@@ -681,8 +681,15 @@ export class WeaponSystem implements GameSystem {
   setConsumableSlow(on: boolean): void { return Heal.setConsumableSlow(this, on); }
 
   /**
-   * LMB pressed with a 회복 소모품 / 제세동기 in hand. A plain heal is refused at full hp (the old instant-use rule);
-   * the 스프레이 is refused only when its gauge is empty (it also heals squadmates), the 제세동기 never checks hp.
+   * 2026-09-10 — 실드 충전기가 지금 채울 실드가 남아 있는가 (방탄복 없음 · 가득 · 파손이면 false).
+   * 홀드를 시작하기 전에 묻는다 — 아이템이 헛되이 소모되면 안 된다.
+   */
+  canChargeShield(): boolean { return Heal.canChargeShield(this); }
+
+  /**
+   * LMB pressed with a 회복 소모품 / 실드 충전기 / 제세동기 in hand. A plain heal is refused at full hp (the old
+   * instant-use rule); a 실드 충전기 with no armor / a full shield; the 스프레이 only when its gauge is empty
+   * (it also heals squadmates); the 제세동기 never checks hp.
    */
   beginHeal(host: Host, q: QuickHand): void { return Heal.beginHeal(this, host, q); }
 

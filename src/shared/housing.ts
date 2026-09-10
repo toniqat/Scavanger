@@ -344,6 +344,12 @@ export interface HousingRef {
   getPlacedByUid(uid: string): PlacedFurniture | null;
   getStored(): readonly StoredFurniture[];
   canPlace(room: number, defId: string, x: number, y: number, yaw: 0 | 1 | 2 | 3, ignoreUid?: string): boolean;
+  /**
+   * 2026-09-10 (추가만): **자동 배치**가 고를 자리 — 화면 좌측 상단부터 가로줄을 먼저 채우고, 가구는 화면
+   * 아래(월드 +X = yaw 1)를 향한다. 규칙과 좌표 유도는 `housing/Rules.autoPlaceSpot` 한 곳에 있다.
+   * `null` = 이 방에 그 가구가 들어갈 자리가 없다. 손으로 놓는 경로는 이 질의를 쓰지 않는다.
+   */
+  findFreeSpot(room: number, defId: string): { x: number; y: number; yaw: 0 | 1 | 2 | 3 } | null;
   /** Place one stored piece (consumes a storage entry). Emits `housing:furniturePlaced`. */
   place(room: number, defId: string, x: number, y: number, yaw: 0 | 1 | 2 | 3): PlacedFurniture | null;
   move(uid: string, x: number, y: number, yaw: 0 | 1 | 2 | 3): boolean;

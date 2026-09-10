@@ -27,6 +27,13 @@ export interface MoveResult {
 
 export type ShipBounds = { center: THREE.Vector3; halfExtents: THREE.Vector3 } | null;
 
+/**
+ * 보행 위상이 도는(= 발소리가 나는) 최소 수평 속도(m/s). 이보다 느리면 위상은 중립으로 되감기기만 한다.
+ * 원격 아바타의 발소리(`RemotePlayerSystem`)도 스냅샷 속도로 같은 문턱을 쓴다 — 두 곳의 기준이 갈리면
+ * 원격만 제자리에서 소리가 난다.
+ */
+export const STRIDE_MIN_SPEED = 0.3;
+
 const JUMP_SPEED = 7.6;
 const GROUND_ACCEL = 34;
 const GROUND_DECEL = 26;
@@ -301,7 +308,7 @@ export class PlayerController {
     // ── stride / footsteps
     this.speed = Math.hypot(vel.x, vel.z);
     if (this.speed > 0.2) { this.moveDir.set(vel.x, 0, vel.z).normalize(); }
-    if (this.grounded && this.speed > 0.3 && !this.rolling) {
+    if (this.grounded && this.speed > STRIDE_MIN_SPEED && !this.rolling) {
       // meters per full cycle (2 steps); prone = crawl reach
       const strideLen = this.sprinting ? 1.9 : this.stance === 'crouch' ? 1.1 : this.stance === 'prone' ? 0.8 : 1.45;
       this.stridePhase += (this.speed * dt / strideLen) * Math.PI * 2;

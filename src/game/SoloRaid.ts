@@ -35,6 +35,11 @@ export interface SoloRaidPose {
   downHp: number;
   /** 0 alive · 1 downed · 2 dead. */
   state: 0 | 1 | 2;
+  /**
+   * appended (2026-09-10): 실드. **v1 세이브에는 없다** — 생략은 0 이 아니라 "모른다"이고,
+   * `PlayerRef.restoreState` 가 방탄복 최대치로 복구한다 (`PlayerRestoreState.shield` 규약과 같다).
+   */
+  shield?: number;
 }
 
 export interface SoloRaidSave {
@@ -93,7 +98,10 @@ export function loadSoloRaid(): SoloRaidSave | null {
     missionTime: Math.max(0, num(f.missionTime)),
     stats: f.stats,
     inventory: f.inventory ?? null,
-    pose: { x: num(p.x), y: num(p.y), z: num(p.z), yaw: num(p.yaw), hp: num(p.hp, 1), downHp: num(p.downHp), state },
+    pose: {
+      x: num(p.x), y: num(p.y), z: num(p.z), yaw: num(p.yaw), hp: num(p.hp, 1), downHp: num(p.downHp), state,
+      ...(typeof p.shield === 'number' && Number.isFinite(p.shield) ? { shield: Math.max(0, p.shield) } : {}),
+    },
   };
 }
 

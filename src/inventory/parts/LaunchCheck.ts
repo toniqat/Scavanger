@@ -14,7 +14,7 @@
  */
 import type { AmmoType, ItemDef, LaunchWarning } from '@/shared';
 import { AMMO_STACK_ROUNDS } from '@/shared';
-import { ITEM_DEF_MAP, getWeaponDef } from '@/items';
+import { ITEM_DEF_MAP, getWeaponDef, shieldChargeOf } from '@/items';
 import { WEAPON_SLOT_IDS } from '../model';
 import type { InventorySystem } from '../InventorySystem';
 
@@ -73,9 +73,10 @@ export function getLaunchWarnings(sys: InventorySystem): LaunchWarning[] {
   try { implant = sys.ctx.implants?.equipped ?? null; } catch { implant = null; }
   if (!implant) out.push({ id: 'noImplant', text: '전술 임플란트가 없습니다', detail: '인벤토리 장착 장비 칸에서 하나 고르세요.' });
 
-  /* 6. 회복 아이템 (가방에 든 것만 — 창고에 있는 건 못 들고 나간다) */
+  /* 6. 회복 아이템 (가방에 든 것만 — 창고에 있는 건 못 들고 나간다)
+   *    2026-09-10: 실드 충전기도 `category: 'stim'` 이지만 체력을 채우지 않으므로 여기서는 세지 않는다. */
   let heals = 0;
-  try { heals = sys.countWhere((d) => d.category === 'stim'); } catch { heals = 0; }
+  try { heals = sys.countWhere((d) => d.category === 'stim' && !shieldChargeOf(d.id)); } catch { heals = 0; }
   if (heals <= 0) out.push({ id: 'noHeal', text: '회복 아이템이 없습니다', detail: '가방에 붕대나 주사기를 넣어 두세요.' });
 
   return out;

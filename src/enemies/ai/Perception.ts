@@ -108,7 +108,8 @@ export function acquireTarget(e: Enemy, dt: number, host: EnemyHost): void {
       const keep = e.hasLOS ? 0.6 : 0.75;
       if (best.dist2D(e.position) < cur.dist2D(e.position) * keep) e.target = best;
     }
-    if (e.target !== cur) { e.hasLOS = false; e.perceptionTimer = 0; }
+    // 2026-09-10: 총구 사선 캐시(`ai/FireLine`)도 표적과 함께 버린다 — 옛 표적에 대한 답이다.
+    if (e.target !== cur) { e.hasLOS = false; e.perceptionTimer = 0; e.fireLineAt = -Infinity; e.fireLineClear = true; e.fireBlockTimer = 0; }
   }
   e.distToTarget = e.target ? e.target.dist2D(e.position) : Infinity;
 }

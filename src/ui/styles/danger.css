@@ -1,0 +1,92 @@
+/*
+ * 위험 인디케이터 (hud/DangerIndicators, 2026-09-10).
+ *
+ * 지금 날아오는 것 하나마다 **둘 중 하나만** 그린다:
+ *   - 화면 안 → `.dgr-head` 머리 인디케이터 (위험물 위치에 마름모 + 짧은 라벨),
+ *   - 화면 밖 → `.dgr-arc` 방향 호. 굵기 · 반지름 · 마스크는 피격 방향 호(`.dmg-arc`, base.css)와 같은 언어이고
+ *     색만 위험물별(`--dc`)로 갈린다. 링은 조금 더 크고(240 px) 쐐기는 좁아서 (약 44°) 피격 호와 겹쳐도 읽힌다.
+ *
+ * `--dc` = 위험물 색, `--rot` = 화면 기준 방향(0° = 정면, 시계방향). 글리프는 호와 함께 돌면 읽을 수 없으므로
+ * `--rot` 만큼 되돌린다. 수치(사거리 · 반경)는 전부 `data/*.csv` 에서 오고 여기에는 레이아웃만 있다.
+ */
+
+.dgr { position: absolute; inset: 0; pointer-events: none; }
+
+/* ── 화면 밖: 방향 호 ── */
+.dgr-arcs { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
+.dgr-arc {
+  --dc: var(--c-danger);
+  --rot: 0deg;
+  position: absolute; left: -120px; top: -120px; width: 240px; height: 240px;
+  border-radius: 50%;
+  opacity: 0;
+  transform: rotate(var(--rot));
+  will-change: transform, opacity;
+  transition: opacity var(--t-fast) linear;
+}
+.dgr-arc .wedge {
+  position: absolute; inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(from -22deg,
+    transparent 0deg, var(--dc) 8deg, var(--dc) 36deg, transparent 44deg, transparent 360deg);
+  -webkit-mask: radial-gradient(circle, transparent calc(50% - 7px), #000 calc(50% - 6px), #000 calc(50% - 1px), transparent 50%);
+  mask: radial-gradient(circle, transparent calc(50% - 7px), #000 calc(50% - 6px), #000 calc(50% - 1px), transparent 50%);
+  filter: drop-shadow(0 0 7px color-mix(in srgb, var(--dc) 75%, transparent));
+}
+/* 호 바깥의 글리프 + 라벨 — 호와 함께 돌면 읽을 수 없으니 같은 각도만큼 되돌린다 */
+.dgr-arc .tag {
+  position: absolute; left: 50%; top: -2px;
+  transform: translateX(-50%) rotate(calc(-1 * var(--rot)));
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  white-space: nowrap;
+}
+.dgr-arc .tag .ico {
+  font-size: 13px; line-height: 1;
+  color: var(--dc);
+  text-shadow: 0 0 6px rgba(0, 0, 0, 0.95);
+}
+.dgr-arc .tag .lbl {
+  font-size: 9px; font-weight: 600; letter-spacing: 0.1em;
+  color: var(--c-text);
+  text-shadow: 0 0 5px rgba(0, 0, 0, 0.95), 0 1px 2px #000;
+}
+.dgr-arc .tag .lbl:empty { display: none; }
+.dgr-arc.show { opacity: 0.95; }
+.dgr-arc.hot .wedge { animation: dgrPulse 190ms ease-in-out infinite alternate; }
+.dgr-arc[hidden] { display: none !important; }
+
+/* ── 화면 안: 머리 인디케이터 ── */
+.dgr-head {
+  --dc: var(--c-danger);
+  position: absolute; left: 0; top: 0; width: 0; height: 0;
+  will-change: transform;
+}
+.dgr-head .ring {
+  position: absolute; left: -9px; top: -9px;
+  width: 18px; height: 18px; box-sizing: border-box;
+  border: 2px solid var(--dc);
+  transform: rotate(45deg);
+  box-shadow: 0 0 7px color-mix(in srgb, var(--dc) 70%, transparent), inset 0 0 5px rgba(0, 0, 0, 0.6);
+  animation: dgrPulse 560ms ease-in-out infinite alternate;
+}
+.dgr-head .ico {
+  position: absolute; left: 0; top: -1px;
+  transform: translate(-50%, -50%);
+  font-size: 10px; line-height: 1; color: var(--dc);
+  text-shadow: 0 0 4px rgba(0, 0, 0, 0.95);
+}
+.dgr-head .lbl {
+  position: absolute; left: 0; top: 13px;
+  transform: translateX(-50%);
+  font-size: 9px; font-weight: 600; letter-spacing: 0.12em; white-space: nowrap;
+  color: var(--dc);
+  text-shadow: 0 0 4px rgba(0, 0, 0, 0.95), 0 1px 0 rgba(0, 0, 0, 0.85);
+}
+.dgr-head .lbl:empty { display: none; }
+.dgr-head.hot .ring { animation-duration: 170ms; }
+.dgr-head[hidden] { display: none !important; }
+
+@keyframes dgrPulse { from { opacity: 0.5; } to { opacity: 1; } }
+
+/* 관전 중에는 다른 크로스헤어 위젯들과 같이 사라진다 */
+.hud.spectating .dgr { opacity: 0; visibility: hidden; }

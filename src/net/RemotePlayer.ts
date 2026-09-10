@@ -110,6 +110,9 @@ export class RemotePlayer implements RemotePlayerRef {
   get isBarrierUp(): boolean { return (this.flags & PlayerFlags.BARRIER) !== 0; }
   /** `PlayerSnapshot.bhp` of the newest snapshot while the shield is up; undefined otherwise. */
   barrierHp: number | undefined = undefined;
+  /* 2026-09-10: 방탄복 실드 (`PlayerSnapshot.sh` / `.shm`). 방탄복이 없는 peer 는 undefined 로 남는다. */
+  shield: number | undefined = undefined;
+  maxShield: number | undefined = undefined;
   /** `CrewCardWire.level` — the ship-side card, written by NetSystem when a `crew card` arrives. */
   crewLevel: number | undefined = undefined;
   /** Implant EQUIPPED on the ship (`CrewCardWire.implant`); distinct from `implantId` (wielded, always null in the hub). */
@@ -174,6 +177,8 @@ export class RemotePlayer implements RemotePlayerRef {
     /* Phase 10: the carried peer and the carried shield's durability ride on the snapshot (steady state). */
     this.carrying = (s.f & PlayerFlags.CARRYING) !== 0 && typeof s.cr === 'string' && s.cr.length > 0 ? s.cr : null;
     this.barrierHp = (s.f & PlayerFlags.BARRIER) !== 0 && typeof s.bhp === 'number' && Number.isFinite(s.bhp) ? s.bhp : undefined;
+    this.maxShield = typeof s.shm === 'number' && Number.isFinite(s.shm) && s.shm > 0 ? s.shm : undefined;
+    this.shield = this.maxShield !== undefined && typeof s.sh === 'number' && Number.isFinite(s.sh) ? s.sh : undefined;
     /* 격납고 (2026-09-08): which ship interior the sender is standing in (null = the shared deck). */
     this.hubSite = typeof s.hs === 'string' && s.hs.length > 0 ? s.hs : null;
     if (!this.hasAny) {
@@ -209,6 +214,8 @@ export class RemotePlayer implements RemotePlayerRef {
     /* Phase 10: a ghost owns its pose — it carries nobody, is not on a shoulder and holds no shield. */
     this.carrying = null;
     this.barrierHp = undefined;
+    this.shield = undefined;
+    this.maxShield = undefined;
     let f = this.flags & ~(PlayerFlags.DOWNED | PlayerFlags.DEAD | PlayerFlags.DROPPING | PlayerFlags.IN_HUB | PlayerFlags.IN_POD
       | PlayerFlags.CARRYING | PlayerFlags.CARRIED | PlayerFlags.BARRIER | PlayerFlags.TYPING);
     if (g.st === 1) f |= PlayerFlags.DOWNED;

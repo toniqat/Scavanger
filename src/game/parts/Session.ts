@@ -98,6 +98,7 @@ export function saveSolo(sys: GameFlowSystem): void {
       pose: {
         x: p.position.x, y: p.position.y, z: p.position.z, yaw: p.yaw,
         hp: p.hp, downHp: p.downHp,
+        shield: p.shield,
         state: p.isDead ? 2 : p.isDowned ? 1 : 0,
       },
     });
@@ -139,7 +140,7 @@ export function resumeSoloRaid(sys: GameFlowSystem, save: SoloRaidSave): void {
   sys.raidBlob = { seed: save.seed, missionTime: save.missionTime, stats: save.stats, inventory: save.inventory, savedAt: save.savedAt };
   sys.soloRestore = {
     position: new THREE.Vector3(save.pose.x, save.pose.y, save.pose.z),
-    yaw: save.pose.yaw, hp: save.pose.hp, downHp: save.pose.downHp, state: save.pose.state,
+    yaw: save.pose.yaw, hp: save.pose.hp, downHp: save.pose.downHp, state: save.pose.state, shield: save.pose.shield,
   };
   ctx.bus.emit('ui:notify', { text: '중단된 레이드를 이어서 진행합니다', kind: 'warning', duration: 5 });
   ctx.bus.emit('game:newMission', { seed: save.seed, mode: 'raid', planet: save.planet ?? undefined });

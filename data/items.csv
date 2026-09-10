@@ -4,13 +4,20 @@
 # stackMax 1 = 겹치지 않음. weight 는 kg, value 는 판매 기준가.
 # heal* 칸은 회복 소모품만: healUseTime = 좌클릭 홀드 시간(초), healAmount/healOverTime = 회복량과 그 시간.
 # spray* 칸은 회복 스프레이 하나만 쓴다 (sprayTick 초마다 게이지 sprayGauge 를 써서 반경 sprayRadius 안을 sprayHeal 회복).
-id,name,category,rarity,width,height,stackMax,value,weight,icon,quickUsable,gadgetId,durabilityMax,healAmount,healUseTime,healHp,healOverTime,sprayTick,sprayGauge,sprayHeal,sprayRadius,description
+# shield* 칸은 실드 충전기 3종만 쓴다 (2026-09-10, description 뒤에 붙였다 — 나머지 줄은 그냥 비어 있다):
+#   shieldUseTime = 좌클릭 홀드 시간(초), shieldHp = 채워 줄 실드량.
+#   shieldHp 가 **-1 이면 "완전 회복"** (실드 최대치까지 한 번에). 이 두 칸이 있는 줄이 곧 실드 충전기다.
+#   실드가 이미 가득이거나 방탄복이 없으면 사용 자체가 거절되고 아이템도 줄지 않는다.
+id,name,category,rarity,width,height,stackMax,value,weight,icon,quickUsable,gadgetId,durabilityMax,healAmount,healUseTime,healHp,healOverTime,sprayTick,sprayGauge,sprayHeal,sprayRadius,description,shieldUseTime,shieldHp
 grenade_frag,G-12 고폭 수류탄,grenade,common,1,1,3,40,0.45,●,true,,,,,,,,,,,파편 수류탄. 반경 6 m 광역 피해.
 grenade_incendiary,G-10 소이 수류탄,grenade,uncommon,1,1,3,70,0.5,◉,true,,,,,,,,,,,소이 수류탄. 넓은 반경에 화염 피해.
 heal_bandage,붕대,stim,common,1,1,5,45,0.15,▭,true,,,20,5,20,5,,,,,"천을 감아 지혈한다. 사용 5초, 5초에 걸쳐 체력 20 회복. 사용 중 이동 속도 50 %."
 heal_bandage_herb,약초 붕대,stim,uncommon,1,1,5,130,0.18,▤,true,,,50,5,50,5,,,,,"혈근초를 덧댄 붕대. 사용 5초, 5초에 걸쳐 체력 50 회복. 사용 중 이동 속도 50 %."
 heal_syringe,회복주사,stim,rare,1,1,3,260,0.2,✚,true,,,50,2,50,1,,,,,"가압 주사기. 사용 2초, 1초 만에 체력 50 회복. 사용 중 이동 속도 50 %."
 heal_spray,회복 스프레이,stim,epic,1,2,1,780,0.9,⌁,true,,=HEAL_SPRAY_GAUGE,,0,0,0,0.1,1,1,=HEAL_SPRAY_RADIUS,재생 촉진제 분무기. 좌클릭을 누르고 있으면 0.1초마다 게이지 1을 써서 반경 8 m 안의 자신과 아군을 체력 1씩 회복. 게이지 200. 사용 중 이동 속도 50 %.
+shield_charger,실드 충전기,stim,common,1,1,5,60,0.3,▰,true,,,,,,,,,,,"방탄복의 축전지를 급속 충전한다. 사용 2초, 실드 20 회복. 사용 중 이동 속도 50 %.",2,20
+shield_charger_hi,고출력 실드 충전기,stim,uncommon,1,1,5,170,0.35,▮,true,,,,,,,,,,,"용량을 키운 충전 팩. 사용 4초, 실드 40 회복. 사용 중 이동 속도 50 %.",4,40
+shield_charger_full,완충 실드 충전기,stim,rare,1,1,2,430,0.5,⬣,true,,,,,,,,,,,"군용 완충 카트리지. 사용 6초, 실드를 최대치까지 채운다. 사용 중 이동 속도 50 %.",6,-1
 gem_quartz,석영 결정,valuable,common,1,1,1,120,0.6,◇,,,,,,,,,,,,흔한 광물 결정. 소량의 가치.
 gem_amber,호박석,valuable,uncommon,1,1,1,260,0.35,◆,,,,,,,,,,,,외계 수액이 굳어 생긴 호박. 수집가들이 찾는 물건.
 gem_sapphire,청옥,valuable,rare,1,1,1,620,0.4,◆,,,,,,,,,,,,순도 높은 청색 보석.
@@ -38,6 +45,7 @@ mat_antiseptic,소독약,material,uncommon,1,1,10,80,0.15,⚗,,,,,,,,,,,,약초�
 mat_cable,전력 케이블,material,common,1,1,10,25,0.3,∿,,,,,,,,,,,,피복이 벗겨진 전력 케이블 뭉치. 함선 시설과 작업대 설치에 쓰인다.
 mat_circuit,회로 기판,material,rare,1,1,10,120,0.15,▦,,,,,,,,,,,,멀쩡히 남은 제어 회로 기판. 함선 시설·작업대 업그레이드에 필수.
 mat_machine_parts,기계 부품,material,uncommon,1,1,10,90,1.2,⚙,,,,,,,,,,,,로그의 장비에서 뜯어낸 기계 부품 뭉치. 분해하면 폐금속과 전력 케이블이 나온다.
+mat_core,구동 코어,material,common,1,1,10,30,0.25,⊙,,,,,,,,,,,,주먹만 한 축전 코어. 로그의 장비와 폐기물에서 흔하게 나온다. 전력 케이블과 엮으면 실드 충전기가 된다.
 herb_bloodroot,혈근초,herb,common,1,1,8,25,0.08,❦,,,,,,,,,,,,붉은 뿌리를 가진 지혈 식물. 스팀 조제의 기본 재료.
 herb_ashleaf,잿빛잎,herb,uncommon,1,1,8,55,0.06,❧,,,,,,,,,,,,화산재 지대에서 자라는 잎. 인화성이 강해 소이 제조에도 쓰인다.
 herb_glowcap,발광버섯,herb,rare,1,1,6,140,0.12,✿,,,,,,,,,,,,스스로 빛나는 균류. 강력한 재생 촉진제.

@@ -23,9 +23,11 @@ ARMOR_SALVAGE_BASE,3,방탄복 분해 폐금속: 티어 1 기준값
 ARMOR_SALVAGE_PER_TIER,2,티어 1단계마다 +
 ARMOR_SALVAGE_DURATION,5,방탄복 분해 홀드 시간(초)
 
-# items — 방탄복 아이템 가격 (value = BASE + 피해감소 × DR_MUL + 내구도 × DUR_MUL)
+# items — 방탄복 아이템 가격 (value = BASE + 실드 × SHIELD_MUL + 내구도 × DUR_MUL)
+# 2026-09-10: 예전 ARMOR_VALUE_DR_MUL(4200)이 피해감소에 곱해지던 자리다. 실드 = 뎀감률 ÷ 0.3 × 100 이라
+# 4200 × 0.3 ÷ 100 = 12.6 을 실드에 곱하면 값이 한 푼도 안 바뀐다 (방탄복 I 832 … V 2400).
 ARMOR_VALUE_BASE,300,
-ARMOR_VALUE_DR_MUL,4200,
+ARMOR_VALUE_SHIELD_MUL,12.6,
 ARMOR_VALUE_DUR_MUL,1.4,
 
 # items — 가방 무게 (bagWeightBase + 칸수 × bagWeightPerCell)

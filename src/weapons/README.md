@@ -9,7 +9,7 @@ Owner: `WeaponSystem` (`name: 'weapons'`). Registers after `PlayerSystem`; reach
 | `parts/Slots.ts` | **세 무기 슬롯의 상태.** 1 주무기 I · 2 주무기 II · 3 보조무기 — 어떤 `ItemInstance` 가 어느 슬롯에 있고, 그 실효 스탯 · 탄창 · 예비탄 · 내구도 · 부착물이 무엇인지. 인벤토리 쪽 변화(`loadout:changed`, 소켓 변경, 아이템 갱신)를 받아 여기서 무기 모델과 HUD 숫자를 다시 맞춘다. **발사는 하지 않는다.** |
 | `parts/Firing.ts` | **격발 · 명중 · 재장전.** 트리거를 당긴 순간부터 피해가 들어갈 때까지: 실효 스탯으로 탄을 뽑고, 내구도를 깎고, 히트스캔/발사체를 쏘고(`raycastAll` — 배리어 · 돔 · 파괴 가능 엄폐물이 여기서 탄을 멈춘다), 명중을 적 · 원격 플레이어에게 전달한다. 정밀 사격 정렬(예측 카메라 원점)이 걸린 곳이기도 하다. |
 | `parts/QuickUse.ts` | **빠른 사용 (T 탭 / 홀드 휠).** 소모품 · 가젯을 손에 드는 경로 전체: 휠 열기/닫기, 슬롯 해석, 무기 홀스터, 손에 든 것을 놓고 총으로 돌아가기, 그리고 들쳐메기 중에는 모든 행동을 `dropCarried` 로 바꾸는 `carryGate`. |
-| `parts/Healing.ts` | **회복 소모품의 홀드 사용.** 붕대 · 약초 붕대 · 회복주사 · 제세동기는 좌클릭을 아이템별 시간만큼 **누르고 있어야** 하고 (`heal:holdChanged.dur`, 그 동안 이동 50 %), 회복 스프레이는 게이지를 깎으며 자신과 반경 안 아군을 계속 회복한다. 게이지가 0 이 되어도 캔은 사라지지 않고 함선에서 충전한다. |
+| `parts/Healing.ts` | **회복 소모품 · 실드 충전기의 홀드 사용.** 붕대 · 약초 붕대 · 회복주사 · 제세동기는 좌클릭을 아이템별 시간만큼 **누르고 있어야** 하고 (`heal:holdChanged.dur`, 그 동안 이동 50 %), 회복 스프레이는 게이지를 깎으며 자신과 반경 안 아군을 계속 회복한다. 게이지가 0 이 되어도 캔은 사라지지 않고 함선에서 충전한다. **2026-09-10 실드 충전기** (`shieldChargeOf(defId)`, `@/items`) 도 같은 홀드 · 같은 이동 감속을 쓰지만 끝에서 `PlayerRef.applyHeal` 대신 **`chargeShield(amount)`** 로 간다 (`Infinity` = 가득). `canChargeShield()` 가 `maxShield > 0 && shield < maxShield` 를 보고 **홀드를 시작조차 하지 않으므로** 방탄복이 없거나 실드가 가득이면 아이템이 소모되지 않는다. |
 | `parts/Throwing.ts` | **손에 든 것을 던지기 (수류탄 · 투척 가젯).** 좌클릭 홀드로 들고, R 로 핀을 뽑아 쿠킹하고(`grenade:holdChanged` + 퓨즈가 와이어로 나간다), 놓으면 오버핸드 / 우클릭이면 언더핸드로 나간다. 손 안에서 터지는 경우(`explodeInHand`)도 여기. |
 | `parts/Services.ts` | **`WeaponHost` 서비스 객체.** `fx/` · `unique/` · `Melee` · `Grenade` 는 `WeaponSystem` 을 직접 알지 않고 이 객체를 통해서만 월드에 접근한다(레이캐스트 · 피해 적용 · 오디오 · 카메라 흔들림 · 인벤토리 소모 …). 즉 이 파일이 무기 내부 모듈과 나머지 게임 사이의 **유일한 접점**이다. |
 | `WeaponDefaults.ts` | `WEAPON_SLOTS` (**`['primary','primary2']`** — 2026-09-10), `DEFAULT_RIFLE` (`ar_fallback` 돌격소총, class AR, calibre `medium`, falloff 60→220 ×0.6), `DEFAULT_PISTOL` (`hg_fallback` 권총, class PISTOL, calibre `light`, falloff 20→70 ×0.5) fallbacks; `defaultFor(slot: WeaponSlot)` (both primaries → rifle); `statsFromDef(def)` → `EffectiveWeaponStats` for a bare def (mirrors items' `baseWeaponStats`: recoilH = 0.7 × recoil, secondary adsTime ×0.5, swapTime by slot); `kindOf(def)` → rifle/pistol/shotgun/energy/**smg**/**sniper** by class (so graded ids like `ar_g3` pick their family's silhouette; via `weaponClassOf` from `@/items`, re-exported with `damageFalloff`); `shotSoundId(kind)`; `shotPitchFor(class)` (DMR 0.78); `STANCE_ACCURACY` table. |
@@ -311,6 +311,14 @@ still runs at the item's own rate).
 ---
 
 ## 변경 이력
+
+- **2026-09-10 (실드 충전기)** — 방탄복이 실드를 주게 되면서 그 실드를 채우는 소모품 3종이 붙었다
+  (`shield_charger` / `_hi` / `_full`, `data/items.csv`). 정의는 items/ 가 갖고 (`SHIELD_CHARGE_MAP` ·
+  `shieldChargeOf`) 여기서는 **퀵 사용 경로만** 갈라진다: `model.useTimeOf` 가 충전기의 자기 사용 시간(2 / 4 / 6 초)을
+  돌려주고, `parts/Healing.beginHeal` 이 `canChargeShield()` 로 먼저 거른 뒤 `finishHeal` 이 소모 후
+  `ctx.player.chargeShield(amount)` 를 부른다. 카테고리가 `stim` 이라 퀵슬롯 · 손에 든 모습 · `q.kind` 분기는
+  전부 그대로다. 같이: `unique/Bazooka.ts` 의 자폭 피해가 `BAZOOKA_SELF_DAMAGE / (1 - damageReduction)` →
+  **`BAZOOKA_SELF_DAMAGE` 그대로** (방탄복이 피해를 깎지 않으므로 되돌릴 감쇄가 없다 — 대신 실드가 맞아 준다).
 
 - **2026-09-10 (보조무기 제거)** — `WEAPON_SLOTS` 가 `['primary','primary2']` 둘뿐이다. `WeaponSystem` 의
   1 · 2 키만 칸을 가리키고 **`Keys.SECONDARY`(3)는 아무도 읽지 않는다** (바인딩 · `Keys.SECONDARY` 상수는 계약이라

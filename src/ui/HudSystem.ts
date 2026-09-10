@@ -32,14 +32,13 @@ import { ChargeGauge } from './hud/ChargeGauge';
 import { TargetingHud } from './hud/TargetingHud';
 import { OffscreenIndicators } from './hud/OffscreenIndicators';
 import { ImplantWidget } from './hud/ImplantWidget';
-import { ImplantChip } from './hud/ImplantChip';
 import { QuickStrip } from './hud/QuickStrip';
 import { Detection } from './hud/Detection';
 import { ScanReveal } from './hud/ScanReveal';
 import { ScanTracker } from './hud/ScanTracker';
 import { CutsceneWatch } from './hud/CutsceneWatch';
 import { HubDot } from './hud/HubDot';
-import { ShellMarkers } from './hud/ShellMarkers';
+import { DangerIndicators } from './hud/DangerIndicators';
 import { Deployables } from './hud/Deployables';
 import { ProgressToasts } from './hud/ProgressToasts';
 import { ActionFeedback } from './hud/ActionFeedback';
@@ -79,7 +78,10 @@ import type { RewardsBlock } from './menus/RewardsBlock';
  * Phase 2 additions in the gameplay layer: `QuickWheel` (F held) and `CookGauge` (grenade in hand).
  * Phase 3 (ship calls): `StratagemWheel` (G held), `StratagemPanel` (armed call / shared cooldown), `ChargeGauge` (LMB charge
  * ring), `TargetingHud` (toggles `.hud.targeting` on the gameplay root, which hides the reticle) and `OffscreenIndicators`
- * (edge arrows for grenades / squad pings / incoming calls).
+ * (edge arrows for squad pings / 로그 강하 — 2026-09-10: 수류탄과 낙하물은 `DangerIndicators` 로 옮겼다).
+ * 2026-09-10 (위험 인디케이터): `DangerIndicators` 가 `ShellMarkers` 를 대신해 곡사포탄 · 수류탄 · 함선 호출
+ * 낙하물을 하나의 언어로 그리고 (화면 안 = 머리 인디케이터, 화면 밖 = 크로스헤어 둘레의 방향 호), 전술 임플란트
+ * 표시는 `ImplantWidget` 하나로 합쳐져 **화면 중앙 하단 · 스태미나 바 아래**로 내려갔다 (`ImplantChip` 삭제).
  * Phase 6: `WeaponChargeGauge` (unique-weapon charge / spin-up / slash arc) and `StatusMarkers` (🔥 전소 / ⚡ world markers)
  * in the gameplay layer; `CheatTag` (`MOVE CHEAT`) and `RoomLabel` (`방 n · 용도`) in the social layer; the `.hud.housing`
  * layer (2026-09-09: `HousingHint` is gone — hub/HousingMode emits `ui:keyGuide` and the `KeyGuide` draws it).
@@ -132,8 +134,11 @@ export class HudSystem implements GameSystem {
   private hold!: HoldGauge;
   /** 2026-09-09: 함선 내 점 크로스헤어 — the social layer's centre dot for the hub phases. */
   private hubDot!: HubDot;
-  /** 포탄 HUD 마커 (2026-09-09): artillery shells inside the 인지력 radius. */
-  private shells!: ShellMarkers;
+  /**
+   * 위험 인디케이터 (2026-09-10): 곡사포탄 · 수류탄 · 함선 호출 낙하물을 화면 안이면 머리 인디케이터,
+   * 밖이면 크로스헤어 둘레의 방향 호로. 2026-09-09 의 `hud/ShellMarkers` 를 흡수했다.
+   */
+  private danger!: DangerIndicators;
   private swheel!: StratagemWheel;
   /** 2026-09-09: H 홀드 의사소통 휠 — 이 휠만 입력까지 스스로 본다 (소유 시스템 폴더가 없다). */
   private comms!: CommsWheel;
@@ -154,10 +159,9 @@ export class HudSystem implements GameSystem {
   private scope!: ScopeOverlay;
   private deploy!: DeployOverlay;
   private map!: MapScreen;
-  /* tactical kit */
+  /* tactical kit — 2026-09-10: the implant readout is one bottom-centre thumbnail (the 임플란트 칩 is gone with it) */
   private implantWidget!: ImplantWidget;
-  /* Phase 9 UI pass: right-hand column above the weapon panel — 임플란트 썸네일 over the 빠른 사용 썸네일 strip */
-  private implantChip!: ImplantChip;
+  /* Phase 9 UI pass: right-hand column above the weapon panel — 빠른 사용 썸네일 strip */
   private quickStrip!: QuickStrip;
   private detection!: Detection;
   private scanReveal!: ScanReveal;
@@ -216,7 +220,7 @@ export class HudSystem implements GameSystem {
     this.markers = new WorldMarkers(this.hudRoot);
     this.pings = new Pings(this.hudRoot);
     this.offscreen = new OffscreenIndicators(this.hudRoot);
-    this.shells = new ShellMarkers(this.hudRoot);
+    this.danger = new DangerIndicators(this.hudRoot);
     this.reticle = new Reticle(this.hudRoot);
     this.cook = new CookGauge(this.hudRoot);
     this.reload = new ReloadGauge(this.hudRoot);
@@ -233,14 +237,15 @@ export class HudSystem implements GameSystem {
     this.hazard = new HazardHud(this.hudRoot, this.overlayRoot);
     this.vitals = new Vitals(this.hudRoot);
     this.weapon = new WeaponPanel(this.hudRoot);
-    // Both strips live **inside** the weapon panel so they stack on top of its slot strip and inherit its
-    // right-bottom anchor, its fade and the `.hud.spectating` rule. `prepend` puts them above `.wslots`.
-    this.implantChip = new ImplantChip(this.weapon.root);
+    // The strip lives **inside** the weapon panel so it stacks on top of its slot strip and inherits its
+    // right-bottom anchor, its fade and the `.hud.spectating` rule. `prepend` puts it above `.wslots`.
+    // (2026-09-10: the 임플란트 칩 that used to sit above it is gone — `ImplantWidget` is the one implant
+    //  readout now, at the bottom centre under the stamina bar.)
     this.quickStrip = new QuickStrip(this.weapon.root);
     // The ship-call readout joins the same column (it used to be absolutely positioned at `bottom: 176px`, which the
     // two new strips now occupy) — `.strat-panel.off` is `display:none`, so it costs no height while idle.
     this.strat = new StratagemPanel(this.weapon.root);
-    this.weapon.root.prepend(this.strat.root, this.implantChip.root, this.quickStrip.root);
+    this.weapon.root.prepend(this.strat.root, this.quickStrip.root);
     this.compass = new Compass(this.hudRoot, this.scanTracker);
     this.objective = new Objective(this.hudRoot);
     this.contractPanel = new ContractPanel(this.hudRoot);
@@ -312,11 +317,11 @@ export class HudSystem implements GameSystem {
     this.death = new DeathScreen(ctx.uiRoot);
     this.complete = new MissionComplete(ctx.uiRoot);
 
-    for (const c of [this.reticle, this.cook, this.wheel, this.swheel, this.strat, this.charge, this.targeting, this.offscreen, this.shells, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.typing, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.chat, this.map]) c.bind(ctx);
+    for (const c of [this.reticle, this.cook, this.wheel, this.swheel, this.strat, this.charge, this.targeting, this.offscreen, this.danger, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.typing, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.chat, this.map]) c.bind(ctx);
     // the shared trackers first: the components they feed read them from their own bind / first update
     this.scanTracker.bind(ctx);
     this.cutscene.bind(ctx);
-    for (const c of [this.implantWidget, this.implantChip, this.quickStrip, this.detection, this.scanReveal, this.deployables, this.progressToasts, this.actionFx]) c.bind(ctx);
+    for (const c of [this.implantWidget, this.quickStrip, this.detection, this.scanReveal, this.deployables, this.progressToasts, this.actionFx]) c.bind(ctx);
     for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.roomLabel, this.shipManage, this.shipHint, this.itemTip, this.keyGuide]) c.bind(ctx);
     for (const c of [this.reload, this.heal, this.hold, this.gameCursor]) c.bind(ctx);
     for (const c of [this.contractPanel, this.trainingPanel, this.metaToasts]) c.bind(ctx);
@@ -419,7 +424,7 @@ export class HudSystem implements GameSystem {
       this.markers.lateUpdate(ctx);
       this.pings.lateUpdate(ctx);
       this.offscreen.lateUpdate(ctx);
-      this.shells.lateUpdate(dt, ctx);
+      this.danger.lateUpdate(dt, ctx);
       this.statusMarkers.lateUpdate(ctx);
     }
     if (this.socialVisible) { this.nameplates.lateUpdate(ctx); this.typing.lateUpdate(ctx); }
@@ -455,8 +460,18 @@ export class HudSystem implements GameSystem {
   get isKeybindsOpen(): boolean { return this.keybinds.isOpen; }
   /** Edge arrows currently visible (debug). */
   get offscreenCount(): number { return this.offscreen.visibleCount; }
-  /** Live 포탄 markers + edge arrows (debug / smoke). */
-  get shellMarkerCount(): number { return this.shells.visibleCount; }
+  /** 위험 인디케이터 (2026-09-10): 화면 안 머리 + 화면 밖 방향 호 / 추적 중인 위험물 (debug / smoke). */
+  get dangerIndicatorCount(): number { return this.danger.visibleCount; }
+  get dangerTrackedCount(): number { return this.danger.trackedCount; }
+  /** 예전 이름 (2026-09-09 의 포탄 마커) — 위험 인디케이터가 흡수했다. */
+  get shellMarkerCount(): number { return this.danger.visibleCount; }
+  /** 임플란트 썸네일 (2026-09-10, 중앙 하단): 무엇을 · 어떤 유형으로 · 얼마나 차 있나 (debug / smoke). */
+  get implantHudId(): string | null { return this.implantWidget.shownId; }
+  get implantHudKind(): string { return this.implantWidget.displayKind; }
+  get implantHudFill(): number { return this.implantWidget.fillAmount; }
+  get isImplantHudDimmed(): boolean { return this.implantWidget.isDimmed; }
+  /** 크로스헤어 좌측 갈고리 칩: 'off' | 'dim' | 'ready' (debug / smoke). */
+  get grappleChip(): 'off' | 'dim' | 'ready' { return this.reticle.grappleChip; }
   /** Unique-weapon charge gauge kind while showing, else null (debug). */
   get weaponChargeKind(): 'charge' | 'spinup' | 'slash' | null { return this.wcharge.activeKind; }
   /** Live 전소 / 감전 world markers (debug). */
@@ -603,8 +618,8 @@ export class HudSystem implements GameSystem {
 
   dispose(): void {
     for (const u of this.unsubs) u();
-    for (const c of [this.reticle, this.cook, this.wheel, this.swheel, this.strat, this.charge, this.targeting, this.offscreen, this.shells, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.typing, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.chat, this.deploy, this.map]) c.dispose();
-    for (const c of [this.implantWidget, this.implantChip, this.quickStrip, this.detection, this.scanReveal, this.deployables, this.progressToasts, this.actionFx]) c.dispose();
+    for (const c of [this.reticle, this.cook, this.wheel, this.swheel, this.strat, this.charge, this.targeting, this.offscreen, this.danger, this.vitals, this.weapon, this.compass, this.markers, this.nameplates, this.typing, this.pings, this.squad, this.objective, this.prompt, this.notifs, this.damage, this.scope, this.spectate, this.chat, this.deploy, this.map]) c.dispose();
+    for (const c of [this.implantWidget, this.quickStrip, this.detection, this.scanReveal, this.deployables, this.progressToasts, this.actionFx]) c.dispose();
     this.scanTracker.dispose();
     this.cutscene.dispose();
     for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.roomLabel, this.shipManage, this.shipHint, this.itemTip, this.keyGuide]) c.dispose();

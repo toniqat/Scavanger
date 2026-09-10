@@ -18,7 +18,7 @@
 | `parts/StashOps.ts` | **함선 창고를 함께 보는 연산.** 가방 하나만 보는 연산(`countDef` 등)은 클래스에 남아 있고, 여기 있는 것은 전부 **가방 + 창고**를 하나의 보관 공간으로 취급한다: 재료 집계 · 소모, 로드아웃 프리셋 저장/적용, 창고로 이동, 어디든 넣기, 공간 확인. 창고는 함선에서만 존재하므로 레이드 중에는 이 함수들이 가방만 본다. |
 | `parts/Crafting.ts` | **제작 · 분해 · 작업대.** 필드 제작(`제작` 열)과 함선 작업대(`openBenchCraft`)는 같은 규칙을 쓰고 재료 출처만 다르다: 레이드에서는 가방만, 함선에서는 가방 + 함선 창고(`countDefAll` / `consumeDefAll`). 분해(`break_*`)는 제작 목록이 아니라 아이템 우클릭에서 열리며 진행 게이지를 `inventory:disassembleProgress` 로 흘린다. |
 | `parts/Durability.ts` | **내구도 · 수리 · 소켓.** 무기와 방어구가 닳고(`damageDurability`), 재료로 고쳐지고(`repair` / `repairWeapon`), 부착물이 붙고 떨어지는(`attachToWeapon` / `detachAllSockets`) 경로. 회복 스프레이의 게이지 충전도 여기 있다 (`sprayRepairCost` — 남은 게이지 비율만큼만 재료를 받는다). |
-| `parts/LaunchCheck.ts` | **출격 준비 점검** (2026-09-08). `getLaunchWarnings()` 의 규칙 — 주무기 없음 · 장착 무기 구경별 탄약이 한 세트(`AMMO_STACK_ROUNDS`, 중량탄 25발) 미만 · 가방 없음 · 방탄복 없음 · 전술 임플란트 없음 · 가방에 회복 아이템(`category: 'stim'`) 없음. 읽기만 하고 아무것도 막지 않는다 — 결과를 그리는 건 `hub/ui/LaunchWarnPanel`. |
+| `parts/LaunchCheck.ts` | **출격 준비 점검** (2026-09-08). `getLaunchWarnings()` 의 규칙 — 주무기 없음 · 장착 무기 구경별 탄약이 한 세트(`AMMO_STACK_ROUNDS`, 중량탄 25발) 미만 · 가방 없음 · 방탄복 없음 · 전술 임플란트 없음 · 가방에 회복 아이템(`category: 'stim'`, **2026-09-10 부터 실드 충전기는 제외** — 체력을 채우지 않는다) 없음. 읽기만 하고 아무것도 막지 않는다 — 결과를 그리는 건 `hub/ui/LaunchWarnPanel`. |
 | `parts/ContainerNet.ts` | **컨테이너 획득의 호스트 권한 경로 (Phase 7).** 싱글 플레이에서 상자에서 아이템을 집으면 즉시 반영되지만, 멀티에서는 호스트가 심판이다: 클라이언트는 `contq take` 를 보내고 `cont taken` / `cont denied` 를 기다린다 (`OpResult` 의 `'pending'`). 이 파일이 그 대기열(`pendingTakes`) · 타임아웃 · 호스트 측 검증 · 다른 대원의 획득 반영을 전부 갖는다. |
 | `parts/ProfileDocs.ts` | **서버 프로필 문서 · 레이드 세션 상태.** 창고(`stash`)와 로드아웃(`loadout`)을 릴레이의 프로필 저장소에 올리고 내려받는 경로, 그리고 레이드 도중 끊긴 플레이어가 복귀할 때 쓰는 `captureRaidState` / `applyRaidState` 가 여기 있다. 오프라인 편집이 서버의 빈 문서에 지워지지 않게 하는 규칙(`fresh` 저장)도 이 파일의 책임이다. |
 | `parts/CorpseLoot.ts` | **죽으면 들고 있던 것이 전부 시체로 간다** (2026-09-09). `stripForCorpse()` 가 장비 슬롯 · 가방 격자 · 퀵슬롯을 하나의 목록으로 뽑고 로컬 인벤토리를 **빈손**으로 만든다 (무기의 내구도 · 장전 탄약 · 소켓은 `ItemInstance` 채로 넘어가므로 보존된다). `openContainerItemsSized()` 는 `openContainerItems` 와 같지만 격자 크기를 지정한다 (`PLAYER_CORPSE_COLS × PLAYER_CORPSE_ROWS`). `hookCorpseWire()` 는 `pcorpse` 를 구독해 시체 컨테이너를 **열지 않고 미리 만들어 둔다** — 호스트는 자기가 한 번도 열어 본 적 없는 시체의 `contq take` 도 심판해야 하기 때문이다. 가져가기 자체는 상자와 똑같이 기존 `cont` / `contq` 경로다. |
@@ -645,6 +645,14 @@ Data-driven off the frozen contract (`ItemCategory 'implant'`, `ItemDef.implant`
 ---
 
 ## 변경 이력
+
+- **2026-09-10 (방탄복 = 실드)** — 방탄복 툴팁의 **`피해 감소 x %` 줄이 `실드 +N` 으로** 바뀌었다
+  (`ui/Tooltip.ts`, `ArmorDef.shield`; `TEXT.armorStats.shield` 신규 — `dr` 은 안 쓰지만 남겼다).
+  같은 카드에 **실드 충전기**(`shieldChargeOf(def.id)`, `@/items`) 의 `실드 회복 +20` / `최대치까지` ·
+  `사용 시간 2 s` 두 줄이 붙었다 (`TEXT.shieldChargeStats`). `parts/LaunchCheck` 의 "회복 아이템 없음" 은
+  실드 충전기를 세지 않는다 — 같은 `category: 'stim'` 이지만 체력을 채우지 않기 때문이다.
+  격자 크기 · 장비 칸 · 내구도 · 수리 · `stripForCorpse` 는 **한 줄도 바뀌지 않았다** (방탄복은 여전히
+  내구도가 닳고 함선 작업대에서 수리한다 — 이제 실드가 먹은 피해만큼 닳는다).
 
 - **2026-09-10 (상자 ↔ 퀵슬롯 · 보조무기 칸 제거)** —
   ① **상자에서 곧장 퀵슬롯으로, 퀵슬롯에서 곧장 상자로.** 예전에는 휠에 올릴 수 있는 출처가 **가방 격자뿐**이었고

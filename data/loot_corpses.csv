@@ -59,12 +59,19 @@ behemoth,seed_bloodroot,1,1,0.04
 behemoth,seed_ashleaf,1,1,0.02
 behemoth,seed_glowcap,1,1,0.006
 
-# rogue
+# rogue — 실드 충전기는 로그가 붕대와 함께 들고 다니는 완제품이고, 구동 코어는 그 장비에서 뜯어낸 잡템이다 (2026-09-10)
 rogue,heal_bandage,1,1,0.3
+rogue,shield_charger,1,1,0.26
+rogue,shield_charger_hi,1,1,0.06
 rogue,grenade_frag,1,1,0.2
 rogue,mat_machine_parts,1,1,0.12
+rogue,mat_core,1,2,0.3
 
 # rogue_boss
 rogue_boss,heal_bandage,1,2,1
+rogue_boss,shield_charger,1,2,0.7
+rogue_boss,shield_charger_hi,1,1,0.3
+rogue_boss,shield_charger_full,1,1,0.08
 rogue_boss,mat_machine_parts,1,2,0.6
+rogue_boss,mat_core,1,3,0.8
 

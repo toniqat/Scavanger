@@ -1158,3 +1158,51 @@ export const SPORE_SOURCE_INTERVAL_S = K.num('SPORE_SOURCE_INTERVAL_S');
 export const SPORE_RADIUS_MAX = K.num('SPORE_RADIUS_MAX');
 /** 발생지 반경이 자라는 속도(m/s). */
 export const SPORE_GROWTH_MPS = K.num('SPORE_GROWTH_MPS');
+
+/* ══ 발소리 (2026-09-10) ══════════════════════════════════════════════════════════════════════════════
+ * 로컬 플레이어 본인의 발소리는 **감쇠 대상이 아니다** — 늘 같은 크기로 들린다. 원격 분대원만
+ * `(1 - d / FOOTSTEP_AUDIBLE_RANGE) ^ FOOTSTEP_FALLOFF_EXP` 로 줄어들고 사거리 밖이면 재생조차 하지 않는다.
+ */
+/** 원격 분대원 발소리가 들리는 최대 거리(m). */
+export const FOOTSTEP_AUDIBLE_RANGE = K.num('FOOTSTEP_AUDIBLE_RANGE');
+/** 거리 감쇠 곡선의 지수 — 크게 할수록 가까이서만 들린다. */
+export const FOOTSTEP_FALLOFF_EXP = K.num('FOOTSTEP_FALLOFF_EXP');
+/** 원격 발소리에 곱하는 기본 배수 (거리 감쇠를 먹기 전). */
+export const FOOTSTEP_REMOTE_GAIN = K.num('FOOTSTEP_REMOTE_GAIN');
+/** 달리기 발소리 크기. */
+export const FOOTSTEP_VOL_SPRINT = K.num('FOOTSTEP_VOL_SPRINT');
+/** 걷기 발소리 크기. */
+export const FOOTSTEP_VOL_WALK = K.num('FOOTSTEP_VOL_WALK');
+/** 웅크림 발소리 크기. */
+export const FOOTSTEP_VOL_CROUCH = K.num('FOOTSTEP_VOL_CROUCH');
+/** 엎드림(기어가기) 발소리 크기. */
+export const FOOTSTEP_VOL_PRONE = K.num('FOOTSTEP_VOL_PRONE');
+/** 한 사람의 발소리 사이 최소 간격(초) — 스냅샷이 튀어도 연발되지 않는다. */
+export const FOOTSTEP_MIN_INTERVAL_S = K.num('FOOTSTEP_MIN_INTERVAL_S');
+
+/* ── appended: 적이 벽에 대고 쏘지 않게 (2026-09-10) ────────────────────────── */
+/**
+ * 원거리 적이 사격할 때 총구와 장애물 사이에 두어야 하는 최소 거리(m).
+ * 사선 검사(`enemies/ai/FireLine`)는 총구에서 이만큼 **뒤로** 물러난 지점에서 레이를 쏜다 —
+ * 총구가 벽 안에 박혀 있으면 벽 안쪽에서 밖으로 쏘게 되어 "뚫렸다" 로 읽히기 때문이다.
+ */
+export const ENEMY_WALL_STANDOFF = K.num('ENEMY_WALL_STANDOFF');
+/** 총구 → 표적 사선 검사 주기(초). 적별로 결과를 캐시한다(핫 패스). */
+export const ENEMY_FIRE_LOS_S = K.num('ENEMY_FIRE_LOS_S');
+/** 사선이 막힌 원거리 적이 한 번에 옆으로 비켜서는 시간(초). */
+export const ENEMY_FIRE_STRAFE_S = K.num('ENEMY_FIRE_STRAFE_S');
+
+/* == 방탄복 = 실드 (2026-09-10) ====================================================================
+ * 방탄복은 피해를 깎지 않고 **실드(추가 체력)** 를 준다. 실드량 자체는 `data/armor.csv` 의 `shield`
+ * (번호 방탄복은 `tables.csv` 의 `ARMOR_SHIELD_BY_TIER`)이고, 여기 있는 것은 HUD 게이지의 눈금뿐이다.
+ */
+/** 좌하단 체력 · 실드 게이지 한 칸이 나타내는 양 (체력 100 = 5칸, 방탄복 V 실드 100 = 5칸). */
+export const ARMOR_SHIELD_PER_SEGMENT = K.num('ARMOR_SHIELD_PER_SEGMENT');
+
+/* ══ 위험 인디케이터 (2026-09-10) ══════════════════════════════════════════════════════════════════════
+ * `ui/hud/DangerIndicators` 가 곡사포탄 · 수류탄 · 함선 호출 낙하물을 하나의 언어로 그린다. 포탄에만 걸려 있던
+ * 인지력 반경(`derived.enemyDetectRadius`) 게이트는 그대로 두되, **착탄 지점이 이 거리 안이면 인지력과 무관하게**
+ * 보여 준다 — 인디케이터의 목적이 "날아오는 줄도 모르는 것" 을 알리는 것이기 때문이다.
+ */
+/** 인지력 반경 밖이라도 무조건 경고하는 착탄 거리(m). */
+export const DANGER_NEAR_RADIUS = K.num('DANGER_NEAR_RADIUS');

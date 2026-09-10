@@ -9,6 +9,7 @@ import {
   BEHEMOTH_KNOCKBACK, BURNOUT_DURATION, CORPSE_LAND_TIMEOUT, CORPSE_LIFETIME, ENEMY_DEATH_DIRS, ENEMY_SHOT_ALERT_DIST, ENEMY_SHOT_IMPACT_DIST, ENEMY_STATUS_BITS, FLAME_AFTERBURN_DPS, FLAME_AFTERBURN_DURATION, GADGET_LURE_RADIUS, MAP_SIZE,
   NET_ENEMY_SNAPSHOT_HZ, PLAYER_HEIGHT, PLAYER_RADIUS, ROGUE_DAMAGE, ROGUE_GRENADE_DAMAGE, ROGUE_GRENADE_FUSE, ROGUE_GRENADE_RADIUS, ROGUE_MAG_ROUNDS, ROGUE_RANGE,
   SHELL_BLAST_RADIUS, SHELL_DAMAGE, SHELL_FLIGHT_TIME, SHELL_LEAD_MAX, SHOCK_SLOW_DURATION, SHOCK_SLOW_FACTOR, TOXIC_DAMAGE, TOXIC_RADIUS, getPlanet,
+  shellLaunchVelocity, shellPositionAt,
   type DamageMessage, type EnemyDeathDir, type EnemyEvent, type EnemyFaction, type EnemyHit, type EnemyManagerRef, type EnemyRef, type EnemySnapshot, type EnemyStatusKind, type EnemyType, type GameContext, type GameSystem,
   type HitRequest, type InterceptableRef, type PeerId, type PlanetEcosystem, type ShotReport, type Vec3Tuple, type WorldRef,
 } from '@/shared';
@@ -35,7 +36,7 @@ import { animHint, encodeSnapshot, round, SnapshotCache, tuple } from '../net/Ho
 import { CorpseManager, rollCorpseLootable, type CorpseWireOpts } from '../Corpses';
 import { placeRogueGuards, type RogueSpawnHost } from '../RogueGuards';
 import { raySphere, rayCapsule, rayStandingCapsule } from '../RayTests';
-import { BARRIER_BUMP_INTERVAL, BARRIER_RETARGET_S, BURN_TICK, CLASH_RADIUS, CLASH_THROTTLE, CORPSE_SLACK, EMBER_INTERVAL, FLEE_DURATION, GRENADE_KNOCKBACK, GRENADE_LOB_SPEED, GRENADE_NOISE, GUNFIRE_LURE_DURATION, GUNFIRE_LURE_WEIGHT, INCAP_EMBER_INTERVAL, MAX_REQUEST_DAMAGE, MAX_REQUEST_RADIUS, MAX_SHOT_RANGE, MAX_STATUS_DURATION, PROMOTE_ID_GAP, PROMOTE_SEQ_GAP, RECYCLE_DISTANCE, SHIELD_CONTACT_Y, SHOCK_SPARK_TIME, SHOT_CHECK_INTERVAL, SPARK_INTERVAL, STATUS_REQUEST_INTERVAL, SUSPICION_RADIUS, SUSPICION_REFRESH, _aim, _c, _dir, _eye, _hc, _hd, _hp, _kb, _lead, _m, _sd, _sh, _so, _to, _v, _v2, _zero, deathDirIndex, isVec3Tuple, killedBuf, queryBuf } from '../model';
+import { BARRIER_BUMP_INTERVAL, BARRIER_RETARGET_S, BURN_TICK, CLASH_RADIUS, CLASH_THROTTLE, CORPSE_SLACK, EMBER_INTERVAL, FLEE_DURATION, GRENADE_KNOCKBACK, GRENADE_LOB_SPEED, GRENADE_NOISE, GUNFIRE_LURE_DURATION, GUNFIRE_LURE_WEIGHT, INCAP_EMBER_INTERVAL, MAX_REQUEST_DAMAGE, MAX_REQUEST_RADIUS, MAX_SHOT_RANGE, MAX_STATUS_DURATION, PROMOTE_ID_GAP, PROMOTE_SEQ_GAP, RECYCLE_DISTANCE, SHELL_ARC_CHECK_FRAC, SHELL_ARC_SAMPLES, SHIELD_CONTACT_Y, SHOCK_SPARK_TIME, SHOT_CHECK_INTERVAL, SPARK_INTERVAL, STATUS_REQUEST_INTERVAL, SUSPICION_RADIUS, SUSPICION_REFRESH, _aim, _arcA, _arcD, _arcP, _arcV, _c, _dir, _eye, _hc, _hd, _hp, _kb, _lead, _m, _sd, _sh, _so, _to, _v, _v2, _zero, deathDirIndex, isVec3Tuple, killedBuf, queryBuf } from '../model';
 import type { EnemySystem } from '../EnemySystem';
 
 /** Spit at an explicit point (smoke return fire / deployables) — the glob still hurts whoever it lands on. */
@@ -195,16 +196,43 @@ export function shotFx(sys: EnemySystem, from: THREE.Vector3, to: THREE.Vector3,
   }
 
 /**
+ * 발사 전 궤적 검사 (2026-09-10). `SHELL_ARC_GRAVITY` 를 낮춰 정점이 48.7 m → 9.9 m 가 된 뒤로 포탄이 언덕 ·
+ * 나무 · 폐허 벽에 걸린다. 걸리면 그 자리에서 터지는 것 자체는 맞는 동작이지만(`fx/ShellProjectile.update`),
+ * 그게 **제 발치**면 포병은 6~9초마다 자살하는 셈이라 발사가 무의미해진다. 그래서 쏘기 전에 궤적의 앞쪽
+ * `SHELL_ARC_CHECK_FRAC` 를 `SHELL_ARC_SAMPLES` 개의 현으로 훑는다.
+ *
+ * - 현은 포물선 **아래**를 지나므로 검사는 보수적이다 — "뚫렸는데 막혔다고 본다" 는 있어도 그 반대는 없다.
+ * - 마지막 하강 구간은 일부러 보지 않는다: 조준점이 땅이라 무조건 걸리고, 표적 앞 벽에 맞는 것은 막을 이유가 없다.
+ * - 발사 시점(포 하나가 6~9초에 한 번)에만 도는 4회 레이캐스트라 핫 패스가 아니다.
+ */
+export function shellArcBlocked(world: WorldRef, from: THREE.Vector3, target: THREE.Vector3, flight: number): boolean {
+  shellLaunchVelocity(from, target, flight, _arcV);
+  _arcA.copy(from);
+  for (let i = 1; i <= SHELL_ARC_SAMPLES; i++) {
+    shellPositionAt(from, _arcV, (i / SHELL_ARC_SAMPLES) * SHELL_ARC_CHECK_FRAC * flight, _arcP);
+    _arcD.subVectors(_arcP, _arcA);
+    const len = _arcD.length();
+    if (len > 1e-4) {
+      _arcD.multiplyScalar(1 / len);
+      if (world.raycast(_arcA, _arcD, len) !== null) return true;
+    }
+    _arcA.copy(_arcP);
+  }
+  return false;
+}
+
+/**
  * Artillery: shell `sid` toward the target's predicted position, landing after SHELL_FLIGHT_TIME.
  * The lead is half the flight time of the target's current velocity, **clamped to `SHELL_LEAD_MAX`** (2026-09-09): with a
  * 6.3 s flight a sprinting player would otherwise be led by ~19 m — a shell that lands where you are *going* is not
  * dodgeable, one that lands a few metres ahead of where you *are* is.
+ *
+ * Returns false when nothing was fired (pool full, or `shellArcBlocked`) — the AI relocates instead.
  */
-export function fireShell(sys: EnemySystem, e: Enemy, target: CombatTarget): void {
+export function fireShell(sys: EnemySystem, e: Enemy, target: CombatTarget): boolean {
   const ctx = sys.ctx;
   const world = ctx.world;
-  if (!world || !sys.shells) return;
-  const sid = sys.nextShellId++;
+  if (!world || !sys.shells) return false;
   _lead.copy(target.velocity).multiplyScalar(SHELL_FLIGHT_TIME * 0.5);
   _lead.y = 0;
   const leadLen = _lead.length();
@@ -213,12 +241,15 @@ export function fireShell(sys: EnemySystem, e: Enemy, target: CombatTarget): voi
   _aim.x += (Math.random() - 0.5) * 3; _aim.z += (Math.random() - 0.5) * 3;
   _aim.y = world.getHeightAt(_aim.x, _aim.z);
   _m.set(e.position.x, e.position.y + e.stats.height * 0.95, e.position.z);
-  if (!sys.shells.fire(sid, _m, _aim, SHELL_FLIGHT_TIME)) return;
+  if (shellArcBlocked(world, _m, _aim, SHELL_FLIGHT_TIME)) return false;
+  const sid = sys.nextShellId++;
+  if (!sys.shells.fire(sid, _m, _aim, SHELL_FLIGHT_TIME)) return false;
   sys.playAudio('bug_attack', e.position, 1, 0.45);
   const fx = FxManager.get();
   if (fx) { ParticleBurst.smoke(fx.alpha, _m, 10, 1.0, 0x3a3532); fx.flashes.flash(_m, 0xffa060, 0, 1.4, 0.08); }
   ctx.bus.emit('enemy:shellFired', { sid, from: _m.clone(), target: _aim.clone(), flightTime: SHELL_FLIGHT_TIME });
   if (sys.hosting) ctx.net!.send({ t: 'ee', ev: 'shell', sid, from: tuple(_m, 2), target: tuple(_aim, 2), flight: SHELL_FLIGHT_TIME }, 'others');
+  return true;
   }
 
 /* ── ShellHost ─────────────────────────────────────────────────────────── */

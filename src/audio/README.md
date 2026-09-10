@@ -70,6 +70,27 @@ Tactical-kit ids in detail:
 - `downed` — falling groan + two heartbeats; `revive` — warm four-note rising chord; `grit_save` — heartbeat + defiant rise; `cloak_on` / `cloak_off` — phasing shimmer down / up.
 - `gather` — leafy rustle + snap; `craft_start` — three workbench clicks; `craft_done` — clink + two-note confirm; `repair_done` — two clinks + rising confirm; `durability_break` — metal snap + rattle; `level_up` — five-note fanfare (1.3 s); `skill_up` — quiet two-note chime.
 
+## 발소리 — 로컬 · 원격 (2026-09-10)
+
+`player:footstep` (본인) 과 `remote:footstep {position, sprinting, peerId}` (원격 분대원, `player/RemotePlayerSystem`
+이 아바타의 보행 위상에서 낸다) 이 **한 경로**(`AudioSystem.footstep`)로 모여 같은 `footstep` 신디를 쓴다.
+
+| | 본인 | 원격 분대원 |
+|---|---|---|
+| 위치 | **주지 않는다** — 패너를 타지 않으므로 **늘 같은 크기** (감쇠 대상이 아니다) | 준다. 패너는 **방향만** (`play(..., panOnly)` → `distanceModel 'linear'`, `rolloffFactor 0`) |
+| 거리 | — | `d ≥ FOOTSTEP_AUDIBLE_RANGE` (26 m) 면 **재생조차 하지 않고**, 안쪽은 `(1 − d/range) ^ FOOTSTEP_FALLOFF_EXP` (1.6) 를 곱한다. 밑값 `× FOOTSTEP_REMOTE_GAIN` (1.7) |
+| 크기 | 자세별: `FOOTSTEP_VOL_SPRINT` 0.5 > `_WALK` 0.32 > `_CROUCH` 0.2 > `_PRONE` 0.12 | 같은 표 |
+| 자세 출처 | `ctx.player.stance` | `ctx.net.getRemotePlayer(peerId)?.stance` (이벤트 계약에는 자세가 없다 — 계약은 **추가만** 한다는 규칙대로 두고 `ctx` 로 질의한다). 모르면 걷기/달리기만 구분 |
+
+- **왜 패너의 감쇠를 끄나**: 기본 경로의 `distanceModel 'inverse'` 를 그대로 두면 우리 곡선과 **두 번** 곱해져
+  20 m 짜리 발소리가 사실상 무음이 된다. `panOnly` 는 "감쇠는 호출부가 이미 계산했다" 는 뜻이다.
+- **함선 안에서도 들린다.** 페이즈로 막지 않으므로 개인 · 공유 함선에서 걸어 다니는 분대원의 발소리가 그대로
+  난다. 갑판은 금속이라 톤만 조금 높다 (`FOOTSTEP_PITCH_DECK` 1.16 — 피치는 "소리 그 자체"라 코드에 둔다).
+- 사거리 밖은 아예 보이스를 만들지 않고, `FOOTSTEP_MIN_VOLUME` (0.012) 밑도 버린다. 그 위로는 기존
+  `RATE_MAX_SAME` (같은 id 8회/100 ms) 가 상한이다 — 4인 분대가 전부 달려도 초당 ~10회라 걸리지 않는다.
+- 예전 `play()` 의 **160 m 하드 컷**에서 `footstep` 은 빠졌다 (`bug_step` · `hit_terrain` 만 남았다) —
+  발소리는 그보다 훨씬 짧은 자기 사거리를 갖는다.
+
 ## Ship hub (phases `hub` / `docking`)
 The hub is **not gameplay**: while `hubActive` (set on `hub:entered`, cleared on `hub:left` / `game:newMission`) or the phase is
 `hub`/`docking`, the planet wind target is 0, the extraction engine hum is muted, the tension pulse is 0, and `enemy:waveStarted` is ignored
@@ -85,7 +106,7 @@ holds, and falls with the ramp-down. The speed is forgotten `WARP_HUM_HOLD_S` (0
 The one-shots at the ends of a trip (`hub_dock_thrusters` / `hub_dock_clamp`) are sent by `hub/` itself.
 
 ## Auto-hooked events → id
-`player:damaged`→player_hurt · `player:died`→player_death · `player:footstep`→footstep · `player:stimUsed`→stim ·
+`player:damaged`→player_hurt · `player:died`→player_death · `player:footstep` / `remote:footstep`→footstep (see *발소리* below) · `player:stimUsed`→stim ·
 `player:landed`→hellpod_impact · `player:dived`→roll (Phase 7: the legacy `dive` one-shot no longer doubles it) · `player:staminaDepleted`→stamina_depleted · `player:stanceChanged`→stance_change (pitch by stance) ·
 `player:aimChanged`→scope_in|scope_out **only** while the last `weapon:scopeChanged.scope` was `true` (the flag is tracked, no sound on `weapon:scopeChanged` itself; reset on `game:newMission`) ·
 `weapon:reloadStarted/Finished`→reload_start/end · `weapon:dryFire`→dry_fire ·
@@ -123,6 +144,14 @@ Appended (tactical kit):
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-10 (PC · 원격 분대원 발소리)** — `remote:footstep` 을 받아 재생한다. 로컬 · 원격이 `footstep()`
+  한 경로로 합쳐지고 **거리 감쇠는 원격에만** 걸린다 (`FOOTSTEP_AUDIBLE_RANGE` 밖은 재생하지 않음,
+  안쪽은 `(1−d/range)^FOOTSTEP_FALLOFF_EXP`). 본인 발소리는 위치를 주지 않아 **패너를 타지 않고** 늘 같은
+  크기다. `play()` 에 `panOnly` 인자가 붙었다 — 패너를 방향 전용(`linear` · `rolloffFactor 0`)으로 만들어
+  inverse 감쇠가 우리 곡선과 겹치는 것을 막는다. 자세별 크기(달리기 > 걷기 > 웅크림 > 엎드림)는
+  `data/constants.csv` 의 `FOOTSTEP_VOL_*` 이고, 자세는 이벤트가 아니라 `ctx.player` / `ctx.net` 에서 읽는다.
+  위 *발소리* 절 참고.
 
 - **2026-09-09 (창문 워프)** — `amb.warp` 드라이브 험 신설: `hub:warpProgress.speed` 를 따라 게인 · 필터 · 피치 · 노이즈가
   함께 오르고 내린다 (`WARP_HUM_HOLD_S` 0.3초 안에 진행 이벤트가 없으면 스스로 꺼진다 — 중단된 워프 대비). 원샷은 그대로

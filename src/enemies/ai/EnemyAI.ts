@@ -5,6 +5,7 @@ import { BEHEMOTH_AI, CHARGER_CHARGE, HUNTER_LEAP, SPEWER_SPIT } from '../EnemyT
 import type { CombatTarget } from '../Targets';
 import { avoidObstacles, seek, separate, turnToward, yawTo } from './Steering';
 import { acquireTarget, updatePerception } from './Perception';
+import { fireLineStrafe, hasFireLine } from './FireLine';
 import { attackResult, lookAtTarget, startMelee, stumble, type AttackResult } from './Common';
 import { updateRogue } from './RogueAI';
 import { attackBehemoth, attackToxic, chaseArtillery, chaseBehemoth, chaseToxic } from './GimmickAI';
@@ -283,9 +284,15 @@ function chase(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget): number {
         e.moveTarget.set(e.position.x + dx / d * 4, 0, e.position.z + dz / d * 4);
         e.facePoint.copy(tp); e.hasFacePoint = true;
         speed = s.speed * 0.7;
-        if (e.hasLOS && e.attackCd <= 0 && d >= SPEWER_SPIT.minDist) startSpit(e);
+        // 2026-09-10: 입(= 산탄이 나가는 곳) 사선이 막혔으면 침을 뱉지 않는다. 후퇴 중이라 자리는 어차피 바뀐다.
+        if (e.hasLOS && e.attackCd <= 0 && d >= SPEWER_SPIT.minDist && hasFireLine(e, host, t)) startSpit(e);
       } else if (d <= SPEWER_SPIT.maxDist && e.hasLOS) {
-        if (e.attackCd <= 0) startSpit(e);
+        /*
+         * 2026-09-10: 눈에는 보여도 **입 사선**이 막혔으면(벽 · 바위에 붙어 있다) 쏘지 않고 옆으로 비켜선다.
+         * 제자리에 서서 벽에 침을 뱉던 그림이 이 가지였다 — 여기서만 `hasMoveTarget = false` 로 굳었기 때문.
+         */
+        if (!hasFireLine(e, host, t)) { fireLineStrafe(e, host, t, dt); speed = s.speed * 0.8; }
+        else if (e.attackCd <= 0) startSpit(e);
         else { e.hasMoveTarget = false; e.facePoint.copy(tp); e.hasFacePoint = true; }
       }
       break;

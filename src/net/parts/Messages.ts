@@ -237,7 +237,7 @@ export function handleRelay(sys: NetSystem, from: PeerId, d: GameMessage): void 
       else if (d.ev === 'sync') { if (Array.isArray(d.ghosts)) for (const g of d.ghosts) if (isGhostWire(g)) sys.applyGhost(g); }
       else if (d.ev === 'restore') {
         if (isGhostWire(d.g) && d.g.id === sys.localId) {
-          bus.emit('net:ghostRestore', { state: { position: vec(d.g.p), yaw: d.g.yaw, hp: d.g.hp, downHp: d.g.dhp, state: d.g.st } });
+          bus.emit('net:ghostRestore', { state: { position: vec(d.g.p), yaw: d.g.yaw, hp: d.g.hp, downHp: d.g.dhp, state: d.g.st, shield: d.g.sh } });
         }
       } else if (d.ev === 'gone') {
         if (typeof d.id === 'string') sys.remotes.get(d.id)?.clearGhost();

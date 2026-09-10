@@ -14,12 +14,14 @@ import {
   benchKindOf,
 } from '@/shared';
 import {
+  autoPlaceSpot,
   bookGainMulFor, bookWeightOf, canPlaceAt, craftCostMulFor, facilityBlockReason, facilityLevel, facilityMaxLevel, facilityName,
   facilityPurposeOf, purposeBuildBlockReason, purposeBuildCost, roomRefundCost,
   furnitureAllowedIn, furnitureUpgradeReason, isRoomIndex, isRoomPurpose, layerOf, missingIngredients, nextFacilityCost, nextFreeLayer,
   nextFurnitureCost, presetCountFor, recoverBlockReason, skillGainMulFor, stackLimitOf, stackMembers,
   stashSizeFor,
 } from '../Rules';
+import type { FurniturePlacement } from '../Rules';
 import { ShipStore, freshRoom, isBookshelfDefId, isGrowRackDefId, loadState, maxUidIndex, sanitize, writeState } from '../ShipState';
 import { PresetMenu } from '../ui/PresetMenu';
 import { GrowMenu } from '../ui/GrowMenu';
@@ -161,6 +163,17 @@ export function getStored(sys: HousingSystem): readonly StoredFurniture[] { retu
 export function canPlace(sys: HousingSystem, room: number, defId: string, x: number, y: number, yaw: 0 | 1 | 2 | 3, ignoreUid?: string): boolean {
   const def = FURNITURE_DEF_MAP.get(defId);
   return !!def && canPlaceAt(sys.state, room, def, x, y, yaw, ignoreUid);
+  }
+
+/**
+ * 자동 배치가 고를 자리 (2026-09-10). 규칙 · 근거는 `Rules.autoPlaceSpot` 의 주석에 전부 있다 — 화면 좌측
+ * 상단부터 가로줄을 먼저 채우고, 가구는 화면 아래(월드 +X, yaw 1)를 향한다. `null` = 이 방에 자리가 없다.
+ * 손으로 놓는 경로(하우징 모드의 고스트 · `move`)는 이 함수를 거치지 않으므로 사용자가 돌린 회전은 그대로다.
+ */
+export function findFreeSpot(sys: HousingSystem, room: number, defId: string): FurniturePlacement | null {
+  const def = FURNITURE_DEF_MAP.get(defId);
+  if (!def) return null;
+  return autoPlaceSpot(sys.state, room, def);
   }
 
 export function place(sys: HousingSystem, room: number, defId: string, x: number, y: number, yaw: 0 | 1 | 2 | 3): PlacedFurniture | null {

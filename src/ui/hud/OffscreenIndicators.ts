@@ -1,8 +1,7 @@
 import * as THREE from 'three';
-import type { GameContext, PeerId, PingKind, StratagemId } from '@/shared';
+import type { GameContext, PeerId, PingKind } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 import { PING_COLOR, PING_LABEL } from './Pings';
-import { STRATAGEM_COLOR, STRATAGEM_GLYPH, stratagemDef } from './stratagemGlyphs';
 
 const MAX_ARROWS = 12;
 /** Viewport margin (fraction) inside which a target counts as on-screen (no arrow). */
@@ -11,7 +10,7 @@ const MARGIN = 0.06;
 const EDGE_PAD = 44;
 const PING_FADE = 1.5;
 
-type Cat = 'grenade' | 'ping' | 'call' | 'drop';
+type Cat = 'ping' | 'drop';
 
 interface Target {
   cat: Cat;
@@ -27,7 +26,6 @@ interface Target {
 
 /** `owner` null = the local player's own ping (v3: own pings get arrows too); `until` = the ping's own expiry. */
 interface PingEntry { id: number; pos: THREE.Vector3; kind: PingKind; until: number; owner: PeerId | null }
-interface CallEntry { id: string; pos: THREE.Vector3; kind: StratagemId; landsAt: number; landed: boolean }
 
 interface Arrow { root: HTMLElement; ico: HTMLElement; lbl: HTMLElement; lastKey: string; sub: string }
 
@@ -40,16 +38,16 @@ const PING_ICON: Record<PingKind, string> = {
 function cssColor(n: number): string { return `#${n.toString(16).padStart(6, '0')}`; }
 
 /**
- * Off-screen indicators (`.offscr`, gameplay layer): pooled edge arrows (`.oarrow.grenade/.ping/.call`, max 12) for
+ * Off-screen indicators (`.offscr`, gameplay layer): pooled edge arrows (`.oarrow.ping/.drop`, max 12) for
  * things the player should know about but cannot see:
- *   (a) live grenades from `ctx.weapons.getGrenades()` (● amber, label = fuse `n.ns`; brightens as the fuse runs out),
+ *   (a) **2026-09-10 — 여기 없다.** 수류탄 · 함선 호출 낙하물은 위험 인디케이터(`hud/DangerIndicators`)로 옮겼다:
+ *       날아오는 위험물은 화면 안이면 머리 인디케이터 · 밖이면 크로스헤어 둘레의 방향 호라는 **하나의 언어**로
+ *       그린다. 같은 목표를 두 위젯이 그리지 않도록 이 파일에서 두 갈래를 통째로 걷어냈다,
  *   (b) pings — own **and** squadmates' (`ping:placedV2`, any `owner`; 2026-09-09 pings v3) — kept for the ping's
  *       **whole lifetime** (`until = expires` from the event; the shared `OFFSCREEN_PING_SECONDS` stays exported as a
  *       contract constant but is no longer read here), dropped on `ping:removed`; icon/colour by kind, `이름`-less kind
  *       label; fades over the last 1.5 s. The arrow only shows while the ping is off-screen — on screen the marker does,
- *   (c) ship calls (`stratagem:called` → until `stratagem:landed` for airstrike / supply / structure, until
- *       `stratagem:ended` for the laser; glyph + colour by kind, label `n초` until landing, then the call name),
- *   (d) **로그 강하** (2026-09-09, `.oarrow.drop(.boss)`): `ctx.enemies.getRogueDrops()` polled every `lateUpdate` —
+ *   (c) **로그 강하** (2026-09-09, `.oarrow.drop(.boss)`): `ctx.enemies.getRogueDrops()` polled every `lateUpdate` —
  *       a drop is a live target from its 예고 to its landing, so the manager's own list beats a cached event; ⬇ in
  *       amber (red with a 로그 분대장), label `n초` until touchdown, then `로그 n` / `로그 분대장`. The toast + alarm
  *       that go with it live in `hud/RaidAlerts`.
@@ -67,7 +65,6 @@ export class OffscreenIndicators {
   readonly root: HTMLElement;
   private arrows: Arrow[] = [];
   private pings: PingEntry[] = [];
-  private calls: CallEntry[] = [];
   private targets: Target[] = [];
   private v = new THREE.Vector3();
   private unsubs: Array<() => void> = [];
@@ -94,22 +91,13 @@ export class OffscreenIndicators {
         this.pings.push({ id, pos: position, kind, until: expires, owner });
       }),
       b.on('ping:removed', ({ id }) => { this.pings = this.pings.filter((p) => p.id !== id); }),
-      b.on('stratagem:called', ({ callId, kind, position, landsAt }) => {
-        this.calls = this.calls.filter((c) => c.id !== callId);
-        this.calls.push({ id: callId, pos: position, kind, landsAt, landed: false });
-      }),
-      b.on('stratagem:landed', ({ callId, kind }) => {
-        if (kind === 'orbital_laser') { const c = this.calls.find((x) => x.id === callId); if (c) c.landed = true; }
-        else this.calls = this.calls.filter((c) => c.id !== callId);
-      }),
-      b.on('stratagem:ended', ({ callId }) => { this.calls = this.calls.filter((c) => c.id !== callId); }),
       b.on('game:newMission', () => this.clear()),
       b.on('game:abort', () => this.clear()),
     );
   }
 
   private clear(): void {
-    this.pings.length = 0; this.calls.length = 0;
+    this.pings.length = 0;
     for (const a of this.arrows) this.hide(a);
   }
 
@@ -117,14 +105,7 @@ export class OffscreenIndicators {
     const t = ctx.time;
     const out = this.targets;
     out.length = 0;
-    // (a) grenades
-    const grenades = ctx.weapons?.getGrenades?.();
-    if (grenades) {
-      for (const g of grenades) {
-        const hot = g.fuse < 1;
-        out.push({ cat: 'grenade', pos: g.position, icon: '●', color: hot ? '#ff4d4d' : '#ffb347', label: `${Math.max(0, g.fuse).toFixed(1)}s`, alpha: 1, sub: hot ? 'hot' : '' });
-      }
-    }
+    // (a) 수류탄 · 함선 호출은 2026-09-10 부터 `hud/DangerIndicators` 가 그린다 (중복 금지).
     // (b) squad pings
     if (this.pings.length) {
       this.pings = this.pings.filter((p) => p.until > t);
@@ -134,7 +115,7 @@ export class OffscreenIndicators {
         out.push({ cat: 'ping', pos: p.pos, icon: PING_ICON[p.kind] ?? '◆', color: cssColor(PING_COLOR[p.kind] ?? 0x7fb7e6), label: PING_LABEL[p.kind] ?? '핑', alpha, sub: p.kind });
       }
     }
-    // (d) 로그 강하 (2026-09-09): 예고 → 착지까지 살아 있는 목표라 이벤트 목록이 아니라 매니저에게 직접 묻는다.
+    // (c) 로그 강하 (2026-09-09): 예고 → 착지까지 살아 있는 목표라 이벤트 목록이 아니라 매니저에게 직접 묻는다.
     //     `getRogueDrops()` 는 계약(`EnemyManagerRef`)이고 enemies/ 가 아직 구현하지 않았으면 빈 배열이다.
     const drops = ctx.enemies?.getRogueDrops?.();
     if (drops) {
@@ -143,13 +124,6 @@ export class OffscreenIndicators {
         const label = eta > 0 ? `${Math.ceil(eta)}초` : d.boss ? '로그 분대장' : `로그 ${d.count}`;
         out.push({ cat: 'drop', pos: d.position, icon: '⬇', color: d.boss ? '#ff4d4d' : '#ff8a3d', label, alpha: 1, sub: d.boss ? 'boss' : '' });
       }
-    }
-    // (c) ship calls
-    for (const c of this.calls) {
-      const def = stratagemDef(c.kind);
-      const eta = c.landsAt - t;
-      const label = !c.landed && eta > 0 ? `${Math.ceil(eta)}초` : (def?.name ?? '');
-      out.push({ cat: 'call', pos: c.pos, icon: STRATAGEM_GLYPH[c.kind], color: STRATAGEM_COLOR[c.kind], label, alpha: 1, sub: c.kind });
     }
     if (out.length > MAX_ARROWS) {
       const p = ctx.player?.position;

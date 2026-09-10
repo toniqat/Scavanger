@@ -152,7 +152,10 @@ export const TEXT = {
   bookStats: { skill: '스킬', use: '용도', shelf: '서재 책장에 꽂으면 해당 스킬 XP 증가' },
   /* appended: tactical kit */
   weight: '무게',
-  armorStats: { dr: '피해 감소', durability: '내구도', perk: '특성' },
+  /* 2026-09-10: 방탄복은 피해 감소가 아니라 실드(추가 체력)를 준다 — `dr` 은 안 쓰지만 남겨 둔다 */
+  armorStats: { dr: '피해 감소', shield: '실드', durability: '내구도', perk: '특성' },
+  /* 2026-09-10: 실드 충전기 (`shieldChargeOf`) */
+  shieldChargeStats: { amount: '실드 회복', useTime: '사용 시간', full: '최대치까지' },
   craft: '제작',
   craftPanel: '필드 제작',
   craftNone: '지금 만들 수 있는 레시피가 없습니다',

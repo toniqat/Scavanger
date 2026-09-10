@@ -57,7 +57,14 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
 
   // health
   hp = PLAYER_MAX_HP;
-  readonly maxHp = PLAYER_MAX_HP;
+  /**
+   * 2026-09-10 — 체력 최대치는 더 이상 상수에 못 박혀 있지 않다. 기본은 `PLAYER_MAX_HP`(100)이고 여기에
+   * **다른 효과가 얹은 보너스**를 더한다. 지금은 보너스를 주는 출처가 하나도 없어 결과는 그대로 100 이지만,
+   * `player:healthChanged.maxHp` 를 읽는 HUD 가 늘 정확하도록 계산을 한 군데로 모아 뒀다.
+   * (실드는 이것과 완전히 별개의 풀이다 — `shield` / `maxShield` 참고.)
+   */
+  bonusMaxHp = 0;
+  get maxHp(): number { return Math.max(1, PLAYER_MAX_HP + this.bonusMaxHp); }
   isDead = false;
   deadTimer = 0;
   invuln = 0;
@@ -234,14 +241,107 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   get isCloaked(): boolean { return this._cloaked; }
   get isHovering(): boolean { return this._hovering; }
   get isOvercharged(): boolean { return this._overcharged; }
+  /**
+   * **항상 0 이다 (2026-09-10).** 방탄복은 피해를 깎지 않고 실드(추가 체력)를 준다 — 아래 `shield` 를 본다.
+   * `PlayerRef.damageReduction` 은 `airstrike` · `secondary` 와 같은 처리로 **계약이라 남겨 뒀을 뿐**이고
+   * 피해 계산(`parts/Vitals.applyDamage`)에서는 완전히 빠졌다.
+   */
   get damageReduction(): number { return this.gear.damageReduction; }
 
-  /* ── 실드 (2026-09-10) — 자리만 잡은 스텁. 실제 풀 · 피해 순서 · 충전은 실드 작업이 채운다. ── */
-  get shield(): number { return 0; }
-  get maxShield(): number { return 0; }
-  get shieldRarity(): Rarity | null { return null; }
-  get shieldTier(): number { return 0; }
-  chargeShield(_amount: number): boolean { return false; }
+  /* ── 실드 (2026-09-10) ─────────────────────────────────────────────────────
+   * 방탄복이 주는 **추가 체력 풀**. 피해는 실드를 먼저 비우고 남은 만큼만 `hp` 로 간다. 스스로 재생하지
+   * 않고 '실드 충전기' 소모품과 함선(허브) 복귀로만 찬다. 실드가 먹은 피해만큼 판의 내구도가 닳고
+   * (`wearGear`), 내구도 0 = 파손 = 최대치 0 이다 (충전기로도 못 채운다 — 함선 작업대에서 수리한다).
+   * 변화는 전부 `player:shieldChanged` 로 나간다 (좌하단 게이지가 그것만 읽는다).
+   */
+  _shield = 0;
+  /**
+   * 2026-09-10: 재접속 복귀(`restoreState`)가 돌려줄 실드. `Infinity` = 방탄복 최대치(옛 세이브 · 옛 호스트가
+   * 실드를 안 보냈을 때). `syncShield` 가 **방탄복을 실제로 읽은 뒤**(`gear.shieldMax > 0`) 한 번만 적용한다 —
+   * 복귀 프레임에는 `PlayerGear` 가 아직 인벤토리를 다시 읽기 전이라 최대치가 0 이고, 그때 바로 넣으면
+   * 돌아온 사람만 조용히 실드를 잃는다.
+   */
+  pendingShield: number | null = null;
+  /** 마지막으로 발행한 값 (같은 값을 두 번 보내지 않는다). */
+  private shieldSent = -1;
+  private shieldMaxSent = -1;
+
+  get shield(): number { return this._shield; }
+  get maxShield(): number { return this.gear.shieldMax; }
+  get shieldRarity(): Rarity | null { return this.gear.shieldRarity; }
+  get shieldTier(): number { return this.gear.shieldTier; }
+
+  /**
+   * 실드 충전기: `amount` 만큼 채운다 (`Infinity` = 가득). 방탄복이 없거나 파손이거나 이미 가득이면
+   * **아무것도 하지 않고 false** — 호출자(weapons 의 퀵 사용)가 아이템을 소모하기 전에 이걸로 먼저 묻는다.
+   */
+  chargeShield(amount: number): boolean {
+    if (!this.spawned || this.isDead || this._downed) return false;
+    const max = this.maxShield;
+    if (max <= 0 || !(amount > 0) || this._shield >= max) return false;
+    const before = this._shield;
+    this._shield = Math.min(max, this._shield + amount);
+    const delta = this._shield - before;
+    if (delta <= 0) return false;
+    this.emitShield(delta);
+    this.ctx.bus.emit('audio:play', { id: 'stim', volume: 0.7, pitch: 1.25 });
+    return true;
+  }
+
+  /**
+   * 들어온 피해를 실드가 먼저 받는다. **실드가 실제로 먹은 양**을 돌려주고, 남은 것은 호출자가 체력으로 넘긴다
+   * (`parts/Vitals.applyDamage`). 0 을 돌려줘도 이벤트는 나가지 않는다.
+   */
+  absorbShield(amount: number): number {
+    if (!(amount > 0) || this._shield <= 0) return 0;
+    const took = Math.min(this._shield, amount);
+    this._shield -= took;
+    this.emitShield(-took);
+    return took;
+  }
+
+  /**
+   * 방탄복이 바뀌었나 · 함선인가를 매 프레임 확인하고 필요하면 실드를 다시 세운다. `gear.update` 바로 뒤에서 돈다.
+   *
+   * - **함선(허브)에서는 늘 가득**이다 — 장착 · 교체 · 수리를 하면 그 자리에서 최대치로 찬다. 출격하면 그 상태로 나간다.
+   * - **레이드 중에 방탄복을 갈아 끼워도 채워 주지 않는다** (가진 실드를 새 최대치로 자르기만 한다) — 여벌 방탄복이
+   *   공짜 충전기가 되면 충전기가 의미를 잃기 때문이다. 레이드에서 실드를 채우는 길은 충전기뿐이다.
+   * - 방탄복을 벗거나 파손되면 최대치가 0 이라 실드도 0 이 된다.
+   */
+  syncShield(): void {
+    const max = this.gear.shieldMax;
+    const before = this.shieldSent < 0 ? 0 : this.shieldSent;
+    // 함선에서는 늘 가득; 그 밖에서는 새 최대치로 자르기만 한다 (레이드 중 교체는 채워 주지 않는다)
+    this._shield = max <= 0 ? 0 : this.ctx.isHubPhase() ? max : Math.min(this._shield, max);
+    // 재접속 복귀분은 방탄복을 실제로 읽은 첫 프레임에 한 번만 들어간다 (허브에서는 이미 가득이라 무의미).
+    if (this.pendingShield !== null && max > 0) {
+      const want = this.pendingShield;
+      this.pendingShield = null;
+      this._shield = Math.max(0, Math.min(max, Number.isFinite(want) ? Math.round(want) : max));
+    }
+    if (this._shield !== this.shieldSent || max !== this.shieldMaxSent) this.emitShield(this._shield - before);
+  }
+
+  /** 전투불능 · 사망: 실드를 통째로 비운다 (`parts/Vitals`). 이미 0 이면 아무것도 하지 않는다. */
+  clearShield(): void {
+    if (this._shield <= 0) return;
+    const delta = -this._shield;
+    this._shield = 0;
+    this.emitShield(delta);
+  }
+
+  /** `player:shieldChanged` 한 곳. `delta` 는 이번 변화량(감소는 음수). */
+  emitShield(delta: number): void {
+    const max = this.maxShield;
+    this._shield = Math.max(0, Math.min(max, this._shield));
+    this.shieldSent = this._shield;
+    this.shieldMaxSent = max;
+    this.ctx?.bus.emit('player:shieldChanged', {
+      shield: this._shield, maxShield: max, delta,
+      rarity: this.gear.shieldRarity, tier: this.gear.shieldTier,
+    });
+  }
+
   get isBurning(): boolean { return this._burning; }
 
   /**
@@ -373,11 +473,12 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
 
   /**
    * Single damage path. `dot` (burning) skips the invulnerability window, the shake / audio and the 인내 (grit)
-   * save. Armor reduces the amount and wears down (tactical kit); a roll counts as a partial i-frame.
+   * save. **실드가 먼저 피해를 먹고** 남은 만큼만 체력으로 간다 (2026-09-10 — 방탄복은 피해를 깎지 않는다);
+   * 실드가 먹은 만큼 판이 닳는다. A roll counts as a partial i-frame.
    */
   applyDamage(amount: number, from: THREE.Vector3 | undefined, dot: boolean): void { return Vitals.applyDamage(this, amount, from, dot); }
 
-  /** Armor eats `absorbed` damage and wears down accordingly (inventory owns the durability). */
+  /** 실드가 먹은 `absorbed` 만큼 방탄복이 닳는다 (내구도는 inventory 소유; 0 이 되면 파손 = 실드 최대치 0). */
   wearGear(absorbed: number): void {
     const inv = this.ctx.inventory;
     if (!inv || absorbed <= 0 || !this.gear.armorUid) return;
@@ -579,6 +680,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
 
     // ── gear cache (armor / bag / weight) + derived stat hooks (tactical kit)
     this.gear.update(dt, ctx);
+    // 2026-09-10: 방탄복이 바뀌었나 · 함선인가를 보고 실드를 다시 세운다 (장착 · 해제 · 교체 · 파손 · 수리 · 함선 복귀)
+    this.syncShield();
     this.applyGearModifiers();
     // Phase 7: the worn 방탄복 shows on the body (same look remotes get from `ar`); overcharge = rim glow
     this.model.setArmor(this.gear.armor);

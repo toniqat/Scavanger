@@ -1,11 +1,13 @@
 import * as THREE from 'three';
 import {
+  FOOTSTEP_MIN_INTERVAL_S,
   GHOST_BLEED_PER_SEC, NET_GHOST_PARK_S, NET_GHOST_STATE_HZ, PLAYER_CARRY_OFFSET, PLAYER_DOWN_HP, PLAYER_MAX_HP,
   PLAYER_REVIVE_HOLD, PLAYER_REVIVE_HP, PLAYER_REVIVE_RANGE, PlayerFlags,
   type GameContext, type GameSystem, type GhostState, type GhostWire, type ImplantId, type Interactable, type PeerId,
   type RemotePlayerRef, type Stance,
 } from '@/shared';
 import { RemoteAvatar } from './RemoteAvatar';
+import { STRIDE_MIN_SPEED } from './PlayerController';
 import type { CarryHost, CarryStatus, CarryTarget } from './Carry';
 /* appended (2026-09-09): 아군의 강하 포드 */
 import { RemotePods } from './RemotePods';
@@ -20,6 +22,15 @@ const REVIVE_DONE_SUPPRESS = 1.5;
 /** Horizontal metres a ghost is shoved per unit of knockback speed (no physics for a ghost; capped). */
 const GHOST_KB_SCALE = 0.12;
 const GHOST_KB_MAX = 2.0;
+
+/**
+ * 2026-09-10 — 원격 발소리. 로컬이 `PlayerController` 의 보행 위상에서 `player:footstep` 을 내는 것과 **같은
+ * 기준**을 스냅샷 쪽에서 다시 적용한다: 접지 + 수평 속도 `STRIDE_MIN_SPEED` 초과 + 구르는 중이 아님,
+ * 그리고 `stridePhase` 가 π 경계를 넘을 때 한 걸음. 거리는 여기서 재지 않는다 — 감쇠는 `audio/` 의 몫이다.
+ */
+interface StepState { idx: number; t: number }
+/** 발소리를 내지 않는 플래그 묶음 — 공중 · 구르기 · 강하 중 · 포드 안. */
+const STEP_MUTE_FLAGS = PlayerFlags.AIRBORNE | PlayerFlags.DIVE | PlayerFlags.DROPPING | PlayerFlags.IN_POD;
 
 /**
  * Fully writable RemotePlayerRef for console smoke tests (`debugSpawn`). `isCloaked` / `isDowned` are getters
@@ -73,6 +84,8 @@ export interface Ghost {
   yaw: number;
   hp: number;
   downHp: number;
+  /** 2026-09-10: 실드 — 피해는 이것부터 비운다 (살아 있는 몸과 같은 순서). 방탄복이 없으면 0. */
+  shield: number;
   state: GhostState;
   /** ctx.time of the last `ghost state` broadcast. */
   lastSent: number;
@@ -133,6 +146,8 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
   private myCarrier: PeerId | null = null;
   /** 2026-09-09: 아군의 강하 포드 (`pod drop`). 미션 시작 · 구조선 둘 다 여기로 들어온다. */
   private pods: RemotePods | null = null;
+  /** 2026-09-10: 원격 발소리 — peer 별 마지막 걸음 인덱스와 시각 (`remote:footstep`). */
+  private readonly steps = new Map<PeerId, StepState>();
 
   init(ctx: GameContext): void {
     this.ctx = ctx;
@@ -316,7 +331,36 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
     const av = this.ensure(ref);
     av.seenFrame = this.frame;
     av.update(dt, ctx);
+    this.emitFootstep(ref, av, ctx);
     this.syncRevive(ref, ctx);
+  }
+
+  /**
+   * 2026-09-10 — **원격 분대원의 발소리** (`remote:footstep`). `av.update` 뒤에 부르므로 `av.isShown` 이
+   * 이번 프레임의 값이다: 강하 중 · 포드 안 · 다른 함선 · 시체로 대체된 몸은 그대로 조용하다.
+   * 거리는 재지 않는다 — "멀 수록 작게" 는 `audio/AudioSystem` 이 `FOOTSTEP_AUDIBLE_RANGE` 로 건다.
+   * 핫 패스라 프레임당 할당이 없다: peer 별 `StepState` 는 한 번만 만들고 `ref.position` 을 그대로 넘긴다
+   * (로컬이 `c.position` 을 그대로 넘기는 것과 같다 — 받는 쪽이 동기적으로 읽는다).
+   */
+  private emitFootstep(ref: RemotePlayerRef, av: RemoteAvatar, ctx: GameContext): void {
+    const idx = Math.floor(ref.stridePhase / Math.PI);
+    let st = this.steps.get(ref.id);
+    if (st === undefined) { st = { idx, t: -Infinity }; this.steps.set(ref.id, st); }
+    if (idx === st.idx) return;
+    st.idx = idx;
+    // 보이지 않는 몸 · 죽은 몸 · 스냅샷이 끊긴 몸(정지한 위상이 한 번 튄다)은 소리를 내지 않는다
+    if (!av.isShown || ref.isDead || ref.suspended || ref.stale) return;
+    if ((ref.flags & STEP_MUTE_FLAGS) !== 0) return;
+    // 로컬의 `speed > STRIDE_MIN_SPEED` 게이트와 같은 기준 — 제자리에서 위상이 중립으로 되감길 때는 조용하다
+    const v = ref.velocity;
+    if (Math.hypot(v.x, v.z) <= STRIDE_MIN_SPEED) return;
+    if (ctx.time - st.t < FOOTSTEP_MIN_INTERVAL_S) return;
+    st.t = ctx.time;
+    ctx.bus.emit('remote:footstep', {
+      position: ref.position,
+      sprinting: (ref.flags & PlayerFlags.SPRINT) !== 0,
+      peerId: ref.id,
+    });
   }
 
   private ensure(ref: RemotePlayerRef): RemoteAvatar {
@@ -334,6 +378,7 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
 
   private remove(id: PeerId): void {
     this.unregisterRevive(id);
+    this.steps.delete(id);
     const av = this.avatars.get(id);
     if (!av) return;
     // Phase 10: never take a carried body down with the carrier's avatar (`dispose` detaches the whole subtree)
@@ -356,6 +401,7 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
   private clearAll(): void {
     for (const id of [...this.revives.keys()]) this.unregisterRevive(id);
     this.reviveSuppress.clear();
+    this.steps.clear();
     if (this.myCarrier !== null) { this.myCarrier = null; this.ctx.player?.setCarriedBy(null); }
     this.localCarried.clear();
     for (const av of this.avatars.values()) { this.evacuateShoulder(av); av.carried = false; av.dispose(); }
@@ -629,12 +675,13 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
   /** Build a ghost from the ref's last known body (or a remembered wire state when this host was promoted). */
   private createGhost(ref: RemotePlayerRef, wire: GhostWire | undefined, debug: boolean): Ghost {
     const g: Ghost = {
-      id: ref.id, position: new THREE.Vector3(), yaw: ref.yaw, hp: ref.hp, downHp: 0, state: 0,
+      id: ref.id, position: new THREE.Vector3(), yaw: ref.yaw, hp: ref.hp, downHp: 0, shield: 0, state: 0,
       lastSent: -Infinity, bleedAcc: 0, debug,
     };
     if (wire) {
       g.position.set(wire.p[0], wire.p[1], wire.p[2]);
       g.yaw = wire.yaw; g.hp = wire.hp; g.downHp = wire.dhp; g.state = wire.st;
+      g.shield = Math.max(0, Math.round(wire.sh ?? 0));
     } else {
       g.position.copy(ref.position);
       if (ref.isDead) { g.state = 2; g.hp = 0; g.downHp = 0; }
@@ -645,6 +692,9 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
         g.downHp = Math.max(1, Math.min(PLAYER_DOWN_HP, Math.round(Number.isFinite(dhp) ? (dhp as number) : PLAYER_DOWN_HP)));
       }
       else g.hp = Math.max(1, Math.min(PLAYER_MAX_HP, ref.hp));
+      /* 실드는 마지막 스냅샷(`PlayerSnapshot.sh`)에서 온다 — 방탄복이 없거나 아직 모르면 0. */
+      const sh = ref.shield;
+      if (g.state === 0 && Number.isFinite(sh)) g.shield = Math.max(0, Math.round(sh as number));
     }
     this.ghosts.set(ref.id, g);
     return g;
@@ -657,8 +707,11 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
     let changed = false;
     if (amount > 0) {
       if (g.state === 0) {
-        g.hp = Math.max(0, g.hp - amount);
-        if (g.hp <= 0) { g.state = 1; g.downHp = PLAYER_DOWN_HP; g.bleedAcc = 0; }
+        /* 살아 있는 몸과 같은 순서: 실드를 먼저 비우고 남은 만큼만 hp 로. */
+        const absorbed = Math.min(g.shield, amount);
+        g.shield -= absorbed;
+        g.hp = Math.max(0, g.hp - (amount - absorbed));
+        if (g.hp <= 0) { g.state = 1; g.downHp = PLAYER_DOWN_HP; g.shield = 0; g.bleedAcc = 0; }
         changed = true;
       } else {
         g.downHp = Math.max(0, g.downHp - amount);
@@ -822,5 +875,7 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
 }
 
 function toWire(g: Ghost): GhostWire {
-  return { id: g.id, p: [g.position.x, g.position.y, g.position.z], yaw: g.yaw, hp: g.hp, dhp: g.downHp, st: g.state };
+  const w: GhostWire = { id: g.id, p: [g.position.x, g.position.y, g.position.z], yaw: g.yaw, hp: g.hp, dhp: g.downHp, st: g.state };
+  if (g.shield > 0) w.sh = g.shield;   // 실드가 있을 때만 실어 보낸다 (`PlayerSnapshot.sh` 와 같은 규약)
+  return w;
 }

@@ -273,6 +273,12 @@ export class HousingSystem implements GameSystem, HousingRef {
 
   canPlace(room: number, defId: string, x: number, y: number, yaw: 0 | 1 | 2 | 3, ignoreUid?: string): boolean { return Furn.canPlace(this, room, defId, x, y, yaw, ignoreUid); }
 
+  /**
+   * 자동 배치가 고를 자리 (2026-09-10): 화면 좌측 상단부터 가로줄 먼저, 가구는 화면 아래를 향한다 (yaw 1).
+   * 근거와 좌표 유도는 `Rules.autoPlaceSpot`. `null` = 이 방에 자리가 없다.
+   */
+  findFreeSpot(room: number, defId: string): { x: number; y: number; yaw: 0 | 1 | 2 | 3 } | null { return Furn.findFreeSpot(this, room, defId); }
+
   place(room: number, defId: string, x: number, y: number, yaw: 0 | 1 | 2 | 3): PlacedFurniture | null { return Furn.place(this, room, defId, x, y, yaw); }
 
   move(uid: string, x: number, y: number, yaw: 0 | 1 | 2 | 3): boolean { return Furn.move(this, uid, x, y, yaw); }

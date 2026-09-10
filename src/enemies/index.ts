@@ -23,5 +23,6 @@ export { pickCover, coverBlocksLine, flankCost, COVER_SEARCH_RADIUS } from './ai
 export { LureField, type LureEntry } from './ai/Lures';
 export { refreshStructureTarget, biteStructure, STRUCT_DAMAGE_MUL } from './ai/Structures';
 export { hasLineOfSight, visionClarity, detectionRange, becomeAlert, acquireTarget, updatePerception } from './ai/Perception';
+export { fireOrigin, hasFireLine, fireLineStrafe } from './ai/FireLine';
 export { EnemyReplica, ReplicaBuffer, type ReplicaHost } from './net/Replica';
 export { encodeSnapshot, animHint } from './net/HostSync';

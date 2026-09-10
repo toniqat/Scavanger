@@ -1,6 +1,6 @@
 import type { CraftIngredient, FurnitureDef, FurnitureModelKind, GameContext, ItemDef, RoomPurpose } from '@/shared';
 import {
-  FACILITY_COLOR, FACILITY_GLYPH, Keys, renderItemCost, ROOM_GRID_COLS, ROOM_GRID_ROWS, ROOM_PURPOSES, ROOM_PURPOSES_ACTIVE,
+  FACILITY_COLOR, FACILITY_GLYPH, Keys, renderItemCost, ROOM_PURPOSES, ROOM_PURPOSES_ACTIVE,
   ROOM_PURPOSE_COLOR, ROOM_PURPOSE_GLYPH, ROOM_PURPOSE_LABEL_KO, SHIP_ROOM_COUNT,
 } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
@@ -24,7 +24,7 @@ interface Card {
 type FurnTab = 'craft' | 'store';
 
 /** A free grid cell + yaw the 배치 button would drop a stored piece on (2026-09-09). */
-interface FreeSpot { x: number; y: number; yaw: 0 | 1 }
+interface FreeSpot { x: number; y: number; yaw: 0 | 1 | 2 | 3 }
 
 /** Glyph per procedural furniture model (no asset files — the card thumbnail is a tinted frame + a character). */
 const MODEL_GLYPH: Readonly<Record<FurnitureModelKind, string>> = {
@@ -58,8 +58,8 @@ const ASSIGNABLE: readonly RoomPurpose[] = ROOM_PURPOSES.filter((p) => p !== 'em
  *           card only **selects** it (`.is-sel` highlight) — it no longer arms ghost placement (`selectFurniture` is
  *           not called from this tab). Each accepted card carries a **`배치` button** (`.fcard-place`, right side,
  *           the craft tab's `.fcard-craft` twin) that drops the piece **straight into the current room** on the
- *           first free cell: `findFreeSpot` scans `ROOM_GRID_ROWS × ROOM_GRID_COLS` top-left first (y outer, x inner)
- *           at yaw 0, then the whole grid again at yaw 1, through `HousingRef.canPlace`; a hit goes to
+ *           first free cell: `findFreeSpot` asks **`HousingRef.findFreeSpot`** (2026-09-10 — the scan order and the
+ *           rotation are housing/'s rule: 화면 좌측 상단부터 가로줄 먼저, 가구는 화면 아래를 향한다); a hit goes to
  *           `HousingRef.place` (storage qty decrements there, `housing:furniturePlaced` fires — the tutorial's
  *           `benchPlace` step completes on it). The button is **disabled when nothing fits** and the `.fcard-note`
  *           says why: `배치 가능` / `자리 없음` / `<용도> 전용`. The fit result is part of the store list's memo key
@@ -314,20 +314,13 @@ export class ShipManage {
   }
 
   /**
-   * First free cell for `defId` in `room` — rows top to bottom, columns left to right, yaw 0 over the whole grid
-   * first and yaw 1 only when nothing fits upright. Null when the room has no room (or the def is refused there).
+   * First free cell for `defId` in `room`. **2026-09-10: the rule moved to housing/** (`HousingRef.findFreeSpot` →
+   * `housing/Rules.autoPlaceSpot`) — 화면 좌측 상단부터 가로줄을 먼저 채우고 가구는 화면 아래를 향한다. This
+   * screen only asks for the answer; the coordinate derivation and its 근거 live next to the placement rules.
+   * Null when nothing fits (or the def is refused in that room).
    */
   private findFreeSpot(room: number, defId: string): FreeSpot | null {
-    const housing = this.ctx.housing;
-    if (!housing) return null;
-    for (const yaw of [0, 1] as const) {
-      for (let y = 0; y < ROOM_GRID_ROWS; y++) {
-        for (let x = 0; x < ROOM_GRID_COLS; x++) {
-          if (housing.canPlace(room, defId, x, y, yaw)) return { x, y, yaw };
-        }
-      }
-    }
-    return null;
+    return this.ctx.housing?.findFreeSpot(room, defId) ?? null;
   }
 
   /** The 배치 button: drop one stored piece on the first free cell of the current room (`findFreeSpot`). */

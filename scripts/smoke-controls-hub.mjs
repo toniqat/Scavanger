@@ -821,9 +821,10 @@ try {
   });
   ok(!!secondGun, `주무기 II 에 두 번째 총을 올렸다 (${secondGun})`);
   await startMission(42);
-  ok(await page.evaluate(() => !!document.querySelector('.implant-gauge') && !document.querySelector('.implant-gauge').hidden && document.querySelector('.implant-gauge').dataset.implant === 'atlauncher'), 'implant gauge shown for 대전차포');
-  const gaugePos = await page.evaluate(() => { const r = document.querySelector('.implant-gauge').getBoundingClientRect(); return { right: r.right, cx: innerWidth / 2, cy: innerHeight / 2, top: r.top, bottom: r.bottom }; });
-  ok(gaugePos.right < gaugePos.cx && gaugePos.top < gaugePos.cy && gaugePos.bottom > gaugePos.cy, 'gauge sits left of the crosshair, vertically centred');
+  /* 2026-09-10: 임플란트 표시는 크로스헤어 왼쪽의 `.implant-gauge` 가 아니라 **화면 중앙 하단**의 `.imp-hud` 다. */
+  ok(await page.evaluate(() => !!document.querySelector('.imp-hud') && !document.querySelector('.imp-hud').hidden && document.querySelector('.imp-hud').dataset.implant === 'atlauncher'), 'implant hud shown for 대전차포');
+  const gaugePos = await page.evaluate(() => { const r = document.querySelector('.imp-hud').getBoundingClientRect(); return { cx: r.left + r.width / 2, mid: innerWidth / 2, top: r.top, cy: innerHeight / 2 }; });
+  ok(Math.abs(gaugePos.cx - gaugePos.mid) < 40 && gaugePos.top > gaugePos.cy, 'implant hud sits bottom-centre (under the crosshair, below the stamina bar)', JSON.stringify(gaugePos));
   await tap('KeyQ');
   await waitSim(0.2);
   ok(await page.evaluate(() => window.__game.ctx.implants.wielded && window.__game.ctx.implants.blocksWeapons), 'Q wields the launcher (weapons holstered)');
@@ -843,11 +844,11 @@ try {
   await page.evaluate(() => window.__game.ctx.player.takeDamage(40));
   await keyDown('KeyQ');
   await waitSim(1.5);
-  const held = await page.evaluate(() => ({ holding: window.__game.ctx.implants.holding, e: window.__game.ctx.implants.energy, hp: window.__game.ctx.player.hp, wielded: window.__game.ctx.implants.wielded, gaugeHold: document.querySelector('.implant-gauge').classList.contains('holding') }));
+  const held = await page.evaluate(() => ({ holding: window.__game.ctx.implants.holding, e: window.__game.ctx.implants.energy, hp: window.__game.ctx.player.hp, wielded: window.__game.ctx.implants.wielded, gaugeHold: document.querySelector('.imp-hud').classList.contains('holding') }));
   ok(held.holding && !held.wielded, 'holding Q channels without holstering the gun');
   ok(held.e < e0.max - 1, `energy drained while held (${held.e.toFixed(2)})`);
   ok(held.hp > 60.5, `self heal ticked (hp 60 → ${held.hp.toFixed(1)})`);
-  ok(held.gaugeHold, 'gauge shows the holding state');
+  ok(held.gaugeHold, 'implant hud shows the holding state');
   await shot('09-gauge-overcharge');
   await keyUp('KeyQ');
   // the screenshot above took wall time while Q was still down; sample right after the release, then let it refill
@@ -861,12 +862,16 @@ try {
   await backToShip();
   await page.evaluate(() => window.__game.ctx.implants.setEquipped('dash'));
   await startMission(44);
-  const dash0 = await page.evaluate(() => ({ segs: [...document.querySelectorAll('.implant-gauge .seg')].filter((s) => !s.hidden).length, ready: document.querySelectorAll('.implant-gauge .seg.ready').length, read: document.querySelector('.implant-gauge .read').textContent }));
-  ok(dash0.segs === 3 && dash0.ready === 3, `dash gauge: 3 segments, all ready (${dash0.read})`);
+  /*
+   * 2026-09-10: 충전은 이제 칸(`.seg`) 셋이 아니라 **썸네일 안 우측 하단의 숫자**(`.ib-ch`) 하나다.
+   * 가득이면 평범하게(`accent` · `dim` 없음), 하나라도 쓰면 아래에서 강조색이 차오른다(`accent`).
+   */
+  const dash0 = await page.evaluate(() => { const h = document.querySelector('.imp-hud'); return { ch: h.querySelector('.ib-ch').textContent, accent: h.classList.contains('accent'), dim: h.classList.contains('dim'), charges: window.__game.ctx.implants.charges }; });
+  ok(dash0.ch === '3' && dash0.charges === 3 && !dash0.accent && !dash0.dim, `dash hud: 충전 3/3, 평범 표기 (${dash0.ch})`, JSON.stringify(dash0));
   await tap('KeyQ');
   await waitSim(0.6);
-  const dash1 = await page.evaluate(() => ({ ready: document.querySelectorAll('.implant-gauge .seg.ready').length, filling: document.querySelectorAll('.implant-gauge .seg.filling').length, charges: window.__game.ctx.implants.charges }));
-  ok(dash1.charges === 2 && dash1.ready === 2 && dash1.filling === 1, `after a dash: 2 ready, 1 refilling (charges ${dash1.charges})`);
+  const dash1 = await page.evaluate(() => { const h = document.querySelector('.imp-hud'); return { ch: h.querySelector('.ib-ch').textContent, accent: h.classList.contains('accent'), dim: h.classList.contains('dim'), charges: window.__game.ctx.implants.charges }; });
+  ok(dash1.charges === 2 && dash1.ch === '2' && dash1.accent && !dash1.dim, `after a dash: 충전 2, 강조색이 차오름 (charges ${dash1.charges})`, JSON.stringify(dash1));
   await shot('10-gauge-dash');
 
   /* ── 8. grapple: instant Q, target bracket ────────────────────────── */

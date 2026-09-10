@@ -1,17 +1,16 @@
 import type { GameContext, ItemInstance } from '@/shared';
-import { QUICK_SLOTS, QUICK_SLOT_DIRS, buildItemChip, isQuickSlotActive } from '@/shared';
-import { el, toggleClass } from '../dom';
+import { Keys, QUICK_SLOTS, QUICK_SLOT_DIRS, buildItemChip, isQuickSlotActive, keyLabel } from '@/shared';
+import { el, setText, toggleClass } from '../dom';
+import '../styles/raidHud.css';
 
-/** Arrow glyph per wheel direction (`QUICK_SLOT_DIRS` order), so a tile reads as its wheel sector at a glance. */
-const DIR_GLYPH: readonly string[] = ['↑', '↗', '→', '↘', '↓', '↙', '←', '↖'];
-
-/** Thumbnail edge in px (twice the 30 px the multi-cell strip used). */
-const THUMB = 60;
+/** Thumbnail edge in px (2026-09-10: 60 → 90, 1.5배). */
+const THUMB = 90;
 
 interface Cell {
   root: HTMLElement;
   body: HTMLElement;
-  dir: HTMLElement;
+  /** Keycap over the thumbnail — the live 빠른 사용 binding, not the wheel index (2026-09-10). */
+  keyEl: HTMLElement;
   key: string;
 }
 
@@ -20,8 +19,12 @@ interface Cell {
  *
  * 2026-09-07: it used to draw one tile per **unlocked** wheel slot, which grew to a ~300 px row on an 8-slot bag.
  * It now shows a **single** cell — the wheel slot the player last selected (`quick:equipped`, else `quick:used`,
- * else the first filled slot) — at twice the old thumbnail size, with its direction arrow. The cell is lit
- * (`.is-hand`) while that item is actually in the hands; the whole widget hides when the wheel is empty.
+ * else the first filled slot). The cell is lit (`.is-hand`) while that item is actually in the hands; the whole
+ * widget hides when the wheel is empty.
+ *
+ * 2026-09-10 (레이드 HUD 개편, 사용자 결정): 썸네일이 1.5배(60 → 90 px)가 되고, 칸 번호 대신 **빠른 사용 키**를
+ * 단다 (`.qs-key.keycap`). 키 문자열은 하드코딩하지 않는다 — `keyLabel(Keys.QUICK)` 을 쓰고
+ * `input:bindingsChanged` 에 다시 읽는다 (리바인딩 규약).
  *
  * Data: `inventory:quickSlotsChanged` (seeded from `ctx.inventory.getQuickSlots()`), counts from `quick:used` /
  * `inventory:itemUpdated`, unlock count from `ctx.inventory.getBagSize().quickSlots` (`inventory:bagChanged`).
@@ -44,9 +47,9 @@ export class QuickStrip {
     for (let i = 0; i < QUICK_SLOTS; i++) {
       const root = el('div', { cls: 'qs-cell empty', parent: this.root, attrs: { 'data-dir': QUICK_SLOT_DIRS[i] } });
       root.hidden = true;
-      const dir = el('span', { cls: 'qs-dir', text: DIR_GLYPH[i] ?? '·', parent: root });
+      const keyEl = el('span', { cls: 'qs-key keycap', text: keyLabel(Keys.QUICK), parent: root });
       const body = el('div', { cls: 'qs-body', parent: root });
-      this.cells.push({ root, body, dir, key: '' });
+      this.cells.push({ root, body, keyEl, key: '' });
     }
   }
 
@@ -55,6 +58,7 @@ export class QuickStrip {
     const b = ctx.bus;
     const touch = (): void => { this.dirty = true; };
     this.unsubs.push(
+      b.on('input:bindingsChanged', () => { for (const c of this.cells) setText(c.keyEl, keyLabel(Keys.QUICK)); }),
       b.on('inventory:quickSlotsChanged', ({ slots }) => { this.slots = [...slots]; this.dirty = true; }),
       b.on('inventory:bagChanged', touch),
       b.on('inventory:itemUpdated', touch),

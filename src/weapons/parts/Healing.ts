@@ -18,6 +18,7 @@ import type { Obstacle as WorldObstacle, InterceptableRef, PeerId } from '@/shar
 import { ARMOR_IMMUNE_AMMO } from '@/shared';
 import { FxManager } from '@/core/fx';
 import { randomInCone } from '@/core/util/MathUtil';
+import { shieldChargeOf } from '@/items';
 import { WEAPON_SLOTS, defaultFor, kindOf, shotSoundId, shotPitchFor, weaponClassOf, damageFalloff, statsFromDef, STANCE_ACCURACY } from '../WeaponDefaults';
 import { WeaponModel, type WeaponAttachmentVisuals } from '../WeaponModel';
 import { attachmentVisualsFor, attachmentIdsOf, sameIds } from '../Attachments';
@@ -84,10 +85,31 @@ export function setConsumableSlow(sys: WeaponSystem, on: boolean): void {
   }
 
 /**
- * LMB pressed with a 회복 소모품 / 제세동기 in hand. A plain heal is refused at full hp (the old instant-use rule);
- * the 스프레이 is refused only when its gauge is empty (it also heals squadmates), the 제세동기 never checks hp.
+ * 2026-09-10 — 실드 충전기: 지금 채울 실드가 남아 있는가. 방탄복이 없거나(최대치 0) 이미 가득이면 false 이고,
+ * 그때는 홀드를 시작조차 하지 않는다 — **아이템이 소모되면 안 되기 때문**이다 (`PlayerRef.chargeShield` 의 계약).
+ */
+export function canChargeShield(sys: WeaponSystem): boolean {
+  const p = sys.ctx.player;
+  if (!p || typeof p.chargeShield !== 'function') return false;
+  return p.maxShield > 0 && p.shield < p.maxShield;
+  }
+
+/**
+ * LMB pressed with a 회복 소모품 / 실드 충전기 / 제세동기 in hand. A plain heal is refused at full hp (the old
+ * instant-use rule); a 실드 충전기 is refused with no armor / a full shield; the 스프레이 is refused only when its
+ * gauge is empty (it also heals squadmates), the 제세동기 never checks hp.
  */
 export function beginHeal(sys: WeaponSystem, host: Host, q: QuickHand): void {
+  // 2026-09-10 실드 충전기 — 회복 소모품과 같은 홀드 · 이동 감속을 쓰고, 끝나면 chargeShield 로 간다
+  if (shieldChargeOf(q.defId)) {
+    if (!sys.canChargeShield()) { sys.deny(); return; }
+    sys.healSpray = false;
+    sys.healHeld = true;
+    sys.healT = 0;
+    sys.setConsumableSlow(true);
+    sys.emitHeal(0, true, sys.holdTimeOf(q.def));
+    return;
+  }
   const spray = q.def.heal?.spray;
   if (spray) {
     const max = Math.max(1, q.def.durabilityMax ?? 1);
@@ -211,11 +233,17 @@ export function finishHeal(sys: WeaponSystem, host: Host, q: QuickHand): void {
   sys.quickCooldown = QUICK_USE_COOLDOWN / sys.useSpeedMul();
   sys.firingTimer = FIRING_POSE_HOLD * 0.5;
   if (!spray) {
-    const heal = q.def.heal;
+    const charge = shieldChargeOf(q.defId);
     const p = sys.ctx.player as (PlayerRef & { applyHeal?: (a: number, s: number, quiet?: boolean) => boolean }) | null;
-    const amount = heal?.amount ?? q.def.healAmount ?? 50;
-    if (heal && typeof p?.applyHeal === 'function') p.applyHeal(amount, heal.overTime);
-    else host.applyStim(amount);
+    if (charge) {
+      // 실드 충전기: 체력이 아니라 실드를 채운다 (`Infinity` = 완전 회복). 이벤트는 player/ 가 낸다.
+      p?.chargeShield?.(charge.amount);
+    } else {
+      const heal = q.def.heal;
+      const amount = heal?.amount ?? q.def.healAmount ?? 50;
+      if (heal && typeof p?.applyHeal === 'function') p.applyHeal(amount, heal.overTime);
+      else host.applyStim(amount);
+    }
   }
   sys.ctx.bus.emit('quick:used', { index: q.index, item: q.item, remaining });
   if (remaining <= 0) sys.returnToGun();

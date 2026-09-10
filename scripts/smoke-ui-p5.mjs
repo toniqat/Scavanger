@@ -322,17 +322,22 @@ try {
       type: w?.querySelector('.type')?.textContent ?? '',
       quick: filled.length,
       chips: document.querySelectorAll('.qstrip .qs-cell .item-chip[data-def-id]').length,
-      implant: (() => { const c = document.querySelector('.implant-chip'); return c && !c.hidden ? c.querySelector('.ic-name').textContent : null; })(),
+      /* 2026-09-10: 임플란트는 우하단 칩이 아니라 화면 중앙 하단의 `.imp-hud` 이고, 이름을 표기하지 않는다. */
+      implant: (() => { const h = document.querySelector('.imp-hud'); return h && !h.hidden ? (h.dataset.implant ?? null) : null; })(),
+      implantName: !!document.querySelector('.imp-hud .ib-name'),
+      implantKey: document.querySelector('.imp-hud .imp-key')?.textContent ?? null,
       equipped: window.__game.ctx.implants?.equipped ?? null,
       stamFill: getComputedStyle(document.querySelector('.stam-bar .fill')).backgroundColor,
     };
   });
   ok(!p9.weight, '인게임 무게 표시(.weightbar) 제거');
   ok(p9.column && p9.aboveVitals && p9.left === 32, `채팅 + 분대 목록이 좌하단 한 열(.hud-bl)에서 체력바 위에 (left ${p9.left})`, JSON.stringify(p9));
-  ok(p9.order === 'strat-panel,implant-chip,qstrip,wslots', `우하단 순서: 함선 호출 → 임플란트 → 빠른 사용 → 무기 슬롯 (${p9.order})`);
+  /* 2026-09-10: 임플란트 칩이 하단 중앙으로, 무기 슬롯 칸(.wslots)이 제거되면서 우하단은 호출 → 빠른 사용 → 무기 패널이다. */
+  ok(p9.order.startsWith('strat-panel,qstrip'), `우하단 순서: 함선 호출 → 빠른 사용 → 무기 패널 (${p9.order})`);
   ok(!p9.slotLbl && !p9.type.includes('·'), `무기 정보에서 '주무기' / 탄약 표기 제거 (type '${p9.type}')`);
   ok(p9.quick >= 1 && p9.chips === p9.quick, `빠른 사용 썸네일 ${p9.quick}칸 (모두 item-chip)`, JSON.stringify({ quick: p9.quick, chips: p9.chips }));
-  ok(p9.equipped === null ? p9.implant === null : !!p9.implant, `전술 임플란트 썸네일 (${p9.implant ?? '없음'} / equipped ${p9.equipped})`);
+  ok(p9.equipped === null ? p9.implant === null : p9.implant === p9.equipped, `전술 임플란트 썸네일이 화면 하단 중앙에 (${p9.implant ?? '없음'} / equipped ${p9.equipped})`);
+  ok(!p9.implantName && (p9.equipped === null || !!p9.implantKey), `임플란트 이름은 표기하지 않고 사용 키만 (${p9.implantKey ?? '없음'})`, JSON.stringify(p9));
   ok(p9.stamFill === 'rgb(255, 255, 255)', `스태미나 바가 불투명한 흰색 (${p9.stamFill})`);
   const activeAtStart = await P(() => !!(window.__game.ctx.meta && window.__game.ctx.meta.activeContract));
   const shown0 = await hud('isContractPanelOn');
@@ -625,19 +630,26 @@ try {
   notifs = await texts('.notif');
   ok(sysLines.some((t) => t === '시뮬레이션 훈련장 퇴장') && notifs.some((t) => t.includes('훈련장') && t.includes('퇴장')), 'training:exitRequested → chat line + notification', JSON.stringify(sysLines.slice(-2)));
 
-  console.log('training objective');
-  const objective = () => P(() => { const o = document.querySelector('.hud.gameplay .objective'); return { text: o.querySelector('.text').textContent, sub: o.querySelector('.sub').textContent }; });
+  /*
+   * 2026-09-10: 좌측 상단에 **임무 시간만** 남았다 (사용자 결정). 목표 문구(`.text`) · 보조 문구(`.sub`) ·
+   * `임무 목표` 라벨은 전부 사라졌고, `ui:objective` 는 계약으로만 남은 no-op 이다 — 훈련장의 명중 카운터는
+   * `hud/TrainingPanel` 이 자기 패널에 그린다.
+   */
+  console.log('objective = clock only');
+  const objective = () => P(() => { const o = document.querySelector('.hud.gameplay .objective'); return { clock: o?.querySelector('.clock')?.textContent ?? null, text: !!o?.querySelector('.text'), sub: !!o?.querySelector('.sub') }; });
   await P(() => { window.__game.ctx.missionMode = 'training'; });
   await emit('game:phaseChanged', { phase: 'playing', prev: 'deploying' });
   let obj = await objective();
-  ok(obj.text === '시뮬레이션 훈련장 · 출구 콘솔로 종료', 'phase playing while missionMode=training → training objective', JSON.stringify(obj));
+  ok(!obj.text && !obj.sub, '임무 목표 문구 · 보조 문구 제거', JSON.stringify(obj));
+  ok(/^\d{2}:\d{2}$/.test(obj.clock ?? ''), `좌측 상단에는 임무 시간만 (${obj.clock})`);
+  // 계약으로 남긴 no-op: 아무도 그리지 않지만 발행해도 터지지 않아야 한다
   await emit('ui:objective', { text: '시뮬레이션 훈련장 · 출구 콘솔로 종료', subText: '표적 명중 3 / 12' });
   obj = await objective();
-  ok(obj.text === '시뮬레이션 훈련장 · 출구 콘솔로 종료' && obj.sub === '표적 명중 3 / 12', 'world/ refreshes the hit counter through ui:objective subText', JSON.stringify(obj));
+  ok(!obj.text && !obj.sub, 'ui:objective 는 no-op — 문구가 되살아나지 않는다', JSON.stringify(obj));
   await P(() => { window.__game.ctx.missionMode = 'raid'; });
   await emit('game:phaseChanged', { phase: 'playing', prev: 'deploying' });
   obj = await objective();
-  ok(obj.text === '탈출 지점을 찾아 스위치를 활성화하세요', 'back to raid mode: the find-objective returns', obj.text);
+  ok(!obj.text && !obj.sub && obj.clock !== null, '레이드로 돌아와도 시계만 남는다', JSON.stringify(obj));
 
   console.log('mission reset');
   await emit('meta:contractProgress', { id: 'helix_1', corp: 'helix', goal: 'kill_bugs', progress: 5, target: 25, delta: 1 });

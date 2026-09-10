@@ -335,19 +335,12 @@ input { font: inherit; color: inherit; }
 .weapon .dura.worn .fill { background: var(--c-accent); }
 .weapon .dura.broken .fill { background: var(--c-danger); transform: scaleX(1) !important; opacity: 0.55; }
 .weapon .dura.broken { box-shadow: 0 0 6px rgba(255, 77, 77, 0.6); }
-.weapon.broken .name { color: var(--c-danger); }
+/* 2026-09-10: 무기 이름 요소가 없어졌다 — 남은 `.weapon .name` 은 빠른 사용 블록의 소모품 이름이라 파손과 무관하다. */
 .weapon.broken .mag { color: var(--c-danger); }
 .weapon.broken-flash { animation: weaponBroken 700ms ease-out; }
 @keyframes weaponBroken { 0% { filter: brightness(2.2); transform: translateX(-2px); } 20% { transform: translateX(2px); } 40% { transform: translateX(-1px); } 60% { transform: translateX(0); } 100% { filter: brightness(1); } }
 /* 2026-09-08: the 160 px 교체 hairline that used to sit here is gone — 무기 교체 is a crosshair ring now (`.reload.swap`). */
-.wslots { display: flex; gap: 4px; margin-bottom: 2px; }
-.wslot { display: flex; align-items: center; gap: 6px; padding: 2px 7px 2px 5px; border: 1px solid var(--c-border); background: rgba(0, 0, 0, 0.25); max-width: 110px; opacity: 0.55; transition: opacity var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease); }
-.wslot .k { font-family: var(--ui-mono); font-size: 9px; color: var(--c-text-dim); flex: none; }
-.wslot .n { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.wslot.empty .n { color: var(--c-text-faint); }
-.wslot.active { opacity: 1; border-color: var(--c-accent); background: rgba(255, 179, 71, 0.12); }
-.wslot.active .k { color: var(--c-accent); }
-.wslot.broken .n { color: var(--c-danger); text-decoration: line-through; }
+/* 2026-09-10: 무기 슬롯 칸(`.wslots` / `.wslot`, 1·2·3·T)은 없어졌다 — 그 높이만큼 무기 패널이 커졌다 (`styles/raidHud.css`). */
 
 /* Compass (top-center) */
 .compass {
@@ -422,10 +415,7 @@ input { font: inherit; color: inherit; }
   font-size: 11px; font-weight: 600; letter-spacing: 0.08em; color: var(--c-text-dim);
   font-variant-numeric: tabular-nums; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
 }
-.objective .text { font-size: 14px; font-weight: 600; letter-spacing: 0.02em; text-shadow: 0 1px 3px rgba(0,0,0,0.8); }
-.objective .sub { font-size: 12px; color: var(--c-text-dim); padding-left: 14px; text-shadow: 0 1px 3px rgba(0,0,0,0.8); }
-.objective.swap { animation: objSwap 300ms var(--ease); }
-@keyframes objSwap { 0% { opacity: 0; transform: translateX(-8px); } 100% { opacity: 1; transform: none; } }
+/* 2026-09-10: 목표 문구(`.text`) · 보조 문구(`.sub`) · 그 교체 애니메이션은 없어졌다 — 좌측 상단은 시계 하나다. */
 
 /* Interaction prompt */
 .prompt {
@@ -1377,63 +1367,8 @@ input { font: inherit; color: inherit; }
  *                     melee / roll / burn / cloak feedback
  * ══════════════════════════════════════════════════════════════════════════ */
 
-/* Tactical implant gauge — left of the crosshair (implant rework 2026-09-06) */
-.implant-gauge {
-  --ic: var(--c-info);
-  --ready: #ffd23a;
-  position: absolute; left: 50%; top: 50%;
-  transform: translate(calc(-100% - 46px), -50%);
-  display: flex; align-items: center; gap: 8px;
-  pointer-events: none;
-  opacity: 0.92;
-  transition: opacity var(--t-fast) var(--ease);
-}
-.implant-gauge .read {
-  min-width: 34px; text-align: right;
-  font-size: 12px; font-weight: 600; letter-spacing: 0.02em;
-  color: var(--c-text); text-shadow: 0 0 6px rgba(0, 0, 0, 0.95), 0 1px 2px #000;
-}
-.implant-gauge .read.cd { color: var(--c-text-dim); }
-.implant-gauge .col { display: flex; flex-direction: column; align-items: center; gap: 5px; }
-.implant-gauge .gauge {
-  display: flex; flex-direction: column; gap: 3px;
-  width: 9px; height: 76px;
-  padding: 2px; border-radius: 7px;
-  background: rgba(8, 10, 14, 0.62);
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.06);
-}
-.implant-gauge .seg {
-  position: relative; flex: 1; min-height: 0;
-  border-radius: 5px; overflow: hidden;
-  background: rgba(255, 255, 255, 0.07);
-}
-.implant-gauge .seg[hidden] { display: none !important; }
-.implant-gauge .seg i {
-  position: absolute; inset: 0;
-  transform-origin: bottom; transform: scaleY(0);
-  background: rgba(255, 255, 255, 0.82);
-  will-change: transform;
-}
-.implant-gauge .seg.filling i { background: rgba(255, 255, 255, 0.72); }
-.implant-gauge .seg.ready i { background: var(--ic); box-shadow: 0 0 6px var(--ic); }
-.implant-gauge[data-implant="dash"] .seg.ready i { background: var(--ready); box-shadow: 0 0 6px var(--ready); }
-.implant-gauge .seg.low i { background: var(--c-danger); }
-.implant-gauge .seg.locked i { background: rgba(255, 120, 90, 0.75); }
-.implant-gauge .gauge.hit { animation: barrierHit 220ms ease-out; }
-.implant-gauge.deployed .gauge { border-color: var(--ic); box-shadow: 0 0 8px color-mix(in srgb, var(--ic) 55%, transparent); }
-.implant-gauge.holding .gauge { border-color: var(--ic); }
-.implant-gauge.holding .seg i { box-shadow: 0 0 8px var(--ic); }
-.implant-gauge .foot { display: flex; flex-direction: column; align-items: center; gap: 2px; }
-.implant-gauge .ico { font-size: 13px; line-height: 1; color: var(--ic); text-shadow: 0 0 6px rgba(0, 0, 0, 0.9); }
-.implant-gauge:not(.ready) .ico { opacity: 0.45; }
-.implant-gauge .foot .keycap { min-width: 16px; height: 15px; padding: 0 4px; font-size: 9px; background: rgba(8, 10, 14, 0.7); }
-.implant-gauge.wielded .foot .keycap { color: var(--ic); border-color: var(--ic); }
-.implant-gauge.pulse .gauge { animation: implantPulse 320ms var(--ease); }
-@keyframes barrierHit { 0% { filter: brightness(2.4); } 100% { filter: none; } }
-@keyframes implantPulse { 0% { transform: scale(1.12); filter: brightness(1.6); } 100% { transform: scale(1); filter: none; } }
-/* hidden with the reticle: blockers / scope / targeting */
-.hud.targeting .implant-gauge { opacity: 0; }
+/* 전술 임플란트 HUD 는 2026-09-10 부터 `src/ui/styles/implant.css` 에 있다 — 크로스헤어 좌측 세로 게이지
+   (`.implant-gauge`) 가 화면 중앙 하단의 가로 썸네일(`.imp-hud`)로 바뀌면서 이 자리의 규칙은 전부 옮겨 갔다. */
 
 /* Quick-use bar (bottom-center, 4 or 8 slots) */
 .quickbar {
@@ -1732,8 +1667,6 @@ input { font: inherit; color: inherit; }
 @keyframes kbBlink { 0%, 100% { background: rgba(255, 179, 71, 0.08); } 50% { background: rgba(255, 179, 71, 0.24); } }
 .kb-foot { display: flex; justify-content: space-between; gap: 10px; padding-top: 10px; border-top: 1px solid var(--c-border); }
 .kb-foot .ui-btn { min-width: 0; padding: 0 18px; }
-.hud.spectating .implant-gauge { opacity: 0 !important; }
-.implant-gauge.blocked { opacity: 0; }
 
 /* ═══ Screen tabs shared by the inventory / character screens (인벤토리 · 캐릭터 · 기업) ═══ */
 .scr-tabs {
@@ -2414,36 +2347,8 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 /* the shared item chip already draws the thumbnail; kill its own frame inside a tile */
 .qs-body .item-chip { pointer-events: auto; }
 
-/* 전술 임플란트 thumbnail (hud/ImplantChip) — above the 빠른 사용 strip */
-.implant-chip {
-  --ic: #9fb6c8;
-  display: flex; align-items: center; gap: 8px;
-  padding: 3px 8px 3px 3px; margin-bottom: 2px;
-  border: 1px solid color-mix(in srgb, var(--ic) 45%, transparent);
-  background: rgba(0, 0, 0, 0.35);
-  transition: opacity var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
-}
-.implant-chip .ic-thumb {
-  flex: none; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
-  border: 1px solid color-mix(in srgb, var(--ic) 55%, transparent);
-  background: color-mix(in srgb, var(--ic) 12%, transparent);
-}
-.implant-chip .ic-glyph { font-size: 14px; line-height: 1; color: var(--ic); }
-.implant-chip .ic-body { display: flex; align-items: center; gap: 8px; }
-.implant-chip .ic-name { font-size: 10px; letter-spacing: 0.1em; color: var(--c-text); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8); }
-.implant-chip .ic-key {
-  font-family: var(--ui-mono); font-size: 9px; color: var(--c-text-dim);
-  border: 1px solid var(--c-border); padding: 0 4px;
-}
-.implant-chip.is-cooling { opacity: 0.45; }
-.implant-chip.is-cooling .ic-glyph { color: var(--c-text-dim); }
-.implant-chip.is-wielded { border-color: var(--c-accent); }
-.implant-chip.is-wielded .ic-key { color: var(--c-accent); border-color: var(--c-accent); }
-.implant-chip.flash .ic-thumb { animation: implantChipFlash 420ms ease-out; }
-@keyframes implantChipFlash {
-  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ic) 70%, transparent); background: color-mix(in srgb, var(--ic) 45%, transparent); }
-  100% { box-shadow: 0 0 0 10px transparent; background: color-mix(in srgb, var(--ic) 12%, transparent); }
-}
+/* 전술 임플란트 칩(`hud/ImplantChip`)은 2026-09-10 에 삭제됐다 — 임플란트 표시는 화면 중앙 하단의
+   `.imp-hud` 썸네일 하나뿐이다 (`src/ui/styles/implant.css`). */
 
 /* 시설 관리 furniture rows (Phase 9 UI pass): the 제작 button on a craft row, the storage-tab variants.
    2026-09-09: `.fcard-place` is the 가구 창고 row's 배치 button — same chip as 제작, right side of the card. */

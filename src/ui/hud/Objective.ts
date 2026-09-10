@@ -1,6 +1,12 @@
 import type { GameContext } from '@/shared';
 import { el, setText, toggleClass, fmtTime, setVisible } from '../dom';
+import '../styles/raidHud.css';
 
+/**
+ * 2026-09-10: 임무 목표 문구는 화면에서 사라졌다 (사용자 결정 — 좌측 상단에는 **임무 시간만** 남는다).
+ * 이 표는 계약이라 지우지 않는다: `ui/HudSystem` 이 페이즈마다 `ui:objective` 를 계속 내보내고
+ * `src/ui/index.ts` 가 export 한다. 지금은 아무도 그 문구를 그리지 않을 뿐이다.
+ */
 export const OBJECTIVE_TEXT = {
   find: { text: '탈출 지점을 찾아 스위치를 활성화하세요', sub: '컴퍼스의 마커를 따라 이동' },
   countdown: { text: '함선 도착까지 대기', sub: '탈출 지점을 사수하세요' },
@@ -11,12 +17,19 @@ export const OBJECTIVE_TEXT = {
   training: { text: '시뮬레이션 훈련장 · 출구 콘솔로 종료', sub: '탄약 · 내구도 미소모' },
 } as const;
 
-/** Top-left objective panel (with the small mission clock beside its label) + large countdown timer under the compass. */
+/**
+ * 좌측 상단 **임무 시간** + 나침반 아래의 큰 탈출 카운트다운.
+ *
+ * 2026-09-10: `임무 목표` 라벨 · 목표 문구(`.text`) · 보조 문구(`.sub`) 가 전부 없어졌다. 남은 것은 `.head` 의
+ * 마름모 표식과 시계 하나뿐이고, 그만큼 시계가 커졌다 (`styles/raidHud.css`). 훈련장의 명중/격추 카운터는
+ * `hud/TrainingPanel` 이 이미 자기 패널에 그리므로 이 줄이 없어도 화면에서 사라지지 않는다.
+ *
+ * `set()` 은 **계약으로 남긴 no-op** 이다 — `HudSystem` 이 탈출 카운트다운마다 부르는데, 그 숫자는
+ * 아래 `.countdown` 타이머가 이미 크게 그리고 있다.
+ */
 export class Objective {
   readonly root: HTMLElement;
   readonly timerRoot: HTMLElement;
-  private textEl: HTMLElement;
-  private subEl: HTMLElement;
   private timeEl: HTMLElement;
   private clockEl: HTMLElement;
   private lastClockStr = '';
@@ -27,12 +40,9 @@ export class Objective {
   constructor(parent: HTMLElement) {
     this.root = el('div', { cls: 'objective', parent });
     const head = el('div', { cls: 'head', parent: this.root });
-    el('span', { cls: 'ui-label', text: '임무 목표', parent: head });
     // 2026-09-07: the 임무 시간 moved here from the top-right `mission-info` block (which also carried the 처치 counter,
-    // now dropped entirely) — small, right of the label, so the top-right corner is free.
+    // now dropped entirely). 2026-09-10: it is the only thing left in this corner.
     this.clockEl = el('span', { cls: 'clock ui-mono', text: '00:00', parent: head });
-    this.textEl = el('div', { cls: 'text', text: '', parent: this.root });
-    this.subEl = el('div', { cls: 'sub', text: '', parent: this.root });
 
     this.timerRoot = el('div', { cls: 'countdown hidden ui-fade', parent });
     el('div', { cls: 'ui-label', text: '함선 도착까지', parent: this.timerRoot });
@@ -42,7 +52,6 @@ export class Objective {
   bind(ctx: GameContext): void {
     const b = ctx.bus;
     this.unsubs.push(
-      b.on('ui:objective', ({ text, subText }) => this.set(text, subText ?? '')),
       b.on('extraction:activated', () => {
         this.counting = true;
         this.timerRoot.classList.remove('urgent', 'arrived');
@@ -66,7 +75,7 @@ export class Objective {
     );
   }
 
-  /** Mission clock beside the label; called every frame by `HudSystem`. */
+  /** Mission clock; called every frame by `HudSystem`. */
   update(ctx: GameContext): void {
     const t = fmtTime(ctx.missionTime);
     if (t === this.lastClockStr) return;
@@ -79,18 +88,10 @@ export class Objective {
     this.lastTimeStr = '';
     this.timerRoot.classList.remove('urgent', 'arrived');
     setVisible(this.timerRoot, false);
-    this.set('', '');
   }
 
-  set(text: string, sub: string): void {
-    if (this.textEl.textContent === text && this.subEl.textContent === sub) return;
-    setText(this.textEl, text);
-    setText(this.subEl, sub);
-    this.root.classList.remove('swap');
-    void this.root.offsetWidth;
-    this.root.classList.add('swap');
-    this.root.style.opacity = text ? '1' : '0';
-  }
+  /** 계약 유지용 no-op (2026-09-10: 목표 문구는 더 이상 그리지 않는다). */
+  set(_text: string, _sub: string): void { /* 목표 문구 없음 */ }
 
   dispose(): void { for (const u of this.unsubs) u(); this.root.remove(); this.timerRoot.remove(); }
 }
