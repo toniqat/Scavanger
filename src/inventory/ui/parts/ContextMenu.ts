@@ -62,7 +62,8 @@ export function onContextMenu(sys: InventoryUI, uid: string, from: ItemLocation,
   const quickable = isQuickUsable(def) && from.kind === 'grid' && from.grid === 'bag';
   const repairable = sys.hub && !!sys.sys.repairInfo(uid);
   const breakable = sys.canDisassemble(uid, from);
-  const hasMenu = isStack || isWeaponDef(def) || isBagDef(def) || isArmorDef(def) || quickable || repairable || breakable;
+  // A-13: 준비물은 어디서든 우클릭하면 메뉴가 뜬다 (함선에서는 `사용`, 레이드 중에는 잠긴 채로 사유가 보인다)
+  const hasMenu = isStack || isWeaponDef(def) || isBagDef(def) || isArmorDef(def) || quickable || repairable || breakable || !!def.prep;
   if (!hasMenu && !e.shiftKey) {
     sys.result(sys.sys.quickMove(uid, from), 'ui_drop', from, uid);
     return;
@@ -146,6 +147,29 @@ export function menuEntries(sys: InventoryUI, uid: string, from: ItemLocation, i
     } else {
       entries.push({ label: TEXT.menu.quickAssign, hint: '더블클릭', separator: entries.length > 0, run: () => sys.result(sys.sys.registerQuick(uid), 'ui_equip', from, uid) });
     }
+  }
+
+  /* 1c-2. 준비물 (A-13, 2026-09-11): **함선에서만** — 쓰면 그 자리에서 소모돼 다음 레이드 1회분으로 실린다
+   * (`ctx.progression.usePrep`). 레이드 중이거나 이미 같은 환경을 준비했으면 항목은 그대로 보이되 사유가
+   * 붙고, 눌러도 아이템은 사라지지 않는다 — 거절은 조용히 삼키지 않는다. */
+  if (def.prep) {
+    const blocked = !sys.hub ? TEXT.menu.usePrepRaid : null;
+    entries.push({
+      label: TEXT.menu.usePrep,
+      hint: blocked ?? def.prep.short,
+      separator: entries.length > 0,
+      run: () => {
+        if (blocked) {
+          sys.sys.sfx('ui_error');
+          sys.ctx.bus.emit('ui:notify', { text: blocked, kind: 'warning', duration: 2 });
+          return;
+        }
+        const refusal = sys.sys.usePrepItem(uid, from);
+        sys.result(refusal ? 'fail' : 'ok', 'ui_equip', from, uid);
+        if (refusal) sys.ctx.bus.emit('ui:notify', { text: refusal, kind: 'warning', duration: 2.4 });
+        else sys.ctx.bus.emit('ui:notify', { text: `${def.name} — 다음 레이드에 실렸다`, kind: 'success', duration: 2.4 });
+      },
+    });
   }
 
   // 1d. 분해 (Phase 8): any item with a matching `break_*` recipe — the ammo packs today

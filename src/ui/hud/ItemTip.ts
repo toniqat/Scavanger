@@ -1,7 +1,7 @@
 import type { CurrencyDef, GameContext, ItemDef, ItemInstance, StatId } from '@/shared';
 import {
-  CATEGORY_ICON, CATEGORY_LABEL_KO, PERK_DEFS, RARITY_COLORS, RARITY_LABEL_KO, SOIL_TAG_COLOR, SOIL_TAG_LABEL_KO,
-  currencyDef, formatCredits, itemCreditValue,
+  CATEGORY_ICON, CATEGORY_LABEL_KO, ENV_COLOR, ENV_LABEL_KO, PERK_DEFS, RARITY_COLORS, RARITY_LABEL_KO,
+  SOIL_TAG_COLOR, SOIL_TAG_LABEL_KO, currencyDef, formatCredits, itemCreditValue,
 } from '@/shared';
 import { el, setText } from '../dom';
 
@@ -38,6 +38,10 @@ import { el, setText } from '../dom';
  * `수확` 두 줄을, 씨앗(`def.seed`)은 `재배 시간` 아래에 **맞는 토양** 한 줄을 같은 색으로 얻는다 — 어떤 흙에 심어야
  * `SOIL_MATCH_SPEEDUP` 를 받는지가 씨앗 카드에서 끝나야 한다. 색은 인라인 `style.color` 로만 칠한다: `.it-stats .v`
  * 에 modifier 클래스를 새로 달면 HUD 위젯 클래스와 이름이 겹칠 위험이 있다 (2026-09-10 `.hold` 사고).
+ *
+ * **연구실 (2026-09-11)**: 표본(`def.sample`)은 `분석기 해석 n 시간` · `산출물` (· 처음이면 `최초 해석` 보너스),
+ * 준비물(`def.prep`)은 `사용 — 다음 레이드 1회분` · `차단 — <환경> 환경` 을 얻는다. 환경 이름 · 색은 `ENV_LABEL_KO` ·
+ * `ENV_COLOR` 하나에서 오고 (HUD 배지 · 행성 브리핑과 같은 원본), 색은 위와 같은 이유로 인라인이다.
  *
  * **재화 (2026-09-09)**: 계약 · 퀘스트 보상의 크레딧 · 경험치 · 기업별 신뢰도는 아이템이 아니지만 같은 자리에
  * 같은 크기의 칩(`shared/currency.buildCurrencyChip`)으로 선다. 그 칩은 `data-def-id` 대신
@@ -199,6 +203,25 @@ export class ItemTip {
     if (soil) {
       if (SOIL_TAG_LABEL_KO[soil.tag]) rows.push(['속성', SOIL_TAG_LABEL_KO[soil.tag], SOIL_TAG_COLOR[soil.tag]]);
       rows.push(['수확', `${soil.uses} 회`]);
+    }
+    /* 연구실 (A-12 · A-13, 2026-09-11): 표본은 **분석기에 넣었을 때 무엇이 얼마나 걸려 나오는가**, 준비물은
+       **어떤 환경을 몇 번 막아 주는가** 가 카드에서 끝나야 한다. 씨앗 · 토양 줄과 같은 자리 · 같은 인라인 색 규약이다
+       (`.it-stats .v` 에 modifier 클래스를 만들지 않는다 — 2026-09-10 `.hold` 사고). 해석 시간은 도감 진척으로
+       줄어들지만 그것은 분석 화면이 말한다: 여기 적는 것은 **표에 있는 기준 시간**이다. */
+    const sample = def.sample;
+    if (sample) {
+      const reward = this.defOf(sample.rewardDefId);
+      rows.push(['분석기 해석', `${sample.analyzeHours} 시간`]);
+      rows.push(['산출물', `${reward?.name ?? sample.rewardDefId} ×${sample.rewardQty}`]);
+      if (sample.firstDefId) {
+        const first = this.defOf(sample.firstDefId);
+        rows.push(['최초 해석', `${first?.name ?? sample.firstDefId} ×${sample.firstQty ?? 1}`]);
+      }
+    }
+    const prep = def.prep;
+    if (prep && ENV_LABEL_KO[prep.env]) {
+      rows.push(['사용', '다음 레이드 1회분']);
+      rows.push(['차단', `${ENV_LABEL_KO[prep.env]} 환경`, ENV_COLOR[prep.env]]);
     }
     if (def.healAmount) rows.push(['회복', `+${def.healAmount} HP`]);
     if (def.bag) rows.push(['가방', `${def.bag.cols} × ${def.bag.rows} · 퀵 ${def.bag.quickSlots}`]);

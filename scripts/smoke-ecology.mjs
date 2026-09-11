@@ -37,13 +37,14 @@ const GATHER_NODES_PER_MISSION = 34;
 const SALVAGE_NODES_PER_MISSION = 7;
 /** Ambient population cap before `pressure`: `12 + 24 × threat`. */
 const capBase = (threat) => 12 + 24 * threat;
-/* 2026-09-09: `hazards` 도 planets.csv 를 그대로 옮긴 것이다 — 독성 포자가 후보인 행성에만 거대 버섯 군락이 선다. */
+/* 2026-09-09: `hazards` 도 planets.csv 를 그대로 옮긴 것이다 — 독성 포자가 후보인 행성에만 거대 버섯 군락이 선다.
+   2026-09-11 (품종 확장 A-11): `soils` 에 염류 · 포자 토양이 늘었다. planets.csv 의 soils 열을 고치면 여기도 같이 고친다. */
 const PLANETS = [
-  { id: 'amber', biome: 'amber', bugs: { scavenger: 4, hunter: 2, warrior: 1, artillery: 1 }, pressure: 0.85, rogues: 1.4, boss: true, maxArtillery: 1, maxBehemoth: 0, herbs: { herb_ashleaf: 3, herb_bloodroot: 1, herb_glowcap: 0.5 }, gatherDensity: 0.7, soils: { soil_humus: 2, soil_ash: 1 }, soilNodes: 5, hazards: ['sandstorm','storm_eye'] },
+  { id: 'amber', biome: 'amber', bugs: { scavenger: 4, hunter: 2, warrior: 1, artillery: 1 }, pressure: 0.85, rogues: 1.4, boss: true, maxArtillery: 1, maxBehemoth: 0, herbs: { herb_ashleaf: 3, herb_bloodroot: 1, herb_glowcap: 0.5 }, gatherDensity: 0.7, soils: { soil_humus: 2, soil_ash: 1, soil_saline: 1 }, soilNodes: 5, hazards: ['sandstorm','storm_eye'] },
   { id: 'tundra', biome: 'tundra', bugs: { scavenger: 3, hunter: 4, charger: 2, warrior: 2 }, pressure: 1, rogues: 0.8, boss: false, maxArtillery: 1, maxBehemoth: 1, herbs: { herb_bloodroot: 2, herb_ashleaf: 2, herb_glowcap: 1 }, gatherDensity: 0.9, soils: { soil_frost: 4, soil_humus: 1 }, soilNodes: 6, hazards: ['blizzard','storm_eye'] },
-  { id: 'mossy', biome: 'mossy', bugs: { scavenger: 4, spewer: 3, toxic: 3, warrior: 2, hunter: 1 }, pressure: 1.15, rogues: 0.6, boss: false, maxArtillery: 1, maxBehemoth: 1, herbs: { herb_bloodroot: 3, herb_glowcap: 3, herb_ashleaf: 1 }, gatherDensity: 1.5, soils: { soil_humus: 1 }, soilNodes: 8, hazards: ['spores','storm_eye'] },
-  { id: 'ashen', biome: 'ashen', bugs: { scavenger: 3, warrior: 3, charger: 3, behemoth: 1, artillery: 2 }, pressure: 1.2, rogues: 1, boss: true, maxArtillery: 3, maxBehemoth: 2, herbs: { herb_ashleaf: 3, herb_glowcap: 1 }, gatherDensity: 0.6, soils: { soil_ash: 4, soil_mineral: 1 }, soilNodes: 5, hazards: ['sandstorm','storm_eye'] },
-  { id: 'crimson', biome: 'crimson', bugs: { scavenger: 2, hunter: 3, spewer: 2, warrior: 2, artillery: 2 }, pressure: 0.9, rogues: 1.6, boss: true, maxArtillery: 2, maxBehemoth: 1, herbs: { herb_glowcap: 4, herb_bloodroot: 2 }, gatherDensity: 1, soils: { soil_mineral: 3, soil_ash: 1 }, soilNodes: 4, hazards: ['spores','sandstorm'] },
+  { id: 'mossy', biome: 'mossy', bugs: { scavenger: 4, spewer: 3, toxic: 3, warrior: 2, hunter: 1 }, pressure: 1.15, rogues: 0.6, boss: false, maxArtillery: 1, maxBehemoth: 1, herbs: { herb_bloodroot: 3, herb_glowcap: 3, herb_ashleaf: 1 }, gatherDensity: 1.5, soils: { soil_humus: 1, soil_spore: 2 }, soilNodes: 8, hazards: ['spores','storm_eye'] },
+  { id: 'ashen', biome: 'ashen', bugs: { scavenger: 3, warrior: 3, charger: 3, behemoth: 1, artillery: 2 }, pressure: 1.2, rogues: 1, boss: true, maxArtillery: 3, maxBehemoth: 2, herbs: { herb_ashleaf: 3, herb_glowcap: 1 }, gatherDensity: 0.6, soils: { soil_ash: 4, soil_mineral: 1, soil_saline: 2 }, soilNodes: 5, hazards: ['sandstorm','storm_eye'] },
+  { id: 'crimson', biome: 'crimson', bugs: { scavenger: 2, hunter: 3, spewer: 2, warrior: 2, artillery: 2 }, pressure: 0.9, rogues: 1.6, boss: true, maxArtillery: 2, maxBehemoth: 1, herbs: { herb_glowcap: 4, herb_bloodroot: 2 }, gatherDensity: 1, soils: { soil_mineral: 3, soil_ash: 1, soil_saline: 1 }, soilNodes: 4, hazards: ['spores','sandstorm'] },
 ];
 /** Types a patrol / wave can be composed of (artillery digs in alone, rogues are guards). */
 const GROUP_TYPES = ['scavenger', 'hunter', 'warrior', 'spewer', 'charger', 'toxic', 'behemoth'];
@@ -103,7 +104,9 @@ try {
       // 2026-09-11 (온실 개편): 토양 더미(`kind: 'soil'`)도 같은 목록이다 — 개수는 planets.csv 의 soilNodes 다
       const all = w.getGatherNodes();
       // 2026-09-09: 거대 버섯 군락에 딸린 채집 버섯(`grove_*`)은 재해가 심는 것이라 생태계 밀도와 무관하다.
-      const nodes = all.filter((n) => n.kind !== 'salvage' && n.kind !== 'soil' && !n.id.startsWith('grove_'));
+      // 2026-09-11 (연구실): 씨앗 군락 · 미확인 표본도 같은 목록이라 **약초만** 센다 (kind 로 고른다 —
+      // 종류가 늘 때마다 제외 목록을 늘리면 한 번은 빠뜨린다).
+      const nodes = all.filter((n) => n.kind === 'herb' && !n.id.startsWith('grove_'));
       const groveNodes = all.filter((n) => n.id.startsWith('grove_')).length;
       const soilNodes = all.filter((n) => n.kind === 'soil');
       const herbs = {};

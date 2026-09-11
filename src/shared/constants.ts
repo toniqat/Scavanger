@@ -1481,3 +1481,12 @@ export const ANALYZE_KNOWN_SPEEDUP = K.num('ANALYZE_KNOWN_SPEEDUP');
 export const PLANET_ENV_DPS = K.num('PLANET_ENV_DPS');
 /** A-13 (owner: player): 환경 피해를 적용하는 주기(초). 1 tick 당 `PLANET_ENV_DPS × 이 값`. */
 export const PLANET_ENV_TICK_S = K.num('PLANET_ENV_TICK_S');
+/**
+ * A-11 · A-12 (owner: world/Gather): 야생 씨앗 군락 · 미확인 표본 채집지의 홀드 시간(초)과 상호작용 반경(m).
+ * 약초 · 고철 · 토양이 `Gather.ts` 안에 숫자로 박혀 있던 것과 달리 처음부터 csv 에 둔다 (「수치는 코드에 적지
+ * 않는다」 그대로) — 옛 셋도 손볼 일이 생기면 여기로 따라 나온다.
+ */
+export const SEED_INTERACT_TIME = K.num('SEED_INTERACT_TIME');
+export const SEED_NODE_RADIUS = K.num('SEED_NODE_RADIUS');
+export const SAMPLE_INTERACT_TIME = K.num('SAMPLE_INTERACT_TIME');
+export const SAMPLE_NODE_RADIUS = K.num('SAMPLE_NODE_RADIUS');

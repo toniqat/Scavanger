@@ -525,6 +525,18 @@ export class InventorySystem implements GameSystem, InventoryRef {
   /** Bag first, then the stash; all-or-nothing. */
   consumeDefAll(defId: string, qty: number): boolean { return StashOps.consumeDefAll(this, defId, qty); }
 
+  /* ── A-13 (2026-09-11): 준비물을 함선에서 쓴다 ───────────────────────── */
+
+  /**
+   * 준비물(`ItemDef.prep`) 하나를 **함선에서** 써서 다음 레이드분으로 싣는다 (`ctx.progression.usePrep`).
+   * null = 실렸다, 문자열 = 한국어 거절 사유 (그때는 아이템이 **그대로 남는다**).
+   *
+   * 순서가 요점이다 — **progression 에게 먼저 묻고 성공할 때만 뺀다.** 뺀 뒤에 거절당하면 되돌릴 곳이
+   * 없어(`prep` 은 progression 소유다) 아이템만 조용히 사라진다. 뺄 수 없는 자리(열어 둔 상자 · 장비 칸)는
+   * 묻기 전에 미리 거른다.
+   */
+  usePrepItem(uid: string, from?: ItemLocation): string | null { return StashOps.usePrepItem(this, uid, from); }
+
   /* ── Phase 6: loadout presets (사격장) ───────────────────────────────── */
 
   captureLoadout(): LoadoutPreset { return StashOps.captureLoadout(this); }

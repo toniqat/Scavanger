@@ -153,6 +153,13 @@ export function onNewMission(sys: GameFlowSystem, seed: number, mode: MissionMod
   // 2026-09-11 (E-5 ①): a **new** solo raid restarts the clock record at "now" — a clock that once ran far ahead must not
   // fail every later resume. A stored run was already judged at boot, so nothing pending can slip through here.
   if (sys.isSoloRaid() && !sys.rejoining) bumpClockHigh(Date.now(), true);
+  /*
+   * A-13 (2026-09-11): 출격 — 함선에서 쓴 준비물(`PlayerProfile.prep`)을 이번 레이드분(`prepActive`)으로 옮긴다.
+   * 훈련장은 제외다 (환경이 없는 데다, 나갈 때 `game:abort` 가 `clearActivePreps` 를 부르므로 그냥 태워 버린다).
+   * 재접속 · 솔로 이어하기도 이 경로를 지나지만 그때 대기분은 비어 있으므로 `armPreps` 는 아무것도 하지 않고
+   * 이미 실려 있는 `prepActive` 를 그대로 둔다 — 돌아온 사람이 준비물을 조용히 잃지 않는 자리다.
+   */
+  if (!sys.isTraining()) ctx.progression?.armPreps();
   sys.awaitingWorld = true;
   sys.ensureNetHooks();
   // WorldSystem generates synchronously inside its own handler; if it already ran (registered earlier),
@@ -255,6 +262,7 @@ export function onAbort(sys: GameFlowSystem): void {
   sys.raidBlob = null;
   sys.soloRestore = null;
   clearSoloRaid();          // quitting to the ship / title ends the solo session (the kit resets below)
+  ctx.progression?.clearActivePreps();   // A-13: 레이드가 끝났다 — 이번 레이드분은 마신 것으로 친다
   ctx.rejoinPending = false;
   sys.rewarded = false;
   sys.awaitingWorld = false;

@@ -1,4 +1,4 @@
-import type { EquippedImplant, ImplantItemDef, ItemInstance,
+import type { EquippedImplant, EnvKind, ImplantItemDef, ItemInstance,
   DerivedStats, EmbeddedView, GameContext, GameSystem, PlayerProfile, ProfileRef, ProgressionRef,
   SkillDef, SkillId, StatDef, StatId, WeaponClass,
 } from '@/shared';
@@ -224,6 +224,115 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     }
   }
 
+  /* ══ 준비물 (A-13, 2026-09-11 — 사용자 결정: 함선에서 쓰면 다음 레이드 1회분) ════════════════════════════
+   * `profile.prep` = 다음 레이드에 실릴 것, `profile.prepActive` = 이번 레이드에 실려 있는 것. 환경(`EnvKind`)당
+   * 하나이고 출격 순간 `armPreps()` 가 대기분을 통째로 옮긴다. 사망해도 비우지 않는다 (「이미 마신 약」) —
+   * 비우는 곳은 레이드 종료(`clearActivePreps`) 하나뿐이다. 프로필에 살기 때문에 재접속 · 이어하기로 돌아온
+   * 사람이 조용히 잃지 않는다 (2026-09-10 규약).
+   * ──────────────────────────────────────────────────────────────────────────────────────────────────── */
+
+  getPreps(): readonly string[] { return this.prepList(); }
+  getActivePreps(): readonly string[] { return this.activePrepList(); }
+
+  /**
+   * 함선 전용. 준비물 def id 하나를 다음 레이드 대기분에 싣는다. 아이템을 빼는 것은 **부르는 쪽**(inventory)의
+   * 몫이고, 여기는 거절이면 **아무것도 바꾸지 않는다** — 그래서 inventory 가 먼저 묻고 성공할 때만 뺀다.
+   * null = 실렸다, 문자열 = 한국어 거절 사유.
+   */
+  usePrep(defId: string): string | null {
+    const ctx = this.ctx;
+    if (typeof defId !== 'string' || !defId) return '알 수 없는 준비물입니다';
+    if (ctx?.isRaidActive()) return '레이드 중에는 준비할 수 없습니다';
+    if (ctx && ctx.phase !== 'hub') return '함선에서만 준비할 수 있습니다';
+    const env = this.prepEnvOf(defId);
+    if (!env) return '알 수 없는 준비물입니다';
+    const list = this.prepList();
+    if (list.includes(defId)) return '이미 준비했습니다';
+    const clash = list.find((id) => this.prepEnvOf(id) === env);
+    if (clash) {
+      const name = ctx?.loot?.getItemDef(clash)?.name ?? '다른 준비물';
+      return `${name} 을(를) 이미 준비했습니다`;
+    }
+    list.push(defId);
+    this.afterPrepsChanged();
+    return null;
+  }
+
+  hasEnvPrep(env: EnvKind): boolean {
+    for (const id of this.activePrepList()) if (this.prepEnvOf(id) === env) return true;
+    return false;
+  }
+
+  /**
+   * 출격: 대기분을 이번 레이드분으로 옮긴다 (game/ 이 레이드 시작 때 한 번). 대기분이 비어 있으면 **아무것도
+   * 하지 않는다** — 재접속 · 솔로 이어하기도 `game:newMission` 을 지나가므로, 여기서 `prepActive` 를 덮으면
+   * 돌아온 사람이 이번 레이드분을 잃는다.
+   */
+  armPreps(): void {
+    const waiting = this.prepList();
+    if (waiting.length === 0) return;
+    const active = this.activePrepList();
+    for (const id of waiting) {
+      const env = this.prepEnvOf(id);
+      // 이번 레이드에 같은 환경이 이미 실려 있으면(재접속 뒤 남은 대기분) 중복해서 싣지 않는다.
+      if (active.includes(id)) continue;
+      if (env && active.some((a) => this.prepEnvOf(a) === env)) continue;
+      active.push(id);
+    }
+    this._profile.prep = [];
+    this.afterPrepsChanged();
+  }
+
+  /** 레이드 종료(탈출 · 전멸 · 포기 · `game:abort`). 사망만으로는 부르지 않는다. */
+  clearActivePreps(): void {
+    if (this.activePrepList().length === 0) return;
+    this._profile.prepActive = [];
+    this.afterPrepsChanged();
+  }
+
+  /** Live array on the profile (created on demand so an older save migrates to `[]` in place). */
+  private prepList(): string[] {
+    if (!Array.isArray(this._profile.prep)) this._profile.prep = [];
+    return this._profile.prep;
+  }
+
+  private activePrepList(): string[] {
+    if (!Array.isArray(this._profile.prepActive)) this._profile.prepActive = [];
+    return this._profile.prepActive;
+  }
+
+  /** `ItemDef.prep.env` of a prep def id, or null when items/ does not know it (yet). */
+  private prepEnvOf(defId: string): EnvKind | null {
+    try { return this.ctx?.loot?.getItemDef(defId)?.prep?.env ?? null; } catch { return null; }
+  }
+
+  /**
+   * Drop stored ids whose def no longer resolves as a 준비물 (a removed item, a corrupt file). Runs inside
+   * `recompute` once `ctx.loot` exists — the same shape as `pruneImplants`. Returns true when something went.
+   */
+  private prunePreps(): boolean {
+    const loot = this.ctx?.loot;
+    if (!loot || typeof loot.getItemDef !== 'function') return false;
+    let changed = false;
+    for (const key of ['prep', 'prepActive'] as const) {
+      const list = key === 'prep' ? this.prepList() : this.activePrepList();
+      const keep = list.filter((id) => this.prepEnvOf(id) !== null);
+      if (keep.length !== list.length) { this._profile[key] = keep; changed = true; }
+    }
+    return changed;
+  }
+
+  private afterPrepsChanged(): void {
+    this.markDirty(true);
+    this.emitPrepChanged();
+  }
+
+  private emitPrepChanged(): void {
+    this.ctx?.bus.emit('progress:prepChanged', {
+      prep: this.prepList().slice(), active: this.activePrepList().slice(),
+    });
+  }
+
   private afterImplantsChanged(): void {
     this.recompute();
     this.markDirty(true);
@@ -374,6 +483,7 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
       if (this.ctx !== ctx) return;
       this.recompute();                                        // gear refs exist by now (특수 가방 perk)
       ctx.bus.emit('progress:loaded', { profile: this._profile });
+      this.emitPrepChanged();                                   // A-13: 부팅 시점의 준비물 (HUD 배지 · 출격 준비 화면)
     });
   }
 
@@ -683,6 +793,7 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
       bus.emit('progress:skillProgress', { id, level: this.getSkill(id), progress });
     }
     this.emitImplantsChanged();                 // Phase 12: the equipped 임플란트 items came with the document
+    this.emitPrepChanged();                     // A-13: 준비물도 문서와 함께 왔다 (재접속 복귀가 여기를 지난다)
     this.refreshSheets();
   }
 
@@ -709,6 +820,7 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     this.flush();
     this.ctx?.bus.emit('progress:loaded', { profile: this._profile });
     this.emitImplantsChanged();
+    this.emitPrepChanged();
     this.refreshSheets();
   }
 
@@ -716,6 +828,7 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
   /** Recompute `derived`; folds in the 특수 가방 perk (implant cooldown −50 %) and the equipped 임플란트 items (Phase 12). */
   private recompute(): void {
     if (this.pruneImplants()) this.markDirty(false);     // a removed def id in an old save — drop it silently
+    if (this.prunePreps()) this.markDirty(false);        // A-13: same treatment for a 준비물 def that no longer exists
     this._derived = computeDerived(this._profile, this.hasSpecialBackpack(), this.implantContribution());
     this.refreshSheets();
   }

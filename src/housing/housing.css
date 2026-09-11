@@ -198,6 +198,97 @@
   .gs-right { min-height: 260px; }
 }
 
+/* ── 연구실 분석기 (A-12, 2026-09-11) ───────────────────────────────────────
+ * 재배 스테이션과 같은 구조다 — 좌 = 강화 줄 + 해석 칸, 우 = 가방 · 함선 창고 격자 + 해석 도감.
+ * `.az-*` 는 이 패널 전용 이름이라 HUD 위젯 클래스와 겹치지 않는다 (2026-09-10 `.hold` 사고).
+ * ────────────────────────────────────────────────────────────────────────── */
+.menu.housing-menu.analyzer-panel .frame {
+  min-width: 0; max-width: none; width: min(1180px, calc(100vw - 48px));
+}
+.az-body { display: grid; grid-template-columns: minmax(340px, 1fr) auto; gap: 22px; flex: 1; min-height: 0; }
+.az-left { display: flex; flex-direction: column; gap: 14px; min-width: 0; min-height: 0; overflow-y: auto; scrollbar-width: thin; padding-right: 4px; }
+.az-right { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.az-right .ui-label { display: flex; align-items: center; gap: 10px; }
+.az-right .hint { font-size: 11px; color: var(--c-text-faint); letter-spacing: 0.04em; }
+/* the embedded grids live outside `.inv-root`, so they need the `--inv-*` palette declared here (same list as
+   `.gs-inv` above — 값의 원본은 inventory/inventory.css 다) */
+.az-inv {
+  --inv-cell: 54px;
+  --inv-gap: 2px;
+  --inv-bg: rgba(9, 11, 15, 0.78);
+  --inv-bg-2: rgba(16, 19, 25, 0.82);
+  --inv-line: rgba(255, 255, 255, 0.12);
+  --inv-line-strong: rgba(255, 255, 255, 0.26);
+  --inv-text: #e9ecef;
+  --inv-muted: rgba(233, 236, 239, 0.55);
+  --inv-accent: #f0c46a;
+  --inv-ok: #4fd17e;
+  --inv-bad: #ff5c5c;
+  --inv-swap: #4aa3ff;
+  --inv-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  display: flex; flex: 1; min-height: 0; color: var(--inv-text);
+}
+.az-inv .trade-grids { flex: 1; min-height: 0; }
+.az-dexhost { max-height: 210px; overflow-y: auto; scrollbar-width: thin; padding-right: 4px; }
+
+/* 강화 줄 — 해석 칸을 여는 유일한 입구 (재배 스테이션의 `.gs-up` 과 같은 결) */
+.az-up {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 10px 12px; border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.045);
+}
+.az-up.is-max { opacity: 0.72; }
+.az-up-main { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.az-up-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.az-up-head .lv { font-size: 13px; font-weight: 700; letter-spacing: 0.12em; font-family: var(--ui-mono); color: var(--c-text); }
+.az-up-head .next { font-size: 11px; letter-spacing: 0.05em; color: var(--c-accent); }
+.az-up-cost { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 0; }
+.az-up-note { font-size: 11px; letter-spacing: 0.04em; color: var(--c-warning, #e2b24a); }
+.az-up-note.ok { color: var(--c-text-faint); }
+.az-up-btn { flex: none; min-width: 96px; }
+
+/* 해석 칸 — 세로로 쌓이는 넓은 행 하나가 칸 하나다 (온실처럼 층이 없다) */
+.az-slots { display: flex; flex-direction: column; gap: 10px; }
+.az-slot {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: center;
+  padding: 10px 12px; border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03);
+}
+.az-cell {
+  position: relative; width: 64px; height: 64px; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid rgba(199, 159, 255, 0.35);
+  background: radial-gradient(circle at 50% 35%, rgba(199, 159, 255, 0.14), rgba(0, 0, 0, 0.55));
+  transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+}
+.az-cell.is-locked { border-style: dashed; border-color: rgba(255, 255, 255, 0.16); opacity: 0.5; }
+.az-cell.is-over { border-color: var(--c-accent); box-shadow: 0 0 16px rgba(255, 179, 71, 0.55); }
+.az-cell.is-running { border-color: rgba(199, 159, 255, 0.7); }
+.az-cell.is-ready { border-color: rgba(126, 224, 138, 0.75); box-shadow: 0 0 16px rgba(126, 224, 138, 0.45); }
+.az-glyph { font-size: 26px; line-height: 1; color: #d8c8f5; text-shadow: 0 0 10px rgba(199, 159, 255, 0.45); pointer-events: none; }
+.az-cell.is-ready .az-glyph { color: var(--c-success); animation: azReady 1.6s var(--ease) infinite; }
+@keyframes azReady { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.12); } }
+
+.az-slot-body { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.az-line { font-size: 12px; font-family: var(--ui-mono); color: var(--c-text); letter-spacing: 0.03em; }
+.az-sub { font-size: 10px; color: var(--c-text-faint); letter-spacing: 0.03em; min-height: 13px; }
+.az-prog { width: 100%; height: 4px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
+.az-prog[hidden] { display: none; }
+.az-prog i { display: block; height: 100%; width: 0%; background: #c79fff; transition: width var(--t-fast) linear; }
+.az-acts { display: flex; gap: 6px; }
+.az-acts .ui-btn { min-width: 84px; }
+/* `.ui-btn` sets its own display, so the hidden attribute needs to win explicitly */
+.az-acts .ui-btn[hidden] { display: none; }
+
+/* 해석 도감 — `.hs-dex*` 의 뼈대를 그대로 쓰고 두 줄짜리 본문만 얹는다 */
+.az-dex-row { align-items: center; }
+.az-dex-row .body { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.az-dex-row .body .title { font-size: 12px; color: var(--c-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.az-dex-row .body .sub { font-size: 10px; color: var(--c-text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (max-width: 1100px) {
+  .az-body { grid-template-columns: minmax(0, 1fr); }
+  .az-right { min-height: 260px; }
+}
+
 /* ── 서재 책장 (Phase 9) ────────────────────────────────────────────────── */
 .hs-shelf { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .hs-book {

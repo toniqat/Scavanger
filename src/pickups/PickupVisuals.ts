@@ -45,6 +45,10 @@ const REST_Y: Record<ItemCategory, number> = {
      둘 다 `crate` 실루엣(default 가지)을 타고 색은 def 의 등급색이다 (`CATEGORY_COLOR.crop/soil` 은 목록 · 탭용). */
   crop: 0.07,
   soil: 0.14,
+  /* appended: 2026-09-11 연구실 — 표본은 작은 채집물이라 약초처럼 낮게 눕고, 준비물은 몸에 두르는 장구라
+     가방보다 조금 낮게 선다. 둘 다 `crate` 실루엣(default 가지)을 타고 색은 def 의 등급색이다. */
+  sample: 0.07,
+  prep: 0.15,
 };
 
 /**

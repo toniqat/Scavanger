@@ -73,7 +73,33 @@ export function freshProfile(name = '스캐빈저'): PlayerProfile {
     statProgress: zeroStatProgress(),
     // Phase 12 (2026-09-08): equipped 임플란트 items live here while out of the grids
     implants: [],
+    // A-13 (2026-09-11): 준비물 — 대기분 / 이번 레이드분. 새 캐릭터는 둘 다 비어 있다.
+    prep: [],
+    prepActive: [],
   };
+}
+
+/** Hard cap on stored prep ids (there is one per `EnvKind`; this only bounds junk from a corrupt file). */
+const PREP_STORE_MAX = 8;
+
+/**
+ * Sanitise a stored 준비물 list (A-13): non-empty strings only, duplicates dropped, capped. Whether the def still
+ * exists — and whether two entries share an `env` — is **not** checked here (`Profile.ts` imports nothing from
+ * items/); `ProgressionSystem.prunePreps` does that once `ctx.loot` is up, exactly like `sanitizeImplants`.
+ */
+export function sanitizePreps(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const it of raw) {
+    if (out.length >= PREP_STORE_MAX) break;
+    if (typeof it !== 'string' || !it) continue;
+    const id = it.slice(0, 64);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
 }
 
 /** Hard cap on stored equipped implants (IMPLANT_SLOTS_MAX is 10 and every implant costs >= 1 slot; this only bounds junk). */
@@ -152,6 +178,12 @@ export function migrate(raw: unknown): PlayerProfile | null {
 
   // Phase 12: equipped implant items — missing on older saves → []
   p.implants = sanitizeImplants(r.implants);
+
+  /* A-13 (2026-09-11): 준비물. 옛 세이브에는 두 필드가 없다 → 빈 배열. `prepActive` 는 레이드 도중에 끊긴 사람이
+   * 돌아왔을 때 그대로 살아 있어야 하는 값이므로 (「재접속으로 돌아온 사람이 조용히 무언가를 잃으면 안 된다」)
+   * 여기서 반드시 옮겨 담는다 — migrate 의 결과가 곧 다음 `saveProfile` 의 내용이다. */
+  p.prep = sanitizePreps(r.prep);
+  p.prepActive = sanitizePreps(r.prepActive);
 
   /* 2026-09-09 (캐릭터 생성창): `accent` / `createdAt` / `playedAt` 은 `shared/character.makeCharacterProfile`
    * 이 심는 필드다. 여기서 옮겨 담지 않으면 **첫 저장에서 사라진다** — `migrate` 의 결과가 곧 다음

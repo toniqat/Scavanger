@@ -25,6 +25,8 @@ import { ReloadGauge } from './hud/ReloadGauge';
 import { StratagemWheel } from './hud/StratagemWheel';
 import { CommsWheel } from './hud/CommsWheel';
 import { HazardHud } from './hud/HazardHud';
+/* 2026-09-11 (A-13): 행성 상시 환경 배지 — 레이드 HUD 좌측 상단, `player:envChanged` 의 유일한 소비자 */
+import { EnvBadge } from './hud/EnvBadge';
 import { RaidAlerts } from './hud/RaidAlerts';
 import { StratagemPanel } from './hud/StratagemPanel';
 import { RescuePicker } from './hud/RescuePicker';
@@ -112,6 +114,8 @@ import type { RewardsBlock } from './menus/RewardsBlock';
  * Phase 11 (소셜): `Community` joins the social layer — the ship-only 커뮤니티 thumbnail, its panel (which reuses the
  * ESC screen's `menus/social/SocialColumn`) and the 분대 초대 stack with its `Keys.INVITE` hold; the pause menu's own
  * social column is built by `PauseMenu`, and `debugSocial(snapshot, invites)` fakes the mirror for the smoke.
+ * 2026-09-11 (A-13 행성 상시 환경): `EnvBadge` joins the gameplay layer under the mission clock — `player:envChanged`
+ * 의 유일한 소비자이고, 레이어가 함선 · 타이틀에서 내려가므로 **레이드에서만** 보인다.
  */
 export class HudSystem implements GameSystem {
   readonly name = 'hud';
@@ -151,6 +155,7 @@ export class HudSystem implements GameSystem {
   private comms!: CommsWheel;
   /** 2026-09-09: 환경 재해 경고 (배너 · 안전지대 게이지 · 화면 가장자리). */
   private hazard!: HazardHud;
+  private envBadge!: EnvBadge;
   /** 2026-09-09: 새 랜드마크 발견 · 로그 강하 예고 토스트 (DOM 없음 — `ui:notify` 로만 나간다). */
   private raidAlerts = new RaidAlerts();
   private strat!: StratagemPanel;
@@ -248,6 +253,8 @@ export class HudSystem implements GameSystem {
     this.comms = new CommsWheel(this.hudRoot);
     // 환경 재해: 배너 · 게이지는 게임플레이 레이어, 가장자리 맥동은 비네트와 같은 오버레이 레이어.
     this.hazard = new HazardHud(this.hudRoot, this.overlayRoot);
+    // 행성 상시 환경(A-13): 게임플레이 레이어라서 함선 · 타이틀에서는 레이어째 내려간다 = 레이드 전용.
+    this.envBadge = new EnvBadge(this.hudRoot);
     this.vitals = new Vitals(this.hudRoot);
     this.weapon = new WeaponPanel(this.hudRoot);
     // The strip lives **inside** the weapon panel so it stacks on top of the gun box and inherits its
@@ -351,7 +358,7 @@ export class HudSystem implements GameSystem {
     this.netBadge.bind(ctx);
     this.rescuePick.bind(ctx);
     // 2026-09-09 (레이드 플레이 개선): 의사소통 휠 · 재해 HUD · 레이드 알림
-    for (const c of [this.comms, this.hazard, this.raidAlerts]) c.bind(ctx);
+    for (const c of [this.comms, this.hazard, this.raidAlerts, this.envBadge]) c.bind(ctx);
     for (const m of [this.title, this.pause, this.death, this.complete]) m.bind(ctx);
 
     const b = ctx.bus;
@@ -488,6 +495,9 @@ export class HudSystem implements GameSystem {
   get isHazardBannerOn(): boolean { return this.hazard.isBannerOn; }
   get isInHazard(): boolean { return this.hazard.isInside; }
   get hazardSafeShare(): number { return this.hazard.safeShare; }
+  /** 2026-09-11 (A-13) 행성 상시 환경 배지: 그리고 있는 환경 · 준비물이 막고 있나 (debug / smoke). */
+  get envBadgeKind(): string | null { return this.envBadge.shownEnv; }
+  get isEnvProtected(): boolean { return this.envBadge.isProtected; }
   /** Whether the targeting frame is up (debug). */
   get isTargeting(): boolean { return this.targeting.isActive; }
   /** Whether the key-settings overlay is open (debug). */
@@ -684,7 +694,7 @@ export class HudSystem implements GameSystem {
     this.community.dispose();
     this.netBadge.dispose();
     this.rescuePick.dispose();
-    for (const c of [this.comms, this.hazard, this.raidAlerts]) c.dispose();
+    for (const c of [this.comms, this.hazard, this.raidAlerts, this.envBadge]) c.dispose();
     for (const m of [this.title, this.pause, this.death, this.complete]) m.dispose();
     this.settings.dispose();
     this.keybinds.dispose();

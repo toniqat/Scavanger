@@ -84,6 +84,7 @@ export function panels(sys: HousingSystem): HousingPanel[] {
   const out: HousingPanel[] = [];
   if (sys.presetMenu) out.push(sys.presetMenu);
   if (sys.growStation) out.push(sys.growStation);
+  if (sys.analyzerPanel) out.push(sys.analyzerPanel);
   if (sys.bookshelfMenu) out.push(sys.bookshelfMenu);
   return out;
   }

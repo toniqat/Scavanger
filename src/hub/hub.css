@@ -116,6 +116,13 @@
 .hp-threat[data-threat="3"] { color: var(--c-danger); border-color: rgba(255, 90, 70, 0.5); }
 .hp-terrain { font-size: 12px; letter-spacing: 0.16em; color: var(--c-text-dim); }
 .hp-brief { font-size: 12px; line-height: 1.55; color: var(--c-text-dim); text-align: center; max-width: 480px; }
+/* 행성 상시 환경 (A-13, 2026-09-11). `--env-c` = ENV_COLOR; `.warn` = 준비물이 없다 (막지는 않는다 — 소프트 게이트) */
+.hp-env {
+  font-size: 11px; line-height: 1.5; text-align: center; max-width: 480px;
+  color: var(--env-c, var(--c-text-dim)); border: 1px solid currentColor; padding: 4px 10px;
+  background: rgba(8, 10, 14, 0.55); opacity: 0.75;
+}
+.hp-env.warn { opacity: 1; box-shadow: 0 0 10px -2px currentColor; }
 .ui-btn.hp-travel { min-width: 240px; margin-top: 6px; }
 .ui-btn.hp-travel.locked { letter-spacing: 0.04em; font-size: 11px; }
 

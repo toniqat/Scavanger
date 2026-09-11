@@ -12,6 +12,8 @@ import {
   type LadderDef, type PeerId,
   /* appended (2026-09-11, C-22) */
   type SurfaceMaterial,
+  /* appended (2026-09-11, A-13): 행성 상시 환경 */
+  type EnvKind,
 } from '@/shared';
 import { obstacleMaterial, onOutpostSlab, terrainMaterial } from './surface';
 import { Ambience } from './Ambience';
@@ -868,6 +870,16 @@ export class WorldSystem implements GameSystem, WorldRef {
   getTrams(): readonly TramDef[] { return this.mode === 'training' ? NONE_TRAMS : this.rails.getTrams(); }
   /** 이번 레이드의 환경 재해. 후보가 없는 행성 · 훈련장이면 null. */
   get hazard(): HazardRef | null { return this.mode === 'training' ? null : this.hazardSys.ref; }
+  /**
+   * 2026-09-11 (A-13): 이번 레이드 행성의 **상시 환경** (`data/planets.csv` 의 `env`), 없으면 null.
+   * `getPlanet(id)?.env` 를 그대로 돌려주는 얇은 질의다 — 행성 id 를 들고 다니지 않아도 되도록 world 가
+   * 대신 답한다 (`hazard` 와 같은 자리에 두는 이유다: 「지금 이 맵이 어떤 곳인가」를 묻는 질의 둘이다).
+   * 훈련장은 행성이 아니므로 늘 null 이다 (`generate` 는 `this.planet` 을 비운다 — 그래도 `mode` 로 한 번 더 막는다).
+   */
+  get env(): EnvKind | null {
+    if (this.mode === 'training') return null;
+    return getPlanet(this.planet)?.env ?? null;
+  }
   /** 2026-09-11: 구조물 사다리 (훈련장은 빈 배열). */
   getLadders(): readonly LadderDef[] { return this.mode === 'training' ? NONE_LADDERS : this.structures.getLadders(); }
 

@@ -11,9 +11,12 @@
  *   3. **가방 없음** · 4. **방탄복 없음** — 해당 장비 칸이 비었다.
  *   5. **전술 임플란트 없음** — `ctx.implants.equipped` 가 null.
  *   6. **회복 아이템 없음** — 가방에 `category: 'stim'` 이 하나도 없다 (창고에 있는 건 못 들고 나간다).
+ *   7. **준비물 없음** (2026-09-11, A-13) — 목표 행성에 상시 환경이 있는데 그것을 막는 준비물을 안 실었다.
+ *      목표 행성을 아는 곳은 `ctx.hub.planet` 하나뿐이고, 실린 준비물은 `ctx.progression.hasEnvPrep(env)` 다.
+ *      다른 여섯과 똑같이 **막지 않는다** — 맨몸으로 들어가면 체력이 계속 깎일 뿐이다 (사용자 결정: 소프트 게이트).
  */
 import type { AmmoType, ItemDef, LaunchWarning } from '@/shared';
-import { AMMO_STACK_ROUNDS } from '@/shared';
+import { AMMO_STACK_ROUNDS, ENV_DESC_KO, ENV_LABEL_KO, getPlanet } from '@/shared';
 import { ITEM_DEF_MAP, getWeaponDef, shieldChargeOf } from '@/items';
 import { WEAPON_SLOT_IDS } from '../model';
 import type { InventorySystem } from '../InventorySystem';
@@ -78,6 +81,19 @@ export function getLaunchWarnings(sys: InventorySystem): LaunchWarning[] {
   let heals = 0;
   try { heals = sys.countWhere((d) => d.category === 'stim' && !shieldChargeOf(d.id)); } catch { heals = 0; }
   if (heals <= 0) out.push({ id: 'noHeal', text: '회복 아이템이 없습니다', detail: '가방에 붕대나 주사기를 넣어 두세요.' });
+
+  /* 7. 준비물 — 목표 행성의 상시 환경을 막을 것을 실었나 (2026-09-11, A-13).
+   *    ref 둘 다 선택적으로 만진다: 훈련장 · 스모크처럼 hub 나 progression 이 없는 트리에서도 점검이 돌아야 한다. */
+  try {
+    const env = getPlanet(sys.ctx.hub?.planet ?? null)?.env ?? null;
+    if (env && sys.ctx.progression?.hasEnvPrep?.(env) !== true) {
+      out.push({
+        id: 'noEnvPrep',
+        text: `이 행성은 ${ENV_LABEL_KO[env]} 환경입니다`,
+        detail: `${ENV_DESC_KO[env]} 연구실 조합대에서 준비물을 만들어 함선에서 쓰세요.`,
+      });
+    }
+  } catch { /* hub · progression 이 아직 없다 — 경고를 남발하지 않는다 */ }
 
   return out;
 }

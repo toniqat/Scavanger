@@ -9,7 +9,7 @@ import * as THREE from 'three';
 import type { PlanetId } from '@/shared';
 import { getPlanet, isPlanetId, planetLabel, HUB_TRAVEL_DURATION, PLANET_NONE_LABEL, PLANET_STORAGE_KEY } from '@/shared';
 import type { CrewCardWire, GameContext, GameSystem, HubLaunchSlot, HubRef, HubShipKind, Interactable, InteriorCollider, LoadoutSlot, LobbyState, PeerId, RoomPurpose } from '@/shared';
-import { CREW_CARD_MIN_INTERVAL_S, CREW_LOADOUT_COOLDOWN_S, HUB_DOCKING_DURATION, HUB_LAUNCH_COUNTDOWN, HUB_READY_BLOCKER, HUB_READY_CELLS, Keys, NET_SLOT_COLORS, ROOM_PURPOSE_LABEL_KO } from '@/shared';
+import { CREW_CARD_MIN_INTERVAL_S, CREW_LOADOUT_COOLDOWN_S, HUB_DOCKING_DURATION, HUB_LAUNCH_COUNTDOWN, HUB_READY_BLOCKER, HUB_READY_CELLS, Keys, NET_SLOT_COLORS, ROOM_PURPOSE_COLOR, ROOM_PURPOSE_LABEL_KO } from '@/shared';
 import { PersonalShip } from '../interiors/PersonalShip';
 import { SharedShip } from '../interiors/SharedShip';
 import type { StationDef } from '../interiors/stations';
@@ -176,6 +176,12 @@ export function buildHousing(sys: HubSystem, interior: ShipInterior): void {
       if (h && typeof h.openBookshelfMenu === 'function') h.openBookshelfMenu(uid);
       else ctx.bus.emit('ui:notify', { text: '책장을 사용할 수 없습니다', kind: 'warning' });
     },
+    // 연구실 (A-12, 2026-09-11): 분석기 — 표본 넣기 · 해석 회수 · 해석 도감
+    onAnalyzer: (uid) => {
+      const h = ctx.housing;
+      if (h && typeof h.openAnalyzer === 'function') h.openAnalyzer(uid);
+      else ctx.bus.emit('ui:notify', { text: '분석기를 사용할 수 없습니다', kind: 'warning' });
+    },
   }, source);
   sys.housingMode.setShip(source ? null : interior, source ? null : sys.furniture);
   sys.refreshRoomSigns();
@@ -215,13 +221,20 @@ export function roomPurposeLabel(sys: HubSystem, i: number): string {
   return p ? ROOM_PURPOSE_LABEL_KO[p] : '빈 방';
   }
 
-/** Door sign + 방 조명 of one room (an empty room reads dark, an assigned one is lit and gets a pool light). */
+/**
+ * Door sign + 방 조명 of one room (an empty room reads dark, an assigned one is lit and gets a pool light).
+ *
+ * 2026-09-11 (연구실): the sign accent is the purpose's **own** colour (`ROOM_PURPOSE_COLOR`, the same table the
+ * 함선 tab 방 목록 and the 시설 관리 카드 draw their thumbnails from) instead of one amber for every assigned room —
+ * so 온실 reads green, 연구실 purple and 작업실 amber from the corridor, the way they already do in the UI.
+ * CLAUDE.md 「같은 것을 두 폴더가 쓰면 `shared` 로 뽑는다」: the table is in `shared`, nothing is copied here.
+ */
 export function refreshRoomSign(sys: HubSystem, i: number): void {
   const ship = sys.interior;
   if (!(ship instanceof PersonalShip)) return;
   const p = sys.roomPurpose(i);
   const assigned = !!p && p !== 'empty';
-  ship.setRoomLabel(i, sys.roomPurposeLabel(i), assigned ? '#ffd27a' : '#e8e6e1');
+  ship.setRoomLabel(i, sys.roomPurposeLabel(i), p && assigned ? ROOM_PURPOSE_COLOR[p] : '#e8e6e1');
   ship.setRoomLit(i, assigned);
   }
 

@@ -28,6 +28,9 @@ export const DATA_OWNERS = [
   '/src/meta/Rules.ts',          // tuning (임플란트 수리 수수료)
   '/src/world/structures/model.ts', // structures (버려진 구조물 · 선로 플랫폼 · 전차)
   '/src/world/hazard/model.ts',  // hazards (환경 재해의 색 · 입자 · 벽)
+  // 2026-09-11 (A-11 · A-12): 행성별 야생 씨앗 · 미확인 표본의 planets.csv 열 (soil.ts 와 같은 임시 조치).
+  '/src/world/flora.ts',
+  '/src/world/specimen.ts',
   '/src/audio/AudioSystem.ts',   // tables (FOOTSTEP_MATERIAL_GAIN — 2026-09-11 C-22)
 ];
 

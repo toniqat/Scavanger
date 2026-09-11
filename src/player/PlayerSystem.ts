@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { PlayerRestoreState, Rarity } from '@/shared';
+import type { EnvKind, PlayerRestoreState, Rarity } from '@/shared';
 import {
   GameContext, Keys, MouseButtons, PLAYER_MAX_HP, PLAYER_MAX_STAMINA, PLAYER_RADIUS, PLAYER_WALK_SPEED,
   PLAYER_DOWN_HP, PLAYER_DOWN_BLEED_PER_SEC, PLAYER_DOWN_SPEED_MUL, PLAYER_REVIVE_HP, PLAYER_GIVE_UP_HOLD,
@@ -132,6 +132,12 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   burnTick = 0;
   _burning = false;
   regenAccum = 0;
+  /* 행성 상시 환경 (A-13, `parts/Statuses.updateEnv`). 프로필의 준비물이 막아 주는지까지 합쳐 **상태가 바뀔 때만**
+   * `player:envChanged` 를 낸다. 준비물 자체는 progression 의 프로필에 살기 때문에 `resetTactical` · 스폰이
+   * 건드리지 못한다 — 여기 있는 것은 노출 상태와 틱 누산기뿐이다. */
+  envKind: EnvKind | null = null;
+  envProtected = false;
+  envTick = 0;
 
   // stance
   _stance: Stance = 'stand';
@@ -897,6 +903,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.updateCloak(dt, ctx);
     this.updateBurning(dt);
     this.updateArmorRegen(dt);
+    // ── 행성 상시 환경 (A-13): 준비물이 없으면 체력만 깎인다 (실드 우회)
+    this.updateEnv(dt, ctx);
 
     // ── hellpod choreography
     if (this.hellpod.isActive) this.updateDrop(dt);
@@ -1127,6 +1135,9 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
 
   /** 재생 방탄복: 1 hp/s (perkValue) while stamina is full. Healed in whole points to avoid event spam. */
   private updateArmorRegen(dt: number): void { return Stat.updateArmorRegen(this, dt); }
+
+  /** A-13: 행성 상시 환경 피해 · `player:envChanged` (`parts/Statuses.updateEnv`). */
+  private updateEnv(dt: number, ctx: GameContext): void { return Stat.updateEnv(this, dt, ctx); }
 
   /** Tactical bag: hold Space in the air to hover, plus one automatic hover before a fatal fall (낙사 방지). */
   private updateBagFlight(): void { return Loco.updateBagFlight(this); }

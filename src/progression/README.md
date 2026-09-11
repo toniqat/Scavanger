@@ -248,11 +248,47 @@ rules, the storage and the UI; items/ the defs and loot; meta/ (세레스 바이
   (dimmed rows, click-to-equip, Escape, raid line), reload round-trip, malformed-entry pruning, server document
   round-trip through a fake `ctx.net.profile`.
 
+## 준비물 (A-13, 2026-09-11)
+
+조합대에서 만든 **준비물**(`ItemDef.prep`, `prep_respirator` 방독 · `prep_coolant` 내열)을 **함선에서 쓰면**
+그 자리에서 소모돼 다음 레이드 1회분으로 실린다 (사용자 결정). 규칙 · 저장 · 이벤트의 주인은 이 폴더이고,
+아이템을 빼는 것은 inventory, 피해는 player, 레이드 경계는 game 이 맡는다.
+
+| 필드 | 뜻 |
+|---|---|
+| `PlayerProfile.prep` | **다음** 레이드에 실릴 def id (환경당 최대 1개). 옛 세이브에는 없다 → `[]` |
+| `PlayerProfile.prepActive` | **이번** 레이드에 실려 있는 def id. 함선에서는 비어 있다 |
+
+- `usePrep(defId)` — **함선에서만** (`ctx.phase === 'hub'` + `!isRaidActive()`). 같은 `env` 를 이미 준비했거나
+  레이드 중이면 **한국어 사유를 돌려주고 아무것도 바꾸지 않는다** (null = 실렸다). 환경은 `ctx.loot.getItemDef(id)?.prep.env`
+  로 읽으므로 items/ 가 아직 def 를 안 만들었으면 `'알 수 없는 준비물입니다'` 로 조용히 거절한다.
+- `armPreps()` — 출격(`game/parts/Phases.onNewMission`, 훈련장 제외). 대기분을 통째로 `prepActive` 로 옮기고 `prep` 을 비운다.
+  **대기분이 비어 있으면 아무것도 하지 않는다** — 재접속 · 솔로 이어하기도 `game:newMission` 을 지나가므로,
+  여기서 `prepActive` 를 덮으면 돌아온 사람이 이번 레이드분을 잃는다.
+- `clearActivePreps()` — 레이드 종료(`complete` · `gameOver` · `onAbort`). **사망만으로는 부르지 않는다** —
+  「이미 마신 약」이다.
+- `hasEnvPrep(env)` — player 가 `PLANET_ENV_TICK_S` 마다 묻는 질의. `getPreps()` · `getActivePreps()` 는 읽기용.
+- 바뀔 때마다 `progress:prepChanged {prep, active}` + **즉시 저장**(`markDirty(true)` → localStorage + `progression`
+  서버 문서). 부팅 마이크로태스크 · `net:profileLoaded` · `resetProfile` 도 같은 이벤트를 다시 낸다.
+- **재접속에도 사는 이유**가 여기다 (2026-09-10 규약 「재접속으로 돌아온 사람이 조용히 무언가를 잃으면 안 된다」):
+  두 필드가 프로필에 살고, `Profile.migrate` 가 `sanitizePreps` 로 **옮겨 담으며**(migrate 의 결과가 곧 다음
+  `saveProfile` 의 내용이다), 서버 문서 왕복도 그 길을 탄다. `prunePreps()` 는 `recompute` 안에서 def 가 사라진
+  id 를 조용히 버린다 (`pruneImplants` 와 같은 모양).
+
 ---
 
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-11 (A-13 준비물, 에이전트 prep)** — 계약은 읽기만 했다 (`PlayerProfile.prep` · `prepActive`,
+  `ProgressionRef.getPreps` · `getActivePreps` · `usePrep` · `hasEnvPrep` · `armPreps` · `clearActivePreps`,
+  `progress:prepChanged`). 위 *준비물* 절이 전부다.
+  - `Profile.ts` — `freshProfile` 에 빈 두 배열, `sanitizePreps(raw)`(문자열만 · 중복 제거 · 상한 8), `migrate` 가
+    두 필드를 옮겨 담는다. `PROFILE_VERSION` 은 그대로 — 옛 세이브는 `[]` 를 받을 뿐이다.
+  - `ProgressionSystem.ts` — 여섯 메서드 + `prepEnvOf` · `prunePreps` · `emitPrepChanged`. `recompute` 가
+    `prunePreps`, `onProfileLoaded` · `resetProfile` · 부팅 마이크로태스크가 `emitPrepChanged`.
+  - 검증: `npm run typecheck` 클린. 스모크는 리드가 돌린다.
 
 - **2026-09-11 (C 항목 배치 — 사망 임플란트 · 감정 XP 중복)** — 계약은 읽기만 했다 (`ProgressionRef.stripImplantsForCorpse?`,
   `brokenImplantIdOf`).

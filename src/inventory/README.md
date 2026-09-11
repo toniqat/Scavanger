@@ -698,7 +698,26 @@ Data-driven off the frozen contract (`ItemCategory 'implant'`, `ItemDef.implant`
 
 ---
 
+## 준비물 사용 (A-13, 2026-09-11)
+
+준비물(`ItemDef.prep`)은 **함선에서 우클릭 → `사용 (다음 레이드 1회분)`** 으로 쓴다
+(`ui/parts/ContextMenu.menuEntries` 의 1c-2 · `InventorySystem.usePrepItem` → `parts/StashOps.usePrepItem`).
+
+- **순서가 규약이다** — `ctx.progression.usePrep(defId)` 에게 **먼저 묻고, 성공(null)일 때만** `takeItem(uid, 1)`
+  로 뺀다. 뒤집으면(빼고 나서 묻는다) 거절당했을 때 되돌릴 곳이 없다 — `PlayerProfile.prep` 은 이 폴더의
+  것이 아니다. 뺄 수 없는 자리(열어 둔 상자 · 장비 칸)는 **묻기 전에** 사유로 거른다.
+- 거절은 조용히 삼키지 않는다: 한국어 사유가 그대로 토스트로 나가고 아이템은 **그대로 남는다**
+  (`이미 준비했습니다` · `<이름> 을(를) 이미 준비했습니다` · `함선에서만 사용할 수 있습니다` …).
+- 레이드 중에는 항목이 `레이드 중에는 쓸 수 없음` 힌트를 달고 잠긴다 (눌러도 경고 토스트뿐).
+  `사용` 항목이 있으므로 준비물은 평범한 우클릭으로도 메뉴가 열린다(`hasMenu`).
+- 분해 · 수리 대상이 아니다 — `Durability` · `Salvage` 경로는 한 줄도 바뀌지 않았다.
+
 ## 변경 이력
+
+- **2026-09-11 (A-13 준비물 사용, 에이전트 prep)** — 계약은 읽기만 했다 (`ItemDef.prep`, `ProgressionRef.usePrep`).
+  `parts/StashOps.usePrepItem(sys, uid, from)` 신설 + `InventorySystem.usePrepItem` 한 줄 위임,
+  `ui/labels` 의 `TEXT.menu.usePrep` · `usePrepRaid`, `ui/parts/ContextMenu` 의 메뉴 항목 하나와 `hasMenu` 한 칸.
+  위 *준비물 사용* 절이 전부다. 격자 · 드래그 · 창고 저장 경로는 건드리지 않았다.
 
 - **2026-09-11 (C-60 · C-61 — 시체 창 스크롤 · 가방 소모 표시의 영속화, 에이전트 c6061)** —
   ① **컨테이너 격자가 패널 안에서 스크롤한다**(C-60, 사용자 결정 "컨테이너 패널 세로 스크롤"): `fitCorpseGrid` 가 행을

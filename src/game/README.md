@@ -304,9 +304,33 @@ over them and 게임으로 돌아가기 returns to what was open. `onFocusLost` 
 
 ---
 
+## 준비물의 레이드 경계 (A-13, 2026-09-11)
+
+준비물의 규칙 · 저장은 progression 이 갖고, 이 폴더는 **레이드의 시작과 끝 두 지점**만 맡는다.
+
+| 시점 | 호출 | 자리 |
+|---|---|---|
+| 출격 | `ctx.progression?.armPreps()` | `parts/Phases.onNewMission` (훈련장 제외) |
+| 탈출 | `clearActivePreps()` | `parts/Death.complete` |
+| 전멸 · 실패 | `clearActivePreps()` | `parts/Death.gameOver` |
+| 포기 · `game:abort` | `clearActivePreps()` | `parts/Phases.onAbort` |
+
+- **사망만으로는 비우지 않는다** — 「이미 마신 약」이다 (사용자 결정). 장비와 달리 시체로 가지 않고, 구조선으로
+  되살아나도 그대로 남는다.
+- 재접속 · 솔로 이어하기도 `game:newMission` 을 지나가지만 그때 대기분(`PlayerProfile.prep`)은 비어 있으므로
+  `armPreps()` 가 **아무것도 하지 않고** 이미 실린 `prepActive` 를 그대로 둔다 — 돌아온 사람이 준비물을 조용히
+  잃지 않는 자리다 (2026-09-10 규약). 레이드 blob 은 인벤토리만 담으므로 이 값을 건드리지 않는다.
+- 훈련장에서는 아예 싣지 않는다 (환경이 없고, 나갈 때 `game:abort` 가 어차피 비운다).
+
+---
+
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-11 (A-13 준비물 레이드 경계, 에이전트 prep)** — 계약은 읽기만 했다 (`ProgressionRef.armPreps` ·
+  `clearActivePreps`). `parts/Phases.onNewMission` · `onAbort`, `parts/Death.complete` · `gameOver` 에 한 줄씩.
+  위 *준비물의 레이드 경계* 절이 전부다.
 
 - **2026-09-11 (C-70 — 사망 직후 새로고침이 사망 전 blob 으로 복귀하던 틈, 에이전트 c70)** — 레이드 세션 저장이
   `RAID_SAVE_INTERVAL_S` 타이머와 루팅에서만 올라가서 **사망의 순간이 세이브에 없었다.** 멀티는 `stripForCorpse()` 로

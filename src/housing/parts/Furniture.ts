@@ -11,18 +11,18 @@ import type {
 } from '@/shared';
 import {
   BOOKS_PER_SHELF, FURNITURE_DEFS, FURNITURE_DEF_MAP, GROW_PLOTS_PER_RACK, GROW_SKILL_SPEEDUP, IMPLANT_IDS, SKILL_IDS, SKILL_LEVEL_MAX,
-  benchKindOf,
+  benchKindOf, isUtilityFurniture,
 } from '@/shared';
 import {
   autoPlaceSpot,
   bookGainMulFor, bookWeightOf, canPlaceAt, craftCostMulFor, facilityBlockReason, facilityLevel, facilityMaxLevel, facilityName,
-  facilityPurposeOf, purposeBuildBlockReason, purposeBuildCost, roomRefundCost,
+  facilityPurposeOf, formatCost, purposeBuildBlockReason, purposeBuildCost, roomRefundCost,
   furnitureAllowedIn, furnitureUpgradeReason, isRoomIndex, isRoomPurpose, layerOf, missingIngredients, nextFacilityCost, nextFreeLayer,
   nextFurnitureCost, presetCountFor, recoverBlockReason, skillGainMulFor, stackLimitOf, stackMembers,
   stashSizeFor,
 } from '../Rules';
 import type { FurniturePlacement } from '../Rules';
-import { ShipStore, freshRoom, isBookshelfDefId, isGrowRackDefId, loadState, maxUidIndex, sanitize, writeState } from '../ShipState';
+import { ShipStore, freshRoom, isAnalyzerDefId, isBookshelfDefId, isGrowRackDefId, loadState, maxUidIndex, sanitize, writeState } from '../ShipState';
 import { PresetMenu } from '../ui/PresetMenu';
 import { BookshelfMenu } from '../ui/BookshelfMenu';
 import { createShipView } from '../ui/ShipView';
@@ -237,6 +237,7 @@ export function recover(sys: HousingSystem, uid: string): boolean {
   sys.state.furniture.splice(i, 1);
   sys.addToStorage(item.defId, item.level);
   sys.dropGrowsOf(uid);                       // 재배 스테이션을 회수하면 토양 · 작물도 함께 사라진다
+  sys.dropAnalysesOf(uid);                    // 분석기를 회수하면 해석 중이던 표본도 함께 사라진다 (같은 규약)
   sys.ctx.bus.emit('housing:furnitureRecovered', { uid, defId: item.defId, room: item.room });
   sys.changed('recover');
   if (hadBooks > 0) sys.ctx.bus.emit('housing:booksChanged', { uid, count: 0 });
@@ -276,5 +277,48 @@ export function upgradeFurniture(sys: HousingSystem, uid: string): boolean {
   item.level += 1;
   sys.ctx.bus.emit('housing:furnitureUpgraded', { item });
   sys.changed('furnitureUpgrade');
+  // 강화는 분석기의 해석 칸을 하나 더 여는 것이기도 하다 — 계약의 `housing:analysisChanged` 가 「강화」를 포함한다
+  // (`sys.changed` 는 위에서 이미 났으므로 여기서는 버스에만 올린다)
+  if (isAnalyzerDefId(item.defId)) sys.ctx.bus.emit('housing:analysisChanged', { uid, ready: sys.readyAnalyses(uid) });
   return true;
+  }
+
+/* ── B-13: 배치된 가구 강화 · 제작 잠금 (2026-09-11) ─────────────────────────
+ * `upgradeFurniture` 는 Phase 8 부터 있었지만 부르는 곳이 없어 작업대 Lv.2–3 이 플레이로 닿지 않았다. 시설 관리의
+ * 클릭 인스펙터가 이 둘(비용 · 사유)을 읽어 카드를 그린다. ────────────────── */
+
+/** 이 조각의 **다음 레벨** 비용. 최대 레벨이거나 배치된 조각이 아니면 null (`Rules.nextFurnitureCost` 위임). */
+export function furnitureUpgradeCost(sys: HousingSystem, uid: string): CraftIngredient[] | null {
+  const item = sys.getPlacedByUid(uid);
+  if (!item) return null;
+  const def = FURNITURE_DEF_MAP.get(item.defId);
+  return def ? nextFurnitureCost(def, item.level) : null;
+  }
+
+/** 배치됐거나 가구 창고에 있는 그 가구를 하나라도 갖고 있는가 (B-13 의 「이미 보유 중」 판정). */
+function ownsFurniture(sys: HousingSystem, defId: string): boolean {
+  return sys.state.furniture.some((f) => f.defId === defId)
+    || sys.state.furnitureStorage.some((s) => s.defId === defId && s.qty > 0);
+  }
+
+/**
+ * 지금 이 가구를 **제작**할 수 없는 한국어 사유, null = 만들 수 있다 (B-13, 사용자 결정 2026-09-11).
+ * 재료 부족과 별개로, **이미 가지고 있는 실용 가구**(`isUtilityFurniture` — E 로 뭔가를 하는 가구, 배치 + 가구
+ * 창고 합산)는 여기서 잠긴다: 벤치 레벨은 가장 높은 하나만 세므로 두 번째를 만들 이유가 없다. 장식 가구
+ * (`interaction: 'none'`)는 얼마든지 만든다. 순서는 다른 block 함수와 같다 — 구조 → 튜토리얼 → 보유 → 재료.
+ *
+ * **규칙 자체(`canCraftFurniture` / `craftFurniture`)는 바뀌지 않았다** — 이것은 화면이 카드를 딤드로 그리고
+ * 목록 맨 아래로 내리기 위한 질의다 (README 의 `알려진 한계` 참고).
+ */
+export function furnitureCraftBlock(sys: HousingSystem, defId: string): string | null {
+  const def = FURNITURE_DEF_MAP.get(defId);
+  if (!def) return '알 수 없는 가구입니다';
+  if (def.retired) return '더 이상 만들 수 없는 가구입니다';
+  if (!def.craft) return '제작할 수 없는 가구입니다';
+  const tutorial = sys.ctx.tutorial?.blockReason('furniture', defId);
+  if (tutorial) return tutorial;
+  if (isUtilityFurniture(def) && ownsFurniture(sys, defId)) return '이미 보유 중입니다';
+  const missing = missingIngredients(def.craft, sys.countDef);
+  if (missing.length) return `재료 부족: ${formatCost(missing, sys.nameOf)}`;
+  return null;
   }

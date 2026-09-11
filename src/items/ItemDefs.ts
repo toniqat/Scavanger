@@ -1,6 +1,6 @@
-import type { AmmoType, ArmorDef, AttachmentDef, AttachmentEffects, BagDef, ItemCategory, ItemDef, Rarity, SeedDef, SkillId, SoilDef, SoilTag, WeaponClass, WeaponDef, WeaponGrade } from '@/shared';
+import type { AmmoType, ArmorDef, AttachmentDef, AttachmentEffects, BagDef, ItemCategory, ItemDef, PrepDef, Rarity, SampleDef, SeedDef, SkillId, SoilDef, SoilTag, WeaponClass, WeaponDef, WeaponGrade } from '@/shared';
 import {
-  AMMO_STACK_ROUNDS, CATEGORY_COLOR, CATEGORY_ICON,
+  AMMO_STACK_ROUNDS, CATEGORY_COLOR, CATEGORY_ICON, ENV_KINDS,
   QUICK_SLOTS, QUICK_USABLE_CATEGORIES, RARITY_COLORS, SKILL_IDS, SOIL_TAGS, csvRows, keyTable, numberMap, rarityForGrade,
 } from '@/shared';
 
@@ -179,6 +179,36 @@ export const SEED_ITEM_DEFS: readonly ItemDef[] = csvRows('seeds.csv').map((r) =
   };
 });
 
+/* ── 미확인 표본 (A-12, 2026-09-11) — data/samples.csv ────────────────────────
+ * 연구실 **분석기**가 해석하는 재료. `SampleDef.analyzeHours` 는 도감이 텅 빈 상태에서의 **실제 시간**이고
+ * (씨앗의 `growHours` 와 같은 wall-clock 규약), 도감 진척 · 기지식으로 깎는 계산은 `housing/Rules` 가 한다.
+ * 제작도 상점도 없다 — 벌레 시체 · 표본 채집지 · 티어 3+ 컨테이너 셋뿐이다 (로그는 표본에 관심이 없다).
+ *
+ * `first*` 는 **처음** 해석했을 때만 얹어 주는 보너스라 선택 열이다 (`optStr` / `optNum` 규약 — 칸이 비어
+ * 있으면 필드 자체가 안 붙는다). `analyzeHours` · `rewardDefId` · `rewardQty` 는 필수다. */
+/** 표본은 카테고리 글리프 · 색을 공유한다 — 격자에서 「아직 해석 안 한 것」이 한눈에 읽힌다. */
+const SAMPLE_ICON = CATEGORY_ICON.sample;
+const SAMPLE_COLOR = CATEGORY_COLOR.sample;
+
+export const SAMPLE_ITEM_DEFS: readonly ItemDef[] = csvRows('samples.csv').map((r) => {
+  const firstDefId = r.optStr('firstDefId');
+  const sample: SampleDef = {
+    analyzeHours: r.num('analyzeHours', { min: 0 }),
+    rewardDefId: r.str('rewardDefId'),
+    rewardQty: r.int('rewardQty', { min: 1 }),
+    ...(firstDefId ? { firstDefId, firstQty: r.int('firstQty', { min: 1 }) } : {}),
+  };
+  return {
+    ...def({
+      id: r.str('id'), name: r.str('name'), category: 'sample', rarity: r.str('rarity') as Rarity,
+      width: 1, height: 1, stackMax: T.num('SAMPLE_STACK_MAX'),
+      value: r.int('value', { min: 0 }), icon: SAMPLE_ICON, description: r.str('description'),
+      sample, weight: T.num('SAMPLE_WEIGHT'),
+    }),
+    color: SAMPLE_COLOR,
+  };
+});
+
 /* ── 서적 (Phase 9) — data/books.csv ──────────────────────────────────────────
  * One book per skill (`book_<skill>`), shelved in a 서재 책장 (`furn_bookshelf`, housing/ owns the shelves and the
  * bonus: `1 + BOOK_XP_PER_BOOK × Σ BOOK_RARITY_MUL[rarity]`, capped at `BOOK_GAIN_MAX`). Loot (tier 2–4 containers,
@@ -247,6 +277,11 @@ const GENERIC_ITEM_DEFS: readonly ItemDef[] = csvRows('items.csv').map((r) => {
   const soil: SoilDef | undefined = r.has('soilTag')
     ? { tag: r.enum('soilTag', SOIL_TAGS) as SoilTag, uses: r.int('soilUses', { min: 1 }) }
     : undefined;
+  /* 2026-09-11 (A-13): `category: 'prep'` 줄만 `prepEnv` · `prepShort` 를 채운다 — `soil` 과 같은 선택 열 규약이다.
+   * `env` 는 이 준비물이 **완전히** 막아 주는 행성 환경이고, `short` 는 HUD 배지에 찍는 짧은 이름(「방독」 · 「내열」)이다.
+   * 쓰는 곳은 `progression`(다음 레이드 1회분) · `player`(피해 면제) · `ui`(배지 · 툴팁) 이고 items 는 표만 옮긴다. */
+  const prepEnv = r.optEnum('prepEnv', ENV_KINDS);
+  const prep: PrepDef | undefined = prepEnv ? { env: prepEnv, short: r.str('prepShort') } : undefined;
   return def({
     id: r.str('id'), name: r.str('name'), category: r.str('category') as ItemCategory,
     rarity: r.str('rarity') as Rarity,
@@ -260,6 +295,7 @@ const GENERIC_ITEM_DEFS: readonly ItemDef[] = csvRows('items.csv').map((r) => {
     ...(r.has('healAmount') ? { healAmount: r.num('healAmount', { min: 0 }) } : {}),
     ...(heal ? { heal } : {}),
     ...(soil ? { soil } : {}),
+    ...(prep ? { prep } : {}),
   });
 });
 
@@ -317,6 +353,10 @@ export const ITEM_DEFS: readonly ItemDef[] = [
      약초 바로 뒤에 두어 "밭에서 나온 것" 이 목록에서 한 덩어리로 읽힌다. */
   ...itemGroup('crop'),
   ...itemGroup('soil'),
+  /* 2026-09-11 연구실(A-12 · A-13): 표본(분석기가 해석한다 — `samples.csv`) · 준비물(함선에서 써서 다음 레이드
+     1회분으로 싣는다). 밭에서 나온 것 바로 뒤가 연구실에서 쓰는 것이다. */
+  ...SAMPLE_ITEM_DEFS,
+  ...itemGroup('prep'),
   /* seeds (Phase 8: 온실 재배층에 심는다) · books (Phase 9: 서재 책장에 꽂는다) */
   ...SEED_ITEM_DEFS,
   ...BOOK_ITEM_DEFS,

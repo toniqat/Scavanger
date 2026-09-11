@@ -10,7 +10,7 @@ Also owns `RemotePlayerSystem` (`name: 'remotePlayers'`, registered right after 
 | `parts/Vitals.ts` | **체력 · 실드 · 전투불능 · 사망 · 회복.** 피해가 들어와서(`applyDamage` — **실드가 먼저 먹고**(2026-09-10, 방어구 감쇄는 사라졌다) · 인내 grit · 넉백) 체력이 0 이 되면 죽는 대신 **전투불능**이 되고(기어다니기, `downHp` 출혈, Space 홀드 포기), 아군의 소생이나 퍽 `auto_revive` 로 일어난다. 회복은 즉시가 아니라 아이템이 정한 시간에 걸쳐 들어온다(`applyHeal`). |
 | `parts/Locomotion.ts` | **이동 · 자세 · 스태미나.** 무엇이 얼마나 빠르게 움직이는가: 자세(서기 / 앉기 / 엎드리기), 구르기, 스태미나 소모와 회복, 그리고 여러 출처가 곱해지는 **속도 배율 스택**(`setSpeedModifier` — 무게 · 소모품 · 들쳐메기 · 미니건 · 오버차지가 전부 여기로 들어온다). 갈고리 견인과 가방 부양도 이동의 일부다. |
 | `parts/Spawn.ts` | **월드에 들어가고 나오는 모든 방법.** 헬포드 강하(`startDrop`), 함선에서 그냥 서서 시작(`spawnStanding`), 부활(`respawnAt`), 그리고 레이드 재접속 복귀(`restoreState` / `holdForRestore` — 강하 없이 마지막 위치 · 상태로). 미션 리셋에서 전투 상태를 전부 지우는 `resetAll` / `resetTactical` 도 여기 있다. |
-| `parts/Statuses.ts` | **플레이어에게 붙는 상태: 은폐 · 화상 · 방어구 재생.** 은폐는 적 인지(`getStealthFactor`)에 직접 곱해지고, 광학 방어구는 영구 은폐다. 화상은 초당 피해를 주는 DoT 이고, 방어구는 전투가 끊기면 조금씩 회복된다. |
+| `parts/Statuses.ts` | **플레이어에게 붙는 상태: 은폐 · 화상 · 방어구 재생 · 행성 상시 환경.** 은폐는 적 인지(`getStealthFactor`)에 직접 곱해지고, 광학 방어구는 영구 은폐다. 화상은 초당 피해를 주는 DoT 이고, 방어구는 전투가 끊기면 조금씩 회복된다. **`updateEnv`**(A-13)는 `ctx.world.env` 를 보고 맞는 준비물이 없으면 `PLANET_ENV_TICK_S` 마다 **체력만** 깎는다(실드 우회). |
 | `parts/Shoulder.ts` | **부상자 들쳐메기 (Phase 10).** 전투불능 아군 근처에서 F 를 짧게 누르면 어깨에 메고(비무장 · 걷기/달리기만), 다른 행동을 하면 먼저 내려놓는다. 메인 쪽이 권한이고 업힌 쪽은 캐리어의 어깨 소켓을 따라간다 — 캐리어가 사라지면 몸은 마지막 위치에 그대로 내려진다. |
 | `parts/Interact.ts` | **E 상호작용.** 화면 안의 `Interactable` 중 가장 알맞은 것을 고르고, 탭 / 홀드를 구분해 `onHoldProgress` · `onHoldCancel` 을 흘린다(홀드 시간은 능력치의 영향을 여기서 한 번만 받는다). |
 | `parts/Climb.ts` | **몸이 수직으로 어떻게 옮겨 가는가: 사다리 · 단차 보간** (2026-09-11). `ladder:grab` → `grabLadder`(규칙 검사 · 서기 · 조준 해제 · 잡는 순간의 XZ 스냅을 `bodyOffset` 으로 미끄러뜨림), `readClimbInput`(W/S · Shift = 스태미나 있을 때 빠르게 · Space = 스태미나 · 무게 규칙 · E = 놓기), `releaseLadder` / `clearClimbState`(리셋 경로), `syncClimb`(`player:climbChanged` 는 여기서만, 값이 바뀔 때 한 번), `updateStepSmoothing`(접지 → 접지 사이 **단차로 보이는** 높이 변화만 `bodyOffset.y` 에 쌓고 `STEP_SMOOTH_RATE` 로 감쇠). 아래 *사다리 · 단차 보간* 절. |
@@ -482,9 +482,32 @@ E 놓기 vz 0.80 · 점프 vy 7.20 / vz −2.20 / 스태미나 12 · 단차 0.3 
 
 ---
 
+## 행성 상시 환경 (A-13, 2026-09-11)
+
+피로스 VII(`heat`) · 카민 I(`toxin`) 처럼 `PlanetDef.env` 가 있는 행성에서는, **맞는 준비물 없이** 서 있으면
+`PLANET_ENV_TICK_S` 마다 `PLANET_ENV_DPS × tick` 만큼 깎인다 (`parts/Statuses.updateEnv`, 매 프레임
+`updateArmorRegen` 바로 뒤). 소프트 게이트다 — **들어가는 것 자체는 아무도 막지 않는다** (사용자 결정).
+
+- **체력만 깎는다.** `applyDamage` 를 타지 않는다 — 그 길은 실드(방탄복)를 먼저 비우는데, **대기는 방탄복이
+  막지 못한다**(사용자 결정). `hp` 를 직접 줄이고 `player:damaged` · `player:healthChanged` 를 낸 뒤 0 이면
+  `onLethal(true)` — DoT 이므로 인내(grit)는 걸리지 않는다 (화상과 같은 규약).
+- **준비물이 있으면 0 이다.** 감소가 아니라 완전 상쇄 — `ctx.progression.hasEnvPrep(env)` 하나가 정한다.
+- 적용하지 않는 곳: 함선 · 결과 화면(`ctx.isGameplayPhase()` 아님) · 훈련장(`ctx.isTraining()`) · 전투불능 ·
+  사망 · 강하 포드 안 · 아직 스폰 전.
+- `player:envChanged {env, protected}` 는 **상태가 바뀔 때만** 나간다 (매 틱 발행 금지). 레이드를 떠나면
+  `{env: null}` 한 번. 유일한 소비자는 ui/ 의 환경 배지다.
+- 폴더에 남는 상태는 `envKind` · `envProtected` · `envTick` 셋뿐이고 매 프레임 `ctx` 에서 다시 판정한다 —
+  **준비물 자체는 progression 의 프로필에 살기 때문에** `resetTactical` · 스폰 · 재접속이 건드리지 못한다.
+
+---
+
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-11 (A-13 행성 상시 환경, 에이전트 prep)** — 계약은 읽기만 했다 (`WorldRef.env`, `PLANET_ENV_DPS` ·
+  `PLANET_ENV_TICK_S`, `player:envChanged`). `parts/Statuses.updateEnv` 하나 + `PlayerSystem` 의 필드 셋
+  (`envKind` · `envProtected` · `envTick`) + 한 줄 위임. 위 *행성 상시 환경* 절이 전부다.
 
 - **2026-09-11 (C-42 `Portraits.ts`, 에이전트 5 — 리드 기록)** — 슬롯 색이 바뀌어 `SoldierModel` 을 새로 지을 때 옛 모델은
   씬에서 떼기만 하고 `pendingDispose` 에 두었다가 **다음 `render` 뒤** dispose 한다(`dispose()` 도 대기열부터 비운다). 먼저

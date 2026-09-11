@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { FurnitureDef, FurnitureModelKind, GameContext, GrowTier, Interactable, PlacedFurniture, Rarity, WorkbenchKind } from '@/shared';
-import { BOOKS_PER_SHELF, FURNITURE_DEF_MAP, GROW_PLOTS_PER_RACK, GROW_RACK_LAYER_HEIGHT, GROW_SLOTS_PER_TIER, HOUSING_CELL_SIZE, RARITY_COLORS, benchKindOf, furnitureFootprint, growTiersForLevel } from '@/shared';
+import { ANALYZER_MAX_SLOTS, BOOKS_PER_SHELF, FURNITURE_DEF_MAP, GROW_PLOTS_PER_RACK, GROW_RACK_LAYER_HEIGHT, GROW_SLOTS_PER_TIER, HOUSING_CELL_SIZE, RARITY_COLORS, analyzerSlotsForLevel, benchKindOf, furnitureFootprint, growTiersForLevel } from '@/shared';
 import { GeoBatch, HUB_MATS as M, disposeMeshes } from './GeoBatch';
 import type { BoxInteriorCollider } from './InteriorCollider';
 import { roomCellToWorld, yawToRotation } from './RoomLayout';
@@ -72,6 +72,13 @@ export interface FurnitureModel {
 /** Per-piece data a builder may read (Phase 9): the 책장's shelved books by slot (rarity, null = empty). */
 export interface BuildExtra {
   books?: readonly (Rarity | null)[];
+  /**
+   * 연구실 분석기 (A-12, 2026-09-11): how many of this piece's 해석 칸 are **회수 대기** right now
+   * (`housing:analysisChanged.ready`). The builder lights that many chambers amber instead of cyan — the only way
+   * the model can say "가서 회수해라" without adding a `THREE.PointLight`, which would recompile every shader in
+   * the scene (CLAUDE.md 「씬의 광원 개수를 플레이 중에 바꾸지 않는다」).
+   */
+  analysisReady?: number;
 }
 
 /** Build the model of `def` (unrotated, centred, front toward −Z). `extra` carries per-piece state (책장 books). */
@@ -253,6 +260,84 @@ const BUILDERS: Record<FurnitureModelKind, Builder> = {
       }
     }
   },
+  /**
+   * 분석기 (연구실 A-12, 2026-09-11): 재배 스테이션과 같은 결의 스테이션 — **레벨이 자리를 연다**. 앞으로 기운
+   * 조작 콘솔 위에 `ANALYZER_MAX_SLOTS` 개의 시료 챔버(위가 뚫린 유리관)가 **언제나** 서 있고, 그 중
+   * `analyzerSlotsForLevel(level)` 개만 안쪽 코어에 불이 들어온다(잠긴 칸은 어둡다) — 패널이 잠긴 칸을 딤드로
+   * 그리는 것과 같은 규약이라, 강화하면 다음 관이 켜지는 것으로 보인다.
+   *
+   * 회수 대기(`extra.analysisReady`) 칸은 청록 대신 **호박색**이다. 광원은 하나도 만들지 않는다 — emissive
+   * 재질뿐이다 (CLAUDE.md 「씬의 광원 개수를 플레이 중에 바꾸지 않는다」). 색이 바뀌면 `FurnitureLayer` 가
+   * 그 조각만 다시 짓는다 (`housing:analysisChanged`, 책장의 `housing:booksChanged` 와 같은 길).
+   */
+  analyzer: (b, w, d, h, a, lv, extra) => {
+    const open = analyzerSlotsForLevel(lv);
+    const ready = Math.max(0, Math.min(ANALYZER_MAX_SLOTS, Math.floor(extra?.analysisReady ?? 0)));
+    // ── 프레임: 받침 · 뒷기둥 · 뒷판 · 천장
+    b.boxB(w - 0.08, 0.14, d - 0.06, 0, 0, 0, M.hullDark);                                        // plinth
+    for (const sx of [-1, 1]) b.boxB(0.09, h, 0.09, sx * (w / 2 - 0.05), 0, d / 2 - 0.05, M.gunmetal);
+    b.box(w - 0.16, h - 0.34, 0.05, 0, 0.14 + (h - 0.34) / 2, d / 2 - 0.06, M.hullDark);          // back panel
+    b.box(w - 0.04, 0.08, d - 0.04, 0, h - 0.04, 0, M.hullLight);                                 // top cap
+    b.box(w - 0.3, 0.04, 0.05, 0, h - 0.1, -(d / 2 - 0.04), a);                                   // top accent
+    // ── 조작 콘솔: 몸체 + 앞으로 기운 화면 + 레벨 핍
+    const deskH = h * 0.36, deskY = 0.14 + deskH;
+    b.boxB(w - 0.24, deskH, d - 0.3, 0, 0.14, -0.04, M.hullLight);
+    b.box(w - 0.28, 0.06, d - 0.34, 0, deskY, -0.04, M.gunmetal);
+    b.box(w * 0.44, 0.03, 0.28, -w * 0.2, deskY + 0.09, -0.1, M.screen, 0, -0.55);                // 기울어진 화면
+    b.box(w * 0.46, 0.05, 0.05, -w * 0.2, deskY + 0.02, -(d / 2 - 0.17), M.hullDark);             // 화면 받침
+    for (let k = 0; k < 3; k++) b.box(0.06, 0.02, 0.05, w * 0.16 + k * 0.1, deskY + 0.04, -0.12, k < lv ? M.stripWhite : M.hullDark);
+    // ── 시료 챔버: 언제나 ANALYZER_MAX_SLOTS 개, 레벨이 연 칸만 불이 들어온다
+    const cy = deskY + 0.03;
+    const cH = Math.max(0.24, h - cy - 0.18);
+    for (let s = 0; s < ANALYZER_MAX_SLOTS; s++) {
+      const px = -w / 2 + (s + 0.5) * (w / ANALYZER_MAX_SLOTS);
+      const lit = s < open, done = s < ready;
+      const glow = lit ? (done ? M.stripAmber : M.stripCyan) : M.hullDark;
+      b.cyl(0.1, 0.11, 0.05, 14, px, cy + 0.025, 0.02, M.gunmetal);                               // 받침
+      b.cyl(0.095, 0.095, cH, 14, px, cy + 0.05 + cH / 2, 0.02, M.glassDark, 0, 0, 0, true);      // 유리관
+      b.cyl(0.045, 0.045, cH * 0.62, 10, px, cy + 0.05 + cH * 0.36, 0.02, glow);                  // 내부 코어
+      b.cyl(0.11, 0.11, 0.05, 14, px, cy + 0.08 + cH, 0.02, M.hullLight);                         // 상단 캡
+      b.box(0.03, 0.02, 0.02, px, cy + 0.075 + cH, -0.095, glow);                                 // 캡 표시등 (앞면)
+      b.box(0.09, 0.02, 0.03, px, cy + 0.02, -(d / 2 - 0.13), lit ? (done ? M.stripAmber : a) : M.hullDark);   // 칸 표식
+    }
+  },
+  /**
+   * 추출기 (연구실 A-13, 2026-09-11): 작물 · 약재 · 광물에서 성분을 뽑는 증류탑. 다른 작업대가 "조립하는 책상"
+   * 이라면 이것은 **탑**이다 — 왼쪽에 상판 위로 솟은 유리 증류관(안에 호박색 액), 그 위 응축 코일, 가운데
+   * 투입 깔때기, 오른쪽에 받이 플라스크 세 개.
+   */
+  bench_extract: (b, w, d, h, a, lv) => benchBody(b, w, d, h, a, lv, (b) => {
+    const top = h - 0.02;
+    b.cyl(0.13, 0.15, 0.06, 14, -w * 0.3, top + 0.03, 0.02, M.gunmetal);                          // 증류관 받침
+    b.cyl(0.1, 0.1, 0.52, 14, -w * 0.3, top + 0.32, 0.02, M.glassDark, 0, 0, 0, true);            // 유리 증류관
+    b.cyl(0.075, 0.075, 0.2, 10, -w * 0.3, top + 0.16, 0.02, M.stripAmber);                       // 끓는 액
+    for (let k = 0; k < 3; k++) b.cyl(0.13, 0.13, 0.03, 14, -w * 0.3, top + 0.46 + k * 0.06, 0.02, M.trim);   // 응축 코일
+    b.cyl(0.03, 0.03, 0.34, 8, -w * 0.18, top + 0.56, 0.02, M.gunmetal, 0, 0, Math.PI / 2);       // 이송관
+    b.cyl(0.14, 0.05, 0.18, 12, w * 0.02, top + 0.19, 0.04, M.hullLight);                         // 투입 깔때기
+    b.boxB(0.16, 0.1, 0.16, w * 0.02, top, 0.04, M.hullDark);
+    for (let k = 0; k < 3; k++) b.cyl(0.045, 0.03, 0.14, 10, w * 0.24 + k * 0.11, top + 0.07, 0.06, k === 1 ? M.stripCyan : M.glassDark);   // 받이 플라스크
+    b.boxB(0.4, 0.03, 0.2, w * 0.29, top, 0.06, M.crateDark);
+  }),
+  /**
+   * 조합대 (연구실 A-13, 2026-09-11): 성분을 섞어 준비물을 만드는 대. 실루엣의 주인공은 **뚜껑 달린 혼합
+   * 드럼**(왼쪽, 위로 축이 솟아 있다)이고, 가운데는 계량 저울, 오른쪽은 성분 병 네 개를 꽂은 선반이다.
+   */
+  bench_mixer: (b, w, d, h, a, lv) => benchBody(b, w, d, h, a, lv, (b) => {
+    const top = h - 0.02;
+    b.cyl(0.19, 0.21, 0.26, 16, -w * 0.29, top + 0.13, 0.03, M.hullDark);                         // 혼합 드럼
+    b.cyl(0.2, 0.2, 0.03, 16, -w * 0.29, top + 0.27, 0.03, M.hullLight);                          // 드럼 뚜껑
+    b.cyl(0.04, 0.04, 0.05, 10, -w * 0.29, top + 0.3, 0.03, a);                                   // 축 부싱
+    b.cyl(0.022, 0.022, 0.3, 8, -w * 0.29, top + 0.45, 0.03, M.gunmetal);                         // 교반 축
+    b.box(0.2, 0.04, 0.05, -w * 0.29, top + 0.58, 0.03, M.hullLight);                             // 모터 암
+    b.box(0.05, 0.03, 0.16, -w * 0.29, top + 0.23, -0.19, M.stripCyan);                           // 상태등
+    b.boxB(0.24, 0.05, 0.2, w * 0.02, top, 0.05, M.gunmetal);                                     // 계량 저울
+    b.box(0.2, 0.02, 0.16, w * 0.02, top + 0.06, 0.05, M.hullLight);
+    b.box(0.02, 0.12, 0.02, w * 0.02, top + 0.12, 0.14, M.gunmetal);                              // 계기 지주
+    b.box(0.13, 0.1, 0.02, w * 0.02, top + 0.22, 0.14, M.screen);                                 // 계기판
+    b.boxB(0.46, 0.04, 0.18, w * 0.32, top, 0.06, M.crateDark);                                   // 성분 선반
+    for (let k = 0; k < 4; k++) b.cyl(0.032, 0.032, 0.17, 8, w * 0.32 - 0.16 + k * 0.11, top + 0.12, 0.06, k % 2 ? M.glassDark : a);
+    b.box(0.46, 0.03, 0.03, w * 0.32, top + 0.21, 0.14, M.trim);
+  }),
   range_console: (b, w, d, h, a) => {
     b.boxB(w - 0.1, h - 0.45, d - 0.2, 0, 0, 0.05, M.hullDark);
     b.box(w - 0.06, 0.06, d - 0.16, 0, h - 0.43, 0.05, M.trimDark);
@@ -412,6 +497,8 @@ export interface FurnitureCallbacks {
   onRepairBench(): void;
   /** 책장 (Phase 9): open the bookshelf panel of this piece (`ctx.housing.openBookshelfMenu(uid)`). */
   onBookshelf(uid: string): void;
+  /** 분석기 (연구실 A-12, 2026-09-11): open the 해석 panel of this piece (`ctx.housing.openAnalyzer(uid)`). */
+  onAnalyzer(uid: string): void;
 }
 
 /**
@@ -473,6 +560,9 @@ export class FurnitureLayer {
         b.on('housing:loaded', () => this.rebuildAll()),
         // Phase 9: a book went on / off a 책장 → redraw that piece's room (the shelf model carries the spines)
         b.on('housing:booksChanged', ({ uid }) => { const p = this.pieces.get(uid); if (p) this.rebuildRoom(p.item.room); }),
+        // A-12 (2026-09-11): 해석이 시작 · 완료 · 회수됐다 → 그 분석기만 다시 짓는다. 회수 대기 칸은 호박색으로
+        // 켜지는데, 그것이 **광원 없이** 색을 바꿀 수 있는 유일한 길이다 (재질은 조각마다가 아니라 공용이므로).
+        b.on('housing:analysisChanged', ({ uid }) => { const p = this.pieces.get(uid); if (p) this.rebuildRoom(p.item.room); }),
       );
     }
     this.rebuildAll();
@@ -529,7 +619,7 @@ export class FurnitureLayer {
     const def = FURNITURE_DEF_MAP.get(item.defId);
     if (!def) return;
     const fp = furnitureFootprint(def, item.yaw);
-    const model = buildFurniture(def, item.level, def.model === 'bookshelf' ? { books: this.shelfBooks(item.uid) } : undefined);
+    const model = buildFurniture(def, item.level, this.buildExtra(def, item.uid));
     roomCellToWorld(item.room, item.x, item.y, _pos, fp.cols, fp.rows);
     // stacked furniture (재배층): each layer sits GROW_RACK_LAYER_HEIGHT higher on the same footprint
     const layer = item.layer ?? 0;
@@ -555,7 +645,7 @@ export class FurnitureLayer {
       const bench = benchKindOf(def.interaction);
       const kind = def.interaction;
       const stack = Math.max(1, def.stackLimit ?? 1);
-      const prompt = bench ? `${def.name} Lv.${item.level}`
+      const prompt = bench || kind === 'analyzer' ? `${def.name} Lv.${item.level}`
         : kind === 'sim_hub' ? `${def.name} · 훈련장 입장`
         : stack > 1 ? `${def.name} ${layer + 1}층`
         : def.name;
@@ -583,12 +673,36 @@ export class FurnitureLayer {
           else if (kind === 'grow_station') cb.onGrowStation(uid);
           else if (kind === 'repair_bench') cb.onRepairBench();
           else if (kind === 'bookshelf') cb.onBookshelf(uid);
+          else if (kind === 'analyzer') cb.onAnalyzer(uid);
           else cb.onRangeConsole();
         },
       };
       this.ctx.interactables.register(interactable);
     }
     this.pieces.set(item.uid, { item, model, blocker, sign, interactable });
+  }
+
+  /** Per-piece state a builder reads: 책장 = shelved books, 분석기 = how many 해석 칸 wait to be collected. */
+  private buildExtra(def: FurnitureDef, uid: string): BuildExtra | undefined {
+    if (def.model === 'bookshelf') return { books: this.shelfBooks(uid) };
+    if (def.model === 'analyzer') return { analysisReady: this.analysisReady(uid) };
+    return undefined;
+  }
+
+  /**
+   * 회수 대기 해석 칸 수 (분석기의 챔버 색). A visited ship has no analyses on the wire, and `ctx.housing` is
+   * duck-typed / try-caught like everywhere else in this file — an unfinished folder must degrade to a dark model,
+   * never throw in the middle of a room rebuild.
+   */
+  private analysisReady(uid: string): number {
+    if (this.source) return 0;
+    const h = this.ctx.housing;
+    if (!h || typeof h.getAnalyses !== 'function') return 0;
+    try {
+      let n = 0;
+      for (const s of h.getAnalyses(uid)) if (s.ready) n++;
+      return n;
+    } catch { return 0; }
   }
 
   /** Shelved books of a 책장 by slot (rarity or null), from the source or `ctx.housing.getBooks(uid)`. */

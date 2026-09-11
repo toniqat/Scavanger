@@ -1,4 +1,5 @@
 import type {
+  AnalysisSlot, AnalysisSlotInfo,
   BookSlotInfo, CraftIngredient, EmbeddedView, FacilityId, FacilityInfo, FurnitureDef, GameContext, GameSystem, GrowPlotInfo,
   GrowSlot, GrowSlotInfo, GrowTier,
   HousingRef, ItemDef, LoadoutPreset, PlacedBook, PlacedFurniture, ProfileRef, RoomPurpose, RoomState, ShipState, SkillId,
@@ -9,6 +10,7 @@ import type { SanitizeOutcome } from './ShipState';
 import { mergeCost } from './Rules';
 import { PresetMenu } from './ui/PresetMenu';
 import { GrowStation } from './ui/GrowStation';
+import { Analyzer } from './ui/Analyzer';
 import { BookshelfMenu } from './ui/BookshelfMenu';
 import { createShipView } from './ui/ShipView';
 import type { HousingPanel } from './ui/Panel';
@@ -20,6 +22,7 @@ export * from './model';
 import * as Rooms from './parts/Rooms';
 import * as Furn from './parts/Furniture';
 import * as Garden from './parts/Garden';
+import * as Lab from './parts/Lab';
 import * as Lib from './parts/Library';
 import * as Preset from './parts/Presets';
 
@@ -46,12 +49,16 @@ export class HousingSystem implements GameSystem, HousingRef {
   private unsubs: Array<() => void> = [];
   presetMenu: PresetMenu | null = null;
   growStation: GrowStation | null = null;
+  /** 분석 화면 (연구실, 2026-09-11). 이름이 `analyzer` 가 아닌 것은 `openAnalyzer` 메서드와 겹치지 않게 하기 위함이다. */
+  analyzerPanel: Analyzer | null = null;
   bookshelfMenu: BookshelfMenu | null = null;
   lastStash = { cols: 0, rows: 0 };
   /** `books` were checked against `ctx.loot` once (unknown / non-book ids dropped) — see `books()`. */
   booksPruned = false;
   /** `grows` were checked against `ctx.loot` once (unknown 토양 / 씨앗 dropped) — see `grows()`. */
   growsPruned = false;
+  /** `analyses` were checked against `ctx.loot` once (unknown 표본 dropped) — see `analyses()`. */
+  analysesPruned = false;
   /**
    * 온실 개편 (2026-09-11): materials owed for the 은퇴 가구 `ShipState.sanitize` swept out of the save. housing/ is
    * registered **before** inventory/, so the 함선 창고 does not exist yet at load time — `update()` pays this into it
@@ -75,6 +82,7 @@ export class HousingSystem implements GameSystem, HousingRef {
     if (this.fresh) this.store.markDirty();
     this.presetMenu = new PresetMenu(ctx, this);
     this.growStation = new GrowStation(ctx, this);
+    this.analyzerPanel = new Analyzer(ctx, this);
     this.bookshelfMenu = new BookshelfMenu(ctx, this);
     const b = ctx.bus;
     this.unsubs.push(
@@ -98,8 +106,8 @@ export class HousingSystem implements GameSystem, HousingRef {
     this.closeMenus();
     for (const u of this.unsubs) u();
     this.unsubs = [];
-    this.presetMenu?.dispose(); this.growStation?.dispose(); this.bookshelfMenu?.dispose();
-    this.presetMenu = null; this.growStation = null; this.bookshelfMenu = null;
+    this.presetMenu?.dispose(); this.growStation?.dispose(); this.analyzerPanel?.dispose(); this.bookshelfMenu?.dispose();
+    this.presetMenu = null; this.growStation = null; this.analyzerPanel = null; this.bookshelfMenu = null;
     this.store?.dispose(); this.store = null;
   }
 
@@ -163,6 +171,7 @@ export class HousingSystem implements GameSystem, HousingRef {
     this.nextUid = maxUidIndex(this.state.furniture);
     this.booksPruned = false;
     this.growsPruned = false;
+    this.analysesPruned = false;
     this.fresh = false;
     writeState(this.state);                      // localStorage is the cache of the server copy (not re-uploaded)
     const b = this.ctx.bus;
@@ -344,6 +353,56 @@ export class HousingSystem implements GameSystem, HousingRef {
   furnitureUpgradeBlock(uid: string): string | null { return Furn.furnitureUpgradeBlock(this, uid); }
 
   upgradeFurniture(uid: string): boolean { return Furn.upgradeFurniture(this, uid); }
+
+  /** 이 조각의 **다음 레벨** 비용. 최대 레벨이거나 배치된 조각이 아니면 null. (B-13, 2026-09-11) */
+  furnitureUpgradeCost(uid: string): CraftIngredient[] | null { return Furn.furnitureUpgradeCost(this, uid); }
+
+  /**
+   * 지금 이 가구를 **제작**할 수 없는 한국어 사유, null = 만들 수 있다 (B-13). 재료 부족과 별개로, 이미 가지고
+   * 있는 실용 가구(`isUtilityFurniture`, 배치 + 가구 창고 합산)는 여기서 잠긴다.
+   */
+  furnitureCraftBlock(defId: string): string | null { return Furn.furnitureCraftBlock(this, defId); }
+
+  /* ── 연구실 분석기 (A-12, 2026-09-11) ──────────────────────────────────── */
+  /** 해석 칸 (`ShipState.analyses`); prunes ids `ctx.loot` no longer knows on first access. */
+  analyses(): AnalysisSlot[] { return Lab.analyses(this); }
+
+  /** 해석 도감 (append-only). */
+  sampleDex(): string[] { return Lab.sampleDex(this); }
+
+  /** The 분석기 behind `uid`, or null when it is not one (or gone). */
+  analyzerOf(uid: string): PlacedFurniture | null { return Lab.analyzerOf(this, uid); }
+
+  analysisAt(uid: string, slot: number): AnalysisSlot | null { return Lab.analysisAt(this, uid, slot); }
+
+  /** Drop every 해석 칸 of an analyzer that is being recovered (the samples go with it). */
+  dropAnalysesOf(uid: string): void { return Lab.dropAnalysesOf(this, uid); }
+
+  /** Finished 칸 of an analyzer (the `housing:analysisChanged` payload and the hub's 발광 창). */
+  readyAnalyses(uid: string): number { return Lab.readyAnalyses(this, uid); }
+
+  analysisChanged(uid: string, reason: string): void { return Lab.analysisChanged(this, uid, reason); }
+
+  /** 표본 def with its `sample` data, or null when `defId` is not a 표본. */
+  sampleDef(defId: string): ItemDef | null { return Lab.sampleDef(this, defId); }
+
+  getAnalyses(uid: string): AnalysisSlotInfo[] { return Lab.getAnalyses(this, uid); }
+
+  startAnalysis(uid: string, slot: number, sampleDefId: string): string | null { return Lab.startAnalysis(this, uid, slot, sampleDefId); }
+
+  cancelAnalysis(uid: string, slot: number): string | null { return Lab.cancelAnalysis(this, uid, slot); }
+
+  collectAnalysis(uid: string, slot: number): string | null { return Lab.collectAnalysis(this, uid, slot); }
+
+  collectAllAnalyses(uid: string): number { return Lab.collectAllAnalyses(this, uid); }
+
+  getOwnedSamples(): { defId: string; qty: number }[] { return Lab.getOwnedSamples(this); }
+
+  getSampleDex(): readonly string[] { return Lab.getSampleDex(this); }
+
+  getSampleDexRatio(): number { return Lab.getSampleDexRatio(this); }
+
+  openAnalyzer(uid: string): void { return Lab.openAnalyzer(this, uid); }
 
   /* ── 온실 재배 스테이션 (2026-09-11) ───────────────────────────────────── */
   /** 재배 스테이션 칸 (`ShipState.grows`); prunes ids `ctx.loot` no longer knows on first access. */

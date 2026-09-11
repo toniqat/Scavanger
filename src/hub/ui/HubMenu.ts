@@ -1,5 +1,6 @@
 import type { GameContext, LobbyState, NetRef, PlanetDef, PlanetId } from '@/shared';
 import {
+  ENV_COLOR, ENV_DESC_KO, ENV_ICON, ENV_LABEL_KO,
   Keys, MENU_BLOCKER, NET_SLOT_COLORS_CSS, NET_MAX_PLAYERS, PLANET_DEFS, PLANET_IDS, PLANET_THREAT_LABELS,
   isValidLobbyCode, normalizeLobbyCode, planetIndex,
 } from '@/shared';
@@ -93,6 +94,8 @@ export class HubMenu {
   private pTerrain: HTMLElement;
   private pThreat: HTMLElement;
   private pBrief: HTMLElement;
+  /** 행성 상시 환경 한 줄 (A-13, 2026-09-11). 환경이 없는 행성에서는 숨는다. */
+  private pEnv: HTMLElement;
   private pDots: HTMLElement[] = [];
   private pDotsEl: HTMLElement;
   private btnPrev: HTMLButtonElement;
@@ -180,6 +183,8 @@ export class HubMenu {
     this.pThreat = el('div', { cls: 'hp-threat', text: '', parent: nameRow });
     this.pTerrain = el('div', { cls: 'hp-terrain', text: '', parent: planet });
     this.pBrief = el('div', { cls: 'hp-brief', text: '', parent: planet });
+    this.pEnv = el('div', { cls: 'hp-env', text: '', parent: planet });
+    this.pEnv.hidden = true;
     this.btnTravel = this.button(planet, '행성 이동', () => this.travel(), 'primary hp-travel');
 
     // ── 시뮬레이션 훈련장 (shared ship; the personal ship enters through the 사격장 sim hub) ──
@@ -264,7 +269,27 @@ export class HubMenu {
     setText(this.pThreat, PLANET_THREAT_LABELS[d.threat] ?? '');
     this.pThreat.dataset.threat = String(d.threat);
     setText(this.pBrief, d.brief);
+    this.refreshEnv();
     for (let i = 0; i < this.pDots.length; i++) toggleClass(this.pDots[i], 'on', i === this.cursor);
+  }
+
+  /**
+   * 행성 상시 환경 한 줄 (A-13, 2026-09-11, 사용자 결정 **소프트 게이트**): `PlanetDef.env` 가 있으면
+   * `ENV_ICON` + `ENV_LABEL_KO` + `ENV_DESC_KO` 를 브리핑 밑에 붙이고, 맞는 준비물이 실려 있지 않으면
+   * 경고색(`.warn`)으로 바꾼다. **이동을 막지 않는다** — 버튼 상태는 `refreshTravel` 이 정하며 여기서는
+   * 아무 것도 잠그지 않는다. 준비물 판정은 `ctx.progression.hasEnvPrep` 하나이고, 그 폴더가 아직 없는 동안은
+   * (duck-typed) 「준비물 없음」으로 읽어 경고를 보여 준다.
+   */
+  private refreshEnv(): void {
+    const env = this.def().env;
+    this.pEnv.hidden = !env;
+    if (!env) return;
+    let prepared = false;
+    const pr = this.ctx.progression;
+    if (pr && typeof pr.hasEnvPrep === 'function') { try { prepared = pr.hasEnvPrep(env); } catch { prepared = false; } }
+    setText(this.pEnv, `${ENV_ICON[env]} ${ENV_LABEL_KO[env]} — ${ENV_DESC_KO[env]}${prepared ? ' (준비물 있음)' : ''}`);
+    this.pEnv.style.setProperty('--env-c', ENV_COLOR[env]);
+    toggleClass(this.pEnv, 'warn', !prepared);
   }
 
   private travel(): void {
@@ -277,6 +302,7 @@ export class HubMenu {
 
   /** Button state of 행성 이동: 현재 목표 / a `travelBlock` reason / enabled. */
   private refreshTravel(): void {
+    this.refreshEnv();      // 준비물은 터미널이 열려 있는 동안에도 바뀔 수 있다 (가방에서 「사용」)
     const d = this.def();
     const here = this.host.planet() === d.id;
     const blocked = this.host.travelBlock();

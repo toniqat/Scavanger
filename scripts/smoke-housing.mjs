@@ -134,7 +134,7 @@ try {
     .every((id) => furnDefIds.includes(id)) && furnDefIds.length >= 19,
   `FURNITURE_DEFS exposed (${furnDefIds.length}, incl. furn_sim_hub / repair_bench / bookshelf / bench_refine / grow_station)`, furnDefIds.join(','));
   // SHIP_STATE_VERSION (src/shared/constants.ts): 4 = 온실 개편의 `grows`
-  ok(st0.version === 4 && Array.isArray(st0.books) && st0.books.length === 0 && Array.isArray(st0.bookDex) && st0.bookDex.length === 0, `fresh state is v4 with empty books / bookDex (v${st0.version})`);
+  ok(st0.version === 5 && Array.isArray(st0.books) && st0.books.length === 0 && Array.isArray(st0.bookDex) && st0.bookDex.length === 0, `fresh state is v5 with empty books / bookDex (v${st0.version})`);
   ok(await H(() => window.__game.ctx.housing.getFurnitureFor('library').some((d) => d.id === 'furn_bookshelf' && d.interaction === 'bookshelf') && !window.__game.ctx.housing.getFurnitureFor('workshop').some((d) => d.id === 'furn_bookshelf')), 'furn_bookshelf in the 서재 catalogue only');
   ok(await H(() => window.__game.ctx.housing.getFurnitureFor('range').some((d) => d.id === 'furn_sim_hub' && d.interaction === 'sim_hub' && d.model === 'sim_hub') && !window.__game.ctx.housing.getFurnitureFor('workshop').some((d) => d.id === 'furn_sim_hub')), 'furn_sim_hub in the 사격장 catalogue only (interaction / model sim_hub)');
   // Phase 8: workshop also accepts the 정비 벤치, and 온실 accepts the 재배 스테이션 (2026-09-11: 옛 재배층 자리를 그대로 이어받았다 — 여전히 1 + 8 any)
@@ -971,7 +971,7 @@ try {
     return n >= want.n;
   }, '은퇴 가구 환불', 15000, { id: refundIds[0], n: (stashBeforeMig[refundIds[0]] ?? 0) + rackCraft[0].qty * 2 }).catch(() => null);
   const stashAfterMig = await stashOf(refundIds);
-  ok(mig.version === 4, `로드하면 세이브가 v4 로 올라온다 (v${mig.version})`);
+  ok(mig.version === 5, `로드하면 세이브가 v5 로 올라온다 (v${mig.version})`);
   ok(!mig.anyRack && !mig.placed.includes('furn_grow_rack') && mig.room6 === 'greenhouse',
     '배치된 · 창고의 옛 재배층이 모두 사라진다 (온실 방 자체는 남는다)', JSON.stringify(mig));
   ok(mig.plots === 0, `v3 의 plots 도 함께 사라진다 (${mig.plots})`);

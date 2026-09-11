@@ -1,10 +1,10 @@
 import type {
-  CraftIngredient, GrowSlot, GrowTier, LoadoutPreset, PlacedBook, PlacedFurniture, ProfileRef, RoomState, ShipState,
+  AnalysisSlot, CraftIngredient, GrowSlot, GrowTier, LoadoutPreset, PlacedBook, PlacedFurniture, ProfileRef, RoomState, ShipState,
   StoredFurniture,
 } from '@/shared';
 import {
   BOOKS_PER_SHELF, FURNITURE_DEF_MAP, GROW_SLOTS_PER_TIER, IMPLANT_IDS, SHIP_ROOM_COUNT, SHIP_STATE_VERSION, SHIP_STORAGE_KEY,
-  slotKey,
+  analyzerSlotsForLevel, slotKey,
 } from '@/shared';
 import {
   canPlaceAt, facilityMaxLevel, facilityPurposeOf, furnitureAllowedIn, furnitureMaxLevel, furnitureRefundCost, growTierOpen,
@@ -24,11 +24,13 @@ import {
  * furniture def is swept out of the save** (placed or stored) and handed back as materials. `sanitize` cannot reach
  * the inventory, so it only *computes* that refund into its optional `out` and `HousingSystem` pays it into the
  * 함선 창고 as soon as `ctx.inventory` exists (see `flushRetiredRefund`).
+ * 연구실 (2026-09-11): state **version 5** — `analyses` (분석기 해석 칸) + `sampleDex` (해석 도감). 없던 필드가
+ * 생기는 것뿐이라 **버릴 데이터도 환불 경로도 없다** — v4 세이브는 빈 값으로 열린다.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 const SAVE_DELAY_MS = 350;
-/** Current on-disk version (4 since the 온실 개편; never below the contract's `SHIP_STATE_VERSION`). */
-export const SHIP_STATE_VERSION_CURRENT = Math.max(4, SHIP_STATE_VERSION);
+/** Current on-disk version (5 since the 연구실; never below the contract's `SHIP_STATE_VERSION`). */
+export const SHIP_STATE_VERSION_CURRENT = Math.max(5, SHIP_STATE_VERSION);
 /** The 정비 벤치 moved out of the cockpit in Phase 8 — every profile is handed one, once. */
 export const REPAIR_BENCH_DEF_ID = 'furn_repair_bench';
 export const GUN_BENCH_DEF_ID = 'furn_bench_gun';
@@ -65,6 +67,8 @@ export function freshState(): ShipState {
     books: [],
     bookDex: [],
     grows: [],
+    analyses: [],                             // 연구실 분석기 (v5, 2026-09-11)
+    sampleDex: [],
   };
 }
 
@@ -91,6 +95,14 @@ export function isGrowStationDefId(defId: string): boolean {
 export function isRetiredDefId(defId: string): boolean {
   return FURNITURE_DEF_MAP.get(defId)?.retired === true;
 }
+
+/** 분석기인가 (연구실, 2026-09-11): E 로 분석 화면을 여는 가구. */
+export function isAnalyzerDefId(defId: string): boolean {
+  return FURNITURE_DEF_MAP.get(defId)?.interaction === 'analyzer';
+}
+
+/** Shape check of a 표본 def id in a save (`spec_*`); whether it is a real 표본 is a runtime check via `ctx.loot`. */
+const isSampleDefIdShape = (v: unknown): v is string => typeof v === 'string' && /^spec_[A-Za-z0-9_]{1,40}$/.test(v);
 
 /** Shape check of a soil def id in a save (`soil_<tag>`); whether it is a real 토양 is a runtime check via `ctx.loot`. */
 const isSoilDefIdShape = (v: unknown): v is string => typeof v === 'string' && /^soil_[A-Za-z0-9_]{1,40}$/.test(v);
@@ -142,6 +154,9 @@ export function maxUidIndex(furniture: readonly PlacedFurniture[]): number {
  * stored alike — and what it cost is accumulated into `out.refund` for the caller to pay into the 함선 창고. The old
  * `plots` are dropped wholesale (사용자 결정: 옛 것 폐기) and the new `grows` are validated against the 재배
  * 스테이션 that owns them (placed uid · tier its current level opens · slot in range · soil id shape).
+ * **v5 (연구실, 2026-09-11)**: `analyses` (분석기 해석 칸 — placed 분석기 uid · slot inside `analyzerSlotsForLevel`
+ * of its **current** level · one per (uid, slot) · `spec_*` id shape · a real `startedAt`) and `sampleDex` (unique
+ * `spec_*` ids). A v4 save simply opens with both empty — nothing is dropped, so there is no refund path.
  */
 export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
   const fresh = freshState();
@@ -315,12 +330,39 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
     if (isBookDefIdShape(id) && !bookDex.includes(id)) bookDex.push(id);
   }
 
+  /* 연구실 분석기 (v5, 2026-09-11): 해석 칸은 배치된 분석기의 것이어야 하고, 칸 번호가 그 분석기의 **지금 레벨**이
+     연 범위 안이어야 하며, (uid, slot) 하나에 하나뿐이고, 표본 id 는 최소한 `spec_*` **모양**이어야 한다 (진짜
+     표본인지는 `parts/Lab.analyses()` 가 `ctx.loot` 로 한 번 걸러 낸다 — 서재 · 온실과 같은 규약). 걸러진 칸의
+     표본은 돌아오지 않는다 (부은 흙과 같은 취급, 계약에 적힌 그대로). */
+  const analyses: AnalysisSlot[] = [];
+  const analyzerSlots = new Map<string, number>();
+  for (const f of furniture) if (isAnalyzerDefId(f.defId)) analyzerSlots.set(f.uid, analyzerSlotsForLevel(f.level));
+  const takenAnalysisSlots = new Set<string>();
+  for (const a of Array.isArray(r.analyses) ? (r.analyses as Partial<AnalysisSlot>[]) : []) {
+    if (!a || typeof a.uid !== 'string' || !isSampleDefIdShape(a.sampleDefId)) continue;
+    const open = analyzerSlots.get(a.uid);
+    if (open === undefined) continue;
+    const slot = int(a.slot, -1, -1);
+    if (slot < 0 || slot >= open) continue;
+    const key = `${a.uid}#${slot}`;
+    if (takenAnalysisSlots.has(key)) continue;
+    const startedAt = int(a.startedAt, 0, 0);
+    if (startedAt <= 0) continue;                       // 시작 시각이 없는 칸은 타이머를 되살릴 수 없다
+    takenAnalysisSlots.add(key);
+    analyses.push({ uid: a.uid, slot, sampleDefId: a.sampleDefId, startedAt, readyAt: int(a.readyAt, startedAt, startedAt) });
+  }
+  // 해석 도감: `spec_*` 모양의 유일한 id 목록 (append-only — 한 번 회수한 표본은 지워지지 않는다)
+  const sampleDex: string[] = [];
+  for (const id of Array.isArray(r.sampleDex) ? r.sampleDex : []) {
+    if (isSampleDefIdShape(id) && !sampleDex.includes(id)) sampleDex.push(id);
+  }
+
   if (out) out.refund = refund;
   return {
     version: SHIP_STATE_VERSION_CURRENT,
     rooms, generatorLevel, storageLevel, furniture, furnitureStorage, presets, plots: [],
     nameLocked: r.nameLocked === true,
-    books, bookDex, grows,
+    books, bookDex, grows, analyses, sampleDex,
   };
 }
 

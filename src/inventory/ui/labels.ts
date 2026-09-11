@@ -116,6 +116,9 @@ export const TEXT = {
     repairShort: '재료 부족',
     repairShortMsg: '수리 재료가 부족합니다',
     repairFail: '수리할 수 없습니다',
+    /* A-13 (2026-09-11): 준비물 — 함선에서 쓰면 다음 레이드 1회분으로 실린다 */
+    usePrep: '사용 (다음 레이드 1회분)',
+    usePrepRaid: '레이드 중에는 쓸 수 없음',
     unload: '장전된 탄약 모두 탈착',
     detachAll: '무기 소켓 모두 탈착',
     splitHalf: '절반 나누기',

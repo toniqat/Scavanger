@@ -38,6 +38,10 @@ const MODEL_GLYPH: Readonly<Record<FurnitureModelKind, string>> = {
      `❀`(옛 재배층) · `❦`(화분) · `❁`(작물 분류)와 모두 다른 글자다. */
   grow_rack: '❀', grow_station: '✿', repair_bench: '⛏', bookshelf: '▤',
   locker: '▤', table: '▭', shelf: '☰', crate: '▨', lamp: '☀', plant: '❦', chair: '⌂', bunk: '▬',
+  /* 연구실 (A-11 · A-12 · A-13, 2026-09-11): 추출기 · 조합대는 작업대이므로 글리프의 원본이 `WORKBENCH_ICON` 이고
+     (제작 탭 `inventory/ui/labels` 와 같은 글자여야 한다), 분석기는 작업대가 아니라 스테이션이라 자기 글자를 갖는다 —
+     벤젠 고리 `⌬` 는 위의 어떤 글자와도 겹치지 않으면서 「해석하는 물건」으로 읽힌다. */
+  analyzer: '⌬', bench_extract: WORKBENCH_ICON.extract, bench_mixer: WORKBENCH_ICON.mixer,
 };
 
 /** Purposes offered to an empty room (빈 방 itself is the "clear" action in the header instead). */
@@ -89,6 +93,19 @@ const ASSIGNABLE: readonly RoomPurpose[] = ROOM_PURPOSES.filter((p) => p !== 'em
  * `setRoomPurpose`, 취소 / Esc → close). Escape is caught in the capture phase and `Input.consume`d, so it closes
  * the popup only — the hub's own Esc (leave 시설 관리) and game/'s pause never see it.
  *
+ * **B-13 (2026-09-11, 사용자 결정 — 클릭 인스펙터):** 시설 관리 모드에서 **놓인 가구를 클릭**하면 hub/ 의 레이캐스트가
+ * `housing:furnitureSelected {uid}` 를 내고 이 화면이 `.sm-inspect` 카드를 띄운다 — 이름 · 글리프 · `Lv.n / max` ·
+ * **다음 강화 비용 칩**(`HousingRef.furnitureUpgradeCost`) · 거절 사유(`furnitureUpgradeBlock`) · `강화`
+ * (`upgradeFurniture`). `{uid: null}`(빈 곳 클릭) · ✕ · 방 바꾸기 · 화면 닫기가 카드를 내린다. `upgradeFurniture` 는
+ * Phase 8 부터 있었지만 부르는 곳이 없어 작업대 Lv.2–3 이 플레이로 도달 불가였다 — 여기가 그 입구다.
+ * 카드는 `.sm-confirm` 과 같은 결이지만 **모달리스**라 화면을 덮지 않는다 (계속 다른 가구를 클릭한다). 홀드 확정도
+ * 없다: 강화는 되돌릴 수 없는 확정이 아니다 (`housing/ui/GrowStation` 의 강화 줄과 같은 판단).
+ *
+ * **B-13 (2026-09-11, 사용자 결정 — 이미 가진 실용 가구는 못 만든다):** 가구 제작 카드는 `HousingRef.furnitureCraftBlock`
+ * 을 묻는다. 사유가 있으면 (재료 부족 · `이미 보유 중입니다`) 카드가 **딤드 + `title` 에 사유 + 제작 버튼 비활성**
+ * 이고 목록의 **맨 아래**로 내려간다 — 만들 수 있는 것이 위다 (용도 지정 picker 의 `purposeRank` 와 같은 결).
+ * 그 사유는 `cardsKey` 의 일부다: 재료가 들어와 사유가 사라지면 목록이 다시 그려져야 한다.
+ *
  * **2026-09-08 (튜토리얼은 잠그지 않고 감춘다):** `ctx.tutorial.hides('roomPurpose' | 'furniture', id)` 가 참인
  * 항목은 목록에서 **빠진다** — "튜토리얼에서는 ~" 사유를 단 줄을 남겨 두는 대신, 지금 지을 수 있는 것만
  * 보여 준다 (안내 단계에서는 발전기 행 + 작업실 한 줄). 단계가 넘어가거나 튜토리얼을 건너뛰면
@@ -124,6 +141,17 @@ export class ShipManage {
   private confirmOk: HTMLButtonElement;
   private confirmAction: (() => void) | null = null;
   private pendingPurpose: RoomPurpose | null = null;
+  /* B-13: 클릭 인스펙터 (모달리스 — blocker 도 escape 토큰도 잡지 않는다) */
+  private inspectEl: HTMLElement;
+  private inspectThumb: HTMLElement;
+  private inspectGlyph: HTMLElement;
+  private inspectName: HTMLElement;
+  private inspectLv: HTMLElement;
+  private inspectDesc: HTMLElement;
+  private inspectCost: HTMLElement;
+  private inspectNote: HTMLElement;
+  private inspectBtn: HTMLButtonElement;
+  private inspectUid: string | null = null;
 
   private onKey = (e: KeyboardEvent): void => {
     if (!this.isConfirmOpen || e.code !== Keys.MENU) return;
@@ -197,6 +225,26 @@ export class ShipManage {
     // a click on the dimmed backdrop cancels, like the 함선 tab's popups
     this.confirmEl.addEventListener('mousedown', (e) => { if (e.target === this.confirmEl) this.closeConfirm(true); });
 
+    /* B-13 (2026-09-11): 클릭 인스펙터. `.sm-confirm` 과 같은 상자 언어를 쓰지만 배경을 덮지 않는 **모달리스**
+       카드다 — 방 목록(좌) · 가구 목록(우) 사이 하단 중앙에 서서, 카드를 띄운 채로 다음 가구를 클릭할 수 있다. */
+    this.inspectEl = el('div', { cls: 'sm-inspect interactive', parent: this.root });
+    this.inspectEl.hidden = true;
+    const ihead = el('div', { cls: 'sm-ins-head', parent: this.inspectEl });
+    this.inspectThumb = el('div', { cls: 'fcard-thumb', parent: ihead });
+    this.inspectGlyph = el('span', { cls: 'fcard-glyph', text: '▨', parent: this.inspectThumb });
+    const ititle = el('div', { cls: 'sm-ins-title', parent: ihead });
+    this.inspectName = el('div', { cls: 'sm-ins-name', text: '', parent: ititle });
+    this.inspectLv = el('div', { cls: 'sm-ins-lv ui-mono', text: '', parent: ititle });
+    const ix = el('button', { cls: 'sm-ins-x', text: '✕', parent: ihead });
+    ix.title = '닫기';
+    ix.addEventListener('click', (e) => { e.stopPropagation(); this.setInspect(null, true); });
+    this.inspectDesc = el('div', { cls: 'sm-ins-desc', text: '', parent: this.inspectEl });
+    this.inspectCost = el('div', { cls: 'sm-cost', parent: this.inspectEl });
+    this.inspectNote = el('div', { cls: 'sm-ins-note', text: '', parent: this.inspectEl });
+    const iacts = el('div', { cls: 'sm-ins-acts', parent: this.inspectEl });
+    this.inspectBtn = el('button', { cls: 'sm-gen-btn sm-ins-up', text: '강화', parent: iacts });
+    this.inspectBtn.addEventListener('click', (e) => { e.stopPropagation(); this.upgradeInspected(); });
+
     this.root.addEventListener('mousedown', (e) => e.stopPropagation());
     this.root.addEventListener('contextmenu', (e) => e.preventDefault());
   }
@@ -216,6 +264,8 @@ export class ShipManage {
       b.on('housing:facilityUpgraded', () => { if (this.active) this.refresh(); }),
       b.on('housing:roomPurposeChanged', () => { if (this.active) this.refresh(); }),
       b.on('housing:selectionChanged', ({ defId }) => this.markSelection(defId)),
+      // B-13 (2026-09-11): hub/ 의 시설 관리 레이캐스트가 놓인 가구를 집었다 (`uid: null` = 빈 곳 → 선택 해제).
+      b.on('housing:furnitureSelected', ({ uid }) => this.setInspect(uid)),
       b.on('inventory:changed', () => { if (this.active) this.refresh(); }),
       b.on('inventory:stashChanged', () => { if (this.active) this.refresh(); }),
       b.on('game:newMission', () => this.setActive(false, null)),
@@ -238,6 +288,11 @@ export class ShipManage {
   /** Phase 12: the confirm popup (purpose build or 발전기 upgrade) and the purpose it is asking about (debug). */
   get isConfirmOpen(): boolean { return !this.confirmEl.hidden; }
   get confirmPurpose(): RoomPurpose | null { return this.pendingPurpose; }
+  /** B-13: the click inspector — whether it is up and which placed piece it describes (debug / smoke). */
+  get isInspectOpen(): boolean { return !this.inspectEl.hidden; }
+  get inspectedUid(): string | null { return this.inspectEl.hidden ? null : this.inspectUid; }
+  /** B-13: whether the inspector's 강화 button is live right now (debug / smoke). */
+  get canUpgradeInspected(): boolean { return !this.inspectEl.hidden && !this.inspectBtn.disabled; }
 
   /**
    * 2026-09-08 — 튜토리얼이 막는 항목은 사유를 달아 두지 않고 **아예 그리지 않는다**. 목록에 지금 할 수
@@ -256,6 +311,8 @@ export class ShipManage {
     this.room = active ? room : null;
     toggleClass(this.root, 'show', active);
     if (changed && this.isConfirmOpen) this.closeConfirm();
+    // B-13: the inspector describes one placed piece — a different room (or a closed screen) is a different subject
+    if (changed) this.setInspect(null);
     if (!active) {
       this.selected = null;
       this.cardsKey = '';
@@ -288,11 +345,11 @@ export class ShipManage {
   private craftCard(defId: string): void {
     const housing = this.ctx.housing;
     if (!housing) return;
-    const info = housing.canCraftFurniture(defId);
-    if (!info.ok) {
+    // B-13 (2026-09-11): 재료 부족뿐 아니라 「이미 보유 중입니다」도 여기서 걸린다 — 사유의 원본은 housing/ 이다
+    const block = this.craftBlock(defId);
+    if (block) {
       this.ctx.bus.emit('audio:play', { id: 'ui_deny' });
-      const short = info.missing.map((m) => `${this.itemDef(m.defId)?.name ?? m.defId} ${m.qty}`).join(' · ');
-      this.ctx.bus.emit('ui:notify', { text: `재료 부족: ${short}`, kind: 'warning' });
+      this.ctx.bus.emit('ui:notify', { text: block, kind: 'warning' });
       return;
     }
     if (!housing.craftFurniture(defId)) { this.ctx.bus.emit('audio:play', { id: 'ui_deny' }); return; }
@@ -457,6 +514,123 @@ export class ShipManage {
     action?.();
   }
 
+  /* ── B-13 (2026-09-11): 클릭 인스펙터 ─────────────────────────────────── */
+
+  /**
+   * `housing:furnitureSelected` 의 유일한 소비자. `uid` 가 배치된 조각이 아니면(치웠다 · 다른 방이다) 카드를
+   * 내린다 — 없는 조각을 「Lv.0」으로 그리느니 사라지는 편이 정직하다.
+   */
+  private setInspect(uid: string | null, sound = false): void {
+    const was = this.inspectUid;
+    this.inspectUid = uid;
+    if (!uid) {
+      if (!this.inspectEl.hidden) {
+        this.inspectEl.hidden = true;
+        if (sound) this.ctx?.bus.emit('audio:play', { id: 'ui_close' });
+      }
+      return;
+    }
+    if (uid !== was) this.ctx?.bus.emit('audio:play', { id: 'ui_click' });
+    this.refreshInspect();
+  }
+
+  /**
+   * 카드 한 장을 다시 그린다. `refresh()` 가 매번 부르므로 재료가 들어오거나 강화가 끝나면 비용 칩 · 사유 ·
+   * 버튼이 저절로 따라온다 (카드가 작아 memo 키를 두지 않는다 — 목록과 달리 요소가 열 개도 안 된다).
+   */
+  private refreshInspect(): void {
+    const housing = this.ctx.housing;
+    const uid = this.inspectUid;
+    if (!housing || !uid) { if (!this.inspectEl.hidden) this.inspectEl.hidden = true; return; }
+    const piece = housing.getPlacedByUid(uid);
+    const def = piece ? housing.getFurnitureDef(piece.defId) : undefined;
+    if (!piece || !def) { this.inspectUid = null; this.inspectEl.hidden = true; return; }
+
+    this.inspectEl.hidden = false;
+    this.inspectThumb.style.setProperty('--fc', def.color);
+    setText(this.inspectGlyph, MODEL_GLYPH[def.model] ?? '▨');
+    setText(this.inspectName, def.name);
+    setText(this.inspectLv, `Lv.${piece.level} / ${def.maxLevel}`);
+    setText(this.inspectDesc, def.description);
+
+    const cost = this.upgradeCost(uid);
+    const reason = this.upgradeBlock(uid);
+    this.inspectCost.replaceChildren();
+    if (cost && cost.length) renderItemCost(this.inspectCost, cost, (id) => this.itemDef(id), (id) => this.owned(id), { size: 26 });
+    else el('span', { cls: 'item-chip-free', text: cost ? '재료 없음' : '최대 레벨', parent: this.inspectCost });
+    const note = reason ?? (cost ? '강화할 수 있습니다' : '최대 레벨입니다');
+    setText(this.inspectNote, note);
+    toggleClass(this.inspectNote, 'is-ok', !reason);
+    this.inspectBtn.disabled = !!reason || !cost;
+    this.inspectBtn.title = reason ?? (cost ? `${def.name} Lv.${piece.level + 1}` : '최대 레벨');
+  }
+
+  /** 강화 버튼. 되돌릴 수 없는 확정이 아니므로 1초 홀드도 확인 팝업도 없다 (GrowStation 의 강화 줄과 같다). */
+  private upgradeInspected(): void {
+    const housing = this.ctx.housing;
+    const uid = this.inspectUid;
+    if (!housing || !uid) return;
+    const reason = this.upgradeBlock(uid);
+    if (reason) {
+      this.ctx.bus.emit('audio:play', { id: 'ui_deny' });
+      this.ctx.bus.emit('ui:notify', { text: reason, kind: 'warning' });
+      this.refreshInspect();
+      return;
+    }
+    const ok = housing.upgradeFurniture(uid);
+    const piece = housing.getPlacedByUid(uid);
+    const name = piece ? housing.getFurnitureDef(piece.defId)?.name ?? piece.defId : '가구';
+    this.ctx.bus.emit('audio:play', { id: ok ? 'ui_equip' : 'ui_deny' });
+    this.ctx.bus.emit('ui:notify', ok
+      ? { text: `${name} Lv.${piece?.level ?? '?'}`, kind: 'success' }
+      : { text: this.upgradeBlock(uid) ?? '강화에 실패했습니다', kind: 'warning' });
+    // 방 목록 · 가구 목록 · 카드를 함께 다시 그린다 (재료가 빠져 제작 카드의 사유가 달라질 수 있다)
+    this.refresh();
+  }
+
+  /**
+   * 계약(2026-09-11)의 세 질의는 housing/ 에 구현이 **늦게 붙을 수 있다** (폴더별로 나눠 짓는다). 그때
+   * 화면이 통째로 죽는 대신, 예전부터 있던 질의로 같은 답을 만든다 — 구현이 붙으면 저절로 그쪽을 쓴다.
+   */
+  private upgradeCost(uid: string): readonly CraftIngredient[] | null {
+    const housing = this.ctx.housing;
+    if (!housing) return null;
+    if (typeof housing.furnitureUpgradeCost === 'function') {
+      try { return housing.furnitureUpgradeCost(uid); } catch { /* fall through */ }
+    }
+    const piece = housing.getPlacedByUid(uid);
+    const def = piece ? housing.getFurnitureDef(piece.defId) : undefined;
+    if (!piece || !def || piece.level >= def.maxLevel) return null;
+    return def.upgradeCost[piece.level - 1] ?? [];
+  }
+
+  private upgradeBlock(uid: string): string | null {
+    const housing = this.ctx.housing;
+    if (!housing) return '함선을 읽을 수 없습니다';
+    if (typeof housing.furnitureUpgradeBlock === 'function') {
+      try { return housing.furnitureUpgradeBlock(uid); } catch { /* fall through */ }
+    }
+    return this.upgradeCost(uid) ? null : '최대 레벨입니다';
+  }
+
+  /**
+   * 제작 카드의 거절 사유. 재료 부족에 더해 **이미 가진 실용 가구**(`isUtilityFurniture`)를 잠근다 — 판정은
+   * 전부 housing/ 의 `furnitureCraftBlock` 안에 있고 이 화면은 답만 그린다.
+   */
+  private craftBlock(defId: string): string | null {
+    const housing = this.ctx.housing;
+    if (!housing) return null;
+    if (typeof housing.furnitureCraftBlock === 'function') {
+      try { return housing.furnitureCraftBlock(defId); } catch { /* fall through */ }
+    }
+    const info = housing.canCraftFurniture(defId);
+    return info.ok ? null : `재료 부족: ${this.missingText(info.missing)}`;
+  }
+
+  private missingText(missing: readonly CraftIngredient[]): string {
+    return missing.map((m) => `${this.itemDef(m.defId)?.name ?? m.defId} ${m.qty}`).join(' · ');
+  }
+
   /**
    * Header 빈 방으로: give the room back. Placed pieces go to the 가구 창고 and **every material the facility ever
    * cost comes back into the 함선 창고**.
@@ -524,6 +698,8 @@ export class ShipManage {
       toggleClass(r.root, 'is-on', r.index === this.room);
     }
     this.refreshSide();
+    // B-13: 인스펙터도 같은 한 바퀴에 올라탄다 — 재료 · 레벨 · 조각의 존재가 바뀌면 카드가 따라간다
+    this.refreshInspect();
   }
 
   private refreshSide(): void {
@@ -639,24 +815,30 @@ export class ShipManage {
   private refreshCards(room: number | null, purpose: RoomPurpose): void {
     const housing = this.ctx.housing;
     if (!housing) return;
-    const defs = housing.getFurnitureFor(purpose).filter((d) => !this.tutHides('furniture', d.id));
     const stored = this.storedCounts();
+    // B-13 (2026-09-11): 만들 수 있는 것이 위, 거절 사유가 붙은 것은 맨 아래 (용도 지정 picker 와 같은 결).
+    // `sort` 는 안정적이므로 같은 등급 안에서는 카탈로그 순서가 그대로 남는다.
+    const defs = housing.getFurnitureFor(purpose)
+      .filter((d) => !this.tutHides('furniture', d.id))
+      .map((d) => ({ def: d, block: this.craftBlock(d.id) }));
+    defs.sort((a, b) => Number(!!a.block) - Number(!!b.block));
 
-    // Rebuild only when the visible content actually changed (room / def list / storage / material counts / 튜토리얼 단계).
-    const key = `craft|${room}|${purpose}|t${this.tutKey}|${defs.map((d) => `${d.id}:${stored.get(d.id) ?? 0}:${this.costKey(d)}`).join(',')}`;
+    // Rebuild only when the visible content actually changed (room / def list / storage / material counts / 튜토리얼
+    // 단계 / **거절 사유** — 재료가 들어와 사유가 사라지면 카드가 딤드를 벗고 목록 위로 올라와야 한다).
+    const key = `craft|${room}|${purpose}|t${this.tutKey}|`
+      + defs.map(({ def: d, block }) => `${d.id}:${stored.get(d.id) ?? 0}:${this.costKey(d)}:${block ?? ''}`).join(',');
     if (key === this.cardsKey) { this.markSelection(this.selected); return; }
     this.cardsKey = key;
 
     this.cardsEl.replaceChildren();
     this.cards = [];
     this.emptyEl.hidden = defs.length > 0;
-    for (const def of defs) {
+    for (const { def, block } of defs) {
       const owned = stored.get(def.id) ?? 0;
-      const can = housing.canCraftFurniture(def.id);
-      const card = el('button', { cls: 'fcard', parent: this.cardsEl });
+      const card = el('button', { cls: `fcard${block ? ' is-locked' : ''}`, parent: this.cardsEl });
       card.dataset.defId = def.id;      // 2026-09-08: 튜토리얼 스포트라이트 · 스모크가 카드를 집는 손잡이
       card.style.setProperty('--fc', def.color);
-      card.title = `${def.name}\n${def.description}`;
+      card.title = block ? `${def.name} — ${block}` : `${def.name}\n${def.description}`;
       const thumb = el('div', { cls: 'fcard-thumb', parent: card });
       el('span', { cls: 'fcard-glyph', text: MODEL_GLYPH[def.model] ?? '▨', parent: thumb });
       el('span', { cls: 'fcard-size', text: `${def.cols}×${def.rows}`, parent: thumb });
@@ -667,11 +849,13 @@ export class ShipManage {
       const own = el('div', { cls: 'fcard-own', text: `보유 ${owned}`, parent: body });
       toggleClass(own, 'none', owned <= 0);
       toggleClass(card, 'is-empty', owned <= 0);
+      // Phase 12 의 교훈 그대로 사유는 **인쇄한다** — `title` 에만 두면 패드 · 포인터 락에서는 영영 안 보인다
+      if (block) el('div', { cls: 'fcard-note is-locked', text: block, parent: body });
       // the row selects a stored piece for placement; the 제작 button spends materials for a new one
       card.addEventListener('click', (e) => { e.stopPropagation(); if (owned > 0) this.pickCard(def.id); else this.craftCard(def.id); });
       const make = el('button', { cls: 'fcard-craft', text: '제작', parent: card });
-      make.disabled = !can.ok;
-      make.title = can.ok ? `${def.name} 제작` : '재료가 부족합니다';
+      make.disabled = !!block;
+      make.title = block ?? `${def.name} 제작`;
       make.addEventListener('click', (e) => { e.stopPropagation(); this.craftCard(def.id); });
       this.cards.push({ defId: def.id, root: card });
     }

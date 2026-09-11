@@ -2,16 +2,17 @@ import type { GameContext } from '@/shared';
 import { Keys, MENU_BLOCKER } from '@/shared';
 import { el, section } from './dom';
 
-export type HousingPage = 'room' | 'facility' | 'presets' | 'grow' | 'bookshelf';
+export type HousingPage = 'room' | 'facility' | 'presets' | 'grow' | 'bookshelf' | 'analyzer';
 const BLOCKER = 'housing';
 
 /**
- * `ui:housingToggled` only knows the three Phase 6 pages; the Phase 8 재배 panel and the Phase 9 책장 panel report
- * themselves as `null` there and carry their own `ui:growToggled` / `ui:bookshelfToggled` events instead (the
- * contract's page union is frozen — page ids may not be appended).
+ * `ui:housingToggled` only knows the three Phase 6 pages; the Phase 8 재배 panel, the Phase 9 책장 panel and the
+ * 2026-09-11 분석 화면 report themselves as `null` there (the contract's page union is frozen — page ids may not be
+ * appended). 재배 · 책장 carry their own `ui:growToggled` / `ui:bookshelfToggled`; the 분석 화면 has no such event in
+ * the contract, so consumers watch `housing:analysisChanged` instead.
  */
 type WirePage = 'room' | 'facility' | 'presets' | null;
-const wirePage = (p: HousingPage): WirePage => (p === 'grow' || p === 'bookshelf' ? null : p);
+const wirePage = (p: HousingPage): WirePage => (p === 'grow' || p === 'bookshelf' || p === 'analyzer' ? null : p);
 
 /**
  * Shared shell of the housing panels (`.menu.housing-menu`): adds the `'housing'` blocker and then turns on the

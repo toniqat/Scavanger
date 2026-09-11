@@ -1,16 +1,19 @@
 import * as THREE from 'three';
 import {
+  CATEGORY_COLOR,
   GATHER_HERB_QTY2_CHANCE, GATHER_INTERACT_TIME, GATHER_NODES_PER_MISSION, GATHER_SALVAGE_CORE_CHANCE,
   GATHER_SALVAGE_CORE_QTY, GATHER_SALVAGE_QTY2_CHANCE, Layers,
   SALVAGE_INTERACT_TIME, SALVAGE_NODES_PER_MISSION, SOIL_TAG_COLOR,
   type GameContext, type GatherNodeDef, type GatherNodeKind, type GatherWire, type HarvestMessage, type HarvestRequest,
-  type Interactable, type ItemInstance, type PeerId, type PlanetEcosystem, type Random, type SoilTag,
+  type Interactable, type ItemCategory, type ItemInstance, type PeerId, type PlanetEcosystem, type Random, type SoilTag,
 } from '@/shared';
 import { type BuildCtx, PLAY_LIMIT, composeMatrix, displace, isSpotFree, merge, paint, paintGradient, scratch, xform } from './build';
+import { SEED_INTERACT_TIME, SEED_NODE_RADIUS, planetSeeds } from './flora';
 import {
   GROVE_PICKS_MAX, GROVE_PICKS_MIN, GROVE_PICK_RING_MAX, GROVE_PICK_RING_MIN, GROVE_PICK_VARIANT,
 } from './hazard/model';
 import { planetSoil } from './soil';
+import { SAMPLE_INTERACT_TIME, SAMPLE_NODE_RADIUS, planetSamples } from './specimen';
 
 /** Seconds the shrink-away animation runs after a node is harvested. */
 const HARVEST_ANIM = 0.42;
@@ -27,7 +30,8 @@ const MIN_SPACING = 7;
  */
 const FALLBACK_HERB_IDS: readonly string[] = ['herb_bloodroot', 'herb_ashleaf', 'herb_glowcap'];
 
-const GLOW_COLORS: readonly number[] = [0xff5a6a, 0x7affc8, 0xffc24a, 0xffb347, 0xd8b06a];
+// 0–2 약초 · 3 고철 · 4 토양 · 5 씨앗 군락 · 6 미확인 표본 (2026-09-11)
+const GLOW_COLORS: readonly number[] = [0xff5a6a, 0x7affc8, 0xffc24a, 0xffb347, 0xd8b06a, 0xe6ff8a, 0x8fd8ff];
 
 /* ── 고철 노드 (2026-09-08) ────────────────────────────────────────────────
  * 폐금속이 상자의 `material` 롤에서만 나오던 병목을 푸는 세 갈래 중 하나. 약초와 **같은 노드 시스템**을 쓴다 —
@@ -73,6 +77,44 @@ const SOIL_NODE_CLEARANCE = 5;
 const SOIL_MAX_SLOPE = 0.24;
 /** 토양 태그를 모를 때 인스턴스에 칠하는 색 (items/ 가 아직 그 줄을 모를 때). */
 const SOIL_FALLBACK_COLOR = '#6b5a49';
+
+/* ── 야생 씨앗 군락 · 미확인 표본 채집지 (연구실 배치, 2026-09-11) ──────────────
+ * 온실의 씨앗과 분석기의 표본도 **레이드에서 주워 온다**. 어떤 품종 · 어떤 표본이 나오는지는 행성마다 다르고
+ * (`data/planets.csv` 의 `seeds`/`seedNodes` · `samples`/`sampleNodes`, 읽는 자리는 `world/flora.ts` ·
+ * `world/specimen.ts`), 토양 더미가 그랬듯 **약초 노드 시스템을 그대로 쓴다** — 배치 · 상호작용 · 호스트 권한
+ * 동기화(`harv`/`harvq`) · 수확 애니메이션이 전부 같은 코드이고 다른 것은 변종 메시 · 동사 · 시간 · 추첨뿐이다.
+ *
+ * ⚠ 둘 다 **자기 rng fork** 로만 굴린다 (`gather_seed` · `gather_sample`). 행성마다 다른 개수가 `gather`
+ * 스트림을 한 칸이라도 밀면 같은 시드의 약초 · 고철 배치가 통째로 달라진다 (`gather_core` · `gather_soil` 과
+ * 같은 수법 — `Random.fork` 는 부모를 전진시키지 않는다). */
+/** `variants` index of the 씨앗 군락 mesh (0–2 = 약초, 3 = 고철, 4 = 토양). */
+const SEED_VARIANT = 5;
+/** `variants` index of the 미확인 표본 mesh. */
+const SAMPLE_VARIANT = 6;
+/** 한 군락이 품는 포기 수 (앵커 1 + 곁가지). `seedNodes` 는 **군락 수**라 실제 노드는 이만큼 늘어난다. */
+const SEED_PATCH_MIN = 2;
+const SEED_PATCH_MAX = 3;
+/** 군락끼리의 최소 간격(m) — 한 행성에 4~5 군락뿐이라 넉넉히 흩는다. */
+const SEED_SPACING = 18;
+/** 한 군락 안에서 곁가지가 앉는 고리(m). */
+const SEED_PATCH_RING_MIN = 2.2;
+const SEED_PATCH_RING_MAX = 4.2;
+/** 씨앗 군락에서 다른 채집물까지의 최소 거리(m). */
+const SEED_NODE_CLEARANCE = 5;
+/** 씨앗이 여무는 곳은 완만한 초지다 (약초 0.3 보다 엄하고 흙 0.24 보다는 무르다). */
+const SEED_MAX_SLOPE = 0.28;
+/** 표본 채집지끼리의 최소 간격(m). */
+const SAMPLE_SPACING = 26;
+/** 표본 채집지에서 다른 채집물까지의 최소 거리(m). */
+const SAMPLE_NODE_CLEARANCE = 6;
+/** 표본이 굳어 있을 만한 경사 (고철과 같다 — 잔해에 얹혀 있어도 된다). */
+const SAMPLE_MAX_SLOPE = 0.32;
+/** 둥지(패드 반지름 20 m) 바깥 고리 — 안에 놓으면 둥지 지오메트리에 파묻힌다. */
+const SAMPLE_NEST_RING_MIN = 22;
+const SAMPLE_NEST_RING_MAX = 34;
+/** 폐허 전초(잔해) 둘레 고리 — 고철 더미(5–14 m)보다 조금 넓게 잡아 겹치지 않는다. */
+const SAMPLE_POI_RING_MIN = 7;
+const SAMPLE_POI_RING_MAX = 17;
 
 interface Variant {
   meshes: THREE.InstancedMesh[];
@@ -178,32 +220,48 @@ export class Gather {
     const soil = planetSoil(planetId);
     const soilTarget = soil ? soil.nodes : 0;
     const soilRng = ctx.rng.fork('gather_soil');
-    const soilWeights = soil ? this.resolveSoilWeights(game, soil.weights) : null;
+    const soilWeights = soil ? this.resolveNodeWeights(game, soil.weights, 'soil', 'soil_') : null;
+    /* 2026-09-11 (연구실 A-11 · A-12): 씨앗 · 표본도 각자 자기 fork 다 — 토양과 같은 이유이고, 셋이 서로의
+     * 스트림도 밀지 않는다 (행성마다 셋 중 둘만 있는 경우가 흔하다). */
+    const seeds = planetSeeds(planetId);
+    const seedTarget = seeds ? seeds.nodes : 0;
+    const seedRng = ctx.rng.fork('gather_seed');
+    const seedWeights = seeds ? this.resolveNodeWeights(game, seeds.weights, 'seed', 'seed_') : null;
+    const samples = planetSamples(planetId);
+    const sampleTarget = samples ? samples.nodes : 0;
+    const sampleRng = ctx.rng.fork('gather_sample');
+    const sampleWeights = samples ? this.resolveNodeWeights(game, samples.weights, 'sample', 'spec_') : null;
 
     this.bodyMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86, metalness: 0.0, side: THREE.DoubleSide });
     // 흙은 젖은 듯 무광이고 뒷면을 쓰지 않는다 (돔 하나 + 덩어리들이라 전부 닫힌 면이다)
     this.soilMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0.0 });
 
-    // variants 0–2 are the plant shapes, 3 the 고철 더미, 4 the 토양 더미 — each mesh is sized for its own node budget
+    // variants 0–2 are the plant shapes, 3 the 고철 더미, 4 the 토양 더미, 5 the 씨앗 군락, 6 the 미확인 표본
+    // — each mesh is sized for its own node budget
     const salvageTarget = SALVAGE_NODES_PER_MISSION;
     // 2026-09-09: 거대 버섯 군락 둘레의 채집 버섯은 전부 포자균 갓(변종 1)이라 그 변종만 자리를 더 잡는다
     const groveExtra = groves.length * GROVE_PICKS_MAX;
     const capacityOf = (k: number): number => (
       k === SALVAGE_VARIANT ? salvageTarget : k === SOIL_VARIANT ? soilTarget
-        : k === GROVE_PICK_VARIANT ? target + groveExtra : target
+        : k === SEED_VARIANT ? seedTarget * SEED_PATCH_MAX : k === SAMPLE_VARIANT ? sampleTarget
+          : k === GROVE_PICK_VARIANT ? target + groveExtra : target
     );
-    for (let k = 0; k <= SOIL_VARIANT; k++) {
+    const variantRng = (k: number): Random => (
+      k === SOIL_VARIANT ? soilRng : k === SEED_VARIANT ? seedRng : k === SAMPLE_VARIANT ? sampleRng : rng
+    );
+    for (let k = 0; k <= SAMPLE_VARIANT; k++) {
       const glowMat = new THREE.MeshStandardMaterial({
         vertexColors: true, roughness: 0.35, metalness: 0.0,
         emissive: new THREE.Color(GLOW_COLORS[k]), emissiveIntensity: 1.1,
       });
-      const geos = this.makeVariantGeometry(k, ctx, k === SOIL_VARIANT ? soilRng : rng);
+      const geos = this.makeVariantGeometry(k, ctx, variantRng(k));
       const meshes: THREE.InstancedMesh[] = [];
       const mat = k === SOIL_VARIANT ? this.soilMat : this.bodyMat;
       const bodyIm = new THREE.InstancedMesh(geos[0], mat, Math.max(1, capacityOf(k)));
       const glowIm = new THREE.InstancedMesh(geos[1], glowMat, Math.max(1, capacityOf(k)));
       for (const im of [bodyIm, glowIm]) {
-        im.name = k === SALVAGE_VARIANT ? 'gather_salvage' : k === SOIL_VARIANT ? 'gather_soil' : `gather_plant_${k}`;
+        im.name = k === SALVAGE_VARIANT ? 'gather_salvage' : k === SOIL_VARIANT ? 'gather_soil'
+          : k === SEED_VARIANT ? 'gather_seed' : k === SAMPLE_VARIANT ? 'gather_sample' : `gather_plant_${k}`;
         im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
         im.castShadow = false;
         im.receiveShadow = false;
@@ -336,6 +394,91 @@ export class Gather {
       spots.push(...soilSpots);
     }
 
+    /* ── 야생 씨앗 군락 (연구실 A-11, 2026-09-11) ──────────────────────────────
+     * 개수(군락 수) · 품종이 전부 `data/planets.csv` 에서 온다 (`world/flora.ts`). 씨앗은 물과 볕이 있는
+     * **초지 · 저지대**에서 여무니까 분지(`layout.basins`) 안을 먼저 노리고, 못 잡으면 완만한 개활지로 흩는다
+     * (흙더미와 같은 결이지만 경사 기준이 조금 무르고 서로 더 멀리 선다). 한 군락은 앵커 한 포기 + 곁가지
+     * 1~2 포기이고 **전부 같은 품종**이다 — 약초 무리와 같은 규칙이라 "한 덤불을 훑었다" 로 읽힌다.
+     * 추첨 · 배치가 전부 `seedRng` 이라 앞의 어느 스트림도 밀지 않는다. */
+    if (seedTarget > 0 && seedWeights) {
+      const seedSpots: Spot[] = [];
+      const near2 = SEED_SPACING * SEED_SPACING;
+      const clear2 = SEED_NODE_CLEARANCE * SEED_NODE_CLEARANCE;
+      const free = (x: number, z: number, near: number): boolean => {
+        if (!isSpotFree(ctx, x, z, 0.8, { maxSlope: SEED_MAX_SLOPE, padExtra: 3 })) return false;
+        for (const p of seedSpots) if ((p.x - x) ** 2 + (p.z - z) ** 2 < near) return false;
+        for (const p of spots) if ((p.x - x) ** 2 + (p.z - z) ** 2 < clear2) return false;
+        return true;
+      };
+      const basins = ctx.layout.basins;
+      for (let n = 0; n < seedTarget; n++) {
+        const defId = this.pickHerb(seedWeights, seedRng);
+        let anchor: { x: number; z: number } | null = null;
+        if (basins.length > 0) {
+          for (let a = 0; a < 24 && !anchor; a++) {
+            const b = basins[seedRng.int(0, basins.length - 1)];
+            const ang = seedRng.range(0, Math.PI * 2), d = seedRng.range(0, b.radius * 0.9);
+            const x = b.x + Math.cos(ang) * d, z = b.z + Math.sin(ang) * d;
+            if (free(x, z, near2)) anchor = { x, z };
+          }
+        }
+        for (let a = 0; a < 120 && !anchor; a++) {
+          const x = seedRng.range(-PLAY_LIMIT + 12, PLAY_LIMIT - 12);
+          const z = seedRng.range(-PLAY_LIMIT + 12, PLAY_LIMIT - 12);
+          if (free(x, z, near2)) anchor = { x, z };
+        }
+        if (!anchor) continue;
+        seedSpots.push({ x: anchor.x, z: anchor.z, variant: SEED_VARIANT, defId, kind: 'seed' });
+        const want = seedRng.int(SEED_PATCH_MIN, SEED_PATCH_MAX) - 1;
+        for (let c = 0; c < want; c++) {
+          const ang = seedRng.range(0, Math.PI * 2);
+          const d = seedRng.range(SEED_PATCH_RING_MIN, SEED_PATCH_RING_MAX);
+          const x = anchor.x + Math.cos(ang) * d, z = anchor.z + Math.sin(ang) * d;
+          // 곁가지끼리는 붙어 있어도 된다 (한 덤불이다) — 군락 간격만 지킨다
+          if (free(x, z, 1.8 * 1.8)) seedSpots.push({ x, z, variant: SEED_VARIANT, defId, kind: 'seed' });
+        }
+      }
+      spots.push(...seedSpots);
+    }
+
+    /* ── 미확인 표본 채집지 (연구실 A-12, 2026-09-11) ───────────────────────────
+     * 표본은 **무언가 살거나 죽은 자리**에 남는다 — 둥지 바깥 고리(허물 · 알 껍질)와 폐허 전초 둘레(잔해에
+     * 굳은 수지 · 결정)를 먼저 노리고, 남는 만큼만 개활지로 흩는다. 개수 · 종류는 `data/planets.csv`
+     * (`world/specimen.ts`) 이고 추첨 · 배치는 전부 `sampleRng` 이다. */
+    if (sampleTarget > 0 && sampleWeights) {
+      const sampleSpots: Spot[] = [];
+      const near2 = SAMPLE_SPACING * SAMPLE_SPACING;
+      const clear2 = SAMPLE_NODE_CLEARANCE * SAMPLE_NODE_CLEARANCE;
+      const push = (x: number, z: number): boolean => {
+        if (!isSpotFree(ctx, x, z, 1.0, { maxSlope: SAMPLE_MAX_SLOPE, padExtra: 4 })) return false;
+        for (const p of sampleSpots) if ((p.x - x) ** 2 + (p.z - z) ** 2 < near2) return false;
+        for (const p of spots) if ((p.x - x) ** 2 + (p.z - z) ** 2 < clear2) return false;
+        sampleSpots.push({
+          x, z, variant: SAMPLE_VARIANT, defId: this.pickHerb(sampleWeights, sampleRng), kind: 'sample',
+        });
+        return true;
+      };
+      const ring = (cx: number, cz: number, lo: number, hi: number, tries: number): boolean => {
+        for (let a = 0; a < tries; a++) {
+          const ang = sampleRng.range(0, Math.PI * 2), d = sampleRng.range(lo, hi);
+          if (push(cx + Math.cos(ang) * d, cz + Math.sin(ang) * d)) return true;
+        }
+        return false;
+      };
+      for (const nest of ctx.layout.nests) {
+        if (sampleSpots.length >= sampleTarget) break;
+        ring(nest.x, nest.z, SAMPLE_NEST_RING_MIN, SAMPLE_NEST_RING_MAX, 24);
+      }
+      for (const poi of ctx.layout.pois) {
+        if (sampleSpots.length >= sampleTarget) break;
+        ring(poi.x, poi.z, SAMPLE_POI_RING_MIN, SAMPLE_POI_RING_MAX, 24);
+      }
+      for (let a = 0; a < 600 && sampleSpots.length < sampleTarget; a++) {
+        push(sampleRng.range(-PLAY_LIMIT + 12, PLAY_LIMIT - 12), sampleRng.range(-PLAY_LIMIT + 12, PLAY_LIMIT - 12));
+      }
+      spots.push(...sampleSpots);
+    }
+
     /* 2026-09-11 (C-20): 부가 코어는 **자기 fork** 로 굴린다 — `rng`(gather) 에서 뽑으면 그 뒤의 yaw · scale ·
      * 수량 추첨이 한 칸씩 밀려 같은 시드의 채집물 모습이 달라진다. `Random.fork` 는 부모를 전진시키지 않는다. */
     const coreRng = ctx.rng.fork('gather_core');
@@ -346,22 +489,35 @@ export class Gather {
       const y = ctx.terrain.getHeightAt(s.x, s.z);
       const salvage = s.kind === 'salvage';
       const isSoil = s.kind === 'soil';
+      const isSeed = s.kind === 'seed';
+      const isSample = s.kind === 'sample';
       /* 토양은 배치와 마찬가지로 **자기 fork** 에서 yaw · scale 을 뽑는다 — soil spots 가 맨 뒤라 앞을 밀지는
-         않지만, 흙더미 개수(행성마다 다르다)가 `gather` 스트림의 길이를 바꾸지 않게 하려면 여기도 갈라야 한다. */
-      const r = isSoil ? soilRng : rng;
+         않지만, 흙더미 개수(행성마다 다르다)가 `gather` 스트림의 길이를 바꾸지 않게 하려면 여기도 갈라야 한다.
+         2026-09-11 의 씨앗 · 표본도 같은 이유로 자기 fork 다. */
+      const r = isSoil ? soilRng : isSeed ? seedRng : isSample ? sampleRng : rng;
       const yaw = r.range(0, Math.PI * 2);
-      const scale = salvage ? r.range(0.9, 1.15) : isSoil ? r.range(0.85, 1.2) : r.range(0.85, 1.3);
+      const scale = salvage ? r.range(0.9, 1.15)
+        : isSoil ? r.range(0.85, 1.2)
+          : isSeed ? r.range(0.9, 1.25)
+            : isSample ? r.range(0.85, 1.15) : r.range(0.85, 1.3);
       const def: GatherNodeDef = {
         /* 2026-09-09: 군락 버섯은 `grove_` 로 구분한다 — 종류(kind)는 약초 그대로(원예 XP)지만 "생태계 밀도"
            를 세는 쪽(지도 · 스모크)은 이 둘을 갈라야 한다. 군락 자리는 spots 의 **맨 뒤**라 기존 약초 · 고철의
-           id 는 한 글자도 바뀌지 않는다. 2026-09-11 의 토양 더미(`soil_`)는 그 뒤에 붙는다. */
-        id: salvage ? `salvage_${id++}` : isSoil ? `soil_${id++}` : s.grove ? `grove_${id++}` : `gather_${id++}`,
+           id 는 한 글자도 바뀌지 않는다. 2026-09-11 의 토양 더미(`soil_`)는 그 뒤에, 씨앗(`seed_`) · 표본
+           (`sample_`)은 다시 그 뒤에 붙는다. */
+        id: salvage ? `salvage_${id++}`
+          : isSoil ? `soil_${id++}`
+            : isSeed ? `seed_${id++}`
+              : isSample ? `sample_${id++}`
+                : s.grove ? `grove_${id++}` : `gather_${id++}`,
         position: new THREE.Vector3(s.x, y, s.z),
         defId: s.defId,
         // 고철: 폐금속 1, `GATHER_SALVAGE_QTY2_CHANCE` 로 2. 약초: `GATHER_HERB_QTY2_CHANCE` 로 2.
         // 2026-09-11 (C-20): 옛 하드코딩 0.3 / 0.25 를 csv 로 옮겼다 — 같은 값이라 rng 소비도 결과도 그대로다.
         // 토양: 한 더미에 한 포대 고정 (한 포대가 `ItemDef.soil.uses` 만큼 수확을 버틴다 — 깊이는 그쪽에 있다).
-        qty: isSoil ? 1
+        // 씨앗: 한 포기에 한 알 (군락이 여러 포기라 한 덤불에서 2~3 알이 나온다 + 원예 수율이 곱해진다).
+        // 표본: 하나짜리 덩어리라 1 고정이고 수율도 곱하지 않는다 (고철과 같은 판단 — `collect` 참조).
+        qty: isSoil || isSeed || isSample ? 1
           : salvage ? (rng.chance(GATHER_SALVAGE_QTY2_CHANCE) ? 2 : 1) : (rng.chance(GATHER_HERB_QTY2_CHANCE) ? 2 : 1),
         harvested: false,
         kind: s.kind,
@@ -456,18 +612,29 @@ export class Gather {
     const game = () => this.game;
     // 2026-09-08: 고철 더미는 더 오래 걸리고 `해체` 라고 뜬다 — 나머지 규칙은 약초와 같다
     // 2026-09-11: 토양 더미는 `채취` 다 — 셋이 한 단어로 갈라진다 (약초 채집 · 고철 해체 · 토양 채취)
+    // 2026-09-11 (연구실): 씨앗 군락은 흙과 같은 `채취`, 미확인 표본은 `수습` 이다 (사용자 결정) —
+    // 다섯 종류가 네 단어로 갈린다 (약초 채집 · 고철 해체 · 토양/씨앗 채취 · 표본 수습).
     const salvage = node.kind === 'salvage';
     const soil = node.kind === 'soil';
-    const verb = salvage ? '해체' : soil ? '채취' : '채집';
+    const seed = node.kind === 'seed';
+    const sample = node.kind === 'sample';
+    const verb = salvage ? '해체' : sample ? '수습' : soil || seed ? '채취' : '채집';
     return {
       id: `gather:${node.def.id}`,
       position: node.def.position,
       // base hold; the player applies `derived.interactSpeedMul` to every hold (Phase 5)
-      holdTime: salvage ? SALVAGE_INTERACT_TIME : soil ? SOIL_INTERACT_TIME : GATHER_INTERACT_TIME,
-      radius: salvage ? SALVAGE_RADIUS : soil ? SOIL_RADIUS : NODE_RADIUS,
+      holdTime: salvage ? SALVAGE_INTERACT_TIME
+        : soil ? SOIL_INTERACT_TIME
+          : seed ? SEED_INTERACT_TIME
+            : sample ? SAMPLE_INTERACT_TIME : GATHER_INTERACT_TIME,
+      radius: salvage ? SALVAGE_RADIUS
+        : soil ? SOIL_RADIUS
+          : seed ? SEED_NODE_RADIUS
+            : sample ? SAMPLE_NODE_RADIUS : NODE_RADIUS,
       getPrompt: () => {
         if (node.def.harvested) return null;
-        const name = this.game?.loot?.getItemDef(node.def.defId)?.name ?? (salvage ? '고철' : soil ? '토양' : '약초');
+        const fallback = salvage ? '고철' : soil ? '토양' : seed ? '씨앗' : sample ? '표본' : '약초';
+        const name = this.game?.loot?.getItemDef(node.def.defId)?.name ?? fallback;
         return node.pending ? `${name} ${verb} 중…` : `${name} ${verb} (E)`;
       },
       canInteract: () => {
@@ -503,9 +670,10 @@ export class Gather {
     ctx.interactables.unregister(node.interactable.id);
     if (!award) return;
 
-    /* 채집 수율(원예)은 **약초 · 토양**에 붙는다 — 고철은 뜯어낸 만큼 그대로 나온다.
-     * 토양이 원예 쪽인 것은 XP 와 같은 이유다: 흙을 퍼는 것도 밭일이다 (숙련 만렙이면 한 더미에서 두 포대). */
-    const mul = node.kind === 'salvage' ? 1 : (ctx.progression?.derived.gatherYieldMul ?? 1);
+    /* 채집 수율(원예)은 **약초 · 토양 · 씨앗**에 붙는다 — 고철은 뜯어낸 만큼 그대로 나온다.
+     * 토양 · 씨앗이 원예 쪽인 것은 XP 와 같은 이유다: 흙을 퍼는 것도 이삭을 훑는 것도 밭일이다.
+     * 2026-09-11: **미확인 표본은 곱하지 않는다** — 하나짜리 덩어리라 원예가 늘릴 수 있는 것이 아니다(고철과 같다). */
+    const mul = node.kind === 'salvage' || node.kind === 'sample' ? 1 : (ctx.progression?.derived.gatherYieldMul ?? 1);
     const qty = Math.max(1, Math.round(node.def.qty * (mul > 0 ? mul : 1)));
     ctx.bus.emit('gather:collected', { nodeId: node.def.id, defId: node.def.defId, qty, kind: node.kind });
     ctx.bus.emit('audio:play', { id: 'gather', position: node.def.position, volume: 0.7 });
@@ -633,11 +801,18 @@ export class Gather {
   }
 
   /**
-   * 2026-09-11 (온실 개편): 행성의 토양 가중치를 **이 빌드가 실제로 아는 토양 아이템**으로 접는다.
-   * `items/` 가 모르는 id 는 조용히 버린다 (약초와 같은 계약) — 표가 통째로 비면 null 이고 토양 더미가 서지 않는다.
-   * 카테고리 필터를 거치는 이유는 오타 한 줄이 "흙인 줄 알았더니 수류탄" 이 되지 않게 하기 위해서다.
+   * 2026-09-11 (온실 개편 · 연구실 배치): 행성의 가중치 표(`planets.csv` 의 `soils` · `seeds` · `samples`)를
+   * **이 빌드가 실제로 아는 아이템**으로 접는다. `items/` 가 모르는 id 는 조용히 버린다 (약초와 같은 계약) —
+   * 표가 통째로 비면 null 이고 그 종류의 노드가 한 개도 서지 않는다.
+   *
+   * 카테고리로 거르는 이유는 오타 한 줄이 "흙인 줄 알았더니 수류탄" 이 되지 않게 하기 위해서다. `items/` 가
+   * 아직 그 줄을 모를 수 있으므로(폴더가 나란히 지어진다) **이름 규약**(`soil_` · `seed_` · `spec_`)을
+   * 두 번째 관문으로 둔다 — 표본만 접두사가 `spec_` 인 것은 귀중품 `sample_canister_pure` 와 섞이지 않게
+   * `data/samples.csv` 가 그렇게 정했기 때문이다.
    */
-  private resolveSoilWeights(game: GameContext, weights: Readonly<Record<string, number>>): { ids: string[]; cum: number[] } | null {
+  private resolveNodeWeights(
+    game: GameContext, weights: Readonly<Record<string, number>>, category: ItemCategory, prefix: string,
+  ): { ids: string[]; cum: number[] } | null {
     const loot = game.loot;
     const ids: string[] = [];
     const cum: number[] = [];
@@ -645,8 +820,8 @@ export class Gather {
     for (const [id, w] of Object.entries(weights)) {
       if (!(w > 0)) continue;
       const def = loot?.getItemDef(id);
-      if (def && def.category !== 'soil') continue;   // 이름이 겹친 다른 아이템 — 흙이 아니다
-      if (!def && !id.startsWith('soil_')) continue;  // items/ 가 모르고 이름 규약도 아니면 버린다
+      if (def && def.category !== category) continue;   // 이름이 겹친 다른 아이템이다
+      if (!def && !id.startsWith(prefix)) continue;     // items/ 가 모르고 이름 규약도 아니면 버린다
       total += w;
       ids.push(id);
       cum.push(total);
@@ -689,9 +864,14 @@ export class Gather {
     this.matrixDirty = true;
   }
 
-  /** [body, glow] geometry for variant `k` — 0–2 are plants tinted from the biome, 3 the 고철 더미, 4 the 토양 더미. */
+  /**
+   * [body, glow] geometry for variant `k` — 0–2 are plants tinted from the biome, 3 the 고철 더미,
+   * 4 the 토양 더미, 5 the 씨앗 군락, 6 the 미확인 표본.
+   */
   private makeVariantGeometry(k: number, ctx: BuildCtx, rng: Random): THREE.BufferGeometry[] {
     if (k === SOIL_VARIANT) return this.makeSoilGeometry(ctx, rng);
+    if (k === SEED_VARIANT) return this.makeSeedGeometry(rng);
+    if (k === SAMPLE_VARIANT) return this.makeSampleGeometry(ctx, rng);
     if (k === SALVAGE_VARIANT) return this.makeSalvageGeometry(rng);
     const b = ctx.biome;
     const stemLow = b.trunk.clone().lerp(b.grass, 0.5).multiplyScalar(0.8);
@@ -877,6 +1057,107 @@ export class Gather {
     xform(stake, { x: Math.cos(sang) * 0.4, y: 0.06, z: Math.sin(sang) * 0.4 }, new THREE.Euler(0, sang, 0));
     paint(stake, glowCol.clone().multiplyScalar(0.8));
     glow.push(stake);
+
+    return [merge(body), merge(glow)];
+  }
+
+  /**
+   * 야생 씨앗 군락 (연구실 A-11, 2026-09-11): 허리 높이의 **마른 이삭 덤불** — 부챗살로 벌어진 줄기 일곱에
+   * 고개 숙인 이삭이 달리고, 여문 이삭만 은은히 빛나 멀리서도 "딸 것이 있다" 로 읽힌다. 밑동에는 떨어진
+   * 낟알 몇 개가 굴러 있다.
+   *
+   * 바이옴 색을 쓰지 않고 **`CATEGORY_COLOR.seed` 를 정점에 구워 넣는다** — 흙더미처럼 인스턴스 색
+   * (`instanceColor`)을 쓰지 않는 이유는 씨앗 군락은 한 종류당 색이 하나라 인스턴스마다 달라질 일이 없기
+   * 때문이다 (인스턴스 색이 붙은 메시는 셰이더 프로그램이 갈려 선컴파일이 헛돈다 — `soilMat` 주석 참조).
+   * 어느 행성에서나 같은 색이라 약초와 섞이지 않는다.
+   */
+  private makeSeedGeometry(rng: Random): THREE.BufferGeometry[] {
+    const husk = new THREE.Color(CATEGORY_COLOR.seed);
+    const huskLow = husk.clone().multiplyScalar(0.42);
+    const glowCol = new THREE.Color(GLOW_COLORS[SEED_VARIANT]);
+    const body: THREE.BufferGeometry[] = [];
+    const glow: THREE.BufferGeometry[] = [];
+
+    const stalks = 7;
+    for (let i = 0; i < stalks; i++) {
+      const ang = (i / stalks) * Math.PI * 2 + rng.range(-0.25, 0.25);
+      const len = rng.range(0.62, 0.95);
+      const lean = rng.range(0.12, 0.4);
+      // 줄기: 밑동에서 벌어져 바깥으로 기운다
+      const stalk = new THREE.CylinderGeometry(0.012, 0.03, len, 4);
+      xform(stalk, { x: 0, y: len * 0.5, z: 0 });
+      xform(stalk, undefined, new THREE.Euler(0, 0, lean));
+      xform(stalk, { x: Math.cos(ang) * 0.07, y: 0, z: Math.sin(ang) * 0.07 }, new THREE.Euler(0, ang, 0));
+      paintGradient(stalk, huskLow, husk);
+      body.push(stalk);
+      /* 이삭: 줄기 **끝**에서 고개를 숙인 길쭉한 알갱이 뭉치 (발광 = 여문 것).
+         줄기와 **같은 변환 사슬**(제자리 기울기 → 줄기 끝으로 → `lean` → 부챗살 `ang`)을 타야 끝에 정확히
+         붙는다 — 끝 좌표를 따로 계산해 넣으면 기울기마다 몇십 cm 씩 떠 있다. */
+      const earLen = rng.range(0.16, 0.26);
+      const ear = new THREE.IcosahedronGeometry(0.055, 0);
+      xform(ear, undefined, new THREE.Euler(0, 0, rng.range(0.25, 0.6)), { x: 1, y: earLen / 0.11, z: 1 });
+      xform(ear, { x: 0, y: len - earLen * 0.3, z: 0 });
+      xform(ear, undefined, new THREE.Euler(0, 0, lean));
+      xform(ear, { x: Math.cos(ang) * 0.07, y: 0, z: Math.sin(ang) * 0.07 }, new THREE.Euler(0, ang, 0));
+      paint(ear, glowCol.clone().multiplyScalar(rng.range(0.72, 1)));
+      glow.push(ear);
+    }
+
+    // 밑동에 떨어진 낟알 몇 개 — 발밑을 보면 "여기서 뭔가 떨어졌다" 가 보인다
+    for (let i = 0; i < 3; i++) {
+      const ang = rng.range(0, Math.PI * 2), d = rng.range(0.16, 0.34);
+      const grain = new THREE.IcosahedronGeometry(rng.range(0.028, 0.045), 0);
+      xform(grain, { x: Math.cos(ang) * d, y: 0.02, z: Math.sin(ang) * d }, undefined, { x: 1.5, y: 0.7, z: 1 });
+      paintGradient(grain, huskLow, husk);
+      body.push(grain);
+    }
+
+    return [merge(body), merge(glow)];
+  }
+
+  /**
+   * 미확인 표본 (연구실 A-12, 2026-09-11): 땅에 반쯤 묻힌 **정체 모를 덩어리** — 울퉁불퉁한 몸체에 조각 몇
+   * 개가 삐져나와 있고, 그 위에 떠 있는 얇은 고리 하나와 속의 구슬만 차갑게 빛난다. 벌레 껍질일 수도,
+   * 굳은 수지일 수도, 결정일 수도 있다는 뜻으로 **한 가지 실루엣**이다 (종류는 아이템 이름이 말한다).
+   *
+   * 색은 `CATEGORY_COLOR.sample` 을 정점에 구워 넣는다 (씨앗 군락과 같은 판단 — 인스턴스 색을 쓰지 않는다).
+   */
+  private makeSampleGeometry(ctx: BuildCtx, rng: Random): THREE.BufferGeometry[] {
+    const shell = new THREE.Color(CATEGORY_COLOR.sample);
+    const shellLow = shell.clone().multiplyScalar(0.35);
+    const glowCol = new THREE.Color(GLOW_COLORS[SAMPLE_VARIANT]);
+    const body: THREE.BufferGeometry[] = [];
+    const glow: THREE.BufferGeometry[] = [];
+
+    // 반쯤 묻힌 덩어리 — 노이즈로 일그러뜨려 어느 소품과도 닮지 않게
+    const lump = new THREE.IcosahedronGeometry(0.34, 1);
+    displace(lump, ctx.noise, 0.07, 3.1, rng.range(0, 40));
+    xform(lump, { x: 0, y: 0.17, z: 0 }, new THREE.Euler(rng.range(0, 3), rng.range(0, 3), rng.range(0, 3)),
+      { x: 1.15, y: 0.8, z: 1 });
+    paintGradient(lump, shellLow, shell);
+    body.push(lump);
+
+    // 삐져나온 조각 셋
+    for (let i = 0; i < 3; i++) {
+      const ang = (i / 3) * Math.PI * 2 + rng.range(-0.4, 0.4);
+      const len = rng.range(0.16, 0.3);
+      const shard = new THREE.ConeGeometry(rng.range(0.045, 0.08), len, 4, 1);
+      xform(shard, { x: 0, y: len * 0.5, z: 0 });
+      xform(shard, undefined, new THREE.Euler(0, 0, rng.range(0.5, 1.05)));
+      xform(shard, { x: Math.cos(ang) * 0.22, y: 0.16, z: Math.sin(ang) * 0.22 }, new THREE.Euler(0, ang, 0));
+      paintGradient(shard, shellLow, shell);
+      body.push(shard);
+    }
+
+    // 채집 표식: 덩어리 위에 뜬 얇은 고리 + 속에서 비치는 구슬 (빛기둥은 시체에만, 2026-09-11)
+    const ring = new THREE.TorusGeometry(0.3, 0.02, 4, 14);
+    xform(ring, { x: 0, y: 0.42, z: 0 }, new THREE.Euler(Math.PI / 2, 0, rng.range(-0.3, 0.3)));
+    paint(ring, glowCol);
+    glow.push(ring);
+    const core = new THREE.IcosahedronGeometry(0.1, 0);
+    xform(core, { x: 0, y: 0.2, z: 0 });
+    paint(core, glowCol.clone().multiplyScalar(0.85));
+    glow.push(core);
 
     return [merge(body), merge(glow)];
   }

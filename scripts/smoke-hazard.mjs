@@ -348,7 +348,8 @@ try {
       const h = window.__game.ctx.world.hazard;
       const src = h.getSources();
       const nodes = window.__game.ctx.world.getGatherNodes();
-      const near = src.map((s) => nodes.filter((n) => n.kind !== 'salvage'
+      // 2026-09-11 (연구실): 씨앗 · 표본 노드가 군락 곁에 서도 "채집 버섯이 심어졌다" 로 세지 않는다
+      const near = src.map((s) => nodes.filter((n) => n.kind === 'herb'
         && Math.hypot(n.position.x - s.position.x, n.position.z - s.position.z) < 16).length);
       return {
         kind: h.kind, startsAt: h.startsAt,

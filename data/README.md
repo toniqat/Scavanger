@@ -24,8 +24,9 @@ npm run dev             # csv 를 저장하면 바로 다시 읽는다
 | **전설 유니크 무기** 6종 | [`weapons_unique.csv`](weapons_unique.csv) |
 | 무기 부착물 | [`attachments.csv`](attachments.csv) |
 | 탄약 · 가방(격자 · 퀵슬롯 · **내구도**) · 방탄복 | [`ammo.csv`](ammo.csv) · [`bags.csv`](bags.csv) · [`armor.csv`](armor.csv) |
-| 일반 아이템 — 수류탄 · 회복 소모품 · 귀중품 · 재료 · 약초 · 가젯 | [`items.csv`](items.csv) |
+| 일반 아이템 — 수류탄 · 회복 소모품 · 귀중품 · 재료 · 약초 · **작물 · 토양(`soilTag`·`soilUses`) · 준비물(`prepEnv`·`prepShort`)** · 가젯 | [`items.csv`](items.csv) |
 | 씨앗 · 서적 | [`seeds.csv`](seeds.csv) · [`books.csv`](books.csv) |
+| **미확인 표본** — 해석 시간 · 해석 보상 · 첫 해석 보너스 (연구실 분석기가 읽는다) | [`samples.csv`](samples.csv) |
 | 임플란트 아이템 — 등급별 가격 · 수리 재료 · 전설 퍽 | [`implants_repair.csv`](implants_repair.csv) · [`implants_perks.csv`](implants_perks.csv) |
 | **적** 10종 기본 스탯 | [`enemies.csv`](enemies.csv) |
 | 적 특수 능력 — 도약 · 산성 침 · 돌진 · 로그 AI · 포병 · 베헤모스 | [`enemy_abilities.csv`](enemy_abilities.csv) |
@@ -148,6 +149,23 @@ csv 는 Vite 의 `import.meta.glob(..., { query: '?raw', eager: true })` 로 **�
 은 계속 TS 에 있다. `gadgets/GadgetDefs.ts` 와 `implants/ImplantDefs.ts` 의 표도 TS 에 남는데,
 그 설명문이 `constants.csv` 의 상수를 그대로 찍기 때문이다 (csv 로 옮기면 설명문의 숫자가 수치와 따로 논다).
 그 표들의 수치 자체는 전부 `constants.csv` 의 `GADGET_*` / `IMPLANT_*` 다.
+
+### 2026-09-11 — 연구실: `samples.csv` (신규) · `items.csv` 의 `prepEnv`·`prepShort` · 표본 tuning 2줄
+
+- **`samples.csv`** 신규 (표본 6종, owner `items`) — `id,name,rarity,value,analyzeHours,rewardDefId,rewardQty,firstDefId,firstQty,description`.
+  `analyzeHours` 는 **도감이 텅 빈 상태에서의 실제 시간**(시간)이고 도감 진척 · 기지식 배수(`constants.csv` 의
+  `ANALYZE_DEX_SPEEDUP` · `ANALYZE_KNOWN_SPEEDUP`)가 거기서 깎는다 — 해석 속도를 바꾸고 싶으면 이 열 아니면 그 두 상수다.
+  `first*` 는 선택 열이다 (**처음** 해석했을 때만 얹어 준다; 비워 두면 보너스 없음). 읽는 곳은
+  `src/items/ItemDefs.ts` 의 `SAMPLE_ITEM_DEFS`(`seeds.csv` 로더와 같은 모양) 하나다.
+- **`items.csv`** 새 선택 열 **`prepEnv`**(`heat` | `toxin`) · **`prepShort`**(HUD 배지용 짧은 이름) — 채워진 줄이
+  곧 준비물(`category: 'prep'`, `ItemDef.prep`)이다. `soilTag`·`soilUses` 와 같은 선택 열 규약이라 다른 줄은 빈칸이다.
+- **`tuning.csv`** 신규 2줄 (owner `items`): `SAMPLE_STACK_MAX` **3** (표본 한 칸에 겹치는 최대 수 — 해석은 한 번에
+  하나씩이라 씨앗 5보다 적다) · `SAMPLE_WEIGHT` **0.4** (표본 1개 kg — 손질 안 한 덩어리라 `mat_bio_sample` 0.2 보다 무겁다).
+  준비물은 `items.csv` 에 이미 `stackMax` · `weight` 칸이 있어 새 키가 없다.
+- **루팅은 전부 csv 다 (코드 변경 0)** — `loot_category_weights.csv` 의 `sample` 티어 3·4·5 = **5 · 7 · 9**(티어 1·2 는
+  줄 자체가 없다 = 차단), `loot_item_weights.csv` 가 티어 3 에서 `spec_genome` · `spec_crystal` 을 0 으로, 벌레 8종은
+  `loot_corpses.csv`. `prep` 은 어느 루팅 표에도 줄이 없다 (조합대 전용).
+- ⚠ 새 아이템 값 8종 때문에 **`server/economy.gen.json` 을 다시 구웠다** (`npm run data:check -- --write`).
 
 ### 2026-09-11 — C 항목 배치: 새 수치 · 표 (리드 기록)
 

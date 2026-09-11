@@ -3,6 +3,7 @@ import type {
   SoilTag,
 } from '@/shared';
 import {
+  ANALYZE_DEX_SPEEDUP, ANALYZE_KNOWN_SPEEDUP,
   BENCH_MAX_LEVEL, BOOK_GAIN_MAX, BOOK_RARITY_MUL, BOOK_XP_PER_BOOK, FACILITY_LABEL_KO, FURNITURE_DEF_MAP, GENERATOR_MAX_LEVEL, GENERATOR_UPGRADE_COST, PRESETS_BY_RANGE_LEVEL,
   GROW_SKILL_SPEEDUP, GROW_TIER_DRAW_ORDER, SKILL_LEVEL_MAX, SOIL_MATCH_SPEEDUP, SOIL_MISMATCH_PENALTY, growTiersForLevel,
   RANGE_MAX_LEVEL, RANGE_SKILL_GAIN_PER_LEVEL, RANGE_UPGRADE_COST, ROOM_GRID_COLS, ROOM_GRID_ROWS, ROOM_PURPOSE_LABEL_KO,
@@ -261,6 +262,24 @@ export function growProgress(now: number, plantedAt: number | undefined, readyAt
 export function growRemainingS(now: number, readyAt: number | undefined): number {
   if (!readyAt) return 0;
   return Math.max(0, Math.ceil((readyAt - now) / 1000));
+}
+
+/* ── 연구실 분석기 (A-12, 2026-09-11) ────────────────────────────────────────
+ * 온실과 같은 자리 · 같은 철학이다 — 걸리는 시간은 **넣는 순간** 확정되고, 그 뒤로 도감이 더 차도 돌아가던
+ * 해석은 빨라지지 않는다. 진행도 · 남은 초는 `growProgress` / `growRemainingS` 를 그대로 쓴다 (순수한 시각
+ * 계산이라 작물이냐 표본이냐를 모른다 — 같은 폴더 안이므로 한 번 더 베끼지 않는다).
+ * ────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * 해석에 걸리는 시간(ms), **시작하는 순간** 확정된다:
+ * `analyzeHours × (1 − ANALYZE_DEX_SPEEDUP × 도감진척) × (아는 표본이면 1 − ANALYZE_KNOWN_SPEEDUP)`.
+ * 「도감을 채울수록 빨라진다」가 첫 항, 「아는 것을 다시 보는 건 빠르다」가 둘째 항이다. 1초 미만은 없다.
+ */
+export function analyzeDurationMs(analyzeHours: number, dexRatio: number, known: boolean): number {
+  const ratio = Math.max(0, Math.min(1, Number.isFinite(dexRatio) ? dexRatio : 0));
+  const dex = 1 - ANALYZE_DEX_SPEEDUP * ratio;
+  const repeat = known ? 1 - ANALYZE_KNOWN_SPEEDUP : 1;
+  return Math.max(1000, Math.round(Math.max(0, analyzeHours) * 3600e3 * dex * repeat));
 }
 
 /* ── 은퇴 가구 환불 (온실 개편, 2026-09-11) ───────────────────────────────── */

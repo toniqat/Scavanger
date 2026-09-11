@@ -161,7 +161,8 @@ try {
   // 2026-09-08: the node list now also carries 고철 더미 (`kind: 'salvage'`, `mat_scrap`) — check both families
   const gather = await page.evaluate(() => {
     const n = window.__game.ctx.world.getGatherNodes();
-    const herbs = n.filter((g) => g.kind !== 'salvage');
+    // 2026-09-11 (연구실): 같은 목록에 토양 · 씨앗 · 표본도 있다 — 아래 `herb_` 단언이 있으므로 약초만 고른다
+    const herbs = n.filter((g) => g.kind === 'herb');
     const salvage = n.filter((g) => g.kind === 'salvage');
     return {
       n: herbs.length,

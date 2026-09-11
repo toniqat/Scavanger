@@ -68,6 +68,32 @@ export function consumeDefAll(sys: InventorySystem, defId: string, qty: number):
   return left === 0;
   }
 
+/* ══ A-13 (2026-09-11): 준비물을 함선에서 쓴다 ══════════════════════════════════════════════════════════════
+ * 규칙의 주인은 progression 이다 (`ProgressionRef.usePrep` — 함선 게이트 · 환경당 하나 · 한국어 사유).
+ * inventory 는 **아이템을 뺄 수 있는 자리인지**만 먼저 보고, progression 이 받아들였을 때 1개를 뺀다.
+ * 순서를 뒤집으면(빼고 나서 묻는다) 거절당했을 때 되돌릴 곳이 없다 — `prep` 은 이 폴더의 것이 아니다.
+ * ════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+export function usePrepItem(sys: InventorySystem, uid: string, from?: ItemLocation): string | null {
+  const ctx = sys.ctx;
+  const item = sys.findItem(uid, from);
+  const def = item && ITEM_DEF_MAP.get(item.defId);
+  if (!item || !def) return '아이템을 찾을 수 없습니다';
+  if (!def.prep) return '준비물이 아닙니다';
+  if (!ctx.isHubPhase() || ctx.isRaidActive()) return '함선에서만 사용할 수 있습니다';
+  // 열어 둔 상자 · 장비 칸의 스택은 `takeItem` 이 거절한다 — 물어보기 전에 거른다.
+  if (from?.kind === 'slot') return '가방이나 창고로 옮긴 뒤 사용하세요';
+  if (from?.kind === 'grid' && from.grid === 'container') return '가방이나 창고로 옮긴 뒤 사용하세요';
+  const prog = ctx.progression;
+  if (!prog || typeof prog.usePrep !== 'function') return '준비물을 사용할 수 없습니다';
+  const refusal = prog.usePrep(def.id);
+  if (refusal) return refusal;
+  if (sys.takeItem(uid, 1) !== 1) {
+    // 여기까지 오면 progression 은 이미 실었다. 자리를 미리 걸렀으므로 사실상 오지 않는 가지다.
+    console.error('[inventory] 준비물을 실었지만 아이템을 빼지 못했다', uid, def.id);
+  }
+  return null;
+  }
+
 export function captureLoadout(sys: InventorySystem): LoadoutPreset {
   const l = sys.loadout;
   return {

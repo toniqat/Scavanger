@@ -101,6 +101,11 @@ export class HousingMode {
   private readonly camGoal = new THREE.Vector3();
   private readonly lookGoal = new THREE.Vector3();
   private carry: Carry | null = null;
+  /**
+   * B-13 (2026-09-11): the piece the 클릭 인스펙터 is showing, so `housing:furnitureSelected` is emitted only on a
+   * real change. **Read-only** — nothing in this controller acts on it; `ui/hud/ShipManage` owns the panel.
+   */
+  private selectedUid: string | null = null;
   private ghost: FurnitureModel | null = null;
   private ghostKey = '';
   private ghostValid: boolean | null = null;
@@ -198,6 +203,7 @@ export class HousingMode {
     this.active = true;
     this.room = room;
     this.carry = null;                       // a carried piece belongs to the room it was picked up in
+    this.select(null);                       // B-13: the inspector never survives a room change
     this.cell.x = -1; this.cell.y = -1; this.cell.valid = false;
     const p = ctx.player;
     if (p) {
@@ -258,6 +264,8 @@ export class HousingMode {
   private deactivate(): void {
     const wasManage = this.manage;
     this.manage = false;
+    // B-13: leaving 시설 관리 closes the 클릭 인스펙터 (emitted directly — `select` is gated on `manage`, off by now)
+    if (this.selectedUid !== null) { this.selectedUid = null; this.ctx.bus.emit('housing:furnitureSelected', { uid: null }); }
     if (this.active) {
       this.active = false;
       this.room = -1;
@@ -373,7 +381,13 @@ export class HousingMode {
     // a click on the 방 목록 / 가구 카드 바 must not also drop a piece on the floor behind the panel,
     // and a click aimed outside the edit room (no cell highlight) must not place at the clamped edge cell
     const fire = input.wasMousePressed(MouseButtons.FIRE) || this.softPressed.has(MouseButtons.FIRE);
-    if (fire && !overUI && this.cursorInRoom) this.primary();
+    if (fire && !overUI) {
+      // B-13 (2026-09-11): every click in the room re-reads what is under the cursor **after** the existing
+      // place / pick-up / put-down path ran, and tells ui/ which piece the 클릭 인스펙터 should show. A click on the
+      // deck outside the edit room closes it. Nothing here moves a piece — the 배치 · 이동 경로 is untouched.
+      if (this.cursorInRoom) { this.primary(); this.selectUnderCursor(); }
+      else this.select(null);
+    }
     this.clearSoftInput();
   }
 
@@ -521,6 +535,24 @@ export class HousingMode {
     }
   }
 
+  /* ── B-13 클릭 인스펙터 (입력 절반, 2026-09-11) ─────────────────────────── */
+  /**
+   * Tell `ui/hud/ShipManage` which placed piece the 인스펙터 should show (`null` = 빈 곳을 클릭해 선택이 풀렸다).
+   * 시설 관리에서만 — the room-console mode has no cursor to click with. Emitted only on a real change, and the
+   * controller itself never reads it back: this is a **읽기 전용 선택** bolted onto the existing click path.
+   */
+  private select(uid: string | null): void {
+    if (!this.manage || uid === this.selectedUid) return;
+    this.selectedUid = uid;
+    this.ctx.bus.emit('housing:furnitureSelected', { uid });
+  }
+
+  /** Whatever is under the footprint cell right now (after the click's own action). */
+  private selectUnderCursor(): void {
+    if (!this.manage) return;
+    this.select(this.layer?.pieceAt(this.room, this.cell.x, this.cell.y)?.uid ?? null);
+  }
+
   /**
    * `housing:selectionChanged` for what the cursor carries: the picked-up piece (its def + yaw) while moving one,
    * otherwise the housing selection again — so the HUD hint never shows `선택 없음` while a piece is in hand.
@@ -561,6 +593,7 @@ export class HousingMode {
     if (ok && this.carry) { this.carry = null; this.announceSelection(); }
     this.ctx.bus.emit('audio:play', { id: ok ? 'ui_equip' : 'ui_deny' });
     this.refresh(true);
+    this.selectUnderCursor();       // B-13: the recovered piece is gone — close the 인스펙터 on it
   }
 
   private cycleSelection(dir: number): void {

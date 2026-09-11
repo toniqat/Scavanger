@@ -21,8 +21,9 @@ const GL_ARGS = process.env.SMOKE_GL === 'swiftshader' ? ['--use-angle=swiftshad
 /* Phase 9 constants (src/shared/constants.ts) — asserted as literals so a silent retune is caught here. */
 const BOOKS_PER_SHELF = 6;
 const BOOK_XP_PER_BOOK = 0.05;
-/* src/shared/constants.ts 의 SHIP_STATE_VERSION — 세이브 스키마가 바뀔 때마다 올라간다 (4 = 온실 개편의 `grows`). */
-const SHIP_STATE_VERSION = 4;
+/* src/shared/constants.ts 의 SHIP_STATE_VERSION — 세이브 스키마가 바뀔 때마다 올라간다
+   (4 = 온실 개편의 `grows`, 5 = 연구실의 `analyses` · `sampleDex`). */
+const SHIP_STATE_VERSION = 5;
 const BOOK_RARITY_MUL = { common: 1, uncommon: 1.5, rare: 2.5, epic: 4, legendary: 6 };
 const BOOK_GAIN_MAX = 2.0;
 const near = (a, b) => Math.abs(a - b) < 1e-9;

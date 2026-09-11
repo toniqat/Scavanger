@@ -514,7 +514,9 @@ try {
   ok(refine.title === '정제 작업대 Lv.3', `정제 작업대가 다섯 번째 작업대로 열린다 ('${refine.title}')`);
   ok(refine.refineRecipes.length === 7, `정제 레시피 7종 (${refine.refineRecipes.join(', ')})`);
   ok(!refine.benchTabs, '작업대를 열고 들어온 화면에는 탭이 없다 (이미 그 작업대 하나다)');
-  ok(refine.tabs.length === 7 && refine.tabs[0].id === 'all' && refine.tabs.some((t) => t.id === 'refine' && /정제 작업대/.test(t.text)),
+  /* 2026-09-11 (연구실): 추출기 · 조합대가 더해져 탭이 7 → 9 개다 (전체 · 작업대 7종 · 빠른제작). */
+  ok(refine.tabs.length === 9 && refine.tabs[0].id === 'all' && refine.tabs.some((t) => t.id === 'refine' && /정제 작업대/.test(t.text))
+    && refine.tabs.some((t) => t.id === 'extract') && refine.tabs.some((t) => t.id === 'mixer'),
     `제작 패널 탭 ${refine.tabs.length}개 — 정제 작업대 포함 (${refine.tabs.map((t) => t.text).join(' · ')})`, JSON.stringify(refine.tabs));
   ok(refine.rowsAll > 80 && refine.rowsRefine.length === 7 && refine.rowsRefine.every((id) => /^refine_/.test(id)),
     `탭이 목록을 가른다 — 전체 ${refine.rowsAll}줄 → 정제 ${refine.rowsRefine.length}줄`, JSON.stringify(refine.rowsRefine));

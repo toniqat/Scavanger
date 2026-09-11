@@ -185,6 +185,7 @@ export function complete(sys: GameFlowSystem): void {
   sys.allDeadCheckTimer = -1;
   sys.raidSaveTimer = -1;
   clearSoloRaid();          // the run is over — nothing left to resume
+  ctx.progression?.clearActivePreps();   // A-13: 탈출 — 이번 레이드분 준비물은 여기서 비운다 (사망만으로는 비우지 않는다)
   sys.awardMissionXp();
   // Host: make sure every client (even one that missed the liftoff message) reaches the result screen.
   if (ctx.isMultiplayer && ctx.net?.isHost) ctx.net.send({ t: 'flow', ev: 'complete' }, 'others');
@@ -208,6 +209,7 @@ export function gameOver(sys: GameFlowSystem): void {
   sys.raidSaveTimer = -1;
   sys.restoreTimer = -1;
   clearSoloRaid();          // 레이드 실패 — the stored session must not resurrect the run
+  ctx.progression?.clearActivePreps();   // A-13: 전멸 · 실패도 레이드의 끝이다
   ctx.rejoinPending = false;
   sys.awardMissionXp();
   const stats = { ...ctx.stats };
