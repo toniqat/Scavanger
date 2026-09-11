@@ -49,13 +49,23 @@ import * as Dur from './parts/Durability';
 import * as Launch from './parts/LaunchCheck';
 /* appended (2026-09-09): 사망 → 시체 컨테이너 */
 import * as Corpse from './parts/CorpseLoot';
+/* appended (2026-09-11, A-15): 주머니 — 퀵슬롯과 같은 선을 긋는 또 하나의 컨테이너 */
+import * as Pouch from './parts/Pouch';
 export class InventorySystem implements GameSystem, InventoryRef {
   readonly name = 'inventory';
 
   ctx!: GameContext;
   loot = new LootService();
   bag!: Grid;
-  loadout: Loadout = { primary: null, primary2: null, secondary: null, bag: null, armor: null };
+  /**
+   * 2026-09-11 (A-15) — **주머니 격자**. 장비칸 `pouch` 에 끼운 주머니의 `PouchDef` 크기로 `resize` 되고,
+   * 주머니가 없으면 1×1 로 비어 있으며 **아무도 그리지 않는다** (`getPouchSize()` 가 `{0, 0}` 을 돌려준다).
+   * 「주머니는 가방 격자가 아니다」의 전문은 `parts/Pouch.ts` 머리 주석에 있다.
+   */
+  pouch!: Grid;
+  /** `inventory:pouchChanged` 의 게이트 (`lastQuickSig` 와 같은 역할). */
+  lastPouchSig = '';
+  loadout: Loadout = { primary: null, primary2: null, secondary: null, bag: null, armor: null, pouch: null };
   /** Tactical kit: last emitted weight / loadout (gates `inventory:weightChanged` / `equip:changed`), running craft. */
   lastWeight: WeightInfo | null = null;
   lastEquipUids: Partial<Record<LoadoutSlot, string | null>> = {};
@@ -149,6 +159,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
     ctx.inventory = this;
     ctx.loot = this.loot;
     this.bag = new Grid(BAG_DEFAULT_COLS, BAG_DEFAULT_ROWS, (id) => ITEM_DEF_MAP.get(id));
+    // A-15: 주머니를 끼우기 전에는 1×1 로 비어 있다 — `getPouchSize()` 가 `{0,0}` 이라 UI 는 자리를 안 그린다
+    this.pouch = new Grid(1, 1, (id) => ITEM_DEF_MAP.get(id));
     // 2026-09-11 (E-6): before the stores' own page-hide listeners, so a closing tab writes both as one transaction
     window.addEventListener('pagehide', this.onSavesPageHide);
     window.addEventListener('beforeunload', this.onSavesPageHide);
@@ -376,11 +388,38 @@ export class InventorySystem implements GameSystem, InventoryRef {
 
   getDef(defId: string): ItemDef | undefined { return ITEM_DEF_MAP.get(defId); }
 
-  /** Bag **grid** stacks only (the corp trade / implant desk / workbench list what is sellable / repairable there); the wheel is `getQuickSlots()`. */
+  /**
+   * Bag **grid** stacks only (the corp trade / implant desk / workbench list what is sellable / repairable there);
+   * the wheel is `getQuickSlots()` and the pouch is `getGrid('pouch')`. 2026-09-11 (A-15): the pouch draws the same
+   * line the wheel did — carried everywhere, but not in the trade / repair lists.
+   */
   getAllItems(): ItemInstance[] { return this.bag.items().map((p) => p.item); }
 
-  /** Bag grid + wheel stacks (the wheel is carried too). */
-  getTotalValue(): number { return this.bag.totalValue() + this.quickTotalValue(); }
+  /** Bag grid + wheel stacks + 주머니 (all of it is carried). */
+  getTotalValue(): number { return this.bag.totalValue() + this.quickTotalValue() + Pouch.pouchTotalValue(this); }
+
+  /* ── A-15 (2026-09-11): 주머니 (InventoryRef) ──────────────────────────── */
+
+  /** 지금 장착한 주머니 아이템, 없으면 null. */
+  getEquippedPouch(): ItemInstance | null { return Pouch.getEquippedPouch(this); }
+
+  /** 장착한 주머니의 격자 크기. 주머니가 없으면 `{ cols: 0, rows: 0 }` — 그 자리를 통째로 안 그린다. */
+  getPouchSize(): { cols: number; rows: number } { return Pouch.getPouchSize(this); }
+
+  /** 이 아이템을 지금 장착한 주머니가 받아 주는가 (`PouchDef.accepts`); 주머니가 없으면 false. */
+  pouchAccepts(def: ItemDef | undefined): boolean { return Pouch.pouchAccepts(this, def); }
+
+  /** 주머니 격자의 스택들. */
+  pouchItems(): ItemInstance[] { return Pouch.pouchItems(this); }
+
+  /**
+   * 주머니를 갈아 끼운다 (null = 벗는다). 내용물이 가방에 못 들어가면 **이동 자체를 거절한다** —
+   * 규칙 전문은 `parts/Pouch.ts`.
+   */
+  changePouch(next: ItemInstance | null, from: ItemLocation | null, oldTo: 'grid' | 'world',
+    hint?: { x: number; y: number }, dest: GridId = 'bag'): OpResult {
+    return Pouch.changePouch(this, next, from, oldTo, hint, dest);
+  }
 
   /** Non-empty wheel stacks (in wheel-direction order). */
   quickItems(): ItemInstance[] { return this.quickSlots.filter((it): it is ItemInstance => it !== null); }
@@ -411,8 +450,9 @@ export class InventorySystem implements GameSystem, InventoryRef {
   /** Bag + wheel + equipped gear weight against the character's carry capacity (근력 via `ctx.progression`). */
   getWeight(): WeightInfo {
     const mult = gearMultipliers(this.ctx.progression?.derived);
-    // 2026-09-09: the wheel is a separate container but it hangs off the same shoulders — its stacks weigh in too
-    let w = sumWeight([...this.bag.items().map((p) => p.item), ...this.quickItems()], (id) => ITEM_DEF_MAP.get(id));
+    // 2026-09-09: the wheel is a separate container but it hangs off the same shoulders — its stacks weigh in too.
+    // 2026-09-11 (A-15): so does the 주머니 (and the pouch item itself comes through `LOADOUT_SLOTS` below).
+    let w = sumWeight([...this.bag.items().map((p) => p.item), ...this.quickItems(), ...this.pouchItems()], (id) => ITEM_DEF_MAP.get(id));
     for (const slot of LOADOUT_SLOTS) {
       const it = this.loadout[slot];
       if (!it) continue;
@@ -537,6 +577,13 @@ export class InventorySystem implements GameSystem, InventoryRef {
    */
   usePrepItem(uid: string, from?: ItemLocation): string | null { return StashOps.usePrepItem(this, uid, from); }
 
+  /**
+   * A-3c (2026-09-11) — 요리(`ItemDef.meal`) 하나를 **함선에서** 먹어 다음 레이드분으로 싣는다
+   * (`ctx.progression.useMeal`). null = 실렸다, 문자열 = 한국어 거절 사유 (그때 아이템은 **그대로 남는다**).
+   * 「먹는 행위」의 제자리는 주방의 식탁이고 이것은 우클릭 편의 경로다 — 규칙은 progression 한 군데에만 있다.
+   */
+  useMealItem(uid: string, from?: ItemLocation): string | null { return StashOps.useMealItem(this, uid, from); }
+
   /* ── Phase 6: loadout presets (사격장) ───────────────────────────────── */
 
   captureLoadout(): LoadoutPreset { return StashOps.captureLoadout(this); }
@@ -643,12 +690,19 @@ export class InventorySystem implements GameSystem, InventoryRef {
 
   private updateCraft(dt: number): void { return Craft.updateCraft(this, dt); }
 
-  /** Units in the bag grid **and on the wheel** matching `pred` (2026-09-09: a stim on the wheel is still carried). */
+  /**
+   * Units in the bag grid, **the 주머니 and the wheel** matching `pred` (2026-09-09: a stim on the wheel is still
+   * carried; 2026-09-11 A-15: so is a herb in the 채집 주머니).
+   */
   countWhere(pred: (def: ItemDef, inst: ItemInstance) => boolean): number {
     let n = 0;
     for (const p of this.bag.items()) {
       const def = ITEM_DEF_MAP.get(p.item.defId);
       if (def && pred(def, p.item)) n += p.item.qty;
+    }
+    for (const it of this.pouchItems()) {
+      const def = ITEM_DEF_MAP.get(it.defId);
+      if (def && pred(def, it)) n += it.qty;
     }
     for (const it of this.quickItems()) {
       const def = ITEM_DEF_MAP.get(it.defId);
@@ -659,7 +713,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
 
   /**
    * Remove up to `qty` units matching `pred`: bag stacks first (smallest first, so partial stacks disappear before
-   * full ones), then the wheel — what the player put on the wheel on purpose is the last thing a recipe eats.
+   * full ones), then the 주머니, then the wheel — what the player put away on purpose is the last thing a recipe eats.
    */
   consumeWhere(pred: (def: ItemDef, inst: ItemInstance) => boolean, qty: number): number {
     let left = Math.max(0, Math.floor(qty));
@@ -674,6 +728,18 @@ export class InventorySystem implements GameSystem, InventoryRef {
       p.item.qty -= take; left -= take; consumed += take;
       if (p.item.qty <= 0) this.removeEmptyStack(p.item);
       else this.bag.version++;
+    }
+    if (left > 0) {
+      const pouched = this.pouch.items()
+        .filter((p) => { const d = ITEM_DEF_MAP.get(p.item.defId); return !!d && pred(d, p.item); })
+        .sort((a, b) => a.item.qty - b.item.qty);
+      for (const p of pouched) {
+        if (left <= 0) break;
+        const take = Math.min(left, p.item.qty);
+        p.item.qty -= take; left -= take; consumed += take;
+        if (p.item.qty <= 0) { this.pouch.remove(p.item.uid); this.ctx.bus.emit('inventory:itemRemoved', { item: p.item }); }
+        else this.pouch.version++;
+      }
     }
     if (left > 0) {
       const wheel = this.quickSlots
@@ -779,7 +845,10 @@ export class InventorySystem implements GameSystem, InventoryRef {
    * 없으므로(`refusesIntoContainer` 와 같은 이유) 그때만 출발 격자를 후보에서 뺀다.
    */
   quickSwapPlan(occupant: ItemInstance, source: Grid | null, sourceId: GridId | null, cell: QuickSwapCell | null, incomingUid: string): QuickSwapPlan {
-    const allowSource = !(this.ctx.isMultiplayer && sourceId === 'container');
+    // 2026-09-11 (A-15): 출발 격자가 **주머니**일 때는 그 주머니가 밀려난 스택을 받아 줄 때만 후보다 —
+    // 구급 주머니에서 붕대를 휠에 올리며 수류탄이 조용히 그 안으로 들어가면 안 된다.
+    const pouchRefuses = sourceId === 'pouch' && !this.pouchAccepts(ITEM_DEF_MAP.get(occupant.defId));
+    const allowSource = !(this.ctx.isMultiplayer && sourceId === 'container') && !pouchRefuses;
     return { occupant, bag: this.bag, source, cell, incomingUid, allowSource };
   }
 
@@ -932,6 +1001,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
     const n = Math.min(want, item.qty);
 
     if (from.kind === 'slot' && from.slot === 'bag') return this.changeBag(null, null, 'world') === 'ok';
+    // A-15: the equipped 주머니 goes through `changePouch` too — its contents must reach the bag first
+    if (from.kind === 'slot' && from.slot === 'pouch') return this.changePouch(null, null, 'world') === 'ok';
 
     let dropped: ItemInstance;
     if (n >= item.qty) {
@@ -984,6 +1055,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
     }
     const p = this.bag.get(uid);
     if (p) return p.item;
+    const pp = this.pouch.get(uid);   // A-15: the 주머니 is carried, so a bare uid must find it too
+    if (pp) return pp.item;
     const qi = quickSlotOf(this.quickSlots, uid);
     if (qi >= 0) return this.quickSlots[qi];
     for (const s of LOADOUT_SLOTS) {
@@ -1000,6 +1073,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
     if (patch.durability !== undefined) item.durability = Math.max(0, patch.durability);
     if (patch.ammoInMag !== undefined) item.ammoInMag = Math.max(0, patch.ammoInMag);
     if (this.bag.has(uid)) this.bag.version++;
+    else if (this.pouch.has(uid)) this.pouch.version++;
     this.ctx.bus.emit('inventory:itemUpdated', { item });
     this.afterChange();
     return true;
@@ -1410,6 +1484,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
   getGrid(id: GridId): Grid | null {
     if (id === 'bag') return this.bag;
     if (id === 'stash') return this.stash.grid;
+    // A-15: the 주머니 grid exists even without a pouch (1×1, empty) — `getPouchSize()` is what says "do not draw it"
+    if (id === 'pouch') return this.pouch;
     return this.activeContainer?.grid ?? null;
   }
   getActiveContainer(): Container | null { return this.activeContainer; }
@@ -1440,7 +1516,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
   }
 
   private locateInGrids(uid: string): { item: ItemInstance; grid: Grid; gridId: GridId } | null {
-    for (const gridId of ['bag', 'container', 'stash'] as const) {
+    for (const gridId of ['bag', 'container', 'stash', 'pouch'] as const) {
       const grid = this.getGrid(gridId);
       const p = grid?.get(uid);
       if (grid && p) return { item: p.item, grid, gridId };
@@ -1554,9 +1630,12 @@ export class InventorySystem implements GameSystem, InventoryRef {
     return d ? d.width * d.height : 0;
   }
 
-  /** 'player' = bag / loadout (HUD counts, sockets); the crate and the stash are 'container'. */
+  /**
+   * 'player' = bag / 주머니 / loadout (HUD counts, sockets); the crate and the stash are 'container'.
+   * 2026-09-11 (A-15): the 주머니 is carried, so moving something in and out of it is not a transfer.
+   */
   locKind(loc: ItemLocation): 'player' | 'container' {
-    return loc.kind === 'grid' && loc.grid !== 'bag' ? 'container' : 'player';
+    return loc.kind === 'grid' && loc.grid !== 'bag' && loc.grid !== 'pouch' ? 'container' : 'player';
   }
 
   bagSizeOf(item: ItemInstance | null): BagSize {
@@ -1675,6 +1754,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
     if (grenades !== this.lastGrenades) { this.lastGrenades = grenades; this.ctx.bus.emit('grenade:countChanged', { count: grenades }); }
     if (stims !== this.lastStims) { this.lastStims = stims; this.ctx.bus.emit('stim:countChanged', { count: stims }); }
     this.syncQuickSlots();
+    Pouch.emitPouchChanged(this);   // A-15: signature-gated, exactly like the wheel's
     this.emitWeight();
     this.ctx.bus.emit('inventory:changed', { totalValue: this.bag.totalValue(), itemCount: this.bag.count });
     if (this.stash.grid.version !== this.lastStashVersion) {

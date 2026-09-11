@@ -116,6 +116,22 @@ export function buildStations(sys: HubSystem, interior: ShipInterior): void {
     const inv = sys.ctx.inventory;
     if (inv && !inv.isOpen) inv.toggleBag();
   });
+  /*
+   * 공유 함선의 고정 식탁 (주방 A-3c, 2026-09-11). 개인 함선의 식탁은 주방에 놓는 **가구**지만 공유 함선에는
+   * 가구가 없으므로, 인테리어가 심어 둔 지점 하나가 그 자리를 대신한다 — 계약대로 `openDiningTable(null)` 의
+   * `null` 이 곧 「공유 함선의 고정 식탁」이다 (uid 가 없다). 개인 함선에는 `diningTable` 자체가 없다.
+   */
+  if (s.diningTable) sys.addStation('hub_dining_table', s.diningTable, '식탁 · 식사', () => openDiningTable(sys.ctx, null), 2.4);
+  }
+
+/**
+ * 식사 화면 (주방 A-3c, 2026-09-11): 가구 식탁은 그 조각의 `uid`, **공유 함선의 고정 식탁은 `null`** 로 연다
+ * (`HousingRef.openDiningTable` 의 계약). 다른 폴더가 아직 없을 때를 대비해 duck-typed 로 부른다.
+ */
+function openDiningTable(ctx: GameContext, uid: string | null): void {
+  const h = ctx.housing;
+  if (h && typeof h.openDiningTable === 'function') h.openDiningTable(uid);
+  else ctx.bus.emit('ui:notify', { text: '식탁을 사용할 수 없습니다', kind: 'warning' });
   }
 
 export function addStation(sys: HubSystem, id: string, def: StationDef, prompt: string | (() => string), onUse: () => void, radius = 2.3): void {
@@ -182,6 +198,15 @@ export function buildHousing(sys: HubSystem, interior: ShipInterior): void {
       if (h && typeof h.openAnalyzer === 'function') h.openAnalyzer(uid);
       else ctx.bus.emit('ui:notify', { text: '분석기를 사용할 수 없습니다', kind: 'warning' });
     },
+    // 온실 배양조 (A-14, 2026-09-11): 배지 붓기 · 세포주 넣기 · 수확
+    onCultureTank: (uid) => {
+      const h = ctx.housing;
+      if (h && typeof h.openCultureTank === 'function') h.openCultureTank(uid);
+      else ctx.bus.emit('ui:notify', { text: '배양조를 사용할 수 없습니다', kind: 'warning' });
+    },
+    // 주방 식탁 (A-3c, 2026-09-11): 개인 함선의 **가구** 식탁이므로 그 조각의 uid 로 연다
+    // (공유 함선의 고정 식탁은 가구가 아니라 `buildStations` 의 `hub_dining_table` 이고 `null` 로 연다)
+    onDiningTable: (uid) => openDiningTable(ctx, uid),
   }, source);
   sys.housingMode.setShip(source ? null : interior, source ? null : sys.furniture);
   sys.refreshRoomSigns();

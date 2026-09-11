@@ -94,11 +94,40 @@ export function usePrepItem(sys: InventorySystem, uid: string, from?: ItemLocati
   return null;
   }
 
+/* ══ A-3c (2026-09-11): 요리를 먹는다 ═══════════════════════════════════════════════════════════════════════
+ * 준비물(`usePrepItem`)과 **완전히 같은 순서**다 — `ctx.progression.useMeal` 에 **먼저 묻고 성공할 때만** 뺀다.
+ * 순서를 뒤집으면 거절당했을 때 되돌릴 곳이 없다 (`meal` 은 progression 소유다).
+ *
+ * ⚠ 「먹는 행위」의 제자리는 **주방의 식탁**이다 (사용자 결정, `housing/ui/DiningTable`). 우클릭 `먹기` 는
+ * 편의 경로일 뿐이고 둘 다 같은 `useMeal` 로 간다 — 규칙은 한 군데(progression)에만 있다.
+ * ════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+export function useMealItem(sys: InventorySystem, uid: string, from?: ItemLocation): string | null {
+  const ctx = sys.ctx;
+  const item = sys.findItem(uid, from);
+  const def = item && ITEM_DEF_MAP.get(item.defId);
+  if (!item || !def) return '아이템을 찾을 수 없습니다';
+  if (!def.meal) return '요리가 아닙니다';
+  if (!ctx.isHubPhase() || ctx.isRaidActive()) return '함선에서만 먹을 수 있습니다';
+  // 열어 둔 상자 · 장비 칸의 스택은 `takeItem` 이 거절한다 — 물어보기 전에 거른다.
+  if (from?.kind === 'slot') return '가방이나 창고로 옮긴 뒤 사용하세요';
+  if (from?.kind === 'grid' && from.grid === 'container') return '가방이나 창고로 옮긴 뒤 사용하세요';
+  const prog = ctx.progression;
+  if (!prog || typeof prog.useMeal !== 'function') return '요리를 먹을 수 없습니다';
+  const refusal = prog.useMeal(def.id);
+  if (refusal) return refusal;
+  if (sys.takeItem(uid, 1) !== 1) {
+    console.error('[inventory] 요리를 실었지만 아이템을 빼지 못했다', uid, def.id);
+  }
+  return null;
+  }
+
 export function captureLoadout(sys: InventorySystem): LoadoutPreset {
   const l = sys.loadout;
   return {
     name: '프리셋', primary: l.primary?.defId ?? null, primary2: l.primary2?.defId ?? null, secondary: l.secondary?.defId ?? null,
     bag: l.bag?.defId ?? null, armor: l.armor?.defId ?? null,
+    // A-15: `undefined` = 주머니는 건드리지 않는다 / `null` = 비운다 (`implantItems` 와 같은 규약)
+    pouch: l.pouch?.defId ?? null,
     implant: sys.ctx.progression?.profile.implant ?? sys.ctx.implants?.equipped ?? null,
     // 2026-09-08: 임플란트 아이템도 로드아웃의 일부다 (인벤토리 장착 장비 칸으로 옮겨온 뒤)
     implantItems: (sys.ctx.progression?.getEquippedImplants() ?? []).map((e) => e.defId),
@@ -183,6 +212,11 @@ export function unequipToStorage(sys: InventorySystem, slot: LoadoutSlot): boole
     if (sys.changeBag(null, null, 'grid') === 'ok') return true;
     return sys.changeBag(null, null, 'world') === 'ok';
   }
+  // A-15: 주머니는 내용물부터 가방으로 — 안 들어가면 벗기 자체가 거절된다
+  if (slot === 'pouch') {
+    if (sys.changePouch(null, null, 'grid') === 'ok') return true;
+    return sys.changePouch(null, null, 'grid', undefined, 'stash') === 'ok';
+  }
   sys.loadout[slot] = null;
   const dest = sys.stow(cur);
   if (!dest) { sys.loadout[slot] = cur; return false; }
@@ -207,6 +241,11 @@ export function equipFromStorage(sys: InventorySystem, item: ItemInstance, gridI
       r = sys.changeBag(item, again.from, 'grid');
     }
     return r === 'ok';
+  }
+  // A-15: 주머니 칸도 자기 함수가 있다 (내용물 이사 · 거절 규칙이 거기 있다)
+  if (slot === 'pouch') {
+    const back: GridId = gridId === 'stash' ? 'stash' : 'bag';
+    return sys.changePouch(item, from, 'grid', undefined, back) === 'ok';
   }
   const cur = sys.loadout[slot];
   const src = grid.get(item.uid);
@@ -241,6 +280,8 @@ export function moveToStash(sys: InventorySystem, uid: string, from: ItemLocatio
     if (!found || found.from.kind !== 'grid') return 'ok';
     from = found.from;
   }
+  // A-15: 주머니는 곧장 창고로 (내용물은 `changePouch` 가 가방에 옮긴다 — 안 되면 거절)
+  if (from.kind === 'slot' && from.slot === 'pouch') return sys.changePouch(null, null, 'grid', undefined, 'stash');
   const stash = sys.stash.grid;
   if (!stash.canAbsorb(item)) { sys.ctx.bus.emit('ui:notify', { text: '창고에 공간이 없습니다', kind: 'warning' }); return 'fail'; }
   sys.detach(item, from);

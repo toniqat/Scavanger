@@ -13,7 +13,7 @@
 | `Loadout.ts` | **Phase 5 loadout persistence**: `LoadoutSave` v1 (`slots` by `LoadoutSlot` as `SavedExtras`, `bag` as `SavedPlacement[]`, `quick` = bag index per wheel direction), `loadLoadoutSave()` (sanitised, null when missing / corrupt), **`sanitizeLoadoutSave(obj)`** (Phase 7: the same sanitiser for a server document / raid state; extra per-entry fields such as `searched` pass through), `isEmptyLoadoutSave`, and `LoadoutStore` — the system hands it a `capture()` callback; `markDirty(reason)` debounces 350 ms (first reason of a burst wins), `saveNow(reason)` writes unconditionally, `flush()` on pagehide / beforeunload / dispose; every write calls `onSaved(reason, file)` (the system emits `inventory:loadoutSaved {reason}` and mirrors the file to the server profile). Key `LOADOUT_STORAGE_KEY` (`scav.loadout`) |
 | `Container.ts` | `Container` (6×4 grid + world position + `tier` + optional `title`; `fill(items)` auto-places largest-first, overflow dropped with a `console.warn`) and `ContainerStore` cache keyed by container id: `getOrCreate(id, tier, …)` rolls `ctx.loot.rollCrate(tier, Random(seed ^ hash(id)))` on first open; `getOrCreateWithItems(id, items, position, title?, size?)` places caller-supplied contents (corpses; `tier` 0, `title` default `CONTAINER_DEFAULT_TITLE` = `컨테이너`) on first open and ignores `items` for a known id. **2026-09-09**: `Container` 생성자와 `getOrCreateWithItems` 가 격자 크기를 받는다 (기본 6×4 그대로; 플레이어 유해는 `PLAYER_CORPSE_COLS × PLAYER_CORPSE_ROWS`). 만들어진 뒤에는 여전히 resize 하지 않는다. **Phase 7**: `fill` marks every item `searched: false` and appends it to **`order`** (uids in roll order = the wire `idx`, never shrinks); `indexOf / uidAt / remainingAt`; **`taken`** (idx → units removed from this copy through the authoritative channel), `applyTaken(idx, qty)` / `recordTaken`, `takenWire()`; search state `searchProgress` (uid → seconds), `nextToSearch()` (first unsearched in grid order), `placementsInSearchOrder`, `unsearchedCount`, `searchDoneEmitted`. `ContainerStore`: `pendingTaken` for takes confirmed before a container was opened here (applied on its first open), `recordPending / pendingTakenOf`, `takenWire()` (opened + pending) and `applySync(items)` for `cont sync`, `all()`. **Phase 10**: `nextTakeSeq / acceptTakeSeq / resetTakeSeq` (the `cont taken.seq` counter + duplicate filter) and the `onTaken` hook that reports a catch-up removal (`applyPending` / `applySync`) as `container:itemTaken {live: false}` |
 | `InventorySystem.ts` | `GameSystem` + `InventoryRef`. **Phase 7** (see the last section): `updateSearch` (per-frame reveal loop), `isItemLocked`, `unsearchedCount`, `guardedTake / requestTake / trackTake / announceTake`, `pendingTakeUids`, `onContainerMessage / onContainerRequest / requestContainerSync / materializeCrate`, `canFit`, `captureRaidState / applyRaidState` (`RaidInventoryState`), `uploadProfileDoc / onProfileLoaded` (Phase 9: `withFreshSave` instead of the removed `offlineDocs` queue), `takeOne`, `checkLootedFor`; `OpResult` gained `'pending'`. Event wiring, Tab/Escape/R/X handling, auto-close (> 6 m from crate, death, phase change), reset policy, and all mutations used by the UI: `drop`, `previewDrop`, `dropPartial`, `previewPartial`, `previewAttach`, `attachFrom`, `quickMove`, `activate` (double-click), `equipTargetFor`, `rotateItem`, `takeAll`, `registerQuick`, `quickIndexOf`, plus the contract methods (`dropItem`, `splitItem`, `getBagSize`, `findItem`, `updateItem`, `attachToWeapon`, `detachAllSockets`, `unloadWeapon`, `repairWeapon`, `equip`, `getQuickSlots`, `setQuickSlot`, `getQuickSlotCount`, `consumeItem`, `openContainerItems`) and the quick-chat `requestItem`. **Phase 6** (see the sections below): `openCatalog / closeCatalog / isCatalogOpen` + `catalogQty / previewCatalog / dropFromCatalog / takeFromCatalog`, `getStashSize / setStashSize`, `countDefAll / consumeDefAll`, `captureLoadout / applyLoadout`, `openBenchCraft / getBench / closeBench / getBenchRecipes / benchRepairRows / benchRepairAll`, `getRecipes(station, bench?, level?)`, `craftCostMul / craftCost`. **2026-09-07**: `nearestFreeSpot(uid, from, gridId, x, y, rotated)` — the free footprint closest to a cell, used by the drag UI for equipment-slot drops that land on an occupied cell. **Phase 5**: loadout persistence (`captureLoadoutSave / restoreLoadoutSave / announceLoaded`, see below), `findItemAnywhere / tryAddToStash / tryAddItemAnywhere / takeItem` (contract, corp shop), `inventory:containerOpened` from `openContainer / openContainerItems`, `relockLater()`. **Phase 8**: `disassembleRecipeFor(uid)` + `openDisassemble(uid)` and the module-level `isDisassembleRecipe(r)` (`break_*` rows are filtered out of `getBenchRecipes()` but still craftable); `openCharacter()` / `openCorp()` are **gone** — the tabs build embedded views inside the window instead. **Phase 10**: `emitItemTaken` (the single `container:itemTaken` emitter, live vs. catch-up), `rem` / `seq` on `cont taken`, `captureCrewLoadout / createCrewLoadoutView`, and `setOpen` running the software cursor instead of releasing the pointer lock (`relockLater` removed). `locate(uid)` finds an item in bag → container → slots. Exports the UI vocabulary (`GridId`, `SlotId` = `LoadoutSlot`, `LOADOUT_SLOTS`, `WEAPON_SLOT_IDS`, `slotAccepts`, `ItemLocation`, `DropTarget` incl. `{kind:'weapon'}` / `{kind:'quick', index}`, `OpResult`, `DropPreview`, `BagSize`, `ActiveBench`, `BenchRecipeRow`, `BenchRepairRow`) |
-| `model.ts` | 폴더 공용 어휘 — `GridId` / `ItemLocation` / `DropTarget` / `OpResult` / `slotAccepts` 등 타입 · 상수 · 순수 술어. 상태도 DOM 도 없다. `InventorySystem.ts` 가 `export *` 로 재수출하므로 기존 import 경로는 그대로다. **2026-09-10**: `RepairCostRow` · `RepairInfo`(우클릭 `수리` readout, `bucket` 은 제작 재료 규칙으로 값이 나왔을 때만 채워진다) 가 붙었고 `BenchRepairRow` 에 `bucket: DurabilityBucketInfo` 가 추가됐다 |
+| `model.ts` | 폴더 공용 어휘 — `GridId`(2026-09-11: += `'pouch'`) / `ItemLocation` / `DropTarget` / `OpResult` / `slotAccepts` / `isPouchDef` · `pouchAcceptsDef` 등 타입 · 상수 · 순수 술어. 상태도 DOM 도 없다. `InventorySystem.ts` 가 `export *` 로 재수출하므로 기존 import 경로는 그대로다. **2026-09-10**: `RepairCostRow` · `RepairInfo`(우클릭 `수리` readout, `bucket` 은 제작 재료 규칙으로 값이 나왔을 때만 채워진다) 가 붙었고 `BenchRepairRow` 에 `bucket: DurabilityBucketInfo` 가 추가됐다 |
 | `parts/Lifecycle.ts` | **세이브 · 기본 지급품 · 미션 리셋.** `InventorySystem` 에서 떼어낸 함수들이다. 인스턴스를 첫 인자 `sys` 로 받고, 클래스에는 같은 이름의 한 줄 위임 메서드가 남아 있으므로 **호출부는 전부 그대로**다. 여기가 답하는 질문은 하나다 — *레이드가 시작 · 종료 · 실패할 때 플레이어의 장비에 무슨 일이 일어나는가.* 규칙 전문은 폴더 README 의 `Reset policy` 절에 있다. |
 | `parts/DropResolver.ts` | **드래그 앤 드롭 판정.** UI 가 묻는 두 가지 질문에만 답한다 — *여기 놓으면 어떻게 되나* (`preview*`, 타일 하이라이트 색)와 *실제로 놓아라* (`drop` / `quickMove` / `activate` / `rotateItem` / `attachFrom`). 스왑 · 병합 · 장비칸 · 퀵슬롯 · 소켓 · 부분 수량(Shift/Ctrl 드래그)이 전부 이 파일의 규칙이고, DOM 은 하나도 없다. |
 | `parts/StashOps.ts` | **함선 창고를 함께 보는 연산.** 가방 하나만 보는 연산(`countDef` 등)은 클래스에 남아 있고, 여기 있는 것은 전부 **가방 + 창고**를 하나의 보관 공간으로 취급한다: 재료 집계 · 소모, 로드아웃 프리셋 저장/적용, 창고로 이동, 어디든 넣기, 공간 확인. 창고는 함선에서만 존재하므로 레이드 중에는 이 함수들이 가방만 본다. |
@@ -23,6 +23,7 @@
 | `parts/ContainerNet.ts` | **컨테이너 획득의 호스트 권한 경로 (Phase 7).** 싱글 플레이에서 상자에서 아이템을 집으면 즉시 반영되지만, 멀티에서는 호스트가 심판이다: 클라이언트는 `contq take` 를 보내고 `cont taken` / `cont denied` 를 기다린다 (`OpResult` 의 `'pending'`). 이 파일이 그 대기열(`pendingTakes`) · 타임아웃 · 호스트 측 검증 · 다른 대원의 획득 반영을 전부 갖는다. |
 | `parts/ProfileDocs.ts` | **서버 프로필 문서 · 레이드 세션 상태.** 창고(`stash`)와 로드아웃(`loadout`)을 릴레이의 프로필 저장소에 올리고 내려받는 경로, 그리고 레이드 도중 끊긴 플레이어가 복귀할 때 쓰는 `captureRaidState` / `applyRaidState` 가 여기 있다. 오프라인 편집이 서버의 빈 문서에 지워지지 않게 하는 규칙(`fresh` 저장)도 이 파일의 책임이다. |
 | `parts/CorpseLoot.ts` | **죽으면 들고 있던 것이 전부 시체로 간다** (2026-09-09). `stripForCorpse()` 가 장비 슬롯 · 가방 격자 · 퀵슬롯을 하나의 목록으로 뽑고 로컬 인벤토리를 **빈손**으로 만든다 (무기의 내구도 · 장전 탄약 · 소켓은 `ItemInstance` 채로 넘어가므로 보존된다). `openContainerItemsSized()` 는 `openContainerItems` 와 같지만 격자 크기를 지정한다 (`PLAYER_CORPSE_COLS × PLAYER_CORPSE_ROWS`). **2026-09-11**: 장착 임플란트의 **망가진 짝**(`ctx.progression.stripImplantsForCorpse?.()`, 옵셔널 — 없으면 빈 배열)을 목록 끝에 합치고(C-12), 뽑기 전에 장착 가방을 레이드 1회분 닳게 한다(C-36, `wearBagForRaid`). 시체 격자는 `fitCorpseGrid(items, cols, rows)` 가 **그 순서 그대로 전부 들어가도록 행을 늘린다** — 예전에는 넘치는 것이 `Container.fill` 의 경고 한 줄과 함께 사라졌다. `hookCorpseWire()` 는 `pcorpse` 를 구독해 시체 컨테이너를 **열지 않고 미리 만들어 둔다** — 호스트는 자기가 한 번도 열어 본 적 없는 시체의 `contq take` 도 심판해야 하기 때문이다. 가져가기 자체는 상자와 똑같이 기존 `cont` / `contq` 경로다. |
+| `parts/Pouch.ts` | **주머니는 가방 격자가 아니다** (2026-09-11, A-15). 장비칸 `pouch` **한 칸**(`POUCH_SLOTS` = 1)에 끼운 주머니가 여는 별도 격자의 전부 — `getEquippedPouch` · `getPouchSize`(주머니가 없으면 `{0,0}`) · `pouchAccepts`(`PouchDef.accepts`) · `pouchItems` / `pouchTotalValue` · `pouchSignature` + `emitPouchChanged`(`inventory:pouchChanged`, `quickSlotsSignature` 와 같은 게이트) · `resetPouchGrid` / `drainPouch`(킷 리셋 · 시체) · **`changePouch(next, from, oldTo, hint?, dest?)`**. `changeBag` 이 본보기이지만 거절 규칙이 하나 더 있다: 새 주머니가 못 받는(또는 자리가 없는) 내용물은 가방으로 가고, **하나라도 못 들어가면 전부 되돌리고 이동 자체를 거절한다** (`setQuickSlot` 이 세운 "휠 아이템을 조용히 버리지 않는다" 그대로 — 주머니 안의 물건도 바닥에 흘리지 않는다). 격자가 없을 때의 내부 `Grid` 는 1×1 이고 `getPouchSize()` 가 `{0,0}` 으로 "그리지 마라" 를 말한다 |
 | `parts/Catalog.ts` | **무한 상자 (개발자 카탈로그, Phase 6).** `/items` 콘솔 명령이 여는 치트 창이다. 다른 그리드와 달리 원본이 줄지 않고 드래그마다 **새 인스턴스**를 만든다 (`dropFromCatalog` / `takeFromCatalog`). 훈련장의 무기 거치대도 카테고리를 지정해 이 창을 연다. |
 | `ui/model.ts` | 인벤토리 창의 공용 어휘 (타입 · 상수). `ui/InventoryUI.ts` 가 재수출한다 |
 | `ui/parts/Drag.ts` | **아이템 끌어 놓기.** 누름 판정 → 고스트 생성 → 커서 추적 → 대상 격자/칸 판정 → 놓기 까지의 포인터 상태 기계 전부. 어떤 칸에 놓을 수 있는지는 여기서 정하지 않는다 — `inventory/parts/DropResolver.ts` 에 물어보고 그 답(`ok` / `swap` / `merge` / `bad`)을 하이라이트 색으로 그릴 뿐이다. 고스트는 커서 **중앙**에 붙고, 확대는 CSS `scale:` 이 아니라 `positionGhost` 의 transform 안에 있다 (개별 변환은 translate → scale 순이라 JS 가 쓴 translate 가 곱해져 커서에서 벌어졌다). |
@@ -54,6 +55,8 @@
 | `primary` 주무기 I | 1 | category `primary` | |
 | `primary2` 주무기 II | 2 | category `primary` | drag a slot weapon onto the other primary slot to swap them |
 | `bag` 가방 | — | category `bag` | sets the bag grid size (see below) |
+| `armor` 방탄복 | — | category `armor` | 실드(추가 체력) — 피해를 깎지 않는다 (2026-09-10) |
+| `pouch` 주머니 | — | category `pouch` | **고정 1칸** (`POUCH_SLOTS`, 2026-09-11 A-15) — 퀵슬롯 아래에 별도 격자를 연다 (아래 *주머니* 절) |
 
 **2026-09-10 — `secondary` 보조무기 칸은 없다** (사용자 결정). `LOADOUT_SLOTS` 에서 빠졌고 `slotAccepts` 는 그 칸에
 언제나 false 를 돌려준다. 타입(`LoadoutSlot` · `Loadout.secondary` · `WeaponSlot`)은 계약이라 남아 있고 값은 늘
@@ -151,6 +154,65 @@ re-equips from.
   - Drag a cell tile onto another cell → move; onto a **grid** (가방 · 상자 · 창고) → 그 칸으로 옮긴다 (2026-09-10); 아무 목표도 없는 곳에서 놓으면 예전처럼 슬롯이 비고 스택은 가방으로 돌아간다 (never a world drop; the 버리기 zone stays hidden for cell drags).
   - Right-click a cell → `빠른 슬롯 해제` (+ 상자가 열려 있으면 `상자로 이동`, + `요청`); double-click a cell tile also clears. Right-click a stim / grenade in **any grid** now always opens the menu: `빠른 슬롯에 등록` (first free usable slot, `registerQuick`) or `빠른 슬롯 해제 (glyph)` when assigned. Double-click a bag stim / grenade with no crate open = 등록.
   - The panel refreshes with every `InventoryUI.refresh()` (system `afterChange` / `setQuickSlot`), covering `inventory:quickSlotsChanged` and `inventory:bagChanged`.
+
+## 주머니는 가방 격자가 아니다 (A-15, 2026-09-11)
+
+2026-09-09 의 **「퀵슬롯은 가방 격자가 아니다」가 그은 선을 그대로** 따르는 두 번째 컨테이너다 (사용자 결정).
+장비칸 `pouch` **한 칸**(`POUCH_SLOTS` = 1 — 넷 중 하나만)에 주머니를 끼우면 **퀵슬롯 패널 바로 아래**에
+그 주머니의 격자가 열린다. 규칙과 구현은 전부 **`parts/Pouch.ts`** 하나에 있다.
+
+| 주머니 | 아이템 크기 | 격자 | 받는 것 (`PouchDef.accepts`) |
+|---|---|---|---|
+| 채집 주머니 `pouch_gather` | 2×1 | **2×2** | `herb` · `seed` · `soil` · `crop` · `sample` |
+| 열쇠 주머니 `pouch_key` | 2×1 | **3×1** | `key` |
+| 구급 주머니 `pouch_medical` | 2×1 | **4×1** | `stim` |
+| 귀중품 주머니 `pouch_valuable` | 2×1 | **2×2** | `valuable` |
+
+- **어휘**: `GridId` += `'pouch'`, `LOADOUT_SLOTS` += `'pouch'`(맨 뒤), `slotAccepts(def, 'pouch')`,
+  `isPouchDef` · `pouchAcceptsDef` (`model.ts`). **`ItemLocation` / `DropTarget` 에는 새 종류를 만들지 않았다** —
+  주머니 칸은 그냥 `{ kind: 'grid', grid: 'pouch' }` 이고, 그래서 드래그 · 우클릭 · 툴팁 · 분할이 한 줄도 안 바뀐다.
+- **퀵슬롯이 그은 선 그대로**: `getWeight` · `countWhere` · `consumeWhere` · `getTotalValue` · `stripForCorpse` ·
+  레이드 blob(`captureRaidState`)은 주머니를 **본다**. `getAllItems()`(기업 거래 · 작업대 수리 목록)는
+  **여전히 가방 격자만**이다. `locKind('pouch')` 는 `'player'` 이므로 가방 ↔ 주머니 이동은 전송이 아니다
+  (`inventory:itemAdded` / `itemRemoved` 가 나지 않는다).
+  `consumeWhere` 의 순서는 **가방 → 주머니 → 휠**이다 — 일부러 넣어 둔 것일수록 나중에 먹힌다.
+- **격자가 거절한다**: `PouchDef.accepts` 밖의 카테고리는 미리보기에서 `bad`, 실행에서 `fail` 이다
+  (`previewDrop` · `dropImpl` · `validatePartial` · `nearestFreeSpot` · `previewCatalog` / `dropFromCatalog`).
+  **교체도 같은 판정을 받는다** — 주머니에서 가방 아이템 위로 끌어다 놓는 1:1 교체는 밀려난 쪽이 주머니로
+  들어가는 이동이기도 하므로, 주머니가 그것을 안 받으면 교체 자체가 성립하지 않는다. 같은 이유로
+  `quickSwapPlan` 은 출발 격자가 주머니일 때 그 주머니가 밀려난 스택을 받아 줄 때만 후보로 남긴다
+  (구급 주머니에서 붕대를 휠에 올리며 수류탄이 조용히 그 안에 들어가면 안 된다).
+- **거절 규칙** (`changePouch`): 주머니를 벗거나 다른 주머니로 갈아 끼울 때, 새 주머니가 못 받는(또는 자리가
+  없는) 내용물은 **가방**으로 간다. 하나라도 못 들어가면 **전부 되돌리고 이동 자체를 거절한다**
+  (`inventory:full` + 흔들림). `setQuickSlot` 의 "휠 아이템을 조용히 버리지 않는다" 와 같은 규약이고,
+  벗은 주머니 자신도 갈 자리가 없으면 같은 이유로 거절된다. 가방처럼 넘치는 것을 바닥에 떨어뜨리지 않는다.
+- **주머니 칸을 지나는 길은 전부 `changePouch` 하나다**: 드래그(`dropOnSlot` · `dropImpl` 의 `from.slot === 'pouch'`
+  가지) · 우클릭(`quickMoveImpl`) · `X`(`dropItemImpl`) · `창고로 이동`(`moveToStash`) · 프리셋 적용
+  (`equipFromStorage` / `unequipToStorage`) · 무한 상자(`dropFromCatalog`). 그냥 `detach` 하면 격자의 내용물이
+  갈 데 없이 남기 때문이고, 이것은 가방(`changeBag`)이 같은 이유로 그렇게 하는 것과 똑같다.
+- **저장**: `LoadoutSave` **v3** — `pouch: SavedPlacement[]` (주머니 **아이템**은 여느 장비처럼 `slots.pouch`).
+  v2 → v3 은 없던 필드가 생기는 것뿐이라 `sanitizeLoadoutSave` 가 빈 배열로 읽는다. 되살릴 때 그 주머니가
+  안 받는 것(데이터가 바뀐 경우)은 가방으로 간다.
+- **이벤트**: `inventory:pouchChanged` — `afterChange` 마다 `pouchSignature`(장착 uid + 크기 + 스택 자리/수량)로
+  게이트한다 (휠의 `quickSlotsSignature` 와 같은 방식).
+- **UI**: `ui/InventoryUI.refreshPouch()` 가 퀵슬롯 패널 아래 `.inv-pouch` 블록을 그린다 — 제목 한 줄은
+  `<주머니 이름> · <받는 종류>`(`TEXT.pouch.line` + `pouchAcceptsLabel`)이고, **장착한 주머니가 없으면 블록이
+  통째로 `hidden`** 이라 "비어 있음" 자리조차 없다. 숨어 있는 동안은 `activeViews()` 에도 들어가지 않는다
+  (감춰진 격자가 가방을 노린 드롭을 삼키면 안 된다). 장비칸에는 `주머니` 슬롯 한 칸이 늘었다
+  (넓은 배치의 `grid-template-areas` 셋째 줄).
+
+## 요리 먹기 (A-3c, 2026-09-11)
+
+요리(`ItemDef.meal`)는 **함선에서 우클릭 → `먹기 (다음 레이드 1회분)`** — 준비물의 `사용` 바로 옆이다
+(`ui/parts/ContextMenu.menuEntries` 의 1c-3 · `InventorySystem.useMealItem` → `parts/StashOps.useMealItem`).
+
+- **순서는 준비물과 똑같다**: `ctx.progression.useMeal(defId)` 에게 **먼저 묻고 성공(null)일 때만** 아이템을 뺀다.
+  거절 사유는 한국어 그대로 토스트로 나가고 아이템은 **그대로 남는다**. 레이드 중에는 항목이
+  `레이드 중에는 먹을 수 없음` 힌트를 달고 잠긴다.
+- ⚠ **「먹는 행위」의 제자리는 주방의 식탁이다** (사용자 결정 — `housing/ui/DiningTable`). 우클릭 `먹기` 는
+  편의 경로일 뿐이고 둘 다 같은 `useMeal` 로 간다 — 규칙은 progression 한 군데에만 있다.
+- 출격 준비 점검(`parts/LaunchCheck`)에 여덟 번째 줄 **`noMeal`** 이 붙었다 (`ctx.progression.getMeal()` 이 비었을 때).
+  `noEnvPrep` 과 똑같이 **막지 않는다** — 소프트 게이트이고 팝업의 한 줄일 뿐이다.
 
 ## Sockets
 
@@ -713,6 +775,28 @@ Data-driven off the frozen contract (`ItemCategory 'implant'`, `ItemDef.implant`
 - 분해 · 수리 대상이 아니다 — `Durability` · `Salvage` 경로는 한 줄도 바뀌지 않았다.
 
 ## 변경 이력
+
+- **2026-09-11 (A-15 주머니 · A-3c 요리 먹기, 에이전트 inventory)** — 계약은 읽기만 했다
+  (`ItemCategory` += `pouch`/`key`/`meal`, `ItemDef.pouch`/`meal`, `LoadoutSlot` += `pouch`, `POUCH_SLOTS`,
+  `inventory:pouchChanged`, `InventoryRef.getEquippedPouch`/`getPouchSize`, `ProgressionRef.useMeal`/`getMeal`,
+  `LaunchWarningId` += `noMeal`).
+  ① **주머니** — 새 파일 `parts/Pouch.ts` 하나가 규칙 전부를 갖고 `InventorySystem` 에는 한 줄 위임만 남았다
+  (`pouch: Grid` · `lastPouchSig` 두 필드). `model.ts` 에 `GridId` += `'pouch'` · `LOADOUT_SLOTS` += `'pouch'` ·
+  `slotAccepts` 의 한 줄 · `isPouchDef` · `pouchAcceptsDef`. `ItemLocation` / `DropTarget` 은 **손대지 않았다**.
+  `Loadout.ts` 는 v2 → **v3**(`pouch: SavedPlacement[]`, v2 는 빈 배열로 읽힌다). 자세한 것은 위 *주머니는 가방
+  격자가 아니다* 절.
+  ② **요리 먹기** — `parts/StashOps.useMealItem` + `InventorySystem.useMealItem` 한 줄 위임, 우클릭 메뉴 항목
+  하나(`TEXT.menu.eatMeal` · `eatMealRaid`), `parts/LaunchCheck` 의 여덟 번째 경고 `noMeal`. 순서 규약
+  (progression 에게 **먼저 묻는다**)은 A-13 준비물 그대로다.
+  ③ **C-60 회귀 수정 (같은 배치에서 드러난 잠복 버그)** — `syncContainerScroll()` 을 `ResizeObserver` **하나만**
+  몰고 있었다. 콜백은 다음 프레임에 오는데 행이 늘어난 시체 창을 닫고 **곧바로** 평범한 상자를 열면 그 사이에
+  콜백이 한 번도 안 들어올 수 있어, 시체 창에서 붙은 `.is-scroll` 이 남아 넘치지도 않는 6×4 상자가 8 px 넓어졌다
+  (`smoke-quickslots` C-60 이 2회 중 1회꼴로 빨갰다 — 이 배치가 `refresh()` 에 일감을 더하면서 프레임 타이밍이
+  밀려 드러났다). 옵저버가 새 노드를 못 보는 것은 **아니었다**(`containerView.el` 은 교체되지 않는다) — **다시 재는
+  사람이 없었을 뿐**이다. 이제 `show()` 와 `refresh()` 의 컨테이너 교체 가지가 `syncContainerScroll()` 을 직접
+  부른다(`scrollHeight` 읽기가 레이아웃을 동기로 민다). 옵저버는 창이 서 있는 동안의 변화만 맡는다.
+  수정 뒤 `smoke-quickslots` 4회 연속 94/94.
+  손대지 않은 것: 소켓 · 내구도 · 수리 · 분해 · 컨테이너 네트워크 경로 · 함선 창고 저장.
 
 - **2026-09-11 (A-13 준비물 사용, 에이전트 prep)** — 계약은 읽기만 했다 (`ItemDef.prep`, `ProgressionRef.usePrep`).
   `parts/StashOps.usePrepItem(sys, uid, from)` 신설 + `InventorySystem.usePrepItem` 한 줄 위임,

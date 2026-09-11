@@ -773,8 +773,21 @@ export type GameMessage =
   | RaidContentMessage
   /* appended (2026-09-11): 드론 (owner: gadgets/drones — shared/drones.ts) */
   | DroneMessage
-  | DroneRequest;
+  | DroneRequest
+  /* appended (2026-09-11, A-3c): 공유 함선 식탁 (owner: net/parts/Meal — 아래 `MealMessage` 절) */
+  | MealMessage;
   /* append new message types above this line (keep `t` unique; prefix by owning folder if in doubt) */
+
+/**
+ * 공유 함선 식탁 (A-3c, 2026-09-11, owner: net/parts/Meal). 한 명이 요리 하나를 써서 차리면 **분대 전원**이
+ * 같은 식사를 받는다 (사용자 결정) — 받는 사람은 아이템을 쓰지 않는다.
+ *
+ * 권한은 E-4 규약 그대로다: `ev: 'req'` 는 **요청**(누구나 → 호스트), `ev: 'serve'` 는 **사실**(호스트 → 전원)이고
+ * 받는 쪽은 **로비 호스트가 보낸 것만** 받아들인다. 호스트는 `shared/buffRules.createBuffGuard` 의 네 겹
+ * (모양 · 보낸 사람 · 거리 `MEAL_SERVE_RANGE` · 요율)을 지나게 한 뒤 **사거리 안의 사람에게만** 개별 전송한다 —
+ * 그래서 `serve` 에는 받을 사람(`who`)이 실린다.
+ */
+export interface MealMessage { t: 'meal'; ev: 'req' | 'serve'; def: string; who?: PeerId }
 
 /* ══ 2026-09-09 wire: 시체 · 구조선 · 강하 포드 · 분대장 기기 · 안개 ════════════════════════════════════════
  *

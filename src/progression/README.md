@@ -275,11 +275,59 @@ rules, the storage and the UI; items/ the defs and loot; meta/ (세레스 바이
   `saveProfile` 의 내용이다), 서버 문서 왕복도 그 길을 탄다. `prunePreps()` 는 `recompute` 안에서 def 가 사라진
   id 를 조용히 버린다 (`pruneImplants` 와 같은 모양).
 
+## 식사 (A-3c, 2026-09-11)
+
+주방의 조리대에서 만든 **요리**(`ItemDef.meal`)를 **함선의 식탁에서 먹으면** 그 자리에서 소모돼 다음 레이드
+1회분으로 실린다. **준비물의 형제**다 — 수명 규칙이 완전히 같고(사망해도 그 레이드는 유지, 레이드 종료에 비운다)
+옮기고 비우는 자리도 같아서 **`game/` 은 한 줄도 안 바뀐다**.
+
+| 필드 | 뜻 |
+|---|---|
+| `PlayerProfile.meal` | **다음** 레이드에 실릴 요리 def id. **고정 1칸이라 배열이 아니다.** 없으면 `null` |
+| `PlayerProfile.mealActive` | **이번** 레이드에 실려 있는 요리. 함선에서는 `null` |
+
+- `useMeal(defId)` — **함선에서만** (`ctx.phase === 'hub'` + `!isRaidActive()`). 요리가 아니면 한국어 사유를
+  돌려주고 아무것도 바꾸지 않는다 (아이템을 빼는 쪽이 **먼저 묻고** 성공할 때만 뺀다 — `usePrep` 과 같은 규약).
+  **준비물과 다른 점 하나**: 이미 차려 둔 요리가 있으면 거절이 아니라 **조용히 교체**한다 (칸이 하나뿐이라
+  「바꿔 먹는다」가 자연스럽다는 사용자 결정). 예외는 **같은 요리를 한 번 더** 먹는 경우뿐이다 —
+  바뀌는 것이 없는데 성공을 돌려주면 부르는 쪽이 아이템을 그냥 버리므로 한국어 사유로 거절한다.
+- `serveMeal(defId)` — 공유 함선 식탁: 남이 차려 준 요리를 **아이템 소모 없이** 받는다. 이미 먹었어도 교체된다.
+  **받는 쪽 가드는 net 의 몫**이다 (로비 멤버 · 같은 공유 데크 · `MEAL_SERVE_RANGE` · 요율 · **호스트가 보낸
+  것만** — `net/parts/Meal.ts`). 여기서는 레이드 중이 아니고 실제 요리일 때만 싣는다.
+- `getMeal()` · `getActiveMeal()` 는 읽기용 (식탁 화면 · HUD 식사 배지).
+- **`armPreps()` 가 식사도 함께 옮기고**(`armMeal`), **`clearActivePreps()` 가 함께 비운다**(`clearActiveMeal`).
+  준비물과 똑같이 **대기가 비어 있으면 `mealActive` 를 덮지 않는다** — 재접속 · 솔로 이어하기도
+  `game:newMission` 을 지나가므로, 덮으면 돌아온 사람이 이번 레이드의 밥을 잃는다.
+- 바뀔 때마다 `progress:mealChanged {meal, active}` + **즉시 저장**. 부팅 마이크로태스크 · `net:profileLoaded` ·
+  `resetProfile` 도 같은 이벤트를 다시 낸다. `pruneMeal()` 은 `recompute` 안에서 def 가 사라진 id 를 버린다
+  (`prunePreps` 와 같은 모양).
+- **버프는 `derived` 에 접힌다 — 이 배치의 핵심이다.** `MealBuff` 는 `DerivedStats` 의 **필드 이름 그대로**라
+  (`shared/types.ts`), `recompute` 가 `computeDerived` 결과의 **맨 끝**에 `derive.applyMealBuff` 로 한 번 더한다.
+  배수(`*Mul` · `gritChance`)든 단위 그대로(`carryCapacity` · `maxStamina` · `detectRadius`)든 연산은 **가산**
+  하나이고(`isMealBuffMultiplier` 는 「+15 %」 인지 「+6 kg」 인지를 정하는 **표시**용 —
+  `shared/labels.MEAL_BUFF_UNIT`), `durabilityLossMul` 만 `amount` 가 음수이므로 **0 이 하한**이다.
+  그래서 player · weapons · world · inventory 는 **한 줄도 바뀌지 않는다** — 이미 `derived` 를 읽고 있다.
+- **재접속에도 사는 이유**는 준비물과 같다: 두 필드가 프로필에 살고 **`Profile.migrate` 가 옮겨 담으며**
+  (migrate 의 결과가 곧 다음 `saveProfile` 의 내용이다 — 2026-09-09 `accent` 사고와 같은 자리), 서버 문서
+  왕복도 그 길을 탄다.
+
 ---
 
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-11 (A-3c 식사, 에이전트 progression+net)** — 계약은 읽기만 했다 (`PlayerProfile.meal` · `mealActive`,
+  `ProgressionRef.getMeal` · `getActiveMeal` · `useMeal` · `serveMeal`, `progress:mealChanged`, `MealDef` · `MealBuff`).
+  위 *식사* 절이 전부다.
+  - `Profile.ts` — `freshProfile` 에 `meal: null` · `mealActive: null`, `sanitizeMeal(raw)`, **`migrate` 가 두 필드를
+    옮겨 담는다**. `PROFILE_VERSION` 은 그대로 — 옛 세이브는 `null` 을 받을 뿐이다.
+  - `derive.ts` — `applyMealBuff(d, meal)` (제자리 가산 + 하한 0). `computeDerived` 는 손대지 않았다.
+  - `ProgressionSystem.ts` — 네 메서드 + `mealId` · `activeMealId` · `mealDefOf` · `pruneMeal` · `armMeal` ·
+    `clearActiveMeal` · `afterMealChanged` · `emitMealChanged`. `recompute` 가 `pruneMeal` + `applyMealBuff`,
+    `armPreps` / `clearActivePreps` 가 식사도 다루고, 부팅 마이크로태스크 · `onProfileLoaded` · `resetProfile` 이
+    `emitMealChanged`.
+  - 검증: `npm run typecheck` — 이 폴더 에러 0. 스모크는 리드가 돌린다.
 
 - **2026-09-11 (A-13 준비물, 에이전트 prep)** — 계약은 읽기만 했다 (`PlayerProfile.prep` · `prepActive`,
   `ProgressionRef.getPreps` · `getActivePreps` · `usePrep` · `hasEnvPrep` · `armPreps` · `clearActivePreps`,

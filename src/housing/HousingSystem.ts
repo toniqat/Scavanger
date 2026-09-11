@@ -1,6 +1,7 @@
 import type {
   AnalysisSlot, AnalysisSlotInfo,
-  BookSlotInfo, CraftIngredient, EmbeddedView, FacilityId, FacilityInfo, FurnitureDef, GameContext, GameSystem, GrowPlotInfo,
+  BookSlotInfo, CraftIngredient, CultureSlot, CultureSlotInfo, EmbeddedView, FacilityId, FacilityInfo, FurnitureDef, GameContext,
+  GameSystem, GrowPlotInfo,
   GrowSlot, GrowSlotInfo, GrowTier,
   HousingRef, ItemDef, LoadoutPreset, PlacedBook, PlacedFurniture, ProfileRef, RoomPurpose, RoomState, ShipState, SkillId,
   StoredFurniture, WorkbenchKind,
@@ -11,6 +12,8 @@ import { mergeCost } from './Rules';
 import { PresetMenu } from './ui/PresetMenu';
 import { GrowStation } from './ui/GrowStation';
 import { Analyzer } from './ui/Analyzer';
+import { CultureTank } from './ui/CultureTank';
+import { DiningTable } from './ui/DiningTable';
 import { BookshelfMenu } from './ui/BookshelfMenu';
 import { createShipView } from './ui/ShipView';
 import type { HousingPanel } from './ui/Panel';
@@ -23,6 +26,8 @@ import * as Rooms from './parts/Rooms';
 import * as Furn from './parts/Furniture';
 import * as Garden from './parts/Garden';
 import * as Lab from './parts/Lab';
+import * as Culture from './parts/Culture';
+import * as Dining from './parts/Dining';
 import * as Lib from './parts/Library';
 import * as Preset from './parts/Presets';
 
@@ -51,6 +56,10 @@ export class HousingSystem implements GameSystem, HousingRef {
   growStation: GrowStation | null = null;
   /** 분석 화면 (연구실, 2026-09-11). 이름이 `analyzer` 가 아닌 것은 `openAnalyzer` 메서드와 겹치지 않게 하기 위함이다. */
   analyzerPanel: Analyzer | null = null;
+  /** 배양 화면 (배양조 A-14, 2026-09-11) — 메서드는 `openCultureTank` 라 이름이 겹치지 않는다. */
+  cultureTank: CultureTank | null = null;
+  /** 식사 화면 (주방 A-3c, 2026-09-11) — 메서드는 `openDiningTable` 이다. */
+  diningTable: DiningTable | null = null;
   bookshelfMenu: BookshelfMenu | null = null;
   lastStash = { cols: 0, rows: 0 };
   /** `books` were checked against `ctx.loot` once (unknown / non-book ids dropped) — see `books()`. */
@@ -59,6 +68,8 @@ export class HousingSystem implements GameSystem, HousingRef {
   growsPruned = false;
   /** `analyses` were checked against `ctx.loot` once (unknown 표본 dropped) — see `analyses()`. */
   analysesPruned = false;
+  /** `cultures` were checked against `ctx.loot` once (unknown 배지 / 세포주 dropped) — see `cultures()`. */
+  culturesPruned = false;
   /**
    * 온실 개편 (2026-09-11): materials owed for the 은퇴 가구 `ShipState.sanitize` swept out of the save. housing/ is
    * registered **before** inventory/, so the 함선 창고 does not exist yet at load time — `update()` pays this into it
@@ -83,6 +94,8 @@ export class HousingSystem implements GameSystem, HousingRef {
     this.presetMenu = new PresetMenu(ctx, this);
     this.growStation = new GrowStation(ctx, this);
     this.analyzerPanel = new Analyzer(ctx, this);
+    this.cultureTank = new CultureTank(ctx, this);
+    this.diningTable = new DiningTable(ctx, this);
     this.bookshelfMenu = new BookshelfMenu(ctx, this);
     const b = ctx.bus;
     this.unsubs.push(
@@ -106,8 +119,10 @@ export class HousingSystem implements GameSystem, HousingRef {
     this.closeMenus();
     for (const u of this.unsubs) u();
     this.unsubs = [];
-    this.presetMenu?.dispose(); this.growStation?.dispose(); this.analyzerPanel?.dispose(); this.bookshelfMenu?.dispose();
-    this.presetMenu = null; this.growStation = null; this.analyzerPanel = null; this.bookshelfMenu = null;
+    this.presetMenu?.dispose(); this.growStation?.dispose(); this.analyzerPanel?.dispose();
+    this.cultureTank?.dispose(); this.diningTable?.dispose(); this.bookshelfMenu?.dispose();
+    this.presetMenu = null; this.growStation = null; this.analyzerPanel = null;
+    this.cultureTank = null; this.diningTable = null; this.bookshelfMenu = null;
     this.store?.dispose(); this.store = null;
   }
 
@@ -172,6 +187,7 @@ export class HousingSystem implements GameSystem, HousingRef {
     this.booksPruned = false;
     this.growsPruned = false;
     this.analysesPruned = false;
+    this.culturesPruned = false;
     this.fresh = false;
     writeState(this.state);                      // localStorage is the cache of the server copy (not re-uploaded)
     const b = this.ctx.bus;
@@ -403,6 +419,68 @@ export class HousingSystem implements GameSystem, HousingRef {
   getSampleDexRatio(): number { return Lab.getSampleDexRatio(this); }
 
   openAnalyzer(uid: string): void { return Lab.openAnalyzer(this, uid); }
+
+  /* ── 온실 배양조 (A-14, 2026-09-11) ────────────────────────────────────── */
+  /** 배양 칸 (`ShipState.cultures`); prunes ids `ctx.loot` no longer knows on first access. */
+  cultures(): CultureSlot[] { return Culture.cultures(this); }
+
+  /** The 배양조 behind `uid`, or null when it is not one (or gone). */
+  tankOf(uid: string): PlacedFurniture | null { return Culture.tankOf(this, uid); }
+
+  cultureAt(uid: string, slot: number): CultureSlot | null { return Culture.cultureAt(this, uid, slot); }
+
+  /** Drop every 배양 칸 of a tank that is being recovered (its 배지 · 세포주 go with it). */
+  dropCulturesOf(uid: string): void { return Culture.dropCulturesOf(this, uid); }
+
+  /** Finished 칸 of a tank (the `housing:cultureChanged` payload and the hub's glowing tubes). */
+  readyCultures(uid: string): number { return Culture.readyCultures(this, uid); }
+
+  cultureChanged(uid: string, reason: string): void { return Culture.cultureChanged(this, uid, reason); }
+
+  /** 배지 def with its `medium` data, or null when `defId` is not a 배지. */
+  mediumDef(defId: string): ItemDef | null { return Culture.mediumDef(this, defId); }
+
+  /** 세포주 def with its `strain` data, or null when `defId` is not a 세포주. */
+  strainDef(defId: string): ItemDef | null { return Culture.strainDef(this, defId); }
+
+  getCultureSlots(uid: string): CultureSlotInfo[] { return Culture.getCultureSlots(this, uid); }
+
+  fillMedium(uid: string, slot: number, mediumDefId: string): string | null { return Culture.fillMedium(this, uid, slot, mediumDefId); }
+
+  clearMedium(uid: string, slot: number): string | null { return Culture.clearMedium(this, uid, slot); }
+
+  insertStrain(uid: string, slot: number, strainDefId: string): string | null { return Culture.insertStrain(this, uid, slot, strainDefId); }
+
+  harvestCulture(uid: string, slot: number): string | null { return Culture.harvestCulture(this, uid, slot); }
+
+  harvestAllCultures(uid: string): number { return Culture.harvestAllCultures(this, uid); }
+
+  getOwnedMediums(): { defId: string; qty: number }[] { return Culture.getOwnedMediums(this); }
+
+  getOwnedStrains(): { defId: string; qty: number }[] { return Culture.getOwnedStrains(this); }
+
+  openCultureTank(uid: string): void { return Culture.openCultureTank(this, uid); }
+
+  /* ── 주방 식탁 (A-3c, 2026-09-11) ──────────────────────────────────────── */
+  /** 공유 함선의 고정 식탁 앞인가 (「분대에 차리기」가 보이는 유일한 조건). */
+  isSharedTable(): boolean { return Dining.isSharedTable(this); }
+
+  /** 왜 지금 식탁을 쓸 수 없는가 (null = 괜찮다). `uid` null = 공유 함선의 고정 식탁. */
+  diningBlock(uid: string | null): string | null { return Dining.diningBlock(this, uid); }
+
+  /** 요리 def with its `meal` data, or null when `defId` is not a 요리. */
+  mealDef(defId: string): ItemDef | null { return Dining.mealDef(this, defId); }
+
+  /** 지금 갖고 있는 요리 (가방 + 함선 창고), 일반 → 특선 순서. */
+  getOwnedMeals(): { defId: string; qty: number }[] { return Dining.getOwnedMeals(this); }
+
+  /** 요리 하나를 먹는다 — `progression.useMeal` 에 **먼저 묻고** 성공할 때만 아이템을 뺀다. */
+  eatMeal(uid: string | null, defId: string): string | null { return Dining.eatMeal(this, uid, defId); }
+
+  /** 공유 함선 식탁에서 분대 전원에게 차린다 (요리 1개 소모 + `housing:mealServed`; 전파는 net 이 한다). */
+  serveMealToSquad(uid: string | null, defId: string): string | null { return Dining.serveMealToSquad(this, uid, defId); }
+
+  openDiningTable(uid: string | null): void { return Dining.openDiningTable(this, uid); }
 
   /* ── 온실 재배 스테이션 (2026-09-11) ───────────────────────────────────── */
   /** 재배 스테이션 칸 (`ShipState.grows`); prunes ids `ctx.loot` no longer knows on first access. */

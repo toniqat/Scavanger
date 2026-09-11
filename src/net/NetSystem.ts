@@ -30,6 +30,7 @@ import * as Sock from './parts/Socket';
 import * as Lobby from './parts/Lobby';
 import * as Remotes from './parts/Remotes';
 import * as Msg from './parts/Messages';
+import { MealRelay } from './parts/Meal';
 
 export class NetSystem implements GameSystem, NetRef {
   readonly name = 'net';
@@ -118,6 +119,10 @@ export class NetSystem implements GameSystem, NetRef {
   /* ── Phase 11 ── */
   /** `ctx.net.social`: the relay's social state (friends / requests / recent / whispers / squad invites). */
   readonly socialSync = new SocialSync();
+
+  /* ── A-3c (2026-09-11) ── */
+  /** 공유 함선 식탁의 `meal serve` 와이어 (`parts/Meal`): 규칙은 progression, 토스트는 ui — 여기는 흐름만. */
+  readonly mealRelay = new MealRelay();
 
   /* ── NetRef getters ─────────────────────────────────────────────────── */
   get status(): NetStatus { return this.client.status; }
@@ -240,6 +245,8 @@ export class NetSystem implements GameSystem, NetRef {
     bus.on('leader:transferRequested', ({ peerId }) => this.transferHost(peerId));
     /* B-1 (2026-09-11): a server the background probe found during a raid / training is joined once we are back in the ship / title. */
     bus.on('game:phaseChanged', ({ phase }) => Sock.onPhaseChanged(this, phase));
+    /* A-3c (2026-09-11): 공유 함선 식탁 — `housing:mealServed` ↔ `meal` 와이어 (호스트 권한, `parts/Meal`). */
+    this.mealRelay.init(this);
   }
 
   /** `social:me` with the current character level; a no-op without a progression system (headless tests / stubs). */
@@ -285,6 +292,7 @@ export class NetSystem implements GameSystem, NetRef {
     this.intentionalClose = true;
     this.profileSync.flush();
     this.socialSync.dispose();
+    this.mealRelay.dispose();
     this.client.close();
     this.clearRemotes();
     this.handlers.clear();

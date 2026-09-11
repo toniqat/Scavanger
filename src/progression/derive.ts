@@ -1,4 +1,4 @@
-import type { DerivedStats, PerkId, PlayerProfile, SkillId, StatId, WeaponClass } from '@/shared';
+import type { DerivedStats, MealDef, PerkId, PlayerProfile, SkillId, StatId, WeaponClass } from '@/shared';
 import {
   DETECT_BASE_RADIUS, DETECT_ENEMY_BASE_RADIUS, DETECT_ENEMY_PER_PERCEPTION, DETECT_PER_PERCEPTION,
   PERK_IDS, PLAYER_MAX_STAMINA, SKILL_LEVEL_MAX, STAT_BASE, STAT_MAX, STAT_MIN, WEIGHT_BASE_CAPACITY, WEIGHT_PER_STRENGTH,
@@ -153,6 +153,26 @@ export function computeDerived(profile: PlayerProfile, specialBackpack: boolean,
     /* Phase 12: legendary perks of the equipped 임플란트 items (every PerkId present) */
     perks: { ...emptyPerks(), ...imp.perks },
   };
+}
+
+/* ══ 식사 버프 (A-3c, 2026-09-11) ═══════════════════════════════════════════════════════════════════════
+ * `MealDef.buff` 는 **`DerivedStats` 의 필드 이름 그대로**다 (계약 `shared/types.MealBuff`). 그래서 요리는
+ * 새 개념이 아니라 이미 계산된 파생 수치에 한 번 더해지는 값이고, player · weapons · world · inventory 는
+ * 한 줄도 안 바뀐다 — 이미 `derived` 를 읽고 있기 때문이다.
+ *
+ * 배수(`*Mul` · `gritChance`)든 단위 그대로(`carryCapacity` · `maxStamina` · `detectRadius`)든 연산은 **가산**
+ * 하나다 (`isMealBuffMultiplier` 는 「+15 %」로 찍을지 「+6 kg」로 찍을지를 정하는 **표시**용 — 그 표는
+ * `shared/labels.MEAL_BUFF_UNIT` 이다). `durabilityLossMul` 만 `amount` 가 음수이므로 **0 이 하한**이다:
+ * 어떤 배수도 음수가 되면 안 된다 (손상이 −20 % 면 내구도가 도로 차오른다).
+ * ══════════════════════════════════════════════════════════════════════════════════════════════════════ */
+/** `d` 를 제자리에서 고친다 — `computeDerived` 의 결과(매번 새 객체)에 `ProgressionSystem.recompute` 가 얹는다. */
+export function applyMealBuff(d: DerivedStats, meal: MealDef): void {
+  const amount = typeof meal?.amount === 'number' && Number.isFinite(meal.amount) ? meal.amount : 0;
+  if (amount === 0) return;
+  const buff = meal.buff;
+  const cur = d[buff];
+  if (typeof cur !== 'number') return;                 // 계약 밖의 이름이 csv 에서 새어 들어온 경우
+  d[buff] = Math.max(0, cur + amount);
 }
 
 /** Neutral values for a level-1 character — used as the fallback before the system inits. */

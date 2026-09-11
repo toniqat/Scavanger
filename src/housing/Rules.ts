@@ -282,6 +282,25 @@ export function analyzeDurationMs(analyzeHours: number, dexRatio: number, known:
   return Math.max(1000, Math.round(Math.max(0, analyzeHours) * 3600e3 * dex * repeat));
 }
 
+/* ── 온실 배양조 (A-14, 2026-09-11) ──────────────────────────────────────────
+ * 분석기 · 재배 스테이션과 같은 자리 · 같은 철학이다 — 걸리는 시간은 **넣는 순간** 확정되고, 그 뒤로 배지를
+ * 바꾸거나 원예 숙련이 올라도 돌아가던 배양은 빨라지지 않는다. 진행도 · 남은 초는 `growProgress` /
+ * `growRemainingS` 를 그대로 쓴다 (작물이냐 표본이냐 세포주냐를 모르는 순수한 시각 계산이다).
+ * ────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * 배양에 걸리는 시간(ms), **넣는 순간** 확정된다:
+ * `cultureHours × 배지 등급(`MediumDef.speedMul`) × 원예 단축`.
+ * 원예 항은 `growDurationMs` 가 쓰는 것과 **같은 항**이다 (온실 가구이므로 같은 숙련이 일한다 — 수치를 새로
+ * 적지 않는다). 토양의 태그 매칭에 해당하는 축은 없다: 배지는 등급 하나다. 1초 미만은 없다.
+ */
+export function cultureDurationMs(cultureHours: number, mediumSpeedMul: number, gardening: number): number {
+  const skill = Math.max(0, Math.min(SKILL_LEVEL_MAX, gardening));
+  const speed = 1 - GROW_SKILL_SPEEDUP * (skill / SKILL_LEVEL_MAX);
+  const medium = Number.isFinite(mediumSpeedMul) && mediumSpeedMul > 0 ? mediumSpeedMul : 1;
+  return Math.max(1000, Math.round(Math.max(0, cultureHours) * 3600e3 * medium * speed));
+}
+
 /* ── 은퇴 가구 환불 (온실 개편, 2026-09-11) ───────────────────────────────── */
 
 /**
@@ -322,6 +341,13 @@ export function furnitureAllowedIn(def: FurnitureDef, purpose: RoomPurpose): boo
 }
 
 /**
+ * 온실이 먼저 있어야 지을 수 있는 용도 — 연구실(표본 · 배지가 온실에서 온다)과 **주방**(A-3c, 2026-09-11:
+ * 작물이 유일한 요리 재료다). 한 줄이 세 곳의 원본이다: `purposeChangeReason` · `ShipState.sanitize` 의 낙오
+ * 처리 · `Rooms.setRoomPurpose` 의 「마지막 온실이 사라지면 딸린 방도 비운다」.
+ */
+export const NEEDS_GREENHOUSE: readonly RoomPurpose[] = ['lab', 'kitchen'];
+
+/**
  * Why room `index` cannot take `purpose`; null = allowed. 2026-09-07: the 작업실 is an ordinary purpose — any room
  * may take it and a ship may have none (it was locked to room 1 from the Phase 8 UI pass until then).
  * `empty` is always allowed (it recovers every piece);
@@ -331,7 +357,10 @@ export function furnitureAllowedIn(def: FurnitureDef, purpose: RoomPurpose): boo
 export function purposeChangeReason(state: ShipState, index: number, purpose: RoomPurpose): string | null {
   if (!isRoomIndex(state, index)) return '없는 방입니다';
   if (purpose === 'empty') return null;
-  if (purpose === 'lab' && !state.rooms.some((r, i) => i !== index && r.purpose === 'greenhouse')) return '연구실은 온실이 먼저 필요합니다';
+  // 온실 선행: 연구실(표본 · 배지)과 **주방**(A-3c — 작물이 유일한 요리 재료다) 둘 다 같은 규칙 한 줄을 탄다
+  if (NEEDS_GREENHOUSE.includes(purpose) && !state.rooms.some((r, i) => i !== index && r.purpose === 'greenhouse')) {
+    return `${ROOM_PURPOSE_LABEL_KO[purpose]}은(는) 온실이 먼저 필요합니다`;
+  }
   // facility rooms (작업실 / 사격장) carry the facility level, so the ship holds at most one of each
   if (facilityPurposeOf(purpose)) {
     const other = state.rooms.findIndex((r, i) => i !== index && r.purpose === purpose);

@@ -85,6 +85,20 @@ export class Notifications {
       b.on('net:peerJoined', ({ name }) => this.push(`<b>${escapeHtml(name)}</b> 합류`, 'info', '분대', 3)),
       b.on('net:peerLeft', ({ name }) => this.push(`<b>${escapeHtml(name)}</b> 이탈`, 'warning', '분대', 3.5)),
       b.on('net:lobbyLeft', ({ reason }) => { if (reason === 'hostLeft') this.push('호스트가 나갔습니다', 'warning', '분대', 4); }),
+      /*
+       * 2026-09-11 (A-3c 공유 식탁): 「한 명이 차리면 분대 전원이 받는다」(사용자 결정)의 알림. `housing:mealServed`
+       * 는 차린 쪽의 `housing/` 이 내고 net/ 이 릴레이하지만, **토스트를 띄우는 것은 여기 하나**다 — 합류 · 이탈
+       * 토스트와 같은 규약(2026-09-11 B-12: 「토스트의 유일한 주인은 ui/」). housing · net 은 이벤트만 낸다.
+       * 게이트가 없는 것은 일부러다: 차려 준 사람은 공유 함선에 있고 받는 사람도 그 함선에 있다.
+       */
+      b.on('housing:mealServed', ({ defId, by }) => {
+        const def = ctx.loot?.getItemDef(defId);
+        const name = def?.name ?? defId;
+        this.push(
+          `<b>${escapeHtml(by || '분대원')}</b> 님이 <b style="color:${rarityColor(def?.rarity ?? 'common')}">${escapeHtml(name)}</b> 을(를) 차렸습니다`,
+          'success', '식탁', 4,
+        );
+      }),
       b.on('pickup:taken', ({ item, byLocal, byName }) => {
         if (byLocal) return;
         const def = ctx.loot?.getItemDef(item.defId);

@@ -74,10 +74,12 @@ export function previewCatalog(sys: InventorySystem, item: ItemInstance, target:
     const current = sys.loadout[target.slot];
     if (!current) return 'ok';
     if (target.slot === 'bag') return 'swap'; // the displaced bag is placed first in the resized grid
+    if (target.slot === 'pouch') return 'swap'; // A-15: `changePouch` decides (contents must reach the bag)
     return sys.canStow(current) ? 'swap' : 'bad';
   }
   const grid = sys.getGrid(target.grid);
   if (!grid) return 'bad';
+  if (target.grid === 'pouch' && !sys.pouchAccepts(def)) return 'bad';   // A-15
   const blockers = grid.blockersAt(item, target.x, target.y, target.rotated, item.uid);
   if (blockers.length === 0) return 'ok';
   if (blockers.length !== 1 || blockers[0] === OOB) return 'bad';
@@ -96,6 +98,12 @@ export function dropFromCatalog(sys: InventorySystem, item: ItemInstance, target
     const slot = target.slot;
     if (slot === 'bag') {
       if (sys.changeBag(item, null, 'grid') !== 'ok') return 'fail';
+      sys.ctx.bus.emit('inventory:itemAdded', { item, name: def.name, rarity: def.rarity });
+      return 'ok';
+    }
+    // A-15: 주머니 칸은 격자까지 갈아 끼우므로 `changePouch` 를 지나야 한다
+    if (slot === 'pouch') {
+      if (sys.changePouch(item, null, 'grid') !== 'ok') return 'fail';
       sys.ctx.bus.emit('inventory:itemAdded', { item, name: def.name, rarity: def.rarity });
       return 'ok';
     }

@@ -6,12 +6,19 @@
  * (그러지 않으면 `InventorySystem` ↔ `parts/*` 순환 import 가 된다).
  * `InventorySystem.ts` 가 `export * from './model'` 로 그대로 재수출하므로 기존 import 경로는 전부 그대로 동작한다.
  */
-import type { CraftIngredient, CraftRecipe, DurabilityBucketInfo, DurabilityInfo, ItemDef, ItemInstance, LoadoutSlot, WeaponSlot, WorkbenchKind } from '@/shared';
+import type { CraftIngredient, CraftRecipe, DurabilityBucketInfo, DurabilityInfo, ItemDef, ItemInstance, LoadoutSlot, PouchDef, WeaponSlot, WorkbenchKind } from '@/shared';
 import { isWeaponItemDef } from '@/items';
 import type { LoadoutSave } from './Loadout';
 /* ── UI ↔ system vocabulary ─────────────────────────────────────────────── */
-/** 'stash' = the ship stash (hub Tab screen only; persisted, see Stash.ts). */
-export type GridId = 'bag' | 'container' | 'stash';
+/**
+ * 'stash' = the ship stash (hub Tab screen only; persisted, see Stash.ts).
+ *
+ * **2026-09-11 (A-15) — `'pouch'` 는 「주머니는 가방 격자가 아니다」다.** 장비칸 `pouch` 에 끼운 주머니가 여는
+ * 별도 격자이고, 2026-09-09 의 퀵슬롯과 **같은 선**을 긋는다: 무게 · `countWhere` · `consumeWhere` ·
+ * `stripForCorpse` · 레이드 blob 은 주머니를 보고, `getAllItems()`(거래 · 수리 목록)는 여전히 가방 격자만이다.
+ * `ItemLocation` / `DropTarget` 에는 새 종류를 만들지 않았다 — 그냥 `{ kind: 'grid', grid: 'pouch' }` 다.
+ */
+export type GridId = 'bag' | 'container' | 'stash' | 'pouch';
 /**
  * Equipment slots = the shared `LoadoutSlot` (주무기 I / 주무기 II / 가방 / 방탄복).
  *
@@ -24,7 +31,11 @@ export type GridId = 'bag' | 'container' | 'stash';
  * 않았고, 그 배치에서 삭제됐다.)
  */
 export type SlotId = LoadoutSlot;
-export const LOADOUT_SLOTS: readonly LoadoutSlot[] = ['primary', 'primary2', 'bag', 'armor'];
+/**
+ * 2026-09-11 (A-15): `'pouch'` 가 **맨 뒤에** 붙었다 (고정 1칸, `POUCH_SLOTS`). 순서가 곧 장비칸 DOM 순서이고
+ * `emptyEquipTargetFor` 가 훑는 순서이므로 기존 네 칸 앞에 끼워 넣지 않는다.
+ */
+export const LOADOUT_SLOTS: readonly LoadoutSlot[] = ['primary', 'primary2', 'bag', 'armor', 'pouch'];
 export const WEAPON_SLOT_IDS: readonly WeaponSlot[] = ['primary', 'primary2'];
 /**
  * Where an item lives. `quick` (2026-09-09): a stack sitting **in** wheel slot `index` — the wheel is its own container
@@ -125,6 +136,7 @@ export const SPRAY_REFILL_COST: readonly CraftIngredient[] = [{ defId: 'mat_can'
 export function slotAccepts(def: ItemDef, slot: LoadoutSlot): boolean {
   if (slot === 'bag') return def.category === 'bag';
   if (slot === 'armor') return def.category === 'armor';
+  if (slot === 'pouch') return def.category === 'pouch';
   if (slot === 'secondary') return false;
   return def.category === 'primary';
 }
@@ -133,6 +145,11 @@ export const isWeaponDef = (def: ItemDef | undefined): boolean => isWeaponItemDe
 export const isAttachmentDef = (def: ItemDef | undefined): boolean => !!def?.attachment;
 export const isBagDef = (def: ItemDef | undefined): boolean => !!def?.bag;
 export const isArmorDef = (def: ItemDef | undefined): boolean => def?.category === 'armor' && !!def.armorId;
+/** 2026-09-11 (A-15): 장비칸 `pouch` 에 끼울 수 있는 것 — 카테고리와 `ItemDef.pouch` 가 **둘 다** 있어야 한다. */
+export const isPouchDef = (def: ItemDef | undefined): boolean => def?.category === 'pouch' && !!def.pouch;
+/** 그 주머니가 이 아이템을 받아 주는가 (`PouchDef.accepts`). 주머니가 없으면 언제나 false. */
+export const pouchAcceptsDef = (pouch: PouchDef | null | undefined, def: ItemDef | undefined): boolean =>
+  !!pouch && !!def && pouch.accepts.includes(def.category);
 
 /**
  * Phase 8 — a **분해** recipe (`break_*`). These no longer appear in the craft list: 분해 is a context-menu entry

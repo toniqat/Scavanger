@@ -191,7 +191,8 @@ try {
   const stashCall = calls.find((c) => c[0] === 'stash'), loadoutCall = calls.find((c) => c[0] === 'loadout');
   ok(stashCall && stashCall[1].v === 2 && stashCall[1].items.some((i) => i.defId === 'mat_scrap' && i.qty === 4), 'stash save → profile.set("stash", file v2)', JSON.stringify(stashCall && stashCall[1]));
   // 2026-09-09: LOADOUT_SAVE_VERSION 2 — `quick[i]` is the serialized stack itself, never an index into `bag`
-  ok(loadoutCall && loadoutCall[1].v === 2 && loadoutCall[1].bag.some((i) => i.defId === 'mat_alloy')
+  // 2026-09-11 (A-15): v3 — `pouch` carries the 주머니 격자의 자리 (v2 → v3 은 없던 필드가 생기는 것뿐)
+  ok(loadoutCall && loadoutCall[1].v === 3 && loadoutCall[1].bag.some((i) => i.defId === 'mat_alloy')
     && Array.isArray(loadoutCall[1].quick) && loadoutCall[1].quick.length === 8
     && loadoutCall[1].quick.every((q) => q === null || (!!q && typeof q === 'object' && typeof q.defId === 'string')),
     'loadout save → profile.set("loadout", file v2 with the wheel stacks)', JSON.stringify(loadoutCall && { v: loadoutCall[1].v, bag: loadoutCall[1].bag.length, quick: loadoutCall[1].quick }));
@@ -704,10 +705,10 @@ try {
   });
   const before = await snapshot();
   // `raid` is the blob marker (still 1); `v` is LOADOUT_SAVE_VERSION, which the wheel-as-container change moved to 2
-  ok(raid.state && raid.state.v === 2 && raid.state.raid === 1 && Array.isArray(raid.state.bag) && raid.state.slots.primary?.durability === 123 && raid.state.slots.primary?.ammoInMag === 5 && raid.state.slots.primary?.sockets?.muzzle?.defId === 'att_brake'
+  ok(raid.state && raid.state.v === 3 && raid.state.raid === 1 && Array.isArray(raid.state.bag) && raid.state.slots.primary?.durability === 123 && raid.state.slots.primary?.ammoInMag === 5 && raid.state.slots.primary?.sockets?.muzzle?.defId === 'att_brake'
     && Array.isArray(raid.state.quick) && raid.state.quick.length === 8
     && raid.state.quick.every((q) => q === null || (!!q && typeof q === 'object' && typeof q.defId === 'string')),
-    'captureRaidState: v2 loadout-save shape with durability / rounds / sockets and the wheel stacks', JSON.stringify({ v: raid.state?.v, raid: raid.state?.raid, primary: raid.state?.slots.primary, quick: raid.state?.quick }));
+    'captureRaidState: v3 loadout-save shape with durability / rounds / sockets and the wheel stacks', JSON.stringify({ v: raid.state?.v, raid: raid.state?.raid, primary: raid.state?.slots.primary, quick: raid.state?.quick }));
   ok(raid.state.bag.some((e) => e.defId === 'mat_alloy' && e.searched === false) && raid.state.bag.filter((e) => e.searched === false).length === 1 && raid.state.bag.every((e) => e.searched === undefined || typeof e.searched === 'boolean'),
     'captureRaidState: `searched` mirrors the instances (false only on the flagged bag entry)', JSON.stringify(raid.state.bag.map((e) => [e.defId, e.searched])));
   const applied = await page.evaluate((state) => {

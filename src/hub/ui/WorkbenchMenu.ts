@@ -1,4 +1,4 @@
-import type { GameContext, ItemInstance, LoadoutSlot } from '@/shared';
+import type { GameContext, ItemInstance, WeaponSlot } from '@/shared';
 import { Keys, MENU_BLOCKER, WEAPON_DEFAULT_DURABILITY } from '@/shared';
 import { el, setText, toggleClass } from './dom';
 
@@ -8,7 +8,12 @@ export interface WorkbenchMenuHost {
   onClosed(): void;
 }
 
-const SLOT_LABEL: Record<Exclude<LoadoutSlot, 'bag' | 'armor'>, string> = { primary: '주무기 I', primary2: '주무기 II', secondary: '보조무기' };
+/**
+ * 정비 목록이 다루는 칸 = **무기 칸뿐**. 2026-09-11 (A-15 주머니)부터 `LoadoutSlot` 에 `'pouch'` 가 있는데,
+ * 주머니는 내구도가 없으므로 여기에 들어오지 않는다 — `Exclude<…>` 를 손으로 적는 대신 계약이 이미 갖고 있는
+ * `WeaponSlot`(= `Exclude<LoadoutSlot, 'bag' | 'armor' | 'pouch'>`)을 쓴다. 새 장착 칸이 늘어도 이 표는 그대로다.
+ */
+const SLOT_LABEL: Record<WeaponSlot, string> = { primary: '주무기 I', primary2: '주무기 II', secondary: '보조무기' };
 const SCRAP_ID = 'mat_scrap';
 const ALLOY_ID = 'mat_alloy';
 const MAT_NAME_FALLBACK: Record<string, string> = { [SCRAP_ID]: '폐금속', [ALLOY_ID]: '합금 판' };
@@ -123,7 +128,7 @@ export class WorkbenchMenu {
     const rows: WeaponRow[] = [];
     const seen = new Set<string>();
     const lo = inv.getLoadout();
-    const slots: Array<Exclude<LoadoutSlot, 'bag' | 'armor'>> = ['primary', 'primary2'];   // 2026-09-10: 보조무기 제거
+    const slots: WeaponSlot[] = ['primary', 'primary2'];   // 2026-09-10: 보조무기 제거
     for (const s of slots) {
       const inst = lo[s];
       if (this.isWeapon(inst) && !seen.has(inst.uid)) { seen.add(inst.uid); rows.push({ uid: inst.uid, inst, slotLabel: SLOT_LABEL[s] }); }

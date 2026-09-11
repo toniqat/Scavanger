@@ -21,6 +21,7 @@ import { Grid } from '../Grid';
 import { LOADOUT_SLOTS } from '../model';
 import type { InventorySystem } from '../InventorySystem';
 import * as Docs from './ProfileDocs';
+import * as Pouch from './Pouch';
 
 /** `pcorpse:...` 컨테이너 격자 (상자보다 크다 — 사망 시점의 장비 + 가방이 전부 들어가야 한다). */
 export function corpseGridSize(): { cols: number; rows: number } {
@@ -75,18 +76,21 @@ export function stripForCorpse(sys: InventorySystem): ItemInstance[] {
   for (const p of sys.bag.items()) out.push(p.item);
   // 2026-09-09: the wheel is its own container — its stacks are carried too, so they go on the corpse as well
   for (const it of sys.quickSlots) if (it) out.push(it);
+  // 2026-09-11 (A-15): 주머니 안의 것도 마찬가지다 (주머니 아이템 자체는 위의 `LOADOUT_SLOTS` 가 이미 담았다)
+  for (const it of Pouch.drainPouch(sys)) out.push(it);
   // 2026-09-11 (C-12): the equipped implants' broken twins (progression unequips + saves itself; optional contract)
   const implants = sys.ctx.progression?.stripImplantsForCorpse?.() ?? [];
   for (const it of implants) if (it) out.push(it);
 
   sys.closeAll();
-  sys.loadout = { primary: null, primary2: null, secondary: null, bag: null, armor: null };
+  sys.loadout = { primary: null, primary2: null, secondary: null, bag: null, armor: null, pouch: null };
   sys.bag.clear();
   const size = sys.bagSizeOf(null);
   sys.bag.resize(size.cols, size.rows);
   sys.quickSlots.fill(null);
+  Pouch.resetPouchGrid(sys);
   sys.strippedForCorpse = true;
-  sys.lastGrenades = -1; sys.lastStims = -1; sys.lastQuickSig = '';
+  sys.lastGrenades = -1; sys.lastStims = -1; sys.lastQuickSig = ''; sys.lastPouchSig = '';
   sys.ctx.bus.emit('inventory:bagChanged', { ...size, dropped: [] });
   sys.emitLoadout();
   sys.afterChange();

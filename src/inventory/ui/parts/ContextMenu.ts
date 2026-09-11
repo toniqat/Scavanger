@@ -9,7 +9,7 @@ import type { EmbeddedView, GameContext, ItemDef, ItemInstance } from '@/shared'
 import { Keys, QUICK_SLOTS, QUICK_SLOT_LABEL_KO, isQuickSlotActive, keyLabel, renderItemCost } from '@/shared';
 import { ITEM_DEF_MAP, getWeaponDef } from '@/items';
 import type { Container } from '../../Container';
-import { LOADOUT_SLOTS, isArmorDef, isAttachmentDef, isBagDef, isWeaponDef, type DropTarget, type GridId, type InventorySystem, type ItemLocation, type SlotId } from '../../InventorySystem';
+import { LOADOUT_SLOTS, isArmorDef, isAttachmentDef, isBagDef, isPouchDef, isWeaponDef, type DropTarget, type GridId, type InventorySystem, type ItemLocation, type SlotId } from '../../InventorySystem';
 import { CraftPanel } from '../CraftPanel';
 import { CatalogView } from '../CatalogView';
 import { DisassemblePanel } from '../DisassemblePanel';
@@ -63,7 +63,9 @@ export function onContextMenu(sys: InventoryUI, uid: string, from: ItemLocation,
   const repairable = sys.hub && !!sys.sys.repairInfo(uid);
   const breakable = sys.canDisassemble(uid, from);
   // A-13: 준비물은 어디서든 우클릭하면 메뉴가 뜬다 (함선에서는 `사용`, 레이드 중에는 잠긴 채로 사유가 보인다)
-  const hasMenu = isStack || isWeaponDef(def) || isBagDef(def) || isArmorDef(def) || quickable || repairable || breakable || !!def.prep;
+  // A-3c · A-15 (2026-09-11): 요리(`먹기`)와 주머니(장착)도 마찬가지다
+  const hasMenu = isStack || isWeaponDef(def) || isBagDef(def) || isArmorDef(def) || isPouchDef(def)
+    || quickable || repairable || breakable || !!def.prep || !!def.meal;
   if (!hasMenu && !e.shiftKey) {
     sys.result(sys.sys.quickMove(uid, from), 'ui_drop', from, uid);
     return;
@@ -83,7 +85,8 @@ export function menuEntries(sys: InventoryUI, uid: string, from: ItemLocation, i
   const isStack = def.stackMax > 1 && item.qty >= 2;
   const hasContainer = !!sys.sys.getActiveContainer();
   const quick = () => sys.result(sys.sys.quickMove(uid, from), 'ui_drop', from, uid);
-  const owned = from.kind === 'slot' || from.kind === 'quick' || from.grid === 'bag';
+  // A-15: 주머니도 「내가 들고 있는 것」이다 (퀵슬롯과 같다)
+  const owned = from.kind === 'slot' || from.kind === 'quick' || from.grid === 'bag' || from.grid === 'pouch';
 
   // 1. quick action (what a plain right-click / double-click does)
   if (from.kind === 'slot') {
@@ -101,6 +104,7 @@ export function menuEntries(sys: InventoryUI, uid: string, from: ItemLocation, i
     if (from.kind === 'quick') entries.push({ label: TEXT.menu.toBag, run: quick });   // 2026-09-09: 휠 → 가방
     else if (from.grid === 'container') entries.push({ label: TEXT.menu.toBag, run: quick });
     else if (from.grid === 'stash') entries.push({ label: TEXT.menu.toBag, run: quick });
+    else if (from.grid === 'pouch') entries.push({ label: TEXT.menu.toBag, run: quick });   // A-15: 주머니 → 가방
     else if (hasContainer && !isBagDef(def)) entries.push({ label: TEXT.menu.toContainer, run: quick });
     else if (sys.hub && !isBagDef(def)) entries.push({ label: TEXT.menu.toStash, run: quick });
   }
@@ -165,6 +169,30 @@ export function menuEntries(sys: InventoryUI, uid: string, from: ItemLocation, i
           return;
         }
         const refusal = sys.sys.usePrepItem(uid, from);
+        sys.result(refusal ? 'fail' : 'ok', 'ui_equip', from, uid);
+        if (refusal) sys.ctx.bus.emit('ui:notify', { text: refusal, kind: 'warning', duration: 2.4 });
+        else sys.ctx.bus.emit('ui:notify', { text: `${def.name} — 다음 레이드에 실렸다`, kind: 'success', duration: 2.4 });
+      },
+    });
+  }
+
+  /* 1c-3. 요리 (A-3c, 2026-09-11): 준비물의 `사용` 바로 옆 — **함선에서만** 먹을 수 있고, 먹으면 그 자리에서
+   * 소모돼 다음 레이드 1회분으로 실린다 (`ctx.progression.useMeal`). 레이드 중에는 항목이 그대로 보이되 사유가
+   * 붙고 아이템은 사라지지 않는다.
+   * ⚠ 「먹는 행위」의 제자리는 **주방의 식탁**이다 (사용자 결정) — 이것은 편의 경로이고 둘 다 같은 `useMeal` 이다. */
+  if (def.meal) {
+    const blocked = !sys.hub ? TEXT.menu.eatMealRaid : null;
+    entries.push({
+      label: TEXT.menu.eatMeal,
+      hint: blocked ?? undefined,
+      separator: entries.length > 0,
+      run: () => {
+        if (blocked) {
+          sys.sys.sfx('ui_error');
+          sys.ctx.bus.emit('ui:notify', { text: blocked, kind: 'warning', duration: 2 });
+          return;
+        }
+        const refusal = sys.sys.useMealItem(uid, from);
         sys.result(refusal ? 'fail' : 'ok', 'ui_equip', from, uid);
         if (refusal) sys.ctx.bus.emit('ui:notify', { text: refusal, kind: 'warning', duration: 2.4 });
         else sys.ctx.bus.emit('ui:notify', { text: `${def.name} — 다음 레이드에 실렸다`, kind: 'success', duration: 2.4 });

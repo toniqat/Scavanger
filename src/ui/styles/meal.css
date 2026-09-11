@@ -1,0 +1,37 @@
+/*
+ * src/ui/styles/meal.css — 식사 배지 (`hud/MealBadge`, A-3c, 2026-09-11).
+ *
+ *   `.meal-badge`  좌측 상단 `.hud-badges` 행의 **두 번째 칸** (첫 칸은 환경 배지 — 행 자체는 `env.css` 가 갖는다).
+ *     `.g`  요리 글리프(`ItemDef.icon`, 없으면 `CATEGORY_ICON.meal`) · `.nm` 요리 이름 · `.bf` 버프 + 부호 있는 값
+ *
+ * 상태는 하나뿐이다 — 실려 있거나(`.show`) 없거나. 「특선 요리」(`MealDef.tier === 2`)만 `.is-special` 로
+ * 테두리에 요리 색이 돌고 은은한 글로우가 붙는다 (환경 배지의 `.is-exposed` 맥박과 달리 **경고가 아니므로**
+ * 깜빡이지 않는다 — 식사는 좋은 일이다).
+ *
+ * 요리 색은 인라인 `--mc`(= `ItemDef.color`, 없으면 `CATEGORY_COLOR.meal`)로 들어오고 나머지 색 · 트랜지션은
+ * 전부 `base.css` 의 `:root` 변수를 쓴다. 상자 언어(여백 · 글자 크기 · 테두리)는 `env.css` 의 배지와 **같은 값**이라
+ * 한 줄에 나란히 섰을 때 높이가 맞는다 — 두 배지의 치수를 따로 바꾸지 않는다.
+ */
+
+.meal-badge {
+  display: none; align-items: center; gap: 8px;
+  padding: 3px 10px 3px 8px;
+  background: var(--c-panel); border: 1px solid var(--c-border);
+  pointer-events: none;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
+}
+.meal-badge.show { display: flex; }
+.meal-badge .g { flex: none; font-size: 14px; line-height: 1; color: var(--mc, var(--c-text-dim)); }
+.meal-badge .nm { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; color: var(--c-text-dim); }
+.meal-badge .bf { font-size: 9px; letter-spacing: 0.16em; color: var(--mc, var(--c-text-faint)); }
+
+/* 특선 요리 — 배양조 산물이 든 상위 요리. 맥박 없이 테두리만 물든다. */
+.meal-badge.is-special {
+  border-color: var(--mc, var(--c-accent));
+  box-shadow: 0 0 12px -4px var(--mc, var(--c-accent));
+}
+.meal-badge.is-special .nm { color: var(--mc, var(--c-text)); }
+
+/* 관전 중 · 함선 안에서는 개인 상태가 의미 없다 (환경 배지와 같은 두 줄) */
+.hud.spectating .meal-badge { opacity: 0 !important; visibility: hidden; }
+.hud.hub .meal-badge { display: none; }

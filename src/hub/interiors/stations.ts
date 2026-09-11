@@ -25,6 +25,12 @@ export interface StationDef {
 export interface ShipStations {
   bench?: StationDef;
   implantBay: StationDef;
+  /**
+   * 공유 함선의 고정 식탁 (주방 A-3c, 2026-09-11). **공유 함선에만 있다** — 개인 함선의 식탁은 주방에 놓는
+   * `furn_dining_table` 가구이고, 공유 함선에는 가구가 없어서 인테리어가 하나를 심어 둔다. 가구가 아니므로
+   * uid 가 없고, 그래서 `HousingRef.openDiningTable(null)` 의 `null` 이 곧 이 식탁을 가리킨다.
+   */
+  diningTable?: StationDef;
 }
 
 const lx = (x: number, ry: number, ox: number, oz: number): number => x + Math.cos(ry) * ox + Math.sin(ry) * oz;
@@ -93,6 +99,55 @@ export function implantBay(b: GeoBatch, col: BoxInteriorCollider, x: number, z: 
   col.addBox(lx(x, ry, -0.1, 0.05), 0, lz(z, ry, -0.1, 0.05), fw, 1.7, fd);
 
   return { position: new THREE.Vector3(x + fx * (D / 2 + 0.85), 0, z + fz * (D / 2 + 0.85)), yaw: ry };
+}
+
+/* ── 식탁 (dining table, 주방 A-3c 2026-09-11) ───────────────────────────── */
+/**
+ * 공유 함선의 고정 식탁: 상판 + 다리 + 긴 변 양쪽의 벤치 의자 + 식기 한 벌, 가운데에 emissive 등 하나.
+ * 개인 함선의 `furn_dining_table` 가구와 **같은 결**이지만 갑판에 맞춰 조금 크고(두 벤치), 가구가 아니므로
+ * 레벨 표지판이 없다. **광원은 만들지 않는다** — 가운데 불빛은 emissive 재질뿐이다
+ * (CLAUDE.md 「씬의 광원 개수를 플레이 중에 바꾸지 않는다」 · `smoke-lights`).
+ *
+ * 앞(플레이어 쪽) = local −Z. 상호작용 앵커는 그 앞 0.95 m.
+ */
+export function diningTable(b: GeoBatch, col: BoxInteriorCollider, x: number, z: number, ry: number): StationDef {
+  const fx = -Math.sin(ry), fz = -Math.cos(ry);
+  const W = 2.2, D = 0.9, H = 0.78;
+  const L = (ox: number, oz: number): [number, number] => [lx(x, ry, ox, oz), lz(z, ry, ox, oz)];
+
+  // 상판 · 식탁보 · 앞 가장자리 띠
+  b.box(W, 0.07, D, x, H - 0.035, z, M.hullLight, ry);
+  b.box(W - 0.08, 0.02, D - 0.08, x, H + 0.005, z, M.padding, ry);
+  { const [px, pz] = L(0, -(D / 2 - 0.02)); b.box(W - 0.16, 0.03, 0.04, px, H - 0.09, pz, M.stripAmber, ry); }
+  // 다리 넷 + 가로 보
+  for (const ox of [-(W / 2 - 0.16), W / 2 - 0.16]) for (const oz of [-(D / 2 - 0.14), D / 2 - 0.14]) {
+    const [px, pz] = L(ox, oz);
+    b.boxB(0.08, H - 0.07, 0.08, px, 0, pz, M.gunmetal, ry);
+  }
+  b.box(W - 0.4, 0.06, 0.06, x, 0.22, z, M.gunmetal, ry);
+  // 식기 한 벌: 접시 넷 + 수저, 가운데 등
+  for (const oz of [-(D / 2 - 0.2), D / 2 - 0.2]) for (const ox of [-0.55, 0.55]) {
+    const [px, pz] = L(ox, oz);
+    b.cyl(0.12, 0.11, 0.02, 14, px, H + 0.025, pz, M.stripWhite);
+    const [qx, qz] = L(ox + 0.19, oz);
+    b.box(0.02, 0.012, 0.13, qx, H + 0.02, qz, M.trim, ry);
+  }
+  b.cyl(0.07, 0.09, 0.05, 12, x, H + 0.035, z, M.gunmetal);
+  b.cyl(0.055, 0.055, 0.13, 12, x, H + 0.12, z, M.stripAmber);                 // 불빛 (emissive only)
+  // 벤치 의자 둘 (긴 변 양쪽)
+  for (const s of [-1, 1]) {
+    const bz = s * (D / 2 + 0.34);
+    const [px, pz] = L(0, bz);
+    b.box(W - 0.3, 0.07, 0.34, px, 0.44, pz, M.padding, ry);
+    for (const ox of [-(W / 2 - 0.34), W / 2 - 0.34]) {
+      const [lxp, lzp] = L(ox, bz);
+      b.boxB(0.07, 0.42, 0.3, lxp, 0, lzp, M.gunmetal, ry);
+    }
+  }
+
+  const [fw, fd] = footprint(ry, W, D + 1.4);
+  col.addBox(x, 0, z, fw, 1.0, fd);
+  return { position: new THREE.Vector3(x + fx * (D / 2 + 0.95), 0, z + fz * (D / 2 + 0.95)), yaw: ry };
 }
 
 /* ── 함선 컴퓨터 (ship computer, Phase 5) ─────────────────────────────────── */

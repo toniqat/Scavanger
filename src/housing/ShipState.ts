@@ -1,12 +1,13 @@
 import type {
-  AnalysisSlot, CraftIngredient, GrowSlot, GrowTier, LoadoutPreset, PlacedBook, PlacedFurniture, ProfileRef, RoomState, ShipState,
-  StoredFurniture,
+  AnalysisSlot, CraftIngredient, CultureSlot, GrowSlot, GrowTier, LoadoutPreset, PlacedBook, PlacedFurniture, ProfileRef, RoomState,
+  ShipState, StoredFurniture,
 } from '@/shared';
 import {
   BOOKS_PER_SHELF, FURNITURE_DEF_MAP, GROW_SLOTS_PER_TIER, IMPLANT_IDS, SHIP_ROOM_COUNT, SHIP_STATE_VERSION, SHIP_STORAGE_KEY,
-  analyzerSlotsForLevel, slotKey,
+  analyzerSlotsForLevel, cultureSlotsForLevel, slotKey,
 } from '@/shared';
 import {
+  NEEDS_GREENHOUSE,
   canPlaceAt, facilityMaxLevel, facilityPurposeOf, furnitureAllowedIn, furnitureMaxLevel, furnitureRefundCost, growTierOpen,
   isRoomPurpose, mergeCost, nextFreeLayer, stackLimitOf, stackMembers,
 } from './Rules';
@@ -26,11 +27,13 @@ import {
  * 함선 창고 as soon as `ctx.inventory` exists (see `flushRetiredRefund`).
  * 연구실 (2026-09-11): state **version 5** — `analyses` (분석기 해석 칸) + `sampleDex` (해석 도감). 없던 필드가
  * 생기는 것뿐이라 **버릴 데이터도 환불 경로도 없다** — v4 세이브는 빈 값으로 열린다.
+ * 배양조 (A-14, 2026-09-11): state **version 6** — `cultures` (배양 칸). v5 → v6 도 없던 필드가 생기는 것뿐이라
+ * 마이그레이션 · 환불 경로가 없다.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 const SAVE_DELAY_MS = 350;
-/** Current on-disk version (5 since the 연구실; never below the contract's `SHIP_STATE_VERSION`). */
-export const SHIP_STATE_VERSION_CURRENT = Math.max(5, SHIP_STATE_VERSION);
+/** Current on-disk version (6 since the 배양조; never below the contract's `SHIP_STATE_VERSION`). */
+export const SHIP_STATE_VERSION_CURRENT = Math.max(6, SHIP_STATE_VERSION);
 /** The 정비 벤치 moved out of the cockpit in Phase 8 — every profile is handed one, once. */
 export const REPAIR_BENCH_DEF_ID = 'furn_repair_bench';
 export const GUN_BENCH_DEF_ID = 'furn_bench_gun';
@@ -69,6 +72,7 @@ export function freshState(): ShipState {
     grows: [],
     analyses: [],                             // 연구실 분석기 (v5, 2026-09-11)
     sampleDex: [],
+    cultures: [],                             // 온실 배양조 (v6, A-14, 2026-09-11)
   };
 }
 
@@ -101,8 +105,26 @@ export function isAnalyzerDefId(defId: string): boolean {
   return FURNITURE_DEF_MAP.get(defId)?.interaction === 'analyzer';
 }
 
+/** 배양조인가 (A-14, 2026-09-11): E 로 배양 화면을 여는 가구. */
+export function isCultureTankDefId(defId: string): boolean {
+  return FURNITURE_DEF_MAP.get(defId)?.interaction === 'culture_tank';
+}
+
+/** 식탁인가 (A-3c, 2026-09-11): E 로 식사 화면을 여는 가구. 공유 함선의 고정 식탁에는 uid 가 없다. */
+export function isDiningTableDefId(defId: string): boolean {
+  return FURNITURE_DEF_MAP.get(defId)?.interaction === 'dining_table';
+}
+
 /** Shape check of a 표본 def id in a save (`spec_*`); whether it is a real 표본 is a runtime check via `ctx.loot`. */
 const isSampleDefIdShape = (v: unknown): v is string => typeof v === 'string' && /^spec_[A-Za-z0-9_]{1,40}$/.test(v);
+
+/**
+ * Shape check of a 배지 · 세포주 def id in a save. Unlike 표본(`spec_*`) · 토양(`soil_*`) · 서적(`book_*`) these two
+ * carry **no id prefix of their own** (`mat_medium_*` · `strain_*` are `material` ids like any other), so the shape
+ * check only keeps out obvious junk — whether the id is a real `ItemDef.medium` / `ItemDef.strain` is the runtime
+ * prune in `parts/Culture.cultures()` (same 규약 as the 서재 · 온실 · 연구실).
+ */
+const isItemDefIdShape = (v: unknown): v is string => typeof v === 'string' && /^[a-z][A-Za-z0-9_]{1,48}$/.test(v);
 
 /** Shape check of a soil def id in a save (`soil_<tag>`); whether it is a real 토양 is a runtime check via `ctx.loot`. */
 const isSoilDefIdShape = (v: unknown): v is string => typeof v === 'string' && /^soil_[A-Za-z0-9_]{1,40}$/.test(v);
@@ -157,6 +179,9 @@ export function maxUidIndex(furniture: readonly PlacedFurniture[]): number {
  * **v5 (연구실, 2026-09-11)**: `analyses` (분석기 해석 칸 — placed 분석기 uid · slot inside `analyzerSlotsForLevel`
  * of its **current** level · one per (uid, slot) · `spec_*` id shape · a real `startedAt`) and `sampleDex` (unique
  * `spec_*` ids). A v4 save simply opens with both empty — nothing is dropped, so there is no refund path.
+ * **v6 (배양조 A-14, 2026-09-11)**: `cultures` (배양 칸 — placed 배양조 uid · slot inside `cultureSlotsForLevel` of
+ * its **current** level · one per (uid, slot) · an item-id-shaped 배지 · the 세포주 fields only together with a real
+ * `startedAt`). Again 없던 필드가 생기는 것뿐이라 마이그레이션 · 환불 경로가 없다.
  */
 export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
   const fresh = freshState();
@@ -184,8 +209,10 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
     if (!fid) continue;
     if (seenFacility.has(fid)) rooms[i] = freshRoom(); else seenFacility.add(fid);
   }
-  // a lab without a greenhouse (edited save) falls back to empty
-  if (!rooms.some((x) => x.purpose === 'greenhouse')) for (const x of rooms) if (x.purpose === 'lab') { x.purpose = 'empty'; x.level = 0; }
+  // a 연구실 · 주방 without a greenhouse (edited save) falls back to empty (`Rules.NEEDS_GREENHOUSE` 가 원본)
+  if (!rooms.some((x) => x.purpose === 'greenhouse')) {
+    for (const x of rooms) if (NEEDS_GREENHOUSE.includes(x.purpose)) { x.purpose = 'empty'; x.level = 0; }
+  }
 
   const generatorLevel = int(r.generatorLevel, 0, 0, facilityMaxLevel('generator'));
   const storageLevel = int(r.storageLevel, 0, 0, facilityMaxLevel('storage'));
@@ -357,12 +384,42 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
     if (isSampleDefIdShape(id) && !sampleDex.includes(id)) sampleDex.push(id);
   }
 
+  /* 온실 배양조 (v6, A-14, 2026-09-11): 배양 칸은 배치된 배양조의 것이어야 하고, 칸 번호가 그 배양조의 **지금
+     레벨**이 연 범위 안이어야 하며, (uid, slot) 하나에 하나뿐이고, 배지 id 는 최소한 아이템 id **모양**이어야
+     한다. 세포주 필드는 `grows` 의 씨앗과 같은 규약으로 **함께 오고 함께 간다** — 반쯤 쓰인 칸은 「넣을 준비가
+     된 배지」로 남는다. 걸러진 칸의 배지 · 세포주는 돌아오지 않는다 (부은 흙과 같은 취급). */
+  const cultures: CultureSlot[] = [];
+  const tankSlots = new Map<string, number>();
+  for (const f of furniture) if (isCultureTankDefId(f.defId)) tankSlots.set(f.uid, cultureSlotsForLevel(f.level));
+  const takenCultureSlots = new Set<string>();
+  for (const c of Array.isArray(r.cultures) ? (r.cultures as Partial<CultureSlot>[]) : []) {
+    if (!c || typeof c.uid !== 'string' || !isItemDefIdShape(c.mediumDefId)) continue;
+    const open = tankSlots.get(c.uid);
+    if (open === undefined) continue;
+    const slot = int(c.slot, -1, -1);
+    if (slot < 0 || slot >= open) continue;
+    const key = `${c.uid}#${slot}`;
+    if (takenCultureSlots.has(key)) continue;
+    takenCultureSlots.add(key);
+    const entry: CultureSlot = {
+      uid: c.uid, slot, mediumDefId: c.mediumDefId,
+      mediumUsesLeft: Math.max(1, int(c.mediumUsesLeft, 1, 1)),
+    };
+    const startedAt = int(c.startedAt, 0, 0);
+    if (isItemDefIdShape(c.strainDefId) && startedAt > 0) {
+      entry.strainDefId = c.strainDefId;
+      entry.startedAt = startedAt;
+      entry.readyAt = int(c.readyAt, startedAt, startedAt);
+    }
+    cultures.push(entry);
+  }
+
   if (out) out.refund = refund;
   return {
     version: SHIP_STATE_VERSION_CURRENT,
     rooms, generatorLevel, storageLevel, furniture, furnitureStorage, presets, plots: [],
     nameLocked: r.nameLocked === true,
-    books, bookDex, grows, analyses, sampleDex,
+    books, bookDex, grows, analyses, sampleDex, cultures,
   };
 }
 

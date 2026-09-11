@@ -28,6 +28,8 @@ import {
   type ActiveBench, type BagSize, type BenchRecipeRow, type BenchRepairRow, type DropPreview, type DropTarget,
   type GridId, type ItemLocation, type OpResult, type PendingTake, type RaidInventoryState, type SlotId,
 } from '../model';
+import { pouchAcceptsDef } from '../model';
+import * as Pouch from './Pouch';
 import type { InventorySystem } from '../InventorySystem';
 
 /**
@@ -54,24 +56,28 @@ export function onWorldReady(sys: InventorySystem, seed: number): void {
   // game/ fails the run at boot when that marker has no matching solo raid save. The starter below saves with it too.
   if (!sys.ctx.isMultiplayer && sys.ctx.missionMode === 'raid') sys.loadoutStore.markRaid(seed);
   if (sys.isDestitute()) { sys.applyStarter(); return; }
-  sys.lastGrenades = -1; sys.lastStims = -1; sys.lastQuickSig = '';
+  sys.lastGrenades = -1; sys.lastStims = -1; sys.lastQuickSig = ''; sys.lastPouchSig = '';
   if (sys.announcePending) { sys.announcePending = false; sys.lastEquipUids = {}; sys.lastWeight = null; }
   sys.emitLoadout();
   sys.afterChange();
   }
 
 /**
- * Snapshot for the save file: slots + bag placements + the wheel's own stacks.
+ * Snapshot for the save file: slots + bag placements + the wheel's own stacks + the 주머니 격자.
  *
  * v2 (2026-09-09): `quick[i]` is the **stack itself**, not an index into `bag` — the wheel is its own container, so
  * a stack on the wheel is not in `bag` at all. `Loadout.sanitizeLoadoutSave` migrates a v1 file on read.
+ * v3 (2026-09-11, A-15): `pouch` is that same idea for the 주머니 — placements, not indices.
  */
 export function captureLoadoutSave(sys: InventorySystem): LoadoutSave {
   const slots: LoadoutSave['slots'] = {};
   for (const s of LOADOUT_SLOTS) { const it = sys.loadout[s]; if (it) slots[s] = serializeExtras(it); }
   const placements = sys.bag.items();
   const quick = sys.quickSlots.map((it) => (it ? serializeExtras(it) : null));
-  return { v: LOADOUT_SAVE_VERSION, slots, bag: placements.map(serializePlacement), quick };
+  return {
+    v: LOADOUT_SAVE_VERSION, slots, bag: placements.map(serializePlacement), quick,
+    pouch: sys.pouch.items().map(serializePlacement),
+  };
   }
 
 /**
@@ -93,7 +99,7 @@ export function restoreLoadoutSave(sys: InventorySystem): boolean {
  */
 export function applyLoadoutSave(sys: InventorySystem, save: LoadoutSave): (ItemInstance | null)[] {
   const getDef = (id: string): ItemDef | undefined => ITEM_DEF_MAP.get(id);
-  const loadout: Loadout = { primary: null, primary2: null, secondary: null, bag: null, armor: null };
+  const loadout: Loadout = { primary: null, primary2: null, secondary: null, bag: null, armor: null, pouch: null };
   for (const slot of LOADOUT_SLOTS) {
     const item = reviveItem(save.slots[slot], getDef, sys.loot, 'Loadout');
     if (!item) continue;
@@ -131,6 +137,21 @@ export function applyLoadoutSave(sys: InventorySystem, save: LoadoutSave): (Item
     }
     sys.quickSlots[i] = item;
   });
+  // 2026-09-11 (A-15): 주머니도 자기 컨테이너다 — 장착한 주머니 크기로 열고 그 안에만 되살린다.
+  // 주머니가 없거나(옛 세이브 · 주머니를 벗은 채 저장) 그 주머니가 안 받는 것은 가방으로 간다.
+  const pouchDef = Pouch.pouchDefOf(sys);
+  Pouch.resetPouchGrid(sys);
+  for (const sv of save.pouch) {
+    const item = reviveItem(sv, getDef, sys.loot, 'Loadout');
+    if (!item) continue;
+    const d = getDef(item.defId);
+    const cell = savedCell(sv);
+    if (pouchAcceptsDef(pouchDef, d)) {
+      if (cell && sys.pouch.place(item, cell.x, cell.y, !!sv.rotated)) continue;
+      if (sys.pouch.autoPlace(item)) continue;
+    }
+    if (!sys.bag.autoPlace(item)) console.warn(`[Loadout] no room for '${item.defId}' off the pouch — discarded`);
+  }
   return revived;
   }
 
@@ -138,7 +159,7 @@ export function applyLoadoutSave(sys: InventorySystem, save: LoadoutSave): (Item
 export function announceLoaded(sys: InventorySystem): void {
   sys.announcePending = false;
   sys.lastEquipUids = {}; sys.lastWeight = null;
-  sys.lastGrenades = -1; sys.lastStims = -1; sys.lastQuickSig = '';
+  sys.lastGrenades = -1; sys.lastStims = -1; sys.lastQuickSig = ''; sys.lastPouchSig = '';
   sys.ctx.bus.emit('inventory:bagChanged', { ...sys.getBagSize(), dropped: [] });
   sys.emitLoadout();
   sys.afterChange();
@@ -191,7 +212,7 @@ export function hasAnyWeapon(sys: InventorySystem): boolean {
   }
 
 export function isCompletelyEmpty(sys: InventorySystem): boolean {
-  return LOADOUT_SLOTS.every((s) => !sys.loadout[s]) && sys.bag.isEmpty;
+  return LOADOUT_SLOTS.every((s) => !sys.loadout[s]) && sys.bag.isEmpty && sys.pouch.isEmpty;
   }
 
 /** Nothing to raid with anywhere: no loadout, empty bag **and** an empty 함선 창고 (2026-09-07 safety net). */
@@ -206,11 +227,12 @@ export function isDestitute(sys: InventorySystem): boolean {
 export function loseKit(sys: InventorySystem): void {
   if (sys.stash.count === 0) { sys.applyStarter(); return; }
   sys.bag.clear();
-  sys.loadout = { primary: null, primary2: null, secondary: null, bag: null, armor: null };
+  sys.loadout = { primary: null, primary2: null, secondary: null, bag: null, armor: null, pouch: null };
   const size = sys.bagSizeOf(null);
   sys.bag.resize(size.cols, size.rows);
   sys.quickSlots.fill(null);
-  sys.lastGrenades = -1; sys.lastStims = -1; sys.lastQuickSig = '';
+  Pouch.resetPouchGrid(sys);   // A-15: 주머니를 잃으면 그 안의 것도 함께 사라진다 (가방과 같다)
+  sys.lastGrenades = -1; sys.lastStims = -1; sys.lastQuickSig = ''; sys.lastPouchSig = '';
   sys.ctx.bus.emit('inventory:bagChanged', { ...size, dropped: [] });
   sys.emitLoadout();
   sys.afterChange();
@@ -272,9 +294,12 @@ export function applyStarter(sys: InventorySystem): void {
     secondary: mk(STARTER_LOADOUT.secondary),
     bag: bagItem,
     armor: mk(STARTER_LOADOUT.armor),
+    // A-15: 주머니는 기본 지급품에 없다 (프린터로 만든다)
+    pouch: null,
   };
   const size = sys.bagSizeOf(bagItem);
   sys.bag.resize(size.cols, size.rows);
+  Pouch.resetPouchGrid(sys);
   for (const e of STARTER_LOADOUT.items) sys.addUnits(e.id, e.qty);
   // 2026-09-09: the picks are **moved** out of the bag onto the wheel (it is its own container now).
   sys.quickSlots = createQuickSlots();
@@ -282,7 +307,7 @@ export function applyStarter(sys: InventorySystem): void {
     sys.bag.remove(item.uid);
     sys.quickSlots[index] = item;
   }
-  sys.lastGrenades = -1; sys.lastStims = -1; sys.lastQuickSig = ''; // force count / quick-slot events
+  sys.lastGrenades = -1; sys.lastStims = -1; sys.lastQuickSig = ''; sys.lastPouchSig = ''; // force count / quick-slot / pouch events
   sys.ctx.bus.emit('inventory:bagChanged', { ...size, dropped: [] });
   sys.emitLoadout();
   sys.afterChange();

@@ -76,6 +76,9 @@ export function freshProfile(name = '스캐빈저'): PlayerProfile {
     // A-13 (2026-09-11): 준비물 — 대기분 / 이번 레이드분. 새 캐릭터는 둘 다 비어 있다.
     prep: [],
     prepActive: [],
+    // A-3c (2026-09-11): 식사 — 고정 1칸이라 배열이 아니다. 안 먹었으면 null.
+    meal: null,
+    mealActive: null,
   };
 }
 
@@ -100,6 +103,15 @@ export function sanitizePreps(raw: unknown): string[] {
     out.push(id);
   }
   return out;
+}
+
+/**
+ * Sanitise a stored 식사 id (A-3c): one non-empty string or null. Whether the def still exists — and whether it is
+ * really a 요리 — is **not** checked here (`Profile.ts` imports nothing from items/); `ProgressionSystem.pruneMeal`
+ * does that once `ctx.loot` is up, exactly like `prunePreps` / `pruneImplants`.
+ */
+export function sanitizeMeal(raw: unknown): string | null {
+  return typeof raw === 'string' && raw ? raw.slice(0, 64) : null;
 }
 
 /** Hard cap on stored equipped implants (IMPLANT_SLOTS_MAX is 10 and every implant costs >= 1 slot; this only bounds junk). */
@@ -184,6 +196,12 @@ export function migrate(raw: unknown): PlayerProfile | null {
    * 여기서 반드시 옮겨 담는다 — migrate 의 결과가 곧 다음 `saveProfile` 의 내용이다. */
   p.prep = sanitizePreps(r.prep);
   p.prepActive = sanitizePreps(r.prepActive);
+
+  /* A-3c (2026-09-11): 식사. 준비물과 **완전히 같은 이유**로 여기서 옮겨 담는다 — migrate 의 결과가 곧 다음
+   * `saveProfile` 의 내용이라, 빠뜨리면 식탁에서 먹은 요리가 새로고침 한 번에 사라진다 (2026-09-09 `accent`
+   * 사고와 같은 자리). `mealActive` 는 레이드 도중 끊긴 사람이 돌아와도 살아 있어야 하는 값이다. */
+  p.meal = sanitizeMeal(r.meal);
+  p.mealActive = sanitizeMeal(r.mealActive);
 
   /* 2026-09-09 (캐릭터 생성창): `accent` / `createdAt` / `playedAt` 은 `shared/character.makeCharacterProfile`
    * 이 심는 필드다. 여기서 옮겨 담지 않으면 **첫 저장에서 사라진다** — `migrate` 의 결과가 곧 다음

@@ -36,6 +36,7 @@ import type { InventorySystem } from '../InventorySystem';
 export function equipTargetFor(sys: InventorySystem, def: ItemDef): LoadoutSlot | null {
   if (def.category === 'bag') return 'bag';
   if (def.category === 'armor') return 'armor';
+  if (def.category === 'pouch') return 'pouch';   // A-15: 고정 1칸 (`POUCH_SLOTS`)
   if (def.category === 'secondary') return 'secondary';
   if (def.category !== 'primary') return null;
   if (!sys.loadout.primary) return 'primary';
@@ -112,6 +113,7 @@ export function validatePartial(sys: InventorySystem, uid: string, from: ItemLoc
   const item = sys.findItem(uid, from);
   const def = item && ITEM_DEF_MAP.get(item.defId);
   if (!item || !def || def.stackMax <= 1) return null;
+  if (target.grid === 'pouch' && !sys.pouchAccepts(def)) return null;   // A-15
   const n = Math.floor(qty);
   if (!Number.isFinite(n) || n < 1 || n >= item.qty) return null;
   const grid = sys.getGrid(target.grid);
@@ -159,28 +161,36 @@ export function previewDrop(sys: InventorySystem, uid: string, from: ItemLocatio
     const current = sys.loadout[target.slot];
     if (from.kind === 'slot') {
       if (from.slot === target.slot) return 'noop';
-      if (target.slot === 'bag' || from.slot === 'bag') return 'bad';
+      if (target.slot === 'bag' || from.slot === 'bag' || target.slot === 'pouch' || from.slot === 'pouch') return 'bad';
       return current ? 'swap' : 'ok';
     }
     if (!current) return 'ok';
     if (target.slot === 'bag') return 'swap'; // the displaced bag is placed first in the resized grid
+    // A-15: 주머니 교체도 `changePouch` 가 전부-아니면-전무로 판정한다 (내용물이 가방에 들어가야 한다)
+    if (target.slot === 'pouch') return 'swap';
     return sys.canPlaceDisplaced(current, from, uid) ? 'swap' : 'bad';
   }
 
   const grid = sys.getGrid(target.grid);
   if (!grid) return 'bad';
+  // A-15: 주머니 격자는 `PouchDef.accepts` 밖의 것을 아예 받지 않는다 (주머니가 없으면 격자 자체가 없다)
+  if (target.grid === 'pouch' && !sys.pouchAccepts(def)) return 'bad';
   if (from.kind === 'grid' && from.grid === target.grid) {
     const p = grid.get(uid);
     if (p && p.x === target.x && p.y === target.y && item.rotated === target.rotated) return 'noop';
   }
   const blockers = grid.blockersAt(item, target.x, target.y, target.rotated, uid);
   if (from.kind === 'slot' && from.slot === 'bag' && target.grid !== 'bag') return 'bad';
+  // A-15: 장착한 주머니는 가방 · 창고로만 벗는다 (상자에는 넣지 않는다 — `dropImpl` 의 pouch 가지와 같은 판정)
+  if (from.kind === 'slot' && from.slot === 'pouch' && (target.grid === 'pouch' || target.grid === 'container')) return 'bad';
   if (blockers.length === 0) return 'ok';
   if (blockers.length !== 1 || blockers[0] === OOB) return 'bad';
   const other = grid.get(blockers[0]);
   if (!other) return 'bad';
   if (target.grid === 'container' && other.item.searched === false) return 'bad'; // never touch an unsearched item
   if (other.item.defId === item.defId && def.stackMax > 1 && other.item.qty < def.stackMax) return 'merge';
+  // A-15: 교체는 밀려난 쪽이 **주머니로 들어가는** 이동이기도 하다 — 주머니가 안 받으면 교체 자체가 안 된다
+  if (from.kind === 'grid' && from.grid === 'pouch' && !sys.pouchAccepts(ITEM_DEF_MAP.get(other.item.defId))) return 'bad';
   if (from.kind === 'slot') {
     const od = ITEM_DEF_MAP.get(other.item.defId);
     return od && slotAccepts(od, from.slot) ? 'swap' : 'bad';
@@ -205,6 +215,7 @@ export function nearestFreeSpot(sys: InventorySystem, uid: string, from: ItemLoc
   const def = item && ITEM_DEF_MAP.get(item.defId);
   const grid = sys.getGrid(gridId);
   if (!item || !def || !grid) return null;
+  if (gridId === 'pouch' && !sys.pouchAccepts(def)) return null;   // A-15
   const orientations = def.width !== def.height ? [rotated, !rotated] : [rotated];
   let best: { x: number; y: number; rotated: boolean } | null = null;
   let bestD = Infinity;
@@ -249,6 +260,8 @@ export function dropImpl(sys: InventorySystem, uid: string, from: ItemLocation, 
   const grid = sys.getGrid(target.grid);
   if (!grid) return 'fail';
   const to: ItemLocation = { kind: 'grid', grid: target.grid };
+  // A-15: 주머니 격자가 받는 것만 (미리보기와 같은 판정)
+  if (target.grid === 'pouch' && !sys.pouchAccepts(def)) return 'fail';
 
   if (from.kind === 'grid' && from.grid === target.grid) {
     const p = grid.get(uid);
@@ -257,6 +270,21 @@ export function dropImpl(sys: InventorySystem, uid: string, from: ItemLocation, 
 
   const blockers = grid.blockersAt(item, target.x, target.y, target.rotated, uid);
   if (blockers.includes(OOB)) return 'fail';
+
+  /*
+   * 2026-09-11 (A-15) — 장착한 주머니를 격자로 끌어다 놓기. 가방과 **같은 이유로** 여기서 가로챈다:
+   * 그냥 `detach` 하면 주머니 격자의 내용물이 갈 데 없이 남는다. `changePouch` 가 내용물을 가방으로 옮기고,
+   * 하나라도 못 들어가면 이동 자체를 거절한다.
+   */
+  if (from.kind === 'slot' && from.slot === 'pouch') {
+    if (target.grid === 'container' || target.grid === 'pouch') return 'fail';
+    if (blockers.length === 0) return sys.changePouch(null, null, 'grid', { x: target.x, y: target.y }, target.grid);
+    if (blockers.length !== 1) return 'fail';
+    const other = grid.get(blockers[0]);
+    const od = other && ITEM_DEF_MAP.get(other.item.defId);
+    if (!other || !od || od.category !== 'pouch') return 'fail';
+    return sys.changePouch(other.item, to, 'grid', { x: other.x, y: other.y }, target.grid);
+  }
 
   // the equipped bag dragged into the grid: unequip (grid shrinks, bag lands at the target cell if it still exists)
   if (from.kind === 'slot' && from.slot === 'bag') {
@@ -317,6 +345,8 @@ export function dropImpl(sys: InventorySystem, uid: string, from: ItemLocation, 
     return 'ok';
   }
   if (from.kind !== 'grid') return 'fail';   // wheel stack: no cells to trade (see `previewDrop`)
+  // A-15: 밀려난 쪽이 주머니로 들어가는 교체 — 주머니가 안 받으면 거절 (미리보기와 같은 판정)
+  if (from.grid === 'pouch' && !sys.pouchAccepts(ITEM_DEF_MAP.get(other.item.defId))) return 'fail';
   const srcGrid = sys.getGrid(from.grid);
   if (!srcGrid) return 'fail';
   if (sys.ctx.isMultiplayer && (from.grid === 'container') !== (target.grid === 'container')) return 'fail';
@@ -342,11 +372,14 @@ export function quickMoveImpl(sys: InventorySystem, uid: string, from: ItemLocat
   const def = item && ITEM_DEF_MAP.get(item.defId);
   if (!item || !def) return 'fail';
   if (from.kind === 'slot' && from.slot === 'bag') return sys.changeBag(null, null, 'grid');
+  // A-15: 장착한 주머니의 우클릭도 `changePouch` 를 지난다 (내용물이 먼저 가방으로 간다)
+  if (from.kind === 'slot' && from.slot === 'pouch') return sys.changePouch(null, null, 'grid');
   let dest: GridId;
   if (from.kind === 'slot') dest = 'bag';
   // 2026-09-09: 우클릭 = 가방으로 되돌리기. 2026-09-10: 상자를 열어 둔 채라면 그 상자로 곧장 간다 (가방과 같은 규칙).
   else if (from.kind === 'quick') dest = sys.activeContainer ? 'container' : 'bag';
-  else if (from.grid === 'container' || from.grid === 'stash') dest = 'bag';
+  // 2026-09-11 (A-15): 주머니에서 우클릭하면 가방으로 (퀵슬롯과 같다)
+  else if (from.grid === 'container' || from.grid === 'stash' || from.grid === 'pouch') dest = 'bag';
   else if (sys.activeContainer) dest = 'container';
   else if (sys.hubMode) dest = 'stash';
   else return 'fail';
@@ -629,7 +662,8 @@ export function dropOnSlot(sys: InventorySystem, item: ItemInstance, def: ItemDe
   if (!slotAccepts(def, slot)) return 'fail';
   if (from.kind === 'slot') {
     if (from.slot === slot) return 'noop';
-    if (slot === 'bag' || from.slot === 'bag' || slot === 'armor' || from.slot === 'armor') return 'fail';
+    if (slot === 'bag' || from.slot === 'bag' || slot === 'armor' || from.slot === 'armor'
+      || slot === 'pouch' || from.slot === 'pouch') return 'fail';
     // 주무기 I ↔ 주무기 II (both slots accept the same category, so the swap is always valid)
     const cur = sys.loadout[slot];
     if (cur && !slotAccepts(ITEM_DEF_MAP.get(cur.defId)!, from.slot)) return 'fail';
@@ -640,6 +674,12 @@ export function dropOnSlot(sys: InventorySystem, item: ItemInstance, def: ItemDe
     return 'ok';
   }
   if (slot === 'bag') return sys.changeBag(item, from, 'grid');
+  // A-15: 주머니 칸도 격자를 갈아 끼우는 이동이다 — `changePouch` 하나가 내용물까지 책임진다.
+  // 벗겨진 주머니는 새 주머니가 오던 격자로 (상자에서 왔으면 가방으로 — 공유 상자에 내 물건을 넣지 않는다).
+  if (slot === 'pouch') {
+    const back: GridId = from.kind === 'grid' && from.grid === 'stash' ? 'stash' : 'bag';
+    return sys.changePouch(item, from, 'grid', undefined, back);
+  }
   if (from.kind !== 'grid') return 'fail';   // the wheel only ever holds quick-usable stacks, never equipment
   const srcGrid = sys.getGrid(from.grid);
   const src = srcGrid?.get(item.uid);

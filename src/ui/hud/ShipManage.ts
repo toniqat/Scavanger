@@ -42,6 +42,12 @@ const MODEL_GLYPH: Readonly<Record<FurnitureModelKind, string>> = {
      (제작 탭 `inventory/ui/labels` 와 같은 글자여야 한다), 분석기는 작업대가 아니라 스테이션이라 자기 글자를 갖는다 —
      벤젠 고리 `⌬` 는 위의 어떤 글자와도 겹치지 않으면서 「해석하는 물건」으로 읽힌다. */
   analyzer: '⌬', bench_extract: WORKBENCH_ICON.extract, bench_mixer: WORKBENCH_ICON.mixer,
+  /* 주방 · 배양조 · 프린터 (A-3c · A-14 · A-15, 2026-09-11): 조리대 · 프린터는 작업대이므로 글리프의 원본이
+     `WORKBENCH_ICON` 이고(제작 탭 `inventory/ui/labels` 와 같은 글자여야 한다 — 2026-09-10 규약), 식탁 · 배양조는
+     작업대가 아니라 스테이션이라 자기 글자를 갖는다: 식탁 `⊞`(자리가 놓인 상판 — `▭` 평범한 탁자와 구분된다),
+     배양조 `⚗`(증류기 — 「무언가가 안에서 자란다」). 둘 다 위의 어떤 글자와도 겹치지 않는 유니코드 한 글자다. */
+  bench_cook: WORKBENCH_ICON.cook, bench_print: WORKBENCH_ICON.print,
+  dining_table: '⊞', culture_tank: '⚗',
 };
 
 /** Purposes offered to an empty room (빈 방 itself is the "clear" action in the header instead). */

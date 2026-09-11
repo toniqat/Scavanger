@@ -1607,7 +1607,10 @@ export type LaunchWarningId =
   | 'noHeal'       // 회복 아이템(category 'stim')이 가방에 없다
   /* appended (2026-09-11, A-13): 목표 행성에 상시 환경(`PlanetDef.env`)이 있는데 그 환경을 막는 준비물이
    * 이번 레이드에 실려 있지 않다. **경고일 뿐 막지 않는다** — 소프트 게이트가 사용자 결정이다. */
-  | 'noEnvPrep';
+  | 'noEnvPrep'
+  /* appended (2026-09-11, A-3c): 식사를 차리지 않았다 (`ProgressionRef.getMeal()` 이 null).
+   * `noEnvPrep` 과 같은 결의 경고일 뿐이다 — 요리는 처음부터 있어도 되고 없어도 되는 이득이다. */
+  | 'noMeal';
 
 /** One reason the launch check raised. Both strings are 한국어 and ready to render. */
 export interface LaunchWarning {

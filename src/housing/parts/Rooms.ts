@@ -15,6 +15,7 @@ import {
   benchKindOf,
 } from '@/shared';
 import {
+  NEEDS_GREENHOUSE,
   bookGainMulFor, bookWeightOf, canPlaceAt, craftCostMulFor, facilityBlockReason, facilityLevel, facilityMaxLevel, facilityName,
   facilityPurposeOf, purposeBuildBlockReason, purposeBuildCost, roomRefundCost,
   furnitureAllowedIn, furnitureUpgradeReason, isRoomIndex, isRoomPurpose, layerOf, missingIngredients, nextFacilityCost, nextFreeLayer,
@@ -98,9 +99,9 @@ export function setRoomPurpose(sys: HousingSystem, index: number, purpose: RoomP
     const inRoom = sys.state.furniture.filter((p) => p.room === index).sort((a, b) => layerOf(b) - layerOf(a));
     for (const f of inRoom) sys.recover(f.uid);
   }
-  // a greenhouse that goes away takes its labs with it
+  // a greenhouse that goes away takes the rooms that need it with it (연구실 · 주방 — `Rules.NEEDS_GREENHOUSE`)
   if (room.purpose === 'greenhouse' && !sys.state.rooms.some((r, i) => i !== index && r.purpose === 'greenhouse')) {
-    for (let i = 0; i < sys.state.rooms.length; i++) if (sys.state.rooms[i].purpose === 'lab') sys.setRoomPurpose(i, 'empty');
+    for (let i = 0; i < sys.state.rooms.length; i++) if (NEEDS_GREENHOUSE.includes(sys.state.rooms[i].purpose)) sys.setRoomPurpose(i, 'empty');
   }
   room.purpose = purpose;
   room.level = purpose === 'empty' ? 0 : 1;

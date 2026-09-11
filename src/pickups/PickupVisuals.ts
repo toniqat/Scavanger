@@ -49,6 +49,11 @@ const REST_Y: Record<ItemCategory, number> = {
      가방보다 조금 낮게 선다. 둘 다 `crate` 실루엣(default 가지)을 타고 색은 def 의 등급색이다. */
   sample: 0.07,
   prep: 0.15,
+  /* appended: 2026-09-11 주방 · 프린터 (A-3c · A-15) — 셋 다 자기 실루엣이 있다 (아래 `create` 의 가지).
+     요리는 그릇이라 바닥에 놓이고, 주머니는 가방보다 작으니 조금 낮게 서고, 열쇠(키카드)는 서적처럼 납작하게 눕는다. */
+  meal: 0.06,
+  pouch: 0.12,
+  key: 0.05,
 };
 
 /**
@@ -113,6 +118,17 @@ export class PickupVisualPool {
   private readonly bookCover = new THREE.BoxGeometry(0.24, 0.045, 0.32);
   private readonly bookPages = new THREE.BoxGeometry(0.215, 0.05, 0.3);
   private readonly bookSpine = new THREE.BoxGeometry(0.035, 0.055, 0.325);
+  // 2026-09-11 (A-3c): 요리 — 위가 넓은 얕은 그릇 + 가득 담긴 내용물(accent)
+  private readonly mealBowl = new THREE.CylinderGeometry(0.17, 0.11, 0.09, 14);
+  private readonly mealFill = new THREE.CylinderGeometry(0.15, 0.15, 0.03, 14);
+  // 2026-09-11 (A-15): 주머니 — 납작한 파우치 + 덮개 + 멜빵 (가방보다 한 치수 작다)
+  private readonly pouchBody = new THREE.BoxGeometry(0.26, 0.2, 0.12);
+  private readonly pouchFlap = new THREE.BoxGeometry(0.275, 0.07, 0.135);
+  private readonly pouchStrap = new THREE.BoxGeometry(0.05, 0.215, 0.145);
+  // 2026-09-11 (A-15): 열쇠 — 자기 카드 한 장 + 자기 띠 + 칩
+  private readonly keyCard = new THREE.BoxGeometry(0.2, 0.016, 0.3);
+  private readonly keyStripe = new THREE.BoxGeometry(0.2, 0.022, 0.055);
+  private readonly keyChip = new THREE.BoxGeometry(0.06, 0.024, 0.05);
   private readonly beamGeo = new THREE.CylinderGeometry(PILLAR_RADIUS_TOP, PILLAR_RADIUS_BOTTOM, BEAM_HEIGHT, 10, 1, true);
   private readonly ringGeo = new THREE.RingGeometry(0.28, 0.36, 24);
 
@@ -124,7 +140,9 @@ export class PickupVisualPool {
     this.ringGeo.rotateX(-Math.PI / 2);
     this.geos.push(this.rifleBody, this.rifleBarrel, this.rifleGrip, this.rifleMag, this.pistolBody, this.pistolGrip,
       this.ammoBox, this.ammoStripe, this.stimBody, this.stimCap, this.grenadeBody, this.grenadeBand, this.gem, this.gemBase,
-      this.crate, this.crateEdge, this.bookCover, this.bookPages, this.bookSpine, this.beamGeo, this.ringGeo);
+      this.crate, this.crateEdge, this.bookCover, this.bookPages, this.bookSpine,
+      this.mealBowl, this.mealFill, this.pouchBody, this.pouchFlap, this.pouchStrap,
+      this.keyCard, this.keyStripe, this.keyChip, this.beamGeo, this.ringGeo);
   }
 
   acquire(def: ItemDef): PickupVisual {
@@ -225,6 +243,29 @@ export class PickupVisualPool {
         body.rotation.y = 0.35;
         break;
       }
+      /* 2026-09-11 (A-3c): 요리 — 얕은 그릇에 담겨 있다. 그릇이 bodyMat, 내용물이 accentMat 라
+         등급색이 "담긴 것" 쪽에서 더 밝게 난다. */
+      case 'meal': {
+        m(this.mealBowl, bodyMat);
+        m(this.mealFill, accentMat, 0, 0.035, 0);
+        break;
+      }
+      /* 2026-09-11 (A-15): 주머니 — 가방(2×2)보다 한 치수 작은 파우치. 덮개 · 멜빵이 accentMat 다. */
+      case 'pouch': {
+        m(this.pouchBody, bodyMat);
+        m(this.pouchFlap, accentMat, 0, 0.08, 0);
+        m(this.pouchStrap, accentMat, 0, 0, 0);
+        body.rotation.y = 0.28;
+        break;
+      }
+      /* 2026-09-11 (A-15): 열쇠 — 자기 카드 한 장. 서적처럼 납작하게 눕고 띠 · 칩만 빛난다. */
+      case 'key': {
+        m(this.keyCard, bodyMat);
+        m(this.keyStripe, accentMat, 0, 0.004, -0.1);
+        m(this.keyChip, accentMat, -0.055, 0.005, 0.075);
+        body.rotation.y = 0.35;
+        break;
+      }
       case 'material':
       default: {
         m(this.crate, bodyMat);
@@ -248,7 +289,10 @@ export class PickupVisualPool {
 
   /** Pre-create one visual per category so the first drop allocates nothing (and shaders can be warmed up). */
   warm(): void {
-    const cats: ItemCategory[] = ['primary', 'secondary', 'grenade', 'stim', 'ammo', 'valuable', 'material', 'book'];
+    const cats: ItemCategory[] = ['primary', 'secondary', 'grenade', 'stim', 'ammo', 'valuable', 'material', 'book',
+      /* 2026-09-11: 자기 실루엣을 가진 카테고리는 여기에 올린다 (`book` 이 만든 선례) — default 가지를 타는
+         것들(작물 · 토양 · 표본 · 준비물 …)은 `material` 하나로 이미 덥혀 있다. */
+      'meal', 'pouch', 'key'];
     for (const c of cats) {
       if ((this.free.get(c)?.length ?? 0) > 0) continue;
       const v = this.create(c);

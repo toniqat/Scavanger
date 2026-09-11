@@ -17,10 +17,14 @@ import { readSaveFile, writeSaveFile, type SavedExtras, type SavedPlacement } fr
  * **v2 (2026-09-09)**: the wheel is its own container, so `quick[i]` is the **stack itself** (`SavedExtras`, no grid
  * cell) instead of an index into `bag`. A v1 file is migrated on read (`sanitizeLoadoutSave`): every bag entry a
  * v1 `quick` index pointed at is **moved out of `bag` into `quick`** — its grid cells free up, exactly what the
- * live model does. Every write is v2.
+ * live model does.
+ *
+ * **v3 (2026-09-11, A-15)**: the 주머니 is its own container too — `pouch` carries its placements exactly like `bag`
+ * does (the pouch **item** itself rides in `slots.pouch`, like every other equipped thing). v2 → v3 is a field that
+ * did not exist before, so the migration is an empty array: nothing to move, nothing to lose. Every write is v3.
  * ──────────────────────────────────────────────────────────────────────────── */
 
-export const LOADOUT_SAVE_VERSION = 2;
+export const LOADOUT_SAVE_VERSION = 3;
 /** Debounce so a drag session writes once, not per cell. */
 const SAVE_DELAY_MS = 350;
 
@@ -32,12 +36,18 @@ export interface LoadoutSave {
   bag: SavedPlacement[];
   /** Quick-use wheel: the stack in each wheel direction (null = empty). v2 — a v1 file's bag indices are migrated on read. */
   quick: (SavedExtras | null)[];
+  /**
+   * 2026-09-11 (A-15) — **주머니 격자**의 스택과 자리. v3. 주머니 아이템 자체는 `slots.pouch` 에 있다.
+   * v2 이하의 파일에서는 빈 배열이다 (`sanitizeLoadoutSave`).
+   */
+  pouch: SavedPlacement[];
 }
 
 /** True when the save holds nothing (treated like no save → starter kit on the first hub entry). */
 export function isEmptyLoadoutSave(save: LoadoutSave | null): boolean {
   if (!save) return true;
-  return Object.values(save.slots).every((v) => !v) && save.bag.length === 0 && save.quick.every((q) => !q);
+  return Object.values(save.slots).every((v) => !v) && save.bag.length === 0
+    && save.quick.every((q) => !q) && save.pouch.length === 0;
 }
 
 /** Read + sanitise the save file; null when missing / corrupt. */
@@ -48,7 +58,8 @@ export function loadLoadoutSave(): LoadoutSave | null {
 /**
  * Sanitise a save-shaped object (the localStorage file, the server profile doc, a raid-state blob or a crew card);
  * null when it is not a loadout save. Extra per-entry fields (e.g. `searched` in a raid state) pass through untouched.
- * Always returns the **v2 shape** — a v1 document (quick = bag indices) is migrated here, see the header.
+ * Always returns the **v3 shape** — a v1 document (quick = bag indices) is migrated here, and a v1/v2 document
+ * simply gains an empty `pouch`, see the header.
  */
 export function sanitizeLoadoutSave(file: unknown): LoadoutSave | null {
   if (!file || typeof file !== 'object') return null;
@@ -78,7 +89,9 @@ export function sanitizeLoadoutSave(file: unknown): LoadoutSave | null {
       quick[i] = q && typeof q === 'object' && typeof (q as SavedExtras).defId === 'string' ? (q as SavedExtras) : null;
     }
   }
-  return { v: LOADOUT_SAVE_VERSION, slots, bag, quick };
+  // v3 (A-15): 없던 필드가 생기는 것뿐 — v1 · v2 파일은 빈 주머니로 읽힌다
+  const pouch = Array.isArray(f.pouch) ? f.pouch.filter((e): e is SavedPlacement => !!e && typeof e === 'object') : [];
+  return { v: LOADOUT_SAVE_VERSION, slots, bag, quick, pouch };
 }
 
 /**

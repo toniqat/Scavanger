@@ -2,17 +2,18 @@ import type { GameContext } from '@/shared';
 import { Keys, MENU_BLOCKER } from '@/shared';
 import { el, section } from './dom';
 
-export type HousingPage = 'room' | 'facility' | 'presets' | 'grow' | 'bookshelf' | 'analyzer';
+export type HousingPage = 'room' | 'facility' | 'presets' | 'grow' | 'bookshelf' | 'analyzer' | 'culture' | 'dining';
 const BLOCKER = 'housing';
 
 /**
- * `ui:housingToggled` only knows the three Phase 6 pages; the Phase 8 재배 panel, the Phase 9 책장 panel and the
- * 2026-09-11 분석 화면 report themselves as `null` there (the contract's page union is frozen — page ids may not be
- * appended). 재배 · 책장 carry their own `ui:growToggled` / `ui:bookshelfToggled`; the 분석 화면 has no such event in
- * the contract, so consumers watch `housing:analysisChanged` instead.
+ * `ui:housingToggled` only knows the three Phase 6 pages; every station panel added since (재배 · 책장 · 분석 ·
+ * 배양 · 식탁) reports itself as `null` there (the contract's page union is frozen — page ids may not be appended).
+ * 재배 · 책장 carry their own `ui:growToggled` / `ui:bookshelfToggled`; 분석 · 배양 · 식탁 have no such event in the
+ * contract, so consumers watch `housing:analysisChanged` / `housing:cultureChanged` / `progress:mealChanged` instead.
  */
 type WirePage = 'room' | 'facility' | 'presets' | null;
-const wirePage = (p: HousingPage): WirePage => (p === 'grow' || p === 'bookshelf' || p === 'analyzer' ? null : p);
+const WIRE_PAGES: readonly HousingPage[] = ['room', 'facility', 'presets'];
+const wirePage = (p: HousingPage): WirePage => (WIRE_PAGES.includes(p) ? (p as WirePage) : null);
 
 /**
  * Shared shell of the housing panels (`.menu.housing-menu`): adds the `'housing'` blocker and then turns on the

@@ -238,6 +238,7 @@ export function recover(sys: HousingSystem, uid: string): boolean {
   sys.addToStorage(item.defId, item.level);
   sys.dropGrowsOf(uid);                       // 재배 스테이션을 회수하면 토양 · 작물도 함께 사라진다
   sys.dropAnalysesOf(uid);                    // 분석기를 회수하면 해석 중이던 표본도 함께 사라진다 (같은 규약)
+  sys.dropCulturesOf(uid);                    // 배양조를 회수하면 배지 · 배양 중이던 세포주도 함께 사라진다
   sys.ctx.bus.emit('housing:furnitureRecovered', { uid, defId: item.defId, room: item.room });
   sys.changed('recover');
   if (hadBooks > 0) sys.ctx.bus.emit('housing:booksChanged', { uid, count: 0 });

@@ -8,7 +8,7 @@ import { Parts } from './parts';
 import { LightPool, type LightFixture } from './LightPool';
 import { Starfield, Planet } from './Starfield';
 import { ViewportWarp } from './WarpStreaks';
-import { implantBay, repairBench, shipComputer, type ShipStations, type StationDef } from './stations';
+import { diningTable, implantBay, repairBench, shipComputer, type ShipStations, type StationDef } from './stations';
 import { TextPlane } from '../Labels';
 import type { PodSlotDef, ShipInterior, TerminalDef, WarpDestination, WorkbenchDef } from './types';
 
@@ -189,7 +189,21 @@ export class SharedShip implements ShipInterior {
     this.stations = {
       bench: repairBench(b, col, -3.7, ROOM.maxZ - 0.7, 0, false),
       implantBay: implantBay(b, col, ROOM.maxX - 1.0, 3.6, yawFromForward(-1, 0)),
+      /*
+       * 고정 식탁 (주방 A-3c, 2026-09-11): 공유 함선에는 가구가 없으므로 분대가 함께 먹는 자리를 인테리어가
+       * 심어 둔다 (`ctx.housing.openDiningTable(null)`). 자리는 우현(+X) 중갑판 — 사물함 · 보급 상자(+Z),
+       * 임플란트 시술대 · 에어락(+X), 발사 포드(−Z), 홀로 테이블(가운데) 어느 콜라이더와도 겹치지 않고
+       * 에어락에서 갑판으로 들어오는 z ≈ 0 통로도 비켜 간다. (좌현 x ≈ −8 은 `smoke-hangar` 가
+       * 「출입구 옆에서는 후벽에 막힌다」를 확인하려고 걸어 보는 줄이라 비워 둔다.)
+       */
+      diningTable: diningTable(b, col, 8.6, 2.2, 0),
     };
+    const dtSign = new TextPlane(0.9, 0.3, 256);
+    dtSign.mesh.position.set(8.6, 1.62, 2.2);
+    dtSign.mesh.rotation.y = Math.PI;                                        // PlaneGeometry faces +Z; the table's front is −Z
+    dtSign.set(['식당'], '#ffc8a0', 'rgba(6,8,10,0.85)');
+    r.add(dtSign.mesh);
+    this.screens.push(dtSign);
 
     // ── central holo table ──
     b.cyl(1.0, 1.15, 0.85, 16, 0, 0.425, 1.5, M.hullDark);

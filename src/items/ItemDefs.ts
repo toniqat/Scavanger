@@ -1,12 +1,12 @@
-import type { AmmoType, ArmorDef, AttachmentDef, AttachmentEffects, BagDef, ItemCategory, ItemDef, PrepDef, Rarity, SampleDef, SeedDef, SkillId, SoilDef, SoilTag, WeaponClass, WeaponDef, WeaponGrade } from '@/shared';
+import type { AmmoType, ArmorDef, AttachmentDef, AttachmentEffects, BagDef, ItemCategory, ItemDef, MealDef, MediumDef, PouchDef, PrepDef, Rarity, SampleDef, SeedDef, SkillId, SoilDef, SoilTag, StrainDef, WeaponClass, WeaponDef, WeaponGrade } from '@/shared';
 import {
-  AMMO_STACK_ROUNDS, CATEGORY_COLOR, CATEGORY_ICON, ENV_KINDS,
+  AMMO_STACK_ROUNDS, CATEGORY_COLOR, CATEGORY_ICON, CATEGORY_LABEL_KO, ENV_KINDS, MEAL_BUFFS,
   QUICK_SLOTS, QUICK_USABLE_CATEGORIES, RARITY_COLORS, SKILL_IDS, SOIL_TAGS, csvRows, keyTable, numberMap, rarityForGrade,
 } from '@/shared';
 
 /*
  * 아이템 수치의 원본은 `data/` 의 csv 다 — `items.csv`(수류탄 · 회복 · 귀중품 · 재료 · 약초 · 가젯),
- * `ammo.csv` · `attachments.csv` · `bags.csv` · `seeds.csv` · `books.csv`,
+ * `ammo.csv` · `attachments.csv` · `bags.csv` · `seeds.csv` · `books.csv` · `samples.csv` · `meals.csv`,
  * 무기는 `weapons.csv` / `weapons_unique.csv`, 방탄복은 `armor.csv`.
  * 이 파일에는 표가 없고 그 줄들을 `ItemDef` 로 옮기는 코드만 있다.
  *
@@ -25,6 +25,13 @@ export {
   RARITY_COLORS, RARITY_ORDER, rarityRank, rarityForGrade, gradeForRarity,
   RARITY_LABEL_KO, CATEGORY_LABEL_KO, CATEGORY_COLOR, CATEGORY_ICON,
 } from '@/shared';
+
+/**
+ * 모든 `ItemCategory` (계약에 적힌 순서). 손으로 적은 목록이 아니라 `CATEGORY_LABEL_KO` 의 키다 —
+ * 그 표는 `Record<ItemCategory, string>` 이라 카테고리가 늘면 컴파일러가 표를 먼저 막고, 이 배열은 저절로 따라온다.
+ * 쓰는 곳은 csv 의 카테고리 목록 칸 검증(`pouchAccepts` 의 `enumList`)이다.
+ */
+export const ITEM_CATEGORIES = Object.keys(CATEGORY_LABEL_KO) as readonly ItemCategory[];
 
 export const AMMO_LABEL_KO: Readonly<Record<AmmoType, string>> = {
   light: '경량탄', medium: '준중량탄', heavy: '중량탄', shell: '산탄',
@@ -209,6 +216,31 @@ export const SAMPLE_ITEM_DEFS: readonly ItemDef[] = csvRows('samples.csv').map((
   };
 });
 
+/* ── 요리 (A-3c, 2026-09-11) — data/meals.csv ─────────────────────────────────
+ * 주방 **조리대**(`WorkbenchKind 'cook'`)가 만들고 **식탁**에서 먹는다. 먹으면 다음 레이드 1회분으로 실리고
+ * (`PlayerProfile.meal` → `mealActive`), 수명 규칙은 준비물과 완전히 같다 — 사망해도 그 레이드는 유지된다.
+ *
+ * 한 요리는 **버프 하나**만 올린다 (사용자 결정). `MealDef.buff` 는 `DerivedStats` 에 이미 있는 필드 이름이라
+ * 소비자가 한 줄도 안 바뀐다 — 접어 넣는 곳은 `progression/recomputeDerived` 하나다. `amount` 는
+ * `isMealBuffMultiplier` 인 버프면 배수에 가산되고(0.2 = +20 %), 나머지는 단위 그대로다 (`durabilityLossMul` 만 음수).
+ *
+ * 씨앗 · 표본과 달리 **색은 등급색 그대로**다 (`def()` 기본값): 요리는 일반 → 서사가 곧 tier 1 → 2 이라
+ * 격자에서 「특선인가」가 색으로 읽혀야 한다. 아이콘은 csv 의 `icon` 칸이고 격자 크기는 1×1 고정이다. */
+export const MEAL_ITEM_DEFS: readonly ItemDef[] = csvRows('meals.csv').map((r) => {
+  const meal: MealDef = {
+    buff: r.enum('buff', MEAL_BUFFS),
+    /* 음수를 허용한다 — `durabilityLossMul` 은 "손상이 줄어든다" 라 −0.2 다. */
+    amount: r.num('amount'),
+    tier: r.int('tier', { min: 1, max: 2 }) as MealDef['tier'],
+  };
+  return def({
+    id: r.str('id'), name: r.str('name'), category: 'meal', rarity: r.str('rarity') as Rarity,
+    width: 1, height: 1, stackMax: r.int('stackMax', { min: 1 }),
+    value: r.int('value', { min: 0 }), weight: r.num('weight', { min: 0 }),
+    icon: r.str('icon'), description: r.str('description'), meal,
+  });
+});
+
 /* ── 서적 (Phase 9) — data/books.csv ──────────────────────────────────────────
  * One book per skill (`book_<skill>`), shelved in a 서재 책장 (`furn_bookshelf`, housing/ owns the shelves and the
  * bonus: `1 + BOOK_XP_PER_BOOK × Σ BOOK_RARITY_MUL[rarity]`, capped at `BOOK_GAIN_MAX`). Loot (tier 2–4 containers,
@@ -282,6 +314,26 @@ const GENERIC_ITEM_DEFS: readonly ItemDef[] = csvRows('items.csv').map((r) => {
    * 쓰는 곳은 `progression`(다음 레이드 1회분) · `player`(피해 면제) · `ui`(배지 · 툴팁) 이고 items 는 표만 옮긴다. */
   const prepEnv = r.optEnum('prepEnv', ENV_KINDS);
   const prep: PrepDef | undefined = prepEnv ? { env: prepEnv, short: r.str('prepShort') } : undefined;
+  /* 2026-09-11 (A-15 프린터): `category: 'pouch'` 줄만 `pouchCols` · `pouchRows` · `pouchAccepts` 를 채운다.
+   * `accepts` 는 `|` 로 이은 `ItemCategory` 목록이라 `enumList` 가 **모르는 이름을 스스로 신고한다**
+   * (`npm run data:check` 가 그 신고를 집는다) — 카테고리 이름을 items/ 에 또 적지 않으려고
+   * 허용 목록은 `CATEGORY_LABEL_KO` 의 키에서 뽑는다 (`ItemCategory` 를 키로 하는 Record 라 늘 빠짐없다). */
+  const pouch: PouchDef | undefined = r.has('pouchCols')
+    ? { cols: r.int('pouchCols', { min: 1 }), rows: r.int('pouchRows', { min: 1 }), accepts: r.enumList('pouchAccepts', ITEM_CATEGORIES) }
+    : undefined;
+  /* 받는 카테고리가 하나도 없는 주머니는 아무것도 못 넣는 빈 격자다 — 오타를 조용히 넘기지 않는다. */
+  if (pouch && pouch.accepts.length === 0) r.report('pouchAccepts', '주머니가 받아 주는 카테고리가 하나도 없다');
+  /* 2026-09-11 (A-14 배양조): 세포주(`strainOut`·`strainQty`·`strainHours`) · 영양 배지(`mediumUses`·`mediumSpeed`).
+   * 둘 다 `category: 'material'` 줄에 붙는 선택 열이고, 그 산출물 · 시간을 쓰는 곳은 `housing/` 의 배양조다.
+   * `outputDefId` 가 가리키는 아이템이 있는지는 여기서 보지 않는다 — `SampleDef.rewardDefId` 와 같은 규약이다
+   * (`ITEM_DEF_MAP` 이 아직 없다; 이름 검사는 `npm run data:check` 의 몫). */
+  const strainOut = r.optStr('strainOut');
+  const strain: StrainDef | undefined = strainOut
+    ? { outputDefId: strainOut, outputQty: r.int('strainQty', { min: 1 }), cultureHours: r.num('strainHours', { min: 0 }) }
+    : undefined;
+  const medium: MediumDef | undefined = r.has('mediumUses')
+    ? { uses: r.int('mediumUses', { min: 1 }), speedMul: r.num('mediumSpeed', { min: 0 }) }
+    : undefined;
   return def({
     id: r.str('id'), name: r.str('name'), category: r.str('category') as ItemCategory,
     rarity: r.str('rarity') as Rarity,
@@ -296,11 +348,26 @@ const GENERIC_ITEM_DEFS: readonly ItemDef[] = csvRows('items.csv').map((r) => {
     ...(heal ? { heal } : {}),
     ...(soil ? { soil } : {}),
     ...(prep ? { prep } : {}),
+    ...(pouch ? { pouch } : {}),
+    ...(strain ? { strain } : {}),
+    ...(medium ? { medium } : {}),
   });
 });
 
 /** `items.csv` 안에서 한 카테고리만 뽑는다 (파일에 적힌 순서 그대로). */
 const itemGroup = (category: ItemCategory): ItemDef[] => GENERIC_ITEM_DEFS.filter((d) => d.category === category);
+
+/* 2026-09-11 (A-14 · A-15): 배양조 · 프린터 재료(배지 · 세포주 · 배양 산물 · 필라멘트)는 `items.csv` 에서
+ * 준비물(`prep`) **뒤에** 적혀 있고, 목록에서도 거기 붙어야 한다 (「밭 → 연구실 → 프린터」 한 덩어리).
+ * 그래서 재료 그룹을 **그 경계에서** 가른다 — 파일 순서가 곧 표시 순서라는 `items.csv` 머리 주석 그대로이고,
+ * 아이템 id 를 코드에 적지 않으므로 csv 에 줄을 더하기만 하면 제자리에 붙는다. */
+const PREP_ROW_AT = GENERIC_ITEM_DEFS.map((d) => d.category).lastIndexOf('prep');
+/** `prep` 줄보다 앞에 있는 그 카테고리의 줄 (준비물이 한 줄도 없으면 전부). */
+const itemGroupBeforePrep = (category: ItemCategory): ItemDef[] =>
+  GENERIC_ITEM_DEFS.filter((d, i) => d.category === category && (PREP_ROW_AT < 0 || i < PREP_ROW_AT));
+/** `prep` 줄보다 뒤에 있는 그 카테고리의 줄. */
+const itemGroupAfterPrep = (category: ItemCategory): ItemDef[] =>
+  GENERIC_ITEM_DEFS.filter((d, i) => d.category === category && PREP_ROW_AT >= 0 && i > PREP_ROW_AT);
 
 /* ── 실드 충전기 (2026-09-10) ─────────────────────────────────────────────────
  * 방탄복이 주는 **실드**(추가 체력)를 채우는 소모품 3종. 회복 소모품과 나란히 `category: 'stim'` 이라
@@ -346,17 +413,24 @@ export const ITEM_DEFS: readonly ItemDef[] = [
   ...BAG_ITEM_DEFS,
   /* valuables — value and weight are deliberately uncorrelated */
   ...itemGroup('valuable'),
-  /* materials · herbs (gathered from world plants) */
-  ...itemGroup('material'),
+  /* materials · herbs (gathered from world plants) — 배양조 · 프린터 재료는 아래 연구실 묶음에 있다 */
+  ...itemGroupBeforePrep('material'),
   ...itemGroup('herb'),
   /* 2026-09-11 온실 개편: 작물(재배층 수확물 — 판매 · 세레스 납품) · 토양(채집 노드 전용, 재배층에 붓는다).
      약초 바로 뒤에 두어 "밭에서 나온 것" 이 목록에서 한 덩어리로 읽힌다. */
   ...itemGroup('crop'),
   ...itemGroup('soil'),
+  /* 2026-09-11 주방(A-3c): 요리는 작물의 네 번째 소비처다 — 재료(작물) 바로 뒤에 그 산물을 둔다. */
+  ...MEAL_ITEM_DEFS,
   /* 2026-09-11 연구실(A-12 · A-13): 표본(분석기가 해석한다 — `samples.csv`) · 준비물(함선에서 써서 다음 레이드
      1회분으로 싣는다). 밭에서 나온 것 바로 뒤가 연구실에서 쓰는 것이다. */
   ...SAMPLE_ITEM_DEFS,
   ...itemGroup('prep'),
+  /* 2026-09-11 배양조 · 프린터(A-14 · A-15): 영양 배지 · 세포주 · 배양 산물 · 필라멘트(전부 `material`) →
+     그 필라멘트로 찍는 주머니 → 주머니가 나르는 열쇠. 사슬 순서 그대로 읽힌다. */
+  ...itemGroupAfterPrep('material'),
+  ...itemGroup('pouch'),
+  ...itemGroup('key'),
   /* seeds (Phase 8: 온실 재배층에 심는다) · books (Phase 9: 서재 책장에 꽂는다) */
   ...SEED_ITEM_DEFS,
   ...BOOK_ITEM_DEFS,

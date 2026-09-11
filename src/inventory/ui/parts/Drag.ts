@@ -264,6 +264,7 @@ export function updateDragTarget(sys: InventoryUI, px: number, py: number): void
   sys.bagView.hideHighlight();
   sys.containerView.hideHighlight();
   sys.stashView.hideHighlight();
+  sys.pouchView.hideHighlight();   // A-15
   for (const sv of sys.slots.values()) sv.el.classList.remove('is-target-ok', 'is-target-bad');
   d.target = null;
   sys.dropZone.classList.remove('is-hot');
@@ -358,6 +359,7 @@ export function weaponTileAt(sys: InventoryUI, x: number, y: number, exceptUid: 
   if (tile.closest('.inv-grid-bag')) return { uid, loc: { kind: 'grid', grid: 'bag' } };
   if (tile.closest('.inv-grid-container')) return { uid, loc: { kind: 'grid', grid: 'container' } };
   if (tile.closest('.inv-grid-stash')) return { uid, loc: { kind: 'grid', grid: 'stash' } };
+  if (tile.closest('.inv-grid-pouch')) return { uid, loc: { kind: 'grid', grid: 'pouch' } };
   return null;
   }
 
@@ -380,6 +382,7 @@ export function clearSocketTarget(sys: InventoryUI): void {
   sys.bagView.setSocketTarget(null, null);
   sys.containerView.setSocketTarget(null, null);
   sys.stashView.setSocketTarget(null, null);
+  sys.pouchView.setSocketTarget(null, null);   // A-15 (주머니에 무기는 안 들어가지만 정리는 같이 한다)
   for (const sv of sys.slots.values()) sv.tile?.classList.remove('is-socket-ok', 'is-socket-bad');
   }
 
@@ -447,10 +450,12 @@ export function endDragVisuals(sys: InventoryUI, d: DragState): void {
   sys.bagView.setDragging(null);
   sys.containerView.setDragging(null);
   sys.stashView.setDragging(null);
+  sys.pouchView.setDragging(null);   // A-15
   if (d.qty !== null && d.from.kind === 'grid') sys.viewOf(d.from.grid).markSplitSource(d.uid, null);
   sys.bagView.hideHighlight();
   sys.containerView.hideHighlight();
   sys.stashView.hideHighlight();
+  sys.pouchView.hideHighlight();
   sys.clearSocketTarget();
   for (const sv of sys.slots.values()) {
     sv.el.classList.remove('is-target-ok', 'is-target-bad');

@@ -1,7 +1,7 @@
 /**
  * src/inventory/parts/LaunchCheck.ts — **출격 준비 점검** (2026-09-08).
  *
- * 발사 슬롯에 타기 직전 `hub/` 가 부르는 읽기 전용 점검. 여섯 가지를 훑고 각각의 이유를 한국어 두 줄
+ * 발사 슬롯에 타기 직전 `hub/` 가 부르는 읽기 전용 점검. 여덟 가지를 훑고 각각의 이유를 한국어 두 줄
  * (`text` 표제 + `detail` 상세)로 돌려준다. 아무것도 바꾸지 않고, 아무것도 막지 않는다 — 팝업은 경고일 뿐이다.
  *
  *   1. **주무기 없음** — 주무기 I · II 둘 다 비었다 (보조무기만으로는 통과하지 못한다).
@@ -14,6 +14,7 @@
  *   7. **준비물 없음** (2026-09-11, A-13) — 목표 행성에 상시 환경이 있는데 그것을 막는 준비물을 안 실었다.
  *      목표 행성을 아는 곳은 `ctx.hub.planet` 하나뿐이고, 실린 준비물은 `ctx.progression.hasEnvPrep(env)` 다.
  *      다른 여섯과 똑같이 **막지 않는다** — 맨몸으로 들어가면 체력이 계속 깎일 뿐이다 (사용자 결정: 소프트 게이트).
+ *   8. **식사 없음** (2026-09-11, A-3c) — `ctx.progression.getMeal()` 이 비었다. 역시 **막지 않는다**.
  */
 import type { AmmoType, ItemDef, LaunchWarning } from '@/shared';
 import { AMMO_STACK_ROUNDS, ENV_DESC_KO, ENV_LABEL_KO, getPlanet } from '@/shared';
@@ -94,6 +95,20 @@ export function getLaunchWarnings(sys: InventorySystem): LaunchWarning[] {
       });
     }
   } catch { /* hub · progression 이 아직 없다 — 경고를 남발하지 않는다 */ }
+
+  /* 8. 식사 — 주방 식탁에서 요리를 먹어 두면 다음 레이드 1회분이 실린다 (2026-09-11, A-3c).
+   *    `noEnvPrep` 과 똑같이 **막지 않는다**: 소프트 게이트이고 팝업의 한 줄일 뿐이다. progression 이 없는
+   *    트리(훈련장 · 스모크)에서는 조용히 건너뛴다. */
+  try {
+    const prog = sys.ctx.progression;
+    if (prog && typeof prog.getMeal === 'function' && !prog.getMeal()) {
+      out.push({
+        id: 'noMeal',
+        text: '식사를 차리지 않았습니다',
+        detail: '주방 식탁에서 요리를 먹어 두면 다음 레이드 1회분이 실립니다.',
+      });
+    }
+  } catch { /* progression 이 아직 없다 */ }
 
   return out;
 }

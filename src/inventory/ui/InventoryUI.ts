@@ -15,7 +15,7 @@ import { GridView, buildSlotCardContent, buildTileContent, type HighlightState }
 import { Tooltip } from './Tooltip';
 import { ContextMenu, type MenuEntry } from './ContextMenu';
 import { SplitDialog } from './SplitDialog';
-import { QUICK_DIR_GLYPH, QUICK_ROSE_ORDER, SLOT_LABEL, STEP, TEXT, fmtValue, slotKeyLabel, tierTitle, tileSize, fmtKg, weightLabel } from './labels';
+import { QUICK_DIR_GLYPH, QUICK_ROSE_ORDER, SLOT_LABEL, STEP, TEXT, fmtValue, pouchAcceptsLabel, slotKeyLabel, tierTitle, tileSize, fmtKg, weightLabel } from './labels';
 
 import { BAG_LOC, CATALOG_DBL_MS, DRAG_THRESHOLD, type DragState, GHOST_SCALE, LOCK_SVG, MIDDLE_BUTTON, type QuickCell, SCREEN_TABS, type ScreenTab, type SlotView } from './model';
 /** 폴더 공용 어휘(상수 · 타입 · 스크래치)는 `model.ts` 가 갖는다 — 기존 import 경로를 위해 재수출한다. */
@@ -66,6 +66,10 @@ export class InventoryUI {
   private scrollObserver: ResizeObserver | null = null;
   stashView!: GridView;
   bagView!: GridView;
+  /** 2026-09-11 (A-15): 퀵슬롯 아래 **주머니 격자** — 장착한 주머니가 없으면 `hidden` 이고 아무것도 안 그린다. */
+  pouchPanel!: HTMLElement;
+  pouchTitle!: HTMLElement;
+  pouchView!: GridView;
   slots = new Map<SlotId, SlotView>();
   /* appended: tactical kit */
   craftPanel!: CraftPanel;
@@ -238,7 +242,20 @@ export class InventoryUI {
     this.bagView = new GridView('bag', getDef, getStats, this.tileHandlers());
     const bBody = document.createElement('div');
     bBody.className = 'inv-bag-body';
-    bBody.append(this.bagView.el, this.buildQuickPanel());
+    /*
+     * 2026-09-11 (A-15) — **주머니 격자는 퀵슬롯 패널 바로 아래**다 (사용자 결정). 장착한 주머니가 없으면
+     * 이 블록이 통째로 `hidden` 이다 — 「주머니가 없습니다」 자리조차 두지 않는다 (`getPouchSize()` 가 `{0,0}`).
+     * 제목 한 줄이 이름과 **받는 종류**를 함께 말하므로, 빨간 하이라이트를 보기 전에 왜 안 들어가는지 알 수 있다.
+     */
+    const pPanel = document.createElement('div');
+    pPanel.className = 'inv-pouch';
+    pPanel.hidden = true;
+    this.pouchTitle = document.createElement('div');
+    this.pouchTitle.className = 'inv-pouch-title';
+    this.pouchView = new GridView('pouch', getDef, getStats, this.tileHandlers());
+    pPanel.append(this.pouchTitle, this.pouchView.el);
+    this.pouchPanel = pPanel;
+    bBody.append(this.bagView.el, this.buildQuickPanel(), pPanel);
     const bFoot = document.createElement('footer');
     bFoot.className = 'inv-foot';
     const vLabel = document.createElement('span');
@@ -486,10 +503,13 @@ export class InventoryUI {
     this.containerScroll.scrollTop = 0;   // C-60: every opened container starts at its first row
     this.stashView.setGrid(hub ? this.sys.getStash() : null);
     this.bagView.setGrid(this.sys.getGrid('bag'));
+    this.refreshPouch();
     this.catalogView.setOpen(this.sys.isCatalogOpen);
     this.root.hidden = false;
     this.visible = true;
     this.refresh();
+    // C-60 (2026-09-11 수정): 여기서 **한 번 직접** 잰다 — 아래 주석 참고
+    this.syncContainerScroll();
     this.emitGuide();
     // force a style flush so the enter transition plays
     void this.root.offsetWidth;
@@ -512,8 +532,16 @@ export class InventoryUI {
 
   /**
    * 2026-09-11 (C-60): `.is-scroll` on the container viewport while its grid is taller than the `max-height` — it only
-   * reserves the scrollbar gutter, so a crate that fits keeps its exact old box. Driven by a `ResizeObserver` on the
-   * viewport and the grid (grid rows grow, the window height changes).
+   * reserves the scrollbar gutter, so a crate that fits keeps its exact old box. A `ResizeObserver` on the viewport and
+   * the grid drives it while the window stands (grid rows grow, the window height changes).
+   *
+   * **2026-09-11 (수정) — 컨테이너를 바꾸는 자리에서는 옵저버를 기다리지 않는다.** 옵저버 콜백은 다음 프레임에
+   * 오는데, 행이 늘어난 시체 창을 닫고 **곧바로** 평범한 상자를 열면 그 사이에 콜백이 한 번도 안 들어올 수 있다 —
+   * 그러면 시체 창에서 붙은 `.is-scroll` 이 그대로 남아, 넘치지도 않는 6×4 상자가 스크롤바 자리 8 px 만큼 넓어진다
+   * (`smoke-quickslots` 의 C-60 「보통 상자는 모양이 그대로다」가 간헐적으로 빨갛던 원인). 옵저버가 새 노드를
+   * 못 보는 것이 아니다 — `containerView.el` 은 한 번 만들어져 교체되지 않는다. **다시 재는 사람이 없었을 뿐**이다.
+   * 그래서 `show()` 와 `refresh()` 의 컨테이너 교체 가지가 여기를 직접 부른다 (`scrollHeight` 읽기가 레이아웃을
+   * 동기로 밀어 주므로 그 자리에서 정답이 나온다). 옵저버는 창이 서 있는 동안의 변화만 맡는다.
    */
   syncContainerScroll(): void {
     const s = this.containerScroll;
@@ -530,6 +558,7 @@ export class InventoryUI {
     this.containerView.dispose();
     this.stashView.dispose();
     this.bagView.dispose();
+    this.pouchView?.dispose();
     this.catalogView?.dispose();
     this.screenView?.dispose();
     this.screenView = null;
@@ -590,6 +619,7 @@ export class InventoryUI {
       this.containerPanel.hidden = !c;
       this.containerView.setGrid(c ? c.grid : null);
       this.containerScroll.scrollTop = 0;
+      this.syncContainerScroll();   // C-60: 컨테이너가 바뀌는 그 자리에서 다시 잰다 (옵저버를 기다리지 않는다)
     } else if (c) {
       this.containerView.refresh();
       this.containerPanel.classList.toggle('is-empty', c.grid.isEmpty);
@@ -605,6 +635,7 @@ export class InventoryUI {
     }
     this.refreshSlots();
     this.refreshQuick();
+    this.refreshPouch();
     this.refreshWeight();
     this.implantPanel.refresh();
     this.craftPanel.refresh();
@@ -725,6 +756,25 @@ export class InventoryUI {
 
   bindQuickTile(el: HTMLElement, cell: QuickCell): void { return QuickUI.bindQuickTile(this, el, cell); }
 
+  /* ── 주머니 격자 (2026-09-11, A-15) ────────────────────────────────────── */
+
+  /**
+   * 장착한 주머니가 있으면 퀵슬롯 아래에 그 격자를 그리고, 없으면 블록을 통째로 감춘다.
+   * 제목은 `<주머니 이름> · <받는 종류>` 한 줄이다 (`TEXT.pouch.line`).
+   */
+  private refreshPouch(): void {
+    const item = this.sys.getEquippedPouch();
+    const def = item ? ITEM_DEF_MAP.get(item.defId) : undefined;
+    const size = this.sys.getPouchSize();
+    const show = !!item && !!def?.pouch && size.cols > 0 && size.rows > 0;
+    this.pouchPanel.hidden = !show;
+    if (!show || !def?.pouch) { if (this.pouchView.current) this.pouchView.setGrid(null); return; }
+    const grid = this.sys.getGrid('pouch');
+    if (this.pouchView.current !== grid) this.pouchView.setGrid(grid);
+    else this.pouchView.refresh();
+    this.pouchTitle.textContent = TEXT.pouch.line(def.name, pouchAcceptsLabel(def.pouch.accepts));
+  }
+
   /** Right-click on a wheel cell: `빠른 슬롯 해제` (assigned cells only). */
   onQuickContextMenu(index: number, e: MouseEvent): void { return Menu.onQuickContextMenu(this, index, e); }
 
@@ -759,14 +809,22 @@ export class InventoryUI {
   /* ── grid routing ──────────────────────────────────────────────────────── */
 
   viewOf(grid: GridId): GridView {
-    return grid === 'bag' ? this.bagView : grid === 'stash' ? this.stashView : this.containerView;
+    if (grid === 'bag') return this.bagView;
+    if (grid === 'stash') return this.stashView;
+    if (grid === 'pouch') return this.pouchView;
+    return this.containerView;
   }
 
-  /** Grids that accept drops right now (crate + bag on a mission, stash + bag in the ship). */
+  /**
+   * Grids that accept drops right now (crate + bag on a mission, stash + bag in the ship).
+   * 2026-09-11 (A-15): the 주머니 joins the list **only while its block is drawn** — a hidden grid must never
+   * swallow a drop the player aimed at the bag.
+   */
   activeViews(): GridView[] {
     const out: GridView[] = [];
     if (this.container) out.push(this.containerView);
     if (this.hub) out.push(this.stashView);
+    if (!this.pouchPanel.hidden) out.push(this.pouchView);
     out.push(this.bagView);
     return out;
   }

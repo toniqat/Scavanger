@@ -85,6 +85,8 @@ export function panels(sys: HousingSystem): HousingPanel[] {
   if (sys.presetMenu) out.push(sys.presetMenu);
   if (sys.growStation) out.push(sys.growStation);
   if (sys.analyzerPanel) out.push(sys.analyzerPanel);
+  if (sys.cultureTank) out.push(sys.cultureTank);
+  if (sys.diningTable) out.push(sys.diningTable);
   if (sys.bookshelfMenu) out.push(sys.bookshelfMenu);
   return out;
   }

@@ -1,4 +1,4 @@
-import type { EquippedImplant, EnvKind, ImplantItemDef, ItemInstance,
+import type { EquippedImplant, EnvKind, ImplantItemDef, ItemInstance, MealDef,
   DerivedStats, EmbeddedView, GameContext, GameSystem, PlayerProfile, ProfileRef, ProgressionRef,
   SkillDef, SkillId, StatDef, StatId, WeaponClass,
 } from '@/shared';
@@ -12,7 +12,7 @@ import {
   APPRAISE_XP_BY_RARITY, CARRY_XP_PER_METER, CRAFT_XP, CRATE_OPEN_XP, CRYPTO_XP, GATHER_XP, GRIT_SAVE_XP,
   GUN_HIT_XP, IMPLANT_XP, REPAIR_XP, SKILL_DEF_MAP, SKILL_DEFS, STAT_DEF_MAP, STAT_DEFS, WEAPON_CLASS_SKILL,
 } from './defs';
-import { computeDerived, DEFAULT_DERIVED, SPECIAL_BACKPACK_CD_MUL, emptyPerks, xpForLevel, type ImplantContribution } from './derive';
+import { applyMealBuff, computeDerived, DEFAULT_DERIVED, SPECIAL_BACKPACK_CD_MUL, emptyPerks, xpForLevel, type ImplantContribution } from './derive';
 import { clearStoredProfile, freshProfile, loadProfile, migrate, saveProfile, zeroStatProgress } from './Profile';
 import { CharacterSheet } from './ui/CharacterSheet';
 import { SheetView } from './ui/SheetView';
@@ -269,6 +269,7 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
    * 돌아온 사람이 이번 레이드분을 잃는다.
    */
   armPreps(): void {
+    this.armMeal();                                     // A-3c: 식사 칸도 같은 자리에서 옮긴다 (game/ 무변경)
     const waiting = this.prepList();
     if (waiting.length === 0) return;
     const active = this.activePrepList();
@@ -285,9 +286,31 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
 
   /** 레이드 종료(탈출 · 전멸 · 포기 · `game:abort`). 사망만으로는 부르지 않는다. */
   clearActivePreps(): void {
+    this.clearActiveMeal();                             // A-3c: 식사 칸도 같은 자리에서 비운다
     if (this.activePrepList().length === 0) return;
     this._profile.prepActive = [];
     this.afterPrepsChanged();
+  }
+
+  /**
+   * 출격: 대기 식사를 이번 레이드분으로 옮긴다. **대기가 비어 있으면 아무것도 하지 않는다** — 준비물과
+   * 같은 이유다: 재접속 · 솔로 이어하기도 `game:newMission` 을 지나가므로, 여기서 `mealActive` 를 덮으면
+   * 돌아온 사람이 이번 레이드의 밥을 잃는다.
+   */
+  private armMeal(): void {
+    const waiting = this.mealId();
+    if (!waiting) return;
+    this._profile.mealActive = waiting;
+    this._profile.meal = null;
+    this.recompute();                                   // 버프가 `derived` 에 실리는 자리
+    this.afterMealChanged();
+  }
+
+  private clearActiveMeal(): void {
+    if (!this.activeMealId()) return;
+    this._profile.mealActive = null;
+    this.recompute();
+    this.afterMealChanged();
   }
 
   /** Live array on the profile (created on demand so an older save migrates to `[]` in place). */
@@ -331,6 +354,92 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     this.ctx?.bus.emit('progress:prepChanged', {
       prep: this.prepList().slice(), active: this.activePrepList().slice(),
     });
+  }
+
+  /* ══ 식사 (A-3c, 2026-09-11 — 사용자 결정: 별도 「식사」 칸 1개) ═══════════════════════════════════════════
+   * 준비물의 **형제**다: `profile.meal` = 다음 레이드에 실릴 요리, `profile.mealActive` = 이번 레이드에 실린 것.
+   * 옮기고(`armPreps`) 비우는(`clearActivePreps`) 자리가 준비물과 **같아서** `game/` 은 한 줄도 안 바뀐다.
+   * 다른 점은 둘이다 — ① 칸이 하나뿐이라 배열이 아니고, ② 두 번째 요리는 거절이 아니라 **교체**다
+   * (「바꿔 먹는다」). 버프는 `mealActive` 의 `MealDef` 를 `recompute` 가 `derived` 에 접는다.
+   * ──────────────────────────────────────────────────────────────────────────────────────────────────── */
+
+  getMeal(): string | null { return this.mealId(); }
+  getActiveMeal(): string | null { return this.activeMealId(); }
+
+  /**
+   * 함선 전용. 요리 def id 하나를 다음 레이드 대기분에 싣는다. 아이템을 빼는 것은 **부르는 쪽**(inventory ·
+   * housing 의 식탁)의 몫이고, 여기는 거절이면 아무것도 바꾸지 않는다 — 그래서 부르는 쪽이 **먼저 묻고**
+   * 성공할 때만 뺀다 (`usePrep` 과 같은 규약). null = 실렸다, 문자열 = 한국어 거절 사유.
+   */
+  useMeal(defId: string): string | null {
+    const ctx = this.ctx;
+    if (typeof defId !== 'string' || !defId) return '알 수 없는 요리입니다';
+    if (ctx?.isRaidActive()) return '레이드 중에는 먹을 수 없습니다';
+    if (ctx && ctx.phase !== 'hub') return '함선에서만 먹을 수 있습니다';
+    if (!this.mealDefOf(defId)) return '알 수 없는 요리입니다';
+    /* 같은 요리를 한 번 더 먹는 것만은 거절한다 — 바뀌는 것이 하나도 없는데 null 을 돌려주면 부르는 쪽이
+     * 아이템을 **그냥 버린다**. 「교체」 결정은 *다른* 요리에 대한 것이다. */
+    if (this._profile.meal === defId) return '이미 같은 요리를 먹었습니다';
+    this._profile.meal = defId;                          // 다른 요리를 이미 차려 뒀으면 **조용히 교체**한다
+    this.afterMealChanged();
+    return null;
+  }
+
+  /**
+   * 공유 함선 식탁: 남이 차려 준 요리를 **아이템 소모 없이** 받는다. 이미 먹었어도 교체된다.
+   * 받는 쪽 가드(로비 멤버 · 같은 공유 함선 · `MEAL_SERVE_RANGE` · 요율 · **호스트가 보낸 것만**)는 net 이
+   * 이미 통과시켰다 — 여기서는 레이드 중이 아니고 실제 요리일 때만 싣는다.
+   */
+  serveMeal(defId: string): void {
+    const ctx = this.ctx;
+    if (typeof defId !== 'string' || !defId) return;
+    if (ctx?.isRaidActive()) return;                     // 레이드 중인 사람에게는 차릴 수 없다 (net 이 이미 막지만 이중으로)
+    if (!this.mealDefOf(defId)) return;
+    if (this._profile.meal === defId) return;
+    this._profile.meal = defId;
+    this.afterMealChanged();
+  }
+
+  /** 프로필의 대기 식사 id (없으면 null). */
+  private mealId(): string | null {
+    const v = this._profile.meal;
+    return typeof v === 'string' && v ? v : null;
+  }
+
+  private activeMealId(): string | null {
+    const v = this._profile.mealActive;
+    return typeof v === 'string' && v ? v : null;
+  }
+
+  /** `ItemDef.meal` of a def id, or null when items/ does not know it (yet) / it is not a 요리. */
+  private mealDefOf(defId: string | null): MealDef | null {
+    if (!defId) return null;
+    try { return this.ctx?.loot?.getItemDef(defId)?.meal ?? null; } catch { return null; }
+  }
+
+  /**
+   * Drop a stored meal id whose def no longer resolves as a 요리 (a removed item, a corrupt file). Runs inside
+   * `recompute` once `ctx.loot` exists — the same shape as `prunePreps`. Returns true when something went.
+   */
+  private pruneMeal(): boolean {
+    const loot = this.ctx?.loot;
+    if (!loot || typeof loot.getItemDef !== 'function') return false;
+    let changed = false;
+    for (const key of ['meal', 'mealActive'] as const) {
+      const id = key === 'meal' ? this.mealId() : this.activeMealId();
+      if (id && !this.mealDefOf(id)) { this._profile[key] = null; changed = true; }
+    }
+    return changed;
+  }
+
+  /** 대기분이 바뀌었다 — 저장 + 이벤트. `mealActive` 를 건드린 곳은 `recompute` 도 함께 부른다. */
+  private afterMealChanged(): void {
+    this.markDirty(true);
+    this.emitMealChanged();
+  }
+
+  private emitMealChanged(): void {
+    this.ctx?.bus.emit('progress:mealChanged', { meal: this.mealId(), active: this.activeMealId() });
   }
 
   private afterImplantsChanged(): void {
@@ -484,6 +593,7 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
       this.recompute();                                        // gear refs exist by now (특수 가방 perk)
       ctx.bus.emit('progress:loaded', { profile: this._profile });
       this.emitPrepChanged();                                   // A-13: 부팅 시점의 준비물 (HUD 배지 · 출격 준비 화면)
+      this.emitMealChanged();                                   // A-3c: 부팅 시점의 식사 (HUD 식사 배지 · 식탁 화면)
     });
   }
 
@@ -794,6 +904,7 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     }
     this.emitImplantsChanged();                 // Phase 12: the equipped 임플란트 items came with the document
     this.emitPrepChanged();                     // A-13: 준비물도 문서와 함께 왔다 (재접속 복귀가 여기를 지난다)
+    this.emitMealChanged();                     // A-3c: 식사도 마찬가지 (`mealActive` 가 살아서 돌아온다)
     this.refreshSheets();
   }
 
@@ -821,6 +932,7 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     this.ctx?.bus.emit('progress:loaded', { profile: this._profile });
     this.emitImplantsChanged();
     this.emitPrepChanged();
+    this.emitMealChanged();
     this.refreshSheets();
   }
 
@@ -829,7 +941,12 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
   private recompute(): void {
     if (this.pruneImplants()) this.markDirty(false);     // a removed def id in an old save — drop it silently
     if (this.prunePreps()) this.markDirty(false);        // A-13: same treatment for a 준비물 def that no longer exists
+    if (this.pruneMeal()) this.markDirty(false);         // A-3c: ditto for a 요리 def that no longer exists
     this._derived = computeDerived(this._profile, this.hasSpecialBackpack(), this.implantContribution());
+    /* A-3c: 이번 레이드에 실린 요리를 **맨 끝에** 파생 수치로 접는다 (`MealBuff` = `DerivedStats` 의 필드 이름).
+     * 소비하는 폴더는 한 줄도 안 바뀐다 — 이미 `derived` 를 읽고 있다. */
+    const meal = this.mealDefOf(this.activeMealId());
+    if (meal) applyMealBuff(this._derived, meal);
     this.refreshSheets();
   }
 

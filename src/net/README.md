@@ -14,6 +14,7 @@ Contract: `src/shared/net.ts` (types + constants) and the `net:*` events in `src
 | `parts/Lobby.ts` | **로비 · 세션 · 호스트 이관**. 방 만들기 / 참가 / 신호 찾기 / 준비 / 시작 / 나가기, 목표 행성 지정, 그리고 임무의 시작과 끝. 임무가 끝나도 **로비는 유지된다** — 로비를 떠나는 것은 `leaveLobby()`(도킹 해제) 하나뿐이다. |
 | `parts/Remotes.ts` | **원격 플레이어 참조**. 들어온 스냅샷마다 `RemotePlayerRef` 를 만들고 지운다. 이름 · 레벨 · 크루 카드 · 들쳐메기 관계가 각각 다른 메시지로 오므로, 그것들을 하나의 ref 위에 합치는 것이 이 파일의 일이다. |
 | `parts/Messages.ts` | **수신 메시지 분배**. 서버 프로토콜 메시지(`handleServerMessage`)와 다른 클라이언트가 보낸 불투명 게임 메시지 (`handleRelay`)를 각 시스템의 `onMessage` 구독자에게 넘긴다. 게임 규칙은 여기 없다 — 스냅샷 적용과 `net:*` 버스 이벤트 번역까지가 이 파일의 범위다. |
+| `parts/Meal.ts` | **공유 함선 식탁 와이어** (A-3c, 2026-09-11). `housing:mealServed` ↔ `meal` 메시지. 규칙은 progression(`serveMeal`), 토스트는 ui — 이 파일은 **흐름만** 만든다. 아래 `공유 함선 식탁 (A-3c)` 절. |
 | `ProfileSync.ts` | `ProfileRef` implementation behind `ctx.net.profile` (Phase 7): mirrors the server `ProfileRecord` from `welcome.profile` / `profile:docs`, `get(key)`, `set(key, doc, {fresh?})` with a `PROFILE_SYNC_DEBOUNCE_MS` upload queue (`profile:set`), `flush()` (also on `pagehide`, on session end and right after every welcome), `addCredits(delta, reason)` → `credits:tx` matched by `txId` (10 s timeout; rejects only when offline). Emits `net:profileLoaded {profile, migrated}` (`migrated` = server credits still null → meta/ uploads its local balance with reason `'migrate'`). `available=false` + `credits=null` while the socket is down; pending transactions reject on a drop. **Phase 9 (newest wins)**: a `set` is **never dropped any more** — availability is irrelevant, every call lands in the `pending` map as `{doc, at}` where `at = serverNow()` (a `fresh` save carries `at: null`) and only the debounce timer is gated on the connection, so an offline queue simply waits for the next welcome. `flush()` sends `{key, doc, at}` or `{key, doc, fresh:true}` and mirrors the accepted stamp into `docsAt`. `applyRecord` (shared by `onWelcome` / `onDocs`, and where `migrated` is computed for both) mirrors the server record + its `docsAt`, then merges the queue over it: a stamped pending doc survives only while `at >= docsAt[key]` (ties: ours), a `fresh` one only while the server has nothing for that key — a loser is dropped and the server copy wins. `onError('too_large')` evicts the keys of the last flush so a doc the server refuses is never retried forever. `pendingKeys` exposes the queue for diagnostics / smokes. **2026-09-11 (E-6)**: rewritten around **document revisions** — see `문서 리비전 (E-6)` below: persisted queue (`useStorage`), `setMany` transactions, `revOf`, `onAck` / `onConflict` / `onRefused`, `queueState` for smokes; the Phase 9 stamp rules above now apply only to a relay whose welcome has no `docsRev`. **2026-09-11 (C-69)**: 그 리비전 판정에 **전환 1회 폴백** — 보내지 않은 쓰기의 키가 전부 처음 보는 rev(`revs[k]` 없음 · `baseRev 0` · 스탬프 있음)면 시드된 `docsRev = 1` 대신 Phase 9 스탬프로 판정하고, 지면 **조용히** 버린다. |
 | `SocialSync.ts` | `SocialRef` implementation behind `ctx.net.social` (**Phase 11**): client mirror of the relay's social state — my `SocialCard`, 친구 / 받은 요청 / 보낸 요청 / 최근 만난 플레이어, 귓속말 and 분대 초대. Fed by NetSystem (`onWelcome(welcome.social)` / `onState` / `onInvited` / `onWhisper` / `onPlay` / `onError` / `onDisconnected`) with the same injected wiring as `ProfileSync` (`bus` / `send` / `serverNow`, plus `joinLobby` and `squadSize`). **The client never edits the lists**: `requestFriend` / `respondFriend` / `removeFriend` / `playWith` are requests and the server answers with a whole new snapshot (`social:updated {snapshot, first}`). `invites` holds at most `SQUAD_INVITE_MAX` live `SquadInvite`s, each with its own `SQUAD_INVITE_TTL_S` timer off the invite's own `at` (expiry / accept / dismiss / trim → `social:inviteClosed {reason}`; a second invite from the same 아이디 replaces the first); `acceptInvite` drops it and calls the ordinary `net.joinLobby(invite.lobby)`. `whisper(code, text)` trims to `SOCIAL_WHISPER_MAX`, refuses locally for empty text / a row known to be `offline` / a failed send, and emits the sender's own echo (`social:whisper {line.out:true}`); an inbound `social:whisper` becomes the same event with `out:false`. `setLevel` is debounced by `SOCIAL_ME_DEBOUNCE_MS` and a level reported while offline waits for the next snapshot. `playBlock(code)` is the shared `playBlockReason(row, squadSize(), NET_MAX_PLAYERS, isSelf)` (unknown 아이디 → `'offline'`). Everything is inert while `available` is false — `refresh()` excepted, since `social:get` is how a connection becomes available when a welcome carried no snapshot. Inbound frames are sanitized field by field (code validated with `isValidPlayerCode`, name capped, level / squad clamped, presence whitelisted, lists de-duplicated and capped, invite lobby code validated) and **only `PlayerCode`s ever cross the wire**. **2026-09-11 (B-3 · B-4)**: invite ids (`social:inviteReply` accept / decline, `onInviteClosed` · `onInviteResult`, re-sent ids announced once), `blocked` / `isBlocked` / `block`, whisper nonces with `pending → sent / stored / failed` (`onWhisperAck` → `social:whisperUpdated`, old-relay fallbacks), `onWhisperBacklog`, and the one thing it persists — the per-slot 대화 기록 (`whisperHistory` / `whisperPeers` / `lastWhisperPeer`, `slotKey(WHISPER_STORAGE_KEY)`). See 변경 이력. |
 | `NetClient.ts` | Bare WebSocket transport: `connect(url)` resolves on `welcome` (**2026-09-11 B-1**: or fails after `connectTimeoutMs` = `NET_CONNECT_TIMEOUT_MS` — the socket is closed, status `error`, reject — a dead IP no longer hangs until the OS TCP timeout), JSON encode/decode with validation (type whitelist incl. `profile:docs` / `credits:result`, 2 MB inbound cap — a welcome may carry every profile document plus a raid blob), `ping` every 2 s → `rttMs`, status changes (`offline/connecting/connected/error`), clean `close()`. Phase 8: `serverTimeOffset` (`serverTime - performance.now()`) is captured at the **welcome** as well as at every pong, with `hasServerTime` telling whether the current connection ever supplied a clock (both reset by `teardown`). No lobby, reconnect or gameplay knowledge. |
@@ -378,9 +379,46 @@ mission peer, `rejoinMission` → `net:gameStarting` + `flow rejoined` at the ho
 
 ---
 
+## 공유 함선 식탁 (A-3c, 2026-09-11) — `parts/Meal.ts`
+
+한 명이 요리 하나를 소모해 **분대에 차리면** 그 자리의 분대원 전원이 같은 식사를 받는다 (사용자 결정).
+규칙과 저장은 progression(`ProgressionRef.serveMeal` → `PlayerProfile.meal`)의 것이고, 이 폴더는 **흐름만** 만든다.
+
+```
+차린 사람(비호스트) ──`meal req {def}`──▶ 호스트 ──검사 후 `meal serve {def, who}`──▶ 사거리 안의 분대원 각각
+차린 사람이 호스트면 검사 없이 곧장 `fanOut`(자기 행동이다)
+```
+
+- **보내는 쪽**: `housing:mealServed {defId, by}` 를 듣고, **공유 함선의 데크에서만** 내보낸다 —
+  `inHubSession` (로비 안 · 레이드 밖 · phase `hub`) **이고** `ctx.hub.hubSite === null` (개인 함선 · 격납고에
+  정박한 남의 함선 안이면 아무것도 보내지 않는다).
+- **호스트가 보는 네 겹**은 `shared/buffRules.createBuffGuard` 가 정한 순서 그대로다 — ① 모양(`def` 문자열 ·
+  길이) ② 보낸 사람이 **연결된 로비 멤버** ③ 자리: 둘 다 공유 데크(`RemotePlayerRef.hubSite === null`) + 거리
+  `MEAL_SERVE_RANGE + BUFF_RANGE_SLACK` ④ 보낸 사람별 토큰 버킷. **새 상한을 코드에 적지 않는다**: 거리는
+  식탁 반경(`data/constants.csv` 의 `MEAL_SERVE_RANGE`) + 버프와 같은 스냅샷 지연 여유, 요율은 피어가 보내는
+  비-피해 요청의 기존 상한 `META_HIT_RATE`(초당 2건, 버스트 2배)를 그대로 쓴다.
+- **거리는 받는 사람마다** 잰다 — 호스트가 차린 사람의 스냅샷 위치를 기준으로 사거리 안의 멤버에게만
+  `serve` 를 **각각** 보낸다 (`MEAL_SERVE_RANGE` 의 계약 주석 「호스트가 스냅샷 거리로 검사한다」 그대로).
+  호스트 자신도 사거리 안이면 받는다. 차린 본인은 건너뛴다 — 자기 몫은 housing 이 로컬에서 이미 처리했다.
+- **받는 쪽**은 E-4 그대로 **로비 호스트가 보낸 것만** 받아들여 `ctx.progression.serveMeal(defId)` 를 부르고,
+  이어서 `housing:mealServed {defId, by: <차린 사람 이름>}` 을 **다시 낸다** — 토스트의 주인이 ui 한 곳이기
+  때문이다. 그 재발행이 다시 릴레이되지 않도록 `applying` 재진입 가드를 쓴다.
+- **서버는 한 줄도 바뀌지 않는다** — 기존 `relay` 봉투를 그대로 탄다.
+- 와이어는 **계약**이다: `shared/net.ts` 의 `MealMessage`
+  (`{ t: 'meal'; ev: 'req' | 'serve'; def: string; who?: PeerId }`, `GameMessage` union 의 `DroneRequest` 다음 줄).
+  `send` · `onMessage('meal', …)` 를 **타입 그대로** 쓴다 — 캐스트는 없다.
+
+---
+
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-11 (A-3c 공유 함선 식탁, 에이전트 progression+net)** — 새 파일 `parts/Meal.ts`(`MealRelay`) + `NetSystem` 의
+  `mealRelay` 필드 · `init` · `dispose` 세 줄. 위 `공유 함선 식탁 (A-3c)` 절이 전부다. 계약(`housing:mealServed` ·
+  `MEAL_SERVE_RANGE` · `ProgressionRef.serveMeal`)은 읽기만 했다. 처음에는 `GameMessage` 에 `meal` 줄이 없어
+  두 곳에서 좁게 캐스트했는데, 리드가 `MealMessage` 를 계약에 넣어 **캐스트를 전부 걷어냈다** —
+  `send` · `onMessage('meal', …)` 가 타입 그대로다.
 
 - **2026-09-11 (E-6 문서 리비전, 에이전트 ③)** — 위 `문서 리비전 (E-6)` 절. `ProfileSync.ts` 재작성(영속 큐 `useStorage` ·
   `setMany` · `revOf` · `onAck` / `onConflict` / `onRefused` · `queueState` · 옛 릴레이용 `flushLegacy`), `NetSystem.init` 에서

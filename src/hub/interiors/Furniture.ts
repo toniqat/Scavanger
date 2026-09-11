@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { FurnitureDef, FurnitureModelKind, GameContext, GrowTier, Interactable, PlacedFurniture, Rarity, WorkbenchKind } from '@/shared';
-import { ANALYZER_MAX_SLOTS, BOOKS_PER_SHELF, FURNITURE_DEF_MAP, GROW_PLOTS_PER_RACK, GROW_RACK_LAYER_HEIGHT, GROW_SLOTS_PER_TIER, HOUSING_CELL_SIZE, RARITY_COLORS, analyzerSlotsForLevel, benchKindOf, furnitureFootprint, growTiersForLevel } from '@/shared';
+import { ANALYZER_MAX_SLOTS, BOOKS_PER_SHELF, CULTURE_MAX_SLOTS, FURNITURE_DEF_MAP, GROW_PLOTS_PER_RACK, GROW_RACK_LAYER_HEIGHT, GROW_SLOTS_PER_TIER, HOUSING_CELL_SIZE, RARITY_COLORS, analyzerSlotsForLevel, benchKindOf, cultureSlotsForLevel, furnitureFootprint, growTiersForLevel } from '@/shared';
 import { GeoBatch, HUB_MATS as M, disposeMeshes } from './GeoBatch';
 import type { BoxInteriorCollider } from './InteriorCollider';
 import { roomCellToWorld, yawToRotation } from './RoomLayout';
@@ -79,6 +79,12 @@ export interface BuildExtra {
    * the scene (CLAUDE.md 「씬의 광원 개수를 플레이 중에 바꾸지 않는다」).
    */
   analysisReady?: number;
+  /**
+   * 온실 배양조 (A-14, 2026-09-11): how many of this piece's 배양 칸 are **회수 대기** right now
+   * (`housing:cultureChanged.ready`). Exactly the 분석기's convention above — those tubes glow amber instead of
+   * the 배양 magenta, and no `THREE.PointLight` is created for it.
+   */
+  cultureReady?: number;
 }
 
 /** Build the model of `def` (unrotated, centred, front toward −Z). `extra` carries per-piece state (책장 books). */
@@ -338,6 +344,141 @@ const BUILDERS: Record<FurnitureModelKind, Builder> = {
     for (let k = 0; k < 4; k++) b.cyl(0.032, 0.032, 0.17, 8, w * 0.32 - 0.16 + k * 0.11, top + 0.12, 0.06, k % 2 ? M.glassDark : a);
     b.box(0.46, 0.03, 0.03, w * 0.32, top + 0.21, 0.14, M.trim);
   }),
+  /**
+   * 조리대 (주방 A-3c, 2026-09-11): 다른 작업대와 같은 몸체(`benchBody`) 위에 **화구 · 후드**가 올라간다 —
+   * 멀리서도 "여기가 주방" 으로 읽히는 실루엣은 상판 위로 내려온 후드 캐노피다. 달아오른 화구 링과 후드
+   * 조명은 emissive 재질뿐이고 **광원은 하나도 만들지 않는다** (CLAUDE.md 「씬의 광원 개수를 플레이 중에
+   * 바꾸지 않는다」 · `smoke-lights`).
+   */
+  bench_cook: (b, w, d, h, a, lv) => benchBody(b, w, d, h, a, lv, (b) => {
+    const top = h - 0.02;
+    const hx = -w * 0.24, hz = 0.02;   // 후드 캐노피(w × 0.5)가 상판 왼쪽 끝을 넘지 않는 자리
+    b.box(w * 0.44, 0.03, d * 0.6, hx, top + 0.015, hz, M.hullDark);                             // 화구 판
+    for (const ox of [-0.17, 0.17]) for (const oz of [-0.14, 0.14])
+      b.cyl(0.08, 0.08, 0.016, 14, hx + ox, top + 0.035, hz + oz, M.stripRed);                   // 달아오른 링
+    b.cyl(0.13, 0.115, 0.17, 14, hx - 0.17, top + 0.13, hz - 0.14, M.gunmetal);                  // 냄비
+    b.cyl(0.135, 0.135, 0.025, 14, hx - 0.17, top + 0.23, hz - 0.14, M.hullLight);               // 뚜껑
+    b.cyl(0.025, 0.025, 0.04, 8, hx - 0.17, top + 0.26, hz - 0.14, M.trim);                      // 손잡이
+    b.box(w * 0.44, 0.16, d * 0.6, hx, top + 0.66, hz, M.hullDark);                              // 후드 몸체
+    b.box(w * 0.5, 0.08, d * 0.76, hx, top + 0.57, hz, M.hullLight);                             // 후드 캐노피
+    b.box(w * 0.4, 0.02, d * 0.5, hx, top + 0.52, hz, M.stripWhite);                             // 후드 조명 (emissive)
+    b.box(0.2, 0.34, 0.2, hx, top + 0.91, hz + d * 0.18, M.gunmetal);                            // 덕트
+    b.boxB(0.42, 0.04, 0.3, w * 0.2, top, 0.04, M.padding);                                      // 도마
+    for (let k = 0; k < 3; k++) b.cyl(0.045, 0.045, 0.05, 10, w * 0.2 - 0.1 + k * 0.1, top + 0.07, 0.04, k === 1 ? a : M.crate);
+    b.boxB(0.26, 0.14, 0.24, w * 0.36, top, -0.1, M.crateDark);                                  // 재료 상자
+    for (let k = 0; k < 3; k++) b.cyl(0.03, 0.035, 0.14, 8, w * 0.1 + k * 0.09, top + 0.07, d / 2 - 0.14, k % 2 ? M.glassDark : a);   // 조미료 병
+  }),
+  /**
+   * 식탁 (주방 A-3c, 2026-09-11): `maxLevel 1` 이라 **레벨을 읽지 않는다** (핍도 없다). 상판 · 다리 · 가로 보와
+   * 발자국 안에 들어오는 의자 넷, 그리고 「먹는 자리」임을 말하는 식기 한 벌. 가운데 등만 emissive 다.
+   */
+  dining_table: (b, w, d, h, a) => {
+    const tw = Math.max(0.8, w - 0.72), td = Math.max(0.6, d - 0.72);
+    const topY = h - 0.06;
+    b.box(tw, 0.07, td, 0, topY, 0, M.hullLight);                                                // 상판
+    b.box(tw - 0.06, 0.02, td - 0.06, 0, topY + 0.045, 0, M.padding);                            // 식탁보
+    b.box(tw, 0.03, 0.04, 0, topY - 0.055, -(td / 2 - 0.02), a);                                 // 앞 가장자리 악센트
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.boxB(0.07, topY - 0.035, 0.07, sx * (tw / 2 - 0.1), 0, sz * (td / 2 - 0.1), M.gunmetal);
+    b.box(tw - 0.24, 0.05, 0.05, 0, 0.24, 0, M.gunmetal);                                        // 가로 보
+    for (const sz of [-1, 1]) for (const ox of [-0.26, 0.26]) {
+      b.cyl(0.11, 0.1, 0.02, 14, ox, topY + 0.065, sz * (td / 2 - 0.17), M.stripWhite);          // 접시
+      b.box(0.02, 0.012, 0.12, ox + 0.16, topY + 0.06, sz * (td / 2 - 0.17), M.trim);            // 수저
+    }
+    b.cyl(0.06, 0.08, 0.05, 12, 0, topY + 0.07, 0, M.gunmetal);                                  // 중앙 등 받침
+    b.cyl(0.05, 0.05, 0.12, 12, 0, topY + 0.15, 0, M.stripAmber);                                // 불빛 (emissive only)
+    for (const sz of [-1, 1]) for (const ox of [-0.34, 0.34]) {
+      const cz = sz * (d / 2 - 0.22);
+      b.box(0.36, 0.05, 0.34, ox, 0.44, cz, M.padding);                                          // 좌판
+      for (const lx of [-1, 1]) for (const lz of [-1, 1]) b.boxB(0.04, 0.44, 0.04, ox + lx * 0.14, 0, cz + lz * 0.13, M.gunmetal);
+      b.box(0.36, 0.4, 0.05, ox, 0.66, cz + sz * 0.15, M.padding);                               // 등받이
+    }
+  },
+  /**
+   * 배양조 (온실 A-14, 2026-09-11): 분석기 · 재배 스테이션과 **같은 규약의 스테이션** — 화면이 언제나
+   * `CULTURE_MAX_SLOTS` 칸을 그리듯 모델도 배양관을 언제나 그만큼 세우고, `cultureSlotsForLevel(level)` 개만
+   * 안의 배양액에 불이 들어온다(잠긴 관은 어둡다). 실루엣으로 분석기와 갈라지는 것은 **기울어진 콘솔이
+   * 없고 관이 천장 매니폴드까지 길다**는 점이다.
+   *
+   * 회수 대기(`extra.cultureReady`) 칸은 배양 자홍 대신 **호박색**이다 — 방에 들어서면서 "가서 수확해라" 를
+   * 읽을 수 있는 유일한 길이고, **광원은 하나도 만들지 않는다** (재질은 조각마다가 아니라 공용이라 색이
+   * 바뀌면 `FurnitureLayer` 가 `housing:cultureChanged` 로 그 조각만 다시 짓는다 — 분석기와 같은 길).
+   */
+  culture_tank: (b, w, d, h, a, lv, extra) => {
+    const open = cultureSlotsForLevel(lv);
+    const ready = Math.max(0, Math.min(CULTURE_MAX_SLOTS, Math.floor(extra?.cultureReady ?? 0)));
+    // ── 받침 · 배지 캐비닛 · 제어반
+    b.boxB(w - 0.08, 0.14, d - 0.06, 0, 0, 0, M.hullDark);
+    const cabY = 0.14, cabH = 0.5;
+    b.boxB(w - 0.16, cabH, d - 0.12, 0, cabY, 0, M.hullLight);
+    b.box(w - 0.2, 0.04, 0.05, 0, cabY + cabH - 0.08, -(d / 2 - 0.06), a);                       // 앞면 악센트
+    b.box(w * 0.34, 0.22, 0.04, -w * 0.24, cabY + 0.27, -(d / 2 - 0.05), M.glassDark);           // 배지 저장조 창
+    b.box(w * 0.3, 0.11, 0.03, -w * 0.24, cabY + 0.21, -(d / 2 - 0.06), M.stripGrow);            // 배지 (emissive)
+    b.box(0.3, 0.16, 0.03, w * 0.24, cabY + 0.3, -(d / 2 - 0.05), M.screen);                     // 제어 화면
+    for (let k = 0; k < 3; k++) b.box(0.05, 0.03, 0.02, w * 0.24 - 0.1 + k * 0.1, cabY + 0.14, -(d / 2 - 0.05), k < lv ? M.stripWhite : M.hullDark);
+    const deck = cabY + cabH;
+    b.box(w - 0.12, 0.05, d - 0.1, 0, deck + 0.025, 0, M.gunmetal);                              // 배관 데크
+    // ── 뒷기둥 + 상단 매니폴드
+    for (const sx of [-1, 1]) b.boxB(0.08, h - deck, 0.08, sx * (w / 2 - 0.06), deck, d / 2 - 0.06, M.gunmetal);
+    b.box(w - 0.1, 0.12, 0.14, 0, h - 0.1, d / 2 - 0.08, M.hullDark);
+    b.box(w - 0.16, 0.03, 0.04, 0, h - 0.17, d / 2 - 0.15, a);
+    // ── 배양관: 언제나 CULTURE_MAX_SLOTS 개, 레벨이 연 칸만 배양액이 빛난다
+    const tubeY = deck + 0.05, tubeH = Math.max(0.3, h - tubeY - 0.24);
+    for (let s = 0; s < CULTURE_MAX_SLOTS; s++) {
+      const px = -w / 2 + (s + 0.5) * (w / CULTURE_MAX_SLOTS);
+      const lit = s < open, done = s < ready;
+      const glow = lit ? (done ? M.stripAmber : M.stripGrow) : M.hullDark;
+      b.cyl(0.12, 0.14, 0.06, 14, px, tubeY + 0.03, 0, M.gunmetal);                              // 관 받침
+      b.cyl(0.115, 0.115, tubeH, 14, px, tubeY + 0.06 + tubeH / 2, 0, M.glassDark, 0, 0, 0, true);   // 유리관
+      b.cyl(0.085, 0.085, tubeH * 0.52, 12, px, tubeY + 0.06 + tubeH * 0.26, 0, glow);            // 배양액
+      b.cyl(0.018, 0.018, tubeH * 0.78, 6, px, tubeY + 0.06 + tubeH * 0.39, 0.055, M.trim);       // 폭기관
+      b.cyl(0.13, 0.13, 0.06, 14, px, tubeY + 0.09 + tubeH, 0, M.hullLight);                      // 상단 캡
+      b.cyl(0.024, 0.024, d / 2 - 0.1, 8, px, h - 0.13, (d / 2 - 0.1) / 2, M.trim, Math.PI / 2);  // 급액 라인 (매니폴드 → 관)
+      b.cyl(0.02, 0.02, 0.09, 6, px, h - 0.18, 0, M.trim);                                        // 노즐
+      b.box(0.09, 0.02, 0.03, px, tubeY + 0.02, -(d / 2 - 0.1), lit ? (done ? M.stripAmber : a) : M.hullDark);   // 칸 표식
+    }
+  },
+  /**
+   * 3D 프린터 (A-15, 2026-09-11): 필라멘트로 상급 가방 · 주머니를 찍는 작업대. 다른 작업대와 달리 **책상이
+   * 아니라 상자**다 (def height 1.6 — `benchBody` 의 다리를 그 높이로 세우면 사람 키만 한 식탁이 된다).
+   * 받침 캐비닛 위에 기둥 넷 · 옆 유리 · 천장으로 챔버를 세우고, 그 안에 조형판 · 가로 갠트리 · 노즐,
+   * 뒤쪽에 필라멘트 스풀 두 개. 챔버 조명 · 히팅 베드 · 달아오른 노즐은 전부 emissive 재질이다.
+   */
+  bench_print: (b, w, d, h, a, lv) => {
+    const cabH = Math.min(0.62, h * 0.4);
+    // ── 받침 캐비닛
+    b.boxB(w - 0.08, 0.12, d - 0.06, 0, 0, 0, M.hullDark);
+    b.boxB(w - 0.14, cabH - 0.12, d - 0.12, 0, 0.12, 0, M.hullLight);
+    b.box(w - 0.2, 0.04, 0.05, 0, cabH - 0.12, -(d / 2 - 0.06), a);                              // 앞면 악센트
+    b.box(0.34, 0.18, 0.03, -w * 0.28, cabH - 0.3, -(d / 2 - 0.05), M.screen);                   // 제어 화면
+    for (let k = 0; k < 3; k++) b.box(0.05, 0.03, 0.02, -w * 0.28 - 0.1 + k * 0.1, cabH - 0.46, -(d / 2 - 0.05), k < lv ? M.stripWhite : M.hullDark);
+    for (let k = 0; k < 3; k++) b.box(w * 0.28, 0.03, 0.02, w * 0.2, 0.2 + k * 0.13, -(d / 2 - 0.05), M.trim);   // 서랍 손잡이
+    // ── 챔버 프레임
+    const fy = cabH, fh = h - cabH;
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.boxB(0.07, fh, 0.07, sx * (w / 2 - 0.06), fy, sz * (d / 2 - 0.06), M.gunmetal);
+    b.box(w - 0.04, 0.07, d - 0.04, 0, h - 0.035, 0, M.hullLight);                               // 천장
+    b.box(w - 0.3, 0.04, 0.05, 0, h - 0.09, -(d / 2 - 0.04), a);                                 // 천장 악센트
+    b.box(w - 0.16, fh - 0.1, 0.03, 0, fy + fh / 2, d / 2 - 0.05, M.hullDark);                   // 뒷판
+    for (const sx of [-1, 1]) b.box(0.03, fh - 0.16, d - 0.2, sx * (w / 2 - 0.07), fy + fh / 2, 0, M.glassDark);   // 옆 유리
+    b.box(w - 0.34, 0.02, 0.06, 0, h - 0.1, 0, M.stripWhite);                                    // 챔버 조명 (emissive)
+    // ── 조형판 + 쌓이는 조형물
+    const plateY = fy + 0.14, plateX = -w * 0.06;
+    b.box(w * 0.52, 0.05, d * 0.56, plateX, plateY, 0.02, M.gunmetal);
+    b.box(w * 0.48, 0.02, d * 0.5, plateX, plateY + 0.035, 0.02, M.hullLight);
+    b.box(w * 0.5, 0.02, 0.03, plateX, plateY + 0.03, -(d * 0.3), M.stripAmber);                 // 히팅 베드 (emissive)
+    for (let k = 0; k < 3; k++) b.box(0.3 - k * 0.07, 0.06, 0.22 - k * 0.05, plateX, plateY + 0.08 + k * 0.06, 0.02, a);
+    // ── 갠트리 · Z 리드스크루 · 필라멘트 스풀
+    const gy = plateY + 0.44;
+    b.box(w - 0.2, 0.07, 0.09, 0, gy, 0.02, M.hullLight);
+    for (const sx of [-1, 1]) b.boxB(0.1, 0.16, 0.12, sx * (w / 2 - 0.13), gy - 0.08, 0.02, M.gunmetal);
+    b.box(0.16, 0.14, 0.16, plateX, gy - 0.12, 0.02, M.hullDark);                                // 출력 헤드
+    b.cyl(0.02, 0.045, 0.08, 10, plateX, gy - 0.22, 0.02, M.stripAmber);                         // 노즐 (emissive)
+    for (const sx of [-1, 1]) b.cyl(0.018, 0.018, fh - 0.2, 8, sx * (w / 2 - 0.14), fy + 0.06 + (fh - 0.2) / 2, 0.02, M.trim);
+    for (let k = 0; k < 2; k++) {
+      const sy = fy + 0.26 + k * 0.36;
+      b.cyl(0.15, 0.15, 0.07, 16, w * 0.34, sy, 0.22, k === 0 ? a : M.fabric, Math.PI / 2);       // 필라멘트 스풀
+      b.cyl(0.05, 0.05, 0.1, 10, w * 0.34, sy, 0.22, M.gunmetal, Math.PI / 2);                    // 스풀 허브
+    }
+  },
   range_console: (b, w, d, h, a) => {
     b.boxB(w - 0.1, h - 0.45, d - 0.2, 0, 0, 0.05, M.hullDark);
     b.box(w - 0.06, 0.06, d - 0.16, 0, h - 0.43, 0.05, M.trimDark);
@@ -499,6 +640,14 @@ export interface FurnitureCallbacks {
   onBookshelf(uid: string): void;
   /** 분석기 (연구실 A-12, 2026-09-11): open the 해석 panel of this piece (`ctx.housing.openAnalyzer(uid)`). */
   onAnalyzer(uid: string): void;
+  /** 배양조 (온실 A-14, 2026-09-11): open the 배양 panel of this piece (`ctx.housing.openCultureTank(uid)`). */
+  onCultureTank(uid: string): void;
+  /**
+   * 식탁 (주방 A-3c, 2026-09-11): open the 식사 panel (`ctx.housing.openDiningTable(uid)`). A placed piece always
+   * passes its own `uid`; **`null` is reserved for the shared ship's fixed table**, which is not furniture at all
+   * and is registered by `parts/Interior.buildStations` instead of this layer.
+   */
+  onDiningTable(uid: string): void;
 }
 
 /**
@@ -563,6 +712,8 @@ export class FurnitureLayer {
         // A-12 (2026-09-11): 해석이 시작 · 완료 · 회수됐다 → 그 분석기만 다시 짓는다. 회수 대기 칸은 호박색으로
         // 켜지는데, 그것이 **광원 없이** 색을 바꿀 수 있는 유일한 길이다 (재질은 조각마다가 아니라 공용이므로).
         b.on('housing:analysisChanged', ({ uid }) => { const p = this.pieces.get(uid); if (p) this.rebuildRoom(p.item.room); }),
+        // A-14 (2026-09-11): 배양이 시작 · 완료 · 회수됐다 → 그 배양조만 다시 짓는다 (분석기와 같은 길, 광원 없음).
+        b.on('housing:cultureChanged', ({ uid }) => { const p = this.pieces.get(uid); if (p) this.rebuildRoom(p.item.room); }),
       );
     }
     this.rebuildAll();
@@ -645,7 +796,7 @@ export class FurnitureLayer {
       const bench = benchKindOf(def.interaction);
       const kind = def.interaction;
       const stack = Math.max(1, def.stackLimit ?? 1);
-      const prompt = bench || kind === 'analyzer' ? `${def.name} Lv.${item.level}`
+      const prompt = bench || kind === 'analyzer' || kind === 'culture_tank' ? `${def.name} Lv.${item.level}`
         : kind === 'sim_hub' ? `${def.name} · 훈련장 입장`
         : stack > 1 ? `${def.name} ${layer + 1}층`
         : def.name;
@@ -674,6 +825,8 @@ export class FurnitureLayer {
           else if (kind === 'repair_bench') cb.onRepairBench();
           else if (kind === 'bookshelf') cb.onBookshelf(uid);
           else if (kind === 'analyzer') cb.onAnalyzer(uid);
+          else if (kind === 'culture_tank') cb.onCultureTank(uid);
+          else if (kind === 'dining_table') cb.onDiningTable(uid);
           else cb.onRangeConsole();
         },
       };
@@ -682,11 +835,28 @@ export class FurnitureLayer {
     this.pieces.set(item.uid, { item, model, blocker, sign, interactable });
   }
 
-  /** Per-piece state a builder reads: 책장 = shelved books, 분석기 = how many 해석 칸 wait to be collected. */
+  /** Per-piece state a builder reads: 책장 = shelved books, 분석기 / 배양조 = how many 칸 wait to be collected. */
   private buildExtra(def: FurnitureDef, uid: string): BuildExtra | undefined {
     if (def.model === 'bookshelf') return { books: this.shelfBooks(uid) };
     if (def.model === 'analyzer') return { analysisReady: this.analysisReady(uid) };
+    if (def.model === 'culture_tank') return { cultureReady: this.cultureReady(uid) };
     return undefined;
+  }
+
+  /**
+   * 회수 대기 배양 칸 수 (배양조 관의 색). Same shape as `analysisReady` — a visited ship has none on the wire and
+   * `ctx.housing` is duck-typed / try-caught, so an unfinished folder degrades to a dark tank instead of throwing
+   * in the middle of a room rebuild.
+   */
+  private cultureReady(uid: string): number {
+    if (this.source) return 0;
+    const h = this.ctx.housing;
+    if (!h || typeof h.getCultureSlots !== 'function') return 0;
+    try {
+      let n = 0;
+      for (const s of h.getCultureSlots(uid)) if (s.ready) n++;
+      return n;
+    } catch { return 0; }
   }
 
   /**

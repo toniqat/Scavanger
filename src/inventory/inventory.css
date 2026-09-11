@@ -842,6 +842,25 @@ kbd {
 }
 .inv-btn.is-primary:hover { background: var(--inv-accent); }
 
+/* ── 주머니 격자 (2026-09-11, A-15): 퀵슬롯 패널 **바로 아래** ──────────────
+   장착한 주머니가 없으면 이 블록은 `hidden` 이라 자리조차 없다 (`InventoryUI.refreshPouch`).
+   스크롤바 색은 `src/ui/styles/base.css` 의 변수 하나가 원본이다 — 여기서는 fallback 과 함께 참조만 한다. */
+.inv-pouch {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--inv-line);
+}
+.inv-pouch-title {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--inv-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ── quick-use wheel (Phase 2): 3×3 compass rose under the bag grid ──────── */
 .inv-quick {
   display: flex;
@@ -1242,17 +1261,23 @@ kbd {
   .inv-root:not(.is-hub) .inv-equip-grid {
     display: grid; gap: 12px 18px; align-items: start;
     grid-template-columns: auto auto;
-    /* 2026-09-10: 보조무기 칸이 없어져 3행 → 2행. 방탄복이 첫 줄, 가방이 둘째 줄 오른쪽. */
-    grid-template-areas: "primary armor" "primary2 bag";
+    /* 2026-09-10: 보조무기 칸이 없어져 3행 → 2행. 방탄복이 첫 줄, 가방이 둘째 줄 오른쪽.
+       2026-09-11 (A-15): 주머니 칸이 셋째 줄 왼쪽에 붙었다 (오른쪽은 비운다). */
+    grid-template-areas: "primary armor" "primary2 bag" "pouch .";
   }
   .inv-root:not(.is-hub) .inv-slot-primary { grid-area: primary; }
   .inv-root:not(.is-hub) .inv-slot-primary2 { grid-area: primary2; }
   .inv-root:not(.is-hub) .inv-slot-armor { grid-area: armor; }
   .inv-root:not(.is-hub) .inv-slot-bag { grid-area: bag; }
+  .inv-root:not(.is-hub) .inv-slot-pouch { grid-area: pouch; }
   .inv-root:not(.is-hub) .inv-bag-body { flex-direction: row; align-items: flex-start; gap: 18px; }
   .inv-root:not(.is-hub) .inv-quick {
     flex-direction: column; align-items: stretch; gap: 12px;
     padding-top: 0; padding-left: 18px; border-top: none; border-left: 1px solid var(--inv-line);
+  }
+  /* 넓은 배치에서는 로제트와 같은 열에 세로로 이어 붙는다 (가방 격자 옆) */
+  .inv-root:not(.is-hub) .inv-pouch {
+    padding-top: 12px; padding-left: 18px; border-left: 1px solid var(--inv-line);
   }
 }
 
@@ -1261,17 +1286,22 @@ kbd {
   .inv-root.is-hub .inv-equip-grid {
     display: grid; gap: 12px 18px; align-items: start;
     grid-template-columns: auto auto;
-    /* 2026-09-10: 보조무기 칸이 없어져 3행 → 2행 (미션 화면과 같은 배치). */
-    grid-template-areas: "primary armor" "primary2 bag";
+    /* 2026-09-10: 보조무기 칸이 없어져 3행 → 2행 (미션 화면과 같은 배치).
+       2026-09-11 (A-15): 주머니 칸이 셋째 줄 왼쪽. */
+    grid-template-areas: "primary armor" "primary2 bag" "pouch .";
   }
   .inv-root.is-hub .inv-slot-primary { grid-area: primary; }
   .inv-root.is-hub .inv-slot-primary2 { grid-area: primary2; }
   .inv-root.is-hub .inv-slot-armor { grid-area: armor; }
   .inv-root.is-hub .inv-slot-bag { grid-area: bag; }
+  .inv-root.is-hub .inv-slot-pouch { grid-area: pouch; }
   .inv-root.is-hub .inv-bag-body { flex-direction: row; align-items: flex-start; gap: 18px; }
   .inv-root.is-hub .inv-quick {
     flex-direction: column; align-items: stretch; gap: 12px;
     padding-top: 0; padding-left: 18px; border-top: none; border-left: 1px solid var(--inv-line);
+  }
+  .inv-root.is-hub .inv-pouch {
+    padding-top: 12px; padding-left: 18px; border-left: 1px solid var(--inv-line);
   }
 }
 

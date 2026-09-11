@@ -149,7 +149,7 @@ try {
   let saved = await lastEv('inventory:loadoutSaved');
   ok(saved && saved.reason === 'starter', 'applyStarter saved the starter (inventory:loadoutSaved {reason: starter})', JSON.stringify(saved));
   let file = await saveFile();
-  ok(file && file.v === 2 && file.slots.primary?.defId === 'wpn_smg' && Array.isArray(file.bag) && file.bag.length === snap.bag.length
+  ok(file && file.v === 3 && file.slots.primary?.defId === 'wpn_smg' && Array.isArray(file.bag) && file.bag.length === snap.bag.length
     && Array.isArray(file.quick) && file.quick.length === 8
     && file.quick.every((q) => q === null || (typeof q === 'object' && typeof q.defId === 'string'))
     && file.quick[0]?.defId === 'grenade_frag' && file.quick[4]?.defId === 'heal_bandage',
@@ -418,8 +418,8 @@ try {
       raidV: raid.v, raidMark: raid.raid,
     };
   });
-  ok(doc.doc && doc.doc.v === 2 && doc.keys === 'bag,quick,slots,v' && doc.bag >= 1 && doc.quick === 8 && doc.quickShape,
-    'captureCrewLoadout: the v2 loadout-save shape (v / slots / bag / quick as stacks)', JSON.stringify({ v: doc.doc?.v, keys: doc.keys, bag: doc.bag, quick: doc.quick, shape: doc.quickShape }));
+  ok(doc.doc && doc.doc.v === 3 && doc.keys === 'bag,pouch,quick,slots,v' && doc.bag >= 1 && doc.quick === 8 && doc.quickShape,
+    'captureCrewLoadout: the v3 loadout-save shape (v / slots / bag / quick as stacks / pouch)', JSON.stringify({ v: doc.doc?.v, keys: doc.keys, bag: doc.bag, quick: doc.quick, shape: doc.quickShape }));
   ok(doc.searchedInCrew === false && doc.searchedInRaid === true,
     'captureCrewLoadout drops the `searched` flags (captureRaidState still keeps them)', JSON.stringify({ crew: doc.searchedInCrew, raid: doc.searchedInRaid }));
 
@@ -463,15 +463,16 @@ try {
     return out;
   }, doc.doc);
   ok(view.bad.every(Boolean) && view.ok && view.root, 'createCrewLoadoutView: a non-loadout document → null, a captured one → a `.crew-loadout` view', JSON.stringify(view.bad));
-  // 2026-09-10: 보조무기 칸이 사라져 장비 칸은 넷이다 (주무기 I · II · 가방 · 방탄복 = `LOADOUT_SLOTS`)
-  ok(view.slots === 4 && view.bagTiles === doc.bag && view.quickCells === 8 && view.name === '대원 A',
-    'the view draws 장비 (4 slots) · 가방 (the document\'s stacks, unknown defs skipped) · 빠른 사용 (8 cells)', JSON.stringify({ slots: view.slots, tiles: view.bagTiles, expect: doc.bag, cells: view.quickCells }));
+  // 2026-09-10: 보조무기 칸이 사라져 넷이었고, 2026-09-11 (A-15) 주머니가 붙어 **다섯**이다
+  //   (주무기 I · II · 가방 · 방탄복 · 주머니 = `LOADOUT_SLOTS`). 크루 카드는 칸만 그리고 주머니 내용물은 안 싣는다.
+  ok(view.slots === 5 && view.bagTiles === doc.bag && view.quickCells === 8 && view.name === '대원 A',
+    'the view draws 장비 (5 slots) · 가방 (the document\'s stacks, unknown defs skipped) · 빠른 사용 (8 cells)', JSON.stringify({ slots: view.slots, tiles: view.bagTiles, expect: doc.bag, cells: view.quickCells }));
   ok(view.stash === 0 && view.credits === 0, 'no 함선 창고 column and no 크레딧 pill in a crew view', JSON.stringify(view));
   ok(view.unchanged && !view.dragging && !view.menu, 'read-only: press / drag / context menu / double-click change nothing', JSON.stringify(view));
   ok(view.blockersSame && view.locked, 'EmbeddedView contract: no ui blocker, the pointer lock is untouched', JSON.stringify({ blockers: view.blockersSame, locked: view.locked }));
   ok(view.afterDispose === 0, 'dispose() empties the host');
 
-  /* ── 8b. LOADOUT_SAVE_VERSION 1 → 2 migration (2026-09-09) ───────────────
+  /* ── 8b. LOADOUT_SAVE_VERSION 1 → 현재 버전 migration (2026-09-09; v3 부터 `pouch`) ───────
    * Before this change `quick[i]` was an **index into `bag`** and the stack stayed in the grid. `sanitizeLoadoutSave`
    * now lifts those stacks out of `bag` into `quick` on read, so an existing player's file lands in the new model
    * (wheel = its own container) instead of showing the same stim twice. A hand-written v1 document is the only way
@@ -516,15 +517,15 @@ try {
   ok(migrated.grenades === 3 && migrated.stims === 2 && migrated.scrap === 5,
     'migrated wheel stacks are still carried (countDef sees bag + wheel)', JSON.stringify({ g: migrated.grenades, s: migrated.stims, m: migrated.scrap }));
   const rec = migrated.recapture;
-  ok(rec.v === 2 && rec.quick[0]?.defId === 'grenade_frag' && rec.quick[0].qty === 3 && rec.quick[4]?.defId === 'heal_bandage'
+  ok(rec.v === 3 && rec.quick[0]?.defId === 'grenade_frag' && rec.quick[0].qty === 3 && rec.quick[4]?.defId === 'heal_bandage'
     && !rec.quick.some((q) => typeof q === 'number') && rec.bag.length === 1
     && !rec.bag.some((e) => e.defId === 'grenade_frag' || e.defId === 'heal_bandage'),
-    're-capture after reading a v1 file writes v2: the stacks live in `quick`, no indices, not duplicated into `bag`', JSON.stringify({ v: rec.v, bag: rec.bag.map((e) => e.defId), quick: rec.quick.map((q) => q && q.defId) }));
-  // the migrated file is what a reload sees from now on (the store rewrites v2 on the next save)
+    're-capture after reading a v1 file writes v3: the stacks live in `quick`, no indices, not duplicated into `bag`', JSON.stringify({ v: rec.v, bag: rec.bag.map((e) => e.defId), quick: rec.quick.map((q) => q && q.defId) }));
+  // the migrated file is what a reload sees from now on (the store rewrites the current version on the next save)
   await page.evaluate(() => window.__game.getSystem('inventory').loadoutStore.saveNow('smoke'));
   const rewritten = await saveFile();
-  ok(rewritten?.v === 2 && rewritten.quick[0]?.defId === 'grenade_frag' && !rewritten.quick.some((q) => typeof q === 'number'),
-    'the next write replaces the v1 file on disk with the v2 shape', JSON.stringify(rewritten && { v: rewritten.v, quick: rewritten.quick }));
+  ok(rewritten?.v === 3 && rewritten.quick[0]?.defId === 'grenade_frag' && !rewritten.quick.some((q) => typeof q === 'number'),
+    'the next write replaces the v1 file on disk with the current shape', JSON.stringify(rewritten && { v: rewritten.v, quick: rewritten.quick }));
 
   /* ── 8. 기본 지급품 is once per **profile**, not once per stash file (2026-09-07) ────── */
   console.log('기본 지급품 grant flag');

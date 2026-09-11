@@ -1,9 +1,10 @@
 import type { CurrencyDef, GameContext, ItemDef, ItemInstance, StatId } from '@/shared';
 import {
-  CATEGORY_ICON, CATEGORY_LABEL_KO, ENV_COLOR, ENV_LABEL_KO, PERK_DEFS, RARITY_COLORS, RARITY_LABEL_KO,
-  SOIL_TAG_COLOR, SOIL_TAG_LABEL_KO, currencyDef, formatCredits, itemCreditValue,
+  CATEGORY_COLOR, CATEGORY_ICON, CATEGORY_LABEL_KO, ENV_COLOR, ENV_LABEL_KO, MEAL_BUFF_LABEL_KO, PERK_DEFS,
+  RARITY_COLORS, RARITY_LABEL_KO, SOIL_TAG_COLOR, SOIL_TAG_LABEL_KO, currencyDef, formatCredits, itemCreditValue,
 } from '@/shared';
 import { el, setText } from '../dom';
+import { mealBuffAmountText } from './mealText';
 
 /**
  * 재료 요구 칩 hover card (`.item-tip`, Phase 8 UI pass). Every cost chip anywhere in the game — 시설 업그레이드,
@@ -38,6 +39,12 @@ import { el, setText } from '../dom';
  * `수확` 두 줄을, 씨앗(`def.seed`)은 `재배 시간` 아래에 **맞는 토양** 한 줄을 같은 색으로 얻는다 — 어떤 흙에 심어야
  * `SOIL_MATCH_SPEEDUP` 를 받는지가 씨앗 카드에서 끝나야 한다. 색은 인라인 `style.color` 로만 칠한다: `.it-stats .v`
  * 에 modifier 클래스를 새로 달면 HUD 위젯 클래스와 이름이 겹칠 위험이 있다 (2026-09-10 `.hold` 사고).
+ *
+ * **주방 · 배양조 · 프린터 (2026-09-11)**: 요리(`def.meal`)는 `사용 — 다음 레이드 1회분` · 버프 이름을 행 이름으로 쓴
+ * `<버프> +n` (· tier 2 면 `구분 — 특선 요리`), 주머니(`def.pouch`)는 `주머니 c × r` · `수납`(받는 카테고리 이름),
+ * 세포주(`def.strain`)는 `배양조 n 시간` · `산출물`, 배지(`def.medium`)는 `배양 n 회` · `배양 속도 +n %`
+ * (`speedMul` 0.7 = +30 %). 요리 값의 부호 · 단위는 `hud/mealText` 가 찍는다 — 레이드 HUD 의 식사 배지와 **같은
+ * 문장**이어야 하고, `%` 인지 `kg` 인지를 정하는 표는 `shared/labels` 의 `MEAL_BUFF_UNIT` 하나다.
  *
  * **연구실 (2026-09-11)**: 표본(`def.sample`)은 `분석기 해석 n 시간` · `산출물` (· 처음이면 `최초 해석` 보너스),
  * 준비물(`def.prep`)은 `사용 — 다음 레이드 1회분` · `차단 — <환경> 환경` 을 얻는다. 환경 이름 · 색은 `ENV_LABEL_KO` ·
@@ -222,6 +229,36 @@ export class ItemTip {
     if (prep && ENV_LABEL_KO[prep.env]) {
       rows.push(['사용', '다음 레이드 1회분']);
       rows.push(['차단', `${ENV_LABEL_KO[prep.env]} 환경`, ENV_COLOR[prep.env]]);
+    }
+    /* 주방 · 배양조 · 프린터 (A-3c · A-14 · A-15, 2026-09-11): 요리 · 주머니 · 세포주 · 배지 넷도 준비물과 같은 결로
+       「무엇을 얼마나 오래 / 얼마나 올려 주는가」가 카드에서 끝난다. 요리의 값은 `hud/mealText` 가 찍는다 — 레이드
+       HUD 의 식사 배지와 **같은 문장**이어야 하고, 단위(`%` · `kg` · `m`)를 정하는 표는 `shared/labels` 의
+       `MEAL_BUFF_UNIT` 하나다. `durabilityLossMul` 은 `amount` 가 음수라 「장비 손상 −20 %」로 이득으로 읽힌다.
+       색은 위 토양 · 환경 줄과 같은 이유로 **인라인**이다 (`.it-stats .v` 에 modifier 클래스를 만들지 않는다). */
+    const meal = def.meal;
+    if (meal) {
+      rows.push(['사용', '다음 레이드 1회분']);
+      rows.push([MEAL_BUFF_LABEL_KO[meal.buff] ?? '효과', mealBuffAmountText(meal.buff, meal.amount), CATEGORY_COLOR.meal]);
+      if (meal.tier === 2) rows.push(['구분', '특선 요리']);
+    }
+    const pouch = def.pouch;
+    if (pouch) {
+      rows.push(['주머니', `${pouch.cols} × ${pouch.rows}`]);
+      const kinds = pouch.accepts.map((c) => CATEGORY_LABEL_KO[c] ?? c).join(' · ');
+      if (kinds) rows.push(['수납', kinds]);
+    }
+    const strain = def.strain;
+    if (strain) {
+      const out = this.defOf(strain.outputDefId);
+      rows.push(['배양조', `${strain.cultureHours} 시간`]);
+      rows.push(['산출물', `${out?.name ?? strain.outputDefId} ×${strain.outputQty}`]);
+    }
+    const medium = def.medium;
+    if (medium) {
+      rows.push(['배양', `${medium.uses} 회`]);
+      // speedMul 0.7 = 「30 % 빠름」. 1 보다 큰 배지(느린 배지)가 생겨도 부호가 그대로 뒤집힌다.
+      const faster = Math.round((1 - medium.speedMul) * 100);
+      if (faster !== 0) rows.push(['배양 속도', `${faster > 0 ? '+' : '−'}${Math.abs(faster)} %`]);
     }
     if (def.healAmount) rows.push(['회복', `+${def.healAmount} HP`]);
     if (def.bag) rows.push(['가방', `${def.bag.cols} × ${def.bag.rows} · 퀵 ${def.bag.quickSlots}`]);

@@ -1,4 +1,4 @@
-import type { AmmoType, EffectiveWeaponStats, ItemDef, LoadoutSlot, SocketSlot, WeaponDef, WeightState } from '@/shared';
+import type { AmmoType, EffectiveWeaponStats, ItemCategory, ItemDef, LoadoutSlot, SocketSlot, WeaponDef, WeightState } from '@/shared';
 import { Keys, SOCKET_LABEL_KO, WEAPON_GRADE_ROMAN, WEIGHT_STATE_LABEL_KO, WORKBENCH_ICON, formatCreditAmount, formatCredits, keyLabel } from '@/shared';
 import { AMMO_LABEL_KO, CATEGORY_LABEL_KO, RARITY_COLORS, RARITY_LABEL_KO, WEAPON_CLASS_LABEL_KO, getTierLabel, weaponClassOf } from '@/items';
 
@@ -42,11 +42,20 @@ export const socketAbbr = (s: SocketSlot): string => SOCKET_LABEL_KO[s].slice(0,
 /** `조준경: 없음` / `총구: 소음기` — hover title of one socket square. */
 export const socketTip = (s: SocketSlot, attachmentName?: string): string => `${SOCKET_LABEL_KO[s]}: ${attachmentName ?? TEXT.socketNone}`;
 
+/**
+ * 2026-09-11 (A-15): `PouchDef.accepts` 를 한 줄로 — `약초 · 씨앗 · 토양 · 작물 · 표본`.
+ * 카테고리 이름의 원본은 `CATEGORY_LABEL_KO`(`@/shared`) 하나다.
+ */
+export const pouchAcceptsLabel = (accepts: readonly ItemCategory[]): string =>
+  accepts.map((c) => CATEGORY_LABEL_KO[c] ?? c).join(' · ');
+
 export const SLOT_LABEL: Readonly<Record<LoadoutSlot, string>> = {
   primary: '주무기 I', primary2: '주무기 II', secondary: '보조무기', bag: '가방', armor: '방탄복',
+  /** 2026-09-11 (A-15): 고정 1칸 — 채집 · 열쇠 · 구급 · 귀중품 넷 중 하나만 끼운다. */
+  pouch: '주머니',
 };
 /** @deprecated static defaults — use `slotKeyLabel(slot)` (follows the live bindings). */
-export const SLOT_KEY: Readonly<Record<LoadoutSlot, string>> = { primary: '1', primary2: '2', secondary: '3', bag: '', armor: '' };
+export const SLOT_KEY: Readonly<Record<LoadoutSlot, string>> = { primary: '1', primary2: '2', secondary: '3', bag: '', armor: '', pouch: '' };
 /** Live key label of a weapon slot ('' for bag / armor). */
 export function slotKeyLabel(slot: LoadoutSlot): string {
   if (slot === 'primary') return keyLabel(Keys.PRIMARY);
@@ -104,6 +113,14 @@ export const TEXT = {
     locked: '가방 등급이 낮아 잠김',
     empty: '비어 있음',
   },
+  /**
+   * **주머니** (2026-09-11, A-15) — 퀵슬롯 패널 바로 아래 격자의 제목 한 줄. 장착한 주머니가 없으면
+   * 그 자리를 통째로 그리지 않으므로 "비어 있음" 문구는 없다.
+   */
+  pouch: {
+    /** `채집 주머니 · 약초 · 씨앗 · 토양 · 작물 · 표본` — 받는 카테고리 이름은 `CATEGORY_LABEL_KO` 가 원본이다. */
+    line: (name: string, accepts: string): string => `${name} · ${accepts}`,
+  },
   dropZone: '버리기',
   dropZoneHint: '여기에 놓으면 아이템을 바닥에 버립니다',
   menu: {
@@ -119,6 +136,9 @@ export const TEXT = {
     /* A-13 (2026-09-11): 준비물 — 함선에서 쓰면 다음 레이드 1회분으로 실린다 */
     usePrep: '사용 (다음 레이드 1회분)',
     usePrepRaid: '레이드 중에는 쓸 수 없음',
+    /* A-3c (2026-09-11): 요리 — 준비물의 `사용` 바로 옆. 제자리는 주방의 식탁이고 이것은 편의 경로다. */
+    eatMeal: '먹기 (다음 레이드 1회분)',
+    eatMealRaid: '레이드 중에는 먹을 수 없음',
     unload: '장전된 탄약 모두 탈착',
     detachAll: '무기 소켓 모두 탈착',
     splitHalf: '절반 나누기',
