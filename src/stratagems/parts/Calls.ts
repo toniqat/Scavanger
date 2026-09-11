@@ -349,6 +349,8 @@ export function clearAll(sys: StratagemSystem): void {
   sys.gHeld = false;
   // 2026-09-09: 분대 공용 구조선 횟수는 레이드마다 새로 채워진다
   Rescue.resetRescue(sys);
+  // 2026-09-11 (E-4): 호스트가 들고 있던 호출자별 쿨타임도 레이드마다 비운다
+  sys.callerReadyAt.clear();
   for (let i = sys.calls.length - 1; i >= 0; i--) sys.removeCall(sys.calls[i]);
   for (const b of sys.bursts) { sys.group.remove(b.points); b.dispose(); }
   sys.bursts.length = 0;

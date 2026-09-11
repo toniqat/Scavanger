@@ -20,6 +20,7 @@ import {
 import { CorpView } from '../ui/CorpView';
 import { CORP_ALIASES, GOAL_IDS, type ImplantRepairInfo, type ImplantRepairResult, type PurchaseFailure, isValidHit } from '../model';
 import type { MetaSystem } from '../MetaSystem';
+import { formatCreditReason } from '@/shared';
 
 export function registerConsole(sys: MetaSystem): void {
   const con = sys.ctx.console;
@@ -36,7 +37,8 @@ export function registerConsole(sys: MetaSystem): void {
       run: (args) => {
         const n = num(args[0]);
         if (Number.isNaN(n)) return { error: '사용법: /credits <±n>' };
-        if (!sys.addCredits(n, 'console')) return { error: `크레딧 부족 (보유 ${formatCredits(sys.credits)})` };
+        // E-4 (⑦): a dev reason — a relay only takes it with SCAV_DEV_ECONOMY=1 (only the relay the verify runner starts — dev:all keeps it off; the console prints a hint); otherwise it is reverted
+        if (!sys.addCredits(n, formatCreditReason({ kind: 'dev', id: '', tag: 'console' }))) return { error: `크레딧 부족 (보유 ${formatCredits(sys.credits)})` };
         return `크레딧 ${formatCredits(sys.credits)}`;
       },
     },

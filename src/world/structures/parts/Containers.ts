@@ -85,6 +85,9 @@ export class ContainerSet {
    * 2026-09-11: 분대원이 연 컨테이너를 **열린 모습**으로 (문이 열리는 애니메이션만, 이벤트 · 내용물 없음).
    * 이 묶음의 것이 아니면 false. 빛기둥이 사라진 대신 "누가 이미 조사했나" 를 이 모습이 말한다.
    */
+  /** 2026-09-11 (C-57): 컨테이너 위치 (전차 안이면 매 프레임 따라가는 그 `Vector3`), 없으면 null. */
+  positionOf(id: string): THREE.Vector3 | null { return this.byId.get(id)?.spec.position ?? null; }
+
   markOpened(id: string): boolean {
     const inst = this.byId.get(id);
     if (!inst) return false;

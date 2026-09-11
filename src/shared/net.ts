@@ -459,8 +459,9 @@ export interface HitRequest {
    * appended (2026-09-11, C-1 · X-6): knockback the host applies to enemy `id` — horizontal impulse of `kb` m/s along
    * `d` (already fallen off by the sender, i.e. what `EnemyManagerRef.pushBack` would have added locally). Sent by a
    * replica's `pushBack` (실드 배쉬) with `dmg: 0`; the host skips a charging behemoth exactly like its own pushBack.
-   * ⚠ Like `dmg` / `st`, the host does not re-check geometry — one more trusted client path (E-4 계열); it clamps the
-   * speed (`MAX_REQUEST_DAMAGE` 류) only.
+   * The host clamps the speed (`MAX_REQUEST_KNOCKBACK`) and, since 2026-09-11 (E-4 ⑤), refuses it unless the sender's
+   * snapshot stands within the bash's reach of the enemy (+ `HIT_KNOCKBACK_RANGE_SLACK`); `dmg` passes a per-sender DPS
+   * budget (`HIT_REQUEST_DPS_MAX`). `st` is still trusted (duration-capped only).
    */
   kb?: number;
 }
@@ -1619,3 +1620,10 @@ export interface NetRef {
 export const NET_CONNECT_TIMEOUT_MS = 6000;
 /** B-1: background anonymous probe schedule while `unreachable` (ms); the last value repeats. */
 export const NET_PROBE_BACKOFF_MS: readonly number[] = [5000, 10000, 20000, 30000, 60000];
+/**
+ * B-1 (appended 2026-09-11, owner: electron/main.ts serves it): the desktop shell's loopback route answering
+ * `{ target, source }` — which relay its same-origin `/ws` goes to. `ui/menus/SettingsMenu` shows it as the default line,
+ * `net/parts/Socket` reads it to tell the **embedded** relay (never probed: it starts on the first `/ws`) from a
+ * configured one. A browser / vite has no such route (vite answers index.html — not JSON).
+ */
+export const NET_SHELL_RELAY_ROUTE = '/__scav/relay';

@@ -373,7 +373,15 @@ try {
     const net = ctx.net; const origSend = net.send; const sent = [];
     net.send = (m, to) => { sent.push({ m: JSON.parse(JSON.stringify(m)), to }); };
     const wasMp = sys.multiplayer; sys.multiplayer = true;
+    // 2026-09-11 (X-6): the host now checks the sender's snapshot is within the bash's reach — give 'peer-kb' a body next
+    // to the warrior, leave 'peer-far' without one (refused)
+    const origGet = net.getRemotePlayer;
+    net.getRemotePlayer = (id) => (id === 'peer-kb' ? { id, position: new V(w.position.x - 1.5, w.position.y, w.position.z), isDead: false, connected: true } : origGet.call(net, id));
     const r = { hosting: sys.hosting };
+    const refused0 = sys.hitGuardStats.kbRefused;
+    w.velocity.set(0, 0, 0);
+    sys.onHitRequest({ t: 'hit', id: w.id, dmg: 0, p: [0, 0, 0], d: [1, 0, 0], kb: 6 }, 'peer-far');
+    r.far = { v: w.velocity.length(), refused: sys.hitGuardStats.kbRefused - refused0 };
     w.velocity.set(0, 0, 0);
     sys.onHitRequest({ t: 'hit', id: w.id, dmg: 0, p: [0, 0, 0], d: [1, 0, 0], kb: 6 }, 'peer-kb');
     r.kb = [+w.velocity.x.toFixed(3), +w.velocity.z.toFixed(3)];
@@ -394,7 +402,7 @@ try {
     sys.fireAcidAt(mouth.clone(), new V(w.position.x - 3, w.position.y, w.position.z - 3), w);
     r.acidAt = sent.filter((s) => s.m.t === 'ee' && s.m.ev === 'acidAt').map((s) => ({ id: s.m.id, to: s.to, from: s.m.from, dest: s.m.to }));
     r.acidPlayer = sent.filter((s) => s.m.t === 'ee' && s.m.ev === 'acid').length;
-    sys.multiplayer = wasMp; net.send = origSend;
+    sys.multiplayer = wasMp; net.send = origSend; net.getRemotePlayer = origGet;
     rogue.wanderTimer = 1e9;
     window.__cAcid = { rogue: rogue.id, hp: rogue.hp, w: w.id, b: b.id };
     return r;
@@ -403,6 +411,7 @@ try {
   ok(!!cHost && Math.abs(cHost.kb[0] - 6) < 1e-3 && Math.abs(cHost.kb[1]) < 1e-3 && cHost.noKb === 0,
     `C-1 · X-6: 호스트 onHitRequest 가 kb 를 d 방향 수평 속도로 준다 (${JSON.stringify(cHost?.kb)}), kb 없는 dmg 0 요청은 무시`);
   ok(!!cHost && cHost.clamped <= 20 + 1e-3 && cHost.clamped > 6, `C-1: 요청 넉백은 MAX_REQUEST_KNOCKBACK(20)으로 자른다 (${cHost?.clamped})`);
+  ok(!!cHost && cHost.far && cHost.far.v === 0 && cHost.far.refused === 1, `X-6 (E-4): 스냅샷이 없는(= 멀리 있는) 보낸 사람의 넉백 요청은 거절 ${JSON.stringify(cHost?.far)}`);
   ok(!!cHost && cHost.charging === 0 && cHost.hitc === 0, `C-1: 돌진 중 베헤모스는 밀리지 않고, dmg 0 넉백 요청에는 hitc 가 없다 (${cHost?.charging}, hitc ${cHost?.hitc})`);
   ok(!!cHost && cHost.acidAt.length === 2 && cHost.acidAt.every((a) => a.to === 'others' && a.from?.length === 3 && a.dest?.length === 3) && cHost.acidPlayer === 0,
     `C-48: 적 표적 · 지점 표적 산성이 ee acidAt 으로 방송된다 (${cHost?.acidAt.length}건)`, JSON.stringify(cHost?.acidAt));

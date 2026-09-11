@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import {
   GADGET_DEFUSE_TIME, GADGET_INCENDIARY_DPS, GADGET_JUMPPAD_FORWARD, GADGET_JUMPPAD_IMPULSE,
   GADGET_CLOAK_SHARE_RADIUS, GADGET_LURE_RADIUS, GADGET_MINE_ARM_TIME, GADGET_MINE_DAMAGE, GADGET_TURRET_DPS, JUMP_PAD_RETRIGGER_S, Keys, PLAYER_RADIUS,
+  buffSenderOf,
   type BuffMessage, type DeployableKind, type DeployableRef, type EnemyRef, type FlowMessage, type GadgetDef,
   type GadgetId, type GadgetMessage, type GadgetRequest, type GameContext, type GameSystem, type GadgetsRef,
   type Interactable, type ItemInstance, type DeployableWire, type PeerId, type PlayerWeaponHost, type Vec3Tuple,
@@ -167,20 +168,29 @@ export function onGadgetRequest(sys: GadgetSystem, m: GadgetRequest, from: PeerI
  * implants/, so they are ignored here to avoid applying the same buff twice.
  */
 export function onBuff(sys: GadgetSystem, m: BuffMessage, from: PeerId): void {
+  if (!m || (m.kind !== 'cloak' && m.kind !== 'revive')) return;
+  /* 2026-09-11 (E-4): 보낸 사람이 같은 로비의 연결된 멤버이고 스냅샷 위치가 사거리 안이어야 한다 · 은폐 지속은 정의값 이하
+   * (`shared/buffRules`). "실제로 전투불능인가" 는 아래의 원래 검사가 그대로 맡는다 — 판정보다 먼저 본다. */
+  const guard = (me: { position: THREE.Vector3 }): number | null => {
+    const v = sys.buffGuard.check(m, buffSenderOf(sys.ctx.net, from, me.position), performance.now() / 1000);
+    sys.lastBuffVerdict = v;
+    return v.ok ? v.duration : null;
+  };
   if (m.kind === 'cloak') {
     const self = sys.ctx.player;
     if (!self || self.isDead || typeof self.setCloak !== 'function') return;
-    self.setCloak(m.duration, 'gadget');
+    const duration = guard(self);
+    if (duration === null) return;
+    self.setCloak(duration, 'gadget');
     const def = gadgetDef('cloakVeil');
     sys.visuals.pulse(self.position, def?.color ?? '#9fd8ff', 0.6, def?.radius ?? 6, 0.8);
     sys.ctx.bus.emit('audio:play', { id: 'gadget_cloak', position: self.position, volume: 0.8 });
     sys.ctx.bus.emit('ui:notify', { text: `${m.by} 의 은폐 장막`, kind: 'success', duration: 1.8 });
-    void from;
     return;
   }
-  if (m.kind !== 'revive') return;
   const p = sys.ctx.player;
   if (!p || !p.isDowned || typeof p.revive !== 'function') return;
+  if (guard(p) === null) return;
   p.revive();
   p.applyStim(p.maxHp);   // defibrillator: back to full hp (Phase 2 revive leaves PLAYER_REVIVE_HP)
   sys.visuals.pulse(p.position, gadgetDef('defib')?.color ?? '#ff5f8f', 0.4, 3.2, 0.6);

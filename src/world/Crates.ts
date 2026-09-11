@@ -46,6 +46,9 @@ export class Crates {
    * 2026-09-11: 분대원이 연 상자를 **열린 모습**으로 (뚜껑 · 불빛만, 이벤트 · 통계 · 소리 없음).
    * 빛기둥이 사라진 대신 "누가 이미 조사했나" 를 이 모습이 말한다. 이 묶음의 상자가 아니면 false.
    */
+  /** 2026-09-11 (C-57): 이 묶음의 상자 위치 (없으면 null) — 받는 쪽이 `crate opened` 의 거리를 잰다. */
+  positionOf(id: string): THREE.Vector3 | null { return this.byId.get(id)?.def.position ?? null; }
+
   markOpened(id: string): boolean {
     const inst = this.byId.get(id);
     if (!inst) return false;

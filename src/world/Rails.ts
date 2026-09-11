@@ -312,6 +312,8 @@ export class Rails {
   setOpenListener(cb: ((id: string) => void) | null): void { this.containers.setOpenListener(cb); }
   /** 2026-09-11: 분대원이 연 컨테이너를 열린 모습으로. 이 묶음의 것이 아니면 false. */
   markContainerOpened(id: string): boolean { return this.containers.markOpened(id); }
+  /** 2026-09-11 (C-57): 플랫폼 · 전차 컨테이너 위치 (없으면 null). */
+  containerPositionOf(id: string): THREE.Vector3 | null { return this.containers.positionOf(id); }
 
   update(dt: number, time: number): void {
     if (!this.built) return;

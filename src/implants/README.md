@@ -25,13 +25,13 @@
 | `parts/Devices.ts` | **갈고리 · 대시 · 정찰 · 오버차지 · 대전차포**. 배리어를 뺀 나머지 임플란트 다섯 종의 실제 동작. 각각 `instant` / `hold` / `wielded` 중 하나의 사용 방식을 갖고 Q 하나로 구동된다. 정찰은 Phase 12 에서 홀드 채널이 아니라 **한 번 누르는 광역 스캔**이 되어 이동 중에도 쓸 수 있다. |
 | `parts/Charges.ts` | **쿨다운 · 충전 · 에너지 풀**. 임플란트를 쓸 수 있는지, 얼마나 남았는지 하나로 관리한다: 대시의 3충전, 오버차지의 에너지 풀, 배리어 붕괴 후의 잠금, 그리고 `derived.implantCooldownMul` 이 곱해지는 지점. 크로스헤어 왼쪽 세로 게이지가 읽는 이벤트(`implant:cooldown` / `energyChanged`)도 여기서 나간다. |
 | `parts/Wield.ts` | **손에 드는 임플란트**와 프로필 연동. 대전차포와 방패는 손에 들리므로 총을 홀스터해야 하고(`blocksWeapons`), 무기 키를 누르면 집어넣어야 한다(`stow`). 어떤 임플란트를 장착했는지는 진행도 프로필이 갖고 있으므로 그 적용도 여기서 한다. |
-| `parts/Wire.ts` | **임플란트의 네트워크 경로** (`imp` / `buff`). 방패 상태 · 오버차지 빔 · 실드 배쉬 · 정찰 스캔을 분대에 알리고, 남이 보낸 것을 우리 월드에 적용한다. 정찰은 결과가 아니라 **시전 사실**만 보내고(`imp scanCast`) 각 피어가 자기 월드에서 드러낸다. |
+| `parts/Wire.ts` | **임플란트의 네트워크 경로** (`imp` / `buff`). 방패 상태 · 오버차지 빔 · 실드 배쉬 · 정찰 스캔을 분대에 알리고, 남이 보낸 것을 우리 월드에 적용한다. 정찰은 결과가 아니라 **시전 사실**만 보내고(`imp scanCast`) 각 피어가 자기 월드에서 드러낸다. 받은 `buff heal/boost` 는 `buffGuard` 를 통과해야 적용된다 (2026-09-11 E-4). |
 | `ImplantDefs.ts` | `IMPLANT_DEFS` (한국어 이름/설명/아이콘/색), `getImplantDef`, `isImplantId`, `implantHex` |
 | `RemoteImplants.ts` | 원격 시전자 시각화: 손의 장치, 갈고리 와이어, **방패**(스냅샷 `isBarrierUp` / `barrierHp` + `imp shield`, 피어 위치·yaw 를 매 프레임 추종하며 복제본도 적탄을 막고 **벌레를 밀어낸다**), 스캔 파동(구버전 `imp scan` 은 FX 만), **`imp scanCast`** → 내 월드에서 `revealScan` (Phase 12), **`imp bash`** 스윙 스트릭 (Phase 12), 로켓, **오버차지 빔 / 자기 발광** (Phase 7, `imp beam`) |
 | `devices/ImplantDevice.ts` | 손에 드는 절차적 장치 모델(갈고리 런처 / 오버차지 이미터 / 스캐너 / 대전차포 / **방패 손잡이**). 무기 소켓에 붙으며 **-Z 가 총구 방향**, `muzzle` 이 끝점. 방패 분기는 손잡이·프레임만 만들고(이미터 바 · 프레임 팔 폭은 `IMPLANT_BARRIER_CARRY_WIDTH × 0.14`) 막는 패널은 `BarrierField` 가 그린다 |
 | `effects/Barrier.ts` | `BarrierField` — 헥사 CanvasTexture 실드 메시, 내구도, 선분 교차(`intersect`, 정면 각도 게이트). Phase 10 부터 **추종형**: `raise()` / `lower()` + 매 프레임 `follow(feet, yaw)`. **Phase 12**: `pushOut(pos, radius, height?)` (두께 `BARRIER_COLLIDE_THICKNESS` 0.5 m 슬랩 밖 정면으로 밀어냄), `facing(fromPos, maxDist)` (정면 `_ARC` 판정), `contactPoint(fromPos, out)` |
 | `effects/Grapple.ts` | `GrappleWire` — 와이어 빔 + 작살 헤드 |
-| `effects/Overcharge.ts` | `OverchargeBeam` (2겹 빔 + 임팩트 디스크), `findAlly` / `allyPoint` (조준 원뿔 안의 아군 탐색) |
+| `effects/Overcharge.ts` | `OverchargeBeam` (2겹 빔 + 임팩트 디스크), `findAlly` / `allyPoint` (조준 원뿔 안의 아군 탐색 — 2026-09-11 E-4: 벽 · 지형 뒤의 아군은 건너뛴다, `shared/buffLineClear`) |
 | `effects/Scan.ts` | `collectScanTargets` — 반경 안의 **적(`queryNear`) + `ctx.interactables.all()` 전부**를 `ScanTarget[]` 으로 (`canInteract()` 가 false 면 제외, 상한 120). kind 는 **`Interactable.kind` 가 먼저**(`kindOf` — `corpse` · `playerCorpse`(`아군 시체`) · `crate` · `container` → crate, `gather`, `pickup`, `deployable` · `drone` → deployable, `extract` · `revive` · `console` · `objective` → objective, 2026-09-11 C-4)이고 kind 가 없는 등록물만 id 접두어로 판정한다 (`crate` / `corpse` / `pcorpse` → crate, `gather`, `pickup`, `gadget` → deployable, `extract` · `revive` · 그 외 → objective). `revealScan(ctx, center, radius, dur, byLocal)` — 수집 + `detect:reveal` + `scan:cast` + `enemies.setXray` 를 한 번에 (로컬 시전과 `imp scanCast` 수신이 공유) |
 | `effects/AtLauncher.ts` | `RocketPool` — 풀링된 로켓, 스텝마다 스윕 레이캐스트(월드/인테리어 + 적) |
 | `fx/ImplantFx.ts` | 풀링 FX: `BeamMesh`, 확장 셸(스캔), 폭발, 스트릭(대시/로켓 궤적), 스파크. **라이트 없음** |
@@ -259,6 +259,14 @@ UI 는 **`ImplantsRef` 의 기존 값만** 읽는다 (`cooldownRemaining` / `coo
 ## 변경 이력
 
 프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
+
+- **2026-09-11 (E-4 — 받는 쪽 버프 상한 · 벽 뒤 빔)** — `ImplantSystem.buffGuard`(`shared/createBuffGuard`) 하나와 디버그용
+  `lastBuffVerdict`. `parts/Wire.onBuff` 는 `heal` · `boost` 만 보고, 죽음/전투불능 검사를 먼저 한 뒤 `buffSenderOf(net, from, 내 위치)` 로
+  판정한다: 보낸 사람이 연결된 로비 멤버 · 스냅샷 거리 ≤ 사거리 + `BUFF_RANGE_SLACK` · `heal` 은 보낸 사람별 + 전체 토큰 버킷으로 깎고
+  (`(스프레이 최대 초당 치유 + IMPLANT_OVERCHARGE_ALLY_HEAL_PER_SEC) × BUFF_HEAL_RATE_MARGIN`, 크기 × `BUFF_HEAL_BURST_S`) ·
+  `boost` 배수는 `[1, IMPLANT_OVERCHARGE_SPEED_MUL]`(느리게 만드는 ×0.01 도 막는다) · 지속은 `IMPLANT_OVERCHARGE_DURATION` 이하.
+  **받는 쪽 시야 검사는 없다.** 보내는 쪽 `effects/Overcharge.findAlly` 는 원뿔 후보마다 내 가슴 → 그 가슴을 `shared/buffLineClear` 로
+  보고 막힌 분대원은 건너뛴다(다음으로 가까운 트인 분대원을 잡는다). 검사: `scripts/smoke-trust.mjs`.
 
 - **2026-09-11 (C 항목 배치 — 배쉬 넉백 계약 · 오버차지 플래그 · 정찰 kind · 원격 장치 재부착)** — 계약은 읽기만 했다
   (`EnemyManagerRef.pushBack`, `PlayerRef.setOvercharged?`, `Interactable.kind`).

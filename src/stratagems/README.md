@@ -83,7 +83,21 @@ grant 수신 ──▶ Call(rescue_drop) + `rescue:called` ──▶ landsAt ─
 차감은 **grant 시점**이고 취소 · 실패해도 환불하지 않는다 (사용자 결정). **헬포드는 여기서 그리지 않는다.**
 
 ## Net (`StratagemMessage` · `RescueMessage`, `src/shared/net.ts`)
-- `{t:'strat', ev:'call', callId, kind, p, eta, seed}` → others on confirm; receivers create the call with `landsAt = time + eta`, `local = false`.
+- **호스트 경유 (2026-09-11, E-4)**: a **non-host** confirm does not create the call — it sends
+  `{t:'stratq', ev:'call', callId: '<me>-<n>', kind, p, seed}` → host. The host (`parts/Wire.onCallRequest`) checks: callId is the
+  caller's own and unused · kind on the wheel (`STRATAGEM_ORDER`, never `rescue_drop`) · not `STRATAGEM_HOST_ONLY` · `callRefusal` =
+  gameplay phase · connected lobby member · alive by snapshot · `p` inside the map and within `STRAT_MAX_CALL_RANGE` (150 = 상단 시점 120 +
+  여유) of the caller's snapshot · the caller's shared cooldown `callerReadyAt[from] − STRAT_COOLDOWN_SLACK_S` has passed (wall clock).
+  Accepted → `callerReadyAt[from] = now + def.cooldown`, the host creates the call (`local = false`, `caller = from`, `eta = csv delay`)
+  and broadcasts `{t:'strat', ev:'call', …, eta: delay, by: from}` to others — **the caller included**, whose echo (`by === me`) creates
+  its own call with `local = true` (enemy damage stays on the caller's client). A refusal is silent (`lastCallRefusal` for debug); the
+  caller's local cooldown already ran. The host's own confirm creates locally and broadcasts with `by = host`.
+- `strat call` / `strat sync` are accepted **only from the lobby host** (`fromHost` — no lobby = test harness, passes); `strat call`
+  also needs a known non-구조선 kind (`isCallKind`), a finite `p`, `eta` clamped to `[0, def.delay]`; the caller is `by` (else `from`).
+  `rescue grant / deny / count` are host-only too; a `rescue req` goes through the same `callRefusal` (cooldown → `deny busy`, anything
+  else dropped) + the target must be a lobby member, and its grant starts the requester's `callerReadyAt` (구조선 30 s).
+  `callerReadyAt` is cleared by `clearAll` (mission reset) and starts empty on a new host (migration — at worst one extra call).
+- (before 2026-09-11) `{t:'strat', ev:'call', callId, kind, p, eta, seed}` → others on confirm; receivers create the call with `landsAt = time + eta`, `local = false`.
 - `{t:'strat', ev:'structHp', callId, index, hp}` → others whenever a structure takes damage locally; receivers apply lower hp only.
 - **Late-join sync (Phase 9)**: `{t:'stratq', ev:'sync'}` → host on `world:ready` from every non-host client; the **host** answers
   `{t:'strat', ev:'sync', calls: StratagemCallWire[]}` to that peer alone, and does the same for a `flow rejoined`. The host is only the
@@ -153,6 +167,15 @@ existing path. **RMB** is the cancel that works while aiming, and the HUD hints 
 ---
 
 ## 변경 이력
+
+- **2026-09-11 — E-4 함선 호출 호스트 경유 (docs/plans/net-social-trust.md §5 (d)).** 분대원의 확정은 `stratq call` 을 호스트로
+  보내고(`parts/Targeting.confirm`) 호스트가 `parts/Wire.onCallRequest` 에서 callId 소유 · 종류 · 호스트 전용 · 페이즈 · 로비 멤버 ·
+  생존 · 맵 안 · `STRAT_MAX_CALL_RANGE` · 호출자별 공유 쿨타임(`StratagemSystem.callerReadyAt`, 벽시계 − `STRAT_COOLDOWN_SLACK_S`)을 보고
+  `strat call {by}` 로 재방송한다 — 호출자도 그 메아리로 자기 호출(`local`)을 세운다. 받는 쪽은 `strat call` · `strat sync` ·
+  `rescue grant/deny/count` 를 **호스트에게서만** 받는다(`fromHost`), `strat call` 에도 종류 화이트리스트(`isCallKind` — 구조선 제외).
+  `rescue req` 도 같은 `callRefusal` 을 탄다(쿨타임이면 `deny busy`) + 대상이 로비 멤버여야 하고, 승인이 요청자 쿨타임을 건다.
+  `lastCallRefusal` 은 디버그용. 새 csv: `STRAT_COOLDOWN_SLACK_S`(3), `STRAT_MAX_CALL_RANGE` 설명을 실제 조준 사거리로 고쳤다(값 150 유지).
+  검사: `scripts/smoke-trust.mjs` (d) 절.
 
 - **2026-09-11 — 드론 조종 중 G 잠금.** `parts/Targeting.updateInput` 의 `baseActive` 검사 바로 뒤에 `ctx.player?.droneControl`
   가지 하나: G 입력 무시, 열려 있던 휠 · 충전 · 상단 시점 닫기(`cancelTargeting`), 지면 링 끄기. 무장 상태는 건드리지 않는다.

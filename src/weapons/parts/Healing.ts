@@ -15,7 +15,7 @@ import {
   type WeaponSlot, type EffectiveWeaponStats, type WeaponClass, type GadgetId, type WeaponRemoteState,
 } from '@/shared';
 import type { Obstacle as WorldObstacle, InterceptableRef, PeerId } from '@/shared';
-import { ARMOR_IMMUNE_AMMO } from '@/shared';
+import { ARMOR_IMMUNE_AMMO, buffLineClear } from '@/shared';
 import { FxManager } from '@/core/fx';
 import { randomInCone } from '@/core/util/MathUtil';
 import { shieldChargeOf } from '@/items';
@@ -190,18 +190,30 @@ export function stopSpray(sys: WeaponSystem): void {
   sys.closeChannel();
   }
 
-/** Squadmates inside `radius` owe `hp` this tick (flushed as `buff heal` at `SPRAY_SEND_INTERVAL`). */
+/**
+ * Squadmates inside `radius` owe `hp` this tick (flushed as `buff heal` at `SPRAY_SEND_INTERVAL`).
+ * 2026-09-11 (E-4): only those in the open — my chest → their chest must not cross world geometry
+ * (`shared/buffLineClear`), so the mist no longer heals through walls. The receiver additionally caps range and rate.
+ */
 export function sprayAllies(sys: WeaponSystem, hp: number, radius: number): void {
   const net = sys.ctx.net;
   const me = sys.ctx.player;
   if (!net || !me || !sys.ctx.isMultiplayer) return;
   const r2 = radius * radius;
+  _sprayFrom.copy(me.position); _sprayFrom.y += SPRAY_CHEST_Y;
   for (const peer of net.getRemotePlayers()) {
     if (!peer.connected || peer.isDead) continue;
     if (peer.position.distanceToSquared(me.position) > r2) continue;
+    _sprayTo.copy(peer.position); _sprayTo.y += SPRAY_CHEST_Y;
+    if (!buffLineClear(sys.ctx.world, _sprayFrom, _sprayTo)) continue;
     sys.sprayOwed.set(peer.id, (sys.sprayOwed.get(peer.id) ?? 0) + hp);
   }
   }
+
+/** Chest height above the feet for the spray's line test (same as the overcharge beam's `CHEST_Y`). */
+const SPRAY_CHEST_Y = 1.15;
+const _sprayFrom = new THREE.Vector3();
+const _sprayTo = new THREE.Vector3();
 
 /** Send one `buff heal` per owed squadmate and clear the ledger. */
 export function flushSprayHeals(sys: WeaponSystem): void {

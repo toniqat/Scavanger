@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { PlanetId } from '@/shared';
 import type { MissionMode, TrainingRef } from '@/shared';
+import { CRATE_OPEN_RANGE_SLACK, PLAYER_INTERACT_RANGE, STRUCTURE_INTERACT_RANGE } from '@/shared';
 import {
   FOG_REVEAL_RADIUS, MAP_SIZE, PROP_STEP_UP_MAX, PROP_TOP_MARGIN, Random, TRAINING_ARENA_SIZE, getPlanet, isPlanetId,
   type CrateDef, type ExtractionPointDef, type FogRef, type GameContext, type GameSystem, type GatherNodeDef,
@@ -128,6 +129,8 @@ export class WorldSystem implements GameSystem, WorldRef {
   /* 2026-09-11: 상자 · 컨테이너의 **열린 모습** 동기화 (`crate opened / sync / syncq`) */
   private readonly openedIds = new Set<string>();
   private openNetHooked = false;
+  /** 2026-09-11 (C-57): `crate opened` refused (unknown id / sender too far) — debug · smoke-trust. */
+  openRefused = 0;
   private readonly eyeTmp = new THREE.Vector3();
 
   constructor() { this.root.name = 'World'; }
@@ -370,12 +373,38 @@ export class WorldSystem implements GameSystem, WorldRef {
     if (ctx?.isMultiplayer && net) net.send({ t: 'crate', ev: 'opened', id }, 'others');
   };
 
-  private applyOpened(id: string): void {
-    if (!this.ready || this.mode === 'training') return;
+  /**
+   * 2026-09-11 (C-57): only an id that exists in this world is marked — and remembered for the host's `sync`, so the host
+   * never hands a late joiner an id it could not verify. Returns whether it was applied.
+   */
+  private applyOpened(id: string): boolean {
+    if (!this.ready || this.mode === 'training' || typeof id !== 'string') return false;
+    if (!this.openablePositionOf(id)) return false;
     this.openedIds.add(id);
-    if (this.crates.markOpened(id)) return;
-    if (this.structures.markContainerOpened(id)) return;
+    if (this.crates.markOpened(id)) return true;
+    if (this.structures.markContainerOpened(id)) return true;
     this.rails.markContainerOpened(id);
+    return true;
+  }
+
+  /** 2026-09-11 (C-57): where crate / container `id` stands in this world (null = no such thing here). */
+  private openablePositionOf(id: string): THREE.Vector3 | null {
+    return this.crates.positionOf(id) ?? this.structures.containerPositionOf(id) ?? this.rails.containerPositionOf(id);
+  }
+
+  /**
+   * 2026-09-11 (C-57): a peer's `crate opened` is believed when the id exists here **and** the sender's snapshot stands
+   * within reach of it — max(PLAYER_INTERACT_RANGE, STRUCTURE_INTERACT_RANGE) + `CRATE_OPEN_RANGE_SLACK` (3-D, so a
+   * crate one floor up does not count). A sender without a live ref (no snapshot yet) is refused.
+   */
+  private peerOpenPlausible(id: string, from: PeerId): boolean {
+    const net = this.ctx?.net;
+    const at = typeof id === 'string' ? this.openablePositionOf(id) : null;
+    if (!net || !at || from === net.localId) return false;
+    const ref = net.getRemotePlayer(from);
+    if (!ref || ref.connected === false) return false;
+    const reach = Math.max(PLAYER_INTERACT_RANGE, STRUCTURE_INTERACT_RANGE) + CRATE_OPEN_RANGE_SLACK;
+    return ref.position.distanceToSquared(at) <= reach * reach;
   }
 
   private ensureOpenNet(): void {
@@ -386,9 +415,18 @@ export class WorldSystem implements GameSystem, WorldRef {
     this.unsubs.push(
       net.onMessage('crate', (m, from) => {
         if (!ctx.isMultiplayer) return;
-        if (m.ev === 'opened') { this.applyOpened(m.id); return; }
+        if (m.ev === 'opened') {
+          if (this.peerOpenPlausible(m.id, from)) this.applyOpened(m.id);
+          else this.openRefused++;
+          return;
+        }
         if (m.ev === 'syncq') { if (net.isHost) this.sendOpenSync(from); return; }
-        if (m.ev === 'sync' && !net.isHost) for (const id of m.ids ?? []) this.applyOpened(id);
+        // only the host's list, and each id still has to exist here
+        if (m.ev === 'sync' && !net.isHost) {
+          const hostId = net.lobby?.hostId;
+          if (hostId && from !== hostId) return;
+          for (const id of Array.isArray(m.ids) ? m.ids : []) this.applyOpened(id);
+        }
       }),
       net.onMessage('flow', (m, from) => { if (m.ev === 'rejoined' && net.isHost) this.sendOpenSync(from); }),
       ctx.bus.on('net:hostChanged', ({ isLocalHost }) => { if (!isLocalHost) this.requestOpenSync(); }),

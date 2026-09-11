@@ -41,6 +41,10 @@ import { namedBodyCenterY } from '../models/named';
 import { BARRIER_BUMP_INTERVAL, BARRIER_RETARGET_S, BURN_TICK, CLASH_RADIUS, CLASH_THROTTLE, CORPSE_SLACK, EMBER_INTERVAL, FLEE_DURATION, GRENADE_KNOCKBACK, GRENADE_LOB_SPEED, GRENADE_NOISE, GUNFIRE_LURE_DURATION, GUNFIRE_LURE_WEIGHT, INCAP_EMBER_INTERVAL, MAX_REQUEST_DAMAGE, MAX_REQUEST_KNOCKBACK, MAX_REQUEST_RADIUS, MAX_SHOT_RANGE, MAX_STATUS_DURATION, PROMOTE_ID_GAP, PROMOTE_SEQ_GAP, RECYCLE_DISTANCE, SHIELD_CONTACT_Y, SHOCK_SPARK_TIME, SHOT_CHECK_INTERVAL, SPARK_INTERVAL, STATUS_REQUEST_INTERVAL, SUSPICION_RADIUS, SUSPICION_REFRESH, _aim, _c, _dir, _eye, _hc, _hd, _hp, _kb, _m, _sd, _sh, _so, _to, _v, _v2, _zero, deathDirIndex, isVec3Tuple, killedBuf, queryBuf } from '../model';
 import { hurtSound, meleeHitSound } from '../model';
 import type { EnemySystem } from '../EnemySystem';
+import {
+  HIT_KNOCKBACK_RANGE_SLACK, HIT_REQUEST_BURST_S, HIT_REQUEST_DPS_MAX, IMPLANT_BARRIER_CARRY_OFFSET, IMPLANT_BARRIER_CARRY_WIDTH,
+  IMPLANT_SHIELD_BASH_RANGE,
+} from '@/shared';
 
 /** Radial damage. On a replica this only plays local FX and forwards an `ExplodeRequest` to the host (returns 0). */
 export function applyExplosion(sys: EnemySystem, center: THREE.Vector3, radius: number, damage: number): number {
@@ -148,17 +152,23 @@ export function normalizeAttacker(sys: EnemySystem, by: string): TargetId {
  * `hit` from a client: damage (as before) and / or the status bits (`st` + `dur`, 2026-09-06; `dmg` may be 0 for a
  * status-only request) and / or the knockback `kb` (2026-09-11 C-1 · X-6 — a replica's `pushBack`: horizontal impulse
  * of `kb` m/s along `d`, falloff already applied by the sender). Knockback skips a charging behemoth / charger exactly
- * like the host's own `pushBack` and is clamped to `MAX_REQUEST_KNOCKBACK`; like `dmg` / `st` the geometry is trusted.
+ * like the host's own `pushBack` and is clamped to `MAX_REQUEST_KNOCKBACK`.
+ * 2026-09-11 (E-4 · X-6): `dmg` passes the sender's DPS budget (`spendHitBudget`) and `kb` is only applied when the sender's
+ * snapshot stands within the bash's reach of the enemy (`knockbackInReach`). `st` is still trusted (duration-capped only).
  */
 export function onHitRequest(sys: EnemySystem, msg: HitRequest, from: string): void {
   if (!sys.hosting) return;
-  const { id, dmg, p, d } = msg;
+  const { id, p, d } = msg;
+  let dmg = msg.dmg;
   const st = msg.st ?? 0;
   const kb = typeof msg.kb === 'number' && Number.isFinite(msg.kb) && msg.kb > 0 ? Math.min(msg.kb, MAX_REQUEST_KNOCKBACK) : 0;
   if (!(dmg >= 0) || dmg > MAX_REQUEST_DAMAGE) return;
   if (dmg <= 0 && st === 0 && kb === 0) return;
+  if (!isVec3Tuple(p) || !isVec3Tuple(d)) return;
   const e = sys.byId.get(id);
   if (!e || !e.active || e.state === 'dead') return;
+  // 2026-09-11 (E-4): the sender's damage per second is capped (`HIT_REQUEST_DPS_MAX`) — an over-budget hit is trimmed
+  if (dmg > 0) dmg = spendHitBudget(sys, from, dmg);
   if (dmg > 0) {
     _hp.set(p[0], p[1], p[2]);
     _hd.set(d[0], d[1], d[2]);
@@ -169,11 +179,49 @@ export function onHitRequest(sys: EnemySystem, msg: HitRequest, from: string): v
     sys.ctx.net!.send({ t: 'hitc', id: e.id, dmg: round(before - e.hp, 1), killed: e.isDead, part }, from);
   }
   if (st !== 0 && !e.isDead) sys.applyStatusBits(e, st, msg.dur, from);
-  if (kb > 0 && e.isCombatant && e.chargePhase !== 2 && Number.isFinite(d[0]) && Number.isFinite(d[2])) {
+  if (kb > 0 && e.isCombatant && e.chargePhase !== 2 && Number.isFinite(d[0]) && Number.isFinite(d[2]) && knockbackInReach(sys, e, from)) {
     _kb.set(d[0], 0, d[2]);
     if (_kb.lengthSq() > 1e-4) e.velocity.addScaledVector(_kb.normalize(), kb);
   }
   }
+
+/* ── 2026-09-11 (E-4 · X-6): 호스트가 요청을 믿기 전에 보는 것 ─────────────── */
+/** Per-host, per-sender damage buckets (a WeakMap so a new `EnemySystem` in tests starts clean). */
+const HIT_BUDGET = new WeakMap<EnemySystem, Map<string, { tokens: number; at: number }>>();
+
+/**
+ * Take up to `dmg` from `from`'s bucket (`HIT_REQUEST_DPS_MAX` hp/s, capacity × `HIT_REQUEST_BURST_S`, wall clock so a
+ * shader hold on the host never shrinks a legit budget). Returns the damage to apply (0 = dropped).
+ */
+function spendHitBudget(sys: EnemySystem, from: string, dmg: number): number {
+  let map = HIT_BUDGET.get(sys);
+  if (!map) { map = new Map(); HIT_BUDGET.set(sys, map); }
+  const now = performance.now() / 1000;
+  const cap = HIT_REQUEST_DPS_MAX * HIT_REQUEST_BURST_S;
+  let b = map.get(from);
+  if (!b) { b = { tokens: cap, at: now }; map.set(from, b); }
+  b.tokens = Math.min(cap, b.tokens + Math.max(0, now - b.at) * HIT_REQUEST_DPS_MAX);
+  b.at = now;
+  const give = Math.min(dmg, b.tokens);
+  if (give < dmg) { if (give < 0.5) { sys.hitGuardStats.dropped++; return 0; } sys.hitGuardStats.trimmed++; }
+  b.tokens -= give;
+  return give;
+}
+
+/**
+ * X-6: a replica's knockback request (실드 배쉬) is only honoured when the sender's snapshot stands within the bash's reach
+ * of the enemy on this host — shield offset + 1.5 × bash range (the push centre sits half a range in front, its radius
+ * is range + half the shield width) + the enemy's radius + `HIT_KNOCKBACK_RANGE_SLACK` for both snapshots' lag.
+ */
+function knockbackInReach(sys: EnemySystem, e: Enemy, from: string): boolean {
+  const ref = sys.ctx.net?.getRemotePlayer(from as PeerId);
+  if (!ref || ref.isDead) { sys.hitGuardStats.kbRefused++; return false; }
+  const reach = IMPLANT_BARRIER_CARRY_OFFSET + IMPLANT_SHIELD_BASH_RANGE * 1.5 + IMPLANT_BARRIER_CARRY_WIDTH / 2 + e.stats.radius + HIT_KNOCKBACK_RANGE_SLACK;
+  const dx = e.position.x - ref.position.x, dz = e.position.z - ref.position.z;
+  if (dx * dx + dz * dz <= reach * reach) return true;
+  sys.hitGuardStats.kbRefused++;
+  return false;
+}
 
 export function onExplodeRequest(sys: EnemySystem, p: readonly number[], r: number, dmg: number, from: string): void {
   if (!sys.hosting) return;
@@ -425,11 +473,21 @@ export function onEnemyKilled(sys: EnemySystem, e: Enemy, countKill: boolean): v
   }
   if (sys.hosting) {
     const net = ctx.net!;
-    const killer = localKill ? net.localId : e.lastDamager === 'ai' ? null : e.lastDamager;
+    /* 2026-09-11 (E-4): an uncounted death (`kill(false)` — the toxic bug's own burst, `killAll`) credits nobody on the wire
+     * either. `lastDamager` defaults to `'local'`, so such a body used to go out as "killed by the host" — harmless while
+     * only the killer counted it, but now every replica derives `enemy:squadKill` from this field. */
+    const killer = !countKill ? null : localKill ? net.localId : e.lastDamager === 'ai' ? null : e.lastDamager;
     const msg: Extract<EnemyEvent, { ev: 'kill' }> = { t: 'ee', ev: 'kill', id: e.id, ty: e.type, p: tuple(e.position, 2), killer };
     const dd = deathDirIndex(e.deathDir);
     if (dd > 0) msg.dd = dd;
     net.send(msg, 'others');
+    /*
+     * 2026-09-11 (E-4): the host's own view of a squad-mate's kill — the same `killer` the wire carries, so every client
+     * (host here, replicas in `Replica case 'kill'`) counts exactly the same squad kills. `enemy:killed` keeps meaning "mine".
+     */
+    if (typeof killer === 'string' && killer !== net.localId) {
+      ctx.bus.emit('enemy:squadKill', { id: e.id, type: e.type, position: e.position, by: killer });
+    }
   }
   }
 

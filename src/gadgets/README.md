@@ -17,7 +17,7 @@ engine.addSystem(new GadgetSystem());
 | `parts/Deploy.ts` | **가젯을 놓고 회수하기**. 배치물은 **호스트 권한**이다: 클라이언트는 `gadq` 로 요청하고 호스트가 `gad` 로 확정한다. 설치 위치 판정, 회수 / 해체 홀드, 되돌려주는 아이템까지가 이 파일의 범위다. |
 | `parts/Simulate.ts` | **배치물이 매 프레임 하는 일**. 지뢰 · 포탑 · 화염지대 · 유인탄 · 점프대의 동작. 화염지대는 **피아를 구분하지 않고**(설계대로) 자기 주인에게 킬 크레딧을 준다. 점프대는 같은 사람을 `JUMP_PAD_RETRIGGER_S` 안에 다시 쏘지 않는다. |
 | `parts/Queries.ts` | **다른 폴더가 배치물에게 묻는 것**. 적 AI(`findEnemyTarget` / `findDistraction` / `visionFactor`), 무기(`blocksProjectile` — 돔 실드와 바리케이드가 탄을 멈춘다), 플레이어(`fireDamageAt` / `jumpPadAt`). 전부 **순수 질의**이고 상태를 바꾸지 않는다. |
-| `parts/Wire.ts` | **`gad` / `gadq` / `buff` 네트워크 경로**. 호스트가 배치물 목록의 진실이고, 늦게 합류한 클라이언트와 호스트 이관 뒤에는 전체를 다시 보낸다. |
+| `parts/Wire.ts` | **`gad` / `gadq` / `buff` 네트워크 경로**. 호스트가 배치물 목록의 진실이고, 늦게 합류한 클라이언트와 호스트 이관 뒤에는 전체를 다시 보낸다. 받은 `buff revive/cloak` 은 `buffGuard` 를 통과해야 적용된다 (2026-09-11 E-4). |
 | `parts/Remote.ts` | **원격 지뢰(C4)는 언제 · 어떻게 터지는가** (2026-09-11). `detonateRemoteMines` / `liveRemoteMineCount`, 호스트의 `gadq detonate` 처리, **중첩 피해**(대상마다 가장 센 한 발 100 % + 나머지 각각 `GADGET_REMOTE_MINE_STACK_MUL`, 합산 1회 적용), 소유자당 상한 `GADGET_REMOTE_MINE_MAX_LIVE`, 설치음 · 무장 중 삑. 근접으로는 절대 안 터진다. |
 | `parts/Preview.ts` | **손에 든 설치형 가젯을 지금 놓으면 어디에 서고, 설 수 있나** (2026-09-11). 판정은 `computePlacement` **하나** — 매 프레임 미리보기(고스트 + `GadgetsRef.placement` + 바뀔 때만 `gadget:placementChanged`)와 좌클릭 설치(`use()` 가 그 순간 다시 돌린다)가 같은 함수를 쓴다. 조준 광선(`getAimRay`)을 발 수평 `GADGET_PLACE_RANGE` 원에서 끊고, 드론 몸체(`ctx.drones.raycast`)가 더 가까우면 드론 위. 사유: 맵 밖 · 움직이는 발판 `설치할 수 없는 곳이다` / 위아래 `PLACE_VERTICAL_REACH` 초과 `너무 멀다` / 법선 `바닥이 너무 기울었다` / 대형 발자국 샘플 높이차 `바닥이 고르지 않다` / 발자국 원 vs 장애물(원기둥 · OBB · 볼록 윤곽, 밟은 바닥과 머리 위 슬래브 제외) `공간이 부족하다` / `PLACE_CLEARANCE` `다른 설치물과 겹친다` / 대형을 드론에 `드론 위에는 올릴 수 없다` / `이미 드론에 설치물이 있다`. 호스트의 `gadq place` 재검증 `resolveRemotePlace`. |
 | `parts/Mount.ts` | **드론 위 설치물은 언제까지, 어떻게 드론을 따라가나** (2026-09-11). `Deployable.mount` 가 있으면 매 프레임 `getMountPoint` 로 옮긴다(각자 로컬 — 드론 복제본이 이미 있다). 드론이 사라지면 아래 표면으로 떨어져 바닥 설치물로 남는다 — 아래 `드론 탑재` 절. |
@@ -243,6 +243,11 @@ net:remotePlayerRemoved {id} → 그 소유자 드론 제거 (방송 없음)
 ---
 
 ## 변경 이력
+
+- **2026-09-11 (E-4 — 받는 쪽 버프 상한: 소생 · 은폐)** — `GadgetSystem.buffGuard`(`shared/createBuffGuard`) + `lastBuffVerdict`.
+  `parts/Wire.onBuff` 는 `revive` · `cloak` 만 보고, 원래의 상태 검사(은폐 = 살아 있음 · 소생 = **실제로 전투불능**)를 먼저 한 뒤
+  `buffSenderOf` 판정을 통과해야 적용한다: 연결된 로비 멤버 · 스냅샷 거리 ≤ `GADGET_DEFIB_RANGE` / `GADGET_CLOAK_SHARE_RADIUS` +
+  `BUFF_RANGE_SLACK` · 은폐 지속은 `0 < d ≤ GADGET_CLOAK_DURATION`. 검사: `scripts/smoke-trust.mjs`.
 
 - **2026-09-11 (드론 코어 · 지상 드론)** — `drones/DroneSystem.ts` 스텁을 채우고 `drones/parts/Control.ts` ·
   `Lifecycle.ts` · `Wire.ts` 로 갈랐다. 꺼내기(무소모 · 종류당 1대) · R 홀드 조종/복귀 · 드론 카메라(`update` 에서

@@ -16,7 +16,7 @@ import {
   IMPLANT_SCAN_RADIUS, IMPLANT_SCAN_REVEAL_TIME_V2,
   IMPLANT_SHIELD_BASH_COOLDOWN, IMPLANT_SHIELD_BASH_DAMAGE, IMPLANT_SHIELD_BASH_KNOCKBACK, IMPLANT_SHIELD_BASH_RANGE, IMPLANT_SHIELD_BASH_STAMINA,
   IMPLANT_SHIELD_BASH_SWING_S,
-  Keys, MouseButtons, PLAYER_RADIUS,
+  Keys, MouseButtons, PLAYER_RADIUS, buffSenderOf,
   type BuffMessage, type EnemyRef, type GameContext, type GameSystem, type ImplantDef, type ImplantId,
   type ImplantMessage, type ImplantsRef, type PeerId, type PlayerRef, type PlayerWeaponHost, type RelayTarget,
   type Vec3Tuple,
@@ -69,21 +69,22 @@ export function onImplantMessage(sys: ImplantSystem, m: ImplantMessage, from: Pe
  * Friendly effects aimed at *us* by someone else. Each `buff` kind has exactly one receiver: implants/ applies
  * the overcharge `heal` / `boost`; `revive` (defibrillator) and `cloak` belong to gadgets/ (Phase 9: the duplicate
  * `revive` branch here is gone).
+ *
+ * 2026-09-11 (E-4): a `buff` travels peer → peer with no host in between, so the receiver is the only place that can
+ * refuse a forged one. `sys.buffGuard` (`shared/buffRules`) checks that the sender is a connected lobby member within
+ * the buff's range of its snapshot, trims `heal` to the real heal budget and clamps the `boost` multiplier / duration.
+ * The dead / downed test runs first so a refused heal never spends budget.
  */
-export function onBuff(sys: ImplantSystem, m: BuffMessage, _from: PeerId): void {
+export function onBuff(sys: ImplantSystem, m: BuffMessage, from: PeerId): void {
   const p = sys.ctx.player;
-  if (!p) return;
-  switch (m.kind) {
-    case 'heal':
-      if (p.isDead || p.isDowned) return;
-      p.heal(m.amount);
-      break;
-    case 'boost':
-      sys.applyBoost(p, m.amount > 0 ? m.amount : IMPLANT_OVERCHARGE_SPEED_MUL, m.duration || BOOST_SEND_INTERVAL + BOOST_LINGER);
-      break;
-    default:
-      break;
-  }
+  if (!p || !m) return;
+  if (m.kind !== 'heal' && m.kind !== 'boost') return;
+  if (m.kind === 'heal' && (p.isDead || p.isDowned)) return;
+  const v = sys.buffGuard.check(m, buffSenderOf(sys.ctx.net, from, p.position), performance.now() / 1000);
+  sys.lastBuffVerdict = v;
+  if (!v.ok) return;
+  if (m.kind === 'heal') p.heal(v.amount);
+  else sys.applyBoost(p, v.amount > 0 ? v.amount : IMPLANT_OVERCHARGE_SPEED_MUL, v.duration || BOOST_SEND_INTERVAL + BOOST_LINGER);
   }
 
 /**

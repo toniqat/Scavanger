@@ -22,6 +22,8 @@ import {
 import { CorpView } from '../ui/CorpView';
 import { CORP_ALIASES, GOAL_IDS, type ImplantRepairInfo, type ImplantRepairResult, type PurchaseFailure, isValidHit } from '../model';
 import type { MetaSystem } from '../MetaSystem';
+/* 2026-09-11 (E-4 ⑦): 크레딧 사유는 계약 문법으로만 만든다 — 릴레이가 해석하고 금액을 검사한다 (`shared/credits.ts`). */
+import { formatCreditReason } from '@/shared';
 
 /** Bag / stash pre-check (`InventoryRef.canFit`); a missing helper counts as "fits" (inventory/ built in parallel). */
 export function fits(sys: MetaSystem, defId: string, qty = 1): boolean {
@@ -103,13 +105,14 @@ export function buy(sys: MetaSystem, corp: CorpId, defId: string): boolean {
   if (!sys.fits(defId)) return fail(REASON.space, price);
   if (sys.credits < price) return fail(REASON.credits, price);
   sys.lastPurchaseFailure = null;
-  const reason = `buy:${defId}`;
+  const reason = formatCreditReason({ kind: 'buy', id: defId });
+  const refund = formatCreditReason({ kind: 'refund', id: defId });
 
   if (!sys.serverCredits) {
     if (!sys.applyCreditsLocal(-price, reason)) return fail(REASON.credits, price);
     let placed: 'bag' | 'stash' | null = null;
     try { placed = sys.addAnywhere(loot.createItem(defId, 1)); } catch { placed = null; }
-    if (!placed) { sys.applyCreditsLocal(price, `refund:${defId}`); return fail(REASON.space, price); }
+    if (!placed) { sys.applyCreditsLocal(price, refund); return fail(REASON.space, price); }
     sys.completePurchase(corp, defId, price, placed);
     return true;
   }
@@ -125,8 +128,8 @@ export function buy(sys: MetaSystem, corp: CorpId, defId: string): boolean {
     let placed: 'bag' | 'stash' | null = null;
     try { placed = sys.addAnywhere(loot.createItem(defId, 1)); } catch { placed = null; }
     if (!placed) {
-      sys.applyCreditsLocal(price, `refund:${defId}`);
-      if (res) void sys.serverTx(price, `refund:${defId}`, false);
+      sys.applyCreditsLocal(price, refund);
+      if (res) void sys.serverTx(price, refund, false);   // pairs with the `buy:` debit on the relay's ledger (60 s window)
       sys.failPurchase({ corp, defId, price, reason: REASON.space });
       return;
     }
@@ -162,14 +165,56 @@ export function sell(sys: MetaSystem, uid: string, qty?: number): boolean {
   const def = sys.itemDef(inst.defId);
   if (!def || !(def.value > 0)) return false;
   const want = Math.max(1, Math.min(inst.qty, Math.floor(qty ?? inst.qty)));
+  // E-4 (⑦): remember what leaves the inventory — a relay refusal puts it back (durability · sockets · loaded rounds intact)
+  const snap = JSON.parse(JSON.stringify(inst)) as ItemInstance;
+  const fromStash = typeof inv.getStashItems === 'function' && inv.getStashItems().some((i) => i.uid === uid);
   const removed = sys.takeBack(uid, want);
   if (removed <= 0) return false;
-  const credits = sellPriceOf(def.value, removed);
-  sys.addCredits(credits, `sell:${def.id}`);
+  /*
+   * E-4 (⑦): one `sell:<id>:<qty>` transaction per stack — the relay accepts `qty ≤ stackMax` and at most
+   * `sellPriceOf(value, qty)`. A normal stack never exceeds `stackMax`, so this is a single transaction with exactly the
+   * old price; an oversized legacy stack is split so it is not refused.
+   */
+  const stack = Math.max(1, Math.floor(def.stackMax || 1));
+  const chunks: number[] = [];
+  for (let left = removed; left > 0; left -= Math.min(stack, left)) chunks.push(Math.min(stack, left));
+  const credits = chunks.reduce((sum, n) => sum + sellPriceOf(def.value, n), 0);
+  if (!sys.applyCreditsLocal(credits, formatCreditReason({ kind: 'sell', id: def.id, qty: removed }))) return false;
+  if (sys.serverCredits) {
+    let restoredUid = false;
+    for (const n of chunks) {
+      const price = sellPriceOf(def.value, n);
+      if (price <= 0) continue;
+      void sys.serverTx(price, formatCreditReason({ kind: 'sell', id: def.id, qty: n })).then((res) => {
+        if (!res || res.ok) return;                         // null = socket gone: the local sale stands (offline fallback)
+        // refused: serverTx already reverted the credits — put the units back where they came from
+        const reuseUid = !restoredUid && removed === snap.qty && !sys.findAnywhere(snap.uid);
+        restoredUid ||= reuseUid;
+        restoreSold(sys, snap, n, reuseUid, fromStash);
+        sys.store.data.stats.creditsEarned = Math.max(0, sys.store.data.stats.creditsEarned - price);
+        sys.store.markDirty();
+        sys.ctx.bus.emit('ui:notify', { text: `판매가 취소되었습니다 — ${def.name} (${res.reason || '서버 거절'})`, kind: 'warning' });
+      });
+    }
+  }
   sys.store.data.stats.creditsEarned += credits;
   sys.store.markDirty();
   sys.ctx.bus.emit('meta:sale', { defId: def.id, qty: removed, credits });
   return true;
+  }
+
+/** Put `units` of a refused sale back (stash first when it came from there). `reuseUid` = the whole stack left under this uid. */
+function restoreSold(sys: MetaSystem, snap: ItemInstance, units: number, reuseUid: boolean, fromStash: boolean): void {
+  const loot = sys.ctx.loot;
+  const inv = sys.ctx.inventory;
+  if (!loot || !inv) return;
+  let uid = snap.uid;
+  if (!reuseUid) {
+    try { uid = loot.createItem(snap.defId, units).uid; } catch { return; }
+  }
+  const item: ItemInstance = { ...(JSON.parse(JSON.stringify(snap)) as ItemInstance), uid, qty: units };
+  const placed = (fromStash && typeof inv.tryAddToStash === 'function' && inv.tryAddToStash(item)) || !!sys.addAnywhere(item);
+  if (!placed) console.warn(`[meta] refused sale: ${snap.defId} ×${units} found no home`);
   }
 
 export function getSellable(sys: MetaSystem): readonly ItemInstance[] {

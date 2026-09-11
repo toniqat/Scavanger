@@ -10,7 +10,7 @@ import {
   IMPLANT_SCAN_RADIUS, IMPLANT_SCAN_REVEAL_TIME_V2,
   IMPLANT_SHIELD_BASH_COOLDOWN, IMPLANT_SHIELD_BASH_DAMAGE, IMPLANT_SHIELD_BASH_KNOCKBACK, IMPLANT_SHIELD_BASH_RANGE, IMPLANT_SHIELD_BASH_STAMINA,
   IMPLANT_SHIELD_BASH_SWING_S,
-  Keys, MouseButtons, PLAYER_RADIUS,
+  Keys, MouseButtons, PLAYER_RADIUS, createBuffGuard, type BuffVerdict,
   type BuffMessage, type EnemyRef, type GameContext, type GameSystem, type ImplantDef, type ImplantId,
   type ImplantMessage, type ImplantsRef, type PeerId, type PlayerRef, type PlayerWeaponHost, type RelayTarget,
   type Vec3Tuple,
@@ -106,6 +106,10 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
   netHooked = false;
   readonly unsubs: Array<() => void> = [];
   readonly remoteBarriers: BarrierField[] = [];
+  /** 2026-09-11 (E-4): 받는 쪽 버프 상한 — `heal` · `boost` 는 이것을 통과해야 적용된다 (`parts/Wire.onBuff`). */
+  readonly buffGuard = createBuffGuard();
+  /** 마지막 `buff` 판정 (디버그 · smoke-trust). */
+  lastBuffVerdict: BuffVerdict | null = null;
 
   /* ═══════════════════════════ ImplantsRef ═══════════════════════════ */
   get equipped(): ImplantId | null { return this.equippedId; }
@@ -232,7 +236,7 @@ export class ImplantSystem implements GameSystem, ImplantsRef {
     const b = ctx.bus;
     this.unsubs.push(
       b.on('progress:loaded', ({ profile }) => this.applyProfile(profile.implant)),
-      b.on('game:newMission', () => this.reset()),
+      b.on('game:newMission', () => { this.reset(); this.buffGuard.reset(); }),
       b.on('game:abort', () => this.reset()),
       b.on('hub:entered', () => this.reset()),
       b.on('player:died', () => this.stow()),

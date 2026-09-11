@@ -118,5 +118,57 @@ export interface CreditLedger {
 export const CREDIT_REFUND_WINDOW_MS = 60_000;
 /** `contract:` payouts accepted per profile per rolling hour (a raid takes minutes; several contracts per raid never happen). */
 export const CREDIT_CONTRACT_MAX_PER_HOUR = 12;
-/** Env var / CLI flag the relay reads to accept `dev` reasons (verify runner, e2e, `npm run dev:all`). Off in the shipped exe. */
+/** Env var / CLI flag the relay reads to accept `dev` reasons (2026-09-11 사용자 결정: only the relay a smoke runner starts itself — `npm run dev:all` · `npm run server` · the shipped exe · the desktop shell keep it off). */
 export const CREDIT_DEV_ENV = 'SCAV_DEV_ECONOMY';
+
+/* ══ appended: 2026-09-11 (⑦ 서버 크레딧 검증 구현) ══════════════════════════════════════════════════════════════════
+ * - `credits:result.reason` has always been a **Korean sentence** the client shows (`크레딧 부족`), so the "invalid" refusal of
+ *   the table above goes out as `CREDIT_TX_INVALID_KO`, not the literal `'invalid'`.
+ * - `EconomyTable.hash` is the digest of the table **body** (`economyTableDigest`), i.e. of the numbers the csv produced —
+ *   not of the csv bytes: an unrelated csv edit (enemy hp) then does not mark the committed table stale. `data:check`
+ *   regenerates the body and fails when it (and so the digest) differs; the relay logs the digest at startup.
+ * - `repLevelMax` lets the relay compute the exact best-discount price. Optional only for shape compatibility — the
+ *   generator always writes it; without it `tableMinBuyPrice` falls back to `shopPriceMinMul` (a lower, still safe bound).
+ * ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────── */
+
+export interface EconomyTable {
+  /** `REP_LEVEL_MAX` of `shared/meta` (highest reputation level = the best shop discount). */
+  repLevelMax?: number;
+}
+
+/** The refusal text of a `credits:tx` the relay's economy rules do not accept (`credits:result {ok:false, reason}`). */
+export const CREDIT_TX_INVALID_KO = '서버가 거래를 확인하지 못했습니다';
+
+/** Cheapest price a `buy:` of an item with `value` can legitimately have: the best reputation level's discount. */
+export function tableMinBuyPrice(t: EconomyTable, value: number): number {
+  const mul = typeof t.repLevelMax === 'number' && Number.isFinite(t.repLevelMax)
+    ? Math.max(t.shopPriceMinMul, t.shopPriceBaseMul - t.shopPriceDiscountPerRep * Math.max(0, t.repLevelMax))
+    : Math.min(t.shopPriceBaseMul, t.shopPriceMinMul);
+  return Math.max(1, Math.round(value * mul));
+}
+
+/**
+ * Digest of everything in the table except `hash` itself: keys sorted recursively, then cyrb53 over the JSON, as 14 hex
+ * characters. Pure (the generator runs it under Vite, the relay under Node) — a fingerprint, not a security measure.
+ */
+export function economyTableDigest(t: Omit<EconomyTable, 'hash'> & { hash?: string }): string {
+  const canon = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(canon);
+    if (v && typeof v === 'object') {
+      const out: Record<string, unknown> = {};
+      for (const k of Object.keys(v as Record<string, unknown>).sort()) if (k !== 'hash') out[k] = canon((v as Record<string, unknown>)[k]);
+      return out;
+    }
+    return v;
+  };
+  const s = JSON.stringify(canon(t));
+  let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16).padStart(14, '0');
+}

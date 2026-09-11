@@ -68,6 +68,14 @@ export class MetaSystem implements GameSystem, MetaRef {
   readonly syncAnswered = new Set<PeerId>();
   /** A rejoin is under way: ask the squad for its hits once the world is ready. */
   private syncRequestPending = false;
+  /**
+   * 2026-09-11 (E-4): id of the `metaq sync` this client sent this mission (0 = none). A `meta sync` is accepted only when
+   * it echoes this `rid`, once per peer (`syncRepliedBy`) — an unrequested catch-up can no longer pump the contract.
+   */
+  syncRid = 0;
+  readonly syncRepliedBy = new Set<PeerId>();
+  /** 2026-09-11 (E-4): `meta contractHit` token buckets keyed `<peer>|<goal>` (`META_HIT_RATE`, burst ×2). */
+  readonly hitBuckets = new Map<string, { tokens: number; at: number }>();
   /* Phase 9 UI pass: the squad's contracts, so the HUD can draw a row per member (`meta contract`). */
   /** Last `meta contract` broadcast per peer; an `id: null` broadcast removes the entry. Never holds the local peer. */
   readonly squadContracts = new Map<PeerId, { id: string; progress: number }>();
@@ -98,6 +106,15 @@ export class MetaSystem implements GameSystem, MetaRef {
         if (!counting()) return;
         if (by !== undefined && by !== 'local' && by !== (ctx.net?.localId ?? null)) return;
         this.localHit(killGoalOf(type), 1);
+      }),
+      /*
+       * 2026-09-11 (E-4): a squad-mate's kill, derived from the host's authoritative death (`enemies/` emits it on every
+       * client). The squad share of kill goals comes from here only — `meta contractHit` kill goals are ignored.
+       */
+      b.on('enemy:squadKill', ({ type, by }) => {
+        if (!counting() || !ctx.isMultiplayer) return;
+        if (typeof by !== 'string' || by === (ctx.net?.localId ?? null)) return;
+        this.reportContractHit(killGoalOf(type), 1, false);
       }),
       b.on('crate:open', ({ crateId }) => {
         if (!counting() || this.cratesCounted.has(crateId)) return;
@@ -167,7 +184,10 @@ export class MetaSystem implements GameSystem, MetaRef {
     this.syncRequestPending = false;
     const net = this.ctx.net;
     if (!this.ctx.isMultiplayer || !net || typeof net.send !== 'function' || this.inTraining()) return;
-    net.send({ t: 'metaq', ev: 'sync' }, 'others');
+    // 2026-09-11 (E-4): a request id the answers must echo (`Credits.onMetaMessage` drops a `meta sync` without it)
+    this.syncRid = 1 + Math.floor(Math.random() * 0x7ffffffe);
+    this.syncRepliedBy.clear();
+    net.send({ t: 'metaq', ev: 'sync', rid: this.syncRid }, 'others');
   }
 
   /* ── helpers ─────────────────────────────────────────────────────────────── */
@@ -232,6 +252,9 @@ export class MetaSystem implements GameSystem, MetaRef {
     this.questBlocked.clear();
     this.sentHits.clear();
     this.syncAnswered.clear();
+    this.syncRid = 0;
+    this.syncRepliedBy.clear();
+    this.hitBuckets.clear();
     this.clearSquadContracts();
     this.lastContractSent = '';
   }

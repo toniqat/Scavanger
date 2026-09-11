@@ -41,6 +41,14 @@ export class StratagemSystem implements GameSystem, StratagemsRef {
   warnedNoObstacle = false;
   /** True while a synced call is fast-forwarded to its landed state: no impact damage / bursts / shake / audio (Phase 9). */
   silent = false;
+  /**
+   * 2026-09-11 (E-4) **host only**: wall-clock second (`performance.now() / 1000`) at which each non-host caller's shared
+   * cooldown ends, set when the host accepts their `stratq call` / grants their `rescue req`. Empty on a new host
+   * (migration) and at every mission reset — the worst case is one extra call, accepted by the plan.
+   */
+  readonly callerReadyAt = new Map<PeerId, number>();
+  /** Last reason a `stratq call` / `rescue req` was refused on this host (debug · smoke-trust). */
+  lastCallRefusal: string | null = null;
 
   /* ── StratagemsRef state ── */
   _armed: StratagemId | null = null;

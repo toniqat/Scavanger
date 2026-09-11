@@ -128,6 +128,11 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   /** Debug counters (smoke tests): rogue grenades thrown / exploded on this client. */
   grenadesThrown = 0;
   grenadesExploded = 0;
+  /**
+   * 2026-09-11 (E-4 · X-6) debug counters of the host's request guards (`parts/Damage.onHitRequest`): hits trimmed /
+   * dropped by the per-sender DPS budget, knockback requests refused for a sender too far from the enemy.
+   */
+  readonly hitGuardStats = { trimmed: 0, dropped: 0, kbRefused: 0 };
   /** Debug: where the last rogue grenade went off. */
   readonly lastGrenadeBlast = new THREE.Vector3();
   private readonly unsub: Array<() => void> = [];
@@ -228,7 +233,14 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     if (!net || this.netUnsub.length > 0) return;
     this.netUnsub.push(
       net.onMessage('es', (msg) => { if (this.replica) this.replicaMgr.onSnapshot(msg); }),
-      net.onMessage('ee', (msg) => { if (this.replica) this.replicaMgr.onEvent(msg); }),
+      // 2026-09-11 (E-4): enemy events are host-authoritative — a non-host's `ee` (e.g. a forged `kill` to pump squad
+      // contract kills through `enemy:squadKill`) is dropped. No lobby (test harness) = nothing to compare with.
+      net.onMessage('ee', (msg, from) => {
+        if (!this.replica) return;
+        const hostId = net.lobby?.hostId;
+        if (hostId && from !== hostId) return;
+        this.replicaMgr.onEvent(msg);
+      }),
       net.onMessage('hitc', (msg) => {
         if (!this.replica) return;
         if (msg.killed) this.ctx.bus.emit('ui:hitmarker', { kill: true, headshot: msg.part === 'head' });

@@ -11,6 +11,7 @@ Everything every feature folder depends on. Append-only: add new events/fields, 
 | `types.ts` | `GamePhase`, `MissionStats`, item/weapon defs, `*Ref` interfaces (World, Player, EnemyManager, Inventory, Loot), `Interactable`, `GameSystem` |
 | `events.ts` | `GameEvents` map: every bus event name → payload type, grouped by owning module |
 | `lightPool.ts` | **점광원 풀** (2026-09-11, `hub/interiors` 에서 옮김) — 광원 자리(`LightFixture`)는 얼마든지, 진짜 광원은 `size` 개만 가까운 자리로 옮겨 단다 (intensity 만 움직이고 `visible` 은 안 건드린다). `update(dt, px, pz, zone?, eyeY?)` — `eyeY` 를 주면 층이 다른 자리를 뒤로 민다. 함선(`HUB_POINT_LIGHTS`)과 행성 구조물(`STRUCTURE_POINT_LIGHTS`)이 쓴다 |
+| `buffRules.ts` | **받는 쪽 버프 상한** (2026-09-11 E-4, 본문 ⑤) — `createBuffGuard()` (heal = 보낸 사람별 + 전체 토큰 버킷 · boost 배수 [1, 오버차지] · 지속 상한 · revive/cloak 사거리, 수치는 전부 `data/`), `buffSenderOf(net, from, me)` (로비 멤버 · 스냅샷 거리), `buffLineClear(world, from, to)` (보내는 쪽 가슴 → 가슴 레이). implants · gadgets 가 받고 weapons · implants 가 보낸다 |
 | `fragile.ts` | `breakFragileAlong(world, from, to)` (2026-09-11) — 투척물이 한 걸음 선분 위의 **깨지는 판(창문 유리)** 을 깨고 지나가게 한다. weapons · gadgets · enemies 공용 |
 | `EventBus.ts` | Typed synchronous emitter (`on/once/off/emit`) |
 | `Input.ts` | Keyboard/mouse state with per-frame pressed/released sets, pointer lock helpers. `endFrame()` called by Engine |
@@ -638,6 +639,22 @@ Plan: `docs/DECISIONS.md`. Everything below is append-only; owners in brackets.
 
 ## 변경 이력
 
+- **2026-09-11 (E-4 신뢰 경로 본문, 추가만 — 에이전트 ⑤)** — `buffRules.ts` 본문: `createBuffGuard` 가 자리표시에서 실제 상한으로
+  (보낸 사람 · 사거리 · 치유 버킷 · boost / 지속 clamp), `buffRangeOf` · `buffHealRate` · `buffSenderOf` · `buffLineClear` 추가,
+  `BuffSender.id?` 추가(보낸 사람별 치유 버킷). 스프레이 수치는 `items.csv` 의 `sprayTick` · `sprayHeal` · `sprayRadius` 를 같이 읽는다.
+  `constants.ts`/`data/constants.csv`: `STRAT_COOLDOWN_SLACK_S` · `BUFF_HEAL_BURST_S` · `HIT_REQUEST_DPS_MAX` · `HIT_REQUEST_BURST_S` ·
+  `HIT_KNOCKBACK_RANGE_SLACK` · `CRATE_OPEN_RANGE_SLACK` (+ `STRAT_MAX_CALL_RANGE` 설명 정정, 값 150 유지).
+
+- **2026-09-11 (E-4 서버 크레딧 검증, 추가만 — 에이전트 ⑦)** — `credits.ts` 에 덧붙임: `EconomyTable.repLevelMax?`(최고 신뢰도 레벨 —
+  생성기가 늘 쓴다) · `tableMinBuyPrice(t, value)`(최고 할인가, `buy:` 하한) · `CREDIT_TX_INVALID_KO`(`credits:result.reason` 은
+  원래 사용자에게 보이는 한국어라 계약 주석의 `'invalid'` 는 이 문구로 나간다) · `economyTableDigest(t)`(순수 cyrb53 — `hash` 는
+  **표 본문의 digest** 로 정의를 보강: csv 바이트가 아니라 csv 가 만든 숫자라 무관한 csv 수정이 표를 stale 로 만들지 않는다).
+  기존 export 는 이름 · 동작 그대로. 구현은 `server/Economy.ts`, 생성은 `scripts/economy-table.mjs`, 사유 사용처는 `meta/parts/*`.
+
+- **2026-09-11 (B-1, 추가만 — 에이전트 ④)** — `net.ts`: `NET_SHELL_RELAY_ROUTE = '/__scav/relay'` (데스크톱 셸의 `{target, source}`
+  라우트). `net/parts/Socket` 이 임베디드 목표(프로브 금지)를 가르려고 읽는다. 같은 문자열이 `electron/main.ts` 의 `RELAY_ROUTE` 와
+  `ui/menus/SettingsMenu` 의 `SHELL_RELAY_ROUTE` 에 따로 적혀 있다 — 둘을 이 상수로 바꾸는 것은 각 폴더 담당(리드 할 일).
+
 - **2026-09-11 (소셜 · 신뢰 · 연결 계약, 추가만 — `docs/plans/net-social-trust.md`)** — `net.ts`: `lobby:left.reason?/to?`(B-6) ·
   `social:whisper.nonce?` · `profile:set.baseRev?/writeId?` · `strat call.by?` · `stratq call` · `meta sync.rid?` / `metaq sync.rid?` ·
   `ClientToServerAppended2026_09_11b`(`social:inviteReply` · `social:block` · `profile:setMany`) · `ServerToClientAppended2026_09_11b`
@@ -654,6 +671,9 @@ Plan: `docs/DECISIONS.md`. Everything below is append-only; owners in brackets.
   `SOLO_CLOCK_BACK_TOLERANCE_MS` · `SOLO_CLOCK_HIGH_KEY` · `WHISPER_HISTORY_PER_PEER / _PEERS` · `WHISPER_STORAGE_KEY`.
   `NET_*` 두 타이밍은 이웃 `NET_RECONNECT_BACKOFF_MS` 처럼 `net.ts` TS 리터럴이다. 구현 클래스(`NetSystem` · `ProfileSync` · `SocialSync` ·
   `ui/menus/social/socialSource`)에는 typecheck 용 자리만 넣었다.
+  **추가 (에이전트 ③ 저장 무결성)**: `types.ts` 의 새 `InventoryRef` 블록 — **`flushSaves?()`**(E-6: 디바운스 중인 창고 · 로드아웃
+  저장을 지금 쓰고 둘 다 바뀌었으면 `setMany` 하나로 — meta 퀘스트 완료가 자기 트랜잭션에 합치려고 부른다) · **`soloRaidSeed?`**
+  (E-5: 로컬 로드아웃 파일의 솔로 레이드 표식, 부팅 때 game/ 이 솔로 저장과 맞춰 본다). 둘 다 옵셔널이라 옛 구현은 그대로 컴파일된다.
 
 - **2026-09-11 (B-2 프로필 GC, 추가만)** — `profile.ts`: `ProfileRecord.seenAt?`(서버 내부 — 접속 · 해제 시각, 와이어 스냅샷에는
   없다) + `PROFILE_GC_INACTIVE_MS`(90일). `social.ts`: `SocialRecord.requestsAt?`(대기 중인 친구 요청마다 서버 시각, 양쪽에 같은 값) +

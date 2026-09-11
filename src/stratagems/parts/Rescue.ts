@@ -20,6 +20,7 @@ import {
 import { dustBurst } from '../Visuals';
 import { Call, defOf, toTuple } from '../model';
 import type { StratagemSystem } from '../StratagemSystem';
+import { callRefusal, fromHost, wallSeconds } from './Wire';
 
 /** Single-player id used everywhere a `PeerId` is expected but no relay exists. */
 export const SOLO_ID = 'sp';
@@ -143,6 +144,8 @@ export function grant(sys: StratagemSystem, target: string, position: THREE.Vect
   const seed = (Math.random() * 0xffffffff) >>> 0;
   const pos = scatterOne(sys, position, seed);
   const callId = `${selfId(sys)}-r${++sys.seq}`;
+  // 2026-09-11 (E-4): 분대원의 구조선도 공유 쿨타임을 탄다 — 호스트가 그 사람의 다음 호출 시각을 적어 둔다
+  if (ctx.isMultiplayer && ctx.net?.isHost && by !== selfId(sys)) sys.callerReadyAt.set(by as PeerId, wallSeconds() + def.cooldown);
   setRescueLeft(sys, sys._rescueLeft - 1, true);
   applyGrant(sys, callId, target, by, pos, def.delay);
   const net = ctx.net;
@@ -240,7 +243,22 @@ export function onRescueMessage(sys: StratagemSystem, msg: RescueMessage, from: 
   if (msg.ev === 'req') {
     if (!net?.isHost) return;
     if (!Array.isArray(msg.p) || msg.p.length !== 3) return;
+    /*
+     * 2026-09-11 (E-4): the same host checks as every other ship call (`Wire.callRefusal` — member · alive · in the map ·
+     * `STRAT_MAX_CALL_RANGE` · the caller's shared cooldown). A cooldown refusal answers `deny busy`; anything else is a
+     * forged request and is dropped silently. The target must be a lobby member.
+     */
+    const why = callRefusal(sys, from, msg.p);
+    if (why) {
+      sys.lastCallRefusal = `rescue:${why}`;
+      if (why === 'cooldown') deny(sys, from, 'busy');
+      return;
+    }
+    if (typeof msg.target !== 'string' || !net.lobby?.players.some((m) => m.id === msg.target)) { sys.lastCallRefusal = 'rescue:target'; return; }
     grant(sys, msg.target, new THREE.Vector3(msg.p[0], msg.p[1], msg.p[2]), from);
+  } else if (net && !fromHost(net, from)) {
+    // 2026-09-11 (E-4): grant · deny · count 는 호스트만 보낸다
+    return;
   } else if (msg.ev === 'grant') {
     if (!Array.isArray(msg.p) || msg.p.length !== 3) return;
     const pos = new THREE.Vector3(msg.p[0], msg.p[1], msg.p[2]);

@@ -22,6 +22,8 @@ import {
 import { CorpView } from '../ui/CorpView';
 import { CORP_ALIASES, GOAL_IDS, type ImplantRepairInfo, type ImplantRepairResult, type PurchaseFailure, isValidHit } from '../model';
 import type { MetaSystem } from '../MetaSystem';
+/* 2026-09-11 (E-4 ⑦): 크레딧 사유는 계약 문법으로 (`shared/credits.ts`). */
+import { formatCreditReason } from '@/shared';
 
 /** `MetaRef.getSquadContracts` — other members only, in peer order. */
 export function getSquadContracts(sys: MetaSystem): readonly SquadContractInfo[] {
@@ -160,7 +162,7 @@ export function settleMission(sys: MetaSystem, stats: MissionStats): ContractSet
     sys.store.data.stats.contractsDone += 1;
     if (settlement.rep > 0) sys.addRep(def.corp, settlement.rep, `contract:${def.id}`);
     if (settlement.credits > 0) {
-      sys.addCredits(settlement.credits, `contract:${def.id}`);
+      sys.addCredits(settlement.credits, formatCreditReason({ kind: 'contract', id: def.id }));   // E-4: = contracts.csv reward, ≤ 12/h
       sys.store.data.stats.creditsEarned += settlement.credits;
     }
   } else {
@@ -200,6 +202,25 @@ export function acceptQuest(sys: MetaSystem, id: string): boolean {
   return true;
   }
 
+/**
+ * 2026-09-11 (E-6): a completed quest took items out of the 창고 / 가방 and wrote `complete` into the meta save — one edit,
+ * so it goes to the server as **one** transaction (all or nothing): a crash or a refused write in between can no longer
+ * leave the reward handed out with the delivery still in the 창고, or the reverse. The inventory writes its debounced
+ * saves now (`InventoryRef.flushSaves`), meta flushes its own, and the queued documents are joined with
+ * `ProfileRef.setMany` (it skips a key whose document did not change). Offline the same transaction waits in the queue.
+ */
+function commitQuestTx(sys: MetaSystem): void {
+  const p = sys.profileRef();
+  try { sys.ctx.inventory?.flushSaves?.(); } catch { /* inventory not ready */ }
+  sys.save();
+  if (!p || typeof p.setMany !== 'function' || typeof p.get !== 'function') return;
+  try {
+    const docs: Partial<Record<'meta' | 'stash' | 'loadout', unknown>> = {};
+    for (const k of ['meta', 'stash', 'loadout'] as const) { const d = p.get(k); if (d !== undefined) docs[k] = d; }
+    if (Object.keys(docs).length > 1) p.setMany(docs);
+  } catch { /* net not ready */ }
+  }
+
 export function completeQuest(sys: MetaSystem, id: string): boolean {
   const def = QUEST_DEFS.find((d) => d.id === id);
   if (!def || !sys.inShip) return false;
@@ -237,13 +258,14 @@ export function completeQuest(sys: MetaSystem, id: string): boolean {
   sys.store.corp(def.corp).quests[id] = 'complete';
   sys.store.data.stats.questsDone += 1;
   if (def.rewards.credits) {
-    sys.addCredits(def.rewards.credits, `quest:${id}`);
+    sys.addCredits(def.rewards.credits, formatCreditReason({ kind: 'quest', id }));   // E-4: = quests.csv reward, once per quest (relay ledger)
     sys.store.data.stats.creditsEarned += def.rewards.credits;
   }
   if (def.rewards.rep) sys.addRep(def.corp, def.rewards.rep, `quest:${id}`);
   const prog = sys.ctx.progression;
   if (def.rewards.xp > 0 && prog && typeof prog.addXp === 'function') { try { prog.addXp(def.rewards.xp); } catch { /* progression not ready */ } }
   sys.store.markDirty();
+  commitQuestTx(sys);
   sys.ctx.bus.emit('meta:questChanged', { id, corp: def.corp, state: 'complete' });
   return true;
   }

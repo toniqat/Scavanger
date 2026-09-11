@@ -18,6 +18,9 @@ import {
   type StratagemCallWire,
 } from '@/shared';
 import {
+  STRAT_COOLDOWN_SLACK_S, STRAT_MAX_CALL_RANGE, STRATAGEM_HOST_ONLY, type NetRef, type StratagemRequest,
+} from '@/shared';
+import {
   SharedGeo, TargetRing, CallMarker, Burst, dustBurst, sparkBurst, LaserBeam, Fireball, SupplyCrateMesh, BarricadeMesh, makeRubble, KIND_COLOR,
 } from '../Visuals';
 import { AIRSTRIKE_FX_TIME, Call, GRENADE_STRUCTURE_DAMAGE, type Host, LASER_TICK, SHAKE_RANGE, STRUCTURE_DROP_HEIGHT, STRUCTURE_MIN_GAP, STRUCTURE_STAGGER, SUPPLY_DROP_HEIGHT, Structure, TARGET_EMIT_EPS, WHEEL_DRAG_PX, _a, _b, _dir, defOf, toTuple } from '../model';
@@ -33,21 +36,32 @@ export function ensureNetHooks(sys: StratagemSystem): void {
   sys.unsubs.push(
     net.onMessage('strat', (msg, from) => {
       if (msg.ev === 'call') {
-        if (sys.byId.has(msg.callId)) return;
+        /*
+         * 2026-09-11 (E-4): a ship call is only real when **the host** says so — a non-host's `strat call` is dropped
+         * (theirs goes through `stratq call` first). `by` names the caller; our own echoed call is the effect owner.
+         * Kind whitelist here too (never a 구조선 — that one only exists through `rescue grant`).
+         */
+        if (!fromHost(net, from)) return;
+        if (typeof msg.callId !== 'string' || sys.byId.has(msg.callId) || !isCallKind(msg.kind) || !isTuple(msg.p)) return;
         const p = new THREE.Vector3(msg.p[0], msg.p[1], msg.p[2]);
         const w = sys.world();
         if (w) p.y = w.getHeightAt(p.x, p.z);
-        sys.createCall(msg.kind, p, msg.eta, msg.seed, false, msg.callId, from);
+        const by = typeof msg.by === 'string' && msg.by ? msg.by : from;
+        const eta = THREE.MathUtils.clamp(Number(msg.eta) || 0, 0, defOf(msg.kind).delay);
+        sys.createCall(msg.kind, p, eta, (Number(msg.seed) >>> 0), by === net.localId, msg.callId, by);
       } else if (msg.ev === 'structHp') {
         const s = sys.byId.get(msg.callId)?.structures[msg.index];
         if (s && !s.destroyed && msg.hp < s.hp) sys.setStructureHp(s, msg.hp);
       } else if (msg.ev === 'sync') {
-        sys.applySync(msg.calls);
+        if (!fromHost(net, from)) return;
+        if (Array.isArray(msg.calls)) sys.applySync(msg.calls);
       }
     }),
     // Phase 9: the host is the late-join sync authority (calls stay client-simulated)
     net.onMessage('stratq', (msg, from) => {
       if (msg.ev === 'sync' && net.isHost) sys.sendSync(from);
+      // 2026-09-11 (E-4): a squad-mate confirmed a ship call — validate and re-broadcast
+      else if (msg.ev === 'call') onCallRequest(sys, msg, from);
     }),
     net.onMessage('flow', (msg, from) => {
       if (msg.ev === 'rejoined' && net.isHost) sys.sendSync(from);
@@ -56,6 +70,80 @@ export function ensureNetHooks(sys: StratagemSystem): void {
     net.onMessage('rescue', (msg, from) => Rescue.onRescueMessage(sys, msg, from)),
   );
   }
+
+/* ─────────────────────────── E-4: 호스트 경유 호출 (2026-09-11) ─────────────────────────── */
+
+/**
+ * The message came from the lobby host. Without a lobby (single-player harness, smoke-stratagems' synthetic `HOST`)
+ * there is nobody to compare with and it passes — in a real session the lobby always exists.
+ */
+export function fromHost(net: NetRef, from: PeerId): boolean {
+  const hostId = net.lobby?.hostId;
+  return !hostId || from === hostId;
+}
+
+/** A kind a `strat call` may carry: a known def, never the 구조선 (that one only exists through `rescue grant`). */
+export function isCallKind(kind: unknown): kind is StratagemId {
+  return typeof kind === 'string' && kind !== 'rescue_drop' && STRATAGEM_DEFS.some((d) => d.id === kind);
+}
+
+function isTuple(p: unknown): p is Vec3Tuple {
+  return Array.isArray(p) && p.length === 3 && p.every((v) => typeof v === 'number' && Number.isFinite(v));
+}
+
+/** Wall clock (s) the host measures caller cooldowns with — `ctx.time` stalls during a shader hold, a caller's does not run faster. */
+export function wallSeconds(): number { return performance.now() / 1000; }
+
+/**
+ * Host-side shared checks of a squad-mate's ship call (`stratq call` and `rescue req`): an in-raid, connected lobby
+ * member other than me, alive by its snapshot, aiming inside the map within `STRAT_MAX_CALL_RANGE` of that snapshot,
+ * whose shared cooldown (`callerReadyAt`, minus `STRAT_COOLDOWN_SLACK_S`) has run out. Returns the refusal reason or null.
+ */
+export function callRefusal(sys: StratagemSystem, from: PeerId, p: unknown): string | null {
+  const ctx = sys.ctx;
+  const net = ctx.net;
+  if (!net || !net.isHost || !ctx.isMultiplayer) return 'not_host';
+  if (from === net.localId) return 'self';
+  if (!ctx.isGameplayPhase()) return 'phase';
+  const member = net.lobby?.players.find((m) => m.id === from);
+  if (!member || member.connected === false) return 'member';
+  if (!isTuple(p)) return 'point';
+  const w = sys.world();
+  if (!w || !w.isInsideBounds(p[0], p[2])) return 'bounds';
+  const ref = net.getRemotePlayer(from);
+  if (!ref || ref.isDead) return 'caller';
+  if (Math.hypot(p[0] - ref.position.x, p[2] - ref.position.z) > STRAT_MAX_CALL_RANGE) return 'range';
+  const readyAt = sys.callerReadyAt.get(from) ?? 0;
+  if (wallSeconds() < readyAt - STRAT_COOLDOWN_SLACK_S) return 'cooldown';
+  return null;
+}
+
+/**
+ * `stratq call` on the host. Kind must be on the wheel (`STRATAGEM_ORDER`, not the 구조선), not host-only, the callId
+ * must be the caller's own (`<from>-…`) and unused. The host rewrites `eta` from the csv `delay`, starts the caller's
+ * cooldown, creates the call as remote (`local = false` — enemy damage stays on the caller's client) and broadcasts
+ * `strat call {…, by}` to everyone else, the caller included. A refusal is silent.
+ */
+export function onCallRequest(sys: StratagemSystem, msg: Extract<StratagemRequest, { ev: 'call' }>, from: PeerId): void {
+  const net = sys.ctx.net;
+  if (!net || !net.isHost) return;
+  const refuse = (why: string): void => { sys.lastCallRefusal = why; };
+  if (typeof msg.callId !== 'string' || msg.callId.length > 64 || !msg.callId.startsWith(`${from}-`) || sys.byId.has(msg.callId)) { refuse('callId'); return; }
+  const kind = msg.kind;
+  if (!isCallKind(kind) || !STRATAGEM_ORDER.includes(kind)) { refuse('kind'); return; }
+  if (STRATAGEM_HOST_ONLY.includes(kind)) { refuse('host_only'); return; }
+  const why = callRefusal(sys, from, msg.p);
+  if (why) { refuse(why); return; }
+  const def = defOf(kind);
+  sys.callerReadyAt.set(from, wallSeconds() + def.cooldown);
+  const w = sys.world()!;
+  const pos = new THREE.Vector3(msg.p[0], 0, msg.p[2]);
+  pos.y = w.getHeightAt(pos.x, pos.z);
+  const seed = Number(msg.seed) >>> 0;
+  sys.lastCallRefusal = null;
+  sys.createCall(kind, pos, def.delay, seed, false, msg.callId, from);
+  net.send({ t: 'strat', ev: 'call', callId: msg.callId, kind, p: toTuple(pos), eta: def.delay, seed, by: from }, 'others');
+}
 
 /** Every live call as `StratagemCallWire` (`eta` relative to now, `st` = damaged structures only). */
 export function syncWire(sys: StratagemSystem): StratagemCallWire[] {

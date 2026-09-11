@@ -22,6 +22,7 @@ import * as Remote from './parts/Remote';
 import * as Preview from './parts/Preview';
 import * as Mount from './parts/Mount';
 import { LARGE_DEPLOYABLE_KINDS, MOUNTABLE_DEPLOYABLE_KINDS, type PlacementPreview } from '@/shared';
+import { createBuffGuard, type BuffVerdict } from '@/shared';
 
 export class GadgetSystem implements GameSystem, GadgetsRef {
   readonly name = 'gadgets';
@@ -37,6 +38,10 @@ export class GadgetSystem implements GameSystem, GadgetsRef {
   readonly itemDefCache = new Map<GadgetId, string>();
   seq = 0;
   netHooked = false;
+  /** 2026-09-11 (E-4): 받는 쪽 버프 상한 — `revive` · `cloak` 은 이것을 통과해야 적용된다 (`parts/Wire.onBuff`). */
+  readonly buffGuard = createBuffGuard();
+  /** 마지막 `buff` 판정 (디버그 · smoke-trust). */
+  lastBuffVerdict: BuffVerdict | null = null;
   useCooldown = 0;
   /** Over / under-hand throw toggle (B), shared with grenades. */
   underhand = false;

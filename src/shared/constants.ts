@@ -1421,6 +1421,18 @@ export const BUFF_HEAL_RATE_MARGIN = K.num('BUFF_HEAL_RATE_MARGIN');
 export const META_HIT_RATE = K.num('META_HIT_RATE');
 /** E-4 (owner: stratagems): 호스트가 받는 함선 호출의 최대 거리(m). */
 export const STRAT_MAX_CALL_RANGE = K.num('STRAT_MAX_CALL_RANGE');
+/* appended (2026-09-11, E-4 ⑤ — 추가만) */
+/** E-4 (owner: stratagems): 호스트의 호출자별 공유 쿨타임 여유(초). */
+export const STRAT_COOLDOWN_SLACK_S = K.num('STRAT_COOLDOWN_SLACK_S');
+/** E-4 (owner: shared/buffRules): 받는 쪽 치유 버킷 크기(초). */
+export const BUFF_HEAL_BURST_S = K.num('BUFF_HEAL_BURST_S');
+/** E-4 (owner: enemies): 호스트가 받는 hit 요청의 보낸 사람별 초당 피해 상한 · 버킷 크기(초). */
+export const HIT_REQUEST_DPS_MAX = K.num('HIT_REQUEST_DPS_MAX');
+export const HIT_REQUEST_BURST_S = K.num('HIT_REQUEST_BURST_S');
+/** X-6 (owner: enemies): 넉백 요청 기하 검사의 거리 여유(m). */
+export const HIT_KNOCKBACK_RANGE_SLACK = K.num('HIT_KNOCKBACK_RANGE_SLACK');
+/** C-57 (owner: world): `crate opened` 거리 검사의 여유(m). */
+export const CRATE_OPEN_RANGE_SLACK = K.num('CRATE_OPEN_RANGE_SLACK');
 /** E-5 (owner: game/SoloRaid): 시계 역행 허용 폭(ms). */
 export const SOLO_CLOCK_BACK_TOLERANCE_MS = K.num('SOLO_CLOCK_BACK_TOLERANCE_MS');
 /** E-5: 지금까지 본 가장 늦은 `Date.now()` 를 적어 두는 키 (`slotKey` 를 통과시킨다). */

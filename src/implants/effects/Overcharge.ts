@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Layers, type GameContext, type RemotePlayerRef } from '@/shared';
+import { Layers, buffLineClear, type GameContext, type RemotePlayerRef } from '@/shared';
 import type { BeamMesh, ImplantFx } from '../fx/ImplantFx';
 
 /** Cone half-angle (cos) the ally must be inside to be locked on. */
@@ -8,6 +8,8 @@ const LOCK_COS = Math.cos(0.42);   // ~24°
 const CHEST_Y = 1.15;
 
 const _to = new THREE.Vector3();
+const _from = new THREE.Vector3();
+const _chest = new THREE.Vector3();
 
 /** World point the beam should latch onto for a remote ally. */
 export function allyPoint(ref: RemotePlayerRef, out: THREE.Vector3): THREE.Vector3 {
@@ -23,6 +25,8 @@ export function findAlly(ctx: GameContext, origin: THREE.Vector3, dir: THREE.Vec
   if (!net) return null;
   let best: RemotePlayerRef | null = null;
   let bestDot = LOCK_COS;
+  const me = ctx.player;
+  if (me) _from.copy(me.position).setY(me.position.y + CHEST_Y);
   for (const r of net.getRemotePlayers()) {
     if (!r.connected || r.stale || r.isDead) continue;
     allyPoint(r, _to).sub(origin);
@@ -30,7 +34,10 @@ export function findAlly(ctx: GameContext, origin: THREE.Vector3, dir: THREE.Vec
     if (d < 0.2 || d > range) continue;
     _to.divideScalar(d);
     const dot = _to.dot(dir);
-    if (dot > bestDot) { bestDot = dot; best = r; }
+    if (dot <= bestDot) continue;
+    // 2026-09-11 (E-4): 벽 · 지형 뒤의 분대원은 잡지 않는다 — 내 가슴 → 그 가슴이 트여 있어야 한다 (`shared/buffLineClear`)
+    if (me && !buffLineClear(ctx.world, _from, allyPoint(r, _chest))) continue;
+    bestDot = dot; best = r;
   }
   return best;
 }

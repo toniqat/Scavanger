@@ -15,7 +15,7 @@ size (no more per-tab resizing) and every item requirement is a `buildItemChip` 
 | `model.ts` | 폴더 공용 어휘 — `MetaSystem` 에서 떼어낸 상수 · 타입 · 스크래치. 클래스를 참조하지 않으므로 `parts/*` 가 순환 import 없이 쓴다. `MetaSystem.ts` 가 재수출하므로 기존 import 경로는 그대로다 |
 | `parts/Trade.ts` | **기업 상점: 구매 · 판매 · 가격**. 신뢰도가 무엇을 팔지 정하고(`getShop`), 크레딧은 릴레이가 있으면 **서버 트랜잭션**이다: 낙관적으로 차감 → `credits:tx` → `ok` 에서 아이템 지급, 실패하면 전액 되돌림. 오프라인이면 같은 검사를 로컬에서 미리 하고 끝낸다. |
 | `parts/Contracts.ts` | **계약 · 퀘스트**. 계약은 하나만 활성이고 목표 카운터가 버스 이벤트(`enemy:killed` / `crate:open` / …)에서 오른다. 분대원의 진척은 `meta contractHit` 로 공유되고, 레이드가 끝나면 `settleMission` 이 `outcome` 에 따라 정산한다. 퀘스트는 가방 + 창고에서 납품받는 사슬이다. **훈련장에서는 아무것도 세지 않는다.** |
-| `parts/Credits.ts` | **크레딧 · 신뢰도 · 서버 프로필**. 크레딧 잔액의 유일한 소유자. 릴레이가 있으면 서버가 진실이고(`serverTx`), 없으면 localStorage 다. `net:profileLoaded` 에서 서버 값을 받아들이는 규칙(`adoptServerCredits`)도 여기 있다. |
+| `parts/Credits.ts` | **크레딧 · 신뢰도 · 서버 프로필**. 크레딧 잔액의 유일한 소유자. 릴레이가 있으면 서버가 진실이고(`serverTx`), 없으면 localStorage 다. `net:profileLoaded` 에서 서버 값을 받아들이는 규칙(`adoptServerCredits`)도 여기 있다. 분대 중계(`meta` · `metaq`)의 검증 — 로비 멤버 · 킬 목표 무시 · 토큰 버킷 · `rid` 짝맞춤 — 도 여기다 (2026-09-11 E-4). |
 | `parts/ImplantDesk.ts` | **세레스 바이오 임플란트 수리 데스크** (Phase 12). 레이드에서는 **망가진 임플란트만** 나온다. 여기서 재료 + 수수료를 내고 고치면 쓸 수 있는 물건이 된다. 크레딧 경로는 구매와 완전히 같고(서버 트랜잭션 / 오프라인 분기), 실패하면 재료까지 전액 되돌린다. |
 | `parts/Console.ts` | 개발자 콘솔 명령 `credits` / `rep` / `contract` / `quest` / `implant`. dev 클라이언트에서만 등록된다(`src/console` 참고). 게임 규칙은 하나도 갖지 않고 위의 API 만 부른다. |
 | `Storage.ts` | `MetaSave` v1: `freshMetaSave()`, `sanitizeMetaSave()` (clamped credits, known corp / quest / contract ids only, only `accepted` / `complete` quest states kept), `MetaStorage` (load, 350 ms debounced `markDirty()`, `flush()` on `pagehide` / hub entry / dispose, every storage access in try/catch). Phase 7: `flush()` = `writeCache()` (localStorage) + `upload()` (`ctx.net.profile.set('meta', snapshot())`); `replace(doc)` adopts a server document without echoing it back. **Phase 9**: `upload()` dropped its `available` guard — the document is handed to `ProfileSync` offline too (stamped + queued, newest wins on the next connection) — and `MAX_PROGRESS` is exported so live hits clamp to the same ceiling as a load. |
@@ -45,6 +45,10 @@ size (no more per-tab resizing) and every item requirement is a `buildItemChip` 
   The corp screen refreshes on `meta:purchase`, never on the return value of `buy()`.
 - **Sale** (`getSellable / sellPriceOf / sell`): bag + stash items with a value, equipped gear excluded; `sellPriceOf(value, qty)` = value × 0.5;
   `sell` = ship only → `inventory.takeItem(uid, qty)` (stub → false) → credits for the units actually removed → `meta:sale`.
+  2026-09-11 (E-4): the server transaction is `sell:<def>:<qty>` (one per `stackMax` chunk); a relay refusal reverts the credits **and puts the
+  units back** (same uid when the whole stack left, stash first when it came from there) with a `ui:notify` warning.
+- **Credit reasons (2026-09-11, E-4)**: every `credits:tx` reason comes from `formatCreditReason` (`src/shared/credits.ts`) — the relay parses it
+  and checks the amount against `server/economy.gen.json`; a malformed / wrong-amount transaction answers `CREDIT_TX_INVALID_KO` and is reverted.
 - **Contracts**: one active (`CONTRACT_MAX_ACTIVE`), accepted in the ship at `minRepLevel` → `meta:contractAccepted`; `abandonContract` drops it
   (progress lost). Progress from bus events **only during a gameplay phase**: `enemy:killed` (`rogue | rogue_boss` → `kill_rogues`, else `kill_bugs`),
   `crate:open` → `open_crates`, `inventory:containerOpened {corpse:…, first}` → `loot_corpses` (fallback `crate:looted` on a `corpse:` id until that
@@ -270,6 +274,31 @@ Implants are **items** (`ItemDef.implant`, category `'implant'`, owner items/ �
 ---
 
 ## 변경 이력
+
+- **2026-09-11 (E-6 퀘스트 완료 트랜잭션 — 에이전트 ③)** — `parts/Contracts.completeQuest` 끝의 저장이 `commitQuestTx` 를 거친다:
+  `ctx.inventory.flushSaves?.()`(창고 · 로드아웃 디바운스를 지금) → `save()`(meta) → `ProfileRef.setMany({meta, stash, loadout})`
+  (`get` 으로 방금 큐에 들어간 문서를 모은다 — 바뀌지 않은 키는 `setMany` 가 건너뛴다). 납품 차감 · 보상 지급 · `complete` 기록이
+  서버에 **한 번에 전부 또는 전무**로 간다 (`net/README.md` `문서 리비전`). 크레딧 tx 는 여전히 따로다(`credits:tx`, ⑦).
+
+- **2026-09-11 (E-4 서버 크레딧 검증 — 에이전트 ⑦)** — 릴레이가 이제 `credits:tx` 의 사유를 해석하고 금액을 검사한다
+  (`server/README.md` 의 `서버 크레딧 검증`). meta 쪽은 **사유를 계약 문법으로만** 만든다 — 모든 tx 가 `shared/credits.formatCreditReason`:
+  `buy:<def>` · `refund:<def>` (`Trade`), `sell:<def>:<qty>` (**qty 가 붙었다**), `repair:<broken>` · `refund:repair:<broken>` (`ImplantDesk`),
+  `contract:<id>` · `quest:<id>` (`Contracts`), `migrate` (`Credits`), `console` (`Console`, dev 사유 — `SCAV_DEV_ECONOMY` 가 없는 릴레이는
+  되돌린다). 정상 흐름은 금액이 그대로라 거절되지 않는다(표의 가격 식이 `buyPriceOf` · `sellPriceOf` · `implantRepairFee` 와 같은 값이라는
+  것을 `data:check` 가 매번 검산한다). **판매 거절 시 아이템 복구**: `sell` 은 여전히 `takeItem` 을 먼저 하지만(연타 이중 판매 방지)
+  빼기 직전 인스턴스를 복사해 두고, 서버가 거절하면 크레딧 되돌림(`serverTx`)에 더해 **그 유닛을 되돌려 놓는다** — 통째로 판 스택은
+  같은 uid · 내구도 · 소켓 그대로, 원래 창고에 있었으면 창고부터(`restoreSold`) + `ui:notify` warning `판매가 취소되었습니다 — …`,
+  `stats.creditsEarned` 도 뺀다. 소켓이 끊긴(`null`) 판매는 예전처럼 로컬 판매가 선다. 스택이 `stackMax` 를 넘는 옛 인스턴스는
+  스택 단위로 tx 를 나눈다(서버는 `qty ≤ stack` 만 받는다). 검증: 자기 릴레이(8895, 새 서버 코드)에 붙인 실제 흐름 — 레벨 1 · 5 구매 ·
+  일괄 구매 · 배치 실패 환불 · 부분 판매 37/43 · 일괄 판매 · 임플란트 수리 + `refund:repair` · 계약 정산 · 퀘스트 — 15 tx 전부 수락,
+  변조한 판매(+1)는 거절되고 같은 uid 가 창고로 돌아옴 (27/27).
+
+- **2026-09-11 (E-4 — 분대 계약은 호스트의 적 사망에서 파생 · 중계 검증)** — `MetaSystem` 이 `enemy:squadKill`(enemies/ 가 호스트 권위
+  사망에서 모든 클라이언트에 낸다)을 구독해 킬 목표(`kill_bugs` · `kill_rogues`)의 분대 몫을 **스스로** 센다. `parts/Credits.onMetaMessage`:
+  ① 보낸 사람이 연결된 로비 멤버여야 한다(`meta contract` 포함) ② `contractHit` 의 킬 목표는 무시 ③ 나머지는 보낸 사람 · 목표별 토큰
+  버킷(`META_HIT_RATE`/s, 버스트 ×2 — `MetaSystem.hitBuckets`) ④ `meta sync` 는 내가 보낸 `metaq sync.rid`(`MetaSystem.syncRid`)와 짝이
+  맞고 보낸 사람당 한 번(`syncRepliedBy`)만. `onMetaRequest` 는 요청의 `rid` 를 되돌려 준다. 셋 다 `game:newMission` 에서 비운다.
+  내 킬의 `contractHit` 송신(`Contracts.reportContractHit`)은 그대로다 — 구버전 수신자 호환 · `sentHits` 기록. 검사: `scripts/smoke-trust.mjs`.
 
 - **2026-09-11 (C 항목 배치 — C-2 · C-6 · C-10 · X-1)** — ① **`open_crates` 계약 진척이 상자 id 별 한 번**(X-1):
   `crate:open` 은 이미 연 상자에 E 를 누를 때마다 다시 나오므로 연타로 계약을 채울 수 있었다. `cratesCounted`

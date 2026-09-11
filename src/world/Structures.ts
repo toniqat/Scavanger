@@ -130,6 +130,8 @@ export class Structures {
   setOpenListener(cb: ((id: string) => void) | null): void { this.containers.setOpenListener(cb); }
   /** 남이 연 컨테이너를 열린 모습으로. 이 묶음의 것이 아니면 false. */
   markContainerOpened(id: string): boolean { return this.containers.markOpened(id); }
+  /** 2026-09-11 (C-57): 컨테이너 위치 (없으면 null). */
+  containerPositionOf(id: string): THREE.Vector3 | null { return this.containers.positionOf(id); }
 
   build(ctx: BuildCtx, game: GameContext): void {
     this.game = game;

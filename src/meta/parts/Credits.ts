@@ -13,6 +13,7 @@ import {
   CONTRACT_DEFS, CONTRACT_GOAL_LABEL_KO, CORP_DEFS, CORP_IDS, CREDITS_MAX, META_HIT_MAX, QUEST_DEFS, formatCredits,
   repLevelOf, sellPriceOf,
 } from '@/shared';
+import { META_HIT_RATE } from '@/shared';
 import { MAX_PROGRESS, MetaStorage } from '../Storage';
 import {
   REASON, buildShop, canRepairImplant, contractBlockReason, contractHitDelta, corpSells, implantRepairCost, implantRepairFee,
@@ -21,6 +22,8 @@ import {
 import { CorpView } from '../ui/CorpView';
 import { CORP_ALIASES, GOAL_IDS, type ImplantRepairInfo, type ImplantRepairResult, type PurchaseFailure, isValidHit } from '../model';
 import type { MetaSystem } from '../MetaSystem';
+/* 2026-09-11 (E-4 ⑦): 크레딧 사유는 계약 문법으로 (`shared/credits.ts`). */
+import { formatCreditReason } from '@/shared';
 
 export function subscribeNet(sys: MetaSystem): void {
   const net = sys.ctx.net;
@@ -37,17 +40,30 @@ export function subscribeNet(sys: MetaSystem): void {
  */
 export function onMetaMessage(sys: MetaSystem, msg: GameMessageOf<'meta'>, from: PeerId): void {
   if (!sys.ctx.isGameplayPhase() || sys.inTraining()) return;
+  // 2026-09-11 (E-4): only a connected member of my lobby (never myself) moves my contract or my squad HUD rows
+  if (!isSquadMate(sys, from)) return;
   // `contract` describes the *sender's* contract, so it is never filtered by ours
   if (msg.ev === 'contract') {
-    if (typeof from === 'string' && from !== sys.ctx.net?.localId) sys.applySquadContract(from, msg.id, msg.progress);
+    sys.applySquadContract(from, msg.id, msg.progress);
     return;
   }
   const def = sys.activeDef();
   if (!def || !CORP_IDS.includes(msg.corp) || def.corp !== msg.corp) return;
   if (msg.ev === 'contractHit') {
     if (!isValidHit(msg.goal, msg.amount, META_HIT_MAX)) return;
-    sys.reportContractHit(msg.goal, msg.amount, false);
+    /*
+     * 2026-09-11 (E-4): kill goals are counted from the host's authoritative deaths (`enemy:squadKill`, MetaSystem) —
+     * a relayed kill hit is ignored so a forged one cannot pump them. Everything else passes a per-sender, per-goal
+     * token bucket (`META_HIT_RATE`/s, burst ×2); an over-budget hit is trimmed to what is left.
+     */
+    if (msg.goal === 'kill_bugs' || msg.goal === 'kill_rogues') return;
+    const amount = spendHitBudget(sys, `${from}|${msg.goal}`, msg.amount);
+    if (amount <= 0) return;
+    sys.reportContractHit(msg.goal, amount, false);
   } else if (msg.ev === 'sync') {
+    // 2026-09-11 (E-4): only the answer to the `metaq sync` this client sent (its `rid`), once per peer
+    if (!(sys.syncRid > 0) || msg.rid !== sys.syncRid || sys.syncRepliedBy.has(from)) return;
+    sys.syncRepliedBy.add(from);
     if (!Array.isArray(msg.hits)) return;
     for (const entry of msg.hits) {
       if (!Array.isArray(entry) || entry.length < 2) continue;
@@ -56,6 +72,28 @@ export function onMetaMessage(sys: MetaSystem, msg: GameMessageOf<'meta'>, from:
       sys.reportContractHit(goal, n, false);
     }
   }
+  }
+
+/** 2026-09-11 (E-4): `from` is a connected lobby member other than me (single-player has no relayed meta at all). */
+function isSquadMate(sys: MetaSystem, from: PeerId): boolean {
+  const net = sys.ctx.net;
+  if (!net || typeof from !== 'string' || from === net.localId) return false;
+  const member = net.lobby?.players.find((p) => p.id === from);
+  return !!member && member.connected !== false;
+}
+
+/** 2026-09-11 (E-4): take up to `amount` from the `key` bucket (`META_HIT_RATE`/s, capacity 2 × rate); returns what was granted. */
+function spendHitBudget(sys: MetaSystem, key: string, amount: number): number {
+  const now = performance.now() / 1000;
+  const cap = META_HIT_RATE * 2;
+  let b = sys.hitBuckets.get(key);
+  if (!b) { b = { tokens: cap, at: now }; sys.hitBuckets.set(key, b); }
+  b.tokens = Math.min(cap, b.tokens + Math.max(0, now - b.at) * META_HIT_RATE);
+  b.at = now;
+  const give = Math.min(amount, Math.floor(b.tokens));
+  if (give < 1) return 0;
+  b.tokens -= give;
+  return give;
   }
 
 /** `metaq sync`: answer a rejoining peer once per mission with the hits broadcast so far (only with an active contract). */
@@ -73,7 +111,9 @@ export function onMetaRequest(sys: MetaSystem, msg: MetaRequest, from: PeerId): 
     if (v >= 1) hits.push([goal, v]);
   }
   if (hits.length === 0) return;
-  net.send({ t: 'meta', ev: 'sync', corp: def.corp, hits }, from);
+  // 2026-09-11 (E-4): echo the requester's id — it drops a `meta sync` it did not ask for
+  const rid = typeof msg.rid === 'number' && Number.isFinite(msg.rid) ? msg.rid : undefined;
+  net.send({ t: 'meta', ev: 'sync', corp: def.corp, hits, rid }, from);
   }
 
 /** `ctx.net.profile` when net published one (always present since Phase 7, `available` false offline). */
@@ -149,7 +189,8 @@ export function onProfileLoaded(sys: MetaSystem, migrated: boolean): void {
   } else if (migrated || p.credits === null) {
     // first contact: the local balance becomes the server balance
     sys.store.data.credits = localCredits;
-    void sys.serverTx(localCredits, 'migrate', false);
+    // E-4 (⑦): accepted only while the server balance is null (once), clamped to CREDITS_MAX; a refusal adopts the server's
+    void sys.serverTx(localCredits, formatCreditReason({ kind: 'migrate', id: '' }), false);
   }
   sys.store.writeCache();                     // the cache carries the server balance, not the document's stale one
   sys.progressAtStart = sys.store.data.activeContract?.progress ?? 0;

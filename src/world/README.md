@@ -696,6 +696,13 @@ without a 목표 행성; the arena / target-mode half is green), `smoke-rogue-v2
 
 ## 변경 이력
 
+- **2026-09-11 (C-57 — `crate opened` 받는 쪽 검증, 에이전트 ⑤)** — `WorldSystem.ensureOpenNet`: 분대원의 `crate opened` 는 ① id 가 이
+  월드에 있고(`openablePositionOf` = `Crates.positionOf` → `Structures.containerPositionOf` → `Rails.containerPositionOf`) ② 보낸 사람 스냅샷이
+  그 자리에서 max(`PLAYER_INTERACT_RANGE`, `STRUCTURE_INTERACT_RANGE`) + `CRATE_OPEN_RANGE_SLACK` 안(3-D)일 때만 받는다 — 거절은
+  `openRefused` 로 센다. `applyOpened` 는 없는 id 를 `openedIds` 에 넣지 않으므로 **호스트의 `crate sync` 는 검증된 id 만 되돌려 준다**.
+  `crate sync` 는 로비 호스트에게서만. 새 메서드(읽기 전용): `Crates.positionOf` · `ContainerSet.positionOf` · `Structures.containerPositionOf`
+  · `Rails.containerPositionOf`. 검사: `scripts/smoke-trust.mjs`.
+
 - **2026-09-11 (C 항목 배치 — 에이전트 3 · 월드, `docs/plans/c-batch.md` §7)** — 새 계약 없음 (리드 커밋 `36e15e3`:
   `SurfaceMaterial` · `WorldRef.getSurfaceMaterial?` · `EnemyManagerRef.pushBack` · `shared/ride` · `GATHER_*`).
   ① **C-38** `getStandingObstacle` 동점 = 움직이는 발판 먼저 (코드 리드) — `smoke-structures` 0번 단언 3건(두 삽입 순서 ·

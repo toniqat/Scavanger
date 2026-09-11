@@ -1751,6 +1751,22 @@ export interface InventoryRef {
     cols: number, rows: number, title?: string): void;
 }
 
+export interface InventoryRef {
+  /* ── appended (2026-09-11): 저장 무결성 — E-5 · E-6 (owner: inventory) ── */
+  /**
+   * E-6: write the debounced 창고 / 로드아웃 saves **now** (localStorage + the profile queue — both changed → one
+   * `ProfileRef.setMany`). A caller whose edit spans documents (meta/ quest completion) runs this first and then joins the
+   * queued documents into its own transaction. Optional: an older build simply has no merged save.
+   */
+  flushSaves?(): void;
+  /**
+   * E-5: the seed of the **solo raid** the persisted loadout was carried into (`raidSeed` marker, written at a solo raid's
+   * `world:ready`, cleared when it ends — extraction, 레이드 실패, abort). Read at boot by game/: a marker without a solo
+   * raid save of the same seed means the save was deleted → the run is lost like a stale one. null = none.
+   */
+  readonly soloRaidSeed?: number | null;
+}
+
 /* ══ appended: 2026-09-09 — 레이드 플레이 개선 (구조물 · 선로 · 환경 재해 · 로그 강하 · 의사소통) ═════════════
  * 계약은 **추가만** 한다. 소유 폴더는 각 절의 머리에 적었다.
  * 관련 문서: docs/DECISIONS.md 의 `2026-09-09 레이드 플레이 개선`.

@@ -21,6 +21,8 @@ import {
 import { CorpView } from '../ui/CorpView';
 import { CORP_ALIASES, GOAL_IDS, type ImplantRepairInfo, type ImplantRepairResult, type PurchaseFailure, isValidHit } from '../model';
 import type { MetaSystem } from '../MetaSystem';
+/* 2026-09-11 (E-4 ⑦): 사유는 계약 문법으로 — 릴레이가 `repair:` = −수리비, `refund:repair:` = 그 짝을 검사한다. */
+import { formatCreditReason } from '@/shared';
 
 /** Every broken implant in the bag + stash (equipped implants live in progression, so they never show up). */
 export function getRepairableImplants(sys: MetaSystem): ImplantRepairInfo[] {
@@ -87,14 +89,15 @@ export function repairImplant(sys: MetaSystem, uid: string): boolean {
   if (!info) return false;
   if (info.blocked) { sys.finishRepair({ uid, brokenId: info.broken.id, targetId: info.target?.id ?? null, fee: info.fee, ok: false, reason: info.blocked }); return false; }
   const target = info.target!;
-  const reason = `repair:${info.broken.id}`;
+  const reason = formatCreditReason({ kind: 'repair', id: info.broken.id });
+  const refund = formatCreditReason({ kind: 'refund-repair', id: info.broken.id });
   if (!sys.applyCreditsLocal(-info.fee, reason)) {
     sys.finishRepair({ uid, brokenId: info.broken.id, targetId: target.id, fee: info.fee, ok: false, reason: REASON.credits });
     return false;
   }
   if (!sys.serverCredits) {
     const res = sys.performRepair(uid, info.broken, target);
-    if (!res.ok) sys.applyCreditsLocal(info.fee, `refund:${reason}`);
+    if (!res.ok) sys.applyCreditsLocal(info.fee, refund);
     else { sys.store.data.stats.creditsSpent += info.fee; sys.store.markDirty(); }
     sys.finishRepair({ uid, brokenId: info.broken.id, targetId: target.id, fee: info.fee, ...res });
     return res.ok;
@@ -110,8 +113,8 @@ export function repairImplant(sys: MetaSystem, uid: string): boolean {
     // `null` = socket gone mid-transaction: the local debit stands (offline fallback) and the repair is delivered
     const res = sys.performRepair(uid, info.broken, target);
     if (!res.ok) {
-      sys.applyCreditsLocal(info.fee, `refund:${reason}`);
-      if (tx) void sys.serverTx(info.fee, `refund:${reason}`, false);
+      sys.applyCreditsLocal(info.fee, refund);
+      if (tx) void sys.serverTx(info.fee, refund, false);
     } else { sys.store.data.stats.creditsSpent += info.fee; sys.store.markDirty(); }
     sys.finishRepair({ uid, brokenId: info.broken.id, targetId: target.id, fee: info.fee, ...res });
   });

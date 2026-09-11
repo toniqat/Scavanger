@@ -305,10 +305,21 @@ export function confirm(sys: StratagemSystem, def: StratagemDef): void {
     if (who) sys.confirmRescue(who, target);
     return;
   }
-  const call = sys.createCall(def.id, target, def.delay, seed, true);
   sys.audio('ui_click', undefined, 0.6);
   const net = sys.ctx.net;
+  /*
+   * 2026-09-11 (E-4) **호스트 경유**: 분대원은 호출을 여기서 세우지 않고 `stratq call` 을 호스트에게 보낸다. 호스트가
+   * 종류 · 호스트 전용 · 호출자별 쿨타임 · 맵 안 · 사거리를 보고 `strat call {by}` 로 재방송하면, 그 메시지가 나에게도
+   * 돌아와(`by === 나` → `local`) 그때 호출이 선다 — 호출에는 원래 수 초의 `delay` 가 있어 한 홉은 느껴지지 않는다.
+   * 거절되면 아무 데서도 서지 않는다 (쿨타임은 이미 돌았다 — 잃어버린 프레임과 같다).
+   */
+  if (sys.ctx.isMultiplayer && net && !net.isHost) {
+    const callId = `${net.localId ?? 'sp'}-${++sys.seq}`;
+    net.send({ t: 'stratq', ev: 'call', callId, kind: def.id, p: toTuple(target), seed }, 'host');
+    return;
+  }
+  const call = sys.createCall(def.id, target, def.delay, seed, true);
   if (sys.ctx.isMultiplayer && net) {
-    net.send({ t: 'strat', ev: 'call', callId: call.id, kind: def.id, p: toTuple(target), eta: def.delay, seed }, 'others');
+    net.send({ t: 'strat', ev: 'call', callId: call.id, kind: def.id, p: toTuple(target), eta: def.delay, seed, by: net.localId ?? undefined }, 'others');
   }
   }
