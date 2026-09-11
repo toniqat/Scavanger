@@ -16,19 +16,26 @@
  *    모든 계정이 영구히 사라졌다(백업도 없었다). 이제 원본을 `profiles.corrupt-<시각>.json` 으로 옮겨 **보존**하고
  *    `.bak`(직전 세대)에서 복구한다. `.bak` 도 없으면 빈 DB 로 시작하되 원본은 그대로 남는다.
  *  - 파일 포맷(`{v:1, profiles}`)은 바뀌지 않았다.
+ *
+ * **2026-09-11 (B-2) — GC.** 토큰으로 한 번이라도 붙은 사람마다 프로필(≈ 5.7 KB)이 영원히 남던 것을 정리한다.
+ * `seenAt`(접속 · 해제 시각) 기준 `PROFILE_GC_INACTIVE_MS`(90일) 동안 안 온 프로필을 통째로 지우고, 남은 프로필의
+ * 친구 · 요청 · 최근 목록에서 그 아이디를 뺀다. 최근 만난 플레이어(`SOCIAL_RECENT_TTL_MS`)와 답 없는 친구 요청
+ * (`SOCIAL_REQUEST_TTL_MS`, `SocialRecord.requestsAt`)은 30일에 따로 만료된다. 무엇을 지우지 않을지(접속 중 · 로비
+ * 멤버)는 릴레이가 `collectGarbage(keep)` 로 알려 준다.
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { mkdir, open, rename, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { CreditsTxResult, ProfileDocKey, ProfileRecord } from '../src/shared/profile.ts';
-import { PROFILE_CLOCK_SKEW_MS, PROFILE_DOC_KEYS, PROFILE_DOC_MAX_BYTES } from '../src/shared/profile.ts';
+import { PROFILE_CLOCK_SKEW_MS, PROFILE_DOC_KEYS, PROFILE_DOC_MAX_BYTES, PROFILE_GC_INACTIVE_MS } from '../src/shared/profile.ts';
 import type { PeerId } from '../src/shared/net.ts';
 import { sanitizePlayerName } from '../src/shared/net.ts';
 /* Phase 11 */
 import type { PlayerCode, SocialCard, SocialErrorCode, SocialRecord } from '../src/shared/social.ts';
 import {
-  SOCIAL_FRIEND_MAX, SOCIAL_RECENT_MAX, SOCIAL_REQUEST_MAX, isValidPlayerCode, playerCodeFrom,
+  SOCIAL_FRIEND_MAX, SOCIAL_RECENT_MAX, SOCIAL_RECENT_TTL_MS, SOCIAL_REQUEST_MAX, SOCIAL_REQUEST_TTL_MS,
+  isValidPlayerCode, playerCodeFrom,
 } from '../src/shared/social.ts';
 
 export const PROFILE_FILE = 'profiles.json';
@@ -44,6 +51,22 @@ export const CREDITS_MIGRATE_REASON = 'migrate';
 export const CREDITS_REFUSED_KO = '크레딧 부족';
 /** Default data directory: `server/data/` next to this file (git-ignored). */
 export const DEFAULT_DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), 'data');
+/** 2026-09-11 (B-2): how often the relay runs `collectGarbage` (it also runs once at startup). */
+export const PROFILE_GC_INTERVAL_MS = 6 * 60 * 60_000;
+
+/** 2026-09-11 (B-2): what one `ProfileStore.collectGarbage` pass did. */
+export interface ProfileGcReport {
+  /** Profiles deleted because their owner had not connected for `PROFILE_GC_INACTIVE_MS`. */
+  removed: PeerId[];
+  /** Friend / request / 최근 만난 플레이어 entries whose 아이디 no longer belongs to any profile. */
+  danglingRefs: number;
+  /** 최근 만난 플레이어 entries older than `SOCIAL_RECENT_TTL_MS`. */
+  expiredRecent: number;
+  /** Request entries older than `SOCIAL_REQUEST_TTL_MS` — one unanswered request is two entries (incoming + outgoing). */
+  expiredRequests: number;
+  /** Surviving profiles whose social lists changed (the relay re-sends their snapshot and rebuilds their watches). */
+  changed: PeerId[];
+}
 
 export interface ProfileStoreOptions {
   /** Directory holding `profiles.json`. `null` = memory only. Default `server/data/`. */
@@ -92,9 +115,9 @@ function codeList(raw: unknown, cap: number, drop: ReadonlySet<PlayerCode>): Pla
 /**
  * Clean one stored `SocialRecord`: array caps, invalid / duplicate codes, the profile's own code and any code that is
  * already a friend are dropped from the request / recent lists. A code the index cannot place is cleared here and
- * re-assigned by `assignCode` during `load`.
+ * re-assigned by `assignCode` during `load`. `now` stamps a pending request that has no `requestsAt` entry yet (B-2).
  */
-function sanitizeSocial(raw: unknown): SocialRecord | null {
+function sanitizeSocial(raw: unknown, now: number = Date.now()): SocialRecord | null {
   if (!isRecord(raw)) return null;
   const code = typeof raw.code === 'string' && isValidPlayerCode(raw.code) ? raw.code : '';
   const salt = typeof raw.salt === 'number' && Number.isFinite(raw.salt) ? Math.max(0, Math.floor(raw.salt)) : 0;
@@ -118,10 +141,22 @@ function sanitizeSocial(raw: unknown): SocialRecord | null {
     }
   }
   const updatedAt = typeof raw.updatedAt === 'number' && Number.isFinite(raw.updatedAt) ? raw.updatedAt : 0;
-  return { code, salt, name, level, friends, incoming, outgoing, recent, updatedAt };
+  const out: SocialRecord = { code, salt, name, level, friends, incoming, outgoing, recent, updatedAt };
+  /* B-2: one stamp per pending request, kept only for codes still pending; a legacy request is stamped `now`. */
+  const rawAt = isRecord(raw.requestsAt) ? raw.requestsAt : {};
+  const pending = [...incoming, ...outgoing];
+  if (pending.length > 0) {
+    const requestsAt: Record<PlayerCode, number> = {};
+    for (const c of pending) {
+      const v = rawAt[c];
+      requestsAt[c] = typeof v === 'number' && Number.isFinite(v) ? Math.min(Math.max(0, Math.floor(v)), now) : now;
+    }
+    out.requestsAt = requestsAt;
+  }
+  return out;
 }
 
-function sanitizeRecord(raw: unknown): ProfileRecord | null {
+function sanitizeRecord(raw: unknown, now: number = Date.now()): ProfileRecord | null {
   if (!isRecord(raw)) return null;
   const credits = typeof raw.credits === 'number' && Number.isFinite(raw.credits) ? Math.max(0, Math.floor(raw.credits)) : null;
   const docs: Partial<Record<ProfileDocKey, unknown>> = {};
@@ -144,8 +179,10 @@ function sanitizeRecord(raw: unknown): ProfileRecord | null {
     if (any) rec.docsAt = docsAt;
   }
   /* Phase 11: the social half is server-owned, so unlike `docs` it is validated field by field. */
-  const social = sanitizeSocial(raw.social);
+  const social = sanitizeSocial(raw.social, now);
   if (social) rec.social = social;
+  /* B-2: written by this server's own clock — clamped to it (a clock that ran ahead must not keep a profile forever). */
+  if (typeof raw.seenAt === 'number' && Number.isFinite(raw.seenAt)) rec.seenAt = Math.min(Math.max(0, Math.floor(raw.seenAt)), now);
   return rec;
 }
 
@@ -244,8 +281,9 @@ export class ProfileStore {
         }
       }
       let n = 0;
+      const loadedAt = Date.now();   // one stamp for every legacy request, so both halves of a pair expire together
       for (const [id, raw] of Object.entries(profiles)) {
-        const rec = sanitizeRecord(raw);
+        const rec = sanitizeRecord(raw, loadedAt);
         if (rec && typeof id === 'string' && id.length > 0) { this.profiles.set(id, rec); n++; }
       }
       // Recovered from a backup → put a proper main file back as soon as possible.
@@ -436,6 +474,9 @@ export class ProfileStore {
     if (mine.outgoing.length >= SOCIAL_REQUEST_MAX || theirs.incoming.length >= SOCIAL_REQUEST_MAX) return 'limit';
     mine.outgoing.unshift(theirs.code);
     theirs.incoming.unshift(mine.code);
+    const at = Date.now();   // B-2: the same stamp on both halves, so the GC withdraws them together
+    (mine.requestsAt ??= {})[theirs.code] = at;
+    (theirs.requestsAt ??= {})[mine.code] = at;
     this.touchSocial(mine);
     this.touchSocial(theirs);
     return 'ok';
@@ -452,6 +493,8 @@ export class ProfileStore {
     if (accept && (mine.friends.length >= SOCIAL_FRIEND_MAX || theirs.friends.length >= SOCIAL_FRIEND_MAX)) return 'limit';
     mine.incoming = mine.incoming.filter((c) => c !== theirs.code);
     theirs.outgoing = theirs.outgoing.filter((c) => c !== mine.code);
+    if (mine.requestsAt) delete mine.requestsAt[theirs.code];
+    if (theirs.requestsAt) delete theirs.requestsAt[mine.code];
     if (accept) {
       if (!mine.friends.includes(theirs.code)) mine.friends.unshift(theirs.code);
       if (!theirs.friends.includes(mine.code)) theirs.friends.unshift(mine.code);
@@ -496,6 +539,91 @@ export class ProfileStore {
     push(a, b.code);
     push(b, a.code);
     return changed;
+  }
+
+  /* ── 2026-09-11 (B-2): garbage collection ─────────────────────────────── */
+
+  /** The owner connected or disconnected just now (the relay calls this for token sockets only). Never creates a record. */
+  touchSeen(id: PeerId, now: number = Date.now()): void {
+    const rec = this.profiles.get(id);
+    if (!rec) return;
+    rec.seenAt = now;
+    this.markDirty();
+  }
+
+  /**
+   * When the owner was last around: `seenAt`, else (a record from before 2026-09-11) the newest write it has.
+   * 0 = unknown (an untouched placeholder) — such a record is never collected.
+   */
+  private lastSeen(rec: ProfileRecord): number {
+    return rec.seenAt ?? Math.max(rec.updatedAt, rec.social?.updatedAt ?? 0);
+  }
+
+  /**
+   * One GC pass. ① Deletes every profile whose owner has not been seen for `PROFILE_GC_INACTIVE_MS` unless `keep(id)`
+   * (the relay passes "connected or a lobby member") — its 아이디 leaves the index, so the same token coming back later
+   * starts over as a new profile. ② On every survivor, drops friend / request / 최근 만난 플레이어 entries whose 아이디 no
+   * longer resolves, 최근 entries older than `SOCIAL_RECENT_TTL_MS` and requests older than `SOCIAL_REQUEST_TTL_MS`.
+   *
+   * A legacy record's `seenAt` is filled from `lastSeen` on its first pass: otherwise a friend request *to* an abandoned
+   * profile (which bumps its `social.updatedAt`) would keep it alive forever. The GC itself never bumps `updatedAt`.
+   */
+  collectGarbage(keep: (id: PeerId) => boolean = () => false, now: number = Date.now()): ProfileGcReport {
+    const report: ProfileGcReport = { removed: [], danglingRefs: 0, expiredRecent: 0, expiredRequests: 0, changed: [] };
+    let dirty = false;
+    for (const [id, rec] of this.profiles) {
+      const seen = this.lastSeen(rec);
+      if (seen <= 0) continue;
+      if (rec.seenAt === undefined) { rec.seenAt = seen; dirty = true; }
+      if (now - seen <= PROFILE_GC_INACTIVE_MS || keep(id)) continue;
+      const code = rec.social?.code;
+      if (code && this.byCode.get(code) === id) this.byCode.delete(code);
+      this.profiles.delete(id);   // deleting the current entry is safe while iterating a Map
+      report.removed.push(id);
+      dirty = true;
+    }
+    for (const [id, rec] of this.profiles) {
+      const soc = rec.social;
+      if (!soc) continue;
+      const resolves = (c: PlayerCode): boolean => {
+        if (this.byCode.has(c)) return true;
+        report.danglingRefs++;
+        return false;
+      };
+      const reqAt = soc.requestsAt ?? {};
+      const stillPending = (c: PlayerCode): boolean => {
+        if (!resolves(c)) return false;
+        const at = reqAt[c];
+        if (at !== undefined && now - at > SOCIAL_REQUEST_TTL_MS) { report.expiredRequests++; return false; }
+        return true;
+      };
+      const friends = soc.friends.filter(resolves);
+      const incoming = soc.incoming.filter(stillPending);
+      const outgoing = soc.outgoing.filter(stillPending);
+      const recent = soc.recent.filter((r) => {
+        if (!resolves(r.code)) return false;
+        if (now - r.at > SOCIAL_RECENT_TTL_MS) { report.expiredRecent++; return false; }
+        return true;
+      });
+      const changed = friends.length !== soc.friends.length || incoming.length !== soc.incoming.length
+        || outgoing.length !== soc.outgoing.length || recent.length !== soc.recent.length;
+      if (!changed) continue;
+      soc.friends = friends;
+      soc.incoming = incoming;
+      soc.outgoing = outgoing;
+      soc.recent = recent;
+      const pending = [...incoming, ...outgoing];
+      if (pending.length === 0) delete soc.requestsAt;
+      else {
+        const next: Record<PlayerCode, number> = {};
+        for (const c of pending) if (reqAt[c] !== undefined) next[c] = reqAt[c];
+        soc.requestsAt = next;
+      }
+      report.changed.push(id);
+      dirty = true;
+    }
+    if (dirty) this.markDirty();
+    return report;
   }
 
   private markDirty(): void {

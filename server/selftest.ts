@@ -10,12 +10,13 @@ import { join } from 'node:path';
 import type { ClientToServer, ServerToClient, LobbyState } from '../src/shared/net.ts';
 import type { RaidSessionBlob } from '../src/shared/profile.ts';
 import { NET_WS_PATH, NET_TOKEN_PARAM, NET_NAME_PARAM, NET_TOKEN_LENGTH } from '../src/shared/net.ts';
-import { PROFILE_CLOCK_SKEW_MS, PROFILE_DOC_MAX_BYTES, RAID_BLOB_MAX_BYTES } from '../src/shared/profile.ts';
+import { PROFILE_CLOCK_SKEW_MS, PROFILE_DOC_MAX_BYTES, PROFILE_GC_INACTIVE_MS, RAID_BLOB_MAX_BYTES } from '../src/shared/profile.ts';
 /* Phase 11 */
 import type { PlanetId } from '../src/shared/planets.ts';
 import type { PlayerCode } from '../src/shared/social.ts';
 import {
-  SOCIAL_ERROR_MESSAGE_KO, SOCIAL_FRIEND_MAX, SOCIAL_RECENT_MAX, SOCIAL_WHISPER_MAX, isValidPlayerCode, playerCodeFrom,
+  SOCIAL_ERROR_MESSAGE_KO, SOCIAL_FRIEND_MAX, SOCIAL_RECENT_MAX, SOCIAL_RECENT_TTL_MS, SOCIAL_REQUEST_TTL_MS,
+  SOCIAL_WHISPER_MAX, isValidPlayerCode, playerCodeFrom,
 } from '../src/shared/social.ts';
 import { startRelayServer, peerIdFromToken, PEER_ID_LENGTH } from './RelayServer.ts';
 import { ProfileStore, PROFILE_BACKUP_SUFFIX, PROFILE_FILE, SOCIAL_LEVEL_MAX } from './Store.ts';
@@ -1396,6 +1397,129 @@ async function main(): Promise<void> {
       s10.close();
     } finally {
       rmSync(dir8, { recursive: true, force: true });
+    }
+
+    /* ── part 8b (2026-09-11, B-2): 프로필 GC — 비활성 프로필 삭제 · 끊긴 아이디 · 최근 목록 / 친구 요청 만료 ── */
+    {
+      const DAY = 24 * 60 * 60_000;
+      const T = Date.now();
+      const g = new ProfileStore({ dataDir: null, quiet: true });
+      for (const id of ['gc-old', 'gc-fresh', 'gc-kept', 'gc-friend']) g.ensureSocial(id, id);
+      const oldCode = g.social('gc-old')!.code;
+      g.addFriendRequest('gc-friend', 'gc-old');
+      g.respondFriendRequest('gc-old', 'gc-friend', true);
+      g.recordMet('gc-fresh', 'gc-old', T);
+      g.addFriendRequest('gc-kept', 'gc-old');
+      g.touchSeen('gc-old', T - PROFILE_GC_INACTIVE_MS - DAY);
+      g.touchSeen('gc-fresh', T - PROFILE_GC_INACTIVE_MS + DAY);
+      g.touchSeen('gc-kept', T - 2 * PROFILE_GC_INACTIVE_MS);
+      g.touchSeen('gc-friend', T);
+      const r1 = g.collectGarbage((id) => id === 'gc-kept', T);
+      assert(r1.removed.length === 1 && r1.removed[0] === 'gc-old' && g.getIfExists('gc-old') === undefined && g.peerByCode(oldCode) === undefined,
+        `gc: a profile unseen for more than ${PROFILE_GC_INACTIVE_MS / DAY} days is deleted and its 아이디 leaves the index`, r1);
+      assert(g.getIfExists('gc-fresh') !== undefined && g.getIfExists('gc-kept') !== undefined,
+        'gc: a profile inside the window stays, and keep() protects an older one (connected / lobby member)');
+      assert(!(g.social('gc-friend')?.friends ?? []).includes(oldCode) && !(g.social('gc-fresh')?.recent ?? []).some((r) => r.code === oldCode)
+        && !(g.social('gc-kept')?.outgoing ?? []).includes(oldCode) && g.social('gc-kept')?.requestsAt === undefined
+        && r1.danglingRefs === 3 && ['gc-friend', 'gc-fresh', 'gc-kept'].every((id) => r1.changed.includes(id)),
+        'gc: the deleted 아이디 is dropped from friends / recent / outgoing (+ its request stamp) and the owners are reported', r1);
+      const again = g.ensureSocial('gc-old', 'gc-old');
+      assert(again.code === oldCode && again.friends.length === 0 && !(g.social('gc-friend')?.friends ?? []).includes(oldCode),
+        'gc: the same token coming back starts a new profile (same derived 아이디, no stale friendship)', again);
+      const r1b = g.collectGarbage((id) => id === 'gc-kept', T);
+      assert(r1b.removed.length === 0 && r1b.changed.length === 0 && r1b.danglingRefs === 0,
+        'gc: a second pass at the same time changes nothing (idempotent)', r1b);
+      assert(!('seenAt' in g.snapshot('gc-friend')), 'gc: seenAt is server-internal (not in the wire snapshot)');
+      g.close();
+
+      /* expiry: requests (both halves at once) and 최근 만난 플레이어 */
+      const e = new ProfileStore({ dataDir: null, quiet: true });
+      for (const id of ['ex-a', 'ex-b', 'ex-c']) { e.ensureSocial(id, id); e.touchSeen(id, T); }
+      e.addFriendRequest('ex-a', 'ex-b');
+      const reqAt = e.social('ex-a')?.requestsAt?.[e.social('ex-b')!.code];
+      assert(typeof reqAt === 'number' && reqAt === e.social('ex-b')?.requestsAt?.[e.social('ex-a')!.code],
+        'a friend request is stamped with the same time on both records', { a: e.social('ex-a')?.requestsAt, b: e.social('ex-b')?.requestsAt });
+      e.recordMet('ex-a', 'ex-c', T - DAY);
+      e.recordMet('ex-b', 'ex-c', T + 10 * DAY);
+      const r2 = e.collectGarbage(() => false, T + SOCIAL_REQUEST_TTL_MS + 2 * DAY);
+      assert(r2.removed.length === 0 && e.social('ex-a')?.outgoing.length === 0 && e.social('ex-b')?.incoming.length === 0
+        && e.social('ex-a')?.requestsAt === undefined && r2.expiredRequests === 2,
+        `gc: a request unanswered for more than ${SOCIAL_REQUEST_TTL_MS / DAY} days is withdrawn on both sides`, r2);
+      assert(r2.expiredRecent === 2 && !(e.social('ex-a')?.recent ?? []).length
+        && (e.social('ex-c')?.recent ?? []).length === 1 && e.social('ex-c')?.recent[0].code === e.social('ex-b')?.code,
+        `gc: 최근 만난 플레이어 older than ${SOCIAL_RECENT_TTL_MS / DAY} days go (both sides), newer ones stay`, { r2, c: e.social('ex-c')?.recent });
+      e.addFriendRequest('ex-b', 'ex-a');
+      e.respondFriendRequest('ex-a', 'ex-b', true);
+      assert(e.social('ex-a')?.requestsAt?.[e.social('ex-b')!.code] === undefined && e.social('ex-b')?.requestsAt?.[e.social('ex-a')!.code] === undefined,
+        'answering a request removes its stamp on both records');
+      e.close();
+
+      /* legacy records (no seenAt / requestsAt) + file round trip */
+      const dirG = mkdtempSync(join(tmpdir(), 'scav-gc-'));
+      try {
+        const legacy = (code: string, at: number, incoming: string[] = []) => ({
+          credits: 0, docs: { meta: {} }, updatedAt: at,
+          social: { code, salt: 0, name: code, level: 1, friends: [], incoming, outgoing: [], recent: [], updatedAt: at },
+        });
+        writeFileSync(join(dirG, PROFILE_FILE), JSON.stringify({ v: 1, profiles: {
+          'lg-gone': legacy('GGGGNNNN', T - PROFILE_GC_INACTIVE_MS - DAY),
+          'lg-idle': legacy('DDDDLLLL', T - 10 * DAY, ['GGGGNNNN']),
+          'lg-future': { ...legacy('FUTUREAA', T), seenAt: T + 365 * DAY },
+        } }), 'utf8');
+        const l1 = new ProfileStore({ dataDir: dirG, saveDebounceMs: 5, quiet: true });
+        const stamped = l1.social('lg-idle')?.requestsAt?.GGGGNNNN;
+        assert(typeof stamped === 'number' && stamped >= T && stamped <= Date.now(),
+          'a legacy pending request is stamped when the store loads it (expires 30 days after the upgrade, not at once)', l1.social('lg-idle'));
+        assert((l1.getIfExists('lg-future')?.seenAt ?? Infinity) <= Date.now(), 'a stored seenAt ahead of the server clock is clamped to it on load');
+        const r3 = l1.collectGarbage(() => false, T);
+        assert(r3.removed.length === 1 && r3.removed[0] === 'lg-gone' && l1.getIfExists('lg-idle')?.seenAt === T - 10 * DAY
+          && (l1.social('lg-idle')?.incoming.length ?? -1) === 0,
+          'gc: a legacy record is judged by its newest write, and a survivor gets that as its seenAt', { r3, idle: l1.getIfExists('lg-idle') });
+        /* a request *to* an abandoned profile bumps its social.updatedAt — that must not keep it alive */
+        l1.addFriendRequest('lg-future', 'lg-idle');
+        const r4 = l1.collectGarbage(() => false, T + PROFILE_GC_INACTIVE_MS - 5 * DAY);
+        assert(r4.removed.includes('lg-idle') && l1.social('lg-future')?.outgoing.length === 0,
+          'gc: someone else touching a profile (a friend request) does not reset its inactivity clock', r4);
+        l1.close();
+        const l2 = new ProfileStore({ dataDir: dirG, quiet: true });
+        assert(l2.getIfExists('lg-gone') === undefined && l2.getIfExists('lg-idle') === undefined
+          && typeof l2.getIfExists('lg-future')?.seenAt === 'number' && l2.peerByCode('FUTUREAA') === 'lg-future',
+          'gc results and seenAt round-trip through profiles.json', { future: l2.getIfExists('lg-future') });
+        l2.close();
+      } finally {
+        rmSync(dirG, { recursive: true, force: true });
+      }
+
+      /* relay level: connected sockets and lobby members are never collected; online friends are re-pushed */
+      const gs = await startRelayServer({ port: 0, host: '127.0.0.1', quiet: true, heartbeatMs: 1_000, reconnectGraceMs: 5_000, dataDir: null, profileGcIntervalMs: null });
+      const gurl = `ws://127.0.0.1:${gs.port}${NET_WS_PATH}`;
+      try {
+        const { c: ga, welcome: wga } = await connect('GA', gurl, { token: makeToken('g'), name: 'GcA' });
+        const { c: gb, welcome: wgb } = await connect('GB', gurl, { token: makeToken('h'), name: 'GcB' });
+        const { c: gc } = await connect('GC', gurl, { token: makeToken('i'), name: 'GcC' });
+        const codeGA = wga.social!.me.code;
+        ga.send({ t: 'social:request', code: wgb.social!.me.code });
+        await gb.wait('social:state', (mm) => mm.social.incoming.length === 1);
+        gb.send({ t: 'social:respond', code: codeGA, accept: true });
+        await ga.wait('social:state', (mm) => mm.social.friends.length === 1);
+        gc.send({ t: 'lobby:create', name: 'GcC' });
+        await gc.wait('lobby:state');
+        gb.close(); gc.close();
+        await Promise.all([gb.closed(), gc.closed()]);
+        for (let i = 0; i < 40 && gs.clientCount() > 1; i++) await sleep(25);
+        await ga.wait('social:state', (mm) => mm.social.friends[0]?.presence === 'offline');
+        assert(typeof gs.store.getIfExists(gb.id)?.seenAt === 'number' && (gs.store.getIfExists(gb.id)?.seenAt ?? 0) >= T,
+          'relay: a disconnect stamps seenAt on the profile');
+        const r5 = gs.collectGarbage(Date.now() + PROFILE_GC_INACTIVE_MS + DAY);
+        assert(r5.removed.length === 1 && r5.removed[0] === gb.id && gs.store.getIfExists(ga.id) !== undefined && gs.store.getIfExists(gc.id) !== undefined,
+          'relay gc: the offline profile goes; the connected socket and the lobby member inside its grace stay', { removed: r5.removed, a: ga.id, c: gc.id });
+        const pushed = await ga.wait('social:state', (mm) => mm.social.friends.length === 0);
+        assert(pushed.social.friends.length === 0, 'relay gc: an online friend of a deleted profile is pushed a fresh snapshot at once');
+        ga.close();
+        await ga.closed();
+      } finally {
+        await gs.close();
+      }
     }
 
     /* cleanup */

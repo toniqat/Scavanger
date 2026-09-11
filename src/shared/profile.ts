@@ -114,3 +114,20 @@ export interface ProfileRecord {
    */
   social?: SocialRecord;
 }
+
+/* ══ appended: 2026-09-11 — 프로필 GC (B-2) ═══════════════════════════════════════════════════════════════════ */
+
+export interface ProfileRecord {
+  /**
+   * Server time (ms) of the owner's last connect or disconnect. **Server-internal** — `ProfileStore.snapshot()` does not
+   * copy it, so it never reaches a client. Absent on records written before 2026-09-11: the GC then reads
+   * `max(updatedAt, social.updatedAt)` instead (every real session writes a document, so that is close enough).
+   */
+  seenAt?: number;
+}
+/**
+ * The relay deletes a profile whose owner has not connected for this long (credits, documents, 아이디 and all) and
+ * drops its 아이디 from everyone's friends / requests / 최근 만난 플레이어. A connected socket or a lobby member (even
+ * one inside its reconnect grace) is never collected. Server-read, so a TS literal like the other relay timings.
+ */
+export const PROFILE_GC_INACTIVE_MS = 90 * 24 * 60 * 60_000;

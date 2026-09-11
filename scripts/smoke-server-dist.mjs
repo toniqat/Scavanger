@@ -107,6 +107,8 @@ const dial = (onWelcome) => new Promise((resolve) => {
   ws.onerror = () => { /* onclose follows */ };
 });
 ok(/kick <아이디>/.test(await typed('help', /max <인원>/)), 'help 가 명령 목록을 찍는다');
+/* 2026-09-11 (B-2): 새로 켠 저장소라 지울 것이 없다 — 명령이 번들 안에서 돌고 결과 줄을 찍는지만 본다. */
+ok(/프로필 정리: 삭제 0개/.test(await typed('gc', /프로필 정리/)), 'gc 가 프로필 정리 결과를 찍는다');
 ok(/접속 인원 제한: 1명/.test(await typed('max 1', /접속 인원 제한/)), 'max 1 이 먹는다');
 let firstId = '';
 const firstSocket = dial((m) => { firstId = m.id; });

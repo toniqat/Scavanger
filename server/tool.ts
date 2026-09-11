@@ -54,6 +54,7 @@ const HELP = [
   '  lobbies           열린 함선(로비)과 대원 — 끊겨서 재접속을 기다리는 대원도 보인다',
   '  kick <아이디> [사유]  연결을 끊고 함선 슬롯을 곧바로 비운다 (재접속 유예 없음, 밴 아님)',
   '  max <인원>         새 접속 인원 제한 (0 · off = 무제한). 재접속 중인 대원은 막지 않는다',
+  '  gc                프로필 정리를 지금 한 번 — 90일 안 온 프로필 삭제, 30일 지난 최근 목록 · 친구 요청 만료 (6시간마다 자동)',
   '  help              이 목록',
 ].join('\n');
 
@@ -127,6 +128,11 @@ function runConsoleCommand(server: RelayServer, input: string): string {
       const now = server.clientCount();
       const over = !off && now > n ? ` — 이미 접속한 ${now}명은 그대로 두고, 새 접속만 막습니다` : '';
       return `접속 인원 제한: ${off ? '무제한' : `${n}명`}${over}`;
+    }
+    case 'gc': {
+      const r = server.collectGarbage();
+      return `프로필 정리: 삭제 ${r.removed.length}개 · 사라진 아이디 ${r.danglingRefs}줄 · 오래된 최근 목록 ${r.expiredRecent}줄 · `
+        + `오래된 친구 요청 ${r.expiredRequests}줄 (남은 프로필 ${server.store.size}개)`;
     }
     default:
       return `모르는 명령입니다: ${cmd}   (help)`;
@@ -204,7 +210,7 @@ async function main(): Promise<void> {
   console.log('  처음 켜면 Windows 방화벽 창이 뜹니다 — 허용해야 다른 PC 가 붙습니다.');
   console.log('  인터넷(외부)에서 붙게 하려면 공유기에서 이 포트를 포워딩하세요.');
   console.log('  이 창을 닫거나 Ctrl+C 를 누르면 서버가 꺼집니다.');
-  console.log('  명령: list · lobbies · kick <아이디> · max <인원> · help');
+  console.log('  명령: list · lobbies · kick <아이디> · max <인원> · gc · help');
   console.log(`${line}\n`);
 
   /* 조용한 서버는 조용하게: 숫자가 바뀔 때만 한 줄. `/health` 와 같은 값을 본다. */

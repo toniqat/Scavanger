@@ -31,7 +31,10 @@ import {
   SOCIAL_ERROR_MESSAGE_KO, SOCIAL_WHISPER_MAX, normalizePlayerCode, playBlockReason,
 } from '../src/shared/social.ts';
 import { Lobby, LobbyManager, LOBBY_ERROR_MESSAGE_KO } from './Lobby.ts';
-import { ProfileStore, SOCIAL_LEVEL_MAX, docBytes, isProfileDocKey, type ProfileStoreOptions } from './Store.ts';
+import {
+  PROFILE_GC_INTERVAL_MS, ProfileStore, SOCIAL_LEVEL_MAX, docBytes, isProfileDocKey,
+  type ProfileGcReport, type ProfileStoreOptions,
+} from './Store.ts';
 
 /** Cap for ordinary frames (lobby ops, relayed game messages). */
 export const MAX_MESSAGE_BYTES = 64 * 1024;
@@ -104,6 +107,11 @@ export interface RelayServerOptions {
   profileSaveDebounceMs?: number;
   /** 2026-09-11 (C-29): connection cap (`null` / ≤ 0 = unlimited, the default). Changeable later with `setMaxClients`. */
   maxClients?: number | null;
+  /**
+   * 2026-09-11 (B-2): period of the profile GC (`collectGarbage`), default `PROFILE_GC_INTERVAL_MS`. It always runs once
+   * at startup; `null` / ≤ 0 turns the periodic run off (a manual `collectGarbage()` still works).
+   */
+  profileGcIntervalMs?: number | null;
 }
 
 export interface RelayServer {
@@ -131,6 +139,12 @@ export interface RelayServer {
    */
   setMaxClients(n: number | null): void;
   readonly maxClients: number | null;
+  /**
+   * 2026-09-11 (B-2): one profile GC pass now (`ProfileStore.collectGarbage`) — a connected socket or a lobby member is
+   * never collected. Connected players whose social lists changed get a fresh `social:state` and rebuilt watches.
+   * `now` is for the selftest.
+   */
+  collectGarbage(now?: number): ProfileGcReport;
 }
 
 function randomPeerId(): PeerId {
@@ -1043,7 +1057,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
     const lobby = lobbies.lobbyOf(id);
     const profile = c.hasProfile ? store.snapshot(id) : undefined;
     /* Phase 11: a token connection gets (or is given) an 아이디 and its social snapshot; anonymous gets neither. */
-    if (c.hasProfile) store.ensureSocial(id, c.name);
+    if (c.hasProfile) { store.ensureSocial(id, c.name); store.touchSeen(id); }
     if (lobby) {
       const wasDown = clearGrace(id) || !(lobby.get(id)?.connected ?? true);
       lobby.setConnected(id, true);
@@ -1108,6 +1122,7 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
       // A replaced (duplicate) socket closing must not touch the lobby membership of the live one.
       if (clients.get(c.id) !== c) { log(`closed replaced socket ${c.id}`); return; }
       clients.delete(c.id);
+      if (c.hasProfile) store.touchSeen(c.id);   // B-2: the GC counts inactivity from the last time the owner was here
       try { suspendInLobby(c); } catch (e) { log(`cleanup error ${c.id}: ${(e as Error).message}`); }
       /* Phase 11: the socket is gone → presence `offline` for everyone watching, and its own watches are dropped. */
       try { notifyWatchers(c.id); unwatchAll(c.id); } catch (e) { log(`social cleanup error ${c.id}: ${(e as Error).message}`); }
@@ -1181,6 +1196,26 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
     log(`max clients → ${maxClients ?? 'unlimited'} (${clients.size} connected)`);
   };
 
+  /* ── 2026-09-11 (B-2): profile GC ─────────────────────────────────────── */
+  const collectGarbage = (now: number = Date.now()): ProfileGcReport => {
+    const report = store.collectGarbage((id) => clients.has(id) || lobbies.lobbyOf(id) !== undefined, now);
+    // A friend that vanished must also leave the watch index and the open ESC screen of whoever is online right now.
+    for (const id of report.changed) {
+      if (!clients.has(id)) continue;
+      rewatch(id);
+      pushSocial(id);
+    }
+    if (report.removed.length + report.danglingRefs + report.expiredRecent + report.expiredRequests > 0) {
+      log(`profile gc: removed ${report.removed.length} inactive profiles, dropped ${report.danglingRefs} dangling / `
+        + `${report.expiredRecent} old recent / ${report.expiredRequests} old request entries (${store.size} profiles left)`);
+    }
+    return report;
+  };
+  collectGarbage();
+  const gcEvery = opts.profileGcIntervalMs === undefined ? PROFILE_GC_INTERVAL_MS : opts.profileGcIntervalMs;
+  const gcTimer = typeof gcEvery === 'number' && gcEvery > 0 ? setInterval(() => collectGarbage(), gcEvery) : null;
+  gcTimer?.unref();
+
   return new Promise<RelayServer>((resolve, reject) => {
     http.once('error', reject);
     http.listen(port, host, () => {
@@ -1198,8 +1233,10 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         kick,
         setMaxClients,
         get maxClients() { return maxClients; },
+        collectGarbage,
         close: () => new Promise<void>((done) => {
           clearInterval(heartbeat);
+          if (gcTimer) clearInterval(gcTimer);
           for (const t of graceTimers.values()) clearTimeout(t);
           graceTimers.clear();
           for (const t of migrateTimers.values()) clearTimeout(t);

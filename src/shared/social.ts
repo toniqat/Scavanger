@@ -240,6 +240,22 @@ export interface SocialRecord {
   updatedAt: number;
 }
 
+/* ── appended (2026-09-11, B-2): 소셜 레코드 만료 ── */
+
+export interface SocialRecord {
+  /**
+   * When each pending friend request was made (`PlayerCode` → server epoch ms), for both `incoming` and `outgoing` —
+   * a code can never sit in both (`addFriendRequest` refuses `already`). Written by `addFriendRequest` on both records
+   * with the same stamp. A request without a stamp (made before 2026-09-11) is stamped when the store loads it, so it
+   * expires `SOCIAL_REQUEST_TTL_MS` after the upgrade rather than at once.
+   */
+  requestsAt?: Record<PlayerCode, number>;
+}
+/** A 최근 만난 플레이어 entry older than this is dropped by the relay's GC. */
+export const SOCIAL_RECENT_TTL_MS = 30 * 24 * 60 * 60_000;
+/** A friend request nobody answered for this long is withdrawn on both sides by the relay's GC. */
+export const SOCIAL_REQUEST_TTL_MS = 30 * 24 * 60 * 60_000;
+
 /* ── `ctx.net.social` (owner: net/SocialSync.ts) ──────────────────────────── */
 
 /**

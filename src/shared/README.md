@@ -638,6 +638,10 @@ Plan: `docs/DECISIONS.md`. Everything below is append-only; owners in brackets.
 
 ## 변경 이력
 
+- **2026-09-11 (B-2 프로필 GC, 추가만)** — `profile.ts`: `ProfileRecord.seenAt?`(서버 내부 — 접속 · 해제 시각, 와이어 스냅샷에는
+  없다) + `PROFILE_GC_INACTIVE_MS`(90일). `social.ts`: `SocialRecord.requestsAt?`(대기 중인 친구 요청마다 서버 시각, 양쪽에 같은 값) +
+  `SOCIAL_RECENT_TTL_MS` · `SOCIAL_REQUEST_TTL_MS`(30일). 셋 다 릴레이가 읽는 수치라 csv 가 아니라 TS 리터럴이다
+  (`NET_RECONNECT_GRACE_MS` 와 같은 처리 — Node 타입 스트리핑은 `import.meta.glob` 이 없다). 규칙은 `server/Store.collectGarbage`.
 - **2026-09-11 (추가만)** — `Obstacle.hull / ramp / fragile` + `ObstacleHull(Band)`, `LadderDef` · `WorldRef.getLadders` ·
   `PlayerRef.climbingLadder?`, 이벤트 `ladder:grab` · `player:climbChanged` · `structure:glassBroken`, `PlayerFlags.CLIMBING`,
   `StructureMessage` 에 `glass` + `sync.glass?`, `CrateMessage.ev` 에 `sync` · `syncq` + `ids?`, 상수 `STRUCTURE_POINT_LIGHTS` ·

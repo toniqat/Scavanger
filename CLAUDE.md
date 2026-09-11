@@ -154,7 +154,7 @@ start-server.bat relay   # 릴레이만 (npm run server, 0.0.0.0:8787) — 데�
 | 폴더 | 시스템 | `ctx` 게시 | 한 줄 책임 |
 |---|---|---|---|
 | [`src/net/`](src/net/README.md) | `NetSystem` | `ctx.net` | 릴레이 WebSocket 클라이언트 · 세션 토큰 · 로비 · 20 Hz 스냅샷 · 프로필 동기화 · 소셜 · 크루 카드 · **함선 배치(`ship state`)** · **분대장 지명 이관** · `PlayerFlags.TYPING`(채팅 입력 중) · **접속할 서버 주소(`설정 › 서버 설정` → `defaultUrl`) · 익명 연결 테스트** · **`kicked` · `server_full` 을 받으면 재접속을 멈춘다** |
-| [`server/`](server/README.md) | (Node) | — | `ws` 릴레이 — 로비 · 5분 재접속 유예 · 호스트 이관(**자동 + 지명 `lobby:transferHost`**) · 프로필/레이드/소셜 저장소 · `selftest.ts` · **배포용 엔트리 `tool.ts`(단독 exe → `npm run server:dist`)** · **콘솔 `list` · `lobbies` · `kick` · `max` · `help`** · **저장소 비동기 쓰기 + fsync + `.bak` 세대 · 손상 파일 보존 · 복구 · `--data`/`SCAV_DATA_DIR`** |
+| [`server/`](server/README.md) | (Node) | — | `ws` 릴레이 — 로비 · 5분 재접속 유예 · 호스트 이관(**자동 + 지명 `lobby:transferHost`**) · 프로필/레이드/소셜 저장소 · `selftest.ts` · **배포용 엔트리 `tool.ts`(단독 exe → `npm run server:dist`)** · **콘솔 `list` · `lobbies` · `kick` · `max` · `gc` · `help`** · **저장소 비동기 쓰기 + fsync + `.bak` 세대 · 손상 파일 보존 · 복구 · `--data`/`SCAV_DATA_DIR`** · **프로필 GC(90일 안 온 프로필 삭제 · 접속자/로비 멤버 보호 · 최근 목록 · 친구 요청 30일 만료 — 시작 시 + 6시간마다)** |
 | [`electron/`](electron/README.md) | (Electron main) | — | 데스크톱 스탠드얼론 셸 — 같은 프로세스에 릴레이 + `dist/` 를 로컬 http 로 서빙(**창 포트 8790 고정 = 세이브 오리진**), `src/`·`server/` 무변경 · **배포 폴더 = `app/` + stub 런처(`launcher.cs`) + `server.txt`** · 아이콘 · **임베디드 릴레이는 첫 `/ws` 접속 때 켜진다(`--lan`/`--port` 면 즉시)** |
 
 ---
